@@ -605,7 +605,7 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 	struct inode		*inode	= filp->f_dentry->d_inode;
 	struct ll_file_data	*lfd	= LUSTRE_FPRIVATE(filp);
 	struct ll_sb_info	*sbi	= ll_i2sbi(inode);
-	__u64			pos	= lfd->lfd_pos;
+	__u64			pos;
 	int			hash64	= sbi->ll_flags & LL_SBI_64BIT_HASH;
 	int			api32	= ll_need_32bit_api(sbi);
 	int			rc;
@@ -613,6 +613,11 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 	struct path		path;
 #endif
 	ENTRY;
+
+	if (lfd != NULL)
+		pos = lfd->lfd_pos;
+	else
+		pos = 0;
 
 	CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p) pos %lu/%llu "
 	       " 32bit_api %d\n", inode->i_ino, inode->i_generation,
@@ -625,7 +630,8 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 		GOTO(out, rc = 0);
 
 	rc = ll_dir_read(inode, &pos, cookie, filldir);
-	lfd->lfd_pos = pos;
+	if (lfd != NULL)
+		lfd->lfd_pos = pos;
         if (pos == MDS_DIR_END_OFF) {
                 if (api32)
                         filp->f_pos = LL_DIR_END_OFF_32BIT;
@@ -1439,8 +1445,7 @@ free_lmv:
 
 		rc = ll_rmdir_entry(inode, filename, namelen);
 out_rmdir:
-                if (filename)
-                        putname(filename);
+		putname(filename);
 		RETURN(rc);
 	}
 	case LL_IOC_LOV_SWAP_LAYOUTS:

@@ -659,7 +659,11 @@ int lustre_put_lsi(struct super_block *sb)
  */
 int server_name2fsname(const char *svname, char *fsname, const char **endptr)
 {
-	const char *dash = strrchr(svname, '-');
+	const char *dash;
+
+	LASSERT(svname != NULL);
+
+	dash = strrchr(svname, '-');
 	if (!dash) {
 		dash = strrchr(svname, ':');
 		if (!dash)

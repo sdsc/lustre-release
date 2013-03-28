@@ -1089,6 +1089,7 @@ static inline struct mdt_device *lu2mdt_dev(struct lu_device *d)
 
 static inline char *mdt_obd_name(struct mdt_device *mdt)
 {
+	LASSERT(mdt != NULL);
 	return mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name;
 }
 

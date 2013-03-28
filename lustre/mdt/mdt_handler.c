@@ -502,6 +502,7 @@ int mdt_attr_get_lov(struct mdt_thread_info *info,
 			ma->ma_lmm_size = rc;
 			/* update mdt_max_mdsize so all clients
 			 * will be aware about that */
+			LASSERT(info->mti_mdt != NULL);
 			if (info->mti_mdt->mdt_max_mdsize < rc)
 				info->mti_mdt->mdt_max_mdsize = rc;
 			rc = 0;
@@ -725,6 +726,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                 RETURN(rc);
         }
 
+	LASSERT(info->mti_mdt != NULL);
 	is_root = lu_fid_eq(mdt_object_fid(o), &info->mti_mdt->mdt_md_root_fid);
 
 	/* the Lustre protocol supposes to return default striping
@@ -936,6 +938,7 @@ int mdt_getattr(struct mdt_thread_info *info)
 
         mode = lu_object_attr(&obj->mot_obj.mo_lu);
 
+	LASSERT(info->mti_mdt != NULL);
         /* old clients may not report needed easize, use max value then */
         req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
                              reqbody->eadatasize == 0 ?
@@ -1034,6 +1037,7 @@ int mdt_swap_layouts(struct mdt_thread_info *info)
 				 req_capsule_client_get(info->mti_pill,
 							&RMF_CAPA2));
 
+	LASSERT(info->mti_mdt != NULL);
 	o1 = info->mti_object;
 	o = o2 = mdt_object_find(info->mti_env, info->mti_mdt,
 				&info->mti_body->fid2);
@@ -1297,6 +1301,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
          *step 3: find the child object by fid & lock it.
          *        regardless if it is local or remote.
          */
+	LASSERT(info->mti_mdt != NULL);
         child = mdt_object_find(info->mti_env, info->mti_mdt, child_fid);
 
         if (unlikely(IS_ERR(child)))
@@ -1872,8 +1877,10 @@ int mdt_sync(struct mdt_thread_info *info)
         if (fid_seq(&body->fid1) == 0) {
                 /* sync the whole device */
                 rc = req_capsule_server_pack(pill);
-                if (rc == 0)
-                        rc = mdt_device_sync(info->mti_env, info->mti_mdt);
+		if (rc == 0) {
+			LASSERT(info->mti_mdt != NULL);
+			rc = mdt_device_sync(info->mti_env, info->mti_mdt);
+		}
                 else
                         rc = err_serious(rc);
         } else {
@@ -2112,6 +2119,7 @@ int mdt_obd_idx_read(struct mdt_thread_info *info)
 	}
 
 	/* populate pages with key/record pairs */
+	LASSERT(mdt != NULL);
 	rc = dt_index_read(info->mti_env, mdt->mdt_bottom, rep_ii, rdpg);
 	if (rc < 0)
 		GOTO(out, rc);
@@ -2955,7 +2963,8 @@ static int mdt_req_handle(struct mdt_thread_info *info,
                                  */
                                 rc = -EPROTO;
                         } else {
-                                if (info->mti_mdt->mdt_opts.mo_compat_resname)
+				if (info->mti_mdt &&
+				    info->mti_mdt->mdt_opts.mo_compat_resname)
                                         rc = mdt_lock_resname_compat(
                                                                 info->mti_mdt,
                                                                 dlm_req);
@@ -3004,7 +3013,7 @@ static int mdt_req_handle(struct mdt_thread_info *info,
 
         LASSERT(current->journal_info == NULL);
 
-        if (rc == 0 && (flags & HABEO_CLAVIS) &&
+	if (rc == 0 && (flags & HABEO_CLAVIS) && info->mti_mdt &&
             info->mti_mdt->mdt_opts.mo_compat_resname) {
                 struct ldlm_reply *dlmrep;
 
@@ -3363,12 +3372,12 @@ int mdt_handle_common(struct ptlrpc_request *req,
         ENTRY;
 
         env = req->rq_svc_thread->t_env;
+	LASSERT(env != NULL);
 	/* Refill(initilize) the context(mdt_thread_info), in case it is
 	 * not initialized yet. Usually it happens during start up, after
 	 * MDS(ptlrpc threads) is start up, it gets the first CONNECT request,
 	 * before MDT_thread_info is initialized */
 	lu_env_refill(env);
-        LASSERT(env != NULL);
         LASSERT(env->le_ses != NULL);
         LASSERT(env->le_ctx.lc_thread == req->rq_svc_thread);
         info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
@@ -5271,7 +5280,7 @@ static int mdt_obd_connect(const struct lu_env *env,
 	 * XXX: probably not very appropriate method is used now
 	 *      at some point we should find a better one
 	 */
-	if (!test_bit(MDT_FL_SYNCED, &mdt->mdt_state) &&
+	if (!test_bit(MDT_FL_SYNCED, &mdt->mdt_state) && data != NULL &&
 	    !(data->ocd_connect_flags & OBD_CONNECT_LIGHTWEIGHT)) {
 		rc = obd_health_check(env, mdt->mdt_child_exp->exp_obd);
 		if (rc)
@@ -5541,18 +5550,25 @@ static int mdt_links_read(struct mdt_thread_info *info,
 static int mdt_path_current(struct mdt_thread_info *info,
 			    struct path_lookup_info *pli)
 {
-	struct mdt_device	*mdt = info->mti_mdt;
+	struct mdt_device	*mdt;
 	struct mdt_object	*mdt_obj;
 	struct link_ea_header	*leh;
 	struct link_ea_entry	*lee;
-	struct lu_name		*tmpname = &info->mti_name;
-	struct lu_fid		*tmpfid = &info->mti_tmp_fid1;
-	struct lu_buf		*buf = &info->mti_big_buf;
+	struct lu_name		*tmpname;
+	struct lu_fid		*tmpfid;
+	struct lu_buf		*buf;
 	char			*ptr;
 	int			reclen;
 	struct linkea_data	ldata = { 0 };
 	int			rc = 0;
 	ENTRY;
+
+	LASSERT(info != NULL);
+	mdt = info->mti_mdt;
+	LASSERT(mdt != NULL);
+	tmpname = &info->mti_name;
+	tmpfid = &info->mti_tmp_fid1;
+	buf = &info->mti_big_buf;
 
 	/* temp buffer for path element, the buffer will be finally freed
 	 * in mdt_thread_info_fini */
@@ -5635,11 +5651,15 @@ static int mdt_path(struct mdt_thread_info *info, struct mdt_object *obj,
 		    char *path, int pathlen, __u64 *recno, int *linkno,
 		    struct lu_fid *fid)
 {
-	struct mdt_device	*mdt = info->mti_mdt;
+	struct mdt_device	*mdt;
 	struct path_lookup_info	*pli;
 	int			tries = 3;
 	int			rc = -EAGAIN;
 	ENTRY;
+
+	LASSERT(info != NULL);
+	mdt = info->mti_mdt;
+	LASSERT(mdt != NULL);
 
 	if (pathlen < 3)
 		RETURN(-EOVERFLOW);
