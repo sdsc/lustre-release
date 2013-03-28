@@ -205,3 +205,13 @@ int class_procfs_clean(void)
 {
 	return 0;
 }
+
+int class_dynlock_init(void)
+{
+	return 0;
+}
+
+int class_dynlock_clean(void)
+{
+	return 0;
+}
