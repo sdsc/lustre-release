@@ -1219,11 +1219,11 @@ static struct out_opc_slice out_handlers[] = {
  */
 int out_handle(struct out_thread_info *info)
 {
-	struct thandle_exec_args	*th = &info->mti_handle;
-	struct req_capsule		*pill = info->mti_pill;
-	struct mdt_device		*mdt = info->mti_mdt;
-	struct dt_device		*dt = mdt->mdt_bottom;
-	const struct lu_env		*env = info->mti_env;
+	struct thandle_exec_args	*th;
+	struct req_capsule		*pill;
+	struct mdt_device		*mdt;
+	struct dt_device		*dt;
+	const struct lu_env		*env;
 	struct update_buf		*ubuf;
 	struct update			*update;
 	struct update_reply		*update_reply;
@@ -1235,6 +1235,14 @@ int out_handle(struct out_thread_info *info)
 	int				rc = 0;
 	int				rc1 = 0;
 	ENTRY;
+
+	LASSERT(info != NULL);
+	th = &info->mti_handle;
+	pill = info->mti_pill;
+	mdt = info->mti_mdt;
+	LASSERT(mdt != NULL);
+	dt = mdt->mdt_bottom;
+	env = info->mti_env;
 
 	req_capsule_set(pill, &RQF_UPDATE_OBJ);
 	bufsize = req_capsule_get_size(pill, &RMF_UPDATE, RCL_CLIENT);

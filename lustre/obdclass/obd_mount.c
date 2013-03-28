@@ -832,7 +832,11 @@ static int server_mgc_clear_fs(struct obd_device *mgc)
  */
 int server_name2fsname(char *svname, char *fsname, char **endptr)
 {
-	char *dash = strrchr(svname, '-');
+	char *dash;
+
+	LASSERT(svname != NULL);
+
+	dash = strrchr(svname, '-');
 	if (!dash) {
 		dash = strrchr(svname, ':');
 		if (!dash)
