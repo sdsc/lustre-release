@@ -586,8 +586,8 @@ sfw_load_test(struct sfw_test_instance *tsi)
 
 	LASSERT(tsi != NULL);
 	tsc = sfw_find_test_case(tsi->tsi_service);
-	nbuf = sfw_test_buffers(tsi);
 	LASSERT(tsc != NULL);
+	nbuf = sfw_test_buffers(tsi);
 	svc = tsc->tsc_srv_service;
 
 	if (tsi->tsi_is_client) {
