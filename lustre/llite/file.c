@@ -1993,10 +1993,10 @@ putgl:
 	/* update time if requested */
 	rc = rc1 = 0;
 	if (llss->ia2.ia_valid != 0)
-		rc = ll_setattr(file1->f_dentry, &llss->ia2);
+		rc = inode_setattr(llss->inode1, &llss->ia2);
 
 	if (llss->ia1.ia_valid != 0)
-		rc1 = ll_setattr(file2->f_dentry, &llss->ia1);
+		rc1 = inode_setattr(llss->inode2, &llss->ia1);
 
 free:
 	if (llss != NULL)
