@@ -1835,6 +1835,7 @@ test_27B() { # LU-2523
 }
 run_test 27B "call setstripe on open unlinked file/rename victim"
 
+#Let's see if test_27C fails with 1MDS2MDT
 test_27C() { #LU-2871
 	[ $OSTCOUNT -lt 2 ] && skip "needs >= 2 OSTs" && return
 
