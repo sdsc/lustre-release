@@ -1273,6 +1273,8 @@ int out_handle(struct out_thread_info *info)
 
 	/* Prepare the update reply buffer */
 	update_reply = req_capsule_server_get(pill, &RMF_UPDATE_REPLY);
+	if (update_reply == NULL)
+		RETURN(err_serious(-EPROTO));
 	update_init_reply_buf(update_reply, count);
 	info->mti_u.update.mti_update_reply = update_reply;
 
