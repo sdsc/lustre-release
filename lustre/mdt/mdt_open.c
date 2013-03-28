@@ -586,6 +586,7 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
 				info->mti_transno,
 				libcfs_nid2str(exp->exp_connection->c_peer.nid),
 				rc);
+			spin_unlock(&mdt->mdt_lut.lut_translock);
 			RETURN_EXIT;
 		}
 	} else if (info->mti_transno == 0) {
