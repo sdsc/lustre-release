@@ -314,6 +314,7 @@ static int osp_get_attr_from_req(const struct lu_env *env,
 
 	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
 					     UPDATE_BUFFER_SIZE);
+	LASSERT(reply != NULL);
 	if (reply->ur_version != UPDATE_REPLY_V1)
 		return -EPROTO;
 
@@ -669,8 +670,7 @@ out:
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
-	if (update != NULL)
-		osp_destroy_update_req(update);
+	osp_destroy_update_req(update);
 
 	RETURN(rc);
 }
@@ -804,8 +804,7 @@ out:
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
-	if (update != NULL)
-		osp_destroy_update_req(update);
+	osp_destroy_update_req(update);
 
 	RETURN(rc);
 }
@@ -1054,8 +1053,7 @@ out:
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
-	if (update != NULL)
-		osp_destroy_update_req(update);
+	osp_destroy_update_req(update);
 
 	RETURN(rc);
 }

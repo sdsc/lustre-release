@@ -2972,7 +2972,8 @@ static int mdt_req_handle(struct mdt_thread_info *info,
                                  */
                                 rc = -EPROTO;
                         } else {
-                                if (info->mti_mdt->mdt_opts.mo_compat_resname)
+				if (info->mti_mdt &&
+				    info->mti_mdt->mdt_opts.mo_compat_resname)
                                         rc = mdt_lock_resname_compat(
                                                                 info->mti_mdt,
                                                                 dlm_req);
@@ -3021,7 +3022,7 @@ static int mdt_req_handle(struct mdt_thread_info *info,
 
         LASSERT(current->journal_info == NULL);
 
-        if (rc == 0 && (flags & HABEO_CLAVIS) &&
+	if (rc == 0 && (flags & HABEO_CLAVIS) && info->mti_mdt &&
             info->mti_mdt->mdt_opts.mo_compat_resname) {
                 struct ldlm_reply *dlmrep;
 
@@ -3380,12 +3381,12 @@ int mdt_handle_common(struct ptlrpc_request *req,
         ENTRY;
 
         env = req->rq_svc_thread->t_env;
+	LASSERT(env != NULL);
 	/* Refill(initilize) the context(mdt_thread_info), in case it is
 	 * not initialized yet. Usually it happens during start up, after
 	 * MDS(ptlrpc threads) is start up, it gets the first CONNECT request,
 	 * before MDT_thread_info is initialized */
 	lu_env_refill(env);
-        LASSERT(env != NULL);
         LASSERT(env->le_ses != NULL);
         LASSERT(env->le_ctx.lc_thread == req->rq_svc_thread);
         info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
@@ -4736,6 +4737,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         m->mdt_md_dev.md_lu_dev.ld_obd = obd;
         /* set this lu_device to obd, because error handling need it */
         obd->obd_lu_dev = &m->mdt_md_dev.md_lu_dev;
+	LASSERT(mdt_dev(obd->obd_lu_dev) != NULL);
 
 	/* init the stack */
 	rc = mdt_stack_init((struct lu_env *)env, m, cfg);
@@ -5313,7 +5315,7 @@ static int mdt_obd_connect(const struct lu_env *env,
 	 * XXX: probably not very appropriate method is used now
 	 *      at some point we should find a better one
 	 */
-	if (!test_bit(MDT_FL_SYNCED, &mdt->mdt_state) &&
+	if (!test_bit(MDT_FL_SYNCED, &mdt->mdt_state) && data != NULL &&
 	    !(data->ocd_connect_flags & OBD_CONNECT_LIGHTWEIGHT)) {
 		rc = obd_health_check(env, mdt->mdt_child_exp->exp_obd);
 		if (rc)
@@ -5583,18 +5585,24 @@ static int mdt_links_read(struct mdt_thread_info *info,
 static int mdt_path_current(struct mdt_thread_info *info,
 			    struct path_lookup_info *pli)
 {
-	struct mdt_device	*mdt = info->mti_mdt;
+	struct mdt_device	*mdt;
 	struct mdt_object	*mdt_obj;
 	struct link_ea_header	*leh;
 	struct link_ea_entry	*lee;
-	struct lu_name		*tmpname = &info->mti_name;
-	struct lu_fid		*tmpfid = &info->mti_tmp_fid1;
-	struct lu_buf		*buf = &info->mti_big_buf;
+	struct lu_name		*tmpname;
+	struct lu_fid		*tmpfid;
+	struct lu_buf		*buf;
 	char			*ptr;
 	int			reclen;
 	struct linkea_data	ldata = { 0 };
 	int			rc = 0;
 	ENTRY;
+
+	LASSERT(info != NULL);
+	mdt = info->mti_mdt;
+	tmpname = &info->mti_name;
+	tmpfid = &info->mti_tmp_fid1;
+	buf = &info->mti_big_buf;
 
 	/* temp buffer for path element, the buffer will be finally freed
 	 * in mdt_thread_info_fini */
@@ -5677,11 +5685,14 @@ static int mdt_path(struct mdt_thread_info *info, struct mdt_object *obj,
 		    char *path, int pathlen, __u64 *recno, int *linkno,
 		    struct lu_fid *fid)
 {
-	struct mdt_device	*mdt = info->mti_mdt;
+	struct mdt_device	*mdt;
 	struct path_lookup_info	*pli;
 	int			tries = 3;
 	int			rc = -EAGAIN;
 	ENTRY;
+
+	LASSERT(info != NULL);
+	mdt = info->mti_mdt;
 
 	if (pathlen < 3)
 		RETURN(-EOVERFLOW);
