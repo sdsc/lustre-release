@@ -620,6 +620,22 @@ int main(int argc, char *const argv[])
 					argv[0], mop.mo_source);
 	}
 
+	if (!mop.mo_nomtab && strstr(options, PARAM_FAILNODE) != NULL) {
+		/* Multiple mount protection feature is enabled.
+		 * Change label from <fsname>:<index> to <fsname>-<index>
+		 * to indicate the device has been registered,
+		 * only if the label is supposed to be changed and
+		 * target service is supposed to start.
+		 * The changing label operation needs to be done before
+		 * mount because label can not be changed after mounting
+		 * with MMP feature enabled. If mount fails, the label
+		 * will be changed back. */
+		if (mop.mo_ldd.ldd_flags & (LDD_F_VIRGIN | LDD_F_WRITECONF)) {
+			if (mop.mo_nosvc == 0)
+				(void) osd_label_lustre(&mop);
+		}
+	}
+
 	if (!mop.mo_fake) {
                 /* flags and target get to lustre_get_sb, but not
                    lustre_fill_super.  Lustre ignores the flags, but mount
@@ -710,19 +726,45 @@ int main(int argc, char *const argv[])
                                 rc = WEXITSTATUS(ret);
                 }
 
+		if (!mop.mo_nomtab && strstr(options, PARAM_FAILNODE) != NULL) {
+			/* Multiple mount protection feature is enabled.
+			 * Change label from <fsname>-<index> back to
+			 * <fsname>:<index> to indicate the device failed
+			 * to be registered. */
+			if ((mop.mo_ldd.ldd_flags &
+			     (LDD_F_VIRGIN | LDD_F_WRITECONF)) &&
+			    mop.mo_nosvc == 0) {
+				int l;
+
+				l = strlen(mop.mo_ldd.ldd_svname);
+				if (mop.mo_ldd.ldd_svname[l - 8] == '-') {
+					if (mop.mo_ldd.ldd_flags & LDD_F_VIRGIN)
+					     mop.mo_ldd.ldd_svname[l - 8] = ':';
+					else if (mop.mo_ldd.ldd_flags &
+						 LDD_F_WRITECONF)
+					     mop.mo_ldd.ldd_svname[l - 8] = '=';
+
+					(void) osd_label_lustre(&mop);
+				}
+			}
+		}
 	} else if (!mop.mo_nomtab) {
 		rc = update_mtab_entry(mop.mo_usource, mop.mo_target, "lustre",
 				       mop.mo_orig_options, 0,0,0);
 
-		/* change label from <fsname>:<index> to <fsname>-<index>
-		 * to indicate the device has been registered.
-		 * only if the label is supposed to be changed and
-		 * target service is supposed to start */
-		if (mop.mo_ldd.ldd_flags & (LDD_F_VIRGIN | LDD_F_WRITECONF)) {
-			if (mop.mo_nosvc == 0 )
+		if (strstr(options, PARAM_FAILNODE) == NULL) {
+			/* Multiple mount protection feature is not enabled.
+			 * Change label from <fsname>:<index> to
+			 * <fsname>-<index> to indicate the device has been
+			 * registered, only if the label is supposed to be
+			 * changed and target service is supposed to start. */
+			if ((mop.mo_ldd.ldd_flags &
+			     (LDD_F_VIRGIN | LDD_F_WRITECONF)) &&
+			    mop.mo_nosvc == 0) {
 				(void) osd_label_lustre(&mop);
+			}
 		}
-        }
+	}
 
 	free(options);
 	/* mo_usource should be freed, but we can rely on the kernel */
