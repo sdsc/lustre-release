@@ -881,6 +881,7 @@ static inline void osd_trans_declare_op(const struct lu_env *env,
 
 	LASSERT(oh->ot_handle == NULL);
 	LASSERT(op < OSD_OT_MAX);
+	LASSERT(oti->oti_declare_ops[op] < 255);
 
 	oti->oti_declare_ops[op]++;
 	oti->oti_declare_ops_cred[op] += credits;
