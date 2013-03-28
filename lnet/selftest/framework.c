@@ -568,9 +568,14 @@ sfw_test_rpc_fini (srpc_client_rpc_t *rpc)
 static inline int
 sfw_test_buffers(sfw_test_instance_t *tsi)
 {
-	struct sfw_test_case	*tsc = sfw_find_test_case(tsi->tsi_service);
-	struct srpc_service	*svc = tsc->tsc_srv_service;
+	struct sfw_test_case	*tsc;
+	struct srpc_service	*svc;
 	int			nbuf;
+
+	LASSERT(tsi != NULL);
+	tsc = sfw_find_test_case(tsi->tsi_service);
+	LASSERT(tsc != NULL);
+	svc = tsc->tsc_srv_service;
 
 	nbuf = min(svc->sv_wi_total, tsi->tsi_loop) / svc->sv_ncpts;
 	return max(SFW_TEST_WI_MIN, nbuf + SFW_TEST_WI_EXTRA);

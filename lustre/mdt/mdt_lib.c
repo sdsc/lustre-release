@@ -62,6 +62,7 @@ void mdt_exit_ucred(struct mdt_thread_info *info)
 {
 	struct lu_ucred   *uc  = mdt_ucred(info);
 	struct mdt_device *mdt = info->mti_mdt;
+	LASSERT(mdt != NULL);
 
 	LASSERT(uc != NULL);
 	if (uc->uc_valid != UCRED_INIT) {
