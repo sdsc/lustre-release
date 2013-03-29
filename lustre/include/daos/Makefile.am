@@ -1,0 +1,35 @@
+#
+# GPL HEADER START
+#
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 only,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License version 2 for more details (a copy is included
+# in the LICENSE file that accompanied this code).
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+#
+# GPL HEADER END
+#
+
+#
+# Copyright (c) 2012, 2013 Intel Corporation.
+#
+
+#
+# This file is part of DAOS/Lustre
+#
+
+if UTILS
+pkginclude_HEADERS = daos_types.h daos_api.h daos_lib.h
+endif
+
+EXTRA_DIST = daos_types.h daos_api.h daos_lib.h
