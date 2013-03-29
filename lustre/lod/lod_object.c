@@ -274,6 +274,28 @@ static int lod_attr_get(const struct lu_env *env,
 	return dt_attr_get(env, dt_object_child(dt), attr, capa);
 }
 
+static inline void lod_stripe_lock(struct lod_object *lo)
+{
+	down(&lo->ldo_stripe_sem);
+	LASSERT((lo->ldo_stripe != NULL) == (lo->ldo_stripenr != 0));
+}
+
+static inline bool lod_stripe_unlock(struct lod_object *lo)
+{
+	bool has_stripe = (lo->ldo_stripe != NULL);
+
+	LASSERT(has_stripe == (lo->ldo_stripenr != 0));
+	up(&lo->ldo_stripe_sem);
+
+	return has_stripe;
+}
+
+static inline bool lod_has_stripe(struct lod_object *lo)
+{
+	lod_stripe_lock(lo);
+	return lod_stripe_unlock(lo);
+}
+
 static int lod_declare_attr_set(const struct lu_env *env,
 				struct dt_object *dt,
 				const struct lu_attr *attr,
@@ -282,6 +304,7 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	struct dt_object  *next = dt_object_child(dt);
 	struct lod_object *lo = lod_dt_obj(dt);
 	int                rc, i;
+	bool               has_stripe;
 	ENTRY;
 
 	/*
@@ -296,14 +319,17 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	 * is being initialized as we don't need this information till
 	 * few specific cases like destroy, chown
 	 */
+
+	lod_stripe_lock(lo);
 	rc = lod_load_striping(env, lo);
-	if (rc)
-		RETURN(rc);
+	has_stripe = lod_stripe_unlock(lo);
+
+	if (rc != 0 || !has_stripe)
+		GOTO(out, rc);
 
 	/*
 	 * if object is striped declare changes on the stripes
 	 */
-	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
 		rc = dt_declare_attr_set(env, lo->ldo_stripe[i], attr, handle);
@@ -312,7 +338,7 @@ static int lod_declare_attr_set(const struct lu_env *env,
 			break;
 		}
 	}
-
+out:
 	RETURN(rc);
 }
 
@@ -331,13 +357,12 @@ static int lod_attr_set(const struct lu_env *env,
 	 * apply changes to the local object
 	 */
 	rc = dt_attr_set(env, next, attr, handle, capa);
-	if (rc)
+	if (rc != 0 || !lod_has_stripe(lo))
 		RETURN(rc);
 
 	/*
 	 * if object is striped, apply changes to all the stripes
 	 */
-	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
 		rc = dt_attr_set(env, lo->ldo_stripe[i], attr, handle, capa);
@@ -596,9 +621,8 @@ static int lod_cache_parent_striping(const struct lu_env *env,
 	int			 rc;
 	ENTRY;
 
-	/* dt_ah_init() is called from MDD without parent being write locked
-	 * lock it here */
-	dt_write_lock(env, dt_object_child(&lp->ldo_obj), 0);
+	lod_stripe_lock(lp);
+
 	if (lp->ldo_striping_cached)
 		GOTO(unlock, rc = 0);
 
@@ -648,7 +672,8 @@ static int lod_cache_parent_striping(const struct lu_env *env,
 
 	EXIT;
 unlock:
-	dt_write_unlock(env, dt_object_child(&lp->ldo_obj));
+	lod_stripe_unlock(lp);
+
 	return rc;
 }
 
@@ -679,6 +704,7 @@ static void lod_ah_init(const struct lu_env *env,
 	nextc = dt_object_child(child);
 	lc = lod_dt_obj(child);
 
+	/* XXX Concurrency?  Note that lp may be locked and unlocked below. */
 	LASSERT(lc->ldo_stripenr == 0);
 	LASSERT(lc->ldo_stripe == NULL);
 
@@ -737,11 +763,11 @@ static void lod_ah_init(const struct lu_env *env,
 		if (lp->ldo_def_striping_set) {
 			if (lp->ldo_pool)
 				lod_object_set_pool(lc, lp->ldo_pool);
-			lc->ldo_stripenr = lp->ldo_def_stripenr;
+			lc->ldo_def_stripenr = lp->ldo_def_stripenr;
 			lc->ldo_stripe_size = lp->ldo_def_stripe_size;
 			lc->ldo_def_stripe_offset = lp->ldo_def_stripe_offset;
 			CDEBUG(D_OTHER, "striping from parent: #%d, sz %d %s\n",
-			       lc->ldo_stripenr, lc->ldo_stripe_size,
+			       lc->ldo_def_stripenr, lc->ldo_stripe_size,
 			       lp->ldo_pool ? lp->ldo_pool : "");
 		}
 	}
@@ -750,12 +776,12 @@ static void lod_ah_init(const struct lu_env *env,
 	 * if the parent doesn't provide with specific pattern, grab fs-wide one
 	 */
 	desc = &d->lod_desc;
-	if (lc->ldo_stripenr == 0)
-		lc->ldo_stripenr = desc->ld_default_stripe_count;
+	if (lc->ldo_def_stripenr == 0)
+		lc->ldo_def_stripenr = desc->ld_default_stripe_count;
 	if (lc->ldo_stripe_size == 0)
 		lc->ldo_stripe_size = desc->ld_default_stripe_size;
 	CDEBUG(D_OTHER, "final striping: # %d stripes, sz %d from %s\n",
-	       lc->ldo_stripenr, lc->ldo_stripe_size,
+	       lc->ldo_def_stripenr, lc->ldo_stripe_size,
 	       lc->ldo_pool ? lc->ldo_pool : "");
 
 	EXIT;
@@ -779,7 +805,7 @@ static int lod_declare_init_size(const struct lu_env *env,
 	ENTRY;
 
 	/* XXX: we support the simplest (RAID0) striping so far */
-	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
+	LASSERT(lo->ldo_stripenr > 0);
 	LASSERT(lo->ldo_stripe_size > 0);
 
 	rc = dt_attr_get(env, next, attr, BYPASS_CAPA);
@@ -819,6 +845,7 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 	struct dt_object	*next = dt_object_child(dt);
 	struct lod_object	*lo = lod_dt_obj(dt);
 	int			 rc;
+	bool                     has_stripe;
 	ENTRY;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_ALLOC_OBDO)) {
@@ -828,14 +855,17 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc = -ENOMEM);
 	}
 
+	lod_stripe_lock(lo);
 	/* choose OST and generate appropriate objects */
 	rc = lod_qos_prep_create(env, lo, attr, lovea, th);
-	if (rc) {
+	if (rc != 0)
 		/* failed to create striping, let's reset
 		 * config so that others don't get confused */
 		lod_object_free_striping(env, lo);
+
+	has_stripe = lod_stripe_unlock(lo);
+	if (rc != 0 || !has_stripe)
 		GOTO(out, rc);
-	}
 
 	/*
 	 * declare storage for striping data
@@ -893,9 +923,7 @@ static int lod_declare_object_create(const struct lu_env *env,
 		/* XXX: all tricky interactions with ->ah_make_hint() decided
 		 * to use striping, then ->declare_create() behaving differently
 		 * should be cleaned */
-		if (dof->u.dof_reg.striped == 0)
-			lo->ldo_stripenr = 0;
-		if (lo->ldo_stripenr > 0)
+		if (dof->u.dof_reg.striped)
 			rc = lod_declare_striped_object(env, dt, attr,
 							NULL, th);
 	} else if (dof->dof_type == DFT_DIR && lo->ldo_striping_cached) {
@@ -944,8 +972,7 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 	int		   rc = 0, i;
 	ENTRY;
 
-	LASSERT(lo->ldo_stripe);
-	LASSERT(lo->ldo_stripenr > 0);
+	LASSERT(lo->ldo_stripe != NULL && lo->ldo_stripenr > 0);
 	LASSERT(lo->ldo_striping_cached == 0);
 
 	/* create all underlying objects */
@@ -978,7 +1005,7 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	if (rc == 0) {
 		if (S_ISDIR(dt->do_lu.lo_header->loh_attr))
 			rc = lod_store_def_striping(env, dt, th);
-		else if (lo->ldo_stripe)
+		else if (lod_has_stripe(lo))
 			rc = lod_striping_create(env, dt, attr, dof, th);
 	}
 

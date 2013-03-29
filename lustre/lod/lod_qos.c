@@ -1387,6 +1387,9 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 		/*
 		 * no striping has been created so far
 		 */
+		if (lo->ldo_stripenr == 0)
+			lo->ldo_stripenr = lo->ldo_def_stripenr;
+
 		LASSERT(lo->ldo_stripenr > 0);
 		/*
 		 * statfs and check OST targets now, since ld_active_tgt_count
@@ -1447,4 +1450,3 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 out:
 	RETURN(rc);
 }
-

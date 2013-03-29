@@ -146,7 +146,7 @@ struct lod_device {
  */
 struct lod_object {
 	struct dt_object   ldo_obj;
-
+	struct semaphore   ldo_stripe_sem;
 	/* if object is striped, then the next fields describe stripes */
 	__u16		   ldo_stripenr;
 	__u16		   ldo_layout_gen;

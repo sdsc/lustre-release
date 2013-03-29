@@ -147,6 +147,9 @@ struct lu_object *lod_object_alloc(const struct lu_env *env,
 		lu_obj->lo_ops = &lod_lu_obj_ops;
 	else
 		lu_obj->lo_ops = &lod_lu_robj_ops;
+
+	sema_init(&lod_obj->ldo_stripe_sem, 1);
+
 	RETURN(lu_obj);
 }
 

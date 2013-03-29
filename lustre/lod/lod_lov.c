@@ -791,11 +791,6 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 	int			 rc;
 	ENTRY;
 
-	/*
-	 * currently this code is supposed to be called from declaration
-	 * phase only, thus the object is not expected to be locked by caller
-	 */
-	dt_write_lock(env, next, 0);
 	/* already initialized? */
 	if (lo->ldo_stripe) {
 		int i;
@@ -826,7 +821,6 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 	info->lti_buf.lb_len = info->lti_ea_store_size;
 	rc = lod_parse_striping(env, lo, &info->lti_buf);
 out:
-	dt_write_unlock(env, next);
 	RETURN(rc);
 }
 
