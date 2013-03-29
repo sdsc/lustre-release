@@ -38,7 +38,7 @@
 
 SUBDIRS = linux lustre
 
-DIST_SUBDIRS = linux lustre darwin
+DIST_SUBDIRS = linux lustre daos darwin
 
 EXTRA_DIST = ioctl.h liblustre.h lprocfs_status.h lustre_cfg.h 	\
 	     lustre_debug.h lustre_disk.h lustre_dlm.h lustre_export.h \
