@@ -178,7 +178,7 @@ static int lod_cleanup_desc_tgts(const struct lu_env *env,
 	return rc;
 }
 
-static int lodname2mdt_index(char *lodname, int *index)
+static int lodname2mdt_index(char *lodname, long *index)
 {
 	char *ptr, *tmp;
 
