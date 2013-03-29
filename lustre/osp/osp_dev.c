@@ -592,7 +592,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		}
 
 		idx = simple_strtol(tgt + 4, &mdt, 16);
-		if (mdt[0] != '-' || idx > INT_MAX || idx < 0) {
+		if (mdt[0] != '-' || idx < 0) {
 			CERROR("%s: invalid OST index in '%s'\n",
 			       m->opd_obd->obd_name, src);
 			RETURN(-EINVAL);
@@ -610,7 +610,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		}
 
 		idx = simple_strtol(tgt + 4, &mdt, 16);
-		if (*mdt != '\0' || idx > INT_MAX || idx < 0) {
+		if (*mdt != '\0' || idx < 0) {
 			CERROR("%s: invalid OST index in '%s'\n",
 			       m->opd_obd->obd_name, src);
 			RETURN(-EINVAL);
@@ -629,7 +629,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 			m->opd_connect_mdt = 1;
 
 		idx = simple_strtol(tgt - 8, &mdt, 16);
-		if (mdt[0] != '-' || idx > INT_MAX || idx < 0) {
+		if (mdt[0] != '-' || idx < 0) {
 			CERROR("%s: invalid OST index in '%s'\n",
 			       m->opd_obd->obd_name, src);
 			RETURN(-EINVAL);

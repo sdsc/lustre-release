@@ -174,8 +174,6 @@ int ll_setxattr_common(struct inode *inode, const char *name,
                         size = lustre_posix_acl_xattr_filter(
                                                 (posix_acl_xattr_header *)value,
                                                 size, &new_value);
-                        if (unlikely(size < 0))
-                                RETURN(size);
 
                         pv = (const char *)new_value;
                 } else
