@@ -35,6 +35,10 @@
 #define SMFS_DEV_PATH "/dev/snapdev"
 #define SMFS_DEV_MAJOR 10
 #define SMFS_DEV_MINOR 242
+#define DAOS_DEV_NAME "daos"
+#define DAOS_DEV_PATH "/dev/" OBD_DAOS_NAME
+#define DAOS_DEV_MAJOR 10
+#define DAOS_DEV_MINOR 243
 
 int ptl_initialize(int argc, char **argv);
 int jt_ptl_network(int argc, char **argv);

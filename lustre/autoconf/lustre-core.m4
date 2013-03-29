@@ -2921,6 +2921,8 @@ lustre/obdecho/Makefile
 lustre/obdecho/autoMakefile
 lustre/ofd/Makefile
 lustre/ofd/autoMakefile
+lustre/daos/Makefile
+lustre/daos/autoMakefile
 lustre/osc/Makefile
 lustre/osc/autoMakefile
 lustre/ost/Makefile
