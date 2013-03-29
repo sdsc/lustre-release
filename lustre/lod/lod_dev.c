@@ -176,7 +176,7 @@ static int lod_cleanup_desc_tgts(const struct lu_env *env,
 	return rc;
 }
 
-static int lodname2mdt_index(char *lodname, int *index)
+static int lodname2mdt_index(char *lodname, long *index)
 {
 	char *ptr, *tmp;
 
@@ -361,7 +361,8 @@ static int lod_process_config(const struct lu_env *env,
 				mdt_index = 0;
 			} else {
 				rc = lodname2mdt_index(
-					lustre_cfg_string(lcfg, 0), &mdt_index);
+					lustre_cfg_string(lcfg, 0),
+					(long *)&mdt_index);
 				if (rc != 0)
 					GOTO(out, rc);
 			}
