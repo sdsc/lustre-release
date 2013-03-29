@@ -210,7 +210,7 @@ static int lodname2mdt_index(char *lodname, int *index)
 	}
 
 	*index = simple_strtol(ptr - 4, &tmp, 16);
-	if (*tmp != '-' || *index > INT_MAX || *index < 0) {
+	if (*tmp != '-' || *index < 0) {
 		CERROR("invalid MDT index in '%s'\n", lodname);
 		return -EINVAL;
 	}
