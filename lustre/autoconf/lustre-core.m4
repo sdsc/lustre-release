@@ -2881,6 +2881,7 @@ lustre/include/lustre_ver.h
 lustre/include/linux/Makefile
 lustre/include/darwin/Makefile
 lustre/include/lustre/Makefile
+lustre/include/daos/Makefile
 lustre/kernel_patches/targets/2.6-rhel6.target
 lustre/kernel_patches/targets/2.6-rhel5.target
 lustre/kernel_patches/targets/2.6-sles11.target
@@ -2919,6 +2920,8 @@ lustre/obdecho/Makefile
 lustre/obdecho/autoMakefile
 lustre/ofd/Makefile
 lustre/ofd/autoMakefile
+lustre/daos/Makefile
+lustre/daos/autoMakefile
 lustre/osc/Makefile
 lustre/osc/autoMakefile
 lustre/ost/Makefile

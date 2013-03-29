@@ -1,0 +1,6 @@
+MODULES := daos
+daos-objs := daos_handle.o daos_eq.o module.o
+
+EXTRA_DIST = $(daos-objs:%.o=%.c) daos_internal.h
+
+@INCLUDE_RULES@
