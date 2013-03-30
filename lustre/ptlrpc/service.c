@@ -905,6 +905,7 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
 
         /* finalize request */
         if (req->rq_export) {
+		class_export_rpc_dec(req->rq_export);
                 class_export_put(req->rq_export);
                 req->rq_export = NULL;
         }
@@ -984,15 +985,55 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
 	}
 }
 
+/** Change request export */
+void ptlrpc_request_change_export(struct ptlrpc_request *req,
+				  struct obd_export *export)
+{
+	if (req->rq_export != NULL) {
+		if (!cfs_list_empty(&req->rq_exp_list)) {
+			/* remove rq_exp_list from last export */
+			spin_lock_bh(&req->rq_export->exp_rpc_lock);
+			cfs_list_del_init(&req->rq_exp_list);
+			spin_unlock_bh(&req->rq_export->exp_rpc_lock);
+
+			/* export has one reference already, so it`s safe to
+			 * add req to export queue here and get another
+			 * reference for request later */
+			spin_lock_bh(&export->exp_rpc_lock);
+			cfs_list_add(&req->rq_exp_list, &export->exp_hp_rpcs);
+			spin_unlock_bh(&export->exp_rpc_lock);
+		}
+		class_export_rpc_dec(req->rq_export);
+		class_export_put(req->rq_export);
+	}
+
+	/* request takes one export refcount */
+	req->rq_export = class_export_get(export);
+	class_export_rpc_inc(export);
+
+	return;
+}
+
 /**
  * to finish a request: stop sending more early replies, and release
- * the request. should be called after we finished handling the request.
+ * the request.
  */
 static void ptlrpc_server_finish_request(struct ptlrpc_service_part *svcpt,
 					 struct ptlrpc_request *req)
 {
 	ptlrpc_server_hpreq_fini(req);
 
+	ptlrpc_server_drop_request(req);
+}
+
+/**
+ * to finish a acive request: stop sending more early replies, and release
+ * the request. should be called after we finished handling the request.
+ */
+static void ptlrpc_server_finish_active_request(
+					struct ptlrpc_service_part *svcpt,
+					struct ptlrpc_request *req)
+{
 	spin_lock(&svcpt->scp_req_lock);
 	ptlrpc_nrs_req_stop_nolock(req);
 	svcpt->scp_nreqs_active--;
@@ -1002,7 +1043,7 @@ static void ptlrpc_server_finish_request(struct ptlrpc_service_part *svcpt,
 
 	ptlrpc_nrs_req_finalize(req);
 
-	ptlrpc_server_drop_request(req);
+	ptlrpc_server_finish_request(svcpt, req);
 }
 
 /**
@@ -1334,7 +1375,7 @@ static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
                 GOTO(out, rc = -ENODEV);
 
         /* RPC ref */
-        class_export_rpc_get(reqcopy->rq_export);
+	class_export_rpc_inc(reqcopy->rq_export);
         if (reqcopy->rq_export->exp_obd &&
             reqcopy->rq_export->exp_obd->obd_fail)
                 GOTO(out_put, rc = -ENODEV);
@@ -1358,7 +1399,7 @@ static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
         ptlrpc_req_drop_rs(reqcopy);
 
 out_put:
-        class_export_rpc_put(reqcopy->rq_export);
+	class_export_rpc_dec(reqcopy->rq_export);
         class_export_put(reqcopy->rq_export);
 out:
         sptlrpc_svc_ctx_decref(reqcopy);
@@ -1684,14 +1725,23 @@ ptlrpc_server_request_pending(struct ptlrpc_service_part *svcpt, bool force)
 static struct ptlrpc_request *
 ptlrpc_server_request_get(struct ptlrpc_service_part *svcpt, bool force)
 {
-	struct ptlrpc_request *req;
+	struct ptlrpc_request *req = NULL;
 	ENTRY;
+
+	spin_lock(&svcpt->scp_req_lock);
+#ifndef __KERNEL__
+	/* !@%$# liblustre only has 1 thread */
+	if (cfs_atomic_read(&svcpt->scp_nreps_difficult) != 0) {
+		spin_unlock(&svcpt->scp_req_lock);
+		RETURN(NULL);
+	}
+#endif
 
 	if (ptlrpc_server_high_pending(svcpt, force)) {
 		req = ptlrpc_nrs_req_get_nolock(svcpt, true, force);
 		if (req != NULL) {
 			svcpt->scp_hreq_count++;
-			RETURN(req);
+			goto got_request;
 		}
 	}
 
@@ -1699,10 +1749,21 @@ ptlrpc_server_request_get(struct ptlrpc_service_part *svcpt, bool force)
 		req = ptlrpc_nrs_req_get_nolock(svcpt, false, force);
 		if (req != NULL) {
 			svcpt->scp_hreq_count = 0;
-			RETURN(req);
+			goto got_request;
 		}
 	}
+
+	spin_unlock(&svcpt->scp_req_lock);
 	RETURN(NULL);
+
+got_request:
+	svcpt->scp_nreqs_active++;
+	if (req->rq_hp)
+		svcpt->scp_nhreqs_active++;
+
+	spin_unlock(&svcpt->scp_req_lock);
+
+	RETURN(req);
 }
 
 /**
@@ -1802,7 +1863,8 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt)
         req->rq_export = class_conn2export(
                 lustre_msg_get_handle(req->rq_reqmsg));
         if (req->rq_export) {
-		class_export_rpc_get(req->rq_export);
+		/* Export reference should be consistent with exp_rpc_count */
+		class_export_rpc_inc(req->rq_export);
                 rc = ptlrpc_check_req(req);
                 if (rc == 0) {
                         rc = sptlrpc_target_export_check(req->rq_export, req);
@@ -1837,19 +1899,13 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt)
 
         /* Move it over to the request processing queue */
 	rc = ptlrpc_server_request_add(svcpt, req);
-	if (rc) {
-		ptlrpc_server_hpreq_fini(req);
+	if (rc)
 		GOTO(err_req, rc);
-	}
+
 	cfs_waitq_signal(&svcpt->scp_waitq);
 	RETURN(1);
 
 err_req:
-	if (req->rq_export)
-		class_export_rpc_put(req->rq_export);
-	spin_lock(&svcpt->scp_req_lock);
-	svcpt->scp_nreqs_active++;
-	spin_unlock(&svcpt->scp_req_lock);
 	ptlrpc_server_finish_request(svcpt, req);
 
 	RETURN(1);
@@ -1864,7 +1920,6 @@ ptlrpc_server_handle_request(struct ptlrpc_service_part *svcpt,
 			     struct ptlrpc_thread *thread)
 {
 	struct ptlrpc_service *svc = svcpt->scp_service;
-        struct obd_export     *export = NULL;
         struct ptlrpc_request *request;
         struct timeval         work_start;
         struct timeval         work_end;
@@ -1873,19 +1928,9 @@ ptlrpc_server_handle_request(struct ptlrpc_service_part *svcpt,
         int                    fail_opc = 0;
         ENTRY;
 
-	spin_lock(&svcpt->scp_req_lock);
-#ifndef __KERNEL__
-	/* !@%$# liblustre only has 1 thread */
-	if (cfs_atomic_read(&svcpt->scp_nreps_difficult) != 0) {
-		spin_unlock(&svcpt->scp_req_lock);
-		RETURN(0);
-	}
-#endif
 	request = ptlrpc_server_request_get(svcpt, false);
-	if (request == NULL) {
-		spin_unlock(&svcpt->scp_req_lock);
-                RETURN(0);
-        }
+	if  (request == NULL)
+		RETURN(0);
 
         if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_HPREQ_NOTIMEOUT))
                 fail_opc = OBD_FAIL_PTLRPC_HPREQ_NOTIMEOUT;
@@ -1893,19 +1938,9 @@ ptlrpc_server_handle_request(struct ptlrpc_service_part *svcpt,
                 fail_opc = OBD_FAIL_PTLRPC_HPREQ_TIMEOUT;
 
         if (unlikely(fail_opc)) {
-                if (request->rq_export && request->rq_ops) {
-			spin_unlock(&svcpt->scp_req_lock);
-
+		if (request->rq_export && request->rq_ops)
 			OBD_FAIL_TIMEOUT(fail_opc, 4);
-
-			spin_lock(&svcpt->scp_req_lock);
-		}
 	}
-	svcpt->scp_nreqs_active++;
-	if (request->rq_hp)
-		svcpt->scp_nhreqs_active++;
-
-	spin_unlock(&svcpt->scp_req_lock);
 
         ptlrpc_rqphase_move(request, RQ_PHASE_INTERPRET);
 
@@ -1925,7 +1960,6 @@ ptlrpc_server_handle_request(struct ptlrpc_service_part *svcpt,
 				    at_get(&svcpt->scp_at_estimate));
         }
 
-	export = request->rq_export;
 	rc = lu_context_init(&request->rq_session, LCT_SESSION | LCT_NOREF);
         if (rc) {
                 CERROR("Failure to initialize session: %d\n", rc);
@@ -2033,9 +2067,7 @@ put_conn:
         }
 
 out_req:
-	if (export != NULL)
-		class_export_rpc_put(export);
-	ptlrpc_server_finish_request(svcpt, request);
+	ptlrpc_server_finish_active_request(svcpt, request);
 
 	RETURN(1);
 }
@@ -3038,18 +3070,12 @@ ptlrpc_service_purge_all(struct ptlrpc_service *svc)
 
 			cfs_list_del(&req->rq_list);
 			svcpt->scp_nreqs_incoming--;
-			svcpt->scp_nreqs_active++;
 			ptlrpc_server_finish_request(svcpt, req);
 		}
 
 		while (ptlrpc_server_request_pending(svcpt, true)) {
 			req = ptlrpc_server_request_get(svcpt, true);
-			svcpt->scp_nreqs_active++;
-			ptlrpc_server_hpreq_fini(req);
-
-			if (req->rq_export != NULL)
-				class_export_rpc_put(req->rq_export);
-			ptlrpc_server_finish_request(svcpt, req);
+			ptlrpc_server_finish_active_request(svcpt, req);
 		}
 
 		LASSERT(cfs_list_empty(&svcpt->scp_rqbd_posted));
