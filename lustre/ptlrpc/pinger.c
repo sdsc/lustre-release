@@ -55,6 +55,9 @@ CFS_MODULE_PARM(suppress_pings, "i", int, 0644, "Suppress pings");
 struct mutex pinger_mutex;
 static CFS_LIST_HEAD(pinger_imports);
 static cfs_list_t timeout_list = CFS_LIST_HEAD_INIT(timeout_list);
+#ifdef __KERNEL__
+static int ir_up;
+#endif
 
 struct ptlrpc_request *
 ptlrpc_prep_ping(struct obd_import *imp)
@@ -243,8 +246,8 @@ static void ptlrpc_pinger_process_import(struct obd_import *imp,
 	/*
 	 * This will be used below only if the import is "FULL".
 	 */
-	suppress = !!(imp->imp_connect_data.ocd_connect_flags &
-		      OBD_CONNECT_PINGLESS);
+	suppress = ir_up && (imp->imp_connect_data.ocd_connect_flags &
+			     OBD_CONNECT_PINGLESS);
 
 	imp->imp_force_verify = 0;
 
@@ -451,6 +454,20 @@ void ptlrpc_pinger_commit_expected(struct obd_import *imp)
 	    imp->imp_connect_data.ocd_connect_flags & OBD_CONNECT_PINGLESS)
 		imp->imp_force_next_verify = 1;
 }
+
+void ptlrpc_pinger_ir_up(void)
+{
+	CDEBUG(D_HA, "IR up\n");
+	ir_up = 1;
+}
+EXPORT_SYMBOL(ptlrpc_pinger_ir_up);
+
+void ptlrpc_pinger_ir_down(void)
+{
+	CDEBUG(D_HA, "IR down\n");
+	ir_up = 0;
+}
+EXPORT_SYMBOL(ptlrpc_pinger_ir_down);
 
 int ptlrpc_pinger_add_import(struct obd_import *imp)
 {
