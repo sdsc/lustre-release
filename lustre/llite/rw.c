@@ -1205,7 +1205,7 @@ int ll_ap_completion(void *data, int cmd, struct obdo *oa, int rc)
 
 		LASSERT(lustre_handle_is_used(&llap->llap_lockh_granted));
 		oa->o_flags |= OBD_FL_HAVE_LOCK;
-		oa->o_handle = llap->llap_lockh_granted;
+		oa->o_handle_ra = llap->llap_lockh_granted;
 	}
 
         if (rc == 0)  {

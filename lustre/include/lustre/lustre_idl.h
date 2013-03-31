@@ -2102,7 +2102,8 @@ struct obdo {
         struct lustre_handle    o_handle;       /* brw: lock handle to prolong locks */
         struct llog_cookie      o_lcookie;      /* destroy: unlink cookie from MDS */
 
-        __u64                   o_padding_2;
+	/* reada: lock handle to cancel after reada completes */
+	struct lustre_handle    o_handle_ra;
         __u64                   o_padding_3;
         __u64                   o_padding_4;
         __u64                   o_padding_5;
