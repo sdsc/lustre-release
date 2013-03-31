@@ -105,7 +105,8 @@ dist-hook:
 
 EXTRA_DIST = @PACKAGE_TARNAME@.spec					\
 	build/Makefile 							\
-	build/Rules.in
+	build/Rules.in							\
+	osd_zfs_dkms.conf
 
 rpms-real: @PACKAGE_TARNAME@.spec dist Makefile
 	CONFIGURE_ARGS=$$(echo $$(eval echo $(ac_configure_args)) | \

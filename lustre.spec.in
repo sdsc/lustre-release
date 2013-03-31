@@ -134,6 +134,20 @@ Group: Development/Kernel
 %description source
 Lustre sources for further development
 
+%if %{build_lustre_osd_zfs}
+%package osd-zfs-dkms
+Summary: DKMS package for the osd_zfs kernel module
+Requires: dkms, zfs-modules-dkms
+Group: Development/Kernel
+BuildArch: noarch
+Version: %{version}
+Release: 1
+
+%description osd-zfs-dkms
+This package contains osd_zfs necessary source code and DKMS
+infrastructure needed to rebuild against installed kernels and zfs.
+%endif
+
 # Since the RPMs we ship are to be used on both SLES and RHEL, we
 # can't include any dependency information (since the package names
 # are different on the two platforms).
@@ -261,6 +275,14 @@ chmod -R go-w lustre-source/lustre-%{version}
 # fc18 needs 'x' permission for library files
 find $RPM_BUILD_ROOT -name '*.so' | xargs chmod +x
 
+%if %{build_lustre_osd_zfs}
+# Create the pristine source directory for osd_zfs DKMS rpm.
+make distdir distdir=lustre-source/%{lustre_name}-osd-zfs-%{version}
+chmod -R go-w lustre-source/%{lustre_name}-osd-zfs-%{version}
+# Set specific DKMS configuration file as dkms.conf
+mv lustre-source/%{lustre_name}-osd-zfs-%{version}/osd_zfs_dkms.conf lustre-source/%{lustre_name}-osd-zfs-%{version}/dkms.conf
+%endif
+
 cat >lustre.files <<EOF
 %attr(-, root, root) /sbin/mount.lustre
 %attr(-, root, root) /usr/sbin/*
@@ -359,6 +381,11 @@ find $RPM_BUILD_ROOT/lib/modules/%{kversion}/updates -name "*.ko" -type f | \
 
 %files source
 %attr(-, root, root) /usr/src/lustre-%{version}
+
+%if %{build_lustre_osd_zfs}
+%files osd-zfs-dkms
+%attr(-, root, root) %{_prefix}/src/%{lustre_name}-osd-zfs-%{version}
+%endif
 
 # uncomment these lines to enable deps packages
 # %files deps-sles
@@ -571,6 +598,15 @@ if [ -f /boot/System.map-%{kversion} ]; then
 else
 	depmod -ae %{kversion} || exit 0
 fi
+%endif
+
+%if %{build_lustre_osd_zfs}
+%post osd-zfs-dkms
+dkms add --rpm_safe_upgrade -m %{lustre_name}-osd-zfs -v %{version}
+dkms build -m %{lustre_name}-osd-zfs -v %{version} && dkms install -m %{lustre_name}-osd-zfs -v %{version} || true
+
+%preun osd-zfs-dkms
+dkms remove --rpm_safe_upgrade -m %{lustre_name}-osd-zfs -v %{version} --all || true
 %endif
 
 %clean
