@@ -44,7 +44,7 @@
 #define _LUSTRE_LINUX_ACL_H
 
 #ifndef	_LUSTRE_ACL_H
-#error	Shoud not include direectly. use #include <lustre_acl.h> instead
+#error	Should not include directly. use #include <lustre_acl.h> instead
 #endif
 
 #ifdef __KERNEL__
@@ -52,7 +52,7 @@
 # include <linux/dcache.h>
 # ifdef CONFIG_FS_POSIX_ACL
 #  include <linux/posix_acl_xattr.h>
-#  define LUSTRE_POSIX_ACL_MAX_SIZE   XATTR_ACL_SIZE
+#  define LUSTRE_POSIX_ACL_MAX_SIZE   260
 # endif /* CONFIG_FS_POSIX_ACL */
 # include <linux/lustre_intent.h>
 # include <linux/xattr.h> /* XATTR_{REPLACE,CREATE} */
@@ -60,6 +60,16 @@
 
 #ifndef LUSTRE_POSIX_ACL_MAX_SIZE
 # define LUSTRE_POSIX_ACL_MAX_SIZE   0
+#endif
+
+#if defined(__KERNEL__) && LUSTRE_POSIX_ACL_MAX_SIZE > 0
+/* All known kernel versions as of v3.7 will calculate 260 */
+static inline void __dummy_check_max_xattr_acl_size(void)
+{
+	BUILD_BUG_ON(sizeof(posix_acl_xattr_header) +
+		     32*sizeof(posix_acl_xattr_entry) != 260);
+}
+
 #endif
 
 #endif /* _LUSTRE_LINUX_ACL_H */
