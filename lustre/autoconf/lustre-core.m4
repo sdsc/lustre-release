@@ -627,25 +627,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.27.15-2 sles11
-
-# 2.6.27 sles11 remove the bi_hw_segments
-AC_DEFUN([LC_BI_HW_SEGMENTS],
-[AC_MSG_CHECKING([struct bio has a bi_hw_segments field])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/bio.h>
-],[
-        struct bio io;
-        io.bi_hw_segments = sizeof(io);
-],[
-        AC_DEFINE(HAVE_BI_HW_SEGMENTS, 1,
-                [struct bio has a bi_hw_segments field])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 #
 # 2.6.27 sles11 move the quotaio_v1{2}.h from include/linux to fs
 # 2.6.32 move the quotaio_v1{2}.h from fs to fs/quota
@@ -1464,9 +1445,6 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.27
          LC_SECURITY_PLUG  # for SLES10 SP2
-
-         # 2.6.27.15-2 sles11
-         LC_BI_HW_SEGMENTS
 
          # 2.6.32
          LC_BLK_QUEUE_MAX_SEGMENTS
