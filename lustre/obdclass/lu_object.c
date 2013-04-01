@@ -560,6 +560,9 @@ static struct lu_object *htable_lookup(struct lu_site *s,
                 return lu_object_top(h);
         }
 
+	if (waiter == NULL) /* lookup */
+		return ERR_PTR(-ENOENT);
+
         /*
          * Lookup found an object being destroyed this object cannot be
          * returned (to assure that references to dying objects are eventually
@@ -656,6 +659,9 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
         if (o != NULL)
                 return o;
 
+	if (conf != NULL && conf->loc_flags & LOC_F_LOOKUP)
+                return ERR_PTR(-ENOENT);
+
         /*
          * Allocate new object. This may result in rather complicated
          * operations, including fld queries, inode loading, etc.
@@ -700,7 +706,10 @@ struct lu_object *lu_object_find_at(const struct lu_env *env,
         cfs_waitlink_t           wait;
 
         while (1) {
-                obj = lu_object_find_try(env, dev, f, conf, &wait);
+		if (conf != NULL && conf->loc_flags & LOC_F_LOOKUP)
+			obj = lu_object_find_try(env, dev, f, conf, NULL);
+		else
+			obj = lu_object_find_try(env, dev, f, conf, &wait);
                 if (obj != ERR_PTR(-EAGAIN))
                         return obj;
                 /*
