@@ -115,7 +115,7 @@ static struct lu_device *qmt_device_fini(const struct lu_env *env,
 
 	/* disconnect from OSD */
 	if (qmt->qmt_child_exp != NULL) {
-		obd_disconnect(qmt->qmt_child_exp);
+		obd_disconnect(env, qmt->qmt_child_exp);
 		qmt->qmt_child_exp = NULL;
 		qmt->qmt_child = NULL;
 	}
@@ -395,7 +395,8 @@ static int qmt_device_obd_connect(const struct lu_env *env,
  * We trigger cleanup on disconnect since it means that the MDT is about to
  * shutdown.
  */
-static int qmt_device_obd_disconnect(struct obd_export *exp)
+static int qmt_device_obd_disconnect(const struct lu_env *env,
+				     struct obd_export *exp)
 {
 	struct obd_device	*obd = exp->exp_obd;
 	int			 rc;
@@ -405,7 +406,7 @@ static int qmt_device_obd_disconnect(struct obd_export *exp)
 	if (rc)
 		RETURN(rc);
 
-	rc = class_manual_cleanup(obd);
+	rc = class_manual_cleanup(env, obd);
 	RETURN(0);
 }
 

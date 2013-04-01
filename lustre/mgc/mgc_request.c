@@ -802,8 +802,8 @@ err_decref:
 }
 
 /* based on ll_mdc_blocking_ast */
-static int mgc_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
-                            void *data, int flag)
+static int mgc_blocking_ast(const struct lu_env *env, struct ldlm_lock *lock,
+			    struct ldlm_lock_desc *desc, void *data, int flag)
 {
         struct lustre_handle lockh;
         struct config_llog_data *cld = (struct config_llog_data *)data;
@@ -815,7 +815,7 @@ static int mgc_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                 /* mgs wants the lock, give it up... */
                 LDLM_DEBUG(lock, "MGC blocking CB");
                 ldlm_lock2handle(lock, &lockh);
-		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
+		rc = ldlm_cli_cancel(env, &lockh, LCF_ASYNC);
                 break;
         case LDLM_CB_CANCELING:
                 /* We've given up the lock, prepare ourselves to update. */
@@ -952,7 +952,7 @@ static int mgc_cancel(struct obd_export *exp, struct lov_stripe_md *md,
 {
         ENTRY;
 
-        ldlm_lock_decref(lockh, mode);
+        ldlm_lock_decref(NULL, lockh, mode);
 
         RETURN(0);
 }
@@ -1155,7 +1155,7 @@ static int mgc_import_event(struct obd_device *obd,
                 break;
         case IMP_EVENT_INVALIDATE: {
                 struct ldlm_namespace *ns = obd->obd_namespace;
-                ldlm_namespace_cleanup(ns, LDLM_FL_LOCAL_ONLY);
+                ldlm_namespace_cleanup(NULL, ns, LDLM_FL_LOCAL_ONLY);
                 break;
         }
 	case IMP_EVENT_ACTIVE:
@@ -1419,7 +1419,7 @@ static int mgc_apply_recover_logs(struct obd_device *mgc,
                 CDEBUG(D_INFO, "ir apply logs "LPD64"/"LPD64" for %s -> %s\n",
                        prev_version, max_version, obdname, params);
 
-                rc = class_process_config(lcfg);
+                rc = class_process_config(NULL, lcfg);
                 lustre_cfg_free(lcfg);
                 if (rc)
                         CDEBUG(D_INFO, "process config for %s error %d\n",

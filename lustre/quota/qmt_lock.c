@@ -136,7 +136,7 @@ int qmt_intent_policy(const struct lu_env *env, struct lu_device *ld,
 	/* on success, pack lvb in reply */
 	lvb = req_capsule_server_get(&req->rq_pill, &RMF_DLM_LVB);
 	lvb_len = ldlm_lvbo_size(*lockp);
-	lvb_len = ldlm_lvbo_fill(*lockp, lvb, lvb_len);
+	lvb_len = ldlm_lvbo_fill(env, *lockp, lvb, lvb_len);
 	if (lvb_len < 0)
 		GOTO(out, rc = lvb_len);
 
@@ -345,8 +345,8 @@ int qmt_lvbo_size(struct lu_device *ld, struct ldlm_lock *lock)
 /*
  * Fill request buffer with quota lvb
  */
-int qmt_lvbo_fill(struct lu_device *ld, struct ldlm_lock *lock, void *lvb,
-		  int lvblen)
+int qmt_lvbo_fill(const struct lu_env *env, struct lu_device *ld,
+		  struct ldlm_lock *lock, void *lvb, int lvblen)
 {
 	struct ldlm_resource	*res = lock->l_resource;
 	struct lquota_lvb	*qlvb = lvb;
@@ -372,26 +372,10 @@ int qmt_lvbo_fill(struct lu_device *ld, struct ldlm_lock *lock, void *lvb,
 		lqe_putref(lqe);
 	} else {
 		/* global quota lock */
-		struct lu_env		*env;
-		int			 rc;
 		struct dt_object	*obj = res->lr_lvb_data;
-
-		OBD_ALLOC_PTR(env);
-		if (env == NULL)
-			RETURN(-ENOMEM);
-
-		/* initialize environment */
-		rc = lu_env_init(env, LCT_LOCAL);
-		if (rc) {
-			OBD_FREE_PTR(env);
-			RETURN(rc);
-		}
 
 		/* return current version of global index */
 		qlvb->lvb_glb_ver = dt_version_get(env, obj);
-
-		lu_env_fini(env);
-		OBD_FREE_PTR(env);
 	}
 
 	RETURN(sizeof(struct lquota_lvb));
@@ -512,7 +496,7 @@ static int qmt_glimpse_lock(const struct lu_env *env, struct qmt_device *qmt,
 	}
 
 	/* issue glimpse callbacks to all connected slaves */
-	rc = ldlm_glimpse_locks(res, &gl_list);
+	rc = ldlm_glimpse_locks(env, res, &gl_list);
 
 	cfs_list_for_each_safe(pos, tmp, &gl_list) {
 		struct ldlm_glimpse_work *work;

@@ -281,7 +281,8 @@ static int ofd_lvbo_size(struct ldlm_lock *lock)
 		return sizeof(struct ost_lvb_v1);
 }
 
-static int ofd_lvbo_fill(struct ldlm_lock *lock, void *buf, int buflen)
+static int ofd_lvbo_fill(const struct lu_env *env, struct ldlm_lock *lock,
+			 void *buf, int buflen)
 {
 	struct ldlm_resource *res = lock->l_resource;
 	int lvb_len;

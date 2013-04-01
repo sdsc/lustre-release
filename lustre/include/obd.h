@@ -1294,7 +1294,7 @@ struct obd_ops {
                            struct obd_uuid *cluuid,
                            struct obd_connect_data *ocd,
                            void *localdata);
-        int (*o_disconnect)(struct obd_export *exp);
+	int (*o_disconnect)(const struct lu_env *env, struct obd_export *exp);
 
 	/* Initialize/finalize fids infrastructure. */
 	int (*o_fid_init)(struct obd_device *obd,

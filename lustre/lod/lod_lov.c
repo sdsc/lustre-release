@@ -110,7 +110,7 @@ void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd)
 					      obd_uuid2str(&tgt_desc->ltd_uuid),
 					       rc);
 			}
-			rc = obd_disconnect(tgt_desc->ltd_exp);
+			rc = obd_disconnect(NULL, tgt_desc->ltd_exp);
 			if (rc)
 				CERROR("%s: failed to disconnect %s: rc = %d\n",
 				       lod2obd(lod)->obd_name,
@@ -361,7 +361,7 @@ out_mutex:
 out_desc:
 	OBD_FREE_PTR(tgt_desc);
 out_conn:
-	obd_disconnect(exp);
+	obd_disconnect(env, exp);
 out_free:
 	return rc;
 }

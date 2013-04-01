@@ -612,9 +612,10 @@ static inline struct seq_server_site *mdt_seq_site(struct mdt_device *mdt)
 	return &mdt->mdt_seq_site;
 }
 
-static inline void mdt_export_evict(struct obd_export *exp)
+static inline void mdt_export_evict(const struct lu_env *env,
+				    struct obd_export *exp)
 {
-        class_fail_export(exp);
+        class_fail_export(env, exp);
         class_export_put(exp);
 }
 
@@ -694,7 +695,8 @@ void mdt_reconstruct(struct mdt_thread_info *, struct mdt_lock_handle *);
 void mdt_reconstruct_generic(struct mdt_thread_info *mti,
                              struct mdt_lock_handle *lhc);
 
-extern void target_recovery_fini(struct obd_device *obd);
+extern void target_recovery_fini(const struct lu_env *env,
+				 struct obd_device *obd);
 extern void target_recovery_init(struct lu_target *lut,
                                  svc_handler_t handler);
 int mdt_fs_setup(const struct lu_env *, struct mdt_device *,
@@ -914,14 +916,16 @@ static inline int is_identity_get_disabled(struct upcall_cache *cache)
         return cache ? (strcmp(cache->uc_upcall, "NONE") == 0) : 1;
 }
 
-int mdt_blocking_ast(struct ldlm_lock*, struct ldlm_lock_desc*, void*, int);
+int mdt_blocking_ast(const struct lu_env *env,
+		     struct ldlm_lock*, struct ldlm_lock_desc*, void*, int);
 
 /* Issues dlm lock on passed @ns, @f stores it lock handle into @lh. */
-static inline int mdt_fid_lock(struct ldlm_namespace *ns,
-                               struct lustre_handle *lh,
-                               ldlm_mode_t mode,
-                               ldlm_policy_data_t *policy,
-                               const struct ldlm_res_id *res_id,
+static inline int mdt_fid_lock(const struct lu_env *env,
+			       struct ldlm_namespace *ns,
+			       struct lustre_handle *lh,
+			       ldlm_mode_t mode,
+			       ldlm_policy_data_t *policy,
+			       const struct ldlm_res_id *res_id,
 			       __u64 flags, const __u64 *client_cookie)
 {
         int rc;
@@ -929,17 +933,18 @@ static inline int mdt_fid_lock(struct ldlm_namespace *ns,
         LASSERT(ns != NULL);
         LASSERT(lh != NULL);
 
-        rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS, policy,
+        rc = ldlm_cli_enqueue_local(env, ns, res_id, LDLM_IBITS, policy,
                                     mode, &flags, mdt_blocking_ast,
                                     ldlm_completion_ast, NULL, NULL, 0,
 				    LVB_T_NONE, client_cookie, lh);
         return rc == ELDLM_OK ? 0 : -EIO;
 }
 
-static inline void mdt_fid_unlock(struct lustre_handle *lh,
+static inline void mdt_fid_unlock(const struct lu_env *env,
+				  struct lustre_handle *lh,
                                   ldlm_mode_t mode)
 {
-        ldlm_lock_decref(lh, mode);
+        ldlm_lock_decref(env, lh, mode);
 }
 
 extern mdl_mode_t mdt_mdl_lock_modes[];

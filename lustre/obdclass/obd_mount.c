@@ -353,7 +353,7 @@ int do_lcfg(char *cfgname, lnet_nid_t nid, int cmd,
 
         lcfg = lustre_cfg_new(cmd, &bufs);
         lcfg->lcfg_nid = nid;
-        rc = class_process_config(lcfg);
+        rc = class_process_config(NULL, lcfg);
         lustre_cfg_free(lcfg);
         return(rc);
 }
@@ -437,7 +437,7 @@ static int server_stop_mgs(struct super_block *sb)
 
         /* The MGS should always stop when we say so */
         obd->obd_force = 1;
-        rc = class_manual_cleanup(obd);
+        rc = class_manual_cleanup(NULL, obd);
         RETURN(rc);
 }
 
@@ -750,7 +750,7 @@ static int lustre_stop_mgc(struct super_block *sb)
         if (obd->u.cli.cl_mgc_mgsexp) {
                 /* An error is not fatal, if we are unable to send the
                    disconnect mgs ping evictor cleans up the export */
-                rc = obd_disconnect(obd->u.cli.cl_mgc_mgsexp);
+                rc = obd_disconnect(NULL, obd->u.cli.cl_mgc_mgsexp);
                 if (rc)
                         CDEBUG(D_MOUNT, "disconnect failed %d\n", rc);
         }
@@ -764,7 +764,7 @@ static int lustre_stop_mgc(struct super_block *sb)
                 ptr = niduuid + strlen(niduuid);
         }
 
-        rc = class_manual_cleanup(obd);
+        rc = class_manual_cleanup(NULL, obd);
         if (rc)
                 GOTO(out, rc);
 
@@ -1433,7 +1433,7 @@ static int lustre_stop_lwp(struct super_block *sb)
 	}
 
 	lwp->obd_force = 1;
-	rc = class_manual_cleanup(lwp);
+	rc = class_manual_cleanup(NULL, lwp);
 
 out:
 	if (lwpname != NULL)
@@ -1513,7 +1513,7 @@ static int server_stop_servers(int lsiflags)
                 int err;
                 obd->obd_force = 1;
                 /* obd_fail doesn't mean much on a server obd */
-                err = class_manual_cleanup(obd);
+                err = class_manual_cleanup(NULL, obd);
                 if (!rc)
                         rc = err;
         }
@@ -2004,7 +2004,7 @@ static int lustre_put_lsi(struct super_block *sb)
         CDEBUG(D_MOUNT, "put %p %d\n", sb, cfs_atomic_read(&lsi->lsi_mounts));
         if (cfs_atomic_dec_and_test(&lsi->lsi_mounts)) {
 		if (IS_SERVER(lsi) && lsi->lsi_osd_exp) {
-			obd_disconnect(lsi->lsi_osd_exp);
+			obd_disconnect(NULL, lsi->lsi_osd_exp);
 			/* wait till OSD is gone */
 			obd_zombie_barrier();
 		}
@@ -2094,6 +2094,7 @@ static void server_put_super(struct super_block *sb)
         char *tmpname, *extraname = NULL;
         int tmpname_sz;
         int lsiflags = lsi->lsi_flags;
+	struct lu_env env;
         ENTRY;
 
 	LASSERT(IS_SERVER(lsi));
@@ -2140,7 +2141,14 @@ static void server_put_super(struct super_block *sb)
                         /* We can't seem to give an error return code
                          * to .put_super, so we better make sure we clean up! */
                         obd->obd_force = 1;
-                        class_manual_cleanup(obd);
+
+			if (lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD)) {
+                        	class_manual_cleanup(&env, obd);
+				lu_env_fini(&env);
+			} else {
+				CERROR("failed to initialize lu_env!\n");
+				class_manual_cleanup(NULL, obd);
+			}
                 } else {
 			CERROR("no obd %s\n", lsi->lsi_svname);
 			server_deregister_mount(lsi->lsi_svname);
@@ -2179,7 +2187,7 @@ static void server_put_super(struct super_block *sb)
                 if (obd) {
                         CWARN("Cleaning orphaned obd %s\n", extraname);
                         obd->obd_force = 1;
-                        class_manual_cleanup(obd);
+                        class_manual_cleanup(NULL, obd);
                 }
                 OBD_FREE(extraname, strlen(extraname) + 1);
         }
@@ -2327,7 +2335,7 @@ static int osd_start(struct lustre_sb_info *lsi, unsigned long mflags)
 	rc = obd_connect(NULL, &lsi->lsi_osd_exp, obd, &obd->obd_uuid, NULL, NULL);
 	if (rc) {
 		obd->obd_force = 1;
-		class_manual_cleanup(obd);
+		class_manual_cleanup(NULL, obd);
 		lsi->lsi_dt_dev = NULL;
 	}
 

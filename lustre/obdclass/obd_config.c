@@ -607,7 +607,8 @@ EXPORT_SYMBOL(class_detach);
  * this is called.  We tell them to start shutting down with a call
  * to class_disconnect_exports().
  */
-int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
+int class_cleanup(const struct lu_env *env, struct obd_device *obd,
+		  struct lustre_cfg *lcfg)
 {
         int err = 0;
         char *flag;
@@ -673,7 +674,7 @@ int class_cleanup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 CDEBUG(D_IOCTL, "%s: forcing exports to disconnect: %d\n",
                        obd->obd_name, cfs_atomic_read(&obd->obd_refcount) - 3);
                 dump_exports(obd, 0);
-                class_disconnect_exports(obd);
+                class_disconnect_exports(env, obd);
         }
 
         /* Precleanup, we must make sure all exports get destroyed. */
@@ -1059,7 +1060,7 @@ EXPORT_SYMBOL(lustre_register_quota_process_config);
  * These may come from direct calls (e.g. class_manual_cleanup)
  * or processing the config llog, or ioctl from lctl.
  */
-int class_process_config(struct lustre_cfg *lcfg)
+int class_process_config(const struct lu_env *env, struct lustre_cfg *lcfg)
 {
         struct obd_device *obd;
         int err;
@@ -1191,7 +1192,7 @@ int class_process_config(struct lustre_cfg *lcfg)
                 GOTO(out, err = 0);
         }
         case LCFG_CLEANUP: {
-                err = class_cleanup(obd, lcfg);
+                err = class_cleanup(env, obd, lcfg);
                 GOTO(out, err = 0);
         }
         case LCFG_ADD_CONN: {
@@ -1532,7 +1533,7 @@ int class_config_llog_handler(const struct lu_env *env,
 
                 lcfg_new->lcfg_nal = 0; /* illegal value for obsolete field */
 
-                rc = class_process_config(lcfg_new);
+                rc = class_process_config(env, lcfg_new);
                 lustre_cfg_free(lcfg_new);
 
                 if (inst)
@@ -1702,7 +1703,7 @@ EXPORT_SYMBOL(class_config_dump_llog);
 /** Call class_cleanup and class_detach.
  * "Manual" only in the sense that we're faking lcfg commands.
  */
-int class_manual_cleanup(struct obd_device *obd)
+int class_manual_cleanup(const struct lu_env *env, struct obd_device *obd)
 {
         char                    flags[3] = "";
         struct lustre_cfg      *lcfg;
@@ -1729,7 +1730,7 @@ int class_manual_cleanup(struct obd_device *obd)
         if (!lcfg)
                 RETURN(-ENOMEM);
 
-        rc = class_process_config(lcfg);
+        rc = class_process_config(env, lcfg);
         if (rc) {
                 CERROR("cleanup failed %d: %s\n", rc, obd->obd_name);
                 GOTO(out, rc);
@@ -1737,7 +1738,7 @@ int class_manual_cleanup(struct obd_device *obd)
 
         /* the lcfg is almost the same for both ops */
         lcfg->lcfg_command = LCFG_DETACH;
-        rc = class_process_config(lcfg);
+        rc = class_process_config(env, lcfg);
         if (rc)
                 CERROR("detach failed %d: %s\n", rc, obd->obd_name);
 out:

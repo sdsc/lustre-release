@@ -673,7 +673,7 @@ static int osc_resource_get_unused(struct obd_export *exp, struct obdo *oa,
 		RETURN(0);
 
         LDLM_RESOURCE_ADDREF(res);
-        count = ldlm_cancel_resource_local(res, cancels, NULL, mode,
+        count = ldlm_cancel_resource_local(NULL, res, cancels, NULL, mode,
                                            lock_flags, 0, NULL);
         LDLM_RESOURCE_DELREF(res);
         ldlm_resource_putref(res);
@@ -2409,11 +2409,11 @@ static int osc_enqueue_interpret(const struct lu_env *env,
                  * not already released by
                  * ldlm_cli_enqueue_fini()->failed_lock_cleanup()
                  */
-                ldlm_lock_decref(&handle, mode);
+                ldlm_lock_decref(env, &handle, mode);
 
         LASSERTF(lock != NULL, "lockh %p, req %p, aa %p - client evicted?\n",
                  aa->oa_lockh, req, aa);
-        ldlm_lock_decref(&handle, mode);
+        ldlm_lock_decref(NULL, &handle, mode);
         LDLM_LOCK_PUT(lock);
         return rc;
 }
@@ -2517,8 +2517,8 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
         mode = einfo->ei_mode;
         if (einfo->ei_mode == LCK_PR)
                 mode |= LCK_PW;
-        mode = ldlm_lock_match(obd->obd_namespace, *flags | match_lvb, res_id,
-                               einfo->ei_type, policy, mode, lockh, 0);
+        mode = ldlm_lock_match(NULL, obd->obd_namespace, *flags | match_lvb,
+			       res_id, einfo->ei_type, policy, mode, lockh, 0);
         if (mode) {
                 struct ldlm_lock *matched = ldlm_handle2lock(lockh);
 
@@ -2526,7 +2526,7 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                         /* For AGL, if enqueue RPC is sent but the lock is not
                          * granted, then skip to process this strpe.
                          * Return -ECANCELED to tell the caller. */
-                        ldlm_lock_decref(lockh, mode);
+                        ldlm_lock_decref(NULL, lockh, mode);
                         LDLM_LOCK_PUT(matched);
                         RETURN(-ECANCELED);
                 } else if (osc_set_lock_data_with_check(matched, einfo)) {
@@ -2548,14 +2548,14 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                         (*upcall)(cookie, ELDLM_OK);
 
                         if (einfo->ei_mode != mode)
-                                ldlm_lock_decref(lockh, LCK_PW);
+                                ldlm_lock_decref(NULL, lockh, LCK_PW);
                         else if (rqset)
                                 /* For async requests, decref the lock. */
-                                ldlm_lock_decref(lockh, einfo->ei_mode);
+                                ldlm_lock_decref(NULL, lockh, einfo->ei_mode);
                         LDLM_LOCK_PUT(matched);
                         RETURN(ELDLM_OK);
                 } else {
-                        ldlm_lock_decref(lockh, mode);
+                        ldlm_lock_decref(NULL, lockh, mode);
                         LDLM_LOCK_PUT(matched);
                 }
         }
@@ -2659,19 +2659,19 @@ int osc_match_base(struct obd_export *exp, struct ldlm_res_id *res_id,
         rc = mode;
         if (mode == LCK_PR)
                 rc |= LCK_PW;
-        rc = ldlm_lock_match(obd->obd_namespace, lflags,
+        rc = ldlm_lock_match(NULL, obd->obd_namespace, lflags,
                              res_id, type, policy, rc, lockh, unref);
         if (rc) {
                 if (data != NULL) {
                         if (!osc_set_data_with_check(lockh, data)) {
                                 if (!(lflags & LDLM_FL_TEST_LOCK))
-                                        ldlm_lock_decref(lockh, rc);
+                                        ldlm_lock_decref(NULL, lockh, rc);
                                 RETURN(0);
                         }
                 }
                 if (!(lflags & LDLM_FL_TEST_LOCK) && mode != rc) {
                         ldlm_lock_addref(lockh, LCK_PR);
-                        ldlm_lock_decref(lockh, LCK_PW);
+                        ldlm_lock_decref(NULL, lockh, LCK_PW);
                 }
                 RETURN(rc);
         }
@@ -2683,9 +2683,9 @@ int osc_cancel_base(struct lustre_handle *lockh, __u32 mode)
         ENTRY;
 
         if (unlikely(mode == LCK_GROUP))
-                ldlm_lock_decref_and_cancel(lockh, mode);
+                ldlm_lock_decref_and_cancel(NULL, lockh, mode);
         else
-                ldlm_lock_decref(lockh, mode);
+                ldlm_lock_decref(NULL, lockh, mode);
 
         RETURN(0);
 }
@@ -2710,7 +2710,8 @@ static int osc_cancel_unused(struct obd_export *exp,
 		resp = &res_id;
 	}
 
-        return ldlm_cli_cancel_unused(obd->obd_namespace, resp, flags, opaque);
+        return ldlm_cli_cancel_unused(NULL, obd->obd_namespace, resp, flags,
+				      opaque);
 }
 
 static int osc_statfs_interpret(const struct lu_env *env,
@@ -3273,7 +3274,7 @@ static int osc_reconnect(const struct lu_env *env,
 	RETURN(0);
 }
 
-static int osc_disconnect(struct obd_export *exp)
+static int osc_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
         struct obd_device *obd = class_exp2obd(exp);
         struct llog_ctxt  *ctxt;
@@ -3292,7 +3293,7 @@ static int osc_disconnect(struct obd_export *exp)
                        obd);
         }
 
-        rc = client_disconnect_export(exp);
+        rc = client_disconnect_export(NULL, exp);
         /**
          * Initially we put del_shrink_grant before disconnect_export, but it
          * causes the following problem if setup (connect) and cleanup
@@ -3351,7 +3352,7 @@ static int osc_import_event(struct obd_device *obd,
                          * import */
 			osc_io_unplug(env, cli, NULL, PDL_POLICY_ROUND);
 
-                        ldlm_namespace_cleanup(ns, LDLM_FL_LOCAL_ONLY);
+                        ldlm_namespace_cleanup(env, ns, LDLM_FL_LOCAL_ONLY);
                         cl_env_put(env, &refcheck);
                 } else
                         rc = PTR_ERR(env);

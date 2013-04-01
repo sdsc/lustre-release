@@ -100,11 +100,11 @@ static void llu_fsop_gone(struct filesys *fs)
 
         cfs_list_del(&sbi->ll_conn_chain);
         cl_sb_fini(sbi);
-        obd_disconnect(sbi->ll_dt_exp);
-        obd_disconnect(sbi->ll_md_exp);
+        obd_disconnect(NULL, sbi->ll_dt_exp);
+        obd_disconnect(NULL, sbi->ll_md_exp);
 
         while ((obd = class_devices_in_group(&sbi->ll_sb_uuid, &next)) != NULL)
-                class_manual_cleanup(obd);
+                class_manual_cleanup(NULL, obd);
 
         OBD_FREE(sbi, sizeof(*sbi));
 
@@ -202,7 +202,7 @@ void llu_update_inode(struct inode *inode, struct lustre_md *md)
                         if (mode) {
                                 st->st_size = body->size;
                                 lli->lli_flags |= LLIF_MDS_SIZE_LOCK;
-                                ldlm_lock_decref(&lockh, mode);
+                                ldlm_lock_decref(NULL, &lockh, mode);
                         }
                 } else {
                     st->st_size = body->size;
@@ -1685,7 +1685,7 @@ static int llu_lov_setstripe_ea_info(struct inode *ino, int flags,
         llu_local_open(lli, &oit);
         /* release intent */
         if (lustre_handle_is_used(&lockh))
-                ldlm_lock_decref(&lockh, LCK_CR);
+                ldlm_lock_decref(NULL, &lockh, LCK_CR);
         ptlrpc_req_finished(req);
         req = NULL;
         rc = llu_file_release(ino);
@@ -2039,9 +2039,9 @@ out_inode:
 out_request:
         ptlrpc_req_finished(request);
 out_lock_cn_cb:
-        obd_disconnect(sbi->ll_dt_exp);
+        obd_disconnect(NULL, sbi->ll_dt_exp);
 out_md:
-        obd_disconnect(sbi->ll_md_exp);
+        obd_disconnect(NULL, sbi->ll_md_exp);
 out_free:
         if (osc)
                 OBD_FREE(osc, strlen(lprof->lp_dt) + instlen + 2);

@@ -636,7 +636,7 @@ static int llog_test_6(const struct lu_env *env, struct obd_device *obd,
 		CERROR("6a: connect on connected MGC (%s) failed to return"
 		       " -EALREADY", mgc_obd->obd_name);
 		if (rc == 0)
-			obd_disconnect(exp);
+			obd_disconnect(env, exp);
 		GOTO(ctxt_release, rc = -EINVAL);
 	}
 

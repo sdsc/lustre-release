@@ -193,7 +193,7 @@ ptlrpc_save_lock(struct ptlrpc_request *req,
         LASSERT(rs->rs_nlocks < RS_MAX_LOCKS);
 
         if (req->rq_export->exp_disconnected) {
-                ldlm_lock_decref(lock, mode);
+                ldlm_lock_decref(req->rq_svc_thread->t_env, lock, mode);
         } else {
                 idx = rs->rs_nlocks++;
                 rs->rs_locks[idx] = *lock;
@@ -1117,14 +1117,16 @@ static int ptlrpc_check_req(struct ptlrpc_request *req)
                    !(req->rq_export->exp_obd->obd_recovering)) {
                         DEBUG_REQ(D_ERROR, req,
                                   "Invalid replay without recovery");
-                        class_fail_export(req->rq_export);
+                        class_fail_export(req->rq_svc_thread->t_env,
+					  req->rq_export);
                         rc = -ENODEV;
         } else if (lustre_msg_get_transno(req->rq_reqmsg) != 0 &&
                    !(req->rq_export->exp_obd->obd_recovering)) {
                         DEBUG_REQ(D_ERROR, req, "Invalid req with transno "
                                   LPU64" without recovery",
                                   lustre_msg_get_transno(req->rq_reqmsg));
-                        class_fail_export(req->rq_export);
+                        class_fail_export(req->rq_svc_thread->t_env,
+					  req->rq_export);
                         rc = -ENODEV;
         }
 
@@ -2048,7 +2050,7 @@ out_req:
  * An internal function to process a single reply state object.
  */
 static int
-ptlrpc_handle_rs(struct ptlrpc_reply_state *rs)
+ptlrpc_handle_rs(const struct lu_env *env, struct ptlrpc_reply_state *rs)
 {
 	struct ptlrpc_service_part *svcpt = rs->rs_svcpt;
 	struct ptlrpc_service     *svc = svcpt->scp_service;
@@ -2123,7 +2125,7 @@ ptlrpc_handle_rs(struct ptlrpc_reply_state *rs)
 		}
 
 		while (nlocks-- > 0)
-			ldlm_lock_decref(&rs->rs_locks[nlocks],
+			ldlm_lock_decref(env, &rs->rs_locks[nlocks],
 					 rs->rs_modes[nlocks]);
 
 		spin_lock(&rs->rs_lock);
@@ -2160,7 +2162,8 @@ ptlrpc_handle_rs(struct ptlrpc_reply_state *rs)
  * \retval 1 one reply processed
  */
 static int
-ptlrpc_server_handle_reply(struct ptlrpc_service_part *svcpt)
+ptlrpc_server_handle_reply(const struct lu_env *env,
+			   struct ptlrpc_service_part *svcpt)
 {
 	struct ptlrpc_reply_state *rs = NULL;
 	ENTRY;
@@ -2174,7 +2177,7 @@ ptlrpc_server_handle_reply(struct ptlrpc_service_part *svcpt)
 	}
 	spin_unlock(&svcpt->scp_rep_lock);
 	if (rs != NULL)
-		ptlrpc_handle_rs(rs);
+		ptlrpc_handle_rs(env, rs);
 	RETURN(rs != NULL);
 }
 
@@ -2209,7 +2212,7 @@ liblustre_check_services (void *arg)
 
 		do {
 			rc = ptlrpc_server_handle_req_in(svcpt);
-			rc |= ptlrpc_server_handle_reply(svcpt);
+			rc |= ptlrpc_server_handle_reply(NULL, svcpt);
 			rc |= ptlrpc_at_check_timed(svcpt);
 			rc |= ptlrpc_server_handle_request(svcpt, NULL);
 			rc |= (ptlrpc_server_post_idle_rqbds(svcpt) > 0);
@@ -2481,6 +2484,8 @@ static int ptlrpc_main(void *arg)
 			ptlrpc_at_check_timed(svcpt);
 
 		if (ptlrpc_server_request_pending(svcpt, 0)) {
+			lu_context_refill(&env->le_ctx);
+
 			lu_context_enter(&env->le_ctx);
 			ptlrpc_server_handle_request(svcpt, thread);
 			lu_context_exit(&env->le_ctx);
@@ -2556,12 +2561,26 @@ static int ptlrpc_hr_main(void *arg)
 	struct ptlrpc_hr_thread		*hrt = (struct ptlrpc_hr_thread *)arg;
 	struct ptlrpc_hr_partition	*hrp = hrt->hrt_partition;
 	CFS_LIST_HEAD			(replies);
+	struct lu_env			*env;
 	char				threadname[20];
 	int				rc;
 
 	snprintf(threadname, sizeof(threadname), "ptlrpc_hr%02d_%03d",
 		 hrp->hrp_cpt, hrt->hrt_id);
 	cfs_daemonize_ctxt(threadname);
+
+	OBD_ALLOC_PTR(env);
+	if (env == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	rc = lu_context_init(&env->le_ctx,
+			     LCT_MD_THREAD | LCT_REMEMBER | LCT_NOREF);
+
+	if (rc)
+		GOTO(out, rc);
+
+	env->le_ctx.lc_thread = NULL;
+	env->le_ctx.lc_cookie = 0x7;
 
 	rc = cfs_cpt_bind(ptlrpc_hr.hr_cpt_table, hrp->hrp_cpt);
 	if (rc != 0) {
@@ -2575,6 +2594,7 @@ static int ptlrpc_hr_main(void *arg)
 	while (!ptlrpc_hr.hr_stopping) {
 		l_wait_condition(hrt->hrt_waitq, hrt_dont_sleep(hrt, &replies));
 
+		lu_env_refill(env);
                 while (!cfs_list_empty(&replies)) {
                         struct ptlrpc_reply_state *rs;
 
@@ -2582,9 +2602,15 @@ static int ptlrpc_hr_main(void *arg)
                                             struct ptlrpc_reply_state,
                                             rs_list);
                         cfs_list_del_init(&rs->rs_list);
-                        ptlrpc_handle_rs(rs);
+                        ptlrpc_handle_rs(env, rs);
                 }
         }
+
+out:
+	if (env != NULL) {
+		lu_context_fini(&env->le_ctx);
+		OBD_FREE_PTR(env);
+	}
 
 	cfs_atomic_inc(&hrp->hrp_nstopped);
 	cfs_waitq_signal(&ptlrpc_hr.hr_waitq);

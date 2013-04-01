@@ -1136,7 +1136,7 @@ static int osp_md_object_lock(const struct lu_env *env,
 
 	fid_build_reg_res_name(lu_object_fid(&dt->do_lu), res_id);
 
-	mode = ldlm_lock_match(osp->opd_obd->obd_namespace,
+	mode = ldlm_lock_match(env, osp->opd_obd->obd_namespace,
 			       LDLM_FL_BLOCK_GRANTED, res_id,
 			       einfo->ei_type,
 			       (ldlm_policy_data_t *)policy,

@@ -311,7 +311,8 @@ int qmt_lvbo_init(struct lu_device *, struct ldlm_resource *);
 int qmt_lvbo_update(struct lu_device *, struct ldlm_resource *,
 		    struct ptlrpc_request *, int);
 int qmt_lvbo_size(struct lu_device *, struct ldlm_lock *);
-int qmt_lvbo_fill(struct lu_device *, struct ldlm_lock *, void *, int);
+int qmt_lvbo_fill(const struct lu_env *env,
+		  struct lu_device *, struct ldlm_lock *, void *, int);
 int qmt_lvbo_free(struct lu_device *, struct ldlm_resource *);
 int qmt_start_reba_thread(struct qmt_device *);
 void qmt_stop_reba_thread(struct qmt_device *);

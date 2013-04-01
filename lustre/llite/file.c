@@ -3265,7 +3265,7 @@ static int ll_layout_lock_set(struct lustre_handle *lockh, ldlm_mode_t mode,
 			*gen = lli->lli_layout_gen;
 			rc = 0;
 		}
-		ldlm_lock_decref(lockh, mode);
+		ldlm_lock_decref(NULL, lockh, mode);
 		RETURN(rc);
 	}
 
@@ -3289,7 +3289,7 @@ static int ll_layout_lock_set(struct lustre_handle *lockh, ldlm_mode_t mode,
 	}
 	if (rc < 0) {
 		LDLM_LOCK_PUT(lock);
-		ldlm_lock_decref(lockh, mode);
+		ldlm_lock_decref(NULL, lockh, mode);
 		RETURN(rc);
 	}
 
@@ -3303,7 +3303,7 @@ static int ll_layout_lock_set(struct lustre_handle *lockh, ldlm_mode_t mode,
 	rc = ll_layout_conf(inode, &conf);
 	LDLM_LOCK_PUT(lock);
 
-	ldlm_lock_decref(lockh, mode);
+	ldlm_lock_decref(NULL, lockh, mode);
 
 	if (md.lsm != NULL)
 		obd_free_memmd(sbi->ll_dt_exp, &md.lsm);

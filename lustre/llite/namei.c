@@ -79,7 +79,7 @@ int ll_unlock(__u32 mode, struct lustre_handle *lockh)
 {
         ENTRY;
 
-        ldlm_lock_decref(lockh, mode);
+        ldlm_lock_decref(NULL, lockh, mode);
 
         RETURN(0);
 }
@@ -195,7 +195,8 @@ static void ll_invalidate_negative_children(struct inode *dir)
 	ll_unlock_dcache(dir);
 }
 
-int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
+int ll_md_blocking_ast(const struct lu_env *env, struct ldlm_lock *lock,
+		       struct ldlm_lock_desc *desc,
                        void *data, int flag)
 {
         int rc;
@@ -205,7 +206,7 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         switch (flag) {
         case LDLM_CB_BLOCKING:
                 ldlm_lock2handle(lock, &lockh);
-		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
+		rc = ldlm_cli_cancel(env, &lockh, LCF_ASYNC);
                 if (rc < 0) {
                         CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
                         RETURN(rc);

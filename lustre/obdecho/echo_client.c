@@ -2982,7 +2982,7 @@ out:
              i++, ack_lock++) {
                 if (!ack_lock->mode)
                         break;
-                ldlm_lock_decref(&ack_lock->lock, ack_lock->mode);
+                ldlm_lock_decref(NULL, &ack_lock->lock, ack_lock->mode);
         }
 
         return rc;
@@ -3060,6 +3060,7 @@ static int echo_client_cleanup(struct obd_device *obddev)
 {
         struct echo_device *ed = obd2echo_dev(obddev);
         struct echo_client_obd *ec = &obddev->u.echo_client;
+	struct lu_env env;
         int rc;
         ENTRY;
 
@@ -3078,11 +3079,18 @@ static int echo_client_cleanup(struct obd_device *obddev)
                 RETURN(-EBUSY);
         }
 
+	rc = lu_env_init(&env, LCT_DT_THREAD);
+	if (rc) {
+		CERROR("failed to initialize lu_env!\n");
+		RETURN(rc);
+	}
+
         LASSERT(cfs_atomic_read(&ec->ec_exp->exp_refcount) > 0);
-        rc = obd_disconnect(ec->ec_exp);
+        rc = obd_disconnect(&env, ec->ec_exp);
         if (rc != 0)
                 CERROR("fail to disconnect device: %d\n", rc);
 
+	lu_env_fini(&env);
         RETURN(rc);
 }
 
@@ -3103,7 +3111,8 @@ static int echo_client_connect(const struct lu_env *env,
         RETURN (rc);
 }
 
-static int echo_client_disconnect(struct obd_export *exp)
+static int echo_client_disconnect(const struct lu_env *env,
+				  struct obd_export *exp)
 {
 #if 0
         struct obd_device      *obd;

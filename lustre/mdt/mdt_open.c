@@ -1042,7 +1042,7 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
                                       PFID(rr->rr_fid1), rc,
                                       obd_uuid2str(&exp->exp_client_uuid),
                                       obd_export_nid2str(exp));
-                        mdt_export_evict(exp);
+                        mdt_export_evict(env, exp);
                         RETURN_EXIT;
                 }
                 child = mdt_object_find(env, mdt, rr->rr_fid2);
@@ -1054,7 +1054,7 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
                                       obd_uuid2str(&exp->exp_client_uuid),
                                       obd_export_nid2str(exp));
                         mdt_object_put(env, parent);
-                        mdt_export_evict(exp);
+                        mdt_export_evict(env, exp);
                         RETURN_EXIT;
                 }
 

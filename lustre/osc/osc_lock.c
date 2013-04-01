@@ -681,7 +681,7 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
 
                 lockh = &osc_env_info(env)->oti_handle;
                 ldlm_lock2handle(dlmlock, lockh);
-		result = ldlm_cli_cancel(lockh, LCF_ASYNC);
+		result = ldlm_cli_cancel(env, lockh, LCF_ASYNC);
         } else
                 result = 0;
         return result;
@@ -729,12 +729,13 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
  *                 dlmlock->l_blocking_ast(..., LDLM_CB_CANCELING)
  *
  */
-static int osc_ldlm_blocking_ast(struct ldlm_lock *dlmlock,
+static int osc_ldlm_blocking_ast(const struct lu_env *dlm_env,
+				 struct ldlm_lock *dlmlock,
                                  struct ldlm_lock_desc *new, void *data,
                                  int flag)
 {
-        struct lu_env     *env;
         struct cl_env_nest nest;
+        struct lu_env      *env;
         int                result;
 
         /*
@@ -770,18 +771,19 @@ static int osc_ldlm_blocking_ast(struct ldlm_lock *dlmlock,
         return result;
 }
 
-static int osc_ldlm_completion_ast(struct ldlm_lock *dlmlock,
+static int osc_ldlm_completion_ast(const struct lu_env *dlm_env,
+				   struct ldlm_lock *dlmlock,
 				   __u64 flags, void *data)
 {
         struct cl_env_nest nest;
-        struct lu_env     *env;
         struct osc_lock   *olck;
+        struct lu_env     *env;
         struct cl_lock    *lock;
         int result;
         int dlmrc;
 
         /* first, do dlm part of the work */
-        dlmrc = ldlm_completion_ast_async(dlmlock, flags, data);
+        dlmrc = ldlm_completion_ast_async(dlm_env, dlmlock, flags, data);
         /* then, notify cl_lock */
         env = cl_env_nested_get(&nest);
         if (!IS_ERR(env)) {
@@ -1379,7 +1381,8 @@ static void osc_lock_cancel(const struct lu_env *env,
                 dlmlock->l_flags |= LDLM_FL_CBPENDING;
                 unlock_res_and_lock(dlmlock);
                 if (do_cancel)
-			result = ldlm_cli_cancel(&olck->ols_handle, LCF_ASYNC);
+			result = ldlm_cli_cancel(env, &olck->ols_handle,
+						 LCF_ASYNC);
                 if (result < 0)
                         CL_LOCK_DEBUG(D_ERROR, env, lock,
                                       "lock %p cancel failure with error(%d)\n",
