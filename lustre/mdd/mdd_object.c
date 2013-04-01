@@ -351,7 +351,7 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 			if (spec->sp_cr_flags & MDS_OPEN_HAS_EA)
 				dof->u.dof_reg.striped = 0;
 			/* is this replay? */
-			if (spec->no_create)
+			if (spec->sp_is_replay)
 				dof->u.dof_reg.striped = 0;
 		}
 	}

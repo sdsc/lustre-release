@@ -575,7 +575,7 @@ int mdt_fix_reply(struct mdt_thread_info *info)
         acl_size = body->aclsize;
 
         /* this replay - not send info to client */
-	if (info->mti_spec.no_create) {
+	if (info->mti_spec.sp_is_replay) {
 		md_size = 0;
 		acl_size = 0;
 	}
@@ -1083,7 +1083,7 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
         else
                 ma->ma_attr_flags &= ~MDS_VTX_BYPASS;
 
-	info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
+	info->mti_spec.sp_is_replay = !!req_is_replay(mdt_info_req(info));
 
         rc = mdt_dlmreq_unpack(info);
         RETURN(rc);
@@ -1148,10 +1148,10 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
         else
                 ma->ma_attr_flags &= ~MDS_VTX_BYPASS;
 
-        info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
+	info->mti_spec.sp_is_replay = !!req_is_replay(mdt_info_req(info));
 
-        rc = mdt_dlmreq_unpack(info);
-        RETURN(rc);
+	rc = mdt_dlmreq_unpack(info);
+	RETURN(rc);
 }
 
 /*
@@ -1254,7 +1254,7 @@ static int mdt_open_unpack(struct mdt_thread_info *info)
                                                                &RMF_EADATA);
                         sp->u.sp_ea.eadatalen = rr->rr_eadatalen;
                         sp->u.sp_ea.eadata = rr->rr_eadata;
-                        sp->no_create = !!req_is_replay(req);
+			sp->sp_is_replay = !!req_is_replay(req);
 			mdt_fix_lov_magic(info);
                 }
 

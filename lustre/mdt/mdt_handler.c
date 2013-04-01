@@ -1711,7 +1711,7 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
                 RETURN(err_serious(rc));
         }
 
-        /* for replay (no_create) lmm is not needed, client has it already */
+	/* for replay (sp_is_replay) lmm is not needed, client has it already */
         if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER))
                 req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
                                      info->mti_rr.rr_eadatalen);
@@ -1735,10 +1735,10 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_REINT_DELAY, 10);
 
-        /* for replay no cookkie / lmm need, because client have this already */
-        if (info->mti_spec.no_create)
-                if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER))
-                        req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER, 0);
+	/* for replay no cookkie / lmm need, because client have this already */
+	if (info->mti_spec.sp_is_replay)
+		if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER))
+			req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER, 0);
 
         rc = mdt_init_ucred_reint(info);
         if (rc)
@@ -3082,8 +3082,8 @@ static void mdt_thread_info_init(struct ptlrpc_request *req,
         info->mti_opdata = 0;
 	info->mti_big_lmm_used = 0;
 
-        /* To not check for split by default. */
-        info->mti_spec.no_create = 0;
+	/* To not check for split by default. */
+	info->mti_spec.sp_is_replay = 0;
 	info->mti_spec.sp_rm_entry = 0;
 }
 

@@ -200,7 +200,7 @@ struct md_op_spec {
         __u64      sp_cr_flags;
 
 	/** don't create lov objects or llog cookie - this replay */
-	unsigned int no_create:1,
+	unsigned int sp_is_replay:1,
 		     sp_cr_lookup:1, /* do lookup sanity check or not. */
 		     sp_rm_entry:1;  /* only remove name entry */
 

@@ -1654,11 +1654,11 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
          * XXX: Setting the lov ea is not locked but setting the attr is locked?
          * Should this be fixed?
          */
-	CDEBUG(D_OTHER, "ea %p/%u, cr_flags %Lo, no_create %u\n",
+	CDEBUG(D_OTHER, "ea %p/%u, cr_flags %Lo, sp_is_replay %u\n",
 	       spec->u.sp_ea.eadata, spec->u.sp_ea.eadatalen,
-	       spec->sp_cr_flags, spec->no_create);
+	       spec->sp_cr_flags, spec->sp_is_replay);
 
-	if (spec->no_create || spec->sp_cr_flags & MDS_OPEN_HAS_EA) {
+	if (spec->sp_is_replay || spec->sp_cr_flags & MDS_OPEN_HAS_EA) {
 		/* replay case or lfs setstripe */
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 					spec->u.sp_ea.eadatalen);
@@ -1949,7 +1949,7 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 		GOTO(out, rc);
 
 	/* replay case, create LOV EA from client data */
-	if (spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA)) {
+	if (spec->sp_is_replay || (spec->sp_cr_flags & MDS_OPEN_HAS_EA)) {
 		const struct lu_buf *buf;
 
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
@@ -2166,7 +2166,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	 *      MDT calls this xattr_set(LOV) in a different transaction.
 	 *      probably this way we code can be made better.
 	 */
-	if (rc == 0 && (spec->no_create ||
+	if (rc == 0 && (spec->sp_is_replay ||
 			(spec->sp_cr_flags & MDS_OPEN_HAS_EA))) {
 		const struct lu_buf *buf;
 
