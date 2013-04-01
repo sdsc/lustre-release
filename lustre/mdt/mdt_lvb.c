@@ -136,7 +136,7 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 	fid = &info->mti_tmp_fid2;
 	fid_build_from_res_name(fid, &lock->l_resource->lr_name);
 
-	obj = mdt_object_find(&env, info->mti_mdt, fid);
+	obj = mdt_object_find_nowait(&env, info->mti_mdt, fid);
 	if (IS_ERR(obj))
 		GOTO(out, rc = PTR_ERR(obj));
 

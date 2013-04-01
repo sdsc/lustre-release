@@ -2336,34 +2336,18 @@ static struct mdt_object *mdt_obj(struct lu_object *o)
         return container_of0(o, struct mdt_object, mot_obj.mo_lu);
 }
 
-struct mdt_object *mdt_object_new(const struct lu_env *env,
-				  struct mdt_device *d,
-				  const struct lu_fid *f)
-{
-	struct lu_object_conf conf = { .loc_flags = LOC_F_NEW };
-	struct lu_object *o;
-	struct mdt_object *m;
-	ENTRY;
-
-	CDEBUG(D_INFO, "Allocate object for "DFID"\n", PFID(f));
-	o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, &conf);
-	if (unlikely(IS_ERR(o)))
-		m = (struct mdt_object *)o;
-	else
-		m = mdt_obj(o);
-	RETURN(m);
-}
-
-struct mdt_object *mdt_object_find(const struct lu_env *env,
-                                   struct mdt_device *d,
-                                   const struct lu_fid *f)
+struct mdt_object *mdt_object_find0(const struct lu_env *env,
+					struct mdt_device *d,
+					const struct lu_fid *f,
+					struct lu_object_conf *conf)
 {
         struct lu_object *o;
         struct mdt_object *m;
         ENTRY;
 
-        CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
-        o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, NULL);
+        CDEBUG(D_INFO, "Find object for "DFID" with flags %d\n",
+		PFID(f), conf == NULL ? 0 : conf->loc_flags);
+        o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, conf);
         if (unlikely(IS_ERR(o)))
                 m = (struct mdt_object *)o;
         else

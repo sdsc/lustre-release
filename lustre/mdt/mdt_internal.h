@@ -657,12 +657,33 @@ void mdt_object_unlock(struct mdt_thread_info *,
                        struct mdt_lock_handle *,
                        int decref);
 
-struct mdt_object *mdt_object_new(const struct lu_env *,
-				  struct mdt_device *,
-				  const struct lu_fid *);
-struct mdt_object *mdt_object_find(const struct lu_env *,
-                                   struct mdt_device *,
-                                   const struct lu_fid *);
+struct mdt_object *mdt_object_find0(const struct lu_env *,
+					struct mdt_device *,
+					const struct lu_fid *,
+					struct lu_object_conf *);
+
+static inline struct mdt_object *mdt_object_find(const struct lu_env *env,
+						struct mdt_device *d,
+						const struct lu_fid *f)
+{
+	return mdt_object_find0(env, d, f, NULL);
+}
+
+static inline struct mdt_object *mdt_object_find_nowait(
+	const struct lu_env *env, struct mdt_device *d, const struct lu_fid *f)
+{
+	struct lu_object_conf conf = { .loc_flags = LOC_F_NO_WAIT };
+	return mdt_object_find0(env, d, f, &conf);
+}
+
+static inline struct mdt_object *mdt_object_new(const struct lu_env *env,
+						struct mdt_device *d,
+						const struct lu_fid *f)
+{
+	struct lu_object_conf conf = { .loc_flags = LOC_F_NEW };
+	return mdt_object_find0(env, d, f, &conf);
+}
+
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *,
                                         const struct lu_fid *,
                                         struct mdt_lock_handle *,
