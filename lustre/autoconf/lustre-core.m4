@@ -1189,6 +1189,8 @@ LB_LINUX_TRY_COMPILE([
 #
 # 2.6.27 sles11 move the quotaio_v1{2}.h from include/linux to fs
 # 2.6.32 move the quotaio_v1{2}.h from fs to fs/quota
+# The RHEL6 w/ IB environment in Jenkins does something strange here.
+# We should be able to remove this check otherwise.
 AC_DEFUN([LC_HAVE_QUOTAIO_H],
 [LB_CHECK_FILE([$LINUX/include/linux/quotaio_v2.h],[
         AC_DEFINE(HAVE_QUOTAIO_H, 1,
@@ -2322,7 +2324,6 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.27.15-2 sles11
          LC_BI_HW_SEGMENTS
-         LC_HAVE_QUOTAIO_H
          LC_BDI_NAME
          LC_SB_ANY_QUOTA_ACTIVE
          LC_SB_HAS_QUOTA_ACTIVE
@@ -2419,6 +2420,7 @@ AC_DEFUN([LC_PROG_LINUX],
 		AC_DEFINE(HAVE_SERVER_SUPPORT, 1, [support server])
 		LC_FUNC_DEV_SET_RDONLY
 		LC_STACK_SIZE
+		LC_HAVE_QUOTAIO_H
 		LC_QUOTA64
 		LC_QUOTA_CONFIG
 	 fi
