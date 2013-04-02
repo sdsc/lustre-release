@@ -36,6 +36,8 @@
 static int
 _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 {
+	/* Their will be at least one theard on one cpt */
+	struct kgn_cpt_info	 *sched = kgnilnd_data.kgn_scheds[0];
 	lnet_kiov_t              *src, *dest;
 	struct timespec          begin, end, diff;
 	int                      niov;
@@ -43,8 +45,10 @@ _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 	__u16                    cksum, cksum2;
 	__u64                    mbytes;
 
-	LIBCFS_ALLOC(src, LNET_MAX_IOV * sizeof(lnet_kiov_t));
-	LIBCFS_ALLOC(dest, LNET_MAX_IOV * sizeof(lnet_kiov_t));
+	LIBCFS_CPT_ALLOC(src, lnet_cpt_table(), 0,
+			 LNET_MAX_IOV * sizeof(lnet_kiov_t));
+	LIBCFS_CPT_ALLOC(dest, lnet_cpt_table(), 0,
+			 LNET_MAX_IOV * sizeof(lnet_kiov_t));
 
 	if (src == NULL || dest == NULL) {
 		CERROR("couldn't allocate iovs\n");
@@ -54,8 +58,8 @@ _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 	for (i = 0; i < LNET_MAX_IOV; i++) {
 		src[i].kiov_offset = 0;
 		src[i].kiov_len = CFS_PAGE_SIZE;
-		src[i].kiov_page = cfs_alloc_page(CFS_ALLOC_STD|CFS_ALLOC_ZERO);
-
+		src[i].kiov_page = cfs_page_cpt_alloc(lnet_cpt_table(), 0,
+				   CFS_ALLOC_STD|CFS_ALLOC_ZERO);
 		if (src[i].kiov_page == NULL) {
 			CERROR("couldn't allocate page %d\n", i);
 			GOTO(unwind, -ENOMEM);
@@ -114,8 +118,8 @@ _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 	for (n = 0; n < nloops; n++) {
 		CDEBUG(D_BUFFS, "case %d loop %d src %d dest %d nob %d niov %d\n",
 		       caseno, n, src[0].kiov_offset, dest[0].kiov_offset, nob, niov);
-		cksum = kgnilnd_cksum_kiov(niov, src, 0, nob - n, 1);
-		cksum2 = kgnilnd_cksum_kiov(niov, dest, 0, nob - n, 1);
+		cksum = kgnilnd_cksum_kiov(sched, niov, src, 0, nob - n, 1);
+		cksum2 = kgnilnd_cksum_kiov(sched, niov, dest, 0, nob - n, 1);
 
 		if (cksum != cksum2) {
 			CERROR("case %d loop %d different checksums %x expected %x\n",

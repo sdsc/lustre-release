@@ -99,6 +99,7 @@ kgnilnd_quiesce_wait(char *reason)
 
 	if (kgnilnd_data.kgn_quiesce_trigger) {
 		unsigned long   quiesce_deadline, quiesce_to;
+		struct kgn_cpt_info *sched;
 		/* FREEZE TAG!!!! */
 
 		/* morning sunshine */
@@ -109,10 +110,12 @@ kgnilnd_quiesce_wait(char *reason)
 		for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
 			kgn_device_t *dev = &kgnilnd_data.kgn_devices[i];
 
-			wake_up_all(&dev->gnd_waitq);
 			wake_up_all(&dev->gnd_dgram_waitq);
 			wake_up_all(&dev->gnd_dgping_waitq);
 		}
+
+		cfs_percpt_for_each(sched, i, kgnilnd_data.kgn_scheds)
+			wake_up_all(&sched->kgn_sched_waitq);
 
 		kgnilnd_wakeup_rca_thread();
 

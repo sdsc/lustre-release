@@ -921,11 +921,13 @@ kgnilnd_unpack_connreq(kgn_dgram_t *dgram)
 }
 
 int
-kgnilnd_alloc_dgram(kgn_dgram_t **dgramp, kgn_device_t *dev, kgn_dgram_type_t type)
+kgnilnd_alloc_dgram(kgn_dgram_t **dgramp, kgn_device_t *dev, int cpt,
+		    kgn_dgram_type_t type)
 {
 	kgn_dgram_t         *dgram;
 
-	dgram = cfs_mem_cache_alloc(kgnilnd_data.kgn_dgram_cache,
+	dgram = cfs_mem_cache_cpt_alloc(kgnilnd_data.kgn_dgram_cache,
+					lnet_cpt_table(), cpt,
 					CFS_ALLOC_ATOMIC);
 	if (dgram == NULL)
 		return -ENOMEM;
@@ -1162,6 +1164,7 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 		   int data_rc)
 {
 	int              rc = 0;
+	int		 cpt;
 	kgn_dgram_t     *dgram = NULL;
 	kgn_dgram_t     *tmpdgram;
 	kgn_dgram_type_t dgtype;
@@ -1185,13 +1188,24 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 		LBUG();
 	}
 
-	rc = kgnilnd_alloc_dgram(&dgram, dev, dgtype);
+	/* If we are posting wildcards post using a net of 0, otherwise we'll use the
+	 * net of the destination node.
+	 */
+	if (dstnid == LNET_NID_ANY) {
+		srcnid = LNET_MKNID(LNET_MKNET(GNILND, 0), dev->gnd_nid);
+	} else {
+		srcnid = LNET_MKNID(LNET_NIDNET(dstnid), dev->gnd_nid);
+	}
+
+	cpt = lnet_cpt_of_nid(srcnid);
+
+	rc = kgnilnd_alloc_dgram(&dgram, dev, cpt, dgtype);
 	if (rc < 0) {
 		rc = -ENOMEM;
 		GOTO(post_failed, rc);
 	}
 
-	rc = kgnilnd_create_conn(&dgram->gndg_conn, dev);
+	rc = kgnilnd_create_conn(&dgram->gndg_conn, dev, cpt);
 	if (rc) {
 		GOTO(post_failed, rc);
 	}
@@ -1224,16 +1238,6 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 			GOTO(post_failed, rc);
 		}
 
-	}
-
-	/* If we are posting wildcards post using a net of 0, otherwise we'll use the
-	 * net of the destination node.
-	 */
-
-	if (dstnid == LNET_NID_ANY) {
-		srcnid = LNET_MKNID(LNET_MKNET(GNILND, 0), dev->gnd_nid);
-	} else {
-		srcnid = LNET_MKNID(LNET_NIDNET(dstnid), dev->gnd_nid);
 	}
 
 	rc = kgnilnd_pack_connreq(&dgram->gndg_conn_out, dgram->gndg_conn,
@@ -1340,7 +1344,6 @@ kgnilnd_release_dgram(kgn_device_t *dev, kgn_dgram_t *dgram)
 		kgnilnd_free_dgram(dev, dgram);
 	}
 }
-
 
 int
 kgnilnd_probe_for_dgram(kgn_device_t *dev, kgn_dgram_t **dgramp)
@@ -1820,7 +1823,7 @@ kgnilnd_finish_connect(kgn_dgram_t *dgram)
 	if (CFS_FAIL_CHECK(CFS_FAIL_GNI_FINISH_PURG)) {
 		cfs_fail_loc = 0x0;
 		/* get scheduler thread moving again */
-		kgnilnd_schedule_device(conn->gnc_device);
+		kgnilnd_schedule_device(conn->sched);
 	}
 
 	CDEBUG(D_NET, "New conn 0x%p->%s dev %d\n",
@@ -2166,15 +2169,26 @@ kgnilnd_reaper_dgram_check(kgn_device_t *dev)
 int
 kgnilnd_dgram_waitq(void *arg)
 {
-	kgn_device_t     *dev = (kgn_device_t *) arg;
-	char              name[16];
-	gni_return_t      grc;
-	__u64             readyid;
+	kgn_device_t		*dev = (kgn_device_t *)arg;
+	struct kgn_cpt_info	*sched;
+	char			name[16];
+	gni_return_t		grc;
+	__u64			readyid;
+	int			rc;
 	DEFINE_WAIT(mover_done);
 
-	snprintf(name, sizeof(name), "kgnilnd_dgn_%02d", dev->gnd_id);
+	sched = kgnilnd_data.kgn_scheds[dev->gnd_dgram_cpt];
+
+	snprintf(name, sizeof(name), "kgnilnd_dgn_%02d_%02d",
+		 dev->gnd_id, sched->kgn_cpt);
 	cfs_daemonize(name);
 	cfs_block_allsigs();
+
+	rc = cfs_cpt_bind(lnet_cpt_table(), sched->kgn_cpt);
+	if (rc != 0) {
+		CERROR("Can't set CPT affinity for %s to %d: %d\n",
+			name, sched->kgn_cpt, rc);
+	}
 
 	/* all gnilnd threads need to run fairly urgently */
 	set_user_nice(current, *kgnilnd_tunables.kgn_nice);
@@ -2345,17 +2359,28 @@ int
 kgnilnd_dgram_mover(void *arg)
 {
 	kgn_device_t            *dev = (kgn_device_t *)arg;
-	char                     name[16];
-	int                      rc, did_something;
-	unsigned long            next_purge_check = jiffies - 1;
-	unsigned long            timeout;
-	struct timer_list        timer;
-	unsigned long		 deadline = 0;
+        struct kgn_cpt_info	*sched;
+	char			name[16];
+	int			rc, did_something;
+	unsigned long		next_purge_check = jiffies - 1;
+	unsigned long		timeout;
+	struct timer_list	timer;
+	unsigned long		deadline = 0;
 	DEFINE_WAIT(wait);
 
-	snprintf(name, sizeof(name), "kgnilnd_dg_%02d", dev->gnd_id);
+	sched = kgnilnd_data.kgn_scheds[dev->gnd_dgram_cpt];
+
+	snprintf(name, sizeof(name), "kgnilnd_dg_%02d_%02d",
+		 dev->gnd_id, dev->gnd_dgram_cpt);
 	cfs_daemonize(name);
 	cfs_block_allsigs();
+
+	rc = cfs_cpt_bind(lnet_cpt_table(), sched->kgn_cpt);
+	if (rc != 0) {
+		CERROR("Can't set CPT affinity for %s to %d: %d\n",
+			name, sched->kgn_cpt, rc);
+	}
+
 	/* all gnilnd threads need to run fairly urgently */
 	set_user_nice(current, *kgnilnd_tunables.kgn_nice);
 
