@@ -1,8 +1,8 @@
 Index: linux-stage/fs/ext4/ext4.h
 ===================================================================
---- linux-stage.orig/fs/ext4/ext4.h	2011-05-20 11:01:37.000000000 +0300
-+++ linux-stage/fs/ext4/ext4.h	2011-05-20 11:01:44.000000000 +0300
-@@ -859,6 +859,7 @@ struct ext4_inode_info {
+--- linux-stage.orig/fs/ext4/ext4.h	2013-04-02 08:50:47.560489224 -0400
++++ linux-stage/fs/ext4/ext4.h	2013-04-02 08:51:57.215572332 -0400
+@@ -857,6 +857,7 @@ struct ext4_inode_info {
  #define EXT4_MOUNT_QUOTA		0x80000 /* Some quota option set */
  #define EXT4_MOUNT_USRQUOTA		0x100000 /* "old" user quota */
  #define EXT4_MOUNT_GRPQUOTA		0x200000 /* "old" group quota */
@@ -12,8 +12,8 @@ Index: linux-stage/fs/ext4/ext4.h
  #define EXT4_MOUNT_I_VERSION            0x2000000 /* i_version support */
 Index: linux-stage/fs/ext4/ext4_jbd2.h
 ===================================================================
---- linux-stage.orig/fs/ext4/ext4_jbd2.h	2011-05-20 11:00:01.000000000 +0300
-+++ linux-stage/fs/ext4/ext4_jbd2.h	2011-05-20 11:01:44.000000000 +0300
+--- linux-stage.orig/fs/ext4/ext4_jbd2.h	2013-04-02 08:50:47.524478700 -0400
++++ linux-stage/fs/ext4/ext4_jbd2.h	2013-04-02 08:51:57.215572332 -0400
 @@ -33,7 +33,7 @@
  
  #define EXT4_SINGLEDATA_TRANS_BLOCKS(sb)				\
@@ -25,9 +25,9 @@ Index: linux-stage/fs/ext4/ext4_jbd2.h
  		ext4_handle_dirty_metadata(handle, NULL, bh)
 Index: linux-stage/fs/ext4/extents.c
 ===================================================================
---- linux-stage.orig/fs/ext4/extents.c	2011-05-20 11:00:01.000000000 +0300
-+++ linux-stage/fs/ext4/extents.c	2011-05-20 11:01:44.000000000 +0300
-@@ -2555,7 +2555,7 @@ void ext4_ext_init(struct super_block *s
+--- linux-stage.orig/fs/ext4/extents.c	2013-04-02 08:50:47.526478969 -0400
++++ linux-stage/fs/ext4/extents.c	2013-04-02 08:51:57.217562017 -0400
+@@ -2554,7 +2554,7 @@ void ext4_ext_init(struct super_block *s
  	 * possible initialization would be here
  	 */
  
@@ -36,7 +36,7 @@ Index: linux-stage/fs/ext4/extents.c
  #if defined(AGGRESSIVE_TEST) || defined(CHECK_BINSEARCH) || defined(EXTENTS_STATS)
  		printk(KERN_INFO "EXT4-fs: file extents enabled");
  #ifdef AGGRESSIVE_TEST
-@@ -2582,7 +2582,7 @@ void ext4_ext_init(struct super_block *s
+@@ -2581,7 +2581,7 @@ void ext4_ext_init(struct super_block *s
   */
  void ext4_ext_release(struct super_block *sb)
  {
@@ -47,9 +47,9 @@ Index: linux-stage/fs/ext4/extents.c
  #ifdef EXTENTS_STATS
 Index: linux-stage/fs/ext4/ialloc.c
 ===================================================================
---- linux-stage.orig/fs/ext4/ialloc.c	2011-05-20 11:01:36.000000000 +0300
-+++ linux-stage/fs/ext4/ialloc.c	2011-05-20 11:01:44.000000000 +0300
-@@ -1049,7 +1049,7 @@ got:
+--- linux-stage.orig/fs/ext4/ialloc.c	2013-04-02 08:50:47.538489217 -0400
++++ linux-stage/fs/ext4/ialloc.c	2013-04-02 08:51:57.218551599 -0400
+@@ -1059,7 +1059,7 @@ got:
  	if (err)
  		goto fail_free_drop;
  
@@ -60,8 +60,8 @@ Index: linux-stage/fs/ext4/ialloc.c
  			ext4_set_inode_flag(inode, EXT4_INODE_EXTENTS);
 Index: linux-stage/fs/ext4/migrate.c
 ===================================================================
---- linux-stage.orig/fs/ext4/migrate.c	2011-05-20 10:59:29.000000000 +0300
-+++ linux-stage/fs/ext4/migrate.c	2011-05-20 11:03:22.000000000 +0300
+--- linux-stage.orig/fs/ext4/migrate.c	2013-04-02 08:50:47.455416219 -0400
++++ linux-stage/fs/ext4/migrate.c	2013-04-02 08:51:57.218551599 -0400
 @@ -459,13 +459,10 @@ int ext4_ext_migrate(struct inode *inode
  	unsigned long max_entries;
  	__u32 goal;
@@ -82,9 +82,9 @@ Index: linux-stage/fs/ext4/migrate.c
  	if (S_ISLNK(inode->i_mode) && inode->i_blocks == 0)
 Index: linux-stage/fs/ext4/super.c
 ===================================================================
---- linux-stage.orig/fs/ext4/super.c	2011-05-20 11:01:37.000000000 +0300
-+++ linux-stage/fs/ext4/super.c	2011-05-20 11:01:44.000000000 +0300
-@@ -945,6 +945,8 @@ static int ext4_show_options(struct seq_
+--- linux-stage.orig/fs/ext4/super.c	2013-04-02 08:50:47.567499271 -0400
++++ linux-stage/fs/ext4/super.c	2013-04-02 08:51:57.220359262 -0400
+@@ -955,6 +955,8 @@ static int ext4_show_options(struct seq_
  		seq_puts(seq, ",journal_async_commit");
  	if (test_opt(sb, NOBH))
  		seq_puts(seq, ",nobh");
@@ -92,25 +92,25 @@ Index: linux-stage/fs/ext4/super.c
 +		seq_puts(seq, ",noextents");
  	if (test_opt(sb, I_VERSION))
  		seq_puts(seq, ",i_version");
- 	if (!test_opt(sb, DELALLOC))
-@@ -1515,6 +1517,7 @@ enum {
-	Opt_stripe, Opt_delalloc, Opt_nodelalloc,
+ 	if (!test_opt(sb, DELALLOC) &&
+@@ -1189,6 +1191,7 @@ enum {
  	Opt_inode_readahead_blks, Opt_journal_ioprio,
+ 	Opt_dioread_nolock, Opt_dioread_lock,
  	Opt_mballoc, Opt_bigendian_extents, Opt_force_over_128tb,
 +	Opt_extents, Opt_noextents,
- 	Opt_discard, Opt_nodiscard,
-	Opt_init_inode_table, Opt_noinit_inode_table,
+ 	Opt_discard, Opt_nodiscard, Opt_init_itable, Opt_noinit_itable,
+ 	Opt_max_dir_size_kb,
  };
-@@ -1589,6 +1592,8 @@ static const match_table_t tokens = {
-	{Opt_noauto_da_alloc, "noauto_da_alloc"},
-	{Opt_bigendian_extents, "bigendian_extents"},
+@@ -1264,6 +1267,8 @@ static const match_table_t tokens = {
+ 	{Opt_bigendian_extents, "bigendian_extents"},
+ 	{Opt_force_over_128tb, "force_over_128tb"},
  	{Opt_mballoc, "mballoc"},
 +	{Opt_extents, "extents"},
 +	{Opt_noextents, "noextents"},
  	{Opt_discard, "discard"},
  	{Opt_nodiscard, "nodiscard"},
-	{Opt_init_inode_table, "init_itable=%u"},
-@@ -1631,6 +1636,7 @@ static int parse_options(char *options, 
+ 	{Opt_init_itable, "init_itable=%u"},
+@@ -1311,6 +1316,7 @@ static int parse_options(char *options, 
  	int qtype, qfmt;
  	char *qname;
  #endif
@@ -118,7 +118,7 @@ Index: linux-stage/fs/ext4/super.c
  
  	if (!options)
  		return 1;
-@@ -2039,6 +2045,32 @@ set_qf_format:
+@@ -1739,6 +1745,32 @@ set_qf_format:
  		case Opt_force_over_128tb:
  			force_over_128tb = 1;
  			break;
@@ -151,8 +151,8 @@ Index: linux-stage/fs/ext4/super.c
  		default:
  			ext4_msg(sb, KERN_ERR,
  			       "Unrecognized mount option \"%s\" "
-@@ -2901,6 +2933,14 @@ static int ext4_fill_super(struct super_
- 	set_opt(sbi->s_mount_opt, BARRIER);
+@@ -2982,6 +3014,14 @@ static int ext4_fill_super(struct super_
+ 		set_opt(sbi->s_mount_opt, BARRIER);
  
  	/*
 +	 * turn on extents feature by default in ext4 filesystem
