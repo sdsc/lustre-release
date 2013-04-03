@@ -607,14 +607,15 @@ static int osd_seq_load_locked(struct osd_device *osd,
 			ldiskfs_set_inode_state(dir->d_inode,
 						LDISKFS_STATE_LUSTRE_NO_OI);
 			osd_seq->oos_dirs[i] = dir;
-			rc = 0;
 		} else {
 			LBUG();
 		}
 	}
 
-	if (rc != 0)
+	if (rc != 0) {
 		osd_seq_free(map, osd_seq);
+		goto out_err;
+	}
 out_put:
 	if (rc != 0) {
 		dput(seq_dir);
