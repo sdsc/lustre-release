@@ -1836,6 +1836,7 @@ static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 		GOTO(out, rc);
 	case LL_IOC_HSM_STATE_SET:
 		rc = mdc_ioc_hsm_state_set(exp, karg);
+		GOTO(out, rc);
 	case LL_IOC_HSM_ACTION:
 		rc = mdc_ioc_hsm_current_action(exp, karg);
 		GOTO(out, rc);

@@ -1353,9 +1353,12 @@ static int mdd_swap_layouts(const struct lu_env *env, struct md_object *obj1,
 		fst_fl  = LU_XATTR_CREATE;
 	}
 
-	LASSERT(snd_buf != NULL);
+	/* snd_buf cannot be NULL at this point */
 	snd_lmm = snd_buf->lb_buf;
-	snd_gen = le16_to_cpu(snd_lmm->lmm_layout_gen);
+	if (snd_lmm != NULL)
+		snd_gen = le16_to_cpu(snd_lmm->lmm_layout_gen);
+	else
+		snd_gen = 0;
 
 	/* increase the generation layout numbers */
 	snd_gen++;
