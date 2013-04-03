@@ -601,9 +601,9 @@ static int osd_seq_load_locked(struct osd_device *osd,
 		sprintf(name, "d%u", i);
 		dir = simple_mkdir(osd_seq->oos_root, osd->od_mnt, name,
 				   0700, 1);
-		if (IS_ERR(dir)) {
-			rc = PTR_ERR(dir);
-		} else if (dir->d_inode) {
+		if (IS_ERR(dir))
+			GOTO(out_free, rc = PTR_ERR(dir));
+		else if (dir->d_inode) {
 			ldiskfs_set_inode_state(dir->d_inode,
 						LDISKFS_STATE_LUSTRE_NO_OI);
 			osd_seq->oos_dirs[i] = dir;
@@ -613,8 +613,13 @@ static int osd_seq_load_locked(struct osd_device *osd,
 		}
 	}
 
-	if (rc != 0)
+	if (rc != 0) {
+out_free:
 		osd_seq_free(map, osd_seq);
+		osd_seq = NULL;
+		dput(seq_dir);
+		goto out_err;
+	}
 out_put:
 	if (rc != 0) {
 		dput(seq_dir);
