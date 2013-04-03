@@ -1,8 +1,8 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.57])
-AC_INIT([Lustre ldiskfs], 3.3.0, [http://bugs.whamcloud.com/])
-AC_CONFIG_SRCDIR([lustre-ldiskfs.spec.in])
+AC_INIT([ldiskfs], 3.3.0, [http://bugs.whamcloud.com/])
+AC_CONFIG_SRCDIR([ldiskfs.spec.in])
 
 # Don't look for install-sh, etc. in ..
 AC_CONFIG_AUX_DIR([config])

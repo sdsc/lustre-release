@@ -3,8 +3,8 @@
 /autom4te.cache
 /config.h
 /config.h.in
-/lustre-ldiskfs-*.tar.gz
-/lustre-ldiskfs.spec
+/ldiskfs-*.tar.gz
+/ldiskfs.spec
 /mkinstalldirs
 /module.order
 /modules.order

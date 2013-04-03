@@ -888,10 +888,10 @@ build_lustre() {
             return 255
         fi
 
-        #cp lustre-ldiskfs*.tar.gz $TOPDIR/SOURCES || \
-        #    fatal 1 "Could not copy lustre-ldiskfs*.tar.gz to $TOPDIR/SOURCES"
+        #cp ldiskfs*.tar.gz $TOPDIR/SOURCES || \
+        #    fatal 1 "Could not copy ldiskfs*.tar.gz to $TOPDIR/SOURCES"
 
-        if ! $RPMBUILD $targets $rpmbuildopt lustre-ldiskfs*.tar.gz \
+        if ! $RPMBUILD $targets $rpmbuildopt ldiskfs*.tar.gz \
             --define "configure_args $confoptions ${CONFIGURE_FLAGS}" \
             --define "kdir $linux" \
             ${linuxobj:+--define "kobjdir $linuxobj"} \
@@ -903,7 +903,7 @@ build_lustre() {
         fi
 
         if $DO_SRC; then
-            if ! $RPMBUILD -ts lustre-ldiskfs*.tar.gz \
+            if ! $RPMBUILD -ts ldiskfs*.tar.gz \
                 --define "configure_args $confoptions ${CONFIGURE_FLAGS}" \
                 --define "kdir $linux" \
                 ${linuxobj:+--define "kobjdir $linuxobj"} \
@@ -919,9 +919,9 @@ build_lustre() {
         # tell lustre where ldiskfs is
         # XXX - pointing to the RPM BUILD dir is a hack.  we need to flesh
         #       out the ldiskfs RPM build so that it builds a
-        #       lustre-ldiskfs-devel RPM and install that and point lustre
+        #       ldiskfs-devel RPM and install that and point lustre
         #       to that instead
-        confoptions="$confoptions --with-ldiskfs=$(ls -d $TOPDIR/BUILD/lustre-ldiskfs-*)"
+        confoptions="$confoptions --with-ldiskfs=$(ls -d $TOPDIR/BUILD/ldiskfs-*)"
     }
 
     if $IOKITRPM; then
