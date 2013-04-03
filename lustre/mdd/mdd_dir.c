@@ -2481,7 +2481,7 @@ static int mdd_declare_rename(const struct lu_env *env,
                 if (rc)
                         return rc;
 
-		mdd_declare_links_del(env, mdd_tobj, handle);
+		rc = mdd_declare_links_del(env, mdd_tobj, handle);
                 if (rc)
                         return rc;
 

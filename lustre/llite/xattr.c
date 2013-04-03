@@ -391,7 +391,7 @@ do_getxattr:
                 GOTO(out, rc = -EFAULT);
 
 #ifdef CONFIG_FS_POSIX_ACL
-        if (body->eadatasize >= 0 && rce && rce->rce_ops == RMT_LSETFACL) {
+	if (rce && rce->rce_ops == RMT_LSETFACL) {
                 ext_acl_xattr_header *acl;
 
                 acl = lustre_posix_acl_xattr_2ext((posix_acl_xattr_header *)xdata,

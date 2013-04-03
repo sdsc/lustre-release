@@ -553,6 +553,7 @@ int main(int argc, char **argv)
                                 perror("fdatasync");
                                 exit(save_errno);
                         }
+			break;
                 case 'z':
                         len = atoi(commands+1);
                         if (lseek(fd, len, SEEK_SET) == -1) {
