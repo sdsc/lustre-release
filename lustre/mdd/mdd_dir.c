@@ -2425,7 +2425,7 @@ static int mdd_declare_rename(const struct lu_env *env,
         rc = mdo_declare_attr_set(env, mdd_sobj, NULL, handle);
         if (rc)
                 return rc;
-	mdd_declare_links_add(env, mdd_sobj, handle, NULL);
+	rc = mdd_declare_links_add(env, mdd_sobj, handle, NULL);
         if (rc)
                 return rc;
 
@@ -2469,7 +2469,7 @@ static int mdd_declare_rename(const struct lu_env *env,
                 if (rc)
                         return rc;
 
-		mdd_declare_links_del(env, mdd_tobj, handle);
+		rc = mdd_declare_links_del(env, mdd_tobj, handle);
                 if (rc)
                         return rc;
 

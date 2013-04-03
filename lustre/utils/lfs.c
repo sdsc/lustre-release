@@ -1741,6 +1741,7 @@ static int lfs_df(int argc, char **argv)
                         break;
                 case 'l':
                         lazy = 1;
+			break;
                 case 'p':
                         pool_name = optarg;
                         break;

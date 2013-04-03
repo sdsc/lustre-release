@@ -2033,7 +2033,7 @@ static int lov_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 struct obd_quotactl *oqctl;
 
                 if (qctl->qc_valid == QC_OSTIDX) {
-                        if (qctl->qc_idx < 0 || count <= qctl->qc_idx)
+			if (count <= qctl->qc_idx)
                                 RETURN(-EINVAL);
 
                         tgt = lov->lov_tgts[qctl->qc_idx];

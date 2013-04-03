@@ -1338,13 +1338,11 @@ static int mdd_swap_layouts(const struct lu_env *env, struct md_object *obj1,
 		fst_gen = 0;
 	}
 
-	if (snd_buf) {
-		snd_lmm = snd_buf->lb_buf;
+	snd_lmm = snd_buf->lb_buf;
+	if (snd_lmm != NULL)
 		snd_gen = le16_to_cpu(snd_lmm->lmm_layout_gen);
-	} else {
-		snd_lmm = NULL;
+	else
 		snd_gen = 0;
-	}
 
 	/* save the orignal lmm common header of first file
 	 * to be able to roll back */
