@@ -26,6 +26,7 @@ CLIENTS=${CLIENTS:-$HOSTNAME}
 RACERDIRS=${RACERDIRS:-"$DIR $DIR2"}
 echo RACERDIRS=$RACERDIRS
 
+export MULTIOP=${MULTIOP:-$LUSTRE/tests/multiop}
 
 check_progs_installed $CLIENTS $racer ||
 	{ skip_env "$racer not found" && exit 0; }
