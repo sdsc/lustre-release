@@ -4124,7 +4124,9 @@ int llapi_create_volatile_idx(char *directory, int idx, int mode)
 	else
 		sprintf(filename, LUSTRE_VOLATILE_IDX"%.4X", 0, random);
 
-	sprintf(file_path, "%s/%s", directory, filename);
+	if (snprintf(file_path, sizeof(file_path), "%s/%s", directory, filename)
+	    >= sizeof(file_path))
+		return -E2BIG;
 
 	fd = open(file_path, O_RDWR|O_CREAT|mode, S_IRUSR|S_IWUSR);
 	if (fd < 0) {

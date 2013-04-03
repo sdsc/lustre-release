@@ -613,8 +613,10 @@ static int osd_seq_load_locked(struct osd_device *osd,
 		}
 	}
 
-	if (rc != 0)
+	if (rc != 0) {
 		osd_seq_free(map, osd_seq);
+		goto out_err;
+	}
 out_put:
 	if (rc != 0) {
 		dput(seq_dir);

@@ -168,8 +168,8 @@ int llapi_hsm_copytool_fini(struct hsm_copytool_private **priv)
 	libcfs_ukuc_stop(&ct->kuc);
 
 	free(ct->fsname);
-	free(ct);
 	*priv = NULL;
+	free(ct);
 	return 0;
 }
 
