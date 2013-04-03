@@ -568,7 +568,7 @@ static int osd_seq_load_locked(struct osd_device *osd,
 	struct dentry       *seq_dir;
 	int		    rc = 0;
 	int		    i;
-	char		    seq_name[32];
+	char		    dir_name[32];
 	ENTRY;
 
 	if (osd_seq->oos_root != NULL)
@@ -577,9 +577,9 @@ static int osd_seq_load_locked(struct osd_device *osd,
 	LASSERT(map);
 	LASSERT(map->om_root);
 
-	osd_seq_name(seq_name, osd_seq->oos_seq);
+	osd_seq_name(dir_name, osd_seq->oos_seq);
 
-	seq_dir = simple_mkdir(map->om_root, osd->od_mnt, seq_name, 0755, 1);
+	seq_dir = simple_mkdir(map->om_root, osd->od_mnt, dir_name, 0755, 1);
 	if (IS_ERR(seq_dir))
 		GOTO(out_err, rc = PTR_ERR(seq_dir));
 	else if (seq_dir->d_inode == NULL)
@@ -596,27 +596,30 @@ static int osd_seq_load_locked(struct osd_device *osd,
 
 	for (i = 0; i < osd_seq->oos_subdir_count; i++) {
 		struct dentry   *dir;
-		char	     name[32];
 
-		sprintf(name, "d%u", i);
-		dir = simple_mkdir(osd_seq->oos_root, osd->od_mnt, name,
+		snprintf(dir_name, sizeof(dir_name), "d%u", i);
+		dir = simple_mkdir(osd_seq->oos_root, osd->od_mnt, dir_name,
 				   0700, 1);
 		if (IS_ERR(dir)) {
-			rc = PTR_ERR(dir);
-		} else if (dir->d_inode) {
-			ldiskfs_set_inode_state(dir->d_inode,
-						LDISKFS_STATE_LUSTRE_NO_OI);
-			osd_seq->oos_dirs[i] = dir;
-			rc = 0;
-		} else {
-			LBUG();
+			GOTO(out_free, rc = PTR_ERR(dir));
+		} else if (dir->d_inode == NULL) {
+			dput(dir);
+			GOTO(out_free, rc = -EFAULT);
 		}
+
+		ldiskfs_set_inode_state(dir->d_inode, LDISKFS_STATE_LUSTRE_NO_OI);
+		osd_seq->oos_dirs[i] = dir;
 	}
 
-	if (rc != 0)
-		osd_seq_free(map, osd_seq);
-out_put:
 	if (rc != 0) {
+out_free:
+		for (i = 0; i < osd_seq->oos_subdir_count; i++) {
+			if (osd_seq->oos_dirs[i] != NULL)
+				dput(osd_seq->oos_dirs[i]);
+		}
+		OBD_FREE(osd_seq->oos_dirs,
+			 sizeof(seq_dir) * osd_seq->oos_subdir_count);
+out_put:
 		dput(seq_dir);
 		osd_seq->oos_root = NULL;
 	}
