@@ -680,10 +680,16 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
                 CFS_INIT_LIST_HEAD(&oh->ot_dcb_list);
                 osd_th_alloced(oh);
 
-		memset(oti->oti_declare_ops, 0, OSD_OT_MAX);
-		memset(oti->oti_declare_ops_rb, 0, OSD_OT_MAX);
-		memset(oti->oti_declare_ops_cred, 0, OSD_OT_MAX);
+
+#ifdef OSD_TRACK_DECLARES
+		memset(oti->oti_declare_ops, 0, OSD_OT_MAX *
+					sizeof(*oti->oti_declare_ops));
+		memset(oti->oti_declare_ops_rb, 0, OSD_OT_MAX *
+					sizeof(*oti->oti_declare_ops_rb));
+		memset(oti->oti_declare_ops_cred, 0, OSD_OT_MAX *
+					sizeof(*oti->oti_declare_ops_cred));
 		oti->oti_rollback = false;
+#endif
         }
         RETURN(th);
 }
