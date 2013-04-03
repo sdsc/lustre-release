@@ -169,7 +169,6 @@ int llapi_hsm_copytool_fini(struct hsm_copytool_private **priv)
 
 	free(ct->fsname);
 	free(ct);
-	*priv = NULL;
 	return 0;
 }
 
