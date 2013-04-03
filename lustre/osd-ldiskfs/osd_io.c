@@ -712,7 +712,8 @@ static int osd_declare_write_commit(const struct lu_env *env,
 		 * XXX we could handle this on per-lnb basis as done by
 		 * grant. */
 		if ((lnb[i].flags & OBD_BRW_NOQUOTA) ||
-		    !(lnb[i].flags & OBD_BRW_SYNC))
+		    (lnb[i].flags & (OBD_BRW_FROM_GRANT | OBD_BRW_SYNC)) ==
+		    OBD_BRW_FROM_GRANT)
 			ignore_quota = true;
 	}
 
