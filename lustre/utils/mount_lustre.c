@@ -718,10 +718,12 @@ int main(int argc, char *const argv[])
 		 * to indicate the device has been registered.
 		 * only if the label is supposed to be changed and
 		 * target service is supposed to start */
+		/*
 		if (mop.mo_ldd.ldd_flags & (LDD_F_VIRGIN | LDD_F_WRITECONF)) {
 			if (mop.mo_nosvc == 0 )
 				(void) osd_label_lustre(&mop);
 		}
+		 */
         }
 
 	free(options);
