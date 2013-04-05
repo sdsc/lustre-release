@@ -229,9 +229,8 @@ int obd_proc_read_version(char *page, char **start, off_t off, int count,
                           int *eof, void *data)
 {
         *eof = 1;
-        return snprintf(page, count, "lustre: %s\nkernel: %s\nbuild:  %s\n",
-                        LUSTRE_VERSION_STRING, "patchless_client",
-                        BUILD_VERSION);
+        return snprintf(page, count, "lustre: %s\nbuild:  %s\n",
+                        LUSTRE_VERSION_STRING, BUILD_VERSION);
 }
 
 int obd_proc_read_pinger(char *page, char **start, off_t off, int count,
