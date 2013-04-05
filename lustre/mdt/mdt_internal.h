@@ -201,6 +201,7 @@ struct mdt_object {
         __u64                   mot_ioepoch;
         __u64                   mot_flags;
         int                     mot_ioepoch_count;
+        int                     mot_opencount;
         int                     mot_writecount;
         /* Lock to protect object's IO epoch. */
 	struct mutex		mot_ioepoch_mutex;

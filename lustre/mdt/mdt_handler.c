@@ -5005,9 +5005,11 @@ static int mdt_object_print(const struct lu_env *env, void *cookie,
 {
         struct mdt_object *mdto = mdt_obj((struct lu_object *)o);
         return (*p)(env, cookie, LUSTRE_MDT_NAME"-object@%p(ioepoch="LPU64" "
-                    "flags="LPX64", epochcount=%d, writecount=%d)",
-                    mdto, mdto->mot_ioepoch, mdto->mot_flags,
-                    mdto->mot_ioepoch_count, mdto->mot_writecount);
+		    "flags="LPX64", epochcount=%d, opencount=%d, "
+		    "writecount=%d)",
+		    mdto, mdto->mot_ioepoch, mdto->mot_flags,
+		    mdto->mot_ioepoch_count, mdto->mot_opencount,
+		    mdto->mot_writecount);
 }
 
 static int mdt_prepare(const struct lu_env *env,

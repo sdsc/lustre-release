@@ -563,6 +563,65 @@ static void mdt_write_allow(struct mdt_object *o)
         EXIT;
 }
 
+static void mdt_opencnt_get(struct mdt_object *o)
+{
+	ENTRY;
+	mutex_lock(&o->mot_ioepoch_mutex);
+	if (o->mot_opencount == -1)
+		o->mot_opencount = 1;
+	else
+		o->mot_opencount++;
+	mutex_unlock(&o->mot_ioepoch_mutex);
+	EXIT;
+}
+
+static void mdt_opencnt_put(struct mdt_object *o)
+{
+	ENTRY;
+	mutex_lock(&o->mot_ioepoch_mutex);
+	LASSERT(o->mot_opencount > 0);
+	o->mot_opencount--;
+	mutex_unlock(&o->mot_ioepoch_mutex);
+	EXIT;
+}
+
+static int mdt_opencnt_excl_start(struct mdt_object *o)
+{
+	int rc = 0;
+	ENTRY;
+	mutex_lock(&o->mot_ioepoch_mutex);
+	/* No release nor open in progress */
+	if (o->mot_opencount != 0)
+		rc = -ETXTBSY;
+	else
+		o->mot_opencount = -1;
+	mutex_unlock(&o->mot_ioepoch_mutex);
+	RETURN(rc);
+}
+
+static int mdt_opencnt_excl_allow(struct mdt_thread_info *info,
+				  struct mdt_object *o,
+				  struct mdt_lock_handle *lh)
+{
+	int rc;
+
+	ENTRY;
+	mutex_lock(&o->mot_ioepoch_mutex);
+	LASSERT(o->mot_opencount != 0);
+	/* No release nor open in progress */
+	if (o->mot_opencount > 0)
+		rc = -ETXTBSY;
+	else {
+		mdt_lock_reg_init(lh, LCK_EX);
+		rc = mdt_object_lock(info, o, lh, MDS_INODELOCK_LAYOUT,
+				     MDT_LOCAL_LOCK);
+		o->mot_opencount = 0;
+	}
+	mutex_unlock(&o->mot_ioepoch_mutex);
+	RETURN(rc);
+}
+
+
 /* there can be no real transaction so prepare the fake one */
 static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
 {
