@@ -3971,6 +3971,20 @@ test_72() { #LU-2634
 }
 run_test 72 "test fast symlink with extents flag enabled"
 
+test_73() { #LU-2950
+	local legacy="script-input/legacy_routes_test"
+	local new="script-input/new_routes_test"
+	lustre_routes_conversion $legacy $new
+	if [ -f $new ]; then
+		lustre_routes_config --dry-run --verbose $new
+	else
+		echo "routes conversion test failed"
+	fi
+	# remove generated file
+	rm -f $new
+}
+run_test 73 "test routes conversion and configuration"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi

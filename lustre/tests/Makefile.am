@@ -49,6 +49,7 @@ nobase_noinst_DATA += acl/misc.test acl/permissions.test acl/setfacl.test
 nobase_noinst_DATA += rmtacl/misc.test rmtacl/permissions.test
 nobase_noinst_DATA += rmtacl/setfacl.test rmtacl/cp.test
 nobase_noinst_DATA += rmtacl/getfacl-noacl.test rmtacl/inheritance.test
+nobase_noinst_DATA += script-input/legacy_routes_test
 
 EXTRA_DIST = $(noinst_SCRIPTS) $(noinst_DATA) \
              $(nobase_noinst_SCRIPTS) $(nobase_noinst_DATA)
