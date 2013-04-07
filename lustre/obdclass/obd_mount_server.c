@@ -263,10 +263,14 @@ static int server_start_mgs(struct super_block *sb)
 		 * mgs calls server_put_mount() in error handling case. -umka */
 	}
 
-	if (rc)
+	if (rc) {
+		server_deregister_mount(LUSTRE_MGS_OBDNAME);
+
 		LCONSOLE_ERROR_MSG(0x15e, "Failed to start MGS '%s' (%d). "
 				   "Is the 'mgs' module loaded?\n",
 				   LUSTRE_MGS_OBDNAME, rc);
+	}
+
 	RETURN(rc);
 }
 
