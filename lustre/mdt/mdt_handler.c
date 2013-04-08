@@ -3502,24 +3502,28 @@ static struct mdt_it_flavor {
 
 int mdt_intent_lock_replace(struct mdt_thread_info *info,
                             struct ldlm_lock **lockp,
-                            struct ldlm_lock *new_lock,
                             struct mdt_lock_handle *lh,
 			    __u64 flags)
 {
         struct ptlrpc_request  *req = mdt_info_req(info);
         struct ldlm_lock       *lock = *lockp;
+	struct ldlm_lock       *new_lock;
 
         /*
          * Get new lock only for cases when possible resent did not find any
          * lock.
          */
-        if (new_lock == NULL)
-                new_lock = ldlm_handle2lock_long(&lh->mlh_reg_lh, 0);
+        new_lock = ldlm_handle2lock_long(&lh->mlh_reg_lh, 0);
+	if (new_lock == NULL && (flags & LDLM_FL_INTENT_ONLY)) {
+		lh->mlh_reg_lh.cookie = 0;
+		RETURN(0);
+	}
 
-        if (new_lock == NULL && (flags & LDLM_FL_INTENT_ONLY)) {
-                lh->mlh_reg_lh.cookie = 0;
-                RETURN(0);
-        }
+	if (lock == new_lock) {
+		LDLM_LOCK_PUT(new_lock);
+		lh->mlh_reg_lh.cookie = 0;
+		RETURN(ELDLM_LOCK_REPLACED);
+	}
 
         LASSERTF(new_lock != NULL,
                  "lockh "LPX64"\n", lh->mlh_reg_lh.cookie);
@@ -3586,60 +3590,16 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
 }
 
 static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
-                                    struct ldlm_lock *new_lock,
-                                    struct ldlm_lock **old_lock,
+                                    struct ldlm_lock *lock,
                                     struct mdt_lock_handle *lh)
 {
         struct ptlrpc_request  *req = mdt_info_req(info);
-        struct obd_export      *exp = req->rq_export;
-        struct lustre_handle    remote_hdl;
-        struct ldlm_request    *dlmreq;
-        struct ldlm_lock       *lock;
 
         if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT))
                 return;
 
-        dlmreq = req_capsule_client_get(info->mti_pill, &RMF_DLM_REQ);
-        remote_hdl = dlmreq->lock_handle[0];
-
-	/* In the function below, .hs_keycmp resolves to
-	 * ldlm_export_lock_keycmp() */
-	/* coverity[overrun-buffer-val] */
-        lock = cfs_hash_lookup(exp->exp_lock_hash, &remote_hdl);
-        if (lock) {
-                if (lock != new_lock) {
-                        lh->mlh_reg_lh.cookie = lock->l_handle.h_cookie;
-                        lh->mlh_reg_mode = lock->l_granted_mode;
-
-                        LDLM_DEBUG(lock, "Restoring lock cookie");
-                        DEBUG_REQ(D_DLMTRACE, req,
-                                  "restoring lock cookie "LPX64,
-                                  lh->mlh_reg_lh.cookie);
-                        if (old_lock)
-                                *old_lock = LDLM_LOCK_GET(lock);
-                        cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
-                        return;
-                }
-
-                cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
-        }
-
-        /*
-         * If the xid matches, then we know this is a resent request, and allow
-         * it. (It's probably an OPEN, for which we don't send a lock.
-         */
-        if (req_xid_is_last(req))
-                return;
-
-        /*
-         * This remote handle isn't enqueued, so we never received or processed
-         * this request.  Clear MSG_RESENT, because it can be handled like any
-         * normal request now.
-         */
-        lustre_msg_clear_flags(req->rq_reqmsg, MSG_RESENT);
-
-        DEBUG_REQ(D_DLMTRACE, req, "no existing lock with rhandle "LPX64,
-                  remote_hdl.cookie);
+        lh->mlh_reg_lh.cookie = lock->l_handle.h_cookie;
+        lh->mlh_reg_mode = lock->l_granted_mode;
 }
 
 static int mdt_intent_getattr(enum mdt_it_code opcode,
@@ -3648,7 +3608,6 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
 			      __u64 flags)
 {
         struct mdt_lock_handle *lhc = &info->mti_lh[MDT_LH_RMT];
-        struct ldlm_lock       *new_lock = NULL;
         __u64                   child_bits;
         struct ldlm_reply      *ldlm_rep;
         struct ptlrpc_request  *req;
@@ -3689,7 +3648,7 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         mdt_set_disposition(info, ldlm_rep, DISP_IT_EXECD);
 
         /* Get lock from request for possible resent case. */
-        mdt_intent_fixup_resent(info, *lockp, &new_lock, lhc);
+	mdt_intent_fixup_resent(info, *lockp, lhc);
 
         ldlm_rep->lock_policy_res2 =
                 mdt_getattr_name_lock(info, lhc, child_bits, ldlm_rep);
@@ -3702,7 +3661,7 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
                 GOTO(out_ucred, rc = ELDLM_LOCK_ABORTED);
         }
 
-        rc = mdt_intent_lock_replace(info, lockp, new_lock, lhc, flags);
+	rc = mdt_intent_lock_replace(info, lockp, lhc, flags);
         EXIT;
 out_ucred:
         mdt_exit_ucred(info);
@@ -3775,7 +3734,7 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
         }
 
         /* Get lock from request for possible resent case. */
-        mdt_intent_fixup_resent(info, *lockp, NULL, lhc);
+	mdt_intent_fixup_resent(info, *lockp, lhc);
 
         rc = mdt_reint_internal(info, lhc, opc);
 
@@ -3794,7 +3753,7 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
 	if (rc == -EREMOTE || mdt_get_disposition(rep, DISP_OPEN_LOCK)) {
 		LASSERT(lustre_handle_is_used(&lhc->mlh_reg_lh));
 		rep->lock_policy_res2 = 0;
-		rc = mdt_intent_lock_replace(info, lockp, NULL, lhc, flags);
+		rc = mdt_intent_lock_replace(info, lockp, lhc, flags);
 		RETURN(rc);
 	}
 
@@ -3827,7 +3786,7 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
                         LASSERTF(rc == 0, "Error occurred but lock handle "
                                  "is still in use, rc = %d\n", rc);
                         rep->lock_policy_res2 = 0;
-                        rc = mdt_intent_lock_replace(info, lockp, NULL, lhc, flags);
+			rc = mdt_intent_lock_replace(info, lockp, lhc, flags);
                         RETURN(rc);
                 } else {
                         lhc->mlh_reg_lh.cookie = 0ull;

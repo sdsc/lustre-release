@@ -1267,7 +1267,8 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
         }
 #endif
 
-        if (unlikely(flags & LDLM_FL_REPLAY)) {
+	if (unlikely(flags & LDLM_FL_REPLAY ||
+		     lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT)) {
                 /* Find an existing lock in the per-export lock hash */
 		/* In the function below, .hs_keycmp resolves to
 		 * ldlm_export_lock_keycmp() */
@@ -1278,7 +1279,9 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
                         DEBUG_REQ(D_DLMTRACE, req, "found existing lock cookie "
                                   LPX64, lock->l_handle.h_cookie);
                         GOTO(existing_lock, rc = 0);
-                }
+		} else {
+			lustre_msg_clear_flags(req->rq_reqmsg, MSG_RESENT);
+		}
         }
 
         /* The lock's callback data might be set in the policy function */
