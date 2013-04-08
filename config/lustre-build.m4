@@ -571,6 +571,7 @@ AC_DEFUN([LB_CONFIG_FILES],
 		contrib/Makefile
 		contrib/lbuild/Makefile
 		contrib/scripts/Makefile
+		[osd_zfs_dkms.conf:build/osd_zfs_dkms.conf.in]
 	)
 ])
 

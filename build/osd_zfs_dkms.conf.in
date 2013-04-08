@@ -1,0 +1,26 @@
+# Lustre kernel osd_zfs module dkms configuration file
+# modified by B.Faccini for RPM packaging
+
+# Due to the way DKMS is copying files to the build area without
+# preserving time-stamps (DKMS bug 952817), and thus to avoid the need
+# to ship autogen.sh along with auto-tools to be installed, we use the
+# --disable-maintainer-mode switch.
+MAKE="./configure --disable-maintainer-mode --enable-server --disable-utils --with-linux=$kernel_source_dir --with-spl=$dkms_tree/spl/*/build/ --with-zfs=$dkms_tree/zfs/*/build/ && make"
+CLEAN="make distclean"
+
+AUTOINSTALL=yes
+PACKAGE_NAME=lustre-osd-zfs
+PACKAGE_VERSION=@AC_LUSTRE_VERSION_STRING@
+
+#Restrict builds to the patchless support matrix.
+BUILD_EXCLUSIVE_KERNEL="^2.6.(1[8-9]|2[0-9]|3[0-2])"
+STRIP="no"
+
+# Module names
+BUILT_MODULE_NAME[0]="osd_zfs"
+
+# Location of the modules in the source tree after build
+BUILT_MODULE_LOCATION[0]="lustre/osd-zfs"
+
+# Final destination of the  modules under  /lib/modules/<kernel>/
+DEST_MODULE_LOCATION[0]="/updates/kernel/net/lustre"
