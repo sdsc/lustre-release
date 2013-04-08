@@ -278,8 +278,8 @@ test_17() {
 
     # With adaptive timeouts, bulk_get won't expire until adaptive_timeout_max
     if at_is_enabled; then
-        at_max_saved=$(at_max_get ost1)
-        at_max_set $TIMEOUT ost1
+	at_max_saved=$(at_max_get ost1)
+	at_max_set $TIMEOUT ost1
     fi
 
     # OBD_FAIL_PTLRPC_BULK_GET_NET 0x0503 | OBD_FAIL_ONCE
@@ -319,8 +319,8 @@ test_18a() {
     $LFS setstripe -i 1 -c 1 $f
     stripe_index=$($LFS getstripe -i $f)
     if [ $stripe_index -ne 1 ]; then
-        $LFS getstripe $f
-        error "$f: stripe_index $stripe_index != 1" && return
+	$LFS getstripe $f
+	error "$f: stripe_index $stripe_index != 1" && return
     fi
 
     do_facet client cp $TMP/$tfile $f
@@ -328,7 +328,7 @@ test_18a() {
     local osc2dev=`lctl get_param -n devices | grep ${ost2_svc}-osc- | egrep -v 'MDT' | awk '{print $1}'`
     $LCTL --device $osc2dev deactivate || return 3
     # my understanding is that there should be nothing in the page
-    # cache after the client reconnects?     
+    # cache after the client reconnects?
     rc=0
     pgcache_empty || rc=2
     $LCTL --device $osc2dev activate
@@ -352,8 +352,8 @@ test_18b() {
     $LFS setstripe -i 0 -c 1 $f
     stripe_index=$($LFS getstripe -i $f)
     if [ $stripe_index -ne 0 ]; then
-        $LFS getstripe $f
-        error "$f: stripe_index $stripe_index != 0" && return
+	$LFS getstripe $f
+	error "$f: stripe_index $stripe_index != 0" && return
     fi
 
     do_facet client cp $TMP/$tfile $f
@@ -362,7 +362,7 @@ test_18b() {
     # allow recovery to complete
     sleep $((TIMEOUT + 2))
     # my understanding is that there should be nothing in the page
-    # cache after the client reconnects?     
+    # cache after the client reconnects?
     rc=0
     pgcache_empty || rc=2
     rm -f $f
@@ -385,8 +385,8 @@ test_18c() {
     $LFS setstripe -i 0 -c 1 $f
     stripe_index=$($LFS getstripe -i $f)
     if [ $stripe_index -ne 0 ]; then
-        $LFS getstripe $f
-        error "$f: stripe_index $stripe_index != 0" && return
+	$LFS getstripe $f
+	error "$f: stripe_index $stripe_index != 0" && return
     fi
 
     do_facet client cp $TMP/$tfile $f
@@ -401,7 +401,7 @@ test_18c() {
     df $MOUNT > /dev/null 2>&1
     sleep 2
     # my understanding is that there should be nothing in the page
-    # cache after the client reconnects?     
+    # cache after the client reconnects?
     rc=0
     pgcache_empty || rc=2
     rm -f $f
@@ -510,7 +510,7 @@ test_20a() {	# bug 2983 - ldlm_handle_enqueue cleanup
 	rc=$?
 	[ $rc -eq 0 ] && error "multiop didn't fail enqueue: rc $rc" || true
 }
-run_test 20a "ldlm_handle_enqueue error (should return error)" 
+run_test 20a "ldlm_handle_enqueue error (should return error)"
 
 test_20b() {	# bug 2986 - ldlm_handle_enqueue error during open
 	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
@@ -722,7 +722,7 @@ run_test 21h "drop open request and close reply while close and open are both in
 test_22() {
     f1=$DIR/${tfile}-1
     f2=$DIR/${tfile}-2
-    
+
     do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000115"
     $MULTIOP $f2 Oc &
     close_pid=$!
@@ -821,10 +821,10 @@ test_26a() {      # was test_26 bug 5921 - evict dead exports by pinger
 	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 	remote_mds || { skip "local MDS" && return 0; }
 
-        if [ $(facet_host mgs) = $(facet_host ost1) ]; then
-                skip "msg and ost1 are at the same node"
-                return 0
-        fi
+	if [ $(facet_host mgs) = $(facet_host ost1) ]; then
+		skip "msg and ost1 are at the same node"
+		return 0
+	fi
 
 	check_timeout || return 1
 
@@ -833,30 +833,30 @@ test_26a() {      # was test_26 bug 5921 - evict dead exports by pinger
 	echo starting with $OST_NEXP OST exports
 # OBD_FAIL_PTLRPC_DROP_RPC 0x505
 	do_facet client lctl set_param fail_loc=0x505
-        # evictor takes PING_EVICT_TIMEOUT + 3 * PING_INTERVAL to evict.
-        # But if there's a race to start the evictor from various obds,
-        # the loser might have to wait for the next ping.
+	# evictor takes PING_EVICT_TIMEOUT + 3 * PING_INTERVAL to evict.
+	# But if there's a race to start the evictor from various obds,
+	# the loser might have to wait for the next ping.
 
 	local rc=0
 	wait_client_evicted ost1 $OST_NEXP $((TIMEOUT * 2 + TIMEOUT * 3 / 4))
 	rc=$?
 	do_facet client lctl set_param fail_loc=0x0
-        [ $rc -eq 0 ] || error "client not evicted from OST"
+	[ $rc -eq 0 ] || error "client not evicted from OST"
 }
 run_test 26a "evict dead exports"
 
 test_26b() {      # bug 10140 - evict dead exports by pinger
 	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
-        if [ $(facet_host mgs) = $(facet_host ost1) ]; then
-                skip "msg and ost1 are at the same node"
-                return 0
-        fi
+	if [ $(facet_host mgs) = $(facet_host ost1) ]; then
+		skip "msg and ost1 are at the same node"
+		return 0
+	fi
 
 	check_timeout || return 1
 	clients_up
 	zconf_mount `hostname` $MOUNT2 ||
-                { error "Failed to mount $MOUNT2"; return 2; }
+		{ error "Failed to mount $MOUNT2"; return 2; }
 	sleep 1 # wait connections being established
 
 	local MDS_NEXP=$(do_facet $SINGLEMDS lctl get_param -n mdt.${mds1_svc}.num_exports | cut -d' ' -f2)
@@ -869,8 +869,8 @@ test_26b() {      # bug 10140 - evict dead exports by pinger
 	# PING_INTERVAL max(obd_timeout / 4, 1U)
 	# PING_EVICT_TIMEOUT (PING_INTERVAL * 6)
 
-	# evictor takes PING_EVICT_TIMEOUT + 3 * PING_INTERVAL to evict.  
-	# But if there's a race to start the evictor from various obds, 
+	# evictor takes PING_EVICT_TIMEOUT + 3 * PING_INTERVAL to evict.
+	# But if there's a race to start the evictor from various obds,
 	# the loser might have to wait for the next ping.
 	# = 9 * PING_INTERVAL + PING_INTERVAL
 	# = 10 PING_INTERVAL = 10 obd_timeout / 4 = 2.5 obd_timeout
@@ -898,8 +898,8 @@ test_27() {
 	wait_update_facet $SINGLEMDS "lctl get_param -n fail_loc" "-2147482617"
 	facet_failover $SINGLEMDS
 	#no crashes allowed!
-        kill -USR1 $CLIENT_PID
-	wait $CLIENT_PID 
+	kill -USR1 $CLIENT_PID
+	wait $CLIENT_PID
 	true
 	FAILURE_MODE=$save_FAILURE_MODE
 }
@@ -954,8 +954,8 @@ test_50() {
 	fail $SINGLEMDS
 	# client process should see no problems even though MDS went down
 	sleep $TIMEOUT
-        kill -USR1 $CLIENT_PID
-	wait $CLIENT_PID 
+	kill -USR1 $CLIENT_PID
+	wait $CLIENT_PID
 	rc=$?
 	echo writemany returned $rc
 	#these may fail because of eviction due to slow AST response.
@@ -976,19 +976,19 @@ test_51() {
 	facet_failover $SINGLEMDS
 	# failover at various points during recovery
 	SEQ="1 5 10 $(seq $TIMEOUT 5 $(($TIMEOUT+10)))"
-        echo will failover at $SEQ
-        for i in $SEQ
-        do
+	echo will failover at $SEQ
+	for i in $SEQ
+	do
 		#echo failover in $i sec
 		log "test_$testnum: failover in $i sec"
 		sleep $i
 		facet_failover $SINGLEMDS
-        done
+	done
 	# client process should see no problems even though MDS went down
 	# and recovery was interrupted
 	sleep $TIMEOUT
-        kill -USR1 $CLIENT_PID
-	wait $CLIENT_PID 
+	kill -USR1 $CLIENT_PID
+	wait $CLIENT_PID
 	rc=$?
 	echo writemany returned $rc
 	[ $rc -eq 0 ] || error_ignore 13652 "writemany returned rc $rc" || true
@@ -1043,14 +1043,14 @@ run_test 53 "touch: drop rep"
 
 test_54() {
 	zconf_mount `hostname` $MOUNT2
-        touch $DIR/$tfile
-        touch $DIR2/$tfile.1
-        sleep 10
-        cat $DIR2/$tfile.missing # save transno = 0, rc != 0 into last_rcvd
-        fail $SINGLEMDS
-        umount $MOUNT2
-        ERROR=`dmesg | egrep "(test 54|went back in time)" | tail -n1 | grep "went back in time"`
-        [ x"$ERROR" == x ] || error "back in time occured"
+	touch $DIR/$tfile
+	touch $DIR2/$tfile.1
+	sleep 10
+	cat $DIR2/$tfile.missing # save transno = 0, rc != 0 into last_rcvd
+	fail $SINGLEMDS
+	umount $MOUNT2
+	ERROR=`dmesg | egrep "(test 54|went back in time)" | tail -n1 | grep "went back in time"`
+	[ x"$ERROR" == x ] || error "back in time occured"
 }
 run_test 54 "back in time"
 
@@ -1073,27 +1073,27 @@ test_55() {
 		error "dd should be finished!"
 	    fi
 	    sleep 1
-	done	
+	done
 	echo "(dd_pid=$DDPID, time=$count)successful"
 
 	$LFS setstripe -c 1 -i 0 $DIR/$tdir/$tfile-2
 	#define OBD_FAIL_OST_DROP_REQ            0x21d
 	do_facet ost1 lctl set_param fail_loc=0x0000021d
 	# second dd will be never finished
-	dd if=/dev/zero of=$DIR/$tdir/$tfile-2 bs=32M count=4  &	
+	dd if=/dev/zero of=$DIR/$tdir/$tfile-2 bs=32M count=4  &
 	DDPID=$!
 	count=0
 	echo  "step2: testing ......"
 	while [ $count -le 64 ]; do
-	    dd_name="`ps x | awk '$1 == '$DDPID' { print $5 }'`"	    
-	    if [ -z  $dd_name ]; then 
-                ls -l $DIR/$tdir
+	    dd_name="`ps x | awk '$1 == '$DDPID' { print $5 }'`"
+	    if [ -z  $dd_name ]; then
+		ls -l $DIR/$tdir
 		echo  "debug: (dd_name=$dd_name, dd_pid=$DDPID, time=$count)"
 		error "dd shouldn't be finished!"
 	    fi
 	    count=$[count+1]
 	    sleep 1
-	done	
+	done
 	echo "(dd_pid=$DDPID, time=$count)successful"
 
 	#Recover fail_loc and dd will finish soon
@@ -1107,61 +1107,61 @@ test_55() {
 		error "dd should be finished!"
 	    fi
 	    sleep 1
-	done	
+	done
 	echo "(dd_pid=$DDPID, time=$count)successful"
 
-        rm -rf $DIR/$tdir
+	rm -rf $DIR/$tdir
 }
 run_test 55 "ost_brw_read/write drops timed-out read/write request"
 
 test_56() { # b=11277
 #define OBD_FAIL_MDS_RESEND      0x136
-        touch $DIR/$tfile
-        do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000136"
-        stat $DIR/$tfile
-        do_facet $SINGLEMDS "lctl set_param fail_loc=0"
-        rm -f $DIR/$tfile
+	touch $DIR/$tfile
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000136"
+	stat $DIR/$tfile
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0"
+	rm -f $DIR/$tfile
 }
 run_test 56 "do not allow reconnect to busy exports"
 
 test_57_helper() {
-        # no oscs means no client or mdt 
-        while lctl get_param osc.*.* > /dev/null 2>&1; do
-                : # loop until proc file is removed
-        done
+	# no oscs means no client or mdt
+	while lctl get_param osc.*.* > /dev/null 2>&1; do
+		: # loop until proc file is removed
+	done
 }
 
 test_57() { # bug 10866
-        test_57_helper &
-        pid=$!
-        sleep 1
+	test_57_helper &
+	pid=$!
+	sleep 1
 #define OBD_FAIL_LPROC_REMOVE            0xB00
-        lctl set_param fail_loc=0x80000B00
-        zconf_umount `hostname` $DIR
-        lctl set_param fail_loc=0x80000B00
-        fail_abort $SINGLEMDS
-        kill -9 $pid
-        lctl set_param fail_loc=0
-        mount_client $DIR
-        do_facet client "df $DIR"
+	lctl set_param fail_loc=0x80000B00
+	zconf_umount `hostname` $DIR
+	lctl set_param fail_loc=0x80000B00
+	fail_abort $SINGLEMDS
+	kill -9 $pid
+	lctl set_param fail_loc=0
+	mount_client $DIR
+	do_facet client "df $DIR"
 }
 run_test 57 "read procfs entries causes kernel crash"
 
 test_58() { # bug 11546
 #define OBD_FAIL_MDC_ENQUEUE_PAUSE        0x801
-        touch $DIR/$tfile
-        ls -la $DIR/$tfile
-        lctl set_param fail_loc=0x80000801
-        cp $DIR/$tfile /dev/null &
-        pid=$!
-        sleep 1
-        lctl set_param fail_loc=0
-        drop_bl_callback rm -f $DIR/$tfile
-        wait $pid
-        # the first 'df' could tigger the eviction caused by
-        # 'drop_bl_callback', and it's normal case.
-        # but the next 'df' should return successfully.
-        do_facet client "df $DIR" || do_facet client "df $DIR"
+	touch $DIR/$tfile
+	ls -la $DIR/$tfile
+	lctl set_param fail_loc=0x80000801
+	cp $DIR/$tfile /dev/null &
+	pid=$!
+	sleep 1
+	lctl set_param fail_loc=0
+	drop_bl_callback rm -f $DIR/$tfile
+	wait $pid
+	# the first 'df' could tigger the eviction caused by
+	# 'drop_bl_callback', and it's normal case.
+	# but the next 'df' should return successfully.
+	do_facet client "df $DIR" || do_facet client "df $DIR"
 }
 run_test 58 "Eviction in the middle of open RPC reply processing"
 
@@ -1193,7 +1193,7 @@ err17935 () {
 }
 
 test_60() {
-        MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid | \
+	MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid | \
 	    awk '{gsub(/_UUID/,""); print $1}' | head -1)
 
 	NUM_FILES=15000
@@ -1257,11 +1257,11 @@ test_61()
 	$LFS setstripe -c 1 -i 0 $DIR/$tdir
 
 	replay_barrier $SINGLEMDS
-	createmany -o $DIR/$tdir/$tfile-%d 10 
+	createmany -o $DIR/$tdir/$tfile-%d 10
 	local oid=`do_facet ost1 "lctl get_param -n obdfilter.${ost1_svc}.last_id"`
 
 	fail_abort $SINGLEMDS
-	
+
 	touch $DIR/$tdir/$tfile
 	local id=`$LFS getstripe $DIR/$tdir/$tfile | awk '$1 == 0 { print $2 }'`
 	[ $id -le $oid ] && error "the orphan objid was reused, failed"
@@ -1283,107 +1283,107 @@ run_test 61 "Verify to not reuse orphan objects - bug 17025"
 
 check_cli_ir_state()
 {
-        local NODE=${1:-$HOSTNAME}
-        local st
-        st=$(do_node $NODE "lctl get_param mgc.*.ir_state |
-                            awk '/imperative_recovery:/ { print \\\$2}'")
+	local NODE=${1:-$HOSTNAME}
+	local st
+	st=$(do_node $NODE "lctl get_param mgc.*.ir_state |
+			    awk '/imperative_recovery:/ { print \\\$2}'")
 	[ $st != ON -o $st != OFF -o $st != ENABLED -o $st != DISABLED ] ||
 		error "Error state $st, must be ENABLED or DISABLED"
-        echo -n $st
+	echo -n $st
 }
 
 check_target_ir_state()
 {
-        local target=${1}
-        local name=${target}_svc
-        local recovery_proc=obdfilter.${!name}.recovery_status
-        local st
+	local target=${1}
+	local name=${target}_svc
+	local recovery_proc=obdfilter.${!name}.recovery_status
+	local st
 
-        st=$(do_facet $target "lctl get_param -n $recovery_proc |
-                               awk '/IR:/{ print \\\$2}'")
+	st=$(do_facet $target "lctl get_param -n $recovery_proc |
+			       awk '/IR:/{ print \\\$2}'")
 	[ $st != ON -o $st != OFF -o $st != ENABLED -o $st != DISABLED ] ||
 		error "Error state $st, must be ENABLED or DISABLED"
-        echo -n $st
+	echo -n $st
 }
 
 set_ir_status()
 {
-        do_facet mgs lctl set_param -n mgs.MGS.live.$FSNAME="state=$1"
+	do_facet mgs lctl set_param -n mgs.MGS.live.$FSNAME="state=$1"
 }
 
 get_ir_status()
 {
-        local state=$(do_facet mgs "lctl get_param -n mgs.MGS.live.$FSNAME |
-                                    awk '/state:/{ print \\\$2 }'")
-        echo -n ${state/,/}
+	local state=$(do_facet mgs "lctl get_param -n mgs.MGS.live.$FSNAME |
+				    awk '/state:/{ print \\\$2 }'")
+	echo -n ${state/,/}
 }
 
 nidtbl_version_mgs()
 {
-        local ver=$(do_facet mgs "lctl get_param -n mgs.MGS.live.$FSNAME |
-                                  awk '/nidtbl_version:/{ print \\\$2 }'")
-        echo -n $ver
+	local ver=$(do_facet mgs "lctl get_param -n mgs.MGS.live.$FSNAME |
+				  awk '/nidtbl_version:/{ print \\\$2 }'")
+	echo -n $ver
 }
 
 # nidtbl_version_client <mds1|client> [node]
 nidtbl_version_client()
 {
-        local cli=$1
-        local node=${2:-$HOSTNAME}
+	local cli=$1
+	local node=${2:-$HOSTNAME}
 
-        if [ X$cli = Xclient ]; then
-                cli=$FSNAME-client
-        else
-                local obdtype=${cli/%[0-9]*/}
-                [ $obdtype != mds ] && error "wrong parameters $cli"
+	if [ X$cli = Xclient ]; then
+		cli=$FSNAME-client
+	else
+		local obdtype=${cli/%[0-9]*/}
+		[ $obdtype != mds ] && error "wrong parameters $cli"
 
-                node=$(facet_active_host $cli)
-                local t=${cli}_svc
-                cli=${!t}
-        fi
+		node=$(facet_active_host $cli)
+		local t=${cli}_svc
+		cli=${!t}
+	fi
 
-        local vers=$(do_node $node "lctl get_param -n mgc.*.ir_state" |
-                     awk "/$cli/{print \$6}" |sort -u)
+	local vers=$(do_node $node "lctl get_param -n mgc.*.ir_state" |
+		     awk "/$cli/{print \$6}" |sort -u)
 
-        # in case there are multiple mounts on the client node
-        local arr=($vers)
-        [ ${#arr[@]} -ne 1 ] && error "versions on client node mismatch"
-        echo -n $vers
+	# in case there are multiple mounts on the client node
+	local arr=($vers)
+	[ ${#arr[@]} -ne 1 ] && error "versions on client node mismatch"
+	echo -n $vers
 }
 
 nidtbl_versions_match()
 {
-        [ $(nidtbl_version_mgs) -eq $(nidtbl_version_client ${1:-client}) ]
+	[ $(nidtbl_version_mgs) -eq $(nidtbl_version_client ${1:-client}) ]
 }
 
 target_instance_match()
 {
-        local srv=$1
-        local obdtype
-        local cliname
+	local srv=$1
+	local obdtype
+	local cliname
 
-        obdtype=${srv/%[0-9]*/}
-        case $obdtype in
-        mds)
-                obdname="mdt"
-                cliname="mdc"
-                ;;
-        ost)
-                obdname="obdfilter"
-                cliname="osc"
-                ;;
-        *)
-                error "invalid target type" $srv
-                return 1
-                ;;
-        esac
+	obdtype=${srv/%[0-9]*/}
+	case $obdtype in
+	mds)
+		obdname="mdt"
+		cliname="mdc"
+		;;
+	ost)
+		obdname="obdfilter"
+		cliname="osc"
+		;;
+	*)
+		error "invalid target type" $srv
+		return 1
+		;;
+	esac
 
-        local target=${srv}_svc
-        local si=$(do_facet $srv lctl get_param -n $obdname.${!target}.instance)
-        local ci=$(lctl get_param -n $cliname.${!target}-${cliname}-*.import | \
-                  awk '/instance/{ print $2 }' |head -1)
+	local target=${srv}_svc
+	local si=$(do_facet $srv lctl get_param -n $obdname.${!target}.instance)
+	local ci=$(lctl get_param -n $cliname.${!target}-${cliname}-*.import | \
+		  awk '/instance/{ print $2 }' |head -1)
 
-        return $([ $si -eq $ci ])
+	return $([ $si -eq $ci ])
 }
 
 test_100()
@@ -1405,145 +1405,145 @@ test_100()
 
 	local prev_ver=$(nidtbl_version_client client)
 
-        local saved_FAILURE_MODE=$FAILURE_MODE
-        [ $(facet_host mgs) = $(facet_host ost1) ] && FAILURE_MODE="SOFT"
-        fail ost1
+	local saved_FAILURE_MODE=$FAILURE_MODE
+	[ $(facet_host mgs) = $(facet_host ost1) ] && FAILURE_MODE="SOFT"
+	fail ost1
 
-        # valid check
+	# valid check
 	[ $(nidtbl_version_client client) -eq $prev_ver ] ||
 		error "version must not change due to IR disabled"
-        target_instance_match ost1 || error "instance mismatch"
+	target_instance_match ost1 || error "instance mismatch"
 
-        # restore env
-        set_ir_status full
-        FAILURE_MODE=$saved_FAILURE_MODE
+	# restore env
+	set_ir_status full
+	FAILURE_MODE=$saved_FAILURE_MODE
 }
 run_test 100 "IR: Make sure normal recovery still works w/o IR"
 
 test_101()
 {
-        do_facet mgs $LCTL list_param mgs.*.ir_timeout ||
-                { skip "MGS without IR support"; return 0; }
+	do_facet mgs $LCTL list_param mgs.*.ir_timeout ||
+		{ skip "MGS without IR support"; return 0; }
 
-        set_ir_status full
+	set_ir_status full
 
-        local OST1_IMP=$(get_osc_import_name client ost1)
+	local OST1_IMP=$(get_osc_import_name client ost1)
 
-        # disable pinger recovery
-        lctl set_param -n osc.$OST1_IMP.pinger_recov=0
+	# disable pinger recovery
+	lctl set_param -n osc.$OST1_IMP.pinger_recov=0
 
-        fail ost1
+	fail ost1
 
-        target_instance_match ost1 || error "instance mismatch"
-        nidtbl_versions_match || error "version must match"
+	target_instance_match ost1 || error "instance mismatch"
+	nidtbl_versions_match || error "version must match"
 
-        lctl set_param -n osc.$OST1_IMP.pinger_recov=1
+	lctl set_param -n osc.$OST1_IMP.pinger_recov=1
 }
 run_test 101 "IR: Make sure IR works w/o normal recovery"
 
 test_102()
 {
-        do_facet mgs $LCTL list_param mgs.*.ir_timeout ||
-                { skip "MGS without IR support"; return 0; }
+	do_facet mgs $LCTL list_param mgs.*.ir_timeout ||
+		{ skip "MGS without IR support"; return 0; }
 
-        local clients=${CLIENTS:-$HOSTNAME}
-        local old_version
-        local new_version
-        local mgsdev=mgs
+	local clients=${CLIENTS:-$HOSTNAME}
+	local old_version
+	local new_version
+	local mgsdev=mgs
 
-        set_ir_status full
+	set_ir_status full
 
-        # let's have a new nidtbl version
-        fail ost1
+	# let's have a new nidtbl version
+	fail ost1
 
-        # sleep for a while so that clients can see the failure of ost
-        # it must be MGC_TIMEOUT_MIN_SECONDS + MGC_TIMEOUT_RAND_CENTISEC.
-        # int mgc_request.c:
-        # define MGC_TIMEOUT_MIN_SECONDS   5
-        # define MGC_TIMEOUT_RAND_CENTISEC 0x1ff /* ~500 *
-        local count=30  # 20 seconds at most
-        while [ $count -gt 0 ]; do
-                nidtbl_versions_match && break
-                sleep 1
-                count=$((count-1))
-        done
+	# sleep for a while so that clients can see the failure of ost
+	# it must be MGC_TIMEOUT_MIN_SECONDS + MGC_TIMEOUT_RAND_CENTISEC.
+	# int mgc_request.c:
+	# define MGC_TIMEOUT_MIN_SECONDS   5
+	# define MGC_TIMEOUT_RAND_CENTISEC 0x1ff /* ~500 *
+	local count=30  # 20 seconds at most
+	while [ $count -gt 0 ]; do
+		nidtbl_versions_match && break
+		sleep 1
+		count=$((count-1))
+	done
 
-        nidtbl_versions_match || error "nidtbl mismatch"
+	nidtbl_versions_match || error "nidtbl mismatch"
 
-        # get the version #
-        old_version=$(nidtbl_version_client client)
+	# get the version #
+	old_version=$(nidtbl_version_client client)
 
-        zconf_umount_clients $clients $MOUNT || error "Cannot umount client"
+	zconf_umount_clients $clients $MOUNT || error "Cannot umount client"
 
-        # restart mgs
-        combined_mgs_mds && mgsdev=mds1
-        remount_facet $mgsdev
-        fail ost1
+	# restart mgs
+	combined_mgs_mds && mgsdev=mds1
+	remount_facet $mgsdev
+	fail ost1
 
-        zconf_mount_clients $clients $MOUNT || error "Cannot mount client"
+	zconf_mount_clients $clients $MOUNT || error "Cannot mount client"
 
-        # check new version
-        new_version=$(nidtbl_version_client client)
-        [ $new_version -lt $old_version ] &&
-                error "nidtbl version wrong after mgs restarts"
-        return 0
+	# check new version
+	new_version=$(nidtbl_version_client client)
+	[ $new_version -lt $old_version ] &&
+		error "nidtbl version wrong after mgs restarts"
+	return 0
 }
 run_test 102 "IR: New client gets updated nidtbl after MGS restart"
 
 test_103()
 {
-        do_facet mgs $LCTL list_param mgs.*.ir_timeout ||
-                { skip "MGS without IR support"; return 0; }
+	do_facet mgs $LCTL list_param mgs.*.ir_timeout ||
+		{ skip "MGS without IR support"; return 0; }
 
-        combined_mgs_mds && skip "mgs and mds on the same target" && return 0
+	combined_mgs_mds && skip "mgs and mds on the same target" && return 0
 
-        # workaround solution to generate config log on the mds
-        remount_facet mds1
+	# workaround solution to generate config log on the mds
+	remount_facet mds1
 
-        stop mgs
-        stop mds1
+	stop mgs
+	stop mds1
 
-        # We need this test because mds is like a client in IR context.
-        start mds1 $MDSDEV1 || error "MDS should start w/o mgs"
+	# We need this test because mds is like a client in IR context.
+	start mds1 $MDSDEV1 || error "MDS should start w/o mgs"
 
-        # start mgs and remount mds w/ ir
-        start mgs $MGSDEV
-        clients_up
+	# start mgs and remount mds w/ ir
+	start mgs $MGSDEV
+	clients_up
 
-        # remount client so that fsdb will be created on the MGS
-        umount_client $MOUNT || error "umount failed"
-        mount_client $MOUNT || error "mount failed"
+	# remount client so that fsdb will be created on the MGS
+	umount_client $MOUNT || error "umount failed"
+	mount_client $MOUNT || error "mount failed"
 
-        # sleep 30 seconds so the MDS has a chance to detect MGS restarting
-        local count=30
-        while [ $count -gt 0 ]; do
-                [ $(nidtbl_version_client mds1) -ne 0 ] && break
-                sleep 1
-                count=$((count-1))
-        done
+	# sleep 30 seconds so the MDS has a chance to detect MGS restarting
+	local count=30
+	while [ $count -gt 0 ]; do
+		[ $(nidtbl_version_client mds1) -ne 0 ] && break
+		sleep 1
+		count=$((count-1))
+	done
 
-        # after a while, mds should be able to reconnect to mgs and fetch
-        # up-to-date nidtbl version
-        nidtbl_versions_match mds1 || error "mds nidtbl mismatch"
+	# after a while, mds should be able to reconnect to mgs and fetch
+	# up-to-date nidtbl version
+	nidtbl_versions_match mds1 || error "mds nidtbl mismatch"
 
-        # reset everything
-        set_ir_status full
+	# reset everything
+	set_ir_status full
 }
 run_test 103 "IR: MDS can start w/o MGS and get updated nidtbl later"
 
 test_104()
 {
-        do_facet mgs $LCTL list_param mgs.*.ir_timeout ||
-                { skip "MGS without IR support"; return 0; }
+	do_facet mgs $LCTL list_param mgs.*.ir_timeout ||
+		{ skip "MGS without IR support"; return 0; }
 
-        set_ir_status full
+	set_ir_status full
 
-        stop ost1
-        start ost1 $(ostdevname 1) "$OST_MOUNT_OPTS -onoir" ||
-                error "OST1 cannot start"
-        clients_up
+	stop ost1
+	start ost1 $(ostdevname 1) "$OST_MOUNT_OPTS -onoir" ||
+		error "OST1 cannot start"
+	clients_up
 
-        local ir_state=$(check_target_ir_state ost1)
+	local ir_state=$(check_target_ir_state ost1)
 	[ $ir_state = "DISABLED" -o $ir_state = "OFF" ] ||
 		error "ir status on ost1 should be DISABLED"
 }
@@ -1551,22 +1551,22 @@ run_test 104 "IR: ost can disable IR voluntarily"
 
 test_105()
 {
-        [ -z "$RCLIENTS" ] && skip "Needs multiple clients" && return 0
-        do_facet mgs $LCTL list_param mgs.*.ir_timeout ||
-                { skip "MGS without IR support"; return 0; }
+	[ -z "$RCLIENTS" ] && skip "Needs multiple clients" && return 0
+	do_facet mgs $LCTL list_param mgs.*.ir_timeout ||
+		{ skip "MGS without IR support"; return 0; }
 
-        set_ir_status full
+	set_ir_status full
 
-        # get one of the clients from client list
-        local rcli=$(echo $RCLIENTS |cut -d' ' -f 1)
+	# get one of the clients from client list
+	local rcli=$(echo $RCLIENTS |cut -d' ' -f 1)
 
-        local old_MOUNTOPT=$MOUNTOPT
-        MOUNTOPT=${MOUNTOPT},noir
-        zconf_umount $rcli $MOUNT || error "umount failed"
-        zconf_mount $rcli $MOUNT || error "mount failed"
+	local old_MOUNTOPT=$MOUNTOPT
+	MOUNTOPT=${MOUNTOPT},noir
+	zconf_umount $rcli $MOUNT || error "umount failed"
+	zconf_mount $rcli $MOUNT || error "mount failed"
 
-        # make sure lustre mount at $rcli disabling IR
-        local ir_state=$(check_cli_ir_state $rcli)
+	# make sure lustre mount at $rcli disabling IR
+	local ir_state=$(check_cli_ir_state $rcli)
 	[ $ir_state = "DISABLED" -o $ir_state = "OFF" ] ||
 		error "IR state must be DISABLED at $rcli"
 
@@ -1576,30 +1576,30 @@ test_105()
 	$SETSTRIPE -i 0 $DIR/$tfile
 	dd if=/dev/zero of=$DIR/$tfile bs=1M count=1 conv=sync
 
-        # make sure MGS's state is Partial
-        [ $(get_ir_status) = "partial" ] || error "MGS IR state must be partial"
+	# make sure MGS's state is Partial
+	[ $(get_ir_status) = "partial" ] || error "MGS IR state must be partial"
 
-        fail ost1
+	fail ost1
 	# make sure IR on ost1 is DISABLED
-        local ir_state=$(check_target_ir_state ost1)
+	local ir_state=$(check_target_ir_state ost1)
 	[ $ir_state = "DISABLED" -o $ir_state = "OFF" ] ||
 		error "IR status on ost1 should be DISABLED"
 
-        # restore it
-        MOUNTOPT=$old_MOUNTOPT
-        zconf_umount $rcli $MOUNT || error "umount failed"
-        zconf_mount $rcli $MOUNT || error "mount failed"
+	# restore it
+	MOUNTOPT=$old_MOUNTOPT
+	zconf_umount $rcli $MOUNT || error "umount failed"
+	zconf_mount $rcli $MOUNT || error "mount failed"
 
-        # make sure MGS's state is full
-        [ $(get_ir_status) = "full" ] || error "MGS IR status must be full"
+	# make sure MGS's state is full
+	[ $(get_ir_status) = "full" ] || error "MGS IR status must be full"
 
-        fail ost1
+	fail ost1
 	# make sure IR on ost1 is ENABLED
-        local ir_state=$(check_target_ir_state ost1)
+	local ir_state=$(check_target_ir_state ost1)
 	[ $ir_state = "ENABLED" -o $ir_state = "ON" ] ||
 		error "IR status on ost1 should be ENABLED"
 
-        return 0
+	return 0
 }
 run_test 105 "IR: NON IR clients support"
 
@@ -1768,7 +1768,11 @@ test_110f () {
 run_test 110f "remove remote directory: drop slave rep"
 
 # LU-2844 mdt prepare fail should not cause umount oops
-test_111 () {
+test_111 ()
+{
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.62) ]] ||
+		{ skip "Need MDS version at least 2.3.62"; return 0; }
+
 	local mdsdev=$(mdsdevname ${SINGLEMDS//mds/})
 #define OBD_FAIL_MDS_CHANGELOG_INIT 0x151
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x151
