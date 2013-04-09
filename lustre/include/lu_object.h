@@ -344,34 +344,6 @@ struct lu_device_type {
         cfs_list_t                              ldt_linkage;
 };
 
-struct lu_device_shard_operations {
-	/**
-	 * Inform OSD that update operations for the provided epoch have
-	 * completed.  The OSD may create a snapshot (or not) based on the
-	 * flags.
-	 */
-	int (*lu_shard_commit)(const struct lu_env *env, struct dt_device *dev,
-			       daos_epoch_t epoch, int flags);
-	/**
-	 * Reverts the shard to previously viable state, removes versions
-	 * from the top of the version stack.
-	 */
-	int (*lu_shard_rollback)(const struct lu_env *env,
-				 struct dt_device *dev, daos_epoch_t epoch);
-	/**
-	 * Used to cull old versions from the shard.  Removes versions from
-	 * the bottom of the version stack.
-	 */
-	int (*lu_shard_cull)(const struct lu_env *env, struct dt_device *dev,
-			     daos_epoch_t epoch);
-	/**
-	 * Instruct OSD layer to move intents from the provided epoch to the
-	 * staging device.
-	 */
-	int (*lu_shard_flatten)(const struct lu_env *env,
-				struct dt_device *dev, daos_epoch_t epoch);
-};
-
 /**
  * Operations on a device type.
  */
@@ -420,8 +392,6 @@ struct lu_device_type_operations {
          * Called when number of devices drops to 0.
          */
         void (*ldto_stop)(struct lu_device_type *t);
-
-	struct lu_device_shard_operations *lu_shard_operations;
 };
 
 static inline int lu_device_is_md(const struct lu_device *d)

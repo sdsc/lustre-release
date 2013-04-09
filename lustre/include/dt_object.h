@@ -635,6 +635,34 @@ enum dt_otable_it_flags {
 	DOIF_OUTUSED	= 0x0004,
 };
 
+struct dt_shard_filter_operations {
+	/**
+	 * Inform OSD that update operations for the provided epoch have
+	 * completed.  The OSD may create a snapshot (or not) based on the
+	 * flags.
+	 */
+	int (*dsfo_commit)(const struct lu_env *env, struct dt_device *dev,
+			   daos_epoch_t epoch, int flags);
+	/**
+	 * Reverts the shard to previously viable state, removes versions
+	 * from the top of the version stack.
+	 */
+	int (*dsfo_rollback)(const struct lu_env *env,
+			     struct dt_device *dev, daos_epoch_t epoch);
+	/**
+	 * Used to cull old versions from the shard.  Removes versions from
+	 * the bottom of the version stack.
+	 */
+	int (*dsfo_cull)(const struct lu_env *env, struct dt_device *dev,
+			 daos_epoch_t epoch);
+	/**
+	 * Instruct OSD layer to move intents from the provided epoch to the
+	 * staging device.
+	 */
+	int (*dsfo_flatten)(const struct lu_env *env,
+			    struct dt_device *dev, daos_epoch_t epoch);
+};
+
 /* otable based iteration needs to use the common DT interation APIs.
  * To initialize the iteration, it needs call dio_it::init() firstly.
  * Here is how the otable based iteration should prepare arguments to
@@ -647,15 +675,15 @@ enum dt_otable_it_flags {
 #define DT_OTABLE_IT_FLAGS_MASK 	0xffff0000
 
 struct dt_device {
-        struct lu_device                   dd_lu_dev;
-        const struct dt_device_operations *dd_ops;
-
+	struct lu_device                         dd_lu_dev;
+	const struct dt_device_operations       *dd_ops;
+	const struct dt_shard_filter_operations *dd_sfd_ops;
         /**
          * List of dt_txn_callback (see below). This is not protected in any
          * way, because callbacks are supposed to be added/deleted only during
          * single-threaded start-up shut-down procedures.
          */
-        cfs_list_t                         dd_txn_callbacks;
+	cfs_list_t                               dd_txn_callbacks;
 };
 
 int  dt_device_init(struct dt_device *dev, struct lu_device_type *t);
