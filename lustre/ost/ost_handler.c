@@ -56,6 +56,7 @@
 #include <lustre_quota.h>
 #include <lustre_fid.h>
 #include "ost_internal.h"
+#include "ost_integrity.h"
 #include <lustre_fid.h>
 
 static int oss_num_threads;
@@ -87,6 +88,9 @@ CFS_MODULE_PARM(oss_io_cpts, "s", charp, 0444,
  */
 static struct page *ost_page_to_corrupt = NULL;
 
+static int oss_large_buffers = 1;
+CFS_MODULE_PARM(oss_large_buffers, "i", int, 0444,
+                "enable large OSS buffers for T10 integrity");
 /**
  * Do not return server-side uid/gid to remote client
  */
@@ -694,7 +698,12 @@ static struct ost_thread_local_cache *ost_tls_get(struct ptlrpc_request *r)
                 OBD_ALLOC_PTR(tls);
                 if (tls != NULL) {
                         tls->temporary = 1;
+                        if (unlikely(ost_integrity_alloc(&tls->integrity))) {
+                                OBD_FREE_PTR(tls);
+                                tls = NULL;
+                        }
                         r->rq_svc_thread->t_data = tls;
+
                 }
         }
         return  tls;
@@ -708,6 +717,7 @@ static void ost_tls_put(struct ptlrpc_request *r)
                 (struct ost_thread_local_cache *)(r->rq_svc_thread->t_data);
 
         if (unlikely(tls->temporary)) {
+		ost_integrity_free(&tls->integrity);
                 OBD_FREE_PTR(tls);
                 r->rq_svc_thread->t_data = NULL;
         }
@@ -727,6 +737,7 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
         int niocount, npages, nob = 0, rc, i;
         int no_reply = 0;
         struct ost_thread_local_cache *tls;
+        struct integrity *integrity = NULL;
         ENTRY;
 
         req->rq_bulk_read = 1;
@@ -779,13 +790,31 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
                 }
         }
 
+        tls = ost_tls_get(req);
+        if (tls == NULL)
+                GOTO(out_bulk, rc = -ENOMEM);
+
+        npages = OST_THREAD_POOL_SIZE;
+
+	integrity = &tls->integrity;
+	rc = ost_integrity_init(integrity, body->oa.o_valid);
+	if (rc < 0) {
+		CERROR("bad integrity data %llx\n", (long long)body->oa.o_valid);
+		GOTO(out, rc);
+	}
+
+	if (integrity->type != INTEGRITY_NONE) {
+		rc = ost_integrity_prep(OBD_BRW_READ, req, npages, integrity);
+		if (rc) {
+			CERROR("Integrity prep failed\n");
+			GOTO(out, rc);
+		}
+	}
+
         rc = req_capsule_server_pack(&req->rq_pill);
         if (rc)
                 GOTO(out, rc);
 
-        tls = ost_tls_get(req);
-        if (tls == NULL)
-                GOTO(out_bulk, rc = -ENOMEM);
         local_nb = tls->local;
 
         rc = ost_brw_lock_get(LCK_PR, exp, ioo, remote_nb, &lockh);
@@ -813,14 +842,20 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
         npages = OST_THREAD_POOL_SIZE;
         rc = obd_preprw(req->rq_svc_thread->t_env, OBD_BRW_READ, exp,
                         &repbody->oa, 1, ioo, remote_nb, &npages, local_nb,
-                        oti, capa);
+			oti, capa, integrity);
         if (rc != 0)
                 GOTO(out_lock, rc);
 
-	desc = ptlrpc_prep_bulk_exp(req, npages, ioobj_max_brw_get(ioo),
+	desc = ptlrpc_prep_bulk_exp(req, npages +
+				    ost_integrity_bulk(req, npages, integrity),
+				    ioobj_max_brw_get(ioo),
 				    BULK_PUT_SOURCE, OST_BULK_PORTAL);
 	if (desc == NULL)
 		GOTO(out_commitrw, rc = -ENOMEM);
+
+	if (integrity->type == INTEGRITY_T10_INBULK)
+		/* Shouldn't fail here... */
+		ost_integrity_pack_bulk(req, desc, npages, integrity);
 
         nob = 0;
         for (i = 0; i < npages; i++) {
@@ -873,10 +908,13 @@ out_commitrw:
         /* Must commit after prep above in all cases */
         rc = obd_commitrw(req->rq_svc_thread->t_env, OBD_BRW_READ, exp,
                           &repbody->oa, 1, ioo, remote_nb, npages, local_nb,
-                          oti, rc);
+                          oti, rc, integrity);
 
         if (rc == 0)
                 ost_drop_id(exp, &repbody->oa);
+
+	if (integrity->type != INTEGRITY_NONE)
+		ost_integrity_commit(OBD_BRW_READ, req, npages, integrity);
 
 out_lock:
         ost_brw_lock_put(LCK_PR, ioo, remote_nb, &lockh);
@@ -990,6 +1028,8 @@ static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
         int                      no_reply = 0, mmap = 0;
         __u32                    o_uid = 0, o_gid = 0;
         struct ost_thread_local_cache *tls;
+	struct integrity	*integrity = NULL;
+
         ENTRY;
 
         req->rq_bulk_write = 1;
@@ -1103,16 +1143,31 @@ static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
         npages = OST_THREAD_POOL_SIZE;
         rc = obd_preprw(req->rq_svc_thread->t_env, OBD_BRW_WRITE, exp,
                         &repbody->oa, objcount, ioo, remote_nb, &npages,
-                        local_nb, oti, capa);
+                        local_nb, oti, capa, NULL);
         if (rc != 0)
                 GOTO(out_lock, rc);
 
-	desc = ptlrpc_prep_bulk_exp(req, npages, ioobj_max_brw_get(ioo),
+	integrity = &tls->integrity;
+	ost_integrity_init(integrity, body->oa.o_valid);
+	if (rc < 0) {
+		CERROR("bad integrity data %llx\n", (long long)body->oa.o_valid);
+		GOTO(skip_transfer, rc);
+	}
+
+	desc = ptlrpc_prep_bulk_exp(req, npages +
+				    ost_integrity_bulk(req, npages, integrity),
+				    ioobj_max_brw_get(ioo),
 				    BULK_GET_SINK, OST_BULK_PORTAL);
 	if (desc == NULL)
 		GOTO(skip_transfer, rc = -ENOMEM);
 
 	/* NB Having prepped, we must commit... */
+	if (integrity->type != INTEGRITY_NONE)
+		rc = ost_integrity_prep(OBD_BRW_WRITE, req, npages, integrity);
+
+	if (integrity->type == INTEGRITY_T10_INBULK)
+		ost_integrity_pack_bulk(req, desc, npages, integrity);
+
 	for (i = 0; i < npages; i++)
 		ptlrpc_prep_bulk_page_nopin(desc, local_nb[i].page,
 					    local_nb[i].lnb_page_offset,
@@ -1149,7 +1204,8 @@ skip_transfer:
         /* Must commit after prep above in all cases */
         rc = obd_commitrw(req->rq_svc_thread->t_env, OBD_BRW_WRITE, exp,
                           &repbody->oa, objcount, ioo, remote_nb, npages,
-                          local_nb, oti, rc);
+                          local_nb, oti, rc, integrity);
+
         if (rc == -ENOTCONN)
                 /* quota acquire process has been given up because
                  * either the client has been evicted or the client
@@ -1160,6 +1216,9 @@ skip_transfer:
                 repbody->oa.o_uid = o_uid;
                 repbody->oa.o_gid = o_gid;
         }
+
+	if (integrity)
+		ost_integrity_commit(OBD_BRW_WRITE, req, npages, integrity);
 
         /*
          * Disable sending mtime back to the client. If the client locked the
@@ -2456,6 +2515,7 @@ static void ost_io_thread_done(struct ptlrpc_thread *thread)
          */
         tls = thread->t_data;
         if (tls != NULL) {
+		ost_integrity_free(&tls->integrity);
                 OBD_FREE_PTR(tls);
                 thread->t_data = NULL;
         }
@@ -2477,6 +2537,10 @@ static int ost_io_thread_init(struct ptlrpc_thread *thread)
         OBD_ALLOC_PTR(tls);
         if (tls == NULL)
                 RETURN(-ENOMEM);
+	if (unlikely(ost_integrity_alloc(&tls->integrity))) {
+		OBD_FREE_PTR(tls);
+		RETURN(-ENOMEM);
+	}
         thread->t_data = tls;
         RETURN(0);
 }
@@ -2492,6 +2556,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 	struct ost_obd *ost = &obd->u.ost;
 	struct lprocfs_static_vars lvars;
 	nodemask_t		*mask;
+	unsigned long extra_buffers = 0;
 	int rc;
 	ENTRY;
 
@@ -2503,6 +2568,9 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
         lprocfs_obd_setup(obd, lvars.obd_vars);
 
 	mutex_init(&ost->ost_health_mutex);
+
+	if (oss_large_buffers)
+		extra_buffers = PTLRPC_MAX_BRW_SIZE >> (9 - 1);
 
 	svc_conf = (typeof(svc_conf)) {
 		.psc_name		= LUSTRE_OSS_NAME,
@@ -2611,9 +2679,9 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_watchdog_factor	= OSS_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
 			.bc_nbufs		= OST_NBUFS,
-			.bc_buf_size		= OST_IO_BUFSIZE,
-			.bc_req_max_size	= OST_IO_MAXREQSIZE,
-			.bc_rep_max_size	= OST_IO_MAXREPSIZE,
+			.bc_buf_size		= OST_IO_BUFSIZE + extra_buffers,
+			.bc_req_max_size	= OST_IO_MAXREQSIZE + extra_buffers,
+			.bc_rep_max_size	= OST_IO_MAXREPSIZE + extra_buffers,
 			.bc_req_portal		= OST_IO_PORTAL,
 			.bc_rep_portal		= OSC_REPLY_PORTAL,
 		},

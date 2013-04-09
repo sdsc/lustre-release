@@ -1211,6 +1211,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_LIGHTWEIGHT 0x1000000000000ULL/* lightweight connection */
 #define OBD_CONNECT_SHORTIO     0x2000000000000ULL/* short io */
 #define OBD_CONNECT_PINGLESS	0x4000000000000ULL/* pings not required */
+#define OBD_CONNECT_INTEGRITY	0x8000000000000ULL /* T10, Merkle tree, etc */
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
  * flag value is not in use on some other branch.  Please clear any such
@@ -1269,7 +1270,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_JOBSTATS | \
 				OBD_CONNECT_LIGHTWEIGHT | OBD_CONNECT_LVB_TYPE|\
 				OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_FID | \
-				OBD_CONNECT_PINGLESS)
+				OBD_CONNECT_PINGLESS | OBD_CONNECT_INTEGRITY)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
 				OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV | \
@@ -1300,7 +1301,9 @@ struct obd_connect_data_v1 {
         __u8  ocd_blocksize;     /* log2 of the backend filesystem blocksize */
         __u8  ocd_inodespace;    /* log2 of the per-inode space consumption */
         __u16 ocd_grant_extent;  /* per-extent grant overhead, in 1K blocks */
-        __u32 ocd_unused;        /* also fix lustre_swab_connect */
+	__u16 ocd_ichunk_size;   /* bytes in integrity sector */
+	__u8  ocd_integrity;     /* supported integrity protocols mask */
+	__u8  ocd_unused;        /* also fix lustre_swab_connect */
         __u64 ocd_transno;       /* first transno from client to be replayed */
         __u32 ocd_group;         /* MDS group on OST */
         __u32 ocd_cksum_types;   /* supported checksum algorithms */
@@ -1319,7 +1322,9 @@ struct obd_connect_data {
         __u8  ocd_blocksize;     /* log2 of the backend filesystem blocksize */
         __u8  ocd_inodespace;    /* log2 of the per-inode space consumption */
         __u16 ocd_grant_extent;  /* per-extent grant overhead, in 1K blocks */
-        __u32 ocd_unused;        /* also fix lustre_swab_connect */
+	__u16 ocd_ichunk_size;   /* bytes in integrity sector */
+	__u8  ocd_integrity;     /* supported integrity protocols mask */
+	__u8  ocd_unused;        /* also fix lustre_swab_connect */
         __u64 ocd_transno;       /* first transno from client to be replayed */
         __u32 ocd_group;         /* MDS group on OST */
         __u32 ocd_cksum_types;   /* supported checksum algorithms */
@@ -1368,6 +1373,12 @@ typedef enum {
         OBD_CKSUM_ADLER = 0x00000002,
         OBD_CKSUM_CRC32C= 0x00000004,
 } cksum_type_t;
+
+typedef enum {
+	INTEGRITY_NONE       = 0x00,
+	INTEGRITY_T10_INPILL = 0x01,
+	INTEGRITY_T10_INBULK = 0x02,
+} integrity_type_t;
 
 /*
  *   OST requests: OBDO & OBD request records
@@ -1569,6 +1580,9 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_FLRMTRGETFACL (0x0008000000000000ULL) /* lfs rgetfacl case */
 
 #define OBD_MD_FLDATAVERSION (0x0010000000000000ULL) /* iversion sum */
+
+#define OBD_MD_FLINTEGRITY_A (0x0020000000000000ULL) /* T10 integrity proto A */
+#define OBD_MD_FLINTEGRITY_B (0x0040000000000000ULL) /* T10 integrity proto B */
 
 #define OBD_MD_FLGETATTR (OBD_MD_FLID    | OBD_MD_FLATIME | OBD_MD_FLMTIME | \
                           OBD_MD_FLCTIME | OBD_MD_FLSIZE  | OBD_MD_FLBLKSZ | \
@@ -1904,6 +1918,31 @@ typedef enum {
 
 #define MDS_FIRST_OPC    MDS_GETATTR
 
+/* A copy of the privately declared struct sd_dif_tuple attached
+ * to integrity BIOs.
+ */
+struct obd_integrity_dif_tuple {
+	__u16 guard_tag;	/* Checksum */
+	__u16 app_tag;		/* Opaque storage */
+	__u32 ref_tag;		/* Target LBA or indirect LBA */
+};
+
+/* the least hw sector and integrity chunk size is 512 bytes */
+#define T10_MAX_TUPLES_PER_BULK (PTLRPC_MAX_BRW_SIZE >> 9)
+
+struct obd_integrity_t10 {
+	unsigned			oi_tuples;
+	struct obd_integrity_dif_tuple	*oi_tpl;
+};
+
+union obd_integrity {
+	struct obd_integrity_t10	t10;
+};
+
+struct integrity {
+	integrity_type_t	type;
+	union obd_integrity	oi;
+};
 
 /* opcodes for object update */
 typedef enum {

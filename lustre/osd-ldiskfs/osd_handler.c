@@ -64,6 +64,7 @@
 #include <lustre_fid.h>
 
 #include "osd_internal.h"
+#include "osd_integrity.h"
 
 /* llo_* api support */
 #include <md_object.h>
@@ -1042,6 +1043,8 @@ static void osd_conf_get(const struct lu_env *env,
 #endif
                 param->ddp_max_ea_size = sb->s_blocksize;
 
+	param->ddp_ichunk_size = osd_dt_dev(dev)->od_integrity.od_t10.t10_chunks;
+	param->ddp_ichunk_bits = osd_dt_dev(dev)->od_integrity.od_t10.t10_chunks_bits;
 }
 
 /*
@@ -5095,6 +5098,7 @@ static void osd_key_fini(const struct lu_context *ctx,
 	if (info->oti_hlock != NULL)
 		ldiskfs_htree_lock_free(info->oti_hlock);
 	OBD_FREE(info->oti_it_ea_buf, OSD_IT_EA_BUFSIZE);
+	lu_buf_free(&info->oti_iobuf.dr_pg_int);
 	lu_buf_free(&info->oti_iobuf.dr_pg_buf);
 	lu_buf_free(&info->oti_iobuf.dr_bl_buf);
 	OBD_FREE_PTR(info);
@@ -5217,6 +5221,8 @@ static int osd_mount(const struct lu_env *env,
 		o->od_mnt = NULL;
 		GOTO(out, rc);
 	}
+
+	osd_setup_integrity(o, o->od_mnt->mnt_sb->s_bdev);
 
 #ifdef HAVE_DEV_SET_RDONLY
 	if (dev_check_rdonly(o->od_mnt->mnt_sb->s_bdev)) {

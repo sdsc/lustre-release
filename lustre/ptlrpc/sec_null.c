@@ -178,7 +178,8 @@ int null_alloc_reqbuf(struct ptlrpc_sec *sec,
                 req->rq_reqbuf_len = alloc_size;
         } else {
                 LASSERT(req->rq_pool);
-                LASSERT(req->rq_reqbuf_len >= msgsize);
+		LASSERTF(req->rq_reqbuf_len >= msgsize, "%d %d\n",
+			 req->rq_reqbuf_len, msgsize);
                 memset(req->rq_reqbuf, 0, msgsize);
         }
 

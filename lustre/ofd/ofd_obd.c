@@ -236,6 +236,18 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 		}
 	}
 
+	if (OCD_HAS_FLAG(data, INTEGRITY)) {
+		data->ocd_integrity &= (INTEGRITY_T10_INPILL |
+					INTEGRITY_T10_INBULK);
+		if (ofd->ofd_dt_conf.ddp_ichunk_bits) {
+			unsigned bits = ofd->ofd_dt_conf.ddp_ichunk_bits;
+
+			data->ocd_ichunk_size = CFS_PAGE_SIZE >> bits;
+		} else {
+			data->ocd_connect_flags &= ~OBD_CONNECT_INTEGRITY;
+		}
+	}
+
 	RETURN(0);
 }
 
@@ -555,6 +567,14 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 			*blocksize_bits = ofd->ofd_dt_conf.ddp_block_shift;
 		}
 		*vallen = sizeof(*blocksize_bits);
+	} else if (KEY_IS(KEY_INTEGRITY_CHUNKS)) {
+		__u32 *ichunks = val;
+		if (ichunks) {
+			if (*vallen < sizeof(*ichunks))
+				RETURN(-EOVERFLOW);
+			*ichunks = ofd->ofd_dt_conf.ddp_ichunk_size;
+		}
+		*vallen = sizeof(*ichunks);
 	} else if (KEY_IS(KEY_LAST_ID)) {
 		obd_id *last_id = val;
 		struct ofd_seq *oseq;

@@ -389,6 +389,50 @@ static int osc_wd_checksum_type(struct file *file, const char *buffer,
         return -EINVAL;
 }
 
+static int osc_rd_integrity(char *page, char **start, off_t off, int count,
+			    int *eof, void *data)
+{
+	struct obd_device *obd = data;
+
+	if (obd == NULL)
+		return -ENODEV;
+
+	switch (obd->u.cli.cl_integrity) {
+	case INTEGRITY_T10_INPILL: return snprintf(page, count, "a\n");
+	case INTEGRITY_T10_INBULK: return snprintf(page, count, "b\n");
+	case 0:                    return snprintf(page, count, "0\n");
+	}
+
+	return -EPROTO;
+}
+
+static int osc_wr_integrity(struct file *file, const char *buffer,
+			    unsigned long count, void *data)
+{
+	struct obd_device *obd = data;
+
+	if (obd == NULL)
+		return -ENODEV;
+
+	switch (buffer[0]) {
+	case 'a': if (obd->u.cli.cl_integrity_supp & INTEGRITY_T10_INPILL)
+			obd->u.cli.cl_integrity = INTEGRITY_T10_INPILL;
+		  else
+			return -EINVAL;
+		  break;
+	case 'b': if (obd->u.cli.cl_integrity_supp & INTEGRITY_T10_INBULK)
+			 obd->u.cli.cl_integrity = INTEGRITY_T10_INBULK;
+		  else
+			 return -EINVAL;
+		  break;
+	case '0': obd->u.cli.cl_integrity = 0;
+		  break;
+	default : return -EINVAL;
+	}
+
+	return count;
+}
+
 static int osc_rd_resend_count(char *page, char **start, off_t off, int count,
                                int *eof, void *data)
 {
@@ -527,6 +571,7 @@ static struct lprocfs_vars lprocfs_osc_obd_vars[] = {
         { "checksums",       osc_rd_checksum, osc_wr_checksum, 0 },
         { "checksum_type",   osc_rd_checksum_type, osc_wd_checksum_type, 0 },
         { "resend_count",    osc_rd_resend_count, osc_wr_resend_count, 0},
+	{ "integrity",    osc_rd_integrity, osc_wr_integrity, 0},
         { "timeouts",        lprocfs_rd_timeouts,      0, 0 },
         { "contention_seconds", osc_rd_contention_seconds,
                                 osc_wr_contention_seconds, 0 },

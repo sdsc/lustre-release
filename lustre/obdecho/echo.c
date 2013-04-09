@@ -397,7 +397,7 @@ static int echo_preprw(const struct lu_env *env, int cmd,
 		       int objcount, struct obd_ioobj *obj,
 		       struct niobuf_remote *nb, int *pages,
 		       struct niobuf_local *res, struct obd_trans_info *oti,
-		       struct lustre_capa *unused)
+		       struct lustre_capa *unused, struct integrity *oi)
 {
         struct obd_device *obd;
         int tot_bytes = 0;
@@ -475,7 +475,7 @@ static int echo_commitrw(const struct lu_env *env, int cmd,
 			 int objcount, struct obd_ioobj *obj,
 			 struct niobuf_remote *rb, int niocount,
 			 struct niobuf_local *res, struct obd_trans_info *oti,
-			 int rc)
+			 int rc, struct integrity *oi)
 {
         struct obd_device *obd;
         int pgs = 0;

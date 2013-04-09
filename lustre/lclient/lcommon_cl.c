@@ -390,6 +390,7 @@ int ccc_object_init(const struct lu_env *env, struct lu_object *obj,
                 CFS_INIT_LIST_HEAD(&vob->cob_pending_list);
                 lu_object_add(obj, below);
                 result = ccc_object_init0(env, vob, cconf);
+		vob->cob_relaxed_integrity = 0;
         } else
                 result = -ENOMEM;
         return result;

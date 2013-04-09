@@ -61,6 +61,11 @@
 #include <lustre_fid.h>
 #include "osc_internal.h"
 #include "osc_cl_internal.h"
+#include "osc_integrity.h"
+
+static int osc_large_buffers = 1;
+CFS_MODULE_PARM(osc_large_buffers, "i", int, 0444,
+		"enable large OSC buffers for T10 integrity");
 
 static void osc_release_ppga(struct brw_page **ppga, obd_count count);
 static int brw_interpret(const struct lu_env *env,
@@ -1245,10 +1250,14 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         struct ost_body         *body;
         struct obd_ioobj        *ioobj;
         struct niobuf_remote    *niobuf;
-        int niocount, i, requested_nob, opc, rc;
+	int niocount, i, requested_nob = 0, opc, rc;
         struct osc_brw_async_args *aa;
         struct req_capsule      *pill;
         struct brw_page *pg_prev;
+	struct obd_connect_data *ocd = &cli->cl_import->imp_connect_data;
+	unsigned long integrity_fl = cli->cl_integrity;
+	unsigned ichunk_size = ocd->ocd_ichunk_size;
+	cfs_page_t **integrity = NULL;
 
         ENTRY;
         if (OBD_FAIL_CHECK(OBD_FAIL_OSC_BRW_PREP_REQ))
@@ -1278,6 +1287,9 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                              sizeof(*ioobj));
         req_capsule_set_size(pill, &RMF_NIOBUF_REMOTE, RCL_CLIENT,
                              niocount * sizeof(*niobuf));
+
+	osc_integrity_prep_pill(pill, opc, page_count, ichunk_size, integrity_fl);
+
         osc_set_capa_size(req, &RMF_CAPA1, ocapa);
 
         rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, opc);
@@ -1291,7 +1303,7 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 	 * retry logic */
 	req->rq_no_retry_einprogress = 1;
 
-	desc = ptlrpc_prep_bulk_imp(req, page_count,
+	desc = ptlrpc_prep_bulk_imp(req, page_count  + osc_integrity_bulk(page_count, ichunk_size, integrity_fl),
 		cli->cl_import->imp_connect_data.ocd_brw_size >> LNET_MTU_BITS,
 		opc == OST_WRITE ? BULK_GET_SOURCE : BULK_PUT_SINK,
 		OST_BULK_PORTAL);
@@ -1318,7 +1330,11 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 	osc_pack_capa(req, body, ocapa);
 	LASSERT(page_count > 0);
 	pg_prev = pga[0];
-        for (requested_nob = i = 0; i < page_count; i++, niobuf++) {
+
+	rc = osc_integrity_prep_brw(req, cmd, integrity_fl, ichunk_size, pga,
+				    page_count, body, &integrity, desc, &requested_nob);
+
+	for (i = 0; i < page_count; i++, niobuf++) {
                 struct brw_page *pg = pga[i];
                 int poff = pg->off & ~CFS_PAGE_MASK;
 
@@ -1380,7 +1396,7 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         /* size[REQ_REC_OFF] still sizeof (*body) */
         if (opc == OST_WRITE) {
                 if (cli->cl_checksum &&
-                    !sptlrpc_flavor_has_bulk(&req->rq_flvr)) {
+		    !sptlrpc_flavor_has_bulk(&req->rq_flvr) && !integrity_fl) {
                         /* store cl_cksum_type in a local variable since
                          * it can be changed via lprocfs */
                         cksum_type_t cksum_type = cli->cl_cksum_type;
@@ -1411,7 +1427,7 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                                      sizeof(__u32) * niocount);
         } else {
                 if (cli->cl_checksum &&
-                    !sptlrpc_flavor_has_bulk(&req->rq_flvr)) {
+		    !sptlrpc_flavor_has_bulk(&req->rq_flvr) && !integrity_fl) {
                         if ((body->oa.o_valid & OBD_MD_FLFLAGS) == 0)
                                 body->oa.o_flags = 0;
                         body->oa.o_flags |= cksum_type_pack(cli->cl_cksum_type);
@@ -1429,6 +1445,8 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         aa->aa_resends = 0;
         aa->aa_ppga = pga;
         aa->aa_cli = cli;
+	aa->aa_integrity = integrity;
+	aa->aa_integrity_sz = osc_integrity_size(page_count, ichunk_size, integrity_fl);
         CFS_INIT_LIST_HEAD(&aa->aa_oaps);
         if (ocapa && reserve)
                 aa->aa_ocapa = capa_get(ocapa);
@@ -1495,8 +1513,10 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
         const lnet_process_id_t *peer =
                         &req->rq_import->imp_connection->c_peer;
         struct client_obd *cli = aa->aa_cli;
+        struct obd_connect_data *ocd = &cli->cl_import->imp_connect_data;
         struct ost_body *body;
         __u32 client_cksum = 0;
+        int cmd, iosz = rc, irc;
         ENTRY;
 
         if (rc < 0 && rc != -EDQUOT) {
@@ -1511,8 +1531,13 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
                 RETURN(-EPROTO);
         }
 
+	if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE)
+		cmd = OBD_BRW_WRITE;
+	else
+		cmd = OBD_BRW_READ;
+
         /* set/clear over quota flag for a uid/gid */
-        if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE &&
+        if (cmd == OBD_BRW_WRITE &&
             body->oa.o_valid & (OBD_MD_FLUSRQUOTA | OBD_MD_FLGRPQUOTA)) {
                 unsigned int qid[MAXQUOTAS] = { body->oa.o_uid, body->oa.o_gid };
 
@@ -1530,7 +1555,7 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
         if (aa->aa_oa->o_valid & OBD_MD_FLCKSUM)
                 client_cksum = aa->aa_oa->o_cksum; /* save for later */
 
-        if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE) {
+        if (cmd == OBD_BRW_WRITE) {
                 if (rc > 0) {
                         CERROR("Unexpected +ve rc %d\n", rc);
                         RETURN(-EPROTO);
@@ -1572,7 +1597,7 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
         }
 
         if (rc < aa->aa_requested_nob)
-                handle_short_read(rc, aa->aa_page_count, aa->aa_ppga);
+		handle_short_read(rc - aa->aa_integrity_sz, aa->aa_page_count, aa->aa_ppga);
 
         if (body->oa.o_valid & OBD_MD_FLCKSUM) {
                 static int cksum_counter;
@@ -1641,6 +1666,12 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
                 rc = 0;
         }
 out:
+	irc = osc_integrity_fini_brw(req, cmd, ocd->ocd_ichunk_size, aa->aa_ppga,
+				     (iosz > 0) ? ((iosz + CFS_PAGE_SIZE - 1) >> CFS_PAGE_SHIFT) : 0,
+				     body, aa->aa_integrity);
+        if (rc >= 0 && irc < 0)
+                rc = irc;
+
         if (rc >= 0)
                 lustre_get_wire_obdo(aa->aa_oa, &body->oa);
 
@@ -3430,7 +3461,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	struct lprocfs_static_vars lvars = { 0 };
 	struct client_obd          *cli = &obd->u.cli;
 	void                       *handler;
-	int                        rc;
+	int                        rc, req_size;
 	ENTRY;
 
 	rc = ptlrpcd_addref();
@@ -3458,6 +3489,12 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 		ptlrpc_lprocfs_register_obd(obd);
 	}
 
+	if (osc_large_buffers)
+		req_size = max(OST_MAXREQSIZE,
+			OST_IO_MAXREQSIZE + (PTLRPC_MAX_BRW_SIZE >> (9 - 1)));
+	else
+		req_size = max(OST_MAXREQSIZE, OST_IO_MAXREQSIZE);
+
 	/* We need to allocate a few requests more, because
 	 * brw_interpret tries to create new requests before freeing
 	 * previous ones, Ideally we want to have 2x max_rpcs_in_flight
@@ -3465,8 +3502,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	 * in fact, so 2 is just my guess and still should work. */
 	cli->cl_import->imp_rq_pool =
 		ptlrpc_init_rq_pool(cli->cl_max_rpcs_in_flight + 2,
-				    OST_MAXREQSIZE,
-				    ptlrpc_add_rqs_to_pool);
+				    req_size, ptlrpc_add_rqs_to_pool);
 
 	CFS_INIT_LIST_HEAD(&cli->cl_grant_shrink_list);
 	ns_register_cancel(obd->obd_namespace, osc_cancel_for_recovery);

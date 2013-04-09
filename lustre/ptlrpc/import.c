@@ -1128,6 +1128,23 @@ finish:
                 else
                         imp->imp_msghdr_flags &= ~MSGHDR_CKSUM_INCOMPAT18;
 
+		if (OCD_HAS_FLAG(ocd, INTEGRITY))
+			cli->cl_integrity_supp = ocd->ocd_integrity;
+		else
+			cli->cl_integrity_supp = 0;
+
+		if (cli->cl_integrity_supp) {
+			if (ocd->ocd_integrity & INTEGRITY_T10_INPILL)
+				cli->cl_integrity = INTEGRITY_T10_INPILL;
+			else if (ocd->ocd_integrity & INTEGRITY_T10_INBULK)
+				cli->cl_integrity = INTEGRITY_T10_INBULK;
+
+			if (ocd->ocd_integrity & INTEGRITY_T10_INBULK)
+				cli->cl_max_pages_per_rpc -=
+					cli->cl_max_pages_per_rpc * 8 /
+						ocd->ocd_ichunk_size;
+		}
+
                 LASSERT((cli->cl_max_pages_per_rpc <= PTLRPC_MAX_BRW_PAGES) &&
                         (cli->cl_max_pages_per_rpc > 0));
         }

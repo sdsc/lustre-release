@@ -2162,10 +2162,11 @@ void osc_io_unplug(const struct lu_env *env, struct client_obd *cli,
 }
 
 int osc_prep_async_page(struct osc_object *osc, struct osc_page *ops,
-			cfs_page_t *page, loff_t offset)
+			cfs_page_t *page, loff_t offset, union osc_integrity *crc)
 {
 	struct obd_export     *exp = osc_export(osc);
 	struct osc_async_page *oap = &ops->ops_oap;
+
 	ENTRY;
 
 	if (!page)
@@ -2177,6 +2178,9 @@ int osc_prep_async_page(struct osc_object *osc, struct osc_page *ops,
 
 	oap->oap_page = page;
 	oap->oap_obj_off = offset;
+
+	osc_integrity_to_oap(exp, oap, crc);
+
 	LASSERT(!(offset & ~CFS_PAGE_MASK));
 
 	if (!client_is_remote(exp) && cfs_capable(CFS_CAP_SYS_RESOURCE))

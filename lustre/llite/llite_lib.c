@@ -428,6 +428,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 			data->ocd_cksum_types = cksum_types_supported_client();
         }
 
+#ifdef __KERNEL__
+	data->ocd_connect_flags |= OBD_CONNECT_INTEGRITY;
+	data->ocd_integrity = INTEGRITY_T10_INPILL | INTEGRITY_T10_INBULK;
+#endif
+
 #ifdef HAVE_LRU_RESIZE_SUPPORT
         data->ocd_connect_flags |= OBD_CONNECT_LRU_RESIZE;
 #endif

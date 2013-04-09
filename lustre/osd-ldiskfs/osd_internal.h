@@ -228,6 +228,24 @@ struct osd_otable_it {
 
 extern const int osd_dto_credits_noquota[];
 
+typedef enum {
+	OSD_INTEGRITY_NONE,
+	OSD_INTEGRITY_T10,
+} osd_integrity_type;
+
+struct osd_integrity_t10 {
+	unsigned	t10_chunks;          /* integrity chunks per page */
+	unsigned	t10_chunks_bits;     /* integrity chunks, bits    */
+};
+
+struct osd_integrity {
+	osd_integrity_type od_type;
+	/* Integrity data */
+	union {
+		struct osd_integrity_t10	od_t10;
+	};
+};
+
 /*
  * osd device.
  */
@@ -289,6 +307,8 @@ struct osd_device {
 
 	/* quota slave instance */
 	struct qsd_instance      *od_quota_slave;
+
+	struct osd_integrity      od_integrity;
 };
 
 /* There are at most 10 uid/gids are affected in a transaction, and
@@ -483,6 +503,8 @@ struct osd_iobuf {
 	unsigned long      dr_elapsed;  /* how long io took */
 	struct osd_device *dr_dev;
 	unsigned int	   dr_init_at;	/* the line iobuf was initialized */
+	struct lu_buf	   dr_pg_int;
+	struct obd_integrity_dif_tuple **dr_integrity;
 };
 
 struct osd_thread_info {

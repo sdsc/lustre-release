@@ -170,7 +170,9 @@ EXPORT_SYMBOL(ptlrpc_prep_bulk_imp);
 void __ptlrpc_prep_bulk_page(struct ptlrpc_bulk_desc *desc,
 			     cfs_page_t *page, int pageoffset, int len, int pin)
 {
-        LASSERT(desc->bd_iov_count < desc->bd_max_iov);
+        LASSERTF(desc->bd_iov_count < desc->bd_max_iov,
+                 "desc = %p, count = %d, max = %d\n",
+                 desc, desc->bd_iov_count, desc->bd_max_iov);
         LASSERT(page != NULL);
         LASSERT(pageoffset >= 0);
         LASSERT(len > 0);
