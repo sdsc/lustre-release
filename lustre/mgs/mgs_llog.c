@@ -535,6 +535,7 @@ static int mgs_set_index(const struct lu_env *env,
         struct fs_db *fsdb;
         void *imap;
         int rc = 0;
+	__u32 f;
         ENTRY;
 
 	rc = mgs_find_or_make_fsdb(env, mgs, mti->mti_fsname, &fsdb);
@@ -588,8 +589,10 @@ static int mgs_set_index(const struct lu_env *env,
 	set_bit(mti->mti_stripe_index, imap);
 	clear_bit(FSDB_LOG_EMPTY, &fsdb->fsdb_flags);
 	mutex_unlock(&fsdb->fsdb_mutex);
-	server_make_name(mti->mti_flags & ~(LDD_F_VIRGIN | LDD_F_WRITECONF),
-			 mti->mti_stripe_index, mti->mti_fsname, mti->mti_svname);
+	/* use name with normal delimiter '-' */
+	f = mti->mti_flags & ~(LDD_F_VIRGIN | LDD_F_WRITECONF | LDD_F_UPDATE);
+	server_make_name(f, mti->mti_stripe_index, mti->mti_fsname,
+			 mti->mti_svname);
 
         CDEBUG(D_MGS, "Set index for %s to %d\n", mti->mti_svname,
                mti->mti_stripe_index);
