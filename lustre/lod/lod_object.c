@@ -424,7 +424,7 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 	 */
 	mode = dt->do_lu.lo_header->loh_attr & S_IFMT;
 	if ((S_ISREG(mode) || !mode) && !strcmp(name, XATTR_NAME_LOV) &&
-	     !(fl & LU_XATTR_REPLACE)) {
+	    !(fl & LU_XATTR_REPLACE) && (buf == NULL)) {
 		/*
 		 * this is a request to manipulate object's striping
 		 */
@@ -531,6 +531,9 @@ static int lod_xattr_set(const struct lu_env *env,
 		if (fl & LU_XATTR_REPLACE) {
 			/* free stripes, then update disk */
 			lod_object_free_striping(env, lod_dt_obj(dt));
+			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
+		} else if (buf != NULL) {
+			/* set to a known stripes */
 			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
 		} else {
 			rc = lod_striping_create(env, dt, NULL, NULL, th);

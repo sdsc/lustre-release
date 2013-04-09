@@ -2176,6 +2176,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 				spec->u.sp_ea.eadatalen);
+
 		rc = mdo_xattr_set(env, son, buf, XATTR_NAME_LOV, 0, handle,
 				BYPASS_CAPA);
 	}
