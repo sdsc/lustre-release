@@ -112,34 +112,6 @@ struct dt_txn_commit_cb {
 	char		dcb_name[MAX_COMMIT_CB_STR_LEN];
 };
 
-struct dt_device_shard_operations {
-	/**
-	 * Inform OSD that update operations for the provided epoch have
-	 * completed.  The OSD may create a snapshot (or not) based on the
-	 * flags.
-	 */
-	int (*dt_shard_commit)(const struct lu_env *env, struct dt_device *dev,
-			       daos_epoch_t epoch, int flags);
-	/**
-	 * Reverts the shard to previously viable state, removes versions
-	 * from the top of the version stack.
-	 */
-	int (*dt_shard_rollback)(const struct lu_env *env,
-				 struct dt_device *dev, daos_epoch_t epoch);
-	/**
-	 * Used to cull old versions from the shard.  Removes versions from
-	 * the bottom of the version stack.
-	 */
-	int (*dt_shard_cull)(const struct lu_env *env, struct dt_device *dev,
-			     daos_epoch_t epoch);
-	/**
-	 * Instruct OSD layer to move intents from the provided epoch to the
-	 * staging device.
-	 */
-	int (*dt_shard_flatten)(const struct lu_env *env,
-				struct dt_device *dev, daos_epoch_t epoch);
-};
-
 /**
  * Operations on dt device.
  */
@@ -202,8 +174,6 @@ struct dt_device_operations {
                                    struct dt_device *dev,
                                    int mode, unsigned long timeout,
                                    __u32 alg, struct lustre_capa_key *keys);
-
-	struct dt_device_shard_operations *dt_shard_operations;
 };
 
 struct dt_index_features {
