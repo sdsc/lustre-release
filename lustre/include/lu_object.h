@@ -302,8 +302,10 @@ enum lu_device_tag {
         LU_DEVICE_MD = (1 << 0),
         /** this is data device */
         LU_DEVICE_DT = (1 << 1),
-        /** data device in the client stack */
-        LU_DEVICE_CL = (1 << 2)
+	/** this is a versioning data device */
+	LU_DEVICE_VDT = (1 << 2),
+	/** data device in the client stack */
+	LU_DEVICE_CL = (1 << 3)
 };
 
 /**
