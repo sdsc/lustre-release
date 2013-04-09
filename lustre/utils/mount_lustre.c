@@ -353,6 +353,8 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 	ldd->ldd_flags &= ~(LDD_F_VIRGIN | LDD_F_UPDATE | LDD_F_WRITECONF);
 
 	/* svname of the form lustre:OST1234 means never registered */
+	/* svname of the form lustre=OST1234 means writeconf is needed */
+	/* svname of the form lustre^OST1234 means update is needed */
 	rc = strlen(ldd->ldd_svname);
 	if (ldd->ldd_svname[rc - 8] == ':') {
 		ldd->ldd_svname[rc - 8] = '-';
@@ -360,6 +362,9 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 	} else if (ldd->ldd_svname[rc - 8] == '=') {
 		ldd->ldd_svname[rc - 8] = '-';
 		ldd->ldd_flags |= LDD_F_WRITECONF;
+	} else if (ldd->ldd_svname[rc - 8] == '^') {
+		ldd->ldd_svname[rc - 8] = '-';
+		ldd->ldd_flags |= LDD_F_UPDATE;
 	}
 
 	/* backend osd type */
@@ -389,6 +394,8 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 		append_option(options, "virgin");
 	if (ldd->ldd_flags & LDD_F_WRITECONF)
 		append_option(options, "writeconf");
+	if (ldd->ldd_flags & LDD_F_UPDATE)
+		append_option(options, "update");
 	if (ldd->ldd_flags & LDD_F_NO_PRIMNODE)
 		append_option(options, "noprimnode");
 
@@ -718,7 +725,8 @@ int main(int argc, char *const argv[])
 		 * to indicate the device has been registered.
 		 * only if the label is supposed to be changed and
 		 * target service is supposed to start */
-		if (mop.mo_ldd.ldd_flags & (LDD_F_VIRGIN | LDD_F_WRITECONF)) {
+		flags = mop.mo_ldd.ldd_flags;
+		if (flags & (LDD_F_VIRGIN | LDD_F_WRITECONF | LDD_F_UPDATE)) {
 			if (mop.mo_nosvc == 0 )
 				(void) osd_label_lustre(&mop);
 		}
