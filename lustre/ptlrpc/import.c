@@ -1077,6 +1077,10 @@ finish:
 				cli->cl_supp_cksum_types = OBD_CKSUM_ADLER;
 			} else {
 				cli->cl_supp_cksum_types = ocd->ocd_cksum_types;
+				if (ocd->ocd_cksum_types & OBD_CKSUM_T10B)
+					cli->cl_max_pages_per_rpc -=
+						cli->cl_max_pages_per_rpc >>
+						(ocd->ocd_ichunk_size - 3);
 			}
 		} else {
 			/* The server does not support OBD_CONNECT_CKSUM.

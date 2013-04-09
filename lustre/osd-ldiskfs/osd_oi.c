@@ -60,6 +60,7 @@
 #include "osd_oi.h"
 /* osd_lookup(), struct osd_thread_info */
 #include "osd_internal.h"
+#include "osd_integrity.h"
 #include "osd_scrub.h"
 
 static unsigned int osd_oi_count = OSD_OI_FID_NR;

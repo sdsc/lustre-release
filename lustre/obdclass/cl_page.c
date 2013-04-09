@@ -1166,6 +1166,16 @@ void cl_page_delete(const struct lu_env *env, struct cl_page *pg)
 }
 EXPORT_SYMBOL(cl_page_delete);
 
+int cl_attach_integrity(const struct lu_env *env, struct cl_page *page)
+{
+	CL_PAGE_INVOID(env, page, CL_PAGE_OP(cpo_integrity),
+			(const struct lu_env *,
+			 const struct cl_page_slice *));
+
+	return 0;
+}
+EXPORT_SYMBOL(cl_attach_integrity);
+
 /**
  * Unmaps page from user virtual memory.
  *

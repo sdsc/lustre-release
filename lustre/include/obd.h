@@ -245,11 +245,20 @@ struct obd_type {
 	spinlock_t obd_type_lock;
 };
 
+struct brw_page_integrity_t10 {
+	__u16 *integrity;
+};
+
+union brw_page_integrity {
+	struct brw_page_integrity_t10 t10;
+};
+
 struct brw_page {
         obd_off  off;
         cfs_page_t *pg;
         int count;
         obd_flag flag;
+	union brw_page_integrity integrity;
 };
 
 /* Individual type definitions */
@@ -1113,6 +1122,7 @@ enum obd_cleanup_stage {
 #define KEY_ASYNC               "async"
 #define KEY_BLOCKSIZE_BITS      "blocksize_bits"
 #define KEY_BLOCKSIZE           "blocksize"
+#define KEY_INTEGRITY_CHUNKS    "integrity_chunks"
 #define KEY_CAPA_KEY            "capa_key"
 #define KEY_CHANGELOG_CLEAR     "changelog_clear"
 #define KEY_FID2PATH            "fid2path"
@@ -1366,13 +1376,15 @@ struct obd_ops {
                         struct obd_export *exp, struct obdo *oa, int objcount,
                         struct obd_ioobj *obj, struct niobuf_remote *remote,
                         int *nr_pages, struct niobuf_local *local,
-                        struct obd_trans_info *oti, struct lustre_capa *capa);
+			struct obd_trans_info *oti, struct lustre_capa *capa,
+			struct integrity *integrity);
         int (*o_commitrw)(const struct lu_env *env, int cmd,
                           struct obd_export *exp, struct obdo *oa,
                           int objcount, struct obd_ioobj *obj,
                           struct niobuf_remote *remote, int pages,
                           struct niobuf_local *local,
-                          struct obd_trans_info *oti, int rc);
+			  struct obd_trans_info *oti, int rc,
+			  struct integrity *integrity);
         int (*o_enqueue)(struct obd_export *, struct obd_info *oinfo,
                          struct ldlm_enqueue_info *einfo,
                          struct ptlrpc_request_set *rqset);

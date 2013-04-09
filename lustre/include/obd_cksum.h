@@ -118,7 +118,7 @@ static inline cksum_type_t cksum_type_unpack(obd_flag o_flags)
  */
 static inline cksum_type_t cksum_types_supported_client(void)
 {
-	cksum_type_t ret = OBD_CKSUM_ADLER;
+	cksum_type_t ret = OBD_CKSUM_ADLER | OBD_CKSUM_T10AB;
 
 	CDEBUG(D_INFO, "Crypto hash speed: crc %d, crc32c %d, adler %d\n",
 	       cfs_crypto_hash_speed(cksum_obd2cfs(OBD_CKSUM_CRC32)),
@@ -171,6 +171,7 @@ static inline cksum_type_t cksum_type_select(cksum_type_t cksum_types)
 
 /* Checksum algorithm names. Must be defined in the same order as the
  * OBD_CKSUM_* flags. */
-#define DECLARE_CKSUM_NAME char *cksum_name[] = {"crc32", "adler", "crc32c"}
+#define DECLARE_CKSUM_NAME char *cksum_name[] = {"crc32", "adler", "crc32c", \
+						 "t10a", "t10b"}
 
 #endif /* __OBD_H */

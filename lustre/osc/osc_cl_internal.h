@@ -58,6 +58,7 @@
 #include <cl_object.h>
 #include <lclient.h>
 #include "osc_internal.h"
+#include "osc_integrity.h"
 
 /** \defgroup osc osc
  *  @{
@@ -333,7 +334,6 @@ struct osc_lock {
         struct osc_io           *ols_owner;
 };
 
-
 /**
  * Page state private for osc layer.
  */
@@ -401,6 +401,8 @@ struct osc_page {
          * \see osc_page_addref_lock(), osc_page_putref_lock().
          */
         struct cl_lock       *ops_lock;
+
+	union osc_integrity	ops_integrity;
 };
 
 extern cfs_mem_cache_t *osc_lock_kmem;
@@ -440,7 +442,8 @@ int osc_cancel_async_page(const struct lu_env *env, struct osc_page *ops);
 int osc_set_async_flags(struct osc_object *obj, struct osc_page *opg,
 			obd_flag async_flags);
 int osc_prep_async_page(struct osc_object *osc, struct osc_page *ops,
-			cfs_page_t *page, loff_t offset);
+			cfs_page_t *page, loff_t offset,
+			union osc_integrity *crc);
 int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		       struct osc_page *ops);
 int osc_teardown_async_page(const struct lu_env *env, struct osc_object *obj,

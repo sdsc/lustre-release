@@ -1,0 +1,42 @@
+--- linux-stage.1/fs/ext4/inode.c	2012-05-02 23:44:43.996788296 +0400
++++ linux-stage/fs/ext4/inode.c	2012-05-02 23:47:56.420780421 +0400
+@@ -3561,19 +3566,33 @@ static void ext4_invalidatepage(struct p
+ 		jbd2_journal_invalidatepage(journal, page, offset);
+ 	else
+ 		block_invalidatepage(page, offset);
++
++	if (PagePrivate2(page)) {
++		kfree((void *)page->private);
++		page->private = 0;
++		ClearPagePrivate2(page);
++	}
+ }
+ 
+ static int ext4_releasepage(struct page *page, gfp_t wait)
+ {
+ 	journal_t *journal = EXT4_JOURNAL(page->mapping->host);
++	int rc = 1;
+ 
+ 	WARN_ON(PageChecked(page));
+-	if (!page_has_buffers(page))
+-		return 0;
+-	if (journal)
+-		return jbd2_journal_try_to_free_buffers(journal, page, wait);
+-	else
+-		return try_to_free_buffers(page);
++	BUG_ON(PagePrivate(page) && PagePrivate2(page));
++
++	if (page_has_buffers(page)) {
++		if (journal)
++			rc = jbd2_journal_try_to_free_buffers(journal, page, wait);
++		else
++			rc = try_to_free_buffers(page);
++	} else if (PagePrivate2(page)) {
++		kfree((void *)page->private);
++		page->private = 0;
++		ClearPagePrivate2(page);
++	}
++	return rc;
+ }
+ 
+ /*

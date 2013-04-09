@@ -556,7 +556,7 @@ static const struct req_msg_field *ost_destroy_client[] = {
 };
 
 
-static const struct req_msg_field *ost_brw_client[] = {
+static const struct req_msg_field *ost_brw_read_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_OST_BODY,
         &RMF_OBD_IOOBJ,
@@ -564,9 +564,19 @@ static const struct req_msg_field *ost_brw_client[] = {
         &RMF_CAPA1
 };
 
+static const struct req_msg_field *ost_brw_write_client[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_OST_BODY,
+	&RMF_OBD_IOOBJ,
+	&RMF_NIOBUF_REMOTE,
+	&RMF_CAPA1,
+	&RMF_INTEGRITY_T10_INPILL
+};
+
 static const struct req_msg_field *ost_brw_read_server[] = {
         &RMF_PTLRPC_BODY,
-        &RMF_OST_BODY
+	&RMF_OST_BODY,
+	&RMF_INTEGRITY_T10_INPILL
 };
 
 static const struct req_msg_field *ost_brw_write_server[] = {
@@ -1041,6 +1051,11 @@ struct req_msg_field RMF_OBD_IOOBJ =
         DEFINE_MSGF("obd_ioobj", RMF_F_STRUCT_ARRAY,
                     sizeof(struct obd_ioobj), lustre_swab_obd_ioobj, dump_ioo);
 EXPORT_SYMBOL(RMF_OBD_IOOBJ);
+
+struct req_msg_field RMF_INTEGRITY_T10_INPILL =
+	DEFINE_MSGF("integrity_a", RMF_F_STRUCT_ARRAY,
+		    sizeof(__u16), NULL, NULL);
+EXPORT_SYMBOL(RMF_INTEGRITY_T10_INPILL);
 
 struct req_msg_field RMF_NIOBUF_REMOTE =
         DEFINE_MSGF("niobuf_remote", RMF_F_STRUCT_ARRAY,
@@ -1542,11 +1557,15 @@ struct req_format RQF_OST_DESTROY =
 EXPORT_SYMBOL(RQF_OST_DESTROY);
 
 struct req_format RQF_OST_BRW_READ =
-        DEFINE_REQ_FMT0("OST_BRW_READ", ost_brw_client, ost_brw_read_server);
+	DEFINE_REQ_FMT0("OST_BRW_READ",
+			ost_brw_read_client,
+			ost_brw_read_server);
 EXPORT_SYMBOL(RQF_OST_BRW_READ);
 
 struct req_format RQF_OST_BRW_WRITE =
-        DEFINE_REQ_FMT0("OST_BRW_WRITE", ost_brw_client, ost_brw_write_server);
+	DEFINE_REQ_FMT0("OST_BRW_WRITE",
+			ost_brw_write_client,
+			ost_brw_write_server);
 EXPORT_SYMBOL(RQF_OST_BRW_WRITE);
 
 struct req_format RQF_OST_STATFS =

@@ -93,26 +93,29 @@ static void ll_invalidatepage(struct page *vmpage, unsigned long offset)
          * below because they are run with page locked and all our io is
          * happening with locked page too
          */
-        if (offset == 0) {
-                env = cl_env_get(&refcheck);
-                if (!IS_ERR(env)) {
-                        inode = vmpage->mapping->host;
-                        obj = ll_i2info(inode)->lli_clob;
-                        if (obj != NULL) {
-                                page = cl_vmpage_page(vmpage, obj);
-                                if (page != NULL) {
-                                        lu_ref_add(&page->cp_reference,
-                                                   "delete", vmpage);
-                                        cl_page_delete(env, page);
-                                        lu_ref_del(&page->cp_reference,
-                                                   "delete", vmpage);
-                                        cl_page_put(env, page);
-                                }
-                        } else
-                                LASSERT(vmpage->private == 0);
-                        cl_env_put(env, &refcheck);
-                }
-        }
+	env = cl_env_get(&refcheck);
+	if (!IS_ERR(env)) {
+		inode = vmpage->mapping->host;
+		obj = ll_i2info(inode)->lli_clob;
+		if (obj != NULL) {
+			page = cl_vmpage_page(vmpage, obj);
+			if (page != NULL && offset == 0) {
+				lu_ref_add(&page->cp_reference,
+					   "delete", vmpage);
+				cl_page_delete(env, page);
+				lu_ref_del(&page->cp_reference,
+					   "delete", vmpage);
+				cl_page_put(env, page);
+			} else if (page != NULL && offset != 0) {
+				/* Assume the page has been updated already */
+				if (!cl2ccc(obj)->cob_relaxed_integrity)
+					cl_attach_integrity(env, page);
+				cl_page_put(env, page);
+			}
+		} else
+			LASSERT(vmpage->private == 0);
+		cl_env_put(env, &refcheck);
+	}
 }
 
 #ifdef HAVE_RELEASEPAGE_WITH_INT
@@ -309,6 +312,10 @@ ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
                                 do_io = false;
                         }
                 }
+
+		/* calculate integrity data for the data being written */
+		if (rw == WRITE)
+			cl_attach_integrity(env, clp);
 
                 if (likely(do_io)) {
                         cl_2queue_add(queue, clp);

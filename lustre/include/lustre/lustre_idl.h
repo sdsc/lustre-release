@@ -1211,6 +1211,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_LIGHTWEIGHT 0x1000000000000ULL/* lightweight connection */
 #define OBD_CONNECT_SHORTIO     0x2000000000000ULL/* short io */
 #define OBD_CONNECT_PINGLESS	0x4000000000000ULL/* pings not required */
+#define OBD_CONNECT_INTEGRITY	0x8000000000000ULL /* T10, Merkle tree, etc */
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
  * flag value is not in use on some other branch.  Please clear any such
@@ -1269,7 +1270,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_JOBSTATS | \
 				OBD_CONNECT_LIGHTWEIGHT | OBD_CONNECT_LVB_TYPE|\
 				OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_FID | \
-				OBD_CONNECT_PINGLESS)
+				OBD_CONNECT_PINGLESS | OBD_CONNECT_INTEGRITY)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
 				OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV | \
@@ -1300,7 +1301,9 @@ struct obd_connect_data_v1 {
         __u8  ocd_blocksize;     /* log2 of the backend filesystem blocksize */
         __u8  ocd_inodespace;    /* log2 of the per-inode space consumption */
         __u16 ocd_grant_extent;  /* per-extent grant overhead, in 1K blocks */
-        __u32 ocd_unused;        /* also fix lustre_swab_connect */
+	__u8  ocd_ichunk_size;   /* log2 of the integrity sector size */
+	__u8  ocd_unused;        /* also fix lustre_swab_connect */
+	__u16 ocd_unused2;       /* also fix lustre_swab_connect */
         __u64 ocd_transno;       /* first transno from client to be replayed */
         __u32 ocd_group;         /* MDS group on OST */
         __u32 ocd_cksum_types;   /* supported checksum algorithms */
@@ -1319,7 +1322,9 @@ struct obd_connect_data {
         __u8  ocd_blocksize;     /* log2 of the backend filesystem blocksize */
         __u8  ocd_inodespace;    /* log2 of the per-inode space consumption */
         __u16 ocd_grant_extent;  /* per-extent grant overhead, in 1K blocks */
-        __u32 ocd_unused;        /* also fix lustre_swab_connect */
+	__u8  ocd_ichunk_size;   /* log2 of the integrity sector size */
+	__u8  ocd_unused;        /* also fix lustre_swab_connect */
+	__u16 ocd_unused2;       /* also fix lustre_swab_connect */
         __u64 ocd_transno;       /* first transno from client to be replayed */
         __u32 ocd_group;         /* MDS group on OST */
         __u32 ocd_cksum_types;   /* supported checksum algorithms */
@@ -1364,9 +1369,12 @@ extern void lustre_swab_connect(struct obd_connect_data *ocd);
  * algorithm and also the OBD_FL_CKSUM* flags.
  */
 typedef enum {
-        OBD_CKSUM_CRC32 = 0x00000001,
-        OBD_CKSUM_ADLER = 0x00000002,
-        OBD_CKSUM_CRC32C= 0x00000004,
+	OBD_CKSUM_CRC32  = 0x00000001,
+	OBD_CKSUM_ADLER  = 0x00000002,
+	OBD_CKSUM_CRC32C = 0x00000004,
+	OBD_CKSUM_T10A   = 0x00000008,
+	OBD_CKSUM_T10B   = 0x00000010,
+	OBD_CKSUM_T10AB  = 0x00000018
 } cksum_type_t;
 
 /*
@@ -1413,8 +1421,8 @@ enum obdo_flags {
         OBD_FL_CKSUM_CRC32  = 0x00001000, /* CRC32 checksum type */
         OBD_FL_CKSUM_ADLER  = 0x00002000, /* ADLER checksum type */
         OBD_FL_CKSUM_CRC32C = 0x00004000, /* CRC32C checksum type */
-        OBD_FL_CKSUM_RSVD2  = 0x00008000, /* for future cksum types */
-        OBD_FL_CKSUM_RSVD3  = 0x00010000, /* for future cksum types */
+        OBD_FL_CKSUM_T10A   = 0x00008000, /* T10 A */
+        OBD_FL_CKSUM_T10B   = 0x00010000, /* T10 B */
         OBD_FL_SHRINK_GRANT = 0x00020000, /* object shrink the grant */
         OBD_FL_MMAP         = 0x00040000, /* object is mmapped on the client.
                                            * XXX: obsoleted - reserved for old
@@ -1425,7 +1433,8 @@ enum obdo_flags {
         /* Note that while these checksum values are currently separate bits,
          * in 2.x we can actually allow all values from 1-31 if we wanted. */
         OBD_FL_CKSUM_ALL    = OBD_FL_CKSUM_CRC32 | OBD_FL_CKSUM_ADLER |
-                              OBD_FL_CKSUM_CRC32C,
+                              OBD_FL_CKSUM_CRC32C | OBD_FL_CKSUM_T10A |
+                              OBD_FL_CKSUM_T10B,
 
         /* mask for local-only flag, which won't be sent over network */
         OBD_FL_LOCAL_MASK   = 0xF0000000,
@@ -1904,6 +1913,31 @@ typedef enum {
 
 #define MDS_FIRST_OPC    MDS_GETATTR
 
+/* A copy of the privately declared struct sd_dif_tuple attached
+ * to integrity BIOs.
+ */
+struct obd_integrity_dif_tuple {
+	__u16 guard_tag;	/* Checksum */
+	__u16 app_tag;		/* Opaque storage */
+	__u32 ref_tag;		/* Target LBA or indirect LBA */
+};
+
+/* the least hw sector and integrity chunk size is 512 bytes */
+#define T10_MAX_TUPLES_PER_BULK (PTLRPC_MAX_BRW_SIZE >> 9)
+
+struct obd_integrity_t10 {
+	unsigned			oi_tuples;
+	struct obd_integrity_dif_tuple	*oi_tpl;
+};
+
+union obd_integrity {
+	struct obd_integrity_t10	t10;
+};
+
+struct integrity {
+	cksum_type_t	type;
+	union obd_integrity	oi;
+};
 
 /* opcodes for object update */
 typedef enum {

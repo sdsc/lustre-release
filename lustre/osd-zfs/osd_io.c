@@ -635,7 +635,7 @@ retry:
 
 static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 			struct niobuf_local *lnb, int npages,
-			struct thandle *th)
+			struct thandle *th, struct integrity *unused)
 {
 	struct osd_object  *obj  = osd_dt_obj(dt);
 	struct osd_device  *osd = osd_obj2dev(obj);
@@ -714,7 +714,8 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 }
 
 static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
-			struct niobuf_local *lnb, int npages)
+			struct niobuf_local *lnb, int npages,
+			struct integrity *unused)
 {
 	struct osd_object *obj  = osd_dt_obj(dt);
 	struct lu_buf      buf;

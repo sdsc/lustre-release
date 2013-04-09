@@ -215,6 +215,12 @@ struct ccc_object {
 	 * \see ll_dirty_page_discard_warn.
 	 */
 	unsigned int		cob_discard_page_warned:1;
+
+	/**
+	 * Data can be modified without Lustre control, notably
+	 * through writeable memory mappings.
+	 */
+	unsigned int		cob_relaxed_integrity:1;
 };
 
 /**

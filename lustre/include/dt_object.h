@@ -90,6 +90,8 @@ struct dt_device_param {
         /* per-fragment grant overhead to be used by client for grant
          * calculation */
         int                ddp_grant_frag;
+	int		   ddp_ichunk_size;
+	int		   ddp_ichunk_bits;
 };
 
 /**
@@ -515,12 +517,14 @@ struct dt_body_operations {
          * precondition: dt_object_exists(dt);
          */
         int (*dbo_write_commit)(const struct lu_env *env, struct dt_object *dt,
-                                struct niobuf_local *, int, struct thandle *);
+				struct niobuf_local *, int, struct thandle *,
+				struct integrity *);
         /*
          * precondition: dt_object_exists(dt);
          */
         int (*dbo_read_prep)(const struct lu_env *env, struct dt_object *dt,
-                             struct niobuf_local *lnb, int nr);
+			     struct niobuf_local *lnb, int nr,
+			     struct integrity *);
         int (*dbo_fiemap_get)(const struct lu_env *env, struct dt_object *dt,
                               struct ll_user_fiemap *fm);
         /**
@@ -1197,21 +1201,23 @@ static inline int dt_declare_write_commit(const struct lu_env *env,
 
 static inline int dt_write_commit(const struct lu_env *env,
                                   struct dt_object *d, struct niobuf_local *lnb,
-                                  int n, struct thandle *th)
+				  int n, struct thandle *th,
+				  struct integrity *integrity)
 {
         LASSERT(d);
         LASSERT(d->do_body_ops);
         LASSERT(d->do_body_ops->dbo_write_commit);
-        return d->do_body_ops->dbo_write_commit(env, d, lnb, n, th);
+	return d->do_body_ops->dbo_write_commit(env, d, lnb, n, th, integrity);
 }
 
 static inline int dt_read_prep(const struct lu_env *env, struct dt_object *d,
-                               struct niobuf_local *lnb, int n)
+			       struct niobuf_local *lnb, int n,
+			       struct integrity *integrity)
 {
         LASSERT(d);
         LASSERT(d->do_body_ops);
         LASSERT(d->do_body_ops->dbo_read_prep);
-        return d->do_body_ops->dbo_read_prep(env, d, lnb, n);
+	return d->do_body_ops->dbo_read_prep(env, d, lnb, n, integrity);
 }
 
 static inline int dt_declare_punch(const struct lu_env *env,

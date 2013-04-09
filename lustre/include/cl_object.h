@@ -931,6 +931,7 @@ struct cl_page_operations {
          */
         void (*cpo_delete)(const struct lu_env *env,
                            const struct cl_page_slice *slice);
+
         /** Destructor. Frees resources and slice itself. */
         void (*cpo_fini)(const struct lu_env *env,
                          struct cl_page_slice *slice);
@@ -1086,6 +1087,14 @@ struct cl_page_operations {
 			 const struct cl_page_slice *slice,
 			 struct cl_io *io);
         /** @} transfer */
+
+	/**
+	 * Generate integrity data for a page.
+	 *
+	 * \see osc_attach_integrity().
+	 */
+	void (*cpo_integrity)(const struct lu_env *env,
+			      const struct cl_page_slice *slice);
 };
 
 /**
@@ -2869,6 +2878,7 @@ int  cl_page_flush      (const struct lu_env *env, struct cl_io *io,
 void    cl_page_discard      (const struct lu_env *env, struct cl_io *io,
                               struct cl_page *pg);
 void    cl_page_delete       (const struct lu_env *env, struct cl_page *pg);
+int	cl_attach_integrity(const struct lu_env *env, struct cl_page *page);
 int     cl_page_unmap        (const struct lu_env *env, struct cl_io *io,
                               struct cl_page *pg);
 int     cl_page_is_vmlocked  (const struct lu_env *env,
