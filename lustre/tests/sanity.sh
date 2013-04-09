@@ -11052,6 +11052,29 @@ test_232() {
 }
 run_test 232 "failed lock should not block umount"
 
+test_233() {
+	mkdir -p $DIR/$tdir
+	$OPENFILE -f O_CREAT $DIR/$tdir/$tfile-1 ||
+		error "create $tfile-1 failed"
+	touch $DIR/$tdir/$tfile-1
+	$OPENFILE -f O_LOV_DELAY_CREATE:O_CREAT $DIR/$tdir/$tfile-2 ||
+		error "create $tfile-2 failed"
+	lovea1=`getfattr --absolute-names -n trusted.lov $DIR/$tdir/$tfile-1 |
+		grep ^trusted` || error "get $tfile-1 lovea failed"
+
+	$LFS swap_layouts $DIR/$tdir/$tfile-1 $DIR/$tdir/$tfile-2 ||
+		error "swap layout failed"
+
+	lovea2=`getfattr --absolute-names -n trusted.lov $DIR/$tdir/$tfile-2 |
+		grep ^trusted` || error "get $tfile-2 lovea failed"
+	[ $lovea1 == $lovea2 ] || error "lovea $lovea1 != $lovea2"
+
+	lovea1=`getfattr --absolute-names -n trusted.lov $DIR/$tdir/$tfile-1 |
+		awk '{ print $NF }'` || error "get $tfile-1 lovea failed"
+	[ -z $lovea1 ] || error "$tfile-1 shouldn't have lovea"
+}
+run_test 233 "stripeless file layout swapping should not panic"
+
 #
 # tests that do cleanup/setup should be run at the end
 #

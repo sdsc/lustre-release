@@ -532,6 +532,9 @@ static int lod_xattr_set(const struct lu_env *env,
 			/* free stripes, then update disk */
 			lod_object_free_striping(env, lod_dt_obj(dt));
 			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
+		} else if (buf != NULL) {
+			/* set to a known stripes */
+			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
 		} else {
 			rc = lod_striping_create(env, dt, NULL, NULL, th);
 		}
