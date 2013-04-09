@@ -1779,6 +1779,40 @@ test_111 () {
 }
 run_test 111 "mdd setup fail should not cause umount oops"
 
+test_112() {
+	local generation=[]
+	local count=0
+	local imp
+	for imp in /proc/fs/lustre/mdc/$FSNAME-MDT*-mdc-*; do
+		g=$(awk '/generation/{print $2}' $imp/import)
+		generation[count]=$g
+		let count=count+1
+	done
+
+	touch $DIR/$tfile
+
+	# set up a race, so that both locks will be cancelled simultaneously
+	# OBD_FAIL_LDLM_REPLY | ONCE
+	do_facet $SINGLEMDS lctl set_param fail_loc=0x8000030c
+	setfattr -n user.attr1 -v val1 $DIR/$tfile &
+	sleep 0.5
+	# OBD_FAIL_LDLM_PAUSE_CANCEL2 | ONCE
+	lctl set_param fail_loc=0x8000031d
+	wait
+
+	rm -f $DIR/$tfile
+
+	count=0
+	for imp in /proc/fs/lustre/mdc/$FSNAME-MDT*-mdc-*; do
+		g=$(awk '/generation/{print $2}' $imp/import)
+		if ! test "$g" -eq "${generation[count]}"; then
+			error "eviction happened on import $(basename $imp)"
+		fi
+		let count=count+1
+	done
+}
+run_test 112 "ldlm dropped reply should not cause deadlocks"
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
