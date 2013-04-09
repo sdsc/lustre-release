@@ -758,8 +758,8 @@ int main(int argc, char *const argv[])
                 goto out;
         }
 #else
-	/* update svname with '=' to refresh config */
-	if (mop.mo_ldd.ldd_flags & LDD_F_WRITECONF) {
+	/* update svname with '=' to refresh config or '^' to update params */
+	if (mop.mo_ldd.ldd_flags & (LDD_F_WRITECONF | LDD_F_UPDATE)) {
 		struct mount_opts opts;
 		opts.mo_ldd = mop.mo_ldd;
 		opts.mo_source = mop.mo_device;

@@ -184,11 +184,24 @@ struct lustre_disk_data {
 static inline int server_make_name(__u32 flags, __u16 index, char *fs,
                                    char *name)
 {
+	char delimiter;
+
+	/*
+	 * notice we check for writeconf first - this implies
+	 * update to the configuration
+	 */
+	if (flags & LDD_F_VIRGIN)
+		delimiter = ':';
+	else if (flags & LDD_F_WRITECONF)
+		delimiter = '=';
+	else if (flags & LDD_F_UPDATE)
+		delimiter = '^';
+	else
+		delimiter = '-';
+
         if (flags & (LDD_F_SV_TYPE_MDT | LDD_F_SV_TYPE_OST)) {
                 if (!(flags & LDD_F_SV_ALL))
-			sprintf(name, "%.8s%c%s%04x", fs,
-				(flags & LDD_F_VIRGIN) ? ':' :
-					((flags & LDD_F_WRITECONF) ? '=' : '-'),
+			sprintf(name, "%.8s%c%s%04x", fs, delimiter,
 				(flags & LDD_F_SV_TYPE_MDT) ? "MDT" : "OST",
 				index);
         } else if (flags & LDD_F_SV_TYPE_MGS) {
@@ -240,6 +253,7 @@ struct lustre_mount_data {
 #define LMD_FLG_IAM	     0x0400  /* IAM dir */
 #define LMD_FLG_NO_PRIMNODE  0x0800  /* all nodes are service nodes */
 #define LMD_FLG_VIRGIN	     0x1000  /* the service registers first time */
+#define LMD_FLG_UPDATE	     0x2000  /* update parameters */
 
 #define lmd_is_client(x) ((x)->lmd_flags & LMD_FLG_CLIENT)
 
