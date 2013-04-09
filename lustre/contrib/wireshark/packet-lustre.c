@@ -481,6 +481,10 @@ static int hf_lustre_llogd_chunk= -1;
 static int hf_lustre_llogd_keyword= -1;
 static int hf_lustre_llogd_client= -1;
 static int hf_lustre_llogd_name= -1;
+static int hf_lustre_llog_orphan_rec_lor_tail = -1;
+static int hf_lustre_llog_orphan_rec_lor_hdr = -1;
+static int hf_lustre_llog_orphan_rec_padding = -1;
+static int hf_lustre_llog_orphan_rec_lor_ogen = -1;
 
 static int hf_lustre_mds_xattr_name = -1;
 static int hf_lustre_lov_mds_md_v1= -1;
@@ -11176,7 +11180,6 @@ void proto_register_dcerpc_lustre(void)
     &ett_lustre_llog_rec_hdr,
     &ett_lustre_llog_rec_tail,
     &ett_lustre_llog_logid_rec,
-    &ett_lustre_llog_orphan_rec,
     &ett_lustre_llog_unlink_rec,
     &ett_lustre_llog_setattr_rec,
     &ett_lustre_llog_size_change_rec,
