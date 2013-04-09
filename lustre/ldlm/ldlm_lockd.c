@@ -2269,6 +2269,8 @@ static int ldlm_callback_handler(struct ptlrpc_request *req)
         }
         unlock_res_and_lock(lock);
 
+	OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_PAUSE_CANCEL2, 1);
+
         /* We want the ost thread to get this reply so that it can respond
          * to ost requests (write cache writeback) that might be triggered
          * in the callback.

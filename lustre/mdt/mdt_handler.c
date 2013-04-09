@@ -3585,6 +3585,23 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
         RETURN(ELDLM_LOCK_REPLACED);
 }
 
+
+static int find_lock_in_hash(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+			     cfs_hlist_node_t *hnode, void *cb_data)
+{
+	struct ldlm_lock **lockp = cb_data;
+	struct ldlm_lock *lock = cfs_hash_object(hs, hnode);
+
+	if (lock != *lockp) {
+		cfs_hash_get(hs, hnode);
+		*lockp = lock;
+		return 1;
+	}
+
+	return 0;
+}
+
+
 static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
                                     struct ldlm_lock *new_lock,
                                     struct ldlm_lock **old_lock,
@@ -3602,27 +3619,26 @@ static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
         dlmreq = req_capsule_client_get(info->mti_pill, &RMF_DLM_REQ);
         remote_hdl = dlmreq->lock_handle[0];
 
-	/* In the function below, .hs_keycmp resolves to
-	 * ldlm_export_lock_keycmp() */
-	/* coverity[overrun-buffer-val] */
-        lock = cfs_hash_lookup(exp->exp_lock_hash, &remote_hdl);
-        if (lock) {
-                if (lock != new_lock) {
-                        lh->mlh_reg_lh.cookie = lock->l_handle.h_cookie;
-                        lh->mlh_reg_mode = lock->l_granted_mode;
+	/*
+	 * Find a lock with the same handle different from new_lock
+	 */
+	lock = new_lock;
+	cfs_hash_for_each_key(exp->exp_lock_hash, &remote_hdl,
+			      find_lock_in_hash, &lock);
 
-                        LDLM_DEBUG(lock, "Restoring lock cookie");
-                        DEBUG_REQ(D_DLMTRACE, req,
-                                  "restoring lock cookie "LPX64,
-                                  lh->mlh_reg_lh.cookie);
-                        if (old_lock)
-                                *old_lock = LDLM_LOCK_GET(lock);
-                        cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
-                        return;
-                }
+	if (lock != new_lock) {
+		lh->mlh_reg_lh.cookie = lock->l_handle.h_cookie;
+		lh->mlh_reg_mode = lock->l_granted_mode;
 
-                cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
-        }
+		LDLM_DEBUG(lock, "Restoring lock cookie");
+		DEBUG_REQ(D_DLMTRACE, req,
+			  "restoring lock cookie "LPX64,
+			  lh->mlh_reg_lh.cookie);
+		if (old_lock)
+			*old_lock = LDLM_LOCK_GET(lock);
+		cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
+		return;
+	}
 
         /*
          * If the xid matches, then we know this is a resent request, and allow
