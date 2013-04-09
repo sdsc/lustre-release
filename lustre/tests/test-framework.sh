@@ -1077,7 +1077,7 @@ mount_facet() {
 	if [ -f $TMP/test-lu482-trigger ]; then
 		RC=2
 	else
-		do_facet ${facet} "mkdir -p $mntpt; mount -t lustre $opts \
+		do_facet ${facet} "mkdir -p $mntpt; mount -v -t lustre $opts \
 		                   ${!dev} $mntpt"
 		RC=${PIPESTATUS[0]}
 	fi

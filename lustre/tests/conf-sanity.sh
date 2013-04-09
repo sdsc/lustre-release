@@ -4057,7 +4057,9 @@ test_73() { #LU-3006
 	start_mgsmds || error "start mds failed"
 	start_ost || error "start ost failed"
 	mount_client $MOUNT || error "mount client failed"
-	lctl get_param -n osc.*OST0000-osc-[^M]*.import | grep failover_nids |
+	#lctl get_param -n osc.*OST0000-osc-[^M]*.import | grep failover_nids |
+	lctl get_param osc.*OST0000-osc-[^M]*.import
+	lctl get_param osc.*OST0000-osc-[^M]*.import | grep failover_nids |
 		grep 1.2.3.4@tcp || error "failover nids haven't changed"
 	umount_client $MOUNT || error "umount client failed"
 	stopall
