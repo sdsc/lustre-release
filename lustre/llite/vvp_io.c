@@ -1012,7 +1012,7 @@ static int vvp_io_commit_write(const struct lu_env *env,
         struct ll_sb_info *sbi    = ll_i2sbi(inode);
 	struct ll_inode_info *lli = ll_i2info(inode);
         cfs_page_t        *vmpage = cp->cpg_page;
-
+	int    integrity = 0;
         int    result;
         int    tallyop;
         loff_t size;
@@ -1080,6 +1080,10 @@ static int vvp_io_commit_write(const struct lu_env *env,
                         }
                         if (need_clip)
                                 cl_page_clip(env, pg, 0, to);
+
+			cl_attach_integrity(env, pg);
+			integrity = 1;
+
                         result = vvp_page_sync_io(env, io, pg, cp, CRT_WRITE);
                         if (result)
                                 CERROR("Write page %lu of inode %p failed %d\n",
@@ -1089,6 +1093,10 @@ static int vvp_io_commit_write(const struct lu_env *env,
                 tallyop = LPROC_LL_DIRTY_HITS;
                 result = 0;
         }
+
+	if (!cl2ccc(obj)->cob_relaxed_integrity && !integrity)
+		cl_attach_integrity(env, pg);
+
         ll_stats_ops_tally(sbi, tallyop, 1);
 
 	/* Inode should be marked DIRTY even if no new page was marked DIRTY

@@ -311,6 +311,7 @@ extern struct req_msg_field RMF_MGS_SEND_PARAM;
 
 extern struct req_msg_field RMF_OST_BODY;
 extern struct req_msg_field RMF_OBD_IOOBJ;
+extern struct req_msg_field RMF_INTEGRITY_T10_INPILL;
 extern struct req_msg_field RMF_OBD_ID;
 extern struct req_msg_field RMF_FID;
 extern struct req_msg_field RMF_NIOBUF_REMOTE;

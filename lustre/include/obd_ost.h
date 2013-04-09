@@ -57,6 +57,8 @@ struct osc_brw_async_args {
 	cfs_list_t         aa_exts;
         struct obd_capa   *aa_ocapa;
         struct cl_req     *aa_clerq;
+	cfs_page_t	 **aa_integrity;
+	unsigned	   aa_integrity_sz;
 };
 
 #define osc_grant_args osc_brw_async_args

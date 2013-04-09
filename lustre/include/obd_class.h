@@ -1411,7 +1411,8 @@ static inline int obd_preprw(const struct lu_env *env, int cmd,
                              struct niobuf_remote *remote, int *pages,
                              struct niobuf_local *local,
                              struct obd_trans_info *oti,
-                             struct lustre_capa *capa)
+			     struct lustre_capa *capa,
+			     struct integrity *integrity)
 {
         int rc;
         ENTRY;
@@ -1420,7 +1421,7 @@ static inline int obd_preprw(const struct lu_env *env, int cmd,
         EXP_COUNTER_INCREMENT(exp, preprw);
 
         rc = OBP(exp->exp_obd, preprw)(env, cmd, exp, oa, objcount, obj, remote,
-                                       pages, local, oti, capa);
+				       pages, local, oti, capa, integrity);
         RETURN(rc);
 }
 
@@ -1429,7 +1430,8 @@ static inline int obd_commitrw(const struct lu_env *env, int cmd,
                                int objcount, struct obd_ioobj *obj,
                                struct niobuf_remote *rnb, int pages,
                                struct niobuf_local *local,
-                               struct obd_trans_info *oti, int rc)
+			       struct obd_trans_info *oti, int rc,
+			       struct integrity *integrity)
 {
         ENTRY;
 
@@ -1437,7 +1439,7 @@ static inline int obd_commitrw(const struct lu_env *env, int cmd,
         EXP_COUNTER_INCREMENT(exp, commitrw);
 
         rc = OBP(exp->exp_obd, commitrw)(env, cmd, exp, oa, objcount, obj,
-                                         rnb, pages, local, oti, rc);
+					 rnb, pages, local, oti, rc, integrity);
         RETURN(rc);
 }
 

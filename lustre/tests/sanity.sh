@@ -11052,6 +11052,30 @@ test_232() {
 }
 run_test 232 "failed lock should not block umount"
 
+test_233() {
+	local imode
+	local cmode
+	local f
+
+	mkdir -p $DIR/$tdir
+
+	for imode in t10a t10b; do
+	for cmode in server none; do
+		log "testing $imode with $cmode"
+		$LCTL set_param -n osc.${FSNAME}-OST0000-osc-[^MDT]*.checksum_type $imode ||
+			{ log "not supported" ; continue ; }
+		seq 1 100000 | dd of=$DIR/$tdir/$tfile bs=4096 count=10 oflag=direct
+		log "reading"
+		[ $cmode = none ] && echo 3 > /proc/sys/vm/drop_caches
+		dd of=/dev/zero if=$DIR/$tdir/$tfile bs=4096 count=10 iflag=direct
+		rm -f $DIR/$tdir/$tfile
+	done
+	done
+
+	rm -rf $DIR/$tdir
+}
+run_test 233 "check different integrity modes"
+
 #
 # tests that do cleanup/setup should be run at the end
 #

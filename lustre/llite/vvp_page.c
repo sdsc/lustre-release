@@ -364,6 +364,8 @@ static int vvp_page_make_ready(const struct lu_env *env,
 		set_page_writeback(vmpage);
 		vvp_write_pending(cl2ccc(slice->cpl_obj),
 				cl2ccc_page(slice));
+		if (cl2ccc(slice->cpl_obj)->cob_relaxed_integrity)
+			cl_attach_integrity(env, pg);
 		CL_PAGE_HEADER(D_PAGE, env, pg, "readied\n");
 	} else if (pg->cp_state == CPS_PAGEOUT) {
 		/* is it possible for osc_flush_async_page() to already

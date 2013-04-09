@@ -198,12 +198,15 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 	}
 
 	if (data->ocd_connect_flags & OBD_CONNECT_CKSUM) {
+		unsigned b = CFS_PAGE_SHIFT - ofd->ofd_dt_conf.ddp_ichunk_bits;
 		__u32 cksum_types = data->ocd_cksum_types;
 
 		/* The client set in ocd_cksum_types the checksum types it
 		 * supports. We have to mask off the algorithms that we don't
 		 * support */
-		data->ocd_cksum_types &= cksum_types_supported_server();
+		data->ocd_cksum_types &= cksum_types_supported_server() |
+					 (b ? OBD_CKSUM_T10AB : 0);
+		data->ocd_ichunk_size = b;
 
 		if (unlikely(data->ocd_cksum_types == 0)) {
 			CERROR("%s: Connect with checksum support but no "
@@ -555,6 +558,14 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 			*blocksize_bits = ofd->ofd_dt_conf.ddp_block_shift;
 		}
 		*vallen = sizeof(*blocksize_bits);
+	} else if (KEY_IS(KEY_INTEGRITY_CHUNKS)) {
+		__u32 *ichunks = val;
+		if (ichunks) {
+			if (*vallen < sizeof(*ichunks))
+				RETURN(-EOVERFLOW);
+			*ichunks = ofd->ofd_dt_conf.ddp_ichunk_size;
+		}
+		*vallen = sizeof(*ichunks);
 	} else if (KEY_IS(KEY_LAST_ID)) {
 		obd_id *last_id = val;
 		struct ofd_seq *oseq;

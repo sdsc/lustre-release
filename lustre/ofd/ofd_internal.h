@@ -363,12 +363,12 @@ int ofd_preprw(const struct lu_env *env,int cmd, struct obd_export *exp,
 	       struct obdo *oa, int objcount, struct obd_ioobj *obj,
 	       struct niobuf_remote *rnb, int *nr_local,
 	       struct niobuf_local *lnb, struct obd_trans_info *oti,
-	       struct lustre_capa *capa);
+	       struct lustre_capa *capa, struct integrity *integrity);
 int ofd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
 		 struct obdo *oa, int objcount, struct obd_ioobj *obj,
 		 struct niobuf_remote *rnb, int npages,
 		 struct niobuf_local *lnb, struct obd_trans_info *oti,
-		 int old_rc);
+		 int old_rc, struct integrity *integrity);
 
 /* ofd_trans.c */
 struct thandle *ofd_trans_create(const struct lu_env *env,

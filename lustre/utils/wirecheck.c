@@ -446,7 +446,7 @@ check_obd_connect_data(void)
 	CHECK_MEMBER(obd_connect_data, ocd_blocksize);
 	CHECK_MEMBER(obd_connect_data, ocd_inodespace);
 	CHECK_MEMBER(obd_connect_data, ocd_grant_extent);
-	CHECK_MEMBER(obd_connect_data, ocd_unused);
+	CHECK_MEMBER(obd_connect_data, ocd_ichunk_size);
 	CHECK_MEMBER(obd_connect_data, ocd_transno);
 	CHECK_MEMBER(obd_connect_data, ocd_group);
 	CHECK_MEMBER(obd_connect_data, ocd_cksum_types);
@@ -623,8 +623,8 @@ check_obdo(void)
 	CHECK_CVALUE_X(OBD_FL_CKSUM_CRC32);
 	CHECK_CVALUE_X(OBD_FL_CKSUM_ADLER);
 	CHECK_CVALUE_X(OBD_FL_CKSUM_CRC32C);
-	CHECK_CVALUE_X(OBD_FL_CKSUM_RSVD2);
-	CHECK_CVALUE_X(OBD_FL_CKSUM_RSVD3);
+	CHECK_CVALUE_X(OBD_FL_CKSUM_T10A);
+	CHECK_CVALUE_X(OBD_FL_CKSUM_T10B);
 	CHECK_CVALUE_X(OBD_FL_SHRINK_GRANT);
 	CHECK_CVALUE_X(OBD_FL_MMAP);
 	CHECK_CVALUE_X(OBD_FL_RECOV_RESEND);

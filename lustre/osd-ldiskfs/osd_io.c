@@ -56,6 +56,7 @@
 #include <obd_support.h>
 
 #include "osd_internal.h"
+#include "osd_integrity.h"
 
 /* ext_depth() */
 #include <ldiskfs/ldiskfs_extents.h>
@@ -145,15 +146,23 @@ static int __osd_init_iobuf(struct osd_device *d, struct osd_iobuf *iobuf,
 
 	iobuf->dr_max_pages = pages;
 
+	if (osd_alloc_integrity(iobuf, pages))
+		return -ENOMEM;
+
 	return 0;
 }
 #define osd_init_iobuf(dev, iobuf, rw, pages) \
 	__osd_init_iobuf(dev, iobuf, rw, __LINE__, pages)
 
-static void osd_iobuf_add_page(struct osd_iobuf *iobuf, struct page *page)
+static void osd_iobuf_add_page(struct osd_iobuf *iobuf, struct page *page,
+			       struct integrity *integrity, int n)
 {
         LASSERT(iobuf->dr_npages < iobuf->dr_max_pages);
-        iobuf->dr_pages[iobuf->dr_npages++] = page;
+
+	iobuf->dr_pages[iobuf->dr_npages] = page;
+	osd_iobuf_attach_integrity(iobuf, page, integrity, n);
+
+	iobuf->dr_npages++;
 }
 
 void osd_fini_iobuf(struct osd_device *d, struct osd_iobuf *iobuf)
@@ -345,6 +354,10 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
                                          page_idx, block_idx, i);
                                 memset(kmap(page) + page_offset, 0, blocksize);
                                 kunmap(page);
+				osd_attach_integrity(osd, iobuf, NULL, page_idx,
+						     page_offset, blocksize,
+						     0, 1);
+
                                 continue;
                         }
 
@@ -369,8 +382,12 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
                         if (bio != NULL &&
                             can_be_merged(bio, sector) &&
                             bio_add_page(bio, page,
-                                         blocksize * nblocks, page_offset) != 0)
+                                         blocksize * nblocks, page_offset) != 0) {
+				osd_attach_integrity(osd, iobuf, bio, page_idx,
+						     page_offset, blocksize * nblocks,
+						     sector, 0);
                                 continue;       /* added this frag OK */
+                        }
 
                         if (bio != NULL) {
                                 struct request_queue *q =
@@ -411,6 +428,9 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
 
                         rc = bio_add_page(bio, page,
                                           blocksize * nblocks, page_offset);
+			osd_attach_integrity(osd, iobuf, bio, page_idx,
+					     page_offset, blocksize * nblocks,
+					     sector, 0);
                         LASSERT(rc != 0);
                 }
         }
@@ -615,7 +635,7 @@ static int osd_write_prep(const struct lu_env *env, struct dt_object *dt,
                         continue;
 
                 if (maxidx >= lnb[i].page->index) {
-                        osd_iobuf_add_page(iobuf, lnb[i].page);
+			osd_iobuf_add_page(iobuf, lnb[i].page, NULL, 0);
                 } else {
                         long off;
                         char *p = kmap(lnb[i].page);
@@ -784,7 +804,7 @@ static int osd_declare_write_commit(const struct lu_env *env,
 /* Check if a block is allocated or not */
 static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
                             struct niobuf_local *lnb, int npages,
-                            struct thandle *thandle)
+			    struct thandle *thandle, struct integrity *integrity)
 {
         struct osd_thread_info *oti = osd_oti_get(env);
         struct osd_iobuf *iobuf = &oti->oti_iobuf;
@@ -794,6 +814,8 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
         int rc = 0, i;
 
         LASSERT(inode);
+
+	osd_reconstruct_integrity(osd, lnb, npages, integrity);
 
 	rc = osd_init_iobuf(osd, iobuf, 1, npages);
 	if (unlikely(rc != 0))
@@ -833,7 +855,7 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 
                 SetPageUptodate(lnb[i].page);
 
-                osd_iobuf_add_page(iobuf, lnb[i].page);
+		osd_iobuf_add_page(iobuf, lnb[i].page, integrity, i);
         }
 
         if (OBD_FAIL_CHECK(OBD_FAIL_OST_MAPBLK_ENOSPC)) {
@@ -868,13 +890,16 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
                         LASSERT(PageLocked(lnb[i].page));
                         generic_error_remove_page(inode->i_mapping,lnb[i].page);
                 }
+        } else {
+		osd_pull_integrity(osd, lnb, iobuf->dr_npages, integrity);
         }
 
         RETURN(rc);
 }
 
 static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
-                         struct niobuf_local *lnb, int npages)
+			 struct niobuf_local *lnb, int npages,
+			 struct integrity *integrity)
 {
         struct osd_thread_info *oti = osd_oti_get(env);
         struct osd_iobuf *iobuf = &oti->oti_iobuf;
@@ -911,13 +936,14 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
                 m += lnb[i].len;
 
                 lprocfs_counter_add(osd->od_stats, LPROC_OSD_CACHE_ACCESS, 1);
-                if (PageUptodate(lnb[i].page)) {
+		if (PageUptodate(lnb[i].page) &&
+		    !osd_check_integrity(osd, lnb[i].page, integrity, i)) {
                         lprocfs_counter_add(osd->od_stats,
                                             LPROC_OSD_CACHE_HIT, 1);
                 } else {
                         lprocfs_counter_add(osd->od_stats,
                                             LPROC_OSD_CACHE_MISS, 1);
-                        osd_iobuf_add_page(iobuf, lnb[i].page);
+			osd_iobuf_add_page(iobuf, lnb[i].page, integrity, i);
                 }
                 if (cache == 0)
                         generic_error_remove_page(inode->i_mapping,lnb[i].page);
@@ -935,6 +961,9 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 
                 /* IO stats will be done in osd_bufs_put() */
         }
+
+	if (rc == 0)
+		osd_pull_integrity(osd, lnb, iobuf->dr_npages, integrity);
 
         RETURN(rc);
 }

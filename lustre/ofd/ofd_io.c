@@ -47,7 +47,8 @@ static int ofd_preprw_read(const struct lu_env *env, struct obd_export *exp,
 			   struct lu_attr *la, int niocount,
 			   struct niobuf_remote *rnb, int *nr_local,
 			   struct niobuf_local *lnb,
-			   struct obd_trans_info *oti)
+			   struct obd_trans_info *oti,
+			   struct integrity *integrity)
 {
 	struct ofd_object	*fo;
 	int			 i, j, rc, tot_bytes = 0;
@@ -83,7 +84,7 @@ static int ofd_preprw_read(const struct lu_env *env, struct obd_export *exp,
 	if (unlikely(rc))
 		GOTO(buf_put, rc);
 
-	rc = dt_read_prep(env, ofd_object_child(fo), lnb, *nr_local);
+	rc = dt_read_prep(env, ofd_object_child(fo), lnb, *nr_local, integrity);
 	if (unlikely(rc))
 		GOTO(buf_put, rc);
 	lprocfs_counter_add(ofd_obd(ofd)->obd_stats,
@@ -208,7 +209,7 @@ int ofd_preprw(const struct lu_env* env, int cmd, struct obd_export *exp,
 	       struct obdo *oa, int objcount, struct obd_ioobj *obj,
 	       struct niobuf_remote *rnb, int *nr_local,
 	       struct niobuf_local *lnb, struct obd_trans_info *oti,
-	       struct lustre_capa *capa)
+	       struct lustre_capa *capa, struct integrity *integrity)
 {
 	struct ofd_device	*ofd = ofd_exp(exp);
 	struct ofd_thread_info	*info;
@@ -260,7 +261,7 @@ int ofd_preprw(const struct lu_env* env, int cmd, struct obd_export *exp,
 			ofd_grant_prepare_read(env, exp, oa);
 			rc = ofd_preprw_read(env, exp, ofd, &info->fti_fid,
 					     &info->fti_attr, obj->ioo_bufcnt,
-					     rnb, nr_local, lnb, oti);
+					     rnb, nr_local, lnb, oti, integrity);
 			obdo_from_la(oa, &info->fti_attr, LA_ATIME);
 		}
 	} else {
@@ -388,7 +389,8 @@ ofd_commitrw_write(const struct lu_env *env, struct ofd_device *ofd,
 		   struct lu_fid *fid, struct lu_attr *la,
 		   struct filter_fid *ff, int objcount,
 		   int niocount, struct niobuf_local *lnb,
-		   struct obd_trans_info *oti, int old_rc)
+		   struct obd_trans_info *oti, int old_rc,
+		   struct integrity *integrity)
 {
 	struct ofd_thread_info	*info = ofd_info(env);
 	struct ofd_object	*fo;
@@ -448,7 +450,7 @@ retry:
 	if (rc)
 		GOTO(out_stop, rc);
 
-	rc = dt_write_commit(env, o, lnb, niocount, th);
+	rc = dt_write_commit(env, o, lnb, niocount, th, integrity);
 	if (rc)
 		GOTO(out_stop, rc);
 
@@ -488,7 +490,7 @@ int ofd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
 		 struct obdo *oa, int objcount, struct obd_ioobj *obj,
 		 struct niobuf_remote *rnb, int npages,
 		 struct niobuf_local *lnb, struct obd_trans_info *oti,
-		 int old_rc)
+		 int old_rc, struct integrity *integrity)
 {
 	struct ofd_thread_info	*info;
 	struct ofd_mod_data	*fmd;
@@ -526,7 +528,7 @@ int ofd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
 
 		rc = ofd_commitrw_write(env, ofd, &info->fti_fid,
 					&info->fti_attr, ff, objcount, npages,
-					lnb, oti, old_rc);
+					lnb, oti, old_rc, integrity);
 		if (rc == 0)
 			obdo_from_la(oa, &info->fti_attr,
 				     OFD_VALID_FLAGS | LA_GID | LA_UID);

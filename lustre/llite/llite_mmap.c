@@ -538,6 +538,17 @@ static void ll_vm_open(struct vm_area_struct * vma)
         LASSERT(vma->vm_file);
         LASSERT(cfs_atomic_read(&vob->cob_mmap_cnt) >= 0);
         cfs_atomic_inc(&vob->cob_mmap_cnt);
+
+	/*
+	 * Data can be modified via write mappings, so don't calculate CRCs
+	 * until writeback as that would be unreliable. A small possible
+	 * enhancement would be to decide on a per-page basis, so that
+	 * write-mmapped pages which are modified only through write(2) will
+	 * have the same protection as non write-mmapped pages.
+	 */
+	if ((vma->vm_flags & (VM_WRITE|VM_SHARED)) == (VM_WRITE|VM_SHARED))
+		vob->cob_relaxed_integrity = 1;
+
         EXIT;
 }
 

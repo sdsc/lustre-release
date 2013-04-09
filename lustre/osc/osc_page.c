@@ -41,6 +41,7 @@
 #define DEBUG_SUBSYSTEM S_OSC
 
 #include "osc_cl_internal.h"
+#include "osc_integrity.h"
 
 static void osc_lru_del(struct client_obd *cli, struct osc_page *opg, bool del);
 static void osc_lru_add(struct client_obd *cli, struct osc_page *opg);
@@ -448,11 +449,17 @@ void osc_page_clip(const struct lu_env *env, const struct cl_page_slice *slice,
 {
         struct osc_page       *opg = cl2osc_page(slice);
         struct osc_async_page *oap = &opg->ops_oap;
+	struct osc_object     *obj = cl2osc(slice->cpl_obj);
+	struct client_obd     *cli = &osc_export(obj)->exp_obd->u.cli;
 
         LINVRNT(osc_page_protected(env, opg, CLM_READ, 0));
 
-        opg->ops_from = from;
-        opg->ops_to   = to;
+	/* Partial page transfers would confuse servers with
+	 * integrity-enabled transfers */
+	if (!(cli->cl_checksum && cli->cl_cksum_type & OBD_CKSUM_T10AB)) {
+		opg->ops_from = from;
+		opg->ops_to   = to;
+	}
 	spin_lock(&oap->oap_lock);
 	oap->oap_async_flags |= ASYNC_COUNT_STABLE;
 	spin_unlock(&oap->oap_lock);
@@ -490,6 +497,7 @@ static const struct cl_page_operations osc_page_ops = {
         .cpo_fini          = osc_page_fini,
         .cpo_print         = osc_page_print,
         .cpo_delete        = osc_page_delete,
+	.cpo_integrity     = osc_page_integrity,
         .cpo_is_under_lock = osc_page_is_under_lock,
         .cpo_disown        = osc_page_disown,
         .io = {
@@ -518,7 +526,8 @@ int osc_page_init(const struct lu_env *env, struct cl_object *obj,
 	opg->ops_to   = CFS_PAGE_SIZE;
 
 	result = osc_prep_async_page(osc, opg, vmpage,
-					cl_offset(obj, page->cp_index));
+					cl_offset(obj, page->cp_index),
+					&opg->ops_integrity);
 	if (result == 0) {
 		struct osc_io *oio = osc_env_io(env);
 		opg->ops_srvlock = osc_io_srvlock(oio);

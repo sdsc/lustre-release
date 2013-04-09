@@ -76,6 +76,7 @@ struct osc_async_page {
 #define oap_page        oap_brw_page.pg
 #define oap_count       oap_brw_page.count
 #define oap_brw_flags   oap_brw_page.flag
+#define oap_integrity   oap_brw_page.integrity
 
 struct osc_cache_waiter {
         cfs_list_t              ocw_entry;
@@ -151,8 +152,10 @@ extern struct lu_device_type osc_device_type;
 
 static inline int osc_recoverable_error(int rc)
 {
+	/* EILSEQ means data could be damaged on the way from the client
+	 * to the disk drive */
         return (rc == -EIO || rc == -EROFS || rc == -ENOMEM ||
-                rc == -EAGAIN || rc == -EINPROGRESS);
+		rc == -EAGAIN || rc == -EINPROGRESS || rc == -EILSEQ);
 }
 
 static inline unsigned long rpcs_in_flight(struct client_obd *cli)
