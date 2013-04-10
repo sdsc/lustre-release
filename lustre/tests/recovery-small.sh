@@ -1769,7 +1769,8 @@ run_test 110f "remove remote directory: drop slave rep"
 
 # LU-2844 mdt prepare fail should not cause umount oops
 test_111 () {
-    
+
+                
     [[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.62) ]] ||
     { skip "Need MDS version at least 2.3.62"; return 0; }
     
