@@ -408,9 +408,9 @@ load_module() {
         # must be testing a "make install" or "rpm" installation
         # note failed to load ptlrpc_gss is considered not fatal
         if [ "$BASE" == "ptlrpc_gss" ]; then
-            modprobe $BASE "$@" 2>/dev/null || echo "gss/krb5 is not supported"
+            /sbin/modprobe $BASE "$@" 2>/dev/null || echo "gss/krb5 is not supported"
         else
-            modprobe $BASE "$@"
+            /sbin/modprobe $BASE "$@"
         fi
     fi
 }
@@ -5175,7 +5175,9 @@ do_rpc_nodes () {
 	[ -z "$list" ] && return 0
 
 	# Add paths to lustre tests for 32 and 64 bit systems.
-	local RPATH="PATH=$RLUSTRE/tests:/usr/lib/lustre/tests:/usr/lib64/lustre/tests:$PATH"
+	local LIBPATH="/usr/lib/lustre/tests:/usr/lib64/lustre/tests:"
+	local TESTPATH="$RLUSTRE/tests:"
+	local RPATH="PATH=${TESTPATH}${LIBPATH}${PATH}:/bin:/usr/sbin:"
 	do_nodesv $list "${RPATH} NAME=${NAME} sh rpc.sh $@ "
 }
 

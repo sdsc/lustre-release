@@ -222,8 +222,8 @@ lst_session_cleanup_all () {
 }
 
 lst_cleanup () {
-    lsmod | grep -q lnet_selftest && \
-        rmmod lnet_selftest > /dev/null 2>&1 || true
+    /sbin/lsmod | grep -q lnet_selftest && \
+        /sbin/rmmod lnet_selftest > /dev/null 2>&1 || true
 }
 
 lst_cleanup_all () {
