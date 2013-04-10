@@ -1237,6 +1237,8 @@ static int only_mgs_is_running(struct obd_device *mgs_obd)
 {
 	/* TDB: Is global variable with devices count exists? */
 	int num_devices = get_devices_count();
+	class_obd_list();
+	CERROR("mgs_obd->obd_num_exports = %d\n", mgs_obd->obd_num_exports);
 	/* osd, MGS and MGC + self_export
 	   (wc -l /proc/fs/lustre/devices <= 2) && (num_exports <= 2) */
 	return (num_devices <= 3) && (mgs_obd->obd_num_exports <= 2);
