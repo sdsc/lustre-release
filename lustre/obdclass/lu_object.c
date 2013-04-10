@@ -1014,6 +1014,7 @@ int lu_site_init(struct lu_site *s, struct lu_device *top)
 
         s->ls_stats = lprocfs_alloc_stats(LU_SS_LAST_STAT, 0);
         if (s->ls_stats == NULL) {
+		CERROR("failed to allocate lproc stats structure\n");
                 cfs_hash_putref(s->ls_obj_hash);
                 s->ls_obj_hash = NULL;
                 return -ENOMEM;
@@ -1042,7 +1043,7 @@ int lu_site_init(struct lu_site *s, struct lu_device *top)
 	spin_lock_init(&s->ls_ld_lock);
 
 	lu_dev_add_linkage(s, top);
-
+	printk("Setup of OSD stats in lprocfs completed\n")
 	RETURN(0);
 }
 EXPORT_SYMBOL(lu_site_init);
