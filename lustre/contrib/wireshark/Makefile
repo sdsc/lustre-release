@@ -1,6 +1,11 @@
+MIN_WIRESHARK_VERSION=1.6.8
 # Modify to point to your Wireshark and glib include directories
 #INCS = -I$(HOME)/wireshark-1.6.8 `pkg-config --libs --cflags glib-2.0`
-INCS = `pkg-config --libs --cflags wireshark`
+INCS=$(shell pkg-config --libs --cflags wireshark)
+# If not using above pkg-config, comment out this line
+CHECK=pkg-config --atleast-version=${MIN_WIRESHARK_VERSION} wireshark
+# If not using installed wireshark, change this version
+WS_VERSION=$(shell pkg-config --modversion wireshark)
 
 SRCS_LNET = packet-lnet.c
 SRCS_LUSTRE = packet-lustre.c
@@ -13,21 +18,29 @@ OBJS_LUSTRE = $(foreach src, $(SRCS_LUSTRE), $(src:.c=.o))
 PLUGINS=lnet.so lustre.so
 
 ifeq ($(shell id -u), 0)
-WS_CONFIG=$(shell pkg-config --variable=includedir wireshark)/wireshark/config.h
-WS_VERSION:=$(shell sed "s/^.define VERSION //p;d" ${WS_CONFIG})
 PLUGIN_DIR = /usr/local/lib/wireshark/plugins/$(WS_VERSION)
 else
 PLUGIN_DIR = ${HOME}/.wireshark/plugins
+endif
+
+ifeq (${CHECK},)
+	CHECK=true
 endif
 
 CFLAGS = -DHAVE_CONFIG_H $(INCS) -DINET6 -D_U_=__attribute__\(\(unused\)\) -Wall -Wpointer-arith -g -DXTHREADS -D_REENTRANT -DXUSE_MTSAFE_API -fPIC -DPIC
 
 all: $(PLUGINS)
 
-lustre.so: $(OBJS_LUSTRE)
+.PHONEY: check
+check:
+	@if ! ${CHECK}; then\
+		echo "Wireshark must be at least version ${MIN_WIRESHARK_VERSION} (installed ${WS_VERSION})";\
+	false; fi
+
+lustre.so: check $(OBJS_LUSTRE)
 	$(CC) -shared $(OBJS_LUSTRE) -o $@
 
-lnet.so: $(OBJS_LNET)
+lnet.so: check $(OBJS_LNET)
 	$(CC) -shared $(OBJS_LNET) -o $@
 
 install: $(PLUGINS)
