@@ -497,7 +497,7 @@ int get_devices_count(void)
 			dev_count++;
 	}
 	read_unlock(&obd_dev_lock);
-
+	class_obd_list();
 	return dev_count;
 }
 EXPORT_SYMBOL(get_devices_count);
