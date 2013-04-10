@@ -1403,7 +1403,7 @@ test_25() {
         stop $SINGLEMDS || return 1
         start $SINGLEMDS ${dev} $MDS_MOUNT_OPTS ||
             { error "Failed to start $SINGLEMDS after stopping" && break; }
-        wait_osc_import_state mds ost FULL
+        wait_osc_import_state $SINGLEMDS ost FULL
         clients_up
 
         wait_mds_ost_sync

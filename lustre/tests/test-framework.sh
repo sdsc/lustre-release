@@ -5155,10 +5155,20 @@ wait_osc_import_state() {
 		params=$($LCTL list_param $param 2>/dev/null || true)
 	done
 
-	if ! do_rpc_nodes "$(facet_active_host $facet)" \
-			wait_import_state $expected "$params" $maxtime; then
-		error "import is not in ${expected} state"
-		return 1
+	if [ "$facet" = mds ]; then
+		for num in $(seq $MDSCOUNT); do
+			if ! do_rpc_nodes "$(facet_active_host $facet$num)" \
+			   wait_import_state $expected "$params" $maxtime; then
+				error "import is not in ${expected} state"
+				return 1
+			fi
+		done
+	else
+		if ! do_rpc_nodes "$(facet_active_host $facet)" \
+		   wait_import_state $expected "$params" $maxtime; then
+			error "import is not in ${expected} state"
+			return 1
+		fi
 	fi
 
 	return 0
