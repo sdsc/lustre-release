@@ -503,6 +503,80 @@ int jt_lcfg_param(int argc, char **argv)
         return rc;
 }
 
+/* Param set to single log file, used by all clients and servers.
+ * This should be loaded after the individual config logs.
+ * Called from set param with -P option.
+ */
+static int jt_lcfg_mgsparam2(int argc, char **argv)
+{
+	int	rc, i;
+	int	first_param;
+	int	del = 0;
+	struct	lustre_cfg_bufs bufs;
+	struct	lustre_cfg *lcfg;
+	char	*buf = NULL;
+
+	while ((rc = getopt(argc, argv, "d")) != -1) {
+		switch (rc) {
+			case 'd':
+				del = 1;
+				break;
+			default:
+				return CMD_HELP;
+		}
+	}
+
+	first_param = optind;
+	if (first_param < 0 || first_param >= argc)
+		return CMD_HELP;
+
+	for (i = first_param, rc = 0; i < argc; i++) {
+		lustre_cfg_bufs_reset(&bufs, NULL);
+		/* This same command would be executed on all nodes, many
+		 * of which should fail (silently) because they don't have
+		 * that proc file existing locally. There would be no
+		 * preprocessing on the MGS to try to figure out which
+		 * parameter files to add this to, there would be nodes
+		 * processing on the cluster nodes to try to figure out
+		 * if they are the intended targets. They will blindly
+		 * try to set the parameter, and ENOTFOUND means it wasn't
+		 * for them.
+		 * Target name "general" means call on all targets. It is
+		 * left here in case some filtering will be added in
+		 * fгture.
+		 */
+		lustre_cfg_bufs_set_string(&bufs, 0, "general");
+
+		if (del) {
+			char *ptr;
+
+			/* for delete, make it "<param>=\0" */
+			buf = malloc(strlen(argv[i]) + 2);
+			/* put an '=' on the end in case it doesn't have one */
+			sprintf(buf, "%s=", argv[i]);
+			/* then truncate after the first '=' */
+			ptr = strchr(buf, '=');
+			*(++ptr) = '\0';
+			lustre_cfg_bufs_set_string(&bufs, 1, buf);
+		} else {
+			lustre_cfg_bufs_set_string(&bufs, 1, argv[i]);
+		}
+
+		lcfg = lustre_cfg_new(LCFG_PARAM2, &bufs);
+
+		rc = lcfg_mgs_ioctl(argv[0], OBD_DEV_ID, lcfg);
+		lustre_cfg_free(lcfg);
+		if (buf)
+			free(buf);
+		if (rc < 0) {
+			fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(rc = errno));
+		}
+	}
+
+	return rc;
+}
+
 /* Param set in config log on MGS */
 /* conf_param key=value */
 /* Note we can actually send mgc conf_params from clients, but currently
@@ -966,7 +1040,7 @@ static int setparam_display(struct param_opts *popt, char *pattern, char *value)
                 }
                 /* Write the new value to the file */
                 fd = open(glob_info.gl_pathv[i], O_WRONLY);
-                if (fd > 0) {
+                if (fd >= 0) {
                         rc = write(fd, value, strlen(value));
                         if (rc < 0)
                                 fprintf(stderr, "error: set_param: "
@@ -991,6 +1065,18 @@ int jt_lcfg_setparam(int argc, char **argv)
         struct param_opts popt;
         char pattern[PATH_MAX];
         char *path = NULL, *value = NULL;
+
+	while ((rc = getopt(argc, argv, "P")) != -1) {
+		switch (rc) {
+			case 'P':
+				/* We can't delete parameters that were
+				 * set with old conf_param interface */
+				rc = jt_lcfg_mgsparam2(argc, argv);
+				return rc;
+			default:
+				return CMD_HELP;
+		}
+	}
 
         rc = setparam_cmdline(argc, argv, &popt);
         if (rc < 0 || rc >= argc)
