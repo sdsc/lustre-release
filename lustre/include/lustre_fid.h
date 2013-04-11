@@ -576,7 +576,7 @@ fid_build_pdo_res_name(const struct lu_fid *f,
  *    res will be built from normal FID directly, i.e. res[0] = f_seq,
  *    res[1] = f_oid + f_ver.
  */
-static inline void ostid_build_res_name(struct ost_id *oi,
+static inline void ostid_build_res_name(const struct ost_id *oi,
 					struct ldlm_res_id *name)
 {
 	memset(name, 0, sizeof *name);
@@ -584,12 +584,12 @@ static inline void ostid_build_res_name(struct ost_id *oi,
 		name->name[LUSTRE_RES_ID_SEQ_OFF] = ostid_id(oi);
 		name->name[LUSTRE_RES_ID_VER_OID_OFF] = ostid_seq(oi);
 	} else {
-		fid_build_reg_res_name((struct lu_fid *)oi, name);
+		fid_build_reg_res_name(&oi->oi_fid, name);
 	}
 }
 
 static inline void ostid_res_name_to_id(struct ost_id *oi,
-					struct ldlm_res_id *name)
+					const struct ldlm_res_id *name)
 {
 	if (fid_seq_is_mdt0(name->name[LUSTRE_RES_ID_SEQ_OFF])) {
 		/* old resid */
@@ -597,15 +597,15 @@ static inline void ostid_res_name_to_id(struct ost_id *oi,
 		ostid_set_id(oi, name->name[LUSTRE_RES_ID_SEQ_OFF]);
 	} else {
 		/* new resid */
-		fid_build_from_res_name((struct lu_fid *)oi, name);
+		fid_build_from_res_name(&oi->oi_fid, name);
 	}
 }
 
 /**
  * Return true if the resource is for the object identified by this id & group.
  */
-static inline int ostid_res_name_eq(struct ost_id *oi,
-				    struct ldlm_res_id *name)
+static inline int ostid_res_name_eq(const struct ost_id *oi,
+				    const struct ldlm_res_id *name)
 {
 	/* Note: it is just a trick here to save some effort, probably the
 	 * correct way would be turn them into the FID and compare */
@@ -624,6 +624,7 @@ static inline void ost_fid_build_resid(const struct lu_fid *fid,
 {
 	if (fid_is_mdt0(fid) || fid_is_idif(fid)) {
 		struct ost_id oi;
+
 		if (fid_to_ostid(fid, &oi) != 0)
 			return;
 		ostid_build_res_name(&oi, resname);
@@ -638,6 +639,7 @@ static inline void ost_fid_from_resid(struct lu_fid *fid,
 	if (fid_seq_is_mdt0(name->name[LUSTRE_RES_ID_VER_OID_OFF])) {
 		/* old resid */
 		struct ost_id oi;
+
 		ostid_set_seq(&oi, name->name[LUSTRE_RES_ID_VER_OID_OFF]);
 		ostid_set_id(&oi, name->name[LUSTRE_RES_ID_SEQ_OFF]);
 		ostid_to_fid(fid, &oi, 0);

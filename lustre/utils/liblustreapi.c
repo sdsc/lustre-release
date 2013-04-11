@@ -2031,12 +2031,28 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
                 llapi_printf(LLAPI_MSG_NORMAL, "%s\n", path);
 
 	if ((verbose & VERBOSE_DETAIL) && !is_dir) {
+		/* Lustre 2.1-2.3 stored the MDS fid.f_seq into lmm_object_seq
+		 * and fid.f_oid into lmm_object_id, but this was reversed in
+		 * Lustre 1.8 and earlier (storing the inode into lmm_object_id
+		 * and 0 into lmm_object_seq) and Lustre 2.4 and later (using
+		 * this space for an lu_fid).  These fields are only used for
+		 * a couple of error messages inside Lustre itself, and here
+		 * when printing out the striping information for userspace.
+		 *
+		 * Handle this here transparently until it is fixed by LFSCK,
+		 * since it will avoid potential future usage issues if it
+		 * was done in the kernel.
+		 */
+		int use_ostid = fid_seq_is_mdt0(lum->lmm_oi.oi.oi_seq) ||
+				fid_seq_is_norm(lum->lmm_oi.oi.oi_seq);
 		llapi_printf(LLAPI_MSG_NORMAL, "lmm_magic:          0x%08X\n",
 			     lum->lmm_magic);
 		llapi_printf(LLAPI_MSG_NORMAL, "lmm_seq:            "LPX64"\n",
-			     ostid_seq(&lum->lmm_oi));
+			     use_ostid ? lum->lmm_oi.oi.oi_seq :
+					 lum->lmm_oi.oi_fid.f_seq);
 		llapi_printf(LLAPI_MSG_NORMAL, "lmm_object_id:      "LPX64"\n",
-			     ostid_id(&lum->lmm_oi));
+			     use_ostid ? lum->lmm_oi.oi.oi_id :
+					 lum->lmm_oi.oi_fid.f_oid);
 	}
 
         if (verbose & VERBOSE_COUNT) {
