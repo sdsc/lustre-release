@@ -518,12 +518,12 @@ int ll_file_open(struct inode *inode, struct file *file)
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p), flags %o\n", inode->i_ino,
                inode->i_generation, inode, file->f_flags);
 
-        it = file->private_data; /* XXX: compat macro */
-        file->private_data = NULL; /* prevent ll_local_open assertion */
+	it = LUSTRE_FPRIVATE(file);
+	LUSTRE_FPRIVATE(file) = NULL; /* prevent ll_local_open assertion */
 
         fd = ll_file_data_get();
-        if (fd == NULL)
-                GOTO(out_och_free, rc = -ENOMEM);
+	if (fd == NULL)
+		GOTO(out_openerr, rc = -ENOMEM);
 
         fd->fd_file = file;
         if (S_ISDIR(inode->i_mode)) {
