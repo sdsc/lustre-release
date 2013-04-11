@@ -86,20 +86,12 @@ static int mdt_lvbo_size(struct ldlm_lock *lock)
 		return qmt_hdls.qmth_lvbo_size(mdt->mdt_qmt_dev, lock);
 	}
 
-	if (ldlm_has_layout(lock))
-		return mdt->mdt_max_mdsize;
-
 	return 0;
 }
 
 static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 {
-	struct lu_env env;
-	struct mdt_thread_info *info;
 	struct mdt_device *mdt;
-	struct lu_fid *fid;
-	struct mdt_object *obj = NULL;
-	struct md_object *child = NULL;
 	int rc;
 	ENTRY;
 
@@ -114,65 +106,7 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 		RETURN(rc);
 	}
 
-	if (lock->l_resource->lr_type != LDLM_IBITS ||
-		!(lock->l_policy_data.l_inodebits.bits & MDS_INODELOCK_LAYOUT))
-		RETURN(0);
-
-	/* layout lock will be granted to client, fill in lvb with layout */
-
-	/* XXX create an env to talk to mdt stack. We should get this env from
-	 * ptlrpc_thread->t_env. */
-	rc = lu_env_init(&env, LCT_MD_THREAD);
-	LASSERT(rc == 0);
-
-	info = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
-	LASSERT(info != NULL);
-	memset(info, 0, sizeof *info);
-	info->mti_env = &env;
-	info->mti_exp = lock->l_export;
-	info->mti_mdt = mdt;
-
-	/* XXX get fid by resource id. why don't include fid in ldlm_resource */
-	fid = &info->mti_tmp_fid2;
-	fid_build_from_res_name(fid, &lock->l_resource->lr_name);
-
-	obj = mdt_object_find(&env, info->mti_mdt, fid);
-	if (IS_ERR(obj))
-		GOTO(out, rc = PTR_ERR(obj));
-
-	if (!mdt_object_exists(obj) || mdt_object_remote(obj))
-		GOTO(out, rc = -ENOENT);
-
-	child = mdt_object_child(obj);
-
-	/* get the length of lsm */
-	rc = mo_xattr_get(&env, child, &LU_BUF_NULL, XATTR_NAME_LOV);
-	if (rc < 0)
-		GOTO(out, rc);
-
-	if (rc > 0) {
-		struct lu_buf *lmm = NULL;
-
-		if (lvblen < rc) {
-			CERROR("%s: expected %d actual %d.\n",
-				info->mti_exp->exp_obd->obd_name, rc, lvblen);
-			GOTO(out, rc = -ERANGE);
-		}
-
-		lmm = &info->mti_buf;
-		lmm->lb_buf = lvb;
-		lmm->lb_len = rc;
-
-		rc = mo_xattr_get(&env, child, lmm, XATTR_NAME_LOV);
-		if (rc < 0)
-			GOTO(out, rc);
-	}
-
-out:
-	if (obj != NULL && !IS_ERR(obj))
-		mdt_object_put(&env, obj);
-	lu_env_fini(&env);
-	RETURN(rc < 0 ? 0 : rc);
+	RETURN(0);
 }
 
 static int mdt_lvbo_free(struct ldlm_resource *res)
