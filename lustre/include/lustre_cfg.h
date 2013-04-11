@@ -86,6 +86,8 @@ enum lcfg_command_type {
         LCFG_POOL_REM           = 0x00ce022, /**< remove an ost from a pool */
         LCFG_POOL_DEL           = 0x00ce023, /**< destroy an ost pool name */
         LCFG_SET_LDLM_TIMEOUT   = 0x00ce030, /**< set ldlm_timeout */
+	LCFG_PARAM2		= 0x00ce032, /**< use set_param syntax to set
+						  a proc parameters */
 	LCFG_PRE_CLEANUP        = 0x00cf031, /**< call type-specific pre
 					      * cleanup cleanup */
 };
