@@ -261,7 +261,8 @@ struct osd_device {
 
 	unsigned int		  od_noscrub:1,
 				  od_dirent_journal:1,
-				  od_handle_nolma:1;
+				  od_handle_nolma:1,
+				  od_track_declares:1;
 
 	struct fsfilt_operations *od_fsops;
 	int			  od_connects;
@@ -318,10 +319,6 @@ enum {
 	OSD_OT_QUOTA		= 10,
 	OSD_OT_MAX		= 11
 };
-
-#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 3, 90, 0)
-# define OSD_TRACK_DECLARES
-#endif
 
 struct osd_thandle {
         struct thandle          ot_super;
@@ -485,6 +482,13 @@ struct osd_iobuf {
 	unsigned int	   dr_init_at;	/* the line iobuf was initialized */
 };
 
+struct oti_track_declares {
+	unsigned short		oti_declare_ops[OSD_OT_MAX];
+	unsigned short		oti_declare_ops_rb[OSD_OT_MAX];
+	unsigned short		oti_declare_ops_cred[OSD_OT_MAX];
+	bool			oti_rollback;
+};
+
 struct osd_thread_info {
         const struct lu_env   *oti_env;
         /**
@@ -591,15 +595,10 @@ struct osd_thread_info {
 	__u64			oti_quota_id;
 	struct lu_seq_range	oti_seq_range;
 
-#ifdef OSD_TRACK_DECLARES
 	/* Tracking for transaction credits, to allow debugging and optimizing
 	 * cases where a large number of credits are being allocated for
 	 * single transaction. */
-	unsigned short		oti_declare_ops[OSD_OT_MAX];
-	unsigned short		oti_declare_ops_rb[OSD_OT_MAX];
-	unsigned short		oti_declare_ops_cred[OSD_OT_MAX];
-	bool			oti_rollback;
-#endif
+	struct oti_track_declares *oti_declares;
 
 	char			oti_name[48];
 };
@@ -882,7 +881,6 @@ struct dentry *osd_child_dentry_by_inode(const struct lu_env *env,
         return child_dentry;
 }
 
-#ifdef OSD_TRACK_DECLARES
 extern int osd_trans_declare_op2rb[];
 
 static inline void osd_trans_declare_op(const struct lu_env *env,
@@ -894,8 +892,10 @@ static inline void osd_trans_declare_op(const struct lu_env *env,
 	LASSERT(oh->ot_handle == NULL);
 	LASSERT(op < OSD_OT_MAX);
 
-	oti->oti_declare_ops[op]++;
-	oti->oti_declare_ops_cred[op] += credits;
+	if (oti->oti_declares != NULL) {
+		oti->oti_declares->oti_declare_ops[op]++;
+		oti->oti_declares->oti_declare_ops_cred[op] += credits;
+	}
 	oh->ot_credits += credits;
 }
 
@@ -905,21 +905,26 @@ static inline void osd_trans_exec_op(const struct lu_env *env,
 	struct osd_thread_info *oti = osd_oti_get(env);
 	struct osd_thandle     *oh  = container_of(th, struct osd_thandle,
 						   ot_super);
-	unsigned int		rb;
 
 	LASSERT(oh->ot_handle != NULL);
 	LASSERT(op < OSD_OT_MAX);
 
-	if (likely(!oti->oti_rollback && oti->oti_declare_ops[op] > 0)) {
-		oti->oti_declare_ops[op]--;
-		oti->oti_declare_ops_rb[op]++;
-	} else {
-		/* all future updates are considered rollback */
-		oti->oti_rollback = true;
-		rb = osd_trans_declare_op2rb[op];
-		LASSERTF(rb < OSD_OT_MAX, "op = %u\n", op);
-		LASSERTF(oti->oti_declare_ops_rb[rb] > 0, "rb = %u\n", rb);
-		oti->oti_declare_ops_rb[rb]--;
+	if (oti->oti_declares != NULL) {
+		if (likely(!oti->oti_declares->oti_rollback &&
+			   oti->oti_declares->oti_declare_ops[op] > 0)) {
+			oti->oti_declares->oti_declare_ops[op]--;
+			oti->oti_declares->oti_declare_ops_rb[op]++;
+		} else {
+			unsigned int		rb;
+
+			/* all future updates are considered rollback */
+			oti->oti_declares->oti_rollback = true;
+			rb = osd_trans_declare_op2rb[op];
+			LASSERTF(rb < OSD_OT_MAX, "op = %u\n", op);
+			LASSERTF(oti->oti_declares->oti_declare_ops_rb[rb] > 0,
+				 "rb = %u\n", rb);
+			oti->oti_declares->oti_declare_ops_rb[rb]--;
+		}
 	}
 }
 
@@ -933,26 +938,9 @@ static inline void osd_trans_declare_rb(const struct lu_env *env,
 	LASSERT(oh->ot_handle != NULL);
 	LASSERT(op < OSD_OT_MAX);
 
-	oti->oti_declare_ops_rb[op]++;
+	if (oti->oti_declares != NULL)
+		oti->oti_declares->oti_declare_ops_rb[op]++;
 }
-#else
-static inline void osd_trans_declare_op(const struct lu_env *env,
-					struct osd_thandle *oh,
-					unsigned int op, int credits)
-{
-	oh->ot_credits += credits;
-}
-
-static inline void osd_trans_exec_op(const struct lu_env *env,
-				     struct thandle *th, unsigned int op)
-{
-}
-
-static inline void osd_trans_declare_rb(const struct lu_env *env,
-					struct thandle *th, unsigned int op)
-{
-}
-#endif
 
 /**
  * Helper function to pack the fid, ldiskfs stores fid in packed format.

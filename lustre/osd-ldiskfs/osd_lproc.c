@@ -442,6 +442,37 @@ static int lprocfs_osd_wr_auto_scrub(struct file *file, const char *buffer,
 	return count;
 }
 
+static int lprocfs_osd_rd_track_declares(char *page, char **start, off_t off,
+				     int count, int *eof, void *data)
+{
+	struct osd_device *dev = osd_dt_dev(data);
+
+	LASSERT(dev != NULL);
+	if (unlikely(dev->od_mnt == NULL))
+		return -EINPROGRESS;
+
+	*eof = 1;
+	return snprintf(page, count, "%d\n", dev->od_track_declares);
+}
+
+static int lprocfs_osd_wr_track_declares(struct file *file, const char *buffer,
+				     unsigned long count, void *data)
+{
+	struct osd_device *dev = osd_dt_dev(data);
+	int val, rc;
+
+	LASSERT(dev != NULL);
+	if (unlikely(dev->od_mnt == NULL))
+		return -EINPROGRESS;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc)
+		return rc;
+
+	dev->od_track_declares = !!val;
+	return count;
+}
+
 static int lprocfs_osd_rd_oi_scrub(char *page, char **start, off_t off,
 				   int count, int *eof, void *data)
 {
@@ -502,6 +533,8 @@ struct lprocfs_vars lprocfs_osd_obd_vars[] = {
         { "pdo",             lprocfs_osd_rd_pdo, lprocfs_osd_wr_pdo, 0 },
 	{ "auto_scrub",      lprocfs_osd_rd_auto_scrub,
 			     lprocfs_osd_wr_auto_scrub,  0 },
+	{ "track_declares",  lprocfs_osd_rd_track_declares,
+			     lprocfs_osd_wr_track_declares,  0 },
 	{ "oi_scrub",	     lprocfs_osd_rd_oi_scrub,    0, 0 },
 	{ "force_sync",		0, lprocfs_osd_wr_force_sync },
 	{ "read_cache_enable",	lprocfs_osd_rd_cache, lprocfs_osd_wr_cache, 0 },
