@@ -4086,6 +4086,60 @@ test_74() { # LU-1606
 }
 run_test 74 "Lustre client api program can compile and link"
 
+test_75() {
+	setup
+	local MAX_D_MB_PATH
+	MAX_D_MB_PATH="/proc/fs/$FSNAME/osc/$FSNAME-OST0000-osc-*/max_dirty_mb"
+	echo "Change MGS params"
+	local MAX_DIRTY_MB=$(do_facet mds cat $MAX_D_MB_PATH | head -1)
+	echo max_dirty_mb: $MAX_DIRTY_MB
+	local NEW_MAX_DIRTY_MB=$(($MAX_DIRTY_MB*2))
+	echo new_max_dirty_mb $NEW_MAX_DIRTY_MB
+	do_facet mgs $LCTL set_param -P \
+		osc.*.max_dirty_mb=$NEW_MAX_DIRTY_MB
+	sleep 20
+	MAX_DIRTY_MB=$(do_facet mds cat $MAX_D_MB_PATH | head -1)
+	echo $MAX_DIRTY_MB
+	[ $MAX_DIRTY_MB = $NEW_MAX_DIRTY_MB ] \
+		|| error "error while apply max_dirty_mb"
+
+	echo "Check the value is stored after remount"
+	stopall
+	setupall
+	sleep 20
+	MAX_DIRTY_MB=$(do_facet mds cat $MAX_D_MB_PATH | head -1)
+	echo $MAX_DIRTY_MB
+	[ $MAX_DIRTY_MB = $NEW_MAX_DIRTY_MB ] \
+		|| error "max_dirty_mb is not saved after remount"
+
+	echo "Change OST params"
+	local CLIENT_PATH
+	CLIENT_PATH="/proc/fs/$FSNAME/obdfilter/$FSNAME-*/client_cache_count"
+	local CLIENT_CACHE_COUNT=$(do_facet ost1 cat $CLIENT_PATH | head -1)
+	echo client_cache_count: $CLIENT_CACHE_COUNT
+	NEW_CLIENT_CACHE_COUNT=$(($CLIENT_CACHE_COUNT*2))
+	echo new_client_cache_count $NEW_CLIENT_CACHE_COUNT
+	do_facet mgs $LCTL set_param -P \
+		obdfilter.*.client_cache_count=$NEW_CLIENT_CACHE_COUNT
+	sleep 20
+	do_facet ost1 cat $CLIENT_PATH
+	CLIENT_CACHE_COUNT=$(do_facet ost1 cat $CLIENT_PATH | head -1)
+	echo $CLIENT_CACHE_COUNT
+	[ $CLIENT_CACHE_COUNT = $NEW_CLIENT_CACHE_COUNT ] \
+		|| error "error while apply client_cache_count"
+
+	echo "Check the value is stored after remount"
+	stopall
+	setupall
+	sleep 20
+	CLIENT_CACHE_COUNT=$(do_facet mds cat $CLIENT_PATH | head -1)
+	echo $CLIENT_CACHE_COUNT
+	[ $CLIENT_CACHE_COUNT = $NEW_CLIENT_CACHE_COUNT ] \
+		|| error "client_cache_count is not saved after remount"
+	stopall
+}
+run_test 75 "set permanent params set_param -P"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
