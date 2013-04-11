@@ -4086,6 +4086,66 @@ test_74() { # LU-1606
 }
 run_test 74 "Lustre client api program can compile and link"
 
+test_75() {
+	[[ $(lustre_version_code mgs) -ge $(version_code 2.4.52) ]] &&
+		skip "Need MDS version at least 2.4.52" && return
+	setup
+	local MDMB_PARAM="osc.$FSNAME-OST0000-osc*.max_dirty_mb"
+	echo "Change MGS params"
+	local MAX_DIRTY_MB=$(do_facet mds $LCTL get_param -n $MDMB_PARAM |
+		head -1)
+	echo "max_dirty_mb: $MAX_DIRTY_MB"
+	local NEW_MAX_DIRTY_MB=$((MAX_DIRTY_MB+MAX_DIRTY_MB))
+	echo "new_max_dirty_mb: $NEW_MAX_DIRTY_MB"
+	do_facet mgs $LCTL set_param -P $MDMB_PARAM=$NEW_MAX_DIRTY_MB
+	wait_update $(facet_host mgs) "lctl get_param -n $MDMB_PARAM |
+		head -1" $NEW_MAX_DIRTY_MB
+	MAX_DIRTY_MB=$(do_facet mds $LCTL get_param -n $MDMB_PARAM | head -1)
+	echo "$MAX_DIRTY_MB"
+	[ $MAX_DIRTY_MB = $NEW_MAX_DIRTY_MB ] \
+		|| error "error while apply max_dirty_mb"
+
+	echo "Check the value is stored after remount"
+	stopall
+	setupall
+	wait_update $(facet_host mds) "lctl get_param -n $MDMB_PARAM |
+		head -1" $NEW_MAX_DIRTY_MB
+	MAX_DIRTY_MB=$(do_facet mds $LCTL get_param -n $MDMB_PARAM | head -1)
+	echo "$MAX_DIRTY_MB"
+	[ $MAX_DIRTY_MB = $NEW_MAX_DIRTY_MB ] \
+		|| error "max_dirty_mb is not saved after remount"
+
+	echo "Change OST params"
+	CLIENT_PARAM="obdfilter.$FSNAME-*.client_cache_count"
+	local CLIENT_CACHE_COUNT
+	CLIENT_CACHE_COUNT=$(do_facet ost1 $LCTL get_param -n $CLIENT_PARAM |
+		head -1)
+	echo "client_cache_count: $CLIENT_CACHE_COUNT"
+	NEW_CLIENT_CACHE_COUNT=$((CLIENT_CACHE_COUNT+CLIENT_CACHE_COUNT))
+	echo "new_client_cache_count: $NEW_CLIENT_CACHE_COUNT"
+	do_facet mgs $LCTL set_param -P $CLIENT_PARAM=$NEW_CLIENT_CACHE_COUNT
+	wait_update $(facet_host mgs) "lctl get_param -n $CLIENT_PARAM |
+		head -1" $NEW_CLIENT_CACHE_COUNT
+	CLIENT_CACHE_COUNT=$(do_facet ost1 $LCTL get_param -n $CLIENT_PARAM |
+		head -1)
+	echo "$CLIENT_CACHE_COUNT"
+	[ $CLIENT_CACHE_COUNT = $NEW_CLIENT_CACHE_COUNT ] \
+		|| error "error while apply client_cache_count"
+
+	echo "Check the value is stored after remount"
+	stopall
+	setupall
+	wait_update $(facet_host mgs) "lctl get_param -n $CLIENT_PARAM |
+		head -1" $NEW_CLIENT_CACHE_COUNT
+	CLIENT_CACHE_COUNT=$(do_facet mds $LCTL get_param -n $CLIENT_PARAM |
+		head -1)
+	echo "$CLIENT_CACHE_COUNT"
+	[ $CLIENT_CACHE_COUNT = $NEW_CLIENT_CACHE_COUNT ] \
+		|| error "client_cache_count is not saved after remount"
+	stopall
+}
+run_test 75 "set permanent params set_param -P"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
