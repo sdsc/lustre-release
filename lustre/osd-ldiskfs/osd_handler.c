@@ -5356,6 +5356,7 @@ static int osd_device_init0(const struct lu_env *env,
 		GOTO(out_procfs, rc);
 	}
 
+	printk("osd_device_init0 completed no errors\n");
 	RETURN(0);
 out_procfs:
 	osd_procfs_fini(o);
@@ -5373,6 +5374,7 @@ out_mnt:
 out_capa:
 	cleanup_capa_hash(o->od_capa_hash);
 out:
+	printk("osd_device_init0 failed rc=%d\n",rc);
 	RETURN(rc);
 }
 
