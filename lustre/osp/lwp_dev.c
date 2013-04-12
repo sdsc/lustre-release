@@ -400,7 +400,7 @@ out:
 	RETURN(rc);
 }
 
-static int lwp_obd_disconnect(struct obd_export *exp)
+static int lwp_obd_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
 	struct obd_device *obd = exp->exp_obd;
 	struct lwp_device *lwp = lu2lwp_dev(obd->obd_lu_dev);
@@ -430,7 +430,8 @@ static int lwp_import_event(struct obd_device *obd, struct obd_import *imp,
 	case IMP_EVENT_INVALIDATE:
 		if (obd->obd_namespace == NULL)
 			break;
-		ldlm_namespace_cleanup(obd->obd_namespace, LDLM_FL_LOCAL_ONLY);
+		ldlm_namespace_cleanup(NULL, obd->obd_namespace,
+				       LDLM_FL_LOCAL_ONLY);
 		break;
 	case IMP_EVENT_OCD:
 		break;

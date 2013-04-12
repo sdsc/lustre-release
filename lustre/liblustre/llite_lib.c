@@ -104,7 +104,7 @@ int liblustre_process_log(struct config_llog_instance *cfg,
         lustre_cfg_bufs_set_string(&bufs, 1, peer);
         lcfg = lustre_cfg_new(LCFG_ADD_UUID, &bufs);
         lcfg->lcfg_nid = nid;
-        rc = class_process_config(lcfg);
+        rc = class_process_config(NULL, lcfg);
         lustre_cfg_free(lcfg);
         if (rc < 0)
                 GOTO(out, rc);
@@ -113,7 +113,7 @@ int liblustre_process_log(struct config_llog_instance *cfg,
         lustre_cfg_bufs_set_string(&bufs, 1, LUSTRE_MGC_NAME);
         lustre_cfg_bufs_set_string(&bufs, 2, mgc_uuid.uuid);
         lcfg = lustre_cfg_new(LCFG_ATTACH, &bufs);
-        rc = class_process_config(lcfg);
+        rc = class_process_config(NULL, lcfg);
         lustre_cfg_free(lcfg);
         if (rc < 0)
                 GOTO(out_del_uuid, rc);
@@ -122,7 +122,7 @@ int liblustre_process_log(struct config_llog_instance *cfg,
         lustre_cfg_bufs_set_string(&bufs, 1, LUSTRE_MGS_OBDNAME);
         lustre_cfg_bufs_set_string(&bufs, 2, peer);
         lcfg = lustre_cfg_new(LCFG_SETUP, &bufs);
-        rc = class_process_config(lcfg);
+        rc = class_process_config(NULL, lcfg);
         lustre_cfg_free(lcfg);
         if (rc < 0)
                 GOTO(out_detach, rc);
@@ -133,7 +133,7 @@ int liblustre_process_log(struct config_llog_instance *cfg,
                 lustre_cfg_bufs_set_string(&bufs, 1, libcfs_nid2str(nid));
                 lcfg = lustre_cfg_new(LCFG_ADD_UUID, &bufs);
                 lcfg->lcfg_nid = nid;
-                rc = class_process_config(lcfg);
+                rc = class_process_config(NULL, lcfg);
                 lustre_cfg_free(lcfg);
                 if (rc) {
                         CERROR("Add uuid for %s failed %d\n",
@@ -145,7 +145,7 @@ int liblustre_process_log(struct config_llog_instance *cfg,
                 lustre_cfg_bufs_set_string(&bufs, 1, libcfs_nid2str(nid));
                 lcfg = lustre_cfg_new(LCFG_ADD_CONN, &bufs);
                 lcfg->lcfg_nid = nid;
-                rc = class_process_config(lcfg);
+                rc = class_process_config(NULL, lcfg);
                 lustre_cfg_free(lcfg);
                 if (rc) {
                         CERROR("Add conn for %s failed %d\n",
@@ -183,7 +183,7 @@ int liblustre_process_log(struct config_llog_instance *cfg,
 
         /* We don't so much care about errors in cleaning up the config llog
          * connection, as we have already read the config by this point. */
-        err = obd_disconnect(exp);
+        err = obd_disconnect(NULL, exp);
         if (err)
                 CERROR("obd_disconnect failed: rc = %d\n", err);
 
@@ -193,7 +193,7 @@ out_cleanup:
 
         lustre_cfg_bufs_reset(&bufs, name);
         lcfg = lustre_cfg_new(LCFG_CLEANUP, &bufs);
-        err = class_process_config(lcfg);
+        err = class_process_config(NULL, lcfg);
         lustre_cfg_free(lcfg);
         if (err)
                 CERROR("md_cleanup failed: rc = %d\n", err);
@@ -201,7 +201,7 @@ out_cleanup:
 out_detach:
         lustre_cfg_bufs_reset(&bufs, name);
         lcfg = lustre_cfg_new(LCFG_DETACH, &bufs);
-        err = class_process_config(lcfg);
+        err = class_process_config(NULL, lcfg);
         lustre_cfg_free(lcfg);
         if (err)
                 CERROR("md_detach failed: rc = %d\n", err);
@@ -210,7 +210,7 @@ out_del_uuid:
         lustre_cfg_bufs_reset(&bufs, name);
         lustre_cfg_bufs_set_string(&bufs, 1, peer);
         lcfg = lustre_cfg_new(LCFG_DEL_UUID, &bufs);
-        err = class_process_config(lcfg);
+        err = class_process_config(NULL, lcfg);
         if (err)
                 CERROR("del MDC UUID failed: rc = %d\n", err);
         lustre_cfg_free(lcfg);

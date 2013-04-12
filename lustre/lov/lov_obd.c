@@ -324,7 +324,7 @@ static int lov_disconnect_obd(struct obd_device *obd, struct lov_tgt_desc *tgt)
 
         obd_register_observer(osc_obd, NULL);
 
-        rc = obd_disconnect(tgt->ltd_exp);
+        rc = obd_disconnect(NULL, tgt->ltd_exp);
         if (rc) {
                 CERROR("Target %s disconnect error %d\n",
                        tgt->ltd_uuid.uuid, rc);
@@ -335,7 +335,7 @@ static int lov_disconnect_obd(struct obd_device *obd, struct lov_tgt_desc *tgt)
         RETURN(0);
 }
 
-static int lov_disconnect(struct obd_export *exp)
+static int lov_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
         struct obd_device *obd = class_exp2obd(exp);
         struct lov_obd *lov = &obd->u.lov;
@@ -742,7 +742,7 @@ static void __lov_del_obd(struct obd_device *obd, struct lov_tgt_desc *tgt)
            do it ourselves. And we can't do it from lov_cleanup,
            because we just lost our only reference to it. */
         if (osc_obd)
-                class_manual_cleanup(osc_obd);
+                class_manual_cleanup(NULL, osc_obd);
 }
 
 void lov_fix_desc_stripe_size(__u64 *val)

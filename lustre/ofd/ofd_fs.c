@@ -631,7 +631,7 @@ int ofd_server_data_init(const struct lu_env *env, struct ofd_device *ofd)
 	RETURN(0);
 
 err_fsd:
-	class_disconnect_exports(obd);
+	class_disconnect_exports(env, obd);
 	RETURN(rc);
 }
 

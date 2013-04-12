@@ -1007,9 +1007,10 @@ static int mdt_pdir_hash_lock(struct mdt_thread_info *info,
          * going to be sent to client. If it is - mdt_intent_policy() path will
          * fix it up and turn FL_LOCAL flag off.
          */
-        rc = mdt_fid_lock(ns, &lh->mlh_reg_lh, lh->mlh_reg_mode, policy,
-                          res_id, LDLM_FL_LOCAL_ONLY | LDLM_FL_ATOMIC_CB,
-                          &info->mti_exp->exp_handle.h_cookie);
+        rc = mdt_fid_lock(info->mti_env, ns, &lh->mlh_reg_lh, lh->mlh_reg_mode,
+			  policy, res_id,
+			  LDLM_FL_LOCAL_ONLY | LDLM_FL_ATOMIC_CB,
+			  &info->mti_exp->exp_handle.h_cookie);
         return rc;
 }
 
@@ -1036,7 +1037,8 @@ static int mdt_rename_lock(struct mdt_thread_info *info,
 	 * Current node is controller, that is mdt0, where we should
 	 * take BFL lock.
 	 */
-	rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS, policy,
+	rc = ldlm_cli_enqueue_local(info->mti_env, ns, res_id, LDLM_IBITS,
+				    policy,
 				    LCK_EX, &flags, ldlm_blocking_ast,
 				    ldlm_completion_ast, NULL, NULL, 0,
 				    LVB_T_NONE,
@@ -1048,11 +1050,12 @@ static int mdt_rename_lock(struct mdt_thread_info *info,
         RETURN(rc);
 }
 
-static void mdt_rename_unlock(struct lustre_handle *lh)
+static void mdt_rename_unlock(const struct lu_env *env,
+			      struct lustre_handle *lh)
 {
         ENTRY;
         LASSERT(lustre_handle_is_used(lh));
-        ldlm_lock_decref(lh, LCK_EX);
+        ldlm_lock_decref(env, lh, LCK_EX);
         EXIT;
 }
 
@@ -1332,7 +1335,7 @@ out_unlock_source:
         mdt_object_unlock_put(info, msrcdir, lh_srcdirp, rc);
 out_rename_lock:
 	if (lustre_handle_is_used(&rename_lh))
-		mdt_rename_unlock(&rename_lh);
+		mdt_rename_unlock(info->mti_env, &rename_lh);
 	return rc;
 }
 

@@ -476,7 +476,7 @@ hash_collision:
         }
 out_unlock:
 	mutex_unlock(&lli->lli_readdir_mutex);
-        ldlm_lock_decref(&lockh, mode);
+        ldlm_lock_decref(NULL, &lockh, mode);
         return page;
 
 fail:

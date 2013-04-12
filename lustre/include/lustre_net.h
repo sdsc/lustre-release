@@ -612,6 +612,8 @@ struct ptlrpc_request_set {
 	set_producer_func     set_producer;
 	/** opaq argument passed to the producer callback */
 	void                 *set_producer_arg;
+	/** lu_env used in the set */
+	const struct lu_env  *set_env;
 };
 
 /**
@@ -3402,7 +3404,7 @@ int client_connect_import(const struct lu_env *env,
                           struct obd_export **exp, struct obd_device *obd,
                           struct obd_uuid *cluuid, struct obd_connect_data *,
                           void *localdata);
-int client_disconnect_export(struct obd_export *exp);
+int client_disconnect_export(const struct lu_env *env, struct obd_export *exp);
 int client_import_add_conn(struct obd_import *imp, struct obd_uuid *uuid,
                            int priority);
 int client_import_del_conn(struct obd_import *imp, struct obd_uuid *uuid);
@@ -3413,7 +3415,7 @@ void client_destroy_import(struct obd_import *imp);
 /** @} */
 
 #ifdef HAVE_SERVER_SUPPORT
-int server_disconnect_export(struct obd_export *exp);
+int server_disconnect_export(const struct lu_env *env, struct obd_export *exp);
 #endif
 
 /* ptlrpc/pinger.c */

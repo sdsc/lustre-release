@@ -275,7 +275,7 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
                 if (!err)
                         err = lustre_cfg_sanity_check(lcfg, data->ioc_plen1);
                 if (!err)
-                        err = class_process_config(lcfg);
+                        err = class_process_config(NULL, lcfg);
 
                 OBD_FREE(lcfg, data->ioc_plen1);
                 GOTO(out, err);

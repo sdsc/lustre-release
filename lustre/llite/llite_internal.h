@@ -700,7 +700,8 @@ int ll_objects_destroy(struct ptlrpc_request *request,
                        struct inode *dir);
 struct inode *ll_iget(struct super_block *sb, ino_t hash,
                       struct lustre_md *lic);
-int ll_md_blocking_ast(struct ldlm_lock *, struct ldlm_lock_desc *,
+int ll_md_blocking_ast(const struct lu_env *env, struct ldlm_lock *,
+		       struct ldlm_lock_desc *,
                        void *data, int flag);
 #ifndef HAVE_IOP_ATOMIC_OPEN
 struct lookup_intent *ll_convert_intent(struct open_intent *oit,
