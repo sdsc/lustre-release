@@ -267,7 +267,7 @@ void ll_intent_drop_lock(struct lookup_intent *it)
 
                 CDEBUG(D_DLMTRACE, "releasing lock with cookie "LPX64
                        " from it %p\n", handle.cookie, it);
-                ldlm_lock_decref(&handle, it->d.lustre.it_lock_mode);
+                ldlm_lock_decref(NULL, &handle, it->d.lustre.it_lock_mode);
 
                 /* bug 494: intent_release may be called multiple times, from
                  * this thread and we don't want to double-decref this lock */
@@ -277,7 +277,7 @@ void ll_intent_drop_lock(struct lookup_intent *it)
 
 			CDEBUG(D_DLMTRACE, "releasing remote lock with cookie"
 			       LPX64" from it %p\n", handle.cookie, it);
-			ldlm_lock_decref(&handle,
+			ldlm_lock_decref(NULL, &handle,
 					 it->d.lustre.it_remote_lock_mode);
 			it->d.lustre.it_remote_lock_mode = 0;
 		}

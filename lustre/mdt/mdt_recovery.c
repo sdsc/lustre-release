@@ -339,7 +339,7 @@ static int mdt_server_data_init(const struct lu_env *env,
         RETURN(0);
 
 err_client:
-        class_disconnect_exports(obd);
+        class_disconnect_exports(env, obd);
 out:
         return rc;
 }
@@ -731,7 +731,7 @@ static void mdt_reconstruct_create(struct mdt_thread_info *mti,
                               PFID(mdt_object_fid(child)), rc,
                               obd_uuid2str(&exp->exp_client_uuid),
                               obd_export_nid2str(exp));
-                mdt_export_evict(exp);
+                mdt_export_evict(mti->mti_env, exp);
                 EXIT;
                 return;
         }
@@ -777,7 +777,7 @@ static void mdt_reconstruct_setattr(struct mdt_thread_info *mti,
                               PFID(mdt_object_fid(obj)), rc,
                               obd_uuid2str(&exp->exp_client_uuid),
                               obd_export_nid2str(exp));
-                mdt_export_evict(exp);
+                mdt_export_evict(mti->mti_env, exp);
                 EXIT;
                 return;
         }

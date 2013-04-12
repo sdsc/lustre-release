@@ -761,7 +761,7 @@ out_disconnect:
 			cli->cl_rpc_lock = NULL;
 		}
 	}
-	obd_disconnect(m->opd_storage_exp);
+	obd_disconnect(env, m->opd_storage_exp);
 out_fini:
 	if (osdname)
 		OBD_FREE(osdname, MAX_OBD_NAME);
@@ -818,7 +818,7 @@ static struct lu_device *osp_device_fini(const struct lu_env *env,
 	ENTRY;
 
 	if (m->opd_storage_exp)
-		obd_disconnect(m->opd_storage_exp);
+		obd_disconnect(env, m->opd_storage_exp);
 
 	imp = m->opd_obd->u.cli.cl_import;
 
@@ -927,7 +927,7 @@ out:
  * once last export (we don't count self-export) disappeared
  * osp can be released
  */
-static int osp_obd_disconnect(struct obd_export *exp)
+static int osp_obd_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
 	struct obd_device *obd = exp->exp_obd;
 	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
@@ -946,7 +946,7 @@ static int osp_obd_disconnect(struct obd_export *exp)
 	}
 
 	/* destroy the device */
-	class_manual_cleanup(obd);
+	class_manual_cleanup(env, obd);
 
 	RETURN(rc);
 }
@@ -1055,7 +1055,8 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 	case IMP_EVENT_INVALIDATE:
 		if (obd->obd_namespace == NULL)
 			break;
-		ldlm_namespace_cleanup(obd->obd_namespace, LDLM_FL_LOCAL_ONLY);
+		ldlm_namespace_cleanup(NULL, obd->obd_namespace,
+				       LDLM_FL_LOCAL_ONLY);
 		break;
 	case IMP_EVENT_OCD:
 	case IMP_EVENT_DEACTIVATE:

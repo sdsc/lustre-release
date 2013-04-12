@@ -179,7 +179,8 @@ out:
 
 int mgs_fs_cleanup(const struct lu_env *env, struct mgs_device *mgs)
 {
-	class_disconnect_exports(mgs->mgs_obd); /* cleans up client info too */
+	/* cleans up client info too */
+	class_disconnect_exports(env, mgs->mgs_obd);
 
 	if (mgs->mgs_configs_dir) {
 		lu_object_put(env, &mgs->mgs_configs_dir->do_lu);

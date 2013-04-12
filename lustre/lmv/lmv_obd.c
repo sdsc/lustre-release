@@ -390,7 +390,7 @@ int lmv_connect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
 
         rc = obd_register_observer(mdc_obd, obd);
         if (rc) {
-                obd_disconnect(mdc_exp);
+                obd_disconnect(NULL, mdc_exp);
                 CERROR("target %s register_observer error %d\n",
                        tgt->ltd_uuid.uuid, rc);
                 RETURN(rc);
@@ -404,7 +404,7 @@ int lmv_connect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
 				OBD_NOTIFY_ACTIVE,
 				(void *)(tgt - lmv->tgts[0]));
 		if (rc) {
-			obd_disconnect(mdc_exp);
+			obd_disconnect(NULL, mdc_exp);
 			RETURN(rc);
 		}
         }
@@ -608,7 +608,7 @@ int lmv_check_connect(struct obd_device *obd)
                 tgt->ltd_active = 0;
                 if (tgt->ltd_exp) {
                         --lmv->desc.ld_active_tgt_count;
-                        rc2 = obd_disconnect(tgt->ltd_exp);
+                        rc2 = obd_disconnect(NULL, tgt->ltd_exp);
                         if (rc2) {
                                 CERROR("LMV target %s disconnect on "
                                        "MDC idx %d: error %d\n",
@@ -666,7 +666,7 @@ static int lmv_disconnect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
                tgt->ltd_exp->exp_obd->obd_uuid.uuid);
 
         obd_register_observer(tgt->ltd_exp->exp_obd, NULL);
-        rc = obd_disconnect(tgt->ltd_exp);
+        rc = obd_disconnect(NULL, tgt->ltd_exp);
         if (rc) {
                 if (tgt->ltd_active) {
                         CERROR("Target %s disconnect error %d\n",
@@ -679,7 +679,7 @@ static int lmv_disconnect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
         RETURN(0);
 }
 
-static int lmv_disconnect(struct obd_export *exp)
+static int lmv_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
         struct obd_device     *obd = class_exp2obd(exp);
 #ifdef __KERNEL__
@@ -1627,7 +1627,7 @@ lmv_enqueue_remote(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
         OBD_FREE_PTR(rdata);
         EXIT;
 out:
-        ldlm_lock_decref(&plock, pmode);
+        ldlm_lock_decref(NULL, &plock, pmode);
         return rc;
 }
 

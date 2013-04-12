@@ -82,11 +82,11 @@ static int echo_connect(const struct lu_env *env,
         return 0;
 }
 
-static int echo_disconnect(struct obd_export *exp)
+static int echo_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
         LASSERT (exp != NULL);
 
-        return server_disconnect_export(exp);
+        return server_disconnect_export(env, exp);
 }
 
 static int echo_init_export(struct obd_export *exp)
@@ -581,8 +581,8 @@ static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 RETURN(-ENOMEM);
         }
 
-        rc = ldlm_cli_enqueue_local(obd->obd_namespace, &res_id, LDLM_PLAIN,
-                                    NULL, LCK_NL, &lock_flags, NULL,
+        rc = ldlm_cli_enqueue_local(NULL, obd->obd_namespace, &res_id,
+				    LDLM_PLAIN, NULL, LCK_NL, &lock_flags, NULL,
 				    ldlm_completion_ast, NULL, NULL, 0,
 				    LVB_T_NONE, NULL, &obd->u.echo.eo_nl_lock);
         LASSERT (rc == ELDLM_OK);
@@ -611,13 +611,13 @@ static int echo_cleanup(struct obd_device *obd)
         lprocfs_obd_cleanup(obd);
         lprocfs_free_obd_stats(obd);
 
-        ldlm_lock_decref(&obd->u.echo.eo_nl_lock, LCK_NL);
+        ldlm_lock_decref(NULL, &obd->u.echo.eo_nl_lock, LCK_NL);
 
         /* XXX Bug 3413; wait for a bit to ensure the BL callback has
          * happened before calling ldlm_namespace_free() */
         cfs_schedule_timeout_and_set_state(CFS_TASK_UNINT, cfs_time_seconds(1));
 
-        ldlm_namespace_free(obd->obd_namespace, NULL, obd->obd_force);
+        ldlm_namespace_free(NULL, obd->obd_namespace, NULL, obd->obd_force);
         obd->obd_namespace = NULL;
 
         leaked = cfs_atomic_read(&obd->u.echo.eo_prep);

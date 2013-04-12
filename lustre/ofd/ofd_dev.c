@@ -174,7 +174,7 @@ static void ofd_stack_fini(const struct lu_env *env, struct ofd_device *m,
 	lu_site_purge(env, top->ld_site, ~0);
 
 	LASSERT(m->ofd_osd_exp);
-	obd_disconnect(m->ofd_osd_exp);
+	obd_disconnect(env, m->ofd_osd_exp);
 	m->ofd_osd = NULL;
 
 	EXIT;
@@ -740,7 +740,7 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 err_fini_lut:
 	tgt_fini(env, &m->ofd_lut);
 err_free_ns:
-	ldlm_namespace_free(m->ofd_namespace, 0, obd->obd_force);
+	ldlm_namespace_free(env, m->ofd_namespace, 0, obd->obd_force);
 	obd->obd_namespace = m->ofd_namespace = NULL;
 err_fini_stack:
 	ofd_stack_fini(env, m, &m->ofd_osd->dd_lu_dev);
@@ -754,7 +754,7 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	struct obd_device *obd = ofd_obd(m);
 	struct lu_device  *d = &m->ofd_dt_dev.dd_lu_dev;
 
-	target_recovery_fini(obd);
+	target_recovery_fini(env, obd);
 	obd_exports_barrier(obd);
 	obd_zombie_barrier();
 
@@ -765,7 +765,7 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	cleanup_capa_hash(obd->u.filter.fo_capa_hash);
 
 	if (m->ofd_namespace != NULL) {
-		ldlm_namespace_free(m->ofd_namespace, NULL,
+		ldlm_namespace_free(env, m->ofd_namespace, NULL,
 				    d->ld_obd->obd_force);
 		d->ld_obd->obd_namespace = m->ofd_namespace = NULL;
 	}

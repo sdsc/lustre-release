@@ -112,7 +112,7 @@ static int mgs_reconnect(const struct lu_env *env,
 	RETURN(mgs_export_stats_init(obd, exp, localdata));
 }
 
-static int mgs_disconnect(struct obd_export *exp)
+static int mgs_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
         int rc;
         ENTRY;
@@ -124,14 +124,15 @@ static int mgs_disconnect(struct obd_export *exp)
         class_export_get(exp);
         mgs_counter_incr(exp, LPROC_MGS_DISCONNECT);
 
-        rc = server_disconnect_export(exp);
+        rc = server_disconnect_export(env, exp);
         class_export_put(exp);
         RETURN(rc);
 }
 
 static int mgs_handle(struct ptlrpc_request *req);
 
-static int mgs_completion_ast_config(struct ldlm_lock *lock, __u64 flags,
+static int mgs_completion_ast_config(const struct lu_env *env,
+				     struct ldlm_lock *lock, __u64 flags,
 				     void *cbdata)
 {
 	ENTRY;
@@ -154,15 +155,16 @@ static int mgs_completion_ast_config(struct ldlm_lock *lock, __u64 flags,
 			clear_bit(FSDB_REVOKING_LOCK, &fsdb->fsdb_flags);
 
 			ldlm_lock2handle(lock, &lockh);
-			ldlm_lock_decref_and_cancel(&lockh, LCK_EX);
+			ldlm_lock_decref_and_cancel(env, &lockh, LCK_EX);
 		}
 	}
 
-	RETURN(ldlm_completion_ast(lock, flags, cbdata));
+	RETURN(ldlm_completion_ast(env, lock, flags, cbdata));
 }
 
-static int mgs_completion_ast_ir(struct ldlm_lock *lock, __u64 flags,
-                                 void *cbdata)
+static int mgs_completion_ast_ir(const struct lu_env *env,
+				 struct ldlm_lock *lock, __u64 flags,
+				 void *cbdata)
 {
         ENTRY;
 
@@ -183,11 +185,11 @@ static int mgs_completion_ast_ir(struct ldlm_lock *lock, __u64 flags,
                         mgs_ir_notify_complete(fsdb);
 
                         ldlm_lock2handle(lock, &lockh);
-                        ldlm_lock_decref_and_cancel(&lockh, LCK_EX);
+                        ldlm_lock_decref_and_cancel(env, &lockh, LCK_EX);
                 }
         }
 
-        RETURN(ldlm_completion_ast(lock, flags, cbdata));
+        RETURN(ldlm_completion_ast(env, lock, flags, cbdata));
 }
 
 void mgs_revoke_lock(struct mgs_device *mgs, struct fs_db *fsdb, int type)
@@ -217,7 +219,7 @@ void mgs_revoke_lock(struct mgs_device *mgs, struct fs_db *fsdb, int type)
 
         if (!rc) {
                 LASSERT(cp != NULL);
-		rc = ldlm_cli_enqueue_local(mgs->mgs_obd->obd_namespace,
+		rc = ldlm_cli_enqueue_local(NULL, mgs->mgs_obd->obd_namespace,
 					    &res_id, LDLM_PLAIN, NULL, LCK_EX,
 					    &flags, ldlm_blocking_ast, cp,
 					    NULL, fsdb, 0, LVB_T_NONE, NULL,
@@ -1185,7 +1187,7 @@ err_fs:
 	/* No extra cleanup needed for llog_init_commit_thread() */
 	mgs_fs_cleanup(env, mgs);
 err_ns:
-	ldlm_namespace_free(obd->obd_namespace, NULL, 0);
+	ldlm_namespace_free(env, obd->obd_namespace, NULL, 0);
 	obd->obd_namespace = NULL;
 err_ops:
 	lu_site_purge(env, mgs2lu_dev(mgs)->ld_site, ~0);
@@ -1194,7 +1196,7 @@ err_ops:
 		lu_site_print(env, mgs2lu_dev(mgs)->ld_site, &msgdata,
 				lu_cdebug_printer);
 	}
-	obd_disconnect(mgs->mgs_bottom_exp);
+	obd_disconnect(env, mgs->mgs_bottom_exp);
 	RETURN(rc);
 }
 
@@ -1350,7 +1352,7 @@ static struct lu_device *mgs_device_fini(const struct lu_env *env,
 
 	mgs_fs_cleanup(env, mgs);
 
-	ldlm_namespace_free(obd->obd_namespace, NULL, 1);
+	ldlm_namespace_free(env, obd->obd_namespace, NULL, 1);
 	obd->obd_namespace = NULL;
 
 	lu_site_purge(env, d->ld_site, ~0);
@@ -1360,7 +1362,7 @@ static struct lu_device *mgs_device_fini(const struct lu_env *env,
 	}
 
 	LASSERT(mgs->mgs_bottom_exp);
-	obd_disconnect(mgs->mgs_bottom_exp);
+	obd_disconnect(env, mgs->mgs_bottom_exp);
 
 	server_put_mount(obd->obd_name, NULL);
 
