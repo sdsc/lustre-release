@@ -319,7 +319,8 @@ struct ofd_thread_info {
 	struct ost_lvb			 fti_lvb;
 };
 
-extern void target_recovery_fini(struct obd_device *obd);
+extern void target_recovery_fini(const struct lu_env *env,
+				 struct obd_device *obd);
 extern void target_recovery_init(struct lu_target *lut, svc_handler_t handler);
 
 /* ofd_capa.c */
@@ -494,7 +495,8 @@ int ofd_fid_fini(const struct lu_env *env, struct ofd_device *ofd);
 extern struct ldlm_valblock_ops ofd_lvbo;
 
 /* ofd_dlm.c */
-int ofd_intent_policy(struct ldlm_namespace *ns, struct ldlm_lock **lockp,
+int ofd_intent_policy(const struct lu_env *env, struct ldlm_namespace *ns,
+		      struct ldlm_lock **lockp,
 		      void *req_cookie, ldlm_mode_t mode, __u64 flags,
 		      void *data);
 
@@ -515,10 +517,13 @@ static inline struct ofd_thread_info * ofd_info_init(const struct lu_env *env,
 	struct ofd_thread_info *info;
 
 	info = lu_context_key_get(&env->le_ctx, &ofd_thread_key);
+	if (info == NULL)
+		CERROR("tags %x\n", env->le_ctx.lc_tags);
+
 	LASSERT(info);
-	LASSERT(info->fti_exp == NULL);
-	LASSERT(info->fti_env == NULL);
-	LASSERT(info->fti_attr.la_valid == 0);
+	LASSERT(info->fti_env == NULL || info->fti_env == env);
+	if (info->fti_exp == NULL)
+		LASSERT(info->fti_attr.la_valid == 0);
 
 	info->fti_env = env;
 	info->fti_exp = exp;

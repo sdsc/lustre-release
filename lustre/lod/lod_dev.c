@@ -421,7 +421,7 @@ static int lod_process_config(const struct lu_env *env,
 			CERROR("%s: can't process %u: %d\n",
 			       lod2obd(lod)->obd_name, lcfg->lcfg_command, rc);
 
-		rc = obd_disconnect(lod->lod_child_exp);
+		rc = obd_disconnect(env, lod->lod_child_exp);
 		if (rc)
 			CERROR("error in disconnect from storage: %d\n", rc);
 		break;
@@ -794,7 +794,7 @@ static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 out_pools:
 	lod_pools_fini(lod);
 out_disconnect:
-	obd_disconnect(lod->lod_child_exp);
+	obd_disconnect(env, lod->lod_child_exp);
 	RETURN(rc);
 }
 
@@ -893,7 +893,7 @@ static int lod_obd_connect(const struct lu_env *env, struct obd_export **exp,
  * once last export (we don't count self-export) disappeared
  * lod can be released
  */
-static int lod_obd_disconnect(struct obd_export *exp)
+static int lod_obd_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
 	struct obd_device *obd = exp->exp_obd;
 	struct lod_device *lod = lu2lod_dev(obd->obd_lu_dev);
@@ -919,7 +919,7 @@ out:
 	rc = class_disconnect(exp); /* bz 9811 */
 
 	if (rc == 0 && release)
-		class_manual_cleanup(obd);
+		class_manual_cleanup(env, obd);
 	RETURN(rc);
 }
 

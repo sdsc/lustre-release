@@ -3390,7 +3390,7 @@ static int ll_layout_lock_set(struct lustre_handle *lockh, ldlm_mode_t mode,
 
 out:
 	LDLM_LOCK_PUT(lock);
-	ldlm_lock_decref(lockh, mode);
+	ldlm_lock_decref(NULL, lockh, mode);
 
 	/* wait for IO to complete if it's still being used. */
 	if (wait_layout) {

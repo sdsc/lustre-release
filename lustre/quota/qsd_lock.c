@@ -153,7 +153,8 @@ static int qsd_common_glimpse_ast(struct ptlrpc_request *req,
  * \param flag - LDLM_CB_BLOCKING or LDLM_CB_CANCELING. Used to distinguish
  *               cancellation and blocking ast's.
  */
-static int qsd_glb_blocking_ast(struct ldlm_lock *lock,
+static int qsd_glb_blocking_ast(const struct lu_env *env,
+				struct ldlm_lock *lock,
 				struct ldlm_lock_desc *desc, void *data,
 				int flag)
 {
@@ -166,7 +167,7 @@ static int qsd_glb_blocking_ast(struct ldlm_lock *lock,
 
 		LDLM_DEBUG(lock, "blocking AST on global quota lock");
 		ldlm_lock2handle(lock, &lockh);
-		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
+		rc = ldlm_cli_cancel(env, &lockh, LCF_ASYNC);
 		break;
 	}
 	case LDLM_CB_CANCELING: {
@@ -278,7 +279,8 @@ struct ldlm_enqueue_info qsd_glb_einfo = { LDLM_PLAIN,
  * \param flag - LDLM_CB_BLOCKING or LDLM_CB_CANCELING. Used to distinguish
  *               cancellation and blocking ast's.
  */
-static int qsd_id_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
+static int qsd_id_blocking_ast(const struct lu_env *env, struct ldlm_lock *lock,
+			       struct ldlm_lock_desc *desc,
 			       void *data, int flag)
 {
 	struct lustre_handle	lockh;
@@ -290,7 +292,7 @@ static int qsd_id_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *de
 
 		LDLM_DEBUG(lock, "blocking AST on ID quota lock");
 		ldlm_lock2handle(lock, &lockh);
-		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
+		rc = ldlm_cli_cancel(env, &lockh, LCF_ASYNC);
 		break;
 	}
 	case LDLM_CB_CANCELING: {
@@ -513,6 +515,6 @@ int qsd_id_lock_cancel(const struct lu_env *env, struct lquota_entry *lqe)
 	if (rc)
 		RETURN(rc);
 
-	ldlm_lock_decref_and_cancel(&qti->qti_lockh, qsd_id_einfo.ei_mode);
+	ldlm_lock_decref_and_cancel(env, &qti->qti_lockh, qsd_id_einfo.ei_mode);
 	RETURN(0);
 }
