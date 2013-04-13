@@ -804,7 +804,7 @@ static int osd_obd_connect(const struct lu_env *env, struct obd_export **exp,
  * once last export (we don't count self-export) disappeared
  * osd can be released
  */
-static int osd_obd_disconnect(struct obd_export *exp)
+static int osd_obd_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
 	struct obd_device *obd = exp->exp_obd;
 	struct osd_device *osd = osd_dev(obd->obd_lu_dev);
@@ -821,7 +821,7 @@ static int osd_obd_disconnect(struct obd_export *exp)
 	rc = class_disconnect(exp); /* bz 9811 */
 
 	if (rc == 0 && release)
-		class_manual_cleanup(obd);
+		class_manual_cleanup(env, obd);
 	RETURN(rc);
 }
 

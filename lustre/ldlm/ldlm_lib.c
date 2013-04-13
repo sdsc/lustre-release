@@ -553,7 +553,7 @@ out_sem:
 }
 EXPORT_SYMBOL(client_connect_import);
 
-int client_disconnect_export(struct obd_export *exp)
+int client_disconnect_export(const struct lu_env *env, struct obd_export *exp)
 {
         struct obd_device *obd = class_exp2obd(exp);
         struct client_obd *cli;
@@ -596,12 +596,13 @@ int client_disconnect_export(struct obd_export *exp)
          * never added.) */
         (void)ptlrpc_pinger_del_import(imp);
 
-        if (obd->obd_namespace != NULL) {
-                /* obd_force == local only */
-                ldlm_cli_cancel_unused(obd->obd_namespace, NULL,
-                                       obd->obd_force ? LCF_LOCAL : 0, NULL);
-                ldlm_namespace_free_prior(obd->obd_namespace, imp, obd->obd_force);
-        }
+	if (obd->obd_namespace != NULL) {
+		/* obd_force == local only */
+		ldlm_cli_cancel_unused(env, obd->obd_namespace, NULL,
+				       obd->obd_force ? LCF_LOCAL : 0, NULL);
+		ldlm_namespace_free_prior(env, obd->obd_namespace, imp,
+					  obd->obd_force);
+	}
 
 	/* There's no need to hold sem while disconnecting an import,
 	 * and it may actually cause deadlock in GSS. */
@@ -627,7 +628,7 @@ out_disconnect:
 EXPORT_SYMBOL(client_disconnect_export);
 
 #ifdef HAVE_SERVER_SUPPORT
-int server_disconnect_export(struct obd_export *exp)
+int server_disconnect_export(const struct lu_env *env, struct obd_export *exp)
 {
         int rc;
         ENTRY;
@@ -639,7 +640,7 @@ int server_disconnect_export(struct obd_export *exp)
 		ptlrpc_cleanup_imp(exp->exp_imp_reverse);
 
 	if (exp->exp_obd->obd_namespace != NULL)
-		ldlm_cancel_locks_for_export(exp);
+		ldlm_cancel_locks_for_export(env, exp);
 
         /* complete all outstanding replies */
 	spin_lock(&exp->exp_lock);
@@ -937,7 +938,7 @@ int target_handle_connect(struct ptlrpc_request *req)
                         LCONSOLE_WARN("%s: Received new MDS connection from "
                             "%s, removing former export from same NID\n",
                             target->obd_name, libcfs_nid2str(req->rq_peer.nid));
-                class_fail_export(export);
+                class_fail_export(req->rq_svc_thread->t_env, export);
                 class_export_put(export);
                 export = NULL;
                 rc = 0;
@@ -1288,7 +1289,8 @@ int target_handle_disconnect(struct ptlrpc_request *req)
                 RETURN(rc);
 
 	/* Keep the rq_export around so we can send the reply. */
-        req->rq_status = obd_disconnect(class_export_get(req->rq_export));
+        req->rq_status = obd_disconnect(req->rq_svc_thread->t_env,
+					class_export_get(req->rq_export));
 
         RETURN(0);
 }
@@ -1384,7 +1386,8 @@ static void target_exp_dequeue_req_replay(struct ptlrpc_request *req)
 }
 
 #ifdef __KERNEL__
-static void target_finish_recovery(struct obd_device *obd)
+static void target_finish_recovery(const struct lu_env *env,
+				   struct obd_device *obd)
 {
         ENTRY;
 
@@ -1401,7 +1404,7 @@ static void target_finish_recovery(struct obd_device *obd)
 			obd->obd_stale_clients == 1 ? "was" : "were");
 	}
 
-        ldlm_reprocess_all_ns(obd->obd_namespace);
+        ldlm_reprocess_all_ns(env, obd->obd_namespace);
 	spin_lock(&obd->obd_recovery_task_lock);
         if (!cfs_list_empty(&obd->obd_req_replay_queue) ||
             !cfs_list_empty(&obd->obd_lock_replay_queue) ||
@@ -1791,7 +1794,8 @@ static int check_for_next_lock(struct obd_device *obd)
  * check its status with help of check_routine
  * evict dead clients via health_check
  */
-static int target_recovery_overseer(struct obd_device *obd,
+static int target_recovery_overseer(const struct lu_env *env,
+				    struct obd_device *obd,
                                     int (*check_routine)(struct obd_device *),
                                     int (*health_check)(struct obd_export *))
 {
@@ -1800,7 +1804,7 @@ repeat:
         if (obd->obd_abort_recovery) {
                 CWARN("recovery is aborted, evict exports in recovery\n");
                 /** evict exports which didn't finish recovery yet */
-                class_disconnect_stale_exports(obd, exp_finished);
+                class_disconnect_stale_exports(env, obd, exp_finished);
                 return 1;
         } else if (obd->obd_recovery_expired) {
                 obd->obd_recovery_expired = 0;
@@ -1808,7 +1812,7 @@ repeat:
                 LCONSOLE_WARN("%s: recovery is timed out, "
                               "evict stale exports\n", obd->obd_name);
                 /** evict cexports with no replay in queue, they are stalled */
-                class_disconnect_stale_exports(obd, health_check);
+                class_disconnect_stale_exports(env, obd, health_check);
                 /** continue with VBR */
 		spin_lock(&obd->obd_dev_lock);
 		obd->obd_version_recov = 1;
@@ -1824,7 +1828,8 @@ repeat:
         return 0;
 }
 
-static struct ptlrpc_request *target_next_replay_req(struct obd_device *obd)
+static struct ptlrpc_request *target_next_replay_req(const struct lu_env *env,
+						     struct obd_device *obd)
 {
         struct ptlrpc_request *req = NULL;
         ENTRY;
@@ -1832,7 +1837,7 @@ static struct ptlrpc_request *target_next_replay_req(struct obd_device *obd)
         CDEBUG(D_HA, "Waiting for transno "LPD64"\n",
                obd->obd_next_recovery_transno);
 
-        if (target_recovery_overseer(obd, check_for_next_transno,
+        if (target_recovery_overseer(env, obd, check_for_next_transno,
                                      exp_req_replay_healthy)) {
                 abort_req_replay_queue(obd);
                 abort_lock_replay_queue(obd);
@@ -1850,17 +1855,18 @@ static struct ptlrpc_request *target_next_replay_req(struct obd_device *obd)
 		LASSERT(cfs_list_empty(&obd->obd_req_replay_queue));
 		LASSERT(cfs_atomic_read(&obd->obd_req_replay_clients) == 0);
 		/** evict exports failed VBR */
-		class_disconnect_stale_exports(obd, exp_vbr_healthy);
+		class_disconnect_stale_exports(env, obd, exp_vbr_healthy);
 	}
 	RETURN(req);
 }
 
-static struct ptlrpc_request *target_next_replay_lock(struct obd_device *obd)
+static struct ptlrpc_request *target_next_replay_lock(const struct lu_env *env,
+						      struct obd_device *obd)
 {
         struct ptlrpc_request *req = NULL;
 
         CDEBUG(D_HA, "Waiting for lock\n");
-        if (target_recovery_overseer(obd, check_for_next_lock,
+        if (target_recovery_overseer(env, obd, check_for_next_lock,
                                      exp_lock_replay_healthy))
                 abort_lock_replay_queue(obd);
 
@@ -1875,7 +1881,7 @@ static struct ptlrpc_request *target_next_replay_lock(struct obd_device *obd)
                 LASSERT(cfs_list_empty(&obd->obd_lock_replay_queue));
                 LASSERT(cfs_atomic_read(&obd->obd_lock_replay_clients) == 0);
                 /** evict exports failed VBR */
-                class_disconnect_stale_exports(obd, exp_vbr_healthy);
+                class_disconnect_stale_exports(env, obd, exp_vbr_healthy);
         }
         return req;
 }
@@ -2018,7 +2024,7 @@ static int target_recovery_thread(void *arg)
 	complete(&trd->trd_starting);
 
         /* first of all, we have to know the first transno to replay */
-        if (target_recovery_overseer(obd, check_for_clients,
+        if (target_recovery_overseer(env, obd, check_for_clients,
                                      exp_connect_healthy)) {
                 abort_req_replay_queue(obd);
                 abort_lock_replay_queue(obd);
@@ -2029,7 +2035,7 @@ static int target_recovery_thread(void *arg)
         CDEBUG(D_INFO, "1: request replay stage - %d clients from t"LPU64"\n",
                cfs_atomic_read(&obd->obd_req_replay_clients),
                obd->obd_next_recovery_transno);
-        while ((req = target_next_replay_req(obd))) {
+        while ((req = target_next_replay_req(env, obd))) {
                 LASSERT(trd->trd_processing_task == cfs_curproc_pid());
                 DEBUG_REQ(D_HA, req, "processing t"LPD64" from %s",
                           lustre_msg_get_transno(req->rq_reqmsg),
@@ -2053,7 +2059,7 @@ static int target_recovery_thread(void *arg)
          */
         CDEBUG(D_INFO, "2: lock replay stage - %d clients\n",
                cfs_atomic_read(&obd->obd_lock_replay_clients));
-        while ((req = target_next_replay_lock(obd))) {
+        while ((req = target_next_replay_lock(env, obd))) {
                 LASSERT(trd->trd_processing_task == cfs_curproc_pid());
                 DEBUG_REQ(D_HA, req, "processing lock from %s: ",
                           libcfs_nid2str(req->rq_peer.nid));
@@ -2095,7 +2101,7 @@ static int target_recovery_thread(void *arg)
                 libcfs_debug_dumplog();
         }
 
-        target_finish_recovery(obd);
+        target_finish_recovery(env, obd);
 
         lu_context_fini(&env->le_ctx);
         trd->trd_processing_task = 0;
@@ -2144,9 +2150,9 @@ void target_stop_recovery_thread(struct obd_device *obd)
 }
 EXPORT_SYMBOL(target_stop_recovery_thread);
 
-void target_recovery_fini(struct obd_device *obd)
+void target_recovery_fini(const struct lu_env *env, struct obd_device *obd)
 {
-        class_disconnect_exports(obd);
+        class_disconnect_exports(env, obd);
         target_stop_recovery_thread(obd);
         target_cleanup_recovery(obd);
 }
