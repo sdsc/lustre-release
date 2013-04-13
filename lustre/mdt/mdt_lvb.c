@@ -92,9 +92,9 @@ static int mdt_lvbo_size(struct ldlm_lock *lock)
 	return 0;
 }
 
-static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
+static int mdt_lvbo_fill(const struct lu_env *env, struct ldlm_lock *lock,
+			 void *lvb, int lvblen)
 {
-	struct lu_env env;
 	struct mdt_thread_info *info;
 	struct mdt_device *mdt;
 	struct lu_fid *fid;
@@ -109,7 +109,7 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 			RETURN(0);
 
 		/* call lvbo fill function of quota master */
-		rc = qmt_hdls.qmth_lvbo_fill(mdt->mdt_qmt_dev, lock, lvb,
+		rc = qmt_hdls.qmth_lvbo_fill(env, mdt->mdt_qmt_dev, lock, lvb,
 					     lvblen);
 		RETURN(rc);
 	}
@@ -118,24 +118,23 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 		RETURN(0);
 
 	/* layout lock will be granted to client, fill in lvb with layout */
-
-	/* XXX create an env to talk to mdt stack. We should get this env from
-	 * ptlrpc_thread->t_env. */
-	rc = lu_env_init(&env, LCT_MD_THREAD);
-	LASSERT(rc == 0);
-
-	info = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
+	LASSERT(env);
+	info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
 	LASSERT(info != NULL);
-	memset(info, 0, sizeof *info);
-	info->mti_env = &env;
-	info->mti_exp = lock->l_export;
-	info->mti_mdt = mdt;
+
+	/* Does the "env" not come from normal ptlrpc thread? */
+	if (env->le_ctx.lc_thread == NULL) {
+		memset(info, 0, sizeof(*info));
+		info->mti_env = env;
+		info->mti_exp = lock->l_export;
+		info->mti_mdt = mdt;
+	}
 
 	/* XXX get fid by resource id. why don't include fid in ldlm_resource */
 	fid = &info->mti_tmp_fid2;
 	fid_build_from_res_name(fid, &lock->l_resource->lr_name);
 
-	obj = mdt_object_find(&env, info->mti_mdt, fid);
+	obj = mdt_object_find(env, info->mti_mdt, fid);
 	if (IS_ERR(obj))
 		GOTO(out, rc = PTR_ERR(obj));
 
@@ -145,7 +144,7 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 	child = mdt_object_child(obj);
 
 	/* get the length of lsm */
-	rc = mo_xattr_get(&env, child, &LU_BUF_NULL, XATTR_NAME_LOV);
+	rc = mo_xattr_get(env, child, &LU_BUF_NULL, XATTR_NAME_LOV);
 	if (rc < 0)
 		GOTO(out, rc);
 
@@ -162,15 +161,14 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 		lmm->lb_buf = lvb;
 		lmm->lb_len = rc;
 
-		rc = mo_xattr_get(&env, child, lmm, XATTR_NAME_LOV);
+		rc = mo_xattr_get(env, child, lmm, XATTR_NAME_LOV);
 		if (rc < 0)
 			GOTO(out, rc);
 	}
 
 out:
 	if (obj != NULL && !IS_ERR(obj))
-		mdt_object_put(&env, obj);
-	lu_env_fini(&env);
+		mdt_object_put(env, obj);
 	RETURN(rc < 0 ? 0 : rc);
 }
 
