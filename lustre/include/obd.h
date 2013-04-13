@@ -191,6 +191,8 @@ struct obd_info {
         /* oss capability, its type is obd_capa in client to avoid copy.
          * in contrary its type is lustre_capa in OSS. */
         void                   *oi_capa;
+
+	struct obd_trans_info  *oi_oti;
 };
 
 /* compare all relevant fields. */
@@ -303,12 +305,16 @@ struct filter_obd {
         obd_size             fo_tot_pending;
         int                  fo_tot_granted_clients;
 
-        obd_size             fo_readcache_max_filesize;
-        cfs_spinlock_t       fo_flags_lock;
-        int                  fo_read_cache:1,   /**< enable read-only cache */
-                             fo_writethrough_cache:1,/**< read cache writes */
-                             fo_mds_ost_sync:1, /**< MDS-OST orphan recovery*/
-                             fo_raid_degraded:1;/**< RAID device degraded */
+	obd_size	     fo_readcache_max_filesize;
+	cfs_spinlock_t       fo_flags_lock;
+	int		     fo_read_cache:1,   /**< enable read-only cache */
+			     fo_writethrough_cache:1,/**< read cache writes */
+			     fo_mds_ost_sync:1,   /**< MDS-OST orphan recovery*/
+			     fo_raid_degraded:1,  /**< RAID device degraded */
+			     fo_orphan_cleaned:1; /* orphans are cleaned? */
+
+	/* waitqueue to wait orphan cleanup */
+	cfs_waitq_t	     fo_orphan_cleaned_waitq;
 
         struct obd_import   *fo_mdc_imp;
         struct obd_uuid      fo_mdc_uuid;

@@ -411,13 +411,13 @@ static int filter_preprw_read(int cmd, struct obd_export *exp, struct obdo *oa,
         if (IS_ERR(iobuf))
                 RETURN(PTR_ERR(iobuf));
 
-        push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-        dentry = filter_oa2dentry(obd, &oa->o_oi);
-        if (IS_ERR(dentry)) {
-                rc = PTR_ERR(dentry);
-                dentry = NULL;
-                GOTO(cleanup, rc);
-        }
+	push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+	dentry = filter_oa2dentry(exp, oa, &oa->o_oi, oti);
+	if (IS_ERR(dentry)) {
+		rc = PTR_ERR(dentry);
+		dentry = NULL;
+		GOTO(cleanup, rc);
+	}
 
         inode = dentry->d_inode;
         isize = i_size_read(inode);
@@ -669,6 +669,7 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
         obd_size left;
         unsigned long now = jiffies, timediff;
         int rc = 0, i, tot_bytes = 0, cleanup_phase = 0, localreq = 0;
+	struct ost_id ostid;
         ENTRY;
         LASSERT(objcount == 1);
         LASSERT(obj->ioo_bufcnt > 0);
@@ -688,44 +689,18 @@ static int filter_preprw_write(int cmd, struct obd_export *exp, struct obdo *oa,
                 GOTO(cleanup, rc = PTR_ERR(iobuf));
         cleanup_phase = 1;
 
-        dentry = filter_fid2dentry(obd, NULL, obj->ioo_seq,
-                                   obj->ioo_id);
-        if (IS_ERR(dentry))
-                GOTO(cleanup, rc = PTR_ERR(dentry));
-        cleanup_phase = 2;
+	ostid.oi_seq = obj->ioo_seq;
+	ostid.oi_id = obj->ioo_id;
+	dentry = filter_oa2dentry(exp, oa, &ostid, oti);
+	if (IS_ERR(dentry)) {
+		CERROR("%s: BRW to missing obj "LPU64"/"LPU64":rc %d\n",
+		       exp->exp_obd->obd_name, obj->ioo_id, obj->ioo_seq,
+		       (int)PTR_ERR(dentry));
 
-        if (dentry->d_inode == NULL) {
-                if (exp->exp_obd->obd_recovering) {
-                        struct obdo *noa = oa;
+		GOTO(cleanup, rc = PTR_ERR(dentry));
+	}
 
-                        if (oa == NULL) {
-                                OBDO_ALLOC(noa);
-                                if (noa == NULL)
-                                        GOTO(recreate_out, rc = -ENOMEM);
-                                noa->o_id = obj->ioo_id;
-                                noa->o_valid = OBD_MD_FLID;
-                        }
-
-                        if (filter_create(exp, noa, NULL, oti) == 0) {
-                                f_dput(dentry);
-                                dentry = filter_fid2dentry(exp->exp_obd, NULL,
-                                                           obj->ioo_seq,
-                                                           obj->ioo_id);
-                        }
-                        if (oa == NULL)
-                                OBDO_FREE(noa);
-                }
-    recreate_out:
-                if (IS_ERR(dentry) || dentry->d_inode == NULL) {
-                        CERROR("%s: BRW to missing obj "LPU64"/"LPU64":rc %d\n",
-                               exp->exp_obd->obd_name,
-                               obj->ioo_id, obj->ioo_seq,
-                               IS_ERR(dentry) ? (int)PTR_ERR(dentry) : -ENOENT);
-                        if (IS_ERR(dentry))
-                                cleanup_phase = 1;
-                        GOTO(cleanup, rc = -ENOENT);
-                }
-        }
+	cleanup_phase = 2;
 
         if (oa->o_valid & (OBD_MD_FLUID | OBD_MD_FLGID) &&
             dentry->d_inode->i_mode & (S_ISUID | S_ISGID)) {

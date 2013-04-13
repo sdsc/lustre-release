@@ -2060,6 +2060,8 @@ int filter_common_setup(struct obd_device *obd, struct lustre_cfg* lcfg,
         filter->fo_syncjournal = 0; /* Don't sync journals on i/o by default */
         filter_slc_set(filter); /* initialize sync on lock cancel */
 
+	cfs_waitq_init(&filter->fo_orphan_cleaned_waitq);
+
         rc = filter_prep(obd);
         if (rc)
                 GOTO(err_ops, rc);
@@ -3117,28 +3119,76 @@ static int filter_ping(struct obd_export *exp)
         return 0;
 }
 
-struct dentry *__filter_oa2dentry(struct obd_device *obd, struct ost_id *ostid,
-                                  const char *what, int quiet)
+struct dentry *__filter_oa2dentry(struct obd_export *exp, struct obdo *oa,
+				  struct ost_id *ostid,
+				  struct obd_trans_info *oti, const char *what,
+				  int quiet)
 {
-        struct dentry *dchild = NULL;
+	struct dentry *dchild = NULL;
+	struct obd_device *obd = exp->exp_obd;
+	struct filter_obd *filter = &obd->u.filter;
+	obd_id last = filter_last_id(filter, ostid->oi_seq);
+	int orphan_cleaned = filter->fo_orphan_cleaned;
 
-        dchild = filter_fid2dentry(obd, NULL,  ostid->oi_seq, ostid->oi_id);
+	dchild = filter_fid2dentry(obd, NULL,  ostid->oi_seq, ostid->oi_id);
 
-        if (IS_ERR(dchild)) {
-                CERROR("%s error looking up object: "POSTID"\n",
-                       what, ostid->oi_id, ostid->oi_seq);
-                RETURN(dchild);
-        }
+	if (IS_ERR(dchild) || likely(dchild->d_inode != NULL))
+		GOTO(out, dchild);
 
-        if (dchild->d_inode == NULL) {
-                if (!quiet)
-                        CERROR("%s: %s on non-existent object: "POSTID" \n",
-                               obd->obd_name, what, ostid->oi_id,ostid->oi_seq);
-                f_dput(dchild);
-                RETURN(ERR_PTR(-ENOENT));
-        }
+	if (obd->obd_recovering) {
+		struct obdo *noa = oa;
 
-        return dchild;
+		if (oa == NULL) {
+			OBDO_ALLOC(noa);
+			if (noa == NULL) {
+				f_dput(dchild);
+				GOTO(out, dchild = ERR_PTR(-ENOMEM));
+			}
+
+			noa->o_oi = *ostid;
+			noa->o_valid = OBD_MD_FLID;
+		}
+
+		if (filter_create(exp, noa, NULL, oti) == 0) {
+			f_dput(dchild);
+			dchild = filter_fid2dentry(exp->exp_obd, NULL,
+						   ostid->oi_seq, ostid->oi_id);
+		}
+
+		if (noa != NULL)
+			OBDO_FREE(noa);
+	} else if (last < ostid->oi_id && orphan_cleaned == 0) {
+		struct l_wait_info lwi;
+
+		lwi = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(20),
+				  	   cfs_time_seconds(1), NULL, NULL);
+
+		if (exp->exp_connect_flags & OBD_CONNECT_EINPROGRESS) {
+			f_dput(dchild);
+			RETURN(ERR_PTR(-EINPROGRESS));
+		}
+
+		l_wait_event(filter->fo_orphan_cleaned_waitq,
+			     filter->fo_orphan_cleaned != 0, &lwi);
+
+		f_dput(dchild);
+		dchild = filter_fid2dentry(exp->exp_obd, NULL,
+					   ostid->oi_seq, ostid->oi_id);
+	}
+
+out:
+	if (IS_ERR(dchild)) {
+		CERROR("%s error looking up object: "POSTID"\n",
+		       what, ostid->oi_id, ostid->oi_seq);
+	} else if (dchild->d_inode == NULL) {
+		if (!quiet)
+			CERROR("%s: %s on non-existent object: "POSTID" \n",
+			       obd->obd_name, what, ostid->oi_id,ostid->oi_seq);
+		f_dput(dchild);
+		dchild = ERR_PTR(-ENOENT);
+	}
+
+	RETURN(dchild);
 }
 
 static int filter_getattr(struct obd_export *exp, struct obd_info *oinfo)
@@ -3159,9 +3209,10 @@ static int filter_getattr(struct obd_export *exp, struct obd_info *oinfo)
                 RETURN(-EINVAL);
         }
 
-        dentry = filter_oa2dentry(obd, &oinfo->oi_oa->o_oi);
-        if (IS_ERR(dentry))
-                RETURN(PTR_ERR(dentry));
+	dentry = filter_oa2dentry(exp, oinfo->oi_oa, &oinfo->oi_oa->o_oi,
+				  oinfo->oi_oti);
+	if (IS_ERR(dentry))
+		RETURN(PTR_ERR(dentry));
 
         /* Limit the valid bits in the return data to what we actually use */
         oinfo->oi_oa->o_valid = OBD_MD_FLID;
@@ -3438,9 +3489,10 @@ int filter_setattr(struct obd_export *exp, struct obd_info *oinfo,
                 RETURN(-EPERM);
         }
 
-        dentry = __filter_oa2dentry(exp->exp_obd, &oinfo->oi_oa->o_oi, __func__, 1);
-        if (IS_ERR(dentry))
-                RETURN(PTR_ERR(dentry));
+	dentry = __filter_oa2dentry(exp, oinfo->oi_oa, &oinfo->oi_oa->o_oi,
+				    oti, __func__, 1);
+	if (IS_ERR(dentry))
+		RETURN(PTR_ERR(dentry));
 
         filter = &exp->exp_obd->u.filter;
         push_ctxt(&saved, &exp->exp_obd->obd_lvfs_ctxt, NULL);
@@ -3624,14 +3676,17 @@ static int filter_precreate(struct obd_device *obd, struct obdo *oa,
 static int filter_handle_precreate(struct obd_export *exp, struct obdo *oa,
                                    obd_seq group, struct obd_trans_info *oti)
 {
-        struct obd_device *obd = exp->exp_obd;
-        struct filter_obd *filter = &obd->u.filter;
-        int diff, rc;
-        ENTRY;
+	struct obd_device *obd = exp->exp_obd;
+	struct filter_obd *filter = &obd->u.filter;
+	int diff, rc;
+	int del_orphan = 0;
+	ENTRY;
 
-        /* delete orphans request */
-        if ((oa->o_valid & OBD_MD_FLFLAGS) && (oa->o_flags & OBD_FL_DELORPHAN)){
-                obd_id last = filter_last_id(filter, group);
+	/* delete orphans request */
+	if ((oa->o_valid & OBD_MD_FLFLAGS) && (oa->o_flags & OBD_FL_DELORPHAN)){
+		obd_id last = filter_last_id(filter, group);
+
+		del_orphan = 1;
 
                 if (oti->oti_conn_cnt < exp->exp_conn_cnt) {
                         CERROR("%s: dropping old orphan cleanup request\n",
@@ -3705,8 +3760,13 @@ static int filter_handle_precreate(struct obd_export *exp, struct obdo *oa,
         /* else diff == 0 */
         GOTO(out, rc = 0);
 out:
-        cfs_up(&filter->fo_create_locks[group]);
-        return rc;
+	if (del_orphan) {
+		filter->fo_orphan_cleaned = 1;
+		cfs_waitq_signal(&filter->fo_orphan_cleaned_waitq);
+	}
+
+	cfs_up(&filter->fo_create_locks[group]);
+	return rc;
 }
 
 static int filter_statfs(struct obd_device *obd, struct obd_statfs *osfs,
@@ -4322,8 +4382,8 @@ static int filter_truncate(struct obd_export *exp, struct obd_info *oinfo,
 }
 
 static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
-                       obd_off start, obd_off end,
-                       struct ptlrpc_request_set *set)
+		       obd_off start, obd_off end,
+		       struct ptlrpc_request_set *set)
 {
         struct lvfs_run_ctxt saved;
         struct obd_device_target *obt;
@@ -4347,9 +4407,10 @@ static int filter_sync(struct obd_export *exp, struct obd_info *oinfo,
                 RETURN(rc);
         }
 
-        dentry = filter_oa2dentry(exp->exp_obd, &oinfo->oi_oa->o_oi);
-        if (IS_ERR(dentry))
-                RETURN(PTR_ERR(dentry));
+	dentry = filter_oa2dentry(exp, oinfo->oi_oa, &oinfo->oi_oa->o_oi,
+				  oinfo->oi_oti);
+	if (IS_ERR(dentry))
+		RETURN(PTR_ERR(dentry));
 
         push_ctxt(&saved, &exp->exp_obd->obd_lvfs_ctxt, NULL);
 
@@ -4440,10 +4501,10 @@ static int filter_get_info(struct obd_export *exp, __u32 keylen,
                         RETURN(0);
                 }
 
-                dentry = __filter_oa2dentry(exp->exp_obd, &fm_key->oa.o_oi,
-                                            __func__, 1);
-                if (IS_ERR(dentry))
-                        RETURN(PTR_ERR(dentry));
+		dentry = __filter_oa2dentry(exp, &fm_key->oa, &fm_key->oa.o_oi,
+					    fm_key->oti, __func__, 1);
+		if (IS_ERR(dentry))
+			RETURN(PTR_ERR(dentry));
 
                 memcpy(fiemap, &fm_key->fiemap, sizeof(*fiemap));
                 push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
