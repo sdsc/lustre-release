@@ -84,7 +84,6 @@ static const struct dt_object_operations      osd_obj_otable_it_ops;
 static const struct dt_index_operations       osd_index_iam_ops;
 static const struct dt_index_operations       osd_index_ea_ops;
 
-#ifdef OSD_TRACK_DECLARES
 int osd_trans_declare_op2rb[] = {
 	[OSD_OT_ATTR_SET]	= OSD_OT_ATTR_SET,
 	[OSD_OT_PUNCH]		= OSD_OT_MAX,
@@ -98,7 +97,6 @@ int osd_trans_declare_op2rb[] = {
 	[OSD_OT_DELETE]		= OSD_OT_INSERT,
 	[OSD_OT_QUOTA]		= OSD_OT_MAX,
 };
-#endif
 
 static int osd_has_index(const struct osd_object *obj)
 {
@@ -681,17 +679,62 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
                 CFS_INIT_LIST_HEAD(&oh->ot_dcb_list);
                 osd_th_alloced(oh);
 
-#ifdef OSD_TRACK_DECLARES
-		memset(oti->oti_declare_ops, 0,
-					sizeof(oti->oti_declare_ops));
-		memset(oti->oti_declare_ops_rb, 0,
-					sizeof(oti->oti_declare_ops_rb));
-		memset(oti->oti_declare_ops_cred, 0,
-					sizeof(oti->oti_declare_ops_cred));
-		oti->oti_rollback = false;
-#endif
+		if (oti->oti_dev->od_track_declares) {
+			struct oti_track_declares *otd;
+
+			OBD_ALLOC_PTR(otd);
+			if (otd != NULL) {
+				memset(otd->oti_declare_ops, 0,
+					sizeof(otd->oti_declare_ops));
+				memset(otd->oti_declare_ops_rb, 0,
+					sizeof(otd->oti_declare_ops_rb));
+				memset(otd->oti_declare_ops_cred, 0,
+					sizeof(otd->oti_declare_ops_cred));
+				otd->oti_rollback = false;
+				oti->oti_declares = otd;
+			} else {
+				/* Unable to allocate struct to track
+				 * declares, continuing anyway ...
+				 */
+				oti->oti_declares = NULL;
+			}
+		} else
+			oti->oti_declares = NULL;
         }
         RETURN(th);
+}
+
+void print_declares(struct oti_track_declares *otd)
+{
+	CWARN("  create: %u/%u, delete: %u/%u, destroy: %u/%u\n",
+	      otd->oti_declare_ops[OSD_OT_CREATE],
+	      otd->oti_declare_ops_cred[OSD_OT_CREATE],
+	      otd->oti_declare_ops[OSD_OT_DELETE],
+	      otd->oti_declare_ops_cred[OSD_OT_DELETE],
+	      otd->oti_declare_ops[OSD_OT_DESTROY],
+	      otd->oti_declare_ops_cred[OSD_OT_DESTROY]);
+	CWARN("  attr_set: %u/%u, xattr_set: %u/%u\n",
+	      otd->oti_declare_ops[OSD_OT_ATTR_SET],
+	      otd->oti_declare_ops_cred[OSD_OT_ATTR_SET],
+	      otd->oti_declare_ops[OSD_OT_XATTR_SET],
+	      otd->oti_declare_ops_cred[OSD_OT_XATTR_SET]);
+	CWARN("  write: %u/%u, punch: %u/%u, quota %u/%u\n",
+	      otd->oti_declare_ops[OSD_OT_WRITE],
+	      otd->oti_declare_ops_cred[OSD_OT_WRITE],
+	      otd->oti_declare_ops[OSD_OT_PUNCH],
+	      otd->oti_declare_ops_cred[OSD_OT_PUNCH],
+	      otd->oti_declare_ops[OSD_OT_QUOTA],
+	      otd->oti_declare_ops_cred[OSD_OT_QUOTA]);
+	CWARN("  insert: %u/%u, delete: %u/%u\n",
+	      otd->oti_declare_ops[OSD_OT_INSERT],
+	      otd->oti_declare_ops_cred[OSD_OT_INSERT],
+	      otd->oti_declare_ops[OSD_OT_DESTROY],
+	      otd->oti_declare_ops_cred[OSD_OT_DESTROY]);
+	CWARN("  ref_add: %u/%u, ref_del: %u/%u\n",
+	      otd->oti_declare_ops[OSD_OT_REF_ADD],
+	      otd->oti_declare_ops_cred[OSD_OT_REF_ADD],
+	      otd->oti_declare_ops[OSD_OT_REF_DEL],
+	      otd->oti_declare_ops_cred[OSD_OT_REF_DEL]);
 }
 
 /*
@@ -719,53 +762,27 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
                 GOTO(out, rc);
 
 	if (unlikely(osd_param_is_not_sane(dev, th))) {
-#ifdef OSD_TRACK_DECLARES
-		static unsigned long last_printed;
-		static int last_credits;
-#endif
-
 		CWARN("%.16s: too many transaction credits (%d > %d)\n",
 		      LDISKFS_SB(osd_sb(dev))->s_es->s_volume_name,
 		      oh->ot_credits,
 		      osd_journal(dev)->j_max_transaction_buffers);
-#ifdef OSD_TRACK_DECLARES
-		CWARN("  create: %u/%u, delete: %u/%u, destroy: %u/%u\n",
-		      oti->oti_declare_ops[OSD_OT_CREATE],
-		      oti->oti_declare_ops_cred[OSD_OT_CREATE],
-		      oti->oti_declare_ops[OSD_OT_DELETE],
-		      oti->oti_declare_ops_cred[OSD_OT_DELETE],
-		      oti->oti_declare_ops[OSD_OT_DESTROY],
-		      oti->oti_declare_ops_cred[OSD_OT_DESTROY]);
-		CWARN("  attr_set: %u/%u, xattr_set: %u/%u\n",
-		      oti->oti_declare_ops[OSD_OT_ATTR_SET],
-		      oti->oti_declare_ops_cred[OSD_OT_ATTR_SET],
-		      oti->oti_declare_ops[OSD_OT_XATTR_SET],
-		      oti->oti_declare_ops_cred[OSD_OT_XATTR_SET]);
-		CWARN("  write: %u/%u, punch: %u/%u, quota %u/%u\n",
-		      oti->oti_declare_ops[OSD_OT_WRITE],
-		      oti->oti_declare_ops_cred[OSD_OT_WRITE],
-		      oti->oti_declare_ops[OSD_OT_PUNCH],
-		      oti->oti_declare_ops_cred[OSD_OT_PUNCH],
-		      oti->oti_declare_ops[OSD_OT_QUOTA],
-		      oti->oti_declare_ops_cred[OSD_OT_QUOTA]);
-		CWARN("  insert: %u/%u, delete: %u/%u\n",
-		      oti->oti_declare_ops[OSD_OT_INSERT],
-		      oti->oti_declare_ops_cred[OSD_OT_INSERT],
-		      oti->oti_declare_ops[OSD_OT_DESTROY],
-		      oti->oti_declare_ops_cred[OSD_OT_DESTROY]);
-		CWARN("  ref_add: %u/%u, ref_del: %u/%u\n",
-		      oti->oti_declare_ops[OSD_OT_REF_ADD],
-		      oti->oti_declare_ops_cred[OSD_OT_REF_ADD],
-		      oti->oti_declare_ops[OSD_OT_REF_DEL],
-		      oti->oti_declare_ops_cred[OSD_OT_REF_DEL]);
 
-		if (last_credits != oh->ot_credits &&
-		    time_after(jiffies, last_printed + 60 * HZ)) {
-			libcfs_debug_dumpstack(NULL);
-			last_credits = oh->ot_credits;
-			last_printed = jiffies;
+		if (oti->oti_declares != NULL) {
+			static unsigned long last_printed;
+			static int last_credits;
+
+			print_declares(oti->oti_declares);
+
+			if (last_credits != oh->ot_credits &&
+			    time_after(jiffies, last_printed + 60 * HZ)) {
+				libcfs_debug_dumpstack(NULL);
+				last_credits = oh->ot_credits;
+				last_printed = jiffies;
+			}
+		} else {
+			CWARN("  No tracking of declares available\n");
 		}
-#endif
+
 		/* XXX Limit the credits to 'max_transaction_buffers', and
 		 *     let the underlying filesystem to catch the error if
 		 *     we really need so many credits.
@@ -847,6 +864,9 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
         } else {
                 OBD_FREE_PTR(oh);
         }
+
+	if (oti->oti_declares != NULL)
+		OBD_FREE_PTR(oti->oti_declares);
 
         /* as we want IO to journal and data IO be concurrent, we don't block
          * awaiting data IO completion in osd_do_bio(), instead we wait here
@@ -5307,6 +5327,7 @@ static int osd_device_init0(const struct lu_env *env,
 	o->od_read_cache = 1;
 	o->od_writethrough_cache = 1;
 	o->od_readcache_max_filesize = OSD_MAX_CACHE_SIZE;
+	o->od_track_declares = 0;
 
 	rc = osd_mount(env, o, cfg);
 	if (rc)
