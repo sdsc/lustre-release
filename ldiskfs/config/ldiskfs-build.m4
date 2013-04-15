@@ -38,6 +38,35 @@ AC_DEFUN([LDISKFS_AC_LINUX_VERSION], [
 ])
 
 #
+# LB_RHEL_RELEASE_CODE
+#
+# get the RedHat release version
+#
+AC_DEFUN([LB_RHEL_RELEASE_CODE], [
+	AC_MSG_CHECKING([RedHat release version])
+
+	version=${LINUX_OBJ}/include/linux/version.h
+	AS_IF([test -r ${version} && fgrep -q RHEL_RELEASE_CODE ${version}], [
+		rhelver=$(grep RHEL_RELEASE_CODE ${version} | cut -d " " -f 3)
+
+		AS_IF([test -z "$rhelver"], [
+			AC_MSG_RESULT([Not found])
+			AC_MSG_ERROR([*** Cannot determine RedHat release version.])
+		])
+	], [
+		AC_MSG_RESULT([Not found])
+		AC_MSG_ERROR([
+	*** Cannot find RHEL_RELEASE_CODE definition.
+	*** This is often provided by the kernel-devel package.])
+	])
+
+	AC_MSG_RESULT([${rhelver}])
+
+	RHEL_RELEASE_CODE=${rhelver}
+	AC_SUBST(RHEL_RELEASE_CODE)
+])
+
+#
 # LB_LINUX_RELEASE
 #
 # get the release version of linux
@@ -76,7 +105,9 @@ LB_LINUX_TRY_COMPILE([
 	        AC_MSG_RESULT([no])
 ])
 
-LB_LINUX_CONFIG([SUSE_KERNEL],[SUSE_KERNEL="yes"],[])
+AS_IF([test x$RHEL_KERNEL = xyes],
+	[LB_RHEL_RELEASE_CODE],
+	[LB_LINUX_CONFIG([SUSE_KERNEL],[SUSE_KERNEL="yes"],[])])
 
 ])
 
@@ -683,10 +714,10 @@ AS_IF([$1], [
 
 	SER=
 	AS_IF([test x$RHEL_KERNEL = xyes], [
-		AS_VERSION_COMPARE([$LINUXRELEASE],[2.6.32-343],[
+		AS_VERSION_COMPARE([$RHEL_RELEASE_CODE],[1539],[
 		AS_VERSION_COMPARE([$LINUXRELEASE],[2.6.32],[],
 		[SER="2.6-rhel6.series"],[SER="2.6-rhel6.series"])],
-		[SER="2.6-rhel6.4.series"],[SER="2.6-rhel6.4.series"])
+		[SER="2.6-rhel6.series"],[SER="2.6-rhel6.4.series"])
 	], [test x$SUSE_KERNEL = xyes], [
 		AS_VERSION_COMPARE([$LINUXRELEASE],[3.0.0],[
 		AS_VERSION_COMPARE([$LINUXRELEASE],[2.6.32],[],
