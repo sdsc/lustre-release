@@ -3979,6 +3979,17 @@ test_72() { #LU-2634
 }
 run_test 72 "test fast symlink with extents flag enabled"
 
+test_73() { # LU-1606
+	gcc -Wall -Werror $LUSTRE_TESTS_API_DIR/simple_test.c \
+		-I$LUSTRE/include \
+		-I$LUSTRE/../libcfs/include \
+		-L$LUSTRE/utils -llustreapi ||
+			error "client api broken"
+	cleanup || return $?
+}
+run_test 73 "Lustre client api program can compile and link"
+
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
