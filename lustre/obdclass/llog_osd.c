@@ -812,7 +812,7 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 		RETURN(PTR_ERR(ls));
 
 	mutex_lock(&ls->ls_los_mutex);
-	los = dt_los_find(ls, FID_SEQ_LLOG);
+	los = dt_los_find(ls, name != NULL ? FID_SEQ_LLOG_NAME : FID_SEQ_LLOG);
 	mutex_unlock(&ls->ls_los_mutex);
 	LASSERT(los);
 	ls_device_put(env, ls);
@@ -1013,7 +1013,6 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 static int llog_osd_destroy(const struct lu_env *env,
 			    struct llog_handle *loghandle)
 {
-	struct llog_thread_info *lgi = llog_info(env);
 	struct llog_ctxt	*ctxt;
 	struct dt_object	*o, *llog_dir = NULL;
 	struct dt_device	*d;
@@ -1076,18 +1075,6 @@ static int llog_osd_destroy(const struct lu_env *env,
 				GOTO(out_unlock, rc);
 			}
 		}
-		/*
-		 * XXX: compatibility bits
-		 *      on old filesystems llogs are referenced by the name
-		 *      on the new ones they are referenced by OI and by
-		 *      the name
-		 */
-		rc = dt_attr_get(env, o, &lgi->lgi_attr, NULL);
-		if (rc)
-			GOTO(out_unlock, rc);
-		LASSERT(lgi->lgi_attr.la_nlink < 2);
-		if (lgi->lgi_attr.la_nlink == 1)
-			dt_ref_del(env, o, th);
 		rc = dt_destroy(env, o, th);
 		if (rc)
 			GOTO(out_unlock, rc);
@@ -1125,6 +1112,14 @@ static int llog_osd_setup(const struct lu_env *env, struct obd_device *obd,
 	lgi->lgi_fid.f_ver = 0;
 	rc = local_oid_storage_init(env, disk_obd->obd_lvfs_ctxt.dt,
 				    &lgi->lgi_fid, &los);
+	if (rc < 0)
+		return rc;
+
+	lgi->lgi_fid.f_seq = FID_SEQ_LLOG_NAME;
+	lgi->lgi_fid.f_oid = 1;
+	lgi->lgi_fid.f_ver = 0;
+	rc = local_oid_storage_init(env, disk_obd->obd_lvfs_ctxt.dt,
+				    &lgi->lgi_fid, &los);
 	llog_ctxt_put(ctxt);
 	return rc;
 }
@@ -1133,7 +1128,7 @@ static int llog_osd_cleanup(const struct lu_env *env, struct llog_ctxt *ctxt)
 {
 	struct dt_device		*dt;
 	struct ls_device		*ls;
-	struct local_oid_storage	*los;
+	struct local_oid_storage	*los, *nlos;
 
 	LASSERT(ctxt->loc_exp->exp_obd);
 	dt = ctxt->loc_exp->exp_obd->obd_lvfs_ctxt.dt;
@@ -1143,10 +1138,15 @@ static int llog_osd_cleanup(const struct lu_env *env, struct llog_ctxt *ctxt)
 
 	mutex_lock(&ls->ls_los_mutex);
 	los = dt_los_find(ls, FID_SEQ_LLOG);
+	nlos = dt_los_find(ls, FID_SEQ_LLOG_NAME);
 	mutex_unlock(&ls->ls_los_mutex);
 	if (los != NULL) {
 		dt_los_put(los);
 		local_oid_storage_fini(env, los);
+	}
+	if (nlos != NULL) {
+		dt_los_put(nlos);
+		local_oid_storage_fini(env, nlos);
 	}
 	ls_device_put(env, ls);
 	return 0;
