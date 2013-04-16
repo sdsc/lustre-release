@@ -80,7 +80,6 @@ void ll_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
         op_data->op_ioepoch = ll_i2info(inode)->lli_ioepoch;
         if (fh)
                 op_data->op_handle = *fh;
-        op_data->op_capa1 = ll_mdscapa_get(inode);
 
 	if (LLIF_DATA_MODIFIED & ll_i2info(inode)->lli_flags)
 		op_data->op_bias |= MDS_DATA_MODIFIED;
@@ -284,7 +283,6 @@ int ll_md_close(struct obd_export *md_exp, struct inode *inode,
 
         LUSTRE_FPRIVATE(file) = NULL;
         ll_file_data_put(fd);
-        ll_capa_close(inode);
 
         RETURN(rc);
 }
@@ -652,8 +650,6 @@ restart:
         if (!S_ISREG(inode->i_mode))
                 GOTO(out_och_free, rc);
 
-        ll_capa_open(inode);
-
 	if (!lli->lli_has_smd) {
                 if (file->f_flags & O_LOV_DELAY_CREATE ||
                     !(file->f_mode & FMODE_WRITE)) {
@@ -692,8 +688,7 @@ out_openerr:
 
 /* Fills the obdo with the attributes for the lsm */
 static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
-                          struct obd_capa *capa, struct obdo *obdo,
-                          __u64 ioepoch, int sync)
+			  struct obdo *obdo, __u64 ioepoch, int sync)
 {
         struct ptlrpc_request_set *set;
         struct obd_info            oinfo = { { { 0 } } };
@@ -714,7 +709,6 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
                                OBD_MD_FLMTIME | OBD_MD_FLCTIME |
                                OBD_MD_FLGROUP | OBD_MD_FLEPOCH |
                                OBD_MD_FLDATAVERSION;
-        oinfo.oi_capa = capa;
         if (sync) {
                 oinfo.oi_oa->o_valid |= OBD_MD_FLFLAGS;
                 oinfo.oi_oa->o_flags |= OBD_FL_SRVLOCK;
@@ -745,15 +739,13 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
 int ll_inode_getattr(struct inode *inode, struct obdo *obdo,
                      __u64 ioepoch, int sync)
 {
-	struct obd_capa      *capa = ll_mdscapa_get(inode);
 	struct lov_stripe_md *lsm;
 	int rc;
 	ENTRY;
 
 	lsm = ccc_inode_lsm_get(inode);
 	rc = ll_lsm_getattr(lsm, ll_i2dtexp(inode),
-			    capa, obdo, ioepoch, sync);
-	capa_put(capa);
+			    obdo, ioepoch, sync);
 	if (rc == 0) {
 		struct ost_id *oi = lsm ? &lsm->lsm_oi : &obdo->o_oi;
 
@@ -818,7 +810,7 @@ int ll_glimpse_ioctl(struct ll_sb_info *sbi, struct lov_stripe_md *lsm,
         struct obdo obdo = { 0 };
         int rc;
 
-        rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, &obdo, 0, 0);
+	rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, &obdo, 0, 0);
         if (rc == 0) {
                 st->st_size   = obdo.o_size;
                 st->st_blocks = obdo.o_blocks;
@@ -1840,7 +1832,7 @@ int ll_data_version(struct inode *inode, __u64 *data_version,
 		RETURN(-ENOMEM);
 	}
 
-	rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, obdo, 0, extent_lock);
+	rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, obdo, 0, extent_lock);
 	if (!rc) {
 		if (!(obdo->o_valid & OBD_MD_FLDATAVERSION))
 			rc = -EOPNOTSUPP;
@@ -2379,7 +2371,6 @@ int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
 	struct cl_env_nest nest;
 	struct lu_env *env;
 	struct cl_io *io;
-	struct obd_capa *capa = NULL;
 	struct cl_fsync_io *fio;
 	int result;
 	ENTRY;
@@ -2392,15 +2383,12 @@ int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
 	if (IS_ERR(env))
 		RETURN(PTR_ERR(env));
 
-	capa = ll_osscapa_get(inode, CAPA_OPC_OSS_WRITE);
-
 	io = ccc_env_thread_io(env);
 	io->ci_obj = cl_i2info(inode)->lli_clob;
 	io->ci_ignore_layout = 1;
 
 	/* initialize parameters for sync */
 	fio = &io->u.ci_fsync;
-	fio->fi_capa = capa;
 	fio->fi_start = start;
 	fio->fi_end = end;
 	fio->fi_fid = ll_inode2fid(inode);
@@ -2416,7 +2404,6 @@ int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
 	cl_io_fini(env, io);
 	cl_env_nested_put(&nest, env);
 
-	capa_put(capa);
 
 	RETURN(result);
 }
@@ -2442,7 +2429,6 @@ int ll_fsync(struct file *file, struct dentry *dentry, int datasync)
         struct inode *inode = dentry->d_inode;
         struct ll_inode_info *lli = ll_i2info(inode);
         struct ptlrpc_request *req;
-        struct obd_capa *oc;
         int rc, err;
         ENTRY;
 
@@ -2471,10 +2457,7 @@ int ll_fsync(struct file *file, struct dentry *dentry, int datasync)
 			rc = err;
         }
 
-        oc = ll_mdscapa_get(inode);
-        err = md_sync(ll_i2sbi(inode)->ll_md_exp, ll_inode2fid(inode), oc,
-                      &req);
-        capa_put(oc);
+	err = md_sync(ll_i2sbi(inode)->ll_md_exp, ll_inode2fid(inode), &req);
         if (!rc)
                 rc = err;
         if (!err)

@@ -465,33 +465,6 @@ out:
         return rc ? rc : count;
 }
 
-/* for debug only */
-static int lprocfs_rd_capa(char *page, char **start, off_t off,
-                           int count, int *eof, void *data)
-{
-	return snprintf(page, count, "capability on: \n");
-}
-
-static int lprocfs_wr_capa(struct file *file, const char *buffer,
-                           unsigned long count, void *data)
-{
-        int val, rc;
-
-        rc = lprocfs_write_helper(buffer, count, &val);
-        if (rc)
-                return rc;
-
-	return -ENOTSUPP;
-}
-
-static int lprocfs_rd_capa_count(char *page, char **start, off_t off,
-                                 int count, int *eof, void *data)
-{
-        return snprintf(page, count, "%d %d\n",
-                        capa_count[CAPA_SITE_CLIENT],
-                        capa_count[CAPA_SITE_SERVER]);
-}
-
 static int lprocfs_rd_site_stats(char *page, char **start, off_t off,
                                  int count, int *eof, void *data)
 {
@@ -499,42 +472,6 @@ static int lprocfs_rd_site_stats(char *page, char **start, off_t off,
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
 
         return lu_site_stats_print(mdt_lu_site(mdt), page, count);
-}
-
-static int lprocfs_rd_capa_timeout(char *page, char **start, off_t off,
-                                   int count, int *eof, void *data)
-{
-	return snprintf(page, count, "0\n");
-}
-
-static int lprocfs_wr_capa_timeout(struct file *file, const char *buffer,
-                                   unsigned long count, void *data)
-{
-        int val, rc;
-
-        rc = lprocfs_write_helper(buffer, count, &val);
-        if (rc)
-                return rc;
-
-	return -ENOTSUPP;
-}
-
-static int lprocfs_rd_ck_timeout(char *page, char **start, off_t off, int count,
-                                 int *eof, void *data)
-{
-	return snprintf(page, count, "0\n");
-}
-
-static int lprocfs_wr_ck_timeout(struct file *file, const char *buffer,
-                                 unsigned long count, void *data)
-{
-        int val, rc;
-
-        rc = lprocfs_write_helper(buffer, count, &val);
-        if (rc)
-                return rc;
-
-	return -ENOTSUPP;
 }
 
 #define BUFLEN (UUID_MAX + 4)
@@ -966,13 +903,6 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
                                         lprocfs_wr_identity_upcall,         0 },
         { "identity_flush",             0, lprocfs_wr_identity_flush,       0 },
         { "identity_info",              0, lprocfs_wr_identity_info,        0 },
-        { "capa",                       lprocfs_rd_capa,
-                                        lprocfs_wr_capa,                    0 },
-        { "capa_timeout",               lprocfs_rd_capa_timeout,
-                                        lprocfs_wr_capa_timeout,            0 },
-        { "capa_key_timeout",           lprocfs_rd_ck_timeout,
-                                        lprocfs_wr_ck_timeout,              0 },
-        { "capa_count",                 lprocfs_rd_capa_count,           0, 0 },
         { "site_stats",                 lprocfs_rd_site_stats,           0, 0 },
         { "evict_client",               0, lprocfs_mdt_wr_evict_client,     0 },
         { "hash_stats",                 lprocfs_obd_rd_hash,    0, 0 },
