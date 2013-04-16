@@ -193,66 +193,6 @@ int capa_hmac(__u8 *hmac, struct lustre_capa *capa, __u8 *key);
 int capa_encrypt_id(__u32 *d, __u32 *s, __u8 *key, int keylen);
 int capa_decrypt_id(__u32 *d, __u32 *s, __u8 *key, int keylen);
 void capa_cpy(void *dst, struct obd_capa *ocapa);
-static inline struct obd_capa *alloc_capa(int site)
-{
-#ifdef __KERNEL__
-        struct obd_capa *ocapa;
-
-        if (unlikely(site != CAPA_SITE_CLIENT && site != CAPA_SITE_SERVER))
-                return ERR_PTR(-EINVAL);
-
-        OBD_SLAB_ALLOC_PTR(ocapa, capa_cachep);
-        if (unlikely(!ocapa))
-                return ERR_PTR(-ENOMEM);
-
-        CFS_INIT_LIST_HEAD(&ocapa->c_list);
-        cfs_atomic_set(&ocapa->c_refc, 1);
-	spin_lock_init(&ocapa->c_lock);
-        ocapa->c_site = site;
-        if (ocapa->c_site == CAPA_SITE_CLIENT)
-                CFS_INIT_LIST_HEAD(&ocapa->u.cli.lli_list);
-        else
-                CFS_INIT_HLIST_NODE(&ocapa->u.tgt.c_hash);
-
-        return ocapa;
-#else
-        return ERR_PTR(-EOPNOTSUPP);
-#endif
-}
-
-static inline struct obd_capa *capa_get(struct obd_capa *ocapa)
-{
-        if (!ocapa)
-                return NULL;
-
-        cfs_atomic_inc(&ocapa->c_refc);
-        return ocapa;
-}
-
-static inline void capa_put(struct obd_capa *ocapa)
-{
-        if (!ocapa)
-                return;
-
-        if (cfs_atomic_read(&ocapa->c_refc) == 0) {
-                DEBUG_CAPA(D_ERROR, &ocapa->c_capa, "refc is 0 for");
-                LBUG();
-        }
-
-        if (cfs_atomic_dec_and_test(&ocapa->c_refc)) {
-                LASSERT(cfs_list_empty(&ocapa->c_list));
-                if (ocapa->c_site == CAPA_SITE_CLIENT) {
-                        LASSERT(cfs_list_empty(&ocapa->u.cli.lli_list));
-                } else {
-                        cfs_hlist_node_t *hnode;
-
-                        hnode = &ocapa->u.tgt.c_hash;
-                        LASSERT(!hnode->next && !hnode->pprev);
-                }
-                OBD_SLAB_FREE(ocapa, capa_cachep, sizeof(*ocapa));
-        }
-}
-
 static inline int open_flags_to_accmode(int flags)
 {
         int mode = flags;
@@ -293,6 +233,7 @@ static inline int capa_opc_supported(struct lustre_capa *capa, __u64 opc)
         return (capa_opc(capa) & opc) == opc;
 }
 
+<<<<<<< HEAD
 struct filter_capa_key {
         cfs_list_t              k_list;
         struct lustre_capa_key  k_key;
@@ -302,6 +243,12 @@ enum lc_auth_id {
 	LC_ID_NONE	= 0,
 	LC_ID_PLAIN	= 1,
 	LC_ID_CONVERT	= 2
+=======
+enum {
+        LC_ID_NONE      = 0,
+        LC_ID_PLAIN     = 1,
+        LC_ID_CONVERT   = 2
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support
 };
 
 #define BYPASS_CAPA (struct lustre_capa *)ERR_PTR(-ENOENT)

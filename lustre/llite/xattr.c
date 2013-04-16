@@ -111,7 +111,6 @@ int ll_setxattr_common(struct inode *inode, const char *name,
 	struct ll_sb_info *sbi = ll_i2sbi(inode);
 	struct ptlrpc_request *req = NULL;
         int xattr_type, rc;
-        struct obd_capa *oc;
         posix_acl_xattr_header *new_value = NULL;
         struct rmtacl_ctl_entry *rce = NULL;
         ext_acl_xattr_header *acl = NULL;
@@ -183,11 +182,16 @@ int ll_setxattr_common(struct inode *inode, const char *name,
                 valid |= rce_ops2valid(rce->rce_ops);
         }
 #endif
+<<<<<<< HEAD
 	oc = ll_mdscapa_get(inode);
 	rc = md_setxattr(sbi->ll_md_exp, ll_inode2fid(inode), oc,
 			valid, name, pv, size, 0, flags,
 			ll_i2suppgid(inode), &req);
 	capa_put(oc);
+=======
+	rc = md_setxattr(sbi->ll_md_exp, ll_inode2fid(inode), valid, name, pv,
+			 size, 0, flags, ll_i2suppgid(inode), &req);
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support
 #ifdef CONFIG_FS_POSIX_ACL
         if (new_value != NULL)
                 lustre_posix_acl_xattr_free(new_value, size);
@@ -284,7 +288,6 @@ int ll_getxattr_common(struct inode *inode, const char *name,
         struct mdt_body *body;
         int xattr_type, rc;
         void *xdata;
-        struct obd_capa *oc;
         struct rmtacl_ctl_entry *rce = NULL;
 	struct ll_inode_info *lli = ll_i2info(inode);
         ENTRY;
@@ -354,6 +357,7 @@ int ll_getxattr_common(struct inode *inode, const char *name,
 #endif
 
 do_getxattr:
+<<<<<<< HEAD
 	if (sbi->ll_xattr_cache_enabled && xattr_type != XATTR_ACL_ACCESS_T) {
 		rc = ll_xattr_cache_get(inode, name, buffer, size, valid);
 		if (rc == -EAGAIN)
@@ -396,6 +400,22 @@ getxattr_nocache:
 				body->eadatasize, (int)size);
 			GOTO(out, rc = -ERANGE);
 		}
+=======
+	rc = md_getxattr(sbi->ll_md_exp, ll_inode2fid(inode),
+			 valid | (rce ? rce_ops2valid(rce->rce_ops) : 0),
+			 name, NULL, 0, size, 0, &req);
+        if (rc) {
+                if (rc == -EOPNOTSUPP && xattr_type == XATTR_USER_T) {
+                        LCONSOLE_INFO("Disabling user_xattr feature because "
+                                      "it is not supported on the server\n");
+                        sbi->ll_flags &= ~LL_SBI_USER_XATTR;
+                }
+                RETURN(rc);
+        }
+
+        body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+        LASSERT(body);
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support
 
 		if (body->eadatasize == 0)
 			GOTO(out, rc = -ENODATA);

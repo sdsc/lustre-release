@@ -60,6 +60,7 @@
 #include <libcfs/list.h>
 #include <lustre_capa.h>
 
+<<<<<<< HEAD
 #define NR_CAPAHASH 32
 #define CAPA_HASH_SIZE 3000              /* for MDS & OSS */
 
@@ -449,3 +450,5 @@ void lu_capainfo_fini(void)
 {
 	lu_context_key_degister(&lu_capainfo_key);
 }
+=======
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support

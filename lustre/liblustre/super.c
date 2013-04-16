@@ -768,7 +768,7 @@ int llu_setattr_raw(struct inode *inode, struct iattr *attr)
                  * it may seem excessive to send mtime/atime updates to osts
                  * when not setting times to past, but it is necessary due to
                  * possible time de-synchronization */
-                rc = cl_setattr_ost(inode, attr, NULL);
+		rc = cl_setattr_ost(inode, attr);
         EXIT;
 out:
         if (op_data.op_ioepoch)
@@ -1982,7 +1982,7 @@ llu_fsswop_mount(const char *source,
         sbi->ll_lco.lco_dt_exp = sbi->ll_dt_exp;
 
         fid_zero(&sbi->ll_root_fid);
-        err = md_getstatus(sbi->ll_md_exp, &sbi->ll_root_fid, NULL);
+	err = md_getstatus(sbi->ll_md_exp, &sbi->ll_root_fid);
         if (err) {
                 CERROR("cannot mds_connect: rc = %d\n", err);
                 GOTO(out_lock_cn_cb, err);

@@ -272,6 +272,7 @@ int lprocfs_ofd_wr_fmd_max_age(struct file *file, const char *buffer,
 	return count;
 }
 
+<<<<<<< HEAD
 static int lprocfs_ofd_rd_capa(char *page, char **start, off_t off,
 			       int count, int *eof, void *data)
 {
@@ -314,6 +315,8 @@ static int lprocfs_ofd_rd_capa_count(char *page, char **start, off_t off,
 			capa_count[CAPA_SITE_SERVER]);
 }
 
+=======
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support
 int lprocfs_ofd_rd_degraded(char *page, char **start, off_t off,
 			    int count, int *eof, void *data)
 {
@@ -511,9 +514,6 @@ static struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 				 lprocfs_ofd_wr_fmd_max_num, 0 },
 	{ "client_cache_seconds", lprocfs_ofd_rd_fmd_max_age,
 				  lprocfs_ofd_wr_fmd_max_age, 0 },
-	{ "capa",		 lprocfs_ofd_rd_capa,
-				 lprocfs_ofd_wr_capa, 0 },
-	{ "capa_count",		 lprocfs_ofd_rd_capa_count, 0, 0 },
 	{ "job_cleanup_interval", lprocfs_rd_job_interval,
 				  lprocfs_wr_job_interval, 0},
 	{ 0 }

@@ -49,6 +49,7 @@
 #include <lustre_lite.h>
 #include "llite_internal.h"
 
+<<<<<<< HEAD
 /* for obd_capa.c_list, client capa might stay in three places:
  * 1. ll_capa_list.
  * 2. ll_idle_capas.
@@ -659,3 +660,5 @@ void ll_print_capa_stat(struct ll_sb_info *sbi)
                               ll_capa_renewed, ll_capa_renewal_noent,
                               ll_capa_renewal_failed, ll_capa_renewal_retries);
 }
+=======
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support

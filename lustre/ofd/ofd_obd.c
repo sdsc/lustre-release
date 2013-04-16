@@ -1040,8 +1040,7 @@ out:
 
 int ofd_destroy(const struct lu_env *env, struct obd_export *exp,
 		struct obdo *oa, struct lov_stripe_md *md,
-		struct obd_trans_info *oti, struct obd_export *md_exp,
-		void *capa)
+		struct obd_trans_info *oti, struct obd_export *md_exp)
 {
 	struct ofd_device	*ofd = ofd_exp(exp);
 	struct ofd_thread_info	*info;

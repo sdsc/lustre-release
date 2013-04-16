@@ -57,35 +57,7 @@
 
 #define REQUEST_MINOR 244
 
-struct mdc_renew_capa_args {
-        struct obd_capa        *ra_oc;
-        renew_capa_cb_t         ra_cb;
-};
-
 static int mdc_cleanup(struct obd_device *obd);
-
-int mdc_unpack_capa(struct obd_export *exp, struct ptlrpc_request *req,
-                    const struct req_msg_field *field, struct obd_capa **oc)
-{
-        struct lustre_capa *capa;
-        struct obd_capa *c;
-        ENTRY;
-
-        /* swabbed already in mdc_enqueue */
-        capa = req_capsule_server_get(&req->rq_pill, field);
-        if (capa == NULL)
-                RETURN(-EPROTO);
-
-        c = alloc_capa(CAPA_SITE_CLIENT);
-        if (IS_ERR(c)) {
-                CDEBUG(D_INFO, "alloc capa failed!\n");
-                RETURN(PTR_ERR(c));
-        } else {
-                c->c_capa = *capa;
-                *oc = c;
-                RETURN(0);
-        }
-}
 
 static inline int mdc_queue_wait(struct ptlrpc_request *req)
 {
@@ -108,7 +80,7 @@ static inline int mdc_queue_wait(struct ptlrpc_request *req)
 /* Helper that implements most of mdc_getstatus and signal_completed_replay. */
 /* XXX this should become mdc_get_info("key"), sending MDS_GET_INFO RPC */
 static int send_getstatus(struct obd_import *imp, struct lu_fid *rootfid,
-                          struct obd_capa **pc, int level, int msg_flags)
+			  int level, int msg_flags)
 {
         struct ptlrpc_request *req;
         struct mdt_body       *body;
@@ -120,7 +92,7 @@ static int send_getstatus(struct obd_import *imp, struct lu_fid *rootfid,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        mdc_pack_body(req, NULL, NULL, 0, 0, -1, 0);
+	mdc_pack_body(req, NULL, 0, 0, -1, 0);
         lustre_msg_add_flags(req->rq_reqmsg, msg_flags);
         req->rq_send_state = level;
 
@@ -134,12 +106,6 @@ static int send_getstatus(struct obd_import *imp, struct lu_fid *rootfid,
         if (body == NULL)
                 GOTO(out, rc = -EPROTO);
 
-        if (body->valid & OBD_MD_FLMDSCAPA) {
-                rc = mdc_unpack_capa(NULL, req, &RMF_CAPA1, pc);
-                if (rc)
-                        GOTO(out, rc);
-        }
-
         *rootfid = body->fid1;
         CDEBUG(D_NET,
                "root fid="DFID", last_committed="LPU64"\n",
@@ -152,11 +118,10 @@ out:
 }
 
 /* This should be mdc_get_info("rootfid") */
-int mdc_getstatus(struct obd_export *exp, struct lu_fid *rootfid,
-                  struct obd_capa **pc)
+int mdc_getstatus(struct obd_export *exp, struct lu_fid *rootfid)
 {
-        return send_getstatus(class_exp2cliimp(exp), rootfid, pc,
-                              LUSTRE_IMP_FULL, 0);
+	return send_getstatus(class_exp2cliimp(exp), rootfid,
+			      LUSTRE_IMP_FULL, 0);
 }
 
 /*
@@ -209,13 +174,6 @@ static int mdc_getattr_common(struct obd_export *exp,
                         RETURN(-EPROTO);
         }
 
-        if (body->valid & OBD_MD_FLMDSCAPA) {
-                struct lustre_capa *capa;
-                capa = req_capsule_server_get(pill, &RMF_CAPA1);
-                if (capa == NULL)
-                        RETURN(-EPROTO);
-        }
-
         RETURN(0);
 }
 
@@ -236,16 +194,14 @@ int mdc_getattr(struct obd_export *exp, struct md_op_data *op_data,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
-
         rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_GETATTR);
         if (rc) {
                 ptlrpc_request_free(req);
                 RETURN(rc);
         }
 
-        mdc_pack_body(req, &op_data->op_fid1, op_data->op_capa1,
-                      op_data->op_valid, op_data->op_mode, -1, 0);
+	mdc_pack_body(req, &op_data->op_fid1, op_data->op_valid,
+		      op_data->op_mode, -1, 0);
 
         req_capsule_set_size(&req->rq_pill, &RMF_MDT_MD, RCL_SERVER,
                              op_data->op_mode);
@@ -277,7 +233,6 @@ int mdc_getattr_name(struct obd_export *exp, struct md_op_data *op_data,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
         req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
                              op_data->op_namelen + 1);
 
@@ -287,9 +242,8 @@ int mdc_getattr_name(struct obd_export *exp, struct md_op_data *op_data,
                 RETURN(rc);
         }
 
-        mdc_pack_body(req, &op_data->op_fid1, op_data->op_capa1,
-                      op_data->op_valid, op_data->op_mode,
-                      op_data->op_suppgids[0], 0);
+	mdc_pack_body(req, &op_data->op_fid1, op_data->op_valid,
+		      op_data->op_mode, op_data->op_suppgids[0], 0);
 
         if (op_data->op_name) {
                 char *name = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
@@ -339,11 +293,11 @@ static int mdc_is_subdir(struct obd_export *exp,
 }
 
 static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
-                            const struct lu_fid *fid,
-                            struct obd_capa *oc, int opcode, obd_valid valid,
-                            const char *xattr_name, const char *input,
-                            int input_size, int output_size, int flags,
-                            __u32 suppgid, struct ptlrpc_request **request)
+			    const struct lu_fid *fid, int opcode,
+			    obd_valid valid, const char *xattr_name,
+			    const char *input, int input_size, int output_size,
+			    int flags, __u32 suppgid,
+			    struct ptlrpc_request **request)
 {
         struct ptlrpc_request *req;
         int   xattr_namelen = 0;
@@ -356,7 +310,6 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        mdc_set_capa_size(req, &RMF_CAPA1, oc);
         if (xattr_name) {
                 xattr_namelen = strlen(xattr_name) + 1;
                 req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
@@ -414,9 +367,8 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
                 rec->sx_size   = output_size;
                 rec->sx_flags  = flags;
 
-                mdc_pack_capa(req, &RMF_CAPA1, oc);
         } else {
-                mdc_pack_body(req, fid, oc, valid, output_size, suppgid, flags);
+		mdc_pack_body(req, fid, valid, output_size, suppgid, flags);
         }
 
         if (xattr_name) {
@@ -450,25 +402,25 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
 }
 
 int mdc_setxattr(struct obd_export *exp, const struct lu_fid *fid,
-                 struct obd_capa *oc, obd_valid valid, const char *xattr_name,
-                 const char *input, int input_size, int output_size,
-                 int flags, __u32 suppgid, struct ptlrpc_request **request)
+		 obd_valid valid, const char *xattr_name,
+		 const char *input, int input_size, int output_size,
+		 int flags, __u32 suppgid, struct ptlrpc_request **request)
 {
         return mdc_xattr_common(exp, &RQF_MDS_REINT_SETXATTR,
-                                fid, oc, MDS_REINT, valid, xattr_name,
-                                input, input_size, output_size, flags,
-                                suppgid, request);
+				fid, MDS_REINT, valid, xattr_name,
+				input, input_size, output_size, flags,
+				suppgid, request);
 }
 
 int mdc_getxattr(struct obd_export *exp, const struct lu_fid *fid,
-                 struct obd_capa *oc, obd_valid valid, const char *xattr_name,
-                 const char *input, int input_size, int output_size,
-                 int flags, struct ptlrpc_request **request)
+		 obd_valid valid, const char *xattr_name,
+		 const char *input, int input_size, int output_size,
+		 int flags, struct ptlrpc_request **request)
 {
         return mdc_xattr_common(exp, &RQF_MDS_GETXATTR,
-                                fid, oc, MDS_GETXATTR, valid, xattr_name,
-                                input, input_size, output_size, flags,
-                                -1, request);
+				fid, MDS_GETXATTR, valid, xattr_name,
+				input, input_size, output_size, flags,
+				-1, request);
 }
 
 #ifdef CONFIG_FS_POSIX_ACL
@@ -615,35 +567,10 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
 #endif
                 }
         }
-        if (md->body->valid & OBD_MD_FLMDSCAPA) {
-                struct obd_capa *oc = NULL;
-
-                rc = mdc_unpack_capa(NULL, req, &RMF_CAPA1, &oc);
-                if (rc)
-                        GOTO(out, rc);
-                md->mds_capa = oc;
-        }
-
-        if (md->body->valid & OBD_MD_FLOSSCAPA) {
-                struct obd_capa *oc = NULL;
-
-                rc = mdc_unpack_capa(NULL, req, &RMF_CAPA2, &oc);
-                if (rc)
-                        GOTO(out, rc);
-                md->oss_capa = oc;
-        }
 
         EXIT;
 out:
         if (rc) {
-                if (md->oss_capa) {
-                        capa_put(md->oss_capa);
-                        md->oss_capa = NULL;
-                }
-                if (md->mds_capa) {
-                        capa_put(md->mds_capa);
-                        md->mds_capa = NULL;
-                }
 #ifdef CONFIG_FS_POSIX_ACL
                 posix_acl_release(md->posix_acl);
 #endif
@@ -868,8 +795,6 @@ int mdc_close(struct obd_export *exp, struct md_op_data *op_data,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
-
         rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_CLOSE);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -970,7 +895,6 @@ int mdc_done_writing(struct obd_export *exp, struct md_op_data *op_data,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
         rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_DONE_WRITING);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -1037,9 +961,6 @@ int mdc_sendpage(struct obd_export *exp, const struct lu_fid *fid,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        /* FIXME: capa doesn't support split yet */
-        mdc_set_capa_size(req, &RMF_CAPA1, NULL);
-
         rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_WRITEPAGE);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -1090,8 +1011,6 @@ restart_bulk:
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
-
         rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_READPAGE);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -1113,8 +1032,13 @@ restart_bulk:
 		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0, PAGE_CACHE_SIZE);
 
         mdc_readdir_pack(req, op_data->op_offset,
+<<<<<<< HEAD
 			 PAGE_CACHE_SIZE * op_data->op_npages,
                          &op_data->op_fid1, op_data->op_capa1);
+=======
+			 CFS_PAGE_SIZE * op_data->op_npages,
+			 &op_data->op_fid1);
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support
 
         ptlrpc_request_set_replen(req);
         rc = ptlrpc_queue_wait(req);
@@ -1268,7 +1192,7 @@ static int mdc_ioc_hsm_progress(struct obd_export *exp,
 	if (req == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	mdc_pack_body(req, NULL, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
+	mdc_pack_body(req, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
 
 	/* Copy hsm_progress struct */
 	req_hpk = req_capsule_client_get(&req->rq_pill, &RMF_MDS_HSM_PROGRESS);
@@ -1300,7 +1224,7 @@ static int mdc_ioc_hsm_ct_register(struct obd_import *imp, __u32 archives)
 	if (req == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	mdc_pack_body(req, NULL, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
+	mdc_pack_body(req, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
 
 	/* Copy hsm_progress struct */
 	archive_mask = req_capsule_client_get(&req->rq_pill,
@@ -1333,16 +1257,14 @@ static int mdc_ioc_hsm_current_action(struct obd_export *exp,
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
-	mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
-
 	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_HSM_ACTION);
 	if (rc) {
 		ptlrpc_request_free(req);
 		RETURN(rc);
 	}
 
-	mdc_pack_body(req, &op_data->op_fid1, op_data->op_capa1,
-		      OBD_MD_FLRMTPERM, 0, op_data->op_suppgids[0], 0);
+	mdc_pack_body(req, &op_data->op_fid1, OBD_MD_FLRMTPERM, 0,
+		      op_data->op_suppgids[0], 0);
 
 	ptlrpc_request_set_replen(req);
 
@@ -1375,7 +1297,7 @@ static int mdc_ioc_hsm_ct_unregister(struct obd_import *imp)
 	if (req == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	mdc_pack_body(req, NULL, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
+	mdc_pack_body(req, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
 
 	ptlrpc_request_set_replen(req);
 
@@ -1400,16 +1322,14 @@ static int mdc_ioc_hsm_state_get(struct obd_export *exp,
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
-	mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
-
 	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_HSM_STATE_GET);
 	if (rc != 0) {
 		ptlrpc_request_free(req);
 		RETURN(rc);
 	}
 
-	mdc_pack_body(req, &op_data->op_fid1, op_data->op_capa1,
-		      OBD_MD_FLRMTPERM, 0, op_data->op_suppgids[0], 0);
+	mdc_pack_body(req, &op_data->op_fid1, OBD_MD_FLRMTPERM, 0,
+		      op_data->op_suppgids[0], 0);
 
 	ptlrpc_request_set_replen(req);
 
@@ -1443,16 +1363,14 @@ static int mdc_ioc_hsm_state_set(struct obd_export *exp,
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
-	mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
-
 	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_HSM_STATE_SET);
 	if (rc) {
 		ptlrpc_request_free(req);
 		RETURN(rc);
 	}
 
-	mdc_pack_body(req, &op_data->op_fid1, op_data->op_capa1,
-		      OBD_MD_FLRMTPERM, 0, op_data->op_suppgids[0], 0);
+	mdc_pack_body(req, &op_data->op_fid1, OBD_MD_FLRMTPERM, 0,
+		      op_data->op_suppgids[0], 0);
 
 	/* Copy states */
 	req_hss = req_capsule_client_get(&req->rq_pill, &RMF_HSM_STATE_SET);
@@ -1498,7 +1416,7 @@ static int mdc_ioc_hsm_request(struct obd_export *exp,
 		RETURN(rc);
 	}
 
-	mdc_pack_body(req, NULL, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
+	mdc_pack_body(req, NULL, OBD_MD_FLRMTPERM, 0, 0, 0);
 
 	/* Copy hsm_request struct */
 	req_hr = req_capsule_client_get(&req->rq_pill, &RMF_MDS_HSM_REQUEST);
@@ -1797,9 +1715,6 @@ static int mdc_ioc_swap_layouts(struct obd_export *exp,
 		ldlm_lock_list_put(&cancels, l_bl_ast, count);
 		RETURN(-ENOMEM);
 	}
-
-	mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
-	mdc_set_capa_size(req, &RMF_CAPA2, op_data->op_capa2);
 
 	rc = mdc_prep_elc_req(exp, req, MDS_SWAP_LAYOUTS, &cancels, count);
 	if (rc) {
@@ -2241,6 +2156,7 @@ int mdc_get_info(const struct lu_env *env, struct obd_export *exp,
         RETURN(rc);
 }
 
+<<<<<<< HEAD
 static int mdc_pin(struct obd_export *exp, const struct lu_fid *fid,
                    struct obd_capa *oc, struct obd_client_handle *handle,
                    int flags)
@@ -2330,6 +2246,10 @@ static int mdc_unpin(struct obd_export *exp, struct obd_client_handle *handle,
 
 int mdc_fsync(struct obd_export *exp, const struct lu_fid *fid,
 	      struct obd_capa *oc, struct ptlrpc_request **request)
+=======
+int mdc_sync(struct obd_export *exp, const struct lu_fid *fid,
+	     struct ptlrpc_request **request)
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support
 {
         struct ptlrpc_request *req;
         int                    rc;
@@ -2340,15 +2260,13 @@ int mdc_fsync(struct obd_export *exp, const struct lu_fid *fid,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        mdc_set_capa_size(req, &RMF_CAPA1, oc);
-
         rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_SYNC);
         if (rc) {
                 ptlrpc_request_free(req);
                 RETURN(rc);
         }
 
-        mdc_pack_body(req, fid, oc, 0, 0, -1, 0);
+	mdc_pack_body(req, fid, 0, 0, -1, 0);
 
         ptlrpc_request_set_replen(req);
 
@@ -2624,8 +2542,7 @@ static int mdc_process_config(struct obd_device *obd, obd_count len, void *buf)
 
 /* get remote permission for current user on fid */
 int mdc_get_remote_perm(struct obd_export *exp, const struct lu_fid *fid,
-                        struct obd_capa *oc, __u32 suppgid,
-                        struct ptlrpc_request **request)
+			__u32 suppgid, struct ptlrpc_request **request)
 {
         struct ptlrpc_request  *req;
         int                    rc;
@@ -2638,15 +2555,13 @@ int mdc_get_remote_perm(struct obd_export *exp, const struct lu_fid *fid,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        mdc_set_capa_size(req, &RMF_CAPA1, oc);
-
         rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_GETATTR);
         if (rc) {
                 ptlrpc_request_free(req);
                 RETURN(rc);
         }
 
-        mdc_pack_body(req, fid, oc, OBD_MD_FLRMTPERM, 0, suppgid, 0);
+	mdc_pack_body(req, fid, OBD_MD_FLRMTPERM, 0, suppgid, 0);
 
         req_capsule_set_size(&req->rq_pill, &RMF_ACL, RCL_SERVER,
                              sizeof(struct mdt_remote_perm));
@@ -2661,6 +2576,7 @@ int mdc_get_remote_perm(struct obd_export *exp, const struct lu_fid *fid,
         RETURN(rc);
 }
 
+<<<<<<< HEAD
 static int mdc_interpret_renew_capa(const struct lu_env *env,
                                     struct ptlrpc_request *req, void *args,
                                     int status)
@@ -2714,6 +2630,27 @@ static int mdc_renew_capa(struct obd_export *exp, struct obd_capa *oc,
         req->rq_interpret_reply = mdc_interpret_renew_capa;
         ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
         RETURN(0);
+=======
+static int mdc_connect(const struct lu_env *env,
+                       struct obd_export **exp,
+                       struct obd_device *obd, struct obd_uuid *cluuid,
+                       struct obd_connect_data *data,
+                       void *localdata)
+{
+	struct obd_import *imp = obd->u.cli.cl_import;
+
+	/* mds-mds import features */
+	if (data && (data->ocd_connect_flags & OBD_CONNECT_MDS_MDS)) {
+		spin_lock(&imp->imp_lock);
+		imp->imp_server_timeout = 1;
+		spin_unlock(&imp->imp_lock);
+                imp->imp_client->cli_request_portal = MDS_MDS_PORTAL;
+                CDEBUG(D_OTHER, "%s: Set 'mds' portal and timeout\n",
+                       obd->obd_name);
+        }
+
+        return client_connect_import(env, exp, obd, cluuid, data, NULL);
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support
 }
 
 struct obd_ops mdc_obd_ops = {
@@ -2728,8 +2665,6 @@ struct obd_ops mdc_obd_ops = {
         .o_iocontrol        = mdc_iocontrol,
         .o_set_info_async   = mdc_set_info_async,
         .o_statfs           = mdc_statfs,
-        .o_pin              = mdc_pin,
-        .o_unpin            = mdc_unpin,
 	.o_fid_init	    = client_fid_init,
 	.o_fid_fini	    = client_fid_fini,
         .o_fid_alloc        = mdc_fid_alloc,
@@ -2771,8 +2706,6 @@ struct md_ops mdc_md_ops = {
         .m_free_lustre_md   = mdc_free_lustre_md,
         .m_set_open_replay_data = mdc_set_open_replay_data,
         .m_clear_open_replay_data = mdc_clear_open_replay_data,
-        .m_renew_capa       = mdc_renew_capa,
-        .m_unpack_capa      = mdc_unpack_capa,
         .m_get_remote_perm  = mdc_get_remote_perm,
         .m_intent_getattr_async = mdc_intent_getattr_async,
         .m_revalidate_lock      = mdc_revalidate_lock

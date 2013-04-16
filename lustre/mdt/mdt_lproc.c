@@ -461,6 +461,7 @@ out:
 	return rc ? rc : count;
 }
 
+<<<<<<< HEAD
 /* for debug only */
 static int lprocfs_rd_capa(char *page, char **start, off_t off,
                            int count, int *eof, void *data)
@@ -520,6 +521,8 @@ static int lprocfs_rd_capa_count(char *page, char **start, off_t off,
                         capa_count[CAPA_SITE_SERVER]);
 }
 
+=======
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support
 static int lprocfs_rd_site_stats(char *page, char **start, off_t off,
                                  int count, int *eof, void *data)
 {
@@ -529,6 +532,7 @@ static int lprocfs_rd_site_stats(char *page, char **start, off_t off,
         return lu_site_stats_print(mdt_lu_site(mdt), page, count);
 }
 
+<<<<<<< HEAD
 static int lprocfs_rd_capa_timeout(char *page, char **start, off_t off,
                                    int count, int *eof, void *data)
 {
@@ -579,6 +583,8 @@ static int lprocfs_wr_ck_timeout(struct file *file, const char *buffer,
         return count;
 }
 
+=======
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support
 #define BUFLEN (UUID_MAX + 4)
 
 static int lprocfs_mdt_wr_evict_client(struct file *file, const char *buffer,
@@ -949,6 +955,7 @@ static int lprocfs_wr_enable_remote_dir_gid(struct file *file,
 }
 
 static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
+<<<<<<< HEAD
 	{ "uuid",			lprocfs_rd_uuid, NULL,
 					NULL, NULL, 0 },
 	{ "recovery_status",		lprocfs_obd_rd_recovery_status, NULL,
@@ -1004,6 +1011,35 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	{ "ir_factor",			lprocfs_obd_rd_ir_factor,
 					lprocfs_obd_wr_ir_factor,
 					NULL, NULL, 0 },
+=======
+        { "uuid",                       lprocfs_rd_uuid,                 0, 0 },
+        { "recovery_status",            lprocfs_obd_rd_recovery_status,  0, 0 },
+        { "num_exports",                lprocfs_rd_num_exports,          0, 0 },
+        { "identity_expire",            lprocfs_rd_identity_expire,
+                                        lprocfs_wr_identity_expire,         0 },
+        { "identity_acquire_expire",    lprocfs_rd_identity_acquire_expire,
+                                        lprocfs_wr_identity_acquire_expire, 0 },
+        { "identity_upcall",            lprocfs_rd_identity_upcall,
+                                        lprocfs_wr_identity_upcall,         0 },
+        { "identity_flush",             0, lprocfs_wr_identity_flush,       0 },
+        { "identity_info",              0, lprocfs_wr_identity_info,        0 },
+        { "site_stats",                 lprocfs_rd_site_stats,           0, 0 },
+        { "evict_client",               0, lprocfs_mdt_wr_evict_client,     0 },
+        { "hash_stats",                 lprocfs_obd_rd_hash,    0, 0 },
+        { "sec_level",                  lprocfs_rd_sec_level,
+                                        lprocfs_wr_sec_level,               0 },
+        { "commit_on_sharing",          lprocfs_rd_cos, lprocfs_wr_cos, 0 },
+        { "root_squash",                lprocfs_rd_root_squash,
+                                        lprocfs_wr_root_squash,             0 },
+        { "nosquash_nids",              lprocfs_rd_nosquash_nids,
+                                        lprocfs_wr_nosquash_nids,           0 },
+        { "som",                        lprocfs_rd_mdt_som,
+                                        lprocfs_wr_mdt_som, 0 },
+        { "mdccomm",                    0, lprocfs_mdt_wr_mdc,              0 },
+        { "instance",                   lprocfs_target_rd_instance,         0 },
+        { "ir_factor",                  lprocfs_obd_rd_ir_factor,
+                                        lprocfs_obd_wr_ir_factor,           0 },
+>>>>>>> 50d22c5... LU-3105 mdc: remove capa support
 	{ "job_cleanup_interval",       lprocfs_rd_job_interval,
 					lprocfs_wr_job_interval,
 					NULL, NULL, 0 },

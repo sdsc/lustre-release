@@ -821,7 +821,7 @@ static int llog_lvfs_destroy(const struct lu_env *env,
         }
 
         rc = obd_destroy(NULL, handle->lgh_ctxt->loc_exp, oa,
-                         NULL, NULL, NULL, NULL);
+			 NULL, NULL, NULL);
 
         rc1 = fsfilt_commit(obd, inode, th, 0);
         if (rc == 0 && rc1 != 0)
