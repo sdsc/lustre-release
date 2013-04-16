@@ -1354,6 +1354,9 @@ t32_test_cleanup() {
 	fi
 	if $shall_cleanup_mdt; then
 		$r umount -d $tmp/mnt/mdt || rc=$?
+
+		# e2fsck should not return error
+		$r $E2FSCK -fnvd $tmp/mdt || rc=$?
 	fi
 	if $shall_cleanup_mdt1; then
 		$r umount -d $tmp/mnt/mdt1 || rc=$?
@@ -1822,6 +1825,13 @@ t32_test() {
 			return 1
 		}
 		shall_cleanup_mdt=false
+
+		# e2fsck should not return error
+		$r $E2FSCK -fnvd $tmp/mdt || {
+			error_noexit "Checking mdt failed"
+			return 1
+		}
+
 		$r umount -d $tmp/mnt/ost || {
 			error_noexit "Unmounting the OST"
 			return 1
