@@ -1179,7 +1179,6 @@ int ll_objects_destroy(struct ptlrpc_request *request, struct inode *dir)
         struct lov_stripe_md *lsm = NULL;
         struct obd_trans_info oti = { 0 };
         struct obdo *oa;
-        struct obd_capa *oc = NULL;
         int rc;
         ENTRY;
 
@@ -1229,15 +1228,8 @@ int ll_objects_destroy(struct ptlrpc_request *request, struct inode *dir)
                 }
         }
 
-        if (body->valid & OBD_MD_FLOSSCAPA) {
-                rc = md_unpack_capa(ll_i2mdexp(dir), request, &RMF_CAPA2, &oc);
-                if (rc)
-                        GOTO(out_free_memmd, rc);
-        }
-
 	rc = obd_destroy(NULL, ll_i2dtexp(dir), oa, lsm, &oti,
-			 ll_i2mdexp(dir), oc);
-	capa_put(oc);
+			 ll_i2mdexp(dir));
 	if (rc)
 		CERROR("obd destroy objid "DOSTID" error %d\n",
 		       POSTID(&lsm->lsm_oi), rc);
