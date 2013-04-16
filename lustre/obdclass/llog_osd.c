@@ -1063,7 +1063,6 @@ static int llog_osd_destroy(const struct lu_env *env,
 	dt_write_lock(env, o, 0);
 	if (dt_object_exists(o)) {
 		if (name) {
-			dt_ref_del(env, o, th);
 			dt_read_lock(env, llog_dir, 0);
 			rc = dt_delete(env, llog_dir,
 				       (struct dt_key *) name,
