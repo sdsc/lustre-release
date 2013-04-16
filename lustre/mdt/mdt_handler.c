@@ -1476,7 +1476,8 @@ int mdt_getattr_name(struct mdt_thread_info *info)
 
         rc = mdt_getattr_name_lock(info, lhc, MDS_INODELOCK_UPDATE, NULL);
         if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
-                ldlm_lock_decref(&lhc->mlh_reg_lh, lhc->mlh_reg_mode);
+                ldlm_lock_decref(info->mti_env,
+				 &lhc->mlh_reg_lh, lhc->mlh_reg_mode);
                 lhc->mlh_reg_lh.cookie = 0;
         }
         mdt_exit_ucred(info);
@@ -1576,7 +1577,7 @@ int mdt_connect(struct mdt_thread_info *info)
 	info->mti_mdt = mdt_dev(req->rq_export->exp_obd->obd_lu_dev);
 	rc = mdt_init_sec_level(info);
 	if (rc != 0) {
-		obd_disconnect(class_export_get(req->rq_export));
+		obd_disconnect(info->mti_env, class_export_get(req->rq_export));
 		return rc;
 	}
 
@@ -1592,7 +1593,7 @@ int mdt_connect(struct mdt_thread_info *info)
 
 	rc = mdt_init_idmap(info);
 	if (rc != 0)
-		obd_disconnect(class_export_get(req->rq_export));
+		obd_disconnect(info->mti_env, class_export_get(req->rq_export));
 
 	return rc;
 }
@@ -2277,7 +2278,7 @@ int mdt_enqueue(struct mdt_thread_info *info)
         LASSERT(info->mti_dlm_req != NULL);
 
         req = mdt_info_req(info);
-        rc = ldlm_handle_enqueue0(info->mti_mdt->mdt_namespace,
+        rc = ldlm_handle_enqueue0(info->mti_env, info->mti_mdt->mdt_namespace,
                                   req, info->mti_dlm_req, &cbs);
         info->mti_fail_id = OBD_FAIL_LDLM_REPLY;
         return rc ? err_serious(rc) : req->rq_status;
@@ -2450,7 +2451,8 @@ static inline int mdt_is_lock_sync(struct ldlm_lock *lock)
  * \retval 0
  * \see ldlm_blocking_ast_nocheck
  */
-int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
+int mdt_blocking_ast(const struct lu_env *env,
+		     struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                      void *data, int flag)
 {
         struct obd_device *obd = ldlm_lock_to_ns(lock)->ns_obd;
@@ -2471,26 +2473,19 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
             lock->l_client_cookie != lock->l_blocking_lock->l_client_cookie) {
                 mdt_set_lock_sync(lock);
         }
-        rc = ldlm_blocking_ast_nocheck(lock);
+        rc = ldlm_blocking_ast_nocheck(env, lock);
 
         /* There is no lock conflict if l_blocking_lock == NULL,
          * it indicates a blocking ast sent from ldlm_lock_decref_internal
          * when the last reference to a local lock was released */
-        if (lock->l_req_mode == LCK_COS && lock->l_blocking_lock != NULL) {
-                struct lu_env env;
+	if (lock->l_req_mode == LCK_COS && lock->l_blocking_lock != NULL)
+		mdt_device_commit_async(env, mdt);
 
-                rc = lu_env_init(&env, LCT_LOCAL);
-                if (unlikely(rc != 0))
-                        CWARN("lu_env initialization failed with rc = %d,"
-                              "cannot start asynchronous commit\n", rc);
-                else
-                        mdt_device_commit_async(&env, mdt);
-                lu_env_fini(&env);
-        }
-        RETURN(rc);
+	RETURN(rc);
 }
 
-int mdt_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
+int mdt_md_blocking_ast(const struct lu_env *env, struct ldlm_lock *lock,
+			struct ldlm_lock_desc *desc,
 			void *data, int flag)
 {
 	struct lustre_handle lockh;
@@ -2499,7 +2494,7 @@ int mdt_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 	switch (flag) {
 	case LDLM_CB_BLOCKING:
 		ldlm_lock2handle(lock, &lockh);
-		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
+		rc = ldlm_cli_cancel(env, &lockh, LCF_ASYNC);
 		if (rc < 0) {
 			CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
 			RETURN(rc);
@@ -2605,13 +2600,14 @@ static int mdt_object_lock0(struct mdt_thread_info *info, struct mdt_object *o,
                          * is never going to be sent to client and we do not
                          * want it slowed down due to possible cancels.
                          */
-                        policy->l_inodebits.bits = MDS_INODELOCK_UPDATE;
-                        rc = mdt_fid_lock(ns, &lh->mlh_pdo_lh, lh->mlh_pdo_mode,
-                                          policy, res_id, dlmflags,
-                                          &info->mti_exp->exp_handle.h_cookie);
-                        if (unlikely(rc))
-                                RETURN(rc);
-                }
+			policy->l_inodebits.bits = MDS_INODELOCK_UPDATE;
+			rc = mdt_fid_lock(info->mti_env, ns, &lh->mlh_pdo_lh,
+					  lh->mlh_pdo_mode,
+					  policy, res_id, dlmflags,
+					  &info->mti_exp->exp_handle.h_cookie);
+			if (unlikely(rc))
+				RETURN(rc);
+		}
 
                 /*
                  * Finish res_id initializing by name hash marking part of
@@ -2627,8 +2623,8 @@ static int mdt_object_lock0(struct mdt_thread_info *info, struct mdt_object *o,
          * going to be sent to client. If it is - mdt_intent_policy() path will
          * fix it up and turn FL_LOCAL flag off.
          */
-        rc = mdt_fid_lock(ns, &lh->mlh_reg_lh, lh->mlh_reg_mode, policy,
-                          res_id, LDLM_FL_LOCAL_ONLY | dlmflags,
+        rc = mdt_fid_lock(info->mti_env, ns, &lh->mlh_reg_lh, lh->mlh_reg_mode,
+			  policy, res_id, LDLM_FL_LOCAL_ONLY | dlmflags,
                           &info->mti_exp->exp_handle.h_cookie);
         if (rc)
                 mdt_object_unlock(info, o, lh, 1);
@@ -2682,7 +2678,7 @@ void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
         if (lustre_handle_is_used(h)) {
                 if (decref || !info->mti_has_trans ||
                     !(mode & (LCK_PW | LCK_EX))){
-                        mdt_fid_unlock(h, mode);
+                        mdt_fid_unlock(info->mti_env, h, mode);
                 } else {
                         struct mdt_device *mdt = info->mti_mdt;
                         struct ldlm_lock *lock = ldlm_handle2lock(h);
@@ -2696,7 +2692,8 @@ void mdt_save_lock(struct mdt_thread_info *info, struct lustre_handle *h,
                                req, req->rq_reply_state, req->rq_transno);
                         if (mdt_cos_is_enabled(mdt)) {
                                 no_ack = 1;
-                                ldlm_lock_downgrade(lock, LCK_COS);
+                                ldlm_lock_downgrade(info->mti_env, lock,
+						    LCK_COS);
                                 mode = LCK_COS;
                         }
                         ptlrpc_save_lock(req, h, mode, no_ack);
@@ -2735,7 +2732,8 @@ void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
         mdt_save_lock(info, &lh->mlh_reg_lh, lh->mlh_reg_mode, decref);
 
 	if (lustre_handle_is_used(&lh->mlh_rreg_lh))
-		ldlm_lock_decref(&lh->mlh_rreg_lh, lh->mlh_rreg_mode);
+		ldlm_lock_decref(info->mti_env,
+				 &lh->mlh_rreg_lh, lh->mlh_rreg_mode);
 
         EXIT;
 }
@@ -3972,8 +3970,9 @@ static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
         RETURN(rc);
 }
 
-static int mdt_intent_policy(struct ldlm_namespace *ns,
-                             struct ldlm_lock **lockp, void *req_cookie,
+static int mdt_intent_policy(const struct lu_env *env,
+			     struct ldlm_namespace *ns,
+			     struct ldlm_lock **lockp, void *req_cookie,
 			     ldlm_mode_t mode, __u64 flags, void *data)
 {
         struct mdt_thread_info *info;
@@ -4237,10 +4236,10 @@ static void mdt_stack_fini(const struct lu_env *env,
 	m->mdt_child = NULL;
 	m->mdt_bottom = NULL;
 
-	obd_disconnect(m->mdt_child_exp);
+	obd_disconnect(env, m->mdt_child_exp);
 	m->mdt_child_exp = NULL;
 
-	obd_disconnect(m->mdt_bottom_exp);
+	obd_disconnect(env, m->mdt_bottom_exp);
 	m->mdt_child_exp = NULL;
 }
 
@@ -4534,7 +4533,7 @@ static int mdt_quota_init(const struct lu_env *env, struct mdt_device *mdt,
 	EXIT;
 class_cleanup:
 	if (rc) {
-		class_manual_cleanup(obd);
+		class_manual_cleanup(env, obd);
 		mdt->mdt_qmt_dev = NULL;
 	}
 class_detach:
@@ -4564,7 +4563,7 @@ static void mdt_quota_fini(const struct lu_env *env, struct mdt_device *mdt)
 	LASSERT(mdt->mdt_qmt_dev != NULL);
 
 	/* the qmt automatically shuts down when the mdt disconnects */
-	obd_disconnect(mdt->mdt_qmt_exp);
+	obd_disconnect(env, mdt->mdt_qmt_exp);
 	mdt->mdt_qmt_exp = NULL;
 	mdt->mdt_qmt_dev = NULL;
 	EXIT;
@@ -4577,7 +4576,7 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
         struct obd_device *obd = mdt2obd_dev(m);
         ENTRY;
 
-        target_recovery_fini(obd);
+        target_recovery_fini(env, obd);
 
         ping_evictor_stop();
 
@@ -4595,7 +4594,7 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
         m->mdt_identity_cache = NULL;
 
         if (m->mdt_namespace != NULL) {
-                ldlm_namespace_free(m->mdt_namespace, NULL,
+                ldlm_namespace_free(env, m->mdt_namespace, NULL,
                                     d->ld_obd->obd_force);
                 d->ld_obd->obd_namespace = m->mdt_namespace = NULL;
         }
@@ -4872,7 +4871,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 err_procfs:
         mdt_procfs_fini(m);
 err_recovery:
-        target_recovery_fini(obd);
+        target_recovery_fini(env, obd);
         upcall_cache_cleanup(m->mdt_identity_cache);
         m->mdt_identity_cache = NULL;
 err_llog_cleanup:
@@ -4882,7 +4881,7 @@ err_capa:
         cfs_timer_disarm(&m->mdt_ck_timer);
         mdt_ck_thread_stop(m);
 err_free_ns:
-        ldlm_namespace_free(m->mdt_namespace, NULL, 0);
+        ldlm_namespace_free(env, m->mdt_namespace, NULL, 0);
         obd->obd_namespace = m->mdt_namespace = NULL;
 err_fini_seq:
 	mdt_seq_fini(env, m);
@@ -5450,7 +5449,7 @@ static int mdt_export_cleanup(struct obd_export *exp)
         RETURN(rc);
 }
 
-static int mdt_obd_disconnect(struct obd_export *exp)
+static int mdt_obd_disconnect(const struct lu_env *env, struct obd_export *exp)
 {
         int rc;
         ENTRY;
@@ -5458,9 +5457,9 @@ static int mdt_obd_disconnect(struct obd_export *exp)
         LASSERT(exp);
         class_export_get(exp);
 
-        rc = server_disconnect_export(exp);
-        if (rc != 0)
-                CDEBUG(D_IOCTL, "server disconnect error: %d\n", rc);
+	rc = server_disconnect_export(env, exp);
+	if (rc != 0)
+		CDEBUG(D_IOCTL, "server disconnect error: %d\n", rc);
 
         rc = mdt_export_cleanup(exp);
         class_export_put(exp);

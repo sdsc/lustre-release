@@ -258,9 +258,9 @@ static int ost_destroy(struct obd_export *exp, struct ptlrpc_request *req,
  * Helper function for getting server side [start, start+count] DLM lock
  * if asked by client.
  */
-static int ost_lock_get(struct obd_export *exp, struct obdo *oa,
-                        __u64 start, __u64 count, struct lustre_handle *lh,
-			int mode, __u64 flags)
+static int ost_lock_get(const struct lu_env *env, struct obd_export *exp,
+			struct obdo *oa, __u64 start, __u64 count,
+			struct lustre_handle *lh, int mode, __u64 flags)
 {
         struct ldlm_res_id res_id;
         ldlm_policy_data_t policy;
@@ -291,20 +291,20 @@ static int ost_lock_get(struct obd_export *exp, struct obdo *oa,
         else
                 policy.l_extent.end = end | ~CFS_PAGE_MASK;
 
-        RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
-                                      LDLM_EXTENT, &policy, mode, &flags,
-                                      ldlm_blocking_ast, ldlm_completion_ast,
-				      ldlm_glimpse_ast, NULL, 0, LVB_T_NONE,
-				      NULL, lh));
+        RETURN(ldlm_cli_enqueue_local(env, exp->exp_obd->obd_namespace,
+				      &res_id, LDLM_EXTENT, &policy, mode,
+				      &flags, ldlm_blocking_ast,
+				      ldlm_completion_ast, ldlm_glimpse_ast,
+				      NULL, 0, LVB_T_NONE, NULL, lh));
 }
 
 /* Helper function: release lock, if any. */
-static void ost_lock_put(struct obd_export *exp,
+static void ost_lock_put(const struct lu_env *env, struct obd_export *exp,
                          struct lustre_handle *lh, int mode)
 {
         ENTRY;
         if (lustre_handle_is_used(lh))
-                ldlm_lock_decref(lh, mode);
+                ldlm_lock_decref(env, lh, mode);
         EXIT;
 }
 
@@ -340,7 +340,8 @@ static int ost_getattr(struct obd_export *exp, struct ptlrpc_request *req)
         repbody = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
         repbody->oa = body->oa;
 
-        rc = ost_lock_get(exp, &repbody->oa, 0, OBD_OBJECT_EOF, &lh, LCK_PR, 0);
+	rc = ost_lock_get(req->rq_svc_thread->t_env, exp, &repbody->oa, 0,
+			  OBD_OBJECT_EOF, &lh, LCK_PR, 0);
         if (rc)
                 RETURN(rc);
 
@@ -357,7 +358,7 @@ static int ost_getattr(struct obd_export *exp, struct ptlrpc_request *req)
         ost_drop_id(exp, &repbody->oa);
 
 unlock:
-        ost_lock_put(exp, &lh, LCK_PR);
+        ost_lock_put(req->rq_svc_thread->t_env, exp, &lh, LCK_PR);
         RETURN(rc);
 }
 
@@ -451,8 +452,9 @@ static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
         repbody = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
         repbody->oa = body->oa;
 
-        rc = ost_lock_get(exp, &repbody->oa, repbody->oa.o_size,
-                          repbody->oa.o_blocks, &lh, LCK_PW, flags);
+	rc = ost_lock_get(req->rq_svc_thread->t_env, exp, &repbody->oa,
+			  repbody->oa.o_size, repbody->oa.o_blocks, &lh,
+			  LCK_PW, flags);
         if (rc == 0) {
                 struct obd_info *oinfo;
                 struct lustre_capa *capa = NULL;
@@ -488,7 +490,7 @@ static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
                                            oinfo, oti, NULL);
                 OBD_FREE_PTR(oinfo);
 unlock:
-                ost_lock_put(exp, &lh, LCK_PW);
+                ost_lock_put(req->rq_svc_thread->t_env, exp, &lh, LCK_PW);
         }
 
         ost_drop_id(exp, &repbody->oa);
@@ -662,9 +664,9 @@ static __u32 ost_checksum_bulk(struct ptlrpc_bulk_desc *desc, int opc,
 	return cksum;
 }
 
-static int ost_brw_lock_get(int mode, struct obd_export *exp,
-                            struct obd_ioobj *obj, struct niobuf_remote *nb,
-                            struct lustre_handle *lh)
+static int ost_brw_lock_get(const struct lu_env *env, int mode,
+			    struct obd_export *exp, struct obd_ioobj *obj,
+			    struct niobuf_remote *nb, struct lustre_handle *lh)
 {
 	__u64 flags               = 0;
         int nrbufs                = obj->ioo_bufcnt;
@@ -689,14 +691,14 @@ static int ost_brw_lock_get(int mode, struct obd_export *exp,
         policy.l_extent.end   = (nb[nrbufs - 1].offset +
                                  nb[nrbufs - 1].len - 1) | ~CFS_PAGE_MASK;
 
-        RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
+        RETURN(ldlm_cli_enqueue_local(env, exp->exp_obd->obd_namespace, &res_id,
                                       LDLM_EXTENT, &policy, mode, &flags,
                                       ldlm_blocking_ast, ldlm_completion_ast,
 				      ldlm_glimpse_ast, NULL, 0, LVB_T_NONE,
 				      NULL, lh));
 }
 
-static void ost_brw_lock_put(int mode,
+static void ost_brw_lock_put(const struct lu_env *env, int mode,
                              struct obd_ioobj *obj, struct niobuf_remote *niob,
                              struct lustre_handle *lh)
 {
@@ -705,7 +707,7 @@ static void ost_brw_lock_put(int mode,
         LASSERT((obj->ioo_bufcnt > 0 && (niob[0].flags & OBD_BRW_SRVLOCK)) ==
                 lustre_handle_is_used(lh));
         if (lustre_handle_is_used(lh))
-                ldlm_lock_decref(lh, mode);
+                ldlm_lock_decref(env, lh, mode);
         EXIT;
 }
 
@@ -821,7 +823,8 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
                 GOTO(out_bulk, rc = -ENOMEM);
         local_nb = tls->local;
 
-        rc = ost_brw_lock_get(LCK_PR, exp, ioo, remote_nb, &lockh);
+	rc = ost_brw_lock_get(req->rq_svc_thread->t_env, LCK_PR, exp, ioo,
+			      remote_nb, &lockh);
         if (rc != 0)
                 GOTO(out_tls, rc);
 
@@ -912,7 +915,8 @@ out_commitrw:
                 ost_drop_id(exp, &repbody->oa);
 
 out_lock:
-        ost_brw_lock_put(LCK_PR, ioo, remote_nb, &lockh);
+        ost_brw_lock_put(req->rq_svc_thread->t_env, LCK_PR, ioo, remote_nb,
+			 &lockh);
 out_tls:
         ost_tls_put(req);
 out_bulk:
@@ -1087,7 +1091,8 @@ static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
                 GOTO(out_bulk, rc = -ENOMEM);
         local_nb = tls->local;
 
-        rc = ost_brw_lock_get(LCK_PW, exp, ioo, remote_nb, &lockh);
+	rc = ost_brw_lock_get(req->rq_svc_thread->t_env, LCK_PW, exp, ioo,
+			      remote_nb, &lockh);
         if (rc != 0)
                 GOTO(out_tls, rc);
 
@@ -1222,7 +1227,8 @@ skip_transfer:
         }
 
 out_lock:
-        ost_brw_lock_put(LCK_PW, ioo, remote_nb, &lockh);
+        ost_brw_lock_put(req->rq_svc_thread->t_env, LCK_PW, ioo, remote_nb,
+			 &lockh);
 out_tls:
         ost_tls_put(req);
 out_bulk:
@@ -1313,7 +1319,8 @@ static int ost_set_info(struct obd_export *exp, struct ptlrpc_request *req)
 
         if (KEY_IS(KEY_EVICT_BY_NID)) {
                 if (val && vallen)
-                        obd_export_evict_by_nid(exp->exp_obd, val);
+                        obd_export_evict_by_nid(req->rq_svc_thread->t_env,
+						exp->exp_obd, val);
                 GOTO(out, rc = 0);
         } else if (KEY_IS(KEY_MDS_CONN) && ptlrpc_req_need_swab(req)) {
                 if (vallen < sizeof(__u32))
@@ -1625,21 +1632,16 @@ static int ost_connect_check_sptlrpc(struct ptlrpc_request *req)
 
 /* Ensure that data and metadata are synced to the disk when lock is cancelled
  * (if requested) */
-int ost_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
-		     void *data, int flag)
+int ost_blocking_ast(const struct lu_env *env, struct ldlm_lock *lock,
+		     struct ldlm_lock_desc *desc, void *data, int flag)
 {
-	struct lu_env	env;
 	__u32		sync_lock_cancel = 0;
 	__u32		len = sizeof(sync_lock_cancel);
 	int		rc = 0;
 
 	ENTRY;
 
-	rc = lu_env_init(&env, LCT_DT_THREAD);
-	if (unlikely(rc != 0))
-		RETURN(rc);
-
-	rc = obd_get_info(&env, lock->l_export, sizeof(KEY_SYNC_LOCK_CANCEL),
+	rc = obd_get_info(env, lock->l_export, sizeof(KEY_SYNC_LOCK_CANCEL),
 			  KEY_SYNC_LOCK_CANCEL, &len, &sync_lock_cancel, NULL);
 	if (rc == 0 && flag == LDLM_CB_CANCELING &&
 	    (lock->l_granted_mode & (LCK_PW|LCK_GROUP)) &&
@@ -1652,11 +1654,11 @@ int ost_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 
 		OBD_ALLOC_PTR(oinfo);
 		if (!oinfo)
-			GOTO(out_env, rc = -ENOMEM);
+			RETURN(-ENOMEM);
 		OBDO_ALLOC(oa);
 		if (!oa) {
 			OBD_FREE_PTR(oinfo);
-			GOTO(out_env, rc = -ENOMEM);
+			RETURN(-ENOMEM);
 		}
 
 		ostid_res_name_to_id(&oa->o_oi, &lock->l_resource->lr_name);
@@ -1664,7 +1666,7 @@ int ost_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		oinfo->oi_oa = oa;
 		oinfo->oi_capa = BYPASS_CAPA;
 
-		rc = obd_sync(&env, lock->l_export, oinfo,
+		rc = obd_sync(env, lock->l_export, oinfo,
 			      lock->l_policy_data.l_extent.start,
 			      lock->l_policy_data.l_extent.end, NULL);
 		if (rc)
@@ -1674,9 +1676,7 @@ int ost_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		OBD_FREE_PTR(oinfo);
 	}
 
-	rc = ldlm_server_blocking_ast(lock, desc, data, flag);
-out_env:
-	lu_env_fini(&env);
+	rc = ldlm_server_blocking_ast(env, lock, desc, data, flag);
 	RETURN(rc);
 }
 
@@ -2421,7 +2421,8 @@ int ost_handle(struct ptlrpc_request *req)
 		req_capsule_set(&req->rq_pill, &RQF_LDLM_ENQUEUE);
 		if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_ENQUEUE_NET))
 			RETURN(0);
-		rc = ldlm_handle_enqueue(req, ldlm_server_completion_ast,
+		rc = ldlm_handle_enqueue(req->rq_svc_thread->t_env,
+					 req, ldlm_server_completion_ast,
 					 ost_blocking_ast,
 					 ldlm_server_glimpse_ast);
 		fail = OBD_FAIL_OST_LDLM_REPLY_NET;

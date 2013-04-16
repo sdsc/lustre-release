@@ -176,7 +176,7 @@ int do_lcfg(char *cfgname, lnet_nid_t nid, int cmd,
 
         lcfg = lustre_cfg_new(cmd, &bufs);
         lcfg->lcfg_nid = nid;
-        rc = class_process_config(lcfg);
+        rc = class_process_config(NULL, lcfg);
         lustre_cfg_free(lcfg);
         return(rc);
 }
@@ -513,7 +513,7 @@ static int lustre_stop_mgc(struct super_block *sb)
         if (obd->u.cli.cl_mgc_mgsexp) {
                 /* An error is not fatal, if we are unable to send the
                    disconnect mgs ping evictor cleans up the export */
-                rc = obd_disconnect(obd->u.cli.cl_mgc_mgsexp);
+                rc = obd_disconnect(NULL, obd->u.cli.cl_mgc_mgsexp);
                 if (rc)
                         CDEBUG(D_MOUNT, "disconnect failed %d\n", rc);
         }
@@ -527,7 +527,7 @@ static int lustre_stop_mgc(struct super_block *sb)
                 ptr = niduuid + strlen(niduuid);
         }
 
-        rc = class_manual_cleanup(obd);
+        rc = class_manual_cleanup(NULL, obd);
         if (rc)
                 GOTO(out, rc);
 
@@ -640,7 +640,7 @@ int lustre_put_lsi(struct super_block *sb)
         CDEBUG(D_MOUNT, "put %p %d\n", sb, cfs_atomic_read(&lsi->lsi_mounts));
         if (cfs_atomic_dec_and_test(&lsi->lsi_mounts)) {
 		if (IS_SERVER(lsi) && lsi->lsi_osd_exp) {
-			obd_disconnect(lsi->lsi_osd_exp);
+			obd_disconnect(NULL, lsi->lsi_osd_exp);
 			/* wait till OSD is gone */
 			obd_zombie_barrier();
 		}

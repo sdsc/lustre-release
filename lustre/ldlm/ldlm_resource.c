@@ -686,7 +686,7 @@ struct ldlm_namespace *ldlm_namespace_new(struct obd_device *obd, char *name,
         RETURN(ns);
 out_proc:
         ldlm_namespace_proc_unregister(ns);
-        ldlm_namespace_cleanup(ns, 0);
+        ldlm_namespace_cleanup(NULL, ns, 0);
 out_hash:
         cfs_hash_putref(ns->ns_rs_hash);
 out_ns:
@@ -707,7 +707,8 @@ extern struct ldlm_lock *ldlm_lock_get(struct ldlm_lock *lock);
  * certain assumptions as a result--notably, that we shouldn't cancel
  * locks with refs.
  */
-static void cleanup_resource(struct ldlm_resource *res, cfs_list_t *q,
+static void cleanup_resource(const struct lu_env *env,
+			     struct ldlm_resource *res, cfs_list_t *q,
 			     __u64 flags)
 {
 	cfs_list_t *tmp;
@@ -755,7 +756,7 @@ static void cleanup_resource(struct ldlm_resource *res, cfs_list_t *q,
                         unlock_res(res);
                         LDLM_DEBUG(lock, "setting FL_LOCAL_ONLY");
                         if (lock->l_completion_ast)
-                                lock->l_completion_ast(lock, 0, NULL);
+                                lock->l_completion_ast(env, lock, 0, NULL);
                         LDLM_LOCK_RELEASE(lock);
                         continue;
                 }
@@ -765,7 +766,7 @@ static void cleanup_resource(struct ldlm_resource *res, cfs_list_t *q,
 
                         unlock_res(res);
                         ldlm_lock2handle(lock, &lockh);
-			rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
+			rc = ldlm_cli_cancel(env, &lockh, LCF_ASYNC);
                         if (rc)
                                 CERROR("ldlm_cli_cancel: %d\n", rc);
                 } else {
@@ -779,15 +780,21 @@ static void cleanup_resource(struct ldlm_resource *res, cfs_list_t *q,
         } while (1);
 }
 
+struct ldlm_ns_cleanup_arg {
+	__u64			lnca_flags;
+	const struct lu_env 	*lnca_env;
+};
+
 static int ldlm_resource_clean(cfs_hash_t *hs, cfs_hash_bd_t *bd,
-                               cfs_hlist_node_t *hnode, void *arg)
+                               cfs_hlist_node_t *hnode, void *opaq)
 {
         struct ldlm_resource *res = cfs_hash_object(hs, hnode);
-	__u64 flags = *(__u64 *)arg;
+	struct ldlm_ns_cleanup_arg *arg  = (struct ldlm_ns_cleanup_arg *)opaq;
 
-        cleanup_resource(res, &res->lr_granted, flags);
-        cleanup_resource(res, &res->lr_converting, flags);
-        cleanup_resource(res, &res->lr_waiting, flags);
+	cleanup_resource(arg->lnca_env, res, &res->lr_granted, arg->lnca_flags);
+	cleanup_resource(arg->lnca_env, res, &res->lr_converting,
+			 arg->lnca_flags);
+	cleanup_resource(arg->lnca_env, res, &res->lr_waiting, arg->lnca_flags);
 
         return 0;
 }
@@ -822,16 +829,21 @@ static int ldlm_resource_complain(cfs_hash_t *hs, cfs_hash_bd_t *bd,
  * evicted and all of its state needs to be destroyed.
  * Also used during shutdown.
  */
-int ldlm_namespace_cleanup(struct ldlm_namespace *ns, __u64 flags)
+int ldlm_namespace_cleanup(const struct lu_env *env, struct ldlm_namespace *ns,
+			   __u64 flags)
 {
+	struct ldlm_ns_cleanup_arg arg;
+
         if (ns == NULL) {
                 CDEBUG(D_INFO, "NULL ns, skipping cleanup\n");
                 return ELDLM_OK;
         }
 
-	cfs_hash_for_each_nolock(ns->ns_rs_hash, ldlm_resource_clean, &flags);
-        cfs_hash_for_each_nolock(ns->ns_rs_hash, ldlm_resource_complain, NULL);
-        return ELDLM_OK;
+	arg.lnca_flags = flags;
+	arg.lnca_env = env;
+	cfs_hash_for_each_nolock(ns->ns_rs_hash, ldlm_resource_clean, &arg);
+	cfs_hash_for_each_nolock(ns->ns_rs_hash, ldlm_resource_complain, NULL);
+	return ELDLM_OK;
 }
 EXPORT_SYMBOL(ldlm_namespace_cleanup);
 
@@ -840,12 +852,13 @@ EXPORT_SYMBOL(ldlm_namespace_cleanup);
  *
  * Only used when namespace goes away, like during an unmount.
  */
-static int __ldlm_namespace_free(struct ldlm_namespace *ns, int force)
+static int __ldlm_namespace_free(const struct lu_env *env,
+				 struct ldlm_namespace *ns, int force)
 {
         ENTRY;
 
         /* At shutdown time, don't call the cancellation callback */
-        ldlm_namespace_cleanup(ns, force ? LDLM_FL_LOCAL_ONLY : 0);
+        ldlm_namespace_cleanup(env, ns, force ? LDLM_FL_LOCAL_ONLY : 0);
 
         if (cfs_atomic_read(&ns->ns_bref) > 0) {
                 struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
@@ -893,9 +906,9 @@ force_wait:
  * users like pools thread and others;
  * (1) Clear all locks in \a ns.
  */
-void ldlm_namespace_free_prior(struct ldlm_namespace *ns,
-                               struct obd_import *imp,
-                               int force)
+void ldlm_namespace_free_prior(const struct lu_env *env,
+			       struct ldlm_namespace *ns,
+			       struct obd_import *imp, int force)
 {
         int rc;
         ENTRY;
@@ -911,7 +924,7 @@ void ldlm_namespace_free_prior(struct ldlm_namespace *ns,
         /*
          * Can fail with -EINTR when force == 0 in which case try harder.
          */
-        rc = __ldlm_namespace_free(ns, force);
+        rc = __ldlm_namespace_free(env, ns, force);
         if (rc != ELDLM_OK) {
                 if (imp) {
                         ptlrpc_disconnect_import(imp, 0);
@@ -922,7 +935,7 @@ void ldlm_namespace_free_prior(struct ldlm_namespace *ns,
                  * With all requests dropped and the import inactive
                  * we are gaurenteed all reference will be dropped.
                  */
-                rc = __ldlm_namespace_free(ns, 1);
+                rc = __ldlm_namespace_free(env, ns, 1);
                 LASSERT(rc == 0);
         }
         EXIT;
@@ -977,11 +990,10 @@ void ldlm_namespace_free_post(struct ldlm_namespace *ns)
  * lprocfs entries, and then free memory. It will be called w/o cli->cl_sem
  * held.
  */
-void ldlm_namespace_free(struct ldlm_namespace *ns,
-                         struct obd_import *imp,
-                         int force)
+void ldlm_namespace_free(const struct lu_env *env, struct ldlm_namespace *ns,
+			 struct obd_import *imp, int force)
 {
-        ldlm_namespace_free_prior(ns, imp, force);
+        ldlm_namespace_free_prior(env, ns, imp, force);
         ldlm_namespace_free_post(ns);
 }
 EXPORT_SYMBOL(ldlm_namespace_free);

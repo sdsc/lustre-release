@@ -1225,10 +1225,20 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
         struct obd_device *obd = data;
         char              *kbuf;
         char              *tmpbuf;
+	struct lu_env 	  env;
+	int		  rc;
+
+	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD | LCT_REMEMBER);
+	if (rc) {
+		CERROR("failed to initialize env\n");
+		return rc;
+	}
 
         OBD_ALLOC(kbuf, BUFLEN);
-        if (kbuf == NULL)
-                return -ENOMEM;
+        if (kbuf == NULL) {
+                count = -ENOMEM;
+		goto out;
+	}
 
         /*
          * OBD_ALLOC() will zero kbuf, but we only copy BUFLEN - 1
@@ -1252,16 +1262,17 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
 	class_incref(obd, __FUNCTION__, cfs_current());
 
         if (strncmp(tmpbuf, "nid:", 4) == 0)
-                obd_export_evict_by_nid(obd, tmpbuf + 4);
+                obd_export_evict_by_nid(&env, obd, tmpbuf + 4);
         else if (strncmp(tmpbuf, "uuid:", 5) == 0)
-                obd_export_evict_by_uuid(obd, tmpbuf + 5);
+                obd_export_evict_by_uuid(&env, obd, tmpbuf + 5);
         else
-                obd_export_evict_by_uuid(obd, tmpbuf);
+                obd_export_evict_by_uuid(&env, obd, tmpbuf);
 
 	class_decref(obd, __FUNCTION__, cfs_current());
         LPROCFS_ENTRY();
 
 out:
+	lu_env_fini(&env);
         OBD_FREE(kbuf, BUFLEN);
         return count;
 }

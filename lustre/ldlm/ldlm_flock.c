@@ -69,8 +69,8 @@
 
 #include "ldlm_internal.h"
 
-int ldlm_flock_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
-                            void *data, int flag);
+int ldlm_flock_blocking_ast(const struct lu_env *env, struct ldlm_lock *lock,
+			    struct ldlm_lock_desc *desc, void *data, int flag);
 
 /**
  * list_for_remaining_safe - iterate over the remaining entries in a list
@@ -241,7 +241,8 @@ ldlm_flock_deadlock(struct ldlm_lock *req, struct ldlm_lock *bl_lock)
  *     would be collected and ASTs sent.
  */
 int
-ldlm_process_flock_lock(struct ldlm_lock *req, __u64 *flags, int first_enq,
+ldlm_process_flock_lock(const struct lu_env *env, struct ldlm_lock *req,
+			__u64 *flags, int first_enq,
 			ldlm_error_t *err, cfs_list_t *work_list)
 {
         struct ldlm_resource *res = req->l_resource;
@@ -535,11 +536,11 @@ reprocess:
                                 CFS_LIST_HEAD(rpc_list);
                                 int rc;
 restart:
-                                ldlm_reprocess_queue(res, &res->lr_waiting,
-                                                     &rpc_list);
+				ldlm_reprocess_queue(env, res, &res->lr_waiting,
+						     &rpc_list);
 
                                 unlock_res_and_lock(req);
-                                rc = ldlm_run_ast_work(ns, &rpc_list,
+                                rc = ldlm_run_ast_work(env, ns, &rpc_list,
                                                        LDLM_WORK_CP_AST);
                                 lock_res_and_lock(req);
                                 if (rc == -ERESTART)
@@ -604,7 +605,8 @@ ldlm_flock_interrupted_wait(void *data)
  * \retval <0   : failure
  */
 int
-ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
+ldlm_flock_completion_ast(const struct lu_env *env, struct ldlm_lock *lock,
+			  __u64 flags, void *data)
 {
 	struct file_lock		*getlk = lock->l_ast_data;
         struct obd_device              *obd;
@@ -627,7 +629,7 @@ ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
                 if (lock->l_req_mode == lock->l_granted_mode &&
                     lock->l_granted_mode != LCK_NL &&
                     NULL == data)
-                        ldlm_lock_decref_internal(lock, lock->l_req_mode);
+                        ldlm_lock_decref_internal(env, lock, lock->l_req_mode);
 
                 /* Need to wake up the waiter if we were evicted */
                 cfs_waitq_signal(&lock->l_waitq);
@@ -727,15 +729,15 @@ granted:
 
 		/* We need to reprocess the lock to do merges or splits
 		 * with existing locks owned by this process. */
-		ldlm_process_flock_lock(lock, &noreproc, 1, &err, NULL);
+		ldlm_process_flock_lock(env, lock, &noreproc, 1, &err, NULL);
 	}
 	unlock_res_and_lock(lock);
 	RETURN(0);
 }
 EXPORT_SYMBOL(ldlm_flock_completion_ast);
 
-int ldlm_flock_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
-                            void *data, int flag)
+int ldlm_flock_blocking_ast(const struct lu_env *env, struct ldlm_lock *lock,
+			    struct ldlm_lock_desc *desc, void *data, int flag)
 {
         ENTRY;
 

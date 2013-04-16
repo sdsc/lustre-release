@@ -112,8 +112,8 @@ static int llu_dir_do_readpage(struct inode *inode, struct page *page)
         ptlrpc_req_finished(request);
         EXIT;
 
-        ldlm_lock_decref(&lockh, LCK_CR);
-        return rc;
+	ldlm_lock_decref(NULL, &lockh, LCK_CR);
+	return rc;
 }
 
 static cfs_page_t *llu_dir_read_page(struct inode *ino, __u64 hash,

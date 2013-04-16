@@ -682,8 +682,8 @@ static void discard_bl_list(cfs_list_t *bl_list)
  *   - blocking ASTs have not been sent yet, so list of conflicting locks
  *     would be collected and ASTs sent.
  */
-int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
-			     int first_enq, ldlm_error_t *err,
+int ldlm_process_extent_lock(const struct lu_env *env, struct ldlm_lock *lock,
+			     __u64 *flags, int first_enq, ldlm_error_t *err,
 			     cfs_list_t *work_list)
 {
         struct ldlm_resource *res = lock->l_resource;
@@ -749,15 +749,15 @@ int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
                  * bug 2322: we used to unlink and re-add here, which was a
                  * terrible folly -- if we goto restart, we could get
                  * re-ordered!  Causes deadlock, because ASTs aren't sent! */
-                if (cfs_list_empty(&lock->l_res_link))
-                        ldlm_resource_add_lock(res, &res->lr_waiting, lock);
-                unlock_res(res);
-                rc = ldlm_run_ast_work(ldlm_res_to_ns(res), &rpc_list,
-                                       LDLM_WORK_BL_AST);
+		if (cfs_list_empty(&lock->l_res_link))
+			ldlm_resource_add_lock(res, &res->lr_waiting, lock);
+		unlock_res(res);
+		rc = ldlm_run_ast_work(env, ldlm_res_to_ns(res), &rpc_list,
+				       LDLM_WORK_BL_AST);
 
                 if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_OST_FAIL_RACE) &&
                     !ns_is_client(ldlm_res_to_ns(res)))
-                        class_fail_export(lock->l_export);
+                        class_fail_export(env, lock->l_export);
 
                 lock_res(res);
                 if (rc == -ERESTART) {

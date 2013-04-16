@@ -59,7 +59,7 @@ void ll_intent_drop_lock(struct lookup_intent *it)
                 handle = (struct lustre_handle *)&it->d.lustre.it_lock_handle;
                 CDEBUG(D_DLMTRACE, "releasing lock with cookie "LPX64
                        " from it %p\n", handle->cookie, it);
-                ldlm_lock_decref(handle, it->d.lustre.it_lock_mode);
+                ldlm_lock_decref(NULL, handle, it->d.lustre.it_lock_mode);
 
                 /* bug 494: intent_release may be called multiple times, from
                  * this thread and we don't want to double-decref this lock */
@@ -109,7 +109,7 @@ static inline void llu_invalidate_inode_pages(struct inode * inode)
         /* do nothing */
 }
 
-int llu_md_blocking_ast(struct ldlm_lock *lock,
+int llu_md_blocking_ast(const struct lu_env *env, struct ldlm_lock *lock,
                         struct ldlm_lock_desc *desc,
                         void *data, int flag)
 {
@@ -121,7 +121,7 @@ int llu_md_blocking_ast(struct ldlm_lock *lock,
         switch (flag) {
         case LDLM_CB_BLOCKING:
                 ldlm_lock2handle(lock, &lockh);
-		rc = ldlm_cli_cancel(&lockh, 0);
+		rc = ldlm_cli_cancel(NULL, &lockh, 0);
                 if (rc < 0) {
                         CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
                         RETURN(rc);

@@ -74,7 +74,7 @@ enum {
 
 int ldlm_cancel_lru(struct ldlm_namespace *ns, int nr,
 		    ldlm_cancel_flags_t sync, int flags);
-int ldlm_cancel_lru_local(struct ldlm_namespace *ns,
+int ldlm_cancel_lru_local(const struct lu_env *env, struct ldlm_namespace *ns,
                           cfs_list_t *cancels, int count, int max,
                           ldlm_cancel_flags_t cancel_flags, int flags);
 extern int ldlm_enqueue_min;
@@ -84,8 +84,9 @@ int ldlm_get_enq_timeout(struct ldlm_lock *lock);
 int ldlm_resource_putref_locked(struct ldlm_resource *res);
 void ldlm_resource_insert_lock_after(struct ldlm_lock *original,
                                      struct ldlm_lock *new);
-void ldlm_namespace_free_prior(struct ldlm_namespace *ns,
-                               struct obd_import *imp, int force);
+void ldlm_namespace_free_prior(const struct lu_env *env,
+			       struct ldlm_namespace *ns,
+			       struct obd_import *imp, int force);
 void ldlm_namespace_free_post(struct ldlm_namespace *ns);
 /* ldlm_lock.c */
 
@@ -95,6 +96,11 @@ struct ldlm_cb_set_arg {
 	cfs_atomic_t			 restart;
 	cfs_list_t			*list;
 	union ldlm_gl_desc		*gl_desc; /* glimpse AST descriptor */
+};
+
+struct ldlm_reprocess_arg {
+	void 			*lra_closure;
+	const struct lu_env 	*lra_env;
 };
 
 typedef enum {
@@ -112,20 +118,23 @@ ldlm_lock_create(struct ldlm_namespace *ns, const struct ldlm_res_id *,
                  ldlm_type_t type, ldlm_mode_t,
                  const struct ldlm_callback_suite *cbs,
 		 void *data, __u32 lvb_len, enum lvb_type lvb_type);
-ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *, struct ldlm_lock **,
+ldlm_error_t ldlm_lock_enqueue(const struct lu_env *env,
+			       struct ldlm_namespace *, struct ldlm_lock **,
 			       void *cookie, __u64 *flags);
 void ldlm_lock_addref_internal(struct ldlm_lock *, __u32 mode);
 void ldlm_lock_addref_internal_nolock(struct ldlm_lock *, __u32 mode);
-void ldlm_lock_decref_internal(struct ldlm_lock *, __u32 mode);
+void ldlm_lock_decref_internal(const struct lu_env *env, struct ldlm_lock *,
+			       __u32 mode);
 void ldlm_lock_decref_internal_nolock(struct ldlm_lock *, __u32 mode);
 void ldlm_add_ast_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
                             cfs_list_t *work_list);
 #ifdef HAVE_SERVER_SUPPORT
-int ldlm_reprocess_queue(struct ldlm_resource *res, cfs_list_t *queue,
-                         cfs_list_t *work_list);
+int ldlm_reprocess_queue(const struct lu_env *env,
+			 struct ldlm_resource *res, cfs_list_t *queue,
+			 cfs_list_t *work_list);
 #endif
-int ldlm_run_ast_work(struct ldlm_namespace *ns, cfs_list_t *rpc_list,
-                      ldlm_desc_ast_t ast_type);
+int ldlm_run_ast_work(const struct lu_env *env, struct ldlm_namespace *ns,
+		      cfs_list_t *rpc_list, ldlm_desc_ast_t ast_type);
 int ldlm_work_gl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq);
 int ldlm_lock_remove_from_lru(struct ldlm_lock *lock);
 int ldlm_lock_remove_from_lru_nolock(struct ldlm_lock *lock);
@@ -134,7 +143,8 @@ void ldlm_lock_add_to_lru(struct ldlm_lock *lock);
 void ldlm_lock_touch_in_lru(struct ldlm_lock *lock);
 void ldlm_lock_destroy_nolock(struct ldlm_lock *lock);
 
-void ldlm_cancel_locks_for_export(struct obd_export *export);
+void ldlm_cancel_locks_for_export(const struct lu_env *env,
+				  struct obd_export *export);
 
 /* ldlm_lockd.c */
 int ldlm_bl_to_thread_lock(struct ldlm_namespace *ns, struct ldlm_lock_desc *ld,
@@ -144,32 +154,35 @@ int ldlm_bl_to_thread_list(struct ldlm_namespace *ns,
 			   cfs_list_t *cancels, int count,
 			   ldlm_cancel_flags_t cancel_flags);
 
-void ldlm_handle_bl_callback(struct ldlm_namespace *ns,
+void ldlm_handle_bl_callback(const struct lu_env *env,
+			     struct ldlm_namespace *ns,
                              struct ldlm_lock_desc *ld, struct ldlm_lock *lock);
 
 #ifdef HAVE_SERVER_SUPPORT
 /* ldlm_plain.c */
-int ldlm_process_plain_lock(struct ldlm_lock *lock, __u64 *flags,
-			    int first_enq, ldlm_error_t *err,
+int ldlm_process_plain_lock(const struct lu_env *env, struct ldlm_lock *lock,
+			    __u64 *flags, int first_enq, ldlm_error_t *err,
 			    cfs_list_t *work_list);
 
 /* ldlm_inodebits.c */
-int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
-                                int first_enq, ldlm_error_t *err,
-                                cfs_list_t *work_list);
+int ldlm_process_inodebits_lock(const struct lu_env *env,
+				struct ldlm_lock *lock, __u64 *flags,
+				int first_enq, ldlm_error_t *err,
+				cfs_list_t *work_list);
 #endif
 
 /* ldlm_extent.c */
 #ifdef HAVE_SERVER_SUPPORT
-int ldlm_process_extent_lock(struct ldlm_lock *lock, __u64 *flags,
-			     int first_enq, ldlm_error_t *err,
+int ldlm_process_extent_lock(const struct lu_env *env, struct ldlm_lock *lock,
+			     __u64 *flags, int first_enq, ldlm_error_t *err,
 			     cfs_list_t *work_list);
 #endif
 void ldlm_extent_add_lock(struct ldlm_resource *res, struct ldlm_lock *lock);
 void ldlm_extent_unlink_lock(struct ldlm_lock *lock);
 
 /* ldlm_flock.c */
-int ldlm_process_flock_lock(struct ldlm_lock *req, __u64 *flags,
+int ldlm_process_flock_lock(const struct lu_env *env,
+			    struct ldlm_lock *req, __u64 *flags,
 			    int first_enq, ldlm_error_t *err,
 			    cfs_list_t *work_list);
 int ldlm_init_flock_export(struct obd_export *exp);

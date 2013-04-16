@@ -1365,7 +1365,7 @@ int ptlrpc_import_recovery_state_machine(struct obd_import *imp)
                 if (inflight == 0 &&
                     cfs_atomic_read(&imp->imp_replay_inflight) == 0) {
                         IMPORT_SET_STATE(imp, LUSTRE_IMP_REPLAY_LOCKS);
-                        rc = ldlm_replay_locks(imp);
+                        rc = ldlm_replay_locks(NULL, imp);
                         if (rc)
                                 GOTO(out, rc);
                 }
