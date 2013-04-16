@@ -1,0 +1,13 @@
+Index: linux-2.6.18-348.1.1.el5.x86_64/drivers/md/raid5.c
+===================================================================
+--- linux-2.6.18-348.1.1.el5.x86_64.orig/drivers/md/raid5.c
++++ linux-2.6.18-348.1.1.el5.x86_64/drivers/md/raid5.c
+@@ -632,7 +632,7 @@ static int raid5_end_read_request(struct
+ 
+ 		clear_bit(R5_UPTODATE, &sh->dev[i].flags);
+ 		atomic_inc(&rdev->read_errors);
+-		if (conf->mddev->degraded)
++		if (conf->mddev->degraded >= conf->max_degraded)
+ 			printk(KERN_WARNING "raid5:%s: read error not correctable (sector %llu on %s).\n",
+ 			       mdname(conf->mddev),
+ 			       (unsigned long long)sh->sector + rdev->data_offset,
