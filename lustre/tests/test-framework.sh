@@ -1648,6 +1648,7 @@ node_var_name() {
 start_client_load() {
     local client=$1
     local load=$2
+    local -a clients=(${1//,/ })
     local var=$(node_var_name $client)_load
     eval export ${var}=$load
 
@@ -1659,6 +1660,7 @@ TESTLOG_PREFIX=$TESTLOG_PREFIX \
 TESTNAME=$TESTNAME \
 DBENCH_LIB=$DBENCH_LIB \
 DBENCH_SRC=$DBENCH_SRC \
+CLIENT_COUNT=$clients \
 LFS=$LFS \
 run_${load}.sh" &
     local ppid=$!

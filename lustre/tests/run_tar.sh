@@ -17,7 +17,7 @@ set -x
 
 . $(dirname $0)/functions.sh
 
-assert_env MOUNT END_RUN_FILE LOAD_PID_FILE
+assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT
 
 trap signaled TERM
 
@@ -30,6 +30,21 @@ do_tar() {
     tar cf - /etc | tar xf - >$LOG 2>&1
     return ${PIPESTATUS[1]}
 }
+
+disk_usage=0
+list=`du -B 1024 -c /etc | awk '{print $1}'`
+for entry in $list; do
+	disk_usage=$((disk_usage + entry))
+done
+
+FREE_SPACE=$($LFS df $MOUNT | awk '/filesystem summary:/ {print $5}')
+FREE=$((FREE_SPACE * 9 / 10 / CLIENT_COUNT))
+
+if [ $FREE -lt $disk_usage ]; then
+	echoerr "no enough free disk space: need $disk_usage, avail $FREE"
+	echo $(hostname) >> $END_RUN_FILE
+	exit 1
+fi
 
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
