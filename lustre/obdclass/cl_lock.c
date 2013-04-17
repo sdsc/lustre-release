@@ -40,6 +40,7 @@
 
 #define DEBUG_SUBSYSTEM S_CLASS
 
+#include <libcfs/libcfs.h>
 #include <obd_class.h>
 #include <obd_support.h>
 #include <lustre_fid.h>

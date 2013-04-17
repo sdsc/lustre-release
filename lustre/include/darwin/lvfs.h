@@ -53,6 +53,7 @@ struct lvfs_ucred {
 
 struct lvfs_run_ctxt {
 	int	pid;
+        struct lvfs_callback_ops cb_ops;
 };
 
 #endif

@@ -145,8 +145,8 @@ static inline void __up(struct semaphore *s)
  * - mutex_down(x)
  */
 
-#define mutex_up(s)			__up(s)
-#define mutex_down(s)			__down(s)
+#define mutex_unlock(s)			__up(s)
+#define mutex_lock(s)			__down(s)
 
 #define init_mutex(x)			sema_init(x, 1)
 #define init_mutex_locked(x)		sema_init(x, 0)

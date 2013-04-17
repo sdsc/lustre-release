@@ -108,7 +108,7 @@ dbg_write_cmd(int fd, char *str, int len)
         return (rc == len ? 0 : 1);
 }
 
-#elif defined(__DARWIN__)
+#elif defined(__APPLE__)
 
 #define DAEMON_CTL_NAME         "lnet.trace_daemon"
 #define SUBSYS_DEBUG_CTL_NAME   "lnet.subsystem_debug"

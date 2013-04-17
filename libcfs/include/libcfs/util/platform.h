@@ -88,7 +88,7 @@ typedef VFunction       rl_voidfunc_t;
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/shm.h>
-#include <sys/semaphore.h>
+#include <semaphore.h>
 
 /*
  * POSIX compliant inter-process synchronization aren't supported well
@@ -136,9 +136,9 @@ static inline int l_sem_init(l_sem_t *sem, int val)
 	/* get an unique name for named semaphore */
 	snprintf(s_name, L_SEM_NAMESIZE, "%d-%p", (int)getpid(), sem);
 	sem->s_sem = sem_open(s_name, O_CREAT, 0600, val);
-	if ((int)sem->s_sem == SEM_FAILED) {
-		fprintf(stderr, "lock %s creating fail: %d, %d!\n",
-				s_name, (int)sem->s_sem, errno);
+	if (sem->s_sem == SEM_FAILED) {
+		fprintf(stderr, "lock %s creating fail: %p, %d!\n",
+				s_name, sem->s_sem, errno);
 		return -1;
 	} else {
 #if L_LOCK_DEBUG

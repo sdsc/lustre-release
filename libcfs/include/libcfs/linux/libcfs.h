@@ -175,4 +175,6 @@ typedef long long_ptr_t;
 	sg_set_buf(sg, page_address(p) + ((off) & ~CFS_PAGE_MASK), len)
 #endif
 
+#define CFS_ALIGN ALIGN
+
 #endif /* _LINUX_LIBCFS_H */

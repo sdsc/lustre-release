@@ -63,8 +63,4 @@
 struct obd_ioctl_data;
 #define OBD_IOC_DATA_TYPE               struct obd_ioctl_data
 
-#define LUSTRE_FATAL_SIGS (sigmask(SIGKILL) | sigmask(SIGINT) |                \
-                           sigmask(SIGTERM) | sigmask(SIGQUIT) |               \
-                           sigmask(SIGALRM) | sigmask(SIGHUP))
-
 #endif
