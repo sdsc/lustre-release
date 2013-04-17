@@ -669,10 +669,61 @@ static int mdd_obf_setup(const struct lu_env *env, struct mdd_device *m)
 	return 0;
 }
 
+static int mdd_local_file_links_add(const struct lu_env *env,
+				    struct mdd_device *mdd,
+				    struct mdd_object *obj,
+				    const struct lu_fid *pfid,
+				    const char *name)
+{
+	const struct lu_name		*cname;
+	struct linkea_data		 ldata   = { 0 };
+	struct thandle			*handle;
+	int				 rc;
+	ENTRY;
+
+	cname = mdd_name_get_const(env, name, strlen(name));
+	rc = mdd_links_read(env, obj, &ldata);
+	if (rc == 0) {
+		rc = linkea_links_find(&ldata, cname, pfid);
+		if (rc == 0 || rc != -ENOENT)
+			RETURN(rc);
+	} else if (rc != -ENODATA) {
+		RETURN(rc);
+	} else {
+		rc = linkea_data_new(&ldata, &mdd_env_info(env)->mti_link_buf);
+		if (rc != 0)
+			RETURN(rc);
+	}
+
+	rc = linkea_add_buf(&ldata, cname, pfid);
+	if (rc != 0)
+		RETURN(rc);
+
+	handle = dt_trans_create(env, mdd->mdd_bottom);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	rc = mdd_declare_links_add(env, obj, handle, &ldata);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start_local(env, mdd->mdd_bottom, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = mdd_links_write(env, obj, &ldata, handle);
+	GOTO(stop, rc);
+
+stop:
+	dt_trans_stop(env, mdd->mdd_bottom, handle);
+	return rc;
+}
+
 /** Setup ".lustre" directory object */
 static int mdd_dot_lustre_setup(const struct lu_env *env, struct mdd_device *m)
 {
 	struct md_object	*mdo;
+	struct mdd_object	*obj;
 	struct lu_fid		 fid;
 	int			 rc;
 
@@ -685,13 +736,22 @@ static int mdd_dot_lustre_setup(const struct lu_env *env, struct mdd_device *m)
 				   &fid);
 	if (rc < 0)
 		RETURN(rc);
+
 	mdo = mdo_locate(env, &m->mdd_md_dev, &fid);
 	if (IS_ERR(mdo))
 		RETURN(PTR_ERR(mdo));
 	LASSERT(lu_object_exists(&mdo->mo_lu));
 
-	m->mdd_dot_lustre = md2mdd_obj(mdo);
+	obj = md2mdd_obj(mdo);
+	rc = mdd_local_file_links_add(env, m, obj, &m->mdd_root_fid,
+				      dot_lustre_name);
+	if (rc < 0) {
+		CERROR("%s: error verify linkea for .lustre rc = %d.\n",
+		       mdd2obd_dev(m)->obd_name, rc);
+		GOTO(out, rc);
+	}
 
+	m->mdd_dot_lustre = obj;
 	rc = mdd_obf_setup(env, m);
 	if (rc) {
 		CERROR("%s: error initializing \"fid\" object: rc = %d.\n",
@@ -699,8 +759,9 @@ static int mdd_dot_lustre_setup(const struct lu_env *env, struct mdd_device *m)
 		GOTO(out, rc);
 	}
 	RETURN(0);
+
 out:
-	mdd_object_put(env, m->mdd_dot_lustre);
+	mdd_object_put(env, obj);
 	m->mdd_dot_lustre = NULL;
 	return rc;
 }
