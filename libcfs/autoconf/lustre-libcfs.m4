@@ -945,10 +945,11 @@ AC_CHECK_TYPE([__s64],
 AC_MSG_CHECKING([userspace __u64 is long long type])
 tmp_flags="$CFLAGS"
 CFLAGS="$CFLAGS -Werror"
-AC_COMPILE_IFELSE([
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([
 	#include <stdio.h>
 	#include <linux/types.h>
 	#include <linux/stddef.h>
+], [
 	int main(void) {
 		unsigned long long *data1;
 		__u64 *data2 = NULL;
@@ -957,6 +958,7 @@ AC_COMPILE_IFELSE([
 		data2 = data1;
 		return 0;
 	}
+])
 ],[
 	AC_MSG_RESULT([yes])
         AC_DEFINE(HAVE_USER__U64_LONG_LONG, 1,

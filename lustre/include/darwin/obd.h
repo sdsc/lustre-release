@@ -53,12 +53,12 @@ static inline void client_obd_list_lock_done(client_obd_lock_t *lock)
 
 static inline void client_obd_list_lock(client_obd_lock_t *lock)
 {
-        mutex_down(lock);
+        mutex_lock(lock);
 }
 
 static inline void client_obd_list_unlock(client_obd_lock_t *lock)
 {
-        mutex_up(lock);
+        mutex_unlock(lock);
 }
 
 #endif /* __DARWIN_OBD_H */

@@ -340,10 +340,17 @@ cfs_sigset_t cfs_block_allsigs(void)
 cfs_sigset_t cfs_block_sigs(unsigned long sigs)
 {
 	cfs_sigset_t   old;
-	cfs_sigset_t   blocks = { { sigs } }; /* kludge */
+	cfs_sigset_t   new;
+	int   i;
 	int   rc;
 
-	rc = sigprocmask(SIG_BLOCK, &blocks, &old);
+	rc = sigprocmask(SIG_BLOCK, NULL, &new);
+	for(i=0; i<BITS_PER_LONG; i++) {
+		if (sigs & (1 << i))
+			sigaddset(&new, i);
+	}
+	rc = sigprocmask(SIG_BLOCK, &new, &old);
+
 	LASSERT (rc == 0);
 
 	return old;
@@ -354,7 +361,16 @@ cfs_sigset_t cfs_block_sigs(unsigned long sigs)
 cfs_sigset_t cfs_block_sigsinv(unsigned long sigs)
 {
         cfs_sigset_t old;
+	cfs_sigset_t   new;
+	int   i;
         int rc;
+
+	rc = sigprocmask(SIG_BLOCK, NULL, &new);
+	for(i=0; i<BITS_PER_LONG; i++) {
+		if (sigs & (1 << i))
+			sigdelset(&new, i);
+	}
+	rc = sigprocmask(SIG_BLOCK, &new, &old);
 
         /* Return old blocked sigs */
         rc = sigprocmask(SIG_SETMASK, NULL, &old);

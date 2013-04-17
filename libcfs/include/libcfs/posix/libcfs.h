@@ -67,6 +67,7 @@
 #include <sys/utsname.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <limits.h>
 
 #ifdef HAVE_NETDB_H
 #include <netdb.h>
@@ -113,6 +114,10 @@ typedef unsigned long long cfs_cycles_t;
 #define PTR_ERR(a) ((long)(a))
 #define ERR_PTR(a) ((void*)((long)(a)))
 
+#ifndef HOST_NAME_MAX
+#define HOST_NAME_MAX _POSIX_HOST_NAME_MAX
+#endif
+
 /* this goes in posix-fs.h */
 #include <sys/mount.h>
 
@@ -123,8 +128,8 @@ typedef unsigned long long cfs_cycles_t;
 #define fget(x) NULL
 #define fput(f) do {} while (0)
 
-#ifdef __linux__
 /* Userpace byte flipping */
+#if defined(__linux__)
 # include <endian.h>
 # include <byteswap.h>
 # define __swab16(x) bswap_16(x)
@@ -133,6 +138,20 @@ typedef unsigned long long cfs_cycles_t;
 # define __swab16s(x) do {*(x) = bswap_16(*(x));} while (0)
 # define __swab32s(x) do {*(x) = bswap_32(*(x));} while (0)
 # define __swab64s(x) do {*(x) = bswap_64(*(x));} while (0)
+
+#elif defined(__APPLE__)
+#include <machine/endian.h>
+#include <machine/byte_order.h>
+# define __swab16(x) OSSwapInt16(x)
+# define __swab32(x) OSSwapInt32(x)
+# define __swab64(x) OSSwapInt64(x)
+# define __swab16s(x) do {*(x) = OSSwapInt16(*(x));} while (0)
+# define __swab32s(x) do {*(x) = OSSwapInt32(*(x));} while (0)
+# define __swab64s(x) do {*(x) = OSSwapInt64(*(x));} while (0)
+#else
+#error unsupported OS
+#endif
+
 # if __BYTE_ORDER == __LITTLE_ENDIAN
 #  define le16_to_cpu(x) (x)
 #  define cpu_to_le16(x) (x)
@@ -141,20 +160,20 @@ typedef unsigned long long cfs_cycles_t;
 #  define le64_to_cpu(x) (x)
 #  define cpu_to_le64(x) (x)
 
-#  define be16_to_cpu(x) bswap_16(x)
-#  define cpu_to_be16(x) bswap_16(x)
-#  define be32_to_cpu(x) bswap_32(x)
-#  define cpu_to_be32(x) bswap_32(x)
-#  define be64_to_cpu(x) (__u64)bswap_64(x)
-#  define cpu_to_be64(x) (__u64)bswap_64(x)
+#  define be16_to_cpu(x) __swab16(x)
+#  define cpu_to_be16(x) __swab16(x)
+#  define be32_to_cpu(x) __swab32(x)
+#  define cpu_to_be32(x) __swab32(x)
+#  define be64_to_cpu(x) (__u64)__swab64(x)
+#  define cpu_to_be64(x) (__u64)__swab64(x)
 # else
 #  if __BYTE_ORDER == __BIG_ENDIAN
-#   define le16_to_cpu(x) bswap_16(x)
-#   define cpu_to_le16(x) bswap_16(x)
-#   define le32_to_cpu(x) bswap_32(x)
-#   define cpu_to_le32(x) bswap_32(x)
-#   define le64_to_cpu(x) (__u64)bswap_64(x)
-#   define cpu_to_le64(x) (__u64)bswap_64(x)
+#   define le16_to_cpu(x) __swab16(x)
+#   define cpu_to_le16(x) __swab16(x)
+#   define le32_to_cpu(x) __swab32(x)
+#   define cpu_to_le32(x) __swab32(x)
+#   define le64_to_cpu(x) (__u64)__swab64(x)
+#   define cpu_to_le64(x) (__u64)__swab64(x)
 
 #   define be16_to_cpu(x) (x)
 #   define cpu_to_be16(x) (x)
@@ -167,35 +186,9 @@ typedef unsigned long long cfs_cycles_t;
 #   error "Unknown byte order"
 #  endif /* __BIG_ENDIAN */
 # endif /* __LITTLE_ENDIAN */
-#elif __APPLE__
-#define __cpu_to_le64(x)                        OSSwapHostToLittleInt64(x)
-#define __cpu_to_le32(x)                        OSSwapHostToLittleInt32(x)
-#define __cpu_to_le16(x)                        OSSwapHostToLittleInt16(x)
 
-#define __le16_to_cpu(x)                        OSSwapLittleToHostInt16(x)
-#define __le32_to_cpu(x)                        OSSwapLittleToHostInt32(x)
-#define __le64_to_cpu(x)                        OSSwapLittleToHostInt64(x)
-
-#define cpu_to_le64(x)                          __cpu_to_le64(x)
-#define cpu_to_le32(x)                          __cpu_to_le32(x)
-#define cpu_to_le16(x)                          __cpu_to_le16(x)
-
-#define le64_to_cpu(x)                          __le64_to_cpu(x)
-#define le32_to_cpu(x)                          __le32_to_cpu(x)
-#define le16_to_cpu(x)                          __le16_to_cpu(x)
-
-#define __swab16(x)                             OSSwapInt16(x)
-#define __swab32(x)                             OSSwapInt32(x)
-#define __swab64(x)                             OSSwapInt64(x)
-#define __swab16s(x)                            do { *(x) = __swab16(*(x)); } while (0)
-#define __swab32s(x)                            do { *(x) = __swab32(*(x)); } while (0)
-#define __swab64s(x)                            do { *(x) = __swab64(*(x)); } while (0)
-#endif
-
-#if !defined(ALIGN)
 #define __ALIGN_MASK(x, mask)	(((x) + (mask)) & ~(mask))
-#define ALIGN(x, a)		__ALIGN_MASK(x, (typeof(x))(a) - 1)
-#endif
+#define CFS_ALIGN(x, a)		__ALIGN_MASK(x, (typeof(x))(a) - 1)
 
 # ifndef THREAD_SIZE /* x86_64 linux has THREAD_SIZE in userspace */
 #  define CFS_THREAD_SIZE 8192
@@ -495,5 +488,9 @@ typedef ssize_t (*read_actor_t)();
 #  define IFTODT(type)		(((type) & S_IFMT) >> IFSHIFT)
 #  define DTTOIF(dirtype)	((dirtype) << IFSHIFT)
 # endif
+
+#define MAXQUOTAS 2
+#define USRQUOTA  0		/* element used for user quotas */
+#define GRPQUOTA  1		/* element used for group quotas */
 
 #endif
