@@ -126,7 +126,7 @@ if test x$enable_spl_build = xyes; then
 
 	SPL_SUBDIR="$SPL_DIR"
 	AC_SUBST(SPL_SUBDIR)
-	AC_CONFIG_SUBDIRS("spl")
+	AC_CONFIG_SUBDIRS([spl])
 else
 	enable_spl_build='no'
 	AC_MSG_RESULT([$enable_spl_build])
@@ -362,7 +362,7 @@ if test x$enable_zfs_build = xyes; then
 
 	ZFS_SUBDIR="$ZFS_DIR"
 	AC_SUBST(ZFS_SUBDIR)
-	AC_CONFIG_SUBDIRS("zfs")
+	AC_CONFIG_SUBDIRS([zfs])
 
 	ac_configure_args="$ac_configure_args --with-spl=$SPL_DIR"
 	ac_configure_args="$ac_configure_args --with-spl-obj=$SPL_OBJ"
