@@ -42,7 +42,9 @@
 #ifndef _LUSTRE_POSIX_TYPES_H
 #define _LUSTRE_POSIX_TYPES_H
 
-#include <asm/types.h>
+#ifdef HAVE_LINUX_TYPES_H
+# include <linux/types.h>
+#endif
 #include <stdbool.h> /* for bool */
 #ifndef HAVE_UMODE_T
 typedef unsigned short cfs_umode_t;
@@ -95,6 +97,12 @@ typedef __signed__ long long __s64;
 typedef unsigned long long __u64;
 # endif
 #endif
+
+#ifndef __linux__
+typedef off_t loff_t;
+#endif
+
+typedef struct statfs cfs_kstatfs_t;
 
 /* long integer with size equal to pointer */
 typedef unsigned long ulong_ptr_t;

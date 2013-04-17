@@ -102,6 +102,8 @@
 #ifdef __KERNEL__
 #        include <linux/mutex.h>
 #        include <linux/radix-tree.h>
+#else
+#        include <libcfs/libcfs.h>
 #endif
 
 struct inode;
@@ -2761,7 +2763,7 @@ static inline int cl_object_same(struct cl_object *o0, struct cl_object *o1)
 static inline void cl_object_page_init(struct cl_object *clob, int size)
 {
 	clob->co_slice_off = cl_object_header(clob)->coh_page_bufsize;
-	cl_object_header(clob)->coh_page_bufsize += ALIGN(size, 8);
+	cl_object_header(clob)->coh_page_bufsize += CFS_ALIGN(size, 8);
 }
 
 static inline void *cl_object_page_slice(struct cl_object *clob,

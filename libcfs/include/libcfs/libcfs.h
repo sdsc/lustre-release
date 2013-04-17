@@ -63,6 +63,10 @@
 #define ARRAY_SIZE(a) ((sizeof (a)) / (sizeof ((a)[0])))
 #endif
 
+#ifdef __linux__
+#define CFS_ALIGN ALIGN
+#endif
+
 #if !defined(swap)
 #define swap(x,y) do { typeof(x) z = x; x = y; y = z; } while (0)
 #endif

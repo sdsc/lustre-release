@@ -340,7 +340,7 @@ cfs_sigset_t cfs_block_allsigs(void)
 cfs_sigset_t cfs_block_sigs(unsigned long sigs)
 {
 	cfs_sigset_t   old;
-	cfs_sigset_t   blocks = { { sigs } }; /* kludge */
+	cfs_sigset_t   blocks = { sigs }; /* kludge */
 	int   rc;
 
 	rc = sigprocmask(SIG_BLOCK, &blocks, &old);

@@ -308,12 +308,12 @@ static inline void mutex_init(struct mutex *mutex)
 	sema_init(mutex, 1);
 }
 
-static inline void mutex_lock(struct mutex *mutex)
+static inline void mutex_down(struct mutex *mutex)
 {
 	down(mutex);
 }
 
-static inline void mutex_unlock(struct mutex *mutex)
+static inline void mutex_up(struct mutex *mutex)
 {
 	up(mutex);
 }
