@@ -363,8 +363,9 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	rc = osd_xattr_get(env, &obj->oo_dt, &buf, XATTR_NAME_LMA, BYPASS_CAPA);
 	if (rc > 0) {
 		rc = 0;
-		if (unlikely(le32_to_cpu(lma->lma_incompat) &
-			     ~LMA_INCOMPAT_SUPP)) {
+		if (unlikely((le32_to_cpu(lma->lma_incompat) &
+			      ~LMA_INCOMPAT_SUPP) ||
+			     CFS_FAIL_CHECK(OBD_FAIL_OSD_LMA_INCOMPAT))) {
 			CWARN("%s: unsupported incompat LMA feature(s) %#x for "
 			      DFID"\n", osd_obj2dev(obj)->od_svname,
 			      le32_to_cpu(lma->lma_incompat) &
