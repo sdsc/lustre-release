@@ -3,13 +3,13 @@ AC_INIT(libsysio, 1.2)
 AC_CANONICAL_SYSTEM
 
 case "$host_os" in
-  aix*)
-  	;;
-  linux*)
-	;;
-  *)
-	AC_MSG_WARN('***' ${host_os}: Unsupported OS target)
-	;;
+	aix*)
+		;;
+	linux*)
+		;;
+	*)
+		AC_MSG_WARN('***' ${host_os}: Unsupported OS target)
+		;;
 esac
 
 AM_INIT_AUTOMAKE([subdir-objects 1.9 tar-ustar])
@@ -32,12 +32,12 @@ have_lib_dir=yes;
 AC_ARG_WITH(lib-dir,
   AC_HELP_STRING([--with-lib-dir=<sysio lib build directory>],
   [directory for sysio library]),
-  [     case "${withval}" in
-         "yes"|"no"|"") have_lib_dir=no ;;
-         *) LIBBUILD_DIR=${withval};
-            test -d ${LIBBUILD_DIR} || mkdir ${LIBBUILD_DIR} ||
-                have_lib_dir=no;;
-        esac;],
+  [    case "${withval}" in
+	"yes"|"no"|"") have_lib_dir=no ;;
+	*) LIBBUILD_DIR=${withval};
+		test -d ${LIBBUILD_DIR} || mkdir ${LIBBUILD_DIR} ||
+		have_lib_dir=no;;
+	esac;],
   [ LIBBUILD_DIR=`pwd`/lib;
     test -d ${LIBBUILD_DIR} || mkdir ${LIBBUILD_DIR} || have_lib_dir=no;])
 if test x${have_lib_dir} = xyes; then
@@ -59,7 +59,7 @@ AM_CONDITIONAL(WITH_NATIVE_DRIVER, test x$with_native_driver = xyes)
 
 AC_ARG_WITH(incore-driver,
   AC_HELP_STRING([--with-incore-driver],[build incore test driver]),
-  [ 	case "${withval}" in
+  [	case "${withval}" in
 	 yes) ;;
 	 no) ;;
 	 *) AC_MSG_ERROR(bad value ${withval} for --with-incore-driver) ;;
@@ -81,7 +81,7 @@ AC_ARG_WITH(automount,
   AC_HELP_STRING([--with-automount@<:@=<automount-file-name>@:>@],
     [with automounts @<:@<automount-file-name>=.mount@:>@]),
   [	if test x${withval} = xyes; then
-	 AUTOMOUNT=-DAUTOMOUNT_FILE_NAME="\\\".mount\\\"" 
+	 AUTOMOUNT=-DAUTOMOUNT_FILE_NAME="\\\".mount\\\""
 	elif test x${withval} != x; then
 	 AUTOMOUNT=-DAUTOMOUNT_FILE_NAME="\\\"${withval}\\\""
 	fi])
@@ -133,7 +133,7 @@ AC_SUBST(TRACING)
 
 AC_ARG_WITH(cplant_yod,
    AC_HELP_STRING([--with-cplant-yod],[build cplant yod I/O driver]),
-   [	case "${withval}" in	
+   [	case "${withval}" in
 	yes) if test x${with_stdfd_dev} != xyes; then
 		with_stdfd_dev=yes
 		AM_CONDITIONAL(WITH_STDFD_DEV, test x$with_stdfd_dev = xyes)
@@ -151,13 +151,13 @@ AC_ARG_WITH(cplant_tests,
 	yes) AC_MSG_ERROR(need path to compiler for --with-cplant-tests);;
 	no)  with_cplant_tests=no;;
 	*) CC=${withval}
-	   CCDEPMODE=${CC} 
+	   CCDEPMODE=${CC}
 	   CPP="${CC} -E"
 	   AC_CHECK_FILE(${CC},
 		[ if test x${with_cplant_yod} != xyes; then
-                	with_cplant_yod=yes
-                	AM_CONDITIONAL(WITH_CPLANT_YOD, test x$with_cplant_yod = xyes)
-             	  fi],
+			with_cplant_yod=yes
+			AM_CONDITIONAL(WITH_CPLANT_YOD, test x$with_cplant_yod = xyes)
+		  fi],
 		[ AC_MSG_ERROR(path not found ${CC} for --with-cplant-tests) ]);;
 	esac],
     [with_cplant_tests=no])
@@ -313,16 +313,16 @@ if test x$sysio_largefile64_source_required = xmaybe; then
 #include <sys/stat.h>
 #include <unistd.h>], [
 struct stat64 st64;],
-		       sysio_largefile64_source_required=yes,
-		       sysio_largefile64_source_required=no)
+		sysio_largefile64_source_required=yes,
+		sysio_largefile64_source_required=no)
 fi
 AC_MSG_RESULT($sysio_largefile64_source_required)
 if test x$sysio_largefile64_source_required = xyes; then
 	AC_DEFINE(_LARGEFILE64_SOURCE)
 fi
 
-# Alpha linux defines 
-# 
+# Alpha linux defines
+#
 AC_MSG_CHECKING(for alpha linux)
 alpha_linux_env=no
 if test `expr ${machine} : "alpha"` = 5 && \
@@ -333,7 +333,7 @@ fi
 AC_MSG_RESULT($alpha_linux_env)
 AM_CONDITIONAL(TEST_ALPHA_ARG, test x$alpha_linux_env = xyes)
 
-# Check for __st_ino 
+# Check for __st_ino
 #
 AC_MSG_CHECKING(for __st_ino)
 AC_TRY_COMPILE([
@@ -347,7 +347,7 @@ if test x$have__st_ino = xyes; then
 	AC_DEFINE(HAVE__ST_INO)
 fi
 
-# Check for st_gen 
+# Check for st_gen
 #
 AC_MSG_CHECKING(for st_gen)
 AC_TRY_COMPILE([
@@ -366,8 +366,8 @@ tmp_flags="$CFLAGS"
 CFLAGS="$CFLAGS -Wall -Werror"
 AC_TRY_COMPILE([
 #include <sys/uio.h>
-ssize_t preadv (int __fd, const struct iovec *__iovec,
-                int __count, off_t off)
+ssize_t preadv(int __fd, const struct iovec *__iovec,
+		int __count, off_t off)
 {
     return 0;
 }
@@ -393,13 +393,13 @@ int scandir(const char *dir,
 	 struct dirent ***namelist,
 	 int(*filter)(const struct dirent *),
 	 int(*compar)(const struct dirent **,
-	              const struct dirent **)
+		      const struct dirent **)
 	);
 
 ],[
 ], [
 AC_DEFINE(HAVE_POSIX2008_SCANDIR, 1, [POSIX 2008 scandir])
-AC_MSG_RESULT(yes) 
+AC_MSG_RESULT(yes)
 ],[
 AC_MSG_RESULT(no)
 ])
@@ -411,8 +411,8 @@ tmp_flags="$CFLAGS"
 CFLAGS="$CFLAGS -Wall -Werror"
 AC_TRY_COMPILE([
 #include <sys/uio.h>
-ssize_t preadv (int __fd, const struct iovec *__iovec,
-                int __count, off_t off)
+ssize_t preadv(int __fd, const struct iovec *__iovec,
+		int __count, off_t off)
 {
     return 0;
 }
@@ -435,16 +435,16 @@ AC_TRY_COMPILE([
 #include <dirent.h>
 
 int scandir(const char *dir,
-        struct dirent ***namelist,
-        int(*filter)(const struct dirent *),
-        int(*compar)(const struct dirent **,
-                     const struct dirent **)
-       );
+	     struct dirent ***namelist,
+	     int(*filter)(const struct dirent *),
+	     int(*compar)(const struct dirent **,
+	     const struct dirent **)
+	    );
 
 ],[
 ], [
 AC_DEFINE(HAVE_POSIX2008_SCANDIR, 1, [POSIX 2008 scandir])
-AC_MSG_RESULT(yes) 
+AC_MSG_RESULT(yes)
 ],[
 AC_MSG_RESULT(no)
 ])
@@ -514,7 +514,7 @@ EOF
 #fi
 
 AC_CACHE_CHECK(for assembler .weak directive, am_cv_sysio_asm_weak_directive,
-	       [dnl
+		[dnl
 cat > conftest.s <<EOF
 ${am_cv_sysio_asm_dot_text}
 foo:
