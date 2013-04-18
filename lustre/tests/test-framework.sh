@@ -1646,8 +1646,9 @@ node_var_name() {
 }
 
 start_client_load() {
-    local client=$1
-    local load=$2
+    local client_count=$1
+    local client=$2
+    local load=$3
     local var=$(node_var_name $client)_load
     eval export ${var}=$load
 
@@ -1659,6 +1660,7 @@ TESTLOG_PREFIX=$TESTLOG_PREFIX \
 TESTNAME=$TESTNAME \
 DBENCH_LIB=$DBENCH_LIB \
 DBENCH_SRC=$DBENCH_SRC \
+CLIENT_COUNT=$((client_count - 1)) \
 LFS=$LFS \
 run_${load}.sh" &
     local ppid=$!
@@ -1677,7 +1679,7 @@ start_client_loads () {
 
     for ((nodenum=0; nodenum < ${#clients[@]}; nodenum++ )); do
         testnum=$((nodenum % numloads))
-        start_client_load ${clients[nodenum]} ${CLIENT_LOADS[testnum]}
+        start_client_load $clients ${clients[nodenum]} ${CLIENT_LOADS[testnum]}
     done
     # bug 22169: wait the background threads to start
     sleep 2
