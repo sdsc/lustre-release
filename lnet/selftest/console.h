@@ -225,10 +225,20 @@ extern int lstcon_group_stat(char *grp_name, int timeout,
                              cfs_list_t *result_up);
 extern int lstcon_nodes_stat(int count, lnet_process_id_t *ids_up,
                              int timeout, cfs_list_t *result_up);
-extern int lstcon_test_add(char *name, int type, int loop, int concur,
-                           int dist, int span, char *src_name, char * dst_name,
-                           void *param, int paramlen, int *retp,
-                           cfs_list_t *result_up);
+extern int lstcon_test_add(lstcon_batch_t *batch, int type, int loop,
+			   int concur, int dist, int span,
+			   lstcon_group_t *src_grp, lstcon_group_t *dst_grp,
+			   void *param, int paramlen, int *retp,
+			   cfs_list_t *result_up);
+
+/*
+ * LU 3093: ensure that the batches are created and the groups exist with
+ * at least one active node
+ */
+extern int lstcon_batch_find(const char *name, lstcon_batch_t **batch);
+extern int lstcon_group_find(const char *name, lstcon_group_t **group);
+extern void lstcon_group_put(lstcon_group_t *grp);
+
 #endif
 
 #endif
