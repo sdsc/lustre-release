@@ -722,14 +722,67 @@ lst_stat_query_ioctl(lstio_stat_args_t *args)
         return rc;
 }
 
+static int
+lst_verify_batch(char *name, lstcon_batch_t **batch)
+{
+        int              rc;
+
+        rc = lstcon_batch_find(name, batch);
+        if (rc != 0) {
+                CDEBUG(D_NET, "Can't find batch %s\n", name);
+                return rc;
+        }
+
+        if ((*batch)->bat_state != LST_BATCH_IDLE) {
+                CDEBUG(D_NET, "Can't change running batch %s\n", name);
+                rc = -EINVAL;
+        }
+
+	return rc;
+}
+
+static int
+lst_verify_group(char *name, lstcon_group_t **grp)
+{
+	int			rc;
+	lstcon_ndlink_t		*ndl;
+	bool			has_active_nodes = false;
+
+        rc = lstcon_group_find(name, grp);
+        if (rc != 0) {
+                CDEBUG(D_NET, "can't find group %s\n", name);
+                return rc;
+        }
+
+	/*
+	 * examine the group and ensure it has at least one active node
+	 */
+	cfs_list_for_each_entry_typed(ndl, &(*grp)->grp_ndl_list,
+				      lstcon_ndlink_t, ndl_link) {
+		if (ndl->ndl_node->nd_state == LST_NODE_ACTIVE) {
+			has_active_nodes = true;
+		}
+	}
+
+	if (!has_active_nodes) {
+		CDEBUG(D_NET, "group %s has no ACTIVE nodes\n", name);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 int lst_test_add_ioctl(lstio_test_args_t *args)
 {
         char           *name;
-        char           *srcgrp = NULL;
-        char           *dstgrp = NULL;
+        char           *src_name = NULL;
+        char           *dst_name = NULL;
         void           *param = NULL;
         int             ret = 0;
         int             rc = -ENOMEM;
+	lstcon_group_t *src_grp = NULL;
+	lstcon_group_t *dst_grp = NULL;
+	lstcon_batch_t *batch = NULL;
 
         if (args->lstio_tes_resultp == NULL ||
             args->lstio_tes_retp == NULL ||
@@ -760,12 +813,12 @@ int lst_test_add_ioctl(lstio_test_args_t *args)
         if (name == NULL)
                 return rc;
 
-        LIBCFS_ALLOC(srcgrp, args->lstio_tes_sgrp_nmlen + 1);
-        if (srcgrp == NULL) 
+        LIBCFS_ALLOC(src_name, args->lstio_tes_sgrp_nmlen + 1);
+        if (src_name == NULL)
                 goto out;
 
-        LIBCFS_ALLOC(dstgrp, args->lstio_tes_dgrp_nmlen + 1);
-	 if (dstgrp == NULL)
+        LIBCFS_ALLOC(dst_name, args->lstio_tes_dgrp_nmlen + 1);
+	 if (dst_name == NULL)
                 goto out;
 
         if (args->lstio_tes_param != NULL) {
@@ -778,36 +831,64 @@ int lst_test_add_ioctl(lstio_test_args_t *args)
         if (cfs_copy_from_user(name,
                               args->lstio_tes_bat_name,
                               args->lstio_tes_bat_nmlen) ||
-            cfs_copy_from_user(srcgrp,
+            cfs_copy_from_user(src_name,
                               args->lstio_tes_sgrp_name,
                               args->lstio_tes_sgrp_nmlen) ||
-            cfs_copy_from_user(dstgrp,
+            cfs_copy_from_user(dst_name,
                               args->lstio_tes_dgrp_name,
                               args->lstio_tes_dgrp_nmlen) ||
             cfs_copy_from_user(param, args->lstio_tes_param,
                               args->lstio_tes_param_len))
                 goto out;
 
-        rc = lstcon_test_add(name,
+	/*
+	 * verify that a batch of the given name exists, and the groups
+	 * that will be part of the batch exist and have at least one
+	 * active node
+	 */
+	rc = lst_verify_batch(name, &batch);
+	if (rc != 0)
+		goto out;
+
+	rc = lst_verify_group(src_name, &src_grp);
+	if (rc != 0)
+		goto failed;
+
+	rc = lst_verify_group(dst_name, &dst_grp);
+	if (rc != 0)
+		goto failed;
+
+        rc = lstcon_test_add(batch,
                             args->lstio_tes_type,
                             args->lstio_tes_loop,
                             args->lstio_tes_concur,
                             args->lstio_tes_dist, args->lstio_tes_span,
-                            srcgrp, dstgrp, param, args->lstio_tes_param_len,
+                            src_grp, dst_grp, param, args->lstio_tes_param_len,
                             &ret, args->lstio_tes_resultp);
 
         if (ret != 0)
                 rc = (cfs_copy_to_user(args->lstio_tes_retp, &ret,
                                        sizeof(ret))) ? -EFAULT : 0;
+
+	/* everything is good skip the failed processing */
+	goto out;
+
+failed:
+	if (src_grp != NULL)
+		lstcon_group_put(src_grp);
+
+	if (dst_grp != NULL)
+		lstcon_group_put(dst_grp);
+
 out:
         if (name != NULL)
                 LIBCFS_FREE(name, args->lstio_tes_bat_nmlen + 1);
 
-        if (srcgrp != NULL)
-                LIBCFS_FREE(srcgrp, args->lstio_tes_sgrp_nmlen + 1);
+        if (src_name != NULL)
+                LIBCFS_FREE(src_name, args->lstio_tes_sgrp_nmlen + 1);
 
-        if (dstgrp != NULL)
-                LIBCFS_FREE(dstgrp, args->lstio_tes_dgrp_nmlen + 1);
+        if (dst_name != NULL)
+                LIBCFS_FREE(dst_name, args->lstio_tes_dgrp_nmlen + 1);
 
         if (param != NULL)
                 LIBCFS_FREE(param, args->lstio_tes_param_len);
