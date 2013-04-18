@@ -208,13 +208,16 @@ int cl_page_gang_lookup(const struct lu_env *env, struct cl_object *obj,
                         page = pvec[i];
                         pvec[i] = NULL;
 
-                        LASSERT(page->cp_type == CPT_CACHEABLE);
                         if (page->cp_index > end) {
                                 end_of_region = 1;
                                 break;
                         }
                         if (page->cp_state == CPS_FREEING)
                                 continue;
+                        if (page->cp_type == CPT_TRANSIENT) {
+                                /* God, we found a transient page!*/
+                                continue;
+                        }
 
                         slice = cl_page_at_trusted(page, dtype);
                         /*
@@ -347,7 +350,8 @@ static struct cl_page *cl_page_alloc(const struct lu_env *env,
 				result = o->co_ops->coo_page_init(env, o,
 								  page, vmpage);
 				if (result != 0) {
-					cl_page_delete0(env, page, 0);
+                                        cl_page_state_set_trust(page,
+                                                                CPS_FREEING);
 					cl_page_free(env, page);
 					page = ERR_PTR(result);
 					break;
@@ -382,7 +386,7 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
                                      enum cl_page_type type,
                                      struct cl_page *parent)
 {
-        struct cl_page          *page = NULL;
+        struct cl_page          *page;
         struct cl_page          *ghost = NULL;
         struct cl_object_header *hdr;
         int err;
@@ -417,8 +421,11 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
                              cl_page_vmpage(env, page) == vmpage &&
                              (void *)radix_tree_lookup(&hdr->coh_tree,
                                                        idx) == page));
+        } else {
+                spin_lock(&hdr->coh_page_guard);
+                page = cl_page_lookup(hdr, idx);
+                spin_unlock(&hdr->coh_page_guard);
         }
-
         if (page != NULL) {
 		CS_PAGE_INC(o, hit);
                 RETURN(page);
@@ -428,16 +435,6 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
         page = cl_page_alloc(env, o, idx, vmpage, type);
         if (IS_ERR(page))
                 RETURN(page);
-
-        if (type == CPT_TRANSIENT) {
-                if (parent) {
-                        LASSERT(page->cp_parent == NULL);
-                        page->cp_parent = parent;
-                        parent->cp_child = page;
-                }
-                RETURN(page);
-        }
-
         /*
          * XXX optimization: use radix_tree_preload() here, and change tree
          * gfp mask to GFP_KERNEL in cl_object_header_init().
@@ -460,8 +457,27 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
                  *     which is very useful during diagnosing and debugging.
                  */
                 page = ERR_PTR(err);
-                CL_PAGE_DEBUG(D_ERROR, env, ghost,
-                              "fail to insert into radix tree: %d\n", err);
+                if (err == -EEXIST) {
+                        /*
+                         * XXX in case of a lookup for CPT_TRANSIENT page,
+                         * nothing protects a CPT_CACHEABLE page from being
+                         * concurrently moved into CPS_FREEING state.
+                         */
+                        page = cl_page_lookup(hdr, idx);
+                        PASSERT(env, page, page != NULL);
+                        if (page->cp_type == CPT_TRANSIENT &&
+                            type == CPT_CACHEABLE) {
+                                /* XXX: We should make sure that inode sem
+                                 * keeps being held in the lifetime of
+                                 * transient pages, so it is impossible to
+                                 * have conflicting transient pages.
+                                 */
+                                spin_unlock(&hdr->coh_page_guard);
+                                cl_page_put(env, page);
+                                spin_lock(&hdr->coh_page_guard);
+                                page = ERR_PTR(-EBUSY);
+                        }
+                }
         } else {
                 if (parent) {
                         LASSERT(page->cp_parent == NULL);
@@ -1107,27 +1123,27 @@ static void cl_page_delete0(const struct lu_env *env, struct cl_page *pg,
         CL_PAGE_INVOID(env, pg, CL_PAGE_OP(cpo_delete),
                        (const struct lu_env *, const struct cl_page_slice *));
 
-        if (tmp->cp_type == CPT_CACHEABLE) {
-                if (!radix)
-                        /* !radix means that @pg is not yet in the radix tree,
-                         * skip removing it.
-                         */
-                        tmp = pg->cp_child;
-                for (; tmp != NULL; tmp = tmp->cp_child) {
-                        void                    *value;
-                        struct cl_object_header *hdr;
+	if (!radix)
+		/* !radix means that @pg is not yet in the radix tree,
+		 * skip removing it.
+		 */
+		tmp = pg->cp_child;
+	for (; tmp != NULL; tmp = tmp->cp_child) {
+		void                    *value;
+		struct cl_object_header *hdr;
 
-                        hdr = cl_object_header(tmp->cp_obj);
-			spin_lock(&hdr->coh_page_guard);
-			value = radix_tree_delete(&hdr->coh_tree,
-						  tmp->cp_index);
-			PASSERT(env, tmp, value == tmp);
-			PASSERT(env, tmp, hdr->coh_pages > 0);
-			hdr->coh_pages--;
-			spin_unlock(&hdr->coh_page_guard);
+		hdr = cl_object_header(tmp->cp_obj);
+		spin_lock(&hdr->coh_page_guard);
+		value = radix_tree_delete(&hdr->coh_tree,
+					  tmp->cp_index);
+		PASSERT(env, tmp, value == tmp);
+		PASSERT(env, tmp, hdr->coh_pages > 0);
+		hdr->coh_pages--;
+		spin_unlock(&hdr->coh_page_guard);
+
+		if (tmp->cp_type == CPT_CACHEABLE)
 			cl_page_put(env, tmp);
-                }
-        }
+	}
 
         EXIT;
 }
