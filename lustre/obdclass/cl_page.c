@@ -352,6 +352,7 @@ static struct cl_page *cl_page_alloc(const struct lu_env *env,
 				if (result != 0) {
                                         cl_page_state_set_trust(page,
                                                                 CPS_FREEING);
+					cl_page_delete0(env, page, 0);
 					cl_page_free(env, page);
 					page = ERR_PTR(result);
 					break;
