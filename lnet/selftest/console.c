@@ -268,7 +268,7 @@ lstcon_group_decref(lstcon_group_t *grp)
                                   grp_ndl_hash[LST_NODE_HASHSIZE]));
 }
 
-static int
+int
 lstcon_group_find(char *name, lstcon_group_t **grpp)
 {
         lstcon_group_t   *grp;
@@ -286,7 +286,7 @@ lstcon_group_find(char *name, lstcon_group_t **grpp)
         return -ENOENT;
 }
 
-static void
+void
 lstcon_group_put(lstcon_group_t *grp)
 {
         lstcon_group_decref(grp);
@@ -1248,39 +1248,14 @@ again:
 }
 
 int
-lstcon_test_add(char *name, int type, int loop, int concur,
-                int dist, int span, char *src_name, char * dst_name,
-                void *param, int paramlen, int *retp,
-                cfs_list_t *result_up)
+lstcon_test_add(lstcon_batch_t *batch, int type, int loop,
+		int concur, int dist, int span,
+		lstcon_group_t *src_grp, lstcon_group_t *dst_grp,
+		void *param, int paramlen, int *retp,
+		cfs_list_t *result_up)
 {
-        lstcon_group_t  *src_grp = NULL;
-        lstcon_group_t  *dst_grp = NULL;
         lstcon_test_t   *test    = NULL;
-        lstcon_batch_t  *batch;
         int              rc;
-
-        rc = lstcon_batch_find(name, &batch);
-        if (rc != 0) {
-                CDEBUG(D_NET, "Can't find batch %s\n", name);
-                return rc;
-        }
-
-        if (batch->bat_state != LST_BATCH_IDLE) {
-                CDEBUG(D_NET, "Can't change running batch %s\n", name);
-                return rc;
-        }
-
-        rc = lstcon_group_find(src_name, &src_grp);
-        if (rc != 0) {
-                CDEBUG(D_NET, "Can't find group %s\n", src_name);
-                goto out;
-        }
-
-        rc = lstcon_group_find(dst_name, &dst_grp);
-        if (rc != 0) {
-                CDEBUG(D_NET, "Can't find group %s\n", dst_name);
-                goto out;
-        }
 
         if (dst_grp->grp_userland)
                 *retp = 1;
@@ -1320,7 +1295,8 @@ lstcon_test_add(char *name, int type, int loop, int concur,
 
         if (lstcon_trans_stat()->trs_rpc_errno != 0 ||
             lstcon_trans_stat()->trs_fwk_errno != 0)
-                CDEBUG(D_NET, "Failed to add test %d to batch %s\n", type, name);
+                CDEBUG(D_NET, "Failed to add test %d to batch %s\n", type,
+		       batch->bat_name);
 
         /* add to test list anyway, so user can check what's going on */
         cfs_list_add_tail(&test->tes_link, &batch->bat_test_list);
@@ -1334,11 +1310,9 @@ out:
         if (test != NULL)
                 LIBCFS_FREE(test, offsetof(lstcon_test_t, tes_param[paramlen]));
 
-        if (dst_grp != NULL)
-                lstcon_group_put(dst_grp);
+        lstcon_group_put(dst_grp);
 
-        if (src_grp != NULL)
-                lstcon_group_put(src_grp);
+        lstcon_group_put(src_grp);
 
         return rc;
 }
