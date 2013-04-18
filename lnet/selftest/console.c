@@ -268,25 +268,25 @@ lstcon_group_decref(lstcon_group_t *grp)
                                   grp_ndl_hash[LST_NODE_HASHSIZE]));
 }
 
-static int
-lstcon_group_find(char *name, lstcon_group_t **grpp)
+int
+lstcon_group_find(const char *name, lstcon_group_t **grpp)
 {
-        lstcon_group_t   *grp;
+	lstcon_group_t	 *grp;
 
-        cfs_list_for_each_entry_typed(grp, &console_session.ses_grp_list,
-                                      lstcon_group_t, grp_link) {
-                if (strncmp(grp->grp_name, name, LST_NAME_SIZE) != 0)
-                        continue;
+	cfs_list_for_each_entry_typed(grp, &console_session.ses_grp_list,
+				      lstcon_group_t, grp_link) {
+		if (strncmp(grp->grp_name, name, LST_NAME_SIZE) != 0)
+			continue;
 
-                lstcon_group_addref(grp);  /* +1 ref for caller */
-                *grpp = grp;
-                return 0;
-        }
+		lstcon_group_addref(grp);  /* +1 ref for caller */
+		*grpp = grp;
+		return 0;
+	}
 
-        return -ENOENT;
+	return -ENOENT;
 }
 
-static void
+void
 lstcon_group_put(lstcon_group_t *grp)
 {
         lstcon_group_decref(grp);
@@ -297,7 +297,7 @@ lstcon_group_ndlink_find(lstcon_group_t *grp, lnet_process_id_t id,
                          lstcon_ndlink_t **ndlpp, int create)
 {
         int     rc;
-        
+
         rc = lstcon_ndlink_find(&grp->grp_ndl_hash[0], id, ndlpp, create);
         if (rc != 0)
                 return rc;
@@ -838,19 +838,19 @@ lstcon_group_info(char *name, lstcon_ndlist_ent_t *gents_p,
 }
 
 int
-lstcon_batch_find(char *name, lstcon_batch_t **batpp)
+lstcon_batch_find(const char *name, lstcon_batch_t **batpp)
 {
-        lstcon_batch_t   *bat;
+	lstcon_batch_t	 *bat;
 
-        cfs_list_for_each_entry_typed(bat, &console_session.ses_bat_list,
-                                      lstcon_batch_t, bat_link) {
-                if (strncmp(bat->bat_name, name, LST_NAME_SIZE) == 0) {
-                        *batpp = bat;
-                        return 0;
-                }
-        }
+	cfs_list_for_each_entry_typed(bat, &console_session.ses_bat_list,
+				      lstcon_batch_t, bat_link) {
+		if (strncmp(bat->bat_name, name, LST_NAME_SIZE) == 0) {
+			*batpp = bat;
+			return 0;
+		}
+	}
 
-        return -ENOENT;
+	return -ENOENT;
 }
 
 int
@@ -1248,99 +1248,72 @@ again:
 }
 
 int
-lstcon_test_add(char *name, int type, int loop, int concur,
-                int dist, int span, char *src_name, char * dst_name,
-                void *param, int paramlen, int *retp,
-                cfs_list_t *result_up)
+lstcon_test_add(lstcon_batch_t *batch, int type, int loop,
+		int concur, int dist, int span,
+		lstcon_group_t *src_grp, lstcon_group_t *dst_grp,
+		void *param, int paramlen, int *retp,
+		cfs_list_t *result_up)
 {
-        lstcon_group_t  *src_grp = NULL;
-        lstcon_group_t  *dst_grp = NULL;
-        lstcon_test_t   *test    = NULL;
-        lstcon_batch_t  *batch;
-        int              rc;
+	lstcon_test_t	*test	 = NULL;
+	int		 rc;
 
-        rc = lstcon_batch_find(name, &batch);
-        if (rc != 0) {
-                CDEBUG(D_NET, "Can't find batch %s\n", name);
-                return rc;
-        }
+	if (dst_grp->grp_userland)
+		*retp = 1;
 
-        if (batch->bat_state != LST_BATCH_IDLE) {
-                CDEBUG(D_NET, "Can't change running batch %s\n", name);
-                return rc;
-        }
+	LIBCFS_ALLOC(test, offsetof(lstcon_test_t, tes_param[paramlen]));
+	if (!test) {
+		CERROR("Can't allocate test descriptor\n");
+		rc = -ENOMEM;
 
-        rc = lstcon_group_find(src_name, &src_grp);
-        if (rc != 0) {
-                CDEBUG(D_NET, "Can't find group %s\n", src_name);
-                goto out;
-        }
+		goto out;
+	}
 
-        rc = lstcon_group_find(dst_name, &dst_grp);
-        if (rc != 0) {
-                CDEBUG(D_NET, "Can't find group %s\n", dst_name);
-                goto out;
-        }
+	memset(test, 0, offsetof(lstcon_test_t, tes_param[paramlen]));
+	test->tes_hdr.tsb_id	= batch->bat_hdr.tsb_id;
+	test->tes_batch		= batch;
+	test->tes_type		= type;
+	test->tes_oneside	= 0; /* TODO */
+	test->tes_loop		= loop;
+	test->tes_concur	= concur;
+	test->tes_stop_onerr	= 1; /* TODO */
+	test->tes_span		= span;
+	test->tes_dist		= dist;
+	test->tes_cliidx	= 0; /* just used for creating RPC */
+	test->tes_src_grp	= src_grp;
+	test->tes_dst_grp	= dst_grp;
+	CFS_INIT_LIST_HEAD(&test->tes_trans_list);
 
-        if (dst_grp->grp_userland)
-                *retp = 1;
+	if (param != NULL) {
+		test->tes_paramlen = paramlen;
+		memcpy(&test->tes_param[0], param, paramlen);
+	}
 
-        LIBCFS_ALLOC(test, offsetof(lstcon_test_t, tes_param[paramlen]));
-        if (!test) {
-                CERROR("Can't allocate test descriptor\n");
-                rc = -ENOMEM;
+	rc = lstcon_test_nodes_add(test, result_up);
 
-                goto out;
-        }
+	if (rc != 0)
+		goto out;
 
-        memset(test, 0, offsetof(lstcon_test_t, tes_param[paramlen]));
-        test->tes_hdr.tsb_id    = batch->bat_hdr.tsb_id;
-        test->tes_batch         = batch;
-        test->tes_type          = type;
-        test->tes_oneside       = 0; /* TODO */
-        test->tes_loop          = loop;
-        test->tes_concur        = concur;
-        test->tes_stop_onerr    = 1; /* TODO */
-        test->tes_span          = span;
-        test->tes_dist          = dist;
-        test->tes_cliidx        = 0; /* just used for creating RPC */
-        test->tes_src_grp       = src_grp;
-        test->tes_dst_grp       = dst_grp;
-        CFS_INIT_LIST_HEAD(&test->tes_trans_list);
+	if (lstcon_trans_stat()->trs_rpc_errno != 0 ||
+	    lstcon_trans_stat()->trs_fwk_errno != 0)
+		CDEBUG(D_NET, "Failed to add test %d to batch %s\n", type,
+		       batch->bat_name);
 
-        if (param != NULL) {
-                test->tes_paramlen = paramlen;
-                memcpy(&test->tes_param[0], param, paramlen);
-        }
+	/* add to test list anyway, so user can check what's going on */
+	cfs_list_add_tail(&test->tes_link, &batch->bat_test_list);
 
-        rc = lstcon_test_nodes_add(test, result_up);
+	batch->bat_ntest++;
+	test->tes_hdr.tsb_index = batch->bat_ntest;
 
-        if (rc != 0)
-                goto out;
-
-        if (lstcon_trans_stat()->trs_rpc_errno != 0 ||
-            lstcon_trans_stat()->trs_fwk_errno != 0)
-                CDEBUG(D_NET, "Failed to add test %d to batch %s\n", type, name);
-
-        /* add to test list anyway, so user can check what's going on */
-        cfs_list_add_tail(&test->tes_link, &batch->bat_test_list);
-
-        batch->bat_ntest ++;
-        test->tes_hdr.tsb_index = batch->bat_ntest;
-
-        /*  hold groups so nobody can change them */
-        return rc;
+	/*  hold groups so nobody can change them */
+	return rc;
 out:
-        if (test != NULL)
-                LIBCFS_FREE(test, offsetof(lstcon_test_t, tes_param[paramlen]));
+	if (test != NULL)
+		LIBCFS_FREE(test, offsetof(lstcon_test_t, tes_param[paramlen]));
 
-        if (dst_grp != NULL)
-                lstcon_group_put(dst_grp);
+	lstcon_group_put(dst_grp);
+	lstcon_group_put(src_grp);
 
-        if (src_grp != NULL)
-                lstcon_group_put(src_grp);
-
-        return rc;
+	return rc;
 }
 
 int
