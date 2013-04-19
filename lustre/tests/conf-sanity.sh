@@ -3657,7 +3657,7 @@ test_66() {
 	stop_mds || error "stopping mds failed"
 
 	if combined_mgs_mds; then
-		start_mds "-o nosvc" ||
+		start_mdt 1 "-o nosvc" ||
 			error "starting mds with nosvc option failed"
 	fi
 
