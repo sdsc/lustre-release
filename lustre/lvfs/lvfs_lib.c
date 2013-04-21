@@ -48,7 +48,7 @@
 #include <lprocfs_status.h>
 
 #ifdef LPROCFS
-void lprocfs_counter_add(struct lprocfs_stats *stats, int idx, long amount)
+int lprocfs_counter_add(struct lprocfs_stats *stats, int idx, long amount)
 {
 	struct lprocfs_counter		*percpu_cntr;
 	struct lprocfs_counter_header	*header;
@@ -56,13 +56,13 @@ void lprocfs_counter_add(struct lprocfs_stats *stats, int idx, long amount)
 	unsigned long			flags = 0;
 
 	if (stats == NULL)
-		return;
+		return 0;
 
 	/* With per-client stats, statistics are allocated only for
 	 * single CPU area, so the smp_id should be 0 always. */
 	smp_id = lprocfs_stats_lock(stats, LPROCFS_GET_SMP_ID, &flags);
 	if (smp_id < 0)
-		return;
+		return smp_id;
 
 	header = &stats->ls_cnt_header[idx];
 	percpu_cntr = lprocfs_stats_counter_get(stats, smp_id, idx);
@@ -93,10 +93,12 @@ void lprocfs_counter_add(struct lprocfs_stats *stats, int idx, long amount)
 			percpu_cntr->lc_max = amount;
 	}
 	lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID, &flags);
+
+	return 0;
 }
 EXPORT_SYMBOL(lprocfs_counter_add);
 
-void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
+int lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
 {
 	struct lprocfs_counter		*percpu_cntr;
 	struct lprocfs_counter_header	*header;
@@ -104,13 +106,13 @@ void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
 	unsigned long			flags = 0;
 
 	if (stats == NULL)
-		return;
+		return 0;
 
 	/* With per-client stats, statistics are allocated only for
 	 * single CPU area, so the smp_id should be 0 always. */
 	smp_id = lprocfs_stats_lock(stats, LPROCFS_GET_SMP_ID, &flags);
 	if (smp_id < 0)
-		return;
+		return smp_id;
 
 	header = &stats->ls_cnt_header[idx];
 	percpu_cntr = lprocfs_stats_counter_get(stats, smp_id, idx);
@@ -133,6 +135,7 @@ void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx, long amount)
 			percpu_cntr->lc_sum -= amount;
 	}
 	lprocfs_stats_unlock(stats, LPROCFS_GET_SMP_ID, &flags);
+	return 0;
 }
 EXPORT_SYMBOL(lprocfs_counter_sub);
 

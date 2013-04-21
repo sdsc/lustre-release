@@ -513,10 +513,10 @@ lprocfs_stats_counter_get(struct lprocfs_stats *stats, unsigned int cpuid,
  * count itself to reside within a single cache line.
  */
 
-extern void lprocfs_counter_add(struct lprocfs_stats *stats, int idx,
-                                long amount);
-extern void lprocfs_counter_sub(struct lprocfs_stats *stats, int idx,
-                                long amount);
+extern int lprocfs_counter_add(struct lprocfs_stats *stats, int idx,
+			       long amount);
+extern int lprocfs_counter_sub(struct lprocfs_stats *stats, int idx,
+			       long amount);
 
 #define lprocfs_counter_incr(stats, idx) \
         lprocfs_counter_add(stats, idx, 1)
