@@ -8105,6 +8105,7 @@ som_mode_switch() {
         sync
         stopall
         setupall
+	$LCTL set_param debug=-1 2> /dev/null || true
 }
 
 test_132() { #1028, SOM
@@ -8160,7 +8161,15 @@ check_stats() {
 	esac
 	echo $res
 	count=`echo $res | awk '{print $2}'`
-	[ -z "$res" ] && error "The counter for $2 on $1 was not incremented"
+	if [ -z "$res" ] ; then
+		case $1 in
+		$SINGLEMDS) do_facet $SINGLEMDS \
+			$LCTL get_param mdt.$FSNAME-MDT0000.md_stats ;;
+		ost) do_facet ost1 \
+			$LCTL get_param obdfilter.$FSNAME-OST0000.stats ;;
+		esac
+		error "The counter for $2 on $1 was not incremented"
+	fi
 	# if the argument $3 is zero, it means any stat increment is ok.
 	if [ $3 -gt 0 ] ; then
 		[ $count -ne $3 ] && error "The $2 counter on $1 is wrong - expected $3"
