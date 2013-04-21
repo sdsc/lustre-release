@@ -1065,16 +1065,23 @@ struct lprocfs_vars lprocfs_mds_module_vars[] = {
 void mdt_counter_incr(struct ptlrpc_request *req, int opcode)
 {
 	struct obd_export *exp = req->rq_export;
+	int rc = 0;
 
 	if (exp->exp_obd && exp->exp_obd->md_stats)
-		lprocfs_counter_incr(exp->exp_obd->md_stats, opcode);
+		rc = lprocfs_counter_incr(exp->exp_obd->md_stats, opcode);
 	if (exp->exp_nid_stats && exp->exp_nid_stats->nid_stats != NULL)
-		lprocfs_counter_incr(exp->exp_nid_stats->nid_stats, opcode);
+		rc = lprocfs_counter_incr(exp->exp_nid_stats->nid_stats,
+					  opcode);
 	if (exp->exp_obd && exp->exp_obd->u.obt.obt_jobstats.ojs_hash &&
 	    (exp_connect_flags(exp) & OBD_CONNECT_JOBSTATS))
 		lprocfs_job_stats_log(exp->exp_obd,
 				      lustre_msg_get_jobid(req->rq_reqmsg),
 				      opcode, 1);
+
+	if (rc != 0)
+		CWARN("%s: Can not update op %d md_stats %p: rc = %d\n",
+		      exp->exp_obd->obd_name, opcode, exp->exp_obd->md_stats,
+		      rc);
 }
 
 void mdt_stats_counter_init(struct lprocfs_stats *stats)
