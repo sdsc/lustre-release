@@ -1173,6 +1173,7 @@ enum {
 };
 void mdt_counter_incr(struct ptlrpc_request *req, int opcode);
 void mdt_stats_counter_init(struct lprocfs_stats *stats);
+void mdt_reint_counter_incr(struct ptlrpc_request *req, int opc);
 void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars);
 void lprocfs_mds_init_vars(struct lprocfs_static_vars *lvars);
 int mdt_procfs_init(struct mdt_device *mdt, const char *name);

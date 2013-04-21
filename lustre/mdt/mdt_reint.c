@@ -1360,10 +1360,12 @@ static mdt_reinter reinters[REINT_MAX] = {
 int mdt_reint_rec(struct mdt_thread_info *info,
                   struct mdt_lock_handle *lhc)
 {
-        int rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        rc = reinters[info->mti_rr.rr_opcode](info, lhc);
+	mdt_reint_counter_incr(mdt_info_req(info), info->mti_rr.rr_opcode);
 
-        RETURN(rc);
+	rc = reinters[info->mti_rr.rr_opcode](info, lhc);
+
+	RETURN(rc);
 }

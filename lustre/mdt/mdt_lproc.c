@@ -1048,12 +1048,52 @@ void mdt_counter_incr(struct ptlrpc_request *req, int opcode)
 	if (exp->exp_obd && exp->exp_obd->obd_md_stats)
 		lprocfs_counter_incr(exp->exp_obd->obd_md_stats, opcode);
 	if (exp->exp_nid_stats && exp->exp_nid_stats->nid_stats != NULL)
-		lprocfs_counter_incr(exp->exp_nid_stats->nid_stats, opcode);
+		lprocfs_counter_incr(exp->exp_nid_stats->nid_stats,
+					  opcode);
 	if (exp->exp_obd && exp->exp_obd->u.obt.obt_jobstats.ojs_hash &&
 	    (exp_connect_flags(exp) & OBD_CONNECT_JOBSTATS))
 		lprocfs_job_stats_log(exp->exp_obd,
 				      lustre_msg_get_jobid(req->rq_reqmsg),
 				      opcode, 1);
+}
+
+void mdt_reint_counter_incr(struct ptlrpc_request *req, int opc)
+{
+	int index = PTLRPC_LAST_CNTR;
+	struct ptlrpc_service *svc;
+
+	switch (opc) {
+	case REINT_CREATE:
+		index += MDS_REINT_CREATE - EXTRA_FIRST_OPC;
+		break;
+	case REINT_LINK:
+		index += MDS_REINT_LINK - EXTRA_FIRST_OPC;
+		break;
+	case REINT_OPEN:
+		index += MDS_REINT_OPEN - EXTRA_FIRST_OPC;
+		break;
+	case REINT_SETATTR:
+		index += MDS_REINT_SETATTR - EXTRA_FIRST_OPC;
+		break;
+	case REINT_RENAME:
+		index += MDS_REINT_RENAME - EXTRA_FIRST_OPC;
+		break;
+	case REINT_UNLINK:
+		index += MDS_REINT_UNLINK - EXTRA_FIRST_OPC;
+		break;
+	default:
+		index = 0;
+		break;
+	}
+
+	if (index == 0)
+		return;
+
+	svc = req->rq_rqbd->rqbd_svcpt->scp_service;
+	if (svc && svc->srv_stats)
+		lprocfs_counter_incr(svc->srv_stats, index);
+
+	return;
 }
 
 void mdt_stats_counter_init(struct lprocfs_stats *stats)

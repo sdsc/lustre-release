@@ -8249,16 +8249,24 @@ run_test 132 "som avoids glimpse rpc"
 check_stats() {
 	local res
 	local count
-	case $1 in
-	$SINGLEMDS) res=`do_facet $SINGLEMDS $LCTL get_param mdt.$FSNAME-MDT0000.md_stats | grep "$2"`
-		 ;;
-	ost) res=`do_facet ost1 $LCTL get_param obdfilter.$FSNAME-OST0000.stats | grep "$2"`
-		 ;;
-	*) error "Wrong argument $1" ;;
+        local param
+	local res
+	local check_facet=$1
+
+	case $check_facet in
+	$SINGLEMDS)     param=mdt.$FSNAME-MDT0000.md_stats;;
+	ost)            param=obdfilter.$FSNAME-OST0000.stats;;
+	*)              error "Wrong argument $1"; return;;
 	esac
-	echo $res
-	count=`echo $res | awk '{print $2}'`
-	[ -z "$res" ] && error "The counter for $2 on $1 was not incremented"
+
+	res=$(do_facet $check_facet $LCTL get_param $param | grep "$2")
+	if [ -z "$res" ]; then
+		do_facet $check_facet $LCTL get_param $param
+		error "'$check_facet' counter for '$2' was not incremented"
+	fi
+
+	count=$(echo $res | awk '{print $2}')
+
 	# if the argument $3 is zero, it means any stat increment is ok.
 	if [ $3 -gt 0 ] ; then
 		[ $count -ne $3 ] && error "The $2 counter on $1 is wrong - expected $3"
@@ -8272,6 +8280,7 @@ test_133a() {
 
 	do_facet $SINGLEMDS $LCTL list_param mdt.*.rename_stats ||
 		{ skip "MDS doesn't support rename stats"; return; }
+
 	local testdir=$DIR/${tdir}/stats_testdir
 	mkdir -p $DIR/${tdir}
 
