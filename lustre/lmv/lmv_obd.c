@@ -943,7 +943,13 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
 		struct lmv_tgt_desc	*tgt1, *tgt2;
 
 		tgt1 = lmv_find_target(lmv, &op_data->op_fid1);
+		if (IS_ERR(tgt1))
+			RETURN(PTR_ERR(tgt1));
+
 		tgt2 = lmv_find_target(lmv, &op_data->op_fid2);
+		if (IS_ERR(tgt2))
+			RETURN(PTR_ERR(tgt2));
+
 		if ((tgt1->ltd_exp == NULL) || (tgt2->ltd_exp == NULL))
 			RETURN(-EINVAL);
 
@@ -1491,6 +1497,9 @@ struct lmv_tgt_desc
 	struct lmv_tgt_desc *tgt;
 
 	tgt = lmv_find_target(lmv, fid);
+	if (IS_ERR(tgt))
+		return tgt;
+
 	op_data->op_mds = tgt->ltd_idx;
 
 	return tgt;
