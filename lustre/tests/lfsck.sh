@@ -1,7 +1,4 @@
 #!/bin/bash
-# -*- mode: Bash; tab-width: 4; indent-tabs-mode: t; -*-
-# vim:shiftwidth=4:softtabstop=4:tabstop=4:
-#
 # test e2fsck and lfsck to detect and fix filesystem corruption
 #
 #set -vx
@@ -17,9 +14,8 @@ NUMDIRS=${NUMDIRS:-4}
 OSTIDX=${OSTIDX:-0} # the OST index in LOV
 OBJGRP=${OBJGRP:-0} # the OST object group
 
-[ -d "$SHARED_DIRECTORY" ] || \
-    { skip "SHARED_DIRECTORY should be specified with a shared directory \
-which can be accessable on all of the nodes" && exit 0; }
+[ ! -d "$SHARED_DIRECTORY" ] &&
+	skip_env "SHARED_DIRECTORY should be accessible on all nodes" && exit 0
 [[ $(facet_fstype $SINGLEMDS) != ldiskfs ]] &&
 	skip "Only applicable to ldiskfs-based MDTs" && exit 0
 [[ $(facet_fstype OST) != ldiskfs ]] &&
@@ -100,24 +96,6 @@ get_objects() {
     echo $ost_objids
 }
 
-# Get the OST nodet name (given the OST index).
-get_ost_node() {
-    local obdidx=$1
-    local ost_uuid
-    local ost_node
-    local node
-
-    ost_uuid=$(ostuuid_from_index $obdidx)
-
-    for node in $(osts_nodes); do
-        do_node $node "lctl get_param -n obdfilter.*.uuid" | grep -q $ost_uuid
-        [ ${PIPESTATUS[1]} -eq 0 ] && ost_node=$node && break
-    done
-    [ -z "$ost_node" ] && \
-        echo "failed to find the OST with index $obdidx" && return 1
-    echo $ost_node
-}
-
 # Get the OST target device (given the OST facet name and OST index).
 get_ost_dev() {
 	local node=$1
@@ -133,8 +111,8 @@ get_ost_dev() {
 	fi
 
 	if [[ $ost_dev = *loop* ]]; then
-		ost_dev=$(do_node $node "losetup $ost_dev" | \
-		          sed -e "s/.*(//" -e "s/).*//")
+		ost_dev=$(do_node $node "losetup $ost_dev" |
+			  sed -e "s/.*(//" -e "s/).*//")
 	fi
 
 	echo $ost_dev
@@ -170,19 +148,19 @@ get_files() {
     echo $files
 }
 
-# Remove objects associated with files.
+# Remove objects from OST.
 remove_objects() {
-	do_rpc_nodes $1 remove_ost_objects $@
+	do_rpc_nodes $(facet_host $1) remove_ost_objects $@
 }
 
 # Remove files from MDS.
 remove_files() {
-    do_rpc_nodes $(facet_host $1) remove_mdt_files $@
+	do_rpc_nodes $(facet_host $1) remove_mdt_files $@
 }
 
 # Create EAs on files so objects are referenced from different files.
 duplicate_files() {
-    do_rpc_nodes $(facet_host $1) duplicate_mdt_files $@
+	do_rpc_nodes $(facet_host $1) duplicate_mdt_files $@
 }
 
 #********************************* Main Flow **********************************#
@@ -194,42 +172,46 @@ get_svr_devs
 
 TESTDIR=$DIR/d0.$TESTSUITE
 if is_empty_fs $MOUNT; then
-    # create test directory
-    mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
+	# create test directory
+	mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
 
-    # create some dirs and files on the filesystem
-    create_files $TESTDIR $NUMDIRS $NUMFILES
+	# create some dirs and files on the filesystem
+	create_files $TESTDIR $NUMDIRS $NUMFILES
 
-    # get the objids for files in group $OBJGRP on the OST with index $OSTIDX
-    OST_REMOVE=$(get_objects $OSTIDX $OBJGRP \
+	# get objids for files in group $OBJGRP on the OST with index $OSTIDX
+	echo "objects to be removed, leaving dangling references:"
+	OST_REMOVE=$(get_objects $OSTIDX $OBJGRP \
                 $(seq -f $TESTDIR/testfile.%g $NUMFILES))
 
-    # get the node name and target device for the OST with index $OSTIDX
-    OSTNODE=$(get_ost_node $OSTIDX) || error "get_ost_node by index $OSTIDX failed"
-    OSTDEV=$(get_ost_dev $OSTNODE $OSTIDX) ||
-	error "get_ost_dev $OSTNODE $OSTIDX failed"
+	# get the node name and target device for the OST with index $OSTIDX
+	OSTNODE=$(facet_active_host ost$((OSTIDX + 1)))
+	OSTDEV=$(get_ost_dev $OSTNODE $OSTIDX) ||
+		error "get_ost_dev $OSTNODE $OSTIDX failed"
 
-    # get the file names to be duplicated on the MDS
-    MDS_DUPE=$(get_files dup $TESTDIR $NUMFILES) || error "$MDS_DUPE"
-    # get the file names to be removed from the MDS
-    MDS_REMOVE=$(get_files remove $TESTDIR $NUMFILES) || error "$MDS_REMOVE"
+	# get the file names to be duplicated on the MDS
+	echo "files to be duplicated, leaving double-referenced objects:"
+	MDS_DUPE=$(get_files dup $TESTDIR $NUMFILES) || error "$MDS_DUPE"
+	# get the file names to be removed from the MDS
+	echo "files to be removed, leaving orphan objects:"
+	MDS_REMOVE=$(get_files remove $TESTDIR $NUMFILES) || error "$MDS_REMOVE"
 
-    stopall -f || error "cleanupall failed"
+	stopall -f || error "cleanupall failed"
 
-    # remove objects associated with files in group $OBJGRP
-    # on the OST with index $OSTIDX
-	remove_objects $OSTNODE $OSTDEV $OBJGRP $OST_REMOVE ||
-        error "removing objects failed"
+	# remove objects associated with files in group $OBJGRP
+	# on the OST with index $OSTIDX
+	remove_objects ost$((OSTIDX + 1)) $OSTDEV $OBJGRP $OST_REMOVE ||
+		error "removing objects failed"
 
-    # remove files from MDS
-    remove_files $SINGLEMDS $MDTDEV $MDS_REMOVE || error "removing files failed"
+	# remove files from MDS
+	remove_files $SINGLEMDS $MDTDEV $MDS_REMOVE ||
+		error "removing files failed"
 
-    # create EAs on files so objects are referenced from different files
-    duplicate_files $SINGLEMDS $MDTDEV $MDS_DUPE ||
-        error "duplicating files failed"
-    FSCK_MAX_ERR=1   # file system errors corrected
+	# create EAs on files so objects are referenced from different files
+	duplicate_files $SINGLEMDS $MDTDEV $MDS_DUPE ||
+		error "duplicating files failed"
+	FSCK_MAX_ERR=1   # file system errors corrected
 else # is_empty_fs $MOUNT
-    FSCK_MAX_ERR=4   # file system errors left uncorrected
+	FSCK_MAX_ERR=4   # file system errors left uncorrected
 fi
 
 # Test 1a - check and repair the filesystem
