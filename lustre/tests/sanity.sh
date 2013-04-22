@@ -1866,7 +1866,7 @@ test_27C() { #LU-2871
 			for j in $(echo ${ost_idx[@]}); do
 				if [ $index -eq $j ]; then
 					found=1
-					break;
+					break
 				fi
 			done
 			[ $found = 1 ] ||
