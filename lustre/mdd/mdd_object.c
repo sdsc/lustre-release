@@ -1723,7 +1723,7 @@ out:
                 if (handle == NULL) {
                         handle = mdd_trans_create(env, mdo2mdd(obj));
                         if (IS_ERR(handle))
-                                GOTO(stop, rc = IS_ERR(handle));
+				GOTO(stop, rc = PTR_ERR(handle));
 
                         rc = mdd_declare_changelog_store(env, mdd, NULL,
                                                          handle);
@@ -1740,9 +1740,10 @@ out:
         }
 
 stop:
-        if (handle != NULL)
-                mdd_trans_stop(env, mdd, rc, handle);
-        return rc;
+	if (handle != NULL && !IS_ERR(handle))
+		mdd_trans_stop(env, mdd, rc, handle);
+
+	return rc;
 }
 
 /*
