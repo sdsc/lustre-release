@@ -17,10 +17,10 @@ yml_nodes_file() {
     export logdir=$1
 
     if [ -f $logdir/shared ]; then
-        do_rpc_nodes $(comma_list $(nodes_list)) \
+        do_rpc_nodes $(comma_list $(all_nodes)) \
             "yml_node >> $logdir/node.\\\$(hostname -s).yml"
     else
-        do_rpc_nodes $(comma_list $(nodes_list)) yml_node | split_output
+        do_rpc_nodes $(comma_list $(all_nodes)) yml_node | split_output
     fi
     yml_entities
 }
