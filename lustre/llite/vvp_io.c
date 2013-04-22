@@ -357,12 +357,12 @@ static int vvp_io_setattr_lock(const struct lu_env *env,
 
 static int vvp_do_vmtruncate(struct inode *inode, size_t size)
 {
-	int     result;
+	int     result = 0;
 	/*
 	 * Only ll_inode_size_lock is taken at this level.
 	 */
 	ll_inode_size_lock(inode);
-	result = vmtruncate(inode, size);
+	truncate_setsize(inode, size);
 	ll_inode_size_unlock(inode);
 
 	return result;

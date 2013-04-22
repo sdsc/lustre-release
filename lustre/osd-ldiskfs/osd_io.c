@@ -1257,7 +1257,9 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 
         tid = oh->ot_handle->h_transaction->t_tid;
 
-        rc = vmtruncate(inode, start);
+	truncate_setsize(inode, start);
+	if (inode->i_op->truncate)
+		inode->i_op->truncate(inode);
 
         /*
          * For a partial-page truncate, flush the page to disk immediately to
