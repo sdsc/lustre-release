@@ -181,17 +181,12 @@ int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
 {
 	int rc;
 
-	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_LMA, (void *)lma,
-			     sizeof(*lma));
-	if (rc == -ERANGE) {
-		/* try with old lma size */
-		rc = inode->i_op->getxattr(dentry, XATTR_NAME_LMA,
-					   info->oti_mdt_attrs_old,
-					   LMA_OLD_SIZE);
-		if (rc > 0)
-			memcpy(lma, info->oti_mdt_attrs_old, sizeof(*lma));
-	}
+	LASSERT(LMA_OLD_SIZE >= sizeof(*lma));
+	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_LMA,
+			     info->oti_mdt_attrs_old, LMA_OLD_SIZE);
 	if (rc > 0) {
+		if ((void *)lma != (void *)info->oti_mdt_attrs_old)
+			memcpy(lma, info->oti_mdt_attrs_old, sizeof(*lma));
 		/* Check LMA compatibility */
 		if (lma->lma_incompat & ~cpu_to_le32(LMA_INCOMPAT_SUPP)) {
 			CWARN("%.16s: unsupported incompat LMA feature(s) "
@@ -199,7 +194,7 @@ int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
 			      LDISKFS_SB(inode->i_sb)->s_es->s_volume_name,
 			      inode->i_ino, le32_to_cpu(lma->lma_incompat) &
 							~LMA_INCOMPAT_SUPP);
-			rc = -ENOSYS;
+			rc = -EOPNOTSUPP;
 		} else {
 			lustre_lma_swab(lma);
 			rc = 0;
@@ -456,19 +451,22 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	struct osd_thread_info	*info	= osd_oti_get(env);
 	struct lustre_mdt_attrs	*lma	= &info->oti_mdt_attrs;
 	int			rc;
+
 	ENTRY;
 
+	LASSERT(LMA_OLD_SIZE >= sizeof(*lma));
 	rc = __osd_xattr_get(obj->oo_inode, &info->oti_obj_dentry,
-			     XATTR_NAME_LMA, (void *)lma, sizeof(*lma));
+			     XATTR_NAME_LMA, info->oti_mdt_attrs_old,
+			     LMA_OLD_SIZE);
 	if (rc > 0) {
 		rc = 0;
 		if (unlikely((le32_to_cpu(lma->lma_incompat) &
 			      ~LMA_INCOMPAT_SUPP) ||
 			     CFS_FAIL_CHECK(OBD_FAIL_OSD_LMA_INCOMPAT))) {
 			CWARN("%s: unsupported incompat LMA feature(s) %#x for "
-			      DFID"\n", osd_obj2dev(obj)->od_svname,
+			      "%lu/"DFID"\n", osd_obj2dev(obj)->od_svname,
 			      le32_to_cpu(lma->lma_incompat) &
-			      ~LMA_INCOMPAT_SUPP,
+			      ~LMA_INCOMPAT_SUPP, obj->oo_inode->i_ino,
 			      PFID(lu_object_fid(&obj->oo_dt.do_lu)));
 			rc = -EOPNOTSUPP;
 		}
