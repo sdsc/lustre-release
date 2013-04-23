@@ -2167,13 +2167,10 @@ int
 kgnilnd_dgram_waitq(void *arg)
 {
 	kgn_device_t     *dev = (kgn_device_t *) arg;
-	char              name[16];
 	gni_return_t      grc;
 	__u64             readyid;
 	DEFINE_WAIT(mover_done);
 
-	snprintf(name, sizeof(name), "kgnilnd_dgn_%02d", dev->gnd_id);
-	cfs_daemonize(name);
 	cfs_block_allsigs();
 
 	/* all gnilnd threads need to run fairly urgently */
@@ -2345,7 +2342,6 @@ int
 kgnilnd_dgram_mover(void *arg)
 {
 	kgn_device_t            *dev = (kgn_device_t *)arg;
-	char                     name[16];
 	int                      rc, did_something;
 	unsigned long            next_purge_check = jiffies - 1;
 	unsigned long            timeout;
@@ -2353,8 +2349,6 @@ kgnilnd_dgram_mover(void *arg)
 	unsigned long		 deadline = 0;
 	DEFINE_WAIT(wait);
 
-	snprintf(name, sizeof(name), "kgnilnd_dg_%02d", dev->gnd_id);
-	cfs_daemonize(name);
 	cfs_block_allsigs();
 	/* all gnilnd threads need to run fairly urgently */
 	set_user_nice(current, *kgnilnd_tunables.kgn_nice);
