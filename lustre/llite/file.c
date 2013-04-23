@@ -1695,6 +1695,12 @@ int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
         fm_key.oa.o_valid = OBD_MD_FLID | OBD_MD_FLGROUP;
 
         obdo_from_inode(&fm_key.oa, inode, OBD_MD_FLSIZE);
+
+	if (fiemap->fm_flags & FIEMAP_FLAG_SYNC) {
+		fm_key.oa.o_valid |= OBD_MD_FLFLAGS;
+		fm_key.oa.o_flags |= OBD_FL_SRVLOCK;
+	}
+
         obdo_set_parent_fid(&fm_key.oa, &ll_i2info(inode)->lli_fid);
         /* If filesize is 0, then there would be no objects for mapping */
         if (fm_key.oa.o_size == 0) {
