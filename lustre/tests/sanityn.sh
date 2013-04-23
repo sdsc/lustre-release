@@ -2426,6 +2426,15 @@ test_70b() { # LU-2781
 }
 run_test 70b "remove files after calling rm_entry"
 
+test_71() {
+	checkfiemap --test $FSNAME || { skip "checkfiemap not runnable: $?" && return; }
+	dd if=/dev/urandom of=$DIR1/$tfile bs=40K seek=1 count=1
+	dd if=/dev/urandom of=$DIR1/$tfile bs=40K count=1 oflag=append conv=notrunc	
+	stat $DIR2/$tfile
+	heckfiemap $DIR2/$tfile 81920 || error "spears in copied file"»  
+}
+run_test 71 "correct file map just after write operation is finished"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
