@@ -1303,6 +1303,7 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
         void *key, *reply;
         int keylen, replylen, rc = 0;
         struct req_capsule *pill = &req->rq_pill;
+	struct lustre_handle lh = { 0 };
         ENTRY;
 
         /* this common part for get_info rpc */
@@ -1320,23 +1321,27 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
                 rc = ost_validate_obdo(exp, &fm_key->oa, NULL);
                 if (rc)
                         RETURN(rc);
+
+		rc = ost_lock_get(exp, &fm_key->oa, 0, OBD_OBJECT_EOF, &lh, LCK_PR, 0);
+		if (rc)
+			RETURN(rc);
         }
 
         rc = obd_get_info(req->rq_svc_thread->t_env, exp, keylen, key,
                           &replylen, NULL, NULL);
         if (rc)
-                RETURN(rc);
+		GOTO(unlock, rc);
 
         req_capsule_set_size(pill, &RMF_GENERIC_DATA,
                              RCL_SERVER, replylen);
 
         rc = req_capsule_server_pack(pill);
         if (rc)
-                RETURN(rc);
+		GOTO(unlock, rc);
 
         reply = req_capsule_server_get(pill, &RMF_GENERIC_DATA);
         if (reply == NULL)
-                RETURN(-ENOMEM);
+		GOTO(unlock, rc = -ENOMEM);
 
 	if (KEY_IS(KEY_LAST_FID)) {
 		void *val;
@@ -1359,7 +1364,10 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
         rc = obd_get_info(req->rq_svc_thread->t_env, exp, keylen, key,
                           &replylen, reply, NULL);
 out:
-        lustre_msg_set_status(req->rq_repmsg, 0);
+	lustre_msg_set_status(req->rq_repmsg, 0);
+unlock:
+	if (KEY_IS(KEY_FIEMAP))
+		ost_lock_put(exp, &lh, LCK_PR);
         RETURN(rc);
 }
 
