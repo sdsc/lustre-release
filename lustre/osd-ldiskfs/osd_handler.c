@@ -460,6 +460,14 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 
 	rc = __osd_xattr_get(obj->oo_inode, &info->oti_obj_dentry,
 			     XATTR_NAME_LMA, (void *)lma, sizeof(*lma));
+	if (rc == -ERANGE) {
+		/* try with old lma size */
+		rc = __osd_xattr_get(obj->oo_inode, &info->oti_obj_dentry,
+				     XATTR_NAME_LMA, info->oti_mdt_attrs_old,
+				     LMA_OLD_SIZE);
+		if (rc > 0)
+			memcpy(lma, info->oti_mdt_attrs_old, sizeof(*lma));
+	}
 	if (rc > 0) {
 		rc = 0;
 		if (unlikely((le32_to_cpu(lma->lma_incompat) &
