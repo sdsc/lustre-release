@@ -3372,10 +3372,13 @@ is_empty_dir() {
 
 # empty lustre filesystem may have empty directories lost+found and .lustre
 is_empty_fs() {
+	# exclude .lustre & lost+found
 	[ $(find $1 -maxdepth 1 -name lost+found -o -name .lustre -prune -o \
 		-print | wc -l) = 1 ] || return 1
 	[ ! -d $1/lost+found ] || is_empty_dir $1/lost+found || return 1
-	[ ! -d $1/.lustre ] || is_empty_dir $1/.lustre || return 1
+	# exclude .lustre/fid
+	[ $(find $1/.lustre -maxdepth 1 -name fid -prune -o \
+		-print | wc -l) = 1 ] || return 1
 	return 0
 }
 
@@ -3601,7 +3604,6 @@ run_lfsck() {
 	local found=false
 	local facet
 	local node
-	local rc=0
 
 	for facet in $facets; do
 		node=$(facet_active_host $facet)
@@ -3612,10 +3614,10 @@ run_lfsck() {
 	done
 	! $found && error "None of \"$facets\" supports lfsck"
 
-	run_lfsck_remote $node || rc=$?
+	run_lfsck_remote $node
 
 	rm -rvf $MDSDB* $OSTDB* || true
-	return $rc
+	return 0
 }
 
 check_and_cleanup_lustre() {
