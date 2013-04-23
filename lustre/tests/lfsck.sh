@@ -270,7 +270,7 @@ rc=0
 run_lfsck || rc=$?
 if [ $rc -eq 0 ]; then
     echo "clean after the first check"
-else
+elif [ $FSCK_MAX_ERR -eq 1 ]; then
     # run e2fsck again to generate databases used for lfsck
     generate_db
 
@@ -282,6 +282,8 @@ else
     else
         error "lfsck test 2 - finished with rc=$rc"
     fi
+else
+	echo "FSCK_MAX_ERR=$FSCK_MAX_ERR, rc=$rc"
 fi
 
 complete $SECONDS
