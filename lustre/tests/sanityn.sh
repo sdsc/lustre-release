@@ -2432,6 +2432,37 @@ test_70b() { # LU-2781
 }
 run_test 70b "remove files after calling rm_entry"
 
+test_71() {
+	checkfiemap --test || \
+		{ skip "checkfiemap not runnable: $?" && return; }
+	dd if=/dev/urandom of=$DIR1/$tfile bs=40K seek=1 count=1
+	dd if=/dev/urandom of=$DIR1/$tfile bs=40K seek=1 \
+		count=1 oflag=append conv=notrunc
+	GET_STAT="lctl get_param -n ldlm.services.ldlm_cbd.stats"
+	stat $DIR2/$tfile
+	can1=`$GET_STAT | awk '/ldlm_bl_callback/ {print $2}'`
+	echo $can1
+	checkfiemap $DIR2/$tfile 81920 || \
+		error "data is not flushed from client"
+	can2=`$GET_STAT | awk '/ldlm_bl_callback/ {print $2}'`
+	echo $can2
+
+	# comon case of "create file, copy file" on a single node
+	# should not flush data from ost
+	dd if=/dev/urandom of=$DIR1/$tfile bs=40K seek=1 count=1
+	dd if=/dev/urandom of=$DIR1/$tfile bs=40K seek=1 \
+	count=1 oflag=append conv=notrunc
+	stat $DIR1/$tfile
+	can1=`$GET_STAT | awk '/ldlm_bl_callback/ {print $2}'`
+	echo $can1
+	checkfiemap $DIR1/$tfile 81920 || \
+	error 1
+	can2=`$GET_STAT | awk '/ldlm_bl_callback/ {print $2}'`
+	echo $can2
+	[ $can1 -eq $can2 ] || error $((can2-can1)) "cancel RPC occured."
+}
+run_test 71 "correct file map just after write operation is finished"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
