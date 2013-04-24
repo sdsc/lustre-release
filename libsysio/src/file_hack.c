@@ -282,7 +282,7 @@ _sysio_fd_close(int fd)
 {
 	struct file *fil;
 
-	fil = fil = __sysio_fd_get(fd, 1);
+	fil = __sysio_fd_get(fd, 1);
 	if (!fil)
 		return -EBADF;
 
@@ -399,11 +399,6 @@ _sysio_oftable_close_all(oftab_t *oftab)
 int
 _sysio_fd_close_all()
 {
-	int	fd;
-	struct file **filp;
-	oftab_t *oftab;
-	int i;
-
 	/*
 	 * Close all open descriptors.
 	 */

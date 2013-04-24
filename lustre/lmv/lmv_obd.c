@@ -2014,13 +2014,14 @@ static int lmv_readpage(struct obd_export *exp, struct md_op_data *op_data,
 	for (i = 0; i < nrdpgs; i++) {
 #if CFS_PAGE_SIZE > LU_PAGE_SIZE
 		struct lu_dirpage *first;
+		struct lu_dirent *tmp;
 		__u64 hash_end = 0;
 		__u32 flags = 0;
 #endif
-		struct lu_dirent *tmp = NULL;
 
 		dp = cfs_kmap(pages[i]);
 		ent = lu_dirent_start(dp);
+
 #if CFS_PAGE_SIZE > LU_PAGE_SIZE
 		first = dp;
 		hash_end = dp->ldp_hash_end;
@@ -2028,9 +2029,9 @@ repeat:
 #endif
 		nlupgs--;
 
+#if CFS_PAGE_SIZE > LU_PAGE_SIZE
 		for (tmp = ent; ent != NULL;
 		     tmp = ent, ent = lu_dirent_next(ent));
-#if CFS_PAGE_SIZE > LU_PAGE_SIZE
 		dp = (struct lu_dirpage *)((char *)dp + LU_PAGE_SIZE);
 		if (((unsigned long)dp & ~CFS_PAGE_MASK) && nlupgs > 0) {
 			ent = lu_dirent_start(dp);
@@ -2051,8 +2052,6 @@ repeat:
 		first->ldp_hash_end = hash_end;
 		first->ldp_flags &= ~cpu_to_le32(LDF_COLLIDE);
 		first->ldp_flags |= flags & cpu_to_le32(LDF_COLLIDE);
-#else
-		SET_BUT_UNUSED(tmp);
 #endif
 		cfs_kunmap(pages[i]);
 	}
