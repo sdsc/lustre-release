@@ -1705,9 +1705,9 @@ static int mgc_process_cfg_log(struct obd_device *mgc,
         struct llog_ctxt *ctxt, *lctxt = NULL;
 #ifdef HAVE_LDISKFS_OSD
         struct client_obd *cli = &mgc->u.cli;
+        struct lustre_sb_info *lsi = NULL;
 #endif
         struct lvfs_run_ctxt *saved_ctxt;
-        struct lustre_sb_info *lsi = NULL;
         int rc = 0, must_pop = 0;
         bool sptlrpc_started = false;
 
@@ -1723,9 +1723,6 @@ static int mgc_process_cfg_log(struct obd_device *mgc,
         if (cld_is_sptlrpc(cld) && local_only)
                 RETURN(0);
 
-        if (cld->cld_cfg.cfg_sb)
-                lsi = s2lsi(cld->cld_cfg.cfg_sb);
-
         ctxt = llog_get_context(mgc, LLOG_CONFIG_REPL_CTXT);
         if (!ctxt) {
                 CERROR("missing llog context\n");
@@ -1739,6 +1736,9 @@ static int mgc_process_cfg_log(struct obd_device *mgc,
         lctxt = llog_get_context(mgc, LLOG_CONFIG_ORIG_CTXT);
 
 #ifdef HAVE_LDISKFS_OSD
+	if (cld->cld_cfg.cfg_sb)
+		lsi = s2lsi(cld->cld_cfg.cfg_sb);
+
 	/*
 	 * XXX: at the moment mgc_copy_llog() works with lvfs-based llogs
 	 */
