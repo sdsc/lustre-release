@@ -44,9 +44,9 @@
 
 
 /*
- * Timers are implemented as a sorted queue of expiry times. The queue 
- * is slotted, with each slot holding timers which expire in a 
- * 2**STTIMER_MINPOLL (8) second period. The timers in each slot are 
+ * Timers are implemented as a sorted queue of expiry times. The queue
+ * is slotted, with each slot holding timers which expire in a
+ * 2**STTIMER_MINPOLL (8) second period. The timers in each slot are
  * sorted by increasing expiry time. The number of slots is 2**7 (128),
  * to cover a time period of 1024 seconds into the future before wrapping.
  */
@@ -178,21 +178,19 @@ stt_check_timers (cfs_time_t *last)
 int
 stt_timer_main (void *arg)
 {
-        int rc = 0;
-        UNUSED(arg);
+	cfs_daemonize("st_timer");
+	cfs_block_allsigs();
 
-        SET_BUT_UNUSED(rc);
+	while (!stt_data.stt_shuttingdown) {
+		int ret;
 
-        cfs_daemonize("st_timer");
-        cfs_block_allsigs();
+		stt_check_timers(&stt_data.stt_prev_slot);
 
-        while (!stt_data.stt_shuttingdown) {
-                stt_check_timers(&stt_data.stt_prev_slot);
-
-                cfs_waitq_wait_event_timeout(stt_data.stt_waitq,
-                                   stt_data.stt_shuttingdown,
-                                   cfs_time_seconds(STTIMER_SLOTTIME),
-                                   rc);
+		cfs_waitq_wait_event_timeout(stt_data.stt_waitq,
+					     stt_data.stt_shuttingdown,
+					     cfs_time_seconds(STTIMER_SLOTTIME),
+					     ret);
+		(void)ret; /* Discard jiffies remaining before timeout. */
         }
 
 	spin_lock(&stt_data.stt_lock);
