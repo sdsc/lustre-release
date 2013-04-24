@@ -125,15 +125,15 @@ lnet_get_networks (void)
 {
         static char       default_networks[256];
         char             *networks = getenv ("LNET_NETWORKS");
-        char             *ip2nets  = getenv ("LNET_IP2NETS");
         char             *str;
         char             *sep;
         int               len;
         int               nob;
-        int               rc;
         cfs_list_t       *tmp;
 
 #ifdef NOT_YET
+	char *ip2nets = getenv("LNET_IP2NETS");
+
         if (networks != NULL && ip2nets != NULL) {
                 LCONSOLE_ERROR_MSG(0x103, "Please set EITHER 'LNET_NETWORKS' or"
                                    " 'LNET_IP2NETS' but not both at once\n");
@@ -141,12 +141,9 @@ lnet_get_networks (void)
         }
 
         if (ip2nets != NULL) {
-                rc = lnet_parse_ip2nets(&networks, ip2nets);
+		int rc = lnet_parse_ip2nets(&networks, ip2nets);
                 return (rc == 0) ? networks : NULL;
         }
-#else
-        SET_BUT_UNUSED(ip2nets);
-        SET_BUT_UNUSED(rc);
 #endif
         if (networks != NULL)
                 return networks;
@@ -163,13 +160,13 @@ lnet_get_networks (void)
 
                 nob = snprintf(str, len, "%s%s", sep,
                                libcfs_lnd2str(lnd->lnd_type));
+		if (nob < 0    /* glibc 2.0 */ ||
+		    nob >= len /* glibc 2.1 */) {
+			/* overflowed the string; leave it where it was */
+			*str = 0;
+			break;
+		}
                 len -= nob;
-                if (len < 0) {
-                        /* overflowed the string; leave it where it was */
-                        *str = 0;
-                        break;
-                }
-
                 str += nob;
                 sep = ",";
         }
