@@ -4052,7 +4052,7 @@ run_test 72 "test fast symlink with extents flag enabled"
 
 test_73() { #LU-3006
 	load_modules
-	do_facet ost1 "$TUNEFS --failnode=1.2.3.4@tcp $(ostdevname 1)" ||
+	do_facet ost1 "$TUNEFS --failnode=1.2.3.4@$NETTYPE $(ostdevname 1)" ||
 		error "1st tunefs failed"
 	start_mgsmds || error "start mds failed"
 	start_ost || error "start ost failed"
