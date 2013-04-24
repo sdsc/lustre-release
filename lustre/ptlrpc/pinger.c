@@ -170,7 +170,10 @@ cfs_duration_t pinger_check_timeout(cfs_time_t time)
                                          cfs_time_current());
 }
 
+/*XXX: disabled for now, will be replaced by adaptive timeouts */
+#if 0
 static cfs_waitq_t suspend_timeouts_waitq;
+#endif
 
 cfs_time_t ptlrpc_suspend_wakeup_time(void)
 {
@@ -216,15 +219,18 @@ int ptlrpc_check_suspend(void)
 
 int ptlrpc_check_and_wait_suspend(struct ptlrpc_request *req)
 {
-        struct l_wait_info lwi;
-
         if (cfs_atomic_read(&suspend_timeouts)) {
+                /*XXX: disabled for now, will be replaced by adaptive timeouts */
+#if 0
+                struct l_wait_info lwi;
+
                 DEBUG_REQ(D_NET, req, "-- suspend %d regular timeout",
                           cfs_atomic_read(&suspend_timeouts));
                 lwi = LWI_INTR(NULL, NULL);
                 l_wait_event(suspend_timeouts_waitq,
                              cfs_atomic_read(&suspend_timeouts) == 0, &lwi);
                 DEBUG_REQ(D_NET, req, "-- recharge regular timeout");
+#endif
                 return 1;
         }
         return 0;
@@ -396,7 +402,10 @@ int ptlrpc_start_pinger(void)
         if (pinger_thread == NULL)
                 RETURN(-ENOMEM);
         cfs_waitq_init(&pinger_thread->t_ctl_waitq);
+        /*XXX: disabled for now, will be replaced by adaptive timeouts */
+#if 0
         cfs_waitq_init(&suspend_timeouts_waitq);
+#endif
 
 	strcpy(pinger_thread->t_name, "ll_ping");
 
