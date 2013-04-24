@@ -628,7 +628,8 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 #define ll_d_hlist_entry(ptr, type, name) list_entry(ptr.next, type, name)
 #define ll_d_hlist_for_each(tmp, i_dentry) list_for_each(tmp, i_dentry)
 #define ll_d_hlist_for_each_entry(dentry, p, i_dentry, alias) \
-        p = NULL; list_for_each_entry(dentry, i_dentry, alias)
+	p = NULL; SET_BUT_UNUSED(p); \
+	list_for_each_entry(dentry, i_dentry, alias)
 #endif
 
 
