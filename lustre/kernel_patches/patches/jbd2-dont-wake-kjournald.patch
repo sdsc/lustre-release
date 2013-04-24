@@ -1,0 +1,32 @@
+From e7b04ac00ee273cb2c699ed14139fc072add4097 Mon Sep 17 00:00:00 2001
+From: Eric Sandeen <sandeen@redhat.com>
+Date: Wed, 30 Jan 2013 05:39:28 +0000
+Subject: jbd2: don't wake kjournald unnecessarily
+
+Don't send an extra wakeup to kjournald in the case where we
+already have the proper target in j_commit_request, i.e. that
+transaction has already been requested for commit.
+
+commit deeeaf13 "jbd2: fix fsync() tid wraparound bug" changed
+the logic leading to a wakeup, but it caused some extra wakeups
+which were found to lead to a measurable performance regression.
+
+Signed-off-by: Eric Sandeen <sandeen@redhat.com>
+[tytso@mit.edu: reworked check to make it clearer]
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+---
+diff --git a/fs/jbd2/journal.c b/fs/jbd2/journal.c
+index dbf41f9..1a80e31 100644
+--- a/fs/jbd2/journal.c
++++ b/fs/jbd2/journal.c
+@@ -444,6 +444,10 @@ int __jbd2_log_space_left(journal_t *jou
+  */
+ int __jbd2_log_start_commit(journal_t *journal, tid_t target)
+ {
++       /* Return if the txn has already requested to be committed */
++       if (journal->j_commit_request == target)
++               return 0;
++
+        /*
+         * The only transaction we can possibly wait upon is the
+         * currently running transaction (if it exists).  Otherwise,
