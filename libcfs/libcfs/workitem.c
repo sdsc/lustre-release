@@ -387,8 +387,6 @@ cfs_wi_check_events (void)
 void
 cfs_wi_sched_destroy(struct cfs_wi_sched *sched)
 {
-	int	i;
-
 	LASSERT(cfs_wi_data.wi_init);
 	LASSERT(!cfs_wi_data.wi_stopping);
 
@@ -405,26 +403,26 @@ cfs_wi_sched_destroy(struct cfs_wi_sched *sched)
 
 	spin_unlock(&cfs_wi_data.wi_glock);
 
-	i = 2;
 #ifdef __KERNEL__
 	cfs_waitq_broadcast(&sched->ws_waitq);
 
 	spin_lock(&cfs_wi_data.wi_glock);
-	while (sched->ws_nthreads > 0) {
-		CDEBUG(IS_PO2(++i) ? D_WARNING : D_NET,
-		       "waiting for %d threads of WI sched[%s] to terminate\n",
-		       sched->ws_nthreads, sched->ws_name);
+	{
+		int i = 2;
 
-		spin_unlock(&cfs_wi_data.wi_glock);
-		cfs_pause(cfs_time_seconds(1) / 20);
-		spin_lock(&cfs_wi_data.wi_glock);
+		while (sched->ws_nthreads > 0) {
+			CDEBUG(IS_PO2(++i) ? D_WARNING : D_NET,
+			       "waiting for %d threads of WI sched[%s] to "
+			       "terminate\n", sched->ws_nthreads,
+			        sched->ws_name);
+
+			spin_unlock(&cfs_wi_data.wi_glock);
+			cfs_pause(cfs_time_seconds(1) / 20);
+			spin_lock(&cfs_wi_data.wi_glock);
+		}
 	}
-
 	cfs_list_del(&sched->ws_list);
-
 	spin_unlock(&cfs_wi_data.wi_glock);
-#else
-	SET_BUT_UNUSED(i);
 #endif
 	LASSERT(sched->ws_nscheduled == 0);
 
@@ -437,7 +435,6 @@ cfs_wi_sched_create(char *name, struct cfs_cpt_table *cptab,
 		    int cpt, int nthrs, struct cfs_wi_sched **sched_pp)
 {
 	struct cfs_wi_sched	*sched;
-	int			rc;
 
 	LASSERT(cfs_wi_data.wi_init);
 	LASSERT(!cfs_wi_data.wi_stopping);
@@ -460,9 +457,10 @@ cfs_wi_sched_create(char *name, struct cfs_cpt_table *cptab,
 	CFS_INIT_LIST_HEAD(&sched->ws_rerunq);
 	CFS_INIT_LIST_HEAD(&sched->ws_list);
 
-	rc = 0;
 #ifdef __KERNEL__
-	while (nthrs > 0)  {
+	for (; nthrs > 0; nthrs--) {
+		int rc;
+
 		spin_lock(&cfs_wi_data.wi_glock);
 		while (sched->ws_starting > 0) {
 			spin_unlock(&cfs_wi_data.wi_glock);
@@ -474,10 +472,8 @@ cfs_wi_sched_create(char *name, struct cfs_cpt_table *cptab,
 		spin_unlock(&cfs_wi_data.wi_glock);
 
 		rc = cfs_create_thread(cfs_wi_scheduler, sched, 0);
-		if (rc >= 0) {
-			nthrs--;
+		if (rc >= 0)
 			continue;
-		}
 
 		CERROR("Failed to create thread for WI scheduler %s: %d\n",
 		       name, rc);
@@ -493,8 +489,6 @@ cfs_wi_sched_create(char *name, struct cfs_cpt_table *cptab,
 		cfs_wi_sched_destroy(sched);
 		return rc;
 	}
-#else
-	SET_BUT_UNUSED(rc);
 #endif
 	spin_lock(&cfs_wi_data.wi_glock);
 	cfs_list_add(&sched->ws_list, &cfs_wi_data.wi_scheds);
