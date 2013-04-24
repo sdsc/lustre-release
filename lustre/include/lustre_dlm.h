@@ -473,7 +473,7 @@ static inline void ns_register_cancel(struct ldlm_namespace *ns,
  *
  */
 
-#define RES_HASH_BITS 12
+#define RES_HASH_BITS 20
 #define RES_HASH_SIZE (1UL << RES_HASH_BITS)
 #define RES_HASH_MASK (RES_HASH_SIZE - 1)
 
