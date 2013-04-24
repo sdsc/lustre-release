@@ -2353,8 +2353,6 @@ static int brw_interpret(struct ptlrpc_request *request, void *data, int rc)
 			aa->aa_oa->o_flags &= ~OBD_FL_HAVE_LOCK;
 			osc_ap_completion(cli, aa->aa_oa, oap, 1, rc);
 			if (aa->aa_oa->o_flags & OBD_FL_HAVE_LOCK) {
-				LASSERT(!(aa->aa_oa->o_valid &
-					  OBD_MD_FLHANDLE));
 				LASSERT(index < aa->aa_handle_count);
 				aa->aa_handle[index++] = aa->aa_oa->o_handle;
 			}
