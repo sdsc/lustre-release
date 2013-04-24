@@ -100,7 +100,7 @@ static bool nrs_orr_req_supported(struct nrs_orr_data *orrd,
 	/**
 	 * XXX: nrs_orr_data::od_supp accessed unlocked.
 	 */
-	switch (opc) {
+	switch ((enum nrs_ctl_orr)opc) {
 	case OST_READ:
 		rc = orrd->od_supp & NOS_OST_READ;
 		break;
