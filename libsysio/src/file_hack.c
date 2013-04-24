@@ -282,7 +282,7 @@ _sysio_fd_close(int fd)
 {
 	struct file *fil;
 
-	fil = fil = __sysio_fd_get(fd, 1);
+	fil = __sysio_fd_get(fd, 1);
 	if (!fil)
 		return -EBADF;
 
@@ -399,23 +399,20 @@ _sysio_oftable_close_all(oftab_t *oftab)
 int
 _sysio_fd_close_all()
 {
-	int	fd;
-	struct file **filp;
-	oftab_t *oftab;
-	int i;
-
-	/*
-	 * Close all open descriptors.
-	 */
+	/* Close all open descriptors */
 	_sysio_oftable_close_all(&_sysio_oftab[OFTAB_VIRTUAL]);
-	/* XXX see liblustre/llite_lib.c for explaination */
+	/**
+	 * We can't call umount() in __liblustre_cleanup_(), because
+	 * libsysio will not cleanup opening files for us.
+	 * _sysio_shutdown() will cleanup fds at first but which will also
+	 * close the sockets we need for umount() liblutre.
+	 * FIXME: This dilemma lead to following hack.
+	 */
 #if 0
 	_sysio_oftable_close_all(&_sysio_oftab[OFTAB_NATIVE]);
 #endif
 
-	/*
-	 * Release current working directory.
-	 */
+	/* Release current working directory */
 	if (_sysio_cwd) {
 		P_RELE(_sysio_cwd);
 		_sysio_cwd = NULL;
