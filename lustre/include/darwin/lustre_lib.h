@@ -56,8 +56,8 @@
 #ifndef LPU64
 #define LPU64 "%llu"
 #define LPD64 "%lld"
-#define LPX64 "%llx"
-#define LPO64 "%llo"
+#define LPX64 "0x%llx"
+#define LPO64 "0%llo"
 #endif
 
 struct obd_ioctl_data;

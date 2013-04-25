@@ -117,23 +117,20 @@ typedef struct {
 /* x86_64 defines __u64 as "long" in userspace, but "long long" in the kernel */
 # define LPU64 "%llu"
 # define LPD64 "%lld"
-# define LPX64 "%#llx"
-# define LPX64i "%llx"
-# define LPO64 "%#llo"
+# define LPX64 "0x%llx"
+# define LPO64 "0%llo"
 # define LPF64 "ll"
 #elif (BITS_PER_LONG == 32)
 # define LPU64 "%llu"
 # define LPD64 "%lld"
-# define LPX64 "%#llx"
-# define LPX64i "%llx"
-# define LPO64 "%#llo"
+# define LPX64 "0x%llx"
+# define LPO64 "%llo"
 # define LPF64 "L"
 #elif (BITS_PER_LONG == 64)
 # define LPU64 "%lu"
 # define LPD64 "%ld"
-# define LPX64i "%lx"
-# define LPX64 "%#lx"
-# define LPO64 "%#lo"
+# define LPX64 "0x%lx"
+# define LPO64 "0%lo"
 # define LPF64 "l"
 #endif
 

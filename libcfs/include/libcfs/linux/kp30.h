@@ -273,16 +273,14 @@ extern int  lwt_snapshot (cfs_cycles_t *now, int *ncpu, int *total_size,
     (!defined(__KERNEL__) && defined(HAVE_USER__U64_LONG_LONG))
 # define LPU64 "%llu"
 # define LPD64 "%lld"
-# define LPX64 "%#llx"
-# define LPX64i "%llx"
-# define LPO64 "%#llo"
+# define LPX64 "0x%llx"
+# define LPO64 "0%llo"
 # define LPF64 "L"
 #else
 # define LPU64 "%lu"
 # define LPD64 "%ld"
-# define LPX64 "%#lx"
-# define LPX64i "%lx"
-# define LPO64 "%#lo"
+# define LPX64 "0x%lx"
+# define LPO64 "0%lo"
 # define LPF64 "l"
 #endif
 
