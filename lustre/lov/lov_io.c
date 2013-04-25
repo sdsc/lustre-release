@@ -909,8 +909,11 @@ int lov_io_init_raid0(const struct lu_env *env, struct cl_object *obj,
 {
         struct lov_io       *lio = lov_env_io(env);
         struct lov_object   *lov = cl2lov(obj);
-
         ENTRY;
+
+	if (lio->lis_lsm == NULL)
+		RETURN(-EIO);
+
         CFS_INIT_LIST_HEAD(&lio->lis_active);
         lov_io_slice_init(lio, lov, io);
         if (io->ci_result == 0) {

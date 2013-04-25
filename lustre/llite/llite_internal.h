@@ -126,7 +126,8 @@ enum lli_flags {
         LLIF_CONTENDED          = (1 << 4),
         /* Truncate uses server lock for this file */
         LLIF_SRVLOCK            = (1 << 5),
-
+	/* inode initialize error */
+	LLIF_INIT_ERROR		= (1 << 6),
 };
 
 struct ll_inode_info {

@@ -1106,10 +1106,11 @@ static const struct cl_io_operations vvp_io_ops = {
 int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
                 struct cl_io *io)
 {
-	struct vvp_io      *vio   = vvp_env_io(env);
-	struct ccc_io      *cio   = ccc_env_io(env);
-	struct inode       *inode = ccc_object_inode(obj);
-        int                 result;
+	struct vvp_io		*vio   = vvp_env_io(env);
+	struct ccc_io		*cio   = ccc_env_io(env);
+	struct inode		*inode = ccc_object_inode(obj);
+	struct ll_inode_info	*lli   = ll_i2info(inode);
+	int			result;
 
         CLOBINVRNT(env, obj, ccc_object_invariant(obj));
         ENTRY;
@@ -1120,7 +1121,6 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 	result = 0;
 	if (io->ci_type == CIT_READ || io->ci_type == CIT_WRITE) {
 		size_t count;
-		struct ll_inode_info *lli = ll_i2info(inode);
 
                 count = io->u.ci_rw.crw_count;
                 /* "If nbyte is 0, read() will return 0 and have no other
@@ -1148,6 +1148,8 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 	 * because it might not grant layout lock in IT_OPEN. */
 	if (result == 0 && !io->ci_ignore_layout)
 		result = ll_layout_refresh(inode, &cio->cui_layout_gen);
+	if (lli->lli_flags & LLIF_INIT_ERROR)
+		result = -EIO;
 
 	RETURN(result);
 }
