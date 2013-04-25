@@ -1213,7 +1213,7 @@ int ll_writepage(struct page *vmpage, struct writeback_control *wbc)
 		 * PageWriteback or clean the page. */
 		result = cl_sync_file_range(inode, offset,
 					    offset + CFS_PAGE_SIZE - 1,
-					    CL_FSYNC_LOCAL);
+					    CL_FSYNC_LOCAL, 1);
 		if (result > 0) {
 			/* actually we may have written more than one page.
 			 * decreasing this page because the caller will count
@@ -1263,7 +1263,7 @@ int ll_writepages(struct address_space *mapping, struct writeback_control *wbc)
 	if (wbc->sync_mode == WB_SYNC_ALL)
 		mode = CL_FSYNC_LOCAL;
 
-	result = cl_sync_file_range(inode, start, end, mode);
+	result = cl_sync_file_range(inode, start, end, mode, 0);
 	if (result > 0) {
 		wbc->nr_to_write -= result;
 		result = 0;

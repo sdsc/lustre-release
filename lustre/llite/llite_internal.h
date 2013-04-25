@@ -1467,7 +1467,7 @@ static inline int cl_merge_lvb(const struct lu_env *env, struct inode *inode)
 struct obd_capa *cl_capa_lookup(struct inode *inode, enum cl_req_type crt);
 
 int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
-		       enum cl_fsync_mode mode);
+		       enum cl_fsync_mode mode, int ignore_layout);
 
 /** direct write pages */
 struct ll_dio_pages {
