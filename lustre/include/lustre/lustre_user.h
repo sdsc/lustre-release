@@ -198,8 +198,9 @@ struct ost_id {
 	};
 };
 
-#define DOSTID LPX64":"LPU64
-#define POSTID(oi) ostid_seq(oi), ostid_id(oi)
+#define DOSTID "0x%llx:%llu"
+#define POSTID(oi) (unsigned long long)ostid_seq(oi), \
+		   (unsigned long long)ostid_id(oi)
 
 /*
  * The ioctl naming rules:
@@ -508,28 +509,22 @@ static inline void obd_uuid2fsname(char *buf, char *uuid, int buflen)
 		*p = '\0';
 }
 
-/* printf display format
-   e.g. printf("file FID is "DFID"\n", PFID(fid)); */
+/* printf display format for Lustre FIDs
+ * usage: printf("file FID is "DFID"\n", PFID(fid)); */
 #define FID_NOBRACE_LEN 40
 #define FID_LEN (FID_NOBRACE_LEN + 2)
-#define DFID_NOBRACE LPX64":0x%x:0x%x"
+#define DFID_NOBRACE "0x%llx:0x%x:0x%x"
 #define DFID "["DFID_NOBRACE"]"
-#define PFID(fid)     \
-        (fid)->f_seq, \
-        (fid)->f_oid, \
-        (fid)->f_ver
+#define PFID(fid) (unsigned long long)(fid)->f_seq, (fid)->f_oid, (fid)->f_ver
 
-/* scanf input parse format -- strip '[' first.
-   e.g. sscanf(fidstr, SFID, RFID(&fid)); */
-/* #define SFID "0x"LPX64i":0x"LPSZX":0x"LPSZX""
-liblustreapi.c:2893: warning: format '%lx' expects type 'long unsigned int *', but argument 4 has type 'unsigned int *'
-liblustreapi.c:2893: warning: format '%lx' expects type 'long unsigned int *', but argument 5 has type 'unsigned int *'
-*/
-#define SFID "0x"LPX64i":0x%x:0x%x"
-#define RFID(fid)     \
-        &((fid)->f_seq), \
-        &((fid)->f_oid), \
-        &((fid)->f_ver)
+/* scanf input parse format
+ * Need to strip '[' first.  Since this is uncommonly used, it is currently
+ * only defined if LPX64 is available.
+ * usage: sscanf(fidstr, SFID, RFID(&fid)); */
+#ifdef LPX64
+#define SFID LPX64":%i:%i"
+#define RFID(fid) &((fid)->f_seq), &((fid)->f_oid), &((fid)->f_ver)
+#endif
 
 
 /********* Quotas **********/

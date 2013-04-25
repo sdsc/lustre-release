@@ -4416,8 +4416,9 @@ int llapi_fid2path(const char *device, const char *fidstr, char *buf,
         sscanf(fidstr, SFID, RFID(&fid));
         if (!fid_is_sane(&fid)) {
                 llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                  "bad FID format [%s], should be "DFID"\n",
-                                  fidstr, (__u64)1, 2, 0);
+                                  "bad FID format [%s], should be [seq:oid:ver]"
+				  " (e.g. "DFID")\n",
+                                  fidstr, FID_SEQ_NORMAL, 2, 0);
                 return -EINVAL;
         }
 

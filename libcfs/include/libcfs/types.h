@@ -45,7 +45,7 @@
 
 #define LPU64 "%"LPF64"u"
 #define LPD64 "%"LPF64"d"
-#define LPX64 "%#"LPF64"x"
+#define LPX64 "0x%"LPF64"x"
 #define LPX64i "%"LPF64"x"
 #define LPO64 "%#"LPF64"o"
 
