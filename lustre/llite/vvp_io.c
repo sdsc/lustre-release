@@ -1171,7 +1171,6 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 	struct vvp_io      *vio   = vvp_env_io(env);
 	struct ccc_io      *cio   = ccc_env_io(env);
 	struct inode       *inode = ccc_object_inode(obj);
-        int                 result;
 
         CLOBINVRNT(env, obj, ccc_object_invariant(obj));
         ENTRY;
@@ -1179,7 +1178,7 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
         CL_IO_SLICE_CLEAN(cio, cui_cl);
         cl_io_slice_add(io, &cio->cui_cl, obj, &vvp_io_ops);
         vio->cui_ra_window_set = 0;
-	result = 0;
+	io->ci_result = 0;
 	if (io->ci_type == CIT_READ || io->ci_type == CIT_WRITE) {
 		size_t count;
 		struct ll_inode_info *lli = ll_i2info(inode);
@@ -1188,7 +1187,7 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
                 /* "If nbyte is 0, read() will return 0 and have no other
                  *  results."  -- Single Unix Spec */
                 if (count == 0)
-                        result = 1;
+                        io->ci_result = 1;
                 else {
                         cio->cui_tot_count = count;
                         cio->cui_tot_nrsegs = 0;
@@ -1214,10 +1213,20 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 	/* Enqueue layout lock and get layout version. We need to do this
 	 * even for operations requiring to open file, such as read and write,
 	 * because it might not grant layout lock in IT_OPEN. */
-	if (result == 0 && !io->ci_ignore_layout)
-		result = ll_layout_refresh(inode, &cio->cui_layout_gen);
+	if (io->ci_result == 0 && !io->ci_ignore_layout) {
+		io->ci_result = ll_layout_refresh(inode, &cio->cui_layout_gen);
+		/* If the inode on MDS has been removed, but the objects on
+		 * OSTs hasn't been destroyed (in the middle of unlink), layout
+		 * fetch will return -ENOENT, we'd ingore this error and
+		 * continue with dirty flush. */
+		if (io->ci_result == -ENOENT) {
+			CDEBUG(D_INODE, "refresh layout for ino: %lu, "
+			       "rc: %d\n", inode->i_ino, io->ci_result);
+			io->ci_result = 0;
+		}
+	}
 
-	RETURN(result);
+	RETURN(io->ci_result);
 }
 
 static struct vvp_io *cl2vvp_io(const struct lu_env *env,
