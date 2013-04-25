@@ -1214,8 +1214,13 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 	/* Enqueue layout lock and get layout version. We need to do this
 	 * even for operations requiring to open file, such as read and write,
 	 * because it might not grant layout lock in IT_OPEN. */
-	if (result == 0 && !io->ci_ignore_layout)
+	if (result == 0 && !io->ci_ignore_layout) {
 		result = ll_layout_refresh(inode, &cio->cui_layout_gen);
+		if (result < 0)
+			CERROR("%s: refresh file layout " DFID " error %d.\n",
+				ll_get_fsname(inode->i_sb, NULL, 0),
+				PFID(lu_object_fid(&obj->co_lu)), result);
+	}
 
 	RETURN(result);
 }
