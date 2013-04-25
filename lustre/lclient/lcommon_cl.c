@@ -1198,6 +1198,7 @@ int cl_file_inode_init(struct inode *inode, struct lustre_md *md)
                          * XXX not true for call from ll_update_inode().
                          */
                         lli->lli_clob = clob;
+			lli->lli_has_smd = md->lsm != NULL;
                         lu_object_ref_add(&clob->co_lu, "inode", inode);
                 } else
                         result = PTR_ERR(clob);

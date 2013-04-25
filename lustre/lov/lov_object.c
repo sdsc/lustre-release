@@ -698,6 +698,11 @@ int lov_io_init(const struct lu_env *env, struct cl_object *obj,
 
 	/* hold lsm before initializing because io relies on it */
 	lio->lis_lsm = lov_lsm_addref(cl2lov(obj));
+	if (lio->lis_lsm == NULL) {
+		CERROR("object "DFID" does not has lsm.\n",
+		       PFID(lu_object_fid(&obj->co_lu)));
+		return -EIO;
+	}
 
 	/* No need to lock because we've taken one refcount of layout.  */
 	return LOV_2DISPATCH_NOLOCK(cl2lov(obj), llo_io_init, env, obj, io);

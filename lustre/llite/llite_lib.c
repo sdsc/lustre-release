@@ -1671,8 +1671,7 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 		 * is possible where client thinks the file has stripes,
 		 * but lov raid0 is not setup yet and parallel e.g.
 		 * glimpse would try to use uninitialized lov */
-		if (cl_file_inode_init(inode, md) == 0)
-			lli->lli_has_smd = true;
+		cl_file_inode_init(inode, md);
 		cfs_mutex_unlock(&lli->lli_och_mutex);
 
 		lli->lli_maxbytes = lsm->lsm_maxbytes;
