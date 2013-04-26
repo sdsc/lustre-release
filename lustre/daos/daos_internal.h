@@ -43,6 +43,8 @@
 #include <daos/daos_types.h>
 #include <daos/daos_lib.h>
 
+#define DAOS_TEST		1
+
 #define DAOS_HTYPE_BITS		3
 #define DAOS_HTYPES_MASK	((1UL << DAOS_HTYPE_BITS) - 1)
 
@@ -235,6 +237,9 @@ struct daos_dev_env {
 struct daos_module {
 	spinlock_t		dm_lock;
 	cfs_hash_t		*dm_hhash;
+#if DAOS_TEST
+	struct cfs_wi_sched	*dm_sched;
+#endif
 };
 
 extern struct daos_module		the_daos;

@@ -113,6 +113,8 @@ typedef unsigned long long cfs_cycles_t;
 #define PTR_ERR(a) ((long)(a))
 #define ERR_PTR(a) ((void*)((long)(a)))
 
+#define __user
+
 /* this goes in posix-fs.h */
 #include <sys/mount.h>
 
