@@ -896,15 +896,17 @@ int lprocfs_rd_import(char *page, char **start, off_t off, int count,
 	struct obd_device		*obd	= (struct obd_device *)data;
 	struct obd_import		*imp;
 	struct obd_import_conn		*conn;
+	struct obd_connect_data		*ocd;
 	int				i;
 	int				j;
 	int				k;
 	int				rw	= 0;
 
-        LASSERT(obd != NULL);
-        LPROCFS_CLIMP_CHECK(obd);
-        imp = obd->u.cli.cl_import;
-        *eof = 1;
+	LASSERT(obd != NULL);
+	LPROCFS_CLIMP_CHECK(obd);
+	imp = obd->u.cli.cl_import;
+	ocd = &imp->imp_connect_data;
+	*eof = 1;
 
         i = snprintf(page, count,
                      "import:\n"
@@ -916,13 +918,41 @@ int lprocfs_rd_import(char *page, char **start, off_t off, int count,
                      obd->obd_name,
                      obd2cli_tgt(obd),
                      ptlrpc_import_state_name(imp->imp_state),
-                     imp->imp_connect_data.ocd_instance);
-        i += obd_connect_flags2str(page + i, count - i,
-                                   imp->imp_connect_data.ocd_connect_flags,
-                                   ", ");
-        i += snprintf(page + i, count - i,
-                      "]\n"
-                      "    import_flags: [");
+		     ocd->ocd_instance);
+	i += obd_connect_flags2str(page + i, count - i,
+				   ocd->ocd_connect_flags,
+				   ", ");
+	i += snprintf(page + i, count - i,
+		      "]\n"
+		      "    connect_data:\n"
+		      "       flags: "LPX64"\n"
+		      "       target_version: %s\n"
+		      "       initial_grant: %d\n"
+		      "       target_index: %u\n"
+		      "       max_brw_size: %d\n"
+		      "       ibits_known: "LPX64"\n"
+		      "       grant_block_size: %d\n"
+		      "       grant_inode_size: %d\n"
+		      "       grant_extent_overhead: %d\n"
+		      "       first_transno: "LPX64"\n"
+		      "       cksum_types: %x\n"
+		      "       max_easize: %d\n"
+		      "       max_object_bytes: "LPU64"\n",
+		      ocd->ocd_connect_flags,
+		      LUSTRE_VERSION_STRING,
+		      ocd->ocd_grant,
+		      ocd->ocd_index,
+		      ocd->ocd_brw_size,
+		      ocd->ocd_ibits_known,
+		      ocd->ocd_blocksize,
+		      ocd->ocd_inodespace,
+		      ocd->ocd_grant_extent,
+		      ocd->ocd_transno,
+		      ocd->ocd_cksum_types,
+		      ocd->ocd_max_easize,
+		      ocd->ocd_maxbytes);
+	i += snprintf(page + i, count - i,
+		      "    import_flags: [");
         i += obd_import_flags2str(imp, page + i, count - i);
 
         i += snprintf(page + i, count - i,
