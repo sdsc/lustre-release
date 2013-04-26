@@ -32,4 +32,4 @@ if UTILS
 pkginclude_HEADERS = daos_types.h daos_api.h daos_lib.h
 endif
 
-EXTRA_DIST = daos_types.h daos_api.h daos_lib.h
+EXTRA_DIST = daos_types.h daos_api.h daos_lib.h daos.h

@@ -53,6 +53,90 @@ struct daos_module_params	the_daos_params = {
 	.dmp_can_abort		= &can_abort,
 };
 
+#if DAOS_TEST
+
+struct daos_wi_noop {
+	struct daos_kevent	*wnp_event;
+	struct cfs_workitem	wnp_wi;
+	__u64			wnp_when;
+};
+
+static int
+daos_wi_noop_run(struct cfs_workitem *wi)
+{
+	struct daos_wi_noop	*wnp;
+	__u64			now = get_jiffies_64();
+
+	wnp = container_of(wi, struct daos_wi_noop, wnp_wi);
+
+	LASSERT(wi == &wnp->wnp_wi);
+	LASSERT(wnp->wnp_event != NULL);
+
+	/*
+	 * XXX: it is illegal to call schedule_timeout() and sleep in
+	 * workitem callback because it will block workitem scheduler,
+	 * e.g. workitem1 is queued before workitem2, and workitem1 wants
+	 * to sleep much longer than workitem2, then workitem2 will
+	 * be blocked by workitem1... 
+	 * But it is only for testing and we don't expect user to run
+	 * this in product.
+	 */
+	if (now < wnp->wnp_when) {
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		schedule_timeout(wnp->wnp_when - now);
+	}
+
+	daos_event_complete(wnp->wnp_event, 0);
+
+	OBD_FREE_PTR(wnp);
+	return 1; /* tell scheduler this workitem is dead */
+}
+
+static int
+daos_noop(struct daos_usr_noop *unp)
+{
+	struct daos_wi_noop	*wnp;
+
+	OBD_ALLOC_PTR(wnp);
+	if (wnp == NULL)
+		return -ENOMEM;
+
+	wnp->wnp_event = daos_event_dispatch(unp->unp_ev, NULL, NULL, NULL);
+	if (wnp->wnp_event == NULL)
+		return -EINVAL;
+
+	if (unp->unp_latency != 0)
+		wnp->wnp_when = get_jiffies_64() + unp->unp_latency * HZ;
+
+	cfs_wi_init(&wnp->wnp_wi, wnp, daos_wi_noop_run);
+	cfs_wi_schedule(the_daos.dm_scheds[current->pid % the_daos.dm_schedn],
+			&wnp->wnp_wi);
+	return 0;
+}
+
+#else /* !DAOS_TEST */
+
+static int
+daos_noop(struct daos_usr_noop *unp)
+{
+	return -ENOSYS;
+}
+
+#endif /* DAOS_TEST */
+
+static long
+daos_othr_ioctl(struct daos_dev_env *denv, unsigned int cmd,
+		struct daos_usr_param *uparam)
+{
+	switch (cmd) {
+	default:
+		return -EINVAL;
+
+	case DAOS_IOC_NOOP:
+		return daos_noop(daos_usr_param_buf(uparam, 0));
+	}
+}
+
 /* opening /dev/daos */
 static int
 daos_dev_open(struct inode * inode, struct file * file)
@@ -188,6 +272,9 @@ daos_dev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case DAOS_IOC_EQ:
 		rc = daos_eq_ioctl(denv, cmd, uparam);
 		break;
+	case DAOS_IOC_OTHR:
+		rc = daos_othr_ioctl(denv, cmd, uparam);
+		break;
 	}
 
 	daos_usr_param_put(uparam);
@@ -228,6 +315,20 @@ daos_finalize(void)
 		misc_deregister(&daos_device);
 		the_daos.dm_dev_registered = 0;
 	}
+#if DAOS_TEST
+	if (the_daos.dm_scheds != NULL) {
+		int	i;
+
+		for (i = 0; i < the_daos.dm_schedn; i++) {
+			if (the_daos.dm_scheds[i] != NULL)
+				cfs_wi_sched_destroy(the_daos.dm_scheds[i]);
+		}
+
+		OBD_FREE(the_daos.dm_scheds,
+			 the_daos.dm_schedn * sizeof(*the_daos.dm_scheds));
+		the_daos.dm_scheds = NULL;
+	}
+#endif
 	daos_hhash_finalize();
 }
 
@@ -241,11 +342,33 @@ daos_initialize(void)
 		return rc;
 
 	spin_lock_init(&the_daos.dm_lock);
-
 	rc = daos_hhash_initialize();
 	if (rc != 0)
-		return rc;
+		goto failed;
+#if DAOS_TEST
+	the_daos.dm_schedn = cfs_cpt_weight(cfs_cpt_table, CFS_CPT_ANY);
+	while (the_daos.dm_schedn > 16)
+		the_daos.dm_schedn >>= 1;
 
+	OBD_ALLOC(the_daos.dm_scheds,
+		  the_daos.dm_schedn * sizeof(*the_daos.dm_scheds));
+	if (the_daos.dm_scheds == NULL)
+		goto failed;
+
+	do {
+		char	name[16];
+		int	i;
+
+		for (i = 0; i < the_daos.dm_schedn; i++) {
+			sprintf(name, "daos.%d", i);
+			rc = cfs_wi_sched_create(name, cfs_cpt_table,
+						 CFS_CPT_ANY, 1,
+						 &the_daos.dm_scheds[i]);
+			if (rc != 0)
+				goto failed;
+		}
+	} while (0);
+#endif
 	rc = misc_register(&daos_device);
 	if (rc != 0)
 		goto failed;
