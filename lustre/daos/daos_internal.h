@@ -46,6 +46,8 @@
 #include <daos/daos_types.h>
 #include <daos/daos_lib.h>
 
+#define DAOS_TEST		1
+
 #define DAOS_HTYPE_BITS		3
 #define DAOS_HTYPES_MASK	((1UL << DAOS_HTYPE_BITS) - 1)
 
@@ -221,6 +223,13 @@ daos_usr_param_buf(struct daos_usr_param *uparam, int idx)
 	return ((struct daos_usr_data *)&uparam->up_data[0])->ud_inbufs[idx];
 }
 
+static inline int
+daos_usr_param_buf_len(struct daos_usr_param *uparam, int idx)
+{
+	return ((struct daos_usr_data *)&uparam->up_data[0])->
+		ud_inbuf_lens[idx];
+}
+
 long daos_eq_ioctl(struct daos_dev_env *denv, unsigned int cmd,
 		   struct daos_usr_param *uparam);
 
@@ -241,6 +250,10 @@ struct daos_module {
 	spinlock_t		dm_lock;
 	int			dm_dev_registered:1;
 	cfs_hash_t		*dm_hhash;
+#if DAOS_TEST
+	int			dm_schedn;
+	struct cfs_wi_sched	**dm_scheds;
+#endif
 };
 
 extern struct daos_module		the_daos;

@@ -293,6 +293,10 @@ if [ -f $RPM_BUILD_ROOT%{_libdir}/libcfsutil.a ] ; then
   echo '%attr(-, root, root) %{_libdir}/libcfsutil.a' >>lustre.files
 fi
 
+if [ -f $RPM_BUILD_ROOT%{_libdir}/libdaos.a ] ; then
+  echo '%attr(-, root, root) %{_libdir}/libdaos.a' >>lustre.files
+fi
+
 if [ -f $RPM_BUILD_ROOT%{_libdir}/liblustre.so ] ; then
   echo '%attr(-, root, root) %{_libdir}/liblustre.a' >>lustre.files
   echo '%attr(-, root, root) %{_libdir}/liblustre.so' >>lustre.files
