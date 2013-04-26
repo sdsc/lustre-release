@@ -6,7 +6,7 @@ AM_CFLAGS = $(LLCFLAGS)
 # LDADD = -lldap
 # LDADD = -lreadline -ltermcap # -lefence
 
-DIST_SUBDIRS = mpi
+DIST_SUBDIRS = mpi daos
 
 noinst_DATA = disk1_8-ldiskfs.tar.bz2 disk2_1-ldiskfs.tar.bz2
 noinst_DATA += admin_quotafile_v2.usr admin_quotafile_v2.grp
@@ -57,6 +57,7 @@ if TESTS
 if MPITESTS
 SUBDIRS = mpi
 endif
+SUBDIRS += daos
 noinst_PROGRAMS = openunlink truncate directio writeme mlink utime it_test
 noinst_PROGRAMS += tchmod fsx test_brw sendfile
 noinst_PROGRAMS += createmany chownmany statmany multifstat createtest

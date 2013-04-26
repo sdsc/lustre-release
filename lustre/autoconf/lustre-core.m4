@@ -2945,6 +2945,7 @@ lustre/quota/autoMakefile
 lustre/scripts/Makefile
 lustre/tests/Makefile
 lustre/tests/mpi/Makefile
+lustre/tests/daos/Makefile
 lustre/utils/Makefile
 lustre/utils/gss/Makefile
 lustre/osp/Makefile
