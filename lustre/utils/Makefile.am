@@ -35,11 +35,11 @@ bin_SCRIPTS = $(bin_scripts)
 sbin_SCRIPTS = $(sbin_scripts)
 endif # UTILS
 
-lib_LIBRARIES = liblustreapi.a
+lib_LIBRARIES = liblustreapi.a libdaos.a
 if LDISKFS_ENABLED
 lib_LIBRARIES += libiam.a
 endif
-noinst_LIBRARIES = liblustreapitmp.a
+noinst_LIBRARIES = liblustreapitmp.a libdaos.a
 
 lctl_SOURCES = lustre_lfsck.c obd.c lustre_cfg.c lctl.c obdctl.h
 lctl_LDADD :=  liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS) $(LIBREADLINE)
@@ -103,6 +103,8 @@ install-exec-hook: liblustreapi.so
 	    $(INSTALL_DATA) $$p $(DESTDIR)$(libdir)/$$f; \
 	  else :; fi; \
 	done
+
+libdaos_a_SOURCES = daos.c $(L_IOCTL)
 
 if LDISKFS_ENABLED
 libiam_a_SOURCES = libiam.c
