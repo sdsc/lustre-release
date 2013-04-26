@@ -170,30 +170,9 @@ get_files() {
     echo $files
 }
 
-# Remove objects associated with files.
+# Remove objects from OST.
 remove_objects() {
-    local node=$1
-    shift
-    local ostdev=$1
-    shift
-    local group=$1
-    shift
-    local objids="$@"
-    local tmp
-    local i
-    local rc
-
-    echo "removing objects from $ostdev on $facet: $objids"
-    tmp=$(mktemp $SHARED_DIRECTORY/debugfs.XXXXXXXXXX)
-    for i in $objids; do
-        echo "rm O/$group/d$((i % 32))/$i" >> $tmp
-    done
-
-    do_node $node "$DEBUGFS -w -f $tmp $ostdev"
-    rc=${PIPESTATUS[0]}
-    rm -f $tmp
-
-    return $rc
+    do_rpc_nodes $1 remove_ost_objects $@
 }
 
 # Remove files from MDS.
@@ -211,9 +190,9 @@ duplicate_files() {
 # get the server target devices
 get_svr_devs
 
+TESTDIR=$DIR/d0.$TESTSUITE
 if is_empty_fs $MOUNT; then
     # create test directory
-    TESTDIR=$DIR/d0.$TESTSUITE
     mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
 
     # create some dirs and files on the filesystem
@@ -225,7 +204,7 @@ if is_empty_fs $MOUNT; then
 
     # get the node name and target device for the OST with index $OSTIDX
     OSTNODE=$(get_ost_node $OSTIDX) || error "get_ost_node by index $OSTIDX failed"
-    OSTDEV=$(get_ost_dev $OSTNODE $OSTIDX) || \
+    OSTDEV=$(get_ost_dev $OSTNODE $OSTIDX) ||
 	error "get_ost_dev $OSTNODE $OSTIDX failed"
 
     # get the file names to be duplicated on the MDS
@@ -237,14 +216,14 @@ if is_empty_fs $MOUNT; then
 
     # remove objects associated with files in group $OBJGRP
     # on the OST with index $OSTIDX
-    remove_objects $OSTNODE $OSTDEV $OBJGRP $OST_REMOVE || \
+    remove_objects $OSTNODE $OSTDEV $OBJGRP $OST_REMOVE ||
         error "removing objects failed"
 
     # remove files from MDS
     remove_files mds $MDSDEV $MDS_REMOVE || error "removing files failed"
 
     # create EAs on files so objects are referenced from different files
-    duplicate_files mds $MDSDEV $MDS_DUPE || \
+    duplicate_files mds $MDSDEV $MDS_DUPE ||
         error "duplicating files failed"
     FSCK_MAX_ERR=1   # file system errors corrected
 else # is_empty_fs $MOUNT
@@ -257,8 +236,10 @@ fi
 generate_db
 
 # remount filesystem
+ORIG_REFORMAT=$REFORMAT
 REFORMAT=""
 check_and_setup_lustre
+REFORMAT=$ORIG_REFORMAT
 
 # run lfsck
 rc=0
@@ -280,5 +261,14 @@ else
 fi
 
 complete $(basename $0) $SECONDS
+# The test directory contains some files referencing to some object
+# which could cause error when removing the directory.
+RMCNT=0
+while [ -d $TESTDIR ]; do
+	RMCNT=$((RMCNT + 1))
+	rm -fr $TESTDIR || echo "$RMCNT round: rm $TESTDIR failed"
+	[ $RMCNT -ge 10 ] && error "cleanup $TESTDIR failed $RMCNT times"
+	remount_client $MOUNT
+done
 check_and_cleanup_lustre
 exit_status
