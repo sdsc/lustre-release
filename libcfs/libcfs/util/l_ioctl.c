@@ -167,11 +167,12 @@ dump(int dev_id, unsigned int opc, void *buf)
 }
 
 /* register a device to send ioctls to.  */
-int 
-register_ioc_dev(int dev_id, const char * dev_name, int major, int minor) 
+int
+register_ioc_dev(int dev_id, const char * dev_name, int major, int minor)
 {
+	int	rc;
 
-        if (dev_id < 0 || 
+        if (dev_id < 0 ||
             dev_id >= sizeof(ioc_dev_list) / sizeof(ioc_dev_list[0]))
                 return -EINVAL;
 
@@ -181,7 +182,11 @@ register_ioc_dev(int dev_id, const char * dev_name, int major, int minor)
         ioc_dev_list[dev_id].dev_fd = -1;
         ioc_dev_list[dev_id].dev_major = major;
         ioc_dev_list[dev_id].dev_minor = minor;
- 
+
+	rc = open_ioc_dev(dev_id);
+	if (rc < 0)
+		return rc;
+
         return dev_id;
 }
 
