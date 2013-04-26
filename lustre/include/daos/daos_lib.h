@@ -65,7 +65,8 @@ struct daos_kevent *daos_event_dispatch(daos_event_id_t eid, void *uparam,
 					void *kparam, daos_kevent_ops_t *ops);
 
 enum {
-	DAOS_IOC_EQ		= 1,
+	DAOS_IOC_OTHR		= 1,
+	DAOS_IOC_EQ,
 	DAOS_IOC_SYS,
 	DAOS_IOC_EPOCH,
 	DAOS_IOC_CO,
@@ -94,6 +95,9 @@ struct daos_ioc_hdr {
 #define DAOS_IOC_EV_FINI	_IOWR(DAOS_IOC_EQ, 6, DAOS_IOC_HDR)
 #define DAOS_IOC_EV_ABORT	_IOWR(DAOS_IOC_EQ, 7, DAOS_IOC_HDR)
 #define DAOS_IOC_EV_NEXT	_IOWR(DAOS_IOC_EQ, 8, DAOS_IOC_HDR)
+
+/** start/stop cfs_wi_sched, it's for debug and test */
+#define DAOS_IOC_NOOP		_IOWR(DAOS_IOC_OTHR, 1, DAOS_IOC_HDR)
 
 struct daos_usr_data {
 	struct daos_ioc_hdr	ud_hdr;
@@ -147,6 +151,12 @@ struct daos_usr_ev_next {
 	daos_event_id_t		evn_parent;
 	__u64			evn_current;
 	daos_event_t		__user **evn_next;
+};
+
+struct daos_usr_noop {
+	daos_event_id_t		unp_ev;
+	/** execution latency of NOOP (second) */
+	__u64			unp_latency;
 };
 
 static inline int
