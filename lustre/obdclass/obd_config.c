@@ -1181,11 +1181,16 @@ int class_process_config(struct lustre_cfg *lcfg)
                 GOTO(out, err = -EINVAL);
         }
 
-        switch(lcfg->lcfg_command) {
-        case LCFG_SETUP: {
-                err = class_setup(obd, lcfg);
-                GOTO(out, err);
-        }
+	switch(lcfg->lcfg_command) {
+	case LCFG_SETUP: {
+		err = class_setup(obd, lcfg);
+		if (err && lcfg->lcfg_flags & CFG_F_EXCLUDE) {
+			CDEBUG(D_CONFIG, "LCFG_SETUP had error %d but "
+			       "EXCLUDED so skipping\n", err);
+			err = 0;
+		}
+		GOTO(out, err);
+	}
         case LCFG_DETACH: {
                 err = class_detach(obd, lcfg);
                 GOTO(out, err = 0);
@@ -1463,10 +1468,13 @@ int class_config_llog_handler(const struct lu_env *env,
 		}
 #endif
 
-                if ((clli->cfg_flags & CFG_F_EXCLUDE) &&
-                    (lcfg->lcfg_command == LCFG_LOV_ADD_OBD))
-                        /* Add inactive instead */
-                        lcfg->lcfg_command = LCFG_LOV_ADD_INA;
+		if (clli->cfg_flags & CFG_F_EXCLUDE) {
+			CDEBUG(D_CONFIG, "cmd: %x EXCLUDED\n",
+			       lcfg->lcfg_command);
+			if (lcfg->lcfg_command == LCFG_LOV_ADD_OBD)
+				/* Add inactive instead */
+				lcfg->lcfg_command = LCFG_LOV_ADD_INA;
+		}
 
                 lustre_cfg_bufs_init(&bufs, lcfg);
 
