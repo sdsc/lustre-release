@@ -1325,11 +1325,6 @@ t32_check() {
 		exit 0
 	fi
 
-	if [ -n "$($LCTL list_nids | grep -v '\(tcp\|lo\)[[:digit:]]*$')" ]; then
-		skip "LU-2200: Test cannot run over Infiniband"
-		exit 0
-	fi
-
 	local IMGTYPE=$(facet_fstype $SINGLEMDS)
 
 	tarballs=$($r find $RLUSTRE/tests -maxdepth 1 -name \'disk*-$IMGTYPE.tar.bz2\')
@@ -1550,6 +1545,11 @@ t32_test() {
 			}
 		fi
 	else
+		if [ -n "$($LCTL list_nids | grep -v '\(tcp\|lo\)[[:digit:]]*$')" ]; then
+			skip "LU-2200: Test cannot run over Infiniband w/o writeconf"
+			exit 0
+		fi
+
 		mopts=loop,exclude=$fsname-OST0000
 	fi
 
@@ -1760,8 +1760,8 @@ t32_test() {
 			# on an architecture with different number of bits per
 			# "long".
 			#
-			if [ $(t32_bits_per_long $(uname -m)) !=						\
-				 $(t32_bits_per_long $img_arch) ]; then
+			if [ $(t32_bits_per_long $(uname -m)) != \
+				$(t32_bits_per_long $img_arch) ]; then
 				echo "Different number of bits per \"long\" from the disk image"
 				for list in list.orig list; do
 					sed -i -e 's/^[0-9]\+[ \t]\+//' $tmp/$list
@@ -1834,7 +1834,7 @@ t32_test() {
 			error_noexit "tunefs.lustre before remounting the MDT"
 			return 1
 		}
-		$r mount -t lustre -o loop,exclude=$fsname-OST0000 $tmp/mdt			\
+		$r mount -t lustre -o loop,exclude=$fsname-OST0000 $tmp/mdt \
 				 $tmp/mnt/mdt || {
 			error_noexit "Remounting the MDT"
 			return 1
@@ -1850,7 +1850,7 @@ test_32a() {
 
 	t32_check
 	for tarball in $tarballs; do
-		t32_test $tarball || rc=$?
+		t32_test $tarball || let "rc += $?"
 	done
 	return $rc
 }
@@ -1863,7 +1863,7 @@ test_32b() {
 
 	t32_check
 	for tarball in $tarballs; do
-		t32_test $tarball writeconf || rc=$?
+		t32_test $tarball writeconf || let "rc += $?"
 	done
 	return $rc
 }
