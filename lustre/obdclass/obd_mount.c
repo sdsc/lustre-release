@@ -659,16 +659,25 @@ int lustre_put_lsi(struct super_block *sb)
  */
 int server_name2fsname(const char *svname, char *fsname, const char **endptr)
 {
-	const char *dash = strrchr(svname, '-');
-	if (!dash) {
-		dash = strrchr(svname, ':');
+	const char *dash;
+
+	/* find end of option */
+	dash = strpbrk(svname, ":,");
+	if (dash) {
+		for (; dash > svname && *dash != '-'; dash--)
+			;
+		if (*dash != '-')
+			return -EINVAL;
+	} else {
+		/* not part of an option string just reverse search for - */
+		dash = strrchr(svname, '-');
 		if (!dash)
 			return -EINVAL;
 	}
 
 	/* interpret <fsname>-MDTXXXXX-mdc as mdt, the better way is to pass
 	 * in the fsname, then determine the server index */
-	if (!strcmp(LUSTRE_MDC_NAME, dash + 1)) {
+	if (!strncmp(LUSTRE_MDC_NAME, dash + 1, sizeof(LUSTRE_MDC_NAME)-1)) {
 		dash--;
 		for (; dash > svname && *dash != '-' && *dash != ':'; dash--)
 			;
@@ -697,7 +706,7 @@ int server_name2svname(const char *label, char *svname, const char **endptr,
 		       size_t svsize)
 {
 	int rc;
-	const const char *dash;
+	const char *dash;
 
 	/* We use server_name2fsname() just for parsing */
 	rc = server_name2fsname(label, NULL, &dash);
@@ -706,6 +715,9 @@ int server_name2svname(const char *label, char *svname, const char **endptr,
 
 	if (*dash != '-')
 		return -1;
+
+	if (endptr != NULL)
+		*endptr = dash;
 
 	if (strlcpy(svname, dash + 1, svsize) >= svsize)
 		return -E2BIG;
@@ -744,11 +756,22 @@ int server_name2index(const char *svname, __u32 *idx, const char **endptr)
 
 	dash += 3;
 
-	if (strcmp(dash, "all") == 0)
+	if (strncmp(dash, "all", 3) == 0) {
+		if (endptr != NULL)
+			*endptr = dash + 3;
 		return rc | LDD_F_SV_ALL;
+	}
 
 	index = simple_strtoul(dash, (char **)endptr, 16);
-	*idx = index;
+	if (idx != NULL)
+		*idx = index;
+
+	/* Account for -mdc after index that is possible */
+	if (endptr  != NULL &&
+	    strncmp(LUSTRE_MDC_NAME,
+		    *endptr + 1,
+		    sizeof(LUSTRE_MDC_NAME)-1) == 0)
+		*endptr += sizeof(LUSTRE_MDC_NAME);
 
 	return rc;
 }
@@ -839,55 +862,57 @@ int lustre_check_exclusion(struct super_block *sb, char *svname)
 static int lmd_make_exclusion(struct lustre_mount_data *lmd, const char *ptr)
 {
 	const char *s1 = ptr, *s2;
-        __u32 index, *exclude_list;
-        int rc = 0, devmax;
-        ENTRY;
+	__u32 index, *exclude_list;
+	int rc = 0, devmax;
+	ENTRY;
 
-        /* The shortest an ost name can be is 8 chars: -OST0000.
-           We don't actually know the fsname at this time, so in fact
-           a user could specify any fsname. */
-        devmax = strlen(ptr) / 8 + 1;
+	/* The shortest an ost name can be is 8 chars: -OST0000.
+	   We don't actually know the fsname at this time, so in fact
+	   a user could specify any fsname. */
+	devmax = strlen(ptr) / 8 + 1;
 
-        /* temp storage until we figure out how many we have */
-        OBD_ALLOC(exclude_list, sizeof(index) * devmax);
-        if (!exclude_list)
-                RETURN(-ENOMEM);
+	/* temp storage until we figure out how many we have */
+	OBD_ALLOC(exclude_list, sizeof(index) * devmax);
+	if (!exclude_list)
+		RETURN(-ENOMEM);
 
-        /* we enter this fn pointing at the '=' */
-        while (*s1 && *s1 != ' ' && *s1 != ',') {
-                s1++;
-                rc = server_name2index(s1, &index, &s2);
-                if (rc < 0) {
-                        CERROR("Can't parse server name '%s'\n", s1);
-                        break;
-                }
-                if (rc == LDD_F_SV_TYPE_OST)
-                        exclude_list[lmd->lmd_exclude_count++] = index;
-                else
-                        CDEBUG(D_MOUNT, "ignoring exclude %.7s\n", s1);
-                s1 = s2;
-                /* now we are pointing at ':' (next exclude)
-                   or ',' (end of excludes) */
-                if (lmd->lmd_exclude_count >= devmax)
-                        break;
-        }
-        if (rc >= 0) /* non-err */
-                rc = 0;
+	/* we enter this fn pointing at the '=' */
+	while (*s1 && *s1 != ' ' && *s1 != ',') {
+		s1++;
+		rc = server_name2index(s1, &index, &s2);
+		if (rc < 0) {
+			CERROR("Can't parse server name '%s': rc = %d\n",
+			       s1, rc);
+			break;
+		}
+		if (rc == LDD_F_SV_TYPE_OST)
+			exclude_list[lmd->lmd_exclude_count++] = index;
+		else
+			CDEBUG(D_MOUNT, "ignoring exclude %.*s: type = %#x\n",
+			       (uint)(s2-s1), s1, rc);
+		s1 = s2;
+		/* now we are pointing at ':' (next exclude)
+		   or ',' (end of excludes) */
+		if (lmd->lmd_exclude_count >= devmax)
+			break;
+	}
+	if (rc >= 0) /* non-err */
+		rc = 0;
 
-        if (lmd->lmd_exclude_count) {
-                /* permanent, freed in lustre_free_lsi */
-                OBD_ALLOC(lmd->lmd_exclude, sizeof(index) *
-                          lmd->lmd_exclude_count);
-                if (lmd->lmd_exclude) {
-                        memcpy(lmd->lmd_exclude, exclude_list,
-                               sizeof(index) * lmd->lmd_exclude_count);
-                } else {
-                        rc = -ENOMEM;
-                        lmd->lmd_exclude_count = 0;
-                }
-        }
-        OBD_FREE(exclude_list, sizeof(index) * devmax);
-        RETURN(rc);
+	if (lmd->lmd_exclude_count) {
+		/* permanent, freed in lustre_free_lsi */
+		OBD_ALLOC(lmd->lmd_exclude, sizeof(index) *
+			  lmd->lmd_exclude_count);
+		if (lmd->lmd_exclude) {
+			memcpy(lmd->lmd_exclude, exclude_list,
+			       sizeof(index) * lmd->lmd_exclude_count);
+		} else {
+			rc = -ENOMEM;
+			lmd->lmd_exclude_count = 0;
+		}
+	}
+	OBD_FREE(exclude_list, sizeof(index) * devmax);
+	RETURN(rc);
 }
 
 static int lmd_parse_mgssec(struct lustre_mount_data *lmd, char *ptr)

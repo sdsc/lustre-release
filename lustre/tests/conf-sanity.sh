@@ -1324,11 +1324,6 @@ t32_check() {
 		exit 0
 	fi
 
-	if [ -n "$($LCTL list_nids | grep -v '\(tcp\|lo\)[[:digit:]]*$')" ]; then
-		skip "LU-2200: Test cannot run over Infiniband"
-		exit 0
-	fi
-
 	local IMGTYPE=$(facet_fstype $SINGLEMDS)
 
 	tarballs=$($r find $RLUSTRE/tests -maxdepth 1 -name \'disk*-$IMGTYPE.tar.bz2\')
@@ -1833,7 +1828,7 @@ t32_test() {
 			error_noexit "tunefs.lustre before remounting the MDT"
 			return 1
 		}
-		$r mount -t lustre -o loop,exclude=$fsname-OST0000 $tmp/mdt			\
+		$r mount -t lustre -o loop,exclude=$fsname-OST0000 $tmp/mdt \
 				 $tmp/mnt/mdt || {
 			error_noexit "Remounting the MDT"
 			return 1
@@ -1849,7 +1844,7 @@ test_32a() {
 
 	t32_check
 	for tarball in $tarballs; do
-		t32_test $tarball || rc=$?
+		t32_test $tarball || let "rc += $?"
 	done
 	return $rc
 }
