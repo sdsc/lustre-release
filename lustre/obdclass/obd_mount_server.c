@@ -260,7 +260,13 @@ static int server_start_mgs(struct super_block *sb)
 					 lsi->lsi_osd_obdname, 0);
 		/* Do NOT call server_deregister_mount() here. This leads to
 		 * inability cleanup cleanly and free lsi and other stuff when
-		 * mgs calls server_put_mount() in error handling case. -umka */
+		 * mgs calls server_put_mount() in error handling case. -umka
+		 * (see b=17758), but server_deregister__mount should be called
+		 * here, for there is no MGS device with name =
+		 * LUSTRE_MGS_OBDNAME, then the mount won't be unreigstered and
+		 * lsi won't be freed in mgs_device_fini */
+		if (rc)
+			server_deregister_mount(LUSTRE_MGS_OBDNAME);
 	}
 
 	if (rc)
