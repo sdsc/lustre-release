@@ -1105,7 +1105,7 @@ static int llog_osd_setup(const struct lu_env *env, struct obd_device *obd,
 	/* initialize data allowing to generate new fids,
 	 * literally we need a sequece */
 	lgi->lgi_fid.f_seq = FID_SEQ_LLOG;
-	lgi->lgi_fid.f_oid = 1;
+	lgi->lgi_fid.f_oid = 2; /* don't start with 1 due to compatibility */
 	lgi->lgi_fid.f_ver = 0;
 	rc = local_oid_storage_init(env, disk_obd->obd_lvfs_ctxt.dt,
 				    &lgi->lgi_fid, &los);

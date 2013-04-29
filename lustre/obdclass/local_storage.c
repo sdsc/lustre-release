@@ -660,6 +660,79 @@ void dt_los_put(struct local_oid_storage *los)
 	return;
 }
 
+/* after Lustre 2.3 release there may be old file to store last generated FID
+ * If such file exists then we have to read its content
+ */
+int lastid_compat_check(const struct lu_env *env, struct dt_device *dev,
+			__u64 lastid_seq, __u32 *first_oid, struct ls_device *ls)
+{
+	struct dt_thread_info	*dti = dt_info(env);
+	struct dt_object	*root = NULL;
+	struct los_ondisk	 losd;
+	struct dt_object	*o = NULL;
+	int			 rc = 0;
+
+	rc = dt_root_get(env, dev, &dti->dti_fid);
+	if (rc)
+		return rc;
+
+	root = ls_locate(env, ls, &dti->dti_fid);
+	if (IS_ERR(root))
+		return PTR_ERR(root);
+
+	/* find old last_id file */
+	snprintf(dti->dti_buf, sizeof(dti->dti_buf), "seq-%Lx-lastid",
+		 lastid_seq);
+	rc = dt_lookup_dir(env, root, dti->dti_buf, &dti->dti_fid);
+	lu_object_put_nocache(env, &root->do_lu);
+	if (rc == -ENOENT) {
+		/* old llog lastid accessed by FID only */
+		if (lastid_seq != FID_SEQ_LLOG)
+			return 0;
+		dti->dti_fid.f_seq = FID_SEQ_LLOG;
+		dti->dti_fid.f_oid = 1;
+		dti->dti_fid.f_ver = 0;
+		o = ls_locate(env, ls, &dti->dti_fid);
+		if (IS_ERR(o))
+			return PTR_ERR(o);
+
+		if (!dt_object_exists(o)) {
+			lu_object_put_nocache(env, &o->do_lu);
+			return 0;
+		}
+		CWARN("Found old llog lastid file, sequence "LPX64"\n",
+		      lastid_seq);
+	} else if (rc < 0) {
+		return rc;
+	} else {
+		CWARN("Found old lastid file for sequence "LPX64"\n",
+		      lastid_seq);
+		o = ls_locate(env, ls, &dti->dti_fid);
+		if (IS_ERR(o))
+			return PTR_ERR(o);
+	}
+	/* let's read old lastid file value */
+	LASSERT(dt_object_exists(o));
+	dti->dti_off = 0;
+	dti->dti_lb.lb_buf = &losd;
+	dti->dti_lb.lb_len = sizeof(losd);
+	dt_read_lock(env, o, 0);
+	rc = dt_record_read(env, o, &dti->dti_lb, &dti->dti_off);
+	dt_read_unlock(env, o);
+	lu_object_put_nocache(env, &o->do_lu);
+	if (rc == 0 && le32_to_cpu(losd.lso_magic) != LOS_MAGIC) {
+		CERROR("Wrong content of seq-%Lx-lastid file, magic %x\n",
+		       lastid_seq, le32_to_cpu(losd.lso_magic));
+		return -EINVAL;
+	} else if (rc < 0) {
+		CERROR("Failed to read seq-%Lx-lastid, rc = %d\n",
+		       lastid_seq, rc);
+		return rc;
+	}
+	*first_oid = le32_to_cpu(losd.lso_next_oid);
+	return rc;
+}
+
 /**
  * Initialize local OID storage for required sequence.
  * That may be needed for services that uses local files and requires
@@ -684,10 +757,10 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 	struct dt_thread_info	*dti = dt_info(env);
 	struct ls_device	*ls;
 	struct los_ondisk	 losd;
-	struct dt_object	*root = NULL;
 	struct dt_object	*o = NULL;
 	struct thandle		*th;
-	int			 rc;
+	__u32			 first_oid = fid_oid(first_fid);
+	int			 rc = 0;
 
 	ENTRY;
 
@@ -711,31 +784,20 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 	cfs_atomic_inc(&ls->ls_refcount);
 	cfs_list_add(&(*los)->los_list, &ls->ls_los_list);
 
-	rc = dt_root_get(env, dev, &dti->dti_fid);
-	if (rc)
+	rc = lastid_compat_check(env, dev, fid_seq(first_fid), &first_oid, ls);
+	if (rc < 0)
 		GOTO(out_los, rc);
 
-	root = ls_locate(env, ls, &dti->dti_fid);
-	if (IS_ERR(root))
-		GOTO(out_los, rc = PTR_ERR(root));
-
-	/* initialize data allowing to generate new fids,
-	 * literally we need a sequence */
-	snprintf(dti->dti_buf, sizeof(dti->dti_buf), "seq-%Lx-lastid",
-		 fid_seq(first_fid));
-	rc = dt_lookup_dir(env, root, dti->dti_buf, &dti->dti_fid);
-	if (rc == -ENOENT)
-		dti->dti_fid = *first_fid;
-	else if (rc < 0)
-		GOTO(out_los, rc);
-
+	/* we have to create LAST_ID file for required sequence with
+	 * zero OID, take just sequence from first_fid */
+	dti->dti_fid.f_seq = fid_seq(first_fid);
+	dti->dti_fid.f_oid = LUSTRE_FID_LASTID_OID;
+	dti->dti_fid.f_ver = 0;
 	o = ls_locate(env, ls, &dti->dti_fid);
 	if (IS_ERR(o))
 		GOTO(out_los, rc = PTR_ERR(o));
-	LASSERT(fid_seq(&dti->dti_fid) == fid_seq(first_fid));
-	if (!dt_object_exists(o)) {
-		LASSERT(rc == -ENOENT);
 
+	if (!dt_object_exists(o)) {
 		th = dt_trans_create(env, dev);
 		if (IS_ERR(th))
 			GOTO(out_lock, rc = PTR_ERR(th));
@@ -749,13 +811,6 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 		if (rc)
 			GOTO(out_trans, rc);
 
-		rc = dt_declare_insert(env, root,
-				       (const struct dt_rec *)&dti->dti_fid,
-				       (const struct dt_key *)dti->dti_buf,
-				       th);
-		if (rc)
-			GOTO(out_trans, rc);
-
 		rc = dt_declare_record_write(env, o, sizeof(losd), 0, th);
 		if (rc)
 			GOTO(out_trans, rc);
@@ -764,7 +819,6 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 		if (rc)
 			GOTO(out_trans, rc);
 
-		dt_write_lock(env, root, 0);
 		dt_write_lock(env, o, 0);
 		if (dt_object_exists(o))
 			GOTO(out_lock, rc = 0);
@@ -775,7 +829,7 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 			GOTO(out_lock, rc);
 
 		losd.lso_magic = cpu_to_le32(LOS_MAGIC);
-		losd.lso_next_oid = cpu_to_le32(fid_oid(first_fid) + 1);
+		losd.lso_next_oid = cpu_to_le32(first_oid);
 
 		dti->dti_off = 0;
 		dti->dti_lb.lb_buf = &losd;
@@ -783,15 +837,8 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 		rc = dt_record_write(env, o, &dti->dti_lb, &dti->dti_off, th);
 		if (rc)
 			GOTO(out_lock, rc);
-		rc = dt_insert(env, root,
-			       (const struct dt_rec *)&dti->dti_fid,
-			       (const struct dt_key *)dti->dti_buf,
-			       th, BYPASS_CAPA, 1);
-		if (rc)
-			GOTO(out_lock, rc);
 out_lock:
 		dt_write_unlock(env, o);
-		dt_write_unlock(env, root);
 out_trans:
 		dt_trans_stop(env, dev, th);
 	} else {
@@ -808,9 +855,6 @@ out_trans:
 		}
 	}
 out_los:
-	if (root != NULL && !IS_ERR(root))
-		lu_object_put_nocache(env, &root->do_lu);
-
 	if (rc != 0) {
 		cfs_list_del(&(*los)->los_list);
 		cfs_atomic_dec(&ls->ls_refcount);
@@ -822,6 +866,9 @@ out_los:
 		(*los)->los_seq = fid_seq(first_fid);
 		(*los)->los_last_oid = le32_to_cpu(losd.lso_next_oid);
 		(*los)->los_obj = o;
+		/* read value should not be less than initial one */
+		LASSERTF((*los)->los_last_oid >= first_oid, "%u < %u\n",
+			 (*los)->los_last_oid, first_oid);
 	}
 out:
 	mutex_unlock(&ls->ls_los_mutex);
