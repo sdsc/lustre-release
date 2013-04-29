@@ -2476,7 +2476,6 @@ out:
  */
 static int
 osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
-                 struct lov_oinfo *loi,
                  int cmd, struct loi_oap_pages *lop)
 {
         struct ptlrpc_request *req;
@@ -2661,8 +2660,6 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
 
         osc_wake_cache_waiters(cli);
 
-        loi_list_maint(cli, loi);
-
         client_obd_list_unlock(&cli->cl_loi_list_lock);
 
         if (clob != NULL)
@@ -2677,7 +2674,6 @@ osc_send_oap_rpc(const struct lu_env *env, struct client_obd *cli,
                             mem_tight ? (cmd | OBD_BRW_MEMALLOC) : cmd);
         if (IS_ERR(req)) {
                 LASSERT(cfs_list_empty(&rpc_list));
-                loi_list_maint(cli, loi);
                 RETURN(PTR_ERR(req));
         }
 
@@ -2811,6 +2807,18 @@ void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
                 if (osc_max_rpc_in_flight(cli, loi))
                         break;
 
+		/* unlink loi from all client_obd lists, this will prevent
+		 * it to be freed during loi_list_lock release windows in
+		 * osc_send_oap_rpc() calls. */
+                if (!cfs_list_empty(&loi->loi_hp_ready_item))
+                        cfs_list_del_init(&loi->loi_hp_ready_item);
+                if (!cfs_list_empty(&loi->loi_ready_item))
+                        cfs_list_del_init(&loi->loi_ready_item);
+                if (!cfs_list_empty(&loi->loi_write_item))
+                        cfs_list_del_init(&loi->loi_write_item);
+                if (!cfs_list_empty(&loi->loi_read_item))
+                        cfs_list_del_init(&loi->loi_read_item);
+
                 /* attempt some read/write balancing by alternating between
                  * reads and writes in an object.  The makes_rpc checks here
                  * would be redundant if we were getting read/write work items
@@ -2818,7 +2826,7 @@ void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
                  * partial read pending queue when we're given this object to
                  * do io on writes while there are cache waiters */
                 if (lop_makes_rpc(cli, &loi->loi_write_lop, OBD_BRW_WRITE)) {
-                        rc = osc_send_oap_rpc(env, cli, loi, OBD_BRW_WRITE,
+                        rc = osc_send_oap_rpc(env, cli, OBD_BRW_WRITE,
                                               &loi->loi_write_lop);
                         if (rc < 0) {
                                 CERROR("Write request failed with %d\n", rc);
@@ -2848,7 +2856,7 @@ void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
                                 race_counter++;
                 }
                 if (lop_makes_rpc(cli, &loi->loi_read_lop, OBD_BRW_READ)) {
-                        rc = osc_send_oap_rpc(env, cli, loi, OBD_BRW_READ,
+                        rc = osc_send_oap_rpc(env, cli, OBD_BRW_READ,
                                               &loi->loi_read_lop);
                         if (rc < 0)
                                 CERROR("Read request failed with %d\n", rc);
@@ -2861,15 +2869,6 @@ void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli)
 
                 /* attempt some inter-object balancing by issuing rpcs
                  * for each object in turn */
-                if (!cfs_list_empty(&loi->loi_hp_ready_item))
-                        cfs_list_del_init(&loi->loi_hp_ready_item);
-                if (!cfs_list_empty(&loi->loi_ready_item))
-                        cfs_list_del_init(&loi->loi_ready_item);
-                if (!cfs_list_empty(&loi->loi_write_item))
-                        cfs_list_del_init(&loi->loi_write_item);
-                if (!cfs_list_empty(&loi->loi_read_item))
-                        cfs_list_del_init(&loi->loi_read_item);
-
                 loi_list_maint(cli, loi);
 
                 /* send_oap_rpc fails with 0 when make_ready tells it to
