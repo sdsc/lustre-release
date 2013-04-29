@@ -530,6 +530,7 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 			struct lov_stripe_md *lsm)
 {
 	struct ofd_device	*ofd;
+	struct lu_env		real_env;
 	int			 rc = 0;
 
 	ENTRY;
@@ -539,13 +540,21 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		RETURN(-EINVAL);
 	}
 
+	/* Because ofd_get_info might be called from
+	 * handle_request_in as well(see LU-3239), where env might
+	 * not be initilaized correctly, so we will initilize our
+	 * own env here */
+	rc = lu_env_init(&real_env, LCT_DT_THREAD);
+	if (rc != 0)
+		RETURN(rc);
+
 	ofd = ofd_exp(exp);
 
 	if (KEY_IS(KEY_BLOCKSIZE)) {
 		__u32 *blocksize = val;
 		if (blocksize) {
 			if (*vallen < sizeof(*blocksize))
-				RETURN(-EOVERFLOW);
+				GOTO(out_env, rc = -EOVERFLOW);
 			*blocksize = 1 << ofd->ofd_dt_conf.ddp_block_shift;
 		}
 		*vallen = sizeof(*blocksize);
@@ -553,7 +562,7 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		__u32 *blocksize_bits = val;
 		if (blocksize_bits) {
 			if (*vallen < sizeof(*blocksize_bits))
-				RETURN(-EOVERFLOW);
+				GOTO(out_env, rc = -EOVERFLOW);
 			*blocksize_bits = ofd->ofd_dt_conf.ddp_block_shift;
 		}
 		*vallen = sizeof(*blocksize_bits);
@@ -563,20 +572,20 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 
 		if (val == NULL) {
 			*vallen = sizeof(obd_id);
-			RETURN(0);
+			GOTO(out_env, rc = 0);
 		}
-		ofd_info_init(env, exp);
-		oseq = ofd_seq_load(env, ofd,
+		ofd_info_init(&real_env, exp);
+		oseq = ofd_seq_load(&real_env, ofd,
 				    (obd_seq)exp->exp_filter_data.fed_group);
 		LASSERT(!IS_ERR(oseq));
 		if (last_id) {
 			if (*vallen < sizeof(*last_id)) {
-				ofd_seq_put(env, oseq);
-				RETURN(-EOVERFLOW);
+				ofd_seq_put(&real_env, oseq);
+				GOTO(out_env, rc = -EOVERFLOW);
 			}
 			*last_id = ofd_seq_last_oid(oseq);
 		}
-		ofd_seq_put(env, oseq);
+		ofd_seq_put(&real_env, oseq);
 		*vallen = sizeof(*last_id);
 	} else if (KEY_IS(KEY_FIEMAP)) {
 		struct ofd_thread_info		*info;
@@ -587,17 +596,17 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		if (val == NULL) {
 			*vallen = fiemap_count_to_size(
 					       fm_key->fiemap.fm_extent_count);
-			RETURN(0);
+			GOTO(out_env, rc = 0);
 		}
 
-		info = ofd_info_init(env, exp);
+		info = ofd_info_init(&real_env, exp);
 		rc = ostid_to_fid(&info->fti_fid, &fm_key->oa.o_oi, 0);
 		if (rc != 0)
-			RETURN(rc);
+			GOTO(out_env, rc);
 		CDEBUG(D_INODE, "get FIEMAP of object "DFID"\n",
 		       PFID(&info->fti_fid));
 
-		fo = ofd_object_find(env, ofd, &info->fti_fid);
+		fo = ofd_object_find(&real_env, ofd, &info->fti_fid);
 		if (IS_ERR(fo)) {
 			CERROR("%s: error finding object "DFID"\n",
 			       exp->exp_obd->obd_name, PFID(&info->fti_fid));
@@ -605,23 +614,22 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		} else {
 			struct ll_user_fiemap *fiemap = val;
 
-			ofd_read_lock(env, fo);
+			ofd_read_lock(&real_env, fo);
 			if (ofd_object_exists(fo)) {
 				*fiemap = fm_key->fiemap;
-				rc = dt_fiemap_get(env,
+				rc = dt_fiemap_get(&real_env,
 						   ofd_object_child(fo),
 						   fiemap);
 			} else {
 				rc = -ENOENT;
 			}
-			ofd_read_unlock(env, fo);
-			ofd_object_put(env, fo);
+			ofd_read_unlock(&real_env, fo);
+			ofd_object_put(&real_env, fo);
 		}
 	} else if (KEY_IS(KEY_SYNC_LOCK_CANCEL)) {
 		*((__u32 *) val) = ofd->ofd_sync_lock_cancel;
 		*vallen = sizeof(__u32);
 	} else if (KEY_IS(KEY_LAST_FID)) {
-		struct lu_env		env;
 		struct ofd_device	*ofd = ofd_exp(exp);
 		struct ofd_seq		*oseq;
 		struct lu_fid		*fid = val;
@@ -629,22 +637,20 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 
 		if (fid == NULL) {
 			*vallen = sizeof(struct lu_fid);
-			RETURN(0);
+			GOTO(out_env, rc = 0);
 		}
 
 		if (*vallen < sizeof(*fid))
-			RETURN(-EOVERFLOW);
+			GOTO(out_env, rc = -EOVERFLOW);
 
-		rc = lu_env_init(&env, LCT_DT_THREAD);
-		if (rc != 0)
-			RETURN(rc);
-		ofd_info_init(&env, exp);
+		ofd_info_init(&real_env, exp);
 
 		fid_le_to_cpu(fid, fid);
 
-		oseq = ofd_seq_load(&env, ofd, ostid_seq((struct ost_id *)fid));
+		oseq = ofd_seq_load(&real_env, ofd,
+				    ostid_seq((struct ost_id *)fid));
 		if (IS_ERR(oseq))
-			GOTO(out_fini, rc = PTR_ERR(oseq));
+			GOTO(out_env, rc = PTR_ERR(oseq));
 
 		rc = ostid_to_fid(fid, &oseq->os_oi,
 			     ofd->ofd_lut.lut_lsd.lsd_osd_index);
@@ -655,14 +661,14 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		       PFID(fid));
 		*vallen = sizeof(*fid);
 out_put:
-		ofd_seq_put(&env, oseq);
-out_fini:
-		lu_env_fini(&env);
+		ofd_seq_put(&real_env, oseq);
 	} else {
 		CERROR("Not supported key %s\n", (char*)key);
 		rc = -EOPNOTSUPP;
 	}
 
+out_env:
+	lu_env_fini(&real_env);
 	RETURN(rc);
 }
 
