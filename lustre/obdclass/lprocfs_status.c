@@ -796,21 +796,35 @@ EXPORT_SYMBOL(lprocfs_stats_collect);
 /**
  * Append a space separated list of current set flags to str.
  */
-#define flag2str(flag) \
-        if (imp->imp_##flag && max - len > 0) \
-             len += snprintf(str + len, max - len, "%s" #flag, len ? ", " : "");
+#define flag2str(port, flag) do {				\
+	if ((port)->port##_##flag && max - len > 0)		\
+		len += snprintf(str + len, max - len,		\
+				"%s" #flag, len ? ", " : "");	\
+} while (0)
 static int obd_import_flags2str(struct obd_import *imp, char *str, int max)
 {
-        int len = 0;
+	int len = 0;
 
-        if (imp->imp_obd->obd_no_recov)
-                len += snprintf(str, max - len, "no_recov");
+	if (imp->imp_obd->obd_no_recov)
+		len += snprintf(str, max - len, "no_recov");
+	flag2str(imp, invalid);
+	flag2str(imp, deactive);
+	flag2str(imp, replayable);
+	flag2str(imp, pingable);
 
-        flag2str(invalid);
-        flag2str(deactive);
-        flag2str(replayable);
-        flag2str(pingable);
-        return len;
+	return len;
+}
+
+static int obd_export_flags2str(struct obd_export *exp, char *str, int max)
+{
+	int len = 0;
+
+	flag2str(exp, failed);
+	flag2str(exp, in_recovery);
+	flag2str(exp, disconnected);
+	flag2str(exp, connecting);
+
+	return len;
 }
 #undef flags2str
 
@@ -1847,15 +1861,6 @@ void lprocfs_init_ldlm_stats(struct lprocfs_stats *ldlm_stats)
 }
 EXPORT_SYMBOL(lprocfs_init_ldlm_stats);
 
-int lprocfs_exp_rd_nid(char *page, char **start, off_t off, int count,
-                         int *eof,  void *data)
-{
-        struct obd_export *exp = data;
-        LASSERT(exp != NULL);
-        *eof = 1;
-        return snprintf(page, count, "%s\n", obd_export_nid2str(exp));
-}
-
 struct exp_uuid_cb_data {
         char                   *page;
         int                     count;
@@ -1937,6 +1942,41 @@ int lprocfs_exp_rd_hash(char *page, char **start, off_t off, int count,
         cfs_hash_for_each_key(obd->obd_nid_hash, &stats->nid,
                               lprocfs_exp_print_hash, &cb_data);
         return (*cb_data.len);
+}
+
+int lprocfs_exp_rd_export(char *page, char **start, off_t off, int count,
+			  int *eof,  void *data)
+{
+	struct obd_export		*exp = (struct obd_export *)data;
+	struct obd_device		*obd;
+	struct obd_connect_data		*ocd;
+	struct nid_stat			*stats;
+	int				i;
+
+	*eof = 1;
+	LASSERT(exp != NULL);
+	obd = exp->exp_obd;
+	ocd = &exp->exp_connect_data;
+	stats = exp->exp_nid_stats;
+
+	i = snprintf(page, count,
+		     "export:\n"
+		     "    name: %s\n"
+		     "    client: %s\n"
+		     "    connect_flags: [",
+		     obd->obd_name,
+		     stats->nid_proc->name);
+	i += obd_connect_flags2str(page + i, count - i,
+				   ocd->ocd_connect_flags,
+				   ", ");
+	i += snprintf(page + i, count - i, "]\n");
+	i += obd_connect_data_print(page + i, count - i, ocd);
+	i += snprintf(page + i, count - i,
+		      "    export_flags: [");
+	i += obd_export_flags2str(exp, page + i, count - i);
+	i += snprintf(page + i, count - i, "]\n");
+
+	return i;
 }
 
 int lprocfs_nid_stats_clear_read(char *page, char **start, off_t off,
@@ -2075,6 +2115,14 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
                 rc = PTR_ERR(entry);
                 GOTO(destroy_new_ns, rc);
         }
+
+	entry = lprocfs_add_simple(new_stat->nid_proc, "export",
+				   lprocfs_exp_rd_export, NULL, exp, NULL);
+	if (IS_ERR(entry)) {
+		CWARN("Error adding the export file\n");
+		rc = PTR_ERR(entry);
+		GOTO(destroy_new_ns, rc);
+	}
 
         exp->exp_nid_stats = new_stat;
         *newnid = 1;
