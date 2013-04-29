@@ -11171,6 +11171,17 @@ test_232() {
 }
 run_test 232 "failed lock should not block umount"
 
+test_233() {
+	for directory in $MOUNT "$MOUNT/.lustre" "$MOUNT/.lustre/fid"
+	do
+	        fid=($($LFS path2fid $directory))
+		stat $MOUNT/.lustre/fid/$fid >> /dev/null ||
+			error "Can't stat $directory"
+	done
+
+}
+run_test 233 "checking that special OBF accesses succeed"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
