@@ -11188,6 +11188,14 @@ test_232() {
 }
 run_test 232 "failed lock should not block umount"
 
+test_233() {
+	fid=($($LFS path2fid $MOUNT))
+	stat $MOUNT/.lustre/fid/$fid >> /dev/null ||
+		error "Can't access $MOUNT by FID"
+
+}
+run_test 233 "checking that OBF of the FS root succeeds"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
