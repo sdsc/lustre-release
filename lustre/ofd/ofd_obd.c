@@ -579,6 +579,7 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		ofd_seq_put(env, oseq);
 		*vallen = sizeof(*last_id);
 	} else if (KEY_IS(KEY_FIEMAP)) {
+		struct lu_env			fiemap_env;
 		struct ofd_thread_info		*info;
 		struct ofd_device		*ofd = ofd_exp(exp);
 		struct ofd_object		*fo;
@@ -590,14 +591,22 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 			RETURN(0);
 		}
 
-		info = ofd_info_init(env, exp);
-		rc = ostid_to_fid(&info->fti_fid, &fm_key->oa.o_oi, 0);
+		/* Because ofd_get_info(KEY_FIEMAP) might be called from
+		 * handle_request_in as well(see LU-3239), where env might
+		 * not be initilaized correctly, so we will initilize our
+		 * own env here */
+		rc = lu_env_init(&fiemap_env, LCT_DT_THREAD);
 		if (rc != 0)
 			RETURN(rc);
+
+		info = ofd_info_init(&fiemap_env, exp);
+		rc = ostid_to_fid(&info->fti_fid, &fm_key->oa.o_oi, 0);
+		if (rc != 0)
+			GOTO(fiemap_env_put, rc);
 		CDEBUG(D_INODE, "get FIEMAP of object "DFID"\n",
 		       PFID(&info->fti_fid));
 
-		fo = ofd_object_find(env, ofd, &info->fti_fid);
+		fo = ofd_object_find(&fiemap_env, ofd, &info->fti_fid);
 		if (IS_ERR(fo)) {
 			CERROR("%s: error finding object "DFID"\n",
 			       exp->exp_obd->obd_name, PFID(&info->fti_fid));
@@ -605,18 +614,20 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		} else {
 			struct ll_user_fiemap *fiemap = val;
 
-			ofd_read_lock(env, fo);
+			ofd_read_lock(&fiemap_env, fo);
 			if (ofd_object_exists(fo)) {
 				*fiemap = fm_key->fiemap;
-				rc = dt_fiemap_get(env,
+				rc = dt_fiemap_get(&fiemap_env,
 						   ofd_object_child(fo),
 						   fiemap);
 			} else {
 				rc = -ENOENT;
 			}
-			ofd_read_unlock(env, fo);
-			ofd_object_put(env, fo);
+			ofd_read_unlock(&fiemap_env, fo);
+			ofd_object_put(&fiemap_env, fo);
 		}
+fiemap_env_put:
+		lu_env_fini(&fiemap_env);
 	} else if (KEY_IS(KEY_SYNC_LOCK_CANCEL)) {
 		*((__u32 *) val) = ofd->ofd_sync_lock_cancel;
 		*vallen = sizeof(__u32);
