@@ -590,6 +590,13 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 			RETURN(0);
 		}
 
+		rc = lu_env_refill((struct lu_env *)env);
+		if (rc != 0) {
+			CERROR("%s: fail to refill session: '%d'\n",
+			       exp->exp_obd->obd_name, rc);
+			RETURN(rc);
+		}
+
 		info = ofd_info_init(env, exp);
 		rc = ostid_to_fid(&info->fti_fid, &fm_key->oa.o_oi, 0);
 		if (rc != 0)
