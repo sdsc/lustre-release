@@ -523,6 +523,8 @@ struct lustre_mount_info {
 /* on-disk structure describing local object OIDs storage
  * the structure to be used with any sequence managed by
  * local object library */
+/* XXX: obsoleted since 2.4 but is kept for compatibility reasons,
+ * see lastid_compat_check() in obdclass/local_storage.c */
 struct los_ondisk {
 	__u32 lso_magic;
 	__u32 lso_next_oid;
