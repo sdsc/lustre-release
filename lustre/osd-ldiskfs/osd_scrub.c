@@ -1177,10 +1177,6 @@ static const struct osd_lf_map osd_lf_maps[] = {
 	{ QSD_DIR, { 0, 0, 0 }, OLF_SCAN_SUBITEMS,
 		osd_ios_general_scan, osd_ios_varfid_fill },
 
-	/* seq-200000003-lastid */
-	{ "seq-200000003-lastid", { FID_SEQ_LOCAL_NAME, 1, 0 }, 0,
-		NULL, NULL },
-
 	/* seq_ctl */
 	{ "seq_ctl", { FID_SEQ_LOCAL_FILE, FID_SEQ_CTL_OID, 0 },
 		OLF_SHOW_NAME, NULL, NULL },
