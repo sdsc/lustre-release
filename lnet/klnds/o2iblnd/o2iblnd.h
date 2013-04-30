@@ -72,6 +72,9 @@
 #ifdef HAVE_COMPAT_RDMA
 #include <linux/compat-2.6.h>
 #endif
+#ifdef HAVE_COMPAT_32_HEADERS
+#include <linux/compat-3.2.h>
+#endif
 #include <rdma/rdma_cm.h>
 #include <rdma/ib_cm.h>
 #include <rdma/ib_verbs.h>
