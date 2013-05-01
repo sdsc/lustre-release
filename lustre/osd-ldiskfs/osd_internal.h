@@ -56,9 +56,6 @@
 #include <ldiskfs/ldiskfs.h>
 #include <ldiskfs/ldiskfs_jbd2.h>
 
-/* fsfilt_{get|put}_ops */
-#include <lustre_fsfilt.h>
-
 /* LUSTRE_OSD_NAME */
 #include <obd.h>
 /* class_register_type(), class_unregister_type(), class_get_type() */
@@ -263,7 +260,6 @@ struct osd_device {
 				  od_dirent_journal:1,
 				  od_handle_nolma:1;
 
-	struct fsfilt_operations *od_fsops;
 	int			  od_connects;
 	struct lu_site		  od_site;
 

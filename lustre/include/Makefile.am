@@ -42,7 +42,7 @@ DIST_SUBDIRS = linux lustre darwin
 
 EXTRA_DIST = ioctl.h liblustre.h lprocfs_status.h lustre_cfg.h 	\
 	     lustre_debug.h lustre_disk.h lustre_dlm.h lustre_export.h \
-             lustre_fsfilt.h lustre_ha.h lustre_handles.h lustre_import.h \
+	     lustre_ha.h lustre_handles.h lustre_import.h \
              lustre_lib.h lustre_sec.h	lustre_lite.h lustre_log.h lustre_mds.h \
              lustre_mdc.h lustre_net.h lustre_quota.h lvfs.h \
              obd_cache.h obd_class.h obd.h obd_lov.h \
