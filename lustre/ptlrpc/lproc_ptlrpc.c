@@ -1165,8 +1165,7 @@ void ptlrpc_lprocfs_rpc_sent(struct ptlrpc_request *req, long amount)
         if (svc_stats == NULL || opc <= 0)
                 return;
         LASSERT(opc < LUSTRE_MAX_OPCODES);
-        if (!(op == LDLM_ENQUEUE || op == MDS_REINT))
-                lprocfs_counter_add(svc_stats, opc + EXTRA_MAX_OPCODES, amount);
+	lprocfs_counter_add(svc_stats, opc + EXTRA_MAX_OPCODES, amount);
 }
 
 void ptlrpc_lprocfs_brw(struct ptlrpc_request *req, int bytes)
