@@ -471,6 +471,15 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 			      obj->oo_inode->i_ino);
 			rc = -EOPNOTSUPP;
 		}
+		if (unlikely(!lu_fid_eq(lu_object_fid(&obj->oo_dt.do_lu),
+					&lma->lma_self_fid))) {
+			CERROR("%s: FID "DFID" != lma_self_fid "DFID
+			       ": rc = %d\n",
+			       osd_obj2dev(obj)->od_svname,
+			       PFID(lu_object_fid(&obj->oo_dt.do_lu)),
+			       PFID(&lma->lma_self_fid), -EINVAL);
+			rc = -EINVAL;
+		}
 	} else if (rc == -ENODATA) {
 		/* haven't initialize LMA xattr */
 		rc = 0;
