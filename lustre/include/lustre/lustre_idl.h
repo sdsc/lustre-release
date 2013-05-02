@@ -752,11 +752,6 @@ static inline int ostid_to_fid(struct lu_fid *fid, struct ost_id *ostid,
 		* all OSTs, or a regular FID.  The IDIF namespace maps legacy
 		* OST objects into the FID namespace.  In both cases, we just
 		* pass the FID through, no conversion needed. */
-		if (ostid->oi_fid.f_ver != 0) {
-			CERROR("bad MDT0 id, "DOSTID" ost_idx:%u\n",
-				POSTID(ostid), ost_idx);
-			return -EBADF;
-		}
 		*fid = ostid->oi_fid;
 	}
 
