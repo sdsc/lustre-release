@@ -325,6 +325,7 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	struct scrub_file      *sf;
 	int			result;
 	int			verify = 0;
+	int			oi_lookup = 0;
 	ENTRY;
 
 	LINVRNT(osd_invariant(obj));
@@ -368,6 +369,8 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	if (conf != NULL && conf->loc_flags & LOC_F_NEW)
 		GOTO(out, result = 0);
 
+oi_lookup:
+	oi_lookup = 1;
 	/* Search order: 3. OI files. */
 	result = osd_oi_lookup(info, dev, fid, id, true);
 	if (result == -ENOENT) {
@@ -412,6 +415,25 @@ trigger:
 
                 GOTO(out, result);
         }
+
+	/* Because oi cache is put into the thread info(per thread), so if one
+	 * thread deletes OI from the cache, it can only delete the inode from
+	 * OI table, but it has no way to notify other thread info, it means
+	 * the oi cache might become stale in this case. but we can check the
+	 * inode generation, if the inode is being getting from the oi cache,
+	 *  1. If the inode has not been used, nlink == 0, osd_iget will
+	 *     check this out.
+	 *  2. If the inode has been reused, generation should be changed, so
+	 *     we need compare the generation here, in this case, if the check
+	 *     fails, it should been given another chance to lookup in OI table
+	 *     again */
+	if (oi_lookup == 0 && unlikely(inode->i_generation != id->oii_gen)) {
+		CDEBUG(D_INODE, "lookup for %u:%u, get inode %lu:%u\n",
+		       id->oii_ino, id->oii_gen, inode->i_ino,
+		       inode->i_generation);
+		fid_zero(&oic->oic_fid);
+		GOTO(oi_lookup, result);
+	}
 
         obj->oo_inode = inode;
         LASSERT(obj->oo_inode->i_sb == osd_sb(dev));
@@ -463,13 +485,26 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 		lustre_lma_swab(lma);
 		if (unlikely((lma->lma_incompat & ~LMA_INCOMPAT_SUPP) ||
 			     CFS_FAIL_CHECK(OBD_FAIL_OSD_LMA_INCOMPAT))) {
+			rc = -EOPNOTSUPP;
 			CWARN("%s: unsupported incompat LMA feature(s) %#x for "
-			      "fid = "DFID", ino = %lu\n",
+			      "fid = "DFID", ino = %lu: rc = %d\n",
 			      osd_obj2dev(obj)->od_svname,
 			      lma->lma_incompat & ~LMA_INCOMPAT_SUPP,
 			      PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-			      obj->oo_inode->i_ino);
-			rc = -EOPNOTSUPP;
+			      obj->oo_inode->i_ino, rc);
+		}
+		if (unlikely(!lu_fid_eq(lu_object_fid(&obj->oo_dt.do_lu),
+					&lma->lma_self_fid))) {
+			rc = -ESTALE;
+			CERROR("%s: FID "DFID" != lma_self_fid "DFID
+			       ": rc = %d\n",
+			       osd_obj2dev(obj)->od_svname,
+			       PFID(lu_object_fid(&obj->oo_dt.do_lu)),
+			       PFID(&lma->lma_self_fid), rc);
+			if (obj->oo_inode != NULL) {
+				iput(obj->oo_inode);
+				obj->oo_inode = NULL;
+			}
 		}
 	} else if (rc == -ENODATA) {
 		/* haven't initialize LMA xattr */
@@ -3773,6 +3808,30 @@ static int osd_fail_fid_lookup(struct osd_thread_info *oti,
 	return rc;
 }
 
+static int osd_add_oi_cache(struct osd_thread_info *info,
+			    struct osd_device *osd,
+			    struct osd_inode_id *id,
+			    struct lu_fid *fid)
+{
+	if (id->oii_gen == OSD_OII_NOGEN) {
+		struct inode *inode;
+
+		inode = osd_iget(info, osd, id);
+		if (IS_ERR(inode))
+			return PTR_ERR(inode);
+
+		osd_id_gen(id, id->oii_ino, inode->i_generation);
+		iput(inode);
+	}
+
+	CDEBUG(D_INODE, "add "DFID" %u:%u to info %p\n", PFID(fid),
+	       id->oii_ino, id->oii_gen, info);
+	info->oti_cache.oic_lid = *id;
+	info->oti_cache.oic_fid = *fid;
+
+	return 0;
+}
+
 /**
  * Calls ->lookup() to find dentry. From dentry get inode and
  * read inode's ea to get fid. This is required for  interoperability
@@ -3836,8 +3895,10 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 			GOTO(out, rc);
 		}
 
-		oic->oic_lid = *id;
-		oic->oic_fid = *fid;
+		rc = osd_add_oi_cache(osd_oti_get(env), osd_obj2dev(obj), id,
+				      fid);
+		if (rc != 0)
+			GOTO(out, rc);
 		if ((scrub->os_pos_current <= ino) &&
 		    ((sf->sf_flags & SF_INCONSISTENT) ||
 		     (sf->sf_flags & SF_UPGRADE && fid_is_igif(fid)) ||
@@ -4856,6 +4917,7 @@ again:
 		GOTO(out_journal, rc);
 	}
 
+	osd_id_gen(id, ent->oied_ino, inode->i_generation);
 	rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
 	if (rc == 0) {
 		if (fid_is_sane(fid)) {
@@ -5038,10 +5100,8 @@ pack:
 	if (osd_remote_fid(env, dev, fid))
 		RETURN(0);
 
-	if (likely(!(attr & LUDA_IGNORE))) {
-		oic->oic_lid = *id;
-		oic->oic_fid = *fid;
-	}
+	if (likely(!(attr & LUDA_IGNORE)))
+		rc = osd_add_oi_cache(oti, dev, id, fid);
 
 	if (!(attr & LUDA_VERIFY) &&
 	    (scrub->os_pos_current <= ino) &&
