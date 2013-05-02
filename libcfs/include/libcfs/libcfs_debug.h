@@ -106,8 +106,8 @@ struct ptldebug_header {
 #define S_LDLM        0x00010000
 #define S_LOV         0x00020000
 #define S_LQUOTA      0x00040000
-#define S_OSD		0x00080000
-/* unused */
+#define S_OSD	      0x00080000
+#define S_LFSCK       0x00100000
 /* unused */
 /* unused */
 #define S_LMV         0x00800000 /* b_new_cmd */
