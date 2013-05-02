@@ -674,6 +674,10 @@ int osd_oi_delete(struct osd_thread_info *info,
 {
 	struct lu_fid *oi_fid = &info->oti_fid2;
 
+	/* clear idmap cache */
+	if (lu_fid_eq(fid, &info->oti_cache.oic_fid))
+		memset(&info->oti_cache, 0, sizeof(struct osd_idmap_cache));
+
 	if (fid_is_last_id(fid))
 		return 0;
 
