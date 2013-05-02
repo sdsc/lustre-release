@@ -581,6 +581,9 @@ static int obf_lookup(const struct lu_env *env, struct md_object *p,
         if (mdd_object_exists(child) == 0)
                 rc = -ENOENT;
 
+	if (child->mod_flags & (DEAD_OBJ | ORPHAN_OBJ))
+		rc = -ENOENT;
+
         mdd_object_put(env, child);
 
 out:
