@@ -509,7 +509,11 @@ enum lu_object_header_flags {
 	/**
 	 * Mark this object has already been taken out of cache.
 	 */
-	LU_OBJECT_UNHASHED = 1
+	LU_OBJECT_UNHASHED = 1,
+	/**
+	 * The object has been unlinked from normal visible space, to be orphan.
+	 */
+	LU_OBJECT_ORPHAN = 2,
 };
 
 enum lu_object_header_attr {
