@@ -4824,6 +4824,16 @@ again:
 			if (rc == 0)
 				*attr |= LUDA_REPAIR;
 		}
+
+		if (unlikely(!lu_fid_eq(lu_object_fid(&obj->oo_dt.do_lu),
+					&lma->lma_self_fid))) {
+			CERROR("%s: FID "DFID" != lma_self_fid "DFID
+			       ": rc = %d\n",
+			       osd_obj2dev(obj)->od_svname,
+			       PFID(lu_object_fid(&obj->oo_dt.do_lu)),
+			       PFID(&lma->lma_self_fid), -EINVAL);
+			rc = -EINVAL;
+		}
 	} else if (rc == -ENODATA) {
 		/* Do not repair under dryrun mode. */
 		if (*attr & LUDA_VERIFY_DRYRUN) {
