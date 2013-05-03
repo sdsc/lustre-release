@@ -775,7 +775,13 @@ int local_oid_storage_init(const struct lu_env *env, struct dt_device *dev,
 			GOTO(out_lock, rc);
 
 		losd.lso_magic = cpu_to_le32(LOS_MAGIC);
-		losd.lso_next_oid = cpu_to_le32(fid_oid(first_fid) + 1);
+		losd.lso_next_oid = fid_oid(first_fid) + 1;
+		/* For the cases of upgrading from old 2.x (x <= 3) or 1.8,
+		 * there were some local objects occupied some fixed local
+		 * FIDs, so skip those reserved OIDs to avoid conflict. */
+		if (losd.lso_next_oid <= MAX_RESERVED_OID)
+			losd.lso_next_oid = MAX_RESERVED_OID + 1;
+		losd.lso_next_oid = cpu_to_le32(losd.lso_next_oid);
 
 		dti->dti_off = 0;
 		dti->dti_lb.lb_buf = &losd;
