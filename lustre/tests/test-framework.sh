@@ -185,6 +185,7 @@ init_test_env() {
 	export ZFS=${ZFS:-zfs}
 	export ZPOOL=${ZPOOL:-zpool}
 	export ZDB=${ZDB:-zdb}
+	export PARTPROBE=${PARTPROBE:-partprobe}
 
     #[ -d /r ] && export ROOT=${ROOT:-/r}
     export TMP=${TMP:-$ROOT/tmp}
@@ -807,6 +808,83 @@ ostdevlabel() {
 	echo -n $label
 }
 
+# Re-read the partition table on failover partner host.
+# After a ZFS storage pool is created on a shared device, the partition table
+# on the device will be changed. However, the operating system on the failover
+# host will not be informed with this change, which will cause importing ZFS
+# storage pool fail. This function performs partprobe on the failover host to
+# make it re-read the partition table.
+refresh_partition_table() {
+	local facet=$1
+	local device=$2
+	local host
+
+	host=$(facet_passive_host $facet)
+	if [[ -n "$host" ]]; then
+		do_node $host "$PARTPROBE $device"
+	fi
+}
+
+# Get ZFS storage pool name.
+zpool_name() {
+	local facet=$1
+	local _dev
+	local dev
+	local poolname
+
+	_dev=$(facet_active $facet)_dev
+	dev=${!_dev} # expand _dev to its value, e.g. ${mds1_dev}
+	poolname="${dev%%/*}" # poolname is string before "/"
+
+	echo -n $poolname
+}
+
+# Export ZFS storage pool.
+# Before exporting the pool, all datasets within the pool should be unmounted.
+export_zpool() {
+	local facet=$1
+	shift
+	local opts="$@"
+	local poolname
+
+	poolname=$(zpool_name $facet)
+
+	if [[ -n "$poolname" ]]; then
+		do_facet $facet "$ZPOOL export $opts $poolname"
+	fi
+}
+
+# Import ZFS storage pool.
+import_zpool() {
+	local facet=$1
+	shift
+	local opts="$@"
+	local poolname
+	local status
+
+	poolname=$(zpool_name $facet)
+
+	if [[ -n "$poolname" ]]; then
+		status=$(do_facet $facet "$ZPOOL get health $poolname" |
+				awk '/health/ {print $3}')
+		[[ $status == ONLINE ]] ||
+			do_facet $facet "$ZPOOL import -f $opts $poolname"
+	fi
+}
+
+# Set the "cachefile=none" property on ZFS storage pool so that the pool
+# is not automatically imported on system startup.
+disable_zpool_cache() {
+	local facet=$1
+	local poolname
+
+	poolname=$(zpool_name $facet)
+
+	if [[ -n "$poolname" ]]; then
+		do_facet $facet "$ZPOOL set cachefile=none $poolname"
+	fi
+}
+
 #
 # This and set_osd_param() shall be used to access OSD parameters
 # once existed under "obdfilter":
@@ -935,6 +1013,11 @@ mount_facet() {
 		opts=$(csa_add "$opts" -o loop)
 	fi
 
+	if [[ $(facet_fstype $facet) == zfs ]]; then
+		# import ZFS storage pool
+		import_zpool $facet || return ${PIPESTATUS[0]}
+	fi
+
 	echo "Starting ${facet}: $opts ${!dev} $mntpt"
 	# for testing LU-482 error handling in mount_facets() and test_0a()
 	if [ -f $TMP/test-lu482-trigger ]; then
@@ -981,39 +1064,6 @@ start() {
     return $RC
 }
 
-#
-# When a ZFS OSD is made read-only by replay_barrier(), its pool is "freezed".
-# Because stopping corresponding target may not clear this in-memory state, we
-# need to zap the pool from memory by exporting and reimporting the pool.
-#
-# Although the uberblocks are not updated when a pool is freezed, transactions
-# are still written to the disks.  Modified blocks may be cached in memory when
-# tests try reading them back.  The export-and-reimport process also evicts any
-# cached pool data from memory to provide the correct "data loss" semantics.
-#
-refresh_disk() {
-	local facet=$1
-	local fstype=$(facet_fstype $facet)
-	local _dev
-	local dev
-	local poolname
-
-	if [ "${fstype}" == "zfs" ]; then
-		_dev=$(facet_active $facet)_dev
-		dev=${!_dev} # expand _dev to its value, e.g. ${mds1_dev}
-		poolname="${dev%%/*}" # poolname is string before "/"
-
-		if [ "${poolname}" == "" ]; then
-			echo "invalid dataset name: $dev"
-			return
-		fi
-		do_facet $facet "cp /etc/zfs/zpool.cache /tmp/zpool.cache.back"
-		do_facet $facet "$ZPOOL export ${poolname}"
-		do_facet $facet "$ZPOOL import -f -c /tmp/zpool.cache.back \
-		                 ${poolname}"
-	fi
-}
-
 stop() {
     local running
     local facet=$1
@@ -1028,9 +1078,14 @@ stop() {
         do_facet ${facet} umount -d $@ $mntpt
     fi
 
-    # umount should block, but we should wait for unrelated obd's
-    # like the MGS or MGC to also stop.
-    wait_exit_ST ${facet}
+	# umount should block, but we should wait for unrelated obd's
+	# like the MGS or MGC to also stop.
+	wait_exit_ST ${facet} || return ${PIPESTATUS[0]}
+
+	if [[ $(facet_fstype $facet) == zfs ]]; then
+		# export ZFS storage pool
+		export_zpool $facet
+	fi
 }
 
 # save quota version (both administrative and operational quotas)
@@ -1461,13 +1516,16 @@ facets_up_on_host () {
 }
 
 shutdown_facet() {
-    local facet=$1
+	local facet=$1
 
-    if [ "$FAILURE_MODE" = HARD ]; then
-        shutdown_node_hard $(facet_active_host $facet)
-    else
-        stop $facet
-    fi
+	if [[ $FAILURE_MODE == HARD ]]; then
+		[[ $(facet_fstype $facet) == zfs ]] &&
+			disable_zpool_cache $facet
+
+		shutdown_node_hard $(facet_active_host $facet)
+	else
+		stop $facet
+	fi
 }
 
 reboot_node() {
@@ -1488,7 +1546,6 @@ reboot_facet() {
 	if [ "$FAILURE_MODE" = HARD ]; then
 		reboot_node $(facet_active_host $facet)
 	else
-		refresh_disk ${facet}
 		sleep 10
 	fi
 }
@@ -2092,6 +2149,8 @@ facet_failover() {
 	local sleep_time=$2
 	local -a affecteds
 	local facet
+	local _facet
+	local _facets
 	local total=0
 	local index=0
 	local skip
@@ -2116,6 +2175,16 @@ facet_failover() {
 
 	for ((index=0; index<$total; index++)); do
 		facet=$(echo ${affecteds[index]} | tr -s " " | cut -d"," -f 1)
+
+		if [[ $FAILURE_MODE == HARD ]]; then
+			_facets=$(exclude_items_from_list ${affecteds[index]} \
+				  $facet)
+			for _facet in ${_facets//,/ }; do
+				[[ $(facet_fstype $_facet) == zfs ]] &&
+					disable_zpool_cache $_facet
+			done
+		fi
+
 		local host=$(facet_active_host $facet)
 		echo "Failing ${affecteds[index]} on $host"
 		shutdown_facet $facet
@@ -2212,7 +2281,6 @@ fail_nodf() {
 fail_abort() {
 	local facet=$1
 	stop $facet
-	refresh_disk ${facet}
 	change_active $facet
 	wait_for_facet $facet
 	mount_facet $facet -o abort_recovery
@@ -2960,6 +3028,8 @@ formatall() {
 		add mgs $(mkfs_opts mgs $(mgsdevname)) --reformat \
 			$(mgsdevname) $(mgsvdevname) ${quiet:+>/dev/null} ||
 			exit 10
+		[[ $(facet_fstype mgs) == zfs ]] &&
+			refresh_partition_table mgs $(mgsvdevname)
 	fi
 
 	for num in $(seq $MDSCOUNT); do
@@ -2967,6 +3037,8 @@ formatall() {
 		add mds$num $(mkfs_opts mds$num $(mdsdevname ${num})) \
 			--reformat $(mdsdevname $num) $(mdsvdevname $num) \
 			${quiet:+>/dev/null} || exit 10
+		[[ $(facet_fstype mds$num) == zfs ]] &&
+			refresh_partition_table mds$num $(mdsvdevname $num)
 	done
 
 	for num in $(seq $OSTCOUNT); do
@@ -2974,6 +3046,8 @@ formatall() {
 		add ost$num $(mkfs_opts ost$num $(ostdevname ${num})) \
 			--reformat $(ostdevname $num) $(ostvdevname ${num}) \
 			${quiet:+>/dev/null} || exit 10
+		[[ $(facet_fstype ost$num) == zfs ]] &&
+			refresh_partition_table ost$num $(ostvdevname $num)
 	done
 }
 
