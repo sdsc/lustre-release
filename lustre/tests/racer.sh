@@ -9,6 +9,9 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
+OLDDEBUG="`lctl get_param -n debug 2> /dev/null`"
+lctl set_param debug=-1 2> /dev/null || true
+
 racer=$LUSTRE/tests/racer/racer.sh
 echo racer: $racer with $MDSCOUNT MDTs
 
@@ -77,6 +80,7 @@ test_1() {
 }
 run_test 1 "racer on clients: ${CLIENTS:-$(hostname)} DURATION=$DURATION"
 
+lctl set_param debug="$OLDDEBUG" 2> /dev/null || true
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
