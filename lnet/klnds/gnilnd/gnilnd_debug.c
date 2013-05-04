@@ -63,7 +63,7 @@ _kgnilnd_debug_conn(kgn_conn_t *conn, struct libcfs_debug_msg_data *msgdata,
 		cfs_duration_sec(jiffies - conn->gnc_last_noop_cq),
 		cfs_duration_sec(jiffies - conn->gnc_last_sched_ask),
 		cfs_duration_sec(jiffies - conn->gnc_last_sched_do),
-		cfs_duration_sec(jiffies - conn->gnc_device->gnd_sched_alive));
+		cfs_duration_sec(jiffies - conn->gnc_sched->kgn_sched_alive));
 
 
 	va_end(args);

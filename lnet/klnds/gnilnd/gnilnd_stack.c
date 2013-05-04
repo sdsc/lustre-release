@@ -95,10 +95,12 @@ kgnilnd_bump_timeouts(__u32 nap_time, char *reason)
 void
 kgnilnd_quiesce_wait(char *reason)
 {
-	int             i;
+	struct kgn_cpt_info	*sched;
+	int			i;
 
 	if (kgnilnd_data.kgn_quiesce_trigger) {
 		unsigned long   quiesce_deadline, quiesce_to;
+
 		/* FREEZE TAG!!!! */
 
 		/* morning sunshine */
@@ -106,14 +108,12 @@ kgnilnd_quiesce_wait(char *reason)
 		wake_up_all(&kgnilnd_data.kgn_reaper_waitq);
 		spin_unlock(&kgnilnd_data.kgn_reaper_lock);
 
-		for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
-			kgn_device_t *dev = &kgnilnd_data.kgn_devices[i];
+		cfs_percpt_for_each(sched, i, kgnilnd_data.kgn_scheds) {
+			wake_up_all(&sched->kgn_dgram_waitq);
+			wake_up_all(&sched->kgn_dgping_waitq);
 
-			wake_up_all(&dev->gnd_waitq);
-			wake_up_all(&dev->gnd_dgram_waitq);
-			wake_up_all(&dev->gnd_dgping_waitq);
+			wake_up_all(&sched->kgn_sched_waitq);
 		}
-
 		kgnilnd_wakeup_rca_thread();
 
 		/* we'll wait for 10x the timeout for the threads to pause */
@@ -143,9 +143,8 @@ kgnilnd_quiesce_wait(char *reason)
 	} else {
 		/* GO! GO! GO! */
 
-		for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
-			kgn_device_t *dev = &kgnilnd_data.kgn_devices[i];
-			kgnilnd_schedule_dgram(dev);
+		cfs_percpt_for_each(sched, i, kgnilnd_data.kgn_scheds) {
+			kgnilnd_schedule_dgram(sched);
 		}
 
 		/* wait for everyone to check-in as running - they will be spinning
@@ -366,7 +365,6 @@ kgnilnd_ruhroh_thread(void *arg)
 	int                i = 1;
 	DEFINE_WAIT(wait);
 
-	cfs_daemonize("kgnilnd_rr");
 	cfs_block_allsigs();
 	set_user_nice(current, *kgnilnd_tunables.kgn_nice);
 	kgnilnd_data.kgn_ruhroh_running = 1;
@@ -592,7 +590,6 @@ kgnilnd_rca(void *arg)
 	rs_event_t event;
 	lnet_nid_t nid;
 
-	cfs_daemonize("kgnilnd_rca");
 	cfs_block_allsigs();
 
 	/* all gnilnd threads need to run fairly urgently */
