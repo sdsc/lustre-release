@@ -2444,7 +2444,8 @@ void _debug_req(struct ptlrpc_request *req,
         va_start(args, fmt);
         libcfs_debug_vmsg2(msgdata, fmt, args,
                            " req@%p x"LPU64"/t"LPD64"("LPD64") o%d->%s@%s:%d/%d"
-                           " lens %d/%d e %d to %d dl "CFS_TIME_T" ref %d "
+                           " lens %d/%d e %d to %d dl "CFS_TIME_T" sent "
+			   "(real sent) "CFS_TIME_T"("CFS_TIME_T") ref %d"
                            "fl "REQ_FLAGS_FMT"/%x/%x rc %d/%d\n",
                            req, req->rq_xid, req->rq_transno,
                            req_ok ? lustre_msg_get_transno(req->rq_reqmsg) : 0,
@@ -2458,7 +2459,7 @@ void _debug_req(struct ptlrpc_request *req,
                            req->rq_request_portal, req->rq_reply_portal,
                            req->rq_reqlen, req->rq_replen,
                            req->rq_early_count, req->rq_timedout,
-                           req->rq_deadline,
+                           req->rq_deadline, req->rq_sent, req->rq_real_sent,
                            cfs_atomic_read(&req->rq_refcount),
                            DEBUG_REQ_FLAGS(req),
                            req_ok ? lustre_msg_get_flags(req->rq_reqmsg) : -1,

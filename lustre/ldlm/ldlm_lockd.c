@@ -681,8 +681,11 @@ static int ldlm_handle_ast_error(struct ldlm_lock *lock,
                         ldlm_lock_cancel(lock);
                         rc = -ERESTART;
                 } else {
-                        ldlm_del_waiting_lock(lock);
-                        ldlm_failed_ast(lock, rc, ast_type);
+			DEBUG_REQ(D_ERROR, req, "%s AST failed.\n", ast_type);
+			LDLM_ERROR(lock, "%s AST failed with %d", ast_type, rc);
+
+			ldlm_del_waiting_lock(lock);
+			ldlm_failed_ast(lock, rc, ast_type);
                 }
         } else if (rc) {
                 if (rc == -EINVAL) {
