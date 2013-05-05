@@ -300,6 +300,13 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         RETURN(0);
 }
 
+const struct ldlm_callback_suite ll_md_cbs = {
+	.lcs_completion = ldlm_completion_ast,
+	.lcs_blocking   = ll_md_blocking_ast,
+	.lcs_glimpse    = NULL,
+	.lcs_weigh      = NULL,
+};
+
 __u32 ll_i2suppgid(struct inode *i)
 {
         if (cfs_curproc_is_in_groups(i->i_gid))

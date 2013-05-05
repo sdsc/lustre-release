@@ -831,12 +831,9 @@ static int sa_args_init(struct inode *dir, struct inode *child,
         minfo->mi_generation = lli->lli_sai->sai_generation;
         minfo->mi_cbdata = entry->se_index;
 
-        einfo->ei_type   = LDLM_IBITS;
-        einfo->ei_mode   = it_to_lock_mode(&minfo->mi_it);
-        einfo->ei_cb_bl  = ll_md_blocking_ast;
-        einfo->ei_cb_cp  = ldlm_completion_ast;
-        einfo->ei_cb_gl  = NULL;
-        einfo->ei_cbdata = NULL;
+	einfo->ei_type = LDLM_IBITS;
+	einfo->ei_mode = it_to_lock_mode(&minfo->mi_it);
+	einfo->ei_lcs  = &ll_md_cbs;
 
         *pmi = minfo;
         *pei = einfo;

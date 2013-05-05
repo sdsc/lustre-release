@@ -413,21 +413,15 @@ EXPORT_SYMBOL(ldlm_glimpse_ast);
  */
 int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
                            const struct ldlm_res_id *res_id,
-                           ldlm_type_t type, ldlm_policy_data_t *policy,
-			   ldlm_mode_t mode, __u64 *flags,
-                           ldlm_blocking_callback blocking,
-                           ldlm_completion_callback completion,
-                           ldlm_glimpse_callback glimpse,
-			   void *data, __u32 lvb_len, enum lvb_type lvb_type,
+			   ldlm_policy_data_t *policy,
+			   const struct ldlm_enqueue_info *einfo,
+			   __u64 *flags,
+			   __u32 lvb_len, enum lvb_type lvb_type,
                            const __u64 *client_cookie,
                            struct lustre_handle *lockh)
 {
         struct ldlm_lock *lock;
         int err;
-        const struct ldlm_callback_suite cbs = { .lcs_completion = completion,
-                                                 .lcs_blocking   = blocking,
-                                                 .lcs_glimpse    = glimpse,
-        };
         ENTRY;
 
         LASSERT(!(*flags & LDLM_FL_REPLAY));
@@ -436,8 +430,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
                 LBUG();
         }
 
-	lock = ldlm_lock_create(ns, res_id, type, mode, &cbs, data, lvb_len,
-				lvb_type);
+	lock = ldlm_lock_create(ns, res_id, einfo, lvb_len, lvb_type);
         if (unlikely(!lock))
                 GOTO(out_nolock, err = -ENOMEM);
 
@@ -445,7 +438,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
 
         /* NB: we don't have any lock now (lock_res_and_lock)
          * because it's a new lock */
-        ldlm_lock_addref_internal_nolock(lock, mode);
+	ldlm_lock_addref_internal_nolock(lock, einfo->ei_mode);
         lock->l_flags |= LDLM_FL_LOCAL;
         if (*flags & LDLM_FL_ATOMIC_CB)
                 lock->l_flags |= LDLM_FL_ATOMIC_CB;
@@ -454,7 +447,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
                 lock->l_policy_data = *policy;
         if (client_cookie != NULL)
                 lock->l_client_cookie = *client_cookie;
-        if (type == LDLM_EXTENT)
+	if (einfo->ei_type == LDLM_EXTENT)
                 lock->l_req_extent = policy->l_extent;
 
         err = ldlm_lock_enqueue(ns, &lock, policy, flags);
@@ -890,14 +883,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
                 LDLM_DEBUG(lock, "client-side enqueue START");
                 LASSERT(exp == lock->l_conn_export);
         } else {
-                const struct ldlm_callback_suite cbs = {
-                        .lcs_completion = einfo->ei_cb_cp,
-                        .lcs_blocking   = einfo->ei_cb_bl,
-                        .lcs_glimpse    = einfo->ei_cb_gl,
-                        .lcs_weigh      = einfo->ei_cb_wg
-                };
-                lock = ldlm_lock_create(ns, res_id, einfo->ei_type,
-                                        einfo->ei_mode, &cbs, einfo->ei_cbdata,
+		lock = ldlm_lock_create(ns, res_id, einfo,
 					lvb_len, lvb_type);
                 if (lock == NULL)
                         RETURN(-ENOMEM);
@@ -928,7 +914,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
 	lock->l_conn_export = exp;
 	lock->l_export = NULL;
-	lock->l_blocking_ast = einfo->ei_cb_bl;
+	lock->l_blocking_ast = einfo->ei_lcs->lcs_blocking;
 	lock->l_flags |= (*flags & LDLM_FL_NO_LRU);
 
         /* lock not sent to server yet */

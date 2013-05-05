@@ -955,6 +955,12 @@ static void osc_lock_build_einfo(const struct lu_env *env,
                                  struct ldlm_enqueue_info *einfo)
 {
         enum cl_lock_mode mode;
+	static const struct ldlm_callback_suite cbs = {
+		.lcs_blocking   = osc_ldlm_blocking_ast,
+		.lcs_completion = osc_ldlm_completion_ast,
+		.lcs_glimpse    = osc_ldlm_glimpse_ast,
+		.lcs_weigh      = osc_ldlm_weigh_ast,
+	};
 
         mode = clock->cll_descr.cld_mode;
         if (mode == CLM_PHANTOM)
@@ -967,10 +973,7 @@ static void osc_lock_build_einfo(const struct lu_env *env,
 
         einfo->ei_type   = LDLM_EXTENT;
         einfo->ei_mode   = osc_cl_lock2ldlm(mode);
-        einfo->ei_cb_bl  = osc_ldlm_blocking_ast;
-        einfo->ei_cb_cp  = osc_ldlm_completion_ast;
-        einfo->ei_cb_gl  = osc_ldlm_glimpse_ast;
-        einfo->ei_cb_wg  = osc_ldlm_weigh_ast;
+	einfo->ei_lcs    = &cbs;
         einfo->ei_cbdata = lock; /* value to be put into ->l_ast_data */
 }
 

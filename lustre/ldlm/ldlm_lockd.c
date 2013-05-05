@@ -1203,6 +1203,7 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
         struct ldlm_lock *lock = NULL;
         void *cookie = NULL;
         int rc = 0;
+	struct ldlm_enqueue_info einfo;
         ENTRY;
 
         LDLM_DEBUG_NOLOCK("server-side enqueue handler START");
@@ -1281,11 +1282,14 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
                 }
         }
 
+	einfo.ei_type = dlm_req->lock_desc.l_resource.lr_type;
+	einfo.ei_mode = dlm_req->lock_desc.l_req_mode;
+	einfo.ei_lcs = cbs;
+	einfo.ei_cbdata = NULL;
+
         /* The lock's callback data might be set in the policy function */
         lock = ldlm_lock_create(ns, &dlm_req->lock_desc.l_resource.lr_name,
-                                dlm_req->lock_desc.l_resource.lr_type,
-                                dlm_req->lock_desc.l_req_mode,
-				cbs, NULL, 0, LVB_T_NONE);
+				&einfo, 0, LVB_T_NONE);
         if (!lock)
                 GOTO(out, rc = -ENOMEM);
 
@@ -1470,26 +1474,19 @@ EXPORT_SYMBOL(ldlm_handle_enqueue0);
  * Old-style LDLM main entry point for server code enqueue.
  */
 int ldlm_handle_enqueue(struct ptlrpc_request *req,
-                        ldlm_completion_callback completion_callback,
-                        ldlm_blocking_callback blocking_callback,
-                        ldlm_glimpse_callback glimpse_callback)
+			const struct ldlm_callback_suite *cbs)
 {
-        struct ldlm_request *dlm_req;
-        struct ldlm_callback_suite cbs = {
-                .lcs_completion = completion_callback,
-                .lcs_blocking   = blocking_callback,
-                .lcs_glimpse    = glimpse_callback
-        };
-        int rc;
+	struct ldlm_request *dlm_req;
+	struct ldlm_namespace *ns = req->rq_export->exp_obd->obd_namespace;
+	int rc;
 
-        dlm_req = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
-        if (dlm_req != NULL) {
-                rc = ldlm_handle_enqueue0(req->rq_export->exp_obd->obd_namespace,
-                                          req, dlm_req, &cbs);
-        } else {
-                rc = -EFAULT;
-        }
-        return rc;
+	dlm_req = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	if (dlm_req != NULL)
+		rc = ldlm_handle_enqueue0(ns, req, dlm_req, cbs);
+	else
+		rc = -EFAULT;
+
+	return rc;
 }
 EXPORT_SYMBOL(ldlm_handle_enqueue);
 
