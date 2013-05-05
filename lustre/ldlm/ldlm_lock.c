@@ -1595,17 +1595,15 @@ int ldlm_fill_lvb(struct ldlm_lock *lock, struct req_capsule *pill,
  */
 struct ldlm_lock *ldlm_lock_create(struct ldlm_namespace *ns,
                                    const struct ldlm_res_id *res_id,
-                                   ldlm_type_t type,
-                                   ldlm_mode_t mode,
-                                   const struct ldlm_callback_suite *cbs,
-				   void *data, __u32 lvb_len,
+                                   const struct ldlm_enqueue_info *einfo,
+				   __u32 lvb_len,
 				   enum lvb_type lvb_type)
 {
         struct ldlm_lock *lock;
         struct ldlm_resource *res;
         ENTRY;
 
-        res = ldlm_resource_get(ns, NULL, res_id, type, 1);
+        res = ldlm_resource_get(ns, NULL, res_id, einfo->ei_type, 1);
         if (res == NULL)
                 RETURN(NULL);
 
@@ -1614,20 +1612,19 @@ struct ldlm_lock *ldlm_lock_create(struct ldlm_namespace *ns,
         if (lock == NULL)
                 RETURN(NULL);
 
-        lock->l_req_mode = mode;
-        lock->l_ast_data = data;
+        lock->l_req_mode = einfo->ei_mode;
+        lock->l_ast_data = einfo->ei_cbdata;
         lock->l_pid = cfs_curproc_pid();
         lock->l_ns_srv = !!ns_is_server(ns);
-        if (cbs) {
-                lock->l_blocking_ast = cbs->lcs_blocking;
-                lock->l_completion_ast = cbs->lcs_completion;
-                lock->l_glimpse_ast = cbs->lcs_glimpse;
-                lock->l_weigh_ast = cbs->lcs_weigh;
-        }
+
+        lock->l_blocking_ast = einfo->ei_lcs->lcs_blocking;
+        lock->l_completion_ast = einfo->ei_lcs->lcs_completion;
+        lock->l_glimpse_ast = einfo->ei_lcs->lcs_glimpse;
+        lock->l_weigh_ast = einfo->ei_lcs->lcs_weigh;
 
         lock->l_tree_node = NULL;
         /* if this is the extent lock, allocate the interval tree node */
-        if (type == LDLM_EXTENT) {
+        if (einfo->ei_type == LDLM_EXTENT) {
                 if (ldlm_interval_alloc(lock) == NULL)
                         GOTO(out, 0);
         }

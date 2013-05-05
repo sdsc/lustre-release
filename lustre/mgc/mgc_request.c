@@ -910,8 +910,10 @@ static int mgc_enqueue(struct obd_export *exp, struct lov_stripe_md *lsm,
 		       struct lustre_handle *lockh)
 {
         struct config_llog_data *cld = (struct config_llog_data *)data;
-        struct ldlm_enqueue_info einfo = { type, mode, mgc_blocking_ast,
-                         ldlm_completion_ast, NULL, NULL, NULL };
+        const struct ldlm_callback_suite cbs = { ldlm_completion_ast, 
+						 mgc_blocking_ast,
+						 NULL, NULL};
+        struct ldlm_enqueue_info einfo = { type, mode, &cbs, NULL};
         struct ptlrpc_request *req;
         int short_limit = cld_is_sptlrpc(cld);
         int rc;

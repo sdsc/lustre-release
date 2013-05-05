@@ -73,6 +73,9 @@ static int llu_dir_do_readpage(struct inode *inode, struct page *page)
         struct lookup_intent   it = { .it_op = IT_READDIR };
         struct md_op_data      op_data = {{ 0 }};
         ldlm_policy_data_t policy = { .l_inodebits = { MDS_INODELOCK_UPDATE } };
+	const struct ldlm_callback_suite cbs = 
+			{ldlm_completion_ast, llu_md_blocking_ast, NULL, NULL};
+	struct ldlm_enqueue_info einfo = {LDLM_IBITS, LCK_CR, &cbs, inode};
         int rc = 0;
         ENTRY;
 
@@ -80,10 +83,6 @@ static int llu_dir_do_readpage(struct inode *inode, struct page *page)
         rc = md_lock_match(sbi->ll_md_exp, LDLM_FL_BLOCK_GRANTED,
                            &lli->lli_fid, LDLM_IBITS, &policy, LCK_CR, &lockh);
         if (!rc) {
-                struct ldlm_enqueue_info einfo = {LDLM_IBITS, LCK_CR,
-                        llu_md_blocking_ast, ldlm_completion_ast, NULL, NULL,
-                        inode};
-
                 rc = md_enqueue(sbi->ll_md_exp, &einfo, &it,
                                 &op_data, &lockh, NULL, 0, NULL,
                                 LDLM_FL_CANCEL_ON_BLOCK);

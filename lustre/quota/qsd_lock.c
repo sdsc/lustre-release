@@ -262,12 +262,14 @@ out:
 	return rc;
 }
 
-struct ldlm_enqueue_info qsd_glb_einfo = { LDLM_PLAIN,
-					   LCK_CR,
-					   qsd_glb_blocking_ast,
-					   ldlm_completion_ast,
-					   qsd_glb_glimpse_ast,
-					   NULL, NULL };
+const struct ldlm_callback_suite qsd_cbs = {
+	.lcs_blocking   = qsd_glb_blocking_ast,
+	.lcs_completion = ldlm_completion_ast,
+	.lcs_glimpse    = qsd_glb_glimpse_ast,
+	.lcs_weigh      = NULL,
+};
+const struct ldlm_enqueue_info qsd_glb_einfo = 
+	    { LDLM_PLAIN, LCK_CR, &qsd_cbs, NULL};
 /*
  * Blocking callback handler for per-ID lock
  *
@@ -440,12 +442,15 @@ out:
 	RETURN(rc);
 }
 
-struct ldlm_enqueue_info qsd_id_einfo = { LDLM_PLAIN,
-				          LCK_CR,
-					  qsd_id_blocking_ast,
-					  ldlm_completion_ast,
-					  qsd_id_glimpse_ast,
-					  NULL, NULL };
+const struct ldlm_callback_suite qid_cbs = {
+	.lcs_blocking   = qsd_id_blocking_ast,
+	.lcs_completion = ldlm_completion_ast,
+	.lcs_glimpse    = qsd_id_glimpse_ast,
+	.lcs_weigh      = NULL,
+};
+
+const struct ldlm_enqueue_info qsd_id_einfo = 
+		    { LDLM_PLAIN, LCK_CR, &qid_cbs, NULL };
 
 /*
  * Check whether a slave already own a ldlm lock for the quota identifier \qid.

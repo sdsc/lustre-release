@@ -2503,6 +2503,12 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti,
 {
 	struct ldlm_enqueue_info *einfo = &mti->mti_einfo;
 	ldlm_policy_data_t *policy = &mti->mti_policy;
+	const struct ldlm_callback_suite cbs = {
+		.lcs_blocking = mdt_md_blocking_ast,
+		.lcs_completion = ldlm_completion_ast,
+		.lcs_glimpse = NULL,
+		.lcs_weigh = NULL,
+		};
 	int rc = 0;
 	ENTRY;
 
@@ -2513,8 +2519,7 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti,
 	memset(einfo, 0, sizeof(*einfo));
 	einfo->ei_type = LDLM_IBITS;
 	einfo->ei_mode = mode;
-	einfo->ei_cb_bl = mdt_md_blocking_ast;
-	einfo->ei_cb_cp = ldlm_completion_ast;
+	einfo->ei_lcs = &cbs;
 
 	memset(policy, 0, sizeof(*policy));
 	policy->l_inodebits.bits = ibits;

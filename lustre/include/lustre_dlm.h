@@ -1229,13 +1229,17 @@ struct ldlm_ast_work {
 /**
  * Common ldlm_enqueue parameters
  */
+struct ldlm_callback_suite {
+        ldlm_completion_callback lcs_completion;
+        ldlm_blocking_callback   lcs_blocking;
+        ldlm_glimpse_callback    lcs_glimpse;
+        ldlm_weigh_callback      lcs_weigh;
+};
+
 struct ldlm_enqueue_info {
 	__u32 ei_type;   /** Type of the lock being enqueued. */
-	__u32 ei_mode;   /** Mode of the lock being enqueued. */
-	void *ei_cb_bl;  /** blocking lock callback */
-	void *ei_cb_cp;  /** lock completion callback */
-	void *ei_cb_gl;  /** lock glimpse callback */
-	void *ei_cb_wg;  /** lock weigh callback */
+	ldlm_mode_t ei_mode;   /** Mode of the lock being enqueued. */
+	const struct ldlm_callback_suite *ei_lcs;
 	void *ei_cbdata; /** Data to be passed into callbacks. */
 };
 
@@ -1335,12 +1339,6 @@ int ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data);
 /* ldlm_extent.c */
 __u64 ldlm_extent_shift_kms(struct ldlm_lock *lock, __u64 old_kms);
 
-struct ldlm_callback_suite {
-        ldlm_completion_callback lcs_completion;
-        ldlm_blocking_callback   lcs_blocking;
-        ldlm_glimpse_callback    lcs_glimpse;
-        ldlm_weigh_callback      lcs_weigh;
-};
 
 /* ldlm_lockd.c */
 #ifdef HAVE_SERVER_SUPPORT
@@ -1599,12 +1597,10 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
                           struct lustre_handle *lockh, int rc);
 int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
                            const struct ldlm_res_id *res_id,
-                           ldlm_type_t type, ldlm_policy_data_t *policy,
-			   ldlm_mode_t mode, __u64 *flags,
-                           ldlm_blocking_callback blocking,
-                           ldlm_completion_callback completion,
-                           ldlm_glimpse_callback glimpse,
-			   void *data, __u32 lvb_len, enum lvb_type lvb_type,
+                           ldlm_policy_data_t *policy,
+			   const struct ldlm_enqueue_info *einfo,
+			   __u64 *flags,
+			   __u32 lvb_len, enum lvb_type lvb_type,
                            const __u64 *client_cookie,
                            struct lustre_handle *lockh);
 int ldlm_server_ast(struct lustre_handle *lockh, struct ldlm_lock_desc *new,

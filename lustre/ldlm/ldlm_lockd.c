@@ -1203,6 +1203,7 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
         struct ldlm_lock *lock = NULL;
         void *cookie = NULL;
         int rc = 0;
+        struct ldlm_enqueue_info einfo;
         ENTRY;
 
         LDLM_DEBUG_NOLOCK("server-side enqueue handler START");
@@ -1281,11 +1282,14 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
                 }
         }
 
+	einfo.ei_type = dlm_req->lock_desc.l_resource.lr_type;
+	einfo.ei_mode = dlm_req->lock_desc.l_req_mode;
+	einfo.ei_lcs = cbs;
+	einfo.ei_cbdata = NULL;
+
         /* The lock's callback data might be set in the policy function */
         lock = ldlm_lock_create(ns, &dlm_req->lock_desc.l_resource.lr_name,
-                                dlm_req->lock_desc.l_resource.lr_type,
-                                dlm_req->lock_desc.l_req_mode,
-				cbs, NULL, 0, LVB_T_NONE);
+				&einfo, 0, LVB_T_NONE);
         if (!lock)
                 GOTO(out, rc = -ENOMEM);
 
