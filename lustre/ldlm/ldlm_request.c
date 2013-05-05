@@ -415,19 +415,13 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
                            const struct ldlm_res_id *res_id,
                            ldlm_type_t type, ldlm_policy_data_t *policy,
 			   ldlm_mode_t mode, __u64 *flags,
-                           ldlm_blocking_callback blocking,
-                           ldlm_completion_callback completion,
-                           ldlm_glimpse_callback glimpse,
+			   const struct ldlm_callback_suite *cbs,
 			   void *data, __u32 lvb_len, enum lvb_type lvb_type,
                            const __u64 *client_cookie,
                            struct lustre_handle *lockh)
 {
         struct ldlm_lock *lock;
         int err;
-        const struct ldlm_callback_suite cbs = { .lcs_completion = completion,
-                                                 .lcs_blocking   = blocking,
-                                                 .lcs_glimpse    = glimpse,
-        };
         ENTRY;
 
         LASSERT(!(*flags & LDLM_FL_REPLAY));
@@ -436,7 +430,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
                 LBUG();
         }
 
-	lock = ldlm_lock_create(ns, res_id, type, mode, &cbs, data, lvb_len,
+	lock = ldlm_lock_create(ns, res_id, type, mode, cbs, data, lvb_len,
 				lvb_type);
         if (unlikely(!lock))
                 GOTO(out_nolock, err = -ENOMEM);

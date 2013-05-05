@@ -233,7 +233,11 @@ static int ost_lock_get(struct obd_export *exp, struct obdo *oa,
         struct ldlm_res_id res_id;
         ldlm_policy_data_t policy;
         __u64 end = start + count;
-
+	const struct ldlm_callback_suite cbs = {
+			.lcs_completion = ldlm_completion_ast,
+			.lcs_blocking   = ldlm_blocking_ast,
+			.lcs_glimpse    = ldlm_glimpse_ast,
+		};
         ENTRY;
 
         LASSERT(!lustre_handle_is_used(lh));
@@ -260,10 +264,8 @@ static int ost_lock_get(struct obd_export *exp, struct obdo *oa,
                 policy.l_extent.end = end | ~CFS_PAGE_MASK;
 
         RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
-                                      LDLM_EXTENT, &policy, mode, &flags,
-                                      ldlm_blocking_ast, ldlm_completion_ast,
-				      ldlm_glimpse_ast, NULL, 0, LVB_T_NONE,
-				      NULL, lh));
+				      LDLM_EXTENT, &policy, mode, &flags, &cbs,
+				      NULL, 0, LVB_T_NONE, NULL, lh));
 }
 
 /* Helper function: release lock, if any. */
@@ -639,6 +641,11 @@ static int ost_brw_lock_get(int mode, struct obd_export *exp,
         struct ldlm_res_id res_id;
         ldlm_policy_data_t policy;
         int i;
+	const struct ldlm_callback_suite cbs = {
+			.lcs_completion = ldlm_completion_ast,
+			.lcs_blocking   = ldlm_blocking_ast,
+			.lcs_glimpse    = ldlm_glimpse_ast,
+		};
         ENTRY;
 
 	ostid_build_res_name(&obj->ioo_oid, &res_id);
@@ -658,10 +665,8 @@ static int ost_brw_lock_get(int mode, struct obd_export *exp,
                                  nb[nrbufs - 1].len - 1) | ~CFS_PAGE_MASK;
 
         RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
-                                      LDLM_EXTENT, &policy, mode, &flags,
-                                      ldlm_blocking_ast, ldlm_completion_ast,
-				      ldlm_glimpse_ast, NULL, 0, LVB_T_NONE,
-				      NULL, lh));
+				      LDLM_EXTENT, &policy, mode, &flags, &cbs,
+				      NULL, 0, LVB_T_NONE, NULL, lh));
 }
 
 static void ost_brw_lock_put(int mode,

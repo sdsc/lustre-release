@@ -1002,7 +1002,11 @@ static int ofd_destroy_by_fid(const struct lu_env *env,
 					.l_extent = { 0, OBD_OBJECT_EOF }
 				 };
 	struct ofd_object	*fo;
-
+	const struct ldlm_callback_suite cbs = {
+			.lcs_completion = ldlm_completion_ast,
+			.lcs_blocking   = ldlm_blocking_ast,
+			.lcs_glimpse    = NULL,
+		};
 	ENTRY;
 
 	fo = ofd_object_find(env, ofd, fid);
@@ -1013,9 +1017,8 @@ static int ofd_destroy_by_fid(const struct lu_env *env,
 	 * throw away any cached pages. */
 	ost_fid_build_resid(fid, &info->fti_resid);
 	rc = ldlm_cli_enqueue_local(ofd->ofd_namespace, &info->fti_resid,
-				    LDLM_EXTENT, &policy, LCK_PW, &flags,
-				    ldlm_blocking_ast, ldlm_completion_ast,
-				    NULL, NULL, 0, LVB_T_NONE, NULL, &lockh);
+				    LDLM_EXTENT, &policy, LCK_PW, &flags, &cbs,
+				    NULL, 0, LVB_T_NONE, NULL, &lockh);
 
 	/* We only care about the side-effects, just drop the lock. */
 	if (rc == ELDLM_OK)

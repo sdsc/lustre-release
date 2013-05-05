@@ -565,6 +565,11 @@ static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	__u64                      lock_flags = 0;
         struct ldlm_res_id         res_id = {.name = {1}};
         char                       ns_name[48];
+	const struct ldlm_callback_suite cbs = {
+			.lcs_completion = ldlm_completion_ast,
+			.lcs_blocking   = NULL,
+			.lcs_glimpse    = NULL,
+		};
         ENTRY;
 
         obd->u.echo.eo_obt.obt_magic = OBT_MAGIC;
@@ -582,8 +587,7 @@ static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         }
 
         rc = ldlm_cli_enqueue_local(obd->obd_namespace, &res_id, LDLM_PLAIN,
-                                    NULL, LCK_NL, &lock_flags, NULL,
-				    ldlm_completion_ast, NULL, NULL, 0,
+				    NULL, LCK_NL, &lock_flags, &cbs, NULL, 0,
 				    LVB_T_NONE, NULL, &obd->u.echo.eo_nl_lock);
         LASSERT (rc == ELDLM_OK);
 

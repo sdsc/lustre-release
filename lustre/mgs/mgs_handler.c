@@ -192,10 +192,14 @@ static int mgs_completion_ast_ir(struct ldlm_lock *lock, __u64 flags,
 
 void mgs_revoke_lock(struct mgs_device *mgs, struct fs_db *fsdb, int type)
 {
-        ldlm_completion_callback cp = NULL;
         struct lustre_handle     lockh = { 0 };
         struct ldlm_res_id       res_id;
 	__u64 flags = LDLM_FL_ATOMIC_CB;
+	struct ldlm_callback_suite cbs = {
+			.lcs_completion = NULL,
+			.lcs_blocking   = ldlm_blocking_ast,
+			.lcs_glimpse    = NULL,
+	};
         int rc;
         ENTRY;
 
@@ -205,23 +209,22 @@ void mgs_revoke_lock(struct mgs_device *mgs, struct fs_db *fsdb, int type)
 
         switch (type) {
         case CONFIG_T_CONFIG:
-                cp = mgs_completion_ast_config;
+		cbs.lcs_completion = mgs_completion_ast_config;
 		if (test_and_set_bit(FSDB_REVOKING_LOCK, &fsdb->fsdb_flags))
                         rc = -EALREADY;
                 break;
         case CONFIG_T_RECOVER:
-                cp = mgs_completion_ast_ir;
+		cbs.lcs_completion = mgs_completion_ast_ir;
         default:
                 break;
         }
 
         if (!rc) {
-                LASSERT(cp != NULL);
+		LASSERT(cbs.lcs_completion != NULL);
 		rc = ldlm_cli_enqueue_local(mgs->mgs_obd->obd_namespace,
 					    &res_id, LDLM_PLAIN, NULL, LCK_EX,
-					    &flags, ldlm_blocking_ast, cp,
-					    NULL, fsdb, 0, LVB_T_NONE, NULL,
-					    &lockh);
+					    &flags, &cbs,
+					    fsdb, 0, LVB_T_NONE, NULL, &lockh);
                 if (rc != ELDLM_OK) {
                         CERROR("can't take cfg lock for "LPX64"/"LPX64"(%d)\n",
                                le64_to_cpu(res_id.name[0]),

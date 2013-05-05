@@ -1021,6 +1021,11 @@ static int mdt_rename_lock(struct mdt_thread_info *info,
 	ldlm_policy_data_t	*policy = &info->mti_policy;
 	struct ldlm_res_id	*res_id = &info->mti_res_id;
 	__u64			flags = 0;
+	const struct ldlm_callback_suite cbs = {
+			.lcs_completion = ldlm_completion_ast,
+			.lcs_blocking   = ldlm_blocking_ast,
+			.lcs_glimpse    = NULL,
+		};
 	int rc;
 	ENTRY;
 
@@ -1038,9 +1043,8 @@ static int mdt_rename_lock(struct mdt_thread_info *info,
 	 * take BFL lock.
 	 */
 	rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS, policy,
-				    LCK_EX, &flags, ldlm_blocking_ast,
-				    ldlm_completion_ast, NULL, NULL, 0,
-				    LVB_T_NONE,
+					LCK_EX, &flags, &cbs,
+					NULL, 0, LVB_T_NONE,
 				    &info->mti_exp->exp_handle.h_cookie,
 				    lh);
 #else
