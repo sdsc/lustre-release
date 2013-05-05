@@ -7000,19 +7000,14 @@ test_202() {
 run_test 202 "O_APPEND+O_DIRECT multistripe write ========================"
 
 test_203() {
-        local lustre_version=$(get_lustre_version mds)
-        if [[ $lustre_version != 1.8* ]]; then
-               skip bug23766 mds running $lustre_version
-               return
-        fi
-
-        local ATIME=`do_facet mds lctl get_param -n mds.*.atime_diff`
+        local atime_diff=$(do_facet mds lctl get_param -n md*.*.atime_diff)
+		echo "atime_diff=$atime_diff"
         echo "atime should be updated on the MDS when closing file" > $DIR/$tfile
         sync
         # reads should update atime on the client and close should update it on the MDS
         multiop_bg_pause $DIR/$tfile o_r20c || return 1
         MULTIPID=$!
-        sleep $((ATIME+1))
+        sleep $((atime_diff + 1))
         time1=`date +%s`
         log "now is $time1"
         kill -USR1 $MULTIPID || return 2
