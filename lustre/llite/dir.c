@@ -361,8 +361,7 @@ struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
 		struct ldlm_enqueue_info einfo = {
 			.ei_type = LDLM_IBITS,
 			.ei_mode = mode,
-			.ei_cb_bl = ll_md_blocking_ast,
-			.ei_cb_cp = ldlm_completion_ast,
+			.ei_lcs = &ll_md_cbs,
 		};
 		struct lookup_intent it = { .it_op = IT_READDIR };
 		struct ptlrpc_request *request;

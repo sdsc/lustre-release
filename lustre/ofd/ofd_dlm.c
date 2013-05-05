@@ -222,7 +222,7 @@ int ofd_intent_policy(struct ldlm_namespace *ns, struct ldlm_lock **lockp,
 	 * Hence, if you are grabbing DLM locks on the server, always set
 	 * non-NULL glimpse_ast (e.g., ldlm_request.c:ldlm_glimpse_ast()).
 	 */
-	if (l->l_glimpse_ast == NULL) {
+	if (l->l_cbs->lcs_glimpse == NULL) {
 		/* We are racing with unlink(); just return -ENOENT */
 		rep->lock_policy_res1 = ptlrpc_status_hton(-ENOENT);
 		goto out;

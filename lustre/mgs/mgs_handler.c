@@ -192,10 +192,22 @@ static int mgs_completion_ast_ir(struct ldlm_lock *lock, __u64 flags,
 
 void mgs_revoke_lock(struct mgs_device *mgs, struct fs_db *fsdb, int type)
 {
-        ldlm_completion_callback cp = NULL;
         struct lustre_handle     lockh = { 0 };
         struct ldlm_res_id       res_id;
 	__u64 flags = LDLM_FL_ATOMIC_CB;
+	static const struct ldlm_callback_suite config_cbs = {
+			.lcs_completion = mgs_completion_ast_config,
+			.lcs_blocking   = ldlm_blocking_ast,
+	};
+	static const struct ldlm_callback_suite ir_cbs = {
+			.lcs_completion = mgs_completion_ast_ir,
+			.lcs_blocking   = ldlm_blocking_ast,
+	};
+	struct ldlm_enqueue_info einfo = {
+			.ei_type = LDLM_PLAIN,
+			.ei_mode = LCK_EX,
+			.ei_cbdata = fsdb,
+	};
         int rc;
         ENTRY;
 
@@ -205,23 +217,22 @@ void mgs_revoke_lock(struct mgs_device *mgs, struct fs_db *fsdb, int type)
 
         switch (type) {
         case CONFIG_T_CONFIG:
-                cp = mgs_completion_ast_config;
+		einfo.ei_lcs = &config_cbs;
 		if (test_and_set_bit(FSDB_REVOKING_LOCK, &fsdb->fsdb_flags))
                         rc = -EALREADY;
                 break;
         case CONFIG_T_RECOVER:
-                cp = mgs_completion_ast_ir;
+		einfo.ei_lcs = &ir_cbs;
         default:
                 break;
         }
 
         if (!rc) {
-                LASSERT(cp != NULL);
+		LASSERT(einfo.ei_lcs->lcs_completion != NULL);
+
 		rc = ldlm_cli_enqueue_local(mgs->mgs_obd->obd_namespace,
-					    &res_id, LDLM_PLAIN, NULL, LCK_EX,
-					    &flags, ldlm_blocking_ast, cp,
-					    NULL, fsdb, 0, LVB_T_NONE, NULL,
-					    &lockh);
+					    &res_id, NULL, &einfo, &flags,
+					    0, LVB_T_NONE, NULL, &lockh);
                 if (rc != ELDLM_OK) {
                         CERROR("can't take cfg lock for "LPX64"/"LPX64"(%d)\n",
                                le64_to_cpu(res_id.name[0]),
@@ -622,11 +633,16 @@ static int mgs_handle_fslog_hack(struct ptlrpc_request *req)
         return rc;
 }
 
+
 /* TODO: handle requests in a similar way as MDT: see mdt_handle_common() */
 int mgs_handle(struct ptlrpc_request *req)
 {
         int fail = OBD_FAIL_MGS_ALL_REPLY_NET;
         int opc, rc = 0;
+	static const struct ldlm_callback_suite cbs = {
+		.lcs_completion = ldlm_server_completion_ast,
+		.lcs_blocking   = ldlm_server_blocking_ast,
+	};
         ENTRY;
 
         req_capsule_init(&req->rq_pill, req, RCL_SERVER);
@@ -696,11 +712,10 @@ int mgs_handle(struct ptlrpc_request *req)
                 rc = mgs_config_read(req);
                 break;
         case LDLM_ENQUEUE:
-                DEBUG_REQ(D_MGS, req, "enqueue");
-                req_capsule_set(&req->rq_pill, &RQF_LDLM_ENQUEUE);
-                rc = ldlm_handle_enqueue(req, ldlm_server_completion_ast,
-                                         ldlm_server_blocking_ast, NULL);
-                break;
+		DEBUG_REQ(D_MGS, req, "enqueue");
+		req_capsule_set(&req->rq_pill, &RQF_LDLM_ENQUEUE);
+		rc = ldlm_handle_enqueue(req, &cbs);
+		break;
         case LDLM_BL_CALLBACK:
         case LDLM_CP_CALLBACK:
                 DEBUG_REQ(D_MGS, req, "callback");

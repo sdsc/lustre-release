@@ -180,6 +180,11 @@ int llu_md_blocking_ast(struct ldlm_lock *lock,
         RETURN(0);
 }
 
+const struct ldlm_callback_suite llu_md_cbs = {
+	.lcs_completion = ldlm_completion_ast,
+	.lcs_blocking   = llu_md_blocking_ast,
+};
+
 static int pnode_revalidate_finish(struct ptlrpc_request *req,
                                    struct lookup_intent *it,
                                    struct pnode *pnode)
@@ -258,9 +263,8 @@ static int llu_pb_revalidate(struct pnode *pnode, int flags,
                             pb->pb_ino, pb->pb_name.name, pb->pb_name.len,
                             0, LUSTRE_OPC_ANY);
 
-        rc = md_intent_lock(exp, &op_data, NULL, 0, it, flags,
-                            &req, llu_md_blocking_ast,
-                            LDLM_FL_CANCEL_ON_BLOCK);
+	rc = md_intent_lock(exp, &op_data, NULL, 0, it, flags,
+			    &req, &llu_md_cbs, LDLM_FL_CANCEL_ON_BLOCK);
         /* If req is NULL, then md_intent_lock only tried to do a lock match;
          * if all was well, it will return 1 if it found locks, 0 otherwise. */
         if (req == NULL && rc >= 0)
@@ -436,20 +440,19 @@ static int llu_lookup_it(struct inode *parent, struct pnode *pnode,
         icbd.icbd_child = pnode;
         icbd.icbd_parent = parent;
 
-        if (it->it_op & IT_CREAT || 
-            (it->it_op & IT_OPEN && it->it_create_mode & O_CREAT)) {
-                opc = LUSTRE_OPC_CREATE;
-        } else {
-                opc = LUSTRE_OPC_ANY;
-        }
-        
+	if (it->it_op & IT_CREAT ||
+	    (it->it_op & IT_OPEN && it->it_create_mode & O_CREAT)) {
+		opc = LUSTRE_OPC_CREATE;
+	} else {
+		opc = LUSTRE_OPC_ANY;
+	}
+
         llu_prep_md_op_data(&op_data, parent, NULL,
                             pnode->p_base->pb_name.name,
                             pnode->p_base->pb_name.len, flags, opc);
 
-        rc = md_intent_lock(llu_i2mdexp(parent), &op_data, NULL, 0, it,
-                            flags, &req, llu_md_blocking_ast,
-                            LDLM_FL_CANCEL_ON_BLOCK);
+	rc = md_intent_lock(llu_i2mdexp(parent), &op_data, NULL, 0, it,
+			    flags, &req, &llu_md_cbs, LDLM_FL_CANCEL_ON_BLOCK);
         if (rc < 0)
                 GOTO(out, rc);
 

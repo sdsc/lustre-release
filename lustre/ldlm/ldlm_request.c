@@ -346,7 +346,7 @@ EXPORT_SYMBOL(ldlm_blocking_ast_nocheck);
 /**
  * Server blocking AST
  *
- * ->l_blocking_ast() callback for LDLM locks acquired by server-side
+ * ->lcs_blocking() callback for LDLM locks acquired by server-side
  * OBDs.
  *
  * \param lock the lock which blocks a request or cancelling lock
@@ -357,26 +357,26 @@ EXPORT_SYMBOL(ldlm_blocking_ast_nocheck);
  * \see ldlm_blocking_ast_nocheck
  */
 int ldlm_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
-                      void *data, int flag)
+		      void *data, int flag)
 {
-        ENTRY;
+	ENTRY;
 
-        if (flag == LDLM_CB_CANCELING) {
-                /* Don't need to do anything here. */
-                RETURN(0);
-        }
+	if (flag == LDLM_CB_CANCELING) {
+		/* Don't need to do anything here. */
+		RETURN(0);
+	}
 
-        lock_res_and_lock(lock);
-        /* Get this: if ldlm_blocking_ast is racing with intent_policy, such
-         * that ldlm_blocking_ast is called just before intent_policy method
-         * takes the lr_lock, then by the time we get the lock, we might not
-         * be the correct blocking function anymore.  So check, and return
-         * early, if so. */
-        if (lock->l_blocking_ast != ldlm_blocking_ast) {
-                unlock_res_and_lock(lock);
-                RETURN(0);
-        }
-        RETURN(ldlm_blocking_ast_nocheck(lock));
+	lock_res_and_lock(lock);
+	/* Get this: if ldlm_blocking_ast is racing with intent_policy, such
+	 * that ldlm_blocking_ast is called just before intent_policy method
+	 * takes the lr_lock, then by the time we get the lock, we might not
+	 * be the correct blocking function anymore.  So check, and return
+	 * early, if so. */
+	if (lock->l_cbs->lcs_blocking != ldlm_blocking_ast) {
+		unlock_res_and_lock(lock);
+		RETURN(0);
+	}
+	RETURN(ldlm_blocking_ast_nocheck(lock));
 }
 EXPORT_SYMBOL(ldlm_blocking_ast);
 
@@ -413,21 +413,15 @@ EXPORT_SYMBOL(ldlm_glimpse_ast);
  */
 int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
                            const struct ldlm_res_id *res_id,
-                           ldlm_type_t type, ldlm_policy_data_t *policy,
-			   ldlm_mode_t mode, __u64 *flags,
-                           ldlm_blocking_callback blocking,
-                           ldlm_completion_callback completion,
-                           ldlm_glimpse_callback glimpse,
-			   void *data, __u32 lvb_len, enum lvb_type lvb_type,
+			   ldlm_policy_data_t *policy,
+			   const struct ldlm_enqueue_info *einfo,
+			   __u64 *flags,
+			   __u32 lvb_len, enum lvb_type lvb_type,
                            const __u64 *client_cookie,
                            struct lustre_handle *lockh)
 {
         struct ldlm_lock *lock;
         int err;
-        const struct ldlm_callback_suite cbs = { .lcs_completion = completion,
-                                                 .lcs_blocking   = blocking,
-                                                 .lcs_glimpse    = glimpse,
-        };
         ENTRY;
 
         LASSERT(!(*flags & LDLM_FL_REPLAY));
@@ -436,8 +430,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
                 LBUG();
         }
 
-	lock = ldlm_lock_create(ns, res_id, type, mode, &cbs, data, lvb_len,
-				lvb_type);
+	lock = ldlm_lock_create(ns, res_id, einfo, lvb_len, lvb_type);
         if (unlikely(!lock))
                 GOTO(out_nolock, err = -ENOMEM);
 
@@ -445,7 +438,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
 
         /* NB: we don't have any lock now (lock_res_and_lock)
          * because it's a new lock */
-        ldlm_lock_addref_internal_nolock(lock, mode);
+	ldlm_lock_addref_internal_nolock(lock, einfo->ei_mode);
         lock->l_flags |= LDLM_FL_LOCAL;
         if (*flags & LDLM_FL_ATOMIC_CB)
                 lock->l_flags |= LDLM_FL_ATOMIC_CB;
@@ -454,7 +447,7 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
                 lock->l_policy_data = *policy;
         if (client_cookie != NULL)
                 lock->l_client_cookie = *client_cookie;
-        if (type == LDLM_EXTENT)
+	if (einfo->ei_type == LDLM_EXTENT)
                 lock->l_req_extent = policy->l_extent;
 
         err = ldlm_lock_enqueue(ns, &lock, policy, flags);
@@ -464,8 +457,8 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
         if (policy != NULL)
                 *policy = lock->l_policy_data;
 
-        if (lock->l_completion_ast)
-                lock->l_completion_ast(lock, *flags, NULL);
+	if (lock->l_cbs->lcs_completion)
+		lock->l_cbs->lcs_completion(lock, *flags, NULL);
 
         LDLM_DEBUG(lock, "client-side local enqueue handler, new lock created");
         EXIT;
@@ -685,15 +678,18 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
         }
 
         if (!is_replay) {
+		ldlm_completion_callback completion;
+
                 rc = ldlm_lock_enqueue(ns, &lock, NULL, flags);
-                if (lock->l_completion_ast != NULL) {
-                        int err = lock->l_completion_ast(lock, *flags, NULL);
-                        if (!rc)
-                                rc = err;
-                        if (rc)
-                                cleanup_phase = 1;
-                }
-        }
+		completion = lock->l_cbs->lcs_completion;
+		if (completion != NULL) {
+			int err = completion(lock, *flags, NULL);
+			if (!rc)
+				rc = err;
+			if (rc)
+				cleanup_phase = 1;
+		}
+	}
 
         if (lvb_len && lvb != NULL) {
                 /* Copy the LVB here, and not earlier, because the completion
@@ -885,18 +881,13 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
         /* If we're replaying this lock, just check some invariants.
          * If we're creating a new lock, get everything all setup nice. */
         if (is_replay) {
-                lock = ldlm_handle2lock_long(lockh, 0);
-                LASSERT(lock != NULL);
-                LDLM_DEBUG(lock, "client-side enqueue START");
-                LASSERT(exp == lock->l_conn_export);
-        } else {
-		const struct ldlm_callback_suite cbs = {
-			.lcs_completion = einfo->ei_cb_cp,
-			.lcs_blocking	= einfo->ei_cb_bl,
-			.lcs_glimpse	= einfo->ei_cb_gl
-		};
-		lock = ldlm_lock_create(ns, res_id, einfo->ei_type,
-					einfo->ei_mode, &cbs, einfo->ei_cbdata,
+		lock = ldlm_handle2lock_long(lockh, 0);
+		LASSERT(lock != NULL);
+		LDLM_DEBUG(lock, "client-side enqueue START");
+		LASSERT(exp == lock->l_conn_export);
+		lock->l_cbs = einfo->ei_lcs;
+	} else {
+		lock = ldlm_lock_create(ns, res_id, einfo,
 					lvb_len, lvb_type);
 		if (lock == NULL)
 			RETURN(-ENOMEM);
@@ -927,7 +918,6 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
 	lock->l_conn_export = exp;
 	lock->l_export = NULL;
-	lock->l_blocking_ast = einfo->ei_cb_bl;
 	lock->l_flags |= (*flags & LDLM_FL_NO_LRU);
 
         /* lock not sent to server yet */
@@ -1091,9 +1081,10 @@ int ldlm_cli_convert(struct lustre_handle *lockh, int new_mode, __u32 *flags)
                 ldlm_reprocess_all(res);
                 /* Go to sleep until the lock is granted. */
                 /* FIXME: or cancelled. */
-                if (lock->l_completion_ast) {
-                        rc = lock->l_completion_ast(lock, LDLM_FL_WAIT_NOREPROC,
-                                                    NULL);
+		if (lock->l_cbs->lcs_completion) {
+			rc = lock->l_cbs->lcs_completion(lock,
+							 LDLM_FL_WAIT_NOREPROC,
+							 NULL);
                         if (rc)
                                 GOTO(out, rc);
                 }
@@ -1734,13 +1725,13 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns, cfs_list_t *cancels,
                  * silently cancelling this lock. */
                 lock->l_flags &= ~LDLM_FL_CANCEL_ON_BLOCK;
 
-                /* Setting the CBPENDING flag is a little misleading,
-                 * but prevents an important race; namely, once
-                 * CBPENDING is set, the lock can accumulate no more
-                 * readers/writers. Since readers and writers are
-                 * already zero here, ldlm_lock_decref() won't see
-                 * this flag and call l_blocking_ast */
-                lock->l_flags |= LDLM_FL_CBPENDING | LDLM_FL_CANCELING;
+		/* Setting the CBPENDING flag is a little misleading,
+		 * but prevents an important race; namely, once
+		 * CBPENDING is set, the lock can accumulate no more
+		 * readers/writers. Since readers and writers are
+		 * already zero here, ldlm_lock_decref() won't see
+		 * this flag and call lcs_blocking */
+		lock->l_flags |= LDLM_FL_CBPENDING | LDLM_FL_CANCELING;
 
                 /* We can't re-add to l_lru as it confuses the
                  * refcounting in ldlm_lock_remove_from_lru() if an AST

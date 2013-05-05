@@ -1261,18 +1261,20 @@ static int llu_file_flock(struct inode *ino,
                           struct file_lock *file_lock)
 {
 	struct llu_inode_info *lli = llu_i2info(ino);
+	struct intnl_stat *st = llu_i2stat(ino);
 	struct ldlm_res_id res_id =
 		{ .name = {fid_seq(&lli->lli_fid),
 			   fid_oid(&lli->lli_fid),
 			   fid_ver(&lli->lli_fid),
 			   LDLM_FLOCK} };
-	struct ldlm_enqueue_info einfo = {
-		.ei_type	= LDLM_FLOCK,
-		.ei_mode	= 0,
-		.ei_cb_cp	= ldlm_flock_completion_ast,
-		.ei_cbdata	= file_lock,
+	static const struct ldlm_callback_suite cbs = {
+		.lcs_completion = ldlm_flock_completion_ast,
 	};
-	struct intnl_stat     *st  = llu_i2stat(ino);
+	struct ldlm_enqueue_info einfo = {
+		.ei_type = LDLM_FLOCK,
+		.ei_lcs = &cbs,
+		.ei_cbdata = file_lock
+	};
 	struct lustre_handle lockh = {0};
 	ldlm_policy_data_t flock;
 	__u64 flags = 0;
@@ -1644,10 +1646,9 @@ static int llu_lov_setstripe_ea_info(struct inode *ino, int flags,
 	struct llu_inode_info *lli = llu_i2info(ino);
 	struct lookup_intent oit = {.it_op = IT_OPEN, .it_flags = flags};
 	struct ldlm_enqueue_info einfo = {
-		.ei_type	= LDLM_IBITS,
-		.ei_mode	= LCK_CR,
-		.ei_cb_bl	= llu_md_blocking_ast,
-		.ei_cb_cp	= ldlm_completion_ast,
+		.ei_type = LDLM_IBITS,
+		.ei_mode = LCK_CR,
+		.ei_lcs = &llu_md_cbs,
 	};
 	struct ptlrpc_request *req = NULL;
 	struct lustre_md md;

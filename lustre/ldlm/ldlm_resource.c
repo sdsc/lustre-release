@@ -759,8 +759,8 @@ static void cleanup_resource(struct ldlm_resource *res, cfs_list_t *q,
                          * will go away ... */
                         unlock_res(res);
                         LDLM_DEBUG(lock, "setting FL_LOCAL_ONLY");
-                        if (lock->l_completion_ast)
-                                lock->l_completion_ast(lock, 0, NULL);
+			if (lock->l_cbs->lcs_completion)
+				lock->l_cbs->lcs_completion(lock, 0, NULL);
                         LDLM_LOCK_RELEASE(lock);
                         continue;
                 }

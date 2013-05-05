@@ -704,7 +704,7 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
 /**
  * Blocking ast invoked by ldlm when dlm lock is either blocking progress of
  * some other lock, or is canceled. This function is installed as a
- * ldlm_lock::l_blocking_ast() for client extent locks.
+ * ldlm_lock::l_lcs::lcs_blocking() for client extent locks.
  *
  * Control flow is tricky, because ldlm uses the same call-back
  * (ldlm_lock::l_blocking_ast()) for both blocking and cancellation ast's.
@@ -720,18 +720,18 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
  *
  * Possible use cases:
  *
- *     - ldlm calls dlmlock->l_blocking_ast(..., LDLM_CB_CANCELING) to cancel
- *       lock due to lock lru pressure, or explicit user request to purge
- *       locks.
+ *     - ldlm calls dlmlock->l_lcs.lcs_blocking(..., LDLM_CB_CANCELING)
+ *       to cancel lock due to lock lru pressure, or explicit user request to
+ *       purge locks.
  *
- *     - ldlm calls dlmlock->l_blocking_ast(..., LDLM_CB_BLOCKING) to notify
+ *     - ldlm calls dlmlock->l_lcs.lcs_blocking(..., LDLM_CB_BLOCKING) to notify
  *       us that dlmlock conflicts with another lock that some client is
  *       enqueing. Lock is canceled.
  *
  *           - cl_lock_cancel() is called. osc_lock_cancel() calls
  *             ldlm_cli_cancel() that calls
  *
- *                  dlmlock->l_blocking_ast(..., LDLM_CB_CANCELING)
+ *                  dlmlock->l_lcs.lcs_blocking(..., LDLM_CB_CANCELING)
  *
  *             recursively entering osc_ldlm_blocking_ast().
  *
@@ -740,7 +740,7 @@ static int osc_dlm_blocking_ast0(const struct lu_env *env,
  *           cl_lock_cancel()->
  *             osc_lock_cancel()->
  *               ldlm_cli_cancel()->
- *                 dlmlock->l_blocking_ast(..., LDLM_CB_CANCELING)
+ *                 dlmlock->l_lcs.lcs_blocking(..., LDLM_CB_CANCELING)
  *
  */
 static int osc_ldlm_blocking_ast(struct ldlm_lock *dlmlock,
@@ -920,6 +920,11 @@ static void osc_lock_build_einfo(const struct lu_env *env,
                                  struct ldlm_enqueue_info *einfo)
 {
         enum cl_lock_mode mode;
+	static const struct ldlm_callback_suite cbs = {
+		.lcs_blocking   = osc_ldlm_blocking_ast,
+		.lcs_completion = osc_ldlm_completion_ast,
+		.lcs_glimpse    = osc_ldlm_glimpse_ast,
+	};
 
         mode = clock->cll_descr.cld_mode;
         if (mode == CLM_PHANTOM)
@@ -932,9 +937,7 @@ static void osc_lock_build_einfo(const struct lu_env *env,
 
         einfo->ei_type   = LDLM_EXTENT;
         einfo->ei_mode   = osc_cl_lock2ldlm(mode);
-        einfo->ei_cb_bl  = osc_ldlm_blocking_ast;
-        einfo->ei_cb_cp  = osc_ldlm_completion_ast;
-        einfo->ei_cb_gl  = osc_ldlm_glimpse_ast;
+	einfo->ei_lcs    = &cbs;
         einfo->ei_cbdata = lock; /* value to be put into ->l_ast_data */
 }
 

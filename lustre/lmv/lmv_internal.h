@@ -51,23 +51,10 @@
 int lmv_check_connect(struct obd_device *obd);
 
 int lmv_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
-                    void *lmm, int lmmsize, struct lookup_intent *it,
-                    int flags, struct ptlrpc_request **reqp,
-                    ldlm_blocking_callback cb_blocking,
+		    void *lmm, int lmmsize, struct lookup_intent *it,
+		    int flags, struct ptlrpc_request **reqp,
+		    const struct ldlm_callback_suite *cbs,
 		    __u64 extra_lock_flags);
-
-int lmv_intent_lookup(struct obd_export *exp, struct md_op_data *op_data,
-                      void *lmm, int lmmsize, struct lookup_intent *it,
-                      int flags, struct ptlrpc_request **reqp,
-                      ldlm_blocking_callback cb_blocking,
-		      __u64 extra_lock_flags);
-
-int lmv_intent_open(struct obd_export *exp, struct md_op_data *op_data,
-                    void *lmm, int lmmsize, struct lookup_intent *it,
-                    int flags, struct ptlrpc_request **reqp,
-                    ldlm_blocking_callback cb_blocking,
-		    __u64 extra_lock_flags);
-
 int lmv_blocking_ast(struct ldlm_lock *, struct ldlm_lock_desc *,
 		     void *, int);
 int lmv_fld_lookup(struct lmv_obd *lmv, const struct lu_fid *fid,

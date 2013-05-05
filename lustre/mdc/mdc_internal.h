@@ -89,11 +89,11 @@ int mdc_find_cbdata(struct obd_export *exp, const struct lu_fid *fid,
                     ldlm_iterator_t it, void *data);
 
 int mdc_intent_lock(struct obd_export *exp,
-                    struct md_op_data *,
-                    void *lmm, int lmmsize,
-                    struct lookup_intent *, int,
-                    struct ptlrpc_request **reqp,
-		    ldlm_blocking_callback cb_blocking,
+		    struct md_op_data *,
+		    void *lmm, int lmmsize,
+		    struct lookup_intent *, int,
+		    struct ptlrpc_request **reqp,
+		    const struct ldlm_callback_suite *cbs,
 		    __u64 extra_lock_flags);
 int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
                 struct lookup_intent *it, struct md_op_data *op_data,

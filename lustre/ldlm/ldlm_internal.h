@@ -142,17 +142,17 @@ int ldlm_fill_lvb(struct ldlm_lock *lock, struct req_capsule *pill,
 		  enum req_location loc, void *data, int size);
 struct ldlm_lock *
 ldlm_lock_create(struct ldlm_namespace *ns, const struct ldlm_res_id *,
-                 ldlm_type_t type, ldlm_mode_t,
-                 const struct ldlm_callback_suite *cbs,
-		 void *data, __u32 lvb_len, enum lvb_type lvb_type);
+		 const struct ldlm_enqueue_info *einfo,
+		 __u32 lvb_len, enum lvb_type lvb_type);
 ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *, struct ldlm_lock **,
 			       void *cookie, __u64 *flags);
 void ldlm_lock_addref_internal(struct ldlm_lock *, __u32 mode);
 void ldlm_lock_addref_internal_nolock(struct ldlm_lock *, __u32 mode);
 void ldlm_lock_decref_internal(struct ldlm_lock *, __u32 mode);
 void ldlm_lock_decref_internal_nolock(struct ldlm_lock *, __u32 mode);
-void ldlm_add_ast_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
-                            cfs_list_t *work_list);
+void ldlm_add_cp_work_item(struct ldlm_lock *lock, cfs_list_t *work_list);
+void ldlm_add_bl_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
+			   cfs_list_t *work_list);
 #ifdef HAVE_SERVER_SUPPORT
 int ldlm_reprocess_queue(struct ldlm_resource *res, cfs_list_t *queue,
                          cfs_list_t *work_list);

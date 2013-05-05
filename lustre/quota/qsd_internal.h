@@ -339,8 +339,8 @@ int qsd_write_version(const struct lu_env *, struct qsd_qtype_info *,
 		      __u64, bool);
 
 /* qsd_lock.c */
-extern struct ldlm_enqueue_info qsd_glb_einfo;
-extern struct ldlm_enqueue_info qsd_id_einfo;
+extern const struct ldlm_enqueue_info qsd_glb_einfo;
+extern const struct ldlm_enqueue_info qsd_id_einfo;
 int qsd_id_lock_match(struct lustre_handle *, struct lustre_handle *);
 int qsd_id_lock_cancel(const struct lu_env *, struct lquota_entry *);
 

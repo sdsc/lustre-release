@@ -400,8 +400,8 @@ int ldlm_lock_destroy_internal(struct ldlm_lock *lock)
         if (lock->l_export)
                 class_export_put(lock->l_export);
         lock->l_export = NULL;
-        if (lock->l_export && lock->l_completion_ast)
-                lock->l_completion_ast(lock, 0);
+	if (lock->l_export && lock->l_cbs->lcs_completion)
+		lock->l_cbs->lcs_completion(lock, 0);
 #endif
         EXIT;
         return 1;
@@ -737,24 +737,6 @@ void ldlm_add_cp_work_item(struct ldlm_lock *lock, cfs_list_t *work_list)
                 cfs_list_add(&lock->l_cp_ast, work_list);
                 LDLM_LOCK_GET(lock);
         }
-}
-
-/**
- * Aggregator function to add AST work items into a list. Determines
- * what sort of an AST work needs to be done and calls the proper
- * adding function.
- * Must be called with lr_lock held.
- */
-void ldlm_add_ast_work_item(struct ldlm_lock *lock, struct ldlm_lock *new,
-                            cfs_list_t *work_list)
-{
-        ENTRY;
-        check_res_locked(lock->l_resource);
-        if (new)
-                ldlm_add_bl_work_item(lock, new, work_list);
-        else
-                ldlm_add_cp_work_item(lock, work_list);
-        EXIT;
 }
 
 /**
@@ -1157,8 +1139,8 @@ void ldlm_grant_lock(struct ldlm_lock *lock, cfs_list_t *work_list)
         if (lock->l_granted_mode < res->lr_most_restr)
                 res->lr_most_restr = lock->l_granted_mode;
 
-        if (work_list && lock->l_completion_ast != NULL)
-                ldlm_add_ast_work_item(lock, NULL, work_list);
+	if (work_list && lock->l_cbs->lcs_completion != NULL)
+		ldlm_add_cp_work_item(lock, work_list);
 
         ldlm_pool_add(&ldlm_res_to_ns(res)->ns_pool, lock);
         EXIT;
@@ -1372,11 +1354,14 @@ ldlm_mode_t ldlm_lock_match(struct ldlm_namespace *ns, __u64 flags,
                     (!(lock->l_flags & LDLM_FL_LVB_READY))) {
 			__u64 wait_flags = LDLM_FL_LVB_READY |
 				LDLM_FL_DESTROYED | LDLM_FL_FAIL_NOTIFIED;
-                        struct l_wait_info lwi;
-                        if (lock->l_completion_ast) {
-                                int err = lock->l_completion_ast(lock,
-                                                          LDLM_FL_WAIT_NOREPROC,
-                                                                 NULL);
+			struct l_wait_info lwi;
+			ldlm_completion_callback completion_cb;
+
+			completion_cb = lock->l_cbs->lcs_completion;
+			if (completion_cb) {
+				int err = completion_cb(lock,
+							LDLM_FL_WAIT_NOREPROC,
+							NULL);
                                 if (err) {
                                         if (flags & LDLM_FL_TEST_LOCK)
                                                 LDLM_LOCK_RELEASE(lock);
@@ -1579,17 +1564,15 @@ int ldlm_fill_lvb(struct ldlm_lock *lock, struct req_capsule *pill,
  */
 struct ldlm_lock *ldlm_lock_create(struct ldlm_namespace *ns,
                                    const struct ldlm_res_id *res_id,
-                                   ldlm_type_t type,
-                                   ldlm_mode_t mode,
-                                   const struct ldlm_callback_suite *cbs,
-				   void *data, __u32 lvb_len,
+				   const struct ldlm_enqueue_info *einfo,
+				   __u32 lvb_len,
 				   enum lvb_type lvb_type)
 {
         struct ldlm_lock *lock;
         struct ldlm_resource *res;
         ENTRY;
 
-        res = ldlm_resource_get(ns, NULL, res_id, type, 1);
+	res = ldlm_resource_get(ns, NULL, res_id, einfo->ei_type, 1);
         if (res == NULL)
                 RETURN(NULL);
 
@@ -1598,20 +1581,17 @@ struct ldlm_lock *ldlm_lock_create(struct ldlm_namespace *ns,
         if (lock == NULL)
                 RETURN(NULL);
 
-        lock->l_req_mode = mode;
-        lock->l_ast_data = data;
+	lock->l_req_mode = einfo->ei_mode;
+	lock->l_ast_data = einfo->ei_cbdata;
         lock->l_pid = cfs_curproc_pid();
 	if (ns_is_server(ns))
 		lock->l_flags |= LDLM_FL_NS_SRV;
-        if (cbs) {
-                lock->l_blocking_ast = cbs->lcs_blocking;
-                lock->l_completion_ast = cbs->lcs_completion;
-                lock->l_glimpse_ast = cbs->lcs_glimpse;
-        }
 
-        lock->l_tree_node = NULL;
-        /* if this is the extent lock, allocate the interval tree node */
-        if (type == LDLM_EXTENT) {
+	lock->l_cbs = einfo->ei_lcs;
+
+	lock->l_tree_node = NULL;
+	/* if this is the extent lock, allocate the interval tree node */
+	if (einfo->ei_type == LDLM_EXTENT) {
                 if (ldlm_interval_alloc(lock) == NULL)
                         GOTO(out, 0);
         }
@@ -1835,7 +1815,8 @@ ldlm_work_bl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 
 	ldlm_lock2desc(lock->l_blocking_lock, &d);
 
-	rc = lock->l_blocking_ast(lock, &d, (void *)arg, LDLM_CB_BLOCKING);
+	rc = lock->l_cbs->lcs_blocking(lock, &d, (void *)arg,
+				       LDLM_CB_BLOCKING);
 	LDLM_LOCK_RELEASE(lock->l_blocking_lock);
 	lock->l_blocking_lock = NULL;
 	LDLM_LOCK_RELEASE(lock);
@@ -1877,7 +1858,7 @@ ldlm_work_cp_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	LASSERT(lock->l_flags & LDLM_FL_CP_REQD);
 	/* save l_completion_ast since it can be changed by
 	 * mds_intent_policy(), see bug 14225 */
-	completion_callback = lock->l_completion_ast;
+	completion_callback = lock->l_cbs->lcs_completion;
 	lock->l_flags &= ~LDLM_FL_CP_REQD;
 	unlock_res_and_lock(lock);
 
@@ -1911,7 +1892,8 @@ ldlm_work_revoke_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	desc.l_req_mode = LCK_EX;
 	desc.l_granted_mode = 0;
 
-	rc = lock->l_blocking_ast(lock, &desc, (void*)arg, LDLM_CB_BLOCKING);
+	rc = lock->l_cbs->lcs_blocking(lock, &desc, (void *)arg,
+				       LDLM_CB_BLOCKING);
 	LDLM_LOCK_RELEASE(lock);
 
 	RETURN(rc);
@@ -1941,7 +1923,7 @@ int ldlm_work_gl_ast_lock(struct ptlrpc_request_set *rqset, void *opaq)
 	arg->gl_desc = gl_work->gl_desc;
 
 	/* invoke the actual glimpse callback */
-	if (lock->l_glimpse_ast(lock, (void*)arg) == 0)
+	if (lock->l_cbs->lcs_glimpse(lock, (void *)arg) == 0)
 		rc = 1;
 
 	LDLM_LOCK_RELEASE(lock);
@@ -2102,10 +2084,11 @@ void ldlm_cancel_callback(struct ldlm_lock *lock)
 	check_res_locked(lock->l_resource);
 	if (!(lock->l_flags & LDLM_FL_CANCEL)) {
 		lock->l_flags |= LDLM_FL_CANCEL;
-		if (lock->l_blocking_ast) {
-                        unlock_res_and_lock(lock);
-                        lock->l_blocking_ast(lock, NULL, lock->l_ast_data,
-                                             LDLM_CB_CANCELING);
+		if (lock->l_cbs->lcs_blocking) {
+			unlock_res_and_lock(lock);
+			lock->l_cbs->lcs_blocking(lock, NULL,
+						  lock->l_ast_data,
+						  LDLM_CB_CANCELING);
                         lock_res_and_lock(lock);
                 } else {
                         LDLM_DEBUG(lock, "no blocking ast");
@@ -2372,8 +2355,8 @@ struct ldlm_resource *ldlm_lock_convert(struct ldlm_lock *lock, int new_mode,
                         ldlm_grant_lock(lock, &rpc_list);
                         granted = 1;
                         /* FIXME: completion handling not with lr_lock held ! */
-                        if (lock->l_completion_ast)
-                                lock->l_completion_ast(lock, 0, NULL);
+			if (lock->l_cbs->lcs_completion)
+				lock->l_cbs->lcs_completion(lock, 0, NULL);
                 }
 #ifdef HAVE_SERVER_SUPPORT
         } else {

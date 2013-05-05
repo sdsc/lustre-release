@@ -823,7 +823,7 @@ static void ldlm_lock_reorder_req(struct ldlm_lock *lock)
 }
 
 /**
- * ->l_blocking_ast() method for server-side locks. This is invoked when newly
+ * ->lcs_blocking() method for server-side locks. This is invoked when newly
  * enqueued server lock conflicts with given one.
  *
  * Sends blocking AST RPC to the client owning that lock; arms timeout timer
@@ -1209,6 +1209,7 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
         struct ldlm_lock *lock = NULL;
         void *cookie = NULL;
         int rc = 0;
+	struct ldlm_enqueue_info einfo;
         ENTRY;
 
         LDLM_DEBUG_NOLOCK("server-side enqueue handler START");
@@ -1287,11 +1288,14 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
                 }
         }
 
+	einfo.ei_type = dlm_req->lock_desc.l_resource.lr_type;
+	einfo.ei_mode = dlm_req->lock_desc.l_req_mode;
+	einfo.ei_lcs = cbs;
+	einfo.ei_cbdata = NULL;
+
         /* The lock's callback data might be set in the policy function */
         lock = ldlm_lock_create(ns, &dlm_req->lock_desc.l_resource.lr_name,
-                                dlm_req->lock_desc.l_resource.lr_type,
-                                dlm_req->lock_desc.l_req_mode,
-				cbs, NULL, 0, LVB_T_NONE);
+				&einfo, 0, LVB_T_NONE);
         if (!lock)
                 GOTO(out, rc = -ENOMEM);
 
@@ -1479,26 +1483,19 @@ EXPORT_SYMBOL(ldlm_handle_enqueue0);
  * Old-style LDLM main entry point for server code enqueue.
  */
 int ldlm_handle_enqueue(struct ptlrpc_request *req,
-                        ldlm_completion_callback completion_callback,
-                        ldlm_blocking_callback blocking_callback,
-                        ldlm_glimpse_callback glimpse_callback)
+			const struct ldlm_callback_suite *cbs)
 {
-        struct ldlm_request *dlm_req;
-        struct ldlm_callback_suite cbs = {
-                .lcs_completion = completion_callback,
-                .lcs_blocking   = blocking_callback,
-                .lcs_glimpse    = glimpse_callback
-        };
-        int rc;
+	struct ldlm_request *dlm_req;
+	struct ldlm_namespace *ns = req->rq_export->exp_obd->obd_namespace;
+	int rc;
 
-        dlm_req = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
-        if (dlm_req != NULL) {
-                rc = ldlm_handle_enqueue0(req->rq_export->exp_obd->obd_namespace,
-                                          req, dlm_req, &cbs);
-        } else {
-                rc = -EFAULT;
-        }
-        return rc;
+	dlm_req = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	if (dlm_req != NULL)
+		rc = ldlm_handle_enqueue0(ns, req, dlm_req, cbs);
+	else
+		rc = -EFAULT;
+
+	return rc;
 }
 EXPORT_SYMBOL(ldlm_handle_enqueue);
 
@@ -1704,11 +1701,11 @@ void ldlm_handle_bl_callback(struct ldlm_namespace *ns,
         unlock_res_and_lock(lock);
 
         if (do_ast) {
-                CDEBUG(D_DLMTRACE, "Lock %p already unused, calling callback (%p)\n",
-                       lock, lock->l_blocking_ast);
-                if (lock->l_blocking_ast != NULL)
-                        lock->l_blocking_ast(lock, ld, lock->l_ast_data,
-                                             LDLM_CB_BLOCKING);
+		CDEBUG(D_DLMTRACE, "Lock %p already unused, calling callback "
+		       "(%p)\n", lock, lock->l_cbs->lcs_blocking);
+		if (lock->l_cbs->lcs_blocking != NULL)
+			lock->l_cbs->lcs_blocking(lock, ld, lock->l_ast_data,
+						  LDLM_CB_BLOCKING);
         } else {
                 CDEBUG(D_DLMTRACE, "Lock %p is referenced, will be cancelled later\n",
                        lock);
@@ -1880,8 +1877,8 @@ static void ldlm_handle_gl_callback(struct ptlrpc_request *req,
 
         LDLM_DEBUG(lock, "client glimpse AST callback handler");
 
-        if (lock->l_glimpse_ast != NULL)
-                rc = lock->l_glimpse_ast(lock, req);
+	if (lock->l_cbs->lcs_glimpse != NULL)
+		rc = lock->l_cbs->lcs_glimpse(lock, req);
 
         if (req->rq_repmsg != NULL) {
                 ptlrpc_reply(req);
@@ -1981,9 +1978,9 @@ static inline void init_blwi(struct ldlm_bl_work_item *blwi,
  * for later processing by a blocking thread.  If \a count is zero,
  * then the lock referenced as \a lock is queued instead.
  *
- * The blocking thread would then call ->l_blocking_ast callback in the lock.
+ * The blocking thread would then call ->lcs_blocking callback in the lock.
  * If list addition fails an error is returned and caller is supposed to
- * call ->l_blocking_ast itself.
+ * call ->lcs_blocking itself.
  */
 static int ldlm_bl_to_thread(struct ldlm_namespace *ns,
 			     struct ldlm_lock_desc *ld,
@@ -2503,7 +2500,7 @@ int ldlm_revoke_lock_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
                 return 0;
         }
 
-        LASSERT(lock->l_blocking_ast);
+	LASSERT(lock->l_cbs->lcs_blocking);
         LASSERT(!lock->l_blocking_lock);
 
         lock->l_flags |= LDLM_FL_AST_SENT;
@@ -2602,7 +2599,7 @@ static int ldlm_bl_thread_start(struct ldlm_bl_pool *blp)
  * Main blocking requests processing thread.
  *
  * Callers put locks into its queue by calling ldlm_bl_to_thread.
- * This thread in the end ends up doing actual call to ->l_blocking_ast
+ * This thread in the end ends up doing actual call to ->lcs_blocking
  * for queued locks.
  */
 static int ldlm_bl_thread_main(void *arg)
