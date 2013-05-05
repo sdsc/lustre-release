@@ -1957,16 +1957,16 @@ static inline int md_intent_lock(struct obd_export *exp,
 				 struct md_op_data *op_data, void *lmm,
 				 int lmmsize, struct lookup_intent *it,
 				 int lookup_flags, struct ptlrpc_request **reqp,
-				 ldlm_blocking_callback cb_blocking,
+				 const struct ldlm_callback_suite *cbs,
 				 __u64 extra_lock_flags)
 {
         int rc;
         ENTRY;
         EXP_CHECK_MD_OP(exp, intent_lock);
         EXP_MD_COUNTER_INCREMENT(exp, intent_lock);
-        rc = MDP(exp->exp_obd, intent_lock)(exp, op_data, lmm, lmmsize,
-                                            it, lookup_flags, reqp, cb_blocking,
-                                            extra_lock_flags);
+	rc = MDP(exp->exp_obd, intent_lock)(exp, op_data, lmm, lmmsize,
+					    it, lookup_flags, reqp, cbs,
+					    extra_lock_flags);
         RETURN(rc);
 }
 

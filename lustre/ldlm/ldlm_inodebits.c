@@ -141,14 +141,11 @@ ldlm_inodebits_compat_queue(cfs_list_t *queue, struct ldlm_lock *req,
 
 				/* Add locks of the policy group to @work_list
 				 * as blocking locks for @req */
-                                if (lock->l_blocking_ast)
-                                        ldlm_add_ast_work_item(lock, req,
-                                                               work_list);
-                                head = &lock->l_sl_policy;
-                                cfs_list_for_each_entry(lock, head, l_sl_policy)
-                                        if (lock->l_blocking_ast)
-                                                ldlm_add_ast_work_item(lock, req,
-                                                                       work_list);
+				ldlm_add_bl_work_item(lock, req, work_list);
+				head = &lock->l_sl_policy;
+				cfs_list_for_each_entry(lock, head, l_sl_policy)
+					ldlm_add_bl_work_item(lock, req,
+							       work_list);
                         }
                 not_conflicting:
                         if (tmp == mode_tail)

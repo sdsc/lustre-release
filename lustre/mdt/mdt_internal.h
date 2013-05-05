@@ -1083,13 +1083,22 @@ static inline int mdt_fid_lock(struct ldlm_namespace *ns,
 			       __u64 flags, const __u64 *client_cookie)
 {
         int rc;
+	static const struct ldlm_callback_suite cbs = {
+		.lcs_completion = ldlm_completion_ast,
+		.lcs_blocking   = mdt_blocking_ast,
+		.lcs_glimpse    = NULL,
+	};
+	struct ldlm_enqueue_info einfo = {
+		.ei_type = LDLM_IBITS,
+		.ei_mode = mode,
+		.ei_lcs = &cbs,
+	};
 
-        LASSERT(ns != NULL);
-        LASSERT(lh != NULL);
+	LASSERT(ns != NULL);
+	LASSERT(lh != NULL);
 
-        rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_IBITS, policy,
-                                    mode, &flags, mdt_blocking_ast,
-                                    ldlm_completion_ast, NULL, NULL, 0,
+	rc = ldlm_cli_enqueue_local(ns, res_id, policy,
+					&einfo, &flags, 0,
 				    LVB_T_NONE, client_cookie, lh);
         return rc == ELDLM_OK ? 0 : -EIO;
 }

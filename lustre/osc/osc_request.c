@@ -2274,10 +2274,7 @@ static int osc_set_lock_data_with_check(struct ldlm_lock *lock,
         int set = 0;
 
         LASSERT(lock != NULL);
-        LASSERT(lock->l_blocking_ast == einfo->ei_cb_bl);
-        LASSERT(lock->l_resource->lr_type == einfo->ei_type);
-        LASSERT(lock->l_completion_ast == einfo->ei_cb_cp);
-        LASSERT(lock->l_glimpse_ast == einfo->ei_cb_gl);
+	LASSERT(lock->l_cbs == einfo->ei_lcs);
 
         lock_res_and_lock(lock);
 	spin_lock(&osc_ast_guard);

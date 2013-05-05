@@ -108,17 +108,15 @@ ldlm_plain_compat_queue(cfs_list_t *queue, struct ldlm_lock *req,
 
 		/* Add locks of the mode group to \a work_list as
 		 * blocking locks for \a req. */
-                if (lock->l_blocking_ast)
-                        ldlm_add_ast_work_item(lock, req, work_list);
+		ldlm_add_bl_work_item(lock, req, work_list);
 
                 {
                         cfs_list_t *head;
 
                         head = &lock->l_sl_mode;
                         cfs_list_for_each_entry(lock, head, l_sl_mode)
-                                if (lock->l_blocking_ast)
-                                        ldlm_add_ast_work_item(lock, req,
-                                                               work_list);
+				ldlm_add_bl_work_item(lock, req,
+						      work_list);
                 }
         }
 

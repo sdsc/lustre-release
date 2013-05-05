@@ -1144,9 +1144,9 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
  * child lookup.
  */
 int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
-                    void *lmm, int lmmsize, struct lookup_intent *it,
-                    int lookup_flags, struct ptlrpc_request **reqp,
-                    ldlm_blocking_callback cb_blocking,
+		    void *lmm, int lmmsize, struct lookup_intent *it,
+		    int lookup_flags, struct ptlrpc_request **reqp,
+		    const struct ldlm_callback_suite *cbs,
 		    __u64 extra_lock_flags)
 {
 	struct lustre_handle lockh;
@@ -1184,10 +1184,9 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
          * never dropped its reference, so the refcounts are all OK */
         if (!it_disposition(it, DISP_ENQ_COMPLETE)) {
 		struct ldlm_enqueue_info einfo = {
-			.ei_type	= LDLM_IBITS,
-			.ei_mode	= it_to_lock_mode(it),
-			.ei_cb_bl	= cb_blocking,
-			.ei_cb_cp	= ldlm_completion_ast,
+			.ei_type   = LDLM_IBITS,
+			.ei_mode   = it_to_lock_mode(it),
+			.ei_lcs    = cbs,
 		};
 
                 /* For case if upper layer did not alloc fid, do it now. */
