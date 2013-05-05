@@ -43,20 +43,27 @@ static enqi_bl_cb_t qsd_glb_blocking_ast, qsd_id_blocking_ast;
 typedef int (enqi_gl_cb_t)(struct ldlm_lock *lock, void *data);
 static enqi_gl_cb_t qsd_glb_glimpse_ast, qsd_id_glimpse_ast;
 
-struct ldlm_enqueue_info qsd_glb_einfo = {
-	.ei_type	= LDLM_PLAIN,
-	.ei_mode	= LCK_CR,
-	.ei_cb_bl	= qsd_glb_blocking_ast,
-	.ei_cb_cp	= ldlm_completion_ast,
-	.ei_cb_gl	= qsd_glb_glimpse_ast,
+static const struct ldlm_callback_suite qsd_glb_cbs = {
+	.lcs_blocking   = qsd_glb_blocking_ast,
+	.lcs_completion = ldlm_completion_ast,
+	.lcs_glimpse    = qsd_glb_glimpse_ast,
+};
+const struct ldlm_enqueue_info qsd_glb_einfo = {
+	.ei_type = LDLM_PLAIN,
+	.ei_mode = LCK_CR,
+	.ei_lcs  = &qsd_glb_cbs,
 };
 
-struct ldlm_enqueue_info qsd_id_einfo = {
-	.ei_type	= LDLM_PLAIN,
-	.ei_mode	= LCK_CR,
-	.ei_cb_bl	= qsd_id_blocking_ast,
-	.ei_cb_cp	= ldlm_completion_ast,
-	.ei_cb_gl	= qsd_id_glimpse_ast,
+const struct ldlm_callback_suite qid_id_cbs = {
+	.lcs_blocking   = qsd_id_blocking_ast,
+	.lcs_completion = ldlm_completion_ast,
+	.lcs_glimpse    = qsd_id_glimpse_ast,
+};
+
+const struct ldlm_enqueue_info qsd_id_einfo = {
+	.ei_type = LDLM_PLAIN,
+	.ei_mode = LCK_CR,
+	.ei_lcs  = &qid_id_cbs,
 };
 
 /*
@@ -281,6 +288,7 @@ out:
 	req->rq_status = rc;
 	return rc;
 }
+
 
 /**
  * Blocking callback handler for per-ID lock

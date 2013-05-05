@@ -316,8 +316,8 @@ static int ll_xattr_find_get_lock(struct inode *inode,
 	struct ll_inode_info *lli = ll_i2info(inode);
 	struct ldlm_enqueue_info einfo = { .ei_type = LDLM_IBITS,
 					   .ei_mode = it_to_lock_mode(oit),
-					   .ei_cb_bl = ll_md_blocking_ast,
-					   .ei_cb_cp = ldlm_completion_ast };
+					   .ei_lcs  = &ll_md_cbs,
+					 };
 	struct ll_sb_info *sbi = ll_i2sbi(inode);
 	struct obd_export *exp = sbi->ll_md_exp;
 	int rc;

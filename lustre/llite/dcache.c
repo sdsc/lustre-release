@@ -479,9 +479,8 @@ do_lock:
         if (!IS_POSIXACL(parent) || !exp_connect_umask(exp))
 		it->it_create_mode &= ~current_umask();
         it->it_create_mode |= M_CHECK_STALE;
-        rc = md_intent_lock(exp, op_data, NULL, 0, it,
-                            lookup_flags,
-                            &req, ll_md_blocking_ast, 0);
+	rc = md_intent_lock(exp, op_data, NULL, 0, it,
+			    lookup_flags, &req, &ll_md_cbs, 0);
         it->it_create_mode &= ~M_CHECK_STALE;
         ll_finish_md_op_data(op_data);
 
@@ -595,8 +594,7 @@ do_lookup:
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
-        rc = md_intent_lock(exp, op_data, NULL, 0,  it, 0, &req,
-                            ll_md_blocking_ast, 0);
+	rc = md_intent_lock(exp, op_data, NULL, 0,  it, 0, &req, &ll_md_cbs, 0);
         if (rc >= 0) {
                 struct mdt_body *mdt_body;
                 struct lu_fid fid = {.f_seq = 0, .f_oid = 0, .f_ver = 0};

@@ -573,6 +573,39 @@ typedef int (*ldlm_completion_callback)(struct ldlm_lock *lock, __u64 flags,
 /** Type for glimpse callback function of a lock. */
 typedef int (*ldlm_glimpse_callback)(struct ldlm_lock *lock, void *data);
 
+
+/**
+ * Common ldlm_enqueue parameters
+ */
+struct ldlm_callback_suite {
+	/** Lock completion handler pointer. Called when lock is granted. */
+	ldlm_completion_callback lcs_completion;
+	/**
+	 * Lock blocking AST handler pointer.
+	 * It plays two roles:
+	 * - as a notification of an attempt to queue a conflicting lock (once)
+	 * - as a notification when the lock is being cancelled.
+	 *
+	 * As such it's typically called twice: once for the initial conflict
+	 * and then once more when the last user went away and the lock is
+	 * cancelled (could happen recursively).
+	 */
+	ldlm_blocking_callback   lcs_blocking;
+	/**
+	 * Lock glimpse handler.
+	 * Glimpse handler is used to obtain LVB updates from a client by
+	 * server
+	 */
+	ldlm_glimpse_callback    lcs_glimpse;
+};
+
+struct ldlm_enqueue_info {
+	__u32 ei_type;   /** Type of the lock being enqueued. */
+	ldlm_mode_t ei_mode;   /** Mode of the lock being enqueued. */
+	const struct ldlm_callback_suite *ei_lcs;
+	void *ei_cbdata; /** Data to be passed into callbacks. */
+};
+
 /** Work list for sending GL ASTs to multiple locks. */
 struct ldlm_glimpse_work {
 	struct ldlm_lock	*gl_lock; /* lock to glimpse */
@@ -720,25 +753,10 @@ struct ldlm_lock {
 	 * Granted mode, also protected by lr_lock.
 	 */
 	ldlm_mode_t		l_granted_mode;
-	/** Lock completion handler pointer. Called when lock is granted. */
-	ldlm_completion_callback l_completion_ast;
 	/**
-	 * Lock blocking AST handler pointer.
-	 * It plays two roles:
-	 * - as a notification of an attempt to queue a conflicting lock (once)
-	 * - as a notification when the lock is being cancelled.
-	 *
-	 * As such it's typically called twice: once for the initial conflict
-	 * and then once more when the last user went away and the lock is
-	 * cancelled (could happen recursively).
+	 * lock events handlers
 	 */
-	ldlm_blocking_callback	l_blocking_ast;
-	/**
-	 * Lock glimpse handler.
-	 * Glimpse handler is used to obtain LVB updates from a client by
-	 * server
-	 */
-	ldlm_glimpse_callback	l_glimpse_ast;
+	const struct ldlm_callback_suite *l_cbs;
 
 	/**
 	 * Lock export.
@@ -1040,17 +1058,6 @@ struct ldlm_ast_work {
         int                    w_datalen;
 };
 
-/**
- * Common ldlm_enqueue parameters
- */
-struct ldlm_enqueue_info {
-	__u32 ei_type;   /** Type of the lock being enqueued. */
-	__u32 ei_mode;   /** Mode of the lock being enqueued. */
-	void *ei_cb_bl;  /** blocking lock callback */
-	void *ei_cb_cp;  /** lock completion callback */
-	void *ei_cb_gl;  /** lock glimpse callback */
-	void *ei_cbdata; /** Data to be passed into callbacks. */
-};
 
 extern struct obd_ops ldlm_obd_ops;
 
@@ -1148,11 +1155,6 @@ int ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data);
 /* ldlm_extent.c */
 __u64 ldlm_extent_shift_kms(struct ldlm_lock *lock, __u64 old_kms);
 
-struct ldlm_callback_suite {
-        ldlm_completion_callback lcs_completion;
-        ldlm_blocking_callback   lcs_blocking;
-        ldlm_glimpse_callback    lcs_glimpse;
-};
 
 /* ldlm_lockd.c */
 #ifdef HAVE_SERVER_SUPPORT
@@ -1173,8 +1175,8 @@ int ldlm_glimpse_locks(struct ldlm_resource *res, cfs_list_t *gl_work_list);
  * MDT or OST to pass through LDLM requests to LDLM for handling
  * @{
  */
-int ldlm_handle_enqueue(struct ptlrpc_request *req, ldlm_completion_callback,
-                        ldlm_blocking_callback, ldlm_glimpse_callback);
+int ldlm_handle_enqueue(struct ptlrpc_request *req,
+			const struct ldlm_callback_suite *cbs);
 int ldlm_handle_enqueue0(struct ldlm_namespace *ns, struct ptlrpc_request *req,
                          const struct ldlm_request *dlm_req,
                          const struct ldlm_callback_suite *cbs);
@@ -1400,21 +1402,16 @@ int ldlm_prep_elc_req(struct obd_export *exp,
                       cfs_list_t *cancels, int count);
 
 struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp, int lvb_len);
-int ldlm_handle_enqueue0(struct ldlm_namespace *ns, struct ptlrpc_request *req,
-			 const struct ldlm_request *dlm_req,
-			 const struct ldlm_callback_suite *cbs);
 int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
                           ldlm_type_t type, __u8 with_policy, ldlm_mode_t mode,
 			  __u64 *flags, void *lvb, __u32 lvb_len,
                           struct lustre_handle *lockh, int rc);
 int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
                            const struct ldlm_res_id *res_id,
-                           ldlm_type_t type, ldlm_policy_data_t *policy,
-			   ldlm_mode_t mode, __u64 *flags,
-                           ldlm_blocking_callback blocking,
-                           ldlm_completion_callback completion,
-                           ldlm_glimpse_callback glimpse,
-			   void *data, __u32 lvb_len, enum lvb_type lvb_type,
+			   ldlm_policy_data_t *policy,
+			   const struct ldlm_enqueue_info *einfo,
+			   __u64 *flags,
+			   __u32 lvb_len, enum lvb_type lvb_type,
                            const __u64 *client_cookie,
                            struct lustre_handle *lockh);
 int ldlm_server_ast(struct lustre_handle *lockh, struct ldlm_lock_desc *new,

@@ -347,8 +347,7 @@ static enum interval_iter ldlm_extent_compat_cb(struct interval_node *n,
                          ldlm_lockname[mode],
                          ldlm_lockname[lock->l_granted_mode]);
                 count++;
-                if (lock->l_blocking_ast)
-                        ldlm_add_ast_work_item(lock, enq, work_list);
+		ldlm_add_bl_work_item(lock, enq, work_list);
         }
 
         /* don't count conflicting glimpse locks */
@@ -619,8 +618,7 @@ ldlm_extent_compat_queue(cfs_list_t *queue, struct ldlm_lock *req,
                         *contended_locks += check_contention;
 
                         compat = 0;
-                        if (lock->l_blocking_ast)
-                                ldlm_add_ast_work_item(lock, req, work_list);
+			ldlm_add_bl_work_item(lock, req, work_list);
                 }
         }
 

@@ -202,10 +202,27 @@ static int mgs_completion_ast_ir(struct ldlm_lock *lock, __u64 flags,
 
 void mgs_revoke_lock(struct mgs_device *mgs, struct fs_db *fsdb, int type)
 {
-	ldlm_completion_callback cp = NULL;
 	struct lustre_handle     lockh = { 0 };
 	struct ldlm_res_id       res_id;
 	__u64 flags = LDLM_FL_ATOMIC_CB;
+	static const struct ldlm_callback_suite config_cbs = {
+			.lcs_completion = mgs_completion_ast_config,
+			.lcs_blocking   = ldlm_blocking_ast,
+	};
+	static const struct ldlm_callback_suite params_cbs = {
+			.lcs_completion = mgs_completion_ast_params,
+			.lcs_blocking   = ldlm_blocking_ast,
+	};
+	static const struct ldlm_callback_suite ir_cbs = {
+			.lcs_completion = mgs_completion_ast_ir,
+			.lcs_blocking   = ldlm_blocking_ast,
+	};
+	struct ldlm_enqueue_info einfo = {
+			.ei_type = LDLM_PLAIN,
+			.ei_mode = LCK_EX,
+			.ei_cbdata = fsdb,
+	};
+
 	int rc;
 	ENTRY;
 
@@ -214,33 +231,31 @@ void mgs_revoke_lock(struct mgs_device *mgs, struct fs_db *fsdb, int type)
 	LASSERT(rc == 0);
 	switch (type) {
 	case CONFIG_T_CONFIG:
-		cp = mgs_completion_ast_config;
+		einfo.ei_lcs = &config_cbs;
 		if (test_and_set_bit(FSDB_REVOKING_LOCK, &fsdb->fsdb_flags))
 			rc = -EALREADY;
 		break;
 	case CONFIG_T_PARAMS:
-		cp = mgs_completion_ast_params;
+		einfo.ei_lcs = &params_cbs;
 		if (test_and_set_bit(FSDB_REVOKING_PARAMS, &fsdb->fsdb_flags))
 			rc = -EALREADY;
 		break;
 	case CONFIG_T_RECOVER:
-		cp = mgs_completion_ast_ir;
+		einfo.ei_lcs = &ir_cbs;
 	default:
 		break;
 	}
 
 	if (!rc) {
-		LASSERT(cp != NULL);
+		LASSERT(einfo.ei_lcs->lcs_completion != NULL);
+
 		rc = ldlm_cli_enqueue_local(mgs->mgs_obd->obd_namespace,
-					    &res_id, LDLM_PLAIN, NULL, LCK_EX,
-					    &flags, ldlm_blocking_ast, cp,
-					    NULL, fsdb, 0, LVB_T_NONE, NULL,
-					    &lockh);
+					    &res_id, NULL, &einfo, &flags,
+					    0, LVB_T_NONE, NULL, &lockh);
 		if (rc != ELDLM_OK) {
 			CERROR("can't take cfg lock for "LPX64"/"LPX64"(%d)\n",
 			       le64_to_cpu(res_id.name[0]),
 			       le64_to_cpu(res_id.name[1]), rc);
-
 			if (type == CONFIG_T_CONFIG)
 				clear_bit(FSDB_REVOKING_LOCK,
 					  &fsdb->fsdb_flags);
@@ -507,7 +522,6 @@ static int mgs_llog_open(struct tgt_session_info *tsi)
 	struct ptlrpc_request	*req = tgt_ses_req(tsi);
 	char			*logname;
 	int			 rc;
-
 	ENTRY;
 
 	rc = tgt_llog_open(tsi);

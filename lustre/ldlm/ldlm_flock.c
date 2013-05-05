@@ -263,13 +263,13 @@ static void ldlm_flock_cancel_on_deadlock(struct ldlm_lock *lock,
 		CERROR("deadlock found, but client doesn't "
 				"support flock canceliation\n");
 	} else {
-		LASSERT(lock->l_completion_ast);
+		LASSERT(lock->l_cbs->lcs_completion);
 		LASSERT((lock->l_flags & LDLM_FL_AST_SENT) == 0);
 		lock->l_flags |= LDLM_FL_AST_SENT | LDLM_FL_CANCEL_ON_BLOCK |
 			LDLM_FL_FLOCK_DEADLOCK;
 		ldlm_flock_blocking_unlink(lock);
 		ldlm_resource_unlink_lock(lock);
-		ldlm_add_ast_work_item(lock, NULL, work_list);
+		ldlm_add_cp_work_item(lock, work_list);
 	}
 }
 
@@ -308,6 +308,9 @@ ldlm_process_flock_lock(struct ldlm_lock *req, __u64 *flags, int first_enq,
         int overlaps = 0;
         int splitted = 0;
         const struct ldlm_callback_suite null_cbs = { NULL };
+	const struct ldlm_callback_suite flock_srv = {
+		.lcs_blocking = ldlm_flock_blocking_ast
+	};
         ENTRY;
 
 	CDEBUG(D_DLMTRACE, "flags %#llx owner "LPU64" pid %u mode %u start "
@@ -322,10 +325,10 @@ ldlm_process_flock_lock(struct ldlm_lock *req, __u64 *flags, int first_enq,
         if (local) {
                 /* No blocking ASTs are sent to the clients for
                  * Posix file & record locks */
-                req->l_blocking_ast = NULL;
+		req->l_cbs = &null_cbs;
         } else {
                 /* Called on the server for lock cancels. */
-                req->l_blocking_ast = ldlm_flock_blocking_ast;
+		req->l_cbs = &flock_srv;
         }
 
 reprocess:
@@ -518,10 +521,16 @@ reprocess:
                  * release the lr_lock, allocate the new lock,
                  * and restart processing this lock. */
                 if (!new2) {
+			struct ldlm_enqueue_info einfo = {
+				.ei_type = LDLM_FLOCK,
+				.ei_lcs = &null_cbs,
+			};
+
                         unlock_res_and_lock(req);
-			new2 = ldlm_lock_create(ns, &res->lr_name, LDLM_FLOCK,
-						lock->l_granted_mode, &null_cbs,
-						NULL, 0, LVB_T_NONE);
+
+			einfo.ei_mode = lock->l_granted_mode;
+			new2 = ldlm_lock_create(ns, &res->lr_name, &einfo,
+						0, LVB_T_NONE);
                         lock_res_and_lock(req);
                         if (!new2) {
                                 ldlm_flock_destroy(req, lock->l_granted_mode,
@@ -605,8 +614,8 @@ restart:
                                         GOTO(restart, -ERESTART);
                        }
                 } else {
-                        LASSERT(req->l_completion_ast);
-                        ldlm_add_ast_work_item(req, NULL, work_list);
+			LASSERT(req->l_cbs->lcs_completion);
+			ldlm_add_cp_work_item(req, work_list);
                 }
 #else /* !HAVE_SERVER_SUPPORT */
                 /* The only one possible case for client-side calls flock

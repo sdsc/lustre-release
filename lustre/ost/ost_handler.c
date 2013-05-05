@@ -254,6 +254,12 @@ static int ost_destroy(struct obd_export *exp, struct ptlrpc_request *req,
         RETURN(0);
 }
 
+static const struct ldlm_callback_suite ost_cbs = {
+	.lcs_completion = ldlm_completion_ast,
+	.lcs_blocking   = ldlm_blocking_ast,
+	.lcs_glimpse    = ldlm_glimpse_ast,
+};
+
 /**
  * Helper function for getting server side [start, start+count] DLM lock
  * if asked by client.
@@ -265,7 +271,11 @@ static int ost_lock_get(struct obd_export *exp, struct obdo *oa,
         struct ldlm_res_id res_id;
         ldlm_policy_data_t policy;
         __u64 end = start + count;
-
+	struct ldlm_enqueue_info einfo = {
+			.ei_type = LDLM_EXTENT,
+			.ei_mode = mode,
+			.ei_lcs = &ost_cbs,
+	};
         ENTRY;
 
         LASSERT(!lustre_handle_is_used(lh));
@@ -294,11 +304,9 @@ static int ost_lock_get(struct obd_export *exp, struct obdo *oa,
         else
                 policy.l_extent.end = end | ~CFS_PAGE_MASK;
 
-        RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
-                                      LDLM_EXTENT, &policy, mode, &flags,
-                                      ldlm_blocking_ast, ldlm_completion_ast,
-				      ldlm_glimpse_ast, NULL, 0, LVB_T_NONE,
-				      NULL, lh));
+	RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
+					&policy, &einfo, &flags,
+					0, LVB_T_NONE, NULL, lh));
 }
 
 /* Helper function: release lock, if any. */
@@ -689,6 +697,11 @@ static int ost_brw_lock_get(int mode, struct obd_export *exp,
         struct ldlm_res_id res_id;
         ldlm_policy_data_t policy;
         int i;
+	struct ldlm_enqueue_info einfo = {
+			.ei_type = LDLM_EXTENT,
+			.ei_mode = mode,
+			.ei_lcs = &ost_cbs,
+		};
         ENTRY;
 
 	ostid_build_res_name(&obj->ioo_oid, &res_id);
@@ -707,11 +720,9 @@ static int ost_brw_lock_get(int mode, struct obd_export *exp,
         policy.l_extent.end   = (nb[nrbufs - 1].offset +
                                  nb[nrbufs - 1].len - 1) | ~CFS_PAGE_MASK;
 
-        RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
-                                      LDLM_EXTENT, &policy, mode, &flags,
-                                      ldlm_blocking_ast, ldlm_completion_ast,
-				      ldlm_glimpse_ast, NULL, 0, LVB_T_NONE,
-				      NULL, lh));
+	RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
+					&policy, &einfo, &flags,
+					0, LVB_T_NONE, NULL, lh));
 }
 
 static void ost_brw_lock_put(int mode,
@@ -2285,6 +2296,11 @@ int ost_handle(struct ptlrpc_request *req)
 	int should_process, fail = OBD_FAIL_OST_ALL_REPLY_NET, rc = 0;
 	struct obd_device *obd = NULL;
 	__u32 opc = lustre_msg_get_opc(req->rq_reqmsg);
+	static const struct ldlm_callback_suite cbs = {
+		.lcs_completion = ldlm_server_completion_ast,
+		.lcs_blocking   = ost_blocking_ast,
+		.lcs_glimpse    = ldlm_server_glimpse_ast,
+	};
 	ENTRY;
 
 	/* OST module is kept between remounts, but the last reference
@@ -2511,9 +2527,7 @@ int ost_handle(struct ptlrpc_request *req)
 		req_capsule_set(&req->rq_pill, &RQF_LDLM_ENQUEUE);
 		if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_ENQUEUE_NET))
 			RETURN(0);
-		rc = ldlm_handle_enqueue(req, ldlm_server_completion_ast,
-					 ost_blocking_ast,
-					 ldlm_server_glimpse_ast);
+		rc = ldlm_handle_enqueue(req, &cbs);
 		fail = OBD_FAIL_OST_LDLM_REPLY_NET;
 		break;
 	case LDLM_CONVERT:

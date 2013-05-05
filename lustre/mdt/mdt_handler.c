@@ -2296,7 +2296,7 @@ int mdt_llog_prev_block(struct mdt_thread_info *info)
  * DLM handlers.
  */
 
-static struct ldlm_callback_suite cbs = {
+static const struct ldlm_callback_suite cbs = {
 	.lcs_completion	= ldlm_server_completion_ast,
 	.lcs_blocking	= ldlm_server_blocking_ast,
 	.lcs_glimpse	= ldlm_server_glimpse_ast
@@ -2498,11 +2498,9 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 
         if (flag == LDLM_CB_CANCELING)
                 RETURN(0);
+	LASSERT(lock->l_cbs->lcs_blocking == mdt_blocking_ast);
+
         lock_res_and_lock(lock);
-        if (lock->l_blocking_ast != mdt_blocking_ast) {
-                unlock_res_and_lock(lock);
-                RETURN(0);
-        }
         if (mdt_cos_is_enabled(mdt) &&
             lock->l_req_mode & (LCK_PW | LCK_EX) &&
             lock->l_blocking_lock != NULL &&
@@ -2558,6 +2556,10 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti,
 {
 	struct ldlm_enqueue_info *einfo = &mti->mti_einfo;
 	ldlm_policy_data_t *policy = &mti->mti_policy;
+	static const struct ldlm_callback_suite cbs = {
+		.lcs_blocking = mdt_md_blocking_ast,
+		.lcs_completion = ldlm_completion_ast,
+	};
 	int rc = 0;
 	ENTRY;
 
@@ -2568,8 +2570,7 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti,
 	memset(einfo, 0, sizeof(*einfo));
 	einfo->ei_type = LDLM_IBITS;
 	einfo->ei_mode = mode;
-	einfo->ei_cb_bl = mdt_md_blocking_ast;
-	einfo->ei_cb_cp = ldlm_completion_ast;
+	einfo->ei_lcs = &cbs;
 
 	memset(policy, 0, sizeof(*policy));
 	policy->l_inodebits.bits = ibits;
@@ -3662,11 +3663,10 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
                 new_lock->l_writers--;
         }
 
-        new_lock->l_export = class_export_lock_get(req->rq_export, new_lock);
-        new_lock->l_blocking_ast = lock->l_blocking_ast;
-        new_lock->l_completion_ast = lock->l_completion_ast;
-        new_lock->l_remote_handle = lock->l_remote_handle;
-        new_lock->l_flags &= ~LDLM_FL_LOCAL;
+	new_lock->l_export = class_export_lock_get(req->rq_export, new_lock);
+	new_lock->l_cbs = lock->l_cbs;
+	new_lock->l_remote_handle = lock->l_remote_handle;
+	new_lock->l_flags &= ~LDLM_FL_LOCAL;
 
         unlock_res_and_lock(new_lock);
 

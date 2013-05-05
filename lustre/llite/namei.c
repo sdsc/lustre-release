@@ -304,6 +304,11 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         RETURN(0);
 }
 
+const struct ldlm_callback_suite ll_md_cbs = {
+	.lcs_completion = ldlm_completion_ast,
+	.lcs_blocking   = ll_md_blocking_ast,
+};
+
 __u32 ll_i2suppgid(struct inode *i)
 {
 	if (in_group_p(i->i_gid))
@@ -550,8 +555,8 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
         if (!IS_POSIXACL(parent) || !exp_connect_umask(ll_i2mdexp(parent)))
 		it->it_create_mode &= ~current_umask();
 
-        rc = md_intent_lock(ll_i2mdexp(parent), op_data, NULL, 0, it,
-                            lookup_flags, &req, ll_md_blocking_ast, 0);
+	rc = md_intent_lock(ll_i2mdexp(parent), op_data, NULL, 0, it,
+			    lookup_flags, &req, &ll_md_cbs, 0);
         ll_finish_md_op_data(op_data);
         if (rc < 0)
                 GOTO(out, retval = ERR_PTR(rc));

@@ -1386,7 +1386,7 @@ struct md_ops {
 	int (*m_intent_lock)(struct obd_export *, struct md_op_data *,
 			     void *, int, struct lookup_intent *, int,
 			     struct ptlrpc_request **,
-			     ldlm_blocking_callback, __u64);
+			     const struct ldlm_callback_suite *, __u64);
 
 	int (*m_link)(struct obd_export *, struct md_op_data *,
 		      struct ptlrpc_request **);

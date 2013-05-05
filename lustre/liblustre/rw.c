@@ -249,6 +249,11 @@ int llu_extent_lock(struct ll_file_data *fd, struct inode *inode,
 {
         struct llu_sb_info *sbi = llu_i2sbi(inode);
         struct intnl_stat *st = llu_i2stat(inode);
+	static const struct ldlm_callback_suite cbs = {
+		.lcs_completion = ldlm_completion_ast,
+		.lcs_blocking = llu_extent_lock_cancel_cb,
+		.lcs_glimpse = llu_glimpse_callback,
+	};
         struct ldlm_enqueue_info einfo = { 0 };
         struct obd_info oinfo = { { { 0 } } };
         struct ost_lvb lvb;
@@ -269,9 +274,7 @@ int llu_extent_lock(struct ll_file_data *fd, struct inode *inode,
 
         einfo.ei_type = LDLM_EXTENT;
         einfo.ei_mode = mode;
-        einfo.ei_cb_bl = llu_extent_lock_cancel_cb;
-        einfo.ei_cb_cp = ldlm_completion_ast;
-        einfo.ei_cb_gl = llu_glimpse_callback;
+	einfo.ei_lcs = &cbs;
         einfo.ei_cbdata = inode;
 
         oinfo.oi_policy = *policy;

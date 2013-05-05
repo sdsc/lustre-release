@@ -425,8 +425,8 @@ static int ll_intent_file_open(struct file *file, void *lmm,
                 RETURN(PTR_ERR(op_data));
 
 	itp->it_flags |= MDS_OPEN_BY_FID;
-        rc = md_intent_lock(sbi->ll_md_exp, op_data, lmm, lmmsize, itp,
-                            0 /*unused */, &req, ll_md_blocking_ast, 0);
+	rc = md_intent_lock(sbi->ll_md_exp, op_data, lmm, lmmsize, itp,
+			    0 /*unused */, &req, &ll_md_cbs, 0);
         ll_finish_md_op_data(op_data);
         if (rc == -ESTALE) {
                 /* reason for keep own exit path - don`t flood log
@@ -744,6 +744,11 @@ static int ll_md_blocking_lease_ast(struct ldlm_lock *lock,
 	RETURN(0);
 }
 
+const struct ldlm_callback_suite ll_lease_cbs = {
+	.lcs_completion = ldlm_completion_ast,
+	.lcs_blocking   = ll_md_blocking_lease_ast,
+};
+
 /**
  * Acquire a lease and open the file.
  */
@@ -820,7 +825,7 @@ struct obd_client_handle *ll_lease_open(struct inode *inode, struct file *file,
 	it.it_flags = fmode | open_flags;
 	it.it_flags |= MDS_OPEN_LOCK | MDS_OPEN_BY_FID | MDS_OPEN_LEASE;
 	rc = md_intent_lock(sbi->ll_md_exp, op_data, NULL, 0, &it, 0, &req,
-				ll_md_blocking_lease_ast,
+				&ll_lease_cbs,
 	/* LDLM_FL_NO_LRU: To not put the lease lock into LRU list, otherwise
 	 * it can be cancelled which may mislead applications that the lease is
 	 * broken;
@@ -2850,10 +2855,13 @@ int ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 {
 	struct inode *inode = file->f_dentry->d_inode;
 	struct ll_sb_info *sbi = ll_i2sbi(inode);
+	static const struct ldlm_callback_suite cbs = {
+		.lcs_completion = ldlm_flock_completion_ast,
+	};
 	struct ldlm_enqueue_info einfo = {
-		.ei_type	= LDLM_FLOCK,
-		.ei_cb_cp	= ldlm_flock_completion_ast,
-		.ei_cbdata	= file_lock,
+		.ei_type = LDLM_FLOCK,
+		.ei_lcs = &cbs,
+		.ei_cbdata = file_lock
 	};
 	struct md_op_data *op_data;
 	struct lustre_handle lockh = {0};
@@ -3105,11 +3113,10 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                         RETURN(PTR_ERR(op_data));
 
                 oit.it_create_mode |= M_CHECK_STALE;
-                rc = md_intent_lock(exp, op_data, NULL, 0,
-                                    /* we are not interested in name
-                                       based lookup */
-                                    &oit, 0, &req,
-                                    ll_md_blocking_ast, 0);
+		rc = md_intent_lock(exp, op_data, NULL, 0,
+				    /* we are not interested in name
+				       based lookup */
+				    &oit, 0, &req, &ll_md_cbs, 0);
                 ll_finish_md_op_data(op_data);
                 oit.it_create_mode &= ~M_CHECK_STALE;
                 if (rc < 0) {
@@ -3765,8 +3772,7 @@ int ll_layout_refresh(struct inode *inode, __u32 *gen)
 	struct ldlm_enqueue_info einfo = {
 		.ei_type = LDLM_IBITS,
 		.ei_mode = LCK_CR,
-		.ei_cb_bl = ll_md_blocking_ast,
-		.ei_cb_cp = ldlm_completion_ast,
+		.ei_lcs = &ll_md_cbs,
 	};
 	int rc;
 	ENTRY;
