@@ -70,6 +70,8 @@ static void osc_extent_tree_dump0(int level, struct osc_object *obj,
  */
 
 /* ------------------ osc extent ------------------ */
+static char ext_flag_buf[16];
+
 static inline char *ext_flags(struct osc_extent *ext, char *flags)
 {
 	char *buf = flags;
@@ -103,7 +105,6 @@ static inline char list_empty_marker(cfs_list_t *list)
 #define OSC_EXTENT_DUMP(lvl, extent, fmt, ...) do {			      \
 	struct osc_extent *__ext = (extent);				      \
 	const char *__str[] = OES_STRINGS;				      \
-	char __buf[16];							      \
 									      \
 	CDEBUG(lvl,							      \
 		"extent %p@{" EXTSTR ", "				      \
@@ -114,7 +115,7 @@ static inline char list_empty_marker(cfs_list_t *list)
 		cfs_atomic_read(&__ext->oe_refc),			      \
 		cfs_atomic_read(&__ext->oe_users),			      \
 		list_empty_marker(&__ext->oe_link),			      \
-		__str[__ext->oe_state], ext_flags(__ext, __buf),	      \
+		__str[__ext->oe_state], ext_flags(__ext, ext_flag_buf),	      \
 		__ext->oe_obj,						      \
 		/* ----- part 2 ----- */				      \
 		__ext->oe_grants, __ext->oe_nr_pages,			      \
@@ -2111,12 +2112,12 @@ static void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli,
 			if (rc < 0)
 				CERROR("Read request failed with %d\n", rc);
 		}
-		osc_object_unlock(osc);
 
-		osc_list_maint(cli, osc);
+		__osc_list_maint(cli, osc);
+
+		osc_object_unlock(osc);
 		lu_object_ref_del_at(&obj->co_lu, link, "check", cfs_current());
 		cl_object_put(env, obj);
-
 		client_obd_list_lock(&cli->cl_loi_list_lock);
 	}
 }
@@ -2130,21 +2131,25 @@ static int osc_io_unplug0(const struct lu_env *env, struct client_obd *cli,
 	client_obd_list_lock(&cli->cl_loi_list_lock);
 	if (osc != NULL)
 		has_rpcs = __osc_list_maint(cli, osc);
-	if (has_rpcs) {
-		if (!async) {
-			/* disable osc_lru_shrink() temporarily to avoid
-			 * potential stack overrun problem. LU-2859 */
-			cfs_atomic_inc(&cli->cl_lru_shrinkers);
-			osc_check_rpcs(env, cli, pol);
-			cfs_atomic_dec(&cli->cl_lru_shrinkers);
-		} else {
-			CDEBUG(D_CACHE, "Queue writeback work for client %p.\n",
-			       cli);
-			LASSERT(cli->cl_writeback_work != NULL);
-			rc = ptlrpcd_queue_work(cli->cl_writeback_work);
-		}
+	if (has_rpcs == 0)
+		goto out_unlock;
+
+	if (!async) {
+		/* disable osc_lru_shrink() temporarily to avoid
+		 * potential stack overrun problem. LU-2859 */
+		cfs_atomic_inc(&cli->cl_lru_shrinkers);
+		osc_check_rpcs(env, cli, pol);
+		cfs_atomic_dec(&cli->cl_lru_shrinkers);
+	} else {
+		client_obd_list_unlock(&cli->cl_loi_list_lock);
+		CDEBUG(D_CACHE, "Queue writeback work for client %p.\n", cli);
+		LASSERT(cli->cl_writeback_work != NULL);
+		rc = ptlrpcd_queue_work(cli->cl_writeback_work);
+		goto out;
 	}
+out_unlock:
 	client_obd_list_unlock(&cli->cl_loi_list_lock);
+out:
 	return rc;
 }
 
