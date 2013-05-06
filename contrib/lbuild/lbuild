@@ -1534,7 +1534,7 @@ build_kernel_with_srpm() {
 
     # figure out the EXTRA_VERSION of the kernel we built or are re-using
     local KERNEL_RPM
-    if ! KERNEL_RPM=$(find_rpm "$TOPDIR/RPMS/$TARGET_ARCH/" provides "^kernel ="); then
+    if ! KERNEL_RPM=$(find_rpm "$TOPDIR/RPMS/$TARGET_ARCH/" provides "^kernel(-default)? ="); then
         fatal 1 "Failed to find a kernel RPM in $TOPDIR/RPMS/$TARGET_ARCH/"
     fi
     kernel_extra_version=$(rpm -q --queryformat "%{RELEASE}" -p $TOPDIR/RPMS/$TARGET_ARCH/$KERNEL_RPM)
