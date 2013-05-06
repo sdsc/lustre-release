@@ -1,0 +1,93 @@
+From 335e92e8a515420bd47a6b0f01cb9a206c0ed6e4 Mon Sep 17 00:00:00 2001
+From: Jan Kara <jack@suse.cz>
+Date: Tue, 15 Apr 2008 21:34:43 +0000
+Subject: vfs: fix possible deadlock in ext2, ext3, ext4 when using xattrs
+
+mb_cache_entry_alloc() was allocating cache entries with GFP_KERNEL.  But
+filesystems are calling this function while holding xattr_sem so possible
+recursion into the fs violates locking ordering of xattr_sem and transaction
+start / i_mutex for ext2-4.  Change mb_cache_entry_alloc() so that filesystems
+can specify desired gfp mask and use GFP_NOFS from all of them.
+
+Signed-off-by: Jan Kara <jack@suse.cz>
+Reported-by: Dave Jones <davej@redhat.com>
+Cc: <linux-ext4@vger.kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+diff --git a/fs/ext2/xattr.c b/fs/ext2/xattr.c
+index 3e8683d..a99d46f 100644
+--- a/fs/ext2/xattr.c
++++ b/fs/ext2/xattr.c
+@@ -835,7 +835,7 @@ ext2_xattr_cache_insert(struct buffer_head *bh)
+ 	struct mb_cache_entry *ce;
+ 	int error;
+ 
+-	ce = mb_cache_entry_alloc(ext2_xattr_cache);
++	ce = mb_cache_entry_alloc(ext2_xattr_cache, GFP_NOFS);
+ 	if (!ce)
+ 		return -ENOMEM;
+ 	error = mb_cache_entry_insert(ce, bh->b_bdev, bh->b_blocknr, &hash);
+diff --git a/fs/ext3/xattr.c b/fs/ext3/xattr.c
+index a6ea4d6..4285654 100644
+--- a/fs/ext3/xattr.c
++++ b/fs/ext3/xattr.c
+@@ -1126,7 +1126,7 @@ ext3_xattr_cache_insert(struct buffer_head *bh)
+ 	struct mb_cache_entry *ce;
+ 	int error;
+ 
+-	ce = mb_cache_entry_alloc(ext3_xattr_cache);
++	ce = mb_cache_entry_alloc(ext3_xattr_cache, GFP_NOFS);
+ 	if (!ce) {
+ 		ea_bdebug(bh, "out of memory");
+ 		return;
+diff --git a/fs/ext4/xattr.c b/fs/ext4/xattr.c
+index d796213..e9054c1 100644
+--- a/fs/ext4/xattr.c
++++ b/fs/ext4/xattr.c
+@@ -1386,7 +1386,7 @@ ext4_xattr_cache_insert(struct buffer_head *bh)
+ 	struct mb_cache_entry *ce;
+ 	int error;
+ 
+-	ce = mb_cache_entry_alloc(ext4_xattr_cache);
++	ce = mb_cache_entry_alloc(ext4_xattr_cache, GFP_NOFS);
+ 	if (!ce) {
+ 		ea_bdebug(bh, "out of memory");
+ 		return;
+diff --git a/fs/mbcache.c b/fs/mbcache.c
+index eb31b73..ec88ff3 100644
+--- a/fs/mbcache.c
++++ b/fs/mbcache.c
+@@ -401,7 +401,7 @@
+  * if no more memory was available.
+  */
+ struct mb_cache_entry *
+-mb_cache_entry_alloc(struct mb_cache *cache)
++mb_cache_entry_alloc(struct mb_cache *cache, gfp_t gfp_flags)
+ {
+	struct mb_cache_entry *ce = NULL;
+ 
+@@ -416,7 +416,7 @@
+		spin_unlock(&mb_cache_spinlock);
+	}
+	if (!ce) {
+-		ce = kmem_cache_alloc(cache->c_entry_cache, GFP_KERNEL);
++		ce = kmem_cache_alloc(cache->c_entry_cache, gfp_flags);
+		if (!ce)
+			return NULL;
+		atomic_inc(&cache->c_entry_count);
+diff --git a/include/linux/mbcache.h b/include/linux/mbcache.h
+index 99e044b..a09b84e 100644
+--- a/include/linux/mbcache.h
++++ b/include/linux/mbcache.h
+@@ -34,7 +34,7 @@ void mb_cache_destroy(struct mb_cache *);
+ 
+ /* Functions on cache entries */
+ 
+-struct mb_cache_entry *mb_cache_entry_alloc(struct mb_cache *);
++struct mb_cache_entry *mb_cache_entry_alloc(struct mb_cache *, gfp_t);
+ int mb_cache_entry_insert(struct mb_cache_entry *, struct block_device *,
+ 			  sector_t, unsigned int[]);
+ void mb_cache_entry_release(struct mb_cache_entry *);
+--
+cgit v0.9.1
