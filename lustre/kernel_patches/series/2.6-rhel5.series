@@ -1,3 +1,4 @@
+fix-deadlock-xattr.patch
 lustre_version.patch
 vfs_races-2.6-rhel5.patch
 i_filter_data.patch
