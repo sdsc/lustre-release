@@ -1012,7 +1012,7 @@ build_spl_zfs() {
     SPLZFSTAG=${SPLZFSTAG:-lustre-zfs}
 
     # The files expect a kver to be set to the kernel version .
-    local kver=$(find_linux_release ${LINUX})
+    local kver=$(find_linux_release ${LINUX} ${LINUXOBJ})
 
     # build and install the spl and zfs (and -devel) RPMs for lustre to use
     local pkg
@@ -1046,7 +1046,7 @@ build_spl_zfs() {
 
 	sh autogen.sh || return 255
 
-        if  ! ./configure --with-linux=${LINUX} --with-linux-obj=${LINUX} \
+        if  ! ./configure --with-linux=${LINUX} --with-linux-obj=${LINUXOBJ:-$LINUX} \
                           ${spldir:+--with-spl="${spldir}"} 2>&1 ||
             ! make dist 2>&1; then
             popd
@@ -1081,7 +1081,7 @@ build_spl_zfs() {
 		--define "kver $kver" \
 		--define "kernels $kver" \
 		--define "_tmppath /var/tmp" \
-		--define "kernelbuildroot $(find_linux_builddir $LINUX)" \
+		--define "kernelbuildroot $TOPDIR/reused" \
 		--define "_topdir $TOPDIR" 2>&1; then
 		return 255
             fi
@@ -1180,10 +1180,22 @@ set_rpm_smp_type() {
 # from it
 find_linux_release() {
     local SRCDIR="$1"
+    local SRCOBJDIR="$2"
+    local LINUXRELEASEHEADER=""
+    local SRC
 
-    local LINUXRELEASEHEADER=$SRCDIR/include/linux/version.h
-    if [ -s $SRCDIR/include/linux/utsrelease.h ]; then
-        LINUXRELEASEHEADER=$SRCDIR/include/linux/utsrelease.h
+    for SRC in $SRCDIR $SRCOBJDIR; do
+        LINUXRELEASEHEADER=$SRC/include/linux/version.h
+        if [ -s $SRC/include/generated/utsrelease.h ]; then
+            LINUXRELEASEHEADER=$SRC/include/generated/utsrelease.h
+        elif [ -s $SRC/include/linux/utsrelease.h ]; then
+            LINUXRELEASEHEADER=$SRC/include/linux/utsrelease.h
+        fi
+        [ -s $LINUXRELEASEHEADER ] && break
+    done
+
+    if [ ! -s $LINUXRELEASEHEADER ]; then
+        fatal 1 "could not find UTS_RELEASE"
     fi
 
     sed -ne 's/#define UTS_RELEASE "\(.*\)"$/\1/p' $LINUXRELEASEHEADER
@@ -1193,7 +1205,8 @@ find_linux_release() {
 # kernel directory
 find_linux_builddir() {
     local linux=${1:-${LINUX}}
-    local rel=$(find_linux_release $linux)
+    local linuxobj=${2:-${LINUXOBJ}}
+    local rel=$(find_linux_release $linux $linuxobj)
 
     echo ${linux%/usr/src/kernels/${rel}*}
 }
@@ -1534,7 +1547,7 @@ build_kernel_with_srpm() {
 
     # figure out the EXTRA_VERSION of the kernel we built or are re-using
     local KERNEL_RPM
-    if ! KERNEL_RPM=$(find_rpm "$TOPDIR/RPMS/$TARGET_ARCH/" provides "^kernel ="); then
+    if ! KERNEL_RPM=$(find_rpm "$TOPDIR/RPMS/$TARGET_ARCH/" provides "^kernel(-default)? ="); then
         fatal 1 "Failed to find a kernel RPM in $TOPDIR/RPMS/$TARGET_ARCH/"
     fi
     kernel_extra_version=$(rpm -q --queryformat "%{RELEASE}" -p $TOPDIR/RPMS/$TARGET_ARCH/$KERNEL_RPM)
