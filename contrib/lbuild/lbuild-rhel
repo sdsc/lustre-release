@@ -206,3 +206,25 @@ find_linux_rpm-rhel() {
     return 0
 
 }
+
+# This function takes a linux source/obj pool and digs out the linux release
+# from it
+find_linux_release() {
+    local SRCDIR="$1"
+#   local SRCOBJDIR="$2"	# ignore obj dir for this distro
+    local LINUXRELEASEHEADER=""
+    local SRC=$SRCDIR
+
+    LINUXRELEASEHEADER=$SRC/include/linux/version.h
+    if [ -s $SRC/include/generated/utsrelease.h ]; then
+        LINUXRELEASEHEADER=$SRC/include/generated/utsrelease.h
+    elif [ -s $SRC/include/linux/utsrelease.h ]; then
+        LINUXRELEASEHEADER=$SRC/include/linux/utsrelease.h
+    fi
+
+    if [ ! -s $LINUXRELEASEHEADER ]; then
+        fatal 1 "could not find UTS_RELEASE"
+    fi
+
+    sed -ne 's/#define UTS_RELEASE "\(.*\)"$/\1/p' $LINUXRELEASEHEADER
+}
