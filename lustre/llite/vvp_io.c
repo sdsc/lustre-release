@@ -127,6 +127,7 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 	CDEBUG(D_VFSTRACE, "ignore/verify layout %d/%d, layout version %d.\n",
 		io->ci_ignore_layout, io->ci_verify_layout, cio->cui_layout_gen);
 
+	io->ci_need_restart = 0;
 	if (!io->ci_ignore_layout && io->ci_verify_layout) {
 		__u32 gen = 0;
 

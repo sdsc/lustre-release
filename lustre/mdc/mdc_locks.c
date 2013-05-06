@@ -205,6 +205,11 @@ int mdc_null_inode(struct obd_export *exp,
 
 	lock_res(res);
 	res->lr_lvb_inode = NULL;
+	if (res->lr_lvb_data) {
+		OBD_FREE(res->lr_lvb_data, res->lr_lvb_len);
+		res->lr_lvb_data = NULL;
+		res->lr_lvb_len = 0;
+	}
 	unlock_res(res);
 
 	ldlm_resource_putref(res);

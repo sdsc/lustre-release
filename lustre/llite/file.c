@@ -3250,7 +3250,11 @@ static int ll_layout_fetch(struct inode *inode, struct ldlm_lock *lock)
 	int rc;
 	ENTRY;
 
-	if (lock->l_lvb_data != NULL)
+	CDEBUG(D_INODE, DFID" LVB_READY=%d l_lvb_data=%p l_lvb_len=%d\n",
+	       PFID(ll_inode2fid(inode)), !!(lock->l_flags & LDLM_FL_LVB_READY),
+	       lock->l_lvb_data, lock->l_lvb_len);
+
+	if ((lock->l_lvb_data != NULL) && (lock->l_flags & LDLM_FL_LVB_READY))
 		RETURN(0);
 
 	/* if layout lock was granted right away, the layout is returned
@@ -3286,15 +3290,13 @@ static int ll_layout_fetch(struct inode *inode, struct ldlm_lock *lock)
 
 	memcpy(lvbdata, lmm, lmmsize);
 	lock_res_and_lock(lock);
-	if (lock->l_lvb_data == NULL) {
-		lock->l_lvb_data = lvbdata;
-		lock->l_lvb_len = lmmsize;
-		lvbdata = NULL;
-	}
+	if (lock->l_lvb_data != NULL)
+		OBD_FREE_LARGE(lock->l_lvb_data, lock->l_lvb_len);
+
+	lock->l_lvb_data = lvbdata;
+	lock->l_lvb_len = lmmsize;
 	unlock_res_and_lock(lock);
 
-	if (lvbdata != NULL)
-		OBD_FREE_LARGE(lvbdata, lmmsize);
 	EXIT;
 
 out:
@@ -3326,7 +3328,7 @@ static int ll_layout_lock_set(struct lustre_handle *lockh, ldlm_mode_t mode,
 	LASSERT(ldlm_has_layout(lock));
 
 	LDLM_DEBUG(lock, "File %p/"DFID" being reconfigured: %d.\n",
-		inode, PFID(&lli->lli_fid), reconf);
+		   inode, PFID(&lli->lli_fid), reconf);
 
 	lock_res_and_lock(lock);
 	lvb_ready = !!(lock->l_flags & LDLM_FL_LVB_READY);
