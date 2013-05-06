@@ -10,10 +10,6 @@ RPM_HELPERS_DIR="/usr/lib/rpm"
 prepare_and_build_srpm() {
 
     pushd $TOPDIR >/dev/null
-    # all of the specs but one are put into SOURCES, so let's just move
-    # the one lone one in SPECS into SOURCES and just reference them from
-    # there
-    mv SPECS/*.spec SOURCES/
 
     # generate our buildid
     local buildid="lustre${EXTRA_VERSION##*_lustre}"
