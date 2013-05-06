@@ -892,6 +892,7 @@ void ldlm_lock_decref_internal(struct ldlm_lock *lock, __u32 mode)
 			OBD_FREE_LARGE(lock->l_lvb_data, lock->l_lvb_len);
 			lock->l_lvb_data = NULL;
 			lock->l_lvb_len = 0;
+			lock->l_flags &= ~LDLM_FL_LVB_READY;
 		}
 	}
 
