@@ -3,7 +3,11 @@
 # increment this if you have made a change that should force a new kernel
 # to build built for this distribution (only -- if you want to force a kernel
 # build on all distributions, update the BUILD_GEN variable in build/lbuild)
-BUILD_GEN+=".0"
+BUILD_GEN+=".1"
+
+# This distro does not support zfs, so define ZFSNOTSUPPORTED
+# use words that make the bash log readable.
+ZFSNOTSUPPORTED="Zfs Not Supported"
 
 source ${LBUILD_DIR}/lbuild-sles
 
@@ -11,12 +15,13 @@ edit_specs() {
 
     # edit the SPECs with our changes
     local spec
+    (cd $TOPDIR/SOURCES; ./mkspec --release ${lnxrel})
     for spec in $RPMSMPTYPE source; do
         #cp $TOPDIR/SOURCES/kernel-$spec.spec{,.orig}
         sed -i -e "s/^\(Release: *\).*$/\1${lnxrel}_${buildid}/" \
                -e "s/^ExclusiveArch:.*/& ppc ppc64/" \
                -e '/^%setup /a\
-cp  %_sourcedir/linux-2.6.27-lustre.patch %_builddir/%{name}-%{version}/lustre.patch\
+cp  %_sourcedir/linux-3.0-lustre.patch %_builddir/%{name}-%{version}/lustre.patch\
 ! grep -q lustre.patch %_sourcedir/series.conf && echo -e "\\n\\tlustre.patch" >> %_sourcedir/series.conf' \
                -e "/flavor=\${config/a\
     [ \"\$flavor\" == \"$RPMSMPTYPE\" ] || continue" \
