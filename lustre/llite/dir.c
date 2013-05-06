@@ -1075,21 +1075,25 @@ progress:
 }
 
 
-static int copy_and_ioctl(int cmd, struct obd_export *exp, void *data, int len)
+static int copy_and_ioctl(int cmd, struct obd_export *exp,
+			  const void __user *data, size_t size)
 {
-        void *ptr;
-        int rc;
+	void *copy;
+	int rc;
+	ENTRY;
 
-        OBD_ALLOC(ptr, len);
-        if (ptr == NULL)
-                return -ENOMEM;
-        if (cfs_copy_from_user(ptr, data, len)) {
-                OBD_FREE(ptr, len);
-                return -EFAULT;
-        }
-        rc = obd_iocontrol(cmd, exp, len, data, NULL);
-        OBD_FREE(ptr, len);
-        return rc;
+	OBD_ALLOC(copy, size);
+	if (copy == NULL)
+		RETURN(-ENOMEM);
+
+	if (copy_from_user(copy, data, size))
+		GOTO(out, rc = -EFAULT);
+
+	rc = obd_iocontrol(cmd, exp, size, copy, NULL);
+out:
+	OBD_FREE(copy, size);
+
+	RETURN(rc);
 }
 
 static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
