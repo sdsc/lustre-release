@@ -7006,21 +7006,21 @@ test_203() {
                return
         fi
 
-        local ATIME=`do_facet mds lctl get_param -n mds.*.atime_diff`
-        echo "atime should be updated on the MDS when closing file" > $DIR/$tfile
+        local atime_diff=$(do_facet mds $LCTL get_param -n mds.*.atime_diff)
+        echo "atime should be updated on MDS when closing file" > $DIR/$tfile
         sync
-        # reads should update atime on the client and close should update it on the MDS
+        # reads should update atime on client and close should update it on MDS
         multiop_bg_pause $DIR/$tfile o_r20c || return 1
         MULTIPID=$!
-        sleep $((ATIME+1))
-        time1=`date +%s`
+        sleep $((atime_diff + 1))
+        time1=$(date +%s)
         log "now is $time1"
         kill -USR1 $MULTIPID || return 2
         echo "starting reads"
         wait
         cancel_lru_locks osc
         cancel_lru_locks mdc
-        time2=`stat -c "%X" $DIR/$tfile`
+        time2=$(stat -c "%X" $DIR/$tfile)
         log "new atime is $time2"
         [ "$time2" -ge "$time1" ] || error "atime was not updated"
 }
