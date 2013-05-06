@@ -3,7 +3,7 @@
 # increment this if you have made a change that should force a new kernel
 # to build built for this distribution (only -- if you want to force a kernel
 # build on all distributions, update the BUILD_GEN variable in build/lbuild)
-BUILD_GEN+=".0"
+BUILD_GEN+=".1"
 
 source ${LBUILD_DIR}/lbuild-sles
 
@@ -11,12 +11,13 @@ edit_specs() {
 
     # edit the SPECs with our changes
     local spec
+    (cd $TOPDIR/SOURCES; ./mkspec --release ${lnxrel})
     for spec in $RPMSMPTYPE source; do
         #cp $TOPDIR/SOURCES/kernel-$spec.spec{,.orig}
         sed -i -e "s/^\(Release: *\).*$/\1${lnxrel}_${buildid}/" \
                -e "s/^ExclusiveArch:.*/& ppc ppc64/" \
                -e '/^%setup /a\
-cp  %_sourcedir/linux-2.6.27-lustre.patch %_builddir/%{name}-%{version}/lustre.patch\
+cp  %_sourcedir/linux-3.0-lustre.patch %_builddir/%{name}-%{version}/lustre.patch\
 ! grep -q lustre.patch %_sourcedir/series.conf && echo -e "\\n\\tlustre.patch" >> %_sourcedir/series.conf' \
                -e "/flavor=\${config/a\
     [ \"\$flavor\" == \"$RPMSMPTYPE\" ] || continue" \
@@ -83,6 +84,11 @@ unpack_linux_devel_rpm-sles11() {
         fatal 1 "Unpack error for $kernelrpm"
     fi
 
+ls -lR lib/modules	# for debug only
+ls -l usr/src		# for debug only
+    # change absolute symlink to relative to $PWD
+    local buildlink=$(readlink lib/modules/${wanted_kernel}-default/build)
+    ln -sf $(pwd)/$buildlink lib/modules/${wanted-kernel}-default/build
 }
 
 find_linux_rpm-sles11() {
