@@ -2802,6 +2802,12 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
         if (rc < 0)
                 RETURN(rc);
 
+	if (ec != NULL && ec->ec_exp != NULL) {
+		struct obd_import *imp = class_exp2cliimp(ec->ec_exp);
+		if (imp != NULL && !(imp->imp_connect_data.ocd_connect_flags &
+							OBD_CONNECT_FID))
+			oa->o_flags |= OBD_FL_OSTID;
+	}
         OBD_ALLOC_PTR(env);
         if (env == NULL)
                 RETURN(-ENOMEM);
@@ -3040,7 +3046,8 @@ static int echo_client_setup(const struct lu_env *env,
         ocd->ocd_connect_flags = OBD_CONNECT_VERSION | OBD_CONNECT_REQPORTAL |
 				 OBD_CONNECT_BRW_SIZE |
                                  OBD_CONNECT_GRANT | OBD_CONNECT_FULL20 |
-				 OBD_CONNECT_64BITHASH | OBD_CONNECT_LVB_TYPE;
+				 OBD_CONNECT_64BITHASH | OBD_CONNECT_LVB_TYPE |
+				 OBD_CONNECT_FID;
 	ocd->ocd_brw_size = DT_MAX_BRW_SIZE;
         ocd->ocd_version = LUSTRE_VERSION_CODE;
         ocd->ocd_group = FID_SEQ_ECHO;
