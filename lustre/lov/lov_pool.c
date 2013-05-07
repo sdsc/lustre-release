@@ -76,12 +76,12 @@ void lov_pool_putref(struct pool_desc *pool)
         }
 }
 
-void lov_pool_putref_locked(struct pool_desc *pool)
+static void lov_pool_putref_locked(struct pool_desc *pool)
 {
-        CDEBUG(D_INFO, "pool %p\n", pool);
-        LASSERT(cfs_atomic_read(&pool->pool_refcount) > 1);
+	CDEBUG(D_INFO, "pool %p\n", pool);
+	LASSERT(cfs_atomic_read(&pool->pool_refcount) > 1);
 
-        cfs_atomic_dec(&pool->pool_refcount);
+	cfs_atomic_dec(&pool->pool_refcount);
 }
 
 /*
@@ -300,28 +300,6 @@ static struct file_operations pool_proc_operations = {
         .release        = seq_release,
 };
 #endif /* LPROCFS */
-
-void lov_dump_pool(int level, struct pool_desc *pool)
-{
-        int i;
-
-        lov_pool_getref(pool);
-
-        CDEBUG(level, "pool "LOV_POOLNAMEF" has %d members\n",
-               pool->pool_name, pool->pool_obds.op_count);
-	down_read(&pool_tgt_rw_sem(pool));
-
-        for (i = 0; i < pool_tgt_count(pool) ; i++) {
-                if (!pool_tgt(pool, i) || !(pool_tgt(pool, i))->ltd_exp)
-                        continue;
-                CDEBUG(level, "pool "LOV_POOLNAMEF"[%d] = %s\n",
-                       pool->pool_name, i,
-                       obd_uuid2str(&((pool_tgt(pool, i))->ltd_uuid)));
-        }
-
-	up_read(&pool_tgt_rw_sem(pool));
-        lov_pool_putref(pool);
-}
 
 #define LOV_POOL_INIT_COUNT 2
 int lov_ost_pool_init(struct ost_pool *op, unsigned int count)
@@ -564,7 +542,7 @@ int lov_pool_add(struct obd_device *obd, char *poolname, char *ostname)
 
 
         /* search ost in lov array */
-        obd_getref(obd);
+	lov_getref(obd);
         for (lov_idx = 0; lov_idx < lov->desc.ld_tgt_count; lov_idx++) {
                 if (!lov->lov_tgts[lov_idx])
                         continue;
@@ -587,9 +565,9 @@ int lov_pool_add(struct obd_device *obd, char *poolname, char *ostname)
 
         EXIT;
 out:
-        obd_putref(obd);
-        lov_pool_putref(pool);
-        return rc;
+	lov_putref(obd);
+	lov_pool_putref(pool);
+	return rc;
 }
 
 int lov_pool_remove(struct obd_device *obd, char *poolname, char *ostname)
@@ -609,7 +587,7 @@ int lov_pool_remove(struct obd_device *obd, char *poolname, char *ostname)
 
         obd_str2uuid(&ost_uuid, ostname);
 
-        obd_getref(obd);
+	lov_getref(obd);
         /* search ost in lov array, to get index */
         for (lov_idx = 0; lov_idx < lov->desc.ld_tgt_count; lov_idx++) {
                 if (!lov->lov_tgts[lov_idx])
@@ -633,55 +611,7 @@ int lov_pool_remove(struct obd_device *obd, char *poolname, char *ostname)
 
         EXIT;
 out:
-        obd_putref(obd);
-        lov_pool_putref(pool);
-        return rc;
+	lov_putref(obd);
+	lov_pool_putref(pool);
+	return rc;
 }
-
-int lov_check_index_in_pool(__u32 idx, struct pool_desc *pool)
-{
-        int i, rc;
-        ENTRY;
-
-        /* caller may no have a ref on pool if it got the pool
-         * without calling lov_find_pool() (e.g. go through the lov pool
-         * list)
-         */
-        lov_pool_getref(pool);
-
-	down_read(&pool_tgt_rw_sem(pool));
-
-        for (i = 0; i < pool_tgt_count(pool); i++) {
-                if (pool_tgt_array(pool)[i] == idx)
-                        GOTO(out, rc = 0);
-        }
-        rc = -ENOENT;
-        EXIT;
-out:
-	up_read(&pool_tgt_rw_sem(pool));
-
-        lov_pool_putref(pool);
-        return rc;
-}
-
-struct pool_desc *lov_find_pool(struct lov_obd *lov, char *poolname)
-{
-        struct pool_desc *pool;
-
-        pool = NULL;
-        if (poolname[0] != '\0') {
-                pool = cfs_hash_lookup(lov->lov_pools_hash_body, poolname);
-                if (pool == NULL)
-                        CWARN("Request for an unknown pool ("LOV_POOLNAMEF")\n",
-                              poolname);
-                if ((pool != NULL) && (pool_tgt_count(pool) == 0)) {
-                        CWARN("Request for an empty pool ("LOV_POOLNAMEF")\n",
-                               poolname);
-                        /* pool is ignored, so we remove ref on it */
-                        lov_pool_putref(pool);
-                        pool = NULL;
-                }
-        }
-        return pool;
-}
-
