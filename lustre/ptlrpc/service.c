@@ -2397,30 +2397,14 @@ static int ptlrpc_start_hr_threads(struct ptlrpc_hr_service *hr)
         RETURN(0);
 }
 
-static void ptlrpc_stop_thread(struct ptlrpc_service *svc,
-                               struct ptlrpc_thread *thread)
+static inline int thread_is_stopped_with_lock(struct ptlrpc_service *svc,
+                                              struct ptlrpc_thread *thread)
 {
-        struct l_wait_info lwi = { 0 };
-        ENTRY;
-
-        CDEBUG(D_RPCTRACE, "Stopping thread [ %p : %u ]\n",
-               thread, thread->t_pid);
-
+        int rc;
         cfs_spin_lock(&svc->srv_lock);
-        /* let the thread know that we would like it to stop asap */
-        thread_add_flags(thread, SVC_STOPPING);
+        rc = !!(thread->t_flags & SVC_STOPPED);
         cfs_spin_unlock(&svc->srv_lock);
-
-        cfs_waitq_broadcast(&svc->srv_waitq);
-        l_wait_event(thread->t_ctl_waitq,
-                     thread_is_stopped(thread), &lwi);
-
-        cfs_spin_lock(&svc->srv_lock);
-        cfs_list_del(&thread->t_link);
-        cfs_spin_unlock(&svc->srv_lock);
-
-        OBD_FREE_PTR(thread);
-        EXIT;
+        return rc;
 }
 
 /**
@@ -2428,20 +2412,32 @@ static void ptlrpc_stop_thread(struct ptlrpc_service *svc,
  */
 void ptlrpc_stop_all_threads(struct ptlrpc_service *svc)
 {
-        struct ptlrpc_thread *thread;
+        struct ptlrpc_thread *thread, *n;
+        CFS_LIST_HEAD(zombie);
         ENTRY;
 
         cfs_spin_lock(&svc->srv_lock);
+        /* To prevent ptlrpc_main from creating a new thread */
+        svc->srv_threads_max = 0;
         while (!cfs_list_empty(&svc->srv_threads)) {
                 thread = cfs_list_entry(svc->srv_threads.next,
                                         struct ptlrpc_thread, t_link);
-
-                cfs_spin_unlock(&svc->srv_lock);
-                ptlrpc_stop_thread(svc, thread);
-                cfs_spin_lock(&svc->srv_lock);
+                /* let the thread know that we would like it to stop asap */
+                thread->t_flags |= SVC_STOPPING;
+                cfs_list_move(&thread->t_link, &zombie);
         }
-
         cfs_spin_unlock(&svc->srv_lock);
+
+        cfs_waitq_broadcast(&svc->srv_waitq);
+
+        cfs_list_for_each_entry_safe(thread, n, &zombie, t_link) {
+                struct l_wait_info lwi = { 0 };
+
+                cfs_list_del(&thread->t_link);
+                l_wait_event(thread->t_ctl_waitq,
+                             thread_is_stopped_with_lock(svc, thread), &lwi);
+                OBD_FREE_PTR(thread);
+        }
         EXIT;
 }
 
@@ -2526,11 +2522,17 @@ int ptlrpc_start_thread(struct ptlrpc_service *svc)
                 CERROR("cannot start thread '%s': rc %d\n", name, rc);
 
                 cfs_spin_lock(&svc->srv_lock);
-                cfs_list_del(&thread->t_link);
-                --svc->srv_threads_starting;
-                cfs_spin_unlock(&svc->srv_lock);
-
-                OBD_FREE(thread, sizeof(*thread));
+                if (thread->t_flags | SVC_STOPPING) {
+                        /* this ptlrpc_thread is being handled
+                         * by ptlrpc_stop_all_thread now */
+                        thread->t_flags |= SVC_STOPPED;
+                        cfs_waitq_signal(&thread->t_ctl_waitq);
+                        cfs_spin_unlock(&svc->srv_lock);
+                } else {
+                        cfs_list_del(&thread->t_link);
+                        cfs_spin_unlock(&svc->srv_lock);
+                        OBD_FREE_PTR(thread);
+                }
                 RETURN(rc);
         }
         l_wait_event(thread->t_ctl_waitq,
