@@ -7189,7 +7189,8 @@ test_120c() {
                skip "no early lock cancel on server" && return 0
         lru_resize_disable mdc
         lru_resize_disable osc
-        test_mkdir -p $DIR/$tdir/d1 $DIR/$tdir/d2
+	test_mkdir -p $DIR/$tdir/d1
+	test_mkdir -p $DIR/$tdir/d2
         touch $DIR/$tdir/d1/f1
         cancel_lru_locks mdc
         stat $DIR/$tdir/d1 $DIR/$tdir/d2 $DIR/$tdir/d1/f1 > /dev/null
@@ -7262,7 +7263,8 @@ test_120f() {
         test_mkdir -p $DIR/$tdir
         lru_resize_disable mdc
         lru_resize_disable osc
-        test_mkdir -p $DIR/$tdir/d1 $DIR/$tdir/d2
+	test_mkdir -p $DIR/$tdir/d1
+	test_mkdir -p $DIR/$tdir/d2
         dd if=/dev/zero of=$DIR/$tdir/d1/f1 count=1
         dd if=/dev/zero of=$DIR/$tdir/d2/f2 count=1
         cancel_lru_locks mdc
