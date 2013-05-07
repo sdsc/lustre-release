@@ -100,4 +100,8 @@ typedef unsigned long long __u64;
 typedef unsigned long ulong_ptr_t;
 typedef long long_ptr_t;
 
+#ifndef __user
+#define __user
+#endif
+
 #endif

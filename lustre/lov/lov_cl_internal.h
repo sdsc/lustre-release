@@ -473,9 +473,7 @@ struct lov_io_sub {
          * \see cl_env_get()
          */
         int                  sub_refcheck;
-        int                  sub_refcheck2;
-        int                  sub_reenter;
-        void                *sub_cookie;
+	int                  sub_reenter;
 };
 
 /**
@@ -625,7 +623,6 @@ struct lov_io_sub    *lov_page_subio    (const struct lu_env *env,
                                          struct lov_io *lio,
                                          const struct cl_page_slice *slice);
 
-void lov_lsm_decref(struct lov_object *lov, struct lov_stripe_md *lsm);
 struct lov_stripe_md *lov_lsm_addref(struct lov_object *lov);
 
 #define lov_foreach_target(lov, var)                    \

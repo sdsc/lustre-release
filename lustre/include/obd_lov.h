@@ -52,13 +52,18 @@ struct lov_version_size {
 
 static inline __u32 lov_mds_md_stripecnt(int ea_size, __u32 lmm_magic)
 {
-        static const struct lov_version_size lmm_ver_size[] = {
-                        { .lvs_magic = LOV_MAGIC_V3,
-                          .lvs_lmm_size = sizeof(struct lov_mds_md_v3),
-                          .lvs_lod_size = sizeof(struct lov_ost_data_v1) },
-                        { .lvs_magic = LOV_MAGIC_V1,
-                          .lvs_lmm_size = sizeof(struct lov_mds_md_v1),
-                          .lvs_lod_size = sizeof(struct lov_ost_data_v1)} };
+	static const struct lov_version_size lmm_ver_size[] = {
+		{
+			.lvs_magic = LOV_MAGIC_V3,
+			.lvs_lmm_size = sizeof(struct lov_mds_md_v3),
+			.lvs_lod_size = sizeof(struct lov_ost_data_v1),
+		},
+		{
+			.lvs_magic = LOV_MAGIC_V1,
+			.lvs_lmm_size = sizeof(struct lov_mds_md_v1),
+			.lvs_lod_size = sizeof(struct lov_ost_data_v1),
+		},
+	};
         int i;
 
         for (i = 0; i < ARRAY_SIZE(lmm_ver_size); i++) {

@@ -138,4 +138,10 @@ static inline int cfs_copy_to_user(void *a,void *b, int c)
         return 0;
 }
 
+#define get_user(x, ptr)			\
+	({					\
+		(x) = *(ptr);			\
+		0;				\
+	})
+
 #endif

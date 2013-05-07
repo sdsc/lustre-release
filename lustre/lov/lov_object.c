@@ -41,6 +41,8 @@
 
 #define DEBUG_SUBSYSTEM S_LOV
 
+#include <cl_object.h>
+#include <lclient.h>
 #include "lov_cl_internal.h"
 #include <lustre_debug.h>
 
@@ -918,17 +920,6 @@ struct lov_stripe_md *lov_lsm_addref(struct lov_object *lov)
 	}
 	lov_conf_thaw(lov);
 	return lsm;
-}
-
-void lov_lsm_decref(struct lov_object *lov, struct lov_stripe_md *lsm)
-{
-	if (lsm == NULL)
-		return;
-
-	CDEBUG(D_INODE, "lsm %p decref %d by %p.\n",
-		lsm, cfs_atomic_read(&lsm->lsm_refc), cfs_current());
-
-	lov_free_memmd(&lsm);
 }
 
 struct lov_stripe_md *lov_lsm_get(struct cl_object *clobj)
