@@ -43,6 +43,9 @@
 #ifndef LCLIENT_H
 #define LCLIENT_H
 
+struct obd_export;
+enum obd_notify_event;
+
 blkcnt_t dirty_cnt(struct inode *inode);
 
 int cl_glimpse_size0(struct inode *inode, int agl);
@@ -242,8 +245,6 @@ static inline struct ccc_page *cl2ccc_page(const struct cl_page_slice *slice)
         return container_of(slice, struct ccc_page, cpg_cl);
 }
 
-struct cl_page    *ccc_vmpage_page_transient(cfs_page_t *vmpage);
-
 struct ccc_device {
         struct cl_device    cdv_cl;
         struct super_block *cdv_sb;
@@ -380,7 +381,6 @@ struct ccc_object  *cl_inode2ccc    (struct inode *inode);
 int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
                    struct obd_capa *capa);
 
-struct cl_page *ccc_vmpage_page_transient(cfs_page_t *vmpage);
 int ccc_object_invariant(const struct cl_object *obj);
 int cl_file_inode_init(struct inode *inode, struct lustre_md *md);
 void cl_inode_fini(struct inode *inode);
@@ -429,6 +429,9 @@ void cl_put_grouplock(struct ccc_grouplock *cg);
 struct lov_stripe_md *lov_lsm_get(struct cl_object *clobj);
 void lov_lsm_put(struct cl_object *clobj, struct lov_stripe_md *lsm);
 int lov_read_and_clear_async_rc(struct cl_object *clob);
+
+void lov_stripe_lock(struct lov_stripe_md *md);
+void lov_stripe_unlock(struct lov_stripe_md *md);
 
 struct lov_stripe_md *ccc_inode_lsm_get(struct inode *inode);
 void ccc_inode_lsm_put(struct inode *inode, struct lov_stripe_md *lsm);

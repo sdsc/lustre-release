@@ -58,7 +58,7 @@ cfs_mem_cache_t *lovsub_req_kmem;
 cfs_mem_cache_t *lov_lock_link_kmem;
 
 /** Lock class of lov_device::ld_mutex. */
-struct lock_class_key cl_lov_device_mutex_class;
+static struct lock_class_key cl_lov_device_mutex_class;
 
 struct lu_kmem_descr lov_caches[] = {
         {
@@ -406,7 +406,7 @@ static int lov_cl_add_target(const struct lu_env *env, struct lu_device *dev,
         int rc;
         ENTRY;
 
-        obd_getref(obd);
+	lov_getref(obd);
 
         tgt = obd->u.lov.lov_tgts[index];
         LASSERT(tgt != NULL);
@@ -435,8 +435,8 @@ static int lov_cl_add_target(const struct lu_env *env, struct lu_device *dev,
                         rc = PTR_ERR(cl);
                 }
         }
-        obd_putref(obd);
-        RETURN(rc);
+	lov_putref(obd);
+	RETURN(rc);
 }
 
 static int lov_process_config(const struct lu_env *env,
@@ -448,7 +448,7 @@ static int lov_process_config(const struct lu_env *env,
         int gen;
         __u32 index;
 
-        obd_getref(obd);
+	lov_getref(obd);
 
         cmd = cfg->lcfg_command;
         rc = lov_process_config_base(d->ld_obd, cfg, &index, &gen);
@@ -465,8 +465,8 @@ static int lov_process_config(const struct lu_env *env,
                         break;
                 }
         }
-        obd_putref(obd);
-        RETURN(rc);
+	lov_putref(obd);
+	RETURN(rc);
 }
 
 static const struct lu_device_operations lov_lu_ops = {
@@ -528,6 +528,5 @@ struct lu_device_type lov_device_type = {
         .ldt_ops      = &lov_device_type_ops,
         .ldt_ctx_tags = LCT_CL_THREAD
 };
-EXPORT_SYMBOL(lov_device_type);
 
 /** @} lov */

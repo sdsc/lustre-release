@@ -53,11 +53,6 @@
 
 #include "lov_internal.h"
 
-struct lovea_unpack_args {
-        struct lov_stripe_md *lsm;
-        int                   cursor;
-};
-
 static int lsm_lmm_verify_common(struct lov_mds_md *lmm, int lmm_bytes,
                                  __u16 stripe_count)
 {
@@ -213,8 +208,8 @@ static int lsm_lmm_verify_v1(struct lov_mds_md_v1 *lmm, int lmm_bytes,
         return lsm_lmm_verify_common(lmm, lmm_bytes, *stripe_count);
 }
 
-int lsm_unpackmd_v1(struct lov_obd *lov, struct lov_stripe_md *lsm,
-                    struct lov_mds_md_v1 *lmm)
+static int lsm_unpackmd_v1(struct lov_obd *lov, struct lov_stripe_md *lsm,
+			   struct lov_mds_md_v1 *lmm)
 {
         struct lov_oinfo *loi;
         int i;
@@ -284,14 +279,14 @@ static int lsm_lmm_verify_v3(struct lov_mds_md *lmmv1, int lmm_bytes,
                                      *stripe_count);
 }
 
-int lsm_unpackmd_v3(struct lov_obd *lov, struct lov_stripe_md *lsm,
-                    struct lov_mds_md *lmmv1)
+static int lsm_unpackmd_v3(struct lov_obd *lov, struct lov_stripe_md *lsm,
+			   struct lov_mds_md *lmmv1)
 {
-        struct lov_mds_md_v3 *lmm;
-        struct lov_oinfo *loi;
-        int i;
-        __u64 stripe_maxbytes = OBD_OBJECT_EOF;
-	int cplen = 0;
+	struct lov_mds_md_v3	*lmm;
+	struct lov_oinfo	*loi;
+	__u64			 stripe_maxbytes = OBD_OBJECT_EOF;
+	int			 i;
+	int			 cplen = 0;
 
         lmm = (struct lov_mds_md_v3 *)lmmv1;
 
