@@ -1525,7 +1525,9 @@ enum obdo_flags {
                               OBD_FL_CKSUM_CRC32C,
 
         /* mask for local-only flag, which won't be sent over network */
-        OBD_FL_LOCAL_MASK   = 0xF0000000,
+	OBD_FL_OSTID	    = 0x10000000,
+	OBD_FL_LOCAL_MASK   = 0xF0000000,
+
 };
 
 #define LOV_MAGIC_V1      0x0BD10BD0
@@ -3225,7 +3227,16 @@ struct obdo {
 static inline void lustre_set_wire_obdo(struct obdo *wobdo, struct obdo *lobdo)
 {
         memcpy(wobdo, lobdo, sizeof(*lobdo));
-        wobdo->o_flags &= ~OBD_FL_LOCAL_MASK;
+	if (lobdo->o_flags & OBD_FL_OSTID) {
+		/* Currently OBD_FL_OSTID will only be used when 2.4 echo
+		 * client communicate with pre-2.4 server */
+		LASSERTF(fid_seq_is_echo(ostid_seq(&lobdo->o_oi)), DFID"\n",
+			 PFID(&lobdo->o_oi.oi_fid));
+		wobdo->o_oi.oi.oi_id = fid_oid(&lobdo->o_oi.oi_fid);
+		wobdo->o_oi.oi.oi_seq = FID_SEQ_ECHO;
+	}
+
+	wobdo->o_flags &= ~OBD_FL_LOCAL_MASK;
 }
 
 static inline void lustre_get_wire_obdo(struct obdo *lobdo, struct obdo *wobdo)
@@ -3237,12 +3248,19 @@ static inline void lustre_get_wire_obdo(struct obdo *lobdo, struct obdo *wobdo)
 
         LASSERT(!(wobdo->o_flags & OBD_FL_LOCAL_MASK));
 
-        memcpy(lobdo, wobdo, sizeof(*lobdo));
-        if (local_flags != 0) {
-                 lobdo->o_valid |= OBD_MD_FLFLAGS;
-                 lobdo->o_flags &= ~OBD_FL_LOCAL_MASK;
-                 lobdo->o_flags |= local_flags;
-        }
+	memcpy(lobdo, wobdo, sizeof(*lobdo));
+	if (local_flags != 0) {
+		lobdo->o_valid |= OBD_MD_FLFLAGS;
+		lobdo->o_flags &= ~OBD_FL_LOCAL_MASK;
+		lobdo->o_flags |= local_flags;
+		if(local_flags & OBD_FL_OSTID) {
+			/* see above */
+			lobdo->o_oi.oi_fid.f_seq = wobdo->o_oi.oi.oi_seq;
+			lobdo->o_oi.oi_fid.f_oid = wobdo->o_oi.oi.oi_id;
+			lobdo->o_oi.oi_fid.f_ver = 0;
+		}
+	}
+
 }
 
 extern void lustre_swab_obdo (struct obdo *o);
