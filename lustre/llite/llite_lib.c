@@ -958,7 +958,7 @@ void ll_lli_init(struct ll_inode_info *lli)
 		lli->lli_size_sem_owner = NULL;
 		lli->lli_symlink_name = NULL;
 		init_rwsem(&lli->lli_trunc_sem);
-		mutex_init(&lli->lli_write_mutex);
+		lli->lli_write_lock = NULL;
 		init_rwsem(&lli->lli_glimpse_sem);
 		lli->lli_glimpse_time = 0;
 		CFS_INIT_LIST_HEAD(&lli->lli_agl_list);

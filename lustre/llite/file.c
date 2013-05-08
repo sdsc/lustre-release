@@ -850,15 +850,100 @@ void ll_io_init(struct cl_io *io, const struct file *file, int write)
         }
 }
 
+static void ll_posix_lock_init(struct file_lock *fl, struct file *file,
+			       loff_t ppos, size_t count)
+{
+	locks_init_lock(fl);
+	fl->fl_owner = current->files;
+	fl->fl_pid   = current->tgid;
+	fl->fl_file  = file;
+	fl->fl_flags = FL_POSIX;
+	fl->fl_type  = F_WRLCK;
+	fl->fl_start = ppos;
+	fl->fl_end   = ppos + count - 1;
+}
+
+static int ll_posix_lock_file_wait(struct file *file, struct file_lock *fl)
+{
+	struct inode         *inode = file->f_dentry->d_inode;
+	struct ll_inode_info *lli = ll_i2info(inode);
+	struct file_lock     *save;
+	int rc;
+
+	/* Sigh, allow me to explain the ugly hack below.
+	 *
+	 * The kernel has a range locking implementation which it uses
+	 * as the generic implementation for fcntl and flock system
+	 * calls. Unfortunately, this range lock implementation isn't
+	 * available in any generic way, it is wed tightly to the system
+	 * calls. Specifically, it's tied to a file's inode's i_flock
+	 * field.
+	 *
+	 * Thus, in order for us to make use of the kernel's range
+	 * locking implementation, while avoiding conflicts with the
+	 * fcntl and flock calls, we temporarily hijack the inode's
+	 * i_flock field. This allows the posix_lock_file function to
+	 * work on the i_flock field as it wants to, but instead of
+	 * working on the inode's range locks (for fcntl and flock), it
+	 * works on our internal Lustre range locks.
+	 *
+	 * While this is ugly and prone to break if the kernel changes
+	 * it's internal implementation details of posix_lock_file, it
+	 * beats creating an entirely new range lock implementation for
+	 * our purposes. Ideally, we would change the kernel's function
+	 * prototype to take a file_lock pointer as a parameter, but
+	 * this isn't really an option since we don't live in the kernel
+	 * tree. */
+
+	for (;;) {
+		/* We need to lock the mutex so no other threads notice
+		 * see the hijacked i_flock value */
+		mutex_lock(&inode->i_mutex);
+
+		/* Hijack i_flock with our internal list of range locks */
+		save = inode->i_flock;
+		inode->i_flock = lli->lli_write_lock;
+
+		/* Because of the swap above, posix_lock_file will work
+		 * on our list of range locks, instead of flock's list
+		 * of range locks.
+		 *
+		 * Also, we can't use the posix_lock_file_wait function
+		 * because we're holding the inode's i_mutex and need to
+		 * drop it before we go to sleep waiting for the conflicting
+		 * lock to be released. */
+		rc = posix_lock_file(file, fl, NULL);
+
+		/* Reset i_flock to the value it was before we hijacked it */
+		lli->lli_write_lock = inode->i_flock;
+		inode->i_flock = save;
+
+		mutex_unlock(&inode->i_mutex);
+
+		if (rc != -EAGAIN)
+			break;
+
+		/* Ideally, this would be a waitq, and we would be
+		 * signalled when the lock we conflict with is unlocked.
+		 * Right now, we just busy wait, continually checking to
+		 * see if we can lock the portion of the file we need. */
+		schedule();
+	}
+
+	return rc;
+}
+
 static ssize_t
 ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
 		   struct file *file, enum cl_io_type iot,
 		   loff_t *ppos, size_t count)
 {
-	struct ll_inode_info *lli = ll_i2info(file->f_dentry->d_inode);
+	struct inode         *inode = file->f_dentry->d_inode;
+	struct ll_inode_info *lli = ll_i2info(inode);
 	struct ll_file_data  *fd  = LUSTRE_FPRIVATE(file);
         struct cl_io         *io;
         ssize_t               result;
+	struct file_lock      new;
         ENTRY;
 
 restart:
@@ -868,7 +953,7 @@ restart:
         if (cl_io_rw_init(env, io, iot, *ppos, count) == 0) {
                 struct vvp_io *vio = vvp_env_io(env);
                 struct ccc_io *cio = ccc_env_io(env);
-                int write_mutex_locked = 0;
+                int file_locked = 0;
 
                 cio->cui_fd  = LUSTRE_FPRIVATE(file);
                 vio->cui_io_subtype = args->via_io_subtype;
@@ -881,16 +966,17 @@ restart:
 #ifndef HAVE_FILE_WRITEV
                         cio->cui_iocb = args->u.normal.via_iocb;
 #endif
-                        if ((iot == CIT_WRITE) &&
-                            !(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
-				if (mutex_lock_interruptible(&lli->
-                                                               lli_write_mutex))
-                                        GOTO(out, result = -ERESTARTSYS);
-                                write_mutex_locked = 1;
-                        } else if (iot == CIT_READ) {
+			if ((iot == CIT_WRITE) &&
+			   !(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
+				ll_posix_lock_init(&new, file, *ppos, count);
+				result = ll_posix_lock_file_wait(file, &new);
+				if (result)
+					GOTO(out, result = -ERESTARTSYS);
+				file_locked = 1;
+			} else if (iot == CIT_READ) {
 				down_read(&lli->lli_trunc_sem);
-                        }
-                        break;
+			}
+			break;
                 case IO_SENDFILE:
                         vio->u.sendfile.cui_actor = args->u.sendfile.via_actor;
                         vio->u.sendfile.cui_target = args->u.sendfile.via_target;
@@ -903,10 +989,12 @@ restart:
                         CERROR("Unknow IO type - %u\n", vio->cui_io_subtype);
                         LBUG();
                 }
-                result = cl_io_loop(env, io);
-                if (write_mutex_locked)
-			mutex_unlock(&lli->lli_write_mutex);
-                else if (args->via_io_subtype == IO_NORMAL && iot == CIT_READ)
+		result = cl_io_loop(env, io);
+		if (file_locked) {
+			new.fl_type = F_UNLCK;
+			ll_posix_lock_file_wait(file, &new);
+		}
+		else if (args->via_io_subtype == IO_NORMAL && iot == CIT_READ)
 			up_read(&lli->lli_trunc_sem);
         } else {
                 /* cl_io_rw_init() handled IO */

@@ -216,7 +216,7 @@ struct ll_inode_info {
 			 * }
 			 */
 			struct rw_semaphore		f_trunc_sem;
-			struct mutex			f_write_mutex;
+			struct file_lock		*f_write_lock;
 
 			struct rw_semaphore		f_glimpse_sem;
 			cfs_time_t			f_glimpse_time;
@@ -247,7 +247,7 @@ struct ll_inode_info {
 #define lli_symlink_name        u.f.f_symlink_name
 #define lli_maxbytes            u.f.f_maxbytes
 #define lli_trunc_sem           u.f.f_trunc_sem
-#define lli_write_mutex         u.f.f_write_mutex
+#define lli_write_lock          u.f.f_write_lock
 #define lli_glimpse_sem 	u.f.f_glimpse_sem
 #define lli_glimpse_time	u.f.f_glimpse_time
 #define lli_agl_list		u.f.f_agl_list
