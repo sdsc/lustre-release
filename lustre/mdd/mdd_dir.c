@@ -876,6 +876,9 @@ static int __mdd_links_add(const struct lu_env *env,
 		linkea_add_buf(ldata, lname, tfid);
 	}
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_MORE2))
+		linkea_add_buf(ldata, lname, pfid);
+
 	return linkea_add_buf(ldata, lname, pfid);
 }
 

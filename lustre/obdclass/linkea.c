@@ -145,6 +145,10 @@ void linkea_del_buf(struct linkea_data *ldata, const struct lu_name *lname)
 		(char *)ldata->ld_lee);
 	CDEBUG(D_INODE, "Old link_ea name '%.*s' is removed\n",
 	       lname->ln_namelen, lname->ln_name);
+
+	if ((char *)ldata->ld_lee >= ((char *)ldata->ld_leh +
+				      ldata->ld_leh->leh_len))
+		ldata->ld_lee = NULL;
 }
 EXPORT_SYMBOL(linkea_del_buf);
 
