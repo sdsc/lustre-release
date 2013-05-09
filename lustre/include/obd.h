@@ -1254,6 +1254,10 @@ struct md_enqueue_info {
         md_enqueue_cb_t         mi_cb;
         __u64                   mi_cbdata;
         unsigned int            mi_generation;
+	/* The mi_len contains the name appended after the md_enqueue_info. */
+	int			mi_len;
+	bool			mi_attached;
+	char			mi_name[0];
 };
 
 struct obd_ops {
