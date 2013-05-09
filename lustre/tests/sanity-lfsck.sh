@@ -542,7 +542,7 @@ test_7b()
 
 	#define OBD_FAIL_LFSCK_LINKEA_MORE	0x1604
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1604
-	for ((i=0; i<10; i++)); do
+	for ((i=0; i<20; i++)); do
 		touch $DIR/$tdir/dummy${i}
 	done
 

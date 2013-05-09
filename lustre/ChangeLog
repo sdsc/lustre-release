@@ -36,6 +36,10 @@ TBD Intel Corporation
        * NFSv4 reexport to 32-bit NFS client nodes requires Lustre client on
          the re-exporting nodes to be mounted with "32bitapi" mount option
 
+Severity   : enhancement
+Jira       : LU-2914
+Description: Separate LFSCK code from MDD layer to the new LFSCK layer.
+
 --------------------------------------------------------------------------------
 
 9-30-2012 Whamcloud, Inc.

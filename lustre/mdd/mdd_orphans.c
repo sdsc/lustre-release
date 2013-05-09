@@ -234,8 +234,10 @@ static int orph_index_insert(const struct lu_env *env,
                                        th, BYPASS_CAPA, 1);
 
 out:
-        if (rc == 0)
-                obj->mod_flags |= ORPHAN_OBJ;
+	if (rc == 0) {
+		obj->mod_flags |= ORPHAN_OBJ;
+		set_bit(LU_OBJECT_ORPHAN, &mdd2lu_obj(obj)->lo_header->loh_flags);
+	}
 
         mdd_orphan_write_unlock(env, mdd);
 
