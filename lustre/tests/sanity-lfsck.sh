@@ -729,8 +729,8 @@ test_9a() {
 	# There may be time error, normally it should be less than 2.
 	# We allow another 10% schedule error.
 	#
-	# SPEED1 = (100 * (time + 2)) / time * 1.1
-	SPEED1=$((100 * (10 + 2) / 10 * 11 / 10))
+	# SPEED1 = (100 * (time + 2)) / time * 1.2
+	SPEED1=$((100 * (10 + 2) / 10 * 12 / 10))
 	[ $SPEED -lt $SPEED1 ] ||
 		error "(4) Got speed $SPEED, expected less than $SPEED1"
 
@@ -740,13 +740,13 @@ test_9a() {
 	sleep 10
 
 	SPEED=$($SHOW_NAMESPACE | awk '/^average_speed_phase1/ { print $2 }')
-	# SPEED1=(100 * (time1 - 2) + 300 * (time2 - 2)) / (time1 + time2) * 0.9
-	SPEED1=$(((100 * (10 - 2) + 300 * (10 - 2)) / (10 + 10) * 9 / 10))
+	# SPEED1=(100 * (time1 - 2) + 300 * (time2 - 2)) / (time1 + time2) * 0.8
+	SPEED1=$(((100 * (10 - 2) + 300 * (10 - 2)) / (10 + 10) * 8 / 10))
 	[ $SPEED -gt $SPEED1 ] ||
 		error "(5) Got speed $SPEED, expected more than $SPEED1"
 
-	# SPEED1=(100 * (time1 + 2) + 300 * (time2 + 2)) / (time1 + time2) * 1.1
-	SPEED1=$(((100 * (10 + 2) + 300 * (10 + 2)) / (10 + 10) * 11 / 10))
+	# SPEED1=(100 * (time1 + 2) + 300 * (time2 + 2)) / (time1 + time2) * 1.2
+	SPEED1=$(((100 * (10 + 2) + 300 * (10 + 2)) / (10 + 10) * 12 / 10))
 	[ $SPEED -lt $SPEED1 ] ||
 		error "(6) Got speed $SPEED, expected less than $SPEED1"
 
@@ -809,8 +809,8 @@ test_9b() {
 	# There may be time error, normally it should be less than 2.
 	# We allow another 10% schedule error.
 	#
-	# SPEED1 = (50 * (time + 2)) / time * 1.1
-	SPEED1=$((50 * (10 + 2) / 10 * 11 / 10))
+	# SPEED1 = (50 * (time + 2)) / time * 1.2
+	SPEED1=$((50 * (10 + 2) / 10 * 12 / 10))
 	[ $SPEED -lt $SPEED1 ] ||
 		error "(8) Got speed $SPEED, expected less than $SPEED1"
 
@@ -820,13 +820,13 @@ test_9b() {
 	sleep 10
 
 	SPEED=$($SHOW_NAMESPACE | awk '/^average_speed_phase2/ { print $2 }')
-	# SPEED1=(50 * (time1 - 2) + 150 * (time2 - 2)) / (time1 + time2) * 0.9
-	SPEED1=$(((50 * (10 - 2) + 150 * (10 - 2)) / (10 + 10) * 9 / 10))
+	# SPEED1=(50 * (time1 - 2) + 150 * (time2 - 2)) / (time1 + time2) * 0.8
+	SPEED1=$(((50 * (10 - 2) + 150 * (10 - 2)) / (10 + 10) * 8 / 10))
 	[ $SPEED -gt $SPEED1 ] ||
 		error "(9) Got speed $SPEED, expected more than $SPEED1"
 
-	# SPEED1=(50 * (time1 + 2) + 150 * (time2 + 2)) / (time1 + time2) * 1.1
-	SPEED1=$(((50 * (10 + 2) + 150 * (10 + 2)) / (10 + 10) * 11 / 10))
+	# SPEED1=(50 * (time1 + 2) + 150 * (time2 + 2)) / (time1 + time2) * 1.2
+	SPEED1=$(((50 * (10 + 2) + 150 * (10 + 2)) / (10 + 10) * 12 / 10))
 	[ $SPEED -lt $SPEED1 ] ||
 		error "(10) Got speed $SPEED, expected less than $SPEED1"
 
