@@ -36,7 +36,7 @@
 #define SMFS_DEV_MAJOR 10
 #define SMFS_DEV_MINOR 242
 
-int ptl_initialize(int argc, char **argv);
+int ptl_initialize(int argc, char *const argv[]);
 int jt_ptl_network(int argc, char **argv);
 int jt_ptl_list_nids(int argc, char **argv);
 int jt_ptl_which_nid(int argc, char **argv);

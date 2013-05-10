@@ -1173,19 +1173,22 @@ lnet_shutdown_lndnis (void)
 }
 
 int
-lnet_startup_lndnis (void)
+lnet_startup_lndnis (int load_module_only)
 {
 	lnd_t			*lnd;
 	struct lnet_ni		*ni;
 	struct lnet_tx_queue	*tq;
 	cfs_list_t		nilist;
 	int			i;
-        int                rc = 0;
-        int                lnd_type;
-        int                nicount = 0;
-        char              *nets = lnet_get_networks();
+	int                rc;
+	int                lnd_type;
+	int                nicount = 0;
+	char              *nets = lnet_get_networks();
 
         CFS_INIT_LIST_HEAD(&nilist);
+
+	if (load_module_only && the_lnet.ln_network_tokens != NULL)
+		return 0;
 
         if (nets == NULL)
                 goto failed;
@@ -1241,6 +1244,13 @@ lnet_startup_lndnis (void)
                         goto failed;
                 }
 #endif
+
+		if (load_module_only) {
+			LNET_MUTEX_UNLOCK(&the_lnet.ln_lnd_mutex);
+			cfs_list_del(&ni->ni_list);
+			lnet_ni_free(ni);
+			continue;
+		}
 
 		lnet_net_lock(LNET_LOCK_EX);
 		lnd->lnd_refcount++;
@@ -1323,6 +1333,13 @@ lnet_startup_lndnis (void)
 		nicount++;
 	}
 
+	if (load_module_only) {
+		LIBCFS_FREE(the_lnet.ln_network_tokens,
+			    the_lnet.ln_network_tokens_nob);
+		the_lnet.ln_network_tokens = NULL;
+		return 0;
+	}
+
 	if (the_lnet.ln_eq_waitni != NULL && nicount > 1) {
 		lnd_type = the_lnet.ln_eq_waitni->ni_lnd->lnd_type;
                 LCONSOLE_ERROR_MSG(0x109, "LND %s can only run single-network"
@@ -1333,8 +1350,14 @@ lnet_startup_lndnis (void)
 
         return 0;
 
- failed:
-        lnet_shutdown_lndnis();
+failed:
+	if (load_module_only) {
+		LIBCFS_FREE(the_lnet.ln_network_tokens,
+			    the_lnet.ln_network_tokens_nob);
+		the_lnet.ln_network_tokens = NULL;
+	} else {
+		lnet_shutdown_lndnis();
+	}
 
         while (!cfs_list_empty(&nilist)) {
                 ni = cfs_list_entry(nilist.next, lnet_ni_t, ni_list);
@@ -1490,7 +1513,7 @@ LNetNIInit(lnet_pid_t requested_pid)
         if (rc != 0)
                 goto failed0;
 
-        rc = lnet_startup_lndnis();
+        rc = lnet_startup_lndnis(0);
         if (rc != 0)
                 goto failed1;
 

@@ -89,7 +89,7 @@ command_t cmdlist[] = {
         {"network", jt_ptl_network, 0, "configure LNET"
          "usage: network up|down"},
         {"net", jt_ptl_network, 0, "configure LNET"
-         "usage: net up|down"},
+         "usage: net up|down|load"},
         {"list_nids", jt_ptl_list_nids, 0, "list local NIDs"
          "usage: list_nids [all]"},
         {"which_nid", jt_ptl_which_nid, 0, "choose a NID"
