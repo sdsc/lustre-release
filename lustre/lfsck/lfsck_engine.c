@@ -56,6 +56,43 @@ static void lfsck_unpack_ent(struct lu_dirent *ent)
 	ent->lde_name[ent->lde_namelen] = 0;
 }
 
+static void lfsck_di_put(const struct lu_env *env, struct lfsck_instance *lfsck,
+			 bool oit)
+{
+	const struct dt_it_ops	*iops;
+	struct dt_it		*di;
+	struct l_wait_info	 lwi  = { 0 };
+
+	while (1) {
+		spin_lock(&lfsck->li_lock);
+		if (lfsck->li_di_external_users == 0) {
+			if (oit) {
+				iops = &lfsck->li_obj_oit->do_index_ops->dio_it;
+				di = lfsck->li_di_oit;
+				lfsck->li_di_oit = NULL;
+			} else {
+				iops = &lfsck->li_obj_dir->do_index_ops->dio_it;
+				di = lfsck->li_di_dir;
+				lfsck->li_di_dir = NULL;
+			}
+			spin_unlock(&lfsck->li_lock);
+			iops->put(env, di);
+			return;
+		}
+
+		spin_unlock(&lfsck->li_lock);
+
+		/* Currently, the administrator can query the lfsck processing
+		 * via reading related proc interface, which may use the lfsck
+		 * iteration to obtain current position. During such iteration
+		 * sharing, the lfsck engine should guarantee that NOT release
+		 * or close the iteration until nobody use it any more. */
+		l_wait_event(lfsck->li_thread.t_ctl_waitq,
+			     lfsck->li_di_external_users == 0,
+			     &lwi);
+	}
+}
+
 static void lfsck_close_dir(const struct lu_env *env,
 			    struct lfsck_instance *lfsck)
 {
@@ -63,11 +100,7 @@ static void lfsck_close_dir(const struct lu_env *env,
 	const struct dt_it_ops	*dir_iops = &dir_obj->do_index_ops->dio_it;
 	struct dt_it		*dir_di   = lfsck->li_di_dir;
 
-	spin_lock(&lfsck->li_lock);
-	lfsck->li_di_dir = NULL;
-	spin_unlock(&lfsck->li_lock);
-
-	dir_iops->put(env, dir_di);
+	lfsck_di_put(env, lfsck, false);
 	dir_iops->fini(env, dir_di);
 	lfsck->li_obj_dir = NULL;
 	lfsck_object_put(env, dir_obj);
@@ -320,19 +353,13 @@ int lfsck_master_engine(void *args)
 	       PFID(&lfsck->li_pos_current.lp_dir_parent),
 	       cfs_curproc_pid(), rc);
 
-	if (lfsck->li_paused && cfs_list_empty(&lfsck->li_list_scan))
-		oit_iops->put(&env, oit_di);
-
 	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CRASH))
 		rc = lfsck_post(&env, lfsck, rc);
 	if (lfsck->li_di_dir != NULL)
 		lfsck_close_dir(&env, lfsck);
 
 fini_oit:
-	spin_lock(&lfsck->li_lock);
-	lfsck->li_di_oit = NULL;
-	spin_unlock(&lfsck->li_lock);
-
+	lfsck_di_put(&env, lfsck, true);
 	oit_iops->fini(&env, oit_di);
 	if (rc == 1) {
 		if (!cfs_list_empty(&lfsck->li_list_double_scan))

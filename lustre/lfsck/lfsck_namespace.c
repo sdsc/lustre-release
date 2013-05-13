@@ -661,7 +661,7 @@ lfsck_namespace_fail(const struct lu_env *env, struct lfsck_component *com,
 	ns->ln_items_failed++;
 	if (lfsck_pos_is_zero(&ns->ln_pos_first_inconsistent))
 		lfsck_pos_fill(env, com->lc_lfsck,
-			       &ns->ln_pos_first_inconsistent, false);
+			       &ns->ln_pos_first_inconsistent, false, false);
 	up_write(&com->lc_sem);
 }
 
@@ -973,7 +973,7 @@ out:
 		ns->ln_items_failed++;
 		if (lfsck_pos_is_zero(&ns->ln_pos_first_inconsistent))
 			lfsck_pos_fill(env, lfsck,
-				       &ns->ln_pos_first_inconsistent, false);
+				       &ns->ln_pos_first_inconsistent, false, false);
 		if (!(bk->lb_param & LPF_FAILOUT))
 			rc = 0;
 	} else {
@@ -1157,7 +1157,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 
 		buf += rc;
 		len -= rc;
-		lfsck_pos_fill(env, lfsck, &pos, false);
+		lfsck_pos_fill(env, lfsck, &pos, false, true);
 		rc = lfsck_pos_dump(&buf, &len, &pos, "current_position");
 		if (rc <= 0)
 			goto out;

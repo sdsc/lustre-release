@@ -312,6 +312,9 @@ struct lfsck_instance {
 	/* It for directory traversal */
 	struct dt_it		 *li_di_dir;
 
+	/* How many external users are using the iterations. */
+	__u32			  li_di_external_users;
+
 	/* Arguments for low layer otable-based iteration. */
 	__u32			  li_args_oit;
 
@@ -364,7 +367,7 @@ int lfsck_time_dump(char **buf, int *len, __u64 time, const char *prefix);
 int lfsck_pos_dump(char **buf, int *len, struct lfsck_position *pos,
 		   const char *prefix);
 void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,
-		    struct lfsck_position *pos, bool init);
+		    struct lfsck_position *pos, bool init, bool external);
 void lfsck_control_speed(struct lfsck_instance *lfsck);
 int lfsck_reset(const struct lu_env *env, struct lfsck_instance *lfsck,
 		bool init);
