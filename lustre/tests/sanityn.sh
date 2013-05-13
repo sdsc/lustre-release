@@ -2301,6 +2301,10 @@ test_51a() {
 run_test 51a "layout lock: refresh layout should work"
 
 test_51b() {
+	# Skip test for servers with version less than 2.3.58
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.59) ]] ||
+		{ skip "Need MDS version at least 2.3.59"; return 0; }
+
 	local tmpfile=`mktemp`
 
 	# create an empty file
