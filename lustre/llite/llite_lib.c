@@ -642,6 +642,19 @@ int ll_get_max_mdsize(struct ll_sb_info *sbi, int *lmmsize)
         RETURN(rc);
 }
 
+int ll_get_default_mdsize(struct ll_sb_info *sbi, int *lmmsize)
+{
+	int size, rc;
+
+	size = sizeof(int);
+	rc = obd_get_info(NULL, sbi->ll_md_exp, sizeof(KEY_DEFAULT_EASIZE),
+	                  KEY_DEFAULT_EASIZE, &size, lmmsize, NULL);
+	if (rc)
+		CERROR("Get default mdsize error rc %d \n", rc);
+
+	RETURN(rc);
+}
+
 void ll_dump_inode(struct inode *inode)
 {
 	struct ll_d_hlist_node *tmp;

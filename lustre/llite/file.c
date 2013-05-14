@@ -1386,9 +1386,14 @@ int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
         struct md_op_data *op_data;
         int rc, lmmsize;
 
-        rc = ll_get_max_mdsize(sbi, &lmmsize);
-        if (rc)
-                RETURN(rc);
+	/*
+	 * Use default, not max, mdsize to prevent large vmalloc()'ed reply
+	 * buffers in the common case.  The reply buffer will be reallocated
+	 * by the ptlrpc layer during reply handling if an overflow occurs.
+	 */
+	rc = ll_get_default_mdsize(sbi, &lmmsize);
+	if (rc)
+		RETURN(rc);
 
         op_data = ll_prep_md_op_data(NULL, inode, NULL, filename,
                                      strlen(filename), lmmsize,
