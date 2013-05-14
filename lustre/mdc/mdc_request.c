@@ -868,7 +868,7 @@ int mdc_close(struct obd_export *exp, struct md_op_data *op_data,
         mdc_close_pack(req, op_data);
 
         req_capsule_set_size(&req->rq_pill, &RMF_MDT_MD, RCL_SERVER,
-                             obd->u.cli.cl_max_mds_easize);
+                             obd->u.cli.cl_default_mds_easize);
         req_capsule_set_size(&req->rq_pill, &RMF_LOGCOOKIES, RCL_SERVER,
                              obd->u.cli.cl_max_mds_cookiesize);
 
@@ -2210,6 +2210,14 @@ int mdc_get_info(const struct lu_env *env, struct obd_export *exp,
                 max_easize = val;
                 *max_easize = exp->exp_obd->u.cli.cl_max_mds_easize;
                 RETURN(0);
+	} else if (KEY_IS(KEY_DEFAULT_EASIZE)) {
+		int *default_easize;
+
+		if (*vallen != sizeof(int))
+			RETURN(-EINVAL);
+		default_easize = val;
+		*default_easize = exp->exp_obd->u.cli.cl_default_mds_easize;
+		RETURN(0);
         } else if (KEY_IS(KEY_CONN_DATA)) {
                 struct obd_import *imp = class_exp2cliimp(exp);
                 struct obd_connect_data *data = val;
