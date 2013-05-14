@@ -878,7 +878,8 @@ again:
 			goto shrink;
 
 		/* XXX: Currently, skip remote object, the consistency for
-		 *	remote object will be processed in LFSCK phase III. */
+		 *	remote object will be processed in LFSCK phase III.
+			LU-2915 */
 		if (mdd_object_remote(parent)) {
 			mdd_object_put(env, parent);
 			ldata.ld_lee = LINKEA_NEXT_ENTRY(ldata);
