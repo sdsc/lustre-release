@@ -319,11 +319,12 @@ struct client_obd {
         struct obd_uuid          cl_target_uuid;
         struct obd_import       *cl_import; /* ptlrpc connection state */
         int                      cl_conn_count;
-        /* max_mds_easize is purely a performance thing so we don't have to
-         * call obd_size_diskmd() all the time. */
-        int                      cl_default_mds_easize;
-        int                      cl_max_mds_easize;
-        int                      cl_max_mds_cookiesize;
+	/* max_mds_easize is purely a performance thing so we don't have to
+	 * call obd_size_diskmd() all the time. */
+	int			 cl_default_mds_easize;
+	int			 cl_max_mds_easize;
+	int			 cl_default_mds_cookiesize;
+	int			 cl_max_mds_cookiesize;
 
         enum lustre_sec_part     cl_sp_me;
         enum lustre_sec_part     cl_sp_to;
@@ -610,6 +611,7 @@ struct lmv_obd {
 	int			max_easize;
 	int			max_def_easize;
 	int			max_cookiesize;
+	int			max_def_cookiesize;
 	int			server_timeout;
 
 	int			tgts_size; /* size of tgts array */
@@ -1014,7 +1016,10 @@ enum obd_cleanup_stage {
 #define KEY_LOCK_TO_STRIPE      "lock_to_stripe"
 #define KEY_LOVDESC             "lovdesc"
 #define KEY_LOV_IDX             "lov_idx"
-#define KEY_MAX_EASIZE          "max_easize"
+#define KEY_MAX_EASIZE		"max_easize"
+#define KEY_DEFAULT_EASIZE	"default_easize"
+#define KEY_MAX_COOKIESIZE	"max_cookiesize"
+#define KEY_DEFAULT_COOKIESIZE	"default_cookiesize"
 #define KEY_MDS_CONN            "mds_conn"
 #define KEY_MGSSEC              "mgssec"
 #define KEY_NEXT_ID             "next_id"
@@ -1387,6 +1392,52 @@ struct md_ops {
 			     void *, int, struct lookup_intent *, int,
 			     struct ptlrpc_request **,
 			     ldlm_blocking_callback, __u64);
+<<<<<<< HEAD
+=======
+        int (*m_link)(struct obd_export *, struct md_op_data *,
+                      struct ptlrpc_request **);
+        int (*m_rename)(struct obd_export *, struct md_op_data *,
+                        const char *, int, const char *, int,
+                        struct ptlrpc_request **);
+        int (*m_is_subdir)(struct obd_export *, const struct lu_fid *,
+                           const struct lu_fid *,
+                           struct ptlrpc_request **);
+        int (*m_setattr)(struct obd_export *, struct md_op_data *, void *,
+                         int , void *, int, struct ptlrpc_request **,
+                         struct md_open_data **mod);
+        int (*m_sync)(struct obd_export *, const struct lu_fid *,
+                      struct obd_capa *, struct ptlrpc_request **);
+        int (*m_readpage)(struct obd_export *, struct md_op_data *,
+                          struct page **, struct ptlrpc_request **);
+
+        int (*m_unlink)(struct obd_export *, struct md_op_data *,
+                        struct ptlrpc_request **);
+
+        int (*m_setxattr)(struct obd_export *, const struct lu_fid *,
+                          struct obd_capa *, obd_valid, const char *,
+                          const char *, int, int, int, __u32,
+                          struct ptlrpc_request **);
+
+        int (*m_getxattr)(struct obd_export *, const struct lu_fid *,
+                          struct obd_capa *, obd_valid, const char *,
+                          const char *, int, int, int,
+                          struct ptlrpc_request **);
+
+	int (*m_init_ea_size)(struct obd_export *, int, int, int, int);
+
+        int (*m_get_lustre_md)(struct obd_export *, struct ptlrpc_request *,
+                               struct obd_export *, struct obd_export *,
+                               struct lustre_md *);
+
+        int (*m_free_lustre_md)(struct obd_export *, struct lustre_md *);
+
+        int (*m_set_open_replay_data)(struct obd_export *,
+                                      struct obd_client_handle *,
+                                      struct ptlrpc_request *);
+        int (*m_clear_open_replay_data)(struct obd_export *,
+                                        struct obd_client_handle *);
+        int (*m_set_lock_data)(struct obd_export *, __u64 *, void *, __u64 *);
+>>>>>>> cc505d9... LU-3338 llite: Limit reply buffer size
 
 	int (*m_link)(struct obd_export *, struct md_op_data *,
 		      struct ptlrpc_request **);
