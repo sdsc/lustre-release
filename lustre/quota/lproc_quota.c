@@ -34,7 +34,6 @@
 #include <lprocfs_status.h>
 #include <obd.h>
 #include <linux/seq_file.h>
-#include <lustre_fsfilt.h>
 
 #include "lquota_internal.h"
 
