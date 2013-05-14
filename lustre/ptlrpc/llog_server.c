@@ -49,7 +49,6 @@
 #include <obd_class.h>
 #include <lustre_log.h>
 #include <lustre_net.h>
-#include <lustre_fsfilt.h>
 
 #if defined(__KERNEL__) && defined(LUSTRE_LOG_SERVER)
 static int llog_origin_close(const struct lu_env *env, struct llog_handle *lgh)
