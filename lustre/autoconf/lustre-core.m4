@@ -328,6 +328,7 @@ AC_TRY_RUN([
         #define __LINUX_POSIX_ACL_H
 
         #ifdef CONFIG_FS_POSIX_ACL
+	struct user_namespace;
         # include <linux/posix_acl_xattr.h>
         #endif
 
