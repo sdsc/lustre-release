@@ -707,12 +707,58 @@ static int ll_rd_maxea_size(char *page, char **start, off_t off,
         unsigned int ealen;
         int rc;
 
-        rc = ll_get_max_mdsize(sbi, &ealen);
-        if (rc)
-                return rc;
+	rc = ll_get_max_mdsize(sbi, &ealen);
+	if (rc)
+		return rc;
+
+	return seq_printf(m, "%u\n", ealen);
+}
+LPROC_SEQ_FOPS_RO(ll_max_easize);
+
+static int ll_defult_easize_seq_show(struct seq_file *m, void *v)
+{
+	struct super_block *sb = m->private;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	unsigned int ealen;
+	int rc;
+
+	rc = ll_get_default_mdsize(sbi, &ealen);
+	if (rc)
+		return rc;
 
         return snprintf(page, count, "%u\n", ealen);
 }
+LPROC_SEQ_FOPS_RO(ll_defult_easize);
+
+static int ll_max_cookiesize_seq_show(struct seq_file *m, void *v)
+{
+	struct super_block *sb = m->private;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	unsigned int cookielen;
+	int rc;
+
+	rc = ll_get_max_cookiesize(sbi, &cookielen);
+	if (rc)
+		return rc;
+
+	return seq_printf(m, "%u\n", cookielen);
+}
+LPROC_SEQ_FOPS_RO(ll_max_cookiesize);
+
+static int ll_defult_cookiesize_seq_show(struct seq_file *m, void *v)
+{
+	struct super_block *sb = m->private;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	unsigned int cookielen;
+	int rc;
+
+	rc = ll_get_default_cookiesize(sbi, &cookielen);
+	if (rc)
+		return rc;
+
+	return seq_printf(m, "%u\n", cookielen);
+}
+LPROC_SEQ_FOPS_RO(ll_defult_cookiesize);
 
 static int ll_rd_sbi_flags(char *page, char **start, off_t off,
 				int count, int *eof, void *data)
@@ -740,38 +786,73 @@ static int ll_rd_sbi_flags(char *page, char **start, off_t off,
 	return rc;
 }
 
-static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
-        { "uuid",         ll_rd_sb_uuid,          0, 0 },
-        //{ "mntpt_path",   ll_rd_path,             0, 0 },
-        { "fstype",       ll_rd_fstype,           0, 0 },
-        { "site",         ll_rd_site_stats,       0, 0 },
-        { "blocksize",    ll_rd_blksize,          0, 0 },
-        { "kbytestotal",  ll_rd_kbytestotal,      0, 0 },
-        { "kbytesfree",   ll_rd_kbytesfree,       0, 0 },
-        { "kbytesavail",  ll_rd_kbytesavail,      0, 0 },
-        { "filestotal",   ll_rd_filestotal,       0, 0 },
-        { "filesfree",    ll_rd_filesfree,        0, 0 },
-        { "client_type",  ll_rd_client_type,      0, 0 },
-        //{ "filegroups",   lprocfs_rd_filegroups,  0, 0 },
-        { "max_read_ahead_mb", ll_rd_max_readahead_mb,
-                               ll_wr_max_readahead_mb, 0 },
-        { "max_read_ahead_per_file_mb", ll_rd_max_readahead_per_file_mb,
-                                        ll_wr_max_readahead_per_file_mb, 0 },
-        { "max_read_ahead_whole_mb", ll_rd_max_read_ahead_whole_mb,
-                                     ll_wr_max_read_ahead_whole_mb, 0 },
-        { "max_cached_mb",    ll_rd_max_cached_mb, ll_wr_max_cached_mb, 0 },
-        { "checksum_pages",   ll_rd_checksum, ll_wr_checksum, 0 },
-        { "max_rw_chunk",     ll_rd_max_rw_chunk, ll_wr_max_rw_chunk, 0 },
-        { "stats_track_pid",  ll_rd_track_pid, ll_wr_track_pid, 0 },
-        { "stats_track_ppid", ll_rd_track_ppid, ll_wr_track_ppid, 0 },
-        { "stats_track_gid",  ll_rd_track_gid, ll_wr_track_gid, 0 },
-        { "statahead_max",    ll_rd_statahead_max, ll_wr_statahead_max, 0 },
-        { "statahead_agl",    ll_rd_statahead_agl, ll_wr_statahead_agl, 0 },
-        { "statahead_stats",  ll_rd_statahead_stats, 0, 0 },
-        { "lazystatfs",       ll_rd_lazystatfs, ll_wr_lazystatfs, 0 },
-        { "max_easize",       ll_rd_maxea_size, 0, 0 },
-	{ "sbi_flags",        ll_rd_sbi_flags, 0, 0 },
-        { 0 }
+	return seq_printf(m, "unstable_pages: %8d\n"
+				"unstable_mb:    %8d\n", pages, mb);
+}
+LPROC_SEQ_FOPS_RO(ll_unstable_stats);
+
+struct lprocfs_seq_vars lprocfs_llite_obd_vars[] = {
+	{ .name	=	"uuid",
+	  .fops	=	&ll_sb_uuid_fops			},
+	{ .name	=	"fstype",
+	  .fops	=	&ll_fstype_fops				},
+	{ .name	=	"site",
+	  .fops	=	&ll_site_stats_fops			},
+	{ .name	=	"blocksize",
+	  .fops	=	&ll_blksize_fops			},
+	{ .name	=	"kbytestotal",
+	  .fops =	&ll_kbytestotal_fops			},
+	{ .name	=	"kbytesfree",
+	  .fops	=	&ll_kbytesfree_fops			},
+	{ .name	=	"kbytesavail",
+	  .fops	=	&ll_kbytesavail_fops			},
+	{ .name	=	"filestotal",
+	  .fops	=	&ll_filestotal_fops			},
+	{ .name	=	"filesfree",
+	  .fops	=	&ll_filesfree_fops			},
+	{ .name	=	"client_type",
+	  .fops	=	&ll_client_type_fops			},
+	{ .name	=	"max_read_ahead_mb",
+	  .fops	=	&ll_max_readahead_mb_fops		},
+	{ .name	=	"max_read_ahead_per_file_mb",
+	  .fops	=	&ll_max_readahead_per_file_mb_fops	},
+	{ .name	=	"max_read_ahead_whole_mb",
+	  .fops	=	&ll_max_read_ahead_whole_mb_fops	},
+	{ .name	=	"max_cached_mb",
+	  .fops	=	&ll_max_cached_mb_fops			},
+	{ .name	=	"checksum_pages",
+	  .fops	=	&ll_checksum_fops			},
+	{ .name	=	"max_rw_chunk",
+	  .fops	=	&ll_max_rw_chunk_fops			},
+	{ .name	=	"stats_track_pid",
+	  .fops	=	&ll_track_pid_fops			},
+	{ .name	=	"stats_track_ppid",
+	  .fops	=	&ll_track_ppid_fops			},
+	{ .name	=	"stats_track_gid",
+	  .fops	=	&ll_track_gid_fops			},
+	{ .name	=	"statahead_max",
+	  .fops	=	&ll_statahead_max_fops			},
+	{ .name	=	"statahead_agl",
+	  .fops	=	&ll_statahead_agl_fops			},
+	{ .name	=	"statahead_stats",
+	  .fops	=	&ll_statahead_stats_fops		},
+	{ .name	=	"lazystatfs",
+	  .fops =	&ll_lazystatfs_fops			},
+	{ .name	=	"max_easize",
+	  .fops =	&ll_max_easize_fops			},
+	{ .name	=	"default_easize",
+	  .fops =	&ll_defult_easize_fops			},
+	{ .name	=	"max_cookiesize",
+	  .fops =	&ll_max_cookiesize_fops			},
+	{ .name	=	"default_cookiesize",
+	  .fops =	&ll_defult_cookiesize_fops		},
+	{ .name	=	"sbi_flags",
+	  .fops =	&ll_sbi_flags_fops			},
+	{ .name	=	"xattr_cache",
+	  .fops	=	&ll_xattr_cache_fops			},
+	{ .name	=	"unstable_stats",
+	  .fops	=	&ll_unstable_stats_fops			},
+	{ 0 }
 };
 
 #define MAX_STRING_SIZE 128

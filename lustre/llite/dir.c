@@ -812,16 +812,16 @@ end:
 int ll_dir_getstripe(struct inode *inode, struct lov_mds_md **lmmp,
                      int *lmm_size, struct ptlrpc_request **request)
 {
-        struct ll_sb_info *sbi = ll_i2sbi(inode);
-        struct mdt_body   *body;
-        struct lov_mds_md *lmm = NULL;
-        struct ptlrpc_request *req = NULL;
-        int rc, lmmsize;
-        struct md_op_data *op_data;
+	struct ll_sb_info *sbi = ll_i2sbi(inode);
+	struct mdt_body   *body;
+	struct lov_mds_md *lmm = NULL;
+	struct ptlrpc_request *req = NULL;
+	int rc, lmmsize;
+	struct md_op_data *op_data;
 
-        rc = ll_get_max_mdsize(sbi, &lmmsize);
-        if (rc)
-                RETURN(rc);
+	rc = ll_get_default_mdsize(sbi, &lmmsize);
+	if (rc)
+		return rc;
 
         op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL,
                                      0, lmmsize, LUSTRE_OPC_ANY,
