@@ -303,18 +303,19 @@ ll_sa_entry_get_byindex(struct ll_statahead_info *sai, __u64 index)
 	return NULL;
 }
 
+static void ll_minfo_free(struct md_enqueue_info *minfo)
+{
+	if (minfo) {
+		ll_intent_release(&minfo->mi_it);
+		iput(minfo->mi_dir);
+		OBD_FREE_PTR(minfo);
+	}
+}
+
 static void ll_sa_entry_cleanup(struct ll_statahead_info *sai,
                                  struct ll_sa_entry *entry)
 {
-        struct md_enqueue_info *minfo = entry->se_minfo;
         struct ptlrpc_request  *req   = entry->se_req;
-
-        if (minfo) {
-                entry->se_minfo = NULL;
-                ll_intent_release(&minfo->mi_it);
-                iput(minfo->mi_dir);
-                OBD_FREE_PTR(minfo);
-        }
 
         if (req) {
                 entry->se_req = NULL;
@@ -702,6 +703,8 @@ out:
 	if (rc == 0 && entry->se_index == sai->sai_index_wait)
                 cfs_waitq_signal(&sai->sai_waitq);
         ll_sa_entry_put(sai, entry);
+	/* We unconditionally free minfo here. */
+	ll_minfo_free(minfo);
 }
 
 static int ll_statahead_interpret(struct ptlrpc_request *req,
@@ -723,6 +726,8 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 	if (unlikely(lli->lli_sai == NULL ||
 		     lli->lli_sai->sai_generation != minfo->mi_generation)) {
 		spin_unlock(&lli->lli_sa_lock);
+		/* Our sai went away, free minfo */
+		ll_minfo_free(minfo);
 		GOTO(out, rc = -ESTALE);
 	} else {
 		sai = ll_sai_get(lli->lli_sai);
