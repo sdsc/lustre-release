@@ -417,7 +417,19 @@ static int qsd_reint_main(void *args)
 	int			 rc;
 	ENTRY;
 
-	cfs_daemonize("qsd_reint");
+	OBD_ALLOC_PTR(env);
+	if (env == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	/* initialize environment */
+	rc = lu_env_init(env, LCT_DT_THREAD);
+	if (rc)
+		GOTO(out_env, rc);
+	qti = qsd_info(env);
+
+	snprintf(qti->qti_buf, MTI_NAME_MAXLEN, "qsd_reint_%s",
+		 qsd->qsd_svname);
+	cfs_daemonize(qti->qti_buf);
 
 	CDEBUG(D_QUOTA, "%s: Starting reintegration thread for "DFID"\n",
 	       qsd->qsd_svname, PFID(&qqi->qqi_fid));
@@ -428,15 +440,6 @@ static int qsd_reint_main(void *args)
 	thread_set_flags(thread, SVC_RUNNING);
 	cfs_waitq_signal(&thread->t_ctl_waitq);
 
-	OBD_ALLOC_PTR(env);
-	if (env == NULL)
-		GOTO(out, rc = -ENOMEM);
-
-	/* initialize environment */
-	rc = lu_env_init(env, LCT_DT_THREAD);
-	if (rc)
-		GOTO(out_env, rc);
-	qti = qsd_info(env);
 
 	/* wait for the connection to master established */
 	l_wait_event(thread->t_ctl_waitq,
@@ -511,7 +514,7 @@ static int qsd_reint_main(void *args)
 		qsd_bump_version(qqi, qqi->qqi_slv_ver, false);
 	}
 
-	/* wait for the connection to master established */
+	/* wait for the qsd instance started (target recovery done) */
 	l_wait_event(thread->t_ctl_waitq,
 		     qsd_started(qsd) || !thread_is_running(thread), &lwi);
 
@@ -529,16 +532,16 @@ out_lock:
 	ldlm_lock_decref(&qqi->qqi_lockh, qsd_glb_einfo.ei_mode);
 out_env_init:
 	lu_env_fini(env);
-out_env:
-	OBD_FREE_PTR(env);
-out:
+
 	write_lock(&qsd->qsd_lock);
 	qqi->qqi_reint = 0;
 	write_unlock(&qsd->qsd_lock);
 
 	qqi_putref(qqi);
 	lu_ref_del(&qqi->qqi_reference, "reint_thread", thread);
-
+out_env:
+	OBD_FREE_PTR(env);
+out:
 	thread_set_flags(thread, SVC_STOPPED);
 	cfs_waitq_signal(&thread->t_ctl_waitq);
 	return rc;
