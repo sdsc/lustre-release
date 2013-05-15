@@ -414,10 +414,12 @@ static int qsd_reint_main(void *args)
 	struct qsd_instance	*qsd = qqi->qqi_qsd;
 	struct ptlrpc_thread	*thread = &qqi->qqi_reint_thread;
 	struct l_wait_info	 lwi = { 0 };
+	char			 pname[MTI_NAME_MAXLEN];
 	int			 rc;
 	ENTRY;
 
-	cfs_daemonize("qsd_reint");
+	snprintf(pname, MTI_NAME_MAXLEN, "qsd_reint_%s", qsd->qsd_svname);
+	cfs_daemonize(pname);
 
 	CDEBUG(D_QUOTA, "%s: Starting reintegration thread for "DFID"\n",
 	       qsd->qsd_svname, PFID(&qqi->qqi_fid));
@@ -511,7 +513,7 @@ static int qsd_reint_main(void *args)
 		qsd_bump_version(qqi, qqi->qqi_slv_ver, false);
 	}
 
-	/* wait for the connection to master established */
+	/* wait for the qsd instance started (target recovery done) */
 	l_wait_event(thread->t_ctl_waitq,
 		     qsd_started(qsd) || !thread_is_running(thread), &lwi);
 
