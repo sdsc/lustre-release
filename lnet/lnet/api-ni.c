@@ -221,6 +221,9 @@ lnet_create_remote_nets_table(void)
 	cfs_list_t	*hash;
 
 	LASSERT(the_lnet.ln_remote_nets_hash == NULL);
+#ifdef __KERNEL__
+	CDEBUG(D_WARNING, "Hash table entries: %d\n", LNET_REMOTE_NETS_HASH_SIZE);
+#endif
 	LASSERT(the_lnet.ln_remote_nets_hbits > 0);
 	LIBCFS_ALLOC(hash, LNET_REMOTE_NETS_HASH_SIZE * sizeof(*hash));
 	if (hash == NULL) {
