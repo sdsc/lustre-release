@@ -152,6 +152,87 @@ static int osp_attr_set(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+static int osp_declare_container_create(const struct lu_env *env,
+					struct dt_object *dt,
+					struct thandle *th)
+{
+	struct osp_device	*d = lu2osp_dev(dt->do_lu.lo_dev);
+	struct osp_object	*o = dt2osp_obj(dt);
+	struct ptlrpc_request	*req;
+	struct obd_import	*imp;
+	struct ost_body		*body;
+	struct lu_fid		 fid;
+	int			 rc;
+	ENTRY;
+
+	o->opo_container = 1;
+
+	if (unlikely(d->opd_pre_status)) {
+		CDEBUG(D_INFO, "%s: don't send new precreate: rc = %d\n",
+		       d->opd_obd->obd_name, d->opd_pre_status);
+		RETURN(d->opd_pre_status);
+	}
+
+	rc = seq_client_get_seq(env, d->opd_obd->u.cli.cl_seq, &fid.f_seq);
+	if (rc != 0) {
+		CERROR("%s: alloc sequence error: rc = %d\n",
+		       d->opd_obd->obd_name, rc);
+		RETURN(rc);
+	}
+	fid.f_oid = 1;
+	fid.f_ver = 0;
+
+	imp = d->opd_obd->u.cli.cl_import;
+	LASSERT(imp);
+
+	req = ptlrpc_request_alloc(imp, &RQF_OST_CREATE);
+	if (req == NULL)
+		RETURN(-ENOMEM);
+	req->rq_request_portal = OST_CREATE_PORTAL;
+	/* we should not resend create request - anyway we will have delorphan
+	 * and kill these objects */
+	req->rq_no_delay = req->rq_no_resend = 1;
+
+	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_CREATE);
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
+
+	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
+	LASSERT(body);
+
+	fid_to_ostid(&fid, &body->oa.o_oi);
+	body->oa.o_valid = OBD_MD_FLCONTAINER | OBD_MD_FLGROUP;
+
+	ptlrpc_request_set_replen(req);
+
+	rc = ptlrpc_queue_wait(req);
+	if (rc) {
+		CERROR("%s: can't precreate: rc = %d\n", d->opd_obd->obd_name,
+		       rc);
+		GOTO(out_req, rc);
+	}
+	LASSERT(req->rq_transno == 0);
+
+	body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+	if (body == NULL)
+		GOTO(out_req, rc = -EPROTO);
+
+	// XXX: check fid ostid_to_fid(fid, &body->oa.o_oi, d->opd_index);
+	lu_object_assign_fid(env, &dt->do_lu, &fid);
+
+
+out_req:
+
+	if (rc)
+		CDEBUG(D_ERROR, "%s: new container "DFID": rc = %d\n",
+			d->opd_obd->obd_name, PFID(&fid), rc);
+
+	ptlrpc_req_finished(req);
+	RETURN(rc);
+}
+
 static int osp_declare_object_create(const struct lu_env *env,
 				     struct dt_object *dt,
 				     struct lu_attr *attr,
@@ -172,6 +253,9 @@ static int osp_declare_object_create(const struct lu_env *env,
 	 * cleanup that */
 	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OSC_CREATE_FAIL) && d->opd_index == 1)
 		RETURN(-ENOSPC);
+
+	if (dof && dof->dof_type == DFT_CONTAINER)
+		return osp_declare_container_create(env, dt, th);
 
 	LASSERT(d->opd_last_used_oid_file);
 	fid = lu_object_fid(&dt->do_lu);
@@ -233,6 +317,11 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 	int			rc = 0;
 	struct lu_fid		*fid = &osi->osi_fid;
 	ENTRY;
+
+	if (o->opo_container) {
+		o->opo_new = 1;
+		RETURN(0);
+	}
 
 	if (o->opo_reserved) {
 		/* regular case, fid is assigned holding trunsaction open */

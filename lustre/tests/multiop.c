@@ -258,6 +258,19 @@ int main(int argc, char **argv)
 				exit(save_errno);
 			}
 			break;
+		case 'Z':
+			lum = (struct lov_user_md_v3) {
+				.lmm_magic = LOV_USER_MAGIC_V3,
+				.lmm_pattern = LOV_PATTERN_CONTAINER,
+				.lmm_stripe_count = atoi(commands + 1),
+			};
+
+			if (ioctl(fd, LL_IOC_LOV_SETSTRIPE, &lum) < 0) {
+				save_errno = errno;
+				perror("LL_IOC_LOV_SETSTRIPE");
+				exit(save_errno);
+			}
+			break;
                 case 'C':
                         len = atoi(commands+1);
                         fd = llapi_file_open(fname, O_CREAT | O_WRONLY, 0644,

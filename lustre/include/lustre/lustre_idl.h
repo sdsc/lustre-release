@@ -333,8 +333,9 @@ enum lma_incompat {
 	LMAI_AGENT = 0x00000002, /* agent inode */
 	LMAI_REMOTE_PARENT = 0x00000004, /* the parent of the object
 					    is on the remote MDT */
+	LMAI_CONTAINER = 0x00000008,
 };
-#define LMA_INCOMPAT_SUPP	(LMAI_AGENT | LMAI_REMOTE_PARENT)
+#define LMA_INCOMPAT_SUPP	(LMAI_AGENT | LMAI_REMOTE_PARENT | LMAI_CONTAINER)
 
 extern void lustre_lma_swab(struct lustre_mdt_attrs *lma);
 extern void lustre_lma_init(struct lustre_mdt_attrs *lma,
@@ -1550,6 +1551,7 @@ enum obdo_flags {
 
 #define LOV_PATTERN_RAID0 0x001   /* stripes are used round-robin */
 #define LOV_PATTERN_RAID1 0x002   /* stripes are mirrors of each other */
+#define LOV_PATTERN_CONTAINER 0x003
 #define LOV_PATTERN_FIRST 0x100   /* first stripe is not in round-robin */
 #define LOV_PATTERN_CMOBD 0x200
 
@@ -1726,6 +1728,8 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 #define OBD_MD_FLRMTRGETFACL (0x0008000000000000ULL) /* lfs rgetfacl case */
 
 #define OBD_MD_FLDATAVERSION (0x0010000000000000ULL) /* iversion sum */
+
+#define OBD_MD_FLCONTAINER   (0x0020000000000000ULL)
 
 #define OBD_MD_FLGETATTR (OBD_MD_FLID    | OBD_MD_FLATIME | OBD_MD_FLMTIME | \
                           OBD_MD_FLCTIME | OBD_MD_FLSIZE  | OBD_MD_FLBLKSZ | \

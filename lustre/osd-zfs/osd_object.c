@@ -64,11 +64,16 @@
 #include <sys/spa.h>
 #include <sys/stat.h>
 #include <sys/zap.h>
+#include <sys/spa.h>
 #include <sys/spa_impl.h>
 #include <sys/zfs_znode.h>
+#include <sys/dmu.h>
 #include <sys/dmu_tx.h>
 #include <sys/dmu_objset.h>
 #include <sys/dsl_prop.h>
+#include <sys/dsl_pool.h>
+#include <sys/dsl_dir.h>
+#include <sys/dsl_dataset.h>
 #include <sys/sa_impl.h>
 #include <sys/txg.h>
 
@@ -76,8 +81,10 @@ static char *osd_obj_tag = "osd_object";
 
 static struct dt_object_operations osd_obj_ops;
 static struct lu_object_operations osd_lu_obj_ops;
+static struct lu_object_operations osd_lu_obj_container_ops;
 extern struct dt_body_operations osd_body_ops;
 static struct dt_object_operations osd_obj_otable_it_ops;
+static struct dt_object_operations osd_container_obj_ops;
 
 extern cfs_mem_cache_t *osd_object_kmem;
 
@@ -374,6 +381,8 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 			      PFID(lu_object_fid(&obj->oo_dt.do_lu)));
 			rc = -EOPNOTSUPP;
 		}
+		if (rc == 0 && (lma->lma_incompat & LMAI_CONTAINER))
+			obj->oo_container = 1;
 	} else if (rc == -ENODATA) {
 		/* haven't initialize LMA xattr */
 		rc = 0;
@@ -417,10 +426,14 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 		rc = osd_object_init0(env, obj);
 		if (rc != 0)
 			GOTO(out, rc);
-
 		rc = osd_check_lma(env, obj);
 		if (rc != 0)
 			GOTO(out, rc);
+		if (obj->oo_container) {
+			l->lo_ops = &osd_lu_obj_container_ops;
+			obj->oo_dt.do_ops = &osd_container_obj_ops;
+		}
+
 	} else if (rc == -ENOENT) {
 		rc = 0;
 	}
@@ -1110,6 +1123,7 @@ static int osd_declare_object_create(const struct lu_env *env,
 			/* for zap create */
 			dmu_tx_hold_zap(oh->ot_tx, DMU_NEW_OBJECT, 1, NULL);
 			break;
+		case DFT_CONTAINER:
 		case DFT_REGULAR:
 		case DFT_SYM:
 		case DFT_NODE:
@@ -1140,6 +1154,15 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	rc = osd_declare_quota(env, osd, attr->la_uid, attr->la_gid, 1, oh,
 			       false, NULL, false);
+
+	if (unlikely(dof->dof_type == DFT_CONTAINER)) {
+		char *name = osd_oti_get(env)->oti_str;
+		sprintf(name, "%s/shard-%Lx", osd->od_objset.os->os_spa->spa_name,
+			fid_seq(fid));
+		rc = dmu_objset_create(name, DMU_OST_OTHER, 0, NULL, NULL);
+		CDEBUG(D_OTHER, "created dataset %s: %d\n", name, rc);
+		obj->oo_container = 1;
+	}
 	RETURN(rc);
 }
 
@@ -1407,6 +1430,7 @@ static osd_obj_type_f osd_create_type_f(enum dt_format_type type)
 	case DFT_INDEX:
 		result = osd_mkidx;
 		break;
+	case DFT_CONTAINER:
 	case DFT_REGULAR:
 		result = osd_mkreg;
 		break;
@@ -1427,14 +1451,15 @@ static osd_obj_type_f osd_create_type_f(enum dt_format_type type)
  * Primitives for directory (i.e. ZAP) handling
  */
 static inline int osd_init_lma(const struct lu_env *env, struct osd_object *obj,
-			       const struct lu_fid *fid, struct osd_thandle *oh)
+			       const struct lu_fid *fid, unsigned incompat,
+			       struct osd_thandle *oh)
 {
 	struct osd_thread_info	*info = osd_oti_get(env);
 	struct lustre_mdt_attrs	*lma = &info->oti_mdt_attrs;
 	struct lu_buf		 buf;
 	int rc;
 
-	lustre_lma_init(lma, fid, 0);
+	lustre_lma_init(lma, fid, incompat);
 	lustre_lma_swab(lma);
 	buf.lb_buf = lma;
 	buf.lb_len = sizeof(*lma);
@@ -1525,12 +1550,18 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(ergo(rc == 0, dt_object_exists(dt)));
 	LASSERT(osd_invariant(obj));
 
-	rc = osd_init_lma(env, obj, fid, oh);
+	rc = osd_init_lma(env, obj, fid,
+			  dof->dof_type == DFT_CONTAINER ? LMAI_CONTAINER : 0,
+			  oh);
 	if (rc) {
 		CERROR("%s: can not set LMA on "DFID": rc = %d\n",
 		       osd->od_svname, PFID(fid), rc);
 		/* ignore errors during LMA initialization */
 		rc = 0;
+	}
+	if (obj->oo_container) {
+		obj->oo_dt.do_ops = &osd_container_obj_ops;
+		obj->oo_dt.do_lu.lo_ops = &osd_lu_obj_container_ops;
 	}
 
 out:
@@ -1816,3 +1847,148 @@ static struct dt_object_operations osd_obj_otable_it_ops = {
         .do_index_try   = osd_index_try,
 };
 
+static int osd_container_open(const struct lu_env *env, struct osd_object *o)
+{
+	struct osd_device *osd = osd_obj2dev(o);
+	char	*name = osd_oti_get(env)->oti_str;
+	int	 rc;
+	ENTRY;
+
+	LASSERT(o->oo_container != 0);
+	if (o->oo_os)
+		RETURN(0);
+
+	down(&o->oo_guard);
+	if (o->oo_os)
+		GOTO(out, rc = 0);
+
+	sprintf(name, "%s/shard-%Lx", osd->od_objset.os->os_spa->spa_name,
+		fid_seq(lu_object_fid(&o->oo_dt.do_lu)));
+
+	rc = -dmu_objset_own(name, DMU_OST_OTHER, B_FALSE, o, &o->oo_os);
+	CDEBUG(D_OTHER, "open %s -> %p: %d\n", name, o->oo_os, rc);
+
+out:
+	up(&o->oo_guard);
+	RETURN(rc);
+}
+
+static void osd_container_close(const struct lu_env *env, struct osd_object *o)
+{
+	ENTRY;
+
+	down(&o->oo_guard);
+	if (o->oo_os) {
+		CDEBUG(D_OTHER, "close objset %Lx -> %p\n",
+			fid_seq(lu_object_fid(&o->oo_dt.do_lu)), o->oo_os);
+		dmu_objset_disown(o->oo_os, o);
+	}
+	o->oo_os = NULL;
+	up(&o->oo_guard);
+	EXIT;
+}
+
+static int osd_container_attr_get(const struct lu_env *env,
+				  struct dt_object *dt,
+				  struct lu_attr *attr,
+				  struct lustre_capa *capa)
+{
+	struct osd_object	*obj = osd_dt_obj(dt);
+	uint64_t		 refdbytes, availbytes, usedobjs, availobjs;
+	int			 rc;
+
+	LASSERT(dt_object_exists(dt));
+	LASSERT(osd_invariant(obj));
+	LASSERT(obj->oo_db);
+
+	rc = osd_container_open(env, obj);
+	if (rc)
+		RETURN(rc);
+
+	LASSERT(obj->oo_os);
+	dmu_objset_space(obj->oo_os, &refdbytes, &availbytes, &usedobjs, &availobjs);
+
+	attr->la_valid = LA_BLOCKS | LA_BLKSIZE | LA_SIZE;
+	attr->la_size = refdbytes;
+	attr->la_blksize = 4096;
+	attr->la_blocks = refdbytes / 4096;
+
+	return 0;
+}
+
+static int osd_declare_container_destroy(const struct lu_env *env,
+				      struct dt_object *dt,
+				      struct thandle *th)
+{
+	struct osd_object *obj = osd_dt_obj(dt);
+	struct osd_device *osd = osd_obj2dev(obj);
+	char		  *name = osd_oti_get(env)->oti_str;
+	int		   rc;
+	ENTRY;
+
+	osd_container_close(env, obj);
+
+	sprintf(name, "%s/shard-%Lx", osd->od_objset.os->os_spa->spa_name,
+		fid_seq(lu_object_fid(&dt->do_lu)));
+
+	rc = -dmu_objset_destroy(name, B_FALSE);
+	if (rc)
+		CERROR("couldn't destroy dataset %s: %d\n", name, rc);
+
+	rc = osd_declare_object_destroy(env, dt, th);
+
+	RETURN(rc);
+}
+
+static int osd_container_destroy(const struct lu_env *env,
+			      struct dt_object *dt,
+			      struct thandle *th)
+{
+	int rc;
+	ENTRY;
+
+	rc = osd_object_destroy(env, dt, th);
+
+	RETURN(rc);
+}
+
+static struct dt_object_operations osd_container_obj_ops = {
+	.do_read_lock		= osd_object_read_lock,
+	.do_write_lock		= osd_object_write_lock,
+	.do_read_unlock		= osd_object_read_unlock,
+	.do_write_unlock	= osd_object_write_unlock,
+	.do_write_locked	= osd_object_write_locked,
+	.do_attr_get		= osd_container_attr_get,
+	//.do_declare_attr_set	= osd_declare_container_attr_set,
+	//.do_attr_set		= osd_container_attr_set,
+	.do_declare_destroy	= osd_declare_container_destroy,
+	.do_destroy		= osd_container_destroy,
+	//.do_index_try		= osd_container_index_try,
+	//.do_declare_ref_add	= osd_declare_container_ref_add,
+	//.do_ref_add		= osd_container_ref_add,
+	.do_declare_ref_del	= osd_declare_object_ref_del,
+	.do_ref_del		= osd_object_ref_del,
+	.do_xattr_get		= osd_xattr_get,
+	.do_declare_xattr_set	= osd_declare_xattr_set,
+	.do_xattr_set		= osd_xattr_set,
+	.do_declare_xattr_del	= osd_declare_xattr_del,
+	.do_xattr_del		= osd_xattr_del,
+	.do_xattr_list		= osd_xattr_list,
+	//.do_object_sync		= osd_container_sync,
+};
+
+static void osd_object_container_delete(const struct lu_env *env, struct lu_object *l)
+{
+	struct osd_object *obj = osd_obj(l);
+	osd_object_delete(env, l);
+	osd_container_close(env, obj);
+}
+
+static struct lu_object_operations osd_lu_obj_container_ops = {
+	.loo_object_init	= osd_object_init,
+	.loo_object_delete	= osd_object_container_delete,
+	.loo_object_release	= osd_object_release,
+	.loo_object_free	= osd_object_free,
+	.loo_object_print	= osd_object_print,
+	.loo_object_invariant	= osd_object_invariant,
+};

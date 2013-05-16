@@ -1180,6 +1180,44 @@ out_put:
 	RETURN(rc);
 }
 
+int ofd_create_container(const struct lu_env *env, struct obd_export *exp,
+			 struct obdo *oa, struct obd_trans_info *oti)
+{
+	struct ofd_device	*ofd = ofd_exp(exp);
+	struct ofd_thread_info	*info = ofd_info(env);
+	struct dt_object	*o;
+	ENTRY;
+
+	memset(&info->fti_fid, 0, sizeof(info->fti_fid));
+	ostid_to_fid(&info->fti_fid, &oa->o_oi, 0);
+
+	CDEBUG(D_OTHER, "new container "DFID" / "DOSTID"\n",
+		PFID(&info->fti_fid), POSTID(&oa->o_oi));
+	o = dt_locate(env, ofd->ofd_osd, &info->fti_fid);
+	if (IS_ERR(o))
+		RETURN(PTR_ERR(o));
+
+	LASSERT(o != NULL);
+	if (dt_object_exists(o)) {
+		lu_object_put(env, &o->do_lu);
+		RETURN(-EEXIST);
+	}
+	lu_object_put(env, &o->do_lu);
+
+	memset(&info->fti_attr, 0, sizeof(info->fti_attr));
+	info->fti_attr.la_valid = LA_MODE;
+	info->fti_attr.la_mode = S_IFREG |  S_IRUGO | S_IWUSR;
+	info->fti_dof.dof_type = DFT_CONTAINER;
+
+	o = dt_find_or_create(env, ofd->ofd_osd, &info->fti_fid,
+			      &info->fti_dof, &info->fti_attr);
+	if (IS_ERR(o))
+		RETURN(PTR_ERR(o));
+
+	lu_object_put(env, &o->do_lu);
+	RETURN(0);
+}
+
 int ofd_create(const struct lu_env *env, struct obd_export *exp,
 	       struct obdo *oa, struct lov_stripe_md **ea,
 	       struct obd_trans_info *oti)
@@ -1195,6 +1233,9 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 
 	info = ofd_info_init(env, exp);
 	ofd_oti2info(info, oti);
+
+	if (oa->o_valid & OBD_MD_FLCONTAINER)
+		RETURN(ofd_create_container(env, exp, oa, oti));
 
 	LASSERT(ostid_seq(&oa->o_oi) >= FID_SEQ_OST_MDT0);
 	LASSERT(oa->o_valid & OBD_MD_FLGROUP);

@@ -291,6 +291,9 @@ struct osd_object {
 
 	/* record size for index file */
 	int			 oo_recsize;
+
+	int			 oo_container;
+	struct objset		*oo_os;
 };
 
 int osd_statfs(const struct lu_env *, struct dt_device *, struct obd_statfs *);

@@ -158,7 +158,8 @@ struct lod_object {
 	 * is cached in stripenr/stripe_size */
 	unsigned int	   ldo_stripes_allocated:16,
 			   ldo_striping_cached:1,
-			   ldo_def_striping_set:1;
+			   ldo_def_striping_set:1,
+			   ldo_pattern:8;
 	__u32		   ldo_def_stripe_size;
 	__u16		   ldo_def_stripenr;
 	__u16		   ldo_def_stripe_offset;
@@ -181,6 +182,7 @@ struct lod_thread_info {
 	struct obd_statfs lti_osfs;
 	struct lu_attr    lti_attr;
 	struct lod_it	  lti_it;
+	struct dt_object_format	lti_dof;
 };
 
 extern const struct lu_device_operations lod_lu_ops;
