@@ -263,7 +263,6 @@ struct osd_properties {
 struct obd_device_target {
         __u32                     obt_magic;
         __u32                     obt_instance;
-        struct super_block       *obt_sb;
         /** last_rcvd file */
         struct file              *obt_rcvd_filp;
 #ifdef HAVE_SERVER_SUPPORT

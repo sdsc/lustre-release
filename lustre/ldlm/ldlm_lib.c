@@ -1625,17 +1625,18 @@ check_and_start_recovery_timer(struct obd_device *obd,
                                struct ptlrpc_request *req,
                                int new_client)
 {
-        int service_time = lustre_msg_get_service_time(req->rq_reqmsg);
-        struct obd_device_target *obt = &obd->u.obt;
-        struct lustre_sb_info *lsi;
+	int service_time = lustre_msg_get_service_time(req->rq_reqmsg);
+	struct obd_device_target *obt = &obd->u.obt;
+	struct lustre_mount_info *lmi;
+	struct lustre_sb_info    *lsi;
 
-        if (!new_client && service_time)
-                /* Teach server about old server's estimates, as first guess
-                 * at how long new requests will take. */
+	if (!new_client && service_time)
+		/* Teach server about old server's estimates, as first guess
+		 * at how long new requests will take. */
 		at_measured(&req->rq_rqbd->rqbd_svcpt->scp_at_estimate,
-                            service_time);
+			    service_time);
 
-        target_start_recovery_timer(obd);
+	target_start_recovery_timer(obd);
 
 	/* Convert the service time to RPC timeout,
 	 * and reuse service_time to limit stack usage. */
@@ -1644,15 +1645,17 @@ check_and_start_recovery_timer(struct obd_device *obd,
 	/* We expect other clients to timeout within service_time, then try
 	 * to reconnect, then try the failover server.  The max delay between
 	 * connect attempts is SWITCH_MAX + SWITCH_INC + INITIAL. */
-        service_time += 2 * INITIAL_CONNECT_TIMEOUT;
+	service_time += 2 * INITIAL_CONNECT_TIMEOUT;
 
-        LASSERT(obt->obt_magic == OBT_MAGIC);
-        lsi = s2lsi(obt->obt_sb);
-	if (!(lsi->lsi_flags | LDD_F_IR_CAPABLE))
-                service_time += 2 * (CONNECTION_SWITCH_MAX +
-                                     CONNECTION_SWITCH_INC);
-        if (service_time > obd->obd_recovery_timeout && !new_client)
-                extend_recovery_timer(obd, service_time, false);
+	LASSERT(obt->obt_magic == OBT_MAGIC);
+	lmi = server_get_mount_2(obd->obd_name);
+	LASSERT(lmi != NULL);
+	lsi = s2lsi(lmi->lmi_sb);
+	if (!(lsi->lsi_flags & LDD_F_IR_CAPABLE))
+		service_time += 2 * (CONNECTION_SWITCH_MAX +
+				     CONNECTION_SWITCH_INC);
+	if (service_time > obd->obd_recovery_timeout && !new_client)
+		extend_recovery_timer(obd, service_time, false);
 }
 
 /** Health checking routines */
