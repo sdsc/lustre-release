@@ -649,7 +649,7 @@ static inline int ll_need_32bit_api(struct ll_sb_info *sbi)
 #if BITS_PER_LONG == 32
         return 1;
 #else
-        return unlikely(cfs_curproc_is_32bit() || (sbi->ll_flags & LL_SBI_32BIT_API));
+        return unlikely(sbi->ll_flags & LL_SBI_32BIT_API);
 #endif
 }
 
