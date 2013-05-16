@@ -2082,6 +2082,9 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	LASSERT(handle != NULL);
 
+	if (unlikely(dof && dof->dof_type == DFT_CONTAINER))
+		RETURN(-EINVAL);
+
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_handle == NULL);
 

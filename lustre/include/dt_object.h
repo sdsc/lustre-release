@@ -247,6 +247,8 @@ enum dt_format_type {
         DFT_INDEX,
         /** for symbolic link */
         DFT_SYM,
+	/** for containers */
+	DFT_CONTAINER,
 };
 
 /**

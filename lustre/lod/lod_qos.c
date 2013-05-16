@@ -548,17 +548,20 @@ static int lod_qos_calc_rr(struct lod_device *lod, struct ost_pool *src_pool,
  *            otherwise we'd block whole transaction batch
  */
 static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
-						   struct lod_device *d,
+						   struct lod_object *lo,
 						   int ost_idx,
 						   struct thandle *th)
 {
 	struct lod_tgt_desc *ost;
 	struct lu_object *o, *n;
+	struct lod_device *d;
 	struct lu_device *nd;
 	struct dt_object *dt;
+	struct dt_object_format *dof = &lod_env_info(env)->lti_dof;
 	int               rc;
 	ENTRY;
 
+	d = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
 	LASSERT(d);
 	LASSERT(ost_idx >= 0);
 	LASSERT(ost_idx < d->lod_osts_size);
@@ -586,7 +589,12 @@ static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
 
 	dt = container_of(n, struct dt_object, do_lu);
 
-	rc = dt_declare_create(env, dt, NULL, NULL, NULL, th);
+	dof = &lod_env_info(env)->lti_dof;
+	dof->dof_type = DFT_REGULAR;
+	if (lo->ldo_pattern == LOV_PATTERN_CONTAINER)
+		dof->dof_type = DFT_CONTAINER;
+
+	rc = dt_declare_create(env, dt, NULL, NULL, dof, th);
 	if (rc) {
 		CDEBUG(D_OTHER, "can't declare creation on #%u: %d\n",
 		       ost_idx, rc);
@@ -782,7 +790,7 @@ repeat_find:
 		if (speed && lod_qos_is_ost_used(env, ost_idx, stripe_idx))
 			continue;
 
-		o = lod_qos_declare_object_on(env, m, ost_idx, th);
+		o = lod_qos_declare_object_on(env, lo, ost_idx, th);
 		if (IS_ERR(o)) {
 			CDEBUG(D_OTHER, "can't declare new object on #%u: %d\n",
 			       ost_idx, (int) PTR_ERR(o));
@@ -911,7 +919,7 @@ repeat_find:
 		if (i != 0 && sfs->os_fprecreated == 0 && speed == 0)
 			continue;
 
-		o = lod_qos_declare_object_on(env, m, ost_idx, th);
+		o = lod_qos_declare_object_on(env, lo, ost_idx, th);
 		if (IS_ERR(o)) {
 			CDEBUG(D_OTHER, "can't declare new object on #%u: %d\n",
 			       ost_idx, (int) PTR_ERR(o));
@@ -1133,7 +1141,7 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 				continue;
 			lod_qos_ost_in_use(env, nfound, idx);
 
-			o = lod_qos_declare_object_on(env, m, idx, th);
+			o = lod_qos_declare_object_on(env, lo, idx, th);
 			if (IS_ERR(o)) {
 				QOS_DEBUG("can't declare object on #%u: %d\n",
 					  idx, (int) PTR_ERR(o));
@@ -1282,10 +1290,12 @@ static int lod_qos_parse_config(const struct lu_env *env,
 		RETURN(-EINVAL);
 	}
 
-	if (v1->lmm_pattern != 0 && v1->lmm_pattern != LOV_PATTERN_RAID0) {
+	if (v1->lmm_pattern != 0 && v1->lmm_pattern != LOV_PATTERN_RAID0 &&
+		v1->lmm_pattern != LOV_PATTERN_CONTAINER) {
 		CERROR("invalid pattern: %x\n", v1->lmm_pattern);
 		RETURN(-EINVAL);
 	}
+	lo->ldo_pattern = v1->lmm_pattern;
 
 	if (v1->lmm_stripe_size)
 		lo->ldo_stripe_size = v1->lmm_stripe_size;
