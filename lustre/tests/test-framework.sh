@@ -469,6 +469,9 @@ load_modules_local() {
 
 	load_module ../libcfs/libcfs/libcfs
 
+echo "****** This is where we load lnet options ***********'
+echo "options lnet rnet_htable_size=1070" > /etc/modprobe.d/lustre.conf
+
     [ "$PTLDEBUG" ] && lctl set_param debug="$PTLDEBUG"
     [ "$SUBSYSTEM" ] && lctl set_param subsystem_debug="${SUBSYSTEM# }"
     load_module ../lnet/lnet/lnet

@@ -246,10 +246,10 @@ int LL_PROC_PROTO(proc_lnet_routes)
                         int          alive = route->lr_gateway->lp_alive;
 
 			s += snprintf(s, tmpstr + tmpsiz - s,
-				      "%-8s %4u %7s %s\n",
+				      "%-8s %4u %7s %s (%d)\n",
 				      libcfs_net2str(net), hops,
 				      alive ? "up" : "down",
-				      libcfs_nid2str(nid));
+				      libcfs_nid2str(nid), i - 1);
 			LASSERT(tmpstr + tmpsiz - s > 0);
 		}
 
