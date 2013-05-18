@@ -663,7 +663,7 @@ int ll_revalidate_nd(struct dentry *dentry, unsigned int flags)
 	       dentry->d_name.name, flags);
 
 	if (!(flags & (LOOKUP_PARENT|LOOKUP_OPEN|LOOKUP_CREATE)) &&
-	    ll_need_statahead(parent, dentry) > 0) {
+	    dentry_need_statahead(parent, dentry)) {
 		if (flags & LOOKUP_RCU)
 			RETURN(-ECHILD);
 

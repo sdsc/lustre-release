@@ -353,7 +353,7 @@ int ll_file_release(struct inode *inode, struct file *file)
          * it is me that should stop the statahead thread. */
         if (S_ISDIR(inode->i_mode) && lli->lli_opendir_key == fd &&
             lli->lli_opendir_pid != 0)
-                ll_stop_statahead(inode, lli->lli_opendir_key);
+		ll_stop_statahead(inode);
 
         if (inode->i_sb->s_root == file->f_dentry) {
                 LUSTRE_FPRIVATE(file) = NULL;
@@ -692,7 +692,7 @@ out_och_free:
 
 out_openerr:
                 if (opendir_set != 0)
-                        ll_stop_statahead(inode, lli->lli_opendir_key);
+			ll_stop_statahead(inode);
                 if (fd != NULL)
                         ll_file_data_put(fd);
         } else {
