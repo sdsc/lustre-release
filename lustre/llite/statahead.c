@@ -515,26 +515,14 @@ static void ll_sai_put(struct ll_statahead_info *sai)
         if (cfs_atomic_dec_and_lock(&sai->sai_refcount, &lli->lli_sa_lock)) {
                 struct ll_sa_entry *entry, *next;
 
-                if (unlikely(cfs_atomic_read(&sai->sai_refcount) > 0)) {
-                        /* It is race case, the interpret callback just hold
-                         * a reference count */
-			spin_unlock(&lli->lli_sa_lock);
-			RETURN_EXIT;
-		}
-
-		LASSERT(lli->lli_opendir_key == NULL);
-		LASSERT(thread_is_stopped(&sai->sai_thread));
-		LASSERT(thread_is_stopped(&sai->sai_agl_thread));
-
 		lli->lli_sai = NULL;
-		lli->lli_opendir_pid = 0;
 		spin_unlock(&lli->lli_sa_lock);
 
-                if (sai->sai_sent > sai->sai_replied)
-                        CDEBUG(D_READA,"statahead for dir "DFID" does not "
-                              "finish: [sent:"LPU64"] [replied:"LPU64"]\n",
-                              PFID(&lli->lli_fid),
-                              sai->sai_sent, sai->sai_replied);
+		LASSERT(lli->lli_opendir_key == NULL);
+		LASSERT(lli->lli_opendir_pid == 0);
+		LASSERT(thread_is_stopped(&sai->sai_thread));
+		LASSERT(thread_is_stopped(&sai->sai_agl_thread));
+		LASSERT(sai->sai_sent == sai->sai_replied);
 
 		cfs_list_for_each_entry_safe(entry, next,
 					     &sai->sai_entries, se_link)
@@ -546,6 +534,7 @@ static void ll_sai_put(struct ll_statahead_info *sai)
 
                 LASSERT(cfs_atomic_read(&sai->sai_cache_count) == 0);
                 LASSERT(agl_list_empty(sai));
+		LASSERT(cfs_atomic_read(&sai->sai_refcount) == 0);
 
                 iput(inode);
                 OBD_FREE_PTR(sai);
@@ -1269,6 +1258,7 @@ do_it:
         EXIT;
 
 out:
+	ll_dir_chain_fini(&chain);
         if (sai->sai_agl_valid) {
 		spin_lock(&plli->lli_agl_lock);
 		thread_set_flags(agl_thread, SVC_STOPPING);
@@ -1284,20 +1274,23 @@ out:
                 /* Set agl_thread flags anyway. */
                 thread_set_flags(&sai->sai_agl_thread, SVC_STOPPED);
         }
-        ll_dir_chain_fini(&chain);
+
 	spin_lock(&plli->lli_sa_lock);
-	if (!sa_received_empty(sai)) {
-		thread_set_flags(thread, SVC_STOPPING);
-		spin_unlock(&plli->lli_sa_lock);
+	thread_set_flags(thread, SVC_STOPPING);
+	spin_unlock(&plli->lli_sa_lock);
 
-		/* To release the resources held by received entries. */
-		while (!sa_received_empty(sai))
-			ll_post_statahead(sai);
+	/* wait for inflight statahead RPCs to finish */
+	l_wait_event(thread->t_ctl_waitq, sai->sai_sent == sai->sai_replied,
+		     &lwi);
 
-		spin_lock(&plli->lli_sa_lock);
-	}
+	/* To release the resources held by received entries. */
+	while (!sa_received_empty(sai))
+		ll_post_statahead(sai);
+
+	spin_lock(&plli->lli_sa_lock);
 	thread_set_flags(thread, SVC_STOPPED);
 	spin_unlock(&plli->lli_sa_lock);
+
         cfs_waitq_signal(&sai->sai_waitq);
         cfs_waitq_signal(&thread->t_ctl_waitq);
         ll_sai_put(sai);
@@ -1317,31 +1310,31 @@ void ll_stop_statahead(struct inode *dir, void *key)
 	if (unlikely(key == NULL))
 		return;
 
-	spin_lock(&lli->lli_sa_lock);
-	if (lli->lli_opendir_key != key || lli->lli_opendir_pid == 0) {
-		spin_unlock(&lli->lli_sa_lock);
+	/* not the statahead to stop */
+	if (lli->lli_opendir_key != key)
+		return;
+
+	/* statahead stopped already */
+	if (lli->lli_opendir_pid == 0) {
+		LASSERT(lli->lli_opendir_key == NULL);
                 return;
         }
 
+	spin_lock(&lli->lli_sa_lock);
         lli->lli_opendir_key = NULL;
+	lli->lli_opendir_pid = 0;
 
         if (lli->lli_sai) {
-                struct l_wait_info lwi = { 0 };
                 struct ptlrpc_thread *thread = &lli->lli_sai->sai_thread;
 
-                if (!thread_is_stopped(thread)) {
-                        thread_set_flags(thread, SVC_STOPPING);
-			spin_unlock(&lli->lli_sa_lock);
+		if (thread_is_running(thread)) {
+			thread_set_flags(thread, SVC_STOPPING);
 			cfs_waitq_signal(&thread->t_ctl_waitq);
 
 			CDEBUG(D_READA, "stop statahead thread: [pid %d]\n",
 			       cfs_curproc_pid());
-			l_wait_event(thread->t_ctl_waitq,
-				     thread_is_stopped(thread),
-				     &lwi);
-		} else {
-			spin_unlock(&lli->lli_sa_lock);
 		}
+		spin_unlock(&lli->lli_sa_lock);
 
 		/*
 		 * Put the ref which was held when first statahead_enter.
@@ -1350,7 +1343,6 @@ void ll_stop_statahead(struct inode *dir, void *key)
 		 */
 		ll_sai_put(lli->lli_sai);
 	} else {
-		lli->lli_opendir_pid = 0;
 		spin_unlock(&lli->lli_sa_lock);
 	}
 }
@@ -1516,15 +1508,12 @@ ll_sai_unplug(struct ll_statahead_info *sai, struct ll_sa_entry *entry)
                                PFID(&lli->lli_fid), sai->sai_hit,
                                sai->sai_miss, sai->sai_sent,
                                sai->sai_replied, cfs_curproc_pid());
-			spin_lock(&lli->lli_sa_lock);
-			if (!thread_is_stopped(thread))
-				thread_set_flags(thread, SVC_STOPPING);
-			spin_unlock(&lli->lli_sa_lock);
+			ll_stop_statahead(sai->sai_inode, lli->lli_opendir_key);
+			RETURN_EXIT;
 		}
 	}
 
-	if (!thread_is_stopped(thread))
-		cfs_waitq_signal(&thread->t_ctl_waitq);
+	cfs_waitq_signal(&thread->t_ctl_waitq);
 
 	EXIT;
 }
@@ -1552,14 +1541,26 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
 
         LASSERT(lli->lli_opendir_pid == cfs_curproc_pid());
 
-        if (sai) {
-                thread = &sai->sai_thread;
-                if (unlikely(thread_is_stopped(thread) &&
-                             cfs_list_empty(&sai->sai_entries_stated))) {
-                        /* to release resource */
-                        ll_stop_statahead(dir, lli->lli_opendir_key);
+	if (sai != NULL) {
+		spin_lock(&lli->lli_sa_lock);
+		if (lli->lli_sai == NULL) {
+			/* other process stopped statahead */
+			spin_unlock(&lli->lli_sa_lock);
+			RETURN(-EAGAIN);
+		}
+
+		thread = &sai->sai_thread;
+		if (unlikely(thread_is_stopped(thread) &&
+			     cfs_list_empty(&sai->sai_entries_stated))) {
+			spin_unlock(&lli->lli_sa_lock);
                         RETURN(-EAGAIN);
                 }
+		/*
+		 * take one refcount in case other process calls
+		 * ll_file_release->ll_stop_statahead.
+		 */
+		ll_sai_get(sai);
+		spin_unlock(&lli->lli_sa_lock);
 
                 if ((*dentryp)->d_name.name[0] == '.') {
                         if (sai->sai_ls_all ||
@@ -1584,6 +1585,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
                                  * "sai_ls_all" enabled as above.
                                  */
                                 sai->sai_miss_hidden++;
+				ll_sai_put(sai);
                                 RETURN(-EAGAIN);
                         }
                 }
@@ -1591,6 +1593,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
                 entry = ll_sa_entry_get_byname(sai, &(*dentryp)->d_name);
                 if (entry == NULL || only_unplug) {
                         ll_sai_unplug(sai, entry);
+			ll_sai_put(sai);
                         RETURN(entry ? 1 : -EAGAIN);
                 }
 
@@ -1601,16 +1604,17 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
 			ll_post_statahead(sai);
 
                 if (!ll_sa_entry_stated(entry)) {
-                        sai->sai_index_wait = entry->se_index;
-                        lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(30), NULL,
-                                               LWI_ON_SIGNAL_NOOP, NULL);
-                        rc = l_wait_event(sai->sai_waitq,
-                                          ll_sa_entry_stated(entry) ||
-                                          thread_is_stopped(thread),
-                                          &lwi);
-                        if (rc < 0) {
-                                ll_sai_unplug(sai, entry);
-                                RETURN(-EAGAIN);
+			sai->sai_index_wait = entry->se_index;
+			lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(30), NULL,
+					       LWI_ON_SIGNAL_NOOP, NULL);
+			rc = l_wait_event(sai->sai_waitq,
+					  ll_sa_entry_stated(entry) ||
+					  !thread_is_running(thread),
+					  &lwi);
+			if (rc < 0) {
+				ll_sai_unplug(sai, entry);
+				ll_sai_put(sai);
+				RETURN(-EAGAIN);
                         }
                 }
 
@@ -1640,6 +1644,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
                                               inode->i_ino,
                                               inode->i_generation);
                                         ll_sai_unplug(sai, entry);
+					ll_sai_put(sai);
                                         RETURN(-ESTALE);
                                 } else {
 					iput(inode);
@@ -1654,6 +1659,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
                 }
 
                 ll_sai_unplug(sai, entry);
+		ll_sai_put(sai);
                 RETURN(rc);
         }
 

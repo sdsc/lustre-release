@@ -1318,55 +1318,63 @@ ll_statahead_mark(struct inode *dir, struct dentry *dentry)
                 ldd->lld_sa_generation = sai->sai_generation;
 }
 
-static inline int
-ll_need_statahead(struct inode *dir, struct dentry *dentryp)
+/*
+ * When stats a dentry, the system trigger more than once "revalidate" or
+ * "lookup", for "getattr", for "getxattr", and maybe for others. Under
+ * patchless client mode, the operation intent is not accurate, which maybe
+ * misguide the statahead thread. For example: The "revalidate" call for
+ * "getattr" and "getxattr" of a dentry maybe have the same operation intent --
+ * "IT_GETATTR". In fact, one dentry should has only one chance to interact with
+ * the statahead thread, otherwise the statahead windows will be confused. The
+ * solution is as following: Assign "lld_sa_generation" with "sai_generation"
+ * when a dentry "IT_GETATTR" for the first time, and the subsequent
+ * "IT_GETATTR" will bypass interacting with statahead thread for checking:
+ * "lld_sa_generation == lli_sai->sai_generation"
+ */
+static inline bool
+dentry_was_stated(struct ll_statahead_info *sai, struct dentry *dentry)
+{
+	struct ll_dentry_data *ldd = ll_d2d(dentry);
+
+	return (ldd != NULL && ldd->lld_sa_generation == sai->sai_generation);
+}
+
+static inline bool
+dentry_can_statahead(struct inode *dir, struct dentry *dentry)
 {
 	struct ll_inode_info  *lli;
-	struct ll_dentry_data *ldd;
 
 	if (ll_i2sbi(dir)->ll_sa_max == 0)
-		return -EAGAIN;
+		return false;
 
 	lli = ll_i2info(dir);
 	/* not the same process, don't statahead */
 	if (lli->lli_opendir_pid != cfs_curproc_pid())
-		return -EAGAIN;
+		return false;
 
 	/* statahead has been stopped */
 	if (lli->lli_opendir_key == NULL)
-		return -EAGAIN;
+		return false;
 
-	ldd = ll_d2d(dentryp);
-	/*
-	 * When stats a dentry, the system trigger more than once "revalidate"
-	 * or "lookup", for "getattr", for "getxattr", and maybe for others.
-	 * Under patchless client mode, the operation intent is not accurate,
-	 * which maybe misguide the statahead thread. For example:
-	 * The "revalidate" call for "getattr" and "getxattr" of a dentry maybe
-	 * have the same operation intent -- "IT_GETATTR".
-	 * In fact, one dentry should has only one chance to interact with the
-	 * statahead thread, otherwise the statahead windows will be confused.
-	 * The solution is as following:
-	 * Assign "lld_sa_generation" with "sai_generation" when a dentry
-	 * "IT_GETATTR" for the first time, and the subsequent "IT_GETATTR"
-	 * will bypass interacting with statahead thread for checking:
-	 * "lld_sa_generation == lli_sai->sai_generation"
-	 */
-	if (ldd && lli->lli_sai &&
-	    ldd->lld_sa_generation == lli->lli_sai->sai_generation)
-		return -EAGAIN;
+	if (lli->lli_sai != NULL) {
+		spin_lock(&lli->lli_sa_lock);
+		if (lli->lli_sai &&
+		    (dentry_was_stated(lli->lli_sai, dentry) ||
+		     !thread_is_running(&lli->lli_sai->sai_thread))) {
+			spin_unlock(&lli->lli_sa_lock);
+			return false;
+		}
+		spin_unlock(&lli->lli_sa_lock);
+	}
 
-	return 1;
+	return true;
 }
 
 static inline int
 ll_statahead_enter(struct inode *dir, struct dentry **dentryp, int only_unplug)
 {
-	int ret;
-
-	ret = ll_need_statahead(dir, *dentryp);
-	if (ret <= 0)
-		return ret;
+	if (!dentry_can_statahead(dir, *dentryp))
+		return -EAGAIN;
 
 	return do_statahead_enter(dir, dentryp, only_unplug);
 }
