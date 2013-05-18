@@ -312,6 +312,9 @@ struct lfsck_instance {
 	/* It for directory traversal */
 	struct dt_it		 *li_di_dir;
 
+	/* namespace-based directory traversal position. */
+	__u64			  li_cookie_dir;
+
 	/* Arguments for low layer otable-based iteration. */
 	__u32			  li_args_oit;
 
