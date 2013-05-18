@@ -1139,8 +1139,7 @@ struct md_enqueue_info {
         struct lustre_handle    mi_lockh;
         struct inode           *mi_dir;
         md_enqueue_cb_t         mi_cb;
-        __u64                   mi_cbdata;
-        unsigned int            mi_generation;
+	void		       *mi_cbdata;
 };
 
 struct obd_ops {
