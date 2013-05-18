@@ -138,14 +138,15 @@ static struct ll_sb_info *ll_init_sbi(void)
 			       pp_w_hist.oh_lock);
         }
 
-        /* metadata statahead is enabled by default */
-        sbi->ll_sa_max = LL_SA_RPC_DEF;
-        cfs_atomic_set(&sbi->ll_sa_total, 0);
-        cfs_atomic_set(&sbi->ll_sa_wrong, 0);
-        cfs_atomic_set(&sbi->ll_agl_total, 0);
-        sbi->ll_flags |= LL_SBI_AGL_ENABLED;
+	/* metadata statahead is enabled by default */
+	sbi->ll_sa_max = LL_SA_RPC_DEF;
+	cfs_atomic_set(&sbi->ll_sa_total, 0);
+	cfs_atomic_set(&sbi->ll_sa_running, 0);
+	cfs_atomic_set(&sbi->ll_sa_wrong, 0);
+	cfs_atomic_set(&sbi->ll_agl_total, 0);
+	sbi->ll_flags |= LL_SBI_AGL_ENABLED;
 
-        RETURN(sbi);
+	RETURN(sbi);
 }
 
 void ll_free_sbi(struct super_block *sb)
@@ -719,7 +720,11 @@ void client_common_put_super(struct super_block *sb)
         obd_disconnect(sbi->ll_md_exp);
         sbi->ll_md_exp = NULL;
 
-        EXIT;
+	/* wait running statahead threads quit */
+	while (atomic_read(&sbi->ll_sa_running) > 0)
+		cfs_schedule_timeout_and_set_state(CFS_TASK_UNINT, HZ >> 3);
+
+	EXIT;
 }
 
 void ll_kill_super(struct super_block *sb)
