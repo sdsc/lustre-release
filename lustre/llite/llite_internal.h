@@ -189,6 +189,7 @@ struct ll_inode_info {
                          * cleanup the dir readahead. */
                         void                           *d_opendir_key;
                         struct ll_statahead_info       *d_sai;
+			unsigned int			d_sa_generation;
                         struct posix_acl               *d_def_acl;
                         /* protect statahead stuff. */
 			spinlock_t			d_sa_lock;
@@ -200,6 +201,7 @@ struct ll_inode_info {
 #define lli_readdir_mutex       u.d.d_readdir_mutex
 #define lli_opendir_key         u.d.d_opendir_key
 #define lli_sai                 u.d.d_sai
+#define lli_sa_generation	u.d.d_sa_generation
 #define lli_def_acl             u.d.d_def_acl
 #define lli_sa_lock             u.d.d_sa_lock
 #define lli_opendir_pid         u.d.d_opendir_pid
@@ -506,6 +508,8 @@ struct ll_sb_info {
         unsigned int              ll_sa_max;     /* max statahead RPCs */
         atomic_t                  ll_sa_total;   /* statahead thread started
                                                   * count */
+	atomic_t		  ll_sa_running; /* running statahead thread
+						  * count */
         atomic_t                  ll_sa_wrong;   /* statahead thread stopped for
                                                   * low hit ratio */
         atomic_t                  ll_agl_total;  /* AGL thread started count */
@@ -1236,7 +1240,6 @@ struct ll_statahead_info {
         struct inode           *sai_inode;
         cfs_atomic_t            sai_refcount;   /* when access this struct, hold
                                                  * refcount */
-        unsigned int            sai_generation; /* generation for statahead */
         unsigned int            sai_max;        /* max ahead of lookup */
         __u64                   sai_sent;       /* stat requests sent count */
         __u64                   sai_replied;    /* stat requests which received
@@ -1275,7 +1278,7 @@ struct ll_statahead_info {
 
 int do_statahead_enter(struct inode *dir, struct dentry **dentry,
                        int only_unplug);
-void ll_stop_statahead(struct inode *dir, void *key);
+void ll_stop_statahead(struct inode *dir);
 
 static inline int ll_glimpse_size(struct inode *inode)
 {
@@ -1293,66 +1296,66 @@ static inline void
 ll_statahead_mark(struct inode *dir, struct dentry *dentry)
 {
         struct ll_inode_info     *lli = ll_i2info(dir);
-        struct ll_statahead_info *sai = lli->lli_sai;
         struct ll_dentry_data    *ldd = ll_d2d(dentry);
 
         /* not the same process, don't mark */
         if (lli->lli_opendir_pid != cfs_curproc_pid())
                 return;
 
-        if (sai != NULL && ldd != NULL)
-                ldd->lld_sa_generation = sai->sai_generation;
+	if (ldd != NULL)
+		ldd->lld_sa_generation = lli->lli_sa_generation;
 }
 
-static inline int
-ll_need_statahead(struct inode *dir, struct dentry *dentryp)
+/*
+ * When stats a dentry, the system trigger more than once "revalidate" or
+ * "lookup", for "getattr", for "getxattr", and maybe for others. Under
+ * patchless client mode, the operation intent is not accurate, which maybe
+ * misguide the statahead thread. For example: The "revalidate" call for
+ * "getattr" and "getxattr" of a dentry maybe have the same operation intent --
+ * "IT_GETATTR". In fact, one dentry should has only one chance to interact with
+ * the statahead thread, otherwise the statahead windows will be confused. The
+ * solution is as following: Assign "lld_sa_generation" with "sai_generation"
+ * when a dentry "IT_GETATTR" for the first time, and the subsequent
+ * "IT_GETATTR" will bypass interacting with statahead thread for checking:
+ * "lld_sa_generation == lli_sai->sai_generation"
+ */
+static inline bool
+dentry_was_stated(struct ll_inode_info *lli, struct dentry *dentry)
+{
+	struct ll_dentry_data *ldd = ll_d2d(dentry);
+
+	return (ldd != NULL &&
+		ldd->lld_sa_generation == lli->lli_sa_generation);
+}
+
+static inline bool
+dentry_need_statahead(struct inode *dir, struct dentry *dentry)
 {
 	struct ll_inode_info  *lli;
-	struct ll_dentry_data *ldd;
 
 	if (ll_i2sbi(dir)->ll_sa_max == 0)
-		return -EAGAIN;
+		return false;
 
 	lli = ll_i2info(dir);
 	/* not the same process, don't statahead */
 	if (lli->lli_opendir_pid != cfs_curproc_pid())
-		return -EAGAIN;
+		return false;
 
 	/* statahead has been stopped */
 	if (lli->lli_opendir_key == NULL)
-		return -EAGAIN;
+		return false;
 
-	ldd = ll_d2d(dentryp);
-	/*
-	 * When stats a dentry, the system trigger more than once "revalidate"
-	 * or "lookup", for "getattr", for "getxattr", and maybe for others.
-	 * Under patchless client mode, the operation intent is not accurate,
-	 * which maybe misguide the statahead thread. For example:
-	 * The "revalidate" call for "getattr" and "getxattr" of a dentry maybe
-	 * have the same operation intent -- "IT_GETATTR".
-	 * In fact, one dentry should has only one chance to interact with the
-	 * statahead thread, otherwise the statahead windows will be confused.
-	 * The solution is as following:
-	 * Assign "lld_sa_generation" with "sai_generation" when a dentry
-	 * "IT_GETATTR" for the first time, and the subsequent "IT_GETATTR"
-	 * will bypass interacting with statahead thread for checking:
-	 * "lld_sa_generation == lli_sai->sai_generation"
-	 */
-	if (ldd && lli->lli_sai &&
-	    ldd->lld_sa_generation == lli->lli_sai->sai_generation)
-		return -EAGAIN;
+	if (lli->lli_sai != NULL && dentry_was_stated(lli, dentry))
+		return false;
 
-	return 1;
+	return true;
 }
 
 static inline int
 ll_statahead_enter(struct inode *dir, struct dentry **dentryp, int only_unplug)
 {
-	int ret;
-
-	ret = ll_need_statahead(dir, *dentryp);
-	if (ret <= 0)
-		return ret;
+	if (!dentry_need_statahead(dir, *dentryp))
+		return -EAGAIN;
 
 	return do_statahead_enter(dir, dentryp, only_unplug);
 }
