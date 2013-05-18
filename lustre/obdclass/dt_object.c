@@ -942,14 +942,16 @@ int lprocfs_dt_rd_blksize(char *page, char **start, off_t off,
 {
 	struct dt_device *dt = data;
 	struct obd_statfs osfs;
+	int rc;
 
-	int rc = dt_statfs(NULL, dt, &osfs);
-	if (rc != 0) {
-		*eof = 1;
-		rc = snprintf(page, count, "%d\n",
-				(unsigned) osfs.os_bsize);
-	}
+	rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0)
+		GOTO(out, rc);
 
+	*eof = 1;
+	rc = snprintf(page, count, "%u\n", (unsigned) osfs.os_bsize);
+	GOTO(out, rc);
+out:
 	return rc;
 }
 EXPORT_SYMBOL(lprocfs_dt_rd_blksize);
@@ -959,19 +961,24 @@ int lprocfs_dt_rd_kbytestotal(char *page, char **start, off_t off,
 {
 	struct dt_device *dt = data;
 	struct obd_statfs osfs;
+	__u64 result;
+	__u32 blk_size;
+	int rc;
 
-	int rc = dt_statfs(NULL, dt, &osfs);
-	if (rc != 0) {
-		__u32 blk_size = osfs.os_bsize >> 10;
-		__u64 result = osfs.os_blocks;
+	rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0)
+		GOTO(out, rc);
 
-		while (blk_size >>= 1)
-			result <<= 1;
+	blk_size = osfs.os_bsize >> 10;
+	result = osfs.os_blocks;
 
-		*eof = 1;
-		rc = snprintf(page, count, LPU64"\n", result);
-	}
+	while (blk_size >>= 1)
+		result <<= 1;
 
+	*eof = 1;
+	rc = snprintf(page, count, LPU64"\n", result);
+	GOTO(out, rc);
+out:
 	return rc;
 }
 EXPORT_SYMBOL(lprocfs_dt_rd_kbytestotal);
@@ -981,19 +988,24 @@ int lprocfs_dt_rd_kbytesfree(char *page, char **start, off_t off,
 {
 	struct dt_device *dt = data;
 	struct obd_statfs osfs;
+	__u64 result;
+	__u32 blk_size;
+	int rc;
 
-	int rc = dt_statfs(NULL, dt, &osfs);
-	if (rc != 0) {
-		__u32 blk_size = osfs.os_bsize >> 10;
-		__u64 result = osfs.os_bfree;
+	rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0)
+		GOTO(out, rc);
 
-		while (blk_size >>= 1)
-			result <<= 1;
+	blk_size = osfs.os_bsize >> 10;
+	result = osfs.os_bfree;
 
-		*eof = 1;
-		rc = snprintf(page, count, LPU64"\n", result);
-	}
+	while (blk_size >>= 1)
+		result <<= 1;
 
+	*eof = 1;
+	rc = snprintf(page, count, LPU64"\n", result);
+	GOTO(out, rc);
+out:
 	return rc;
 }
 EXPORT_SYMBOL(lprocfs_dt_rd_kbytesfree);
@@ -1003,19 +1015,24 @@ int lprocfs_dt_rd_kbytesavail(char *page, char **start, off_t off,
 {
 	struct dt_device *dt = data;
 	struct obd_statfs osfs;
+	__u64 result;
+	__u32 blk_size;
+	int rc;
 
-	int rc = dt_statfs(NULL, dt, &osfs);
-	if (rc != 0) {
-		__u32 blk_size = osfs.os_bsize >> 10;
-		__u64 result = osfs.os_bavail;
+	rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0)
+		GOTO(out, rc);
 
-		while (blk_size >>= 1)
-			result <<= 1;
+	blk_size = osfs.os_bsize >> 10;
+	result = osfs.os_bavail;
 
-		*eof = 1;
-		rc = snprintf(page, count, LPU64"\n", result);
-	}
+	while (blk_size >>= 1)
+		result <<= 1;
 
+	*eof = 1;
+	rc = snprintf(page, count, LPU64"\n", result);
+	GOTO(out, rc);
+out:
 	return rc;
 }
 EXPORT_SYMBOL(lprocfs_dt_rd_kbytesavail);
@@ -1025,13 +1042,16 @@ int lprocfs_dt_rd_filestotal(char *page, char **start, off_t off,
 {
 	struct dt_device *dt = data;
 	struct obd_statfs osfs;
+	int rc;
 
-	int rc = dt_statfs(NULL, dt, &osfs);
-	if (rc != 0) {
-		*eof = 1;
-		rc = snprintf(page, count, LPU64"\n", osfs.os_files);
-	}
+	rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0)
+		GOTO(out, rc);
 
+	*eof = 1;
+	rc = snprintf(page, count, LPU64"\n", osfs.os_files);
+	GOTO(out, rc);
+out:
 	return rc;
 }
 EXPORT_SYMBOL(lprocfs_dt_rd_filestotal);
@@ -1041,13 +1061,16 @@ int lprocfs_dt_rd_filesfree(char *page, char **start, off_t off,
 {
 	struct dt_device *dt = data;
 	struct obd_statfs osfs;
+	int rc;
 
-	int rc = dt_statfs(NULL, dt, &osfs);
-	if (rc != 0) {
-		*eof = 1;
-		rc = snprintf(page, count, LPU64"\n", osfs.os_ffree);
-	}
+	rc = dt_statfs(NULL, dt, &osfs);
+	if (rc != 0)
+		GOTO(out, rc);
 
+	*eof = 1;
+	rc = snprintf(page, count, LPU64"\n", osfs.os_ffree);
+	GOTO(out, rc);
+out:
 	return rc;
 }
 EXPORT_SYMBOL(lprocfs_dt_rd_filesfree);

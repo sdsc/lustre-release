@@ -916,7 +916,7 @@ import_zpool() {
 	poolname=$(zpool_name $facet)
 
 	if [[ -n "$poolname" ]]; then
-		do_facet $facet "$ZPOOL import -f $opts $poolname"
+		do_facet $facet "$ZPOOL import -d /tmp -f $opts $poolname"
 	fi
 }
 
