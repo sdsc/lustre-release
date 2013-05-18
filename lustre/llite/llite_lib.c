@@ -138,12 +138,13 @@ static struct ll_sb_info *ll_init_sbi(void)
 			       pp_w_hist.oh_lock);
         }
 
-        /* metadata statahead is enabled by default */
-        sbi->ll_sa_max = LL_SA_RPC_DEF;
-        cfs_atomic_set(&sbi->ll_sa_total, 0);
-        cfs_atomic_set(&sbi->ll_sa_wrong, 0);
-        cfs_atomic_set(&sbi->ll_agl_total, 0);
-        sbi->ll_flags |= LL_SBI_AGL_ENABLED;
+	/* metadata statahead is enabled by default */
+	sbi->ll_sa_max = LL_SA_RPC_DEF;
+	cfs_atomic_set(&sbi->ll_sa_total, 0);
+	cfs_atomic_set(&sbi->ll_sa_running, 0);
+	cfs_atomic_set(&sbi->ll_sa_wrong, 0);
+	cfs_atomic_set(&sbi->ll_agl_total, 0);
+	sbi->ll_flags |= LL_SBI_AGL_ENABLED;
 
         RETURN(sbi);
 }
@@ -2061,6 +2062,10 @@ void ll_umount_begin(struct super_block *sb)
 
         CDEBUG(D_VFSTRACE, "VFS Op: superblock %p count %d active %d\n", sb,
                sb->s_count, atomic_read(&sb->s_active));
+
+	/* wait for running statahead threads to quit */
+	while (atomic_read(&sbi->ll_sa_running) > 0)
+		cfs_schedule_timeout_and_set_state(CFS_TASK_UNINT, CFS_HZ >> 3);
 
         obd = class_exp2obd(sbi->ll_md_exp);
         if (obd == NULL) {
