@@ -185,27 +185,29 @@ struct ll_inode_info {
 			/* serialize normal readdir and statahead-readdir. */
 			struct mutex			d_readdir_mutex;
 
-                        /* metadata statahead */
-                        /* since parent-child threads can share the same @file
-                         * struct, "opendir_key" is the token when dir close for
-                         * case of parent exit before child -- it is me should
-                         * cleanup the dir readahead. */
-                        void                           *d_opendir_key;
-                        struct ll_statahead_info       *d_sai;
-                        struct posix_acl               *d_def_acl;
-                        /* protect statahead stuff. */
+			/* metadata statahead */
+			/* since parent-child threads can share the same @file
+			 * struct, "opendir_key" is the token when dir close for
+			 * case of parent exit before child -- it is me should
+			 * cleanup the dir readahead. */
+			void			       *d_opendir_key;
+			struct ll_statahead_info       *d_sai;
+			unsigned int			d_sa_generation;
+			struct posix_acl	       *d_def_acl;
+			/* protect statahead stuff. */
 			spinlock_t			d_sa_lock;
 			/* "opendir_pid" is the token when lookup/revalid
 			 * -- I am the owner of dir statahead. */
-			pid_t                           d_opendir_pid;
+			pid_t				d_opendir_pid;
 		} d;
 
-#define lli_readdir_mutex       u.d.d_readdir_mutex
-#define lli_opendir_key         u.d.d_opendir_key
-#define lli_sai                 u.d.d_sai
-#define lli_def_acl             u.d.d_def_acl
-#define lli_sa_lock             u.d.d_sa_lock
-#define lli_opendir_pid         u.d.d_opendir_pid
+#define lli_readdir_mutex	u.d.d_readdir_mutex
+#define lli_opendir_key		u.d.d_opendir_key
+#define lli_sai			u.d.d_sai
+#define lli_sa_generation	u.d.d_sa_generation
+#define lli_def_acl		u.d.d_def_acl
+#define lli_sa_lock		u.d.d_sa_lock
+#define lli_opendir_pid		u.d.d_opendir_pid
 
 		/* for non-directory */
 		struct {
@@ -479,22 +481,22 @@ struct ll_sb_info {
 	spinlock_t		  ll_lock;
 	spinlock_t		  ll_pp_extent_lock; /* pp_extent entry*/
 	spinlock_t		  ll_process_lock; /* ll_rw_process_info */
-        struct obd_uuid           ll_sb_uuid;
-        struct obd_export        *ll_md_exp;
-        struct obd_export        *ll_dt_exp;
-        struct proc_dir_entry*    ll_proc_root;
-        struct lu_fid             ll_root_fid; /* root object fid */
+	struct obd_uuid           ll_sb_uuid;
+	struct obd_export        *ll_md_exp;
+	struct obd_export        *ll_dt_exp;
+	struct proc_dir_entry*    ll_proc_root;
+	struct lu_fid             ll_root_fid; /* root object fid */
 
-        int                       ll_flags;
+	int                       ll_flags;
 	unsigned int		  ll_umounting:1,
 				  ll_xattr_cache_enabled:1;
-        cfs_list_t                ll_conn_chain; /* per-conn chain of SBs */
-        struct lustre_client_ocd  ll_lco;
+	cfs_list_t                ll_conn_chain; /* per-conn chain of SBs */
+	struct lustre_client_ocd  ll_lco;
 
-        cfs_list_t                ll_orphan_dentry_list; /*please don't ask -p*/
-        struct ll_close_queue    *ll_lcq;
+	cfs_list_t                ll_orphan_dentry_list; /*please don't ask -p*/
+	struct ll_close_queue    *ll_lcq;
 
-        struct lprocfs_stats     *ll_stats; /* lprocfs stats counter */
+	struct lprocfs_stats     *ll_stats; /* lprocfs stats counter */
 
 	/* Used to track "unstable" pages on a client, and maintain a
 	 * LRU list of clean pages. An "unstable" page is defined as
@@ -502,42 +504,44 @@ struct ll_sb_info {
 	 * but is uncommitted to stable storage. */
 	struct cl_client_cache    ll_cache;
 
-        struct lprocfs_stats     *ll_ra_stats;
+	struct lprocfs_stats     *ll_ra_stats;
 
-        struct ll_ra_info         ll_ra_info;
-        unsigned int              ll_namelen;
-        struct file_operations   *ll_fop;
+	struct ll_ra_info         ll_ra_info;
+	unsigned int              ll_namelen;
+	struct file_operations   *ll_fop;
 
-        /* =0 - hold lock over whole read/write
-         * >0 - max. chunk to be read/written w/o lock re-acquiring */
-        unsigned long             ll_max_rw_chunk;
-        unsigned int              ll_md_brw_size; /* used by readdir */
+	/* =0 - hold lock over whole read/write
+	 * >0 - max. chunk to be read/written w/o lock re-acquiring */
+	unsigned long             ll_max_rw_chunk;
+	unsigned int              ll_md_brw_size; /* used by readdir */
 
-        struct lu_site           *ll_site;
-        struct cl_device         *ll_cl;
-        /* Statistics */
-        struct ll_rw_extents_info ll_rw_extents_info;
-        int                       ll_extent_process_count;
-        struct ll_rw_process_info ll_rw_process_info[LL_PROCESS_HIST_MAX];
-        unsigned int              ll_offset_process_count;
-        struct ll_rw_process_info ll_rw_offset_info[LL_OFFSET_HIST_MAX];
-        unsigned int              ll_rw_offset_entry_count;
-        int                       ll_stats_track_id;
-        enum stats_track_type     ll_stats_track_type;
-        int                       ll_rw_stats_on;
+	struct lu_site           *ll_site;
+	struct cl_device         *ll_cl;
+	/* Statistics */
+	struct ll_rw_extents_info ll_rw_extents_info;
+	int                       ll_extent_process_count;
+	struct ll_rw_process_info ll_rw_process_info[LL_PROCESS_HIST_MAX];
+	unsigned int              ll_offset_process_count;
+	struct ll_rw_process_info ll_rw_offset_info[LL_OFFSET_HIST_MAX];
+	unsigned int              ll_rw_offset_entry_count;
+	int                       ll_stats_track_id;
+	enum stats_track_type     ll_stats_track_type;
+	int                       ll_rw_stats_on;
 
-        /* metadata stat-ahead */
-        unsigned int              ll_sa_max;     /* max statahead RPCs */
-        atomic_t                  ll_sa_total;   /* statahead thread started
+	/* metadata stat-ahead */
+	unsigned int              ll_sa_max;     /* max statahead RPCs */
+	atomic_t                  ll_sa_total;   /* statahead thread started
                                                   * count */
-        atomic_t                  ll_sa_wrong;   /* statahead thread stopped for
+	atomic_t		  ll_sa_running; /* running statahead thread
+						  * count */
+	atomic_t                  ll_sa_wrong;   /* statahead thread stopped for
                                                   * low hit ratio */
-        atomic_t                  ll_agl_total;  /* AGL thread started count */
+	atomic_t                  ll_agl_total;  /* AGL thread started count */
 
-        dev_t                     ll_sdev_orig; /* save s_dev before assign for
-                                                 * clustred nfs */
-        struct rmtacl_ctl_table   ll_rct;
-        struct eacl_table         ll_et;
+	dev_t                     ll_sdev_orig; /* save s_dev before assign for
+						 * clustred nfs */
+	struct rmtacl_ctl_table   ll_rct;
+	struct eacl_table         ll_et;
 };
 
 #define LL_DEFAULT_MAX_RW_CHUNK      (32 * 1024 * 1024)
@@ -1273,7 +1277,6 @@ struct ll_statahead_info {
         struct inode           *sai_inode;
         cfs_atomic_t            sai_refcount;   /* when access this struct, hold
                                                  * refcount */
-        unsigned int            sai_generation; /* generation for statahead */
         unsigned int            sai_max;        /* max ahead of lookup */
         __u64                   sai_sent;       /* stat requests sent count */
         __u64                   sai_replied;    /* stat requests which received
@@ -1311,8 +1314,8 @@ struct ll_statahead_info {
 };
 
 int do_statahead_enter(struct inode *dir, struct dentry **dentry,
-                       int only_unplug);
-void ll_stop_statahead(struct inode *dir, void *key);
+		       int only_unplug);
+void ll_stop_statahead(struct inode *dir);
 
 static inline int ll_glimpse_size(struct inode *inode)
 {
@@ -1330,7 +1333,6 @@ static inline void
 ll_statahead_mark(struct inode *dir, struct dentry *dentry)
 {
 	struct ll_inode_info     *lli = ll_i2info(dir);
-	struct ll_statahead_info *sai = lli->lli_sai;
 	struct ll_dentry_data    *ldd = ll_d2d(dentry);
 
 	/* not the same process, don't mark */
@@ -1338,59 +1340,59 @@ ll_statahead_mark(struct inode *dir, struct dentry *dentry)
 		return;
 
 	LASSERT(ldd != NULL);
-	if (sai != NULL)
-		ldd->lld_sa_generation = sai->sai_generation;
+	ldd->lld_sa_generation = lli->lli_sa_generation;
 }
 
-static inline int
-d_need_statahead(struct inode *dir, struct dentry *dentryp)
+/*
+ * When stats a dentry, the system trigger more than once "revalidate" or
+ * "lookup", for "getattr", for "getxattr", and maybe for others. Under
+ * patchless client mode, the operation intent is not accurate, which maybe
+ * misguide the statahead thread. For example: The "revalidate" call for
+ * "getattr" and "getxattr" of a dentry maybe have the same operation intent --
+ * "IT_GETATTR". In fact, one dentry should has only one chance to interact with
+ * the statahead thread, otherwise the statahead windows will be confused. The
+ * solution is as following: Assign "lld_sa_generation" with "lli_sa_generation"
+ * when a dentry "IT_GETATTR" for the first time, and the subsequent
+ * "IT_GETATTR" will bypass interacting with statahead thread for checking:
+ * "lld_sa_generation == lli->lli_sa_generation"
+ */
+static inline bool
+dentry_was_stated(struct ll_inode_info *lli, struct dentry *dentry)
+{
+	struct ll_dentry_data *ldd = ll_d2d(dentry);
+
+	return (ldd != NULL &&
+		ldd->lld_sa_generation == lli->lli_sa_generation);
+}
+
+static inline bool
+dentry_need_statahead(struct inode *dir, struct dentry *dentry)
 {
 	struct ll_inode_info  *lli;
-	struct ll_dentry_data *ldd;
 
 	if (ll_i2sbi(dir)->ll_sa_max == 0)
-		return -EAGAIN;
+		return false;
 
 	lli = ll_i2info(dir);
 	/* not the same process, don't statahead */
 	if (lli->lli_opendir_pid != current_pid())
-		return -EAGAIN;
+		return false;
 
 	/* statahead has been stopped */
 	if (lli->lli_opendir_key == NULL)
-		return -EAGAIN;
+		return false;
 
-	ldd = ll_d2d(dentryp);
-	/*
-	 * When stats a dentry, the system trigger more than once "revalidate"
-	 * or "lookup", for "getattr", for "getxattr", and maybe for others.
-	 * Under patchless client mode, the operation intent is not accurate,
-	 * which maybe misguide the statahead thread. For example:
-	 * The "revalidate" call for "getattr" and "getxattr" of a dentry maybe
-	 * have the same operation intent -- "IT_GETATTR".
-	 * In fact, one dentry should has only one chance to interact with the
-	 * statahead thread, otherwise the statahead windows will be confused.
-	 * The solution is as following:
-	 * Assign "lld_sa_generation" with "sai_generation" when a dentry
-	 * "IT_GETATTR" for the first time, and the subsequent "IT_GETATTR"
-	 * will bypass interacting with statahead thread for checking:
-	 * "lld_sa_generation == lli_sai->sai_generation"
-	 */
-	if (ldd && lli->lli_sai &&
-	    ldd->lld_sa_generation == lli->lli_sai->sai_generation)
-		return -EAGAIN;
+	if (lli->lli_sai != NULL && dentry_was_stated(lli, dentry))
+		return false;
 
-	return 1;
+	return true;
 }
 
 static inline int
 ll_statahead_enter(struct inode *dir, struct dentry **dentryp, int only_unplug)
 {
-	int ret;
-
-	ret = d_need_statahead(dir, *dentryp);
-	if (ret <= 0)
-		return ret;
+	if (!dentry_need_statahead(dir, *dentryp))
+		return -EAGAIN;
 
 	return do_statahead_enter(dir, dentryp, only_unplug);
 }
