@@ -8880,6 +8880,25 @@ test_154b() {
 }
 run_test 154b "Open-by-FID for remote directory"
 
+test_154c() {
+	local proc_ofile="mdt.*.exports.*.open_files"
+	rm -f $DIR/$tfile
+	touch $DIR/$tfile
+
+	fid=`$LFS path2fid $DIR/$tfile`
+	# Open the file
+	exec 7<$DIR/$tfile
+	fid_list=`$LCTL get_param $proc_ofile`
+	echo $fid_list | grep $fid
+	rc=$?
+
+	exec 7</dev/null
+	if [ $rc -ne 0 ]; then
+		error "FID $fid not found in open files list $fid_list"
+	fi
+}
+run_test 154c "Verify open file fid"
+
 test_155_small_load() {
     local temp=$TMP/$tfile
     local file=$DIR/$tfile

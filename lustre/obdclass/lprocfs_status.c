@@ -1785,14 +1785,7 @@ int lprocfs_exp_rd_nid(char *page, char **start, off_t off, int count,
         return snprintf(page, count, "%s\n", obd_export_nid2str(exp));
 }
 
-struct exp_uuid_cb_data {
-        char                   *page;
-        int                     count;
-        int                    *eof;
-        int                    *len;
-};
-
-static void
+void
 lprocfs_exp_rd_cb_data_init(struct exp_uuid_cb_data *cb_data, char *page,
                             int count, int *eof, int *len)
 {
@@ -1801,6 +1794,7 @@ lprocfs_exp_rd_cb_data_init(struct exp_uuid_cb_data *cb_data, char *page,
         cb_data->eof = eof;
         cb_data->len = len;
 }
+EXPORT_SYMBOL(lprocfs_exp_rd_cb_data_init);
 
 int lprocfs_exp_print_uuid(cfs_hash_t *hs, cfs_hash_bd_t *bd,
                            cfs_hlist_node_t *hnode, void *cb_data)

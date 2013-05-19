@@ -1018,6 +1018,13 @@ void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars);
 void lprocfs_mds_init_vars(struct lprocfs_static_vars *lvars);
 int mdt_procfs_init(struct mdt_device *mdt, const char *name);
 void mdt_procfs_fini(struct mdt_device *mdt);
+int lprocfs_mdt_open_files(char *page, char **start, off_t off, int count,
+		                           int *eof,  void *data);
+/* obdclass/lprocfs_status.c */
+void
+lprocfs_exp_rd_cb_data_init(struct exp_uuid_cb_data *cb_data, char *page,
+		                            int count, int *eof, int *len);
+
 void mdt_rename_counter_tally(struct mdt_thread_info *info,
 			      struct mdt_device *mdt,
 			      struct ptlrpc_request *req,
