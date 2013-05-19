@@ -759,6 +759,8 @@ test_11() {
 
 	createmany -o $MOUNT/$tname/f $CREATED || error "(2) Fail to create!"
 
+	umount_client $MOUNT
+
 	# reset OI scrub start point by force
 	$START_SCRUB -r || error "(3) Fail to start OI scrub!"
 	sleep 3
