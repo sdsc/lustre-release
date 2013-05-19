@@ -3,7 +3,7 @@
 set -e
 
 #         bug  5493  LU2034
-ALWAYS_EXCEPT="52    60      $RECOVERY_SMALL_EXCEPT"
+ALWAYS_EXCEPT="52    60   112   $RECOVERY_SMALL_EXCEPT"
 
 export MULTIOP=${MULTIOP:-multiop}
 PTLDEBUG=${PTLDEBUG:--1}
@@ -1782,6 +1782,27 @@ test_111 ()
 	start $SINGLEMDS $mdsdev || error "start MDS failed"
 }
 run_test 111 "mdd setup fail should not cause umount oops"
+
+test_112()
+{
+	local p="$TMP/sanityN-$TESTNAME.parameters"
+	save_lustre_params $HOSTNAME "llite.*.xattr_cache" > $p
+	lctl set_param llite.*.xattr_cache 1 ||
+		{ skip "xattr cache is not supported"; return 0; }
+
+	touch $DIR/$tfile
+	# skip open intent, drop reply from PW refill:
+	# OBD_FAIL_LDLM_REPLY | OBD_FAIL_ONCE | OBD_FAIL_SKIP
+	do_facet $SINGLEMDS lctl set_param fail_loc=0xa000030c
+	do_facet $SINGLEMDS lctl set_param fail_val=1
+	setfattr -n user.attr -v value $DIR/$tfile || error
+	do_facet $SINGLEMDS lctl set_param fail_loc=0
+	rm -f $DIR/$tfile
+
+	restore_lustre_params < $p
+	rm -f $p
+}
+run_test 112 "drop reply from getxattr in cached mode"
 
 complete $SECONDS
 check_and_cleanup_lustre
