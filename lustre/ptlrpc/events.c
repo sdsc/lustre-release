@@ -286,6 +286,7 @@ void request_in_callback(lnet_event_t *ev)
         CFS_INIT_LIST_HEAD(&req->rq_list);
         CFS_INIT_LIST_HEAD(&req->rq_timed_list);
         CFS_INIT_LIST_HEAD(&req->rq_replay_list);
+        CFS_INIT_LIST_HEAD(&req->rq_srv_last_reply_list);
         CFS_INIT_LIST_HEAD(&req->rq_set_chain);
         CFS_INIT_LIST_HEAD(&req->rq_history_list);
         CFS_INIT_LIST_HEAD(&req->rq_exp_list);

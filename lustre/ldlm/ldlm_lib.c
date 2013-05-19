@@ -1215,14 +1215,15 @@ static void target_send_delayed_replies(struct obd_device *obd)
         LCONSOLE_INFO("%s: sending delayed replies to recovered clients\n",
                       obd->obd_name);
 
-        list_for_each_entry_safe(req, tmp, &obd->obd_delayed_reply_queue,
-                                 rq_list) {
-                list_del_init(&req->rq_list);
-                DEBUG_REQ(D_HA, req, "delayed:");
-                ptlrpc_reply(req);
-                target_request_copy_put(req);
-        }
-        obd->obd_recovery_end = cfs_time_current_sec();
+	list_for_each_entry_safe(req, tmp, &obd->obd_delayed_reply_queue,
+				 rq_list) {
+		list_del_init(&req->rq_list);
+		list_del_init(&req->rq_srv_last_reply_list);
+		DEBUG_REQ(D_HA, req, "delayed:");
+		ptlrpc_reply(req);
+		target_request_copy_put(req);
+	}
+	obd->obd_recovery_end = cfs_time_current_sec();
 }
 
 static void target_finish_recovery(struct obd_device *obd)
@@ -1306,11 +1307,12 @@ void target_cleanup_recovery(struct obd_device *obd)
         target_cancel_recovery_timer(obd);
         spin_unlock_bh(&obd->obd_processing_task_lock);
 
-        list_for_each_safe(tmp, n, &obd->obd_delayed_reply_queue) {
-                req = list_entry(tmp, struct ptlrpc_request, rq_list);
-                list_del(&req->rq_list);
-                target_request_copy_put(req);
-        }
+	list_for_each_safe(tmp, n, &obd->obd_delayed_reply_queue) {
+		req = list_entry(tmp, struct ptlrpc_request, rq_list);
+		list_del(&req->rq_list);
+		list_del_init(&req->rq_srv_last_reply_list);
+		target_request_copy_put(req);
+	}
 
         CFS_INIT_LIST_HEAD(&clean_list);
         spin_lock_bh(&obd->obd_processing_task_lock);
@@ -1760,10 +1762,16 @@ int target_queue_last_replay_reply(struct ptlrpc_request *req, int rc)
                 goto out_noconn;
         }
 
-        if (!exp->exp_vbr_failed) {
-                target_request_copy_get(req);
-                list_add(&req->rq_list, &obd->obd_delayed_reply_queue);
-        }
+ 	if (!exp->exp_vbr_failed) {
+ 		target_request_copy_get(req);
+ 
+ 		LASSERT(req->rq_svc_thread);
+ 		LASSERT(req->rq_svc_thread->t_svc);
+ 		list_add(&req->rq_srv_last_reply_list,
+ 			 &req->rq_svc_thread->t_svc->srv_last_queued_replies);
+ 
+ 		list_add(&req->rq_list, &obd->obd_delayed_reply_queue);
+	}
 
         /* only count the first "replay over" request from each
            export */

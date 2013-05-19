@@ -340,16 +340,17 @@ ptlrpc_init_svc(int nbufs, int bufsize, int max_req_size, int max_reply_size,
         rc = LNetSetLazyPortal(service->srv_req_portal);
         LASSERT (rc == 0);
 
-        CFS_INIT_LIST_HEAD(&service->srv_request_queue);
-        CFS_INIT_LIST_HEAD(&service->srv_request_hpq);
-        CFS_INIT_LIST_HEAD(&service->srv_idle_rqbds);
-        CFS_INIT_LIST_HEAD(&service->srv_active_rqbds);
-        CFS_INIT_LIST_HEAD(&service->srv_history_rqbds);
-        CFS_INIT_LIST_HEAD(&service->srv_request_history);
-        CFS_INIT_LIST_HEAD(&service->srv_active_replies);
-        CFS_INIT_LIST_HEAD(&service->srv_reply_queue);
-        CFS_INIT_LIST_HEAD(&service->srv_free_rs_list);
-        cfs_waitq_init(&service->srv_free_rs_waitq);
+	CFS_INIT_LIST_HEAD(&service->srv_request_queue);
+	CFS_INIT_LIST_HEAD(&service->srv_request_hpq);
+	CFS_INIT_LIST_HEAD(&service->srv_last_queued_replies);
+	CFS_INIT_LIST_HEAD(&service->srv_idle_rqbds);
+	CFS_INIT_LIST_HEAD(&service->srv_active_rqbds);
+	CFS_INIT_LIST_HEAD(&service->srv_history_rqbds);
+	CFS_INIT_LIST_HEAD(&service->srv_request_history);
+	CFS_INIT_LIST_HEAD(&service->srv_active_replies);
+	CFS_INIT_LIST_HEAD(&service->srv_reply_queue);
+	CFS_INIT_LIST_HEAD(&service->srv_free_rs_list);
+	cfs_waitq_init(&service->srv_free_rs_waitq);
 
         spin_lock_init(&service->srv_at_lock);
         CFS_INIT_LIST_HEAD(&service->srv_req_in_queue);
@@ -2035,10 +2036,22 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
                 service->srv_n_active_reqs++;
                 ptlrpc_server_finish_request(req);
         }
-        LASSERT(service->srv_n_queued_reqs == 0);
-        LASSERT(service->srv_n_active_reqs == 0);
-        LASSERT(service->srv_n_history_rqbds == 0);
-        LASSERT(list_empty(&service->srv_active_rqbds));
+
+	if (!list_empty(&service->srv_last_queued_replies)) {
+		struct ptlrpc_request *req =
+			list_entry(service->srv_last_queued_replies.next,
+				   struct ptlrpc_request,
+				   rq_srv_last_reply_list);
+
+		list_del_init(&req->rq_srv_last_reply_list);
+		target_abort_recovery(req->rq_export->exp_obd);
+	}
+
+	LASSERT(service->srv_n_queued_reqs == 0);
+	LASSERT(service->srv_n_active_reqs == 0);
+	LASSERT(service->srv_n_history_rqbds == 0);
+	LASSERT(list_empty(&service->srv_active_rqbds));
+	LASSERT(list_empty(&service->srv_last_queued_replies));
 
         /* Now free all the request buffers since nothing references them
          * any more... */

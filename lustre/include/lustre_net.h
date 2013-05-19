@@ -360,12 +360,14 @@ struct ptlrpc_request {
         int rq_reqlen;
         struct lustre_msg *rq_reqmsg;
 
-        int rq_replen;
-        struct lustre_msg *rq_repbuf; /* client only, buf may be bigger than msg */
-        struct lustre_msg *rq_repmsg;
-        __u64 rq_transno;
-        __u64 rq_xid;
-        struct list_head rq_replay_list;
+	int rq_replen;
+	/* client only, buf may be bigger than msg */
+	struct lustre_msg *rq_repbuf;
+	struct lustre_msg *rq_repmsg;
+	__u64 rq_transno;
+	__u64 rq_xid;
+	struct list_head rq_replay_list;
+	struct list_head rq_srv_last_reply_list;
 
         __u32 rq_req_swab_mask;
         __u32 rq_rep_swab_mask;
@@ -651,6 +653,8 @@ struct ptlrpc_service {
         struct list_head  srv_req_in_queue;     /* incoming reqs */
         struct list_head  srv_request_queue;    /* reqs waiting for service */
         struct list_head  srv_request_hpq;      /* high priority queue */
+	/* requests queued for last reply during recovery */
+	struct list_head  srv_last_queued_replies;
 
         struct list_head  srv_request_history;  /* request history */
         __u64             srv_request_seq;      /* next request sequence # */
