@@ -759,6 +759,9 @@ test_11() {
 
 	createmany -o $MOUNT/$tname/f $CREATED || error "(2) Fail to create!"
 
+	umount_client $MOUNT
+	do_facet $SINGLEMDS $LCTL clear
+	start_full_debug_logging
 	# reset OI scrub start point by force
 	$START_SCRUB -r || error "(3) Fail to start OI scrub!"
 	sleep 3
@@ -788,6 +791,7 @@ test_11() {
 	[ $SKIPPED -eq 0 ] ||
 		error "(8) Expect 0 objects skipped, but got $SKIPPED"
 
+	stop_full_debug_logging
 	rm -rf $MOUNT/$tname > /dev/null
 }
 run_test 11 "OI scrub skips the new created objects only once"
