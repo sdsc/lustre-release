@@ -8881,6 +8881,34 @@ test_154b() {
 }
 run_test 154b "Open-by-FID for remote directory"
 
+test_154d() {
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.1) ]] &&
+		skip "Need MDS version at least 2.4.1" && return
+
+	if remote_mds; then
+		nid=$($LCTL list_nids | sed  "s/\./\\\./g")
+	else
+		nid="0@lo"
+	fi
+	local proc_ofile="mdt.*.exports.'$nid'.open_files"
+
+	rm -f $DIR/$tfile
+	touch $DIR/$tfile
+
+	fid=$($LFS path2fid $DIR/$tfile)
+	# Open the file
+	exec 7<$DIR/$tfile
+	fid_list=$(do_facet $SINGLEMDS $LCTL get_param $proc_ofile)
+	echo $fid_list | grep $fid
+	rc=$?
+
+	exec 7</dev/null
+	if [ $rc -ne 0 ]; then
+		error "FID $fid not found in open files list $fid_list"
+	fi
+}
+run_test 154d "Verify open file fid"
+
 test_155_small_load() {
     local temp=$TMP/$tfile
     local file=$DIR/$tfile
