@@ -42,6 +42,14 @@
 
 #include "mdt_internal.h"
 
+const struct file_operations mdt_open_files_seq_fops = {
+	.owner   = THIS_MODULE,
+	.open    = lprocfs_mdt_open_files_seq_open,
+	.read    = seq_read,
+	.llseek  = seq_lseek,
+	.release = seq_release,
+};
+
 int mdt_export_stats_init(struct obd_device *obd,
                           struct obd_export *exp,
                           void              *localdata)
@@ -77,7 +85,14 @@ int mdt_export_stats_init(struct obd_device *obd,
                 rc = lprocfs_nid_ldlm_stats_init(tmp);
                 if (rc)
                         GOTO(clean, rc);
-        }
+
+		rc = lprocfs_seq_create(tmp->nid_proc, "open_files",
+					0444, &mdt_open_files_seq_fops, tmp);	
+		if (rc) {
+			CWARN("Error adding the open_files file\n");
+			GOTO(clean, rc);
+		}
+	}
         RETURN(0);
  clean:
         return rc;
