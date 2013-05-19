@@ -392,6 +392,13 @@ struct obd_job_stats {
 	time_t		   ojs_last_cleanup;
 };
 
+struct exp_uuid_cb_data {
+	char	*page;
+	int     count;
+	int     *eof;
+	int     *len;
+};
+
 #ifdef LPROCFS
 
 extern int lprocfs_stats_alloc_one(struct lprocfs_stats *stats,

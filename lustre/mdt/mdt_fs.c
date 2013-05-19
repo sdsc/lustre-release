@@ -61,6 +61,7 @@ int mdt_export_stats_init(struct obd_device *obd,
         if (newnid) {
                 struct nid_stat *tmp = exp->exp_nid_stats;
                 int num_stats;
+		cfs_proc_dir_entry_t *entry;
 
                 num_stats = (sizeof(*obd->obd_type->typ_md_ops) / sizeof(void *)) +
                             LPROC_MDT_LAST;
@@ -77,6 +78,15 @@ int mdt_export_stats_init(struct obd_device *obd,
                 rc = lprocfs_nid_ldlm_stats_init(tmp);
                 if (rc)
                         GOTO(clean, rc);
+		
+		entry = lprocfs_add_simple(tmp->nid_proc, "open_files",
+                                   lprocfs_mdt_open_files, NULL, tmp, NULL);
+		
+		if (IS_ERR(entry)) {
+			CWARN("Error adding the open_files file\n");
+			rc = PTR_ERR(entry);
+			GOTO(clean, rc);
+		}
         }
         RETURN(0);
  clean:

@@ -1062,6 +1062,48 @@ struct lprocfs_vars lprocfs_mds_module_vars[] = {
 	{ 0 }
 };
 
+int lprocfs_mdt_print_open_files(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+                           cfs_hlist_node_t *hnode, void *cb_data)
+
+{
+	struct exp_uuid_cb_data *data = cb_data;
+	struct obd_export       *exp = cfs_hash_object(hs, hnode);
+	struct mdt_export_data *med = &exp->exp_mdt_data;
+	struct mdt_file_data *mfd;
+	cfs_list_t              *t;
+
+	if (exp->exp_lock_hash != NULL) {
+		spin_lock(&med->med_open_lock);
+		cfs_list_for_each(t, &med->med_open_head) {
+			mfd = cfs_list_entry(t, struct mdt_file_data, 
+					     mfd_list);
+			*data->len += snprintf((data->page + *data->len),
+					data->count, ""DFID"\n",
+					PFID(mdt_object_fid(mfd->mfd_object)));
+		}
+		spin_unlock(&med->med_open_lock);
+	}
+
+	return 0;
+}
+
+int lprocfs_mdt_open_files(char *page, char **start, off_t off, int count,
+                           int *eof,  void *data)
+{
+	struct nid_stat *stats = (struct nid_stat *)data;
+	struct obd_device *obd = stats->nid_obd;
+	struct exp_uuid_cb_data cb_data;
+	int len = 0;
+
+	*eof = 1;
+	page[0] = '\0';
+	lprocfs_exp_rd_cb_data_init(&cb_data, page, count, eof, &len);
+
+	cfs_hash_for_each_key(obd->obd_nid_hash, &stats->nid,
+			      lprocfs_mdt_print_open_files, &cb_data);
+	return (*cb_data.len);
+}
+
 void mdt_counter_incr(struct ptlrpc_request *req, int opcode)
 {
 	struct obd_export *exp = req->rq_export;
