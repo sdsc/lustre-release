@@ -4076,6 +4076,31 @@ test_74() { # LU-1606
 }
 run_test 74 "Lustre client api program can compile and link"
 
+test_75() { # LU-2374
+	local index=0
+
+	opts_mds="$(mkfs_opts mds$(($index + 1)) $(mdsdevname 1)) \
+		--reformat $(mdsdevname 1) $(mdsvdevname 1)"
+	opts_ost="$(mkfs_opts ost$(($index + 1)) $(ostdevname 1)) \
+		--reformat $(ostdevname 1) $(ostvdevname 1)"
+
+	#check with default parameters
+	add mds1 $opts_mds || error "add mds1 failed for default params"
+	add ost1 $opts_ost || error "add ost1 failed for default params"
+
+	opts_mds=$(echo $opts_mds | sed -e "s/--mdt//")
+	opts_mds=$(echo $opts_mds |
+		   sed -e "s/--index=$index/--index=$index --mdt/")
+	opts_ost=$(echo $opts_ost | sed -e "s/--ost//")
+	opts_ost=$(echo $opts_ost |
+		   sed -e "s/--index=$index/--index=$index --ost/")
+
+	add mds1 $opts_mds || error "add mds1 failed for new params"
+	add ost1 $opts_ost || error "add ost1 failed for new params"
+	return 0
+}
+run_test 75 "The order of --index should be irrelevant"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
