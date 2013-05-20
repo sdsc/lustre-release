@@ -68,6 +68,7 @@
 #include <lustre_quota.h>
 
 #include "osd_oi.h"
+#include "osd_dynlocks.h"
 #include "osd_iam.h"
 #include "osd_scrub.h"
 #include "osd_quota_fmt.h"
