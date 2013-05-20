@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+1: Niu Yawei <yawei.niu@intel.com>
+Code-Review+2: Andreas Dilger <andreas.dilger@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Artem Blagodarenko <artem_blagodarenko@xyratex.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Mon, 20 May 2013 14:08:00 -0400
+Reviewed-on: http://review.whamcloud.com/6377
+Project: fs/lustre-release
+Branch: refs/heads/b2_1
