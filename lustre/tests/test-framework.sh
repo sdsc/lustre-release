@@ -917,7 +917,8 @@ import_zpool() {
 
 	if [[ -n "$poolname" ]]; then
 		opts+=" -d $(dirname $(facet_vdevice $facet))"
-		do_facet $facet "$ZPOOL import -f $opts $poolname"
+		do_facet $facet "$ZPOOL list -Ho name $poolname
+			>/dev/null 2>&1 || $ZPOOL import -f $opts $poolname"
 	fi
 }
 
