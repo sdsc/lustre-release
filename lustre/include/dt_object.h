@@ -833,6 +833,11 @@ struct dt_object *dt_locate_at(const struct lu_env *env,
 			       struct dt_device *dev,
 			       const struct lu_fid *fid,
 			       struct lu_device *top_dev);
+struct dt_object *dt_locate_conf(const struct lu_env *env,
+				 struct dt_device *dev,
+				 const struct lu_fid *fid,
+				 struct lu_device *top_dev,
+				 struct lu_object_conf *conf);
 static inline struct dt_object *
 dt_locate(const struct lu_env *env, struct dt_device *dev,
 	  const struct lu_fid *fid)

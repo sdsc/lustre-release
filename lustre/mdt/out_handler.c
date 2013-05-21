@@ -1227,6 +1227,7 @@ int out_handle(struct out_thread_info *info)
 	struct update_buf		*ubuf;
 	struct update			*update;
 	struct update_reply		*update_reply;
+	struct lu_object_conf		*conf = &info->mti_conf;
 	int				bufsize;
 	int				count;
 	int				old_batchid = -1;
@@ -1285,6 +1286,7 @@ int out_handle(struct out_thread_info *info)
 
 	/* Walk through updates in the request to execute them synchronously */
 	off = cfs_size_round(offsetof(struct update_buf, ub_bufs[0]));
+	conf->loc_flags = LOC_F_REMOTE;
 	for (i = 0; i < count; i++) {
 		struct out_handler *h;
 		struct dt_object   *dt_obj;
@@ -1313,7 +1315,9 @@ int out_handle(struct out_thread_info *info)
 			GOTO(out, rc = err_serious(-EPROTO));
 		}
 
-		dt_obj = dt_locate(env, dt, &update->u_fid);
+		dt_obj = dt_locate_conf(env, dt, &update->u_fid,
+					dt->dd_lu_dev.ld_site->ls_top_dev,
+					conf);
 		if (IS_ERR(dt_obj))
 			GOTO(out, rc = PTR_ERR(dt_obj));
 

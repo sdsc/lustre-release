@@ -50,7 +50,7 @@ struct lu_buf *mdt_buf(const struct lu_env *env, void *area, ssize_t len)
         struct lu_buf *buf;
         struct mdt_thread_info *mti;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+	mti = mdt_env_info(env);
         buf = &mti->mti_buf;
         buf->lb_buf = area;
         buf->lb_len = len;
@@ -63,7 +63,7 @@ const struct lu_buf *mdt_buf_const(const struct lu_env *env,
         struct lu_buf *buf;
         struct mdt_thread_info *mti;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+	mti = mdt_env_info(env);
         buf = &mti->mti_buf;
 
         buf->lb_buf = (void *)area;
@@ -141,8 +141,7 @@ static int mdt_clients_data_init(const struct lu_env *env,
                         GOTO(err_client, rc = PTR_ERR(exp));
                 }
 
-                mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-                LASSERT(mti != NULL);
+		mti = mdt_env_info(env);
                 mti->mti_exp = exp;
                 /* copy on-disk lcd to the export */
                 *exp->exp_target_data.ted_lcd = *lcd;
@@ -201,8 +200,7 @@ static int mdt_server_data_init(const struct lu_env *env,
 		RETURN(rc);
 	}
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(mti != NULL);
+	mti = mdt_env_info(env);
         la = &mti->mti_attr.ma_attr;
 
         obj = mdt->mdt_lut.lut_last_rcvd;
@@ -480,8 +478,7 @@ static int mdt_txn_start_cb(const struct lu_env *env,
 	int rc;
 	ENTRY;
 
-	mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-
+	mti = mdt_env_info(env);
 	LASSERT(mdt->mdt_lut.lut_last_rcvd);
 	if (mti->mti_exp == NULL)
 		RETURN(0);
@@ -514,7 +511,7 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
         struct mdt_thread_info *mti;
         struct ptlrpc_request *req;
 
-        mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+	mti = mdt_env_info(env);
         req = mdt_info_req(mti);
 
 	if (mti->mti_mdt == NULL || req == NULL)

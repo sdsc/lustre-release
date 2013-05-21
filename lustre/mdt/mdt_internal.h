@@ -484,6 +484,7 @@ struct mdt_thread_info {
 	char			   mti_xattr_buf[128];
 	struct thandle_exec_args   mti_handle;
 	struct ldlm_enqueue_info   mti_einfo;
+	struct lu_object_conf	   mti_conf;
 };
 
 /* ptlrpc request handler for MDT. All handlers are
@@ -867,6 +868,16 @@ int mdt_hsm_ct_unregister(struct mdt_thread_info *info);
 int mdt_hsm_request(struct mdt_thread_info *info);
 
 extern struct lu_context_key       mdt_thread_key;
+
+static inline struct mdt_thread_info *mdt_env_info(const struct lu_env *env)
+{
+	struct mdt_thread_info *info;
+
+	info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+	LASSERT(info != NULL);
+	return info;
+}
+
 /* debug issues helper starts here*/
 static inline int mdt_fail_write(const struct lu_env *env,
                                  struct dt_device *dd, int id)
