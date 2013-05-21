@@ -2357,13 +2357,14 @@ struct mdt_object *mdt_object_new(const struct lu_env *env,
 				  struct mdt_device *d,
 				  const struct lu_fid *f)
 {
-	struct lu_object_conf conf = { .loc_flags = LOC_F_NEW };
+	struct lu_object_conf *conf = &mdt_env_info(env)->mti_conf;
 	struct lu_object *o;
 	struct mdt_object *m;
 	ENTRY;
 
 	CDEBUG(D_INFO, "Allocate object for "DFID"\n", PFID(f));
-	o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, &conf);
+	conf->loc_flags = LOC_F_NEW;
+	o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, conf);
 	if (unlikely(IS_ERR(o)))
 		m = (struct mdt_object *)o;
 	else
@@ -2372,20 +2373,26 @@ struct mdt_object *mdt_object_new(const struct lu_env *env,
 }
 
 struct mdt_object *mdt_object_find(const struct lu_env *env,
-                                   struct mdt_device *d,
-                                   const struct lu_fid *f)
+				   struct mdt_device *d,
+				   const struct lu_fid *f)
 {
-        struct lu_object *o;
-        struct mdt_object *m;
-        ENTRY;
+	struct mdt_thread_info	*mti  = mdt_env_info(env);
+	struct lu_object_conf	*conf = &mti->mti_conf;
+	struct lu_object	*o;
+	struct mdt_object	*m;
+	ENTRY;
 
-        CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
-        o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, NULL);
-        if (unlikely(IS_ERR(o)))
-                m = (struct mdt_object *)o;
-        else
-                m = mdt_obj(o);
-        RETURN(m);
+	CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
+	if (mti->mti_cross_ref)
+		conf->loc_flags = LOC_F_REMOTE;
+	else
+		conf->loc_flags = 0;
+	o = lu_object_find(env, &d->mdt_md_dev.md_lu_dev, f, conf);
+	if (unlikely(IS_ERR(o)))
+		m = (struct mdt_object *)o;
+	else
+		m = mdt_obj(o);
+	RETURN(m);
 }
 
 /**
@@ -3388,8 +3395,7 @@ int mdt_handle_common(struct ptlrpc_request *req,
         LASSERT(env != NULL);
         LASSERT(env->le_ses != NULL);
         LASSERT(env->le_ctx.lc_thread == req->rq_svc_thread);
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
+	info = mdt_env_info(env);
 
         mdt_thread_info_init(req, info);
 
@@ -3963,13 +3969,12 @@ static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
 		    exp_connect_flags(req->rq_export) & OBD_CONNECT_RDONLY)
 			RETURN(-EROFS);
         }
-        if (rc == 0 && flv->it_act != NULL) {
-                /* execute policy */
-                rc = flv->it_act(opc, info, lockp, flags);
-        } else {
-                rc = -EOPNOTSUPP;
-        }
-        RETURN(rc);
+	if (flv->it_act == NULL)
+		rc = -EOPNOTSUPP;
+	else if (rc == 0)
+		/* execute policy */
+		rc = flv->it_act(opc, info, lockp, flags);
+	RETURN(rc);
 }
 
 static int mdt_intent_policy(struct ldlm_namespace *ns,
@@ -3986,9 +3991,7 @@ static int mdt_intent_policy(struct ldlm_namespace *ns,
 
         LASSERT(req != NULL);
 
-        info = lu_context_key_get(&req->rq_svc_thread->t_env->le_ctx,
-                                  &mdt_thread_key);
-        LASSERT(info != NULL);
+	info = mdt_env_info(req->rq_svc_thread->t_env);
         pill = info->mti_pill;
         LASSERT(pill->rc_req == req);
 
@@ -4171,9 +4174,7 @@ static void mdt_stack_pre_fini(const struct lu_env *env,
 
 	LASSERT(top);
 
-	info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-	LASSERT(info != NULL);
-
+	info = mdt_env_info(env);
 	bufs = &info->mti_u.bufs;
 
 	LASSERT(m->mdt_child_exp);
@@ -4207,9 +4208,7 @@ static void mdt_stack_fini(const struct lu_env *env,
 	char			 flags[3] = "";
 	ENTRY;
 
-	info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-	LASSERT(info != NULL);
-
+	info = mdt_env_info(env);
 	lu_dev_del_linkage(top->ld_site, top);
 
 	lu_site_purge(env, top->ld_site, -1);
@@ -4688,9 +4687,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         if (rc != 0)
                 RETURN(rc);
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
-
+	info = mdt_env_info(env);
         obd = class_name2obd(dev);
         LASSERT(obd != NULL);
 
@@ -5304,7 +5301,7 @@ static int mdt_obd_connect(const struct lu_env *env,
         if (!exp || !obd || !cluuid)
                 RETURN(-EINVAL);
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+	info = mdt_env_info(env);
         req = info->mti_pill->rc_req;
         mdt = mdt_dev(obd->obd_lu_dev);
 
@@ -5373,7 +5370,7 @@ static int mdt_obd_reconnect(const struct lu_env *env,
         if (exp == NULL || obd == NULL || cluuid == NULL)
                 RETURN(-EINVAL);
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
+	info = mdt_env_info(env);
         req = info->mti_pill->rc_req;
         mdt = mdt_dev(obd->obd_lu_dev);
 
@@ -5418,8 +5415,7 @@ static int mdt_export_cleanup(struct obd_export *exp)
         if (rc)
                 RETURN(rc);
 
-        info = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
-        LASSERT(info != NULL);
+	info = mdt_env_info(&env);
         memset(info, 0, sizeof *info);
         info->mti_env = &env;
         info->mti_mdt = mdt;
@@ -5955,7 +5951,7 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 	}
         case OBD_IOC_GET_OBJ_VERSION: {
                 struct mdt_thread_info *mti;
-                mti = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
+		mti = mdt_env_info(&env);
                 memset(mti, 0, sizeof *mti);
                 mti->mti_env = &env;
                 mti->mti_mdt = mdt;

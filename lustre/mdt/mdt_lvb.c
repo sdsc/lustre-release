@@ -124,8 +124,7 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 	rc = lu_env_init(&env, LCT_MD_THREAD);
 	LASSERT(rc == 0);
 
-	info = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
-	LASSERT(info != NULL);
+	info = mdt_env_info(&env);
 	memset(info, 0, sizeof *info);
 	info->mti_env = &env;
 	info->mti_exp = lock->l_export;
