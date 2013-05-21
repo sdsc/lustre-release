@@ -1353,7 +1353,7 @@ static int mdd_swap_layouts(const struct lu_env *env, struct md_object *obj1,
 		fst_fl  = LU_XATTR_CREATE;
 	}
 
-	LASSERT(snd_buf != NULL);
+	LASSERT(snd_buf != NULL && snd_buf->lb_buf != NULL);
 	snd_lmm = snd_buf->lb_buf;
 	snd_gen = le16_to_cpu(snd_lmm->lmm_layout_gen);
 
