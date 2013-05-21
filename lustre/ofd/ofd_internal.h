@@ -185,6 +185,8 @@ struct ofd_device {
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
 				 ofd_grant_compat_disable:1;
 	struct seq_server_site	 ofd_seq_site;
+	/** symlink to this device in "ost" directory */
+	struct proc_dir_entry	*ofd_symlink;
 };
 
 static inline struct ofd_device *ofd_dev(struct lu_device *d)

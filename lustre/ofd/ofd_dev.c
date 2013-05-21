@@ -399,6 +399,7 @@ static struct lu_device_operations ofd_lu_ops = {
 static int ofd_procfs_init(struct ofd_device *ofd)
 {
 	struct lprocfs_static_vars	 lvars;
+	struct proc_dir_entry		*ost_proc_dir;
 	struct obd_device		*obd = ofd_obd(ofd);
 	cfs_proc_dir_entry_t		*entry;
 	int				 rc = 0;
@@ -451,6 +452,19 @@ static int ofd_procfs_init(struct ofd_device *ofd)
 				    ofd_stats_counter_init);
 	if (rc)
 		GOTO(remove_entry_clear, rc);
+
+	/* For forward compatibility we link OFD devices into the "ost/"
+	 * directory, to match MDT entries in the "mdt/" directory.
+	 * OFD devices are created in the "obdfilter" directory today,
+	 * but this is due to historical naming conventions, and will
+	 * hopefully be removed at some point in the future. */
+	ost_proc_dir = lprocfs_srch(proc_lustre_root, "ost");
+	if (ost_proc_dir != NULL)
+		ofd->ofd_symlink = lprocfs_add_symlink(obd->obd_name,
+						       ost_proc_dir, "../%s/%s",
+						       LUSTRE_OST_NAME,
+						       obd->obd_name);
+
 	RETURN(0);
 remove_entry_clear:
 	lprocfs_remove_proc_entry("clear", obd->obd_proc_exports_entry);
@@ -499,6 +513,7 @@ static void ofd_procfs_fini(struct ofd_device *ofd)
 {
 	struct obd_device *obd = ofd_obd(ofd);
 
+	lprocfs_remove(&ofd->ofd_symlink);
 	lprocfs_remove_proc_entry("writethrough_cache_enable",
 				  obd->obd_proc_entry);
 	lprocfs_remove_proc_entry("readcache_max_filesize",
@@ -702,7 +717,8 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 		m->ofd_precreate_batch = OFD_PRECREATE_BATCH_SMALL;
 
 	snprintf(info->fti_u.name, sizeof(info->fti_u.name), "%s-%s",
-		 "filter"/*LUSTRE_OST_NAME*/, obd->obd_uuid.uuid);
+		 "ofd"/*LUSTRE_OST_NAME*/, obd->obd_name);
+
 	m->ofd_namespace = ldlm_namespace_new(obd, info->fti_u.name,
 					      LDLM_NAMESPACE_SERVER,
 					      LDLM_NAMESPACE_GREEDY,
@@ -869,6 +885,8 @@ static struct lu_device_type ofd_device_type = {
 	.ldt_ctx_tags	= LCT_DT_THREAD
 };
 
+static struct proc_dir_entry *obdfilter_symlink;
+
 int __init ofd_init(void)
 {
 	struct lprocfs_static_vars	lvars;
@@ -888,6 +906,13 @@ int __init ofd_init(void)
 
 	rc = class_register_type(&ofd_obd_ops, NULL, lvars.module_vars,
 				 LUSTRE_OST_NAME, &ofd_device_type);
+
+	/* For forward compatibility symlink "obdfilter" to "ofd" in procfs.
+	 * Reverse symlink when LUSTRE_OST_NAME is named "ofd", and remove it
+	 * entirely when access via "obdfilter" can be deprecated, maybe 2.9? */
+	obdfilter_symlink = lprocfs_add_symlink("ofd", proc_lustre_root,
+						"obdfilter");
+
 	return rc;
 }
 
@@ -896,6 +921,8 @@ void __exit ofd_exit(void)
 	ofd_fmd_exit();
 	lu_kmem_fini(ofd_caches);
 	class_unregister_type(LUSTRE_OST_NAME);
+
+	lprocfs_remove(&obdfilter_symlink);
 }
 
 MODULE_AUTHOR("Whamcloud, Inc. <http://www.whamcloud.com/>");
