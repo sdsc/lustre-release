@@ -899,6 +899,7 @@ export_zpool() {
 
 	if [[ -n "$poolname" ]]; then
 		do_facet $facet "! $ZPOOL list -H $poolname >/dev/null 2>&1 ||
+			grep -q ^$poolname/ /proc/mounts ||
 			$ZPOOL export $opts $poolname"
 	fi
 }
@@ -917,7 +918,8 @@ import_zpool() {
 
 	if [[ -n "$poolname" ]]; then
 		opts+=" -d $(dirname $(facet_vdevice $facet))"
-		do_facet $facet "$ZPOOL import -f $opts $poolname"
+		do_facet $facet "$ZPOOL list -H $poolname >/dev/null 2>&1 ||
+			$ZPOOL import -f $opts $poolname"
 	fi
 }
 
