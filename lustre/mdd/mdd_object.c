@@ -1371,19 +1371,25 @@ static int mdd_swap_layouts(const struct lu_env *env, struct md_object *obj1,
 		*old_fst_lmm = *fst_lmm;
 
 		fst_lmm->lmm_layout_gen = cpu_to_le16(snd_gen);
-		fst_lmm->lmm_oi = snd_lmm->lmm_oi;
-
-		snd_lmm->lmm_oi = old_fst_lmm->lmm_oi;
+		if (snd_lmm != NULL) {
+			fst_lmm->lmm_oi = snd_lmm->lmm_oi;
+			snd_lmm->lmm_oi = old_fst_lmm->lmm_oi;
+		}
 	} else {
-		if (snd_lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1))
+		if (snd_lmm != NULL &&
+		    snd_lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1))
 			snd_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V1_DEF);
-		else if (snd_lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V3))
+		else if (snd_lmm != NULL &&
+			 snd_lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V3))
 			snd_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V3_DEF);
 		else
 			GOTO(stop, rc = -EPROTO);
 	}
 
-	snd_lmm->lmm_layout_gen = cpu_to_le16(fst_gen);
+	if (snd_lmm != NULL)
+		snd_lmm->lmm_layout_gen = cpu_to_le16(fst_gen);
+	else
+		snd_lmm->lmm_layout_gen = 0;
 
 	/* prepare transaction */
 	rc = mdd_declare_xattr_set(env, mdd, fst_o, snd_buf, XATTR_NAME_LOV,
