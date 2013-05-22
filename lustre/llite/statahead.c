@@ -696,6 +696,7 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
         struct inode             *dir = minfo->mi_dir;
         struct ll_inode_info     *lli = ll_i2info(dir);
 	struct ll_statahead_info *sai = lli->lli_sai;
+	__u64			  handle = 0;
         struct ll_sa_entry       *entry;
         int                       wakeup;
         ENTRY;
@@ -706,6 +707,15 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
         if (it_disposition(it, DISP_LOOKUP_NEG))
                 rc = -ENOENT;
 
+	if (rc == 0) {
+		/* Release the async ibits lock ASAP to avoid deadlock
+		 * when statahead thread tries to enqueue lock on parent
+		 * for readpage and other tries to enqueue lock on child
+		 * with parent's lock held, for example: unlink. */
+		handle = it->d.lustre.it_lock_handle;
+		ll_intent_drop_lock(it);
+	}
+
 	spin_lock(&lli->lli_sa_lock);
 	entry = ll_sa_entry_get_byindex(sai, minfo->mi_cbdata);
 	LASSERT(entry != NULL);
@@ -715,12 +725,7 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 	} else {
 		entry->se_minfo = minfo;
 		entry->se_req = ptlrpc_request_addref(req);
-		/* Release the async ibits lock ASAP to avoid deadlock
-		 * when statahead thread tries to enqueue lock on parent
-		 * for readpage and other tries to enqueue lock on child
-		 * with parent's lock held, for example: unlink. */
-		entry->se_handle = it->d.lustre.it_lock_handle;
-		ll_intent_drop_lock(it);
+		entry->se_handle = handle;
 		wakeup = sa_received_empty(sai);
 		cfs_list_add_tail(&entry->se_list,
 				  &sai->sai_entries_received);
@@ -737,6 +742,7 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
                 iput(dir);
                 OBD_FREE_PTR(minfo);
         }
+
 	RETURN(rc);
 }
 
