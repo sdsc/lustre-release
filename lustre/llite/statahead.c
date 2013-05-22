@@ -711,7 +711,9 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 	LASSERT(entry != NULL);
 	if (rc != 0) {
 		do_sa_entry_to_stated(sai, entry, SA_ENTRY_INVA);
+		sai->sai_replied++;
 		wakeup = (entry->se_index == sai->sai_index_wait);
+		spin_unlock(&lli->lli_sa_lock);
 	} else {
 		entry->se_minfo = minfo;
 		entry->se_req = ptlrpc_request_addref(req);
@@ -720,13 +722,14 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 		 * for readpage and other tries to enqueue lock on child
 		 * with parent's lock held, for example: unlink. */
 		entry->se_handle = it->d.lustre.it_lock_handle;
-		ll_intent_drop_lock(it);
 		wakeup = sa_received_empty(sai);
 		cfs_list_add_tail(&entry->se_list,
 				  &sai->sai_entries_received);
+		sai->sai_replied++;
+		spin_unlock(&lli->lli_sa_lock);
+
+		ll_intent_drop_lock(it);
 	}
-	sai->sai_replied++;
-	spin_unlock(&lli->lli_sa_lock);
 
 	ll_sa_entry_put(sai, entry);
 	if (wakeup)
