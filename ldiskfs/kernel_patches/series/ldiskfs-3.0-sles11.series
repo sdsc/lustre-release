@@ -34,7 +34,7 @@ sles11sp2/ext4-kill-dx_root.patch
 sles11sp2/ext4-extents-mount-option.patch
 rhel6.3/ext4-fiemap-2.6.patch
 sles11sp2/ext4-mballoc-pa_free-mismatch.patch
-sles11sp2/ext4_data_in_dirent.patch
+sles11sp2/ext4-data_in_dirent.patch
 sles11sp2/ext4-large-eas.patch
 sles11sp2/ext4-disable-mb-cache.patch
 rhel6.3/ext4-nocmtime-2.6.patch

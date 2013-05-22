@@ -9,7 +9,7 @@ changes in ext4_add_entry() interface required.
 
 --- a/fs/ext4/dir.c
 +++ b/fs/ext4/dir.c
-@@ -37,11 +37,18 @@ static int ext4_dx_readdir(struct file *
+@@ -37,11 +37,16 @@ static int ext4_dx_readdir(struct file *
  
  static unsigned char get_dtype(struct super_block *sb, int filetype)
  {
@@ -22,11 +22,9 @@ changes in ext4_add_entry() interface required.
  
 -	return (ext4_filetype_table[filetype]);
 +	if (!EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_DIRDATA))
-+		return (ext4_filetype_table[fl_index]);
++		return ext4_filetype_table[fl_index];
 +
-+	return (ext4_filetype_table[fl_index]) |
-+		(filetype & EXT4_DIRENT_LUFID);
-+
++	return ext4_filetype_table[fl_index] | (filetype & EXT4_DIRENT_LUFID);
  }
  
  /**
