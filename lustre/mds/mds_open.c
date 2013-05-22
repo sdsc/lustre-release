@@ -292,6 +292,13 @@ static struct mds_file_data *mds_dentry_open(struct dentry *dentry,
 
         /* Mark the file as open to handle open-unlink. */
         MDS_DOWN_WRITE_ORPHAN_SEM(dentry->d_inode);
+        if (dentry->d_inode->i_nlink == 0) {
+                MDS_UP_WRITE_ORPHAN_SEM(dentry->d_inode);
+                CERROR("%s: try to open non-existing inode %lu/%u\n",
+                       req->rq_export->exp_obd->obd_name,
+                       dentry->d_inode->i_ino, dentry->d_inode->i_generation);
+                GOTO(cleanup_mfd, error = -ENOENT);
+        }
         mds_orphan_open_inc(dentry->d_inode);
         MDS_UP_WRITE_ORPHAN_SEM(dentry->d_inode);
 
@@ -1492,12 +1499,17 @@ int mds_mfd_close(struct ptlrpc_request *req, int offset,
                  * mds_reint_unlink() into mfd, so we need to re-lookup,
                  * but normally it will still be in the dcache. */
                 LOCK_INODE_MUTEX(pending_dir);
-                cleanup_phase = 1; /* UNLOCK_INODE_MUTEX(pending_dir) when finished */
+                cleanup_phase = 1;
                 pending_child = lookup_one_len(fidname, mds->mds_pending_dir,
                                                fidlen);
                 if (IS_ERR(pending_child))
                         GOTO(cleanup, rc = PTR_ERR(pending_child));
-                LASSERT(pending_child->d_inode != NULL);
+                /*
+                 * Don't panic MDS if client can't close non-existing file,
+                 * LU-3356
+                 */
+                if (pending_child->d_inode == NULL)
+                        GOTO(cleanup, rc = -ENOENT);
 
                 cleanup_phase = 2; /* dput(pending_child) when finished */
                 if (S_ISDIR(pending_child->d_inode->i_mode)) {
