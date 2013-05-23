@@ -743,9 +743,9 @@ AC_MSG_RESULT([$enable_readline])
 # -------- check for readline if enabled ----
 if test x$enable_readline = xyes ; then
 	LIBS_save="$LIBS"
-	LIBS="-lncurses $LIBS"
+	LIBS="$LIBS"
 	AC_CHECK_LIB([readline],[readline],[
-	LIBREADLINE="-lreadline -lncurses"
+	LIBREADLINE="-lreadline"
 	AC_DEFINE(HAVE_LIBREADLINE, 1, [readline library is available])
 	],[
 	LIBREADLINE=""
