@@ -4069,6 +4069,7 @@ exit_status () {
 	local status=0
 	local log=$TESTSUITELOG
 
+	cat $log || true
 	[ -f "$log" ] && grep -q FAIL $log && status=1
 	exit $status
 }
@@ -4250,6 +4251,7 @@ complete () {
     local duration=$1
 
     banner test complete, duration $duration sec
+    cat $TESTSUITELOG || true
     [ -f "$TESTSUITELOG" ] && egrep .FAIL $TESTSUITELOG || true
     echo duration $duration >>$TESTSUITELOG
 }
