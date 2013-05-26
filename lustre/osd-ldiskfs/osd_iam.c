@@ -1740,7 +1740,7 @@ got:
 	return bh;
 
 newblock:
-	bh = ldiskfs_append(h, inode, b, e);
+	bh = fsfilt_append(h, inode, b, e);
 	return bh;
 
 fail:
