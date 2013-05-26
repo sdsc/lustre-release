@@ -784,7 +784,11 @@ static int llog_lvfs_destroy(const struct lu_env *env,
         inode = fdentry->d_parent->d_inode;
         if (strcmp(fdentry->d_parent->d_name.name, dir) == 0) {
                 struct lvfs_run_ctxt saved;
+#ifdef HAVE_F_PATH_MNT
+                struct vfsmount *mnt = mntget(handle->lgh_file->f_path.mnt);
+#else
                 struct vfsmount *mnt = mntget(handle->lgh_file->f_vfsmnt);
+#endif
 
                 push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
                 dget(fdentry);

@@ -473,14 +473,26 @@ LB_LINUX_TRY_COMPILE([
 	#include <linux/fs.h>
 	#include <linux/quota.h>
 ],[
-	struct quotactl_ops qops = {};
-	struct fs_disk_quota fdq;
-	qops.set_dqblk(NULL, 0, 0, &fdq);
+	((struct quotactl_ops *)0)->set_dqblk(NULL, 0, 0, (struct fs_disk_quota*)0);
 ],[
 	AC_DEFINE(HAVE_DQUOT_FS_DISK_QUOTA, 1, [quotactl_ops.set_dqblk takes struct fs_disk_quota])
 	AC_MSG_RESULT([yes])
 ],[
 	AC_MSG_RESULT([no])
+	AC_MSG_CHECKING([if quotactl_ops.set_dqblk takes struct kqid & fs_disk_quota])
+	LB_LINUX_TRY_COMPILE([
+		#include <linux/fs.h>
+		#include <linux/quota.h>
+	],[
+		((struct quotactl_ops *)0)->set_dqblk((struct super_block*)0, *((struct kqid*)0), (struct fs_disk_quota*)0);
+	],[
+		AC_DEFINE(HAVE_DQUOT_FS_DISK_QUOTA, 1, [quotactl_ops.set_dqblk takes struct fs_disk_quota])
+		AC_DEFINE(HAVE_DQUOT_KQID, 1, [quotactl_ops.set_dqblk takes struct kqid])
+		AC_MSG_RESULT([yes])
+	],[
+		AC_MSG_RESULT([no])
+		AC_MSG_CHECKING([if quotactl_ops.set_dqblk takes struct kqid&fs_disk_quota])
+	])
 ])
 EXTRA_KCFLAGS="$tmp_flags"
 ])
@@ -799,6 +811,24 @@ AC_DEFUN([LC_EXPORT_SIMPLE_SETATTR],
 AC_DEFINE(HAVE_SIMPLE_SETATTR, 1,
             [simple_setattr is exported by the kernel])
 ],[
+])
+])
+
+#
+# truncate callback removed since 2.6.39
+#
+AC_DEFUN([LC_IOP_TRUNCATE],
+[AC_MSG_CHECKING([inode_operations has .truncate member function])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        ((struct inode_operations *)0)->truncate(NULL);
+],[
+        AC_DEFINE(HAVE_INODEOPS_TRUNCATE, 1,
+                  [inode_operations has .truncate member function])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
 ])
 ])
 
@@ -1327,6 +1357,24 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 3.8 struct file has new memeber f_inode
+#
+AC_DEFUN([LC_HAVE_FILE_F_INODE],
+[AC_MSG_CHECKING([if struct file has memeber f_inode])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	((struct file *)0)->f_inode = NULL;
+],[
+	AC_DEFINE(HAVE_FILE_F_INODE, 1,
+		  [struct file has memeber f_inode])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # 3.9 uses hlist_for_each_entry with 3 args
 # b67bfe0d42cac56c512dd5da4b1b347a23f4b70a
 #
@@ -1435,6 +1483,7 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.39
          LC_REQUEST_QUEUE_UNPLUG_FN
 	 LC_HAVE_FSTYPE_MOUNT
+	 LC_IOP_TRUNCATE
 
 	 # 3.0
 	 LC_DIRTY_INODE_WITH_FLAG
@@ -1476,6 +1525,9 @@ AC_DEFUN([LC_PROG_LINUX],
 
 	 # 3.7
  	 LC_HAVE_POSIXACL_USER_NS
+
+	 # 3.8
+	 LC_HAVE_FILE_F_INODE
 
 	 # 3.9
 	 LC_HAVE_HLIST_FOR_EACH_3ARG
