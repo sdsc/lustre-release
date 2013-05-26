@@ -1552,6 +1552,25 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# LN_STACKTRACE_OPS_HAVE_WALK_STACK
+#
+# 2.6.32-30.el6 adds a new 'walk_stack' field in 'struct stacktrace_ops'
+#
+AC_DEFUN([LN_STACKTRACE_OPS_HAVE_WALK_STACK],
+[AC_MSG_CHECKING([if 'struct stacktrace_ops' has 'walk_stack' field])
+LB_LINUX_TRY_COMPILE([
+        #include <asm/stacktrace.h>
+],[
+        ((struct stacktrace_ops *)0)->walk_stack(NULL, NULL, 0, NULL, NULL, NULL, NULL);
+],[
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(STACKTRACE_OPS_HAVE_WALK_STACK, 1, ['struct stacktrace_ops' has 'walk_stack' field])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # LN_PROG_LINUX
 #
 # LNet linux kernel checks
@@ -1610,6 +1629,8 @@ LN_STRUCT_CRED_IN_TASK
 LN_FUNC_UNSHARE_FS_STRUCT
 # 2.6.32
 LN_5ARGS_SYSCTL_PROC_HANDLER
+# 2.6.32
+LN_STACKTRACE_OPS_HAVE_WALK_STACK
 ])
 
 #
