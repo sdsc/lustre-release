@@ -97,6 +97,7 @@ int osd_acct_obj_lookup(struct osd_thread_info *info, struct osd_device *osd,
  * \retval +ve - success : exact match
  * \retval -ve - failure
  */
+#define HAVE_GET_DQBLK_3ARGS 1
 static int osd_acct_index_lookup(const struct lu_env *env,
 				 struct dt_object *dtobj,
 				 struct dt_rec *dtrec,
@@ -113,11 +114,19 @@ static int osd_acct_index_lookup(const struct lu_env *env,
 	struct lquota_acct_rec	*rec = (struct lquota_acct_rec *)dtrec;
 	__u64			 id = *((__u64 *)dtkey);
 	int			 rc;
+#ifdef HAVE_DQUOT_KQID
+	struct kqid		qid;
+#endif
 
 	ENTRY;
 
 	memset((void *)dqblk, 0, sizeof(struct obd_dqblk));
+#ifdef HAVE_DQUOT_KQID
+	qid = make_kqid(&init_user_ns, obj2type(dtobj), id);
+	rc = sb->s_qcop->get_dqblk(sb, qid, dqblk);
+#else
 	rc = sb->s_qcop->get_dqblk(sb, obj2type(dtobj), (qid_t) id, dqblk);
+#endif
 	if (rc)
 		RETURN(rc);
 #ifdef HAVE_DQUOT_FS_DISK_QUOTA

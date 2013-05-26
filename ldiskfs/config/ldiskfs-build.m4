@@ -633,7 +633,7 @@ LDISKFS_SERIES=
 AS_IF([$1], [
 	AC_MSG_CHECKING([which ldiskfs series to use])
 
-	SER=
+	SER='3.x-fc19.series'
 	AS_IF([test x$RHEL_KERNEL = xyes], [
 		AS_VERSION_COMPARE([$RHEL_KERNEL_VERSION],[2.6.32-343],[
 		AS_VERSION_COMPARE([$RHEL_KERNEL_VERSION],[2.6.32],[],

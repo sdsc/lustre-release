@@ -129,7 +129,7 @@ static int osd_oi_index_create_one(struct osd_thread_info *info,
 		return PTR_ERR(inode);
 	}
 
-	jh = ldiskfs_journal_start_sb(sb, 100);
+	jh = fsfilt_journal_start_sb(sb, LDISKFS_HT_MISC, 100);
 	if (IS_ERR(jh))
 		return PTR_ERR(jh);
 
