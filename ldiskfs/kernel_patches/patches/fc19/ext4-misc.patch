@@ -1,0 +1,101 @@
+Index: linux-3.10.9-200.fc17.x86_64/fs/ext4/ext4.h
+===================================================================
+--- linux-3.10.9-200.fc17.x86_64.orig/fs/ext4/ext4.h
++++ linux-3.10.9-200.fc17.x86_64/fs/ext4/ext4.h
+@@ -1417,6 +1417,11 @@ static inline void ext4_clear_state_flag
+ 
+ #define NEXT_ORPHAN(inode) EXT4_I(inode)->i_dtime
+ 
++/* Has been moved to linux/magic.h but we need it for Lustre */
++#define EXT4_SUPER_MAGIC	0xEF53
++#define JOURNAL_START_HAS_3ARGS	1
++#define HAVE_LDISKFS_MAP_BLOCKS	1
++
+ /*
+  * Codes for operating systems
+  */
+Index: linux-3.10.9-200.fc17.x86_64/fs/ext4/ext4_jbd2.c
+===================================================================
+--- linux-3.10.9-200.fc17.x86_64.orig/fs/ext4/ext4_jbd2.c
++++ linux-3.10.9-200.fc17.x86_64/fs/ext4/ext4_jbd2.c
+@@ -34,6 +34,8 @@ static void ext4_put_nojournal(handle_t
+ 
+ 	current->journal_info = handle;
+ }
++EXPORT_SYMBOL(__ext4_journal_get_write_access);
++EXPORT_SYMBOL(__ext4_journal_start_sb);
+ 
+ /*
+  * Wrappers for jbd2_journal_start/end.
+@@ -263,3 +265,4 @@ int __ext4_handle_dirty_super(const char
+ 		mark_buffer_dirty(bh);
+ 	return err;
+ }
++EXPORT_SYMBOL(__ext4_handle_dirty_metadata);
+Index: linux-3.10.9-200.fc17.x86_64/fs/ext4/ext4_jbd2.h
+===================================================================
+--- linux-3.10.9-200.fc17.x86_64.orig/fs/ext4/ext4_jbd2.h
++++ linux-3.10.9-200.fc17.x86_64/fs/ext4/ext4_jbd2.h
+@@ -37,6 +37,8 @@
+ 	(EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_EXTENTS)   \
+ 	 ? 20U : 8U)
+ 
++#define ext4_journal_dirty_metadata(handle, bh)  \
++		ext4_handle_dirty_metadata(handle, NULL, bh)
+ /* Extended attribute operations touch at most two data buffers,
+  * two bitmap buffers, and two group summaries, in addition to the inode
+  * and the superblock, which are already accounted for. */
+Index: linux-3.10.9-200.fc17.x86_64/fs/ext4/inode.c
+===================================================================
+--- linux-3.10.9-200.fc17.x86_64.orig/fs/ext4/inode.c
++++ linux-3.10.9-200.fc17.x86_64/fs/ext4/inode.c
+@@ -4359,6 +4359,9 @@ bad_inode:
+ 	iget_failed(inode);
+ 	return ERR_PTR(ret);
+ }
++EXPORT_SYMBOL(ext4_iget);
++EXPORT_SYMBOL(ext4_map_blocks);
++EXPORT_SYMBOL(ext4_truncate);
+ 
+ static int ext4_inode_blocks_set(handle_t *handle,
+ 				struct ext4_inode *raw_inode,
+Index: linux-3.10.9-200.fc17.x86_64/fs/ext4/super.c
+===================================================================
+--- linux-3.10.9-200.fc17.x86_64.orig/fs/ext4/super.c
++++ linux-3.10.9-200.fc17.x86_64/fs/ext4/super.c
+@@ -1123,10 +1123,12 @@ enum {
+ 	Opt_usrjquota, Opt_grpjquota, Opt_offusrjquota, Opt_offgrpjquota,
+ 	Opt_jqfmt_vfsold, Opt_jqfmt_vfsv0, Opt_jqfmt_vfsv1, Opt_quota,
+ 	Opt_noquota, Opt_barrier, Opt_nobarrier, Opt_err,
++	Opt_iopen, Opt_noiopen, Opt_iopen_nopriv,
+ 	Opt_usrquota, Opt_grpquota, Opt_i_version,
+ 	Opt_stripe, Opt_delalloc, Opt_nodelalloc, Opt_mblk_io_submit,
+ 	Opt_nomblk_io_submit, Opt_block_validity, Opt_noblock_validity,
+ 	Opt_inode_readahead_blks, Opt_journal_ioprio,
++	Opt_mballoc,
+ 	Opt_dioread_nolock, Opt_dioread_lock,
+ 	Opt_discard, Opt_nodiscard, Opt_init_itable, Opt_noinit_itable,
+ 	Opt_max_dir_size_kb,
+@@ -1180,6 +1182,10 @@ static const match_table_t tokens = {
+ 	{Opt_noquota, "noquota"},
+ 	{Opt_quota, "quota"},
+ 	{Opt_usrquota, "usrquota"},
++	{Opt_iopen, "iopen"},
++	{Opt_noiopen, "noiopen"},
++	{Opt_iopen_nopriv, "iopen_nopriv"},
++	{Opt_mballoc, "mballoc"},
+ 	{Opt_barrier, "barrier=%u"},
+ 	{Opt_barrier, "barrier"},
+ 	{Opt_nobarrier, "nobarrier"},
+@@ -1439,6 +1445,11 @@ static int handle_mount_opt(struct super
+ 	case Opt_i_version:
+ 		sb->s_flags |= MS_I_VERSION;
+ 		return 1;
++	case Opt_iopen:
++	case Opt_noiopen:
++	case Opt_iopen_nopriv:
++	case Opt_mballoc:
++		return 1;
+ 	}
+ 
+ 	for (m = ext4_mount_opts; m->token != Opt_err; m++)
