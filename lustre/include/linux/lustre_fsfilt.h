@@ -166,6 +166,21 @@ static inline int fsfilt_setup(struct obd_device *obd, struct super_block *fs)
         return 0;
 }
 
+#ifdef JOURNAL_START_HAS_3ARGS
+# define fsfilt_journal_start_sb(sb, type, nblock) \
+		ldiskfs_journal_start_sb(sb, type, nblock)
+# define fsfilt_append(handle, inode, nblock, err) \
+		ldiskfs_append(handle, inode, nblock)
+# define fsfilt_find_entry(dir, name, res_dir, inlined, lck) \
+		ldiskfs_find_entry(dir, name, res_dir, inlined, lck)
+#else
+# define fsfilt_journal_start_sb(sb, type, nblock) \
+		ldiskfs_journal_start_sb(sb, nblock)
+# define fsfilt_append(handle, inode, nblock, err) \
+		ldiskfs_append(handle, inode, nblock, err)
+# define fsfilt_find_entry(dir, name, res_dir, inlined, lck) \
+		ldiskfs_find_entry(dir, name, res_dir, lck)
+#endif
 
 
 #endif /* __KERNEL__ */

@@ -262,7 +262,7 @@ int osd_add_to_remote_parent(const struct lu_env *env, struct osd_device *osd,
 	LASSERTF(parent->d_inode->i_nlink > 1, "%s: %lu nlink %d",
 		 osd_name(osd), parent->d_inode->i_ino,
 		 parent->d_inode->i_nlink);
-	parent->d_inode->i_nlink++;
+	inc_nlink(parent->d_inode);
 	mark_inode_dirty(parent->d_inode);
 	mutex_unlock(&parent->d_inode->i_mutex);
 	RETURN(rc);
@@ -307,7 +307,7 @@ int osd_delete_from_remote_parent(const struct lu_env *env,
 	LASSERTF(parent->d_inode->i_nlink > 1, "%s: %lu nlink %d",
 		 osd_name(osd), parent->d_inode->i_ino,
 		 parent->d_inode->i_nlink);
-	parent->d_inode->i_nlink--;
+	drop_nlink(parent->d_inode);
 	mark_inode_dirty(parent->d_inode);
 	mutex_unlock(&parent->d_inode->i_mutex);
 	brelse(bh);
@@ -1088,7 +1088,7 @@ int osd_obj_map_recover(struct osd_thread_info *info,
 	tgt_child->d_inode = inode;
 
 	/* The non-initialized src_child may be destroyed. */
-	jh = ldiskfs_journal_start_sb(osd_sb(osd),
+	jh = ldiskfs_journal_start_sb(osd_sb(osd), LDISKFS_HT_MISC,
 				osd_dto_credits_noquota[DTO_INDEX_DELETE] +
 				osd_dto_credits_noquota[DTO_INDEX_INSERT] +
 				osd_dto_credits_noquota[DTO_OBJECT_DELETE]);
