@@ -64,8 +64,26 @@
 #define ext3_ext_pblock(ex) ext_pblock((ex))
 #endif
 
+#ifndef JOURNAL_START_HAS_3ARGS
+# define EXT4_HT_MISC	0
+# define fsfilt_journal_start(inode, type, nblocks) \
+			ext4_journal_start(inode, nblocks);
+#else
+# define fsfilt_journal_start(inode, type, nblocks) \
+			ext4_journal_start(inode, type, nblocks);
+#endif
+
+# define ll_unmap_underlying_metadata(sb, blocknr) \
+        unmap_underlying_metadata((sb)->s_bdev, blocknr)
+
+
 /* for kernels 2.6.18 and later */
 #define FSFILT_SINGLEDATA_TRANS_BLOCKS(sb) EXT3_SINGLEDATA_TRANS_BLOCKS(sb)
+
+/* Don't need a lot journal credits for rmdir&unlink */
+#ifndef EXT3_DELETE_TRANS_BLOCKS
+# define EXT3_DELETE_TRANS_BLOCKS EXT3_DATA_TRANS_BLOCKS
+#endif
 
 #define fsfilt_ext3_ext_insert_extent(handle, inode, path, newext, flag) \
                ext3_ext_insert_extent(handle, inode, path, newext, flag)
@@ -159,7 +177,7 @@ static void *fsfilt_ext3_start(struct inode *inode, int op, void *desc_private,
 
  journal_start:
         LASSERTF(nblocks > 0, "can't start %d credit transaction\n", nblocks);
-        handle = ext3_journal_start(inode, nblocks);
+        handle = fsfilt_journal_start(inode, EXT4_HT_MISC, nblocks);
 
         if (!IS_ERR(handle))
                 LASSERT(current->journal_info == handle);
@@ -195,8 +213,6 @@ static int fsfilt_ext3_commit(struct inode *inode, void *h, int force_sync)
 #define ext3_ext_base                   inode
 #define ext3_ext_base2inode(inode)      (inode)
 #define EXT_DEPTH(inode)                ext_depth(inode)
-#define fsfilt_ext3_ext_walk_space(inode, block, num, cb, cbdata) \
-                        ext3_ext_walk_space(inode, block, num, cb, cbdata);
 
 struct bpointers {
         unsigned long *blocks;
@@ -205,6 +221,8 @@ struct bpointers {
         int init_num;
         int create;
 };
+
+#ifndef HAVE_LDISKFS_MAP_BLOCKS
 
 static long ext3_ext_find_goal(struct inode *inode, struct ext3_ext_path *path,
                                unsigned long block, int *aflags)
@@ -235,9 +253,6 @@ static long ext3_ext_find_goal(struct inode *inode, struct ext3_ext_path *path,
                 (EXT3_BLOCKS_PER_GROUP(inode->i_sb) / 16);
         return bg_start + colour + block;
 }
-
-#define ll_unmap_underlying_metadata(sb, blocknr) \
-        unmap_underlying_metadata((sb)->s_bdev, blocknr)
 
 #ifndef EXT3_MB_HINT_GROUP_ALLOC
 static unsigned long new_blocks(handle_t *handle, struct ext3_ext_base *base,
@@ -333,7 +348,7 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
 	tgen = EXT_GENERATION(base);
 	count = ext3_ext_calc_credits_for_insert(base, path);
 
-	handle = ext3_journal_start(inode, count+EXT3_ALLOC_NEEDED+1);
+	handle = fsfilt_journal_start(inode, EXT4_HT_MISC, count+EXT3_ALLOC_NEEDED+1);
 	if (IS_ERR(handle)) {
 		return PTR_ERR(handle);
 	}
@@ -448,23 +463,26 @@ int fsfilt_map_nblocks(struct inode *inode, unsigned long block,
 		       int create)
 {
         struct ext3_ext_base *base = inode;
-        struct bpointers bp;
+       	struct bpointers bp;
+	struct fiemap_extent_info fieinfo = { 0, };
         int err;
 
         CDEBUG(D_OTHER, "blocks %lu-%lu requested for inode %u\n",
                block, block + num - 1, (unsigned) inode->i_ino);
 
-        bp.blocks = blocks;
-        bp.start = block;
-        bp.init_num = bp.num = num;
-        bp.create = create;
+       	bp.blocks = blocks;
+       	bp.start = block;
+       	bp.init_num = bp.num = num;
+       	bp.create = create;
 
-	err = fsfilt_ext3_ext_walk_space(base, block, num,
-					 ext3_ext_new_extent_cb, &bp);
+	err = ext3_ext_walk_space(base, block, num,
+				  ext3_ext_new_extent_cb, &bp);
+
 	ext3_ext_invalidate_cache(base);
 
         return err;
 }
+#endif // HAVE_LDISKFS_MAP_BLOCKS
 
 int fsfilt_ext3_map_ext_inode_pages(struct inode *inode, struct page **page,
 				    int pages, unsigned long *blocks,
@@ -481,24 +499,53 @@ int fsfilt_ext3_map_ext_inode_pages(struct inode *inode, struct page **page,
         /* pages are sorted already. so, we just have to find
          * contig. space and process them properly */
         while (i < pages) {
+		handle_t *handle = NULL;
+		struct ext4_map_blocks map;
                 if (fp == NULL) {
                         /* start new extent */
                         fp = *page++;
                         clen = 1;
-                        i++;
-                        continue;
+                        if (++i != pages)
+                        	continue;
                 } else if (fp->index + clen == (*page)->index) {
                         /* continue the extent */
                         page++;
                         clen++;
-                        i++;
-                        continue;
+                        if (++i != pages)
+                        	continue;
                 }
-
                 /* process found extent */
+#ifdef HAVE_LDISKFS_MAP_BLOCKS
+		map.m_lblk = fp->index * blocks_per_page;
+		map.m_len = clen * blocks_per_page;
+		if (create) {
+			create = EXT4_GET_BLOCKS_CREATE;
+			handle = fsfilt_journal_start(inode, EXT4_HT_MISC,
+				EXT3_DATA_TRANS_BLOCKS(inode->i_sb) *
+				map.m_len + 2);
+		}
+		rc = ldiskfs_map_blocks(handle, inode, &map, create);
+		if (rc > 0) {
+			int c;
+			for (c = 0; c < map.m_len; c ++) {
+				*(blocks + c) = map.m_pblk + c;
+                                /* unmap any possible underlying metadata from
+                                 * the block device mapping.  bug 6998. */
+				if (create && map.m_flags & EXT4_MAP_NEW)
+                                	ll_unmap_underlying_metadata(inode->i_sb,
+                                                             *(blocks + c));
+					
+			}
+			rc = 0;
+		} else if (rc == 0)
+			rc = -EIO;
+		if (handle)
+			ext4_journal_stop(handle);
+#else
                 rc = fsfilt_map_nblocks(inode, fp->index * blocks_per_page,
 					clen * blocks_per_page, blocks,
 					create);
+#endif
                 if (rc)
                         GOTO(cleanup, rc);
 
@@ -506,11 +553,6 @@ int fsfilt_ext3_map_ext_inode_pages(struct inode *inode, struct page **page,
                 fp = NULL;
                 blocks += blocks_per_page * clen;
         }
-
-        if (fp)
-                rc = fsfilt_map_nblocks(inode, fp->index * blocks_per_page,
-					clen * blocks_per_page, blocks,
-					create);
 cleanup:
         return rc;
 }
@@ -524,10 +566,42 @@ int fsfilt_ext3_map_bm_inode_pages(struct inode *inode, struct page **page,
 	int rc = 0, i;
 
 	for (i = 0, b = blocks; i < pages; i++, page++) {
+#ifdef HAVE_LDISKFS_MAP_BLOCKS
+		int v;
+		char msg[] = "map_blocks";
+		for (v = 0; rc == 0 && v < blocks_per_page; v ++) {
+			struct ext4_map_blocks map;
+			handle_t *handle = NULL;
+			map.m_lblk = (*page)->index * v;
+			map.m_len = 1;
+			if (create) {
+				create = EXT4_GET_BLOCKS_CREATE;
+				handle = fsfilt_journal_start(inode,
+					EXT4_HT_MISC, 2 + map.m_len *
+					EXT3_DATA_TRANS_BLOCKS(inode->i_sb));
+			}
+			rc = ldiskfs_map_blocks(handle, inode, &map, create);
+			if (rc > 0) {
+				*(b + v) = map.m_pblk;
+                                /* unmap any possible underlying metadata from
+                                 * the block device mapping.  bug 6998. */
+				if (create && map.m_flags & EXT4_MAP_NEW)
+                                	ll_unmap_underlying_metadata(inode->i_sb,
+                                                             *(b + v));
+					
+				rc = 0;
+			} else if (rc == 0)
+				rc = -EIO;
+			if (handle)
+				ext4_journal_stop(handle);
+		}
+#else
+		char msg[] = "map_inode_page";
 		rc = ext3_map_inode_page(inode, *page, b, create);
+#endif
                 if (rc) {
-			CERROR("ino %lu, blk %lu create %d: rc %d\n",
-			       inode->i_ino, *b, create, rc);
+			CERROR("%s: ino %lu, blk %lu create %d: rc %d\n",
+			       msg, inode->i_ino, *b, create, rc);
                         break;
                 }
 
@@ -689,7 +763,7 @@ static int fsfilt_ext3_write_record(struct file *file, void *buf, int bufsize,
         block_count = (*offs & (blocksize - 1)) + bufsize;
         block_count = (block_count + blocksize - 1) >> inode->i_blkbits;
 
-	handle = ext3_journal_start(inode,
+	handle = fsfilt_journal_start(inode, EXT4_HT_MISC,
 			block_count * EXT3_DATA_TRANS_BLOCKS(inode->i_sb) + 2);
 	if (IS_ERR(handle)) {
 		CERROR("can't start transaction for %d blocks (%d bytes)\n",
