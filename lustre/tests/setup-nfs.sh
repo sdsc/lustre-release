@@ -13,7 +13,6 @@ setup_nfs() {
     echo "Exporting Lustre filesystem..."
 
     if [ "$NFS_VER" = "4" ]; then
-        export_opts_v="$EXPORT_OPTS,fsid=0"
         do_nodes $LUSTRE_CLIENT "mkdir -p /var/lib/nfs/v4recovery"
     fi
 
