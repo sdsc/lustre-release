@@ -240,7 +240,7 @@ static int ll_get_name(struct dentry *dentry, char *name,
         lgd.lgd_found = 0;
 
 	mutex_lock(&dir->i_mutex);
-	rc = ll_dir_read(dir, &offset, &lgd, ll_nfs_get_name_filldir);
+	rc = ll_dir_read(dentry, &offset, &lgd, ll_nfs_get_name_filldir);
 	mutex_unlock(&dir->i_mutex);
         if (!rc && !lgd.lgd_found)
                 rc = -ENOENT;
