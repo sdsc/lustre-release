@@ -4957,6 +4957,29 @@ run_llverfs()
         llverfs $partial_arg $llverfs_opts $dir
 }
 
+#Remove objects from OST
+remove_ost_objects() {
+    local facet=$1
+    local ostdev=$2
+    local group=$3
+    shift 3
+    local objids="$@"
+    local mntpt=$(facet_mntpt $facet)
+    local opts=$OST_MOUNT_OPTS
+    local i
+    local rc
+
+    echo "removing objects from $ostdev on $facet: $objids"
+    mount -t $FSTYPE $OST_MOUNT_OPTS $ostdev $mntpt || return $?
+    rc=0
+    for i in $objids; do
+        rm $mntpt/O/$group/d$((i % 32))/$i || { rc=$?; break; }
+    done
+    umount -f $mntpt || return $?
+    return $rc
+}
+
+#Remove files from MDT
 remove_mdt_files() {
     local facet=$1
     local mdtdev=$2
@@ -4966,7 +4989,7 @@ remove_mdt_files() {
 
     echo "removing files from $mdtdev on $facet: $files"
     mount -t $FSTYPE $MDS_MOUNT_OPTS $mdtdev $mntpt || return $?
-    rc=0;
+    rc=0
     for f in $files; do
         rm $mntpt/ROOT/$f || { rc=$?; break; }
     done
