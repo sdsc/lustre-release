@@ -150,7 +150,7 @@ static int ll_dir_filler(void *_hash, struct page *page0)
         struct mdt_body *body;
         struct md_op_data *op_data;
 	__u64 hash = *((__u64 *)_hash);
-        struct page **page_pool;
+        struct page **page_pool = NULL;
         struct page *page;
         struct lu_dirpage *dp;
 	int max_pages = ll_i2sbi(inode)->ll_md_brw_size >> PAGE_CACHE_SHIFT;
@@ -163,9 +163,14 @@ static int ll_dir_filler(void *_hash, struct page *page0)
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p) hash "LPU64"\n",
                inode->i_ino, inode->i_generation, inode, hash);
 
+	npages = i_size_read(inode) >> PAGE_CACHE_SHIFT;
+	if (npages > 1 && npages < max_pages)
+		max_pages = npages;
 	LASSERT(max_pages > 0 && max_pages <= MD_MAX_BRW_PAGES);
 
-        OBD_ALLOC(page_pool, sizeof(page) * max_pages);
+	if (max_pages > 1)
+		OBD_ALLOC(page_pool, sizeof(page) * max_pages);
+
         if (page_pool != NULL) {
                 page_pool[0] = page0;
         } else {
@@ -330,15 +335,16 @@ static struct page *ll_dir_page_locate(struct inode *dir, __u64 *hash,
         return page;
 }
 
-struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
+struct page *ll_get_dir_page(struct dentry  *d_dir, __u64 hash,
                              struct ll_dir_chain *chain)
 {
         ldlm_policy_data_t policy = {.l_inodebits = {MDS_INODELOCK_UPDATE} };
-        struct address_space *mapping = dir->i_mapping;
-        struct lustre_handle lockh;
         struct lu_dirpage *dp;
-        struct page *page;
-        ldlm_mode_t mode;
+	struct inode *dir = d_dir->d_inode;
+	struct address_space *mapping = dir->i_mapping;
+	struct lookup_intent it = { .it_op = IT_GETATTR };
+	struct ptlrpc_request *req = NULL;
+	struct page *page = ERR_PTR(-EIO);
         int rc;
         __u64 start = 0;
         __u64 end = 0;
@@ -346,50 +352,44 @@ struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
         struct ll_inode_info *lli = ll_i2info(dir);
         int hash64 = ll_i2sbi(dir)->ll_flags & LL_SBI_64BIT_HASH;
 
-        mode = LCK_PR;
-        rc = md_lock_match(ll_i2sbi(dir)->ll_md_exp, LDLM_FL_BLOCK_GRANTED,
-                           ll_inode2fid(dir), LDLM_IBITS, &policy, mode, &lockh);
+	it.d.lustre.it_lock_mode = LCK_PR;
+	it.d.lustre.it_disposition = 0;
+	rc = md_lock_match(ll_i2sbi(dir)->ll_md_exp, LDLM_FL_BLOCK_GRANTED,
+			   ll_inode2fid(dir), LDLM_IBITS, &policy,
+			   it.d.lustre.it_lock_mode,
+			   (struct lustre_handle *)&it.d.lustre.it_lock_handle);
 	if (!rc) {
-		struct ldlm_enqueue_info einfo = {
-			.ei_type = LDLM_IBITS,
-			.ei_mode = mode,
-			.ei_cb_bl = ll_md_blocking_ast,
-			.ei_cb_cp = ldlm_completion_ast,
-		};
-		struct lookup_intent it = { .it_op = IT_READDIR };
-		struct ptlrpc_request *request;
 		struct md_op_data *op_data;
 
-		op_data = ll_prep_md_op_data(NULL, dir, NULL, NULL, 0, 0,
-		LUSTRE_OPC_ANY, NULL);
+		op_data = ll_prep_md_op_data(NULL, d_dir->d_parent->d_inode,
+					     dir, NULL, 0, 0,
+					     LUSTRE_OPC_ANY, NULL);
 		if (IS_ERR(op_data))
-			return (void *)op_data;
+			RETURN((void *)op_data);
 
-		rc = md_enqueue(ll_i2sbi(dir)->ll_md_exp, &einfo, &it,
-				op_data, &lockh, NULL, 0, NULL, 0);
-
+		rc = md_intent_lock(ll_i2mdexp(dir), op_data, NULL, 0, &it,
+				    0, &req, ll_md_blocking_ast, 0);
 		ll_finish_md_op_data(op_data);
 
-		request = (struct ptlrpc_request *)it.d.lustre.it_data;
-		if (request)
-			ptlrpc_req_finished(request);
 		if (rc < 0) {
-			CERROR("lock enqueue: "DFID" at "LPU64": rc %d\n",
-				PFID(ll_inode2fid(dir)), hash, rc);
-			return ERR_PTR(rc);
+			ll_intent_release(&it);
+			RETURN(ERR_PTR(rc));
 		}
 
-		CDEBUG(D_INODE, "setting lr_lvb_inode to inode %p (%lu/%u)\n",
-		       dir, dir->i_ino, dir->i_generation);
-		md_set_lock_data(ll_i2sbi(dir)->ll_md_exp,
-				 &it.d.lustre.it_lock_handle, dir, NULL);
-        } else {
-                /* for cross-ref object, l_ast_data of the lock may not be set,
-                 * we reset it here */
-                md_set_lock_data(ll_i2sbi(dir)->ll_md_exp, &lockh.cookie,
-                                 dir, NULL);
-        }
-        ldlm_lock_dump_handle(D_OTHER, &lockh);
+		rc = ll_revalidate_it_finish(req, &it, d_dir);
+		if (rc != 0) {
+			ll_intent_release(&it);
+			RETURN(ERR_PTR(rc));
+		}
+		ll_set_lock_data(ll_i2mdexp(dir), dir, &it, NULL);
+		/* drop request early as second case may don't have request at all*/
+		if (req != NULL) {
+			ptlrpc_req_finished(req);
+			it_clear_disposition(&it, DISP_ENQ_COMPLETE);
+		}
+	}
+
+	ldlm_lock_dump_handle(D_OTHER, (void *)&it.d.lustre.it_lock_handle);
 
 	mutex_lock(&lli->lli_readdir_mutex);
         page = ll_dir_page_locate(dir, &lhash, &start, &end);
@@ -465,7 +465,8 @@ hash_collision:
         }
 out_unlock:
 	mutex_unlock(&lli->lli_readdir_mutex);
-        ldlm_lock_decref(&lockh, mode);
+	/* all lustre operation fine so we may store locks*/
+	ll_intent_drop_lock(&it);
         return page;
 
 fail:
@@ -474,9 +475,10 @@ fail:
         goto out_unlock;
 }
 
-int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
+int ll_dir_read(struct dentry *dir, __u64 *_pos, void *cookie,
 		filldir_t filldir)
 {
+	struct inode         *inode      = dir->d_inode;
         struct ll_inode_info *info       = ll_i2info(inode);
         struct ll_sb_info    *sbi        = ll_i2sbi(inode);
 	__u64                 pos        = *_pos;
@@ -490,7 +492,7 @@ int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
 
         ll_dir_chain_init(&chain);
 
-	page = ll_get_dir_page(inode, pos, &chain);
+	page = ll_get_dir_page(dir, pos, &chain);
 
         while (rc == 0 && !done) {
                 struct lu_dirpage *dp;
@@ -564,7 +566,7 @@ int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
                                             le32_to_cpu(dp->ldp_flags) &
                                                         LDF_COLLIDE);
 					next = pos;
-					page = ll_get_dir_page(inode, pos,
+					page = ll_get_dir_page(dir, pos,
                                                                &chain);
                                 } else {
                                         /*
@@ -619,7 +621,7 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 		 */
 		GOTO(out, rc = 0);
 
-	rc = ll_dir_read(inode, &pos, cookie, filldir);
+	rc = ll_dir_read(filp->f_dentry, &pos, cookie, filldir);
 	if (lfd != NULL)
 		lfd->lfd_pos = pos;
         if (pos == MDS_DIR_END_OFF) {
