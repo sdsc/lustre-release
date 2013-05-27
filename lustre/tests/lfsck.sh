@@ -15,9 +15,9 @@ NUMDIRS=${NUMDIRS:-4}
 OSTIDX=${OSTIDX:-0} # the OST index in LOV
 OBJGRP=${OBJGRP:-0} # the OST object group
 
-[ -d "$SHARED_DIRECTORY" ] || \
-    { skip "SHARED_DIRECTORY should be specified with a shared directory \
-which can be accessable on all of the nodes" && exit 0; }
+[ ! -d "$SHARED_DIRECTORY" ] &&
+	skip_env "SHARED_DIRECTORY should be accessible on all nodes" &&
+	exit 0
 
 which getfattr &>/dev/null || { skip_env "could not find getfattr" && exit 0; }
 which setfattr &>/dev/null || { skip_env "could not find setfattr" && exit 0; }
@@ -171,28 +171,7 @@ get_files() {
 
 # Remove objects associated with files.
 remove_objects() {
-    local node=$1
-    shift
-    local ostdev=$1
-    shift
-    local group=$1
-    shift
-    local objids="$@"
-    local tmp
-    local i
-    local rc
-
-    echo "removing objects from $ostdev on $node: $objids"
-    tmp=$(mktemp $SHARED_DIRECTORY/debugfs.XXXXXXXXXX)
-    for i in $objids; do
-        echo "rm O/$group/d$((i % 32))/$i" >> $tmp
-    done
-
-    do_node $node "$DEBUGFS -w -f $tmp $ostdev"
-    rc=${PIPESTATUS[0]}
-    rm -f $tmp
-
-    return $rc
+	do_rpc_nodes $1 remove_ost_objects $@
 }
 
 # Remove files from MDS.
@@ -221,31 +200,34 @@ if is_empty_fs $MOUNT; then
     create_files $TESTDIR $NUMDIRS $NUMFILES
 
     # get the objids for files in group $OBJGRP on the OST with index $OSTIDX
+    echo "objects to be removed, leaving dangling references:"
     OST_REMOVE=$(get_objects $OSTIDX $OBJGRP \
                 $(seq -f $TESTDIR/testfile.%g $NUMFILES))
 
     # get the node name and target device for the OST with index $OSTIDX
-    OSTNODE=$(get_ost_node $OSTIDX) || error "get_ost_node by index $OSTIDX failed"
-    OSTDEV=$(get_ost_dev $OSTNODE $OSTIDX) || \
+    OSTNODE=$(facet_active_host ost$((OSTIDX + 1)))
+    OSTDEV=$(get_ost_dev $OSTNODE $OSTIDX) ||
 	error "get_ost_dev $OSTNODE $OSTIDX failed"
 
     # get the file names to be duplicated on the MDS
+    echo "files to be duplicated, leaving double-referenced objects:"
     MDS_DUPE=$(get_files dup $TESTDIR $NUMFILES) || error "$MDS_DUPE"
     # get the file names to be removed from the MDS
+    echo "files to be removed, leaving orphan objects:"
     MDS_REMOVE=$(get_files remove $TESTDIR $NUMFILES) || error "$MDS_REMOVE"
 
     stopall -f || error "cleanupall failed"
 
     # remove objects associated with files in group $OBJGRP
     # on the OST with index $OSTIDX
-    remove_objects $OSTNODE $OSTDEV $OBJGRP $OST_REMOVE || \
+    remove_objects ost$((OSTIDX + 1)) $OSTDEV $OBJGRP $OST_REMOVE ||
         error "removing objects failed"
 
     # remove files from MDS
     remove_files $SINGLEMDS $MDTDEV $MDS_REMOVE || error "removing files failed"
 
     # create EAs on files so objects are referenced from different files
-    duplicate_files $SINGLEMDS $MDTDEV $MDS_DUPE || \
+    duplicate_files $SINGLEMDS $MDTDEV $MDS_DUPE ||
         error "duplicating files failed"
     FSCK_MAX_ERR=1   # file system errors corrected
 else # is_empty_fs $MOUNT
