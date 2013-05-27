@@ -3080,6 +3080,25 @@ test_39m() {
 }
 run_test 39m "test atime and mtime before 1970"
 
+test_39n() {
+	TESTDIR=$DIR/$tdir/$tfile
+	mkdir -p $TESTDIR
+	cd $TESTDIR
+#	links1=$(stat -c %h $TESTDIR)
+	links1=2
+	ls
+	mkdir a b
+	ls
+	links2=$(stat -c %h .)
+	[ $(($links1 + 2)) != $links2 ] && \
+		error "wrong links count $(($links1 + 2)) != $links2"
+	rmdir b
+	links3=$(stat -c %h .)
+	[ $(($links1 + 1)) != $links3 ] && \
+		error "wrong links count $links1 != $links3"
+}
+run_test 39n "directory cached attributes updated after create ========"
+
 test_40() {
 	dd if=/dev/zero of=$DIR/$tfile bs=4096 count=1
 	$RUNAS $OPENFILE -f O_WRONLY:O_TRUNC $DIR/$tfile &&

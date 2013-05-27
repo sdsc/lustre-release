@@ -1006,6 +1006,7 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
         struct lustre_handle lockh;
         ldlm_policy_data_t policy;
         ldlm_mode_t mode;
+	uint64_t lock_mode = LCK_PR | LCK_PW;
         ENTRY;
 
         if (it->d.lustre.it_lock_handle) {
@@ -1019,15 +1020,18 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
                         break;
                 case IT_LAYOUT:
                         policy.l_inodebits.bits = MDS_INODELOCK_LAYOUT;
+			lock_mode |= LCK_CW | LCK_CR;
                         break;
                 default:
                         policy.l_inodebits.bits = MDS_INODELOCK_LOOKUP;
+			lock_mode |= LCK_CW | LCK_CR;
                         break;
                 }
-                mode = ldlm_lock_match(exp->exp_obd->obd_namespace,
-                                       LDLM_FL_BLOCK_GRANTED, &res_id,
-                                       LDLM_IBITS, &policy,
-                                       LCK_CR|LCK_CW|LCK_PR|LCK_PW, &lockh, 0);
+
+		mode = ldlm_lock_match(exp->exp_obd->obd_namespace,
+				       LDLM_FL_BLOCK_GRANTED, &res_id,
+				       LDLM_IBITS, &policy,
+				       lock_mode, &lockh, 0);
         }
 
         if (mode) {
