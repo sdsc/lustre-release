@@ -723,9 +723,9 @@ static void lprocfs_llite_init_vars(struct lprocfs_static_vars *lvars)
 void ll_release_page(struct page *page, int remove);
 extern struct file_operations ll_dir_operations;
 extern struct inode_operations ll_dir_inode_operations;
-struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
+struct page *ll_get_dir_page(struct dentry *d_dir, __u64 hash,
                              struct ll_dir_chain *chain);
-int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
+int ll_dir_read(struct dentry *dir, __u64 *_pos, void *cookie,
 		filldir_t filldir);
 
 int ll_get_mdt_idx(struct inode *inode);
