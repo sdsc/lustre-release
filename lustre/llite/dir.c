@@ -351,7 +351,7 @@ struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
         struct ll_inode_info *lli = ll_i2info(dir);
         int hash64 = ll_i2sbi(dir)->ll_flags & LL_SBI_64BIT_HASH;
 
-        mode = LCK_PR;
+        mode = LCK_CR;
         rc = md_lock_match(ll_i2sbi(dir)->ll_md_exp, LDLM_FL_BLOCK_GRANTED,
                            ll_inode2fid(dir), LDLM_IBITS, &policy, mode, &lockh);
 	if (!rc) {
