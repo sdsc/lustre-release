@@ -983,8 +983,6 @@ static int server_stop_servers(int lsiflags)
 		obd->obd_force = 1;
 		/* obd_fail doesn't mean much on a server obd */
 		err = class_manual_cleanup(obd);
-		if (rc != 0)
-			rc = err;
 	}
 
 	mutex_unlock(&server_start_lock);
