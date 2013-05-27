@@ -570,7 +570,12 @@ ssize_t ll_listxattr(struct dentry *dentry, char *buffer, size_t size)
 			memcpy(buffer + prefix_len, "lov", name_len);
 			buffer[prefix_len + name_len] = '\0';
 		}
-		rc2 = total_len;
+		if (buffer == NULL || (rc + total_len) <= size) {
+			rc2 = total_len;
+		} else {
+		        ptlrpc_req_finished(request);
+			return -ERANGE;
+		}
 	}
 out:
         ptlrpc_req_finished(request);
