@@ -1392,55 +1392,81 @@ run_test 27y "create files while OST0 is degraded and the rest inactive"
 
 check_seq_oid()
 {
-        echo check file $1
-        local old_ifs="$IFS"
-        IFS=$'\t\n :'
-        lmm=($($GETSTRIPE -v $1))
+        log "check file $1"
 
+	lmm_count=$($GETSTRIPE -c $1)
+	lmm_seq=$($GETSTRIPE -v $1 | awk '/lmm_seq/ { print $2 }')
+	lmm_oid=$($GETSTRIPE -v $1 | awk '/lmm_object_id/ { print $2 }')
+
+        local old_ifs="$IFS"
         IFS=$'[:]'
         fid=($($LFS path2fid $1))
         IFS="$old_ifs"
 
+	log "FID seq ${fid[1]}, oid ${fid[2]} ver ${fid[3]}"
+	log "LOV seq $lmm_seq, oid $lmm_oid, count: $lmm_count"
+
         # compare lmm_seq and lu_fid->f_seq
-        [ ${lmm[4]} = ${fid[1]} ] || { error "SEQ mismatch"; return 1; }
+        [ $lmm_seq = ${fid[1]} ] || { error "SEQ mismatch"; return 1; }
         # compare lmm_object_id and lu_fid->oid
-        [ ${lmm[6]} = ${fid[2]} ] || { error "OID mismatch"; return 2; }
+        [ $lmm_oid = ${fid[2]} ] || { error "OID mismatch"; return 2; }
 
-        echo -e "\tseq ${fid[1]}, oid ${fid[2]} ver ${fid[3]}\n\tstripe count: ${lmm[8]}"
+	[ "$FSTYPE" != "ldiskfs" ] &&
+		skip "cannot check filter fid FSTYPE=$FSTYPE" && return 0
 
-        [ "$FSTYPE" != "ldiskfs" ] && skip "can not check trusted.fid FSTYPE=$FSTYPE" && return 0
+	# check the trusted.fid attribute of the OST objects of the file
+	local have_obdidx=false
+	local stripe_nr=0
+	$GETSTRIPE $1 | while read obdidx oid hex seq; do
+		# skip lines up to and including "obdidx"
+		[ -z "$obdidx" ] && break
+		[ "$obdidx" = "obdidx" ] && have_obdidx=true && continue
+		$have_obdidx || continue
 
-        # check the trusted.fid attribute of the OST objects of the file
-        for (( i=0, j=19; i < ${lmm[8]}; i++, j+=4 )); do
-                local obdidx=${lmm[$j]}
-                local devnum=$((obdidx + 1))
-                local objid=${lmm[$((j+1))]}
-                local group=${lmm[$((j+3))]}
-                local dev=$(ostdevname $devnum)
-                local dir=${MOUNT%/*}/ost$devnum
-                local mntpt=$(facet_mntpt ost$devnum)
+		local ost=$((obdidx + 1))
+		local dev=$(ostdevname $ost)
+		local dir=$(facet_mntpt ost$ost)
+		local oid_hex
 
-                stop ost$devnum
-                do_facet ost$devnum mount -t $FSTYPE $dev $dir $OST_MOUNT_OPTS ||
-                        { error "mounting $dev as $FSTYPE failed"; return 3; }
+		log "want: stripe:$stripe_nr ost:$obdidx oid:$oid/$hex seq:$seq"
 
-                obj_filename=$(do_facet ost$devnum find $dir/O/$group -name $objid)
-                local ff=$(do_facet ost$devnum $LL_DECODE_FILTER_FID $obj_filename)
-                IFS=$'/= [:]'
-                ff=($(echo $ff))
-                IFS="$old_ifs"
+		stop ost$ost
+		do_facet ost$ost mount -t $FSTYPE $opts $dev $dir $OST_MOUNT_OPTS ||
+			{ error "mounting $dev as $FSTYPE failed"; return 3; }
 
-                # compare lmm_seq and filter_fid->ff_parent.f_seq
-                [ ${ff[11]} = ${lmm[4]} ] || { error "parent SEQ mismatch"; return 4; }
-                # compare lmm_object_id and filter_fid->ff_parent.f_oid
-                [ ${ff[12]} = ${lmm[6]} ] || { error "parent OID mismatch"; return 5; }
-                let stripe=${ff[13]}
-                [ $stripe -eq $i ] || { error "stripe mismatch"; return 6; }
+		seq=$(echo $seq | sed -e "s/^0x//g")
+		if [ $seq == 0 ]; then
+			oid_hex=$(echo $oid)
+		else
+			oid_hex=$(echo $hex | sed -e "s/^0x//g")
+		fi
+		local obj_file=$(do_facet ost$ost find $dir/O/$seq -name $oid_hex)
+		local ff=$(do_facet ost$ost $LL_DECODE_FILTER_FID $obj_file)
+		do_facet ost$ost umount -d $dir
+		start ost$ost $dev $OST_MOUNT_OPTS
 
-                echo -e "\t\tost $obdidx, objid $objid, group $group"
-                do_facet ost$devnum umount -d $mntpt
-                start ost$devnum $dev $OST_MOUNT_OPTS
-        done
+		[ -z "$ff" ] && error "$obj_file: no filter_fid info"
+
+		echo "$ff" | sed -e 's#.*objid=#got: objid=#'
+
+		# /mnt/O/0/d23/23: objid=23 seq=0 parent=[0x200000400:0x1e:0x1]
+		# fid: objid=23 seq=0 parent=[0x200000400:0x1e:0x0] stripe=1
+		local ff_parent=$(echo $ff|sed -e 's/.*parent=.//')
+		local ff_pseq=$(echo $ff_parent | cut -d: -f1)
+		local ff_poid=$(echo $ff_parent | cut -d: -f2)
+		local ff_pstripe=$(echo $ff_parent | sed -e 's/.*stripe=//')
+
+		# compare lmm_seq and filter_fid->ff_parent.f_seq
+		[ $ff_pseq = $lmm_seq ] ||
+			error "FF parent SEQ $ff_pseq != $lmm_seq"
+		# compare lmm_object_id and filter_fid->ff_parent.f_oid
+		[ $ff_poid = $lmm_oid ] ||
+			error "FF parent OID $ff_poid != $lmm_oid"
+		[ $ff_pstripe = $stripe_nr ] ||
+			error "FF stripe $ff_pstripe != $stripe_nr"
+
+		stripe_nr=$((stripe_nr + 1))
+	done
 }
 
 test_27z() {
