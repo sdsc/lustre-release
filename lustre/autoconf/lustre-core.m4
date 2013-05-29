@@ -1934,6 +1934,23 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# RHEL5.1(2.6.18) does not have type bool
+# blk_queue_max_hw_segments add blk_queue_max_segments
+AC_DEFUN([LC_TYPE_BOOL],
+[AC_MSG_CHECKING([if type bool is defined])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/types.h>
+],[
+        bool a;
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(HAVE_TYPE_BOOL, 1,
+                  [type bool is defined])
+],[
+        AC_MSG_RESULT(no)
+])
+])
+
 
 #
 # LC_PROG_LINUX
@@ -2101,6 +2118,7 @@ AC_DEFUN([LC_PROG_LINUX],
           LC_REQUEST_QUEUE_LIMITS
           LC_BLK_QUEUE_MAX_SECTORS
           LC_BLK_QUEUE_MAX_SEGMENTS
+          LC_TYPE_BOOL
 
           #
           if test x$enable_server = xyes ; then

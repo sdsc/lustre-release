@@ -46,6 +46,7 @@
 #endif
 
 #include <linux/fs_struct.h>
+#include <linux/types.h>
 #include <libcfs/linux/portals_compat25.h>
 
 #include <linux/lustre_patchless_compat.h>
@@ -698,6 +699,11 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 /* Linux 2.6.34+ no longer define NO_QUOTA */
 #ifndef NO_QUOTA
 #define NO_QUOTA 1
+#endif
+
+/* Linux 2.6.20- does not have type bool */
+#ifndef HAVE_TYPE_BOOL
+typedef enum{false = 0, true} bool;
 #endif
 
 #endif /* __KERNEL__ */
