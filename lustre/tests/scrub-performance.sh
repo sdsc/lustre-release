@@ -151,7 +151,8 @@ test_0() {
 			echo "backup/restore ${i} files used ${delta} seconds"
 			echo "backup/restore speed is $((i / delta))/sec"
 		else
-			mds_remove_ois || error "Fail to remove/recreate!"
+			mds_remove_ois $SINGLEMDS ||
+				error "Fail to remove/recreate!"
 		fi
 
 		echo "--- start to rebuild OI for $i files set at: $(date) ---"
