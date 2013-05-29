@@ -400,6 +400,9 @@ struct ldlm_namespace {
 	/** Client side original connect flags supported by server. */
 	__u64			ns_orig_connect_flags;
 
+	/* namespace proc dir entry */
+	struct proc_dir_entry	*ns_proc_dir_entry;
+
 	/**
 	 * Position in global namespace list linking all namespaces on
 	 * the node.

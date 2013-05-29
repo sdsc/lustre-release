@@ -225,8 +225,7 @@ int  lprocfs_wr_ir_state(struct file *file, const char *buffer,
 int  lprocfs_rd_ir_state(struct seq_file *seq, void *data);
 int  lprocfs_wr_ir_timeout(struct file *file, const char *buffer,
                            unsigned long count, void *data);
-int  lprocfs_rd_ir_timeout(char *page, char **start, off_t off, int count,
-                           int *eof, void *data);
+int  lprocfs_rd_ir_timeout(struct seq_file *m, void *data);
 void mgs_fsc_cleanup(struct obd_export *exp);
 void mgs_fsc_cleanup_by_fsdb(struct fs_db *fsdb);
 int  mgs_fsc_attach(const struct lu_env *env, struct obd_export *exp,

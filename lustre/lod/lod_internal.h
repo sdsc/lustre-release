@@ -186,6 +186,7 @@ struct lod_thread_info {
 };
 
 extern const struct lu_device_operations lod_lu_ops;
+extern struct proc_dir_entry *lov_proc_entry;
 
 static inline int lu_device_is_lod(struct lu_device *d)
 {

@@ -396,6 +396,7 @@ static struct lu_device_operations ofd_lu_ops = {
 	.ldo_prepare		= ofd_prepare,
 };
 
+LPROC_SEQ_FOPS_RW_TYPE(ofd, nid_stats_clear);
 static int ofd_procfs_init(struct ofd_device *ofd)
 {
 	struct lprocfs_static_vars	 lvars;
@@ -438,8 +439,7 @@ static int ofd_procfs_init(struct ofd_device *ofd)
 	obd->obd_proc_exports_entry = entry;
 
 	entry = lprocfs_add_simple(obd->obd_proc_exports_entry, "clear",
-				   lprocfs_nid_stats_clear_read,
-				   lprocfs_nid_stats_clear_write, obd, NULL);
+				   obd, &ofd_nid_stats_clear_fops);
 	if (IS_ERR(entry)) {
 		rc = PTR_ERR(entry);
 		CERROR("%s: add proc entry 'clear' failed: %d.\n",

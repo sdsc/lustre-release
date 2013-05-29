@@ -315,13 +315,17 @@ int lproc_mgs_del_live(struct mgs_device *mgs, struct fs_db *fsdb)
         return 0;
 }
 
+LPROC_SEQ_FOPS_RO_TYPE(mgs, uuid);
+LPROC_SEQ_FOPS_RO_TYPE(mgs, num_exports);
+LPROC_SEQ_FOPS_WO_TYPE(mgs, evict_client);
+LPROC_SEQ_FOPS_RW_TYPE(mgs, ir_timeout);
 struct lprocfs_vars lprocfs_mgs_obd_vars[] = {
-        { "uuid",            lprocfs_rd_uuid,        0, 0 },
-        { "num_exports",     lprocfs_rd_num_exports, 0, 0 },
-        { "hash_stats",      lprocfs_obd_rd_hash,    0, 0 },
-        { "evict_client",    0, lprocfs_wr_evict_client, 0 },
-        { "ir_timeout",      lprocfs_rd_ir_timeout, lprocfs_wr_ir_timeout, 0 },
-        { 0 }
+	{ "uuid",		&mgs_uuid_fops,		0, 0 },
+	{ "num_exports",	&mgs_num_exports_fops,	0, 0 },
+	/* { "hash_stats",      lprocfs_obd_rd_hash,    0, 0 }, */
+	{ "evict_client",	&mgs_evict_client_fops,	0 },
+	{ "ir_timeout",		&mgs_ir_timeout_fops,	0 },
+	{ 0 }
 };
 
 struct lprocfs_vars lprocfs_mgs_module_vars[] = {

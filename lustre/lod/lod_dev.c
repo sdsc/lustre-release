@@ -997,10 +997,10 @@ static struct obd_ops lod_obd_device_ops = {
 	.o_pool_del     = lod_pool_del,
 };
 
+struct proc_dir_entry *lov_proc_dir;
 static int __init lod_mod_init(void)
 {
 	struct lprocfs_static_vars  lvars = { 0 };
-	cfs_proc_dir_entry_t       *lov_proc_dir;
 	int			    rc;
 
 	rc = lu_kmem_init(lod_caches);
@@ -1017,14 +1017,10 @@ static int __init lod_mod_init(void)
 	}
 
 	/* create "lov" entry in procfs for compatibility purposes */
-	lov_proc_dir = lprocfs_srch(proc_lustre_root, "lov");
-	if (lov_proc_dir == NULL) {
-		lov_proc_dir = lprocfs_register("lov", proc_lustre_root,
-						NULL, NULL);
-		if (IS_ERR(lov_proc_dir))
-			CERROR("lod: can't create compat entry \"lov\": %d\n",
-			       (int)PTR_ERR(lov_proc_dir));
-	}
+	lov_proc_dir = lprocfs_register("lov", proc_lustre_root, NULL, NULL);
+	if (IS_ERR(lov_proc_dir))
+		CERROR("lod: can't create compat entry \"lov\": %d\n",
+		       (int)PTR_ERR(lov_proc_dir));
 
 	return rc;
 }
@@ -1032,7 +1028,7 @@ static int __init lod_mod_init(void)
 static void __exit lod_mod_exit(void)
 {
 
-	lprocfs_try_remove_proc_entry("lov", proc_lustre_root);
+	lprocfs_remove_proc_entry("lov", proc_lustre_root);
 
 	class_unregister_type(LUSTRE_LOD_NAME);
 	lu_kmem_fini(lod_caches);

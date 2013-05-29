@@ -60,6 +60,9 @@
 #include <libcfs/libcfs_hash.h> /* for cfs_hash stuff */
 #include <cl_object.h>
 #include "cl_internal.h"
+#ifdef __KERNEL__
+#include <linux/seq_file.h>
+#endif
 
 static struct kmem_cache *cl_env_kmem;
 
@@ -394,10 +397,9 @@ void cache_stats_init(struct cache_stats *cs, const char *name)
 		cfs_atomic_set(&cs->cs_stats[i], 0);
 }
 
-int cache_stats_print(const struct cache_stats *cs,
-                      char *page, int count, int h)
+#ifdef LPROCFS
+int cache_stats_print(const struct cache_stats *cs, struct seq_file *m, int h)
 {
-	int nob = 0;
 	int i;
 	/*
 	 *   lookup    hit    total  cached create
@@ -406,19 +408,18 @@ int cache_stats_print(const struct cache_stats *cs,
 	if (h) {
 		const char *names[CS_NR] = CS_NAMES;
 
-		nob += snprintf(page + nob, count - nob, "%6s", " ");
+		seq_printf(m, "%6s", " ");
 		for (i = 0; i < CS_NR; i++)
-			nob += snprintf(page + nob, count - nob,
-					"%8s", names[i]);
-		nob += snprintf(page + nob, count - nob, "\n");
+			seq_printf(m, "%8s", names[i]);
+		seq_printf(m, "\n");
 	}
 
-	nob += snprintf(page + nob, count - nob, "%5.5s:", cs->cs_name);
+	seq_printf(m, "%5.5s:", cs->cs_name);
 	for (i = 0; i < CS_NR; i++)
-		nob += snprintf(page + nob, count - nob, "%8u",
-				cfs_atomic_read(&cs->cs_stats[i]));
-	return nob;
+		seq_printf(m, "%8u", cfs_atomic_read(&cs->cs_stats[i]));
+	return 0;
 }
+#endif
 
 /**
  * Initialize client site.
@@ -453,6 +454,7 @@ void cl_site_fini(struct cl_site *s)
 }
 EXPORT_SYMBOL(cl_site_fini);
 
+#ifdef LPROCFS
 static struct cache_stats cl_env_stats = {
         .cs_name    = "envs",
 	.cs_stats = { CFS_ATOMIC_INIT(0), }
@@ -462,9 +464,8 @@ static struct cache_stats cl_env_stats = {
  * Outputs client site statistical counters into a buffer. Suitable for
  * ll_rd_*()-style functions.
  */
-int cl_site_stats_print(const struct cl_site *site, char *page, int count)
+int cl_site_stats_print(const struct cl_site *site, struct seq_file *m)
 {
-        int nob;
         int i;
         static const char *pstate[] = {
                 [CPS_CACHED]  = "c",
@@ -488,26 +489,28 @@ pages: ...... ...... ...... ...... ...... [...... ...... ...... ......]
 locks: ...... ...... ...... ...... ...... [...... ...... ...... ...... ......]
   env: ...... ...... ...... ...... ......
  */
-        nob = lu_site_stats_print(&site->cs_lu, page, count);
-        nob += cache_stats_print(&site->cs_pages, page + nob, count - nob, 1);
-        nob += snprintf(page + nob, count - nob, " [");
+	lu_site_stats_print(&site->cs_lu, m);
+	cache_stats_print(&site->cs_pages, m, 1);
+	seq_printf(m, " [");
         for (i = 0; i < ARRAY_SIZE(site->cs_pages_state); ++i)
-                nob += snprintf(page + nob, count - nob, "%s: %u ",
-                                pstate[i],
-                                cfs_atomic_read(&site->cs_pages_state[i]));
-        nob += snprintf(page + nob, count - nob, "]\n");
-        nob += cache_stats_print(&site->cs_locks, page + nob, count - nob, 0);
-        nob += snprintf(page + nob, count - nob, " [");
+		seq_printf(m, "%s: %u ",
+			   pstate[i],
+			   cfs_atomic_read(&site->cs_pages_state[i]));
+	seq_printf(m, "]\n");
+	cache_stats_print(&site->cs_locks, m, 0);
+	seq_printf(m, " [");
         for (i = 0; i < ARRAY_SIZE(site->cs_locks_state); ++i)
-                nob += snprintf(page + nob, count - nob, "%s: %u ",
+		seq_printf(m, "%s: %u ",
                                 lstate[i],
                                 cfs_atomic_read(&site->cs_locks_state[i]));
-        nob += snprintf(page + nob, count - nob, "]\n");
-        nob += cache_stats_print(&cl_env_stats, page + nob, count - nob, 0);
-        nob += snprintf(page + nob, count - nob, "\n");
-        return nob;
+	seq_printf(m, "]\n");
+	cache_stats_print(&cl_env_stats, m, 0);
+	seq_printf(m, "\n");
+
+	return 0;
 }
 EXPORT_SYMBOL(cl_site_stats_print);
+#endif
 
 /*****************************************************************************
  *

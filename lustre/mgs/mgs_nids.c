@@ -842,11 +842,9 @@ int lprocfs_rd_ir_state(struct seq_file *seq, void *data)
         return 0;
 }
 
-int lprocfs_rd_ir_timeout(char *page, char **start, off_t off, int count,
-                          int *eof, void *data)
+int lprocfs_rd_ir_timeout(struct seq_file *m, void *data)
 {
-        *eof = 1;
-        return snprintf(page, count, "%d\n", ir_timeout);
+	return seq_printf(m, "%d\n", ir_timeout);
 }
 
 int lprocfs_wr_ir_timeout(struct file *file, const char *buffer,

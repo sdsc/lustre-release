@@ -462,8 +462,7 @@ int lod_pool_new(struct obd_device *obd, char *poolname)
 #ifdef LPROCFS
 	lod_pool_getref(new_pool);
 	new_pool->pool_proc_entry = lprocfs_add_simple(lod->lod_pool_proc_entry,
-						       poolname, NULL, NULL,
-						       new_pool,
+						       poolname, new_pool,
 						       &pool_proc_operations);
 	if (IS_ERR(new_pool->pool_proc_entry)) {
 		CWARN("Cannot add proc pool entry "LOV_POOLNAMEF"\n", poolname);

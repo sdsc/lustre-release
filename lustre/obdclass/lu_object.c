@@ -1842,6 +1842,8 @@ typedef struct lu_site_stats{
         unsigned        lss_busy;
 } lu_site_stats_t;
 
+#ifdef __KERNEL__
+
 static void lu_site_stats_get(cfs_hash_t *hs,
                               lu_site_stats_t *stats, int populated)
 {
@@ -1869,8 +1871,6 @@ static void lu_site_stats_get(cfs_hash_t *hs,
                 cfs_hash_bd_unlock(hs, &bd, 1);
         }
 }
-
-#ifdef __KERNEL__
 
 /*
  * There exists a potential lock inversion deadlock scenario when using
@@ -2064,30 +2064,27 @@ void lu_global_fini(void)
         lu_ref_global_fini();
 }
 
+#ifdef LPROCFS
 static __u32 ls_stats_read(struct lprocfs_stats *stats, int idx)
 {
-#ifdef LPROCFS
         struct lprocfs_counter ret;
 
         lprocfs_stats_collect(stats, idx, &ret);
         return (__u32)ret.lc_count;
-#else
-        return 0;
-#endif
 }
 
 /**
  * Output site statistical counters into a buffer. Suitable for
  * lprocfs_rd_*()-style functions.
  */
-int lu_site_stats_print(const struct lu_site *s, char *page, int count)
+int lu_site_stats_print(const struct lu_site *s, struct seq_file *m)
 {
         lu_site_stats_t stats;
 
         memset(&stats, 0, sizeof(stats));
         lu_site_stats_get(s->ls_obj_hash, &stats, 1);
 
-        return snprintf(page, count, "%d/%d %d/%d %d %d %d %d %d %d %d\n",
+	return seq_printf(m, "%d/%d %d/%d %d %d %d %d %d %d %d\n",
                         stats.lss_busy,
                         stats.lss_total,
                         stats.lss_populated,
@@ -2101,6 +2098,7 @@ int lu_site_stats_print(const struct lu_site *s, char *page, int count)
                         ls_stats_read(s->ls_stats, LU_SS_LRU_PURGED));
 }
 EXPORT_SYMBOL(lu_site_stats_print);
+#endif
 
 /**
  * Helper function to initialize a number of kmem slab caches at once.
