@@ -252,19 +252,18 @@ enum ldlm_policy_res {
 
 typedef enum ldlm_policy_res ldlm_policy_res_t;
 
-#define LDLM_POOL_PROC_READER(var, type)                                    \
-        static int lprocfs_rd_##var(char *page, char **start, off_t off,    \
-                                    int count, int *eof, void *data)        \
-        {                                                                   \
-                struct ldlm_pool *pl = data;                                \
-                type tmp;                                                   \
-                                                                            \
+#define LDLM_POOL_PROC_READER_SEQ_SHOW(var, type)			    \
+	static int ldlm_##var##_seq_show(struct seq_file *m, void *v)	    \
+	{                                                                   \
+		struct ldlm_pool *pl = m->private;                          \
+		type tmp;                                                   \
+									    \
 		spin_lock(&pl->pl_lock);				    \
 		tmp = pl->pl_##var;					    \
 		spin_unlock(&pl->pl_lock);				    \
-                                                                            \
-                return lprocfs_rd_uint(page, start, off, count, eof, &tmp); \
-        }                                                                   \
+									    \
+		return lprocfs_rd_uint(m, &tmp);			    \
+	}                                                                   \
         struct __##var##__dummy_read {;} /* semicolon catcher */
 
 #define LDLM_POOL_PROC_WRITER(var, type)                                    \
