@@ -198,7 +198,7 @@ int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
                obd_uuid2str(tgt_uuid), tgt_obd->obd_name, activate ? "":"in");
 
 #ifdef __KERNEL__
-        lov_proc_dir = lprocfs_srch(obd->obd_proc_entry, "target_obds");
+	lov_proc_dir = obd->obd_proc_private;
         if (lov_proc_dir) {
                 struct obd_device *osc_obd = lov->lov_tgts[index]->ltd_exp->exp_obd;
                 cfs_proc_dir_entry_t *osc_symlink;
@@ -218,6 +218,7 @@ int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
                                 obd->obd_type->typ_name, obd->obd_name,
                                 osc_obd->obd_name);
                         lprocfs_remove(&lov_proc_dir);
+			obd->obd_proc_private = NULL;
                 }
         }
 #endif
@@ -298,19 +299,9 @@ static int lov_disconnect_obd(struct obd_device *obd, struct lov_tgt_desc *tgt)
                 tgt->ltd_exp->exp_obd->obd_inactive = 1;
         }
 
-        lov_proc_dir = lprocfs_srch(obd->obd_proc_entry, "target_obds");
-        if (lov_proc_dir) {
-                cfs_proc_dir_entry_t *osc_symlink;
-
-                osc_symlink = lprocfs_srch(lov_proc_dir, osc_obd->obd_name);
-                if (osc_symlink) {
-                        lprocfs_remove(&osc_symlink);
-                } else {
-                        CERROR("/proc/fs/lustre/%s/%s/target_obds/%s missing.",
-                               obd->obd_type->typ_name, obd->obd_name,
-                               osc_obd->obd_name);
-                }
-        }
+	lov_proc_dir = obd->obd_proc_private;
+	if (lov_proc_dir)
+		lprocfs_remove_proc_entry(osc_obd->obd_name, lov_proc_dir);
 
         if (osc_obd) {
                 /* Pass it on to our clients.

@@ -957,6 +957,7 @@ struct obd_device {
         struct lprocfs_stats  *md_stats;
 
         cfs_proc_dir_entry_t  *obd_proc_entry;
+	void		      *obd_proc_private; /* type private PDEs */
         cfs_proc_dir_entry_t  *obd_proc_exports_entry;
         cfs_proc_dir_entry_t  *obd_svc_procroot;
         struct lprocfs_stats  *obd_svc_stats;

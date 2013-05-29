@@ -48,14 +48,13 @@ struct proc_dir_entry *proc_lustre_fs_root;
 #ifdef LPROCFS
 /* /proc/lustre/llite mount point registration */
 extern struct file_operations vvp_dump_pgcache_file_ops;
-struct file_operations ll_rw_extents_stats_fops;
-struct file_operations ll_rw_extents_stats_pp_fops;
-struct file_operations ll_rw_offset_stats_fops;
+const struct file_operations ll_rw_extents_stats_fops;
+const struct file_operations ll_rw_extents_stats_pp_fops;
+const struct file_operations ll_rw_offset_stats_fops;
 
-static int ll_rd_blksize(char *page, char **start, off_t off, int count,
-                         int *eof, void *data)
+static int ll_blksize_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = (struct super_block *)data;
+	struct super_block *sb = m->private;
         struct obd_statfs osfs;
         int rc;
 
@@ -63,18 +62,16 @@ static int ll_rd_blksize(char *page, char **start, off_t off, int count,
         rc = ll_statfs_internal(sb, &osfs,
                                 cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
                                 OBD_STATFS_NODELAY);
-        if (!rc) {
-              *eof = 1;
-              rc = snprintf(page, count, "%u\n", osfs.os_bsize);
-        }
+	if (!rc)
+		rc = seq_printf(m, "%u\n", osfs.os_bsize);
 
         return rc;
 }
+LPROC_SEQ_FOPS_RO(ll_blksize);
 
-static int ll_rd_kbytestotal(char *page, char **start, off_t off, int count,
-                             int *eof, void *data)
+static int ll_kbytestotal_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = (struct super_block *)data;
+	struct super_block *sb = m->private;
         struct obd_statfs osfs;
         int rc;
 
@@ -89,17 +86,16 @@ static int ll_rd_kbytestotal(char *page, char **start, off_t off, int count,
                 while (blk_size >>= 1)
                         result <<= 1;
 
-                *eof = 1;
-                rc = snprintf(page, count, LPU64"\n", result);
+		rc = seq_printf(m, LPU64"\n", result);
         }
         return rc;
 
 }
+LPROC_SEQ_FOPS_RO(ll_kbytestotal);
 
-static int ll_rd_kbytesfree(char *page, char **start, off_t off, int count,
-                            int *eof, void *data)
+static int ll_kbytesfree_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = (struct super_block *)data;
+	struct super_block *sb = m->private;
         struct obd_statfs osfs;
         int rc;
 
@@ -114,16 +110,15 @@ static int ll_rd_kbytesfree(char *page, char **start, off_t off, int count,
                 while (blk_size >>= 1)
                         result <<= 1;
 
-                *eof = 1;
-                rc = snprintf(page, count, LPU64"\n", result);
+		rc = seq_printf(m, LPU64"\n", result);
         }
         return rc;
 }
+LPROC_SEQ_FOPS_RO(ll_kbytesfree);
 
-static int ll_rd_kbytesavail(char *page, char **start, off_t off, int count,
-                             int *eof, void *data)
+static int ll_kbytesavail_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = (struct super_block *)data;
+	struct super_block *sb = m->private;
         struct obd_statfs osfs;
         int rc;
 
@@ -138,16 +133,15 @@ static int ll_rd_kbytesavail(char *page, char **start, off_t off, int count,
                 while (blk_size >>= 1)
                         result <<= 1;
 
-                *eof = 1;
-                rc = snprintf(page, count, LPU64"\n", result);
+		rc = seq_printf(m, LPU64"\n", result);
         }
         return rc;
 }
+LPROC_SEQ_FOPS_RO(ll_kbytesavail);
 
-static int ll_rd_filestotal(char *page, char **start, off_t off, int count,
-                            int *eof, void *data)
+static int ll_filestotal_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = (struct super_block *)data;
+	struct super_block *sb = m->private;
         struct obd_statfs osfs;
         int rc;
 
@@ -155,17 +149,16 @@ static int ll_rd_filestotal(char *page, char **start, off_t off, int count,
         rc = ll_statfs_internal(sb, &osfs,
                                 cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
                                 OBD_STATFS_NODELAY);
-        if (!rc) {
-                 *eof = 1;
-                 rc = snprintf(page, count, LPU64"\n", osfs.os_files);
-        }
+	if (!rc)
+		rc = seq_printf(m, LPU64"\n", osfs.os_files);
+
         return rc;
 }
+LPROC_SEQ_FOPS_RO(ll_filestotal);
 
-static int ll_rd_filesfree(char *page, char **start, off_t off, int count,
-                           int *eof, void *data)
+static int ll_filesfree_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = (struct super_block *)data;
+	struct super_block *sb = m->private;
         struct obd_statfs osfs;
         int rc;
 
@@ -173,68 +166,62 @@ static int ll_rd_filesfree(char *page, char **start, off_t off, int count,
         rc = ll_statfs_internal(sb, &osfs,
                                 cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS),
                                 OBD_STATFS_NODELAY);
-        if (!rc) {
-                 *eof = 1;
-                 rc = snprintf(page, count, LPU64"\n", osfs.os_ffree);
-        }
-        return rc;
+	if (!rc)
+		rc = seq_printf(m, LPU64"\n", osfs.os_ffree);
 
+	return rc;
 }
+LPROC_SEQ_FOPS_RO(ll_filesfree);
 
-static int ll_rd_client_type(char *page, char **start, off_t off, int count,
-                            int *eof, void *data)
+static int ll_client_type_seq_show(struct seq_file *m, void *v)
 {
-        struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)data);
+	struct ll_sb_info *sbi = ll_s2sbi((struct super_block *)m->private);
         int rc;
 
         LASSERT(sbi != NULL);
 
-        *eof = 1;
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT)
-                rc = snprintf(page, count, "remote client\n");
+		rc = seq_printf(m, "remote client\n");
         else
-                rc = snprintf(page, count, "local client\n");
+		rc = seq_printf(m, "local client\n");
 
         return rc;
 }
+LPROC_SEQ_FOPS_RO(ll_client_type);
 
-static int ll_rd_fstype(char *page, char **start, off_t off, int count,
-                        int *eof, void *data)
+static int ll_fstype_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = (struct super_block*)data;
+	struct super_block *sb = m->private;
 
         LASSERT(sb != NULL);
-        *eof = 1;
-        return snprintf(page, count, "%s\n", sb->s_type->name);
+	return seq_printf(m, "%s\n", sb->s_type->name);
 }
+LPROC_SEQ_FOPS_RO(ll_fstype);
 
-static int ll_rd_sb_uuid(char *page, char **start, off_t off, int count,
-                         int *eof, void *data)
+static int ll_sb_uuid_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = (struct super_block *)data;
+	struct super_block *sb = m->private;
 
         LASSERT(sb != NULL);
-        *eof = 1;
-        return snprintf(page, count, "%s\n", ll_s2sbi(sb)->ll_sb_uuid.uuid);
+	return seq_printf(m, "%s\n", ll_s2sbi(sb)->ll_sb_uuid.uuid);
 }
+LPROC_SEQ_FOPS_RO(ll_sb_uuid);
 
-static int ll_rd_site_stats(char *page, char **start, off_t off,
-                            int count, int *eof, void *data)
+static int ll_site_stats_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = data;
+	struct super_block *sb = m->private;
 
         /*
          * See description of statistical counters in struct cl_site, and
          * struct lu_site.
          */
-        return cl_site_stats_print(lu2cl_site(ll_s2sbi(sb)->ll_site),
-                                   page, count);
+	return cl_site_stats_print(lu2cl_site(ll_s2sbi(sb)->ll_site), m);
 }
+LPROC_SEQ_FOPS_RO(ll_site_stats);
 
-static int ll_rd_max_readahead_mb(char *page, char **start, off_t off,
-                                   int count, int *eof, void *data)
+static int ll_max_readahead_mb_seq_show(struct seq_file *m, void *v)
 {
-	struct super_block *sb = data;
+	struct super_block *sb = m->private;
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	long pages_number;
 	int mult;
@@ -244,13 +231,15 @@ static int ll_rd_max_readahead_mb(char *page, char **start, off_t off,
 	spin_unlock(&sbi->ll_lock);
 
 	mult = 1 << (20 - PAGE_CACHE_SHIFT);
-	return lprocfs_read_frac_helper(page, count, pages_number, mult);
+	return lprocfs_seq_read_frac_helper(m, pages_number, mult);
 }
 
-static int ll_wr_max_readahead_mb(struct file *file, const char *buffer,
-				  unsigned long count, void *data)
+static ssize_t
+ll_max_readahead_mb_seq_write(struct file *file, const char *buffer,
+			      size_t count, loff_t *off)
 {
-	struct super_block *sb = data;
+	struct super_block *sb =
+		((struct seq_file *)file->private_data)->private;
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	int mult, rc, pages_number;
 
@@ -272,11 +261,11 @@ static int ll_wr_max_readahead_mb(struct file *file, const char *buffer,
 
 	return count;
 }
+LPROC_SEQ_FOPS(ll_max_readahead_mb);
 
-static int ll_rd_max_readahead_per_file_mb(char *page, char **start, off_t off,
-                                           int count, int *eof, void *data)
+static int ll_max_readahead_per_file_mb_seq_show(struct seq_file *m, void *v)
 {
-	struct super_block *sb = data;
+	struct super_block *sb = m->private;
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	long pages_number;
 	int mult;
@@ -286,13 +275,15 @@ static int ll_rd_max_readahead_per_file_mb(char *page, char **start, off_t off,
 	spin_unlock(&sbi->ll_lock);
 
 	mult = 1 << (20 - PAGE_CACHE_SHIFT);
-	return lprocfs_read_frac_helper(page, count, pages_number, mult);
+	return lprocfs_seq_read_frac_helper(m, pages_number, mult);
 }
 
-static int ll_wr_max_readahead_per_file_mb(struct file *file, const char *buffer,
-                                          unsigned long count, void *data)
+static ssize_t
+ll_max_readahead_per_file_mb_seq_write(struct file *file, const char *buffer,
+				       size_t count, loff_t *off)
 {
-        struct super_block *sb = data;
+	struct super_block *sb =
+		((struct seq_file *)file->private_data)->private;
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         int mult, rc, pages_number;
 
@@ -315,11 +306,11 @@ static int ll_wr_max_readahead_per_file_mb(struct file *file, const char *buffer
 
 	return count;
 }
+LPROC_SEQ_FOPS(ll_max_readahead_per_file_mb);
 
-static int ll_rd_max_read_ahead_whole_mb(char *page, char **start, off_t off,
-                                         int count, int *eof, void *data)
+static int ll_max_readahead_whole_mb_seq_show(struct seq_file *m, void *v)
 {
-	struct super_block *sb = data;
+	struct super_block *sb = m->private;
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	long pages_number;
 	int mult;
@@ -329,13 +320,15 @@ static int ll_rd_max_read_ahead_whole_mb(char *page, char **start, off_t off,
 	spin_unlock(&sbi->ll_lock);
 
 	mult = 1 << (20 - PAGE_CACHE_SHIFT);
-	return lprocfs_read_frac_helper(page, count, pages_number, mult);
+	return lprocfs_seq_read_frac_helper(m, pages_number, mult);
 }
 
-static int ll_wr_max_read_ahead_whole_mb(struct file *file, const char *buffer,
-					 unsigned long count, void *data)
+static ssize_t
+ll_max_readahead_whole_mb_seq_write(struct file *file, const char *buffer,
+				    size_t count, loff_t *off)
 {
-	struct super_block *sb = data;
+	struct super_block *sb =
+		((struct seq_file *)file->private_data)->private;
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	int mult, rc, pages_number;
 
@@ -361,21 +354,20 @@ static int ll_wr_max_read_ahead_whole_mb(struct file *file, const char *buffer,
 
 	return count;
 }
+LPROC_SEQ_FOPS(ll_max_readahead_whole_mb);
 
-static int ll_rd_max_cached_mb(char *page, char **start, off_t off,
-                               int count, int *eof, void *data)
+static int ll_max_cached_mb_seq_show(struct seq_file *m, void *v)
 {
-	struct super_block     *sb    = data;
+	struct super_block     *sb    = m->private;
 	struct ll_sb_info      *sbi   = ll_s2sbi(sb);
 	struct cl_client_cache *cache = &sbi->ll_cache;
 	int shift = 20 - PAGE_CACHE_SHIFT;
 	int max_cached_mb;
 	int unused_mb;
 
-	*eof = 1;
 	max_cached_mb = cache->ccc_lru_max >> shift;
 	unused_mb = cfs_atomic_read(&cache->ccc_lru_left) >> shift;
-	return snprintf(page, count,
+	return seq_printf(m,
 			"users: %d\n"
 			"max_cached_mb: %d\n"
 			"used_mb: %d\n"
@@ -388,10 +380,11 @@ static int ll_rd_max_cached_mb(char *page, char **start, off_t off,
 			cache->ccc_lru_shrinkers);
 }
 
-static int ll_wr_max_cached_mb(struct file *file, const char *buffer,
-                               unsigned long count, void *data)
+static ssize_t ll_max_cached_mb_seq_write(struct file *file, const char *buffer,
+					  size_t count, loff_t *off)
 {
-	struct super_block *sb = data;
+	struct super_block *sb =
+		((struct seq_file *)file->private_data)->private;
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	struct cl_client_cache *cache = &sbi->ll_cache;
 	int mult, rc, pages_number;
@@ -400,7 +393,8 @@ static int ll_wr_max_cached_mb(struct file *file, const char *buffer,
 	ENTRY;
 
 	mult = 1 << (20 - PAGE_CACHE_SHIFT);
-	buffer = lprocfs_find_named_value(buffer, "max_cached_mb:", &count);
+	buffer = lprocfs_find_named_value(buffer, "max_cached_mb:",
+					  (unsigned long *)&count);
 	rc = lprocfs_write_frac_helper(buffer, count, &pages_number, mult);
 	if (rc)
 		RETURN(rc);
@@ -470,21 +464,21 @@ out:
 	}
 	return rc;
 }
+LPROC_SEQ_FOPS(ll_max_cached_mb);
 
-static int ll_rd_checksum(char *page, char **start, off_t off,
-                          int count, int *eof, void *data)
+static int ll_checksum_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = data;
+	struct super_block *sb = m->private;
         struct ll_sb_info *sbi = ll_s2sbi(sb);
 
-        return snprintf(page, count, "%u\n",
-                        (sbi->ll_flags & LL_SBI_CHECKSUM) ? 1 : 0);
+	return seq_printf(m, "%u\n", (sbi->ll_flags & LL_SBI_CHECKSUM) ? 1 : 0);
 }
 
-static int ll_wr_checksum(struct file *file, const char *buffer,
-                          unsigned long count, void *data)
+static ssize_t ll_checksum_seq_write(struct file *file, const char *buffer,
+				     size_t count, loff_t *off)
 {
-        struct super_block *sb = data;
+	struct super_block *sb =
+		((struct seq_file *)file->private_data)->private;
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         int val, rc;
 
@@ -507,19 +501,20 @@ static int ll_wr_checksum(struct file *file, const char *buffer,
 
         return count;
 }
+LPROC_SEQ_FOPS(ll_checksum);
 
-static int ll_rd_max_rw_chunk(char *page, char **start, off_t off,
-                          int count, int *eof, void *data)
+static int ll_max_rw_chunk_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = data;
+	struct super_block *sb = m->private;
 
-        return snprintf(page, count, "%lu\n", ll_s2sbi(sb)->ll_max_rw_chunk);
+	return seq_printf(m, "%lu\n", ll_s2sbi(sb)->ll_max_rw_chunk);
 }
 
-static int ll_wr_max_rw_chunk(struct file *file, const char *buffer,
-                          unsigned long count, void *data)
+static ssize_t ll_max_rw_chunk_seq_write(struct file *file, const char *buffer,
+					 size_t count, loff_t *off)
 {
-        struct super_block *sb = data;
+	struct super_block *sb =
+		((struct seq_file *)file->private_data)->private;
         int rc, val;
 
         rc = lprocfs_write_helper(buffer, count, &val);
@@ -528,21 +523,17 @@ static int ll_wr_max_rw_chunk(struct file *file, const char *buffer,
         ll_s2sbi(sb)->ll_max_rw_chunk = val;
         return count;
 }
+LPROC_SEQ_FOPS(ll_max_rw_chunk);
 
-static int ll_rd_track_id(char *page, int count, void *data,
-                          enum stats_track_type type)
+static int ll_rd_track_id(struct seq_file *m, enum stats_track_type type)
 {
-        struct super_block *sb = data;
+	struct super_block *sb = m->private;
 
-        if (ll_s2sbi(sb)->ll_stats_track_type == type) {
-                return snprintf(page, count, "%d\n",
-                                ll_s2sbi(sb)->ll_stats_track_id);
-
-        } else if (ll_s2sbi(sb)->ll_stats_track_type == STATS_TRACK_ALL) {
-                return snprintf(page, count, "0 (all)\n");
-        } else {
-                return snprintf(page, count, "untracked\n");
-        }
+	if (ll_s2sbi(sb)->ll_stats_track_type == type)
+		return seq_printf(m, "%d\n", ll_s2sbi(sb)->ll_stats_track_id);
+	if (ll_s2sbi(sb)->ll_stats_track_type == STATS_TRACK_ALL)
+		return seq_printf(m, "0 (all)\n");
+	return seq_printf(m, "untracked\n");
 }
 
 static int ll_wr_track_id(const char *buffer, unsigned long count, void *data,
@@ -563,55 +554,61 @@ static int ll_wr_track_id(const char *buffer, unsigned long count, void *data,
         return count;
 }
 
-static int ll_rd_track_pid(char *page, char **start, off_t off,
-                          int count, int *eof, void *data)
+static int ll_track_pid_seq_show(struct seq_file *m, void *v)
 {
-        return (ll_rd_track_id(page, count, data, STATS_TRACK_PID));
+	return ll_rd_track_id(m, STATS_TRACK_PID);
 }
 
-static int ll_wr_track_pid(struct file *file, const char *buffer,
-                          unsigned long count, void *data)
+static ssize_t ll_track_pid_seq_write(struct file *file, const char *buffer,
+				      size_t count, loff_t *off)
 {
-        return (ll_wr_track_id(buffer, count, data, STATS_TRACK_PID));
+	struct seq_file *seq = file->private_data;
+
+	return ll_wr_track_id(buffer, count, seq->private, STATS_TRACK_PID);
+}
+LPROC_SEQ_FOPS(ll_track_pid);
+
+static int ll_track_ppid_seq_show(struct seq_file *m, void *v)
+{
+	return ll_rd_track_id(m, STATS_TRACK_PPID);
 }
 
-static int ll_rd_track_ppid(char *page, char **start, off_t off,
-                          int count, int *eof, void *data)
+static ssize_t ll_track_ppid_seq_write(struct file *file, const char *buffer,
+				       size_t count, loff_t *off)
 {
-        return (ll_rd_track_id(page, count, data, STATS_TRACK_PPID));
+	struct seq_file *seq = file->private_data;
+
+	return ll_wr_track_id(buffer, count, seq->private, STATS_TRACK_PPID);
+}
+LPROC_SEQ_FOPS(ll_track_ppid);
+
+static int ll_track_gid_seq_show(struct seq_file *m, void *v)
+{
+	return ll_rd_track_id(m, STATS_TRACK_GID);
 }
 
-static int ll_wr_track_ppid(struct file *file, const char *buffer,
-                          unsigned long count, void *data)
+static ssize_t ll_track_gid_seq_write(struct file *file, const char *buffer,
+				      size_t count, loff_t *off)
 {
-        return (ll_wr_track_id(buffer, count, data, STATS_TRACK_PPID));
-}
+	struct seq_file *seq = file->private_data;
 
-static int ll_rd_track_gid(char *page, char **start, off_t off,
-                          int count, int *eof, void *data)
-{
-        return (ll_rd_track_id(page, count, data, STATS_TRACK_GID));
+	return ll_wr_track_id(buffer, count, seq->private, STATS_TRACK_GID);
 }
+LPROC_SEQ_FOPS(ll_track_gid);
 
-static int ll_wr_track_gid(struct file *file, const char *buffer,
-                          unsigned long count, void *data)
+static int ll_statahead_max_seq_show(struct seq_file *m, void *v)
 {
-        return (ll_wr_track_id(buffer, count, data, STATS_TRACK_GID));
-}
-
-static int ll_rd_statahead_max(char *page, char **start, off_t off,
-                               int count, int *eof, void *data)
-{
-        struct super_block *sb = data;
+	struct super_block *sb = m->private;
         struct ll_sb_info *sbi = ll_s2sbi(sb);
 
-        return snprintf(page, count, "%u\n", sbi->ll_sa_max);
+	return seq_printf(m, "%u\n", sbi->ll_sa_max);
 }
 
-static int ll_wr_statahead_max(struct file *file, const char *buffer,
-                               unsigned long count, void *data)
+static ssize_t ll_statahead_max_seq_write(struct file *file, const char *buffer,
+				       size_t count, loff_t *off)
 {
-        struct super_block *sb = data;
+	struct super_block *sb =
+		((struct seq_file *)file->private_data)->private;
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         int val, rc;
 
@@ -627,21 +624,22 @@ static int ll_wr_statahead_max(struct file *file, const char *buffer,
 
         return count;
 }
+LPROC_SEQ_FOPS(ll_statahead_max);
 
-static int ll_rd_statahead_agl(char *page, char **start, off_t off,
-                               int count, int *eof, void *data)
+static int ll_statahead_agl_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = data;
-        struct ll_sb_info *sbi = ll_s2sbi(sb);
+	struct super_block *sb = m->private;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
 
-        return snprintf(page, count, "%u\n",
-                        sbi->ll_flags & LL_SBI_AGL_ENABLED ? 1 : 0);
+	return seq_printf(m, "%u\n",
+			  sbi->ll_flags & LL_SBI_AGL_ENABLED ? 1 : 0);
 }
 
-static int ll_wr_statahead_agl(struct file *file, const char *buffer,
-                               unsigned long count, void *data)
+static ssize_t ll_statahead_agl_seq_write(struct file *file, const char *buffer,
+					  size_t count, loff_t *off)
 {
-        struct super_block *sb = data;
+	struct super_block *sb =
+		((struct seq_file *)file->private_data)->private;
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         int val, rc;
 
@@ -656,14 +654,14 @@ static int ll_wr_statahead_agl(struct file *file, const char *buffer,
 
         return count;
 }
+LPROC_SEQ_FOPS(ll_statahead_agl);
 
-static int ll_rd_statahead_stats(char *page, char **start, off_t off,
-                                 int count, int *eof, void *data)
+static int ll_statahead_stats_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = data;
+	struct super_block *sb = m->private;
         struct ll_sb_info *sbi = ll_s2sbi(sb);
 
-        return snprintf(page, count,
+	return seq_printf(m,
                         "statahead total: %u\n"
                         "statahead wrong: %u\n"
                         "agl total: %u\n",
@@ -671,21 +669,22 @@ static int ll_rd_statahead_stats(char *page, char **start, off_t off,
                         atomic_read(&sbi->ll_sa_wrong),
                         atomic_read(&sbi->ll_agl_total));
 }
+LPROC_SEQ_FOPS_RO(ll_statahead_stats);
 
-static int ll_rd_lazystatfs(char *page, char **start, off_t off,
-                            int count, int *eof, void *data)
+static int ll_lazystatfs_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = data;
-        struct ll_sb_info *sbi = ll_s2sbi(sb);
+	struct super_block *sb = m->private;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
 
-        return snprintf(page, count, "%u\n",
-                        (sbi->ll_flags & LL_SBI_LAZYSTATFS) ? 1 : 0);
+	return seq_printf(m, "%u\n",
+			  (sbi->ll_flags & LL_SBI_LAZYSTATFS) ? 1 : 0);
 }
 
-static int ll_wr_lazystatfs(struct file *file, const char *buffer,
-                            unsigned long count, void *data)
+static ssize_t ll_lazystatfs_seq_write(struct file *file, const char *buffer,
+				       size_t count, loff_t *off)
 {
-        struct super_block *sb = data;
+	struct super_block *sb =
+		((struct seq_file *)file->private_data)->private;
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         int val, rc;
 
@@ -700,11 +699,11 @@ static int ll_wr_lazystatfs(struct file *file, const char *buffer,
 
         return count;
 }
+LPROC_SEQ_FOPS(ll_lazystatfs);
 
-static int ll_rd_maxea_size(char *page, char **start, off_t off,
-                            int count, int *eof, void *data)
+static int ll_maxea_size_seq_show(struct seq_file *m, void *v)
 {
-        struct super_block *sb = data;
+	struct super_block *sb = m->private;
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         unsigned int ealen;
         int rc;
@@ -713,17 +712,16 @@ static int ll_rd_maxea_size(char *page, char **start, off_t off,
         if (rc)
                 return rc;
 
-        return snprintf(page, count, "%u\n", ealen);
+	return seq_printf(m, "%u\n", ealen);
 }
+LPROC_SEQ_FOPS_RO(ll_maxea_size);
 
-static int ll_rd_sbi_flags(char *page, char **start, off_t off,
-				int count, int *eof, void *data)
+static int ll_sbi_flags_seq_show(struct seq_file *m, void *v)
 {
 	const char *str[] = LL_SBI_FLAGS;
-	struct super_block *sb = data;
+	struct super_block *sb = m->private;
 	int flags = ll_s2sbi(sb)->ll_flags;
 	int i = 0;
-	int rc = 0;
 
 	while (flags != 0) {
 		if (ARRAY_SIZE(str) <= i) {
@@ -733,47 +731,45 @@ static int ll_rd_sbi_flags(char *page, char **start, off_t off,
 		}
 
 		if (flags & 0x1)
-			rc += snprintf(page + rc, count - rc, "%s ", str[i]);
+			seq_printf(m, "%s ", str[i]);
 		flags >>= 1;
 		++i;
 	}
-	if (rc > 0)
-		rc += snprintf(page + rc, count - rc, "\b\n");
-	return rc;
+	seq_printf(m, "\b\n");
+
+	return 0;
 }
+LPROC_SEQ_FOPS_RO(ll_sbi_flags);
 
 static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
-        { "uuid",         ll_rd_sb_uuid,          0, 0 },
-        //{ "mntpt_path",   ll_rd_path,             0, 0 },
-        { "fstype",       ll_rd_fstype,           0, 0 },
-        { "site",         ll_rd_site_stats,       0, 0 },
-        { "blocksize",    ll_rd_blksize,          0, 0 },
-        { "kbytestotal",  ll_rd_kbytestotal,      0, 0 },
-        { "kbytesfree",   ll_rd_kbytesfree,       0, 0 },
-        { "kbytesavail",  ll_rd_kbytesavail,      0, 0 },
-        { "filestotal",   ll_rd_filestotal,       0, 0 },
-        { "filesfree",    ll_rd_filesfree,        0, 0 },
-        { "client_type",  ll_rd_client_type,      0, 0 },
-        //{ "filegroups",   lprocfs_rd_filegroups,  0, 0 },
-        { "max_read_ahead_mb", ll_rd_max_readahead_mb,
-                               ll_wr_max_readahead_mb, 0 },
-        { "max_read_ahead_per_file_mb", ll_rd_max_readahead_per_file_mb,
-                                        ll_wr_max_readahead_per_file_mb, 0 },
-        { "max_read_ahead_whole_mb", ll_rd_max_read_ahead_whole_mb,
-                                     ll_wr_max_read_ahead_whole_mb, 0 },
-        { "max_cached_mb",    ll_rd_max_cached_mb, ll_wr_max_cached_mb, 0 },
-        { "checksum_pages",   ll_rd_checksum, ll_wr_checksum, 0 },
-        { "max_rw_chunk",     ll_rd_max_rw_chunk, ll_wr_max_rw_chunk, 0 },
-        { "stats_track_pid",  ll_rd_track_pid, ll_wr_track_pid, 0 },
-        { "stats_track_ppid", ll_rd_track_ppid, ll_wr_track_ppid, 0 },
-        { "stats_track_gid",  ll_rd_track_gid, ll_wr_track_gid, 0 },
-        { "statahead_max",    ll_rd_statahead_max, ll_wr_statahead_max, 0 },
-        { "statahead_agl",    ll_rd_statahead_agl, ll_wr_statahead_agl, 0 },
-        { "statahead_stats",  ll_rd_statahead_stats, 0, 0 },
-        { "lazystatfs",       ll_rd_lazystatfs, ll_wr_lazystatfs, 0 },
-        { "max_easize",       ll_rd_maxea_size, 0, 0 },
-	{ "sbi_flags",        ll_rd_sbi_flags, 0, 0 },
-        { 0 }
+	{ "uuid",		&ll_sb_uuid_fops,		0, 0 },
+	/* { "mntpt_path",   ll_path,             0, 0 },i */
+	{ "fstype",		&ll_fstype_fops,		0, 0 },
+	{ "site",		&ll_site_stats_fops,		0, 0 },
+	{ "blocksize",		&ll_blksize_fops,		0, 0 },
+	{ "kbytestotal",	&ll_kbytestotal_fops,		0, 0 },
+	{ "kbytesfree",		&ll_kbytesfree_fops,		0, 0 },
+	{ "kbytesavail",	&ll_kbytesavail_fops,		0, 0 },
+	{ "filestotal",		&ll_filestotal_fops,		0, 0 },
+	{ "filesfree",		&ll_filesfree_fops,		0, 0 },
+	{ "client_type",	&ll_client_type_fops,		0, 0 },
+	/* { "filegroups",   lprocfs_rd_filegroups,  0, 0 }, */
+	{ "max_read_ahead_mb",	&ll_max_readahead_mb_fops,	0 },
+	{ "max_read_ahead_per_file_mb",	&ll_max_readahead_per_file_mb_fops, 0 },
+	{ "max_read_ahead_whole_mb",	&ll_max_readahead_whole_mb_fops, 0 },
+	{ "max_cached_mb",	&ll_max_cached_mb_fops,		0 },
+	{ "checksum_pages",	&ll_checksum_fops,		0 },
+	{ "max_rw_chunk",	&ll_max_rw_chunk_fops,		0 },
+	{ "stats_track_pid",	&ll_track_pid_fops,		0 },
+	{ "stats_track_ppid",	&ll_track_ppid_fops,		0 },
+	{ "stats_track_gid",	&ll_track_gid_fops,		0 },
+	{ "statahead_max",	&ll_statahead_max_fops,		0 },
+	{ "statahead_agl",	&ll_statahead_agl_fops,		0 },
+	{ "statahead_stats",	&ll_statahead_stats_fops,	0, 0 },
+	{ "lazystatfs",		&ll_lazystatfs_fops,		0 },
+	{ "max_easize",		&ll_maxea_size_fops,		0, 0 },
+	{ "sbi_flags",		&ll_sbi_flags_fops,		0, 0 },
+	{ 0 }
 };
 
 #define MAX_STRING_SIZE 128
@@ -862,6 +858,8 @@ static const char *ra_stat_string[] = {
         [RA_STAT_WRONG_GRAB_PAGE] = "wrong page from grab_cache_page",
 };
 
+LPROC_SEQ_FOPS_RO_TYPE(llite, name);
+LPROC_SEQ_FOPS_RO_TYPE(llite, uuid);
 
 int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
                                 struct super_block *sb, char *osc, char *mdc)
@@ -870,6 +868,7 @@ int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
         struct lustre_sb_info *lsi = s2lsi(sb);
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         struct obd_device *obd;
+	cfs_proc_dir_entry_t *dir;
         char name[MAX_STRING_SIZE + 1], *ptr;
         int err, id, len, rc;
         ENTRY;
@@ -969,16 +968,19 @@ int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
         LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
         LASSERT(obd->obd_type->typ_name != NULL);
 
-        snprintf(name, MAX_STRING_SIZE, "%s/common_name",
-                 obd->obd_type->typ_name);
-        lvars[0].read_fptr = lprocfs_rd_name;
-        err = lprocfs_add_vars(sbi->ll_proc_root, lvars, obd);
+	dir = proc_mkdir(obd->obd_type->typ_name, sbi->ll_proc_root);
+	if (dir == NULL)
+		GOTO(out, err = -ENOMEM);
+
+	snprintf(name, MAX_STRING_SIZE, "common_name");
+	lvars[0].fops = &llite_name_fops;
+	err = lprocfs_add_vars(dir, lvars, obd);
         if (err)
                 GOTO(out, err);
 
-        snprintf(name, MAX_STRING_SIZE, "%s/uuid", obd->obd_type->typ_name);
-        lvars[0].read_fptr = lprocfs_rd_uuid;
-        err = lprocfs_add_vars(sbi->ll_proc_root, lvars, obd);
+	snprintf(name, MAX_STRING_SIZE, "uuid");
+	lvars[0].fops = &llite_uuid_fops;
+	err = lprocfs_add_vars(dir, lvars, obd);
         if (err)
                 GOTO(out, err);
 
@@ -989,16 +991,19 @@ int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
         LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
         LASSERT(obd->obd_type->typ_name != NULL);
 
-        snprintf(name, MAX_STRING_SIZE, "%s/common_name",
-                 obd->obd_type->typ_name);
-        lvars[0].read_fptr = lprocfs_rd_name;
-        err = lprocfs_add_vars(sbi->ll_proc_root, lvars, obd);
+	dir = proc_mkdir(obd->obd_type->typ_name, sbi->ll_proc_root);
+	if (dir == NULL)
+		GOTO(out, err = -ENOMEM);
+
+	snprintf(name, MAX_STRING_SIZE, "common_name");
+	lvars[0].fops = &llite_name_fops;
+	err = lprocfs_add_vars(dir, lvars, obd);
         if (err)
                 GOTO(out, err);
 
-        snprintf(name, MAX_STRING_SIZE, "%s/uuid", obd->obd_type->typ_name);
-        lvars[0].read_fptr = lprocfs_rd_uuid;
-        err = lprocfs_add_vars(sbi->ll_proc_root, lvars, obd);
+	snprintf(name, MAX_STRING_SIZE, "uuid");
+	lvars[0].fops = &llite_name_fops;
+	err = lprocfs_add_vars(dir, lvars, obd);
 out:
         if (err) {
                 lprocfs_remove(&sbi->ll_proc_root);
@@ -1122,7 +1127,6 @@ static ssize_t ll_rw_extents_stats_pp_seq_write(struct file *file,
 	spin_unlock(&sbi->ll_pp_extent_lock);
 	return len;
 }
-
 LPROC_SEQ_FOPS(ll_rw_extents_stats_pp);
 
 static int ll_rw_extents_stats_seq_show(struct seq_file *seq, void *v)
@@ -1154,7 +1158,7 @@ static int ll_rw_extents_stats_seq_show(struct seq_file *seq, void *v)
 }
 
 static ssize_t ll_rw_extents_stats_seq_write(struct file *file, const char *buf,
-                                        size_t len, loff_t *off)
+					     size_t len, loff_t *off)
 {
         struct seq_file *seq = file->private_data;
         struct ll_sb_info *sbi = seq->private;
@@ -1181,7 +1185,6 @@ static ssize_t ll_rw_extents_stats_seq_write(struct file *file, const char *buf,
 
 	return len;
 }
-
 LPROC_SEQ_FOPS(ll_rw_extents_stats);
 
 void ll_rw_stats_tally(struct ll_sb_info *sbi, pid_t pid,
@@ -1344,7 +1347,7 @@ static int ll_rw_offset_stats_seq_show(struct seq_file *seq, void *v)
 }
 
 static ssize_t ll_rw_offset_stats_seq_write(struct file *file, const char *buf,
-                                       size_t len, loff_t *off)
+					    size_t len, loff_t *off)
 {
         struct seq_file *seq = file->private_data;
         struct ll_sb_info *sbi = seq->private;
@@ -1374,7 +1377,6 @@ static ssize_t ll_rw_offset_stats_seq_write(struct file *file, const char *buf,
 
 	return len;
 }
-
 LPROC_SEQ_FOPS(ll_rw_offset_stats);
 
 void lprocfs_llite_init_vars(struct lprocfs_static_vars *lvars)

@@ -1076,18 +1076,17 @@ static int lfsck_namespace_post(const struct lu_env *env,
 
 static int
 lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
-		     char *buf, int len)
+		     struct seq_file *m)
 {
 	struct lfsck_instance	*lfsck = com->lc_lfsck;
 	struct lfsck_bookmark	*bk    = &lfsck->li_bookmark_ram;
 	struct lfsck_namespace	*ns    =
 				(struct lfsck_namespace *)com->lc_file_ram;
-	int			 save  = len;
 	int			 ret   = -ENOSPC;
 	int			 rc;
 
 	down_read(&com->lc_sem);
-	rc = snprintf(buf, len,
+	rc = seq_printf(m,
 		      "name: lfsck_namespace\n"
 		      "magic: 0x%x\n"
 		      "version: %d\n"
@@ -1098,44 +1097,40 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 	if (rc <= 0)
 		goto out;
 
-	buf += rc;
-	len -= rc;
-	rc = lfsck_bits_dump(&buf, &len, ns->ln_flags, lfsck_flags_names,
-			     "flags");
+	rc = lfsck_bits_dump(m, ns->ln_flags, lfsck_flags_names, "flags");
 	if (rc < 0)
 		goto out;
 
-	rc = lfsck_bits_dump(&buf, &len, bk->lb_param, lfsck_param_names,
-			     "param");
+	rc = lfsck_bits_dump(m, bk->lb_param, lfsck_param_names, "param");
 	if (rc < 0)
 		goto out;
 
-	rc = lfsck_time_dump(&buf, &len, ns->ln_time_last_complete,
+	rc = lfsck_time_dump(m, ns->ln_time_last_complete,
 			     "time_since_last_completed");
 	if (rc < 0)
 		goto out;
 
-	rc = lfsck_time_dump(&buf, &len, ns->ln_time_latest_start,
+	rc = lfsck_time_dump(m, ns->ln_time_latest_start,
 			     "time_since_latest_start");
 	if (rc < 0)
 		goto out;
 
-	rc = lfsck_time_dump(&buf, &len, ns->ln_time_last_checkpoint,
+	rc = lfsck_time_dump(m, ns->ln_time_last_checkpoint,
 			     "time_since_last_checkpoint");
 	if (rc < 0)
 		goto out;
 
-	rc = lfsck_pos_dump(&buf, &len, &ns->ln_pos_latest_start,
+	rc = lfsck_pos_dump(m, &ns->ln_pos_latest_start,
 			    "latest_start_position");
 	if (rc < 0)
 		goto out;
 
-	rc = lfsck_pos_dump(&buf, &len, &ns->ln_pos_last_checkpoint,
+	rc = lfsck_pos_dump(m, &ns->ln_pos_last_checkpoint,
 			    "last_checkpoint_position");
 	if (rc < 0)
 		goto out;
 
-	rc = lfsck_pos_dump(&buf, &len, &ns->ln_pos_first_inconsistent,
+	rc = lfsck_pos_dump(m, &ns->ln_pos_first_inconsistent,
 			    "first_failure_position");
 	if (rc < 0)
 		goto out;
@@ -1155,7 +1150,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			do_div(new_checked, duration);
 		if (rtime != 0)
 			do_div(speed, rtime);
-		rc = snprintf(buf, len,
+		rc = seq_printf(m,
 			      "checked_phase1: "LPU64"\n"
 			      "checked_phase2: "LPU64"\n"
 			      "updated_phase1: "LPU64"\n"
@@ -1191,9 +1186,6 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 		if (rc <= 0)
 			goto out;
 
-		buf += rc;
-		len -= rc;
-
 		LASSERT(lfsck->li_di_oit != NULL);
 
 		iops = &lfsck->li_obj_oit->do_index_ops->dio_it;
@@ -1221,7 +1213,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			pos.lp_dir_cookie = 0;
 		}
 		spin_unlock(&lfsck->li_lock);
-		rc = lfsck_pos_dump(&buf, &len, &pos, "current_position");
+		rc = lfsck_pos_dump(m, &pos, "current_position");
 		if (rc <= 0)
 			goto out;
 	} else if (ns->ln_status == LS_SCANNING_PHASE2) {
@@ -1241,7 +1233,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			do_div(speed1, ns->ln_run_time_phase1);
 		if (rtime != 0)
 			do_div(speed2, rtime);
-		rc = snprintf(buf, len,
+		rc = seq_printf(m,
 			      "checked_phase1: "LPU64"\n"
 			      "checked_phase2: "LPU64"\n"
 			      "updated_phase1: "LPU64"\n"
@@ -1279,9 +1271,6 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      PFID(&ns->ln_fid_latest_scanned_phase2));
 		if (rc <= 0)
 			goto out;
-
-		buf += rc;
-		len -= rc;
 	} else {
 		__u64 speed1 = ns->ln_items_checked;
 		__u64 speed2 = ns->ln_objs_checked_phase2;
@@ -1290,7 +1279,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			do_div(speed1, ns->ln_run_time_phase1);
 		if (ns->ln_run_time_phase2 != 0)
 			do_div(speed2, ns->ln_run_time_phase2);
-		rc = snprintf(buf, len,
+		rc = seq_printf(m,
 			      "checked_phase1: "LPU64"\n"
 			      "checked_phase2: "LPU64"\n"
 			      "updated_phase1: "LPU64"\n"
@@ -1326,11 +1315,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      speed2);
 		if (rc <= 0)
 			goto out;
-
-		buf += rc;
-		len -= rc;
 	}
-	ret = save - len;
+	ret = 0;
 
 out:
 	up_read(&com->lc_sem);

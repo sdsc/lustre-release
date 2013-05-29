@@ -798,6 +798,9 @@ build_lustre() {
 
     local confoptions=""
 
+    #LU-3319 for test only
+    confoptions="$confoptions --disable-server"
+
     if $PATCHLESS; then
         confoptions="$confoptions --disable-server"
     fi
