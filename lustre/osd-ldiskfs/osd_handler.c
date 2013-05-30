@@ -5374,6 +5374,10 @@ static int osd_mount(const struct lu_env *env,
 	if (lmd_flags & LMD_FLG_NOSCRUB)
 		o->od_noscrub = 1;
 
+#ifdef EXT4_MOUNT_OPT_DIRDATA
+	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_DIRDATA))
+		set_opt(o->od_mnt->mnt_sb, DIRDATA);
+#endif
 out:
 	if (__page)
 		OBD_PAGE_FREE(__page);
