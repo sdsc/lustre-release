@@ -246,6 +246,7 @@ cfs_wi_scheduler (void *arg)
 {
 	struct cfs_wi_sched	*sched = (cfs_wi_sched_t *)arg;
 	char			name[16];
+	int			rc = 0;
 
 	if (sched->ws_cptab != NULL && sched->ws_cpt >= 0) {
 		snprintf(name, sizeof(name), "%s_%02d_%02d",
@@ -260,7 +261,10 @@ cfs_wi_scheduler (void *arg)
 
 	/* CPT affinity scheduler? */
 	if (sched->ws_cptab != NULL)
-		cfs_cpt_bind(sched->ws_cptab, sched->ws_cpt);
+		rc = cfs_cpt_bind(sched->ws_cptab, sched->ws_cpt);
+
+	if (rc != 0)
+		CWARN("Failed to bind %s on CPT %d\n", name, sched->ws_cpt);
 
 	spin_lock(&cfs_wi_data.wi_glock);
 
