@@ -76,8 +76,6 @@ AC_ARG_ENABLE([server],
 	])
 AC_MSG_RESULT([$enable_server])
 
-LB_CONFIG_HEADERS
-
 # These allow Lustre Makefiles and autoMakefiles to be used unchanged.
 AM_CONDITIONAL(MODULES, true)
 AM_CONDITIONAL(LINUX, true)
@@ -112,7 +110,10 @@ if test x$enable_server$enable_dist = xyesno ; then
 LB_LDISKFS_EXT_DIR
 LB_LDISKFS_EXT_SOURCE
 LB_LDISKFS_DEFINE_OPTIONS
+LB_EXT_FREE_BLOCKS_WITH_BUFFER_HEAD
 fi
+
+LB_CONFIG_HEADERS
 
 AM_CONDITIONAL(LDISKFS_PDO, test x$with_ldiskfs_pdo = xyes)
 

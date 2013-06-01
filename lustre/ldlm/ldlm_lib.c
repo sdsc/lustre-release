@@ -463,12 +463,12 @@ int client_connect_import(const struct lu_env *env,
                           struct obd_device *obd, struct obd_uuid *cluuid,
                           struct obd_connect_data *data, void *localdata)
 {
-        struct client_obd *cli = &obd->u.cli;
-        struct obd_import *imp = cli->cl_import;
-        struct obd_connect_data *ocd;
-        struct lustre_handle conn = { 0 };
-        int rc;
-        ENTRY;
+	struct client_obd       *cli    = &obd->u.cli;
+	struct obd_import       *imp    = cli->cl_import;
+	struct obd_connect_data *ocd;
+	struct lustre_handle    conn    = { 0 };
+	int                     rc;
+	ENTRY;
 
         *exp = NULL;
         cfs_down_write(&cli->cl_sem);
@@ -522,7 +522,7 @@ out_ldlm:
 out_sem:
         cfs_up_write(&cli->cl_sem);
 
-        return rc;
+	return rc;
 }
 
 int client_disconnect_export(struct obd_export *exp)
@@ -1084,8 +1084,8 @@ dont_check_exports:
         cfs_spin_lock(&export->exp_lock);
         if (export->exp_conn_cnt >= lustre_msg_get_conn_cnt(req->rq_reqmsg)) {
                 cfs_spin_unlock(&export->exp_lock);
-                CDEBUG(D_RPCTRACE, "%s: %s already connected at higher "
-                       "conn_cnt: %d > %d\n",
+		CDEBUG(D_RPCTRACE, "%s: %s already connected at greater "
+		       "or equal conn_cnt: %d >= %d\n",
                        cluuid.uuid, libcfs_nid2str(req->rq_peer.nid),
                        export->exp_conn_cnt,
                        lustre_msg_get_conn_cnt(req->rq_reqmsg));
@@ -1204,13 +1204,13 @@ dont_check_exports:
          * ptlrpc_handle_server_req_in->lustre_unpack_msg() */
         revimp->imp_msg_magic = req->rq_reqmsg->lm_magic;
 
-        if ((export->exp_connect_flags & OBD_CONNECT_AT) &&
-            (revimp->imp_msg_magic != LUSTRE_MSG_MAGIC_V1))
-                revimp->imp_msghdr_flags |= MSGHDR_AT_SUPPORT;
-        else
-                revimp->imp_msghdr_flags &= ~MSGHDR_AT_SUPPORT;
+	if ((data->ocd_connect_flags & OBD_CONNECT_AT) &&
+	    (revimp->imp_msg_magic != LUSTRE_MSG_MAGIC_V1))
+		revimp->imp_msghdr_flags |= MSGHDR_AT_SUPPORT;
+	else
+		revimp->imp_msghdr_flags &= ~MSGHDR_AT_SUPPORT;
 
-        if ((export->exp_connect_flags & OBD_CONNECT_FULL20) &&
+	if ((data->ocd_connect_flags & OBD_CONNECT_FULL20) &&
             (revimp->imp_msg_magic != LUSTRE_MSG_MAGIC_V1))
                 revimp->imp_msghdr_flags |= MSGHDR_CKSUM_INCOMPAT18;
         else
@@ -1693,13 +1693,11 @@ static int check_for_next_transno(struct obd_device *obd)
         } else if (obd->obd_recovery_expired) {
                 CDEBUG(D_HA, "waking for expired recovery\n");
                 wake_up = 1;
-        } else if (cfs_atomic_read(&obd->obd_req_replay_clients) == 0) {
-                CDEBUG(D_HA, "waking for completed recovery\n");
-                wake_up = 1;
         } else if (req_transno == next_transno) {
                 CDEBUG(D_HA, "waking for next ("LPD64")\n", next_transno);
                 wake_up = 1;
-        } else if (queue_len == cfs_atomic_read(&obd->obd_req_replay_clients)) {
+	} else if (queue_len > 0 &&
+		   queue_len == cfs_atomic_read(&obd->obd_req_replay_clients)) {
                 int d_lvl = D_HA;
                 /** handle gaps occured due to lost reply or VBR */
                 LASSERTF(req_transno >= next_transno,
@@ -1717,6 +1715,9 @@ static int check_for_next_transno(struct obd_device *obd)
                        req_transno, obd->obd_last_committed);
                 obd->obd_next_recovery_transno = req_transno;
                 wake_up = 1;
+	} else if (cfs_atomic_read(&obd->obd_req_replay_clients) == 0) {
+		CDEBUG(D_HA, "waking for completed recovery\n");
+		wake_up = 1;
         } else if (OBD_FAIL_CHECK(OBD_FAIL_MDS_RECOVERY_ACCEPTS_GAPS)) {
                 CDEBUG(D_HA, "accepting transno gaps is explicitly allowed"
                        " by fail_lock, waking up ("LPD64")\n", next_transno);

@@ -64,7 +64,7 @@ CFS_MODULE_PARM(at_extra, "i", int, 0644,
 
 /* forward ref */
 static int ptlrpc_server_post_idle_rqbds(struct ptlrpc_service_part *svcpt);
-static void ptlrpc_hpreq_fini(struct ptlrpc_request *req);
+static void ptlrpc_server_hpreq_fini(struct ptlrpc_request *req);
 static void ptlrpc_at_remove_timed(struct ptlrpc_request *req);
 
 static CFS_LIST_HEAD(ptlrpc_all_services);
@@ -125,9 +125,25 @@ ptlrpc_grow_req_bufs(struct ptlrpc_service_part *svcpt, int post)
         int                                rc = 0;
         int                                i;
 
+	if (svcpt->scp_rqbd_allocating)
+		goto try_post;
+
+	cfs_spin_lock(&svcpt->scp_lock);
+	/* check again with lock */
+	if (svcpt->scp_rqbd_allocating) {
+		/* NB: we might allow more than one thread in the future */
+		LASSERT(svcpt->scp_rqbd_allocating == 1);
+		cfs_spin_unlock(&svcpt->scp_lock);
+		goto try_post;
+	}
+
+	svcpt->scp_rqbd_allocating++;
+	cfs_spin_unlock(&svcpt->scp_lock);
+
+
         for (i = 0; i < svc->srv_nbuf_per_group; i++) {
-                /* NB: another thread might be doing this as well, we need to
-                 * make sure that it wouldn't over-allocate, see LU-1212. */
+                /* NB: another thread might have recycled enough rqbds, we
+		 * need to make sure it wouldn't over-allocate, see LU-1212. */
 		if (svcpt->scp_nrqbds_posted >= svc->srv_nbuf_per_group)
 			break;
 
@@ -141,11 +157,19 @@ ptlrpc_grow_req_bufs(struct ptlrpc_service_part *svcpt, int post)
                 }
 	}
 
+	cfs_spin_lock(&svcpt->scp_lock);
+
+	LASSERT(svcpt->scp_rqbd_allocating == 1);
+	svcpt->scp_rqbd_allocating--;
+
+	cfs_spin_unlock(&svcpt->scp_lock);
+
 	CDEBUG(D_RPCTRACE,
 	       "%s: allocate %d new %d-byte reqbufs (%d/%d left), rc = %d\n",
 	       svc->srv_name, i, svc->srv_buf_size, svcpt->scp_nrqbds_posted,
 	       svcpt->scp_nrqbds_total, rc);
 
+ try_post:
 	if (post && rc == 0)
 		rc = ptlrpc_server_post_idle_rqbds(svcpt);
 
@@ -945,6 +969,10 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
 		cfs_list_del(&req->rq_list);
 		cfs_list_del_init(&req->rq_history_list);
 
+		/* Track the highest culled req seq */
+		if (req->rq_history_seq > svcpt->scp_hist_seq_culled)
+			svcpt->scp_hist_seq_culled = req->rq_history_seq;
+
 		cfs_spin_unlock(&svcpt->scp_lock);
 
 		ptlrpc_server_free_request(req);
@@ -960,7 +988,7 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
 static void ptlrpc_server_finish_request(struct ptlrpc_service_part *svcpt,
 					 struct ptlrpc_request *req)
 {
-	ptlrpc_hpreq_fini(req);
+	ptlrpc_server_hpreq_fini(req);
 
 	cfs_spin_lock(&svcpt->scp_req_lock);
 	svcpt->scp_nreqs_active--;
@@ -1443,8 +1471,8 @@ static int ptlrpc_at_check_timed(struct ptlrpc_service_part *svcpt)
  * Put the request to the export list if the request may become
  * a high priority one.
  */
-static int ptlrpc_hpreq_init(struct ptlrpc_service *svc,
-                             struct ptlrpc_request *req)
+static int ptlrpc_server_hpreq_init(struct ptlrpc_service *svc,
+				    struct ptlrpc_request *req)
 {
         int rc = 0;
         ENTRY;
@@ -1471,7 +1499,7 @@ static int ptlrpc_hpreq_init(struct ptlrpc_service *svc,
 }
 
 /** Remove the request from the export list. */
-static void ptlrpc_hpreq_fini(struct ptlrpc_request *req)
+static void ptlrpc_server_hpreq_fini(struct ptlrpc_request *req)
 {
         ENTRY;
         if (req->rq_export && req->rq_ops) {
@@ -1493,9 +1521,7 @@ static int ptlrpc_hpreq_check(struct ptlrpc_request *req)
 }
 
 static struct ptlrpc_hpreq_ops ptlrpc_hpreq_common = {
-	.hpreq_lock_match  = NULL,
 	.hpreq_check       = ptlrpc_hpreq_check,
-	.hpreq_fini        = NULL,
 };
 
 /* Hi-Priority RPC check by RPC operation code. */
@@ -1562,21 +1588,17 @@ void ptlrpc_hpreq_reorder(struct ptlrpc_request *req)
 }
 EXPORT_SYMBOL(ptlrpc_hpreq_reorder);
 
-/** Check if the request is a high priority one. */
-static int ptlrpc_server_hpreq_check(struct ptlrpc_service *svc,
-                                     struct ptlrpc_request *req)
-{
-	return ptlrpc_hpreq_init(svc, req);
-}
-
-/** Check if a request is a high priority one. */
+/**
+ * Add a request to the regular or HP queue; optionally perform HP request
+ * initialization.
+ */
 static int ptlrpc_server_request_add(struct ptlrpc_service_part *svcpt,
 				     struct ptlrpc_request *req)
 {
 	int	rc;
 	ENTRY;
 
-	rc = ptlrpc_server_hpreq_check(svcpt->scp_service, req);
+	rc = ptlrpc_server_hpreq_init(svcpt->scp_service, req);
 	if (rc < 0)
 		RETURN(rc);
 
@@ -1826,7 +1848,7 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt)
         /* Move it over to the request processing queue */
 	rc = ptlrpc_server_request_add(svcpt, req);
 	if (rc) {
-		ptlrpc_hpreq_fini(req);
+		ptlrpc_server_hpreq_fini(req);
 		GOTO(err_req, rc);
 	}
 	cfs_waitq_signal(&svcpt->scp_waitq);
@@ -3040,7 +3062,7 @@ ptlrpc_service_purge_all(struct ptlrpc_service *svc)
 			req = ptlrpc_server_request_get(svcpt, 1);
 			cfs_list_del(&req->rq_list);
 			svcpt->scp_nreqs_active++;
-			ptlrpc_hpreq_fini(req);
+			ptlrpc_server_hpreq_fini(req);
 
 			if (req->rq_export != NULL)
 				class_export_rpc_put(req->rq_export);
