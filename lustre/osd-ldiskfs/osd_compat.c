@@ -197,7 +197,7 @@ static int osd_mdt_init(const struct lu_env *env, struct osd_device *dev)
 
 	/* Set LMA for remote parent inode */
 	lu_local_obj_fid(fid, REMOTE_PARENT_DIR_OID);
-	rc = osd_ea_fid_set(info, d->d_inode, fid, 0);
+	rc = osd_ea_fid_set(info, d->d_inode, fid, LMAC_NO_OI, 0);
 	if (rc != 0)
 		GOTO(cleanup, rc);
 cleanup:
@@ -329,13 +329,16 @@ int osd_delete_from_remote_parent(const struct lu_env *env,
  * CONFIGS
  *
  */
-static int osd_ost_init(struct osd_device *dev)
+static int osd_ost_init(const struct lu_env *env, struct osd_device *dev)
 {
-	struct lvfs_run_ctxt  new;
-	struct lvfs_run_ctxt  save;
-	struct dentry	     *rootd = osd_sb(dev)->s_root;
-	struct dentry	     *d;
-	int		      rc;
+	struct lvfs_run_ctxt	 new;
+	struct lvfs_run_ctxt	 save;
+	struct dentry		*rootd = osd_sb(dev)->s_root;
+	struct dentry		*d;
+	struct osd_thread_info	*info = osd_oti_get(env);
+	struct inode		*inode;
+	struct lu_fid		*fid = &info->oti_fid;
+	int			 rc;
 	ENTRY;
 
 	OBD_ALLOC_PTR(dev->od_ost_map);
@@ -363,8 +366,16 @@ static int osd_ost_init(struct osd_device *dev)
 	if (IS_ERR(d))
 		GOTO(cleanup, rc = PTR_ERR(d));
 
-	ldiskfs_set_inode_state(d->d_inode, LDISKFS_STATE_LUSTRE_NO_OI);
+	inode = d->d_inode;
+	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
 	dev->od_ost_map->om_root = d;
+
+	/* 'What the @fid is' is not imporatant, because the object
+	 * has no OI mapping, and only is visible inside the OSD.*/
+	lu_igif_build(fid, inode->i_ino, inode->i_generation);
+	rc = osd_ea_fid_set(info, inode, fid, LMAC_NO_OI | LMAC_FOO, 0);
+	if (rc != 0)
+		GOTO(cleanup, rc);
 
 cleanup:
 	osd_pop_ctxt(dev, &new, &save);
@@ -428,7 +439,7 @@ int osd_obj_map_init(const struct lu_env *env, struct osd_device *dev)
 	ENTRY;
 
 	/* prepare structures for OST */
-	rc = osd_ost_init(dev);
+	rc = osd_ost_init(env, dev);
 	if (rc)
 		RETURN(rc);
 
@@ -463,6 +474,69 @@ void osd_obj_map_fini(struct osd_device *dev)
 {
 	osd_ost_fini(dev);
 	osd_mdt_fini(dev);
+}
+
+/**
+ * Update the specified OI mapping.
+ *
+ * \retval   1, changed nothing
+ * \retval   0, changed successfully
+ * \retval -ve, on error
+ */
+int osd_obj_update_entry(struct osd_thread_info *info,
+			 struct osd_device *osd,
+			 struct dentry *dir, char *name,
+			 const struct osd_inode_id *id,
+			 struct thandle *th)
+{
+	struct inode		   *parent = dir->d_inode;
+	struct osd_thandle	   *oh;
+	struct dentry		   *child;
+	struct ldiskfs_dir_entry_2 *de;
+	struct buffer_head	   *bh;
+	int			    rc;
+	ENTRY;
+
+	oh = container_of(th, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle != NULL);
+	LASSERT(oh->ot_handle->h_transaction != NULL);
+
+	child = &info->oti_child_dentry;
+	child->d_parent = dir;
+	child->d_name.hash = 0;
+	child->d_name.name = name;
+	child->d_name.len = strlen(name);
+
+	ll_vfs_dq_init(parent);
+	mutex_lock(&parent->i_mutex);
+	bh = osd_ldiskfs_find_entry(parent, child, &de, NULL);
+	if (bh == NULL) {
+		rc = -ENOENT;
+	} else if (le32_to_cpu(de->inode) == id->oii_ino) {
+		rc = 1;
+	} else {
+		/* There may be inconsistency temporary: On one hand, the new
+		 * object may be referenced by multiple entries, which is out
+		 * of our control unless we traverse the whole /O completely,
+		 * which is non-flat order and inefficient, should be avoided;
+		 * On the other hand, the old object may become orphan if it
+		 * is still valid. Since it was referenced by an invalid entry,
+		 * making it as invisible temporary may be not worse. OI scrub
+		 * will process it later. */
+		rc = ldiskfs_journal_get_write_access(oh->ot_handle, bh);
+		if (rc != 0)
+			GOTO(out, rc);
+
+		de->inode = cpu_to_le32(id->oii_ino);
+		rc = ldiskfs_journal_dirty_metadata(oh->ot_handle, bh);
+	}
+
+	GOTO(out, rc);
+
+out:
+	brelse(bh);
+	mutex_unlock(&parent->i_mutex);
+	return rc;
 }
 
 static int osd_obj_del_entry(struct osd_thread_info *info,
@@ -532,6 +606,9 @@ int osd_obj_add_entry(struct osd_thread_info *info,
         child->d_parent = dir;
         child->d_inode = inode;
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_OSD_COMAPT_INVALID_ENTRY))
+		inode->i_ino++;
+
 	ll_vfs_dq_init(dir->d_inode);
 	mutex_lock(&dir->d_inode->i_mutex);
 	rc = osd_ldiskfs_add_entry(oh->ot_handle, child, inode, NULL);
@@ -565,11 +642,14 @@ static inline void osd_oid_name(char *name, size_t name_size,
 }
 
 /* external locking is required */
-static int osd_seq_load_locked(struct osd_device *osd,
+static int osd_seq_load_locked(struct osd_thread_info *info,
+			       struct osd_device *osd,
 			       struct osd_obj_seq *osd_seq)
 {
 	struct osd_obj_map  *map = osd->od_ost_map;
 	struct dentry       *seq_dir;
+	struct inode	    *inode;
+	struct lu_fid	    *fid = &info->oti_fid;
 	int		    rc = 0;
 	int		    i;
 	char		    dir_name[32];
@@ -589,8 +669,16 @@ static int osd_seq_load_locked(struct osd_device *osd,
 	else if (seq_dir->d_inode == NULL)
 		GOTO(out_put, rc = -EFAULT);
 
-	ldiskfs_set_inode_state(seq_dir->d_inode, LDISKFS_STATE_LUSTRE_NO_OI);
+	inode = seq_dir->d_inode;
+	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
 	osd_seq->oos_root = seq_dir;
+
+	/* 'What the @fid is' is not imporatant, because the object
+	 * has no OI mapping, and only is visible inside the OSD.*/
+	lu_igif_build(fid, inode->i_ino, inode->i_generation);
+	rc = osd_ea_fid_set(info, inode, fid, LMAC_NO_OI | LMAC_FOO, 0);
+	if (rc != 0)
+		GOTO(out_put, rc);
 
 	LASSERT(osd_seq->oos_dirs == NULL);
 	OBD_ALLOC(osd_seq->oos_dirs,
@@ -611,8 +699,16 @@ static int osd_seq_load_locked(struct osd_device *osd,
 			GOTO(out_free, rc = -EFAULT);
 		}
 
-		ldiskfs_set_inode_state(dir->d_inode, LDISKFS_STATE_LUSTRE_NO_OI);
+		inode = dir->d_inode;
+		ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
 		osd_seq->oos_dirs[i] = dir;
+
+		/* 'What the @fid is' is not imporatant, because the object
+		 * has no OI mapping, and only is visible inside the OSD.*/
+		lu_igif_build(fid, inode->i_ino, inode->i_generation);
+		rc = osd_ea_fid_set(info, inode, fid, LMAC_NO_OI | LMAC_FOO, 0);
+		if (rc != 0)
+			GOTO(out_free, rc);
 	}
 
 	if (rc != 0) {
@@ -631,7 +727,8 @@ out_err:
 	RETURN(rc);
 }
 
-struct osd_obj_seq *osd_seq_load(struct osd_device *osd, obd_seq seq)
+struct osd_obj_seq *osd_seq_load(struct osd_thread_info *info,
+				 struct osd_device *osd, obd_seq seq)
 {
 	struct osd_obj_map	*map;
 	struct osd_obj_seq	*osd_seq;
@@ -667,7 +764,7 @@ struct osd_obj_seq *osd_seq_load(struct osd_device *osd, obd_seq seq)
 	/* Init subdir count to be 32, but each seq can have
 	 * different subdir count */
 	osd_seq->oos_subdir_count = map->om_subdir_count;
-	rc = osd_seq_load_locked(osd, osd_seq);
+	rc = osd_seq_load_locked(info, osd, osd_seq);
 	if (rc != 0)
 		GOTO(cleanup, rc);
 
@@ -709,7 +806,7 @@ int osd_obj_map_lookup(struct osd_thread_info *info, struct osd_device *dev,
 	LASSERT(map->om_root);
 
         fid_to_ostid(fid, ostid);
-	osd_seq = osd_seq_load(dev, ostid_seq(ostid));
+	osd_seq = osd_seq_load(info, dev, ostid_seq(ostid));
 	if (IS_ERR(osd_seq))
 		RETURN(PTR_ERR(osd_seq));
 
@@ -755,28 +852,93 @@ int osd_obj_map_insert(struct osd_thread_info *info,
 	struct osd_obj_seq	*osd_seq;
 	struct dentry		*d;
 	struct ost_id		*ostid = &info->oti_ostid;
+	obd_id			 oid;
 	int			dirn, rc = 0;
 	char			name[32];
-        ENTRY;
+	ENTRY;
 
-        map = osd->od_ost_map;
-        LASSERT(map);
+	map = osd->od_ost_map;
+	LASSERT(map);
 
 	/* map fid to seq:objid */
-        fid_to_ostid(fid, ostid);
+	fid_to_ostid(fid, ostid);
 
-	osd_seq = osd_seq_load(osd, ostid_seq(ostid));
+	oid = ostid_id(ostid);
+	osd_seq = osd_seq_load(info, osd, ostid_seq(ostid));
 	if (IS_ERR(osd_seq))
 		RETURN(PTR_ERR(osd_seq));
 
-	dirn = ostid_id(ostid) & (osd_seq->oos_subdir_count - 1);
+	dirn = oid & (osd_seq->oos_subdir_count - 1);
 	d = osd_seq->oos_dirs[dirn];
-        LASSERT(d);
+	LASSERT(d);
 
-	osd_oid_name(name, sizeof(name), fid, ostid_id(ostid));
+	osd_oid_name(name, sizeof(name), fid, oid);
 	rc = osd_obj_add_entry(info, osd, d, name, id, th);
+	if (rc != 0) {
+		struct inode		   *dir   = d->d_inode;
+		struct dentry		   *child;
+		struct ldiskfs_dir_entry_2 *de;
+		struct buffer_head	   *bh;
+		struct osd_inode_id	   *oi_id = &info->oti_id2;
+		struct inode		   *inode;
+		struct lustre_mdt_attrs	   *lma   = &info->oti_mdt_attrs;
 
-        RETURN(rc);
+		if (rc != -EEXIST)
+			RETURN(rc);
+
+		child = &info->oti_child_dentry;
+		child->d_parent = d;
+		child->d_name.hash = 0;
+		child->d_name.name = name;
+		child->d_name.len = strlen(name);
+
+		mutex_lock(&dir->i_mutex);
+		bh = osd_ldiskfs_find_entry(dir, child, &de, NULL);
+		mutex_unlock(&dir->i_mutex);
+		if (unlikely(bh == NULL))
+			RETURN(rc);
+
+		osd_id_gen(oi_id, le32_to_cpu(de->inode), OSD_OII_NOGEN);
+		brelse(bh);
+
+		if (osd_id_eq(id, oi_id)) {
+			CERROR("%.16s: the FID "DFID" is there already:%u/%u\n",
+			       LDISKFS_SB(osd_sb(osd))->s_es->s_volume_name,
+			       PFID(fid), id->oii_ino, id->oii_gen);
+			RETURN(-EEXIST);
+		}
+
+		inode = osd_iget(info, osd, oi_id);
+		if (IS_ERR(inode)) {
+			rc = PTR_ERR(inode);
+			if (rc == -ENOENT || rc == -ESTALE)
+				goto update;
+			RETURN(rc);
+		}
+
+		rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
+		iput(inode);
+		if (rc == -ENODATA)
+			goto update;
+
+		if (rc != 0)
+			RETURN(rc);
+
+		if (!(lma->lma_compat & LMAC_NO_OI) &&
+		    lu_fid_eq(fid, &lma->lma_self_fid)) {
+			CERROR("%.16s: the FID "DFID" is used by two objects: "
+			       "%u/%u %u/%u\n",
+			       LDISKFS_SB(osd_sb(osd))->s_es->s_volume_name,
+			       PFID(fid), oi_id->oii_ino, oi_id->oii_gen,
+			       id->oii_ino, id->oii_gen);
+			RETURN(-EEXIST);
+		}
+
+update:
+		rc = osd_obj_update_entry(info, osd, d, name, id, th);
+	}
+
+	RETURN(rc);
 }
 
 int osd_obj_map_delete(struct osd_thread_info *info, struct osd_device *osd,
@@ -796,7 +958,7 @@ int osd_obj_map_delete(struct osd_thread_info *info, struct osd_device *osd,
 	/* map fid to seq:objid */
         fid_to_ostid(fid, ostid);
 
-	osd_seq = osd_seq_load(osd, ostid_seq(ostid));
+	osd_seq = osd_seq_load(info, osd, ostid_seq(ostid));
 	if (IS_ERR(osd_seq))
 		GOTO(cleanup, rc = PTR_ERR(osd_seq));
 
@@ -808,6 +970,60 @@ int osd_obj_map_delete(struct osd_thread_info *info, struct osd_device *osd,
 	rc = osd_obj_del_entry(info, osd, d, name, th);
 cleanup:
         RETURN(rc);
+}
+
+int osd_obj_map_update(struct osd_thread_info *info,
+		       struct osd_device *osd,
+		       const struct lu_fid *fid,
+		       const struct osd_inode_id *id,
+		       struct thandle *th)
+{
+	struct osd_obj_map	*map;
+	struct osd_obj_seq	*osd_seq;
+	struct dentry		*d;
+	struct ost_id		*ostid = &info->oti_ostid;
+	int			dirn, rc = 0;
+	char			name[32];
+	ENTRY;
+
+	map = osd->od_ost_map;
+	LASSERT(map);
+
+	/* map fid to seq:objid */
+	fid_to_ostid(fid, ostid);
+
+	osd_seq = osd_seq_load(info, osd, ostid_seq(ostid));
+	if (IS_ERR(osd_seq))
+		RETURN(PTR_ERR(osd_seq));
+
+	dirn = ostid_id(ostid) & (osd_seq->oos_subdir_count - 1);
+	d = osd_seq->oos_dirs[dirn];
+	LASSERT(d);
+
+	osd_oid_name(name, sizeof(name), fid, ostid_id(ostid));
+	rc = osd_obj_update_entry(info, osd, d, name, id, th);
+
+	RETURN(rc);
+}
+
+int osd_obj_spec_update(struct osd_thread_info *info, struct osd_device *osd,
+			const struct lu_fid *fid, const struct osd_inode_id *id,
+			struct thandle *th)
+{
+	struct dentry		*root = osd_sb(osd)->s_root;
+	char			*name;
+	int			rc = 0;
+	ENTRY;
+
+	LASSERT(!fid_is_last_id(fid));
+
+	name = osd_lf_fid2name(fid);
+	if (name == NULL)
+		CWARN("UNKNOWN COMPAT FID "DFID"\n", PFID(fid));
+	else if (name[0])
+		rc = osd_obj_update_entry(info, osd, root, name, id, th);
+
+	RETURN(rc);
 }
 
 int osd_obj_spec_insert(struct osd_thread_info *info, struct osd_device *osd,
@@ -822,11 +1038,24 @@ int osd_obj_spec_insert(struct osd_thread_info *info, struct osd_device *osd,
 	ENTRY;
 
 	if (fid_is_last_id(fid)) {
+		struct inode		*inode;
 		struct osd_obj_seq	*osd_seq;
+		struct osd_inode_id	*id2 = &info->oti_id2;
+
+		*id2 = *id;
+		inode = osd_iget(info, osd, id2);
+		if (IS_ERR(inode))
+			RETURN(PTR_ERR(inode));
+
+		ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
+		rc = osd_ea_fid_set(info, inode, fid, LMAC_NO_OI | LMAC_FOO, 0);
+		iput(inode);
+		if (rc != 0)
+			RETURN(rc);
 
 		/* on creation of LAST_ID we create O/<seq> hierarchy */
 		LASSERT(map);
-		osd_seq = osd_seq_load(osd, fid_seq(fid));
+		osd_seq = osd_seq_load(info, osd, fid_seq(fid));
 		if (IS_ERR(osd_seq))
 			RETURN(PTR_ERR(osd_seq));
 		rc = osd_obj_add_entry(info, osd, osd_seq->oos_root,
@@ -855,7 +1084,7 @@ int osd_obj_spec_lookup(struct osd_thread_info *info, struct osd_device *osd,
 	if (fid_is_last_id(fid)) {
 		struct osd_obj_seq *osd_seq;
 
-		osd_seq = osd_seq_load(osd, fid_seq(fid));
+		osd_seq = osd_seq_load(info, osd, fid_seq(fid));
 		if (IS_ERR(osd_seq))
 			RETURN(PTR_ERR(osd_seq));
 		root = osd_seq->oos_root;
@@ -876,7 +1105,17 @@ int osd_obj_spec_lookup(struct osd_thread_info *info, struct osd_device *osd,
 			} else {
 				osd_id_gen(id, inode->i_ino,
 					   inode->i_generation);
-				rc = 0;
+
+				if (fid_is_last_id(fid) &&
+				    !ldiskfs_test_inode_state(inode,
+						LDISKFS_STATE_LUSTRE_NO_OI)) {
+					ldiskfs_set_inode_state(inode,
+						LDISKFS_STATE_LUSTRE_NO_OI);
+					rc = osd_ea_fid_set(info, inode, fid,
+						LMAC_NO_OI | LMAC_FOO, 0);
+				} else {
+					rc = 0;
+				}
 			}
 		}
 		/* if dentry is accessible after osd_compat_spec_insert it
