@@ -639,7 +639,7 @@ static struct ost_thread_local_cache *ost_tls_get(struct ptlrpc_request *r)
 
         /* In normal mode of operation an I/O request is serviced only
          * by ll_ost_io threads each of them has own tls buffers allocated by
-         * ost_thread_init().
+         * ost_io_thread_init().
          * During recovery, an I/O request may be queued until any of the ost
          * service threads process it. Not necessary it should be one of
          * ll_ost_io threads. In that case we dynamically allocating tls
@@ -1906,7 +1906,7 @@ static int ost_rw_hpreq_check(struct ptlrpc_request *req)
         CDEBUG(D_DLMTRACE, "%s: refreshed %u locks timeout for req %p.\n",
                obd->obd_name, opd.opd_locks, req);
 
-        RETURN(opd.opd_locks);
+        RETURN(opd.opd_locks > 0);
 }
 
 static void ost_rw_hpreq_fini(struct ptlrpc_request *req)
@@ -1999,7 +1999,7 @@ struct ptlrpc_hpreq_ops ost_hpreq_punch = {
 };
 
 /** Assign high priority operations to the request if needed. */
-static int ost_hpreq_handler(struct ptlrpc_request *req)
+static int ost_io_hpreq_handler(struct ptlrpc_request *req)
 {
         ENTRY;
         if (req->rq_export) {
@@ -2391,10 +2391,11 @@ out:
         return 0;
 }
 EXPORT_SYMBOL(ost_handle);
+
 /*
- * free per-thread pool created by ost_thread_init().
+ * free per-thread pool created by ost_io_thread_init().
  */
-static void ost_thread_done(struct ptlrpc_thread *thread)
+static void ost_io_thread_done(struct ptlrpc_thread *thread)
 {
         struct ost_thread_local_cache *tls; /* TLS stands for Thread-Local
                                              * Storage */
@@ -2405,7 +2406,7 @@ static void ost_thread_done(struct ptlrpc_thread *thread)
 
         /*
          * be prepared to handle partially-initialized pools (because this is
-         * called from ost_thread_init() for cleanup.
+         * called from ost_io_thread_init() for cleanup.
          */
         tls = thread->t_data;
         if (tls != NULL) {
@@ -2418,7 +2419,7 @@ static void ost_thread_done(struct ptlrpc_thread *thread)
 /*
  * initialize per-thread page pool (bug 5137).
  */
-static int ost_thread_init(struct ptlrpc_thread *thread)
+static int ost_io_thread_init(struct ptlrpc_thread *thread)
 {
         struct ost_thread_local_cache *tls;
 
@@ -2523,7 +2524,6 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_ops		= {
 			.so_req_handler		= ost_handle,
 			.so_req_printer		= target_print_req,
-			.so_hpreq_handler	= NULL,
 		},
 	};
 	ost->ost_create_service = ptlrpc_register_service(&svc_conf,
@@ -2587,12 +2587,11 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 						  oss_io_cpts : NULL,
 		},
 		.psc_ops		= {
-			.so_thr_init		= ost_thread_init,
-			.so_thr_done		= ost_thread_done,
+			.so_thr_init		= ost_io_thread_init,
+			.so_thr_done		= ost_io_thread_done,
 			.so_req_handler		= ost_handle,
-			.so_hpreq_handler	= ost_hpreq_handler,
+			.so_hpreq_handler	= ost_io_hpreq_handler,
 			.so_req_printer		= target_print_req,
-			.so_hpreq_handler	= NULL,
 		},
 	};
 	ost->ost_io_service = ptlrpc_register_service(&svc_conf,
