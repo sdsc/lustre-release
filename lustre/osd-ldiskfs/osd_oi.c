@@ -229,6 +229,13 @@ static int osd_oi_open(struct osd_thread_info *info, struct osd_device *osd,
                 RETURN(PTR_ERR(inode));
 
 	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
+	/* 'What the @fid is' is not imporatant, because these objects
+	 * have no OI mappings, and only are visible inside the OSD.*/
+	lu_igif_build(&info->oti_fid, inode->i_ino, inode->i_generation);
+	rc = osd_ea_fid_set(info, inode, &info->oti_fid, LMAC_NO_OI, 0);
+	if (rc != 0)
+		GOTO(out_inode, rc);
+
         OBD_ALLOC_PTR(oi);
         if (oi == NULL)
                 GOTO(out_inode, rc = -ENOMEM);
@@ -490,8 +497,8 @@ int fid_is_on_ost(struct osd_thread_info *info, struct osd_device *osd,
 	RETURN(0);
 }
 
-int __osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
-		    const struct lu_fid *fid, struct osd_inode_id *id)
+static int __osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
+			   const struct lu_fid *fid, struct osd_inode_id *id)
 {
 	struct lu_fid *oi_fid = &info->oti_fid2;
 	int	       rc;
@@ -510,12 +517,14 @@ int __osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 
 int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 		  const struct lu_fid *fid, struct osd_inode_id *id,
-		  bool check_fld)
+		  __u32 flags)
 {
 	if (unlikely(fid_is_last_id(fid)))
 		return osd_obj_spec_lookup(info, osd, fid, id);
 
-	if ((check_fld && fid_is_on_ost(info, osd, fid)) || fid_is_llog(fid))
+	if ((flags & OI_KNOWN_ON_OST) ||
+	    (flags & OI_CHECK_FLD && fid_is_on_ost(info, osd, fid)) ||
+	    fid_is_llog(fid))
 		return osd_obj_map_lookup(info, osd, fid, id);
 
 	if (fid_is_fs_root(fid)) {
@@ -570,7 +579,7 @@ static int osd_oi_iam_refresh(struct osd_thread_info *oti, struct osd_oi *oi,
 
 int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 		  const struct lu_fid *fid, const struct osd_inode_id *id,
-		  struct thandle *th)
+		  struct thandle *th, __u32 flags)
 {
 	struct lu_fid	    *oi_fid = &info->oti_fid2;
 	struct osd_inode_id *oi_id  = &info->oti_id2;
@@ -579,7 +588,9 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 	if (unlikely(fid_is_last_id(fid)))
 		return osd_obj_spec_insert(info, osd, fid, id, th);
 
-	if (fid_is_on_ost(info, osd, fid) || fid_is_llog(fid))
+	if ((flags & OI_KNOWN_ON_OST) ||
+	    (flags & OI_CHECK_FLD && fid_is_on_ost(info, osd, fid)) ||
+	    fid_is_llog(fid))
 		return osd_obj_map_insert(info, osd, fid, id, th);
 
 	fid_cpu_to_be(oi_fid, fid);
@@ -594,8 +605,8 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 		if (rc != -EEXIST)
 			return rc;
 
-		rc = osd_oi_lookup(info, osd, fid, oi_id, false);
-		if (unlikely(rc != 0))
+		rc = osd_oi_lookup(info, osd, fid, oi_id, 0);
+		if (rc != 0)
 			return rc;
 
 		if (osd_id_eq(id, oi_id)) {
@@ -622,7 +633,8 @@ int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 		if (rc != 0)
 			return rc;
 
-		if (lu_fid_eq(fid, &lma->lma_self_fid)) {
+		if (!(lma->lma_compat & LMAC_NO_OI) &&
+		    lu_fid_eq(fid, &lma->lma_self_fid)) {
 			CERROR("%.16s: the FID "DFID" is used by two objects: "
 			       "%u/%u %u/%u\n",
 			       LDISKFS_SB(osd_sb(osd))->s_es->s_volume_name,
@@ -675,7 +687,7 @@ static int osd_oi_iam_delete(struct osd_thread_info *oti, struct osd_oi *oi,
 
 int osd_oi_delete(struct osd_thread_info *info,
 		  struct osd_device *osd, const struct lu_fid *fid,
-		  struct thandle *th)
+		  struct thandle *th, __u32 flags)
 {
 	struct lu_fid *oi_fid = &info->oti_fid2;
 
@@ -686,12 +698,43 @@ int osd_oi_delete(struct osd_thread_info *info,
 	if (fid_is_last_id(fid))
 		return 0;
 
-	if (fid_is_on_ost(info, osd, fid) || fid_is_llog(fid))
+	if ((flags & OI_KNOWN_ON_OST) ||
+	    (flags & OI_CHECK_FLD && fid_is_on_ost(info, osd, fid)) ||
+	    fid_is_llog(fid))
 		return osd_obj_map_delete(info, osd, fid, th);
 
 	fid_cpu_to_be(oi_fid, fid);
 	return osd_oi_iam_delete(info, osd_fid2oi(osd, fid),
 				 (const struct dt_key *)oi_fid, th);
+}
+
+int osd_oi_update(struct osd_thread_info *info, struct osd_device *osd,
+		  const struct lu_fid *fid, const struct osd_inode_id *id,
+		  struct thandle *th, __u32 flags)
+{
+	struct lu_fid	    *oi_fid = &info->oti_fid2;
+	struct osd_inode_id *oi_id  = &info->oti_id2;
+	int		     rc     = 0;
+
+	if (unlikely(fid_is_last_id(fid)))
+		return 1;
+
+	if ((flags & OI_KNOWN_ON_OST) ||
+	    (flags & OI_CHECK_FLD && fid_is_on_ost(info, osd, fid)) ||
+	    fid_is_llog(fid))
+		return osd_obj_map_update(info, osd, fid, id, th);
+
+	fid_cpu_to_be(oi_fid, fid);
+	osd_id_pack(oi_id, id);
+	rc = osd_oi_iam_refresh(info, osd_fid2oi(osd, fid),
+			       (const struct dt_rec *)oi_id,
+			       (const struct dt_key *)oi_fid, th, false);
+	if (rc != 0)
+		return rc;
+
+	if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE))
+		rc = osd_obj_spec_update(info, osd, fid, id, th);
+	return rc;
 }
 
 int osd_oi_mod_init(void)

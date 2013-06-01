@@ -99,6 +99,7 @@ int osd_trans_declare_op2rb[] = {
 	[OSD_OT_WRITE]		= OSD_OT_WRITE,
 	[OSD_OT_INSERT]		= OSD_OT_DELETE,
 	[OSD_OT_DELETE]		= OSD_OT_INSERT,
+	[OSD_OT_UPDATE]		= OSD_OT_MAX,
 	[OSD_OT_QUOTA]		= OSD_OT_MAX,
 };
 
@@ -280,35 +281,52 @@ osd_iget_fid(struct osd_thread_info *info, struct osd_device *dev,
 	return inode;
 }
 
-static struct inode *
-osd_iget_verify(struct osd_thread_info *info, struct osd_device *dev,
-		struct osd_inode_id *id, const struct lu_fid *fid)
+static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 {
-	struct lustre_mdt_attrs *lma   = &info->oti_mdt_attrs;
-	struct inode		*inode;
-	int			 rc;
+	struct osd_thread_info	*info	= osd_oti_get(env);
+	struct lustre_mdt_attrs	*lma	= &info->oti_mdt_attrs;
+	int			rc;
+	ENTRY;
 
-	inode = osd_iget(info, dev, id);
-	if (IS_ERR(inode))
-		return inode;
+	if (OBD_FAIL_CHECK(OBD_FAIL_OSD_COMAPT_INVALID_ENTRY))
+		RETURN(0);
 
-	rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
-	if (rc == -ENODATA)
-		return inode;
+	CLASSERT(LMA_OLD_SIZE >= sizeof(*lma));
+	rc = __osd_xattr_get(obj->oo_inode, &info->oti_obj_dentry,
+			     XATTR_NAME_LMA, info->oti_mdt_attrs_old,
+			     LMA_OLD_SIZE);
+	if (rc > 0) {
+		rc = 0;
+		lustre_lma_swab(lma);
+		if (unlikely((lma->lma_incompat & ~LMA_INCOMPAT_SUPP) ||
+			     CFS_FAIL_CHECK(OBD_FAIL_OSD_LMA_INCOMPAT))) {
+			rc = -EOPNOTSUPP;
+			CWARN("%s: unsupported incompat LMA feature(s) %#x for "
+			      "fid = "DFID", ino = %lu: rc = %d\n",
+			      osd_obj2dev(obj)->od_svname,
+			      lma->lma_incompat & ~LMA_INCOMPAT_SUPP,
+			      PFID(lu_object_fid(&obj->oo_dt.do_lu)),
+			      obj->oo_inode->i_ino, rc);
+		}
 
-	if (rc != 0) {
-		iput(inode);
-		return ERR_PTR(rc);
+		if (lma->lma_compat & LMAC_NO_OI) {
+			rc = 0;
+		} else if (unlikely(!lu_fid_eq(lu_object_fid(&obj->oo_dt.do_lu),
+					&lma->lma_self_fid))) {
+			CDEBUG(D_INODE, "%s: FID "DFID" != self_fid "DFID"\n",
+			       osd_obj2dev(obj)->od_svname,
+			       PFID(lu_object_fid(&obj->oo_dt.do_lu)),
+			       PFID(&lma->lma_self_fid));
+			iput(obj->oo_inode);
+			obj->oo_inode = NULL;
+			rc = -EREMCHG;
+		}
+	} else if (rc == -ENODATA) {
+		/* haven't initialize LMA xattr */
+		rc = 0;
 	}
 
-	if (!lu_fid_eq(fid, &lma->lma_self_fid)) {
-		CDEBUG(D_LFSCK, "inconsistent obj: "DFID", %lu, "DFID"\n",
-		       PFID(&lma->lma_self_fid), inode->i_ino, PFID(fid));
-		iput(inode);
-		return ERR_PTR(-EREMCHG);
-	}
-
-	return inode;
+	RETURN(rc);
 }
 
 static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
@@ -324,7 +342,6 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	struct osd_scrub       *scrub;
 	struct scrub_file      *sf;
 	int			result;
-	int			verify = 0;
 	ENTRY;
 
 	LINVRNT(osd_invariant(obj));
@@ -355,9 +372,6 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 			goto iget;
 	}
 
-	if (sf->sf_flags & SF_INCONSISTENT)
-		verify = 1;
-
 	/*
 	 * Objects are created as locking anchors or place holders for objects
 	 * yet to be created. No need to osd_oi_lookup() at here because FID
@@ -369,7 +383,7 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 		GOTO(out, result = 0);
 
 	/* Search order: 3. OI files. */
-	result = osd_oi_lookup(info, dev, fid, id, true);
+	result = osd_oi_lookup(info, dev, fid, id, OI_CHECK_FLD);
 	if (result == -ENOENT) {
 		if (!fid_is_norm(fid) || fid_is_on_ost(info, dev, fid) ||
 		    !ldiskfs_test_bit(osd_oi_fid2idx(dev,fid),
@@ -383,10 +397,7 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 		GOTO(out, result);
 
 iget:
-	if (verify == 0)
-		inode = osd_iget(info, dev, id);
-	else
-		inode = osd_iget_verify(info, dev, id, fid);
+	inode = osd_iget(info, dev, id);
 	if (IS_ERR(inode)) {
 		result = PTR_ERR(inode);
 		if (result == -ENOENT || result == -ESTALE) {
@@ -415,6 +426,15 @@ trigger:
 
         obj->oo_inode = inode;
         LASSERT(obj->oo_inode->i_sb == osd_sb(dev));
+
+	result = osd_check_lma(env, obj);
+	if (result == -EREMCHG) {
+		goto trigger;
+	} else if (result != 0) {
+		iput(inode);
+		obj->oo_inode = NULL;
+		GOTO(out, result);
+	}
 
 	obj->oo_compat_dot_created = 1;
 	obj->oo_compat_dotdot_created = 1;
@@ -447,50 +467,6 @@ static void osd_object_init0(struct osd_object *obj)
                 (LOHA_EXISTS | (obj->oo_inode->i_mode & S_IFMT));
 }
 
-static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
-{
-	struct osd_thread_info	*info	= osd_oti_get(env);
-	struct lustre_mdt_attrs	*lma	= &info->oti_mdt_attrs;
-	int			rc;
-	ENTRY;
-
-	CLASSERT(LMA_OLD_SIZE >= sizeof(*lma));
-	rc = __osd_xattr_get(obj->oo_inode, &info->oti_obj_dentry,
-			     XATTR_NAME_LMA, info->oti_mdt_attrs_old,
-			     LMA_OLD_SIZE);
-	if (rc > 0) {
-		rc = 0;
-		lustre_lma_swab(lma);
-		if (unlikely((lma->lma_incompat & ~LMA_INCOMPAT_SUPP) ||
-			     CFS_FAIL_CHECK(OBD_FAIL_OSD_LMA_INCOMPAT))) {
-			rc = -EOPNOTSUPP;
-			CWARN("%s: unsupported incompat LMA feature(s) %#x for "
-			      "fid = "DFID", ino = %lu: rc = %d\n",
-			      osd_obj2dev(obj)->od_svname,
-			      lma->lma_incompat & ~LMA_INCOMPAT_SUPP,
-			      PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-			      obj->oo_inode->i_ino, rc);
-		}
-		if (unlikely(!lu_fid_eq(lu_object_fid(&obj->oo_dt.do_lu),
-					&lma->lma_self_fid))) {
-			CDEBUG(D_INODE, "%s: FID "DFID" != self_fid "DFID"\n",
-			       osd_obj2dev(obj)->od_svname,
-			       PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-			       PFID(&lma->lma_self_fid));
-			if (obj->oo_inode != NULL) {
-				iput(obj->oo_inode);
-				obj->oo_inode = NULL;
-			}
-			rc = -ESTALE;
-		}
-	} else if (rc == -ENODATA) {
-		/* haven't initialize LMA xattr */
-		rc = 0;
-	}
-
-	RETURN(rc);
-}
-
 /*
  * Concurrency: no concurrent access is possible that early in object
  * life-cycle.
@@ -511,13 +487,8 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 
 	result = osd_fid_lookup(env, obj, lu_object_fid(l), conf);
 	obj->oo_dt.do_body_ops = &osd_body_ops_new;
-	if (result == 0 && obj->oo_inode != NULL) {
-		result = osd_check_lma(env, obj);
-		if (result != 0)
-			return result;
-
+	if (result == 0 && obj->oo_inode != NULL)
 		osd_object_init0(obj);
-	}
 
 	LINVRNT(osd_invariant(obj));
 	return result;
@@ -2031,7 +2002,7 @@ static int __osd_oi_insert(const struct lu_env *env, struct osd_object *obj,
         LASSERT(obj->oo_inode != NULL);
 
 	osd_id_gen(id, obj->oo_inode->i_ino, obj->oo_inode->i_generation);
-	return osd_oi_insert(info, osd, fid, id, th);
+	return osd_oi_insert(info, osd, fid, id, th, OI_CHECK_FLD);
 }
 
 int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
@@ -2236,7 +2207,7 @@ static int osd_object_destroy(const struct lu_env *env,
 
 	osd_trans_exec_op(env, th, OSD_OT_DESTROY);
 
-        result = osd_oi_delete(osd_oti_get(env), osd, fid, th);
+        result = osd_oi_delete(osd_oti_get(env), osd, fid, th, OI_CHECK_FLD);
 
         /* XXX: add to ext3 orphan list */
         /* rc = ext3_orphan_add(handle_t *handle, struct inode *inode) */
@@ -2258,23 +2229,44 @@ static int osd_object_destroy(const struct lu_env *env,
  * FIXME: It is good to have/use ldiskfs_xattr_set_handle() here
  */
 int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
-		   const struct lu_fid *fid, __u64 flags)
+		   const struct lu_fid *fid, __u32 compat, __u32 incompat)
 {
 	struct lustre_mdt_attrs	*lma = &info->oti_mdt_attrs;
 	int			 rc;
+	ENTRY;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_FID_INLMA))
-		return 0;
+		RETURN(0);
 
-	lustre_lma_init(lma, fid, flags);
+	lustre_lma_init(lma, fid, compat, incompat);
 	lustre_lma_swab(lma);
 
 	rc = __osd_xattr_set(info, inode, XATTR_NAME_LMA, lma, sizeof(*lma),
 			     XATTR_CREATE);
 	/* Someone may created the EA by race. */
-	if (unlikely(rc == -EEXIST))
-		rc = 0;
-	return rc;
+	if (unlikely(rc == -EEXIST)) {
+		if (compat == 0 && incompat == 0)
+			RETURN(0);
+
+		rc = __osd_xattr_get(inode, &info->oti_obj_dentry,
+				     XATTR_NAME_LMA, info->oti_mdt_attrs_old,
+				     LMA_OLD_SIZE);
+		if (rc <= 0)
+			RETURN(-EINVAL);
+
+		lustre_lma_swab(lma);
+		if (!(~lma->lma_compat & compat) &&
+		    !(~lma->lma_incompat & incompat))
+			RETURN(0);
+
+		lma->lma_compat |= compat;
+		lma->lma_incompat |= incompat;
+		lustre_lma_swab(lma);
+		rc = __osd_xattr_set(info, inode, XATTR_NAME_LMA, lma,
+				     sizeof(*lma), XATTR_REPLACE);
+	}
+
+	RETURN(rc);
 }
 
 /**
@@ -2371,7 +2363,7 @@ static struct inode *osd_create_local_agent_inode(const struct lu_env *env,
 	}
 
 	/* Set special LMA flag for local agent inode */
-	rc = osd_ea_fid_set(info, local, fid, LMAI_AGENT);
+	rc = osd_ea_fid_set(info, local, fid, 0, LMAI_AGENT);
 	if (rc != 0) {
 		CERROR("%s: set LMA for "DFID" remote inode failed: rc = %d\n",
 		       osd_name(osd), PFID(fid), rc);
@@ -2456,7 +2448,9 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 
         result = __osd_object_create(info, obj, attr, hint, dof, th);
 	if (result == 0)
-		result = osd_ea_fid_set(info, obj->oo_inode, fid, 0);
+		result = osd_ea_fid_set(info, obj->oo_inode, fid,
+				fid_is_on_ost(info, osd_obj2dev(obj), fid) ?
+				LMAC_FOO : 0, 0);
 
 	if (result == 0)
 		result = __osd_oi_insert(env, obj, fid, th);
@@ -3729,7 +3723,7 @@ osd_consistency_check(struct osd_thread_info *oti, struct osd_device *dev,
 		RETURN_EXIT;
 
 again:
-	rc = osd_oi_lookup(oti, dev, fid, id, true);
+	rc = osd_oi_lookup(oti, dev, fid, id, OI_CHECK_FLD);
 	if (rc != 0 && rc != -ENOENT)
 		RETURN_EXIT;
 
@@ -4892,6 +4886,8 @@ again:
 
 	rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
 	if (rc == 0) {
+		LASSERT(!(lma->lma_compat & LMAC_NO_OI));
+
 		if (fid_is_sane(fid)) {
 			/* FID-in-dirent is valid. */
 			if (lu_fid_eq(fid, &lma->lma_self_fid))
@@ -4975,7 +4971,7 @@ again:
 		if (unlikely(fid_is_sane(fid))) {
 			/* FID-in-dirent exists, but FID-in-LMA is lost.
 			 * Trust the FID-in-dirent, and add FID-in-LMA. */
-			rc = osd_ea_fid_set(info, inode, fid, 0);
+			rc = osd_ea_fid_set(info, inode, fid, 0, 0);
 			if (rc == 0)
 				*attr |= LUDA_REPAIR;
 		} else {
@@ -5296,7 +5292,10 @@ static int osd_mount(const struct lu_env *env,
 	struct file_system_type *type;
 	char                    *options = NULL;
 	char			*str;
-	int                       rc = 0;
+	struct osd_thread_info	*info = osd_oti_get(env);
+	struct lu_fid		*fid = &info->oti_fid;
+	struct inode		*inode;
+	int			 rc = 0;
         ENTRY;
 
 	if (o->od_mnt != NULL)
@@ -5370,8 +5369,17 @@ static int osd_mount(const struct lu_env *env,
 		GOTO(out, rc = -EINVAL);
 	}
 
-	ldiskfs_set_inode_state(osd_sb(o)->s_root->d_inode,
-				LDISKFS_STATE_LUSTRE_NO_OI);
+	inode = osd_sb(o)->s_root->d_inode;
+	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
+	lu_local_obj_fid(fid, OSD_FS_ROOT_OID);
+	rc = osd_ea_fid_set(info, inode, fid, LMAC_NO_OI, 0);
+	if (rc != 0) {
+		CERROR("%s: device %s failed to set lma\n", name, dev);
+		mntput(o->od_mnt);
+		o->od_mnt = NULL;
+		GOTO(out, rc);
+	}
+
 	if (lmd_flags & LMD_FLG_NOSCRUB)
 		o->od_noscrub = 1;
 
