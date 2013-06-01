@@ -565,13 +565,24 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
                 RETURN_EXIT;
 
         cfs_spin_lock(&mdt->mdt_lut.lut_translock);
-        if (info->mti_transno == 0) {
+	if (rc != 0) {
+		if (info->mti_transno != 0) {
+			struct obd_export *exp = req->rq_export;
+
+			CERROR("%s: replay trans "LPU64" NID %s: rc = %d\n",
+				mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
+				info->mti_transno,
+				libcfs_nid2str(exp->exp_connection->c_peer.nid),
+				rc);
+			RETURN_EXIT;
+		}
+	} else if (info->mti_transno == 0) {
                 info->mti_transno = ++ mdt->mdt_lut.lut_last_transno;
         } else {
                 /* should be replay */
                 if (info->mti_transno > mdt->mdt_lut.lut_last_transno)
                         mdt->mdt_lut.lut_last_transno = info->mti_transno;
-        }
+	}
         cfs_spin_unlock(&mdt->mdt_lut.lut_translock);
 
         CDEBUG(D_INODE, "transno = "LPU64", last_committed = "LPU64"\n",
@@ -586,10 +597,23 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
         LASSERT(ted);
         cfs_mutex_lock(&ted->ted_lcd_lock);
         lcd = ted->ted_lcd;
+	if (info->mti_transno < lcd->lcd_last_transno &&
+	    info->mti_transno != 0) {
+		/* This should happen during replay. Do not update
+		 * last rcvd info if replay req transno < last transno,
+		 * otherwise the following resend(after replay) can not
+		 * be checked correctly by xid */
+		cfs_mutex_unlock(&ted->ted_lcd_lock);
+		CDEBUG(D_HA, "%s: transno = "LPU64" < last_transno = "LPU64"\n",
+			mdt->mdt_md_dev.md_lu_dev.ld_obd->obd_name,
+			info->mti_transno, lcd->lcd_last_transno);
+		RETURN_EXIT;
+	}
+
         if (lustre_msg_get_opc(req->rq_reqmsg) == MDS_CLOSE ||
             lustre_msg_get_opc(req->rq_reqmsg) == MDS_DONE_WRITING) {
-                if (info->mti_transno != 0)
-                        lcd->lcd_last_close_transno = info->mti_transno;
+		if (info->mti_transno != 0)
+			lcd->lcd_last_close_transno = info->mti_transno;
                 lcd->lcd_last_close_xid = req->rq_xid;
                 lcd->lcd_last_close_result = rc;
         } else {
@@ -601,9 +625,10 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
                         lcd->lcd_pre_versions[2] = pre_versions[2];
                         lcd->lcd_pre_versions[3] = pre_versions[3];
                 }
-                if (info->mti_transno != 0)
-                        lcd->lcd_last_transno = info->mti_transno;
-                lcd->lcd_last_xid = req->rq_xid;
+		if (info->mti_transno != 0)
+			lcd->lcd_last_transno = info->mti_transno;
+
+		lcd->lcd_last_xid = req->rq_xid;
                 lcd->lcd_last_result = rc;
                 lcd->lcd_last_data = info->mti_opdata;
         }
@@ -869,8 +894,6 @@ int mdt_finish_open(struct mdt_thread_info *info,
                 RETURN(0);
         }
 
-        mdt_set_disposition(info, rep, DISP_OPEN_OPEN);
-
         /*
          * We need to return the existing object's fid back, so it is done here,
          * after preparing the reply.
@@ -915,11 +938,15 @@ int mdt_finish_open(struct mdt_thread_info *info,
                                 else
                                         repbody->valid |= OBD_MD_FLEASIZE;
                         }
+			mdt_set_disposition(info, rep, DISP_OPEN_OPEN);
                         RETURN(0);
                 }
         }
 
         rc = mdt_mfd_open(info, p, o, flags, created);
+	if (!rc)
+		mdt_set_disposition(info, rep, DISP_OPEN_OPEN);
+
         RETURN(rc);
 }
 
@@ -1117,8 +1144,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
                 GOTO(out, rc);
         }
         mdt_set_disposition(info, rep, (DISP_IT_EXECD |
-                                        DISP_LOOKUP_EXECD |
-                                        DISP_LOOKUP_POS));
+					DISP_LOOKUP_EXECD));
 
         if (flags & FMODE_WRITE)
                 lm = LCK_CW;
@@ -1150,12 +1176,16 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
                 }
         }
 
-        if (flags & MDS_OPEN_LOCK)
-                mdt_set_disposition(info, rep, DISP_OPEN_LOCK);
         rc = mdt_finish_open(info, parent, o, flags, 0, rep);
 
         if (!(flags & MDS_OPEN_LOCK) || rc)
                 mdt_object_unlock(info, o, lhc, 1);
+
+	if (!rc) {
+		mdt_set_disposition(info, rep, DISP_LOOKUP_POS);
+		if (flags & MDS_OPEN_LOCK)
+			mdt_set_disposition(info, rep, DISP_OPEN_LOCK);
+	}
 
         GOTO(out, rc);
 out:
@@ -1491,10 +1521,12 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                              created, ldlm_rep);
         if (rc) {
                 result = rc;
-                if (lustre_handle_is_used(&lhc->mlh_reg_lh))
+		if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
                         /* openlock was acquired and mdt_finish_open failed -
                            drop the openlock */
                         mdt_object_unlock(info, child, lhc, 1);
+			mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
+		}
                 if (created) {
                         ma->ma_need = 0;
                         ma->ma_valid = 0;
@@ -1507,6 +1539,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                                         &info->mti_attr);
                         if (rc != 0)
                                 CERROR("Error in cleanup of open\n");
+			mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_CREATE);
                 }
         }
         EXIT;
