@@ -203,7 +203,7 @@ void set_defaults(struct mkfs_opts *mop)
 {
 	mop->mo_ldd.ldd_magic = LDD_MAGIC;
 	mop->mo_ldd.ldd_config_ver = 1;
-	mop->mo_ldd.ldd_flags = LDD_F_NEED_INDEX | LDD_F_UPDATE | LDD_F_VIRGIN;
+	mop->mo_ldd.ldd_flags = LDD_F_UPDATE | LDD_F_VIRGIN;
 #ifdef HAVE_LDISKFS_OSD
 	mop->mo_ldd.ldd_mount_type = LDD_MT_LDISKFS;
 #else
@@ -404,7 +404,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         }
 			/* LU-2374: check whether it is OST/MDT later */
 			mop->mo_ldd.ldd_svindex = atol(optarg);
-			mop->mo_ldd.ldd_flags &= ~LDD_F_NEED_INDEX;
+			mop->mo_ldd.ldd_flags |= LDD_F_NEED_INDEX;
                         break;
                 case 'k':
                         strscpy(mop->mo_mkfsopts, optarg,
@@ -625,13 +625,10 @@ int main(int argc, char *const argv[])
         }
 
 	/* Stand alone MGS doesn't need a index */
-	if (!IS_MDT(ldd) && IS_MGS(ldd)) {
-		/* But if --index was specified flag an error */
-		if (!(mop.mo_ldd.ldd_flags & LDD_F_NEED_INDEX)) {
-			badopt("--index", "MDT,OST");
-			goto out;
-		}
-		mop.mo_ldd.ldd_flags &= ~LDD_F_NEED_INDEX;
+	if ((!IS_MDT(ldd) && IS_MGS(ldd)) &&
+	    (mop.mo_ldd.ldd_flags & LDD_F_NEED_INDEX)) {
+		badopt("index", "MDT,OST");
+		goto out;
 	}
 
         if ((mop.mo_ldd.ldd_flags & (LDD_F_NEED_INDEX | LDD_F_UPGRADE14)) ==
@@ -643,16 +640,17 @@ int main(int argc, char *const argv[])
                 goto out;
         }
 
-	if (mop.mo_ldd.ldd_flags & LDD_F_NEED_INDEX)
+	/* If no index is supplied for MDT by default set index to zero */
+	if (IS_MDT(ldd) && (ldd->ldd_svindex == INDEX_UNASSIGNED)) {
+		mop.mo_ldd.ldd_flags |= LDD_F_NEED_INDEX;
+		mop.mo_ldd.ldd_svindex = 0;
+	}
+
+	if ((IS_MDT(ldd) || IS_OST(ldd)) &&
+	    !(mop.mo_ldd.ldd_flags & LDD_F_NEED_INDEX))
 		fprintf(stderr, "warning: %s: for Lustre 2.4 and later, the "
 			"target index must be specified with --index\n",
 			mop.mo_device);
-
-	/* If no index is supplied for MDT by default set index to zero */
-	if (IS_MDT(ldd) && (ldd->ldd_svindex == INDEX_UNASSIGNED)) {
-		mop.mo_ldd.ldd_flags &= ~LDD_F_NEED_INDEX;
-		mop.mo_ldd.ldd_svindex = 0;
-	}
 
 #if 0
         /*
