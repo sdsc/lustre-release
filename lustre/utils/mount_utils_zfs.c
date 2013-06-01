@@ -521,7 +521,7 @@ int zfs_make_lustre(struct mkfs_opts *mop)
 		return EINVAL;
 
 	/* no automatic index with zfs backend */
-	if (mop->mo_ldd.ldd_flags & LDD_F_NEED_INDEX) {
+	if (!(mop->mo_ldd.ldd_flags & LDD_F_NEED_INDEX)) {
 		fatal();
 		fprintf(stderr, "The target index must be specified with "
 				"--index\n");

@@ -389,7 +389,7 @@ static int parse_ldd(char *source, struct mount_opts *mop, char *options)
 	}
 
 	if ((IS_MDT(ldd) || IS_OST(ldd)) &&
-	    (ldd->ldd_flags & LDD_F_NEED_INDEX)) {
+	    !(ldd->ldd_flags & LDD_F_NEED_INDEX)) {
 		fprintf(stderr, "%s: %s has no index assigned "
 			"(probably formatted with old mkfs)\n",
 			progname, source);
