@@ -532,7 +532,8 @@ static struct lu_object *htable_lookup(struct lu_site *s,
                                        cfs_hash_bd_t *bd,
                                        const struct lu_fid *f,
                                        cfs_waitlink_t *waiter,
-                                       __u64 *version)
+				       __u64 *version,
+				       const struct lu_object_conf *conf)
 {
         struct lu_site_bkt_data *bkt;
         struct lu_object_header *h;
@@ -559,6 +560,9 @@ static struct lu_object *htable_lookup(struct lu_site *s,
                 cfs_list_del_init(&h->loh_lru);
                 return lu_object_top(h);
         }
+
+	if (conf != NULL && conf->loc_flags & LOC_F_FIND_ONLY)
+		return NULL;
 
         /*
          * Lookup found an object being destroyed this object cannot be
@@ -651,9 +655,9 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
         s  = dev->ld_site;
         hs = s->ls_obj_hash;
         cfs_hash_bd_get_and_lock(hs, (void *)f, &bd, 1);
-        o = htable_lookup(s, &bd, f, waiter, &version);
-        cfs_hash_bd_unlock(hs, &bd, 1);
-        if (o != NULL)
+	o = htable_lookup(s, &bd, f, waiter, &version, conf);
+	cfs_hash_bd_unlock(hs, &bd, 1);
+	if ((o != NULL) || (conf != NULL && conf->loc_flags & LOC_F_FIND_ONLY))
                 return o;
 
         /*
@@ -668,7 +672,7 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
 
         cfs_hash_bd_lock(hs, &bd, 1);
 
-        shadow = htable_lookup(s, &bd, f, waiter, &version);
+	shadow = htable_lookup(s, &bd, f, waiter, &version, conf);
         if (likely(shadow == NULL)) {
                 struct lu_site_bkt_data *bkt;
 
@@ -2115,7 +2119,7 @@ void lu_object_assign_fid(const struct lu_env *env, struct lu_object *o,
 
 	hs = s->ls_obj_hash;
 	cfs_hash_bd_get_and_lock(hs, (void *)fid, &bd, 1);
-	shadow = htable_lookup(s, &bd, fid, &waiter, &version);
+	shadow = htable_lookup(s, &bd, fid, &waiter, &version, NULL);
 	/* supposed to be unique */
 	LASSERT(shadow == NULL);
 	*old = *fid;
