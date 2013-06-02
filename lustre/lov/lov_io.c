@@ -690,46 +690,124 @@ static int lov_io_submit(const struct lu_env *env,
 #undef QIN
 }
 
-static int lov_io_prepare_write(const struct lu_env *env,
-                                const struct cl_io_slice *ios,
-                                const struct cl_page_slice *slice,
-                                unsigned from, unsigned to)
+static int lov_io_commit_sync(const struct lu_env *env, struct cl_io *io,
+				struct cl_page_list *plist)
 {
-        struct lov_io     *lio      = cl2lov_io(env, ios);
-        struct cl_page    *sub_page = lov_sub_page(slice);
-        struct lov_io_sub *sub;
-        int result;
+	struct cl_2queue *c2q = &io->ci_queue;
+	int rc = 0;
+	ENTRY;
 
-        ENTRY;
-        sub = lov_page_subio(env, lio, slice);
-        if (!IS_ERR(sub)) {
-                result = cl_io_prepare_write(sub->sub_env, sub->sub_io,
-                                             sub_page, from, to);
-                lov_sub_put(sub);
-        } else
-                result = PTR_ERR(sub);
-        RETURN(result);
+	LASSERT(plist->pl_nr > 0);
+
+#if 0
+	/* write it with sync mode */
+	page = cl_page_list_last(plist);
+	if (queue->pl_nr == 0) /* TODO: check file size */
+		cl_page_clip(env, page, 0, to);
+#endif
+
+	cl_2queue_init(c2q);
+	cl_page_list_splice(plist, &c2q->c2_qin);
+	rc = cl_io_submit_sync(env, io, CRT_WRITE, c2q, 0);
+	if (rc == 0) {
+		/* pages written successfully. */
+		cl_page_list_disown(env, io, &c2q->c2_qout);
+		cl_page_list_fini(env, &c2q->c2_qout);
+	} else {
+		/* committed but failed pages */
+		cl_page_list_splice(&c2q->c2_qout, plist);
+	}
+
+	/* uncomitted pages */
+	cl_page_list_splice(&c2q->c2_qin, plist);
+	cl_2queue_fini(env, c2q);
+
+	RETURN(rc);
 }
 
-static int lov_io_commit_write(const struct lu_env *env,
-                               const struct cl_io_slice *ios,
-                               const struct cl_page_slice *slice,
-                               unsigned from, unsigned to)
+static int lov_io_commit_async(const struct lu_env *env,
+                         const struct cl_io_slice *ios,
+			 struct cl_page_list *queue, int from, int to,
+			 cl_commit_cbt cb)
 {
-        struct lov_io     *lio      = cl2lov_io(env, ios);
-        struct cl_page    *sub_page = lov_sub_page(slice);
-        struct lov_io_sub *sub;
-        int result;
-
+	struct cl_page_list *plist = &lov_env_info(env)->lti_cl2q.c2_qin;
+	struct cl_io      *io = ios->cis_io;
+        struct lov_io     *lio = cl2lov_io(env, ios);
+	struct lov_io_sub *sub;
+	struct cl_page *page;
+        int rc = 0;
         ENTRY;
-        sub = lov_page_subio(env, lio, slice);
-        if (!IS_ERR(sub)) {
-                result = cl_io_commit_write(sub->sub_env, sub->sub_io,
-                                            sub_page, from, to);
+
+        if (lio->lis_active_subios == 1) {
+                int idx = lio->lis_single_subio_index;
+
+                LASSERT(idx < lio->lis_nr_subios);
+                sub = lov_sub_get(env, lio, idx);
+                LASSERT(!IS_ERR(sub));
+                LASSERT(sub->sub_io == &lio->lis_single_subio);
+                rc = cl_io_commit_async(sub->sub_env, sub->sub_io, queue, from, to, cb);
                 lov_sub_put(sub);
-        } else
-                result = PTR_ERR(sub);
-        RETURN(result);
+
+		/* out of quota, try sync write */
+		if (rc == -EDQUOT && !cl_io_is_mkwrite(io))
+			rc = lov_io_commit_sync(env, io, queue);
+
+                GOTO(out, rc);
+        }
+        LASSERT(lio->lis_subs != NULL);
+
+	cl_page_list_init(plist);
+	while (queue->pl_nr > 0) {
+		int stripe_to = to;
+		int stripe;
+
+		LASSERT(plist->pl_nr == 0);
+		page = cl_page_list_first(queue);
+		cl_page_list_move(plist, queue, page);
+
+		stripe = lov_page_stripe(page);
+		while (queue->pl_nr > 0) {
+			page = cl_page_list_first(queue);
+			if (stripe != lov_page_stripe(page))
+				break;
+
+			cl_page_list_move(plist, queue, page);
+		}
+
+		if (queue->pl_nr > 0) /* still has more pages */
+			stripe_to = CFS_PAGE_SIZE;
+
+		sub = lov_sub_get(env, lio, stripe);
+		if (!IS_ERR(sub)) {
+			rc = cl_io_commit_async(sub->sub_env, sub->sub_io,
+						plist, from, stripe_to, cb);
+			lov_sub_put(sub);
+		} else {
+			rc = PTR_ERR(sub);
+			break;
+		}
+
+		/* out of quota, try sync write */
+		if (rc == -EDQUOT && !cl_io_is_mkwrite(io))
+			rc = lov_io_commit_sync(env, io, plist);
+
+		if (plist->pl_nr > 0) /* short write */
+			break;
+
+		from = 0;
+	}
+	EXIT;
+
+out:
+	/* for error case, add the page back into the qin list */
+	LASSERT(ergo(rc == 0, plist->pl_nr == 0));
+	while (plist->pl_nr > 0) {
+		/* error occurred, add the uncommitted pages back into queue */
+		page = cl_page_list_last(plist);
+		cl_page_list_move_head(queue, plist, page);
+	}
+
+	RETURN(rc);
 }
 
 static int lov_io_fault_start(const struct lu_env *env,
@@ -821,16 +899,8 @@ static const struct cl_io_operations lov_io_ops = {
                         .cio_fini   = lov_io_fini
                 }
         },
-        .req_op = {
-                 [CRT_READ] = {
-                         .cio_submit    = lov_io_submit
-                 },
-                 [CRT_WRITE] = {
-                         .cio_submit    = lov_io_submit
-                 }
-         },
-        .cio_prepare_write = lov_io_prepare_write,
-        .cio_commit_write  = lov_io_commit_write
+	.cio_submit    = lov_io_submit,
+	.cio_commit_async = lov_io_commit_async,
 };
 
 /*****************************************************************************
@@ -900,15 +970,8 @@ static const struct cl_io_operations lov_empty_io_ops = {
                         .cio_fini   = lov_empty_io_fini
                 }
         },
-        .req_op = {
-                 [CRT_READ] = {
-                         .cio_submit    = LOV_EMPTY_IMPOSSIBLE
-                 },
-                 [CRT_WRITE] = {
-                         .cio_submit    = LOV_EMPTY_IMPOSSIBLE
-                 }
-         },
-        .cio_commit_write = LOV_EMPTY_IMPOSSIBLE
+	.cio_submit    = LOV_EMPTY_IMPOSSIBLE,
+        .cio_commit_async = LOV_EMPTY_IMPOSSIBLE
 };
 
 int lov_io_init_raid0(const struct lu_env *env, struct cl_object *obj,

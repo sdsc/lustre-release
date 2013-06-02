@@ -720,6 +720,10 @@ int ll_sync_page_range(struct inode *, struct address_space *, loff_t, size_t);
 int ll_readahead(const struct lu_env *env, struct cl_io *io,
                  struct ll_readahead_state *ras, struct address_space *mapping,
                  struct cl_page_list *queue, int flags);
+int vvp_io_write_commit(const struct lu_env *env, struct cl_io *io);
+struct ll_cl_context *ll_cl_init(struct file *file, struct page *vmpage,
+                                 int create);
+void ll_cl_fini(struct ll_cl_context *lcc);
 
 /* llite/file.c */
 extern struct file_operations ll_file_operations;
