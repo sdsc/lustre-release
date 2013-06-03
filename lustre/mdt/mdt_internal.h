@@ -977,6 +977,15 @@ int mdt_agent_llog_update_rec(const struct lu_env *env, struct mdt_device *mdt,
 			      struct llog_handle *llh,
 			      struct llog_agent_req_rec *larr);
 
+/* mdt/mdt_hsm_cdt_client.c */
+int mdt_hsm_coordinator_actions(struct mdt_thread_info *info,
+				struct hsm_action_list *hal,
+				__u64 *compound_id);
+int mdt_hsm_coordinator_get_actions(struct mdt_thread_info *mti,
+				    struct hsm_action_list *hal);
+int mdt_hsm_coordinator_get_running(struct mdt_thread_info *mti,
+				    struct hsm_action_list *hal);
+
 /* mdt/mdt_hsm_cdt_requests.c */
 extern const struct file_operations mdt_hsm_request_fops;
 void dump_requests(char *prefix, struct coordinator *cdt);
