@@ -169,8 +169,8 @@ static int cl_io_init0(const struct lu_env *env, struct cl_io *io,
         cl_object_for_each(scan, obj) {
                 if (scan->co_ops->coo_io_init != NULL) {
                         result = scan->co_ops->coo_io_init(env, scan, io);
-                        if (result != 0)
-                                break;
+			if (result != 0)
+				break;
                 }
         }
         if (result == 0)
