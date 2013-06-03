@@ -90,7 +90,7 @@ int obd_ioctl_getdata(char **buf, int *len, void *arg)
         int offset = 0;
         ENTRY;
 
-        err = cfs_copy_from_user(&hdr, (void *)arg, sizeof(hdr));
+	err = copy_from_user(&hdr, (void *)arg, sizeof(hdr));
         if ( err )
                 RETURN(err);
 
@@ -124,7 +124,7 @@ int obd_ioctl_getdata(char **buf, int *len, void *arg)
         *len = hdr.ioc_len;
         data = (struct obd_ioctl_data *)*buf;
 
-        err = cfs_copy_from_user(*buf, (void *)arg, hdr.ioc_len);
+	err = copy_from_user(*buf, (void *)arg, hdr.ioc_len);
         if ( err ) {
                 OBD_FREE_LARGE(*buf, hdr.ioc_len);
                 RETURN(err);
@@ -164,7 +164,7 @@ int obd_ioctl_popdata(void *arg, void *data, int len)
 {
         int err;
 
-        err = cfs_copy_to_user(arg, data, len);
+	err = copy_to_user(arg, data, len);
         if (err)
                 err = -EFAULT;
         return err;

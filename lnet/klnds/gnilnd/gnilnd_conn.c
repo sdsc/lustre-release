@@ -125,7 +125,7 @@ kgnilnd_alloc_fmablk(kgn_device_t *device, int use_phys)
 	 * as reallocating them is tough if there is memory fragmentation */
 
 	if (use_phys) {
-		fma_blk->gnm_block = cfs_mem_cache_alloc(kgnilnd_data.kgn_mbox_cache, CFS_ALLOC_ATOMIC);
+		fma_blk->gnm_block = cfs_mem_cache_alloc(kgnilnd_data.kgn_mbox_cache, GFP_ATOMIC);
 		if (fma_blk->gnm_block == NULL) {
 			CNETERR("could not allocate physical SMSG mailbox memory\n");
 			rc = -ENOMEM;
@@ -926,7 +926,7 @@ kgnilnd_alloc_dgram(kgn_dgram_t **dgramp, kgn_device_t *dev, kgn_dgram_type_t ty
 	kgn_dgram_t         *dgram;
 
 	dgram = cfs_mem_cache_alloc(kgnilnd_data.kgn_dgram_cache,
-					CFS_ALLOC_ATOMIC);
+					GFP_ATOMIC);
 	if (dgram == NULL)
 		return -ENOMEM;
 

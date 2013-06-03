@@ -74,7 +74,7 @@ cfs_thread_proc(
 
     /* Free the context memory */
 
-    cfs_free(context);
+    kfree(context);
 
     /* Terminate this system thread */
 
@@ -105,7 +105,7 @@ int cfs_create_thread(int (*func)(void *), void *arg, unsigned long flag)
 
     /* Allocate the context to be transferred to system thread */
 
-    context = cfs_alloc(sizeof(cfs_thread_context_t), CFS_ALLOC_ZERO);
+    context = kmalloc(sizeof(cfs_thread_context_t), __GFP_ZERO);
 
     if (!context) {
         return -ENOMEM;
@@ -126,7 +126,7 @@ int cfs_create_thread(int (*func)(void *), void *arg, unsigned long flag)
     if (!NT_SUCCESS(status)) {
 
 
-        cfs_free(context);
+	kfree(context);
 
         /* We need translate the nt status to linux error code */
 
@@ -248,7 +248,7 @@ cfs_symbol_register(const char *name, const void *value)
     struct cfs_symbol       *sym = NULL;
     struct cfs_symbol       *new = NULL;
 
-    new = cfs_alloc(sizeof(struct cfs_symbol), CFS_ALLOC_ZERO);
+    new = kmalloc(sizeof(struct cfs_symbol), __GFP_ZERO);
     if (!new) {
         return (-ENOMEM);
     }
@@ -262,7 +262,7 @@ cfs_symbol_register(const char *name, const void *value)
 		sym = cfs_list_entry (walker, struct cfs_symbol, sym_list);
 		if (!strcmp(sym->name, name)) {
 			up_write(&cfs_symbol_lock);
-			cfs_free(new);
+			kfree(new);
 			return 0; /* alreay registerred */
 		}
 	}
@@ -299,7 +299,7 @@ cfs_symbol_unregister(const char *name)
         if (!strcmp(sym->name, name)) {
             LASSERT(sym->ref == 0);
             cfs_list_del (&sym->sym_list);
-            cfs_free(sym);
+	    kfree(sym);
             break;
         }
     }
@@ -331,7 +331,7 @@ cfs_symbol_clean()
 		sym = cfs_list_entry (walker, struct cfs_symbol, sym_list);
 		LASSERT(sym->ref == 0);
 		cfs_list_del (&sym->sym_list);
-		cfs_free(sym);
+		kfree(sym);
 	}
 	up_write(&cfs_symbol_lock);
 	return;
@@ -778,10 +778,10 @@ libcfs_arch_init(void)
 
     /* create slab memory caches for page alloctors */
     cfs_page_t_slab = cfs_mem_cache_create(
-        "CPGT", sizeof(cfs_page_t), 0, 0 );
+	"CPGT", sizeof(struct page), 0, 0);
 
     cfs_page_p_slab = cfs_mem_cache_create(
-        "CPGP", CFS_PAGE_SIZE, 0, 0 );
+	"CPGP", PAGE_CACHE_SIZE, 0, 0);
 
     if ( cfs_page_t_slab == NULL ||
          cfs_page_p_slab == NULL ){

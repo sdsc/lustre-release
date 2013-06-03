@@ -47,9 +47,9 @@
  * Allocator
  */
 
-cfs_page_t *cfs_alloc_page(unsigned int flags)
+struct page *alloc_page(unsigned int flags)
 {
-        cfs_page_t *pg = malloc(sizeof(*pg));
+	struct page *pg = malloc(sizeof(*pg));
         int rc = 0;
 
         if (!pg)
@@ -57,11 +57,11 @@ cfs_page_t *cfs_alloc_page(unsigned int flags)
         pg->addr = NULL;
 
 #if defined (__DARWIN__)
-        pg->addr = valloc(CFS_PAGE_SIZE);
+	pg->addr = valloc(PAGE_CACHE_SIZE);
 #elif defined (__WINNT__)
         pg->addr = pgalloc(0);
 #else
-        rc = posix_memalign(&pg->addr, CFS_PAGE_SIZE, CFS_PAGE_SIZE);
+	rc = posix_memalign(&pg->addr, PAGE_CACHE_SIZE, PAGE_CACHE_SIZE);
 #endif
         if (rc != 0 || pg->addr == NULL) {
                 free(pg);
@@ -70,7 +70,7 @@ cfs_page_t *cfs_alloc_page(unsigned int flags)
         return pg;
 }
 
-void cfs_free_page(cfs_page_t *pg)
+void __free_page(struct page *pg)
 {
 #if defined (__WINNT__)
         pgfree(pg->addr);
@@ -81,17 +81,17 @@ void cfs_free_page(cfs_page_t *pg)
         free(pg);
 }
 
-void *cfs_page_address(cfs_page_t *pg)
+void *page_address(struct page *pg)
 {
         return pg->addr;
 }
 
-void *cfs_kmap(cfs_page_t *pg)
+void *kmap(struct page *pg)
 {
         return pg->addr;
 }
 
-void cfs_kunmap(cfs_page_t *pg)
+void kunmap(struct page *pg)
 {
 }
 
@@ -122,12 +122,12 @@ int cfs_mem_cache_destroy(cfs_mem_cache_t *c)
 
 void *cfs_mem_cache_alloc(cfs_mem_cache_t *c, int gfp)
 {
-        return cfs_alloc(c->size, gfp);
+	return kmalloc(c->size, gfp);
 }
 
 void cfs_mem_cache_free(cfs_mem_cache_t *c, void *addr)
 {
-        cfs_free(addr);
+	kfree(addr);
 }
 
 /**

@@ -53,8 +53,8 @@ _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 
 	for (i = 0; i < LNET_MAX_IOV; i++) {
 		src[i].kiov_offset = 0;
-		src[i].kiov_len = CFS_PAGE_SIZE;
-		src[i].kiov_page = cfs_alloc_page(CFS_ALLOC_STD|CFS_ALLOC_ZERO);
+		src[i].kiov_len = PAGE_CACHE_SIZE;
+		src[i].kiov_page = alloc_page(GFP_IOFS|__GFP_ZERO);
 
 		if (src[i].kiov_page == NULL) {
 			CERROR("couldn't allocate page %d\n", i);
@@ -62,8 +62,8 @@ _kgnilnd_proc_run_cksum_test(int caseno, int nloops, int nob)
 		}
 
 		dest[i].kiov_offset = 0;
-		dest[i].kiov_len = CFS_PAGE_SIZE;
-		dest[i].kiov_page = cfs_alloc_page(CFS_ALLOC_STD|CFS_ALLOC_ZERO);
+		dest[i].kiov_len = PAGE_CACHE_SIZE;
+		dest[i].kiov_page = alloc_page(GFP_IOFS|__GFP_ZERO);
 
 		if (dest[i].kiov_page == NULL) {
 			CERROR("couldn't allocate page %d\n", i);
@@ -137,10 +137,10 @@ unwind:
 	CDEBUG(D_NET, "freeing %d pages\n", i);
 	for (i -= 1; i >= 0; i--) {
 		if (src[i].kiov_page != NULL) {
-			cfs_free_page(src[i].kiov_page);
+			__free_page(src[i].kiov_page);
 		}
 		if (dest[i].kiov_page != NULL) {
-			cfs_free_page(dest[i].kiov_page);
+			__free_page(dest[i].kiov_page);
 		}
 	}
 
