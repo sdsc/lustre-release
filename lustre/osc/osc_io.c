@@ -426,8 +426,9 @@ static void osc_trunc_check(const struct lu_env *env, struct cl_io *io,
         /*
          * Complain if there are pages in the truncated region.
          */
-	cl_page_gang_lookup(env, clob, io, start + partial, CL_PAGE_EOF,
-			    trunc_check_cb, (void *)&size);
+	osc_page_gang_lookup(env, io, cl2osc(clob),
+				start + partial, CL_PAGE_EOF,
+				trunc_check_cb, (void *)&size);
 }
 #else /* __KERNEL__ */
 static void osc_trunc_check(const struct lu_env *env, struct cl_io *io,

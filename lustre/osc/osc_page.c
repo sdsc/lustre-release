@@ -416,6 +416,17 @@ static void osc_page_delete(const struct lu_env *env,
 	spin_unlock(&obj->oo_seatbelt);
 
 	osc_lru_del(osc_cli(obj), opg, true);
+
+	if (slice->cpl_page->cp_type == CPT_CACHEABLE) {
+		void *value;
+
+		spin_lock(&obj->oo_tree_lock);
+		value = radix_tree_delete(&obj->oo_tree, osc_index(opg));
+		spin_unlock(&obj->oo_tree_lock);
+
+		LASSERT(value == opg);
+	}
+
 	EXIT;
 }
 
@@ -482,7 +493,7 @@ static const struct cl_page_operations osc_page_ops = {
 };
 
 int osc_page_init(const struct lu_env *env, struct cl_object *obj,
-		struct cl_page *page, cfs_page_t *vmpage)
+		  struct cl_page *page, cfs_page_t *vmpage)
 {
 	struct osc_object *osc = cl2osc(obj);
 	struct osc_page   *opg = cl_object_page_slice(obj, page);
@@ -512,8 +523,15 @@ int osc_page_init(const struct lu_env *env, struct cl_object *obj,
 	CFS_INIT_LIST_HEAD(&opg->ops_lru);
 
 	/* reserve an LRU space for this page */
-	if (page->cp_type == CPT_CACHEABLE && result == 0)
+	if (page->cp_type == CPT_CACHEABLE && result == 0) {
 		result = osc_lru_reserve(env, osc, opg);
+		if (result == 0) {
+			spin_lock(&osc->oo_tree_lock);
+			result = radix_tree_insert(&osc->oo_tree, page->cp_index, opg);
+			spin_unlock(&osc->oo_tree_lock);
+			LASSERT(result == 0);
+		}
+	}
 
 	return result;
 }
@@ -653,7 +671,7 @@ int osc_lru_shrink(struct client_obd *cli, int target)
 	if (IS_ERR(env))
 		RETURN(PTR_ERR(env));
 
-	pvec = osc_env_info(env)->oti_pvec;
+	pvec = (struct cl_page **)osc_env_info(env)->oti_pvec;
 	io = &osc_env_info(env)->oti_io;
 
 	client_obd_list_lock(&cli->cl_lru_list_lock);
@@ -753,7 +771,7 @@ static void osc_lru_add(struct client_obd *cli, struct osc_page *opg)
 	}
 	client_obd_list_unlock(&cli->cl_lru_list_lock);
 
-	if (wakeup) {
+	if (true || wakeup) {
 		osc_lru_shrink(cli, osc_cache_too_much(cli));
 		cfs_waitq_broadcast(&osc_lru_waitq);
 	}
