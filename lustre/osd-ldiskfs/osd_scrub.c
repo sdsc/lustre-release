@@ -515,10 +515,22 @@ iget:
 
 	rc = osd_scrub_refresh_mapping(info, dev, fid, lid, ops);
 	if (rc == 0) {
+		struct lu_object_conf conf = { .loc_flags = LOC_F_FIND_ONLY, };
+		struct lu_object *lu;
+
 		if (scrub->os_in_prior)
 			sf->sf_items_updated_prior++;
 		else
 			sf->sf_items_updated++;
+
+		lu = lu_object_find_at(info->oti_env, osd2lu_dev(dev),
+				       fid, &conf);
+		if (lu != NULL && !IS_ERR(lu)) {
+			/* The target has been changed, need to be re-loaded. */
+			set_bit(LU_OBJECT_HEARD_BANSHEE,
+				&lu->lo_header->loh_flags);
+			lu_object_put(info->oti_env, lu);
+		}
 	}
 
 	GOTO(out, rc);
