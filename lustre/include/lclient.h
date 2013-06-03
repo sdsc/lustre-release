@@ -433,6 +433,9 @@ int lov_read_and_clear_async_rc(struct cl_object *clob);
 struct lov_stripe_md *ccc_inode_lsm_get(struct inode *inode);
 void ccc_inode_lsm_put(struct inode *inode, struct lov_stripe_md *lsm);
 
+int ccc_object_restore(const struct lu_env *env, struct cl_object *obj,
+		       struct cl_io *io);
+
 /**
  * Data structure managing a client's cached clean pages. An LRU of
  * pages is maintained, along with other statistics.

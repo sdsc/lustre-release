@@ -923,7 +923,7 @@ out:
         cl_io_fini(env, io);
 	/* If any bit been read/written (result != 0), we just return
 	 * short read/write instead of restart io. */
-	if (result == 0 && io->ci_need_restart) {
+	if ((result == 0 || result == -ENODATA) && io->ci_need_restart) {
 		CDEBUG(D_VFSTRACE, "Restart %s on %s from %lld, count:%zd\n",
 		       iot == CIT_READ ? "read" : "write",
 		       file->f_dentry->d_name.name, *ppos, count);
@@ -3344,6 +3344,7 @@ static int ll_layout_lock_set(struct lustre_handle *lockh, ldlm_mode_t mode,
 	unlock_res_and_lock(lock);
 	/* checking lvb_ready is racy but this is okay. The worst case is
 	 * that multi processes may configure the file on the same time. */
+
 	if (lvb_ready || !reconf) {
 		rc = -ENODATA;
 		if (lvb_ready) {

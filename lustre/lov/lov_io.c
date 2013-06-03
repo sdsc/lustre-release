@@ -990,8 +990,9 @@ int lov_io_init_released(const struct lu_env *env, struct cl_object *obj,
 	case CIT_READ:
 	case CIT_WRITE:
 	case CIT_FAULT:
-		/* TODO: need to restore the file. */
-		result = -EBADF;
+		/* file is released, caller must trig restore */
+		io->ci_restore_needed = 1;
+		result = -ENODATA;
 		break;
 	}
 	if (result == 0) {
