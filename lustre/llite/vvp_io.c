@@ -124,8 +124,34 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 
         CLOBINVRNT(env, obj, ccc_object_invariant(obj));
 
-	CDEBUG(D_VFSTRACE, "ignore/verify layout %d/%d, layout version %d.\n",
-		io->ci_ignore_layout, io->ci_verify_layout, cio->cui_layout_gen);
+	CDEBUG(D_VFSTRACE, DFID" ignore/verify layout %d/%d, layout version %d "
+			   "restore needed %d\n",
+	       PFID(lu_object_fid(&obj->co_lu)),
+	       io->ci_ignore_layout, io->ci_verify_layout,
+	       cio->cui_layout_gen, io->ci_restore_needed);
+
+	io->ci_need_restart = 0;
+	if (io->ci_restore_needed == 1) {
+		int	rc;
+
+		/* file was detected release, we need to restore it
+		 * before finishing the io
+		 */
+		rc = ll_layout_restore(ccc_object_inode(obj));
+		io->ci_restore_needed = 0;
+		/* if restore registration failed, no restart, we
+		 * will return -ENODATA */
+		/* The layout will change after restore, so we need to
+		 * block on layout lock hold by the MDT
+		 * as MDT will not send new layout in lvb (see LU-3124)
+		 * we have to explicitly fetch it, all this will be done
+		 * by ll_layout_refresh()
+		 */
+		if (rc == 0) {
+			io->ci_need_restart = 1;
+			io->ci_verify_layout = 1;
+		}
+	}
 
 	if (!io->ci_ignore_layout && io->ci_verify_layout) {
 		__u32 gen = 0;
@@ -134,8 +160,10 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 		ll_layout_refresh(ccc_object_inode(obj), &gen);
 		io->ci_need_restart = cio->cui_layout_gen != gen;
 		if (io->ci_need_restart)
-			CDEBUG(D_VFSTRACE, "layout changed from %d to %d.\n",
-				cio->cui_layout_gen, gen);
+			CDEBUG(D_VFSTRACE,
+			       DFID" layout changed from %d to %d.\n",
+			       PFID(lu_object_fid(&obj->co_lu)),
+			       cio->cui_layout_gen, gen);
 	}
 }
 
@@ -1180,6 +1208,12 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
         CLOBINVRNT(env, obj, ccc_object_invariant(obj));
         ENTRY;
 
+	CDEBUG(D_VFSTRACE, DFID" ignore/verify layout %d/%d, layout version %d "
+			   "restore needed %d\n",
+	       PFID(lu_object_fid(&obj->co_lu)),
+	       io->ci_ignore_layout, io->ci_verify_layout,
+	       cio->cui_layout_gen, io->ci_restore_needed);
+
         CL_IO_SLICE_CLEAN(cio, cui_cl);
         cl_io_slice_add(io, &cio->cui_cl, obj, &vvp_io_ops);
         vio->cui_ra_window_set = 0;
@@ -1242,4 +1276,3 @@ static struct vvp_io *cl2vvp_io(const struct lu_env *env,
         cl2ccc_io(env, slice);
         return vvp_env_io(env);
 }
-
