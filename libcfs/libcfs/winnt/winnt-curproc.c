@@ -161,9 +161,9 @@ alloc_task_slot()
     PTASK_SLOT task = NULL;
 
     if (cfs_win_task_manger.slab) {
-        task = cfs_mem_cache_alloc(cfs_win_task_manger.slab, 0);
+	task = kmem_cache_alloc(cfs_win_task_manger.slab, 0);
     } else {
-        task = cfs_alloc(sizeof(TASK_SLOT), 0);
+	task = kmalloc(sizeof(TASK_SLOT), 0);
     }
 
     return task;
@@ -186,9 +186,9 @@ cleanup_task_slot(PTASK_SLOT task)
     }
 
     if (cfs_win_task_manger.slab) {
-        cfs_mem_cache_free(cfs_win_task_manger.slab, task);
+	kmem_cache_free(cfs_win_task_manger.slab, task);
     } else {
-        cfs_free(task);
+	kfree(task);
     }
 }
 
@@ -244,8 +244,8 @@ init_task_manager()
 	spin_lock_init(&cfs_win_task_manger.Lock);
 
     /* create slab memory cache */
-    cfs_win_task_manger.slab = cfs_mem_cache_create(
-        "TSLT", sizeof(TASK_SLOT), 0, 0);
+    cfs_win_task_manger.slab = kmem_cache_create("TSLT", sizeof(TASK_SLOT),
+						 0, 0, NULL);
 
     /* intialize the list header */
     InitializeListHead(&(cfs_win_task_manger.TaskList));
@@ -301,7 +301,7 @@ cleanup_task_manager()
 	spin_unlock(&cfs_win_task_manger.Lock);
 
     /* destroy the taskslot cache slab */
-    cfs_mem_cache_destroy(cfs_win_task_manger.slab);
+kmem_cache_destroy(cfs_win_task_manger.slab);
     memset(&cfs_win_task_manger, 0, sizeof(TASK_MAN));
 }
 

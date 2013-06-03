@@ -39,20 +39,20 @@
 #include <libcfs/libcfs.h>
 
 
-cfs_mem_cache_t *cfs_page_t_slab = NULL;
-cfs_mem_cache_t *cfs_page_p_slab = NULL;
+struct kmem_cache *cfs_page_t_slab = NULL;
+struct kmem_cache *cfs_page_p_slab = NULL;
 
-cfs_page_t * virt_to_page(void * addr)
+struct page *virt_to_page(void *addr)
 {
-    cfs_page_t *pg;
-    pg = cfs_mem_cache_alloc(cfs_page_t_slab, 0);
+    struct page *pg;
+    pg = kmem_cache_alloc(cfs_page_t_slab, 0);
     
     if (NULL == pg) {
         cfs_enter_debugger();
         return NULL;
     }
 
-    memset(pg, 0, sizeof(cfs_page_t));
+    memset(pg, 0, sizeof(struct page));
     pg->addr = (void *)((__u64)addr & (~((__u64)PAGE_SIZE-1)));
     pg->mapping = addr;
     cfs_atomic_set(&pg->count, 1);
@@ -62,14 +62,14 @@ cfs_page_t * virt_to_page(void * addr)
 }
 
 /*
- * cfs_alloc_page
- *   To allocate the cfs_page_t and also 1 page of memory
+ * alloc_page
+ *   To allocate the struct page and also 1 page of memory
  *
  * Arguments:
  *   flags:  the allocation options
  *
  * Return Value:
- *   pointer to the cfs_page_t strcture in success or
+ *   pointer to the struct page strcture in success or
  *   NULL in failure case
  *
  * Notes: 
@@ -78,28 +78,28 @@ cfs_page_t * virt_to_page(void * addr)
 
 cfs_atomic_t libcfs_total_pages;
 
-cfs_page_t * cfs_alloc_page(int flags)
+struct page *alloc_page(int flags)
 {
-    cfs_page_t *pg;
-    pg = cfs_mem_cache_alloc(cfs_page_t_slab, 0);
+    struct page *pg;
+    pg = kmem_cache_alloc(cfs_page_t_slab, 0);
     
     if (NULL == pg) {
         cfs_enter_debugger();
         return NULL;
     }
 
-    memset(pg, 0, sizeof(cfs_page_t));
-    pg->addr = cfs_mem_cache_alloc(cfs_page_p_slab, 0);
+    memset(pg, 0, sizeof(struct page));
+    pg->addr = kmem_cache_alloc(cfs_page_p_slab, 0);
     cfs_atomic_set(&pg->count, 1);
 
     if (pg->addr) {
-        if (cfs_is_flag_set(flags, CFS_ALLOC_ZERO)) {
-            memset(pg->addr, 0, CFS_PAGE_SIZE);
+	if (cfs_is_flag_set(flags, __GFP_ZERO)) {
+	    memset(pg->addr, 0, PAGE_CACHE_SIZE);
         }
         cfs_atomic_inc(&libcfs_total_pages);
     } else {
         cfs_enter_debugger();
-        cfs_mem_cache_free(cfs_page_t_slab, pg);
+	kmem_cache_free(cfs_page_t_slab, pg);
         pg = NULL;
     }
 
@@ -107,11 +107,11 @@ cfs_page_t * cfs_alloc_page(int flags)
 }
 
 /*
- * cfs_free_page
- *   To free the cfs_page_t including the page
+ * __free_page
+ *   To free the struct page including the page
  *
  * Arguments:
- *   pg:  pointer to the cfs_page_t strcture
+ *   pg:  pointer to the struct page strcture
  *
  * Return Value:
  *   N/A
@@ -119,30 +119,30 @@ cfs_page_t * cfs_alloc_page(int flags)
  * Notes: 
  *   N/A
  */
-void cfs_free_page(cfs_page_t *pg)
+void __free_page(struct page *pg)
 {
     ASSERT(pg != NULL);
     ASSERT(pg->addr  != NULL);
     ASSERT(cfs_atomic_read(&pg->count) <= 1);
 
 	if (!test_bit(PG_virt, &pg->flags)) {
-        cfs_mem_cache_free(cfs_page_p_slab, pg->addr);
+	kmem_cache_free(cfs_page_p_slab, pg->addr);
         cfs_atomic_dec(&libcfs_total_pages);
     } else {
         cfs_enter_debugger();
     }
-    cfs_mem_cache_free(cfs_page_t_slab, pg);
+    kmem_cache_free(cfs_page_t_slab, pg);
 }
 
-int cfs_mem_is_in_cache(const void *addr, const cfs_mem_cache_t *kmem)
+int kmem_is_in_cache(const void *addr, const struct kmem_cache *kmem)
 {
-    KdPrint(("cfs_mem_is_in_cache: not implemented. (should maintain a"
+    KdPrint(("kmem_is_in_cache: not implemented. (should maintain a"
               "chain to keep all allocations traced.)\n"));
     return 1;
 }
 
 /*
- * cfs_alloc
+ * kmalloc
  *   To allocate memory from system pool
  *
  * Arguments:
@@ -158,13 +158,13 @@ int cfs_mem_is_in_cache(const void *addr, const cfs_mem_cache_t *kmem)
  */
 
 void *
-cfs_alloc(size_t nr_bytes, u_int32_t flags)
+kmalloc(size_t nr_bytes, u_int32_t flags)
 {
     void *ptr;
 
     /* Ignore the flags: always allcoate from NonPagedPool */
     ptr = ExAllocatePoolWithTag(NonPagedPool, nr_bytes, 'Lufs');
-    if (ptr != NULL && (flags & CFS_ALLOC_ZERO)) {
+    if (ptr != NULL && (flags & __GFP_ZERO)) {
         memset(ptr, 0, nr_bytes);
     }
 
@@ -176,7 +176,7 @@ cfs_alloc(size_t nr_bytes, u_int32_t flags)
 }
 
 /*
- * cfs_free
+ * kfree
  *   To free the sepcified memory to system pool
  *
  * Arguments:
@@ -190,13 +190,13 @@ cfs_alloc(size_t nr_bytes, u_int32_t flags)
  */
 
 void
-cfs_free(void *addr)
+kfree(void *addr)
 {
     ExFreePool(addr);
 }
 
 /*
- * cfs_alloc_large
+ * vmalloc
  *   To allocate large block of memory from system pool
  *
  * Arguments:
@@ -211,13 +211,13 @@ cfs_free(void *addr)
  */
 
 void *
-cfs_alloc_large(size_t nr_bytes)
+vmalloc(size_t nr_bytes)
 {
-    return cfs_alloc(nr_bytes, 0);
+    return kmalloc(nr_bytes, 0);
 }
 
 /*
- * cfs_free_large
+ * vfree
  *   To free the sepcified memory to system pool
  *
  * Arguments:
@@ -231,14 +231,14 @@ cfs_alloc_large(size_t nr_bytes)
  */
 
 void
-cfs_free_large(void *addr)
+vfree(void *addr)
 {
-    cfs_free(addr);
+    kfree(addr);
 }
 
 
 /*
- * cfs_mem_cache_create
+ * kmem_cache_create
  *   To create a SLAB cache
  *
  * Arguments:
@@ -258,15 +258,11 @@ cfs_free_large(void *addr)
  *   3, parameters C/D are removed.
  */
 
-cfs_mem_cache_t *
-cfs_mem_cache_create(
-    const char * name,
-    size_t size,
-    size_t offset,
-    unsigned long flags
-    )
+struct kmem_cache *kmem_cache_create(const char * name, size_t size,
+				     size_t offset, unsigned long flags,
+				     void *ctor)
 {
-    cfs_mem_cache_t * kmc = NULL;
+    struct kmem_cache * kmc = NULL;
 
     /*  The name of the SLAB could not exceed 20 chars */
 
@@ -276,13 +272,13 @@ cfs_mem_cache_create(
 
     /* Allocate and initialize the SLAB strcture */
 
-    kmc = cfs_alloc (sizeof(cfs_mem_cache_t), 0);
+    kmc = kmalloc (sizeof(struct kmem_cache), 0);
 
     if (NULL == kmc) {
         goto errorout;
     }
 
-    memset(kmc, 0, sizeof(cfs_mem_cache_t));
+    memset(kmc, 0, sizeof(struct kmem_cache));
     kmc->flags = flags;
 
     if (name) {
@@ -306,7 +302,7 @@ errorout:
 }
 
 /*
- * cfs_mem_cache_destroy
+ *kmem_cache_destroy
  *   To destroy the unused SLAB cache
  *
  * Arguments:
@@ -320,19 +316,19 @@ errorout:
  *   N/A
  */
 
-int cfs_mem_cache_destroy (cfs_mem_cache_t * kmc)
+kmem_cache_destroy (struct kmem_cache * kmc)
 {
     ASSERT(kmc != NULL);
 
     ExDeleteNPagedLookasideList(&(kmc->npll));
 
-    cfs_free(kmc);
+    kfree(kmc);
 
     return 0;
 }
 
 /*
- * cfs_mem_cache_alloc
+ * kmem_cache_alloc
  *   To allocate an object (LookAside entry) from the SLAB
  *
  * Arguments:
@@ -347,7 +343,7 @@ int cfs_mem_cache_destroy (cfs_mem_cache_t * kmc)
  *   N/A
  */
 
-void *cfs_mem_cache_alloc(cfs_mem_cache_t * kmc, int flags)
+void *kmem_cache_alloc(struct kmem_cache * kmc, int flags)
 {
     void *buf = NULL;
 
@@ -357,7 +353,7 @@ void *cfs_mem_cache_alloc(cfs_mem_cache_t * kmc, int flags)
 }
 
 /*
- * cfs_mem_cache_free
+ * kmem_cache_free
  *   To free an object (LookAside entry) to the SLAB cache
  *
  * Arguments:
@@ -371,7 +367,7 @@ void *cfs_mem_cache_alloc(cfs_mem_cache_t * kmc, int flags)
  *   N/A
  */
 
-void cfs_mem_cache_free(cfs_mem_cache_t * kmc, void * buf)
+void kmem_cache_free(struct kmem_cache * kmc, void * buf)
 {
     ExFreeToNPagedLookasideList(&(kmc->npll), buf);
 }
@@ -380,10 +376,10 @@ spinlock_t  shrinker_guard = {0};
 CFS_LIST_HEAD(shrinker_hdr);
 cfs_timer_t shrinker_timer = {0};
 
-struct cfs_shrinker * cfs_set_shrinker(int seeks, shrink_callback cb)
+struct shrinker *set_shrinker(int seeks, shrink_callback cb)
 {
-    struct cfs_shrinker * s = (struct cfs_shrinker *)
-        cfs_alloc(sizeof(struct cfs_shrinker), CFS_ALLOC_ZERO);
+    struct shrinker *s = (struct shrinker *)
+	kmalloc(sizeof(struct shrinker), __GFP_ZERO);
 	if (s) {
 		s->cb = cb;
 		s->seeks = seeks;
@@ -396,13 +392,13 @@ struct cfs_shrinker * cfs_set_shrinker(int seeks, shrink_callback cb)
 	return s;
 }
 
-void cfs_remove_shrinker(struct cfs_shrinker *s)
+void remove_shrinker(struct shrinker *s)
 {
-	struct cfs_shrinker *tmp;
+	struct shrinker *tmp;
 	spin_lock(&shrinker_guard);
 #if TRUE
     cfs_list_for_each_entry_typed(tmp, &shrinker_hdr,
-                                  struct cfs_shrinker, list) {
+				  struct shrinker, list) {
         if (tmp == s) {
             cfs_list_del(&tmp->list);
             break;
@@ -412,17 +408,17 @@ void cfs_remove_shrinker(struct cfs_shrinker *s)
     cfs_list_del(&s->list);
 #endif
 	spin_unlock(&shrinker_guard);
-	cfs_free(s);
+	kfree(s);
 }
 
 /* time ut test proc */
 void shrinker_timer_proc(ulong_ptr_t arg)
 {
-	struct cfs_shrinker *s;
+	struct shrinker *s;
 	spin_lock(&shrinker_guard);
 
 	cfs_list_for_each_entry_typed(s, &shrinker_hdr,
-				      struct cfs_shrinker, list) {
+				      struct shrinker, list) {
 		s->cb(s->nr, __GFP_FS);
 	}
 	spin_unlock(&shrinker_guard);

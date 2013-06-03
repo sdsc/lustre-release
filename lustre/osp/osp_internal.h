@@ -180,7 +180,7 @@ struct osp_device {
 	cfs_proc_dir_entry_t		*opd_symlink;
 };
 
-extern cfs_mem_cache_t *osp_object_kmem;
+extern struct kmem_cache *osp_object_kmem;
 
 /* this is a top object */
 struct osp_object {
