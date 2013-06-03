@@ -734,6 +734,13 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 		RETURN(rc);
 	}
 
+	/* if file is released, check if a restore is running */
+	if ((ma->ma_valid & MA_HSM) && (ma->ma_hsm.mh_flags & HS_RELEASED) &&
+	    mdt_hsm_restore_is_running(info, mdt_object_fid(o))) {
+		repbody->t_state = MS_RESTORE;
+		repbody->valid |= OBD_MD_TSTATE;
+	}
+
 	is_root = lu_fid_eq(mdt_object_fid(o), &info->mti_mdt->mdt_md_root_fid);
 
 	/* the Lustre protocol supposes to return default striping

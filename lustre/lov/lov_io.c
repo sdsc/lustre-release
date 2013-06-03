@@ -990,8 +990,14 @@ int lov_io_init_released(const struct lu_env *env, struct cl_object *obj,
 	case CIT_READ:
 	case CIT_WRITE:
 	case CIT_FAULT:
-		/* TODO: need to restore the file. */
-		result = -EBADF;
+		/* the truncate to 0 is managed by MDT:
+		 * - in open, for open O_TRUNC
+		 * - in setattr, for truncate
+		 */
+		/* the truncate is for size > 0 so trigs a restore */
+		if (cl_io_is_trunc(io))
+			io->ci_restore_needed = 1;
+		result = 1;
 		break;
 	}
 	if (result == 0) {
