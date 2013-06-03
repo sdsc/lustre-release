@@ -47,14 +47,6 @@
 #include <lustre_log.h>
 #include "mdt_internal.h"
 
-/* fake function, will be remove with patch LU-3342 */
-int mdt_hsm_agent_statistics(struct coordinator *cdt,
-			     int succ_rq, int fail_rq, int new_rq,
-			     struct obd_uuid *uuid)
-{
-	return 0;
-}
-
 /**
  * dump requests list
  * \param cdt [IN] coordinator

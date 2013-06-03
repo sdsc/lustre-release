@@ -977,6 +977,23 @@ int mdt_agent_llog_update_rec(const struct lu_env *env, struct mdt_device *mdt,
 			      struct llog_handle *llh,
 			      struct llog_agent_req_rec *larr);
 
+/* mdt/mdt_hsm_cdt_agent.c */
+extern const struct file_operations mdt_hsm_agent_fops;
+int mdt_hsm_agent_register(struct mdt_thread_info *info, struct obd_uuid *uuid,
+			   int count, __u32 *archive_num);
+int mdt_hsm_agent_register_mask(struct mdt_thread_info *info,
+				struct obd_uuid *uuid, __u32 archive_mask);
+int mdt_hsm_agent_unregister(struct mdt_thread_info *info,
+			     struct obd_uuid *uuid);
+int mdt_hsm_agent_statistics(struct coordinator *cdt,
+			     int succ_rq, int fail_rq, int new_rq,
+			     struct obd_uuid *uuid);
+int mdt_hsm_find_best_agent(struct coordinator *cdt, __u32 archive,
+			    struct obd_uuid *uuid);
+int mdt_hsm_agent_send(struct mdt_thread_info *mti, struct hsm_action_list *hal,
+		       int purge);
+int mdt_hsm_coordinator_update(struct mdt_thread_info *mti,
+			       struct hsm_progress_kernel *pgs);
 /* mdt/mdt_hsm_cdt_client.c */
 int mdt_hsm_coordinator_actions(struct mdt_thread_info *info,
 				struct hsm_action_list *hal,
