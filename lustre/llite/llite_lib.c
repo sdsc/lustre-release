@@ -1848,6 +1848,11 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                 LASSERT(md->oss_capa);
                 ll_add_capa(inode, md->oss_capa);
         }
+
+	if (body->valid & OBD_MD_TSTATE) {
+		if (body->t_state & MS_RESTORE)
+			lli->lli_flags |= LLIF_FILE_RESTORING;
+	}
 }
 
 void ll_read_inode2(struct inode *inode, void *opaque)
