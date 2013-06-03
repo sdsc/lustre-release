@@ -169,7 +169,13 @@ struct obd_statfs {
 #define LL_IOC_OBD_STATFS       IOC_OBD_STATFS
 #define IOC_MDC_GETSTRIPE       IOC_MDC_GETFILESTRIPE
 
-#define O_LOV_DELAY_CREATE 0100000000  /* hopefully this does not conflict */
+/* Hopefully O_LOV_DELAY_CREATE does not conflict with standard O_xxx flags.
+ * Previously it was defined as 0100000000 and conflicts with FMODE_NONOTIFY
+ * which was added since kernel 2.6.36, so we redefine it as 020000000.
+ * To be compatible with old version's statically linked binary, finally we
+ * define it as (020000000 | 0100000000).
+ * */
+#define O_LOV_DELAY_CREATE      0120000000
 
 #define LL_FILE_IGNORE_LOCK     0x00000001
 #define LL_FILE_GROUP_LOCKED    0x00000002
