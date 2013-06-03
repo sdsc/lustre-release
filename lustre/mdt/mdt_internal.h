@@ -75,6 +75,7 @@ static inline int req_xid_is_last(struct ptlrpc_request *req)
 }
 
 struct mdt_object;
+
 /* file data for open files on MDS */
 struct mdt_file_data {
         struct portals_handle mfd_handle; /* must be first */
@@ -83,6 +84,60 @@ struct mdt_file_data {
         __u64                 mfd_xid;    /* xid of the open request */
         struct lustre_handle  mfd_old_handle; /* old handle in replay case */
         struct mdt_object    *mfd_object; /* point to opened object */
+};
+
+#define CDT_NONBLOCKING_RESTORE		0x0000000000000001ULL
+#define CDT_NORETRY_ACTION		0x0000000000000002ULL
+#define CDT_POLICY_MASK			CDT_NONBLOCKING_RESTORE | \
+					CDT_NORETRY_ACTION
+
+/* when adding a new policy, do not forget to update
+ * lustre/mdt/mdt_coordinator.c::hsm_policy_names[]
+ */
+#define CDT_DEFAULT_POLICY		0x0000000000000000ULL
+
+enum cdt_states { CDT_STOPPED = 0,
+		  CDT_INIT,
+		  CDT_RUNNING,
+		  CDT_DISABLE,
+		  CDT_STOPPING };
+
+/* when multiple lock are needed, the lock order is
+ * cdt_llog_lock
+ * cdt_agent_lock
+ * cdt_counter_lock
+ * cdt_restore_lock
+ * cdt_request_lock
+ */
+struct coordinator {
+	struct ptlrpc_thread	*cdt_thread;	    /**< coordinator thread */
+	struct lu_env		 cdt_env;	    /**< coordinator lustre
+						     * env */
+	struct proc_dir_entry	*cdt_proc_dir;      /**< cdt /proc directory */
+	__u64			 cdt_policy;	    /**< flags to defined
+						     * policy */
+	enum cdt_states		 cdt_state;	    /**< state */
+	cfs_atomic_t		 cdt_compound_id;   /**< compound id counter */
+	__u64			 cdt_last_cookie;   /**< last cookie allocated */
+	struct semaphore	 cdt_counter_lock;  /**< protect request
+						     * counter */
+	struct semaphore	 cdt_llog_lock;     /**< protect llog access */
+	struct rw_semaphore	 cdt_agent_lock;    /**< protect agent list */
+	struct rw_semaphore	 cdt_request_lock;  /**< protect request list */
+	struct semaphore	 cdt_restore_lock;  /**< protect restore list */
+	cfs_time_t		 cdt_loop_period;   /**< llog scan period */
+	cfs_time_t		 cdt_delay;	    /**< request grace delay */
+	cfs_time_t		 cdt_timeout;	    /**< request timeout */
+	__u64			 cdt_max_request;   /**< max count of started
+						     * requests */
+	__u64			 cdt_request_count; /**< current count of
+						     * started requests */
+	cfs_list_t		 cdt_requests;      /**< list of started
+						     * requests */
+	cfs_list_t		 cdt_agents;	    /**< list of register
+						     * agents */
+	cfs_list_t		 cdt_restore_hdl;   /**< list of restore lock
+						     * handles */
 };
 
 /* mdt state flag bits */
@@ -121,7 +176,8 @@ struct mdt_device {
 				   mo_compat_resname:1,
 				   mo_mds_capa:1,
 				   mo_oss_capa:1,
-				   mo_cos:1;
+				   mo_cos:1,
+				   mo_coordinator:1;
 	} mdt_opts;
         /* mdt state flags */
         unsigned long              mdt_state;
@@ -179,6 +235,8 @@ struct mdt_device {
 	struct obd_export	  *mdt_qmt_exp;
 	/* quota master device associated with this MDT */
 	struct lu_device	  *mdt_qmt_dev;
+
+	struct coordinator	   mdt_coordinator;
 };
 
 #define MDT_SERVICE_WATCHDOG_FACTOR	(2)
@@ -240,13 +298,14 @@ struct mdt_lock_handle {
 };
 
 enum {
-        MDT_LH_PARENT, /* parent lockh */
-        MDT_LH_CHILD,  /* child lockh */
-        MDT_LH_OLD,    /* old lockh for rename */
+	MDT_LH_PARENT,	/* parent lockh */
+	MDT_LH_CHILD,	/* child lockh */
+	MDT_LH_OLD,	/* old lockh for rename */
 	MDT_LH_LAYOUT = MDT_LH_OLD, /* layout lock */
-        MDT_LH_NEW,    /* new lockh for rename */
-        MDT_LH_RMT,    /* used for return lh to caller */
-        MDT_LH_NR
+	MDT_LH_NEW,	/* new lockh for rename */
+	MDT_LH_RMT,	/* used for return lh to caller */
+	MDT_LH_HSM,	/* used by coordinator */
+	MDT_LH_NR
 };
 
 enum {
@@ -534,6 +593,51 @@ struct mdt_opc_slice {
 	struct mdt_handler	*mos_hs;
 };
 
+struct cdt_req_progress {
+	struct semaphore	 crp_lock;	/**< protect tree */
+	struct interval_node	*crp_root;	/**< tree to track extent
+						 *   moved */
+	struct interval_node	**crp_node;	/**< buffer for tree nodes
+						 *   vector of fixed size
+						 *   vectors */
+	int			 crp_cnt;	/**< # of used nodes */
+	int			 crp_max;	/**< # of allocated nodes */
+};
+
+struct cdt_agent_req {
+	cfs_list_t		 car_request_list; /**< to chain all the req. */
+	cfs_atomic_t		 car_refcount;     /**< reference counter */
+	__u64			 car_compound_id;  /**< compound id */
+	__u32			 car_archive_id;   /**< archive id */
+	__u64			 car_flags;        /**< request original flags */
+	struct obd_uuid		 car_uuid;         /**< agent doing the req. */
+	int			 car_canceled;     /**< request was canceled */
+	cfs_time_t		 car_req_start;    /**< start time */
+	cfs_time_t		 car_req_update;   /**< last update time */
+	struct hsm_action_item	*car_hai;          /**< req. to the agent */
+	struct cdt_req_progress	 car_progress;     /**< track data mvt
+						    *   progress */
+};
+
+struct hsm_agent {
+	cfs_list_t	 ha_list;		/**< to chain the agents */
+	struct obd_uuid	 ha_uuid;		/**< agent uuid */
+	__u32		*ha_archive_id;		/**< archive id */
+	int		 ha_archive_cnt;	/**< number of archive entries
+						 *   0 means any archive */
+	cfs_atomic_t	 ha_requests;		/**< current request count */
+	cfs_atomic_t	 ha_success;		/**< number of successful
+						 * actions */
+	cfs_atomic_t	 ha_failure;		/**< number of failed actions */
+};
+
+struct cdt_restore_handle {
+	cfs_list_t		 crh_list;	/**< to chain the handle */
+	struct lu_fid		 crh_fid;	/**< fid of the object */
+	struct ldlm_extent	 crh_extent;	/**< extent of the restore */
+	struct mdt_lock_handle	 crh_lh;	/**< lock handle */
+};
+
 static inline const struct md_device_operations *
 mdt_child_ops(struct mdt_device * m)
 {
@@ -802,7 +906,7 @@ extern struct lprocfs_vars lprocfs_mds_module_vars[];
 extern struct lprocfs_vars lprocfs_mds_obd_vars[];
 
 int mdt_hsm_attr_set(struct mdt_thread_info *info, struct mdt_object *obj,
-		     struct md_hsm *mh);
+		     const struct md_hsm *mh);
 
 struct mdt_handler *mdt_handler_find(__u32 opc,
 				     struct mdt_opc_slice *supported);
@@ -858,6 +962,100 @@ int mdt_hsm_progress(struct mdt_thread_info *info);
 int mdt_hsm_ct_register(struct mdt_thread_info *info);
 int mdt_hsm_ct_unregister(struct mdt_thread_info *info);
 int mdt_hsm_request(struct mdt_thread_info *info);
+
+/* mdt/mdt_hsm_cdt_actions.c */
+extern const struct file_operations mdt_agent_actions_fops;
+void dump_llog_agent_req_rec(const char *prefix,
+			     const struct llog_agent_req_rec *larr);
+int cdt_llog_process(const struct lu_env *env, struct mdt_device *mdt,
+		     llog_cb_t cb, void *data);
+int mdt_agent_record_add(const struct lu_env *env, struct mdt_device *mdt,
+			 __u64 compound_id, __u32 archive_id,
+			 __u64 flags, struct hsm_action_item *hai);
+int mdt_agent_record_update(const struct lu_env *env,
+			    struct mdt_device *mdt, __u64 *cookies,
+			    int cookies_count, enum agent_req_status status);
+int mdt_agent_llog_update_rec(const struct lu_env *env, struct mdt_device *mdt,
+			      struct llog_handle *llh,
+			      struct llog_agent_req_rec *larr);
+
+/* mdt/mdt_hsm_cdt_agent.c */
+extern const struct file_operations mdt_hsm_agent_fops;
+int mdt_hsm_agent_register(struct mdt_thread_info *info,
+			   const struct obd_uuid *uuid,
+			   __u32 *archive_num, int nr_archives);
+int mdt_hsm_agent_register_mask(struct mdt_thread_info *info,
+				const struct obd_uuid *uuid,
+				__u32 archive_mask);
+int mdt_hsm_agent_unregister(struct mdt_thread_info *info,
+			     const struct obd_uuid *uuid);
+int mdt_hsm_agent_update_statistics(struct coordinator *cdt,
+				    int succ_rq, int fail_rq, int new_rq,
+				    const struct obd_uuid *uuid);
+int mdt_hsm_find_best_agent(struct coordinator *cdt, __u32 archive,
+			    struct obd_uuid *uuid);
+int mdt_hsm_agent_send(struct mdt_thread_info *mti, struct hsm_action_list *hal,
+		       bool purge);
+int mdt_hsm_coordinator_update(struct mdt_thread_info *mti,
+			       struct hsm_progress_kernel *pgs);
+/* mdt/mdt_hsm_cdt_client.c */
+int mdt_hsm_add_actions(struct mdt_thread_info *info,
+			struct hsm_action_list *hal, __u64 *compound_id);
+int mdt_hsm_get_actions(struct mdt_thread_info *mti,
+			struct hsm_action_list *hal);
+int mdt_hsm_get_running(struct mdt_thread_info *mti,
+			struct hsm_action_list *hal);
+bool mdt_hsm_restore_is_running(struct mdt_thread_info *mti,
+				const struct lu_fid *fid);
+
+/* mdt/mdt_hsm_cdt_requests.c */
+extern const struct file_operations mdt_hsm_request_fops;
+void dump_requests(char *prefix, struct coordinator *cdt);
+struct cdt_agent_req *mdt_cdt_alloc_request(__u64 compound_id, __u32 archive_id,
+					    __u64 flags, struct obd_uuid *uuid,
+					    struct hsm_action_item *hai);
+void mdt_cdt_free_request(struct cdt_agent_req *car);
+int mdt_cdt_add_request(struct coordinator *cdt, struct cdt_agent_req *new_car);
+struct cdt_agent_req *mdt_cdt_find_request(struct coordinator *cdt,
+					   const __u64 cookie,
+					   const struct lu_fid *fid);
+void mdt_cdt_get_work_done(struct cdt_agent_req *car, __u64 *done_sz);
+void mdt_cdt_get_request(struct cdt_agent_req *car);
+void mdt_cdt_put_request(struct cdt_agent_req *car);
+struct cdt_agent_req *mdt_cdt_update_request(struct coordinator *cdt,
+					 const struct hsm_progress_kernel *pgs);
+int mdt_cdt_remove_request(struct coordinator *cdt, __u64 cookie);
+
+/* mdt/mdt_coordinator.c */
+void dump_hal(const char *prefix, struct hsm_action_list *hal);
+/* coordinator management */
+int mdt_hsm_cdt_init(struct mdt_device *mdt);
+int mdt_hsm_cdt_start(struct mdt_device *mdt);
+int mdt_hsm_cdt_stop(struct mdt_device *mdt);
+int mdt_hsm_cdt_fini(struct mdt_device *mdt);
+int mdt_hsm_cdt_wakeup(struct mdt_device *mdt);
+
+/* coordinator control /proc interface */
+int lprocfs_wr_hsm_cdt_control(struct file *file, const char *buffer,
+			       unsigned long count, void *data);
+int lprocfs_rd_hsm_cdt_control(char *page, char **start, off_t off,
+			       int count, int *eof, void *data);
+/* md_hsm helpers */
+struct mdt_object *mdt_hsm_get_md_hsm(struct mdt_thread_info *mti,
+				      const struct lu_fid *fid,
+				      struct md_hsm *hsm,
+				      struct mdt_lock_handle *lh);
+int mdt_hsm_set_md_hsm(struct mdt_thread_info *mti, struct mdt_object *obj,
+		       const struct md_hsm *mh, struct mdt_lock_handle *lh);
+/* actions/request helpers */
+int mdt_hsm_add_hal(struct mdt_thread_info *mti,
+		    struct hsm_action_list *hal, struct obd_uuid *uuid);
+int mdt_hsm_check_action_compat(const struct hsm_action_item *hai,
+				const int hal_an, const __u64 rq_flags,
+				const struct md_hsm *hsm);
+int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
+				 struct hsm_progress_kernel *pgs,
+				 const int update_record);
 
 extern struct lu_context_key       mdt_thread_key;
 /* debug issues helper starts here*/
@@ -983,7 +1181,6 @@ static inline struct lu_name *mdt_name_copy(struct lu_name *tlname,
 
 void mdt_enable_cos(struct mdt_device *, int);
 int mdt_cos_is_enabled(struct mdt_device *);
-int mdt_hsm_copytool_send(struct obd_export *exp);
 
 /* lprocfs stuff */
 enum {
