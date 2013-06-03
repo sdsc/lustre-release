@@ -58,7 +58,7 @@ static struct qsd_upd_rec *qsd_upd_alloc(struct qsd_qtype_info *qqi,
 {
 	struct qsd_upd_rec	*upd;
 
-	OBD_SLAB_ALLOC_PTR_GFP(upd, upd_kmem, CFS_ALLOC_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(upd, upd_kmem, __GFP_IO);
 	if (upd == NULL) {
 		CERROR("Failed to allocate upd");
 		return NULL;

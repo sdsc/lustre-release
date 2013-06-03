@@ -603,7 +603,7 @@ static inline void obd_pages_sub(int order)
 #define __OBD_MALLOC_VERBOSE(ptr, cptab, cpt, size, flags)		      \
 do {									      \
 	(ptr) = (cptab) == NULL ?					      \
-		cfs_alloc(size, flags) :				      \
+		kmalloc(size, flags) :				      \
 		cfs_cpt_malloc(cptab, cpt, size, flags);		      \
 	if (unlikely((ptr) == NULL)) {                                        \
 		CERROR("kmalloc of '" #ptr "' (%d bytes) failed at %s:%d\n",  \
@@ -618,7 +618,7 @@ do {									      \
 #else /* this version is for the kernel and liblustre */
 #define OBD_FREE_RTN0(ptr)                                                    \
 ({                                                                            \
-        cfs_free(ptr);                                                        \
+	kfree(ptr);                                                        \
         (ptr) = NULL;                                                         \
         0;                                                                    \
 })
@@ -626,7 +626,7 @@ do {									      \
 #define __OBD_MALLOC_VERBOSE(ptr, cptab, cpt, size, flags)		      \
 do {									      \
 	(ptr) = (cptab) == NULL ?					      \
-		cfs_alloc(size, flags) :				      \
+		kmalloc(size, flags) :				      \
 		cfs_cpt_malloc(cptab, cpt, size, flags);		      \
         if (likely((ptr) != NULL &&                                           \
                    (!HAS_FAIL_ALLOC_FLAG || obd_alloc_fail_rate == 0 ||       \
@@ -642,8 +642,8 @@ do {									      \
 #define OBD_ALLOC_GFP(ptr, size, gfp_mask)				      \
 	__OBD_MALLOC_VERBOSE(ptr, NULL, 0, size, gfp_mask)
 
-#define OBD_ALLOC(ptr, size) OBD_ALLOC_GFP(ptr, size, CFS_ALLOC_IO)
-#define OBD_ALLOC_WAIT(ptr, size) OBD_ALLOC_GFP(ptr, size, CFS_ALLOC_STD)
+#define OBD_ALLOC(ptr, size) OBD_ALLOC_GFP(ptr, size, __GFP_IO)
+#define OBD_ALLOC_WAIT(ptr, size) OBD_ALLOC_GFP(ptr, size, GFP_IOFS)
 #define OBD_ALLOC_PTR(ptr) OBD_ALLOC(ptr, sizeof *(ptr))
 #define OBD_ALLOC_PTR_WAIT(ptr) OBD_ALLOC_WAIT(ptr, sizeof *(ptr))
 
@@ -651,7 +651,7 @@ do {									      \
 	__OBD_MALLOC_VERBOSE(ptr, cptab, cpt, size, gfp_mask)
 
 #define OBD_CPT_ALLOC(ptr, cptab, cpt, size)				      \
-	OBD_CPT_ALLOC_GFP(ptr, cptab, cpt, size, CFS_ALLOC_IO)
+	OBD_CPT_ALLOC_GFP(ptr, cptab, cpt, size, __GFP_IO)
 
 #define OBD_CPT_ALLOC_PTR(ptr, cptab, cpt)				      \
 	OBD_CPT_ALLOC(ptr, cptab, cpt, sizeof *(ptr))
@@ -659,7 +659,7 @@ do {									      \
 # define __OBD_VMALLOC_VEROBSE(ptr, cptab, cpt, size)			      \
 do {									      \
 	(ptr) = cptab == NULL ?						      \
-		cfs_alloc_large(size) :					      \
+		vmalloc(size) :					      \
 		cfs_cpt_vmalloc(cptab, cpt, size);			      \
         if (unlikely((ptr) == NULL)) {                                        \
                 CERROR("vmalloc of '" #ptr "' (%d bytes) failed\n",           \
@@ -686,7 +686,7 @@ do {									      \
  * since vmalloc in Linux doesn't perform well on multi-cores system, calling
  * vmalloc in critical path would hurt peformance badly. See LU-66.
  */
-#define OBD_ALLOC_BIG (4 * CFS_PAGE_SIZE)
+#define OBD_ALLOC_BIG (4 * PAGE_CACHE_SIZE)
 
 #define OBD_ALLOC_LARGE(ptr, size)                                            \
 do {                                                                          \
@@ -732,7 +732,7 @@ do {                                                                          \
 #endif
 
 #ifdef POISON_BULK
-#define POISON_PAGE(page, val) do { memset(kmap(page), val, CFS_PAGE_SIZE);   \
+#define POISON_PAGE(page, val) do { memset(kmap(page), val, PAGE_CACHE_SIZE);   \
                                     kunmap(page); } while (0)
 #else
 #define POISON_PAGE(page, val) do { } while (0)
@@ -742,7 +742,7 @@ do {                                                                          \
 #define OBD_FREE(ptr, size)                                                   \
 do {                                                                          \
         OBD_FREE_PRE(ptr, size, "kfreed");                                    \
-        cfs_free(ptr);                                                        \
+	kfree(ptr);                                                        \
         POISON_PTR(ptr);                                                      \
 } while(0)
 
@@ -766,7 +766,7 @@ do {									      \
 #define OBD_VFREE(ptr, size)				\
 	do {						\
 		OBD_FREE_PRE(ptr, size, "vfreed");	\
-		cfs_free_large(ptr);			\
+		vfree(ptr);			\
 		POISON_PTR(ptr);			\
 	} while (0)
 
@@ -782,7 +782,7 @@ do {									      \
 
 #define __OBD_SLAB_ALLOC_VERBOSE(ptr, slab, cptab, cpt, size, type)	      \
 do {									      \
-	LASSERT(ergo((type) != CFS_ALLOC_ATOMIC, !cfs_in_interrupt()));	      \
+	LASSERT(ergo((type) != GFP_ATOMIC, !cfs_in_interrupt()));	      \
 	(ptr) = (cptab) == NULL ?					      \
 		cfs_mem_cache_alloc(slab, type) :			      \
 		cfs_mem_cache_cpt_alloc(slab, cptab, cpt, type);	      \
@@ -811,10 +811,10 @@ do {                                                                          \
 } while(0)
 
 #define OBD_SLAB_ALLOC(ptr, slab, size)					      \
-	OBD_SLAB_ALLOC_GFP(ptr, slab, size, CFS_ALLOC_IO)
+	OBD_SLAB_ALLOC_GFP(ptr, slab, size, __GFP_IO)
 
 #define OBD_SLAB_CPT_ALLOC(ptr, slab, cptab, cpt, size)			      \
-	OBD_SLAB_CPT_ALLOC_GFP(ptr, slab, cptab, cpt, size, CFS_ALLOC_IO)
+	OBD_SLAB_CPT_ALLOC_GFP(ptr, slab, cptab, cpt, size, __GFP_IO)
 
 #define OBD_SLAB_ALLOC_PTR(ptr, slab)					      \
 	OBD_SLAB_ALLOC(ptr, slab, sizeof *(ptr))
@@ -838,17 +838,17 @@ do {                                                                          \
 #define __OBD_PAGE_ALLOC_VERBOSE(ptr, cptab, cpt, gfp_mask)		      \
 do {									      \
 	(ptr) = (cptab) == NULL ?					      \
-		cfs_alloc_page(gfp_mask) :				      \
+		alloc_page(gfp_mask) :				      \
 		cfs_page_cpt_alloc(cptab, cpt, gfp_mask);		      \
         if (unlikely((ptr) == NULL)) {                                        \
                 CERROR("alloc_pages of '" #ptr "' %d page(s) / "LPU64" bytes "\
                        "failed\n", (int)1,                                    \
-                       (__u64)(1 << CFS_PAGE_SHIFT));                         \
+		       (__u64)(1 << PAGE_CACHE_SHIFT));                         \
                 CERROR(LPU64" total bytes and "LPU64" total pages "           \
                        "("LPU64" bytes) allocated by Lustre, "                \
                        "%d total bytes by LNET\n",                            \
                        obd_memory_sum(),                                      \
-                       obd_pages_sum() << CFS_PAGE_SHIFT,                     \
+		       obd_pages_sum() << PAGE_CACHE_SHIFT,                     \
                        obd_pages_sum(),                                       \
                        cfs_atomic_read(&libcfs_kmemory));                     \
         } else {                                                              \
@@ -856,7 +856,7 @@ do {									      \
                 CDEBUG(D_MALLOC, "alloc_pages '" #ptr "': %d page(s) / "      \
                        LPU64" bytes at %p.\n",                                \
                        (int)1,                                                \
-                       (__u64)(1 << CFS_PAGE_SHIFT), ptr);                    \
+		       (__u64)(1 << PAGE_CACHE_SHIFT), ptr);                    \
         }                                                                     \
 } while (0)
 
@@ -871,9 +871,9 @@ do {                                                                          \
         obd_pages_sub(0);                                                     \
         CDEBUG(D_MALLOC, "free_pages '" #ptr "': %d page(s) / "LPU64" bytes " \
                "at %p.\n",                                                    \
-               (int)1, (__u64)(1 << CFS_PAGE_SHIFT),                          \
+	       (int)1, (__u64)(1 << PAGE_CACHE_SHIFT),                          \
                ptr);                                                          \
-        cfs_free_page(ptr);                                                   \
+	__free_page(ptr);                                                   \
         (ptr) = (void *)0xdeadbeef;                                           \
 } while (0)
 
