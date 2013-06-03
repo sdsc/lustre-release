@@ -34,9 +34,6 @@
  * Author: JC Lafoucriere <jacques-charles.lafoucriere@cea.fr>
  */
 
-#ifndef EXPORT_SYMTAB
-# define EXPORT_SYMTAB
-#endif
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include "mdt_internal.h"
@@ -54,53 +51,11 @@
 
 #define MDT_HSM_FREE(ptr, size) OBD_FREE_LARGE((ptr), (size))
 
-/*
- * fake functions, will be replace by real one with HSM Coordinator patch
- */
-
-int mdt_hsm_copytool_send(struct obd_export *exp)
-{
-	return 0;
-}
-
-static int mdt_hsm_coordinator_update(struct mdt_thread_info *info,
-				      struct hsm_progress_kernel *pgs)
-{
-	return 0;
-}
-
-static int mdt_hsm_agent_register_mask(struct mdt_thread_info *info,
-				       struct obd_uuid *uuid,
-				       __u32 archive_mask)
-{
-	return 0;
-}
-
-static int mdt_hsm_agent_unregister(struct mdt_thread_info *info,
-				    struct obd_uuid *uuid)
-{
-	return 0;
-}
-
-static int mdt_hsm_coordinator_get_actions(struct mdt_thread_info *mti,
-					   struct hsm_action_list *hal)
-{
-	return 0;
-}
-
-static int mdt_hsm_coordinator_actions(struct mdt_thread_info *info,
-				       struct hsm_action_list *hal,
-				       __u64 *compound_id,
-				       int mti_attr_is_valid)
-{
-	return 0;
-}
-
 /**
  * Update on-disk HSM attributes.
  */
 int mdt_hsm_attr_set(struct mdt_thread_info *info, struct mdt_object *obj,
-		     struct md_hsm *mh)
+		     const struct md_hsm *mh)
 {
 	struct md_object	*next = mdt_object_child(obj);
 	struct lu_buf		*buf = &info->mti_buf;
@@ -405,7 +360,7 @@ int mdt_hsm_action(struct mdt_thread_info *info)
 	hai->hai_fid = info->mti_body->fid1;
 	hai->hai_len = sizeof(*hai);
 
-	rc = mdt_hsm_coordinator_get_actions(info, hal);
+	rc = mdt_hsm_get_actions(info, hal);
 	if (rc)
 		GOTO(out_free, rc);
 
@@ -550,7 +505,7 @@ int mdt_hsm_request(struct mdt_thread_info *info)
 		hai = hai_next(hai);
 	}
 
-	rc = mdt_hsm_coordinator_actions(info, hal, &compound_id, 0);
+	rc = mdt_hsm_add_actions(info, hal, &compound_id);
 	/* ENODATA error code is needed only for implicit requests */
 	if (rc == -ENODATA)
 		rc = 0;
