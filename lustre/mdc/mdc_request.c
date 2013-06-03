@@ -2008,18 +2008,19 @@ static void lustre_swab_hai(struct hsm_action_item *h)
 
 static void lustre_swab_hal(struct hsm_action_list *h)
 {
-	struct hsm_action_item	*hai;
+	struct hsm_action_item	*hai, *tmp;
 	int			 i;
 
+	hai = hai_zero(h);
+	for (i = 0; i < h->hal_count; i++) {
+		tmp = hai_next(hai);
+		lustre_swab_hai(hai);
+		hai = tmp;
+	}
 	__swab32s(&h->hal_version);
 	__swab32s(&h->hal_count);
 	__swab32s(&h->hal_archive_id);
 	__swab64s(&h->hal_flags);
-	hai = hai_zero(h);
-	for (i = 0; i < h->hal_count; i++) {
-		lustre_swab_hai(hai);
-		hai = hai_next(hai);
-	}
 }
 
 static void lustre_swab_kuch(struct kuc_hdr *l)
