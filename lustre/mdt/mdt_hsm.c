@@ -41,6 +41,15 @@
 
 #include "mdt_internal.h"
 
+/*
+ * fake functions, will be replace by real one with HSM Coordinator patch
+ */
+
+int mdt_hsm_copytool_send(struct obd_export *exp)
+{
+	return 0;
+}
+
 /* Max allocation to satisfy single HSM RPC. */
 #define MDT_HSM_ALLOC_MAX (1 << 20)
 
@@ -53,34 +62,6 @@
 	} while (0)
 
 #define MDT_HSM_FREE(ptr, size) OBD_FREE_LARGE((ptr), (size))
-
-/*
- * fake functions, will be replace by real one with HSM Coordinator patch
- */
-
-int mdt_hsm_copytool_send(struct obd_export *exp)
-{
-	return 0;
-}
-
-static int mdt_hsm_coordinator_update(struct mdt_thread_info *info,
-				      struct hsm_progress_kernel *pgs)
-{
-	return 0;
-}
-
-static int mdt_hsm_agent_register_mask(struct mdt_thread_info *info,
-				       struct obd_uuid *uuid,
-				       __u32 archive_mask)
-{
-	return 0;
-}
-
-static int mdt_hsm_agent_unregister(struct mdt_thread_info *info,
-				    struct obd_uuid *uuid)
-{
-	return 0;
-}
 
 /**
  * Update on-disk HSM attributes.
