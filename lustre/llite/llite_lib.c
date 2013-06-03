@@ -1538,7 +1538,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
 
 	if (attr->ia_valid & (ATTR_SIZE |
 			      ATTR_ATIME | ATTR_ATIME_SET |
-			      ATTR_MTIME | ATTR_MTIME_SET))
+			      ATTR_MTIME | ATTR_MTIME_SET)) {
                 /* For truncate and utimes sending attributes to OSTs, setting
                  * mtime/atime to the past will be performed under PW [0:EOF]
                  * extent lock (new_size:EOF for truncate).  It may seem
@@ -1546,6 +1546,11 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr)
                  * setting times to past, but it is necessary due to possible
                  * time de-synchronization between MDT inode and OST objects */
                 rc = ll_setattr_ost(inode, attr);
+		/* if file is released, truncate must failed but not
+		 * chown/chmod/utimes */
+		if (rc == -ENODATA && !(attr->ia_valid & ATTR_SIZE))
+			rc = 0;
+	}
         EXIT;
 out:
         if (op_data) {
@@ -1846,6 +1851,11 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                 LASSERT(md->oss_capa);
                 ll_add_capa(inode, md->oss_capa);
         }
+
+	if (body->valid & OBD_MD_TSTATE) {
+		if (body->t_state & MS_RESTORE)
+			lli->lli_flags |= LLIF_FILE_RESTORING;
+	}
 }
 
 void ll_read_inode2(struct inode *inode, void *opaque)
