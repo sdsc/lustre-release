@@ -82,20 +82,6 @@ static int mdt_hsm_agent_unregister(struct mdt_thread_info *info,
 	return 0;
 }
 
-static int mdt_hsm_coordinator_get_actions(struct mdt_thread_info *mti,
-					   struct hsm_action_list *hal)
-{
-	return 0;
-}
-
-static int mdt_hsm_coordinator_actions(struct mdt_thread_info *info,
-				       struct hsm_action_list *hal,
-				       __u64 *compound_id,
-				       int mti_attr_is_valid)
-{
-	return 0;
-}
-
 /**
  * Update on-disk HSM attributes.
  */
@@ -550,7 +536,7 @@ int mdt_hsm_request(struct mdt_thread_info *info)
 		hai = hai_next(hai);
 	}
 
-	rc = mdt_hsm_coordinator_actions(info, hal, &compound_id, 0);
+	rc = mdt_hsm_coordinator_actions(info, hal, &compound_id);
 	/* ENODATA error code is needed only for implicit requests */
 	if (rc == -ENODATA)
 		rc = 0;
