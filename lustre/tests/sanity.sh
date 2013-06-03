@@ -11150,7 +11150,6 @@ test_229() { # LU-2482, LU-3448
 	[ $stripe_count -eq 2 ] || error "stripe count not 2 ($stripe_count)"
 	stat $DIR/$tfile || error "failed to stat released file"
 
-	# Truncate should fail.
 	$TRUNCATE $DIR/$tfile 200000 &&
 		error "truncate of released file should fail"
 
