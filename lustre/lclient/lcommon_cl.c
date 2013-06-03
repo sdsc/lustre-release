@@ -1343,3 +1343,31 @@ void inline ccc_inode_lsm_put(struct inode *inode, struct lov_stripe_md *lsm)
 {
 	lov_lsm_put(cl_i2info(inode)->lli_clob, lsm);
 }
+
+int ccc_object_restore(const struct lu_env *env, struct cl_object *obj,
+	       struct cl_io *io)
+{
+	struct hsm_user_request	*hur;
+	struct inode		*inode = ccc_object_inode(obj);
+	int			 len, rc;
+	ENTRY;
+
+	len = sizeof(struct hsm_user_request) +
+	      sizeof(struct hsm_user_item);
+	OBD_ALLOC(hur, len);
+	if (hur == NULL)
+		RETURN(-ENOMEM);
+
+	hur->hur_request.hr_action = HUA_RESTORE;
+	hur->hur_request.hr_archive_id = 0;
+	hur->hur_request.hr_flags = 0;
+	memcpy(&hur->hur_user_item[0].hui_fid, lu_object_fid(&obj->co_lu),
+	       sizeof(hur->hur_user_item[0].hui_fid));
+	hur->hur_user_item[0].hui_extent.length = -1;
+	hur->hur_request.hr_itemcount = 1;
+	rc = obd_iocontrol(LL_IOC_HSM_REQUEST, cl_i2sbi(inode)->ll_md_exp,
+			   len, hur, NULL);
+	OBD_FREE(hur, len);
+	RETURN(rc);
+}
+EXPORT_SYMBOL(ccc_object_restore);
