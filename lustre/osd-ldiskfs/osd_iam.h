@@ -45,7 +45,6 @@
 
 #include <linux/module.h>
 #include <asm/unaligned.h>
-#include <linux/dynlocks.h>
 /*
  *  linux/include/linux/osd_iam.h
  */
