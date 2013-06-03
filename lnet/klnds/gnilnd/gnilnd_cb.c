@@ -255,7 +255,7 @@ kgnilnd_alloc_tx (void)
 	if (CFS_FAIL_CHECK(CFS_FAIL_GNI_ALLOC_TX))
 		return tx;
 
-	tx = cfs_mem_cache_alloc(kgnilnd_data.kgn_tx_cache, CFS_ALLOC_ATOMIC);
+	tx = cfs_mem_cache_alloc(kgnilnd_data.kgn_tx_cache, GFP_ATOMIC);
 	if (tx == NULL) {
 		CERROR("failed to allocate tx\n");
 		return NULL;
@@ -522,7 +522,7 @@ kgnilnd_setup_immediate_buffer(kgn_tx_t *tx, unsigned int niov, struct iovec *io
 			 * than kiov_len, we will also have a whole at the end of that page
 			 * which isn't allowed */
 			if ((kiov[i].kiov_offset != 0 && i > 0) ||
-			    (kiov[i].kiov_offset + kiov[i].kiov_len != CFS_PAGE_SIZE && i < niov - 1)) {
+			    (kiov[i].kiov_offset + kiov[i].kiov_len != PAGE_CACHE_SIZE && i < niov - 1)) {
 				CNETERR("Can't make payload contiguous in I/O VM:"
 				       "page %d, offset %u, nob %u, kiov_offset %u kiov_len %u \n",
 				       i, offset, nob, kiov->kiov_offset, kiov->kiov_len);
@@ -641,7 +641,7 @@ kgnilnd_setup_phys_buffer(kgn_tx_t *tx, int nkiov, lnet_kiov_t *kiov,
 
 	/* only allocate this if we are going to use it */
 	tx->tx_phys = cfs_mem_cache_alloc(kgnilnd_data.kgn_tx_phys_cache,
-					      CFS_ALLOC_ATOMIC);
+					      GFP_ATOMIC);
 	if (tx->tx_phys == NULL) {
 		CERROR("failed to allocate tx_phys\n");
 		rc = -ENOMEM;
@@ -1990,7 +1990,7 @@ kgnilnd_alloc_rx(void)
 {
 	kgn_rx_t	*rx;
 
-	rx = cfs_mem_cache_alloc(kgnilnd_data.kgn_rx_cache, CFS_ALLOC_ATOMIC);
+	rx = cfs_mem_cache_alloc(kgnilnd_data.kgn_rx_cache, GFP_ATOMIC);
 	if (rx == NULL) {
 		CERROR("failed to allocate rx\n");
 		return NULL;

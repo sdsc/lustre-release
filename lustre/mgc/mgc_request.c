@@ -1233,7 +1233,7 @@ static int mgc_llog_finish(struct obd_device *obd, int count)
 }
 
 enum {
-        CONFIG_READ_NRPAGES_INIT = 1 << (20 - CFS_PAGE_SHIFT),
+	CONFIG_READ_NRPAGES_INIT = 1 << (20 - PAGE_CACHE_SHIFT),
         CONFIG_READ_NRPAGES      = 4
 };
 
@@ -1259,22 +1259,22 @@ static int mgc_apply_recover_logs(struct obd_device *mgc,
         LASSERT(cfg->cfg_instance != NULL);
         LASSERT(cfg->cfg_sb == cfg->cfg_instance);
 
-        OBD_ALLOC(inst, CFS_PAGE_SIZE);
+	OBD_ALLOC(inst, PAGE_CACHE_SIZE);
         if (inst == NULL)
                 RETURN(-ENOMEM);
 
 	if (!IS_SERVER(lsi)) {
-		pos = snprintf(inst, CFS_PAGE_SIZE, "%p", cfg->cfg_instance);
-		if (pos >= CFS_PAGE_SIZE) {
-			OBD_FREE(inst, CFS_PAGE_SIZE);
+		pos = snprintf(inst, PAGE_CACHE_SIZE, "%p", cfg->cfg_instance);
+		if (pos >= PAGE_CACHE_SIZE) {
+			OBD_FREE(inst, PAGE_CACHE_SIZE);
 			return -E2BIG;
 		}
         } else {
 		LASSERT(IS_MDT(lsi));
 		rc = server_name2svname(lsi->lsi_svname, inst, NULL,
-					CFS_PAGE_SIZE);
+					PAGE_CACHE_SIZE);
 		if (rc) {
-			OBD_FREE(inst, CFS_PAGE_SIZE);
+			OBD_FREE(inst, PAGE_CACHE_SIZE);
 			RETURN(-EINVAL);
 		}
 		pos = strlen(inst);
@@ -1282,7 +1282,7 @@ static int mgc_apply_recover_logs(struct obd_device *mgc,
 
         ++pos;
         buf   = inst + pos;
-        bufsz = CFS_PAGE_SIZE - pos;
+	bufsz = PAGE_CACHE_SIZE - pos;
 
         while (datalen > 0) {
                 int   entry_len = sizeof(*entry);
@@ -1314,7 +1314,7 @@ static int mgc_apply_recover_logs(struct obd_device *mgc,
 		/* Keep this swab for normal mixed endian handling. LU-1644 */
 		if (mne_swab)
 			lustre_swab_mgs_nidtbl_entry(entry);
-		if (entry->mne_length > CFS_PAGE_SIZE) {
+		if (entry->mne_length > PAGE_CACHE_SIZE) {
 			CERROR("MNE too large (%u)\n", entry->mne_length);
 			break;
 		}
@@ -1432,7 +1432,7 @@ static int mgc_apply_recover_logs(struct obd_device *mgc,
                 /* continue, even one with error */
         }
 
-        OBD_FREE(inst, CFS_PAGE_SIZE);
+	OBD_FREE(inst, PAGE_CACHE_SIZE);
         RETURN(rc);
 }
 
@@ -1448,7 +1448,7 @@ static int mgc_process_recover_log(struct obd_device *obd,
         struct mgs_config_body *body;
         struct mgs_config_res  *res;
         struct ptlrpc_bulk_desc *desc;
-        cfs_page_t **pages;
+	struct page **pages;
         int nrpages;
         bool eof = true;
 	bool mne_swab = false;
@@ -1472,7 +1472,7 @@ static int mgc_process_recover_log(struct obd_device *obd,
                 GOTO(out, rc = -ENOMEM);
 
         for (i = 0; i < nrpages; i++) {
-                pages[i] = cfs_alloc_page(CFS_ALLOC_STD);
+		pages[i] = alloc_page(GFP_IOFS);
                 if (pages[i] == NULL)
                         GOTO(out, rc = -ENOMEM);
         }
@@ -1498,7 +1498,7 @@ again:
 		GOTO(out, rc = -E2BIG);
         body->mcb_offset = cfg->cfg_last_idx + 1;
         body->mcb_type   = cld->cld_type;
-        body->mcb_bits   = CFS_PAGE_SHIFT;
+	body->mcb_bits   = PAGE_CACHE_SHIFT;
         body->mcb_units  = nrpages;
 
 	/* allocate bulk transfer descriptor */
@@ -1508,7 +1508,7 @@ again:
 		GOTO(out, rc = -ENOMEM);
 
 	for (i = 0; i < nrpages; i++)
-		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0, CFS_PAGE_SIZE);
+		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0, PAGE_CACHE_SIZE);
 
         ptlrpc_request_set_replen(req);
         rc = ptlrpc_queue_wait(req);
@@ -1531,7 +1531,7 @@ again:
         if (ealen < 0)
                 GOTO(out, rc = ealen);
 
-        if (ealen > nrpages << CFS_PAGE_SHIFT)
+	if (ealen > nrpages << PAGE_CACHE_SHIFT)
                 GOTO(out, rc = -EINVAL);
 
         if (ealen == 0) { /* no logs transferred */
@@ -1554,18 +1554,18 @@ again:
                 int rc2;
                 void *ptr;
 
-                ptr = cfs_kmap(pages[i]);
+		ptr = kmap(pages[i]);
                 rc2 = mgc_apply_recover_logs(obd, cld, res->mcr_offset, ptr,
-					     min_t(int, ealen, CFS_PAGE_SIZE),
+					     min_t(int, ealen, PAGE_CACHE_SIZE),
 					     mne_swab);
-                cfs_kunmap(pages[i]);
+		kunmap(pages[i]);
                 if (rc2 < 0) {
                         CWARN("Process recover log %s error %d\n",
                               cld->cld_logname, rc2);
                         break;
                 }
 
-                ealen -= CFS_PAGE_SIZE;
+		ealen -= PAGE_CACHE_SIZE;
         }
 
 out:
@@ -1579,7 +1579,7 @@ out:
                 for (i = 0; i < nrpages; i++) {
                         if (pages[i] == NULL)
                                 break;
-                        cfs_free_page(pages[i]);
+			__free_page(pages[i]);
                 }
                 OBD_FREE(pages, sizeof(*pages) * nrpages);
         }

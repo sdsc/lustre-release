@@ -470,7 +470,7 @@ int fsfilt_ext3_map_ext_inode_pages(struct inode *inode, struct page **page,
 				    int pages, unsigned long *blocks,
 				    int create)
 {
-        int blocks_per_page = CFS_PAGE_SIZE >> inode->i_blkbits;
+	int blocks_per_page = PAGE_CACHE_SIZE >> inode->i_blkbits;
         int rc = 0, i = 0;
         struct page *fp = NULL;
         int clen = 0;
@@ -519,7 +519,7 @@ int fsfilt_ext3_map_bm_inode_pages(struct inode *inode, struct page **page,
 				   int pages, unsigned long *blocks,
 				   int create)
 {
-	int blocks_per_page = CFS_PAGE_SIZE >> inode->i_blkbits;
+	int blocks_per_page = PAGE_CACHE_SIZE >> inode->i_blkbits;
 	unsigned long *b;
 	int rc = 0, i;
 
