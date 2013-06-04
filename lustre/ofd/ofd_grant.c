@@ -610,8 +610,10 @@ static long ofd_grant(struct obd_export *exp, obd_size curgrant,
 
 	/* client not supporting OBD_CONNECT_GRANT_PARAM works with a 4KB block
 	 * size while the reality is different */
-	curgrant    = ofd_grant_from_cli(exp, ofd, curgrant);
-	want	= ofd_grant_from_cli(exp, ofd, want);
+	curgrant = ofd_grant_from_cli(exp, ofd, curgrant);
+	want = ofd_grant_from_cli(exp, ofd, want);
+	if (want < (1ULL << ofd->ofd_blockbits))
+		want = 1ULL << ofd->ofd_blockbits;
 	grant_chunk = ofd_grant_chunk(exp, ofd);
 
 	/* Grant some fraction of the client's requested grant space so that
@@ -931,7 +933,6 @@ int ofd_grant_create(const struct lu_env *env, struct obd_export *exp, int *nr)
 	struct filter_export_data	*fed = &exp->exp_filter_data;
 	obd_size			 left = 0;
 	unsigned long			 wanted;
-
 	ENTRY;
 
 	info->fti_used = 0;
@@ -994,9 +995,14 @@ int ofd_grant_create(const struct lu_env *env, struct obd_export *exp, int *nr)
 	fed->fed_pending += info->fti_used;
 	ofd->ofd_tot_pending += info->fti_used;
 
-	/* grant more space (twice as much as needed for this request) for
-	 * precreate purpose if possible */
-	ofd_grant(exp, fed->fed_grant, wanted * 2, left, true);
+	/* grant more space for precreate purpose if possible. */
+	wanted = OST_MAX_PRECREATE * ofd->ofd_dt_conf.ddp_inodespace;
+	if (wanted > fed->fed_grant) {
+		/* always try to book enough space to handle a large precreate
+		 * request */
+		wanted -= fed->fed_grant;
+		ofd_grant(exp, fed->fed_grant, wanted, left);
+	}
 	spin_unlock(&ofd->ofd_grant_lock);
 	RETURN(0);
 }
