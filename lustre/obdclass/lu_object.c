@@ -560,6 +560,9 @@ static struct lu_object *htable_lookup(struct lu_site *s,
                 return lu_object_top(h);
         }
 
+	if (waiter == NULL)
+		return NULL;
+
         /*
          * Lookup found an object being destroyed this object cannot be
          * returned (to assure that references to dying objects are eventually
@@ -713,6 +716,29 @@ struct lu_object *lu_object_find_at(const struct lu_env *env,
         }
 }
 EXPORT_SYMBOL(lu_object_find_at);
+
+/**
+ * Much like lu_object_find_at(), but it only try to find the object in
+ * cache without waiting for the dead object to be freed nor allocating
+ * object if no cached one was found.
+ */
+struct lu_object *lu_object_find_only(const struct lu_env *env,
+				      struct lu_device *dev,
+				      const struct lu_fid *f,
+				      const struct lu_object_conf *conf)
+{
+	struct lu_site		*s  = dev->ld_site;
+	cfs_hash_t		*hs = s->ls_obj_hash;
+	cfs_hash_bd_t		 bd;
+	struct lu_object	*o;
+	__u64			 v  = 0;
+
+	cfs_hash_bd_get_and_lock(hs, (void *)f, &bd, 1);
+	o = htable_lookup(s, &bd, f, NULL, &v);
+	cfs_hash_bd_unlock(hs, &bd, 1);
+	return o;
+}
+EXPORT_SYMBOL(lu_object_find_only);
 
 /**
  * Find object with given fid, and return its slice belonging to given device.
