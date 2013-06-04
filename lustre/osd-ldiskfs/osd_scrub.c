@@ -60,6 +60,8 @@
 #define SCRUB_NEXT_FATAL	6 /* simulate failure during OI scrub */
 #define SCRUB_NEXT_NOSCRUB	7 /* new created object, no scrub on it */
 #define SCRUB_NEXT_NOLMA	8 /* the inode has no FID-in-LMA */
+#define SCRUB_NEXT_FOO		9 /* FID-on-OST */
+#define SCRUB_NEXT_FOO_OLD	10 /* old FID-on-OST, no LMA */
 
 /* misc functions */
 
@@ -79,6 +81,26 @@ static inline int osd_scrub_has_window(struct osd_scrub *scrub,
 	return scrub->os_pos_current < ooc->ooc_pos_preload + SCRUB_WINDOW_SIZE;
 }
 
+static int osd_get_idif(struct osd_thread_info *info, struct inode *inode,
+			struct dentry *dentry, struct lu_fid *fid)
+{
+	struct filter_fid_old	*ff	= &info->oti_ff;
+	struct ost_id		*ostid	= &info->oti_ostid;
+	int			 rc;
+
+	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_FID, ff, sizeof(*ff));
+	if (rc > 0) {
+		rc = 0;
+		ostid_set_seq(ostid, le64_to_cpu(ff->ff_seq));
+		ostid_set_id(ostid, le64_to_cpu(ff->ff_objid));
+		ostid_to_fid(fid, ostid, 0);
+	} else if (rc == 0) {
+		rc = -ENODATA;
+	}
+
+	return rc;
+}
+
 /**
  * update/insert/delete the specified OI mapping (@fid @id) according to the ops
  *
@@ -89,48 +111,31 @@ static inline int osd_scrub_has_window(struct osd_scrub *scrub,
 static int osd_scrub_refresh_mapping(struct osd_thread_info *info,
 				     struct osd_device *dev,
 				     const struct lu_fid *fid,
-				     const struct osd_inode_id *id, int ops)
+				     const struct osd_inode_id *id,
+				     int ops, __u32 flags)
 {
-	struct lu_fid	      *oi_fid = &info->oti_fid2;
-	struct osd_inode_id   *oi_id  = &info->oti_id2;
-	struct iam_container  *bag;
-	struct iam_path_descr *ipd;
-	handle_t	      *jh;
-	int		       rc;
+	const struct lu_env *env = info->oti_env;
+	struct thandle	    *th;
+	struct osd_thandle  *oh;
+	int		     rc;
 	ENTRY;
 
-	fid_cpu_to_be(oi_fid, fid);
-	osd_id_pack(oi_id, id);
-	jh = ldiskfs_journal_start_sb(osd_sb(dev),
-				      osd_dto_credits_noquota[ops]);
-	if (IS_ERR(jh)) {
-		rc = PTR_ERR(jh);
-		CERROR("%.16s: fail to start trans for scrub store: rc = %d\n",
-		       LDISKFS_SB(osd_sb(dev))->s_es->s_volume_name, rc);
-		RETURN(rc);
-	}
+	th = dt_trans_create(env, &dev->od_dt_dev);
+	if (IS_ERR(th))
+		RETURN(PTR_ERR(th));
 
-	bag = &osd_fid2oi(dev, fid)->oi_dir.od_container;
-	ipd = osd_idx_ipd_get(info->oti_env, bag);
-	if (unlikely(ipd == NULL)) {
-		ldiskfs_journal_stop(jh);
-		CERROR("%.16s: fail to get ipd for scrub store\n",
-		       LDISKFS_SB(osd_sb(dev))->s_es->s_volume_name);
-		RETURN(-ENOMEM);
-	}
+	oh = container_of0(th, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle == NULL);
 
 	switch (ops) {
-	case DTO_INDEX_UPDATE:
-		rc = iam_update(jh, bag, (const struct iam_key *)oi_fid,
-				(struct iam_rec *)oi_id, ipd);
-		if (unlikely(rc == -ENOENT)) {
-			/* Some unlink thread may removed the OI mapping. */
-			rc = 1;
-		}
-		break;
 	case DTO_INDEX_INSERT:
-		rc = iam_insert(jh, bag, (const struct iam_key *)oi_fid,
-				(struct iam_rec *)oi_id, ipd);
+		osd_trans_declare_op(env, oh, OSD_OT_INSERT,
+				     osd_dto_credits_noquota[DTO_INDEX_INSERT]);
+		rc = dt_trans_start_local(env, &dev->od_dt_dev, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+
+		rc = osd_oi_insert(info, dev, fid, id, th, flags);
 		if (unlikely(rc == -EEXIST)) {
 			rc = 1;
 			/* XXX: There are trouble things when adding OI
@@ -167,10 +172,29 @@ static int osd_scrub_refresh_mapping(struct osd_thread_info *info,
 		}
 		break;
 	case DTO_INDEX_DELETE:
-		rc = iam_delete(jh, bag, (const struct iam_key *)oi_fid, ipd);
+		osd_trans_declare_op(env, oh, OSD_OT_DELETE,
+				     osd_dto_credits_noquota[DTO_INDEX_DELETE]);
+		rc = dt_trans_start_local(env, &dev->od_dt_dev, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+
+		rc = osd_oi_delete(info, dev, fid, th, flags);
 		if (rc == -ENOENT) {
 			/* It is normal that the unlink thread has removed the
 			 * OI mapping already. */
+			rc = 1;
+		}
+		break;
+	case DTO_INDEX_UPDATE:
+		osd_trans_declare_op(env, oh, OSD_OT_UPDATE,
+				     osd_dto_credits_noquota[DTO_INDEX_UPDATE]);
+		rc = dt_trans_start_local(env, &dev->od_dt_dev, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+
+		rc = osd_oi_update(info, dev, fid, id, th, flags);
+		if (unlikely(rc == -ENOENT)) {
+			/* Some unlink thread may removed the OI mapping. */
 			rc = 1;
 		}
 		break;
@@ -178,9 +202,12 @@ static int osd_scrub_refresh_mapping(struct osd_thread_info *info,
 		LASSERTF(0, "Unexpected ops %d\n", ops);
 		break;
 	}
-	osd_ipd_put(info->oti_env, bag, ipd);
-	ldiskfs_journal_stop(jh);
-	RETURN(rc);
+
+	GOTO(stop, rc);
+
+stop:
+	dt_trans_stop(env, &dev->od_dt_dev, th);
+	return rc;
 }
 
 /* OI_scrub file ops */
@@ -449,12 +476,9 @@ osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 	if ((oii != NULL && oii->oii_insert) || (val == SCRUB_NEXT_NOLMA))
 		goto iget;
 
-	/* XXX: Currently, no FID-in-LMA for OST object, so osd_oi_lookup()
-	 * 	without checking FLD is enough.
-	 *
-	 * 	It should be updated if FID-in-LMA for OSD object introduced
-	 * 	in the future. */
-	rc = osd_oi_lookup(info, dev, fid, lid2, false);
+	rc = osd_oi_lookup(info, dev, fid, lid2,
+		(val == SCRUB_NEXT_FOO || val == SCRUB_NEXT_FOO_OLD) ?
+		OI_KNOWN_ON_OST : 0);
 	if (rc != 0) {
 		if (rc != -ENOENT)
 			GOTO(out, rc);
@@ -475,28 +499,39 @@ iget:
 			GOTO(out, rc = 0);
 		}
 
+		scrub->os_full_speed = 1;
 		ops = DTO_INDEX_INSERT;
 		idx = osd_oi_fid2idx(dev, fid);
-		if (val == SCRUB_NEXT_NOLMA) {
+		switch (val) {
+		case SCRUB_NEXT_NOLMA:
 			sf->sf_flags |= SF_UPGRADE;
-			scrub->os_full_speed = 1;
-			rc = osd_ea_fid_set(info, inode, fid, 0);
+			rc = osd_ea_fid_set(info, inode, fid, 0, 0);
 			if (rc != 0)
 				GOTO(out, rc);
 
 			if (!(sf->sf_flags & SF_INCONSISTENT))
 				dev->od_igif_inoi = 0;
-		} else {
+			break;
+		case SCRUB_NEXT_FOO:
+			sf->sf_flags |= SF_INCONSISTENT;
+			break;
+		case SCRUB_NEXT_FOO_OLD:
+			sf->sf_flags |= SF_UPGRADE;
+			rc = osd_ea_fid_set(info, inode, fid, LMAC_FOO, 0);
+			if (rc != 0)
+				GOTO(out, rc);
+			break;
+		default:
 			sf->sf_flags |= SF_RECREATED;
-			scrub->os_full_speed = 1;
 			if (unlikely(!ldiskfs_test_bit(idx, sf->sf_oi_bitmap)))
 				ldiskfs_set_bit(idx, sf->sf_oi_bitmap);
+			break;
 		}
 	} else if (osd_id_eq(lid, lid2)) {
 		GOTO(out, rc = 0);
 	} else {
-		sf->sf_flags |= SF_INCONSISTENT;
 		scrub->os_full_speed = 1;
+		sf->sf_flags |= SF_INCONSISTENT;
 
 		/* XXX: If the device is restored from file-level backup, then
 		 *	some IGIFs may have been already in OI files, and some
@@ -513,7 +548,9 @@ iget:
 		dev->od_igif_inoi = 1;
 	}
 
-	rc = osd_scrub_refresh_mapping(info, dev, fid, lid, ops);
+	rc = osd_scrub_refresh_mapping(info, dev, fid, lid, ops,
+			(val == SCRUB_NEXT_FOO || val == SCRUB_NEXT_FOO_OLD) ?
+			OI_KNOWN_ON_OST : 0);
 	if (rc == 0) {
 		if (scrub->os_in_prior)
 			sf->sf_items_updated_prior++;
@@ -541,7 +578,9 @@ out:
 		 * if happend, then remove the new added OI mapping. */
 		if (unlikely(inode->i_nlink == 0))
 			osd_scrub_refresh_mapping(info, dev, fid, lid,
-						  DTO_INDEX_DELETE);
+				DTO_INDEX_DELETE, (val == SCRUB_NEXT_FOO ||
+						   val == SCRUB_NEXT_FOO_OLD) ?
+						  OI_KNOWN_ON_OST : 0);
 		iput(inode);
 	}
 	up_write(&scrub->os_rwsem);
@@ -700,6 +739,19 @@ static int osd_iit_iget(struct osd_thread_info *info, struct osd_device *dev,
 
 	rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
 	if (rc == 0) {
+		if (lma->lma_compat & LMAC_NO_OI) {
+			ldiskfs_set_inode_state(inode,
+						LDISKFS_STATE_LUSTRE_NO_OI);
+			iput(inode);
+			return SCRUB_NEXT_CONTINUE;
+		}
+
+		if (lma->lma_compat & LMAC_FOO && scrub) {
+			*fid = lma->lma_self_fid;
+			iput(inode);
+			return SCRUB_NEXT_FOO;
+		}
+
 		if (fid_is_llog(&lma->lma_self_fid) ||
 		    (!scrub && fid_is_internal(&lma->lma_self_fid)) ||
 		    (scrub && (lma->lma_incompat & LMAI_AGENT)))
@@ -707,11 +759,22 @@ static int osd_iit_iget(struct osd_thread_info *info, struct osd_device *dev,
 		else
 			*fid = lma->lma_self_fid;
 	} else if (rc == -ENODATA) {
-		lu_igif_build(fid, inode->i_ino, inode->i_generation);
-		if (scrub)
-			rc = SCRUB_NEXT_NOLMA;
-		else
-			rc = 0;
+		/* It may be old OST device. */
+		rc = osd_get_idif(info, inode, &info->oti_obj_dentry, fid);
+		if (rc == 0) {
+			if (scrub) {
+				if (fid_is_idif(fid))
+					rc = SCRUB_NEXT_FOO_OLD;
+				else
+					rc = SCRUB_NEXT_CONTINUE;
+			}
+		} else if (rc == -ENODATA) {
+			lu_igif_build(fid, inode->i_ino, inode->i_generation);
+			if (scrub)
+				rc = SCRUB_NEXT_NOLMA;
+			else
+				rc = 0;
+		}
 	}
 	iput(inode);
 	return rc;
@@ -1303,20 +1366,26 @@ osd_ios_scan_one(struct osd_thread_info *info, struct osd_device *dev,
 			lu_igif_build(&tfid, inode->i_ino, inode->i_generation);
 		else
 			tfid = *fid;
-		rc = osd_ea_fid_set(info, inode, &tfid, 0);
+		rc = osd_ea_fid_set(info, inode, &tfid, 0, 0);
 		if (rc != 0)
 			RETURN(rc);
 	} else {
+		if (lma->lma_compat & LMAC_NO_OI)
+			RETURN(0);
+
 		tfid = lma->lma_self_fid;
 	}
 
-	rc = __osd_oi_lookup(info, dev, &tfid, id2);
+	rc = osd_oi_lookup(info, dev, &tfid, id2, 0);
 	if (rc != 0) {
 		if (rc != -ENOENT)
 			RETURN(rc);
 
 		rc = osd_scrub_refresh_mapping(info, dev, &tfid, id,
-					       DTO_INDEX_INSERT);
+					       DTO_INDEX_INSERT, 0);
+		if (rc > 0)
+			rc = 0;
+
 		RETURN(rc);
 	}
 
@@ -1332,7 +1401,10 @@ osd_ios_scan_one(struct osd_thread_info *info, struct osd_device *dev,
 			RETURN(rc);
 	}
 
-	rc = osd_scrub_refresh_mapping(info, dev, &tfid, id, DTO_INDEX_UPDATE);
+	rc = osd_scrub_refresh_mapping(info, dev, &tfid, id,
+				       DTO_INDEX_UPDATE, 0);
+	if (rc > 0)
+		rc = 0;
 
 	RETURN(rc);
 }
@@ -1439,7 +1511,14 @@ osd_ios_ROOT_scan(struct osd_thread_info *info, struct osd_device *dev,
 	int		   rc;
 	ENTRY;
 
-	/* It is existing MDT device. */
+	/* It is existing MDT0 device. We only allow the case of object without
+	 * LMA to happen on the MDT0, which is usually for old 1.8 MDT. Then we
+	 * can generate IGIF mode FID for the object and related OI mapping. If
+	 * it is on other MDTs, then becuase file-level backup/restore, related
+	 * OI mapping may be invalid already, we do not know which is the right
+	 * FID for the object. We only allow IGIF objects to reside on the MDT0.
+	 *
+	 * For OSD device, we do not know how to generate the lost FID/IDIF. */
 	dev->od_handle_nolma = 1;
 	child = osd_ios_lookup_one_len(dot_lustre_name, dentry,
 				       strlen(dot_lustre_name));
@@ -1685,6 +1764,8 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 	struct ldiskfs_super_block *es     = LDISKFS_SB(sb)->s_es;
 	struct lvfs_run_ctxt	    saved;
 	struct file		   *filp;
+	struct inode		   *inode;
+	struct lu_fid		   *fid    = &info->oti_fid;
 	int			    dirty  = 0;
 	int			    rc     = 0;
 	ENTRY;
@@ -1702,14 +1783,26 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 
 	push_ctxt(&saved, ctxt, NULL);
 	filp = filp_open(osd_scrub_name, O_RDWR | O_CREAT, 0644);
-	if (IS_ERR(filp))
+	if (IS_ERR(filp)) {
+		pop_ctxt(&saved, ctxt, NULL);
 		RETURN(PTR_ERR(filp));
+	}
 
-	scrub->os_inode = igrab(filp->f_dentry->d_inode);
+	inode = filp->f_dentry->d_inode;
+	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
+	/* 'What the @fid is' is not imporatant, because the object
+	 * has no OI mapping, and only is visible inside the OSD.*/
+	lu_igif_build(fid, inode->i_ino, inode->i_generation);
+	rc = osd_ea_fid_set(info, inode, fid, LMAC_NO_OI, 0);
+	if (rc != 0) {
+		filp_close(filp, 0);
+		pop_ctxt(&saved, ctxt, NULL);
+		RETURN(rc);
+	}
+
+	scrub->os_inode = igrab(inode);
 	filp_close(filp, 0);
 	pop_ctxt(&saved, ctxt, NULL);
-	ldiskfs_set_inode_state(scrub->os_inode,
-				LDISKFS_STATE_LUSTRE_NO_OI);
 
 	rc = osd_scrub_file_load(scrub);
 	if (rc == -ENOENT) {
