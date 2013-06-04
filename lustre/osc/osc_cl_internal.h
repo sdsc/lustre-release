@@ -80,6 +80,8 @@ struct osc_io {
 	 * page writeback from happening. */
 	struct osc_extent *oi_trunc;
 
+	int oi_lru_reserved;
+
 	struct obd_info    oi_info;
 	struct obdo        oi_oa;
 	struct osc_async_cbargs {
@@ -103,7 +105,7 @@ struct osc_session {
         struct osc_io       os_io;
 };
 
-#define OTI_PVEC_SIZE 64
+#define OTI_PVEC_SIZE 256
 struct osc_thread_info {
         struct ldlm_res_id      oti_resname;
         ldlm_policy_data_t      oti_policy;
