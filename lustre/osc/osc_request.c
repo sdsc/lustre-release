@@ -2022,6 +2022,9 @@ static int brw_interpret(const struct lu_env *env,
 			attr->cat_ctime = oa->o_ctime;
 			valid |= CAT_CTIME;
 		}
+		/* TODO: Check if this brw request can extend the file size
+		 * in case this is a sync and out of quota write. KMS should
+		 * be updated in that case. */
 		if (valid != 0) {
 			cl_object_attr_lock(obj);
 			cl_object_attr_set(env, obj, attr, valid);
