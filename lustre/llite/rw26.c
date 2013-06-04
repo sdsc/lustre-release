@@ -503,42 +503,192 @@ out:
 }
 
 #if defined(HAVE_KERNEL_WRITE_BEGIN_END) || defined(MS_HAS_NEW_AOPS)
+static int ll_page_sync_io(const struct lu_env *env, struct cl_io *io,
+                            struct cl_page *page, struct ccc_page *cp,
+                            enum cl_req_type crt)
+{
+        struct cl_2queue  *queue;
+        int result;
+
+        LASSERT(io->ci_type == CIT_READ || io->ci_type == CIT_WRITE);
+
+        queue = &io->ci_queue;
+        cl_2queue_init_page(queue, page);
+
+        result = cl_io_submit_sync(env, io, crt, queue, 0);
+        LASSERT(cl_page_is_owned(page, io));
+
+        if (crt == CRT_READ)
+                /*
+                 * in CRT_WRITE case page is left locked even in case of
+                 * error.
+                 */
+                cl_page_list_disown(env, io, &queue->c2_qin);
+        cl_2queue_fini(env, queue);
+
+        return result;
+}
+
+/**
+ * Prepare partially written-to page for a write.
+ */
+static int ll_prepare_partial_page(const struct lu_env *env, struct cl_io *io,
+                                  struct cl_page *pg)
+{
+	struct cl_object *obj = io->ci_obj;
+        struct cl_attr *attr   = ccc_env_thread_attr(env);
+        loff_t          offset = cl_offset(obj, pg->cp_index);
+        int             result;
+
+        cl_object_attr_lock(obj);
+        result = cl_object_attr_get(env, obj, attr);
+        cl_object_attr_unlock(obj);
+        if (result == 0) {
+		struct ccc_page *cp = cl2ccc_page(cl_page_at(pg, &vvp_device_type));
+
+                /*
+                 * If are writing to a new page, no need to read old data.
+                 * The extent locking will have updated the KMS, and for our
+                 * purposes here we can treat it like i_size.
+                 */
+                if (attr->cat_kms <= offset) {
+                        char *kaddr = ll_kmap_atomic(cp->cpg_page, KM_USER0);
+
+                        memset(kaddr, 0, cl_page_size(obj));
+                        ll_kunmap_atomic(kaddr, KM_USER0);
+                } else if (cp->cpg_defer_uptodate)
+                        cp->cpg_ra_used = 1;
+                else
+                        result = ll_page_sync_io(env, io, pg, cp, CRT_READ);
+        }
+        return result;
+}
+
 static int ll_write_begin(struct file *file, struct address_space *mapping,
                          loff_t pos, unsigned len, unsigned flags,
                          struct page **pagep, void **fsdata)
 {
+        struct ll_cl_context *lcc;
+	struct lu_env  *env;
+	struct cl_io   *io;
+	struct cl_page *page;
+
         pgoff_t index = pos >> PAGE_CACHE_SHIFT;
-        struct page *page;
-        int rc;
+        struct page *vmpage;
         unsigned from = pos & (PAGE_CACHE_SIZE - 1);
+        unsigned to = from + len;
+        int result = 0;
         ENTRY;
 
-        page = grab_cache_page_write_begin(mapping, index, flags);
-        if (!page)
+	CDEBUG(D_VFSTRACE, "Writing %lu of %d to %d bytes\n", index, from, len);
+
+	/* TODO: unplug pending pages if trying to grab the page failed */
+
+        vmpage = grab_cache_page_write_begin(mapping, index, flags);
+        if (vmpage == NULL)
                 RETURN(-ENOMEM);
 
-        *pagep = page;
+        lcc = ll_cl_init(file, vmpage, 1);
+        if (IS_ERR(lcc))
+		GOTO(out, result = PTR_ERR(lcc));
 
-        rc = ll_prepare_write(file, page, from, from + len);
-        if (rc) {
-                unlock_page(page);
-                page_cache_release(page);
-        }
-        RETURN(rc);
+	env = lcc->lcc_env;
+	io  = lcc->lcc_io;
+	page = lcc->lcc_page;
+
+	cl_page_assume(env, io, page);
+	if (!PageUptodate(vmpage)) {
+		/*
+		 * We're completely overwriting an existing page,
+		 * so _don't_ set it up to date until commit_write
+		 */
+		if (from == 0 && to == CFS_PAGE_SIZE) {
+			CL_PAGE_HEADER(D_PAGE, env, page, "full page write\n");
+			POISON_PAGE(vmpage, 0x11);
+		} else {
+			result = ll_prepare_partial_page(env, io, page);
+			if (result == 0)
+				SetPageUptodate(vmpage);
+		}
+	}
+	if (result == 0) {
+		/*
+		 * Add a reference, so that page is not evicted from
+		 * the cache until ->commit_write() is called.
+		 */
+		cl_page_get(page);
+		lu_ref_add(&page->cp_reference, "write_begin", cfs_current());
+	} else {
+		cl_page_unassume(env, io, page);
+	}
+	EXIT;
+
+out:
+        if (result < 0) {
+                unlock_page(vmpage);
+                page_cache_release(vmpage);
+		if (!IS_ERR(lcc))
+			ll_cl_fini(lcc);
+        } else {
+		*pagep = vmpage;
+		*fsdata = lcc;
+	}
+        RETURN(result);
 }
 
 static int ll_write_end(struct file *file, struct address_space *mapping,
                         loff_t pos, unsigned len, unsigned copied,
-                        struct page *page, void *fsdata)
+                        struct page *vmpage, void *fsdata)
 {
+        struct ll_cl_context *lcc;
+        struct lu_env *env;
+        struct cl_io *io;
+	struct ccc_io *cio;
+        struct cl_page *page;
         unsigned from = pos & (PAGE_CACHE_SIZE - 1);
-        int rc;
+	bool queued = false;
+        int result = 0;
+        ENTRY;
 
-        rc = ll_commit_write(file, page, from, from + copied);
-        unlock_page(page);
-        page_cache_release(page);
+        lcc  = fsdata;
+	LASSERT(lcc != NULL);
+        env  = lcc->lcc_env;
+        page = lcc->lcc_page;
+        io   = lcc->lcc_io;
+	cio = ccc_env_io(env);
 
-        return rc ?: copied;
+        LASSERT(cl_page_is_owned(page, io));
+        if (copied > 0 && !PageDirty(vmpage)) { /* handle short write case. */
+		struct cl_page_list *plist = &cio->u.write.cui_queue;
+
+		/* Add it into write queue */
+		queued = true;
+		cl_page_list_add(plist, page);
+		if (plist->pl_nr == 1) /* first page */
+			cio->u.write.cui_from = from;
+		else
+			LASSERT(from == 0);
+		cio->u.write.cui_to = from + copied;
+
+		CL_PAGE_DEBUG(D_VFSTRACE, env, page,
+				"queued page: %d.\n", plist->pl_nr);
+	}
+
+	if (!queued ||
+	    file->f_flags & O_SYNC || IS_SYNC(file->f_dentry->d_inode)) {
+		result = vvp_io_write_commit(env, io);
+		if (!queued) /* page can't be batched. */
+			unlock_page(vmpage);
+	}
+	page_cache_release(vmpage);
+
+        /*
+         * Release reference acquired by ll_write_begin().
+         */
+        lu_ref_del(&page->cp_reference, "write_begin", cfs_current());
+        cl_page_put(env, page);
+        ll_cl_fini(lcc);
+        RETURN(result >= 0 ? copied : result);
 }
 #endif
 
