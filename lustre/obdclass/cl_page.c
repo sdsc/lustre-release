@@ -293,6 +293,8 @@ struct cl_page *cl_page_find(const struct lu_env *env,
                  *       reference on it.
                  */
                 page = cl_vmpage_page(vmpage, o);
+		if (page != NULL)
+			cl_page_get(page);
         }
 
         if (page != NULL) {
@@ -510,10 +512,8 @@ struct cl_page *cl_vmpage_page(cfs_page_t *vmpage, struct cl_object *obj)
 		RETURN(NULL);
 
 	for (page = top; page != NULL; page = page->cp_child) {
-		if (cl_object_same(page->cp_obj, obj)) {
-			cl_page_get_trust(page);
+		if (cl_object_same(page->cp_obj, obj))
 			break;
-		}
 	}
 	LASSERT(ergo(page, page->cp_type == CPT_CACHEABLE));
 	RETURN(page);
