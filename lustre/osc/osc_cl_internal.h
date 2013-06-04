@@ -456,12 +456,16 @@ int osc_prep_async_page(struct osc_object *osc, struct osc_page *ops,
 			cfs_page_t *page, loff_t offset);
 int osc_queue_async_io(const struct lu_env *env, struct cl_io *io,
 		       struct osc_page *ops);
+int osc_page_cache_add(const struct lu_env *env,
+                const struct cl_page_slice *slice, struct cl_io *io);
 int osc_teardown_async_page(const struct lu_env *env, struct osc_object *obj,
 			    struct osc_page *ops);
 int osc_flush_async_page(const struct lu_env *env, struct cl_io *io,
 			 struct osc_page *ops);
 int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 			 cfs_list_t *list, int cmd, int brw_flags);
+int osc_queue_async_pages(const struct lu_env *env, struct osc_object *obj,
+			  cfs_list_t *list, struct osc_io *oio);
 int osc_cache_truncate_start(const struct lu_env *env, struct osc_io *oio,
 			     struct osc_object *obj, __u64 size);
 void osc_cache_truncate_end(const struct lu_env *env, struct osc_io *oio,
@@ -479,6 +483,11 @@ void osc_object_clear_contended(struct osc_object *obj);
 int  osc_object_is_contended   (struct osc_object *obj);
 
 int  osc_lock_is_lockless      (const struct osc_lock *olck);
+
+void osc_page_transfer_add(const struct lu_env *env, struct osc_page *opg,
+                           enum cl_req_type crt);
+void osc_page_transfer_get(struct osc_page *opg, const char *label);
+void osc_page_transfer_put(const struct lu_env *env, struct osc_page *opg);
 
 /*****************************************************************************
  *
