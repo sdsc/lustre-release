@@ -223,8 +223,6 @@ struct osd_otable_it {
 				 ooi_waiting:1; /* it::next is waiting. */
 };
 
-extern const int osd_dto_credits_noquota[];
-
 /*
  * osd device.
  */
@@ -313,8 +311,9 @@ enum {
 	OSD_OT_WRITE		= 7,
 	OSD_OT_INSERT		= 8,
 	OSD_OT_DELETE		= 9,
-	OSD_OT_QUOTA		= 10,
-	OSD_OT_MAX		= 11
+	OSD_OT_UPDATE		= 10,
+	OSD_OT_QUOTA		= 11,
+	OSD_OT_MAX		= 12
 };
 
 struct osd_thandle {
@@ -594,9 +593,18 @@ struct osd_thread_info {
 	bool			oti_rollback;
 
 	char			oti_name[48];
+	struct filter_fid_old	oti_ff;
 };
 
 extern int ldiskfs_pdo;
+
+static inline int __osd_xattr_get(struct inode *inode, struct dentry *dentry,
+				  const char *name, void *buf, int len)
+{
+	dentry->d_inode = inode;
+	dentry->d_sb = inode->i_sb;
+	return inode->i_op->getxattr(dentry, name, buf, len);
+}
 
 static inline int __osd_xattr_set(struct osd_thread_info *info,
 				  struct inode *inode, const char *name,
@@ -625,7 +633,7 @@ int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
 struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
 		       struct osd_inode_id *id);
 int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
-		   const struct lu_fid *fid, __u64 flags);
+		   const struct lu_fid *fid, __u32 compat, __u32 incompat);
 int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
 		struct dentry *dentry, struct lustre_mdt_attrs *lma);
 
@@ -638,9 +646,15 @@ int osd_obj_map_insert(struct osd_thread_info *info, struct osd_device *osd,
 		       struct thandle *th);
 int osd_obj_map_delete(struct osd_thread_info *info, struct osd_device *osd,
 			const struct lu_fid *fid, struct thandle *th);
+int osd_obj_map_update(struct osd_thread_info *info, struct osd_device *osd,
+		       const struct lu_fid *fid, const struct osd_inode_id *id,
+		       struct thandle *th);
 int osd_obj_spec_lookup(struct osd_thread_info *info, struct osd_device *osd,
 			const struct lu_fid *fid, struct osd_inode_id *id);
 int osd_obj_spec_insert(struct osd_thread_info *info, struct osd_device *osd,
+			const struct lu_fid *fid, const struct osd_inode_id *id,
+			struct thandle *th);
+int osd_obj_spec_update(struct osd_thread_info *info, struct osd_device *osd,
 			const struct lu_fid *fid, const struct osd_inode_id *id,
 			struct thandle *th);
 
@@ -689,9 +703,6 @@ const struct dt_rec *osd_quota_pack(struct osd_object *obj,
 void osd_quota_unpack(struct osd_object *obj, const struct dt_rec *rec);
 int osd_quota_migration(const struct lu_env *env, struct dt_object *dt,
 			const struct dt_index_features *feat);
-
-/* osd_compat.c */
-struct osd_obj_seq *osd_seq_load(struct osd_device *osd, obd_seq seq);
 
 static inline bool is_quota_glb_feat(const struct dt_index_features *feat)
 {

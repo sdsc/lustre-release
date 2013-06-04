@@ -210,6 +210,8 @@ check_lustre_mdt_attrs(void)
 
 	CHECK_VALUE_X(LMAC_HSM);
 	CHECK_VALUE_X(LMAC_SOM);
+	CHECK_VALUE_X(LMAC_NO_OI);
+	CHECK_VALUE_X(LMAC_FOO);
 }
 
 static void

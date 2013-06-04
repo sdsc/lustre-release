@@ -71,6 +71,11 @@ struct dt_device;
 struct osd_device;
 struct osd_oi;
 
+enum {
+	OI_CHECK_FLD	= 0x00000001,
+	OI_KNOWN_ON_OST	= 0x00000002,
+};
+
 /*
  * Storage cookie. Datum uniquely identifying inode on the underlying file
  * system.
@@ -134,19 +139,20 @@ static inline int osd_id_eq_strict(const struct osd_inode_id *id0,
 int osd_oi_mod_init(void);
 int osd_oi_init(struct osd_thread_info *info, struct osd_device *osd);
 void osd_oi_fini(struct osd_thread_info *info, struct osd_device *osd);
-int __osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
-		    const struct lu_fid *fid, struct osd_inode_id *id);
 int  osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 		   const struct lu_fid *fid, struct osd_inode_id *id,
-		   bool check_fld);
+		   __u32 flags);
 int  osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 		   const struct lu_fid *fid, const struct osd_inode_id *id,
-		   struct thandle *th);
+		   struct thandle *th, __u32 flags);
 int  osd_oi_delete(struct osd_thread_info *info,
 		   struct osd_device *osd, const struct lu_fid *fid,
-		   struct thandle *th);
+		   struct thandle *th, __u32 flags);
+int  osd_oi_update(struct osd_thread_info *info, struct osd_device *osd,
+		   const struct lu_fid *fid, const struct osd_inode_id *id,
+		   struct thandle *th, __u32 flags);
 
 int fid_is_on_ost(struct osd_thread_info *info, struct osd_device *osd,
-		  const struct lu_fid *fid);
+		  const struct lu_fid *fid, __u32 flags);
 #endif /* __KERNEL__ */
 #endif /* _OSD_OI_H */
