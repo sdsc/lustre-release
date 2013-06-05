@@ -228,10 +228,10 @@ manual_umount_client(){
 }
 
 setup() {
-	start_mds || error "MDT start failed"
-	start_ost || error "OST start failed"
-	mount_client $MOUNT || error "client start failed"
-	client_up || error "client_up failed"
+	start_mds || { cleanup; error "MDT start failed"; }
+	start_ost || { cleanup; error "OST start failed"; }
+	mount_client $MOUNT || { cleanup; error "client start failed"; }
+	client_up || { cleanup; error "client_up failed"; }
 }
 
 setup_noconfig() {
@@ -304,11 +304,13 @@ test_0() {
 run_test 0 "single mount setup"
 
 test_1() {
-	start_mds || error "MDT start failed"
+	start_mds || { error_noexit "MDT start failed"; cleanup; return 1; }
 	start_ost
 	echo "start ost second time..."
-	start_ost && error "2nd OST start should fail"
-	mount_client $MOUNT || error "client start failed"
+	start_ost && { error_noexit "2nd OST start should fail"; cleanup; \
+			return 2; }
+	mount_client $MOUNT || { error_noexit "client start failed"; cleanup; \
+				 return 3; }
 	check_mount || return 42
 	cleanup || return $?
 }
@@ -317,7 +319,8 @@ run_test 1 "start up ost twice (should return errors)"
 test_2() {
 	start_mdt 1
 	echo "start mds second time.."
-	start_mdt 1 && error "2nd MDT start should fail"
+	start_mdt 1 && { error_noexit "2nd MDT start should fail"; cleanup; \
+			 return 1; }
 	start_ost
 	mount_client $MOUNT
 	check_mount || return 43
@@ -328,7 +331,8 @@ run_test 2 "start up mds twice (should return err)"
 test_3() {
 	setup
 	#mount.lustre returns an error if already in mtab
-	mount_client $MOUNT && error "2nd client mount should fail"
+	mount_client $MOUNT && { error_noexit "2nd client mount should fail"; \
+				 cleanup; return 1; }
 	check_mount || return 44
 	cleanup || return $?
 }
@@ -417,7 +421,7 @@ test_5b() {
 	[ -d $MOUNT ] || mkdir -p $MOUNT
 	mount_client $MOUNT && rc=1
 	grep " $MOUNT " /etc/mtab && \
-		error "$MOUNT entry in mtab after failed mount" && rc=11
+		error_noexit "$MOUNT entry in mtab after failed mount" && rc=11
 	umount_client $MOUNT
 	# stop_mds is a no-op here, and should not fail
 	cleanup_nocli || rc=$?
@@ -441,7 +445,7 @@ test_5c() {
 	mount_client $MOUNT || :
 	FSNAME=${oldfs}
 	grep " $MOUNT " /etc/mtab && \
-		error "$MOUNT entry in mtab after failed mount" && rc=11
+		error_noexit "$MOUNT entry in mtab after failed mount" && rc=11
 	umount_client $MOUNT
 	cleanup_nocli  || rc=$?
 	return $rc
@@ -462,7 +466,7 @@ test_5d() {
 	mount_client $MOUNT || rc=1
 	cleanup  || rc=$?
 	grep " $MOUNT " /etc/mtab && \
-		error "$MOUNT entry in mtab after unmount" && rc=11
+		error_noexit "$MOUNT entry in mtab after unmount" && rc=11
 	return $rc
 }
 run_test 5d "mount with ost down"
@@ -480,7 +484,7 @@ test_5e() {
 	mount_client $MOUNT || echo "mount failed (not fatal)"
 	cleanup  || rc=$?
 	grep " $MOUNT " /etc/mtab && \
-		error "$MOUNT entry in mtab after unmount" && rc=11
+		error_noexit "$MOUNT entry in mtab after unmount" && rc=11
 	return $rc
 }
 run_test 5e "delayed connect, don't crash (bug 10268)"
@@ -507,7 +511,7 @@ test_5f() {
 		wait $pid
 		rc=$?
 		grep " $MOUNT " /etc/mtab && echo "test 5f: mtab after mount"
-		error "mount returns $rc, expected to hang"
+		error_noexit "mount returns $rc, expected to hang"
 		rc=11
 		cleanup || rc=$?
 		return $rc
@@ -519,7 +523,7 @@ test_5f() {
 	# mount should succeed after start mds
 	wait $pid
 	rc=$?
-	[ $rc -eq 0 ] || error "mount returned $rc"
+	[ $rc -eq 0 ] || error_noexit "mount returned $rc"
 	grep " $MOUNT " /etc/mtab && echo "test 5f: mtab after mount"
 	cleanup || return $?
 	return $rc
@@ -684,7 +688,8 @@ test_18() {
         if [ $FOUNDSIZE -gt $((32 * 1024 * 1024)) ]; then
                 log "Success: mkfs creates large journals. Size: $((FOUNDSIZE >> 20))M"
         else
-                error "expected journal size > 32M, found $((FOUNDSIZE >> 20))M"
+                error_noexit "expected journal size > 32M," \
+			     "found $((FOUNDSIZE >> 20))M"
         fi
 
         cleanup || return $?
@@ -940,7 +945,7 @@ test_24a() {
 	# files written on 1 should not show up on 2
 	cp /etc/passwd $DIR/$tfile
 	sleep 10
-	[ -e $MOUNT2/$tfile ] && error "File bleed" && return 7
+	[ -e $MOUNT2/$tfile ] && error_noexit "File bleed" && return 7
 	# 2 should work
 	sleep 5
 	cp /etc/passwd $MOUNT2/b || return 3
@@ -955,7 +960,7 @@ test_24a() {
 	# the MDS must remain up until last MDT
 	stop_mds
 	MDS=$(do_facet $SINGLEMDS "lctl get_param -n devices" | awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -1)
-	[ -z "$MDS" ] && error "No MDT" && return 8
+	[ -z "$MDS" ] && error_noexit "No MDT" && return 8
 	cleanup_24a
 	cleanup_nocli || return 6
 }
@@ -1951,7 +1956,9 @@ test_34a() {
 	rc=$?
 	do_facet client killall -USR1 multiop
 	if [ $rc -eq 0 ]; then
-		error "umount not fail!"
+		error_noexit "umount not fail!"
+		cleanup
+		return $rc
 	fi
 	sleep 1
         cleanup
@@ -1967,7 +1974,9 @@ test_34b() {
 	manual_umount_client --force
 	rc=$?
 	if [ $rc -ne 0 ]; then
-		error "mtab after failed umount - rc $rc"
+		error_noexit "mtab after failed umount - rc $rc"
+		cleanup
+		return $rc
 	fi
 
 	cleanup
@@ -1983,7 +1992,9 @@ test_34c() {
 	manual_umount_client --force
 	rc=$?
 	if [ $rc -ne 0 ]; then
-		error "mtab after failed umount - rc $rc"
+		error_noexit "mtab after failed umount - rc $rc"
+		cleanup
+		return $rc
 	fi
 
 	cleanup
@@ -2255,8 +2266,8 @@ test_38() { # bug 14222
 	FILES=`find $SRC -type f -mtime +1 | head -n $COUNT`
 	log "copying $(echo $FILES | wc -w) files to $DIR/$tdir"
 	mkdir -p $DIR/$tdir
-	tar cf - $FILES | tar xf - -C $DIR/$tdir || \
-		error "copying $SRC to $DIR/$tdir"
+	tar cf - $FILES | tar xf - -C $DIR/$tdir ||
+		{ error_noexit "copying $SRC to $DIR/$tdir"; cleanup; return 1;}
 	sync
 	umount_client $MOUNT
 	stop_mds
@@ -2277,7 +2288,9 @@ test_38() { # bug 14222
 	done
 	do_facet $SINGLEMDS "$DEBUGFS -c -R \\\"dump lov_objid $TMP/lov_objid.new\\\"  $MDSDEV"
 	do_facet $SINGLEMDS "od -Ax -td8 $TMP/lov_objid.new"
-	[ "$ERROR" = "y" ] && error "old and new files are different after connect" || true
+	[ "$ERROR" = "y" ] &&
+		error_noexit "old and new files are different after connect" ||
+		true
 
 	# check it's updates in sync
 	umount_client $MOUNT
@@ -2297,7 +2310,9 @@ test_38() { # bug 14222
 	do_facet $SINGLEMDS "od -Ax -td8 $TMP/lov_objid.new1"
 	umount_client $MOUNT
 	stop_mds
-	[ "$ERROR" = "y" ] && error "old and new files are different after sync" || true
+	[ "$ERROR" = "y" ] &&
+		error_noexit "old and new files are different after sync" ||
+		true
 
 	log "files compared the same"
 	cleanup
@@ -2507,6 +2522,7 @@ umount_client $MOUNT
 cleanup_nocli
 
 test_44() { # 16317
+	local rc=0
         setup
         check_mount || return 2
         UUID=$($LCTL get_param llite.${FSNAME}*.uuid | cut -d= -f2)
@@ -2517,9 +2533,10 @@ test_44() { # 16317
                 CLUUID=$(echo $VAL | cut -d= -f2)
                 [ "$UUID" = "$CLUUID" ] && STATS_FOUND=yes && break
         done
-        [ "$STATS_FOUND" = "no" ] && error "stats not found for client"
+        [ "$STATS_FOUND" = "no" ] &&
+		error_noexit "stats not found for client" && rc=1
         cleanup
-        return 0
+        return $rc
 }
 run_test 44 "mounted client proc entry exists"
 
@@ -2755,18 +2772,28 @@ lazystatfs() {
 	return $RC
 }
 
+cleanup_50() {
+	trap 0
+	#writeconf to remove all ost2 traces for subsequent tests
+	writeconf_or_reformat
+}
+
 test_50a() {
+	local rc=0
 	setup
 	lctl set_param llite.$FSNAME-*.lazystatfs=1
 	touch $DIR/$tfile
 
-	lazystatfs $MOUNT || error "lazystatfs failed but no down servers"
+	lazystatfs $MOUNT ||
+		{ error_noexit "lazystatfs failed but no down servers"; rc=1; }
 
 	cleanup || return $?
+	return $rc
 }
 run_test 50a "lazystatfs all servers available =========================="
 
 test_50b() {
+	local rc=0
 	setup
 	lctl set_param llite.$FSNAME-*.lazystatfs=1
 	touch $DIR/$tfile
@@ -2775,14 +2802,19 @@ test_50b() {
 	stop_ost || error "Unable to stop OST1"
         wait_osc_import_state mds ost DISCONN
 
-	lazystatfs $MOUNT || error "lazystatfs should don't have returned EIO"
+	lazystatfs $MOUNT ||
+		{ error_noexit "lazystatfs should don't have returned EIO"; \
+		  rc=1; }
 
-	umount_client $MOUNT || error "Unable to unmount client"
-	stop_mds || error "Unable to stop MDS"
+	umount_client $MOUNT ||
+		{ error_noexit "Unable to unmount client"; rc=2; }
+	stop_mds || { error_noexit "Unable to stop MDS"; rc=3; }
+	return $rc
 }
 run_test 50b "lazystatfs all servers down =========================="
 
 test_50c() {
+	trap cleanup_50 EXIT
 	start_mds || error "Unable to start MDS"
 	start_ost || error "Unable to start OST1"
 	start_ost2 || error "Unable to start OST2"
@@ -2798,12 +2830,11 @@ test_50c() {
 	umount_client $MOUNT || error "Unable to unmount client"
 	stop_ost2 || error "Unable to stop OST2"
 	stop_mds || error "Unable to stop MDS"
-	#writeconf to remove all ost2 traces for subsequent tests
-	writeconf_or_reformat
 }
 run_test 50c "lazystatfs one server down =========================="
 
 test_50d() {
+	trap cleanup_50 EXIT
 	start_mds || error "Unable to start MDS"
 	start_ost || error "Unable to start OST1"
 	start_ost2 || error "Unable to start OST2"
@@ -2820,8 +2851,6 @@ test_50d() {
 	umount_client $MOUNT || error "Unable to unmount client"
 	stop_ost2 || error "Unable to stop OST2"
 	stop_mds || error "Unable to stop MDS"
-	#writeconf to remove all ost2 traces for subsequent tests
-	writeconf_or_reformat
 }
 run_test 50d "lazystatfs client/server conn race =========================="
 
@@ -2864,6 +2893,7 @@ test_50e() {
 run_test 50e "normal statfs all servers down =========================="
 
 test_50f() {
+	trap cleanup_50 EXIT
 	local RC1
 	local pid
 	CONN_PROC="osc.$FSNAME-OST0001-osc-[M]*.ost_server_uuid"
@@ -2902,12 +2932,11 @@ test_50f() {
 	umount_client $MOUNT || error "Unable to unmount client"
 	stop_ost || error "Unable to stop OST1"
 	stop_mds || error "Unable to stop MDS"
-	#writeconf to remove all ost2 traces for subsequent tests
-	writeconf_or_reformat
 }
 run_test 50f "normal statfs one server in down =========================="
 
 test_50g() {
+	trap cleanup_50 EXIT
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2, skipping" && return
 	setup
 	start_ost2 || error "Unable to start OST2"
@@ -2930,8 +2959,6 @@ test_50g() {
 	stop_ost2 || error "Unable to stop OST2"
 	stop_ost || error "Unable to stop OST1"
 	stop_mds || error "Unable to stop MDS"
-	#writeconf to remove all ost2 traces for subsequent tests
-	writeconf_or_reformat
 }
 run_test 50g "deactivated OST should not cause panic====================="
 
@@ -3002,14 +3029,14 @@ copy_files_xattrs()
 	shift 3
 
 	do_node $node mkdir -p $dest
-	[ $? -eq 0 ] || { error "Unable to create directory"; return 1; }
+	[ $? -eq 0 ] || { error_noexit "Unable to create directory"; return 1; }
 
 	do_node $node  'tar cf - '$@' | tar xf - -C '$dest';
 			[ \"\${PIPESTATUS[*]}\" = \"0 0\" ] || exit 1'
-	[ $? -eq 0 ] || { error "Unable to tar files"; return 2; }
+	[ $? -eq 0 ] || { error_noexit "Unable to tar files"; return 2; }
 
 	do_node $node 'getfattr -d -m "[a-z]*\\." '$@' > '$xattrs
-	[ $? -eq 0 ] || { error "Unable to read xattrs"; return 3; }
+	[ $? -eq 0 ] || { error_noexit "Unable to read xattrs"; return 3; }
 }
 
 diff_files_xattrs()
@@ -3022,24 +3049,26 @@ diff_files_xattrs()
 	local backup2=${TMP}/backup2
 
 	do_node $node mkdir -p $backup2
-	[ $? -eq 0 ] || { error "Unable to create directory"; return 1; }
+	[ $? -eq 0 ] || { error_noexit "Unable to create directory"; return 1; }
 
 	do_node $node  'tar cf - '$@' | tar xf - -C '$backup2';
 			[ \"\${PIPESTATUS[*]}\" = \"0 0\" ] || exit 1'
-	[ $? -eq 0 ] || { error "Unable to tar files to diff"; return 2; }
+	[ $? -eq 0 ] || { error_noexit "Unable to tar files to diff"; return 2;}
 
 	do_node $node "diff -rq $backup $backup2"
-	[ $? -eq 0 ] || { error "contents differ"; return 3; }
+	[ $? -eq 0 ] || { error_noexit "contents differ"; return 3; }
 
 	local xattrs2=${TMP}/xattrs2
 	do_node $node 'getfattr -d -m "[a-z]*\\." '$@' > '$xattrs2
-	[ $? -eq 0 ] || { error "Unable to read xattrs to diff"; return 4; }
+	[ $? -eq 0 ] || { error_noexit "Unable to read xattrs to diff"; \
+			  return 4; }
 
 	do_node $node "diff $xattrs $xattrs2"
-	[ $? -eq 0 ] || { error "xattrs differ"; return 5; }
+	[ $? -eq 0 ] || { error_noexit "xattrs differ"; return 5; }
 
 	do_node $node "rm -rf $backup2 $xattrs2"
-	[ $? -eq 0 ] || { error "Unable to delete temporary files"; return 6; }
+	[ $? -eq 0 ] || { error_noexit "Unable to delete temporary files"; \
+			  return 6; }
 }
 
 test_52() {
@@ -3049,11 +3078,14 @@ test_52() {
 	fi
 
 	start_mds
-	[ $? -eq 0 ] || { error "Unable to start MDS"; return 1; }
+	[ $? -eq 0 ] || { error_noexit "Unable to start MDS"; cleanup; \
+			  return 1; }
 	start_ost
-	[ $? -eq 0 ] || { error "Unable to start OST1"; return 2; }
+	[ $? -eq 0 ] || { error_noexit "Unable to start OST1"; cleanup; \
+			  return 2; }
 	mount_client $MOUNT
-	[ $? -eq 0 ] || { error "Unable to mount client"; return 3; }
+	[ $? -eq 0 ] || { error_noexit "Unable to mount client"; cleanup; \
+			  return 3; }
 
 	local nrfiles=8
 	local ost1mnt=$(facet_mntpt ost1)
@@ -3062,45 +3094,56 @@ test_52() {
 	local loop
 
 	mkdir -p $DIR/$tdir
-	[ $? -eq 0 ] || { error "Unable to create tdir"; return 4; }
+	[ $? -eq 0 ] || { error_noexit "Unable to create tdir"; cleanup; \
+			  return 4; }
 	touch $TMP/modified_first
-	[ $? -eq 0 ] || { error "Unable to create temporary file"; return 5; }
+	[ $? -eq 0 ] || { error_noexit "Unable to create temporary file"; \
+			  cleanup; return 5; }
 	local mtime=$(stat -c %Y $TMP/modified_first)
 	do_node $ost1node "mkdir -p $ost1tmp && touch -m -d @$mtime $ost1tmp/modified_first"
 
-	[ $? -eq 0 ] || { error "Unable to create temporary file"; return 6; }
+	[ $? -eq 0 ] || { error_noexit "Unable to create temporary file"; \
+			  cleanup; return 6; }
 	sleep 1
 
 	$LFS setstripe -c -1 -S 1M $DIR/$tdir
-	[ $? -eq 0 ] || { error "lfs setstripe failed"; return 7; }
+	[ $? -eq 0 ] || { error_noexit "lfs setstripe failed"; cleanup; \
+			  return 7; }
 
 	for (( i=0; i < nrfiles; i++ )); do
 		multiop $DIR/$tdir/$tfile-$i Ow1048576w1048576w524288c
-		[ $? -eq 0 ] || { error "multiop failed"; return 8; }
+		[ $? -eq 0 ] || { error_noexit "multiop failed"; cleanup; \
+				  return 8; }
 		echo -n .
 	done
 	echo
+	sync
 
 	# backup files
 	echo backup files to $TMP/files
 	local files=$(find $DIR/$tdir -type f -newer $TMP/modified_first)
 	copy_files_xattrs `hostname` $TMP/files $TMP/file_xattrs $files
-	[ $? -eq 0 ] || { error "Unable to copy files"; return 9; }
+	[ $? -eq 0 ] || { error_noexit "Unable to copy files"; cleanup; \
+			  return 9; }
 
 	umount_client $MOUNT
-	[ $? -eq 0 ] || { error "Unable to umount client"; return 10; }
+	[ $? -eq 0 ] || { error_noexit "Unable to umount client"; cleanup; \
+			  return 10; }
 	stop_ost
-	[ $? -eq 0 ] || { error "Unable to stop ost1"; return 11; }
+	[ $? -eq 0 ] || { error_noexit "Unable to stop ost1"; cleanup; \
+			  return 11; }
 
 	echo mount ost1 as ldiskfs
 	do_node $ost1node mkdir -p $ost1mnt
-	[ $? -eq 0 ] || { error "Unable to create $ost1mnt"; return 23; }
+	[ $? -eq 0 ] || { error_noexit "Unable to create $ost1mnt"; cleanup; \
+			  return 23; }
 	if ! do_node $ost1node test -b $ost1_dev; then
 		loop="-o loop"
 	fi
 	do_node $ost1node mount -t $(facet_fstype ost1) $loop $ost1_dev \
 		$ost1mnt
-	[ $? -eq 0 ] || { error "Unable to mount ost1 as ldiskfs"; return 12; }
+	[ $? -eq 0 ] || { error_noexit "Unable to mount ost1 as ldiskfs"; \
+			  cleanup; return 12; }
 
 	# backup objects
 	echo backup objects to $ost1tmp/objects
@@ -3108,36 +3151,46 @@ test_52() {
 		'-size +0 -newer '$ost1tmp'/modified_first -regex ".*\/[0-9]+"')
 	copy_files_xattrs $ost1node $ost1tmp/objects $ost1tmp/object_xattrs \
 			$objects
-	[ $? -eq 0 ] || { error "Unable to copy objects"; return 13; }
+	[ $? -eq 0 ] || { error_noexit "Unable to copy objects"; cleanup; \
+			  return 13; }
 
 	# move objects to lost+found
 	do_node $ost1node 'mv '$objects' '${ost1mnt}'/lost+found'
-	[ $? -eq 0 ] || { error "Unable to move objects"; return 14; }
+	[ $? -eq 0 ] || { error_noexit "Unable to move objects"; cleanup; \
+			  return 14; }
 
 	# recover objects
 	do_node $ost1node "ll_recover_lost_found_objs -d $ost1mnt/lost+found"
-	[ $? -eq 0 ] || { error "ll_recover_lost_found_objs failed"; return 15; }
+	[ $? -eq 0 ] || { error_noexit "ll_recover_lost_found_objs failed"; \
+			  cleanup; return 15; }
 
 	# compare restored objects against saved ones
 	diff_files_xattrs $ost1node $ost1tmp/objects $ost1tmp/object_xattrs $objects
-	[ $? -eq 0 ] || { error "Unable to diff objects"; return 16; }
+	[ $? -eq 0 ] || { error_noexit "Unable to diff objects"; cleanup; \
+			  return 16; }
 
 	do_node $ost1node "umount $ost1mnt"
-	[ $? -eq 0 ] || { error "Unable to umount ost1 as ldiskfs"; return 17; }
+	[ $? -eq 0 ] || { error_noexit "Unable to umount ost1 as ldiskfs"; \
+			  cleanup; return 17; }
 
 	start_ost
-	[ $? -eq 0 ] || { error "Unable to start ost1"; return 18; }
+	[ $? -eq 0 ] || { error_noexit "Unable to start ost1"; cleanup; \
+			  return 18; }
 	mount_client $MOUNT
-	[ $? -eq 0 ] || { error "Unable to mount client"; return 19; }
+	[ $? -eq 0 ] || { error_noexit "Unable to mount client"; cleanup; \
+			  return 19; }
 
 	# compare files
 	diff_files_xattrs `hostname` $TMP/files $TMP/file_xattrs $files
-	[ $? -eq 0 ] || { error "Unable to diff files"; return 20; }
+	[ $? -eq 0 ] || { error_noexit "Unable to diff files"; cleanup; \
+			  return 20; }
 
 	rm -rf $TMP/files $TMP/file_xattrs
-	[ $? -eq 0 ] || { error "Unable to delete temporary files"; return 21; }
+	[ $? -eq 0 ] || { error_noexit "Unable to delete temporary files"; \
+			  cleanup; return 21; }
 	do_node $ost1node "rm -rf $ost1tmp"
-	[ $? -eq 0 ] || { error "Unable to delete temporary files"; return 22; }
+	[ $? -eq 0 ] || { error_noexit "Unable to delete temporary files"; \
+			  cleanup; return 22; }
 	cleanup
 }
 run_test 52 "check recovering objects from lost+found"
@@ -3168,7 +3221,8 @@ thread_sanity() {
         # We need to expand $parampat, but it may match multiple parameters, so
         # we'll pick the first one
         if ! paramp=$(do_facet $facet "lctl get_param -N ${parampat}.threads_min"|head -1); then
-                error "Couldn't expand ${parampat}.threads_min parameter name"
+                error_noexit "Couldn't expand ${parampat}.threads_min" \
+			     "parameter name"
                 return 22
         fi
 
@@ -3260,27 +3314,31 @@ test_53b() {
 run_test 53b "check MDS thread count params"
 
 test_54a() {
+	local rc=0
 	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
 		skip "Only applicable to ldiskfs-based MDTs"
 		return
 	fi
 
-    do_rpc_nodes $(facet_host ost1) run_llverdev $(ostdevname 1) -p
-    [ $? -eq 0 ] || error "llverdev failed!"
-    reformat_and_config
+	do_rpc_nodes $(facet_host ost1) run_llverdev $(ostdevname 1) -p
+	[ $? -eq 0 ] || { error_noexit "llverdev failed!"; rc=1; }
+	reformat_and_config
+	return $rc
 }
 run_test 54a "test llverdev and partial verify of device"
 
 test_54b() {
+	local rc=0
 	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
 		skip "Only applicable to ldiskfs-based MDTs"
 		return
 	fi
 
-    setup
-    run_llverfs $MOUNT -p
-    [ $? -eq 0 ] || error "llverfs failed!"
-    cleanup
+	setup
+	run_llverfs $MOUNT -p
+	[ $? -eq 0 ] || { error_noexit "llverfs failed!"; rc=1; }
+	cleanup
+	return $rc
 }
 run_test 54b "test llverfs and partial verify of filesystem"
 
@@ -3313,7 +3371,10 @@ test_55() {
 		echo checking size of lov_objid for ost index $i
 		LOV_OBJID_SIZE=$(do_facet mds1 "$DEBUGFS -R 'stat lov_objid' $mdsdev 2>/dev/null" | grep ^User | awk '{print $6}')
 		if [ "$LOV_OBJID_SIZE" != $(lov_objid_size $i) ]; then
-			error "lov_objid size has to be $(lov_objid_size $i), not $LOV_OBJID_SIZE"
+			error_noexit "lov_objid size has to be" \
+				"$(lov_objid_size $i), not $LOV_OBJID_SIZE"
+			reformat
+			exit 1
 		else
 			echo ok, lov_objid size is correct: $LOV_OBJID_SIZE
 		fi
