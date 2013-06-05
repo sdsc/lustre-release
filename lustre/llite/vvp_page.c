@@ -173,9 +173,6 @@ static void vvp_page_delete(const struct lu_env *env,
         LASSERT((struct cl_page *)vmpage->private == slice->cpl_page);
         LASSERT(inode == ccc_object_inode(obj));
 
-	/* Got in vvp_page_init */
-	cl_page_put(env, slice->cpl_page);
-
         vvp_write_complete(cl2ccc(obj), cl2ccc_page(slice));
 
 	ClearPageUptodate(vmpage);
@@ -534,7 +531,8 @@ int vvp_page_init(const struct lu_env *env, struct cl_object *obj,
 
 	CFS_INIT_LIST_HEAD(&cpg->cpg_pending_linkage);
 	if (page->cp_type == CPT_CACHEABLE) {
-		cl_page_get(page); /* in cache, decref in vvp_page_delete */
+		/* in cache, decref after cl_page_delete */
+		cfs_atomic_set(&page->cp_ref, 2);
 		SetPagePrivate(vmpage);
 		vmpage->private = (unsigned long)page;
 		cl_page_slice_add(page, &cpg->cpg_cl, obj,
