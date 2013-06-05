@@ -1308,9 +1308,9 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 	RETURN(0);
 }
 
-#define OSC_DUMP_GRANT(cli, fmt, args...) do {				      \
+#define OSC_DUMP_GRANT(lvl, cli, fmt, args...) do {			      \
 	struct client_obd *__tmp = (cli);				      \
-	CDEBUG(D_CACHE, "%s: { dirty: %ld/%ld dirty_pages: %d/%d "	      \
+	CDEBUG(lvl, "%s: { dirty: %ld/%ld dirty_pages: %d/%d "	              \
 	       "dropped: %ld avail: %ld, reserved: %ld, flight: %d } " fmt,   \
 	       __tmp->cl_import->imp_obd->obd_name,			      \
 	       __tmp->cl_dirty, __tmp->cl_dirty_max,			      \
@@ -1457,7 +1457,7 @@ static int osc_enter_cache_try(struct client_obd *cli,
 {
 	int rc;
 
-	OSC_DUMP_GRANT(cli, "need:%d.\n", bytes);
+	OSC_DUMP_GRANT(D_CACHE, cli, "need:%d.\n", bytes);
 
 	rc = osc_reserve_grant(cli, bytes);
 	if (rc < 0)
@@ -1501,11 +1501,12 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 	struct osc_object *osc = oap->oap_obj;
 	struct lov_oinfo  *loi = osc->oo_oinfo;
 	struct osc_cache_waiter ocw;
-	struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
+	struct l_wait_info lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(600), NULL,
+						  LWI_ON_SIGNAL_NOOP, NULL);
 	int rc = -EDQUOT;
 	ENTRY;
 
-	OSC_DUMP_GRANT(cli, "need:%d.\n", bytes);
+	OSC_DUMP_GRANT(D_CACHE, cli, "need:%d.\n", bytes);
 
 	client_obd_list_lock(&cli->cl_loi_list_lock);
 
@@ -1543,8 +1544,14 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 
 		client_obd_list_lock(&cli->cl_loi_list_lock);
 
-		/* l_wait_event is interrupted by signal */
+		/* l_wait_event is interrupted by signal, or timed out */
 		if (rc < 0) {
+			if (rc == -ETIMEDOUT) {
+				OSC_DUMP_GRANT(D_ERROR, cli,
+						"try to reserve %d.\n", bytes);
+				rc = -EDQUOT;
+			}
+
 			cfs_list_del_init(&ocw.ocw_entry);
 			GOTO(out, rc);
 		}
@@ -1560,7 +1567,7 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 	EXIT;
 out:
 	client_obd_list_unlock(&cli->cl_loi_list_lock);
-	OSC_DUMP_GRANT(cli, "returned %d.\n", rc);
+	OSC_DUMP_GRANT(D_CACHE, cli, "returned %d.\n", rc);
 	RETURN(rc);
 }
 
