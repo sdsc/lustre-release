@@ -891,6 +891,7 @@ static int osc_lru_reserve(const struct lu_env *env, struct osc_object *obj,
 
 	LASSERT(cfs_atomic_read(cli->cl_lru_left) >= 0);
 	while (!cfs_atomic_add_unless(cli->cl_lru_left, -1, 0)) {
+		struct osc_io *oio = osc_env_io(env);
 		int gen;
 
 		/* run out of LRU spaces, try to drop some by itself */
@@ -899,6 +900,12 @@ static int osc_lru_reserve(const struct lu_env *env, struct osc_object *obj,
 			break;
 		if (rc > 0)
 			continue;
+
+		/* LU-3416: Release active extent to wait for LRU slot */
+		if (oio->oi_active != NULL) {
+			osc_extent_release(env, oio->oi_active);
+			oio->oi_active = NULL;
+		}
 
 		cfs_cond_resched();
 
