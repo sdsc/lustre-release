@@ -1018,16 +1018,18 @@ trigger:
 	thread_set_flags(thread, 0);
 	if (lfsck->li_master)
 		rc = PTR_ERR(kthread_run(lfsck_master_engine, lfsck, "lfsck"));
-	if (rc < 0)
+	if (IS_ERR_VALUE(rc)) {
 		CERROR("%s: cannot start LFSCK thread, rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
-	else
+	} else {
+		rc = 0;
 		l_wait_event(thread->t_ctl_waitq,
 			     thread_is_running(thread) ||
 			     thread_is_stopped(thread),
 			     &lwi);
+	}
 
-	GOTO(out, rc = 0);
+	GOTO(out, rc);
 
 out:
 	mutex_unlock(&lfsck->li_mutex);
