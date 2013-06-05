@@ -101,11 +101,7 @@ static void ll_invalidatepage(struct page *vmpage, unsigned long offset)
                         if (obj != NULL) {
                                 page = cl_vmpage_page(vmpage, obj);
                                 if (page != NULL) {
-                                        lu_ref_add(&page->cp_reference,
-                                                   "delete", vmpage);
                                         cl_page_delete(env, page);
-                                        lu_ref_del(&page->cp_reference,
-                                                   "delete", vmpage);
                                         cl_page_put(env, page);
                                 }
                         } else
@@ -157,11 +153,11 @@ static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
         page = cl_vmpage_page(vmpage, obj);
         result = page == NULL;
         if (page != NULL) {
-                if (!cl_page_in_use(page)) {
+                if (!cl_page_in_use_noref(page)) {
                         result = 1;
                         cl_page_delete(env, page);
+			cl_page_put(env, page);
                 }
-                cl_page_put(env, page);
         }
         cl_env_nested_put(&nest, env);
         return result;
