@@ -110,6 +110,7 @@ reformat_and_config() {
 }
 
 writeconf_or_reformat() {
+	trap 0
 	# There are at most 2 OSTs for write_conf test
 	# who knows if/where $TUNEFS is installed?
 	# Better reformat if it fails...
@@ -227,13 +228,6 @@ manual_umount_client(){
 	return $rc
 }
 
-setup() {
-	start_mds || error "MDT start failed"
-	start_ost || error "OST start failed"
-	mount_client $MOUNT || error "client start failed"
-	client_up || error "client_up failed"
-}
-
 setup_noconfig() {
 	if ! combined_mgs_mds ; then
 		start_mgs
@@ -257,8 +251,17 @@ cleanup_nocli() {
 }
 
 cleanup() {
+	trap 0
 	umount_client $MOUNT || return 200
 	cleanup_nocli || return $?
+}
+
+setup() {
+	trap cleanup EXIT
+	start_mds || error "MDT start failed"
+	start_ost || error "OST start failed"
+	mount_client $MOUNT || error "client start failed"
+	client_up || error "client_up failed"
 }
 
 check_mount() {
@@ -417,7 +420,7 @@ test_5b() {
 	[ -d $MOUNT ] || mkdir -p $MOUNT
 	mount_client $MOUNT && rc=1
 	grep " $MOUNT " /etc/mtab && \
-		error "$MOUNT entry in mtab after failed mount" && rc=11
+		error_noexit "$MOUNT entry in mtab after failed mount" && rc=11
 	umount_client $MOUNT
 	# stop_mds is a no-op here, and should not fail
 	cleanup_nocli || rc=$?
@@ -441,7 +444,7 @@ test_5c() {
 	mount_client $MOUNT || :
 	FSNAME=${oldfs}
 	grep " $MOUNT " /etc/mtab && \
-		error "$MOUNT entry in mtab after failed mount" && rc=11
+		error_noexit "$MOUNT entry in mtab after failed mount" && rc=11
 	umount_client $MOUNT
 	cleanup_nocli  || rc=$?
 	return $rc
@@ -462,7 +465,7 @@ test_5d() {
 	mount_client $MOUNT || rc=1
 	cleanup  || rc=$?
 	grep " $MOUNT " /etc/mtab && \
-		error "$MOUNT entry in mtab after unmount" && rc=11
+		error_noexit "$MOUNT entry in mtab after unmount" && rc=11
 	return $rc
 }
 run_test 5d "mount with ost down"
@@ -480,7 +483,7 @@ test_5e() {
 	mount_client $MOUNT || echo "mount failed (not fatal)"
 	cleanup  || rc=$?
 	grep " $MOUNT " /etc/mtab && \
-		error "$MOUNT entry in mtab after unmount" && rc=11
+		error_noexit "$MOUNT entry in mtab after unmount" && rc=11
 	return $rc
 }
 run_test 5e "delayed connect, don't crash (bug 10268)"
@@ -507,7 +510,7 @@ test_5f() {
 		wait $pid
 		rc=$?
 		grep " $MOUNT " /etc/mtab && echo "test 5f: mtab after mount"
-		error "mount returns $rc, expected to hang"
+		error_noexit "mount returns $rc, expected to hang"
 		rc=11
 		cleanup || rc=$?
 		return $rc
@@ -519,7 +522,7 @@ test_5f() {
 	# mount should succeed after start mds
 	wait $pid
 	rc=$?
-	[ $rc -eq 0 ] || error "mount returned $rc"
+	[ $rc -eq 0 ] || error_noexit "mount returned $rc"
 	grep " $MOUNT " /etc/mtab && echo "test 5f: mtab after mount"
 	cleanup || return $?
 	return $rc
@@ -684,7 +687,8 @@ test_18() {
         if [ $FOUNDSIZE -gt $((32 * 1024 * 1024)) ]; then
                 log "Success: mkfs creates large journals. Size: $((FOUNDSIZE >> 20))M"
         else
-                error "expected journal size > 32M, found $((FOUNDSIZE >> 20))M"
+		error_noexit "expected journal size > 32M," \
+			     "found $((FOUNDSIZE >> 20))M"
         fi
 
         cleanup || return $?
@@ -940,7 +944,7 @@ test_24a() {
 	# files written on 1 should not show up on 2
 	cp /etc/passwd $DIR/$tfile
 	sleep 10
-	[ -e $MOUNT2/$tfile ] && error "File bleed" && return 7
+	[ -e $MOUNT2/$tfile ] && error_noexit "File bleed" && return 7
 	# 2 should work
 	sleep 5
 	cp /etc/passwd $MOUNT2/b || return 3
@@ -955,7 +959,7 @@ test_24a() {
 	# the MDS must remain up until last MDT
 	stop_mds
 	MDS=$(do_facet $SINGLEMDS "lctl get_param -n devices" | awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -1)
-	[ -z "$MDS" ] && error "No MDT" && return 8
+	[ -z "$MDS" ] && error_noexit "No MDT" && return 8
 	cleanup_24a
 	cleanup_nocli || return 6
 }
@@ -2553,7 +2557,7 @@ cleanup_46a() {
 	while [ $count -gt 0 ]; do
 		stop ost${count} -f || rc=$?
 		let count=count-1
-	done	
+	done
 	stop_mds || rc=$?
 	cleanup_nocli || rc=$?
 	#writeconf to remove all ost2 traces for subsequent tests
@@ -2782,7 +2786,17 @@ test_50b() {
 }
 run_test 50b "lazystatfs all servers down =========================="
 
+cleanup_50c() {
+	trap 0
+	umount_client $MOUNT
+	stop_ost
+	stop_ost2
+	stop_mds
+	writeconf_or_reformat
+}
+
 test_50c() {
+	trap cleanup_50c EXIT
 	start_mds || error "Unable to start MDS"
 	start_ost || error "Unable to start OST1"
 	start_ost2 || error "Unable to start OST2"
@@ -2800,10 +2814,12 @@ test_50c() {
 	stop_mds || error "Unable to stop MDS"
 	#writeconf to remove all ost2 traces for subsequent tests
 	writeconf_or_reformat
+	trap 0
 }
 run_test 50c "lazystatfs one server down =========================="
 
 test_50d() {
+	trap cleanup_50c EXIT
 	start_mds || error "Unable to start MDS"
 	start_ost || error "Unable to start OST1"
 	start_ost2 || error "Unable to start OST2"
@@ -2822,6 +2838,7 @@ test_50d() {
 	stop_mds || error "Unable to stop MDS"
 	#writeconf to remove all ost2 traces for subsequent tests
 	writeconf_or_reformat
+	trap 0
 }
 run_test 50d "lazystatfs client/server conn race =========================="
 
@@ -2864,6 +2881,7 @@ test_50e() {
 run_test 50e "normal statfs all servers down =========================="
 
 test_50f() {
+	trap cleanup_50c EXIT
 	local RC1
 	local pid
 	CONN_PROC="osc.$FSNAME-OST0001-osc-[M]*.ost_server_uuid"
@@ -2904,10 +2922,12 @@ test_50f() {
 	stop_mds || error "Unable to stop MDS"
 	#writeconf to remove all ost2 traces for subsequent tests
 	writeconf_or_reformat
+	trap 0
 }
 run_test 50f "normal statfs one server in down =========================="
 
 test_50g() {
+	trap cleanup_50c EXIT
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2, skipping" && return
 	setup
 	start_ost2 || error "Unable to start OST2"
@@ -2932,11 +2952,22 @@ test_50g() {
 	stop_mds || error "Unable to stop MDS"
 	#writeconf to remove all ost2 traces for subsequent tests
 	writeconf_or_reformat
+	trap 0
 }
 run_test 50g "deactivated OST should not cause panic====================="
 
+cleanup_50h() {
+	trap 0
+	umount_client $MOUNT
+	stop_ost2
+	stop_ost
+	stop_mds
+	reformat_and_config
+}
+
 # LU-642
 test_50h() {
+	trap cleanup_50h EXIT
 	# prepare MDT/OST, make OSC inactive for OST1
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2, skipping" && return
 	do_facet ost1 "$TUNEFS --param osc.active=0 `ostdevname 1`" ||
@@ -2965,13 +2996,19 @@ test_50h() {
 		error "some OSC imports are still not connected"
 
 	# cleanup
-	umount_client $MOUNT || error "Unable to umount client"
-	stop_ost2 || error "Unable to stop OST2"
-	cleanup_nocli
+	cleanup_50h
 }
 run_test 50h "LU-642: activate deactivated OST  ==="
 
+cleanup_51() {
+	trap 0
+	stop_ost2
+	cleanup
+	writeconf_or_reformat
+}
+
 test_51() {
+	trap cleanup_51 EXIT
 	local LOCAL_TIMEOUT=20
 
 	reformat
@@ -2991,6 +3028,7 @@ test_51() {
 	cleanup
 	#writeconf to remove all ost2 traces for subsequent tests
 	writeconf_or_reformat
+	trap 0
 }
 run_test 51 "Verify that mdt_reint handles RMF_MDT_MD correctly when an OST is added"
 
@@ -3047,6 +3085,7 @@ test_52() {
 		skip "Only applicable to ldiskfs-based MDTs"
 		return
 	fi
+	trap cleanup EXIT
 
 	start_mds
 	[ $? -eq 0 ] || { error "Unable to start MDS"; return 1; }
@@ -3080,6 +3119,7 @@ test_52() {
 		echo -n .
 	done
 	echo
+	sync
 
 	# backup files
 	echo backup files to $TMP/files
