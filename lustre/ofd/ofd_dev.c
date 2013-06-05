@@ -45,6 +45,7 @@
 #include <obd_class.h>
 #include <lustre_param.h>
 #include <lustre_fid.h>
+#include <lustre_lfsck.h>
 
 #include "ofd_internal.h"
 
@@ -355,6 +356,15 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 
 	/* initialize lower device */
 	rc = next->ld_ops->ldo_prepare(env, dev, next);
+	if (rc != 0)
+		RETURN(rc);
+
+	rc = lfsck_register(env, ofd->ofd_osd, &ofd->ofd_dt_dev, false);
+	if (rc != 0) {
+		CERROR("%s: failed to initialize lfsck: rc = %d\n",
+		       obd->obd_name, rc);
+		RETURN(rc);
+	}
 
 	target_recovery_init(&ofd->ofd_lut, ost_handle);
 	LASSERT(obd->obd_no_conn);
@@ -754,6 +764,8 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	struct obd_device *obd = ofd_obd(m);
 	struct lu_device  *d = &m->ofd_dt_dev.dd_lu_dev;
 
+	lfsck_stop(env, m->ofd_osd, true);
+	lfsck_degister(env, m->ofd_osd);
 	target_recovery_fini(obd);
 	obd_exports_barrier(obd);
 	obd_zombie_barrier();
