@@ -2451,6 +2451,7 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
         /* must be an export if locks saved */
         LASSERT (req->rq_export != NULL);
         /* req/reply consistent */
+	spin_lock(&rs->rs_lock);
 	LASSERT(rs->rs_svcpt == svcpt);
 
         /* "fresh" reply */
@@ -2471,6 +2472,7 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
         rs->rs_transno   = req->rq_transno;
         rs->rs_export    = exp;
         rs->rs_opc       = lustre_msg_get_opc(req->rq_reqmsg);
+	spin_unlock(&rs->rs_lock);
 
 	spin_lock(&exp->exp_uncommitted_replies_lock);
 	CDEBUG(D_NET, "rs transno = "LPU64", last committed = "LPU64"\n",
