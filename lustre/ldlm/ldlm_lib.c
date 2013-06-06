@@ -2447,6 +2447,9 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
         /* must be an export if locks saved */
         LASSERT (req->rq_export != NULL);
         /* req/reply consistent */
+	/* No need to hold a lock to protect rs here,
+	 * since no other threads have a way to access
+	 * this request before it was sent */
 	LASSERT(rs->rs_svcpt == svcpt);
 
         /* "fresh" reply */
