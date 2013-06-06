@@ -1207,9 +1207,11 @@ static int after_reply(struct ptlrpc_request *req)
                  * space for early reply).
                  * NB: no need to roundup because alloc_repbuf
                  * will roundup it */
+		spin_lock(&req->rq_lock);
                 req->rq_replen       = req->rq_nob_received;
                 req->rq_nob_received = 0;
                 req->rq_resend       = 1;
+		spin_unlock(&req->rq_lock);
                 RETURN(0);
         }
 
@@ -1425,10 +1427,14 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
         rc = sptlrpc_req_refresh_ctx(req, -1);
         if (rc) {
                 if (req->rq_err) {
+			spin_lock(&req->rq_lock);
                         req->rq_status = rc;
+			spin_unlock(&req->rq_lock);
                         RETURN(1);
                 } else {
+			spin_lock(&req->rq_lock);
                         req->rq_wait_ctx = 1;
+			spin_unlock(&req->rq_lock);
                         RETURN(0);
                 }
         }
@@ -1443,7 +1449,9 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
         rc = ptl_send_rpc(req, 0);
         if (rc) {
                 DEBUG_REQ(D_HA, req, "send failed (%d); expect timeout", rc);
+		spin_lock(&req->rq_lock);
                 req->rq_net_err = 1;
+		spin_unlock(&req->rq_lock);
                 RETURN(rc);
         }
         RETURN(0);
