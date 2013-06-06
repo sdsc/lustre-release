@@ -126,6 +126,7 @@ static int osc_io_submit(const struct lu_env *env,
 	cmd = crt == CRT_WRITE ? OBD_BRW_WRITE : OBD_BRW_READ;
 	brw_flags = osc_io_srvlock(cl2osc_io(env, ios)) ? OBD_BRW_SRVLOCK : 0;
 
+	spin_lock(&oap->oap_lock);
         /*
          * NOTE: here @page is a top-level page. This is done to avoid
          *       creation of sub-page-list.
@@ -177,6 +178,7 @@ static int osc_io_submit(const struct lu_env *env,
 				break;
 		}
 	}
+	spin_unlock(&oap->oap_lock);
 
 	if (queued > 0)
 		result = osc_queue_sync_pages(env, osc, &list, cmd, brw_flags);
