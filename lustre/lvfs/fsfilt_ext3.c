@@ -94,6 +94,10 @@ extern int ext3_xattr_set_handle(handle_t *, struct inode *, int, const char *, 
 
 #include "lustre_quota_fmt.h"
 
+#ifdef HAVE_EXT_PBLOCK /* Name changed to ext4_ext_pblock for kernel 2.6.35 */
+#define ext3_ext_pblock(ex) ext_pblock((ex))
+#endif
+
 /* for kernels 2.6.18 and later */
 #define FSFILT_SINGLEDATA_TRANS_BLOCKS(sb) EXT3_SINGLEDATA_TRANS_BLOCKS(sb)
 
@@ -872,7 +876,7 @@ static long ext3_ext_find_goal(struct inode *inode, struct ext3_ext_path *path,
 
                 /* try to predict block placement */
                 if ((ex = path[depth].p_ext))
-                        return ext_pblock(ex) + (block - le32_to_cpu(ex->ee_block));
+			return ext4_ext_pblock(ex) + (block - le32_to_cpu(ex->ee_block));
 
                 /* it looks index is empty
                  * try to find starting from index itself */
@@ -1024,8 +1028,13 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
 #ifdef EXT3_MB_HINT_GROUP_ALLOC
                 ext3_mb_discard_inode_preallocations(inode);
 #endif
-                ext3_free_blocks(handle, inode, ext_pblock(&nex),
-                                 cpu_to_le16(nex.ee_len), 0);
+#ifdef HAVE_EXT_FREE_BLOCK_WITH_BUFFER_HEAD /* Introduced in 2.6.32-rc7 */
+		ext3_free_blocks(handle, inode, NULL, ext4_ext_pblock(&nex),
+				 cpu_to_le16(nex.ee_len), 0);
+#else
+		ext3_free_blocks(handle, inode, ext4_ext_pblock(&nex),
+				 cpu_to_le16(nex.ee_len), 0);
+#endif
                 goto out;
         }
 
@@ -1035,7 +1044,7 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
          * scaning after that block
          */
         cex->ec_len = le16_to_cpu(nex.ee_len);
-        cex->ec_start = ext_pblock(&nex);
+	cex->ec_start = ext4_ext_pblock(&nex);
         BUG_ON(le16_to_cpu(nex.ee_len) == 0);
         BUG_ON(le32_to_cpu(nex.ee_block) != cex->ec_block);
 
