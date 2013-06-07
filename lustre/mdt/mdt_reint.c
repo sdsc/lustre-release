@@ -936,8 +936,9 @@ static int mdt_reint_link(struct mdt_thread_info *info,
 
 	if (mdt_object_remote(ms)) {
 		mdt_object_put(info->mti_env, ms);
-		CERROR("Target directory "DFID" is on another MDT\n",
-			PFID(rr->rr_fid1));
+		CERROR("%s: source inode "DFID" on remote MDT from "DFID"\n",
+		       mdt_obd_name(info->mti_mdt), PFID(rr->rr_fid1),
+		       PFID(rr->rr_fid2));
 		GOTO(out_unlock_parent, rc = -EXDEV);
 	}
 
