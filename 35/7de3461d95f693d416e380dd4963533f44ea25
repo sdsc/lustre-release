@@ -1,0 +1,12 @@
+Verified+1: Hudson
+Code-Review+2: Andreas Dilger <andreas.dilger@intel.com>
+Code-Review+1: James Simmons <uja.ornl@gmail.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Peng Tao <bergwolf@gmail.com>
+Code-Review+1: Alexey Shvetsov <alexxy@gentoo.org>
+Code-Review+1: Jeff Mahoney <jeffm@suse.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Fri, 07 Jun 2013 00:00:35 -0400
+Reviewed-on: http://review.whamcloud.com/5768
+Project: fs/lustre-release
+Branch: refs/heads/master
