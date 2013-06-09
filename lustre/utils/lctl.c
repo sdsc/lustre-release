@@ -82,18 +82,18 @@ command_t cmdlist[] = {
         {"exit", jt_quit, 0, "quit"},
         {"quit", jt_quit, 0, "quit"},
 
-        /* Network configuration commands */
-        {"===== network config =====", jt_noop, 0, "network config"},
-        {"--net", jt_opt_net, 0,"run <command> after setting network to <net>\n"
-         "usage: --net <tcp/elan/o2ib/...> <command>"},
-        {"network", jt_ptl_network, 0, "configure LNET"
-         "usage: network up|down"},
-        {"net", jt_ptl_network, 0, "configure LNET"
-         "usage: net up|down"},
-        {"list_nids", jt_ptl_list_nids, 0, "list local NIDs"
-         "usage: list_nids [all]"},
-        {"which_nid", jt_ptl_which_nid, 0, "choose a NID"
-         "usage: which_nid NID [NID...]"},
+	/* Network configuration commands */
+	{"===== network config =====", jt_noop, 0, "network config"},
+	{"--net", jt_opt_net, 0,"run <command> after setting network to <net>\n"
+	 "usage: --net <tcp/elan/o2ib/...> <command>"},
+	{"network", jt_ptl_network, 0, "configure LNET"
+	 "usage: network up|down"},
+	{"net", jt_ptl_network, 0, "configure LNET"
+	 "usage: net up|down|load"},
+	{"list_nids", jt_ptl_list_nids, 0, "list local NIDs"
+	 "usage: list_nids [all]"},
+	{"which_nid", jt_ptl_which_nid, 0, "choose a NID"
+	 "usage: which_nid NID [NID...]"},
 	{"replace_nids", jt_replace_nids, 0,
 	 "replace primary NIDs for a device\n"
 	 "usage: replace_nids <device> <nid1>[,nid2,nid3]"},

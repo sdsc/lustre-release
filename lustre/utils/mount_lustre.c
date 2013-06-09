@@ -53,6 +53,8 @@
 #include <lustre_ver.h>
 #include <ctype.h>
 #include <limits.h>
+#include <lnet/lnetctl.h>
+#include <libcfs/libcfsutil.h>
 #if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 10, 51, 0)
 /*
  * LU-1783
@@ -593,11 +595,24 @@ int main(int argc, char *const argv[])
 	struct mount_opts mop;
 	char *options;
 	int i, rc, flags;
+	struct libcfs_ioctl_data data;
 
 	progname = strrchr(argv[0], '/');
 	progname = progname ? progname + 1 : argv[0];
 
 	set_defaults(&mop);
+
+	rc = system("/sbin/modprobe lnet 2>&1 > /dev/null");
+	if (rc)
+		return rc;
+
+	LIBCFS_IOC_INIT(data);
+	ptl_initialize(argc, argv);
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_LNET_LOAD_LND, &data);
+	if (rc) {
+		fprintf(stderr, "l_ioctl failed rc = %s\n", strerror(errno));
+		return rc;
+	}
 
 	rc = osd_init();
 	if (rc)
