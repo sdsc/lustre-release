@@ -352,7 +352,7 @@ check_ptlrpc_body(void)
 	CHECK_MEMBER(ptlrpc_body, pb_opc);
 	CHECK_MEMBER(ptlrpc_body, pb_status);
 	CHECK_MEMBER(ptlrpc_body, pb_last_xid);
-	CHECK_MEMBER(ptlrpc_body, pb_last_seen);
+	CHECK_MEMBER(ptlrpc_body, pb_ondisk_transno);
 	CHECK_MEMBER(ptlrpc_body, pb_last_committed);
 	CHECK_MEMBER(ptlrpc_body, pb_transno);
 	CHECK_MEMBER(ptlrpc_body, pb_flags);
@@ -374,7 +374,7 @@ check_ptlrpc_body(void)
 	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_opc);
 	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_status);
 	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_last_xid);
-	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_last_seen);
+	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_ondisk_transno);
 	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_last_committed);
 	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_transno);
 	CHECK_MEMBER_SAME(ptlrpc_body_v3, ptlrpc_body_v2, pb_flags);

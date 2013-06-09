@@ -570,17 +570,30 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
         struct ptlrpc_request  *req = mdt_info_req(info);
         struct tg_export_data  *ted;
         struct lsd_client_data *lcd;
+	struct obd_export      *exp = req->rq_export;
+	bool			bump = false;
 
         ENTRY;
         /* transaction has occurred already */
         if (lustre_msg_get_transno(req->rq_repmsg) != 0)
                 RETURN_EXIT;
 
+	/* Fake transaction (read-only open, close) doesn't update disk and
+	 * the last_committed isn't bumped as well, so client have to retain
+	 * the open request even if close is done. When a system is running
+	 * many read-only open, close but without any update operation,
+	 * client memory could be exhausted by the retained requests.
+	 *
+	 * To resolve the problem, we return two last committed transnos to
+	 * client: one is the last committed on-disk transno, the other is
+	 * last committed transno (both on-disk & fake), and client should
+	 * be able to free the replay requests accordingly. */
+	if (exp_connect_flags(exp) & OBD_CONNECT_ONDISK_TRANSNO)
+		bump = true;
+
 	spin_lock(&mdt->mdt_lut.lut_translock);
 	if (rc != 0) {
 		if (info->mti_transno != 0) {
-			struct obd_export *exp = req->rq_export;
-
 			CERROR("%s: replay trans "LPU64" NID %s: rc = %d\n",
 			       mdt_obd_name(mdt), info->mti_transno,
 			       libcfs_nid2str(exp->exp_connection->c_peer.nid),
@@ -590,22 +603,30 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
 		}
 	} else if (info->mti_transno == 0) {
 		info->mti_transno = ++mdt->mdt_lut.lut_last_transno;
+		exp->exp_last_fake_transno = info->mti_transno;
+		/* If there isn't any uncommitted real transaction, then we
+		 * can safely bump the last_committed to this fake one */
+		if (bump && exp->exp_last_uncommitted == 0)
+			exp->exp_last_committed = info->mti_transno;
 	} else {
 		/* should be replay */
-		if (info->mti_transno > mdt->mdt_lut.lut_last_transno)
+		if (info->mti_transno > mdt->mdt_lut.lut_last_transno) {
 			mdt->mdt_lut.lut_last_transno = info->mti_transno;
+			exp->exp_last_fake_transno = info->mti_transno;
+			if (bump && exp->exp_last_uncommitted == 0)
+				exp->exp_last_committed = info->mti_transno;
+		}
 	}
 	spin_unlock(&mdt->mdt_lut.lut_translock);
 
 	CDEBUG(D_INODE, "transno = "LPU64", last_committed = "LPU64"\n",
-	       info->mti_transno,
-	       req->rq_export->exp_obd->obd_last_committed);
+	       info->mti_transno, exp->exp_obd->obd_last_committed);
 
 	req->rq_transno = info->mti_transno;
 	lustre_msg_set_transno(req->rq_repmsg, info->mti_transno);
 
 	/* update lcd in memory only for resent cases */
-	ted = &req->rq_export->exp_target_data;
+	ted = &exp->exp_target_data;
 	LASSERT(ted);
 	mutex_lock(&ted->ted_lcd_lock);
 	lcd = ted->ted_lcd;

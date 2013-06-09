@@ -180,6 +180,17 @@ struct obd_import {
         cfs_list_t                imp_delayed_list;
         /** @} */
 
+	/**
+	 * List of requests that are retained for committed open replay. Once
+	 * open is committed, open replay request will be moved from the
+	 * imp_replay_list into the imp_committed_list.
+	 * The imp_cursor is for accelerating searching during replay.
+	 * @{
+	 */
+	cfs_list_t		  imp_committed_list;
+	cfs_list_t		 *imp_cursor;
+	/** @} */
+
         /** obd device for this import */
         struct obd_device        *imp_obd;
 
@@ -223,6 +234,8 @@ struct obd_import {
         __u64                     imp_last_replay_transno;
         /** Last transno committed on remote side */
         __u64                     imp_peer_committed_transno;
+	/** Last committed on-disk transno on remote side */
+	__u64			  imp_peer_ondisk_transno;
         /**
          * \see ptlrpc_free_committed remembers last_transno since its last
          * check here and if last_transno did not change since last run of

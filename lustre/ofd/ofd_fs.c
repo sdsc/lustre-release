@@ -487,6 +487,9 @@ int ofd_clients_data_init(const struct lu_env *env, struct ofd_device *ofd,
 		LASSERTF(rc == 0, "rc = %d\n", rc); /* can't fail existing */
 		/* VBR: set export last committed version */
 		exp->exp_last_committed = last_rcvd;
+		exp->exp_last_uncommitted = 0;
+		exp->exp_last_ondisk_transno = last_rcvd;
+		exp->exp_last_fake_transno = 0;
 		spin_lock(&exp->exp_lock);
 		exp->exp_connecting = 0;
 		exp->exp_in_recovery = 0;

@@ -151,6 +151,9 @@ static int mdt_clients_data_init(const struct lu_env *env,
                 LASSERTF(rc == 0, "rc = %d\n", rc);
                 /* VBR: set export last committed version */
                 exp->exp_last_committed = last_transno;
+		exp->exp_last_uncommitted = 0;
+		exp->exp_last_ondisk_transno = last_transno;
+		exp->exp_last_fake_transno = 0;
 		spin_lock(&exp->exp_lock);
 		exp->exp_connecting = 0;
 		exp->exp_in_recovery = 0;
@@ -513,6 +516,7 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
         struct mdt_device *mdt = cookie;
         struct mdt_thread_info *mti;
         struct ptlrpc_request *req;
+	struct obd_export *exp;
 
         mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
         req = mdt_info_req(mti);
@@ -528,6 +532,7 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
                 return 0;
         }
 
+	exp = req->rq_export;
         mti->mti_has_trans = 1;
 	spin_lock(&mdt->mdt_lut.lut_translock);
         if (txn->th_result != 0) {
@@ -539,10 +544,16 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
                 }
         } else if (mti->mti_transno == 0) {
                 mti->mti_transno = ++ mdt->mdt_lut.lut_last_transno;
+		LASSERTF(exp->exp_last_uncommitted < mti->mti_transno,
+			 "last_uncommitted:"LPU64", transo:"LPU64"\n",
+			 exp->exp_last_uncommitted, mti->mti_transno);
+		exp->exp_last_uncommitted = mti->mti_transno;
         } else {
                 /* should be replay */
-                if (mti->mti_transno > mdt->mdt_lut.lut_last_transno)
-                        mdt->mdt_lut.lut_last_transno = mti->mti_transno;
+		if (mti->mti_transno > mdt->mdt_lut.lut_last_transno) {
+			mdt->mdt_lut.lut_last_transno = mti->mti_transno;
+			exp->exp_last_uncommitted = mti->mti_transno;
+		}
         }
 	spin_unlock(&mdt->mdt_lut.lut_translock);
         /* sometimes the reply message has not been successfully packed */

@@ -1075,6 +1075,24 @@ __u64 lustre_msg_get_last_committed(struct lustre_msg *msg)
 }
 EXPORT_SYMBOL(lustre_msg_get_last_committed);
 
+__u64 lustre_msg_get_ondisk_transno(struct lustre_msg *msg)
+{
+        switch (msg->lm_magic) {
+        case LUSTRE_MSG_MAGIC_V2: {
+                struct ptlrpc_body *pb = lustre_msg_ptlrpc_body(msg);
+                if (!pb) {
+                        CERROR("invalid msg %p: no ptlrpc body!\n", msg);
+                        return 0;
+                }
+                return pb->pb_ondisk_transno;
+        }
+        default:
+                CERROR("incorrect message magic: %08x\n", msg->lm_magic);
+                return 0;
+        }
+}
+EXPORT_SYMBOL(lustre_msg_get_ondisk_transno);
+
 __u64 *lustre_msg_get_versions(struct lustre_msg *msg)
 {
         switch (msg->lm_magic) {
@@ -1444,6 +1462,22 @@ void lustre_msg_set_last_committed(struct lustre_msg *msg, __u64 last_committed)
 }
 EXPORT_SYMBOL(lustre_msg_set_last_committed);
 
+void lustre_msg_set_ondisk_transno(struct lustre_msg *msg, __u64 transno)
+{
+        switch (msg->lm_magic) {
+        case LUSTRE_MSG_MAGIC_V2: {
+                struct ptlrpc_body *pb = lustre_msg_ptlrpc_body(msg);
+                LASSERTF(pb, "invalid msg %p: no ptlrpc body!\n", msg);
+                pb->pb_ondisk_transno = transno;
+                return;
+        }
+        default:
+                LASSERTF(0, "incorrect message magic: %08x\n", msg->lm_magic);
+        }
+}
+EXPORT_SYMBOL(lustre_msg_set_ondisk_transno);
+
+
 void lustre_msg_set_versions(struct lustre_msg *msg, __u64 *versions)
 {
         switch (msg->lm_magic) {
@@ -1664,7 +1698,7 @@ void lustre_swab_ptlrpc_body(struct ptlrpc_body *b)
         __swab32s (&b->pb_opc);
         __swab32s (&b->pb_status);
         __swab64s (&b->pb_last_xid);
-        __swab64s (&b->pb_last_seen);
+        __swab64s (&b->pb_ondisk_transno);
         __swab64s (&b->pb_last_committed);
         __swab64s (&b->pb_transno);
         __swab32s (&b->pb_flags);

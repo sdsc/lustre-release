@@ -178,6 +178,9 @@ int mdc_setattr(struct obd_export *exp, struct md_op_data *op_data,
                          * Will be put on mdc_done_writing().
                          */
                         obd_mod_get(*mod);
+			/* Another reference for calling ptlrpc_free_open() in
+			 * ll_setattr_done_writing(). */
+			obd_mod_get(*mod);
                 }
         }
 

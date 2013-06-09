@@ -1151,7 +1151,7 @@ struct ptlrpc_body_v3 {
 	__u32 pb_opc;
 	__u32 pb_status;
 	__u64 pb_last_xid;
-	__u64 pb_last_seen;
+	__u64 pb_ondisk_transno;
 	__u64 pb_last_committed;
 	__u64 pb_transno;
 	__u32 pb_flags;
@@ -1176,7 +1176,7 @@ struct ptlrpc_body_v2 {
         __u32 pb_opc;
         __u32 pb_status;
         __u64 pb_last_xid;
-        __u64 pb_last_seen;
+        __u64 pb_ondisk_transno;
         __u64 pb_last_committed;
         __u64 pb_transno;
         __u32 pb_flags;
@@ -1310,6 +1310,9 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_LIGHTWEIGHT 0x1000000000000ULL/* lightweight connection */
 #define OBD_CONNECT_SHORTIO     0x2000000000000ULL/* short io */
 #define OBD_CONNECT_PINGLESS	0x4000000000000ULL/* pings not required */
+#define OBD_CONNECT_ONDISK_TRANSNO 0x8000000000000ULL /* pack both last on-disk &
+						       * last committed transno
+						       * in reply */
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
  * flag value is not in use on some other branch.  Please clear any such
@@ -1351,7 +1354,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_EINPROGRESS | \
 				OBD_CONNECT_LIGHTWEIGHT | OBD_CONNECT_UMASK | \
 				OBD_CONNECT_LVB_TYPE | OBD_CONNECT_LAYOUTLOCK |\
-				OBD_CONNECT_PINGLESS)
+				OBD_CONNECT_PINGLESS | \
+				OBD_CONNECT_ONDISK_TRANSNO)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
