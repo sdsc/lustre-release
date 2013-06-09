@@ -408,29 +408,55 @@ struct tgt_last_committed_callback {
 void tgt_cb_last_committed(struct lu_env *env, struct thandle *th,
 			   struct dt_txn_commit_cb *cb, int err)
 {
-	struct tgt_last_committed_callback *ccb;
+	struct tgt_last_committed_callback	*ccb;
+	struct lu_target			*lut;
+	struct obd_export			*exp;
+	__u64					 transno;
+	bool					 bump = false;
 
 	ccb = container_of0(cb, struct tgt_last_committed_callback, llcc_cb);
 
 	LASSERT(ccb->llcc_tgt != NULL);
+	LASSERT(ccb->llcc_exp);
 	LASSERT(ccb->llcc_exp->exp_obd == ccb->llcc_tgt->lut_obd);
 
-	spin_lock(&ccb->llcc_tgt->lut_translock);
-	if (ccb->llcc_transno > ccb->llcc_tgt->lut_obd->obd_last_committed)
-		ccb->llcc_tgt->lut_obd->obd_last_committed = ccb->llcc_transno;
+	lut = ccb->llcc_tgt;
+	exp = ccb->llcc_exp;
+	transno = ccb->llcc_transno;
+	if (exp_connect_flags(exp) & OBD_CONNECT_ONDISK_TRANSNO)
+		bump = true;
 
-	LASSERT(ccb->llcc_exp);
-	if (ccb->llcc_transno > ccb->llcc_exp->exp_last_committed) {
-		ccb->llcc_exp->exp_last_committed = ccb->llcc_transno;
-		spin_unlock(&ccb->llcc_tgt->lut_translock);
-		ptlrpc_commit_replies(ccb->llcc_exp);
+	spin_lock(&lut->lut_translock);
+	if (transno > lut->lut_obd->obd_last_committed)
+		lut->lut_obd->obd_last_committed = transno;
+
+	if (transno > exp->exp_last_committed) {
+		/* If it's the last real transaction, it'll be safe to bump
+		 * the last_committed to the max(transno, last_fake_transno),
+		 * because we know for sure that all the transactions greater
+		 * than the last_uncommitted are fake transactions. */
+		if (bump && exp->exp_last_uncommitted == transno) {
+			exp->exp_last_committed = max(transno,
+					exp->exp_last_fake_transno);
+			exp->exp_last_uncommitted = 0;
+		} else {
+			LASSERTF(transno < exp->exp_last_uncommitted ||
+				 exp->exp_last_uncommitted == 0,
+				 "uncommitted:"LPU64", transno:"LPU64"\n",
+				 exp->exp_last_uncommitted, transno);
+			exp->exp_last_committed = transno;
+		}
+		exp->exp_last_ondisk_transno = transno;
+
+		spin_unlock(&lut->lut_translock);
+		ptlrpc_commit_replies(exp);
 	} else {
-		spin_unlock(&ccb->llcc_tgt->lut_translock);
+		spin_unlock(&lut->lut_translock);
 	}
-	class_export_cb_put(ccb->llcc_exp);
-	if (ccb->llcc_transno)
+	class_export_cb_put(exp);
+	if (transno)
 		CDEBUG(D_HA, "%s: transno "LPD64" is committed\n",
-		       ccb->llcc_tgt->lut_obd->obd_name, ccb->llcc_transno);
+		       lut->lut_obd->obd_name, transno);
 	OBD_FREE_PTR(ccb);
 }
 

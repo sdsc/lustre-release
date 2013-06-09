@@ -797,6 +797,9 @@ int mdc_clear_open_replay_data(struct obd_export *exp,
                 RETURN(0);
 
         LASSERT(mod != LP_POISON);
+	LASSERT(mod->mod_open_req != NULL);
+	ptlrpc_free_open(mod->mod_open_req);
+
 
         mod->mod_och = NULL;
         och->och_mod = NULL;

@@ -1341,10 +1341,22 @@ static int after_reply(struct ptlrpc_request *req)
                 /*
                  * Replay-enabled imports return commit-status information.
                  */
-                if (lustre_msg_get_last_committed(req->rq_repmsg)) {
-                        imp->imp_peer_committed_transno =
-                                lustre_msg_get_last_committed(req->rq_repmsg);
-                }
+		if (lustre_msg_get_last_committed(req->rq_repmsg)) {
+			imp->imp_peer_committed_transno =
+				max(imp->imp_peer_committed_transno,
+				    lustre_msg_get_last_committed(req->
+					    			  rq_repmsg));
+
+			if (imp_connect_ondisk_transno(imp))
+				imp->imp_peer_ondisk_transno =
+				max(imp->imp_peer_ondisk_transno,
+				    lustre_msg_get_ondisk_transno(req->
+					    			  rq_repmsg));
+			else
+				imp->imp_peer_ondisk_transno =
+					imp->imp_peer_committed_transno;
+		}
+
 
 		ptlrpc_free_committed(imp);
 
@@ -2389,6 +2401,36 @@ int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async)
 }
 EXPORT_SYMBOL(ptlrpc_unregister_reply);
 
+/* Free open request after close/setattr done */
+void ptlrpc_free_open(struct ptlrpc_request *req)
+{
+	struct obd_import *imp = req->rq_import;
+
+	spin_lock(&imp->imp_lock);
+
+	LASSERT(req->rq_replay == 0);
+	if (req->rq_transno <= imp->imp_peer_committed_transno &&
+	    req->rq_commit_cb != NULL && !req->rq_committed) {
+		req->rq_commit_cb(req);
+		cfs_list_del_init(&req->rq_replay_list);
+		__ptlrpc_req_finished(req, 1);
+	}
+
+	spin_unlock(&imp->imp_lock);
+}
+EXPORT_SYMBOL(ptlrpc_free_open);
+
+static void free_request(struct ptlrpc_request *req)
+{
+	spin_lock(&req->rq_lock);
+	req->rq_replay = 0;
+	spin_unlock(&req->rq_lock);
+	if (req->rq_commit_cb != NULL)
+		req->rq_commit_cb(req);
+	cfs_list_del_init(&req->rq_replay_list);
+	__ptlrpc_req_finished(req, 1);
+}
+
 /**
  * Iterates through replay_list on import and prunes
  * all requests have transno smaller than last_committed for the
@@ -2399,9 +2441,9 @@ EXPORT_SYMBOL(ptlrpc_unregister_reply);
  */
 void ptlrpc_free_committed(struct obd_import *imp)
 {
-        cfs_list_t *tmp, *saved;
-        struct ptlrpc_request *req;
+        struct ptlrpc_request *req, *saved;
         struct ptlrpc_request *last_req = NULL; /* temporary fire escape */
+	bool skip_committed_list = true;
         ENTRY;
 
         LASSERT(imp != NULL);
@@ -2419,13 +2461,15 @@ void ptlrpc_free_committed(struct obd_import *imp)
         CDEBUG(D_RPCTRACE, "%s: committing for last_committed "LPU64" gen %d\n",
                imp->imp_obd->obd_name, imp->imp_peer_committed_transno,
                imp->imp_generation);
+
+	if (imp->imp_generation != imp->imp_last_generation_checked)
+		skip_committed_list = false;
+
         imp->imp_last_transno_checked = imp->imp_peer_committed_transno;
         imp->imp_last_generation_checked = imp->imp_generation;
 
-        cfs_list_for_each_safe(tmp, saved, &imp->imp_replay_list) {
-                req = cfs_list_entry(tmp, struct ptlrpc_request,
-                                     rq_replay_list);
-
+	cfs_list_for_each_entry_safe(req, saved, &imp->imp_replay_list,
+				     rq_replay_list) {
                 /* XXX ok to remove when 1357 resolved - rread 05/29/03  */
                 LASSERT(req != last_req);
                 last_req = req;
@@ -2439,29 +2483,37 @@ void ptlrpc_free_committed(struct obd_import *imp)
                         GOTO(free_req, 0);
                 }
 
-                if (req->rq_replay) {
-                        DEBUG_REQ(D_RPCTRACE, req, "keeping (FL_REPLAY)");
-                        continue;
-                }
-
                 /* not yet committed */
                 if (req->rq_transno > imp->imp_peer_committed_transno) {
                         DEBUG_REQ(D_RPCTRACE, req, "stopping search");
                         break;
                 }
 
+		if (req->rq_replay) {
+			DEBUG_REQ(D_RPCTRACE, req, "keeping (FL_REPLAY)");
+			cfs_list_move_tail(&req->rq_replay_list,
+					   &imp->imp_committed_list);
+			continue;
+		}
+
                 DEBUG_REQ(D_INFO, req, "commit (last_committed "LPU64")",
                           imp->imp_peer_committed_transno);
 free_req:
-		spin_lock(&req->rq_lock);
-		req->rq_replay = 0;
-		spin_unlock(&req->rq_lock);
-                if (req->rq_commit_cb != NULL)
-                        req->rq_commit_cb(req);
-                cfs_list_del_init(&req->rq_replay_list);
-                __ptlrpc_req_finished(req, 1);
+		free_request(req);
         }
 
+	if (skip_committed_list)
+		GOTO(out, 0);
+
+	cfs_list_for_each_entry_safe(req, saved, &imp->imp_committed_list,
+				     rq_replay_list) {
+		LASSERT(req->rq_transno != 0);
+		if (req->rq_import_generation < imp->imp_generation) {
+			DEBUG_REQ(D_RPCTRACE, req, "free stale open request");
+			free_request(req);
+		}
+	}
+out:
         EXIT;
         return;
 }

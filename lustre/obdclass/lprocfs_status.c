@@ -884,6 +884,7 @@ static const char *obd_connect_names[] = {
 	"lightweight_conn",
 	"short_io",
 	"pingless",
+	"ondisk_transno",
 	"unknown",
         NULL
 };

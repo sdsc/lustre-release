@@ -206,8 +206,17 @@ struct obd_export {
         cfs_list_t                exp_outstanding_replies;
         cfs_list_t                exp_uncommitted_replies;
 	spinlock_t		  exp_uncommitted_replies_lock;
-        /** Last committed transno for this export */
-        __u64                     exp_last_committed;
+	/**
+	 * Last committed transno for this export, the committed transno is
+	 * the on-disk real transno or the fake transno (for open/close).
+	 */
+	__u64                     exp_last_committed;
+	/** Last real but not committed to disk trasno for this export. */
+	__u64			  exp_last_uncommitted;
+	/** Last real committed on-disk transno for this export */
+	__u64			  exp_last_ondisk_transno;
+	/** Last fake transno (open/close) for this export */
+	__u64			  exp_last_fake_transno;
         /** When was last request received */
         cfs_time_t                exp_last_request_time;
         /** On replay all requests waiting for replay are linked here */
@@ -378,6 +387,14 @@ static inline bool imp_connect_lvb_type(struct obd_import *imp)
 		return true;
 	else
 		return false;
+}
+
+static inline bool imp_connect_ondisk_transno(struct obd_import *imp)
+{
+	struct obd_connect_data *ocd;
+	LASSERT(imp != NULL);
+	ocd = &imp->imp_connect_data;
+	return !!(ocd->ocd_connect_flags & OBD_CONNECT_ONDISK_TRANSNO);
 }
 
 extern struct obd_export *class_conn2export(struct lustre_handle *conn);

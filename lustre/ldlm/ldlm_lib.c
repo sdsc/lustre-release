@@ -2358,16 +2358,19 @@ EXPORT_SYMBOL(target_handle_ping);
 
 void target_committed_to_req(struct ptlrpc_request *req)
 {
-        struct obd_export *exp = req->rq_export;
+	struct obd_export *exp = req->rq_export;
 
-        if (!exp->exp_obd->obd_no_transno && req->rq_repmsg != NULL)
-                lustre_msg_set_last_committed(req->rq_repmsg,
-                                              exp->exp_last_committed);
-        else
+	if (!exp->exp_obd->obd_no_transno && req->rq_repmsg != NULL) {
+		lustre_msg_set_last_committed(req->rq_repmsg,
+					      exp->exp_last_committed);
+		if (exp_connect_flags(exp) & OBD_CONNECT_ONDISK_TRANSNO)
+			lustre_msg_set_ondisk_transno(req->rq_repmsg,
+					exp->exp_last_ondisk_transno);
+	} else {
                 DEBUG_REQ(D_IOCTL, req, "not sending last_committed update (%d/"
                           "%d)", exp->exp_obd->obd_no_transno,
                           req->rq_repmsg == NULL);
-
+	}
         CDEBUG(D_INFO, "last_committed "LPU64", transno "LPU64", xid "LPU64"\n",
                exp->exp_last_committed, req->rq_transno, req->rq_xid);
 }
