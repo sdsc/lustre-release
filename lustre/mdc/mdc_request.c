@@ -723,12 +723,13 @@ void mdc_commit_open(struct ptlrpc_request *req)
 }
 
 int mdc_set_open_replay_data(struct obd_export *exp,
-                             struct obd_client_handle *och,
-                             struct ptlrpc_request *open_req)
+			     struct obd_client_handle *och,
+			     struct lookup_intent *it)
 {
         struct md_open_data   *mod;
         struct mdt_rec_create *rec;
         struct mdt_body       *body;
+	struct ptlrpc_request *open_req = it->d.lustre.it_data;
         struct obd_import     *imp = open_req->rq_import;
         ENTRY;
 
@@ -763,6 +764,8 @@ int mdc_set_open_replay_data(struct obd_export *exp,
 		spin_lock(&open_req->rq_lock);
 		och->och_mod = mod;
 		mod->mod_och = och;
+		mod->mod_create = (it_disposition(it, DISP_OPEN_CREATE) ||
+				   it_disposition(it, DISP_OPEN_STRIPE)) ? 1:0;
 		mod->mod_open_req = open_req;
 		open_req->rq_cb_data = mod;
 		open_req->rq_commit_cb = mdc_commit_open;
@@ -797,6 +800,10 @@ int mdc_clear_open_replay_data(struct obd_export *exp,
                 RETURN(0);
 
         LASSERT(mod != LP_POISON);
+	LASSERT(mod->mod_open_req != NULL);
+	ptlrpc_free_open(mod->mod_open_req, mod->mod_close_req,
+			 mod->mod_create);
+
 
         mod->mod_och = NULL;
         och->och_mod = NULL;

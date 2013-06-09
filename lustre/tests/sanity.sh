@@ -10488,6 +10488,32 @@ test_207b() {
 }
 run_test 207b "can refresh layout at open"
 
+test_208() {
+	[ -z "$(lctl get_param -n mdc.*-mdc-*.connect_flags | \
+		grep disp_stripe)" ] &&
+			skip_env "must have disp_stripe" && return
+
+	touch $DIR/$tfile
+	sync || error "sync failed"
+
+	echo 3 > /proc/sys/vm/drop_caches
+	req_before=$(awk '/size-1024 / {print $2}' /proc/slabinfo)
+
+	# open/close 500 times
+	for i in $(seq 500); do
+		cat $DIR/$tfile
+	done
+
+	echo 3 > /proc/sys/vm/drop_caches
+	req_after=$(awk '/size-1024 / {print $2}' /proc/slabinfo)
+
+	echo "before: $req_before, after: $req_after"
+	[ $((req_after - req_before)) -ge 1000 ] &&
+		error "open/close requests are not freed"
+	return 0
+}
+run_test 208 "read-only open/close requests should be freed promptly"
+
 test_212() {
 	size=`date +%s`
 	size=$((size % 8192 + 1))
