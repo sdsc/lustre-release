@@ -723,14 +723,15 @@ void mdc_commit_open(struct ptlrpc_request *req)
 }
 
 int mdc_set_open_replay_data(struct obd_export *exp,
-                             struct obd_client_handle *och,
-                             struct ptlrpc_request *open_req)
+			     struct obd_client_handle *och,
+			     struct lookup_intent *it)
 {
-        struct md_open_data   *mod;
-        struct mdt_rec_create *rec;
-        struct mdt_body       *body;
-        struct obd_import     *imp = open_req->rq_import;
-        ENTRY;
+	struct md_open_data	*mod;
+	struct mdt_rec_create	*rec;
+	struct mdt_body		*body;
+	struct ptlrpc_request	*open_req = it->d.lustre.it_data;
+	struct obd_import	*imp = open_req->rq_import;
+	ENTRY;
 
         if (!open_req->rq_replay)
                 RETURN(0);
@@ -763,6 +764,8 @@ int mdc_set_open_replay_data(struct obd_export *exp,
 		spin_lock(&open_req->rq_lock);
 		och->och_mod = mod;
 		mod->mod_och = och;
+		mod->mod_is_create = it_disposition(it, DISP_OPEN_CREATE) ||
+				     it_disposition(it, DISP_OPEN_STRIPE);
 		mod->mod_open_req = open_req;
 		open_req->rq_cb_data = mod;
 		open_req->rq_commit_cb = mdc_commit_open;
@@ -797,6 +800,10 @@ int mdc_clear_open_replay_data(struct obd_export *exp,
                 RETURN(0);
 
         LASSERT(mod != LP_POISON);
+	LASSERT(mod->mod_open_req != NULL);
+	ptlrpc_free_open(mod->mod_open_req, mod->mod_close_req,
+			 mod->mod_is_create);
+
 
         mod->mod_och = NULL;
         och->och_mod = NULL;
@@ -996,6 +1003,9 @@ int mdc_done_writing(struct obd_export *exp, struct md_op_data *op_data,
         if (mod) {
                 if (rc != 0)
                         mod->mod_close_req = NULL;
+		LASSERT(mod->mod_open_req != NULL);
+		ptlrpc_free_open(mod->mod_open_req, mod->mod_close_req,
+				 mod->mod_is_create);
                 /* Since now, mod is accessed through setattr req only,
                  * thus DW req does not keep a reference on mod anymore. */
                 obd_mod_put(mod);
