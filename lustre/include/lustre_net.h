@@ -2909,6 +2909,8 @@ int ptlrpc_register_rqbd(struct ptlrpc_request_buffer_desc *rqbd);
  * request queues, request management, etc.
  * @{
  */
+void ptlrpc_free_open(struct ptlrpc_request *open_req,
+		      struct ptlrpc_request *close_req, bool is_create);
 void ptlrpc_init_client(int req_portal, int rep_portal, char *name,
                         struct ptlrpc_client *);
 void ptlrpc_cleanup_client(struct obd_import *imp);
