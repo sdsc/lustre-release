@@ -219,7 +219,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 				  OBD_CONNECT_EINPROGRESS |
 				  OBD_CONNECT_JOBSTATS | OBD_CONNECT_LVB_TYPE |
 				  OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_PINGLESS |
-				  OBD_CONNECT_MAX_EASIZE;
+				  OBD_CONNECT_MAX_EASIZE |
+				  OBD_CONNECT_DISP_STRIPE;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -1363,7 +1364,14 @@ static int ll_setattr_done_writing(struct inode *inode,
                 CERROR("inode %lu mdc truncate failed: rc = %d\n",
                        inode->i_ino, rc);
         }
-        RETURN(rc);
+	if (mod != NULL) {
+		/* FIXME: mod should be opaque to llite */
+		LASSERT(mod->mod_open_req != NULL);
+		ptlrpc_free_open(mod->mod_open_req, mod->mod_close_req,
+				 mod->mod_is_create ? true : false);
+		obd_mod_put(mod);
+	}
+	RETURN(rc);
 }
 
 static int ll_setattr_ost(struct inode *inode, struct iattr *attr)
