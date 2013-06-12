@@ -864,6 +864,7 @@ ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
 	struct ll_file_data  *fd  = LUSTRE_FPRIVATE(file);
         struct cl_io         *io;
         ssize_t               result;
+	range_lock_t          range;
         ENTRY;
 
 restart:
@@ -873,7 +874,9 @@ restart:
         if (cl_io_rw_init(env, io, iot, *ppos, count) == 0) {
                 struct vvp_io *vio = vvp_env_io(env);
                 struct ccc_io *cio = ccc_env_io(env);
-                int write_mutex_locked = 0;
+		int range_locked = 0;
+		/* TODO: Is the interval exclusive (x,y] or inclusive (x,y)? */
+		range_lock_init(&range, *ppos, *ppos + count - 1);
 
                 cio->cui_fd  = LUSTRE_FPRIVATE(file);
                 vio->cui_io_subtype = args->via_io_subtype;
@@ -886,13 +889,14 @@ restart:
 #ifndef HAVE_FILE_WRITEV
                         cio->cui_iocb = args->u.normal.via_iocb;
 #endif
-                        if ((iot == CIT_WRITE) &&
-                            !(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
-				if (mutex_lock_interruptible(&lli->
-                                                               lli_write_mutex))
-                                        GOTO(out, result = -ERESTARTSYS);
-                                write_mutex_locked = 1;
-                        } else if (iot == CIT_READ) {
+			if ((iot == CIT_WRITE) &&
+			   !(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
+				CDEBUG(D_VFSTRACE, "Range lock (%llu, %llu)\n",
+						    range.node.in_extent.start,
+						    range.node.in_extent.end);
+				range_lock(&lli->lli_write_tree, &range);
+				range_locked = 1;
+			} else if (iot == CIT_READ) {
 				down_read(&lli->lli_trunc_sem);
                         }
                         break;
@@ -908,11 +912,16 @@ restart:
                         CERROR("Unknow IO type - %u\n", vio->cui_io_subtype);
                         LBUG();
                 }
-                result = cl_io_loop(env, io);
-                if (write_mutex_locked)
-			mutex_unlock(&lli->lli_write_mutex);
-                else if (args->via_io_subtype == IO_NORMAL && iot == CIT_READ)
+		result = cl_io_loop(env, io);
+		if (range_locked) {
+			CDEBUG(D_VFSTRACE, "Range unlock (%llu, %llu)\n",
+					    range.node.in_extent.start,
+					    range.node.in_extent.end);
+			range_unlock(&lli->lli_write_tree, &range);
+		} else if (args->via_io_subtype == IO_NORMAL &&
+							iot == CIT_READ) {
 			up_read(&lli->lli_trunc_sem);
+		}
         } else {
                 /* cl_io_rw_init() handled IO */
                 result = io->ci_result;
