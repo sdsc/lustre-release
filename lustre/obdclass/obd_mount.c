@@ -285,7 +285,7 @@ int lustre_start_mgc(struct super_block *sb)
 
                 /* IR compatibility check, only for clients */
                 if (lmd_is_client(lsi->lsi_lmd)) {
-                        int has_ir;
+			bool has_ir;
                         int vallen = sizeof(*data);
                         __u32 *flags = &lsi->lsi_lmd->lmd_flags;
 
@@ -294,18 +294,14 @@ int lustre_start_mgc(struct super_block *sb)
                                           &vallen, data, NULL);
                         LASSERT(rc == 0);
                         has_ir = OCD_HAS_FLAG(data, IMP_RECOV);
-                        if (has_ir ^ !(*flags & LMD_FLG_NOIR)) {
-                                /* LMD_FLG_NOIR is for test purpose only */
-                                LCONSOLE_WARN(
-                                    "Trying to mount a client with IR setting "
-                                    "not compatible with current mgc. "
-                                    "Force to use current mgc setting that is "
-                                    "IR %s.\n",
-                                    has_ir ? "enabled" : "disabled");
-                                if (has_ir)
-                                        *flags &= ~LMD_FLG_NOIR;
-                                else
-                                        *flags |= LMD_FLG_NOIR;
+			if (!has_ir) { /* connected to an old MGS */
+				*flags |= LMD_FLG_NOIR;
+			} else if (*flags & LMD_FLG_NOIR) {
+				/* LMD_FLG_NOIR is for test purpose only to
+				 * turn off IR by mount options */
+				LCONSOLE_WARN("Trying to turn off IR failed "
+						"because the MGC is shared.");
+				*flags &= ~LMD_FLG_NOIR;
                         }
                 }
 
