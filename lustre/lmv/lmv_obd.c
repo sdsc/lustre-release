@@ -812,6 +812,126 @@ out_fid2path:
 	RETURN(rc);
 }
 
+static int lmv_hsm_req_count(struct lmv_obd       *lmv,
+			     const struct hsm_user_request *hur,
+			     const struct lmv_tgt_desc *tgt_mds)
+{
+	int			i, nb = 0;
+	struct lmv_tgt_desc    *curr_tgt;
+
+	/* count how many requests must be sent to the given target */
+	for (i = 0; i < hur->hur_request.hr_itemcount; i++) {
+		curr_tgt = lmv_find_target(lmv, &hur->hur_user_item[i].hui_fid);
+		if (obd_uuid_equals(&curr_tgt->ltd_uuid, &tgt_mds->ltd_uuid))
+			nb++;
+	}
+	return nb;
+}
+
+static void lmv_hsm_req_build(struct lmv_obd       *lmv,
+			      struct hsm_user_request *hur_in,
+			      const struct lmv_tgt_desc *tgt_mds,
+			      struct hsm_user_request *hur_out)
+{
+	int			i, nb_out;
+	struct lmv_tgt_desc    *curr_tgt;
+
+	/* build the hsm_user_request for the given target */
+	hur_out->hur_request = hur_in->hur_request;
+	nb_out = 0;
+	for (i = 0; i < hur_in->hur_request.hr_itemcount; i++) {
+		curr_tgt = lmv_find_target(lmv,
+					&hur_in->hur_user_item[i].hui_fid);
+		if (obd_uuid_equals(&curr_tgt->ltd_uuid, &tgt_mds->ltd_uuid)) {
+			hur_out->hur_user_item[nb_out] =
+				hur_in->hur_user_item[i];
+			nb_out++;
+		}
+	}
+	hur_out->hur_request.hr_itemcount = nb_out;
+	memcpy(hur_data(hur_out), hur_data(hur_in),
+	       hur_in->hur_request.hr_data_len);
+}
+
+static int lmv_hsm_ct_unregister(unsigned int cmd, int len, void *karg,
+				 void *uarg, struct lmv_obd *lmv,
+				 unsigned int mds_count)
+{
+	struct lustre_kernelcomm *lk = (struct lustre_kernelcomm *)karg;
+	int			  i, rc = 0;
+	ENTRY;
+
+	/* unregister request (call from llapi_hsm_copytool_fini) */
+	for (i = 0; i < mds_count; i++) {
+		/* best effort: try to clean as much as possible
+		 * (continue on error) */
+		obd_iocontrol(cmd, lmv->tgts[i]->ltd_exp, len, karg, uarg);
+	}
+
+	/* Whatever the result, remove copytool from kuc groups.
+	 * Unreached coordinators will get EPIPE on next requests
+	 * and will unregister automatically.
+	 */
+	rc = libcfs_kkuc_group_rem(lk->lk_uid, lk->lk_group);
+	RETURN(rc);
+}
+
+static int lmv_hsm_ct_register(unsigned int cmd, int len, void *karg,
+			       void *uarg, struct lmv_obd *lmv,
+			       unsigned int mds_count)
+{
+	struct lustre_kernelcomm *lk = (struct lustre_kernelcomm *)karg;
+	struct file	*fp;
+	int		i, j, err;
+	int		rc = 0;
+	int		set = 0;
+	ENTRY;
+
+	/* All or nothing: try to register to all MDS.
+	 * In case of failure, unregister from previous MDS,
+	 * except if it because of inactive target. */
+	for (i = 0; i < mds_count; i++) {
+		err = obd_iocontrol(cmd, lmv->tgts[i]->ltd_exp,
+				   len, karg, uarg);
+		if (err) {
+			if (lmv->tgts[i]->ltd_active) {
+				/* permanent error */
+				CERROR("error: iocontrol MDC %s on MDT"
+				       "idx %d cmd %x: err = %d\n",
+					lmv->tgts[i]->ltd_uuid.uuid,
+					i, cmd, err);
+				rc = err;
+				lk->lk_flags |= LK_FLG_STOP;
+				/* unregister from previous MDS */
+				for (j = 0; j < i; j++)
+					obd_iocontrol(cmd,
+						  lmv->tgts[j]->ltd_exp,
+						  len, karg, uarg);
+				RETURN(rc);
+			}
+			/* else: transient error.
+			 * kuc will register to the missing MDT
+			 * when it is back */
+		} else
+			set = 1;
+	}
+
+	if (!set)
+		/* no registration done: return error */
+		RETURN(-ENOTCONN);
+
+	/* at least one registration done, with no failure */
+	fp = fget(lk->lk_wfd);
+	rc = libcfs_kkuc_group_add(fp, lk->lk_uid, lk->lk_group,
+				   lk->lk_data);
+	if (rc && fp)
+		fput(fp);
+	RETURN(rc);
+}
+
+
+
+
 static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
                          int len, void *karg, void *uarg)
 {
@@ -820,6 +940,7 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
         int                   i = 0;
         int                   rc = 0;
         int                   set = 0;
+	int                   err = 0;
         int                   count = lmv->desc.ld_tgt_count;
         ENTRY;
 
@@ -937,7 +1058,76 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
 	}
 	case LL_IOC_HSM_STATE_GET:
 	case LL_IOC_HSM_STATE_SET:
-	case LL_IOC_HSM_ACTION:
+	case LL_IOC_HSM_ACTION: {
+		struct md_op_data	*op_data = karg;
+		struct lmv_tgt_desc	*tgt;
+
+		tgt = lmv_find_target(lmv, &op_data->op_fid1);
+		if (IS_ERR(tgt))
+				RETURN(PTR_ERR(tgt));
+
+		if (tgt->ltd_exp == NULL)
+				RETURN(-EINVAL);
+
+		rc = obd_iocontrol(cmd, tgt->ltd_exp, len, karg, uarg);
+		break;
+	}
+	case LL_IOC_HSM_PROGRESS: {
+		const struct hsm_progress_kernel *hpk = karg;
+		struct lmv_tgt_desc	*tgt;
+
+		tgt = lmv_find_target(lmv, &hpk->hpk_fid);
+		if (IS_ERR(tgt))
+			RETURN(PTR_ERR(tgt));
+		rc = obd_iocontrol(cmd, tgt->ltd_exp, len, karg, uarg);
+		break;
+	}
+	case LL_IOC_HSM_REQUEST: {
+		struct hsm_user_request *hur = karg;
+		struct lmv_tgt_desc	*tgt;
+		unsigned int reqcount = hur->hur_request.hr_itemcount;
+
+		if (reqcount == 0)
+			RETURN(0);
+
+		/* if the request is about a single fid
+		 * or if there is a single MDS, no need to split
+		 * the request. */
+		if (reqcount == 1 || count == 1) {
+			tgt = lmv_find_target(lmv,
+					      &hur->hur_user_item[0].hui_fid);
+			if (IS_ERR(tgt))
+				RETURN(PTR_ERR(tgt));
+			rc = obd_iocontrol(cmd, tgt->ltd_exp, len, karg, uarg);
+		} else {
+			/* split fid list to their respective MDS */
+			for (i = 0; i < count; i++) {
+				unsigned int		nb, reqlen;
+				struct hsm_user_request *req;
+
+				nb = lmv_hsm_req_count(lmv, hur, lmv->tgts[i]);
+				if (!nb) /* nothing for this MDS */
+					continue;
+
+				/* build a request with fids for this MDS */
+				reqlen = sizeof(struct hsm_user_request)
+					+ nb * sizeof(struct hsm_user_item)
+					+ hur->hur_request.hr_data_len;
+				OBD_ALLOC_LARGE(req, reqlen);
+				if (req == NULL)
+					RETURN(-ENOMEM);
+
+				lmv_hsm_req_build(lmv, hur, lmv->tgts[i], req);
+
+				err = obd_iocontrol(cmd, lmv->tgts[i]->ltd_exp,
+						    reqlen, req, uarg);
+				if (err && !rc)
+					rc = err;
+				OBD_FREE_LARGE(req, reqlen);
+			}
+		}
+		break;
+	}
 	case LL_IOC_LOV_SWAP_LAYOUTS: {
 		struct md_op_data	*op_data = karg;
 		struct lmv_tgt_desc	*tgt1, *tgt2;
@@ -960,10 +1150,19 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
 		rc = obd_iocontrol(cmd, tgt1->ltd_exp, len, karg, uarg);
 		break;
 	}
+	case LL_IOC_HSM_CT_START: {
+		struct lustre_kernelcomm *lk = (struct lustre_kernelcomm *)karg;
+		if (lk->lk_flags & LK_FLG_STOP)
+			rc = lmv_hsm_ct_unregister(cmd, len, karg, uarg, lmv,
+						   count);
+		else
+			rc = lmv_hsm_ct_register(cmd, len, karg, uarg, lmv,
+						 count);
+		break;
+	}
 	default:
 		for (i = 0; i < count; i++) {
 			struct obd_device *mdc_obd;
-			int err;
 
 			if (lmv->tgts[i] == NULL ||
 			    lmv->tgts[i]->ltd_exp == NULL)
