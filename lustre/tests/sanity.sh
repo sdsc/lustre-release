@@ -9234,6 +9234,19 @@ test_160() {
     [ $FIRST_REC == $(($MIN_REC + 1)) ] || \
 	err17935 "first index should be $(($MIN_REC + 1)); is $FIRST_REC"
 
+    # LU-3446 index reset on restart if all changelog records are cleared
+    local MDT_DEV=$(mdsdevname ${SINGLEMDS//mds/})
+    CUR_REC1=$(do_facet $SINGLEMDS $LCTL get_param mdd.$MDT0.changelog_users |
+	head -1 | awk '{print $NF}')
+    $LFS changelog_clear $MDT0 $USER 0
+    stop $SINGLEMDS || error "Fail to stop MDT."
+    start $SINGLEMDS $MDT_DEV $MDS_MOUNT_OPTS || error "Fail to start MDT."
+    CUR_REC2=$(do_facet $SINGLEMDS $LCTL get_param mdd.$MDT0.changelog_users |
+	head -1 | awk '{print $NF}')
+    echo "verifying current index survives MDT restart: $CUR_REC1 == $CUR_REC2"
+    [ $CUR_REC1 == $CUR_REC2 ] ||
+	err17935 "current index should be $CUR_REC1 is $CUR_REC2"
+
     echo "verifying user deregister"
     do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
     do_facet $SINGLEMDS $LCTL get_param -n mdd.$MDT0.changelog_users | \
