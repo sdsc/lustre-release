@@ -475,25 +475,25 @@ extern struct lu_context_key mdt_thread_key;
 static int mdt_txn_start_cb(const struct lu_env *env,
 			    struct thandle *th, void *cookie)
 {
-	struct mdt_device *mdt = cookie;
+	struct lu_target *tgt = cookie;
 	struct mdt_thread_info *mti;
 	int rc;
 	ENTRY;
 
 	mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
 
-	LASSERT(mdt->mdt_lut.lut_last_rcvd);
+	LASSERT(tgt->lut_last_rcvd);
 	if (mti->mti_exp == NULL)
 		RETURN(0);
 
-	rc = dt_declare_record_write(env, mdt->mdt_lut.lut_last_rcvd,
+	rc = dt_declare_record_write(env, tgt->lut_last_rcvd,
 				     sizeof(struct lsd_client_data),
 				     mti->mti_exp->exp_target_data.ted_lr_off,
 				     th);
 	if (rc)
 		return rc;
 
-	rc = dt_declare_record_write(env, mdt->mdt_lut.lut_last_rcvd,
+	rc = dt_declare_record_write(env, tgt->lut_last_rcvd,
 				     sizeof(struct lr_server_data), 0, th);
 	if (rc)
 		return rc;
@@ -510,7 +510,7 @@ static int mdt_txn_start_cb(const struct lu_env *env,
 static int mdt_txn_stop_cb(const struct lu_env *env,
                            struct thandle *txn, void *cookie)
 {
-        struct mdt_device *mdt = cookie;
+        struct lu_target *tgt = cookie;
         struct mdt_thread_info *mti;
         struct ptlrpc_request *req;
 
@@ -529,22 +529,22 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
         }
 
         mti->mti_has_trans = 1;
-	spin_lock(&mdt->mdt_lut.lut_translock);
+	spin_lock(&tgt->lut_translock);
         if (txn->th_result != 0) {
                 if (mti->mti_transno != 0) {
 			CERROR("Replay transno "LPU64" failed: rc %d\n",
 				mti->mti_transno, txn->th_result);
-			spin_unlock(&mdt->mdt_lut.lut_translock);
+			spin_unlock(&tgt->lut_translock);
 			return 0;
                 }
         } else if (mti->mti_transno == 0) {
-                mti->mti_transno = ++ mdt->mdt_lut.lut_last_transno;
+                mti->mti_transno = ++ tgt->lut_last_transno;
         } else {
                 /* should be replay */
-                if (mti->mti_transno > mdt->mdt_lut.lut_last_transno)
-                        mdt->mdt_lut.lut_last_transno = mti->mti_transno;
+                if (mti->mti_transno > tgt->lut_last_transno)
+                        tgt->lut_last_transno = mti->mti_transno;
         }
-	spin_unlock(&mdt->mdt_lut.lut_translock);
+	spin_unlock(&tgt->lut_translock);
         /* sometimes the reply message has not been successfully packed */
         LASSERT(req != NULL && req->rq_repmsg != NULL);
 
@@ -566,10 +566,9 @@ static int mdt_txn_stop_cb(const struct lu_env *env,
         req->rq_transno = mti->mti_transno;
         lustre_msg_set_transno(req->rq_repmsg, mti->mti_transno);
         /* if can't add callback, do sync write */
-        txn->th_sync |= !!tgt_last_commit_cb_add(txn, &mdt->mdt_lut,
-                                                 mti->mti_exp,
-                                                 mti->mti_transno);
-        return mdt_last_rcvd_update(mti, txn);
+	txn->th_sync |= !!tgt_last_commit_cb_add(txn, tgt, mti->mti_exp,
+						 mti->mti_transno);
+	return mdt_last_rcvd_update(mti, txn);
 }
 
 int mdt_fs_setup(const struct lu_env *env, struct mdt_device *mdt,
@@ -586,7 +585,7 @@ int mdt_fs_setup(const struct lu_env *env, struct mdt_device *mdt,
         mdt->mdt_txn_cb.dtc_txn_start = mdt_txn_start_cb;
         mdt->mdt_txn_cb.dtc_txn_stop = mdt_txn_stop_cb;
         mdt->mdt_txn_cb.dtc_txn_commit = NULL;
-        mdt->mdt_txn_cb.dtc_cookie = mdt;
+        mdt->mdt_txn_cb.dtc_cookie = &mdt->mdt_lut;
         mdt->mdt_txn_cb.dtc_tag = LCT_MD_THREAD;
         CFS_INIT_LIST_HEAD(&mdt->mdt_txn_cb.dtc_linkage);
 

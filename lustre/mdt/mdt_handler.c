@@ -3123,6 +3123,27 @@ static void mdt_thread_info_fini(struct mdt_thread_info *info)
 		lu_buf_free(&info->mti_big_buf);
 }
 
+int mdt_tgt_connect(struct tgt_session_info *tsi)
+{
+	struct mdt_thread_info *mti;
+	int rc;
+
+	lu_env_refill((void *)tsi->tsi_env);
+        mti = lu_context_key_get(&tsi->tsi_env->le_ctx, &mdt_thread_key);
+        LASSERT(mti != NULL);
+
+        mdt_thread_info_init(tgt_ses_req(tsi), mti);
+
+        rc = mdt_connect(mti);
+
+        mdt_thread_info_fini(mti);
+
+	if (rc == 0)
+		tsi->tsi_exp = tgt_ses_req(tsi)->rq_export;
+
+	return rc;
+}
+
 static int mdt_filter_recovery_request(struct ptlrpc_request *req,
                                        struct obd_device *obd, int *process)
 {
@@ -4581,6 +4602,46 @@ static void mdt_quota_fini(const struct lu_env *env, struct mdt_device *mdt)
 	EXIT;
 }
 
+static struct tgt_handler mdt_tgt_handlers[] = {
+TGT_RPC_HANDLER(MDS_FIRST_OPC,
+		0,			MDS_CONNECT,	mdt_tgt_connect,
+		&RQF_MDS_CONNECT, LUSTRE_OBD_VERSION),
+TGT_RPC_HANDLER(MDS_FIRST_OPC,
+		0,			MDS_DISCONNECT,	tgt_disconnect,
+		&RQF_MDS_DISCONNECT, LUSTRE_OBD_VERSION),
+};
+
+static struct tgt_opc_slice mdt_common_slice[] = {
+	{
+		.tos_opc_start = MDS_FIRST_OPC,
+		.tos_opc_end   = MDS_LAST_OPC,
+		.tos_hs        = mdt_tgt_handlers
+	},
+	{
+		.tos_opc_start = OBD_FIRST_OPC,
+		.tos_opc_end   = OBD_LAST_OPC,
+		.tos_hs        = tgt_obd_handlers
+	},
+	{
+		.tos_opc_start = LDLM_FIRST_OPC,
+		.tos_opc_end   = LDLM_LAST_OPC,
+		.tos_hs        = tgt_dlm_handlers
+	},
+	{
+		.tos_opc_start = SEC_FIRST_OPC,
+		.tos_opc_end   = SEC_LAST_OPC,
+		.tos_hs        = tgt_sec_ctx_handlers
+	},
+	{
+		.tos_opc_start = UPDATE_OBJ,
+		.tos_opc_end   = UPDATE_LAST_OPC,
+		.tos_hs        = tgt_out_handlers
+	},
+	{
+		.tos_hs        = NULL
+	}
+};
+
 static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 {
         struct md_device  *next = m->mdt_child;
@@ -4590,6 +4651,7 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 
         target_recovery_fini(obd);
 
+	tgt_degister_slice(mdt_common_slice);
         ping_evictor_stop();
 
 
@@ -4866,6 +4928,13 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 
         ping_evictor_start();
 
+
+	rc = tgt_register_slice(mdt_common_slice, obd->obd_type,
+				OBD_FAIL_MDS_ALL_REQUEST_NET,
+				OBD_FAIL_MDS_ALL_REPLY_NET);
+	if (rc)
+		GOTO(err_slice, rc);
+
 	/* recovery will be started upon mdt_prepare()
 	 * when the whole stack is complete and ready
 	 * to serve the requests */
@@ -4879,7 +4948,9 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                 ldlm_timeout = MDS_LDLM_TIMEOUT_DEFAULT;
 
         RETURN(0);
-
+err_slice:
+	ping_evictor_stop();
+	mdt_quota_fini(env, m);
 err_procfs:
         mdt_procfs_fini(m);
 err_recovery:
