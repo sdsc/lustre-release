@@ -3466,15 +3466,18 @@ check_and_setup_lustre() {
 		local nodes
 		local node
 		for facet in ${facets//,/ }; do
-			if [ $(facet_fstype $node) == "ldiskfs" ] ; then
+			if [ $(facet_fstype $facet) == "ldiskfs" ] ; then
 				node=$(facet_host ${facet})
 				nodes="$nodes $node"
 			fi
 		done
 		if [ -n "$nodes" ] ; then
 			nodes=$(for i in $nodes; do echo $i; done | sort -u)
-			do_nodes $(comma_list $nodes) "$LCTL set_param \
-				 osd-ldiskfs.track_declares_assert=1"
+			do_nodes $(comma_list $nodes) \
+				 "if [ -e /proc/fs/lustre/osd-ldiskfs/track_declares_assert ];
+				 then
+					$LCTL set_param osd-ldiskfs.track_declares_assert=1 ;
+				 fi"
 		fi
 	fi
 
