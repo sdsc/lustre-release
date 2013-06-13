@@ -1571,6 +1571,49 @@ int mdt_set_info(struct mdt_thread_info *info)
         RETURN(0);
 }
 
+static int mdt_connect_check_sptlrpc(struct mdt_device *mdt,
+				     struct obd_export *exp,
+				     struct ptlrpc_request *req)
+{
+	struct sptlrpc_flavor   flvr;
+	int                     rc = 0;
+
+	if (exp->exp_flvr.sf_rpc == SPTLRPC_FLVR_INVALID) {
+		read_lock(&mdt->mdt_sptlrpc_lock);
+		sptlrpc_target_choose_flavor(&mdt->mdt_sptlrpc_rset,
+					     req->rq_sp_from,
+					     req->rq_peer.nid,
+					     &flvr);
+		read_unlock(&mdt->mdt_sptlrpc_lock);
+
+		spin_lock(&exp->exp_lock);
+		exp->exp_sp_peer = req->rq_sp_from;
+		exp->exp_flvr = flvr;
+
+		if (exp->exp_flvr.sf_rpc != SPTLRPC_FLVR_ANY &&
+		    exp->exp_flvr.sf_rpc != req->rq_flvr.sf_rpc) {
+			CERROR("%s: unauthorized rpc flavor %x from %s, "
+			       "expect %x\n", mdt_obd_name(mdt),
+			       req->rq_flvr.sf_rpc,
+			       libcfs_nid2str(req->rq_peer.nid),
+			       exp->exp_flvr.sf_rpc);
+			rc = -EACCES;
+		}
+		spin_unlock(&exp->exp_lock);
+	} else {
+		if (exp->exp_sp_peer != req->rq_sp_from) {
+			CERROR("%s: RPC source %s doesn't match %s\n",
+			       mdt_obd_name(mdt),
+			       sptlrpc_part2name(req->rq_sp_from),
+			       sptlrpc_part2name(exp->exp_sp_peer));
+			rc = -EACCES;
+		} else {
+			rc = sptlrpc_target_export_check(exp, req);
+		}
+	}
+	return rc;
+}
+
 /**
  * Top-level handler for MDT connection requests.
  */
@@ -1581,32 +1624,39 @@ int mdt_connect(struct mdt_thread_info *info)
 	struct obd_export *exp;
 	struct ptlrpc_request *req = mdt_info_req(info);
 
+	ENTRY;
+
 	rc = target_handle_connect(req);
 	if (rc != 0)
-		return err_serious(rc);
+		RETURN(err_serious(rc));
 
 	LASSERT(req->rq_export != NULL);
-	info->mti_mdt = mdt_dev(req->rq_export->exp_obd->obd_lu_dev);
+	exp = req->rq_export;
+	info->mti_exp = exp;
+	info->mti_mdt = mdt_dev(exp->exp_obd->obd_lu_dev);
 	rc = mdt_init_sec_level(info);
-	if (rc != 0) {
-		obd_disconnect(class_export_get(req->rq_export));
-		return rc;
-	}
+	if (rc != 0)
+		GOTO(err, rc);
+
+	rc = mdt_connect_check_sptlrpc(info->mti_mdt, exp, req);
+	if (rc)
+		GOTO(err, rc);
 
 	/* To avoid exposing partially initialized connection flags, changes up
 	 * to this point have been staged in reply->ocd_connect_flags. Now that
 	 * connection handling has completed successfully, atomically update
 	 * the connect flags in the shared export data structure. LU-1623 */
 	reply = req_capsule_server_get(info->mti_pill, &RMF_CONNECT_DATA);
-	exp = req->rq_export;
 	spin_lock(&exp->exp_lock);
 	*exp_connect_flags_ptr(exp) = reply->ocd_connect_flags;
 	spin_unlock(&exp->exp_lock);
 
 	rc = mdt_init_idmap(info);
 	if (rc != 0)
-		obd_disconnect(class_export_get(req->rq_export));
-
+		GOTO(err, rc);
+	RETURN(0);
+err:
+	obd_disconnect(class_export_get(req->rq_export));
 	return rc;
 }
 
@@ -3081,12 +3131,11 @@ void mdt_lock_handle_fini(struct mdt_lock_handle *lh)
  * uninitialized state, because it's too expensive to zero out whole
  * mdt_thread_info (> 1K) on each request arrival.
  */
-static void mdt_thread_info_init(struct ptlrpc_request *req,
-                                 struct mdt_thread_info *info)
+void mdt_thread_info_init(struct ptlrpc_request *req,
+			  struct mdt_thread_info *info)
 {
         int i;
 
-        req_capsule_init(&req->rq_pill, req, RCL_SERVER);
         info->mti_pill = &req->rq_pill;
 
         /* lock handle */
@@ -3119,11 +3168,10 @@ static void mdt_thread_info_init(struct ptlrpc_request *req,
 	info->mti_spec.sp_rm_entry = 0;
 }
 
-static void mdt_thread_info_fini(struct mdt_thread_info *info)
+void mdt_thread_info_fini(struct mdt_thread_info *info)
 {
 	int i;
 
-	req_capsule_fini(info->mti_pill);
 	if (info->mti_object != NULL) {
 		mdt_object_put(info->mti_env, info->mti_object);
 		info->mti_object = NULL;
@@ -3135,6 +3183,34 @@ static void mdt_thread_info_fini(struct mdt_thread_info *info)
 
 	if (unlikely(info->mti_big_buf.lb_buf != NULL))
 		lu_buf_free(&info->mti_big_buf);
+}
+
+int mdt_tgt_connect(struct tgt_session_info *tsi)
+{
+	struct ptlrpc_request	*req = tgt_ses_req(tsi);
+	struct mdt_thread_info	*mti;
+	int			 rc;
+
+	ENTRY;
+
+	rc = tgt_connect(tsi);
+	if (rc != 0)
+		RETURN(rc);
+
+	/* XXX: switch mdt_init_idmap() to use tgt_session_info */
+	lu_env_refill((void *)tsi->tsi_env);
+	mti = lu_context_key_get(&tsi->tsi_env->le_ctx, &mdt_thread_key);
+	LASSERT(mti != NULL);
+
+	mdt_thread_info_init(req, mti);
+	rc = mdt_init_idmap(mti);
+	mdt_thread_info_fini(mti);
+	if (rc != 0)
+		GOTO(err, rc);
+	RETURN(0);
+err:
+	obd_disconnect(class_export_get(req->rq_export));
+	return rc;
 }
 
 static int mdt_filter_recovery_request(struct ptlrpc_request *req,
@@ -3411,12 +3487,14 @@ int mdt_handle_common(struct ptlrpc_request *req,
         info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
         LASSERT(info != NULL);
 
-        mdt_thread_info_init(req, info);
+	req_capsule_init(&req->rq_pill, req, RCL_SERVER);
+	mdt_thread_info_init(req, info);
 
-        rc = mdt_handle0(req, info, supported);
+	rc = mdt_handle0(req, info, supported);
 
-        mdt_thread_info_fini(info);
-        RETURN(rc);
+	mdt_thread_info_fini(info);
+	req_capsule_fini(&req->rq_pill);
+	RETURN(rc);
 }
 
 /*
@@ -4600,6 +4678,46 @@ static void mdt_quota_fini(const struct lu_env *env, struct mdt_device *mdt)
 	EXIT;
 }
 
+static struct tgt_handler mdt_tgt_handlers[] = {
+TGT_RPC_HANDLER(MDS_FIRST_OPC,
+		0,			MDS_CONNECT,	mdt_tgt_connect,
+		&RQF_CONNECT, LUSTRE_OBD_VERSION),
+TGT_RPC_HANDLER(MDS_FIRST_OPC,
+		0,			MDS_DISCONNECT,	tgt_disconnect,
+		&RQF_MDS_DISCONNECT, LUSTRE_OBD_VERSION),
+};
+
+static struct tgt_opc_slice mdt_common_slice[] = {
+	{
+		.tos_opc_start = MDS_FIRST_OPC,
+		.tos_opc_end   = MDS_LAST_OPC,
+		.tos_hs        = mdt_tgt_handlers
+	},
+	{
+		.tos_opc_start = OBD_FIRST_OPC,
+		.tos_opc_end   = OBD_LAST_OPC,
+		.tos_hs        = tgt_obd_handlers
+	},
+	{
+		.tos_opc_start = LDLM_FIRST_OPC,
+		.tos_opc_end   = LDLM_LAST_OPC,
+		.tos_hs        = tgt_dlm_handlers
+	},
+	{
+		.tos_opc_start = SEC_FIRST_OPC,
+		.tos_opc_end   = SEC_LAST_OPC,
+		.tos_hs        = tgt_sec_ctx_handlers
+	},
+	{
+		.tos_opc_start = UPDATE_OBJ,
+		.tos_opc_end   = UPDATE_LAST_OPC,
+		.tos_hs        = tgt_out_handlers
+	},
+	{
+		.tos_hs        = NULL
+	}
+};
+
 static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 {
 	struct md_device  *next = m->mdt_child;
@@ -4744,7 +4862,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         }
 
 	rwlock_init(&m->mdt_sptlrpc_lock);
-        sptlrpc_rule_set_init(&m->mdt_sptlrpc_rset);
+	sptlrpc_rule_set_init(&m->mdt_sptlrpc_rset);
 
 	spin_lock_init(&m->mdt_ioepoch_lock);
         m->mdt_opts.mo_compat_resname = 0;
@@ -4831,7 +4949,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         if (rc)
                 GOTO(err_free_ns, rc);
 
-	rc = tgt_init(env, &m->mdt_lut, obd, m->mdt_bottom, NULL,
+	rc = tgt_init(env, &m->mdt_lut, obd, m->mdt_bottom, mdt_common_slice,
 		      OBD_FAIL_MDS_ALL_REQUEST_NET,
 		      OBD_FAIL_MDS_ALL_REPLY_NET);
 	if (rc)
@@ -4902,7 +5020,6 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                 ldlm_timeout = MDS_LDLM_TIMEOUT_DEFAULT;
 
         RETURN(0);
-
 err_procfs:
 	mdt_procfs_fini(m);
 err_recovery:
@@ -5282,50 +5399,6 @@ static int mdt_connect_internal(struct obd_export *exp,
 	return 0;
 }
 
-static int mdt_connect_check_sptlrpc(struct mdt_device *mdt,
-				     struct obd_export *exp,
-				     struct ptlrpc_request *req)
-{
-	struct sptlrpc_flavor   flvr;
-	int                     rc = 0;
-
-	if (exp->exp_flvr.sf_rpc == SPTLRPC_FLVR_INVALID) {
-		read_lock(&mdt->mdt_sptlrpc_lock);
-		sptlrpc_target_choose_flavor(&mdt->mdt_sptlrpc_rset,
-					     req->rq_sp_from,
-					     req->rq_peer.nid,
-					     &flvr);
-		read_unlock(&mdt->mdt_sptlrpc_lock);
-
-		spin_lock(&exp->exp_lock);
-
-                exp->exp_sp_peer = req->rq_sp_from;
-                exp->exp_flvr = flvr;
-
-                if (exp->exp_flvr.sf_rpc != SPTLRPC_FLVR_ANY &&
-                    exp->exp_flvr.sf_rpc != req->rq_flvr.sf_rpc) {
-                        CERROR("unauthorized rpc flavor %x from %s, "
-                               "expect %x\n", req->rq_flvr.sf_rpc,
-                               libcfs_nid2str(req->rq_peer.nid),
-                               exp->exp_flvr.sf_rpc);
-                        rc = -EACCES;
-                }
-
-		spin_unlock(&exp->exp_lock);
-        } else {
-                if (exp->exp_sp_peer != req->rq_sp_from) {
-                        CERROR("RPC source %s doesn't match %s\n",
-                               sptlrpc_part2name(req->rq_sp_from),
-                               sptlrpc_part2name(exp->exp_sp_peer));
-                        rc = -EACCES;
-                } else {
-                        rc = sptlrpc_target_export_check(exp, req);
-                }
-        }
-
-        return rc;
-}
-
 /* mds_connect copy */
 static int mdt_obd_connect(const struct lu_env *env,
                            struct obd_export **exp, struct obd_device *obd,
@@ -5333,21 +5406,18 @@ static int mdt_obd_connect(const struct lu_env *env,
                            struct obd_connect_data *data,
                            void *localdata)
 {
-        struct mdt_thread_info *info;
-        struct obd_export      *lexp;
-        struct lustre_handle    conn = { 0 };
-        struct mdt_device      *mdt;
-        struct ptlrpc_request  *req;
-        int                     rc;
-        ENTRY;
+	struct obd_export	*lexp;
+	struct lustre_handle	 conn = { 0 };
+	struct mdt_device	*mdt;
+	int			 rc;
 
-        LASSERT(env != NULL);
-        if (!exp || !obd || !cluuid)
-                RETURN(-EINVAL);
+	ENTRY;
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        req = info->mti_pill->rc_req;
-        mdt = mdt_dev(obd->obd_lu_dev);
+	LASSERT(env != NULL);
+	if (exp == NULL || obd == NULL || cluuid == NULL)
+		RETURN(-EINVAL);
+
+	mdt = mdt_dev(obd->obd_lu_dev);
 
 	/*
 	 * first, check whether the stack is ready to handle requests
@@ -5362,71 +5432,50 @@ static int mdt_obd_connect(const struct lu_env *env,
 		set_bit(MDT_FL_SYNCED, &mdt->mdt_state);
 	}
 
-        rc = class_connect(&conn, obd, cluuid);
-        if (rc)
-                RETURN(rc);
+	rc = class_connect(&conn, obd, cluuid);
+	if (rc)
+		RETURN(rc);
 
-        lexp = class_conn2export(&conn);
-        LASSERT(lexp != NULL);
+	lexp = class_conn2export(&conn);
+	LASSERT(lexp != NULL);
 
-        rc = mdt_connect_check_sptlrpc(mdt, lexp, req);
-        if (rc)
-                GOTO(out, rc);
+	rc = mdt_connect_internal(lexp, mdt, data);
+	if (rc == 0) {
+		struct lsd_client_data *lcd = lexp->exp_target_data.ted_lcd;
 
-        if (OBD_FAIL_CHECK(OBD_FAIL_TGT_RCVG_FLAG))
-                lustre_msg_add_op_flags(req->rq_repmsg, MSG_CONNECT_RECOVERING);
-
-        rc = mdt_connect_internal(lexp, mdt, data);
-        if (rc == 0) {
-                struct lsd_client_data *lcd = lexp->exp_target_data.ted_lcd;
-
-                LASSERT(lcd);
-		info->mti_exp = lexp;
+		LASSERT(lcd);
 		memcpy(lcd->lcd_uuid, cluuid, sizeof lcd->lcd_uuid);
 		rc = tgt_client_new(env, lexp);
-                if (rc == 0)
-                        mdt_export_stats_init(obd, lexp, localdata);
-        }
+		if (rc == 0)
+			mdt_export_stats_init(obd, lexp, localdata);
+	}
 
-out:
-        if (rc != 0) {
-                class_disconnect(lexp);
-                *exp = NULL;
-        } else {
-                *exp = lexp;
-        }
+	if (rc != 0) {
+		class_disconnect(lexp);
+		*exp = NULL;
+	} else {
+		*exp = lexp;
+	}
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
-static int mdt_obd_reconnect(const struct lu_env *env,
-                             struct obd_export *exp, struct obd_device *obd,
-                             struct obd_uuid *cluuid,
-                             struct obd_connect_data *data,
-                             void *localdata)
+static int mdt_obd_reconnect(const struct lu_env *env, struct obd_export *exp,
+			     struct obd_device *obd, struct obd_uuid *cluuid,
+			     struct obd_connect_data *data, void *localdata)
 {
-        struct mdt_thread_info *info;
-        struct mdt_device      *mdt;
-        struct ptlrpc_request  *req;
-        int                     rc;
-        ENTRY;
+	int rc;
 
-        if (exp == NULL || obd == NULL || cluuid == NULL)
-                RETURN(-EINVAL);
+	ENTRY;
 
-        info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-        req = info->mti_pill->rc_req;
-        mdt = mdt_dev(obd->obd_lu_dev);
+	if (exp == NULL || obd == NULL || cluuid == NULL)
+		RETURN(-EINVAL);
 
-        rc = mdt_connect_check_sptlrpc(mdt, exp, req);
-        if (rc)
-                RETURN(rc);
+	rc = mdt_connect_internal(exp, mdt_dev(obd->obd_lu_dev), data);
+	if (rc == 0)
+		mdt_export_stats_init(obd, exp, localdata);
 
-        rc = mdt_connect_internal(exp, mdt_dev(obd->obd_lu_dev), data);
-        if (rc == 0)
-                mdt_export_stats_init(obd, exp, localdata);
-
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static int mdt_export_cleanup(struct obd_export *exp)
