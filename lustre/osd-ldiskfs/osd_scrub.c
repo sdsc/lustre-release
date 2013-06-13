@@ -1143,6 +1143,8 @@ typedef int (*scandir_t)(struct osd_thread_info *, struct osd_device *,
 
 static int osd_ios_varfid_fill(void *buf, const char *name, int namelen,
 			       loff_t offset, __u64 ino, unsigned d_type);
+static int osd_ios_lf_fill(void *buf, const char *name, int namelen,
+			   loff_t offset, __u64 ino, unsigned d_type);
 
 static int
 osd_ios_general_scan(struct osd_thread_info *info, struct osd_device *dev,
@@ -1159,6 +1161,7 @@ enum osd_lf_flags {
 	OLF_SCAN_SUBITEMS	= 0x0001,
 	OLF_HIDE_FID		= 0x0002,
 	OLF_SHOW_NAME		= 0x0004,
+	OLF_NO_OI		= 0x0008,
 };
 
 struct osd_lf_map {
@@ -1251,6 +1254,10 @@ static const struct osd_lf_map osd_lf_maps[] = {
 	/* LAST_GROUP, upgrade from old device */
 	{ "LAST_GROUP", { FID_SEQ_LOCAL_FILE, OFD_LAST_GROUP_OID, 0 },
 		OLF_SHOW_NAME, NULL, NULL },
+
+	/* lost+found */
+	{ "lost+found", { 0, 0, 0 }, OLF_SCAN_SUBITEMS | OLF_NO_OI,
+		osd_ios_general_scan, osd_ios_lf_fill },
 
 	{ NULL, { 0, 0, 0 }, 0, NULL, NULL }
 };
@@ -1399,6 +1406,100 @@ osd_ios_scan_one(struct osd_thread_info *info, struct osd_device *dev,
 	RETURN(rc);
 }
 
+static int osd_ios_lf_fill(void *buf, const char *name, int namelen,
+			   loff_t offset, __u64 ino, unsigned d_type)
+{
+	struct osd_ios_filldir_buf *fill_buf = buf;
+	struct osd_thread_info     *info     = fill_buf->oifb_info;
+	struct osd_device	   *dev      = fill_buf->oifb_dev;
+	struct lustre_mdt_attrs    *lma      = &info->oti_mdt_attrs;
+	struct lu_fid		   *fid      = &info->oti_fid;
+	struct osd_scrub	   *scrub    = &dev->od_scrub;
+	struct dentry		   *child;
+	struct inode		   *inode;
+	int			    rc;
+	ENTRY;
+
+	/* skip any '.' started names */
+	if (name[0] == '.')
+		RETURN(0);
+
+	scrub->os_lf_scanned++;
+	child = osd_ios_lookup_one_len(name, fill_buf->oifb_dentry, namelen);
+	if (IS_ERR(child)) {
+		CWARN("%.16s: cannot lookup child '%.*s': rc = %d\n",
+		      osd_name(dev), namelen, name, (int)PTR_ERR(child));
+		RETURN(0);
+	}
+
+	inode = child->d_inode;
+	if (S_ISDIR(inode->i_mode)) {
+		rc = osd_ios_new_item(dev, child, osd_ios_general_scan,
+				      osd_ios_lf_fill);
+		if (rc != 0)
+			CWARN("%.16s: cannot add child '%.*s': rc = %d\n",
+			      osd_name(dev), namelen, name, rc);
+		GOTO(put, rc);
+	}
+
+	if (!S_ISREG(inode->i_mode))
+		GOTO(put, rc = 0);
+
+	rc = osd_get_lma(info, inode, &info->oti_obj_dentry, lma);
+	if (rc == 0) {
+		if (lma->lma_compat & LMAC_NOT_IN_OI) {
+			ldiskfs_set_inode_state(inode,
+						LDISKFS_STATE_LUSTRE_NO_OI);
+			GOTO(put, rc = 0);
+		}
+
+		if (!(lma->lma_compat & LMAC_FID_ON_OST))
+			GOTO(put, rc = 0);
+
+		*fid = lma->lma_self_fid;
+		goto rename;
+	}
+
+	if (rc != -ENODATA) {
+		CWARN("%.16s: cannot get_lma for '%.*s': rc = %d\n",
+		      osd_name(dev), namelen, name, rc);
+		GOTO(put, rc);
+	}
+
+	/* It may be old OST device. */
+	rc = osd_get_idif(info, inode, &info->oti_obj_dentry, fid);
+	if (rc == -ENODATA)
+		GOTO(put, rc = 0);
+
+	if (rc != 0) {
+		CWARN("%.16s: cannot get_idif for '%.*s': rc = %d\n",
+		      osd_name(dev), namelen, name, rc);
+		GOTO(put, rc);
+	}
+
+rename:
+	rc = osd_obj_map_rename(info, dev, fill_buf->oifb_dentry, child, fid);
+	if (rc == 0) {
+		CDEBUG(D_LFSCK, "recovered '%.*s' ["DFID"] from /lost+found.\n",
+		       namelen, name, PFID(fid));
+		scrub->os_lf_repaired++;
+	} else if (rc == -EEXIST) {
+		rc = 0;
+	} else {
+		CWARN("%.16s: cannot rename for '%.*s' "DFID": rc = %d\n",
+		      osd_name(dev), namelen, name, PFID(fid), rc);
+	}
+
+	GOTO(put, rc);
+
+put:
+	if (rc != 0)
+		scrub->os_lf_failed++;
+	dput(child);
+	/* skip the failure to make the scanning to continue. */
+	return 0;
+}
+
 static int osd_ios_varfid_fill(void *buf, const char *name, int namelen,
 			       loff_t offset, __u64 ino, unsigned d_type)
 {
@@ -1455,8 +1556,9 @@ static int osd_ios_root_fill(void *buf, const char *name, int namelen,
 	if (IS_ERR(child))
 		RETURN(PTR_ERR(child));
 
-	rc = osd_ios_scan_one(fill_buf->oifb_info, dev, child->d_inode,
-			      &map->olm_fid, map->olm_flags);
+	if (!(map->olm_flags & OLF_NO_OI))
+		rc = osd_ios_scan_one(fill_buf->oifb_info, dev, child->d_inode,
+				      &map->olm_fid, map->olm_flags);
 	if (rc == 0 && map->olm_flags & OLF_SCAN_SUBITEMS)
 		rc = osd_ios_new_item(dev, child, map->olm_scandir,
 				      map->olm_filldir);
@@ -2393,8 +2495,13 @@ int osd_scrub_dump(struct osd_device *dev, char *buf, int len)
 			      "run_time: %u seconds\n"
 			      "average_speed: "LPU64" objects/sec\n"
 			      "real-time_speed: "LPU64" objects/sec\n"
-			      "current_position: %u\n",
-			      rtime, speed, new_checked, scrub->os_pos_current);
+			      "current_position: %u\n"
+			      "lf_scanned: "LPU64"\n"
+			      "lf_reparied: "LPU64"\n"
+			      "lf_failed: "LPU64"\n",
+			      rtime, speed, new_checked, scrub->os_pos_current,
+			      scrub->os_lf_scanned, scrub->os_lf_repaired,
+			      scrub->os_lf_failed);
 	} else {
 		if (sf->sf_run_time != 0)
 			do_div(speed, sf->sf_run_time);
@@ -2402,8 +2509,12 @@ int osd_scrub_dump(struct osd_device *dev, char *buf, int len)
 			      "run_time: %u seconds\n"
 			      "average_speed: "LPU64" objects/sec\n"
 			      "real-time_speed: N/A\n"
-			      "current_position: N/A\n",
-			      sf->sf_run_time, speed);
+			      "current_position: N/A\n"
+			      "lf_scanned: "LPU64"\n"
+			      "lf_reparied: "LPU64"\n"
+			      "lf_failed: "LPU64"\n",
+			      sf->sf_run_time, speed, scrub->os_lf_scanned,
+			      scrub->os_lf_repaired, scrub->os_lf_failed);
 	}
 	if (rc <= 0)
 		goto out;
