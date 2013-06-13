@@ -766,6 +766,7 @@ int mdt_llog_prev_block(struct mdt_thread_info *info);
 int mdt_sec_ctx_handle(struct mdt_thread_info *info);
 int mdt_readpage(struct mdt_thread_info *info);
 int mdt_obd_idx_read(struct mdt_thread_info *info);
+int mdt_tgt_connect(struct tgt_session_info *tsi);
 
 extern struct mdt_opc_slice mdt_regular_handlers[];
 extern struct mdt_opc_slice mdt_seq_handlers[];
@@ -1065,38 +1066,6 @@ static inline char *mdt_obd_name(struct mdt_device *mdt)
 
 int mds_mod_init(void);
 void mds_mod_exit(void);
-
-/* Update handlers */
-int out_handle(struct mdt_thread_info *info);
-
-#define out_tx_create(info, obj, attr, fid, dof, th, reply, idx) \
-	__out_tx_create(info, obj, attr, fid, dof, th, reply, idx, \
-			__FILE__, __LINE__)
-
-#define out_tx_attr_set(info, obj, attr, th, reply, idx) \
-	__out_tx_attr_set(info, obj, attr, th, reply, idx, \
-			  __FILE__, __LINE__)
-
-#define out_tx_xattr_set(info, obj, buf, name, fl, th, reply, idx)	\
-	__out_tx_xattr_set(info, obj, buf, name, fl, th, reply, idx,	\
-			   __FILE__, __LINE__)
-
-#define out_tx_ref_add(info, obj, th, reply, idx) \
-	__out_tx_ref_add(info, obj, th, reply, idx, __FILE__, __LINE__)
-
-#define out_tx_ref_del(info, obj, th, reply, idx) \
-	__out_tx_ref_del(info, obj, th, reply, idx, __FILE__, __LINE__)
-
-#define out_tx_index_insert(info, obj, th, name, fid, reply, idx) \
-	__out_tx_index_insert(info, obj, th, name, fid, reply, idx, \
-			      __FILE__, __LINE__)
-
-#define out_tx_index_delete(info, obj, th, name, reply, idx) \
-	__out_tx_index_delete(info, obj, th, name, reply, idx, \
-			      __FILE__, __LINE__)
-
-#define out_tx_destroy(info, obj, th, reply, idx) \
-	__out_tx_destroy(info, obj, th, reply, idx, __FILE__, __LINE__)
 
 #endif /* __KERNEL__ */
 #endif /* _MDT_H */
