@@ -2842,7 +2842,8 @@ int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
                 return -EOPNOTSUPP;
 
         fm_key.oa.o_id = lsm->lsm_object_id;
-        fm_key.oa.o_valid = OBD_MD_FLID;
+        fm_key.oa.o_gr = lsm->lsm_object_gr;
+        fm_key.oa.o_valid = OBD_MD_FLID | OBD_MD_FLGROUP;
 
         obdo_from_inode(&fm_key.oa, inode, OBD_MD_FLFID | OBD_MD_FLSIZE);
 

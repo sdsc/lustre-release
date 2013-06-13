@@ -1,5 +1,4 @@
 /* -*- mode: c; c-basic-offset: 8; indent-tabs-mode: nil; -*-
- * vim:expandtab:shiftwidth=8:tabstop=8:
  *
  * GPL HEADER START
  *
@@ -218,66 +217,54 @@ static int ost_create(struct obd_export *exp, struct ptlrpc_request *req,
         RETURN(0);
 }
 
-/*
- * Helper function for ost_punch(): if asked by client, acquire [size, EOF]
- * lock on the file being truncated.
+/**
+ * Helper function for getting server side [start, start+count] DLM lock
+ * if asked by client.
  */
-static int ost_punch_lock_get(struct obd_export *exp, struct obdo *oa,
-                              struct lustre_handle *lh)
+static int ost_lock_get(struct obd_export *exp, struct obdo *oa,
+			__u64 start, __u64 count, struct lustre_handle *lh,
+			int mode, int flags)
 {
-        int flags;
-        struct ldlm_res_id res_id = { .name = { oa->o_id } };
-        ldlm_policy_data_t policy;
-        __u64 start;
-        __u64 finis;
+	struct ldlm_res_id res_id = { .name = { oa->o_id, 0, oa->o_gr, 0} };
+	ldlm_policy_data_t policy;
+	__u64 end = start + count;
 
-        ENTRY;
+	ENTRY;
 
-        LASSERT(!lustre_handle_is_used(lh));
+	LASSERT(!lustre_handle_is_used(lh));
+	LASSERT((oa->o_valid & (OBD_MD_FLID | OBD_MD_FLGROUP)) ==
+		(OBD_MD_FLID | OBD_MD_FLGROUP));
 
-        if (!(oa->o_valid & OBD_MD_FLFLAGS) ||
-            !(oa->o_flags & OBD_FL_TRUNCLOCK))
-                RETURN(0);
+	if (!(oa->o_valid & OBD_MD_FLFLAGS) ||
+	    !((oa->o_flags & OBD_FL_SRVLOCK) ||
+	      (oa->o_flags & OBD_FL_TRUNCLOCK)))
+		RETURN(0);
 
-        CDEBUG(D_INODE, "OST-side truncate lock.\n");
+	CDEBUG(D_INODE, "OST-side extent lock.\n");
 
-        start = oa->o_size;
-        finis = start + oa->o_blocks;
+	policy.l_extent.start = start & CFS_PAGE_MASK;
 
-        /*
-         * standard truncate optimization: if file body is completely
-         * destroyed, don't send data back to the server.
-         */
-        flags = (start == 0) ? LDLM_AST_DISCARD_DATA : 0;
+	/* If ->o_blocks is EOF it means "lock till the end of the
+	 * file". Otherwise, it's size of a hole being punched (in bytes) */
+	if (count == OBD_OBJECT_EOF || end < start)
+		policy.l_extent.end = OBD_OBJECT_EOF;
+	else
+		policy.l_extent.end = end | ~CFS_PAGE_MASK;
 
-        policy.l_extent.start = start & CFS_PAGE_MASK;
-
-        /*
-         * If ->o_blocks is EOF it means "lock till the end of the
-         * file". Otherwise, it's size of a hole being punched (in bytes)
-         */
-        if (oa->o_blocks == OBD_OBJECT_EOF || finis < start)
-                policy.l_extent.end = OBD_OBJECT_EOF;
-        else
-                policy.l_extent.end = finis | ~CFS_PAGE_MASK;
-
-        RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
-                                      LDLM_EXTENT, &policy, LCK_PW, &flags,
-                                      ldlm_blocking_ast, ldlm_completion_ast,
-                                      ldlm_glimpse_ast, NULL, 0, NULL, lh));
+	RETURN(ldlm_cli_enqueue_local(exp->exp_obd->obd_namespace, &res_id,
+				      LDLM_EXTENT, &policy, mode, &flags,
+				      ldlm_blocking_ast, ldlm_completion_ast,
+				      ldlm_glimpse_ast, NULL, 0, NULL, lh));
 }
 
-/*
- * Helper function for ost_punch(): release lock acquired by
- * ost_punch_lock_get(), if any.
- */
-static void ost_punch_lock_put(struct obd_export *exp, struct obdo *oa,
-                               struct lustre_handle *lh)
+/* Helper function: release lock, if any. */
+static void ost_lock_put(struct obd_export *exp,
+			 struct lustre_handle *lh, int mode)
 {
-        ENTRY;
-        if (lustre_handle_is_used(lh))
-                ldlm_lock_decref(lh, LCK_PW);
-        EXIT;
+	ENTRY;
+	if (lustre_handle_is_used(lh))
+		ldlm_lock_decref(lh, mode);
+	EXIT;
 }
 
 static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
@@ -286,7 +273,7 @@ static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
         struct obd_info *oinfo;
         struct ost_body *body, *repbody;
         __u32 size[2] = { sizeof(struct ptlrpc_body), sizeof(*repbody) };
-        int rc;
+        int rc, flags = 0;
         struct lustre_handle lh = {0,};
         ENTRY;
 
@@ -309,13 +296,20 @@ static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
             (OBD_MD_FLSIZE | OBD_MD_FLBLOCKS))
                 GOTO(out, rc = -EINVAL);
 
+	/* standard truncate optimization: if file body is completely
+	 * destroyed, don't send data back to the server. */
+	if (oinfo->oi_oa->o_size == 0)
+		flags |= LDLM_AST_DISCARD_DATA;
+
         rc = lustre_pack_reply(req, 2, size, NULL);
         if (rc)
                 GOTO(out, rc);
 
         repbody = lustre_msg_buf(req->rq_repmsg, REPLY_REC_OFF,
                                  sizeof(*repbody));
-        rc = ost_punch_lock_get(exp, oinfo->oi_oa, &lh);
+
+	rc = ost_lock_get(exp, oinfo->oi_oa, oinfo->oi_oa->o_size,
+			  oinfo->oi_oa->o_blocks, &lh, LCK_PW, flags);
         if (rc == 0) {
                 if (oinfo->oi_oa->o_valid & OBD_MD_FLFLAGS &&
                     oinfo->oi_oa->o_flags == OBD_FL_TRUNCLOCK)
@@ -327,7 +321,7 @@ static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
                         oinfo->oi_oa->o_valid &= ~OBD_MD_FLFLAGS;
 
                 req->rq_status = obd_punch(exp, oinfo, oti, NULL);
-                ost_punch_lock_put(exp, oinfo->oi_oa, &lh);
+		ost_lock_put(exp, &lh, LCK_PW);
         }
 
         repbody->oa = *oinfo->oi_oa;
@@ -1288,11 +1282,88 @@ out:
         RETURN(rc);
 }
 
+struct locked_region {
+	struct list_head  list;
+	struct lustre_handle lh;
+};
+
+static int lock_region(struct obd_export *exp, struct obdo *oa,
+		       unsigned long long begin, unsigned long long end,
+		       struct list_head *locked)
+{
+	struct locked_region *region = NULL;
+	int rc;
+
+	LASSERT(begin <= end);
+	OBD_ALLOC_PTR(region);
+	if (region == NULL)
+		return -ENOMEM;
+
+	rc = ost_lock_get(exp, oa, begin, end - begin, &region->lh, LCK_PR, 0);
+	if (rc)
+		return rc;
+
+	CDEBUG(D_OTHER, "ost lock [%llu,%llu], lh=%p\n",
+	       begin, end, &region->lh);
+	list_add(&region->list, locked);
+
+	return 0;
+}
+
+static int lock_zero_regions(struct obd_export *exp, struct obdo *oa,
+			     struct ll_user_fiemap *fiemap,
+			     struct list_head *locked)
+{
+	__u64 begin = fiemap->fm_start;
+	unsigned int i;
+	int rc = 0;
+	struct ll_fiemap_extent *fiemap_start = fiemap->fm_extents;
+	ENTRY;
+
+	CDEBUG(D_OTHER, "extents count %u\n", fiemap->fm_mapped_extents);
+	for (i = 0; i < fiemap->fm_mapped_extents; i++) {
+		if (fiemap_start[i].fe_logical > begin) {
+			CDEBUG(D_OTHER, "ost lock [%llu,%llu]\n",
+			       begin, fiemap_start[i].fe_logical);
+			rc = lock_region(exp, oa, begin,
+				    fiemap_start[i].fe_logical, locked);
+			if (rc)
+				RETURN(rc);
+		}
+
+		begin = fiemap_start[i].fe_logical + fiemap_start[i].fe_length;
+	}
+
+	if (begin < (fiemap->fm_start + fiemap->fm_length)) {
+		CDEBUG(D_OTHER, "ost lock [%llu,%llu]\n",
+		       begin, fiemap->fm_start + fiemap->fm_length);
+		rc = lock_region(exp, oa, begin,
+				 fiemap->fm_start + fiemap->fm_length, locked);
+	}
+
+	RETURN(rc);
+}
+
+static void unlock_zero_regions(struct obd_export *exp, struct list_head *locked)
+{
+	struct locked_region *entry, *temp;
+	list_for_each_entry_safe(entry, temp, locked, list) {
+		CDEBUG(D_OTHER, "ost unlock lh=%p\n", &entry->lh);
+		ost_lock_put(exp, &entry->lh, LCK_PR);
+		list_del(&entry->list);
+		OBD_FREE_PTR(entry);
+	}
+}
+
+
 static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
 {
         void *key, *reply;
-        int keylen, rc = 0;
+        int keylen, replylen, rc = 0;
         int size[2] = { sizeof(struct ptlrpc_body), 0 };
+        struct list_head locked = CFS_LIST_HEAD_INIT(locked);
+        struct ll_fiemap_info_key *fm_key = NULL;
+        struct ll_user_fiemap *fiemap;
         ENTRY;
 
         key = lustre_msg_buf(req->rq_reqmsg, REQ_REC_OFF, 1);
@@ -1301,6 +1372,7 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
                 RETURN(-EFAULT);
         }
         keylen = lustre_msg_buflen(req->rq_reqmsg, REQ_REC_OFF);
+	fm_key = key;
 
         /* call once to get the size to allocate the reply buffer */
         rc = obd_get_info(exp, keylen, key, &size[1], NULL, NULL);
@@ -1314,6 +1386,23 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
         reply = lustre_msg_buf(req->rq_repmsg, REPLY_REC_OFF, sizeof(*reply));
         /* call again to fill in the reply buffer */
         rc = obd_get_info(exp, keylen, key, size, reply, NULL);
+
+        /* LU-3219: Lock the sparse areas to make sure dirty flushed back
+	 * from client, then call fiemap again. */
+	if (KEY_IS(KEY_FIEMAP) && (fm_key->oa.o_valid & OBD_MD_FLFLAGS) &&
+	    (fm_key->oa.o_flags & OBD_FL_SRVLOCK)) {
+		fiemap = (struct ll_user_fiemap *)reply;
+		fm_key = key;
+
+		rc = lock_zero_regions(exp, &fm_key->oa, fiemap, &locked);
+		if (rc == 0 && !list_empty(&locked))
+			rc = obd_get_info(exp, keylen, key, &replylen,
+					  reply, NULL);
+		unlock_zero_regions(exp, &locked);
+		if (rc)
+			RETURN(rc);
+	}
+
         lustre_msg_set_status(req->rq_repmsg, 0);
 
         RETURN(rc);

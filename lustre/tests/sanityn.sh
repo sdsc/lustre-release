@@ -923,6 +923,46 @@ test_39() {
 }
 run_test 39 "direct I/O writes should update mtime ========="
 
+test_40() {
+	local server_version=$(lustre_version_code $SINGLEMDS)
+
+	[[ $server_version -lt $(version_code 1.8.10) ]] &&
+		skip "Need MDS version at least 1.8.10" && return
+
+	# Patch not applied to 2.2 and 2.3 branches
+	[[ $server_version -ge $(version_code 2.2.0) ]] &&
+	[[ $server_version -lt $(version_code 2.4.0) ]] &&
+		skip "Need MDS version at least 2.4.0" && return
+
+	checkfiemap --test ||
+		{ skip "checkfiemap not runnable: $?" && return; }
+	# write data this way: hole - data - hole - data
+	dd if=/dev/urandom of=$DIR1/$tfile bs=40K seek=1 count=1
+	dd if=/dev/urandom of=$DIR1/$tfile bs=40K seek=3 count=1
+	GET_STAT="lctl get_param -n ldlm.services.ldlm_cbd.stats"
+	stat $DIR2/$tfile
+	local can1=$($GET_STAT | awk '/ldlm_bl_callback/ {print $2}')
+	echo $can1
+	checkfiemap $DIR2/$tfile 81920 ||
+		error "data is not flushed from client"
+	local can2=$($GET_STAT | awk '/ldlm_bl_callback/ {print $2}')
+	echo $can2
+
+	# common case of "create file, copy file" on a single node
+	# should not flush data from ost
+	dd if=/dev/urandom of=$DIR1/$tfile bs=40K seek=1 count=1
+	dd if=/dev/urandom of=$DIR1/$tfile bs=40K seek=3 count=1
+	stat $DIR1/$tfile
+	local can3=$($GET_STAT | awk '/ldlm_bl_callback/ {print $2}')
+	echo $can3
+	checkfiemap $DIR1/$tfile 81920 ||
+	error 4
+	local can4=$($GET_STAT | awk '/ldlm_bl_callback/ {print $2}')
+	echo $can2
+	[ $can3 -eq $can4 ] || error $((can2-can1)) "cancel RPC occured."
+}
+run_test 40 "correct file map just after write operation is finished"
+
 complete $(basename $0) $SECONDS
 check_and_cleanup_lustre
 exit_status
