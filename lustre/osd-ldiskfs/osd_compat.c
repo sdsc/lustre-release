@@ -1045,6 +1045,91 @@ int osd_obj_map_update(struct osd_thread_info *info,
 	RETURN(rc);
 }
 
+int osd_obj_map_rename(struct osd_thread_info *info,
+		       struct osd_device *osd,
+		       struct dentry *dsp,
+		       struct dentry *dsc,
+		       const struct lu_fid *fid)
+{
+	struct osd_obj_map	   *map;
+	struct osd_obj_seq	   *osd_seq;
+	struct dentry		   *dtp;
+	struct dentry		   *dtc      = &info->oti_child_dentry;
+	struct inode		   *dir;
+	struct inode		   *inode    = dsc->d_inode;
+	struct ost_id		   *ostid    = &info->oti_ostid;
+	handle_t		   *jh;
+	struct ldiskfs_dir_entry_2 *de;
+	struct buffer_head	   *bh;
+	char			    name[32];
+	int			    dirn;
+	int			    rc       = 0;
+	ENTRY;
+
+	map = osd->od_ost_map;
+	LASSERT(map);
+
+	/* map fid to seq::objid */
+	fid_to_ostid(fid, ostid);
+
+	osd_seq = osd_seq_load(info, osd, ostid_seq(ostid));
+	if (IS_ERR(osd_seq))
+		RETURN(PTR_ERR(osd_seq));
+
+	dirn = ostid_id(ostid) & (osd_seq->oos_subdir_count - 1);
+	dtp = osd_seq->oos_dirs[dirn];
+	LASSERT(dtp);
+
+	dir = dtp->d_inode;
+	osd_oid_name(name, sizeof(name), fid, ostid_id(ostid));
+
+	dtc->d_name.hash = 0;
+	dtc->d_name.name = name;
+	dtc->d_name.len = strlen(name);
+	dtc->d_parent = dtp;
+	dtc->d_inode = inode;
+
+	jh = ldiskfs_journal_start_sb(osd_sb(osd),
+				osd_dto_credits_noquota[DTO_INDEX_DELETE] +
+				osd_dto_credits_noquota[DTO_INDEX_INSERT]);
+	if (IS_ERR(jh))
+		RETURN(PTR_ERR(jh));
+
+	ll_vfs_dq_init(dsp->d_inode);
+	ll_vfs_dq_init(dir);
+
+	/* There will be only single thread to access the @dsp, needs
+	 * NOT lock. So only take mutex against the tgrget parent. */
+	mutex_lock(&dir->i_mutex);
+	bh = osd_ldiskfs_find_entry(dir, dtc, &de, NULL);
+	if (bh != NULL) {
+		brelse(bh);
+		mutex_unlock(&dir->i_mutex);
+		ldiskfs_journal_stop(jh);
+		RETURN(-EEXIST);
+	}
+
+	bh = osd_ldiskfs_find_entry(dsp->d_inode, dsc, &de, NULL);
+	if (unlikely(bh == NULL)) {
+		mutex_unlock(&dir->i_mutex);
+		ldiskfs_journal_stop(jh);
+		RETURN(-ENOENT);
+	}
+
+	rc = ldiskfs_delete_entry(jh, dsp->d_inode, de, bh);
+	brelse(bh);
+	if (rc != 0) {
+		mutex_unlock(&dir->i_mutex);
+		ldiskfs_journal_stop(jh);
+		RETURN(rc);
+	}
+
+	rc = osd_ldiskfs_add_entry(jh, dtc, inode, NULL);
+	mutex_unlock(&dir->i_mutex);
+	ldiskfs_journal_stop(jh);
+	RETURN(rc);
+}
+
 static struct dentry *
 osd_object_spec_find(struct osd_thread_info *info, struct osd_device *osd,
 		     const struct lu_fid *fid, char **name)
