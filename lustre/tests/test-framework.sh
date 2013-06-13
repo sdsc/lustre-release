@@ -1873,6 +1873,7 @@ fail() {
 
 	facet_failover $* || error "failover: $?"
 	wait_clients_import_state "$clients" "$facets" FULL
+	mgc_up "$clients" || error "failover: MGC is down"
 	clients_up || error "post-failover df: $?"
 }
 
@@ -4370,6 +4371,15 @@ wait_clients_import_state () {
         error "import is not in ${expected} state"
         return 1
     fi
+}
+
+mgc_up() {
+	local list=$1
+	local param="mgc.*.mgs_server_uuid"
+	if !do_rpc_nodes $list wait_import_state_mount "FULL" $param; then
+		error "mgc is not UP"
+		return 1
+	fi
 }
 
 oos_full() {
