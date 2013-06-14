@@ -5699,12 +5699,15 @@ static int __init osd_mod_init(void)
 
         osd_oi_mod_init();
         lprocfs_osd_init_vars(&lvars);
+	if (!dynlock_cache_init())
+		return -ENOMEM;
         return class_register_type(&osd_obd_device_ops, NULL, lvars.module_vars,
 				   LUSTRE_OSD_LDISKFS_NAME, &osd_device_type);
 }
 
 static void __exit osd_mod_exit(void)
 {
+	dynlock_cache_exit();
 	class_unregister_type(LUSTRE_OSD_LDISKFS_NAME);
 }
 
