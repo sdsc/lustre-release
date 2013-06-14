@@ -53,6 +53,10 @@
 #include <linux/fs.h>
 /* XATTR_{REPLACE,CREATE} */
 #include <linux/xattr.h>
+#ifdef CONFIG_FAIL_MAKE_REQUEST
+/* fail injection */
+#include <linux/fault-inject.h>
+#endif
 
 /*
  * struct OBD_{ALLOC,FREE}*()
@@ -1117,12 +1121,15 @@ static int osd_commit_async(const struct lu_env *env,
 /*
  * Concurrency: shouldn't matter.
  */
+#ifdef CONFIG_FAIL_MAKE_REQUEST
+extern struct fault_attr fail_make_request;
+#endif
 
 static int osd_ro(const struct lu_env *env, struct dt_device *d)
 {
 	struct super_block *sb = osd_sb(osd_dt_dev(d));
 	struct block_device *dev = sb->s_bdev;
-#ifdef HAVE_DEV_SET_RDONLY
+#ifdef CONFIG_FAIL_MAKE_REQUEST
 	struct block_device *jdev = LDISKFS_SB(sb)->journal_bdev;
 	int rc = 0;
 #else
@@ -1130,19 +1137,25 @@ static int osd_ro(const struct lu_env *env, struct dt_device *d)
 #endif
 	ENTRY;
 
-#ifdef HAVE_DEV_SET_RDONLY
+#ifdef CONFIG_FAIL_MAKE_REQUEST
 	CERROR("*** setting %s read-only ***\n", osd_dt_dev(d)->od_svname);
 
+	fail_make_request.interval = 0;
+	fail_make_request.probability = 100;
+	atomic_set(&fail_make_request.space, 0);
+	atomic_set(&fail_make_request.times, -1);
+
 	if (jdev && (jdev != dev)) {
-		CDEBUG(D_IOCTL | D_HA, "set journal dev %lx rdonly\n",
-		       (long)jdev);
-		dev_set_rdonly(jdev);
+		CDEBUG(D_IOCTL | D_HA, "set journal dev %p rdonly\n",
+		       jdev);
+		jdev->bd_part->make_it_fail = 1;
 	}
-	CDEBUG(D_IOCTL | D_HA, "set dev %lx rdonly\n", (long)dev);
-	dev_set_rdonly(dev);
-#else
-	CERROR("%s: %lx CANNOT BE SET READONLY: rc = %d\n",
-	       osd_dt_dev(d)->od_svname, (long)dev, rc);
+	CDEBUG(D_IOCTL | D_HA, "set dev %p rdonly\n", dev);
+	dev->bd_part->make_it_fail = 1;
+
+#else	/* Nothing is supported */
+	CERROR("%s: %p CANNOT BE SET READONLY: rc = %d\n",
+	       osd_dt_dev(d)->od_svname, dev, rc);
 #endif
 	RETURN(rc);
 }
@@ -5352,8 +5365,9 @@ static int osd_mount(const struct lu_env *env,
 		GOTO(out, rc);
 	}
 
-#ifdef HAVE_DEV_SET_RDONLY
-	if (dev_check_rdonly(o->od_mnt->mnt_sb->s_bdev)) {
+#ifdef CONFIG_FAIL_MAKE_REQUEST
+	if (o->od_mnt->mnt_sb->s_bdev->bd_part->make_it_fail &&
+	    !should_fail(&fail_make_request, 0)) {
 		CERROR("%s: underlying device %s is marked as read-only. "
 		       "Setup failed\n", name, dev);
 		mntput(o->od_mnt);
