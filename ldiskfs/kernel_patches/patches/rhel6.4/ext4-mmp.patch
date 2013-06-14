@@ -175,7 +175,7 @@ Index: linux-stage/fs/ext4/mmp.c
 +       lock_buffer(bh);
 +       bh->b_end_io = end_buffer_write_sync;
 +       get_bh(bh);
-+       submit_bh(WRITE_SYNC, bh);
++       submit_bh(WRITE_FUA, bh);
 +       wait_on_buffer(bh);
 +       if (unlikely(!buffer_uptodate(bh)))
 +               return 1;
@@ -204,7 +204,7 @@ Index: linux-stage/fs/ext4/mmp.c
 +               get_bh(*bh);
 +               lock_buffer(*bh);
 +               (*bh)->b_end_io = end_buffer_read_sync;
-+               submit_bh(READ_SYNC, *bh);
++               submit_bh(READ_SYNC | REQ_NOCACHE, *bh);
 +               wait_on_buffer(*bh);
 +               if (!buffer_uptodate(*bh)) {
 +                       brelse(*bh);
