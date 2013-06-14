@@ -315,8 +315,32 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 		rc = osd_get_idif(info, inode, dentry, fid);
 	}
 
-	if (rc == -ENODATA)
+	if (rc == -ENODATA) {
+		struct osd_device   *osd = osd_obj2dev(obj);
+		const struct lu_fid *fid = lu_object_fid(&obj->oo_dt.do_lu);
+		handle_t	    *jh;
+
+		if (!osd->od_lma_self_repair)
+			RETURN(0);
+
+		jh = ldiskfs_journal_start_sb(osd_sb(osd),
+				osd_dto_credits_noquota[DTO_XATTR_SET]);
+		if (IS_ERR(jh)) {
+			CWARN("%s: cannot start journal for lma_self_repair: "
+			      "rc = %d\n", osd_name(osd), (int)PTR_ERR(jh));
+			RETURN(0);
+		}
+
+		rc = osd_ea_fid_set(info, inode, fid,
+				fid_is_on_ost(info, osd, fid, OI_CHECK_FLD) ?
+				LMAC_FID_ON_OST : 0, 0);
+		if (rc != 0)
+			CWARN("%s: cannot self repair the LMA: rc = %d\n",
+			      osd_name(osd), rc);
+		ldiskfs_journal_stop(jh);
+		/* Go ahead if we cannot repair the LMA. */
 		RETURN(0);
+	}
 
 	if (rc < 0)
 		RETURN(rc);
@@ -5544,6 +5568,9 @@ static int osd_device_init0(const struct lu_env *env,
 	CFS_INIT_LIST_HEAD(&o->od_ios_list);
 	if (lu_device_is_md(l->ld_site->ls_top_dev))
 		o->od_is_md = 1;
+
+	/* Enable it by default */
+	o->od_lma_self_repair = 1;
 
 	/* setup scrub, including OI files initialization */
 	rc = osd_scrub_setup(env, o);
