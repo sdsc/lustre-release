@@ -363,7 +363,7 @@ EXPORT_SYMBOL(cl_object_kill);
 void cl_object_prune(const struct lu_env *env, struct cl_object *obj)
 {
         ENTRY;
-        cl_pages_prune(env, obj);
+        //cl_pages_prune(env, obj);
         cl_locks_prune(env, obj, 1);
         EXIT;
 }

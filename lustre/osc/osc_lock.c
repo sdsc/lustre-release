@@ -1285,7 +1285,7 @@ static int osc_lock_flush(struct osc_lock *ols, int discard)
 				result = 0;
 		}
 
-		rc = cl_lock_discard_pages(env, lock);
+		rc = osc_lock_discard_pages(env, ols);
 		if (result == 0 && rc < 0)
 			result = rc;
 
@@ -1356,14 +1356,14 @@ static void osc_lock_cancel(const struct lu_env *env,
 
 #ifdef CONFIG_LUSTRE_DEBUG_EXPENSIVE_CHECK
 static int check_cb(const struct lu_env *env, struct cl_io *io,
-                    struct cl_page *page, void *cbdata)
+                    struct osc_page *ops, void *cbdata)
 {
         struct cl_lock *lock = cbdata;
 
         if (lock->cll_descr.cld_mode == CLM_READ) {
                 struct cl_lock *tmp;
-                tmp = cl_lock_at_page(env, lock->cll_descr.cld_obj,
-                                     page, lock, 1, 0);
+                tmp = cl_lock_at_pgoff(env, lock->cll_descr.cld_obj,
+					osc_index(ops), lock, 1, 0);
                 if (tmp != NULL) {
                         cl_lock_put(env, tmp);
                         return CLP_GANG_OKAY;
@@ -1371,7 +1371,7 @@ static int check_cb(const struct lu_env *env, struct cl_io *io,
         }
 
         CL_LOCK_DEBUG(D_ERROR, env, lock, "still has pages\n");
-        CL_PAGE_DEBUG(D_ERROR, env, page, "\n");
+        CL_PAGE_DEBUG(D_ERROR, env, ops->ops_cl.cpl_page, "\n");
         return CLP_GANG_ABORT;
 }
 
@@ -1406,7 +1406,7 @@ static int osc_lock_has_pages(struct osc_lock *olck)
 	io->ci_ignore_layout = 1;
         cl_io_init(env, io, CIT_MISC, io->ci_obj);
         do {
-                result = cl_page_gang_lookup(env, obj, io,
+                result = osc_page_gang_lookup(env, oob, io,
                                              descr->cld_start, descr->cld_end,
                                              check_cb, (void *)lock);
                 if (result == CLP_GANG_ABORT)

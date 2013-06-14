@@ -48,8 +48,7 @@
 #include <cl_object.h>
 #include "cl_internal.h"
 
-static void cl_page_delete0(const struct lu_env *env, struct cl_page *pg,
-                            int radix);
+static void cl_page_delete0(const struct lu_env *env, struct cl_page *pg);
 
 #ifdef LIBCFS_DEBUG
 # define PASSERT(env, page, expr)                                       \
@@ -155,123 +154,9 @@ cl_page_at_trusted(const struct cl_page *page,
  */
 struct cl_page *cl_page_lookup(struct cl_object_header *hdr, pgoff_t index)
 {
-        struct cl_page *page;
-
-        LASSERT_SPIN_LOCKED(&hdr->coh_page_guard);
-
-        page = radix_tree_lookup(&hdr->coh_tree, index);
-        if (page != NULL)
-                cl_page_get_trust(page);
-        return page;
+	return NULL;
 }
 EXPORT_SYMBOL(cl_page_lookup);
-
-/**
- * Returns a list of pages by a given [start, end] of \a obj.
- *
- * \param resched If not NULL, then we give up before hogging CPU for too
- * long and set *resched = 1, in that case caller should implement a retry
- * logic.
- *
- * Gang tree lookup (radix_tree_gang_lookup()) optimization is absolutely
- * crucial in the face of [offset, EOF] locks.
- *
- * Return at least one page in @queue unless there is no covered page.
- */
-int cl_page_gang_lookup(const struct lu_env *env, struct cl_object *obj,
-                        struct cl_io *io, pgoff_t start, pgoff_t end,
-                        cl_page_gang_cb_t cb, void *cbdata)
-{
-        struct cl_object_header *hdr;
-        struct cl_page          *page;
-        struct cl_page         **pvec;
-        const struct cl_page_slice  *slice;
-        const struct lu_device_type *dtype;
-        pgoff_t                  idx;
-        unsigned int             nr;
-        unsigned int             i;
-        unsigned int             j;
-        int                      res = CLP_GANG_OKAY;
-        int                      tree_lock = 1;
-        ENTRY;
-
-        idx = start;
-        hdr = cl_object_header(obj);
-        pvec = cl_env_info(env)->clt_pvec;
-        dtype = cl_object_top(obj)->co_lu.lo_dev->ld_type;
-	spin_lock(&hdr->coh_page_guard);
-        while ((nr = radix_tree_gang_lookup(&hdr->coh_tree, (void **)pvec,
-                                            idx, CLT_PVEC_SIZE)) > 0) {
-                int end_of_region = 0;
-                idx = pvec[nr - 1]->cp_index + 1;
-                for (i = 0, j = 0; i < nr; ++i) {
-                        page = pvec[i];
-                        pvec[i] = NULL;
-
-                        LASSERT(page->cp_type == CPT_CACHEABLE);
-                        if (page->cp_index > end) {
-                                end_of_region = 1;
-                                break;
-                        }
-                        if (page->cp_state == CPS_FREEING)
-                                continue;
-
-                        slice = cl_page_at_trusted(page, dtype);
-                        /*
-                         * Pages for lsm-less file has no underneath sub-page
-                         * for osc, in case of ...
-                         */
-                        PASSERT(env, page, slice != NULL);
-
-                        page = slice->cpl_page;
-                        /*
-                         * Can safely call cl_page_get_trust() under
-                         * radix-tree spin-lock.
-                         *
-                         * XXX not true, because @page is from object another
-                         * than @hdr and protected by different tree lock.
-                         */
-                        cl_page_get_trust(page);
-                        lu_ref_add_atomic(&page->cp_reference,
-                                          "gang_lookup", cfs_current());
-                        pvec[j++] = page;
-                }
-
-                /*
-                 * Here a delicate locking dance is performed. Current thread
-                 * holds a reference to a page, but has to own it before it
-                 * can be placed into queue. Owning implies waiting, so
-                 * radix-tree lock is to be released. After a wait one has to
-                 * check that pages weren't truncated (cl_page_own() returns
-                 * error in the latter case).
-                 */
-		spin_unlock(&hdr->coh_page_guard);
-                tree_lock = 0;
-
-                for (i = 0; i < j; ++i) {
-                        page = pvec[i];
-                        if (res == CLP_GANG_OKAY)
-                                res = (*cb)(env, io, page, cbdata);
-                        lu_ref_del(&page->cp_reference,
-                                   "gang_lookup", cfs_current());
-                        cl_page_put(env, page);
-                }
-                if (nr < CLT_PVEC_SIZE || end_of_region)
-                        break;
-
-                if (res == CLP_GANG_OKAY && cfs_need_resched())
-                        res = CLP_GANG_RESCHED;
-                if (res != CLP_GANG_OKAY)
-                        break;
-
-		spin_lock(&hdr->coh_page_guard);
-		tree_lock = 1;
-	}
-	if (tree_lock)
-		spin_unlock(&hdr->coh_page_guard);
-	RETURN(res);
-}
-EXPORT_SYMBOL(cl_page_gang_lookup);
 
 static void cl_page_free(const struct lu_env *env, struct cl_page *page)
 {
@@ -314,7 +199,7 @@ static inline void cl_page_state_set_trust(struct cl_page *page,
         *(enum cl_page_state *)&page->cp_state = state;
 }
 
-static struct cl_page *cl_page_alloc(const struct lu_env *env,
+struct cl_page *cl_page_alloc(const struct lu_env *env,
 		struct cl_object *o, pgoff_t ind, struct page *vmpage,
 		enum cl_page_type type)
 {
@@ -327,8 +212,6 @@ static struct cl_page *cl_page_alloc(const struct lu_env *env,
 	if (page != NULL) {
 		int result = 0;
 		cfs_atomic_set(&page->cp_ref, 1);
-		if (type == CPT_CACHEABLE) /* for radix tree */
-			cfs_atomic_inc(&page->cp_ref);
 		page->cp_obj = o;
 		cl_object_get(o);
 		lu_object_ref_add_at(&o->co_lu, &page->cp_obj_ref, "cl_page",
@@ -348,7 +231,7 @@ static struct cl_page *cl_page_alloc(const struct lu_env *env,
 				result = o->co_ops->coo_page_init(env, o,
 								  page, vmpage);
 				if (result != 0) {
-					cl_page_delete0(env, page, 0);
+					cl_page_delete0(env, page);
 					cl_page_free(env, page);
 					page = ERR_PTR(result);
 					break;
@@ -365,6 +248,7 @@ static struct cl_page *cl_page_alloc(const struct lu_env *env,
 	}
 	RETURN(page);
 }
+EXPORT_SYMBOL(cl_page_alloc);
 
 /**
  * Returns a cl_page with index \a idx at the object \a o, and associated with
@@ -377,16 +261,13 @@ static struct cl_page *cl_page_alloc(const struct lu_env *env,
  *
  * \see cl_object_find(), cl_lock_find()
  */
-static struct cl_page *cl_page_find0(const struct lu_env *env,
-                                     struct cl_object *o,
-                                     pgoff_t idx, struct page *vmpage,
-                                     enum cl_page_type type,
-                                     struct cl_page *parent)
+struct cl_page *cl_page_find(const struct lu_env *env,
+				struct cl_object *o,
+				pgoff_t idx, struct page *vmpage,
+				enum cl_page_type type)
 {
         struct cl_page          *page = NULL;
-        struct cl_page          *ghost = NULL;
         struct cl_object_header *hdr;
-        int err;
 
         LASSERT(type == CPT_CACHEABLE || type == CPT_TRANSIENT);
         cfs_might_sleep();
@@ -413,89 +294,18 @@ static struct cl_page *cl_page_find0(const struct lu_env *env,
                  *       reference on it.
                  */
                 page = cl_vmpage_page(vmpage, o);
-                PINVRNT(env, page,
-                        ergo(page != NULL,
-                             cl_page_vmpage(env, page) == vmpage &&
-                             (void *)radix_tree_lookup(&hdr->coh_tree,
-                                                       idx) == page));
-        }
-
-        if (page != NULL) {
-		CS_PAGE_INC(o, hit);
-                RETURN(page);
+		if (page != NULL) {
+			cl_page_get(page);
+			CS_PAGE_INC(o, hit);
+			RETURN(page);
+		}
         }
 
         /* allocate and initialize cl_page */
         page = cl_page_alloc(env, o, idx, vmpage, type);
-        if (IS_ERR(page))
-                RETURN(page);
-
-        if (type == CPT_TRANSIENT) {
-                if (parent) {
-                        LASSERT(page->cp_parent == NULL);
-                        page->cp_parent = parent;
-                        parent->cp_child = page;
-                }
-                RETURN(page);
-        }
-
-        /*
-         * XXX optimization: use radix_tree_preload() here, and change tree
-         * gfp mask to GFP_KERNEL in cl_object_header_init().
-         */
-	spin_lock(&hdr->coh_page_guard);
-        err = radix_tree_insert(&hdr->coh_tree, idx, page);
-        if (err != 0) {
-                ghost = page;
-                /*
-                 * Noted by Jay: a lock on \a vmpage protects cl_page_find()
-                 * from this race, but
-                 *
-                 *     0. it's better to have cl_page interface "locally
-                 *     consistent" so that its correctness can be reasoned
-                 *     about without appealing to the (obscure world of) VM
-                 *     locking.
-                 *
-                 *     1. handling this race allows ->coh_tree to remain
-                 *     consistent even when VM locking is somehow busted,
-                 *     which is very useful during diagnosing and debugging.
-                 */
-                page = ERR_PTR(err);
-                CL_PAGE_DEBUG(D_ERROR, env, ghost,
-                              "fail to insert into radix tree: %d\n", err);
-        } else {
-                if (parent) {
-                        LASSERT(page->cp_parent == NULL);
-                        page->cp_parent = parent;
-                        parent->cp_child = page;
-                }
-                hdr->coh_pages++;
-        }
-	spin_unlock(&hdr->coh_page_guard);
-
-        if (unlikely(ghost != NULL)) {
-                cl_page_delete0(env, ghost, 0);
-                cl_page_free(env, ghost);
-        }
-        RETURN(page);
-}
-
-struct cl_page *cl_page_find(const struct lu_env *env, struct cl_object *o,
-                             pgoff_t idx, struct page *vmpage,
-                             enum cl_page_type type)
-{
-        return cl_page_find0(env, o, idx, vmpage, type, NULL);
+	RETURN(page);
 }
 EXPORT_SYMBOL(cl_page_find);
-
-
-struct cl_page *cl_page_find_sub(const struct lu_env *env, struct cl_object *o,
-                                 pgoff_t idx, struct page *vmpage,
-                                 struct cl_page *parent)
-{
-        return cl_page_find0(env, o, idx, vmpage, parent->cp_type, parent);
-}
-EXPORT_SYMBOL(cl_page_find_sub);
 
 static inline int cl_page_invariant(const struct cl_page *pg)
 {
@@ -701,10 +511,8 @@ struct cl_page *cl_vmpage_page(cfs_page_t *vmpage, struct cl_object *obj)
 		RETURN(NULL);
 
 	for (page = top; page != NULL; page = page->cp_child) {
-		if (cl_object_same(page->cp_obj, obj)) {
-			cl_page_get_trust(page);
+		if (cl_object_same(page->cp_obj, obj))
 			break;
-		}
 	}
 	LASSERT(ergo(page, page->cp_type == CPT_CACHEABLE));
 	RETURN(page);
@@ -1080,10 +888,8 @@ EXPORT_SYMBOL(cl_page_discard);
  * pages, e.g,. in a error handling cl_page_find()->cl_page_delete0()
  * path. Doesn't check page invariant.
  */
-static void cl_page_delete0(const struct lu_env *env, struct cl_page *pg,
-                            int radix)
+static void cl_page_delete0(const struct lu_env *env, struct cl_page *pg)
 {
-        struct cl_page *tmp = pg;
         ENTRY;
 
         PASSERT(env, pg, pg == cl_page_top(pg));
@@ -1094,41 +900,10 @@ static void cl_page_delete0(const struct lu_env *env, struct cl_page *pg,
          */
         cl_page_owner_clear(pg);
 
-        /* 
-         * unexport the page firstly before freeing it so that
-         * the page content is considered to be invalid.
-         * We have to do this because a CPS_FREEING cl_page may
-         * be NOT under the protection of a cl_lock.
-         * Afterwards, if this page is found by other threads, then this
-         * page will be forced to reread.
-         */
-        cl_page_export(env, pg, 0);
         cl_page_state_set0(env, pg, CPS_FREEING);
 
-        CL_PAGE_INVOID(env, pg, CL_PAGE_OP(cpo_delete),
+        CL_PAGE_INVOID_REVERSE(env, pg, CL_PAGE_OP(cpo_delete),
                        (const struct lu_env *, const struct cl_page_slice *));
-
-        if (tmp->cp_type == CPT_CACHEABLE) {
-                if (!radix)
-                        /* !radix means that @pg is not yet in the radix tree,
-                         * skip removing it.
-                         */
-                        tmp = pg->cp_child;
-                for (; tmp != NULL; tmp = tmp->cp_child) {
-                        void                    *value;
-                        struct cl_object_header *hdr;
-
-                        hdr = cl_object_header(tmp->cp_obj);
-			spin_lock(&hdr->coh_page_guard);
-			value = radix_tree_delete(&hdr->coh_tree,
-						  tmp->cp_index);
-			PASSERT(env, tmp, value == tmp);
-			PASSERT(env, tmp, hdr->coh_pages > 0);
-			hdr->coh_pages--;
-			spin_unlock(&hdr->coh_page_guard);
-			cl_page_put(env, tmp);
-                }
-        }
 
         EXIT;
 }
@@ -1162,29 +937,10 @@ void cl_page_delete(const struct lu_env *env, struct cl_page *pg)
 {
         PINVRNT(env, pg, cl_page_invariant(pg));
         ENTRY;
-        cl_page_delete0(env, pg, 1);
+        cl_page_delete0(env, pg);
         EXIT;
 }
 EXPORT_SYMBOL(cl_page_delete);
-
-/**
- * Unmaps page from user virtual memory.
- *
- * Calls cl_page_operations::cpo_unmap() through all layers top-to-bottom. The
- * layer responsible for VM interaction has to unmap page from user space
- * virtual memory.
- *
- * \see cl_page_operations::cpo_unmap()
- */
-int cl_page_unmap(const struct lu_env *env,
-                  struct cl_io *io, struct cl_page *pg)
-{
-        PINVRNT(env, pg, cl_page_is_owned(pg, io));
-        PINVRNT(env, pg, cl_page_invariant(pg));
-
-        return cl_page_invoke(env, io, pg, CL_PAGE_OP(cpo_unmap));
-}
-EXPORT_SYMBOL(cl_page_unmap);
 
 /**
  * Marks page up-to-date.
@@ -1458,54 +1214,6 @@ int cl_page_is_under_lock(const struct lu_env *env, struct cl_io *io,
         RETURN(rc);
 }
 EXPORT_SYMBOL(cl_page_is_under_lock);
-
-static int page_prune_cb(const struct lu_env *env, struct cl_io *io,
-                         struct cl_page *page, void *cbdata)
-{
-        cl_page_own(env, io, page);
-        cl_page_unmap(env, io, page);
-        cl_page_discard(env, io, page);
-        cl_page_disown(env, io, page);
-        return CLP_GANG_OKAY;
-}
-
-/**
- * Purges all cached pages belonging to the object \a obj.
- */
-int cl_pages_prune(const struct lu_env *env, struct cl_object *clobj)
-{
-        struct cl_thread_info   *info;
-        struct cl_object        *obj = cl_object_top(clobj);
-        struct cl_io            *io;
-        int                      result;
-
-        ENTRY;
-        info  = cl_env_info(env);
-        io    = &info->clt_io;
-
-        /*
-         * initialize the io. This is ugly since we never do IO in this
-         * function, we just make cl_page_list functions happy. -jay
-         */
-        io->ci_obj = obj;
-	io->ci_ignore_layout = 1;
-        result = cl_io_init(env, io, CIT_MISC, obj);
-        if (result != 0) {
-                cl_io_fini(env, io);
-                RETURN(io->ci_result);
-        }
-
-        do {
-                result = cl_page_gang_lookup(env, obj, io, 0, CL_PAGE_EOF,
-                                             page_prune_cb, NULL);
-                if (result == CLP_GANG_RESCHED)
-                        cfs_cond_resched();
-        } while (result != CLP_GANG_OKAY);
-
-        cl_io_fini(env, io);
-        RETURN(result);
-}
-EXPORT_SYMBOL(cl_pages_prune);
 
 /**
  * Tells transfer engine that only part of a page is to be transmitted.
