@@ -43,6 +43,7 @@
 #include <lustre/lustre_idl.h>
 #include <lustre_disk.h>
 #include <dt_object.h>
+#include <linux/xattr.h>
 
 #include "osd_internal.h"
 #include "osd_oi.h"
@@ -223,6 +224,7 @@ static void osd_scrub_file_to_cpu(struct scrub_file *des,
 	des->sf_run_time	= le32_to_cpu(src->sf_run_time);
 	des->sf_success_count   = le32_to_cpu(src->sf_success_count);
 	des->sf_oi_count	= le16_to_cpu(src->sf_oi_count);
+	des->sf_flags2		= le16_to_cpu(src->sf_flags2);
 	memcpy(des->sf_oi_bitmap, src->sf_oi_bitmap, SCRUB_OI_BITMAP_SIZE);
 }
 
@@ -257,6 +259,7 @@ static void osd_scrub_file_to_le(struct scrub_file *des,
 	des->sf_run_time	= cpu_to_le32(src->sf_run_time);
 	des->sf_success_count   = cpu_to_le32(src->sf_success_count);
 	des->sf_oi_count	= cpu_to_le16(src->sf_oi_count);
+	des->sf_flags2		= cpu_to_le16(src->sf_flags2);
 	memcpy(des->sf_oi_bitmap, src->sf_oi_bitmap, SCRUB_OI_BITMAP_SIZE);
 }
 
@@ -419,6 +422,70 @@ static int osd_scrub_prep(struct osd_device *dev)
 }
 
 static int
+osd_scrub_convert_ff(struct osd_thread_info *info, struct osd_device *dev,
+		     struct inode *inode, const struct lu_fid *fid)
+{
+	struct filter_fid_old   *ff	= &info->oti_ff;
+	struct dentry		*dentry = &info->oti_obj_dentry;
+	handle_t		*jh;
+	int			 size;
+	int			 rc;
+	int			 rc1	= 0;
+	ENTRY;
+
+	/* We want the LMA to fit into the 256-byte OST inode, so operate
+	 * as following:
+	 * 1) read old XATTR_NAME_FID and save the parent FID;
+	 * 2) delete the old XATTR_NAME_FID;
+	 * 3) make new LMA and add it;
+	 * 4) generate new XATTR_NAME_FID with the saved parent FID and add it.
+	 *
+	 * Making the LMA to fit into the 256-byte OST inode can save time for
+	 * normal osd_check_lma() and for other OI scrub scanning in future.
+	 * So it is worth to make some slow conversion here. */
+	jh = ldiskfs_journal_start_sb(osd_sb(dev),
+				osd_dto_credits_noquota[DTO_XATTR_SET] * 3);
+	if (IS_ERR(jh)) {
+		rc = PTR_ERR(jh);
+		CERROR("%s: fail to start trans for convert ff: "DFID
+		       ", rc = %d\n",
+		       osd_name(dev), PFID(fid), rc);
+		RETURN(rc);
+	}
+
+	/* 1) read old XATTR_NAME_FID and save the parent FID */
+	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_FID, ff, sizeof(*ff));
+	if (rc != sizeof(*ff) && rc == -ENODATA)
+		GOTO(stop, rc = -EINVAL);
+
+	/* 2) delete the old XATTR_NAME_FID */
+	ll_vfs_dq_init(inode);
+	rc = inode->i_op->removexattr(dentry, XATTR_NAME_FID);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	/* 3) make new LMA and add it */
+	rc = osd_ea_fid_set(info, inode, fid, LMAC_FID_ON_OST, 0);
+	if (rc == 0) {
+		size = sizeof(struct filter_fid);
+	} else {
+		rc1 = rc;
+		/* If failed, we should try to add the old back. */
+		size = sizeof(struct filter_fid_old);
+	}
+
+	/* 4) generate new XATTR_NAME_FID with the saved parent FID and add it*/
+	rc = __osd_xattr_set(info, inode, XATTR_NAME_FID, ff, size,
+			     XATTR_CREATE);
+
+	GOTO(stop, rc);
+
+stop:
+	ldiskfs_journal_stop(jh);
+	return (rc1 != 0 ? rc1 : rc);
+}
+
+static int
 osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 		       struct osd_idmap_cache *oic, int val)
 {
@@ -432,6 +499,7 @@ osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 	int			      ops    = DTO_INDEX_UPDATE;
 	int			      idx;
 	int			      rc;
+	bool			      converted = false;
 	ENTRY;
 
 	down_write(&scrub->os_rwsem);
@@ -462,10 +530,18 @@ osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 		rc = osd_last_id_update(info->oti_env, dev, inode, fid);
 		if (rc > 0)
 			sf->sf_flags |= SF_CRASHED_LASTID;
+
+		if (val == SCRUB_NEXT_FOO_OLD && scrub->os_convert_ff) {
+			rc = osd_scrub_convert_ff(info, dev, inode, fid);
+			if (rc != 0)
+				GOTO(out, rc);
+
+			converted = true;
+		}
 	}
 
 	if ((val == SCRUB_NEXT_NOLMA) &&
-	    (!dev->od_handle_nolma || OBD_FAIL_CHECK(OBD_FAIL_FID_NOLMA)))
+	    (!scrub->os_convert_igif || OBD_FAIL_CHECK(OBD_FAIL_FID_NOLMA)))
 		GOTO(out, rc = 0);
 
 	if ((oii != NULL && oii->oii_insert) || (val == SCRUB_NEXT_NOLMA))
@@ -499,18 +575,21 @@ iget:
 		switch (val) {
 		case SCRUB_NEXT_NOLMA:
 			sf->sf_flags |= SF_UPGRADE;
+			sf->sf_flags2 &= ~SF2_NEW;
+			if (!(sf->sf_flags & SF_INCONSISTENT))
+				dev->od_igif_inoi = 0;
 			rc = osd_ea_fid_set(info, inode, fid, 0, 0);
 			if (rc != 0)
 				GOTO(out, rc);
 
-			if (!(sf->sf_flags & SF_INCONSISTENT))
-				dev->od_igif_inoi = 0;
 			break;
 		case SCRUB_NEXT_FOO:
 			sf->sf_flags |= SF_INCONSISTENT;
 			break;
 		case SCRUB_NEXT_FOO_OLD:
 			sf->sf_flags |= SF_UPGRADE;
+			sf->sf_flags2 &= ~SF2_NEW;
+			dev->od_check_ff = 1;
 			rc = osd_ea_fid_set(info, inode, fid,
 					    LMAC_FID_ON_OST, 0);
 			if (rc != 0)
@@ -523,6 +602,9 @@ iget:
 			break;
 		}
 	} else if (osd_id_eq(lid, lid2)) {
+		if (converted)
+			sf->sf_items_updated++;
+
 		GOTO(out, rc = 0);
 	} else {
 		scrub->os_full_speed = 1;
@@ -650,6 +732,7 @@ static void osd_scrub_post(const struct lu_env *env, struct osd_scrub *scrub,
 	sf->sf_time_last_checkpoint = cfs_time_current_sec();
 	if (result > 0) {
 		dev->od_igif_inoi = 1;
+		dev->od_check_ff = 0;
 		sf->sf_status = SS_COMPLETED;
 		memset(sf->sf_oi_bitmap, 0, SCRUB_OI_BITMAP_SIZE);
 		sf->sf_flags &= ~(SF_RECREATED | SF_INCONSISTENT |
@@ -770,18 +853,8 @@ static int osd_iit_iget(struct osd_thread_info *info, struct osd_device *dev,
 		else
 			*fid = lma->lma_self_fid;
 	} else if (rc == -ENODATA) {
-		/* It may be old OST device. */
-		rc = osd_get_idif(info, inode, &info->oti_obj_dentry, fid);
-		if (rc == 0) {
-			if (scrub)
-				rc = SCRUB_NEXT_FOO_OLD;
-		} else if (rc == -ENODATA) {
-			/* XXX: If the object has neither LMA nor "fid" xattr,
-			 *	then it maybe for old 1.8 MDT-object upgrading,
-			 *	or maybe the object is crashed. For the former
-			 *	case, we can generate IGIF; for the later case,
-			 *	we do not know how to re-generate the FID. */
-			if (dev->od_handle_nolma) {
+		if (dev->od_is_md) {
+			if (dev->od_scrub.os_convert_igif) {
 				lu_igif_build(fid, inode->i_ino,
 					      inode->i_generation);
 				if (scrub)
@@ -789,6 +862,20 @@ static int osd_iit_iget(struct osd_thread_info *info, struct osd_device *dev,
 				else
 					rc = 0;
 			} else {
+				if (scrub)
+					rc = SCRUB_NEXT_NOLMA;
+				else
+					rc = SCRUB_NEXT_CONTINUE;
+			}
+		} else {
+			/* It may be old OST device. */
+			rc = osd_get_idif(info, inode,
+					  &info->oti_obj_dentry, fid);
+			if (rc == 0) {
+				if (scrub)
+					rc = SCRUB_NEXT_FOO_OLD;
+			} else if (rc == -ENODATA) {
+				/* We do not know how to re-generate the FID. */
 				if (scrub)
 					rc = SCRUB_NEXT_NOLMA;
 				else
@@ -1684,7 +1771,7 @@ osd_ios_ROOT_scan(struct osd_thread_info *info, struct osd_device *dev,
 	 *	and try to re-generate the LMA from the OI mapping. But if the
 	 *	OI mapping crashed or lost also, then we have to give up under
 	 *	double failure cases. */
-	dev->od_handle_nolma = 1;
+	scrub->os_convert_igif = 1;
 	child = osd_ios_lookup_one_len(dot_lustre_name, dentry,
 				       strlen(dot_lustre_name));
 	if (IS_ERR(child)) {
@@ -1695,6 +1782,7 @@ osd_ios_ROOT_scan(struct osd_thread_info *info, struct osd_device *dev,
 				osd_scrub_file_reset(scrub,
 					LDISKFS_SB(osd_sb(dev))->s_es->s_uuid,
 					SF_UPGRADE);
+				sf->sf_flags2 &= ~SF2_NEW;
 				rc = osd_scrub_file_store(scrub);
 			} else {
 				rc = 0;
@@ -1998,6 +2086,8 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 	rc = osd_scrub_file_load(scrub);
 	if (rc == -ENOENT) {
 		osd_scrub_file_init(scrub, es->s_uuid);
+		if (dev->od_maybe_new)
+			sf->sf_flags2 = SF2_NEW;
 		dirty = 1;
 	} else if (rc != 0) {
 		RETURN(rc);
@@ -2027,14 +2117,24 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 	if (rc < 0)
 		RETURN(rc);
 
+	if (!dev->od_is_md)
+		scrub->os_convert_ff = 1;
+
 	rc = osd_initial_OI_scrub(info, dev);
 	if (rc == 0) {
-		if ((sf->sf_flags & SF_UPGRADE) &&
-		   !(sf->sf_flags & SF_INCONSISTENT))
-			/* The 'od_igif_inoi' will be set after the
-			 * upgrading completed, needs NOT remount. */
+		if (sf->sf_flags & SF_UPGRADE ||
+		    !(sf->sf_flags2 & SF2_NEW || sf->sf_success_count > 0)) {
 			dev->od_igif_inoi = 0;
-		else
+			if (!dev->od_is_md)
+				dev->od_check_ff = 1;
+			else
+				dev->od_check_ff = 0;
+		} else {
+			dev->od_igif_inoi = 1;
+			dev->od_check_ff = 0;
+		}
+
+		if (sf->sf_flags & SF_INCONSISTENT)
 			/* The 'od_igif_inoi' will be set under the
 			 * following cases:
 			 * 1) new created system, or

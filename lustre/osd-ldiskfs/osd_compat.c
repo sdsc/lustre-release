@@ -80,8 +80,9 @@ static void osd_pop_ctxt(const struct osd_device *dev,
 }
 
 /* utility to make a directory */
-static struct dentry *simple_mkdir(struct dentry *dir, struct vfsmount *mnt,
-				   const char *name, int mode, int fix)
+static struct dentry *
+simple_mkdir(struct dentry *dir, struct vfsmount *mnt, const char *name,
+	     int mode, int fix, int *exist)
 {
 	struct dentry *dchild;
 	int err = 0;
@@ -111,6 +112,8 @@ static struct dentry *simple_mkdir(struct dentry *dir, struct vfsmount *mnt,
 						  (old_mode & ~S_IALLUGO);
 			mark_inode_dirty(dchild->d_inode);
 		}
+		*exist = 1;
+
 		GOTO(out_up, dchild);
 	}
 
@@ -175,6 +178,7 @@ static int osd_mdt_init(const struct lu_env *env, struct osd_device *dev)
 	struct dentry		*d;
 	struct osd_thread_info	*info = osd_oti_get(env);
 	struct lu_fid		*fid = &info->oti_fid3;
+	int			exist = 0;
 	int			rc = 0;
 	ENTRY;
 
@@ -190,18 +194,21 @@ static int osd_mdt_init(const struct lu_env *env, struct osd_device *dev)
 	osd_push_ctxt(dev, &new, &save);
 
 	d = simple_mkdir(parent, dev->od_mnt, remote_parent_dir,
-			 0755, 1);
+			 0755, 1, &exist);
 	if (IS_ERR(d))
 		GOTO(cleanup, rc = PTR_ERR(d));
 
 	ldiskfs_set_inode_state(d->d_inode, LDISKFS_STATE_LUSTRE_NO_OI);
 	omm->omm_remote_parent = d;
 
-	/* Set LMA for remote parent inode */
-	lu_local_obj_fid(fid, REMOTE_PARENT_DIR_OID);
-	rc = osd_ea_fid_set(info, d->d_inode, fid, LMAC_NOT_IN_OI, 0);
-	if (rc != 0)
-		GOTO(cleanup, rc);
+	if (exist == 0) {
+		/* Set LMA for remote parent inode */
+		lu_local_obj_fid(fid, REMOTE_PARENT_DIR_OID);
+		rc = osd_ea_fid_set(info, d->d_inode, fid, LMAC_NOT_IN_OI, 0);
+		if (rc != 0)
+			GOTO(cleanup, rc);
+	}
+
 cleanup:
 	pop_ctxt(&save, &new, NULL);
 	if (rc) {
@@ -373,6 +380,7 @@ static int osd_ost_init(const struct lu_env *env, struct osd_device *dev)
 	struct osd_thread_info	*info = osd_oti_get(env);
 	struct inode		*inode;
 	struct lu_fid		*fid = &info->oti_fid3;
+	int			 exist = 0;
 	int			 rc;
 	ENTRY;
 
@@ -397,7 +405,7 @@ static int osd_ost_init(const struct lu_env *env, struct osd_device *dev)
         LASSERT(dev->od_fsops);
         osd_push_ctxt(dev, &new, &save);
 
-        d = simple_mkdir(rootd, dev->od_mnt, "O", 0755, 1);
+        d = simple_mkdir(rootd, dev->od_mnt, "O", 0755, 1, &exist);
 	if (IS_ERR(d))
 		GOTO(cleanup, rc = PTR_ERR(d));
 
@@ -405,13 +413,16 @@ static int osd_ost_init(const struct lu_env *env, struct osd_device *dev)
 	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
 	dev->od_ost_map->om_root = d;
 
-	/* 'What the @fid is' is not imporatant, because the object
-	 * has no OI mapping, and only is visible inside the OSD.*/
-	lu_igif_build(fid, inode->i_ino, inode->i_generation);
-	rc = osd_ea_fid_set(info, inode, fid,
-			    LMAC_NOT_IN_OI | LMAC_FID_ON_OST, 0);
-	if (rc != 0)
-		GOTO(cleanup, rc);
+	if (exist == 0) {
+		dev->od_maybe_new = 1;
+		/* 'What the @fid is' is not imporatant, because the object
+		 * has no OI mapping, and only is visible inside the OSD. */
+		lu_igif_build(fid, inode->i_ino, inode->i_generation);
+		rc = osd_ea_fid_set(info, inode, fid,
+				    LMAC_NOT_IN_OI | LMAC_FID_ON_OST, 0);
+		if (rc != 0)
+			GOTO(cleanup, rc);
+	}
 
 cleanup:
 	osd_pop_ctxt(dev, &new, &save);
@@ -808,6 +819,7 @@ static int osd_seq_load_locked(struct osd_thread_info *info,
 	struct dentry       *seq_dir;
 	struct inode	    *inode;
 	struct lu_fid	    *fid = &info->oti_fid3;
+	int		    exist = 0;
 	int		    rc = 0;
 	int		    i;
 	char		    dir_name[32];
@@ -821,7 +833,8 @@ static int osd_seq_load_locked(struct osd_thread_info *info,
 
 	osd_seq_name(dir_name, sizeof(dir_name), osd_seq->oos_seq);
 
-	seq_dir = simple_mkdir(map->om_root, osd->od_mnt, dir_name, 0755, 1);
+	seq_dir = simple_mkdir(map->om_root, osd->od_mnt, dir_name, 0755, 1,
+			       &exist);
 	if (IS_ERR(seq_dir))
 		GOTO(out_err, rc = PTR_ERR(seq_dir));
 	else if (seq_dir->d_inode == NULL)
@@ -831,13 +844,15 @@ static int osd_seq_load_locked(struct osd_thread_info *info,
 	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
 	osd_seq->oos_root = seq_dir;
 
-	/* 'What the @fid is' is not imporatant, because the object
-	 * has no OI mapping, and only is visible inside the OSD.*/
-	lu_igif_build(fid, inode->i_ino, inode->i_generation);
-	rc = osd_ea_fid_set(info, inode, fid,
-			    LMAC_NOT_IN_OI | LMAC_FID_ON_OST, 0);
-	if (rc != 0)
-		GOTO(out_put, rc);
+	if (exist == 0) {
+		/* 'What the @fid is' is not imporatant, because the object
+		 * has no OI mapping, and only is visible inside the OSD. */
+		lu_igif_build(fid, inode->i_ino, inode->i_generation);
+		rc = osd_ea_fid_set(info, inode, fid,
+				    LMAC_NOT_IN_OI | LMAC_FID_ON_OST, 0);
+		if (rc != 0)
+			GOTO(out_put, rc);
+	}
 
 	rc = osd_last_id_load(info, osd, osd_seq, create_lastid, id, th);
 	if (rc != 0)
@@ -852,9 +867,10 @@ static int osd_seq_load_locked(struct osd_thread_info *info,
 	for (i = 0; i < osd_seq->oos_subdir_count; i++) {
 		struct dentry   *dir;
 
+		exist = 0;
 		snprintf(dir_name, sizeof(dir_name), "d%u", i);
 		dir = simple_mkdir(osd_seq->oos_root, osd->od_mnt, dir_name,
-				   0700, 1);
+				   0700, 1, &exist);
 		if (IS_ERR(dir)) {
 			GOTO(out_free, rc = PTR_ERR(dir));
 		} else if (dir->d_inode == NULL) {
@@ -866,13 +882,16 @@ static int osd_seq_load_locked(struct osd_thread_info *info,
 		ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
 		osd_seq->oos_dirs[i] = dir;
 
-		/* 'What the @fid is' is not imporatant, because the object
-		 * has no OI mapping, and only is visible inside the OSD.*/
-		lu_igif_build(fid, inode->i_ino, inode->i_generation);
-		rc = osd_ea_fid_set(info, inode, fid,
-				    LMAC_NOT_IN_OI | LMAC_FID_ON_OST, 0);
-		if (rc != 0)
-			GOTO(out_free, rc);
+		if (exist == 0) {
+			/* 'What the @fid is' is not imporatant, because the
+			 * object has no OI mapping, and only is visible
+			 * inside the OSD. */
+			lu_igif_build(fid, inode->i_ino, inode->i_generation);
+			rc = osd_ea_fid_set(info, inode, fid,
+					    LMAC_NOT_IN_OI | LMAC_FID_ON_OST, 0);
+			if (rc != 0)
+				GOTO(out_free, rc);
+		}
 	}
 
 	if (rc != 0) {

@@ -1020,6 +1020,52 @@ test_15b() {
 }
 run_test 15b "OI scrub can rebuild last_id"
 
+test_16() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
+
+	#define OBD_FAIL_FID_INLMA	0x1502
+	do_facet ost1 $LCTL set_param fail_loc=0x1502
+	for ((i = 0; i < 128; i++)); do
+		echo foo > $DIR/$tdir/f$i
+	done
+	cancel_lru_locks osc
+
+	echo "stop ost1"
+	stop ost1 || error "(1) Fail to stop ost1"
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	echo "start ost1"
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS ||
+		error "(2) Fail to start ost1"
+
+	local STATUS=$($SHOW_SCRUB_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "init" ] ||
+		error "(3) Expect 'init', but got '$STATUS'"
+
+	$START_SCRUB_ON_OST || error "(4) Fail to start OI scrub on OST!"
+	sleep 3
+
+	local STATUS=$($SHOW_SCRUB_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(5) Expect 'completed', but got '$STATUS'"
+
+	local UPDATED=$($SHOW_SCRUB_ON_OST | awk '/^updated/ { print $2 }')
+	# The first 32 OST-objects are pre-created with LMA already
+	[ $UPDATED -ge 96 ] ||
+	error "(6) Expect not less than 96 items updated, but got '$UPDATED'"
+
+	ls -ail $DIR/$tdir > /dev/null 2>&1 || error "(7) ls should succeed"
+}
+run_test 16 "OI scrub convert filter_fid_old to LMA"
+
 # restore MDS/OST size
 MDSSIZE=${SAVED_MDSSIZE}
 OSTSIZE=${SAVED_OSTSIZE}
