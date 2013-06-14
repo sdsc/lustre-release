@@ -328,14 +328,13 @@ static int osd_scrub_file_load(struct osd_scrub *scrub)
 
 int osd_scrub_file_store(struct osd_scrub *scrub)
 {
-	struct osd_device *dev;
+	struct osd_device *dev	   = osd_scrub2dev(scrub);
 	handle_t	  *jh;
 	loff_t		   pos     = 0;
 	int		   len     = sizeof(scrub->os_file_disk);
 	int		   credits;
 	int		   rc;
 
-	dev = container_of0(scrub, struct osd_device, od_scrub);
 	credits = osd_dto_credits_noquota[DTO_WRITE_BASE] +
 		  osd_dto_credits_noquota[DTO_WRITE_BLOCK];
 	jh = ldiskfs_journal_start_sb(osd_sb(dev), credits);
@@ -390,7 +389,8 @@ static int osd_scrub_prep(struct osd_device *dev)
 		scrub->os_full_speed = 0;
 	}
 
-	if (sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT | SF_UPGRADE))
+	if (sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT |
+			    SF_UPGRADE | SF_CRASHED_LASTID))
 		scrub->os_full_speed = 1;
 
 	scrub->os_in_prior = 0;
@@ -449,6 +449,21 @@ osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 	if (fid_is_igif(fid))
 		sf->sf_items_igif++;
 
+	if (val == SCRUB_NEXT_FOO || val == SCRUB_NEXT_FOO_OLD) {
+		inode = osd_iget(info, dev, lid);
+		if (IS_ERR(inode)) {
+			rc = PTR_ERR(inode);
+			/* Someone removed the inode. */
+			if (rc == -ENOENT || rc == -ESTALE)
+				rc = 0;
+			GOTO(out, rc);
+		}
+
+		rc = osd_last_id_update(info->oti_env, dev, inode, fid);
+		if (rc > 0)
+			sf->sf_flags |= SF_CRASHED_LASTID;
+	}
+
 	if ((val == SCRUB_NEXT_NOLMA) &&
 	    (!dev->od_handle_nolma || OBD_FAIL_CHECK(OBD_FAIL_FID_NOLMA)))
 		GOTO(out, rc = 0);
@@ -464,7 +479,8 @@ osd_scrub_check_update(struct osd_thread_info *info, struct osd_device *dev,
 			GOTO(out, rc);
 
 iget:
-		inode = osd_iget(info, dev, lid);
+		if (inode == NULL)
+			inode = osd_iget(info, dev, lid);
 		if (IS_ERR(inode)) {
 			rc = PTR_ERR(inode);
 			/* Someone removed the inode. */
@@ -474,10 +490,8 @@ iget:
 		}
 
 		/* Check whether the inode to be unlinked during OI scrub. */
-		if (unlikely(inode->i_nlink == 0)) {
-			iput(inode);
+		if (unlikely(inode->i_nlink == 0))
 			GOTO(out, rc = 0);
-		}
 
 		scrub->os_full_speed = 1;
 		ops = DTO_INDEX_INSERT;
@@ -557,14 +571,18 @@ out:
 	if (ops == DTO_INDEX_INSERT) {
 		/* There may be conflict unlink during the OI scrub,
 		 * if happend, then remove the new added OI mapping. */
+		LASSERT(inode != NULL);
+
 		if (unlikely(inode->i_nlink == 0))
 			osd_scrub_refresh_mapping(info, dev, fid, lid,
 				DTO_INDEX_DELETE, (val == SCRUB_NEXT_FOO ||
 						   val == SCRUB_NEXT_FOO_OLD) ?
 						  OI_KNOWN_ON_OST : 0);
-		iput(inode);
 	}
 	up_write(&scrub->os_rwsem);
+
+	if (inode != NULL && !IS_ERR(inode))
+		iput(inode);
 
 	if (oii != NULL) {
 		LASSERT(!cfs_list_empty(&oii->oii_list));
@@ -577,15 +595,22 @@ out:
 	RETURN(sf->sf_param & SP_FAILOUT ? rc : 0);
 }
 
-static int osd_scrub_checkpoint(struct osd_scrub *scrub)
+static int osd_scrub_checkpoint(const struct lu_env *env,
+				struct osd_scrub *scrub)
 {
-	struct scrub_file *sf = &scrub->os_file;
+	struct osd_device *dev = osd_scrub2dev(scrub);
+	struct scrub_file *sf  = &scrub->os_file;
 	int		   rc;
 
 	if (likely(cfs_time_before(cfs_time_current(),
 				   scrub->os_time_next_checkpoint) ||
 		   scrub->os_new_checked == 0))
 		return 0;
+
+	rc = osd_last_id_sync(env, dev);
+	if (rc != 0)
+		CWARN("%s: cannot sync last_id: rc = %d\n",
+		      osd_name(dev), rc);
 
 	down_write(&scrub->os_rwsem);
 	sf->sf_items_checked += scrub->os_new_checked;
@@ -600,10 +625,18 @@ static int osd_scrub_checkpoint(struct osd_scrub *scrub)
 	return rc;
 }
 
-static void osd_scrub_post(struct osd_scrub *scrub, int result)
+static void osd_scrub_post(const struct lu_env *env, struct osd_scrub *scrub,
+			   int result)
 {
-	struct scrub_file *sf = &scrub->os_file;
+	struct osd_device *dev = osd_scrub2dev(scrub);
+	struct scrub_file *sf  = &scrub->os_file;
+	int		   rc;
 	ENTRY;
+
+	rc = osd_last_id_sync(env, dev);
+	if (rc != 0)
+		CWARN("%s: cannot sync last_id: rc = %d\n",
+		      osd_name(dev), rc);
 
 	down_write(&scrub->os_rwsem);
 	spin_lock(&scrub->os_lock);
@@ -616,14 +649,11 @@ static void osd_scrub_post(struct osd_scrub *scrub, int result)
 	}
 	sf->sf_time_last_checkpoint = cfs_time_current_sec();
 	if (result > 0) {
-		struct osd_device *dev =
-			container_of0(scrub, struct osd_device, od_scrub);
-
 		dev->od_igif_inoi = 1;
 		sf->sf_status = SS_COMPLETED;
 		memset(sf->sf_oi_bitmap, 0, SCRUB_OI_BITMAP_SIZE);
 		sf->sf_flags &= ~(SF_RECREATED | SF_INCONSISTENT |
-				  SF_UPGRADE | SF_AUTO);
+				  SF_UPGRADE | SF_CRASHED_LASTID | SF_AUTO);
 		sf->sf_time_last_complete = sf->sf_time_last_checkpoint;
 		sf->sf_success_count++;
 	} else if (result == 0) {
@@ -900,7 +930,7 @@ static int osd_scrub_exec(struct osd_thread_info *info, struct osd_device *dev,
 	if (rc != 0)
 		return rc;
 
-	rc = osd_scrub_checkpoint(scrub);
+	rc = osd_scrub_checkpoint(info->oti_env, scrub);
 	if (rc != 0) {
 		CERROR("%.16s: fail to checkpoint, pos = %u, rc = %d\n",
 		       LDISKFS_SB(param->sb)->s_es->s_volume_name,
@@ -1113,7 +1143,7 @@ static int osd_scrub_main(void *args)
 	GOTO(post, rc);
 
 post:
-	osd_scrub_post(scrub, rc);
+	osd_scrub_post(&env, scrub, rc);
 	CDEBUG(D_LFSCK, "OI scrub: stop, rc = %d, pos = %u\n",
 	       rc, scrub->os_pos_current);
 
@@ -1145,6 +1175,8 @@ static int osd_ios_varfid_fill(void *buf, const char *name, int namelen,
 			       loff_t offset, __u64 ino, unsigned d_type);
 static int osd_ios_lf_fill(void *buf, const char *name, int namelen,
 			   loff_t offset, __u64 ino, unsigned d_type);
+static int osd_ios_O_fill(void *buf, const char *name, int namelen,
+			  loff_t offset, __u64 ino, unsigned d_type);
 
 static int
 osd_ios_general_scan(struct osd_thread_info *info, struct osd_device *dev,
@@ -1259,6 +1291,10 @@ static const struct osd_lf_map osd_lf_maps[] = {
 	{ "lost+found", { 0, 0, 0 }, OLF_SCAN_SUBITEMS | OLF_NO_OI,
 		osd_ios_general_scan, osd_ios_lf_fill },
 
+	/* O */
+	{ "O", { 0, 0, 0 }, OLF_SCAN_SUBITEMS | OLF_NO_OI,
+		osd_ios_general_scan, osd_ios_O_fill },
+
 	{ NULL, { 0, 0, 0 }, 0, NULL, NULL }
 };
 
@@ -1287,32 +1323,6 @@ osd_ios_lookup_one_len(const char *name, struct dentry *parent, int namelen)
 	}
 
 	return dentry;
-}
-
-static inline void
-osd_ios_llogname2fid(struct lu_fid *fid, const char *name, int namelen)
-{
-	obd_id id = 0;
-	int    i  = 0;
-
-	fid->f_seq = FID_SEQ_LLOG;
-	while (i < namelen)
-		id = id * 10 + name[i++] - '0';
-
-	fid->f_oid = id & 0x00000000ffffffffULL;
-	fid->f_ver = id >> 32;
-}
-
-static inline void
-osd_ios_Oname2fid(struct lu_fid *fid, const char *name, int namelen)
-{
-	__u64 seq = 0;
-	int   i   = 0;
-
-	while (i < namelen)
-		seq = seq * 10 + name[i++] - '0';
-
-	lu_last_id_fid(fid, seq);
 }
 
 static int
@@ -1498,6 +1508,64 @@ put:
 	dput(child);
 	/* skip the failure to make the scanning to continue. */
 	return 0;
+}
+
+static int osd_ios_O_fill(void *buf, const char *name, int namelen,
+			  loff_t offset, __u64 ino, unsigned d_type)
+{
+	struct osd_ios_filldir_buf *fill_buf = buf;
+	struct osd_device	   *dev      = fill_buf->oifb_dev;
+	struct osd_scrub	   *scrub    = &dev->od_scrub;
+	struct scrub_file	   *sf	     = &scrub->os_file;
+	struct dentry		   *child;
+	struct dentry		   *sub;
+	struct inode		   *inode;
+	int			    rc;
+	ENTRY;
+
+	/* skip any '.' started names */
+	if (name[0] == '.')
+		RETURN(0);
+
+	child = osd_ios_lookup_one_len(name, fill_buf->oifb_dentry, namelen);
+	if (IS_ERR(child)) {
+		rc = PTR_ERR(child);
+		CERROR("%s: cannot lookup child '%.*s': rc = %d\n",
+		       osd_name(dev), namelen, name, rc);
+		RETURN(rc);
+	}
+
+	inode = child->d_inode;
+	if (!S_ISDIR(inode->i_mode))
+		GOTO(put, rc = 0);
+
+	sub = osd_ios_lookup_one_len(LAST_ID, child, strlen(LAST_ID));
+	if (!IS_ERR(sub)) {
+		dput(sub);
+		GOTO(put, rc = 0);
+	}
+
+	rc = PTR_ERR(sub);
+	if (rc != -ENOENT) {
+		CERROR("%s: cannot lookup seq::LAST_ID '%.*s': rc = %d\n",
+		       osd_name(dev), namelen, name, rc);
+		GOTO(put, rc);
+	}
+
+	if (!(sf->sf_flags & SF_CRASHED_LASTID)) {
+		osd_scrub_file_reset(scrub,
+				     LDISKFS_SB(osd_sb(dev))->s_es->s_uuid,
+				     SF_CRASHED_LASTID);
+		rc = osd_scrub_file_store(scrub);
+	} else {
+		rc = 0;
+	}
+
+	GOTO(put, rc);
+
+put:
+	dput(child);
+	return rc;
 }
 
 static int osd_ios_varfid_fill(void *buf, const char *name, int namelen,
@@ -1981,10 +2049,11 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 		    ((sf->sf_status == SS_PAUSED) ||
 		     (sf->sf_status == SS_CRASHED &&
 		      sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT |
-				      SF_UPGRADE | SF_AUTO)) ||
+				      SF_UPGRADE | SF_CRASHED_LASTID |
+				      SF_AUTO)) ||
 		     (sf->sf_status == SS_INIT &&
 		      sf->sf_flags & (SF_RECREATED | SF_INCONSISTENT |
-				      SF_UPGRADE))))
+				      SF_UPGRADE | SF_CRASHED_LASTID))))
 			rc = osd_scrub_start(dev);
 	}
 
@@ -2329,6 +2398,7 @@ static const char *scrub_flags_names[] = {
 	"inconsistent",
 	"auto",
 	"upgrade",
+	"crashed_lastid",
 	NULL
 };
 

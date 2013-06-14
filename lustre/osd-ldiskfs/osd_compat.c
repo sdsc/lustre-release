@@ -58,6 +58,8 @@
 #include "osd_internal.h"
 #include "osd_oi.h"
 
+const char LAST_ID[] = "LAST_ID";
+
 static void osd_push_ctxt(const struct osd_device *dev,
                           struct lvfs_run_ctxt *newctxt,
                           struct lvfs_run_ctxt *save)
@@ -437,6 +439,9 @@ static void osd_seq_free(struct osd_obj_map *map,
 			 sizeof(struct dentry *) * osd_seq->oos_subdir_count);
         }
 
+	if (osd_seq->oos_last_id_inode != NULL)
+		iput(osd_seq->oos_last_id_inode);
+
 	if (osd_seq->oos_root)
 		dput(osd_seq->oos_root);
 
@@ -613,7 +618,7 @@ static int osd_obj_del_entry(struct osd_thread_info *info,
 
 int osd_obj_add_entry(struct osd_thread_info *info,
 		      struct osd_device *osd,
-		      struct dentry *dir, char *name,
+		      struct dentry *dir, const char *name,
 		      const struct osd_inode_id *id,
 		      struct thandle *th)
 {
@@ -678,10 +683,126 @@ static inline void osd_oid_name(char *name, size_t name_size,
 		  fid_seq_is_idif(fid_seq(fid))) ? LPU64 : LPX64i, id);
 }
 
+static int osd_last_id_load(struct osd_thread_info *info,
+			    struct osd_device *osd,
+			    struct osd_obj_seq *osd_seq,
+			    bool create_lastid,
+			    const struct osd_inode_id *id,
+			    struct thandle *th)
+{
+	struct dentry	*dentry;
+	struct inode	*inode;
+	struct inode	*dir	= osd_seq->oos_root->d_inode;
+	struct lu_fid	*fid	= &info->oti_fid3;
+	obd_id		 last_id;
+	loff_t		 pos	= 0;
+	handle_t	*jh;
+	int		 rc;
+	ENTRY;
+
+	fid->f_seq = osd_seq->oos_seq;
+	fid->f_oid = LUSTRE_FID_LASTID_OID;
+	fid->f_ver = 0;
+	dentry = ll_lookup_one_len(LAST_ID, osd_seq->oos_root, strlen(LAST_ID));
+	if (IS_ERR(dentry))
+		RETURN(PTR_ERR(dentry));
+
+	inode = dentry->d_inode;
+	if (inode != NULL) {
+		rc = osd_ldiskfs_read(inode, &last_id, sizeof(last_id), &pos);
+		if (rc == sizeof(last_id)) {
+			osd_seq->oos_last_id = le64_to_cpu(last_id);
+			osd_seq->oos_last_id_inode = igrab(inode);
+			rc = 0;
+		} else if (create_lastid) {
+			osd_seq->oos_last_id = 0;
+			osd_seq->oos_last_id_inode = igrab(inode);
+			rc = 0;
+		} else {
+			CERROR("%s: cannot load last_id: "DFID": rc = %d\n",
+			       osd_name(osd), PFID(fid), rc);
+		}
+
+		dput(dentry);
+		RETURN(rc);
+	}
+
+	dput(dentry);
+	if (!create_lastid)
+		RETURN(0);
+
+	if (id != NULL) {
+		struct osd_inode_id *id2 = &info->oti_id2;
+
+		LASSERT(th != NULL);
+
+		rc = osd_obj_add_entry(info, osd, osd_seq->oos_root, LAST_ID,
+				       id, th);
+		if (rc != 0) {
+			CERROR("%s: cannot add last_id: "DFID", rc = %d\n",
+			       osd_name(osd), PFID(fid), rc);
+			RETURN(rc);
+		}
+
+		*id2 = *id;
+		inode = osd_iget(info, osd, id2);
+		if (IS_ERR(inode))
+			RETURN(PTR_ERR(inode));
+
+		osd_seq->oos_last_id = 0;
+		osd_seq->oos_last_id_inode = inode;
+		RETURN(0);
+	}
+
+	jh = ldiskfs_journal_start_sb(osd_sb(osd), 100);
+	if (IS_ERR(jh))
+		RETURN(PTR_ERR(jh));
+
+	inode = ldiskfs_create_inode(jh, dir, S_IFREG | S_IRUGO | S_IWUSR);
+	if (IS_ERR(inode)) {
+		rc = PTR_ERR(inode);
+		CERROR("%s: cannot create last_id: "DFID", rc = %d\n",
+		       osd_name(osd), PFID(fid), rc);
+		inode = NULL;
+		GOTO(stop, rc);
+	}
+
+	rc = osd_ea_fid_set(info, inode, fid, LMAC_FID_ON_OST, 0);
+	if (rc != 0) {
+		CERROR("%s: cannot set LMA last_id: "DFID", rc = %d\n",
+		       osd_name(osd), PFID(fid), rc);
+		GOTO(stop, rc);
+	}
+
+	dentry = osd_child_dentry_by_inode(info->oti_env, dir, LAST_ID,
+					   strlen(LAST_ID));
+	rc = osd_ldiskfs_add_entry(jh, dentry, inode, NULL);
+	if (rc != 0) {
+		CERROR("%s: cannot insert last_id: "DFID", rc = %d\n",
+		       osd_name(osd), PFID(fid), rc);
+		GOTO(stop, rc);
+	}
+
+	osd_seq->oos_last_id = 0;
+	osd_seq->oos_last_id_inode = inode;
+	inode = NULL;
+
+	GOTO(stop, rc = 0);
+
+stop:
+	if (inode != NULL)
+		iput(inode);
+	ldiskfs_journal_stop(jh);
+	return rc;
+}
+
 /* external locking is required */
 static int osd_seq_load_locked(struct osd_thread_info *info,
 			       struct osd_device *osd,
-			       struct osd_obj_seq *osd_seq)
+			       struct osd_obj_seq *osd_seq,
+			       bool create_lastid,
+			       const struct osd_inode_id *id,
+			       struct thandle *th)
 {
 	struct osd_obj_map  *map = osd->od_ost_map;
 	struct dentry       *seq_dir;
@@ -715,6 +836,10 @@ static int osd_seq_load_locked(struct osd_thread_info *info,
 	lu_igif_build(fid, inode->i_ino, inode->i_generation);
 	rc = osd_ea_fid_set(info, inode, fid,
 			    LMAC_NOT_IN_OI | LMAC_FID_ON_OST, 0);
+	if (rc != 0)
+		GOTO(out_put, rc);
+
+	rc = osd_last_id_load(info, osd, osd_seq, create_lastid, id, th);
 	if (rc != 0)
 		GOTO(out_put, rc);
 
@@ -767,7 +892,10 @@ out_err:
 }
 
 static struct osd_obj_seq *osd_seq_load(struct osd_thread_info *info,
-					struct osd_device *osd, obd_seq seq)
+					struct osd_device *osd, obd_seq seq,
+					bool create_lastid,
+					const struct osd_inode_id *id,
+					struct thandle *th)
 {
 	struct osd_obj_map	*map;
 	struct osd_obj_seq	*osd_seq;
@@ -799,11 +927,14 @@ static struct osd_obj_seq *osd_seq_load(struct osd_thread_info *info,
 		GOTO(cleanup, rc = -ENOMEM);
 
 	CFS_INIT_LIST_HEAD(&osd_seq->oos_seq_list);
+	spin_lock_init(&osd_seq->oos_last_id_lock);
+	sema_init(&osd_seq->oos_last_id_sem, 1);
+
 	osd_seq->oos_seq = seq;
 	/* Init subdir count to be 32, but each seq can have
 	 * different subdir count */
 	osd_seq->oos_subdir_count = map->om_subdir_count;
-	rc = osd_seq_load_locked(info, osd, osd_seq);
+	rc = osd_seq_load_locked(info, osd, osd_seq, create_lastid, id, th);
 	if (rc != 0)
 		GOTO(cleanup, rc);
 
@@ -845,7 +976,7 @@ int osd_obj_map_lookup(struct osd_thread_info *info, struct osd_device *dev,
 	LASSERT(map->om_root);
 
         fid_to_ostid(fid, ostid);
-	osd_seq = osd_seq_load(info, dev, ostid_seq(ostid));
+	osd_seq = osd_seq_load(info, dev, ostid_seq(ostid), false, NULL, NULL);
 	if (IS_ERR(osd_seq))
 		RETURN(PTR_ERR(osd_seq));
 
@@ -887,7 +1018,6 @@ int osd_obj_map_insert(struct osd_thread_info *info,
 		       const struct osd_inode_id *id,
 		       struct thandle *th)
 {
-	struct osd_obj_map	*map;
 	struct osd_obj_seq	*osd_seq;
 	struct dentry		*d;
 	struct ost_id		*ostid = &info->oti_ostid;
@@ -896,14 +1026,9 @@ int osd_obj_map_insert(struct osd_thread_info *info,
 	char			name[32];
 	ENTRY;
 
-	map = osd->od_ost_map;
-	LASSERT(map);
-
-	/* map fid to seq:objid */
 	fid_to_ostid(fid, ostid);
-
 	oid = ostid_id(ostid);
-	osd_seq = osd_seq_load(info, osd, ostid_seq(ostid));
+	osd_seq = osd_seq_load(info, osd, ostid_seq(ostid), false, NULL, NULL);
 	if (IS_ERR(osd_seq))
 		RETURN(PTR_ERR(osd_seq));
 
@@ -983,7 +1108,6 @@ update:
 int osd_obj_map_delete(struct osd_thread_info *info, struct osd_device *osd,
 		       const struct lu_fid *fid, struct thandle *th)
 {
-	struct osd_obj_map	*map;
 	struct osd_obj_seq	*osd_seq;
 	struct dentry		*d;
 	struct ost_id		*ostid = &info->oti_ostid;
@@ -991,13 +1115,8 @@ int osd_obj_map_delete(struct osd_thread_info *info, struct osd_device *osd,
 	char			name[32];
         ENTRY;
 
-        map = osd->od_ost_map;
-        LASSERT(map);
-
-	/* map fid to seq:objid */
         fid_to_ostid(fid, ostid);
-
-	osd_seq = osd_seq_load(info, osd, ostid_seq(ostid));
+	osd_seq = osd_seq_load(info, osd, ostid_seq(ostid), false, NULL, NULL);
 	if (IS_ERR(osd_seq))
 		GOTO(cleanup, rc = PTR_ERR(osd_seq));
 
@@ -1025,7 +1144,7 @@ int osd_obj_map_update(struct osd_thread_info *info,
 	ENTRY;
 
 	fid_to_ostid(fid, ostid);
-	osd_seq = osd_seq_load(info, osd, ostid_seq(ostid));
+	osd_seq = osd_seq_load(info, osd, ostid_seq(ostid), false, NULL, NULL);
 	if (IS_ERR(osd_seq))
 		RETURN(PTR_ERR(osd_seq));
 
@@ -1059,16 +1178,18 @@ int osd_obj_map_rename(struct osd_thread_info *info,
 	ENTRY;
 
 	if (fid_is_last_id(fid)) {
-		osd_seq = osd_seq_load(info, osd, fid_seq(fid));
+		osd_seq = osd_seq_load(info, osd, fid_seq(fid), false,
+				       NULL, NULL);
 		if (IS_ERR(osd_seq))
 			RETURN(PTR_ERR(osd_seq));
 
 		tgt_parent = osd_seq->oos_root;
-		tgt_child->d_name.name = "LAST_ID";
-		tgt_child->d_name.len = strlen("LAST_ID");
+		tgt_child->d_name.name = LAST_ID;
+		tgt_child->d_name.len = strlen(LAST_ID);
 	} else {
 		fid_to_ostid(fid, ostid);
-		osd_seq = osd_seq_load(info, osd, ostid_seq(ostid));
+		osd_seq = osd_seq_load(info, osd, ostid_seq(ostid), false,
+				       NULL, NULL);
 		if (IS_ERR(osd_seq))
 			RETURN(PTR_ERR(osd_seq));
 
@@ -1124,7 +1245,8 @@ unlock:
 
 static struct dentry *
 osd_object_spec_find(struct osd_thread_info *info, struct osd_device *osd,
-		     const struct lu_fid *fid, char **name)
+		     const struct lu_fid *fid, const char **name, bool create_lastid,
+		     const struct osd_inode_id *id, struct thandle *th)
 {
 	struct dentry *root = ERR_PTR(-ENOENT);
 
@@ -1132,12 +1254,22 @@ osd_object_spec_find(struct osd_thread_info *info, struct osd_device *osd,
 		struct osd_obj_seq *osd_seq;
 
 		/* on creation of LAST_ID we create O/<seq> hierarchy */
-		osd_seq = osd_seq_load(info, osd, fid_seq(fid));
+		osd_seq = osd_seq_load(info, osd, fid_seq(fid), create_lastid,
+				       id, th);
 		if (IS_ERR(osd_seq))
 			RETURN((struct dentry *)osd_seq);
 
-		*name = "LAST_ID";
-		root = osd_seq->oos_root;
+		if (!create_lastid) {
+			*name = LAST_ID;
+			root = osd_seq->oos_root;
+		} else if (unlikely(osd_seq->oos_last_id_inode == NULL)) {
+			int rc;
+
+			/* Found a cached one, we need to add the last_id. */
+			rc = osd_last_id_load(info, osd, osd_seq, true, id, th);
+			if (rc != 0)
+				root = ERR_PTR(rc);
+		}
 	} else {
 		*name = osd_lf_fid2name(fid);
 		if (*name == NULL)
@@ -1154,11 +1286,11 @@ int osd_obj_spec_update(struct osd_thread_info *info, struct osd_device *osd,
 			struct thandle *th)
 {
 	struct dentry	*root;
-	char		*name;
+	const char	*name;
 	int		 rc;
 	ENTRY;
 
-	root = osd_object_spec_find(info, osd, fid, &name);
+	root = osd_object_spec_find(info, osd, fid, &name, false, NULL, NULL);
 	if (!IS_ERR(root)) {
 		rc = osd_obj_update_entry(info, osd, root, name, id, th);
 	} else {
@@ -1175,11 +1307,11 @@ int osd_obj_spec_insert(struct osd_thread_info *info, struct osd_device *osd,
 			struct thandle *th)
 {
 	struct dentry	*root;
-	char		*name;
+	const char	*name;
 	int		 rc;
 	ENTRY;
 
-	root = osd_object_spec_find(info, osd, fid, &name);
+	root = osd_object_spec_find(info, osd, fid, &name, true, id, th);
 	if (!IS_ERR(root)) {
 		rc = osd_obj_add_entry(info, osd, root, name, id, th);
 	} else {
@@ -1198,41 +1330,239 @@ int osd_obj_spec_lookup(struct osd_thread_info *info, struct osd_device *osd,
 	struct dentry	*dentry;
 	struct inode	*inode;
 	char		*name;
-	int		rc = -ENOENT;
+	int		 rc;
 	ENTRY;
 
 	if (fid_is_last_id(fid)) {
 		struct osd_obj_seq *osd_seq;
 
-		osd_seq = osd_seq_load(info, osd, fid_seq(fid));
+		osd_seq = osd_seq_load(info, osd, fid_seq(fid), false,
+				       NULL, NULL);
 		if (IS_ERR(osd_seq))
 			RETURN(PTR_ERR(osd_seq));
-		root = osd_seq->oos_root;
-		name = "LAST_ID";
-	} else {
-		root = osd_sb(osd)->s_root;
-		name = osd_lf_fid2name(fid);
-		if (name == NULL || strlen(name) == 0)
+
+		if (osd_seq->oos_last_id_inode == NULL)
 			RETURN(-ENOENT);
+
+		osd_id_gen(id, osd_seq->oos_last_id_inode->i_ino,
+			   osd_seq->oos_last_id_inode->i_generation);
+		RETURN(0);
 	}
+
+	root = osd_sb(osd)->s_root;
+	name = osd_lf_fid2name(fid);
+	if (name == NULL || strlen(name) == 0)
+		RETURN(-ENOENT);
 
 	dentry = ll_lookup_one_len(name, root, strlen(name));
-	if (!IS_ERR(dentry)) {
-		inode = dentry->d_inode;
-		if (inode) {
-			if (is_bad_inode(inode)) {
-				rc = -EIO;
-			} else {
-				osd_id_gen(id, inode->i_ino,
-					   inode->i_generation);
-				rc = 0;
-			}
-		}
-		/* if dentry is accessible after osd_compat_spec_insert it
-		 * will still contain NULL inode, so don't keep it in cache */
+	if (IS_ERR(dentry))
+		RETURN(PTR_ERR(dentry));
+
+	inode = dentry->d_inode;
+	if (inode == NULL)
+		GOTO(out, rc = -ENOENT);
+
+	osd_id_gen(id, inode->i_ino, inode->i_generation);
+	GOTO(out, rc = 0);
+
+out:
+	if (rc != 0)
 		d_invalidate(dentry);
-		dput(dentry);
+	dput(dentry);
+	return rc;
+}
+
+/**
+ * \retval +v, the data size read.
+ * \retval -v, failure cases.
+ */
+int osd_last_id_read(const struct lu_env *env, struct dt_object *dt,
+		     obd_id *last_id, loff_t *pos)
+{
+	struct osd_thread_info	*info	= osd_oti_get(env);
+	struct osd_obj_seq	*osd_seq;
+	ENTRY;
+
+	osd_seq = osd_seq_load(info, osd_obj2dev(osd_dt_obj(dt)),
+			       fid_seq(lu_object_fid(&dt->do_lu)),
+			       false, NULL, NULL);
+	if (IS_ERR(osd_seq))
+		RETURN(PTR_ERR(osd_seq));
+
+	if (unlikely(osd_seq->oos_last_id_inode == NULL))
+		RETURN(-ENOENT);
+
+	spin_lock(&osd_seq->oos_last_id_lock);
+	*last_id = cpu_to_le64(osd_seq->oos_last_id);
+	spin_unlock(&osd_seq->oos_last_id_lock);
+	*pos = sizeof(*last_id);
+
+	RETURN(sizeof(*last_id));
+}
+
+/**
+ * \retval +v, the data size written.
+ * \retval -v, failure cases.
+ */
+int osd_last_id_write(const struct lu_env *env, struct dt_object *dt,
+		      obd_id *last_id, loff_t *pos, handle_t *handle)
+{
+	struct osd_thread_info	*info	= osd_oti_get(env);
+	struct osd_obj_seq	*osd_seq;
+	int			 rc;
+	ENTRY;
+
+	osd_seq = osd_seq_load(info, osd_obj2dev(osd_dt_obj(dt)),
+			       fid_seq(lu_object_fid(&dt->do_lu)),
+			       false, NULL, NULL);
+	if (IS_ERR(osd_seq))
+		RETURN(PTR_ERR(osd_seq));
+
+	if (unlikely(osd_seq->oos_last_id_inode == NULL))
+		RETURN(-ENOENT);
+
+	down(&osd_seq->oos_last_id_sem);
+	spin_lock(&osd_seq->oos_last_id_lock);
+	osd_seq->oos_last_id = le64_to_cpu(*last_id);
+	osd_seq->oos_last_id_dirty = 0;
+	/* Release the spin_lock to allow others (OI scrub) to update the
+	 * osd_seq::oss_last_id during the LAST_ID file to be written. */
+	spin_unlock(&osd_seq->oos_last_id_lock);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_OSD_COMPAT_SKIP_LASTID)) {
+		up(&osd_seq->oos_last_id_sem);
+		RETURN(0);
 	}
 
+	rc = osd_ldiskfs_write_record(osd_dt_obj(dt)->oo_inode, last_id,
+				      sizeof(*last_id), 0, pos, handle);
+	if (rc == 0) {
+		rc = sizeof(*last_id);
+	} else {
+		spin_lock(&osd_seq->oos_last_id_lock);
+		osd_seq->oos_last_id_dirty = 1;
+		spin_unlock(&osd_seq->oos_last_id_lock);
+	}
+	up(&osd_seq->oos_last_id_sem);
+
 	RETURN(rc);
+}
+
+/**
+ * \retval +v, the given fid is higher than the known last id, updated
+ *	       or the last_id is lost or crashed, re-created
+ * \retval 0, the given fid is not higher the known last id
+ * \retval -v, failure cases
+ */
+int osd_last_id_update(const struct lu_env *env, struct osd_device *osd,
+		       struct inode *inode, const struct lu_fid *fid)
+{
+	struct osd_thread_info	*info	= osd_oti_get(env);
+	struct ost_id		*ostid	= &info->oti_ostid;
+	struct osd_obj_seq	*osd_seq;
+	obd_id			 last_id;
+	int			 rc	= 0;
+	ENTRY;
+
+	if (fid_is_last_id(fid)) {
+		osd_seq = osd_seq_load(info, osd, fid_seq(fid), true,
+				       NULL, NULL);
+	} else {
+		fid_to_ostid(fid, ostid);
+		osd_seq = osd_seq_load(info, osd, ostid_seq(ostid), true,
+				       NULL, NULL);
+	}
+	if (IS_ERR(osd_seq))
+		RETURN(PTR_ERR(osd_seq));
+
+	/* Found a cached one, we need to rebuild the last_id. */
+	if (unlikely(osd_seq->oos_last_id_inode == NULL)) {
+		rc = osd_last_id_load(info, osd, osd_seq, true, NULL, NULL);
+		if (rc != 0)
+			RETURN(rc);
+	}
+
+	if (fid_is_last_id(fid)) {
+		if (osd_seq->oos_last_id == 0)
+			RETURN(1);
+		RETURN(0);
+	}
+
+	last_id = ostid_id(ostid);
+	if (last_id <= osd_seq->oos_last_id)
+		RETURN(0);
+
+	spin_lock(&osd_seq->oos_last_id_lock);
+	if (likely(last_id > osd_seq->oos_last_id)) {
+		/* There may be race between OI scrub increasing the LAST_ID
+		 * and the OFD shrink the LAST_ID. So if the @inode has been
+		 * destroyed when waitting for lock, then skip the update. */
+		if (likely((inode->i_nlink != 0) ||
+			   !(inode->i_mode & (S_ISUID | S_ISGID)))) {
+			osd_seq->oos_last_id = last_id;
+			osd_seq->oos_last_id_dirty = 1;
+			rc = 1;
+		}
+	}
+	spin_unlock(&osd_seq->oos_last_id_lock);
+
+	RETURN(rc);
+}
+
+/**
+ * \retval 0, scucceed.
+ * \retval -v, failure cases.
+ */
+int osd_last_id_sync(const struct lu_env *env, struct osd_device *osd)
+{
+	struct osd_obj_map	*map	= osd->od_ost_map;
+	struct osd_obj_seq	*osd_seq;
+	int			 rc1	= 0;
+	ENTRY;
+
+	/* The "osd_seq" will be unlinked only when the device fini. We do not
+	 * care some new "osd_seq" to be added during the list scanning. So it
+	 * is safe to scan the list without lock. */
+	cfs_list_for_each_entry(osd_seq, &map->om_seq_list, oos_seq_list) {
+		obd_id		 last_id;
+		loff_t		 pos	= 0;
+		handle_t	*jh;
+		int		 rc;
+
+		if (!osd_seq->oos_last_id_dirty)
+			continue;
+
+		LASSERT(osd_seq->oos_last_id_inode != NULL);
+
+		jh = ldiskfs_journal_start_sb(osd_sb(osd),
+				osd_dto_credits_noquota[DTO_WRITE_BASE] +
+				osd_dto_credits_noquota[DTO_WRITE_BLOCK]);
+		if (IS_ERR(jh)) {
+			rc1 = PTR_ERR(jh);
+			continue;
+		}
+
+		down(&osd_seq->oos_last_id_sem);
+		if (unlikely(!osd_seq->oos_last_id_dirty)) {
+			up(&osd_seq->oos_last_id_sem);
+			ldiskfs_journal_stop(jh);
+			continue;
+		}
+
+		last_id = cpu_to_le64(osd_seq->oos_last_id);
+		rc = osd_ldiskfs_write_record(osd_seq->oos_last_id_inode,
+					      &last_id, sizeof(last_id), 0,
+					      &pos, jh);
+		if (rc == 0) {
+			spin_lock(&osd_seq->oos_last_id_lock);
+			osd_seq->oos_last_id_dirty = 0;
+			spin_unlock(&osd_seq->oos_last_id_lock);
+		} else {
+			rc1 = rc;
+		}
+		up(&osd_seq->oos_last_id_sem);
+		ldiskfs_journal_stop(jh);
+	}
+
+	RETURN(rc1);
 }

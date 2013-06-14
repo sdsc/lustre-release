@@ -66,16 +66,19 @@ enum scrub_status {
 
 enum scrub_flags {
 	/* OI files have been recreated, OI mappings should be re-inserted. */
-	SF_RECREATED	= 0x0000000000000001ULL,
+	SF_RECREATED		= 0x0000000000000001ULL,
 
 	/* OI files are invalid, should be rebuild ASAP */
-	SF_INCONSISTENT	= 0x0000000000000002ULL,
+	SF_INCONSISTENT 	= 0x0000000000000002ULL,
 
 	/* OI scrub is triggered automatically. */
-	SF_AUTO		= 0x0000000000000004ULL,
+	SF_AUTO			= 0x0000000000000004ULL,
 
 	/* The device is upgraded from 1.8 format. */
-	SF_UPGRADE	= 0x0000000000000008ULL,
+	SF_UPGRADE		= 0x0000000000000008ULL,
+
+	/* LAST_ID file(s) crashed. */
+	SF_CRASHED_LASTID	= 0x0000000000000010ULL,
 };
 
 enum scrub_param {

@@ -1019,7 +1019,13 @@ static ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
         int           rc;
 
         if (osd_object_auth(env, dt, capa, CAPA_OPC_BODY_READ))
-                RETURN(-EACCES);
+		return -EACCES;
+
+	if (unlikely(fid_is_last_id(lu_object_fid(&dt->do_lu)))) {
+		LASSERT(*pos == 0 && buf->lb_len >= sizeof(obd_id));
+
+		return osd_last_id_read(env, dt, (obd_id *)(buf->lb_buf), pos);
+	}
 
         /* Read small symlink from inode body as we need to maintain correct
          * on-disk symlinks for ldiskfs.
@@ -1184,6 +1190,14 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 
         oh = container_of(handle, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle->h_transaction != NULL);
+
+	if (unlikely(fid_is_last_id(lu_object_fid(&dt->do_lu)))) {
+		LASSERT(*pos == 0 && buf->lb_len == sizeof(obd_id));
+
+		return osd_last_id_write(env, dt, (obd_id *)(buf->lb_buf),
+					 pos, oh->ot_handle);
+	}
+
 	/* Write small symlink to inode body as we need to maintain correct
 	 * on-disk symlinks for ldiskfs.
 	 * Note: the buf->lb_buf contains a NUL terminator while buf->lb_len
