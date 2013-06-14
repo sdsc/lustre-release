@@ -48,43 +48,28 @@
 #if defined __KERNEL__
 #include <linux/lustre_compat25.h>
 #include <linux/lustre_common.h>
-#include <linux/lvfs_linux.h>
+#include <linux/fs.h>
 #else
 #include <liblustre.h>
 #endif
 
 #define LLOG_LVFS
 
-/* simple.c */
-
-struct lvfs_ucred {
-        __u32                   luc_uid;
-        __u32                   luc_gid;
-        __u32                   luc_fsuid;
-        __u32                   luc_fsgid;
-        cfs_kernel_cap_t        luc_cap;
-        __u32                   luc_umask;
-	struct group_info      *luc_ginfo;
-	struct md_identity     *luc_identity;
-};
-
-struct lvfs_callback_ops {
-        struct dentry *(*l_fid2dentry)(__u64 id_ino, __u32 gen, __u64 gr, void *data);
-};
-
 #define OBD_RUN_CTXT_MAGIC      0xC0FFEEAA
 #define OBD_CTXT_DEBUG          /* development-only debugging */
+
+struct dt_device;
+
 struct lvfs_run_ctxt {
-        struct vfsmount         *pwdmnt;
-        struct dentry           *pwd;
-        mm_segment_t             fs;
-        struct lvfs_ucred        luc;
-        int                      ngroups;
-        struct lvfs_callback_ops cb_ops;
-        struct group_info       *group_info;
-	struct dt_device	*dt;
+	struct vfsmount		       *pwdmnt;
+	struct dentry		       *pwd;
+	mm_segment_t			fs;
+	__u32				umask;
+	int				ngroups;
+	struct group_info	       *group_info;
+	struct dt_device	       *dt;
 #ifdef OBD_CTXT_DEBUG
-        __u32                    magic;
+	__u32				magic;
 #endif
 };
 

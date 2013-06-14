@@ -643,10 +643,10 @@ static int mgc_fs_setup(struct obd_device *obd, struct super_block *sb,
         obd->obd_lvfs_ctxt.pwd = mnt->mnt_root;
         obd->obd_lvfs_ctxt.fs = get_ds();
 
-        push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+	push_ctxt(&saved, &obd->obd_lvfs_ctxt);
         dentry = ll_lookup_one_len(MOUNT_CONFIGS_DIR, cfs_fs_pwd(current->fs),
                                    strlen(MOUNT_CONFIGS_DIR));
-        pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+	pop_ctxt(&saved, &obd->obd_lvfs_ctxt);
         if (IS_ERR(dentry)) {
                 err = PTR_ERR(dentry);
                 CERROR("cannot lookup %s directory: rc = %d\n",
@@ -684,10 +684,10 @@ static int mgc_fs_cleanup(struct obd_device *obd)
 
         if (cli->cl_mgc_configs_dir != NULL) {
                 struct lvfs_run_ctxt saved;
-                push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+		push_ctxt(&saved, &obd->obd_lvfs_ctxt);
                 l_dput(cli->cl_mgc_configs_dir);
                 cli->cl_mgc_configs_dir = NULL;
-                pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+		pop_ctxt(&saved, &obd->obd_lvfs_ctxt);
                 class_decref(obd, "mgc_fs", obd);
         }
 
@@ -1604,7 +1604,7 @@ static int mgc_llog_is_empty(struct obd_device *obd, struct llog_ctxt *ctxt,
 	struct llog_handle	*llh;
 	int			 rc = 0;
 
-	push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+	push_ctxt(&saved, &obd->obd_lvfs_ctxt);
 	rc = llog_open(NULL, ctxt, &llh, NULL, name, LLOG_OPEN_EXISTS);
 	if (rc == 0) {
 		rc = llog_init_handle(NULL, llh, LLOG_F_IS_PLAIN, NULL);
@@ -1614,7 +1614,7 @@ static int mgc_llog_is_empty(struct obd_device *obd, struct llog_ctxt *ctxt,
 	} else if (rc == -ENOENT) {
 		rc = 0;
 	}
-	pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+	pop_ctxt(&saved, &obd->obd_lvfs_ctxt);
 	/* header is record 1 */
 	return (rc <= 1);
 }
@@ -1750,7 +1750,7 @@ static int mgc_process_cfg_log(struct obd_device *mgc,
 	if (lctxt && lsi && IS_SERVER(lsi) &&
             (lsi->lsi_srv_mnt == cli->cl_mgc_vfsmnt) &&
 	    !IS_MGS(lsi) && lsi->lsi_srv_mnt) {
-                push_ctxt(saved_ctxt, &mgc->obd_lvfs_ctxt, NULL);
+		push_ctxt(saved_ctxt, &mgc->obd_lvfs_ctxt);
                 must_pop++;
                 if (!local_only)
                         /* Only try to copy log if we have the lock. */
@@ -1794,8 +1794,9 @@ out_pop:
         llog_ctxt_put(ctxt);
         if (lctxt)
                 llog_ctxt_put(lctxt);
-        if (must_pop)
-                pop_ctxt(saved_ctxt, &mgc->obd_lvfs_ctxt, NULL);
+
+	if (must_pop)
+		pop_ctxt(saved_ctxt, &mgc->obd_lvfs_ctxt);
 
         OBD_FREE_PTR(saved_ctxt);
         /*

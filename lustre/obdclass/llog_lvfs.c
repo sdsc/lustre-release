@@ -61,8 +61,8 @@
 
 #if defined(__KERNEL__) && defined(LLOG_LVFS)
 
-static int llog_lvfs_pad(struct obd_device *obd, struct l_file *file,
-                                int len, int index)
+static int llog_lvfs_pad(struct obd_device *obd, struct file *file,
+			 int len, int index)
 {
         struct llog_rec_hdr rec = { 0 };
         struct llog_rec_tail tail;
@@ -92,8 +92,8 @@ static int llog_lvfs_pad(struct obd_device *obd, struct l_file *file,
         RETURN(rc);
 }
 
-static int llog_lvfs_write_blob(struct obd_device *obd, struct l_file *file,
-                                struct llog_rec_hdr *rec, void *buf, loff_t off)
+static int llog_lvfs_write_blob(struct obd_device *obd, struct file *file,
+				struct llog_rec_hdr *rec, void *buf, loff_t off)
 {
         int rc;
         struct llog_rec_tail end;
@@ -146,8 +146,8 @@ static int llog_lvfs_write_blob(struct obd_device *obd, struct l_file *file,
         RETURN(rc);
 }
 
-static int llog_lvfs_read_blob(struct obd_device *obd, struct l_file *file,
-                                void *buf, int size, loff_t off)
+static int llog_lvfs_read_blob(struct obd_device *obd, struct file *file,
+			       void *buf, int size, loff_t off)
 {
         loff_t offset = off;
         int rc;
@@ -566,25 +566,26 @@ static int llog_lvfs_prev_block(const struct lu_env *env,
 
 static struct file *llog_filp_open(char *dir, char *name, int flags, int mode)
 {
-        char *logname;
-        struct file *filp;
-        int len;
+	char *logname;
+	struct file *filp;
+	int len;
 
-        OBD_ALLOC(logname, PATH_MAX);
-        if (logname == NULL)
-                return ERR_PTR(-ENOMEM);
+	OBD_ALLOC(logname, PATH_MAX);
+	if (logname == NULL)
+		return ERR_PTR(-ENOMEM);
 
-        len = snprintf(logname, PATH_MAX, "%s/%s", dir, name);
-        if (len >= PATH_MAX - 1) {
-                filp = ERR_PTR(-ENAMETOOLONG);
-        } else {
-                filp = l_filp_open(logname, flags, mode);
+	len = snprintf(logname, PATH_MAX, "%s/%s", dir, name);
+	if (len >= PATH_MAX - 1) {
+		filp = ERR_PTR(-ENAMETOOLONG);
+	} else {
+		filp = filp_open(logname, flags, mode);
 		if (IS_ERR(filp) && PTR_ERR(filp) != -ENOENT)
-                        CERROR("logfile creation %s: %ld\n", logname,
-                               PTR_ERR(filp));
-        }
-        OBD_FREE(logname, PATH_MAX);
-        return filp;
+			CERROR("logfile creation %s: %ld\n", logname,
+			       PTR_ERR(filp));
+	}
+	OBD_FREE(logname, PATH_MAX);
+
+	return filp;
 }
 
 static int llog_lvfs_open(const struct lu_env *env,  struct llog_handle *handle,
@@ -592,7 +593,6 @@ static int llog_lvfs_open(const struct lu_env *env,  struct llog_handle *handle,
 			  enum llog_open_param open_param)
 {
 	struct llog_ctxt	*ctxt = handle->lgh_ctxt;
-	struct l_dentry		*dchild = NULL;
 	struct obd_device	*obd;
 	int			 rc = 0;
 
@@ -604,37 +604,9 @@ static int llog_lvfs_open(const struct lu_env *env,  struct llog_handle *handle,
 	obd = ctxt->loc_exp->exp_obd;
 
 	LASSERT(handle);
-	if (logid != NULL) {
-		dchild = obd_lvfs_fid2dentry(ctxt->loc_exp, &logid->lgl_oi,
-					     logid->lgl_ogen);
-		if (IS_ERR(dchild)) {
-			rc = PTR_ERR(dchild);
-			CERROR("%s: error looking up logfile #"DOSTID "#%08x:"
-			       " rc = %d\n", ctxt->loc_obd->obd_name,
-			       POSTID(&logid->lgl_oi), logid->lgl_ogen, rc);
-			GOTO(out, rc);
-		}
-		if (dchild->d_inode == NULL) {
-			l_dput(dchild);
-			rc = -ENOENT;
-			CERROR("%s: nonexistent llog #"DOSTID"#%08x:"
-			       "rc = %d\n", ctxt->loc_obd->obd_name,
-			       POSTID(&logid->lgl_oi), logid->lgl_ogen, rc);
-			GOTO(out, rc);
-		}
-		handle->lgh_file = l_dentry_open(&obd->obd_lvfs_ctxt, dchild,
-						 O_RDWR | O_LARGEFILE);
-		l_dput(dchild);
-		if (IS_ERR(handle->lgh_file)) {
-			rc = PTR_ERR(handle->lgh_file);
-			handle->lgh_file = NULL;
-			CERROR("%s: error opening llog #"DOSTID"#%08x:"
-			       "rc = %d\n", ctxt->loc_obd->obd_name,
-			       POSTID(&logid->lgl_oi), logid->lgl_ogen, rc);
-			GOTO(out, rc);
-		}
-		handle->lgh_id = *logid;
-	} else if (name) {
+	LASSERT(logid == NULL);
+
+	if (name != NULL) {
 		handle->lgh_file = llog_filp_open(MOUNT_CONFIGS_DIR, name,
 						  O_RDWR | O_LARGEFILE, 0644);
 		if (IS_ERR(handle->lgh_file)) {
@@ -685,9 +657,7 @@ static int llog_lvfs_create(const struct lu_env *env,
 {
 	struct llog_ctxt	*ctxt = handle->lgh_ctxt;
 	struct obd_device	*obd;
-	struct l_dentry		*dchild = NULL;
 	struct file		*file;
-	struct obdo		*oa = NULL;
 	int			 rc = 0;
 	int			 open_flags = O_RDWR | O_CREAT | O_LARGEFILE;
 
@@ -698,47 +668,16 @@ static int llog_lvfs_create(const struct lu_env *env,
 	obd = ctxt->loc_exp->exp_obd;
 	LASSERT(handle->lgh_file == NULL);
 
-	if (handle->lgh_name) {
-		file = llog_filp_open(MOUNT_CONFIGS_DIR, handle->lgh_name,
-				      open_flags, 0644);
-		if (IS_ERR(file))
-			RETURN(PTR_ERR(file));
+	file = llog_filp_open(MOUNT_CONFIGS_DIR, handle->lgh_name,
+			      open_flags, 0644);
+	if (IS_ERR(file))
+		RETURN(PTR_ERR(file));
 
-		lustre_build_llog_lvfs_oid(&handle->lgh_id,
-				file->f_dentry->d_inode->i_ino,
-				file->f_dentry->d_inode->i_generation);
-		handle->lgh_file = file;
-	} else {
-		OBDO_ALLOC(oa);
-		if (oa == NULL)
-			RETURN(-ENOMEM);
+	lustre_build_llog_lvfs_oid(&handle->lgh_id,
+				   file->f_dentry->d_inode->i_ino,
+				   file->f_dentry->d_inode->i_generation);
+	handle->lgh_file = file;
 
-		ostid_set_seq_llog(&oa->o_oi);
-		oa->o_valid = OBD_MD_FLGENER | OBD_MD_FLGROUP;
-
-		rc = obd_create(NULL, ctxt->loc_exp, oa, NULL, NULL);
-		if (rc)
-			GOTO(out, rc);
-
-		/* FIXME: rationalize the misuse of o_generation in
-		 *        this API along with mds_obd_{create,destroy}.
-		 *        Hopefully it is only an internal API issue. */
-#define o_generation o_parent_oid
-		dchild = obd_lvfs_fid2dentry(ctxt->loc_exp, &oa->o_oi,
-					     oa->o_generation);
-		if (IS_ERR(dchild))
-			GOTO(out, rc = PTR_ERR(dchild));
-
-		file = l_dentry_open(&obd->obd_lvfs_ctxt, dchild, open_flags);
-		l_dput(dchild);
-		if (IS_ERR(file))
-			GOTO(out, rc = PTR_ERR(file));
-		handle->lgh_id.lgl_oi = oa->o_oi;
-		handle->lgh_id.lgl_ogen = oa->o_generation;
-		handle->lgh_file = file;
-out:
-		OBDO_FREE(oa);
-	}
 	RETURN(rc);
 }
 
@@ -786,7 +725,7 @@ static int llog_lvfs_destroy(const struct lu_env *env,
                 struct lvfs_run_ctxt saved;
                 struct vfsmount *mnt = mntget(handle->lgh_file->f_vfsmnt);
 
-                push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+		push_ctxt(&saved, &obd->obd_lvfs_ctxt);
                 dget(fdentry);
 		rc = llog_lvfs_close(env, handle);
 		if (rc == 0) {
@@ -797,7 +736,7 @@ static int llog_lvfs_destroy(const struct lu_env *env,
 		mntput(mnt);
 
                 dput(fdentry);
-                pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+		pop_ctxt(&saved, &obd->obd_lvfs_ctxt);
                 RETURN(rc);
         }
 
@@ -806,8 +745,7 @@ static int llog_lvfs_destroy(const struct lu_env *env,
                 RETURN(-ENOMEM);
 
 	oa->o_oi = handle->lgh_id.lgl_oi;
-	oa->o_generation = handle->lgh_id.lgl_ogen;
-#undef o_generation
+	oa->o_parent_oid = handle->lgh_id.lgl_ogen;
         oa->o_valid = OBD_MD_FLID | OBD_MD_FLGROUP | OBD_MD_FLGENER;
 
 	rc = llog_lvfs_close(env, handle);

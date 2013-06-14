@@ -46,7 +46,6 @@
 #define PRINT_CMD CDEBUG
 
 #include <obd.h>
-#include <lvfs.h>
 #include <lustre_fsfilt.h>
 #include <obd_class.h>
 #include <lustre/lustre_user.h>

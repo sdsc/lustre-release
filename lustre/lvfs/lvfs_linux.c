@@ -74,43 +74,8 @@ EXPORT_SYMBOL(obd_memory);
 # define ASSERT_KERNEL_CTXT(msg) do {} while(0)
 #endif
 
-static void push_group_info(struct lvfs_run_ctxt *save,
-                            struct group_info *ginfo)
-{
-        if (!ginfo) {
-                save->ngroups = current_ngroups;
-                current_ngroups = 0;
-        } else {
-                struct cred *cred;
-                task_lock(current);
-                save->group_info = current_cred()->group_info;
-                if ((cred = prepare_creds())) {
-                        cred->group_info = ginfo;
-                        commit_creds(cred);
-                }
-                task_unlock(current);
-        }
-}
-
-static void pop_group_info(struct lvfs_run_ctxt *save,
-                           struct group_info *ginfo)
-{
-        if (!ginfo) {
-                current_ngroups = save->ngroups;
-        } else {
-                struct cred *cred;
-                task_lock(current);
-                if ((cred = prepare_creds())) {
-                        cred->group_info = save->group_info;
-                        commit_creds(cred);
-                }
-                task_unlock(current);
-        }
-}
-
 /* push / pop to root of obd store */
-void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx,
-               struct lvfs_ucred *uc)
+void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx)
 {
 	/* if there is underlaying dt_device then push_ctxt is not needed */
 	if (new_ctx->dt != NULL)
@@ -125,7 +90,7 @@ void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx,
 	LASSERT(d_refcount(new_ctx->pwd));
         save->pwd = dget(cfs_fs_pwd(current->fs));
         save->pwdmnt = mntget(cfs_fs_mnt(current->fs));
-        save->luc.luc_umask = cfs_curproc_umask();
+	save->umask = cfs_curproc_umask();
         save->ngroups = current_cred()->group_info->ngroups;
 
         LASSERT(save->pwd);
@@ -133,36 +98,13 @@ void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx,
         LASSERT(new_ctx->pwd);
         LASSERT(new_ctx->pwdmnt);
 
-        if (uc) {
-                struct cred *cred;
-                save->luc.luc_uid = current_uid();
-                save->luc.luc_gid = current_gid();
-                save->luc.luc_fsuid = current_fsuid();
-                save->luc.luc_fsgid = current_fsgid();
-                save->luc.luc_cap = current_cap();
-
-                if ((cred = prepare_creds())) {
-                        cred->uid = uc->luc_uid;
-                        cred->gid = uc->luc_gid;
-                        cred->fsuid = uc->luc_fsuid;
-                        cred->fsgid = uc->luc_fsgid;
-                        cred->cap_effective = uc->luc_cap;
-                        commit_creds(cred);
-                }
-
-                push_group_info(save,
-                                uc->luc_ginfo ?:
-                                uc->luc_identity ? uc->luc_identity->mi_ginfo :
-                                                   NULL);
-        }
-        current->fs->umask = 0; /* umask already applied on client */
-        set_fs(new_ctx->fs);
-        ll_set_fs_pwd(current->fs, new_ctx->pwdmnt, new_ctx->pwd);
+	current->fs->umask = 0; /* umask already applied on client */
+	set_fs(new_ctx->fs);
+	ll_set_fs_pwd(current->fs, new_ctx->pwdmnt, new_ctx->pwd);
 }
 EXPORT_SYMBOL(push_ctxt);
 
-void pop_ctxt(struct lvfs_run_ctxt *saved, struct lvfs_run_ctxt *new_ctx,
-              struct lvfs_ucred *uc)
+void pop_ctxt(struct lvfs_run_ctxt *saved, struct lvfs_run_ctxt *new_ctx)
 {
 	/* if there is underlaying dt_device then pop_ctxt is not needed */
 	if (new_ctx->dt != NULL)
@@ -181,23 +123,7 @@ void pop_ctxt(struct lvfs_run_ctxt *saved, struct lvfs_run_ctxt *new_ctx,
 
         dput(saved->pwd);
         mntput(saved->pwdmnt);
-        current->fs->umask = saved->luc.luc_umask;
-        if (uc) {
-                struct cred *cred;
-                if ((cred = prepare_creds())) {
-                        cred->uid = saved->luc.luc_uid;
-                        cred->gid = saved->luc.luc_gid;
-                        cred->fsuid = saved->luc.luc_fsuid;
-                        cred->fsgid = saved->luc.luc_fsgid;
-                        cred->cap_effective = saved->luc.luc_cap;
-                        commit_creds(cred);
-                }
-
-                pop_group_info(saved,
-                               uc->luc_ginfo ?:
-                               uc->luc_identity ? uc->luc_identity->mi_ginfo :
-                                                  NULL);
-        }
+	current->fs->umask = saved->umask;
 }
 EXPORT_SYMBOL(pop_ctxt);
 
@@ -233,18 +159,6 @@ put_old:
         RETURN(err);
 }
 EXPORT_SYMBOL(lustre_rename);
-
-/* Note: dput(dchild) will *not* be called if there is an error */
-struct l_file *l_dentry_open(struct lvfs_run_ctxt *ctxt, struct l_dentry *de,
-			     int flags)
-{
-	struct path path = {
-		.dentry = de,
-		.mnt = ctxt->pwdmnt,
-	};
-	return ll_dentry_open(&path, flags, current_cred());
-}
-EXPORT_SYMBOL(l_dentry_open);
 
 #ifdef LPROCFS
 __s64 lprocfs_read_helper(struct lprocfs_counter *lc,

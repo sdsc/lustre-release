@@ -1023,7 +1023,7 @@ int sptlrpc_target_local_copy_conf(struct obd_device *obd,
 	if (ctxt == NULL)
                 RETURN(-EINVAL);
 
-        push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+	push_ctxt(&saved, &obd->obd_lvfs_ctxt);
 
         dentry = ll_lookup_one_len(MOUNT_CONFIGS_DIR, cfs_fs_pwd(current->fs),
                                    strlen(MOUNT_CONFIGS_DIR));
@@ -1060,11 +1060,12 @@ out_close:
 out_dput:
         l_dput(dentry);
 out_ctx:
-        pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-        llog_ctxt_put(ctxt);
-        CDEBUG(D_SEC, "target %s: write local sptlrpc conf: rc = %d\n",
-               obd->obd_name, rc);
-        RETURN(rc);
+	pop_ctxt(&saved, &obd->obd_lvfs_ctxt);
+	llog_ctxt_put(ctxt);
+	CDEBUG(D_SEC, "target %s: write local sptlrpc conf: rc = %d\n",
+	       obd->obd_name, rc);
+
+	RETURN(rc);
 }
 
 static int local_read_handler(const struct lu_env *env,
@@ -1116,7 +1117,7 @@ int sptlrpc_target_local_read_conf(struct obd_device *obd,
                 RETURN(-EINVAL);
         }
 
-        push_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
+	push_ctxt(&saved, &obd->obd_lvfs_ctxt);
 
 	rc = llog_open(NULL, ctxt, &llh, NULL, LOG_SPTLRPC, LLOG_OPEN_EXISTS);
 	if (rc < 0) {
@@ -1145,11 +1146,12 @@ int sptlrpc_target_local_read_conf(struct obd_device *obd,
 out_close:
 	llog_close(NULL, llh);
 out_pop:
-        pop_ctxt(&saved, &obd->obd_lvfs_ctxt, NULL);
-        llog_ctxt_put(ctxt);
-        CDEBUG(D_SEC, "target %s: read local sptlrpc conf: rc = %d\n",
-               obd->obd_name, rc);
-        RETURN(rc);
+	pop_ctxt(&saved, &obd->obd_lvfs_ctxt);
+	llog_ctxt_put(ctxt);
+	CDEBUG(D_SEC, "target %s: read local sptlrpc conf: rc = %d\n",
+	       obd->obd_name, rc);
+
+	RETURN(rc);
 }
 
 #endif /* __KRENEL__ */

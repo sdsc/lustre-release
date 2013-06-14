@@ -1698,14 +1698,14 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 	spin_lock_init(&scrub->os_lock);
 	CFS_INIT_LIST_HEAD(&scrub->os_inconsistent_items);
 
-	push_ctxt(&saved, ctxt, NULL);
+	push_ctxt(&saved, ctxt);
 	filp = filp_open(osd_scrub_name, O_RDWR | O_CREAT, 0644);
 	if (IS_ERR(filp))
 		RETURN(PTR_ERR(filp));
 
 	scrub->os_inode = igrab(filp->f_dentry->d_inode);
 	filp_close(filp, 0);
-	pop_ctxt(&saved, ctxt, NULL);
+	pop_ctxt(&saved, ctxt);
 	ldiskfs_set_inode_state(scrub->os_inode,
 				LDISKFS_STATE_LUSTRE_NO_OI);
 

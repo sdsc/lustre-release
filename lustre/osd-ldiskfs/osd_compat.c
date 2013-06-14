@@ -59,22 +59,21 @@
 #include "osd_oi.h"
 
 static void osd_push_ctxt(const struct osd_device *dev,
-                          struct lvfs_run_ctxt *newctxt,
-                          struct lvfs_run_ctxt *save)
+			  struct lvfs_run_ctxt *newctxt,
+			  struct lvfs_run_ctxt *save)
 {
-        OBD_SET_CTXT_MAGIC(newctxt);
-        newctxt->pwdmnt = dev->od_mnt;
-        newctxt->pwd = dev->od_mnt->mnt_root;
-        newctxt->fs = get_ds();
-
-        push_ctxt(save, newctxt, NULL);
+	OBD_SET_CTXT_MAGIC(newctxt);
+	newctxt->pwdmnt = dev->od_mnt;
+	newctxt->pwd = dev->od_mnt->mnt_root;
+	newctxt->fs = get_ds();
+	push_ctxt(save, newctxt);
 }
 
 static void osd_pop_ctxt(const struct osd_device *dev,
 			 struct lvfs_run_ctxt *new,
 			 struct lvfs_run_ctxt *save)
 {
-	pop_ctxt(save, new, NULL);
+	pop_ctxt(save, new);
 }
 
 /* utility to make a directory */
@@ -201,7 +200,7 @@ static int osd_mdt_init(const struct lu_env *env, struct osd_device *dev)
 	if (rc != 0)
 		GOTO(cleanup, rc);
 cleanup:
-	pop_ctxt(&save, &new, NULL);
+	pop_ctxt(&save, &new);
 	if (rc) {
 		if (omm->omm_remote_parent != NULL)
 			dput(omm->omm_remote_parent);

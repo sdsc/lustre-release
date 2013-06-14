@@ -97,7 +97,7 @@ int llog_origin_handle_open(struct ptlrpc_request *req)
                 RETURN(-ENODEV);
         }
         disk_obd = ctxt->loc_exp->exp_obd;
-        push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
 
 	rc = llog_open(req->rq_svc_thread->t_env, ctxt, &loghandle, logid,
 		       name, LLOG_OPEN_EXISTS);
@@ -115,7 +115,7 @@ int llog_origin_handle_open(struct ptlrpc_request *req)
 out_close:
 	llog_origin_close(req->rq_svc_thread->t_env, loghandle);
 out_pop:
-	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
 	llog_ctxt_put(ctxt);
 	return rc;
 }
@@ -148,13 +148,13 @@ int llog_origin_handle_destroy(struct ptlrpc_request *req)
 		RETURN(-ENODEV);
 
 	disk_obd = ctxt->loc_exp->exp_obd;
-	push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
 
 	rc = req_capsule_server_pack(&req->rq_pill);
 	/* erase only if no error and logid is valid */
 	if (rc == 0)
 		rc = llog_erase(req->rq_svc_thread->t_env, ctxt, logid, NULL);
-	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
 	llog_ctxt_put(ctxt);
 	RETURN(rc);
 }
@@ -183,7 +183,7 @@ int llog_origin_handle_next_block(struct ptlrpc_request *req)
 		RETURN(-ENODEV);
 
 	disk_obd = ctxt->loc_exp->exp_obd;
-	push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
 
 	rc = llog_open(req->rq_svc_thread->t_env, ctxt, &loghandle,
 		       &body->lgd_logid, NULL, LLOG_OPEN_EXISTS);
@@ -215,7 +215,7 @@ int llog_origin_handle_next_block(struct ptlrpc_request *req)
 out_close:
 	llog_origin_close(req->rq_svc_thread->t_env, loghandle);
 out_pop:
-	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
 	llog_ctxt_put(ctxt);
 	return rc;
 }
@@ -244,7 +244,7 @@ int llog_origin_handle_prev_block(struct ptlrpc_request *req)
 		RETURN(-ENODEV);
 
         disk_obd = ctxt->loc_exp->exp_obd;
-        push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
 
 	rc = llog_open(req->rq_svc_thread->t_env, ctxt, &loghandle,
 			 &body->lgd_logid, NULL, LLOG_OPEN_EXISTS);
@@ -276,7 +276,7 @@ int llog_origin_handle_prev_block(struct ptlrpc_request *req)
 out_close:
 	llog_origin_close(req->rq_svc_thread->t_env, loghandle);
 out_pop:
-	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
 	llog_ctxt_put(ctxt);
 	return rc;
 }
@@ -304,7 +304,7 @@ int llog_origin_handle_read_header(struct ptlrpc_request *req)
 		RETURN(-ENODEV);
 
         disk_obd = ctxt->loc_exp->exp_obd;
-        push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
 
 	rc = llog_open(req->rq_svc_thread->t_env, ctxt, &loghandle,
 		       &body->lgd_logid, NULL, LLOG_OPEN_EXISTS);
@@ -331,7 +331,7 @@ int llog_origin_handle_read_header(struct ptlrpc_request *req)
 out_close:
 	llog_origin_close(req->rq_svc_thread->t_env, loghandle);
 out_pop:
-	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
 	llog_ctxt_put(ctxt);
 	return rc;
 }
@@ -371,7 +371,7 @@ int llog_origin_handle_cancel(struct ptlrpc_request *req)
                 RETURN(-ENODEV);
 
         disk_obd = ctxt->loc_exp->exp_obd;
-        push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
+	push_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
         for (i = 0; i < num_cookies; i++, logcookies++) {
                 cathandle = ctxt->loc_handle;
                 LASSERT(cathandle != NULL);
@@ -418,13 +418,14 @@ int llog_origin_handle_cancel(struct ptlrpc_request *req)
         }
         GOTO(pop_ctxt, rc);
 pop_ctxt:
-        pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt, NULL);
-        if (rc)
-                CERROR("Cancel %d of %d llog-records failed: %d\n",
-                       failed, num_cookies, rc);
+	pop_ctxt(&saved, &disk_obd->obd_lvfs_ctxt);
+	if (rc)
+		CERROR("Cancel %d of %d llog-records failed: %d\n",
+		       failed, num_cookies, rc);
 
-        llog_ctxt_put(ctxt);
-        return rc;
+	llog_ctxt_put(ctxt);
+
+	return rc;
 }
 EXPORT_SYMBOL(llog_origin_handle_cancel);
 
