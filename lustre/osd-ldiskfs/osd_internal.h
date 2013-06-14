@@ -111,6 +111,7 @@ struct osd_oi {
 };
 
 extern const int osd_dto_credits_noquota[];
+extern char LAST_ID[];
 
 struct osd_object {
         struct dt_object        oo_dt;
@@ -152,6 +153,11 @@ struct osd_obj_seq {
 	struct dentry	 **oos_dirs;	   /* O/<seq>/d0-dXX */
 	obd_seq		 oos_seq;	   /* seq number */
 	cfs_list_t	 oos_seq_list;     /* list to seq_list */
+	obd_id		 oos_last_id;	   /* Last id of this <seq> */
+	struct inode	 *oos_last_id_inode;/* The obj for last id file */
+	spinlock_t	 oos_last_id_lock; /* The lock for update last id */
+	struct semaphore oos_last_id_sem;  /* The sem for update last id file */
+	unsigned int	 oos_last_id_dirty:1;
 };
 
 struct osd_obj_map {
@@ -665,6 +671,13 @@ int osd_obj_spec_insert(struct osd_thread_info *info, struct osd_device *osd,
 int osd_obj_spec_update(struct osd_thread_info *info, struct osd_device *osd,
 			const struct lu_fid *fid, const struct osd_inode_id *id,
 			struct thandle *th);
+int osd_last_id_read(const struct lu_env *env, struct dt_object *dt,
+		     obd_id *last_id, loff_t *pos);
+int osd_last_id_write(const struct lu_env *env, struct dt_object *dt,
+		      obd_id *last_id, loff_t *pos, handle_t *handle);
+int osd_last_id_update(const struct lu_env *env, struct osd_device *osd,
+		       struct inode *inode, const struct lu_fid *fid);
+int osd_last_id_sync(const struct lu_env *env, struct osd_device *osd);
 
 void osd_scrub_file_reset(struct osd_scrub *scrub, __u8 *uuid, __u64 flags);
 int osd_scrub_file_store(struct osd_scrub *scrub);

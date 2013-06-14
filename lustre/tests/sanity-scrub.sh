@@ -916,6 +916,110 @@ test_14() {
 }
 run_test 14 "OI scrub can repair objects under lost+found"
 
+test_15a() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
+	createmany -o $DIR/$tdir/f 64
+
+	echo "stop ost1"
+	stop ost1 > /dev/null || error "(1) Fail to stop ost1"
+
+	ost_remove_lastid 0 || error "(2) Fail to remove LAST_ID"
+
+	echo "start ost1"
+	start ost1 $(ostdevname 1) $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(3) Fail to start ost1"
+
+	local STATUS=$($SHOW_SCRUB_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "init" ] ||
+		error "(4) Expect 'init', but got '$STATUS'"
+
+	local FLAGS=$($SHOW_SCRUB_ON_OST | awk '/^flags/ { print $2 }')
+	[ "$FLAGS" == "crashed_lastid" ] ||
+		error "(5) Expect 'crashed_lastid', but got '$FLAGS'"
+
+	$START_SCRUB_ON_OST || error "(6) Fail to start OI scrub on OST!"
+	sleep 3
+
+	STATUS=$($SHOW_SCRUB_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(7) Expect 'completed', but got '$STATUS'"
+
+	FLAGS=$($SHOW_SCRUB_ON_OST | awk '/^flags/ { print $2 }')
+	[ -z "$FLAGS" ] || error "(8) Expect empty flags, but got '$FLAGS'"
+}
+run_test 15a "auto detect crashed LAST_ID"
+
+test_15b() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
+
+	#define OBD_FAIL_OSD_COMPAT_SKIP_LASTID		0x197
+	do_facet ost1 $LCTL set_param fail_loc=0x197
+	createmany -o $DIR/$tdir/f 64
+	local lastid1=$(do_facet ost1 "lctl get_param -n \
+		obdfilter.${ost1_svc}.last_id" | awk -F: '{ print $2 }')
+
+	echo "stop ost1"
+	stop ost1 || error "(1) Fail to stop ost1"
+
+	#define OBD_FAIL_OST_ENOSPC              0x215
+	do_facet ost1 $LCTL set_param fail_val=0
+	do_facet ost1 $LCTL set_param fail_loc=0x215
+
+	echo "start ost1"
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS ||
+		error "(2) Fail to start ost1"
+
+	local STATUS=$($SHOW_SCRUB_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "init" ] ||
+		error "(3) Expect 'init', but got '$STATUS'"
+
+	sleep 8
+	local lastid2=$(do_facet ost1 "lctl get_param -n \
+		obdfilter.${ost1_svc}.last_id" | awk -F: '{ print $2 }')
+
+	[ $lastid1 -gt $lastid2 ] ||
+	error "(4) lastid1 [ $lastid1 ] should be larger than lastid2 [ $lastid2 ]"
+
+	$START_SCRUB_ON_OST || error "(5) Fail to start OI scrub on OST!"
+	sleep 3
+
+	local STATUS=$($SHOW_SCRUB_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(6) Expect 'completed', but got '$STATUS'"
+
+	echo "stop ost1"
+	stop ost1 || error "(7) Fail to stop ost1"
+
+	echo "start ost1"
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS ||
+		error "(8) Fail to start ost1"
+
+	sleep 8
+	lastid2=$(do_facet ost1 "lctl get_param -n \
+		obdfilter.${ost1_svc}.last_id" | awk -F: '{ print $2 }')
+	[ $lastid1 -eq $lastid2 ] ||
+	error "(9) lastid1 [ $lastid1 ] should be equal to lastid2 [ $lastid2 ]"
+
+	do_facet ost1 $LCTL set_param fail_loc=0
+}
+run_test 15b "OI scrub can rebuild last_id"
+
 # restore MDS/OST size
 MDSSIZE=${SAVED_MDSSIZE}
 OSTSIZE=${SAVED_OSTSIZE}
