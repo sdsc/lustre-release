@@ -1,10 +1,7 @@
-/Makefile.in
 /aclocal.m4
 /autom4te.cache
 /config.h
 /config.h.in
-/lustre-ldiskfs-*.tar.gz
-/lustre-ldiskfs.spec
 /mkinstalldirs
 /module.order
 /modules.order

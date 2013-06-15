@@ -1,7 +1,7 @@
 SUBDIRS := @LDISKFS_SUBDIR@ . @LIBSYSIO_SUBDIR@ @SNMP_SUBDIR@ @LUSTREIOKIT_SUBDIR@ @LIBCFS_SUBDIR@ lnet lustre
-DIST_SUBDIRS := @LDISKFS_DIST_SUBDIR@ @SNMP_DIST_SUBDIR@ libsysio lustre-iokit @LIBCFS_SUBDIR@ lnet lustre config contrib
-SOURCES_SUBDIRS := @LIBCFS_SUBDIR@ lnet lustre
-RPM_SUBDIRS := @LDISKFS_SUBDIR@ @LUSTREIOKIT_SUBDIR@
+DIST_SUBDIRS := ldiskfs @SNMP_DIST_SUBDIR@ libsysio lustre-iokit @LIBCFS_SUBDIR@ lnet lustre config contrib
+SOURCES_SUBDIRS := @LDISKFS_SUBDIR@ @LIBCFS_SUBDIR@ lnet lustre
+RPM_SUBDIRS := @LUSTREIOKIT_SUBDIR@
 MODULE_SYMVERS_DEPS = module-symvers
 
 @TESTS_TRUE@BUILD_TESTS = true
@@ -92,7 +92,6 @@ endif # LINUX
 endif # MODULES
 
 dist-hook:
-	$(RM) $(distdir)/ldiskfs/*.spec
 	$(RM) $(distdir)/lustre-iokit/*.spec
 	find $(distdir) -name .deps -o \
 			-name CVS -o \
@@ -225,20 +224,6 @@ if USES_DPKG
 EXTRA_DIST += debian/*
 endif
 
-module-symvers-ldiskfs:
-if LDISKFS_ENABLED
-	@if [ -f @LDISKFS_DIR@/@SYMVERFILE@ ]; then \
-		cat @LDISKFS_DIR@/@SYMVERFILE@ >>@SYMVERFILE@; \
-	elif [ -f @LDISKFS_DIR@/ldiskfs/@SYMVERFILE@ ]; then \
-		cat @LDISKFS_DIR@/ldiskfs/@SYMVERFILE@ >>@SYMVERFILE@; \
-	else \
-		echo -e "\n" \
-		"*** Missing ldiskfs symbols. Ensure you have built ldiskfs:\n"\
-		"*** - @LDISKFS_OBJ@/ldiskfs/@SYMVERFILE@\n"; \
-		exit 1; \
-	fi
-endif # LDISKFS_ENABLED
-
 module-symvers-zfs:
 if ZFS_ENABLED
 	@if [ -f @SPL_OBJ@/@SPL_SYMBOLS@ ]; then \
@@ -263,7 +248,7 @@ if ZFS_ENABLED
 	fi
 endif # ZFS_ENABLED
 
-module-symvers: module-symvers-ldiskfs module-symvers-zfs
+module-symvers: module-symvers-zfs
 
 CSTK=/tmp/checkstack
 CSTKO=/tmp/checkstack.orig
@@ -290,8 +275,3 @@ module-dist-hook:
 		echo -e "I have no idea how to create a META file in $(distdir).\nPlease file a bug at http://bugzilla.lustre.org/"; \
 		exit 1; \
 	fi
-if LDISKFS_ENABLED
-	if [ -f $(distdir)/META -a -d $(distdir)/ldiskfs ]; then \
-		cp $(distdir)/META $(distdir)/ldiskfs/META; \
-	fi
-endif

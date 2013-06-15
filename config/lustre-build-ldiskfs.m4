@@ -1,137 +1,186 @@
-#
-# LB_PATH_LDISKFS
-#
-# --without-ldiskfs   - Disable ldiskfs support.
-# --with-ldiskfs=no
-#
-# --with-ldiskfs      - Enable ldiskfs support and attempt to autodetect the
-# --with-ldiskfs=yes    headers in one of the following places in this order:
-#                       * ./ldiskfs
-#                       * /usr/src/ldiskfs-*/$LINUXRELEASE
-#                       * ../ldiskfs
-#
-# --with-ldiskfs=path - Enable ldiskfs support and use the headers in the
-#                       provided path.  No autodetection is performed.
-#
-# --with-ldiskfs-obj  - When ldiskfs support is enabled the object directory
-#                       will be based on the --with-ldiskfs directory.  If
-#                       this is detected incorrectly it can be explicitly
-#                       specified using this option.
-#
-# NOTE: As with all external packages ldiskfs is expected to already be
-# configured and built.  However, if the ldiskfs tree is located in-tree
-# (./ldiskfs) then it will be configured and built recursively as part of
-# the lustre build system.
-#
-# NOTE: The lustre and in-tree ldiskfs build systems both make use these
-# macros.  This is undesirable and confusing at best, it is potentially
-# danagerous at worst.  The ldiskfs build system should be entirely stand
-# alone without dependency on the lustre build system.
-#
-AC_DEFUN([LB_PATH_LDISKFS],
+# XXX merge into LB_LINUX_VERSION in lustre-build-linux.m4
+AC_DEFUN([LDISKFS_LINUX_VERSION], [
+	AC_MSG_CHECKING([kernel source version])
+
+	utsrelease1=${LINUX_OBJ}/include/linux/version.h
+	utsrelease2=${LINUX_OBJ}/include/linux/utsrelease.h
+	utsrelease3=${LINUX_OBJ}/include/generated/utsrelease.h
+	AS_IF([test -r ${utsrelease1} && fgrep -q UTS_RELEASE ${utsrelease1}], [
+		utsrelease=linux/version.h
+	], [test -r ${utsrelease2} && fgrep -q UTS_RELEASE ${utsrelease2}], [
+		utsrelease=linux/utsrelease.h
+	], [test -r ${utsrelease3} && fgrep -q UTS_RELEASE ${utsrelease3}], [
+		utsrelease=generated/utsrelease.h
+	])
+
+	AS_IF([test "${utsrelease}"], [
+		kernsrcver=$((echo "#include <$utsrelease>";
+		             echo "kernsrcver=UTS_RELEASE") |
+		             cpp -I ${LINUX_OBJ}/include |
+		             grep "^kernsrcver=" | cut -d \" -f 2)
+
+		AS_IF([test -z "$kernsrcver"], [
+			AC_MSG_RESULT([Not found])
+			AC_MSG_ERROR([*** Cannot determine kernel version.])
+		])
+	], [
+		AC_MSG_RESULT([Not found])
+		AC_MSG_ERROR([
+	*** Cannot find UTS_RELEASE definition.
+	*** This is often provided by the kernel-devel package.])
+	])
+
+	AC_MSG_RESULT([${kernsrcver}])
+
+	LINUX_VERSION=${kernsrcver}
+	AC_SUBST(LINUX_VERSION)
+	LDISKFS_VERSIONRELEASE=${kernsrcver}
+	AC_SUBST(LDISKFS_VERSIONRELEASE)
+])
+
+AC_DEFUN([LDISKFS_LINUX_SERIES],
 [
-AC_ARG_WITH([ldiskfs],
-	AC_HELP_STRING([--with-ldiskfs=path], [set path to ldiskfs source]),
-	[],[
-		if test x$enable_server = xyes && test x$enable_dist = xno; then
-			with_ldiskfs='yes'
-		else
-			with_ldiskfs='no'
-		fi
+LDISKFS_SERIES=
+AS_IF([$1], [
+	AC_MSG_CHECKING([which ldiskfs series to use])
+
+	SER=
+	AS_IF([test x$RHEL_KERNEL = xyes], [
+		AS_VERSION_COMPARE([$LDISKFS_VERSIONRELEASE],[2.6.32-343],[
+		AS_VERSION_COMPARE([$LDISKFS_VERSIONRELEASE],[2.6.32],[],
+		[SER="2.6-rhel6.series"],[SER="2.6-rhel6.series"])],
+		[SER="2.6-rhel6.4.series"],[SER="2.6-rhel6.4.series"])
+	], [test x$SUSE_KERNEL = xyes], [
+		AS_VERSION_COMPARE([$LDISKFS_VERSIONRELEASE],[3.0.0],[
+		AS_VERSION_COMPARE([$LDISKFS_VERSIONRELEASE],[2.6.32],[],
+		[SER="2.6-sles11.series"],[SER="2.6-sles11.series"])],
+		[SER="3.0-sles11.series"],[SER="3.0-sles11.series"])
+	])
+	LDISKFS_SERIES=$SER
+
+	AS_IF([test -z "$LDISKFS_SERIES"],
+		[AC_MSG_WARN([Unknown kernel version $LDISKFS_VERSIONRELEASE])])
+	AC_MSG_RESULT([$LDISKFS_SERIES])
+])
+AC_SUBST(LDISKFS_SERIES)
+])
+
+#
+# 2.6.32-rc7 ext4_free_blocks requires struct buffer_head
+#
+AC_DEFUN([LB_EXT_FREE_BLOCKS_WITH_BUFFER_HEAD],
+[AC_MSG_CHECKING([if ext4_free_blocks needs struct buffer_head])
+ LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+	#include "$EXT_DIR/ext4.h"
+],[
+	ext4_free_blocks(NULL, NULL, NULL, 0, 0, 0);
+],[
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_EXT_FREE_BLOCK_WITH_BUFFER_HEAD, 1,
+		  [ext4_free_blocks do not require struct buffer_head])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
+# 2.6.35 renamed ext_pblock to ext4_ext_pblock(ex)
+#
+AC_DEFUN([LB_EXT_PBLOCK],
+[AC_MSG_CHECKING([if kernel has ext_pblocks])
+ LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+	#include "$EXT_DIR/ext4_extents.h"
+],[
+	ext_pblock(NULL);
+],[
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_EXT_PBLOCK, 1,
+		  [kernel has ext_pblocks])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
+# LDISKFS_AC_PATCH_PROGRAM
+#
+# Determine which program should be used to apply the patches to
+# the ext4 source code to produce the ldiskfs source code.
+#
+AC_DEFUN([LDISKFS_AC_PATCH_PROGRAM], [
+	AC_ARG_ENABLE([quilt],
+		[AC_HELP_STRING([--disable-quilt],
+			[disable use of quilt for ldiskfs])],
+		[AS_IF([test "x$enableval" = xno],
+			[use_quilt=no],
+			[use_quilt=maybe])],
+		[use_quilt=maybe]
+	)
+
+	AS_IF([test x$use_quilt = xmaybe], [
+		AC_PATH_PROG([quilt_avail], [quilt], [no])
+		AS_IF([test x$quilt_avail = xno], [
+			use_quilt=no
+		], [
+			use_quilt=yes
+		])
 	])
 
-case x$with_ldiskfs in
-	xno)
-		LDISKFS_DIR=
-		;;
-	xyes)
-		LDISKFS_DIR=
-
-		# Check ./ldiskfs
-		ldiskfs_src=$PWD/ldiskfs
-		if test -e "$ldiskfs_src"; then
-			LDISKFS_DIR=$(readlink -f $ldiskfs_src)
-		else
-			# Check /usr/src/ldiskfs-*/$LINUXRELEASE
-			ldiskfs_src=$(ls -1d \
-				/usr/src/ldiskfs-*/$LINUXRELEASE \
-				2>/dev/null | tail -1)
-			if test -e "$ldiskfs_src"; then
-				LDISKFS_DIR=$(readlink -f $ldiskfs_src)
-			else
-				# Check ../ldiskfs
-				ldiskfs_src=$PWD/../ldiskfs
-				if test -e "$ldiskfs_src"; then
-					LDISKFS_DIR=$(readlink -f $ldiskfs_src)
-				else
-					# Disable ldiskfs failed to detect
-					with_ldiskfs='no'
-				fi
-			fi
-		fi
-
-		;;
-	*)
-		LDISKFS_DIR=$(readlink -f $with_ldiskfs)
-		with_ldiskfs='yes'
-		;;
-esac
-
-AC_MSG_CHECKING([whether to enable ldiskfs])
-AC_MSG_RESULT([$with_ldiskfs])
-
-AC_ARG_WITH([ldiskfs-obj],
-	AC_HELP_STRING([--with-ldiskfs-obj=path],[set path to ldiskfs objects]),
-	[
-		if test x$with_ldiskfs = xyes; then
-			LDISKFS_OBJ="$withval"
-		fi
-	],[
-		if test x$with_ldiskfs = xyes; then
-			LDISKFS_OBJ=$LDISKFS_DIR
-		fi
+	AS_IF([test x$use_quilt = xno], [
+		AC_PATH_PROG([patch_avail], [patch], [no])
+		AS_IF([test x$patch_avail = xno], [
+			AC_MSG_ERROR([*** Need "quilt" or "patch" command])
+		])
 	])
 
-if test x$with_ldiskfs = xyes; then
-	AC_MSG_CHECKING([ldiskfs source directory])
-	AC_MSG_RESULT([$LDISKFS_DIR])
-	AC_SUBST(LDISKFS_DIR)
+	AM_CONDITIONAL([USE_QUILT], [test x$use_quilt = xyes])
+])
 
-	AC_MSG_CHECKING([ldiskfs object directory])
-	AC_MSG_RESULT([$LDISKFS_OBJ])
-	AC_SUBST(LDISKFS_OBJ)
+#
+# LB_CONDITIONAL_LDISKFS
+#
+AC_DEFUN([LB_CONFIG_LDISKFS],
+[
+# Set default
+AS_IF([test x$enable_server = xyes && test x$enable_dist = xno],
+	[enable_ldiskfs="yes"],
+	[enable_ldiskfs="no"])
 
-	LB_LDISKFS_SYMVERS
+# --with-ldiskfs is deprecated now that ldiskfs is fully merged with lustre.
+# However we continue to support that option for a time.
+AC_ARG_WITH([ldiskfs],[],
+	[AC_MSG_WARN([--with-ldiskfs is deprecated, please use --enable-ldiskfs])
+	AS_IF([test x$withval = xyes || x$withval = xno],
+		[enable_ldiskfs=$withval],
+		[enable_ldiskfs="yes"])
+	],[])
+
+AC_ARG_ENABLE([ldiskfs],
+	[AS_HELP_STRING([--disable-ldiskfs],
+		[disable ldiskfs osd (default is enable)]),[],[]],
+	[],[])
+
+AC_MSG_CHECKING([whether to build ldiskfs])
+AC_MSG_RESULT([$enable_ldiskfs])
+
+AS_IF([test x$enable_ldiskfs = xyes],[
+	LDISKFS_LINUX_VERSION
+	LDISKFS_LINUX_SERIES([test x$enable_dist = xno])
+	LDISKFS_AC_PATCH_PROGRAM
 	LB_LDISKFS_EXT_DIR
-	LB_LDISKFS_BUILD
+	LB_LDISKFS_EXT_SOURCE
+	LB_EXT_FREE_BLOCKS_WITH_BUFFER_HEAD
+	LB_EXT_PBLOCK
+	AC_DEFINE(CONFIG_LDISKFS_FS_POSIX_ACL, 1, [posix acls for ldiskfs])
+	AC_DEFINE(CONFIG_LDISKFS_FS_SECURITY, 1, [fs security for ldiskfs])
+	AC_DEFINE(CONFIG_LDISKFS_FS_XATTR, 1, [extened attributes for ldiskfs])
+	AC_SUBST(LDISKFS_SUBDIR, ldiskfs)
 	AC_DEFINE(HAVE_LDISKFS_OSD, 1, Enable ldiskfs osd)
-fi
+])
 
-#
-# LDISKFS_DEVEL is required because when using the ldiskfs-devel package the
-# ext4 source will be fully patched to ldiskfs.  When building with the
-# in-tree ldiskfs this patching this will occur after the configure step.
-# We needed a way to determine if we should check the patched or unpatched
-# source files.
-#
-# Longer term this could be removed by moving the ldiskfs patching in to
-# the configure phase.  Or better yet ldiskfs could be updated to generate
-# a ldiskfs_config.h which clearly defines how it was built.  This can
-# then be directly included by Lustre to avoid all the autoconf guess work.
-# For an example of this behavior consult the lustre/zfs build integration.
-#
-AM_CONDITIONAL(LDISKFS_DEVEL, \
-	test x$LDISKFS_DIR = x$(readlink -f $PWD/ldiskfs) || \
-	test x$LDISKFS_DIR = x$(readlink -f $PWD/../ldiskfs))
-
-AM_CONDITIONAL(LDISKFS_BUILD, test x$enable_ldiskfs_build = xyes)
-AM_CONDITIONAL(LDISKFS_ENABLED, test x$with_ldiskfs = xyes)
-
-if test -e "$PWD/ldiskfs"; then
-	LDISKFS_DIST_SUBDIR="ldiskfs"
-	AC_SUBST(LDISKFS_DIST_SUBDIR)
-	AC_CONFIG_SUBDIRS("ldiskfs")
-fi
+AM_CONDITIONAL([LDISKFS_ENABLED], [test x$enable_ldiskfs = xyes])
 ])
 
 #
@@ -190,8 +239,7 @@ fi
 
 if test x$enable_ldiskfs_build = xno; then
 	enable_ldiskfs_build='no'
-	with_ldiskfs='no'
-	LDISKFS_SUBDIR=
+	enable_ldiskfs='no'
 
 	AC_MSG_WARN([
 
@@ -203,43 +251,6 @@ and kernel-debuginfo-common-<arch> packages are installed.
 
 ])
 
-fi
-])
-
-#
-# Optionally configure/make the ldiskfs sources.  If the sources are
-# determined to reside in-tree this feature will automatically be
-# enabled.  If the sources are not in-tree it will be disabled.
-# Use --enable-ldiskfs-build or --disable-ldiskfs-build if you need
-# to override this behavior.
-#
-AC_DEFUN([LB_LDISKFS_BUILD],
-[
-AC_ARG_ENABLE([ldiskfs-build],
-	AC_HELP_STRING([--enable-ldiskfs-build],
-		[enable ldiskfs configure/make]),
-	[], [
-		LDISKFS_DIR_INTREE=$(readlink -f $PWD/ldiskfs)
-		if test x$LDISKFS_DIR = x$LDISKFS_DIR_INTREE; then
-			enable_ldiskfs_build='yes'
-		else
-			enable_ldiskfs_build='no'
-		fi
-	])
-
-AC_MSG_CHECKING([whether to build ldiskfs])
-if test x$enable_ldiskfs_build = xyes; then
-	AC_MSG_RESULT([$enable_ldiskfs_build])
-	LDISKFS_SUBDIR="ldiskfs"
-
-	LB_CHECK_FILE([$LDISKFS_DIR/configure], [], [
-		AC_MSG_ERROR([Complete ldiskfs build system must exist])])
-	LB_LDISKFS_EXT_SOURCE
-
-	AC_SUBST(LDISKFS_SUBDIR)
-else
-	enable_ldiskfs_build='no'
-	AC_MSG_RESULT([$enable_ldiskfs_build])
 fi
 ])
 

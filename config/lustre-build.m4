@@ -89,8 +89,7 @@ if git branch >/dev/null 2>&1; then
 		ver=${ver//_/.}
 	fi
 
-	# only do this test for lustre (not ldiskfs)
-	if test "$PACKAGE" = "lustre" -a "$ver" != "$VERSION"; then
+	if "$ver" != "$VERSION"; then
 		AC_MSG_WARN([most recent tag found: $ver does not match current version $VERSION.])
 	fi
 
@@ -585,6 +584,10 @@ AC_DEFUN([LB_CONFIG_FILES],
 		contrib/Makefile
 		contrib/lbuild/Makefile
 		contrib/scripts/Makefile
+		ldiskfs/Makefile
+		ldiskfs/autoMakefile
+		ldiskfs/ldiskfs/Makefile
+		ldiskfs/ldiskfs/autoMakefile
 	)
 ])
 
@@ -627,7 +630,8 @@ LN_CONFIG_USERSPACE
 
 LB_PATH_LIBSYSIO
 LB_PATH_SNMP
-LB_PATH_LDISKFS
+LB_CONFIG_LDISKFS
+
 LB_PATH_ZFS
 LB_PATH_LUSTREIOKIT
 

@@ -1,0 +1,5 @@
+DIST_SUBDIRS = ldiskfs
+EXTRA_DIST = kernel_patches
+
+sources install clean:
+	$(MAKE) -C ldiskfs $@
