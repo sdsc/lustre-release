@@ -47,6 +47,8 @@ MANFILES = lustre.7 lfs.1 mount.lustre.8 lctl.8 \
 
 if SERVER
 MANFILES += mkfs.lustre.8 tunefs.lustre.8
+else
+DISTONLY_MANFILES = mkfs.lustre.8 tunefs.lustre.8
 endif
 
 if UTILS
@@ -55,6 +57,6 @@ endif
 
 CLEANFILES = *.aux *.tex *.log *.pdf
 
-EXTRA_DIST = $(MANFILES)
+EXTRA_DIST += $(MANFILES) $(DISTONLY_MANFILES)
 
 all:
