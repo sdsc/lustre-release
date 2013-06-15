@@ -280,7 +280,7 @@ AC_DEFUN([LB_ZFS_USER], [
 	AC_SUBST(ZFS_LIBZFS_INCLUDE)
 ])
 
-AC_DEFUN([LB_PATH_ZFS], [
+AC_DEFUN([LB_CONFIG_ZFS], [
 	AC_ARG_WITH([zfs],
 		[AS_HELP_STRING([--with-zfs=PATH], [Path to zfs source])],
 		[
