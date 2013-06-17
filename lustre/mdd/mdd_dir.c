@@ -1075,8 +1075,7 @@ int mdd_links_read(const struct lu_env *env, struct mdd_object *mdd_obj,
 	if (rc < 0)
 		return rc;
 
-	linkea_init(ldata);
-	return 0;
+	return linkea_init(ldata);
 }
 
 /** Read the link EA into a temp buffer.
