@@ -461,8 +461,27 @@ static ssize_t lustre_generic_file_read(struct file *file,
 static ssize_t lustre_generic_file_write(struct file *file,
                                         struct ccc_io *vio, loff_t *ppos)
 {
-        return generic_file_aio_write(vio->cui_iocb, vio->cui_iov,
-                                      vio->cui_nrsegs, *ppos);
+	struct inode *inode		= file->f_dentry->d_inode;
+	struct ll_inode_info *lli	= ll_i2info(inode);
+	int rc;
+
+	LASSERT(vio->cui_iocb->ki_pos == *ppos);
+	sb_start_write(inode->i_sb);
+
+	/* When using the locked AIO function (generic_file_aio_write),
+	 * testing has shown the inode mutex to be a limiting factor
+	 * with multi-threaded single shared file performance. To get
+	 * around this, we now use the lockless version. To maintain
+	 * consistency, we employ write locking at a higher layer in
+	 * lustre and use the lli_trunc_sem here to protect against
+	 * truncate operations. */
+	down_read(&lli->lli_trunc_sem);
+	rc = __generic_file_aio_write(vio->cui_iocb, vio->cui_iov,
+				      vio->cui_nrsegs, &vio->cui_iocb->ki_pos);
+	up_read(&lli->lli_trunc_sem);
+
+	sb_end_write(inode->i_sb);
+	return rc;
 }
 #endif
 
