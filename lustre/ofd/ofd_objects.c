@@ -197,7 +197,8 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 	ostid_set_seq(&info->fti_ostid, ostid_seq(&oseq->os_oi));
 	for (i = 0; i < nr; i++) {
 		ostid_set_id(&info->fti_ostid, id + i);
-		rc = ostid_to_fid(&info->fti_fid, &info->fti_ostid, 0);
+		rc = ostid_to_fid(&info->fti_fid, &info->fti_ostid,
+				  ofd->ofd_lut.lut_lsd.lsd_osd_index);
 		if (rc) {
 			if (i == 0)
 				GOTO(out, rc = PTR_ERR(fo));
