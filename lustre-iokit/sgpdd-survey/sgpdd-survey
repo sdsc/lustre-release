@@ -38,6 +38,12 @@ boundary=${boundary:-1024}
 thrlo=${thrlo:-1}
 thrhi=${thrhi:-4096}
 
+# NUMA support
+# external command that returns a cpu list from a specified device
+# info can be retrieved from corresponding pci host in /sys
+# for example in /sys/devices/pci0000:00/0000:00:03.0/local_cpulist
+dev2cpus=${dev2cpus:-""}
+
 #####################################################################
 # leave the rest of this alone unless you know what you're doing...
 
@@ -123,6 +129,14 @@ for d in $scsidevs $rawdevs; do
     ndevs=$((ndevs+1))
 done
 unique_hosts=(`unique ${hosts[@]}`)
+
+# get device cpu list
+devcpus=()
+if [ -n "$dev2cpus" ]; then
+    for ((i=0; i < $ndevs; i++)); do
+	devcpus[$i]=$(remote_shell ${hosts[$i]} $dev2cpus ${devs[$i]})
+    done
+fi
 
 # map given device names into SG device names
 if [ "$scsidevs" ]; then
@@ -277,8 +291,14 @@ for ((rsz=$rszlo;rsz<=$rszhi;rsz*=2)); do
 			outf="of=$dev"
 			skip=seek
 		    fi
+		    if [ -n "${devcpus[$i]}" -a -x "$NUMACTL" ]; then
+			numacmd="$NUMACTL --physcpubind=${devcpus[$i]} --localalloc"
+		    else
+			numacmd=""
+		    fi
 		    for ((j=0;j<crg;j++)); do 
 			echo >> ${cmdsf}_${host} \
+				"$numacmd " \
 				"sgp_dd 2> ${tmpf}_${i}_${j} $inf $outf " \
 				"${skip}=$((boundary+j*blocks)) " \
 				"thr=$((thr/crg)) count=$count bs=${bs[$i]} " \
