@@ -111,11 +111,12 @@ static inline int node_compare(struct interval_node *n1,
         return extent_compare(&n1->in_extent, &n2->in_extent);
 }
 
-static inline int node_equal(struct interval_node *n1,
+int node_equal(struct interval_node *n1,
                              struct interval_node *n2)
 {
         return extent_equal(&n1->in_extent, &n2->in_extent);
 }
+EXPORT_SYMBOL(node_equal);
 
 static inline __u64 max_u64(__u64 x, __u64 y)
 {
@@ -630,6 +631,8 @@ enum interval_iter interval_search(struct interval_node *node,
         struct interval_node *parent;
         enum interval_iter rc = INTERVAL_ITER_CONT;
 
+	ENTRY;
+
         LASSERT(ext != NULL);
         LASSERT(func != NULL);
 
@@ -675,7 +678,7 @@ enum interval_iter interval_search(struct interval_node *node,
                         break;
         }
 
-        return rc;
+	RETURN(rc);
 }
 EXPORT_SYMBOL(interval_search);
 
