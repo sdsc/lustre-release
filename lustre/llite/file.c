@@ -858,9 +858,10 @@ ll_file_io_generic(const struct lu_env *env, struct vvp_io_args *args,
 {
 	struct ll_inode_info *lli = ll_i2info(file->f_dentry->d_inode);
 	struct ll_file_data  *fd  = LUSTRE_FPRIVATE(file);
-        struct cl_io         *io;
-        ssize_t               result;
-        ENTRY;
+	struct cl_io         *io;
+	ssize_t               result;
+	range_lock_t          range;
+	ENTRY;
 
 restart:
         io = ccc_env_thread_io(env);
@@ -869,6 +870,7 @@ restart:
         if (cl_io_rw_init(env, io, iot, *ppos, count) == 0) {
                 struct vvp_io *vio = vvp_env_io(env);
                 struct ccc_io *cio = ccc_env_io(env);
+		range_lock_init(&range, *ppos, *ppos + count - 1);
 
                 cio->cui_fd  = LUSTRE_FPRIVATE(file);
                 vio->cui_io_subtype = args->via_io_subtype;
@@ -884,10 +886,11 @@ restart:
 			if ((!(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED) &&
 			      (iot == CIT_WRITE)) || (iot == CIT_READ)) {
 				down_read(&lli->lli_trunc_sem);
-				if (iot == CIT_WRITE &&
-				    mutex_lock_interruptible(&lli->lli_write_mutex)) {
-					up_read(&lli->lli_trunc_sem);
-					GOTO(out, result = -ERESTARTSYS);
+				if (iot == CIT_WRITE) {
+					CDEBUG(D_VFSTRACE, "Range lock "
+					       RL_FMT ".\n", RL_PARA(&range));
+					range_lock(&lli->lli_write_tree,
+					           &range);
 				}
 			}
                         break;
@@ -907,8 +910,11 @@ restart:
 		if ((args->via_io_subtype == IO_NORMAL) &&
 		    ((!(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED) &&
 		      (iot == CIT_WRITE)) || (iot == CIT_READ))) {
-			if (iot == CIT_WRITE)
-				mutex_unlock(&lli->lli_write_mutex);
+			if (iot == CIT_WRITE) {
+				CDEBUG(D_VFSTRACE, "Range lock "
+				       RL_FMT ".\n", RL_PARA(&range));
+				range_unlock(&lli->lli_write_tree, &range);
+			}
 			up_read(&lli->lli_trunc_sem);
 		}
         } else {

@@ -630,6 +630,8 @@ enum interval_iter interval_search(struct interval_node *node,
         struct interval_node *parent;
         enum interval_iter rc = INTERVAL_ITER_CONT;
 
+	ENTRY;
+
         LASSERT(ext != NULL);
         LASSERT(func != NULL);
 
@@ -675,7 +677,7 @@ enum interval_iter interval_search(struct interval_node *node,
                         break;
         }
 
-        return rc;
+	RETURN(rc);
 }
 EXPORT_SYMBOL(interval_search);
 
