@@ -666,6 +666,9 @@ int osd_obj_add_entry(struct osd_thread_info *info,
 
         ENTRY;
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_OSD_COMPAT_NO_ENTRY))
+		RETURN(0);
+
         oh = container_of(th, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle != NULL);
         LASSERT(oh->ot_handle->h_transaction != NULL);
