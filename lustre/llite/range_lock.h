@@ -1,0 +1,71 @@
+/*
+ * GPL HEADER START
+ *
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 only,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License version 2 for more details (a copy is included
+ * in the LICENSE file that accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License
+ * version 2 along with this program; If not, see
+ * http://www.gnu.org/licenses/gpl-2.0.html
+ *
+ * GPL HEADER END
+ */
+/*
+ * Range lock is used to allow multiple threads writing a single shared
+ * file given each thread is writing to a non-overlapping portion of the
+ * file.
+ *
+ * Refer to the possible upstream kernel version of range lock by
+ * Jan Kara <jack@suse.cz>: https://lkml.org/lkml/2013/1/31/480
+ *
+ * This file could later replaced by the upstream kernel version.
+ */
+/*
+ * Author: Prakash Surya <surya1@llnl.gov>
+ * Author: Bobi Jam <bobijam.xu@intel.com>
+ */
+#ifndef _RANGE_LOCK_H
+#define _RANGE_LOCK_H
+
+#include <libcfs/libcfs.h>
+#include <interval_tree.h>
+
+#define RL_FMT "["LPU64", "LPU64"]"
+#define RL_PARA(range)				\
+	(range)->rl_node.in_extent.start,	\
+	(range)->rl_node.in_extent.end
+
+struct range_lock {
+	struct interval_node	rl_node;
+	/* Process to be waked when blocking lock is released */
+	struct task_struct	*rl_task;
+	/* list of blocked locks */
+	struct list_head	rl_next_block;
+	/* indicating whether this lock is in block state */
+	bool			rl_blocked;
+};
+
+static inline struct range_lock *node2rangelock(const struct interval_node *n)
+{
+	return container_of(n, struct range_lock, rl_node);
+}
+
+struct range_lock_tree {
+	struct interval_node	*rlt_root;
+	spinlock_t		 rlt_lock;
+};
+
+void range_lock_tree_init(struct range_lock_tree *tree);
+void range_lock_init(struct range_lock *lock, __u64 start, __u64 end);
+int  range_lock(struct range_lock_tree *tree, struct range_lock *lock);
+void range_unlock(struct range_lock_tree *tree, struct range_lock *lock);
+#endif
