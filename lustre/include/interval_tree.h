@@ -86,6 +86,11 @@ static inline void interval_set(struct interval_node *node,
         node->in_max_high = end;
 }
 
+static inline void interval_init(struct interval_node *node)
+{
+	memset(node, 0, sizeof(*node));
+}
+
 /* Rules to write an interval callback.
  *  - the callback returns INTERVAL_ITER_STOP when it thinks the iteration
  *    should be stopped. It will then cause the iteration function to return
