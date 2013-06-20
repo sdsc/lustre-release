@@ -87,7 +87,9 @@ struct mdt_file_data *mdt_handle2mfd(struct mdt_thread_info *info,
         LASSERT(handle != NULL);
         mfd = class_handle2object(handle->cookie);
         /* during dw/setattr replay the mfd can be found by old handle */
-        if (mfd == NULL && req_is_replay(req)) {
+        if (mfd == NULL &&
+	    (req_is_replay(req) ||
+	     lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT)) {
                 struct mdt_export_data *med = &req->rq_export->exp_mdt_data;
                 cfs_list_for_each_entry(mfd, &med->med_open_head, mfd_list) {
                         if (mfd->mfd_old_handle.cookie == handle->cookie)
@@ -742,6 +744,10 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
                 /* Open handling. */
                 mdt_mfd_set_mode(mfd, flags);
 
+		atomic_inc(&o->mot_open_count);
+		if (flags & MDS_OPEN_LEASE)
+			atomic_inc(&o->mot_lease_count);
+
                 mfd->mfd_object = o;
                 mfd->mfd_xid = req->rq_xid;
 
@@ -1155,26 +1161,17 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 	struct md_attr	*ma = &info->mti_attr;
 	__u64		 open_flags = info->mti_spec.sp_cr_flags;
 	ldlm_mode_t	 lm = LCK_CR;
+	bool		 acq_lease = !!(open_flags & MDS_OPEN_LEASE);
 	bool		 try_layout = false;
 	bool		 create_layout = false;
 	int		 rc = 0;
 	ENTRY;
 
 	*ibits = 0;
-	if (open_flags & MDS_OPEN_LOCK) {
-		if (open_flags & FMODE_WRITE)
-			lm = LCK_CW;
-		/* if file is released, we can't deny write because we must
-		 * restore (write) it to access it. */
-		else if ((open_flags & MDS_FMODE_EXEC) &&
-			 !((ma->ma_valid & MA_HSM) &&
-			   (ma->ma_hsm.mh_flags & HS_RELEASED)))
-			lm = LCK_PR;
-		else
-			lm = LCK_CR;
+	mdt_lock_handle_init(lhc);
 
-		*ibits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN;
-	}
+	if (req_is_replay(mdt_info_req(info)))
+		RETURN(0);
 
 	if (S_ISREG(lu_object_attr(&obj->mot_obj.mo_lu))) {
 		if (ma->ma_need & MA_LOV && !(ma->ma_valid & MA_LOV) &&
@@ -1185,7 +1182,65 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 			try_layout = true;
 	}
 
-	mdt_lock_handle_init(lhc);
+	if (acq_lease) {
+		/* lease open, acquire write mode of open sem */
+		down_write(&obj->mot_open_sem);
+
+		/* Lease exists and ask for new lease */
+		if (atomic_read(&obj->mot_lease_count) > 0) {
+			/* only exclusive open is supported, so lease
+			 * are conflicted to each other */
+			GOTO(out, rc = -EBUSY);
+		}
+
+		/* Lease must be with open lock */
+		if (!(open_flags & MDS_OPEN_LOCK)) {
+			CERROR("Request lease for file:"DFID ", but open lock "
+				"is missed, open_flags = "LPO64".\n",
+				PFID(mdt_object_fid(obj)), open_flags);
+			GOTO(out, rc = -EPROTO);
+		}
+
+		/* XXX: only exclusive open is supported. */
+		lm = LCK_EX;
+		*ibits = MDS_INODELOCK_OPEN;
+
+		/* never grant LCK_EX layout lock to client */
+		try_layout = false;
+	} else { /* normal open */
+		/* normal open holds read mode of open sem */
+		down_read(&obj->mot_open_sem);
+
+		if (open_flags & MDS_OPEN_LOCK) {
+			if (open_flags & FMODE_WRITE)
+				lm = LCK_CW;
+			/* if file is released, we can't deny write because we must
+			 * restore (write) it to access it. */
+			else if ((open_flags & MDS_FMODE_EXEC) &&
+				 !((ma->ma_valid & MA_HSM) &&
+				   (ma->ma_hsm.mh_flags & HS_RELEASED)))
+				lm = LCK_PR;
+			else
+				lm = LCK_CR;
+
+			*ibits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN;
+		} else if (atomic_read(&obj->mot_lease_count) > 0) {
+			if (open_flags & FMODE_WRITE)
+				lm = LCK_CW;
+			else
+				lm = LCK_CR;
+
+			/* revoke lease */
+			*ibits = MDS_INODELOCK_OPEN;
+			try_layout = false;
+
+			lhc = &info->mti_lh[MDT_LH_LOCAL];
+		}
+		CDEBUG(D_INODE, "normal open:"DFID" lease count: %d, lm: %d\n",
+			PFID(mdt_object_fid(obj)),
+			atomic_read(&obj->mot_open_count), lm);
+	}
+
 	mdt_lock_reg_init(lhc, lm);
 
 	/* one problem to return layout lock on open is that it may result
@@ -1229,6 +1284,31 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_LL_BLOCK, 2);
 	}
 
+	/* Check if there is any other opening handle after acquiring
+	 * open lock, this is to revoke caching open locks.
+	 * XXX: Now only exclusive open is supported. Need to check the
+	 * type of open for generic lease support. */
+	if (acq_lease) {
+		struct mdt_file_data *mfd;
+		int opencnt = 0;
+
+		/* if the request is _not_ a replay request, rr_handle
+		 * may be used to hold an openhandle which is issuing the
+		 * lease request, so that this openhandle doesn't count. */
+		mfd = mdt_handle2mfd(info, info->mti_rr.rr_handle);
+		if (mfd != NULL)
+			++opencnt;
+
+		CDEBUG(D_INODE, "acq_lease "DFID": openers: %d, want: %d\n",
+			PFID(mdt_object_fid(obj)),
+			atomic_read(&obj->mot_open_count), opencnt);
+
+		if (atomic_read(&obj->mot_open_count) > opencnt)
+			GOTO(out, rc = -EBUSY);
+	}
+	rc = 0;
+
+out:
 	RETURN(rc);
 }
 
@@ -1238,18 +1318,32 @@ static void mdt_object_open_unlock(struct mdt_thread_info *info,
 				   __u64 ibits, int rc)
 {
 	__u64 open_flags = info->mti_spec.sp_cr_flags;
-	struct mdt_lock_handle *ll = &info->mti_lh[MDT_LH_LAYOUT];
+	struct mdt_lock_handle *ll = &info->mti_lh[MDT_LH_LOCAL];
+	ENTRY;
 
-	/* Release local layout lock - the layout lock put in MDT_LH_LAYOUT
-	 * will never return to client side. */
+	if (req_is_replay(mdt_info_req(info)))
+		RETURN_EXIT;
+
+	/* Release local lock - the lock put in MDT_LH_LOCAL will never
+	 * return to client side. */
+	if (lustre_handle_is_used(&ll->mlh_reg_lh))
+		mdt_object_unlock(info, obj, ll, 1);
+
+	ll = &info->mti_lh[MDT_LH_LAYOUT];
+	/* Release local layout lock, layout was created */
 	if (lustre_handle_is_used(&ll->mlh_reg_lh)) {
 		LASSERT(!(ibits & MDS_INODELOCK_LAYOUT));
 		mdt_object_unlock(info, obj, ll, 1);
 	}
 
+	if (open_flags & MDS_OPEN_LEASE)
+		up_write(&obj->mot_open_sem);
+	else
+		up_read(&obj->mot_open_sem);
+
 	/* Cross-ref case, the lock should be returned to the client */
 	if (ibits == 0 || rc == -EREMOTE)
-		return;
+		RETURN_EXIT;
 
 	if (!(open_flags & MDS_OPEN_LOCK) && !(ibits & MDS_INODELOCK_LAYOUT)) {
 		/* for the open request, the lock will only return to client
@@ -1264,6 +1358,7 @@ static void mdt_object_open_unlock(struct mdt_thread_info *info,
 		mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
 		mdt_object_unlock(info, obj, lhc, 1);
 	}
+	RETURN_EXIT;
 }
 
 int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
@@ -1271,7 +1366,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 {
         const struct lu_env     *env   = info->mti_env;
         struct mdt_device       *mdt   = info->mti_mdt;
-        __u32                    flags = info->mti_spec.sp_cr_flags;
+        __u64                    flags = info->mti_spec.sp_cr_flags;
         struct mdt_reint_record *rr    = &info->mti_rr;
         struct md_attr          *ma    = &info->mti_attr;
         struct mdt_object       *parent= NULL;
@@ -1338,6 +1433,8 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 		mdt_set_disposition(info, rep, DISP_LOOKUP_POS);
 		if (flags & MDS_OPEN_LOCK)
 			mdt_set_disposition(info, rep, DISP_OPEN_LOCK);
+		if (flags & MDS_OPEN_LEASE)
+			mdt_set_disposition(info, rep, DISP_OPEN_LEASE);
 	}
         GOTO(out, rc);
 
@@ -1818,6 +1915,14 @@ int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd)
                                "needed on "DFID"\n", PFID(mdt_object_fid(o)));
                 }
         } else {
+		/* adjust open and lease count */
+		if (mode & MDS_OPEN_LEASE) {
+			LASSERT(atomic_read(&o->mot_lease_count) > 0);
+			atomic_dec(&o->mot_lease_count);
+		}
+		LASSERT(atomic_read(&o->mot_open_count) > 0);
+		atomic_dec(&o->mot_open_count);
+
                 mdt_mfd_free(mfd);
                 mdt_object_put(info->mti_env, o);
         }
