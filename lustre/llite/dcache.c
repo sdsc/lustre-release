@@ -322,7 +322,7 @@ void ll_invalidate_aliases(struct inode *inode)
 		       dentry->d_name.name, dentry, dentry->d_parent,
 		       dentry->d_inode, dentry->d_flags);
 
-                if (dentry->d_name.len == 1 && dentry->d_name.name[0] == '/') {
+                if (dentry == dentry->d_sb->s_root) {
                         CERROR("called on root (?) dentry=%p, inode=%p "
                                "ino=%lu\n", dentry, inode, inode->i_ino);
                         lustre_dump_dentry(dentry, 1);
