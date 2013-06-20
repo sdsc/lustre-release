@@ -359,11 +359,11 @@ static int vvp_do_vmtruncate(struct inode *inode, size_t size)
 {
 	int     result;
 	/*
-	 * Only ll_inode_size_lock is taken at this level.
+	 * Only ll_inode_size_write_lock is taken at this level.
 	 */
-	ll_inode_size_lock(inode);
+	ll_inode_size_write_lock(inode);
 	result = vmtruncate(inode, size);
-	ll_inode_size_unlock(inode);
+	ll_inode_size_write_unlock(inode);
 
 	return result;
 }
@@ -1117,22 +1117,24 @@ static int vvp_io_commit_write(const struct lu_env *env,
 		spin_unlock(&lli->lli_lock);
 	}
 
-        size = cl_offset(obj, pg->cp_index) + to;
+	size = cl_offset(obj, pg->cp_index) + to;
 
-	ll_inode_size_lock(inode);
-        if (result == 0) {
-                if (size > i_size_read(inode)) {
-                        cl_isize_write_nolock(inode, size);
-                        CDEBUG(D_VFSTRACE, DFID" updating i_size %lu\n",
-                               PFID(lu_object_fid(&obj->co_lu)),
-                               (unsigned long)size);
-                }
-                cl_page_export(env, pg, 1);
-        } else {
-                if (size > i_size_read(inode))
-                        cl_page_discard(env, io, pg);
-        }
-	ll_inode_size_unlock(inode);
+	ll_inode_size_read_lock(inode);
+	if (result == 0) {
+		if (size > i_size_read(inode)) {
+			ll_inode_size_read_unlock(inode);
+			cl_isize_write(inode, size);
+			ll_inode_size_read_lock(inode);
+			CDEBUG(D_VFSTRACE, DFID" updating i_size %lu\n",
+			       PFID(lu_object_fid(&obj->co_lu)),
+			       (unsigned long)size);
+		}
+		cl_page_export(env, pg, 1);
+	} else {
+		if (size > i_size_read(inode))
+			cl_page_discard(env, io, pg);
+	}
+	ll_inode_size_read_unlock(inode);
 	RETURN(result);
 }
 

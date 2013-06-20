@@ -197,13 +197,6 @@ static void osc_page_touch_at(const struct lu_env *env,
         kms = cl_offset(obj, idx) + to;
 
         cl_object_attr_lock(obj);
-        /*
-         * XXX old code used
-         *
-         *         ll_inode_size_lock(inode, 0); lov_stripe_lock(lsm);
-         *
-         * here
-         */
         CDEBUG(D_INODE, "stripe KMS %sincreasing "LPU64"->"LPU64" "LPU64"\n",
                kms > loi->loi_kms ? "" : "not ", loi->loi_kms, kms,
                loi->loi_lvb.lvb_size);

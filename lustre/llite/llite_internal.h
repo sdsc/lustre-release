@@ -206,7 +206,7 @@ struct ll_inode_info {
 
 		/* for non-directory */
 		struct {
-			struct semaphore		f_size_sem;
+			struct rw_semaphore		f_size_sem;
 			void				*f_size_sem_owner;
 			char				*f_symlink_name;
 			__u64				f_maxbytes;
@@ -286,8 +286,10 @@ struct ll_inode_info {
  * Implemented by ->lli_size_sem and ->lsm_lock, nested in that order.
  */
 
-void ll_inode_size_lock(struct inode *inode);
-void ll_inode_size_unlock(struct inode *inode);
+void ll_inode_size_write_lock(struct inode *inode);
+void ll_inode_size_write_unlock(struct inode *inode);
+void ll_inode_size_read_lock(struct inode *inode);
+void ll_inode_size_read_unlock(struct inode *inode);
 
 // FIXME: replace the name of this with LL_I to conform to kernel stuff
 // static inline struct ll_inode_info *LL_I(struct inode *inode)
@@ -1435,25 +1437,25 @@ static inline struct ll_file_data *cl_iattr2fd(struct inode *inode,
 
 static inline void cl_isize_lock(struct inode *inode)
 {
-	ll_inode_size_lock(inode);
+	ll_inode_size_write_lock(inode);
 }
 
 static inline void cl_isize_unlock(struct inode *inode)
 {
-	ll_inode_size_unlock(inode);
+	ll_inode_size_write_unlock(inode);
 }
 
 static inline void cl_isize_write_nolock(struct inode *inode, loff_t kms)
 {
-        LASSERT_SEM_LOCKED(&ll_i2info(inode)->lli_size_sem);
+        LASSERT_RWSEM_WRITE_LOCKED(&ll_i2info(inode)->lli_size_sem);
         i_size_write(inode, kms);
 }
 
 static inline void cl_isize_write(struct inode *inode, loff_t kms)
 {
-	ll_inode_size_lock(inode);
+	ll_inode_size_write_lock(inode);
 	i_size_write(inode, kms);
-	ll_inode_size_unlock(inode);
+	ll_inode_size_write_unlock(inode);
 }
 
 #define cl_isize_read(inode)             i_size_read(inode)
