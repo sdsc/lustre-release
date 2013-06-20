@@ -613,10 +613,13 @@ extern cfs_mem_cache_t *ll_file_data_slab;
 struct lustre_handle;
 struct ll_file_data {
         struct ll_readahead_state fd_ras;
-        int fd_omode;
         struct ccc_grouplock fd_grouplock;
 	__u64 lfd_pos;
         __u32 fd_flags;
+        int fd_omode;
+	/* openhandle if lease exists for this file.
+	 * Borrow lli->lli_och_mutex to protect assignment */
+	struct obd_client_handle *fd_lease_och;
         struct file *fd_file;
 	/* Indicate whether need to report failure when close.
 	 * true: failure is known, not report again.
@@ -804,6 +807,10 @@ int ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg);
 int ll_put_grouplock(struct inode *inode, struct file *file, unsigned long arg);
 int ll_fid2path(struct inode *inode, void *arg);
 int ll_data_version(struct inode *inode, __u64 *data_version, int extent_lock);
+
+struct obd_client_handle *ll_lease_open(struct inode *inode, struct file *file,
+                                        mode_t mode);
+int ll_lease_close(struct obd_client_handle *och, bool *lease_broken);
 
 /* llite/dcache.c */
 

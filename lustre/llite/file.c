@@ -259,6 +259,8 @@ int ll_md_close(struct obd_export *md_exp, struct inode *inode,
                 struct lustre_handle lockh;
                 struct inode *inode = file->f_dentry->d_inode;
                 ldlm_policy_data_t policy = {.l_inodebits={MDS_INODELOCK_OPEN}};
+		struct obd_client_handle *och = NULL;
+		bool lease_broken;
 
 		mutex_lock(&lli->lli_och_mutex);
                 if (fd->fd_omode & FMODE_WRITE) {
@@ -274,7 +276,21 @@ int ll_md_close(struct obd_export *md_exp, struct inode *inode,
                         LASSERT(lli->lli_open_fd_read_count);
                         lli->lli_open_fd_read_count--;
                 }
+
+		if (fd->fd_lease_och != NULL) {
+			/* Usually the lease is not released when the
+			 * application crashed, we need to release here. */
+			och = fd->fd_lease_och;
+			fd->fd_lease_och = NULL;
+		}
 		mutex_unlock(&lli->lli_och_mutex);
+
+		if (och != NULL) {
+			rc = ll_lease_close(och, &lease_broken);
+
+			CDEBUG(D_INODE, "Clean up lease rc = %d / %d\n",
+				rc, lease_broken);
+		}
 
                 if (!md_lock_match(md_exp, flags, ll_inode2fid(inode),
                                    LDLM_IBITS, &policy, lockmode,
@@ -457,6 +473,8 @@ static int ll_och_fill(struct obd_export *md_exp, struct ll_inode_info *lli,
         memcpy(&och->och_fh, &body->handle, sizeof(body->handle));
         och->och_magic = OBD_CLIENT_HANDLE_MAGIC;
         och->och_fid = lli->lli_fid;
+	och->och_lockh.cookie = it->d.lustre.it_lock_handle;
+	och->och_inode = ll_info2i(lli);
         och->och_flags = it->it_flags;
         ll_ioepoch_open(lli, body->ioepoch);
 
@@ -694,6 +712,138 @@ out_openerr:
 
         return rc;
 }
+
+/**
+ * Acquire a lease and open the file.
+ */
+struct obd_client_handle *ll_lease_open(struct inode *inode, struct file *file,
+					mode_t mode)
+{
+	struct lookup_intent it = { .it_op = IT_OPEN, .it_flags = mode };
+	struct ll_sb_info *sbi = ll_i2sbi(inode);
+	struct md_op_data *op_data;
+	struct ptlrpc_request *req;
+	struct obd_client_handle *och;
+	struct lustre_handle old_handle = { 0 };
+	int rc;
+	int rc2;
+	ENTRY;
+
+	if (mode != FMODE_WRITE && mode != FMODE_READ)
+		RETURN(ERR_PTR(-EINVAL));
+
+	if (file != NULL) {
+		struct ll_inode_info *lli = ll_i2info(inode);
+
+		if (!(mode & file->f_mode))
+			RETURN(ERR_PTR(-EPERM));
+
+		/* Get the openhandle of the file */
+		mutex_lock(&lli->lli_och_mutex);
+		if (mode == FMODE_WRITE) {
+			LASSERT(lli->lli_mds_write_och != NULL);
+			old_handle = lli->lli_mds_write_och->och_fh;
+			rc = lli->lli_open_fd_write_count;
+		} else {
+			LASSERT(lli->lli_mds_read_och != NULL);
+			old_handle = lli->lli_mds_read_och->och_fh;
+			rc = lli->lli_open_fd_read_count;
+		}
+		mutex_unlock(&lli->lli_och_mutex);
+		if (rc > 1) /* more than 1 opener */
+			RETURN(ERR_PTR(-EBUSY));
+	}
+
+	OBD_ALLOC_PTR(och);
+	if (och == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
+
+	op_data = ll_prep_md_op_data(NULL, inode, inode, NULL, 0, mode,
+					LUSTRE_OPC_ANY, NULL);
+	if (IS_ERR(op_data))
+		GOTO(out, rc = PTR_ERR(op_data));
+
+	/* To tell the MDT this openhandle is from the same owner */
+	op_data->op_handle = old_handle;
+
+	it.it_flags = MDS_OPEN_LOCK | MDS_OPEN_BY_FID | MDS_OPEN_LEASE;
+	rc = md_intent_lock(sbi->ll_md_exp, op_data, NULL, 0, &it, 0, &req,
+				ll_md_blocking_ast, 0);
+	ll_finish_md_op_data(op_data);
+	if (rc < 0)
+		GOTO(out_release_it, rc);
+
+	if (it_disposition(&it, DISP_LOOKUP_NEG))
+		GOTO(out_release_it, rc = -ENOENT);
+
+	rc = it_open_error(DISP_OPEN_OPEN, &it);
+	if (rc)
+		GOTO(out_release_it, rc);
+
+	ll_och_fill(sbi->ll_md_exp, ll_i2info(inode), &it, och);
+
+	if (!it_disposition(&it, DISP_OPEN_LEASE)) /* old server? */
+		GOTO(out_close, rc = -EOPNOTSUPP);
+
+	if (it.d.lustre.it_lock_mode == 0 ||
+	    it.d.lustre.it_lock_bits != MDS_INODELOCK_OPEN) {
+		/* open lock must return for lease */
+		CERROR("Something is wrong, lease granted but no open lock.\n");
+		GOTO(out_close, rc = -EPROTO);
+	}
+
+	/* already get lease, handle lease lock */
+	ll_set_lock_data(sbi->ll_md_exp, inode, &it, NULL);
+	ll_intent_release(&it);
+	RETURN(och);
+
+out_close:
+	rc2 = ll_close_inode_openhandle(sbi->ll_md_exp, inode, och);
+	if (rc2)
+		CERROR("Close openhandle returned %d\n", rc2);
+
+	/* cancel open lock */
+	ldlm_lock_decref_and_cancel(&och->och_lockh,
+				it.d.lustre.it_lock_mode);
+	it.d.lustre.it_lock_mode = 0;
+
+out_release_it:
+	ll_intent_release(&it);
+
+out:
+	OBD_FREE_PTR(och);
+	RETURN(ERR_PTR(rc));
+}
+EXPORT_SYMBOL(ll_lease_open);
+
+/**
+ * Release lease and close the file.
+ * It will check if the lease has ever broken.
+ */
+int ll_lease_close(struct obd_client_handle *och, bool *lease_broken)
+{
+	struct inode *inode = och->och_inode;
+	struct ldlm_lock *lock;
+	int rc;
+	ENTRY;
+
+	*lease_broken = true;
+	lock = ldlm_handle2lock(&och->och_lockh);
+	if (lock != NULL) {
+		lock_res_and_lock(lock);
+		if (!(lock->l_flags & LDLM_FL_CANCEL))
+			*lease_broken = false;
+		unlock_res_and_lock(lock);
+		ldlm_lock_put(lock);
+	}
+
+	if (!lease_broken)
+		ldlm_cli_cancel(&och->och_lockh, LCF_ASYNC);
+
+	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, och);
+	RETURN(rc);
+}
+EXPORT_SYMBOL(ll_lease_close);
 
 /* Fills the obdo with the attributes for the lsm */
 static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
@@ -2246,6 +2396,87 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		ll_finish_md_op_data(op_data);
 		OBD_FREE_PTR(hca);
+		RETURN(rc);
+	}
+	case LL_IOC_SET_LEASE: {
+		struct ll_inode_info *lli = ll_i2info(inode);
+		struct obd_client_handle *och = NULL;
+		bool lease_broken;
+		mode_t mode = file->f_mode & (FMODE_READ|FMODE_WRITE);
+
+		switch (arg) {
+		case F_RDLCK:
+			if (mode != FMODE_READ)
+				RETURN(-EPERM);
+			break;
+		case F_WRLCK:
+			if (mode != FMODE_WRITE)
+				RETURN(-EPERM);
+			break;
+		case F_UNLCK:
+			break;
+		default:
+			RETURN(-EINVAL);
+		}
+
+		if (arg == F_UNLCK) {
+			mutex_lock(&lli->lli_och_mutex);
+			if (fd->fd_lease_och != NULL) {
+				och = fd->fd_lease_och;
+				fd->fd_lease_och = NULL;
+			}
+			mutex_unlock(&lli->lli_och_mutex);
+
+			if (och != NULL) {
+				rc = ll_lease_close(och, &lease_broken);
+				if (rc == 0 && lease_broken)
+					mode = 0;
+			} else {
+				rc = -ENOLCK;
+			}
+
+			/* return the type of lease or error */
+			RETURN(rc < 0 ? rc : mode);
+		}
+
+		/* apply for lease */
+		och = ll_lease_open(file->f_dentry->d_inode, file, mode);
+		if (IS_ERR(och))
+			RETURN(PTR_ERR(och));
+
+		rc = 0;
+		mutex_lock(&lli->lli_och_mutex);
+		if (fd->fd_lease_och == NULL) {
+			fd->fd_lease_och = och;
+			och = NULL;
+		}
+		mutex_unlock(&lli->lli_och_mutex);
+		if (och != NULL) {
+			/* impossible now that only excl is supported for now */
+			LBUG();
+
+			ll_lease_close(och, &lease_broken);
+			rc = -EBUSY;
+		}
+		RETURN(rc);
+	}
+	case LL_IOC_GET_LEASE: {
+		struct ll_inode_info *lli = ll_i2info(inode);
+		struct ldlm_lock *lock = NULL;
+
+		mutex_lock(&lli->lli_och_mutex);
+		if (fd->fd_lease_och != NULL)
+			lock = ldlm_handle2lock(&fd->fd_lease_och->och_lockh);
+		mutex_unlock(&lli->lli_och_mutex);
+
+		rc = 0;
+		if (lock != NULL) {
+			lock_res_and_lock(lock);
+			if (!ldlm_is_cancel(lock))
+				rc = file->f_mode & (FMODE_READ|FMODE_WRITE);
+			unlock_res_and_lock(lock);
+			ldlm_lock_put(lock);
+		}
 		RETURN(rc);
 	}
 	default: {
