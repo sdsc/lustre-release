@@ -8600,10 +8600,17 @@ run_test 150 "truncate/append tests"
 
 function roc_hit() {
 	local list=$(comma_list $(osts_nodes))
-	#debug temp debug for LU-2902: lets see what values we get back
-	echo $(get_osd_param $list '' stats) 1>&2
+	local osts
+
+	#LU-2902 ost stat parameters were not present to read from
+	osts=$(get_osd_param $list '' stats |
+		awk '$1 == "cache_access" {sum += 1} END { print sum }')
+	if [[ "$osts" -ne "$OSTCOUNT" ]]; then
+		error "Invalid number of OST stat entries found: $osts"
+	fi
+
 	echo $(get_osd_param $list '' stats |
-	       awk '/'cache_hit'/ {sum+=$2} END {print sum}')
+		awk '$1 == "cache_hit" {sum += $2} END { print sum }')
 }
 
 function set_cache() {
