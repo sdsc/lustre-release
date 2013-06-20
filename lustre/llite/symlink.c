@@ -127,7 +127,7 @@ static int ll_readlink(struct dentry *dentry, char *buffer, int buflen)
 
         CDEBUG(D_VFSTRACE, "VFS Op\n");
 
-	ll_inode_size_lock(inode);
+	ll_inode_size_write_lock(inode);
         rc = ll_readlink_internal(inode, &request, &symname);
         if (rc)
                 GOTO(out, rc);
@@ -135,7 +135,7 @@ static int ll_readlink(struct dentry *dentry, char *buffer, int buflen)
         rc = vfs_readlink(dentry, buffer, buflen, symname);
  out:
         ptlrpc_req_finished(request);
-	ll_inode_size_unlock(inode);
+	ll_inode_size_write_unlock(inode);
 	RETURN(rc);
 }
 
@@ -156,9 +156,9 @@ static void *ll_follow_link(struct dentry *dentry, struct nameidata *nd)
         } else if (THREAD_SIZE == 8192 && current->link_count >= 8) {
                 rc = -ELOOP;
         } else {
-		ll_inode_size_lock(inode);
+		ll_inode_size_write_lock(inode);
 		rc = ll_readlink_internal(inode, &request, &symname);
-		ll_inode_size_unlock(inode);
+		ll_inode_size_write_unlock(inode);
         }
 	if (rc) {
 		ptlrpc_req_finished(request);
