@@ -86,7 +86,7 @@ struct mdt_object;
 /* file data for open files on MDS */
 struct mdt_file_data {
         struct portals_handle mfd_handle; /* must be first */
-	int		      mfd_mode;   /* open mode provided by client */
+	__u64		      mfd_mode;   /* open mode provided by client */
         cfs_list_t            mfd_list;   /* protected by med_open_lock */
         __u64                 mfd_xid;    /* xid of the open request */
         struct lustre_handle  mfd_old_handle; /* old handle in replay case */
@@ -207,6 +207,11 @@ struct mdt_object {
 	struct mutex		mot_ioepoch_mutex;
         /* Lock to protect create_data */
 	struct mutex		mot_lov_mutex;
+	/* Lock to protect lease open.
+	 * Lease open acquires write lock; normal open acquires read lock */
+	struct rw_semaphore	mot_open_sem;
+	atomic_t		mot_lease_count;
+	atomic_t		mot_open_count;
 };
 
 enum mdt_object_flags {
@@ -254,6 +259,7 @@ enum {
 	MDT_LH_LAYOUT = MDT_LH_OLD, /* layout lock */
         MDT_LH_NEW,    /* new lockh for rename */
         MDT_LH_RMT,    /* used for return lh to caller */
+	MDT_LH_LOCAL,  /* local lock never return to client */
         MDT_LH_NR
 };
 
