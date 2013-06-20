@@ -989,7 +989,8 @@ void ll_lli_init(struct ll_inode_info *lli)
 		lli->lli_opendir_pid = 0;
 		lli->lli_sa_enabled = 0;
 	} else {
-		mutex_init(&lli->lli_size_mutex);
+		init_rwsem(&lli->lli_size_sem);
+		lli->lli_size_sem_owner = NULL;
 		lli->lli_symlink_name = NULL;
 		init_rwsem(&lli->lli_trunc_sem);
 		range_lock_tree_init(&lli->lli_write_tree);
@@ -1911,22 +1912,52 @@ int ll_statfs(struct dentry *de, struct kstatfs *sfs)
 	return 0;
 }
 
-void ll_inode_size_lock(struct inode *inode)
+static void __ll_inode_size_lock(struct inode *inode, bool excl)
 {
-	struct ll_inode_info *lli;
-
+	struct ll_inode_info *lli = ll_i2info(inode);
 	LASSERT(!S_ISDIR(inode->i_mode));
 
-	lli = ll_i2info(inode);
-	mutex_lock(&lli->lli_size_mutex);
+	if (!excl) {
+		down_read(&lli->lli_size_sem);
+	} else {
+		LASSERT(lli->lli_size_sem_owner != current);
+		down_write(&lli->lli_size_sem);
+		LASSERT(lli->lli_size_sem_owner == NULL);
+		lli->lli_size_sem_owner = current;
+	}
 }
 
-void ll_inode_size_unlock(struct inode *inode)
+void ll_inode_size_write_lock(struct inode *inode)
 {
-	struct ll_inode_info *lli;
+	__ll_inode_size_lock(inode, true);
+}
 
-	lli = ll_i2info(inode);
-	mutex_unlock(&lli->lli_size_mutex);
+void ll_inode_size_read_lock(struct inode *inode)
+{
+	__ll_inode_size_lock(inode, false);
+}
+
+static void __ll_inode_size_unlock(struct inode *inode, bool excl)
+{
+	struct ll_inode_info *lli = ll_i2info(inode);
+
+	if (!excl) {
+		up_read(&lli->lli_size_sem);
+	} else {
+		LASSERT(lli->lli_size_sem_owner == current);
+		lli->lli_size_sem_owner = NULL;
+		up_write(&lli->lli_size_sem);
+	}
+}
+
+void ll_inode_size_write_unlock(struct inode *inode)
+{
+	__ll_inode_size_unlock(inode, true);
+}
+
+void ll_inode_size_read_unlock(struct inode *inode)
+{
+	__ll_inode_size_unlock(inode, false);
 }
 
 int ll_update_inode(struct inode *inode, struct lustre_md *md)
