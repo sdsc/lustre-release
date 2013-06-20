@@ -100,6 +100,7 @@ int ldiskfs_write_ldd(struct mkfs_opts *mop)
 	FILE *filep;
 	int ret = 0;
 	size_t num;
+	int i = 0;
 
 	/* Mount this device temporarily in order to write these files */
 	if (!mkdtemp(mntpt)) {
@@ -112,18 +113,26 @@ int ldiskfs_write_ldd(struct mkfs_opts *mop)
 	if (mop->mo_flags & MO_IS_LOOP)
 		dev = mop->mo_loopdev;
 
-	ret = mount(dev, mntpt, MT_STR(&mop->mo_ldd), 0,
-		    mop->mo_ldd.ldd_mount_opts);
-	if (ret) {
-		fprintf(stderr, "%s: Unable to mount %s: %s\n",
-			progname, dev, strerror(errno));
-		ret = errno;
-		if (errno == ENODEV) {
-			fprintf(stderr, "Is the %s module available?\n",
-				MT_STR(&mop->mo_ldd));
-		}
-		goto out_rmdir;
-	}
+	/* try this a few times to debug HYD-2171 */
+        do {
+		ret = mount(dev, mntpt, MT_STR(&mop->mo_ldd), 0,
+			    mop->mo_ldd.ldd_mount_opts);
+		if (ret) {
+			fprintf(stderr, "%s: Unable to mount %s: %s\n",
+				progname, dev, strerror(errno));
+			ret = errno;
+			if (errno == ENODEV) {
+				if (i++ < 30) {
+					fprintf(stderr, "Will try again");
+					sleep(1);
+					continue;
+				}
+				fprintf(stderr, "Is the %s module available?\n",
+					MT_STR(&mop->mo_ldd));
+			}
+			goto out_rmdir;
+		} 
+        } while (ret);
 
 	/* Set up initial directories */
 	sprintf(filepnm, "%s/%s", mntpt, MOUNT_CONFIGS_DIR);
