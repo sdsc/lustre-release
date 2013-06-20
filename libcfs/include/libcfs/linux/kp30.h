@@ -73,6 +73,8 @@
 
 #include <libcfs/linux/portals_compat25.h>
 
+#define LASSERT_RWSEM_WRITE_LOCKED(sem)	LASSERT(down_read_trylock(sem) == 0)
+
 /******************************************************************************/
 /* Module parameter support */
 #define CFS_MODULE_PARM(name, t, type, perm, desc) \

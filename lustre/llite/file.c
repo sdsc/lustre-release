@@ -1030,7 +1030,7 @@ int ll_merge_lvb(const struct lu_env *env, struct inode *inode)
 
 	ENTRY;
 
-	ll_inode_size_lock(inode);
+	ll_inode_size_write_lock(inode);
 	/* merge timestamps the most recently obtained from mds with
 	   timestamps obtained from osts */
 	LTIME_S(inode->i_atime) = lli->lli_lvb.lvb_atime;
@@ -1060,7 +1060,7 @@ int ll_merge_lvb(const struct lu_env *env, struct inode *inode)
 		LTIME_S(inode->i_atime) = lvb.lvb_atime;
 		LTIME_S(inode->i_ctime) = lvb.lvb_ctime;
 	}
-	ll_inode_size_unlock(inode);
+	ll_inode_size_write_unlock(inode);
 
 	RETURN(rc);
 }
@@ -1462,9 +1462,9 @@ static int ll_lov_recreate(struct inode *inode, struct ost_id *oi,
                                    OBD_MD_FLMTIME | OBD_MD_FLCTIME);
         obdo_set_parent_fid(oa, &ll_i2info(inode)->lli_fid);
         memcpy(lsm2, lsm, lsm_size);
-	ll_inode_size_lock(inode);
+	ll_inode_size_write_lock(inode);
 	rc = obd_create(NULL, exp, oa, &lsm2, &oti);
-	ll_inode_size_unlock(inode);
+	ll_inode_size_write_unlock(inode);
 
 	OBD_FREE_LARGE(lsm2, lsm_size);
 	GOTO(out, rc);
@@ -1527,7 +1527,7 @@ int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
 		GOTO(out, rc = -EEXIST);
 	}
 
-	ll_inode_size_lock(inode);
+	ll_inode_size_write_lock(inode);
 	oit.it_flags |= MDS_OPEN_BY_FID;
 	rc = ll_intent_file_open(file, lum, lum_size, &oit);
 	if (rc)
@@ -1539,7 +1539,7 @@ int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
 	ll_release_openhandle(file->f_dentry, &oit);
 
 out_unlock:
-	ll_inode_size_unlock(inode);
+	ll_inode_size_write_unlock(inode);
 	ll_intent_release(&oit);
 	ccc_inode_lsm_put(inode, lsm);
 out:

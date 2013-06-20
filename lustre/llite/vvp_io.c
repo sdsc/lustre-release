@@ -413,18 +413,18 @@ static int vvp_do_vmtruncate(struct inode *inode, size_t size)
 	int     result;
 
 	/*
-	 * Only ll_inode_size_lock is taken at this level.
+	 * Only ll_inode_size_write_lock is taken at this level.
 	 */
-	ll_inode_size_lock(inode);
+	ll_inode_size_write_lock(inode);
 	result = inode_newsize_ok(inode, size);
 	if (result < 0) {
-		ll_inode_size_unlock(inode);
+		ll_inode_size_write_unlock(inode);
 		return result;
 	}
 	i_size_write(inode, size);
 
 	ll_truncate_pagecache(inode, size);
-	ll_inode_size_unlock(inode);
+	ll_inode_size_write_unlock(inode);
 	return result;
 }
 
