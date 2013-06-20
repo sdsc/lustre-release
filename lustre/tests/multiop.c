@@ -71,6 +71,8 @@ char usage[] =
 "	 C[num] create with optional stripes\n"
 "	 d  mkdir\n"
 "	 D  open(O_DIRECTORY)\n"
+"	 e  apply lease\n"
+"	 E  release lease\n"
 "	 f  statfs\n"
 "	 F  print FID\n"
 "	 G gid get grouplock\n"
@@ -285,6 +287,39 @@ int main(int argc, char **argv)
                                 exit(save_errno);
                         }
                         break;
+		case 'e':
+			if (fd == -1) {
+				perror("open the file first\n");
+				exit(-1);
+			}
+			if (ioctl(fd, LL_IOC_SET_LEASE, F_RDLCK)) {
+				save_errno = errno;
+				perror("apply lease error");
+				exit(save_errno);
+			}
+			break;
+		case 'E':
+			if (fd == -1) {
+				perror("open the file first\n");
+				exit(-1);
+			}
+			rc = ioctl(fd, LL_IOC_SET_LEASE, F_UNLCK);
+			if (rc > 0) {
+				const char *str = "Unknown";
+				if (rc == FMODE_READ)
+					str = "FMODE_READ";
+				else if (rc == FMODE_WRITE)
+					str = "FMODE_WRITE";
+				fprintf(stdout, "%s lease(%d) released.\n",
+					str, rc);
+			} else if (rc == 0) {
+				fprintf(stdout, "lease already broken.\n");
+			} else {
+				save_errno = errno;
+				fprintf(stderr, "free lease error %d", rc);
+				exit(save_errno);
+			}
+			break;
                 case 'f':
                         if (statfs(fname, &stfs) == -1) {
                                 save_errno = errno;

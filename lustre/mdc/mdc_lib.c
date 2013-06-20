@@ -189,7 +189,7 @@ static __u64 mds_pack_open_flags(__u32 flags, __u32 mode)
 	__u64 cr_flags = (flags & (FMODE_READ | FMODE_WRITE |
 				   MDS_OPEN_HAS_EA | MDS_OPEN_HAS_OBJS |
 				   MDS_OPEN_OWNEROVERRIDE | MDS_OPEN_LOCK |
-				   MDS_OPEN_BY_FID));
+				   MDS_OPEN_BY_FID | MDS_OPEN_LEASE));
         if (flags & O_CREAT)
                 cr_flags |= MDS_OPEN_CREAT;
         if (flags & O_EXCL)
@@ -244,6 +244,7 @@ void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 	rec->cr_suppgid2 = op_data->op_suppgids[1];
 	rec->cr_bias     = op_data->op_bias;
 	rec->cr_umask    = cfs_curproc_umask();
+	rec->cr_old_handle = op_data->op_handle;
 
 	mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
 	/* the next buffer is child capa, which is used for replay,
