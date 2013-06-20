@@ -5019,6 +5019,7 @@ static struct lu_object *mdt_object_alloc(const struct lu_env *env,
                 o->lo_ops = &mdt_obj_ops;
 		mutex_init(&mo->mot_ioepoch_mutex);
 		mutex_init(&mo->mot_lov_mutex);
+		init_rwsem(&mo->mot_open_sem);
                 RETURN(o);
         } else
                 RETURN(NULL);
@@ -5055,6 +5056,9 @@ static void mdt_object_free(const struct lu_env *env, struct lu_object *o)
         h = o->lo_header;
         CDEBUG(D_INFO, "object free, fid = "DFID"\n",
                PFID(lu_object_fid(o)));
+
+	LASSERT(atomic_read(&mo->mot_open_count) == 0);
+	LASSERT(atomic_read(&mo->mot_lease_count) == 0);
 
         lu_object_fini(o);
         lu_object_header_fini(h);
