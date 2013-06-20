@@ -687,13 +687,13 @@ void ccc_lock_state(const struct lu_env *env,
 
 		/* vmtruncate() sets the i_size
 		 * under both a DLM lock and the
-		 * ll_inode_size_lock().  If we don't get the
-		 * ll_inode_size_lock() here we can match the DLM lock and
-		 * reset i_size.  generic_file_write can then trust the
-		 * stale i_size when doing appending writes and effectively
+		 * ll_inode_size_write_lock().  If we don't get the
+		 * ll_inode_size_write_lock() here we can match the DLM
+		 * lock and reset i_size.  generic_file_write can then trust
+		 * the stale i_size when doing appending writes and effectively
 		 * cancel the result of the truncate.  Getting the
-		 * ll_inode_size_lock() after the enqueue maintains the DLM
-		 * -> ll_inode_size_lock() acquiring order. */
+		 * ll_inode_size_write_lock() after the enqueue maintains
+		 * the DLM -> ll_inode_size_write_lock() acquiring order. */
 		if (lock->cll_descr.cld_start == 0 &&
 		    lock->cll_descr.cld_end == CL_PAGE_EOF)
 			cl_merge_lvb(env, inode);
@@ -864,8 +864,8 @@ int ccc_prep_size(const struct lu_env *env, struct cl_object *obj,
          * the caller, because to change the class, other client has to take
          * DLM lock conflicting with our lock. Also, any updates to ->i_size
          * by other threads on this client are serialized by
-         * ll_inode_size_lock(). This guarantees that short reads are handled
-         * correctly in the face of concurrent writes and truncates.
+         * ll_inode_size_write_lock(). This guarantees that short reads are
+         * handled correctly in the face of concurrent writes and truncates.
          */
         ccc_object_size_lock(obj);
         result = cl_object_attr_get(env, obj, attr);
