@@ -108,6 +108,7 @@ struct obd_client_handle {
         struct lustre_handle  och_fh;
         struct lu_fid         och_fid;
         struct md_open_data  *och_mod;
+	struct lustre_handle  och_lockh; /* open lock for lease */
         __u32 och_magic;
         int och_flags;
 };
