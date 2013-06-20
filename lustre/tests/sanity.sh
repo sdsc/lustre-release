@@ -10439,6 +10439,30 @@ test_207b() {
 }
 run_test 207b "can refresh layout at open"
 
+test_208() {
+	# test 1: verify get lease work
+	$MULTIOP $DIR/$tfile oO_CREAT:O_RDWR:eEc || error "get lease error"
+
+	# test 2: verify lease can be broken by following open
+	$MULTIOP $DIR/$tfile oO_RDONLY:e_2Ec &
+	local PID=$!
+	sleep 1
+
+	$MULTIOP $DIR/$tfile oO_RDONLY:c
+	wait $PID || error "break lease error"
+
+	# test 3: verify that lease can't be granted if an open already exists
+	$MULTIOP $DIR/$tfile oO_RDONLY:_2c &
+	local PID=$!
+	sleep 1
+
+	$MULTIOP $DIR/$tfile oO_RDONLY:eEc && error "apply lease should fail"
+	wait $PID || error "open file error"
+
+	rm -f $DIR/$tfile
+}
+run_test 208 "Exclusive open"
+
 test_212() {
 	size=`date +%s`
 	size=$((size % 8192 + 1))
