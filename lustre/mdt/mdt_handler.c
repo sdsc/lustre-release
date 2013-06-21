@@ -68,7 +68,6 @@
 #include <lustre_acl.h>
 #include <lustre_param.h>
 #include <lustre_quota.h>
-#include <lustre_linkea.h>
 #include <lustre_lfsck.h>
 
 mdl_mode_t mdt_mdl_lock_modes[] = {
@@ -3104,6 +3103,9 @@ static void mdt_thread_info_init(struct ptlrpc_request *req,
         /* To not check for split by default. */
         info->mti_spec.no_create = 0;
 	info->mti_spec.sp_rm_entry = 0;
+	info->mti_spec.sp_migrate = 0;
+	info->mti_spec.u.sp_ea.eadata = NULL;
+	info->mti_spec.u.sp_ea.eadatalen = 0;
 }
 
 static void mdt_thread_info_fini(struct mdt_thread_info *info)
@@ -4402,7 +4404,6 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 	site->ls_top_dev = &mdt->mdt_md_dev.md_lu_dev;
 	mdt->mdt_child = lu2md_dev(mdt->mdt_child_exp->exp_obd->obd_lu_dev);
 
-
 	/* now connect to bottom OSD */
 	snprintf(name, MAX_OBD_NAME, "%s-osd", dev);
 	rc = mdt_connect_to_next(env, mdt, name, &mdt->mdt_bottom_exp);
@@ -4410,7 +4411,6 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 		RETURN(rc);
 	mdt->mdt_bottom =
 		lu2dt_dev(mdt->mdt_bottom_exp->exp_obd->obd_lu_dev);
-
 
 	rc = lu_env_refill((struct lu_env *)env);
 	if (rc != 0)
@@ -5562,8 +5562,8 @@ struct path_lookup_info {
 	int			pli_fidcount;	/**< number of \a pli_fids */
 };
 
-static int mdt_links_read(struct mdt_thread_info *info,
-			  struct mdt_object *mdt_obj, struct linkea_data *ldata)
+int mdt_links_read(struct mdt_thread_info *info, struct mdt_object *mdt_obj,
+		   struct linkea_data *ldata)
 {
 	int rc;
 
