@@ -712,6 +712,9 @@ struct lookup_intent *ll_convert_intent(struct open_intent *oit,
 #endif
 struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de);
 int ll_rmdir_entry(struct inode *dir, char *name, int namelen);
+int ll_d_mountpoint(struct dentry *dparent, struct dentry *dchild,
+		    struct qstr *name);
+void ll_update_times(struct ptlrpc_request *request, struct inode *inode);
 
 /* llite/rw.c */
 int ll_prepare_write(struct file *, struct page *, unsigned from, unsigned to);
@@ -777,7 +780,7 @@ int ll_getattr_it(struct vfsmount *mnt, struct dentry *de,
 int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat);
 struct ll_file_data *ll_file_data_get(void);
 struct posix_acl * ll_get_acl(struct inode *inode, int type);
-
+int ll_migrate(struct inode *inode, struct file *file, int mdtidx);
 #ifdef HAVE_GENERIC_PERMISSION_4ARGS
 int ll_inode_permission(struct inode *inode, int mask, unsigned int flags);
 #else
