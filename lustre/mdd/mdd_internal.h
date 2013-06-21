@@ -163,6 +163,7 @@ struct mdd_thread_info {
         struct dt_object_format   mti_dof;
         struct obd_quotactl       mti_oqctl;
 	struct linkea_data	  mti_link_data;
+	struct md_op_spec	  mti_spec;
 };
 
 extern const char orph_index_name[];
@@ -397,6 +398,12 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 				       struct lu_attr *attr,
 				       struct thandle *handle,
 				       const struct md_op_spec *spec);
+int mdd_declare_xattr_del(const struct lu_env *env, struct mdd_device *mdd,
+			  struct mdd_object *obj, const char *name,
+			  struct thandle *handle);
+struct lu_buf *mdd_get_lov_ea(const struct lu_env *env, struct mdd_object *obj);
+int mdd_xattr_list(const struct lu_env *env, struct md_object *obj,
+		   struct lu_buf *buf);
 
 /* mdd_trans.c */
 int mdd_lov_destroy(const struct lu_env *env, struct mdd_device *mdd,

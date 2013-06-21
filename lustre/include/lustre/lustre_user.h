@@ -252,9 +252,10 @@ struct ost_id {
 						struct hsm_current_action)
 /* see <lustre_lib.h> for ioctl numbers 221-232 */
 
-#define LL_IOC_LMV_SETSTRIPE	    _IOWR('f', 240, struct lmv_user_md)
-#define LL_IOC_LMV_GETSTRIPE	    _IOWR('f', 241, struct lmv_user_md)
-#define LL_IOC_REMOVE_ENTRY	    _IOWR('f', 242, __u64)
+#define LL_IOC_LMV_SETSTRIPE		_IOWR('f', 240, struct lmv_user_md)
+#define LL_IOC_LMV_GETSTRIPE		_IOWR('f', 241, struct lmv_user_md)
+#define LL_IOC_REMOVE_ENTRY		_IOWR('f', 242, __u64)
+#define LL_IOC_MIGRATE			_IOR('f', 243, int)
 
 #define LL_STATFS_LMV           1
 #define LL_STATFS_LOV           2
