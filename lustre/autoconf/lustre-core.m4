@@ -421,7 +421,7 @@ AC_DEFUN([LC_CONFIG_GSS],
 [AC_MSG_CHECKING([whether to enable gss/krb5 support])
  AC_ARG_ENABLE([gss],
                [AC_HELP_STRING([--enable-gss], [enable gss/krb5 support])],
-               [],[enable_gss='no'])
+               [],[enable_gss='yes'])
  AC_MSG_RESULT([$enable_gss])
 
  if test x$enable_gss == xyes; then
