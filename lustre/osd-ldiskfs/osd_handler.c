@@ -2715,7 +2715,7 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	if (fl & LU_XATTR_REPLACE)
 		fs_flags |= XATTR_REPLACE;
 
-	if (fl & LU_XATTR_CREATE)
+	if (fl & (LU_XATTR_CREATE | LU_XATTR_MIGRATE))
 		fs_flags |= XATTR_CREATE;
 
 	return __osd_xattr_set(info, inode, name, buf->lb_buf, buf->lb_len,
@@ -3967,7 +3967,7 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 	int			rc;
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt) && !dt_object_remote(dt));
+	LASSERT(!dt_object_remote(dt));
 	LASSERT(handle != NULL);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -3976,15 +3976,7 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 	osd_trans_declare_op(env, oh, OSD_OT_INSERT,
 			     osd_dto_credits_noquota[DTO_INDEX_INSERT]);
 
-	if (osd_dt_obj(dt)->oo_inode == NULL) {
-		const char *name  = (const char *)key;
-		/* Object is not being created yet. Only happens when
-		 *     1. declare directory create
-		 *     2. declare insert .
-		 *     3. declare insert ..
-		 */
-		LASSERT(strcmp(name, dotdot) == 0 || strcmp(name, dot) == 0);
-	} else {
+	if (osd_dt_obj(dt)->oo_inode != NULL) {
 		struct inode *inode = osd_dt_obj(dt)->oo_inode;
 
 		/* We ignore block quota on meta pool (MDTs), so needn't

@@ -634,6 +634,25 @@ test_17n() {
 	done
 
 	check_fs_consistency_17n || error "e2fsck report error"
+
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.50) ] &&
+		skip "lustre < 2.4.50 does not support migrate mv " && return
+
+	for ((i=0; i<10; i++)); do
+		mkdir -p $DIR/$tdir/remote_dir_${i}
+		createmany -o $DIR/$tdir/remote_dir_${i}/f 10 ||
+			error "create files under remote dir failed $i"
+		$LFS mv -i 1 $DIR/$tdir/remote_dir_${i} ||
+			error "migrate remote dir error $i"
+	done
+	check_fs_consistency_17n || error "e2fsck report error"
+
+	for ((i=0;i<10;i++)); do
+		rm -rf $DIR/$tdir/remote_dir_${i} ||
+			error "destroy remote dir error $i"
+	done
+
+	check_fs_consistency_17n || error "e2fsck report error"
 }
 run_test 17n "run e2fsck against master/slave MDT which contains remote dir"
 
@@ -11227,6 +11246,45 @@ test_230b() {
 	rm -r $DIR/$tdir || error "second unlink remote directory failed"
 }
 run_test 230b "nested remote directory should be failed"
+
+test_230c() {
+	local MDTIDX=1 
+	local mdt_index
+	local i
+	local file
+	local pid
+
+	mkdir -p $DIR/$tdir
+	for ((i=0; i<10; i++)); do
+		mkdir -p $DIR/$tdir/dir_${i}
+		createmany -o $DIR/$tdir/dir_${i}/f 10 ||
+			error "create files under remote dir failed $i"
+	done
+
+	cp /etc/passwd $DIR/$tdir/$tfile
+	multiop_bg_pause $DIR/$tdir/$tfile O_c || return 3
+	pid=$!
+	# give multiop a chance to open
+	sleep 1
+
+	$LFS mv -i $MDTIDX $DIR/$tdir &&
+		error "migrate open files should failed with open files"
+
+	kill -USR1 $pid
+	$LFS mv -i $MDTIDX $DIR/$tdir || error "migrate remote dir error"
+
+	for file in $(find $DIR/$tdir); do
+		mdt_index=$($LFS getstripe -M $file)
+		[ $mdt_index == $MDTIDX ] ||
+			error "$file is not on MDT${MDTIDX}"
+	done
+
+	diff /etc/passwd $DIR/$tdir/$tfile ||
+		error "file different after migration"
+
+	rm -rf $DIR/$tdir || error "rm dir failed after migration"
+}
+run_test 230c "check migrate directory"
 
 test_231a()
 {
