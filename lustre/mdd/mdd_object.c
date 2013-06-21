@@ -317,8 +317,8 @@ static int mdd_readlink(const struct lu_env *env, struct md_object *obj,
 /*
  * No permission check is needed.
  */
-static int mdd_xattr_list(const struct lu_env *env, struct md_object *obj,
-                          struct lu_buf *buf)
+int mdd_xattr_list(const struct lu_env *env, struct md_object *obj,
+		   struct lu_buf *buf)
 {
         struct mdd_object *mdd_obj = md2mdd_obj(obj);
         int rc;
@@ -1084,11 +1084,9 @@ stop:
 	RETURN(rc);
 }
 
-static int mdd_declare_xattr_del(const struct lu_env *env,
-                                 struct mdd_device *mdd,
-                                 struct mdd_object *obj,
-                                 const char *name,
-                                 struct thandle *handle)
+int mdd_declare_xattr_del(const struct lu_env *env, struct mdd_device *mdd,
+			  struct mdd_object *obj, const char *name,
+			  struct thandle *handle)
 {
         int rc;
 
@@ -1159,8 +1157,7 @@ stop:
  * read lov EA of an object
  * return the lov EA in an allocated lu_buf
  */
-static struct lu_buf *mdd_get_lov_ea(const struct lu_env *env,
-				     struct mdd_object *obj)
+struct lu_buf *mdd_get_lov_ea(const struct lu_env *env, struct mdd_object *obj)
 {
 	struct lu_buf	*buf = &mdd_env_info(env)->mti_big_buf;
 	struct lu_buf	*lmm_buf = NULL;
