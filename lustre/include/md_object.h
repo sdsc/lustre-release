@@ -190,7 +190,8 @@ struct md_op_spec {
 	/** don't create lov objects or llog cookie - this replay */
 	unsigned int no_create:1,
 		     sp_cr_lookup:1, /* do lookup sanity check or not. */
-		     sp_rm_entry:1;  /* only remove name entry */
+		     sp_rm_entry:1,  /* only remove name entry */
+		     sp_migrate:1;   /* migrate inode from one MDT to another */
 
 	/** Current lock mode for parent dir where create is performing. */
         mdl_mode_t sp_cr_mode;
@@ -316,6 +317,9 @@ struct md_dir_operations {
 			  struct md_object *cobj, const struct lu_name *lname,
 			  struct md_attr *ma, int no_name);
 
+	int (*mdo_migrate)(const struct lu_env *env, struct md_object *pobj,
+			   const struct lu_fid *lf, const struct lu_name *lname,
+			   struct md_object *tobj, struct md_attr *ma);
         /** This method is used to compare a requested layout to an existing
          * layout (struct lov_mds_md_v1/3 vs struct lov_mds_md_v1/3) */
         int (*mdo_lum_lmm_cmp)(const struct lu_env *env,
@@ -747,6 +751,17 @@ static inline int mdo_rename(const struct lu_env *env,
         LASSERT(tp->mo_dir_ops->mdo_rename);
         return tp->mo_dir_ops->mdo_rename(env, sp, tp, lf, lsname, t, ltname,
                                           ma);
+}
+
+static inline int mdo_migrate(const struct lu_env *env,
+			     struct md_object *pobj,
+			     const struct lu_fid *lf,
+			     const struct lu_name *lname,
+			     struct md_object *tobj,
+			     struct md_attr *ma)
+{
+	LASSERT(pobj->mo_dir_ops->mdo_migrate);
+	return pobj->mo_dir_ops->mdo_migrate(env, pobj, lf, lname, tobj, ma);
 }
 
 static inline int mdo_is_subdir(const struct lu_env *env,

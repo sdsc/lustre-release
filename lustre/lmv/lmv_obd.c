@@ -2026,6 +2026,12 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
         if (rc)
                 RETURN(rc);
 
+	if (op_data->op_opc == LUSTRE_OPC_MIGRATE) {
+		rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
+		if (rc)
+			RETURN(rc);
+	}
+
 	op_data->op_fsuid = cfs_curproc_fsuid();
 	op_data->op_fsgid = cfs_curproc_fsgid();
 	op_data->op_cap = cfs_curproc_cap_pack();
@@ -2033,7 +2039,15 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	if (IS_ERR(src_tgt))
 		RETURN(PTR_ERR(src_tgt));
 
-	tgt_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
+	if (op_data->op_opc == LUSTRE_OPC_MIGRATE) {
+		LASSERTF(fid_is_sane(&op_data->op_fid3),
+			 "migrate invalid FID "DFID"\n",
+			 PFID(&op_data->op_fid3));
+		tgt_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid3);
+	} else {
+		tgt_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
+	}
+
 	if (IS_ERR(tgt_tgt))
 		RETURN(PTR_ERR(tgt_tgt));
 	/*
@@ -2050,26 +2064,34 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 			      LCK_EX, MDS_INODELOCK_UPDATE,
 			      MF_MDC_CANCEL_FID2);
 
+	if (rc != 0)
+		return rc;
 	/*
 	 * Cancel LOOKUP locks on tgt child (fid4) for parent tgt_tgt.
 	 */
-	if (rc == 0) {
-		rc = lmv_early_cancel(exp, op_data, src_tgt->ltd_idx,
-				      LCK_EX, MDS_INODELOCK_LOOKUP,
-				      MF_MDC_CANCEL_FID4);
-	}
+	rc = lmv_early_cancel(exp, op_data, src_tgt->ltd_idx,
+			      LCK_EX, MDS_INODELOCK_LOOKUP,
+			      MF_MDC_CANCEL_FID4);
+	if (rc != 0)
+		return rc;
 
 	/*
 	 * Cancel all the locks on tgt child (fid4).
 	 */
-	if (rc == 0)
-		rc = lmv_early_cancel(exp, op_data, src_tgt->ltd_idx,
-				      LCK_EX, MDS_INODELOCK_FULL,
-				      MF_MDC_CANCEL_FID4);
+	rc = lmv_early_cancel(exp, op_data, src_tgt->ltd_idx,
+			      LCK_EX, MDS_INODELOCK_FULL,
+			      MF_MDC_CANCEL_FID4);
 
-	if (rc == 0)
+	if (rc != 0)
+		return rc;
+
+	if (op_data->op_opc == LUSTRE_OPC_MIGRATE)
+		rc = md_rename(tgt_tgt->ltd_exp, op_data, old, oldlen,
+			       new, newlen, request);
+	else
 		rc = md_rename(src_tgt->ltd_exp, op_data, old, oldlen,
 			       new, newlen, request);
+
 	RETURN(rc);
 }
 
