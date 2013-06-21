@@ -1085,6 +1085,28 @@ static inline int lu_dirent_size(struct lu_dirent *ent)
         return le16_to_cpu(ent->lde_reclen);
 }
 
+/**
+ * return IF_* type for given lu_dirent entry.
+ * IF_* flag shld be converted to particular OS file type in
+ * platform llite module.
+ */
+static inline __u16 lu_dirent_type_get(const struct lu_dirent *ent)
+{
+        __u16 type = 0;
+        struct luda_type *lt;
+        int len = 0;
+
+        if (le32_to_cpu(ent->lde_attrs) & LUDA_TYPE) {
+                const unsigned align = sizeof(struct luda_type) - 1;
+
+                len = le16_to_cpu(ent->lde_namelen);
+                len = (len + align) & ~align;
+		lt = (struct luda_type *)((char *)ent->lde_name + len);
+		type = IFTODT(le16_to_cpu(lt->lt_type));
+	}
+	return type;
+}
+
 #define MDS_DIR_END_OFF 0xfffffffffffffffeULL
 
 /**
@@ -1664,6 +1686,7 @@ static inline void lmm_oi_cpu_to_le(struct ost_id *dst_oi,
 #define XATTR_NAME_VERSION      "trusted.version"
 #define XATTR_NAME_SOM		"trusted.som"
 #define XATTR_NAME_HSM		"trusted.hsm"
+#define XATTR_NAME_MGR		"trusted.mgr"
 #define XATTR_NAME_LFSCK_NAMESPACE "trusted.lfsck_namespace"
 
 struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
@@ -2415,6 +2438,7 @@ enum {
 	MDS_DATA_MODIFIED	= 1 << 9,
 	MDS_CREATE_VOLATILE	= 1 << 10,
 	MDS_OWNEROVERRIDE	= 1 << 11,
+	MDS_RENAME_MIGRATE	= 1 << 12,
 };
 
 /* instance of mdt_reint_rec */

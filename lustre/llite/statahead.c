@@ -1631,8 +1631,9 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
                                               (*dentryp)->d_inode->i_generation,
                                               inode->i_ino,
                                               inode->i_generation);
-                                        ll_sai_unplug(sai, entry);
-                                        RETURN(-ESTALE);
+					ll_intent_release(&it);
+					ll_sai_unplug(sai, entry);
+					RETURN(-ESTALE);
                                 } else {
 					iput(inode);
 				}

@@ -78,11 +78,11 @@ static int osp_prep_update_req(const struct lu_env *env,
 	RETURN(rc);
 }
 
-static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
+static int osp_remote_sync(const struct lu_env *env,
 			   struct update_request *update,
 			   struct ptlrpc_request **reqp)
 {
-	struct osp_device	*osp = dt2osp_dev(dt);
+	struct osp_device	*osp = dt2osp_dev(update->ur_dt);
 	struct ptlrpc_request	*req = NULL;
 	int			rc;
 	ENTRY;
@@ -182,7 +182,7 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 	update = th->th_current_request;
 	LASSERT(update != NULL && update->ur_dt == dt);
 	if (update->ur_buf->ub_count > 0) {
-		rc = osp_remote_sync(env, dt, update, NULL);
+		rc = osp_remote_sync(env, update, NULL);
 		th->th_sync = 1;
 	}
 
@@ -205,8 +205,12 @@ static int osp_insert_update(const struct lu_env *env,
 	int                   rc = 0;
 	ENTRY;
 
-	obj_update = (struct update *)((char *)ubuf +
-		      cfs_size_round(update_buf_size(ubuf)));
+	if (count > UPDATE_BUF_COUNT) {
+		CERROR("%s: too many params %d "DFID" op %d: rc = %d\n",
+			update->ur_dt->dd_lu_dev.ld_obd->obd_name, count,
+			PFID(fid), op, -E2BIG);
+		RETURN(-E2BIG);
+	}
 
 	/* Check update size to make sure it can fit into the buffer */
 	update_length = cfs_size_round(offsetof(struct update,
@@ -214,21 +218,21 @@ static int osp_insert_update(const struct lu_env *env,
 	for (i = 0; i < count; i++)
 		update_length += cfs_size_round(lens[i]);
 
-	if (cfs_size_round(update_buf_size(ubuf)) + update_length >
-	    UPDATE_BUFFER_SIZE || ubuf->ub_count >= UPDATE_MAX_OPS) {
-		CERROR("%s: insert up %p, idx %d cnt %d len %lu: rc = %d\n",
-			update->ur_dt->dd_lu_dev.ld_obd->obd_name, ubuf,
-			update_length, ubuf->ub_count, update_buf_size(ubuf),
-			-E2BIG);
-		RETURN(-E2BIG);
+	while (cfs_size_round(update_buf_size(ubuf)) + update_length >
+	       UPDATE_BUFFER_SIZE || ubuf->ub_count >= UPDATE_MAX_OPS) {
+		CDEBUG(D_INFO, "%s: buf full idx %d cnt %d len %lu sync!\n",
+			update->ur_dt->dd_lu_dev.ld_obd->obd_name,
+			update_length, ubuf->ub_count, update_buf_size(ubuf));
+		rc = osp_remote_sync(env, update, NULL);
+		if (rc != 0)
+			return rc;
+		memset(ubuf, 0, UPDATE_BUFFER_SIZE);
+		ubuf->ub_magic = UPDATE_BUFFER_MAGIC;
+		ubuf->ub_count = 0;
 	}
 
-	if (count > UPDATE_BUF_COUNT) {
-		CERROR("%s: Insert too much params %d "DFID" op %d: rc = %d\n",
-			update->ur_dt->dd_lu_dev.ld_obd->obd_name, count,
-			PFID(fid), op, -E2BIG);
-		RETURN(-E2BIG);
-	}
+	obj_update = (struct update *)((char *)ubuf +
+		      cfs_size_round(update_buf_size(ubuf)));
 
 	/* fill the update into the update buffer */
 	fid_cpu_to_le(&obj_update->u_fid, fid);
@@ -350,7 +354,6 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 	}
 
 	osi->osi_obdo.o_valid = 0;
-	LASSERT(S_ISDIR(attr->la_mode));
 	obdo_from_la(&osi->osi_obdo, attr, attr->la_valid);
 	lustre_set_wire_obdo(NULL, &osi->osi_obdo, &osi->osi_obdo);
 	obdo_cpu_to_le(&osi->osi_obdo, &osi->osi_obdo);
@@ -575,14 +578,17 @@ static int osp_md_declare_xattr_set(const struct lu_env *env,
 					    sizeof(int)};
 	char			*bufs[3] = {(char *)name, (char *)buf->lb_buf };
 	int			rc;
+	ENTRY;
 
-	LASSERT(buf->lb_len > 0 && buf->lb_buf != NULL);
+	if (buf->lb_len == 0 || buf->lb_buf == NULL)
+		RETURN(0);
+
 	update = osp_find_create_update_loc(th, dt);
 	if (IS_ERR(update)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
 		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
+		RETURN(PTR_ERR(update));
 	}
 
 	flag = cpu_to_le32(flag);
@@ -592,7 +598,7 @@ static int osp_md_declare_xattr_set(const struct lu_env *env,
 	rc = osp_insert_update(env, update, OBJ_XATTR_SET, fid,
 			       ARRAY_SIZE(sizes), sizes, bufs);
 
-	return rc;
+	RETURN(rc);
 }
 
 static int osp_md_xattr_set(const struct lu_env *env, struct dt_object *dt,
@@ -639,7 +645,7 @@ static int osp_md_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	}
 	dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 
-	rc = osp_remote_sync(env, dt_dev, update, &req);
+	rc = osp_remote_sync(env, update, &req);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -752,7 +758,7 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 	}
 
-	rc = osp_remote_sync(env, dt_dev, update, &req);
+	rc = osp_remote_sync(env, update, &req);
 	if (rc < 0) {
 		CERROR("%s: lookup "DFID" %s failed: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name,
@@ -1035,9 +1041,8 @@ static int osp_md_attr_get(const struct lu_env *env,
 		       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
 		GOTO(out, rc);
 	}
-	dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 
-	rc = osp_remote_sync(env, dt_dev, update, &req);
+	rc = osp_remote_sync(env, update, &req);
 	if (rc < 0)
 		GOTO(out, rc);
 

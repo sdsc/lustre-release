@@ -58,7 +58,7 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
 init_logging
 
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 27m 64b 68 71 77f 78 115 124b"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 27m 64b 68 71 77f 78 115 124b 230d"
 
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
 # bug number for skipped test:        LU-1593 LU-2610 LU-2833 LU-1957 LU-2805
@@ -626,6 +626,25 @@ test_17n() {
 			error "create files under remote dir failed $i"
 	done
 
+	check_fs_consistency_17n || error "e2fsck report error"
+
+	for ((i=0;i<10;i++)); do
+		rm -rf $DIR/$tdir/remote_dir_${i} ||
+			error "destroy remote dir error $i"
+	done
+
+	check_fs_consistency_17n || error "e2fsck report error"
+
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.50) ] &&
+		skip "lustre < 2.4.50 does not support migrate mv " && return
+
+	for ((i=0; i<10; i++)); do
+		mkdir -p $DIR/$tdir/remote_dir_${i}
+		createmany -o $DIR/$tdir/remote_dir_${i}/f 10 ||
+			error "create files under remote dir failed $i"
+		$LFS mv -i 1 $DIR/$tdir/remote_dir_${i} ||
+			error "migrate remote dir error $i"
+	done
 	check_fs_consistency_17n || error "e2fsck report error"
 
 	for ((i=0;i<10;i++)); do
@@ -11352,6 +11371,93 @@ test_230b() {
 	rm -r $DIR/$tdir || error "second unlink remote directory failed"
 }
 run_test 230b "nested remote directory should be failed"
+
+test_230c() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local MDTIDX=1
+	local mdt_index
+	local i
+	local file
+	local pid
+
+	mkdir -p $DIR/$tdir
+	mkdir -p $DIR/${tdir}_1
+	for ((i=0; i<10; i++)); do
+		mkdir -p $DIR/$tdir/dir_${i}
+		createmany -o $DIR/$tdir/dir_${i}/f 10 ||
+			error "create files under remote dir failed $i"
+	done
+
+	cp /etc/passwd $DIR/$tdir/$tfile
+
+	mkdir -p $DIR/${tdir}_1
+	ln $DIR/$tdir/$tfile $DIR/${tdir}_1/luna
+	ln $DIR/$tdir/$tfile $DIR/${tdir}/sofia
+	ln -s $DIR/$tdir/$tfile $DIR/${tdir}_1/zachary
+
+	multiop_bg_pause $DIR/$tdir/$tfile O_c || return 3
+	pid=$!
+	# give multiop a chance to open
+	sleep 1
+
+	$LFS mv -i $MDTIDX $DIR/$tdir &&
+		error "migrate open files should failed with open files"
+
+	kill -USR1 $pid
+	$LFS mv -i $MDTIDX $DIR/$tdir || error "migrate remote dir error"
+
+	echo "Finish migration, then checking.."
+	for file in $(find $DIR/$tdir); do
+		mdt_index=$($LFS getstripe -M $file)
+		[ $mdt_index == $MDTIDX ] ||
+			error "$file is not on MDT${MDTIDX}"
+	done
+
+	diff /etc/passwd $DIR/$tdir/$tfile ||
+		error "file different after migration"
+
+	diff /etc/passwd $DIR/${tdir}_1/luna ||
+		error "file different after migration"
+
+	diff /etc/passwd $DIR/${tdir}/sofia ||
+		error "file different after migration"
+
+	diff /etc/passwd $DIR/${tdir}_1/zachary ||
+		error "file different after migration"
+
+	rm -rf $DIR/$tdir || error "rm dir failed after migration"
+}
+run_test 230c "check migrate directory"
+
+test_230d() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local MDTIDX=1
+	local mdt_index
+	local i
+	local j
+
+	mkdir -p $DIR/$tdir
+
+	for ((i=0; i<2000; i++)); do
+		mkdir -p $DIR/$tdir/dir_${i}
+		createmany -o $DIR/$tdir/dir_${i}/f 10 ||
+			error "create files under remote dir failed $i"
+	done
+
+	$LFS mv -i $MDTIDX $DIR/$tdir || error "migrate remote dir error"
+
+	echo "Finish migration, then checking.."
+	for file in $(find $DIR/$tdir); do
+		mdt_index=$($LFS getstripe -M $file)
+		[ $mdt_index == $MDTIDX ] ||
+			error "$file is not on MDT${MDTIDX}"
+	done
+
+	rm -rf $DIR/$tdir || error "rm dir failed after migration"
+}
+run_test 230d "check migrate big directory"
 
 test_231a()
 {

@@ -462,8 +462,10 @@ void mdc_rename_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
         rec->rn_time     = op_data->op_mod_time;
         rec->rn_mode     = op_data->op_mode;
         rec->rn_bias     = op_data->op_bias;
+	if (op_data->op_opc == LUSTRE_OPC_MIGRATE)
+		rec->rn_bias |= MDS_RENAME_MIGRATE;
 
-        mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
+	mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
         mdc_pack_capa(req, &RMF_CAPA2, op_data->op_capa2);
 
         tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);

@@ -258,6 +258,7 @@ struct ost_id {
 
 #define LL_IOC_SET_LEASE		_IOWR('f', 243, long)
 #define LL_IOC_GET_LEASE		_IO('f', 244)
+#define LL_IOC_MIGRATE			_IOR('f', 245, int)
 
 #define LL_STATFS_LMV		1
 #define LL_STATFS_LOV		2
