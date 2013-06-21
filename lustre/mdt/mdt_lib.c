@@ -1117,8 +1117,12 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
 
         info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
 
-        rc = mdt_dlmreq_unpack(info);
-        RETURN(rc);
+	if (rec->rn_bias & MDS_RENAME_MIGRATE)
+		info->mti_spec.sp_migrate = 1;
+
+	rc = mdt_dlmreq_unpack(info);
+
+	RETURN(rc);
 }
 
 /*
