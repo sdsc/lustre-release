@@ -1003,9 +1003,11 @@ lnet_ping_router_locked (lnet_peer_t *rtr)
 int
 lnet_router_checker_start(void)
 {
-        int          rc;
-        int          eqsz;
-#ifndef __KERNEL__
+	int          rc;
+	int          eqsz;
+#ifdef __KERNEL__
+	cfs_task_t  *task;
+#else /* __KERNEL__ */
         lnet_peer_t *rtr;
         __u64        version;
         int          nrtr = 0;
@@ -1095,9 +1097,9 @@ lnet_router_checker_start(void)
 
         the_lnet.ln_rc_state = LNET_RC_STATE_RUNNING;
 #ifdef __KERNEL__
-	rc = PTR_ERR(kthread_run(lnet_router_checker,
-				 NULL, "router_checker"));
-	if (IS_ERR_VALUE(rc)) {
+	task = kthread_run(lnet_router_checker, NULL, "router_checker");
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
 		CERROR("Can't start router checker thread: %d\n", rc);
 		/* block until event callback signals exit */
 		down(&the_lnet.ln_rc_signal);

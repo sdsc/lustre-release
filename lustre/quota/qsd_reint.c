@@ -627,6 +627,7 @@ int qsd_start_reint_thread(struct qsd_qtype_info *qqi)
 	struct ptlrpc_thread	*thread = &qqi->qqi_reint_thread;
 	struct qsd_instance	*qsd = qqi->qqi_qsd;
 	struct l_wait_info	lwi = { 0 };
+	cfs_task_t	       *task;
 	int			rc;
 	ENTRY;
 
@@ -660,8 +661,9 @@ int qsd_start_reint_thread(struct qsd_qtype_info *qqi)
 		RETURN(0);
 	}
 
-	rc = PTR_ERR(kthread_run(qsd_reint_main, (void *)qqi, "qsd_reint"));
-	if (IS_ERR_VALUE(rc)) {
+	task = kthread_run(qsd_reint_main, qqi, "qsd_reint");
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
 		thread_set_flags(thread, SVC_STOPPED);
 		write_lock(&qsd->qsd_lock);
 		qqi->qqi_reint = 0;

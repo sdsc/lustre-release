@@ -1540,7 +1540,8 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
         struct l_wait_info        lwi   = { 0 };
         int                       rc    = 0;
 	struct ll_inode_info     *plli;
-        ENTRY;
+	cfs_task_t		 *task;
+	ENTRY;
 
         LASSERT(lli->lli_opendir_pid == cfs_curproc_pid());
 
@@ -1687,11 +1688,12 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
         lli->lli_sai = sai;
 
 	plli = ll_i2info(parent->d_inode);
-	rc = PTR_ERR(kthread_run(ll_statahead_thread, parent,
-				 "ll_sa_%u", plli->lli_opendir_pid));
+	task = kthread_run(ll_statahead_thread, parent, "ll_sa_%u",
+			   plli->lli_opendir_pid);
 	thread = &sai->sai_thread;
-	if (IS_ERR_VALUE(rc)) {
-		CERROR("can't start ll_sa thread, rc: %d\n", rc);
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
+		CERROR("cannot start ll_sa thread: rc = %d\n", rc);
 		dput(parent);
                 lli->lli_opendir_key = NULL;
                 thread_set_flags(thread, SVC_STOPPED);
