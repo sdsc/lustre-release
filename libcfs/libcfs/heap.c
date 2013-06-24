@@ -472,4 +472,19 @@ cfs_binheap_remove(cfs_binheap_t *h, cfs_binheap_node_t *e)
 }
 EXPORT_SYMBOL(cfs_binheap_remove);
 
+/**
+ * Relocate a node in the binary heap.
+ * Should be called whenever a node's values
+ * which affects its ranking are changed.
+ *
+ * \param[in] h The heap
+ * \param[in] e The node
+ */
+void
+cfs_binheap_relocate(cfs_binheap_t *h, cfs_binheap_node_t *e)
+{
+	if (!cfs_binheap_bubble(h, e))
+		cfs_binheap_sink(h, e);
+}
+EXPORT_SYMBOL(cfs_binheap_relocate);
 /** @} heap */
