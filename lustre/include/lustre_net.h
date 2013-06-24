@@ -2462,6 +2462,36 @@ struct ptlrpc_service_ops {
 	void		(*so_req_printer)(void *, struct ptlrpc_request *);
 };
 
+struct ptlrpc_summary_period {
+        /* Linkage to history */
+        cfs_list_t      ssp_linkage;
+        /* Depth in the history */
+        int             ssp_depth;
+        /* Time length of this period */
+        int             ssp_length;
+        /* Statistic of this period */
+        int             ssp_statistic;
+        /* Summery from last depth */
+        int             ssp_carry;
+        /* How much time last depth reports */
+        int             ssp_carry_times;
+};
+
+struct ptlrpc_service_summary {
+        /* Handled RPC number during this period */
+        cfs_atomic_t    sh_rpc_number;
+        /* Kernel timer, get data regularly */
+        cfs_timer_t     sh_timer;
+        /* Seconds of the timer */
+        int             sh_timeout;
+        int             sh_width;
+        int             sh_depth;
+        /* History List */
+        cfs_list_t      sh_history_head;
+        /* RPC number during last update */
+        int             sh_last_numer;
+};
+
 #ifndef __cfs_cacheline_aligned
 /* NB: put it here for reducing patche dependence */
 # define __cfs_cacheline_aligned
@@ -2535,6 +2565,8 @@ struct ptlrpc_service {
 	int				srv_cpt_bits;
 	/** CPT table this service is running over */
 	struct cfs_cpt_table		*srv_cptable;
+	/* history of service request handling */
+	struct ptlrpc_service_summary   srv_summary;
 	/**
 	 * partition data for ptlrpc service
 	 */

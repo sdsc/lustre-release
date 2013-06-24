@@ -703,6 +703,113 @@ ptlrpc_service_part_init(struct ptlrpc_service *svc,
 	return -ENOMEM;
 }
 
+static void
+ptlrpc_service_summary_update(struct ptlrpc_service *svc, int new_data)
+{
+        struct ptlrpc_service_summary *summary = &svc->srv_summary;
+        cfs_list_t *l;
+        struct ptlrpc_summary_period *period;
+        int tmp;
+        ENTRY;
+
+        summary->sh_last_numer = new_data;
+
+        cfs_list_for_each(l, &summary->sh_history_head) {
+		period = cfs_list_entry(l, struct ptlrpc_summary_period,
+		                        ssp_linkage);
+                if (period->ssp_carry_times < summary->sh_width - 1) {
+                        period->ssp_carry_times++;
+                        period->ssp_carry += new_data;
+                        break;
+                } else {
+                        tmp = period->ssp_statistic;
+                        period->ssp_statistic = period->ssp_carry +
+                                                new_data;
+                        period->ssp_carry_times = 0;
+                        period->ssp_carry = 0;
+                        new_data = tmp;
+                }
+        }
+        EXIT;
+}
+
+static void ptlrpc_service_summary_cb(ulong_ptr_t data)
+{
+        struct ptlrpc_service *svc = (struct ptlrpc_service *)data;
+        struct ptlrpc_service_summary *summary = &svc->srv_summary;
+        int new_data = cfs_atomic_read(&summary->sh_rpc_number);
+        ENTRY;
+
+        ptlrpc_service_summary_update(svc, new_data);
+        cfs_atomic_sub(new_data, &summary->sh_rpc_number);
+        cfs_timer_arm(&summary->sh_timer,
+                      cfs_time_seconds(summary->sh_timeout) +
+                      cfs_time_current());
+
+        EXIT;
+}
+
+#define PTLRPC_SERVICE_SUMMARY_TIMEOUT (5)
+#define PTLRPC_SERVICE_SUMMARY_WIDTH   (10)
+#define PTLRPC_SERVICE_SUMMARY_DEPTH   (3)
+
+static void
+ptlrpc_service_summary_fini(struct ptlrpc_service *svc)
+{
+        struct ptlrpc_service_summary *summary = &svc->srv_summary;
+        cfs_list_t *l, *tmp;
+        struct ptlrpc_summary_period *period;
+        ENTRY;
+
+        cfs_list_for_each_safe(l, tmp, &summary->sh_history_head) {
+		period = cfs_list_entry(l, struct ptlrpc_summary_period,
+		                        ssp_linkage);
+		cfs_list_del(&period->ssp_linkage);
+		OBD_FREE_PTR(period);
+	}
+        cfs_timer_disarm(&svc->srv_summary.sh_timer);
+        EXIT;
+}
+
+static int ptlrpc_service_summary_init(struct ptlrpc_service *svc)
+{
+        struct ptlrpc_service_summary *summary = &svc->srv_summary;
+        int i;
+        struct ptlrpc_summary_period *period;
+        int rc = 0;
+        int length;
+        ENTRY;
+
+        summary->sh_timeout = PTLRPC_SERVICE_SUMMARY_TIMEOUT;
+        summary->sh_depth = PTLRPC_SERVICE_SUMMARY_DEPTH;
+        summary->sh_width = PTLRPC_SERVICE_SUMMARY_WIDTH;
+        length = summary->sh_timeout;
+        CFS_INIT_LIST_HEAD(&summary->sh_history_head);
+        for (i = 0; i < summary->sh_depth; i++) {
+                length *= summary->sh_width;
+                OBD_ALLOC_PTR(period);
+                if (period == NULL)
+                        GOTO(fail, rc = -ENOMEM);
+                period->ssp_depth = i;
+                period->ssp_length = length;
+                cfs_list_add_tail(&period->ssp_linkage,
+                                  &summary->sh_history_head);
+        }
+
+        cfs_atomic_set(&summary->sh_rpc_number, 0);
+        cfs_timer_init(&summary->sh_timer,
+                       ptlrpc_service_summary_cb, svc);
+        cfs_timer_arm(&summary->sh_timer,
+                      cfs_time_seconds(summary->sh_timeout) +
+                      cfs_time_current());
+
+        goto out;
+fail:
+        ptlrpc_service_summary_fini(svc);
+out:
+        RETURN(rc);
+}
+
 /**
  * Initialize service on a given portal.
  * This includes starting serving threads , allocating and posting rqbds and
@@ -826,6 +933,10 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 	mutex_lock(&ptlrpc_all_services_mutex);
 	cfs_list_add (&service->srv_list, &ptlrpc_all_services);
 	mutex_unlock(&ptlrpc_all_services_mutex);
+
+        rc = ptlrpc_service_summary_init(service);
+        if (rc != 0)
+                GOTO(failed, rc);
 
 	if (proc_entry != NULL)
 		ptlrpc_lprocfs_register_service(proc_entry, service);
@@ -1999,6 +2110,7 @@ ptlrpc_server_handle_request(struct ptlrpc_service_part *svcpt,
                           request->rq_deadline));
                 goto put_conn;
         }
+        cfs_atomic_inc(&svc->srv_summary.sh_rpc_number);
 
         CDEBUG(D_RPCTRACE, "Handling RPC pname:cluuid+ref:pid:xid:nid:opc "
                "%s:%s+%d:%d:x"LPU64":%s:%d\n", cfs_curproc_comm(),
@@ -3181,6 +3293,7 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
 	ptlrpc_service_nrs_cleanup(service);
 
 	ptlrpc_lprocfs_unregister_service(service);
+        ptlrpc_service_summary_fini(service);
 
 	ptlrpc_service_free(service);
 

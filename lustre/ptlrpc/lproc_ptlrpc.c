@@ -1087,6 +1087,35 @@ static int ptlrpc_lprocfs_wr_hp_ratio(struct file *file, const char *buffer,
 	return count;
 }
 
+static int ptlrpc_lprocfs_rd_rpc_rate(char *page, char **start, off_t off,
+                                      int count, int *eof, void *data)
+{
+        struct ptlrpc_service *svc = data;
+        int rc;
+        struct ptlrpc_service_summary *summary = &svc->srv_summary;
+        cfs_list_t *l;
+        struct ptlrpc_summary_period *period;
+        ENTRY;
+
+        rc= snprintf(page, count, "last %d\n",
+                     summary->sh_last_numer);
+        cfs_list_for_each(l, &summary->sh_history_head) {
+		period = cfs_list_entry(l, struct ptlrpc_summary_period,
+		                        ssp_linkage);
+                rc += snprintf(page + rc, count,
+                               "length %d, "
+                               "statistic %d, "
+                               "carry %d, "
+                               "times %d\n",
+                               period->ssp_length,
+                               period->ssp_statistic,
+                               period->ssp_carry,
+                               period->ssp_carry_times);
+	}
+        EXIT;
+        return rc;
+}
+
 void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                                      struct ptlrpc_service *svc)
 {
@@ -1120,6 +1149,9 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
 		 .read_fptr  = ptlrpc_lprocfs_rd_nrs,
 		 .write_fptr = ptlrpc_lprocfs_wr_nrs,
 		 .data	     = svc},
+                {.name       = "rpc_rate",
+                 .read_fptr  = ptlrpc_lprocfs_rd_rpc_rate,
+                 .data       = svc},
 		{NULL}
         };
         static struct file_operations req_history_fops = {
