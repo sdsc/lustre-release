@@ -82,7 +82,7 @@ Requires: kernel = %{krequires}
 %endif
 %endif
 %if ! %{is_client}
-Requires: lustre-backend-fs
+Requires: lustre-backend-fs >= 3.3.6
 %endif
 Group: Development/Kernel
 
