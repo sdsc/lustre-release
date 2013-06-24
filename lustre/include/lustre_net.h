@@ -2462,6 +2462,57 @@ struct ptlrpc_service_ops {
 	void		(*so_req_printer)(void *, struct ptlrpc_request *);
 };
 
+struct ptlrpc_summary_period {
+	/**
+	 * Linkage to history
+	 */
+	cfs_list_t      sp_linkage;
+	/**
+	 * Statistic of this period
+	 */
+	__u64           sp_statistic;
+	/**
+	 * Summary from last depth
+	 */
+	__u64           sp_carry;
+	/**
+	 * How much time last depth reports
+	 */
+	int             sp_carry_times;
+};
+
+struct ptlrpc_service_summary {
+	/**
+	 * Timer which collects the number of RPC handled regularly.
+	 */
+	cfs_timer_t     ss_timer;
+	/**
+	 * Timeout of the timer in seconds.
+	 */
+	int             ss_timeout;
+	/**
+	 * Handled RPC number during current timeout period.
+	 */
+	cfs_atomic_t    ss_rpc_number;
+	/**
+	 * RPC number during last timeout period.
+	 */
+	int             ss_last_number;
+	/**
+	 * History list is combined by serveral periods.
+	 * The time intervals of these periods are exponential increasing.
+	 */
+	cfs_list_t      ss_history_head;
+	/**
+	 * The time interval of a period is a multiple of the pervious one.
+	 */
+	int             ss_multiple;
+	/**
+	 * Depth of the deepest period, i.e. the number of the periods.
+	 */
+	int             ss_depth;
+};
+
 #ifndef __cfs_cacheline_aligned
 /* NB: put it here for reducing patche dependence */
 # define __cfs_cacheline_aligned
@@ -2535,6 +2586,8 @@ struct ptlrpc_service {
 	int				srv_cpt_bits;
 	/** CPT table this service is running over */
 	struct cfs_cpt_table		*srv_cptable;
+	/** history of service request handling */
+	struct ptlrpc_service_summary   srv_summary;
 	/**
 	 * partition data for ptlrpc service
 	 */
