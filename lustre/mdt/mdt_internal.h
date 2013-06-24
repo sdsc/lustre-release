@@ -55,6 +55,7 @@
  */
 #include <lustre_net.h>
 #include <obd.h>
+#include <obd_class.h>
 /*
  * struct obd_connect_data
  * struct lustre_handle
@@ -65,13 +66,12 @@
 #include <md_object.h>
 #include <lustre_fid.h>
 #include <lustre_fld.h>
-#include <lustre_mdt.h>
 #include <lustre_req_layout.h>
 #include <lustre_sec.h>
-#include <lvfs.h>
+//#include <lvfs.h>
 #include <lustre_idmap.h>
 #include <lustre_eacl.h>
-#include <lustre_fsfilt.h>
+//#include <lustre_fsfilt.h>
 #include <lustre_quota.h>
 
 /* check if request's xid is equal to last one or not*/
