@@ -270,6 +270,8 @@ AC_DEFUN([LB_ZFS_USER], [
 	AC_MSG_CHECKING([zfs devel headers])
 	AS_IF([test -d /usr/include/libzfs && test -d /usr/include/libspl], [
 		zfslib="-I /usr/include/libspl -I /usr/include/libzfs"
+	], [test -e $zfssrc/include/libzfs.h && test -e $zfssrc/lib/libspl/include], [
+		zfslib="-I $zfssrc/lib/libspl/include -I $zfssrc/include"
 	], [
 		zfslib="[Not found]"
 		enable_zfs=no
