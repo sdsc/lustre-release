@@ -590,6 +590,17 @@ out_free:
 	return rc;
 }
 
+static struct tgt_opc_slice ofd_common_slice[] = {
+	{
+		.tos_opc_start	= SEQ_FIRST_OPC,
+		.tos_opc_end	= SEQ_LAST_OPC,
+		.tos_hs		= seq_handlers
+	},
+	{
+		.tos_hs		= NULL
+	}
+};
+
 static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 		     struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
@@ -736,7 +747,15 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	if (rc)
 		GOTO(err_fini_lut, rc);
 
+	rc = tgt_register_slice(ofd_common_slice, obd->obd_type,
+				OBD_FAIL_OST_ALL_REQUEST_NET,
+				OBD_FAIL_OST_ALL_REPLY_NET);
+	if (rc)
+		GOTO(err_slice, rc);
+
 	RETURN(0);
+err_slice:
+	ofd_fs_cleanup(env, m);
 err_fini_lut:
 	tgt_fini(env, &m->ofd_lut);
 err_free_ns:
@@ -755,6 +774,7 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	struct lu_device  *d = &m->ofd_dt_dev.dd_lu_dev;
 
 	target_recovery_fini(obd);
+	tgt_degister_slice(ofd_common_slice);
 	obd_exports_barrier(obd);
 	obd_zombie_barrier();
 
