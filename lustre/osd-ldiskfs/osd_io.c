@@ -297,7 +297,7 @@ static int can_be_merged(struct bio *bio, sector_t sector)
                 return 0;
 
         size = bio->bi_size >> 9;
-        return bio->bi_sector + size == sector ? 1 : 0;
+	return bio->bi_sector + size == sector;
 }
 
 static int osd_do_bio(struct osd_device *osd, struct inode *inode,
@@ -320,8 +320,6 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
         int            i;
         int            rc = 0;
         ENTRY;
-
-        LASSERT(iobuf->dr_npages == npages);
 
         osd_brw_stats_update(osd, iobuf);
         iobuf->dr_start_time = cfs_time_current();
@@ -348,14 +346,14 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
                                 continue;
                         }
 
-                        sector = (sector_t)blocks[block_idx + i] << sector_bits;
+			sector = blocks[block_idx + i];
 
-                        /* Additional contiguous file blocks? */
-                        while (i + nblocks < blocks_per_page &&
-                               (sector + (nblocks << sector_bits)) ==
-                               ((sector_t)blocks[block_idx + i + nblocks] <<
-                                sector_bits))
+			/* Additional contiguous file blocks? */
+			while (i + nblocks < blocks_per_page &&
+			       sector + nblocks == blocks[block_idx+i+nblocks])
                                 nblocks++;
+
+			sector <<= sector_bits;
 
                         /* I only set the page to be constant only if it
                          * is mapped to a contiguous underlying disk block(s).
