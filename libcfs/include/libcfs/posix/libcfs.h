@@ -109,8 +109,9 @@
 # define do_gettimeofday(tv) gettimeofday(tv, NULL);
 typedef unsigned long long cfs_cycles_t;
 
+struct task_struct;
+
 #define IS_ERR(a) ((unsigned long)(a) > (unsigned long)-1000L)
-#define IS_ERR_VALUE(a) (IS_ERR(a))
 #define PTR_ERR(a) ((long)(a))
 #define ERR_PTR(a) ((void*)((long)(a)))
 
