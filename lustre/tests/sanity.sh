@@ -8603,7 +8603,7 @@ function roc_hit() {
 	#debug temp debug for LU-2902: lets see what values we get back
 	echo $(get_osd_param $list '' stats) 1>&2
 	echo $(get_osd_param $list '' stats |
-	       awk '/'cache_hit'/ {sum+=$2} END {print sum}')
+	       awk '/'cache_hit'/ {sum+=$7} END {print sum}')
 }
 
 function set_cache() {

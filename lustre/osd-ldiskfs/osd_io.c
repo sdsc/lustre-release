@@ -297,7 +297,7 @@ static int can_be_merged(struct bio *bio, sector_t sector)
                 return 0;
 
         size = bio->bi_size >> 9;
-        return bio->bi_sector + size == sector ? 1 : 0;
+	return bio->bi_sector + size == sector;
 }
 
 static int osd_do_bio(struct osd_device *osd, struct inode *inode,
@@ -320,8 +320,6 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
         int            i;
         int            rc = 0;
         ENTRY;
-
-        LASSERT(iobuf->dr_npages == npages);
 
         osd_brw_stats_update(osd, iobuf);
         iobuf->dr_start_time = cfs_time_current();
@@ -348,14 +346,14 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
                                 continue;
                         }
 
-                        sector = (sector_t)blocks[block_idx + i] << sector_bits;
+			sector = blocks[block_idx + i];
 
-                        /* Additional contiguous file blocks? */
-                        while (i + nblocks < blocks_per_page &&
-                               (sector + (nblocks << sector_bits)) ==
-                               ((sector_t)blocks[block_idx + i + nblocks] <<
-                                sector_bits))
+			/* Additional contiguous file blocks? */
+			while (i + nblocks < blocks_per_page &&
+			       sector + nblocks == blocks[block_idx+i+nblocks])
                                 nblocks++;
+
+			sector <<= sector_bits;
 
                         /* I only set the page to be constant only if it
                          * is mapped to a contiguous underlying disk block(s).
@@ -882,7 +880,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
         struct osd_device *osd = osd_obj2dev(osd_dt_obj(dt));
         struct timeval start, end;
         unsigned long timediff;
-        int rc = 0, i, m = 0, cache = 0;
+	int rc = 0, i, m = 0, cache = 0, cache_hits = 0, cache_misses = 0;
 
         LASSERT(inode);
 
@@ -910,18 +908,21 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
                         lnb[i].rc = lnb[i].len;
                 m += lnb[i].len;
 
-                lprocfs_counter_add(osd->od_stats, LPROC_OSD_CACHE_ACCESS, 1);
-                if (PageUptodate(lnb[i].page)) {
-                        lprocfs_counter_add(osd->od_stats,
-                                            LPROC_OSD_CACHE_HIT, 1);
-                } else {
-                        lprocfs_counter_add(osd->od_stats,
-                                            LPROC_OSD_CACHE_MISS, 1);
-                        osd_iobuf_add_page(iobuf, lnb[i].page);
-                }
+		if (PageUptodate(lnb[i].page)) {
+			cache_hits++;
+		} else {
+			cache_misses++;
+			osd_iobuf_add_page(iobuf, lnb[i].page);
+		}
                 if (cache == 0)
                         generic_error_remove_page(inode->i_mapping,lnb[i].page);
         }
+
+	lprocfs_counter_add(osd->od_stats, LPROC_OSD_CACHE_HIT, cache_hits);
+	lprocfs_counter_add(osd->od_stats, LPROC_OSD_CACHE_MISS, cache_misses);
+	lprocfs_counter_add(osd->od_stats, LPROC_OSD_CACHE_ACCESS,
+			    cache_hits+cache_misses);
+
         cfs_gettimeofday(&end);
         timediff = cfs_timeval_sub(&end, &start, NULL);
         lprocfs_counter_add(osd->od_stats, LPROC_OSD_GET_PAGE, timediff);
