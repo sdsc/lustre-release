@@ -2666,17 +2666,23 @@ static int ptlrpc_start_hr_threads(void)
 
 		for (j = 0; j < hrp->hrp_nthrs; j++) {
 			struct	ptlrpc_hr_thread *hrt = &hrp->hrp_thrs[j];
-			rc = PTR_ERR(kthread_run(ptlrpc_hr_main,
-						 &hrp->hrp_thrs[j],
-						 "ptlrpc_hr%02d_%03d",
-						 hrp->hrp_cpt,
-						 hrt->hrt_id));
-			if (IS_ERR_VALUE(rc))
+			cfs_task_t *task;
+
+			task = kthread_run(ptlrpc_hr_main,
+					   &hrp->hrp_thrs[j],
+					   "ptlrpc_hr%02d_%03d",
+					   hrp->hrp_cpt,
+					   hrt->hrt_id);
+			if (IS_ERR(task)) {
+				rc = PTR_ERR(task);
 				break;
+			}
 		}
+
 		cfs_wait_event(ptlrpc_hr.hr_waitq,
 			       cfs_atomic_read(&hrp->hrp_nstarted) == j);
-		if (!IS_ERR_VALUE(rc))
+
+		if (rc == 0)
 			continue;
 
 		CERROR("Reply handling thread %d:%d Failed on starting: "
@@ -2792,6 +2798,7 @@ int ptlrpc_start_thread(struct ptlrpc_service_part *svcpt, int wait)
 	struct l_wait_info	lwi = { 0 };
 	struct ptlrpc_thread	*thread;
 	struct ptlrpc_service	*svc;
+	cfs_task_t		*task;
 	int			rc;
 	ENTRY;
 
@@ -2859,9 +2866,10 @@ int ptlrpc_start_thread(struct ptlrpc_service_part *svcpt, int wait)
 	}
 
 	CDEBUG(D_RPCTRACE, "starting thread '%s'\n", thread->t_name);
-	rc = PTR_ERR(kthread_run(ptlrpc_main, thread, thread->t_name));
-	if (IS_ERR_VALUE(rc)) {
-		CERROR("cannot start thread '%s': rc %d\n",
+	task = kthread_run(ptlrpc_main, thread, thread->t_name);
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
+		CERROR("cannot start thread '%s': rc = %d\n",
 		       thread->t_name, rc);
 		spin_lock(&svcpt->scp_lock);
 		--svcpt->scp_nthrs_starting;

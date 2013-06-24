@@ -1007,6 +1007,7 @@ static void osp_sync_llog_fini(const struct lu_env *env, struct osp_device *d)
 int osp_sync_init(const struct lu_env *env, struct osp_device *d)
 {
 	struct l_wait_info	 lwi = { 0 };
+	cfs_task_t		*task;
 	int			 rc;
 
 	ENTRY;
@@ -1035,10 +1036,10 @@ int osp_sync_init(const struct lu_env *env, struct osp_device *d)
 	cfs_waitq_init(&d->opd_syn_thread.t_ctl_waitq);
 	CFS_INIT_LIST_HEAD(&d->opd_syn_committed_there);
 
-	rc = PTR_ERR(kthread_run(osp_sync_thread, d,
-				 "osp-syn-%u", d->opd_index));
-	if (IS_ERR_VALUE(rc)) {
-		CERROR("%s: can't start sync thread: rc = %d\n",
+	task = kthread_run(osp_sync_thread, d, "osp_sync_%u", d->opd_index);
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
+		CERROR("%s: cannot start sync thread: rc = %d\n",
 		       d->opd_obd->obd_name, rc);
 		GOTO(err_llog, rc);
 	}
