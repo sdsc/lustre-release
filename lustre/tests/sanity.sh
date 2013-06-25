@@ -1470,6 +1470,15 @@ check_seq_oid()
 }
 
 test_27z() {
+	local server_version=$(lustre_version_code $SINGLEMDS)
+
+	if [[ $server_version -lt $(version_code 2.1.6) ]] ||
+	   [[ $server_version -ge $(version_code 2.2.0) &&
+	      $server_version -lt $(version_code 2.3.63) ]]; then
+		skip "Need MDS version at least 2.1.6 or 2.3.63"
+		return 0
+	fi
+
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
         mkdir -p $DIR/$tdir
         $SETSTRIPE -c 1 -i 0 -s 64k $DIR/$tdir/$tfile-1 ||
