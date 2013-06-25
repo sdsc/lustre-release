@@ -931,13 +931,8 @@ static int mdd_linkea_prepare(const struct lu_env *env,
 
 	if (oldpfid != NULL) {
 		rc = __mdd_links_del(env, mdd_obj, ldata, oldlname, oldpfid);
-		if (rc) {
-			if ((check == 0) ||
-			    (rc != -ENODATA && rc != -ENOENT))
-				RETURN(rc);
-			/* No changes done. */
-			rc = 0;
-		}
+		if (rc != 0 && rc != -ENODATA && rc != -ENOENT)
+			RETURN(rc);
 	}
 
 	/* If renaming, add the new record */
@@ -950,7 +945,7 @@ static int mdd_linkea_prepare(const struct lu_env *env,
 			rc2 = 0;
 	}
 
-	rc = rc != 0 ? rc : rc2;
+	rc = rc2 != 0 ? rc2 : rc;
 
 	RETURN(rc);
 }
@@ -972,11 +967,11 @@ int mdd_links_rename(const struct lu_env *env,
 	if (ldata == NULL) {
 		ldata = &mdd_env_info(env)->mti_link_data;
 		memset(ldata, 0, sizeof(*ldata));
-		rc = mdd_linkea_prepare(env, mdd_obj, oldpfid, oldlname,
+		rc2 = mdd_linkea_prepare(env, mdd_obj, oldpfid, oldlname,
 					newpfid, newlname, first, check,
 					ldata);
-		if (rc != 0)
-			GOTO(out, rc);
+		if (rc2 != 0 && rc2 != -ENODATA && rc2 != -ENOENT)
+			GOTO(out, rc2);
 	}
 
 	if (ldata->ld_reclen != 0)
@@ -987,7 +982,8 @@ out:
 		rc = rc2;
 	if (rc) {
 		int error = 1;
-		if (rc == -EOVERFLOW || rc == -ENOENT || rc == -ENOSPC)
+		if (rc == -EOVERFLOW || rc == -ENOENT ||
+		    rc == -ENOSPC || rc == -ENODATA)
 			error = 0;
 		if (oldpfid == NULL)
 			CDEBUG(error ? D_ERROR : D_OTHER,
@@ -1075,8 +1071,7 @@ int mdd_links_read(const struct lu_env *env, struct mdd_object *mdd_obj,
 	if (rc < 0)
 		return rc;
 
-	linkea_init(ldata);
-	return 0;
+	return linkea_init(ldata);
 }
 
 /** Read the link EA into a temp buffer.
