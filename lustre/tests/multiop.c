@@ -61,18 +61,21 @@ sem_t sem;
 #define ALIGN 65535
 
 char usage[] =
-"Usage: %s filename command-sequence\n"
+"Usage: %s filename command-sequence [path...]\n"
 "    command-sequence items:\n"
+"        B[num] call setstripe ioctl to create stripes\n"
 "        c  close\n"
 "        C[num] create with optional stripes\n"
 "        d  mkdir\n"
 "        D  open(O_DIRECTORY)\n"
 "        f  statfs\n"
-"        L  link\n"
-"        l  symlink\n"
+"        K  link path to filename\n"
+"        L  link filename to path\n"
+"        l  symlink filename to path\n"
 "        m  mknod\n"
 "        M  rw mmap to EOF (must open and stat prior)\n"
-"        N  rename\n"
+"        n  rename path to filename\n"
+"        N  rename filename to path\n"
 "        o  open(O_RDONLY)\n"
 "        O  open(O_CREAT|O_RDWR)\n"
 "        r[num] read [optional length]\n"
@@ -138,6 +141,7 @@ struct flag_mapping {
        {"O_LARGEFILE", O_LARGEFILE},
        {"O_DIRECTORY", O_DIRECTORY},
        {"O_NOFOLLOW", O_NOFOLLOW},
+	{"O_LOV_DELAY_CREATE", O_LOV_DELAY_CREATE},
        {"", -1}
 };
 
@@ -186,14 +190,16 @@ int main(int argc, char **argv)
 {
         char *fname, *commands;
         const char *newfile;
-        struct stat st;
-        struct statfs stfs;
-        size_t mmap_len = 0, i;
-        unsigned char *mmap_ptr = NULL, junk = 0;
-        int rc, len, fd = -1;
-        int flags;
-        int save_errno;
-        int verbose = 0;
+	const char	*oldpath;
+	struct stat	st;
+	struct statfs	stfs;
+	size_t		mmap_len = 0, i;
+	unsigned char	*mmap_ptr = NULL, junk = 0;
+	int		rc, len, fd = -1;
+	int		flags;
+	int		save_errno;
+	int		verbose = 0;
+	struct lov_user_md_v3 lum;
 
         if (argc < 3) {
                 fprintf(stderr, usage, argv[0]);
@@ -217,6 +223,18 @@ int main(int argc, char **argv)
                         }
                         while (sem_wait(&sem) == -1 && errno == EINTR);
                         break;
+		case 'B':
+			lum = (struct lov_user_md_v3) {
+				.lmm_magic = LOV_USER_MAGIC_V3,
+				.lmm_stripe_count = atoi(commands + 1),
+			};
+
+			if (ioctl(fd, LL_IOC_LOV_SETSTRIPE, &lum) < 0) {
+				save_errno = errno;
+				perror("LL_IOC_LOV_SETSTRIPE");
+				exit(save_errno);
+			}
+			break;
                 case 'c':
                         if (close(fd) == -1) {
                                 save_errno = errno;
@@ -257,6 +275,17 @@ int main(int argc, char **argv)
                                 exit(save_errno);
                         }
                         break;
+		case 'K':
+			oldpath = POP_ARG();
+			if (oldpath == NULL)
+				oldpath = fname;
+
+			if (link(oldpath, fname)) {
+				save_errno = errno;
+				perror("link()");
+				exit(save_errno);
+			}
+			break;
                 case 'l':
                         newfile = POP_ARG();
                         if (!newfile)
@@ -269,7 +298,7 @@ int main(int argc, char **argv)
                         break;
                 case 'L':
                         newfile = POP_ARG();
-                        if (!newfile)
+			if (newfile == NULL)
                                 newfile = fname;
                         if (link(fname, newfile)) {
                                 save_errno = errno;
@@ -299,6 +328,17 @@ int main(int argc, char **argv)
                                 exit(save_errno);
                         }
                         break;
+		case 'n':
+			oldpath = POP_ARG();
+			if (oldpath == NULL)
+				oldpath = fname;
+
+			if (rename(oldpath, fname) < 0) {
+				save_errno = errno;
+				perror("rename()");
+				exit(save_errno);
+			}
+			break;
                 case 'N':
                         newfile = POP_ARG();
                         if (!newfile)
@@ -465,6 +505,7 @@ int main(int argc, char **argv)
                                 exit(save_errno);
                         }
                         break;
+		case '-':
                 case '0':
                 case '1':
                 case '2':
