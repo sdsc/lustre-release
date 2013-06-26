@@ -2808,7 +2808,7 @@ int ldlm_init_export(struct obd_export *exp)
         if (!exp->exp_lock_hash)
                 RETURN(-ENOMEM);
 
-        RETURN(0);
+	RETURN(ldlm_init_flock_export(exp));
 }
 EXPORT_SYMBOL(ldlm_init_export);
 
