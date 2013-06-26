@@ -317,7 +317,7 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	CLASSERT(LMA_OLD_SIZE >= sizeof(*lma));
 	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_LMA,
 			     info->oti_mdt_attrs_old, LMA_OLD_SIZE);
-	if (rc == -ENODATA) {
+	if (rc == -ENODATA && osd_obj2dev(obj)->od_check_ff) {
 		fid = &lma->lma_self_fid;
 		rc = osd_get_idif(info, inode, dentry, fid);
 		if (rc > 0)
