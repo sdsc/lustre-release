@@ -304,6 +304,7 @@ int osd_get_idif(struct osd_thread_info *info, struct inode *inode,
 static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 {
 	struct osd_thread_info	*info	= osd_oti_get(env);
+	struct osd_device	*osd	= osd_obj2dev(obj);
 	struct lustre_mdt_attrs	*lma	= &info->oti_mdt_attrs;
 	struct inode		*inode	= obj->oo_inode;
 	struct dentry		*dentry = &info->oti_obj_dentry;
@@ -317,11 +318,35 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	CLASSERT(LMA_OLD_SIZE >= sizeof(*lma));
 	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_LMA,
 			     info->oti_mdt_attrs_old, LMA_OLD_SIZE);
-	if (rc == -ENODATA && osd_obj2dev(obj)->od_check_ff) {
+	if (rc == -ENODATA && osd->od_check_ff) {
 		fid = &lma->lma_self_fid;
 		rc = osd_get_idif(info, inode, dentry, fid);
-		if (rc > 0)
+		if (rc > 0) {
 			rc = 0;
+		} else if (rc == -ENODATA && osd->od_lma_self_repair) {
+			const struct lu_fid *fid =
+					lu_object_fid(&obj->oo_dt.do_lu);
+			handle_t	    *jh;
+			int		     rc1;
+
+			jh = ldiskfs_journal_start_sb(osd_sb(osd),
+					osd_dto_credits_noquota[DTO_XATTR_SET]);
+			if (IS_ERR(jh)) {
+				CWARN("%s: cannot start journal for "
+				      "lma_self_repair: rc = %d\n",
+				      osd_name(osd), (int)PTR_ERR(jh));
+				RETURN(0);
+			}
+
+			rc1 = osd_ea_fid_set(info, inode, fid,
+				fid_is_on_ost(info, osd, fid, OI_CHECK_FLD) ?
+				LMAC_FID_ON_OST : 0, 0);
+			if (rc1 != 0)
+				CWARN("%s: cannot self repair the LMA: "
+				      "rc = %d\n", osd_name(osd), rc1);
+			ldiskfs_journal_stop(jh);
+			/* Go ahead in spite of whether repair the LMA or not.*/
+		}
 	}
 
 	if (unlikely(rc == -ENODATA))
@@ -5549,6 +5574,9 @@ static int osd_device_init0(const struct lu_env *env,
 	rc = lu_site_init_finish(&o->od_site);
 	if (rc != 0)
 		GOTO(out_site, rc);
+
+	/* self-repair LMA by default */
+	o->od_lma_self_repair = 1;
 
 	CFS_INIT_LIST_HEAD(&o->od_ios_list);
 	/* setup scrub, including OI files initialization */
