@@ -373,7 +373,7 @@ void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,
 			fid_zero(&pos->lp_dir_parent);
 			pos->lp_dir_cookie = 0;
 		} else {
-			pos->lp_dir_parent = *lu_object_fid(&dto->do_lu);
+			pos->lp_dir_parent = *lfsck_dto2fid(dto);
 		}
 	} else {
 		fid_zero(&pos->lp_dir_parent);
