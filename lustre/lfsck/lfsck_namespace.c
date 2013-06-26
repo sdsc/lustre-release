@@ -137,7 +137,7 @@ static int lfsck_namespace_load(const struct lu_env *env,
 		lfsck_namespace_le_to_cpu(ns,
 				(struct lfsck_namespace *)com->lc_file_disk);
 		if (ns->ln_magic != LFSCK_NAMESPACE_MAGIC) {
-			CWARN("%.16s: invalid lfsck_namespace magic "
+			CWARN("%s: invalid lfsck_namespace magic "
 			      "0x%x != 0x%x\n",
 			      lfsck_lfsck2name(com->lc_lfsck),
 			      ns->ln_magic, LFSCK_NAMESPACE_MAGIC);
@@ -146,7 +146,7 @@ static int lfsck_namespace_load(const struct lu_env *env,
 			rc = 0;
 		}
 	} else if (rc != -ENODATA) {
-		CERROR("%.16s: fail to load lfsck_namespace, expected = %d, "
+		CERROR("%s: fail to load lfsck_namespace, expected = %d, "
 		       "rc = %d\n", lfsck_lfsck2name(com->lc_lfsck), len, rc);
 		if (rc >= 0)
 			rc = 1;
@@ -169,7 +169,7 @@ static int lfsck_namespace_store(const struct lu_env *env,
 	handle = dt_trans_create(env, lfsck->li_bottom);
 	if (IS_ERR(handle)) {
 		rc = PTR_ERR(handle);
-		CERROR("%.16s: fail to create trans for storing "
+		CERROR("%s: fail to create trans for storing "
 		       "lfsck_namespace: %d\n,", lfsck_lfsck2name(lfsck), rc);
 		RETURN(rc);
 	}
@@ -178,14 +178,14 @@ static int lfsck_namespace_store(const struct lu_env *env,
 				  lfsck_buf_get(env, com->lc_file_disk, len),
 				  XATTR_NAME_LFSCK_NAMESPACE, 0, handle);
 	if (rc != 0) {
-		CERROR("%.16s: fail to declare trans for storing "
+		CERROR("%s: fail to declare trans for storing "
 		       "lfsck_namespace: %d\n,", lfsck_lfsck2name(lfsck), rc);
 		GOTO(out, rc);
 	}
 
 	rc = dt_trans_start_local(env, lfsck->li_bottom, handle);
 	if (rc != 0) {
-		CERROR("%.16s: fail to start trans for storing "
+		CERROR("%s: fail to start trans for storing "
 		       "lfsck_namespace: %d\n,", lfsck_lfsck2name(lfsck), rc);
 		GOTO(out, rc);
 	}
@@ -196,7 +196,7 @@ static int lfsck_namespace_store(const struct lu_env *env,
 			  init ? LU_XATTR_CREATE : LU_XATTR_REPLACE,
 			  handle, BYPASS_CAPA);
 	if (rc != 0)
-		CERROR("%.16s: fail to store lfsck_namespace, len = %d, "
+		CERROR("%s: fail to store lfsck_namespace, len = %d, "
 		       "rc = %d\n", lfsck_lfsck2name(lfsck), len, rc);
 
 	GOTO(out, rc);
@@ -628,7 +628,7 @@ stop:
 		if (rc == 0 && !lfsck_is_dead_obj(child) &&
 		    ldata.ld_leh != NULL &&
 		    ldata.ld_leh->leh_reccount != la->la_nlink)
-			CWARN("%.16s: the object "DFID" linkEA entry count %u "
+			CWARN("%s: the object "DFID" linkEA entry count %u "
 			      "may not match its hardlink count %u\n",
 			      lfsck_lfsck2name(lfsck), PFID(cfid),
 			      ldata.ld_leh->leh_reccount, la->la_nlink);
