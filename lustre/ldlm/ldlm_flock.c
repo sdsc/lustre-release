@@ -109,12 +109,7 @@ static inline int ldlm_flock_blocking_link(struct ldlm_lock *req,
         if (req->l_export == NULL)
 		return 0;
 
-	if (unlikely(req->l_export->exp_flock_hash == NULL)) {
-		rc = ldlm_init_flock_export(req->l_export);
-		if (rc)
-			goto error;
-	}
-
+	LASSERT(req->l_export->exp_flock_hash != NULL);
 	LASSERT(cfs_hlist_unhashed(&req->l_exp_flock_hash));
 
         req->l_policy_data.l_flock.blocking_owner =
@@ -126,7 +121,6 @@ static inline int ldlm_flock_blocking_link(struct ldlm_lock *req,
 	cfs_hash_add(req->l_export->exp_flock_hash,
 		     &req->l_policy_data.l_flock.owner,
 		     &req->l_exp_flock_hash);
-error:
 	return rc;
 }
 
