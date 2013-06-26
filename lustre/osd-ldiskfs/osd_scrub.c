@@ -1427,32 +1427,6 @@ osd_ios_lookup_one_len(const char *name, struct dentry *parent, int namelen)
 	return dentry;
 }
 
-static inline void
-osd_ios_llogname2fid(struct lu_fid *fid, const char *name, int namelen)
-{
-	obd_id id = 0;
-	int    i  = 0;
-
-	fid->f_seq = FID_SEQ_LLOG;
-	while (i < namelen)
-		id = id * 10 + name[i++] - '0';
-
-	fid->f_oid = id & 0x00000000ffffffffULL;
-	fid->f_ver = id >> 32;
-}
-
-static inline void
-osd_ios_Oname2fid(struct lu_fid *fid, const char *name, int namelen)
-{
-	__u64 seq = 0;
-	int   i   = 0;
-
-	while (i < namelen)
-		seq = seq * 10 + name[i++] - '0';
-
-	lu_last_id_fid(fid, seq);
-}
-
 static int
 osd_ios_new_item(struct osd_device *dev, struct dentry *dentry,
 		 scandir_t scandir, filldir_t filldir)

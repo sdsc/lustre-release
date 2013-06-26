@@ -333,6 +333,11 @@ static struct lu_object *ofd_object_alloc(const struct lu_env *env,
 
 extern int ost_handle(struct ptlrpc_request *req);
 
+static int ofd_lfsck_notify(void *data, enum lfsck_events event)
+{
+	return 0;
+}
+
 static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 		       struct lu_device *dev)
 {
@@ -360,7 +365,8 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	if (rc != 0)
 		RETURN(rc);
 
-	rc = lfsck_register(env, ofd->ofd_osd, &ofd->ofd_dt_dev, false);
+	rc = lfsck_register(env, ofd->ofd_osd, &ofd->ofd_dt_dev,
+			    ofd_lfsck_notify, ofd, false);
 	if (rc != 0) {
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
 		       obd->obd_name, rc);
