@@ -1028,6 +1028,106 @@ int osd_obj_map_update(struct osd_thread_info *info,
 	RETURN(rc);
 }
 
+int osd_obj_map_rename(struct osd_thread_info *info,
+		       struct osd_device *osd,
+		       struct dentry *src_parent,
+		       struct dentry *src_child,
+		       const struct lu_fid *fid)
+{
+	struct osd_obj_seq	   *osd_seq;
+	struct dentry		   *tgt_parent;
+	struct dentry		   *tgt_child = &info->oti_child_dentry;
+	struct inode		   *dir;
+	struct ost_id		   *ostid     = &info->oti_ostid;
+	handle_t		   *jh;
+	struct ldiskfs_dir_entry_2 *de;
+	struct buffer_head	   *bh;
+	char			    name[32];
+	int			    dirn;
+	int			    rc	      = 0;
+	ENTRY;
+
+	if (fid_is_last_id(fid)) {
+		osd_seq = osd_seq_load(info, osd, fid_seq(fid));
+		if (IS_ERR(osd_seq))
+			RETURN(PTR_ERR(osd_seq));
+
+		tgt_parent = osd_seq->oos_root;
+		tgt_child->d_name.name = "LAST_ID";
+		tgt_child->d_name.len = strlen("LAST_ID");
+	} else {
+		fid_to_ostid(fid, ostid);
+		osd_seq = osd_seq_load(info, osd, ostid_seq(ostid));
+		if (IS_ERR(osd_seq))
+			RETURN(PTR_ERR(osd_seq));
+
+		dirn = ostid_id(ostid) & (osd_seq->oos_subdir_count - 1);
+		tgt_parent = osd_seq->oos_dirs[dirn];
+		osd_oid_name(name, sizeof(name), fid, ostid_id(ostid));
+		tgt_child->d_name.name = name;
+		tgt_child->d_name.len = strlen(name);
+	}
+	LASSERT(tgt_parent != NULL);
+
+	dir = tgt_parent->d_inode;
+	tgt_child->d_name.hash = 0;
+	tgt_child->d_parent = tgt_parent;
+	tgt_child->d_inode = src_child->d_inode;
+
+	jh = ldiskfs_journal_start_sb(osd_sb(osd),
+				osd_dto_credits_noquota[DTO_INDEX_DELETE] +
+				osd_dto_credits_noquota[DTO_INDEX_INSERT]);
+	if (IS_ERR(jh))
+		RETURN(PTR_ERR(jh));
+
+	ll_vfs_dq_init(src_parent->d_inode);
+	ll_vfs_dq_init(dir);
+
+	/* There will be only single thread (OI scrub) to access the src_parent,
+	 * needs NOT lock. So only take mutex against the target parent (dir).*/
+	mutex_lock(&dir->i_mutex);
+	bh = osd_ldiskfs_find_entry(dir, tgt_child, &de, NULL);
+	if (bh != NULL) {
+		/* XXX: If some other object occupied the same slot. And If such
+		 * 	inode is zero-sized and with SUID+SGID, then means it is
+		 * 	a new created one. Maybe we can remove it and insert the
+		 * 	original one back to the /O/<seq>/d<x>. But there are
+		 * 	something to be considered:
+		 *
+		 * 	1) The OST-object under /lost+found has crashed LMA.
+		 * 	   So it should not conflict with the current one.
+		 *
+		 *	2) There are race conditions that: someone may just want
+		 *	   to modify the current one. Even if the OI scrub takes
+		 *	   the object lock when remove the current one, it still
+		 *	   cause the modification to be lost becasue the target
+		 *	   has been removed when the RPC service thread waiting
+		 *	   for the lock.
+		 *
+		 * 	So keep it there before we have suitable solution. */
+		brelse(bh);
+		GOTO(unlock, rc = -EEXIST);
+	}
+
+	bh = osd_ldiskfs_find_entry(src_parent->d_inode, src_child, &de, NULL);
+	if (unlikely(bh == NULL))
+		GOTO(unlock, rc = -ENOENT);
+
+	rc = ldiskfs_delete_entry(jh, src_parent->d_inode, de, bh);
+	brelse(bh);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	rc = osd_ldiskfs_add_entry(jh, tgt_child, src_child->d_inode, NULL);
+
+	GOTO(unlock, rc);
+
+unlock:
+	mutex_unlock(&dir->i_mutex);
+	ldiskfs_journal_stop(jh);
+	return rc;
+}
+
 static struct dentry *
 osd_object_spec_find(struct osd_thread_info *info, struct osd_device *osd,
 		     const struct lu_fid *fid, char **name)
