@@ -789,6 +789,12 @@ static int osd_scrub_get_fid(struct osd_thread_info *info,
 		}
 
 		*fid = lma->lma_self_fid;
+		if (unlikely(fid_is_last_id(fid))) {
+			if (scrub && !(lma->lma_compat & LMAC_FID_ON_OST))
+				rc = SCRUB_NEXT_OSTOBJ_OLD;
+			return rc;
+		}
+
 		if (fid_is_internal(&lma->lma_self_fid)) {
 			if (!scrub)
 				rc = SCRUB_NEXT_CONTINUE;
@@ -804,7 +810,7 @@ static int osd_scrub_get_fid(struct osd_thread_info *info,
 		if (lma->lma_compat & LMAC_FID_ON_OST)
 			return SCRUB_NEXT_OSTOBJ;
 
-		if (fid_is_idif(fid) || fid_is_last_id(fid))
+		if (fid_is_idif(fid))
 			return SCRUB_NEXT_OSTOBJ_OLD;
 
 		if (lma->lma_incompat & LMAI_AGENT)

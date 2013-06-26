@@ -335,7 +335,23 @@ extern int ost_handle(struct ptlrpc_request *req);
 
 static int ofd_lfsck_notify(void *data, enum lfsck_events event)
 {
-	return 0;
+	struct ofd_device *ofd = data;
+	int		   rc  = 0;
+
+	switch (event) {
+	case LE_LASTID_REBUILDING:
+		ofd->ofd_lastid_rebuilding = 1;
+		break;
+	case LE_LASTID_REBUILT:
+		ofd->ofd_lastid_rebuilding = 0;
+		break;
+	default:
+		CERROR("%s: unknown lfsck event: %d\n",
+		       ofd_obd(ofd)->obd_name, event);
+		rc = -EINVAL;
+		break;
+	}
+	return rc;
 }
 
 static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
@@ -345,6 +361,7 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	struct ofd_device	*ofd = ofd_dev(dev);
 	struct obd_device	*obd = ofd_obd(ofd);
 	struct lu_device	*next = &ofd->ofd_osd->dd_lu_dev;
+	struct lfsck_start_param lsp;
 	int			 rc;
 
 	ENTRY;
@@ -370,6 +387,15 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
 		       obd->obd_name, rc);
 		RETURN(rc);
+	}
+
+	lsp.lsp_start = NULL;
+	lsp.lsp_namespace = ofd->ofd_namespace;
+	rc = lfsck_start(env, ofd->ofd_osd, &lsp);
+	if (rc != 0) {
+		CWARN("%s: auto trigger paused LFSCK failed: rc = %d\n",
+		      obd->obd_name, rc);
+		rc = 0;
 	}
 
 	target_recovery_init(&ofd->ofd_lut, ost_handle);

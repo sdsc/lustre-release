@@ -839,8 +839,7 @@ static int lfsck_namespace_exec_dir(const struct lu_env *env,
 	struct lfsck_namespace	   *ns	     =
 				(struct lfsck_namespace *)com->lc_file_ram;
 	struct linkea_data	    ldata    = { 0 };
-	const struct lu_fid	   *pfid     =
-				lu_object_fid(&lfsck->li_obj_dir->do_lu);
+	const struct lu_fid	   *pfid     = lfsck_dto2fid(lfsck->li_obj_dir);
 	const struct lu_fid	   *cfid     = lfsck_dto2fid(obj);
 	const struct lu_name	   *cname;
 	struct thandle		   *handle   = NULL;
@@ -1217,7 +1216,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 				pos.lp_dir_cookie = 0;
 			} else {
 				pos.lp_dir_parent =
-				*lu_object_fid(&lfsck->li_obj_dir->do_lu);
+					*lfsck_dto2fid(lfsck->li_obj_dir);
 			}
 		} else {
 			fid_zero(&pos.lp_dir_parent);
@@ -1482,8 +1481,7 @@ fini:
 		com->lc_journal = 0;
 		ns->ln_status = LS_COMPLETED;
 		if (!(bk->lb_param & LPF_DRYRUN))
-			ns->ln_flags &=
-			~(LF_SCANNED_ONCE | LF_INCONSISTENT | LF_UPGRADE);
+			ns->ln_flags &= ~(LF_SCANNED_ONCE | LF_INCONSISTENT);
 		ns->ln_time_last_complete = ns->ln_time_last_checkpoint;
 		ns->ln_success_count++;
 	} else if (rc == 0) {
