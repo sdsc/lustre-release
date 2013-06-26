@@ -2338,7 +2338,6 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
 	if ((opc == LUSTRE_OPC_CREATE) && (name != NULL) &&
 	     filename_is_volatile(name, namelen, NULL))
 		op_data->op_bias |= MDS_CREATE_VOLATILE;
-	op_data->op_opc = opc;
 	op_data->op_mds = 0;
 	op_data->op_data = data;
 

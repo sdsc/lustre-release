@@ -1203,8 +1203,6 @@ struct md_op_data {
         const char             *op_name;
         int                     op_namelen;
         __u32                   op_mode;
-        struct lmv_stripe_md   *op_mea1;
-        struct lmv_stripe_md   *op_mea2;
         __u32                   op_suppgids[2];
         __u32                   op_fsuid;
         __u32                   op_fsgid;
@@ -1213,9 +1211,6 @@ struct md_op_data {
 
         /* iattr fields and blocks. */
         struct iattr            op_attr;
-#ifdef __KERNEL__
-	unsigned int            op_attr_flags;
-#endif
         __u64                   op_valid;
         loff_t                  op_attr_blocks;
 
@@ -1229,9 +1224,6 @@ struct md_op_data {
 
         /* Various operation flags. */
 	__u32                   op_bias;
-
-        /* Operation type */
-	__u32                   op_opc;
 
         /* Used by readdir */
 	__u64                   op_offset;
