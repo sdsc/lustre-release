@@ -1131,8 +1131,10 @@ static int mdt_open_anon_by_fid(struct mdt_thread_info *info,
 
         rc = mdt_object_exists(o);
         if (rc == 0) {
-                mdt_set_disposition(info, rep, (DISP_LOOKUP_EXECD |
-                                    DISP_LOOKUP_NEG));
+                mdt_set_disposition(info, rep,
+				    DISP_IT_EXECD |
+				    DISP_LOOKUP_EXECD |
+				    DISP_LOOKUP_NEG));
                 GOTO(out, rc = -ENOENT);
         } else if (rc < 0) {
                 CERROR("NFS remote open shouldn't happen.\n");
@@ -1319,8 +1321,21 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         } else if (rr->rr_namelen == 0 && !info->mti_cross_ref &&
                    create_flags & MDS_OPEN_LOCK) {
                 result = mdt_open_anon_by_fid(info, ldlm_rep, lhc);
-                GOTO(out, result);
-        }
+		/* If result is 0 then open by FID has found the file
+		 * and there is nothing left for us to do here.  More
+		 * generally if it is anything other than -ENOENT or
+		 * -EREMOTE then we return that now.  If -ENOENT and
+		 * MDS_OPEN_CREAT is set then we must create the file
+		 * below.  If -EREMOTE then we need to return a LOOKUP
+		 * lock to the client, which we do below.  Hence this
+		 * odd looking condition.  See LU-2523. */
+		if (!(result == -ENOENT && (create_flags & MDS_OPEN_CREAT)) &&
+		    result != -EREMOTE)
+			GOTO(out, result);
+
+		if (unlikely(rr->rr_namelen == 0))
+			GOTO(out, result = -EINVAL);
+	}
 
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OPEN_PACK))
                 GOTO(out, result = err_serious(-ENOMEM));
