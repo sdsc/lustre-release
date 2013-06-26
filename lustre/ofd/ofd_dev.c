@@ -335,7 +335,23 @@ extern int ost_handle(struct ptlrpc_request *req);
 
 static int ofd_lfsck_notify(void *data, enum lfsck_events event)
 {
-	return 0;
+	struct ofd_device *ofd = data;
+	int		   rc  = 0;
+
+	switch (event) {
+	case LE_LASTID_REBUILDING:
+		ofd->ofd_lastid_rebuilding = 1;
+		break;
+	case LE_LASTID_REBUILT:
+		ofd->ofd_lastid_rebuilding = 0;
+		break;
+	default:
+		CERROR("%s: unknown lfsck event: %d\n",
+		       ofd_obd(ofd)->obd_name, event);
+		rc = -EINVAL;
+		break;
+	}
+	return rc;
 }
 
 static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,

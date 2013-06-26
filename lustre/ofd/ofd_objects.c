@@ -267,6 +267,12 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 		fo = batch[i];
 		LASSERT(fo);
 
+		/* Return -ENOSPC until the LAST_ID rebuilt. */
+		if (unlikely(ofd->ofd_lastid_rebuilding)) {
+			rc = -ENOSPC;
+			break;
+		}
+
 		if (likely(!ofd_object_exists(fo))) {
 			next = ofd_object_child(fo);
 			LASSERT(next != NULL);
@@ -282,6 +288,9 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 
 	objects = i;
 	if (objects > 0) {
+		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_SKIP_LASTID))
+			goto trans_stop;
+
 		tmp = cpu_to_le64(ofd_seq_last_oid(oseq));
 		rc = dt_record_write(env, oseq->os_lastid_obj,
 				     &info->fti_buf, &info->fti_off, th);

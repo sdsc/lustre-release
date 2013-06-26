@@ -1489,6 +1489,7 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	if (hint && hint->dah_parent)
 		zapid = osd_dt_obj(hint->dah_parent)->oo_db->db_object;
 
+	set_bit(LU_OBJECT_NEW_ATTACHED, &dt->do_lu.lo_header->loh_flags);
 	db = osd_create_type_f(dof->dof_type)(env, osd, attr, zapid, oh);
 	if (IS_ERR(db))
 		GOTO(out, rc = PTR_ERR(th));

@@ -510,6 +510,10 @@ enum lu_object_header_flags {
 	 * Mark this object has already been taken out of cache.
 	 */
 	LU_OBJECT_UNHASHED = 1,
+	/**
+	 * It is the first time for the object to be attached to a local target.
+	 */
+	LU_OBJECT_NEW_ATTACHED = 2,
 };
 
 enum lu_object_header_attr {

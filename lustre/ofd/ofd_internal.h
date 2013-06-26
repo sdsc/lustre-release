@@ -184,7 +184,8 @@ struct ofd_device {
 				 ofd_sync_lock_cancel:2,
 				 /* shall we grant space to clients not
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
-				 ofd_grant_compat_disable:1;
+				 ofd_grant_compat_disable:1,
+				 ofd_lastid_rebuilding:1;
 	struct seq_server_site	 ofd_seq_site;
 };
 
