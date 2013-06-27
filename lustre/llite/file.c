@@ -698,7 +698,7 @@ out_openerr:
 /* Fills the obdo with the attributes for the lsm */
 static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
                           struct obd_capa *capa, struct obdo *obdo,
-                          __u64 ioepoch, int sync)
+                          __u64 ioepoch, int flags)
 {
         struct ptlrpc_request_set *set;
         struct obd_info            oinfo = { { { 0 } } };
@@ -720,9 +720,11 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
                                OBD_MD_FLGROUP | OBD_MD_FLEPOCH |
                                OBD_MD_FLDATAVERSION;
         oinfo.oi_capa = capa;
-        if (sync) {
+        if (flags & (LL_DV_WRFLUSH | LL_DV_RDFLUSH)) {
                 oinfo.oi_oa->o_valid |= OBD_MD_FLFLAGS;
                 oinfo.oi_oa->o_flags |= OBD_FL_SRVLOCK;
+		if (flags & LL_DV_WRFLUSH)
+			oinfo.oi_oa->o_flags |= OBD_FL_FLUSH;
         }
 
         set = ptlrpc_prep_set();
@@ -735,12 +737,17 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
                         rc = ptlrpc_set_wait(set);
                 ptlrpc_set_destroy(set);
         }
-        if (rc == 0)
-                oinfo.oi_oa->o_valid &= (OBD_MD_FLBLOCKS | OBD_MD_FLBLKSZ |
-                                         OBD_MD_FLATIME | OBD_MD_FLMTIME |
-                                         OBD_MD_FLCTIME | OBD_MD_FLSIZE |
-                                         OBD_MD_FLDATAVERSION);
-        RETURN(rc);
+        if (rc == 0) {
+		oinfo.oi_oa->o_valid &= (OBD_MD_FLBLOCKS | OBD_MD_FLBLKSZ |
+					 OBD_MD_FLATIME | OBD_MD_FLMTIME |
+					 OBD_MD_FLCTIME | OBD_MD_FLSIZE |
+					 OBD_MD_FLDATAVERSION | OBD_MD_FLFLAGS);
+		if (flags & LL_DV_WRFLUSH &&
+		    !(oinfo.oi_oa->o_valid & OBD_MD_FLFLAGS &&
+		      oinfo.oi_oa->o_flags & OBD_FL_FLUSH))
+			RETURN(-ENOTSUPP);
+	}
+	RETURN(rc);
 }
 
 /**
@@ -1825,11 +1832,12 @@ error:
  * This value is computed using stripe object version on OST.
  * Version is computed using server side locking.
  *
- * @param extent_lock  Take extent lock. Not needed if a process is already
- *		       holding the OST object group locks.
+ * @param sync if do sync on the OST side;
+ * 		0: no sync
+ * 		1: flush dirty pages, LCK_PR on OSTs
+ *		> 1: drop all caching pages, LCK_PW on OSTs
  */
-int ll_data_version(struct inode *inode, __u64 *data_version,
-		    int extent_lock)
+int ll_data_version(struct inode *inode, __u64 *data_version, int flags)
 {
 	struct lov_stripe_md	*lsm = NULL;
 	struct ll_sb_info	*sbi = ll_i2sbi(inode);
@@ -1849,7 +1857,7 @@ int ll_data_version(struct inode *inode, __u64 *data_version,
 	if (obdo == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, obdo, 0, extent_lock);
+	rc = ll_lsm_getattr(lsm, sbi->ll_dt_exp, NULL, obdo, 0, flags);
 	if (rc == 0) {
 		if (!(obdo->o_valid & OBD_MD_FLDATAVERSION))
 			rc = -EOPNOTSUPP;
@@ -1948,7 +1956,7 @@ static int ll_swap_layouts(struct file *file1, struct file *file2,
 	/* ultimate check, before swaping the layouts we check if
 	 * dataversion has changed (if requested) */
 	if (llss->check_dv1) {
-		rc = ll_data_version(llss->inode1, &dv, 0);
+		rc = ll_data_version(llss->inode1, &dv, LL_DV_NOFLUSH);
 		if (rc)
 			GOTO(putgl, rc);
 		if (dv != llss->dv1)
@@ -1956,7 +1964,7 @@ static int ll_swap_layouts(struct file *file1, struct file *file2,
 	}
 
 	if (llss->check_dv2) {
-		rc = ll_data_version(llss->inode2, &dv, 0);
+		rc = ll_data_version(llss->inode2, &dv, LL_DV_NOFLUSH);
 		if (rc)
 			GOTO(putgl, rc);
 		if (dv != llss->dv2)
@@ -2131,13 +2139,16 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		RETURN(ll_fid2path(inode, (void *)arg));
 	case LL_IOC_DATA_VERSION: {
 		struct ioc_data_version	idv;
-		int			rc;
+		int rc;
 
 		if (copy_from_user(&idv, (char *)arg, sizeof(idv)))
 			RETURN(-EFAULT);
 
-		rc = ll_data_version(inode, &idv.idv_version,
-				!(idv.idv_flags & LL_DV_NOFLUSH));
+		idv.idv_flags &= LL_DV_NOFLUSH | LL_DV_RDFLUSH | LL_DV_WRFLUSH;
+		if (idv.idv_flags == 0)
+			RETURN(-EINVAL);
+
+		rc = ll_data_version(inode, &idv.idv_version, idv.idv_flags);
 
 		if (rc == 0 && copy_to_user((char *) arg, &idv, sizeof(idv)))
 			RETURN(-EFAULT);

@@ -278,7 +278,7 @@ command_t cmdlist[] = {
         {"path2fid", lfs_path2fid, 0, "Display the fid for a given path.\n"
          "usage: path2fid <path>"},
         {"data_version", lfs_data_version, 0, "Display file data version for "
-         "a given path.\n" "usage: data_version [-n] <path>"},
+         "a given path.\n" "usage: data_version [-n|r|w] <path>"},
 	{"hsm_state", lfs_hsm_state, 0, "Display the HSM information (states, "
 	 "undergoing actions) for given files.\n usage: hsm_state <file> ..."},
 	{"hsm_set", lfs_hsm_set, 0, "Set HSM user flag on specified files.\n"
@@ -3094,17 +3094,23 @@ static int lfs_data_version(int argc, char **argv)
         int fd;
         int rc;
         int c;
-        int nolock = 0;
+        int lvl = LL_DV_RDFLUSH; /* Read by default to keep compatibility */
 
         if (argc < 2)
                 return CMD_HELP;
 
         optind = 0;
-        while ((c = getopt(argc, argv, "n")) != -1) {
+        while ((c = getopt(argc, argv, "nrw")) != -1) {
                 switch (c) {
                 case 'n':
-                        nolock = LL_DV_NOFLUSH;
+			lvl = LL_DV_NOFLUSH;
                         break;
+		case 'r':
+			lvl = LL_DV_RDFLUSH;
+			break;
+		case 'w':
+			lvl = LL_DV_WRFLUSH;
+			break;
                 default:
                         return CMD_HELP;
                 }
@@ -3120,7 +3126,7 @@ static int lfs_data_version(int argc, char **argv)
                 return errno;
         }
 
-        rc = llapi_get_data_version(fd, &data_version, nolock);
+        rc = llapi_get_data_version(fd, &data_version, lvl);
         if (rc) {
                 fprintf(stderr, "can't get version for %s: %s\n", path,
                         strerror(errno = -rc));

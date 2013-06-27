@@ -847,8 +847,10 @@ struct ioc_data_version {
         __u64 idv_version;
         __u64 idv_flags;     /* See LL_DV_xxx */
 };
-#define LL_DV_NOFLUSH 0x01   /* Do not take READ EXTENT LOCK before sampling
+#define LL_DV_NOFLUSH (1 << 0) /* Do not take READ EXTENT LOCK before sampling
                                 version. Dirty caches are left unchanged. */
+#define LL_DV_RDFLUSH (1 << 1) /* Read lock to flush */
+#define LL_DV_WRFLUSH (1 << 2) /* Write lock to flush, drop pages from clients */
 
 #ifndef offsetof
 # define offsetof(typ,memb)     ((unsigned long)((char *)&(((typ *)0)->memb)))
