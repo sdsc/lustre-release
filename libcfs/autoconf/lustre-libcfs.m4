@@ -147,129 +147,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# check cpu topology functions
-#
-# topology_core_cpumask (2.6.29, not on all archs)
-# topology_core_siblings (not on all archs)
-# topology_thread_cpumask (2.6.29, not on all archs)
-# topology_thread_siblings (not on all archs)
-# cpumask_of_node/node_to_cpumask (not always exported)
-AC_DEFUN([LIBCFS_CPU_TOPOLOGY],
-[AC_MSG_CHECKING([whether have topology.h])
-LB_LINUX_TRY_COMPILE([
-	#include <linux/topology.h>
-],[],[
-	AC_DEFINE(HAVE_CPU_TOPOLOGY, 1, [have CPU topology])
-	AC_MSG_RESULT(yes)
-
-	AC_MSG_CHECKING([whether have topology_core_cpumask])
-	LB_LINUX_TRY_COMPILE([
-		#include <linux/topology.h>
-	],[
-		cpumask_t *mask = topology_core_cpumask(0);
-	],[
-		AC_DEFINE(HAVE_TOPOLOGY_CORE_CPUMASK, 1,
-			  [have topology_core_cpumask])
-		AC_MSG_RESULT(yes)
-	],[
-		AC_MSG_RESULT(no)
-	])
-
-	AC_MSG_CHECKING([whether have topology_core_siblings])
-	LB_LINUX_TRY_COMPILE([
-		#include <linux/topology.h>
-	],[
-		cpumask_t mask = topology_core_siblings(0);
-	],[
-		AC_DEFINE(HAVE_TOPOLOGY_CORE_SIBLINGS, 1,
-			  [have topology_core_siblings])
-		AC_MSG_RESULT(yes)
-	],[
-		AC_MSG_RESULT(no)
-	])
-
-	AC_MSG_CHECKING([whether have topology_thread_cpumask])
-	LB_LINUX_TRY_COMPILE([
-		#include <linux/topology.h>
-	],[
-		cpumask_t *mask = topology_thread_cpumask(0);
-	],[
-		AC_DEFINE(HAVE_TOPOLOGY_THREAD_CPUMASK, 1,
-			  [have topology_thread_cpumask])
-		AC_MSG_RESULT(yes)
-	],[
-		AC_MSG_RESULT(no)
-	])
-
-	AC_MSG_CHECKING([whether have topology_thread_siblings])
-	LB_LINUX_TRY_COMPILE([
-		#include <linux/topology.h>
-	],[
-		cpumask_t mask = topology_thread_siblings(0);
-	],[
-		AC_DEFINE(HAVE_TOPOLOGY_THREAD_SIBLINGS, 1,
-			  [have topology_thread_siblings])
-		AC_MSG_RESULT(yes)
-	],[
-		AC_MSG_RESULT(no)
-	])
-
-	AC_MSG_CHECKING([whether OFED backports have cpumask_of_node])
-	# Some OFED has cpumask_of_node backports defined in
-	# its private include/linux/cpumask.h. However, it is
-	# defined conflictingly with kernel's cpumask_of_node.
-	if test -f $OFED_BACKPORT_PATH/linux/cpumask.h; then
-		grep -q cpumask_of_node $OFED_BACKPORT_PATH/linux/cpumask.h 2>/dev/null
-		rc=$?
-		if test $rc -eq 0; then
-			AC_DEFINE(HAVE_OFED_CPUMASK_OF_NODE, 1, [have cpumask_of_node])
-			AC_MSG_RESULT(yes)
-		else
-			AC_MSG_RESULT(no)
-		fi
-	fi
-
-	AC_MSG_CHECKING([whether have cpumask_of_node])
-	LB_LINUX_TRY_COMPILE([
-		#include <linux/topology.h>
-	],[
-		cpumask_t *mask = cpumask_of_node(0);
-	],[
-		AC_DEFINE(HAVE_CPUMASK_OF_NODE, 1, [have cpumask_of_node])
-		AC_MSG_RESULT(yes)
-	],[
-		AC_MSG_RESULT(no)
-	])
-
-	AC_MSG_CHECKING([whether have cpumask_copy])
-	LB_LINUX_TRY_COMPILE([
-		#include <linux/cpumask.h>
-	],[
-		cpumask_copy(NULL, NULL);
-	],[
-		AC_DEFINE(HAVE_CPUMASK_COPY, 1, [have cpumask_copy])
-		AC_MSG_RESULT(yes)
-	],[
-		AC_MSG_RESULT(no)
-	])
-
-	AC_MSG_CHECKING([whether have node_to_cpumask])
-	LB_LINUX_TRY_COMPILE([
-		#include <linux/topology.h>
-	],[
-		cpumask_t mask = node_to_cpumask(0);
-	],[
-		AC_DEFINE(HAVE_NODE_TO_CPUMASK, 1, [have node_to_cpumask])
-		AC_MSG_RESULT(yes)
-	],[
-		AC_MSG_RESULT(no)
-	])
-],[
-	AC_MSG_RESULT(NO)
-])
-])
-
-
 # 2.6.20 API change INIT_WORK use 2 args and not
 # store data inside
 AC_DEFUN([LIBCFS_3ARGS_INIT_WORK],
@@ -825,11 +702,8 @@ LIBCFS_HAVE_KEYTYPE_H
 LIBCFS_SEM_COUNT
 # 2.6.27
 LIBCFS_CRED_WRAPPERS
-# 2.6.28
-LIBCFS_CPUMASK_SIZE
 # 2.6.29
 LIBCFS_STRUCT_CRED_IN_TASK
-LIBCFS_CPU_TOPOLOGY
 LIBCFS_STRUCT_SHASH_ALG
 # 2.6.30
 LIBCFS_FUNC_UNSHARE_FS_STRUCT
