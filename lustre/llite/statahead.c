@@ -1620,6 +1620,10 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
 				if ((*dentryp)->d_inode == NULL) {
 					*dentryp = ll_splice_alias(inode,
 								   *dentryp);
+					if (IS_ERR(*dentryp)) {
+                                        	ll_sai_unplug(sai, entry);
+	                                        RETURN(PTR_ERR(*dentryp));
+					}
                                 } else if ((*dentryp)->d_inode != inode) {
                                         /* revalidate, but inode is recreated */
                                         CDEBUG(D_READA,

@@ -400,11 +400,17 @@ static struct dentry *ll_find_alias(struct inode *inode, struct dentry *dentry)
 struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de)
 {
 	struct dentry *new;
+	int rc;
 
 	if (inode) {
 		new = ll_find_alias(inode, de);
 		if (new) {
-			ll_dops_init(new, 1, 1);
+			rc = ll_d_init(new);
+			if (rc < 0) {
+				dput(new);
+				return ERR_PTR(rc);
+			}
+			__d_lustre_invalidate(de);
 			d_move(new, de);
 			iput(inode);
 			CDEBUG(D_DENTRY,
@@ -413,7 +419,10 @@ struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de)
 			return new;
 		}
 	}
-	ll_dops_init(de, 1, 1);
+	rc = ll_d_init(de);
+	if (rc < 0)
+		return ERR_PTR(rc);
+
 	__d_lustre_invalidate(de);
 	d_add(de, inode);
 	CDEBUG(D_DENTRY, "Add dentry %p inode %p refc %d flags %#x\n",
@@ -456,8 +465,11 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
 	/* Only hash *de if it is unhashed (new dentry).
 	 * Atoimc_open may passin hashed dentries for open.
 	 */
-	if (d_unhashed(*de))
+	if (d_unhashed(*de)) {
 		*de = ll_splice_alias(inode, *de);
+		if (IS_ERR(*de))
+			RETURN(PTR_ERR(*de));
+	}
 
 	if (!it_disposition(it, DISP_LOOKUP_NEG)) {
 		/* we have lookup look - unhide dentry */
@@ -588,12 +600,8 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
 	       parent->i_generation, parent, flags);
 
 	/* Optimize away (CREATE && !OPEN). Let .create handle the race. */
-	if ((flags & LOOKUP_CREATE ) && !(flags & LOOKUP_OPEN)) {
-		ll_dops_init(dentry, 1, 1);
-		__d_lustre_invalidate(dentry);
-		d_add(dentry, NULL);
+	if ((flags & LOOKUP_CREATE ) && !(flags & LOOKUP_OPEN))
 		return NULL;
-	}
 
 	if (flags & (LOOKUP_PARENT|LOOKUP_OPEN|LOOKUP_CREATE))
 		itp = NULL;
@@ -726,14 +734,10 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
                         it = ll_d2d(dentry)->lld_it;
                         ll_d2d(dentry)->lld_it = NULL;
                 } else {
-                        if ((nd->flags & LOOKUP_CREATE ) && !(nd->flags & LOOKUP_OPEN)) {
-                                /* We are sure this is new dentry, so we need to create
-                                   our private data and set the dentry ops */ 
-                                ll_dops_init(dentry, 1, 1);
-				__d_lustre_invalidate(dentry);
-				d_add(dentry, NULL);
+			if ((nd->flags & LOOKUP_CREATE) &&
+			    !(nd->flags & LOOKUP_OPEN))
                                 RETURN(NULL);
-                        }
+
                         it = ll_convert_intent(&nd->intent.open, nd->flags);
                         if (IS_ERR(it))
                                 RETURN((struct dentry *)it);
@@ -988,13 +992,17 @@ static int ll_create_nd(struct inode *dir, struct dentry *dentry,
 static int ll_create_nd(struct inode *dir, struct dentry *dentry,
 			ll_umode_t mode, struct nameidata *nd)
 {
-        struct lookup_intent *it = ll_d2d(dentry)->lld_it;
+	struct ll_dentry_data *lld = ll_d2d(dentry);
+        struct lookup_intent *it = NULL;
         int rc;
+
+	if (lld != NULL)
+		it = lld->lld_it;
 
         if (!it)
                 return ll_mknod_generic(dir, &dentry->d_name, mode, 0, dentry);
 
-        ll_d2d(dentry)->lld_it = NULL;
+        lld->lld_it = NULL;
 
         /* Was there an error? Propagate it! */
         if (it->d.lustre.it_status) {
