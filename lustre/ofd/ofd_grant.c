@@ -838,7 +838,8 @@ void ofd_grant_prepare_read(const struct lu_env *env,
  */
 void ofd_grant_prepare_write(const struct lu_env *env,
 			     struct obd_export *exp, struct obdo *oa,
-			     struct niobuf_remote *rnb, int niocount)
+			     struct ofd_object *fo, struct niobuf_remote *rnb,
+			     int niocount)
 {
 	struct obd_device	*obd = exp->exp_obd;
 	struct ofd_device	*ofd = ofd_exp(exp);
@@ -846,6 +847,7 @@ void ofd_grant_prepare_write(const struct lu_env *env,
 	int			 from_cache;
 	int			 force = 0; /* can use cached data intially */
 	int			 rc;
+	int			 retries = 0;
 
 	ENTRY;
 
@@ -864,6 +866,18 @@ refresh:
 		spin_unlock(&ofd->ofd_grant_lock);
 		CDEBUG(D_CACHE, "%s: fs has no space left and statfs too old\n",
 		       obd->obd_name);
+		force = 1;
+		goto refresh;
+	}
+
+	if (!test_bit(OFD_OBJECT_FLAG_DESTROY_PENDING, &fo->ofo_flags) &&
+	    left < ofd_grant_chunk(exp, ofd) && retries++ < 60) {
+		spin_unlock(&ofd->ofd_grant_lock);
+
+		dt_sync(env, ofd->ofd_osd);
+
+		cfs_schedule_timeout_and_set_state(CFS_TASK_INTERRUPTIBLE,
+						   HZ / 4);
 		force = 1;
 		goto refresh;
 	}

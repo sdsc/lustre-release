@@ -1288,6 +1288,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 		obd_id		 next_id;
 		int		 created = 0;
 		int		 count;
+		int		 retries = 0;
 
 		if (!(oa->o_valid & OBD_MD_FLFLAGS) ||
 		    !(oa->o_flags & OBD_FL_DELORPHAN)) {
@@ -1325,6 +1326,15 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			if (rc > 0) {
 				created += rc;
 				diff -= rc;
+			} else if (rc == -ENOSPC && retries++ < 60) {
+				int cnt = ofd_seq_last_oid(oseq) - next_id + 1;
+				diff -= cnt;
+				created += cnt;
+
+				dt_sync(env, ofd->ofd_osd);
+
+                		cfs_schedule_timeout_and_set_state(
+						CFS_TASK_INTERRUPTIBLE, HZ / 4);
 			} else if (rc < 0) {
 				break;
 			}
