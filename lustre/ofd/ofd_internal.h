@@ -301,7 +301,10 @@ struct ofd_thread_info {
 	struct lu_attr			 fti_attr;
 	struct lu_attr			 fti_attr2;
 	struct ldlm_res_id		 fti_resid;
-	struct filter_fid		 fti_mds_fid;
+	union {
+		struct filter_fid_old	fti_mds_fid_old;
+		struct filter_fid	fti_mds_fid;
+	};
 	struct ost_id			 fti_ostid;
 	struct ofd_object		*fti_obj;
 	union {

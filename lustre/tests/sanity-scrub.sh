@@ -42,7 +42,7 @@ check_and_setup_lustre
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 1a"
 
 [[ $(lustre_version_code ost1) -lt $(version_code 2.4.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15"
 
 build_test_filter
 
@@ -921,6 +921,54 @@ test_14() {
 	ls -ail $DIR/$tdir > /dev/null 2>&1 || error "(5) ls should succeed"
 }
 run_test 14 "OI scrub can repair objects under lost+found"
+
+test_15() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
+
+	#define OBD_FAIL_FID_INLMA	0x1502
+	do_facet ost1 $LCTL set_param fail_loc=0x1502
+	local FILECOUNT=128
+	for ((i = 0; i < $FILECOUNT; i++)); do
+		echo foo > $DIR/$tdir/f$i
+	done
+	cancel_lru_locks osc
+
+	echo "stop ost1"
+	stop ost1 || error "(1) Fail to stop ost1"
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	echo "start ost1"
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS ||
+		error "(2) Fail to start ost1"
+
+	local STATUS=$($SHOW_SCRUB_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "init" ] ||
+		error "(3) Expect 'init', but got '$STATUS'"
+
+	$START_SCRUB_ON_OST || error "(4) Fail to start OI scrub on OST!"
+	sleep 3
+
+	local STATUS=$($SHOW_SCRUB_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(5) Expect 'completed', but got '$STATUS'"
+
+	# The first 32 OST-objects are pre-created with LMA already, no update
+	local UPDATED1=96
+	local UPDATED2=$($SHOW_SCRUB_ON_OST | awk '/^updated/ { print $2 }')
+	[ $UPDATED2 -ge $UPDATED1 ] ||
+		error "(6) At least $UPDATED1 items updated, but '$UPDATED2'"
+
+	ls -ail $DIR/$tdir > /dev/null 2>&1 || error "(7) ls should succeed"
+}
+run_test 15 "OI scrub convert filter_fid_old to LMA"
 
 # restore MDS/OST size
 MDSSIZE=${SAVED_MDSSIZE}

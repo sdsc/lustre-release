@@ -359,8 +359,20 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 	}
 
 	if (ff_needed) {
-		info->fti_buf.lb_buf = ff;
-		info->fti_buf.lb_len = sizeof(*ff);
+		if (OBD_FAIL_CHECK(OBD_FAIL_FID_INLMA)) {
+			struct filter_fid_old *ffo   = &info->fti_mds_fid_old;
+			struct ost_id	      *ostid = &info->fti_ostid;
+
+			fid_to_ostid(lu_object_fid(&ofd_obj->ofo_obj.do_lu),
+						   ostid);
+			ffo->ff_objid = cpu_to_le64(ostid_id(ostid));
+			ffo->ff_seq = cpu_to_le64(ostid_seq(ostid));
+			info->fti_buf.lb_buf = ffo;
+			info->fti_buf.lb_len = sizeof(struct filter_fid_old);
+		} else {
+			info->fti_buf.lb_buf = ff;
+			info->fti_buf.lb_len = sizeof(*ff);
+		}
 		rc = dt_declare_xattr_set(env, dt_obj, &info->fti_buf,
 					  XATTR_NAME_FID, 0, th);
 		if (rc)
