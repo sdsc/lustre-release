@@ -36,6 +36,7 @@
 #include <lustre/lustre_lfsck_user.h>
 #include <lustre/lustre_user.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_lfsck.h>
 #include <obd.h>
 #include <lu_object.h>
 #include <dt_object.h>
@@ -77,17 +78,27 @@ enum lfsck_status {
 	/* System crashed during the LFSCK,
 	 * will be restarted automatically after recovery. */
 	LS_CRASHED		= 7,
+
+	/* Some OST/MDT failed during the LFSCK, or not join the LFSCK. */
+	LS_PARTIAL		= 8,
 };
 
 enum lfsck_flags {
 	/* Finish the first cycle scanning. */
-	LF_SCANNED_ONCE	= 0x00000001ULL,
+	LF_SCANNED_ONCE		= 0x00000001ULL,
 
 	/* There is some namespace inconsistency. */
-	LF_INCONSISTENT	= 0x00000002ULL,
+	LF_INCONSISTENT		= 0x00000002ULL,
 
 	/* The device is upgraded from 1.8 format. */
-	LF_UPGRADE	= 0x00000004ULL,
+	LF_UPGRADE		= 0x00000004ULL,
+
+	/* The LAST_ID (file) crashed. */
+	LF_CRASHED_LASTID	= 0x00000008ULL,
+
+	/* The server ever restarted during the LFSCK, and may miss to process
+	 * some objects check/repair. */
+	LF_INCOMPLETE		= 0x00000010ULL,
 };
 
 struct lfsck_position {
@@ -195,6 +206,77 @@ struct lfsck_namespace {
 	__u64	ln_reserved[2];
 };
 
+struct lfsck_layout {
+	/* Magic number to detect that this struct contains valid data. */
+	__u32	ll_magic;
+
+	/* See 'enum lfsck_status'. */
+	__u32	ll_status;
+
+	/* See 'enum lfsck_flags'. */
+	__u32	ll_flags;
+
+	/* How many completed LFSCK runs on the device. */
+	__u32	ll_success_count;
+
+	/*  How long the LFSCK phase1 has run in seconds. */
+	__u32	ll_run_time_phase1;
+
+	/*  How long the LFSCK phase2 has run in seconds. */
+	__u32	ll_run_time_phase2;
+
+	/* Time for the last LFSCK completed in seconds since epoch. */
+	__u64	ll_time_last_complete;
+
+	/* Time for the latest LFSCK ran in seconds since epoch. */
+	__u64	ll_time_latest_start;
+
+	/* Time for the last LFSCK checkpoint in seconds since epoch. */
+	__u64	ll_time_last_checkpoint;
+
+	/* Position for the latest LFSCK started from. */
+	__u64	ll_pos_latest_start;
+
+	/* Position for the last LFSCK checkpoint. */
+	__u64	ll_pos_last_checkpoint;
+
+	/* Position for the first should be updated object. */
+	__u64	ll_pos_first_inconsistent;
+
+	/* How many objects have been checked. */
+	__u64	ll_objs_checked_phase1;
+
+	/* How many objects failed to be processed. */
+	__u64	ll_objs_failed_phase1;
+
+	/* How many objects have been double scanned. */
+	__u64	ll_objs_checked_phase2;
+
+	/* How many objects failed to be processed during double scan. */
+	__u64	ll_objs_failed_phase2;
+
+	/* How many objects have been repaired with dangling reference. */
+	__u64	ll_objs_repaired_dangling;
+
+	/* How many unmatched MDT-OST pairs have been repaired. */
+	__u64	ll_objs_repaired_unmatched_pair;
+
+	/* How many multiple-referenced OST-objects have been repaired. */
+	__u64	ll_objs_repaired_multipe_referenced;
+
+	/* How many orphan OST-objects have been repaired. */
+	__u64	ll_objs_repaired_orphan;
+
+	/* How many OST-objects have been repaired with inconsistent owners. */
+	__u64	ll_objs_repaired_inconsistent_owner;
+
+	/* How many other inconsistency have been repaired. */
+	__u64	ll_objs_repaired_others;
+
+	/* For further using. 256-bytes aligned now. */
+	__u64	ll_reserved[13];
+};
+
 struct lfsck_component;
 
 struct lfsck_operations {
@@ -234,6 +316,11 @@ struct lfsck_operations {
 
 	int (*lfsck_double_scan)(const struct lu_env *env,
 				 struct lfsck_component *com);
+
+	int (*lfsck_status)(struct lfsck_component *com);
+
+	void (*lfsck_data_release)(const struct lu_env *env,
+				   struct lfsck_component *com);
 };
 
 struct lfsck_component {
@@ -251,6 +338,7 @@ struct lfsck_component {
 	struct lfsck_operations *lc_ops;
 	void			*lc_file_ram;
 	void			*lc_file_disk;
+	void			*lc_data;
 	__u32			 lc_file_size;
 
 	/* How many objects have been checked since last checkpoint. */
@@ -289,6 +377,8 @@ struct lfsck_instance {
 	/* The time for next checkpoint, jiffies */
 	cfs_time_t		  li_time_next_checkpoint;
 
+	lfsck_notify		  li_notify;
+	void			 *li_notify_data;
 	struct dt_device	 *li_next;
 	struct dt_device	 *li_bottom;
 	struct ldlm_namespace	 *li_namespace;
@@ -395,6 +485,9 @@ int lfsck_bookmark_setup(const struct lu_env *env,
 /* lfsck_namespace.c */
 int lfsck_namespace_setup(const struct lu_env *env,
 			  struct lfsck_instance *lfsck);
+
+/* lfsck_layout.c */
+int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck);
 
 extern const char *lfsck_status_names[];
 extern const char *lfsck_flags_names[];

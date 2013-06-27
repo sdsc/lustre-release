@@ -43,8 +43,17 @@ struct lfsck_start_param {
 	struct ldlm_namespace	*lsp_namespace;
 };
 
+enum lfsck_events {
+	LE_LASTID_REBUILDING	= 1,
+	LE_LASTID_REBUILT	= 2,
+	LE_LAYOUT_COMPLETED	= 3,
+};
+
+typedef int (*lfsck_notify)(void *data, enum lfsck_events event);
+
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
-		   struct dt_device *next, bool master);
+		   struct dt_device *next, lfsck_notify notify,
+		   void *data, bool master);
 void lfsck_degister(const struct lu_env *env, struct dt_device *key);
 
 int lfsck_start(const struct lu_env *env, struct dt_device *key,
@@ -55,6 +64,9 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key,
 int lfsck_get_speed(struct dt_device *key, void *buf, int len);
 int lfsck_set_speed(struct dt_device *key, int val);
 
-int lfsck_dump(struct dt_device *key, void *buf, int len, __u16 type);
+int lfsck_dump(struct dt_device *key, void *buf, int len,
+	       enum lfsck_type type);
+int lfsck_query(const struct lu_env *env, struct dt_device *key,
+		enum lfsck_type type);
 
 #endif /* _LUSTRE_LFSCK_H */

@@ -72,6 +72,7 @@ const char *lfsck_status_names[] = {
 	"stopped",
 	"paused",
 	"crashed",
+	"partial",
 	NULL
 };
 
@@ -79,6 +80,8 @@ const char *lfsck_flags_names[] = {
 	"scanned-once",
 	"inconsistent",
 	"upgrade",
+	"crashed_lastid",
+	"incomplete",
 	NULL
 };
 
@@ -108,6 +111,13 @@ static inline void lfsck_component_put(const struct lu_env *env,
 			OBD_FREE(com->lc_file_ram, com->lc_file_size);
 		if (com->lc_file_disk != NULL)
 			OBD_FREE(com->lc_file_disk, com->lc_file_size);
+
+		if (com->lc_data != NULL) {
+			LASSERT(com->lc_ops->lfsck_data_release != NULL);
+
+			com->lc_ops->lfsck_data_release(env, com);
+		}
+
 		OBD_FREE_PTR(com);
 	}
 }
@@ -363,7 +373,7 @@ void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,
 			fid_zero(&pos->lp_dir_parent);
 			pos->lp_dir_cookie = 0;
 		} else {
-			pos->lp_dir_parent = *lu_object_fid(&dto->do_lu);
+			pos->lp_dir_parent = *lfsck_dto2fid(dto);
 		}
 	} else {
 		fid_zero(&pos->lp_dir_parent);
@@ -829,11 +839,45 @@ out:
 }
 EXPORT_SYMBOL(lfsck_set_speed);
 
-int lfsck_dump(struct dt_device *key, void *buf, int len, __u16 type)
+int lfsck_dump(struct dt_device *key, void *buf, int len, enum lfsck_type type)
 {
 	struct lu_env		env;
 	struct lfsck_instance  *lfsck;
-	struct lfsck_component *com   = NULL;
+	struct lfsck_component *com;
+	int			rc;
+	ENTRY;
+
+	lfsck = lfsck_instance_find(key, true, false);
+	if (unlikely(lfsck == NULL))
+		RETURN(-ENODEV);
+
+	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD);
+	if (rc != 0)
+		GOTO(put_lfsck, rc);
+
+	com = lfsck_component_find(lfsck, type);
+	if (com == NULL)
+		GOTO(env_fini, rc = -ENOTSUPP);
+
+	rc = com->lc_ops->lfsck_dump(&env, com, buf, len);
+	lfsck_component_put(&env, com);
+
+	GOTO(env_fini, rc);
+
+env_fini:
+	lu_env_fini(&env);
+
+put_lfsck:
+	lfsck_instance_put(&env, lfsck);
+	return rc;
+}
+EXPORT_SYMBOL(lfsck_dump);
+
+int lfsck_query(const struct lu_env *env, struct dt_device *key,
+		enum lfsck_type type)
+{
+	struct lfsck_instance  *lfsck;
+	struct lfsck_component *com;
 	int			rc;
 	ENTRY;
 
@@ -843,24 +887,18 @@ int lfsck_dump(struct dt_device *key, void *buf, int len, __u16 type)
 
 	com = lfsck_component_find(lfsck, type);
 	if (com == NULL)
-		GOTO(out, rc = -ENOTSUPP);
+		GOTO(put, rc = -ENOTSUPP);
 
-	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD);
-	if (rc != 0)
-		GOTO(out, rc);
+	rc = com->lc_ops->lfsck_status(com);
+	lfsck_component_put(env, com);
 
-	rc = com->lc_ops->lfsck_dump(&env, com, buf, len);
-	lu_env_fini(&env);
+	GOTO(put, rc);
 
-	GOTO(out, rc);
-
-out:
-	if (com != NULL)
-		lfsck_component_put(&env, com);
-	lfsck_instance_put(&env, lfsck);
+put:
+	lfsck_instance_put(env, lfsck);
 	return rc;
 }
-EXPORT_SYMBOL(lfsck_dump);
+EXPORT_SYMBOL(lfsck_query);
 
 int lfsck_start(const struct lu_env *env, struct dt_device *key,
 		struct lfsck_start_param *lsp)
@@ -1076,7 +1114,8 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key, bool pause)
 EXPORT_SYMBOL(lfsck_stop);
 
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
-		   struct dt_device *next, bool master)
+		   struct dt_device *next, lfsck_notify notify,
+		   void *data, bool master)
 {
 	struct lfsck_instance	*lfsck;
 	struct dt_object	*root;
@@ -1102,6 +1141,8 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 	CFS_INIT_LIST_HEAD(&lfsck->li_list_idle);
 	atomic_set(&lfsck->li_ref, 1);
 	cfs_waitq_init(&lfsck->li_thread.t_ctl_waitq);
+	lfsck->li_notify = notify;
+	lfsck->li_notify_data = data;
 	lfsck->li_next = next;
 	lfsck->li_bottom = key;
 
@@ -1158,6 +1199,10 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 		if (rc < 0)
 			GOTO(out, rc);
 	}
+
+	rc = lfsck_layout_setup(env, lfsck);
+	if (rc < 0)
+		GOTO(out, rc);
 
 	/* XXX: more LFSCK components initialization to be added here. */
 
