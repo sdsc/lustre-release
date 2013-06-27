@@ -442,6 +442,7 @@ struct lfsck_thread_info {
 	struct lu_fid		lti_fid;
 	struct lu_fid		lti_fid2;
 	struct lu_attr		lti_la;
+	struct dt_object_format lti_dof;
 	/* lti_ent and lti_key must be conjoint,
 	 * then lti_ent::lde_name will be lti_key. */
 	struct lu_dirent	lti_ent;
