@@ -945,7 +945,7 @@ static int ll_ioc_copy_start(struct super_block *sb, struct hsm_copy *copy)
 		}
 
 		/* Read current file data version */
-		rc = ll_data_version(inode, &data_version, 1);
+		rc = ll_data_version(inode, &data_version, LL_DV_RDFLUSH);
 		iput(inode);
 		if (rc != 0) {
 			CDEBUG(D_HSM, "Could not read file data version of "
@@ -1016,6 +1016,7 @@ static int ll_ioc_copy_end(struct super_block *sb, struct hsm_copy *copy)
 	    (copy->hc_errval == 0)) {
 		struct inode	*inode;
 		__u64		 data_version = 0;
+		int		 flags = 0;
 
 		/* Get lsm for this fid */
 		inode = search_inode_for_lustre(sb, &copy->hc_hai.hai_fid);
@@ -1026,8 +1027,9 @@ static int ll_ioc_copy_end(struct super_block *sb, struct hsm_copy *copy)
 			GOTO(progress, rc = PTR_ERR(inode));
 		}
 
-		rc = ll_data_version(inode, &data_version,
-				     copy->hc_hai.hai_action == HSMA_ARCHIVE);
+		if (copy->hc_hai.hai_action == HSMA_ARCHIVE)
+			flags = LL_DV_RDFLUSH;
+		rc = ll_data_version(inode, &data_version, flags);
 		iput(inode);
 		if (rc) {
 			CDEBUG(D_HSM, "Could not read file data version. "
