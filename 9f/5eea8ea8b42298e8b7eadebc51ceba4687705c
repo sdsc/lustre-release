@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Minh Diep <minh.diep@intel.com>
+Code-Review+1: Keith Mannthey <keith.mannthey@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Thu, 27 Jun 2013 16:04:43 +0000
+Reviewed-on: http://review.whamcloud.com/5180
+Project: fs/lustre-release
+Branch: refs/heads/master
