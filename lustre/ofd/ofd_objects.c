@@ -172,9 +172,14 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 		RETURN(rc = -ENOSPC);
 	}
 
+	down_read(&ofd->ofd_lastid_rwsem);
+	/* Return -ENOSPC until the LAST_ID rebuilt. */
+	if (unlikely(ofd->ofd_lastid_rebuilding))
+		GOTO(unlock, rc = -ENOSPC);
+
 	OBD_ALLOC(batch, nr_saved * sizeof(struct ofd_object *));
 	if (batch == NULL)
-		RETURN(-ENOMEM);
+		GOTO(unlock, rc = -ENOMEM);
 
 	info->fti_attr.la_valid = LA_TYPE | LA_MODE;
 	/*
@@ -282,10 +287,16 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 
 	objects = i;
 	if (objects > 0) {
+		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_SKIP_LASTID))
+			goto trans_stop;
+
 		tmp = cpu_to_le64(ofd_seq_last_oid(oseq));
 		rc = dt_record_write(env, oseq->os_lastid_obj,
 				     &info->fti_buf, &info->fti_off, th);
 	}
+
+	GOTO(trans_stop, rc);
+
 trans_stop:
 	ofd_trans_stop(env, ofd, th, rc);
 out:
@@ -302,7 +313,10 @@ out:
 	       "created %d/%d objects: %d\n", objects, nr_saved, rc);
 
 	LASSERT(ergo(objects == 0, rc < 0));
-	RETURN(objects > 0 ? objects : rc);
+
+unlock:
+	up_read(&ofd->ofd_lastid_rwsem);
+	return (objects > 0 ? objects : rc);
 }
 
 /*

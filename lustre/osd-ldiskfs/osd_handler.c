@@ -2081,6 +2081,7 @@ static int __osd_object_create(struct osd_thread_info *info,
 	umask = current->fs->umask;
 	current->fs->umask = 0;
 
+	set_bit(LU_OBJECT_NEW_ATTACHED, &obj->oo_dt.do_lu.lo_header->loh_flags);
 	result = osd_create_type_f(dof->dof_type)(info, obj, attr, hint, dof,
 						  th);
         if (result == 0) {
