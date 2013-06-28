@@ -197,14 +197,6 @@ static inline struct file *ll_dentry_open(struct path *path, int flags,
 # define inode_dio_done(i)		up_read(&(i)->i_alloc_sem)
 #endif
 
-#ifdef HAVE_RW_TREE_LOCK
-#define TREE_READ_LOCK_IRQ(mapping)	read_lock_irq(&(mapping)->tree_lock)
-#define TREE_READ_UNLOCK_IRQ(mapping)	read_unlock_irq(&(mapping)->tree_lock)
-#else
-#define TREE_READ_LOCK_IRQ(mapping)	spin_lock_irq(&(mapping)->tree_lock)
-#define TREE_READ_UNLOCK_IRQ(mapping)	spin_unlock_irq(&(mapping)->tree_lock)
-#endif
-
 #ifdef HAVE_UNREGISTER_BLKDEV_RETURN_INT
 #define ll_unregister_blkdev(a,b)       unregister_blkdev((a),(b))
 #else
