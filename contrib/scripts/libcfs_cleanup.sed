@@ -88,7 +88,7 @@ s/\bcfs_read_unlock\b/read_unlock/g
 /#[ \t]*define[ \t]*\bread_unlock\b *( *\w* *)[ \t]*\bread_unlock\b *( *\w* *)/d
 s/\bcfs_read_unlock_irqrestore\b/read_unlock_irqrestore/g
 #/#[ \t]*define[ \t]*\bread_unlock_irqrestore\b *( *\w* *)[ \t]*\bread_unlock_irqrestore\b *( *\w* *)/d
-/#define read_unlock_irqrestore(lock,flags) \\/{N;d}
+/#define read_unlock_irqrestore(lock,flags) \\/{N;d;}
 s/\bcfs_write_lock\b/write_lock/g
 /#[ \t]*define[ \t]*\bwrite_lock\b *( *\w* *)[ \t]*\bwrite_lock\b *( *\w* *)/d
 s/\bcfs_write_unlock\b/write_unlock/g
@@ -120,7 +120,7 @@ s/\bcfs_complete\b/complete/g
 s/\bcfs_wait_for_completion\b/wait_for_completion/g
 /#[ \t]*define[ \t]*\bwait_for_completion\b *( *\w* *)[ \t]*\bwait_for_completion\b *( *\w* *)/d
 s/\bcfs_wait_for_completion_interruptible\b/wait_for_completion_interruptible/g
-/#define wait_for_completion_interruptible(c) \\/{N;d}
+/#define wait_for_completion_interruptible(c) \\/{N;d;}
 s/\bcfs_complete_and_exit\b/complete_and_exit/g
 /#[ \t]*define[ \t]*\bcomplete_and_exit\b *( *\w* *, *\w* *)[ \t]*\bcomplete_and_exit\b *( *\w* *, *\w* *)/d
 s/\bcfs_fini_completion\b/fini_completion/g
@@ -177,7 +177,7 @@ s/\bcfs_lockdep_on\b/lockdep_on/g
 
 s/\bcfs_mutex_lock_nested\b/mutex_lock_nested/g
 #/#[ \t]*define[ \t]*\bmutex_lock_nested\b *( *\w* *, *\w* *)[ \t]*\bmutex_lock_nested\b *( *\w* *, *\w* *)/d
-/#define mutex_lock_nested(mutex, subclass) \\/{N;d}
+/#define mutex_lock_nested(mutex, subclass) \\/{N;d;}
 s/\bcfs_spin_lock_nested\b/spin_lock_nested/g
 /#[ \t]*define[ \t]*\bspin_lock_nested\b *( *\w* *, *\w* *)[ \t]*\bspin_lock_nested\b *( *\w* *, *\w* *)/d
 s/\bcfs_down_read_nested\b/down_read_nested/g
@@ -205,7 +205,7 @@ s/\bcfs_find_first_zero_bit\b/find_first_zero_bit/g
 s/\bcfs_find_next_bit\b/find_next_bit/g
 /#[ \t]*define[ \t]*\bfind_next_bit\b *( *\w* *, *\w* *, *\w* *)[ \t]*\bfind_next_bit\b *( *\w* *, *\w* *, *\w* *)/d
 s/\bcfs_find_next_zero_bit\b/find_next_zero_bit/g
-/#define find_next_zero_bit(addr, size, off) \\/{N;d}
+/#define find_next_zero_bit(addr, size, off) \\/{N;d;}
 s/\bcfs_ffz\b/ffz/g
 /#[ \t]*define[ \t]*\bffz\b *( *\w* *)[ \t]*\bffz\b *( *\w* *)/d
 s/\bcfs_ffs\b/ffs/g
