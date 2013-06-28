@@ -333,6 +333,35 @@ static struct lu_object *ofd_object_alloc(const struct lu_env *env,
 
 extern int ost_handle(struct ptlrpc_request *req);
 
+static int ofd_lfsck_notify(void *data, enum lfsck_events event)
+{
+	struct ofd_device *ofd = data;
+	int		   rc  = 0;
+
+	switch (event) {
+	case LE_LASTID_REBUILDING:
+		down_write(&ofd->ofd_lastid_rwsem);
+		ofd->ofd_lastid_rebuilding = 1;
+		up_write(&ofd->ofd_lastid_rwsem);
+		break;
+	case LE_LASTID_REBUILT:
+		down_write(&ofd->ofd_lastid_rwsem);
+		ofd->ofd_lastid_rebuilding = 0;
+		up_write(&ofd->ofd_lastid_rwsem);
+		break;
+	case LE_LAYOUT_COMPLETED:
+		/* XXX: Notify MDT(s) that the LFSCK layout verification
+		 *	on the OST completed. */
+		break;
+	default:
+		CERROR("%s: unknown lfsck event: %d\n",
+		       ofd_obd(ofd)->obd_name, event);
+		rc = -EINVAL;
+		break;
+	}
+	return rc;
+}
+
 static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 		       struct lu_device *dev)
 {
@@ -360,7 +389,8 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	if (rc != 0)
 		RETURN(rc);
 
-	rc = lfsck_register(env, ofd->ofd_osd, &ofd->ofd_dt_dev, false);
+	rc = lfsck_register(env, ofd->ofd_osd, &ofd->ofd_dt_dev,
+			    ofd_lfsck_notify, ofd, false);
 	if (rc != 0) {
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
 		       obd->obd_name, rc);
@@ -659,6 +689,7 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	spin_lock_init(&m->ofd_batch_lock);
 	rwlock_init(&obd->u.filter.fo_sptlrpc_lock);
 	sptlrpc_rule_set_init(&obd->u.filter.fo_sptlrpc_rset);
+	init_rwsem(&m->ofd_lastid_rwsem);
 
 	obd->u.filter.fo_fl_oss_capa = 0;
 	CFS_INIT_LIST_HEAD(&obd->u.filter.fo_capa_keys);
