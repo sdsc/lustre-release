@@ -68,7 +68,11 @@ mkid:
 doxygen:  doxygen-api doxygen-ref
 
 doxygen-%: build/doxyfile.%
-	   doxygen $<
+	doxygen $<
+
+libcfs_cleanup:
+	find libcfs lnet lustre -name "*.[ch]" | grep -v gnilnd | \
+		xargs sed -i "" -f contrib/scripts/libcfs_cleanup.sed
 
 if MODULES
 sources: all-sources
