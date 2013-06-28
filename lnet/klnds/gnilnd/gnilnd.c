@@ -173,7 +173,7 @@ kgnilnd_conn_isdup_locked(kgn_peer_t *peer, kgn_conn_t *newconn)
 }
 
 int
-kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev)
+kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev, int cpt)
 {
 	kgn_conn_t	*conn;
 	gni_return_t	rrc;
@@ -190,13 +190,14 @@ kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev)
 		return -E2BIG;
 	}
 
-	LIBCFS_ALLOC(conn, sizeof(*conn));
+	LIBCFS_CPT_ALLOC(conn, lnet_cpt_table(), cpt, sizeof(*conn));
 	if (conn == NULL) {
 		atomic_dec(&kgnilnd_data.kgn_nconns);
 		return -ENOMEM;
 	}
 
-	LIBCFS_ALLOC(conn->gnc_tx_ref_table, GNILND_MAX_MSG_ID * sizeof(void *));
+	LIBCFS_CPT_ALLOC(conn->gnc_tx_ref_table, lnet_cpt_table(), cpt,
+			 GNILND_MAX_MSG_ID * sizeof(void *));
 	if (conn->gnc_tx_ref_table == NULL) {
 		CERROR("Can't allocate conn tx_ref_table\n");
 		rc = -ENOMEM;
@@ -238,6 +239,7 @@ kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev)
 	CDEBUG(D_NET, "alloc cqid %u for conn 0x%p\n",
 		conn->gnc_cqid, conn);
 
+	conn->gnc_sched = kgnilnd_data.kgn_scheds[cpt];
 	/* need to be set before gnc_ephandle to allow kgnilnd_destroy_conn_ep to
 	 * check context */
 	conn->gnc_device = dev;
@@ -304,8 +306,8 @@ kgnilnd_find_conn_locked(kgn_peer_t *peer)
 kgn_conn_t *
 kgnilnd_find_or_create_conn_locked(kgn_peer_t *peer) {
 
-	kgn_device_t    *dev = peer->gnp_net->gnn_dev;
-	kgn_conn_t      *conn;
+	kgn_device_t	*dev = peer->gnp_net->gnn_dev;
+	kgn_conn_t	*conn;
 
 	conn = kgnilnd_find_conn_locked(peer);
 
@@ -345,7 +347,7 @@ kgnilnd_find_or_create_conn_locked(kgn_peer_t *peer) {
 	list_add_tail(&peer->gnp_connd_list, &dev->gnd_connd_peers);
 	spin_unlock(&dev->gnd_connd_lock);
 
-	kgnilnd_schedule_dgram(dev);
+	kgnilnd_schedule_dgram(dev->gnd_dgram_cpt);
 	CDEBUG(D_NETTRACE, "scheduling new connect\n");
 
 	return NULL;
@@ -460,6 +462,7 @@ kgnilnd_peer_alive(kgn_peer_t *peer)
 void
 kgnilnd_peer_notify(kgn_peer_t *peer, int error)
 {
+	int			cpt = lnet_cpt_of_nid(peer->gnp_nid);
 	int                     tell_lnet = 0;
 	int                     nnets = 0;
 	int                     rc;
@@ -467,7 +470,6 @@ kgnilnd_peer_notify(kgn_peer_t *peer, int error)
 	kgn_conn_t             *conn;
 	kgn_net_t             **nets;
 	kgn_net_t              *net;
-
 
 	if (CFS_FAIL_CHECK(CFS_FAIL_GNI_DONT_NOTIFY))
 		return;
@@ -524,8 +526,8 @@ kgnilnd_peer_notify(kgn_peer_t *peer, int error)
 			return;
 		}
 
-		LIBCFS_ALLOC(nets, nnets * sizeof(*nets));
-
+		LIBCFS_CPT_ALLOC(nets, lnet_cpt_table(), cpt,
+				 nnets * sizeof(*nets));
 		if (nets == NULL) {
 			up_read(&kgnilnd_data.kgn_net_rw_sem);
 			CERROR("Failed to allocate nets[%d]\n", nnets);
@@ -918,6 +920,8 @@ kgnilnd_create_peer_safe(kgn_peer_t **peerp, lnet_nid_t nid, kgn_net_t *net)
 {
 	kgn_peer_t	*peer;
 	int		rc;
+	int		cpt = lnet_cpt_of_nid(nid);
+	struct kgn_cpt_info *sched = kgnilnd_data.kgn_scheds[cpt];
 
 	LASSERT(nid != LNET_NID_ANY);
 
@@ -940,11 +944,12 @@ kgnilnd_create_peer_safe(kgn_peer_t **peerp, lnet_nid_t nid, kgn_net_t *net)
 		kgnilnd_net_addref(net);
 	}
 
-	LIBCFS_ALLOC(peer, sizeof(*peer));
+	LIBCFS_CPT_ALLOC(peer, lnet_cpt_table(), cpt, sizeof(*peer));
 	if (peer == NULL) {
 		kgnilnd_net_decref(net);
 		return -ENOMEM;
 	}
+	peer->gnp_cpt = sched;
 	peer->gnp_nid = nid;
 	peer->gnp_down = GNILND_RCA_NODE_UP;
 
@@ -2129,15 +2134,14 @@ kgnilnd_dev_fini(kgn_device_t *dev)
 	EXIT;
 }
 
-
 int kgnilnd_base_startup(void)
 {
-	struct timeval       tv;
-	int                  pkmem = atomic_read(&libcfs_kmemory);
-	int                  rc;
-	int                  i;
-	kgn_device_t        *dev;
-	struct task_struct  *thrd;
+	struct kgn_cpt_info	*sched;
+	struct timeval		tv;
+	int			pkmem = atomic_read(&libcfs_kmemory);
+	int			rc, size, i, j;
+	kgn_device_t		*dev;
+	struct task_struct	*thrd;
 	ENTRY;
 
 	LASSERTF(kgnilnd_data.kgn_init == GNILND_INIT_NOTHING,
@@ -2159,6 +2163,53 @@ int kgnilnd_base_startup(void)
 
 	init_rwsem(&kgnilnd_data.kgn_net_rw_sem);
 
+	kgnilnd_data.kgn_scheds = cfs_percpt_alloc(lnet_cpt_table(),
+						   sizeof(*sched));
+	if (kgnilnd_data.kgn_scheds == NULL) {
+		rc = -ENOMEM;
+		GOTO(failed, rc);
+	}
+
+	cfs_percpt_for_each(sched, i, kgnilnd_data.kgn_scheds) {
+		int ncores = cfs_cpt_weight(lnet_cpt_table(), i);
+
+		/* Which CPU partition this data is for */
+		sched->kgn_cpt = i;
+
+		/* Checksum page array allocation */
+		LIBCFS_CPT_ALLOC(sched->kgn_cksum_map_pages, lnet_cpt_table(),
+				 sched->kgn_cpt, ncores * sizeof(struct page *));
+		if (sched->kgn_cksum_map_pages == NULL) {
+			CERROR("Can't allocate vmap cksum pages\n");
+			rc = -ENOMEM;
+			GOTO(failed, rc);
+		}
+		sched->kgn_cksum_npages = ncores;
+
+		/* allocate a MAX_IOV array of page pointers for each cpu */
+		for (j = 0; j < sched->kgn_cksum_npages; j++) {
+			LIBCFS_CPT_ALLOC(sched->kgn_cksum_map_pages[j], lnet_cpt_table(),
+					 sched->kgn_cpt, LNET_MAX_IOV * sizeof (struct page *));
+				if (sched->kgn_cksum_map_pages[j] == NULL) {
+					CERROR("Can't allocate vmap cksum pages for cpu %d\n", j);
+				rc = -ENOMEM;
+				GOTO(failed, rc);
+			}
+		}
+
+		/* initialize wait queue */
+		init_waitqueue_head(&sched->kgn_sched_waitq);
+
+		/* setup timer for RDMAQ processing */
+		setup_timer(&sched->kgn_rdmaq_timer, kgnilnd_schedule_device_timer,
+			    (unsigned long) sched);
+
+		/* setup timer for mapping processing */
+		setup_timer(&sched->kgn_map_timer, kgnilnd_schedule_device_timer,
+			    (unsigned long) sched);
+	}
+	size = cfs_cpt_number(lnet_cpt_table()) * sizeof(struct kgn_cpt_info *);
+
 	for (i = 0; i < GNILND_MAXDEVS; i++) {
 		kgn_device_t  *dev = &kgnilnd_data.kgn_devices[i];
 
@@ -2169,9 +2220,6 @@ int kgnilnd_base_startup(void)
 		mutex_init(&dev->gnd_cq_mutex);
 		sema_init(&dev->gnd_fmablk_sem, 1);
 		spin_lock_init(&dev->gnd_fmablk_lock);
-		init_waitqueue_head(&dev->gnd_waitq);
-		init_waitqueue_head(&dev->gnd_dgram_waitq);
-		init_waitqueue_head(&dev->gnd_dgping_waitq);
 		spin_lock_init(&dev->gnd_lock);
 		INIT_LIST_HEAD(&dev->gnd_map_list);
 		spin_lock_init(&dev->gnd_map_lock);
@@ -2185,6 +2233,13 @@ int kgnilnd_base_startup(void)
 		spin_lock_init(&dev->gnd_rdmaq_lock);
 		INIT_LIST_HEAD(&dev->gnd_rdmaq);
 		init_rwsem(&dev->gnd_conn_sem);
+
+		LIBCFS_ALLOC(dev->gnd_cpts, size);
+		if (dev->gnd_cpts == NULL) {
+			rc = -ENOMEM;
+			GOTO(failed, rc);
+		}
+		memset(dev->gnd_cpts, 0, size);
 
 		/* alloc & setup nid based dgram table */
 		LIBCFS_ALLOC(dev->gnd_dgrams,
@@ -2200,14 +2255,6 @@ int kgnilnd_base_startup(void)
 		}
 		atomic_set(&dev->gnd_ndgrams, 0);
 		atomic_set(&dev->gnd_nwcdgrams, 0);
-		/* setup timer for RDMAQ processing */
-		setup_timer(&dev->gnd_rdmaq_timer, kgnilnd_schedule_device_timer,
-			    (unsigned long)dev);
-
-		/* setup timer for mapping processing */
-		setup_timer(&dev->gnd_map_timer, kgnilnd_schedule_device_timer,
-			    (unsigned long)dev);
-
 	}
 
 	/* CQID 0 isn't allowed, set to MAX_MSG_ID - 1 to check for conflicts early */
@@ -2323,28 +2370,6 @@ int kgnilnd_base_startup(void)
 		GOTO(failed, rc);
 	}
 
-	/* allocate a MAX_IOV array of page pointers for each cpu */
-	kgnilnd_data.kgn_cksum_map_pages = kmalloc(num_possible_cpus() * sizeof (struct page *),
-						   GFP_KERNEL);
-	if (kgnilnd_data.kgn_cksum_map_pages == NULL) {
-		CERROR("Can't allocate vmap cksum pages\n");
-		rc = -ENOMEM;
-		GOTO(failed, rc);
-	}
-	kgnilnd_data.kgn_cksum_npages = num_possible_cpus();
-	memset(kgnilnd_data.kgn_cksum_map_pages, 0,
-		kgnilnd_data.kgn_cksum_npages * sizeof (struct page *));
-
-	for (i = 0; i < kgnilnd_data.kgn_cksum_npages; i++) {
-		kgnilnd_data.kgn_cksum_map_pages[i] = kmalloc(LNET_MAX_IOV * sizeof (struct page *),
-							      GFP_KERNEL);
-		if (kgnilnd_data.kgn_cksum_map_pages[i] == NULL) {
-			CERROR("Can't allocate vmap cksum pages for cpu %d\n", i);
-			rc = -ENOMEM;
-			GOTO(failed, rc);
-		}
-	}
-
 	LASSERT(kgnilnd_data.kgn_ndevs == 0);
 
 	/* Use all available GNI devices */
@@ -2394,46 +2419,6 @@ int kgnilnd_base_startup(void)
 		GOTO(failed, rc);
 	}
 
-	/* threads will load balance across devs as they are available */
-	for (i = 0; i < *kgnilnd_tunables.kgn_sched_threads; i++) {
-		rc = kgnilnd_thread_start(kgnilnd_scheduler, (void *)((long)i),
-					  "kgnilnd_sd", i);
-		if (rc != 0) {
-			CERROR("Can't spawn gnilnd scheduler[%d]: %d\n",
-			       i, rc);
-			GOTO(failed, rc);
-		}
-	}
-
-	for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
-		dev = &kgnilnd_data.kgn_devices[i];
-		rc = kgnilnd_thread_start(kgnilnd_dgram_mover, dev,
-					  "kgnilnd_dg", dev->gnd_id);
-		if (rc != 0) {
-			CERROR("Can't spawn gnilnd dgram_mover[%d]: %d\n",
-			       dev->gnd_id, rc);
-			GOTO(failed, rc);
-		}
-
-		rc = kgnilnd_thread_start(kgnilnd_dgram_waitq, dev,
-					  "kgnilnd_dgn", dev->gnd_id);
-		if (rc != 0) {
-			CERROR("Can't spawn gnilnd dgram_waitq[%d]: %d\n",
-				dev->gnd_id, rc);
-			GOTO(failed, rc);
-		}
-
-		rc = kgnilnd_setup_wildcard_dgram(dev);
-
-		if (rc != 0) {
-			CERROR("Can't create wildcard dgrams[%d]: %d\n",
-				dev->gnd_id, rc);
-			GOTO(failed, rc);
-		}
-	}
-
-
-
 	/* flag everything initialised */
 	kgnilnd_data.kgn_init = GNILND_INIT_ALL;
 	/*****************************************************/
@@ -2450,7 +2435,8 @@ failed:
 void
 kgnilnd_base_shutdown(void)
 {
-	int			i;
+	int			i, j, size;
+	struct kgn_cpt_info	*sched;
 	ENTRY;
 
 	while (CFS_FAIL_TIMEOUT(CFS_FAIL_GNI_PAUSE_SHUTDOWN, 1)) {};
@@ -2462,6 +2448,19 @@ kgnilnd_base_shutdown(void)
 		kgnilnd_cancel_wc_dgrams(dev);
 		kgnilnd_del_conn_or_peer(NULL, LNET_NID_ANY, GNILND_DEL_PEER, -ESHUTDOWN);
 		kgnilnd_wait_for_canceled_dgrams(dev);
+	}
+
+	/* FIXME !!! Work around due to bug */
+	i = 2;
+	while (atomic_read(&kgnilnd_data.kgn_nconns) != 0) {
+		i++;
+		cfs_percpt_for_each(sched, j, kgnilnd_data.kgn_scheds) {
+			kgnilnd_schedule_device(sched);
+		}
+
+		CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET,
+			"Waiting for conns to be cleaned up %d\n",atomic_read(&kgnilnd_data.kgn_nconns));
+		cfs_pause(cfs_time_seconds(1));
 	}
 
 	/* Peer state all cleaned up BEFORE setting shutdown, so threads don't
@@ -2484,18 +2483,30 @@ kgnilnd_base_shutdown(void)
 		cfs_pause(cfs_time_seconds(1));
 	}
 
-       /* Flag threads to terminate */
+	/* Flag threads to terminate */
 	kgnilnd_data.kgn_shutdown = 1;
+
+	/* Flush all scheduler threads */
+	cfs_percpt_for_each(sched, i, kgnilnd_data.kgn_scheds) {
+		kgnilnd_schedule_device(sched);
+	}
+	size = i * sizeof(struct kgn_cpt_info *);
 
 	for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
 		kgn_device_t *dev = &kgnilnd_data.kgn_devices[i];
+		struct kgn_cpt_dgram *dgram = dev->gnd_dgram_cpt;
 
 		/* should clear all the MDDs */
 		kgnilnd_unmap_phys_fmablk(dev);
 
-		kgnilnd_schedule_device(dev);
-		wake_up_all(&dev->gnd_dgram_waitq);
-		wake_up_all(&dev->gnd_dgping_waitq);
+		/* flush all dgram threads */
+		wake_up_all(&dgram->kgn_dgram_waitq);
+		wake_up_all(&dgram->kgn_dgping_waitq);
+		LIBCFS_FREE(dgram, sizeof(*dgram));
+
+		/* free schedular threads */
+		LIBCFS_FREE(dev->gnd_cpts, size);
+
 		LASSERT(list_empty(&dev->gnd_connd_peers));
 	}
 
@@ -2594,14 +2605,19 @@ kgnilnd_base_shutdown(void)
 		LASSERTF(i == 0, "rc %d destroying kgn_dgram_cache\n", i);
 	}
 
-	if (kgnilnd_data.kgn_cksum_map_pages != NULL) {
-		for (i = 0; i < kgnilnd_data.kgn_cksum_npages; i++) {
-			if (kgnilnd_data.kgn_cksum_map_pages[i] != NULL) {
-				kfree(kgnilnd_data.kgn_cksum_map_pages[i]);
+	cfs_percpt_for_each(sched, i, kgnilnd_data.kgn_scheds) {
+		for (j = 0; j < sched->kgn_cksum_npages; j++) {
+			if (sched->kgn_cksum_map_pages[j] != NULL) {
+				LIBCFS_FREE(sched->kgn_cksum_map_pages[j],
+					    LNET_MAX_IOV * sizeof(struct page *));
 			}
 		}
-		kfree(kgnilnd_data.kgn_cksum_map_pages);
+		LIBCFS_FREE(sched->kgn_cksum_map_pages,
+			    sched->kgn_cksum_npages * sizeof (struct page *));
 	}
+
+	if (kgnilnd_data.kgn_scheds != NULL)
+		cfs_percpt_free(kgnilnd_data.kgn_scheds);
 
 	CDEBUG(D_MALLOC, "after NAL cleanup: kmem %d\n",
 	       atomic_read(&libcfs_kmemory));
@@ -2615,8 +2631,8 @@ kgnilnd_base_shutdown(void)
 int
 kgnilnd_startup(lnet_ni_t *ni)
 {
-	int               rc, devno;
-	kgn_net_t        *net;
+	int		devno, max_threads, rc, i, j = 0;
+	kgn_net_t	*net;
 	ENTRY;
 
 	LASSERTF(ni->ni_lnd == &the_kgnilnd,
@@ -2669,7 +2685,6 @@ kgnilnd_startup(lnet_ni_t *ni)
 		LCONSOLE_INFO("Enabling LNet peer health for gnilnd, timeout %ds\n",
 			      ni->ni_peertimeout);
 	}
-
 	atomic_set(&net->gnn_refcount, 1);
 
 	/* if we have multiple devices, spread the nets around */
@@ -2685,17 +2700,120 @@ kgnilnd_startup(lnet_ni_t *ni)
 
 	/* the instance id for the cdm is the NETNUM offset by MAXDEVS -
 	 * ensuring we'll have a unique id */
-
-
 	ni->ni_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), net->gnn_dev->gnd_nid);
 	CDEBUG(D_NET, "adding net %p nid=%s on dev %d \n",
 		net, libcfs_nid2str(ni->ni_nid), net->gnn_dev->gnd_id);
 	/* until the gnn_list is set, we need to cleanup ourselves as
 	 * kgnilnd_shutdown is just gonna get confused */
-
 	down_write(&kgnilnd_data.kgn_net_rw_sem);
 	list_add_tail(&net->gnn_list, kgnilnd_netnum2netlist(net->gnn_netnum));
 	up_write(&kgnilnd_data.kgn_net_rw_sem);
+
+	if (net->gnn_dev->gnd_dgram_cpt == NULL) {
+		struct kgn_cpt_dgram *dgram_cpt = net->gnn_dev->gnd_dgram_cpt;
+		int cpt = (ni->ni_cpts == NULL) ? 0 : ni->ni_cpts[0];
+
+		LIBCFS_CPT_ALLOC(dgram_cpt, lnet_cpt_table(), cpt,
+				 sizeof(*dgram_cpt));
+
+		net->gnn_dev->gnd_dgram_cpt = dgram_cpt;
+
+		init_waitqueue_head(&dgram_cpt->kgn_dgram_waitq);
+		init_waitqueue_head(&dgram_cpt->kgn_dgping_waitq);
+
+		rc = kgnilnd_thread_start(kgnilnd_dgram_mover,
+					  net->gnn_dev, "kgnilnd_dg",
+					  net->gnn_dev->gnd_id);
+		if (rc != 0) {
+			CERROR("Can't spawn gnilnd dgram_mover[%d]: %d\n",
+			       net->gnn_dev->gnd_id, rc);
+			GOTO(failed, rc);
+		}
+
+		rc = kgnilnd_thread_start(kgnilnd_dgram_waitq,
+					  net->gnn_dev, "kgnilnd_dgn",
+					  net->gnn_dev->gnd_id);
+		if (rc != 0) {
+			CERROR("Can't spawn gnilnd dgram_waitq[%d]: %d\n",
+			       net->gnn_dev->gnd_id, rc);
+			GOTO(failed, rc);
+		}
+		dgram_cpt->kgn_cpt = cpt;
+
+		rc = kgnilnd_setup_wildcard_dgram(net->gnn_dev);
+		if (rc != 0) {
+			CERROR("Can't create wildcard dgrams[%d]: %d\n",
+			       net->gnn_dev->gnd_id, rc);
+			GOTO(failed, rc);
+		}
+	}
+
+	/* Total maximum number of schedular threads per GNI device */
+	if (*kgnilnd_tunables.kgn_sched_threads > 0) {
+		max_threads = *kgnilnd_tunables.kgn_sched_threads;
+	} else {
+		max_threads = max(GNILND_SCHED_THREADS, 1);
+	}
+
+	for (i = 0; i < ni->ni_ncpts; i++) {
+		struct kgn_cpt_dgram *dgram_cpt = net->gnn_dev->gnd_dgram_cpt;
+		int cpt = (ni->ni_cpts == NULL) ? i : ni->ni_cpts[i];
+		int ncores = cfs_cpt_weight(lnet_cpt_table(), i);
+		struct kgn_cpt_info *sched = kgnilnd_data.kgn_scheds[cpt];
+		long id;
+
+		if (net->gnn_dev->gnd_dgram_cpt == NULL) {
+			LIBCFS_CPT_ALLOC(dgram_cpt, lnet_cpt_table(), cpt,
+					 sizeof(*dgram_cpt));
+
+			net->gnn_dev->gnd_dgram_cpt = dgram_cpt;
+
+			init_waitqueue_head(&dgram_cpt->kgn_dgram_waitq);
+			init_waitqueue_head(&dgram_cpt->kgn_dgping_waitq);
+
+			rc = kgnilnd_thread_start(kgnilnd_dgram_mover,
+						  net->gnn_dev, "kgnilnd_dg",
+						  net->gnn_dev->gnd_id);
+			if (rc != 0) {
+				CERROR("Can't spawn gnilnd dgram_mover[%d]: %d\n",
+				       net->gnn_dev->gnd_id, rc);
+				GOTO(failed, rc);
+			}
+
+			rc = kgnilnd_thread_start(kgnilnd_dgram_waitq,
+						  net->gnn_dev, "kgnilnd_dgn",
+						  net->gnn_dev->gnd_id);
+			if (rc != 0) {
+				CERROR("Can't spawn gnilnd dgram_waitq[%d]: %d\n",
+				       net->gnn_dev->gnd_id, rc);
+				GOTO(failed, rc);
+			}
+			dgram_cpt->kgn_cpt = cpt;
+		}
+
+		/* Another lnet startup has already mapped a CPU partition
+		 * to this GNI device so no need to do it again */
+		if (net->gnn_dev->gnd_cpts[cpt])
+			continue;
+		net->gnn_dev->gnd_cpts[cpt] = sched;
+
+		/* Create gnilnd schedulers up to the maximum number
+		 * of cores or the limit set by the user. */
+		while (j < max_threads && j < ncores) {
+			int tid = atomic_read(&kgnilnd_data.kgn_nthreads);
+
+			id = KGN_THREAD_ID(net->gnn_dev->gnd_id, sched->kgn_cpt, tid);
+			rc = kgnilnd_thread_start(kgnilnd_scheduler,
+						  (void *)((long)id),
+						  "kgnilnd_sd", id);
+			if (rc != 0) {
+				CERROR("Can't spawn gnilnd scheduler[%ld]: %d\n",
+				       id, rc);
+				GOTO(failed, rc);
+			}
+			j++;
+		}
+	}
 
 	/* we need a separate thread to call probe_wait_by_id until
 	 * we get a function callback notifier from kgni */
@@ -2780,7 +2898,6 @@ kgnilnd_shutdown(lnet_ni_t *ni)
 		down_write(&kgnilnd_data.kgn_net_rw_sem);
 		list_del_init(&net->gnn_list);
 		up_write(&kgnilnd_data.kgn_net_rw_sem);
-
 	}
 
 	/* not locking, this can't race with writers */

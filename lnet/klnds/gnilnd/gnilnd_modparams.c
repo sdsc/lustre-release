@@ -74,6 +74,17 @@ static int checksum_dump = 0;
 CFS_MODULE_PARM(checksum_dump, "i", int, 0644,
 		"0: None, 1: dump log on failure, 2: payload data to D_INFO log");
 
+/*
+ * checksum_algo is so the user can pass in strings since it is easier
+ * to deal with names than some special number. Internally the driver
+ * translates it some enum for usage.
+ */
+static int cksum_algo = CFS_HASH_ALG_CRC32;
+static char *checksum_algo = "crc32";
+
+CFS_MODULE_PARM(checksum_algo, "s", charp, 0644,
+		"Select checksum algorthim to use");
+
 static int bte_dlvr_mode = GNILND_RDMA_DLVR_OPTION;
 CFS_MODULE_PARM(bte_dlvr_mode, "i", int, 0644,
 		"enable hashing for BTE (RDMA) transfers");
@@ -177,6 +188,7 @@ kgn_tunables_t kgnilnd_tunables = {
 	.kgn_max_immediate          = &max_immediate,
 	.kgn_checksum               = &checksum,
 	.kgn_checksum_dump          = &checksum_dump,
+	.kgn_checksum_algo	    = &cksum_algo,
 	.kgn_bte_dlvr_mode          = &bte_dlvr_mode,
 	.kgn_bte_relaxed_ordering   = &bte_relaxed_ordering,
 	.kgn_ptag                   = &ptag,
@@ -203,6 +215,8 @@ kgn_tunables_t kgnilnd_tunables = {
 };
 
 #if CONFIG_SYSCTL && !CFS_SYSFS_MODULE_PARM
+static char algo_list[32];
+
 static cfs_sysctl_table_t kgnilnd_ctl_table[] = {
 	{
 		INIT_CTL_NAME(2)
@@ -467,6 +481,14 @@ static cfs_sysctl_table_t kgnilnd_ctl_table[] = {
 		.mode     = 0444,
 		.proc_handler = &proc_dointvec
 	},
+	{
+		INIT_CTL_NAME(37)
+		.procname	= "ckecksum_algo",
+		.data		= algo_list,
+		.maxlen		= sizeof(algo_list),
+		.mode		= 0444,
+		.proc_handler	= &proc_dostring,
+	},
 	{0}
 };
 
@@ -486,15 +508,20 @@ static cfs_sysctl_table_t kgnilnd_top_ctl_table[] = {
 int
 kgnilnd_tunables_init()
 {
-	int rc = 0;
+	int algo = cfs_crypto_hash_alg(checksum_algo), rc = 0;
 
-#if CONFIG_SYSCTL && !CFS_SYSFS_MODULE_PARM
-	kgnilnd_tunables.kgn_sysctl =
-		cfs_register_sysctl_table(kgnilnd_top_ctl_table, 0);
+	if (algo >= CFS_HASH_ALG_MAX) {
+		CERROR("Invalid checksum algorithm\n");
+		rc = -EINVAL;
+		GOTO(out, rc);
+	}
 
-	if (kgnilnd_tunables.kgn_sysctl == NULL)
-		CWARN("Can't setup /proc tunables\n");
-#endif
+	/* It is possible to build a kernel without the null crypto
+	 * algorithm so for that case just turn off check summing to
+	 * be safe */
+	if (algo == CFS_HASH_ALG_NULL)
+		*kgnilnd_tunables.kgn_checksum = GNILND_CHECKSUM_OFF;
+
 	switch (*kgnilnd_tunables.kgn_checksum) {
 	default:
 		CERROR("Invalid checksum module parameter: %d\n",
@@ -503,6 +530,8 @@ kgnilnd_tunables_init()
 		GOTO(out, rc);
 	case GNILND_CHECKSUM_OFF:
 		/* no checksumming */
+		*kgnilnd_tunables.kgn_checksum_algo = CFS_HASH_ALG_NULL;
+		checksum_algo = "null";
 		break;
 	case GNILND_CHECKSUM_SMSG_HEADER:
 		LCONSOLE_INFO("SMSG header only checksumming enabled\n");
@@ -514,6 +543,18 @@ kgnilnd_tunables_init()
 		LCONSOLE_INFO("SMSG + BTE checksumming enabled\n");
 		break;
 	}
+	LCONSOLE_INFO("Gemini LND using %s checksum algorithm\n",
+			checksum_algo);
+
+#if CONFIG_SYSCTL && !CFS_SYSFS_MODULE_PARM
+	strncpy(algo_list, checksum_algo, sizeof(algo_list));
+
+	kgnilnd_tunables.kgn_sysctl =
+		cfs_register_sysctl_table(kgnilnd_top_ctl_table, 0);
+
+	if (kgnilnd_tunables.kgn_sysctl == NULL)
+		CWARN("Can't setup /proc tunables\n");
+#endif
 
 	if (*kgnilnd_tunables.kgn_max_immediate > GNILND_MAX_IMMEDIATE) {
 		LCONSOLE_ERROR("kgnilnd module parameter 'max_immediate' too large %d > %d\n",
