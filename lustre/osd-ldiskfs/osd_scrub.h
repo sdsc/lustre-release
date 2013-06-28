@@ -97,6 +97,11 @@ enum scrub_start {
 	SS_AUTO			= 0x00000008,
 };
 
+enum scrub_flags2 {
+	/* This is a new formatted device. */
+	SF2_NEW		= 0x0001,
+};
+
 struct scrub_file {
 	/* 128-bit uuid for volume. */
 	__u8    sf_uuid[16];
@@ -158,8 +163,9 @@ struct scrub_file {
 	/* How many OI files. */
 	__u16   sf_oi_count;
 
-	/* Update the magic or flags if want to use the reserved fields. */
-	__u16	sf_reserved_0;
+	/* Keep the flags after scrub reset. See 'enum scrub_flags2'*/
+	__u16	sf_flags2;
+
 	__u32	sf_reserved_1;
 	__u64	sf_reserved_2[16];
 
@@ -211,7 +217,8 @@ struct osd_scrub {
 						* found by RPC prior */
 				os_waiting:1, /* Waiting for scan window. */
 				os_full_speed:1, /* run w/o speed limit */
-				os_paused:1; /* The scrub is paused. */
+				os_paused:1, /* The scrub is paused. */
+				os_convert_igif:1;
 };
 
 #endif /* _OSD_SCRUB_H */
