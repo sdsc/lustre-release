@@ -112,6 +112,11 @@ struct dt_txn_commit_cb {
 	char		dcb_name[MAX_COMMIT_CB_STR_LEN];
 };
 
+enum dt_device_type {
+	DDT_FOR_MDT	= 1,
+	DDT_FOR_OST	= 2,
+};
+
 /**
  * Operations on dt device.
  */
@@ -174,6 +179,16 @@ struct dt_device_operations {
                                    struct dt_device *dev,
                                    int mode, unsigned long timeout,
                                    __u32 alg, struct lustre_capa_key *keys);
+
+	/**
+	 * Return the low layer dt_device with the given @type and @index
+	 *
+	 * \retval -ENOENT: the target is not connect or inactive.
+	 * \retval others: the wanted child device.
+	 */
+	struct dt_device *(*dt_child_dev)(struct dt_device *parent,
+					  enum dt_device_type type,
+					  __u32 index);
 };
 
 struct dt_index_features {

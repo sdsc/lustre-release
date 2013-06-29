@@ -633,6 +633,46 @@ static int lod_init_capa_ctxt(const struct lu_env *env, struct dt_device *dev,
 	return dt_init_capa_ctxt(env, next, mode, timeout, alg, keys);
 }
 
+static struct dt_device *lod_child_dev(struct dt_device *parent,
+				       enum dt_device_type type,
+				       __u32 index)
+{
+	struct lod_device	*lod = dt2lod_dev(parent);
+	struct lod_tgt_descs	*ltd;
+	struct lod_tgt_desc	*tgt_desc;
+
+	switch (type) {
+	case DDT_FOR_MDT:
+		ltd = &lod->lod_mdt_descs;
+		break;
+	case DDT_FOR_OST:
+		ltd = &lod->lod_ost_descs;
+		break;
+	default:
+		CERROR("%s: unsupport dt_device type %d\n",
+		       lod2obd(lod)->obd_name, type);
+		return ERR_PTR(-EINVAL);
+	}
+
+	lod_getref(ltd);
+	if (index >= ltd->ltd_tgts_size ||
+	    !cfs_bitmap_check(ltd->ltd_tgt_bitmap, index)) {
+		lod_putref(lod, ltd);
+		return ERR_PTR(-ENOENT);
+	}
+
+	tgt_desc = LTD_TGT(ltd, index);
+	if (tgt_desc == NULL || tgt_desc->ltd_reap || !tgt_desc->ltd_active) {
+		lod_putref(lod, ltd);
+		return ERR_PTR(-ENOENT);
+	}
+
+	lu_device_get(&tgt_desc->ltd_tgt->dd_lu_dev);
+	lod_putref(lod, ltd);
+
+	return tgt_desc->ltd_tgt;
+}
+
 static const struct dt_device_operations lod_dt_ops = {
 	.dt_root_get         = lod_root_get,
 	.dt_statfs           = lod_statfs,
@@ -644,6 +684,7 @@ static const struct dt_device_operations lod_dt_ops = {
 	.dt_ro               = lod_ro,
 	.dt_commit_async     = lod_commit_async,
 	.dt_init_capa_ctxt   = lod_init_capa_ctxt,
+	.dt_child_dev	     = lod_child_dev,
 };
 
 static int lod_connect_to_osd(const struct lu_env *env, struct lod_device *lod,
@@ -989,6 +1030,24 @@ static int lod_obd_health_check(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static int lod_get_info(const struct lu_env *env, struct obd_export *exp,
+			__u32 keylen, void *key, __u32 *vallen, void *val,
+			struct lov_stripe_md *lsm)
+{
+	/* XXX: To be extended in other patch. */
+	*vallen = sizeof(int);
+	*(int *)val = 0;
+	return 0;
+}
+
+static int lod_set_info_async(const struct lu_env *env, struct obd_export *exp,
+			      obd_count keylen, void *key, obd_count vallen,
+			      void *val, struct ptlrpc_request_set *set)
+{
+	/* XXX: To be extended in other patch. */
+	return 0;
+}
+
 static struct obd_ops lod_obd_device_ops = {
 	.o_owner        = THIS_MODULE,
 	.o_connect      = lod_obd_connect,
@@ -998,6 +1057,8 @@ static struct obd_ops lod_obd_device_ops = {
 	.o_pool_rem     = lod_pool_remove,
 	.o_pool_add     = lod_pool_add,
 	.o_pool_del     = lod_pool_del,
+	.o_get_info	= lod_get_info,
+	.o_set_info_async = lod_set_info_async,
 };
 
 static int __init lod_mod_init(void)
