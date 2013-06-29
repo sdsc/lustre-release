@@ -50,12 +50,26 @@ enum lfsck_notify_events {
 	LNE_LAYOUT_PHASE2_DONE	= 4,
 };
 
+enum lfsck_control_types {
+	LCT_LAYOUT_START	= 1,
+	LCT_LAYOUT_STOP 	= 2,
+	LCT_LAYOUT_NEXT 	= 3,
+};
+
+struct lfsck_control_request {
+	enum lfsck_control_types	lcr_type;
+	union {
+		struct lfsck_start	lcr_start;
+		int			lcr_status;
+	};
+};
+
 typedef int (*lfsck_notify)(void *data, enum lfsck_notify_events event,
 			    int status);
 
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
-		   struct dt_device *next, lfsck_notify notify,
-		   void *data, bool master);
+		   struct dt_device *next, struct obd_export *exp,
+		   lfsck_notify notify, void *data, bool master);
 void lfsck_degister(const struct lu_env *env, struct dt_device *key);
 
 int lfsck_start(const struct lu_env *env, struct dt_device *key,

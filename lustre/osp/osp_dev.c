@@ -1126,6 +1126,24 @@ static int osp_obd_health_check(const struct lu_env *env,
 	RETURN(!d->opd_imp_seen_connected);
 }
 
+static int osp_get_info(const struct lu_env *env, struct obd_export *exp,
+			__u32 keylen, void *key, __u32 *vallen, void *val,
+			struct lov_stripe_md *lsm)
+{
+	/* XXX: To be extended in other patch. */
+	*vallen = sizeof(int);
+	*(int *)val = 0;
+	return 0;
+}
+
+static int osp_set_info_async(const struct lu_env *env, struct obd_export *exp,
+			      obd_count keylen, void *key, obd_count vallen,
+			      void *val, struct ptlrpc_request_set *set)
+{
+	/* XXX: To be extended in other patch. */
+	return 0;
+}
+
 /* context key constructor/destructor: mdt_key_init, mdt_key_fini */
 LU_KEY_INIT_FINI(osp, struct osp_thread_info);
 static void osp_key_exit(const struct lu_context *ctx,
@@ -1186,6 +1204,8 @@ static struct obd_ops osp_obd_device_ops = {
 	.o_statfs	= osp_obd_statfs,
 	.o_fid_init	= client_fid_init,
 	.o_fid_fini	= client_fid_fini,
+	.o_get_info	= osp_get_info,
+	.o_set_info_async = osp_set_info_async,
 };
 
 struct llog_operations osp_mds_ost_orig_logops;
