@@ -81,6 +81,7 @@ const char *lfsck_flags_names[] = {
 	"inconsistent",
 	"upgrade",
 	"incomplete",
+	"crashed_lastid",
 	NULL
 };
 
@@ -110,6 +111,13 @@ static inline void lfsck_component_put(const struct lu_env *env,
 			OBD_FREE(com->lc_file_ram, com->lc_file_size);
 		if (com->lc_file_disk != NULL)
 			OBD_FREE(com->lc_file_disk, com->lc_file_size);
+
+		if (com->lc_data != NULL) {
+			LASSERT(com->lc_ops->lfsck_data_release != NULL);
+
+			com->lc_ops->lfsck_data_release(env, com);
+		}
+
 		OBD_FREE_PTR(com);
 	}
 }
@@ -1079,7 +1087,8 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key, bool pause)
 EXPORT_SYMBOL(lfsck_stop);
 
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
-		   struct dt_device *next, bool master)
+		   struct dt_device *next, lfsck_notify notify,
+		   void *data, bool master)
 {
 	struct lfsck_instance	*lfsck;
 	struct dt_object	*root;
@@ -1105,6 +1114,8 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 	CFS_INIT_LIST_HEAD(&lfsck->li_list_idle);
 	atomic_set(&lfsck->li_ref, 1);
 	cfs_waitq_init(&lfsck->li_thread.t_ctl_waitq);
+	lfsck->li_notify = notify;
+	lfsck->li_notify_data = data;
 	lfsck->li_next = next;
 	lfsck->li_bottom = key;
 
