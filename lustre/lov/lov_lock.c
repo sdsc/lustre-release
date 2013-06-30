@@ -309,6 +309,11 @@ static int lov_lock_sub_init(const struct lu_env *env,
 
         ENTRY;
 
+	CDEBUG(D_INODE, "%p: lock/io FID "DFID"/"DFID", lock/io clobj %p/%p\n",
+		loo, PFID(lu_object_fid(lov2lu(loo))),
+		PFID(lu_object_fid(&io->ci_obj->co_lu)),
+		lov2cl(loo), io->ci_obj);
+
         lck->lls_orig = parent->cll_descr;
         file_start = cl_offset(lov2cl(loo), parent->cll_descr.cld_start);
         file_end   = cl_offset(lov2cl(loo), parent->cll_descr.cld_end + 1) - 1;
