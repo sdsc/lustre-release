@@ -312,8 +312,8 @@ void ll_invalidate_aliases(struct inode *inode)
 
 	LASSERT(inode != NULL);
 
-	CDEBUG(D_INODE, "marking dentries for ino %lu/%u(%p) invalid\n",
-	       inode->i_ino, inode->i_generation, inode);
+	CDEBUG(D_INODE, "marking dentries for inode "DFID"(%p) invalid\n",
+	       PFID(ll_inode2fid(inode)), inode);
 
 	ll_lock_dcache(inode);
 	ll_d_hlist_for_each_entry(dentry, p, &inode->i_dentry, d_alias) {
@@ -323,8 +323,9 @@ void ll_invalidate_aliases(struct inode *inode)
 		       dentry->d_inode, dentry->d_flags);
 
                 if (dentry->d_name.len == 1 && dentry->d_name.name[0] == '/') {
-                        CERROR("called on root (?) dentry=%p, inode=%p "
-                               "ino=%lu\n", dentry, inode, inode->i_ino);
+			CERROR("%s: called on root (?) dentry=%p, inode="DFID
+			       "(%p)\n", ll_get_fsname(inode->i_sb, NULL, 0),
+			       dentry, PFID(ll_inode2fid(inode)), inode);
                         lustre_dump_dentry(dentry, 1);
                         libcfs_debug_dumpstack(NULL);
                 }
@@ -363,8 +364,8 @@ void ll_lookup_finish_locks(struct lookup_intent *it, struct dentry *dentry)
                 struct inode *inode = dentry->d_inode;
                 struct ll_sb_info *sbi = ll_i2sbi(dentry->d_inode);
 
-                CDEBUG(D_DLMTRACE, "setting l_data to inode %p (%lu/%u)\n",
-                       inode, inode->i_ino, inode->i_generation);
+		CDEBUG(D_DLMTRACE, "setting l_data to inode "DFID"(%p)\n",
+		       PFID(ll_inode2fid(inode)), inode);
                 ll_set_lock_data(sbi->ll_md_exp, inode, it, NULL);
         }
 
