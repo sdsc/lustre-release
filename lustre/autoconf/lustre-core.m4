@@ -1420,19 +1420,6 @@ EXTRA_KCFLAGS="-I$LINUX/fs"
 EXTRA_KCFLAGS=$tmp_flags
 ])
 
-# 2.6.32 set_cpus_allowed is no more defined if CONFIG_CPUMASK_OFFSTACK=yes
-AC_DEFUN([LC_SET_CPUS_ALLOWED],
-         [AC_MSG_CHECKING([if kernel defines set_cpus_allowed])
-          LB_LINUX_TRY_COMPILE(
-                [#include <linux/sched.h>],
-                [struct task_struct *p = NULL;
-                 cpumask_t mask = { { 0 } };
-                 (void) set_cpus_allowed(p, mask);],
-                [AC_MSG_RESULT([yes])
-                 AC_DEFINE(HAVE_SET_CPUS_ALLOWED, 1,
-                           [set_cpus_allowed is exported by the kernel])],
-                [AC_MSG_RESULT([no])] )])
-
 # 2.6.32 introduces selinux_is_enabled()
 AC_DEFUN([LC_SELINUX_IS_ENABLED],
 [AC_MSG_CHECKING([if selinux_is_enabled is available])
@@ -2317,7 +2304,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_SB_BDI
          LC_BLK_QUEUE_MAX_SECTORS
          LC_BLK_QUEUE_MAX_SEGMENTS
-         LC_SET_CPUS_ALLOWED
          LC_CACHE_UPCALL
          LC_EXPORT_GENERIC_ERROR_REMOVE_PAGE
          LC_SELINUX_IS_ENABLED
