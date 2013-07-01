@@ -959,6 +959,10 @@ LB_LINUX_TRY_COMPILE([
 EXTRA_KCFLAGS="$tmp_flags"
 ])
 
+# up to v2.6.27 had a 3 arg version (inode, mask, nameidata)
+# v2.6.27->v2.6.37 had a 2 arg version (inode, mask)
+# v2.6.37->v3.0 had a 3 arg version (inode, mask, nameidata)
+# v3.1 onward have a 2 arg version (inode, mask)
 AC_DEFUN([LC_INODE_PERMISION_2ARGS],
 [AC_MSG_CHECKING([inode_operations->permission has two args])
 LB_LINUX_TRY_COMPILE([
@@ -2285,7 +2289,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_SECURITY_PLUG  # for SLES10 SP2
          LC_PGMKWRITE_USE_VMFAULT
 	 LC_PGMKWRITE_COMPACT
-         LC_INODE_PERMISION_2ARGS
          LC_TRYLOCKPAGE
          LC_READ_INODE_IN_SBOPS
          LC_EXPORT_INODE_PERMISSION
@@ -2359,6 +2362,7 @@ AC_DEFUN([LC_PROG_LINUX],
 	 LC_INODE_DIO_WAIT
 	 LC_IOP_GET_ACL
 	 LC_FILE_LLSEEK_SIZE
+	 LC_INODE_PERMISION_2ARGS
 
 	 # 3.1.1
 	 LC_BLOCKS_FOR_TRUNCATE
