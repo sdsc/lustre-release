@@ -1289,7 +1289,7 @@ sanity_mount_check_nodes () {
 
     local rc=0
     for mnt in $mnts ; do
-        do_nodes $nodes "running=\\\$(grep -c $mnt' ' /proc/mounts);
+        do_nodes $nodes "set -x;running=\\\$(grep -c $mnt' ' /proc/mounts);
 mpts=\\\$(mount | grep -c $mnt' ');
 if [ \\\$running -ne \\\$mpts ]; then
     echo \\\$(hostname) env are INSANE!;
