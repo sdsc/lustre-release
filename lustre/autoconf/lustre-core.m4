@@ -1302,16 +1302,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.32 has bdi_register() functions.
-AC_DEFUN([LC_EXPORT_BDI_REGISTER],
-[LB_CHECK_SYMBOL_EXPORT([bdi_register],
-[mm/backing-dev.c],[
-        AC_DEFINE(HAVE_BDI_REGISTER, 1,
-                [bdi_register function is present])
-],[
-])
-])
-
 # 2.6.32 add s_bdi for super block
 AC_DEFUN([LC_SB_BDI],
 [AC_MSG_CHECKING([if super_block has s_bdi field])
@@ -2313,7 +2303,6 @@ AC_DEFUN([LC_PROG_LINUX],
 
          # 2.6.32
          LC_REQUEST_QUEUE_LIMITS
-         LC_EXPORT_BDI_REGISTER
          LC_SB_BDI
          LC_BLK_QUEUE_MAX_SECTORS
          LC_BLK_QUEUE_MAX_SEGMENTS
