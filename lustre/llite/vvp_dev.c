@@ -409,15 +409,15 @@ static void vvp_pgcache_page_show(const struct lu_env *env,
 
         cpg = cl2ccc_page(cl_page_at(page, &vvp_device_type));
         vmpage = cpg->cpg_page;
-        seq_printf(seq," %5i | %p %p %s %s %s %s | %p %lu/%u(%p) %lu %u [",
-                   0 /* gen */,
-                   cpg, page,
-                   "none",
-                   cpg->cpg_write_queued ? "wq" : "- ",
-                   cpg->cpg_defer_uptodate ? "du" : "- ",
-                   PageWriteback(vmpage) ? "wb" : "-",
-                   vmpage, vmpage->mapping->host->i_ino,
-                   vmpage->mapping->host->i_generation,
+	seq_printf(seq," %5i | %p %p %s %s %s %s | %p "DFID"(%p) %lu %u [",
+		   0 /* gen */,
+		   cpg, page,
+		   "none",
+		   cpg->cpg_write_queued ? "wq" : "- ",
+		   cpg->cpg_defer_uptodate ? "du" : "- ",
+		   PageWriteback(vmpage) ? "wb" : "-",
+		   vmpage,
+		   PFID(ll_inode2fid(vmpage->mapping->host)),
                    vmpage->mapping->host, vmpage->index,
                    page_count(vmpage));
         has_flags = 0;
