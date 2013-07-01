@@ -679,23 +679,6 @@ LB_LINUX_TRY_COMPILE([
 
 # 2.6.23
 
-# 2.6.23 have return type 'void' for unregister_blkdev
-AC_DEFUN([LC_UNREGISTER_BLKDEV_RETURN_INT],
-[AC_MSG_CHECKING([if unregister_blkdev return int])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        int i __attribute__ ((unused));
-        i = unregister_blkdev(0,NULL);
-],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_UNREGISTER_BLKDEV_RETURN_INT, 1,
-                [unregister_blkdev return int])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
 # 2.6.23 change .sendfile to .splice_read
 AC_DEFUN([LC_KERNEL_SPLICE_READ],
 [AC_MSG_CHECKING([if kernel has .splice_read])
@@ -761,36 +744,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.23 add code to wait other users to complete before removing procfs entry
-AC_DEFUN([LC_PROCFS_USERS],
-[AC_MSG_CHECKING([if kernel has pde_users member in procfs entry struct])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/proc_fs.h>
-],[
-        struct proc_dir_entry pde;
-
-        pde.pde_users   = 0;
-],[
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_PROCFS_USERS, 1,
-                [kernel has pde_users member in procfs entry struct])
-],[
-	LB_LINUX_TRY_COMPILE([
-		#include "$LINUX/fs/proc/internal.h"
-	],[
-		struct proc_dir_entry_aux pde_aux;
-
-		pde_aux.pde_users = 0;
-	],[
-		AC_MSG_RESULT([yes])
-		AC_DEFINE(HAVE_PROCFS_USERS, 1,
-			[kernel has pde_users member in proc_dir_entry_aux])
-	],[
-		AC_MSG_RESULT([no])
-	])
-])
-])
-
 # 2.6.23 exports exportfs_decode_fh
 AC_DEFUN([LC_EXPORTFS_DECODE_FH],
 [LB_CHECK_SYMBOL_EXPORT([exportfs_decode_fh],
@@ -843,24 +796,6 @@ LB_LINUX_TRY_COMPILE([
         AC_MSG_RESULT([yes])
         AC_DEFINE(HAVE_FH_TO_DENTRY, 1,
                 [kernel has .fh_to_dentry member in export_operations struct])
-],[
-        AC_MSG_RESULT([no])
-])
-])
-
-# 2.6.24 removes long aged procfs entry -> deleted member
-AC_DEFUN([LC_PROCFS_DELETED],
-[AC_MSG_CHECKING([if kernel has deleted member in procfs entry struct])
-LB_LINUX_TRY_COMPILE([
-	#include <linux/proc_fs.h>
-],[
-        struct proc_dir_entry pde;
-
-        pde.deleted = sizeof(pde);
-], [
-        AC_MSG_RESULT([yes])
-        AC_DEFINE(HAVE_PROCFS_DELETED, 1,
-                [kernel has deleted member in procfs entry struct])
 ],[
         AC_MSG_RESULT([no])
 ])
@@ -2263,19 +2198,16 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_FS_RENAME_DOES_D_MOVE
 
          # 2.6.23
-         LC_UNREGISTER_BLKDEV_RETURN_INT
          LC_KERNEL_SPLICE_READ
          LC_KERNEL_SENDFILE
          LC_HAVE_EXPORTFS_H
          LC_VM_OP_FAULT
-         LC_PROCFS_USERS
          LC_EXPORTFS_DECODE_FH
 
          # 2.6.24
          LC_HAVE_MMTYPES_H
          LC_BIO_ENDIO_2ARG
          LC_FH_TO_DENTRY
-         LC_PROCFS_DELETED
          LC_EXPORT_BDI_INIT
 
          # 2.6.26
