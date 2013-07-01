@@ -3776,6 +3776,7 @@ testslist_filter () {
 
     [ -f $script ] || return 0
 
+START_AT=169
     local start_at=$START_AT
     local stop_at=$STOP_AT
 
