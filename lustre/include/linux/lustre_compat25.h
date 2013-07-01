@@ -226,10 +226,6 @@ int ll_unregister_blkdev(unsigned int dev, const char *name)
 #define FS_HAS_FIEMAP			(0)
 #endif
 
-#ifndef HAVE_FS_RENAME_DOES_D_MOVE
-#define FS_RENAME_DOES_D_MOVE		FS_ODD_RENAME
-#endif
-
 #ifndef HAVE_D_OBTAIN_ALIAS
 /* The old d_alloc_anon() didn't free the inode reference on error
  * like d_obtain_alias().  Hide that difference/inconvenience here. */
