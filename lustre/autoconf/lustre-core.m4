@@ -902,24 +902,6 @@ LB_LINUX_TRY_COMPILE([
 # 2.6.27
 #
 
-# LC_SECURITY_PLUG  # for SLES10 SP2 (2.6.27)
-# check security plug in sles10 sp2 kernel
-AC_DEFUN([LC_SECURITY_PLUG],
-[AC_MSG_CHECKING([If kernel has security plug support])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-        #include <linux/stddef.h>
-],[
-        notify_change(NULL, NULL, NULL);
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_SECURITY_PLUG, 1,
-                [SLES10 SP2 use extra parameter in vfs])
-],[
-        AC_MSG_RESULT(no)
-])
-])
-
 AC_DEFUN([LC_PGMKWRITE_USE_VMFAULT],
 [AC_MSG_CHECKING([kernel .page_mkwrite uses struct vm_fault *])
 tmp_flags="$EXTRA_KCFLAGS"
@@ -2282,7 +2264,6 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_FS_STRUCT_USE_PATH
 
          # 2.6.27
-         LC_SECURITY_PLUG  # for SLES10 SP2
          LC_PGMKWRITE_USE_VMFAULT
 	 LC_PGMKWRITE_COMPACT
          LC_INODE_PERMISION_2ARGS
