@@ -412,7 +412,7 @@ static int handle_async_create(struct ptlrpc_request *req, int rc)
 
         LASSERT_SPIN_LOCKED(&oscc->oscc_lock);
 
-        if(rc)
+        if(!ll_rpc_recoverable_error(rc))
                 GOTO(out_wake, rc);
 
         /* Handle the critical type errors first.
