@@ -913,7 +913,7 @@ cfs_hash_buckets_realloc(cfs_hash_t *hs, cfs_hash_bucket_t **old_bkts,
         if (old_bkts != NULL && old_size == new_size)
                 return old_bkts;
 
-        LIBCFS_ALLOC(new_bkts, sizeof(new_bkts[0]) * new_size);
+	LIBCFS_ALLOC_ATOMIC(new_bkts, sizeof(new_bkts[0]) * new_size);
         if (new_bkts == NULL)
                 return NULL;
 
@@ -926,7 +926,7 @@ cfs_hash_buckets_realloc(cfs_hash_t *hs, cfs_hash_bucket_t **old_bkts,
                 cfs_hlist_head_t *hhead;
                 cfs_hash_bd_t     bd;
 
-                LIBCFS_ALLOC(new_bkts[i], cfs_hash_bkt_size(hs));
+		LIBCFS_ALLOC_ATOMIC(new_bkts[i], cfs_hash_bkt_size(hs));
                 if (new_bkts[i] == NULL) {
                         cfs_hash_buckets_free(new_bkts, cfs_hash_bkt_size(hs),
                                               old_size, new_size);
@@ -1052,7 +1052,7 @@ cfs_hash_create(char *name, unsigned cur_bits, unsigned max_bits,
 
         len = (flags & CFS_HASH_BIGNAME) == 0 ?
               CFS_HASH_NAME_LEN : CFS_HASH_BIGNAME_LEN;
-        LIBCFS_ALLOC(hs, offsetof(cfs_hash_t, hs_name[len]));
+	LIBCFS_ALLOC_ATOMIC(hs, offsetof(cfs_hash_t, hs_name[len]));
         if (hs == NULL)
                 RETURN(NULL);
 
