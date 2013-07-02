@@ -943,6 +943,21 @@ static int mdd_declare_xattr_set(const struct lu_env *env,
 			return rc;
 	}
 
+	/* We are trying to release the file */
+	if ((strncmp(XATTR_NAME_LOV, name, sizeof(XATTR_NAME_LOV) - 1) == 0)
+	    && (fl & LU_XATTR_OBJPURGE)) {
+		/* HSM EA could be modified */
+		rc = mdo_declare_xattr_set(env, obj, NULL, XATTR_NAME_HSM, fl,
+					   handle);
+		if (rc)
+			return rc;
+
+		/* Release changelog could be added */
+		rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
+		if (rc)
+			return rc;
+	}
+
 	rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
 	return rc;
 }
@@ -1010,6 +1025,51 @@ free:
 	return(rc);
 }
 
+static int mdd_hsm_add_release(const struct lu_env *env, struct md_object *obj,
+			       struct thandle *handle, int fl)
+{
+	struct mdd_thread_info *info = mdd_env_info(env);
+	struct mdd_object      *mdd_obj = md2mdd_obj(obj);
+	struct lu_buf          *buf = &info->mti_buf;
+	struct md_hsm          *mh;
+	int                     flags = 0;
+	int                     rc;
+	ENTRY;
+
+	OBD_ALLOC_PTR(mh);
+	if (mh == NULL)
+		RETURN(-ENOMEM);
+
+	/* Read HSM attrs from disk */
+	buf->lb_buf = info->mti_xattr_buf;
+	buf->lb_len = sizeof(info->mti_xattr_buf);
+	CLASSERT(sizeof(struct hsm_attrs) <= sizeof(info->mti_xattr_buf));
+	rc = mdo_xattr_get(env, mdd_obj, buf, XATTR_NAME_HSM,
+			   mdd_object_capa(env, mdd_obj));
+	rc = lustre_buf2hsm(info->mti_xattr_buf, rc, mh);
+	if (rc < 0)
+		GOTO(free, rc);
+
+	/* Add RELEASE flag and write back EA to disk */
+	mh->mh_flags |= HS_RELEASED;
+	lustre_hsm2buf(info->mti_xattr_buf, mh);
+	buf->lb_len = sizeof(struct hsm_attrs);
+
+	rc = mdo_xattr_set(env, mdd_obj, buf, XATTR_NAME_HSM, 0, handle,
+			   mdd_object_capa(env, mdd_obj));
+	if (rc)
+		GOTO(free, rc);
+
+	/* Add a changelog record for release. */
+	hsm_set_cl_event(&flags, HE_RELEASE);
+	rc = mdd_changelog_data_store(env, mdo2mdd(obj), CL_HSM, flags, mdd_obj,
+				      handle);
+
+	EXIT;
+free:
+	OBD_FREE_PTR(mh);
+	return rc;
+}
 
 /**
  * The caller should guarantee to update the object ctime
@@ -1019,6 +1079,7 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 			 const struct lu_buf *buf, const char *name,
 			 int fl)
 {
+	struct mdd_thread_info  *info = mdd_env_info(env);
 	struct mdd_object	*mdd_obj = md2mdd_obj(obj);
 	struct mdd_device	*mdd = mdo2mdd(obj);
 	struct thandle		*handle;
@@ -1059,6 +1120,24 @@ static int mdd_xattr_set(const struct lu_env *env, struct md_object *obj,
 			GOTO(stop, rc);
 		}
 	}
+
+	/* If we are changing LOV and we got also a lu_attr, this is release */
+	if ((strncmp(XATTR_NAME_LOV, name, sizeof(XATTR_NAME_LOV) - 1) == 0) &&
+	    (buf->lb_len > sizeof(*info->mti_max_lmm))) {
+		struct lov_mds_md *lmm = buf->lb_buf;
+
+		/* Check new buffer is adding RELEASED flag. */
+		if (le32_to_cpu(lmm->lmm_pattern) & LOV_PATTERN_F_RELEASED) {
+
+			/* Add RELEASE flag */
+			rc = mdd_hsm_add_release(env, obj, handle, fl);
+			if (rc) {
+				mdd_write_unlock(env, mdd_obj);
+				GOTO(stop, rc);
+			}
+		}
+	}
+
 
 	rc = mdo_xattr_set(env, mdd_obj, buf, name, fl, handle,
 			   mdd_object_capa(env, mdd_obj));
