@@ -200,13 +200,6 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 RETURN(-ENOMEM);
         }
 
-        if (proc_lustre_fs_root) {
-                err = lprocfs_register_mountpoint(proc_lustre_fs_root, sb,
-                                                  dt, md);
-                if (err < 0)
-                        CERROR("could not register mount in /proc/fs/lustre\n");
-        }
-
         /* indicate the features supported by this client */
         data->ocd_connect_flags = OBD_CONNECT_IBITS    | OBD_CONNECT_NODEVOH  |
                                   OBD_CONNECT_ATTRFID  |
@@ -602,6 +595,12 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                 OBD_FREE_PTR(data);
         if (osfs != NULL)
                 OBD_FREE_PTR(osfs);
+	if (proc_lustre_fs_root) {
+		err = lprocfs_register_mountpoint(proc_lustre_fs_root, sb,
+						  dt, md);
+		if (err < 0)
+			CERROR("could not register mount in /proc/fs/lustre\n");
+	}
 
         RETURN(err);
 out_root:
