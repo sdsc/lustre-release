@@ -1319,7 +1319,15 @@ static int ost_set_info(struct obd_export *exp, struct ptlrpc_request *req)
                 if (vallen < sizeof(__u32))
                         RETURN(-EFAULT);
                 __swab32s((__u32 *)val);
-        }
+	} else if (KEY_IS(KEY_LFSCK_EVENT) && ptlrpc_req_need_swab(req)) {
+		struct lfsck_control_request *lcr =
+					(struct lfsck_control_request *)val;
+
+		if (vallen < sizeof(*lcr))
+			RETURN(-EFAULT);
+
+		lustre_swab_lfsck_control_request(lcr);
+	}
 
         /* OBD will also check if KEY_IS(KEY_GRANT_SHRINK), and will cast val to
          * a struct ost_body * value */

@@ -1322,11 +1322,19 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
 		RETURN(rc);
 	}
 	case OBD_IOC_STOP_LFSCK: {
-		rc = lfsck_stop(env, mdd->mdd_bottom, false);
+		struct lfsck_stop *stop = &mdd_env_info(env)->mti_stop;
+
+		stop->ls_status = LS_STOPPED;
+		stop->ls_index = mdd_seq_site(mdd)->ss_node_id;
+		rc = lfsck_stop(env, mdd->mdd_bottom, stop);
 		RETURN(rc);
 	}
 	case OBD_IOC_PAUSE_LFSCK: {
-		rc = lfsck_stop(env, mdd->mdd_bottom, true);
+		struct lfsck_stop *stop = &mdd_env_info(env)->mti_stop;
+
+		stop->ls_status = LS_PAUSED;
+		stop->ls_index = mdd_seq_site(mdd)->ss_node_id;
+		rc = lfsck_stop(env, mdd->mdd_bottom, stop);
 		RETURN(rc);
 	}
         }

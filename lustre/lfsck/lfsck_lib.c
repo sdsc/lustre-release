@@ -862,6 +862,40 @@ put_lfsck:
 }
 EXPORT_SYMBOL(lfsck_dump);
 
+int lfsck_query(struct dt_device *key, enum lfsck_type type)
+{
+	struct lu_env		env;
+	struct lfsck_instance  *lfsck;
+	struct lfsck_component *com;
+	int			rc;
+	ENTRY;
+
+	lfsck = lfsck_instance_find(key, true, false);
+	if (unlikely(lfsck == NULL))
+		RETURN(-ENODEV);
+
+	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD);
+	if (rc != 0)
+		GOTO(put_lfsck, rc);
+
+	com = lfsck_component_find(lfsck, type);
+	if (com == NULL)
+		GOTO(env_fini, rc = -ENOENT);
+
+	rc = com->lc_ops->lfsck_query(&env, com);
+	lfsck_component_put(&env, com);
+
+	GOTO(env_fini, rc);
+
+env_fini:
+	lu_env_fini(&env);
+
+put_lfsck:
+	lfsck_instance_put(&env, lfsck);
+	return rc;
+}
+EXPORT_SYMBOL(lfsck_query);
+
 int lfsck_start(const struct lu_env *env, struct dt_device *key,
 		struct lfsck_start_param *lsp)
 {
@@ -899,7 +933,7 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 	spin_unlock(&lfsck->li_lock);
 
 	lfsck->li_namespace = lsp->lsp_namespace;
-	lfsck->li_paused = 0;
+	lfsck->li_status = 0;
 	lfsck->li_oit_over = 0;
 	lfsck->li_drop_dryrun = 0;
 	lfsck->li_new_scanned = 0;
@@ -1038,7 +1072,8 @@ put:
 }
 EXPORT_SYMBOL(lfsck_start);
 
-int lfsck_stop(const struct lu_env *env, struct dt_device *key, bool pause)
+int lfsck_stop(const struct lu_env *env, struct dt_device *key,
+	       struct lfsck_stop *stop)
 {
 	struct lfsck_instance	*lfsck;
 	struct ptlrpc_thread	*thread;
@@ -1059,8 +1094,7 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key, bool pause)
 		RETURN(-EALREADY);
 	}
 
-	if (pause)
-		lfsck->li_paused = 1;
+	lfsck->li_status = stop->ls_status;
 	thread_set_flags(thread, SVC_STOPPING);
 	spin_unlock(&lfsck->li_lock);
 
@@ -1074,6 +1108,43 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key, bool pause)
 	RETURN(0);
 }
 EXPORT_SYMBOL(lfsck_stop);
+
+int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
+		    struct lfsck_control_request *lcr)
+{
+	struct lfsck_instance  *lfsck;
+	struct lfsck_component *com;
+	enum lfsck_type 	type;
+	int			rc;
+	ENTRY;
+
+	switch (lcr->lcr_type) {
+	case LNE_LAYOUT_PHASE1_DONE:
+	case LNE_LAYOUT_PHASE2_DONE:
+		type = LT_LAYOUT;
+		break;
+	default:
+		RETURN(-EOPNOTSUPP);
+	}
+
+	lfsck = lfsck_instance_find(key, true, false);
+	if (unlikely(lfsck == NULL))
+		RETURN(-ENODEV);
+
+	com = lfsck_component_find(lfsck, type);
+	if (com == NULL)
+		GOTO(put, rc = -ENOENT);
+
+	rc = com->lc_ops->lfsck_in_notify(env, com, lcr);
+	lfsck_component_put(env, com);
+
+	GOTO(put, rc);
+
+put:
+	lfsck_instance_put(env, lfsck);
+	return rc;
+}
+EXPORT_SYMBOL(lfsck_in_notify);
 
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
 		   struct dt_device *next, struct obd_export *exp,
