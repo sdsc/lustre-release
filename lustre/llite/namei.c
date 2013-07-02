@@ -1098,12 +1098,13 @@ static int ll_mkdir_generic(struct inode *dir, struct qstr *name,
 /* Try to find the child dentry by its name.
    If found, put the result fid into @fid. */
 static void ll_get_child_fid(struct inode * dir, struct qstr *name,
-                             struct lu_fid *fid)
+                             struct lu_fid *fid, struct dentry *dentry)
 {
 	struct dentry *parent, *child;
 
 	parent = ll_d_hlist_entry(dir->i_dentry, struct dentry, d_alias);
 	child = d_lookup(parent, name);
+	LASSERT(child == dentry);
         if (child) {
                 if (child->d_inode)
                         *fid = *ll_inode2fid(child->d_inode);
@@ -1130,7 +1131,7 @@ static int ll_rmdir_generic(struct inode *dir, struct dentry *dparent,
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
-        ll_get_child_fid(dir, name, &op_data->op_fid3);
+        ll_get_child_fid(dir, name, &op_data->op_fid3, dchild);
 	op_data->op_fid2 = op_data->op_fid3;
         rc = md_unlink(ll_i2sbi(dir)->ll_md_exp, op_data, &request);
         ll_finish_md_op_data(op_data);
@@ -1274,7 +1275,7 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
-	ll_get_child_fid(dir, name, &op_data->op_fid3);
+	ll_get_child_fid(dir, name, &op_data->op_fid3, dchild);
 	op_data->op_fid2 = op_data->op_fid3;
 	rc = md_unlink(ll_i2sbi(dir)->ll_md_exp, op_data, &request);
 	ll_finish_md_op_data(op_data);
@@ -1314,8 +1315,8 @@ static int ll_rename_generic(struct inode *src, struct dentry *src_dparent,
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
-        ll_get_child_fid(src, src_name, &op_data->op_fid3);
-        ll_get_child_fid(tgt, tgt_name, &op_data->op_fid4);
+        ll_get_child_fid(src, src_name, &op_data->op_fid3, src_dchild);
+        ll_get_child_fid(tgt, tgt_name, &op_data->op_fid4, tgt_dchild);
         err = md_rename(sbi->ll_md_exp, op_data,
                         src_name->name, src_name->len,
                         tgt_name->name, tgt_name->len, &request);
