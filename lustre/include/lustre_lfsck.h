@@ -48,14 +48,17 @@ enum lfsck_notify_events {
 	LNE_LASTID_REBUILT	= 2,
 	LNE_LAYOUT_PHASE1_DONE	= 3,
 	LNE_LAYOUT_PHASE2_DONE	= 4,
+	LNE_LAYOUT_START	= 5,
+	LNE_LAYOUT_STOP		= 6,
+	LNE_LAYOUT_QUERY	= 7,
 };
 
 typedef int (*lfsck_out_notify)(void *data, enum lfsck_notify_events event,
 				int status);
 
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
-		   struct dt_device *next, lfsck_out_notify notify,
-		   void *data, bool master);
+		   struct dt_device *next, struct obd_export *exp,
+		   lfsck_out_notify notify, void *data, bool master);
 void lfsck_degister(const struct lu_env *env, struct dt_device *key);
 
 int lfsck_start(const struct lu_env *env, struct dt_device *key,

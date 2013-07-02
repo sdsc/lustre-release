@@ -2023,6 +2023,27 @@ static void check_update(void)
 	CHECK_MEMBER(update, u_bufs);
 }
 
+static void check_lfsck_start(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(lfsck_start);
+	CHECK_MEMBER(lfsck_start, ls_valid);
+	CHECK_MEMBER(lfsck_start, ls_speed_limit);
+	CHECK_MEMBER(lfsck_start, ls_version);
+	CHECK_MEMBER(lfsck_start, ls_active);
+	CHECK_MEMBER(lfsck_start, ls_flags);
+	CHECK_MEMBER(lfsck_start, ls_index);
+}
+
+static void check_lfsck_control_request(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(lfsck_control_request);
+	check_lfsck_start();
+	CHECK_MEMBER(lfsck_control_request, lcr_type);
+	CHECK_MEMBER(lfsck_control_request, lcr_padding);
+}
+
 static void system_string(char *cmdline, char *str, int len)
 {
 	int   fds[2];
@@ -2415,6 +2436,8 @@ main(int argc, char **argv)
 	check_update_buf();
 	check_update_reply();
 	check_update();
+
+	check_lfsck_control_request();
 
 	printf("}\n\n");
 

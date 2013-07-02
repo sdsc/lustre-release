@@ -2580,3 +2580,14 @@ void lustre_swab_swap_layouts(struct mdc_swap_layouts *msl)
 	__swab64s(&msl->msl_flags);
 }
 EXPORT_SYMBOL(lustre_swab_swap_layouts);
+
+void lustre_swab_lfsck_control_request(struct lfsck_control_request *lcr)
+{
+	__swab32s(&lcr->lcr_start.ls_valid);
+	__swab32s(&lcr->lcr_start.ls_speed_limit);
+	__swab16s(&lcr->lcr_start.ls_version);
+	__swab16s(&lcr->lcr_start.ls_active);
+	__swab16s(&lcr->lcr_start.ls_flags);
+	__swab32s(&lcr->lcr_type);
+}
+EXPORT_SYMBOL(lustre_swab_lfsck_control_request);
