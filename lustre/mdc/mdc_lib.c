@@ -503,6 +503,27 @@ void mdc_getattr_pack(struct ptlrpc_request *req, __u64 valid, int flags,
         }
 }
 
+void mdc_hsm_release_pack(struct ptlrpc_request *req,
+			  struct md_op_data *op_data)
+{
+	if (op_data->op_bias & MDS_HSM_RELEASE) {
+		struct close_data *data;
+		struct ldlm_lock *lock;
+
+		data = req_capsule_client_get(&req->rq_pill, &RMF_CLOSE_DATA);
+		LASSERT(data != NULL);
+
+		lock = ldlm_handle2lock(&op_data->op_lease_handle);
+		if (lock != NULL) {
+			data->cd_handle = lock->l_remote_handle;
+			ldlm_lock_put(lock);
+		}
+		ldlm_cli_cancel(&op_data->op_lease_handle, LCF_LOCAL);
+
+		data->cd_data_version = op_data->op_data_version;
+	}
+}
+
 void mdc_close_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
 {
         struct mdt_ioepoch *epoch;
@@ -514,6 +535,7 @@ void mdc_close_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
         mdc_setattr_pack_rec(rec, op_data);
         mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
         mdc_ioepoch_pack(epoch, op_data);
+	mdc_hsm_release_pack(req, op_data);
 }
 
 static int mdc_req_avail(struct client_obd *cli, struct mdc_cache_waiter *mcw)

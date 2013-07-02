@@ -50,6 +50,7 @@
 #define __REQ_LAYOUT_USER__ (1)
 
 #define lustre_swab_generic_32s NULL
+#define lustre_swab_generic_64s NULL
 #define lustre_swab_lu_seq_range NULL
 #define lustre_swab_mdt_body NULL
 #define lustre_swab_mdt_ioepoch NULL
@@ -93,6 +94,7 @@
 #define lustre_swab_hsm_request NULL
 #define lustre_swab_update_buf NULL
 #define lustre_swab_update_reply_buf NULL
+#define lustre_swab_close_data NULL
 
 #define dump_rniobuf NULL
 #define dump_ioo NULL
