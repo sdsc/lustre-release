@@ -407,80 +407,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-#
-# LIBCFS_FUNC_DUMP_TRACE
-#
-# 2.6.23 exports dump_trace() so we can dump_stack() on any task
-# 2.6.24 has stacktrace_ops.address with "reliable" parameter
-#
-AC_DEFUN([LIBCFS_FUNC_DUMP_TRACE],
-[LB_CHECK_SYMBOL_EXPORT([dump_trace],
-[kernel/ksyms.c arch/${LINUX_ARCH%_64}/kernel/traps_64.c arch/x86/kernel/dumpstack_32.c arch/x86/kernel/dumpstack_64.c],[
-	tmp_flags="$EXTRA_KCFLAGS"
-	EXTRA_KCFLAGS="-Werror"
-	AC_MSG_CHECKING([whether we can really use dump_trace])
-	LB_LINUX_TRY_COMPILE([
-		struct task_struct;
-		struct pt_regs;
-		#include <asm/stacktrace.h>
-	],[
-	],[
-		AC_MSG_RESULT(yes)
-		AC_DEFINE(HAVE_DUMP_TRACE, 1, [dump_trace is exported])
-	],[
-		AC_MSG_RESULT(no)
-	],[
-	])
-	AC_MSG_CHECKING([whether print_trace_address has reliable argument])
-	LB_LINUX_TRY_COMPILE([
-		struct task_struct;
-		struct pt_regs;
-		#include <asm/stacktrace.h>
-	],[
-		((struct stacktrace_ops *)0)->address(NULL, 0, 0);
-	],[
-		AC_MSG_RESULT(yes)
-		AC_DEFINE(HAVE_TRACE_ADDRESS_RELIABLE, 1,
-			  [print_trace_address has reliable argument])
-	],[
-		AC_MSG_RESULT(no)
-	],[
-	])
-	AC_MSG_CHECKING([whether stacktrace_ops.warning is exist])
-	LB_LINUX_TRY_COMPILE([
-		struct task_struct;
-		struct pt_regs;
-		#include <asm/stacktrace.h>
-	],[
-		((struct stacktrace_ops *)0)->warning(NULL, NULL);
-	],[
-		AC_MSG_RESULT(yes)
-		AC_DEFINE(HAVE_STACKTRACE_WARNING, 1, [stacktrace_ops.warning is exist])
-	],[
-		AC_MSG_RESULT(no)
-	],[
-	])
-	AC_MSG_CHECKING([dump_trace want address])
-	LB_LINUX_TRY_COMPILE([
-		struct task_struct;
-		struct pt_regs;
-		#include <asm/stacktrace.h>
-	],[
-		dump_trace(NULL, NULL, NULL, 0, NULL, NULL);
-	],[
-		AC_MSG_RESULT(yes)
-		AC_DEFINE(HAVE_DUMP_TRACE_ADDRESS, 1,
-			  [dump_trace want address argument])
-	],[
-		AC_MSG_RESULT(no)
-	],[
-	])
-
-EXTRA_KCFLAGS="$tmp_flags"
-])
-])
-
-
 # 2.6.26 use int instead of atomic for sem.count
 AC_DEFUN([LIBCFS_SEM_COUNT],
 [AC_MSG_CHECKING([atomic sem.count])
@@ -746,6 +672,26 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# 2.6.39 adds a base pointer address argument to dump_trace
+AC_DEFUN([LIBCFS_DUMP_TRACE_ADDRESS],
+[AC_MSG_CHECKING([dump_trace want address])
+ LB_LINUX_TRY_COMPILE([
+       struct task_struct;
+       struct pt_regs;
+       #include <asm/stacktrace.h>
+ ],[
+       dump_trace(NULL, NULL, NULL, 0, NULL, NULL);
+ ],[
+       AC_MSG_RESULT(yes)
+       AC_DEFINE(HAVE_DUMP_TRACE_ADDRESS, 1,
+		 [dump_trace want address argument])
+ ],[
+       AC_MSG_RESULT(no)
+ ],[
+])
+])
+
+
 #
 # FC15 2.6.40-5 backported the "shrink_control" parameter to the memory
 # pressure shrinker from Linux 3.0
@@ -819,7 +765,6 @@ LIBCFS_SYSCTL_UNNUMBERED
 LIBCFS_SCATTERLIST_SETPAGE
 LIBCFS_SCATTERLIST_INITTABLE
 LIBCFS_NETWORK_NAMESPACE
-LIBCFS_FUNC_DUMP_TRACE
 LIBCFS_HAVE_KEYTYPE_H
 # 2.6.26
 LIBCFS_SEM_COUNT
@@ -845,6 +790,8 @@ LIBCFS_SYSCTL_CTLNAME
 LIBCFS_ADD_WAIT_QUEUE_EXCLUSIVE
 # 2.6.35
 LC_SK_SLEEP
+# 2.6.39
+LIBCFS_DUMP_TRACE_ADDRESS
 # 2.6.40 fc15
 LC_SHRINK_CONTROL
 # 3.7
