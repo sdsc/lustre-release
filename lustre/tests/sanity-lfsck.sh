@@ -19,6 +19,8 @@ init_logging
 
 [ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
 	skip "test LFSCK only for ldiskfs" && exit 0
+[ $(facet_fstype ost1) != ldiskfs ] &&
+	skip "test LFSCK only for ldiskfs" && exit 0
 require_dsh_mds || exit 0
 
 MCREATE=${MCREATE:-mcreate}
@@ -35,17 +37,24 @@ check_and_setup_lustre
         skip "Need MDS version at least 2.2.90" && check_and_cleanup_lustre &&
         exit 0
 
+[[ $(lustre_version_code ost1) -lt $(version_code 2.4.50) ]] &&
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11"
+
 build_test_filter
 
 $LCTL set_param debug=+lfsck > /dev/null || true
 
 MDT_DEV="${FSNAME}-MDT0000"
+OST_DEV="${FSNAME}-OST0000"
 MDT_DEVNAME=$(mdsdevname ${SINGLEMDS//mds/})
 START_NAMESPACE="do_facet $SINGLEMDS \
 		$LCTL lfsck_start -M ${MDT_DEV} -t namespace"
+START_LAYOUT_ON_OST="do_facet ost1 $LCTL lfsck_start -M ${OST_DEV} -t layout"
 STOP_LFSCK="do_facet $SINGLEMDS $LCTL lfsck_stop -M ${MDT_DEV}"
 SHOW_NAMESPACE="do_facet $SINGLEMDS \
 		$LCTL get_param -n mdd.${MDT_DEV}.lfsck_namespace"
+SHOW_LAYOUT_ON_OST="do_facet ost1 \
+		$LCTL get_param -n obdfilter.${OST_DEV}.lfsck_layout"
 MOUNT_OPTS_SCRUB="-o user_xattr"
 MOUNT_OPTS_NOSCRUB="-o user_xattr,noscrub"
 
@@ -979,6 +988,118 @@ test_10()
 		error "(16) Expect 'completed', but got '$STATUS'"
 }
 run_test 10 "System is available during LFSCK scanning"
+
+test_11a() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
+	createmany -o $DIR/$tdir/f 64
+
+	echo "stop ost1"
+	stop ost1 > /dev/null || error "(1) Fail to stop ost1"
+
+	ost_remove_lastid 0 || error "(2) Fail to remove LAST_ID"
+
+	echo "start ost1"
+	start ost1 $(ostdevname 1) $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(3) Fail to start ost1"
+
+	local STATUS=$($SHOW_LAYOUT_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "init" ] ||
+		error "(4) Expect 'init', but got '$STATUS'"
+
+	#define OBD_FAIL_LFSCK_DELAY1		0x1600
+	do_facet ost1 $LCTL set_param fail_val=1
+	do_facet ost1 $LCTL set_param fail_loc=0x1600
+
+	$START_LAYOUT_ON_OST || error "(5) Fail to start LFSCK on OST!"
+	sleep 10
+
+	local FLAGS=$($SHOW_LAYOUT_ON_OST | awk '/^flags/ { print $2 }')
+	[ "$FLAGS" == "crashed_lastid" ] ||
+		error "(6) Expect 'crashed_lastid', but got '$FLAGS'"
+
+	do_facet ost1 $LCTL set_param fail_val=0
+	do_facet ost1 $LCTL set_param fail_loc=0
+	sleep 3
+
+	STATUS=$($SHOW_LAYOUT_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(7) Expect 'completed', but got '$STATUS'"
+
+	FLAGS=$($SHOW_LAYOUT_ON_OST | awk '/^flags/ { print $2 }')
+	[ -z "$FLAGS" ] || error "(8) Expect empty flags, but got '$FLAGS'"
+}
+run_test 11a "LFSCK can rebuild lost last_id"
+
+test_11b() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
+
+	#define OBD_FAIL_LFSCK_SKIP_LASTID	0x160d
+	do_facet ost1 $LCTL set_param fail_loc=0x160d
+	createmany -o $DIR/$tdir/f 64
+	local lastid1=$(do_facet ost1 "lctl get_param -n \
+		obdfilter.${ost1_svc}.last_id" | awk -F: '{ print $2 }')
+
+	echo "stop ost1"
+	stop ost1 || error "(1) Fail to stop ost1"
+
+	#define OBD_FAIL_OST_ENOSPC              0x215
+	do_facet ost1 $LCTL set_param fail_val=0
+	do_facet ost1 $LCTL set_param fail_loc=0x215
+
+	echo "start ost1"
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS ||
+		error "(2) Fail to start ost1"
+
+	local STATUS=$($SHOW_LAYOUT_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "init" ] ||
+		error "(3) Expect 'init', but got '$STATUS'"
+
+	sleep 8
+	local lastid2=$(do_facet ost1 "lctl get_param -n \
+		obdfilter.${ost1_svc}.last_id" | awk -F: '{ print $2 }')
+
+	[ $lastid1 -gt $lastid2 ] ||
+		error "(4) expect lastid1 [ $lastid1 ] > lastid2 [ $lastid2 ]"
+
+	$START_LAYOUT_ON_OST || error "(5) Fail to start LFSCK on OST!"
+	sleep 3
+
+	local STATUS=$($SHOW_LAYOUT_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(6) Expect 'completed', but got '$STATUS'"
+
+	echo "stop ost1"
+	stop ost1 || error "(7) Fail to stop ost1"
+
+	echo "start ost1"
+	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS ||
+		error "(8) Fail to start ost1"
+
+	sleep 8
+	lastid2=$(do_facet ost1 "lctl get_param -n \
+		obdfilter.${ost1_svc}.last_id" | awk -F: '{ print $2 }')
+	[ $lastid1 -eq $lastid2 ] ||
+		error "(9) expect lastid1 [ $lastid1 ] == lastid2 [ $lastid2 ]"
+
+	do_facet ost1 $LCTL set_param fail_loc=0
+}
+run_test 11b "LFSCK can rebuild crashed last_id"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 

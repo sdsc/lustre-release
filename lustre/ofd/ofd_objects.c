@@ -172,9 +172,16 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 		RETURN(rc = -ENOSPC);
 	}
 
+	down_read(&ofd->ofd_lastid_rwsem);
+	/* Currently, for safe, we do not distinguish which LAST_ID is broken,
+	 * we may do that in the future.
+	 * Return -ENOSPC until the LAST_ID rebuilt. */
+	if (unlikely(ofd->ofd_lastid_rebuilding))
+		GOTO(unlock, rc = -ENOSPC);
+
 	OBD_ALLOC(batch, nr_saved * sizeof(struct ofd_object *));
 	if (batch == NULL)
-		RETURN(-ENOMEM);
+		GOTO(unlock, rc = -ENOMEM);
 
 	info->fti_attr.la_valid = LA_TYPE | LA_MODE;
 	/*
@@ -263,6 +270,20 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 	CDEBUG(D_OTHER, "%s: create new object "DFID" nr %d\n",
 	       ofd_name(ofd), PFID(&info->fti_fid), nr);
 
+	LASSERT(nr > 0);
+
+	/* Update the LAST_ID firstly. */
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_SKIP_LASTID) &&
+	    likely(ostid_id(&oseq->os_oi) < id + nr)) {
+		tmp = cpu_to_le64(id + nr);
+		dt_write_lock(env, oseq->os_lastid_obj, 0);
+		rc = dt_record_write(env, oseq->os_lastid_obj,
+				     &info->fti_buf, &info->fti_off, th);
+		dt_write_unlock(env, oseq->os_lastid_obj);
+		if (rc != 0)
+			GOTO(trans_stop, rc);
+	}
+
 	for (i = 0; i < nr; i++) {
 		fo = batch[i];
 		LASSERT(fo);
@@ -281,11 +302,23 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 	}
 
 	objects = i;
-	if (objects > 0) {
+	/* Set the LAST_ID as the real created. */
+	if (unlikely(objects < nr)) {
+		int rc1;
+
 		tmp = cpu_to_le64(ofd_seq_last_oid(oseq));
-		rc = dt_record_write(env, oseq->os_lastid_obj,
-				     &info->fti_buf, &info->fti_off, th);
+		dt_write_lock(env, oseq->os_lastid_obj, 0);
+		rc1 = dt_record_write(env, oseq->os_lastid_obj,
+				      &info->fti_buf, &info->fti_off, th);
+		dt_write_unlock(env, oseq->os_lastid_obj);
+		if (rc1 != 0)
+			CERROR("%s: fail to reset the LAST_ID for seq ("LPX64
+			       ") from "LPU64" to "LPU64"\n", ofd_name(ofd),
+			       ostid_seq(&oseq->os_oi), id + nr, id + objects);
 	}
+
+	GOTO(trans_stop, rc);
+
 trans_stop:
 	ofd_trans_stop(env, ofd, th, rc);
 out:
@@ -302,7 +335,10 @@ out:
 	       "created %d/%d objects: %d\n", objects, nr_saved, rc);
 
 	LASSERT(ergo(objects == 0, rc < 0));
-	RETURN(objects > 0 ? objects : rc);
+
+unlock:
+	up_read(&ofd->ofd_lastid_rwsem);
+	return (objects > 0 ? objects : rc);
 }
 
 /*
