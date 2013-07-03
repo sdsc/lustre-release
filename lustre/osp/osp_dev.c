@@ -1226,6 +1226,17 @@ static int osp_get_info(const struct lu_env *env, struct obd_export *exp,
 		oaia->oaia_data = lai;
 		req->rq_interpret_reply = osp_async_info_interpret;
 		ptlrpc_set_add_req(lai->lai_set, req);
+	} else if (KEY_IS(KEY_LFSCK_EVENT_LOCAL)) {
+		struct osp_device	*osp =
+					lu2osp_dev(exp->exp_obd->obd_lu_dev);
+		struct lfsck_info_local *lil = val;
+
+		if (lil->lil_event == LLE_LAYOUT_CHECKALL) {
+			if (osp->opd_in_lfsck)
+				lil->lil_status++;
+		} else {
+			rc = -EINVAL;
+		}
 	}
 
 	return rc;
@@ -1270,6 +1281,15 @@ static int osp_set_info_async(const struct lu_env *env, struct obd_export *exp,
 		oaia->oaia_data = lai;
 		req->rq_interpret_reply = osp_async_info_interpret;
 		ptlrpc_set_add_req(set, req);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct osp_device	*osp   =
+					lu2osp_dev(exp->exp_obd->obd_lu_dev);
+		enum lfsck_local_events *event = val;
+
+		if (*event == LLE_LAYOUT_CLEAR)
+			osp->opd_in_lfsck = 0;
+		else
+			rc = -EINVAL;
 	}
 
 	return rc;

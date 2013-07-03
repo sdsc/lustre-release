@@ -1552,11 +1552,19 @@ int mdt_set_info(struct mdt_thread_info *info)
                 rc = mdt_iocontrol(OBD_IOC_CHANGELOG_CLEAR, info->mti_exp,
                                    vallen, val, NULL);
                 lustre_msg_set_status(req->rq_repmsg, rc);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_control_request *lcr = val;
 
-        } else {
-                RETURN(-EINVAL);
-        }
-        RETURN(0);
+		if (ptlrpc_req_need_swab(req))
+			lustre_swab_lfsck_control_request(lcr);
+		rc = mdt_iocontrol(OBD_IOC_NOTIFY_LFSCK, info->mti_exp,
+				   vallen, val, NULL);
+		lustre_msg_set_status(req->rq_repmsg, rc);
+	} else {
+		rc = -EINVAL;
+	}
+
+	RETURN(rc);
 }
 
 /**
@@ -5842,14 +5850,20 @@ int mdt_get_info(struct mdt_thread_info *info)
                 RETURN(-EFAULT);
         }
 
-        if (KEY_IS(KEY_FID2PATH))
-                rc = mdt_rpc_fid2path(info, key, valout, *vallen);
-        else
-                rc = -EINVAL;
+	if (KEY_IS(KEY_FID2PATH)) {
+		rc = mdt_rpc_fid2path(info, key, valout, *vallen);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_control_request *lcr = valout;
 
-        lustre_msg_set_status(req->rq_repmsg, rc);
+		lcr->lcr_event = LNE_LAYOUT_QUERY;
+		rc = mdt_iocontrol(OBD_IOC_NOTIFY_LFSCK, info->mti_exp,
+				   *vallen, lcr, NULL);
+	} else {
+		rc = -EINVAL;
+	}
+	lustre_msg_set_status(req->rq_repmsg, rc);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /* Pass the ioc down */
@@ -5975,6 +5989,12 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 		struct md_device *next = mdt->mdt_child;
 
 		rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0, NULL);
+		break;
+	}
+	case OBD_IOC_NOTIFY_LFSCK: {
+		struct md_device *next = mdt->mdt_child;
+
+		rc = next->md_ops->mdo_iocontrol(&env, next, cmd, len, karg);
 		break;
 	}
         case OBD_IOC_GET_OBJ_VERSION: {

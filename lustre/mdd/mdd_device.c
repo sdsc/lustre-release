@@ -1336,6 +1336,26 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
 		rc = lfsck_stop(env, mdd->mdd_bottom, stop, NULL);
 		RETURN(rc);
 	}
+	case OBD_IOC_NOTIFY_LFSCK: {
+		struct lfsck_control_request *lcr = karg;
+
+		switch (lcr->lcr_event) {
+		case LNE_LAYOUT_PHASE1_DONE:
+		case LNE_LAYOUT_PHASE2_DONE:
+			rc = lfsck_in_notify(env, mdd->mdd_bottom, lcr, NULL);
+			break;
+		case LNE_LAYOUT_QUERY:
+			rc = lfsck_query(mdd->mdd_bottom, LT_LAYOUT);
+			lcr->lcr_status = rc;
+			break;
+		default:
+			CERROR("%s: Unsupported lfsck_event %d\n",
+			       mdd2obd_dev(mdd)->obd_name, lcr->lcr_event);
+			rc = -EOPNOTSUPP;
+			break;
+		}
+		RETURN(rc);
+	}
         }
 
         /* Below ioctls use obd_ioctl_data */

@@ -884,6 +884,8 @@ struct obd_device {
         cfs_list_t              obd_exports;
         cfs_list_t              obd_unlinked_exports;
         cfs_list_t              obd_delayed_exports;
+	/* For the connect from MDT to OST. */
+	cfs_list_t		obd_mdt_exports;
         int                     obd_num_exports;
 	spinlock_t		obd_nid_lock;
 	struct ldlm_namespace  *obd_namespace;
@@ -1030,6 +1032,7 @@ enum obd_cleanup_stage {
 #define KEY_CHANGELOG_INDEX	"changelog_index"
 
 #define KEY_LFSCK_EVENT 	"lfsck_event"
+#define KEY_LFSCK_EVENT_LOCAL	"lfsck_event_local"
 
 struct lu_context;
 
