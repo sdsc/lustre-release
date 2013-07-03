@@ -3039,9 +3039,12 @@ static int mdt_handle0(struct ptlrpc_request *req,
                                 RETURN(rc);
                         }
                 }
-        } else
+        } else {
                 CERROR(LUSTRE_MDT_NAME" drops mal-formed request\n");
-        RETURN(rc);
+		req->rq_status = rc;
+		rc = ptlrpc_error(req);
+	}
+	RETURN(rc);
 }
 
 /*
