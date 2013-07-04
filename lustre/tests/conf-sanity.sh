@@ -1495,6 +1495,7 @@ t32_test() {
 	local tarball=$1
 	local writeconf=$2
 	local dne_upgrade=${dne_upgrade:-"no"}
+	local ff_convert=${ff_convert:-"no"}
 	local shall_cleanup_mdt=false
 	local shall_cleanup_mdt1=false
 	local shall_cleanup_ost=false
@@ -1534,6 +1535,9 @@ t32_test() {
 	echo "  Commit: $img_commit"
 	echo "  Kernel: $img_kernel"
 	echo "    Arch: $img_arch"
+
+	local version=$(version_code $img_commit)
+	[[ $version -gt $(version_code 2.4.0) ]] && ff_convert="no"
 
 	$r $LCTL set_param debug="$PTLDEBUG"
 
@@ -1653,6 +1657,28 @@ t32_test() {
 		error_noexit "Setting \"lov.stripesize\""
 		return 1
 	}
+
+	if [ "$ff_convert" != "no" -a $(facet_fstype ost1) == "ldiskfs" ]; then
+		$r $LCTL lfsck_start -M $fsname-OST0000 || {
+			error_noexit "Start OI scrub on OST0"
+			return 1
+		}
+
+		wait_update_facet ost1 "$LCTL get_param -n \
+			osd-ldiskfs.$fsname-OST0000.oi_scrub |
+			awk '/^status/ { print \\\$2 }'" "completed" 30 || {
+			error_noexit "Failed to get the expected 'completed'"
+			return 1
+		}
+
+		local UPDATED=$($r $LCTL get_param -n \
+				osd-ldiskfs.$fsname-OST0000.oi_scrub |
+				awk '/^updated/ { print $2 }')
+		[ $UPDATED -ge 1 ] || {
+			error_noexit "Only $UPDATED objects have been converted"
+			return 1
+		}
+	fi
 
 	if [ "$dne_upgrade" != "no" ]; then
 		$r $LCTL conf_param \
@@ -1882,6 +1908,19 @@ test_32c() {
 	return $rc
 }
 run_test 32c "dne upgrade test"
+
+test_32d() {
+	local tarballs
+	local tarball
+	local rc=0
+
+	t32_check
+	for tarball in $tarballs; do
+		ff_convert=yes t32_test $tarball || rc=$?
+	done
+	return $rc
+}
+run_test 32d "convert ff test"
 
 test_33a() { # bug 12333, was test_33
         local rc=0
