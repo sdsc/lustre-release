@@ -677,7 +677,7 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
 
         isreg = S_ISREG(la->la_mode);
         isdir = S_ISDIR(la->la_mode);
-        if (isreg && !(ma->ma_valid & MA_LOV)) {
+	if (isreg && !(ma->ma_valid & MA_LOV) && !(flags & MDS_OPEN_RELEASE)) {
                 /*
                  * No EA, check whether it is will set regEA and dirEA since in
                  * above attr get, these size might be zero, so reset it, to
@@ -1361,6 +1361,23 @@ static void mdt_object_open_unlock(struct mdt_thread_info *info,
 	RETURN_EXIT;
 }
 
+/**
+ * Check release is permitted for the current HSM flags.
+ */
+static int mdt_hsm_release_allow(struct md_attr *ma)
+{
+	if (!(ma->ma_valid & MA_HSM))
+		return -EPERM;
+
+	if (ma->ma_hsm.mh_flags & (HS_DIRTY|HS_NORELEASE|HS_LOST))
+		return -EPERM;
+
+	if (!(ma->ma_hsm.mh_flags & HS_ARCHIVED))
+		return -EPERM;
+
+	return 0;
+}
+
 int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 			 struct mdt_lock_handle *lhc)
 {
@@ -1409,9 +1426,19 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 
 	mdt_set_disposition(info, rep, (DISP_IT_EXECD | DISP_LOOKUP_EXECD));
 
+	if (flags & MDS_OPEN_RELEASE)
+		ma->ma_need |= MA_HSM;
 	rc = mdt_attr_get_complex(info, o, ma);
         if (rc)
                 GOTO(out, rc);
+
+	/* If a release request, check file flags are fine and ask for an
+	 * exclusive open access. */
+	if (flags & MDS_OPEN_RELEASE) {
+		rc = mdt_hsm_release_allow(ma);
+		if (rc)
+			GOTO(out, rc);
+	}
 
 	rc = mdt_object_open_lock(info, o, lhc, &ibits);
         if (rc)
@@ -1827,6 +1854,102 @@ out:
 	return result;
 }
 
+static int mdt_hsm_release(struct mdt_thread_info *info, struct mdt_object *o,
+			   struct md_attr *ma)
+{
+	struct mdt_lock_handle *lh = &info->mti_lh[MDT_LH_LAYOUT];
+	struct lu_buf           buf;
+	struct close_data      *data;
+	struct ldlm_lock       *lock;
+	bool			lease_broken = true;
+	int                     flags = LU_XATTR_REPLACE;
+	int                     rc;
+	ENTRY;
+
+	data = req_capsule_client_get(info->mti_pill, &RMF_CLOSE_DATA);
+	LASSERT(data != NULL);
+
+	mdt_lock_reg_init(lh, LCK_EX);
+	rc = mdt_object_lock(info, o, lh, MDS_INODELOCK_LAYOUT, MDT_LOCAL_LOCK);
+	if (rc)
+		RETURN(rc);
+
+	/* check if the lease open lock has already canceled. */
+	lock = ldlm_handle2lock(&data->cd_handle);
+	if (lock != NULL) {
+		LDLM_DEBUG(lock, DFID "lease lock cancelled? %d\n",
+				PFID(mdt_object_fid(o)), ldlm_is_cancel(lock));
+
+		/* check if the lease open lock has already canceled. */
+		lock_res_and_lock(lock);
+		if (!ldlm_is_cancel(lock))
+			lease_broken = false;
+		unlock_res_and_lock(lock);
+	}
+	if (lease_broken) /* don't perform release task */
+		GOTO(unlock, rc = 0);
+
+	/* ma_need was set before but it seems fine to change it in order to
+	 * avoid modifying the one from RPC */
+	ma->ma_need = MA_HSM | MA_LOV;
+	rc = mdt_attr_get_complex(info, o, ma);
+	if (rc)
+		GOTO(unlock, rc);
+
+	rc = mdt_hsm_release_allow(ma);
+	if (rc)
+		GOTO(unlock, rc);
+
+	/* Compare on-disk and packed data_version */
+	if (info->mti_data_version != ma->ma_hsm.mh_arch_ver) {
+		CDEBUG(D_HSM, DFID" data_version mismatches: packed="LPU64
+		       " and on-disk="LPU64"\n", PFID(mdt_object_fid(o)),
+		       info->mti_data_version, ma->ma_hsm.mh_arch_ver);
+		/* XXX: Enable this line when hsm_archive is operationnal!
+		GOTO(unlock, rc = -EPERM);
+		*/
+	}
+
+	/* If MA_LOV is not valid, file is not striped */
+	if (!(ma->ma_valid & MA_LOV)) {
+		ma->ma_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V3);
+		ma->ma_lmm->lmm_layout_gen = 0;
+		flags = LU_XATTR_CREATE;
+	}
+
+	ma->ma_valid = MA_INODE;
+	ma->ma_attr.la_valid &= LA_SIZE|LA_MTIME|LA_ATIME;
+	rc = mo_attr_set(info->mti_env, mdt_object_child(o), ma);
+	if (rc)
+		GOTO(unlock, rc);
+
+	/* Set file as released */
+	ma->ma_lmm->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0|
+					      LOV_PATTERN_F_RELEASED);
+	ma->ma_lmm->lmm_layout_gen = cpu_to_le16(
+				     le16_to_cpu(ma->ma_lmm->lmm_layout_gen)+1);
+	buf.lb_buf = ma->ma_lmm;
+	buf.lb_len = ma->ma_lmm_size;
+	rc = mo_xattr_set(info->mti_env, mdt_object_child(o), &buf,
+			  XATTR_NAME_LOV, flags|LU_XATTR_OBJPURGE);
+	if (rc == 0) {
+		struct mdt_body *repbody;
+		repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+		LASSERT(repbody != NULL);
+		repbody->valid |= OBD_MD_FLRELEASED;
+	}
+	EXIT;
+unlock:
+	/* Release exclusive LL */
+	mdt_object_unlock(info, o, lh, 1);
+	if (lock != NULL) {
+		ldlm_lock_cancel(lock);
+		ldlm_lock_put(lock);
+	}
+	return rc;
+}
+
+
 #define MFD_CLOSED(mode) (((mode) & ~(MDS_FMODE_EPOCH | MDS_FMODE_SOM | \
                                       MDS_FMODE_TRUNC)) == MDS_FMODE_CLOSED)
 
@@ -1846,6 +1969,12 @@ int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd)
         ENTRY;
 
         mode = mfd->mfd_mode;
+
+	if (ma->ma_attr_flags & MDS_HSM_RELEASE) {
+		rc = mdt_hsm_release(info, o, ma);
+		if (rc)
+			RETURN(rc);
+	}
 
         if ((mode & FMODE_WRITE) || (mode & MDS_FMODE_TRUNC)) {
                 mdt_write_put(o);

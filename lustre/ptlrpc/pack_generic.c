@@ -2580,3 +2580,10 @@ void lustre_swab_swap_layouts(struct mdc_swap_layouts *msl)
 	__swab64s(&msl->msl_flags);
 }
 EXPORT_SYMBOL(lustre_swab_swap_layouts);
+
+void lustre_swab_close_data(struct close_data *cd)
+{
+        __swab64s(&cd->cd_data_version);
+	/* dont swap lock handle */
+}
+EXPORT_SYMBOL(lustre_swab_close_data);
