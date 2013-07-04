@@ -137,10 +137,19 @@ struct mdd_object {
 struct mdd_thread_info {
         struct lu_fid             mti_fid;
         struct lu_fid             mti_fid2; /* used for be & cpu converting */
-        struct lu_attr            mti_la;
-        struct lu_attr            mti_la_for_fix;
+        struct lu_attr            mti_la_tmp;
+        /**
+         * only be used by MDD interfaces, can be passed into local MDD APIs.
+         * mdd_<op>_sanity_check() don't pass in attr because they know which
+         * one to use, but for other check helpers, it should be specified
+         * explicitely.
+         */
 	struct lu_attr            mti_pattr;
 	struct lu_attr            mti_cattr;
+        struct lu_attr            mti_tpattr;
+        struct lu_attr            mti_tattr;
+        /** using for setattr */
+        struct lu_attr            mti_la_for_fix;
         struct md_attr            mti_ma;
         struct obd_info           mti_oi;
 	/* mti_ent and mti_key must be conjoint,
@@ -164,6 +173,28 @@ struct mdd_thread_info {
         struct obd_quotactl       mti_oqctl;
 	struct linkea_data	  mti_link_data;
 };
+
+struct mdd_thread_info *mdd_env_info(const struct lu_env *env);
+
+static inline struct lu_attr *mdd_env_pattr(const struct lu_env *env)
+{
+	return &mdd_env_info(env)->mti_pattr;
+}
+
+static inline struct lu_attr *mdd_env_cattr(const struct lu_env *env)
+{
+	return &mdd_env_info(env)->mti_cattr;
+}
+
+static inline struct lu_attr *mdd_env_tpattr(const struct lu_env *env)
+{
+	return &mdd_env_info(env)->mti_tpattr;
+}
+
+static inline struct lu_attr *mdd_env_tattr(const struct lu_env *env)
+{
+	return &mdd_env_info(env)->mti_tattr;
+}
 
 extern const char orph_index_name[];
 
@@ -224,11 +255,9 @@ int mdd_attr_set_internal(const struct lu_env *env,
 			  const struct lu_attr *attr,
 			  struct thandle *handle,
 			  int needacl);
-int mdd_attr_check_set_internal(const struct lu_env *env,
-                                struct mdd_object *obj,
-                                struct lu_attr *attr,
-                                struct thandle *handle,
-                                int needacl);
+int mdd_time_check_set(const struct lu_env *env, struct mdd_object *obj,
+			const struct lu_attr *oattr, struct lu_attr *attr,
+			struct thandle *handle);
 int mdd_declare_object_kill(const struct lu_env *env, struct mdd_object *obj,
                             struct md_attr *ma, struct thandle *handle);
 int mdd_object_kill(const struct lu_env *env, struct mdd_object *obj,
@@ -239,11 +268,6 @@ int mdd_object_create_internal(const struct lu_env *env, struct mdd_object *p,
 			       struct mdd_object *c, struct lu_attr *attr,
 			       struct thandle *handle,
 			       const struct md_op_spec *spec);
-int mdd_attr_check_set_internal_locked(const struct lu_env *env,
-                                       struct mdd_object *obj,
-                                       struct lu_attr *attr,
-                                       struct thandle *handle,
-                                       int needacl);
 int mdd_lmm_get_locked(const struct lu_env *env, struct mdd_object *mdd_obj,
                        struct md_attr *ma);
 
@@ -272,19 +296,19 @@ int mdd_parent_fid(const struct lu_env *env, struct mdd_object *obj,
 int mdd_is_subdir(const struct lu_env *env, struct md_object *mo,
                   const struct lu_fid *fid, struct lu_fid *sfid);
 int mdd_may_create(const struct lu_env *env, struct mdd_object *pobj,
-                   struct mdd_object *cobj, int check_perm, int check_nlink);
+		   const struct lu_attr *pattr, struct mdd_object *cobj,
+		   int check_perm, int check_nlink);
 int mdd_may_unlink(const struct lu_env *env, struct mdd_object *pobj,
-		   const struct lu_attr *attr);
-int mdd_may_delete(const struct lu_env *env, struct mdd_object *pobj,
-		   struct mdd_object *cobj, struct lu_attr *cattr,
-		   struct lu_attr *src_attr, int check_perm, int check_empty);
+		   const struct lu_attr *pattr, const struct lu_attr *attr);
+int mdd_may_delete(const struct lu_env *env, struct mdd_object *tpobj,
+		   const struct lu_attr *tpattr, struct mdd_object *tobj,
+		   const struct lu_attr *tattr, const struct lu_attr *cattr,
+		   int check_perm, int check_empty);
 int mdd_unlink_sanity_check(const struct lu_env *env, struct mdd_object *pobj,
-			    struct mdd_object *cobj, struct lu_attr *cattr);
+			    struct mdd_object *cobj);
 int mdd_finish_unlink(const struct lu_env *env, struct mdd_object *obj,
                       struct md_attr *ma, struct thandle *th);
 
-int mdd_link_sanity_check(const struct lu_env *env, struct mdd_object *tgt_obj,
-                          const struct lu_name *lname, struct mdd_object *src_obj);
 int mdd_is_root(struct mdd_device *mdd, const struct lu_fid *fid);
 int mdd_lookup(const struct lu_env *env,
                struct md_object *pobj, const struct lu_name *lname,
@@ -330,8 +354,6 @@ int mdd_lov_setattr_async(const struct lu_env *env, struct mdd_object *obj,
 int mdd_lovobj_unlink(const struct lu_env *env, struct mdd_device *mdd,
 		      struct mdd_object *obj, struct lu_attr *la,
 		      struct md_attr *ma, int log_unlink);
-
-struct mdd_thread_info *mdd_env_info(const struct lu_env *env);
 
 const struct lu_name *mdd_name_get_const(const struct lu_env *env,
 					 const void *area, ssize_t len);
@@ -444,7 +466,7 @@ int mdd_acl_set(const struct lu_env *env, struct mdd_object *obj,
 int __mdd_fix_mode_acl(const struct lu_env *env, struct lu_buf *buf,
 		       __u32 *mode);
 int __mdd_permission_internal(const struct lu_env *env, struct mdd_object *obj,
-                              struct lu_attr *la, int mask, int role);
+                              const struct lu_attr *la, int mask, int role);
 int mdd_permission(const struct lu_env *env,
                    struct md_object *pobj, struct md_object *cobj,
                    struct md_attr *ma, int mask);
@@ -607,14 +629,15 @@ enum {
 
 static inline int mdd_permission_internal(const struct lu_env *env,
                                           struct mdd_object *obj,
-                                          struct lu_attr *la, int mask)
+                                          const struct lu_attr *la, int mask)
 {
         return __mdd_permission_internal(env, obj, la, mask, -1);
 }
 
 static inline int mdd_permission_internal_locked(const struct lu_env *env,
                                                  struct mdd_object *obj,
-                                                 struct lu_attr *la, int mask,
+                                                 const struct lu_attr *la,
+						 int mask,
                                                  enum mdd_object_role role)
 {
         return __mdd_permission_internal(env, obj, la, mask, role);
