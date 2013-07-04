@@ -79,7 +79,8 @@ static void osd_pop_ctxt(const struct osd_device *dev,
 
 /* utility to make a directory */
 static struct dentry *simple_mkdir(struct dentry *dir, struct vfsmount *mnt,
-				   const char *name, int mode, int fix)
+				   const char *name, int mode,
+				   int fix, int *exist)
 {
 	struct dentry *dchild;
 	int err = 0;
@@ -109,6 +110,10 @@ static struct dentry *simple_mkdir(struct dentry *dir, struct vfsmount *mnt,
 						  (old_mode & ~S_IALLUGO);
 			mark_inode_dirty(dchild->d_inode);
 		}
+
+		if (exist != NULL)
+			*exist = 1;
+
 		GOTO(out_up, dchild);
 	}
 
@@ -188,7 +193,7 @@ static int osd_mdt_init(const struct lu_env *env, struct osd_device *dev)
 	osd_push_ctxt(dev, &new, &save);
 
 	d = simple_mkdir(parent, dev->od_mnt, remote_parent_dir,
-			 0755, 1);
+			 0755, 1, NULL);
 	if (IS_ERR(d))
 		GOTO(cleanup, rc = PTR_ERR(d));
 
@@ -372,6 +377,7 @@ static int osd_ost_init(const struct lu_env *env, struct osd_device *dev)
 	struct osd_thread_info	*info = osd_oti_get(env);
 	struct inode		*inode;
 	struct lu_fid		*fid = &info->oti_fid3;
+	int			 exist = 0;
 	int			 rc;
 	ENTRY;
 
@@ -387,19 +393,22 @@ static int osd_ost_init(const struct lu_env *env, struct osd_device *dev)
 	}
 
 	dev->od_ost_map->om_subdir_count = rc;
-        rc = 0;
+	rc = 0;
 
 	CFS_INIT_LIST_HEAD(&dev->od_ost_map->om_seq_list);
 	rwlock_init(&dev->od_ost_map->om_seq_list_lock);
 	sema_init(&dev->od_ost_map->om_dir_init_sem, 1);
 
-        LASSERT(dev->od_fsops);
-        osd_push_ctxt(dev, &new, &save);
+	LASSERT(dev->od_fsops);
+	osd_push_ctxt(dev, &new, &save);
 
-        d = simple_mkdir(rootd, dev->od_mnt, "O", 0755, 1);
+	d = simple_mkdir(rootd, dev->od_mnt, "O", 0755, 1, &exist);
 	if (IS_ERR(d))
 		GOTO(cleanup, rc = PTR_ERR(d));
 
+	/* It is quite probably that the device is new formatted. */
+	if (exist == 0)
+		dev->od_maybe_new = 1;
 	inode = d->d_inode;
 	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
 	dev->od_ost_map->om_root = d;
@@ -742,7 +751,8 @@ static int osd_seq_load_locked(struct osd_thread_info *info,
 
 	osd_seq_name(dir_name, sizeof(dir_name), osd_seq->oos_seq);
 
-	seq_dir = simple_mkdir(map->om_root, osd->od_mnt, dir_name, 0755, 1);
+	seq_dir = simple_mkdir(map->om_root, osd->od_mnt, dir_name, 0755, 1,
+			       NULL);
 	if (IS_ERR(seq_dir))
 		GOTO(out_err, rc = PTR_ERR(seq_dir));
 	else if (seq_dir->d_inode == NULL)
@@ -771,7 +781,7 @@ static int osd_seq_load_locked(struct osd_thread_info *info,
 
 		snprintf(dir_name, sizeof(dir_name), "d%u", i);
 		dir = simple_mkdir(osd_seq->oos_root, osd->od_mnt, dir_name,
-				   0700, 1);
+				   0700, 1, NULL);
 		if (IS_ERR(dir)) {
 			GOTO(out_free, rc = PTR_ERR(dir));
 		} else if (dir->d_inode == NULL) {
