@@ -396,7 +396,12 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
                 b->blocks = 0;
                 /* if no object is allocated on osts, the size on mds is valid. b=22272 */
                 b->valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
-        }
+	} else if ((ma->ma_valid & MA_LOV) && ma->ma_lmm &&
+		   (ma->ma_lmm->lmm_pattern & LOV_PATTERN_F_RELEASED)) {
+		/* A released file stores its size on MDS. */
+		b->blocks = 0;
+		b->valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
+	}
 
         if (fid) {
                 b->fid1 = *fid;
