@@ -3471,7 +3471,7 @@ static struct mdt_it_flavor {
         },
         [MDT_IT_OCREAT]   = {
                 .it_fmt   = &RQF_LDLM_INTENT,
-                .it_flags = MUTABOR,
+		.it_flags = 0,
                 .it_act   = mdt_intent_reint,
                 .it_reint = REINT_OPEN
         },
