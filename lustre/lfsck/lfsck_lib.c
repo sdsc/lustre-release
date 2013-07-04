@@ -72,6 +72,7 @@ const char *lfsck_status_names[] = {
 	"stopped",
 	"paused",
 	"crashed",
+	"partial",
 	NULL
 };
 
@@ -79,6 +80,7 @@ const char *lfsck_flags_names[] = {
 	"scanned-once",
 	"inconsistent",
 	"upgrade",
+	"incomplete",
 	NULL
 };
 
@@ -363,7 +365,7 @@ void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,
 			fid_zero(&pos->lp_dir_parent);
 			pos->lp_dir_cookie = 0;
 		} else {
-			pos->lp_dir_parent = *lu_object_fid(&dto->do_lu);
+			pos->lp_dir_parent = *lfsck_dto2fid(dto);
 		}
 	} else {
 		fid_zero(&pos->lp_dir_parent);
@@ -829,11 +831,11 @@ out:
 }
 EXPORT_SYMBOL(lfsck_set_speed);
 
-int lfsck_dump(struct dt_device *key, void *buf, int len, __u16 type)
+int lfsck_dump(struct dt_device *key, void *buf, int len, enum lfsck_type type)
 {
 	struct lu_env		env;
 	struct lfsck_instance  *lfsck;
-	struct lfsck_component *com   = NULL;
+	struct lfsck_component *com;
 	int			rc;
 	ENTRY;
 
@@ -841,22 +843,23 @@ int lfsck_dump(struct dt_device *key, void *buf, int len, __u16 type)
 	if (unlikely(lfsck == NULL))
 		RETURN(-ENODEV);
 
-	com = lfsck_component_find(lfsck, type);
-	if (com == NULL)
-		GOTO(out, rc = -ENOTSUPP);
-
 	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD);
 	if (rc != 0)
-		GOTO(out, rc);
+		GOTO(put_lfsck, rc);
+
+	com = lfsck_component_find(lfsck, type);
+	if (com == NULL)
+		GOTO(env_fini, rc = -ENOTSUPP);
 
 	rc = com->lc_ops->lfsck_dump(&env, com, buf, len);
+	lfsck_component_put(&env, com);
+
+	GOTO(env_fini, rc);
+
+env_fini:
 	lu_env_fini(&env);
 
-	GOTO(out, rc);
-
-out:
-	if (com != NULL)
-		lfsck_component_put(&env, com);
+put_lfsck:
 	lfsck_instance_put(&env, lfsck);
 	return rc;
 }
@@ -1158,6 +1161,10 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 		if (rc < 0)
 			GOTO(out, rc);
 	}
+
+	rc = lfsck_layout_setup(env, lfsck);
+	if (rc < 0)
+		GOTO(out, rc);
 
 	/* XXX: more LFSCK components initialization to be added here. */
 
