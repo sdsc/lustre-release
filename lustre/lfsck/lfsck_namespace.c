@@ -137,7 +137,7 @@ static int lfsck_namespace_load(const struct lu_env *env,
 		lfsck_namespace_le_to_cpu(ns,
 				(struct lfsck_namespace *)com->lc_file_disk);
 		if (ns->ln_magic != LFSCK_NAMESPACE_MAGIC) {
-			CWARN("%.16s: invalid lfsck_namespace magic "
+			CWARN("%s: invalid lfsck_namespace magic "
 			      "0x%x != 0x%x\n",
 			      lfsck_lfsck2name(com->lc_lfsck),
 			      ns->ln_magic, LFSCK_NAMESPACE_MAGIC);
@@ -146,7 +146,7 @@ static int lfsck_namespace_load(const struct lu_env *env,
 			rc = 0;
 		}
 	} else if (rc != -ENODATA) {
-		CERROR("%.16s: fail to load lfsck_namespace, expected = %d, "
+		CERROR("%s: fail to load lfsck_namespace: expected = %d, "
 		       "rc = %d\n", lfsck_lfsck2name(com->lc_lfsck), len, rc);
 		if (rc >= 0)
 			rc = 1;
@@ -169,8 +169,8 @@ static int lfsck_namespace_store(const struct lu_env *env,
 	handle = dt_trans_create(env, lfsck->li_bottom);
 	if (IS_ERR(handle)) {
 		rc = PTR_ERR(handle);
-		CERROR("%.16s: fail to create trans for storing "
-		       "lfsck_namespace: %d\n,", lfsck_lfsck2name(lfsck), rc);
+		CERROR("%s: fail to create trans for storing lfsck_namespace: "
+		       "rc = %d\n,", lfsck_lfsck2name(lfsck), rc);
 		RETURN(rc);
 	}
 
@@ -178,15 +178,15 @@ static int lfsck_namespace_store(const struct lu_env *env,
 				  lfsck_buf_get(env, com->lc_file_disk, len),
 				  XATTR_NAME_LFSCK_NAMESPACE, 0, handle);
 	if (rc != 0) {
-		CERROR("%.16s: fail to declare trans for storing "
-		       "lfsck_namespace: %d\n,", lfsck_lfsck2name(lfsck), rc);
+		CERROR("%s: fail to declare trans for storing lfsck_namespace: "
+		       "rc = %d\n,", lfsck_lfsck2name(lfsck), rc);
 		GOTO(out, rc);
 	}
 
 	rc = dt_trans_start_local(env, lfsck->li_bottom, handle);
 	if (rc != 0) {
-		CERROR("%.16s: fail to start trans for storing "
-		       "lfsck_namespace: %d\n,", lfsck_lfsck2name(lfsck), rc);
+		CERROR("%s: fail to start trans for storing lfsck_namespace: "
+		       "rc = %d\n,", lfsck_lfsck2name(lfsck), rc);
 		GOTO(out, rc);
 	}
 
@@ -196,7 +196,7 @@ static int lfsck_namespace_store(const struct lu_env *env,
 			  init ? LU_XATTR_CREATE : LU_XATTR_REPLACE,
 			  handle, BYPASS_CAPA);
 	if (rc != 0)
-		CERROR("%.16s: fail to store lfsck_namespace, len = %d, "
+		CERROR("%s: fail to store lfsck_namespace: len = %d, "
 		       "rc = %d\n", lfsck_lfsck2name(lfsck), len, rc);
 
 	GOTO(out, rc);
@@ -209,7 +209,7 @@ out:
 static int lfsck_namespace_init(const struct lu_env *env,
 				struct lfsck_component *com)
 {
-	struct lfsck_namespace *ns = (struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_namespace *ns = com->lc_file_ram;
 	int rc;
 
 	memset(ns, 0, sizeof(*ns));
@@ -319,7 +319,7 @@ static int lfsck_namespace_update(const struct lu_env *env,
 		rc = dt_delete(env, obj, (const struct dt_key *)key, handle,
 			       BYPASS_CAPA);
 		if (rc != 0) {
-			CERROR("%s: fail to insert "DFID", rc = %d\n",
+			CERROR("%s: fail to insert "DFID": rc = %d\n",
 			       lfsck_lfsck2name(com->lc_lfsck), PFID(fid), rc);
 			GOTO(out, rc);
 		}
@@ -476,8 +476,7 @@ static int lfsck_namespace_double_scan_one(const struct lu_env *env,
 	struct lu_fid		 *cfid	  = &info->lti_fid2;
 	struct lfsck_instance	*lfsck	  = com->lc_lfsck;
 	struct lfsck_bookmark	*bk	  = &lfsck->li_bookmark_ram;
-	struct lfsck_namespace	*ns	  =
-				(struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_namespace	*ns	  = com->lc_file_ram;
 	struct linkea_data	 ldata	  = { 0 };
 	struct thandle		*handle   = NULL;
 	bool			 locked   = false;
@@ -628,7 +627,7 @@ stop:
 		if (rc == 0 && !lfsck_is_dead_obj(child) &&
 		    ldata.ld_leh != NULL &&
 		    ldata.ld_leh->leh_reccount != la->la_nlink)
-			CWARN("%.16s: the object "DFID" linkEA entry count %u "
+			CWARN("%s: the object "DFID" linkEA entry count %u "
 			      "may not match its hardlink count %u\n",
 			      lfsck_lfsck2name(lfsck), PFID(cfid),
 			      ldata.ld_leh->leh_reccount, la->la_nlink);
@@ -653,8 +652,7 @@ static int lfsck_namespace_reset(const struct lu_env *env,
 				 struct lfsck_component *com, bool init)
 {
 	struct lfsck_instance	*lfsck = com->lc_lfsck;
-	struct lfsck_namespace	*ns    =
-				(struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_namespace	*ns    = com->lc_file_ram;
 	struct dt_object	*dto;
 	int			 rc;
 	ENTRY;
@@ -703,7 +701,7 @@ static void
 lfsck_namespace_fail(const struct lu_env *env, struct lfsck_component *com,
 		     bool new_checked)
 {
-	struct lfsck_namespace *ns = (struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_namespace *ns = com->lc_file_ram;
 
 	down_write(&com->lc_sem);
 	if (new_checked)
@@ -719,8 +717,7 @@ static int lfsck_namespace_checkpoint(const struct lu_env *env,
 				      struct lfsck_component *com, bool init)
 {
 	struct lfsck_instance	*lfsck = com->lc_lfsck;
-	struct lfsck_namespace	*ns    =
-				(struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_namespace	*ns    = com->lc_file_ram;
 	int			 rc;
 
 	if (com->lc_new_checked == 0 && !init)
@@ -749,8 +746,7 @@ static int lfsck_namespace_prep(const struct lu_env *env,
 				struct lfsck_component *com)
 {
 	struct lfsck_instance	*lfsck	= com->lc_lfsck;
-	struct lfsck_namespace	*ns	=
-				(struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_namespace	*ns	= com->lc_file_ram;
 	struct lfsck_position	*pos	= &com->lc_pos_start;
 
 	if (ns->ln_status == LS_COMPLETED) {
@@ -836,11 +832,9 @@ static int lfsck_namespace_exec_dir(const struct lu_env *env,
 	struct lu_attr		   *la	     = &info->lti_la;
 	struct lfsck_instance	   *lfsck    = com->lc_lfsck;
 	struct lfsck_bookmark	   *bk	     = &lfsck->li_bookmark_ram;
-	struct lfsck_namespace	   *ns	     =
-				(struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_namespace	   *ns	     = com->lc_file_ram;
 	struct linkea_data	    ldata    = { 0 };
-	const struct lu_fid	   *pfid     =
-				lu_object_fid(&lfsck->li_obj_dir->do_lu);
+	const struct lu_fid	   *pfid     = lfsck_dto2fid(lfsck->li_obj_dir);
 	const struct lu_fid	   *cfid     = lfsck_dto2fid(obj);
 	const struct lu_name	   *cname;
 	struct thandle		   *handle   = NULL;
@@ -1030,8 +1024,7 @@ static int lfsck_namespace_post(const struct lu_env *env,
 				int result, bool init)
 {
 	struct lfsck_instance	*lfsck = com->lc_lfsck;
-	struct lfsck_namespace	*ns    =
-				(struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_namespace	*ns    = com->lc_file_ram;
 	int			 rc;
 
 	down_write(&com->lc_sem);
@@ -1083,8 +1076,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 {
 	struct lfsck_instance	*lfsck = com->lc_lfsck;
 	struct lfsck_bookmark	*bk    = &lfsck->li_bookmark_ram;
-	struct lfsck_namespace	*ns    =
-				(struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_namespace	*ns    = com->lc_file_ram;
 	int			 save  = len;
 	int			 ret   = -ENOSPC;
 	int			 rc;
@@ -1217,7 +1209,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 				pos.lp_dir_cookie = 0;
 			} else {
 				pos.lp_dir_parent =
-				*lu_object_fid(&lfsck->li_obj_dir->do_lu);
+					*lfsck_dto2fid(lfsck->li_obj_dir);
 			}
 		} else {
 			fid_zero(&pos.lp_dir_parent);
@@ -1346,8 +1338,7 @@ static int lfsck_namespace_double_scan(const struct lu_env *env,
 	struct lfsck_instance	*lfsck	= com->lc_lfsck;
 	struct ptlrpc_thread	*thread = &lfsck->li_thread;
 	struct lfsck_bookmark	*bk	= &lfsck->li_bookmark_ram;
-	struct lfsck_namespace	*ns	=
-				(struct lfsck_namespace *)com->lc_file_ram;
+	struct lfsck_namespace	*ns	= com->lc_file_ram;
 	struct dt_object	*obj	= com->lc_obj;
 	const struct dt_it_ops	*iops	= &obj->do_index_ops->dio_it;
 	struct dt_object	*target;
@@ -1482,8 +1473,7 @@ fini:
 		com->lc_journal = 0;
 		ns->ln_status = LS_COMPLETED;
 		if (!(bk->lb_param & LPF_DRYRUN))
-			ns->ln_flags &=
-			~(LF_SCANNED_ONCE | LF_INCONSISTENT | LF_UPGRADE);
+			ns->ln_flags &= ~(LF_SCANNED_ONCE | LF_INCONSISTENT);
 		ns->ln_time_last_complete = ns->ln_time_last_checkpoint;
 		ns->ln_success_count++;
 	} else if (rc == 0) {
@@ -1572,7 +1562,7 @@ int lfsck_namespace_setup(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out, rc);
 
-	ns = (struct lfsck_namespace *)com->lc_file_ram;
+	ns = com->lc_file_ram;
 	switch (ns->ln_status) {
 	case LS_INIT:
 	case LS_COMPLETED:
