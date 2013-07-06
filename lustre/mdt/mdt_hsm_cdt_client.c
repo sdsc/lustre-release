@@ -394,10 +394,10 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 			 * very long */
 			mdt_object_put(mti->mti_env, child);
 
-			down(&cdt->cdt_restore_lock);
+			mutex_lock(&cdt->cdt_restore_lock);
 			cfs_list_add_tail(&crh->crh_list,
 					  &cdt->cdt_restore_hdl);
-			up(&cdt->cdt_restore_lock);
+			mutex_unlock(&cdt->cdt_restore_lock);
 		}
 record:
 		/* record request */
@@ -411,7 +411,8 @@ record:
 		rc = -ENODATA;
 	else
 		rc = 0;
-	EXIT;
+
+	GOTO(out, rc);
 out:
 	/* if work has been added, wake up coordinator */
 	if ((rc == 0) || (rc == -ENODATA))
@@ -477,7 +478,7 @@ bool mdt_hsm_restore_is_running(struct mdt_thread_info *mti,
 	if (!fid_is_sane(fid))
 		RETURN(rc);
 
-	down(&cdt->cdt_restore_lock);
+	mutex_lock(&cdt->cdt_restore_lock);
 	cfs_list_for_each_safe(pos, tmp, &cdt->cdt_restore_hdl) {
 		crh = cfs_list_entry(pos, struct cdt_restore_handle, crh_list);
 		if (lu_fid_eq(&crh->crh_fid, fid)) {
@@ -485,7 +486,7 @@ bool mdt_hsm_restore_is_running(struct mdt_thread_info *mti,
 			break;
 		}
 	}
-	up(&cdt->cdt_restore_lock);
+	mutex_unlock(&cdt->cdt_restore_lock);
 	RETURN(rc);
 }
 
