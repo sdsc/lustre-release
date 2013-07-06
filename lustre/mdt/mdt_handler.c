@@ -100,17 +100,38 @@ static const struct lu_object_operations mdt_obj_ops;
 
 /* Slab for MDT object allocation */
 static struct kmem_cache *mdt_object_kmem;
+/* Slab cache for HSM CDT objects */
+static struct kmem_cache *mdt_hsm_cdt_kmem;
 
 static struct lu_kmem_descr mdt_caches[] = {
 	{
-		.ckd_cache = &mdt_object_kmem,
-		.ckd_name  = "mdt_obj",
-		.ckd_size  = sizeof(struct mdt_object)
+		.ckd_cache	= &mdt_object_kmem,
+		.ckd_name	= "mdt_obj",
+		.ckd_size	= sizeof(struct mdt_object)
 	},
 	{
-		.ckd_cache = NULL
+		.ckd_cache	= &mdt_hsm_cdt_kmem,
+		.ckd_name	= "cdt_restore_handle",
+		.ckd_size	= sizeof(struct cdt_restore_handle)
+	},
+	{
+		.ckd_cache	= NULL
 	}
 };
+
+struct cdt_restore_handle *mdt_cdt_restore_handle_alloc(void)
+{
+	struct cdt_restore_handle *crh;
+
+	OBD_SLAB_ALLOC_PTR_GFP(crh, mdt_hsm_cdt_kmem, __GFP_IO);
+	return crh;
+}
+
+void mdt_cdt_restore_handle_free(struct cdt_restore_handle *crh)
+{
+	OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
+}
+
 
 int mdt_get_disposition(struct ldlm_reply *rep, int flag)
 {
