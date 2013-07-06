@@ -43,7 +43,8 @@
 #include <lustre_log.h>
 #include "mdt_internal.h"
 
-void dump_llog_agent_req_rec(char *prefix, struct llog_agent_req_rec *larr)
+void dump_llog_agent_req_rec(const char *prefix,
+			     const struct llog_agent_req_rec *larr)
 {
 	char	buf[12];
 	int	sz;
