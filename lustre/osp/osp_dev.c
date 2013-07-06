@@ -78,6 +78,10 @@ struct lu_object *osp_object_alloc(const struct lu_env *env,
 	if (o != NULL) {
 		l = &o->opo_obj.do_lu;
 
+		init_rwsem(&o->opo_sem);
+		spin_lock_init(&o->opo_async_getattr_lock);
+		cfs_waitq_init(&o->opo_async_getattr_waitq);
+
 		/* For data object, OSP obj would always be the top
 		 * object, i.e. hdr is always NULL, see lu_object_alloc.
 		 * But for metadata object, we always build the object
@@ -85,6 +89,7 @@ struct lu_object *osp_object_alloc(const struct lu_env *env,
 		 * i.e.  hdr != NULL */
 		if (hdr == NULL) {
 			/* object for OST */
+			o->opo_for_ost = 1;
 			h = &o->opo_header;
 			lu_object_header_init(h);
 			dt_object_init(&o->opo_obj, h, d);

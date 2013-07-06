@@ -452,6 +452,7 @@ enum la_valid {
         LA_BLKSIZE = 1 << 12,
         LA_KILL_SUID = 1 << 13,
         LA_KILL_SGID = 1 << 14,
+	LA_PFID = 1 << 15,
 };
 
 /**

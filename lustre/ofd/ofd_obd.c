@@ -1435,20 +1435,22 @@ out_sem:
 int ofd_getattr(const struct lu_env *env, struct obd_export *exp,
 		struct obd_info *oinfo)
 {
-	struct ofd_device	*ofd = ofd_exp(exp);
+	struct ofd_device	*ofd	= ofd_exp(exp);
 	struct ofd_thread_info	*info;
 	struct ofd_object	*fo;
+	struct obdo		*oa	= oinfo->oi_oa;
 	__u64			 curr_version;
-	int			 rc = 0;
+	__u64			 valid	= oa->o_valid;
+	int			 rc	= 0;
 
 	ENTRY;
 
 	info = ofd_info_init(env, exp);
 
-	rc = ostid_to_fid(&info->fti_fid, &oinfo->oi_oa->o_oi, 0);
+	rc = ostid_to_fid(&info->fti_fid, &oa->o_oi, 0);
 	if (rc != 0)
 		GOTO(out, rc);
-	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oinfo->oi_oa->o_oi),
+	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oa->o_oi),
 			   oinfo_capa(oinfo), CAPA_OPC_META_READ);
 	if (rc)
 		GOTO(out, rc);
@@ -1458,16 +1460,42 @@ int ofd_getattr(const struct lu_env *env, struct obd_export *exp,
 		GOTO(out, rc = PTR_ERR(fo));
 	LASSERT(fo != NULL);
 	rc = ofd_attr_get(env, fo, &info->fti_attr);
-	oinfo->oi_oa->o_valid = OBD_MD_FLID;
-	if (rc == 0)
-		obdo_from_la(oinfo->oi_oa, &info->fti_attr,
+	oa->o_valid = OBD_MD_FLID;
+	if (rc == 0) {
+		obdo_from_la(oa, &info->fti_attr,
 			     OFD_VALID_FLAGS | LA_UID | LA_GID);
+		if (valid & OBD_MD_FLFLAGS && oa->o_flags & OBD_FL_LFSCK) {
+			struct filter_fid_old *ff  = &info->fti_mds_fid_old;
+			struct lu_buf	      *buf = &info->fti_buf;
+
+			buf->lb_buf = ff;
+			buf->lb_len = sizeof(*ff);
+			rc = dt_xattr_get(env, ofd_object_child(fo), buf,
+					  XATTR_NAME_FID, BYPASS_CAPA);
+			if (rc == sizeof(struct filter_fid_old) ||
+			    rc == sizeof(struct filter_fid)) {
+				oa->o_parent_seq =
+					le64_to_cpu(ff->ff_parent.f_seq);
+				oa->o_parent_oid =
+					le32_to_cpu(ff->ff_parent.f_oid);
+				oa->o_stripe_idx =
+					le32_to_cpu(ff->ff_parent.f_ver);
+			} else {
+				/* For rc != 0 case, regard crashed ff. */
+				oa->o_parent_seq = 0;
+				oa->o_parent_oid = 0;
+				oa->o_stripe_idx = 0;
+			}
+			oa->o_valid |= OBD_MD_FLFID;
+			rc = 0;
+		}
+	}
 
 	/* Store object version in reply */
 	curr_version = dt_version_get(env, ofd_object_child(fo));
 	if ((__s64)curr_version != -EOPNOTSUPP) {
-		oinfo->oi_oa->o_valid |= OBD_MD_FLDATAVERSION;
-		oinfo->oi_oa->o_data_version = curr_version;
+		oa->o_valid |= OBD_MD_FLDATAVERSION;
+		oa->o_data_version = curr_version;
 	}
 	ofd_object_put(env, fo);
 out:
