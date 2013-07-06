@@ -45,6 +45,7 @@
 #include <lustre_fid.h>
 #include <lustre_param.h>
 #include <lustre_update.h>
+#include <lustre_lfsck.h>
 
 #include "lod_internal.h"
 
@@ -986,6 +987,25 @@ static int lod_obd_health_check(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static int lod_get_info(const struct lu_env *env, struct obd_export *exp,
+			__u32 keylen, void *key, __u32 *vallen, void *val,
+			struct lov_stripe_md *lsm)
+{
+	struct lfsck_control_request *lcr = val;
+
+	/* XXX: To be extended in other patch. */
+	lcr->lcr_status = 0;
+	return 0;
+}
+
+static int lod_set_info_async(const struct lu_env *env, struct obd_export *exp,
+			      obd_count keylen, void *key, obd_count vallen,
+			      void *val, struct ptlrpc_request_set *set)
+{
+	/* XXX: To be extended in other patch. */
+	return 0;
+}
+
 static struct obd_ops lod_obd_device_ops = {
 	.o_owner        = THIS_MODULE,
 	.o_connect      = lod_obd_connect,
@@ -995,6 +1015,8 @@ static struct obd_ops lod_obd_device_ops = {
 	.o_pool_rem     = lod_pool_remove,
 	.o_pool_add     = lod_pool_add,
 	.o_pool_del     = lod_pool_del,
+	.o_get_info	= lod_get_info,
+	.o_set_info_async = lod_set_info_async,
 };
 
 static int __init lod_mod_init(void)

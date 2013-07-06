@@ -40,6 +40,7 @@
 #include <obd.h>
 #include <lu_object.h>
 #include <dt_object.h>
+#include <md_object.h>
 #include <lustre_net.h>
 #include <lustre_dlm.h>
 #include <lustre_fid.h>
@@ -81,6 +82,15 @@ enum lfsck_status {
 
 	/* Some OST/MDT failed during the LFSCK, or not join the LFSCK. */
 	LS_PARTIAL		= 8,
+
+	/* The LFSCK is failed because its controller is failed. */
+	LS_CO_FAILED		= 9,
+
+	/* The LFSCK is stopped because its controller is stopped. */
+	LS_CO_STOPPED		= 10,
+
+	/* The LFSCK is paused because its controller is paused. */
+	LS_CO_PAUSED		= 11,
 };
 
 enum lfsck_flags {
@@ -323,6 +333,9 @@ struct lfsck_operations {
 
 	void (*lfsck_data_release)(const struct lu_env *env,
 				   struct lfsck_component *com);
+
+	void (*lfsck_quit)(const struct lu_env *env,
+			   struct lfsck_component *com);
 };
 
 struct lfsck_component {
@@ -371,6 +384,7 @@ struct lfsck_instance {
 	cfs_list_t		  li_list_idle;
 
 	cfs_atomic_t		  li_ref;
+	cfs_atomic_t		  li_double_scan_count;
 	struct ptlrpc_thread	  li_thread;
 
 	/* The time for last checkpoint, jiffies */
@@ -383,6 +397,7 @@ struct lfsck_instance {
 	void			 *li_out_notify_data;
 	struct dt_device	 *li_next;
 	struct dt_device	 *li_bottom;
+	struct obd_export	 *li_exp;
 	struct ldlm_namespace	 *li_namespace;
 	struct local_oid_storage *li_los;
 	struct dt_object	 *li_local_root; /* backend root "/" */
@@ -450,11 +465,14 @@ struct lfsck_thread_info {
 	 * then lti_ent::lde_name will be lti_key. */
 	struct lu_dirent	lti_ent;
 	char			lti_key[NAME_MAX + 16];
+	struct lfsck_control_request lti_lcr;
 };
 
 /* lfsck_lib.c */
 void lfsck_component_cleanup(const struct lu_env *env,
 			     struct lfsck_component *com);
+void lfsck_instance_cleanup(const struct lu_env *env,
+			    struct lfsck_instance *lfsck);
 int lfsck_bits_dump(char **buf, int *len, int bits, const char *names[],
 		    const char *prefix);
 int lfsck_time_dump(char **buf, int *len, __u64 time, const char *prefix);
@@ -476,6 +494,7 @@ int lfsck_exec_dir(const struct lu_env *env, struct lfsck_instance *lfsck,
 int lfsck_post(const struct lu_env *env, struct lfsck_instance *lfsck,
 	       int result);
 int lfsck_double_scan(const struct lu_env *env, struct lfsck_instance *lfsck);
+void lfsck_quit(const struct lu_env *env, struct lfsck_instance *lfsck);
 
 /* lfsck_engine.c */
 int lfsck_master_engine(void *args);
@@ -639,6 +658,49 @@ static inline void lfsck_object_put(const struct lu_env *env,
 				    struct dt_object *obj)
 {
 	lu_object_put(env, &obj->do_lu);
+}
+
+static inline void lfsck_instance_get(struct lfsck_instance *lfsck)
+{
+	atomic_inc(&lfsck->li_ref);
+}
+
+static inline void lfsck_instance_put(const struct lu_env *env,
+				      struct lfsck_instance *lfsck)
+{
+	if (atomic_dec_and_test(&lfsck->li_ref))
+		lfsck_instance_cleanup(env, lfsck);
+}
+
+static inline void lfsck_component_get(struct lfsck_component *com)
+{
+	atomic_inc(&com->lc_ref);
+}
+
+static inline void lfsck_component_put(const struct lu_env *env,
+				       struct lfsck_component *com)
+{
+	if (atomic_dec_and_test(&com->lc_ref)) {
+		if (com->lc_obj != NULL)
+			lu_object_put(env, &com->lc_obj->do_lu);
+		if (com->lc_file_ram != NULL)
+			OBD_FREE(com->lc_file_ram, com->lc_file_size);
+		if (com->lc_file_disk != NULL)
+			OBD_FREE(com->lc_file_disk, com->lc_file_size);
+
+		if (com->lc_data != NULL) {
+			LASSERT(com->lc_ops->lfsck_data_release != NULL);
+
+			com->lc_ops->lfsck_data_release(env, com);
+		}
+
+		OBD_FREE_PTR(com);
+	}
+}
+
+static inline mdsno_t lfsck_dev_idx(struct dt_device *dev)
+{
+	return dev->dd_lu_dev.ld_site->ld_seq_site->ss_node_id;
 }
 
 #endif /* _LFSCK_INTERNAL_H */
