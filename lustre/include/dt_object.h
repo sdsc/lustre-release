@@ -112,6 +112,11 @@ struct dt_txn_commit_cb {
 	char		dcb_name[MAX_COMMIT_CB_STR_LEN];
 };
 
+enum dt_device_type {
+	DDT_FOR_MDT	= 1,
+	DDT_FOR_OST	= 2,
+};
+
 /**
  * Operations on dt device.
  */
@@ -174,6 +179,16 @@ struct dt_device_operations {
                                    struct dt_device *dev,
                                    int mode, unsigned long timeout,
                                    __u32 alg, struct lustre_capa_key *keys);
+
+	/**
+	 * Return the low layer dt_device with the given @type and @index
+	 *
+	 * \retval -ENOENT: the target is not connect or inactive.
+	 * \retval others: the wanted child device.
+	 */
+	struct dt_device *(*dt_child_dev)(struct dt_device *parent,
+					  enum dt_device_type type,
+					  __u32 index);
 };
 
 struct dt_index_features {
@@ -249,6 +264,12 @@ enum dt_format_type {
         DFT_SYM,
 };
 
+enum dt_declare_intents {
+	DDI_PREFETCH	= 0x0000000000000001ULL, /* pre-fetch attr */
+	DDI_NEED_PFID	= 0x0000000000000002ULL, /* need parent FID */
+	DDI_REFRESH	= 0x0000000000000004ULL, /* re-fetch attr remotely */
+};
+
 /**
  * object format specifier.
  */
@@ -301,6 +322,9 @@ struct dt_object_operations {
          * lu_object_operations, but that would break existing symmetry.
          */
 
+	int   (*do_declare_attr_get)(const struct lu_env *env,
+				     struct dt_object *dt,
+				     enum dt_declare_intents intents);
         /**
          * Return standard attributes.
          *
@@ -1083,6 +1107,16 @@ static inline int dt_write_locked(const struct lu_env *env,
         LASSERT(dt->do_ops);
         LASSERT(dt->do_ops->do_write_locked);
         return dt->do_ops->do_write_locked(env, dt);
+}
+
+static inline int dt_declare_attr_get(const struct lu_env *env,
+				      struct dt_object *dt,
+				      enum dt_declare_intents intents)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_ops);
+	LASSERT(dt->do_ops->do_declare_attr_get);
+	return dt->do_ops->do_declare_attr_get(env, dt, intents);
 }
 
 static inline int dt_attr_get(const struct lu_env *env, struct dt_object *dt,

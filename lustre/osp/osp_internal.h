@@ -190,11 +190,17 @@ struct osp_object {
 	struct dt_object	opo_obj;
 	unsigned int		opo_reserved:1,
 				opo_new:1,
-				opo_empty:1;
+				opo_empty:1,
+				opo_for_ost:1,
+				opo_async_getattr_wait:1;
 
 	/* read/write lock for md osp object */
 	struct rw_semaphore	opo_sem;
 	const struct lu_env	*opo_owner;
+	struct lu_attr		opo_attr;
+	struct lu_fid		opo_pfid;
+	spinlock_t		opo_async_getattr_lock;
+	cfs_waitq_t		opo_async_getattr_waitq;
 };
 
 extern struct lu_object_operations osp_lu_obj_ops;
