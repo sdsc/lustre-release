@@ -954,6 +954,7 @@ static int nrs_svcpt_setup_locked0(struct ptlrpc_nrs *nrs,
 	spin_lock_init(&nrs->nrs_lock);
 	CFS_INIT_LIST_HEAD(&nrs->nrs_policy_list);
 	CFS_INIT_LIST_HEAD(&nrs->nrs_policy_queued);
+	cfs_atomic_set(&nrs->nrs_throttling, 0);
 
 	rc = nrs_register_policies_locked(nrs);
 
@@ -1627,6 +1628,23 @@ bool ptlrpc_nrs_req_pending_nolock(struct ptlrpc_service_part *svcpt, bool hp)
 };
 
 /**
+ * Returns whether NRS policy is throttling reqeust
+ *
+ * \param[in] svcpt the service partition to enquire.
+ * \param[in] hp    whether the regular or high-priority NRS head is to be
+ *		    enquired.
+ *
+ * \retval false the indicated NRS head has no enqueued requests.
+ * \retval true	 the indicated NRS head has some enqueued requests.
+ */
+bool ptlrpc_nrs_req_throttling(struct ptlrpc_service_part *svcpt, bool hp)
+{
+	struct ptlrpc_nrs *nrs = nrs_svcpt2nrs(svcpt, hp);
+
+	return cfs_atomic_read(&nrs->nrs_throttling) > 0;
+};
+
+/**
  * Moves request \a req from the regular to the high-priority NRS head.
  *
  * \param[in] req the request to move
@@ -1747,6 +1765,7 @@ extern struct ptlrpc_nrs_pol_conf nrs_conf_crrn;
 /* ptlrpc/nrs_orr.c */
 extern struct ptlrpc_nrs_pol_conf nrs_conf_orr;
 extern struct ptlrpc_nrs_pol_conf nrs_conf_trr;
+extern struct ptlrpc_nrs_pol_conf nrs_conf_tbf;
 #endif
 
 /**
@@ -1778,6 +1797,9 @@ int ptlrpc_nrs_init(void)
 		GOTO(fail, rc);
 
 	rc = ptlrpc_nrs_policy_register(&nrs_conf_trr);
+	if (rc != 0)
+		GOTO(fail, rc);
+	rc = ptlrpc_nrs_policy_register(&nrs_conf_tbf);
 	if (rc != 0)
 		GOTO(fail, rc);
 #endif

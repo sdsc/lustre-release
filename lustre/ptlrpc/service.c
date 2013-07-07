@@ -1662,6 +1662,13 @@ static bool ptlrpc_server_high_pending(struct ptlrpc_service_part *svcpt,
 	       ptlrpc_nrs_req_pending_nolock(svcpt, true);
 }
 
+static bool ptlrpc_server_high_throttling(struct ptlrpc_service_part *svcpt,
+					  bool force)
+{
+	return ptlrpc_server_allow_high(svcpt, force) &&
+	       ptlrpc_nrs_req_throttling(svcpt, true);
+}
+
 /**
  * Only allow normal priority requests on a service that has a high-priority
  * queue if forced (i.e. cleanup), if there are other high priority requests
@@ -1704,6 +1711,13 @@ static bool ptlrpc_server_normal_pending(struct ptlrpc_service_part *svcpt,
 	       ptlrpc_nrs_req_pending_nolock(svcpt, false);
 }
 
+static bool ptlrpc_server_normal_throttling(struct ptlrpc_service_part *svcpt,
+					 bool force)
+{
+	return ptlrpc_server_allow_normal(svcpt, force) &&
+	       ptlrpc_nrs_req_throttling(svcpt, false);
+}
+
 /**
  * Returns true if there are requests available in incoming
  * request queue for processing and it is allowed to fetch them.
@@ -1717,6 +1731,18 @@ ptlrpc_server_request_pending(struct ptlrpc_service_part *svcpt, bool force)
 {
 	return ptlrpc_server_high_pending(svcpt, force) ||
 	       ptlrpc_server_normal_pending(svcpt, force);
+}
+
+/**
+ * Returns true if NRS policy is throttling reqeust
+ * \see ptlrpc_server_allow_normal
+ * \see ptlrpc_server_allow high
+ */
+static inline bool
+ptlrpc_server_throttling(struct ptlrpc_service_part *svcpt, bool force)
+{
+	return ptlrpc_server_high_throttling(svcpt, force) ||
+	       ptlrpc_server_normal_throttling(svcpt, force);
 }
 
 /**
@@ -2368,7 +2394,8 @@ ptlrpc_wait_event(struct ptlrpc_service_part *svcpt,
 	l_wait_event_exclusive_head(svcpt->scp_waitq,
 				ptlrpc_thread_stopping(thread) ||
 				ptlrpc_server_request_incoming(svcpt) ||
-				ptlrpc_server_request_pending(svcpt, false) ||
+				(ptlrpc_server_request_pending(svcpt, false) &&
+				 (!ptlrpc_server_throttling(svcpt, false))) ||
 				ptlrpc_rqbd_pending(svcpt) ||
 				ptlrpc_at_check(svcpt), &lwi);
 
