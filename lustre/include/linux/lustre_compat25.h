@@ -762,4 +762,20 @@ static inline struct dentry *d_make_root(struct inode *root)
 # define ll_dirty_inode(inode, flag)	(inode)->i_sb->s_op->dirty_inode((inode))
 #endif
 
+/* compat macroses */
+#ifndef HAVE_SCATTERLIST_SETPAGE
+static inline void sg_set_page(struct scatterlist *sg, struct page *page,
+			       unsigned int len, unsigned int offset)
+{
+	sg->page = page;
+	sg->offset = offset;
+	sg->length = len;
+}
+
+static inline void sg_assign_page(struct scatterlist *sg, struct page *page)
+{
+	sg->page = page;
+}
+#endif
+
 #endif /* _COMPAT25_H */
