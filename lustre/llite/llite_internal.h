@@ -516,6 +516,15 @@ struct ll_sb_info {
         struct rmtacl_ctl_table   ll_rct;
         struct eacl_table         ll_et;
 	__kernel_fsid_t		  ll_fsid;
+
+	/* root squash */
+	uid_t			  ll_squash_uid;
+	gid_t			  ll_squash_gid;
+	cfs_list_t		  ll_nosquash_nids;
+	char			 *ll_nosquash_str;
+	int			  ll_nosquash_strlen;
+	lnet_nid_t		  ll_self_nid;
+	struct rw_semaphore	  ll_squash_sem;
 };
 
 #define LL_DEFAULT_MAX_RW_CHUNK      (32 * 1024 * 1024)
