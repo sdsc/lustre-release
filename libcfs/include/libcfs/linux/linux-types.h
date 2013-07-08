@@ -35,4 +35,3 @@
  */
 #include <linux/types.h>
 
-typedef umode_t cfs_umode_t;

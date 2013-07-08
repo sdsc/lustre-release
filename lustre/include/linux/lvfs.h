@@ -62,7 +62,7 @@ struct lvfs_ucred {
         __u32                   luc_gid;
         __u32                   luc_fsuid;
         __u32                   luc_fsgid;
-        cfs_kernel_cap_t        luc_cap;
+	kernel_cap_t        luc_cap;
         __u32                   luc_umask;
 	struct group_info      *luc_ginfo;
 	struct md_identity     *luc_identity;

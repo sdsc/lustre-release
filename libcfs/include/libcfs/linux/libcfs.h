@@ -66,8 +66,6 @@
 #include <linux/sched.h> /* THREAD_SIZE */
 #include <linux/rbtree.h>
 
-#define CFS_THREAD_SIZE   THREAD_SIZE
-#define LUSTRE_TRACE_SIZE (THREAD_SIZE >> 5)
 
 #if !defined(__x86_64__)
 # ifdef  __ia64__
@@ -116,7 +114,6 @@ do {                                                                    \
 #define CFS_CURPROC_COMM_MAX (sizeof ((struct task_struct *)0)->comm)
 
 #include <linux/capability.h>
-typedef kernel_cap_t cfs_kernel_cap_t;
 
 /*
  * No stack-back-tracing in Linux for now.
@@ -132,39 +129,6 @@ typedef long long_ptr_t;
 #define WITH_WATCHDOG
 #endif
 
-#ifndef HAVE_STRUCT_CRED
-
-#define current_cred() (current)
-
-#define current_cred_xxx(xxx)                   \
-({                                              \
-        current->xxx;                     \
-})
-
-#ifndef HAVE_CRED_WRAPPERS
-
-#define current_uid()           (current_cred_xxx(uid))
-#define current_gid()           (current_cred_xxx(gid))
-#define current_euid()          (current_cred_xxx(euid))
-#define current_egid()          (current_cred_xxx(egid))
-#define current_suid()          (current_cred_xxx(suid))
-#define current_sgid()          (current_cred_xxx(sgid))
-#define current_fsuid()         (current_cred_xxx(fsuid))
-#define current_fsgid()         (current_cred_xxx(fsgid))
-#define current_cap()           (current_cred_xxx(cap_effective))
-
-#endif /* HAVE_LINUX_CRED_H */
-
-#define current_user()          (current_cred_xxx(user))
-#define current_user_ns()       (current_cred_xxx(user)->user_ns)
-#define current_security()      (current_cred_xxx(security))
-
-#define cred task_struct
-
-#define prepare_creds() (current)
-#define commit_creds(a)
-
-#endif /* HAVE_STRUCT_CRED */
 
 #ifndef HAVE_SCATTERLIST_INITTABLE
 #define sg_init_table(sg, nents) memset(sg, 0, sizeof(*(sg))*(nents))
