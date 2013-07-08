@@ -675,6 +675,8 @@ static int lfsck_namespace_reset(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out, rc);
 
+	lu_object_put_nocache(env, &com->lc_obj->do_lu);
+	com->lc_obj = NULL;
 	dto = local_index_find_or_create(env, lfsck->li_los, lfsck->li_local_root,
 					 lfsck_namespace_name,
 					 S_IFREG | S_IRUGO | S_IWUSR,
