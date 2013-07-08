@@ -45,6 +45,7 @@
 #include <lustre_lite.h>
 #include <linux/pagemap.h>
 #include <linux/file.h>
+#include <linux/sched.h>
 #include "llite_internal.h"
 #include <lustre/ll_fiemap.h>
 
@@ -2955,8 +2956,15 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
 # endif
 #endif
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
+	struct ll_sb_info *sbi;
+	struct cred *cred;
+	cfs_cap_t cap;
+	bool squash_id = false;
+	uid_t fsuid_sav = 0;
+	gid_t fsgid_sav = 0;
+	cfs_kernel_cap_t cap_sav = { { 0 } };
+	ENTRY;
 
 #ifdef MAY_NOT_BLOCK
 	if (mask & MAY_NOT_BLOCK)
@@ -2981,11 +2989,60 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
 	CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p), inode mode %x mask %o\n",
 	       inode->i_ino, inode->i_generation, inode, inode->i_mode, mask);
 
-	if (ll_i2sbi(inode)->ll_flags & LL_SBI_RMT_CLIENT)
-		return lustre_check_remote_perm(inode, mask);
+	/* squash fsuid/fsgid as specified in llite configuration */
+	sbi = ll_i2sbi(inode);
+	if (sbi->ll_squash_uid != 0 && cfs_curproc_fsuid() == 0) {
+		down_read(&sbi->ll_squash_sem);
+		rc = cfs_match_nid(sbi->ll_self_nid, &sbi->ll_nosquash_nids);
+		up_read(&sbi->ll_squash_sem);
+		if (rc == 1) {
+			CDEBUG(D_OTHER, "%s is in nosquash_nids list\n",
+			       libcfs_nid2str(sbi->ll_self_nid));
+		} else {
+			squash_id = true;
+		}
+	}
+	if (squash_id) {
+		CDEBUG(D_OTHER, "squash creds %s (%d:%d)=>(%d:%d)\n",
+		       libcfs_nid2str(sbi->ll_self_nid),
+		       cfs_curproc_fsuid(), cfs_curproc_fsgid(),
+		       sbi->ll_squash_uid, sbi->ll_squash_gid);
 
-	ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_INODE_PERM, 1);
-	rc = ll_generic_permission(inode, mask, flags, ll_check_acl);
+		/* update current process's credentials
+		 * and FS capability */
+		cred = prepare_creds();
+		if (cred == NULL)
+			RETURN(-ENOMEM);
+		fsuid_sav = cred->fsuid;
+		fsgid_sav = cred->fsgid;
+		cap_sav = cred->cap_effective;
+
+		cred->fsuid = sbi->ll_squash_uid;
+		cred->fsgid = sbi->ll_squash_gid;
+		for (cap = 1; cap != 0; cap <<= 1) {
+			if (cap & CFS_CAP_FS_MASK)
+				cap_lower(cred->cap_effective, cap);
+		}
+		commit_creds(cred);
+	}
+
+	if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
+		rc = lustre_check_remote_perm(inode, mask);
+	} else {
+		ll_stats_ops_tally(sbi, LPROC_LL_INODE_PERM, 1);
+		rc = ll_generic_permission(inode, mask, flags, ll_check_acl);
+	}
+
+	/* restore current process's credentials and FS capability */
+	if (squash_id) {
+		cred = prepare_creds();
+		if (cred == NULL)
+			RETURN(-ENOMEM);
+		cred->fsuid = fsuid_sav;
+		cred->fsgid = fsgid_sav;
+		cred->cap_effective = cap_sav;
+		commit_creds(cred);
+	}
 
 	RETURN(rc);
 }
