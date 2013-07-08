@@ -66,7 +66,7 @@ char  *cfs_curproc_comm(void);
  *
  * and opaque scalar type
  *
- * cfs_kernel_cap_t
+ * kernel_cap_t
  */
 
 /* check if task is running in compat mode.*/
