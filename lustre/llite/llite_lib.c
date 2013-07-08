@@ -76,14 +76,15 @@ static struct ll_sb_info *ll_init_sbi(void)
 	struct ll_sb_info *sbi = NULL;
 	unsigned long pages;
 	unsigned long lru_page_max;
-        struct sysinfo si;
-        class_uuid_t uuid;
-        int i;
-        ENTRY;
+	struct sysinfo si;
+	class_uuid_t uuid;
+	int i;
+	lnet_process_id_t id;
+	ENTRY;
 
-        OBD_ALLOC(sbi, sizeof(*sbi));
-        if (!sbi)
-                RETURN(NULL);
+	OBD_ALLOC_PTR(sbi);
+	if (sbi == NULL)
+		RETURN(NULL);
 
 	spin_lock_init(&sbi->ll_lock);
 	mutex_init(&sbi->ll_lco.lco_lock);
@@ -145,7 +146,25 @@ static struct ll_sb_info *ll_init_sbi(void)
         cfs_atomic_set(&sbi->ll_agl_total, 0);
         sbi->ll_flags |= LL_SBI_AGL_ENABLED;
 
-        RETURN(sbi);
+	/* root squash */
+	sbi->ll_squash_uid = 0;
+	sbi->ll_squash_gid = 0;
+	CFS_INIT_LIST_HEAD(&sbi->ll_nosquash_nids);
+	sbi->ll_nosquash_str = NULL;
+	sbi->ll_nosquash_strlen = 0;
+	init_rwsem(&sbi->ll_squash_sem);
+	sbi->ll_self_nid = LNET_NID_ANY;
+
+	/* get one of our nids */
+	i = 0;
+	while (LNetGetId(i++, &id) != -ENOENT) {
+		if (LNET_NETTYP(LNET_NIDNET(id.nid)) == LOLND)
+			continue;
+		sbi->ll_self_nid = id.nid;
+		break;
+	}
+
+	RETURN(sbi);
 }
 
 void ll_free_sbi(struct super_block *sb)
@@ -157,6 +176,10 @@ void ll_free_sbi(struct super_block *sb)
 		spin_lock(&ll_sb_lock);
 		cfs_list_del(&sbi->ll_list);
 		spin_unlock(&ll_sb_lock);
+		if (!cfs_list_empty(&sbi->ll_nosquash_nids)) {
+			cfs_free_nidlist(&sbi->ll_nosquash_nids);
+			OBD_FREE(sbi->ll_nosquash_str, sbi->ll_nosquash_strlen);
+		}
 		OBD_FREE(sbi, sizeof(*sbi));
 	}
 	EXIT;
