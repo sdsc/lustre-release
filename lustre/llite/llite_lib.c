@@ -394,6 +394,11 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 		sbi->ll_flags |= LL_SBI_LAYOUT_LOCK;
 	}
 
+	if (data->ocd_ibits_known & MDS_INODELOCK_XATTR) {
+		sbi->ll_flags |= LL_SBI_XATTR_CACHE;
+		sbi->ll_xattr_cache_enabled = 1;
+	}
+
 	obd = class_name2obd(dt);
 	if (!obd) {
 		CERROR("DT %s: not setup or attached\n", dt);
@@ -945,6 +950,9 @@ void ll_lli_init(struct ll_inode_info *lli)
 	lli->lli_layout_gen = LL_LAYOUT_GEN_NONE;
 	lli->lli_clob = NULL;
 
+	init_rwsem(&lli->lli_xattrs_list_rwsem);
+	mutex_init(&lli->lli_xattrs_enq_lock);
+
 	LASSERT(lli->lli_vfs_inode.i_mode != 0);
 	if (S_ISDIR(lli->lli_vfs_inode.i_mode)) {
 		mutex_init(&lli->lli_readdir_mutex);
@@ -1230,6 +1238,8 @@ void ll_clear_inode(struct inode *inode)
                          strlen(lli->lli_symlink_name) + 1);
                 lli->lli_symlink_name = NULL;
         }
+
+	ll_xattr_cache_destroy(inode);
 
         if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
                 LASSERT(lli->lli_posix_acl == NULL);
@@ -1808,7 +1818,9 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
                          * lock on the client and set LLIF_MDS_SIZE_LOCK holding
                          * it. */
                         mode = ll_take_md_lock(inode, MDS_INODELOCK_UPDATE,
-                                               &lockh, LDLM_FL_CBPENDING);
+					       &lockh, LDLM_FL_CBPENDING,
+					       LCK_CR | LCK_CW |
+					       LCK_PR | LCK_PW);
                         if (mode) {
                                 if (lli->lli_flags & (LLIF_DONE_WRITING |
                                                       LLIF_EPOCH_PENDING |
