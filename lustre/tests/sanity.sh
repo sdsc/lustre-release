@@ -11225,6 +11225,9 @@ test_232() {
 run_test 232 "failed lock should not block umount"
 
 test_233() {
+    [ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.64) ] ||
+        { skip "Need MDS version at least 2.3.64"; return; }
+    USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
 	local fid=$($LFS path2fid $MOUNT)
 	stat $MOUNT/.lustre/fid/$fid > /dev/null ||
 		error "cannot access $MOUNT using its FID '$fid'"
