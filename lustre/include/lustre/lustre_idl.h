@@ -1399,7 +1399,7 @@ struct obd_connect_data_v1 {
         __u8  ocd_blocksize;     /* log2 of the backend filesystem blocksize */
         __u8  ocd_inodespace;    /* log2 of the per-inode space consumption */
         __u16 ocd_grant_extent;  /* per-extent grant overhead, in 1K blocks */
-        __u32 ocd_unused;        /* also fix lustre_swab_connect */
+	__u32 ocd_xattr_size;    /* maximum xattr refill size */
         __u64 ocd_transno;       /* first transno from client to be replayed */
         __u32 ocd_group;         /* MDS group on OST */
         __u32 ocd_cksum_types;   /* supported checksum algorithms */
@@ -1418,7 +1418,7 @@ struct obd_connect_data {
         __u8  ocd_blocksize;     /* log2 of the backend filesystem blocksize */
         __u8  ocd_inodespace;    /* log2 of the per-inode space consumption */
         __u16 ocd_grant_extent;  /* per-extent grant overhead, in 1K blocks */
-        __u32 ocd_unused;        /* also fix lustre_swab_connect */
+	__u32 ocd_xattr_size;    /* maximum xattr size */
         __u64 ocd_transno;       /* first transno from client to be replayed */
         __u32 ocd_group;         /* MDS group on OST */
         __u32 ocd_cksum_types;   /* supported checksum algorithms */
@@ -1745,6 +1745,8 @@ static inline __u32 lov_mds_md_size(__u16 stripes, __u32 lmm_magic)
 #define OBD_MD_FLRMTRGETFACL (0x0008000000000000ULL) /* lfs rgetfacl case */
 
 #define OBD_MD_FLDATAVERSION (0x0010000000000000ULL) /* iversion sum */
+#define OBD_MD_FLXATTRLOCKED (0x0020000000000000ULL) /* xattr call is performed
+						      * under the xattr lock */
 
 #define OBD_MD_FLGETATTR (OBD_MD_FLID    | OBD_MD_FLATIME | OBD_MD_FLMTIME | \
                           OBD_MD_FLCTIME | OBD_MD_FLSIZE  | OBD_MD_FLBLKSZ | \
@@ -2123,8 +2125,9 @@ extern void lustre_swab_generic_32s (__u32 *val);
 #define MDS_INODELOCK_OPEN   0x000004       /* For opened files */
 #define MDS_INODELOCK_LAYOUT 0x000008       /* for layout */
 #define MDS_INODELOCK_PERM   0x000010       /* for permission */
+#define MDS_INODELOCK_XATTR  0x000020       /* extended attributes */
 
-#define MDS_INODELOCK_MAXSHIFT 4
+#define MDS_INODELOCK_MAXSHIFT 5
 /* This FULL lock is useful to take on unlink sort of operations */
 #define MDS_INODELOCK_FULL ((1<<(MDS_INODELOCK_MAXSHIFT+1))-1)
 
