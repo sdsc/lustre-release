@@ -885,6 +885,7 @@ void local_oid_storage_fini(const struct lu_env *env,
                             struct local_oid_storage *los)
 {
 	struct ls_device *ls;
+	bool		  freed = false;
 
 	if (!cfs_atomic_dec_and_test(&los->los_refcount))
 		return;
@@ -899,8 +900,10 @@ void local_oid_storage_fini(const struct lu_env *env,
 			lu_object_put_nocache(env, &los->los_obj->do_lu);
 		cfs_list_del(&los->los_list);
 		OBD_FREE_PTR(los);
+		freed = true;
 	}
 	mutex_unlock(&ls->ls_los_mutex);
-	ls_device_put(env, ls);
+	if (freed)
+		ls_device_put(env, ls);
 }
 EXPORT_SYMBOL(local_oid_storage_fini);
