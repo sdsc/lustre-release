@@ -19,6 +19,7 @@ libcfs-linux-objs += linux-crypto-crc32pclmul.o
 libcfs-pclmul-obj += crc32-pclmul_asm.o
 endif
 ifeq ($(ARCH),x86_64)
+libcfs-linux-objs += linux-crypto-crc32c-pclmul.o crc32c-pcl-intel-asm_64.o
 libcfs-linux-objs += linux-crypto-crc32pclmul.o
 libcfs-pclmul-obj += crc32-pclmul_asm.o
 endif
