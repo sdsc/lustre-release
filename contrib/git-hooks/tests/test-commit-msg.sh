@@ -13,6 +13,12 @@ TEMPFILE=$(mktemp ${TMPDIR:-.}/commit-XXXXXX)
 test -f "$TEMPFILE" || die "mktemp fails"
 trap "rm -f $TEMPFILE COMMIT*" EXIT
 
+if test $(set -o|awk '/^xtrace/{print $2}') = on
+then dashx=\ -x
+else dashx=
+fi
+SHELL=${SHELL:-sh}$dashx
+
 test $# -eq 0 && set -- ${progdir}/commit.*
 
 export FAIL=""
@@ -23,7 +29,7 @@ for f; do
         esac
 
         cp $f $TEMPFILE
-        results=$(exec 2>&1 ${SHELL:-sh} $progdir/../commit-msg $TEMPFILE)
+        results=$(exec 2>&1 ${SHELL} $progdir/../commit-msg $TEMPFILE)
         case $'\n'"$results" in
         ( *$'\nerror:'* ) OK=0 ;;
         ( * ) OK=1 ;;
