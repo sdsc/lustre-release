@@ -3012,9 +3012,9 @@ static int osc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 err = ptlrpc_obd_ping(obd);
                 GOTO(out, err);
         default:
-                CDEBUG(D_INODE, "unrecognised ioctl %#x by %s\n",
-                       cmd, cfs_curproc_comm());
-                GOTO(out, err = -ENOTTY);
+		CDEBUG(D_INODE, "unrecognised ioctl %#x by %s\n",
+		       cmd, current_comm());
+		GOTO(out, err = -ENOTTY);
         }
 out:
         cfs_module_put(THIS_MODULE);

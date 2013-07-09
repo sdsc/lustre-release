@@ -139,4 +139,14 @@ typedef long long_ptr_t;
 	sg_set_buf(sg, page_address(p) + ((off) & ~CFS_PAGE_MASK), len)
 #endif
 
+/*
+ * Macros to access common characteristics of "current" UNIX process.
+ */
+#define current_pid()             (current->pid)
+#define current_umask()           (current->fs->umask)
+#define current_comm()            (current->comm)
+
+/* check if task is running in compat mode.*/
+int current_is_32bit(void);
+
 #endif /* _LINUX_LIBCFS_H */

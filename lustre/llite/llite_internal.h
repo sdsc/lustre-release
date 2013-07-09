@@ -649,7 +649,7 @@ static inline int ll_need_32bit_api(struct ll_sb_info *sbi)
 #if BITS_PER_LONG == 32
         return 1;
 #else
-        return unlikely(cfs_curproc_is_32bit() || (sbi->ll_flags & LL_SBI_32BIT_API));
+	return unlikely(current_is_32bit() || (sbi->ll_flags & LL_SBI_32BIT_API));
 #endif
 }
 
@@ -1306,16 +1306,16 @@ static inline int ll_glimpse_size(struct inode *inode)
 static inline void
 ll_statahead_mark(struct inode *dir, struct dentry *dentry)
 {
-        struct ll_inode_info     *lli = ll_i2info(dir);
-        struct ll_statahead_info *sai = lli->lli_sai;
-        struct ll_dentry_data    *ldd = ll_d2d(dentry);
+	struct ll_inode_info     *lli = ll_i2info(dir);
+	struct ll_statahead_info *sai = lli->lli_sai;
+	struct ll_dentry_data    *ldd = ll_d2d(dentry);
 
-        /* not the same process, don't mark */
-        if (lli->lli_opendir_pid != cfs_curproc_pid())
-                return;
+	/* not the same process, don't mark */
+	if (lli->lli_opendir_pid != current_pid())
+		return;
 
-        if (sai != NULL && ldd != NULL)
-                ldd->lld_sa_generation = sai->sai_generation;
+	if (sai != NULL && ldd != NULL)
+		ldd->lld_sa_generation = sai->sai_generation;
 }
 
 static inline int
@@ -1329,7 +1329,7 @@ ll_need_statahead(struct inode *dir, struct dentry *dentryp)
 
 	lli = ll_i2info(dir);
 	/* not the same process, don't statahead */
-	if (lli->lli_opendir_pid != cfs_curproc_pid())
+	if (lli->lli_opendir_pid != current_pid())
 		return -EAGAIN;
 
 	/* statahead has been stopped */
