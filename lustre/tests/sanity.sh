@@ -9840,6 +9840,9 @@ run_test 184d "allow stripeless layouts swap"
 
 
 test_185() { # LU-2441
+       [ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.63) ] ||
+            { skip "Need MDS version at least 2.2.51"; return; }
+
 	mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
 	touch $DIR/$tdir/spoo
 	local mtime1=$(stat -c "%Y" $DIR/$tdir)
