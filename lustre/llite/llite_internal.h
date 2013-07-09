@@ -123,6 +123,8 @@ enum lli_flags {
         LLIF_SRVLOCK            = (1 << 5),
 	/* File data is modified. */
 	LLIF_DATA_MODIFIED      = (1 << 6),
+	/* Xattr cache is attached to the file */
+	LLIF_XATTR_CACHE	= (1 << 7),
 };
 
 struct ll_inode_info {
@@ -275,7 +277,26 @@ struct ll_inode_info {
 	struct mutex			lli_layout_mutex;
 	/* valid only inside LAYOUT ibits lock, protected by lli_layout_mutex */
 	__u32				lli_layout_gen;
+
+	struct rw_semaphore		lli_xattrs_list_rwsem;
+	struct mutex			lli_xattrs_enq_lock;
+	cfs_list_t			lli_xattrs; /* ll_xattr_entry->xe_list */
 };
+
+int ll_xattr_cache_destroy(struct inode *inode);
+
+int ll_xattr_cache_get(struct inode *inode,
+			const char *name,
+			char *buffer,
+			size_t size,
+			__u64 valid);
+
+int ll_xattr_cache_update(struct inode *inode,
+			const char *name,
+			const char *newval,
+			size_t size,
+			__u64 valid,
+			int flags);
 
 /*
  * Locking to guarantee consistency of non-atomic updates to long long i_size,
@@ -398,6 +419,7 @@ enum stats_track_type {
 #define LL_SBI_VERBOSE        0x10000 /* verbose mount/umount */
 #define LL_SBI_LAYOUT_LOCK    0x20000 /* layout lock support */
 #define LL_SBI_USER_FID2PATH  0x40000 /* allow fid2path by unprivileged users */
+#define LL_SBI_XATTR_CACHE    0x80000 /* support for xattr cache */
 
 #define LL_SBI_FLAGS { 	\
 	"nolck",	\
@@ -465,7 +487,8 @@ struct ll_sb_info {
         struct lu_fid             ll_root_fid; /* root object fid */
 
         int                       ll_flags;
-	int			  ll_umounting:1;
+	int			  ll_umounting:1,
+				  ll_xattr_cache_enabled:1;
         cfs_list_t                ll_conn_chain; /* per-conn chain of SBs */
         struct lustre_client_ocd  ll_lco;
 
@@ -731,7 +754,8 @@ extern int ll_inode_revalidate_it(struct dentry *, struct lookup_intent *,
 extern int ll_have_md_lock(struct inode *inode, __u64 *bits,
                            ldlm_mode_t l_req_mode);
 extern ldlm_mode_t ll_take_md_lock(struct inode *inode, __u64 bits,
-                                   struct lustre_handle *lockh, __u64 flags);
+				   struct lustre_handle *lockh, __u64 flags,
+				   ldlm_mode_t mode);
 int __ll_inode_revalidate_it(struct dentry *, struct lookup_intent *,
                              __u64 bits);
 #ifdef HAVE_IOP_ATOMIC_OPEN
@@ -1632,5 +1656,8 @@ enum {
 
 int ll_layout_conf(struct inode *inode, const struct cl_object_conf *conf);
 int ll_layout_refresh(struct inode *inode, __u32 *gen);
+
+int ll_xattr_init(void);
+void ll_xattr_fini(void);
 
 #endif /* LLITE_INTERNAL_H */
