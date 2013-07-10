@@ -681,8 +681,8 @@ static void ll_post_statahead(struct ll_statahead_info *sai)
         if (rc)
                 GOTO(out, rc);
 
-        CDEBUG(D_DLMTRACE, "setting l_data to inode %p (%lu/%u)\n",
-               child, child->i_ino, child->i_generation);
+	CDEBUG(D_DLMTRACE, "setting l_data to inode "DFID"(%p)\n",
+	       PFID(ll_inode2fid(child)), child);
         ll_set_lock_data(ll_i2sbi(dir)->ll_md_exp, child, it, NULL);
 
         entry->se_inode = child;
@@ -1623,14 +1623,12 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
                                 } else if ((*dentryp)->d_inode != inode) {
                                         /* revalidate, but inode is recreated */
                                         CDEBUG(D_READA,
-                                              "stale dentry %.*s inode %lu/%u, "
-                                              "statahead inode %lu/%u\n",
-                                              (*dentryp)->d_name.len,
-                                              (*dentryp)->d_name.name,
-                                              (*dentryp)->d_inode->i_ino,
-                                              (*dentryp)->d_inode->i_generation,
-                                              inode->i_ino,
-                                              inode->i_generation);
+					       "stale dentry %.*s inode "DFID
+					       ", statahead inode "DFID"\n",
+					       (*dentryp)->d_name.len,
+					       (*dentryp)->d_name.name,
+					       PFID(ll_inode2fid((*dentryp)->d_inode)),
+					       PFID(ll_inode2fid(inode)));
                                         ll_sai_unplug(sai, entry);
                                         RETURN(-ESTALE);
                                 } else {
