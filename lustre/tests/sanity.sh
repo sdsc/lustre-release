@@ -11327,6 +11327,20 @@ test_233() {
 }
 run_test 233 "checking that OBF of the FS root succeeds"
 
+test_234() {
+	flock_deadlock $DIR/$tfile
+	local RC=$?
+	case $RC in
+		0)
+		;;
+		124) error "process hangs on a deadlock"
+		;;
+		*) error "error executing flock_deadlock $DIR/$tfile"
+		;;
+	esac
+}
+run_test 234 "LU-1715: flock deadlock detection does not work properly"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
