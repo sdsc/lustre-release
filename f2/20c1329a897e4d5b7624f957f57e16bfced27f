@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Code-Review+1: Mike Pershin <mike.pershin@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Artem Blagodarenko <artem_blagodarenko@xyratex.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Wed, 10 Jul 2013 02:17:53 +0000
+Reviewed-on: http://review.whamcloud.com/6395
+Project: fs/lustre-release
+Branch: refs/heads/master
