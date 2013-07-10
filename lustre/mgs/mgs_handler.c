@@ -1063,7 +1063,7 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 		     struct lu_device_type *ldt, struct lustre_cfg *lcfg)
 {
 	static struct ptlrpc_service_conf	 conf;
-	struct obd_device			*obd;
+	struct obd_device			*obd = NULL;
 	struct lustre_mount_info		*lmi;
 	struct llog_ctxt			*ctxt;
 	int					 rc;
