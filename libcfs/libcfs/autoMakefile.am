@@ -50,7 +50,7 @@ libcfs_a_SOURCES= posix/posix-debug.c user-prim.c user-lock.c user-tcpip.c  \
 		  posix/posix-adler.c heap.c
 
 if HAVE_PCLMULQDQ
-libcfs_a_SOURCES += user-crc32pclmul.c crc32-pclmul_asm.S
+libcfs_a_SOURCES += user-crc32pclmul.c linux/crc32-pclmul_asm.S
 endif
 
 libcfs_a_CPPFLAGS = $(LLCPPFLAGS)
