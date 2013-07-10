@@ -221,7 +221,7 @@ static void cfs_crypto_performance_test(unsigned char alg_id,
 		       1000) / (1024 * 1024);
 		cfs_crypto_hash_speeds[alg_id] = (int)tmp;
 	}
-	CDEBUG(D_INFO, "Crypto hash algorithm %s speed = %d MB/s\n",
+	CDEBUG(D_CONFIG, "Crypto hash algorithm %s speed = %d MB/s\n",
 	       cfs_crypto_hash_name(alg_id), cfs_crypto_hash_speeds[alg_id]);
 }
 
@@ -266,6 +266,9 @@ static int crc32, adler32;
 
 #ifdef HAVE_PCLMULQDQ
 static int crc32pclmul;
+#ifdef CONFIG_X86_64
+static int crc32c_pclmul;
+#endif
 #endif
 
 int cfs_crypto_register(void)
@@ -277,8 +280,12 @@ int cfs_crypto_register(void)
 
 #ifdef HAVE_PCLMULQDQ
 	crc32pclmul = cfs_crypto_crc32_pclmul_register();
+
+#ifdef CONFIG_X86_64
+	crc32c_pclmul = cfs_crypto_crc32c_pclmul_register();
 #endif
 
+#endif
 	/* check all algorithms and do performance test */
 	cfs_crypto_test_hashes();
 	return 0;
@@ -293,6 +300,11 @@ void cfs_crypto_unregister(void)
 #ifdef HAVE_PCLMULQDQ
 	if (crc32pclmul == 0)
 		cfs_crypto_crc32_pclmul_unregister();
+
+#ifdef CONFIG_X86_64
+	if (crc32c_pclmul == 0)
+		cfs_crypto_crc32c_pclmul_unregister();
+#endif
 #endif
 
 	return;
