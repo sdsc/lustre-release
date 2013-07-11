@@ -725,6 +725,28 @@ static void cleanup_resource(struct ldlm_resource *res, cfs_list_t *q,
 		/* First, we look for non-cleaned-yet lock
 		 * all cleaned locks are marked by CLEANED flag. */
                 lock_res(res);
+
+		/* have to set LDLM_FL_FAILED flag to all the "flock" at one
+		 * time holding a res lock in order to remove a race condition
+		 * between ldlm_flock_completion_ast and here */
+		cfs_list_for_each(tmp, q) {
+			lock = cfs_list_entry(tmp, struct ldlm_lock,
+					      l_res_link);
+			if (ldlm_is_cleaned(lock)) {
+				lock = NULL;
+				continue;
+			}
+			/* set CBPENDING so nothing in the cancellation path
+			 * can match this lock */
+			ldlm_set_cbpending(lock);
+			ldlm_set_failed(lock);
+			LDLM_SET_FLAG(lock, flags);
+			/* without sending a CANCEL message for local_only. */
+			if (local_only)
+				ldlm_set_local_only(lock);
+		}
+		lock = NULL;
+
                 cfs_list_for_each(tmp, q) {
                         lock = cfs_list_entry(tmp, struct ldlm_lock,
                                               l_res_link);
@@ -742,17 +764,13 @@ static void cleanup_resource(struct ldlm_resource *res, cfs_list_t *q,
                         break;
                 }
 
-                /* Set CBPENDING so nothing in the cancellation path
-		 * can match this lock. */
-                lock->l_flags |= LDLM_FL_CBPENDING;
-                lock->l_flags |= LDLM_FL_FAILED;
-                lock->l_flags |= flags;
-
-                /* ... without sending a CANCEL message for local_only. */
-                if (local_only)
-                        lock->l_flags |= LDLM_FL_LOCAL_ONLY;
-
                 if (local_only && (lock->l_readers || lock->l_writers)) {
+			/* Just needed when lock type is LDLM_FLOCK to avoid
+			 * a race condition */
+			if ((ldlm_is_local_only(lock)) &&
+			    (lock->l_req_mode == lock->l_granted_mode) &&
+			    (lock->l_granted_mode != LCK_NL))
+				ldlm_set_needed_decref(lock);
                         /* This is a little bit gross, but much better than the
                          * alternative: pretend that we got a blocking AST from
                          * the server, so that when the lock is decref'd, it
