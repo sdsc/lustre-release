@@ -109,11 +109,11 @@ typedef struct
         int              *kib_pmr_pool_size;    /* # physical MR in pool */
         int              *kib_fmr_pool_size;    /* # FMRs in pool */
         int              *kib_fmr_flush_trigger; /* When to trigger FMR flush */
-        int              *kib_fmr_cache;        /* enable FMR pool cache? */
+	int              *kib_fmr_cache;        /* enable FMR pool cache? */
 #if defined(CONFIG_SYSCTL) && !CFS_SYSFS_MODULE_PARM
-        cfs_sysctl_table_header_t *kib_sysctl;  /* sysctl interface */
+	struct ctl_table_header *kib_sysctl;  /* sysctl interface */
 #endif
-        int              *kib_require_priv_port;/* accept only privileged ports */
+	int              *kib_require_priv_port;/* accept only privileged ports */
         int              *kib_use_priv_port;    /* use privileged port for active connect */
 	/* # threads on each CPT */
 	int		 *kib_nscheds;

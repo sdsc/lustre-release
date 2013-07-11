@@ -182,7 +182,7 @@ enum {
 #define KPTLLND_SIMULATION_BITMAP CTL_UNNUMBERED
 #endif
 
-static cfs_sysctl_table_t kptllnd_ctl_table[] = {
+static struct ctl_table kptllnd_ctl_table[] = {
         {
                 .ctl_name = KPTLLND_NTX,
                 .procname = "ntx",
@@ -317,7 +317,7 @@ static cfs_sysctl_table_t kptllnd_ctl_table[] = {
         {0}
 };
 
-static cfs_sysctl_table_t kptllnd_top_ctl_table[] = {
+static struct ctl_table kptllnd_top_ctl_table[] = {
         {
                 .ctl_name = CTL_PTLLND,
                 .procname = "ptllnd",
@@ -344,8 +344,8 @@ kptllnd_tunables_init ()
 void
 kptllnd_tunables_fini ()
 {
-        if (kptllnd_tunables.kptl_sysctl != NULL)
-                cfs_unregister_sysctl_table(kptllnd_tunables.kptl_sysctl);
+	if (kptllnd_tunables.kptl_sysctl != NULL)
+		unregister_sysctl_table(kptllnd_tunables.kptl_sysctl);
 }
 
 #else

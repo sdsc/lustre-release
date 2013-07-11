@@ -49,7 +49,7 @@ cfs_percpt_lock_free(struct cfs_percpt_lock *pcl)
 	cfs_percpt_free(pcl->pcl_locks);
 	LIBCFS_FREE(pcl, sizeof(*pcl));
 }
-CFS_EXPORT_SYMBOL(cfs_percpt_lock_free);
+EXPORT_SYMBOL(cfs_percpt_lock_free);
 
 /**
  * create cpu-partition lock, see libcfs_private.h for more detail.
@@ -82,7 +82,7 @@ cfs_percpt_lock_alloc(struct cfs_cpt_table *cptab)
 
 	return pcl;
 }
-CFS_EXPORT_SYMBOL(cfs_percpt_lock_alloc);
+EXPORT_SYMBOL(cfs_percpt_lock_alloc);
 
 /**
  * lock a CPU partition
@@ -124,7 +124,7 @@ cfs_percpt_lock(struct cfs_percpt_lock *pcl, int index)
 		}
 	}
 }
-CFS_EXPORT_SYMBOL(cfs_percpt_lock);
+EXPORT_SYMBOL(cfs_percpt_lock);
 
 /** unlock a CPU partition */
 void
@@ -148,7 +148,7 @@ cfs_percpt_unlock(struct cfs_percpt_lock *pcl, int index)
 		spin_unlock(pcl->pcl_locks[i]);
 	}
 }
-CFS_EXPORT_SYMBOL(cfs_percpt_unlock);
+EXPORT_SYMBOL(cfs_percpt_unlock);
 
 #else /* !__KERNEL__ */
 # ifdef HAVE_LIBPTHREAD
@@ -219,7 +219,7 @@ cfs_percpt_atomic_free(cfs_atomic_t **refs)
 {
 	cfs_percpt_free(refs);
 }
-CFS_EXPORT_SYMBOL(cfs_percpt_atomic_free);
+EXPORT_SYMBOL(cfs_percpt_atomic_free);
 
 /** allocate cpu-partition refcount with initial value @init_val */
 cfs_atomic_t **
@@ -237,7 +237,7 @@ cfs_percpt_atomic_alloc(struct cfs_cpt_table *cptab, int init_val)
 		cfs_atomic_set(ref, init_val);
 	return refs;
 }
-CFS_EXPORT_SYMBOL(cfs_percpt_atomic_alloc);
+EXPORT_SYMBOL(cfs_percpt_atomic_alloc);
 
 /** return sum of cpu-partition refs */
 int
@@ -252,4 +252,4 @@ cfs_percpt_atomic_summary(cfs_atomic_t **refs)
 
 	return val;
 }
-CFS_EXPORT_SYMBOL(cfs_percpt_atomic_summary);
+EXPORT_SYMBOL(cfs_percpt_atomic_summary);

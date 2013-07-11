@@ -110,7 +110,7 @@ typedef struct
 #endif
 
 #if defined(CONFIG_SYSCTL) && !CFS_SYSFS_MODULE_PARM
-        cfs_sysctl_table_header_t *kptl_sysctl; /* sysctl interface */
+	struct ctl_table_header *kptl_sysctl; /* sysctl interface */
 #endif
 } kptl_tunables_t;
 

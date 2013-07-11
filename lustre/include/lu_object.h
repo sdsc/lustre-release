@@ -1131,7 +1131,7 @@ struct lu_context_key {
         /**
          * Internal implementation detail: module for this key.
          */
-        cfs_module_t *lct_owner;
+	struct module *lct_owner;
         /**
          * References to this key. For debugging.
          */

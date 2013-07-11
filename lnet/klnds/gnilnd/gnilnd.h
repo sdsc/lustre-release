@@ -472,7 +472,7 @@ typedef struct kgn_tunables {
 	int		 *kgn_sched_nice;	/* nice value for kgnilnd scheduler threads */
 	int		 *kgn_reverse_rdma;	/* Reverse RDMA setting */
 #if CONFIG_SYSCTL && !CFS_SYSFS_MODULE_PARM
-	cfs_sysctl_table_header_t *kgn_sysctl;  /* sysctl interface */
+	struct ctl_table_header *kgn_sysctl;  /* sysctl interface */
 #endif
 } kgn_tunables_t;
 

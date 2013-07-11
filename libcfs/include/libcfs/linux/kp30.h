@@ -74,11 +74,7 @@
 #include <libcfs/linux/portals_compat25.h>
 
 /* ------------------------------------------------------------------- */
-#define PORTAL_SYMBOL_GET(x) symbol_get(x)
-#define PORTAL_SYMBOL_PUT(x) symbol_put(x)
 
-#define PORTAL_MODULE_USE       try_module_get(THIS_MODULE)
-#define PORTAL_MODULE_UNUSE     module_put(THIS_MODULE)
 
 
 /******************************************************************************/
