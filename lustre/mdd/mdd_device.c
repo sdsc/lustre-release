@@ -1160,27 +1160,6 @@ static struct obd_ops mdd_obd_device_ops = {
 	.o_health_check	= mdd_obd_health_check
 };
 
-/*
- * context key constructor/destructor:
- * mdd_capainfo_key_init, mdd_capainfo_key_fini
- */
-LU_KEY_INIT_FINI(mdd_capainfo, struct md_capainfo);
-
-struct lu_context_key mdd_capainfo_key = {
-        .lct_tags = LCT_SESSION,
-        .lct_init = mdd_capainfo_key_init,
-        .lct_fini = mdd_capainfo_key_fini
-};
-
-struct md_capainfo *md_capainfo(const struct lu_env *env)
-{
-        /* NB, in mdt_init0 */
-        if (env->le_ses == NULL)
-                return NULL;
-        return lu_context_key_get(env->le_ses, &mdd_capainfo_key);
-}
-EXPORT_SYMBOL(md_capainfo);
-
 static int mdd_changelog_user_register(const struct lu_env *env,
 				       struct mdd_device *mdd, int *id)
 {
