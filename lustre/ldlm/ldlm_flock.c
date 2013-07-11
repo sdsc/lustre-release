@@ -630,9 +630,20 @@ ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
             (LDLM_FL_FAILED|LDLM_FL_LOCAL_ONLY)) {
                 if (lock->l_req_mode == lock->l_granted_mode &&
                     lock->l_granted_mode != LCK_NL &&
-                    NULL == data)
-                        ldlm_lock_decref_internal(lock, lock->l_req_mode);
-
+		    NULL == data) {
+			/* Without checking LDLM_FL_NEEDED_DECREF flag
+			 * ldlm_lock_decref_internal might be called multiple
+			 * times unnecessarily */
+			lock_res_and_lock(lock);
+			if (ldlm_is_needed_decref(lock)) {
+				ldlm_clear_needed_decref(lock);
+				unlock_res_and_lock(lock);
+				ldlm_lock_decref_internal(lock,
+							  lock->l_req_mode);
+			} else {
+				unlock_res_and_lock(lock);
+			}
+		}
                 /* Need to wake up the waiter if we were evicted */
                 cfs_waitq_signal(&lock->l_waitq);
                 RETURN(0);
@@ -701,6 +712,29 @@ granted:
 
 	/* take lock off the deadlock detection hash list. */
         ldlm_flock_blocking_unlink(lock);
+
+	/* We have to return when client eviction is running and it has
+	 * already set LDLM_FL_FAILED flag */
+	if (ldlm_is_failed(lock)) {
+		/* When the case cleanup_resouce has already set flags
+		 * but hasn't decrefed refcount yet */
+		if ((ldlm_is_needed_decref(lock) ||
+		     ldlm_is_local_only(lock)) &&
+		    (lock->l_req_mode == lock->l_granted_mode) &&
+		    (lock->l_granted_mode != LCK_NL) &&
+		    (NULL == data)) {
+			ldlm_clear_needed_decref(lock);
+			unlock_res_and_lock(lock);
+			ldlm_lock_decref_internal(lock, lock->l_req_mode);
+			cfs_waitq_signal(&lock->l_waitq);
+			RETURN(0);
+		} else {
+			unlock_res_and_lock(lock);
+			LDLM_DEBUG(lock, "client-side enqueue waking up: "
+					 "failed");
+			RETURN(-EIO);
+		}
+	}
 
         /* ldlm_lock_enqueue() has already placed lock on the granted list. */
         cfs_list_del_init(&lock->l_res_link);
