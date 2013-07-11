@@ -268,7 +268,7 @@ typedef struct
 	cfs_atomic_t	kqn_pending_txs;     /* # transmits being prepped */
 
 	spinlock_t	kqn_sched_lock;      /* serialise packet schedulers */
-        cfs_waitq_t          kqn_sched_waitq;/* scheduler blocks here */
+	wait_queue_head_t    kqn_sched_waitq;/* scheduler blocks here */
 
         cfs_list_t           kqn_readyrxds;  /* rxds full of data */
         cfs_list_t           kqn_donetxds;   /* completed transmits */

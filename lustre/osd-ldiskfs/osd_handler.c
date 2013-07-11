@@ -953,7 +953,7 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
          * IMPORTANT: we have to wait till any IO submited by the thread is
          * completed otherwise iobuf may be corrupted by different request
          */
-        cfs_wait_event(iobuf->dr_wait,
+	wait_event(iobuf->dr_wait,
                        cfs_atomic_read(&iobuf->dr_numreqs) == 0);
         if (!rc)
                 rc = iobuf->dr_error;

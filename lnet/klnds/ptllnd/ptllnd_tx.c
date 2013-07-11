@@ -514,13 +514,12 @@ kptllnd_tx_callback(ptl_event_t *ev)
 
         /* drop peer's ref, but if it was the last one... */
         if (cfs_atomic_dec_and_test(&tx->tx_refcount)) {
-                /* ...finalize it in thread context! */
+		/* ...finalize it in thread context! */
 		spin_lock_irqsave(&kptllnd_data.kptl_sched_lock, flags);
 
-                cfs_list_add_tail(&tx->tx_list, &kptllnd_data.kptl_sched_txq);
-                cfs_waitq_signal(&kptllnd_data.kptl_sched_waitq);
+		cfs_list_add_tail(&tx->tx_list, &kptllnd_data.kptl_sched_txq);
+		wake_up(&kptllnd_data.kptl_sched_waitq);
 
-		spin_unlock_irqrestore(&kptllnd_data.kptl_sched_lock,
-                                           flags);
+		spin_unlock_irqrestore(&kptllnd_data.kptl_sched_lock, flags);
         }
 }

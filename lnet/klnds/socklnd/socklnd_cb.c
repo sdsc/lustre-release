@@ -538,14 +538,14 @@ ksocknal_process_transmit (ksock_conn_t *conn, ksock_tx_t *tx)
                 LASSERT (conn->ksnc_tx_scheduled);
                 cfs_list_add_tail(&conn->ksnc_tx_list,
                                   &ksocknal_data.ksnd_enomem_conns);
-                if (!cfs_time_aftereq(cfs_time_add(cfs_time_current(),
-                                                   SOCKNAL_ENOMEM_RETRY),
-                                   ksocknal_data.ksnd_reaper_waketime))
-                        cfs_waitq_signal (&ksocknal_data.ksnd_reaper_waitq);
+		if (!cfs_time_aftereq(cfs_time_add(cfs_time_current(),
+					SOCKNAL_ENOMEM_RETRY),
+					ksocknal_data.ksnd_reaper_waketime))
+			wake_up(&ksocknal_data.ksnd_reaper_waitq);
 
 		spin_unlock_bh(&ksocknal_data.ksnd_reaper_lock);
-                return (rc);
-        }
+		return (rc);
+	}
 
         /* Actual error */
         LASSERT (rc < 0);
@@ -598,7 +598,7 @@ ksocknal_launch_connection_locked (ksock_route_t *route)
 
 	cfs_list_add_tail(&route->ksnr_connd_list,
 			  &ksocknal_data.ksnd_connd_routes);
-	cfs_waitq_signal(&ksocknal_data.ksnd_connd_waitq);
+	wake_up(&ksocknal_data.ksnd_connd_waitq);
 
 	spin_unlock_bh(&ksocknal_data.ksnd_connd_lock);
 }
@@ -765,15 +765,15 @@ ksocknal_queue_tx_locked (ksock_tx_t *tx, ksock_conn_t *conn)
                 cfs_list_add_tail(&ztx->tx_list, &sched->kss_zombie_noop_txs);
         }
 
-        if (conn->ksnc_tx_ready &&      /* able to send */
-            !conn->ksnc_tx_scheduled) { /* not scheduled to send */
-                /* +1 ref for scheduler */
-                ksocknal_conn_addref(conn);
-                cfs_list_add_tail (&conn->ksnc_tx_list,
-                                   &sched->kss_tx_conns);
-                conn->ksnc_tx_scheduled = 1;
-                cfs_waitq_signal (&sched->kss_waitq);
-        }
+	if (conn->ksnc_tx_ready &&      /* able to send */
+	    !conn->ksnc_tx_scheduled) { /* not scheduled to send */
+		/* +1 ref for scheduler */
+		ksocknal_conn_addref(conn);
+		cfs_list_add_tail (&conn->ksnc_tx_list,
+				   &sched->kss_tx_conns);
+		conn->ksnc_tx_scheduled = 1;
+		wake_up(&sched->kss_waitq);
+	}
 
 	spin_unlock_bh(&sched->kss_lock);
 }
@@ -1354,12 +1354,12 @@ ksocknal_recv (lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
 
 	spin_lock_bh(&sched->kss_lock);
 
-        switch (conn->ksnc_rx_state) {
-        case SOCKNAL_RX_PARSE_WAIT:
-                cfs_list_add_tail(&conn->ksnc_rx_list, &sched->kss_rx_conns);
-                cfs_waitq_signal (&sched->kss_waitq);
-                LASSERT (conn->ksnc_rx_ready);
-                break;
+	switch (conn->ksnc_rx_state) {
+	case SOCKNAL_RX_PARSE_WAIT:
+		cfs_list_add_tail(&conn->ksnc_rx_list, &sched->kss_rx_conns);
+		wake_up(&sched->kss_waitq);
+		LASSERT(conn->ksnc_rx_ready);
+		break;
 
         case SOCKNAL_RX_PARSE:
                 /* scheduler hasn't noticed I'm parsing yet */
@@ -1543,7 +1543,7 @@ int ksocknal_scheduler(void *arg)
 					!ksocknal_sched_cansleep(sched));
 				LASSERT (rc == 0);
                         } else {
-                                cfs_cond_resched();
+				cond_resched();
                         }
 
 			spin_lock_bh(&sched->kss_lock);
@@ -1577,7 +1577,7 @@ void ksocknal_read_callback (ksock_conn_t *conn)
                 /* extra ref for scheduler */
                 ksocknal_conn_addref(conn);
 
-                cfs_waitq_signal (&sched->kss_waitq);
+		wake_up (&sched->kss_waitq);
         }
 	spin_unlock_bh(&sched->kss_lock);
 
@@ -1607,7 +1607,7 @@ void ksocknal_write_callback (ksock_conn_t *conn)
                 /* extra ref for scheduler */
                 ksocknal_conn_addref(conn);
 
-                cfs_waitq_signal (&sched->kss_waitq);
+		wake_up (&sched->kss_waitq);
         }
 
 	spin_unlock_bh(&sched->kss_lock);
@@ -2130,7 +2130,7 @@ ksocknal_connd_get_route_locked(signed long *timeout_p)
                     cfs_time_aftereq(now, route->ksnr_timeout))
                         return route;
 
-                if (*timeout_p == CFS_MAX_SCHEDULE_TIMEOUT ||
+		if (*timeout_p == MAX_SCHEDULE_TIMEOUT ||
                     (int)*timeout_p > (int)(route->ksnr_timeout - now))
                         *timeout_p = (int)(route->ksnr_timeout - now);
         }
@@ -2143,13 +2143,13 @@ ksocknal_connd (void *arg)
 {
 	spinlock_t    *connd_lock = &ksocknal_data.ksnd_connd_lock;
         ksock_connreq_t   *cr;
-        cfs_waitlink_t     wait;
+	wait_queue_t     wait;
         int                nloops = 0;
         int                cons_retry = 0;
 
         cfs_block_allsigs ();
 
-        cfs_waitlink_init (&wait);
+	init_waitqueue_entry_current (&wait);
 
 	spin_lock_bh(connd_lock);
 
@@ -2160,12 +2160,12 @@ ksocknal_connd (void *arg)
         while (!ksocknal_data.ksnd_shuttingdown) {
                 ksock_route_t *route = NULL;
                 long sec = cfs_time_current_sec();
-                long timeout = CFS_MAX_SCHEDULE_TIMEOUT;
+		long timeout = MAX_SCHEDULE_TIMEOUT;
                 int  dropped_lock = 0;
 
                 if (ksocknal_connd_check_stop(sec, &timeout)) {
                         /* wakeup another one to check stop */
-                        cfs_waitq_signal(&ksocknal_data.ksnd_connd_waitq);
+			wake_up(&ksocknal_data.ksnd_connd_waitq);
                         break;
                 }
 
@@ -2227,21 +2227,21 @@ ksocknal_connd (void *arg)
 				continue;
 			spin_unlock_bh(connd_lock);
 			nloops = 0;
-			cfs_cond_resched();
+			cond_resched();
 			spin_lock_bh(connd_lock);
 			continue;
 		}
 
 		/* Nothing to do for 'timeout'  */
-		cfs_set_current_state(CFS_TASK_INTERRUPTIBLE);
-		cfs_waitq_add_exclusive(&ksocknal_data.ksnd_connd_waitq, &wait);
+		set_current_state(TASK_INTERRUPTIBLE);
+		add_wait_queue_exclusive(&ksocknal_data.ksnd_connd_waitq, &wait);
 		spin_unlock_bh(connd_lock);
 
 		nloops = 0;
-		cfs_waitq_timedwait(&wait, CFS_TASK_INTERRUPTIBLE, timeout);
+		waitq_timedwait(&wait, TASK_INTERRUPTIBLE, timeout);
 
-		cfs_set_current_state(CFS_TASK_RUNNING);
-		cfs_waitq_del(&ksocknal_data.ksnd_connd_waitq, &wait);
+		set_current_state(TASK_RUNNING);
+		remove_wait_queue(&ksocknal_data.ksnd_connd_waitq, &wait);
 		spin_lock_bh(connd_lock);
 	}
 	ksocknal_data.ksnd_connd_running--;
@@ -2526,13 +2526,12 @@ ksocknal_check_peer_timeouts (int idx)
 	read_unlock(&ksocknal_data.ksnd_global_lock);
 }
 
-int
-ksocknal_reaper (void *arg)
+int ksocknal_reaper(void *arg)
 {
-        cfs_waitlink_t     wait;
-        ksock_conn_t      *conn;
-        ksock_sched_t     *sched;
-        cfs_list_t         enomem_conns;
+	wait_queue_t     wait;
+	ksock_conn_t      *conn;
+	ksock_sched_t     *sched;
+	cfs_list_t         enomem_conns;
         int                nenomem_conns;
         cfs_duration_t     timeout;
         int                i;
@@ -2541,8 +2540,8 @@ ksocknal_reaper (void *arg)
 
         cfs_block_allsigs ();
 
-        CFS_INIT_LIST_HEAD(&enomem_conns);
-        cfs_waitlink_init (&wait);
+	CFS_INIT_LIST_HEAD(&enomem_conns);
+	init_waitqueue_entry_current(&wait);
 
 	spin_lock_bh(&ksocknal_data.ksnd_reaper_lock);
 
@@ -2599,7 +2598,7 @@ ksocknal_reaper (void *arg)
 			conn->ksnc_tx_ready = 1;
 			cfs_list_add_tail(&conn->ksnc_tx_list,
 					  &sched->kss_tx_conns);
-			cfs_waitq_signal(&sched->kss_waitq);
+			wake_up(&sched->kss_waitq);
 
 			spin_unlock_bh(&sched->kss_lock);
                         nenomem_conns++;
@@ -2643,17 +2642,16 @@ ksocknal_reaper (void *arg)
                 ksocknal_data.ksnd_reaper_waketime =
                         cfs_time_add(cfs_time_current(), timeout);
 
-                cfs_set_current_state (CFS_TASK_INTERRUPTIBLE);
-                cfs_waitq_add (&ksocknal_data.ksnd_reaper_waitq, &wait);
+			set_current_state(TASK_INTERRUPTIBLE);
+		add_wait_queue(&ksocknal_data.ksnd_reaper_waitq, &wait);
 
-                if (!ksocknal_data.ksnd_shuttingdown &&
-                    cfs_list_empty (&ksocknal_data.ksnd_deathrow_conns) &&
-                    cfs_list_empty (&ksocknal_data.ksnd_zombie_conns))
-                        cfs_waitq_timedwait (&wait, CFS_TASK_INTERRUPTIBLE,
-                                             timeout);
+		if (!ksocknal_data.ksnd_shuttingdown &&
+		    cfs_list_empty(&ksocknal_data.ksnd_deathrow_conns) &&
+		    cfs_list_empty(&ksocknal_data.ksnd_zombie_conns))
+			waitq_timedwait(&wait, TASK_INTERRUPTIBLE, timeout);
 
-                cfs_set_current_state (CFS_TASK_RUNNING);
-                cfs_waitq_del (&ksocknal_data.ksnd_reaper_waitq, &wait);
+		set_current_state(TASK_RUNNING);
+		remove_wait_queue(&ksocknal_data.ksnd_reaper_waitq, &wait);
 
 		spin_lock_bh(&ksocknal_data.ksnd_reaper_lock);
 	}

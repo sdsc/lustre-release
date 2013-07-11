@@ -403,7 +403,7 @@ struct client_obd {
 
         /* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
         cfs_atomic_t             cl_destroy_in_flight;
-        cfs_waitq_t              cl_destroy_waitq;
+	wait_queue_head_t        cl_destroy_waitq;
 
         struct mdc_rpc_lock     *cl_rpc_lock;
         struct mdc_rpc_lock     *cl_close_lock;
@@ -516,10 +516,10 @@ struct lov_qos {
                             lq_reset:1,     /* zero current penalties */
                             lq_statfs_in_progress:1; /* statfs op in
                                                         progress */
-        /* qos statfs data */
-        struct lov_statfs_data *lq_statfs_data;
-        cfs_waitq_t         lq_statfs_waitq; /* waitqueue to notify statfs
-                                              * requests completion */
+	/* qos statfs data */
+	struct lov_statfs_data *lq_statfs_data;
+	wait_queue_head_t   lq_statfs_waitq; /* waitqueue to notify statfs
+					      * requests completion */
 };
 
 struct lov_tgt_desc {
@@ -828,9 +828,9 @@ struct target_recovery_data {
 };
 
 struct obd_llog_group {
-        int                olg_seq;
-        struct llog_ctxt  *olg_ctxts[LLOG_MAX_CTXTS];
-        cfs_waitq_t        olg_waitq;
+	int                olg_seq;
+	struct llog_ctxt   *olg_ctxts[LLOG_MAX_CTXTS];
+	wait_queue_head_t  olg_waitq;
 	spinlock_t	   olg_lock;
 	struct mutex	   olg_cat_processing;
 };
@@ -879,9 +879,9 @@ struct obd_device {
         /* nid stats body */
         cfs_hash_t             *obd_nid_stats_hash;
         cfs_list_t              obd_nid_stats;
-        cfs_atomic_t            obd_refcount;
-        cfs_waitq_t             obd_refcount_waitq;
-        cfs_list_t              obd_exports;
+	cfs_atomic_t            obd_refcount;
+	wait_queue_head_t       obd_refcount_waitq;
+	cfs_list_t              obd_exports;
         cfs_list_t              obd_unlinked_exports;
         cfs_list_t              obd_delayed_exports;
         int                     obd_num_exports;
@@ -914,11 +914,11 @@ struct obd_device {
          * obd_next_recovery_transno value */
 	spinlock_t			 obd_recovery_task_lock;
         __u64                            obd_next_recovery_transno;
-        int                              obd_replayed_requests;
-        int                              obd_requests_queued_for_recovery;
-        cfs_waitq_t                      obd_next_transno_waitq;
-        /* protected by obd_recovery_task_lock */
-        cfs_timer_t                      obd_recovery_timer;
+	int                              obd_replayed_requests;
+	int                              obd_requests_queued_for_recovery;
+	wait_queue_head_t                obd_next_transno_waitq;
+	/* protected by obd_recovery_task_lock */
+	cfs_timer_t                      obd_recovery_timer;
         time_t                           obd_recovery_start; /* seconds */
         time_t                           obd_recovery_end; /* seconds, for lprocfs_status */
         int                              obd_recovery_time_hard;
@@ -959,9 +959,9 @@ struct obd_device {
         cfs_proc_dir_entry_t  *obd_proc_exports_entry;
         cfs_proc_dir_entry_t  *obd_svc_procroot;
         struct lprocfs_stats  *obd_svc_stats;
-        cfs_atomic_t           obd_evict_inprogress;
-        cfs_waitq_t            obd_evict_inprogress_waitq;
-        cfs_list_t             obd_evict_list; /* protected with pet_lock */
+	cfs_atomic_t           obd_evict_inprogress;
+	wait_queue_head_t      obd_evict_inprogress_waitq;
+	cfs_list_t             obd_evict_list; /* protected with pet_lock */
 
         /**
          * Ldlm pool part. Save last calculated SLV and Limit.

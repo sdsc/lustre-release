@@ -450,7 +450,7 @@ kranal_set_conn_params(kra_conn_t *conn, kra_connreq_t *connreq,
         kranal_conn_addref(conn);
 	spin_lock_irqsave(&dev->rad_lock, flags);
         cfs_list_add_tail(&conn->rac_schedlist, &dev->rad_new_conns);
-        cfs_waitq_signal(&dev->rad_waitq);
+	wake_up(&dev->rad_waitq);
 	spin_unlock_irqrestore(&dev->rad_lock, flags);
 
         rrc = RapkWaitToConnect(conn->rac_rihandle);
@@ -892,7 +892,7 @@ kranal_accept (lnet_ni_t *ni, struct socket *sock)
 	spin_lock_irqsave(&kranal_data.kra_connd_lock, flags);
 
         cfs_list_add_tail(&ras->ras_list, &kranal_data.kra_connd_acceptq);
-        cfs_waitq_signal(&kranal_data.kra_connd_waitq);
+	wake_up(&kranal_data.kra_connd_waitq);
 
 	spin_unlock_irqrestore(&kranal_data.kra_connd_lock, flags);
         return 0;
@@ -1502,17 +1502,17 @@ kranal_shutdown (lnet_ni_t *ni)
                 kra_device_t *dev = &kranal_data.kra_devices[i];
 
 		spin_lock_irqsave(&dev->rad_lock, flags);
-                cfs_waitq_signal(&dev->rad_waitq);
+		wake_up(&dev->rad_waitq);
 		spin_unlock_irqrestore(&dev->rad_lock, flags);
         }
 
 	spin_lock_irqsave(&kranal_data.kra_reaper_lock, flags);
-        cfs_waitq_broadcast(&kranal_data.kra_reaper_waitq);
+	wake_up_all(&kranal_data.kra_reaper_waitq);
 	spin_unlock_irqrestore(&kranal_data.kra_reaper_lock, flags);
 
         LASSERT (cfs_list_empty(&kranal_data.kra_connd_peers));
 	spin_lock_irqsave(&kranal_data.kra_connd_lock, flags);
-        cfs_waitq_broadcast(&kranal_data.kra_connd_waitq);
+	wake_up_all(&kranal_data.kra_connd_waitq);
 	spin_unlock_irqrestore(&kranal_data.kra_connd_lock, flags);
 
         /* Wait for threads to exit */
@@ -1613,17 +1613,17 @@ kranal_startup (lnet_ni_t *ni)
                 dev->rad_idx = i;
                 CFS_INIT_LIST_HEAD(&dev->rad_ready_conns);
                 CFS_INIT_LIST_HEAD(&dev->rad_new_conns);
-                cfs_waitq_init(&dev->rad_waitq);
+		init_waitqueue_head(&dev->rad_waitq);
 		spin_lock_init(&dev->rad_lock);
         }
 
-        kranal_data.kra_new_min_timeout = CFS_MAX_SCHEDULE_TIMEOUT;
-        cfs_waitq_init(&kranal_data.kra_reaper_waitq);
+	kranal_data.kra_new_min_timeout = MAX_SCHEDULE_TIMEOUT;
+	init_waitqueue_head(&kranal_data.kra_reaper_waitq);
 	spin_lock_init(&kranal_data.kra_reaper_lock);
 
         CFS_INIT_LIST_HEAD(&kranal_data.kra_connd_acceptq);
         CFS_INIT_LIST_HEAD(&kranal_data.kra_connd_peers);
-        cfs_waitq_init(&kranal_data.kra_connd_waitq);
+	init_waitqueue_head(&kranal_data.kra_connd_waitq);
 	spin_lock_init(&kranal_data.kra_connd_lock);
 
         CFS_INIT_LIST_HEAD(&kranal_data.kra_idle_txs);

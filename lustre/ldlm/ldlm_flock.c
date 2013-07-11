@@ -634,7 +634,7 @@ ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
                         ldlm_lock_decref_internal(lock, lock->l_req_mode);
 
                 /* Need to wake up the waiter if we were evicted */
-                cfs_waitq_signal(&lock->l_waitq);
+		wake_up(&lock->l_waitq);
                 RETURN(0);
         }
 
@@ -646,7 +646,7 @@ ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
                         /* mds granted the lock in the reply */
                         goto granted;
                 /* CP AST RPC: lock get granted, wake it up */
-                cfs_waitq_signal(&lock->l_waitq);
+		wake_up(&lock->l_waitq);
                 RETURN(0);
         }
 

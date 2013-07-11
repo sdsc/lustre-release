@@ -399,7 +399,7 @@ static struct cl_lock *cl_lock_alloc(const struct lu_env *env,
                 lu_ref_init(&lock->cll_holders);
 		mutex_init(&lock->cll_guard);
 		lockdep_set_class(&lock->cll_guard, &cl_lock_guard_class);
-                cfs_waitq_init(&lock->cll_wq);
+		init_waitqueue_head(&lock->cll_wq);
                 head = obj->co_lu.lo_header;
 		CS_LOCKSTATE_INC(obj, CLS_NEW);
 		CS_LOCK_INC(obj, total);
@@ -952,7 +952,7 @@ EXPORT_SYMBOL(cl_lock_hold_release);
  */
 int cl_lock_state_wait(const struct lu_env *env, struct cl_lock *lock)
 {
-        cfs_waitlink_t waiter;
+	wait_queue_t waiter;
         cfs_sigset_t blocked;
         int result;
 
@@ -970,9 +970,9 @@ int cl_lock_state_wait(const struct lu_env *env, struct cl_lock *lock)
                  * LU-305 */
                 blocked = cfs_block_sigsinv(LUSTRE_FATAL_SIGS);
 
-                cfs_waitlink_init(&waiter);
-                cfs_waitq_add(&lock->cll_wq, &waiter);
-                cfs_set_current_state(CFS_TASK_INTERRUPTIBLE);
+		init_waitqueue_entry_current(&waiter);
+		add_wait_queue(&lock->cll_wq, &waiter);
+		set_current_state(TASK_INTERRUPTIBLE);
                 cl_lock_mutex_put(env, lock);
 
                 LASSERT(cl_lock_nr_mutexed(env) == 0);
@@ -981,14 +981,14 @@ int cl_lock_state_wait(const struct lu_env *env, struct cl_lock *lock)
 		 * can be restarted if signals are pending here */
 		result = -ERESTARTSYS;
 		if (likely(!OBD_FAIL_CHECK(OBD_FAIL_LOCK_STATE_WAIT_INTR))) {
-			cfs_waitq_wait(&waiter, CFS_TASK_INTERRUPTIBLE);
+			waitq_wait(&waiter, TASK_INTERRUPTIBLE);
 			if (!cfs_signal_pending())
 				result = 0;
 		}
 
                 cl_lock_mutex_get(env, lock);
-                cfs_set_current_state(CFS_TASK_RUNNING);
-                cfs_waitq_del(&lock->cll_wq, &waiter);
+		set_current_state(TASK_RUNNING);
+		remove_wait_queue(&lock->cll_wq, &waiter);
 
                 /* Restore old blocked signals */
                 cfs_restore_sigs(blocked);
@@ -1009,7 +1009,7 @@ static void cl_lock_state_signal(const struct lu_env *env, struct cl_lock *lock,
         cfs_list_for_each_entry(slice, &lock->cll_layers, cls_linkage)
                 if (slice->cls_ops->clo_state != NULL)
                         slice->cls_ops->clo_state(env, slice, state);
-        cfs_waitq_broadcast(&lock->cll_wq);
+	wake_up_all(&lock->cll_wq);
         EXIT;
 }
 
@@ -2014,7 +2014,7 @@ int cl_lock_discard_pages(const struct lu_env *env, struct cl_lock *lock)
                         break;
 
                 if (res == CLP_GANG_RESCHED)
-                        cfs_cond_resched();
+			cond_resched();
         } while (res != CLP_GANG_OKAY);
 out:
         cl_io_fini(env, io);
@@ -2250,7 +2250,7 @@ void cl_lock_user_del(const struct lu_env *env, struct cl_lock *lock)
         ENTRY;
         cl_lock_used_mod(env, lock, -1);
         if (lock->cll_users == 0)
-                cfs_waitq_broadcast(&lock->cll_wq);
+		wake_up_all(&lock->cll_wq);
         EXIT;
 }
 EXPORT_SYMBOL(cl_lock_user_del);
