@@ -454,13 +454,14 @@ static int ll_och_fill(struct obd_export *md_exp, struct ll_inode_info *lli,
         body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
         LASSERT(body != NULL);                      /* reply already checked out */
 
-        memcpy(&och->och_fh, &body->handle, sizeof(body->handle));
-        och->och_magic = OBD_CLIENT_HANDLE_MAGIC;
-        och->och_fid = lli->lli_fid;
-        och->och_flags = it->it_flags;
-        ll_ioepoch_open(lli, body->ioepoch);
+	och->och_fh = body->handle;
+	och->och_magic = OBD_CLIENT_HANDLE_MAGIC;
+	och->och_fid = lli->lli_fid;
+	och->och_lease_handle.cookie = it->d.lustre.it_lock_handle;
+	och->och_flags = it->it_flags;
+	ll_ioepoch_open(lli, body->ioepoch);
 
-        return md_set_open_replay_data(md_exp, och, req);
+	return md_set_open_replay_data(md_exp, och, req);
 }
 
 int ll_local_open(struct file *file, struct lookup_intent *it,
@@ -693,6 +694,128 @@ out_openerr:
 	}
 
         return rc;
+}
+
+static int ll_md_blocking_lease_ast(struct ldlm_lock *lock,
+				    struct ldlm_lock_desc *desc, void *data,
+				    int flag)
+{
+	int rc;
+	struct lustre_handle lockh;
+	ENTRY;
+
+	switch (flag) {
+	case LDLM_CB_BLOCKING:
+		ldlm_lock2handle(lock, &lockh);
+		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
+		if (rc < 0) {
+			CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
+			RETURN(rc);
+		}
+		break;
+	case LDLM_CB_CANCELING:
+		/* do nothing */
+		break;
+	}
+	RETURN(0);
+}
+
+/**
+ * Acquire a lease and open the file.
+ */
+struct obd_client_handle *ll_lease_open(struct inode *inode, struct file *file,
+					fmode_t fmode)
+{
+	struct lookup_intent it = { .it_op = IT_OPEN };
+	struct ll_sb_info *sbi = ll_i2sbi(inode);
+	struct md_op_data *op_data;
+	struct ptlrpc_request *req;
+	struct lustre_handle old_handle = { 0 };
+	struct obd_client_handle *och = NULL;
+	int rc;
+	int rc2;
+	ENTRY;
+
+	LASSERT(file == NULL);
+
+	if (fmode != FMODE_WRITE && fmode != FMODE_READ)
+		RETURN(ERR_PTR(-EINVAL));
+
+	OBD_ALLOC_PTR(och);
+	if (och == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
+
+	op_data = ll_prep_md_op_data(NULL, inode, inode, NULL, 0, 0,
+					LUSTRE_OPC_ANY, NULL);
+	if (IS_ERR(op_data))
+		GOTO(out, rc = PTR_ERR(op_data));
+
+	/* To tell the MDT this openhandle is from the same owner */
+	op_data->op_handle = old_handle;
+
+	it.it_flags = fmode | MDS_OPEN_LOCK | MDS_OPEN_BY_FID | MDS_OPEN_LEASE;
+	rc = md_intent_lock(sbi->ll_md_exp, op_data, NULL, 0, &it, 0, &req,
+				ll_md_blocking_lease_ast,
+	/* LDLM_FL_NO_LRU: To not put the lease lock into LRU list, otherwise
+	 * it can be cancelled which may mislead applications that the lease is
+	 * broken;
+	 * LDLM_FL_EXCL: Set this flag so that it won't be matched by normal
+	 * open in ll_md_blocking_ast(). Otherwise as ll_md_blocking_lease_ast
+	 * doesn't deal with openhandle, so normal openhandle will be leaked. */
+				LDLM_FL_NO_LRU | LDLM_FL_EXCL);
+	ll_finish_md_op_data(op_data);
+	if (req != NULL) {
+		ptlrpc_req_finished(req);
+		it_clear_disposition(&it, DISP_ENQ_COMPLETE);
+	}
+	if (rc < 0)
+		GOTO(out_release_it, rc);
+
+	if (it_disposition(&it, DISP_LOOKUP_NEG))
+		GOTO(out_release_it, rc = -ENOENT);
+
+	rc = it_open_error(DISP_OPEN_OPEN, &it);
+	if (rc)
+		GOTO(out_release_it, rc);
+
+	LASSERT(it_disposition(&it, DISP_ENQ_OPEN_REF));
+	ll_och_fill(sbi->ll_md_exp, ll_i2info(inode), &it, och);
+
+	if (!it_disposition(&it, DISP_OPEN_LEASE)) /* old server? */
+		GOTO(out_close, rc = -EOPNOTSUPP);
+
+	/* already get lease, handle lease lock */
+	ll_set_lock_data(sbi->ll_md_exp, inode, &it, NULL);
+	if (it.d.lustre.it_lock_mode == 0 ||
+	    it.d.lustre.it_lock_bits != MDS_INODELOCK_OPEN) {
+		/* open lock must return for lease */
+		CERROR("lease granted for "DFID" but no open lock: "
+		       "lock_mode = %d, lock_bits = "LPU64"\n",
+		       PFID(ll_inode2fid(inode)),
+		       it.d.lustre.it_lock_mode, it.d.lustre.it_lock_bits);
+		GOTO(out_close, rc = -EPROTO);
+	}
+
+	ll_intent_release(&it);
+	RETURN(och);
+
+out_close:
+	rc2 = ll_close_inode_openhandle(sbi->ll_md_exp, inode, och);
+	if (rc2)
+		CERROR("Close openhandle returned %d\n", rc2);
+
+	/* cancel open lock */
+	if (it.d.lustre.it_lock_mode != 0) {
+		ldlm_lock_decref_and_cancel((struct lustre_handle *)
+					    &it.d.lustre.it_lock_handle,
+					    it.d.lustre.it_lock_mode);
+		it.d.lustre.it_lock_mode = 0;
+	}
+out_release_it:
+	ll_intent_release(&it);
+out:
+	OBD_FREE_PTR(och);
+	RETURN(ERR_PTR(rc));
 }
 
 /* Fills the obdo with the attributes for the lsm */
