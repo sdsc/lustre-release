@@ -469,7 +469,7 @@ static int iam_leaf_load(struct iam_path *path)
         block = path->ip_frame->leaf;
         if (block == 0) {
                 /* XXX bug 11027 */
-                printk(CFS_KERN_EMERG "wrong leaf: %lu %d [%p %p %p]\n",
+		printk(KERN_EMERG "wrong leaf: %lu %d [%p %p %p]\n",
                        (long unsigned)path->ip_frame->leaf,
                        dx_get_count(dx_node_get_entries(path, path->ip_frame)),
                        path->ip_frames[0].bh, path->ip_frames[1].bh,

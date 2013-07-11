@@ -113,7 +113,7 @@ enum {
 #define KRENAL_IMMEDIATE_MAX    CTL_UNNUMBERED
 #endif
 
-static cfs_sysctl_table_t kranal_ctl_table[] = {
+static struct ctl_table kranal_ctl_table[] = {
         {
                 .ctl_name = KRANAL_N_CONND,
                 .procname = "n_connd",
@@ -189,7 +189,7 @@ static cfs_sysctl_table_t kranal_ctl_table[] = {
         {0}
 };
 
-static cfs_sysctl_table_t kranal_top_ctl_table[] = {
+static struct ctl_table kranal_top_ctl_table[] = {
         {
                 .ctl_name = CTL_KRANAL,
                 .procname = "ranal",
@@ -213,11 +213,10 @@ kranal_tunables_init ()
         return 0;
 }
 
-void
-kranal_tunables_fini ()
+void kranal_tunables_fini()
 {
-        if (kranal_tunables.kra_sysctl != NULL)
-                cfs_unregister_sysctl_table(kranal_tunables.kra_sysctl);
+	if (kranal_tunables.kra_sysctl != NULL)
+		unregister_sysctl_table(kranal_tunables.kra_sysctl);
 }
 
 #else

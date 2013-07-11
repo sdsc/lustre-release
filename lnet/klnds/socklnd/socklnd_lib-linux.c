@@ -98,7 +98,7 @@ enum {
 #define SOCKLND_ZERO_COPY_RECV_MIN_NFRAGS CTL_UNNUMBERED
 #endif
 
-static cfs_sysctl_table_t ksocknal_ctl_table[] = {
+static struct ctl_table ksocknal_ctl_table[] = {
         {
                 .ctl_name = SOCKLND_TIMEOUT,
                 .procname = "timeout",
@@ -344,7 +344,7 @@ static cfs_sysctl_table_t ksocknal_ctl_table[] = {
 };
 
 
-cfs_sysctl_table_t ksocknal_top_ctl_table[] = {
+struct ctl_table ksocknal_top_ctl_table[] = {
         {
                 .ctl_name = CTL_SOCKLND,
                 .procname = "socknal",
@@ -388,8 +388,8 @@ ksocknal_lib_tunables_init ()
 void
 ksocknal_lib_tunables_fini ()
 {
-        if (ksocknal_tunables.ksnd_sysctl != NULL)
-                cfs_unregister_sysctl_table(ksocknal_tunables.ksnd_sysctl);
+	if (ksocknal_tunables.ksnd_sysctl != NULL)
+		unregister_sysctl_table(ksocknal_tunables.ksnd_sysctl);
 }
 #else
 int
