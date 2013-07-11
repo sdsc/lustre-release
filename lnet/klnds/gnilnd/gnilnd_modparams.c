@@ -203,7 +203,7 @@ kgn_tunables_t kgnilnd_tunables = {
 };
 
 #if CONFIG_SYSCTL && !CFS_SYSFS_MODULE_PARM
-static cfs_sysctl_table_t kgnilnd_ctl_table[] = {
+static struct ctl_table kgnilnd_ctl_table[] = {
 	{
 		INIT_CTL_NAME(2)
 		.procname = "min_reconnect_interval",
@@ -470,7 +470,7 @@ static cfs_sysctl_table_t kgnilnd_ctl_table[] = {
 	{0}
 };
 
-static cfs_sysctl_table_t kgnilnd_top_ctl_table[] = {
+static struct ctl_table kgnilnd_top_ctl_table[] = {
 	{
 		INIT_CTL_NAME(202)
 		.procname = "gnilnd",
@@ -542,6 +542,6 @@ kgnilnd_tunables_fini()
 {
 #if CONFIG_SYSCTL && !CFS_SYSFS_MODULE_PARM
 	if (kgnilnd_tunables.kgn_sysctl != NULL)
-		cfs_unregister_sysctl_table(kgnilnd_tunables.kgn_sysctl);
+		unregister_sysctl_table(kgnilnd_tunables.kgn_sysctl);
 #endif
 }

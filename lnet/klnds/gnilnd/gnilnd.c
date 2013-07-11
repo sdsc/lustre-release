@@ -2228,7 +2228,7 @@ int kgnilnd_base_startup(void)
 
 	/* OK to call kgnilnd_api_shutdown() to cleanup now */
 	kgnilnd_data.kgn_init = GNILND_INIT_DATA;
-	PORTAL_MODULE_USE;
+	try_module_get(THIS_MODULE);
 
 	rwlock_init(&kgnilnd_data.kgn_peer_conn_lock);
 
@@ -2607,7 +2607,7 @@ kgnilnd_base_shutdown(void)
 	       atomic_read(&libcfs_kmemory));
 
 	kgnilnd_data.kgn_init = GNILND_INIT_NOTHING;
-	PORTAL_MODULE_UNUSE;
+	module_put(THIS_MODULE);
 
 	EXIT;
 }

@@ -40,8 +40,8 @@
 #ifndef __LIBCFS_PRIM_H__
 #define __LIBCFS_PRIM_H__
 
-#ifndef CFS_EXPORT_SYMBOL
-# define CFS_EXPORT_SYMBOL(s)
+#ifndef EXPORT_SYMBOL
+# define EXPORT_SYMBOL(s)
 #endif
 
 /*
