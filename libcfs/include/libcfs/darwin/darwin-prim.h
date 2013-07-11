@@ -103,10 +103,9 @@ extern kern_return_t            cfs_symbol_put(const char *);
  */
 #define 	CONFIG_SYSCTL	1
 
-typedef struct sysctl_oid *     cfs_sysctl_table_t;
-typedef cfs_sysctl_table_t      cfs_sysctl_table_header_t;
-cfs_sysctl_table_header_t	*cfs_register_sysctl_table (cfs_sysctl_table_t *table, int arg);
-void cfs_unregister_sysctl_table (cfs_sysctl_table_header_t *table);
+#define ctl_table sysctl_oid
+struct ctl_table *cfs_register_sysctl_table(struct ctl_table *table, int arg);
+void unregister_sysctl_table(struct ctl_table *table);
 
 /*
  * Proc file system APIs, no /proc fs support in OSX
@@ -128,20 +127,20 @@ typedef int (cfs_write_proc_t)(struct file *file, const char *buffer,
 /*
  * cfs pseudo device
  *
- * cfs_psdev_t
- * cfs_psdev_register:
- * cfs_psdev_deregister:
+ * struct miscdevice
+ * misc_register:
+ * misc_deregister:
  */
-typedef struct {
+struct miscdevice{
 	int             index;
 	void            *handle;
 	const char      *name;
 	struct cdevsw   *devsw;
 	void            *private;
-} cfs_psdev_t;
+};
 
-extern kern_return_t            cfs_psdev_register(cfs_psdev_t *);
-extern kern_return_t            cfs_psdev_deregister(cfs_psdev_t *);
+extern kern_return_t            misc_register(struct miscdevice *);
+extern kern_return_t            misc_deregister(struct miscdevice *);
 
 /*
  * Task struct and ...

@@ -130,7 +130,7 @@ enum {
 
 #endif
 
-static cfs_sysctl_table_t kmxlnd_ctl_table[] = {
+static struct ctl_table kmxlnd_ctl_table[] = {
         {
                 .ctl_name = 1,
                 .procname = "n_waitd",
@@ -214,7 +214,7 @@ static cfs_sysctl_table_t kmxlnd_ctl_table[] = {
         {0}
 };
 
-static cfs_sysctl_table_t kmxlnd_top_ctl_table[] = {
+static struct ctl_table kmxlnd_top_ctl_table[] = {
         {
                 .ctl_name = 208,
                 .procname = "mxlnd",
@@ -249,8 +249,8 @@ kmxlnd_sysctl_init (void)
 void
 kmxlnd_sysctl_fini (void)
 {
-        if (kmxlnd_tunables.kib_sysctl != NULL)
-                cfs_unregister_sysctl_table(kmxlnd_tunables.kib_sysctl);
+	if (kmxlnd_tunables.kib_sysctl != NULL)
+		unregister_sysctl_table(kmxlnd_tunables.kib_sysctl);
 }
 
 #else
