@@ -80,13 +80,13 @@ static struct ptlrpc_enc_page_pool {
         unsigned long    epp_max_pages;   /* maximum pages can hold, const */
         unsigned int     epp_max_pools;   /* number of pools, const */
 
-        /*
-         * wait queue in case of not enough free pages.
-         */
-        cfs_waitq_t      epp_waitq;       /* waiting threads */
-        unsigned int     epp_waitqlen;    /* wait queue length */
-        unsigned long    epp_pages_short; /* # of pages wanted of in-q users */
-        unsigned int     epp_growing:1;   /* during adding pages */
+	/*
+	 * wait queue in case of not enough free pages.
+	 */
+	wait_queue_head_t    epp_waitq;       /* waiting threads */
+	unsigned int     epp_waitqlen;    /* wait queue length */
+	unsigned long    epp_pages_short; /* # of pages wanted of in-q users */
+	unsigned int     epp_growing:1;   /* during adding pages */
 
         /*
          * indicating how idle the pools are, from 0 to MAX_IDLE_IDX
@@ -453,8 +453,8 @@ static inline void enc_pools_wakeup(void)
 	LASSERT(page_pools.epp_waitqlen >= 0);
 
 	if (unlikely(page_pools.epp_waitqlen)) {
-		LASSERT(cfs_waitq_active(&page_pools.epp_waitq));
-		cfs_waitq_broadcast(&page_pools.epp_waitq);
+		LASSERT(waitqueue_active(&page_pools.epp_waitq));
+		wake_up_all(&page_pools.epp_waitq);
 	}
 }
 
@@ -495,7 +495,7 @@ static int enc_pools_should_grow(int page_needed, long now)
  */
 int sptlrpc_enc_pool_get_pages(struct ptlrpc_bulk_desc *desc)
 {
-        cfs_waitlink_t  waitlink;
+	wait_queue_t  waitlink;
         unsigned long   this_idle = -1;
         cfs_time_t      tick = 0;
         long            now;
@@ -543,13 +543,13 @@ again:
                                 page_pools.epp_st_max_wqlen =
                                                 page_pools.epp_waitqlen;
 
-                        cfs_set_current_state(CFS_TASK_UNINT);
-                        cfs_waitlink_init(&waitlink);
-                        cfs_waitq_add(&page_pools.epp_waitq, &waitlink);
+			set_current_state(TASK_UNINTERRUPTIBLE);
+			init_waitqueue_entry_current(&waitlink);
+			add_wait_queue(&page_pools.epp_waitq, &waitlink);
 
 			spin_unlock(&page_pools.epp_lock);
-			cfs_waitq_wait(&waitlink, CFS_TASK_UNINT);
-			cfs_waitq_del(&page_pools.epp_waitq, &waitlink);
+			waitq_wait(&waitlink, TASK_UNINTERRUPTIBLE);
+			remove_wait_queue(&page_pools.epp_waitq, &waitlink);
 			LASSERT(page_pools.epp_waitqlen > 0);
 			spin_lock(&page_pools.epp_lock);
                         page_pools.epp_waitqlen--;
@@ -715,7 +715,7 @@ int sptlrpc_enc_pool_init(void)
 	page_pools.epp_max_pages = num_physpages / 8;
         page_pools.epp_max_pools = npages_to_npools(page_pools.epp_max_pages);
 
-        cfs_waitq_init(&page_pools.epp_waitq);
+	init_waitqueue_head(&page_pools.epp_waitq);
         page_pools.epp_waitqlen = 0;
         page_pools.epp_pages_short = 0;
 

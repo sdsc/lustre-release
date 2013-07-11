@@ -1040,7 +1040,7 @@ struct obd_import *class_new_import(struct obd_device *obd)
 	imp->imp_state = LUSTRE_IMP_NEW;
 	imp->imp_obd = class_incref(obd, "import", imp);
 	mutex_init(&imp->imp_sec_mutex);
-        cfs_waitq_init(&imp->imp_recovery_waitq);
+	init_waitqueue_head(&imp->imp_recovery_waitq);
 
         cfs_atomic_set(&imp->imp_refcount, 2);
         cfs_atomic_set(&imp->imp_unregistering, 0);
@@ -1565,7 +1565,7 @@ void obd_exports_barrier(struct obd_device *obd)
 	spin_lock(&obd->obd_dev_lock);
 	while (!cfs_list_empty(&obd->obd_unlinked_exports)) {
 		spin_unlock(&obd->obd_dev_lock);
-                cfs_schedule_timeout_and_set_state(CFS_TASK_UNINT,
+		schedule_timeout_and_set_state(TASK_UNINTERRUPTIBLE,
                                                    cfs_time_seconds(waited));
                 if (waited > 5 && IS_PO2(waited)) {
                         LCONSOLE_WARN("%s is waiting for obd_unlinked_exports "
@@ -1629,7 +1629,7 @@ void obd_zombie_impexp_cull(void)
 			spin_unlock(&obd_zombie_impexp_lock);
 		}
 
-		cfs_cond_resched();
+		cond_resched();
 	} while (import != NULL || export != NULL);
 	EXIT;
 }
@@ -1637,7 +1637,7 @@ void obd_zombie_impexp_cull(void)
 static struct completion	obd_zombie_start;
 static struct completion	obd_zombie_stop;
 static unsigned long		obd_zombie_flags;
-static cfs_waitq_t		obd_zombie_waitq;
+static wait_queue_head_t	obd_zombie_waitq;
 static pid_t			obd_zombie_pid;
 
 enum {
@@ -1700,7 +1700,7 @@ static void obd_zombie_impexp_notify(void)
          * It is possible this signal only get by obd_zombie_barrier, and
          * barrier gulps this notification and sleeps away and hangs ensues
          */
-        cfs_waitq_broadcast(&obd_zombie_waitq);
+	wake_up_all(&obd_zombie_waitq);
 }
 
 /**
@@ -1754,7 +1754,7 @@ static int obd_zombie_impexp_thread(void *unused)
                  * Notify obd_zombie_barrier callers that queues
                  * may be empty.
                  */
-                cfs_waitq_signal(&obd_zombie_waitq);
+		wake_up(&obd_zombie_waitq);
         }
 
 	complete(&obd_zombie_stop);
@@ -1796,7 +1796,7 @@ int obd_zombie_impexp_init(void)
 	spin_lock_init(&obd_zombie_impexp_lock);
 	init_completion(&obd_zombie_start);
 	init_completion(&obd_zombie_stop);
-	cfs_waitq_init(&obd_zombie_waitq);
+	init_waitqueue_head(&obd_zombie_waitq);
 	obd_zombie_pid = 0;
 
 #ifdef __KERNEL__

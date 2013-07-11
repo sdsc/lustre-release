@@ -616,7 +616,7 @@ static int echo_cleanup(struct obd_device *obd)
 
         /* XXX Bug 3413; wait for a bit to ensure the BL callback has
          * happened before calling ldlm_namespace_free() */
-        cfs_schedule_timeout_and_set_state(CFS_TASK_UNINT, cfs_time_seconds(1));
+	schedule_timeout_and_set_state(TASK_UNINTERRUPTIBLE, cfs_time_seconds(1));
 
         ldlm_namespace_free(obd->obd_namespace, NULL, obd->obd_force);
         obd->obd_namespace = NULL;

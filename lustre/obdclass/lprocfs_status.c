@@ -280,7 +280,7 @@ int lprocfs_evict_client_release(struct inode *inode, struct file *f)
         struct obd_device *obd = dp->data;
 
         cfs_atomic_dec(&obd->obd_evict_inprogress);
-        cfs_waitq_signal(&obd->obd_evict_inprogress_waitq);
+	wake_up(&obd->obd_evict_inprogress_waitq);
 
         return 0;
 }

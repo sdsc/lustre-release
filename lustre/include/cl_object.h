@@ -1563,7 +1563,7 @@ struct cl_lock {
         /** Protected by cl_lock::cll_guard. */
         enum cl_lock_state    cll_state;
         /** signals state changes. */
-        cfs_waitq_t           cll_wq;
+	wait_queue_head_t     cll_wq;
         /**
          * Recursive lock, most fields in cl_lock{} are protected by this.
          *
@@ -3198,7 +3198,7 @@ struct cl_sync_io {
 	/** barrier of destroy this structure */
 	cfs_atomic_t		csi_barrier;
 	/** completion to be signaled when transfer is complete. */
-	cfs_waitq_t		csi_waitq;
+	wait_queue_head_t	csi_waitq;
 };
 
 void cl_sync_io_init(struct cl_sync_io *anchor, int nrpages);

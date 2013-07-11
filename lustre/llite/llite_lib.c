@@ -2097,10 +2097,10 @@ void ll_umount_begin(struct super_block *sb)
          * and then continue.  For now, we just invalidate the requests,
          * schedule() and sleep one second if needed, and hope.
          */
-        cfs_schedule();
+	schedule();
 #ifdef HAVE_UMOUNTBEGIN_VFSMOUNT
         if (atomic_read(&vfsmnt->mnt_count) > 2) {
-                cfs_schedule_timeout_and_set_state(CFS_TASK_INTERRUPTIBLE,
+		schedule_timeout_and_set_state(TASK_INTERRUPTIBLE,
                                                    cfs_time_seconds(1));
                 if (atomic_read(&vfsmnt->mnt_count) > 2)
                         LCONSOLE_WARN("Mount still busy with %d refs! You "

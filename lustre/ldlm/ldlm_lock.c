@@ -490,7 +490,7 @@ static struct ldlm_lock *ldlm_lock_new(struct ldlm_resource *resource)
         CFS_INIT_LIST_HEAD(&lock->l_bl_ast);
         CFS_INIT_LIST_HEAD(&lock->l_cp_ast);
         CFS_INIT_LIST_HEAD(&lock->l_rk_ast);
-        cfs_waitq_init(&lock->l_waitq);
+	init_waitqueue_head(&lock->l_waitq);
         lock->l_blocking_lock = NULL;
         CFS_INIT_LIST_HEAD(&lock->l_sl_mode);
         CFS_INIT_LIST_HEAD(&lock->l_sl_policy);
@@ -1247,7 +1247,7 @@ void ldlm_lock_fail_match_locked(struct ldlm_lock *lock)
 {
 	if ((lock->l_flags & LDLM_FL_FAIL_NOTIFIED) == 0) {
 		lock->l_flags |= LDLM_FL_FAIL_NOTIFIED;
-		cfs_waitq_broadcast(&lock->l_waitq);
+		wake_up_all(&lock->l_waitq);
 	}
 }
 EXPORT_SYMBOL(ldlm_lock_fail_match_locked);
@@ -1270,7 +1270,7 @@ EXPORT_SYMBOL(ldlm_lock_fail_match);
 void ldlm_lock_allow_match_locked(struct ldlm_lock *lock)
 {
 	lock->l_flags |= LDLM_FL_LVB_READY;
-	cfs_waitq_broadcast(&lock->l_waitq);
+	wake_up_all(&lock->l_waitq);
 }
 EXPORT_SYMBOL(ldlm_lock_allow_match_locked);
 

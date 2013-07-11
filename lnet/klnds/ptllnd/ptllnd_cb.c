@@ -665,20 +665,19 @@ kptllnd_thread_start(int (*fn)(void *arg), void *arg, char *name)
 	return PTR_ERR(task);
 }
 
-int
-kptllnd_watchdog(void *arg)
+int kptllnd_watchdog(void *arg)
 {
-        int                 id = (long)arg;
-        cfs_waitlink_t      waitlink;
-        int                 stamp = 0;
-        int                 peer_index = 0;
+	int                 id = (long)arg;
+	wait_queue_t	    waitlink;
+	int                 stamp = 0;
+	int                 peer_index = 0;
         unsigned long       deadline = jiffies;
         int                 timeout;
         int                 i;
 
         cfs_block_allsigs();
 
-        cfs_waitlink_init(&waitlink);
+	init_waitqueue_entry_current(&waitlink);
 
         /* threads shut down in phase 2 after all peers have been destroyed */
         while (kptllnd_data.kptl_shutdown < 2) {
@@ -717,14 +716,14 @@ kptllnd_watchdog(void *arg)
 
                 kptllnd_handle_closing_peers();
 
-                cfs_set_current_state(CFS_TASK_INTERRUPTIBLE);
-                cfs_waitq_add_exclusive(&kptllnd_data.kptl_watchdog_waitq,
-                                        &waitlink);
+		set_current_state(TASK_INTERRUPTIBLE);
+		add_wait_queue_exclusive(&kptllnd_data.kptl_watchdog_waitq,
+					 &waitlink);
 
-                cfs_waitq_timedwait(&waitlink, CFS_TASK_INTERRUPTIBLE, timeout);
+		waitq_timedwait(&waitlink, TASK_INTERRUPTIBLE, timeout);
 
-                cfs_set_current_state (CFS_TASK_RUNNING);
-                cfs_waitq_del(&kptllnd_data.kptl_watchdog_waitq, &waitlink);
+		set_current_state(TASK_RUNNING);
+		remove_wait_queue(&kptllnd_data.kptl_watchdog_waitq, &waitlink);
         }
 
         kptllnd_thread_fini();
@@ -732,12 +731,11 @@ kptllnd_watchdog(void *arg)
         return (0);
 };
 
-int
-kptllnd_scheduler (void *arg)
+int kptllnd_scheduler(void *arg)
 {
-        int                 id = (long)arg;
-        cfs_waitlink_t      waitlink;
-        unsigned long       flags;
+	int                 id = (long)arg;
+	wait_queue_t	    waitlink;
+	unsigned long       flags;
         int                 did_something;
         int                 counter = 0;
         kptl_rx_t          *rx;
@@ -746,7 +744,7 @@ kptllnd_scheduler (void *arg)
 
         cfs_block_allsigs();
 
-        cfs_waitlink_init(&waitlink);
+	init_waitqueue_entry_current(&waitlink);
 
 	spin_lock_irqsave(&kptllnd_data.kptl_sched_lock, flags);
 
@@ -808,23 +806,23 @@ kptllnd_scheduler (void *arg)
                                 continue;
                 }
 
-                cfs_set_current_state(CFS_TASK_INTERRUPTIBLE);
-                cfs_waitq_add_exclusive(&kptllnd_data.kptl_sched_waitq,
-                                        &waitlink);
+		set_current_state(TASK_INTERRUPTIBLE);
+		add_wait_queue_exclusive(&kptllnd_data.kptl_sched_waitq,
+					&waitlink);
 		spin_unlock_irqrestore(&kptllnd_data.kptl_sched_lock,
-                                           flags);
+					   flags);
 
-                if (!did_something)
-                        cfs_waitq_wait(&waitlink, CFS_TASK_INTERRUPTIBLE);
-                else
-                        cfs_cond_resched();
+		if (!did_something)
+			waitq_wait(&waitlink, TASK_INTERRUPTIBLE);
+		else
+			cond_resched();
 
-                cfs_set_current_state(CFS_TASK_RUNNING);
-                cfs_waitq_del(&kptllnd_data.kptl_sched_waitq, &waitlink);
+		set_current_state(TASK_RUNNING);
+		remove_wait_queue(&kptllnd_data.kptl_sched_waitq, &waitlink);
 
 		spin_lock_irqsave(&kptllnd_data.kptl_sched_lock, flags);
 
-                counter = 0;
+		counter = 0;
         }
 
 	spin_unlock_irqrestore(&kptllnd_data.kptl_sched_lock, flags);

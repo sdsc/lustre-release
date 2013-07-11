@@ -1412,7 +1412,7 @@ static int osc_lock_has_pages(struct osc_lock *olck)
                 if (result == CLP_GANG_ABORT)
                         break;
                 if (result == CLP_GANG_RESCHED)
-                        cfs_cond_resched();
+			cond_resched();
         } while (result != CLP_GANG_OKAY);
         cl_io_fini(env, io);
 	mutex_unlock(&oob->oo_debug_mutex);

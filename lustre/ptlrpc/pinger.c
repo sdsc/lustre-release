@@ -170,7 +170,7 @@ cfs_duration_t pinger_check_timeout(cfs_time_t time)
                                          cfs_time_current());
 }
 
-static cfs_waitq_t suspend_timeouts_waitq;
+static wait_queue_head_t suspend_timeouts_waitq;
 
 cfs_time_t ptlrpc_suspend_wakeup_time(void)
 {
@@ -200,7 +200,7 @@ void ptlrpc_activate_timeouts(struct obd_import *imp)
         LASSERT(cfs_atomic_read(&suspend_timeouts) > 0);
         if (cfs_atomic_dec_and_test(&suspend_timeouts)) {
                 suspend_wakeup_time = cfs_time_current();
-                cfs_waitq_signal(&suspend_timeouts_waitq);
+		wake_up(&suspend_timeouts_waitq);
         }
         CDEBUG(D_HA|D_WARNING, "activate timeouts %u\n",
                cfs_atomic_read(&suspend_timeouts));
@@ -308,7 +308,7 @@ static int ptlrpc_pinger_main(void *arg)
 
         /* Record that the thread is running */
         thread_set_flags(thread, SVC_RUNNING);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 
         /* And now, loop forever, pinging as needed. */
         while (1) {
@@ -370,7 +370,7 @@ static int ptlrpc_pinger_main(void *arg)
         }
 
 	thread_set_flags(thread, SVC_STOPPED);
-	cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 
 	CDEBUG(D_NET, "pinger thread exiting, process %d\n", current_pid());
 	return 0;
@@ -391,8 +391,8 @@ int ptlrpc_start_pinger(void)
 	    !thread_is_stopped(&pinger_thread))
 		RETURN(-EALREADY);
 
-	cfs_waitq_init(&pinger_thread.t_ctl_waitq);
-	cfs_waitq_init(&suspend_timeouts_waitq);
+	init_waitqueue_head(&pinger_thread.t_ctl_waitq);
+	init_waitqueue_head(&suspend_timeouts_waitq);
 
 	strcpy(pinger_thread.t_name, "ll_ping");
 
@@ -434,7 +434,7 @@ int ptlrpc_stop_pinger(void)
 	ptlrpc_pinger_remove_timeouts();
 
 	thread_set_flags(&pinger_thread, SVC_STOPPING);
-	cfs_waitq_signal(&pinger_thread.t_ctl_waitq);
+	wake_up(&pinger_thread.t_ctl_waitq);
 
 	l_wait_event(pinger_thread.t_ctl_waitq,
 		     thread_is_stopped(&pinger_thread), &lwi);
@@ -624,7 +624,7 @@ void ptlrpc_pinger_wake_up()
 {
 #ifdef ENABLE_PINGER
 	thread_add_flags(&pinger_thread, SVC_EVENT);
-	cfs_waitq_signal(&pinger_thread.t_ctl_waitq);
+	wake_up(&pinger_thread.t_ctl_waitq);
 #endif
 }
 
@@ -634,7 +634,7 @@ void ptlrpc_pinger_wake_up()
 
 static int               pet_refcount = 0;
 static int               pet_state;
-static cfs_waitq_t       pet_waitq;
+static wait_queue_head_t       pet_waitq;
 CFS_LIST_HEAD(pet_list);
 static DEFINE_SPINLOCK(pet_lock);
 
@@ -656,7 +656,7 @@ int ping_evictor_wake(struct obd_export *exp)
 	}
 	spin_unlock(&pet_lock);
 
-	cfs_waitq_signal(&pet_waitq);
+	wake_up(&pet_waitq);
 	return 0;
 }
 
@@ -748,7 +748,7 @@ void ping_evictor_start(void)
 	if (++pet_refcount > 1)
 		return;
 
-	cfs_waitq_init(&pet_waitq);
+	init_waitqueue_head(&pet_waitq);
 
 	task = kthread_run(ping_evictor_main, NULL, "ll_evictor");
 	if (IS_ERR(task)) {
@@ -765,7 +765,7 @@ void ping_evictor_stop(void)
                 return;
 
         pet_state = PET_TERMINATE;
-        cfs_waitq_signal(&pet_waitq);
+	wake_up(&pet_waitq);
 }
 EXPORT_SYMBOL(ping_evictor_stop);
 #else /* !__KERNEL__ */

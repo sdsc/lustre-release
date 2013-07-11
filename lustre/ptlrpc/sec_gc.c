@@ -117,7 +117,7 @@ void sptlrpc_gc_add_ctx(struct ptlrpc_cli_ctx *ctx)
 	spin_unlock(&sec_gc_ctx_list_lock);
 
 	thread_add_flags(&sec_gc_thread, SVC_SIGNAL);
-	cfs_waitq_signal(&sec_gc_thread.t_ctl_waitq);
+	wake_up(&sec_gc_thread.t_ctl_waitq);
 }
 EXPORT_SYMBOL(sptlrpc_gc_add_ctx);
 
@@ -173,7 +173,7 @@ static int sec_gc_main(void *arg)
 
         /* Record that the thread is running */
         thread_set_flags(thread, SVC_RUNNING);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 
         while (1) {
                 struct ptlrpc_sec *sec;
@@ -215,7 +215,7 @@ again:
         }
 
         thread_set_flags(thread, SVC_STOPPED);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
         return 0;
 }
 
@@ -230,7 +230,7 @@ int sptlrpc_gc_init(void)
 
         /* initialize thread control */
         memset(&sec_gc_thread, 0, sizeof(sec_gc_thread));
-        cfs_waitq_init(&sec_gc_thread.t_ctl_waitq);
+	init_waitqueue_head(&sec_gc_thread.t_ctl_waitq);
 
 	task = kthread_run(sec_gc_main, &sec_gc_thread, "sptlrpc_gc");
 	if (IS_ERR(task)) {
@@ -248,7 +248,7 @@ void sptlrpc_gc_fini(void)
         struct l_wait_info lwi = { 0 };
 
         thread_set_flags(&sec_gc_thread, SVC_STOPPING);
-        cfs_waitq_signal(&sec_gc_thread.t_ctl_waitq);
+	wake_up(&sec_gc_thread.t_ctl_waitq);
 
         l_wait_event(sec_gc_thread.t_ctl_waitq,
                      thread_is_stopped(&sec_gc_thread), &lwi);

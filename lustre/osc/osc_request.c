@@ -696,7 +696,7 @@ static int osc_destroy_interpret(const struct lu_env *env,
         struct client_obd *cli = &req->rq_import->imp_obd->u.cli;
 
         cfs_atomic_dec(&cli->cl_destroy_in_flight);
-        cfs_waitq_signal(&cli->cl_destroy_waitq);
+	wake_up(&cli->cl_destroy_waitq);
         return 0;
 }
 
@@ -713,7 +713,7 @@ static int osc_can_send_destroy(struct client_obd *cli)
                  * The counter has been modified between the two atomic
                  * operations.
                  */
-                cfs_waitq_signal(&cli->cl_destroy_waitq);
+		wake_up(&cli->cl_destroy_waitq);
         }
         return 0;
 }
@@ -1657,16 +1657,16 @@ static int osc_brw_internal(int cmd, struct obd_export *exp, struct obdo *oa,
                             obd_count page_count, struct brw_page **pga,
                             struct obd_capa *ocapa)
 {
-        struct ptlrpc_request *req;
-        int                    rc;
-        cfs_waitq_t            waitq;
-        int                    generation, resends = 0;
-        struct l_wait_info     lwi;
+	struct ptlrpc_request *req;
+	int                    rc;
+	wait_queue_head_t            waitq;
+	int                    generation, resends = 0;
+	struct l_wait_info     lwi;
 
-        ENTRY;
+	ENTRY;
 
-        cfs_waitq_init(&waitq);
-        generation = exp->exp_obd->u.cli.cl_import->imp_generation;
+	init_waitqueue_head(&waitq);
+	generation = exp->exp_obd->u.cli.cl_import->imp_generation;
 
 restart_bulk:
         rc = osc_brw_prep_request(cmd, &exp->exp_obd->u.cli, oa, lsm,
