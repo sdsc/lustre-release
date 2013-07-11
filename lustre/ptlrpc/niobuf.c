@@ -425,7 +425,7 @@ EXPORT_SYMBOL(ptlrpc_register_bulk);
 int ptlrpc_unregister_bulk(struct ptlrpc_request *req, int async)
 {
         struct ptlrpc_bulk_desc *desc = req->rq_bulk;
-        cfs_waitq_t             *wq;
+	wait_queue_head_t             *wq;
         struct l_wait_info       lwi;
         int                      rc;
         ENTRY;

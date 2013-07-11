@@ -140,7 +140,7 @@ static inline int osp_sync_has_work(struct osp_device *d)
 #define osp_sync_check_for_work(d)                      \
 {                                                       \
 	if (osp_sync_has_work(d)) {                     \
-		cfs_waitq_signal(&d->opd_syn_waitq);    \
+		wake_up(&d->opd_syn_waitq);    \
 	}                                               \
 }
 
@@ -333,7 +333,7 @@ static void osp_sync_request_commit_cb(struct ptlrpc_request *req)
 	spin_unlock(&d->opd_syn_lock);
 
 	/* XXX: some batching wouldn't hurt */
-	cfs_waitq_signal(&d->opd_syn_waitq);
+	wake_up(&d->opd_syn_waitq);
 }
 
 static int osp_sync_interpret(const struct lu_env *env,
@@ -365,7 +365,7 @@ static int osp_sync_interpret(const struct lu_env *env,
 		cfs_list_add(&req->rq_exp_list, &d->opd_syn_committed_there);
 		spin_unlock(&d->opd_syn_lock);
 
-		cfs_waitq_signal(&d->opd_syn_waitq);
+		wake_up(&d->opd_syn_waitq);
 	} else if (rc) {
 		struct obd_import *imp = req->rq_import;
 		/*
@@ -386,7 +386,7 @@ static int osp_sync_interpret(const struct lu_env *env,
 			spin_unlock(&d->opd_syn_lock);
 		}
 
-		cfs_waitq_signal(&d->opd_syn_waitq);
+		wake_up(&d->opd_syn_waitq);
 	} else if (unlikely(d->opd_pre_status == -ENOSPC)) {
 		/*
 		 * if current status is -ENOSPC (lack of free space on OST)
@@ -726,7 +726,7 @@ static void osp_sync_process_committed(const struct lu_env *env,
 	/* wake up the thread if requested to stop:
 	 * it might be waiting for in-progress to complete */
 	if (unlikely(osp_sync_running(d) == 0))
-		cfs_waitq_signal(&d->opd_syn_waitq);
+		wake_up(&d->opd_syn_waitq);
 
 	EXIT;
 }
@@ -836,7 +836,7 @@ static int osp_sync_thread(void *_arg)
 	spin_lock(&d->opd_syn_lock);
 	thread->t_flags = SVC_RUNNING;
 	spin_unlock(&d->opd_syn_lock);
-	cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 
 	ctxt = llog_get_context(obd, LLOG_MDS_OST_ORIG_CTXT);
 	if (ctxt == NULL) {
@@ -894,7 +894,7 @@ out:
 
 	thread->t_flags = SVC_STOPPED;
 
-	cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 
 	lu_env_fini(&env);
 
@@ -1034,8 +1034,8 @@ int osp_sync_init(const struct lu_env *env, struct osp_device *d)
 	d->opd_syn_max_rpc_in_flight = OSP_MAX_IN_FLIGHT;
 	d->opd_syn_max_rpc_in_progress = OSP_MAX_IN_PROGRESS;
 	spin_lock_init(&d->opd_syn_lock);
-	cfs_waitq_init(&d->opd_syn_waitq);
-	cfs_waitq_init(&d->opd_syn_thread.t_ctl_waitq);
+	init_waitqueue_head(&d->opd_syn_waitq);
+	init_waitqueue_head(&d->opd_syn_thread.t_ctl_waitq);
 	CFS_INIT_LIST_HEAD(&d->opd_syn_committed_there);
 
 	rc = PTR_ERR(kthread_run(osp_sync_thread, d,
@@ -1064,8 +1064,8 @@ int osp_sync_fini(struct osp_device *d)
 	ENTRY;
 
 	thread->t_flags = SVC_STOPPING;
-	cfs_waitq_signal(&d->opd_syn_waitq);
-	cfs_wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+	wake_up(&d->opd_syn_waitq);
+	wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
 
 	/*
 	 * unregister transaction callbacks only when sync thread
@@ -1100,7 +1100,7 @@ static void osp_sync_tracker_commit_cb(struct thandle *th, void *cookie)
 		cfs_list_for_each_entry(d, &tr->otr_wakeup_list,
 					opd_syn_ontrack) {
 			d->opd_syn_last_committed_id = tr->otr_committed_id;
-			cfs_waitq_signal(&d->opd_syn_waitq);
+			wake_up(&d->opd_syn_waitq);
 		}
 	}
 	spin_unlock(&tr->otr_lock);

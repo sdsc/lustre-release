@@ -485,7 +485,7 @@ int mgs_ir_init_fs(const struct lu_env *env, struct mgs_device *mgs,
         /* start notify thread */
 	fsdb->fsdb_mgs = mgs;
         cfs_atomic_set(&fsdb->fsdb_notify_phase, 0);
-        cfs_waitq_init(&fsdb->fsdb_notify_waitq);
+	init_waitqueue_head(&fsdb->fsdb_notify_waitq);
 	init_completion(&fsdb->fsdb_notify_comp);
 
 	task = kthread_run(mgs_ir_notify, fsdb,
@@ -511,7 +511,7 @@ void mgs_ir_fini_fs(struct mgs_device *mgs, struct fs_db *fsdb)
         LASSERT(cfs_list_empty(&fsdb->fsdb_clients));
 
         fsdb->fsdb_notify_stop = 1;
-        cfs_waitq_signal(&fsdb->fsdb_notify_waitq);
+	wake_up(&fsdb->fsdb_notify_waitq);
 	wait_for_completion(&fsdb->fsdb_notify_comp);
 }
 
@@ -568,7 +568,7 @@ int mgs_ir_update(const struct lu_env *env, struct mgs_device *mgs,
                 CDEBUG(D_MGS, "Try to revoke recover lock of %s\n",
                        fsdb->fsdb_name);
                 cfs_atomic_inc(&fsdb->fsdb_notify_phase);
-                cfs_waitq_signal(&fsdb->fsdb_notify_waitq);
+		wake_up(&fsdb->fsdb_notify_waitq);
         }
         return 0;
 }

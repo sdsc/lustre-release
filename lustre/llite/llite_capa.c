@@ -174,7 +174,7 @@ static int capa_thread_main(void *unused)
         ENTRY;
 
         thread_set_flags(&ll_capa_thread, SVC_RUNNING);
-        cfs_waitq_signal(&ll_capa_thread.t_ctl_waitq);
+	wake_up(&ll_capa_thread.t_ctl_waitq);
 
         while (1) {
                 l_wait_event(ll_capa_thread.t_ctl_waitq,
@@ -280,13 +280,13 @@ static int capa_thread_main(void *unused)
 	}
 
 	thread_set_flags(&ll_capa_thread, SVC_STOPPED);
-	cfs_waitq_signal(&ll_capa_thread.t_ctl_waitq);
+	wake_up(&ll_capa_thread.t_ctl_waitq);
 	RETURN(0);
 }
 
 void ll_capa_timer_callback(unsigned long unused)
 {
-        cfs_waitq_signal(&ll_capa_thread.t_ctl_waitq);
+	wake_up(&ll_capa_thread.t_ctl_waitq);
 }
 
 int ll_capa_thread_start(void)
@@ -294,7 +294,7 @@ int ll_capa_thread_start(void)
 	cfs_task_t *task;
 	ENTRY;
 
-	cfs_waitq_init(&ll_capa_thread.t_ctl_waitq);
+	init_waitqueue_head(&ll_capa_thread.t_ctl_waitq);
 
 	task = kthread_run(capa_thread_main, NULL, "ll_capa");
 	if (IS_ERR(task)) {
@@ -302,7 +302,7 @@ int ll_capa_thread_start(void)
 			PTR_ERR(task));
 		RETURN(PTR_ERR(task));
 	}
-	cfs_wait_event(ll_capa_thread.t_ctl_waitq,
+	wait_event(ll_capa_thread.t_ctl_waitq,
 		       thread_is_running(&ll_capa_thread));
 
 	RETURN(0);
@@ -311,8 +311,8 @@ int ll_capa_thread_start(void)
 void ll_capa_thread_stop(void)
 {
         thread_set_flags(&ll_capa_thread, SVC_STOPPING);
-        cfs_waitq_signal(&ll_capa_thread.t_ctl_waitq);
-        cfs_wait_event(ll_capa_thread.t_ctl_waitq,
+	wake_up(&ll_capa_thread.t_ctl_waitq);
+	wait_event(ll_capa_thread.t_ctl_waitq,
                        thread_is_stopped(&ll_capa_thread));
 }
 

@@ -102,7 +102,7 @@ static int __osd_init_iobuf(struct osd_device *d, struct osd_iobuf *iobuf,
 		 iobuf->dr_init_at);
 	LASSERT(pages <= PTLRPC_MAX_BRW_PAGES);
 
-        cfs_waitq_init(&iobuf->dr_wait);
+	init_waitqueue_head(&iobuf->dr_wait);
         cfs_atomic_set(&iobuf->dr_numreqs, 0);
         iobuf->dr_npages = 0;
         iobuf->dr_error = 0;
@@ -246,7 +246,7 @@ static int dio_complete_routine(struct bio *bio, unsigned int done, int error)
 		iobuf->dr_elapsed_valid = 1;
 	}
 	if (cfs_atomic_dec_and_test(&iobuf->dr_numreqs))
-		cfs_waitq_signal(&iobuf->dr_wait);
+		wake_up(&iobuf->dr_wait);
 
         /* Completed bios used to be chained off iobuf->dr_bios and freed in
          * filter_clear_dreq().  It was then possible to exhaust the biovec-256
@@ -427,7 +427,7 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
          * parallel and wait for IO completion once transaction is stopped
          * see osd_trans_stop() for more details -bzzz */
         if (iobuf->dr_rw == 0) {
-                cfs_wait_event(iobuf->dr_wait,
+		wait_event(iobuf->dr_wait,
                                cfs_atomic_read(&iobuf->dr_numreqs) == 0);
         }
 

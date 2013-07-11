@@ -445,11 +445,11 @@ kptllnd_peer_close_locked(kptl_peer_t *peer, int why)
                 peer->peer_error = why; /* stash 'why' only on first close */
                 peer->peer_state = PEER_STATE_CLOSING;
 
-                /* Schedule for immediate attention, taking peer table's ref */
-                cfs_list_add_tail(&peer->peer_list,
-                                 &kptllnd_data.kptl_closing_peers);
-                cfs_waitq_signal(&kptllnd_data.kptl_watchdog_waitq);
-                break;
+		/* Schedule for immediate attention, taking peer table's ref */
+		cfs_list_add_tail(&peer->peer_list,
+				 &kptllnd_data.kptl_closing_peers);
+		wake_up(&kptllnd_data.kptl_watchdog_waitq);
+		break;
 
         case PEER_STATE_ZOMBIE:
         case PEER_STATE_CLOSING:

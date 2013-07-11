@@ -2529,8 +2529,8 @@ mxlnd_recv (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg, int delayed,
 void
 mxlnd_sleep(unsigned long timeout)
 {
-        cfs_set_current_state(CFS_TASK_INTERRUPTIBLE);
-        cfs_schedule_timeout(timeout);
+	set_current_state(TASK_INTERRUPTIBLE);
+	schedule_timeout(timeout);
         return;
 }
 

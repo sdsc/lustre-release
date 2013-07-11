@@ -138,10 +138,10 @@ struct lloop_device {
 	int			lo_state;
 	struct semaphore	lo_sem;
 	struct mutex		lo_ctl_mutex;
-        cfs_atomic_t         lo_pending;
-        cfs_waitq_t          lo_bh_wait;
+	cfs_atomic_t		lo_pending;
+	wait_queue_head_t	lo_bh_wait;
 
-        struct request_queue *lo_queue;
+	struct request_queue *lo_queue;
 
         const struct lu_env *lo_env;
         struct cl_io         lo_io;
@@ -285,8 +285,8 @@ static void loop_add_bio(struct lloop_device *lo, struct bio *bio)
 	spin_unlock_irqrestore(&lo->lo_lock, flags);
 
 	cfs_atomic_inc(&lo->lo_pending);
-	if (cfs_waitq_active(&lo->lo_bh_wait))
-		cfs_waitq_signal(&lo->lo_bh_wait);
+	if (waitqueue_active(&lo->lo_bh_wait))
+		wake_up(&lo->lo_bh_wait);
 }
 
 /*
@@ -439,7 +439,7 @@ static int loop_thread(void *data)
 	up(&lo->lo_sem);
 
 	for (;;) {
-		cfs_wait_event(lo->lo_bh_wait, loop_active(lo));
+		wait_event(lo->lo_bh_wait, loop_active(lo));
 		if (!cfs_atomic_read(&lo->lo_pending)) {
 			int exiting = 0;
 			spin_lock_irq(&lo->lo_lock);
@@ -580,7 +580,7 @@ static int loop_clr_fd(struct lloop_device *lo, struct block_device *bdev,
 	spin_lock_irq(&lo->lo_lock);
 	lo->lo_state = LLOOP_RUNDOWN;
 	spin_unlock_irq(&lo->lo_lock);
-	cfs_waitq_signal(&lo->lo_bh_wait);
+	wake_up(&lo->lo_bh_wait);
 
 	down(&lo->lo_sem);
         lo->lo_backing_file = NULL;
@@ -844,7 +844,7 @@ static int __init lloop_init(void)
 
 		mutex_init(&lo->lo_ctl_mutex);
 		sema_init(&lo->lo_sem, 0);
-		cfs_waitq_init(&lo->lo_bh_wait);
+		init_waitqueue_head(&lo->lo_bh_wait);
 		lo->lo_number = i;
 		spin_lock_init(&lo->lo_lock);
                 disk->major = lloop_major;

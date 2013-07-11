@@ -104,21 +104,21 @@ typedef struct
 
 typedef struct
 {
-        RAP_PVOID              rad_handle;    /* device handle */
-        RAP_PVOID              rad_fma_cqh;   /* FMA completion queue handle */
-        RAP_PVOID              rad_rdma_cqh;  /* rdma completion queue handle */
-        int                    rad_id;        /* device id */
-        int                    rad_idx;       /* index in kra_devices */
-        int                    rad_ready;     /* set by device callback */
-        cfs_list_t             rad_ready_conns;/* connections ready to tx/rx */
-        cfs_list_t             rad_new_conns; /* new connections to complete */
-        cfs_waitq_t            rad_waitq;     /* scheduler waits here */
-	spinlock_t		rad_lock;	/* serialise */
-        void                  *rad_scheduler; /* scheduling thread */
-        unsigned int           rad_nphysmap;  /* # phys mappings */
-        unsigned int           rad_nppphysmap;/* # phys pages mapped */
-        unsigned int           rad_nvirtmap;  /* # virt mappings */
-        unsigned long          rad_nobvirtmap;/* # virt bytes mapped */
+	RAP_PVOID              rad_handle;    /* device handle */
+	RAP_PVOID              rad_fma_cqh;   /* FMA completion queue handle */
+	RAP_PVOID              rad_rdma_cqh;  /* rdma completion queue handle */
+	int                    rad_id;        /* device id */
+	int                    rad_idx;       /* index in kra_devices */
+	int                    rad_ready;     /* set by device callback */
+	cfs_list_t             rad_ready_conns;/* connections ready to tx/rx */
+	cfs_list_t             rad_new_conns; /* new connections to complete */
+	wait_queue_head_t      rad_waitq;     /* scheduler waits here */
+	spinlock_t	       rad_lock;	/* serialise */
+	void                   *rad_scheduler; /* scheduling thread */
+	unsigned int           rad_nphysmap;  /* # phys mappings */
+	unsigned int           rad_nppphysmap;/* # phys pages mapped */
+	unsigned int           rad_nvirtmap;  /* # virt mappings */
+	unsigned long          rad_nobvirtmap;/* # virt bytes mapped */
 } kra_device_t;
 
 typedef struct
@@ -146,12 +146,12 @@ typedef struct
         cfs_atomic_t      kra_nconns;          /* # connections extant */
 
         long              kra_new_min_timeout; /* minimum timeout on any new conn */
-        cfs_waitq_t       kra_reaper_waitq;    /* reaper sleeps here */
+	wait_queue_head_t       kra_reaper_waitq;    /* reaper sleeps here */
 	spinlock_t	  kra_reaper_lock;     /* serialise */
 
         cfs_list_t        kra_connd_peers;     /* peers waiting for a connection */
         cfs_list_t        kra_connd_acceptq;   /* accepted sockets to handshake */
-        cfs_waitq_t       kra_connd_waitq;     /* connection daemons sleep here */
+	wait_queue_head_t       kra_connd_waitq;     /* connection daemons sleep here */
 	spinlock_t	  kra_connd_lock;	/* serialise */
 
         cfs_list_t        kra_idle_txs;        /* idle tx descriptors */
