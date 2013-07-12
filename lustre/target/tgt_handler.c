@@ -46,25 +46,90 @@ char *tgt_name(struct lu_target *tgt)
 }
 EXPORT_SYMBOL(tgt_name);
 
+/*
+ * Generic code handling requests that have struct mdt_body passed in:
+ *
+ *  - extract mdt_body from request and save it in @tsi, if present;
+ *
+ *  - create lu_object, corresponding to the fid in mdt_body, and save it in
+ *  @tsi;
+ *
+ *  - if HABEO_CORPUS flag is set for this request type check whether object
+ *  actually exists on storage (lu_object_exists()).
+ *
+ */
+static int tgt_mdt_body_unpack(struct tgt_session_info *tsi, __u32 flags)
+{
+	const struct mdt_body	*body;
+	struct lu_object	*obj;
+	struct req_capsule	*pill = tsi->tsi_pill;
+	int			 rc;
+
+	ENTRY;
+
+	body = req_capsule_client_get(pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		RETURN(-EFAULT);
+
+	tsi->tsi_mdt_body = body;
+
+	/* mdc_pack_body() doesn't check if fid is zero and set OBD_ML_FID
+	 * in any case in pre-2.5 clients. Fix that here if needed */
+	if (body->valid & OBD_MD_FLID) {
+		LASSERT(!fid_is_zero(&body->fid1));
+		if (unlikely(fid_is_zero(&body->fid1))) {
+			RETURN(0);
+		}
+	} else {
+		RETURN(0);
+	}
+
+	if (!fid_is_sane(&body->fid1)) {
+		CERROR("%s: invalid FID: "DFID"\n", tgt_name(tsi->tsi_tgt),
+		       PFID(&body->fid1));
+		RETURN(-EINVAL);
+	}
+
+	obj = lu_object_find(tsi->tsi_env,
+			     &tsi->tsi_tgt->lut_bottom->dd_lu_dev,
+			     &body->fid1, NULL);
+	if (!IS_ERR(obj)) {
+		if ((flags & HABEO_CORPUS) && !lu_object_exists(obj)) {
+			lu_object_put(tsi->tsi_env, obj);
+			/* for capability renew ENOENT will be handled in
+			 * mdt_renew_capa */
+			if (body->valid & OBD_MD_FLOSSCAPA)
+				rc = 0;
+			else
+				rc = -ENOENT;
+		} else {
+			tsi->tsi_corpus = obj;
+			rc = 0;
+		}
+	} else {
+		rc = PTR_ERR(obj);
+	}
+	RETURN(rc);
+}
+
 static int tgt_unpack_req_pack_rep(struct tgt_session_info *tsi, __u32 flags)
 {
 	struct req_capsule	*pill = tsi->tsi_pill;
-	const struct mdt_body	*body = NULL;
-	int			 rc = 0;
+	int			 rc;
 
 	ENTRY;
 
 	if (req_capsule_has_field(pill, &RMF_MDT_BODY, RCL_CLIENT)) {
-		body = req_capsule_client_get(pill, &RMF_MDT_BODY);
-		if (body == NULL)
-			RETURN(-EFAULT);
+		rc = tgt_mdt_body_unpack(tsi, flags);
+	} else {
+		rc = 0;
 	}
 
 	if (flags & HABEO_REFERO) {
 		/* Pack reply */
 		if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER))
 			req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
-					     body ? body->eadatasize : 0);
+					     tsi->tsi_mdt_body->eadatasize);
 		if (req_capsule_has_field(pill, &RMF_LOGCOOKIES, RCL_SERVER))
 			req_capsule_set_size(pill, &RMF_LOGCOOKIES,
 					     RCL_SERVER, 0);
@@ -295,7 +360,6 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	req_capsule_init(&req->rq_pill, req, RCL_SERVER);
 	tsi->tsi_pill = &req->rq_pill;
 	tsi->tsi_env = req->rq_svc_thread->t_env;
-	tsi->tsi_dlm_req = NULL;
 
 	/* handle connects prior further processing */
 	if (unlikely(opc == MDS_CONNECT || opc == OST_CONNECT ||
@@ -307,8 +371,8 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	}
 
 	if (req->rq_export == NULL) {
-		CERROR("request with no export, opcode 0x%x\n", opc);
-		       GOTO(out, rc = err_serious(-EFAULT));
+		CERROR("request with no export, opcode %d\n", opc);
+		       GOTO(out, rc = err_serious(-ENODEV));
 	}
 
 	tsi->tsi_tgt = tgt = class_exp2tgt(req->rq_export);
@@ -365,6 +429,13 @@ int tgt_request_handle(struct ptlrpc_request *req)
 out:
 	req_capsule_fini(tsi->tsi_pill);
 	tsi->tsi_pill = NULL;
+	if (tsi->tsi_corpus != NULL) {
+		lu_object_put(tsi->tsi_env, tsi->tsi_corpus);
+		tsi->tsi_corpus = NULL;
+	}
+	tsi->tsi_env = NULL;
+	tsi->tsi_mdt_body = NULL;
+	tsi->tsi_dlm_req = NULL;
 	return rc;
 }
 EXPORT_SYMBOL(tgt_request_handle);
@@ -636,8 +707,7 @@ int tgt_obd_qc_callback(struct tgt_session_info *tsi)
 }
 EXPORT_SYMBOL(tgt_obd_qc_callback);
 
-static int tgt_sendpage(struct tgt_session_info *tsi, struct lu_rdpg *rdpg,
-			int nob)
+int tgt_sendpage(struct tgt_session_info *tsi, struct lu_rdpg *rdpg, int nob)
 {
 	struct tgt_thread_info	*tti = tgt_th_info(tsi->tsi_env);
 	struct ptlrpc_request	*req = tgt_ses_req(tsi);
@@ -788,7 +858,6 @@ int tgt_enqueue(struct tgt_session_info *tsi)
 	 * tsi->tsi_dlm_cbs was set by the *_req_handle() function.
 	 */
 	LASSERT(tsi->tsi_dlm_req != NULL);
-
 	rc = ldlm_handle_enqueue0(tsi->tsi_exp->exp_obd->obd_namespace, req,
 				  tsi->tsi_dlm_req, &tgt_dlm_cbs);
 	if (rc)
