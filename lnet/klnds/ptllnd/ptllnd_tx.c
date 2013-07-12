@@ -337,7 +337,7 @@ kptllnd_tx_fini (kptl_tx_t *tx)
         int             status   = tx->tx_status;
         int             rc;
 
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (cfs_atomic_read(&tx->tx_refcount) == 0);
         LASSERT (!tx->tx_idle);
         LASSERT (!tx->tx_active);

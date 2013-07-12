@@ -259,7 +259,7 @@ kptllnd_rx_buffer_post(kptl_rx_buffer_t *rxb)
         kptl_rx_buffer_pool_t  *rxbp = rxb->rxb_pool;
         unsigned long           flags;
 
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (rxb->rxb_refcount == 0);
         LASSERT (!rxb->rxb_idle);
         LASSERT (!rxb->rxb_posted);
@@ -564,7 +564,7 @@ kptllnd_rx_parse(kptl_rx_t *rx)
         unsigned long           flags;
         lnet_process_id_t       srcid;
 
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (rx->rx_peer == NULL);
 
         CFS_INIT_LIST_HEAD(&txs);

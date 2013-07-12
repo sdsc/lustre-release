@@ -49,7 +49,7 @@ kiblnd_tx_done (lnet_ni_t *ni, kib_tx_t *tx)
         int         i;
 
         LASSERT (net != NULL);
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (!tx->tx_queued);               /* mustn't be queued for sending */
         LASSERT (tx->tx_sending == 0);          /* mustn't be awaiting sent callback */
         LASSERT (!tx->tx_waiting);              /* mustn't be awaiting peer response */
@@ -152,7 +152,7 @@ kiblnd_post_rx (kib_rx_t *rx, int credit)
         int                 rc;
 
         LASSERT (net != NULL);
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (credit == IBLND_POSTRX_NO_CREDIT ||
                  credit == IBLND_POSTRX_PEER_CREDIT ||
                  credit == IBLND_POSTRX_RSRVD_CREDIT);
@@ -1095,7 +1095,7 @@ kiblnd_init_rdma (kib_conn_t *conn, kib_tx_t *tx, int type,
         int                dstidx;
         int                wrknob;
 
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (tx->tx_nwrq == 0);
         LASSERT (type == IBLND_MSG_GET_DONE ||
                  type == IBLND_MSG_PUT_DONE);
@@ -1485,7 +1485,7 @@ kiblnd_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
         LASSERT (payload_niov <= LNET_MAX_IOV);
 
         /* Thread context */
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         /* payload is either all vaddrs or all pages */
         LASSERT (!(payload_kiov != NULL && payload_iov != NULL));
 
@@ -1706,7 +1706,7 @@ kiblnd_recv (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg, int delayed,
         int          rc = 0;
 
         LASSERT (mlen <= rlen);
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         /* Either all pages or all vaddrs */
         LASSERT (!(kiov != NULL && iov != NULL));
 
@@ -1825,9 +1825,9 @@ kiblnd_thread_fini (void)
 void
 kiblnd_peer_alive (kib_peer_t *peer)
 {
-        /* This is racy, but everyone's only writing cfs_time_current() */
-        peer->ibp_last_alive = cfs_time_current();
-        cfs_mb();
+	/* This is racy, but everyone's only writing cfs_time_current() */
+	peer->ibp_last_alive = cfs_time_current();
+	smp_mb();
 }
 
 void
@@ -1942,7 +1942,7 @@ kiblnd_handle_early_rxs(kib_conn_t *conn)
 	unsigned long    flags;
 	kib_rx_t        *rx;
 
-	LASSERT(!cfs_in_interrupt());
+	LASSERT(!in_interrupt());
 	LASSERT(conn->ibc_state >= IBLND_CONN_ESTABLISHED);
 
 	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
@@ -1998,7 +1998,7 @@ kiblnd_abort_txs(kib_conn_t *conn, cfs_list_t *txs)
 void
 kiblnd_finalise_conn (kib_conn_t *conn)
 {
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (conn->ibc_state > IBLND_CONN_INIT);
 
         kiblnd_set_conn_state(conn, IBLND_CONN_DISCONNECTED);
@@ -2027,7 +2027,7 @@ kiblnd_peer_connect_failed (kib_peer_t *peer, int active, int error)
         unsigned long     flags;
 
         LASSERT (error != 0);
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
 
 	write_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
 
@@ -2089,7 +2089,7 @@ kiblnd_connreq_done(kib_conn_t *conn, int status)
                libcfs_nid2str(peer->ibp_nid), active,
                conn->ibc_version, status);
 
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT ((conn->ibc_state == IBLND_CONN_ACTIVE_CONNECT &&
                   peer->ibp_connecting > 0) ||
                  (conn->ibc_state == IBLND_CONN_PASSIVE_WAIT &&
@@ -2199,7 +2199,7 @@ kiblnd_passive_connect (struct rdma_cm_id *cmid, void *priv, int priv_nob)
         unsigned long          flags;
         int                    rc;
         struct sockaddr_in    *peer_addr;
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
 
         /* cmid inherits 'context' from the corresponding listener id */
         ibdev = (kib_dev_t *)cmid->context;
@@ -2523,7 +2523,7 @@ kiblnd_rejected (kib_conn_t *conn, int reason, void *priv, int priv_nob)
 {
         kib_peer_t    *peer = conn->ibc_peer;
 
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (conn->ibc_state == IBLND_CONN_ACTIVE_CONNECT);
 
         switch (reason) {
@@ -3113,7 +3113,7 @@ kiblnd_check_conns (int idx)
 void
 kiblnd_disconnect_conn (kib_conn_t *conn)
 {
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (current == kiblnd_data.kib_connd);
         LASSERT (conn->ibc_state == IBLND_CONN_CLOSING);
 

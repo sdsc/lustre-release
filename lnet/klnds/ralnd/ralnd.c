@@ -297,7 +297,7 @@ kranal_create_conn(kra_conn_t **connp, kra_device_t *dev)
         kra_conn_t    *conn;
         RAP_RETURN     rrc;
 
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LIBCFS_ALLOC(conn, sizeof(*conn));
 
         if (conn == NULL)
@@ -337,7 +337,7 @@ kranal_destroy_conn(kra_conn_t *conn)
 {
         RAP_RETURN         rrc;
 
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (!conn->rac_scheduled);
         LASSERT (cfs_list_empty(&conn->rac_list));
         LASSERT (cfs_list_empty(&conn->rac_hashlist));
@@ -361,7 +361,7 @@ kranal_destroy_conn(kra_conn_t *conn)
 void
 kranal_terminate_conn_locked (kra_conn_t *conn)
 {
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (conn->rac_state == RANAL_CONN_CLOSING);
         LASSERT (!cfs_list_empty(&conn->rac_hashlist));
         LASSERT (cfs_list_empty(&conn->rac_list));
@@ -386,7 +386,7 @@ kranal_close_conn_locked (kra_conn_t *conn, int error)
                      "closing conn to %s: error %d\n",
                      libcfs_nid2str(peer->rap_nid), error);
 
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (conn->rac_state == RANAL_CONN_ESTABLISHED);
         LASSERT (!cfs_list_empty(&conn->rac_hashlist));
         LASSERT (!cfs_list_empty(&conn->rac_list));
@@ -404,7 +404,7 @@ kranal_close_conn_locked (kra_conn_t *conn, int error)
          * RDMA.  Otherwise if we wait for the full timeout we can also be sure
          * all RDMA has stopped. */
         conn->rac_last_rx = jiffies;
-        cfs_mb();
+        smp_mb();
 
         conn->rac_state = RANAL_CONN_CLOSING;
         kranal_schedule_conn(conn);             /* schedule sending CLOSE */
