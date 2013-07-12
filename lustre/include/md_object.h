@@ -260,6 +260,10 @@ struct md_object_operations {
         int (*moo_close)(const struct lu_env *env, struct md_object *obj,
                          struct md_attr *ma, int mode);
 
+	/** Release the object, part of HSM */
+	int (*moo_hsm_release)(const struct lu_env *env, struct md_object *obj,
+				struct md_attr *ma);
+
         int (*moo_capa_get)(const struct lu_env *, struct md_object *,
                             struct lustre_capa *, int renewal);
 
@@ -618,6 +622,14 @@ static inline int mo_close(const struct lu_env *env,
 {
         LASSERT(m->mo_ops->moo_close);
         return m->mo_ops->moo_close(env, m, ma, mode);
+}
+
+static inline int mo_hsm_release(const struct lu_env *env,
+				 struct md_object *m,
+				 struct md_attr *ma)
+{
+        LASSERT(m->mo_ops->moo_hsm_release);
+        return m->mo_ops->moo_hsm_release(env, m, ma);
 }
 
 static inline int mo_readpage(const struct lu_env *env,

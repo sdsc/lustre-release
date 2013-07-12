@@ -964,7 +964,7 @@ static int mdd_hsm_update_locked(const struct lu_env *env,
 	struct mdd_thread_info *info = mdd_env_info(env);
 	struct mdd_device      *mdd = mdo2mdd(obj);
 	struct mdd_object      *mdd_obj = md2mdd_obj(obj);
-	struct lu_buf          *current_buf = &info->mti_buf;
+	struct lu_buf          *current_buf;
 	struct md_hsm          *current_mh;
 	struct md_hsm          *new_mh;
 	int                     rc;
@@ -975,12 +975,12 @@ static int mdd_hsm_update_locked(const struct lu_env *env,
 		RETURN(-ENOMEM);
 
 	/* Read HSM attrs from disk */
-	current_buf->lb_buf = info->mti_xattr_buf;
-	current_buf->lb_len = sizeof(info->mti_xattr_buf);
-	CLASSERT(sizeof(struct hsm_attrs) <= sizeof(info->mti_xattr_buf));
+	current_buf = mdd_buf_get(env, info->mti_xattr_buf,
+				  sizeof(info->mti_xattr_buf));
+	LASSERT(sizeof(struct hsm_attrs) <= current_buf->lb_len);
 	rc = mdo_xattr_get(env, mdd_obj, current_buf, XATTR_NAME_HSM,
 			   mdd_object_capa(env, mdd_obj));
-	rc = lustre_buf2hsm(info->mti_xattr_buf, rc, current_mh);
+	rc = lustre_buf2hsm(current_buf->lb_buf, rc, current_mh);
 	if (rc < 0 && rc != -ENODATA)
 		GOTO(free, rc);
 	else if (rc == -ENODATA)
@@ -1009,7 +1009,6 @@ free:
 	OBD_FREE_PTR(current_mh);
 	return(rc);
 }
-
 
 /**
  * The caller should guarantee to update the object ctime
@@ -1767,6 +1766,123 @@ stop:
 	return rc;
 }
 
+static int mdd_hsm_add_release(const struct lu_env *env, struct md_object *obj,
+			       struct thandle *handle, int fl)
+{
+	struct mdd_thread_info *info = mdd_env_info(env);
+	struct mdd_object      *mdd_obj = md2mdd_obj(obj);
+	struct lu_buf          *buf;
+	struct md_hsm          *mh;
+	int                     flags = 0;
+	int                     rc;
+	ENTRY;
+
+	OBD_ALLOC_PTR(mh);
+	if (mh == NULL)
+		RETURN(-ENOMEM);
+
+	buf = mdd_buf_get(env, info->mti_xattr_buf,sizeof(info->mti_xattr_buf));
+
+	/* Read HSM attrs from disk */
+	LASSERT(sizeof(struct hsm_attrs) <= buf->lb_len);
+	rc = mdo_xattr_get(env, mdd_obj, buf, XATTR_NAME_HSM,
+			   mdd_object_capa(env, mdd_obj));
+	rc = lustre_buf2hsm(buf->lb_buf, rc, mh);
+	if (rc < 0)
+		GOTO(free, rc);
+
+	/* Add RELEASE flag and write back EA to disk */
+	mh->mh_flags |= HS_RELEASED;
+	lustre_hsm2buf(buf->lb_buf, mh);
+	buf->lb_len = sizeof(struct hsm_attrs);
+
+	rc = mdo_xattr_set(env, mdd_obj, buf, XATTR_NAME_HSM, 0, handle,
+			   mdd_object_capa(env, mdd_obj));
+	if (rc)
+		GOTO(free, rc);
+
+	/* Add a changelog record for release. */
+	hsm_set_cl_event(&flags, HE_RELEASE);
+	rc = mdd_changelog_data_store(env, mdo2mdd(obj), CL_HSM, flags, mdd_obj,
+				      handle);
+
+	EXIT;
+free:
+	OBD_FREE_PTR(mh);
+	return rc;
+}
+
+static int mdd_hsm_release(const struct lu_env *env, struct md_object *obj,
+			   struct md_attr *ma)
+{
+	struct mdd_object *mdd_obj = md2mdd_obj(obj);
+	struct mdd_device *mdd = mdo2mdd(obj);
+	struct thandle *handle;
+	struct lov_mds_md *lmm;
+	struct lu_buf *buf;
+	int flags = LU_XATTR_REPLACE | LU_XATTR_OBJPURGE;
+	int rc;
+	ENTRY;
+
+	lmm = ma->ma_lmm;
+	LASSERT(lmm != NULL);
+
+	buf = mdd_buf_get(env, lmm, ma->ma_lmm_size);
+
+	/* Make a RELEASED pattern */
+	lmm->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0 |
+					LOV_PATTERN_F_RELEASED);
+	lmm->lmm_layout_gen = cpu_to_le16(le16_to_cpu(lmm->lmm_layout_gen) + 1);
+
+	handle = mdd_trans_create(env, mdd);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	/* Need to change stripe data */
+	rc = mdo_declare_xattr_set(env, mdd_obj, buf, XATTR_NAME_LOV,
+				   flags, handle);
+	if (rc)
+		GOTO(out, rc);
+
+	/* Need to change HSM attribute */
+	rc = mdo_declare_xattr_set(env, mdd_obj, NULL, XATTR_NAME_HSM, 0,
+				   handle);
+	if (rc)
+		GOTO(out, rc);
+
+	/* Changelog will be modified as well */
+	rc = mdd_declare_changelog_store(env, mdd, NULL, handle);
+	if (rc)
+		GOTO(out, rc);
+
+	rc = mdd_trans_start(env, mdd, handle);
+	if (rc)
+		GOTO(out, rc);
+
+	mdd_write_lock(env, mdd_obj, MOR_TGT_CHILD);
+
+	/* Update stripe to RELEASED */
+	rc = mdo_xattr_set(env, mdd_obj, buf, XATTR_NAME_LOV, flags, handle,
+			   mdd_object_capa(env, mdd_obj));
+	if (rc == 0) {
+		/* Add RELEASE flag */
+		rc = mdd_hsm_add_release(env, obj, handle, 0);
+		/* buf was reused in mdd_hsm_add_release(), set a trap here */
+		*buf = LU_BUF_NULL;
+	}
+	mdd_write_unlock(env, mdd_obj);
+
+	/* Update changelog */
+	if (rc == 0)
+		rc = mdd_changelog_data_store(env, mdd, CL_LAYOUT, 0, mdd_obj,
+					      handle);
+	EXIT;
+
+out:
+	mdd_trans_stop(env, mdd, rc, handle);
+	RETURN(rc);
+}
+
 /*
  * Permission check is done when open,
  * no need check again.
@@ -1963,6 +2079,7 @@ const struct md_object_operations mdd_obj_ops = {
 	.moo_swap_layouts	= mdd_swap_layouts,
 	.moo_open		= mdd_open,
 	.moo_close		= mdd_close,
+	.moo_hsm_release	= mdd_hsm_release,
 	.moo_readpage		= mdd_readpage,
 	.moo_readlink		= mdd_readlink,
 	.moo_changelog		= mdd_changelog,
