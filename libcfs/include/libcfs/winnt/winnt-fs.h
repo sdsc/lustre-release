@@ -247,7 +247,7 @@ struct inode {
 #define I_FREEING       0x0001
 
 struct dentry {
-        cfs_atomic_t    d_count;
+	atomic_t    d_count;
         struct {
             int         len;
             char *      name;

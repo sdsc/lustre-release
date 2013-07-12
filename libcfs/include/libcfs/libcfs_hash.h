@@ -274,7 +274,7 @@ typedef struct cfs_hash {
         /** hash buckets-table */
         cfs_hash_bucket_t         **hs_buckets;
         /** total number of items on this hash-table */
-        cfs_atomic_t                hs_count;
+	atomic_t                hs_count;
         /** hash flags, see cfs_hash_tag for detail */
         __u16                       hs_flags;
         /** # of extra-bytes for bucket, for user saving extended attributes */
@@ -304,7 +304,7 @@ typedef struct cfs_hash {
         /** rehash workitem */
         cfs_workitem_t              hs_rehash_wi;
         /** refcount on this hash table */
-        cfs_atomic_t                hs_refcount;
+	atomic_t                hs_refcount;
         /** rehash buckets-table */
         cfs_hash_bucket_t         **hs_rehash_buckets;
 #if CFS_HASH_DEBUG_LEVEL >= CFS_HASH_DEBUG_1
@@ -583,10 +583,10 @@ static inline void cfs_hash_unlock(cfs_hash_t *hs, int excl)
 }
 
 static inline int cfs_hash_dec_and_lock(cfs_hash_t *hs,
-                                        cfs_atomic_t *condition)
+					atomic_t *condition)
 {
         LASSERT(cfs_hash_with_no_bktlock(hs));
-        return cfs_atomic_dec_and_lock(condition, &hs->hs_lock.spin);
+	return atomic_dec_and_lock(condition, &hs->hs_lock.spin);
 }
 
 static inline void cfs_hash_bd_lock(cfs_hash_t *hs,
@@ -673,10 +673,10 @@ void cfs_hash_bd_move_locked(cfs_hash_t *hs, cfs_hash_bd_t *bd_old,
                              cfs_hash_bd_t *bd_new, cfs_hlist_node_t *hnode);
 
 static inline int cfs_hash_bd_dec_and_lock(cfs_hash_t *hs, cfs_hash_bd_t *bd,
-                                           cfs_atomic_t *condition)
+					   atomic_t *condition)
 {
         LASSERT(cfs_hash_with_spin_bktlock(hs));
-        return cfs_atomic_dec_and_lock(condition,
+	return atomic_dec_and_lock(condition,
                                        &bd->bd_bucket->hsb_lock.spin);
 }
 
@@ -831,7 +831,7 @@ static inline int __cfs_hash_theta_frac(int theta)
 
 static inline int __cfs_hash_theta(cfs_hash_t *hs)
 {
-        return (cfs_atomic_read(&hs->hs_count) <<
+	return (atomic_read(&hs->hs_count) <<
                 CFS_HASH_THETA_BITS) >> hs->hs_cur_bits;
 }
 

@@ -435,7 +435,7 @@ struct socket {
 
         ks_tdi_addr_t               kstc_addr;       /* local address handlers / Objects */
 
-        cfs_atomic_t                kstc_refcount;   /* reference count of ks_tconn_t */
+	atomic_t                kstc_refcount;   /* reference count of ks_tconn_t */
 
         cfs_list_t                  kstc_list;       /* linked to global ksocknal_data */
 
