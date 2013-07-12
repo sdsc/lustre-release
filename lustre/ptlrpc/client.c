@@ -2322,7 +2322,7 @@ int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async)
         /*
          * Might sleep.
          */
-        LASSERT(!cfs_in_interrupt());
+        LASSERT(!in_interrupt());
 
         /*
          * Let's setup deadline for reply unlink.
@@ -2973,7 +2973,7 @@ void *ptlrpcd_alloc_work(struct obd_import *imp,
         struct ptlrpc_work_async_args *args;
         ENTRY;
 
-        cfs_might_sleep();
+        might_sleep();
 
         if (cb == NULL)
                 RETURN(ERR_PTR(-EINVAL));

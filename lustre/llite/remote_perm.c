@@ -263,7 +263,7 @@ int lustre_check_remote_perm(struct inode *inode, int mask)
                 if (!rc || (rc != -ENOENT && i))
                         break;
 
-                cfs_might_sleep();
+                might_sleep();
 
 		mutex_lock(&lli->lli_rmtperm_mutex);
                 /* check again */

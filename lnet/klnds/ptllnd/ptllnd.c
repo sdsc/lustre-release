@@ -569,7 +569,7 @@ kptllnd_base_shutdown (void)
 
                 /* Shutdown phase 2: kill the daemons... */
                 kptllnd_data.kptl_shutdown = 2;
-                cfs_mb();
+                smp_mb();
 
                 i = 2;
                 while (cfs_atomic_read (&kptllnd_data.kptl_nthreads) != 0) {

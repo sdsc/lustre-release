@@ -72,7 +72,7 @@ static int osc_page_is_dlocked(const struct lu_env *env,
         ldlm_mode_t             dlmmode;
         int                     flags;
 
-        cfs_might_sleep();
+        might_sleep();
 
         info = osc_env_info(env);
         resname = &info->oti_resname;
