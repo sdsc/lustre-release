@@ -827,10 +827,16 @@ int mdc_close(struct obd_export *exp, struct md_op_data *op_data,
         struct obd_device     *obd = class_exp2obd(exp);
         struct ptlrpc_request *req;
         int                    rc;
-        ENTRY;
+	struct req_format     *req_fmt;
+	ENTRY;
 
-        *request = NULL;
-        req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_MDS_CLOSE);
+	if (op_data->op_bias & MDS_HSM_RELEASE)
+		req_fmt = &RQF_MDS_RELEASE_CLOSE;
+	else
+		req_fmt = &RQF_MDS_CLOSE;
+
+	*request = NULL;
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp), req_fmt);
         if (req == NULL)
                 RETURN(-ENOMEM);
 

@@ -440,7 +440,7 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 		 */
 		if (dt_object_exists(dt)) {
 			rc = dt_attr_get(env, next, attr, BYPASS_CAPA);
-			if (rc)
+			if (rc < 0)
 				RETURN(rc);
 		} else {
 			memset(attr, 0, sizeof(*attr));
@@ -450,6 +450,15 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 		rc = lod_declare_striped_object(env, dt, attr, buf, th);
 		if (rc)
 			RETURN(rc);
+	}
+
+	/* If replacing LOV striping of a regular file... */
+	if (S_ISREG(mode) && strcmp(name, XATTR_NAME_LOV) == 0 &&
+	    (fl & LU_XATTR_OBJPURGE)) {
+		rc = lod_declare_subobject_destroy(env, dt, th);
+		if (rc)
+			RETURN(rc);
+
 	}
 
 	rc = dt_declare_xattr_set(env, next, buf, name, fl, th);
@@ -539,8 +548,18 @@ static int lod_xattr_set(const struct lu_env *env,
 		 * defines striping, then create() does the work
 		*/
 		if (fl & LU_XATTR_REPLACE) {
-			/* free stripes, then update disk */
+
+			/* Destroy objects on OST */
+			if (fl & LU_XATTR_OBJPURGE) {
+				rc = lod_subobject_destroy(env, dt, th);
+				if (rc < 0)
+					RETURN(rc);
+			}
+
+			/* Free stripes in memory */
 			lod_object_free_striping(env, lod_dt_obj(dt));
+
+			/* Update disk */
 			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
 		} else {
 			rc = lod_striping_create(env, dt, NULL, NULL, th);
@@ -998,21 +1017,13 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
-static int lod_declare_object_destroy(const struct lu_env *env,
-				      struct dt_object *dt,
-				      struct thandle *th)
+int lod_declare_subobject_destroy(const struct lu_env *env,
+				  struct dt_object *dt,
+				  struct thandle *th)
 {
-	struct dt_object   *next = dt_object_child(dt);
 	struct lod_object  *lo = lod_dt_obj(dt);
 	int		    rc, i;
 	ENTRY;
-
-	/*
-	 * we declare destroy for the local object
-	 */
-	rc = dt_declare_destroy(env, next, th);
-	if (rc)
-		RETURN(rc);
 
 	/*
 	 * load striping information, notice we don't do this when object
@@ -1035,18 +1046,32 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	RETURN(rc);
 }
 
-static int lod_object_destroy(const struct lu_env *env,
-		struct dt_object *dt, struct thandle *th)
+static int lod_declare_object_destroy(const struct lu_env *env,
+				      struct dt_object *dt,
+				      struct thandle *th)
 {
-	struct dt_object  *next = dt_object_child(dt);
-	struct lod_object *lo = lod_dt_obj(dt);
-	int                rc, i;
+	struct dt_object   *next = dt_object_child(dt);
+	int		    rc;
 	ENTRY;
 
-	/* destroy local object */
-	rc = dt_destroy(env, next, th);
+	/*
+	 * we declare destroy for the local object
+	 */
+	rc = dt_declare_destroy(env, next, th);
 	if (rc)
 		RETURN(rc);
+
+	/* declare destroy for all underlying objects */
+	rc = lod_declare_subobject_destroy(env, dt, th);
+	RETURN(rc);
+}
+
+int lod_subobject_destroy(const struct lu_env *env, struct dt_object *dt,
+			  struct thandle *th)
+{
+	struct lod_object *lo = lod_dt_obj(dt);
+	int                rc = 0, i;
+	ENTRY;
 
 	/* destroy all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
@@ -1056,6 +1081,23 @@ static int lod_object_destroy(const struct lu_env *env,
 			break;
 	}
 
+	RETURN(rc);
+}
+
+static int lod_object_destroy(const struct lu_env *env,
+		struct dt_object *dt, struct thandle *th)
+{
+	struct dt_object  *next = dt_object_child(dt);
+	int                rc;
+	ENTRY;
+
+	/* destroy local object */
+	rc = dt_destroy(env, next, th);
+	if (rc != 0)
+		RETURN(rc);
+
+	/* destroy all underlying objects */
+	rc = lod_subobject_destroy(env, dt, th);
 	RETURN(rc);
 }
 
