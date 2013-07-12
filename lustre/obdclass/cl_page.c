@@ -233,7 +233,7 @@ int cl_page_gang_lookup(const struct lu_env *env, struct cl_object *obj,
                          */
                         cl_page_get_trust(page);
                         lu_ref_add_atomic(&page->cp_reference,
-                                          "gang_lookup", cfs_current());
+					  "gang_lookup", current);
                         pvec[j++] = page;
                 }
 
@@ -253,7 +253,7 @@ int cl_page_gang_lookup(const struct lu_env *env, struct cl_object *obj,
                         if (res == CLP_GANG_OKAY)
                                 res = (*cb)(env, io, page, cbdata);
                         lu_ref_del(&page->cp_reference,
-                                   "gang_lookup", cfs_current());
+				   "gang_lookup", current);
                         cl_page_put(env, page);
                 }
                 if (nr < CLT_PVEC_SIZE || end_of_region)

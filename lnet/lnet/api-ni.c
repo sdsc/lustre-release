@@ -1910,7 +1910,7 @@ lnet_ping_target_fini(void)
         int             rc;
         int             which;
         int             timeout_ms = 1000;
-        cfs_sigset_t    blocked = cfs_block_allsigs();
+	sigset_t    blocked = cfs_block_allsigs();
 
         LNetMDUnlink(the_lnet.ln_ping_target_md);
         /* NB md could be busy; this just starts the unlink */
@@ -1958,7 +1958,7 @@ lnet_ping (lnet_process_id_t id, int timeout_ms, lnet_process_id_t *ids, int n_i
         int                  nob;
         int                  rc;
         int                  rc2;
-        cfs_sigset_t         blocked;
+	sigset_t         blocked;
 
         if (n_ids <= 0 ||
             id.nid == LNET_NID_ANY ||

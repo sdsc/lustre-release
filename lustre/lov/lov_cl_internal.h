@@ -265,7 +265,7 @@ struct lov_object {
          * Thread that acquired lov_object::lo_type_guard in an exclusive
          * mode.
          */
-        cfs_task_t            *lo_owner;
+	struct task_struct            *lo_owner;
 };
 
 /**

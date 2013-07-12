@@ -310,7 +310,7 @@ static struct osc_lock *osc_ast_data_get(struct ldlm_lock *dlm_lock)
                 if (lock->cll_state < CLS_FREEING || olck->ols_has_ref) {
                         cl_lock_get_trust(lock);
                         lu_ref_add_atomic(&lock->cll_reference,
-                                          "ast", cfs_current());
+					  "ast", current);
                 } else
                         olck = NULL;
         }
@@ -324,7 +324,7 @@ static void osc_ast_data_put(const struct lu_env *env, struct osc_lock *olck)
         struct cl_lock *lock;
 
         lock = olck->ols_cl.cls_lock;
-        lu_ref_del(&lock->cll_reference, "ast", cfs_current());
+	lu_ref_del(&lock->cll_reference, "ast", current);
         cl_lock_put(env, lock);
 }
 

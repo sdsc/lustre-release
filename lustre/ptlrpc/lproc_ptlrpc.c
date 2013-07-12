@@ -1250,7 +1250,7 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
          * to drop the lock at first here.
          * - jay, jxiong@clusterfs.com */
         LPROCFS_EXIT();
-	class_incref(obd, __FUNCTION__, cfs_current());
+	class_incref(obd, __FUNCTION__, current);
 
         if (strncmp(tmpbuf, "nid:", 4) == 0)
                 obd_export_evict_by_nid(obd, tmpbuf + 4);
@@ -1259,7 +1259,7 @@ int lprocfs_wr_evict_client(struct file *file, const char *buffer,
         else
                 obd_export_evict_by_uuid(obd, tmpbuf);
 
-	class_decref(obd, __FUNCTION__, cfs_current());
+	class_decref(obd, __FUNCTION__, current);
         LPROCFS_ENTRY();
 
 out:
