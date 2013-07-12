@@ -79,6 +79,12 @@ EXPORT_SYMBOL(it_clear_disposition);
 
 int it_open_error(int phase, struct lookup_intent *it)
 {
+	if (it_disposition(it, DISP_OPEN_LEASE)) {
+		if (phase >= DISP_OPEN_LEASE)
+			return it->d.lustre.it_status;
+		else
+			return 0;
+	}
         if (it_disposition(it, DISP_OPEN_OPEN)) {
                 if (phase >= DISP_OPEN_OPEN)
                         return it->d.lustre.it_status;
@@ -293,19 +299,26 @@ static struct ptlrpc_request *mdc_intent_open_pack(struct obd_export *exp,
 
         /* XXX: openlock is not cancelled for cross-refs. */
         /* If inode is known, cancel conflicting OPEN locks. */
-        if (fid_is_sane(&op_data->op_fid2)) {
-                if (it->it_flags & (FMODE_WRITE|MDS_OPEN_TRUNC))
-                        mode = LCK_CW;
+	if (fid_is_sane(&op_data->op_fid2)) {
+		if (it->it_flags & MDS_OPEN_LEASE) { /* try to get lease */
+			if (it->it_flags & FMODE_WRITE)
+				mode = LCK_EX;
+			else
+				mode = LCK_PR;
+		} else {
+			if (it->it_flags & (FMODE_WRITE|MDS_OPEN_TRUNC))
+				mode = LCK_CW;
 #ifdef FMODE_EXEC
-                else if (it->it_flags & FMODE_EXEC)
-                        mode = LCK_PR;
+			else if (it->it_flags & FMODE_EXEC)
+				mode = LCK_PR;
 #endif
-                else
-                        mode = LCK_CR;
-                count = mdc_resource_get_unused(exp, &op_data->op_fid2,
-                                                &cancels, mode,
-                                                MDS_INODELOCK_OPEN);
-        }
+			else
+				mode = LCK_CR;
+		}
+		count = mdc_resource_get_unused(exp, &op_data->op_fid2,
+						&cancels, mode,
+						MDS_INODELOCK_OPEN);
+	}
 
         /* If CREATE, cancel parent's UPDATE lock. */
         if (it->it_op & IT_CREAT)
