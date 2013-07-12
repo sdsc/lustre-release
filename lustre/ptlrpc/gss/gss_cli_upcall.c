@@ -393,7 +393,7 @@ int gss_do_ctx_fini_rpc(struct gss_cli_ctx *gctx)
                 RETURN(0);
         }
 
-        cfs_might_sleep();
+        might_sleep();
 
         CWARN("%s ctx %p idx "LPX64" (%u->%s)\n",
               sec_is_reverse(ctx->cc_sec) ?

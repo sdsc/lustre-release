@@ -221,7 +221,7 @@ kptllnd_peer_destroy (kptl_peer_t *peer)
 
         CDEBUG(D_NET, "Peer=%p\n", peer);
 
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (cfs_atomic_read(&peer->peer_refcount) == 0);
         LASSERT (peer->peer_state == PEER_STATE_ALLOCATED ||
                  peer->peer_state == PEER_STATE_ZOMBIE);
@@ -276,9 +276,9 @@ kptllnd_peer_cancel_txs(kptl_peer_t *peer, cfs_list_t *txs)
 void
 kptllnd_peer_alive (kptl_peer_t *peer)
 {
-        /* This is racy, but everyone's only writing cfs_time_current() */
-        peer->peer_last_alive = cfs_time_current();
-        cfs_mb();
+	/* This is racy, but everyone's only writing cfs_time_current() */
+	peer->peer_last_alive = cfs_time_current();
+	smp_mb();
 }
 
 void
@@ -672,7 +672,7 @@ kptllnd_peer_check_sends (kptl_peer_t *peer)
         int              msg_type;
         unsigned long    flags;
 
-        LASSERT(!cfs_in_interrupt());
+        LASSERT(!in_interrupt());
 
 	spin_lock_irqsave(&peer->peer_lock, flags);
 

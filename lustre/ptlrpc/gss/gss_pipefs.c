@@ -429,7 +429,7 @@ struct ptlrpc_cli_ctx * gss_sec_lookup_ctx_pf(struct ptlrpc_sec *sec,
         unsigned int            hash, gc = 0, found = 0;
         ENTRY;
 
-        cfs_might_sleep();
+        might_sleep();
 
         gsec = container_of(sec, struct gss_sec, gs_base);
         gsec_pf = container_of(gsec, struct gss_sec_pipefs, gsp_base);
@@ -1047,7 +1047,7 @@ int gss_ctx_refresh_pf(struct ptlrpc_cli_ctx *ctx)
         int                         rc = 0;
         ENTRY;
 
-        cfs_might_sleep();
+        might_sleep();
 
         LASSERT(ctx->cc_sec);
         LASSERT(ctx->cc_sec->ps_import);
