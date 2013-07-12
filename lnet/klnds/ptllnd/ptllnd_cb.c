@@ -333,7 +333,7 @@ kptllnd_send(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
         LASSERT (payload_niov <= LNET_MAX_IOV);
         LASSERT (payload_niov <= PTL_MD_MAX_IOV); /* !!! */
         LASSERT (!(payload_kiov != NULL && payload_iov != NULL));
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
 
         if (lntmsg->msg_vmflush)
                 mpflag = cfs_memory_pressure_get_and_set();
@@ -542,7 +542,7 @@ kptllnd_recv (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg, int delayed,
 
         LASSERT (mlen <= rlen);
         LASSERT (mlen >= 0);
-        LASSERT (!cfs_in_interrupt());
+        LASSERT (!in_interrupt());
         LASSERT (!(kiov != NULL && iov != NULL)); /* never both */
         LASSERT (niov <= PTL_MD_MAX_IOV);       /* !!! */
 

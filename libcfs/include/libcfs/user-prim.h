@@ -134,7 +134,7 @@ struct timer_list {
 };
 
 
-#define cfs_in_interrupt()    (0)
+#define in_interrupt()    (0)
 
 struct miscdevice{
 };
@@ -208,9 +208,7 @@ struct cfs_stack_trace {
 /*
  * Groups
  */
-typedef struct cfs_group_info {
-
-} cfs_group_info_t;
+struct group_info{ };
 
 #ifndef min
 # define min(x,y) ((x)<(y) ? (x) : (y))
@@ -220,7 +218,7 @@ typedef struct cfs_group_info {
 # define max(x,y) ((x)>(y) ? (x) : (y))
 #endif
 
-#define cfs_get_random_bytes_prim(val, size)     (*val) = 0
+#define get_random_bytes(val, size)     (*val) = 0
 
 /* utility libcfs init/fini entries */
 #ifdef __WINNT__

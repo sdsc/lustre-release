@@ -896,7 +896,7 @@ int sptlrpc_import_check_ctx(struct obd_import *imp)
         int rc;
         ENTRY;
 
-        cfs_might_sleep();
+        might_sleep();
 
         sec = sptlrpc_import_sec_ref(imp);
         ctx = get_my_ctx(sec);
@@ -1413,7 +1413,7 @@ int sptlrpc_import_sec_adapt(struct obd_import *imp,
         int                         rc = 0;
         ENTRY;
 
-        cfs_might_sleep();
+        might_sleep();
 
         if (imp == NULL)
                 RETURN(0);
