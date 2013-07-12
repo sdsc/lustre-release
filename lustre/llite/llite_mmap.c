@@ -183,7 +183,7 @@ static int ll_page_mkwrite0(struct vm_area_struct *vma, struct page *vmpage,
 	struct vvp_io           *vio;
 	struct cl_env_nest       nest;
 	int                      result;
-	cfs_sigset_t             set;
+	sigset_t             set;
 	struct inode             *inode;
 	struct ll_inode_info     *lli;
 	ENTRY;
@@ -262,7 +262,7 @@ out_io:
 	cl_io_fini(env, io);
 	cl_env_nested_put(&nest, env);
 out:
-	CDEBUG(D_MMAP, "%s mkwrite with %d\n", cfs_current()->comm, result);
+	CDEBUG(D_MMAP, "%s mkwrite with %d\n", current->comm, result);
 	LASSERT(ergo(result == 0, PageLocked(vmpage)));
 
 	return result;
@@ -296,7 +296,7 @@ struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
         pgoff_t                 pg_offset;
         int                     result;
         const unsigned long     writable = VM_SHARED|VM_WRITE;
-	cfs_sigset_t            set;
+	sigset_t            set;
         ENTRY;
 
         pg_offset = ((address - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
@@ -411,7 +411,7 @@ static int ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
 		fault_ret |= to_fault_error(result);
 
         CDEBUG(D_MMAP, "%s fault %d/%d\n",
-               cfs_current()->comm, fault_ret, result);
+	       current->comm, fault_ret, result);
         RETURN(fault_ret);
 }
 
@@ -420,7 +420,7 @@ static int ll_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	int count = 0;
 	bool printed = false;
 	int result;
-	cfs_sigset_t set;
+	sigset_t set;
 
 	/* Only SIGKILL and SIGTERM is allowed for fault/nopage/mkwrite
 	 * so that it can be killed by admin but not cause segfault by

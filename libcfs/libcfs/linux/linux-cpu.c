@@ -652,9 +652,9 @@ cfs_cpt_bind(struct cfs_cpt_table *cptab, int cpt)
 			continue;
 
 #ifdef HAVE_SET_CPUS_ALLOWED
-		rc = set_cpus_allowed(cfs_current(), *cpumask);
+		rc = set_cpus_allowed(current, *cpumask);
 #else
-		rc = set_cpus_allowed_ptr(cfs_current(), cpumask);
+		rc = set_cpus_allowed_ptr(current, cpumask);
 #endif
 #ifdef HAVE_SET_MEMS_ALLOWED
 		set_mems_allowed(*nodemask);

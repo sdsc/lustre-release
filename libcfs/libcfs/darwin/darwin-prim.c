@@ -333,7 +333,7 @@ cfs_thread_agent (void)
 
 extern thread_t kernel_thread(task_t task, void (*start)(void));
 
-cfs_task_t
+struct task_struct
 kthread_run(cfs_thread_t func, void *arg, const char namefmt[], ...)
 {
 	int ret = 0;
@@ -355,7 +355,7 @@ kthread_run(cfs_thread_t func, void *arg, const char namefmt[], ...)
 	} else {
                 ret = -1;
 	}
-	return (cfs_task_t)((long)ret);
+	return (struct task_struct)((long)ret);
 }
 
 /*
@@ -370,9 +370,9 @@ kthread_run(cfs_thread_t func, void *arg, const char namefmt[], ...)
 
 extern int block_procsigmask(struct proc *p,  int bit);
 
-cfs_sigset_t cfs_block_allsigs()
+sigset_t cfs_block_allsigs()
 {
-        cfs_sigset_t    old = 0;
+	sigset_t    old = 0;
 #ifdef __DARWIN8__
 #else
         block_procsigmask(current_proc(), -1);
@@ -380,9 +380,9 @@ cfs_sigset_t cfs_block_allsigs()
         return old;
 }
 
-cfs_sigset_t cfs_block_sigs(unsigned long sigs)
+sigset_t cfs_block_sigs(unsigned long sigs)
 {
-	cfs_sigset_t    old = 0;
+	sigset_t    old = 0;
 #ifdef __DARWIN8__
 #else
 	block_procsigmask(current_proc(), sigs);
@@ -392,13 +392,13 @@ cfs_sigset_t cfs_block_sigs(unsigned long sigs)
 
 /* Block all signals except for the @sigs. It's only used in
  * Linux kernel, just a dummy here. */
-cfs_sigset_t cfs_block_sigsinv(unsigned long sigs)
+sigset_t cfs_block_sigsinv(unsigned long sigs)
 {
-        cfs_sigset_t old = 0;
+	sigset_t old = 0;
         return old;
 }
 
-void cfs_restore_sigs(cfs_sigset_t old)
+void cfs_restore_sigs(sigset_t old)
 {
 }
 
@@ -528,7 +528,7 @@ cfs_duration_t  waitq_timedwait(struct cfs_waitlink *link,
 }
 
 typedef  void (*ktimer_func_t)(void *);
-void cfs_timer_init(cfs_timer_t *t, void (* func)(unsigned long), void *arg)
+void cfs_timer_init(struct timer_list *t, void (* func)(unsigned long), void *arg)
 {
         ktimer_init(&t->t, (ktimer_func_t)func, arg);
 }

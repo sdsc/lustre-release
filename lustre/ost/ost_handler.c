@@ -2068,7 +2068,7 @@ static int ost_rw_hpreq_check(struct ptlrpc_request *req)
 
         DEBUG_REQ(D_RPCTRACE, req,
                "%s %s: refresh rw locks: " LPU64"/"LPU64" ("LPU64"->"LPU64")\n",
-               obd->obd_name, cfs_current()->comm,
+	       obd->obd_name, current->comm,
                opd.opd_resid.name[0], opd.opd_resid.name[1],
                opd.opd_extent.start, opd.opd_extent.end);
 

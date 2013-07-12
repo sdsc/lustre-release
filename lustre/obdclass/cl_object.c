@@ -550,7 +550,7 @@ struct cl_env {
         /**
          * Owner for the current cl_env.
          *
-         * If LL_TASK_CL_ENV is defined, this point to the owning cfs_current(),
+	 * If LL_TASK_CL_ENV is defined, this point to the owning current,
          * only for debugging purpose ;
          * Otherwise hash is used, and this is the key for cfs_hash.
          * Now current thread pid is stored. Note using thread pointer would
@@ -651,7 +651,7 @@ static inline struct cl_env *cl_env_fetch(void)
 {
         struct cl_env *cle;
 
-        cle = cfs_hash_lookup(cl_env_hash, (void *) (long) cfs_current()->pid);
+	cle = cfs_hash_lookup(cl_env_hash, (void *) (long) current->pid);
         LASSERT(ergo(cle, cle->ce_magic == &cl_env_init0));
         return cle;
 }
@@ -662,7 +662,7 @@ static inline void cl_env_attach(struct cl_env *cle)
                 int rc;
 
                 LASSERT(cle->ce_owner == NULL);
-                cle->ce_owner = (void *) (long) cfs_current()->pid;
+		cle->ce_owner = (void *) (long) current->pid;
                 rc = cfs_hash_add_unique(cl_env_hash, cle->ce_owner,
                                          &cle->ce_node);
                 LASSERT(rc == 0);
@@ -673,7 +673,7 @@ static inline void cl_env_do_detach(struct cl_env *cle)
 {
         void *cookie;
 
-        LASSERT(cle->ce_owner == (void *) (long) cfs_current()->pid);
+	LASSERT(cle->ce_owner == (void *) (long) current->pid);
         cookie = cfs_hash_del(cl_env_hash, cle->ce_owner,
                               &cle->ce_node);
         LASSERT(cookie == cle);
@@ -704,7 +704,7 @@ static inline struct cl_env *cl_env_fetch(void)
 {
         struct cl_env *cle;
 
-        cle = cfs_current()->LL_TASK_CL_ENV;
+	cle = current->LL_TASK_CL_ENV;
         if (cle && cle->ce_magic != &cl_env_init0)
                 cle = NULL;
         return cle;
@@ -714,17 +714,17 @@ static inline void cl_env_attach(struct cl_env *cle)
 {
         if (cle) {
                 LASSERT(cle->ce_owner == NULL);
-                cle->ce_owner = cfs_current();
-                cle->ce_prev = cfs_current()->LL_TASK_CL_ENV;
-                cfs_current()->LL_TASK_CL_ENV = cle;
+		cle->ce_owner = current;
+		cle->ce_prev = current->LL_TASK_CL_ENV;
+		current->LL_TASK_CL_ENV = cle;
         }
 }
 
 static inline void cl_env_do_detach(struct cl_env *cle)
 {
-        LASSERT(cle->ce_owner == cfs_current());
-        LASSERT(cfs_current()->LL_TASK_CL_ENV == cle);
-        cfs_current()->LL_TASK_CL_ENV = cle->ce_prev;
+	LASSERT(cle->ce_owner == current);
+	LASSERT(current->LL_TASK_CL_ENV == cle);
+	current->LL_TASK_CL_ENV = cle->ce_prev;
         cle->ce_owner = NULL;
 }
 
