@@ -163,7 +163,7 @@ int mdt_getxattr(struct mdt_thread_info *info)
 {
         struct ptlrpc_request  *req = mdt_info_req(info);
         struct mdt_export_data *med = mdt_req2med(req);
-	struct lu_ucred        *uc  = mdt_ucred(info);
+	struct lu_ucred        *uc  = lu_ucred(info->mti_env);
         struct mdt_body        *reqbody;
         struct mdt_body        *repbody = NULL;
         struct md_object       *next;
@@ -345,7 +345,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
                        struct mdt_lock_handle *unused)
 {
         struct ptlrpc_request   *req = mdt_info_req(info);
-	struct lu_ucred         *uc  = mdt_ucred(info);
+	struct lu_ucred         *uc  = lu_ucred(info->mti_env);
         struct mdt_lock_handle  *lh;
         const struct lu_env     *env  = info->mti_env;
         struct lu_buf           *buf  = &info->mti_buf;
