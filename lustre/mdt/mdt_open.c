@@ -891,7 +891,7 @@ int mdt_finish_open(struct mdt_thread_info *info,
         }
 #endif
 
-	if (info->mti_mdt->mdt_opts.mo_mds_capa &&
+	if (info->mti_mdt->mdt_lut.lut_mds_capa &&
 	    exp_connect_flags(exp) & OBD_CONNECT_MDS_CAPA) {
                 struct lustre_capa *capa;
 
@@ -904,7 +904,7 @@ int mdt_finish_open(struct mdt_thread_info *info,
                 repbody->valid |= OBD_MD_FLMDSCAPA;
         }
 
-	if (info->mti_mdt->mdt_opts.mo_oss_capa &&
+	if (info->mti_mdt->mdt_lut.lut_oss_capa &&
 	    exp_connect_flags(exp) & OBD_CONNECT_OSS_CAPA &&
 	    S_ISREG(lu_object_attr(&o->mot_obj))) {
                 struct lustre_capa *capa;
@@ -1348,12 +1348,6 @@ out:
         if (parent != NULL)
                 mdt_object_put(env, parent);
         return rc;
-}
-
-int mdt_pin(struct mdt_thread_info* info)
-{
-        ENTRY;
-        RETURN(err_serious(-EOPNOTSUPP));
 }
 
 /* Cross-ref request. Currently it can only be a pure open (w/o create) */
@@ -1826,14 +1820,15 @@ int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd)
         RETURN(rc ? rc : ret);
 }
 
-int mdt_close(struct mdt_thread_info *info)
+int mdt_close(struct tgt_session_info *tsi)
 {
+	struct mdt_thread_info	*info = tsi2mdt_info(tsi);
+	struct ptlrpc_request	*req = tgt_ses_req(tsi);
         struct mdt_export_data *med;
         struct mdt_file_data   *mfd;
         struct mdt_object      *o;
         struct md_attr         *ma = &info->mti_attr;
         struct mdt_body        *repbody = NULL;
-        struct ptlrpc_request  *req = mdt_info_req(info);
         int rc, ret = 0;
         ENTRY;
 
@@ -1841,7 +1836,7 @@ int mdt_close(struct mdt_thread_info *info)
         /* Close may come with the Size-on-MDS update. Unpack it. */
         rc = mdt_close_unpack(info);
         if (rc)
-                RETURN(err_serious(rc));
+		GOTO(out, rc = err_serious(rc));
 
         LASSERT(info->mti_ioepoch);
 
@@ -1855,7 +1850,7 @@ int mdt_close(struct mdt_thread_info *info)
                 if (rc == 0)
                         mdt_fix_reply(info);
 		mdt_exit_ucred(info);
-                RETURN(lustre_msg_get_status(req->rq_repmsg));
+		GOTO(out, rc = lustre_msg_get_status(req->rq_repmsg));
         }
 
         /* Continue to close handle even if we can not pack reply */
@@ -1910,12 +1905,14 @@ int mdt_close(struct mdt_thread_info *info)
 
 	mdt_exit_ucred(info);
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_CLOSE_PACK))
-                RETURN(err_serious(-ENOMEM));
+                GOTO(out, rc = err_serious(-ENOMEM));
 
         if (OBD_FAIL_CHECK_RESET(OBD_FAIL_MDS_CLOSE_NET_REP,
                                  OBD_FAIL_MDS_CLOSE_NET_REP))
-                info->mti_fail_id = OBD_FAIL_MDS_CLOSE_NET_REP;
-        RETURN(rc ? rc : ret);
+		tsi->tsi_reply_fail_id = OBD_FAIL_MDS_CLOSE_NET_REP;
+out:
+	mdt_thread_info_fini(info);
+	RETURN(rc ? rc : ret);
 }
 
 /**
@@ -1926,32 +1923,32 @@ int mdt_close(struct mdt_thread_info *info)
  * and got a trasid. Waiting for such DONE_WRITING is not reliable, so just
  * skip attributes and reconstruct the reply here.
  */
-int mdt_done_writing(struct mdt_thread_info *info)
+int mdt_done_writing(struct tgt_session_info *tsi)
 {
-        struct ptlrpc_request   *req = mdt_info_req(info);
+	struct ptlrpc_request	*req = tgt_ses_req(tsi);
+	struct mdt_thread_info	*info = tsi2mdt_info(tsi);
         struct mdt_body         *repbody = NULL;
         struct mdt_export_data  *med;
         struct mdt_file_data    *mfd;
         int rc;
         ENTRY;
 
-        rc = req_capsule_server_pack(info->mti_pill);
+	rc = req_capsule_server_pack(tsi->tsi_pill);
         if (rc)
-                RETURN(err_serious(rc));
+                GOTO(out, rc = err_serious(rc));
 
-        repbody = req_capsule_server_get(info->mti_pill,
-                                         &RMF_MDT_BODY);
+	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_MDT_BODY);
         repbody->eadatasize = 0;
         repbody->aclsize = 0;
 
         /* Done Writing may come with the Size-on-MDS update. Unpack it. */
         rc = mdt_close_unpack(info);
         if (rc)
-                RETURN(err_serious(rc));
+                GOTO(out, rc = err_serious(rc));
 
 	if (mdt_check_resent(info, mdt_reconstruct_generic, NULL)) {
 		mdt_exit_ucred(info);
-		RETURN(lustre_msg_get_status(req->rq_repmsg));
+		GOTO(out, rc = lustre_msg_get_status(req->rq_repmsg));
 	}
 
         med = &info->mti_exp->exp_mdt_data;
@@ -1995,5 +1992,7 @@ int mdt_done_writing(struct mdt_thread_info *info)
         mdt_empty_transno(info, rc);
 error_ucred:
 	mdt_exit_ucred(info);
+out:
+	mdt_thread_info_fini(info);
 	RETURN(rc);
 }
