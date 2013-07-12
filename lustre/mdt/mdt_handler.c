@@ -5019,6 +5019,7 @@ static struct lu_object *mdt_object_alloc(const struct lu_env *env,
                 o->lo_ops = &mdt_obj_ops;
 		mutex_init(&mo->mot_ioepoch_mutex);
 		mutex_init(&mo->mot_lov_mutex);
+		init_rwsem(&mo->mot_open_sem);
                 RETURN(o);
         } else
                 RETURN(NULL);
