@@ -421,7 +421,7 @@ static int ptlrpcd(void *arg)
 				if (++index >= num_possible_cpus())
 					index = 0;
 			}
-			cfs_set_cpus_allowed(cfs_current(),
+			cfs_set_cpus_allowed(current,
 				     *cpumask_of_node(cpu_to_node(index)));
 		}
 	}
@@ -710,7 +710,7 @@ int ptlrpcd_start(int index, int max, const char *name, struct ptlrpcd_ctl *pc)
         env = 1;
 #ifdef __KERNEL__
 	{
-		cfs_task_t *task;
+		struct task_struct *task;
 		if (index >= 0) {
 			rc = ptlrpcd_bind(index, max);
 			if (rc < 0)

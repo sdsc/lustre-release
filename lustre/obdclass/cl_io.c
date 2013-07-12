@@ -1083,7 +1083,7 @@ void cl_page_list_init(struct cl_page_list *plist)
         ENTRY;
         plist->pl_nr = 0;
         CFS_INIT_LIST_HEAD(&plist->pl_pages);
-        plist->pl_owner = cfs_current();
+	plist->pl_owner = current;
         EXIT;
 }
 EXPORT_SYMBOL(cl_page_list_init);
@@ -1097,7 +1097,7 @@ void cl_page_list_add(struct cl_page_list *plist, struct cl_page *page)
         /* it would be better to check that page is owned by "current" io, but
          * it is not passed here. */
         LASSERT(page->cp_owner != NULL);
-        LINVRNT(plist->pl_owner == cfs_current());
+	LINVRNT(plist->pl_owner == current);
 
 	lockdep_off();
 	mutex_lock(&page->cp_mutex);
@@ -1118,7 +1118,7 @@ void cl_page_list_del(const struct lu_env *env,
                       struct cl_page_list *plist, struct cl_page *page)
 {
         LASSERT(plist->pl_nr > 0);
-        LINVRNT(plist->pl_owner == cfs_current());
+	LINVRNT(plist->pl_owner == current);
 
         ENTRY;
         cfs_list_del_init(&page->cp_batch);
@@ -1139,8 +1139,8 @@ void cl_page_list_move(struct cl_page_list *dst, struct cl_page_list *src,
                        struct cl_page *page)
 {
         LASSERT(src->pl_nr > 0);
-        LINVRNT(dst->pl_owner == cfs_current());
-        LINVRNT(src->pl_owner == cfs_current());
+	LINVRNT(dst->pl_owner == current);
+	LINVRNT(src->pl_owner == current);
 
         ENTRY;
         cfs_list_move_tail(&page->cp_batch, &dst->pl_pages);
@@ -1160,8 +1160,8 @@ void cl_page_list_splice(struct cl_page_list *list, struct cl_page_list *head)
         struct cl_page *page;
         struct cl_page *tmp;
 
-        LINVRNT(list->pl_owner == cfs_current());
-        LINVRNT(head->pl_owner == cfs_current());
+	LINVRNT(list->pl_owner == current);
+	LINVRNT(head->pl_owner == current);
 
         ENTRY;
         cl_page_list_for_each_safe(page, tmp, list)
@@ -1182,7 +1182,7 @@ void cl_page_list_disown(const struct lu_env *env,
         struct cl_page *page;
         struct cl_page *temp;
 
-        LINVRNT(plist->pl_owner == cfs_current());
+	LINVRNT(plist->pl_owner == current);
 
         ENTRY;
         cl_page_list_for_each_safe(page, temp, plist) {
@@ -1218,7 +1218,7 @@ void cl_page_list_fini(const struct lu_env *env, struct cl_page_list *plist)
         struct cl_page *page;
         struct cl_page *temp;
 
-        LINVRNT(plist->pl_owner == cfs_current());
+	LINVRNT(plist->pl_owner == current);
 
         ENTRY;
         cl_page_list_for_each_safe(page, temp, plist)
@@ -1239,7 +1239,7 @@ int cl_page_list_own(const struct lu_env *env,
         pgoff_t index = 0;
         int result;
 
-        LINVRNT(plist->pl_owner == cfs_current());
+	LINVRNT(plist->pl_owner == current);
 
         ENTRY;
         result = 0;
@@ -1263,7 +1263,7 @@ void cl_page_list_assume(const struct lu_env *env,
 {
         struct cl_page *page;
 
-        LINVRNT(plist->pl_owner == cfs_current());
+	LINVRNT(plist->pl_owner == current);
 
         cl_page_list_for_each(page, plist)
                 cl_page_assume(env, io, page);
@@ -1278,7 +1278,7 @@ void cl_page_list_discard(const struct lu_env *env, struct cl_io *io,
 {
         struct cl_page *page;
 
-        LINVRNT(plist->pl_owner == cfs_current());
+	LINVRNT(plist->pl_owner == current);
         ENTRY;
         cl_page_list_for_each(page, plist)
                 cl_page_discard(env, io, page);
@@ -1295,7 +1295,7 @@ int cl_page_list_unmap(const struct lu_env *env, struct cl_io *io,
         struct cl_page *page;
         int result;
 
-        LINVRNT(plist->pl_owner == cfs_current());
+	LINVRNT(plist->pl_owner == current);
         ENTRY;
         result = 0;
         cl_page_list_for_each(page, plist) {
