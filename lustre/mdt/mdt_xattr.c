@@ -159,11 +159,12 @@ out:
 	return rc;
 }
 
-int mdt_getxattr(struct mdt_thread_info *info)
+int mdt_getxattr(struct tgt_session_info *tsi)
 {
-        struct ptlrpc_request  *req = mdt_info_req(info);
-        struct mdt_export_data *med = mdt_req2med(req);
-	struct lu_ucred        *uc  = mdt_ucred(info);
+	struct mdt_thread_info	*info = tsi2mdt_info(tsi);
+	struct ptlrpc_request	*req = tgt_ses_req(tsi);
+	struct mdt_export_data	*med = mdt_req2med(req);
+	struct lu_ucred		*uc  = lu_ucred(tsi->tsi_env);
         struct mdt_body        *reqbody;
         struct mdt_body        *repbody = NULL;
         struct md_object       *next;
@@ -181,11 +182,11 @@ int mdt_getxattr(struct mdt_thread_info *info)
 
         reqbody = req_capsule_client_get(info->mti_pill, &RMF_MDT_BODY);
         if (reqbody == NULL)
-                RETURN(err_serious(-EFAULT));
+		GOTO(out_info, rc = err_serious(-EFAULT));
 
 	rc = mdt_init_ucred(info, reqbody);
-        if (rc)
-                RETURN(err_serious(rc));
+	if (rc)
+		GOTO(out_info, rc = err_serious(rc));
 
 	down_read(&info->mti_object->mot_xattr_sem);
 
@@ -291,6 +292,8 @@ out:
 		rc = 0;
 	}
 	mdt_exit_ucred(info);
+out_info:
+	mdt_thread_info_fini(info);
 	return rc;
 }
 
@@ -345,7 +348,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
                        struct mdt_lock_handle *unused)
 {
         struct ptlrpc_request   *req = mdt_info_req(info);
-	struct lu_ucred         *uc  = mdt_ucred(info);
+	struct lu_ucred         *uc  = lu_ucred(info->mti_env);
         struct mdt_lock_handle  *lh;
         const struct lu_env     *env  = info->mti_env;
         struct lu_buf           *buf  = &info->mti_buf;
