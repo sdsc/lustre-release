@@ -1604,6 +1604,51 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 3.9 uses hlist_for_each_entry with 3 args
+# b67bfe0d42cac56c512dd5da4b1b347a23f4b70a
+#
+AC_DEFUN([LC_HAVE_HLIST_FOR_EACH_3ARG],
+[AC_MSG_CHECKING([if hlist_for_each_entry has 3 args])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/list.h>
+	#include <linux/fs.h>
+],[
+	struct inode *inode;
+	struct dentry *dentry;
+	hlist_for_each_entry(dentry, &inode->i_dentry, d_alias) {
+		continue;
+	}
+],[
+	AC_DEFINE(HAVE_HLIST_FOR_EACH_3ARG, 1, [3 args])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
+# 3.9 killed f_vfsmnt by
+# 182be684784334598eee1d90274e7f7aa0063616
+# replacement is f_path.mnt
+#
+AC_DEFUN([LC_HAVE_F_PATH_MNT],
+[AC_MSG_CHECKING([if struct file has f_path.mnt])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	struct file *fp = NULL;
+	struct path  path;
+
+	path.mnt = fp->f_path.mnt;
+],[
+	AC_DEFINE(HAVE_F_PATH_MNT,1,[yes])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -1740,6 +1785,11 @@ AC_DEFUN([LC_PROG_LINUX],
 
 	 # 3.7
  	 LC_HAVE_POSIXACL_USER_NS
+
+	 # 3.9
+	 LC_HAVE_HLIST_FOR_EACH_3ARG
+	 LC_HAVE_F_PATH_MNT
+
 	 #
 	 if test x$enable_server = xyes ; then
 		AC_DEFINE(HAVE_SERVER_SUPPORT, 1, [support server])
