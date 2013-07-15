@@ -738,9 +738,8 @@ out:
 			 * from the beginning. notify possible waiters
 			 * this OSP isn't quite functional yet */
 			osp_pre_update_status(d, rc);
-		} else {
-			cfs_waitq_signal(&d->opd_pre_user_waitq);
 		}
+		cfs_waitq_signal(&d->opd_pre_user_waitq);
 	}
 
 	RETURN(rc);
