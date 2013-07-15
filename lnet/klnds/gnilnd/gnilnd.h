@@ -754,7 +754,7 @@ typedef struct kgn_peer {
 	unsigned long       gnp_last_alive;             /* last time I had valid comms */
 	int                 gnp_last_dgram_errno;       /* last error dgrams saw */
 	unsigned long       gnp_last_dgram_time;        /* last time I tried to connect */
-	unsigned long       gnp_reconnect_time;         /* CURRENT_SECONDS when reconnect OK */
+	unsigned long       gnp_reconnect_time;         /* get_seconds() when reconnect OK */
 	unsigned long       gnp_reconnect_interval;     /* exponential backoff */
 	atomic_t            gnp_dirty_eps;              /* # of old but yet to be destroyed EPs from conns */
 	int                 gnp_down;                   /* rca says peer down */
