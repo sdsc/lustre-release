@@ -554,7 +554,7 @@ static int osc_rpc_stats_seq_show(struct seq_file *seq, void *v)
         unsigned long read_tot = 0, write_tot = 0, read_cum, write_cum;
         int i;
 
-        cfs_gettimeofday(&now);
+	do_gettimeofday(&now);
 
         client_obd_list_lock(&cli->cl_loi_list_lock);
 
@@ -668,7 +668,7 @@ static int osc_stats_seq_show(struct seq_file *seq, void *v)
         struct obd_device *dev = seq->private;
         struct osc_stats *stats = &obd2osc_dev(dev)->od_stats;
 
-        cfs_gettimeofday(&now);
+	do_gettimeofday(&now);
 
         seq_printf(seq, "snapshot_time:         %lu.%lu (secs.usecs)\n",
                    now.tv_sec, now.tv_usec);
