@@ -9206,16 +9206,20 @@ test_160() {
 
     # verify contents
     echo "verifying target fid"
-    fidc=$($LFS changelog $MDT0 | grep timestamp | grep "CREAT" | \
-	tail -1 | awk '{print $6}')
+    fidc=$($LFS changelog $MDT0|awk '/CREAT.*timestamp$/{
+	sub(/^.*t=\[/,"");
+	sub(/].*$/,"");
+	print "["$0"]"}'|tail -1)
     fidf=$($LFS path2fid $DIR/$tdir/pics/zach/timestamp)
-    [ "$fidc" == "t=$fidf" ] || \
+    [ "$fidc" == "$fidf" ] || \
 	err17935 "fid in changelog $fidc != file fid $fidf"
     echo "verifying parent fid"
-    fidc=$($LFS changelog $MDT0 | grep timestamp | grep "CREAT" | \
-	tail -1 | awk '{print $7}')
+    fidc=$($LFS changelog $MDT0|awk '/CREAT.*timestamp$/{
+	sub(/^.*p=\[/,"");
+	sub(/].*$/,"");
+	print "["$0"]"}'|tail -1)
     fidf=$($LFS path2fid $DIR/$tdir/pics/zach)
-    [ "$fidc" == "p=$fidf" ] || \
+    [ "$fidc" == "$fidf" ] || \
 	err17935 "pfid in changelog $fidc != dir fid $fidf"
 
     USER_REC1=$(do_facet $SINGLEMDS $LCTL get_param -n \
