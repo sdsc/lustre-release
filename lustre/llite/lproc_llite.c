@@ -1067,7 +1067,7 @@ static int ll_rw_extents_stats_pp_seq_show(struct seq_file *seq, void *v)
         struct ll_rw_extents_info *io_extents = &sbi->ll_rw_extents_info;
         int k;
 
-        cfs_gettimeofday(&now);
+	do_gettimeofday(&now);
 
         if (!sbi->ll_rw_stats_on) {
                 seq_printf(seq, "disabled\n"
@@ -1131,7 +1131,7 @@ static int ll_rw_extents_stats_seq_show(struct seq_file *seq, void *v)
         struct ll_sb_info *sbi = seq->private;
         struct ll_rw_extents_info *io_extents = &sbi->ll_rw_extents_info;
 
-        cfs_gettimeofday(&now);
+	do_gettimeofday(&now);
 
         if (!sbi->ll_rw_stats_on) {
                 seq_printf(seq, "disabled\n"
@@ -1295,7 +1295,7 @@ static int ll_rw_offset_stats_seq_show(struct seq_file *seq, void *v)
         struct ll_rw_process_info *process = sbi->ll_rw_process_info;
         int i;
 
-        cfs_gettimeofday(&now);
+	do_gettimeofday(&now);
 
         if (!sbi->ll_rw_stats_on) {
                 seq_printf(seq, "disabled\n"
