@@ -1546,6 +1546,9 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 
 		/* l_wait_event is interrupted by signal */
 		if (rc < 0) {
+			/* Ensures restartability - LU-3581 */
+			if(rc == -EINTR)
+				rc = -ERESTARTSYS;
 			cfs_list_del_init(&ocw.ocw_entry);
 			GOTO(out, rc);
 		}
