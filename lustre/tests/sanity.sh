@@ -9164,6 +9164,17 @@ changelog_chmask()
     fi
 }
 
+changelog_extract_field() {
+	local mdt=$1
+	local cltype=$2
+	local file=$3
+	local identifier=$4
+
+	$LFS changelog $mdt | gawk "/$cltype.*$file$/ {
+		print gensub(/^.* "$identifier'(\[[^\]]*\]).*$/,"\\1",1)}' \
+		| tail -1
+}
+
 test_160() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
     remote_mds_nodsh && skip "remote MDS with nodsh" && return
@@ -9206,16 +9217,14 @@ test_160() {
 
     # verify contents
     echo "verifying target fid"
-    fidc=$($LFS changelog $MDT0 | grep timestamp | grep "CREAT" | \
-	tail -1 | awk '{print $6}')
+    fidc=$(changelog_extract_field $MDT0 "CREAT" "timestamp" "t=")
     fidf=$($LFS path2fid $DIR/$tdir/pics/zach/timestamp)
-    [ "$fidc" == "t=$fidf" ] || \
+    [ "$fidc" == "$fidf" ] || \
 	err17935 "fid in changelog $fidc != file fid $fidf"
     echo "verifying parent fid"
-    fidc=$($LFS changelog $MDT0 | grep timestamp | grep "CREAT" | \
-	tail -1 | awk '{print $7}')
+    fidc=$(changelog_extract_field $MDT0 "CREAT" "timestamp" "p=")
     fidf=$($LFS path2fid $DIR/$tdir/pics/zach)
-    [ "$fidc" == "p=$fidf" ] || \
+    [ "$fidc" == "$fidf" ] || \
 	err17935 "pfid in changelog $fidc != dir fid $fidf"
 
     USER_REC1=$(do_facet $SINGLEMDS $LCTL get_param -n \
