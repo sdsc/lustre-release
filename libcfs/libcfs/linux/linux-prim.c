@@ -262,16 +262,16 @@ void cfs_enter_debugger(void)
 sigset_t
 cfs_block_allsigs(void)
 {
-        unsigned long          flags;
-        sigset_t        old;
+	unsigned long          flags;
+	sigset_t        old;
 
-        SIGNAL_MASK_LOCK(current, flags);
-        old = current->blocked;
-        sigfillset(&current->blocked);
-        RECALC_SIGPENDING;
-        SIGNAL_MASK_UNLOCK(current, flags);
+	SIGNAL_MASK_LOCK(current, flags);
+	old = current->blocked;
+	sigfillset(&current->blocked);
+	recalc_sigpending();
+	SIGNAL_MASK_UNLOCK(current, flags);
 
-        return old;
+	return old;
 }
 
 sigset_t cfs_block_sigs(unsigned long sigs)
@@ -282,7 +282,7 @@ sigset_t cfs_block_sigs(unsigned long sigs)
 	SIGNAL_MASK_LOCK(current, flags);
 	old = current->blocked;
 	sigaddsetmask(&current->blocked, sigs);
-	RECALC_SIGPENDING;
+	recalc_sigpending();
 	SIGNAL_MASK_UNLOCK(current, flags);
 	return old;
 }
@@ -296,7 +296,7 @@ sigset_t cfs_block_sigsinv(unsigned long sigs)
 	SIGNAL_MASK_LOCK(current, flags);
 	old = current->blocked;
 	sigaddsetmask(&current->blocked, ~sigs);
-	RECALC_SIGPENDING;
+	recalc_sigpending();
 	SIGNAL_MASK_UNLOCK(current, flags);
 
 	return old;
@@ -305,12 +305,12 @@ sigset_t cfs_block_sigsinv(unsigned long sigs)
 void
 cfs_restore_sigs (cfs_sigset_t old)
 {
-        unsigned long  flags;
+	unsigned long  flags;
 
-        SIGNAL_MASK_LOCK(current, flags);
-        current->blocked = old;
-        RECALC_SIGPENDING;
-        SIGNAL_MASK_UNLOCK(current, flags);
+	SIGNAL_MASK_LOCK(current, flags);
+	current->blocked = old;
+	recalc_sigpending();
+	SIGNAL_MASK_UNLOCK(current, flags);
 }
 
 int
@@ -322,11 +322,11 @@ cfs_signal_pending(void)
 void
 cfs_clear_sigpending(void)
 {
-        unsigned long flags;
+	unsigned long flags;
 
-        SIGNAL_MASK_LOCK(current, flags);
-        CLEAR_SIGPENDING;
-        SIGNAL_MASK_UNLOCK(current, flags);
+	SIGNAL_MASK_LOCK(current, flags);
+	clear_tsk_thread_flag(current, TIF_SIGPENDING);
+	SIGNAL_MASK_UNLOCK(current, flags);
 }
 
 int
