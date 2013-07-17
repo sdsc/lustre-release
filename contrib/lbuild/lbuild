@@ -108,6 +108,9 @@ CONFIG=
 # build the lustre-tests rpm?
 LUSTRE_TESTS=true
 
+# support for building different type of ofed	104
+OFED_TYPE="MLNX" # set Mellanox just for testing purpose XXX
+
 DATE=$(date)
 
 USE_DATESTAMP=1
@@ -561,34 +564,44 @@ download_ofed() {
         return 0
     fi
 
-    local OFED_BASE_VERSION=$OFED_VERSION
-    if [[ $OFED_VERSION = *.*.*.* ]]; then
-        OFED_BASE_VERSION=${OFED_VERSION%.*}
-    fi
+    case $OFED_TYPE in
+        MLNX)
+            local location="http://www.mellanox.com/downloads/ofed/MLNX_OFED-2.0/"
+            # we are only interested in the src in the tarball. The arch, distro should not matter
+            local file="MLNX_OFED_LINUX-${OFED_VERSION}-rhel6.4-x86_64.tgz"
+            ;;
+        OFED)
+            local OFED_BASE_VERSION=$OFED_VERSION
+            if [[ $OFED_VERSION = *.*.*.* ]]; then
+                OFED_BASE_VERSION=${OFED_VERSION%.*}
+            fi
 
-    local location="http://www.openfabrics.org/downloads/OFED/ofed-${OFED_BASE_VERSION}/"
+            local location="http://www.openfabrics.org/downloads/OFED/ofed-${OFED_BASE_VERSION}/"
 
-    if [[ $OFED_VERSION = *-rc[0-9] ]]; then
-        local Mmv
-        Mmv=${OFED_VERSION%%-*}
-        location="http://www.openfabrics.org/downloads/OFED/ofed-${Mmv}/"
-    fi
+            if [[ $OFED_VERSION = *-rc[0-9] ]]; then
+                local Mmv
+                Mmv=${OFED_VERSION%%-*}
+                location="http://www.openfabrics.org/downloads/OFED/ofed-${Mmv}/"
+            fi
 
-    if [[ $OFED_VERSION = daily-* ]]; then
-        local Mmv daily
-        OFED_VERSION=${OFED_VERSION/daily-/}
-        Mmv=${OFED_VERSION%%-*}
-        daily=${OFED_VERSION##$Mmv-}
-        location="http://www.openfabrics.org/downloads/OFED/ofed-${Mmv}-daily/"
-        # find the filename for the version for the date specified
-        OFED_VERSION=$(curl -s "$location" | sed -nre "/${daily}-/s/.*href=\"OFED-(${Mmv//./\\.}-${daily}-[0-9]{4,4}).tgz.*$/\1/p" | tail -1)
-        if [ -z "$OFED_VERSION" ]; then
-            fatal 1 "Could not determine the filename of the OFED snapshot for ${daily}"
-        fi
-    fi
-
-    local file="OFED-${OFED_VERSION}.tgz"
-    download_file "$location/$file" "$KERNELTREE" "$force"
+            if [[ $OFED_VERSION = daily-* ]]; then
+                local Mmv daily
+                OFED_VERSION=${OFED_VERSION/daily-/}
+                Mmv=${OFED_VERSION%%-*}
+                daily=${OFED_VERSION##$Mmv-}
+                location="http://www.openfabrics.org/downloads/OFED/ofed-${Mmv}-daily/"
+                # find the filename for the version for the date specified
+                OFED_VERSION=$(curl -s "$location" | sed -nre "/${daily}-/s/.*href=\"OFED-(${Mmv//./\\.}-${daily}-[0-9]{4,4}).tgz.*$/\1/p" | tail -1)
+                if [ -z "$OFED_VERSION" ]; then
+                    fatal 1 "Could not determine the filename of the OFED snapshot for ${daily}"
+                fi
+            fi
+            local file="OFED-${OFED_VERSION}.tgz"
+        *)
+            fatal 1 "Unsupported OFED type ${OFED_TYPE}"
+            ;;
+    esac
+        download_file "$location/$file" "$KERNELTREE" "$force"
 
 }
 
@@ -727,11 +740,28 @@ untar() {
 }
 
 unpack_ofed() {
-
-    if ! untar "$KERNELTREE/OFED-${OFED_VERSION}.tgz"; then
-        return 1
-    fi
-    [ -d OFED ] || ln -sf OFED-[0-9].[0-9]* OFED
+    # unpack OFED differently depend on how vendor pack it
+    case $OFED_TYPE in
+        MLNX)
+            if ! untar "$KERNELTREE/MLNX_OFED_LINUX-${OFED_VERSION}-rhel6.4-x86_64.tgz" \
+                "MLNX_OFED_LINUX-${OFED_VERSION}-rhel6.4-x86_64/src/MLNX_OFED_SRC-${OFED_VERSION}.tgz"; then
+                return 1
+            fi
+            # we need to untar again to get the src since it's being wrapped inside the tarball
+            if ! untar "MLNX_OFED_LINUX-${OFED_VERSION}-rhel6.4-x86_64/src/MLNX_OFED_SRC-${OFED_VERSION}.tgz"; then
+                return 1
+            fi
+            [ -d OFED ] || ln -sf MLNX_OFED_SRC-[0-9].[0-9]* OFED
+            ;;
+        OFED)
+            if ! untar "$KERNELTREE/OFED-${OFED_VERSION}.tgz"; then
+                return 1
+            fi
+            [ -d OFED ] || ln -sf OFED-[0-9].[0-9]* OFED
+            ;;
+        *)
+            fatal 1 "Unsupported Ofed type $OFED_TYPE"
+    esac
 
 }
 
@@ -1243,10 +1273,12 @@ build_kernel_ib() {
         K_SRC="KSRC"
     fi
 
-    local OFED_CORE="--with-core-mod --with-ipoib-mod --with-sdp-mod --with-user_mad-mod --with-user_access-mod --with-addr_trans-mod"
-    local OFED_HARDWARE="--with-mthca-mod --with-mlx4-mod --with-mlx4_en-mod --with-cxgb3-mod --with-nes-mod"
+    #local OFED_CORE="--with-core-mod --with-ipoib-mod --with-sdp-mod --with-user_mad-mod --with-user_access-mod --with-addr_trans-mod"
+    local OFED_CORE="--with-core-mod --with-ipoib-mod --with-user_mad-mod --with-user_access-mod --with-addr_trans-mod"
+    #local OFED_HARDWARE="--with-mthca-mod --with-mlx4-mod --with-mlx4_en-mod --with-cxgb3-mod --with-nes-mod"
+    local OFED_HARDWARE="--with-mthca-mod --with-mlx4-mod --with-mlx4_en-mod --with-mlx5-mod"
 
-    if compare_version $OFED_VERSION 3.0; then
+    if compare_version $OFED_VERSION 2.0; then
 	OFED_CORE="$OFED_CORE --with-madeye-mod --with-rds-mod"
     else
 	OFED_HARDWARE="$OFED_HARDWARE --with-cxgb4-mod"
@@ -1317,7 +1349,7 @@ EOF
     fi
 
     local linuxrelease=$(find_linux_release "$linux")
-    if compare_version $OFED_VERSION 3.0; then
+    if compare_version $OFED_VERSION 2.0; then
         local OFA_KERNEL_RELEASE=$(echo -n ${linuxrelease} | sed -e 's/-/_/g')
     fi
     if ! $RPMBUILD $BUILD_TYPE --define 'build_kernel_ib 1' --define 'build_kernel_ib_devel 1' \
@@ -1653,9 +1685,9 @@ build_ofed() {
     # the actual ofed RPMs don't have the -rc$n or -$date string appened that
     # might be present on the file
     local linuxrelease=$(find_linux_release "$linux")
-    ofed_version=$(echo $ofed_version |
+    ofed_version=$(echo ${ofed_version%-*} |
                    sed -re 's/-(20[0-9]{6,6}-[0-9]{4,4}|rc[0-9]*)$//')
-    local rpm=$(ls $TOPDIR/RPMS/*/${kib_rpm}-devel-${ofed_version}-${linuxrelease//-/_}.*.rpm)
+    local rpm=$(ls $TOPDIR/RPMS/*/${kib_rpm}-devel-${ofed_version}-${linuxrelease//-/_}*.rpm)
     if ! rpm2cpio < $rpm | cpio -id; then
         fatal 1 "could not unpack the ${kib_rpm}-devel rpm."
     fi
@@ -1889,7 +1921,7 @@ set -E
 
 [ -r ~/.lbuildrc ] && . ~/.lbuildrc
 
-options=$(getopt -o d:D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,ofed-version:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
+options=$(getopt -o d:D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,ofed-version:,ofed-type:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
 
 if [ $? != 0 ]; then
     usage 1
@@ -1999,6 +2031,10 @@ while [ "$1" ]; do
             OFED_VERSION="$2"
             shift 2
             ;;
+        --ofed-type)
+            OFED_TYPE="$2"
+            shift 2
+            ;;
         --publish)
             shift
             ;;
@@ -2064,6 +2100,9 @@ unpack_lustre
 BUILDID=$(sed -ne '/^BUILDID =/s/.*= *//p' lustre/META)
 
 load_target
+
+# XXX hack to force ofed build mlnx
+OFED_VERSION="2.0-2.0.5"
 
 if [ -n "$OFED_VERSION" -a "$OFED_VERSION" != "inkernel" ]; then
     download_ofed
