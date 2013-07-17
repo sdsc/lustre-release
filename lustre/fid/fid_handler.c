@@ -154,6 +154,41 @@ int seq_server_alloc_super(struct lu_server_seq *seq,
         RETURN(rc);
 }
 
+int seq_server_alloc_spec(struct lu_server_seq *seq,
+			  struct lu_seq_range *spec,
+			  const struct lu_env *env)
+{
+	struct lu_seq_range *space = &seq->lss_space;
+	int rc = -ENOSPC;
+	ENTRY;
+
+	/*
+	 * In some cases (like recovery after a disaster)
+	 * we may need to allocate sequences manually
+	 * Notice some sequences can be lost if requested
+	 * range doesn't start at the beginning of current
+	 * free space. Also notice it's not possible now
+	 * to allocate sequences out of natural order.
+	 */
+	if (spec->lsr_start >= spec->lsr_end)
+		RETURN(-EINVAL);
+	if (spec->lsr_flags != LU_SEQ_RANGE_MDT &&
+	    spec->lsr_flags != LU_SEQ_RANGE_OST)
+		RETURN(-EINVAL);
+
+	mutex_lock(&seq->lss_mutex);
+	if (spec->lsr_start >= space->lsr_start) {
+		space->lsr_start = spec->lsr_end;
+		rc = seq_store_update(env, seq, spec, 1 /* sync */);
+
+		LCONSOLE_INFO("%s: "DRANGE" sequences allocated: rc = %d \n",
+			      seq->lss_name, PRANGE(spec), rc);
+	}
+	mutex_unlock(&seq->lss_mutex);
+
+	RETURN(rc);
+}
+
 static int __seq_set_init(const struct lu_env *env,
                             struct lu_server_seq *seq)
 {
@@ -411,6 +446,8 @@ int seq_query(struct com_thread_info *info)
 }
 EXPORT_SYMBOL(seq_query);
 
+extern const struct file_operations seq_fld_proc_seq_fops;
+
 static int seq_server_proc_init(struct lu_server_seq *seq)
 {
 #ifdef LPROCFS
@@ -433,6 +470,16 @@ static int seq_server_proc_init(struct lu_server_seq *seq)
                        "proc, rc %d\n", seq->lss_name, rc);
                 GOTO(out_cleanup, rc);
         }
+
+	if (seq->lss_type == LUSTRE_SEQ_CONTROLLER) {
+		rc = lprocfs_seq_create(seq->lss_proc_dir, "fldb", 0644,
+					&seq_fld_proc_seq_fops, seq);
+		if (rc) {
+			CERROR("%s: Can't create fldb for sequence manager "
+			       "proc, rc = %d\n", seq->lss_name, rc);
+			GOTO(out_cleanup, rc);
+		}
+	}
 
         RETURN(0);
 
