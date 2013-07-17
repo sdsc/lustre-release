@@ -153,6 +153,7 @@ int seq_server_alloc_super(struct lu_server_seq *seq,
 
         RETURN(rc);
 }
+EXPORT_SYMBOL(seq_server_alloc_super);
 
 static int __seq_set_init(const struct lu_env *env,
                             struct lu_server_seq *seq)

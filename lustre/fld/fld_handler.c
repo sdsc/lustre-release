@@ -141,8 +141,8 @@ int fld_server_lookup(const struct lu_env *env, struct lu_server_fld *fld,
 		/* On server side, all entries should be in cache.
 		 * If we can not find it in cache, just return error */
 		CERROR("%s: Cannot find sequence "LPX64": rc = %d\n",
-		       fld->lsf_name, seq, -EIO);
-		RETURN(-EIO);
+		       fld->lsf_name, seq, -ENOENT);
+		RETURN(-ENOENT);
 	} else {
 		LASSERT(fld->lsf_control_exp);
 		/* send request to mdt0 i.e. super seq. controller.

@@ -997,6 +997,75 @@ static int lprocfs_wr_enable_remote_dir_gid(struct file *file,
 	return count;
 }
 
+static int lprocfs_mdt_wr_reserved_seq(struct file *file, const char *buffer,
+				       unsigned long count, void *data)
+{
+	struct seq_server_site  *ss;
+	struct obd_device	*obd = data;
+	struct mdt_device	*mdt = mdt_dev(obd->obd_lu_dev);
+	struct lu_seq_range	 range;
+	struct lu_env		 env;
+	__u64			 reserve, old_width;
+	int			 rc;
+	ENTRY;
+
+	/**
+	 * Sometime we have to rebuild Lustre filesystem from an archive
+	 * with FIDs preserved. In this case FLDB needs to be rebuilt
+	 * as well. Recovery utility (through mkfs.lustre) provides us
+	 * with the highest sequence used and we initialize FLDB with an
+	 * entry mapping sequences [xxx; provided] to MDT#0
+	 */
+
+	ss = mdt_seq_site(mdt);
+	LASSERT(ss != NULL);
+	if (ss->ss_node_id != 0) {
+		CERROR("%s: sequences can be reserved on MDT0 only\n",
+			mdt_obd_name(mdt));
+		RETURN(-EINVAL);
+	}
+
+	rc = lu_env_init(&env, LCT_MD_THREAD);
+	if (rc)
+		RETURN(rc);
+
+	reserve = simple_strtoull(buffer, NULL, 0);
+
+	/*
+	 * check whether the sequences have been reserved already
+	 */
+	fld_range_set_type(&range, LU_SEQ_RANGE_MDT);
+	rc = fld_server_lookup(&env, ss->ss_server_fld, FID_SEQ_NORMAL, &range);
+	if (rc == 0) {
+		if (range.lsr_start == FID_SEQ_NORMAL &&
+		    range.lsr_end >= reserve && range.lsr_index == 0) {
+			/* reserved/assigned correctly already */
+			GOTO(out, rc = 0);
+		}
+		CERROR("%s: "DRANGE" have been assigned already\n",
+		       mdt_obd_name(mdt), PRANGE(&range));
+		GOTO(out, rc = -EINVAL);
+	} else if (rc == -ENOENT) {
+		/* good, let's just resevere sequences */
+	} else {
+		CERROR("%s: can't lookup in FLDB: %d\n", mdt_obd_name(mdt), rc);
+		GOTO(out, rc);
+	}
+
+	old_width = ss->ss_control_seq->lss_width;
+	ss->ss_control_seq->lss_width = reserve - FID_SEQ_NORMAL;
+	range.lsr_index = 0;
+	range.lsr_flags = LU_SEQ_RANGE_MDT;
+	rc = seq_server_alloc_super(ss->ss_control_seq, &range, &env);
+	ss->ss_control_seq->lss_width = old_width;
+	if (rc)
+		CERROR("%s: can't reserve: %d\n", mdt_obd_name(mdt), rc);
+
+out:
+	lu_env_fini(&env);
+	RETURN(rc == 0 ? count : rc);
+}
+
 static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
         { "uuid",                       lprocfs_rd_uuid,                 0, 0 },
         { "recovery_status",            lprocfs_obd_rd_recovery_status,  0, 0 },
@@ -1038,6 +1107,7 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 					lprocfs_wr_enable_remote_dir,	    0},
 	{ "enable_remote_dir_gid",	lprocfs_rd_enable_remote_dir_gid,
 					lprocfs_wr_enable_remote_dir_gid,   0},
+	{ "reserve_sequences",		0, lprocfs_mdt_wr_reserved_seq, 0 },
 	{ 0 }
 };
 

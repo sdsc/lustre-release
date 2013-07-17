@@ -4086,6 +4086,33 @@ test_74() { # LU-1606
 }
 run_test 74 "Lustre client api program can compile and link"
 
+test_75() {
+	local fid
+	local seq
+
+	stopall
+	reformat
+
+	start_mgsmds || error "start mds failed"
+	start_ost || error "start ost failed"
+
+	do_facet $SINGLEMDS \
+		lctl set_param mdt.*MDT0000.reserve_sequences=0x0000000280000400
+
+	mount_client $MOUNT || error "mount client failed"
+
+	touch $DIR/$tfile
+	IFS=$'[:]'
+	fid=($($LFS path2fid $DIR/$tfile))
+	let seq=${fid[1]}
+
+	if let "seq < 0x0000000280000400"; then
+		error "used reserved sequence $seq?"
+	fi
+	return
+}
+run_test 75 "be able to reserve specific sequences in FLDB"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
