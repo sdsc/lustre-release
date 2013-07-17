@@ -4116,6 +4116,33 @@ test_75() { # LU-2374
 }
 run_test 75 "The order of --index should be irrelevant"
 
+test_76() {
+	local fid
+	local seq
+
+	stopall
+	reformat
+
+	start_mgsmds || error "start mds failed"
+	start_ost || error "start ost failed"
+
+	do_facet $SINGLEMDS \
+		lctl set_param seq.ctl*.fldb="[0x0000000280000400-0x0000000280000600\):0:mdt"
+
+	mount_client $MOUNT || error "mount client failed"
+
+	touch $DIR/$tfile
+	IFS=$'[:]'
+	fid=($($LFS path2fid $DIR/$tfile))
+	let seq=${fid[1]}
+
+	if let "seq < 0x0000000280000600"; then
+		error "used reserved sequence $seq?"
+	fi
+	return
+}
+run_test 76 "be able to reserve specific sequences in FLDB"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
