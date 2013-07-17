@@ -4116,6 +4116,49 @@ test_75() { # LU-2374
 }
 run_test 75 "The order of --index should be irrelevant"
 
+test_76() {
+	local fid
+	local seq
+	local START
+	local END
+
+	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.4.52) ] ||
+		{ skip "Need MDS version at least 2.4.52"; return 0; }
+
+	umount_client $MOUNT || error "umount client failed"
+
+	start_mds || error "MDT start failed"
+	start_ost
+
+	# START-END - the sequences we'll be reserving
+	START=$(do_facet $SINGLEMDS \
+		lctl get_param -n seq.ctl*.space | awk -F'[[ ]' '{print $2}')
+	END=$((START + (1 << 30)))
+	do_facet $SINGLEMDS \
+		lctl set_param seq.ctl*.fldb="[$START-$END\):0:mdt"
+
+	# reset the sequences MDT0000 has already assigned
+	do_facet $SINGLEMDS \
+		lctl set_param seq.srv*MDT0000.space=clear
+
+	# remount to let the client allocate new sequence
+	mount_client $MOUNT || error "mount client failed"
+
+	touch $DIR/$tfile
+	do_facet $SINGLEMDS \
+		lctl get_param seq.srv*MDT0000.space
+	$LFS path2fid $DIR/$tfile
+
+	IFS='[:]'
+	fid=($($LFS path2fid $DIR/$tfile))
+	let seq=${fid[1]}
+
+	if [[ $seq < $END ]]; then
+		error "used reserved sequence $seq?"
+	fi
+}
+run_test 76 "be able to reserve specific sequences in FLDB"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
