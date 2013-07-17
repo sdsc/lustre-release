@@ -25,6 +25,7 @@ RUNTESTS_SRC=${RUNTESTS_SRC:-"/etc /bin"}
 
 check_and_setup_lustre
 
+test_1() {
 OSCTMP=`echo $MOUNT | tr "/" "."`
 USED=`df | awk "/$OSCTMP/ { print \\$3 }" | tail -n 1`
 USED=`expr $USED + 16`	# Some space for the status file
@@ -129,5 +130,8 @@ fi
 
 complete $SECONDS
 rm -f $FILES
+}
+run_test 1 "All Runtests"
+
 check_and_cleanup_lustre
 exit_status
