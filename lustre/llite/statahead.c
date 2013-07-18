@@ -1067,6 +1067,7 @@ static int ll_statahead_thread(void *arg)
         struct ptlrpc_thread *agl_thread = &sai->sai_agl_thread;
         struct page              *page;
         __u64                     pos    = 0;
+        __u64                     stripe_pos = 0;
         int                       first  = 0;
         int                       rc     = 0;
         struct ll_dir_chain       chain;
@@ -1086,7 +1087,7 @@ static int ll_statahead_thread(void *arg)
 	cfs_waitq_signal(&thread->t_ctl_waitq);
 
 	ll_dir_chain_init(&chain);
-	page = ll_get_dir_page(dir, pos, &chain);
+	page = ll_get_dir_page(dir, pos, stripe_pos, &chain);
 
         while (1) {
                 struct lu_dirpage *dp;
@@ -1201,7 +1202,8 @@ do_it:
                         ll_statahead_one(parent, name, namelen);
                 }
                 pos = le64_to_cpu(dp->ldp_hash_end);
-                if (pos == MDS_DIR_END_OFF) {
+                if (pos == MDS_DIR_END_OFF && (plli->lli_lsm_md == NULL ||
+		    plli->lli_lsm_md->lsm_count == (stripe_pos + 1))) {
                         /*
                          * End of directory reached.
                          */
@@ -1243,8 +1245,12 @@ do_it:
                          */
                         ll_release_page(page, le32_to_cpu(dp->ldp_flags) &
                                               LDF_COLLIDE);
+			if (pos == MDS_DIR_END_OFF) {
+				stripe_pos++;
+				pos = 0;
+			}
                         sai->sai_in_readpage = 1;
-			page = ll_get_dir_page(dir, pos, &chain);
+			page = ll_get_dir_page(dir, pos, stripe_pos, &chain);
                         sai->sai_in_readpage = 0;
                 } else {
                         LASSERT(le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
@@ -1360,23 +1366,24 @@ enum {
 
 static int is_first_dirent(struct inode *dir, struct dentry *dentry)
 {
+	struct ll_inode_info *lli = ll_i2info(dir);
         struct ll_dir_chain   chain;
         struct qstr          *target = &dentry->d_name;
         struct page          *page;
         __u64                 pos    = 0;
+        __u64                 stripe_pos = 0;
         int                   dot_de;
         int                   rc     = LS_NONE_FIRST_DE;
         ENTRY;
 
         ll_dir_chain_init(&chain);
-	page = ll_get_dir_page(dir, pos, &chain);
+	page = ll_get_dir_page(dir, pos, stripe_pos, &chain);
 
         while (1) {
                 struct lu_dirpage *dp;
                 struct lu_dirent  *ent;
 
                 if (IS_ERR(page)) {
-                        struct ll_inode_info *lli = ll_i2info(dir);
 
                         rc = PTR_ERR(page);
                         CERROR("error reading dir "DFID" at "LPU64": "
@@ -1443,7 +1450,8 @@ static int is_first_dirent(struct inode *dir, struct dentry *dentry)
                         GOTO(out, rc);
                 }
                 pos = le64_to_cpu(dp->ldp_hash_end);
-                if (pos == MDS_DIR_END_OFF) {
+                if (pos == MDS_DIR_END_OFF && (lli->lli_lsm_md == NULL ||
+			lli->lli_lsm_md->lsm_count == (stripe_pos + 1))) {
                         /*
                          * End of directory reached.
                          */
@@ -1454,9 +1462,13 @@ static int is_first_dirent(struct inode *dir, struct dentry *dentry)
                          * chain is exhausted
                          * Normal case: continue to the next page.
                          */
-                        ll_release_page(page, le32_to_cpu(dp->ldp_flags) &
-                                              LDF_COLLIDE);
-			page = ll_get_dir_page(dir, pos, &chain);
+			ll_release_page(page, le32_to_cpu(dp->ldp_flags) &
+				        LDF_COLLIDE);
+			if (pos == MDS_DIR_END_OFF) {
+				stripe_pos++;
+				pos = 0;
+			}
+			page = ll_get_dir_page(dir, pos, stripe_pos, &chain);
                 } else {
                         /*
                          * go into overflow page.
