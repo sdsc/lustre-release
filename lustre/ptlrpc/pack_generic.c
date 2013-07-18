@@ -2119,12 +2119,21 @@ void lustre_swab_lmv_desc (struct lmv_desc *ld)
         /* uuid endian insensitive */
 }
 
-void lustre_swab_lmv_stripe_md (struct lmv_stripe_md *mea)
+void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *lsm)
 {
-        __swab32s(&mea->mea_magic);
-        __swab32s(&mea->mea_count);
-        __swab32s(&mea->mea_master);
-        CLASSERT(offsetof(typeof(*mea), mea_padding) != 0);
+	int i;
+
+	__swab32s(&lsm->lsm_md_magic);
+	__swab32s(&lsm->lsm_count);
+	__swab32s(&lsm->lsm_master);
+	__swab32s(&lsm->lsm_hash_type);
+	__swab32s(&lsm->lsm_layout_version);
+	__swab32s(&lsm->lsm_default_count);
+	__swab32s(&lsm->lsm_default_index);
+	for (i = 0; i < lsm->lsm_count; i++) {
+		lustre_swab_lu_fid(&lsm->lsm_oinfo[i].lmo_fid);
+		__swab32s(&lsm->lsm_oinfo[i].lmo_mds);
+	}
 }
 
 void lustre_swab_lmv_user_md(struct lmv_user_md *lum)
