@@ -276,6 +276,8 @@ struct ll_inode_info {
 	bool                            lli_has_smd;
 	struct cl_object	       *lli_clob;
 
+	/* directory stripe information */
+	struct lmv_stripe_md		*lli_lsm_md;
 	/* mutex to request for layout lock exclusively. */
 	struct mutex			lli_layout_mutex;
 	/* valid only inside LAYOUT ibits lock, protected by lli_layout_mutex */
@@ -644,6 +646,7 @@ struct ll_file_data {
 	struct obd_client_handle *fd_lease_och;
 	struct obd_client_handle *fd_och;
 	struct file *fd_file;
+	__u64 lfd_stripe_pos;
 	/* Indicate whether need to report failure when close.
 	 * true: failure is known, not report again.
 	 * false: unknown failure, should report. */
@@ -716,11 +719,10 @@ static void lprocfs_llite_init_vars(struct lprocfs_static_vars *lvars)
 void ll_release_page(struct page *page, int remove);
 extern struct file_operations ll_dir_operations;
 extern struct inode_operations ll_dir_inode_operations;
-struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
+struct page *ll_get_dir_page(struct inode *dir, __u64 hash, __u64 stripe_off,
                              struct ll_dir_chain *chain);
-int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
-		filldir_t filldir);
-
+int ll_dir_read(struct inode *inode, __u64 *_pos, __u64 *stripe_pos,
+		void *cookie, filldir_t filldir);
 int ll_get_mdt_idx(struct inode *inode);
 /* llite/namei.c */
 int ll_objects_destroy(struct ptlrpc_request *request,

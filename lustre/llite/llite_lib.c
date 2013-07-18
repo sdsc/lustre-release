@@ -519,6 +519,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 		GOTO(out_lock_cn_cb, err);
 	}
 
+	lmd.lm_flags = LUSTRE_MD_NEED_MD;
 	err = md_get_lustre_md(sbi->ll_md_exp, request, sbi->ll_dt_exp,
 			       sbi->ll_md_exp, &lmd);
 	if (err) {
@@ -1200,6 +1201,92 @@ struct inode *ll_inode_from_lock(struct ldlm_lock *lock)
         return inode;
 }
 
+static void ll_clear_lsm_md(struct inode *inode)
+{
+        struct ll_inode_info *lli = ll_i2info(inode);
+
+	LASSERT(S_ISDIR(inode->i_mode));
+
+	lmv_free_memmd(lli->lli_lsm_md);
+	lli->lli_lsm_md = NULL;
+}
+
+static void ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
+{
+        struct ll_inode_info *lli = ll_i2info(inode);
+	struct lmv_stripe_md *lsm = md->lsm_md;
+        int idx;
+
+	LASSERT(S_ISDIR(inode->i_mode) && lsm != NULL);
+	for (idx = 0; idx < lsm->lsm_count; idx++) {
+		ino_t ino;
+		struct lu_fid *fid;
+		struct ll_sb_info *sbi = ll_i2sbi(inode);
+		struct inode *lsm_inode;
+
+		fid = &lsm->lsm_oinfo[idx].lmo_fid;
+		ino = cl_fid_build_ino(fid, sbi->ll_flags & LL_SBI_32BIT_API);
+
+		if (idx == 0) {
+			lsm->lsm_oinfo[idx].lmo_root = inode;
+			LASSERT(lsm->lsm_oinfo[idx].lmo_root != NULL);
+		} else {
+			lsm_inode = ll_iget(inode->i_sb, ino, md);
+			LASSERT(lsm->lsm_oinfo[idx].lmo_root == NULL);
+			lsm->lsm_oinfo[idx].lmo_root = lsm_inode;
+		}
+	}
+	if (lli->lli_lsm_md == NULL) {
+		lli->lli_lsm_md = lsm;
+		/* set lsm_md to NULL, so the following free lustre_md
+		 * will not free this lsm */
+		md->lsm_md = NULL;
+		return;
+	}
+
+	/* Compare the old and new stripe information */
+	if (lli->lli_lsm_md->lsm_md_magic != lsm->lsm_md_magic ||
+	    lli->lli_lsm_md->lsm_count != lsm->lsm_count ||
+	    lli->lli_lsm_md->lsm_master != lsm->lsm_master ||
+	    lli->lli_lsm_md->lsm_hash_type != lsm->lsm_hash_type ||
+	    lli->lli_lsm_md->lsm_layout_version != lsm->lsm_layout_version ||
+	    strncmp(lli->lli_lsm_md->lsm_md_pool_name, lsm->lsm_md_pool_name,
+		    strlen(lsm->lsm_md_pool_name))) {
+		CERROR("inode %p %lu mismatch\n"
+		       "    new(%p)     vs     lli_lsm_md(%p):\n"
+		       "    magic:      %x                   %x\n"
+		       "    count:      %x                   %x\n"
+		       "    master:     %x                   %x\n"
+		       "    hash_type:  %x                   %x\n"
+		       "    layout:     %x                   %x\n"
+		       "    pool:       %s                   %s\n",
+		       inode, inode->i_ino, lsm, lli->lli_lsm_md,
+		       lsm->lsm_md_magic, lli->lli_lsm_md->lsm_md_magic,
+		       lsm->lsm_count, lli->lli_lsm_md->lsm_count,
+		       lsm->lsm_master, lli->lli_lsm_md->lsm_master,
+		       lsm->lsm_hash_type, lli->lli_lsm_md->lsm_hash_type,
+		       lsm->lsm_layout_version,
+		       lli->lli_lsm_md->lsm_layout_version,
+		       lsm->lsm_md_pool_name,
+		       lli->lli_lsm_md->lsm_md_pool_name);
+		LBUG();
+	}
+
+	for (idx = 0; idx < lli->lli_lsm_md->lsm_count; idx++) {
+		if (memcmp(&lli->lli_lsm_md->lsm_oinfo[idx].lmo_fid,
+			   &lsm->lsm_oinfo[idx].lmo_fid,
+			   sizeof(lsm->lsm_oinfo[idx].lmo_fid))) {
+			CERROR("FID in lsm mismatch idx %d, old:"DFID
+			       "new:"DFID"\n", idx,
+				PFID(&lli->lli_lsm_md->lsm_oinfo[idx].lmo_fid),
+				PFID(&lsm->lsm_oinfo[idx].lmo_fid));
+			LBUG();
+		}
+	}
+
+	return;
+}
+
 void ll_clear_inode(struct inode *inode)
 {
         struct ll_inode_info *lli = ll_i2info(inode);
@@ -1260,7 +1347,8 @@ void ll_clear_inode(struct inode *inode)
         ll_clear_inode_capas(inode);
         if (!S_ISDIR(inode->i_mode))
                 LASSERT(cfs_list_empty(&lli->lli_agl_list));
-
+	else if (lli->lli_lsm_md != NULL)
+		ll_clear_lsm_md(inode);
         /*
          * XXX This has to be done before lsm is freed below, because
          * cl_object still uses inode lsm.
@@ -1724,7 +1812,10 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 			lli->lli_maxbytes = MAX_LFS_FILESIZE;
 	}
 
-        if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
+	if (S_ISDIR(inode->i_mode) && md->lsm_md != NULL)
+		ll_update_lsm_md(inode, md);
+
+	if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
                 if (body->valid & OBD_MD_FLRMTPERM)
                         ll_update_remote_perm(inode, md->remote_perm);
         }
@@ -2135,12 +2226,13 @@ int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
         int rc;
         ENTRY;
 
-        LASSERT(*inode || sb);
-        sbi = sb ? ll_s2sbi(sb) : ll_i2sbi(*inode);
-        rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
-                              sbi->ll_md_exp, &md);
-        if (rc)
-                RETURN(rc);
+	LASSERT(*inode || sb);
+	sbi = sb ? ll_s2sbi(sb) : ll_i2sbi(*inode);
+	md.lm_flags = LUSTRE_MD_NEED_MD;
+	rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
+			      sbi->ll_md_exp, &md);
+	if (rc)
+		RETURN(rc);
 
         if (*inode) {
                 ll_update_inode(*inode, &md);
@@ -2300,10 +2392,11 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
         ll_i2gids(op_data->op_suppgids, i1, i2);
         op_data->op_fid1 = *ll_inode2fid(i1);
         op_data->op_capa1 = ll_mdscapa_get(i1);
-
+	op_data->op_mea1  = ll_i2info(i1)->lli_lsm_md;
         if (i2) {
                 op_data->op_fid2 = *ll_inode2fid(i2);
                 op_data->op_capa2 = ll_mdscapa_get(i2);
+		op_data->op_mea2  = ll_i2info(i2)->lli_lsm_md;
         } else {
                 fid_zero(&op_data->op_fid2);
                 op_data->op_capa2 = NULL;
