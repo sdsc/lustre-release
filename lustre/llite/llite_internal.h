@@ -198,6 +198,8 @@ struct ll_inode_info {
 			/* "opendir_pid" is the token when lookup/revalid
 			 * -- I am the owner of dir statahead. */
 			pid_t                           d_opendir_pid;
+			/* directory stripe information */
+			struct lmv_stripe_md		*d_lsm_md;
 		} d;
 
 #define lli_readdir_mutex       u.d.d_readdir_mutex
@@ -206,6 +208,7 @@ struct ll_inode_info {
 #define lli_def_acl             u.d.d_def_acl
 #define lli_sa_lock             u.d.d_sa_lock
 #define lli_opendir_pid         u.d.d_opendir_pid
+#define lli_lsm_md		u.d.d_lsm_md
 
 		/* for non-directory */
 		struct {
@@ -648,6 +651,7 @@ struct ll_file_data {
 	struct obd_client_handle *fd_lease_och;
 	struct obd_client_handle *fd_och;
 	struct file *fd_file;
+	__u64 lfd_stripe_pos;
 	/* Indicate whether need to report failure when close.
 	 * true: failure is known, not report again.
 	 * false: unknown failure, should report. */
@@ -717,15 +721,18 @@ static void lprocfs_llite_init_vars(struct lprocfs_static_vars *lvars)
 
 
 /* llite/dir.c */
-void ll_release_page(struct page *page, int remove);
 extern struct file_operations ll_dir_operations;
 extern struct inode_operations ll_dir_inode_operations;
-struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
-                             struct ll_dir_chain *chain);
-int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
-		filldir_t filldir);
-
+int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
+		void *cookie, filldir_t filldir);
 int ll_get_mdt_idx(struct inode *inode);
+
+struct lu_dirent *ll_dir_entry_start(struct inode *dir,
+				     struct md_op_data *op_data);
+
+struct lu_dirent *ll_dir_entry_next(struct inode *dir,
+				    struct md_op_data *op_data,
+				    struct lu_dirent *ent);
 /* llite/namei.c */
 int ll_objects_destroy(struct ptlrpc_request *request,
                        struct inode *dir);
