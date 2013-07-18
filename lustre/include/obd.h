@@ -1067,6 +1067,33 @@ static inline int it_to_lock_mode(struct lookup_intent *it)
         return -EINVAL;
 }
 
+/* lmv structures */
+struct lmv_oinfo {
+	struct lu_fid	lmo_fid;
+	mdsno_t		lmo_mds;
+	struct inode	*lmo_root;
+};
+
+struct lmv_stripe_md {
+	__u32	lsm_md_magic;
+	__u32	lsm_count;
+	__u32	lsm_master;
+	__u32	lsm_hash_type;
+	__u32	lsm_layout_version;
+	__u32	lsm_default_count;
+	__u32	lsm_default_index;
+	char	lsm_md_pool_name[LOV_MAXPOOLNAME];
+	struct lmv_oinfo lsm_oinfo[0];
+};
+
+struct lmv_stripe_md;
+extern int lmv_pack_md(struct lmv_mds_md **lmmp, struct lmv_stripe_md *lsm,
+                       int stripes);
+extern int lmv_alloc_md(struct lmv_mds_md **lmmp, int stripes);
+extern void lmv_free_md(struct lmv_mds_md *lsm);
+extern int lmv_alloc_memmd(struct lmv_stripe_md **lsmp, int stripes);
+extern void lmv_free_memmd(struct lmv_stripe_md *lsm);
+
 struct md_op_data {
         struct lu_fid           op_fid1; /* operation fid1 (usualy parent) */
         struct lu_fid           op_fid2; /* operation fid2 (usualy child) */
@@ -1123,9 +1150,21 @@ struct md_op_data {
 	struct lustre_handle	op_lease_handle;
 };
 
+#define op_stripe_offset       op_ioepoch
+#define op_max_pages           op_valid
+
+struct md_callback {
+	int (*md_blocking_ast)(struct ldlm_lock *lock,
+			       struct ldlm_lock_desc *desc,
+			       void *data, int flag);
+	void (*md_update_inode)(struct inode *inode, loff_t size);
+};
+
 enum op_cli_flags {
 	CLI_SET_MEA	= 1 << 0,
 	CLI_RM_ENTRY	= 1 << 1,
+	CLI_HASH64	= 1 << 2,
+	CLI_API32	= 1 << 3,
 };
 
 struct md_enqueue_info;
@@ -1326,6 +1365,8 @@ enum {
         LUSTRE_OPC_ANY      = (1 << 4)
 };
 
+extern void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *mea);
+
 /* lmv structures */
 #define MEA_MAGIC_LAST_CHAR      0xb2221ca1
 #define MEA_MAGIC_ALL_CHARS      0xb222a11c
@@ -1338,13 +1379,14 @@ enum {
 struct lustre_md {
         struct mdt_body         *body;
         struct lov_stripe_md    *lsm;
-        struct lmv_stripe_md    *mea;
+        struct lmv_stripe_md    *lsm_md;
 #ifdef CONFIG_FS_POSIX_ACL
         struct posix_acl        *posix_acl;
 #endif
         struct mdt_remote_perm  *remote_perm;
         struct obd_capa         *mds_capa;
         struct obd_capa         *oss_capa;
+	__u64			lm_flags;
 };
 
 struct md_open_data {
@@ -1405,7 +1447,11 @@ struct md_ops {
 		       struct obd_capa *, struct ptlrpc_request **);
 
 	int (*m_readpage)(struct obd_export *, struct md_op_data *,
-			  struct page **, struct ptlrpc_request **);
+			  struct md_callback *cb_op,
+			  struct ptlrpc_request **, struct page **);
+
+	int (*m_read_entry)(struct obd_export *, struct md_op_data *,
+			    struct md_callback *cb_op, struct lu_dirent **ld);
 
 	int (*m_unlink)(struct obd_export *, struct md_op_data *,
 			struct ptlrpc_request **);
