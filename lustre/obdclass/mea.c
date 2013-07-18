@@ -103,15 +103,15 @@ hashchoice:
 }
 EXPORT_SYMBOL(raw_name2idx);
 
-int mea_name2idx(struct lmv_stripe_md *mea, const char *name, int namelen)
+int mea_name2idx(struct lmv_stripe_md *lsm, const char *name, int namelen)
 {
         unsigned int c;
 
-        LASSERT(mea && mea->mea_count);
+        LASSERT(lsm && lsm->lsm_count);
 
-	c = raw_name2idx(mea->mea_magic, mea->mea_count, name, namelen);
+	c = raw_name2idx(lsm->lsm_md_magic, lsm->lsm_count, name, namelen);
 
-        LASSERT(c < mea->mea_count);
+        LASSERT(c < lsm->lsm_count);
         return c;
 }
 EXPORT_SYMBOL(mea_name2idx);

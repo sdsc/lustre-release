@@ -2620,26 +2620,30 @@ struct lmv_desc {
 
 extern void lustre_swab_lmv_desc (struct lmv_desc *ld);
 
-/* TODO: lmv_stripe_md should contain mds capabilities for all slave fids */
-struct lmv_stripe_md {
-        __u32         mea_magic;
-        __u32         mea_count;
-        __u32         mea_master;
-        __u32         mea_padding;
-        char          mea_pool_name[LOV_MAXPOOLNAME];
-        struct lu_fid mea_ids[0];
+/* lmv structures */
+#define LMV_MAGIC_V1      0x0CD10CD0    /* normal stripe lmv magic */
+#define LMV_USER_MAGIC    0x0CD20CD0    /* default lmv magic*/
+
+struct lmv_mds_md {
+	__u32 lmv_magic;		/* stripe format version */
+	__u32 lmv_count;		/* stripe count */
+	__u32 lmv_master;		/* master MDT index */
+	__u32 lmv_hash_type;		/* dir stripe policy, i.e. indicate
+					 * which hash function to be used */
+	__u32 lmv_layout_version;	/* Used for directory restriping */
+	__u32 lmv_padding1;
+	__u32 lmv_padding2;
+	__u32 lmv_padding3;
+	char lmv_pool_name[LOV_MAXPOOLNAME];	/* pool name */
+	struct lu_fid lmv_data[0];		/* FIDs for each stripe */
 };
 
-extern void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *mea);
-
-/* lmv structures */
-#define MEA_MAGIC_LAST_CHAR      0xb2221ca1
-#define MEA_MAGIC_ALL_CHARS      0xb222a11c
-#define MEA_MAGIC_HASH_SEGMENT   0xb222a11b
-
-#define MAX_HASH_SIZE_32         0x7fffffffUL
-#define MAX_HASH_SIZE            0x7fffffffffffffffULL
-#define MAX_HASH_HIGHEST_BIT     0x1000000000000000ULL
+static inline int lmv_mds_md_size(int stripes, int lmm_magic)
+{
+	LASSERT(lmm_magic == LMV_MAGIC_V1);
+	return sizeof(struct lmv_mds_md) +
+		stripes * sizeof(struct lu_fid);
+}
 
 enum fld_rpc_opc {
 	FLD_QUERY	= 900,

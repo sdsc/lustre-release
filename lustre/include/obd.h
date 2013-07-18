@@ -1065,6 +1065,38 @@ static inline int it_to_lock_mode(struct lookup_intent *it)
         return -EINVAL;
 }
 
+/* lmv structures */
+struct lmv_oinfo {
+	struct lu_fid	lmo_fid;
+	mdsno_t		lmo_mds;
+	void		*lmo_root;
+};
+
+struct lmv_stripe_md {
+	__u32	lsm_md_magic;
+	__u32	lsm_count;
+	__u32	lsm_master;
+	__u32	lsm_hash_type;
+	__u32	lsm_layout_version;
+	__u32	lsm_default_count;
+	__u32	lsm_default_index;
+	char	lsm_md_pool_name[LOV_MAXPOOLNAME];
+	struct lmv_oinfo lsm_oinfo[0];
+};
+
+static inline int lmv_stripe_md_size(int stripes)
+{
+	return sizeof(struct lmv_stripe_md) +
+	       stripes * sizeof(struct lmv_oinfo);
+}
+
+extern int lmv_pack_md(struct lmv_mds_md **lmmp, struct lmv_stripe_md *lsm,
+                       int stripes);
+extern int lmv_alloc_md(struct lmv_mds_md **lmmp, int stripes);
+extern void lmv_free_md(struct lmv_mds_md *lsm);
+extern int lmv_alloc_memmd(struct lmv_stripe_md **lsmp, int stripes);
+extern void lmv_free_memmd(struct lmv_stripe_md *lsm);
+
 struct md_op_data {
         struct lu_fid           op_fid1; /* operation fid1 (usualy parent) */
         struct lu_fid           op_fid2; /* operation fid2 (usualy child) */
@@ -1119,6 +1151,16 @@ struct md_op_data {
 	/* File object data version for HSM release, on client */
 	__u64			op_data_version;
 	struct lustre_handle	op_lease_handle;
+};
+
+#define op_stripe_offset       op_ioepoch
+#define op_hash64              op_opc
+#define op_max_pages           op_valid
+
+struct md_page_callback {
+	int (*md_blocking_ast)(struct ldlm_lock *lock,
+			       struct ldlm_lock_desc *desc,
+			       void *data, int flag);
 };
 
 enum op_cli_flags {
@@ -1324,6 +1366,8 @@ enum {
         LUSTRE_OPC_ANY      = (1 << 4)
 };
 
+extern void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *mea);
+
 /* lmv structures */
 #define MEA_MAGIC_LAST_CHAR      0xb2221ca1
 #define MEA_MAGIC_ALL_CHARS      0xb222a11c
@@ -1333,16 +1377,21 @@ enum {
 #define MAX_HASH_SIZE            0x7fffffffffffffffULL
 #define MAX_HASH_HIGHEST_BIT     0x1000000000000000ULL
 
+enum {
+        LUSTRE_MD_NEED_MD       = (1 << 0)
+};
+
 struct lustre_md {
         struct mdt_body         *body;
         struct lov_stripe_md    *lsm;
-        struct lmv_stripe_md    *mea;
+        struct lmv_stripe_md    *lsm_md;
 #ifdef CONFIG_FS_POSIX_ACL
         struct posix_acl        *posix_acl;
 #endif
         struct mdt_remote_perm  *remote_perm;
         struct obd_capa         *mds_capa;
         struct obd_capa         *oss_capa;
+	__u64			lm_flags;
 };
 
 struct md_open_data {
@@ -1402,7 +1451,8 @@ struct md_ops {
 		       struct obd_capa *, struct ptlrpc_request **);
 
 	int (*m_readpage)(struct obd_export *, struct md_op_data *,
-			  struct page **, struct ptlrpc_request **);
+			  struct md_page_callback *cb_op,
+			  struct ptlrpc_request **, struct page **);
 
 	int (*m_unlink)(struct obd_export *, struct md_op_data *,
 			struct ptlrpc_request **);
