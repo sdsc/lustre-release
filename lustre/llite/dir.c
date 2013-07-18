@@ -141,109 +141,6 @@
  */
 
 /* returns the page unlocked, but with a reference */
-static int ll_dir_filler(void *_hash, struct page *page0)
-{
-        struct inode *inode = page0->mapping->host;
-        int hash64 = ll_i2sbi(inode)->ll_flags & LL_SBI_64BIT_HASH;
-        struct obd_export *exp = ll_i2sbi(inode)->ll_md_exp;
-        struct ptlrpc_request *request;
-        struct mdt_body *body;
-        struct md_op_data *op_data;
-	__u64 hash = *((__u64 *)_hash);
-        struct page **page_pool;
-        struct page *page;
-        struct lu_dirpage *dp;
-	int max_pages = ll_i2sbi(inode)->ll_md_brw_size >> PAGE_CACHE_SHIFT;
-        int nrdpgs = 0; /* number of pages read actually */
-        int npages;
-        int i;
-        int rc;
-        ENTRY;
-
-        CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p) hash "LPU64"\n",
-               inode->i_ino, inode->i_generation, inode, hash);
-
-	LASSERT(max_pages > 0 && max_pages <= MD_MAX_BRW_PAGES);
-
-        OBD_ALLOC(page_pool, sizeof(page) * max_pages);
-        if (page_pool != NULL) {
-                page_pool[0] = page0;
-        } else {
-                page_pool = &page0;
-                max_pages = 1;
-        }
-        for (npages = 1; npages < max_pages; npages++) {
-                page = page_cache_alloc_cold(inode->i_mapping);
-                if (!page)
-                        break;
-                page_pool[npages] = page;
-        }
-
-        op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
-                                     LUSTRE_OPC_ANY, NULL);
-        op_data->op_npages = npages;
-        op_data->op_offset = hash;
-        rc = md_readpage(exp, op_data, page_pool, &request);
-        ll_finish_md_op_data(op_data);
-        if (rc == 0) {
-                body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
-                /* Checked by mdc_readpage() */
-                LASSERT(body != NULL);
-
-                if (body->valid & OBD_MD_FLSIZE)
-                        cl_isize_write(inode, body->size);
-
-		nrdpgs = (request->rq_bulk->bd_nob_transferred +
-			  PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
-                SetPageUptodate(page0);
-        }
-        unlock_page(page0);
-        ptlrpc_req_finished(request);
-
-        CDEBUG(D_VFSTRACE, "read %d/%d pages\n", nrdpgs, npages);
-
-        for (i = 1; i < npages; i++) {
-                unsigned long offset;
-                int ret;
-
-                page = page_pool[i];
-
-                if (rc < 0 || i >= nrdpgs) {
-                        page_cache_release(page);
-                        continue;
-                }
-
-                SetPageUptodate(page);
-
-		dp = kmap(page);
-		hash = le64_to_cpu(dp->ldp_hash_start);
-		kunmap(page);
-
-                offset = hash_x_index(hash, hash64);
-
-		prefetchw(&page->flags);
-		ret = add_to_page_cache_lru(page, inode->i_mapping, offset,
-					    GFP_KERNEL);
-		if (ret == 0)
-                        unlock_page(page);
-		else
-                        CDEBUG(D_VFSTRACE, "page %lu add to page cache failed:"
-                               " %d\n", offset, ret);
-                page_cache_release(page);
-        }
-
-        if (page_pool != &page0)
-                OBD_FREE(page_pool, sizeof(struct page *) * max_pages);
-        EXIT;
-        return rc;
-}
-
-static void ll_check_page(struct inode *dir, struct page *page)
-{
-        /* XXX: check page format later */
-        SetPageChecked(page);
-}
-
 void ll_release_page(struct page *page, int remove)
 {
         kunmap(page);
@@ -256,230 +153,53 @@ void ll_release_page(struct page *page, int remove)
         page_cache_release(page);
 }
 
-/*
- * Find, kmap and return page that contains given hash.
- */
-static struct page *ll_dir_page_locate(struct inode *dir, __u64 *hash,
-                                       __u64 *start, __u64 *end)
+struct page *ll_get_dir_page(struct inode *dir, __u64 off, __u64 stripe_off,
+			     struct ll_dir_chain *chain)
 {
-        int hash64 = ll_i2sbi(dir)->ll_flags & LL_SBI_64BIT_HASH;
-        struct address_space *mapping = dir->i_mapping;
-        /*
-         * Complement of hash is used as an index so that
-         * radix_tree_gang_lookup() can be used to find a page with starting
-         * hash _smaller_ than one we are looking for.
-         */
-        unsigned long offset = hash_x_index(*hash, hash64);
-        struct page *page;
-        int found;
+	struct page *page;
+	struct md_op_data *op_data;
+	struct md_page_callback cb_op;
+	struct ptlrpc_request *request = NULL;
+	int hash64 = ll_i2sbi(dir)->ll_flags & LL_SBI_64BIT_HASH;
+	int rc = 0;
 
-        TREE_READ_LOCK_IRQ(mapping);
-        found = radix_tree_gang_lookup(&mapping->page_tree,
-                                       (void **)&page, offset, 1);
-        if (found > 0) {
-                struct lu_dirpage *dp;
+	op_data = ll_prep_md_op_data(NULL, dir, dir, NULL, 0, 0,
+				     LUSTRE_OPC_ANY, dir);
+	/**
+	 *FIXME choose the start offset of the readdir
+	 */
+	op_data->op_stripe_offset = stripe_off;
+	op_data->op_offset = off;
+	op_data->op_hash64 = hash64;
+	op_data->op_max_pages =
+		ll_i2sbi(dir)->ll_md_brw_size >> PAGE_CACHE_SHIFT;
+	cb_op.md_blocking_ast = ll_md_blocking_ast;
 
-                page_cache_get(page);
-                TREE_READ_UNLOCK_IRQ(mapping);
-                /*
-                 * In contrast to find_lock_page() we are sure that directory
-                 * page cannot be truncated (while DLM lock is held) and,
-                 * hence, can avoid restart.
-                 *
-                 * In fact, page cannot be locked here at all, because
-		 * ll_dir_filler() does synchronous io.
-                 */
-                wait_on_page(page);
-                if (PageUptodate(page)) {
-			dp = kmap(page);
-                        if (BITS_PER_LONG == 32 && hash64) {
-                                *start = le64_to_cpu(dp->ldp_hash_start) >> 32;
-                                *end   = le64_to_cpu(dp->ldp_hash_end) >> 32;
-                                *hash  = *hash >> 32;
-                        } else {
-                                *start = le64_to_cpu(dp->ldp_hash_start);
-                                *end   = le64_to_cpu(dp->ldp_hash_end);
-                        }
-                        LASSERTF(*start <= *hash, "start = "LPX64",end = "
-                                 LPX64",hash = "LPX64"\n", *start, *end, *hash);
-                        CDEBUG(D_VFSTRACE, "page %lu [%llu %llu], hash "LPU64"\n",
-                               offset, *start, *end, *hash);
-                        if (*hash > *end) {
-                                ll_release_page(page, 0);
-                                page = NULL;
-                        } else if (*end != *start && *hash == *end) {
-                                /*
-                                 * upon hash collision, remove this page,
-                                 * otherwise put page reference, and
-                                 * ll_get_dir_page() will issue RPC to fetch
-                                 * the page we want.
-                                 */
-                                ll_release_page(page,
-                                    le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
-                                page = NULL;
-                        }
-                } else {
-                        page_cache_release(page);
-                        page = ERR_PTR(-EIO);
-                }
+	rc = md_readpage(ll_i2mdexp(dir), op_data, &cb_op, &request, &page);
+	if (request != NULL) {
+		struct mdt_body   *body;
 
-        } else {
-                TREE_READ_UNLOCK_IRQ(mapping);
-                page = NULL;
-        }
-        return page;
+		body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
+		/* Checked by mdc_readpage() */
+		LASSERT(body != NULL);
+
+		if (body->valid & OBD_MD_FLSIZE)
+			cl_isize_write(dir, body->size);
+		ptlrpc_req_finished(request);
+	}
+	ll_finish_md_op_data(op_data);
+	if (rc)
+		page = ERR_PTR(rc);
+	return page;
 }
 
-struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
-                             struct ll_dir_chain *chain)
-{
-        ldlm_policy_data_t policy = {.l_inodebits = {MDS_INODELOCK_UPDATE} };
-        struct address_space *mapping = dir->i_mapping;
-        struct lustre_handle lockh;
-        struct lu_dirpage *dp;
-        struct page *page;
-        ldlm_mode_t mode;
-        int rc;
-        __u64 start = 0;
-        __u64 end = 0;
-        __u64 lhash = hash;
-        struct ll_inode_info *lli = ll_i2info(dir);
-        int hash64 = ll_i2sbi(dir)->ll_flags & LL_SBI_64BIT_HASH;
-
-        mode = LCK_PR;
-        rc = md_lock_match(ll_i2sbi(dir)->ll_md_exp, LDLM_FL_BLOCK_GRANTED,
-                           ll_inode2fid(dir), LDLM_IBITS, &policy, mode, &lockh);
-	if (!rc) {
-		struct ldlm_enqueue_info einfo = {
-			.ei_type = LDLM_IBITS,
-			.ei_mode = mode,
-			.ei_cb_bl = ll_md_blocking_ast,
-			.ei_cb_cp = ldlm_completion_ast,
-		};
-		struct lookup_intent it = { .it_op = IT_READDIR };
-		struct ptlrpc_request *request;
-		struct md_op_data *op_data;
-
-		op_data = ll_prep_md_op_data(NULL, dir, NULL, NULL, 0, 0,
-		LUSTRE_OPC_ANY, NULL);
-		if (IS_ERR(op_data))
-			return (void *)op_data;
-
-		rc = md_enqueue(ll_i2sbi(dir)->ll_md_exp, &einfo, &it,
-				op_data, &lockh, NULL, 0, NULL, 0);
-
-		ll_finish_md_op_data(op_data);
-
-		request = (struct ptlrpc_request *)it.d.lustre.it_data;
-		if (request)
-			ptlrpc_req_finished(request);
-		if (rc < 0) {
-			CERROR("lock enqueue: "DFID" at "LPU64": rc %d\n",
-				PFID(ll_inode2fid(dir)), hash, rc);
-			return ERR_PTR(rc);
-		}
-
-		CDEBUG(D_INODE, "setting lr_lvb_inode to inode %p (%lu/%u)\n",
-		       dir, dir->i_ino, dir->i_generation);
-		md_set_lock_data(ll_i2sbi(dir)->ll_md_exp,
-				 &it.d.lustre.it_lock_handle, dir, NULL);
-        } else {
-                /* for cross-ref object, l_ast_data of the lock may not be set,
-                 * we reset it here */
-                md_set_lock_data(ll_i2sbi(dir)->ll_md_exp, &lockh.cookie,
-                                 dir, NULL);
-        }
-        ldlm_lock_dump_handle(D_OTHER, &lockh);
-
-	mutex_lock(&lli->lli_readdir_mutex);
-        page = ll_dir_page_locate(dir, &lhash, &start, &end);
-        if (IS_ERR(page)) {
-                CERROR("dir page locate: "DFID" at "LPU64": rc %ld\n",
-                       PFID(ll_inode2fid(dir)), lhash, PTR_ERR(page));
-                GOTO(out_unlock, page);
-        } else if (page != NULL) {
-                /*
-                 * XXX nikita: not entirely correct handling of a corner case:
-                 * suppose hash chain of entries with hash value HASH crosses
-                 * border between pages P0 and P1. First both P0 and P1 are
-                 * cached, seekdir() is called for some entry from the P0 part
-                 * of the chain. Later P0 goes out of cache. telldir(HASH)
-                 * happens and finds P1, as it starts with matching hash
-                 * value. Remaining entries from P0 part of the chain are
-                 * skipped. (Is that really a bug?)
-                 *
-                 * Possible solutions: 0. don't cache P1 is such case, handle
-                 * it as an "overflow" page. 1. invalidate all pages at
-                 * once. 2. use HASH|1 as an index for P1.
-                 */
-                GOTO(hash_collision, page);
-        }
-
-        page = read_cache_page(mapping, hash_x_index(hash, hash64),
-			       ll_dir_filler, &lhash);
-        if (IS_ERR(page)) {
-                CERROR("read cache page: "DFID" at "LPU64": rc %ld\n",
-                       PFID(ll_inode2fid(dir)), hash, PTR_ERR(page));
-                GOTO(out_unlock, page);
-        }
-
-        wait_on_page(page);
-        (void)kmap(page);
-        if (!PageUptodate(page)) {
-                CERROR("page not updated: "DFID" at "LPU64": rc %d\n",
-                       PFID(ll_inode2fid(dir)), hash, -5);
-                goto fail;
-        }
-        if (!PageChecked(page))
-                ll_check_page(dir, page);
-        if (PageError(page)) {
-                CERROR("page error: "DFID" at "LPU64": rc %d\n",
-                       PFID(ll_inode2fid(dir)), hash, -5);
-                goto fail;
-        }
-hash_collision:
-        dp = page_address(page);
-        if (BITS_PER_LONG == 32 && hash64) {
-                start = le64_to_cpu(dp->ldp_hash_start) >> 32;
-                end   = le64_to_cpu(dp->ldp_hash_end) >> 32;
-                lhash = hash >> 32;
-        } else {
-                start = le64_to_cpu(dp->ldp_hash_start);
-                end   = le64_to_cpu(dp->ldp_hash_end);
-                lhash = hash;
-        }
-        if (end == start) {
-                LASSERT(start == lhash);
-                CWARN("Page-wide hash collision: "LPU64"\n", end);
-                if (BITS_PER_LONG == 32 && hash64)
-                        CWARN("Real page-wide hash collision at ["LPU64" "LPU64
-                              "] with hash "LPU64"\n",
-                              le64_to_cpu(dp->ldp_hash_start),
-                              le64_to_cpu(dp->ldp_hash_end), hash);
-                /*
-                 * Fetch whole overflow chain...
-                 *
-                 * XXX not yet.
-                 */
-                goto fail;
-        }
-out_unlock:
-	mutex_unlock(&lli->lli_readdir_mutex);
-        ldlm_lock_decref(&lockh, mode);
-        return page;
-
-fail:
-        ll_release_page(page, 1);
-        page = ERR_PTR(-EIO);
-        goto out_unlock;
-}
-
-int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
-		filldir_t filldir)
+int ll_dir_read(struct inode *inode, __u64 *_pos, __u64 *_stripe_pos,
+		void *cookie, filldir_t filldir)
 {
         struct ll_inode_info *info       = ll_i2info(inode);
         struct ll_sb_info    *sbi        = ll_i2sbi(inode);
 	__u64                 pos        = *_pos;
+	__u64                 stripe_pos = *_stripe_pos;
         int                   api32      = ll_need_32bit_api(sbi);
         int                   hash64     = sbi->ll_flags & LL_SBI_64BIT_HASH;
         struct page          *page;
@@ -490,7 +210,7 @@ int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
 
         ll_dir_chain_init(&chain);
 
-	page = ll_get_dir_page(inode, pos, &chain);
+	page = ll_get_dir_page(inode, pos, stripe_pos, &chain);
 
         while (rc == 0 && !done) {
                 struct lu_dirpage *dp;
@@ -549,7 +269,10 @@ int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
                         next = le64_to_cpu(dp->ldp_hash_end);
                         if (!done) {
                                 pos = next;
-                                if (pos == MDS_DIR_END_OFF) {
+                                if (pos == MDS_DIR_END_OFF &&
+				    (info->lli_lsm_md == NULL ||
+				     info->lli_lsm_md->lsm_count ==
+				     (stripe_pos + 1))) {
                                         /*
                                          * End of directory reached.
                                          */
@@ -564,8 +287,14 @@ int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
                                             le32_to_cpu(dp->ldp_flags) &
                                                         LDF_COLLIDE);
 					next = pos;
+					if (pos == MDS_DIR_END_OFF) {
+						stripe_pos++;
+						pos = 0;
+					}
+
 					page = ll_get_dir_page(inode, pos,
-                                                               &chain);
+							       stripe_pos,
+							       &chain);
                                 } else {
                                         /*
                                          * go into overflow page.
@@ -586,6 +315,7 @@ int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
         }
 
 	*_pos = pos;
+	*_stripe_pos = stripe_pos;
 	ll_dir_chain_fini(&chain);
 	RETURN(rc);
 }
@@ -596,6 +326,7 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 	struct ll_file_data	*lfd	= LUSTRE_FPRIVATE(filp);
 	struct ll_sb_info	*sbi	= ll_i2sbi(inode);
 	__u64			pos	= lfd->lfd_pos;
+	__u64			stripe_pos = lfd->lfd_stripe_pos;
 	int			hash64	= sbi->ll_flags & LL_SBI_64BIT_HASH;
 	int			api32	= ll_need_32bit_api(sbi);
 	int			rc;
@@ -614,8 +345,9 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 		 */
 		GOTO(out, rc = 0);
 
-	rc = ll_dir_read(inode, &pos, cookie, filldir);
+	rc = ll_dir_read(inode, &pos, &stripe_pos, cookie, filldir);
 	lfd->lfd_pos = pos;
+	lfd->lfd_stripe_pos = stripe_pos;
         if (pos == MDS_DIR_END_OFF) {
                 if (api32)
                         filp->f_pos = LL_DIR_END_OFF_32BIT;
