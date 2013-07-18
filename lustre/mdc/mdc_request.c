@@ -552,25 +552,25 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
                                "but eadatasize 0\n");
                         RETURN(-EPROTO);
                 }
-                if (md->body->valid & OBD_MD_MEA) {
-                        lmvsize = md->body->eadatasize;
-                        lmv = req_capsule_server_sized_get(pill, &RMF_MDT_MD,
-                                                           lmvsize);
-                        if (!lmv)
-                                GOTO(out, rc = -EPROTO);
+		if (md->body->valid & OBD_MD_MEA) {
+			lmvsize = md->body->eadatasize;
+			lmv = req_capsule_server_sized_get(pill, &RMF_MDT_MD,
+							   lmvsize);
+			if (!lmv)
+				GOTO(out, rc = -EPROTO);
 
-                        rc = obd_unpackmd(md_exp, (void *)&md->mea, lmv,
-                                          lmvsize);
-                        if (rc < 0)
-                                GOTO(out, rc);
+			rc = obd_unpackmd(md_exp, (void *)&md->lsm_md, lmv,
+					  lmvsize);
+			if (rc < 0)
+				GOTO(out, rc);
 
-                        if (rc < sizeof(*md->mea)) {
-                                CDEBUG(D_INFO, "size too small:  "
-                                       "rc < sizeof(*md->mea) (%d < %d)\n",
-                                        rc, (int)sizeof(*md->mea));
-                                GOTO(out, rc = -EPROTO);
-                        }
-                }
+			if (rc < sizeof(*md->lsm_md)) {
+				CDEBUG(D_INFO, "size too small:  "
+				       "rc < sizeof(*md->lsm_md) (%d < %d)\n",
+					rc, (int)sizeof(*md->lsm_md));
+				GOTO(out, rc = -EPROTO);
+			}
+		}
         }
         rc = 0;
 
@@ -1052,88 +1052,440 @@ out:
 EXPORT_SYMBOL(mdc_sendpage);
 #endif
 
-int mdc_readpage(struct obd_export *exp, struct md_op_data *op_data,
-                 struct page **pages, struct ptlrpc_request **request)
+static int mdc_getpage(struct obd_export *exp, struct lu_fid *fid,
+                       __u64 offset, struct obd_capa *oc,
+                       struct page **pages, int npages,
+                       struct ptlrpc_request **request)
 {
-        struct ptlrpc_request   *req;
-        struct ptlrpc_bulk_desc *desc;
-        int                      i;
-        cfs_waitq_t              waitq;
-        int                      resends = 0;
-        struct l_wait_info       lwi;
-        int                      rc;
-        ENTRY;
+	struct ptlrpc_request   *req;
+	struct ptlrpc_bulk_desc *desc;
+	int                      i;
+	cfs_waitq_t              waitq;
+	int                      resends = 0;
+	struct l_wait_info       lwi;
+	int                      rc;
+	ENTRY;
 
-        *request = NULL;
-        cfs_waitq_init(&waitq);
+	*request = NULL;
+	cfs_waitq_init(&waitq);
 
 restart_bulk:
-        req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_MDS_READPAGE);
-        if (req == NULL)
-                RETURN(-ENOMEM);
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_MDS_READPAGE);
+	if (req == NULL)
+		RETURN(-ENOMEM);
 
-        mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
+	mdc_set_capa_size(req, &RMF_CAPA1, oc);
 
-        rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_READPAGE);
-        if (rc) {
-                ptlrpc_request_free(req);
-                RETURN(rc);
-        }
+	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_READPAGE);
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
 
-        req->rq_request_portal = MDS_READPAGE_PORTAL;
-        ptlrpc_at_set_req_timeout(req);
+	req->rq_request_portal = MDS_READPAGE_PORTAL;
+	ptlrpc_at_set_req_timeout(req);
 
-	desc = ptlrpc_prep_bulk_imp(req, op_data->op_npages, 1, BULK_PUT_SINK,
+	desc = ptlrpc_prep_bulk_imp(req, npages, 1, BULK_PUT_SINK,
 				    MDS_BULK_PORTAL);
-        if (desc == NULL) {
-                ptlrpc_request_free(req);
-                RETURN(-ENOMEM);
-        }
+	if (desc == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(-ENOMEM);
+	}
 
-        /* NB req now owns desc and will free it when it gets freed */
-        for (i = 0; i < op_data->op_npages; i++)
+	/* NB req now owns desc and will free it when it gets freed */
+	for (i = 0; i < npages; i++)
 		ptlrpc_prep_bulk_page_pin(desc, pages[i], 0, PAGE_CACHE_SIZE);
 
-        mdc_readdir_pack(req, op_data->op_offset,
-			 PAGE_CACHE_SIZE * op_data->op_npages,
-                         &op_data->op_fid1, op_data->op_capa1);
+	mdc_readdir_pack(req, offset, PAGE_CACHE_SIZE * npages, fid, oc);
 
-        ptlrpc_request_set_replen(req);
-        rc = ptlrpc_queue_wait(req);
-        if (rc) {
-                ptlrpc_req_finished(req);
-                if (rc != -ETIMEDOUT)
-                        RETURN(rc);
+	ptlrpc_request_set_replen(req);
+	rc = ptlrpc_queue_wait(req);
+	if (rc) {
+		ptlrpc_req_finished(req);
+		if (rc != -ETIMEDOUT)
+			RETURN(rc);
 
-                resends++;
-                if (!client_should_resend(resends, &exp->exp_obd->u.cli)) {
-                        CERROR("too many resend retries, returning error\n");
-                        RETURN(-EIO);
-                }
-                lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(resends), NULL, NULL, NULL);
-                l_wait_event(waitq, 0, &lwi);
+		resends++;
+		if (!client_should_resend(resends, &exp->exp_obd->u.cli)) {
+			CERROR("too many resend retries, returning error\n");
+			RETURN(-EIO);
+		}
+		lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(resends), NULL, NULL,
+				       NULL);
+		l_wait_event(waitq, 0, &lwi);
 
-                goto restart_bulk;
-        }
+		goto restart_bulk;
+	}
 
-        rc = sptlrpc_cli_unwrap_bulk_read(req, req->rq_bulk,
-                                          req->rq_bulk->bd_nob_transferred);
-        if (rc < 0) {
-                ptlrpc_req_finished(req);
-                RETURN(rc);
-        }
+	rc = sptlrpc_cli_unwrap_bulk_read(req, req->rq_bulk,
+					  req->rq_bulk->bd_nob_transferred);
+	if (rc < 0) {
+		ptlrpc_req_finished(req);
+		RETURN(rc);
+	}
 
-        if (req->rq_bulk->bd_nob_transferred & ~LU_PAGE_MASK) {
-                CERROR("Unexpected # bytes transferred: %d (%ld expected)\n",
-                        req->rq_bulk->bd_nob_transferred,
-			PAGE_CACHE_SIZE * op_data->op_npages);
-                ptlrpc_req_finished(req);
-                RETURN(-EPROTO);
-        }
+	if (req->rq_bulk->bd_nob_transferred & ~LU_PAGE_MASK) {
+		CERROR("Unexpected # bytes transferred: %d (%ld expected)\n",
+			req->rq_bulk->bd_nob_transferred,
+			PAGE_CACHE_SIZE * npages);
+		ptlrpc_req_finished(req);
+		RETURN(-EPROTO);
+	}
 
-        *request = req;
-        RETURN(0);
+	*request = req;
+	RETURN(0);
 }
+
+#ifdef __KERNEL__
+static void mdc_release_page(struct page *page, int remove)
+{
+        kunmap(page);
+        if (remove) {
+                lock_page(page);
+                if (likely(page->mapping != NULL))
+                        truncate_complete_page(page->mapping, page);
+                unlock_page(page);
+        }
+        page_cache_release(page);
+}
+
+static struct page *mdc_page_locate(struct lmv_oinfo *oinfo, __u64 *hash,
+				    __u64 *start, __u64 *end, int hash64)
+{
+	struct inode *inode = (struct inode *)oinfo->lmo_root;
+	struct address_space *mapping = inode->i_mapping;
+	/*
+	 * Complement of hash is used as an index so that
+	 * radix_tree_gang_lookup() can be used to find a page with starting
+	 * hash _smaller_ than one we are looking for.
+	 */
+	unsigned long offset = hash_x_index(*hash, hash64);
+	struct page *page;
+	int found;
+
+	TREE_READ_LOCK_IRQ(mapping);
+	found = radix_tree_gang_lookup(&mapping->page_tree,
+				       (void **)&page, offset, 1);
+	if (found > 0) {
+		struct lu_dirpage *dp;
+
+		page_cache_get(page);
+		TREE_READ_UNLOCK_IRQ(mapping);
+		/*
+		 * In contrast to find_lock_page() we are sure that directory
+		 * page cannot be truncated (while DLM lock is held) and,
+		 * hence, can avoid restart.
+		 *
+		 * In fact, page cannot be locked here at all, because
+		 * ll_dir_filler() does synchronous io.
+		 */
+		wait_on_page_locked(page);
+		if (PageUptodate(page)) {
+			dp = kmap(page);
+			if (BITS_PER_LONG == 32 && hash64) {
+				*start = le64_to_cpu(dp->ldp_hash_start) >> 32;
+				*end   = le64_to_cpu(dp->ldp_hash_end) >> 32;
+				*hash  = *hash >> 32;
+			} else {
+				*start = le64_to_cpu(dp->ldp_hash_start);
+				*end   = le64_to_cpu(dp->ldp_hash_end);
+			}
+			LASSERTF(*start <= *hash, "start = "LPX64",end = "
+				 LPX64",hash = "LPX64"\n", *start, *end, *hash);
+			CDEBUG(D_VFSTRACE, "page%lu [%llu %llu], hash"LPU64"\n",
+			       offset, *start, *end, *hash);
+			if (*hash > *end) {
+				mdc_release_page(page, 0);
+				page = NULL;
+			} else if (*end != *start && *hash == *end) {
+				/*
+				 * upon hash collision, remove this page,
+				 * otherwise put page reference, and
+				 * ll_get_dir_page() will issue RPC to fetch
+				 * the page we want.
+				 */
+				mdc_release_page(page,
+				    le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
+				page = NULL;
+			}
+		} else {
+			page_cache_release(page);
+			page = ERR_PTR(-EIO);
+		}
+	} else {
+		TREE_READ_UNLOCK_IRQ(mapping);
+		page = NULL;
+	}
+	return page;
+}
+
+/* parameters for readdir page */
+struct readpage_param {
+	struct md_op_data	*rp_mod;
+	__u64			rp_off;
+	int			rp_hash64;
+	struct obd_export	*rp_exp;
+	struct lmv_oinfo	*rp_oinfo;
+	struct ptlrpc_request	**rp_reqp;
+};
+
+/**
+ * Read dir page from cache first, if it can not find it, read it from
+ * server and add into the cache.
+ * Page in MDS_READPAGE RPC is packed in LU_PAGE_SIZE, and each page contains
+ * a header lu_dirpage which describes the start/end hash, and whether this
+ * page is empty (contains no dir entry) or hash collide with next page.
+ * After client receives reply, several pages will be integrated into dir page
+ * in CFS_PAGE_SIZE (if CFS_PAGE_SIZE greater than LU_PAGE_SIZE), and the
+ * lu_dirpage for this integrated page will be adjusted.
+ **/
+static int mdc_read_page(void *data, struct page *page0)
+{
+	struct readpage_param *rp = data;
+	struct page **page_pool;
+	struct page *page;
+	struct lu_dirpage *dp;
+	int nrdpgs = 0; /* number of pages read actually */
+	int npages;
+	int max_pages = rp->rp_mod->op_max_pages;
+	struct inode *inode = (struct inode *)rp->rp_oinfo->lmo_root;
+	int i;
+	int rc;
+	ENTRY;
+
+	LASSERT(max_pages > 0 && max_pages <= PTLRPC_MAX_BRW_PAGES);
+
+	OBD_ALLOC(page_pool, sizeof(page) * max_pages);
+	if (page_pool != NULL) {
+		page_pool[0] = page0;
+	} else {
+		page_pool = &page0;
+		max_pages = 1;
+	}
+
+	for (npages = 1; npages < max_pages; npages++) {
+		page = page_cache_alloc_cold(inode->i_mapping);
+		if (!page)
+			break;
+		page_pool[npages] = page;
+	}
+
+	rc = mdc_getpage(rp->rp_exp, &rp->rp_oinfo->lmo_fid, rp->rp_off,
+			 rp->rp_mod->op_capa1, page_pool, npages, rp->rp_reqp);
+	if (rc == 0)
+		nrdpgs = ((*rp->rp_reqp)->rq_bulk->bd_nob_transferred +
+			   PAGE_CACHE_SIZE-1) >> PAGE_CACHE_SHIFT;
+
+	unlock_page(page0);
+	SetPageUptodate(page0);
+	CDEBUG(D_CACHE, "read %d/%d pages\n", nrdpgs, npages);
+	for (i = 1; i < npages; i++) {
+		unsigned long	offset;
+		__u64		hash;
+		int ret;
+
+		page = page_pool[i];
+
+		if (rc < 0 || i >= nrdpgs) {
+			page_cache_release(page);
+			continue;
+		}
+
+		SetPageUptodate(page);
+
+		dp = kmap(page);
+		hash = le64_to_cpu(dp->ldp_hash_start);
+		kunmap(page);
+
+		offset = hash_x_index(hash, rp->rp_hash64);
+
+		prefetchw(&page->flags);
+		ret = add_to_page_cache_lru(page, inode->i_mapping, offset,
+					    GFP_KERNEL);
+		if (ret == 0)
+			unlock_page(page);
+		else
+			CDEBUG(D_VFSTRACE, "page %lu add to page cache failed:"
+			       " rc = %d\n", offset, ret);
+		page_cache_release(page);
+	}
+
+	if (page_pool != &page0)
+		OBD_FREE(page_pool, sizeof(struct page *) * max_pages);
+
+	RETURN(rc);
+}
+
+static int mdc_readpage(struct obd_export *exp, struct md_op_data *op_data,
+                        struct md_page_callback *cb_op,
+                        struct ptlrpc_request **request,
+                        struct page **ppage)
+{
+	struct lookup_intent it = { .it_op = IT_READDIR };
+	struct page *page;
+	struct lmv_oinfo *lmo = (struct lmv_oinfo *)op_data->op_mea1;
+	struct inode *dir = (struct inode *)lmo->lmo_root;
+	struct address_space *mapping = dir->i_mapping;
+	struct lu_dirpage *dp;
+	__u64 start = 0;
+	__u64 end = 0;
+	struct lustre_handle lockh;
+	struct ptlrpc_request *enq_req = NULL;
+	struct readpage_param rp_param;
+	int rc;
+
+	ENTRY;
+
+	*ppage = NULL;
+	rc = mdc_intent_lock(exp, op_data, NULL, 0, &it, 0, &enq_req,
+			     cb_op->md_blocking_ast, 0);
+	if (enq_req != NULL)
+		ptlrpc_req_finished(enq_req);
+	if (rc < 0) {
+		CERROR(DFID"lock enqueue fails: rc = %d\n",
+		       PFID(&op_data->op_fid1), rc);
+		RETURN(rc);
+	}
+	rc = 0;
+	mdc_set_lock_data(exp, &it.d.lustre.it_lock_handle, dir, NULL);
+
+	rp_param.rp_off = op_data->op_offset;
+	rp_param.rp_hash64 = op_data->op_hash64;
+	page = mdc_page_locate(lmo, &rp_param.rp_off, &start, &end,
+			       rp_param.rp_hash64);
+	if (IS_ERR(page)) {
+		CERROR("dir page locate: "DFID" at "LPU64": rc %ld\n",
+		       PFID(&op_data->op_fid1), rp_param.rp_off, PTR_ERR(page));
+		GOTO(out_unlock, page);
+	} else if (page != NULL) {
+		/*
+		 * XXX nikita: not entirely correct handling of a corner case:
+		 * suppose hash chain of entries with hash value HASH crosses
+		 * border between pages P0 and P1. First both P0 and P1 are
+		 * cached, seekdir() is called for some entry from the P0 part
+		 * of the chain. Later P0 goes out of cache. telldir(HASH)
+		 * happens and finds P1, as it starts with matching hash
+		 * value. Remaining entries from P0 part of the chain are
+		 * skipped. (Is that really a bug?)
+		 *
+		 * Possible solutions: 0. don't cache P1 is such case, handle
+		 * it as an "overflow" page. 1. invalidate all pages at
+		 * once. 2. use HASH|1 as an index for P1.
+		 */
+		GOTO(hash_collision, page);
+	}
+
+	rp_param.rp_exp = exp;
+	rp_param.rp_oinfo = lmo;
+	rp_param.rp_mod = op_data;
+	rp_param.rp_reqp = request;
+	page = read_cache_page(mapping,
+			       hash_x_index(rp_param.rp_off,
+					    rp_param.rp_hash64),
+			       mdc_read_page, &rp_param);
+	if (IS_ERR(page)) {
+		CERROR("read cache page: "DFID" at "LPU64": rc %ld\n",
+		       PFID(&op_data->op_fid1), rp_param.rp_off, PTR_ERR(page));
+		GOTO(out_unlock, page);
+	}
+
+	wait_on_page_locked(page);
+	(void)kmap(page);
+	if (!PageUptodate(page)) {
+		CERROR("page not updated: "DFID" at "LPU64": rc %d\n",
+		       PFID(&op_data->op_fid1), rp_param.rp_off, -5);
+		goto fail;
+	}
+	if (!PageChecked(page))
+		SetPageChecked(page);
+	if (PageError(page)) {
+		CERROR("page error: "DFID" at "LPU64": rc %d\n",
+		       PFID(&op_data->op_fid1), rp_param.rp_off, -5);
+		goto fail;
+	}
+
+hash_collision:
+        dp = page_address(page);
+        if (BITS_PER_LONG == 32 && rp_param.rp_hash64) {
+                start = le64_to_cpu(dp->ldp_hash_start) >> 32;
+                end   = le64_to_cpu(dp->ldp_hash_end) >> 32;
+                rp_param.rp_off = op_data->op_offset >> 32;
+        } else {
+                start = le64_to_cpu(dp->ldp_hash_start);
+                end   = le64_to_cpu(dp->ldp_hash_end);
+                rp_param.rp_off = op_data->op_offset;
+        }
+        if (end == start) {
+                LASSERT(start == rp_param.rp_off);
+                CWARN("Page-wide hash collision: %#lx\n", (unsigned long)end);
+#if BITS_PER_LONG == 32
+                CWARN("Real page-wide hash collision at ["LPU64" "LPU64"] with "
+                      "hash "LPU64"\n", le64_to_cpu(dp->ldp_hash_start),
+                      le64_to_cpu(dp->ldp_hash_end), op_data->op_offset);
+#endif
+
+                /*
+                 * Fetch whole overflow chain...
+                 *
+                 * XXX not yet.
+                 */
+                goto fail;
+        }
+        *ppage = page;
+out_unlock:
+        lockh.cookie = it.d.lustre.it_lock_handle;
+        ldlm_lock_decref(&lockh, it.d.lustre.it_lock_mode);
+        return rc;
+fail:
+        kunmap(page);
+	mdc_release_page(page, 1);
+        rc = -EIO;
+        goto out_unlock;
+}
+
+#else
+
+static struct page
+*mdc_read_page(struct obd_export *exp, struct lmv_oinfo *lmo,
+               unsigned long index, struct obd_capa *oc,
+               struct ptlrpc_request **req)
+{
+	struct page *page;
+	int rc;
+
+	OBD_PAGE_ALLOC(page, 0);
+	if (!page)
+		return ERR_PTR(-ENOMEM);
+
+	rc = mdc_getpage(exp, &lmo->lmo_fid, index, oc, &page, 1, req);
+	if (unlikely(rc)) {
+		OBD_PAGE_FREE(page);
+		return ERR_PTR(rc);
+	}
+	return page;
+}
+
+
+static int mdc_readpage(struct obd_export *exp, struct md_op_data *op_data,
+                        struct md_page_callback *cb_op,
+                        struct ptlrpc_request **request,
+                        struct page **ppage)
+{
+        struct page *page;
+        struct lmv_oinfo *lmo = (struct lmv_oinfo *)op_data->op_mea1;
+        int rc = 0;
+
+        page = mdc_read_page(exp, lmo,
+                             (unsigned long)op_data->op_offset,
+                             op_data->op_capa1, request);
+        if (IS_ERR(page))
+                return PTR_ERR(page);
+
+        *ppage = page;
+
+        return rc;
+}
+#endif
 
 static int mdc_statfs(const struct lu_env *env,
                       struct obd_export *exp, struct obd_statfs *osfs,
