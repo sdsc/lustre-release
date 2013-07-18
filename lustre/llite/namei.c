@@ -195,6 +195,16 @@ static void ll_invalidate_negative_children(struct inode *dir)
 	ll_unlock_dcache(dir);
 }
 
+static void ll_dir_truncate_pages(struct ldlm_lock *lock, struct inode *dir)
+{
+	struct lu_fid match_fid;
+
+	fid_extract_from_res_name(&match_fid, &lock->l_resource->lr_name);
+
+	md_cancel_page(ll_i2mdexp(dir), ll_i2info(dir)->lli_lsm_md,
+		       &match_fid, NULL);
+}
+
 int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                        void *data, int flag)
 {
@@ -285,7 +295,7 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                      (bits & MDS_INODELOCK_UPDATE)) {
                         CDEBUG(D_INODE, "invalidating inode %lu\n",
                                inode->i_ino);
-                        truncate_inode_pages(inode->i_mapping, 0);
+                        ll_dir_truncate_pages(lock, inode);
 			ll_invalidate_negative_children(inode);
 		}
 

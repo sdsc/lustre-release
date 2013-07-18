@@ -2027,16 +2027,31 @@ static inline int md_sync(struct obd_export *exp, const struct lu_fid *fid,
         RETURN(rc);
 }
 
-static inline int md_readpage(struct obd_export *exp, struct md_op_data *opdata,
-                              struct page **pages,
-                              struct ptlrpc_request **request)
+static inline int md_readpage(struct obd_export *exp,
+			      struct md_op_data *op_data,
+			      struct md_page_callback *cb_op,
+			      struct ptlrpc_request **request,
+			      struct page **page)
 {
         int rc;
         ENTRY;
         EXP_CHECK_MD_OP(exp, readpage);
         EXP_MD_COUNTER_INCREMENT(exp, readpage);
-        rc = MDP(exp->exp_obd, readpage)(exp, opdata, pages, request);
+        rc = MDP(exp->exp_obd, readpage)(exp, op_data, cb_op, request, page);
         RETURN(rc);
+}
+
+static inline int md_cancel_page(struct obd_export *exp,
+				 struct lmv_stripe_md *lsm,
+				 struct lu_fid *match_fid,
+				 struct lmv_oinfo *lmo)
+{
+	int rc;
+	ENTRY;
+	EXP_CHECK_MD_OP(exp, cancel_page);
+	EXP_MD_COUNTER_INCREMENT(exp, cancel_page);
+	rc = MDP(exp->exp_obd, cancel_page)(exp, lsm, match_fid, lmo);
+	RETURN(rc);
 }
 
 static inline int md_unlink(struct obd_export *exp, struct md_op_data *op_data,
