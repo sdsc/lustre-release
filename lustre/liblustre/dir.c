@@ -61,8 +61,8 @@
 #include <dirent.h>
 
 /* (new) readdir implementation overview can be found in lustre/llite/dir.c */
-
-static int llu_dir_do_readpage(struct inode *inode, struct page *page)
+static int llu_dir_do_readpage(struct inode *inode, __u32 stripe_offset,
+                               struct page *page)
 {
         struct llu_inode_info *lli = llu_i2info(inode);
         struct intnl_stat     *st = llu_i2stat(inode);
@@ -72,11 +72,10 @@ static int llu_dir_do_readpage(struct inode *inode, struct page *page)
         struct mdt_body       *body;
         struct lookup_intent   it = { .it_op = IT_READDIR };
         struct md_op_data      op_data = {{ 0 }};
-        ldlm_policy_data_t policy = { .l_inodebits = { MDS_INODELOCK_UPDATE } };
+	ldlm_policy_data_t policy = { .l_inodebits = { MDS_INODELOCK_UPDATE } };
         int rc = 0;
         ENTRY;
 
-        llu_prep_md_op_data(&op_data, inode, NULL, NULL, 0, 0, LUSTRE_OPC_ANY);
         rc = md_lock_match(sbi->ll_md_exp, LDLM_FL_BLOCK_GRANTED,
                            &lli->lli_fid, LDLM_IBITS, &policy, LCK_CR, &lockh);
         if (!rc) {
@@ -87,6 +86,9 @@ static int llu_dir_do_readpage(struct inode *inode, struct page *page)
 			.ei_cb_cp	= ldlm_completion_ast,
 			.ei_cbdata	= inode,
 		};
+
+                llu_prep_md_op_data(&op_data, inode, NULL, NULL, 0, 0,
+                                    LUSTRE_OPC_ANY);
 
                 rc = md_enqueue(sbi->ll_md_exp, &einfo, &it,
                                 &op_data, &lockh, NULL, 0, NULL,
@@ -100,10 +102,14 @@ static int llu_dir_do_readpage(struct inode *inode, struct page *page)
                 }
         }
         ldlm_lock_dump_handle(D_OTHER, &lockh);
-
-        op_data.op_offset = (__u64)hash_x_index(page->index, 0);
-        op_data.op_npages = 1;
-        rc = md_readpage(sbi->ll_md_exp, &op_data, &page, &request);
+        /**
+         *FIXME choose the start offset of the readdir
+         */
+        op_data.op_stripe_offset = stripe_offset;
+        op_data.op_offset = page->index;
+        op_data.op_mea1 = lli->lli_lsm_md;
+        op_data.op_fid1 = lli->lli_fid;
+        rc = md_readpage(sbi->ll_md_exp, &op_data, NULL, &request, &page);
         if (!rc) {
                 body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
                 LASSERT(body != NULL);         /* checked by md_readpage() */
@@ -120,25 +126,31 @@ static int llu_dir_do_readpage(struct inode *inode, struct page *page)
         return rc;
 }
 
+static inline unsigned long hash_x_index(__u64 hash, int hash64)
+{
+        return ~0UL - hash;
+}
+
 static struct page *llu_dir_read_page(struct inode *ino, __u64 hash,
-                                     int exact, struct ll_dir_chain *chain)
+				     __u64 stripe_offset,
+				     struct ll_dir_chain *chain)
 {
 	struct page *page;
-        int rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        OBD_PAGE_ALLOC(page, 0);
-        if (!page)
-                RETURN(ERR_PTR(-ENOMEM));
-        page->index = hash_x_index(hash, 0);
+	OBD_PAGE_ALLOC(page, 0);
+	if (!page)
+		RETURN(ERR_PTR(-ENOMEM));
+	page->index = hash_x_index(hash, 0);
 
-        rc = llu_dir_do_readpage(ino, page);
-        if (rc) {
-                OBD_PAGE_FREE(page);
-                RETURN(ERR_PTR(rc));
-        }
+	rc = llu_dir_do_readpage(ino, stripe_offset, page);
+	if (rc) {
+		OBD_PAGE_FREE(page);
+		RETURN(ERR_PTR(rc));
+	}
 
-        return page;
+	return page;
 }
 
 void *(*memmover)(void *, const void *, size_t) = memmove;
@@ -197,6 +209,7 @@ ssize_t llu_iop_filldirentries(struct inode *dir, _SYSIO_OFF_T *basep,
         int filled = 0;
         int rc;
         int done;
+	__u64 stripe_off = 0;
         __u16 type;
         ENTRY;
 
@@ -217,7 +230,7 @@ ssize_t llu_iop_filldirentries(struct inode *dir, _SYSIO_OFF_T *basep,
         done  = 0;
         ll_dir_chain_init(&chain);
 
-        page = llu_dir_read_page(dir, pos, 0, &chain);
+        page = llu_dir_read_page(dir, pos, stripe_off, &chain);
         while (rc == 0 && !done) {
                 struct lu_dirpage *dp;
                 struct lu_dirent  *ent;
@@ -263,32 +276,40 @@ ssize_t llu_iop_filldirentries(struct inode *dir, _SYSIO_OFF_T *basep,
                                                (loff_t)hash, ino, type,
                                                &filled);
                         }
-                        next = le64_to_cpu(dp->ldp_hash_end);
-                        OBD_PAGE_FREE(page);
-                        if (!done) {
-                                pos = next;
-                                if (pos == MDS_DIR_END_OFF)
-                                        /*
-                                         * End of directory reached.
-                                         */
-                                        done = 1;
-                                else if (1 /* chain is exhausted*/)
-                                        /*
-                                         * Normal case: continue to the next
-                                         * page.
-                                         */
-                                        page = llu_dir_read_page(dir, pos, 1,
-                                                               &chain);
-                                else {
-                                        /*
-                                         * go into overflow page.
-                                         */
-                                }
-                        } else {
-                                pos = hash;
-                                if (filled == 0)
-                                        GOTO(out, filled = -EINVAL);
-                        }
+			next = le64_to_cpu(dp->ldp_hash_end);
+			OBD_PAGE_FREE(page);
+			if (!done) {
+				pos = next;
+				if (pos == MDS_DIR_END_OFF &&
+				    (lli->lli_lsm_md == NULL ||
+				     lli->lli_lsm_md->lsm_count ==
+				     (stripe_off + 1))) {
+					/*
+					 * End of directory reached.
+					 */
+					done = 1;
+				} else if (1 /* chain is exhausted*/) {
+					/*
+					 * Normal case: continue to
+					 * the next page.
+					 */
+					if (pos == MDS_DIR_END_OFF) {
+						stripe_off++;
+						pos = 0;
+					}
+					page = llu_dir_read_page(dir, pos,
+								 stripe_off,
+								 &chain);
+				} else {
+						/*
+						 * go into overflow page.
+						 */
+					}
+				} else {
+					pos = hash;
+					if (filled == 0)
+						GOTO(out, filled = -EINVAL);
+				}
                 } else {
                         rc = PTR_ERR(page);
                         CERROR("error reading dir "DFID" at %lu: rc %d\n",
