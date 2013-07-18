@@ -2123,6 +2123,29 @@ static int lmv_sync(struct obd_export *exp, const struct lu_fid *fid,
         RETURN(rc);
 }
 
+static int lmv_cancel_page(struct obd_export *exp, struct lmv_stripe_md *lsm,
+			   struct lu_fid *match_fid, struct lmv_oinfo *lmo)
+{
+	struct obd_device       *obd = exp->exp_obd;
+	struct lmv_obd          *lmv = &obd->u.lmv;
+	struct lmv_tgt_desc     *tgt;
+	int                      rc = 0;
+	int                      idx;
+
+	if (!lsm)
+		return 0;
+
+	for (idx = 0; idx < lsm->lsm_count; idx++) {
+		if (lu_fid_eq(match_fid, &lsm->lsm_oinfo[idx].lmo_fid)) {
+			tgt = lmv_get_target(lmv, lsm->lsm_oinfo[idx].lmo_mds);
+			rc = md_cancel_page(tgt->ltd_exp, lsm, match_fid,
+				       &lsm->lsm_oinfo[idx]);
+			break;
+		}
+	}
+	return rc;
+}
+
 /*
  * Adjust a set of pages, each page containing an array of lu_dirpages,
  * so that each page can be used as a single logical lu_dirpage.
@@ -2227,42 +2250,53 @@ static void lmv_adjust_dirpages(struct page **pages, int ncfspgs, int nlupgs)
 #endif	/* PAGE_CACHE_SIZE > LU_PAGE_SIZE */
 
 static int lmv_readpage(struct obd_export *exp, struct md_op_data *op_data,
-			struct page **pages, struct ptlrpc_request **request)
+			struct md_page_callback *cb_op,
+			struct ptlrpc_request **request, struct page **page)
 {
 	struct obd_device	*obd = exp->exp_obd;
 	struct lmv_obd		*lmv = &obd->u.lmv;
-	__u64			offset = op_data->op_offset;
-	int			rc;
+	int			tgt_idx = op_data->op_stripe_offset;
+	struct lmv_stripe_md	*lsm = op_data->op_mea1;
+	struct lmv_tgt_desc	*tgt;
 	int			ncfspgs; /* pages read in PAGE_CACHE_SIZE */
 	int			nlupgs; /* pages read in LU_PAGE_SIZE */
-	struct lmv_tgt_desc	*tgt;
+	int			rc;
 	ENTRY;
 
 	rc = lmv_check_connect(obd);
 	if (rc)
 		RETURN(rc);
 
-	CDEBUG(D_INODE, "READPAGE at "LPX64" from "DFID"\n",
-	       offset, PFID(&op_data->op_fid1));
-
-	tgt = lmv_find_target(lmv, &op_data->op_fid1);
+	LASSERT(lsm != NULL);
+	CDEBUG(D_INFO, "READPAGE at "LPX64":"LPU64" from "DFID":"DFID"\n",
+	       op_data->op_offset, op_data->op_stripe_offset,
+	       PFID(&op_data->op_fid1),
+	       PFID(&lsm->lsm_oinfo[tgt_idx].lmo_fid));
+	LASSERT(lsm != NULL);
+	tgt = lmv_get_target(lmv, lsm->lsm_oinfo[tgt_idx].lmo_mds);
 	if (IS_ERR(tgt))
 		RETURN(PTR_ERR(tgt));
 
-	rc = md_readpage(tgt->ltd_exp, op_data, pages, request);
+	op_data->op_mea1 = (struct lmv_stripe_md *)&lsm->lsm_oinfo[tgt_idx];
+	op_data->op_fid1 = lsm->lsm_oinfo[tgt_idx].lmo_fid;
+	op_data->op_fid2 = lsm->lsm_oinfo[tgt_idx].lmo_fid;
+	rc = md_readpage(tgt->ltd_exp, op_data, cb_op, request, page);
 	if (rc != 0)
 		RETURN(rc);
 
-	ncfspgs = ((*request)->rq_bulk->bd_nob_transferred +
-		   PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
-	nlupgs = (*request)->rq_bulk->bd_nob_transferred >> LU_PAGE_SHIFT;
-	LASSERT(!((*request)->rq_bulk->bd_nob_transferred & ~LU_PAGE_MASK));
-	LASSERT(ncfspgs > 0 && ncfspgs <= op_data->op_npages);
+	if (*request != NULL) {
+		ncfspgs = ((*request)->rq_bulk->bd_nob_transferred +
+			   PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+		nlupgs = (*request)->rq_bulk->bd_nob_transferred >>
+			 LU_PAGE_SHIFT;
+		LASSERT(!((*request)->rq_bulk->bd_nob_transferred &
+			  ~LU_PAGE_MASK));
 
-	CDEBUG(D_INODE, "read %d(%d)/%d pages\n", ncfspgs, nlupgs,
-	       op_data->op_npages);
+		CDEBUG(D_INODE, "read %d(%d)/%d pages\n", ncfspgs, nlupgs,
+		       op_data->op_npages);
 
-	lmv_adjust_dirpages(pages, ncfspgs, nlupgs);
+		lmv_adjust_dirpages(pages, ncfspgs, nlupgs);
+	}
 
 	RETURN(rc);
 }
@@ -2476,108 +2510,196 @@ int lmv_set_info_async(const struct lu_env *env, struct obd_export *exp,
         RETURN(-EINVAL);
 }
 
+int lmv_pack_md(struct lmv_mds_md **lmmp, struct lmv_stripe_md *lsm,
+		int stripe_count)
+{
+	int	lsm_size = 0;
+	int	cplen;
+	int	i;
+	ENTRY;
+
+	LASSERT(lmmp != NULL);
+
+	/* Free lmm */
+	if (*lmmp != NULL && lsm == NULL) {
+		lsm_size = lmv_mds_md_size((*lmmp)->lmv_count,
+					   (*lmmp)->lmv_magic);
+		OBD_FREE(*lmmp, lsm_size);
+		*lmmp = NULL;
+		RETURN(0);
+	}
+
+	/* Alloc lmm */
+	if (*lmmp == NULL && lsm == NULL) {
+		lsm_size = lmv_mds_md_size(stripe_count, LMV_MAGIC_V1);
+		OBD_ALLOC(*lmmp, lsm_size);
+		(*lmmp)->lmv_count = stripe_count;
+		(*lmmp)->lmv_magic = cpu_to_le32(LMV_MAGIC_V1);
+		if (*lmmp == NULL)
+			RETURN(-ENOMEM);
+		RETURN(lsm_size);
+	}
+	/* Unpack lmm */
+	LASSERT(lsm != NULL);
+	lsm_size = lmv_mds_md_size(lsm->lsm_count, lsm->lsm_md_magic);
+	if (*lmmp == NULL) {
+		OBD_ALLOC(*lmmp, lsm_size);
+		if (*lmmp == NULL)
+			RETURN(-ENOMEM);
+	}
+
+	(*lmmp)->lmv_magic = cpu_to_le32(lsm->lsm_md_magic);
+	(*lmmp)->lmv_count = cpu_to_le32(lsm->lsm_count);
+	(*lmmp)->lmv_master = cpu_to_le32(lsm->lsm_master);
+	(*lmmp)->lmv_hash_type = cpu_to_le32(lsm->lsm_hash_type);
+
+	cplen = strlcpy((*lmmp)->lmv_pool_name, lsm->lsm_md_pool_name,
+			sizeof((*lmmp)->lmv_pool_name));
+
+	if (cplen >= sizeof((*lmmp)->lmv_pool_name))
+		RETURN(-E2BIG);
+
+	for (i = 0; i < lsm->lsm_count; i++) {
+		fid_cpu_to_le(&(*lmmp)->lmv_data[i],
+			      &lsm->lsm_oinfo[i].lmo_fid);
+	}
+
+	RETURN(lsm_size);
+}
+EXPORT_SYMBOL(lmv_pack_md);
+
+int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
+		  struct lmv_mds_md *lmm, int stripe_count)
+{
+	struct lmv_stripe_md *lsm;
+	int     lsm_size;
+	int     cplen;
+	int     i;
+	ENTRY;
+
+	LASSERT(lsmp != NULL);
+
+	lsm = *lsmp;
+	/* Free memmd */
+	if (lsm != NULL && lmm == NULL) {
+		lsm_size = lmv_stripe_md_size(lsm->lsm_count);
+		OBD_FREE(lsm, lsm_size);
+		*lsmp = NULL;
+		RETURN(0);
+	}
+
+	/* Alloc memmd */
+	if (lsm == NULL && lmm == NULL) {
+		lsm_size = lmv_stripe_md_size(stripe_count);
+		OBD_ALLOC(lsm, lsm_size);
+		if (lsm == NULL)
+			RETURN(-ENOMEM);
+		lsm->lsm_count = stripe_count;
+		*lsmp = lsm;
+		RETURN(0);
+	}
+
+	/* Unpack memmd */
+	LASSERT(lmm != NULL);
+
+	LASSERTF(le32_to_cpu(lmm->lmv_magic) == le32_to_cpu(LMV_MAGIC_V1) ||
+		 le32_to_cpu(lmm->lmv_magic) == le32_to_cpu(LMV_USER_MAGIC),
+		 "lmv magic is %x\n", le32_to_cpu(lmm->lmv_magic));
+
+	if (le32_to_cpu(lmm->lmv_magic) == le32_to_cpu(LMV_MAGIC_V1))
+		lsm_size = lmv_stripe_md_size(lmm->lmv_count);
+	else
+		/**
+		 * Unpack default dirstripe(lmv_user_md) to lmv_stripe_md,
+		 * stripecount should be 0 then.
+		 */
+		lsm_size = lmv_stripe_md_size(0);
+
+	if (lsm == NULL) {
+		OBD_ALLOC(lsm, lsm_size);
+		if (lsm)
+			RETURN(-ENOMEM);
+		*lsmp = lsm;
+	}
+
+	if (le32_to_cpu(lmm->lmv_magic) == le32_to_cpu(LMV_USER_MAGIC)) {
+		lsm->lsm_md_magic = le32_to_cpu(LMV_MAGIC_V1);
+		RETURN(lsm_size);
+	}
+
+	lsm->lsm_md_magic = le32_to_cpu(lmm->lmv_magic);
+	lsm->lsm_count = le32_to_cpu(lmm->lmv_count);
+	lsm->lsm_master = le32_to_cpu(lmm->lmv_master);
+	lsm->lsm_hash_type = le32_to_cpu(lmm->lmv_hash_type);
+	lsm->lsm_layout_version = le32_to_cpu(lmm->lmv_layout_version);
+
+	cplen = strlcpy(lsm->lsm_md_pool_name, lmm->lmv_pool_name,
+			sizeof(lsm->lsm_md_pool_name));
+
+	if (cplen >= sizeof(lsm->lsm_md_pool_name))
+		RETURN(-E2BIG);
+
+	CDEBUG(D_INFO, "unpack lsm count %d, master %d hash_type %d"
+	       "layout_version %d\n", lsm->lsm_count,
+	       lsm->lsm_master, lsm->lsm_hash_type,
+	       lsm->lsm_layout_version);
+
+	for (i = 0; i < le32_to_cpu(lmm->lmv_count); i++) {
+		struct lmv_obd *lmv;
+		int rc;
+
+		LASSERT(exp != NULL);
+		lmv = &exp->exp_obd->u.lmv;
+		fid_le_to_cpu(&lsm->lsm_oinfo[i].lmo_fid,
+			      &lmm->lmv_data[i]);
+		rc = lmv_fld_lookup(lmv, &lsm->lsm_oinfo[i].lmo_fid,
+				    &lsm->lsm_oinfo[i].lmo_mds);
+		if (rc != 0)
+			RETURN(rc);
+		CDEBUG(D_INFO, "unpack fid #%d "DFID"\n", i,
+		       PFID(&lsm->lsm_oinfo[i].lmo_fid));
+	}
+	RETURN(lsm_size);
+}
+
+int lmv_alloc_memmd(struct lmv_stripe_md **lsmp, int stripes)
+{
+        return lmv_unpack_md(NULL, lsmp, NULL, stripes);
+}
+EXPORT_SYMBOL(lmv_alloc_memmd);
+
+void lmv_free_memmd(struct lmv_stripe_md *lsm)
+{
+        lmv_unpack_md(NULL, &lsm, NULL, 0);
+}
+EXPORT_SYMBOL(lmv_free_memmd);
+
+int lmv_unpackmd(struct obd_export *exp, struct lov_stripe_md **lsmp,
+                 struct lov_mds_md *lsm, int disk_len)
+{
+	return lmv_unpack_md(exp, (struct lmv_stripe_md **)lsmp,
+			     (struct lmv_mds_md *)lsm, disk_len);
+}
+
 int lmv_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
                struct lov_stripe_md *lsm)
 {
-        struct obd_device         *obd = class_exp2obd(exp);
-        struct lmv_obd            *lmv = &obd->u.lmv;
-        struct lmv_stripe_md      *meap;
-        struct lmv_stripe_md      *lsmp;
-        int                        mea_size;
-        int                        i;
-        ENTRY;
+        struct obd_device       *obd = exp->exp_obd;
+        struct lmv_obd          *lmv_obd = &obd->u.lmv;
+        struct lmv_stripe_md    *lmv = (struct lmv_stripe_md *)lsm;
+        int stripe_count;
 
-        mea_size = lmv_get_easize(lmv);
-        if (!lmmp)
-                RETURN(mea_size);
+        if (lmmp == NULL) {
+                if (lsm)
+                        stripe_count = lmv->lsm_count;
+                else
+                        stripe_count = lmv_obd->desc.ld_tgt_count;
 
-        if (*lmmp && !lsm) {
-                OBD_FREE_LARGE(*lmmp, mea_size);
-                *lmmp = NULL;
-                RETURN(0);
+                return lmv_mds_md_size(stripe_count, LMV_MAGIC_V1);
         }
 
-        if (*lmmp == NULL) {
-                OBD_ALLOC_LARGE(*lmmp, mea_size);
-                if (*lmmp == NULL)
-                        RETURN(-ENOMEM);
-        }
-
-        if (!lsm)
-                RETURN(mea_size);
-
-        lsmp = (struct lmv_stripe_md *)lsm;
-        meap = (struct lmv_stripe_md *)*lmmp;
-
-        if (lsmp->mea_magic != MEA_MAGIC_LAST_CHAR &&
-            lsmp->mea_magic != MEA_MAGIC_ALL_CHARS)
-                RETURN(-EINVAL);
-
-        meap->mea_magic = cpu_to_le32(lsmp->mea_magic);
-        meap->mea_count = cpu_to_le32(lsmp->mea_count);
-        meap->mea_master = cpu_to_le32(lsmp->mea_master);
-
-	for (i = 0; i < lmv->desc.ld_tgt_count; i++) {
-		meap->mea_ids[i] = lsmp->mea_ids[i];
-		fid_cpu_to_le(&meap->mea_ids[i], &lsmp->mea_ids[i]);
-	}
-
-        RETURN(mea_size);
-}
-
-int lmv_unpackmd(struct obd_export *exp, struct lov_stripe_md **lsmp,
-                 struct lov_mds_md *lmm, int lmm_size)
-{
-        struct obd_device          *obd = class_exp2obd(exp);
-        struct lmv_stripe_md      **tmea = (struct lmv_stripe_md **)lsmp;
-        struct lmv_stripe_md       *mea = (struct lmv_stripe_md *)lmm;
-        struct lmv_obd             *lmv = &obd->u.lmv;
-        int                         mea_size;
-        int                         i;
-        __u32                       magic;
-        ENTRY;
-
-        mea_size = lmv_get_easize(lmv);
-        if (lsmp == NULL)
-                return mea_size;
-
-        if (*lsmp != NULL && lmm == NULL) {
-                OBD_FREE_LARGE(*tmea, mea_size);
-                *lsmp = NULL;
-                RETURN(0);
-        }
-
-        LASSERT(mea_size == lmm_size);
-
-        OBD_ALLOC_LARGE(*tmea, mea_size);
-        if (*tmea == NULL)
-                RETURN(-ENOMEM);
-
-        if (!lmm)
-                RETURN(mea_size);
-
-        if (mea->mea_magic == MEA_MAGIC_LAST_CHAR ||
-            mea->mea_magic == MEA_MAGIC_ALL_CHARS ||
-            mea->mea_magic == MEA_MAGIC_HASH_SEGMENT)
-        {
-                magic = le32_to_cpu(mea->mea_magic);
-        } else {
-                /*
-                 * Old mea is not handled here.
-                 */
-                CERROR("Old not supportable EA is found\n");
-                LBUG();
-        }
-
-        (*tmea)->mea_magic = magic;
-        (*tmea)->mea_count = le32_to_cpu(mea->mea_count);
-        (*tmea)->mea_master = le32_to_cpu(mea->mea_master);
-
-        for (i = 0; i < (*tmea)->mea_count; i++) {
-                (*tmea)->mea_ids[i] = mea->mea_ids[i];
-                fid_le_to_cpu(&(*tmea)->mea_ids[i], &(*tmea)->mea_ids[i]);
-        }
-        RETURN(mea_size);
+        return lmv_pack_md((struct lmv_mds_md **)lmmp,
+                           (struct lmv_stripe_md *)lsm, 0);
 }
 
 static int lmv_cancel_unused(struct obd_export *exp, const struct lu_fid *fid,
@@ -2656,8 +2778,30 @@ int lmv_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
 		      struct lustre_md *md)
 {
 	struct lmv_obd          *lmv = &exp->exp_obd->u.lmv;
+	__u64			flags = md->lm_flags;
+	int                      rc;
+	ENTRY;
 
-	return md_get_lustre_md(lmv->tgts[0]->ltd_exp, req, dt_exp, md_exp, md);
+	rc = md_get_lustre_md(lmv->tgts[0]->ltd_exp, req, dt_exp, md_exp, md);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (S_ISDIR(md->body->mode) && !(md->body->valid & OBD_MD_MEA) &&
+	    (flags & LUSTRE_MD_NEED_MD)) {
+		struct lmv_stripe_md *lsm = NULL;
+
+		lmv_alloc_memmd(&lsm, 1);
+		lsm->lsm_md_magic = le32_to_cpu(LMV_MAGIC_V1);
+		lsm->lsm_count = 1;
+		fid_le_to_cpu(&lsm->lsm_oinfo[0].lmo_fid, &md->body->fid1);
+		rc = lmv_fld_lookup(lmv, &lsm->lsm_oinfo[0].lmo_fid,
+				    &lsm->lsm_oinfo[0].lmo_mds);
+		lsm->lsm_master = lsm->lsm_oinfo[0].lmo_mds;
+		md->lsm_md = lsm;
+		md->body->valid |= OBD_MD_MEA;
+	}
+
+	RETURN(rc);
 }
 
 int lmv_free_lustre_md(struct obd_export *exp, struct lustre_md *md)
@@ -2666,8 +2810,8 @@ int lmv_free_lustre_md(struct obd_export *exp, struct lustre_md *md)
 	struct lmv_obd          *lmv = &obd->u.lmv;
 	ENTRY;
 
-	if (md->mea)
-		obd_free_memmd(exp, (void *)&md->mea);
+	if (md->lsm_md != NULL)
+		lmv_free_memmd(md->lsm_md);
 	RETURN(md_free_lustre_md(lmv->tgts[0]->ltd_exp, md));
 }
 
@@ -2914,6 +3058,7 @@ struct md_ops lmv_md_ops = {
         .m_setxattr             = lmv_setxattr,
         .m_sync                 = lmv_sync,
         .m_readpage             = lmv_readpage,
+        .m_cancel_page		= lmv_cancel_page,
         .m_unlink               = lmv_unlink,
         .m_init_ea_size         = lmv_init_ea_size,
         .m_cancel_unused        = lmv_cancel_unused,

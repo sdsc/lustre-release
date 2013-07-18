@@ -976,6 +976,9 @@ static int mdc_finish_intent_lock(struct obd_export *exp,
         LASSERT(request != LP_POISON);
         LASSERT(request->rq_repmsg != LP_POISON);
 
+        if (it->it_op & IT_READDIR)
+		RETURN(0);
+
         if (!it_disposition(it, DISP_IT_EXECD)) {
                 /* The server failed before it even started executing the
                  * intent, i.e. because it couldn't unpack the request. */
@@ -1162,7 +1165,7 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
 
         lockh.cookie = 0;
         if (fid_is_sane(&op_data->op_fid2) &&
-            (it->it_op & (IT_LOOKUP | IT_GETATTR))) {
+            (it->it_op & (IT_LOOKUP | IT_GETATTR | IT_READDIR))) {
                 /* We could just return 1 immediately, but since we should only
                  * be called in revalidate_it if we already have a lock, let's
                  * verify that. */
