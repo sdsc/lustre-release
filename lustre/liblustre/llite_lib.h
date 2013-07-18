@@ -129,6 +129,7 @@ struct llu_inode_info {
         struct cl_object       *lli_clob;
         /* the most recent timestamps obtained from mds */
         struct ost_lvb          lli_lvb;
+	struct lmv_stripe_md	*lli_lsm_md;
 };
 
 static inline struct llu_sb_info *llu_fs2sbi(struct filesys *fs)
