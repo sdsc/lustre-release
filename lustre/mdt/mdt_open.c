@@ -677,7 +677,7 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
 
         isreg = S_ISREG(la->la_mode);
         isdir = S_ISDIR(la->la_mode);
-        if (isreg && !(ma->ma_valid & MA_LOV)) {
+	if (isreg && !(ma->ma_valid & MA_LOV) && !(flags & MDS_OPEN_RELEASE)) {
                 /*
                  * No EA, check whether it is will set regEA and dirEA since in
                  * above attr get, these size might be zero, so reset it, to
@@ -1370,6 +1370,23 @@ static void mdt_object_open_unlock(struct mdt_thread_info *info,
 	RETURN_EXIT;
 }
 
+/**
+ * Check release is permitted for the current HSM flags.
+ */
+static bool mdt_hsm_release_allow(struct md_attr *ma)
+{
+	if (!(ma->ma_valid & MA_HSM))
+		return false;
+
+	if (ma->ma_hsm.mh_flags & (HS_DIRTY|HS_NORELEASE|HS_LOST))
+		return false;
+
+	if (!(ma->ma_hsm.mh_flags & HS_ARCHIVED))
+		return false;
+
+	return true;
+}
+
 int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 			 struct mdt_lock_handle *lhc)
 {
@@ -1418,9 +1435,16 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 
 	mdt_set_disposition(info, rep, (DISP_IT_EXECD | DISP_LOOKUP_EXECD));
 
+	if (flags & MDS_OPEN_RELEASE)
+		ma->ma_need |= MA_HSM;
 	rc = mdt_attr_get_complex(info, o, ma);
-        if (rc)
-                GOTO(out, rc);
+	if (rc)
+		GOTO(out, rc);
+
+	/* If a release request, check file flags are fine and ask for an
+	 * exclusive open access. */
+	if (flags & MDS_OPEN_RELEASE && !mdt_hsm_release_allow(ma))
+		GOTO(out, rc = -EPERM);
 
 	rc = mdt_object_open_lock(info, o, lhc, &ibits);
         if (rc)
@@ -1838,6 +1862,214 @@ out:
 	return result;
 }
 
+/**
+ * Create an orphan object use local root.
+ */
+static struct mdt_object *mdt_orphan_open(struct mdt_thread_info *info,
+					  struct mdt_device *mdt,
+					  const struct lu_fid *fid,
+					  struct md_attr *attr, int mode)
+{
+	const struct lu_env *env = info->mti_env;
+	struct md_op_spec *spec = &info->mti_spec;
+	struct lu_fid *rootfid = &info->mti_tmp_fid1;
+	struct mdt_object *obj = NULL;
+	struct mdt_object *local_root;
+	static const char name[] = "i_am_nobody";
+	struct lu_name *lname;
+	int rc;
+	ENTRY;
+
+	rc = dt_root_get(env, mdt->mdt_bottom, rootfid);
+	if (rc != 0)
+		RETURN(ERR_PTR(rc));
+
+	local_root = mdt_object_find(env, mdt, rootfid);
+	if (IS_ERR(local_root))
+		RETURN(local_root);
+
+	obj = mdt_object_new(env, mdt, fid);
+	if (IS_ERR(obj))
+		GOTO(out, rc = PTR_ERR(obj));
+
+	spec->sp_cr_lookup = 0;
+	spec->sp_feat = &dt_directory_features;
+	spec->sp_cr_mode = MDL_MINMODE; /* no lock */
+	spec->sp_cr_flags = MDS_OPEN_VOLATILE | mode;
+	if (attr->ma_valid & MA_LOV) {
+		spec->u.sp_ea.eadata = attr->ma_lmm;
+		spec->u.sp_ea.eadatalen = attr->ma_lmm_size;
+		spec->sp_cr_flags |= MDS_OPEN_HAS_EA;
+	} else {
+		spec->sp_cr_flags |= MDS_OPEN_DELAY_CREATE;
+	}
+	lname = mdt_name(env, (char *)name, sizeof(name) - 1);
+	rc = mdo_create(env, mdt_object_child(local_root), lname,
+			mdt_object_child(obj), spec, attr);
+	if (rc == 0) {
+		rc = mo_open(env, mdt_object_child(obj), MDS_OPEN_CREATED);
+		if (rc < 0) {
+			int rc2;
+			rc2 = mdo_unlink(env, mdt_object_child(local_root),
+					 mdt_object_child(obj), lname, attr, 0);
+			if (rc2 < 0)
+				CERROR("%s: Unlink volatile "DFID" error %d\n",
+					mdt_obd_name(mdt), PFID(fid), rc2);
+		}
+	}
+	EXIT;
+
+out:
+	if (rc < 0) {
+		if (!IS_ERR(obj))
+			mdt_object_put(env, obj);
+		obj = ERR_PTR(rc);
+	}
+	mdt_object_put(env, local_root);
+	return obj;
+}
+
+static int mdt_hsm_release(struct mdt_thread_info *info, struct mdt_object *o,
+			   struct md_attr *ma)
+{
+	struct mdt_lock_handle *lh = &info->mti_lh[MDT_LH_LAYOUT];
+	struct close_data      *data;
+	struct ldlm_lock       *lease;
+	struct mdt_object      *orphan;
+	struct md_attr         *orp_ma;
+	struct lu_buf          *buf;
+	bool			lease_broken = true;
+	int                     rc;
+	int                     rc2;
+	ENTRY;
+
+	data = req_capsule_client_get(info->mti_pill, &RMF_CLOSE_DATA);
+	if (data == NULL)
+		RETURN(-EPROTO);
+
+	if (!fid_is_sane(&data->cd_fid))
+		RETURN(-EINVAL);
+
+	mdt_lock_reg_init(lh, LCK_EX);
+	rc = mdt_object_lock(info, o, lh, MDS_INODELOCK_LAYOUT, MDT_LOCAL_LOCK);
+	if (rc != 0)
+		RETURN(rc);
+
+	/* Check if the lease open lease has already canceled. */
+	lease = ldlm_handle2lock(&data->cd_handle);
+	if (lease != NULL) {
+		lock_res_and_lock(lease);
+		if (!ldlm_is_cancel(lease))
+			lease_broken = false;
+		unlock_res_and_lock(lease);
+
+		LDLM_DEBUG(lease, DFID "lease lease cancelled? %d\n",
+				PFID(mdt_object_fid(o)), lease_broken);
+	}
+	if (lease_broken) /* don't perform release task */
+		GOTO(out, rc = 0);
+
+	/* ma_need was set before but it seems fine to change it in order to
+	 * avoid modifying the one from RPC */
+	ma->ma_need = MA_HSM | MA_LOV;
+	rc = mdt_attr_get_complex(info, o, ma);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* Why do you want to release an empty file? */
+	if (!(ma->ma_valid & MA_LOV))
+		GOTO(out, rc = -ENODATA);
+
+	if (!mdt_hsm_release_allow(ma))
+		GOTO(out, rc = -EPERM);
+
+	/* already released? */
+	if (ma->ma_hsm.mh_flags & HS_RELEASED)
+		GOTO(out, rc = 0);
+
+	/* Compare on-disk and packed data_version */
+	if (data->cd_data_version != ma->ma_hsm.mh_arch_ver) {
+		CDEBUG(D_HSM, DFID" data_version mismatches: packed="LPU64
+		       " and on-disk="LPU64"\n", PFID(mdt_object_fid(o)),
+		       data->cd_data_version, ma->ma_hsm.mh_arch_ver);
+		/* XXX: Enable this line when hsm_archive is operational!
+		GOTO(out, rc = -EPERM);
+		*/
+	}
+
+	ma->ma_valid = MA_INODE;
+	ma->ma_attr.la_valid &= LA_SIZE | LA_MTIME | LA_ATIME;
+	rc = mo_attr_set(info->mti_env, mdt_object_child(o), ma);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	/* Set file as released */
+	ma->ma_lmm->lmm_pattern =
+		cpu_to_le32(le32_to_cpu(ma->ma_lmm->lmm_pattern) |
+			    LOV_PATTERN_F_RELEASED);
+
+	/* hopefully it's not used in this call path */
+	orp_ma = &info->mti_u.som.attr;
+	orp_ma->ma_valid = MA_INODE | MA_LOV;
+	orp_ma->ma_attr.la_mode = S_IFREG;
+	orp_ma->ma_attr.la_valid = LA_MODE;
+	orp_ma->ma_lmm = ma->ma_lmm;
+	orp_ma->ma_lmm_size = ma->ma_lmm_size;
+	orphan = mdt_orphan_open(info, info->mti_mdt, &data->cd_fid, orp_ma,
+				 FMODE_WRITE);
+	if (IS_ERR(orphan)) {
+		CDEBUG(D_ERROR, "Create orphan with FID "DFID" error: %ld\n",
+			PFID(&data->cd_fid), PTR_ERR(orphan));
+		GOTO(out, rc = PTR_ERR(orphan));
+	}
+
+	/* Set up HSM attribute for orphan object */
+	CLASSERT(sizeof(struct hsm_attrs) <= sizeof(info->mti_xattr_buf));
+	buf = &info->mti_buf;
+	buf->lb_buf = info->mti_xattr_buf;
+	buf->lb_len = sizeof(struct hsm_attrs);
+	ma->ma_hsm.mh_flags |= HS_RELEASED;
+	lustre_hsm2buf(buf->lb_buf, &ma->ma_hsm);
+	ma->ma_hsm.mh_flags &= ~HS_RELEASED;
+	rc = mo_xattr_set(info->mti_env, mdt_object_child(orphan), buf,
+			  XATTR_NAME_HSM, 0);
+	if (rc < 0)
+		GOTO(out_close, rc);
+
+	/* Swap layout with orphan object */
+	rc = mo_swap_layouts(info->mti_env, mdt_object_child(o),
+			     mdt_object_child(orphan), SWAP_LAYOUTS_MDS_HSM);
+	EXIT;
+
+out_close:
+	/* Close orphan object anyway */
+	rc2 = mo_close(info->mti_env, mdt_object_child(orphan), orp_ma,
+		       FMODE_WRITE);
+	if (rc2 < 0)
+		CERROR("%s: Close volatile "DFID" error %d\n",
+		       mdt_obd_name(info->mti_mdt), PFID(&data->cd_fid), rc2);
+	LU_OBJECT_DEBUG(D_HSM, info->mti_env, &orphan->mot_obj,
+			"object closed\n");
+	mdt_object_put(info->mti_env, orphan);
+out:
+	/* Release exclusive LL */
+	mdt_object_unlock(info, o, lh, 1);
+	if (lease != NULL) {
+		/* Cancel server side lease. Client side counterpart should
+		 * have been cancelled. */
+		ldlm_lock_cancel(lease);
+		ldlm_lock_put(lease);
+	}
+
+	if (rc == 0) {
+		struct mdt_body *repbody;
+		repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+		LASSERT(repbody != NULL);
+		repbody->valid |= OBD_MD_FLRELEASED;
+	}
+	return rc;
+}
+
 #define MFD_CLOSED(mode) (((mode) & ~(MDS_FMODE_EPOCH | MDS_FMODE_SOM | \
                                       MDS_FMODE_TRUNC)) == MDS_FMODE_CLOSED)
 
@@ -1857,6 +2089,16 @@ int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd)
         ENTRY;
 
         mode = mfd->mfd_mode;
+
+	if (ma->ma_attr_flags & MDS_HSM_RELEASE) {
+		rc = mdt_hsm_release(info, o, ma);
+		if (rc < 0) {
+			CDEBUG(D_HSM, "%s: File " DFID " release failed: %d\n",
+				mdt_obd_name(info->mti_mdt),
+				PFID(mdt_object_fid(o)), rc);
+			/* continue to close even error occurred. */
+		}
+	}
 
         if ((mode & FMODE_WRITE) || (mode & MDS_FMODE_TRUNC)) {
                 mdt_write_put(o);
