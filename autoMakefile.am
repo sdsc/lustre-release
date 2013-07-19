@@ -105,11 +105,8 @@ dist-hook:
 
 EXTRA_DIST = @PACKAGE_TARNAME@.spec					\
 	build/Makefile 							\
-	build/Rules.in
-
-if ARCH_MIC
-EXTRA_DIST += build/gen_filelist.sh
-endif
+	build/Rules.in							\
+	build/gen_filelist.sh
 
 rpms-real: @PACKAGE_TARNAME@.spec dist Makefile
 	CONFIGURE_ARGS=$$(echo $$(eval echo $(ac_configure_args)) | \
