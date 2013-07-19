@@ -303,10 +303,12 @@ AS_IF([test "x$cross_compiling" = xno], [AC_MSG_RESULT([no])],
 		k1om)
 			AC_MSG_RESULT([Intel(R) Xeon Phi(TM)])
 			CC_TARGET_ARCH=`$CC -v 2>&1 | grep Target: | sed -e 's/Target: //'`
-			if test $CC_TARGET_ARCH != x86_64-$host_vendor-linux ; then
+			if test \( $CC_TARGET_ARCH != x86_64-$host_vendor-linux \
+				-a $CC_TARGET_ARCH != $host_vendor-mpss-linux \)
+			then
 				AC_MSG_ERROR([Cross compiler not found in PATH.])
 			fi
-			CROSS_VARS="ARCH=$host_vendor CROSS_COMPILE=x86_64-$host_vendor-linux-"
+			CROSS_VARS="ARCH=$host_vendor CROSS_COMPILE=${CC_TARGET_ARCH}-"
 			CROSS_PATH=${CROSS_PATH:=/opt/intel/mic/lustre/device-k1om}
 			CCAS=$CC
 			# need to produce special section for debuginfo extraction
