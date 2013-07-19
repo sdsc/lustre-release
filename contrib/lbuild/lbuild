@@ -266,7 +266,13 @@ check_options() {
         usage 1 "Could not find Lustre source tarball '$LUSTRE'."
     fi
 
-    [ -z "$DISTRO" ] && DISTRO=$(autodetect_distro)
+    if [ -z "$DISTRO" ] ; then
+        DISTRO=$(autodetect_distro)
+        # remove minor version only for rhel and oel
+        [[ $DISTRO =~ "el-" ]] && DISTRO=${DISTRO%%.*}
+        # remove separator
+        DISTRO=${DISTRO/-/}
+    fi
 
     if [ -z "$LINUX" ]; then
         [ "$KERNELDIR" -o "$KERNELTREE" ] || \
@@ -395,14 +401,16 @@ uniqify() {
 fetch_url() {
     local url="$1"
     local target="$2"
+    local wget_opts="-nv"
+    local curl_opts="-L -s"
 
     local rc=0
     if which wget >/dev/null 2>&1; then
-        if ! wget -nv "$url" -O "$target"; then
+        if ! wget $wget_opts "$url" -O "$target"; then
             rc=${PIPESTATUS[0]}
         fi
     elif which curl >/dev/null 2>&1; then
-        if ! curl -L -s -o "$target" "$url"; then
+        if ! curl $curl_opts -o "$target" "$url"; then
             rc=${PIPESTATUS[0]}
         fi
     else
@@ -563,6 +571,50 @@ download_ofed() {
 
 }
 
+get_mpss_info() {
+    local file="$1"
+    local build="$2"
+    local distro="$3"
+
+    [ -r "$file" ] || fatal 1 "Could not determine MPSS info"
+
+    # convert to MPSS distro naming
+    distro=${distro/sles/suse}
+
+    local urls=$(cat "$file" | \
+        tr -d '\t\r\n' | sed -e 's?\(</[a-zA-Z]*>\)?\1\n?g' | \
+        grep SOURCE | sed -e 's/^.*[hH][rR][eE][fF]="\([^>"]\+\)".*$/\1/g')
+    for url in $urls; do
+        if [[ $url =~ _src-[0-9].[0-9].[0-9]*-[0-9]*_$distro.tar ]]; then
+            local bid=${url##*_src-}
+            bid=${bid%%_$distro.tar}
+            if [ -z "$build" ]; then
+                echo "$bid"
+            elif [ "$build" = "$bid" ]; then
+                echo "$url"
+            fi
+        fi
+    done
+}
+
+download_mpss_info() {
+    local force="${1:-false}"
+    local url="http://software.intel.com/en-us/articles/intel-manycore-platform-software-stack-mpss"
+    local file="$KERNELTREE/last-mpss.html"
+
+    download_file "$url" "$file" "$force"
+}
+
+download_mpss() {
+    local force="${1:-false}"
+    local url=$(get_mpss_info "$KERNELTREE/last-mpss.html" ${MPSS_VERSION} ${MPSS_DISTRO%%-*})
+    local file="$KERNELTREE/mpss_src-${MPSS_VERSION}-${MPSS_DISTRO%%-*}.tar"
+
+    [ -z "$url" ] && fatal 1 "Could not determine the URL of MPSS $MPSS_VERSION"
+
+    download_file "$url" "$file" "$force"
+}
+
 load_target() {
 
     EXTRA_VERSION_save="$EXTRA_VERSION"
@@ -709,6 +761,34 @@ unpack_lustre() {
 
     untar "$LUSTRE" || fatal 1 "Error unpacking Lustre tarball"
     [ -d lustre ] || ln -sf lustre-[0-9].[0-9]* lustre
+
+}
+
+unpack_mpss() {
+
+    local dir="mpss-${MPSS_VERSION}-${MPSS_DISTRO}"
+
+    [ -d $dir ] && return 0
+
+    rm -rf mpss
+    mkdir $dir || return 255
+
+    pushd $dir >/dev/null || return 255
+    if ! untar "$KERNELTREE/mpss_src-${MPSS_VERSION}-${MPSS_DISTRO%%-*}.tar" "*/gpl/*full_src*"; then
+        popd >/dev/null
+        rm -rf $dir
+        echo "Error unpacking MPSS tarball 1"
+        return 1
+    fi
+    local file=$(find . -type f -path "*/gpl/*full_src*")
+    if ! untar "$file"; then
+        popd >/dev/null
+        rm -rf $dir
+        echo "Error unpacking MPSS tarball 2"
+        return 1
+    fi
+    popd >/dev/null
+    ln -sf $dir mpss
 
 }
 
@@ -880,18 +960,13 @@ build_lustre() {
         fi
     fi
 
-    # convert the $PATCHLESS boolean to an empty/not-empty boolean
-    # as silly as this seems, it makes the syntax of the rpmbuild command
-    # simpler and not need an eval to deal with the quotes in the quotes
-    local is_patchless=""
     if $PATCHLESS; then
-        is_patchless="yes"
+        RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"lustre_name lustre-client$CROSS_SUFFIX\""
     fi
 
     # ditto for the lustre-tests boolean
-    local lustre_tests=""
     if ! $LUSTRE_TESTS; then
-        lustre_tests="no"
+        RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"build_lustre_tests 0\""
     fi
 
     local osd_zfs=""
@@ -904,30 +979,21 @@ build_lustre() {
         osd_ldiskfs="yes"
     fi
 
-    $RPMBUILD $targets $rpmbuildopt "$LUSTRE" \
-        ${is_patchless:+--define "lustre_name lustre-client"} \
-        ${lustre_tests:+--define "build_lustre_tests 0"} \
-        ${osd_zfs:+--define "build_lustre_osd_zfs 1"} \
-        ${osd_ldiskfs:+--define "build_lustre_osd_ldiskfs 1"} \
-        ${FIND_REQUIRES:+--define "__find_requires $FIND_REQUIRES"} \
-        --define "configure_args $confoptions ${CONFIGURE_FLAGS}" \
-        --define "kdir $linux" \
-        ${linuxobj:+--define "kobjdir $linuxobj"} \
-        --define "_tmppath $TMPDIR" \
-        --define "_topdir $TOPDIR" 2>&1 || \
+    RPMBUILD_DEFS="$RPMBUILD_DEFS ${FIND_REQUIRES:+--define \"__find_requires $FIND_REQUIRES\"}"
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"configure_args $confoptions ${CONFIGURE_FLAGS}\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"kdir $linux\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS ${linuxobj:+--define \"kobjdir $linuxobj\"}"
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_tmppath $TMPDIR\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_topdir $TOPDIR\""
+
+    eval $RPMBUILD $targets $rpmbuildopt "$LUSTRE" $RPMBUILD_DEFS \
+        ${osd_zfs:+--define \"build_lustre_osd_zfs 1\"} \
+        ${osd_ldiskfs:+--define \"build_lustre_osd_ldiskfs 1\"} 2>&1 || \
         fatal 1 "Error building rpms for $BUILD_ARCHS."
 
     if $DO_SRC; then
-        if ! $RPMBUILD -ts "$LUSTRE" \
-                 ${is_patchless:+--define "lustre_name lustre-client"} \
-                 ${lustre_tests:+--define "build_lustre_tests 0"} \
-                 ${FIND_REQUIRES:+--define "__find_requires $FIND_REQUIRES"} \
-                 --define "configure_args $confoptions ${CONFIGURE_FLAGS}" \
-                 --define "kdir $linux" \
-                 ${linuxobj:+--define "kobjdir $linuxobj"} \
-                 --define "_tmppath $TMPDIR" \
-                 --define "_topdir $TOPDIR" 2>&1; then
-            popd
+        if ! eval $RPMBUILD -ts "$LUSTRE" $RPMBUILD_DEFS 2>&1; then
+            popd >/dev/null
             return 255
         fi
     fi
@@ -1057,6 +1123,17 @@ build_spl_zfs() {
     OSDZFSRPM=true
 
     return 0
+}
+
+build_mpss() {
+
+    pushd mpss >/dev/null || return 255
+    if ! make miclinux; then
+        popd >/dev/null
+        return 1
+    fi
+    popd >/dev/null
+
 }
 
 stage() {
@@ -1836,7 +1913,7 @@ set -E
 
 [ -r ~/.lbuildrc ] && . ~/.lbuildrc
 
-options=$(getopt -o D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,noiokit,ofed-version:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
+options=$(getopt -o D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,noiokit,ofed-version:,mpss-version:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
 
 if [ $? != 0 ]; then
     usage 1
@@ -1942,6 +2019,10 @@ while [ "$1" ]; do
             OFED_VERSION="$2"
             shift 2
             ;;
+        --mpss-version)
+            MPSS_VERSION="$2"
+            shift 2
+            ;;
         --publish)
             shift
             ;;
@@ -2007,6 +2088,47 @@ load_target
 if [ -n "$OFED_VERSION" -a "$OFED_VERSION" != "inkernel" ]; then
     download_ofed
     unpack_ofed || fatal 1 "Error unpacking OFED tarball"
+fi
+
+if [ -n "$MPSS_VERSION" ]; then
+    [ -z "$MPSS_DISTRO" ] && MPSS_DISTRO=$(autodetect_distro)
+
+    download_mpss_info
+    if [ "$MPSS_VERSION" = "last" ]; then
+        MPSS_VERSION=$(get_mpss_info "$KERNELTREE/last-mpss.html" "" ${MPSS_DISTRO%%-*})
+        [ -z "$MPSS_VERSION" ] && fatal 1 "Could not determine the last MPSS version"
+    elif [[ $MPSS_VERSION != [0-9].[0-9].[0-9]*-[0-9]* ]]; then
+        fatal 1 "Incorrect MPSS version $MPSS_VERSION"
+    fi
+
+    [ -z "$MPSS_OFED"   ] && MPSS_OFED="--without-o2ib"
+
+    echo "Building with MPSS $MPSS_VERSION"
+    download_mpss
+    unpack_mpss || fatal 1 "Error unpacking MPSS tarballs"
+    build_mpss  || fatal 1 "Error building MPSS kernel"
+
+    # disable unsupported parts:
+    PATCHLESS=true
+    IOKITRPM=false
+    LDISKFSRPM=false
+    ZFSNOTSUPPORTED="yes"
+
+    # define variables for cross compilation:
+    CROSS_SUFFIX="-mic"
+    LINUX="$TOPDIR/mpss/card/kernel"
+    CONFIGURE_FLAGS="$CONFIGURE_FLAGS $MPSS_OFED --host=x86_64-k1om-linux --build=x86_64-pc-linux"
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"post_script build/gen_filelist.sh\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"make_args ARCH=k1om CROSS_COMPILE=x86_64-k1om-linux-\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"cross_path ${CROSS_PATH:=/opt/intel/mic/lustre/device-k1om}\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"rootdir %{cross_path}\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_prefix %{cross_path}/usr\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_mandir %{_prefix}/share/man\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_sysconfdir %{cross_path}/etc\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"cross_requires intel-mic-gpl = ${MPSS_VERSION%%-*}\""
+
+    # redefine CC for proper ./configure during rpmbuild
+    export CC=x86_64-k1om-linux-gcc
 fi
 
 # make sure the RPM build environment is set up
