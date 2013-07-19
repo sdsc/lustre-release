@@ -134,11 +134,9 @@ autodetect_distro() {
         case "$name" in
             "EnterpriseEnterpriseServer")
                 name="oel"
-                version="${version%%.*}"
                 ;;
             "RedHatEnterpriseServer" | "ScientificSL" | "CentOS")
                 name="rhel"
-                version="${version%%.*}"
                 ;;
             "SUSE LINUX")
                 name="sles"
@@ -158,17 +156,15 @@ autodetect_distro() {
             version=$(grep ^VERSION /etc/SuSE-release)
             version=${version#*= }
         elif [ -f /etc/redhat-release ]; then
-            #name=$(head -1 /etc/redhat-release)
             name=rhel
-            version=$(echo "$distroname" |
-                      sed -e 's/^[^0-9.]*//g' | sed -e 's/[ \.].*//')
+            version=$(sed -ne '1s/^[^0-9.]*\([0-9.]*\)[^0-9.]*$/\1/gp' /etc/redhat-release)
         fi
         if [ -z "$name" -o -z "$version" ]; then
             fatal 1 "I don't know how to determine distro type/version.\nEither update autodetect_distro() or use the --distro argument."
         fi
     fi
 
-    echo ${name}${version}
+    echo ${name}-${version}
     return 0
 
 }

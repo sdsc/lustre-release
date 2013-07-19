@@ -33,7 +33,9 @@ AS_IF([test "x$cross_compiling" = xyes],
 		# So, the $host_arch is x86_64.
 		k1om)
 			CC_TARGET_ARCH=`$CC -v 2>&1 | grep Target: | sed -e 's/Target: //'`
-			if test $CC_TARGET_ARCH != x86_64-$host_vendor-linux ; then
+			if test \( $CC_TARGET_ARCH != x86_64-$host_vendor-linux \
+				-a $CC_TARGET_ARCH != $host_vendor-mpss-linux \)
+			then
 				AC_MSG_ERROR([Cross compiler not found in PATH.])
 			fi
 			CCAS=$CC
