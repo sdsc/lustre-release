@@ -1037,10 +1037,12 @@ struct obd_import *class_new_import(struct obd_device *obd)
                 return NULL;
 
 	CFS_INIT_LIST_HEAD(&imp->imp_pinger_chain);
-        CFS_INIT_LIST_HEAD(&imp->imp_zombie_chain);
-        CFS_INIT_LIST_HEAD(&imp->imp_replay_list);
-        CFS_INIT_LIST_HEAD(&imp->imp_sending_list);
-        CFS_INIT_LIST_HEAD(&imp->imp_delayed_list);
+	CFS_INIT_LIST_HEAD(&imp->imp_zombie_chain);
+	CFS_INIT_LIST_HEAD(&imp->imp_replay_list);
+	CFS_INIT_LIST_HEAD(&imp->imp_sending_list);
+	CFS_INIT_LIST_HEAD(&imp->imp_delayed_list);
+	CFS_INIT_LIST_HEAD(&imp->imp_committed_list);
+	imp->imp_replay_cursor = &imp->imp_committed_list;
 	spin_lock_init(&imp->imp_lock);
 	imp->imp_last_success_conn = 0;
 	imp->imp_state = LUSTRE_IMP_NEW;
