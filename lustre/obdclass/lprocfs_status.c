@@ -867,6 +867,8 @@ static const char *obd_connect_names[] = {
 	"short_io",
 	"pingless",
 	"unknown",
+	"disp_stripe",
+	"unknown",
         NULL
 };
 
