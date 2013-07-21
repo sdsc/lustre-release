@@ -27,6 +27,18 @@ get_mpiuser_id $MPI_USER
 MPI_RUNAS=${MPI_RUNAS:-"runas -u $MPI_USER_UID -g $MPI_USER_GID"}
 $GSS_KRB5 && refresh_krb5_tgt $MPI_USER_UID $MPI_USER_GID $MPI_RUNAS
 
+
+monitor_mem()
+{
+        while : ; do
+                do_facet $SINGLEMDS 'sort -k3gr /proc/slabinfo' | head | while read line; do lctl mark $line; done
+                sleep 10
+        done
+}
+
+monitor_mem &
+mmbp=$!
+
 # single-IOR-rates
 test_1() {
     echo "Single client I/O performance as a percentage of raw"
@@ -80,6 +92,8 @@ test_8() {
     bash mdsrate-stat-large.sh
 }
 run_test 8 "getattr large files ======"
+
+kill -9 $mmbp
 
 complete $(basename $0) $SECONDS
 check_and_cleanup_lustre
