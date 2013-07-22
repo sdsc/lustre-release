@@ -530,12 +530,12 @@ static const struct req_msg_field *mds_setattr_server[] = {
 
 static const struct req_msg_field *mds_update_client[] = {
 	&RMF_PTLRPC_BODY,
-	&RMF_UPDATE,
+	&RMF_OBJECT_UPDATE,
 };
 
 static const struct req_msg_field *mds_update_server[] = {
 	&RMF_PTLRPC_BODY,
-	&RMF_UPDATE_REPLY,
+	&RMF_OBJECT_UPDATE_REPLY,
 };
 
 static const struct req_msg_field *llog_origin_handle_create_client[] = {
@@ -743,7 +743,7 @@ static struct req_format *req_formats[] = {
 	&RQF_MDS_HSM_ACTION,
 	&RQF_MDS_HSM_REQUEST,
 	&RQF_MDS_SWAP_LAYOUTS,
-	&RQF_UPDATE_OBJ,
+	&RQF_OBJECT_UPDATE,
 	&RQF_QC_CALLBACK,
         &RQF_OST_CONNECT,
         &RQF_OST_DISCONNECT,
@@ -1178,14 +1178,14 @@ struct req_msg_field RMF_MDS_HSM_REQUEST =
 		    lustre_swab_hsm_request, NULL);
 EXPORT_SYMBOL(RMF_MDS_HSM_REQUEST);
 
-struct req_msg_field RMF_UPDATE = DEFINE_MSGF("update", 0, -1,
-					      lustre_swab_update_buf, NULL);
-EXPORT_SYMBOL(RMF_UPDATE);
+struct req_msg_field RMF_OBJECT_UPDATE = DEFINE_MSGF("object_update", 0, -1,
+				lustre_swab_object_update_request, NULL);
+EXPORT_SYMBOL(RMF_OBJECT_UPDATE);
 
-struct req_msg_field RMF_UPDATE_REPLY = DEFINE_MSGF("update_reply", 0, -1,
-						lustre_swab_update_reply_buf,
-						    NULL);
-EXPORT_SYMBOL(RMF_UPDATE_REPLY);
+struct req_msg_field RMF_OBJECT_UPDATE_REPLY =
+			DEFINE_MSGF("object_update_reply", 0, -1,
+				    lustre_swab_object_update_reply, NULL);
+EXPORT_SYMBOL(RMF_OBJECT_UPDATE_REPLY);
 
 struct req_msg_field RMF_SWAP_LAYOUTS =
 	DEFINE_MSGF("swap_layouts", 0, sizeof(struct  mdc_swap_layouts),
@@ -1394,10 +1394,10 @@ struct req_format RQF_MDS_GET_INFO =
                         mds_getinfo_server);
 EXPORT_SYMBOL(RQF_MDS_GET_INFO);
 
-struct req_format RQF_UPDATE_OBJ =
+struct req_format RQF_OBJECT_UPDATE =
 	DEFINE_REQ_FMT0("OBJECT_UPDATE_OBJ", mds_update_client,
 			mds_update_server);
-EXPORT_SYMBOL(RQF_UPDATE_OBJ);
+EXPORT_SYMBOL(RQF_OBJECT_UPDATE);
 
 struct req_format RQF_LDLM_ENQUEUE =
         DEFINE_REQ_FMT0("LDLM_ENQUEUE",
