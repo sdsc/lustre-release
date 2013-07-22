@@ -6471,6 +6471,21 @@ test_105e() { # bug 22660 && 22040
 }
 run_test 105e "Two conflicting flocks from same process ======="
 
+test_105f() { # LU-2177
+	[ -z "$(mount | grep "$MOUNT.*flock" | grep -v noflock)" ] &&
+		skip "mount w/o flock enabled" && return
+	touch $DIR/$tfile
+	lctl set_param fail_loc=0x8000032d
+	flocks_test 1 on -c $DIR/$tfile &
+	mds_evict_client
+	lfs df 2>&1 /dev/null # to know eviction event
+	sleep 5
+	lctl set_param fail_loc=0
+	rm -f $DIR/$tfile
+	return 0
+}
+run_test 105f "flock when eviction (shouldn't LBUG)"
+
 test_106() { #bug 10921
 	test_mkdir -p $DIR/$tdir
 	$DIR/$tdir && error "exec $DIR/$tdir succeeded"

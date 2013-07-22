@@ -35,7 +35,7 @@
 #ifndef LDLM_ALL_FLAGS_MASK
 
 /** l_flags bits marked as "all_flags" bits */
-#define LDLM_FL_ALL_FLAGS_MASK          0x00FFFFFFC08F932FULL
+#define LDLM_FL_ALL_FLAGS_MASK          0x01FFFFFFC08F932FULL
 
 /** l_flags bits marked as "ast" bits */
 #define LDLM_FL_AST_MASK                0x0000000080008000ULL
@@ -53,7 +53,7 @@
 #define LDLM_FL_INHERIT_MASK            0x0000000000800000ULL
 
 /** l_flags bits marked as "local_only" bits */
-#define LDLM_FL_LOCAL_ONLY_MASK         0x00FFFFFF00000000ULL
+#define LDLM_FL_LOCAL_ONLY_MASK         0x01FFFFFF00000000ULL
 
 /** l_flags bits marked as "on_wire" bits */
 #define LDLM_FL_ON_WIRE_MASK            0x00000000C08F932FULL
@@ -370,14 +370,23 @@
 #define ldlm_set_excl(_l)               LDLM_SET_FLAG((  _l), 1ULL << 55)
 #define ldlm_clear_excl(_l)             LDLM_CLEAR_FLAG((_l), 1ULL << 55)
 
+/**
+ * to avoid race condition between cleanup_resource and
+ * ldlm_flock_completion_ast. When the race happens, flock's refcount is
+ * decreased multiple times */
+#define LDLM_FL_NEEDED_DECREF           0x0100000000000000ULL // bit  56
+#define ldlm_is_needed_decref(_l)       LDLM_TEST_FLAG(( _l), 1ULL << 56)
+#define ldlm_set_needed_decref(_l)      LDLM_SET_FLAG((  _l), 1ULL << 56)
+#define ldlm_clear_needed_decref(_l)    LDLM_CLEAR_FLAG((_l), 1ULL << 56)
+
 /** test for ldlm_lock flag bit set */
 #define LDLM_TEST_FLAG(_l, _b)        (((_l)->l_flags & (_b)) != 0)
 
 /** set a ldlm_lock flag bit */
-#define LDLM_SET_FLAG(_l, _b)         (((_l)->l_flags |= (_b))
+#define LDLM_SET_FLAG(_l, _b)         ((_l)->l_flags |= (_b))
 
 /** clear a ldlm_lock flag bit */
-#define LDLM_CLEAR_FLAG(_l, _b)       (((_l)->l_flags &= ~(_b))
+#define LDLM_CLEAR_FLAG(_l, _b)       ((_l)->l_flags &= ~(_b))
 
 /** Mask of flags inherited from parent lock when doing intents. */
 #define LDLM_INHERIT_FLAGS            LDLM_FL_INHERIT_MASK
@@ -428,6 +437,7 @@ static int hf_lustre_ldlm_fl_res_locked          = -1;
 static int hf_lustre_ldlm_fl_waited              = -1;
 static int hf_lustre_ldlm_fl_ns_srv              = -1;
 static int hf_lustre_ldlm_fl_excl                = -1;
+static int hf_lustre_ldlm_fl_needed_decref       = -1;
 
 const value_string lustre_ldlm_flags_vals[] = {
   {LDLM_FL_LOCK_CHANGED,        "LDLM_FL_LOCK_CHANGED"},
@@ -470,6 +480,7 @@ const value_string lustre_ldlm_flags_vals[] = {
   {LDLM_FL_WAITED,              "LDLM_FL_WAITED"},
   {LDLM_FL_NS_SRV,              "LDLM_FL_NS_SRV"},
   {LDLM_FL_EXCL,                "LDLM_FL_EXCL"},
+  {LDLM_FL_NEEDED_DECREF,       "LDLM_FL_NEEDED_DECREF"},
   { 0, NULL }
 };
 #endif /*  WIRESHARK_COMPILE */
