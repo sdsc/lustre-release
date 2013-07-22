@@ -65,7 +65,7 @@ struct tx_arg *tx_add_exec(struct thandle_exec_args *ta, tx_exec_func_t func,
 	LASSERT(func);
 
 	i = ta->ta_argno;
-	LASSERT(i < UPDATE_MAX_OPS);
+	LASSERT(i < UPDATE_PER_RPC_MAX);
 
 	ta->ta_argno++;
 
@@ -1248,10 +1248,9 @@ int out_handle(struct out_thread_info *info)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	if (ubuf->ub_magic != UPDATE_BUFFER_MAGIC) {
-		CERROR("%s: invalid update buffer magic %x expect %x: "
-		       "rc = %d\n", mdt_obd_name(mdt),
-		       ubuf->ub_magic, UPDATE_BUFFER_MAGIC, -EPROTO);
+	if (ubuf->ub_magic != UPDATE_REQUEST_MAGIC) {
+		CERROR("%s: invalid update request magic %x expect %x\n",
+		       mdt_obd_name(mdt), ubuf->ub_magic, UPDATE_REQUEST_MAGIC);
 		RETURN(err_serious(-EPROTO));
 	}
 
