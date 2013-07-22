@@ -123,9 +123,9 @@ static DEFINE_SPINLOCK(config_list_lock);
 static int config_log_get(struct config_llog_data *cld)
 {
         ENTRY;
-        cfs_atomic_inc(&cld->cld_refcount);
+	atomic_inc(&cld->cld_refcount);
         CDEBUG(D_INFO, "log %s refs %d\n", cld->cld_logname,
-               cfs_atomic_read(&cld->cld_refcount));
+	       atomic_read(&cld->cld_refcount));
         RETURN(0);
 }
 
@@ -136,11 +136,11 @@ static void config_log_put(struct config_llog_data *cld)
         ENTRY;
 
         CDEBUG(D_INFO, "log %s refs %d\n", cld->cld_logname,
-               cfs_atomic_read(&cld->cld_refcount));
-        LASSERT(cfs_atomic_read(&cld->cld_refcount) > 0);
+	       atomic_read(&cld->cld_refcount));
+	LASSERT(atomic_read(&cld->cld_refcount) > 0);
 
         /* spinlock to make sure no item with 0 refcount in the list */
-        if (cfs_atomic_dec_and_lock(&cld->cld_refcount, &config_list_lock)) {
+	if (atomic_dec_and_lock(&cld->cld_refcount, &config_list_lock)) {
                 cfs_list_del(&cld->cld_list_chain);
 		spin_unlock(&config_list_lock);
 
@@ -186,7 +186,7 @@ struct config_llog_data *config_log_find(char *logname,
                 }
         }
         if (found) {
-                cfs_atomic_inc(&found->cld_refcount);
+		atomic_inc(&found->cld_refcount);
                 LASSERT(found->cld_stopping == 0 || cld_is_sptlrpc(found) == 0);
         }
 	spin_unlock(&config_list_lock);
@@ -221,7 +221,7 @@ struct config_llog_data *do_config_log_add(struct obd_device *obd,
         cld->cld_cfg.cfg_flags = 0;
         cld->cld_cfg.cfg_sb = sb;
         cld->cld_type = type;
-        cfs_atomic_set(&cld->cld_refcount, 1);
+	atomic_set(&cld->cld_refcount, 1);
 
         /* Keep the mgc around until we are done */
         cld->cld_mgcexp = class_export_get(obd->obd_self_export);
@@ -453,7 +453,7 @@ static DECLARE_COMPLETION(rq_exit);
 static void do_requeue(struct config_llog_data *cld)
 {
         ENTRY;
-        LASSERT(cfs_atomic_read(&cld->cld_refcount) > 0);
+	LASSERT(atomic_read(&cld->cld_refcount) > 0);
 
         /* Do not run mgc_process_log on a disconnected export or an
            export which is being disconnected. Take the client
@@ -525,7 +525,7 @@ static int mgc_requeue_thread(void *data)
 
 			spin_unlock(&config_list_lock);
 
-                        LASSERT(cfs_atomic_read(&cld->cld_refcount) > 0);
+			LASSERT(atomic_read(&cld->cld_refcount) > 0);
 
                         /* Whether we enqueued again or not in mgc_process_log,
                          * we're done with the ref from the old enqueue */
@@ -573,9 +573,9 @@ static void mgc_requeue_add(struct config_llog_data *cld)
         ENTRY;
 
         CDEBUG(D_INFO, "log %s: requeue (r=%d sp=%d st=%x)\n",
-               cld->cld_logname, cfs_atomic_read(&cld->cld_refcount),
+	       cld->cld_logname, atomic_read(&cld->cld_refcount),
                cld->cld_stopping, rq_state);
-        LASSERT(cfs_atomic_read(&cld->cld_refcount) > 0);
+	LASSERT(atomic_read(&cld->cld_refcount) > 0);
 
 	mutex_lock(&cld->cld_lock);
 	if (cld->cld_stopping || cld->cld_lostlock) {
@@ -697,7 +697,7 @@ static int mgc_fs_cleanup(struct obd_device *obd)
         RETURN(rc);
 }
 
-static cfs_atomic_t mgc_count = CFS_ATOMIC_INIT(0);
+static atomic_t mgc_count = ATOMIC_INIT(0);
 static int mgc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 {
         int rc = 0;
@@ -707,7 +707,7 @@ static int mgc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
         case OBD_CLEANUP_EARLY:
                 break;
         case OBD_CLEANUP_EXPORTS:
-                if (cfs_atomic_dec_and_test(&mgc_count)) {
+		if (atomic_dec_and_test(&mgc_count)) {
                         int running;
                         /* stop requeue thread */
 			spin_lock(&config_list_lock);
@@ -772,7 +772,7 @@ static int mgc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         lprocfs_obd_setup(obd, lvars.obd_vars);
         sptlrpc_lprocfs_cliobd_attach(obd);
 
-        if (cfs_atomic_inc_return(&mgc_count) == 1) {
+	if (atomic_inc_return(&mgc_count) == 1) {
 		rq_state = 0;
 		init_waitqueue_head(&rq_waitq);
 
@@ -828,7 +828,7 @@ static int mgc_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
                 }
 
                 /* held at mgc_process_log(). */
-                LASSERT(cfs_atomic_read(&cld->cld_refcount) > 0);
+		LASSERT(atomic_read(&cld->cld_refcount) > 0);
                 /* Are we done with this log? */
                 if (cld->cld_stopping) {
                         CDEBUG(D_MGC, "log %s: stopping, won't requeue\n",
