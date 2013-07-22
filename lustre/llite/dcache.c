@@ -501,11 +501,12 @@ int ll_revalidate_it(struct dentry *de, int lookup_flags,
         }
 
 do_lock:
-        op_data = ll_prep_md_op_data(NULL, parent, de->d_inode,
-                                     de->d_name.name, de->d_name.len,
-                                     0, LUSTRE_OPC_ANY, NULL);
+        op_data = ll_prep_md_op_data(NULL, parent, de->d_inode, NULL, 0, 0,
+				     LUSTRE_OPC_ANY, NULL);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
+
+	it->it_flags |= MDS_OPEN_BY_FID;
 
         if (!IS_POSIXACL(parent) || !exp_connect_umask(exp))
                 it->it_create_mode &= ~cfs_curproc_umask();
