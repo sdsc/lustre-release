@@ -233,7 +233,7 @@ static void ldlm_pool_recalc_grant_plan(struct ldlm_pool *pl)
         int granted, grant_step, limit;
 
         limit = ldlm_pool_get_limit(pl);
-        granted = cfs_atomic_read(&pl->pl_granted);
+	granted = atomic_read(&pl->pl_granted);
 
         grant_step = ldlm_pool_t2gsp(pl->pl_recalc_period);
         grant_step = ((limit - granted) * grant_step) / 100;
@@ -261,7 +261,7 @@ static void ldlm_pool_recalc_slv(struct ldlm_pool *pl)
         slv = pl->pl_server_lock_volume;
         grant_plan = pl->pl_grant_plan;
         limit = ldlm_pool_get_limit(pl);
-        granted = cfs_atomic_read(&pl->pl_granted);
+	granted = atomic_read(&pl->pl_granted);
         round_up = granted < limit;
 
         grant_usage = max_t(int, limit - (granted - grant_plan), 1);
@@ -297,9 +297,9 @@ static void ldlm_pool_recalc_stats(struct ldlm_pool *pl)
 {
         int grant_plan = pl->pl_grant_plan;
         __u64 slv = pl->pl_server_lock_volume;
-        int granted = cfs_atomic_read(&pl->pl_granted);
-        int grant_rate = cfs_atomic_read(&pl->pl_grant_rate);
-        int cancel_rate = cfs_atomic_read(&pl->pl_cancel_rate);
+	int granted = atomic_read(&pl->pl_granted);
+	int grant_rate = atomic_read(&pl->pl_grant_rate);
+	int cancel_rate = atomic_read(&pl->pl_cancel_rate);
 
         lprocfs_counter_add(pl->pl_stats, LDLM_POOL_SLV_STAT,
                             slv);
@@ -394,13 +394,13 @@ static int ldlm_srv_pool_shrink(struct ldlm_pool *pl,
          * VM is asking how many entries may be potentially freed.
          */
         if (nr == 0)
-                return cfs_atomic_read(&pl->pl_granted);
+		return atomic_read(&pl->pl_granted);
 
         /*
          * Client already canceled locks but server is already in shrinker
          * and can't cancel anything. Let's catch this race.
          */
-        if (cfs_atomic_read(&pl->pl_granted) == 0)
+	if (atomic_read(&pl->pl_granted) == 0)
                 RETURN(0);
 
 	spin_lock(&pl->pl_lock);
@@ -598,8 +598,8 @@ int ldlm_pool_recalc(struct ldlm_pool *pl)
                 /*
                  * Zero out all rates and speed for the last period.
                  */
-                cfs_atomic_set(&pl->pl_grant_rate, 0);
-                cfs_atomic_set(&pl->pl_cancel_rate, 0);
+		atomic_set(&pl->pl_grant_rate, 0);
+		atomic_set(&pl->pl_cancel_rate, 0);
         }
 	spin_unlock(&pl->pl_lock);
 
@@ -670,11 +670,11 @@ static int lprocfs_rd_pool_state(char *page, char **start, off_t off,
         clv = pl->pl_client_lock_volume;
         limit = ldlm_pool_get_limit(pl);
         grant_plan = pl->pl_grant_plan;
-        granted = cfs_atomic_read(&pl->pl_granted);
-        grant_rate = cfs_atomic_read(&pl->pl_grant_rate);
-        cancel_rate = cfs_atomic_read(&pl->pl_cancel_rate);
+	granted = atomic_read(&pl->pl_granted);
+	grant_rate = atomic_read(&pl->pl_grant_rate);
+	cancel_rate = atomic_read(&pl->pl_cancel_rate);
         grant_speed = grant_rate - cancel_rate;
-        lvf = cfs_atomic_read(&pl->pl_lock_volume_factor);
+	lvf = atomic_read(&pl->pl_lock_volume_factor);
         grant_step = ldlm_pool_t2gsp(pl->pl_recalc_period);
 	spin_unlock(&pl->pl_lock);
 
@@ -711,8 +711,8 @@ static int lprocfs_rd_grant_speed(char *page, char **start, off_t off,
 
 	spin_lock(&pl->pl_lock);
 	/* serialize with ldlm_pool_recalc */
-	grant_speed = cfs_atomic_read(&pl->pl_grant_rate) -
-			cfs_atomic_read(&pl->pl_cancel_rate);
+	grant_speed = atomic_read(&pl->pl_grant_rate) -
+			atomic_read(&pl->pl_cancel_rate);
 	spin_unlock(&pl->pl_lock);
 	return lprocfs_rd_uint(page, start, off, count, eof, &grant_speed);
 }
@@ -875,12 +875,12 @@ int ldlm_pool_init(struct ldlm_pool *pl, struct ldlm_namespace *ns,
 	ENTRY;
 
 	spin_lock_init(&pl->pl_lock);
-        cfs_atomic_set(&pl->pl_granted, 0);
+	atomic_set(&pl->pl_granted, 0);
         pl->pl_recalc_time = cfs_time_current_sec();
-        cfs_atomic_set(&pl->pl_lock_volume_factor, 1);
+	atomic_set(&pl->pl_lock_volume_factor, 1);
 
-        cfs_atomic_set(&pl->pl_grant_rate, 0);
-        cfs_atomic_set(&pl->pl_cancel_rate, 0);
+	atomic_set(&pl->pl_grant_rate, 0);
+	atomic_set(&pl->pl_cancel_rate, 0);
         pl->pl_grant_plan = LDLM_POOL_GP(LDLM_POOL_HOST_L);
 
         snprintf(pl->pl_name, sizeof(pl->pl_name), "ldlm-pool-%s-%d",
@@ -937,8 +937,8 @@ void ldlm_pool_add(struct ldlm_pool *pl, struct ldlm_lock *lock)
         if (lock->l_resource->lr_type == LDLM_FLOCK)
                 return;
 
-        cfs_atomic_inc(&pl->pl_granted);
-        cfs_atomic_inc(&pl->pl_grant_rate);
+	atomic_inc(&pl->pl_granted);
+	atomic_inc(&pl->pl_grant_rate);
         lprocfs_counter_incr(pl->pl_stats, LDLM_POOL_GRANT_STAT);
         /*
          * Do not do pool recalc for client side as all locks which
@@ -962,9 +962,9 @@ void ldlm_pool_del(struct ldlm_pool *pl, struct ldlm_lock *lock)
         if (lock->l_resource->lr_type == LDLM_FLOCK)
                 return;
 
-        LASSERT(cfs_atomic_read(&pl->pl_granted) > 0);
-        cfs_atomic_dec(&pl->pl_granted);
-        cfs_atomic_inc(&pl->pl_cancel_rate);
+	LASSERT(atomic_read(&pl->pl_granted) > 0);
+	atomic_dec(&pl->pl_granted);
+	atomic_inc(&pl->pl_cancel_rate);
 
         lprocfs_counter_incr(pl->pl_stats, LDLM_POOL_CANCEL_STAT);
 
@@ -1034,7 +1034,7 @@ EXPORT_SYMBOL(ldlm_pool_set_clv);
  */
 __u32 ldlm_pool_get_limit(struct ldlm_pool *pl)
 {
-        return cfs_atomic_read(&pl->pl_limit);
+	return atomic_read(&pl->pl_limit);
 }
 EXPORT_SYMBOL(ldlm_pool_get_limit);
 
@@ -1043,7 +1043,7 @@ EXPORT_SYMBOL(ldlm_pool_get_limit);
  */
 void ldlm_pool_set_limit(struct ldlm_pool *pl, __u32 limit)
 {
-        cfs_atomic_set(&pl->pl_limit, limit);
+	atomic_set(&pl->pl_limit, limit);
 }
 EXPORT_SYMBOL(ldlm_pool_set_limit);
 
@@ -1052,14 +1052,14 @@ EXPORT_SYMBOL(ldlm_pool_set_limit);
  */
 __u32 ldlm_pool_get_lvf(struct ldlm_pool *pl)
 {
-        return cfs_atomic_read(&pl->pl_lock_volume_factor);
+	return atomic_read(&pl->pl_lock_volume_factor);
 }
 EXPORT_SYMBOL(ldlm_pool_get_lvf);
 
 #ifdef __KERNEL__
 static int ldlm_pool_granted(struct ldlm_pool *pl)
 {
-        return cfs_atomic_read(&pl->pl_granted);
+	return atomic_read(&pl->pl_granted);
 }
 
 static struct ptlrpc_thread *ldlm_pools_thread;

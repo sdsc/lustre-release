@@ -99,7 +99,7 @@ static inline void loi_init(struct lov_oinfo *loi)
 }
 
 struct lov_stripe_md {
-	cfs_atomic_t     lsm_refc;
+	atomic_t     lsm_refc;
 	spinlock_t	lsm_lock;
         pid_t            lsm_lock_owner; /* debugging */
 
@@ -380,8 +380,8 @@ struct client_obd {
         int                      cl_r_in_flight;
         int                      cl_w_in_flight;
         /* just a sum of the loi/lop pending numbers to be exported by /proc */
-	cfs_atomic_t             cl_pending_w_pages;
-	cfs_atomic_t             cl_pending_r_pages;
+	atomic_t             cl_pending_w_pages;
+	atomic_t             cl_pending_r_pages;
 	__u32			 cl_max_pages_per_rpc;
         int                      cl_max_rpcs_in_flight;
         struct obd_histogram     cl_read_rpc_hist;
@@ -394,15 +394,15 @@ struct client_obd {
 	/* lru for osc caching pages */
 	struct cl_client_cache	*cl_cache;
 	cfs_list_t		 cl_lru_osc; /* member of cl_cache->ccc_lru */
-	cfs_atomic_t		*cl_lru_left;
-	cfs_atomic_t		 cl_lru_busy;
-	cfs_atomic_t		 cl_lru_shrinkers;
-	cfs_atomic_t		 cl_lru_in_list;
+	atomic_t		*cl_lru_left;
+	atomic_t		 cl_lru_busy;
+	atomic_t		 cl_lru_shrinkers;
+	atomic_t		 cl_lru_in_list;
 	cfs_list_t		 cl_lru_list; /* lru page list */
 	client_obd_lock_t	 cl_lru_list_lock; /* page list protector */
 
         /* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
-        cfs_atomic_t             cl_destroy_in_flight;
+	atomic_t             cl_destroy_in_flight;
 	wait_queue_head_t        cl_destroy_waitq;
 
         struct mdc_rpc_lock     *cl_rpc_lock;
@@ -412,7 +412,7 @@ struct client_obd {
 	struct semaphore	 cl_mgc_sem;
         struct vfsmount         *cl_mgc_vfsmnt;
         struct dentry           *cl_mgc_configs_dir;
-        cfs_atomic_t             cl_mgc_refcount;
+	atomic_t             cl_mgc_refcount;
         struct obd_export       *cl_mgc_mgsexp;
 
         /* checksumming for data sent over the network */
@@ -432,13 +432,13 @@ struct client_obd {
 #warning "please consider removing quotacheck compatibility code"
 #endif
 
-        /* sequence manager */
-        struct lu_client_seq    *cl_seq;
+	/* sequence manager */
+	struct lu_client_seq    *cl_seq;
 
-        cfs_atomic_t             cl_resends; /* resend count */
+	atomic_t             cl_resends; /* resend count */
 
-        /* ptlrpc work for writeback in ptlrpcd context */
-        void                    *cl_writeback_work;
+	/* ptlrpc work for writeback in ptlrpcd context */
+	void                    *cl_writeback_work;
 	/* hash tables for osc_quota_info */
 	cfs_hash_t              *cl_quota_hash[MAXQUOTAS];
 };
@@ -542,13 +542,13 @@ struct lov_tgt_desc {
 #define pool_tgt_rw_sem(_p) _p->pool_obds.op_rw_sem
 
 struct pool_desc {
-        char                  pool_name[LOV_MAXPOOLNAME + 1]; /* name of pool */
-        struct ost_pool       pool_obds;              /* pool members */
-        cfs_atomic_t          pool_refcount;          /* pool ref. counter */
-        struct lov_qos_rr     pool_rr;                /* round robin qos */
-        cfs_hlist_node_t      pool_hash;              /* access by poolname */
-        cfs_list_t            pool_list;              /* serial access */
-        cfs_proc_dir_entry_t *pool_proc_entry;        /* file in /proc */
+	char                  pool_name[LOV_MAXPOOLNAME + 1]; /* name of pool */
+	struct ost_pool       pool_obds;              /* pool members */
+	atomic_t              pool_refcount;          /* pool ref. counter */
+	struct lov_qos_rr     pool_rr;                /* round robin qos */
+	cfs_hlist_node_t      pool_hash;              /* access by poolname */
+	cfs_list_t            pool_list;              /* serial access */
+	cfs_proc_dir_entry_t *pool_proc_entry;        /* file in /proc */
 	struct obd_device    *pool_lobd;	      /* obd of the lov/lod to which
 						       * this pool belongs */
 };
@@ -559,11 +559,11 @@ struct lov_obd {
         struct ost_pool         lov_packed;            /* all OSTs in a packed
                                                           array */
 	struct mutex		lov_lock;
-        struct obd_connect_data lov_ocd;
-        cfs_atomic_t            lov_refcount;
-        __u32                   lov_tgt_count;         /* how many OBD's */
-        __u32                   lov_active_tgt_count;  /* how many active */
-        __u32                   lov_death_row;/* tgts scheduled to be deleted */
+	struct obd_connect_data lov_ocd;
+	atomic_t                lov_refcount;
+	__u32                   lov_tgt_count;         /* how many OBD's */
+	__u32                   lov_active_tgt_count;  /* how many active */
+	__u32                   lov_death_row;/* tgts scheduled to be deleted */
         __u32                   lov_tgt_size;   /* size of tgts array */
         int                     lov_connects;
         int                     lov_pool_count;
@@ -877,9 +877,9 @@ struct obd_device {
         /* nid-export hash body */
         cfs_hash_t             *obd_nid_hash;
         /* nid stats body */
-        cfs_hash_t             *obd_nid_stats_hash;
-        cfs_list_t              obd_nid_stats;
-	cfs_atomic_t            obd_refcount;
+	cfs_hash_t             *obd_nid_stats_hash;
+	cfs_list_t              obd_nid_stats;
+	atomic_t                obd_refcount;
 	wait_queue_head_t       obd_refcount_waitq;
 	cfs_list_t              obd_exports;
         cfs_list_t              obd_unlinked_exports;
@@ -906,10 +906,10 @@ struct obd_device {
         cfs_list_t              obd_exports_timed;
         time_t                  obd_eviction_timer; /* for ping evictor */
 
-        int                              obd_max_recoverable_clients;
-        cfs_atomic_t                     obd_connected_clients;
-        int                              obd_stale_clients;
-        int                              obd_delayed_clients;
+	int                     obd_max_recoverable_clients;
+	atomic_t                obd_connected_clients;
+	int                     obd_stale_clients;
+	int                     obd_delayed_clients;
         /* this lock protects all recovery list_heads, timer and
          * obd_next_recovery_transno value */
 	spinlock_t			 obd_recovery_task_lock;
@@ -925,16 +925,16 @@ struct obd_device {
         int                              obd_recovery_timeout;
         int                              obd_recovery_ir_factor;
 
-        /* new recovery stuff from CMD2 */
-        struct target_recovery_data      obd_recovery_data;
-        int                              obd_replayed_locks;
-        cfs_atomic_t                     obd_req_replay_clients;
-        cfs_atomic_t                     obd_lock_replay_clients;
-        /* all lists are protected by obd_recovery_task_lock */
-        cfs_list_t                       obd_req_replay_queue;
-        cfs_list_t                       obd_lock_replay_queue;
-        cfs_list_t                       obd_final_req_queue;
-        int                              obd_recovery_stage;
+	/* new recovery stuff from CMD2 */
+	struct target_recovery_data      obd_recovery_data;
+	int                              obd_replayed_locks;
+	atomic_t                         obd_req_replay_clients;
+	atomic_t                         obd_lock_replay_clients;
+	/* all lists are protected by obd_recovery_task_lock */
+	cfs_list_t                       obd_req_replay_queue;
+	cfs_list_t                       obd_lock_replay_queue;
+	cfs_list_t                       obd_final_req_queue;
+	int                              obd_recovery_stage;
 
 	union {
 #ifdef HAVE_SERVER_SUPPORT
@@ -957,9 +957,9 @@ struct obd_device {
 
         cfs_proc_dir_entry_t  *obd_proc_entry;
         cfs_proc_dir_entry_t  *obd_proc_exports_entry;
-        cfs_proc_dir_entry_t  *obd_svc_procroot;
-        struct lprocfs_stats  *obd_svc_stats;
-	cfs_atomic_t           obd_evict_inprogress;
+	cfs_proc_dir_entry_t  *obd_svc_procroot;
+	struct lprocfs_stats  *obd_svc_stats;
+	atomic_t               obd_evict_inprogress;
 	wait_queue_head_t      obd_evict_inprogress_waitq;
 	cfs_list_t             obd_evict_list; /* protected with pet_lock */
 
@@ -1336,10 +1336,10 @@ struct lustre_md {
 };
 
 struct md_open_data {
-        struct obd_client_handle *mod_och;
-        struct ptlrpc_request    *mod_open_req;
-        struct ptlrpc_request    *mod_close_req;
-        cfs_atomic_t              mod_refcount;
+	struct obd_client_handle *mod_och;
+	struct ptlrpc_request    *mod_open_req;
+	struct ptlrpc_request    *mod_close_req;
+	atomic_t              mod_refcount;
 };
 
 struct lookup_intent;
@@ -1484,18 +1484,18 @@ static inline struct lustre_capa *oinfo_capa(struct obd_info *oinfo)
 
 static inline struct md_open_data *obd_mod_alloc(void)
 {
-        struct md_open_data *mod;
-        OBD_ALLOC_PTR(mod);
-        if (mod == NULL)
-                return NULL;
-        cfs_atomic_set(&mod->mod_refcount, 1);
-        return mod;
+	struct md_open_data *mod;
+	OBD_ALLOC_PTR(mod);
+	if (mod == NULL)
+		return NULL;
+	atomic_set(&mod->mod_refcount, 1);
+	return mod;
 }
 
-#define obd_mod_get(mod) cfs_atomic_inc(&(mod)->mod_refcount)
+#define obd_mod_get(mod) atomic_inc(&(mod)->mod_refcount)
 #define obd_mod_put(mod)                                          \
 ({                                                                \
-	if (cfs_atomic_dec_and_test(&(mod)->mod_refcount)) {      \
+	if (atomic_dec_and_test(&(mod)->mod_refcount)) {      	  \
 		if ((mod)->mod_open_req)                          \
 			ptlrpc_req_finished((mod)->mod_open_req); \
 		OBD_FREE_PTR(mod);                                \
@@ -1508,8 +1508,8 @@ void obdo_set_parent_fid(struct obdo *dst, const struct lu_fid *parent);
 /* return 1 if client should be resend request */
 static inline int client_should_resend(int resend, struct client_obd *cli)
 {
-        return cfs_atomic_read(&cli->cl_resends) ?
-               cfs_atomic_read(&cli->cl_resends) > resend : 1;
+	return atomic_read(&cli->cl_resends) ?
+	       atomic_read(&cli->cl_resends) > resend : 1;
 }
 
 /**

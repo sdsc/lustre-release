@@ -658,7 +658,7 @@ struct ldlm_namespace *ldlm_namespace_new(struct obd_device *obd, char *name,
         CFS_INIT_LIST_HEAD(&ns->ns_list_chain);
         CFS_INIT_LIST_HEAD(&ns->ns_unused_list);
 	spin_lock_init(&ns->ns_lock);
-        cfs_atomic_set(&ns->ns_bref, 0);
+	atomic_set(&ns->ns_bref, 0);
 	init_waitqueue_head(&ns->ns_waitq);
 
         ns->ns_max_nolock_size    = NS_DEFAULT_MAX_NOLOCK_BYTES;
@@ -807,13 +807,13 @@ static int ldlm_resource_complain(cfs_hash_t *hs, cfs_hash_bd_t *bd,
                "(%d) after lock cleanup; forcing "
                "cleanup.\n",
                ldlm_ns_name(ldlm_res_to_ns(res)),
-               cfs_atomic_read(&res->lr_refcount) - 1);
+	       atomic_read(&res->lr_refcount) - 1);
 
         CERROR("Resource: %p ("LPU64"/"LPU64"/"LPU64"/"
                LPU64") (rc: %d)\n", res,
                res->lr_name.name[0], res->lr_name.name[1],
                res->lr_name.name[2], res->lr_name.name[3],
-               cfs_atomic_read(&res->lr_refcount) - 1);
+	       atomic_read(&res->lr_refcount) - 1);
 
 	ldlm_resource_dump(D_ERROR, res);
 	unlock_res(res);
@@ -852,18 +852,18 @@ static int __ldlm_namespace_free(struct ldlm_namespace *ns, int force)
         /* At shutdown time, don't call the cancellation callback */
         ldlm_namespace_cleanup(ns, force ? LDLM_FL_LOCAL_ONLY : 0);
 
-        if (cfs_atomic_read(&ns->ns_bref) > 0) {
+	if (atomic_read(&ns->ns_bref) > 0) {
                 struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
                 int rc;
                 CDEBUG(D_DLMTRACE,
                        "dlm namespace %s free waiting on refcount %d\n",
-                       ldlm_ns_name(ns), cfs_atomic_read(&ns->ns_bref));
+		       ldlm_ns_name(ns), atomic_read(&ns->ns_bref));
 force_wait:
 		if (force)
 			lwi = LWI_TIMEOUT(obd_timeout * HZ / 4, NULL, NULL);
 
                 rc = l_wait_event(ns->ns_waitq,
-                                  cfs_atomic_read(&ns->ns_bref) == 0, &lwi);
+				  atomic_read(&ns->ns_bref) == 0, &lwi);
 
                 /* Forced cleanups should be able to reclaim all references,
                  * so it's safe to wait forever... we can't leak locks... */
@@ -871,15 +871,15 @@ force_wait:
                         LCONSOLE_ERROR("Forced cleanup waiting for %s "
                                        "namespace with %d resources in use, "
                                        "(rc=%d)\n", ldlm_ns_name(ns),
-                                       cfs_atomic_read(&ns->ns_bref), rc);
+				       atomic_read(&ns->ns_bref), rc);
                         GOTO(force_wait, rc);
                 }
 
-                if (cfs_atomic_read(&ns->ns_bref)) {
+		if (atomic_read(&ns->ns_bref)) {
                         LCONSOLE_ERROR("Cleanup waiting for %s namespace "
                                        "with %d resources in use, (rc=%d)\n",
                                        ldlm_ns_name(ns),
-                                       cfs_atomic_read(&ns->ns_bref), rc);
+				       atomic_read(&ns->ns_bref), rc);
                         RETURN(ELDLM_NAMESPACE_EXISTS);
                 }
                 CDEBUG(D_DLMTRACE, "dlm namespace %s free done waiting\n",
@@ -993,19 +993,19 @@ EXPORT_SYMBOL(ldlm_namespace_free);
 
 void ldlm_namespace_get(struct ldlm_namespace *ns)
 {
-        cfs_atomic_inc(&ns->ns_bref);
+	atomic_inc(&ns->ns_bref);
 }
 EXPORT_SYMBOL(ldlm_namespace_get);
 
 /* This is only for callers that care about refcount */
 int ldlm_namespace_get_return(struct ldlm_namespace *ns)
 {
-        return cfs_atomic_inc_return(&ns->ns_bref);
+	return atomic_inc_return(&ns->ns_bref);
 }
 
 void ldlm_namespace_put(struct ldlm_namespace *ns)
 {
-	if (cfs_atomic_dec_and_lock(&ns->ns_bref, &ns->ns_lock)) {
+	if (atomic_dec_and_lock(&ns->ns_bref, &ns->ns_lock)) {
 		wake_up(&ns->ns_waitq);
 		spin_unlock(&ns->ns_lock);
 	}
@@ -1084,7 +1084,7 @@ static struct ldlm_resource *ldlm_resource_new(void)
                 res->lr_itree[idx].lit_root = NULL;
         }
 
-        cfs_atomic_set(&res->lr_refcount, 1);
+	atomic_set(&res->lr_refcount, 1);
 	spin_lock_init(&res->lr_lock);
 	lu_ref_init(&res->lr_reference);
 
@@ -1225,9 +1225,9 @@ struct ldlm_resource *ldlm_resource_getref(struct ldlm_resource *res)
 {
         LASSERT(res != NULL);
         LASSERT(res != LP_POISON);
-        cfs_atomic_inc(&res->lr_refcount);
+	atomic_inc(&res->lr_refcount);
         CDEBUG(D_INFO, "getref res: %p count: %d\n", res,
-               cfs_atomic_read(&res->lr_refcount));
+	       atomic_read(&res->lr_refcount));
         return res;
 }
 
@@ -1266,7 +1266,7 @@ int ldlm_resource_putref(struct ldlm_resource *res)
 
         LASSERT_ATOMIC_GT_LT(&res->lr_refcount, 0, LI_POISON);
         CDEBUG(D_INFO, "putref res: %p count: %d\n",
-               res, cfs_atomic_read(&res->lr_refcount) - 1);
+	       res, atomic_read(&res->lr_refcount) - 1);
 
         cfs_hash_bd_get(ns->ns_rs_hash, &res->lr_name, &bd);
         if (cfs_hash_bd_dec_and_lock(ns->ns_rs_hash, &bd, &res->lr_refcount)) {
@@ -1288,9 +1288,9 @@ int ldlm_resource_putref_locked(struct ldlm_resource *res)
 
         LASSERT_ATOMIC_GT_LT(&res->lr_refcount, 0, LI_POISON);
         CDEBUG(D_INFO, "putref res: %p count: %d\n",
-               res, cfs_atomic_read(&res->lr_refcount) - 1);
+	       res, atomic_read(&res->lr_refcount) - 1);
 
-        if (cfs_atomic_dec_and_test(&res->lr_refcount)) {
+	if (atomic_dec_and_test(&res->lr_refcount)) {
                 cfs_hash_bd_t bd;
 
                 cfs_hash_bd_get(ldlm_res_to_ns(res)->ns_rs_hash,
@@ -1423,7 +1423,7 @@ void ldlm_namespace_dump(int level, struct ldlm_namespace *ns)
                 return;
 
         CDEBUG(level, "--- Namespace: %s (rc: %d, side: %s)\n",
-               ldlm_ns_name(ns), cfs_atomic_read(&ns->ns_bref),
+	       ldlm_ns_name(ns), atomic_read(&ns->ns_bref),
                ns_is_client(ns) ? "client" : "server");
 
         if (cfs_time_before(cfs_time_current(), ns->ns_next_dump))
@@ -1454,7 +1454,7 @@ void ldlm_resource_dump(int level, struct ldlm_resource *res)
         CDEBUG(level, "--- Resource: %p ("LPU64"/"LPU64"/"LPU64"/"LPU64
                ") (rc: %d)\n", res, res->lr_name.name[0], res->lr_name.name[1],
                res->lr_name.name[2], res->lr_name.name[3],
-               cfs_atomic_read(&res->lr_refcount));
+	       atomic_read(&res->lr_refcount));
 
         if (!cfs_list_empty(&res->lr_granted)) {
                 CDEBUG(level, "Granted locks (in reverse order):\n");

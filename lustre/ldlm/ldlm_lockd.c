@@ -110,8 +110,8 @@ struct ldlm_bl_pool {
 
 	wait_queue_head_t       blp_waitq;
 	struct completion       blp_comp;
-	cfs_atomic_t            blp_num_threads;
-	cfs_atomic_t            blp_busy_threads;
+	atomic_t            blp_num_threads;
+	atomic_t            blp_busy_threads;
 	int                     blp_min_threads;
 	int                     blp_max_threads;
 };
@@ -765,7 +765,7 @@ static int ldlm_cb_interpret(const struct lu_env *env,
         LDLM_LOCK_RELEASE(lock);
 
 	if (rc == -ERESTART)
-		cfs_atomic_inc(&arg->restart);
+		atomic_inc(&arg->restart);
 
         RETURN(0);
 }
@@ -782,7 +782,7 @@ static inline int ldlm_ast_fini(struct ptlrpc_request *req,
 		rc = ptl_send_rpc(req, 1);
 		ptlrpc_req_finished(req);
 		if (rc == 0)
-			cfs_atomic_inc(&arg->restart);
+			atomic_inc(&arg->restart);
 	} else {
 		LDLM_LOCK_GET(lock);
 		ptlrpc_set_add_req(arg->set, req);
@@ -2560,7 +2560,7 @@ static struct ldlm_bl_work_item *ldlm_bl_get_work(struct ldlm_bl_pool *blp)
                                               blwi_entry);
 
         if (blwi) {
-                if (++num_bl >= cfs_atomic_read(&blp->blp_num_threads))
+		if (++num_bl >= atomic_read(&blp->blp_num_threads))
                         num_bl = 0;
                 cfs_list_del(&blwi->blwi_entry);
         }
@@ -2585,13 +2585,13 @@ static int ldlm_bl_thread_start(struct ldlm_bl_pool *blp)
 	struct task_struct *task;
 
 	init_completion(&bltd.bltd_comp);
-	bltd.bltd_num = cfs_atomic_read(&blp->blp_num_threads);
+	bltd.bltd_num = atomic_read(&blp->blp_num_threads);
 	snprintf(bltd.bltd_name, sizeof(bltd.bltd_name) - 1,
 		"ldlm_bl_%02d", bltd.bltd_num);
 	task = kthread_run(ldlm_bl_thread_main, &bltd, bltd.bltd_name);
 	if (IS_ERR(task)) {
 		CERROR("cannot start LDLM thread ldlm_bl_%02d: rc %ld\n",
-		       cfs_atomic_read(&blp->blp_num_threads), PTR_ERR(task));
+		       atomic_read(&blp->blp_num_threads), PTR_ERR(task));
 		return PTR_ERR(task);
 	}
 	wait_for_completion(&bltd.bltd_comp);
@@ -2616,8 +2616,8 @@ static int ldlm_bl_thread_main(void *arg)
 
                 blp = bltd->bltd_blp;
 
-		cfs_atomic_inc(&blp->blp_num_threads);
-                cfs_atomic_inc(&blp->blp_busy_threads);
+		atomic_inc(&blp->blp_num_threads);
+		atomic_inc(&blp->blp_busy_threads);
 
 		complete(&bltd->bltd_comp);
                 /* cannot use bltd after this, it is only on caller's stack */
@@ -2631,13 +2631,13 @@ static int ldlm_bl_thread_main(void *arg)
                 blwi = ldlm_bl_get_work(blp);
 
                 if (blwi == NULL) {
-                        cfs_atomic_dec(&blp->blp_busy_threads);
+			atomic_dec(&blp->blp_busy_threads);
                         l_wait_event_exclusive(blp->blp_waitq,
                                          (blwi = ldlm_bl_get_work(blp)) != NULL,
                                          &lwi);
-                        busy = cfs_atomic_inc_return(&blp->blp_busy_threads);
+			busy = atomic_inc_return(&blp->blp_busy_threads);
                 } else {
-                        busy = cfs_atomic_read(&blp->blp_busy_threads);
+			busy = atomic_read(&blp->blp_busy_threads);
                 }
 
                 if (blwi->blwi_ns == NULL)
@@ -2646,7 +2646,7 @@ static int ldlm_bl_thread_main(void *arg)
 
                 /* Not fatal if racy and have a few too many threads */
                 if (unlikely(busy < blp->blp_max_threads &&
-                             busy >= cfs_atomic_read(&blp->blp_num_threads) &&
+			     busy >= atomic_read(&blp->blp_num_threads) &&
                              !blwi->blwi_mem_pressure))
                         /* discard the return value, we tried */
                         ldlm_bl_thread_start(blp);
@@ -2678,8 +2678,8 @@ static int ldlm_bl_thread_main(void *arg)
 			complete(&blwi->blwi_comp);
         }
 
-        cfs_atomic_dec(&blp->blp_busy_threads);
-        cfs_atomic_dec(&blp->blp_num_threads);
+	atomic_dec(&blp->blp_busy_threads);
+	atomic_dec(&blp->blp_num_threads);
 	complete(&blp->blp_comp);
         RETURN(0);
 }
@@ -2938,8 +2938,8 @@ static int ldlm_setup(void)
         CFS_INIT_LIST_HEAD(&blp->blp_list);
         CFS_INIT_LIST_HEAD(&blp->blp_prio_list);
 	init_waitqueue_head(&blp->blp_waitq);
-        cfs_atomic_set(&blp->blp_num_threads, 0);
-        cfs_atomic_set(&blp->blp_busy_threads, 0);
+	atomic_set(&blp->blp_num_threads, 0);
+	atomic_set(&blp->blp_busy_threads, 0);
 
 #ifdef __KERNEL__
 	if (ldlm_num_threads == 0) {
@@ -3007,7 +3007,7 @@ static int ldlm_cleanup(void)
 	if (ldlm_state->ldlm_bl_pool != NULL) {
 		struct ldlm_bl_pool *blp = ldlm_state->ldlm_bl_pool;
 
-		while (cfs_atomic_read(&blp->blp_num_threads) > 0) {
+		while (atomic_read(&blp->blp_num_threads) > 0) {
 			struct ldlm_bl_work_item blwi = { .blwi_ns = NULL };
 
 			init_completion(&blp->blp_comp);
