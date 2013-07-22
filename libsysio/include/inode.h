@@ -129,6 +129,11 @@ struct inode_ops {
 /*
  * An i-node record is maintained for each file object in the system.
  */
+/* HACK around sys/queue.h definition... */
+#define CFS_LIST_HEAD(name, type)					\
+struct name {								\
+	struct type *lh_first;	/* first element */			\
+}
 struct inode {
     LIST_ENTRY(inode) i_link;                           /* FS i-nodes link */
     unsigned
@@ -205,13 +210,13 @@ struct qstr {
  * common information.
  */
 struct pnode_base {
-    struct qstr pb_name;                                /* entry name */
-    struct inode *pb_ino;                               /* inode */
-    LIST_HEAD(, pnode_base) pb_children;                /* children if a dir */
-    LIST_ENTRY(pnode_base) pb_sibs;                     /* links to siblings */
-    LIST_ENTRY(pnode_base) pb_names;                    /* near names links */
-    LIST_HEAD(, pnode) pb_aliases;                      /* aliases */
-    struct pnode_base *pb_parent;                       /* parent */
+	struct qstr pb_name;                            /* entry name */
+	struct inode *pb_ino;                           /* inode */
+	CFS_LIST_HEAD(, pnode_base) pb_children;	/* children if a dir */
+	LIST_ENTRY(pnode_base) pb_sibs;                 /* links to siblings */
+	LIST_ENTRY(pnode_base) pb_names;                /* near names links */
+	CFS_LIST_HEAD(, pnode) pb_aliases;              /* aliases */
+	struct pnode_base *pb_parent;                   /* parent */
 };
 
 /*

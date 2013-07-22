@@ -97,7 +97,7 @@ struct ll_getname_data {
 
 /* llite setxid/access permission for user on remote client */
 struct ll_remote_perm {
-        cfs_hlist_node_t        lrp_list;
+	struct hlist_node        lrp_list;
         uid_t                   lrp_uid;
         gid_t                   lrp_gid;
         uid_t                   lrp_fsuid;
@@ -133,7 +133,7 @@ struct ll_inode_info {
 	spinlock_t			lli_lock;
 	struct posix_acl		*lli_posix_acl;
 
-	cfs_hlist_head_t		*lli_remote_perms;
+	struct hlist_head		*lli_remote_perms;
 	struct mutex				lli_rmtperm_mutex;
 
         /* identifying fields for both metadata and data stacks. */
@@ -142,8 +142,8 @@ struct ll_inode_info {
          * for allocating OST objects after a mknod() and later open-by-FID. */
         struct lu_fid                   lli_pfid;
 
-        cfs_list_t                      lli_close_list;
-        cfs_list_t                      lli_oss_capas;
+	struct list_head                      lli_close_list;
+	struct list_head                      lli_oss_capas;
         /* open count currently used by capability only, indicate whether
          * capability needs renewal */
         cfs_atomic_t                    lli_open_count;
@@ -220,7 +220,7 @@ struct ll_inode_info {
 
 			struct rw_semaphore		f_glimpse_sem;
 			cfs_time_t			f_glimpse_time;
-			cfs_list_t			f_agl_list;
+			struct list_head			f_agl_list;
 			__u64				f_agl_index;
 
 			/* for writepage() only to communicate to fsync */
@@ -426,20 +426,20 @@ enum stats_track_type {
 #define RCE_HASHES      32
 
 struct rmtacl_ctl_entry {
-        cfs_list_t       rce_list;
+	struct list_head       rce_list;
         pid_t            rce_key; /* hash key */
         int              rce_ops; /* acl operation type */
 };
 
 struct rmtacl_ctl_table {
 	spinlock_t	rct_lock;
-	cfs_list_t	rct_entries[RCE_HASHES];
+	struct list_head	rct_entries[RCE_HASHES];
 };
 
 #define EE_HASHES       32
 
 struct eacl_entry {
-        cfs_list_t            ee_list;
+	struct list_head            ee_list;
         pid_t                 ee_key; /* hash key */
         struct lu_fid         ee_fid;
         int                   ee_type; /* ACL type for ACCESS or DEFAULT */
@@ -448,11 +448,11 @@ struct eacl_entry {
 
 struct eacl_table {
 	spinlock_t	et_lock;
-	cfs_list_t	et_entries[EE_HASHES];
+	struct list_head	et_entries[EE_HASHES];
 };
 
 struct ll_sb_info {
-	cfs_list_t		  ll_list;
+	struct list_head		  ll_list;
 	/* this protects pglist and ra_info.  It isn't safe to
 	 * grab from interrupt contexts */
 	spinlock_t		  ll_lock;
@@ -466,10 +466,10 @@ struct ll_sb_info {
 
         int                       ll_flags;
 	int			  ll_umounting:1;
-        cfs_list_t                ll_conn_chain; /* per-conn chain of SBs */
+	struct list_head                ll_conn_chain; /* per-conn chain of SBs */
         struct lustre_client_ocd  ll_lco;
 
-        cfs_list_t                ll_orphan_dentry_list; /*please don't ask -p*/
+	struct list_head                ll_orphan_dentry_list; /*please don't ask -p*/
         struct ll_close_queue    *ll_lcq;
 
         struct lprocfs_stats     *ll_stats; /* lprocfs stats counter */
@@ -520,7 +520,7 @@ struct ll_ra_read {
         pgoff_t             lrr_start;
         pgoff_t             lrr_count;
         struct task_struct *lrr_reader;
-        cfs_list_t          lrr_linkage;
+	struct list_head          lrr_linkage;
 };
 
 /*
@@ -585,7 +585,7 @@ struct ll_readahead_state {
          * progress against this file descriptor. Used by read-ahead code,
          * protected by ->ras_lock.
          */
-        cfs_list_t      ras_read_beads;
+	struct list_head      ras_read_beads;
         /*
          * The following 3 items are used for detecting the stride I/O
          * mode.
@@ -894,7 +894,7 @@ extern struct inode_operations ll_fast_symlink_inode_operations;
 /* llite/llite_close.c */
 struct ll_close_queue {
 	spinlock_t		lcq_lock;
-	cfs_list_t		lcq_head;
+	struct list_head		lcq_head;
 	wait_queue_head_t	lcq_waitq;
 	struct completion	lcq_comp;
 	cfs_atomic_t		lcq_stop;
@@ -1077,7 +1077,7 @@ typedef struct rb_node  rb_node_t;
 struct ll_lock_tree_node;
 struct ll_lock_tree {
         rb_root_t                       lt_root;
-        cfs_list_t                      lt_locked_list;
+	struct list_head                      lt_locked_list;
         struct ll_file_data            *lt_fd;
 };
 
@@ -1173,8 +1173,8 @@ int ll_removexattr(struct dentry *dentry, const char *name);
 extern struct kmem_cache *ll_remote_perm_cachep;
 extern struct kmem_cache *ll_rmtperm_hash_cachep;
 
-cfs_hlist_head_t *alloc_rmtperm_hash(void);
-void free_rmtperm_hash(cfs_hlist_head_t *hash);
+struct hlist_head *alloc_rmtperm_hash(void);
+void free_rmtperm_hash(struct hlist_head *hash);
 int ll_update_remote_perm(struct inode *inode, struct mdt_remote_perm *perm);
 int lustre_check_remote_perm(struct inode *inode, int mask);
 
@@ -1278,11 +1278,11 @@ struct ll_statahead_info {
 	wait_queue_head_t       sai_waitq;      /* stat-ahead wait queue */
 	struct ptlrpc_thread    sai_thread;     /* stat-ahead thread */
 	struct ptlrpc_thread    sai_agl_thread; /* AGL thread */
-	cfs_list_t              sai_entries;    /* entry list */
-        cfs_list_t              sai_entries_received; /* entries returned */
-        cfs_list_t              sai_entries_stated;   /* entries stated */
-        cfs_list_t              sai_entries_agl; /* AGL entries to be sent */
-        cfs_list_t              sai_cache[LL_SA_CACHE_SIZE];
+	struct list_head              sai_entries;    /* entry list */
+	struct list_head              sai_entries_received; /* entries returned */
+	struct list_head              sai_entries_stated;   /* entries stated */
+	struct list_head              sai_entries_agl; /* AGL entries to be sent */
+	struct list_head              sai_cache[LL_SA_CACHE_SIZE];
 	spinlock_t		sai_cache_lock[LL_SA_CACHE_SIZE];
 	cfs_atomic_t		sai_cache_count; /* entry count in cache */
 };
