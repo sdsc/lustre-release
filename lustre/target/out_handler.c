@@ -45,7 +45,7 @@ struct tx_arg *tx_add_exec(struct thandle_exec_args *ta, tx_exec_func_t func,
 	LASSERT(func);
 
 	i = ta->ta_argno;
-	LASSERT(i < UPDATE_MAX_OPS);
+	LASSERT(i < UPDATE_PER_RPC_MAX);
 
 	ta->ta_argno++;
 
@@ -297,7 +297,8 @@ static int out_create(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	obdo_le_to_cpu(wobdo, wobdo);
+	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+		lustre_swab_obdo(wobdo);
 	lustre_get_wire_obdo(NULL, lobdo, wobdo);
 	la_from_obdo(attr, lobdo, lobdo->o_valid);
 
@@ -311,7 +312,8 @@ static int out_create(struct tgt_session_info *tsi)
 			       tgt_name(tsi->tsi_tgt), -EPROTO);
 			RETURN(err_serious(-EPROTO));
 		}
-		fid_le_to_cpu(fid, fid);
+		if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+			lustre_swab_lu_fid(fid);
 		if (!fid_is_sane(fid)) {
 			CERROR("%s: invalid fid "DFID": rc = %d\n",
 			       tgt_name(tsi->tsi_tgt), PFID(fid), -EPROTO);
@@ -408,7 +410,8 @@ static int out_attr_set(struct tgt_session_info *tsi)
 
 	attr->la_valid = 0;
 	attr->la_valid = 0;
-	obdo_le_to_cpu(wobdo, wobdo);
+	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+		lustre_swab_obdo(wobdo);
 	lustre_get_wire_obdo(NULL, lobdo, wobdo);
 	la_from_obdo(attr, lobdo, lobdo->o_valid);
 
@@ -476,7 +479,6 @@ static int out_attr_get(struct tgt_session_info *tsi)
 
 	obdo->o_valid = 0;
 	obdo_from_la(obdo, la, la->la_valid);
-	obdo_cpu_to_le(obdo, obdo);
 	lustre_set_wire_obdo(NULL, obdo, obdo);
 
 out_unlock:
@@ -577,7 +579,6 @@ static int out_index_lookup(struct tgt_session_info *tsi)
 	CDEBUG(D_INFO, "lookup "DFID" %s get "DFID" rc %d\n",
 	       PFID(lu_object_fid(&obj->do_lu)), name,
 	       PFID(&tti->tti_fid1), rc);
-	fid_cpu_to_le(&tti->tti_fid1, &tti->tti_fid1);
 
 out_unlock:
 	dt_read_unlock(env, obj);
@@ -689,7 +690,9 @@ static int out_xattr_set(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	flag = le32_to_cpu(*(int *)tmp);
+	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+		__swab32s((__u32 *)tmp);
+	flag = *(int *)tmp;
 
 	rc = out_tx_xattr_set(tsi->tsi_env, obj, lbuf, name, flag,
 			      &tti->tti_tea,
@@ -978,7 +981,9 @@ static int out_index_insert(struct tgt_session_info *tsi)
 		       RETURN(err_serious(-EPROTO));
 	}
 
-	fid_le_to_cpu(fid, fid);
+	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+		lustre_swab_lu_fid(fid);
+
 	if (!fid_is_sane(fid)) {
 		CERROR("%s: invalid FID "DFID": rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), PFID(fid), -EPROTO);
@@ -1129,7 +1134,6 @@ static int out_destroy(struct tgt_session_info *tsi)
 	ENTRY;
 
 	fid = &update->u_fid;
-	fid_le_to_cpu(fid, fid);
 	if (!fid_is_sane(fid)) {
 		CERROR("%s: invalid FID "DFID": rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), PFID(fid), -EPROTO);
@@ -1244,17 +1248,17 @@ int out_handle(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	if (le32_to_cpu(ubuf->ub_magic) != UPDATE_BUFFER_MAGIC) {
-		CERROR("%s: invalid magic %x expect %x: rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), le32_to_cpu(ubuf->ub_magic),
-		       UPDATE_BUFFER_MAGIC, -EPROTO);
+	if (ubuf->ub_magic != UPDATE_REQUEST_MAGIC) {
+		CERROR("%s: invalid update buffer magic %x expect %x: "
+		       "rc = %d\n", tgt_name(tsi->tsi_tgt), ubuf->ub_magic,
+		       UPDATE_REQUEST_MAGIC, -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
-	count = le32_to_cpu(ubuf->ub_count);
+	count = ubuf->ub_count;
 	if (count <= 0) {
-		CERROR("%s: No update!: rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), -EPROTO);
+		CERROR("%s: empty update: rc = %d\n", tgt_name(tsi->tsi_tgt),
+		       -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
@@ -1283,6 +1287,10 @@ int out_handle(struct tgt_session_info *tsi)
 		struct dt_object	*dt_obj;
 
 		update = (struct update *)((char *)ubuf + off);
+
+		if (ptlrpc_req_need_swab(pill->rc_req))
+			lustre_swab_update(update);
+
 		if (old_batchid == -1) {
 			old_batchid = update->u_batchid;
 		} else if (old_batchid != update->u_batchid) {
@@ -1298,7 +1306,6 @@ int out_handle(struct tgt_session_info *tsi)
 			old_batchid = update->u_batchid;
 		}
 
-		fid_le_to_cpu(&update->u_fid, &update->u_fid);
 		if (!fid_is_sane(&update->u_fid)) {
 			CERROR("%s: invalid FID "DFID": rc = %d\n",
 			       tgt_name(tsi->tsi_tgt), PFID(&update->u_fid),
