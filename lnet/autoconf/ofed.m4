@@ -60,6 +60,7 @@ AC_DEFUN([LN_CONFIG_OFED_SPEC],
 
 	AC_MSG_CHECKING([if OFED has RDMA_CM_EVENT_ADDR_CHANGE])
 	LB_LINUX_TRY_COMPILE([
+		#include <scsi/fc_compat.h>
 		#include <linux/version.h>
 		#include <linux/pci.h>
 		#if !HAVE_GFP_T
@@ -78,6 +79,7 @@ AC_DEFUN([LN_CONFIG_OFED_SPEC],
 
 	AC_MSG_CHECKING([if OFED has RDMA_CM_EVENT_TIMEWAIT_EXIT])
 	LB_LINUX_TRY_COMPILE([
+		#include <scsi/fc_compat.h>
 		#include <linux/version.h>
 		#include <linux/pci.h>
 		#if !HAVE_GFP_T
