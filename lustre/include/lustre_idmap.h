@@ -75,7 +75,7 @@ enum lustre_idmap_idx {
 
 struct lustre_idmap_table {
 	spinlock_t	lit_lock;
-	cfs_list_t	lit_idmaps[CFS_IDMAP_N_HASHES][CFS_IDMAP_HASHSIZE];
+	struct list_head	lit_idmaps[CFS_IDMAP_N_HASHES][CFS_IDMAP_HASHSIZE];
 };
 
 struct lu_ucred;
