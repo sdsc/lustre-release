@@ -9452,6 +9452,24 @@ test_163() {
 }
 run_test 163 "kernel <-> userspace comms"
 
+test_164() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	test_mkdir -p $DIR/$tdir/foo1
+	test_mkdir -p $DIR/$tdir/foo2
+	cp /etc/hosts $DIR/$tdir/foo1/$tfile
+	ln $DIR/$tdir/foo1/$tfile $DIR/$tdir/foo2/link
+	# get fid of parents
+	local FID1=$($LFS path2fid $DIR/$tdir/foo1)
+	local FID2=$($LFS path2fid $DIR/$tdir/foo2)
+	# check that path2fid --parents return all expected <parent_fid>/name
+	local parents=$($LFS path2fid --parents $DIR/$tdir/foo1/$tfile)
+	echo "$parents" | grep -F "$FID1/$tfile" ||
+		error "$FID1/$tfile not returned in parent list"
+	echo "$parents" | grep -F "$FID2/link" ||
+		error "$FID2/link not returned in parent list"
+}
+run_test 164 "get parent fids by reading link ea"
+
 test_169() {
 	# do directio so as not to populate the page cache
 	log "creating a 10 Mb file"

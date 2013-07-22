@@ -282,8 +282,8 @@ command_t cmdlist[] = {
          /* "For a historical name, specify changelog record <recno>.\n" */
          "usage: fid2path <fsname|rootpath> <fid> [--link <linkno>]"
                 /*[--rec <recno>]*/},
-        {"path2fid", lfs_path2fid, 0, "Display the fid for a given path.\n"
-         "usage: path2fid <path>"},
+	{"path2fid", lfs_path2fid, 0, "Display the fid for a given path.\n"
+	 "usage: path2fid [--parents] <path>"},
         {"data_version", lfs_data_version, 0, "Display file data version for "
          "a given path.\n" "usage: data_version [-n] <path>"},
 	{"hsm_state", lfs_hsm_state, 0, "Display the HSM information (states, "
@@ -3098,23 +3098,59 @@ static int lfs_fid2path(int argc, char **argv)
 
 static int lfs_path2fid(int argc, char **argv)
 {
-        char *path;
-        lustre_fid fid;
-        int rc;
+	struct option long_opts[] = {
+		{"parents", no_argument, 0, 'p'},
+		{0, 0, 0, 0}
+	};
+	char  short_opts[] = "p";
+	char *path;
+	lustre_fid fid;
+	int rc;
+	int parents = 0;
+	int linkno = 0;
 
-        if (argc != 2)
-                return CMD_HELP;
+	optind = 0;
 
-        path = argv[1];
-        rc = llapi_path2fid(path, &fid);
-        if (rc) {
-                fprintf(stderr, "can't get fid for %s: %s\n", path,
-                        strerror(errno = -rc));
-                return rc;
-        }
+	while ((rc = getopt_long(argc, argv, short_opts,
+				long_opts, NULL)) != -1) {
+		switch (rc) {
+		case 'p':
+			parents++;
+			break;
+		default:
+			fprintf(stderr, "error: %s: option '%s' unrecognized\n",
+				argv[0], argv[optind - 1]);
+			return CMD_HELP;
+		}
+	}
 
-        printf(DFID"\n", PFID(&fid));
+	if (optind != argc - 1)
+		return CMD_HELP;
 
+	path = argv[optind];
+
+	if (parents == 0) {
+		rc = llapi_path2fid(path, &fid);
+		if (rc) {
+			fprintf(stderr, "can't get fid for %s: %s\n", path,
+				strerror(errno = -rc));
+			return rc;
+		}
+
+		printf(DFID"\n", PFID(&fid));
+	} else {
+		char name[NAME_MAX];
+		while ((rc = llapi_path2parent(path, linkno, &fid, name,
+				NAME_MAX)) == 0) {
+			printf(DFID"/%s\n", PFID(&fid), name);
+			linkno++;
+		}
+		if (rc != -ENODATA) {
+			fprintf(stderr, "can't get parent[%u] for %s: %s\n",
+				 linkno, path, strerror(errno = -rc));
+			return rc;
+		}
+	}
         return 0;
 }
 

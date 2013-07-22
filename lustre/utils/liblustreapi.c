@@ -74,6 +74,7 @@
 #include <obd.h>
 #include <obd_lov.h>
 #include <lustre/lustreapi.h>
+#include <lustre_linkea.h>
 #include "lustreapi_internal.h"
 
 static unsigned llapi_dir_filetype_table[] = {
@@ -4103,6 +4104,49 @@ int llapi_path2fid(const char *path, lustre_fid *fid)
 
 	close(fd);
 	return rc;
+}
+
+int llapi_path2parent(const char *path, int linkno, lustre_fid *fid,
+		      char *name, int namelen)
+{
+	int	rc, i, len;
+	char	buf[4096];
+	struct	linkea_data	ldata = { 0 };
+	struct	lu_buf		lb = { 0 };
+
+	rc = lgetxattr(path, XATTR_NAME_LINK, buf, sizeof(buf));
+	if (rc < 0)
+		return -errno;
+
+	lb.lb_buf = buf;
+	lb.lb_len = rc;
+	ldata.ld_buf = &lb;
+	ldata.ld_leh = (struct link_ea_header *)buf;
+
+	linkea_first_entry(&ldata);
+	ldata.ld_reclen = (ldata.ld_lee->lee_reclen[0] << 8)
+			   | ldata.ld_lee->lee_reclen[1];
+
+	if (linkno >= ldata.ld_leh->leh_reccount)
+		/* beyond last link */
+		return -ENODATA;
+
+	for (i = 0; i < linkno; i++) {
+		linkea_next_entry(&ldata);
+		ldata.ld_reclen = (ldata.ld_lee->lee_reclen[0] << 8)
+				   | ldata.ld_lee->lee_reclen[1];
+	}
+
+	memcpy(fid, &ldata.ld_lee->lee_parent_fid, sizeof(*fid));
+	fid_be_to_cpu(fid, fid);
+
+	len = ldata.ld_reclen - sizeof(struct link_ea_entry);
+	if (len >= namelen)
+		return -ERANGE;
+
+	strncpy(name, ldata.ld_lee->lee_name, len);
+	name[len] = '\0';
+	return 0;
 }
 
 int llapi_get_connect_flags(const char *mnt, __u64 *flags)
