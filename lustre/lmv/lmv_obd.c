@@ -419,7 +419,7 @@ int lmv_connect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
 
         CDEBUG(D_CONFIG, "Connected to %s(%s) successfully (%d)\n",
                 mdc_obd->obd_name, mdc_obd->obd_uuid.uuid,
-                cfs_atomic_read(&obd->obd_refcount));
+		atomic_read(&obd->obd_refcount));
 
 #ifdef __KERNEL__
         lmv_proc_dir = lprocfs_srch(obd->obd_proc_entry, "target_obds");

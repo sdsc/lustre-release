@@ -59,13 +59,13 @@
 static void lov_pool_getref(struct pool_desc *pool)
 {
         CDEBUG(D_INFO, "pool %p\n", pool);
-        cfs_atomic_inc(&pool->pool_refcount);
+	atomic_inc(&pool->pool_refcount);
 }
 
 void lov_pool_putref(struct pool_desc *pool) 
 {
         CDEBUG(D_INFO, "pool %p\n", pool);
-        if (cfs_atomic_dec_and_test(&pool->pool_refcount)) {
+	if (atomic_dec_and_test(&pool->pool_refcount)) {
                 LASSERT(cfs_hlist_unhashed(&pool->pool_hash));
                 LASSERT(cfs_list_empty(&pool->pool_list));
                 LASSERT(pool->pool_proc_entry == NULL);
@@ -79,9 +79,9 @@ void lov_pool_putref(struct pool_desc *pool)
 void lov_pool_putref_locked(struct pool_desc *pool)
 {
         CDEBUG(D_INFO, "pool %p\n", pool);
-        LASSERT(cfs_atomic_read(&pool->pool_refcount) > 1);
+	LASSERT(atomic_read(&pool->pool_refcount) > 1);
 
-        cfs_atomic_dec(&pool->pool_refcount);
+	atomic_dec(&pool->pool_refcount);
 }
 
 /*
@@ -455,7 +455,7 @@ int lov_pool_new(struct obd_device *obd, char *poolname)
         /* ref count init to 1 because when created a pool is always used
          * up to deletion
          */
-        cfs_atomic_set(&new_pool->pool_refcount, 1);
+	atomic_set(&new_pool->pool_refcount, 1);
         rc = lov_ost_pool_init(&new_pool->pool_obds, 0);
         if (rc)
                GOTO(out_err, rc);

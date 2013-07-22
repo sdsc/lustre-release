@@ -138,7 +138,7 @@ struct lloop_device {
 	int			lo_state;
 	struct semaphore	lo_sem;
 	struct mutex		lo_ctl_mutex;
-	cfs_atomic_t		lo_pending;
+	atomic_t		lo_pending;
 	wait_queue_head_t	lo_bh_wait;
 
 	struct request_queue *lo_queue;
@@ -284,7 +284,7 @@ static void loop_add_bio(struct lloop_device *lo, struct bio *bio)
 		lo->lo_bio = lo->lo_biotail = bio;
 	spin_unlock_irqrestore(&lo->lo_lock, flags);
 
-	cfs_atomic_inc(&lo->lo_pending);
+	atomic_inc(&lo->lo_pending);
 	if (waitqueue_active(&lo->lo_bh_wait))
 		wake_up(&lo->lo_bh_wait);
 }
@@ -400,7 +400,7 @@ static inline void loop_handle_bio(struct lloop_device *lo, struct bio *bio)
 
 static inline int loop_active(struct lloop_device *lo)
 {
-        return cfs_atomic_read(&lo->lo_pending) ||
+	return atomic_read(&lo->lo_pending) ||
                 (lo->lo_state == LLOOP_RUNDOWN);
 }
 
@@ -440,7 +440,7 @@ static int loop_thread(void *data)
 
 	for (;;) {
 		wait_event(lo->lo_bh_wait, loop_active(lo));
-		if (!cfs_atomic_read(&lo->lo_pending)) {
+		if (!atomic_read(&lo->lo_pending)) {
 			int exiting = 0;
 			spin_lock_irq(&lo->lo_lock);
 			exiting = (lo->lo_state == LLOOP_RUNDOWN);
@@ -469,9 +469,9 @@ static int loop_thread(void *data)
                 }
 
                 LASSERT(bio != NULL);
-                LASSERT(count <= cfs_atomic_read(&lo->lo_pending));
+		LASSERT(count <= atomic_read(&lo->lo_pending));
                 loop_handle_bio(lo, bio);
-                cfs_atomic_sub(count, &lo->lo_pending);
+		atomic_sub(count, &lo->lo_pending);
         }
         cl_env_put(env, &refcheck);
 

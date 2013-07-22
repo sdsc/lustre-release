@@ -146,7 +146,7 @@ struct ll_inode_info {
         cfs_list_t                      lli_oss_capas;
         /* open count currently used by capability only, indicate whether
          * capability needs renewal */
-        cfs_atomic_t                    lli_open_count;
+	atomic_t                    lli_open_count;
         struct obd_capa                *lli_mds_capa;
         cfs_time_t                      lli_rmtperm_time;
 
@@ -318,7 +318,7 @@ enum ra_stat {
 };
 
 struct ll_ra_info {
-        cfs_atomic_t              ra_cur_pages;
+	atomic_t              ra_cur_pages;
         unsigned long             ra_max_pages;
         unsigned long             ra_max_pages_per_file;
         unsigned long             ra_max_read_ahead_whole_pages;
@@ -897,7 +897,7 @@ struct ll_close_queue {
 	cfs_list_t		lcq_head;
 	wait_queue_head_t	lcq_waitq;
 	struct completion	lcq_comp;
-	cfs_atomic_t		lcq_stop;
+	atomic_t		lcq_stop;
 };
 
 struct ccc_object *cl_inode2ccc(struct inode *inode);
@@ -1248,7 +1248,7 @@ void et_fini(struct eacl_table *et);
 /* per inode struct, for dir only */
 struct ll_statahead_info {
         struct inode           *sai_inode;
-        cfs_atomic_t            sai_refcount;   /* when access this struct, hold
+	atomic_t            sai_refcount;   /* when access this struct, hold
                                                  * refcount */
         unsigned int            sai_generation; /* generation for statahead */
         unsigned int            sai_max;        /* max ahead of lookup */
@@ -1284,7 +1284,7 @@ struct ll_statahead_info {
         cfs_list_t              sai_entries_agl; /* AGL entries to be sent */
         cfs_list_t              sai_cache[LL_SA_CACHE_SIZE];
 	spinlock_t		sai_cache_lock[LL_SA_CACHE_SIZE];
-	cfs_atomic_t		sai_cache_count; /* entry count in cache */
+	atomic_t		sai_cache_count; /* entry count in cache */
 };
 
 int do_statahead_enter(struct inode *dir, struct dentry **dentry,
