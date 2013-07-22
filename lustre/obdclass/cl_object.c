@@ -391,7 +391,7 @@ void cache_stats_init(struct cache_stats *cs, const char *name)
 
         cs->cs_name = name;
 	for (i = 0; i < CS_NR; i++)
-		cfs_atomic_set(&cs->cs_stats[i], 0);
+		atomic_set(&cs->cs_stats[i], 0);
 }
 
 int cache_stats_print(const struct cache_stats *cs,
@@ -416,7 +416,7 @@ int cache_stats_print(const struct cache_stats *cs,
 	nob += snprintf(page + nob, count - nob, "%5.5s:", cs->cs_name);
 	for (i = 0; i < CS_NR; i++)
 		nob += snprintf(page + nob, count - nob, "%8u",
-				cfs_atomic_read(&cs->cs_stats[i]));
+				atomic_read(&cs->cs_stats[i]));
 	return nob;
 }
 
@@ -436,9 +436,9 @@ int cl_site_init(struct cl_site *s, struct cl_device *d)
                 cache_stats_init(&s->cs_pages, "pages");
                 cache_stats_init(&s->cs_locks, "locks");
                 for (i = 0; i < ARRAY_SIZE(s->cs_pages_state); ++i)
-                        cfs_atomic_set(&s->cs_pages_state[0], 0);
+			atomic_set(&s->cs_pages_state[0], 0);
                 for (i = 0; i < ARRAY_SIZE(s->cs_locks_state); ++i)
-                        cfs_atomic_set(&s->cs_locks_state[i], 0);
+			atomic_set(&s->cs_locks_state[i], 0);
         }
         return result;
 }
@@ -455,7 +455,7 @@ EXPORT_SYMBOL(cl_site_fini);
 
 static struct cache_stats cl_env_stats = {
         .cs_name    = "envs",
-	.cs_stats = { CFS_ATOMIC_INIT(0), }
+	.cs_stats = { ATOMIC_INIT(0), }
 };
 
 /**
@@ -494,14 +494,14 @@ locks: ...... ...... ...... ...... ...... [...... ...... ...... ...... ......]
         for (i = 0; i < ARRAY_SIZE(site->cs_pages_state); ++i)
                 nob += snprintf(page + nob, count - nob, "%s: %u ",
                                 pstate[i],
-                                cfs_atomic_read(&site->cs_pages_state[i]));
+				atomic_read(&site->cs_pages_state[i]));
         nob += snprintf(page + nob, count - nob, "]\n");
         nob += cache_stats_print(&site->cs_locks, page + nob, count - nob, 0);
         nob += snprintf(page + nob, count - nob, " [");
         for (i = 0; i < ARRAY_SIZE(site->cs_locks_state); ++i)
                 nob += snprintf(page + nob, count - nob, "%s: %u ",
                                 lstate[i],
-                                cfs_atomic_read(&site->cs_locks_state[i]));
+				atomic_read(&site->cs_locks_state[i]));
         nob += snprintf(page + nob, count - nob, "]\n");
         nob += cache_stats_print(&cl_env_stats, page + nob, count - nob, 0);
         nob += snprintf(page + nob, count - nob, "\n");
@@ -577,11 +577,11 @@ struct cl_env {
 };
 
 #ifdef CONFIG_DEBUG_PAGESTATE_TRACKING
-#define CL_ENV_INC(counter) cfs_atomic_inc(&cl_env_stats.cs_stats[CS_##counter])
+#define CL_ENV_INC(counter) atomic_inc(&cl_env_stats.cs_stats[CS_##counter])
 
 #define CL_ENV_DEC(counter) do {                                              \
-	LASSERT(cfs_atomic_read(&cl_env_stats.cs_stats[CS_##counter]) > 0);   \
-	cfs_atomic_dec(&cl_env_stats.cs_stats[CS_##counter]);                 \
+	LASSERT(atomic_read(&cl_env_stats.cs_stats[CS_##counter]) > 0);   \
+	atomic_dec(&cl_env_stats.cs_stats[CS_##counter]);                 \
 } while (0)
 #else
 #define CL_ENV_INC(counter)

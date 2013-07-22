@@ -269,7 +269,7 @@ int lprocfs_evict_client_open(struct inode *inode, struct file *f)
         struct proc_dir_entry *dp = PDE(f->f_dentry->d_inode);
         struct obd_device *obd = dp->data;
 
-        cfs_atomic_inc(&obd->obd_evict_inprogress);
+	atomic_inc(&obd->obd_evict_inprogress);
 
         return 0;
 }
@@ -279,7 +279,7 @@ int lprocfs_evict_client_release(struct inode *inode, struct file *f)
         struct proc_dir_entry *dp = PDE(f->f_dentry->d_inode);
         struct obd_device *obd = dp->data;
 
-        cfs_atomic_dec(&obd->obd_evict_inprogress);
+	atomic_dec(&obd->obd_evict_inprogress);
 	wake_up(&obd->obd_evict_inprogress_waitq);
 
         return 0;
@@ -543,17 +543,17 @@ EXPORT_SYMBOL(lprocfs_rd_u64);
 int lprocfs_rd_atomic(char *page, char **start, off_t off,
                    int count, int *eof, void *data)
 {
-        cfs_atomic_t *atom = data;
+	atomic_t *atom = data;
         LASSERT(atom != NULL);
         *eof = 1;
-        return snprintf(page, count, "%d\n", cfs_atomic_read(atom));
+	return snprintf(page, count, "%d\n", atomic_read(atom));
 }
 EXPORT_SYMBOL(lprocfs_rd_atomic);
 
 int lprocfs_wr_atomic(struct file *file, const char *buffer,
                       unsigned long count, void *data)
 {
-        cfs_atomic_t *atm = data;
+	atomic_t *atm = data;
         int val = 0;
         int rc;
 
@@ -564,7 +564,7 @@ int lprocfs_wr_atomic(struct file *file, const char *buffer,
         if (val <= 0)
                 return -ERANGE;
 
-        cfs_atomic_set(atm, val);
+	atomic_set(atm, val);
         return count;
 }
 EXPORT_SYMBOL(lprocfs_wr_atomic);
@@ -946,7 +946,7 @@ int lprocfs_rd_import(char *page, char **start, off_t off, int count,
 			      libcfs_nid2str(imp->imp_connection->c_peer.nid),
 		      imp->imp_conn_cnt,
 		      imp->imp_generation,
-		      cfs_atomic_read(&imp->imp_inval_count));
+		      atomic_read(&imp->imp_inval_count));
 	spin_unlock(&imp->imp_lock);
 
 	if (obd->obd_svc_stats == NULL)
@@ -967,9 +967,9 @@ int lprocfs_rd_import(char *page, char **start, off_t off, int count,
                       "       unregistering: %u\n"
                       "       timeouts: %u\n"
                       "       avg_waittime: "LPU64" %s\n",
-                      cfs_atomic_read(&imp->imp_inflight),
-                      cfs_atomic_read(&imp->imp_unregistering),
-                      cfs_atomic_read(&imp->imp_timeouts),
+		      atomic_read(&imp->imp_inflight),
+		      atomic_read(&imp->imp_unregistering),
+		      atomic_read(&imp->imp_timeouts),
 		      ret.lc_sum, header->lc_units);
 
         k = 0;
@@ -1216,7 +1216,7 @@ static void lprocfs_free_client_stats(struct nid_stat *client_stat)
 	CDEBUG(D_CONFIG, "stat %p - data %p/%p\n", client_stat,
 	       client_stat->nid_proc, client_stat->nid_stats);
 
-        LASSERTF(cfs_atomic_read(&client_stat->nid_exp_ref_count) == 0,
+	LASSERTF(atomic_read(&client_stat->nid_exp_ref_count) == 0,
                  "nid %s:count %d\n", libcfs_nid2str(client_stat->nid),
                  atomic_read(&client_stat->nid_exp_ref_count));
 
@@ -1883,8 +1883,8 @@ static int lprocfs_nid_stats_clear_write_cb(void *obj, void *data)
         struct nid_stat *stat = obj;
         ENTRY;
 
-        CDEBUG(D_INFO,"refcnt %d\n", cfs_atomic_read(&stat->nid_exp_ref_count));
-        if (cfs_atomic_read(&stat->nid_exp_ref_count) == 1) {
+	CDEBUG(D_INFO,"refcnt %d\n", atomic_read(&stat->nid_exp_ref_count));
+	if (atomic_read(&stat->nid_exp_ref_count) == 1) {
                 /* object has only hash references. */
 		spin_lock(&stat->nid_obd->obd_nid_lock);
 		cfs_list_move(&stat->nid_list, data);
@@ -1951,13 +1951,13 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
         new_stat->nid               = *nid;
         new_stat->nid_obd           = exp->exp_obd;
         /* we need set default refcount to 1 to balance obd_disconnect */
-        cfs_atomic_set(&new_stat->nid_exp_ref_count, 1);
+	atomic_set(&new_stat->nid_exp_ref_count, 1);
 
         old_stat = cfs_hash_findadd_unique(obd->obd_nid_stats_hash,
                                            nid, &new_stat->nid_hash);
         CDEBUG(D_INFO, "Found stats %p for nid %s - ref %d\n",
                old_stat, libcfs_nid2str(*nid),
-               cfs_atomic_read(&new_stat->nid_exp_ref_count));
+	       atomic_read(&new_stat->nid_exp_ref_count));
 
         /* We need to release old stats because lprocfs_exp_cleanup() hasn't
          * been and will never be called. */
@@ -2444,21 +2444,21 @@ int lprocfs_obd_rd_recovery_status(char *page, char **start, off_t off,
                                  cfs_time_current_sec()) <= 0)
                 goto out;
         if (lprocfs_obd_snprintf(&page, size, &len,"connected_clients: %d/%d\n",
-                                 cfs_atomic_read(&obd->obd_connected_clients),
+				 atomic_read(&obd->obd_connected_clients),
                                  obd->obd_max_recoverable_clients) <= 0)
                 goto out;
         /* Number of clients that have completed recovery */
         if (lprocfs_obd_snprintf(&page, size, &len,"req_replay_clients: %d\n",
-                                 cfs_atomic_read(&obd->obd_req_replay_clients))
+				 atomic_read(&obd->obd_req_replay_clients))
                 <= 0)
                 goto out;
         if (lprocfs_obd_snprintf(&page, size, &len,"lock_repay_clients: %d\n",
-                                 cfs_atomic_read(&obd->obd_lock_replay_clients))
+				 atomic_read(&obd->obd_lock_replay_clients))
                 <=0)
                 goto out;
         if (lprocfs_obd_snprintf(&page, size, &len,"completed_clients: %d\n",
-                                 cfs_atomic_read(&obd->obd_connected_clients) -
-                                 cfs_atomic_read(&obd->obd_lock_replay_clients))
+				 atomic_read(&obd->obd_connected_clients) -
+				 atomic_read(&obd->obd_lock_replay_clients))
                 <=0)
                 goto out;
         if (lprocfs_obd_snprintf(&page, size, &len,"evicted_clients: %d\n",

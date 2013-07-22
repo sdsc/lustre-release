@@ -163,10 +163,10 @@ struct lustre_mount_info *server_get_mount(const char *name)
 	}
 	lsi = s2lsi(lmi->lmi_sb);
 
-	cfs_atomic_inc(&lsi->lsi_mounts);
+	atomic_inc(&lsi->lsi_mounts);
 
 	CDEBUG(D_MOUNT, "get_mnt %p from %s, refs=%d\n", lmi->lmi_mnt,
-	       name, cfs_atomic_read(&lsi->lsi_mounts));
+	       name, atomic_read(&lsi->lsi_mounts));
 
 	RETURN(lmi);
 }
@@ -209,7 +209,7 @@ int server_put_mount(const char *name, struct vfsmount *mnt)
 	lsi = s2lsi(lmi->lmi_sb);
 
 	CDEBUG(D_MOUNT, "put_mnt %p from %s, refs=%d\n",
-	       lmi->lmi_mnt, name, cfs_atomic_read(&lsi->lsi_mounts));
+	       lmi->lmi_mnt, name, atomic_read(&lsi->lsi_mounts));
 
 	if (lustre_put_lsi(lmi->lmi_sb))
 		CDEBUG(D_MOUNT, "Last put of mnt %p from %s\n",
