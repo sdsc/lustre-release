@@ -32,150 +32,173 @@
 #define _LUSTRE_UPDATE_H
 
 #define UPDATE_BUFFER_SIZE	8192
-struct update_request {
-	struct dt_device	*ur_dt;
-	cfs_list_t		ur_list;    /* attached itself to thandle */
-	int			ur_flags;
-	int			ur_rc;	    /* request result */
-	int			ur_batchid; /* Current batch(trans) id */
-	struct update_buf	*ur_buf;   /* Holding the update req */
+struct dt_update_request {
+	struct dt_device		*dur_dt;
+	/* attached itself to thandle */
+	cfs_list_t			dur_list;
+	int				dur_flags;
+	/* update request result */
+	int				dur_rc;
+	/* Current batch(transaction) id */
+	int				dur_batchid;
+	/* Holding the update req */
+	struct object_update_request	*dur_req;
 };
 
-static inline unsigned long update_size(struct update *update)
+static inline unsigned long object_update_size(struct object_update *update)
 {
 	unsigned long size;
 	int	   i;
 
-	size = cfs_size_round(offsetof(struct update, u_bufs[0]));
-	for (i = 0; i < UPDATE_BUF_COUNT; i++)
-		size += cfs_size_round(update->u_lens[i]);
+	size = cfs_size_round(offsetof(struct object_update, ou_bufs[0]));
+	for (i = 0; i < OBJECT_UPDATE_PARAMS_MAX; i++)
+		size += cfs_size_round(update->ou_lens[i]);
 
 	return size;
 }
 
-static inline void *update_param_buf(struct update *update, int index,
-				     int *size)
+static inline void
+*object_update_param_get(struct object_update *update, int index, int *size)
 {
-	int	i;
 	void	*ptr;
 
-	if (index >= UPDATE_BUF_COUNT)
+	if (index >= OBJECT_UPDATE_PARAMS_MAX)
 		return NULL;
 
-	if (unlikely(update->u_lens[index] == 0)) {
+	if (unlikely(update->ou_lens[index] == 0)) {
 		ptr = NULL;
 	} else {
+		int	i;
 		ptr = (char *)update +
-		      cfs_size_round(offsetof(struct update, u_bufs[0]));
+		      cfs_size_round(offsetof(struct object_update,
+					      ou_bufs[0]));
 		for (i = 0; i < index; i++)
-			ptr += cfs_size_round(update->u_lens[i]);
+			ptr += cfs_size_round(update->ou_lens[i]);
 	}
 
 	if (size != NULL)
-		*size = update->u_lens[index];
+		*size = update->ou_lens[index];
 
 	return ptr;
 }
 
-static inline unsigned long update_buf_size(struct update_buf *buf)
+static inline unsigned long
+object_update_request_size(struct object_update_request *our)
 {
 	unsigned long size;
 	int	   i = 0;
 
-	size = cfs_size_round(offsetof(struct update_buf, ub_bufs[0]));
-	for (i = 0; i < buf->ub_count; i++) {
-		struct update *update;
+	size = cfs_size_round(offsetof(struct object_update_request,
+				       ourq_bufs[0]));
+	for (i = 0; i < our->ourq_count; i++) {
+		struct object_update *update;
 
-		update = (struct update *)((char *)buf + size);
-		size += update_size(update);
+		update = (struct object_update *)((char *)our + size);
+		size += object_update_size(update);
 	}
 	LASSERT(size <= UPDATE_BUFFER_SIZE);
 	return size;
 }
 
-static inline void *update_buf_get(struct update_buf *buf, int index, int *size)
+static inline struct object_update
+*object_update_request_get(struct object_update_request *our, int index,
+			   int *size)
 {
-	int	count = buf->ub_count;
+	int	count = our->ourq_count;
 	void	*ptr;
 	int	i = 0;
 
 	if (index >= count)
 		return NULL;
 
-	ptr = (char *)buf + cfs_size_round(offsetof(struct update_buf,
-						    ub_bufs[0]));
+	ptr = (char *)our +
+	      cfs_size_round(offsetof(struct object_update_request,
+				      ourq_bufs[0]));
 	for (i = 0; i < index; i++)
-		ptr += update_size((struct update *)ptr);
+		ptr += object_update_size((struct object_update *)ptr);
 
 	if (size != NULL)
-		*size = update_size((struct update *)ptr);
+		*size = object_update_size((struct object_update *)ptr);
 
 	return ptr;
 }
 
-static inline void update_init_reply_buf(struct update_reply *reply, int count)
+static inline void
+object_update_reply_init(struct object_update_reply *reply, int count)
 {
-	reply->ur_version = UPDATE_REPLY_V1;
-	reply->ur_count = count;
+	reply->ourp_magic = UPDATE_REPLY_MAGIC;
+	reply->ourp_count = count;
 }
 
-static inline void *update_get_buf_internal(struct update_reply *reply,
-					    int index, int *size)
+static inline struct object_update_result
+*object_update_result_get(struct object_update_reply *reply, int index,
+			 int *size)
 {
 	char *ptr;
-	int count = reply->ur_count;
+	int count = reply->ourp_count;
 	int i;
 
 	if (index >= count)
 		return NULL;
 
-	ptr = (char *)reply + cfs_size_round(offsetof(struct update_reply,
-					     ur_lens[count]));
+	ptr = (char *)reply +
+	      cfs_size_round(offsetof(struct object_update_reply,
+				      ourp_lens[count]));
 	for (i = 0; i < index; i++) {
-		LASSERT(reply->ur_lens[i] > 0);
-		ptr += cfs_size_round(reply->ur_lens[i]);
+		LASSERT(reply->ourp_lens[i] > 0);
+		ptr += cfs_size_round(reply->ourp_lens[i]);
 	}
 
 	if (size != NULL)
-		*size = reply->ur_lens[index];
+		*size = reply->ourp_lens[index];
 
-	return ptr;
+	return (struct object_update_result *)ptr;
 }
 
-static inline void update_insert_reply(struct update_reply *reply, void *data,
-				       int data_len, int index, int rc)
+static inline void
+object_update_result_insert(struct object_update_reply *reply,
+			    void *data, int data_len, int index,
+			    int rc)
 {
+	struct object_update_result *update_result;
 	char *ptr;
 
-	ptr = update_get_buf_internal(reply, index, NULL);
-	LASSERT(ptr != NULL);
+	update_result = object_update_result_get(reply, index, NULL);
+	LASSERT(update_result != NULL);
 
-	*(int *)ptr = cpu_to_le32(rc);
-	ptr += sizeof(int);
+	update_result->our_rc = ptlrpc_status_hton(rc);
 	if (data_len > 0) {
 		LASSERT(data != NULL);
+		ptr = (char *)update_result +
+			cfs_size_round(sizeof(struct object_update_reply));
+		update_result->our_datalen = data_len;
 		memcpy(ptr, data, data_len);
 	}
-	reply->ur_lens[index] = data_len + sizeof(int);
+
+	reply->ourp_lens[index] = cfs_size_round(data_len +
+					sizeof(struct object_update_result));
 }
 
-static inline int update_get_reply_buf(struct ptlrpc_request *req,
-				       struct update_reply *reply, void **buf,
-				       int index)
+static inline int
+object_update_result_data_get(struct object_update_reply *reply,
+			      void **buf, int index)
 {
-	char *ptr;
+	struct object_update_result *update_result;
 	int  size = 0;
 	int  result;
 
-	ptr = update_get_buf_internal(reply, index, &size);
-	LASSERT(ptr != NULL);
-	result = le32_to_cpu(*(int *)ptr);
+	update_result = object_update_result_get(reply, index, &size);
+	if (update_result == NULL ||
+	    size < cfs_size_round(sizeof(struct object_update_reply)) ||
+	    update_result->our_datalen > size)
+		RETURN(-EFAULT);
+
+	result = ptlrpc_status_ntoh(update_result->our_rc);
 	if (result < 0)
 		return result;
 
-	LASSERT(size >= sizeof(int));
-	*buf = ptr + sizeof(int);
-	return size - sizeof(int);
+	*buf = (char *)update_result->our_data;
+	return update_result->our_datalen;
 }
 
 #endif

@@ -425,7 +425,7 @@ static struct thandle *lod_trans_create(const struct lu_env *env,
 static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
-	struct update_request *update;
+	struct dt_update_request *update;
 	int    rc = 0;
 	ENTRY;
 
@@ -433,17 +433,17 @@ static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
 		RETURN(0);
 
 	cfs_list_for_each_entry(update, &th->th_remote_update_list,
-				ur_list) {
+				dur_list) {
 		/* In DNE phase I, there should be only one OSP
 		 * here, so we will do send/receive one by one,
 		 * instead of sending them parallel, will fix this
 		 * in Phase II */
 		th->th_current_request = update;
-		rc = dt_trans_start(env, update->ur_dt, th);
+		rc = dt_trans_start(env, update->dur_dt, th);
 		if (rc != 0) {
 			/* FIXME how to revert the partial results
 			 * once error happened? Resolved by 2 Phase commit */
-			update->ur_rc = rc;
+			update->dur_rc = rc;
 			break;
 		}
 	}
@@ -466,16 +466,16 @@ static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 
 static int lod_trans_stop(const struct lu_env *env, struct thandle *th)
 {
-	struct update_request *update;
-	struct update_request *tmp;
+	struct dt_update_request *update;
+	struct dt_update_request *tmp;
 	int rc = 0;
 	int rc2 = 0;
 
 	cfs_list_for_each_entry_safe(update, tmp,
 				     &th->th_remote_update_list,
-				     ur_list) {
+				     dur_list) {
 		th->th_current_request = update;
-		rc2 = dt_trans_stop(env, update->ur_dt, th);
+		rc2 = dt_trans_stop(env, update->dur_dt, th);
 		if (unlikely(rc2 != 0 && rc == 0))
 			rc = rc2;
 	}

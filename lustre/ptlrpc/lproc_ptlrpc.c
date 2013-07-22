@@ -137,7 +137,7 @@ struct ll_rpc_opcode {
         { SEC_CTX_FINI,     "sec_ctx_fini" },
 	{ FLD_QUERY,        "fld_query" },
 	{ FLD_READ,	    "fld_read" },
-	{ UPDATE_OBJ,	    "update_obj" },
+	{ OBJECT_UPDATE,    "object_update" },
 };
 
 struct ll_eopcode {
