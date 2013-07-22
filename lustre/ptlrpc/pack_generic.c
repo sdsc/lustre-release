@@ -54,6 +54,7 @@
 #include <lustre_net.h>
 #include <obd_cksum.h>
 #include <lustre/ll_fiemap.h>
+#include <lustre_update.h>
 
 static inline int lustre_msg_hdr_size_v2(int count)
 {
@@ -2572,35 +2573,62 @@ void lustre_swab_hsm_request(struct hsm_request *hr)
 }
 EXPORT_SYMBOL(lustre_swab_hsm_request);
 
-void lustre_swab_update_buf(struct update_buf *ub)
-{
-	__swab32s(&ub->ub_magic);
-	__swab32s(&ub->ub_count);
-}
-EXPORT_SYMBOL(lustre_swab_update_buf);
-
-void lustre_swab_update(struct update *u)
+void lustre_swab_object_update(struct object_update *ou)
 {
 	int	i;
 
-	__swab32s(&u->u_type);
-	__swab32s(&u->u_batchid);
-	lustre_swab_lu_fid(&u->u_fid);
-	for (i = 0; i < ARRAY_SIZE(u->u_lens); i++)
-		__swab32s(&u->u_lens[i]);
+	__swab16s(&ou->ou_type);
+	__swab16s(&ou->ou_padding1);
+	__swab32s(&ou->ou_master_index);
+	__swab32s(&ou->ou_flags);
+	__swab32s(&ou->ou_padding2);
+	__swab64s(&ou->ou_batchid);
+	lustre_swab_lu_fid(&ou->ou_fid);
+	for (i = 0; i < ARRAY_SIZE(ou->ou_lens); i++)
+		__swab32s(&ou->ou_lens[i]);
 }
-EXPORT_SYMBOL(lustre_swab_update);
+EXPORT_SYMBOL(lustre_swab_object_update);
 
-void lustre_swab_update_reply_buf(struct update_reply *ur)
+void lustre_swab_object_update_request(struct object_update_request *our)
+{
+	int i;
+	__swab32s(&our->ourq_magic);
+	__swab32s(&our->ourq_count);
+	for (i = 0; i < our->ourq_count; i++) {
+		struct object_update *ou;
+
+		ou = object_update_request_get(our, i, NULL);
+		if (ou == NULL)
+			return;
+		lustre_swab_object_update(ou);
+	}
+}
+EXPORT_SYMBOL(lustre_swab_object_update_request);
+
+void lustre_swab_object_update_result(struct object_update_result *our)
+{
+	__swab32s(&our->our_rc);
+	__swab32s(&our->our_datalen);
+}
+EXPORT_SYMBOL(lustre_swab_object_update_result);
+
+void lustre_swab_object_update_reply(struct object_update_reply *our)
 {
 	int i;
 
-	__swab32s(&ur->ur_version);
-	__swab32s(&ur->ur_count);
-	for (i = 0; i < ur->ur_count; i++)
-		__swab32s(&ur->ur_lens[i]);
+	__swab32s(&our->ourp_magic);
+	__swab32s(&our->ourp_count);
+	for (i = 0; i < our->ourp_count; i++) {
+		struct object_update_result *ourp;
+
+		__swab32s(&our->ourp_lens[i]);
+		ourp = object_update_result_get(our, i, NULL);
+		if (ourp == NULL)
+			return;
+		lustre_swab_object_update_result(ourp);
+	}
 }
-EXPORT_SYMBOL(lustre_swab_update_reply_buf);
+EXPORT_SYMBOL(lustre_swab_object_update_reply);
 
 void lustre_swab_swap_layouts(struct mdc_swap_layouts *msl)
 {

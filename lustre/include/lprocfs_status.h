@@ -302,9 +302,9 @@ static inline int opcode_offset(__u32 opc) {
                         OPC_RANGE(LDLM) +
                         OPC_RANGE(MDS) +
                         OPC_RANGE(OST));
-	} else if (opc < UPDATE_LAST_OPC) {
+	} else if (opc < OBJECT_UPDATE_LAST_OPC) {
 		/* update opcode */
-		return (opc - UPDATE_FIRST_OPC +
+		return (opc - OBJECT_UPDATE_FIRST_OPC +
 			OPC_RANGE(FLD) +
 			OPC_RANGE(SEC) +
 			OPC_RANGE(SEQ) +
@@ -332,7 +332,7 @@ static inline int opcode_offset(__u32 opc) {
                             OPC_RANGE(SEQ)  + \
                             OPC_RANGE(SEC)  + \
 			    OPC_RANGE(FLD)  + \
-			    OPC_RANGE(UPDATE))
+			    OPC_RANGE(OBJECT_UPDATE))
 
 #define EXTRA_MAX_OPCODES ((PTLRPC_LAST_CNTR - PTLRPC_FIRST_CNTR)  + \
                             OPC_RANGE(EXTRA))
