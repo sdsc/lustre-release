@@ -766,7 +766,7 @@ static void osp_sync_process_committed(const struct lu_env *env,
 			ubuf = req_capsule_client_get(&req->rq_pill,
 						      &RMF_UPDATE);
 			LASSERT(ubuf != NULL &&
-			        ubuf->ub_magic == UPDATE_BUFFER_MAGIC);
+			        ubuf->ub_magic == UPDATE_REQUEST_MAGIC);
 			/* 1st/2nd is for decref . and .., 3rd one is for
 			 * destroy, where the log cookie is stored.
 			 * See osp_prep_unlink_update_req */
