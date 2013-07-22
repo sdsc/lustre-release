@@ -21,6 +21,7 @@ obdclass-all-objs += lu_ucred.o
 
 @SERVER_TRUE@obdclass-all-objs += lprocfs_jobstats.o
 @SERVER_TRUE@obdclass-all-objs += obd_mount_server.o
+@SERVER_TRUE@obdclass-all-objs += lprocfs_status_server.o lprocfs_jobstats.o
 
 obdclass-objs := $(obdclass-linux-objs) $(obdclass-all-objs)
 
