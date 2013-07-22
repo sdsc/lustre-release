@@ -456,7 +456,7 @@ static inline void tgt_drop_id(struct obd_export *exp, struct obdo *oa)
 
 /* Request with a format known in advance */
 #define TGT_UPDATE_HDL(flags, name, fn)					\
-	TGT_RPC_HANDLER(UPDATE_OBJ, flags, name, fn, &RQF_ ## name,	\
+	TGT_RPC_HANDLER(OBJECT_UPDATE, flags, name, fn, &RQF_ ## name,	\
 			LUSTRE_MDS_VERSION)
 
 #endif /* __LUSTRE_LU_TARGET_H */
