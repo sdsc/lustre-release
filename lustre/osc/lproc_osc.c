@@ -169,9 +169,9 @@ static int osc_rd_cached_mb(char *page, char **start, off_t off, int count,
 	rc = snprintf(page, count,
 		      "used_mb: %d\n"
 		      "busy_cnt: %d\n",
-		      (cfs_atomic_read(&cli->cl_lru_in_list) +
-			cfs_atomic_read(&cli->cl_lru_busy)) >> shift,
-		      cfs_atomic_read(&cli->cl_lru_busy));
+		      (atomic_read(&cli->cl_lru_in_list) +
+			atomic_read(&cli->cl_lru_busy)) >> shift,
+		      atomic_read(&cli->cl_lru_busy));
 
 	return rc;
 }
@@ -193,7 +193,7 @@ static int osc_wr_cached_mb(struct file *file, const char *buffer,
 	if (pages_number < 0)
 		return -ERANGE;
 
-	rc = cfs_atomic_read(&cli->cl_lru_in_list) - pages_number;
+	rc = atomic_read(&cli->cl_lru_in_list) - pages_number;
 	if (rc > 0)
 		(void)osc_lru_shrink(cli, rc);
 
@@ -395,7 +395,7 @@ static int osc_rd_resend_count(char *page, char **start, off_t off, int count,
         struct obd_device *obd = data;
 
         return snprintf(page, count, "%u\n",
-                        cfs_atomic_read(&obd->u.cli.cl_resends));
+			atomic_read(&obd->u.cli.cl_resends));
 }
 
 static int osc_wr_resend_count(struct file *file, const char *buffer,
@@ -411,7 +411,7 @@ static int osc_wr_resend_count(struct file *file, const char *buffer,
         if (val < 0)
                return -EINVAL;
 
-        cfs_atomic_set(&obd->u.cli.cl_resends, val);
+	atomic_set(&obd->u.cli.cl_resends, val);
 
         return count;
 }
@@ -459,7 +459,7 @@ static int osc_rd_destroys_in_flight(char *page, char **start, off_t off,
 {
         struct obd_device *obd = data;
         return snprintf(page, count, "%u\n",
-                        cfs_atomic_read(&obd->u.cli.cl_destroy_in_flight));
+			atomic_read(&obd->u.cli.cl_destroy_in_flight));
 }
 
 static int lprocfs_osc_wr_max_pages_per_rpc(struct file *file,
@@ -565,9 +565,9 @@ static int osc_rpc_stats_seq_show(struct seq_file *seq, void *v)
         seq_printf(seq, "write RPCs in flight: %d\n",
                    cli->cl_w_in_flight);
         seq_printf(seq, "pending write pages:  %d\n",
-		   cfs_atomic_read(&cli->cl_pending_w_pages));
+		   atomic_read(&cli->cl_pending_w_pages));
         seq_printf(seq, "pending read pages:   %d\n",
-		   cfs_atomic_read(&cli->cl_pending_r_pages));
+		   atomic_read(&cli->cl_pending_r_pages));
 
         seq_printf(seq, "\n\t\t\tread\t\t\twrite\n");
         seq_printf(seq, "pages per rpc         rpcs   %% cum %% |");

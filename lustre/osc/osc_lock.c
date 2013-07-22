@@ -252,8 +252,8 @@ static void osc_lock_fini(const struct lu_env *env,
          */
         osc_lock_unhold(ols);
         LASSERT(ols->ols_lock == NULL);
-        LASSERT(cfs_atomic_read(&ols->ols_pageref) == 0 ||
-                cfs_atomic_read(&ols->ols_pageref) == _PAGEREF_MAGIC);
+	LASSERT(atomic_read(&ols->ols_pageref) == 0 ||
+		atomic_read(&ols->ols_pageref) == _PAGEREF_MAGIC);
 
         OBD_SLAB_FREE_PTR(ols, osc_lock_kmem);
 }
@@ -1647,7 +1647,7 @@ int osc_lock_init(const struct lu_env *env,
 		__u32 enqflags = lock->cll_descr.cld_enq_flags;
 
 		osc_lock_build_einfo(env, lock, clk, &clk->ols_einfo);
-		cfs_atomic_set(&clk->ols_pageref, 0);
+		atomic_set(&clk->ols_pageref, 0);
 		clk->ols_state = OLS_NEW;
 
 		clk->ols_flags = osc_enq2ldlm_flags(enqflags);
@@ -1687,9 +1687,9 @@ int osc_dlm_lock_pageref(struct ldlm_lock *dlm)
          * which we actually can, that's no harm.
          */
         if (olock != NULL &&
-            cfs_atomic_add_return(_PAGEREF_MAGIC,
+	    atomic_add_return(_PAGEREF_MAGIC,
                                   &olock->ols_pageref) != _PAGEREF_MAGIC) {
-                cfs_atomic_sub(_PAGEREF_MAGIC, &olock->ols_pageref);
+		atomic_sub(_PAGEREF_MAGIC, &olock->ols_pageref);
                 rc = 1;
         }
 	spin_unlock(&osc_ast_guard);

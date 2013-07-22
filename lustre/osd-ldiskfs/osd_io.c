@@ -98,12 +98,12 @@ static int __osd_init_iobuf(struct osd_device *d, struct osd_iobuf *iobuf,
 
 	LASSERTF(iobuf->dr_elapsed_valid == 0,
 		 "iobuf %p, reqs %d, rw %d, line %d\n", iobuf,
-		 cfs_atomic_read(&iobuf->dr_numreqs), iobuf->dr_rw,
+		 atomic_read(&iobuf->dr_numreqs), iobuf->dr_rw,
 		 iobuf->dr_init_at);
 	LASSERT(pages <= PTLRPC_MAX_BRW_PAGES);
 
 	init_waitqueue_head(&iobuf->dr_wait);
-        cfs_atomic_set(&iobuf->dr_numreqs, 0);
+	atomic_set(&iobuf->dr_numreqs, 0);
         iobuf->dr_npages = 0;
         iobuf->dr_error = 0;
         iobuf->dr_dev = d;
@@ -204,7 +204,7 @@ static int dio_complete_routine(struct bio *bio, unsigned int done, int error)
                        "bi_idx: %d, bi->size: %d, bi_end_io: %p, bi_cnt: %d, "
                        "bi_private: %p\n", bio->bi_next, bio->bi_flags,
                        bio->bi_rw, bio->bi_vcnt, bio->bi_idx, bio->bi_size,
-                       bio->bi_end_io, cfs_atomic_read(&bio->bi_cnt),
+		       bio->bi_end_io, atomic_read(&bio->bi_cnt),
                        bio->bi_private);
                 DIO_RETURN(0);
         }
@@ -217,7 +217,7 @@ static int dio_complete_routine(struct bio *bio, unsigned int done, int error)
                         LASSERT(PageLocked(bvl->bv_page));
                         ClearPageConstant(bvl->bv_page);
                 }
-                cfs_atomic_dec(&iobuf->dr_dev->od_r_in_flight);
+		atomic_dec(&iobuf->dr_dev->od_r_in_flight);
         } else {
                 struct page *p = iobuf->dr_pages[0];
                 if (p->mapping) {
@@ -227,7 +227,7 @@ static int dio_complete_routine(struct bio *bio, unsigned int done, int error)
                                 }
                         }
                 }
-                cfs_atomic_dec(&iobuf->dr_dev->od_w_in_flight);
+		atomic_dec(&iobuf->dr_dev->od_w_in_flight);
         }
 
         /* any real error is good enough -bzzz */
@@ -241,11 +241,11 @@ static int dio_complete_routine(struct bio *bio, unsigned int done, int error)
 	 * data in this processing and an assertion in a subsequent
 	 * call to OSD.
 	 */
-	if (cfs_atomic_read(&iobuf->dr_numreqs) == 1) {
+	if (atomic_read(&iobuf->dr_numreqs) == 1) {
 		iobuf->dr_elapsed = jiffies - iobuf->dr_start_time;
 		iobuf->dr_elapsed_valid = 1;
 	}
-	if (cfs_atomic_dec_and_test(&iobuf->dr_numreqs))
+	if (atomic_dec_and_test(&iobuf->dr_numreqs))
 		wake_up(&iobuf->dr_wait);
 
         /* Completed bios used to be chained off iobuf->dr_bios and freed in
@@ -263,17 +263,17 @@ static void record_start_io(struct osd_iobuf *iobuf, int size)
         struct obd_histogram *h = osd->od_brw_stats.hist;
 
         iobuf->dr_frags++;
-        cfs_atomic_inc(&iobuf->dr_numreqs);
+	atomic_inc(&iobuf->dr_numreqs);
 
         if (iobuf->dr_rw == 0) {
-                cfs_atomic_inc(&osd->od_r_in_flight);
+		atomic_inc(&osd->od_r_in_flight);
                 lprocfs_oh_tally(&h[BRW_R_RPC_HIST],
-                                 cfs_atomic_read(&osd->od_r_in_flight));
+				 atomic_read(&osd->od_r_in_flight));
                 lprocfs_oh_tally_log2(&h[BRW_R_DISK_IOSIZE], size);
         } else if (iobuf->dr_rw == 1) {
-                cfs_atomic_inc(&osd->od_w_in_flight);
+		atomic_inc(&osd->od_w_in_flight);
                 lprocfs_oh_tally(&h[BRW_W_RPC_HIST],
-                                 cfs_atomic_read(&osd->od_w_in_flight));
+				 atomic_read(&osd->od_w_in_flight));
                 lprocfs_oh_tally_log2(&h[BRW_W_DISK_IOSIZE], size);
         } else {
                 LBUG();
@@ -428,7 +428,7 @@ static int osd_do_bio(struct osd_device *osd, struct inode *inode,
          * see osd_trans_stop() for more details -bzzz */
         if (iobuf->dr_rw == 0) {
 		wait_event(iobuf->dr_wait,
-                               cfs_atomic_read(&iobuf->dr_numreqs) == 0);
+			       atomic_read(&iobuf->dr_numreqs) == 0);
         }
 
         if (rc == 0)
