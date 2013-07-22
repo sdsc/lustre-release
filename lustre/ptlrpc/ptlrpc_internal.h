@@ -101,16 +101,11 @@ struct nrs_core {
 	struct mutex nrs_mutex;
 	/* XXX: This is just for liblustre. Remove the #if defined directive
 	 * when the * "cfs_" prefix is dropped from cfs_list_head. */
-#if defined (__linux__) && defined(__KERNEL__)
 	/**
 	 * List of all policy descriptors registered with NRS core; protected
 	 * by nrs_core::nrs_mutex.
 	 */
 	struct list_head nrs_policies;
-#else
-	struct cfs_list_head nrs_policies;
-#endif
-
 };
 
 int ptlrpc_service_nrs_setup(struct ptlrpc_service *svc);

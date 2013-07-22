@@ -1650,7 +1650,7 @@ kgnilnd_report_node_state(lnet_nid_t nid, int down)
 {
 	int         rc;
 	kgn_peer_t  *peer, *new_peer;
-	CFS_LIST_HEAD(zombies);
+	LIST_HEAD(zombies);
 
 	write_lock(&kgnilnd_data.kgn_peer_conn_lock);
 	peer = kgnilnd_find_peer_locked(nid);

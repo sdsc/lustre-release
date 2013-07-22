@@ -117,7 +117,7 @@ lwt_control (int enable, int clear)
                 for (j = 0; j < lwt_pages_per_cpu; j++) {
 			memset(p->lwtp_events, 0, PAGE_CACHE_SIZE);
 
-                        p = cfs_list_entry (p->lwtp_list.next,
+                        p = list_entry (p->lwtp_list.next,
                                             lwt_page_t, lwtp_list);
                 }
         }
@@ -163,7 +163,7 @@ lwt_snapshot(cfs_cycles_t *now, int *ncpu, int *total_size,
 				return -EFAULT;
 
                         user_ptr = ((char *)user_ptr) + bytes_per_page;
-                        p = cfs_list_entry(p->lwtp_list.next,
+                        p = list_entry(p->lwtp_list.next,
                                            lwt_page_t, lwtp_list);
                 }
         }
@@ -210,10 +210,10 @@ int lwt_init ()
 			memset(lwtp->lwtp_events, 0, PAGE_CACHE_SIZE);
 
 			if (j == 0) {
-				CFS_INIT_LIST_HEAD (&lwtp->lwtp_list);
+				INIT_LIST_HEAD (&lwtp->lwtp_list);
 				lwt_cpus[i].lwtc_current_page = lwtp;
 			} else {
-				cfs_list_add (&lwtp->lwtp_list,
+				list_add (&lwtp->lwtp_list,
 				    &lwt_cpus[i].lwtc_current_page->lwtp_list);
 			}
                 }
@@ -236,14 +236,14 @@ void lwt_fini ()
 		while (lwt_cpus[i].lwtc_current_page != NULL) {
 			lwt_page_t *lwtp = lwt_cpus[i].lwtc_current_page;
 
-                        if (cfs_list_empty (&lwtp->lwtp_list)) {
+                        if (list_empty (&lwtp->lwtp_list)) {
                                 lwt_cpus[i].lwtc_current_page = NULL;
                         } else {
                                 lwt_cpus[i].lwtc_current_page =
-                                        cfs_list_entry (lwtp->lwtp_list.next,
+                                        list_entry (lwtp->lwtp_list.next,
                                                         lwt_page_t, lwtp_list);
 
-                                cfs_list_del (&lwtp->lwtp_list);
+                                list_del (&lwtp->lwtp_list);
                         }
                         
                         __free_page (lwtp->lwtp_page);

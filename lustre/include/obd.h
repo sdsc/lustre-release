@@ -247,7 +247,7 @@ void lov_stripe_lock(struct lov_stripe_md *md);
 void lov_stripe_unlock(struct lov_stripe_md *md);
 
 struct obd_type {
-        cfs_list_t typ_chain;
+        struct list_head typ_chain;
         struct obd_ops *typ_dt_ops;
         struct md_ops *typ_md_ops;
         cfs_proc_dir_entry_t *typ_procroot;
@@ -289,8 +289,8 @@ struct timeout_item {
         cfs_time_t         ti_timeout;
         timeout_cb_t       ti_cb;
         void              *ti_cb_data;
-        cfs_list_t         ti_obd_list;
-        cfs_list_t         ti_chain;
+        struct list_head         ti_obd_list;
+        struct list_head         ti_chain;
 };
 
 #define OSC_MAX_RIF_DEFAULT       8
@@ -340,9 +340,9 @@ struct client_obd {
 	 * grant before trying to dirty a page and unreserve the rest.
 	 * See osc_{reserve|unreserve}_grant for details. */
 	long                 cl_reserved_grant;
-	cfs_list_t           cl_cache_waiters; /* waiting for cache/grant */
+	struct list_head           cl_cache_waiters; /* waiting for cache/grant */
 	cfs_time_t           cl_next_shrink_grant;   /* jiffies */
-	cfs_list_t           cl_grant_shrink_list;  /* Timeout event list */
+	struct list_head           cl_grant_shrink_list;  /* Timeout event list */
 	int                  cl_grant_shrink_interval; /* seconds */
 
 	/* A chunk is an optimal size used by osc_extent to determine
@@ -373,10 +373,10 @@ struct client_obd {
 	 * osc_object{}s are in the list.
 	 */
         client_obd_lock_t        cl_loi_list_lock;
-        cfs_list_t               cl_loi_ready_list;
-        cfs_list_t               cl_loi_hp_ready_list;
-        cfs_list_t               cl_loi_write_list;
-        cfs_list_t               cl_loi_read_list;
+        struct list_head               cl_loi_ready_list;
+        struct list_head               cl_loi_hp_ready_list;
+        struct list_head               cl_loi_write_list;
+        struct list_head               cl_loi_read_list;
         int                      cl_r_in_flight;
         int                      cl_w_in_flight;
         /* just a sum of the loi/lop pending numbers to be exported by /proc */
@@ -393,12 +393,12 @@ struct client_obd {
 
 	/* lru for osc caching pages */
 	struct cl_client_cache	*cl_cache;
-	cfs_list_t		 cl_lru_osc; /* member of cl_cache->ccc_lru */
+	struct list_head		 cl_lru_osc; /* member of cl_cache->ccc_lru */
 	cfs_atomic_t		*cl_lru_left;
 	cfs_atomic_t		 cl_lru_busy;
 	cfs_atomic_t		 cl_lru_shrinkers;
 	cfs_atomic_t		 cl_lru_in_list;
-	cfs_list_t		 cl_lru_list; /* lru page list */
+	struct list_head		 cl_lru_list; /* lru page list */
 	client_obd_lock_t	 cl_lru_list_lock; /* page list protector */
 
         /* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
@@ -452,15 +452,15 @@ struct obd_id_info {
 struct echo_client_obd {
 	struct obd_export	*ec_exp;   /* the local connection to osc/lov */
 	spinlock_t		ec_lock;
-        cfs_list_t           ec_objects;
-        cfs_list_t           ec_locks;
+        struct list_head           ec_objects;
+        struct list_head           ec_locks;
         int                  ec_nstripes;
         __u64                ec_unique;
 };
 
 struct lov_qos_oss {
         struct obd_uuid     lqo_uuid;       /* ptlrpc's c_remote_uuid */
-        cfs_list_t          lqo_oss_list;   /* link to lov_qos */
+        struct list_head          lqo_oss_list;   /* link to lov_qos */
         __u64               lqo_bavail;     /* total bytes avail on OSS */
         __u64               lqo_penalty;    /* current penalty */
         __u64               lqo_penalty_per_obj;/* penalty decrease every obj*/
@@ -504,7 +504,7 @@ struct lov_statfs_data {
 };
 /* Stripe placement optimization */
 struct lov_qos {
-        cfs_list_t          lq_oss_list; /* list of OSSs that targets use */
+        struct list_head          lq_oss_list; /* list of OSSs that targets use */
 	struct rw_semaphore lq_rw_sem;
         __u32               lq_active_oss_count;
         unsigned int        lq_prio_free;   /* priority for free space */
@@ -523,7 +523,7 @@ struct lov_qos {
 };
 
 struct lov_tgt_desc {
-        cfs_list_t          ltd_kill;
+        struct list_head          ltd_kill;
         struct obd_uuid     ltd_uuid;
         struct obd_device  *ltd_obd;
         struct obd_export  *ltd_exp;
@@ -546,8 +546,8 @@ struct pool_desc {
         struct ost_pool       pool_obds;              /* pool members */
         cfs_atomic_t          pool_refcount;          /* pool ref. counter */
         struct lov_qos_rr     pool_rr;                /* round robin qos */
-        cfs_hlist_node_t      pool_hash;              /* access by poolname */
-        cfs_list_t            pool_list;              /* serial access */
+        struct hlist_node      pool_hash;              /* access by poolname */
+        struct list_head            pool_list;              /* serial access */
         cfs_proc_dir_entry_t *pool_proc_entry;        /* file in /proc */
 	struct obd_device    *pool_lobd;	      /* obd of the lov/lod to which
 						       * this pool belongs */
@@ -568,7 +568,7 @@ struct lov_obd {
         int                     lov_connects;
         int                     lov_pool_count;
         cfs_hash_t             *lov_pools_hash_body; /* used for key access */
-        cfs_list_t              lov_pool_list; /* used for sequential access */
+        struct list_head              lov_pool_list; /* used for sequential access */
         cfs_proc_dir_entry_t   *lov_pool_proc_entry;
         enum lustre_sec_part    lov_sp_me;
 
@@ -878,12 +878,12 @@ struct obd_device {
         cfs_hash_t             *obd_nid_hash;
         /* nid stats body */
         cfs_hash_t             *obd_nid_stats_hash;
-        cfs_list_t              obd_nid_stats;
+        struct list_head              obd_nid_stats;
 	cfs_atomic_t            obd_refcount;
 	wait_queue_head_t       obd_refcount_waitq;
-	cfs_list_t              obd_exports;
-        cfs_list_t              obd_unlinked_exports;
-        cfs_list_t              obd_delayed_exports;
+	struct list_head              obd_exports;
+        struct list_head              obd_unlinked_exports;
+        struct list_head              obd_delayed_exports;
         int                     obd_num_exports;
 	spinlock_t		obd_nid_lock;
 	struct ldlm_namespace  *obd_namespace;
@@ -903,7 +903,7 @@ struct obd_device {
         struct obd_notify_upcall obd_upcall;
         struct obd_export       *obd_self_export;
         /* list of exports in LRU order, for ping evictor, with obd_dev_lock */
-        cfs_list_t              obd_exports_timed;
+        struct list_head              obd_exports_timed;
         time_t                  obd_eviction_timer; /* for ping evictor */
 
         int                              obd_max_recoverable_clients;
@@ -931,9 +931,9 @@ struct obd_device {
         cfs_atomic_t                     obd_req_replay_clients;
         cfs_atomic_t                     obd_lock_replay_clients;
         /* all lists are protected by obd_recovery_task_lock */
-        cfs_list_t                       obd_req_replay_queue;
-        cfs_list_t                       obd_lock_replay_queue;
-        cfs_list_t                       obd_final_req_queue;
+        struct list_head                       obd_req_replay_queue;
+        struct list_head                       obd_lock_replay_queue;
+        struct list_head                       obd_final_req_queue;
         int                              obd_recovery_stage;
 
 	union {
@@ -961,7 +961,7 @@ struct obd_device {
         struct lprocfs_stats  *obd_svc_stats;
 	cfs_atomic_t           obd_evict_inprogress;
 	wait_queue_head_t      obd_evict_inprogress_waitq;
-	cfs_list_t             obd_evict_list; /* protected with pet_lock */
+	struct list_head             obd_evict_list; /* protected with pet_lock */
 
         /**
          * Ldlm pool part. Save last calculated SLV and Limit.
