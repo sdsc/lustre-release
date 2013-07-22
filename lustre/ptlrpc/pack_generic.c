@@ -2575,8 +2575,8 @@ void lustre_swab_update(struct update *u)
 {
 	int	i;
 
-	__swab32s(&u->u_type);
-	__swab32s(&u->u_batchid);
+	__swab16s(&u->u_type);
+	__swab64s(&u->u_batchid);
 	lustre_swab_lu_fid(&u->u_fid);
 	for (i = 0; i < ARRAY_SIZE(u->u_lens); i++)
 		__swab32s(&u->u_lens[i]);

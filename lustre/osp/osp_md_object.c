@@ -132,7 +132,7 @@ struct update_request *osp_create_update_req(struct dt_device *dt)
 	CFS_INIT_LIST_HEAD(&update->ur_list);
 	update->ur_dt = dt;
 	update->ur_batchid = 0;
-	update->ur_buf->ub_magic = UPDATE_BUFFER_MAGIC;
+	update->ur_buf->ub_magic = UPDATE_REQUEST_MAGIC;
 	update->ur_buf->ub_count = 0;
 
 	return update;
@@ -211,7 +211,7 @@ int osp_insert_update(const struct lu_env *env, struct update_request *update,
 		update_length += cfs_size_round(lens[i]);
 
 	if (cfs_size_round(update_buf_size(ubuf)) + update_length >
-	    UPDATE_BUFFER_SIZE || ubuf->ub_count >= UPDATE_MAX_OPS) {
+	    UPDATE_BUFFER_SIZE || ubuf->ub_count >= UPDATE_PER_RPC_MAX) {
 		CERROR("%s: insert up %p, idx %d cnt %d len %lu: rc = %d\n",
 			update->ur_dt->dd_lu_dev.ld_obd->obd_name, ubuf,
 			update_length, ubuf->ub_count, update_buf_size(ubuf),
