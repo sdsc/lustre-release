@@ -4156,8 +4156,8 @@ static struct tgt_opc_slice mdt_common_slice[] = {
 		.tos_hs		= mdt_sec_ctx_ops
 	},
 	{
-		.tos_opc_start	= UPDATE_OBJ,
-		.tos_opc_end	= UPDATE_LAST_OPC,
+		.tos_opc_start	= OBJECT_UPDATE,
+		.tos_opc_end	= OBJECT_UPDATE_LAST_OPC,
 		.tos_hs		= tgt_out_handlers
 	},
 	{

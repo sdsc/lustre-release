@@ -774,8 +774,8 @@ struct thandle {
 	 * will be attached to th_remote_update_list per target.
 	 * Only single thread will access the list, no need lock
 	 */
-	cfs_list_t		th_remote_update_list;
-	struct update_request	*th_current_request;
+	cfs_list_t		 th_remote_update_list;
+	struct dt_update_request *th_current_request;
 };
 
 /**

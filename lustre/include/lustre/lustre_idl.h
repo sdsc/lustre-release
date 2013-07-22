@@ -2089,11 +2089,11 @@ typedef enum {
 
 /* opcodes for object update */
 typedef enum {
-	UPDATE_OBJ	= 1000,
-	UPDATE_LAST_OPC
+	OBJECT_UPDATE	= 1000,
+	OBJECT_UPDATE_LAST_OPC
 } update_cmd_t;
 
-#define UPDATE_FIRST_OPC    UPDATE_OBJ
+#define OBJECT_UPDATE_FIRST_OPC    OBJECT_UPDATE
 
 /*
  * Do not exceed 63
@@ -3697,90 +3697,120 @@ extern void lustre_swab_hsm_user_item(struct hsm_user_item *hui);
 extern void lustre_swab_hsm_request(struct hsm_request *hr);
 
 /**
- * These are object update opcode under UPDATE_OBJ, which is currently
- * being used by cross-ref operations between MDT.
+ * OBJECT_UPDATE RPC Format
  *
  * During the cross-ref operation, the Master MDT, which the client send the
  * request to, will disassembly the operation into object updates, then OSP
  * will send these updates to the remote MDT to be executed.
  *
- *   Update request format
- *   magic:  UPDATE_BUFFER_MAGIC_V1
- *   Count:  How many updates in the req.
- *   bufs[0] : following are packets of object.
- *   update[0]:
- *		type: object_update_op, the op code of update
- *		fid: The object fid of the update.
- *		lens/bufs: other parameters of the update.
- *   update[1]:
- *		type: object_update_op, the op code of update
- *		fid: The object fid of the update.
- *		lens/bufs: other parameters of the update.
- *   ..........
- *   update[7]:	type: object_update_op, the op code of update
- *		fid: The object fid of the update.
- *		lens/bufs: other parameters of the update.
- *   Current 8 maxim updates per object update request.
+ * An UPDATE_OBJ RPC does a list of updates.  Each update belongs to a metadata
+ * operation and does a type of modification to an object.
  *
- *******************************************************************
- *   update reply format:
+ * Request Format
  *
- *   ur_version: UPDATE_REPLY_V1
- *   ur_count:   The count of the reply, which is usually equal
- *		 to the number of updates in the request.
- *   ur_lens:    The reply lengths of each object update.
+ *   update_buf
+ *   update (1st)
+ *   update (2nd)
+ *   ...
+ *   update (ub_count-th)
  *
- *   replies:    1st update reply  [4bytes_ret: other body]
- *		 2nd update reply  [4bytes_ret: other body]
- *		 .....
- *		 nth update reply  [4bytes_ret: other body]
+ * ub_count must be less than or equal to UPDATE_PER_RPC_MAX.
  *
- *   For each reply of the update, the format would be
- *   	 result(4 bytes):Other stuff
+ * Reply Format
+ *
+ *   update_reply
+ *   rc [+ buffers] (1st)
+ *   rc [+ buffers] (2st)
+ *   ...
+ *   rc [+ buffers] (nr_count-th)
+ *
+ * ur_count must be less than or equal to UPDATE_PER_RPC_MAX and should usually
+ * be equal to ub_count.
  */
 
-#define UPDATE_MAX_OPS		10
-#define UPDATE_BUFFER_MAGIC_V1	0xBDDE0001
-#define UPDATE_BUFFER_MAGIC	UPDATE_BUFFER_MAGIC_V1
-#define UPDATE_BUF_COUNT	8
-enum object_update_op {
-	OBJ_CREATE		= 1,
-	OBJ_DESTROY		= 2,
-	OBJ_REF_ADD		= 3,
-	OBJ_REF_DEL		= 4,
-	OBJ_ATTR_SET		= 5,
-	OBJ_ATTR_GET		= 6,
-	OBJ_XATTR_SET		= 7,
-	OBJ_XATTR_GET		= 8,
-	OBJ_INDEX_LOOKUP	= 9,
-	OBJ_INDEX_INSERT	= 10,
-	OBJ_INDEX_DELETE	= 11,
-	OBJ_LAST
+/**
+ * Maximum number of updates per UPDATE_OBJ RPC
+ */
+#define	OBJECT_UPDATE_PER_RPC_MAX	10
+
+/**
+ * Maximum number of buffers per update
+ */
+#define	OBJECT_UPDATE_PARAMS_MAX	8
+
+/**
+ * Type of each update
+ */
+enum update_type {
+	OUT_CREATE		= 1,
+	OUT_DESTROY		= 2,
+	OUT_REF_ADD		= 3,
+	OUT_REF_DEL		= 4,
+	OUT_ATTR_SET		= 5,
+	OUT_ATTR_GET		= 6,
+	OUT_XATTR_SET		= 7,
+	OUT_XATTR_GET		= 8,
+	OUT_INDEX_LOOKUP	= 9,
+	OUT_INDEX_INSERT	= 10,
+	OUT_INDEX_DELETE	= 11,
+	OUT_LAST
 };
 
-struct update {
-	__u32		u_type;
-	__u32		u_batchid;
-	struct lu_fid	u_fid;
-	__u32		u_lens[UPDATE_BUF_COUNT];
-	__u32		u_bufs[0];
+enum update_flag {
+	UPDATE_FL_OST		= 0x00000001,	/* op from OST (not MDT) */
+	UPDATE_FL_SYNC		= 0x00000002,	/* commit before replying */
+	UPDATE_FL_COMMITTED	= 0x00000004,	/* op committed globally */
+	UPDATE_FL_NOLOG		= 0x00000008	/* for idempotent updates */
 };
 
-struct update_buf {
-	__u32	ub_magic;
-	__u32	ub_count;
-	__u32	ub_bufs[0];
+/* object update */
+struct object_update {
+	__u16		ou_type;		/* enum update_type */
+	__u16		ou_padding1;		/* padding 1 */
+	__u32		ou_master_index;	/* master MDT/OST index */
+	__u32		ou_flags;		/* enum update_flag */
+	__u32		ou_padding2;		/* padding 2 */
+	__u64		ou_batchid;		/* op transno on master */
+	struct lu_fid	ou_fid;			/* object to be updated */
+	__u32		ou_lens[OBJECT_UPDATE_PARAMS_MAX];
+						/* lengths of per-update
+						   buffers (multiples of 8
+						   bytes) */
+	char		ou_bufs[0];		/* per-update buffers */
 };
 
-#define UPDATE_REPLY_V1		0x00BD0001
-struct update_reply {
-	__u32	ur_version;
-	__u32	ur_count;
-	__u32	ur_lens[0];
+#define	UPDATE_REQUEST_MAGIC_V1	0xBDDE0001
+#define	UPDATE_REQUEST_MAGIC_V2	0xBDDE0002
+#define	UPDATE_REQUEST_MAGIC	UPDATE_REQUEST_MAGIC_V2
+/* Hold object_updates sending to the remote OUT in single RPC */
+struct object_update_request {
+	__u32	ourq_magic;
+	__u32	ourq_count;
+	__u32	ourq_bufs[0];
 };
 
-void lustre_swab_update_buf(struct update_buf *ub);
-void lustre_swab_update_reply_buf(struct update_reply *ur);
+void lustre_swab_object_update(struct object_update *ou);
+void lustre_swab_object_update_request(struct object_update_request *our);
+
+/* the result of object update */
+struct object_update_result {
+	__u32   our_rc;
+	__u32   our_datalen;
+	__u32   our_data[0];
+};
+
+#define UPDATE_REPLY_MAGIC_V1	0x00BD0001
+#define UPDATE_REPLY_MAGIC_V2	0x00BD0002
+#define UPDATE_REPLY_MAGIC	UPDATE_REPLY_MAGIC_V2
+/* Hold object_update_results being replied from the remote OUT. */
+struct object_update_reply {
+	__u32	ourp_magic;
+	__u32	ourp_count;
+	__u32	ourp_lens[0];
+};
+
+void lustre_swab_object_update_result(struct object_update_result *our);
+void lustre_swab_object_update_reply(struct object_update_reply *our);
 
 /** layout swap request structure
  * fid1 and fid2 are in mdt_body
