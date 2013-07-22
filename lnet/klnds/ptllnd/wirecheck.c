@@ -48,7 +48,7 @@
  * assertions generated here (but fails-safe if it ever does) */
 typedef struct {
         int     counter;
-} cfs_atomic_t;
+} atomic_t;
 
 #include <lnet/lib-types.h>
 #include <lnet/ptllnd_wire.h>

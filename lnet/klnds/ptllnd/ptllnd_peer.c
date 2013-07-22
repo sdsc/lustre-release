@@ -80,11 +80,11 @@ kptllnd_get_peer_info(int index,
                         if (index-- > 0)
                                 continue;
 
-                        *id          = peer->peer_id;
-                        *state       = peer->peer_state;
-                        *sent_hello  = peer->peer_sent_hello;
-                        *refcount    = cfs_atomic_read(&peer->peer_refcount);
-                        *incarnation = peer->peer_incarnation;
+			*id          = peer->peer_id;
+			*state       = peer->peer_state;
+			*sent_hello  = peer->peer_sent_hello;
+			*refcount    = atomic_read(&peer->peer_refcount);
+			*incarnation = peer->peer_incarnation;
 
 			spin_lock(&peer->peer_lock);
 
@@ -111,18 +111,18 @@ kptllnd_get_peer_info(int index,
 void
 kptllnd_peer_add_peertable_locked (kptl_peer_t *peer)
 {
-        LASSERT (kptllnd_data.kptl_n_active_peers <
-                 kptllnd_data.kptl_expected_peers);
+	LASSERT (kptllnd_data.kptl_n_active_peers <
+		 kptllnd_data.kptl_expected_peers);
 
-        LASSERT (peer->peer_state == PEER_STATE_WAITING_HELLO ||
-                 peer->peer_state == PEER_STATE_ACTIVE);
+	LASSERT (peer->peer_state == PEER_STATE_WAITING_HELLO ||
+		 peer->peer_state == PEER_STATE_ACTIVE);
 
-        kptllnd_data.kptl_n_active_peers++;
-        cfs_atomic_inc(&peer->peer_refcount);       /* +1 ref for the list */
+	kptllnd_data.kptl_n_active_peers++;
+	atomic_inc(&peer->peer_refcount);       /* +1 ref for the list */
 
-        /* NB add to HEAD of peer list for MRU order!
-         * (see kptllnd_cull_peertable) */
-        cfs_list_add(&peer->peer_list, kptllnd_nid2peerlist(peer->peer_id.nid));
+	/* NB add to HEAD of peer list for MRU order!
+	 * (see kptllnd_cull_peertable) */
+	cfs_list_add(&peer->peer_list, kptllnd_nid2peerlist(peer->peer_id.nid));
 }
 
 void
@@ -194,7 +194,7 @@ kptllnd_peer_allocate (kptl_net_t *net, lnet_process_id_t lpid, ptl_process_id_t
         peer->peer_sent_credits = 1;           /* HELLO credit is implicit */
         peer->peer_max_msg_size = PTLLND_MIN_BUFFER_SIZE; /* until we know better */
 
-        cfs_atomic_set(&peer->peer_refcount, 1);    /* 1 ref for caller */
+	atomic_set(&peer->peer_refcount, 1);    /* 1 ref for caller */
 
 	write_lock_irqsave(&kptllnd_data.kptl_peer_rw_lock, flags);
 
@@ -222,7 +222,7 @@ kptllnd_peer_destroy (kptl_peer_t *peer)
         CDEBUG(D_NET, "Peer=%p\n", peer);
 
         LASSERT (!in_interrupt());
-        LASSERT (cfs_atomic_read(&peer->peer_refcount) == 0);
+	LASSERT (atomic_read(&peer->peer_refcount) == 0);
         LASSERT (peer->peer_state == PEER_STATE_ALLOCATED ||
                  peer->peer_state == PEER_STATE_ZOMBIE);
         LASSERT (cfs_list_empty(&peer->peer_noops));
@@ -1035,7 +1035,7 @@ kptllnd_id2peer_locked (lnet_process_id_t id)
                 CDEBUG(D_NET, "%s -> %s (%d)\n",
                        libcfs_id2str(id),
                        kptllnd_ptlid2str(peer->peer_ptlid),
-                       cfs_atomic_read (&peer->peer_refcount));
+		       atomic_read (&peer->peer_refcount));
                 return peer;
         }
 

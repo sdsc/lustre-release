@@ -571,18 +571,18 @@ kptllnd_base_shutdown (void)
                 kptllnd_data.kptl_shutdown = 2;
                 smp_mb();
 
-                i = 2;
-                while (cfs_atomic_read (&kptllnd_data.kptl_nthreads) != 0) {
+		i = 2;
+		while (atomic_read (&kptllnd_data.kptl_nthreads) != 0) {
 			/* Wake up all threads*/
 			wake_up_all(&kptllnd_data.kptl_sched_waitq);
 			wake_up_all(&kptllnd_data.kptl_watchdog_waitq);
 
-                        i++;
-                        CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET, /* power of 2? */
-                               "Waiting for %d threads to terminate\n",
-                               cfs_atomic_read(&kptllnd_data.kptl_nthreads));
-                        cfs_pause(cfs_time_seconds(1));
-                }
+			i++;
+			CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET, /* power of 2? */
+			       "Waiting for %d threads to terminate\n",
+			       atomic_read(&kptllnd_data.kptl_nthreads));
+			cfs_pause(cfs_time_seconds(1));
+		}
 
                 CDEBUG(D_NET, "All Threads stopped\n");
                 LASSERT(cfs_list_empty(&kptllnd_data.kptl_sched_txq));
@@ -614,8 +614,8 @@ kptllnd_base_shutdown (void)
                                kptllnd_errtype2str(prc), prc);
         }
 
-        LASSERT (cfs_atomic_read(&kptllnd_data.kptl_ntx) == 0);
-        LASSERT (cfs_list_empty(&kptllnd_data.kptl_idle_txs));
+	LASSERT (atomic_read(&kptllnd_data.kptl_ntx) == 0);
+	LASSERT (cfs_list_empty(&kptllnd_data.kptl_idle_txs));
 
         if (kptllnd_data.kptl_rx_cache != NULL)
 		kmem_cache_destroy(kptllnd_data.kptl_rx_cache);
@@ -688,10 +688,10 @@ kptllnd_base_startup (void)
         /* Init kptl_ptlid2str_lock before any call to kptllnd_ptlid2str */
 	spin_lock_init(&kptllnd_data.kptl_ptlid2str_lock);
 
-        /* Setup the tx locks/lists */
+	/* Setup the tx locks/lists */
 	spin_lock_init(&kptllnd_data.kptl_tx_lock);
-        CFS_INIT_LIST_HEAD(&kptllnd_data.kptl_idle_txs);
-        cfs_atomic_set(&kptllnd_data.kptl_ntx, 0);
+	CFS_INIT_LIST_HEAD(&kptllnd_data.kptl_idle_txs);
+	atomic_set(&kptllnd_data.kptl_ntx, 0);
 
 	/* Uptick the module reference count */
 	try_module_get(THIS_MODULE);
@@ -909,11 +909,11 @@ kptllnd_startup (lnet_ni_t *ni)
          * multiple NIs */
         kptllnd_data.kptl_nak_msg->ptlm_srcnid = ni->ni_nid;
 
-        cfs_atomic_set(&net->net_refcount, 1);
+	atomic_set(&net->net_refcount, 1);
 	write_lock(&kptllnd_data.kptl_net_rw_lock);
-        cfs_list_add_tail(&net->net_list, &kptllnd_data.kptl_nets);
+	cfs_list_add_tail(&net->net_list, &kptllnd_data.kptl_nets);
 	write_unlock(&kptllnd_data.kptl_net_rw_lock);
-        return 0;
+	return 0;
 
  failed:
         kptllnd_shutdown(ni);
@@ -929,18 +929,18 @@ kptllnd_shutdown (lnet_ni_t *ni)
 
         LASSERT (kptllnd_data.kptl_init == PTLLND_INIT_ALL);
 
-        CDEBUG(D_MALLOC, "before LND cleanup: kmem %d\n",
-               cfs_atomic_read (&libcfs_kmemory));
+	CDEBUG(D_MALLOC, "before LND cleanup: kmem %d\n",
+	       atomic_read (&libcfs_kmemory));
 
-        if (net == NULL)
-                goto out;
+	if (net == NULL)
+		goto out;
 
-        LASSERT (ni == net->net_ni);
-        LASSERT (!net->net_shutdown);
-        LASSERT (!cfs_list_empty(&net->net_list));
-        LASSERT (cfs_atomic_read(&net->net_refcount) != 0);
-        ni->ni_data = NULL;
-        net->net_ni = NULL;
+	LASSERT (ni == net->net_ni);
+	LASSERT (!net->net_shutdown);
+	LASSERT (!cfs_list_empty(&net->net_list));
+	LASSERT (atomic_read(&net->net_refcount) != 0);
+	ni->ni_data = NULL;
+	net->net_ni = NULL;
 
 	write_lock(&kptllnd_data.kptl_net_rw_lock);
         kptllnd_net_decref(net);
@@ -952,24 +952,24 @@ kptllnd_shutdown (lnet_ni_t *ni)
         net->net_shutdown = 1;   /* Order with peer creation */
 	write_unlock_irqrestore(&kptllnd_data.kptl_peer_rw_lock, flags);
 
-        i = 2;
-        while (cfs_atomic_read(&net->net_refcount) != 0) {
-                        i++;
-                        CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET,
-                       "Waiting for %d references to drop\n",
-                       cfs_atomic_read(&net->net_refcount));
+	i = 2;
+	while (atomic_read(&net->net_refcount) != 0) {
+			i++;
+			CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET,
+		       "Waiting for %d references to drop\n",
+		       atomic_read(&net->net_refcount));
 
-                       cfs_pause(cfs_time_seconds(1));
-                }
+		       cfs_pause(cfs_time_seconds(1));
+		}
 
         LIBCFS_FREE(net, sizeof(*net));
 out:
-        /* NB no locking since I don't race with writers */
-        if (cfs_list_empty(&kptllnd_data.kptl_nets))
-                kptllnd_base_shutdown();
-        CDEBUG(D_MALLOC, "after LND cleanup: kmem %d\n",
-               cfs_atomic_read (&libcfs_kmemory));
-        return;
+	/* NB no locking since I don't race with writers */
+	if (cfs_list_empty(&kptllnd_data.kptl_nets))
+		kptllnd_base_shutdown();
+	CDEBUG(D_MALLOC, "after LND cleanup: kmem %d\n",
+	       atomic_read (&libcfs_kmemory));
+	return;
 }
 
 int __init

@@ -647,7 +647,7 @@ kptllnd_eq_callback(ptl_event_t *ev)
 void
 kptllnd_thread_fini (void)
 {
-        cfs_atomic_dec(&kptllnd_data.kptl_nthreads);
+	atomic_dec(&kptllnd_data.kptl_nthreads);
 }
 
 int
@@ -655,7 +655,7 @@ kptllnd_thread_start(int (*fn)(void *arg), void *arg, char *name)
 {
 	struct task_struct *task;
 
-	cfs_atomic_inc(&kptllnd_data.kptl_nthreads);
+	atomic_inc(&kptllnd_data.kptl_nthreads);
 
 	task = kthread_run(fn, arg, name);
 	if (IS_ERR(task)) {

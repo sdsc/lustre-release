@@ -191,10 +191,10 @@ typedef union {
 
 typedef struct kptl_tx                           /* transmit message */
 {
-        cfs_list_t              tx_list;      /* queue on idle_txs etc */
-        cfs_atomic_t            tx_refcount;  /* reference count*/
-        enum kptl_tx_type       tx_type;      /* small msg/{put,get}{req,resp} */
-        int                     tx_active:1;  /* queued on the peer */
+	cfs_list_t              tx_list;      /* queue on idle_txs etc */
+	atomic_t                tx_refcount;  /* reference count*/
+	enum kptl_tx_type       tx_type;      /* small msg/{put,get}{req,resp} */
+	int                     tx_active:1;  /* queued on the peer */
         int                     tx_idle:1;    /* on the free list */
         int                     tx_acked:1;   /* portals ACK wanted (for debug only) */
         kptl_eventarg_t         tx_msg_eventarg; /* event->md.user_ptr */
@@ -224,11 +224,11 @@ enum kptllnd_peer_state
 
 struct kptl_peer
 {
-        cfs_list_t              peer_list;
-        cfs_atomic_t            peer_refcount;          /* The current references */
-        enum kptllnd_peer_state peer_state;
+	cfs_list_t              peer_list;
+	atomic_t                peer_refcount;          /* The current references */
+	enum kptllnd_peer_state peer_state;
 	spinlock_t		peer_lock;		/* serialize */
-        cfs_list_t              peer_noops;             /* PTLLND_MSG_TYPE_NOOP txs */
+	cfs_list_t              peer_noops;             /* PTLLND_MSG_TYPE_NOOP txs */
         cfs_list_t              peer_sendq;             /* txs waiting for mh handles */
         cfs_list_t              peer_activeq;           /* txs awaiting completion */
         lnet_process_id_t       peer_id;                /* Peer's LNET id */
@@ -250,11 +250,11 @@ struct kptl_peer
 
 struct kptl_data
 {
-        int                     kptl_init;             /* initialisation state */
-        volatile int            kptl_shutdown;         /* shut down? */
-        cfs_atomic_t            kptl_nthreads;         /* # live threads */
-        ptl_handle_ni_t         kptl_nih;              /* network inteface handle */
-        ptl_process_id_t        kptl_portals_id;       /* Portals ID of interface */
+	int                     kptl_init;             /* initialisation state */
+	volatile int            kptl_shutdown;         /* shut down? */
+	atomic_t                kptl_nthreads;         /* # live threads */
+	ptl_handle_ni_t         kptl_nih;              /* network inteface handle */
+	ptl_process_id_t        kptl_portals_id;       /* Portals ID of interface */
         __u64                   kptl_incarnation;      /* which one am I */
         ptl_handle_eq_t         kptl_eqh;              /* Event Queue (EQ) */
 
@@ -272,7 +272,7 @@ struct kptl_data
         kptl_rx_buffer_pool_t   kptl_rx_buffer_pool;   /* rx buffer pool */
 	struct kmem_cache	*kptl_rx_cache;         /* rx descripter cache */
 
-        cfs_atomic_t            kptl_ntx;              /* # tx descs allocated */
+	atomic_t                kptl_ntx;              /* # tx descs allocated */
 	spinlock_t		kptl_tx_lock;	     /* serialise idle tx list*/
 	cfs_list_t		kptl_idle_txs;       /* idle tx descriptors */
 
@@ -291,10 +291,10 @@ struct kptl_data
 
 struct kptl_net
 {
-        cfs_list_t        net_list;      /* chain on kptl_data:: kptl_nets */
-        lnet_ni_t        *net_ni;
-        cfs_atomic_t      net_refcount;  /* # current references */
-        int               net_shutdown;  /* lnd_shutdown called */
+	cfs_list_t        net_list;      /* chain on kptl_data:: kptl_nets */
+	lnet_ni_t        *net_ni;
+	atomic_t          net_refcount;  /* # current references */
+	int               net_shutdown;  /* lnd_shutdown called */
 };
 
 enum 
@@ -455,28 +455,28 @@ void kptllnd_peer_alive(kptl_peer_t *peer);
 static inline void
 kptllnd_peer_addref (kptl_peer_t *peer)
 {
-        cfs_atomic_inc(&peer->peer_refcount);
+	atomic_inc(&peer->peer_refcount);
 }
 
 static inline void
 kptllnd_peer_decref (kptl_peer_t *peer)
 {
-        if (cfs_atomic_dec_and_test(&peer->peer_refcount))
-                kptllnd_peer_destroy(peer);
+	if (atomic_dec_and_test(&peer->peer_refcount))
+		kptllnd_peer_destroy(peer);
 }
 
 static inline void
 kptllnd_net_addref (kptl_net_t *net)
 {
-        LASSERT (cfs_atomic_read(&net->net_refcount) > 0);
-        cfs_atomic_inc(&net->net_refcount);
+	LASSERT (atomic_read(&net->net_refcount) > 0);
+	atomic_inc(&net->net_refcount);
 }
 
 static inline void
 kptllnd_net_decref (kptl_net_t *net)
 {
-        LASSERT (cfs_atomic_read(&net->net_refcount) > 0);
-        cfs_atomic_dec(&net->net_refcount);
+	LASSERT (atomic_read(&net->net_refcount) > 0);
+	atomic_dec(&net->net_refcount);
 }
 
 static inline void
@@ -548,16 +548,16 @@ const char *kptllnd_tx_typestr(int type);
 static inline void
 kptllnd_tx_addref(kptl_tx_t *tx)
 {
-        cfs_atomic_inc(&tx->tx_refcount);
+	atomic_inc(&tx->tx_refcount);
 }
 
 static inline void
 kptllnd_tx_decref(kptl_tx_t *tx)
 {
-        LASSERT (!in_interrupt());        /* Thread context only */
+	LASSERT (!in_interrupt());        /* Thread context only */
 
-        if (cfs_atomic_dec_and_test(&tx->tx_refcount))
-                kptllnd_tx_fini(tx);
+	if (atomic_dec_and_test(&tx->tx_refcount))
+		kptllnd_tx_fini(tx);
 }
 
 /*

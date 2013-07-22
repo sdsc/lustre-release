@@ -51,10 +51,10 @@ kptllnd_free_tx(kptl_tx_t *tx)
 
         LIBCFS_FREE(tx, sizeof(*tx));
 
-        cfs_atomic_dec(&kptllnd_data.kptl_ntx);
+	atomic_dec(&kptllnd_data.kptl_ntx);
 
         /* Keep the tunable in step for visibility */
-        *kptllnd_tunables.kptl_ntx = cfs_atomic_read(&kptllnd_data.kptl_ntx);
+	*kptllnd_tunables.kptl_ntx = atomic_read(&kptllnd_data.kptl_ntx);
 }
 
 kptl_tx_t *
@@ -68,10 +68,10 @@ kptllnd_alloc_tx(void)
                 return NULL;
         }
 
-        cfs_atomic_inc(&kptllnd_data.kptl_ntx);
+	atomic_inc(&kptllnd_data.kptl_ntx);
 
         /* Keep the tunable in step for visibility */
-        *kptllnd_tunables.kptl_ntx = cfs_atomic_read(&kptllnd_data.kptl_ntx);
+	*kptllnd_tunables.kptl_ntx = atomic_read(&kptllnd_data.kptl_ntx);
 
         tx->tx_idle = 1;
         tx->tx_rdma_mdh = PTL_INVALID_HANDLE;
@@ -136,7 +136,7 @@ kptllnd_cleanup_tx_descs()
                 kptllnd_free_tx(tx);
         }
 
-        LASSERT (cfs_atomic_read(&kptllnd_data.kptl_ntx) == 0);
+	LASSERT (atomic_read(&kptllnd_data.kptl_ntx) == 0);
 }
 
 kptl_tx_t *
@@ -177,7 +177,7 @@ kptllnd_get_idle_tx(enum kptl_tx_type type)
 		spin_unlock(&kptllnd_data.kptl_tx_lock);
         }
 
-        LASSERT (cfs_atomic_read(&tx->tx_refcount)== 0);
+	LASSERT (atomic_read(&tx->tx_refcount)== 0);
         LASSERT (tx->tx_idle);
         LASSERT (!tx->tx_active);
         LASSERT (tx->tx_lnet_msg == NULL);
@@ -187,7 +187,7 @@ kptllnd_get_idle_tx(enum kptl_tx_type type)
         LASSERT (PtlHandleIsEqual(tx->tx_msg_mdh, PTL_INVALID_HANDLE));
         
         tx->tx_type = type;
-        cfs_atomic_set(&tx->tx_refcount, 1);
+	atomic_set(&tx->tx_refcount, 1);
         tx->tx_status = 0;
         tx->tx_idle = 0;
         tx->tx_tposted = 0;
@@ -206,7 +206,7 @@ kptllnd_tx_abort_netio(kptl_tx_t *tx)
         ptl_handle_md_t  rdma_mdh;
         unsigned long    flags;
 
-        LASSERT (cfs_atomic_read(&tx->tx_refcount) == 0);
+	LASSERT (atomic_read(&tx->tx_refcount) == 0);
         LASSERT (!tx->tx_active);
 
 	spin_lock_irqsave(&peer->peer_lock, flags);
@@ -227,7 +227,7 @@ kptllnd_tx_abort_netio(kptl_tx_t *tx)
                   tx->tx_lnet_replymsg == NULL));
 
         /* stash the tx on its peer until it completes */
-        cfs_atomic_set(&tx->tx_refcount, 1);
+	atomic_set(&tx->tx_refcount, 1);
         tx->tx_active = 1;
         cfs_list_add_tail(&tx->tx_list, &peer->peer_activeq);
         
@@ -254,7 +254,7 @@ kptllnd_tx_abort_netio(kptl_tx_t *tx)
         unsigned long    flags;
         ptl_err_t        prc;
 
-        LASSERT (cfs_atomic_read(&tx->tx_refcount) == 0);
+	LASSERT (atomic_read(&tx->tx_refcount) == 0);
         LASSERT (!tx->tx_active);
 
 	spin_lock_irqsave(&peer->peer_lock, flags);
@@ -308,7 +308,7 @@ kptllnd_tx_abort_netio(kptl_tx_t *tx)
         }
 
         /* stash the tx on its peer until it completes */
-        cfs_atomic_set(&tx->tx_refcount, 1);
+	atomic_set(&tx->tx_refcount, 1);
         tx->tx_active = 1;
         cfs_list_add_tail(&tx->tx_list, &peer->peer_activeq);
 
@@ -338,7 +338,7 @@ kptllnd_tx_fini (kptl_tx_t *tx)
         int             rc;
 
         LASSERT (!in_interrupt());
-        LASSERT (cfs_atomic_read(&tx->tx_refcount) == 0);
+	LASSERT (atomic_read(&tx->tx_refcount) == 0);
         LASSERT (!tx->tx_idle);
         LASSERT (!tx->tx_active);
 
@@ -512,8 +512,8 @@ kptllnd_tx_callback(ptl_event_t *ev)
 
 	spin_unlock_irqrestore(&peer->peer_lock, flags);
 
-        /* drop peer's ref, but if it was the last one... */
-        if (cfs_atomic_dec_and_test(&tx->tx_refcount)) {
+	/* drop peer's ref, but if it was the last one... */
+	if (atomic_dec_and_test(&tx->tx_refcount)) {
 		/* ...finalize it in thread context! */
 		spin_lock_irqsave(&kptllnd_data.kptl_sched_lock, flags);
 
@@ -521,5 +521,5 @@ kptllnd_tx_callback(ptl_event_t *ev)
 		wake_up(&kptllnd_data.kptl_sched_waitq);
 
 		spin_unlock_irqrestore(&kptllnd_data.kptl_sched_lock, flags);
-        }
+	}
 }
