@@ -3709,53 +3709,55 @@ extern void lustre_swab_hsm_user_item(struct hsm_user_item *hui);
 extern void lustre_swab_hsm_request(struct hsm_request *hr);
 
 /**
- * These are object update opcode under UPDATE_OBJ, which is currently
- * being used by cross-ref operations between MDT.
+ * UPDATE_OBJ RPC Format
  *
  * During the cross-ref operation, the Master MDT, which the client send the
  * request to, will disassembly the operation into object updates, then OSP
  * will send these updates to the remote MDT to be executed.
  *
- *   Update request format
- *   magic:  UPDATE_BUFFER_MAGIC_V1
- *   Count:  How many updates in the req.
- *   bufs[0] : following are packets of object.
- *   update[0]:
- *		type: object_update_op, the op code of update
- *		fid: The object fid of the update.
- *		lens/bufs: other parameters of the update.
- *   update[1]:
- *		type: object_update_op, the op code of update
- *		fid: The object fid of the update.
- *		lens/bufs: other parameters of the update.
- *   ..........
- *   update[7]:	type: object_update_op, the op code of update
- *		fid: The object fid of the update.
- *		lens/bufs: other parameters of the update.
- *   Current 8 maxim updates per object update request.
+ * An UPDATE_OBJ RPC does a list of updates.  Each update belongs to a metadata
+ * operation and does a type of modification to an object.
  *
- *******************************************************************
- *   update reply format:
+ * Request Format
  *
- *   ur_version: UPDATE_REPLY_V1
- *   ur_count:   The count of the reply, which is usually equal
- *		 to the number of updates in the request.
- *   ur_lens:    The reply lengths of each object update.
+ *   update_buf
+ *   update (1st)
+ *   update (2nd)
+ *   ...
+ *   update (ub_count-th)
  *
- *   replies:    1st update reply  [4bytes_ret: other body]
- *		 2nd update reply  [4bytes_ret: other body]
- *		 .....
- *		 nth update reply  [4bytes_ret: other body]
+ * ub_count must be less than or equal to UPDATE_PER_RPC_MAX.
  *
- *   For each reply of the update, the format would be
- *   	 result(4 bytes):Other stuff
+ * Reply Format
+ *
+ *   update_reply
+ *   rc [+ buffers] (1st)
+ *   rc [+ buffers] (2st)
+ *   ...
+ *   rc [+ buffers] (nr_count-th)
+ *
+ * ur_count must be less than or equal to UPDATE_PER_RPC_MAX and should usually
+ * be equal to ub_count.
  */
 
-#define UPDATE_MAX_OPS		10
-#define UPDATE_BUFFER_MAGIC_V1	0xBDDE0001
-#define UPDATE_BUFFER_MAGIC	UPDATE_BUFFER_MAGIC_V1
-#define UPDATE_BUF_COUNT	8
-enum object_update_op {
+#define	UPDATE_REQUEST_MAGIC_V1	0xBDDE0001
+#define	UPDATE_REQUEST_MAGIC_V2	0xBDDE0002
+#define	UPDATE_REQUEST_MAGIC	UPDATE_REQUEST_MAGIC_V2
+
+/**
+ * Maximum number of updates per UPDATE_OBJ RPC
+ */
+#define	UPDATE_PER_RPC_MAX	10
+
+/**
+ * Maximum number of buffers per update
+ */
+#define	UPDATE_BUF_COUNT	8
+
+/**
+ * Type of each update
+ */
+enum update_type {
 	OBJ_CREATE		= 1,
 	OBJ_DESTROY		= 2,
 	OBJ_REF_ADD		= 3,
@@ -3770,14 +3772,29 @@ enum object_update_op {
 	OBJ_LAST
 };
 
-struct update {
-	__u32		u_type;
-	__u32		u_batchid;
-	struct lu_fid	u_fid;
-	__u32		u_lens[UPDATE_BUF_COUNT];
-	__u32		u_bufs[0];
+enum update_flag {
+	UPDATE_FL_OST		= 0x00000001,	/* op from OST (not MDT) */
+	UPDATE_FL_SYNC		= 0x00000002,	/* commit before replying */
+	UPDATE_FL_COMMITTED	= 0x00000004,	/* op committed globally */
+	UPDATE_FL_NOLOG		= 0x00000008	/* for idempotent updates */
 };
 
+struct update {
+	__u16		u_type;			/* enum update_type */
+	__u16		u_master_index;		/* master MDT/OST index */
+	__u32		u_flags;		/* enum update_flag */
+	__u64		u_batchid;		/* op transno on master */
+	struct lu_fid	u_fid;			/* object to be updated */
+	__u32		u_lens[UPDATE_BUF_COUNT];
+						/* lengths of per-update
+						   buffers (multiples of 8
+						   bytes) */
+	char		u_bufs[0];		/* per-update buffers */
+};
+
+/**
+ * FIXME: This really should be called update_request.
+ */
 struct update_buf {
 	__u32	ub_magic;
 	__u32	ub_count;
@@ -3785,6 +3802,7 @@ struct update_buf {
 };
 
 #define UPDATE_REPLY_V1		0x00BD0001
+
 struct update_reply {
 	__u32	ur_version;
 	__u32	ur_count;
@@ -3792,6 +3810,7 @@ struct update_reply {
 };
 
 void lustre_swab_update_buf(struct update_buf *ub);
+void lustre_swab_update(struct update *u);
 void lustre_swab_update_reply_buf(struct update_reply *ur);
 
 /** layout swap request structure
