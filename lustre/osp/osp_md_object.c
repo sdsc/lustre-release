@@ -37,6 +37,7 @@
 
 static const char dot[] = ".";
 static const char dotdot[] = "..";
+
 static int osp_md_declare_object_create(const struct lu_env *env,
 					struct dt_object *dt,
 					struct lu_attr *attr,
@@ -44,13 +45,13 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 					struct dt_object_format *dof,
 					struct thandle *th)
 {
-	struct osp_thread_info	*osi = osp_env_info(env);
-	struct update_request	*update;
-	struct lu_fid		*fid1;
-	int			sizes[2] = {sizeof(struct obdo), 0};
-	char			*bufs[2] = {NULL, NULL};
-	int			buf_count;
-	int			rc;
+	struct osp_thread_info		*osi = osp_env_info(env);
+	struct dt_update_request	*update;
+	struct lu_fid			*fid1;
+	int				sizes[2] = {sizeof(struct obdo), 0};
+	char				*bufs[2] = {NULL, NULL};
+	int				buf_count;
+	int				rc;
 
 	update = out_find_create_update_loc(th, dt);
 	if (IS_ERR(update)) {
@@ -97,20 +98,20 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 		CDEBUG(D_HA, "%s: object "DFID" exists, destroy this orphan\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name, PFID(fid1));
 
-		rc = out_insert_update(env, update, OBJ_REF_DEL, fid1, 0,
+		rc = out_insert_update(env, update, OUT_REF_DEL, fid1, 0,
 				       NULL, NULL);
 		if (rc != 0)
 			GOTO(out, rc);
 
 		if (S_ISDIR(lu_object_attr(&dt->do_lu))) {
 			/* decrease for ".." */
-			rc = out_insert_update(env, update, OBJ_REF_DEL, fid1,
+			rc = out_insert_update(env, update, OUT_REF_DEL, fid1,
 					       0, NULL, NULL);
 			if (rc != 0)
 				GOTO(out, rc);
 		}
 
-		rc = out_insert_update(env, update, OBJ_DESTROY, fid1, 0, NULL,
+		rc = out_insert_update(env, update, OUT_DESTROY, fid1, 0, NULL,
 				       NULL);
 		if (rc != 0)
 			GOTO(out, rc);
@@ -121,7 +122,7 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 		update_inc_batchid(update);
 	}
 
-	rc = out_insert_update(env, update, OBJ_CREATE, fid1, buf_count, sizes,
+	rc = out_insert_update(env, update, OUT_CREATE, fid1, buf_count, sizes,
 			       (const char **)bufs);
 out:
 	if (rc)
@@ -155,9 +156,9 @@ static int osp_md_declare_object_ref_del(const struct lu_env *env,
 					 struct dt_object *dt,
 					 struct thandle *th)
 {
-	struct update_request	*update;
-	struct lu_fid		*fid;
-	int			rc;
+	struct dt_update_request	*update;
+	struct lu_fid			*fid;
+	int				rc;
 
 	update = out_find_create_update_loc(th, dt);
 	if (IS_ERR(update)) {
@@ -169,7 +170,7 @@ static int osp_md_declare_object_ref_del(const struct lu_env *env,
 
 	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
 
-	rc = out_insert_update(env, update, OBJ_REF_DEL, fid, 0, NULL, NULL);
+	rc = out_insert_update(env, update, OUT_REF_DEL, fid, 0, NULL, NULL);
 
 	return rc;
 }
@@ -187,9 +188,9 @@ static int osp_md_object_ref_del(const struct lu_env *env,
 static int osp_md_declare_ref_add(const struct lu_env *env,
 				  struct dt_object *dt, struct thandle *th)
 {
-	struct update_request	*update;
-	struct lu_fid		*fid;
-	int			rc;
+	struct dt_update_request	*update;
+	struct lu_fid			*fid;
+	int				rc;
 
 	update = out_find_create_update_loc(th, dt);
 	if (IS_ERR(update)) {
@@ -201,7 +202,7 @@ static int osp_md_declare_ref_add(const struct lu_env *env,
 
 	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
 
-	rc = out_insert_update(env, update, OBJ_REF_ADD, fid, 0, NULL, NULL);
+	rc = out_insert_update(env, update, OUT_REF_ADD, fid, 0, NULL, NULL);
 
 	return rc;
 }
@@ -234,12 +235,12 @@ static int osp_md_declare_attr_set(const struct lu_env *env,
 				   const struct lu_attr *attr,
 				   struct thandle *th)
 {
-	struct osp_thread_info *osi = osp_env_info(env);
-	struct update_request  *update;
-	struct lu_fid          *fid;
-	int                     size = sizeof(struct obdo);
-	char                   *buf;
-	int                     rc;
+	struct osp_thread_info		*osi = osp_env_info(env);
+	struct dt_update_request	*update;
+	struct lu_fid			*fid;
+	int				size = sizeof(struct obdo);
+	char				*buf;
+	int				rc;
 
 	update = out_find_create_update_loc(th, dt);
 	if (IS_ERR(update)) {
@@ -258,7 +259,7 @@ static int osp_md_declare_attr_set(const struct lu_env *env,
 	buf = (char *)&osi->osi_obdo;
 	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
 
-	rc = out_insert_update(env, update, OBJ_ATTR_SET, fid, 1, &size,
+	rc = out_insert_update(env, update, OUT_ATTR_SET, fid, 1, &size,
 			       (const char **)&buf);
 
 	return rc;
@@ -329,13 +330,12 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	struct lu_buf		*lbuf	= &osp_env_info(env)->osi_lb2;
 	struct osp_device	*osp	= lu2osp_dev(dt->do_lu.lo_dev);
 	struct dt_device	*dt_dev	= &osp->opd_dt_dev;
-	struct update_request	*update;
-	struct ptlrpc_request	*req = NULL;
-	int			size = strlen((char *)key) + 1;
-	int			rc;
-	struct update_reply	*reply;
-	struct lu_fid		*fid;
-
+	struct dt_update_request   *update;
+	struct object_update_reply *reply;
+	struct ptlrpc_request	   *req = NULL;
+	int			   size = strlen((char *)key) + 1;
+	struct lu_fid		   *fid;
+	int			   rc;
 	ENTRY;
 
 	/* Because it needs send the update buffer right away,
@@ -346,9 +346,9 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
-	rc = out_insert_update(env, update, OBJ_INDEX_LOOKUP,
-			       lu_object_fid(&dt->do_lu), 1, &size,
-			       (const char **)&key);
+	rc = out_insert_update(env, update, OUT_INDEX_LOOKUP,
+			       lu_object_fid(&dt->do_lu),
+			       1, &size, (const char **)&key);
 	if (rc) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
@@ -359,26 +359,19 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	if (rc < 0)
 		GOTO(out, rc);
 
-	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
-					     UPDATE_BUFFER_SIZE);
-	if (reply->ur_version != UPDATE_REPLY_V1) {
+	reply = req_capsule_server_sized_get(&req->rq_pill,
+					     &RMF_OUT_UPDATE_REPLY,
+					     OUT_UPDATE_REPLY_SIZE);
+	if (reply->ourp_magic != UPDATE_REPLY_MAGIC) {
 		CERROR("%s: Wrong version %x expected %x: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name,
-		       reply->ur_version, UPDATE_REPLY_V1, -EPROTO);
+		       reply->ourp_magic, UPDATE_REPLY_MAGIC, -EPROTO);
 		GOTO(out, rc = -EPROTO);
 	}
 
-	rc = update_get_reply_result(reply, NULL, 0);
-	if (rc < 0) {
-		CERROR("%s: wrong version lookup "DFID" %s: rc = %d\n",
-		       dt_dev->dd_lu_dev.ld_obd->obd_name,
-		       PFID(lu_object_fid(&dt->do_lu)), (char *)key, rc);
-		GOTO(out, rc);
-	}
-
-	rc = update_get_reply_buf(reply, lbuf, 0);
+	rc = object_update_result_data_get(reply, lbuf, 0);
 	if (rc < 0)
-		GOTO(out, rc);
+		GOTO(out, rc = size);
 
 	if (lbuf->lb_len != sizeof(*fid)) {
 		CERROR("%s: lookup "DFID" %s wrong size %d\n",
@@ -416,13 +409,13 @@ static int osp_md_declare_insert(const struct lu_env *env,
 				 const struct dt_key *key,
 				 struct thandle *th)
 {
-	struct update_request	*update;
-	struct lu_fid		*fid;
-	struct lu_fid		*rec_fid = (struct lu_fid *)rec;
-	int			size[2] = {strlen((char *)key) + 1,
+	struct dt_update_request *update;
+	struct lu_fid		 *fid;
+	struct lu_fid		 *rec_fid = (struct lu_fid *)rec;
+	int			 size[2] = {strlen((char *)key) + 1,
 						  sizeof(*rec_fid)};
-	const char		*bufs[2] = {(char *)key, (char *)rec_fid};
-	int			rc;
+	const char		 *bufs[2] = {(char *)key, (char *)rec_fid};
+	int			 rc;
 
 	update = out_find_create_update_loc(th, dt);
 	if (IS_ERR(update)) {
@@ -440,7 +433,7 @@ static int osp_md_declare_insert(const struct lu_env *env,
 
 	fid_cpu_to_le(rec_fid, rec_fid);
 
-	rc = out_insert_update(env, update, OBJ_INDEX_INSERT, fid,
+	rc = out_insert_update(env, update, OUT_INDEX_INSERT, fid,
 			       ARRAY_SIZE(size), size, bufs);
 	return rc;
 }
@@ -461,7 +454,7 @@ static int osp_md_declare_delete(const struct lu_env *env,
 				 const struct dt_key *key,
 				 struct thandle *th)
 {
-	struct update_request *update;
+	struct dt_update_request *update;
 	struct lu_fid *fid;
 	int size = strlen((char *)key) + 1;
 	int rc;
@@ -476,7 +469,7 @@ static int osp_md_declare_delete(const struct lu_env *env,
 
 	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
 
-	rc = out_insert_update(env, update, OBJ_INDEX_DELETE, fid, 1, &size,
+	rc = out_insert_update(env, update, OUT_INDEX_DELETE, fid, 1, &size,
 			       (const char **)&key);
 
 	return rc;
@@ -499,7 +492,7 @@ static int osp_md_index_delete(const struct lu_env *env,
  *
  * Note: for OSP, these index iterate api is only used to check
  * whether the directory is empty now (see mdd_dir_is_empty).
- * Since dir_empty will be return by OBJ_ATTR_GET(see osp_attr_get/
+ * Since dir_empty will be return by OUT_ATTR_GET(see osp_attr_get/
  * out_attr_get). So the implementation of these iterator is simplied
  * to make mdd_dir_is_empty happy. The real iterator should be
  * implemented, if we need it one day.
