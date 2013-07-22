@@ -602,7 +602,7 @@ static int __ptlrpc_request_bufs_pack(struct ptlrpc_request *request,
 	init_waitqueue_head(&request->rq_reply_waitq);
 	init_waitqueue_head(&request->rq_set_waitq);
         request->rq_xid = ptlrpc_next_xid();
-        cfs_atomic_set(&request->rq_refcount, 1);
+	atomic_set(&request->rq_refcount, 1);
 
         lustre_msg_set_opc(request->rq_reqmsg, opcode);
 
@@ -831,11 +831,11 @@ struct ptlrpc_request_set *ptlrpc_prep_set(void)
 	OBD_ALLOC(set, sizeof *set);
 	if (!set)
 		RETURN(NULL);
-	cfs_atomic_set(&set->set_refcount, 1);
+	atomic_set(&set->set_refcount, 1);
 	CFS_INIT_LIST_HEAD(&set->set_requests);
 	init_waitqueue_head(&set->set_waitq);
-	cfs_atomic_set(&set->set_new_count, 0);
-	cfs_atomic_set(&set->set_remaining, 0);
+	atomic_set(&set->set_new_count, 0);
+	atomic_set(&set->set_remaining, 0);
 	spin_lock_init(&set->set_new_req_lock);
 	CFS_INIT_LIST_HEAD(&set->set_new_requests);
 	CFS_INIT_LIST_HEAD(&set->set_cblist);
@@ -891,7 +891,7 @@ void ptlrpc_set_destroy(struct ptlrpc_request_set *set)
         ENTRY;
 
         /* Requests on the set should either all be completed, or all be new */
-        expected_phase = (cfs_atomic_read(&set->set_remaining) == 0) ?
+	expected_phase = (atomic_read(&set->set_remaining) == 0) ?
                          RQ_PHASE_COMPLETE : RQ_PHASE_NEW;
         cfs_list_for_each (tmp, &set->set_requests) {
                 struct ptlrpc_request *req =
@@ -902,9 +902,9 @@ void ptlrpc_set_destroy(struct ptlrpc_request_set *set)
                 n++;
         }
 
-        LASSERTF(cfs_atomic_read(&set->set_remaining) == 0 || 
-                 cfs_atomic_read(&set->set_remaining) == n, "%d / %d\n",
-                 cfs_atomic_read(&set->set_remaining), n);
+	LASSERTF(atomic_read(&set->set_remaining) == 0 ||
+		 atomic_read(&set->set_remaining) == n, "%d / %d\n",
+		 atomic_read(&set->set_remaining), n);
 
         cfs_list_for_each_safe(tmp, next, &set->set_requests) {
                 struct ptlrpc_request *req =
@@ -916,7 +916,7 @@ void ptlrpc_set_destroy(struct ptlrpc_request_set *set)
 
                 if (req->rq_phase == RQ_PHASE_NEW) {
                         ptlrpc_req_interpret(NULL, req, -EBADR);
-                        cfs_atomic_dec(&set->set_remaining);
+			atomic_dec(&set->set_remaining);
                 }
 
 		spin_lock(&req->rq_lock);
@@ -927,7 +927,7 @@ void ptlrpc_set_destroy(struct ptlrpc_request_set *set)
                 ptlrpc_req_finished (req);
         }
 
-        LASSERT(cfs_atomic_read(&set->set_remaining) == 0);
+	LASSERT(atomic_read(&set->set_remaining) == 0);
 
         ptlrpc_reqset_put(set);
         EXIT;
@@ -968,7 +968,7 @@ void ptlrpc_set_add_req(struct ptlrpc_request_set *set,
 	/* The set takes over the caller's request reference */
 	cfs_list_add_tail(&req->rq_set_chain, &set->set_requests);
 	req->rq_set = set;
-	cfs_atomic_inc(&set->set_remaining);
+	atomic_inc(&set->set_remaining);
 	req->rq_queued_time = cfs_time_current();
 
 	if (req->rq_reqmsg != NULL)
@@ -1002,7 +1002,7 @@ void ptlrpc_set_add_new_req(struct ptlrpcd_ctl *pc,
 	req->rq_set = set;
 	req->rq_queued_time = cfs_time_current();
 	cfs_list_add_tail(&req->rq_set_chain, &set->set_new_requests);
-	count = cfs_atomic_inc_return(&set->set_new_count);
+	count = atomic_inc_return(&set->set_new_count);
 	spin_unlock(&set->set_new_req_lock);
 
 	/* Only need to call wakeup once for the first entry. */
@@ -1054,7 +1054,7 @@ static int ptlrpc_import_delay_req(struct obd_import *imp,
         } else if (req->rq_send_state == LUSTRE_IMP_CONNECTING &&
                    imp->imp_state == LUSTRE_IMP_CONNECTING) {
                 /* allow CONNECT even if import is invalid */ ;
-                if (cfs_atomic_read(&imp->imp_inval_count) != 0) {
+		if (atomic_read(&imp->imp_inval_count) != 0) {
                         DEBUG_REQ(D_ERROR, req, "invalidate in flight");
                         *status = -EIO;
                 }
@@ -1067,7 +1067,7 @@ static int ptlrpc_import_delay_req(struct obd_import *imp,
                 *status = -EIO;
         } else if (req->rq_send_state != imp->imp_state) {
                 /* invalidate in progress - any requests should be drop */
-                if (cfs_atomic_read(&imp->imp_inval_count) != 0) {
+		if (atomic_read(&imp->imp_inval_count) != 0) {
                         DEBUG_REQ(D_ERROR, req, "invalidate in flight");
                         *status = -EIO;
                 } else if (imp->imp_dlm_fake || req->rq_no_delay) {
@@ -1403,7 +1403,7 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
 			  ptlrpc_import_state_name(imp->imp_state));
 		LASSERT(cfs_list_empty(&req->rq_list));
 		cfs_list_add_tail(&req->rq_list, &imp->imp_delayed_list);
-		cfs_atomic_inc(&req->rq_import->imp_inflight);
+		atomic_inc(&req->rq_import->imp_inflight);
 		spin_unlock(&imp->imp_lock);
 		RETURN(0);
 	}
@@ -1417,7 +1417,7 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
 
 	LASSERT(cfs_list_empty(&req->rq_list));
 	cfs_list_add_tail(&req->rq_list, &imp->imp_sending_list);
-	cfs_atomic_inc(&req->rq_import->imp_inflight);
+	atomic_inc(&req->rq_import->imp_inflight);
 	spin_unlock(&imp->imp_lock);
 
 	lustre_msg_set_status(req->rq_reqmsg, current_pid());
@@ -1456,11 +1456,11 @@ static inline int ptlrpc_set_producer(struct ptlrpc_request_set *set)
 
 	LASSERT(set->set_producer != NULL);
 
-	remaining = cfs_atomic_read(&set->set_remaining);
+	remaining = atomic_read(&set->set_remaining);
 
 	/* populate the ->set_requests list with requests until we
 	 * reach the maximum number of RPCs in flight for this set */
-	while (cfs_atomic_read(&set->set_remaining) < set->set_max_inflight) {
+	while (atomic_read(&set->set_remaining) < set->set_max_inflight) {
 		rc = set->set_producer(set, set->set_producer_arg);
 		if (rc == -ENOENT) {
 			/* no more RPC to produce */
@@ -1470,7 +1470,7 @@ static inline int ptlrpc_set_producer(struct ptlrpc_request_set *set)
 		}
 	}
 
-	RETURN((cfs_atomic_read(&set->set_remaining) - remaining));
+	RETURN((atomic_read(&set->set_remaining) - remaining));
 }
 
 /**
@@ -1485,7 +1485,7 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
         int force_timer_recalc = 0;
         ENTRY;
 
-        if (cfs_atomic_read(&set->set_remaining) == 0)
+	if (atomic_read(&set->set_remaining) == 0)
                 RETURN(1);
 
         cfs_list_for_each_safe(tmp, next, &set->set_requests) {
@@ -1811,11 +1811,11 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 		 * allow sending this rpc and returns *status != 0. */
 		if (!cfs_list_empty(&req->rq_list)) {
 			cfs_list_del_init(&req->rq_list);
-			cfs_atomic_dec(&imp->imp_inflight);
+			atomic_dec(&imp->imp_inflight);
 		}
 		spin_unlock(&imp->imp_lock);
 
-                cfs_atomic_dec(&set->set_remaining);
+		atomic_dec(&set->set_remaining);
 		wake_up_all(&imp->imp_recovery_waitq);
 
 		if (set->set_producer) {
@@ -1839,7 +1839,7 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
         }
 
         /* If we hit an error, we want to recover promptly. */
-        RETURN(cfs_atomic_read(&set->set_remaining) == 0 || force_timer_recalc);
+	RETURN(atomic_read(&set->set_remaining) == 0 || force_timer_recalc);
 }
 EXPORT_SYMBOL(ptlrpc_check_set);
 
@@ -1881,7 +1881,7 @@ int ptlrpc_expire_one_request(struct ptlrpc_request *req, int async_unlink)
                 RETURN(1);
         }
 
-        cfs_atomic_inc(&imp->imp_timeouts);
+	atomic_inc(&imp->imp_timeouts);
 
         /* The DLM server doesn't want recovery run on its imports. */
         if (imp->imp_dlm_fake)
@@ -2134,7 +2134,7 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                  * EINTR.
                  * I don't really care if we go once more round the loop in
                  * the error cases -eeb. */
-                if (rc == 0 && cfs_atomic_read(&set->set_remaining) == 0) {
+		if (rc == 0 && atomic_read(&set->set_remaining) == 0) {
                         cfs_list_for_each(tmp, &set->set_requests) {
                                 req = cfs_list_entry(tmp, struct ptlrpc_request,
                                                      rq_set_chain);
@@ -2143,9 +2143,9 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
 				spin_unlock(&req->rq_lock);
                         }
                 }
-        } while (rc != 0 || cfs_atomic_read(&set->set_remaining) != 0);
+	} while (rc != 0 || atomic_read(&set->set_remaining) != 0);
 
-        LASSERT(cfs_atomic_read(&set->set_remaining) == 0);
+	LASSERT(atomic_read(&set->set_remaining) == 0);
 
         rc = set->set_rc; /* rq_status of already freed requests if any */
         cfs_list_for_each(tmp, &set->set_requests) {
@@ -2214,7 +2214,7 @@ static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
         }
         LASSERTF(cfs_list_empty(&request->rq_replay_list), "req %p\n", request);
 
-        if (cfs_atomic_read(&request->rq_refcount) != 0) {
+	if (atomic_read(&request->rq_refcount) != 0) {
                 DEBUG_REQ(D_ERROR, request,
                           "freeing request with nonzero refcount");
                 LBUG();
@@ -2278,9 +2278,9 @@ static int __ptlrpc_req_finished(struct ptlrpc_request *request, int locked)
         }
 
         DEBUG_REQ(D_INFO, request, "refcount now %u",
-                  cfs_atomic_read(&request->rq_refcount) - 1);
+		  atomic_read(&request->rq_refcount) - 1);
 
-        if (cfs_atomic_dec_and_test(&request->rq_refcount)) {
+	if (atomic_dec_and_test(&request->rq_refcount)) {
                 __ptlrpc_free_req(request, locked);
                 RETURN(1);
         }
@@ -2520,7 +2520,7 @@ EXPORT_SYMBOL(ptlrpc_restart_req);
 struct ptlrpc_request *ptlrpc_request_addref(struct ptlrpc_request *req)
 {
         ENTRY;
-        cfs_atomic_inc(&req->rq_refcount);
+	atomic_inc(&req->rq_refcount);
         RETURN(req);
 }
 EXPORT_SYMBOL(ptlrpc_request_addref);
@@ -2632,7 +2632,7 @@ static int ptlrpc_replay_interpret(const struct lu_env *env,
         struct obd_import *imp = req->rq_import;
 
         ENTRY;
-        cfs_atomic_dec(&imp->imp_replay_inflight);
+	atomic_dec(&imp->imp_replay_inflight);
 
         if (!ptlrpc_client_replied(req)) {
                 CERROR("request replay timed out, restarting recovery\n");
@@ -2749,7 +2749,7 @@ int ptlrpc_replay_req(struct ptlrpc_request *req)
                                     ptlrpc_at_get_net_latency(req));
         DEBUG_REQ(D_HA, req, "REPLAY");
 
-        cfs_atomic_inc(&req->rq_import->imp_replay_inflight);
+	atomic_inc(&req->rq_import->imp_replay_inflight);
         ptlrpc_request_addref(req); /* ptlrpcd needs a ref */
 
         ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
@@ -3003,7 +3003,7 @@ void *ptlrpcd_alloc_work(struct obd_import *imp,
         CFS_INIT_LIST_HEAD(&req->rq_exp_list);
 	init_waitqueue_head(&req->rq_reply_waitq);
 	init_waitqueue_head(&req->rq_set_waitq);
-        cfs_atomic_set(&req->rq_refcount, 1);
+	atomic_set(&req->rq_refcount, 1);
 
         CLASSERT (sizeof(*args) <= sizeof(req->rq_async_args));
         args = ptlrpc_req_async_args(req);
@@ -3036,12 +3036,12 @@ int ptlrpcd_queue_work(void *handler)
          * for this purpose. This is okay because the caller should use this
          * req as opaque data. - Jinshan
          */
-        LASSERT(cfs_atomic_read(&req->rq_refcount) > 0);
-        if (cfs_atomic_read(&req->rq_refcount) > 1)
+	LASSERT(atomic_read(&req->rq_refcount) > 0);
+	if (atomic_read(&req->rq_refcount) > 1)
                 return -EBUSY;
 
-        if (cfs_atomic_inc_return(&req->rq_refcount) > 2) { /* race */
-                cfs_atomic_dec(&req->rq_refcount);
+	if (atomic_inc_return(&req->rq_refcount) > 2) { /* race */
+		atomic_dec(&req->rq_refcount);
                 return -EBUSY;
         }
 

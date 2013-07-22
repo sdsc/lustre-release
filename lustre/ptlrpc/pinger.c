@@ -148,7 +148,7 @@ static inline int ptlrpc_next_reconnect(struct obd_import *imp)
                 return cfs_time_shift(obd_timeout);
 }
 
-static cfs_atomic_t suspend_timeouts = CFS_ATOMIC_INIT(0);
+static atomic_t suspend_timeouts = ATOMIC_INIT(0);
 static cfs_time_t suspend_wakeup_time = 0;
 
 cfs_duration_t pinger_check_timeout(cfs_time_t time)
@@ -184,9 +184,9 @@ void ptlrpc_deactivate_timeouts(struct obd_import *imp)
         if (imp->imp_no_timeout)
                 return;
         imp->imp_no_timeout = 1;
-        cfs_atomic_inc(&suspend_timeouts);
+	atomic_inc(&suspend_timeouts);
         CDEBUG(D_HA|D_WARNING, "deactivate timeouts %u\n",
-               cfs_atomic_read(&suspend_timeouts));
+	       atomic_read(&suspend_timeouts));
 #endif
 }
 
@@ -197,19 +197,19 @@ void ptlrpc_activate_timeouts(struct obd_import *imp)
         if (!imp->imp_no_timeout)
                 return;
         imp->imp_no_timeout = 0;
-        LASSERT(cfs_atomic_read(&suspend_timeouts) > 0);
-        if (cfs_atomic_dec_and_test(&suspend_timeouts)) {
+	LASSERT(atomic_read(&suspend_timeouts) > 0);
+	if (atomic_dec_and_test(&suspend_timeouts)) {
                 suspend_wakeup_time = cfs_time_current();
 		wake_up(&suspend_timeouts_waitq);
         }
         CDEBUG(D_HA|D_WARNING, "activate timeouts %u\n",
-               cfs_atomic_read(&suspend_timeouts));
+	       atomic_read(&suspend_timeouts));
 #endif
 }
 
 int ptlrpc_check_suspend(void)
 {
-        if (cfs_atomic_read(&suspend_timeouts))
+	if (atomic_read(&suspend_timeouts))
                 return 1;
         return 0;
 }
@@ -218,12 +218,12 @@ int ptlrpc_check_and_wait_suspend(struct ptlrpc_request *req)
 {
         struct l_wait_info lwi;
 
-        if (cfs_atomic_read(&suspend_timeouts)) {
+	if (atomic_read(&suspend_timeouts)) {
                 DEBUG_REQ(D_NET, req, "-- suspend %d regular timeout",
-                          cfs_atomic_read(&suspend_timeouts));
+			  atomic_read(&suspend_timeouts));
                 lwi = LWI_INTR(NULL, NULL);
                 l_wait_event(suspend_timeouts_waitq,
-                             cfs_atomic_read(&suspend_timeouts) == 0, &lwi);
+			     atomic_read(&suspend_timeouts) == 0, &lwi);
                 DEBUG_REQ(D_NET, req, "-- recharge regular timeout");
                 return 1;
         }
@@ -867,7 +867,7 @@ static int pinger_check_rpcs(void *arg)
 	mutex_unlock(&pinger_mutex);
 
         /* Might be empty, that's OK. */
-        if (cfs_atomic_read(&set->set_remaining) == 0)
+	if (atomic_read(&set->set_remaining) == 0)
                 CDEBUG(D_RPCTRACE, "nothing to ping\n");
 
         cfs_list_for_each(iter, &set->set_requests) {
@@ -913,10 +913,10 @@ do_check_set:
 		spin_lock(&imp->imp_lock);
 		if (!cfs_list_empty(&req->rq_list)) {
 			cfs_list_del_init(&req->rq_list);
-			cfs_atomic_dec(&imp->imp_inflight);
+			atomic_dec(&imp->imp_inflight);
 		}
 		spin_unlock(&imp->imp_lock);
-		cfs_atomic_dec(&set->set_remaining);
+		atomic_dec(&set->set_remaining);
 	}
 	mutex_unlock(&pinger_mutex);
 

@@ -310,7 +310,7 @@ static inline void tgt_mod_exit(void)
 
 static inline void ptlrpc_reqset_put(struct ptlrpc_request_set *set)
 {
-        if (cfs_atomic_dec_and_test(&set->set_refcount))
+	if (atomic_dec_and_test(&set->set_refcount))
                 OBD_FREE_PTR(set);
 }
 #endif /* PTLRPC_INTERNAL_H */

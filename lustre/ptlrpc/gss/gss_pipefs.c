@@ -123,7 +123,7 @@ void ctx_destroy_pf(struct ptlrpc_sec *sec, struct ptlrpc_cli_ctx *ctx)
 
         OBD_FREE_PTR(gctx);
 
-        cfs_atomic_dec(&sec->ps_nctx);
+	atomic_dec(&sec->ps_nctx);
         sptlrpc_sec_put(sec);
 }
 
@@ -131,7 +131,7 @@ static
 void ctx_enhash_pf(struct ptlrpc_cli_ctx *ctx, cfs_hlist_head_t *hash)
 {
 	set_bit(PTLRPC_CTX_CACHED_BIT, &ctx->cc_flags);
-        cfs_atomic_inc(&ctx->cc_refcount);
+	atomic_inc(&ctx->cc_refcount);
         cfs_hlist_add_head(&ctx->cc_cache, hash);
 }
 
@@ -142,13 +142,13 @@ static
 void ctx_unhash_pf(struct ptlrpc_cli_ctx *ctx, cfs_hlist_head_t *freelist)
 {
 	LASSERT(spin_is_locked(&ctx->cc_sec->ps_lock));
-	LASSERT(cfs_atomic_read(&ctx->cc_refcount) > 0);
+	LASSERT(atomic_read(&ctx->cc_refcount) > 0);
 	LASSERT(test_bit(PTLRPC_CTX_CACHED_BIT, &ctx->cc_flags));
 	LASSERT(!cfs_hlist_unhashed(&ctx->cc_cache));
 
 	clear_bit(PTLRPC_CTX_CACHED_BIT, &ctx->cc_flags);
 
-	if (cfs_atomic_dec_and_test(&ctx->cc_refcount)) {
+	if (atomic_dec_and_test(&ctx->cc_refcount)) {
 		__cfs_hlist_del(&ctx->cc_cache);
 		cfs_hlist_add_head(&ctx->cc_cache, freelist);
 	} else {
@@ -177,7 +177,7 @@ int ctx_check_death_locked_pf(struct ptlrpc_cli_ctx *ctx,
                               cfs_hlist_head_t *freelist)
 {
         LASSERT(ctx->cc_sec);
-        LASSERT(cfs_atomic_read(&ctx->cc_refcount) > 0);
+	LASSERT(atomic_read(&ctx->cc_refcount) > 0);
 	LASSERT(test_bit(PTLRPC_CTX_CACHED_BIT, &ctx->cc_flags));
 
         return ctx_check_death_pf(ctx, freelist);
@@ -202,7 +202,7 @@ void ctx_list_destroy_pf(cfs_hlist_head_t *head)
                 ctx = cfs_hlist_entry(head->first, struct ptlrpc_cli_ctx,
                                       cc_cache);
 
-                LASSERT(cfs_atomic_read(&ctx->cc_refcount) == 0);
+		LASSERT(atomic_read(&ctx->cc_refcount) == 0);
 		LASSERT(test_bit(PTLRPC_CTX_CACHED_BIT,
                                      &ctx->cc_flags) == 0);
 
@@ -229,7 +229,7 @@ static
 void gss_cli_ctx_die_pf(struct ptlrpc_cli_ctx *ctx, int grace)
 {
 	LASSERT(ctx->cc_sec);
-	LASSERT(cfs_atomic_read(&ctx->cc_refcount) > 0);
+	LASSERT(atomic_read(&ctx->cc_refcount) > 0);
 
 	cli_ctx_expire(ctx);
 
@@ -237,10 +237,10 @@ void gss_cli_ctx_die_pf(struct ptlrpc_cli_ctx *ctx, int grace)
 
 	if (test_and_clear_bit(PTLRPC_CTX_CACHED_BIT, &ctx->cc_flags)) {
 		LASSERT(!cfs_hlist_unhashed(&ctx->cc_cache));
-		LASSERT(cfs_atomic_read(&ctx->cc_refcount) > 1);
+		LASSERT(atomic_read(&ctx->cc_refcount) > 1);
 
 		cfs_hlist_del_init(&ctx->cc_cache);
-		if (cfs_atomic_dec_and_test(&ctx->cc_refcount))
+		if (atomic_dec_and_test(&ctx->cc_refcount))
 			LBUG();
 	}
 
@@ -497,7 +497,7 @@ retry:
 
 	/* hold a ref */
 	if (ctx)
-		cfs_atomic_inc(&ctx->cc_refcount);
+		atomic_inc(&ctx->cc_refcount);
 
 	spin_unlock(&sec->ps_lock);
 
@@ -561,19 +561,19 @@ int gss_sec_flush_ctx_cache_pf(struct ptlrpc_sec *sec,
                 cfs_hlist_for_each_entry_safe(ctx, pos, next,
                                               &gsec_pf->gsp_chash[i],
                                               cc_cache) {
-                        LASSERT(cfs_atomic_read(&ctx->cc_refcount) > 0);
+			LASSERT(atomic_read(&ctx->cc_refcount) > 0);
 
                         if (uid != -1 && uid != ctx->cc_vcred.vc_uid)
                                 continue;
 
-                        if (cfs_atomic_read(&ctx->cc_refcount) > 1) {
+			if (atomic_read(&ctx->cc_refcount) > 1) {
                                 busy++;
                                 if (!force)
                                         continue;
 
                                 CWARN("flush busy(%d) ctx %p(%u->%s) by force, "
                                       "grace %d\n",
-                                      cfs_atomic_read(&ctx->cc_refcount),
+				      atomic_read(&ctx->cc_refcount),
                                       ctx, ctx->cc_vcred.vc_uid,
                                       sec2target_str(ctx->cc_sec), grace);
                         }
@@ -634,7 +634,7 @@ struct gss_upcall_msg_data {
 
 struct gss_upcall_msg {
         struct rpc_pipe_msg             gum_base;
-        cfs_atomic_t                    gum_refcount;
+	atomic_t                    gum_refcount;
         cfs_list_t                      gum_list;
         __u32                           gum_mechidx;
         struct gss_sec                 *gum_gsec;
@@ -642,12 +642,12 @@ struct gss_upcall_msg {
         struct gss_upcall_msg_data      gum_data;
 };
 
-static cfs_atomic_t upcall_seq = CFS_ATOMIC_INIT(0);
+static atomic_t upcall_seq = ATOMIC_INIT(0);
 
 static inline
 __u32 upcall_get_sequence(void)
 {
-        return (__u32) cfs_atomic_inc_return(&upcall_seq);
+	return (__u32) atomic_inc_return(&upcall_seq);
 }
 
 enum mech_idx_t {
@@ -709,9 +709,9 @@ static
 void gss_release_msg(struct gss_upcall_msg *gmsg)
 {
         ENTRY;
-        LASSERT(cfs_atomic_read(&gmsg->gum_refcount) > 0);
+	LASSERT(atomic_read(&gmsg->gum_refcount) > 0);
 
-        if (!cfs_atomic_dec_and_test(&gmsg->gum_refcount)) {
+	if (!atomic_dec_and_test(&gmsg->gum_refcount)) {
                 EXIT;
                 return;
         }
@@ -740,8 +740,8 @@ void gss_unhash_msg_nolock(struct gss_upcall_msg *gmsg)
 		return;
 
 	cfs_list_del_init(&gmsg->gum_list);
-	LASSERT(cfs_atomic_read(&gmsg->gum_refcount) > 1);
-	cfs_atomic_dec(&gmsg->gum_refcount);
+	LASSERT(atomic_read(&gmsg->gum_refcount) > 1);
+	atomic_dec(&gmsg->gum_refcount);
 }
 
 static
@@ -761,7 +761,7 @@ void gss_msg_fail_ctx(struct gss_upcall_msg *gmsg)
         if (gmsg->gum_gctx) {
                 struct ptlrpc_cli_ctx *ctx = &gmsg->gum_gctx->gc_base;
 
-                LASSERT(cfs_atomic_read(&ctx->cc_refcount) > 0);
+		LASSERT(atomic_read(&ctx->cc_refcount) > 0);
                 sptlrpc_cli_ctx_expire(ctx);
 		set_bit(PTLRPC_CTX_ERROR_BIT, &ctx->cc_flags);
         }
@@ -777,10 +777,10 @@ struct gss_upcall_msg * gss_find_upcall(__u32 mechidx, __u32 seq)
                 if (gmsg->gum_data.gum_seq != seq)
                         continue;
 
-                LASSERT(cfs_atomic_read(&gmsg->gum_refcount) > 0);
+		LASSERT(atomic_read(&gmsg->gum_refcount) > 0);
                 LASSERT(gmsg->gum_mechidx == mechidx);
 
-                cfs_atomic_inc(&gmsg->gum_refcount);
+		atomic_inc(&gmsg->gum_refcount);
                 upcall_list_unlock(mechidx);
                 return gmsg;
         }
@@ -876,7 +876,7 @@ ssize_t gss_pipe_downcall(struct file *filp, const char *src, size_t mlen)
         gss_unhash_msg(gss_msg);
         gctx = gss_msg->gum_gctx;
         LASSERT(gctx);
-        LASSERT(cfs_atomic_read(&gctx->gc_base.cc_refcount) > 0);
+	LASSERT(atomic_read(&gctx->gc_base.cc_refcount) > 0);
 
         /* timeout is not in use for now */
         if (simple_get_bytes(&data, &datalen, &timeout, sizeof(timeout)))
@@ -965,14 +965,14 @@ void gss_pipe_destroy_msg(struct rpc_pipe_msg *msg)
 
         gmsg = container_of(msg, struct gss_upcall_msg, gum_base);
         gumd = &gmsg->gum_data;
-        LASSERT(cfs_atomic_read(&gmsg->gum_refcount) > 0);
+	LASSERT(atomic_read(&gmsg->gum_refcount) > 0);
 
         CERROR("failed msg %p (seq %u, uid %u, svc %u, nid "LPX64", obd %.*s): "
                "errno %d\n", msg, gumd->gum_seq, gumd->gum_uid, gumd->gum_svc,
                gumd->gum_nid, (int) sizeof(gumd->gum_obd),
                gumd->gum_obd, msg->errno);
 
-        cfs_atomic_inc(&gmsg->gum_refcount);
+	atomic_inc(&gmsg->gum_refcount);
         gss_unhash_msg(gmsg);
         if (msg->errno == -ETIMEDOUT || msg->errno == -EPIPE) {
                 cfs_time_t now = cfs_time_current_sec();
@@ -1014,7 +1014,7 @@ void gss_pipe_release(struct inode *inode)
                        gumd->gum_obd);
 
                 gmsg->gum_base.errno = -EPIPE;
-                cfs_atomic_inc(&gmsg->gum_refcount);
+		atomic_inc(&gmsg->gum_refcount);
                 gss_unhash_msg_nolock(gmsg);
 
                 gss_msg_fail_ctx(gmsg);
@@ -1073,7 +1073,7 @@ int gss_ctx_refresh_pf(struct ptlrpc_cli_ctx *ctx)
         gmsg->gum_base.errno = 0;
 
         /* init upcall msg */
-        cfs_atomic_set(&gmsg->gum_refcount, 1);
+	atomic_set(&gmsg->gum_refcount, 1);
         gmsg->gum_mechidx = mech_name2idx(gsec->gs_mech->gm_name);
         gmsg->gum_gsec = gsec;
         gmsg->gum_gctx = container_of(sptlrpc_cli_ctx_get(ctx),

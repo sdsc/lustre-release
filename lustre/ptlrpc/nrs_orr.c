@@ -417,7 +417,7 @@ static void nrs_orr_hop_get(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
 	struct nrs_orr_object *orro = cfs_hlist_entry(hnode,
 						      struct nrs_orr_object,
 						      oo_hnode);
-	cfs_atomic_inc(&orro->oo_ref);
+	atomic_inc(&orro->oo_ref);
 }
 
 /**
@@ -433,7 +433,7 @@ static void nrs_orr_hop_put_free(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
 						   struct nrs_orr_data, od_res);
 	cfs_hash_bd_t	       bds[2];
 
-	if (cfs_atomic_dec_return(&orro->oo_ref) > 1)
+	if (atomic_dec_return(&orro->oo_ref) > 1)
 		return;
 
 	cfs_hash_lock(hs, 0);
@@ -443,7 +443,7 @@ static void nrs_orr_hop_put_free(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
 	 * Another thread may have won the race and taken a reference on the
 	 * nrs_orr_object.
 	 */
-	if (cfs_atomic_read(&orro->oo_ref) > 1)
+	if (atomic_read(&orro->oo_ref) > 1)
 		goto lost_race;
 
 	if (bds[1].bd_bucket == NULL)
@@ -466,7 +466,7 @@ static void nrs_orr_hop_put(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
 	struct nrs_orr_object *orro = cfs_hlist_entry(hnode,
 						      struct nrs_orr_object,
 						      oo_hnode);
-	cfs_atomic_dec(&orro->oo_ref);
+	atomic_dec(&orro->oo_ref);
 }
 
 static int nrs_trr_hop_keycmp(const void *key, cfs_hlist_node_t *hnode)
@@ -486,9 +486,9 @@ static void nrs_trr_hop_exit(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
 	struct nrs_orr_data   *orrd = container_of(orro->oo_res.res_parent,
 						   struct nrs_orr_data, od_res);
 
-	LASSERTF(cfs_atomic_read(&orro->oo_ref) == 0,
+	LASSERTF(atomic_read(&orro->oo_ref) == 0,
 		 "Busy NRS TRR policy object for OST with index %u, with %d "
-		 "refs\n", orro->oo_key.ok_idx, cfs_atomic_read(&orro->oo_ref));
+		 "refs\n", orro->oo_key.ok_idx, atomic_read(&orro->oo_ref));
 
 	OBD_SLAB_FREE_PTR(orro, orrd->od_cache);
 }
@@ -888,7 +888,7 @@ int nrs_orr_res_get(struct ptlrpc_nrs_policy *policy,
 		RETURN(-ENOMEM);
 
 	orro->oo_key = key;
-	cfs_atomic_set(&orro->oo_ref, 1);
+	atomic_set(&orro->oo_ref, 1);
 
 	tmp = cfs_hash_findadd_unique(orrd->od_obj_hash, &orro->oo_key,
 				      &orro->oo_hnode);
