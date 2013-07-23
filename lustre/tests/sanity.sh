@@ -9376,6 +9376,77 @@ test_161b() {
 }
 run_test 161b "link ea sanity under remote directory"
 
+test_161c() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+
+	# define CLF_RENAME_LAST 0x0001
+	# rename overwrite a target having nlink = 1 (changelog flag 0x1)
+	local USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
+		changelog_register -n)
+	mkdir -p $DIR/$tdir
+	touch $DIR/$tdir/foo
+	touch $DIR/$tdir/bar
+	mv -f $DIR/$tdir/foo $DIR/$tdir/bar
+	local flags=$($LFS changelog $MDT0 | grep RENME | tail -1 | \
+		cut -f5 -d' ')
+	$LFS changelog_clear $MDT0 $USER 0
+	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
+	[ x$flags != "x0x1" ] && error "flag $flags is not 0x1"
+	echo "rename overwrite a target having nlink = 1," \
+		"changelog record has flags of $flags"
+
+	# rename overwrite a target having nlink > 1 (changelog flag 0x0)
+	USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
+	touch $DIR/$tdir/foo
+	touch $DIR/$tdir/bar
+	ln $DIR/$tdir/bar $DIR/$tdir/foobar
+	mv -f $DIR/$tdir/foo $DIR/$tdir/bar
+	flags=$($LFS changelog $MDT0 | grep RENME | tail -1 | \
+		cut -f5 -d' ')
+	$LFS changelog_clear $MDT0 $USER 0
+	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
+	[ x$flags != "x0x0" ] && error "flag $flags is not 0x0"
+	echo "rename overwrite a target having nlink > 1," \
+		"changelog record has flags of $flags"
+
+	# rename doesn't overwrite a target (changelog flag 0x0)
+	USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
+	touch $DIR/$tdir/foo
+	mv -f $DIR/$tdir/foo $DIR/$tdir/foo2
+	flags=$($LFS changelog $MDT0 | grep RENME | tail -1 | \
+		cut -f5 -d' ')
+	$LFS changelog_clear $MDT0 $USER 0
+	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
+	[ x$flags != "x0x0" ] && error "flag $flags is not 0x0"
+	echo "rename doesn't overwrite a target," \
+		"changelog record has flags of $flags"
+
+	# define CLF_UNLINK_LAST 0x0001
+	# unlink a file having nlink = 1 (changelog flag 0x1)
+	USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
+	rm -f $DIR/$tdir/foo2
+	flags=$($LFS changelog $MDT0 | grep UNLNK | tail -1 | \
+		cut -f5 -d' ')
+	$LFS changelog_clear $MDT0 $USER 0
+	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
+	[ x$flags != "x0x1" ] && error "flag $flags is not 0x1"
+	echo "unlink a file having nlink = 1," \
+		"changelog record has flags of $flags"
+
+	# unlink a file having nlink > 1 (changelog flag 0x0)
+	USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
+	ln -f $DIR/$tdir/bar $DIR/$tdir/foobar
+	rm -f $DIR/$tdir/foobar
+	flags=$($LFS changelog $MDT0 | grep UNLNK | tail -1 | \
+		cut -f5 -d' ')
+	$LFS changelog_clear $MDT0 $USER 0
+	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
+	[ x$flags != "x0x0" ] && error "flag $flags is not 0x0"
+	echo "unlink a file having nlink > 1," \
+		"changelog record has flags of $flags"
+}
+run_test 161c "check CLF_RENAME_LAST flag in CL_RENME record"
+
 check_path() {
     local expected=$1
     shift
