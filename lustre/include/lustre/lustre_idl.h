@@ -3870,6 +3870,7 @@ struct update_reply {
 	__u32	ur_lens[0];
 };
 
+void lustre_swab_update(struct update *u);
 void lustre_swab_update_buf(struct update_buf *ub);
 void lustre_swab_update_reply_buf(struct update_reply *ur);
 
