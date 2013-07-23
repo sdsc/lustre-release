@@ -9376,6 +9376,23 @@ test_161b() {
 }
 run_test 161b "link ea sanity under remote directory"
 
+test_161c() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	local USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
+		changelog_register -n)
+	mkdir -p $DIR/$tdir
+	touch $DIR/$tdir/foo
+	touch $DIR/$tdir/bar
+	mv -f $DIR/$tdir/foo $DIR/$tdir/bar
+	local flags=$($LFS changelog $MDT0 | grep RENME | tail -1 | \
+		cut -f5 -d' ')
+	$LFS changelog_clear $MDT0 $USER 0
+	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
+	[ x$flags != "x0x1" ] && error "flag $flags is not 0x1"
+	echo "CL_RENME changelog record has flags of $flags"
+}
+run_test 161c "check CLF_RENAME_LAST flag in CL_RENME record"
+
 check_path() {
     local expected=$1
     shift
