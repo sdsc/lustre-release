@@ -3757,7 +3757,7 @@ extern void lustre_swab_hsm_request(struct hsm_request *hr);
  *
  *   Update request format
  *   magic:  UPDATE_BUFFER_MAGIC_V1
- *   Count:  How many updates in the req.
+ *   count:  How many updates in the req.
  *   bufs[0] : following are packets of object.
  *   update[0]:
  *		type: object_update_op, the op code of update
@@ -3771,7 +3771,7 @@ extern void lustre_swab_hsm_request(struct hsm_request *hr);
  *   update[7]:	type: object_update_op, the op code of update
  *		fid: The object fid of the update.
  *		lens/bufs: other parameters of the update.
- *   Current 8 maxim updates per object update request.
+ *   Current maximum of 8 updates per object update request.
  *
  *******************************************************************
  *   update reply format:
@@ -3787,7 +3787,7 @@ extern void lustre_swab_hsm_request(struct hsm_request *hr);
  *		 nth update reply  [4bytes_ret: other body]
  *
  *   For each reply of the update, the format would be
- *   	 result(4 bytes):Other stuff
+ *	 result(4 bytes):other reply-specific data
  */
 
 #define UPDATE_MAX_OPS		10

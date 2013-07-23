@@ -152,7 +152,7 @@ static void out_reconstruct(const struct lu_env *env, struct dt_device *dt,
 	CDEBUG(D_INFO, "%s: fork reply reply %p index %d: rc = %d\n",
 	       dt_obd_name(dt), reply, index, 0);
 
-	update_insert_reply(reply, NULL, 0, index, 0);
+	update_reply_insert(reply, NULL, 0, index, 0);
 	return;
 }
 
@@ -237,7 +237,7 @@ int out_tx_create_exec(const struct lu_env *env, struct thandle *th,
 	CDEBUG(D_INFO, "%s: insert create reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
 
-	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
+	update_reply_insert(arg->reply, NULL, 0, arg->index, rc);
 
 	return rc;
 }
@@ -290,14 +290,15 @@ static int out_create(struct tgt_session_info *tsi)
 
 	ENTRY;
 
-	wobdo = update_param_buf(update, 0, &size);
+	wobdo = update_param_get(update, 0, &size);
 	if (wobdo == NULL || size != sizeof(*wobdo)) {
 		CERROR("%s: obdo is NULL, invalid RPC: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
-	obdo_le_to_cpu(wobdo, wobdo);
+	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+		lustre_swab_obdo(wobdo);
 	lustre_get_wire_obdo(NULL, lobdo, wobdo);
 	la_from_obdo(attr, lobdo, lobdo->o_valid);
 
@@ -305,13 +306,14 @@ static int out_create(struct tgt_session_info *tsi)
 	if (S_ISDIR(attr->la_mode)) {
 		int size;
 
-		fid = update_param_buf(update, 1, &size);
+		fid = update_param_get(update, 1, &size);
 		if (fid == NULL || size != sizeof(*fid)) {
 			CERROR("%s: invalid fid: rc = %d\n",
 			       tgt_name(tsi->tsi_tgt), -EPROTO);
 			RETURN(err_serious(-EPROTO));
 		}
-		fid_le_to_cpu(fid, fid);
+		if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+			lustre_swab_lu_fid(fid);
 		if (!fid_is_sane(fid)) {
 			CERROR("%s: invalid fid "DFID": rc = %d\n",
 			       tgt_name(tsi->tsi_tgt), PFID(fid), -EPROTO);
@@ -356,7 +358,7 @@ static int out_tx_attr_set_exec(const struct lu_env *env, struct thandle *th,
 	CDEBUG(D_INFO, "%s: insert attr_set reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
 
-	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
+	update_reply_insert(arg->reply, NULL, 0, arg->index, rc);
 
 	return rc;
 }
@@ -399,16 +401,17 @@ static int out_attr_set(struct tgt_session_info *tsi)
 
 	ENTRY;
 
-	wobdo = update_param_buf(update, 0, &size);
+	wobdo = update_param_get(update, 0, &size);
 	if (wobdo == NULL || size != sizeof(*wobdo)) {
 		CERROR("%s: empty obdo in the update: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
-		RETURN(err_serious(-EPROTO));
+		RETURN(err_serious(rc = -EPROTO));
 	}
 
 	attr->la_valid = 0;
-	attr->la_valid = 0;
-	obdo_le_to_cpu(wobdo, wobdo);
+
+	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+		lustre_swab_obdo(wobdo);
 	lustre_get_wire_obdo(NULL, lobdo, wobdo);
 	la_from_obdo(attr, lobdo, lobdo->o_valid);
 
@@ -476,7 +479,6 @@ static int out_attr_get(struct tgt_session_info *tsi)
 
 	obdo->o_valid = 0;
 	obdo_from_la(obdo, la, la->la_valid);
-	obdo_cpu_to_le(obdo, obdo);
 	lustre_set_wire_obdo(NULL, obdo, obdo);
 
 out_unlock:
@@ -486,7 +488,7 @@ out_unlock:
 	       tgt_name(tsi->tsi_tgt), tti->tti_u.update.tti_update_reply,
 	       0, rc);
 
-	update_insert_reply(tti->tti_u.update.tti_update_reply, obdo,
+	update_reply_insert(tti->tti_u.update.tti_update_reply, obdo,
 			    sizeof(*obdo), 0, rc);
 	RETURN(rc);
 }
@@ -505,19 +507,19 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 
 	ENTRY;
 
-	name = (char *)update_param_buf(update, 0, NULL);
+	name = (char *)update_param_get(update, 0, NULL);
 	if (name == NULL) {
 		CERROR("%s: empty name for xattr get: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
-		RETURN(err_serious(-EPROTO));
+		RETURN(err_serious(rc = -EPROTO));
 	}
 
-	ptr = update_get_buf_internal(reply, 0, NULL);
+	ptr = update_reply_buf_get_internal(reply, 0, NULL);
 	LASSERT(ptr != NULL);
 
 	/* The first 4 bytes(int) are used to store the result */
 	lbuf->lb_buf = (char *)ptr + sizeof(int);
-	lbuf->lb_len = UPDATE_BUFFER_SIZE - sizeof(struct update_reply);
+	lbuf->lb_len = UPDATE_BUFFER_SIZE - sizeof(*reply);
 	dt_read_lock(env, obj, MOR_TGT_CHILD);
 	rc = dt_xattr_get(env, obj, lbuf, name, NULL);
 	dt_read_unlock(env, obj);
@@ -554,7 +556,7 @@ static int out_index_lookup(struct tgt_session_info *tsi)
 	if (!lu_object_exists(&obj->do_lu))
 		RETURN(-ENOENT);
 
-	name = (char *)update_param_buf(update, 0, NULL);
+	name = (char *)update_param_get(update, 0, NULL);
 	if (name == NULL) {
 		CERROR("%s: empty name for lookup: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
@@ -577,7 +579,6 @@ static int out_index_lookup(struct tgt_session_info *tsi)
 	CDEBUG(D_INFO, "lookup "DFID" %s get "DFID" rc %d\n",
 	       PFID(lu_object_fid(&obj->do_lu)), name,
 	       PFID(&tti->tti_fid1), rc);
-	fid_cpu_to_le(&tti->tti_fid1, &tti->tti_fid1);
 
 out_unlock:
 	dt_read_unlock(env, obj);
@@ -586,7 +587,7 @@ out_unlock:
 	       tgt_name(tsi->tsi_tgt), tti->tti_u.update.tti_update_reply,
 	       0, rc);
 
-	update_insert_reply(tti->tti_u.update.tti_update_reply,
+	update_reply_insert(tti->tti_u.update.tti_update_reply,
 			    &tti->tti_fid1, sizeof(tti->tti_fid1), 0, rc);
 	RETURN(rc);
 }
@@ -616,7 +617,7 @@ static int out_tx_xattr_set_exec(const struct lu_env *env,
 	CDEBUG(D_INFO, "%s: insert xattr set reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
 
-	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
+	update_reply_insert(arg->reply, NULL, 0, arg->index, rc);
 
 	return rc;
 }
@@ -658,20 +659,19 @@ static int out_xattr_set(struct tgt_session_info *tsi)
 	struct lu_buf		*lbuf = &tti->tti_buf;
 	char			*name;
 	char			*buf;
-	char			*tmp;
 	int			 buf_len = 0;
-	int			 flag;
+	int			*flag;
 	int			 rc;
 	ENTRY;
 
-	name = update_param_buf(update, 0, NULL);
+	name = update_param_get(update, 0, NULL);
 	if (name == NULL) {
 		CERROR("%s: empty name for xattr set: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
-	buf = (char *)update_param_buf(update, 1, &buf_len);
+	buf = (char *)update_param_get(update, 1, &buf_len);
 	if (buf == NULL || buf_len == 0) {
 		CERROR("%s: empty buf for xattr set: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
@@ -681,16 +681,17 @@ static int out_xattr_set(struct tgt_session_info *tsi)
 	lbuf->lb_buf = buf;
 	lbuf->lb_len = buf_len;
 
-	tmp = (char *)update_param_buf(update, 2, NULL);
-	if (tmp == NULL) {
+	flag = update_param_get(update, 2, NULL);
+	if (flag == NULL) {
 		CERROR("%s: empty flag for xattr set: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
-	flag = le32_to_cpu(*(int *)tmp);
+	if (ptlrpc_rep_need_swab(req))
+		__swab32s(*flag);
 
-	rc = out_tx_xattr_set(tsi->tsi_env, obj, lbuf, name, flag,
+	rc = out_tx_xattr_set(tsi->tsi_env, obj, lbuf, name, *flag,
 			      &tti->tti_tea,
 			      tti->tti_u.update.tti_update_reply,
 			      tti->tti_u.update.tti_update_reply_index);
@@ -734,7 +735,7 @@ static int out_tx_ref_add_exec(const struct lu_env *env, struct thandle *th,
 	CDEBUG(D_INFO, "%s: insert ref_add reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
 
-	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
+	update_reply_insert(arg->reply, NULL, 0, arg->index, rc);
 	return rc;
 }
 
@@ -795,7 +796,7 @@ static int out_tx_ref_del_exec(const struct lu_env *env, struct thandle *th,
 	CDEBUG(D_INFO, "%s: insert ref_del reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, 0);
 
-	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
+	update_reply_insert(arg->reply, NULL, 0, arg->index, rc);
 
 	return rc;
 }
@@ -901,7 +902,7 @@ static int out_tx_index_insert_exec(const struct lu_env *env,
 	CDEBUG(D_INFO, "%s: insert idx insert reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
 
-	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
+	update_reply_insert(arg->reply, NULL, 0, arg->index, rc);
 
 	return rc;
 }
@@ -963,21 +964,22 @@ static int out_index_insert(struct tgt_session_info *tsi)
 
 	ENTRY;
 
-	name = (char *)update_param_buf(update, 0, NULL);
+	name = update_param_get(update, 0, NULL);
 	if (name == NULL) {
 		CERROR("%s: empty name for index insert: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
-	fid = (struct lu_fid *)update_param_buf(update, 1, &size);
+	fid = update_param_get(update, 1, &size);
 	if (fid == NULL || size != sizeof(*fid)) {
 		CERROR("%s: invalid fid: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
-		       RETURN(err_serious(-EPROTO));
+		RETURN(err_serious(-EPROTO));
 	}
 
-	fid_le_to_cpu(fid, fid);
+	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+		lustre_swab_lu_fid(fid);
 	if (!fid_is_sane(fid)) {
 		CERROR("%s: invalid FID "DFID": rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), PFID(fid), -EPROTO);
@@ -1002,7 +1004,7 @@ static int out_tx_index_delete_exec(const struct lu_env *env,
 	CDEBUG(D_INFO, "%s: insert idx insert reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
 
-	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
+	update_reply_insert(arg->reply, NULL, 0, arg->index, rc);
 
 	return rc;
 }
@@ -1059,7 +1061,7 @@ static int out_index_delete(struct tgt_session_info *tsi)
 	if (!lu_object_exists(&obj->do_lu))
 		RETURN(-ENOENT);
 
-	name = (char *)update_param_buf(update, 0, NULL);
+	name = (char *)update_param_get(update, 0, NULL);
 	if (name == NULL) {
 		CERROR("%s: empty name for index delete: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);
@@ -1083,7 +1085,7 @@ static int out_tx_destroy_exec(const struct lu_env *env, struct thandle *th,
 	CDEBUG(D_INFO, "%s: insert destroy reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
 
-	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
+	update_reply_insert(arg->reply, NULL, 0, arg->index, rc);
 
 	RETURN(rc);
 }
@@ -1121,19 +1123,9 @@ static int __out_tx_destroy(const struct lu_env *env, struct dt_object *dt_obj,
 static int out_destroy(struct tgt_session_info *tsi)
 {
 	struct tgt_thread_info	*tti = tgt_th_info(tsi->tsi_env);
-	struct update		*update = tti->tti_u.update.tti_update;
 	struct dt_object	*obj = tti->tti_u.update.tti_dt_object;
-	struct lu_fid		*fid;
 	int			 rc;
 	ENTRY;
-
-	fid = &update->u_fid;
-	fid_le_to_cpu(fid, fid);
-	if (!fid_is_sane(fid)) {
-		CERROR("%s: invalid FID "DFID": rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), PFID(fid), -EPROTO);
-		RETURN(err_serious(-EPROTO));
-	}
 
 	if (!lu_object_exists(&obj->do_lu))
 		RETURN(-ENOENT);
@@ -1219,7 +1211,6 @@ int out_handle(struct tgt_session_info *tsi)
 	struct update			*update;
 	struct update_reply		*update_reply;
 	int				 bufsize;
-	int				 count;
 	int				 old_batchid = -1;
 	unsigned			 off;
 	int				 i;
@@ -1243,17 +1234,17 @@ int out_handle(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	if (le32_to_cpu(ubuf->ub_magic) != UPDATE_BUFFER_MAGIC) {
+	/* ub_magic and ub_count are swabbed in lustre_swab_update_buf() */
+	if (ubuf->ub_magic != UPDATE_BUFFER_MAGIC) {
 		CERROR("%s: invalid magic %x expect %x: rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), le32_to_cpu(ubuf->ub_magic),
+		       tgt_name(tsi->tsi_tgt), ubuf->ub_magic,
 		       UPDATE_BUFFER_MAGIC, -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
-	count = le32_to_cpu(ubuf->ub_count);
-	if (count <= 0) {
-		CERROR("%s: No update!: rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), -EPROTO);
+	if (ubuf->ub_count <= 0) {
+		CERROR("%s: No update!: rc = %d\n", tgt_name(tsi->tsi_tgt),
+		       -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
@@ -1270,7 +1261,7 @@ int out_handle(struct tgt_session_info *tsi)
 	update_reply = req_capsule_server_get(pill, &RMF_UPDATE_REPLY);
 	if (update_reply == NULL)
 		RETURN(err_serious(-EPROTO));
-	update_init_reply_buf(update_reply, count);
+	update_reply_buf_init(update_reply, ubuf->ub_count);
 	tti->tti_u.update.tti_update_reply = update_reply;
 
 	rc = out_tx_start(env, dt, ta);
@@ -1281,11 +1272,20 @@ int out_handle(struct tgt_session_info *tsi)
 
 	/* Walk through updates in the request to execute them synchronously */
 	off = cfs_size_round(offsetof(struct update_buf, ub_bufs[0]));
-	for (i = 0; i < count; i++) {
+	for (i = 0; i < ubuf->ub_count; i++) {
 		struct tgt_handler	*h;
 		struct dt_object	*dt_obj;
 
 		update = (struct update *)((char *)ubuf + off);
+		if (ptlrpc_rep_need_swab(req)) {
+			int j;
+
+			__swab32s(&update->u_type);
+			__swab32s(&update->u_batchid);
+			lustre_swab_lu_fid(&update->u_fid);
+			for (j = 0; j < UPDATE_BUF_COUNT; j++)
+				__swab32s(&update->u_lens[j]);
+		}
 		if (old_batchid == -1) {
 			old_batchid = update->u_batchid;
 		} else if (old_batchid != update->u_batchid) {
@@ -1301,7 +1301,6 @@ int out_handle(struct tgt_session_info *tsi)
 			old_batchid = update->u_batchid;
 		}
 
-		fid_le_to_cpu(&update->u_fid, &update->u_fid);
 		if (!fid_is_sane(&update->u_fid)) {
 			CERROR("%s: invalid FID "DFID": rc = %d\n",
 			       tgt_name(tsi->tsi_tgt), PFID(&update->u_fid),
@@ -1341,7 +1340,7 @@ next:
 		lu_object_put(env, &dt_obj->do_lu);
 		if (rc < 0)
 			GOTO(out, rc);
-		off += cfs_size_round(update_size(update));
+		off += cfs_size_round(update_param_size(update));
 	}
 out:
 	rc1 = out_tx_end(env, ta);
