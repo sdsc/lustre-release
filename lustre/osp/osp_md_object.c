@@ -231,11 +231,11 @@ static int osp_insert_update(const struct lu_env *env,
 	}
 
 	/* fill the update into the update buffer */
-	fid_cpu_to_le(&obj_update->u_fid, fid);
-	obj_update->u_type = cpu_to_le32(op);
+	obj_update->u_fid = *fid;
+	obj_update->u_type = op;
 	obj_update->u_batchid = update->ur_batchid;
 	for (i = 0; i < count; i++)
-		obj_update->u_lens[i] = cpu_to_le32(lens[i]);
+		obj_update->u_lens[i] = lens[i];
 
 	ptr = (char *)obj_update +
 			cfs_size_round(offsetof(struct update, u_bufs[0]));
@@ -306,23 +306,26 @@ static int osp_get_attr_from_req(const struct lu_env *env,
 	struct obdo		*lobdo = &osp_env_info(env)->osi_obdo;
 	struct obdo		*wobdo;
 	int			size;
+	int			rc;
 
 	LASSERT(attr != NULL);
 
 	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
 					     UPDATE_BUFFER_SIZE);
-	if (reply == NULL || reply->ur_version != UPDATE_REPLY_V1)
-		return -EPROTO;
+	size = update_get_reply_buf(req, reply, (void **)&wobdo, index);
+	if (size < 0)
+		GOTO(out, rc = size);
+	if (size < sizeof(*wobdo))
+		GOTO(out, rc = -EPROTO);
 
-	size = update_get_reply_buf(reply, (void **)&wobdo, index);
-	if (size != sizeof(struct obdo))
-		return -EPROTO;
-
-	obdo_le_to_cpu(wobdo, wobdo);
+	if (ptlrpc_rep_need_swab(req) && update_reply_need_swab(reply, index))
+		lustre_swab_obdo(wobdo);
 	lustre_get_wire_obdo(NULL, lobdo, wobdo);
 	la_from_obdo(attr, lobdo, lobdo->o_valid);
+out:
+	update_reply_set_swabbed(reply, index);
 
-	return 0;
+	return rc;
 }
 
 static int osp_md_declare_object_create(const struct lu_env *env,
@@ -352,19 +355,16 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 	LASSERT(S_ISDIR(attr->la_mode));
 	obdo_from_la(&osi->osi_obdo, attr, attr->la_valid);
 	lustre_set_wire_obdo(NULL, &osi->osi_obdo, &osi->osi_obdo);
-	obdo_cpu_to_le(&osi->osi_obdo, &osi->osi_obdo);
 
 	bufs[0] = (char *)&osi->osi_obdo;
 	buf_count = 1;
 	fid1 = (struct lu_fid *)lu_object_fid(&dt->do_lu);
 	if (hint->dah_parent) {
 		struct lu_fid *fid2;
-		struct lu_fid *tmp_fid = &osi->osi_fid;
 
 		fid2 = (struct lu_fid *)lu_object_fid(&hint->dah_parent->do_lu);
-		fid_cpu_to_le(tmp_fid, fid2);
-		sizes[1] = sizeof(*tmp_fid);
-		bufs[1] = (char *)tmp_fid;
+		sizes[1] = sizeof(*fid2);
+		bufs[1] = (char *)fid2;
 		buf_count++;
 	}
 
@@ -542,7 +542,6 @@ static int osp_md_declare_attr_set(const struct lu_env *env,
 	obdo_from_la(&osi->osi_obdo, (struct lu_attr *)attr,
 		     attr->la_valid);
 	lustre_set_wire_obdo(NULL, &osi->osi_obdo, &osi->osi_obdo);
-	obdo_cpu_to_le(&osi->osi_obdo, &osi->osi_obdo);
 
 	buf = (char *)&osi->osi_obdo;
 	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
@@ -570,7 +569,7 @@ static int osp_md_declare_xattr_set(const struct lu_env *env,
 {
 	struct update_request	*update;
 	struct lu_fid		*fid;
-	int			sizes[3] = {strlen(name), buf->lb_len,
+	int			sizes[3] = {strlen(name) + 1, buf->lb_len,
 					    sizeof(int)};
 	char			*bufs[3] = {(char *)name, (char *)buf->lb_buf };
 	int			rc;
@@ -584,7 +583,6 @@ static int osp_md_declare_xattr_set(const struct lu_env *env,
 		return PTR_ERR(update);
 	}
 
-	flag = cpu_to_le32(flag);
 	bufs[2] = (char *)&flag;
 
 	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
@@ -627,7 +625,7 @@ static int osp_md_xattr_get(const struct lu_env *env, struct dt_object *dt,
 		RETURN(PTR_ERR(update));
 
 	LASSERT(name != NULL);
-	buf_len = strlen(name);
+	buf_len = strlen(name) + 1;
 	rc = osp_insert_update(env, update, OBJ_XATTR_GET,
 			       (struct lu_fid *)lu_object_fid(&dt->do_lu),
 			       1, &buf_len, (char **)&name);
@@ -643,25 +641,20 @@ static int osp_md_xattr_get(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 
 	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
-					    UPDATE_BUFFER_SIZE);
-	if (reply->ur_version != UPDATE_REPLY_V1) {
-		CERROR("%s: Wrong version %x expected %x: rc = %d\n",
-		       dt_dev->dd_lu_dev.ld_obd->obd_name,
-		       reply->ur_version, UPDATE_REPLY_V1, -EPROTO);
-		GOTO(out, rc = -EPROTO);
-	}
-
-	size = update_get_reply_buf(reply, &ea_buf, 0);
-	if (size < 0)
+					     UPDATE_BUFFER_SIZE);
+	size = update_get_reply_buf(req, reply, &ea_buf, 0);
+	if (size <= 0)
 		GOTO(out, rc = size);
 
-	LASSERT(size > 0 && size < PAGE_CACHE_SIZE);
+	if (size >= buf->lb_len)
+		GOTO(out, rc = -ERANGE);
 	LASSERT(ea_buf != NULL);
 
 	rc = size;
 	if (buf->lb_buf != NULL)
 		memcpy(buf->lb_buf, ea_buf, size);
 out:
+	update_reply_set_swabbed(update, index);
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
@@ -756,33 +749,20 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 
 	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
 					     UPDATE_BUFFER_SIZE);
-	if (reply->ur_version != UPDATE_REPLY_V1) {
-		CERROR("%s: Wrong version %x expected %x: rc = %d\n",
-		       dt_dev->dd_lu_dev.ld_obd->obd_name,
-		       reply->ur_version, UPDATE_REPLY_V1, -EPROTO);
-		GOTO(out, rc = -EPROTO);
-	}
-
-	rc = update_get_reply_result(reply, NULL, 0);
-	if (rc < 0) {
-		CERROR("%s: wrong version lookup "DFID" %s: rc = %d\n",
-		       dt_dev->dd_lu_dev.ld_obd->obd_name,
-		       PFID(lu_object_fid(&dt->do_lu)), (char *)key, rc);
-		GOTO(out, rc);
-	}
-
-	size = update_get_reply_buf(reply, (void **)&fid, 0);
+	size = update_get_reply_buf(req, reply, (void **)&fid, 0);
 	if (size < 0)
 		GOTO(out, rc = size);
 
-	if (size != sizeof(struct lu_fid)) {
+	if (size < sizeof(*fid)) {
 		CERROR("%s: lookup "DFID" %s wrong size %d: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name,
 		       PFID(lu_object_fid(&dt->do_lu)), (char *)key, size, rc);
 		GOTO(out, rc = -EINVAL);
 	}
 
-	fid_le_to_cpu(fid, fid);
+	if (ptlrpc_rep_need_swab(req) && update_reply_need_swab(update, index))
+		lustre_swab_lu_fid(fid);
+
 	if (!fid_is_sane(fid)) {
 		CERROR("%s: lookup "DFID" %s invalid fid "DFID": rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name,
@@ -792,6 +772,8 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	}
 	memcpy(rec, fid, sizeof(*fid));
 out:
+	/* set swabbed before returning an error, or it may be swabbed again */
+	update_reply_set_swabbed(update, index);
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
@@ -827,8 +809,6 @@ static int osp_md_declare_insert(const struct lu_env *env,
 	CDEBUG(D_INFO, "%s: insert index of "DFID" %s: "DFID"\n",
 	       dt->do_lu.lo_dev->ld_obd->obd_name,
 	       PFID(fid), (char *)key, PFID(rec_fid));
-
-	fid_cpu_to_le(rec_fid, rec_fid);
 
 	rc = osp_insert_update(env, update, OBJ_INDEX_INSERT, fid,
 			       ARRAY_SIZE(size), size, bufs);
