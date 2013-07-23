@@ -231,16 +231,18 @@ static int osp_insert_update(const struct lu_env *env,
 	}
 
 	/* fill the update into the update buffer */
-	fid_cpu_to_le(&obj_update->u_fid, fid);
-	obj_update->u_type = cpu_to_le32(op);
+	obj_update->u_fid = *fid;
+	obj_update->u_type = op;
 	obj_update->u_batchid = update->ur_batchid;
 	for (i = 0; i < count; i++)
-		obj_update->u_lens[i] = cpu_to_le32(lens[i]);
+		obj_update->u_lens[i] = lens[i];
 
 	ptr = (char *)obj_update +
 			cfs_size_round(offsetof(struct update, u_bufs[0]));
 	for (i = 0; i < count; i++)
 		LOGL(bufs[i], lens[i], ptr);
+
+	update_cpu_to_le(obj_update, obj_update);
 
 	ubuf->ub_count++;
 
