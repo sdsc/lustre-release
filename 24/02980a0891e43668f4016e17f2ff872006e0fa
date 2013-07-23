@@ -1,0 +1,13 @@
+Verified+1: Hudson
+Code-Review+1: Lai Siyao <lai.siyao@intel.com>
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Code-Review+1: James Simmons <uja.ornl@gmail.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Cheng Shao <cheng_shao@xyratex.com>
+Code-Review+1: Bob Glossman <bob.glossman@intel.com>
+Code-Review+1: Alexey Shvetsov <alexxy@gentoo.org>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Tue, 23 Jul 2013 05:22:28 +0000
+Reviewed-on: http://review.whamcloud.com/6920
+Project: fs/lustre-release
+Branch: refs/heads/master
