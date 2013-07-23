@@ -3722,6 +3722,30 @@ struct update_reply {
 	__u32	ur_lens[0];
 };
 
+static inline void
+update_cpu_to_le(struct update *dst, const struct update *src)
+{
+	int	i;
+
+	dst->u_type = cpu_to_le32(src->u_type);
+	dst->u_batchid = cpu_to_le32(src->u_batchid);
+	fid_cpu_to_le(&dst->u_fid, &src->u_fid);
+	for (i = 0; i < ARRAY_SIZE(dst->u_lens); i++)
+		dst->u_lens[i] = cpu_to_le32(src->u_lens[i]);
+}
+
+static inline void
+update_le_to_cpu(struct update *dst, const struct update *src)
+{
+	int	i;
+
+	dst->u_type = le32_to_cpu(src->u_type);
+	dst->u_batchid = le32_to_cpu(src->u_batchid);
+	fid_le_to_cpu(&dst->u_fid, &src->u_fid);
+	for (i = 0; i < ARRAY_SIZE(dst->u_lens); i++)
+		dst->u_lens[i] = le32_to_cpu(src->u_lens[i]);
+}
+
 void lustre_swab_update_buf(struct update_buf *ub);
 void lustre_swab_update_reply_buf(struct update_reply *ur);
 

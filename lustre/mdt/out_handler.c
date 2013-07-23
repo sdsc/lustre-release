@@ -1248,16 +1248,16 @@ int out_handle(struct out_thread_info *info)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	if (le32_to_cpu(ubuf->ub_magic) != UPDATE_BUFFER_MAGIC) {
-		CERROR("%s: invalid magic %x expect %x: rc = %d\n",
-		       mdt_obd_name(mdt), le32_to_cpu(ubuf->ub_magic),
-		       UPDATE_BUFFER_MAGIC, -EPROTO);
+	if (ubuf->ub_magic != UPDATE_BUFFER_MAGIC) {
+		CERROR("%s: invalid update buffer magic %x expect %x: "
+		       "rc = %d\n", mdt_obd_name(mdt),
+		       ubuf->ub_magic, UPDATE_BUFFER_MAGIC, -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
-	count = le32_to_cpu(ubuf->ub_count);
+	count = ubuf->ub_count;
 	if (count <= 0) {
-		CERROR("%s: No update!: rc = %d\n",
+		CERROR("%s: empty update: rc = %d\n",
 		       mdt_obd_name(mdt), -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
@@ -1287,6 +1287,9 @@ int out_handle(struct out_thread_info *info)
 		struct dt_object   *dt_obj;
 
 		update = (struct update *)((char *)ubuf + off);
+
+		update_le_to_cpu(update, update);
+
 		if (old_batchid == -1) {
 			old_batchid = update->u_batchid;
 		} else if (old_batchid != update->u_batchid) {
@@ -1302,7 +1305,6 @@ int out_handle(struct out_thread_info *info)
 			old_batchid = update->u_batchid;
 		}
 
-		fid_le_to_cpu(&update->u_fid, &update->u_fid);
 		if (!fid_is_sane(&update->u_fid)) {
 			CERROR("%s: invalid FID "DFID": rc = %d\n",
 			       mdt_obd_name(mdt), PFID(&update->u_fid),
