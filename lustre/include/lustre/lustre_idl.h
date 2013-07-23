@@ -3714,6 +3714,7 @@ struct update_reply {
 };
 
 void lustre_swab_update_buf(struct update_buf *ub);
+void lustre_swab_update(struct update *u);
 void lustre_swab_update_reply_buf(struct update_reply *ur);
 
 /** layout swap request structure
