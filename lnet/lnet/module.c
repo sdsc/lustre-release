@@ -94,7 +94,14 @@ lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_data *data)
 
         case IOC_LIBCFS_UNCONFIGURE:
                 return lnet_unconfigure();
-                
+
+	case IOC_LIBCFS_LNET_LOAD_LND: {
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		rc = lnet_startup_lndnis(1);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
+	}
+
         default:
                 /* Passing LNET_PID_ANY only gives me a ref if the net is up
                  * already; I'll need it to ensure the net can't go down while
