@@ -34,12 +34,15 @@
 #define UPDATE_BUFFER_SIZE	8192
 struct update_request {
 	struct dt_device	*ur_dt;
-	cfs_list_t		ur_list;    /* attached itself to thandle */
+	struct list_head	ur_list;    /* attached itself to thandle */
 	int			ur_flags;
 	int			ur_rc;	    /* request result */
 	int			ur_batchid; /* Current batch(trans) id */
 	struct update_buf	*ur_buf;   /* Holding the update req */
 };
+
+/* use high bit to determine if the request/reply buffer is already swabbed */
+#define UPDATE_FL_SWABBED 0x80000000
 
 static inline unsigned long update_size(struct update *update)
 {
@@ -48,7 +51,7 @@ static inline unsigned long update_size(struct update *update)
 
 	size = cfs_size_round(offsetof(struct update, u_bufs[0]));
 	for (i = 0; i < UPDATE_BUF_COUNT; i++)
-		size += cfs_size_round(update->u_lens[i]);
+		size += cfs_size_round(update->u_lens[i] & ~UPDATE_FL_SWABBED);
 
 	return size;
 }
@@ -62,15 +65,18 @@ static inline void *update_param_buf(struct update *update, int index,
 	if (index >= UPDATE_BUF_COUNT)
 		return NULL;
 
+	if (unlikely(update->u_lens[i] & ~UPDATE_FL_SWABBED) == 0)
+		return NULL;
+
 	ptr = (char *)update + cfs_size_round(offsetof(struct update,
 						       u_bufs[0]));
 	for (i = 0; i < index; i++) {
-		LASSERT(update->u_lens[i] > 0);
-		ptr += cfs_size_round(update->u_lens[i]);
+		LASSERT((update->u_lens[i] & ~UPDATE_FL_SWABBED) > 0);
+		ptr += cfs_size_round(update->u_lens[i] & ~UPDATE_FL_SWABBED);
 	}
 
 	if (size != NULL)
-		*size = update->u_lens[index];
+		*size = update->u_lens[index] & ~UPDATE_FL_SWABBED;
 
 	return ptr;
 }
@@ -93,11 +99,10 @@ static inline unsigned long update_buf_size(struct update_buf *buf)
 
 static inline void *update_buf_get(struct update_buf *buf, int index, int *size)
 {
-	int	count = buf->ub_count;
 	void	*ptr;
-	int	i = 0;
+	int	i;
 
-	if (index >= count)
+	if (index >= buf->ub_count)
 		return NULL;
 
 	ptr = (char *)buf + cfs_size_round(offsetof(struct update_buf,
@@ -117,6 +122,26 @@ static inline void update_init_reply_buf(struct update_reply *reply, int count)
 	reply->ur_count = count;
 }
 
+/**
+ * Mark an update_reply buffer as swabbed.  This should be set after all of
+ * the fields in the buffer have been swabbed, OR before returning an error
+ * to the caller.  If it is set too early, then later parts of the swabber
+ * may think it has already been processed, and if not set before an error
+ * is returned then the buffer will be re-swabbed if accessed again. */
+static inline void update_reply_set_swabbed(struct update_reply *reply,
+					    int index)
+{
+	reply->ur_lens[index] |= UPDATE_FL_SWABBED;
+}
+
+/**
+ * Check if an update_reply buffer is already swabbed, and do not swab again.
+ * The UPDATE_FL_SWABBED flag should not be passed over the network. */
+static inline bool update_reply_need_swab(struct update_reply *reply, int index)
+{
+	return (reply->ur_lens[index] & UPDATE_FL_SWABBED) == 0;
+}
+
 static inline void *update_get_buf_internal(struct update_reply *reply,
 					    int index, int *size)
 {
@@ -130,12 +155,12 @@ static inline void *update_get_buf_internal(struct update_reply *reply,
 	ptr = (char *)reply + cfs_size_round(offsetof(struct update_reply,
 					     ur_lens[count]));
 	for (i = 0; i < index; i++) {
-		LASSERT(reply->ur_lens[i] > 0);
-		ptr += cfs_size_round(reply->ur_lens[i]);
+		LASSERT((reply->ur_lens[i] & ~UPDATE_FL_SWABBED) > 0);
+		ptr += cfs_size_round(reply->ur_lens[i] & ~UPDATE_FL_SWABBED);
 	}
 
 	if (size != NULL)
-		*size = reply->ur_lens[index];
+		*size = reply->ur_lens[index] & ~UPDATE_FL_SWABBED;
 
 	return ptr;
 }
@@ -148,7 +173,7 @@ static inline void update_insert_reply(struct update_reply *reply, void *data,
 	ptr = update_get_buf_internal(reply, index, NULL);
 	LASSERT(ptr != NULL);
 
-	*(int *)ptr = cpu_to_le32(rc);
+	*(int *)ptr = ptlrpc_status_hton(rc);
 	ptr += sizeof(int);
 	if (data_len > 0) {
 		LASSERT(data != NULL);
@@ -157,36 +182,45 @@ static inline void update_insert_reply(struct update_reply *reply, void *data,
 	reply->ur_lens[index] = data_len + sizeof(int);
 }
 
-static inline int update_get_reply_buf(struct update_reply *reply, void **buf,
+static inline int update_get_reply_buf(struct ptlrpc_request *req,
+				       struct update_reply *reply, void **buf,
 				       int index)
 {
 	char *ptr;
 	int  size = 0;
 	int  result;
 
-	ptr = update_get_buf_internal(reply, index, &size);
-	LASSERT(ptr != NULL);
-	result = *(int *)ptr;
+	if (reply == NULL)
+		RETURN(-EPROTO);
 
-	if (result < 0)
-		return result;
+	/* header was already swabbed by lustre_swab_update_reply_buf() */
+	if (reply->ur_version != UPDATE_REPLY_V1) {
+		result = -EPROTO;
+		CERROR("%s: Wrong version %x expected %x: rc = %d\n",
+		       req->rq_import->imp_obd->obd_name,
+		       reply->ur_version, UPDATE_REPLY_V1, result);
+		RETURN(result);
+	}
+
+	ptr = update_get_buf_internal(reply, index, &size);
+	if (ptr == NULL)
+		RETURN(-EPROTO);
+
+	if (ptlrpc_rep_need_swab(req) && update_reply_need_swab(reply, index))
+		__swab32s((__u32 *)ptr);
+	result = ptlrpc_status_ntoh(*(int *)ptr);
+	if (result < 0) {
+		/* If returning an error, mark update_reply swabbed so this
+		 * isn't done again on the next access.  Later calls should
+		 * also hit the same error for this update buffer, so no
+		 * further processing should be done with it anyway. */
+		update_reply_set_swabbed(reply, index);
+		RETURN(result);
+	}
 
 	LASSERT(size >= sizeof(int));
 	*buf = ptr + sizeof(int);
 	return size - sizeof(int);
 }
 
-static inline int update_get_reply_result(struct update_reply *reply,
-					  void **buf, int index)
-{
-	void *ptr;
-	int  size;
-
-	ptr = update_get_buf_internal(reply, index, &size);
-	LASSERT(ptr != NULL && size > sizeof(int));
-	return *(int *)ptr;
-}
-
 #endif
-
-

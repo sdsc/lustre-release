@@ -39,7 +39,6 @@
 
 #include <dt_object.h>
 #include <lustre_export.h>
-#include <lustre_update.h>
 #include <lustre_disk.h>
 #include <lustre_lfsck.h>
 

@@ -3860,7 +3860,7 @@ struct update {
 struct update_buf {
 	__u32	ub_magic;
 	__u32	ub_count;
-	__u32	ub_bufs[0];
+	char	ub_bufs[0];	/* ub_count struct update item, variable size */
 };
 
 #define UPDATE_REPLY_V1		0x00BD0001
@@ -3870,6 +3870,7 @@ struct update_reply {
 	__u32	ur_lens[0];
 };
 
+void lustre_swab_update(struct update *u);
 void lustre_swab_update_buf(struct update_buf *ub);
 void lustre_swab_update_reply_buf(struct update_reply *ur);
 

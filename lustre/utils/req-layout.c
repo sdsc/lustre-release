@@ -91,6 +91,7 @@
 #define lustre_swab_hsm_state_set NULL
 #define lustre_swab_hsm_current_action NULL
 #define lustre_swab_hsm_request NULL
+#define lustre_swab_update NULL
 #define lustre_swab_update_buf NULL
 #define lustre_swab_update_reply_buf NULL
 #define lustre_swab_close_data NULL
