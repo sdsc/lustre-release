@@ -297,7 +297,8 @@ static int out_create(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	obdo_le_to_cpu(wobdo, wobdo);
+	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+		lustre_swab_obdo(wobdo);
 	lustre_get_wire_obdo(NULL, lobdo, wobdo);
 	la_from_obdo(attr, lobdo, lobdo->o_valid);
 
@@ -408,7 +409,9 @@ static int out_attr_set(struct tgt_session_info *tsi)
 
 	attr->la_valid = 0;
 	attr->la_valid = 0;
-	obdo_le_to_cpu(wobdo, wobdo);
+
+	if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+		lustre_swab_obdo(wobdo);
 	lustre_get_wire_obdo(NULL, lobdo, wobdo);
 	la_from_obdo(attr, lobdo, lobdo->o_valid);
 
