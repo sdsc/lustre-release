@@ -71,6 +71,7 @@ build_obj_list ../mdc libmdc.a
 build_obj_list ../fid libfid.a
 build_obj_list ../fld libfld.a
 build_obj_list ../mgc libmgc.a
+build_obj_list ../ptlrpc liblustreidl.a
 build_obj_list ../ptlrpc libptlrpc.a
 build_obj_list ../obdclass liblustreclass.a
 build_obj_list ../lvfs liblvfs.a
