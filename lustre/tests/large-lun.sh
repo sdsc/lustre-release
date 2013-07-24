@@ -44,6 +44,21 @@ run_dumpe2fs() {
 	do_facet $facet "$cmd"
 }
 
+# Run resize2fs on MDT or OST device.
+run_resize2fs() {
+	local node=$1
+	local target_dev=$2
+	local extra_opts=$3
+	local resize=$4
+
+	local cmd="resize2fs $extra_opts $target_dev $resize"
+	echo $cmd
+	local rc=0
+	do_node $node $cmd || rc=$?
+
+	return $rc
+}
+
 # Report Lustre filesystem disk space usage and inodes usage of each MDT/OST.
 client_df() {
 	local mnt_pnt=$1
@@ -113,6 +128,59 @@ do_fsck() {
 			error "run e2fsck error"
 	done
 }
+
+# Run resize and e2fsck
+do_resize() {
+	local facet=$1
+	local dev=$2
+
+	stopall
+	run_e2fsck $facet $dev "-y"
+	# Get the original number of blocks for the file system, then resize to
+	# 1) smaller than minimum allowable fs size; expect failure
+	# 2) the maximum number of blocks allowed
+	# 3) the minimum number of blocks allowed
+	# 4) and, if possible, something inbetween the min and max
+	fs_blks=$(get_block_count $facet $dev)
+	run_resize2fs $facet $dev "-p -d 30" "10"
+	[[ $? -ne 1 ]] &&
+		error "resize2fs returned $?, expected 1 on too small resize"
+	run_resize2fs $facet $dev "-p -d 30"
+	[[ $? -ne 0 ]] &&
+		error "resize2fs returned $?, expected 0 for maximum resize"
+	max_blks=$(get_block_count $facet $dev)
+	run_resize2fs $facet $dev "-p -d 30 -M"
+	[[ $? -ne 0 ]] &&
+		error "resize2fs returned $?, expected 0 for minimum resize"
+	min_blks=$(get_block_count $facet $dev)
+
+	if [ $min_blks -ne $max_blks ]; then
+		fcount=$(( ( max_blks - min_blks )/2 + min_blks ))
+		resize_blks=$(run_resize2fs $facet $dev "-d 30 -p" "$fcount" |
+			     awk '/blocks long/ {print $7}')
+		[[ $? -ne 0 ]] &&
+			error "resize2fs returned $?, expected 0 for resize"
+		[[ $resize_blks -ne $fcount ]] &&
+			error "resize2fs returned $resize_blks, expected $fcount"
+	fi
+
+# Since a file system can be formatted to be smaller than what resize2fs
+# thinks it should be, a resize to the original file system size can fail.
+# Return file system to the maximum of: the original size or minimum size
+# and run e2fsck
+	if [ $fs_blks -lt $min_blks ]; then
+		fs_blks=$min_blks
+	fi
+
+	resize_blks=$(run_resize2fs $facet $dev "-p -d 30" "$fs_blks" |
+		     awk '/blocks long/ {print $7}')
+	[[ $? -ne 0 ]] &&
+		error "resize2fs to original size returned $?, expected 0"
+	[[ $fs_blks -ne $resize_blks ]] &&
+		error "Unable to resize back to original ${fs_blks}."
+	run_e2fsck $facet $dev "-y" || error "run e2fsck error"
+}
+
 ################################## Main Flow ###################################
 trap cleanupall EXIT
 
@@ -148,8 +216,8 @@ test_2 () {
 		# to ensure that the kernel can perform filesystem operations
 		# on the complete device without any errors.
 		log "run llverfs in partial mode on the OST ldiskfs $ostmnt"
-		do_rpc_nodes $(facet_host ost${num}) run_llverfs $ostmnt -vpl \
-			"no" || error "run_llverfs error on ldiskfs"
+		do_rpc_nodes $(facet_host ost${num}) run_llverfs $ostmnt \
+			-vpl "no" || error "run_llverfs error on ldiskfs"
 
 		# Unmount the OST.
 		log "unmount the OST $dev"
@@ -257,6 +325,44 @@ test_4 () {
 	fi
 }
 run_test 4 "run llverfs on lustre filesystem"
+
+test_5 () {
+	[ "$(facet_fstype $SINGLEMDS)" != ldiskfs ] &&
+		skip "Only applicable to ldiskfs-based MDTs" && return
+
+	# Setup the Lustre filesystem.
+	log "setup the lustre filesystem"
+	REFORMAT="yes" check_and_setup_lustre
+	local mdshost=$(facet_host $SINGLEMDS)
+	local mdsdev=$(mdsdevname ${SINGLEMDS//mds/})
+
+	test_mkdir -p $DIR/$tdir || error "mkdir $tdir failed"
+	createmany -o $DIR/$tdir/t- 10000 ||
+		error "create files in $tdir/t- failed"
+
+	do_resize $mdshost $mdsdev
+}
+run_test 5 "run resize2fs on MDT"
+
+test_6 () {
+	[ "$(facet_fstype ost${OSTCOUNT})" != ldiskfs ] &&
+		skip "Only applicable to ldiskfs-based OSTs" && return
+
+	# Setup the Lustre filesystem.
+	log "setup the lustre filesystem"
+	REFORMAT="yes" check_and_setup_lustre
+	local osthost=$(facet_host ost${OSTCOUNT})
+	local ostdev=$(ostdevname $OSTCOUNT)
+
+	test_mkdir -p $DIR/$tdir || error "mkdir $tdir failed"
+	for ((i=0; i<1000; i++)); do
+		dd if=/dev/zero of=$DIR/$tdir/$tfile-$i bs=1M count=1 ||
+			error "dd to $DIR/$tdir/$tfile-$i failed"
+	done
+
+	do_resize $osthost $ostdev
+}
+run_test 6 "run resize2fs on OST"
 
 complete $SECONDS
 $LARGE_LUN_RESTORE_MOUNT && setupall

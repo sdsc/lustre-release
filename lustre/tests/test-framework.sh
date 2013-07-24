@@ -6267,6 +6267,17 @@ min_ost_size () {
     $LCTL get_param -n osc.*.kbytesavail | sort -n | head -n1
 }
 
+
+# Get the block count of the filesystem.
+get_block_count() {
+	local facet=$1
+	local device=$2
+
+	local bcount=$(do_facet $facet "$DUMPE2FS -h $device 2>&1" |
+		awk '/^Block count:/ {print $3}')
+	echo $bcount
+}
+
 # Get the block size of the filesystem.
 get_block_size() {
     local facet=$1
