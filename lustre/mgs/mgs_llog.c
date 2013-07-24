@@ -1528,19 +1528,32 @@ static int name_create_mdt_and_lov(char **logname, char **lovname,
 
 static int add_param(char *params, char *key, char *val)
 {
-	char *start = params + strlen(params);
-	char *end = params + sizeof(((struct mgs_target_info *)0)->mti_params);
-	int keylen = 0;
+	char *sub_val = NULL;
+	int   buflen = strlen(params);
+	int   end = sizeof(((struct mgs_target_info *)0)->mti_params);
+	int   start = 0;
+	int   keylen = 0;
 
 	if (key != NULL)
 		keylen = strlen(key);
-	if (start + 1 + keylen + strlen(val) >= end) {
-		CERROR("params are too long: %s %s%s\n",
-		       params, key != NULL ? key : "", val);
-		return -EINVAL;
+
+	start = buflen;
+	while ((sub_val = strsep(&val, ",")) != NULL) {
+		if (*sub_val == 0)
+			continue;
+
+		if (start + 1 + keylen + strlen(sub_val) >= end) {
+			CERROR("params are too long: %s %s%s\n",
+				params, key != NULL ? key : "", sub_val);
+			params[buflen] = '\0';
+			return -EINVAL;
+		}
+
+		sprintf(params + start, " %s%s", key != NULL ? key : "",
+			sub_val);
+		start = strlen(params);
 	}
 
-	sprintf(start, " %s%s", key != NULL ? key : "", val);
 	return 0;
 }
 
