@@ -58,6 +58,7 @@
 #include <linux/kmod.h>
 #include <linux/sysctl.h>
 #include <linux/pci.h>
+#include <linux/pci-dma.h>
 
 #include <net/sock.h>
 #include <linux/in.h>
