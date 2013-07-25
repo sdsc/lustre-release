@@ -51,39 +51,11 @@
 
 #define MDT_HSM_FREE(ptr, size) OBD_FREE_LARGE((ptr), (size))
 
-/*
- * fake functions, will be replaced by real one with HSM Coordinator patch
- */
-
-int mdt_hsm_copytool_send(struct obd_export *exp)
-{
-	return 0;
-}
-
-static int mdt_hsm_coordinator_update(struct mdt_thread_info *info,
-				      struct hsm_progress_kernel *pgs)
-{
-	return 0;
-}
-
-static int mdt_hsm_agent_register_mask(struct mdt_thread_info *info,
-				       struct obd_uuid *uuid,
-				       __u32 archive_mask)
-{
-	return 0;
-}
-
-static int mdt_hsm_agent_unregister(struct mdt_thread_info *info,
-				    struct obd_uuid *uuid)
-{
-	return 0;
-}
-
 /**
  * Update on-disk HSM attributes.
  */
 int mdt_hsm_attr_set(struct mdt_thread_info *info, struct mdt_object *obj,
-		     struct md_hsm *mh)
+		     const struct md_hsm *mh)
 {
 	struct md_object	*next = mdt_object_child(obj);
 	struct lu_buf		*buf = &info->mti_buf;
