@@ -23,11 +23,44 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
+#
+# Variables for configuring multiple HSM agents/copytools:
+#
+# CPTCOUNT: number of copytools
+# CPTDEV{N}: archive number/ID
+# cpt{N}_HOST: hostname of the host where copytool cpt{N} is located
+# SINGLECPT: facet of the single copytool
+#
+# By default, the number of copytools are the number of remote client nodes.
+# Copytools will be started on the remote clients, not on the local client.
+# If there was no remote client, then the copytool will be started on the
+# local client.
+#
+export CPTCOUNT=${CPTCOUNT:-$((CLIENTCOUNT - 1))}
+[[ $CPTCOUNT -gt 0 ]] || CPTCOUNT=1
+
+for n in $(seq $CPTCOUNT); do
+	eval export CPTDEV$n=\$\{CPTDEV$n:-$((n - 1))\}
+	agent=CLIENT$((n + 1))
+	if [[ -z "${!agent}" ]]; then
+		[[ $CLIENTCOUNT -eq 1 ]] && agent=CLIENT1 || agent=CLIENT2
+	fi
+	eval export cpt${n}_HOST=\$\{cpt${n}_HOST:-${!agent}\}
+done
+
+export SINGLECPT=${SINGLECPT:-cpt1}
+
 MULTIOP=${MULTIOP:-multiop}
 OPENFILE=${OPENFILE:-openfile}
 MCREATE=${MCREATE:-mcreate}
 MOUNT_2=${MOUNT_2:-"yes"}
 FAIL_ON_ERROR=false
+
+SHARED_DIRECTORY=${SHARED_DIRECTORY:-$TMP}
+if [[ $CLIENTCOUNT -gt 1 ]] && ! check_shared_dir $SHARED_DIRECTORY; then
+	skip_env "SHARED_DIRECTORY should be accessible on all nodes"
+	exit 0
+fi
 
 if [ $MDSCOUNT -ge 2 ]; then
 	skip_env "Only run with single MDT for now" && exit
@@ -60,24 +93,25 @@ export HTBASE=$(basename "$HT" | cut -f1 -d" ")
 MDT_PARAM="mdt.$FSNAME-MDT0000"
 HSM_PARAM="$MDT_PARAM.hsm"
 
-ARC=${ARC:-$TMP/arc}
+ARC=${ARC:-$SHARED_DIRECTORY/arc}
 AN=2
 # archive is purged at copytool setup
 ARC_PURGE=true
 
 search_and_kill_copytool() {
 	echo "Killing existing copy tools"
-	killall -q $HTBASE || true
+	do_nodesv $(comma_list $(cpts_nodes)) "killall -q $HTBASE" || true
 }
 
-
 copytool_setup() {
-	if pkill -CONT -x $HTBASE; then
+	local list=$(comma_list $(cpts_nodes))
+
+	if do_nodesv $list "pkill -CONT -x $HTBASE"; then
 		echo "Wakeup copytool"
 		return
 	fi
 
-	if ! $HT --commcheck --noexecute $FSNAME; then
+	if ! do_nodesv $list "$HT --commcheck --noexecute $FSNAME"; then
 		error "Copytool not runnable: $?"
 	fi
 
@@ -93,19 +127,20 @@ copytool_setup() {
 	local CMD="$HT $HT_VERB --hsm_root $ARC --bandwidth 1 $FSNAME"
 	[[ -z "$1" ]] || CMD+=" --archive $1"
 
-	echo "$CMD"
-	$CMD  &
+	do_nodesv $list "$CMD  &"
 	trap cleanup EXIT
 }
 
 copytool_cleanup() {
-	pkill -INT -x $HTBASE || return 0
+	do_nodesv $(comma_list $(cpts_nodes)) "pkill -INT -x $HTBASE" ||
+		return 0
 	sleep 1
 	echo "Copytool is stopped"
 }
 
 copytool_suspend() {
-	pkill -STOP -x $HTBASE || return 0
+	do_nodesv $(comma_list $(cpts_nodes)) "pkill -STOP -x $HTBASE" ||
+		return 0
 	echo "Copytool is suspended"
 }
 
@@ -117,7 +152,8 @@ copytool_remove_backend() {
 }
 
 import_file() {
-	$HT --archive $AN --hsm_root $ARC --import $1 $2 $FSNAME ||
+	do_facet $SINGLECPT \
+		"$HT --archive $AN --hsm_root $ARC --import $1 $2 $FSNAME" ||
 		error "import of $i to $2 failed"
 }
 
@@ -138,7 +174,6 @@ changelog_cleanup(){
 #	$LFS changelog $MDT0
 	do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $CL_USER
 }
-
 
 get_hsm_param() {
 	local param=$1

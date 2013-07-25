@@ -3956,7 +3956,7 @@ get_facets () {
 
         case $type in
                 MGS ) list="$list $name";;
-            MDS|OST ) local count=${type}COUNT
+            MDS|OST|CPT ) local count=${type}COUNT
                        for ((i=1; i<=${!count}; i++)) do
                           list="$list ${name}$i"
                       done;;
@@ -4745,6 +4745,11 @@ mdts_nodes () {
 # Get all of the active OSS nodes.
 osts_nodes () {
 	echo -n $(facets_nodes $(get_facets OST))
+}
+
+# Get all of the active CPT (HSM copytool) nodes.
+cpts_nodes () {
+	echo -n $(facets_nodes $(get_facets CPT))
 }
 
 # Get all of the client nodes and active server nodes.
