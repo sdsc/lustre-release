@@ -894,54 +894,6 @@ static int lprocfs_wr_mdt_som(struct file *file, const char *buffer,
         return count;
 }
 
-/* Temporary; for testing purposes only */
-static int lprocfs_mdt_wr_mdc(struct file *file, const char *buffer,
-			      unsigned long count, void *data)
-{
-	struct obd_device *obd = data;
-	struct obd_export *exp = NULL;
-	struct obd_uuid   *uuid;
-	char		  *kbuf;
-	char		  *tmpbuf;
-
-	OBD_ALLOC(kbuf, UUID_MAX);
-	if (kbuf == NULL)
-		return -ENOMEM;
-
-	/*
-	 * OBD_ALLOC() will zero kbuf, but we only copy UUID_MAX - 1
-	 * bytes into kbuf, to ensure that the string is NUL-terminated.
-	 * UUID_MAX should include a trailing NUL already.
-	 */
-	if (copy_from_user(kbuf, buffer,
-			   min_t(unsigned long, UUID_MAX - 1, count))) {
-		count = -EFAULT;
-		goto out;
-	}
-	tmpbuf = cfs_firststr(kbuf, min_t(unsigned long, UUID_MAX - 1, count));
-
-	OBD_ALLOC(uuid, UUID_MAX);
-	if (uuid == NULL) {
-		count = -ENOMEM;
-		goto out;
-	}
-
-	obd_str2uuid(uuid, tmpbuf);
-	exp = cfs_hash_lookup(obd->obd_uuid_hash, uuid);
-	if (exp == NULL) {
-		CERROR("%s: no export %s found\n",
-		       obd->obd_name, obd_uuid2str(uuid));
-	} else {
-		mdt_hsm_copytool_send(exp);
-		class_export_put(exp);
-	}
-
-	OBD_FREE(uuid, UUID_MAX);
-out:
-	OBD_FREE(kbuf, UUID_MAX);
-	return count;
-}
-
 static int lprocfs_rd_enable_remote_dir(char *page, char **start, off_t off,
 					int count, int *eof, void *data)
 {
@@ -998,51 +950,79 @@ static int lprocfs_wr_enable_remote_dir_gid(struct file *file,
 }
 
 static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
-        { "uuid",                       lprocfs_rd_uuid,                 0, 0 },
-        { "recovery_status",            lprocfs_obd_rd_recovery_status,  0, 0 },
-        { "num_exports",                lprocfs_rd_num_exports,          0, 0 },
-        { "identity_expire",            lprocfs_rd_identity_expire,
-                                        lprocfs_wr_identity_expire,         0 },
-        { "identity_acquire_expire",    lprocfs_rd_identity_acquire_expire,
-                                        lprocfs_wr_identity_acquire_expire, 0 },
-        { "identity_upcall",            lprocfs_rd_identity_upcall,
-                                        lprocfs_wr_identity_upcall,         0 },
-        { "identity_flush",             0, lprocfs_wr_identity_flush,       0 },
-        { "identity_info",              0, lprocfs_wr_identity_info,        0 },
-        { "capa",                       lprocfs_rd_capa,
-                                        lprocfs_wr_capa,                    0 },
-        { "capa_timeout",               lprocfs_rd_capa_timeout,
-                                        lprocfs_wr_capa_timeout,            0 },
-        { "capa_key_timeout",           lprocfs_rd_ck_timeout,
-                                        lprocfs_wr_ck_timeout,              0 },
-        { "capa_count",                 lprocfs_rd_capa_count,           0, 0 },
-        { "site_stats",                 lprocfs_rd_site_stats,           0, 0 },
-        { "evict_client",               0, lprocfs_mdt_wr_evict_client,     0 },
-        { "hash_stats",                 lprocfs_obd_rd_hash,    0, 0 },
-        { "sec_level",                  lprocfs_rd_sec_level,
-                                        lprocfs_wr_sec_level,               0 },
-        { "commit_on_sharing",          lprocfs_rd_cos, lprocfs_wr_cos, 0 },
-        { "root_squash",                lprocfs_rd_root_squash,
-                                        lprocfs_wr_root_squash,             0 },
-        { "nosquash_nids",              lprocfs_rd_nosquash_nids,
-                                        lprocfs_wr_nosquash_nids,           0 },
-        { "som",                        lprocfs_rd_mdt_som,
-                                        lprocfs_wr_mdt_som, 0 },
-        { "mdccomm",                    0, lprocfs_mdt_wr_mdc,              0 },
-        { "instance",                   lprocfs_target_rd_instance,         0 },
-        { "ir_factor",                  lprocfs_obd_rd_ir_factor,
-                                        lprocfs_obd_wr_ir_factor,           0 },
+	{ "uuid",			lprocfs_rd_uuid, NULL,
+					NULL, NULL, 0 },
+	{ "recovery_status",		lprocfs_obd_rd_recovery_status, NULL,
+					NULL, NULL, 0 },
+	{ "num_exports",		lprocfs_rd_num_exports,	NULL,
+					NULL, NULL, 0 },
+	{ "identity_expire",		lprocfs_rd_identity_expire,
+					lprocfs_wr_identity_expire,
+					NULL, NULL, 0 },
+	{ "identity_acquire_expire",    lprocfs_rd_identity_acquire_expire,
+					lprocfs_wr_identity_acquire_expire,
+					NULL, NULL, 0 },
+	{ "identity_upcall",		lprocfs_rd_identity_upcall,
+					lprocfs_wr_identity_upcall,
+					NULL, NULL, 0 },
+	{ "identity_flush",		NULL, lprocfs_wr_identity_flush,
+					NULL, NULL, 0 },
+	{ "identity_info",		NULL, lprocfs_wr_identity_info,
+					NULL, NULL, 0 },
+	{ "capa",			lprocfs_rd_capa,
+					lprocfs_wr_capa,
+					NULL, NULL, 0 },
+	{ "capa_timeout",		lprocfs_rd_capa_timeout,
+					lprocfs_wr_capa_timeout,
+					NULL, NULL, 0 },
+	{ "capa_key_timeout",		lprocfs_rd_ck_timeout,
+					lprocfs_wr_ck_timeout,
+					NULL, NULL, 0 },
+	{ "capa_count",			lprocfs_rd_capa_count, NULL,
+					NULL, NULL, 0 },
+	{ "site_stats",			lprocfs_rd_site_stats, NULL,
+					NULL, NULL, 0 },
+	{ "evict_client",		NULL, lprocfs_mdt_wr_evict_client,
+					NULL, NULL, 0 },
+	{ "hash_stats",			lprocfs_obd_rd_hash, NULL,
+					NULL, NULL, 0 },
+	{ "sec_level",			lprocfs_rd_sec_level,
+					lprocfs_wr_sec_level,
+					NULL, NULL, 0 },
+	{ "commit_on_sharing",		lprocfs_rd_cos, lprocfs_wr_cos,
+					NULL, NULL, 0 },
+	{ "root_squash",		lprocfs_rd_root_squash,
+					lprocfs_wr_root_squash,
+					NULL, NULL, 0 },
+	{ "nosquash_nids",		lprocfs_rd_nosquash_nids,
+					lprocfs_wr_nosquash_nids,
+					NULL, NULL, 0 },
+	{ "som",			lprocfs_rd_mdt_som,
+					lprocfs_wr_mdt_som,
+					NULL, NULL, 0 },
+	{ "instance",			lprocfs_target_rd_instance, NULL,
+					NULL, NULL, 0},
+	{ "ir_factor",			lprocfs_obd_rd_ir_factor,
+					lprocfs_obd_wr_ir_factor,
+					NULL, NULL, 0 },
 	{ "job_cleanup_interval",       lprocfs_rd_job_interval,
-					lprocfs_wr_job_interval, 0 },
+					lprocfs_wr_job_interval,
+					NULL, NULL, 0 },
 	{ "enable_remote_dir",		lprocfs_rd_enable_remote_dir,
-					lprocfs_wr_enable_remote_dir,	    0},
+					lprocfs_wr_enable_remote_dir,
+					NULL, NULL, 0},
 	{ "enable_remote_dir_gid",	lprocfs_rd_enable_remote_dir_gid,
-					lprocfs_wr_enable_remote_dir_gid,   0},
+					lprocfs_wr_enable_remote_dir_gid,
+					NULL, NULL, 0},
+	{ "hsm_control",		lprocfs_rd_hsm_cdt_control,
+					lprocfs_wr_hsm_cdt_control,
+					NULL, NULL, 0 },
 	{ 0 }
 };
 
 static struct lprocfs_vars lprocfs_mdt_module_vars[] = {
-        { "num_refs",                   lprocfs_rd_numrefs,              0, 0 },
+	{ "num_refs",			lprocfs_rd_numrefs, NULL,
+					NULL, NULL, 0 },
         { 0 }
 };
 
@@ -1053,12 +1033,12 @@ void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars)
 }
 
 struct lprocfs_vars lprocfs_mds_obd_vars[] = {
-	{ "uuid",	 lprocfs_rd_uuid,	0, 0 },
+	{ "uuid",	lprocfs_rd_uuid, NULL, NULL, NULL, 0 },
 	{ 0 }
 };
 
 struct lprocfs_vars lprocfs_mds_module_vars[] = {
-	{ "num_refs",     lprocfs_rd_numrefs,     0, 0 },
+	{ "num_refs",	lprocfs_rd_numrefs, NULL, NULL, NULL, 0 },
 	{ 0 }
 };
 
