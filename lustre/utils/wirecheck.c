@@ -1949,8 +1949,7 @@ static void check_layout_intent(void)
 	CHECK_VALUE(LAYOUT_INTENT_RESTORE);
 }
 
-static void
-check_hsm_state_set(void)
+static void check_hsm_state_set(void)
 {
 	BLANK_LINE();
 	CHECK_STRUCT(hsm_state_set);
@@ -1960,8 +1959,7 @@ check_hsm_state_set(void)
 	CHECK_MEMBER(hsm_state_set, hss_clearmask);
 }
 
-static void
-check_hsm_current_action(void)
+static void check_hsm_current_action(void)
 {
 	BLANK_LINE();
 	CHECK_STRUCT(hsm_current_action);
@@ -1970,8 +1968,7 @@ check_hsm_current_action(void)
 	CHECK_MEMBER(hsm_current_action, hca_location);
 }
 
-static void
-check_hsm_request(void)
+static void check_hsm_request(void)
 {
 	BLANK_LINE();
 	CHECK_STRUCT(hsm_request);
@@ -1984,13 +1981,25 @@ check_hsm_request(void)
 	CHECK_VALUE_X(HSM_GHOST_COPY);
 }
 
-static void
-check_hsm_user_request(void)
+static void check_hsm_user_request(void)
 {
 	BLANK_LINE();
 	CHECK_STRUCT(hsm_user_request);
 	CHECK_MEMBER(hsm_user_request, hur_request);
 	CHECK_MEMBER(hsm_user_request, hur_user_item);
+}
+
+static void check_hsm_user_import(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(hsm_user_import);
+	CHECK_MEMBER(hsm_user_import, hui_uid);
+	CHECK_MEMBER(hsm_user_import, hui_gid);
+	CHECK_MEMBER(hsm_user_import, hui_mode);
+	CHECK_MEMBER(hsm_user_import, hui_size);
+	CHECK_MEMBER(hsm_user_import, hui_atime);
+	CHECK_MEMBER(hsm_user_import, hui_mtime);
+	CHECK_MEMBER(hsm_user_import, hui_archive_id);
 }
 
 static void check_update_buf(void)
@@ -2410,6 +2419,7 @@ main(int argc, char **argv)
 	check_hsm_current_action();
 	check_hsm_request();
 	check_hsm_user_request();
+	check_hsm_user_import();
 
 	check_update_buf();
 	check_update_reply();

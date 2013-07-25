@@ -3929,8 +3929,7 @@ run_test 54e "console/tty device works in lustre ======================"
 test_56a() {	# was test_56
         rm -rf $DIR/$tdir
         $SETSTRIPE -d $DIR
-	test_mkdir $DIR/$tdir
-        test_mkdir $DIR/$tdir/dir
+        test_mkdir -p $DIR/$tdir/dir
         NUMFILES=3
         NUMFILESx2=$(($NUMFILES * 2))
         for i in `seq 1 $NUMFILES` ; do
@@ -4515,6 +4514,34 @@ test_56x() {
 	rm -f $file1
 }
 run_test 56x "lfs migration support"
+
+test_56y() {
+	local res=""
+
+	local dir0=$DIR/$tdir/$testnum
+	mkdir -p $dir0 || error "creating dir $dir0"
+	local f1=$dir0/file1
+	local f2=$dir0/file2
+
+	touch $f1 || error "creating std file $f1"
+	$MULTIOP $f2 H2c || error "creating released file $f2"
+
+	# a directory can be raid0, so ask only for files
+	res=$($LFIND $dir0 -L raid0 -type f | wc -l)
+	[[ $res == 2 ]] || error "search raid0: found $res files != 2"
+
+	res=$($LFIND $dir0 \! -L raid0 -type f | wc -l)
+	[[ $res == 0 ]] || error "search !raid0: found $res files != 0"
+
+	# only files can be released, so no need to force file search
+	res=$($LFIND $dir0 -L released)
+	[[ $res == $f2 ]] || error "search released: found $res != $f2"
+
+	res=$($LFIND $dir0 \! -L released)
+	[[ $res == $f1 ]] || error "search !released: found $res != $f1"
+
+}
+run_test 56y "lfs find -L raid0|released"
 
 test_57a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
@@ -9486,14 +9513,13 @@ run_test 162 "path lookup sanity"
 test_163() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
-	copytool --test $FSNAME || { skip "copytool not runnable: $?" && return; }
-	copytool $FSNAME &
+	lhsmtool_posix --commcheck --noexecute $FSNAME ||
+		{ skip "copytool not runnable: $?" && return; }
+	mkdir -p $DIR/$tdir/d1
+	cp /etc/hosts $DIR/$tdir/.
 	sleep 1
-	local uuid=$($LCTL get_param -n mdc.${FSNAME}-MDT0000-mdc-*.uuid)
-	# this proc file is temporary and linux-only
-	do_facet $SINGLEMDS lctl set_param mdt.${FSNAME}-MDT0000.mdccomm=$uuid ||\
-         error "kernel->userspace send failed"
-	kill -INT $!
+	$LFS hsm_archive $DIR/$tdir/hosts $DIR/$tdir/d1 ||
+		error "hsm_archive"
 }
 run_test 163 "kernel <-> userspace comms"
 
@@ -11268,8 +11294,7 @@ test_229() { # LU-2482, LU-3448
 
 	$GETSTRIPE -v $DIR/$tfile
 
-	local pattern=$($GETSTRIPE -v $DIR/$tfile |
-			grep lmm_stripe_pattern | awk '{print $2}')
+	local pattern=$($GETSTRIPE -L $DIR/$tfile)
 	[ X"$pattern" = X"80000001" ] || error "pattern error ($pattern)"
 
 	local stripe_count=$($GETSTRIPE -c $DIR/$tfile) || error "getstripe"
