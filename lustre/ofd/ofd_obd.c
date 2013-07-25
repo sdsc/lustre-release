@@ -1017,6 +1017,9 @@ static int ofd_destroy_by_fid(const struct lu_env *env,
 	if (!ofd_object_exists(fo))
 		GOTO(out, rc = -ENOENT);
 
+	/* mark the object being destroying */
+	set_bit(OFD_OBJECT_FLAG_DESTROY_PENDING, &fo->ofo_flags);
+
 	/* Tell the clients that the object is gone now and that they should
 	 * throw away any cached pages. */
 	ost_fid_build_resid(fid, &info->fti_resid);
@@ -1290,6 +1293,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 		obd_id		 next_id;
 		int		 created = 0;
 		int		 count;
+		int		 retries = 0;
 
 		if (!(oa->o_valid & OBD_MD_FLFLAGS) ||
 		    !(oa->o_flags & OBD_FL_DELORPHAN)) {
@@ -1343,6 +1347,15 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			if (rc > 0) {
 				created += rc;
 				diff -= rc;
+			} else if (rc == -ENOSPC && retries++ < 10) {
+				int cnt = ofd_seq_last_oid(oseq) - next_id + 1;
+				diff -= cnt;
+				created += cnt;
+
+				dt_sync(env, ofd->ofd_osd);
+
+                		schedule_timeout_and_set_state(
+						TASK_INTERRUPTIBLE, HZ);
 			} else if (rc < 0) {
 				break;
 			}

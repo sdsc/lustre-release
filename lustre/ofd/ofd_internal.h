@@ -211,8 +211,11 @@ static inline char *ofd_name(struct ofd_device *ofd)
 struct ofd_object {
 	struct lu_object_header	ofo_header;
 	struct dt_object	ofo_obj;
+	unsigned long		ofo_flags;
 	int			ofo_ff_exists;
 };
+
+#define OFD_OBJECT_FLAG_DESTROY_PENDING	0x0
 
 static inline struct ofd_object *ofd_obj(struct lu_object *o)
 {
@@ -464,7 +467,8 @@ void ofd_grant_discard(struct obd_export *exp);
 void ofd_grant_prepare_read(const struct lu_env *env, struct obd_export *exp,
 			    struct obdo *oa);
 void ofd_grant_prepare_write(const struct lu_env *env, struct obd_export *exp,
-			     struct obdo *oa, struct niobuf_remote *rnb,
+			     struct obdo *oa, struct ofd_object *fo,
+			     struct niobuf_remote *rnb,
 			     int niocount);
 void ofd_grant_commit(const struct lu_env *env, struct obd_export *exp, int rc);
 int ofd_grant_create(const struct lu_env *env, struct obd_export *exp, int *nr);

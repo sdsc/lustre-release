@@ -144,7 +144,8 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 	LASSERT(fo != NULL);
 
 	ofd_read_lock(env, fo);
-	if (!ofd_object_exists(fo)) {
+	if (!ofd_object_exists(fo) ||
+	    test_bit(OFD_OBJECT_FLAG_DESTROY_PENDING, &fo->ofo_flags)) {
 		CERROR("%s: BRW to missing obj "DOSTID"\n",
 		       exp->exp_obd->obd_name, POSTID(&obj->ioo_oid));
 		ofd_read_unlock(env, fo);
@@ -157,7 +158,13 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 
 	/* Process incoming grant info, set OBD_BRW_GRANTED flag and grant some
 	 * space back if possible */
-	ofd_grant_prepare_write(env, exp, oa, rnb, obj->ioo_bufcnt);
+	ofd_grant_prepare_write(env, exp, oa, fo, rnb, obj->ioo_bufcnt);
+
+	if (test_bit(OFD_OBJECT_FLAG_DESTROY_PENDING, &fo->ofo_flags)) {
+		ofd_read_unlock(env, fo);
+		ofd_object_put(env, fo);
+		GOTO(out, rc = -ENOENT);
+	}
 
 	/* parse remote buffers to local buffers and prepare the latter */
 	*nr_local = 0;
@@ -425,6 +432,8 @@ ofd_commitrw_write(const struct lu_env *env, struct ofd_device *ofd,
 	if (old_rc)
 		GOTO(out, rc = old_rc);
 
+	if (test_bit(OFD_OBJECT_FLAG_DESTROY_PENDING, &fo->ofo_flags))
+		GOTO(out, rc = -ENOENT);
 	/*
 	 * The first write to each object must set some attributes.  It is
 	 * important to set the uid/gid before calling
@@ -482,9 +491,12 @@ out_stop:
 		th->th_sync = 1;
 
 	ofd_trans_stop(env, ofd, th, rc);
-	if (rc == -ENOSPC && retries++ < 3) {
-		CDEBUG(D_INODE, "retry after force commit, retries:%d\n",
-		       retries);
+	if (!test_bit(OFD_OBJECT_FLAG_DESTROY_PENDING, &fo->ofo_flags) &&
+	    rc == -ENOSPC && retries++ < 10) {
+		schedule_timeout_and_set_state(TASK_INTERRUPTIBLE, HZ);
+
+		CDEBUG(D_INODE, DFID": retry after force commit, retries:%d\n",
+		       PFID(&fo->ofo_header.loh_fid), retries);
 		goto retry;
 	}
 
