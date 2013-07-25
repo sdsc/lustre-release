@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+1: Jinshan Xiong <jinshan.xiong@intel.com>
+Code-Review+2: Andreas Dilger <andreas.dilger@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: John L. Hammond <john.hammond@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Thu, 25 Jul 2013 03:13:02 +0000
+Reviewed-on: http://review.whamcloud.com/6532
+Project: fs/lustre-release
+Branch: refs/heads/master
