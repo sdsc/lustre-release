@@ -131,6 +131,7 @@ struct shrinker *set_shrinker(int seek, shrinker_t func)
         s = kmalloc(sizeof(*s), GFP_KERNEL);
         if (s == NULL)
                 return (NULL);
+	memset(s, 0, sizeof(*s));
 
         s->shrink = func;
         s->seeks = seek;
