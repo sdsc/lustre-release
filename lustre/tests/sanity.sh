@@ -6576,11 +6576,13 @@ test_116a() { # was previously test_116()
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2 OSTs" && return
 
 	echo -n "Free space priority "
-	lctl get_param -n lov.*-clilov-*.qos_prio_free
+	do_facet $SINGLEMDS lctl get_param -n lov.*-mdtlov.qos_prio_free
 	declare -a AVAIL
 	free_min_max
-	[ $MINV -gt 960000 ] && skip "too much free space in OST$MINI, skip" &&\
+	[ $MINV -gt 960000 ] && skip "too much free space in OST$MINI, skip" &&
 		return
+	[ $MINV -eq 0 ] && skip "no free space in OST$MINI, skip" && return
+	trap simple_cleanup_common EXIT
 
 	# generate uneven OSTs
 	test_mkdir -p $DIR/$tdir/OST${MINI}
@@ -6604,11 +6606,12 @@ test_116a() { # was previously test_116()
 	DIFF2=$(($DIFF * 100 / $MINV))
 	echo -n "diff=${DIFF}=${DIFF2}% must be > 20% for QOS mode..."
 	if [ $DIFF2 -gt 20 ]; then
-	    echo "ok"
+		echo "ok"
 	else
-	    echo "failed - QOS mode won't be used"
-	    error_ignore "QOS imbalance criteria not met"
-	    return
+		echo "failed - QOS mode won't be used"
+		error_ignore "QOS imbalance criteria not met"
+		simple_cleanup_common
+		return
 	fi
 
 	MINI1=$MINI; MINV1=$MINV
@@ -6653,7 +6656,7 @@ test_116a() { # was previously test_116()
 	[ $MINC -gt 0 ] && echo "Wrote $(($MAXC * 100 / $MINC - 100))% more files to larger OST $MAXI1"
 	[ $MAXC -gt $MINC ] || error_ignore "stripe QOS didn't balance free space"
 
-	rm -rf $DIR/$tdir
+	simple_cleanup_common
 }
 run_test 116a "stripe QOS: free space balance ==================="
 
