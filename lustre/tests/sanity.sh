@@ -11433,6 +11433,24 @@ test_233() {
 }
 run_test 233 "checking that OBF of the FS root succeeds"
 
+test_234() {
+	GOT_VER=` uname -r | awk -F. '{ printf("%d",$3); }'`
+	WANT_VER=39
+	if [ "$GOT_VER" -ge "$WANT_VER" ]; then
+		echo "this is test string" > $MOUNT/temp_file
+		cat $MOUNT/temp_file
+		res= check_fhandle_syscalls $MOUNT/temp_file $MOUNT ||
+			error "Error in fhandle syscall"
+	else
+		echo "test needs at least kernel version 2.6.$WANT_VER,"
+		     " running 2.6.$GOT_VER"
+	fi
+	return 0
+}
+run_test 234 "Verify fhandle syscalls"
+
+
+
 #
 # tests that do cleanup/setup should be run at the end
 #
