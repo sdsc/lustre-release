@@ -886,6 +886,7 @@ struct obd_device {
         cfs_list_t              obd_unlinked_exports;
         cfs_list_t              obd_delayed_exports;
         int                     obd_num_exports;
+        int                     obd_num_unlinked;
 	spinlock_t		obd_nid_lock;
 	struct ldlm_namespace  *obd_namespace;
 	struct ptlrpc_client	obd_ldlm_client; /* XXX OST/MDS only */
