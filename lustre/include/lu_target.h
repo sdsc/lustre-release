@@ -96,6 +96,7 @@ struct tgt_session_info {
 	struct lu_target	*tsi_tgt;
 
 	const struct mdt_body	*tsi_mdt_body;
+	struct ost_body		*tsi_ost_body;
 	struct lu_object	*tsi_corpus;
 
 	/*
@@ -194,6 +195,7 @@ char *tgt_name(struct lu_target *tgt);
 void tgt_counter_incr(struct obd_export *exp, int opcode);
 int tgt_connect_check_sptlrpc(struct ptlrpc_request *req,
 			      struct obd_export *exp);
+int tgt_adapt_sptlrpc_conf(struct lu_target *tgt, int initial);
 int tgt_connect(struct tgt_session_info *tsi);
 int tgt_disconnect(struct tgt_session_info *uti);
 int tgt_obd_ping(struct tgt_session_info *tsi);
@@ -211,6 +213,7 @@ int tgt_sec_ctx_init(struct tgt_session_info *tsi);
 int tgt_sec_ctx_init_cont(struct tgt_session_info *tsi);
 int tgt_sec_ctx_fini(struct tgt_session_info *tsi);
 int tgt_sendpage(struct tgt_session_info *tsi, struct lu_rdpg *rdpg, int nob);
+int tgt_validate_obdo(struct tgt_session_info *tsi, struct obdo *oa);
 
 extern struct tgt_handler tgt_sec_ctx_handlers[];
 extern struct tgt_handler tgt_obd_handlers[];
@@ -301,6 +304,11 @@ static inline int is_serious(int rc)
 #define TGT_MDT_HDL_VAR(flags, name, fn)				\
 	TGT_RPC_HANDLER(MDS_FIRST_OPC, flags, name, fn, NULL,		\
 			LUSTRE_MDS_VERSION)
+
+/* MDT Request with a format known in advance */
+#define TGT_OST_HDL(flags, name, fn)					\
+	TGT_RPC_HANDLER(OST_FIRST_OPC, flags, name, fn, &RQF_ ## name,	\
+			LUSTRE_OST_VERSION)
 
 /* MGS request with a format known in advance */
 #define TGT_MGS_HDL(flags, name, fn)					\
