@@ -795,6 +795,9 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	lfsck_stop(env, m->ofd_osd, true);
 	lfsck_degister(env, m->ofd_osd);
 	target_recovery_fini(obd);
+	if (m->ofd_namespace != NULL)
+		ldlm_namespace_free_prior(obd->obd_namespace, NULL,
+					  obd->obd_force);
 	obd_exports_barrier(obd);
 	obd_zombie_barrier();
 
@@ -805,8 +808,7 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	cleanup_capa_hash(obd->u.filter.fo_capa_hash);
 
 	if (m->ofd_namespace != NULL) {
-		ldlm_namespace_free(m->ofd_namespace, NULL,
-				    d->ld_obd->obd_force);
+		ldlm_namespace_free_post(obd->obd_namespace);
 		d->ld_obd->obd_namespace = m->ofd_namespace = NULL;
 	}
 
