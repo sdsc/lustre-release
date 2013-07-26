@@ -73,16 +73,13 @@ static int tgt_mdt_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 
 	tsi->tsi_mdt_body = body;
 
+	if (!(body->valid & OBD_MD_FLID))
+		RETURN(0);
+
 	/* mdc_pack_body() doesn't check if fid is zero and set OBD_ML_FID
 	 * in any case in pre-2.5 clients. Fix that here if needed */
-	if (body->valid & OBD_MD_FLID) {
-		LASSERT(!fid_is_zero(&body->fid1));
-		if (unlikely(fid_is_zero(&body->fid1))) {
-			RETURN(0);
-		}
-	} else {
+	if (unlikely(fid_is_zero(&body->fid1)))
 		RETURN(0);
-	}
 
 	if (!fid_is_sane(&body->fid1)) {
 		CERROR("%s: invalid FID: "DFID"\n", tgt_name(tsi->tsi_tgt),
@@ -112,6 +109,124 @@ static int tgt_mdt_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 	RETURN(rc);
 }
 
+/**
+ * Validate oa from client.
+ * If the request comes from 2.0 clients, currently only RSVD seq and IDIF
+ * req are valid.
+ *    a. objects in Single MDT FS  seq = FID_SEQ_OST_MDT0, oi_id != 0
+ *    b. Echo objects(seq = 2), old echo client still use oi_id/oi_seq to
+ *       pack ost_id. Because non-zero oi_seq will make it diffcult to tell
+ *       whether this is oi_fid or real ostid. So it will check
+ *       OBD_CONNECT_FID, then convert the ostid to FID for old client.
+ *    c. Old FID-disable osc will send IDIF.
+ *    d. new FID-enable osc/osp will send normal FID.
+ *
+ * And also oi_id/f_oid should always start from 1. oi_id/f_oid = 0 will
+ * be used for LAST_ID file, and only being accessed inside OST now.
+ */
+int tgt_validate_obdo(struct tgt_session_info *tsi, struct obdo *oa)
+{
+	int rc;
+
+	ENTRY;
+
+	if (unlikely(!(exp_connect_flags(tsi->tsi_exp) & OBD_CONNECT_FID) &&
+		     fid_seq_is_echo(oa->o_oi.oi.oi_seq))) {
+		/* Sigh 2.[123] client still sends echo req with oi_id = 0
+		 * during create, and we will reset this to 1, since this
+		 * oi_id is basically useless in the following create process,
+		 * but oi_id == 0 will make it difficult to tell whether it is
+		 * real FID or ost_id. */
+		oa->o_oi.oi_fid.f_oid = oa->o_oi.oi.oi_id ?: 1;
+		oa->o_oi.oi_fid.f_seq = FID_SEQ_ECHO;
+		oa->o_oi.oi_fid.f_ver = 0;
+	} else {
+		if (unlikely((oa->o_valid & OBD_MD_FLID &&
+			      ostid_id(&oa->o_oi) == 0)))
+			GOTO(out, rc = -EPROTO);
+
+		/* Note: this check might be forced in 2.5 or 2.6, i.e.
+		 * all of the requests are required to setup FLGROUP */
+		if (unlikely(!(oa->o_valid & OBD_MD_FLGROUP))) {
+			ostid_set_seq_mdt0(&oa->o_oi);
+			oa->o_valid |= OBD_MD_FLGROUP;
+		}
+
+		if (unlikely(!(fid_seq_is_idif(ostid_seq(&oa->o_oi)) ||
+			       fid_seq_is_mdt0(ostid_seq(&oa->o_oi)) ||
+			       fid_seq_is_norm(ostid_seq(&oa->o_oi)) ||
+			       fid_seq_is_echo(ostid_seq(&oa->o_oi)))))
+			GOTO(out, rc = -EPROTO);
+	}
+	RETURN(0);
+out:
+	CERROR("%s: client %s sent bad object "DOSTID": rc = %d\n",
+	       tgt_name(tsi->tsi_tgt), obd_export_nid2str(tsi->tsi_exp),
+	       ostid_seq(&oa->o_oi), ostid_id(&oa->o_oi), rc);
+	return rc;
+}
+EXPORT_SYMBOL(tgt_validate_obdo);
+
+static int tgt_ost_body_unpack(struct tgt_session_info *tsi, __u32 flags)
+{
+	struct ost_body		*body;
+	struct lu_object	*obj;
+	struct req_capsule	*pill = tsi->tsi_pill;
+	struct lustre_capa	*capa;
+	struct lu_fid		 fid;
+	int			 rc;
+
+	ENTRY;
+
+	body = req_capsule_client_get(pill, &RMF_OST_BODY);
+	if (body == NULL)
+		RETURN(-EFAULT);
+
+	rc = tgt_validate_obdo(tsi, &body->oa);
+	if (rc)
+		RETURN(rc);
+
+	if (body->oa.o_valid & OBD_MD_FLOSSCAPA) {
+		capa = req_capsule_client_get(tsi->tsi_pill, &RMF_CAPA1);
+		if (capa == NULL) {
+			CERROR("%s: OSSCAPA flag is set without capability\n",
+			       tgt_name(tsi->tsi_tgt));
+			RETURN(-EFAULT);
+		}
+	}
+
+	tsi->tsi_ost_body = body;
+
+	if (!(body->oa.o_valid & OBD_MD_FLID))
+		RETURN(0);
+
+	rc = ostid_to_fid(&fid, &body->oa.o_oi, 0);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (!fid_is_sane(&fid)) {
+		CERROR("%s: invalid FID: "DFID"\n", tgt_name(tsi->tsi_tgt),
+		       PFID(&fid));
+		RETURN(-EINVAL);
+	}
+
+	obj = lu_object_find(tsi->tsi_env,
+			     &tsi->tsi_tgt->lut_bottom->dd_lu_dev,
+			     &fid, NULL);
+	if (!IS_ERR(obj)) {
+		if ((flags & HABEO_CORPUS) && !lu_object_exists(obj)) {
+			lu_object_put(tsi->tsi_env, obj);
+			rc = -ENOENT;
+		} else {
+			tsi->tsi_corpus = obj;
+			rc = 0;
+		}
+	} else {
+		rc = PTR_ERR(obj);
+	}
+	RETURN(rc);
+}
+
 static int tgt_unpack_req_pack_rep(struct tgt_session_info *tsi, __u32 flags)
 {
 	struct req_capsule	*pill = tsi->tsi_pill;
@@ -121,6 +236,8 @@ static int tgt_unpack_req_pack_rep(struct tgt_session_info *tsi, __u32 flags)
 
 	if (req_capsule_has_field(pill, &RMF_MDT_BODY, RCL_CLIENT)) {
 		rc = tgt_mdt_body_unpack(tsi, flags);
+	} else if (req_capsule_has_field(pill, &RMF_OST_BODY, RCL_CLIENT)) {
+		rc = tgt_ost_body_unpack(tsi, flags);
 	} else {
 		rc = 0;
 	}
@@ -374,6 +491,10 @@ int tgt_request_handle(struct ptlrpc_request *req)
 			rc = ptlrpc_error(req);
 			GOTO(out, rc);
 		}
+		/* recovery-small test 18c asks to drop connect reply */
+		if (unlikely(opc == OST_CONNECT &&
+			     OBD_FAIL_CHECK(OBD_FAIL_OST_CONNECT_NET2)))
+			GOTO(out, rc = 0);
 	}
 
 	if (unlikely(!class_connected_export(req->rq_export))) {
@@ -636,6 +757,30 @@ int tgt_connect_check_sptlrpc(struct ptlrpc_request *req, struct obd_export *exp
 
 	return rc;
 }
+
+int tgt_adapt_sptlrpc_conf(struct lu_target *tgt, int initial)
+{
+	struct sptlrpc_rule_set	 tmp_rset;
+	int			 rc;
+
+	sptlrpc_rule_set_init(&tmp_rset);
+	rc = sptlrpc_conf_target_get_rules(tgt->lut_obd, &tmp_rset, initial);
+	if (rc) {
+		CERROR("%s: failed get sptlrpc rules: rc = %d\n",
+		       tgt_name(tgt), rc);
+		return rc;
+	}
+
+	sptlrpc_target_update_exp_flavor(tgt->lut_obd, &tmp_rset);
+
+	write_lock(&tgt->lut_sptlrpc_lock);
+	sptlrpc_rule_set_free(&tgt->lut_sptlrpc_rset);
+	tgt->lut_sptlrpc_rset = tmp_rset;
+	write_unlock(&tgt->lut_sptlrpc_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL(tgt_adapt_sptlrpc_conf);
 
 int tgt_connect(struct tgt_session_info *tsi)
 {

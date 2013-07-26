@@ -712,6 +712,10 @@ int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 	ted = &req->rq_export->exp_target_data;
 
 	lw_client = exp_connect_flags(req->rq_export) & OBD_CONNECT_LIGHTWEIGHT;
+	if (ted->ted_lr_idx < 0 && !lw_client)
+		/* ofd connect may cause transaction before export has
+		 * last_rcvd slot */
+		RETURN(0);
 
 	tti->tti_transno = lustre_msg_get_transno(req->rq_reqmsg);
 	spin_lock(&tgt->lut_translock);
@@ -757,7 +761,7 @@ int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 		 * last_rcvd, we still want to maintain the in-memory
 		 * lsd_client_data structure in order to properly handle reply
 		 * reconstruction. */
-	} else if (ted->ted_lr_off <= 0) {
+	} else if (ted->ted_lr_off == 0) {
 		CERROR("%s: client idx %d has offset %lld\n",
 		       tgt_name(tgt), ted->ted_lr_idx, ted->ted_lr_off);
 		RETURN(-EINVAL);
