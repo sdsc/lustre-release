@@ -78,6 +78,7 @@ typedef struct poll_table_struct                cfs_poll_table_t;
 /* in lprocfs_stat.c, to protect the private data for proc entries */
 extern struct rw_semaphore		_lprocfs_lock;
 
+#ifndef HAVE_NEW_PROCFS
 static inline
 int LPROCFS_ENTRY_CHECK(struct proc_dir_entry *dp)
 {
@@ -110,6 +111,17 @@ do {					\
 do {					\
 	up_write(&_lprocfs_lock);	\
 } while(0)
+
+#else /* New proc api */
+static inline
+int LPROCFS_ENTRY_CHECK(cfs_param_dentry_t *dp)
+{
+	return 0;
+}
+#define LPROCFS_WRITE_ENTRY()       do {} while(0)
+#define LPROCFS_WRITE_EXIT()        do {} while(0)
+#endif
+
 #else /* !LPROCFS */
 
 typedef struct cfs_params_file {

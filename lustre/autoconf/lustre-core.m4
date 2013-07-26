@@ -1498,6 +1498,24 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 3.10 changed procfs handling
+#
+AC_DEFUN([LC_HAVE_NEW_PROCFS],
+[AC_MSG_CHECKING([if procfs is using newer api])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/proc_fs.h>
+],[
+	struct inode *inode = NULL;
+	PDE_DATA(inode);
+],[
+	AC_DEFINE(HAVE_NEW_PROCFS, 1, [detected newer procfs api])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -1626,6 +1644,9 @@ AC_DEFUN([LC_PROG_LINUX],
 
 	 # 3.9
 	 LC_HAVE_HLIST_FOR_EACH_3ARG
+
+	 # 3.10
+	 LC_HAVE_NEW_PROCFS
 
 	 #
 	 if test x$enable_server = xyes ; then
