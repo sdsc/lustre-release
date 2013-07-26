@@ -6220,7 +6220,7 @@ large_xattr_enabled() {
 
 	local mds_dev=$(mdsdevname ${SINGLEMDS//mds/})
 
-	do_facet $SINGLEMDS "$DUMPE2FS -h $mds_dev 2>&1 | grep -q large_xattr"
+	do_facet $SINGLEMDS "$DUMPE2FS -h $mds_dev 2>&1 | grep -q ea_inode"
 	return ${PIPESTATUS[0]}
 }
 
