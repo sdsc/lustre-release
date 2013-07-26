@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+1: Fan Yong <fan.yong@intel.com>
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Bob Glossman <bob.glossman@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Fri, 26 Jul 2013 17:49:16 +0000
+Reviewed-on: http://review.whamcloud.com/6994
+Project: fs/lustre-release
+Branch: refs/heads/master
