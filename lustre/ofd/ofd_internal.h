@@ -180,8 +180,6 @@ struct ofd_device {
 	unsigned long		 ofd_raid_degraded:1,
 				 /* sync journal on writes */
 				 ofd_syncjournal:1,
-				 /* sync on lock cancel */
-				 ofd_sync_lock_cancel:2,
 				 /* shall we grant space to clients not
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
 				 ofd_grant_compat_disable:1;
@@ -338,6 +336,12 @@ extern struct obd_ops ofd_obd_ops;
 int ofd_statfs_internal(const struct lu_env *env, struct ofd_device *ofd,
 			struct obd_statfs *osfs, __u64 max_age,
 			int *from_cache);
+int ofd_orphans_destroy(const struct lu_env *env, struct obd_export *exp,
+			struct ofd_device *ofd, struct obdo *oa);
+int ofd_destroy_by_fid(const struct lu_env *env, struct ofd_device *ofd,
+		       const struct lu_fid *fid, int orphan);
+int ofd_statfs(const struct lu_env *env,  struct obd_export *exp,
+	       struct obd_statfs *osfs, __u64 max_age, __u32 flags);
 
 /* ofd_fs.c */
 obd_id ofd_seq_last_oid(struct ofd_seq *oseq);
@@ -499,24 +503,22 @@ int ofd_intent_policy(struct ldlm_namespace *ns, struct ldlm_lock **lockp,
 		      void *req_cookie, ldlm_mode_t mode, __u64 flags,
 		      void *data);
 
-static inline struct ofd_thread_info * ofd_info(const struct lu_env *env)
+static inline struct ofd_thread_info *ofd_info(const struct lu_env *env)
 {
 	struct ofd_thread_info *info;
 
+	lu_env_refill((void *)env);
 	info = lu_context_key_get(&env->le_ctx, &ofd_thread_key);
 	LASSERT(info);
-	LASSERT(info->fti_env);
-	LASSERT(info->fti_env == env);
 	return info;
 }
 
-static inline struct ofd_thread_info * ofd_info_init(const struct lu_env *env,
-						     struct obd_export *exp)
+static inline struct ofd_thread_info *ofd_info_init(const struct lu_env *env,
+						    struct obd_export *exp)
 {
 	struct ofd_thread_info *info;
 
-	info = lu_context_key_get(&env->le_ctx, &ofd_thread_key);
-	LASSERT(info);
+	info = ofd_info(env);
 	LASSERT(info->fti_exp == NULL);
 	LASSERT(info->fti_env == NULL);
 	LASSERT(info->fti_attr.la_valid == 0);
@@ -526,6 +528,32 @@ static inline struct ofd_thread_info * ofd_info_init(const struct lu_env *env,
 	info->fti_pre_version = 0;
 	info->fti_transno = 0;
 	info->fti_has_trans = 0;
+	return info;
+}
+
+static inline struct ofd_thread_info *tsi2ofd_info(struct tgt_session_info *tsi)
+{
+	struct ptlrpc_request	*req = tgt_ses_req(tsi);
+	struct ofd_thread_info	*info;
+
+	info = ofd_info(tsi->tsi_env);
+	LASSERT(info->fti_exp == NULL);
+	LASSERT(info->fti_env == NULL);
+	LASSERT(info->fti_attr.la_valid == 0);
+
+	info->fti_env = tsi->tsi_env;
+	info->fti_exp = tsi->tsi_exp;
+	info->fti_has_trans = 0;
+
+	info->fti_xid = req->rq_xid;
+	/** VBR: take versions from request */
+	if (req->rq_reqmsg != NULL &&
+	    lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY) {
+		__u64 *pre_version = lustre_msg_get_versions(req->rq_reqmsg);
+
+		info->fti_pre_version = pre_version ? pre_version[0] : 0;
+		info->fti_transno = lustre_msg_get_transno(req->rq_reqmsg);
+	}
 	return info;
 }
 
@@ -555,15 +583,14 @@ static inline void ofd_info2oti(struct ofd_thread_info *info,
 static inline void ofd_slc_set(struct ofd_device *ofd)
 {
 	if (ofd->ofd_syncjournal == 1)
-		ofd->ofd_sync_lock_cancel = NEVER_SYNC_ON_CANCEL;
-	else if (ofd->ofd_sync_lock_cancel == NEVER_SYNC_ON_CANCEL)
-		ofd->ofd_sync_lock_cancel = ALWAYS_SYNC_ON_CANCEL;
+		ofd->ofd_lut.lut_sync_lock_cancel = NEVER_SYNC_ON_CANCEL;
+	else if (ofd->ofd_lut.lut_sync_lock_cancel == NEVER_SYNC_ON_CANCEL)
+		ofd->ofd_lut.lut_sync_lock_cancel = ALWAYS_SYNC_ON_CANCEL;
 }
 
-static inline void ofd_prepare_fidea(struct filter_fid *ff, struct obdo *oa)
+static inline void ofd_prepare_fidea(struct filter_fid *ff,
+				     const struct obdo *oa)
 {
-	if (!(oa->o_valid & OBD_MD_FLGROUP))
-		ostid_set_seq_mdt0(&oa->o_oi);
 	/* packing fid and converting it to LE for storing into EA.
 	 * Here ->o_stripe_idx should be filled by LOV and rest of
 	 * fields - by client. */
