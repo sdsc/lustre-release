@@ -699,6 +699,16 @@ granted:
 
 	lock_res_and_lock(lock);
 
+
+	/* Protect against race where lock could have been just destroyed
+	 * due to overlap in ldlm_process_flock_lock().
+	 */
+	if (lock->l_flags & LDLM_FL_DESTROYED) {
+		unlock_res_and_lock(lock);
+		LDLM_DEBUG(lock, "client-side enqueue waking up: destroyed");
+		RETURN(0);
+	}
+
 	/* take lock off the deadlock detection hash list. */
         ldlm_flock_blocking_unlink(lock);
 
