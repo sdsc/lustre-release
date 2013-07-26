@@ -395,11 +395,11 @@ int lprocfs_ofd_rd_sync_lock_cancel(char *page, char **start, off_t off,
 				    int count, int *eof, void *data)
 {
 	struct obd_device	*obd = data;
-	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+	struct lu_target	*tgt = obd->u.obt.obt_lut;
 	int			 rc;
 
 	rc = snprintf(page, count, "%s\n",
-		      sync_on_cancel_states[ofd->ofd_sync_lock_cancel]);
+		      sync_on_cancel_states[tgt->lut_sync_lock_cancel]);
 	return rc;
 }
 
@@ -407,7 +407,7 @@ int lprocfs_ofd_wr_sync_lock_cancel(struct file *file, const char *buffer,
 				    unsigned long count, void *data)
 {
 	struct obd_device	*obd = data;
-	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+	struct lu_target	*tgt = obd->u.obt.obt_lut;
 	int			 val = -1;
 	int			 i;
 
@@ -429,9 +429,9 @@ int lprocfs_ofd_wr_sync_lock_cancel(struct file *file, const char *buffer,
 	if (val < 0 || val > 2)
 		return -EINVAL;
 
-	spin_lock(&ofd->ofd_flags_lock);
-	ofd->ofd_sync_lock_cancel = val;
-	spin_unlock(&ofd->ofd_flags_lock);
+	spin_lock(&tgt->lut_flags_lock);
+	tgt->lut_sync_lock_cancel = val;
+	spin_unlock(&tgt->lut_flags_lock);
 	return count;
 }
 

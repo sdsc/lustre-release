@@ -195,4 +195,21 @@ int out_handle(struct tgt_session_info *tsi);
 #define out_tx_destroy(info, obj, th, reply, idx) \
 	__out_tx_destroy(info, obj, th, reply, idx, __FILE__, __LINE__)
 
+extern struct page *tgt_page_to_corrupt;
+
+struct tgt_thread_local_cache {
+	struct niobuf_local	local[PTLRPC_MAX_BRW_PAGES];
+};
+
+/**
+ * Do not return server-side uid/gid to remote client
+ */
+static inline void tgt_drop_id(struct obd_export *exp, struct obdo *oa)
+{
+	if (unlikely(exp_connect_rmtclient(exp))) {
+		oa->o_uid = -1;
+		oa->o_gid = -1;
+		oa->o_valid &= ~(OBD_MD_FLUID | OBD_MD_FLGID);
+	}
+}
 #endif /* _TG_INTERNAL_H */
