@@ -663,6 +663,28 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+static int validate_lod_and_idx(struct lod_device *md, int idx)
+{
+	if (unlikely(!cfs_bitmap_check(md->lod_ost_bitmap, idx))) {
+		CERROR("%s: bad idx: %d\n", lod2obd(md)->obd_name, idx);
+		return -EINVAL;
+	}
+
+	if (unlikely(!OST_TGT(md, idx))) {
+		CERROR("%s: bad lod_tgt_desc for idx: %d\n",
+		       lod2obd(md)->obd_name, idx);
+		return -EINVAL;
+	}
+
+	if (unlikely(OST_TGT(md, idx)->ltd_ost)) {
+		CERROR("%s: invalid lod device, for idx: %d\n",
+		       lod2obd(md)->obd_name , idx);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /*
  * allocate array of objects pointers, find/create objects
  * stripenr and other fields should be initialized by this moment
@@ -697,16 +719,14 @@ int lod_initialize_objects(const struct lu_env *env, struct lod_object *lo,
 			GOTO(out, rc);
 		LASSERTF(fid_is_sane(&info->lti_fid), ""DFID" insane!\n",
 			 PFID(&info->lti_fid));
-		/*
-		 * XXX: assertion is left for testing, to make
-		 * sure we never process requests till configuration
-		 * is completed. to be changed to -EINVAL
-		 */
-
 		lod_getref(&md->lod_ost_descs);
-		LASSERT(cfs_bitmap_check(md->lod_ost_bitmap, idx));
-		LASSERT(OST_TGT(md,idx));
-		LASSERTF(OST_TGT(md,idx)->ltd_ost, "idx %d\n", idx);
+
+		rc = validate_lod_and_idx(md, idx);
+		if (unlikely(rc != 0)) {
+			lod_putref(md, &md->lod_ost_descs);
+			GOTO(out, rc);
+		}
+
 		nd = &OST_TGT(md,idx)->ltd_ost->dd_lu_dev;
 		lod_putref(md, &md->lod_ost_descs);
 
