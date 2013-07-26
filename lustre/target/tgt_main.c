@@ -69,6 +69,9 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	lut->lut_mds_capa = 1;
 	lut->lut_oss_capa = 1;
 
+	spin_lock_init(&lut->lut_flags_lock);
+	lut->lut_sync_lock_cancel = NEVER_SYNC_ON_CANCEL;
+
 	/* last_rcvd initialization is needed by replayable targets only */
 	if (!obd->obd_replayable)
 		RETURN(0);
@@ -144,9 +147,20 @@ struct lprocfs_vars lprocfs_srv_module_vars[] = {
 	{ 0 },
 };
 
+/*
+ * this page is allocated statically when module is initializing
+ * it is used to simulate data corruptions, see ost_checksum_bulk()
+ * for details. as the original pages provided by the layers below
+ * can be remain in the internal cache, we do not want to modify
+ * them.
+ */
+struct page *tgt_page_to_corrupt;
+
 int tgt_mod_init(void)
 {
 	ENTRY;
+
+	tgt_page_to_corrupt = alloc_page(GFP_IOFS);
 
 	tgt_key_init_generic(&tgt_thread_key, NULL);
 	lu_context_key_register_many(&tgt_thread_key, NULL);
@@ -159,6 +173,9 @@ int tgt_mod_init(void)
 
 void tgt_mod_exit(void)
 {
+	if (tgt_page_to_corrupt != NULL)
+		page_cache_release(tgt_page_to_corrupt);
+
 	lu_context_key_degister(&tgt_thread_key);
 	lu_context_key_degister(&tgt_session_key);
 }

@@ -1234,10 +1234,11 @@ EXPORT_SYMBOL(class_disconnect);
 /* Return non-zero for a fully connected export */
 int class_connected_export(struct obd_export *exp)
 {
+	int connected;
+
 	if (exp) {
-		int connected;
 		spin_lock(&exp->exp_lock);
-		connected = (exp->exp_conn_cnt > 0);
+		connected = (exp->exp_conn_cnt > 0) && !exp->exp_failed;
 		spin_unlock(&exp->exp_lock);
 		return connected;
 	}
