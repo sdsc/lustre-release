@@ -17,12 +17,6 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
-# remove the check when ZFS backend iteration is ready
-[ $(facet_fstype $SINGLEMDS) != "ldiskfs" ] &&
-	skip "test LFSCK only for ldiskfs" && exit 0
-[ $(facet_fstype ost1) != ldiskfs ] &&
-	skip "test LFSCK only for ldiskfs" && exit 0
-
 require_dsh_mds || exit 0
 
 MCREATE=${MCREATE:-mcreate}
@@ -32,6 +26,9 @@ SAVED_OSTSIZE=${OSTSIZE}
 # do not use too small MDSSIZE/OSTSIZE, which affect the default journal size
 MDSSIZE=100000
 OSTSIZE=100000
+
+# until we solve the problem with lookup("..") using LinkEA on ZFS
+ALWAYS_EXCEPT="10"
 
 check_and_setup_lustre
 
@@ -133,10 +130,10 @@ test_0() {
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 	do_facet $SINGLEMDS $LCTL set_param fail_val=0
-	sleep 3
-	STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
-	[ "$STATUS" == "completed" ] ||
-		error "(9) Expect 'completed', but got '$STATUS'"
+	wait_update_facet $SINGLEMDS \
+		"$LCTL get_param -n mdd.${MDT_DEV}.lfsck_namespace | \
+		 awk '/^status/ { print \\\$2 }'" "completed" 20 || \
+		error "(9) unexpected status"
 
 	local repaired=$($SHOW_NAMESPACE |
 			 awk '/^updated_phase1/ { print $2 }')
@@ -145,11 +142,10 @@ test_0() {
 
 	local scanned1=$($SHOW_NAMESPACE | awk '/^success_count/ { print $2 }')
 	$START_NAMESPACE -r || error "(11) Fail to reset LFSCK!"
-	sleep 3
-
-	STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
-	[ "$STATUS" == "completed" ] ||
-		error "(12) Expect 'completed', but got '$STATUS'"
+	wait_update_facet $SINGLEMDS \
+		"$LCTL get_param -n mdd.${MDT_DEV}.lfsck_namespace | \
+		 awk '/^status/ { print \\\$2 }'" "completed" 20 || \
+		error "(12) unexpected status"
 
 	local scanned2=$($SHOW_NAMESPACE | awk '/^success_count/ { print $2 }')
 	[ $((scanned1 + 1)) -eq $scanned2 ] ||
@@ -161,6 +157,9 @@ test_0() {
 run_test 0 "Control LFSCK manually"
 
 test_1a() {
+	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
+		skip "OI Scrub not implemented for ZFS" && return
+
 	lfsck_prep 1 1
 	echo "start $SINGLEMDS"
 	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
@@ -198,6 +197,9 @@ run_test 1a "LFSCK can find out and repair crashed FID-in-dirent"
 
 test_1b()
 {
+	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
+		skip "OI Scrub not implemented for ZFS" && return
+
 	lfsck_prep 1 1
 	echo "start $SINGLEMDS"
 	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
@@ -354,6 +356,9 @@ run_test 2c "LFSCK can find out and remove repeated linkEA entry"
 
 test_4()
 {
+	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
+		skip "OI Scrub not implemented for ZFS" && return
+
 	lfsck_prep 3 3
 	mds_backup_restore $SINGLEMDS || error "(1) Fail to backup/restore!"
 	echo "start $SINGLEMDS with disabling OI scrub"
@@ -405,6 +410,9 @@ run_test 4 "FID-in-dirent can be rebuilt after MDT file-level backup/restore"
 
 test_5()
 {
+	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
+		skip "OI Scrub not implemented for ZFS" && return
+
 	lfsck_prep 1 1 1
 	mds_backup_restore $SINGLEMDS 1 || error "(1) Fail to backup/restore!"
 	echo "start $SINGLEMDS with disabling OI scrub"
@@ -1020,7 +1028,10 @@ ost_remove_lastid() {
 	# step 1: local mount
 	mount_fstype ost${ost} || return 1
 	# step 2: remove the specified LAST_ID
+	# ldiskfs
 	${rcmd} rm -fv $(facet_mntpt ost${ost})/O/${idx}/LAST_ID
+	# zfs
+	${rcmd} rm -fv $(facet_mntpt ost${ost})/O/${idx}/d0/0
 	# step 3: umount
 	unmount_fstype ost${ost} || return 2
 }
