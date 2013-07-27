@@ -1304,6 +1304,200 @@ static struct dt_index_operations osd_index_ops = {
 	}
 };
 
+struct osd_metadnode_it {
+	struct osd_device       *mit_dev;
+	__u64			 mit_pos;
+	struct lu_fid		 mit_fid;
+	int			 mit_prefetched;
+	__u64			 mit_prefetched_dnode;
+};
+
+static struct dt_it *osd_zfs_otable_it_init(const struct lu_env *env,
+					    struct dt_object *dt, __u32 attr,
+					    struct lustre_capa *capa)
+{
+	struct osd_device	*dev   = osd_dev(dt->do_lu.lo_dev);
+	struct osd_metadnode_it *it;
+	ENTRY;
+
+	OBD_ALLOC_PTR(it);
+	if (unlikely(it == NULL))
+		RETURN(ERR_PTR(-ENOMEM));
+
+	it->mit_dev = dev;
+
+	RETURN((struct dt_it *)it);
+}
+
+static void osd_zfs_otable_it_fini(const struct lu_env *env, struct dt_it *di)
+{
+	struct osd_metadnode_it *it  = (struct osd_metadnode_it *)di;
+
+	OBD_FREE_PTR(it);
+}
+
+static int osd_zfs_otable_it_get(const struct lu_env *env,
+				 struct dt_it *di, const struct dt_key *key)
+{
+	return 0;
+}
+
+static void osd_zfs_otable_it_put(const struct lu_env *env, struct dt_it *di)
+{
+}
+
+#define OTABLE_PREFETCH		256
+
+static void osd_zfs_otable_prefetch(const struct lu_env *env,
+				    struct osd_metadnode_it *it)
+{
+	struct osd_device	*dev = it->mit_dev;
+	udmu_objset_t		*uos = &dev->od_objset;
+	int			 rc;
+
+	/* can go negative on the very first access to the iterator */
+	if (it->mit_prefetched < 0)
+		it->mit_prefetched = 0;
+
+	if (it->mit_prefetched >= (OTABLE_PREFETCH >> 1))
+		return;
+
+	if (it->mit_prefetched_dnode == 0)
+		it->mit_prefetched_dnode = it->mit_pos;
+
+	while (it->mit_prefetched < OTABLE_PREFETCH) {
+		rc = -dmu_object_next(uos->os, &it->mit_prefetched_dnode, B_FALSE, 0);
+		if (unlikely(rc != 0))
+			break;
+#if 1
+		/* XXX: we need to export dmu_prefetch() */
+		dmu_prefetch(uos->os, dnode, 0, 0);
+#endif
+		it->mit_prefetched++;
+	}
+}
+
+static int osd_zfs_otable_it_next(const struct lu_env *env, struct dt_it *di)
+{
+	struct osd_metadnode_it *it  = (struct osd_metadnode_it *)di;
+	struct lustre_mdt_attrs *lma;
+	struct osd_device	*dev = it->mit_dev;
+	udmu_objset_t		*uos = &dev->od_objset;
+	nvlist_t		*nvbuf = NULL;
+	uchar_t			*v;
+	__u64			 dnode;
+	int			 rc, s;
+	ENTRY;
+
+	memset(&it->mit_fid, 0, sizeof(it->mit_fid));
+
+	dnode = it->mit_pos;
+	do {
+		rc = -dmu_object_next(uos->os, &it->mit_pos, B_FALSE, 0);
+		if (unlikely(rc != 0))
+			GOTO(out, rc = +1);
+		it->mit_prefetched--;
+
+		/* LMA means this is a Lustre object, return it */
+		rc = __osd_xattr_load(uos, it->mit_pos, &nvbuf);
+		if (unlikely(rc != 0))
+			continue;
+
+		LASSERT(nvbuf != NULL);
+		rc = -nvlist_lookup_byte_array(nvbuf, XATTR_NAME_LMA, &v, &s);
+		if (likely(rc == 0)) {
+			/* Lustre object */
+			lma = (struct lustre_mdt_attrs *)v;
+			lustre_lma_swab(lma);
+			it->mit_fid = lma->lma_self_fid;
+			nvlist_free(nvbuf);
+			break;
+		} else {
+			/* not a Lustre object, try next one */
+			nvlist_free(nvbuf);
+			continue;
+		}
+
+	} while (1);
+
+
+	/* 0 - there is more items, +1 - the end */
+	if (likely(rc == 0))
+		osd_zfs_otable_prefetch(env, it);
+
+	CDEBUG(D_OTHER, "advance: %Lu -> %Lu "DFID": %d\n", dnode,
+	       it->mit_pos, PFID(&it->mit_fid), rc);
+
+out:
+	RETURN(rc);
+}
+
+static struct dt_key *osd_zfs_otable_it_key(const struct lu_env *env,
+					    const struct dt_it *di)
+{
+	return NULL;
+}
+
+static int osd_zfs_otable_it_key_size(const struct lu_env *env,
+				      const struct dt_it *di)
+{
+	return sizeof(__u64);
+}
+
+static int osd_zfs_otable_it_rec(const struct lu_env *env, const struct dt_it *di,
+				 struct dt_rec *rec, __u32 attr)
+{
+	struct osd_metadnode_it *it  = (struct osd_metadnode_it *)di;
+	ENTRY;
+
+	*(struct lu_fid *)rec = it->mit_fid;
+
+	RETURN(0);
+}
+
+
+static __u64 osd_zfs_otable_it_store(const struct lu_env *env,
+				     const struct dt_it *di)
+{
+	struct osd_metadnode_it *it  = (struct osd_metadnode_it *)di;
+
+	return it->mit_pos;
+}
+
+static int osd_zfs_otable_it_load(const struct lu_env *env,
+				  const struct dt_it *di, __u64 hash)
+{
+	struct osd_metadnode_it *it  = (struct osd_metadnode_it *)di;
+
+	it->mit_pos = hash;
+	it->mit_prefetched = 0;
+	it->mit_prefetched_dnode = 0;
+
+	return osd_zfs_otable_it_next(env, (struct dt_it *)di);
+}
+
+static int osd_zfs_otable_it_key_rec(const struct lu_env *env,
+				     const struct dt_it *di, void *key_rec)
+{
+	return 0;
+}
+
+const struct dt_index_operations osd_zfs_otable_ops = {
+	.dio_it = {
+		.init     = osd_zfs_otable_it_init,
+		.fini     = osd_zfs_otable_it_fini,
+		.get      = osd_zfs_otable_it_get,
+		.put	  = osd_zfs_otable_it_put,
+		.next     = osd_zfs_otable_it_next,
+		.key	  = osd_zfs_otable_it_key,
+		.key_size = osd_zfs_otable_it_key_size,
+		.rec      = osd_zfs_otable_it_rec,
+		.store    = osd_zfs_otable_it_store,
+		.load     = osd_zfs_otable_it_load,
+		.key_rec  = osd_zfs_otable_it_key_rec,
+	}
+};
+
 int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 		const struct dt_index_features *feat)
 {
@@ -1319,9 +1513,10 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 	if (feat->dif_flags & DT_IND_RANGE)
 		RETURN(-ERANGE);
 
-	if (unlikely(feat == &dt_otable_features))
-		/* do not support oi scrub yet. */
-		RETURN(-ENOTSUPP);
+	if (unlikely(feat == &dt_otable_features)) {
+		dt->do_index_ops = &osd_zfs_otable_ops;
+		RETURN(0);
+	}
 
 	LASSERT(obj->oo_db != NULL);
 	if (likely(feat == &dt_directory_features)) {
@@ -1360,4 +1555,3 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 
 	RETURN(0);
 }
-
