@@ -191,24 +191,24 @@ int ldlm_process_inodebits_lock(struct ldlm_lock *lock, __u64 *flags,
         check_res_locked(res);
 
 	/* (*flags & LDLM_FL_BLOCK_NOWAIT) is for layout lock right now. */
-        if (!first_enq || (*flags & LDLM_FL_BLOCK_NOWAIT)) {
+	if (!first_enq || (*flags & LDLM_FL_BLOCK_NOWAIT)) {
 		*err = ELDLM_LOCK_ABORTED;
 		if (*flags & LDLM_FL_BLOCK_NOWAIT)
 			*err = ELDLM_LOCK_WOULDBLOCK;
 
-                rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, NULL);
-                if (!rc)
-                        RETURN(LDLM_ITER_STOP);
-                rc = ldlm_inodebits_compat_queue(&res->lr_waiting, lock, NULL);
-                if (!rc)
-                        RETURN(LDLM_ITER_STOP);
+		if (!ldlm_inodebits_compat_queue(&res->lr_granted, lock, NULL))
+			goto block;
 
-                ldlm_resource_unlink_lock(lock);
-                ldlm_grant_lock(lock, work_list);
+		if (!ldlm_inodebits_compat_queue(&res->lr_waiting, lock, NULL))
+			goto block;
+
+		ldlm_resource_unlink_lock(lock);
+		ldlm_grant_lock(lock, work_list);
 
 		*err = ELDLM_OK;
-                RETURN(LDLM_ITER_CONTINUE);
-        }
+block:
+		RETURN(LDLM_ITER_CONTINUE);
+	}
 
  restart:
         rc = ldlm_inodebits_compat_queue(&res->lr_granted, lock, &rpc_list);
