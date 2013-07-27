@@ -13,9 +13,6 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
-[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
-	skip "lfsck performance only for ldiskfs" && exit 0
-
 require_dsh_mds || exit 0
 
 [ "$SLOW" = "no" ] &&
