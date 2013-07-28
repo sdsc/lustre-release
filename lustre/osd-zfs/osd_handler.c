@@ -528,6 +528,7 @@ static int osd_mount(const struct lu_env *env,
 	strcpy(o->od_mntdev, dev);
 	strncpy(o->od_svname, lustre_cfg_string(cfg, 4),
 		sizeof(o->od_svname) - 1);
+	osd_zfs_acct_init(env, o);
 
 	rc = -udmu_objset_open(o->od_mntdev, &o->od_objset);
 	if (rc) {
@@ -606,6 +607,8 @@ static void osd_umount(const struct lu_env *env, struct osd_device *o)
 	if (cfs_atomic_read(&o->od_zerocopy_pin))
 		CERROR("%s: lost %d pinned dbuf(s)\n", o->od_svname,
 		       cfs_atomic_read(&o->od_zerocopy_pin));
+
+	osd_zfs_acct_fini(env, o);
 
 	if (o->od_objset.os != NULL)
 		udmu_objset_close(&o->od_objset);
