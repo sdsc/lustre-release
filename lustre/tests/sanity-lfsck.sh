@@ -18,7 +18,6 @@ init_test_env $@
 init_logging
 
 [ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
-	skip "test LFSCK only for ldiskfs" && exit 0
 require_dsh_mds || exit 0
 
 MCREATE=${MCREATE:-mcreate}
@@ -119,7 +118,7 @@ test_0() {
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 	do_facet $SINGLEMDS $LCTL set_param fail_val=0
-	sleep 3
+	sleep 10
 	STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
 	[ "$STATUS" == "completed" ] ||
 		error "(9) Expect 'completed', but got '$STATUS'"
@@ -132,6 +131,10 @@ test_0() {
 run_test 0 "Control LFSCK manually"
 
 test_1a() {
+	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
+		skip "Only applicable to ldiskfs-based MDTs"
+		return
+	fi
 	lfsck_prep 1 1
 	echo "start $SINGLEMDS"
 	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
@@ -169,6 +172,10 @@ run_test 1a "LFSCK can find out and repair crashed FID-in-dirent"
 
 test_1b()
 {
+	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
+		skip "Only applicable to ldiskfs-based MDTs"
+		return
+	fi
 	lfsck_prep 1 1
 	echo "start $SINGLEMDS"
 	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
@@ -325,6 +332,10 @@ run_test 2c "LFSCK can find out and remove repeated linkEA entry"
 
 test_4()
 {
+	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
+		skip "Only applicable to ldiskfs-based MDTs"
+		return
+	fi
 	lfsck_prep 3 3
 	mds_backup_restore || error "(1) Fail to backup/restore!"
 	echo "start $SINGLEMDS with disabling OI scrub"
@@ -376,6 +387,10 @@ run_test 4 "FID-in-dirent can be rebuilt after MDT file-level backup/restore"
 
 test_5()
 {
+	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
+		skip "Only applicable to ldiskfs-based MDTs"
+		return
+	fi
 	lfsck_prep 1 1 1
 	mds_backup_restore 1 || error "(1) Fail to backup/restore!"
 	echo "start $SINGLEMDS with disabling OI scrub"
