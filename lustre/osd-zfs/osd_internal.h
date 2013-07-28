@@ -198,6 +198,22 @@ struct osd_thandle {
 				 ot_assigned:1;
 };
 
+struct id_change {
+	struct list_head list;
+	__u64		 id;
+	int		 delta;
+};
+
+struct acct_change {
+	spinlock_t		ac_lock;
+	struct list_head	ac_list;
+};
+
+struct acct_changes {
+	struct acct_change	acs_uid;
+	struct acct_change	acs_gid;
+};
+
 #define OSD_OI_NAME_SIZE        16
 
 /*
@@ -273,6 +289,10 @@ struct osd_device {
 	cfs_atomic_t		 od_zerocopy_pin;
 
 	arc_prune_t		*arc_prune_cb;
+
+	spinlock_t		 od_known_txg_lock;
+	uint64_t		 od_known_txg;
+	struct acct_changes	*od_acct_changes;
 };
 
 struct osd_object {
@@ -486,6 +506,11 @@ osd_xattr_set_internal(const struct lu_env *env, struct osd_object *obj,
 
 	return rc;
 }
+
+void osd_zfs_acct_uid(const struct lu_env *env, struct osd_device *osd,
+		     __u64 uid, int delta, struct osd_thandle *oh);
+void osd_zfs_acct_gid(const struct lu_env *env, struct osd_device *osd,
+		     __u64 gid, int delta, struct osd_thandle *oh);
 
 static inline uint64_t attrs_fs2zfs(const uint32_t flags)
 {

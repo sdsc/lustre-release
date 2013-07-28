@@ -183,6 +183,7 @@ static int osd_trans_cb_add(struct thandle *th, struct dt_txn_commit_cb *dcb)
 static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 			   struct thandle *th)
 {
+	struct osd_device	*osd = osd_dt_dev(d);
 	struct osd_thandle	*oh;
 	int			rc;
 	ENTRY;
@@ -202,7 +203,6 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 
 	rc = -dmu_tx_assign(oh->ot_tx, TXG_WAIT);
 	if (unlikely(rc != 0)) {
-		struct osd_device *osd = osd_dt_dev(d);
 		/* dmu will call commit callback with error code during abort */
 		if (!lu_device_is_md(&d->dd_lu_dev) && rc == -ENOSPC)
 			CERROR("%s: failed to start transaction due to ENOSPC. "
@@ -528,6 +528,7 @@ static int osd_mount(const struct lu_env *env,
 	strcpy(o->od_mntdev, dev);
 	strncpy(o->od_svname, lustre_cfg_string(cfg, 4),
 		sizeof(o->od_svname) - 1);
+	spin_lock_init(&o->od_known_txg_lock);
 
 	rc = -udmu_objset_open(o->od_mntdev, &o->od_objset);
 	if (rc) {

@@ -31,6 +31,13 @@
 #include <obd.h>
 #include "osd_internal.h"
 
+#include <sys/dnode.h>
+#include <sys/spa.h>
+#include <sys/zap.h>
+#include <sys/dmu_tx.h>
+#include <sys/dsl_prop.h>
+#include <sys/txg.h>
+
 /**
  * Helper function to retrieve DMU object id from fid for accounting object
  */
@@ -457,4 +464,159 @@ int osd_declare_quota(const struct lu_env *env, struct osd_device *osd,
 		rcg = 0;
 
 	RETURN(rcu ? rcu : rcg);
+}
+
+/*
+ *
+ */
+static void osd_zfs_acct_update(void *arg1, void *arg2, dmu_tx_t *tx)
+{
+	struct osd_device *osd = arg1;
+	struct acct_changes *ac = arg2;
+	struct id_change *uc, *tmp;
+	int rc;
+
+	CDEBUG(D_OTHER, "COMMIT %Lu on %s\n", tx->tx_txg, osd->od_svname);
+
+	rc = 0;
+	list_for_each_entry_safe(uc, tmp, &ac->acs_uid.ac_list, list) {
+		printk("    change for uid %Lu: %d\n", uc->id, uc->delta);
+		rc = -zap_increment_int(osd->od_objset.os, osd->od_iusr_oid,
+					uc->id, uc->delta, tx);
+		if (rc)
+			CERROR("%s: failed to update accounting ZAP for usr %d "
+			       "(%d)\n", osd->od_svname, (int)uc->id, rc);
+		list_del(&uc->list);
+		OBD_FREE_PTR(uc);
+	}
+
+	list_for_each_entry_safe(uc, tmp, &ac->acs_gid.ac_list, list) {
+		CDEBUG(D_OTHER, "change for gid %Lu: %d\n", uc->id, uc->delta);
+		rc = -zap_increment_int(osd->od_objset.os, osd->od_igrp_oid,
+					uc->id, uc->delta, tx);
+		if (rc)
+			CERROR("%s: failed to update accounting ZAP for usr %d "
+			       "(%d)\n", osd->od_svname, (int)uc->id, rc);
+		list_del(&uc->list);
+		OBD_FREE_PTR(uc);
+	}
+
+	OBD_FREE_PTR(ac);
+}
+
+int osd_zfs_acct_trans_start(const struct lu_env *env, struct osd_thandle *oh)
+{
+	struct osd_device *osd = osd_dt_dev(oh->ot_super.th_dev);
+	struct acct_changes *ac = NULL;
+	int add_work = 0;
+
+	if (oh->ot_tx->tx_txg != osd->od_known_txg) {
+
+		OBD_ALLOC_PTR(ac);
+		if (unlikely(ac == NULL))
+			return -ENOMEM;
+		spin_lock_init(&ac->acs_uid.ac_lock);
+		INIT_LIST_HEAD(&ac->acs_uid.ac_list);
+		spin_lock_init(&ac->acs_gid.ac_lock);
+		INIT_LIST_HEAD(&ac->acs_gid.ac_list);
+
+		spin_lock(&osd->od_known_txg_lock);
+		if (oh->ot_tx->tx_txg != osd->od_known_txg) {
+			osd->od_acct_changes = ac;
+			osd->od_known_txg = oh->ot_tx->tx_txg;
+			add_work = 1;
+		}
+		spin_unlock(&osd->od_known_txg_lock);
+	}
+
+	/* schedule a callback to be run in the context of txg
+	 * once the latter is closed and syncing */
+	if (add_work) {
+		spa_t *spa = dmu_objset_spa(osd->od_objset.os);
+		dsl_sync_task_do_nowait(spa_get_dsl(spa), NULL,
+					osd_zfs_acct_update, osd,
+					ac, 0, oh->ot_tx);
+	} else if (ac != NULL)
+		OBD_FREE_PTR(ac);
+
+	return 0;
+}
+
+static struct id_change *lookup_change_by_id(struct list_head *list, __u64 id)
+{
+	struct id_change *uc;
+
+	list_for_each_entry_rcu(uc, list, list) {
+		if (uc->id == id)
+			return uc;
+	}
+	return NULL;
+}
+
+static struct id_change *lookup_or_create_by_id(struct acct_change *ac, __u64 id)
+{
+	struct id_change *uc = NULL, *tmp = NULL;
+
+	uc = lookup_change_by_id(&ac->ac_list, id);
+	if (uc == NULL) {
+		OBD_ALLOC_PTR(uc);
+		LASSERT(uc);
+		uc->id = id;
+		spin_lock(&ac->ac_lock);
+		tmp = lookup_change_by_id(&ac->ac_list, id);
+		if (tmp == NULL) {
+			list_add_rcu(&uc->list, &ac->ac_list);
+		} else {
+			OBD_FREE_PTR(uc);
+			uc = tmp;
+		}
+		spin_unlock(&ac->ac_lock);
+	}
+
+	return uc;
+}
+
+int osd_zfs_acct_id(const struct lu_env *env, struct acct_change *ac,
+		    __u64 id, int delta, struct osd_thandle *oh)
+{
+	struct osd_device	*osd = osd_dt_dev(oh->ot_super.th_dev);
+	struct id_change	*uc;
+
+	/*
+	 * there should be two structures:
+	 *  - global structure caching current state
+	 *  - per-txg structure traching per-txg changes
+	 */
+
+	LASSERT(ac);
+	LASSERT(oh->ot_tx);
+	LASSERT(oh->ot_tx->tx_txg == osd->od_known_txg);
+
+	/* find structure by txg */
+	uc = lookup_or_create_by_id(ac, id);
+	/* XXX: error message here */
+	LASSERT(uc);
+
+	spin_lock(&ac->ac_lock);
+	uc->delta += delta;
+	spin_unlock(&ac->ac_lock);
+
+	return 0;
+}
+
+void osd_zfs_acct_uid(const struct lu_env *env, struct osd_device *osd,
+		     __u64 uid, int delta, struct osd_thandle *oh)
+{
+	osd_zfs_acct_trans_start(env, oh);
+	LASSERT(osd->od_acct_changes != NULL);
+	osd_zfs_acct_id(env, &osd->od_acct_changes->acs_uid, uid, delta, oh);
+
+}
+
+void osd_zfs_acct_gid(const struct lu_env *env, struct osd_device *osd,
+		     __u64 gid, int delta, struct osd_thandle *oh)
+{
+	osd_zfs_acct_trans_start(env, oh);
+	LASSERT(osd->od_acct_changes != NULL);
+	osd_zfs_acct_id(env, &osd->od_acct_changes->acs_gid, gid, delta, oh);
 }
