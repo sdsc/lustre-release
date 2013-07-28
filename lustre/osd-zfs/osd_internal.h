@@ -300,7 +300,9 @@ struct osd_object {
 	uint64_t		 oo_xattr;
 
 	/* record size for index file */
-	int			 oo_recsize;
+	unsigned char		 oo_keysize;
+	unsigned char		 oo_recsize;
+	unsigned char		 oo_recusize;	/* unit size */
 };
 
 int osd_statfs(const struct lu_env *, struct dt_device *, struct obd_statfs *);

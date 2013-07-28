@@ -1027,8 +1027,25 @@ static struct dt_index_operations osd_dir_ops = {
 
 /*
  * Primitives for index files using binary keys.
- * XXX: only 64-bit keys are supported for now.
  */
+
+static int osd_prepare_key(struct osd_object *o, char *dst,
+			   const struct dt_key *src)
+{
+	int size;
+
+	LASSERT(dst);
+	LASSERT(src);
+
+	size = o->oo_keysize;
+	size = (size >> 3) + !!(size & 3);
+	LASSERT((size << 3) <= MAXNAMELEN);
+
+	memset(dst, 0, size);
+	memcpy(dst, (const char *)src, o->oo_keysize);
+
+	return size;
+}
 
 static int osd_index_lookup(const struct lu_env *env, struct dt_object *dt,
 			struct dt_rec *rec, const struct dt_key *key,
@@ -1036,12 +1053,15 @@ static int osd_index_lookup(const struct lu_env *env, struct dt_object *dt,
 {
 	struct osd_object *obj = osd_dt_obj(dt);
 	struct osd_device *osd = osd_obj2dev(obj);
+	char		  *k = osd_oti_get(env)->oti_key;
 	int                rc;
 	ENTRY;
 
+	rc = osd_prepare_key(obj, k, key);
+
 	rc = -zap_lookup_uint64(osd->od_objset.os, obj->oo_db->db_object,
-				(const __u64 *)key, 1, 8, obj->oo_recsize,
-				(void *)rec);
+				(const __u64 *)k, rc, obj->oo_recusize,
+				obj->oo_recsize, (void *)rec);
 	RETURN(rc == 0 ? 1 : rc);
 }
 
@@ -1078,6 +1098,7 @@ static int osd_index_insert(const struct lu_env *env, struct dt_object *dt,
 	struct osd_object  *obj = osd_dt_obj(dt);
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
+	char		   *k = osd_oti_get(env)->oti_key;
 	int                 rc;
 	ENTRY;
 
@@ -1088,10 +1109,12 @@ static int osd_index_insert(const struct lu_env *env, struct dt_object *dt,
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
 
+	rc = osd_prepare_key(obj, k, key);
+
 	/* Insert (key,oid) into ZAP */
 	rc = -zap_add_uint64(osd->od_objset.os, obj->oo_db->db_object,
-			     (const __u64 *)key, 1, 8, obj->oo_recsize,
-			     (void *)rec, oh->ot_tx);
+			     (const __u64 *)k, rc, obj->oo_recusize,
+			     obj->oo_recsize, (void *)rec, oh->ot_tx);
 	RETURN(rc);
 }
 
@@ -1122,6 +1145,7 @@ static int osd_index_delete(const struct lu_env *env, struct dt_object *dt,
 	struct osd_object  *obj = osd_dt_obj(dt);
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
+	char		   *k = osd_oti_get(env)->oti_key;
 	int                 rc;
 	ENTRY;
 
@@ -1129,9 +1153,11 @@ static int osd_index_delete(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
 
+	rc = osd_prepare_key(obj, k, key);
+
 	/* Remove binary key from the ZAP */
 	rc = -zap_remove_uint64(osd->od_objset.os, obj->oo_db->db_object,
-				(const __u64 *)key, 1, oh->ot_tx);
+				(const __u64 *)k, rc, oh->ot_tx);
 	RETURN(rc);
 }
 
@@ -1146,8 +1172,11 @@ static int osd_index_it_get(const struct lu_env *env, struct dt_it *di,
 	LASSERT(it);
 	LASSERT(it->ozi_zc);
 
-	/* XXX: API is broken at the moment */
-	LASSERT(*((const __u64 *)key) == 0);
+	/*
+	 * XXX: we need a binary version of zap_cursor_move_to_key()
+	 *	to implement this API */
+	if (*((const __u64 *)key) != 0)
+		CERROR("NOT IMPLEMETED YET (move to %Lx)\n", *((__u64 *)key));
 
 	zap_cursor_fini(it->ozi_zc);
 	memset(it->ozi_zc, 0, sizeof(*it->ozi_zc));
@@ -1185,6 +1214,7 @@ static struct dt_key *osd_index_it_key(const struct lu_env *env,
 				       const struct dt_it *di)
 {
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
+	struct osd_object *obj = it->ozi_obj;
 	zap_attribute_t   *za = &osd_oti_get(env)->oti_za;
 	int                rc = 0;
 	ENTRY;
@@ -1195,7 +1225,7 @@ static struct dt_key *osd_index_it_key(const struct lu_env *env,
 		RETURN(ERR_PTR(rc));
 
 	/* the binary key is stored in the name */
-	it->ozi_key = *((__u64 *)za->za_name);
+	memcpy(&it->ozi_key, za->za_name, obj->oo_keysize);
 
 	RETURN((struct dt_key *)&it->ozi_key);
 }
@@ -1203,8 +1233,10 @@ static struct dt_key *osd_index_it_key(const struct lu_env *env,
 static int osd_index_it_key_size(const struct lu_env *env,
 				const struct dt_it *di)
 {
+	struct osd_zap_it *it = (struct osd_zap_it *)di;
+	struct osd_object *obj = it->ozi_obj;
 	/* we only support 64-bit binary keys for the time being */
-	RETURN(sizeof(__u64));
+	RETURN(obj->oo_keysize);
 }
 
 static int osd_index_it_rec(const struct lu_env *env, const struct dt_it *di,
@@ -1214,6 +1246,7 @@ static int osd_index_it_rec(const struct lu_env *env, const struct dt_it *di,
 	struct osd_zap_it *it = (struct osd_zap_it *)di;
 	struct osd_object *obj = it->ozi_obj;
 	struct osd_device *osd = osd_obj2dev(obj);
+	char		  *k = osd_oti_get(env)->oti_key;
 	int                rc;
 	ENTRY;
 
@@ -1222,8 +1255,10 @@ static int osd_index_it_rec(const struct lu_env *env, const struct dt_it *di,
 	if (rc)
 		RETURN(rc);
 
+	rc = osd_prepare_key(obj, k, (const struct dt_key *)za->za_name);
+
 	rc = -zap_lookup_uint64(osd->od_objset.os, obj->oo_db->db_object,
-				(const __u64 *)za->za_name, 1, 8,
+				(const __u64 *)k, rc, obj->oo_recusize,
 				obj->oo_recsize, (void *)rec);
 	RETURN(rc);
 }
@@ -1515,10 +1550,9 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 		if ((feat->dif_flags & ~DT_IND_UPDATE) != 0)
 			RETURN(-EINVAL);
 
-		/* Although the zap_*_uint64() primitives support large keys, we
-		 * limit ourselves to 64-bit keys for now */
-		if (feat->dif_keysize_max != sizeof(__u64) ||
-		    feat->dif_keysize_min != sizeof(__u64))
+		if (feat->dif_keysize_max > ZAP_MAXNAMELEN)
+			RETURN(-E2BIG);
+		if (feat->dif_keysize_max != feat->dif_keysize_min)
 			RETURN(-EINVAL);
 
 		/* As for the record size, it should be a multiple of 8 bytes
@@ -1526,11 +1560,18 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 		 */
 		if (feat->dif_recsize_max > ZAP_MAXVALUELEN)
 			RETURN(-E2BIG);
-		if (feat->dif_recsize_max != feat->dif_recsize_min ||
-		    (feat->dif_recsize_max & (sizeof(__u64) - 1)))
+		if (feat->dif_recsize_max != feat->dif_recsize_min)
 			RETURN(-EINVAL);
 
-		obj->oo_recsize = feat->dif_recsize_max / sizeof(__u64);
+		obj->oo_keysize = feat->dif_keysize_max;
+		obj->oo_recsize = feat->dif_recsize_max;
+		obj->oo_recusize = 1;
+
+		/* ZFS prefers to work with array of 64bits */
+		if ((obj->oo_recsize & 7) == 0) {
+			obj->oo_recsize >>= 3;
+			obj->oo_recusize = 8;
+		}
 		dt->do_index_ops = &osd_index_ops;
 	}
 
