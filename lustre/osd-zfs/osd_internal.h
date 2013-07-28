@@ -167,7 +167,10 @@ struct osd_thread_info {
 	};
 
 	char			 oti_str[64];
-	char			 oti_key[MAXNAMELEN + 1];
+	union {
+		char		 oti_key[MAXNAMELEN + 1];
+		__u64		 oti_key64[(MAXNAMELEN + 1)/sizeof(__u64)];
+	};
 	struct lustre_mdt_attrs oti_mdt_attrs;
 
 	struct lu_attr		 oti_la;
@@ -303,7 +306,9 @@ struct osd_object {
 	uint64_t		 oo_xattr;
 
 	/* record size for index file */
-	int			 oo_recsize;
+	unsigned char		 oo_keysize;
+	unsigned char		 oo_recsize;
+	unsigned char		 oo_recusize;	/* unit size */
 };
 
 int osd_statfs(const struct lu_env *, struct dt_device *, struct obd_statfs *);
