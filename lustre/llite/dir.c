@@ -1007,9 +1007,8 @@ static int ll_ioc_copy_end(struct super_block *sb, struct hsm_copy *copy)
 	 * For restore request, we need to send the file data version, this is
 	 * useful when the file was created using hsm_import.
 	 */
-	if (((copy->hc_hai.hai_action == HSMA_ARCHIVE) ||
-	     (copy->hc_hai.hai_action == HSMA_RESTORE)) &&
-	    (copy->hc_errval == 0)) {
+	if (copy->hc_hai.hai_action == HSMA_ARCHIVE ||
+	    copy->hc_errval == 0) {
 		struct inode	*inode;
 		__u64		 data_version = 0;
 
