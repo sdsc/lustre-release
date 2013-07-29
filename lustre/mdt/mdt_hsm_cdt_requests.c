@@ -153,8 +153,8 @@ out:
 /**
  * update data moved information during a request
  */
-static int mdt_cdt_update_work(struct cdt_req_progress *crp,
-			       struct hsm_extent *extent)
+static int hsm_update_work(struct cdt_req_progress *crp,
+			   const struct hsm_extent *extent)
 {
 	int			  rc, osz, nsz;
 	struct interval_node	**new_vv;
@@ -372,7 +372,7 @@ int mdt_cdt_add_request(struct coordinator *cdt, struct cdt_agent_req *new_car)
  * \retval request pointer
  */
 struct cdt_agent_req *mdt_cdt_find_request(struct coordinator *cdt,
-					   __u64 cookie,
+					   const __u64 cookie,
 					   const struct lu_fid *fid)
 {
 	struct cdt_agent_req	*car;
@@ -426,7 +426,7 @@ int mdt_cdt_remove_request(struct coordinator *cdt, __u64 cookie)
  * \retval -ve failure
  */
 struct cdt_agent_req *mdt_cdt_update_request(struct coordinator *cdt,
-					     struct hsm_progress_kernel *pgs)
+					  const struct hsm_progress_kernel *pgs)
 {
 	struct cdt_agent_req	*car;
 	int			 rc;
@@ -440,7 +440,7 @@ struct cdt_agent_req *mdt_cdt_update_request(struct coordinator *cdt,
 
 	/* update progress done by copy tool */
 	if (pgs->hpk_errval == 0 && pgs->hpk_extent.length != 0) {
-		rc = mdt_cdt_update_work(&car->car_progress, &pgs->hpk_extent);
+		rc = hsm_update_work(&car->car_progress, &pgs->hpk_extent);
 		if (rc) {
 			mdt_cdt_put_request(car);
 			RETURN(ERR_PTR(rc));

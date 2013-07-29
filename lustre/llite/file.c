@@ -119,8 +119,9 @@ out:
 }
 
 static int ll_close_inode_openhandle(struct obd_export *md_exp,
-                                     struct inode *inode,
-                                     struct obd_client_handle *och)
+				     struct inode *inode,
+				     struct obd_client_handle *och,
+				     const __u64 *data_version)
 {
         struct obd_export *exp = ll_i2mdexp(inode);
         struct md_op_data *op_data;
@@ -144,7 +145,14 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
         if (op_data == NULL)
                 GOTO(out, rc = -ENOMEM); // XXX We leak openhandle and request here.
 
-        ll_prepare_close(inode, op_data, och);
+	ll_prepare_close(inode, op_data, och);
+	if (data_version != NULL) {
+		/* Pass in data_version implies release. */
+		op_data->op_bias |= MDS_HSM_RELEASE;
+		op_data->op_data_version = *data_version;
+		op_data->op_lease_handle = och->och_lease_handle;
+		op_data->op_attr.ia_valid |= ATTR_SIZE | ATTR_BLOCKS;
+	}
         epoch_close = (op_data->op_flags & MF_EPOCH_CLOSE);
         rc = md_close(md_exp, op_data, och->och_mod, &req);
         if (rc == -EAGAIN) {
@@ -173,8 +181,6 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 		spin_unlock(&lli->lli_lock);
 	}
 
-        ll_finish_md_op_data(op_data);
-
         if (rc == 0) {
                 rc = ll_objects_destroy(req, inode);
                 if (rc)
@@ -182,6 +188,14 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
                                inode->i_ino, rc);
         }
 
+	if (rc == 0 && op_data->op_bias & MDS_HSM_RELEASE) {
+		struct mdt_body *body;
+		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+		if (!(body->valid & OBD_MD_FLRELEASED))
+			rc = -EBUSY;
+	}
+
+        ll_finish_md_op_data(op_data);
         EXIT;
 out:
 
@@ -233,7 +247,7 @@ int ll_md_real_close(struct inode *inode, int flags)
         if (och) { /* There might be a race and somebody have freed this och
                       already */
                 rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp,
-                                               inode, och);
+					       inode, och, NULL);
         }
 
         RETURN(rc);
@@ -264,7 +278,7 @@ int ll_md_close(struct obd_export *md_exp, struct inode *inode,
 	}
 
 	if (fd->fd_och != NULL) {
-		rc = ll_close_inode_openhandle(md_exp, inode, fd->fd_och);
+		rc = ll_close_inode_openhandle(md_exp, inode, fd->fd_och, NULL);
 		fd->fd_och = NULL;
 		GOTO(out, rc);
 	}
@@ -734,7 +748,7 @@ static int ll_md_blocking_lease_ast(struct ldlm_lock *lock,
  * Acquire a lease and open the file.
  */
 struct obd_client_handle *ll_lease_open(struct inode *inode, struct file *file,
-					fmode_t fmode)
+					fmode_t fmode, __u64 open_flags)
 {
 	struct lookup_intent it = { .it_op = IT_OPEN };
 	struct ll_sb_info *sbi = ll_i2sbi(inode);
@@ -803,7 +817,8 @@ struct obd_client_handle *ll_lease_open(struct inode *inode, struct file *file,
 	/* To tell the MDT this openhandle is from the same owner */
 	op_data->op_handle = old_handle;
 
-	it.it_flags = fmode | MDS_OPEN_LOCK | MDS_OPEN_BY_FID | MDS_OPEN_LEASE;
+	it.it_flags = fmode | open_flags;
+	it.it_flags |= MDS_OPEN_LOCK | MDS_OPEN_BY_FID | MDS_OPEN_LEASE;
 	rc = md_intent_lock(sbi->ll_md_exp, op_data, NULL, 0, &it, 0, &req,
 				ll_md_blocking_lease_ast,
 	/* LDLM_FL_NO_LRU: To not put the lease lock into LRU list, otherwise
@@ -849,7 +864,7 @@ struct obd_client_handle *ll_lease_open(struct inode *inode, struct file *file,
 	RETURN(och);
 
 out_close:
-	rc2 = ll_close_inode_openhandle(sbi->ll_md_exp, inode, och);
+	rc2 = ll_close_inode_openhandle(sbi->ll_md_exp, inode, och, NULL);
 	if (rc2)
 		CERROR("Close openhandle returned %d\n", rc2);
 
@@ -895,7 +910,8 @@ int ll_lease_close(struct obd_client_handle *och, struct inode *inode,
 	if (lease_broken != NULL)
 		*lease_broken = cancelled;
 
-	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, och);
+	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, och,
+				       NULL);
 	RETURN(rc);
 }
 EXPORT_SYMBOL(ll_lease_close);
@@ -1724,14 +1740,14 @@ int ll_release_openhandle(struct dentry *dentry, struct lookup_intent *it)
 	ll_och_fill(ll_i2sbi(inode)->ll_md_exp, it, och);
 
         rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp,
-                                       inode, och);
- out:
-        /* this one is in place of ll_file_open */
-        if (it_disposition(it, DISP_ENQ_OPEN_REF)) {
-                ptlrpc_req_finished(it->d.lustre.it_data);
-                it_clear_disposition(it, DISP_ENQ_OPEN_REF);
-        }
-        RETURN(rc);
+				       inode, och, NULL);
+out:
+	/* this one is in place of ll_file_open */
+	if (it_disposition(it, DISP_ENQ_OPEN_REF)) {
+		ptlrpc_req_finished(it->d.lustre.it_data);
+		it_clear_disposition(it, DISP_ENQ_OPEN_REF);
+	}
+	RETURN(rc);
 }
 
 /**
@@ -1934,6 +1950,53 @@ out:
 	RETURN(rc);
 }
 
+/*
+ * Trigger a HSM release request for the provided inode.
+ */
+int ll_hsm_release(struct inode *inode)
+{
+	struct cl_env_nest nest;
+	struct lu_env *env;
+	struct obd_client_handle *och = NULL;
+	__u64 data_version = 0;
+	int rc;
+	ENTRY;
+
+	CDEBUG(D_INODE, "%s: Releasing file "DFID".\n",
+	       ll_get_fsname(inode->i_sb, NULL, 0),
+	       PFID(&ll_i2info(inode)->lli_fid));
+
+	och = ll_lease_open(inode, NULL, FMODE_WRITE, MDS_OPEN_RELEASE);
+	if (IS_ERR(och))
+		GOTO(out, rc = PTR_ERR(och));
+
+	/* Grab latest data_version and [am]time values */
+	rc = ll_data_version(inode, &data_version, 1);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	env = cl_env_nested_get(&nest);
+	if (IS_ERR(env))
+		GOTO(out, rc = PTR_ERR(env));
+
+	ll_merge_lvb(env, inode);
+	cl_env_nested_put(&nest, env);
+
+	/* Release the file.
+	 * NB: lease lock handle is released in mdc_hsm_release_pack() because
+	 * we still need it to pack l_remote_handle to MDT. */
+	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, och,
+				       &data_version);
+	och = NULL;
+
+	EXIT;
+out:
+	if (och != NULL && !IS_ERR(och)) /* close the file */
+		ll_lease_close(och, inode, NULL);
+
+	return rc;
+}
+
 struct ll_swap_stack {
 	struct iattr		 ia1, ia2;
 	__u64			 dv1, dv2;
@@ -2091,6 +2154,86 @@ putgl:
 free:
 	if (llss != NULL)
 		OBD_FREE_PTR(llss);
+
+	RETURN(rc);
+}
+
+static int ll_hsm_state_set(struct inode *inode, struct hsm_state_set *hss)
+{
+	struct md_op_data	*op_data;
+	int			 rc;
+
+	/* Non-root users are forbidden to set or clear flags which are
+	 * NOT defined in HSM_USER_MASK. */
+	if (((hss->hss_setmask | hss->hss_clearmask) & ~HSM_USER_MASK) &&
+	    !cfs_capable(CFS_CAP_SYS_ADMIN))
+		RETURN(-EPERM);
+
+	op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
+				     LUSTRE_OPC_ANY, hss);
+	if (IS_ERR(op_data))
+		RETURN(PTR_ERR(op_data));
+
+	rc = obd_iocontrol(LL_IOC_HSM_STATE_SET, ll_i2mdexp(inode),
+			   sizeof(*op_data), op_data, NULL);
+
+	ll_finish_md_op_data(op_data);
+
+	RETURN(rc);
+}
+
+static int ll_hsm_import(struct inode *inode, struct file *file,
+			 struct hsm_user_import *hui)
+{
+	struct hsm_state_set	*hss = NULL;
+	struct iattr		*attr = NULL;
+	int			 rc;
+	ENTRY;
+
+	if (!S_ISREG(inode->i_mode))
+		RETURN(-EINVAL);
+
+	/* set HSM flags */
+	OBD_ALLOC_PTR(hss);
+	if (hss == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	hss->hss_valid = HSS_SETMASK | HSS_ARCHIVE_ID;
+	hss->hss_archive_id = hui->hui_archive_id;
+	hss->hss_setmask = HS_ARCHIVED | HS_EXISTS | HS_RELEASED;
+	rc = ll_hsm_state_set(inode, hss);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	OBD_ALLOC_PTR(attr);
+	if (attr == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	attr->ia_mode = hui->hui_mode & (S_IRWXU | S_IRWXG | S_IRWXO);
+	attr->ia_mode |= S_IFREG;
+	attr->ia_uid = hui->hui_uid;
+	attr->ia_gid = hui->hui_gid;
+	attr->ia_size = hui->hui_size;
+	attr->ia_mtime.tv_sec = hui->hui_mtime;
+	attr->ia_mtime.tv_nsec = hui->hui_mtime_ns;
+	attr->ia_atime.tv_sec = hui->hui_atime;
+	attr->ia_atime.tv_nsec = hui->hui_atime_ns;
+
+	attr->ia_valid = ATTR_SIZE | ATTR_MODE | ATTR_FORCE |
+			 ATTR_UID | ATTR_GID |
+			 ATTR_MTIME | ATTR_MTIME_SET |
+			 ATTR_ATIME | ATTR_ATIME_SET;
+
+	rc = ll_setattr_raw(file->f_dentry, attr, true);
+	if (rc == -ENODATA)
+		rc = 0;
+
+out:
+	if (hss != NULL)
+		OBD_FREE_PTR(hss);
+
+	if (attr != NULL)
+		OBD_FREE_PTR(attr);
 
 	RETURN(rc);
 }
@@ -2257,37 +2400,19 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		RETURN(rc);
 	}
 	case LL_IOC_HSM_STATE_SET: {
-		struct md_op_data	*op_data;
 		struct hsm_state_set	*hss;
 		int			 rc;
 
 		OBD_ALLOC_PTR(hss);
 		if (hss == NULL)
 			RETURN(-ENOMEM);
+
 		if (copy_from_user(hss, (char *)arg, sizeof(*hss))) {
 			OBD_FREE_PTR(hss);
 			RETURN(-EFAULT);
 		}
 
-		/* Non-root users are forbidden to set or clear flags which are
-		 * NOT defined in HSM_USER_MASK. */
-		if (((hss->hss_setmask | hss->hss_clearmask) & ~HSM_USER_MASK)
-		    && !cfs_capable(CFS_CAP_SYS_ADMIN)) {
-			OBD_FREE_PTR(hss);
-			RETURN(-EPERM);
-		}
-
-		op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
-					     LUSTRE_OPC_ANY, hss);
-		if (IS_ERR(op_data)) {
-			OBD_FREE_PTR(hss);
-			RETURN(PTR_ERR(op_data));
-		}
-
-		rc = obd_iocontrol(cmd, ll_i2mdexp(inode), sizeof(*op_data),
-				   op_data, NULL);
-
-		ll_finish_md_op_data(op_data);
+		rc = ll_hsm_state_set(inode, hss);
 
 		OBD_FREE_PTR(hss);
 		RETURN(rc);
@@ -2361,7 +2486,7 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		CDEBUG(D_INODE, "Set lease with mode %d\n", mode);
 
 		/* apply for lease */
-		och = ll_lease_open(inode, file, mode);
+		och = ll_lease_open(inode, file, mode, 0);
 		if (IS_ERR(och))
 			RETURN(PTR_ERR(och));
 
@@ -2399,7 +2524,23 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			}
 		}
 		mutex_unlock(&lli->lli_och_mutex);
+		RETURN(rc);
+	}
+	case LL_IOC_HSM_IMPORT: {
+		struct hsm_user_import *hui;
 
+		OBD_ALLOC_PTR(hui);
+		if (hui == NULL)
+			RETURN(-ENOMEM);
+
+		if (copy_from_user(hui, (void *)arg, sizeof(*hui))) {
+			OBD_FREE_PTR(hui);
+			RETURN(-EFAULT);
+		}
+
+		rc = ll_hsm_import(inode, file, hui);
+
+		OBD_FREE_PTR(hui);
 		RETURN(rc);
 	}
 	default: {

@@ -255,9 +255,9 @@ struct ost_id {
 #define LL_IOC_LMV_SETSTRIPE		_IOWR('f', 240, struct lmv_user_md)
 #define LL_IOC_LMV_GETSTRIPE		_IOWR('f', 241, struct lmv_user_md)
 #define LL_IOC_REMOVE_ENTRY		_IOWR('f', 242, __u64)
-
 #define LL_IOC_SET_LEASE		_IOWR('f', 243, long)
 #define LL_IOC_GET_LEASE		_IO('f', 244)
+#define LL_IOC_HSM_IMPORT		_IOWR('f', 245, struct hsm_user_import)
 
 #define LL_STATFS_LMV		1
 #define LL_STATFS_LOV		2
@@ -321,6 +321,9 @@ struct ost_id {
 #define LOV_MAX_STRIPE_COUNT 2000  /* ((12 * 4096 - 256) / 24) */
 #define LOV_ALL_STRIPES       0xffff /* only valid for directories */
 #define LOV_V1_INSANE_STRIPE_COUNT 65532 /* maximum stripe count bz13933 */
+
+#define XATTR_LUSTRE_PREFIX	"lustre."
+#define XATTR_LUSTRE_LOV	XATTR_LUSTRE_PREFIX"lov"
 
 #define lov_user_ost_data lov_user_ost_data_v1
 struct lov_user_ost_data_v1 {     /* per-stripe data structure */
@@ -634,10 +637,13 @@ struct if_quotactl {
 };
 
 /* swap layout flags */
-#define	SWAP_LAYOUTS_CHECK_DV1		(1 << 0)
-#define	SWAP_LAYOUTS_CHECK_DV2		(1 << 1)
-#define	SWAP_LAYOUTS_KEEP_MTIME		(1 << 2)
-#define	SWAP_LAYOUTS_KEEP_ATIME		(1 << 3)
+#define SWAP_LAYOUTS_CHECK_DV1		(1 << 0)
+#define SWAP_LAYOUTS_CHECK_DV2		(1 << 1)
+#define SWAP_LAYOUTS_KEEP_MTIME		(1 << 2)
+#define SWAP_LAYOUTS_KEEP_ATIME		(1 << 3)
+
+/* Swap XATTR_NAME_HSM as well, only on the MDT so far */
+#define SWAP_LAYOUTS_MDS_HSM		(1 << 31)
 struct lustre_swap_layouts {
 	__u64	sl_flags;
 	__u32	sl_fd;
@@ -1065,7 +1071,7 @@ struct hsm_action_item {
  * \param len [IN] max buffer len
  * \retval buffer
  */
-static inline char *hai_dump_data_field(struct hsm_action_item *hai,
+static inline char *hai_dump_data_field(const struct hsm_action_item *hai,
                                         char *buffer, int len)
 {
         int i, sz, data_len;
@@ -1137,6 +1143,21 @@ static inline int hal_size(struct hsm_action_list *hal)
 
 	return sz;
 }
+
+/* HSM file import
+ * describe the attributes to be set on imported file
+ */
+struct hsm_user_import {
+	__u64		hui_size;
+	__u64		hui_atime;
+	__u64		hui_mtime;
+	__u32		hui_atime_ns;
+	__u32		hui_mtime_ns;
+	__u32		hui_uid;
+	__u32		hui_gid;
+	__u32		hui_mode;
+	__u32		hui_archive_id;
+};
 
 /* Copytool progress reporting */
 #define HP_FLAG_COMPLETED 0x01
