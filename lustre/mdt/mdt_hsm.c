@@ -55,7 +55,7 @@
  * Update on-disk HSM attributes.
  */
 int mdt_hsm_attr_set(struct mdt_thread_info *info, struct mdt_object *obj,
-		     struct md_hsm *mh)
+		     const struct md_hsm *mh)
 {
 	struct md_object	*next = mdt_object_child(obj);
 	struct lu_buf		*buf = &info->mti_buf;
