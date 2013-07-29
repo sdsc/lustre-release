@@ -23,11 +23,44 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
+#
+# In order to test multiple remote HSM agents/copytools, a new facet type named
+# "CPT" and the following associated variables are added:
+#
+# CPTCOUNT: number of copytools
+# CPTDEV{N}: archive number/ID
+# cpt{N}_HOST: hostname of the host where copytool cpt{N} is located
+# SINGLECPT: facet of the single copytool
+#
+# The number of copytools is initialized as the number of remote client nodes.
+# By default, only single copytool is started on a remote client node. If there
+# was no remote client, then the copytool will be started on the local client.
+#
+export CPTCOUNT=${CPTCOUNT:-$((CLIENTCOUNT - 1))}
+[[ $CPTCOUNT -gt 0 ]] || CPTCOUNT=1
+
+for n in $(seq $CPTCOUNT); do
+	eval export CPTDEV$n=\$\{CPTDEV$n:-$((n - 1))\}
+	agent=CLIENT$((n + 1))
+	if [[ -z "${!agent}" ]]; then
+		[[ $CLIENTCOUNT -eq 1 ]] && agent=CLIENT1 || agent=CLIENT2
+	fi
+	eval export cpt${n}_HOST=\$\{cpt${n}_HOST:-${!agent}\}
+done
+
+export SINGLECPT=${SINGLECPT:-cpt1}
+
 MULTIOP=${MULTIOP:-multiop}
 OPENFILE=${OPENFILE:-openfile}
 MCREATE=${MCREATE:-mcreate}
 MOUNT_2=${MOUNT_2:-"yes"}
 FAIL_ON_ERROR=false
+
+SHARED_DIRECTORY=${SHARED_DIRECTORY:-$TMP}
+if [[ $CLIENTCOUNT -gt 1 ]] && ! check_shared_dir $SHARED_DIRECTORY; then
+	skip_env "SHARED_DIRECTORY should be accessible on all nodes"
+	exit 0
+fi
 
 if [ $MDSCOUNT -ge 2 ]; then
 	skip_env "Only run with single MDT for now" && exit
@@ -47,10 +80,9 @@ build_test_filter
 # as some test changes the default, we need to re-make it
 cleanup() {
 	copytool_cleanup
-	if ! is_mounted $MOUNT2
-	then
-		mount_client $MOUNT2
-	fi
+
+	local agent=$(facet_active_host $SINGLECPT)
+	do_rpc_nodes $agent is_mounted $MOUNT2 || zconf_mount $agent $MOUNT2
 }
 
 export HT=${HT:-"lhsmtool_posix"}
@@ -60,53 +92,95 @@ export HTBASE=$(basename "$HT" | cut -f1 -d" ")
 MDT_PARAM="mdt.$FSNAME-MDT0000"
 HSM_PARAM="$MDT_PARAM.hsm"
 
-ARC=${ARC:-$TMP/arc}
+ARC=${ARC:-$SHARED_DIRECTORY/arc}
 AN=2
 # archive is purged at copytool setup
 ARC_PURGE=true
 
-search_and_kill_copytool() {
-	echo "Killing existing copy tools"
-	killall -q $HTBASE || true
+# Get the archive number/ID of the given copytool facet.
+copytool_archive_id() {
+	local facet=$1
+	local dev=CPTDEV$(facet_number $facet)
+
+	echo -n ${!dev}
 }
 
+search_and_kill_copytool() {
+	local agents=${1:-$(facet_active_host $SINGLECPT)}
+
+	echo "Killing existing copytools on $agents"
+	do_nodesv $agents "killall -q $HTBASE" || true
+}
 
 copytool_setup() {
-	if pkill -CONT -x $HTBASE; then
-		echo "Wakeup copytool"
-		return
+	local facet=${1:-$SINGLECPT}
+	local new_id=$2
+	local orig_id=$(copytool_archive_id $facet)
+	local agent=$(facet_active_host $facet)
+	local hsm_root
+	local arc_id
+
+	if [[ -z "$new_id" ]] && do_facet $facet "pkill -CONT -x $HTBASE"; then
+		echo "Wakeup copytool $facet on $agent"
+		return 0
 	fi
 
-	if ! $HT --commcheck --noexecute $FSNAME; then
-		error "Copytool not runnable: $?"
+	do_facet $facet "$HT --commcheck --noexecute $FSNAME" ||
+		error "Copytool $facet is not runnable on $agent: $?"
+
+	# If a new archive ID was specified, then the copytool will be started
+	# to serve the new ID. Otherwise, for $SINGLECPT, it will be started
+	# with no archive ID, which means "match all"; for non-$SINGLECPT, it
+	# will be started with its archive ID defined in CPTDEV{N}.
+	[[ -z "$new_id" ]] || arc_id=$new_id
+	if [[ "$facet" = "$SINGLECPT" ]]; then
+		hsm_root=$ARC
+	else
+		[[ -n "$new_id" ]] || arc_id=$orig_id
+		hsm_root=$ARC$arc_id
 	fi
 
 	if $ARC_PURGE; then
-		echo "Purging archive"
-		rm -rf $ARC/*
+		echo "Purging archive on $agent"
+		do_facet $facet "rm -rf $hsm_root/*"
+
+		[[ "$facet" = "$SINGLECPT" ]] || [[ "$new_id" = "$orig_id" ]] ||
+			do_facet $facet "rm -rf $ARC$orig_id/*"
 	fi
 
-	echo "Starting copytool"
-	mkdir -p $ARC
+	echo "Starting copytool $facet on $agent"
+	do_facet $facet "mkdir -p $hsm_root" || error "mkdir $hsm_root failed"
 	# bandwidth is limited to 1MB/s so we copy time is known and
 	# independent of hardware
-	local CMD="$HT $HT_VERB --hsm_root $ARC --bandwidth 1 $FSNAME"
-	[[ -z "$1" ]] || CMD+=" --archive $1"
+	local cmd="$HT $HT_VERB --hsm_root $hsm_root --bandwidth 1"
+	[[ -z "$arc_id" ]] || cmd+=" --archive $arc_id"
+	cmd+=" $FSNAME"
 
-	echo "$CMD"
-	$CMD  &
+	# Redirect the standard output and error to a log file which
+	# can be uploaded to Maloo.
+	local prefix=$TESTLOG_PREFIX
+	[[ -z "$TESTNAME" ]] || prefix=$prefix.$TESTNAME
+	local copytool_log=$prefix.copytool${arc_id}_log.$agent.log
+
+	do_facet $facet "$cmd < /dev/null > $copytool_log 2>&1" ||
+		error "start copytool $facet on $agent failed"
+	eval export CPTDEV$(facet_number $facet)=$arc_id
 	trap cleanup EXIT
 }
 
 copytool_cleanup() {
-	pkill -INT -x $HTBASE || return 0
+	local agents=${1:-$(facet_active_host $SINGLECPT)}
+
+	do_nodesv $agents "pkill -INT -x $HTBASE" || return 0
 	sleep 1
-	echo "Copytool is stopped"
+	echo "Copytool is stopped on $agents"
 }
 
 copytool_suspend() {
-	pkill -STOP -x $HTBASE || return 0
-	echo "Copytool is suspended"
+	local agents=${1:-$(facet_active_host $SINGLECPT)}
+
+	do_nodesv $agents "pkill -STOP -x $HTBASE" || return 0
+	echo "Copytool is suspended on $agents"
 }
 
 copytool_remove_backend() {
@@ -117,7 +191,8 @@ copytool_remove_backend() {
 }
 
 import_file() {
-	$HT --archive $AN --hsm_root $ARC --import $1 $2 $FSNAME ||
+	do_facet $SINGLECPT \
+		"$HT --archive $AN --hsm_root $ARC --import $1 $2 $FSNAME" ||
 		error "import of $i to $2 failed"
 }
 
@@ -138,7 +213,6 @@ changelog_cleanup(){
 #	$LFS changelog $MDT0
 	do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $CL_USER
 }
-
 
 get_hsm_param() {
 	local param=$1
@@ -393,10 +467,6 @@ wait_for_grace_delay()
 	sleep $val
 }
 
-my_uuid() {
-	$LCTL get_param -n llite.$FSNAME-*.uuid
-}
-
 MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
 	awk '{gsub(/_UUID/,""); print $1}' | head -1)
 
@@ -568,7 +638,7 @@ test_9() {
 	# we do not use the default one to be sure
 	local new_an=$((AN + 1))
 	copytool_cleanup
-	copytool_setup $new_an
+	copytool_setup $SINGLECPT $new_an
 	$LFS hsm_archive --archive $new_an $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
@@ -577,6 +647,42 @@ test_9() {
 	copytool_cleanup
 }
 run_test 9 "Use of explict archive number, with dedicated copytool"
+
+test_9a() {
+	[[ $CLIENTCOUNT -ge 3 ]] ||
+		{ skip "Need three or more clients"; return 0; }
+
+	local n
+	local file
+	local fid
+	local arc_id
+
+	copytool_cleanup $(comma_list $(cpts_nodes))
+
+	# start all of the copytools
+	for n in $(seq $CPTCOUNT); do
+		copytool_setup cpt$n
+	done
+
+	trap "copytool_cleanup $(comma_list $(cpts_nodes))" EXIT
+	# archive files
+	mkdir -p $DIR/$tdir
+	for n in $(seq $CPTCOUNT); do
+		file=$DIR/$tdir/$tfile.$n
+		fid=$(make_small $file)
+		arc_id=$(copytool_archive_id cpt$n)
+		[[ -n "$arc_id" ]] || arc_id=0
+
+		$LFS hsm_archive --archive $arc_id $file ||
+			error "could not archive file $file"
+		wait_request_state $fid ARCHIVE SUCCEED
+		check_hsm_flags $file "0x00000001"
+	done
+
+	trap - EXIT
+	copytool_cleanup $(comma_list $(cpts_nodes))
+}
+run_test 9a "Multiple remote copytools"
 
 test_10a() {
 	# test needs a running copytool
@@ -954,7 +1060,8 @@ test_14() {
 
 	# rebind the archive to the newly created file
 	echo "rebind $fid to $fid2"
-	$HT --archive $AN --hsm_root="$ARC" --rebind $fid $fid2 $DIR ||
+	do_facet $SINGLECPT \
+		"$HT --archive $AN --hsm_root $ARC --rebind $fid $fid2 $DIR" ||
 		error "could not rebind file"
 
 	# restore file and compare md5sum
@@ -974,7 +1081,7 @@ test_15() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local count=5
-	local tmpfile=$TMP/tmp.$$
+	local tmpfile=$SHARED_DIRECTORY/tmp.$$
 
 	local fids=()
 	local sums=()
@@ -1003,7 +1110,8 @@ test_15() {
 	[[ $nl == $count ]] || error "$nl files in list, $count expected"
 
 	echo "rebind list of files"
-	$HT --archive $AN --hsm_root="$ARC" --rebind $tmpfile $DIR ||
+	do_facet $SINGLECPT \
+		"$HT --archive $AN --hsm_root $ARC --rebind $tmpfile $DIR" ||
 		error "could not rebind file list"
 
 	# restore files and compare md5sum
@@ -1577,7 +1685,7 @@ test_52() {
 	copytool_setup
 
 	# Test behave badly if 2 mount points are present
-	umount_client $MOUNT2
+	zconf_umount $(facet_active_host $SINGLECPT) $MOUNT2
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
@@ -1599,7 +1707,7 @@ test_52() {
 	check_hsm_flags $f "0x0000000b"
 
 	# Restore test environment
-	mount_client $MOUNT2
+	zconf_mount $(facet_active_host $SINGLECPT) $MOUNT2
 
 	copytool_cleanup
 }
@@ -1610,7 +1718,7 @@ test_53() {
 	copytool_setup
 
 	# Checks are wrong with 2 mount points
-	umount_client $MOUNT2
+	zconf_umount $(facet_active_host $SINGLECPT) $MOUNT2
 
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
@@ -1631,7 +1739,7 @@ test_53() {
 
 	check_hsm_flags $f "0x00000009"
 
-	mount_client $MOUNT2
+	zconf_mount $(facet_active_host $SINGLECPT) $MOUNT2
 
 	copytool_cleanup
 }
@@ -1960,12 +2068,14 @@ run_test 105 "Restart of coordinator"
 
 test_106() {
 	# Test behave badly if 2 mount points are present
-	umount_client $MOUNT2
+	zconf_umount $(facet_active_host $SINGLECPT) $MOUNT2
 
 	# test needs a running copytool
 	copytool_setup
 
-	local uuid=$(my_uuid)
+	local uuid=$(do_facet $SINGLECPT \
+			$LCTL get_param -n llite.$FSNAME-*.uuid)
+
 	local agent=$(do_facet $SINGLEMDS $LCTL get_param -n $HSM_PARAM.agents |
 		grep $uuid)
 	copytool_cleanup
@@ -1984,7 +2094,7 @@ test_106() {
 		      " copytool restart"
 
 	# Restore test environment
-	mount_client $MOUNT2
+	zconf_mount $(facet_active_host $SINGLECPT) $MOUNT2
 }
 run_test 106 "Copytool register/unregister"
 
