@@ -449,13 +449,12 @@ out:
 
 static inline void enc_pools_wakeup(void)
 {
-        LASSERT_SPIN_LOCKED(&page_pools.epp_lock);
-        LASSERT(page_pools.epp_waitqlen >= 0);
+	LASSERT_SPIN_LOCKED(&page_pools.epp_lock);
 
-        if (unlikely(page_pools.epp_waitqlen)) {
-                LASSERT(cfs_waitq_active(&page_pools.epp_waitq));
-                cfs_waitq_broadcast(&page_pools.epp_waitq);
-        }
+	if (unlikely(page_pools.epp_waitqlen)) {
+		LASSERT(cfs_waitq_active(&page_pools.epp_waitq));
+		cfs_waitq_broadcast(&page_pools.epp_waitq);
+	}
 }
 
 static int enc_pools_should_grow(int page_needed, long now)
