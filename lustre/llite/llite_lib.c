@@ -421,7 +421,9 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                   OBD_CONNECT_MAXBYTES |
 				  OBD_CONNECT_EINPROGRESS |
 				  OBD_CONNECT_JOBSTATS | OBD_CONNECT_LVB_TYPE |
-				  OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_PINGLESS;
+				  OBD_CONNECT_LAYOUTLOCK |
+				  OBD_CONNECT_PINGLESS |
+				  OBD_CONNECT_FLOCK_DEAD;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
