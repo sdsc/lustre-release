@@ -2132,13 +2132,9 @@ test_35b() { # bug 18674
 run_test 35b "Continue reconnection retries, if the active server is busy"
 
 test_36() { # 12743
-        [ $OSTCOUNT -lt 2 ] && skip_env "skipping test for single OST" && return
-
-        [ "$ost_HOST" = "`hostname`" -o "$ost1_HOST" = "`hostname`" ] || \
-		{ skip "remote OST" && return 0; }
-
         local rc=0
         local FSNAME2=test1234
+        local fs2ost_HOST=$ost_HOST
         local fs3ost_HOST=$ost_HOST
         local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
@@ -2158,12 +2154,12 @@ test_36() { # 12743
 
 	add fs2mds $(mkfs_opts mds1 ${fs2mdsdev}) --mgs --fsname=${FSNAME2} \
 		--reformat $fs2mdsdev $fs2mdsvdev || exit 10
-	# XXX after we support non 4K disk blocksize in ldiskfs, specify a
-	#     different one than the default value here.
-	add fs2ost $(mkfs_opts ost1 ${fs2ostdev}) --mgsnode=$MGSNID \
-		--fsname=${FSNAME2} --reformat $fs2ostdev $fs2ostvdev || exit 10
-	add fs3ost $(mkfs_opts ost1 ${fs3ostdev}) --mgsnode=$MGSNID \
-		--fsname=${FSNAME2} --reformat $fs3ostdev $fs3ostvdev || exit 10
+	add fs2ost $(mkfs_opts ost1 ${fs2ostdev}) --mkfsoptions='-b2048' \
+		--mgsnode=$MGSNID --fsname=${FSNAME2} \
+		--reformat $fs2ostdev $fs2ostvdev || exit 10
+	add fs3ost $(mkfs_opts ost1 ${fs3ostdev}) --mkfsoptions='-b1024' \
+		--mgsnode=$MGSNID --fsname=${FSNAME2} \
+		--reformat $fs3ostdev $fs3ostvdev || exit 10
 
         start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS
         start fs2ost $fs2ostdev $OST_MOUNT_OPTS
@@ -2173,18 +2169,20 @@ test_36() { # 12743
 
         sleep 5 # until 11778 fixed
 
+        $LFS setstripe -c 2 $MOUNT2/$tfile
         dd if=/dev/zero of=$MOUNT2/$tfile bs=1M count=7 || return 2
 
-        BKTOTAL=`lctl get_param -n obdfilter.*.kbytestotal | awk 'BEGIN{total=0}; {total+=$1}; END{print total}'`
-        BKFREE=`lctl get_param -n obdfilter.*.kbytesfree | awk 'BEGIN{free=0}; {free+=$1}; END{print free}'`
-        BKAVAIL=`lctl get_param -n obdfilter.*.kbytesavail | awk 'BEGIN{avail=0}; {avail+=$1}; END{print avail}'`
+        # both osts are on the same host, therefore run lctl on this host
+        BKTOTAL=$(do_facet fs2ost lctl get_param -n obdfilter.*.kbytestotal | calc_sum)
+        BKFREE=$(do_facet fs2ost lctl get_param -n obdfilter.*.kbytesfree | calc_sum)
+        BKAVAIL=$(do_facet fs2ost lctl get_param -n obdfilter.*.kbytesavail | calc_sum)
         STRING=`df -P $MOUNT2 | tail -n 1 | awk '{print $2","$3","$4}'`
         DFTOTAL=`echo $STRING | cut -d, -f1`
         DFUSED=`echo $STRING  | cut -d, -f2`
         DFAVAIL=`echo $STRING | cut -d, -f3`
         DFFREE=$(($DFTOTAL - $DFUSED))
 
-        ALLOWANCE=$((64 * $OSTCOUNT))
+        ALLOWANCE=$((64 * 2))
 
         if [ $DFTOTAL -lt $(($BKTOTAL - $ALLOWANCE)) ] ||
            [ $DFTOTAL -gt $(($BKTOTAL + $ALLOWANCE)) ] ; then
