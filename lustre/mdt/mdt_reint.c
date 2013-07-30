@@ -797,7 +797,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 
 			ma->ma_need = MA_INODE;
 			ma->ma_valid = 0;
-			mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
+			mdt_capainfo_set(info, 1, child_fid, LC_BYPASS_CAPA);
 			rc = mdo_unlink(info->mti_env, mdt_object_child(mp),
 					NULL, lname, ma, no_name);
 			GOTO(put_child, rc);
@@ -837,7 +837,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
          */
         ma->ma_need = MA_INODE;
         ma->ma_valid = 0;
-        mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
+        mdt_capainfo_set(info, 1, child_fid, LC_BYPASS_CAPA);
 
 	rc = mdo_unlink(info->mti_env, mdt_object_child(mp),
 			mdt_object_child(mc), lname, ma, no_name);
@@ -1245,7 +1245,7 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
         info->mti_mos = mold;
         /* save version after locking */
         mdt_version_get_save(info, mold, 2);
-        mdt_set_capainfo(info, 2, old_fid, BYPASS_CAPA);
+        mdt_capainfo_set(info, 2, old_fid, LC_BYPASS_CAPA);
 
         /* step 4: find & lock the new object. */
         /* new target object may not exist now */
@@ -1291,7 +1291,7 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
                 }
                 /* get and save version after locking */
                 mdt_version_get_save(info, mnew, 3);
-                mdt_set_capainfo(info, 3, new_fid, BYPASS_CAPA);
+                mdt_capainfo_set(info, 3, new_fid, LC_BYPASS_CAPA);
         } else if (rc != -EREMOTE && rc != -ENOENT) {
                 GOTO(out_unlock_old, rc);
         } else {

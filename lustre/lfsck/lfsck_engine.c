@@ -297,7 +297,7 @@ int lfsck_master_engine(void *args)
 		GOTO(noenv, rc);
 	}
 
-	oit_di = oit_iops->init(&env, oit_obj, lfsck->li_args_oit, BYPASS_CAPA);
+	oit_di = oit_iops->init(&env, oit_obj, lfsck->li_args_oit, LC_BYPASS_CAPA);
 	if (IS_ERR(oit_di)) {
 		rc = PTR_ERR(oit_di);
 		CERROR("%s: LFSCK, fail to init iteration, rc = %d\n",

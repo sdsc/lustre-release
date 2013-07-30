@@ -1218,9 +1218,9 @@ int mdt_ck_thread_start(struct mdt_device *mdt);
 void mdt_ck_thread_stop(struct mdt_device *mdt);
 void mdt_ck_timer_callback(unsigned long castmeharder);
 int mdt_capa_keys_init(const struct lu_env *env, struct mdt_device *mdt);
-void mdt_set_capainfo(struct mdt_thread_info *info, int offset,
+void mdt_capainfo_set(struct mdt_thread_info *info, int offset,
 		      const struct lu_fid *fid, struct lustre_capa *capa);
-void mdt_dump_capainfo(struct mdt_thread_info *info);
+void mdt_capainfo_dump(struct mdt_thread_info *info);
 
 static inline struct obd_device *mdt2obd_dev(const struct mdt_device *mdt)
 {

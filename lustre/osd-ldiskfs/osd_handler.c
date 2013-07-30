@@ -1428,7 +1428,7 @@ int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
 	if (!osd->od_fl_capa)
 		return 0;
 
-	if (capa == BYPASS_CAPA)
+	if (capa == LC_BYPASS_CAPA)
 		return 0;
 
 	lci = lu_capainfo_get(env);

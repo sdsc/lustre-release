@@ -471,7 +471,7 @@ static int out_attr_get(struct out_thread_info *info)
 			GOTO(out_unlock, rc = -ENOTDIR);
 
 		iops = &obj->do_index_ops->dio_it;
-		it = iops->init(env, obj, LUDA_64BITHASH, BYPASS_CAPA);
+		it = iops->init(env, obj, LUDA_64BITHASH, LC_BYPASS_CAPA);
 		if (!IS_ERR(it)) {
 			int  result;
 			result = iops->get(env, it, (const void *)"");

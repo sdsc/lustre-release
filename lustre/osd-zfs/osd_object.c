@@ -358,7 +358,7 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	buf.lb_buf = lma;
 	buf.lb_len = sizeof(info->oti_buf);
 
-	rc = osd_xattr_get(env, &obj->oo_dt, &buf, XATTR_NAME_LMA, BYPASS_CAPA);
+	rc = osd_xattr_get(env, &obj->oo_dt, &buf, XATTR_NAME_LMA, LC_BYPASS_CAPA);
 	if (rc > 0) {
 		rc = 0;
 		lustre_lma_swab(lma);
@@ -1436,7 +1436,7 @@ static inline int osd_init_lma(const struct lu_env *env, struct osd_object *obj,
 	buf.lb_len = sizeof(*lma);
 
 	rc = osd_xattr_set_internal(env, obj, &buf, XATTR_NAME_LMA,
-				    LU_XATTR_CREATE, oh, BYPASS_CAPA);
+				    LU_XATTR_CREATE, oh, LC_BYPASS_CAPA);
 
 	return rc;
 }
@@ -1666,7 +1666,7 @@ static int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
 	if (!dev->od_fl_capa)
 		return 0;
 
-	if (capa == BYPASS_CAPA)
+	if (capa == LC_BYPASS_CAPA)
 		return 0;
 
 	if (!capa) {

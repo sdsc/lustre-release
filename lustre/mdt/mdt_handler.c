@@ -994,7 +994,7 @@ int mdt_getattr(struct mdt_thread_info *info)
          * Don't check capability at all, because rename might getattr for
          * remote obj, and at that time no capability is available.
          */
-        mdt_set_capainfo(info, 1, &reqbody->fid1, BYPASS_CAPA);
+        mdt_capainfo_set(info, 1, &reqbody->fid1, LC_BYPASS_CAPA);
         rc = mdt_getattr_internal(info, obj, 0);
         if (reqbody->valid & OBD_MD_FLRMTPERM)
                 mdt_exit_ucred(info);
@@ -1055,12 +1055,12 @@ int mdt_swap_layouts(struct mdt_thread_info *info)
 		RETURN(-EOPNOTSUPP);
 
 	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA1, RCL_CLIENT))
-		mdt_set_capainfo(info, 0, &info->mti_body->fid1,
+		mdt_capainfo_set(info, 0, &info->mti_body->fid1,
 				 req_capsule_client_get(info->mti_pill,
 							&RMF_CAPA1));
 
 	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA2, RCL_CLIENT))
-		mdt_set_capainfo(info, 1, &info->mti_body->fid2,
+		mdt_capainfo_set(info, 1, &info->mti_body->fid2,
 				 req_capsule_client_get(info->mti_pill,
 							&RMF_CAPA2));
 
@@ -1285,8 +1285,8 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                 }
                 if (rc == 0) {
                         /* Finally, we can get attr for child. */
-                        mdt_set_capainfo(info, 0, mdt_object_fid(child),
-                                         BYPASS_CAPA);
+                        mdt_capainfo_set(info, 0, mdt_object_fid(child),
+                                         LC_BYPASS_CAPA);
                         rc = mdt_getattr_internal(info, child, 0);
                         if (unlikely(rc != 0))
                                 mdt_object_unlock(info, child, lhc, 1);
@@ -1433,7 +1433,7 @@ relock:
                 ma_need |= MA_SOM;
 
         /* finally, we can get attr for child. */
-        mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
+        mdt_capainfo_set(info, 1, child_fid, LC_BYPASS_CAPA);
         rc = mdt_getattr_internal(info, child, ma_need);
         if (unlikely(rc != 0)) {
                 mdt_object_unlock(info, child, lhc, 1);
@@ -2858,7 +2858,7 @@ static int mdt_body_unpack(struct mdt_thread_info *info, __u32 flags)
          */
         if (req_capsule_has_field(pill, &RMF_CAPA1, RCL_CLIENT) &&
             req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
-                mdt_set_capainfo(info, 0, &body->fid1,
+                mdt_capainfo_set(info, 0, &body->fid1,
                                  req_capsule_client_get(pill, &RMF_CAPA1));
 
         obj = mdt_object_find(env, info->mti_mdt, &body->fid1);

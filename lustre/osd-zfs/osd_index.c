@@ -292,10 +292,10 @@ static int osd_find_parent_fid(const struct lu_env *env, struct dt_object *o,
 	buf.lb_buf = osd_oti_get(env)->oti_buf;
 	buf.lb_len = sizeof(osd_oti_get(env)->oti_buf);
 
-	rc = osd_xattr_get(env, o, &buf, XATTR_NAME_LINK, BYPASS_CAPA);
+	rc = osd_xattr_get(env, o, &buf, XATTR_NAME_LINK, LC_BYPASS_CAPA);
 	if (rc == -ERANGE) {
 		rc = osd_xattr_get(env, o, &LU_BUF_NULL,
-				   XATTR_NAME_LINK, BYPASS_CAPA);
+				   XATTR_NAME_LINK, LC_BYPASS_CAPA);
 		if (rc < 0)
 			RETURN(rc);
 		LASSERT(rc > 0);
@@ -303,7 +303,7 @@ static int osd_find_parent_fid(const struct lu_env *env, struct dt_object *o,
 		if (buf.lb_buf == NULL)
 			RETURN(-ENOMEM);
 		buf.lb_len = rc;
-		rc = osd_xattr_get(env, o, &buf, XATTR_NAME_LINK, BYPASS_CAPA);
+		rc = osd_xattr_get(env, o, &buf, XATTR_NAME_LINK, LC_BYPASS_CAPA);
 	}
 	if (rc < 0)
 		GOTO(out, rc);

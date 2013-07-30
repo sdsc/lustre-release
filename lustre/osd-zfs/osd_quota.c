@@ -126,7 +126,7 @@ static int osd_acct_index_lookup(const struct lu_env *env,
  *
  * \param  dt    - osd index object
  * \param  attr  - not used
- * \param  capa  - BYPASS_CAPA
+ * \param  capa  - LC_BYPASS_CAPA
  */
 static struct dt_it *osd_it_acct_init(const struct lu_env *env,
 				      struct dt_object *dt,

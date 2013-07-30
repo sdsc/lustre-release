@@ -69,7 +69,7 @@ int mdd_acl_chmod(const struct lu_env *env, struct mdd_object *o, __u32 mode,
 	buf = mdd_buf_get(env, mdd_env_info(env)->mti_xattr_buf,
 			  sizeof(mdd_env_info(env)->mti_xattr_buf));
 
-	rc = mdo_xattr_get(env, o, buf, XATTR_NAME_ACL_ACCESS, BYPASS_CAPA);
+	rc = mdo_xattr_get(env, o, buf, XATTR_NAME_ACL_ACCESS, LC_BYPASS_CAPA);
 	if ((rc == -EOPNOTSUPP) || (rc == -ENODATA))
 		RETURN(0);
 	else if (rc <= 0)
@@ -88,7 +88,7 @@ int mdd_acl_chmod(const struct lu_env *env, struct mdd_object *o, __u32 mode,
 		RETURN(rc);
 
 	rc = mdo_xattr_set(env, o, buf, XATTR_NAME_ACL_ACCESS,
-			   0, handle, BYPASS_CAPA);
+			   0, handle, LC_BYPASS_CAPA);
 	RETURN(rc);
 }
 
@@ -105,7 +105,7 @@ int mdd_acl_set(const struct lu_env *env, struct mdd_object *obj,
 	mode_t			 mode;
 	ENTRY;
 
-	rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
+	rc = mdd_la_get(env, obj, la, LC_BYPASS_CAPA);
 	if (rc)
 		RETURN(rc);
 
@@ -266,7 +266,7 @@ int __mdd_permission_internal(const struct lu_env *env, struct mdd_object *obj,
 
         if (la == NULL) {
                 la = &mdd_env_info(env)->mti_la;
-                rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
+                rc = mdd_la_get(env, obj, la, LC_BYPASS_CAPA);
                 if (rc)
                         RETURN(rc);
         }
@@ -326,7 +326,7 @@ int mdd_permission(const struct lu_env *env,
         LASSERT(cobj);
         mdd_cobj = md2mdd_obj(cobj);
 
-	rc = mdd_la_get(env, mdd_cobj, la, BYPASS_CAPA);
+	rc = mdd_la_get(env, mdd_cobj, la, LC_BYPASS_CAPA);
 	if (rc)
 		RETURN(rc);
 
@@ -371,7 +371,7 @@ int mdd_permission(const struct lu_env *env,
 		uc = lu_ucred_assert(env);
                 if (likely(!la)) {
                         la = &mdd_env_info(env)->mti_la;
-                        rc = mdd_la_get(env, mdd_cobj, la, BYPASS_CAPA);
+                        rc = mdd_la_get(env, mdd_cobj, la, LC_BYPASS_CAPA);
                         if (rc)
                                 RETURN(rc);
                 }
