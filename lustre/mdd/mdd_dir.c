@@ -1654,8 +1654,7 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 	       spec->u.sp_ea.eadata, spec->u.sp_ea.eadatalen,
 	       spec->sp_cr_flags, spec->no_create);
 
-	if (spec->no_create || spec->sp_cr_flags & MDS_OPEN_HAS_EA) {
-		/* replay case or lfs setstripe */
+	if (spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA)) {
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 					spec->u.sp_ea.eadatalen);
 	} else {
@@ -1900,13 +1899,15 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 		GOTO(out, rc);
 
 	/* replay case, create LOV EA from client data */
-	if (spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA)) {
+	if (spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA) ||
+	    spec->sp_stripe_create) {
 		const struct lu_buf *buf;
 
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 					spec->u.sp_ea.eadatalen);
-		rc = mdo_declare_xattr_set(env, c, buf, XATTR_NAME_LOV,
-					   0, handle);
+		rc = mdo_declare_xattr_set(env, c, buf, spec->sp_stripe_create ?
+					   XATTR_NAME_LMV : XATTR_NAME_LOV, 0,
+					   handle);
 		if (rc)
 			GOTO(out, rc);
 	}
@@ -1920,7 +1921,11 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
         }
 
 	if (!(spec->sp_cr_flags & MDS_OPEN_VOLATILE)) {
-		rc = mdo_declare_attr_set(env, p, attr, handle);
+		struct lu_attr	*la = &mdd_env_info(env)->mti_la_for_fix;
+
+		*la = *attr;
+		la->la_valid = LA_CTIME | LA_MTIME;
+		rc = mdo_declare_attr_set(env, p, la, handle);
 		if (rc)
 			return rc;
 	}
@@ -2114,13 +2119,16 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	 *      probably this way we code can be made better.
 	 */
 	if (rc == 0 && (spec->no_create ||
-			(spec->sp_cr_flags & MDS_OPEN_HAS_EA))) {
+			(spec->sp_cr_flags & MDS_OPEN_HAS_EA) ||
+			spec->sp_stripe_create)) {
 		const struct lu_buf *buf;
 
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 				spec->u.sp_ea.eadatalen);
-		rc = mdo_xattr_set(env, son, buf, XATTR_NAME_LOV, 0, handle,
-				BYPASS_CAPA);
+		rc = mdo_xattr_set(env, son, buf,
+				   spec->sp_stripe_create ?
+				   XATTR_NAME_LMV : XATTR_NAME_LOV, 0, handle,
+				   BYPASS_CAPA);
 	}
 
 	if (rc == 0 && spec->sp_cr_flags & MDS_OPEN_VOLATILE)

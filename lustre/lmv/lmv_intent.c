@@ -158,6 +158,135 @@ out:
 	return rc;
 }
 
+int lmv_revalidate_slaves(struct obd_export *exp, struct mdt_body *mbody,
+			  struct lmv_stripe_md *lsm,
+			  ldlm_blocking_callback cb_blocking,
+			  int extra_lock_flags)
+{
+	struct obd_device      *obd = exp->exp_obd;
+	struct lmv_obd         *lmv = &obd->u.lmv;
+	struct mdt_body		*body;
+	struct md_op_data      *op_data;
+	unsigned long           size = 0;
+	unsigned long           nlink = 0;
+	int                     i;
+	int                     rc = 0;
+
+	ENTRY;
+
+	/**
+	 * revalidate slaves has some problems, temporarily return,
+	 * we may not need that
+	 */
+	if (lsm->lsm_count <= 1)
+		RETURN(0);
+
+	OBD_ALLOC_PTR(op_data);
+	if (op_data == NULL)
+		RETURN(-ENOMEM);
+
+	/**
+	 * Loop over the stripe information, check validity and update them
+	 * from MDS if needed.
+	 */
+	for (i = 0; i < lsm->lsm_count; i++) {
+		struct lu_fid		fid;
+		struct lookup_intent	it = { .it_op = IT_GETATTR };
+		struct ptlrpc_request	*req = NULL;
+		struct lustre_handle	*lockh = NULL;
+		struct lmv_tgt_desc	*tgt;
+
+		fid = lsm->lsm_oinfo[i].lmo_fid;
+		if (i == 0) {
+			if (mbody != NULL) {
+				body = mbody;
+				goto update;
+			} else {
+				goto release_lock;
+			}
+		}
+
+		/*
+		 * Prepare op_data for revalidating. Note that @fid2 shuld be
+		 * defined otherwise it will go to server and take new lock
+		 * which is what we reall not need here.
+		 */
+		memset(op_data, 0, sizeof(*op_data));
+		op_data->op_bias = MDS_CROSS_REF;
+		op_data->op_fid1 = fid;
+		op_data->op_fid2 = fid;
+
+		tgt = lmv_locate_mds(lmv, op_data, &fid);
+		if (IS_ERR(tgt))
+			GOTO(cleanup, rc = PTR_ERR(tgt));
+
+		CDEBUG(D_INODE, "Revalidate slave "DFID" -> mds #%d\n",
+		       PFID(&fid), tgt->ltd_idx);
+
+		rc = md_intent_lock(tgt->ltd_exp, op_data, NULL, 0, &it, 0,
+				    &req, cb_blocking, extra_lock_flags);
+
+		lockh = (struct lustre_handle *)&it.d.lustre.it_lock_handle;
+		if (rc > 0 && req == NULL) {
+			/*
+			 * Nice, this slave is valid.
+			 */
+			CDEBUG(D_INODE, "Cached slave "DFID"\n", PFID(&fid));
+			rc = 0;
+			goto release_lock;
+		}
+
+		if (rc < 0)
+			GOTO(cleanup, rc);
+
+		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+		LASSERT(body != NULL);
+update:
+		if (unlikely(body->nlink < 2)) {
+			CERROR("nlink %d < 2 corrupt stripe %d "DFID" of "
+			       DFID"\n", body->nlink, i,
+			       PFID(&lsm->lsm_oinfo[i].lmo_fid),
+			       PFID(&lsm->lsm_oinfo[0].lmo_fid));
+			if (req)
+				ptlrpc_req_finished(req);
+			GOTO(cleanup, rc = -EIO);
+		}
+
+		lsm->lsm_oinfo[i].lmo_size = body->size;
+
+		/* subtract nlink of . and .. from non-master stripe */
+		lsm->lsm_oinfo[i].lmo_nlink = i != 0 ?
+					      body->nlink - 2 : body->nlink;
+
+		CDEBUG(D_INODE, "Fresh size %lu nlink %lu from "DFID"\n",
+		       (unsigned long)body->size, (unsigned long)body->nlink,
+		       PFID(&fid));
+		if (req)
+			ptlrpc_req_finished(req);
+release_lock:
+		size += lsm->lsm_oinfo[i].lmo_size;
+		nlink += lsm->lsm_oinfo[i].lmo_nlink;
+
+		if (it.d.lustre.it_lock_mode && lockh) {
+			ldlm_lock_decref(lockh, it.d.lustre.it_lock_mode);
+			it.d.lustre.it_lock_mode = 0;
+		}
+	}
+
+	/*
+	 * update attr of master request.
+	 */
+	CDEBUG(D_INODE, "Return refreshed attrs: size = %lu nlink %lu for "
+	       DFID"\n", size, nlink, PFID(&lsm->lsm_oinfo[0].lmo_fid));
+	if (mbody != NULL) {
+		mbody->size = size;
+		mbody->nlink = nlink;
+	}
+cleanup:
+	OBD_FREE_PTR(op_data);
+	RETURN(rc);
+}
+
 /*
  * IT_OPEN is intended to open (and create, possible) an object. Parent (pid)
  * may be split dir.
@@ -219,31 +348,17 @@ int lmv_intent_open(struct obd_export *exp, struct md_op_data *op_data,
 	body = req_capsule_server_get(&(*reqp)->rq_pill, &RMF_MDT_BODY);
 	if (body == NULL)
 		RETURN(-EPROTO);
-	/*
-	 * Not cross-ref case, just get out of here.
-	 */
-	if (likely(!(body->valid & OBD_MD_MDS)))
-		RETURN(0);
 
-	/*
-	 * Okay, MDS has returned success. Probably name has been resolved in
-	 * remote inode.
-	 */
-	rc = lmv_intent_remote(exp, lmm, lmmsize, it, &op_data->op_fid1, flags,
-			       reqp, cb_blocking, extra_lock_flags);
-	if (rc != 0) {
-		LASSERT(rc < 0);
-		/*
-		 * This is possible, that some userspace application will try to
-		 * open file as directory and we will have -ENOTDIR here. As
-		 * this is normal situation, we should not print error here,
-		 * only debug info.
-		 */
-		CDEBUG(D_INODE, "Can't handle remote %s: dir "DFID"("DFID"):"
-		       "%*s: %d\n", LL_IT2STR(it), PFID(&op_data->op_fid2),
-		       PFID(&op_data->op_fid1), op_data->op_namelen,
-		       op_data->op_name, rc);
-		RETURN(rc);
+	/* Not cross-ref case, just get out of here. */
+	if (unlikely((body->valid & OBD_MD_MDS))) {
+		rc = lmv_intent_remote(exp, lmm, lmmsize, it, &op_data->op_fid1,
+				       flags, reqp, cb_blocking,
+				       extra_lock_flags);
+		if (rc != 0)
+			RETURN(rc);
+		body = req_capsule_server_get(&(*reqp)->rq_pill, &RMF_MDT_BODY);
+		if (body == NULL)
+			RETURN(-EPROTO);
 	}
 
 	RETURN(rc);
@@ -283,8 +398,20 @@ int lmv_intent_lookup(struct obd_export *exp, struct md_op_data *op_data,
 	rc = md_intent_lock(tgt->ltd_exp, op_data, lmm, lmmsize, it,
 			     flags, reqp, cb_blocking, extra_lock_flags);
 
-	if (rc < 0 || *reqp == NULL)
+	if (rc < 0)
 		RETURN(rc);
+
+	if (*reqp == NULL) {
+		/* If RPC happens, lsm information will be revalidated
+		 * during update_inode process (see ll_update_lsm_md) */
+		if (op_data->op_mea2 != NULL) {
+			rc = lmv_revalidate_slaves(exp, NULL, op_data->op_mea2,
+						   cb_blocking, extra_lock_flags);
+			if (rc != 0)
+				RETURN(rc);
+		}
+		RETURN(rc);
+	}
 
 	/*
 	 * MDS has returned success. Probably name has been resolved in
@@ -293,12 +420,17 @@ int lmv_intent_lookup(struct obd_export *exp, struct md_op_data *op_data,
 	body = req_capsule_server_get(&(*reqp)->rq_pill, &RMF_MDT_BODY);
 	if (body == NULL)
 		RETURN(-EPROTO);
-	/* Not cross-ref case, just get out of here. */
-	if (likely(!(body->valid & OBD_MD_MDS)))
-		RETURN(0);
 
-	rc = lmv_intent_remote(exp, lmm, lmmsize, it, NULL, flags, reqp,
-			       cb_blocking, extra_lock_flags);
+	/* Not cross-ref case, just get out of here. */
+	if (unlikely((body->valid & OBD_MD_MDS))) {
+		rc = lmv_intent_remote(exp, lmm, lmmsize, it, NULL, flags,
+				       reqp, cb_blocking, extra_lock_flags);
+		if (rc != 0)
+			RETURN(rc);
+		body = req_capsule_server_get(&(*reqp)->rq_pill, &RMF_MDT_BODY);
+		if (body == NULL)
+			RETURN(-EPROTO);
+	}
 
 	RETURN(rc);
 }

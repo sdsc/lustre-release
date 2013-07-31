@@ -136,7 +136,7 @@ struct md_attr {
         struct lu_fid           ma_pfid;
         struct md_hsm           ma_hsm;
         struct lov_mds_md      *ma_lmm;
-        struct lmv_stripe_md   *ma_lmv;
+	struct lmv_mds_md	*ma_lmv;
         void                   *ma_acl;
         struct llog_cookie     *ma_cookie;
         struct lustre_capa     *ma_capa;
@@ -170,8 +170,8 @@ struct md_op_spec {
 	/** don't create lov objects or llog cookie - this replay */
 	unsigned int no_create:1,
 		     sp_cr_lookup:1, /* do lookup sanity check or not. */
-		     sp_rm_entry:1;  /* only remove name entry */
-
+		     sp_rm_entry:1,  /* only remove name entry */
+		     sp_stripe_create:1; /* create striped directory */
 	/** Current lock mode for parent dir where create is performing. */
         mdl_mode_t sp_cr_mode;
 

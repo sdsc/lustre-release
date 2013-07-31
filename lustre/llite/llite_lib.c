@@ -1211,6 +1211,42 @@ static void ll_clear_lsm_md(struct inode *inode)
 	lli->lli_lsm_md = NULL;
 }
 
+static int ll_init_lsm_md(struct inode *inode, struct lustre_md *md)
+{
+	struct lu_fid *fid;
+	struct ll_sb_info *sbi = ll_i2sbi(inode);
+	struct inode *lsm_inode;
+	struct lmv_stripe_md *lsm = md->lsm_md;
+	ino_t ino;
+	int i;
+
+	LASSERT(lsm != NULL);
+	/* XXX sigh, this lsm_root initialization should be in
+	 * LMV layer, but it needs ll_iget right now, so we
+	 * put this here right now. */
+	for (i = 0; i < lsm->lsm_count; i++) {
+		fid = &lsm->lsm_oinfo[i].lmo_fid;
+		ino = cl_fid_build_ino(fid, sbi->ll_flags &
+				       LL_SBI_32BIT_API);
+		if (i == 0) {
+			lsm->lsm_oinfo[i].lmo_root = inode;
+		} else {
+			md->lm_flags |= LUSTRE_MD_SLAVE;
+			md->lm_slave_fid = fid;
+			lsm_inode = ll_iget(inode->i_sb, ino, md);
+			LASSERT(lsm->lsm_oinfo[i].lmo_root == NULL);
+			lsm->lsm_oinfo[i].lmo_root = lsm_inode;
+			md->lm_flags &= ~LUSTRE_MD_SLAVE;
+			md->lm_slave_fid = NULL;
+		}
+	}
+
+	/* Here is where the lsm is being initialized(fill lmo_info) after
+	 * client retrieve MD stripe information from MDT. */
+	return md_update_lsm_md(ll_i2mdexp(inode), lsm, md->body,
+				ll_md_blocking_ast);
+}
+
 static void ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
 {
         struct ll_inode_info *lli = ll_i2info(inode);
@@ -1218,32 +1254,14 @@ static void ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
         int idx;
 
 	LASSERT(S_ISDIR(inode->i_mode) && lsm != NULL);
-	for (idx = 0; idx < lsm->lsm_count; idx++) {
-		ino_t ino;
-		struct lu_fid *fid;
-		struct ll_sb_info *sbi = ll_i2sbi(inode);
-		struct inode *lsm_inode;
-
-		fid = &lsm->lsm_oinfo[idx].lmo_fid;
-		ino = cl_fid_build_ino(fid, sbi->ll_flags & LL_SBI_32BIT_API);
-
-		if (idx == 0) {
-			lsm->lsm_oinfo[idx].lmo_root = inode;
-			LASSERT(lsm->lsm_oinfo[idx].lmo_root != NULL);
-		} else {
-			lsm_inode = ll_iget(inode->i_sb, ino, md);
-			LASSERT(lsm->lsm_oinfo[idx].lmo_root == NULL);
-			lsm->lsm_oinfo[idx].lmo_root = lsm_inode;
-		}
-	}
 	if (lli->lli_lsm_md == NULL) {
+		ll_init_lsm_md(inode, md);
 		lli->lli_lsm_md = lsm;
 		/* set lsm_md to NULL, so the following free lustre_md
 		 * will not free this lsm */
 		md->lsm_md = NULL;
 		return;
 	}
-
 	/* Compare the old and new stripe information */
 	if (lli->lli_lsm_md->lsm_md_magic != lsm->lsm_md_magic ||
 	    lli->lli_lsm_md->lsm_count != lsm->lsm_count ||
@@ -1284,6 +1302,8 @@ static void ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
 		}
 	}
 
+	md_update_lsm_md(ll_i2mdexp(inode), ll_i2info(inode)->lli_lsm_md,
+			 md->body, ll_md_blocking_ast);
 	return;
 }
 
@@ -1800,6 +1820,12 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 	struct mdt_body *body = md->body;
 	struct lov_stripe_md *lsm = md->lsm;
 	struct ll_sb_info *sbi = ll_i2sbi(inode);
+	struct lu_fid	*fid;
+
+	if (unlikely(md->lm_flags & LUSTRE_MD_SLAVE))
+		fid = md->lm_slave_fid;
+	else
+		fid = &body->fid1;
 
 	LASSERT ((lsm != NULL) == ((body->valid & OBD_MD_FLEASIZE) != 0));
 	if (lsm != NULL) {
@@ -1812,7 +1838,8 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 			lli->lli_maxbytes = MAX_LFS_FILESIZE;
 	}
 
-	if (S_ISDIR(inode->i_mode) && md->lsm_md != NULL)
+	if (S_ISDIR(inode->i_mode) && md->lsm_md != NULL &&
+	    !(md->lm_flags & LUSTRE_MD_SLAVE))
 		ll_update_lsm_md(inode, md);
 
 	if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
@@ -1828,9 +1855,9 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 		spin_unlock(&lli->lli_lock);
 	}
 #endif
-	inode->i_ino = cl_fid_build_ino(&body->fid1,
+	inode->i_ino = cl_fid_build_ino(fid,
 					sbi->ll_flags & LL_SBI_32BIT_API);
-        inode->i_generation = cl_fid_build_gen(&body->fid1);
+        inode->i_generation = cl_fid_build_gen(fid);
 
         if (body->valid & OBD_MD_FLATIME) {
                 if (body->atime > LTIME_S(inode->i_atime))
@@ -1875,13 +1902,13 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
         if (body->valid & OBD_MD_FLID) {
                 /* FID shouldn't be changed! */
                 if (fid_is_sane(&lli->lli_fid)) {
-                        LASSERTF(lu_fid_eq(&lli->lli_fid, &body->fid1),
+                        LASSERTF(lu_fid_eq(&lli->lli_fid, fid),
                                  "Trying to change FID "DFID
                                  " to the "DFID", inode %lu/%u(%p)\n",
-                                 PFID(&lli->lli_fid), PFID(&body->fid1),
+                                 PFID(&lli->lli_fid), PFID(fid),
                                  inode->i_ino, inode->i_generation, inode);
                 } else
-                        lli->lli_fid = body->fid1;
+                        lli->lli_fid = *fid;
         }
 
         LASSERT(fid_seq(&lli->lli_fid) != 0);
@@ -1944,6 +1971,7 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 		if (body->t_state & MS_RESTORE)
 			lli->lli_flags |= LLIF_FILE_RESTORING;
 	}
+
 }
 
 void ll_read_inode2(struct inode *inode, void *opaque)
@@ -2222,7 +2250,7 @@ int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
 		  struct super_block *sb, struct lookup_intent *it)
 {
 	struct ll_sb_info *sbi = NULL;
-	struct lustre_md md;
+	struct lustre_md md = { 0 };
         int rc;
         ENTRY;
 

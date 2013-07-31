@@ -1729,16 +1729,31 @@ static int lmv_close(struct obd_export *exp, struct md_op_data *op_data,
 
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
-		struct lu_fid *fid)
+                struct lu_fid *fid)
 {
-	struct lmv_tgt_desc *tgt;
+	struct lmv_stripe_md	*lsm = op_data->op_mea1;
+        struct lmv_tgt_desc	*tgt;
+        int			sidx;
 
-	tgt = lmv_find_target(lmv, fid);
-	if (IS_ERR(tgt))
-		return tgt;
+        if (!lsm || lsm->lsm_count <= 1 || op_data->op_namelen == 0) {
+                tgt = lmv_find_target(lmv, fid);
+		if (IS_ERR(tgt))
+			return tgt;
 
-	op_data->op_mds = tgt->ltd_idx;
+                op_data->op_mds = tgt->ltd_idx;
+                return tgt;
+        }
 
+	sidx = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
+			    op_data->op_name, op_data->op_namelen);
+
+	LASSERT(sidx < lsm->lsm_count);
+	*fid = lsm->lsm_oinfo[sidx].lmo_fid;
+	op_data->op_mds = lsm->lsm_oinfo[sidx].lmo_mds;
+	tgt = lmv_get_target(lmv, lsm->lsm_oinfo[sidx].lmo_mds);
+
+	CDEBUG(D_INFO, "locate on idx %d mds %u \n", sidx,
+	       op_data->op_mds);
 	return tgt;
 }
 
@@ -1760,22 +1775,34 @@ int lmv_create(struct obd_export *exp, struct md_op_data *op_data,
 	if (!lmv->desc.ld_active_tgt_count)
 		RETURN(-EIO);
 
+	/* This is for choosing the MDT for name entry, and for
+	 * striped directory, it will reset op_fid1 with the FID
+	 * of the stripe where name is created */
 	tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
 	if (IS_ERR(tgt))
 		RETURN(PTR_ERR(tgt));
+
+	CDEBUG(D_INODE, "CREATE name '%*s' on "DFID" -> mds #%x\n",
+	       op_data->op_namelen, op_data->op_name, PFID(&op_data->op_fid1),
+	       op_data->op_mds);
 
 	rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
 	if (rc)
 		RETURN(rc);
 
-	CDEBUG(D_INODE, "CREATE '%*s' on "DFID" -> mds #%x\n",
-	       op_data->op_namelen, op_data->op_name, PFID(&op_data->op_fid1),
-	       op_data->op_mds);
+	/* Send the create request to the MDT where the object
+	 * is located */
+	tgt = lmv_find_target(lmv, &op_data->op_fid2);
+	if (IS_ERR(tgt))
+		RETURN(PTR_ERR(tgt));
+	op_data->op_mds = tgt->ltd_idx;
+
+	CDEBUG(D_INODE, "CREATE obj "DFID" -> mds #%x\n",
+	       PFID(&op_data->op_fid2), op_data->op_mds);
 
 	op_data->op_flags |= MF_MDC_CANCEL_FID1;
 	rc = md_create(tgt->ltd_exp, op_data, data, datalen, mode, uid, gid,
 		       cap_effective, rdev, request);
-
 	if (rc == 0) {
 		if (*request == NULL)
 			RETURN(rc);
@@ -2607,8 +2634,8 @@ int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
 		for (i = 1; i < lsm->lsm_count; i++) {
 			struct inode *inode;
 			inode = (struct inode *)lsm->lsm_oinfo[i].lmo_root;
-			LASSERTF(inode != NULL, "lsm is %d i %d\n", lsm->lsm_count, i);
-			iput(inode);
+			if (inode != NULL)
+				iput(inode);
 		}
 #endif
 		lsm_size = lmv_stripe_md_size(lsm->lsm_count);
@@ -3042,6 +3069,31 @@ int lmv_quotacheck(struct obd_device *unused, struct obd_export *exp,
         RETURN(rc);
 }
 
+int lmv_update_lsm_md(struct obd_export *exp, struct lmv_stripe_md *lsm,
+		      struct mdt_body *body, ldlm_blocking_callback cb_blocking)
+{
+	if (lsm->lsm_count <= 1)
+		return 0;
+
+	return lmv_revalidate_slaves(exp, body, lsm, cb_blocking, 0);
+}
+
+int lmv_merge_attr(struct obd_export *exp, struct lmv_stripe_md *lsm,
+		   struct cl_attr *attr)
+{
+	int i;
+
+	for (i = 0; i < lsm->lsm_count; i++) {
+		CDEBUG(D_INFO, ""DFID" size %llu nlink %u\n",
+		       PFID(&lsm->lsm_oinfo[i].lmo_fid),
+		       lsm->lsm_oinfo[i].lmo_size,
+		       lsm->lsm_oinfo[i].lmo_nlink); 
+		attr->cat_size += lsm->lsm_oinfo[i].lmo_size;
+		attr->cat_nlink += lsm->lsm_oinfo[i].lmo_nlink;
+	}
+	return 0;
+}
+
 struct obd_ops lmv_obd_ops = {
         .o_owner                = THIS_MODULE,
         .o_setup                = lmv_setup,
@@ -3087,6 +3139,8 @@ struct md_ops lmv_md_ops = {
         .m_lock_match           = lmv_lock_match,
         .m_get_lustre_md        = lmv_get_lustre_md,
         .m_free_lustre_md       = lmv_free_lustre_md,
+        .m_update_lsm_md	= lmv_update_lsm_md,
+        .m_merge_attr		= lmv_merge_attr,
         .m_set_open_replay_data = lmv_set_open_replay_data,
         .m_clear_open_replay_data = lmv_clear_open_replay_data,
         .m_renew_capa           = lmv_renew_capa,
