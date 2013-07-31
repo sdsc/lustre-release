@@ -2683,6 +2683,7 @@ static inline int lmv_mds_md_size(int stripes, int lmm_magic)
 		return 0;
 	}
 }
+
 enum fld_rpc_opc {
 	FLD_QUERY	= 900,
 	FLD_READ	= 901,
