@@ -1766,16 +1766,31 @@ static int lmv_close(struct obd_export *exp, struct md_op_data *op_data,
 
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
-		struct lu_fid *fid)
+                struct lu_fid *fid)
 {
-	struct lmv_tgt_desc *tgt;
+	struct lmv_stripe_md	*lsm = op_data->op_mea1;
+        struct lmv_tgt_desc	*tgt;
+        int			sidx;
 
-	tgt = lmv_find_target(lmv, fid);
-	if (IS_ERR(tgt))
-		return tgt;
+        if (!lsm || lsm->lsm_count <= 1 || op_data->op_namelen == 0) {
+                tgt = lmv_find_target(lmv, fid);
+		if (IS_ERR(tgt))
+			return tgt;
 
-	op_data->op_mds = tgt->ltd_idx;
+                op_data->op_mds = tgt->ltd_idx;
+                return tgt;
+        }
 
+	sidx = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
+			    op_data->op_name, op_data->op_namelen);
+
+	LASSERT(sidx < lsm->lsm_count);
+	*fid = lsm->lsm_oinfo[sidx].lmo_fid;
+	op_data->op_mds = lsm->lsm_oinfo[sidx].lmo_mds;
+	tgt = lmv_get_target(lmv, lsm->lsm_oinfo[sidx].lmo_mds);
+
+	CDEBUG(D_INFO, "locate on idx %d mds %u \n", sidx,
+	       op_data->op_mds);
 	return tgt;
 }
 
@@ -1797,22 +1812,34 @@ int lmv_create(struct obd_export *exp, struct md_op_data *op_data,
 	if (!lmv->desc.ld_active_tgt_count)
 		RETURN(-EIO);
 
+	/* This is for choosing the MDT for name entry, and for
+	 * striped directory, it will reset op_fid1 with the FID
+	 * of the stripe where name is created */
 	tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
 	if (IS_ERR(tgt))
 		RETURN(PTR_ERR(tgt));
+
+	CDEBUG(D_INODE, "CREATE name '%*s' on "DFID" -> mds #%x\n",
+	       op_data->op_namelen, op_data->op_name, PFID(&op_data->op_fid1),
+	       op_data->op_mds);
 
 	rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
 	if (rc)
 		RETURN(rc);
 
-	CDEBUG(D_INODE, "CREATE '%*s' on "DFID" -> mds #%x\n",
-	       op_data->op_namelen, op_data->op_name, PFID(&op_data->op_fid1),
-	       op_data->op_mds);
+	/* Send the create request to the MDT where the object
+	 * is located */
+	tgt = lmv_find_target(lmv, &op_data->op_fid2);
+	if (IS_ERR(tgt))
+		RETURN(PTR_ERR(tgt));
+	op_data->op_mds = tgt->ltd_idx;
+
+	CDEBUG(D_INODE, "CREATE obj "DFID" -> mds #%x\n",
+	       PFID(&op_data->op_fid2), op_data->op_mds);
 
 	op_data->op_flags |= MF_MDC_CANCEL_FID1;
 	rc = md_create(tgt->ltd_exp, op_data, data, datalen, mode, uid, gid,
 		       cap_effective, rdev, request);
-
 	if (rc == 0) {
 		if (*request == NULL)
 			RETURN(rc);
@@ -2060,6 +2087,16 @@ static int lmv_link(struct obd_export *exp, struct md_op_data *op_data,
 	op_data->op_fsuid = current_fsuid();
 	op_data->op_fsgid = current_fsgid();
 	op_data->op_cap = cfs_curproc_cap_pack();
+	if (op_data->op_mea2) {
+		struct lmv_stripe_md *lsm = op_data->op_mea2;
+		int index;
+
+		index = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
+				     op_data->op_name, op_data->op_namelen);
+		LASSERT(index < lsm->lsm_count);
+		op_data->op_fid2 = lsm->lsm_oinfo[index].lmo_fid;
+	}
+
 	tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
 	if (IS_ERR(tgt))
 		RETURN(PTR_ERR(tgt));
@@ -2084,16 +2121,17 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 {
         struct obd_device       *obd = exp->exp_obd;
         struct lmv_obd          *lmv = &obd->u.lmv;
-        struct lmv_tgt_desc     *src_tgt;
-	struct lmv_tgt_desc     *tgt_tgt;
+	struct lmv_tgt_desc     *src_tgt;
 	int			rc;
 	ENTRY;
 
         LASSERT(oldlen != 0);
 
-        CDEBUG(D_INODE, "RENAME %*s in "DFID" to %*s in "DFID"\n",
+        CDEBUG(D_INODE, "RENAME %*s in "DFID":%d to %*s in "DFID":%d\n",
                oldlen, old, PFID(&op_data->op_fid1),
-               newlen, new, PFID(&op_data->op_fid2));
+	       op_data->op_mea1 ? op_data->op_mea1->lsm_count : 0,
+               newlen, new, PFID(&op_data->op_fid2),
+	       op_data->op_mea2 ? op_data->op_mea2->lsm_count : 0);
 
         rc = lmv_check_connect(obd);
         if (rc)
@@ -2102,13 +2140,31 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	op_data->op_fsuid = current_fsuid();
 	op_data->op_fsgid = current_fsgid();
 	op_data->op_cap = cfs_curproc_cap_pack();
+
 	src_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
 	if (IS_ERR(src_tgt))
 		RETURN(PTR_ERR(src_tgt));
 
-	tgt_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
-	if (IS_ERR(tgt_tgt))
-		RETURN(PTR_ERR(tgt_tgt));
+	if (op_data->op_mea1) {
+		struct lmv_stripe_md *lsm = op_data->op_mea1;
+		int index;
+
+		index = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
+				     old, oldlen);
+		LASSERT(index < lsm->lsm_count);
+		op_data->op_fid1 = lsm->lsm_oinfo[index].lmo_fid;
+	}
+
+	if (op_data->op_mea2) {
+		struct lmv_stripe_md *lsm = op_data->op_mea2;
+		int index;
+
+		index = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
+				     new, newlen);
+		LASSERT(index < lsm->lsm_count);
+		op_data->op_fid2 = lsm->lsm_oinfo[index].lmo_fid;
+	}
+
 	/*
 	 * LOOKUP lock on src child (fid3) should also be cancelled for
 	 * src_tgt in mdc_rename.
@@ -3085,6 +3141,45 @@ int lmv_quotacheck(struct obd_device *unused, struct obd_export *exp,
         RETURN(rc);
 }
 
+int lmv_update_lsm_md(struct obd_export *exp, struct lmv_stripe_md *lsm,
+		      struct mdt_body *body, ldlm_blocking_callback cb_blocking)
+{
+	if (lsm->lsm_count <= 1)
+		return 0;
+
+	return lmv_revalidate_slaves(exp, body, lsm, cb_blocking, 0);
+}
+
+int lmv_merge_attr(struct obd_export *exp, struct lmv_stripe_md *lsm,
+		   struct cl_attr *attr)
+{
+	int i;
+
+	for (i = 0; i < lsm->lsm_count; i++) {
+		CDEBUG(D_INFO, ""DFID" size %llu nlink %u atime "LPU64
+		       "ctime "LPU64" mtime "LPU64"\n",
+		       PFID(&lsm->lsm_oinfo[i].lmo_fid),
+		       lsm->lsm_oinfo[i].lmo_size,
+		       lsm->lsm_oinfo[i].lmo_nlink,
+		       lsm->lsm_oinfo[i].lmo_atime,
+		       lsm->lsm_oinfo[i].lmo_ctime,
+		       lsm->lsm_oinfo[i].lmo_mtime);
+		attr->cat_size += lsm->lsm_oinfo[i].lmo_size;
+		if (i != 0)
+			attr->cat_nlink += lsm->lsm_oinfo[i].lmo_nlink - 2;
+		else
+			attr->cat_nlink = lsm->lsm_oinfo[i].lmo_nlink;
+
+		if (attr->cat_atime < lsm->lsm_oinfo[i].lmo_atime)
+			attr->cat_atime = lsm->lsm_oinfo[i].lmo_atime;
+		if (attr->cat_ctime < lsm->lsm_oinfo[i].lmo_ctime)
+			attr->cat_ctime = lsm->lsm_oinfo[i].lmo_ctime;
+		if (attr->cat_mtime < lsm->lsm_oinfo[i].lmo_mtime)
+			attr->cat_mtime = lsm->lsm_oinfo[i].lmo_mtime;
+	}
+	return 0;
+}
+
 struct obd_ops lmv_obd_ops = {
         .o_owner                = THIS_MODULE,
         .o_setup                = lmv_setup,
@@ -3130,6 +3225,8 @@ struct md_ops lmv_md_ops = {
         .m_lock_match           = lmv_lock_match,
         .m_get_lustre_md        = lmv_get_lustre_md,
         .m_free_lustre_md       = lmv_free_lustre_md,
+        .m_update_lsm_md	= lmv_update_lsm_md,
+        .m_merge_attr		= lmv_merge_attr,
         .m_set_open_replay_data = lmv_set_open_replay_data,
         .m_clear_open_replay_data = lmv_clear_open_replay_data,
         .m_renew_capa           = lmv_renew_capa,
