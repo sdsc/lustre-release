@@ -1478,18 +1478,39 @@ static int lfs_getdirstripe(int argc, char **argv)
 	return lfs_getstripe_internal(argc, argv, &param);
 }
 
+unsigned int hash_type_get(int stripe_pattern)
+{
+	switch (stripe_pattern) {
+	case 0:
+		return MEA_MAGIC_LAST_CHAR;
+	case 1:
+		return MEA_MAGIC_ALL_CHARS;
+	case 2:
+		return MEA_MAGIC_FULL_NAME_HASH;
+	default:
+		return -EINVAL;
+	}
+
+	return -EINVAL;
+}
+
 /* functions */
 static int lfs_setdirstripe(int argc, char **argv)
 {
-	char *dname;
-	int result;
-	int  st_offset, st_count;
-	char *end;
-	int c;
-	char *stripe_off_arg = NULL;
-	int  flags = 0;
+	char		*dname;
+	int		result;
+	unsigned int	st_offset;
+	unsigned int	st_count;
+	unsigned int	st_type = 2;	/* default type is 2 */
+	char		*end;
+	int		c;
+	char		*stripe_off_arg = NULL;
+	char		*stripe_count_arg = NULL;
+	int		flags = 0;
+	unsigned int	hash_pattern;
 
 	struct option long_opts[] = {
+		{"count",    required_argument, 0, 'c'},
 		{"index",    required_argument, 0, 'i'},
 		{0, 0, 0, 0}
 	};
@@ -1497,11 +1518,14 @@ static int lfs_setdirstripe(int argc, char **argv)
 	st_offset = -1;
 	st_count = 1;
 	optind = 0;
-	while ((c = getopt_long(argc, argv, "i:o",
-				long_opts, NULL)) >= 0) {
+
+	while ((c = getopt_long(argc, argv, "c:i:D", long_opts, NULL)) >= 0) {
 		switch (c) {
 		case 0:
 			/* Long options. */
+			break;
+		case 'c':
+			stripe_count_arg = optarg;
 			break;
 		case 'i':
 			stripe_off_arg = optarg;
@@ -1520,22 +1544,37 @@ static int lfs_setdirstripe(int argc, char **argv)
 		return CMD_HELP;
 	}
 
-	dname = argv[optind];
-	if (stripe_off_arg == NULL) {
-		fprintf(stderr, "error: %s: missing stripe_off.\n",
+	if (stripe_off_arg == NULL && stripe_count_arg == NULL) {
+		fprintf(stderr, "error: %s: missing stripe offset and count.\n",
 			argv[0]);
 		return CMD_HELP;
 	}
-	/* get the stripe offset */
-	st_offset = strtoul(stripe_off_arg, &end, 0);
-	if (*end != '\0') {
-		fprintf(stderr, "error: %s: bad stripe offset '%s'\n",
-			argv[0], stripe_off_arg);
-		return CMD_HELP;
+
+	if (stripe_off_arg != NULL) {
+		/* get the stripe offset */
+		st_offset = strtoul(stripe_off_arg, &end, 0);
+		if (*end != '\0') {
+			fprintf(stderr, "error: %s: bad stripe offset '%s'\n",
+				argv[0], stripe_off_arg);
+			return CMD_HELP;
+		}
 	}
+
+	/* get the stripe count */
+	if (stripe_count_arg != NULL) {
+		st_count = strtoul(stripe_count_arg, &end, 0);
+		if (*end != '\0') {
+			fprintf(stderr, "error: %s: bad stripe count '%s'\n",
+				argv[0], stripe_count_arg);
+			return CMD_HELP;
+		}
+	}
+
+	dname = argv[optind];
+	hash_pattern = hash_type_get(st_type);
 	do {
 		result = llapi_dir_create_pool(dname, flags, st_offset,
-					       st_count, 0, NULL);
+					       st_count, hash_pattern, NULL);
 		if (result) {
 			fprintf(stderr, "error: %s: create stripe dir '%s' "
 				"failed\n", argv[0], dname);

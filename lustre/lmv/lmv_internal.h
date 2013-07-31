@@ -78,6 +78,14 @@ int __lmv_fid_alloc(struct lmv_obd *lmv, struct lu_fid *fid,
 int lmv_fid_alloc(struct obd_export *exp, struct lu_fid *fid,
                   struct md_op_data *op_data);
 
+int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
+		  const union lmv_mds_md *lmm, int stripe_count);
+
+int lmv_revalidate_slaves(struct obd_export *exp, struct mdt_body *mbody,
+			  struct lmv_stripe_md *lsm,
+			  ldlm_blocking_callback cb_blocking,
+			  int extra_lock_flags);
+
 static inline struct lmv_tgt_desc *
 lmv_get_target(struct lmv_obd *lmv, mdsno_t mds)
 {
@@ -144,7 +152,39 @@ static inline int lmv_stripe_md_size(int stripe_count)
 	return sizeof(*lsm) + stripe_count * sizeof(lsm->lsm_md_oinfo[0]);
 }
 
+#ifdef __KERNEL__
+static inline unsigned int mea_full_name_hash(unsigned int count,
+					      const char *name, int namelen)
+{
+	unsigned int hash;
+	unsigned int c = 0;
+
+	hash = full_name_hash(name, namelen);
+
+	c = c % count;
+
+	return c;
+}
+#else
+#define mea_full_name_hash(count, name, namelen)	\
+			mea_all_chars_hash(count, name, namelen)
+#endif
 int raw_name2idx(int hashtype, int count, const char *name, int namelen);
+
+static inline const struct lmv_oinfo
+*lsm_name_to_stripe_info(const struct lmv_stripe_md *lsm, const char *name,
+			 int namelen)
+{
+	int stripe_index;
+
+	stripe_index = raw_name2idx(lsm->lsm_md_hash_type,
+				    lsm->lsm_md_stripe_count,
+				    name, namelen);
+	LASSERT(stripe_index < lsm->lsm_md_stripe_count);
+
+	return &lsm->lsm_md_oinfo[stripe_index];
+}
+
 
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,

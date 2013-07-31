@@ -1198,9 +1198,13 @@ enum {
 };
 
 /* lmv structures */
+/* Obsolete hash type, only for testing purpose */
 #define MEA_MAGIC_LAST_CHAR      0xb2221ca1
 #define MEA_MAGIC_ALL_CHARS      0xb222a11c
 #define MEA_MAGIC_HASH_SEGMENT   0xb222a11b
+
+/* default hash type */
+#define MEA_MAGIC_FULL_NAME_HASH 0xb222a11d
 
 #define MAX_HASH_SIZE_32         0x7fffffffUL
 #define MAX_HASH_SIZE            0x7fffffffffffffffULL
@@ -1216,6 +1220,7 @@ struct lustre_md {
 	struct mdt_remote_perm  *remote_perm;
 	struct obd_capa         *mds_capa;
 	struct obd_capa         *oss_capa;
+	struct lu_fid		*lm_slave_fid;
 	__u64			lm_flags;
 };
 
@@ -1228,6 +1233,7 @@ struct md_open_data {
 };
 
 struct lookup_intent;
+struct cl_attr;
 
 struct md_ops {
 	/* Every operation from MD_STATS_FIRST_OP up to and including
@@ -1328,6 +1334,13 @@ struct md_ops {
 			       struct lustre_md *);
 
 	int (*m_free_lustre_md)(struct obd_export *, struct lustre_md *);
+
+	int (*m_merge_attr)(struct obd_export *,
+			    const struct lmv_stripe_md *lsm,
+			    struct cl_attr *attr);
+
+	int (*m_update_lsm_md)(struct obd_export *, struct lmv_stripe_md *lsm,
+			       struct mdt_body *, ldlm_blocking_callback);
 
 	int (*m_set_open_replay_data)(struct obd_export *,
 				      struct obd_client_handle *,
