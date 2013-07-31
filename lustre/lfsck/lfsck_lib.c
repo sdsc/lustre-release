@@ -417,7 +417,7 @@ static int lfsck_parent_fid(const struct lu_env *env, struct dt_object *obj,
 		return -ENOTDIR;
 
 	return dt_lookup(env, obj, (struct dt_rec *)fid,
-			 (const struct dt_key *)"..", BYPASS_CAPA);
+			 (const struct dt_key *)"..", LC_BYPASS_CAPA);
 }
 
 static int lfsck_needs_scan_dir(const struct lu_env *env,
@@ -461,7 +461,7 @@ static int lfsck_needs_scan_dir(const struct lu_env *env,
 
 		rc = dt_xattr_get(env, obj,
 				  lfsck_buf_get(env, NULL, 0), XATTR_NAME_LINK,
-				  BYPASS_CAPA);
+				  LC_BYPASS_CAPA);
 		dt_read_unlock(env, obj);
 		if (rc >= 0) {
 			if (depth > 0)
@@ -610,7 +610,7 @@ int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck)
 
 	/* Init the namespace-based directory traverse. */
 	iops = &obj->do_index_ops->dio_it;
-	di = iops->init(env, obj, lfsck->li_args_dir, BYPASS_CAPA);
+	di = iops->init(env, obj, lfsck->li_args_dir, LC_BYPASS_CAPA);
 	if (IS_ERR(di))
 		GOTO(out, rc = PTR_ERR(di));
 
@@ -687,7 +687,7 @@ int lfsck_exec_oit(const struct lu_env *env, struct lfsck_instance *lfsck,
 		GOTO(out, rc = -ENOTDIR);
 
 	iops = &obj->do_index_ops->dio_it;
-	di = iops->init(env, obj, lfsck->li_args_dir, BYPASS_CAPA);
+	di = iops->init(env, obj, lfsck->li_args_dir, LC_BYPASS_CAPA);
 	if (IS_ERR(di))
 		GOTO(out, rc = PTR_ERR(di));
 
@@ -1124,7 +1124,7 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 		if (lfsck_dev_idx(lfsck->li_bottom) == 0) {
 			rc = dt_lookup(env, root,
 				(struct dt_rec *)(&lfsck->li_global_root_fid),
-				(const struct dt_key *)"ROOT", BYPASS_CAPA);
+				(const struct dt_key *)"ROOT", LC_BYPASS_CAPA);
 			if (rc != 0)
 				GOTO(out, rc);
 		}

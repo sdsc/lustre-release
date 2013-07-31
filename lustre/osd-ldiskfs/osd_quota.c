@@ -140,7 +140,7 @@ static int osd_acct_index_lookup(const struct lu_env *env,
  *
  * \param  dt    - osd index object
  * \param  attr  - not used
- * \param  capa  - BYPASS_CAPA
+ * \param  capa  - LC_BYPASS_CAPA
  */
 static struct dt_it *osd_it_acct_init(const struct lu_env *env,
 				      struct dt_object *dt,
@@ -372,7 +372,7 @@ static int osd_it_acct_rec(const struct lu_env *env,
 	ENTRY;
 
 	rc = osd_acct_index_lookup(env, &it->oiq_obj->oo_dt, dtrec, key,
-				   BYPASS_CAPA);
+				   LC_BYPASS_CAPA);
 	RETURN(rc > 0 ? 0 : rc);
 }
 
@@ -793,7 +793,7 @@ static int convert_quota_file(const struct lu_env *env,
 
 	/* iterate the old admin file, insert each record into the
 	 * new index file. */
-	it = iops->init(env, old, 0, BYPASS_CAPA);
+	it = iops->init(env, old, 0, LC_BYPASS_CAPA);
 	if (IS_ERR(it))
 		GOTO(out, rc = PTR_ERR(it));
 
@@ -898,11 +898,11 @@ static int truncate_quota_index(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 
 	dt_write_lock(env, dt, 0);
-	rc = dt_punch(env, dt, 0, OBD_OBJECT_EOF, th, BYPASS_CAPA);
+	rc = dt_punch(env, dt, 0, OBD_OBJECT_EOF, th, LC_BYPASS_CAPA);
 	if (rc)
 		GOTO(out_lock, rc);
 
-	rc = dt_attr_set(env, dt, attr, th, BYPASS_CAPA);
+	rc = dt_attr_set(env, dt, attr, th, LC_BYPASS_CAPA);
 	if (rc)
 		GOTO(out_lock, rc);
 

@@ -347,19 +347,19 @@ struct dt_object *__local_file_create(const struct lu_env *env,
 			GOTO(destroy, rc = -ENOTDIR);
 		/* Add "." and ".." for newly created dir */
 		rc = dt_insert(env, dto, (void *)fid, (void *)".", th,
-			       BYPASS_CAPA, 1);
+			       LC_BYPASS_CAPA, 1);
 		if (rc)
 			GOTO(destroy, rc);
 		dt_ref_add(env, dto, th);
 		rc = dt_insert(env, dto, (void *)lu_object_fid(&parent->do_lu),
-			       (void *)"..", th, BYPASS_CAPA, 1);
+			       (void *)"..", th, LC_BYPASS_CAPA, 1);
 		if (rc)
 			GOTO(destroy, rc);
 	}
 
 	dt_write_lock(env, parent, 0);
 	rc = dt_insert(env, parent, (const struct dt_rec *)fid,
-		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
+		       (const struct dt_key *)name, th, LC_BYPASS_CAPA, 1);
 	if (dti->dti_dof.dof_type == DFT_DIR)
 		dt_ref_add(env, parent, th);
 	dt_write_unlock(env, parent);
@@ -613,7 +613,7 @@ int local_object_unlink(const struct lu_env *env, struct dt_device *dt,
 		GOTO(stop, rc);
 
 	dt_write_lock(env, dto, 0);
-	rc = dt_delete(env, parent, (struct dt_key *)name, th, BYPASS_CAPA);
+	rc = dt_delete(env, parent, (struct dt_key *)name, th, LC_BYPASS_CAPA);
 	if (rc < 0)
 		GOTO(unlock, rc);
 
@@ -621,7 +621,8 @@ int local_object_unlink(const struct lu_env *env, struct dt_device *dt,
 	if (rc < 0) {
 		rc = dt_insert(env, parent,
 			       (const struct dt_rec *)&dti->dti_fid,
-			       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
+			       (const struct dt_key *)name, th,
+			       LC_BYPASS_CAPA, 1);
 		GOTO(unlock, rc);
 	}
 

@@ -122,7 +122,7 @@ int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo)
 		 * has the "fid" EA or not.
 		 */
 		rc = dt_xattr_get(env, ofd_object_child(fo), &LU_BUF_NULL,
-				  XATTR_NAME_FID, BYPASS_CAPA);
+				  XATTR_NAME_FID, LC_BYPASS_CAPA);
 		if (rc >= 0 || rc == -ENODATA) {
 			/*
 			 * Here we assume that, if the object doesn't have the
@@ -324,7 +324,7 @@ int ofd_attr_handle_ugid(const struct lu_env *env, struct ofd_object *fo,
 	if (!(la->la_valid & LA_UID) && !(la->la_valid & LA_GID))
 		RETURN(0);
 
-	rc = dt_attr_get(env, ofd_object_child(fo), ln, BYPASS_CAPA);
+	rc = dt_attr_get(env, ofd_object_child(fo), ln, LC_BYPASS_CAPA);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -420,7 +420,7 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 
 	if (ff_needed)
 		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
-				  XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+				  XATTR_NAME_FID, 0, th, LC_BYPASS_CAPA);
 
 stop:
 	ofd_trans_stop(env, ofd, th, rc);
@@ -509,7 +509,7 @@ int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 
 	if (ff_needed)
 		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
-				  XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+				  XATTR_NAME_FID, 0, th, LC_BYPASS_CAPA);
 
 stop:
 	ofd_trans_stop(env, ofd, th, rc);

@@ -195,8 +195,8 @@ out:
 	/* cleanup the content written above */
 	if (rc) {
 		dt_punch(env, o, lgi->lgi_attr.la_size, OBD_OBJECT_EOF, th,
-			 BYPASS_CAPA);
-		dt_attr_set(env, o, &lgi->lgi_attr, th, BYPASS_CAPA);
+			 LC_BYPASS_CAPA);
+		dt_attr_set(env, o, &lgi->lgi_attr, th, LC_BYPASS_CAPA);
 	}
 
 	RETURN(rc);
@@ -294,7 +294,7 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 		RETURN(rc);
 
 	if (dt_object_exists(o)) {
-		rc = dt_attr_get(env, o, &lgi->lgi_attr, BYPASS_CAPA);
+		rc = dt_attr_get(env, o, &lgi->lgi_attr, LC_BYPASS_CAPA);
 		lgi->lgi_off = lgi->lgi_attr.la_size;
 		LASSERT(ergo(rc == 0, lgi->lgi_attr.la_valid & LA_SIZE));
 		if (rc)
@@ -557,7 +557,7 @@ static int llog_osd_next_block(const struct lu_env *env,
 	dt = lu2dt_dev(o->do_lu.lo_dev);
 	LASSERT(dt);
 
-	rc = dt_attr_get(env, o, &lgi->lgi_attr, BYPASS_CAPA);
+	rc = dt_attr_get(env, o, &lgi->lgi_attr, LC_BYPASS_CAPA);
 	if (rc)
 		GOTO(out, rc);
 
@@ -683,7 +683,7 @@ static int llog_osd_prev_block(const struct lu_env *env,
 	cur_offset = LLOG_CHUNK_SIZE;
 	llog_skip_over(&cur_offset, 0, prev_idx);
 
-	rc = dt_attr_get(env, o, &lgi->lgi_attr, BYPASS_CAPA);
+	rc = dt_attr_get(env, o, &lgi->lgi_attr, LC_BYPASS_CAPA);
 	if (rc)
 		GOTO(out, rc);
 
@@ -972,7 +972,7 @@ static int llog_osd_create(const struct lu_env *env, struct llog_handle *res,
 		rc = dt_insert(env, llog_dir,
 			       (struct dt_rec *)&lgi->lgi_fid,
 			       (struct dt_key *)res->lgh_name,
-			       th, BYPASS_CAPA, 1);
+			       th, LC_BYPASS_CAPA, 1);
 		dt_read_unlock(env, llog_dir);
 		lu_object_put(env, &llog_dir->do_lu);
 		if (rc)
@@ -1058,7 +1058,7 @@ static int llog_osd_destroy(const struct lu_env *env,
 			dt_read_lock(env, llog_dir, 0);
 			rc = dt_delete(env, llog_dir,
 				       (struct dt_key *) name,
-				       th, BYPASS_CAPA);
+				       th, LC_BYPASS_CAPA);
 			dt_read_unlock(env, llog_dir);
 			if (rc) {
 				CERROR("%s: can't remove llog %s: rc = %d\n",
@@ -1213,7 +1213,7 @@ out_trans:
 			GOTO(out, rc);
 	}
 
-	rc = dt_attr_get(env, o, &lgi->lgi_attr, BYPASS_CAPA);
+	rc = dt_attr_get(env, o, &lgi->lgi_attr, LC_BYPASS_CAPA);
 	if (rc)
 		GOTO(out, rc);
 
@@ -1282,7 +1282,7 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 	if (!dt_object_exists(o))
 		GOTO(out, rc = -ENOENT);
 
-	rc = dt_attr_get(env, o, &lgi->lgi_attr, BYPASS_CAPA);
+	rc = dt_attr_get(env, o, &lgi->lgi_attr, LC_BYPASS_CAPA);
 	if (rc)
 		GOTO(out, rc);
 

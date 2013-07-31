@@ -443,7 +443,7 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 		 * this is a request to manipulate object's striping
 		 */
 		if (dt_object_exists(dt)) {
-			rc = dt_attr_get(env, next, attr, BYPASS_CAPA);
+			rc = dt_attr_get(env, next, attr, LC_BYPASS_CAPA);
 			if (rc)
 				RETURN(rc);
 		} else {
@@ -801,7 +801,7 @@ static int lod_declare_init_size(const struct lu_env *env,
 	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
 	LASSERT(lo->ldo_stripe_size > 0);
 
-	rc = dt_attr_get(env, next, attr, BYPASS_CAPA);
+	rc = dt_attr_get(env, next, attr, LC_BYPASS_CAPA);
 	LASSERT(attr->la_valid & LA_SIZE);
 	if (rc)
 		RETURN(rc);

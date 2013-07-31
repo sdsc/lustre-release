@@ -384,7 +384,7 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 	/* set filter fid EA */
 	if (ff_needed) {
 		rc = dt_xattr_set(env, dt_obj, &info->fti_buf, XATTR_NAME_FID,
-				  0, th, BYPASS_CAPA);
+				  0, th, LC_BYPASS_CAPA);
 		if (rc)
 			GOTO(out_tx, rc);
 	}

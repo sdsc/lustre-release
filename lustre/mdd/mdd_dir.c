@@ -133,7 +133,7 @@ static int mdd_is_parent(const struct lu_env *env,
 
         for(;;) {
                 /* this is done recursively, bypass capa for each obj */
-                mdd_set_capainfo(env, 4, p1, BYPASS_CAPA);
+		mdd_capainfo_set(env, 4, p1, LC_BYPASS_CAPA);
                 rc = mdd_parent_fid(env, p1, pfid);
                 if (rc)
                         GOTO(out, rc);
@@ -220,7 +220,7 @@ static int mdd_dir_is_empty(const struct lu_env *env,
                 RETURN(-ENOTDIR);
 
         iops = &obj->do_index_ops->dio_it;
-        it = iops->init(env, obj, LUDA_64BITHASH, BYPASS_CAPA);
+	it = iops->init(env, obj, LUDA_64BITHASH, LC_BYPASS_CAPA);
         if (!IS_ERR(it)) {
                 result = iops->get(env, it, (const void *)"");
                 if (result > 0) {
@@ -251,7 +251,7 @@ static int __mdd_may_link(const struct lu_env *env, struct mdd_object *obj)
         int rc;
         ENTRY;
 
-        rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
+	rc = mdd_la_get(env, obj, la, LC_BYPASS_CAPA);
         if (rc)
                 RETURN(rc);
 
@@ -332,7 +332,7 @@ static inline int mdd_is_sticky(const struct lu_env *env,
 	int rc;
 
 	if (pobj) {
-		rc = mdd_la_get(env, pobj, tmp_la, BYPASS_CAPA);
+		rc = mdd_la_get(env, pobj, tmp_la, LC_BYPASS_CAPA);
 		if (rc)
 			return rc;
 
@@ -341,7 +341,7 @@ static inline int mdd_is_sticky(const struct lu_env *env,
 			return 0;
 	}
 
-	rc = mdd_la_get(env, cobj, tmp_la, BYPASS_CAPA);
+	rc = mdd_la_get(env, cobj, tmp_la, LC_BYPASS_CAPA);
 	if (rc)
 		return rc;
 
@@ -1056,19 +1056,19 @@ int mdd_links_read(const struct lu_env *env, struct mdd_object *mdd_obj,
 		return -ENODATA;
 
 	rc = mdo_xattr_get(env, mdd_obj, ldata->ld_buf, XATTR_NAME_LINK,
-			  BYPASS_CAPA);
+			   LC_BYPASS_CAPA);
 	if (rc == -ERANGE) {
 		/* Buf was too small, figure out what we need. */
 		lu_buf_free(ldata->ld_buf);
 		rc = mdo_xattr_get(env, mdd_obj, ldata->ld_buf,
-				   XATTR_NAME_LINK, BYPASS_CAPA);
+				   XATTR_NAME_LINK, LC_BYPASS_CAPA);
 		if (rc < 0)
 			return rc;
 		ldata->ld_buf = lu_buf_check_and_alloc(ldata->ld_buf, rc);
 		if (ldata->ld_buf->lb_buf == NULL)
 			return -ENOMEM;
 		rc = mdo_xattr_get(env, mdd_obj, ldata->ld_buf,
-				  XATTR_NAME_LINK, BYPASS_CAPA);
+				   XATTR_NAME_LINK, LC_BYPASS_CAPA);
 	}
 	if (rc < 0)
 		return rc;
@@ -1750,12 +1750,12 @@ static int mdd_object_initialize(const struct lu_env *env,
 	if (S_ISDIR(attr->la_mode)) {
                 /* Add "." and ".." for newly created dir */
                 mdo_ref_add(env, child, handle);
-                rc = __mdd_index_insert_only(env, child, mdo2fid(child),
-                                             dot, handle, BYPASS_CAPA);
-                if (rc == 0)
-                        rc = __mdd_index_insert_only(env, child, pfid,
-                                                     dotdot, handle,
-                                                     BYPASS_CAPA);
+		rc = __mdd_index_insert_only(env, child, mdo2fid(child),
+					     dot, handle, LC_BYPASS_CAPA);
+		if (rc == 0)
+			rc = __mdd_index_insert_only(env, child, pfid,
+						     dotdot, handle,
+						     LC_BYPASS_CAPA);
                 if (rc != 0)
                         mdo_ref_del(env, child, handle);
         }
@@ -1950,7 +1950,7 @@ static int mdd_acl_init(const struct lu_env *env, struct mdd_object *pobj,
 
 	mdd_read_lock(env, pobj, MOR_TGT_PARENT);
 	rc = mdo_xattr_get(env, pobj, def_acl_buf,
-			   XATTR_NAME_ACL_DEFAULT, BYPASS_CAPA);
+			   XATTR_NAME_ACL_DEFAULT, LC_BYPASS_CAPA);
 	mdd_read_unlock(env, pobj);
 	if (rc > 0) {
 		/* If there are default ACL, fix mode/ACL by default ACL */
@@ -2036,7 +2036,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
          *     2. insert            (__mdd_index_insert(), lookup again)
          */
 
-	rc = mdd_la_get(env, mdd_pobj, pattr, BYPASS_CAPA);
+	rc = mdd_la_get(env, mdd_pobj, pattr, LC_BYPASS_CAPA);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -2093,7 +2093,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 		/* set default acl */
 		rc = mdo_xattr_set(env, son, &def_acl_buf,
 				   XATTR_NAME_ACL_DEFAULT, 0,
-				   handle, BYPASS_CAPA);
+				   handle, LC_BYPASS_CAPA);
 		if (rc) {
 			mdd_write_unlock(env, son);
 			GOTO(cleanup, rc);
@@ -2103,7 +2103,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	if (acl_buf.lb_len > 0) {
 		rc = mdo_xattr_set(env, son, &acl_buf,
 				   XATTR_NAME_ACL_ACCESS,
-				   0, handle, BYPASS_CAPA);
+				   0, handle, LC_BYPASS_CAPA);
 		if (rc) {
 			mdd_write_unlock(env, son);
 			GOTO(cleanup, rc);
@@ -2127,7 +2127,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 				spec->u.sp_ea.eadatalen);
 		rc = mdo_xattr_set(env, son, buf, XATTR_NAME_LOV, 0, handle,
-				BYPASS_CAPA);
+				   LC_BYPASS_CAPA);
 	}
 
 	if (rc == 0 && spec->sp_cr_flags & MDS_OPEN_VOLATILE)
@@ -2196,7 +2196,7 @@ cleanup:
 			else
 				rc2 = __mdd_index_delete(env, mdd_pobj, name,
 							 S_ISDIR(attr->la_mode),
-							 handle, BYPASS_CAPA);
+							 handle, LC_BYPASS_CAPA);
 			if (rc2 != 0)
 				goto out_stop;
 		}
@@ -2697,8 +2697,8 @@ static int mdd_rename(const struct lu_env *env,
 
 fixup_tpobj:
         if (rc) {
-                rc2 = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle,
-                                         BYPASS_CAPA);
+		rc2 = __mdd_index_delete(env, mdd_tpobj, tname, is_dir, handle,
+					 LC_BYPASS_CAPA);
                 if (rc2)
                         CWARN("tp obj fix error %d\n",rc2);
 
@@ -2710,10 +2710,10 @@ fixup_tpobj:
 					mdo_ref_add(env, mdd_tobj, handle);
 			}
 
-                        rc2 = __mdd_index_insert(env, mdd_tpobj,
-                                         mdo2fid(mdd_tobj), tname,
-                                         is_dir, handle,
-                                         BYPASS_CAPA);
+			rc2 = __mdd_index_insert(env, mdd_tpobj,
+						 mdo2fid(mdd_tobj), tname,
+						 is_dir, handle,
+						 LC_BYPASS_CAPA);
 
                         if (rc2)
                                 CWARN("tp obj fix error %d\n",rc2);
@@ -2723,7 +2723,7 @@ fixup_tpobj:
 fixup_spobj:
 	if (rc && is_dir && mdd_sobj && mdd_spobj != mdd_tpobj) {
 		rc2 = __mdd_index_delete_only(env, mdd_sobj, dotdot, handle,
-					      BYPASS_CAPA);
+					      LC_BYPASS_CAPA);
 
 		if (rc2)
 			CWARN("%s: sp obj dotdot delete error: rc = %d\n",
@@ -2731,7 +2731,7 @@ fixup_spobj:
 
 
 		rc2 = __mdd_index_insert_only(env, mdd_sobj, spobj_fid,
-					      dotdot, handle, BYPASS_CAPA);
+					      dotdot, handle, LC_BYPASS_CAPA);
 		if (rc2)
 			CWARN("%s: sp obj dotdot insert error: rc = %d\n",
 			      mdd2obd_dev(mdd)->obd_name, rc2);
@@ -2739,8 +2739,8 @@ fixup_spobj:
 
 fixup_spobj2:
         if (rc) {
-                rc2 = __mdd_index_insert(env, mdd_spobj,
-                                         lf, sname, is_dir, handle, BYPASS_CAPA);
+		rc2 = __mdd_index_insert(env, mdd_spobj, lf, sname, is_dir,
+					 handle, LC_BYPASS_CAPA);
                 if (rc2)
                         CWARN("sp obj fix error %d\n",rc2);
         }
