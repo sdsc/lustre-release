@@ -209,18 +209,30 @@ static int lmv_target_seq_open(struct inode *inode, struct file *file)
         return 0;
 }
 
+LPROC_SEQ_FOPS_RO_TYPE(lmv, uuid);
+
 struct lprocfs_vars lprocfs_lmv_obd_vars[] = {
         { "numobd",             lmv_rd_numobd,          0, 0 },
         { "placement",          lmv_rd_placement,       lmv_wr_placement, 0 },
         { "activeobd",          lmv_rd_activeobd,       0, 0 },
-        { "uuid",               lprocfs_rd_uuid,        0, 0 },
+	{ "uuid",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lmv_uuid_fops,		0, 0 },
         { "desc_uuid",          lmv_rd_desc_uuid,       0, 0 },
         { 0 }
 };
 
+LPROC_SEQ_FOPS_RO_TYPE(lmv, numrefs);
+
 static struct lprocfs_vars lprocfs_lmv_module_vars[] = {
-        { "num_refs",           lprocfs_rd_numrefs,     0, 0 },
-        { 0 }
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lmv_numrefs_fops,	0,	0 },
+	{ 0 }
 };
 
 struct file_operations lmv_proc_target_fops = {

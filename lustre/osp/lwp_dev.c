@@ -209,8 +209,14 @@ const struct lu_device_operations lwp_lu_ops = {
 	.ldo_process_config	= lwp_process_config,
 };
 
-static struct lprocfs_vars lprocfs_lwp_module_vars[] = {
-	{ "num_refs",		lprocfs_rd_numrefs, 0, 0 },
+LPROC_SEQ_FOPS_RO_TYPE(lwp, numrefs);
+
+struct lprocfs_vars lprocfs_lwp_module_vars[] = {
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lwp_numrefs_fops,	0,	0 },
 	{ 0 }
 };
 

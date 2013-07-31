@@ -299,8 +299,14 @@ int lproc_mgs_del_live(struct mgs_device *mgs, struct fs_db *fsdb)
         return 0;
 }
 
+LPROC_SEQ_FOPS_RO_TYPE(mgs, uuid);
+
 struct lprocfs_vars lprocfs_mgs_obd_vars[] = {
-        { "uuid",            lprocfs_rd_uuid,        0, 0 },
+	{ "uuid",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &mgs_uuid_fops,        0, 0 },
         { "num_exports",     lprocfs_rd_num_exports, 0, 0 },
         { "hash_stats",      lprocfs_obd_rd_hash,    0, 0 },
         { "evict_client",    0, lprocfs_wr_evict_client, 0 },

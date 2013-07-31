@@ -39,14 +39,25 @@
 #include "ost_internal.h"
 
 #ifdef LPROCFS
+LPROC_SEQ_FOPS_RO_TYPE(ost, uuid);
 static struct lprocfs_vars lprocfs_ost_obd_vars[] = {
-        { "uuid",            lprocfs_rd_uuid,   0, 0 },
+	{ "uuid",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &ost_uuid_fops,	0,	0 },
         { 0 }
 };
 
-static struct lprocfs_vars lprocfs_ost_module_vars[] = {
-        { "num_refs",       lprocfs_rd_numrefs, 0, 0 },
-        { 0 }
+LPROC_SEQ_FOPS_RO_TYPE(ost, numrefs);
+
+struct lprocfs_vars lprocfs_ost_module_vars[] = {
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &ost_numrefs_fops,	0,	0 },
+	{ 0 }
 };
 
 void lprocfs_ost_init_vars(struct lprocfs_static_vars *lvars)

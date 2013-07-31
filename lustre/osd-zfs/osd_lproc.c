@@ -181,8 +181,14 @@ struct lprocfs_vars lprocfs_osd_obd_vars[] = {
 	{ 0 }
 };
 
+LPROC_SEQ_FOPS_RO_TYPE(osd, numrefs);
+
 struct lprocfs_vars lprocfs_osd_module_vars[] = {
-	{ "num_refs",        lprocfs_rd_numrefs,         0, 0 },
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osd_numrefs_fops,	0,	0 },
 	{ 0 }
 };
 

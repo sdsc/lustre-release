@@ -428,8 +428,14 @@ static int lod_osts_seq_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+LPROC_SEQ_FOPS_RO_TYPE(lod, uuid);
+
 static struct lprocfs_vars lprocfs_lod_obd_vars[] = {
-	{ "uuid",         lprocfs_rd_uuid,        0, 0 },
+	{ "uuid",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lod_uuid_fops,	0,	0 },
 	{ "stripesize",   lod_rd_stripesize,      lod_wr_stripesize, 0 },
 	{ "stripeoffset", lod_rd_stripeoffset,    lod_wr_stripeoffset, 0 },
 	{ "stripecount",  lod_rd_stripecount,     lod_wr_stripecount, 0 },
@@ -453,8 +459,14 @@ static struct lprocfs_vars lprocfs_lod_osd_vars[] = {
 	{ 0 }
 };
 
+LPROC_SEQ_FOPS_RO_TYPE(lod, numrefs);
+
 static struct lprocfs_vars lprocfs_lod_module_vars[] = {
-	{ "num_refs",     lprocfs_rd_numrefs,     0, 0 },
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lod_numrefs_fops,	0,	0 },
 	{ 0 }
 };
 
