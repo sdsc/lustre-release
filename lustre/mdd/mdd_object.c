@@ -1541,12 +1541,28 @@ stop:
 }
 
 void mdd_object_make_hint(const struct lu_env *env, struct mdd_object *parent,
-		struct mdd_object *child, struct lu_attr *attr)
+			  struct mdd_object *child, const struct lu_attr *attr,
+			  const struct md_op_spec *spec)
 {
 	struct dt_allocation_hint *hint = &mdd_env_info(env)->mti_hint;
-	struct dt_object *np = parent ? mdd_object_child(parent) : NULL;
+	struct dt_object *np = parent ?  mdd_object_child(parent) : NULL;
 	struct dt_object *nc = mdd_object_child(child);
 
+	memset(hint, 0, sizeof(*hint));
+
+	/* For striped directory, give striping EA to lod_ah_init, which will
+	 * decide the stripe_offset and stripe count by it. */
+	if (S_ISDIR(attr->la_mode) &&
+	    unlikely(spec != NULL && spec->sp_cr_flags & MDS_OPEN_HAS_EA)) {
+		hint->dah_eadata = spec->u.sp_ea.eadata;
+		hint->dah_eadata_len = spec->u.sp_ea.eadatalen;
+	} else {
+		hint->dah_eadata = NULL;
+		hint->dah_eadata_len = 0;
+	}
+
+	CDEBUG(D_INFO, DFID" eadata %p, len %d\n", PFID(mdd_object_fid(child)),
+	       hint->dah_eadata, hint->dah_eadata_len);
 	/* @hint will be initialized by underlying device. */
 	nc->do_ops->do_ah_init(env, hint, np, nc, attr->la_mode & S_IFMT);
 }

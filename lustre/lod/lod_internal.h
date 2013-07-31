@@ -129,6 +129,7 @@ struct lod_tgt_desc_idx {
 	 TGT_PTRS_PER_BLOCK]->ldi_tgt[(index) % TGT_PTRS_PER_BLOCK])
 
 #define OST_TGT(lod, index)   LTD_TGT(&lod->lod_ost_descs, index)
+#define MDT_TGT(lod, index)   LTD_TGT(&lod->lod_mdt_descs, index)
 struct lod_tgt_descs {
 	/* list of known TGTs */
 	struct lod_tgt_desc_idx	*ltd_tgt_idx[TGT_PTRS];
@@ -198,6 +199,24 @@ struct lod_device {
 #define ltd_ost		ltd_tgt
 #define lod_ost_desc	lod_tgt_desc
 
+#define lod_mdts	lod_mdt_descs.ltd_tgts
+#define lod_mdt_bitmap	lod_mdt_descs.ltd_tgt_bitmap
+#define lod_mdtnr	lod_mdt_descs.ltd_tgtnr
+#define lod_mdts_size	lod_mdt_descs.ltd_tgts_size
+#define ltd_mdt		ltd_tgt
+#define lod_mdt_desc	lod_tgt_desc
+
+struct lod_dir_stripe_info {
+	__u32	ldsi_dir_stripe_offset;
+	__u32	ldsi_dir_def_stripenr;
+	__u32	ldsi_dir_def_stripe_offset;
+	__u32	ldsi_dir_hash_type;
+
+	unsigned int ldsi_dir_striping_cached:1,
+		     ldsi_dir_def_striping_set:1,
+		     ldsi_dir_striped:1;
+};
+
 /*
  * XXX: shrink this structure, currently it's 72bytes on 32bit arch,
  *      so, slab will be allocating 128bytes
@@ -222,9 +241,17 @@ struct lod_object {
 	__u32		   ldo_def_stripe_size;
 	__u16		   ldo_def_stripenr;
 	__u16		   ldo_def_stripe_offset;
+	struct lod_dir_stripe_info	*ldo_dir_stripe;
 	mdsno_t		   ldo_mds_num;
 };
 
+#define ldo_dir_stripe_offset	ldo_dir_stripe->ldsi_dir_stripe_offset
+#define ldo_dir_def_stripenr	ldo_dir_stripe->ldsi_dir_def_stripenr
+#define ldo_dir_hash_type	ldo_dir_stripe->ldsi_dir_hash_type
+#define ldo_dir_striping_cached	ldo_dir_stripe->ldsi_dir_striping_cached
+#define ldo_dir_striped		ldo_dir_stripe->ldsi_dir_striped
+#define ldo_dir_def_striping_set	ldo_dir_stripe->ldsi_dir_def_striping_set
+#define ldo_dir_def_stripe_offset	ldo_dir_stripe->ldsi_dir_def_stripe_offset
 
 struct lod_it {
 	struct dt_object	*lit_obj; /* object from the layer below */
@@ -235,6 +262,7 @@ struct lod_thread_info {
 	/* per-thread buffer for LOV EA */
 	void             *lti_ea_store;
 	int               lti_ea_store_size;
+	/* per-thread buffer for LMV EA */
 	struct lu_buf     lti_buf;
 	struct ost_id     lti_ostid;
 	struct lu_fid     lti_fid;
@@ -335,6 +363,8 @@ int lod_del_device(const struct lu_env *env, struct lod_device *lod,
 int lod_fini_tgt(struct lod_device *lod, struct lod_tgt_descs *ltd);
 int lod_load_striping(const struct lu_env *env, struct lod_object *mo);
 int lod_get_lov_ea(const struct lu_env *env, struct lod_object *mo);
+int lod_get_lmv_ea(const struct lu_env *env, struct lod_object *mo);
+int lod_get_default_lmv_ea(const struct lu_env *env, struct lod_object *mo);
 void lod_fix_desc(struct lov_desc *desc);
 void lod_fix_desc_qos_maxage(__u32 *val);
 void lod_fix_desc_pattern(__u32 *val);
@@ -344,6 +374,8 @@ int lod_pools_init(struct lod_device *m, struct lustre_cfg *cfg);
 int lod_pools_fini(struct lod_device *m);
 int lod_parse_striping(const struct lu_env *env, struct lod_object *mo,
 		       const struct lu_buf *buf);
+int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
+			   const struct lu_buf *buf);
 int lod_initialize_objects(const struct lu_env *env, struct lod_object *mo,
 			   struct lov_ost_data_v1 *objs);
 int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
@@ -351,7 +383,7 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf, int specific);
 int lod_generate_and_set_lovea(const struct lu_env *env,
 			       struct lod_object *mo, struct thandle *th);
-
+int lod_ea_store_resize(struct lod_thread_info *info, int size);
 /* lod_pool.c */
 int lod_ost_pool_add(struct ost_pool *op, __u32 idx, unsigned int min_count);
 int lod_ost_pool_remove(struct ost_pool *op, __u32 idx);

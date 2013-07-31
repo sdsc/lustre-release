@@ -1687,6 +1687,7 @@ static inline void lmm_oi_cpu_to_le(struct ost_id *dst_oi,
 #define XATTR_NAME_LOV          "trusted.lov"
 #define XATTR_NAME_LMA          "trusted.lma"
 #define XATTR_NAME_LMV          "trusted.lmv"
+#define XATTR_NAME_DEFALT_LMV	"trusted.default_lmv"
 #define XATTR_NAME_LINK         "trusted.link"
 #define XATTR_NAME_FID          "trusted.fid"
 #define XATTR_NAME_VERSION      "trusted.version"
@@ -2662,7 +2663,7 @@ struct lmv_desc {
         __u32 ld_tgt_count;                /* how many MDS's */
         __u32 ld_active_tgt_count;         /* how many active */
         __u32 ld_default_stripe_count;     /* how many objects are used */
-        __u32 ld_pattern;                  /* default MEA_MAGIC_* */
+	__u32 ld_pattern;                  /* default hash pattern */
         __u64 ld_default_hash_size;
         __u64 ld_padding_1;                /* also fix lustre_swab_lmv_desc */
         __u32 ld_padding_2;                /* also fix lustre_swab_lmv_desc */
@@ -2678,6 +2679,15 @@ extern void lustre_swab_lmv_desc (struct lmv_desc *ld);
 #define LMV_MAGIC_V1	0x0CD10CD0    /* normal stripe lmv magic */
 #define LMV_USER_MAGIC	0x0CD20CD0    /* default lmv magic*/
 #define LMV_MAGIC	LMV_MAGIC_V1
+
+enum lmv_hash_type {
+	LMV_HASH_TYPE_ALL_CHARS = 1,
+	LMV_HASH_TYPE_FULL_NAME = 2,
+};
+
+#define LMV_HASH_NAME_ALL_CHARS	"all_char"
+#define LMV_HASH_NAME_FULL_NAME	"full_name"
+
 struct lmv_mds_md_v1 {
 	__u32 lmv_magic;
 	__u32 lmv_stripe_count;		/* stripe count */
