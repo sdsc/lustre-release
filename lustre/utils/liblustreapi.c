@@ -2381,9 +2381,6 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 			verbose = VERBOSE_OBJID;
 	}
 
-	if (lum->lum_magic == LMV_USER_MAGIC)
-		verbose &= ~VERBOSE_OBJID;
-
 	if (depth && path && ((verbose != VERBOSE_OBJID)))
 		llapi_printf(LLAPI_MSG_NORMAL, "%s\n", path);
 
@@ -2404,13 +2401,13 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 	if (verbose & VERBOSE_OBJID) {
 		if ((obdstripe == 1))
 			llapi_printf(LLAPI_MSG_NORMAL,
-				     "\tmdtidx\t\t FID[seq:oid:ver]\n");
+				     "mdtidx\t\t FID[seq:oid:ver]\n");
 		for (i = 0; i < lum->lum_stripe_count; i++) {
 			int idx = objects[i].lum_mds;
 			struct lu_fid *fid = &objects[i].lum_fid;
 			if ((obdindex == OBD_NOT_FOUND) || (obdindex == idx))
 				llapi_printf(LLAPI_MSG_NORMAL,
-					     "\t%6u\t\t "DFID"\t\t%s\n",
+					     "%6u\t\t "DFID"\t\t%s\n",
 					    idx, PFID(fid),
 					    obdindex == idx ? " *" : "");
 		}
