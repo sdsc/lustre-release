@@ -555,6 +555,26 @@ void mdt_dump_lmm(int level, const struct lov_mds_md *lmm)
 	}
 }
 
+void mdt_dump_lmv(int level, const union lmv_mds_md *lmv)
+{
+	struct lmv_mds_md_common *lmv_common;
+	int			 i;
+
+	lmv_common = (struct lmv_mds_md_common *)lmv;
+	CDEBUG(level, "magic 0x%08X, master %#X stripe_count %#x\n",
+	       le32_to_cpu(lmv_common->lmv_magic),
+	       le32_to_cpu(lmv_common->lmv_master),
+	       le32_to_cpu(lmv_common->lmv_count));
+	for (i = 0; i < le32_to_cpu(lmv_common->lmv_count); i++) {
+		struct lmv_mds_md_v1 *lmm1;
+		struct lu_fid fid;
+
+		lmm1 = (struct lmv_mds_md_v1 *)lmv;
+		fid_le_to_cpu(&fid, &lmm1->lmv_data[i]);
+		CDEBUG(level, "idx %u subobj "DFID"\n", i, PFID(&fid));
+	}
+}
+
 /* Shrink and/or grow reply buffers */
 int mdt_fix_reply(struct mdt_thread_info *info)
 {

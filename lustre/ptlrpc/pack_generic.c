@@ -2119,6 +2119,36 @@ void lustre_swab_lmv_desc (struct lmv_desc *ld)
         /* uuid endian insensitive */
 }
 
+void lustre_swab_lmv_mds_md_common(struct lmv_mds_md_common *lmm_common)
+{
+	__swab32s(&lmm_common->lmv_magic);
+	__swab32s(&lmm_common->lmv_count);
+	__swab32s(&lmm_common->lmv_master);
+	__swab32s(&lmm_common->lmv_hash_type);
+	__swab32s(&lmm_common->lmv_layout_version);
+}
+
+void lustre_swab_lmv_mds_md(union lmv_mds_md *lmm)
+{
+	struct lmv_mds_md_common *lmm_common;
+	int i;
+
+	lmm_common = (struct lmv_mds_md_common *)lmm;
+	lustre_swab_lmv_mds_md_common(lmm_common);
+	switch(lmm->lmv_magic) {
+	case LMV_MAGIC_V1: {
+		struct lmv_mds_md_v1 *lmm1;
+
+		lmm1 = (struct lmv_mds_md_v1 *)lmm;
+		for (i = 0; i < lmm_common->lmv_count; i++)
+			lustre_swab_lu_fid(&lmm1->lmv_data[i]);
+		break;
+	}
+	default:
+		break;
+	}
+}
+
 void lustre_swab_lmv_user_md(struct lmv_user_md *lum)
 {
 	int i;
@@ -2131,7 +2161,6 @@ void lustre_swab_lmv_user_md(struct lmv_user_md *lum)
 	CLASSERT(offsetof(typeof(*lum), lum_padding1) != 0);
 	CLASSERT(offsetof(typeof(*lum), lum_padding2) != 0);
 	CLASSERT(offsetof(typeof(*lum), lum_padding3) != 0);
-
 	for (i = 0; i < lum->lum_stripe_count; i++) {
 		__swab32s(&lum->lum_objects[i].lum_mds);
 		lustre_swab_lu_fid(&lum->lum_objects[i].lum_fid);
