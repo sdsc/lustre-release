@@ -153,13 +153,46 @@ static void osp_destroy_update_req(struct update_request *update)
 	return;
 }
 
-int osp_trans_stop(const struct lu_env *env, struct thandle *th)
+static struct update_request
+*osp_find_update(struct thandle_update *tu, struct dt_device *dt_dev)
 {
+	struct update_request   *update;
+
+	/* Because transaction api does not proivde the interface
+	 * to transfer the update from LOD to OSP,  we need walk
+	 * remote update list to find the update, this probably
+	 * should move to LOD layer, when update can be part of
+	 * the trancation api parameter. XXX */
+	cfs_list_for_each_entry(update, &tu->tu_remote_update_list, ur_list) {
+		if (update->ur_dt == dt_dev)
+			return update;
+	}
+	return NULL;
+}
+
+int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
+		   struct thandle *th)
+{
+	struct thandle_update *tu = (struct thandle_update *)th;
+	struct update_request *update;
 	int rc = 0;
 
-	rc = th->th_current_request->ur_rc;
-	osp_destroy_update_req(th->th_current_request);
-	th->th_current_request = NULL;
+	LASSERT(tu != NULL);
+
+	/* In phase I, if the transaction includes remote updates, the local
+	 * update should be synchronized, so it will set th_sync = 1 */
+	update = osp_find_update(tu, dt);
+	LASSERT(update != NULL && update->ur_dt == dt);
+
+	/* These remote RPC can not be sent inside the local RPC, so it either
+	 * before start local transaction or after stop local transaction */
+	if (update->ur_buf->ub_count > 0 &&
+	    tu->tu_sent_after_local_trans == 1)
+		rc = osp_remote_sync(env, dt, update, NULL);
+	else
+		rc = update->ur_rc;
+
+	osp_destroy_update_req(update);
 
 	return rc;
 }
@@ -174,17 +207,25 @@ int osp_trans_stop(const struct lu_env *env, struct thandle *th)
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th)
 {
-	struct update_request *update;
+	struct thandle_update	*tu = th->th_update;
+	struct update_request	*update;
 	int rc = 0;
 
+	LASSERT(tu != NULL);
 	/* In phase I, if the transaction includes remote updates, the local
 	 * update should be synchronized, so it will set th_sync = 1 */
-	update = th->th_current_request;
+	update = osp_find_update(tu, dt);
 	LASSERT(update != NULL && update->ur_dt == dt);
-	if (update->ur_buf->ub_count > 0) {
+
+	/* These remote RPC can not be sent inside the local RPC, so it either
+	 * before start local transaction or after stop local transaction */
+	if (update->ur_buf->ub_count > 0 &&
+	    tu->tu_sent_after_local_trans == 0) {
 		rc = osp_remote_sync(env, dt, update, NULL);
-		th->th_sync = 1;
+		update->ur_rc = rc;
 	}
+
+	th->th_sync = 1;
 
 	RETURN(rc);
 }
@@ -251,23 +292,6 @@ static int osp_insert_update(const struct lu_env *env,
 	RETURN(rc);
 }
 
-static struct update_request
-*osp_find_update(struct thandle *th, struct dt_device *dt_dev)
-{
-	struct update_request   *update;
-
-	/* Because transaction api does not proivde the interface
-	 * to transfer the update from LOD to OSP,  we need walk
-	 * remote update list to find the update, this probably
-	 * should move to LOD layer, when update can be part of
-	 * the trancation api parameter. XXX */
-	cfs_list_for_each_entry(update, &th->th_remote_update_list, ur_list) {
-		if (update->ur_dt == dt_dev)
-			return update;
-	}
-	return NULL;
-}
-
 static inline void osp_md_add_update_batchid(struct update_request *update)
 {
 	update->ur_batchid++;
@@ -283,9 +307,20 @@ static struct update_request
 {
 	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	struct update_request	*update;
+	struct thandle_update	*tu = th->th_update;
 	ENTRY;
 
-	update = osp_find_update(th, dt_dev);
+	if (tu == NULL) {
+		OBD_ALLOC_PTR(tu);
+		if (tu == NULL)
+			RETURN(ERR_PTR(-ENOMEM));
+
+		INIT_LIST_HEAD(&tu->tu_remote_update_list);
+		tu->tu_sent_after_local_trans = 0;
+		th->th_update = tu;
+	}
+
+	update = osp_find_update(tu, dt_dev);
 	if (update != NULL)
 		RETURN(update);
 
@@ -293,7 +328,7 @@ static struct update_request
 	if (IS_ERR(update))
 		RETURN(update);
 
-	cfs_list_add_tail(&update->ur_list, &th->th_remote_update_list);
+	cfs_list_add_tail(&update->ur_list, &tu->tu_remote_update_list);
 
 	RETURN(update);
 }
@@ -357,7 +392,7 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 	bufs[0] = (char *)&osi->osi_obdo;
 	buf_count = 1;
 	fid1 = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-	if (hint->dah_parent) {
+	if (hint != NULL && hint->dah_parent) {
 		struct lu_fid *fid2;
 		struct lu_fid *tmp_fid = &osi->osi_fid;
 
