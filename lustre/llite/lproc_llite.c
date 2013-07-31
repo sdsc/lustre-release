@@ -447,7 +447,7 @@ static int ll_wr_max_cached_mb(struct file *file, const char *buffer,
 	}
 
 	if (sbi->ll_dt_exp == NULL)
-		RETURN(-ENODEV);
+		RETURN(0);
 
 	spin_lock(&sbi->ll_lock);
 	diff = pages_number - cache->ccc_lru_max;
