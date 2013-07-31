@@ -496,17 +496,52 @@ static int lprocfs_osc_wr_max_pages_per_rpc(struct file *file,
 	return count;
 }
 
+LPROC_SEQ_FOPS_RO_TYPE(osc, uuid);
+LPROC_SEQ_FOPS_RO_TYPE(osc, blksize);
+LPROC_SEQ_FOPS_RO_TYPE(osc, kbytestotal);
+LPROC_SEQ_FOPS_RO_TYPE(osc, kbytesfree);
+LPROC_SEQ_FOPS_RO_TYPE(osc, kbytesavail);
+LPROC_SEQ_FOPS_RO_TYPE(osc, filestotal);
+LPROC_SEQ_FOPS_RO_TYPE(osc, filesfree);
+
 static struct lprocfs_vars lprocfs_osc_obd_vars[] = {
-        { "uuid",            lprocfs_rd_uuid,        0, 0 },
+	{ "uuid",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osc_uuid_fops,	0,	0 },
         { "ping",            0, lprocfs_wr_ping,     0, 0, 0222 },
         { "connect_flags",   lprocfs_rd_connect_flags, 0, 0 },
-        { "blocksize",       lprocfs_rd_blksize,     0, 0 },
-        { "kbytestotal",     lprocfs_rd_kbytestotal, 0, 0 },
-        { "kbytesfree",      lprocfs_rd_kbytesfree,  0, 0 },
-        { "kbytesavail",     lprocfs_rd_kbytesavail, 0, 0 },
-        { "filestotal",      lprocfs_rd_filestotal,  0, 0 },
-        { "filesfree",       lprocfs_rd_filesfree,   0, 0 },
-        //{ "filegroups",      lprocfs_rd_filegroups,  0, 0 },
+	{ "blocksize",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osc_blksize_fops,	0,	0 },
+	{ "kbytestotal",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osc_kbytestotal_fops,0,	0 },
+	{ "kbytesfree",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osc_kbytesfree_fops,0,	0 },
+	{ "kbytesavail",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osc_kbytesavail_fops,0,	0 },
+	{ "filestotal",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osc_filestotal_fops,0,	0 },
+	{ "filesfree",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osc_filesfree_fops,	0,	0 },
         { "ost_server_uuid", lprocfs_rd_server_uuid, 0, 0 },
         { "ost_conn_uuid",   lprocfs_rd_conn_uuid, 0, 0 },
         { "active",          osc_rd_active,
@@ -539,9 +574,15 @@ static struct lprocfs_vars lprocfs_osc_obd_vars[] = {
         { 0 }
 };
 
-static struct lprocfs_vars lprocfs_osc_module_vars[] = {
-        { "num_refs",        lprocfs_rd_numrefs,     0, 0 },
-        { 0 }
+LPROC_SEQ_FOPS_RO_TYPE(osc, numrefs);
+
+struct lprocfs_vars lprocfs_osc_module_vars[] = {
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osc_numrefs_fops,	0,	0 },
+	{ 0 }
 };
 
 #define pct(a,b) (b ? a * 100 / b : 0)

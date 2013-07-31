@@ -426,8 +426,14 @@ static int osp_rd_old_sync_processed(char *page, char **start, off_t off,
 	return rc;
 }
 
+LPROC_SEQ_FOPS_RO_TYPE(osp, uuid);
+
 static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
-	{ "uuid",		lprocfs_rd_uuid, 0, 0 },
+	{ "uuid",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osp_uuid_fops,	0, 0 },
 	{ "ping",		0, lprocfs_wr_ping, 0, 0, 0222 },
 	{ "connect_flags",	lprocfs_rd_connect_flags, 0, 0 },
 	{ "ost_server_uuid",	lprocfs_rd_server_uuid, 0, 0 },
@@ -471,8 +477,14 @@ static struct lprocfs_vars lprocfs_osp_osd_vars[] = {
 	{ 0 }
 };
 
-static struct lprocfs_vars lprocfs_osp_module_vars[] = {
-	{ "num_refs",		lprocfs_rd_numrefs, 0, 0 },
+LPROC_SEQ_FOPS_RO_TYPE(osp, numrefs);
+
+struct lprocfs_vars lprocfs_osp_module_vars[] = {
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &osp_numrefs_fops,	0,	0 },
 	{ 0 }
 };
 
