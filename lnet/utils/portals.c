@@ -247,7 +247,7 @@ int g_net_is_compatible (char *cmd, ...)
         return 0;
 }
 
-int ptl_initialize(int argc, char **argv)
+int ptl_initialize(int argc, char *const argv[])
 {
         register_ioc_dev(LNET_DEV_ID, LNET_DEV_PATH,
                          LNET_DEV_MAJOR, LNET_DEV_MINOR);
@@ -298,6 +298,21 @@ int jt_ptl_network(int argc, char **argv)
                         errno, strerror(errno));
                 return -1;
         }
+
+	if (!strcmp(argv[1], "load") ||
+	    !strcmp(argv[1], "loadmodule")) {
+		LIBCFS_IOC_INIT(data);
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_LNET_LOAD_LND, &data);
+
+		if (rc == 0) {
+			printf("LNDs modules used by LNET are loaded\n");
+			return 0;
+		}
+
+		fprintf(stderr, "LNDs modules load error %d: %s\n",
+			errno, strerror(errno));
+		return -1;
+	}
 
         net = libcfs_str2net(argv[1]);
         if (net == LNET_NIDNET(LNET_NID_ANY)) {

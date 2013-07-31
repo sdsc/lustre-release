@@ -38,6 +38,13 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	BLKS=$((FREE_SPACE * 9 / 40 / CLIENT_COUNT))
 	echoerr "Total free disk space is $FREE_SPACE, 4k blocks to dd is $BLKS"
 
+	if (( $BLKS < 20240)); then
+		sleep 2
+		continue
+	else
+		BLKS=$((BLKS - 20240))
+	fi
+
 	dd bs=4k count=$BLKS status=noxfer if=/dev/zero of=$TESTDIR/dd-file \
 								1>$LOG &
 	load_pid=$!
