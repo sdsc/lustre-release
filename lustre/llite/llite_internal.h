@@ -44,6 +44,7 @@
 /* for struct cl_lock_descr and struct cl_io */
 #include <cl_object.h>
 #include <lclient.h>
+#include <lustre_lmv.h>
 #include <lustre_mdc.h>
 #include <linux/lustre_intent.h>
 #include <linux/compat.h>
@@ -200,6 +201,10 @@ struct ll_inode_info {
 			pid_t                           d_opendir_pid;
 			/* directory stripe information */
 			struct lmv_stripe_md		*d_lmv_md;
+			/* striped directory size */
+			loff_t				d_stripe_size;
+			/* striped directory nlink */
+			__u64				d_stripe_nlink;
 		} d;
 
 #define lli_readdir_mutex       u.d.d_readdir_mutex
@@ -209,6 +214,8 @@ struct ll_inode_info {
 #define lli_sa_lock             u.d.d_sa_lock
 #define lli_opendir_pid         u.d.d_opendir_pid
 #define lli_lmv_md		u.d.d_lmv_md
+#define lli_stripe_dir_size	u.d.d_stripe_size
+#define lli_stripe_dir_nlink	u.d.d_stripe_nlink
 
 		/* for non-directory */
 		struct {
