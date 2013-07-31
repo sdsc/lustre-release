@@ -1664,7 +1664,7 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 		RETURN(rc);
 
 	/* calling ->ah_make_hint() is used to transfer information from parent */
-	mdd_object_make_hint(env, mdd_pobj, son, attr);
+	mdd_object_make_hint(env, mdd_pobj, son, attr, spec);
 
         handle = mdd_trans_create(env, mdd);
         if (IS_ERR(handle))
@@ -1678,8 +1678,7 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 	       spec->u.sp_ea.eadata, spec->u.sp_ea.eadatalen,
 	       spec->sp_cr_flags, spec->no_create);
 
-	if (spec->no_create || spec->sp_cr_flags & MDS_OPEN_HAS_EA) {
-		/* replay case or lfs setstripe */
+	if (spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA)) {
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 					spec->u.sp_ea.eadatalen);
 	} else {
@@ -1884,6 +1883,18 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
         if (rc)
                 GOTO(out, rc);
 
+	/* replay case, create LOV EA from client data */
+	if (spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA)) {
+		const struct lu_buf *buf;
+
+		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
+					spec->u.sp_ea.eadatalen);
+		rc = mdo_declare_xattr_set(env, c, buf, XATTR_NAME_LOV, 0,
+					   handle);
+		if (rc)
+			GOTO(out, rc);
+	}
+
 #ifdef CONFIG_FS_POSIX_ACL
 	if (def_acl_buf->lb_len > 0 && S_ISDIR(attr->la_mode)) {
 		/* if dir, then can inherit default ACl */
@@ -1923,18 +1934,6 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 					      name->ln_name, handle);
 	if (rc)
 		GOTO(out, rc);
-
-	/* replay case, create LOV EA from client data */
-	if (spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA)) {
-		const struct lu_buf *buf;
-
-		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
-					spec->u.sp_ea.eadatalen);
-		rc = mdo_declare_xattr_set(env, c, buf, XATTR_NAME_LOV,
-					   0, handle);
-		if (rc)
-			GOTO(out, rc);
-	}
 
 	if (S_ISLNK(attr->la_mode)) {
                 rc = dt_declare_record_write(env, mdd_object_child(c),
@@ -2082,7 +2081,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	if (rc < 0)
 		GOTO(out_free, rc);
 
-	mdd_object_make_hint(env, mdd_pobj, son, attr);
+	mdd_object_make_hint(env, mdd_pobj, son, attr, spec);
 
         handle = mdd_trans_create(env, mdd);
         if (IS_ERR(handle))
@@ -2149,7 +2148,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 				spec->u.sp_ea.eadatalen);
 		rc = mdo_xattr_set(env, son, buf, XATTR_NAME_LOV, 0, handle,
-				BYPASS_CAPA);
+				   BYPASS_CAPA);
 	}
 
 	if (rc == 0 && spec->sp_cr_flags & MDS_OPEN_VOLATILE)

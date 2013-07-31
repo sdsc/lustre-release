@@ -362,16 +362,36 @@ int ll_send_mgc_param(struct obd_export *mgc, char *string)
         return rc;
 }
 
-int ll_dir_setdirstripe(struct inode *dir, struct lmv_user_md *lump,
-			char *filename)
+static int ll_dir_setdirstripe(struct inode *dir, struct lmv_user_md *lump,
+			       const char *filename)
 {
 	struct ptlrpc_request *request = NULL;
 	struct md_op_data *op_data;
 	struct ll_sb_info *sbi = ll_i2sbi(dir);
 	int mode;
 	int err;
-
 	ENTRY;
+
+	if (lump->lum_magic != LMV_USER_MAGIC)
+		RETURN(-EINVAL);
+
+	if ((int)lump->lum_stripe_offset == -1) {
+		int mdtidx;
+
+		mdtidx = ll_get_mdt_idx(dir);
+		if (mdtidx < 0)
+			RETURN(mdtidx);
+
+		lump->lum_stripe_offset = mdtidx;
+	}
+
+	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p) name %s"
+	       "stripe_offset %d, stripe_count: %u\n",
+	       PFID(ll_inode2fid(dir)), dir, filename,
+	       (int)lump->lum_stripe_offset, lump->lum_stripe_count);
+
+	if (lump->lum_magic != cpu_to_le32(LMV_USER_MAGIC))
+		lustre_swab_lmv_user_md(lump);
 
 	mode = (0755 & (S_IRWXUGO|S_ISVTX) & ~current->fs->umask) | S_IFDIR;
 	op_data = ll_prep_md_op_data(NULL, dir, NULL, filename,
@@ -440,9 +460,6 @@ int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
                                      LUSTRE_OPC_ANY, NULL);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
-
-	if (lump != NULL && lump->lmm_magic == cpu_to_le32(LMV_USER_MAGIC))
-		op_data->op_cli_flags |= CLI_SET_MEA;
 
         /* swabbing is done in lov_setstripe() on server side */
         rc = md_setattr(sbi->ll_md_exp, op_data, lump, lum_size,
@@ -1119,7 +1136,6 @@ lmv_out_free:
 			GOTO(free_lmv, rc = -ENOMEM);
 
 		memcpy(tmp, &lum, sizeof(lum));
-		tmp->lum_type = LMV_STRIPE_TYPE;
 		tmp->lum_stripe_count = 1;
 		mdtindex = ll_get_mdt_idx(inode);
 		if (mdtindex < 0)

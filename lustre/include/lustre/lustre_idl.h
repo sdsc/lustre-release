@@ -1658,6 +1658,7 @@ static inline void lmm_oi_cpu_to_le(struct ost_id *dst_oi,
 #define XATTR_NAME_LOV          "trusted.lov"
 #define XATTR_NAME_LMA          "trusted.lma"
 #define XATTR_NAME_LMV          "trusted.lmv"
+#define XATTR_NAME_DEFALT_LMV	"trusted.default_lmv"
 #define XATTR_NAME_LINK         "trusted.link"
 #define XATTR_NAME_FID          "trusted.fid"
 #define XATTR_NAME_VERSION      "trusted.version"
@@ -2633,7 +2634,7 @@ struct lmv_desc {
         __u32 ld_tgt_count;                /* how many MDS's */
         __u32 ld_active_tgt_count;         /* how many active */
         __u32 ld_default_stripe_count;     /* how many objects are used */
-        __u32 ld_pattern;                  /* default MEA_MAGIC_* */
+	__u32 ld_pattern;                  /* default hash pattern */
         __u64 ld_default_hash_size;
         __u64 ld_padding_1;                /* also fix lustre_swab_lmv_desc */
         __u32 ld_padding_2;                /* also fix lustre_swab_lmv_desc */
