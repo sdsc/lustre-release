@@ -11750,44 +11750,6 @@ test_230a() {
 }
 run_test 230a "Create remote directory and files under the remote directory"
 
-test_230b() {
-	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
-	local MDTIDX=1
-	local remote_dir=$DIR/$tdir/remote_dir
-	local rc=0
-
-	mkdir -p $DIR/$tdir
-	$LFS mkdir -i $MDTIDX $remote_dir ||
-		error "create remote directory failed"
-
-	$LFS mkdir -i 0 $remote_dir/new_dir &&
-		error "nested remote directory create succeed!"
-
-	do_facet mds$((MDTIDX + 1)) lctl set_param mdt.*.enable_remote_dir=1
-	$LFS mkdir -i 0 $remote_dir/new_dir || rc=$?
-	do_facet mds$((MDTIDX + 1)) lctl set_param mdt.*.enable_remote_dir=0
-
-	[ $rc -ne 0 ] &&
-	   error "create remote directory failed after set enable_remote_dir"
-
-	rm -rf $remote_dir || error "first unlink remote directory failed"
-
-	$RUNAS -G$RUNAS_GID $LFS mkdir -i $MDTIDX $DIR/$tfile &&
-							error "chown worked"
-
-	do_facet mds$MDTIDX lctl set_param \
-				mdt.*.enable_remote_dir_gid=$RUNAS_GID
-	$LFS mkdir -i $MDTIDX $remote_dir || rc=$?
-	do_facet mds$MDTIDX lctl set_param mdt.*.enable_remote_dir_gid=0
-
-	[ $rc -ne 0 ] &&
-	   error "create remote dir failed after set enable_remote_dir_gid"
-
-	rm -r $DIR/$tdir || error "second unlink remote directory failed"
-}
-run_test 230b "nested remote directory should be failed"
-
 test_231a()
 {
 	# For simplicity this test assumes that max_pages_per_rpc
