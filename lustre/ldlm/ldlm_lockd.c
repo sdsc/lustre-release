@@ -50,6 +50,7 @@
 #include <lustre_dlm.h>
 #include <obd_class.h>
 #include <libcfs/list.h>
+#include <cl_object.h>
 #include "ldlm_internal.h"
 
 static int ldlm_num_threads;
@@ -2543,7 +2544,15 @@ static int ldlm_bl_thread_start(struct ldlm_bl_pool *blp)
 static int ldlm_bl_thread_main(void *arg)
 {
         struct ldlm_bl_pool *blp;
+	struct lu_env *env;
+	int refcheck;
         ENTRY;
+
+	/* prealloc env to avoid alloc failure in l_blocking_ast, see
+	 * osc_ldlm_blocking_ast() */
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
 
         {
                 struct ldlm_bl_thread_data *bltd = arg;
@@ -2611,6 +2620,8 @@ static int ldlm_bl_thread_main(void *arg)
 		else
 			complete(&blwi->blwi_comp);
         }
+
+	cl_env_put(env, &refcheck);
 
         cfs_atomic_dec(&blp->blp_busy_threads);
         cfs_atomic_dec(&blp->blp_num_threads);
