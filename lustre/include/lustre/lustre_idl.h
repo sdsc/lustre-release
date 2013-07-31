@@ -2734,6 +2734,8 @@ union lmv_mds_md {
 	struct lmv_user_md	 lmv_user_md;
 };
 
+extern void lustre_swab_lmv_mds_md(union lmv_mds_md *lmm);
+
 static inline int lmv_mds_md_size(int stripe_count, unsigned int lmm_magic)
 {
 	switch (lmm_magic) {
