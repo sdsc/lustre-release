@@ -1567,7 +1567,7 @@ void mdd_object_make_hint(const struct lu_env *env, struct mdd_object *parent,
 		struct mdd_object *child, struct lu_attr *attr)
 {
 	struct dt_allocation_hint *hint = &mdd_env_info(env)->mti_hint;
-	struct dt_object *np = parent ? mdd_object_child(parent) : NULL;
+	struct dt_object *np = parent ?  mdd_object_child(parent) : NULL;
 	struct dt_object *nc = mdd_object_child(child);
 
 	/* @hint will be initialized by underlying device. */

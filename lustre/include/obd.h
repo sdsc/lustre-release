@@ -68,6 +68,7 @@
 #include <lustre_fid.h>
 #include <lustre_fld.h>
 #include <lustre_capa.h>
+#include <cl_object.h>
 
 #define MAX_OBD_DEVICES 8192
 
@@ -1069,6 +1070,8 @@ static inline int it_to_lock_mode(struct lookup_intent *it)
 struct lmv_oinfo {
 	struct lu_fid	lmo_fid;
 	mdsno_t		lmo_mds;
+	__u32		lmo_nlink;
+	__u64		lmo_size;
 	void		*lmo_root;
 };
 
@@ -1378,7 +1381,8 @@ extern void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *mea);
 #define MAX_HASH_HIGHEST_BIT     0x1000000000000000ULL
 
 enum {
-        LUSTRE_MD_NEED_MD       = (1 << 0)
+	LUSTRE_MD_NEED_MD	= (1 << 0),
+	LUSTRE_MD_SLAVE		= (1 << 1)
 };
 
 struct lustre_md {
@@ -1391,6 +1395,7 @@ struct lustre_md {
         struct mdt_remote_perm  *remote_perm;
         struct obd_capa         *mds_capa;
         struct obd_capa         *oss_capa;
+	struct lu_fid		*lm_slave_fid;
 	__u64			lm_flags;
 };
 
@@ -1465,6 +1470,12 @@ struct md_ops {
 
         int (*m_free_lustre_md)(struct obd_export *, struct lustre_md *);
 
+	int (*m_merge_attr)(struct obd_export *, struct lmv_stripe_md *lsm,
+			    struct cl_attr *attr);
+
+	int (*m_update_lsm_md)(struct obd_export *, struct lmv_stripe_md *lsm,
+			       struct mdt_body *, ldlm_blocking_callback);
+
         int (*m_set_open_replay_data)(struct obd_export *,
                                       struct obd_client_handle *,
                                       struct ptlrpc_request *);
@@ -1495,7 +1506,6 @@ struct md_ops {
 
         int (*m_revalidate_lock)(struct obd_export *, struct lookup_intent *,
                                  struct lu_fid *, __u64 *bits);
-
         /*
          * NOTE: If adding ops, add another LPROCFS_MD_OP_INIT() line to
          * lprocfs_alloc_md_stats() in obdclass/lprocfs_status.c. Also, add a

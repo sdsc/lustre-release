@@ -3057,7 +3057,10 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                         oit.it_op = IT_LOOKUP;
 
                 /* Call getattr by fid, so do not provide name at all. */
-                op_data = ll_prep_md_op_data(NULL, dentry->d_parent->d_inode,
+		/* Note: Since the revalidate will do by FID only, so
+		 * the request should send to the MDT where the FID is
+		 * located, instead of the MDT of its parent */
+		op_data = ll_prep_md_op_data(NULL, dentry->d_inode,
                                              dentry->d_inode, NULL, 0, 0,
                                              LUSTRE_OPC_ANY, NULL);
                 if (IS_ERR(op_data))
@@ -3127,6 +3130,21 @@ out:
         return rc;
 }
 
+static int ll_merge_md_attr(struct inode *inode)
+{
+	struct cl_attr attr = { 0 };
+	int rc;
+
+	rc = md_merge_attr(ll_i2mdexp(inode), ll_i2info(inode)->lli_lsm_md,
+			   &attr);
+	if (rc != 0)
+		RETURN(rc);
+
+	i_size_write(inode, attr.cat_size);
+	set_nlink(inode, attr.cat_nlink);
+	RETURN(0);
+}
+
 int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
 			   __u64 ibits)
 {
@@ -3140,6 +3158,12 @@ int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
 
 	/* if object isn't regular file, don't validate size */
 	if (!S_ISREG(inode->i_mode)) {
+		if (S_ISDIR(inode->i_mode)) {
+			rc = ll_merge_md_attr(inode);
+			if (rc != 0)
+				RETURN(rc);
+		}
+
 		LTIME_S(inode->i_atime) = ll_i2info(inode)->lli_lvb.lvb_atime;
 		LTIME_S(inode->i_mtime) = ll_i2info(inode)->lli_lvb.lvb_mtime;
 		LTIME_S(inode->i_ctime) = ll_i2info(inode)->lli_lvb.lvb_ctime;
