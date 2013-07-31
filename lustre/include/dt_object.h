@@ -130,11 +130,11 @@ struct dt_device_operations {
          */
         int   (*dt_trans_start)(const struct lu_env *env,
                                 struct dt_device *dev, struct thandle *th);
-        /**
-         * Finish previously started transaction.
-         */
-        int   (*dt_trans_stop)(const struct lu_env *env,
-                               struct thandle *th);
+	/**
+	 * Finish previously started transaction.
+	 */
+	int   (*dt_trans_stop)(const struct lu_env *env, struct dt_device *dev,
+			       struct thandle *th);
         /**
          * Add commit callback to the transaction.
          */
@@ -229,8 +229,10 @@ extern const struct dt_index_features dt_quota_slv_features;
  * It can contain any allocation hint in the future.
  */
 struct dt_allocation_hint {
-        struct dt_object           *dah_parent;
-        __u32                       dah_mode;
+	struct dt_object	*dah_parent;
+	const void		*dah_eadata;
+	int			dah_eadata_len;
+	__u32			dah_mode;
 };
 
 /**
@@ -732,6 +734,17 @@ static inline struct dt_object *lu2dt_obj(struct lu_object *o)
 	return container_of0(o, struct dt_object, do_lu);
 }
 
+struct thandle_update {
+	/* In DNE, one transaction can be disassemblied into
+	 * updates on several different MDTs, and these updates
+	 * will be attached to tu_remote_update_list per target.
+	 * Only single thread will access the list, no need lock
+	 */
+	cfs_list_t	tu_remote_update_list;
+	/* sent after or before local transaction */
+	unsigned int	tu_send_after_local_trans:1;
+};
+
 /**
  * This is the general purpose transaction handle.
  * 1. Transaction Life Cycle
@@ -766,13 +779,7 @@ struct thandle {
 	/* local transation, no need to inform other layers */
 	unsigned int		th_local:1;
 
-	/* In DNE, one transaction can be disassemblied into
-	 * updates on several different MDTs, and these updates
-	 * will be attached to th_remote_update_list per target.
-	 * Only single thread will access the list, no need lock
-	 */
-	cfs_list_t		th_remote_update_list;
-	struct update_request	*th_current_request;
+	struct thandle_update	*th_update;
 };
 
 /**
@@ -966,8 +973,8 @@ static inline int dt_trans_start_local(const struct lu_env *env,
 static inline int dt_trans_stop(const struct lu_env *env,
                                 struct dt_device *d, struct thandle *th)
 {
-        LASSERT(d->dd_ops->dt_trans_stop);
-        return d->dd_ops->dt_trans_stop(env, th);
+	LASSERT(d->dd_ops->dt_trans_stop);
+	return d->dd_ops->dt_trans_stop(env, d, th);
 }
 
 static inline int dt_trans_cb_add(struct thandle *th,
