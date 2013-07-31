@@ -479,24 +479,24 @@ out:
 
 int lod_ea_store_resize(struct lod_thread_info *info, int size)
 {
-	int round = size_roundup_power2(size);
+	int	rc = 0;
+	ENTRY;
 
-	LASSERT(round <= lov_mds_md_size(LOV_MAX_STRIPE_COUNT, LOV_MAGIC_V3));
-	if (info->lti_ea_store) {
-		LASSERT(info->lti_ea_store_size);
-		LASSERT(info->lti_ea_store_size < round);
+	if (info->lti_ea_store != NULL) {
+		LASSERT(info->lti_ea_store_size > 0);
 		CDEBUG(D_INFO, "EA store size %d is not enough, need %d\n",
-		       info->lti_ea_store_size, round);
+		       info->lti_ea_store_size, size);
 		OBD_FREE_LARGE(info->lti_ea_store, info->lti_ea_store_size);
-		info->lti_ea_store = NULL;
-		info->lti_ea_store_size = 0;
 	}
 
-	OBD_ALLOC_LARGE(info->lti_ea_store, round);
-	if (info->lti_ea_store == NULL)
-		RETURN(-ENOMEM);
-	info->lti_ea_store_size = round;
-	RETURN(0);
+	OBD_ALLOC_LARGE(info->lti_ea_store, size);
+	if (info->lti_ea_store == NULL) {
+		info->lti_ea_store_size = 0;
+		GOTO(out, rc = -ENOMEM);
+	}
+	info->lti_ea_store_size = size;
+out:
+	RETURN(rc);
 }
 
 /*
@@ -582,24 +582,24 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	RETURN(rc);
 }
 
-int lod_get_lov_ea(const struct lu_env *env, struct lod_object *lo)
+int lod_get_ea(const struct lu_env *env, struct lod_object *lo,
+	       const char *name)
 {
-	struct lod_thread_info *info = lod_env_info(env);
-	struct dt_object       *next = dt_object_child(&lo->ldo_obj);
+	struct lod_thread_info	*info = lod_env_info(env);
+	struct dt_object	*next = dt_object_child(&lo->ldo_obj);
 	int			rc;
 	ENTRY;
 
 	LASSERT(info);
 
-	if (unlikely(info->lti_ea_store_size == 0)) {
+	if (unlikely(info->lti_ea_store == NULL)) {
 		/* just to enter in allocation block below */
 		rc = -ERANGE;
 	} else {
 repeat:
 		info->lti_buf.lb_buf = info->lti_ea_store;
 		info->lti_buf.lb_len = info->lti_ea_store_size;
-		rc = dt_xattr_get(env, next, &info->lti_buf, XATTR_NAME_LOV,
-				  BYPASS_CAPA);
+		rc = dt_xattr_get(env, next, &info->lti_buf, name, BYPASS_CAPA);
 	}
 	/* if object is not striped or inaccessible */
 	if (rc == -ENODATA)
@@ -607,7 +607,7 @@ repeat:
 
 	if (rc == -ERANGE) {
 		/* EA doesn't fit, reallocate new buffer */
-		rc = dt_xattr_get(env, next, &LU_BUF_NULL, XATTR_NAME_LOV,
+		rc = dt_xattr_get(env, next, &LU_BUF_NULL, name,
 				  BYPASS_CAPA);
 		if (rc == -ENODATA)
 			RETURN(0);
@@ -632,11 +632,10 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 	struct dt_object	*next = dt_object_child(dt);
 	struct lov_user_md_v3	*v3;
 	int			 rc;
-	int			 cplen = 0;
 	ENTRY;
 
-	LASSERT(S_ISDIR(dt->do_lu.lo_header->loh_attr));
-
+	if (S_ISDIR(dt->do_lu.lo_header->loh_attr))
+		RETURN(-ENOTDIR);
 	/*
 	 * store striping defaults into new directory
 	 * used to implement defaults inheritance
@@ -650,31 +649,25 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 				lo->ldo_def_stripe_offset))
 		RETURN(0);
 
-	/* XXX: use thread info */
-	OBD_ALLOC_PTR(v3);
-	if (v3 == NULL)
-		RETURN(-ENOMEM);
-
-	v3->lmm_magic = cpu_to_le32(LOV_MAGIC_V3);
-	v3->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0);
-	v3->lmm_stripe_size = cpu_to_le32(lo->ldo_def_stripe_size);
+	v3 = info->lti_ea_store;
+	if (info->lti_ea_store_size < sizeof(*v3)) {
+		rc = lod_ea_store_resize(info, sizeof(*v3));
+		if (rc != 0)
+			RETURN(rc);
+		v3 = info->lti_ea_store;
+	}
+	memset(v3, 0, sizeof(*v3));
+	v3->lmm_magic = cpu_to_le32(LOV_USER_MAGIC_V3);
 	v3->lmm_stripe_count = cpu_to_le16(lo->ldo_def_stripenr);
 	v3->lmm_stripe_offset = cpu_to_le16(lo->ldo_def_stripe_offset);
-	if (lo->ldo_pool) {
-		cplen = strlcpy(v3->lmm_pool_name, lo->ldo_pool,
-				sizeof(v3->lmm_pool_name));
-		if (cplen >= sizeof(v3->lmm_pool_name)) {
-			OBD_FREE_PTR(v3);
-			RETURN(-E2BIG);
-		}
-	}
-
+	v3->lmm_stripe_size = cpu_to_le32(lo->ldo_def_stripe_size);
+	if (lo->ldo_pool)
+		strncpy(v3->lmm_pool_name, lo->ldo_pool,
+			sizeof(v3->lmm_pool_name));
 	info->lti_buf.lb_buf = v3;
 	info->lti_buf.lb_len = sizeof(*v3);
 	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0, th,
 			BYPASS_CAPA);
-
-	OBD_FREE_PTR(v3);
 
 	RETURN(rc);
 }
@@ -836,7 +829,7 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 {
 	struct lod_thread_info	*info = lod_env_info(env);
 	struct dt_object	*next = dt_object_child(&lo->ldo_obj);
-	int			 rc;
+	int			 rc = 0;
 	ENTRY;
 
 	/*
@@ -848,24 +841,34 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 	if (lo->ldo_stripe != NULL)
 		GOTO(out, rc = 0);
 
-	if (!dt_object_exists(next))
+	/* Do not load stripe for slaves of striped dir */
+	if (!dt_object_exists(next) || lo->ldo_dir_slave_stripe)
 		GOTO(out, rc = 0);
 
 	/* only regular files can be striped */
-	if (!(lu_object_attr(lod2lu_obj(lo)) & S_IFREG))
-		GOTO(out, rc = 0);
-
-	rc = lod_get_lov_ea(env, lo);
-	if (rc <= 0)
-		GOTO(out, rc);
-
-	/*
-	 * there is LOV EA (striping information) in this object
-	 * let's parse it and create in-core objects for the stripes
-	 */
-	info->lti_buf.lb_buf = info->lti_ea_store;
-	info->lti_buf.lb_len = info->lti_ea_store_size;
-	rc = lod_parse_striping(env, lo, &info->lti_buf);
+	if (lu_object_attr(lod2lu_obj(lo)) & S_IFREG) {
+		rc = lod_get_lov_ea(env, lo);
+		if (rc <= 0)
+			GOTO(out, rc);
+		/*
+		 * there is LOV EA (striping information) in this object
+		 * let's parse it and create in-core objects for the stripes
+		 */
+		info->lti_buf.lb_buf = info->lti_ea_store;
+		info->lti_buf.lb_len = info->lti_ea_store_size;
+		rc = lod_parse_striping(env, lo, &info->lti_buf);
+	} else if (lu_object_attr(lod2lu_obj(lo)) & S_IFDIR) {
+		rc = lod_get_lmv_ea(env, lo);
+		if (rc <= 0)
+			GOTO(out, rc);
+		/*
+		 * there is LOV EA (striping information) in this object
+		 * let's parse it and create in-core objects for the stripes
+		 */
+		info->lti_buf.lb_buf = info->lti_ea_store;
+		info->lti_buf.lb_len = info->lti_ea_store_size;
+		rc = lod_parse_dir_striping(env, lo, &info->lti_buf);
+	}
 out:
 	dt_write_unlock(env, next);
 	RETURN(rc);

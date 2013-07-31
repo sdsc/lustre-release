@@ -588,7 +588,9 @@ check_fs_consistency_17n() {
 	local cmd
 	local rc=0
 
-	for mdt_index in $(seq 1 $MDSCOUNT); do
+	# create/unlink in 17n only change 2 MDTs(MDT1/MDT2),
+	# so it only check MDT1/MDT2 instead of all of MDTs.
+	for mdt_index in $(seq 1 2); do
 		devname=$(mdsdevname $mdt_index)
 		cmd="$E2FSCK -fnvd $devname"
 
@@ -599,6 +601,7 @@ check_fs_consistency_17n() {
 
 		start mds${mdt_index} $devname $MDS_MOUNT_OPTS
 		df $MOUNT > /dev/null 2>&1
+		wait_osp_import_state mds${mdt_index} FULL
 		[ $rc -ne 0 ] && break
 	done
 	return $rc
@@ -3924,8 +3927,8 @@ test_53() {
 				      sed -e "s/^0x//g")
 			ost_last_seq=$(echo $ost_last | awk -F':' '{print $1}')
 			if [ $ost_last_seq = $mds_last_seq ]; then
-				if [ $ost_last_id != $mds_last ]; then
-					error "$ost_last != $mds_last_id"
+				if [ $(($ost_last_id)) != $mds_last ]; then
+					error "$ost_last != $mds_last"
 				else
 					found=1
 					break
@@ -11749,44 +11752,6 @@ test_230a() {
 	rm -r $DIR/$tdir || error "unlink remote directory failed"
 }
 run_test 230a "Create remote directory and files under the remote directory"
-
-test_230b() {
-	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
-	local MDTIDX=1
-	local remote_dir=$DIR/$tdir/remote_dir
-	local rc=0
-
-	mkdir -p $DIR/$tdir
-	$LFS mkdir -i $MDTIDX $remote_dir ||
-		error "create remote directory failed"
-
-	$LFS mkdir -i 0 $remote_dir/new_dir &&
-		error "nested remote directory create succeed!"
-
-	do_facet mds$((MDTIDX + 1)) lctl set_param mdt.*.enable_remote_dir=1
-	$LFS mkdir -i 0 $remote_dir/new_dir || rc=$?
-	do_facet mds$((MDTIDX + 1)) lctl set_param mdt.*.enable_remote_dir=0
-
-	[ $rc -ne 0 ] &&
-	   error "create remote directory failed after set enable_remote_dir"
-
-	rm -rf $remote_dir || error "first unlink remote directory failed"
-
-	$RUNAS -G$RUNAS_GID $LFS mkdir -i $MDTIDX $DIR/$tfile &&
-							error "chown worked"
-
-	do_facet mds$MDTIDX lctl set_param \
-				mdt.*.enable_remote_dir_gid=$RUNAS_GID
-	$LFS mkdir -i $MDTIDX $remote_dir || rc=$?
-	do_facet mds$MDTIDX lctl set_param mdt.*.enable_remote_dir_gid=0
-
-	[ $rc -ne 0 ] &&
-	   error "create remote dir failed after set enable_remote_dir_gid"
-
-	rm -r $DIR/$tdir || error "second unlink remote directory failed"
-}
-run_test 230b "nested remote directory should be failed"
 
 test_231a()
 {

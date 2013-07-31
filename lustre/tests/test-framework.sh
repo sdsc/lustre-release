@@ -5703,6 +5703,23 @@ wait_osc_import_state() {
 	fi
 }
 
+wait_osp_import_state() {
+	local facet=$1
+	local expected=$2
+	local label=$(convert_facet2label $facet)
+	local index=$(echo $label | sed -e 's/^.*-//')
+	local osp_procs="*MDT*-osp-${index}"
+	local params="osp.${osp_procs}.ost_server_uuid"
+	local maxtime=$(( 2 * $(request_timeout $facet)))
+
+	echo "wait $params to be ${expected} within $maxtime seconds"
+	if ! do_rpc_nodes "$(facet_active_host $facet)" \
+		wait_import_state $expected "$params" $maxtime; then
+		error "import is not in ${expected} state"
+		return 1
+	fi
+}
+
 get_clientmdc_proc_path() {
     echo "${1}-mdc-*"
 }
