@@ -1692,16 +1692,31 @@ static int lmv_close(struct obd_export *exp, struct md_op_data *op_data,
 
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
-		struct lu_fid *fid)
+                struct lu_fid *fid)
 {
-	struct lmv_tgt_desc *tgt;
+	struct lmv_stripe_md	*lsm = op_data->op_mea1;
+        struct lmv_tgt_desc	*tgt;
+        int			sidx;
 
-	tgt = lmv_find_target(lmv, fid);
-	if (IS_ERR(tgt))
-		return tgt;
+        if (!lsm || lsm->lsm_count <= 1 || op_data->op_namelen == 0) {
+                tgt = lmv_find_target(lmv, fid);
+		if (IS_ERR(tgt))
+			return tgt;
 
-	op_data->op_mds = tgt->ltd_idx;
+                op_data->op_mds = tgt->ltd_idx;
+                return tgt;
+        }
 
+	sidx = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
+			    op_data->op_name, op_data->op_namelen);
+
+	LASSERT(sidx < lsm->lsm_count);
+	*fid = lsm->lsm_oinfo[sidx].lmo_fid;
+	op_data->op_mds = lsm->lsm_oinfo[sidx].lmo_mds;
+	tgt = lmv_get_target(lmv, lsm->lsm_oinfo[sidx].lmo_mds);
+
+	CDEBUG(D_INFO, "locate on idx %d mds %u \n", sidx,
+	       op_data->op_mds);
 	return tgt;
 }
 
@@ -1738,7 +1753,6 @@ int lmv_create(struct obd_export *exp, struct md_op_data *op_data,
 	op_data->op_flags |= MF_MDC_CANCEL_FID1;
 	rc = md_create(tgt->ltd_exp, op_data, data, datalen, mode, uid, gid,
 		       cap_effective, rdev, request);
-
 	if (rc == 0) {
 		if (*request == NULL)
 			RETURN(rc);

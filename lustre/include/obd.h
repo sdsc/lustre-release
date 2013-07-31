@@ -1378,7 +1378,8 @@ extern void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *mea);
 #define MAX_HASH_HIGHEST_BIT     0x1000000000000000ULL
 
 enum {
-        LUSTRE_MD_NEED_MD       = (1 << 0)
+	LUSTRE_MD_NEED_MD	= (1 << 0),
+	LUSTRE_MD_SLAVE		= (1 << 1)
 };
 
 struct lustre_md {
@@ -1391,6 +1392,7 @@ struct lustre_md {
         struct mdt_remote_perm  *remote_perm;
         struct obd_capa         *mds_capa;
         struct obd_capa         *oss_capa;
+	struct lu_fid		*lm_slave_fid;
 	__u64			lm_flags;
 };
 

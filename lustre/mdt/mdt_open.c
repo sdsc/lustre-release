@@ -704,6 +704,13 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
                         repbody->valid |= OBD_MD_FLEASIZE;
         }
 
+	if (ma->ma_valid & MA_LMV) {
+		LASSERT(ma->ma_lmv_size != 0);
+		repbody->eadatasize = ma->ma_lmv_size;
+		LASSERT(isdir);
+		repbody->valid |= OBD_MD_FLDIREA | OBD_MD_MEA;
+	}
+
         if (flags & FMODE_WRITE) {
                 rc = mdt_write_get(o);
                 if (rc == 0) {
@@ -1811,6 +1818,16 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 			if (mdt_object_exists(child)) {
 				/* We have to get attr & LOV EA & HSM for this
 				 * object */
+				if (S_ISDIR(child->mot_header.loh_attr)) {
+					/* If it is directory, only need
+					 * lmv striped infor for intent open */
+					ma->ma_lmv = (struct lmv_mds_md *)ma->ma_lmm;
+					ma->ma_lmv_size = ma->ma_lmm_size;
+					ma->ma_need &= ~MA_LOV;
+					ma->ma_need |= MA_LMV;
+					ma->ma_lmm = NULL;
+					ma->ma_lmm_size = 0;
+				}
 				ma->ma_need |= MA_HSM;
 				result = mdt_attr_get_complex(info, child, ma);
 			} else {
