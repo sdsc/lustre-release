@@ -555,6 +555,21 @@ void mdt_dump_lmm(int level, const struct lov_mds_md *lmm)
 	}
 }
 
+void mdt_dump_lmv(int level, const struct lmv_mds_md *lmv)
+{
+	int                           i;
+
+	CDEBUG(level, "magic 0x%08X, master %#X stripe_count %#x\n",
+	       le32_to_cpu(lmv->lmv_magic), le32_to_cpu(lmv->lmv_master),
+	       le32_to_cpu(lmv->lmv_count));
+	for (i = 0; i < le32_to_cpu(lmv->lmv_count); i++) {
+		struct lu_fid fid;
+
+		fid_le_to_cpu(&fid, &lmv->lmv_data[i]);
+		CDEBUG(level, "idx %u subobj "DFID"\n", i, PFID(&fid));
+	}
+}
+
 /* Shrink and/or grow reply buffers */
 int mdt_fix_reply(struct mdt_thread_info *info)
 {
