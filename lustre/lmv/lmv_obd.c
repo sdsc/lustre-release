@@ -1738,7 +1738,6 @@ int lmv_create(struct obd_export *exp, struct md_op_data *op_data,
 	op_data->op_flags |= MF_MDC_CANCEL_FID1;
 	rc = md_create(tgt->ltd_exp, op_data, data, datalen, mode, uid, gid,
 		       cap_effective, rdev, request);
-
 	if (rc == 0) {
 		if (*request == NULL)
 			RETURN(rc);

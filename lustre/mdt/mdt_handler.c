@@ -3110,9 +3110,9 @@ static void mdt_thread_info_init(struct ptlrpc_request *req,
         info->mti_opdata = 0;
 	info->mti_big_lmm_used = 0;
 
-        /* To not check for split by default. */
         info->mti_spec.no_create = 0;
 	info->mti_spec.sp_rm_entry = 0;
+	info->mti_spec.sp_stripe_create = 0;
 }
 
 static void mdt_thread_info_fini(struct mdt_thread_info *info)
