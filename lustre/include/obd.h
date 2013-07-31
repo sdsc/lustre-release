@@ -1371,8 +1371,6 @@ enum {
         LUSTRE_OPC_ANY      = (1 << 4)
 };
 
-extern void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *mea);
-
 /* lmv structures */
 #define MEA_MAGIC_LAST_CHAR      0xb2221ca1
 #define MEA_MAGIC_ALL_CHARS      0xb222a11c
