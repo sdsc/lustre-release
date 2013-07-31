@@ -229,7 +229,7 @@ int mdd_get_flags(const struct lu_env *env, struct mdd_object *obj)
         int rc;
 
         ENTRY;
-        rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
+	rc = mdd_la_get(env, obj, la, LC_BYPASS_CAPA);
         if (rc == 0) {
                 mdd_flags_xlate(obj, la->la_flags);
         }
@@ -398,7 +398,7 @@ static inline int mdd_attr_check(const struct lu_env *env,
         ENTRY;
 
         if (attr->la_valid & LA_CTIME) {
-                rc = mdd_la_get(env, obj, tmp_la, BYPASS_CAPA);
+		rc = mdd_la_get(env, obj, tmp_la, LC_BYPASS_CAPA);
                 if (rc)
                         RETURN(rc);
 
@@ -474,7 +474,7 @@ static int mdd_fix_attr(const struct lu_env *env, struct mdd_object *obj,
 	if (uc == NULL)
 		RETURN(0);
 
-        rc = mdd_la_get(env, obj, tmp_la, BYPASS_CAPA);
+	rc = mdd_la_get(env, obj, tmp_la, LC_BYPASS_CAPA);
         if (rc)
                 RETURN(rc);
 
@@ -807,7 +807,7 @@ static int mdd_declare_attr_set(const struct lu_env *env,
 	if (attr->la_valid & LA_MODE) {
                 mdd_read_lock(env, obj, MOR_TGT_CHILD);
 		rc = mdo_xattr_get(env, obj, &LU_BUF_NULL,
-				   XATTR_NAME_ACL_ACCESS, BYPASS_CAPA);
+				   XATTR_NAME_ACL_ACCESS, LC_BYPASS_CAPA);
                 mdd_read_unlock(env, obj);
                 if (rc == -EOPNOTSUPP || rc == -ENODATA)
                         rc = 0;
@@ -902,7 +902,7 @@ static int mdd_xattr_sanity_check(const struct lu_env *env,
 	if (mdd_is_immutable(obj) || mdd_is_append(obj))
 		RETURN(-EPERM);
 
-	rc = mdd_la_get(env, obj, tmp_la, BYPASS_CAPA);
+	rc = mdd_la_get(env, obj, tmp_la, LC_BYPASS_CAPA);
 	if (rc)
 		RETURN(rc);
 
@@ -1262,14 +1262,14 @@ static int mdd_layout_swap_allowed(const struct lu_env *env,
 		RETURN(-EPERM);
 
 	tmp_la->la_valid = 0;
-	rc = mdd_la_get(env, o1, tmp_la, BYPASS_CAPA);
+	rc = mdd_la_get(env, o1, tmp_la, LC_BYPASS_CAPA);
 	if (rc)
 		RETURN(rc);
 	uid = tmp_la->la_uid;
 	gid = tmp_la->la_gid;
 
 	tmp_la->la_valid = 0;
-	rc = mdd_la_get(env, o2, tmp_la, BYPASS_CAPA);
+	rc = mdd_la_get(env, o2, tmp_la, LC_BYPASS_CAPA);
 	if (rc)
 		RETURN(rc);
 
@@ -1394,12 +1394,12 @@ static int mdd_swap_layouts(const struct lu_env *env, struct md_object *obj1,
 
 		/* Read HSM attribute */
 		rc = mdo_xattr_get(env, fst_o, fst_hsm_buf, XATTR_NAME_HSM,
-				   BYPASS_CAPA);
+				   LC_BYPASS_CAPA);
 		if (rc < 0)
 			GOTO(stop, rc);
 
 		rc = mdo_xattr_get(env, snd_o, snd_hsm_buf, XATTR_NAME_HSM,
-				   BYPASS_CAPA);
+				   LC_BYPASS_CAPA);
 		if (rc < 0)
 			GOTO(stop, rc);
 
@@ -1580,7 +1580,7 @@ static int mdd_open_sanity_check(const struct lu_env *env,
         if (mdd_is_dead_obj(obj))
                 RETURN(-ENOENT);
 
-        rc = mdd_la_get(env, obj, tmp_la, BYPASS_CAPA);
+	rc = mdd_la_get(env, obj, tmp_la, LC_BYPASS_CAPA);
         if (rc)
                RETURN(rc);
 

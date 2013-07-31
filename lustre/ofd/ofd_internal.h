@@ -248,7 +248,7 @@ static inline struct lustre_capa *ofd_object_capa(const struct lu_env *env,
 						  const struct ofd_object *obj)
 {
 	/* TODO: see mdd_object_capa() */
-	return BYPASS_CAPA;
+	return LC_BYPASS_CAPA;
 }
 
 static inline void ofd_read_lock(const struct lu_env *env,

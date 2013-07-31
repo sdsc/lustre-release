@@ -206,9 +206,9 @@ static int mdt_server_data_init(const struct lu_env *env,
         la = &mti->mti_attr.ma_attr;
 
         obj = mdt->mdt_lut.lut_last_rcvd;
-	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
-        if (rc)
-                RETURN(rc);
+	rc = dt_attr_get(env, obj, la, LC_BYPASS_CAPA);
+	if (rc)
+		RETURN(rc);
 
 	last_rcvd_size = (unsigned long)la->la_size;
 

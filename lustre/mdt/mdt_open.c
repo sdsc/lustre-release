@@ -1078,8 +1078,8 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
 			rc = 0;
 		} else {
 			if (mdt_object_exists(child)) {
-				mdt_set_capainfo(info, 1, rr->rr_fid2,
-						 BYPASS_CAPA);
+				mdt_capainfo_set(info, 1, rr->rr_fid2,
+						 LC_BYPASS_CAPA);
 				rc = mdt_attr_get_complex(info, child, ma);
 				if (rc == 0)
 					rc = mdt_finish_open(info, parent,
@@ -1523,7 +1523,7 @@ static int mdt_cross_open(struct mdt_thread_info *info,
 			if (rc)
 				goto out;
 
-			mdt_set_capainfo(info, 0, fid, BYPASS_CAPA);
+			mdt_capainfo_set(info, 0, fid, LC_BYPASS_CAPA);
 			rc = mdt_attr_get_complex(info, o, ma);
 			if (rc != 0)
 				GOTO(out, rc);
@@ -1719,8 +1719,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         if (rc)
                 GOTO(out_child, result = rc);
 
-        mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
-        if (result == -ENOENT) {
+	mdt_capainfo_set(info, 1, child_fid, LC_BYPASS_CAPA);
+	if (result == -ENOENT) {
 		/* Create under OBF and .lustre is not permitted */
 		if (fid_is_obf(rr->rr_fid1) || fid_is_dot_lustre(rr->rr_fid1))
 			GOTO(out_child, result = -EPERM);

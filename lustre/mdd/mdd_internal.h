@@ -573,7 +573,7 @@ static inline struct lustre_capa *mdd_object_capa(const struct lu_env *env,
 
 	/* NB: in mdt_init0 */
 	if (lci == NULL)
-		return BYPASS_CAPA;
+		return LC_BYPASS_CAPA;
 
 	for (i = 0; i < LU_CAPAINFO_MAX; i++)
 		if (lu_fid_eq(&lci->lci_fid[i], fid))
@@ -581,7 +581,7 @@ static inline struct lustre_capa *mdd_object_capa(const struct lu_env *env,
 	return NULL;
 }
 
-static inline void mdd_set_capainfo(const struct lu_env *env, int offset,
+static inline void mdd_capainfo_set(const struct lu_env *env, int offset,
 				    const struct mdd_object *obj,
 				    struct lustre_capa *capa)
 {

@@ -119,10 +119,10 @@ static inline int mdd_orphan_insert_obj(const struct lu_env *env,
         struct dt_key           *key    = orph_key_fill(env, lf, op);
         ENTRY;
 
-        return  dor->do_index_ops->dio_insert(env, dor,
-                                              (struct dt_rec *)lf,
-                                              key, th,
-                                              BYPASS_CAPA, 1);
+	return  dor->do_index_ops->dio_insert(env, dor,
+					      (struct dt_rec *)lf,
+					      key, th,
+					      LC_BYPASS_CAPA, 1);
 }
 
 static inline int mdd_orphan_delete_obj(const struct lu_env *env,
@@ -132,9 +132,9 @@ static inline int mdd_orphan_delete_obj(const struct lu_env *env,
 {
         struct dt_object        *dor    = mdd->mdd_orphans;
 
-        return  dor->do_index_ops->dio_delete(env, dor,
-                                              key, th,
-                                              BYPASS_CAPA);
+	return  dor->do_index_ops->dio_delete(env, dor,
+					      key, th,
+					      LC_BYPASS_CAPA);
 }
 
 static inline void mdd_orphan_ref_add(const struct lu_env *env,
@@ -224,14 +224,14 @@ static int orph_index_insert(const struct lu_env *env,
          * from here */
         if (!dt_try_as_dir(env, next))
                 goto out;
-        next->do_index_ops->dio_delete(env, next,
-                                       (const struct dt_key *)dotdot,
-                                       th, BYPASS_CAPA);
+	next->do_index_ops->dio_delete(env, next,
+				       (const struct dt_key *)dotdot,
+				       th, LC_BYPASS_CAPA);
 
-        next->do_index_ops->dio_insert(env, next,
-                                       (struct dt_rec *)lf_dor,
-                                       (const struct dt_key *)dotdot,
-                                       th, BYPASS_CAPA, 1);
+	next->do_index_ops->dio_insert(env, next,
+				       (struct dt_rec *)lf_dor,
+				       (const struct dt_key *)dotdot,
+				       th, LC_BYPASS_CAPA, 1);
 
 out:
         if (rc == 0)
@@ -439,7 +439,7 @@ static int orph_index_iterate(const struct lu_env *env,
 
         /* In recovery phase, do not need for any lock here */
         iops = &dor->do_index_ops->dio_it;
-        it = iops->init(env, dor, LUDA_64BITHASH, BYPASS_CAPA);
+	it = iops->init(env, dor, LUDA_64BITHASH, LC_BYPASS_CAPA);
         if (IS_ERR(it)) {
                 rc = PTR_ERR(it);
                 CERROR("%s: cannot clean PENDING: rc = %d\n",
