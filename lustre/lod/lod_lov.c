@@ -462,26 +462,64 @@ out:
 	return(rc);
 }
 
+enum resize_type {
+	EA_RESIZE	= 1,
+	MEA_RESIZE	= 2
+};
+
+static int lod_store_resize(struct lod_thread_info *info, int size,
+			    enum resize_type type)
+{
+	void	*ea_buf;
+	int	ea_buf_size;
+	int	rc = 0;
+	ENTRY;
+
+	if (type == EA_RESIZE) {
+		ea_buf = info->lti_ea_store;
+		ea_buf_size = info->lti_ea_store_size;
+	} else {
+		ea_buf = info->lti_mea_store;
+		ea_buf_size = info->lti_ea_store_size;
+	}
+
+	if (ea_buf != NULL) {
+		LASSERT(ea_buf_size > 0);
+		CDEBUG(D_INFO, "EA store size %d is not enough, need %d\n",
+		       ea_buf_size, size);
+		OBD_FREE_LARGE(ea_buf, ea_buf_size);
+	}
+
+	OBD_ALLOC_LARGE(ea_buf, size);
+	if (ea_buf == NULL) {
+		ea_buf_size = 0;
+		GOTO(out, rc = -ENOMEM);
+	}
+out:
+	if (type == EA_RESIZE) {
+		info->lti_ea_store = ea_buf;
+		info->lti_ea_store_size = size;
+	} else {
+		info->lti_mea_store = ea_buf;
+		info->lti_mea_store_size = size;
+	}
+	RETURN(rc);
+}
+
 int lod_ea_store_resize(struct lod_thread_info *info, int size)
 {
 	int round = size_roundup_power2(size);
 
 	LASSERT(round <= lov_mds_md_size(LOV_MAX_STRIPE_COUNT, LOV_MAGIC_V3));
-	if (info->lti_ea_store) {
-		LASSERT(info->lti_ea_store_size);
-		LASSERT(info->lti_ea_store_size < round);
-		CDEBUG(D_INFO, "EA store size %d is not enough, need %d\n",
-		       info->lti_ea_store_size, round);
-		OBD_FREE_LARGE(info->lti_ea_store, info->lti_ea_store_size);
-		info->lti_ea_store = NULL;
-		info->lti_ea_store_size = 0;
-	}
+	return lod_store_resize(info, round, EA_RESIZE);
+}
 
-	OBD_ALLOC_LARGE(info->lti_ea_store, round);
-	if (info->lti_ea_store == NULL)
-		RETURN(-ENOMEM);
-	info->lti_ea_store_size = round;
-	RETURN(0);
+int lod_mea_store_resize(struct lod_thread_info *info, int size)
+{
+	int round = size_roundup_power2(size);
+
+	LASSERT(round <= lmv_mds_md_size(LMV_MAX_STRIPE_COUNT, LMV_MAGIC_V1));
+	return lod_store_resize(info, round, MEA_RESIZE);
 }
 
 /*
@@ -617,7 +655,6 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 	struct dt_object	*next = dt_object_child(dt);
 	struct lov_user_md_v3	*v3;
 	int			 rc;
-	int			 cplen = 0;
 	ENTRY;
 
 	LASSERT(S_ISDIR(dt->do_lu.lo_header->loh_attr));
@@ -635,31 +672,15 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 				lo->ldo_def_stripe_offset))
 		RETURN(0);
 
-	/* XXX: use thread info */
-	OBD_ALLOC_PTR(v3);
-	if (v3 == NULL)
-		RETURN(-ENOMEM);
-
-	v3->lmm_magic = cpu_to_le32(LOV_MAGIC_V3);
-	v3->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0);
-	v3->lmm_stripe_size = cpu_to_le32(lo->ldo_def_stripe_size);
-	v3->lmm_stripe_count = cpu_to_le16(lo->ldo_def_stripenr);
-	v3->lmm_stripe_offset = cpu_to_le16(lo->ldo_def_stripe_offset);
-	if (lo->ldo_pool) {
-		cplen = strlcpy(v3->lmm_pool_name, lo->ldo_pool,
-				sizeof(v3->lmm_pool_name));
-		if (cplen >= sizeof(v3->lmm_pool_name)) {
-			OBD_FREE_PTR(v3);
-			RETURN(-E2BIG);
-		}
-	}
-
+	v3 = (struct lov_user_md_v3 *)info->lti_ea_store;
+	LASSERT(v3 != NULL);
+	LASSERTF(v3->lmm_magic == LOV_USER_MAGIC_V1 ||
+		 v3->lmm_magic == LOV_USER_MAGIC_V3,
+		 "Invalid magic %x\n", v3->lmm_magic);
 	info->lti_buf.lb_buf = v3;
 	info->lti_buf.lb_len = sizeof(*v3);
 	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0, th,
 			BYPASS_CAPA);
-
-	OBD_FREE_PTR(v3);
 
 	RETURN(rc);
 }

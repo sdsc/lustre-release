@@ -841,6 +841,13 @@ static void lod_key_fini(const struct lu_context *ctx,
 		info->lti_ea_store = NULL;
 		info->lti_ea_store_size = 0;
 	}
+
+	if (info->lti_mea_store != NULL) {
+		OBD_FREE_LARGE(info->lti_mea_store, info->lti_mea_store_size);
+		info->lti_mea_store = NULL;
+		info->lti_mea_store_size = 0;
+	}
+
 	OBD_FREE_PTR(info);
 }
 
