@@ -1487,9 +1487,11 @@ static int lfs_setdirstripe(int argc, char **argv)
 	char *end;
 	int c;
 	char *stripe_off_arg = NULL;
+	char *stripe_count_arg = NULL;
 	int  flags = 0;
 
 	struct option long_opts[] = {
+		{"count",    required_argument, 0, 'c'},
 		{"index",    required_argument, 0, 'i'},
 		{0, 0, 0, 0}
 	};
@@ -1497,11 +1499,14 @@ static int lfs_setdirstripe(int argc, char **argv)
 	st_offset = -1;
 	st_count = 1;
 	optind = 0;
-	while ((c = getopt_long(argc, argv, "i:o",
-				long_opts, NULL)) >= 0) {
+
+	while ((c = getopt_long(argc, argv, "c:i:D", long_opts, NULL)) >= 0) {
 		switch (c) {
 		case 0:
 			/* Long options. */
+			break;
+		case 'c':
+			stripe_count_arg = optarg;
 			break;
 		case 'i':
 			stripe_off_arg = optarg;
@@ -1526,6 +1531,7 @@ static int lfs_setdirstripe(int argc, char **argv)
 			argv[0]);
 		return CMD_HELP;
 	}
+
 	/* get the stripe offset */
 	st_offset = strtoul(stripe_off_arg, &end, 0);
 	if (*end != '\0') {
@@ -1533,6 +1539,17 @@ static int lfs_setdirstripe(int argc, char **argv)
 			argv[0], stripe_off_arg);
 		return CMD_HELP;
 	}
+
+	/* get the stripe count */
+	if (stripe_count_arg != NULL) {
+		st_count = strtoul(stripe_count_arg, &end, 0);
+		if (*end != '\0') {
+			fprintf(stderr, "error: %s: bad stripe count '%s'\n",
+				argv[0], stripe_count_arg);
+			return CMD_HELP;
+		}
+	}
+
 	do {
 		result = llapi_dir_create_pool(dname, flags, st_offset,
 					       st_count, 0, NULL);

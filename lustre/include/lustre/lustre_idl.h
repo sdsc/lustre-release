@@ -2668,6 +2668,40 @@ static inline int lmv_mds_md_size(int stripes, int lmm_magic)
 		stripes * sizeof(struct lu_fid);
 }
 
+static inline void lmv_cpu_to_le(struct lmv_mds_md *lmv_dst,
+				 struct lmv_mds_md *lmv_src)
+{
+	int i;
+
+	lmv_dst->lmv_magic = cpu_to_le32(lmv_src->lmv_magic);
+	lmv_dst->lmv_count = cpu_to_le32(lmv_src->lmv_count);
+	lmv_dst->lmv_master = cpu_to_le32(lmv_src->lmv_master);
+	lmv_dst->lmv_hash_type = cpu_to_le32(lmv_src->lmv_hash_type);
+	lmv_dst->lmv_layout_version = cpu_to_le32(lmv_src->lmv_layout_version);
+	lmv_dst->lmv_padding1 = cpu_to_le32(lmv_src->lmv_padding1);
+	lmv_dst->lmv_padding2 = cpu_to_le32(lmv_src->lmv_padding2);
+	lmv_dst->lmv_padding3 = cpu_to_le32(lmv_src->lmv_padding3);
+	for (i = 0; i < lmv_src->lmv_count; i++)
+		fid_cpu_to_le(&lmv_dst->lmv_data[i], &lmv_src->lmv_data[i]);
+}
+
+static inline void lmv_le_to_cpu(struct lmv_mds_md *lmv_dst,
+				 struct lmv_mds_md *lmv_src)
+{
+	int i;
+
+	lmv_dst->lmv_magic = le32_to_cpu(lmv_src->lmv_magic);
+	lmv_dst->lmv_count = le32_to_cpu(lmv_src->lmv_count);
+	lmv_dst->lmv_master = le32_to_cpu(lmv_src->lmv_master);
+	lmv_dst->lmv_hash_type = le32_to_cpu(lmv_src->lmv_hash_type);
+	lmv_dst->lmv_layout_version = le32_to_cpu(lmv_src->lmv_layout_version);
+	lmv_dst->lmv_padding1 = le32_to_cpu(lmv_src->lmv_padding1);
+	lmv_dst->lmv_padding2 = le32_to_cpu(lmv_src->lmv_padding2);
+	lmv_dst->lmv_padding3 = le32_to_cpu(lmv_src->lmv_padding3);
+	for (i = 0; i < lmv_src->lmv_count; i++)
+		fid_le_to_cpu(&lmv_dst->lmv_data[i], &lmv_src->lmv_data[i]);
+}
+
 enum fld_rpc_opc {
 	FLD_QUERY	= 900,
 	FLD_LAST_OPC,

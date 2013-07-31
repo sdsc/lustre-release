@@ -1439,13 +1439,20 @@ static int mdc_read_page(void *data, struct page *page0)
 		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
 		/* Checked by mdc_readpage() */
 		LASSERT(body != NULL);
+		if (body->valid & OBD_MD_FLSIZE) {
+			if (op_data->op_mea1 != NULL) {
+				struct lmv_oinfo *lmo;
+				int index = op_data->op_stripe_offset;
 
-		if (body->valid & OBD_MD_FLSIZE && op_data->op_mea1 == NULL) {
-			struct inode *inode;
+				lmo = &op_data->op_mea1->lsm_oinfo[index];
+				lmo->lmo_size = body->size;
+			} else {
+				struct inode *inode;
 
-			inode = (struct inode *)op_data->op_data;
-			LASSERT(inode != NULL);
-			rp->rp_cb->md_update_inode(inode, body->size);
+				inode = (struct inode *)op_data->op_data;
+				LASSERT(inode != NULL);
+				rp->rp_cb->md_update_inode(inode, body->size);
+			}
 		}
 		nrdpgs = (req->rq_bulk->bd_nob_transferred +
 			    PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;

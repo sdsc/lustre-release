@@ -3173,6 +3173,26 @@ out:
         return rc;
 }
 
+static int ll_merge_md_attr(struct inode *inode)
+{
+	struct cl_attr attr = { 0 };
+	int rc;
+
+	LASSERT(ll_i2info(inode)->lli_lsm_md != NULL);
+	rc = md_merge_attr(ll_i2mdexp(inode), ll_i2info(inode)->lli_lsm_md,
+			   &attr);
+	if (rc != 0)
+		RETURN(rc);
+
+	i_size_write(inode, attr.cat_size);
+	set_nlink(inode, attr.cat_nlink);
+
+	ll_i2info(inode)->lli_lvb.lvb_atime = attr.cat_atime;
+	ll_i2info(inode)->lli_lvb.lvb_mtime = attr.cat_mtime;
+	ll_i2info(inode)->lli_lvb.lvb_ctime = attr.cat_ctime;
+	RETURN(0);
+}
+
 int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
 			   __u64 ibits)
 {
@@ -3186,6 +3206,13 @@ int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
 
 	/* if object isn't regular file, don't validate size */
 	if (!S_ISREG(inode->i_mode)) {
+		if (S_ISDIR(inode->i_mode) &&
+		    ll_i2info(inode)->lli_lsm_md != NULL) {
+			rc = ll_merge_md_attr(inode);
+			if (rc != 0)
+				RETURN(rc);
+		}
+
 		LTIME_S(inode->i_atime) = ll_i2info(inode)->lli_lvb.lvb_atime;
 		LTIME_S(inode->i_mtime) = ll_i2info(inode)->lli_lvb.lvb_mtime;
 		LTIME_S(inode->i_ctime) = ll_i2info(inode)->lli_lvb.lvb_ctime;
