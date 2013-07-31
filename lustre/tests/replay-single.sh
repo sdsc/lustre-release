@@ -2040,11 +2040,11 @@ test_80a() {
 
 	mkdir -p $DIR/$tdir
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
-	fail mds$((MDTIDX + 1))
+	fail mds${MDTIDX}
 
 	wait $CLIENT_PID || error "remote creation failed"
 
@@ -2053,7 +2053,7 @@ test_80a() {
 
 	return 0
 }
-run_test 80a "DNE: create remote dir, drop update rep from MDT1, fail MDT1"
+run_test 80a "DNE: create remote dir, drop update rep from MDT0, fail MDT0"
 
 test_80b() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2067,11 +2067,11 @@ test_80b() {
 
 	mkdir -p $DIR/$tdir
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
-	fail mds${MDTIDX}
+	fail mds$((MDTIDX + 1))
 
 	wait $CLIENT_PID || error "remote creation failed"
 
@@ -2080,7 +2080,7 @@ test_80b() {
 
 	return 0
 }
-run_test 80b "DNE: create remote dir, drop update rep from MDT1, fail MDT0"
+run_test 80b "DNE: create remote dir, drop update rep from MDT0, fail MDT1"
 
 test_80c() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2094,7 +2094,7 @@ test_80c() {
 
 	mkdir -p $DIR/$tdir
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2117,7 +2117,7 @@ test_80d() {
 
 	mkdir -p $DIR/$tdir
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2144,7 +2144,7 @@ test_80e() {
 
 	mkdir -p $DIR/$tdir
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2157,7 +2157,7 @@ test_80e() {
 
 	return 0
 }
-run_test 80e "DNE: create remote dir, drop MDT0 rep, fail MDT0"
+run_test 80e "DNE: create remote dir, drop MDT1 rep, fail MDT0"
 
 test_80f() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2170,7 +2170,7 @@ test_80f() {
 
 	mkdir -p $DIR/$tdir
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2183,7 +2183,7 @@ test_80f() {
 
 	return 0
 }
-run_test 80f "DNE: create remote dir, drop MDT0 rep, fail MDT1"
+run_test 80f "DNE: create remote dir, drop MDT1 rep, fail MDT1"
 
 test_80g() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2197,7 +2197,7 @@ test_80g() {
 
 	mkdir -p $DIR/$tdir
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2211,7 +2211,7 @@ test_80g() {
 
 	return 0
 }
-run_test 80g "DNE: create remote dir, drop MDT0 rep, fail MDT0, then MDT1"
+run_test 80g "DNE: create remote dir, drop MDT1 rep, fail MDT0, then MDT1"
 
 test_80h() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2220,7 +2220,7 @@ test_80h() {
 
 	mkdir -p $DIR/$tdir
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2233,7 +2233,7 @@ test_80h() {
 
 	return 0
 }
-run_test 80h "DNE: create remote dir, drop MDT0 rep, fail 2 MDTs"
+run_test 80h "DNE: create remote dir, drop MDT1 rep, fail 2 MDTs"
 
 test_81a() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0

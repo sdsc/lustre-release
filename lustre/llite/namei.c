@@ -88,7 +88,7 @@ int ll_unlock(__u32 mode, struct lustre_handle *lockh)
 /* called from iget5_locked->find_inode() under inode_lock spinlock */
 static int ll_test_inode(struct inode *inode, void *opaque)
 {
-        struct ll_inode_info *lli = ll_i2info(inode);
+	struct ll_inode_info *lli = ll_i2info(inode);
         struct lustre_md     *md = opaque;
 
         if (unlikely(!(md->body->valid & OBD_MD_FLID))) {
@@ -96,38 +96,42 @@ static int ll_test_inode(struct inode *inode, void *opaque)
                 return 0;
         }
 
-        if (!lu_fid_eq(&lli->lli_fid, &md->body->fid1))
-                return 0;
+	if (unlikely(md->lm_flags & LUSTRE_MD_SLAVE)) {
+		if (!lu_fid_eq(&lli->lli_fid, md->lm_slave_fid))
+			return 0;
+	} else {
+		if (!lu_fid_eq(&lli->lli_fid, &md->body->fid1))
+			return 0;
+	}
 
-        return 1;
+	return 1;
 }
 
 static int ll_set_inode(struct inode *inode, void *opaque)
 {
         struct ll_inode_info *lli = ll_i2info(inode);
-        struct mdt_body *body = ((struct lustre_md *)opaque)->body;
+        struct lustre_md *md = (struct lustre_md *)opaque;
+        struct mdt_body *body = md->body;
 
         if (unlikely(!(body->valid & OBD_MD_FLID))) {
                 CERROR("MDS body missing FID\n");
                 return -EINVAL;
         }
 
-        lli->lli_fid = body->fid1;
-        if (unlikely(!(body->valid & OBD_MD_FLTYPE))) {
-                CERROR("Can not initialize inode "DFID" without object type: "
-                       "valid = "LPX64"\n", PFID(&lli->lli_fid), body->valid);
-                return -EINVAL;
-        }
+	if (unlikely(md->lm_flags & LUSTRE_MD_SLAVE))
+		lli->lli_fid = *md->lm_slave_fid;
+	else
+		lli->lli_fid = body->fid1;
 
-        inode->i_mode = (inode->i_mode & ~S_IFMT) | (body->mode & S_IFMT);
-        if (unlikely(inode->i_mode == 0)) {
-                CERROR("Invalid inode "DFID" type\n", PFID(&lli->lli_fid));
-                return -EINVAL;
-        }
+	inode->i_mode = (inode->i_mode & ~S_IFMT) | (body->mode & S_IFMT);
+	if (unlikely(inode->i_mode == 0)) {
+		CERROR("Invalid inode "DFID" type\n", PFID(&lli->lli_fid));
+		return -EINVAL;
+	}
 
-        ll_lli_init(lli);
+	ll_lli_init(lli);
 
-        return 0;
+	return 0;
 }
 
 
