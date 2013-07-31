@@ -770,13 +770,11 @@ static int osc_ldlm_blocking_ast(struct ldlm_lock *dlmlock,
                 result = osc_dlm_blocking_ast0(env, dlmlock, data, flag);
                 cl_env_nested_put(&nest, env);
         } else {
+		/*
+		 * See comment above, this is normally extra ELC in the context
+		 * of outer IO, and it's not a big issue to fail.
+		 */
                 result = PTR_ERR(env);
-                /*
-                 * XXX This should never happen, as cl_lock is
-                 * stuck. Pre-allocated environment a la vvp_inode_fini_env
-                 * should be used.
-                 */
-                LBUG();
         }
         if (result != 0) {
                 if (result == -ENODATA)
