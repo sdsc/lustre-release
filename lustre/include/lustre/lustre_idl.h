@@ -2638,6 +2638,8 @@ struct lmv_mds_md {
 	struct lu_fid lmv_data[0];		/* FIDs for each stripe */
 };
 
+extern void lustre_swab_lmv_mds_md(struct lmv_mds_md *lmm);
+
 static inline int lmv_mds_md_size(int stripes, int lmm_magic)
 {
 	LASSERT(lmm_magic == LMV_MAGIC_V1);
