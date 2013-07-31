@@ -476,12 +476,12 @@ ssize_t ll_getxattr(struct dentry *dentry, const char *name,
 
 		lsm = ccc_inode_lsm_get(inode);
 		if (lsm == NULL) {
-                        if (S_ISDIR(inode->i_mode)) {
-                                rc = ll_dir_getstripe(inode, &lmm,
-                                                      &lmmsize, &request);
-                        } else {
-                                rc = -ENODATA;
-                        }
+			if (S_ISDIR(inode->i_mode)) {
+				rc = ll_dir_getstripe(inode, (void **)&lmm,
+						      &lmmsize, &request, 0);
+			} else {
+				rc = -ENODATA;
+			}
                 } else {
                         /* LSM is present already after lookup/getattr call.
                          * we need to grab layout lock once it is implemented */
@@ -572,9 +572,10 @@ ssize_t ll_listxattr(struct dentry *dentry, char *buffer, size_t size)
 	if (S_ISREG(inode->i_mode)) {
 		if (!ll_i2info(inode)->lli_has_smd)
                         rc2 = -1;
-        } else if (S_ISDIR(inode->i_mode)) {
-                rc2 = ll_dir_getstripe(inode, &lmm, &lmmsize, &request);
-        }
+	} else if (S_ISDIR(inode->i_mode)) {
+		rc2 = ll_dir_getstripe(inode, (void **)&lmm, &lmmsize, &request,
+				       0);
+	}
 
         if (rc2 < 0) {
                 GOTO(out, rc2 = 0);
