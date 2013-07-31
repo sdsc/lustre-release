@@ -357,7 +357,7 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 	bufs[0] = (char *)&osi->osi_obdo;
 	buf_count = 1;
 	fid1 = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-	if (hint->dah_parent) {
+	if (hint != NULL && hint->dah_parent) {
 		struct lu_fid *fid2;
 		struct lu_fid *tmp_fid = &osi->osi_fid;
 
