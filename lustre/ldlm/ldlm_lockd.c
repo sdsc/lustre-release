@@ -50,6 +50,7 @@
 #include <lustre_dlm.h>
 #include <obd_class.h>
 #include <libcfs/list.h>
+#include <cl_object.h>
 #include "ldlm_internal.h"
 
 static int ldlm_num_threads;
@@ -2536,6 +2537,12 @@ static int ldlm_bl_thread_start(struct ldlm_bl_pool *blp)
 	}
 	wait_for_completion(&bltd.bltd_comp);
 
+	if (cfs_atomic_read(&blp->blp_num_threads) == bltd.bltd_num) {
+		CERROR("failed to start LDLM thread ldlm_bl_%02d\n",
+		       bltd.bltd_num);
+		return -EAGAIN;
+	}
+
 	return 0;
 }
 
@@ -2548,20 +2555,25 @@ static int ldlm_bl_thread_start(struct ldlm_bl_pool *blp)
  */
 static int ldlm_bl_thread_main(void *arg)
 {
-        struct ldlm_bl_pool *blp;
-        ENTRY;
+	struct ldlm_bl_thread_data *bltd = arg;
+	struct ldlm_bl_pool *blp = bltd->bltd_blp;
+	struct lu_env *env;
+	int refcheck;
+	ENTRY;
 
-        {
-                struct ldlm_bl_thread_data *bltd = arg;
-
-                blp = bltd->bltd_blp;
-
-		cfs_atomic_inc(&blp->blp_num_threads);
-                cfs_atomic_inc(&blp->blp_busy_threads);
-
+	/* prealloc env to avoid alloc failure in l_blocking_ast, see
+	 * osc_ldlm_blocking_ast() */
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env)) {
 		complete(&bltd->bltd_comp);
-                /* cannot use bltd after this, it is only on caller's stack */
-        }
+		RETURN(PTR_ERR(env));
+	}
+
+	cfs_atomic_inc(&blp->blp_num_threads);
+	cfs_atomic_inc(&blp->blp_busy_threads);
+
+	complete(&bltd->bltd_comp);
+        /* cannot use bltd after this, it is only on caller's stack */
 
         while (1) {
                 struct l_wait_info lwi = { 0 };
@@ -2617,6 +2629,8 @@ static int ldlm_bl_thread_main(void *arg)
 		else
 			complete(&blwi->blwi_comp);
         }
+
+	cl_env_put(env, &refcheck);
 
         cfs_atomic_dec(&blp->blp_busy_threads);
         cfs_atomic_dec(&blp->blp_num_threads);
