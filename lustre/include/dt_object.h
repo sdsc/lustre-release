@@ -229,8 +229,10 @@ extern const struct dt_index_features dt_quota_slv_features;
  * It can contain any allocation hint in the future.
  */
 struct dt_allocation_hint {
-        struct dt_object           *dah_parent;
-        __u32                       dah_mode;
+	struct dt_object	*dah_parent;
+	const void		*dah_eadata;
+	int			dah_eadata_len;
+	__u32			dah_mode;
 };
 
 /**
@@ -259,6 +261,7 @@ struct dt_object_format {
 			int striped;
                 } dof_reg;
                 struct dof_dir {
+			int striped;
                 } dof_dir;
                 struct dof_node {
                 } dof_node;

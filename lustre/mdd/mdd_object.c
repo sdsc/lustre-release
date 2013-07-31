@@ -354,6 +354,8 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 			/* is this replay? */
 			if (spec->no_create)
 				dof->u.dof_reg.striped = 0;
+		} else if (dof->dof_type == DFT_DIR) {
+			dof->u.dof_dir.striped = spec->sp_stripe_create;
 		}
 	}
 
@@ -1541,12 +1543,24 @@ stop:
 }
 
 void mdd_object_make_hint(const struct lu_env *env, struct mdd_object *parent,
-		struct mdd_object *child, struct lu_attr *attr)
+			  struct mdd_object *child, struct lu_attr *attr,
+			  const struct md_op_spec *spec)
 {
 	struct dt_allocation_hint *hint = &mdd_env_info(env)->mti_hint;
-	struct dt_object *np = parent ? mdd_object_child(parent) : NULL;
+	struct dt_object *np = parent ?  mdd_object_child(parent) : NULL;
 	struct dt_object *nc = mdd_object_child(child);
 
+	memset(hint, 0, sizeof(*hint));
+	if (unlikely(spec->sp_stripe_create) && spec != NULL) {
+		hint->dah_eadata = spec->u.sp_ea.eadata;
+		hint->dah_eadata_len = spec->u.sp_ea.eadatalen;
+	} else {
+		hint->dah_eadata = NULL;
+		hint->dah_eadata_len = 0;
+	}
+
+	CDEBUG(D_INFO, DFID"eadata %p len %d\n", PFID(mdd_object_fid(child)),
+	       hint->dah_eadata, hint->dah_eadata_len);
 	/* @hint will be initialized by underlying device. */
 	nc->do_ops->do_ah_init(env, hint, np, nc, attr->la_mode & S_IFMT);
 }

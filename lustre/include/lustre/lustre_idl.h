@@ -1658,6 +1658,7 @@ static inline void lmm_oi_cpu_to_le(struct ost_id *dst_oi,
 #define XATTR_NAME_LOV          "trusted.lov"
 #define XATTR_NAME_LMA          "trusted.lma"
 #define XATTR_NAME_LMV          "trusted.lmv"
+#define XATTR_NAME_DEFALT_LMV	"trusted.default_lmv"
 #define XATTR_NAME_LINK         "trusted.link"
 #define XATTR_NAME_FID          "trusted.fid"
 #define XATTR_NAME_VERSION      "trusted.version"

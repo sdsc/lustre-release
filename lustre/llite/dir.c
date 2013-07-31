@@ -362,16 +362,27 @@ int ll_send_mgc_param(struct obd_export *mgc, char *string)
         return rc;
 }
 
-int ll_dir_setdirstripe(struct inode *dir, struct lmv_user_md *lump,
-			char *filename)
+static int ll_dir_setdirstripe(struct inode *dir, struct lmv_user_md *lump,
+			       char *filename)
 {
 	struct ptlrpc_request *request = NULL;
 	struct md_op_data *op_data;
 	struct ll_sb_info *sbi = ll_i2sbi(dir);
 	int mode;
 	int err;
-
 	ENTRY;
+
+	if ((int)lump->lum_stripe_offset == -1) {
+		int mdtidx;
+
+		mdtidx = ll_get_mdt_idx(dir);
+		if (mdtidx < 0)
+			RETURN(mdtidx);
+
+		lump->lum_stripe_offset = mdtidx;
+	}
+	if (lump->lum_magic != cpu_to_le32(LMV_USER_MAGIC))
+		lustre_swab_lmv_user_md(lump);
 
 	mode = (0755 & (S_IRWXUGO|S_ISVTX) & ~current->fs->umask) | S_IFDIR;
 	op_data = ll_prep_md_op_data(NULL, dir, NULL, filename,

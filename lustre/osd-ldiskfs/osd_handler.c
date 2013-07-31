@@ -2062,7 +2062,6 @@ static void osd_ah_init(const struct lu_env *env, struct dt_allocation_hint *ah,
 {
         LASSERT(ah);
 
-        memset(ah, 0, sizeof(*ah));
         ah->dah_parent = parent;
         ah->dah_mode = child_mode;
 }

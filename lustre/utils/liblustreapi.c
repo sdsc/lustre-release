@@ -790,10 +790,6 @@ int llapi_file_create_pool(const char *name, unsigned long long stripe_size,
         return 0;
 }
 
-/**
- * In DNE phase I, only stripe_offset will be used in this function.
- * stripe_count, stripe_pattern and pool_name will be supported later.
- */
 int llapi_dir_create_pool(const char *name, int flags, int stripe_offset,
 			  int stripe_count, int stripe_pattern, char *pool_name)
 {
