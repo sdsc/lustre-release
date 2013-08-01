@@ -141,11 +141,34 @@ umask 077
 
 OLDDEBUG=$(lctl get_param -n debug 2> /dev/null)
 lctl set_param debug=-1 2> /dev/null || true
+
+free_min_max () {
+#	wait_delete_completed
+	AVAIL=($(lctl get_param -n osc.*[oO][sS][cC]-[^M]*.kbytesavail))
+	echo OST kbytes available: ${AVAIL[@]}
+	MAXI=0; MAXV=${AVAIL[0]}
+	MINI=0; MINV=${AVAIL[0]}
+	for ((i = 0; i < ${#AVAIL[@]}; i++)); do
+	    #echo OST $i: ${AVAIL[i]}kb
+	    if [ ${AVAIL[i]} -gt $MAXV ]; then
+		MAXV=${AVAIL[i]}; MAXI=$i
+	    fi
+	    if [ ${AVAIL[i]} -lt $MINV ]; then
+		MINV=${AVAIL[i]}; MINI=$i
+	    fi
+	done
+	echo Min free space: OST $MINI: $MINV
+	echo Max free space: OST $MAXI: $MAXV
+}
+
 test_0a() {
 	touch $DIR/$tfile
 	$CHECKSTAT -t file $DIR/$tfile || error "$tfile is not a file"
 	rm $DIR/$tfile
 	$CHECKSTAT -a $DIR/$tfile || error "$tfile was not removed"
+
+free_min_max
+
 }
 run_test 0a "touch; rm ====================="
 
@@ -171,6 +194,9 @@ test_1() {
 	rmdir $DIR/$tdir/d2
 	rmdir $DIR/$tdir
 	$CHECKSTAT -a $DIR/$tdir || error "$tdir was not removed"
+
+free_min_max
+
 }
 run_test 1 "mkdir; remkdir; rmdir =============================="
 
@@ -303,6 +329,9 @@ test_10() {
 	touch $DIR/$tdir/d2/$tfile
 	$CHECKSTAT -t file $DIR/$tdir/d2/$tfile ||
 		error "$tdir/d2/$tfile not a file"
+
+free_min_max
+
 }
 run_test 10 "mkdir .../d10 .../d10/d2; touch .../d10/d2/f ======"
 
@@ -706,6 +735,9 @@ test_20() {
 	rm $DIR/$tfile
 	log "3 done"
 	$CHECKSTAT -a $DIR/$tfile || error "$tfile was not removed"
+
+free_min_max
+
 }
 run_test 20 "touch .../f ; ls -l ... ==========================="
 
@@ -1318,6 +1350,9 @@ test_27m() {
 	[ `$GETSTRIPE $DIR/$tdir/f27m_$i | grep -A 10 obdidx | awk '{print $1}'| grep -w "0"` ] &&
 		error "OST0 was full but new created file still use it"
 	simple_cleanup_common
+
+free_min_max
+
 }
 run_test 27m "create file while OST0 was full =================="
 
@@ -1394,6 +1429,9 @@ test_27n() {
 	touch $DIR/$tdir/$tfile || error
 	$GETSTRIPE $DIR/$tdir/$tfile
 	reset_enospc
+
+free_min_max
+
 }
 run_test 27n "create file with some full OSTs =================="
 
@@ -1411,6 +1449,9 @@ test_27o() {
 
 	reset_enospc
 	rm -rf $DIR/$tdir/*
+
+free_min_max
+
 }
 run_test 27o "create file with all full OSTs (should error) ===="
 
@@ -1434,6 +1475,9 @@ test_27p() {
 	$GETSTRIPE $DIR/$tdir/$tfile
 
 	reset_enospc
+
+free_min_max
+
 }
 run_test 27p "append to a truncated file with some full OSTs ==="
 
@@ -1457,6 +1501,9 @@ test_27q() {
 	$CHECKSTAT -s 80000000 $DIR/$tdir/$tfile || error "checkstat 2 failed"
 
 	reset_enospc
+
+free_min_max
+
 }
 run_test 27q "append to truncated file with all OSTs full (should error) ==="
 
@@ -1473,6 +1520,9 @@ test_27r() {
 	$SETSTRIPE -i 0 -c 2 $DIR/$tdir/$tfile # && error
 
 	reset_enospc
+
+free_min_max
+
 }
 run_test 27r "stripe file with some full OSTs (shouldn't LBUG) ="
 
@@ -1484,6 +1534,9 @@ test_27s() { # bug 10725
 	$SETSTRIPE -S $stripe_size -c $stripe_count $DIR/$tdir &&
 		error "stripe width >= 2^32 succeeded" || true
 
+
+free_min_max
+
 }
 run_test 27s "lsm_xfersize overflow (should error) (bug 10725)"
 
@@ -1494,6 +1547,9 @@ test_27t() { # bug 10864
         touch $tfile
         $WLFS getstripe $tfile
         cd $WDIR
+
+free_min_max
+
 }
 run_test 27t "check that utils parse path correctly"
 
@@ -1798,13 +1854,17 @@ run_test 27z "check SEQ/OID on the MDT and OST filesystems"
 
 test_27A() { # b=19102
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+        $SETSTRIPE -c 1 $MOUNT
+$GETSTRIPE $MOUNT
         local restore_size=$($GETSTRIPE -S $MOUNT)
         local restore_count=$($GETSTRIPE -c $MOUNT)
         local restore_offset=$($GETSTRIPE -i $MOUNT)
+	echo "Original: size $restore_size count $restore_count offset $restore_offset"
         $SETSTRIPE -c 0 -i -1 -S 0 $MOUNT
         local default_size=$($GETSTRIPE -S $MOUNT)
         local default_count=$($GETSTRIPE -c $MOUNT)
         local default_offset=$($GETSTRIPE -i $MOUNT)
+	echo "New: size $default_size count $default_count offset $default_offset"
         local dsize=$((1024 * 1024))
         [ $default_size -eq $dsize ] ||
                 error "stripe size $default_size != $dsize"
@@ -1936,6 +1996,9 @@ test_30a() { # was test_30
 	cp `which ls` $DIR || cp /bin/ls $DIR
 	$DIR/ls / || error
 	rm $DIR/ls
+
+free_min_max
+
 }
 run_test 30a "execute binary from Lustre (execve) =============="
 
@@ -3099,6 +3162,9 @@ test_40() {
 		error "openfile O_WRONLY:O_TRUNC $tfile failed"
 	$CHECKSTAT -t file -s 4096 $DIR/$tfile ||
 		error "$tfile is not 4096 bytes in size"
+
+free_min_max
+
 }
 run_test 40 "failed open(O_TRUNC) doesn't truncate ============="
 
@@ -3329,6 +3395,9 @@ test_42e() { # bug22074
                         fi
                 done
         rm -rf $TDIR
+
+free_min_max
+
 }
 run_test 42e "verify sub-RPC writes are not done synchronously"
 
@@ -3634,6 +3703,9 @@ test_50() {
 	test_mkdir $DIR/$tdir
 	cd $DIR/$tdir
 	ls /proc/$$/cwd || error "ls /proc/$$/cwd failed"
+
+free_min_max
+
 }
 run_test 50 "special situations: /proc symlinks  ==============="
 
@@ -4651,6 +4723,9 @@ test_60a() {
 		skip_env "missing subtest run-llog.sh" && return
 	log "$TEST60_HEAD - from kernel mode"
 	do_facet mgs sh run-llog.sh
+
+free_min_max
+
 }
 run_test 60a "llog sanity tests run from kernel module =========="
 
@@ -5090,12 +5165,18 @@ test_69() {
 
 	do_facet ost1 lctl set_param fail_loc=0
 	rm -f $f
+
+free_min_max
+
 }
 run_test 69 "verify oa2dentry return -ENOENT doesn't LBUG ======"
 
 test_71() {
     test_mkdir -p $DIR/$tdir
     sh rundbench -C -D $DIR/$tdir 2 || error "dbench failed!"
+
+free_min_max
+
 }
 run_test 71 "Running dbench on lustre (don't segment fault) ===="
 
@@ -5124,6 +5205,9 @@ test_72a() { # bug 5695 - Test that on 2.6 remove_suid works properly
 	test -u $DIR/$tfile -o -g $DIR/$tfile &&
 		error "S/gid is not dropped on MDS"
 	rm -f $DIR/$tfile
+
+free_min_max
+
 }
 run_test 72a "Test that remove suid works properly (bug5695) ===="
 
@@ -5312,6 +5396,9 @@ test_77a() { # bug 10889
 	dd if=$F77_TMP of=$DIR/$tfile bs=1M count=$F77SZ || error "dd error"
 	set_checksums 0
 	rm -f $DIR/$tfile
+
+free_min_max
+
 }
 run_test 77a "normal checksum read/write operation"
 
@@ -5338,6 +5425,9 @@ test_77b() { # bug 10889
 	set_checksums 0
 	set_checksum_type $ORIG_CSUM_TYPE
 	rm -f $DIR/$tfile
+
+free_min_max
+
 }
 run_test 77b "checksum error on client write, read"
 
@@ -5360,6 +5450,9 @@ test_77d() { # bug 10889
 		error "direct read: rc=$?"
 	$LCTL set_param fail_loc=0
 	set_checksums 0
+
+free_min_max
+
 }
 run_test 77d "checksum error on OST direct write, read"
 
@@ -5378,6 +5471,9 @@ test_77f() { # bug 10889
 	done
 	set_checksum_type $ORIG_CSUM_TYPE
 	set_checksums 0
+
+free_min_max
+
 }
 run_test 77f "repeat checksum error on write (expect error)"
 
@@ -5404,6 +5500,9 @@ test_77g() { # bug 10889
 	cmp $F77_TMP $DIR/$tfile || error "file compare failed"
 	do_facet ost1 lctl set_param fail_loc=0
 	set_checksums 0
+
+free_min_max
+
 }
 run_test 77g "checksum error on OST write, read"
 
@@ -5484,6 +5583,9 @@ test_78() { # bug 10901
   	done
 
 	rm -f $DIR/$tfile
+
+free_min_max
+
 }
 run_test 78 "handle large O_DIRECT writes correctly ============"
 
@@ -5543,6 +5645,9 @@ test_80() { # bug 10718
         [ -n "$hosts" ] && do_nodes $hosts lctl set_param $soc=$soc_old
 
         rm -f $DIR/$tfile
+
+free_min_max
+
 }
 run_test 80 "Page eviction is equally fast at high offsets too  ===="
 
@@ -5560,6 +5665,9 @@ test_81a() { # LU-456
         if [ $RC -ne 0 ] ; then
                 error "write should success, but failed for $RC"
         fi
+
+free_min_max
+
 }
 run_test 81a "OST should retry write when get -ENOSPC ==============="
 
@@ -5578,6 +5686,9 @@ test_81b() { # LU-456
         if [ $RC -ne $ENOSPC ] ; then
                 error "dd should fail for -ENOSPC, but succeed."
         fi
+
+free_min_max
+
 }
 run_test 81b "OST should return -ENOSPC when retry still fails ======="
 
@@ -5600,6 +5711,9 @@ test_82() { # LU-1031
 	kill -USR1 $MULTIPID1
 	wait $MULTIPID1
 	wait $MULTIPID2
+
+free_min_max
+
 }
 run_test 82 "Basic grouplock test ==============================="
 
@@ -5613,6 +5727,9 @@ test_99a() {
 
 	$RUNAS cvs -d $DIR/d99cvsroot init || error "cvs init failed"
 	cd $oldPWD
+
+free_min_max
+
 }
 run_test 99a "cvs init ========================================="
 
@@ -5654,6 +5771,9 @@ test_99e() {
 	[ ! -d $DIR/d99cvsroot ] && test_99c
 	cd $DIR/d99reposname
 	$RUNAS cvs update
+
+free_min_max
+
 }
 run_test 99e "cvs update ======================================="
 
@@ -5663,6 +5783,9 @@ test_99f() {
 	cd $DIR/d99reposname
 	$RUNAS cvs commit -m 'nomsg' foo99
     rm -fr $DIR/d99cvsroot
+
+free_min_max
+
 }
 run_test 99f "cvs commit ======================================="
 
@@ -5691,6 +5814,9 @@ test_100() {
 		fi
 	done
 	[ "$rc" = 0 ] || error_exit "privileged port not found" )
+
+free_min_max
+
 }
 run_test 100 "check local port using privileged port ==========="
 
@@ -5749,6 +5875,9 @@ test_101a() {
 		error "too many ($discard) discarded pages"
 	fi
 	rm -f $DIR/$tfile || true
+
+free_min_max
+
 }
 run_test 101a "check read-ahead for random reads ================"
 
@@ -5826,6 +5955,9 @@ test_101b() {
 	done
 	cleanup_test101bc
 	true
+
+free_min_max
+
 }
 run_test 101b "check stride-io mode read-ahead ================="
 
@@ -5868,6 +6000,9 @@ test_101c() {
     done
     cleanup_test101bc
     true
+
+free_min_max
+
 }
 run_test 101c "check stripe_size aligned read-ahead ================="
 
@@ -6556,35 +6691,16 @@ test_115() {
 }
 run_test 115 "verify dynamic thread creation===================="
 
-free_min_max () {
-	wait_delete_completed
-	AVAIL=($(lctl get_param -n osc.*[oO][sS][cC]-[^M]*.kbytesavail))
-	echo OST kbytes available: ${AVAIL[@]}
-	MAXI=0; MAXV=${AVAIL[0]}
-	MINI=0; MINV=${AVAIL[0]}
-	for ((i = 0; i < ${#AVAIL[@]}; i++)); do
-	    #echo OST $i: ${AVAIL[i]}kb
-	    if [ ${AVAIL[i]} -gt $MAXV ]; then
-		MAXV=${AVAIL[i]}; MAXI=$i
-	    fi
-	    if [ ${AVAIL[i]} -lt $MINV ]; then
-		MINV=${AVAIL[i]}; MINI=$i
-	    fi
-	done
-	echo Min free space: OST $MINI: $MINV
-	echo Max free space: OST $MAXI: $MAXV
-}
-
 test_116a() { # was previously test_116()
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2 OSTs" && return
 
 	echo -n "Free space priority "
-	lctl get_param -n lov.*-clilov-*.qos_prio_free
+do_facet $SINGLEMDS lctl get_param -n lov.*-mdtlov.qos_prio_free
 	declare -a AVAIL
 	free_min_max
-	[ $MINV -gt 960000 ] && skip "too much free space in OST$MINI, skip" &&\
-		return
+#	[ $MINV -gt 960000 ] && skip "too much free space in OST$MINI, skip" &&\
+#		return
 
 	# generate uneven OSTs
 	test_mkdir -p $DIR/$tdir/OST${MINI}
