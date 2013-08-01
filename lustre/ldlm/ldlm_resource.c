@@ -91,11 +91,11 @@ int ldlm_proc_setup(void)
         struct lprocfs_vars list[] = {
                 { "dump_namespaces", NULL, ldlm_proc_dump_ns, NULL },
                 { "dump_granted_max",
-                  lprocfs_rd_uint, lprocfs_wr_uint,
-                  &ldlm_dump_granted_max, NULL },
+		  lprocfs_rd_uint, lprocfs_wr_uint, NULL,
+		  &ldlm_dump_granted_max },
                 { "cancel_unused_locks_before_replay",
-                  lprocfs_rd_uint, lprocfs_wr_uint,
-                  &ldlm_cancel_unused_locks_before_replay, NULL },
+		  lprocfs_rd_uint, lprocfs_wr_uint, NULL,
+		  &ldlm_cancel_unused_locks_before_replay },
                 { NULL }};
         ENTRY;
         LASSERT(ldlm_ns_proc_dir == NULL);

@@ -262,28 +262,69 @@ static int lov_target_seq_open(struct inode *inode, struct file *file)
         return 0;
 }
 
+LPROC_SEQ_FOPS_RO_TYPE(lov, uuid);
+LPROC_SEQ_FOPS_RO_TYPE(lov, filestotal);
+LPROC_SEQ_FOPS_RO_TYPE(lov, filesfree);
+LPROC_SEQ_FOPS_RO_TYPE(lov, blksize);
+LPROC_SEQ_FOPS_RO_TYPE(lov, kbytestotal);
+LPROC_SEQ_FOPS_RO_TYPE(lov, kbytesfree);
+LPROC_SEQ_FOPS_RO_TYPE(lov, kbytesavail);
+
 struct lprocfs_vars lprocfs_lov_obd_vars[] = {
-        { "uuid",         lprocfs_rd_uuid,        0, 0 },
+	{ "uuid",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lov_uuid_fops,	0,	0 },
         { "stripesize",   lov_rd_stripesize,      lov_wr_stripesize, 0 },
         { "stripeoffset", lov_rd_stripeoffset,    lov_wr_stripeoffset, 0 },
         { "stripecount",  lov_rd_stripecount,     lov_wr_stripecount, 0 },
         { "stripetype",   lov_rd_stripetype,      lov_wr_stripetype, 0 },
         { "numobd",       lov_rd_numobd,          0, 0 },
         { "activeobd",    lov_rd_activeobd,       0, 0 },
-        { "filestotal",   lprocfs_rd_filestotal,  0, 0 },
-        { "filesfree",    lprocfs_rd_filesfree,   0, 0 },
-        /*{ "filegroups", lprocfs_rd_filegroups,  0, 0 },*/
-        { "blocksize",    lprocfs_rd_blksize,     0, 0 },
-        { "kbytestotal",  lprocfs_rd_kbytestotal, 0, 0 },
-        { "kbytesfree",   lprocfs_rd_kbytesfree,  0, 0 },
-        { "kbytesavail",  lprocfs_rd_kbytesavail, 0, 0 },
-        { "desc_uuid",    lov_rd_desc_uuid,       0, 0 },
-        { 0 }
+	{ "filestotal",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lov_filestotal_fops,		0,	0 },
+	{ "filesfree",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lov_filesfree_fops,		0,	0 },
+	{ "blocksize",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lov_blksize_fops,		0,	0 },
+	{ "kbytestotal",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lov_kbytestotal_fops,	0,	0 },
+	{ "kbytesfree",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lov_kbytesfree_fops,		0,	0 },
+	{ "kbytesavail",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lov_kbytesavail_fops,	0,	0 },
+	{ "desc_uuid",    lov_rd_desc_uuid,       0, 0 },
+	{ 0 }
 };
 
+LPROC_SEQ_FOPS_RO_TYPE(lov, numrefs);
+
 static struct lprocfs_vars lprocfs_lov_module_vars[] = {
-        { "num_refs",     lprocfs_rd_numrefs,     0, 0 },
-        { 0 }
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &lov_numrefs_fops,	0,	0 },
+	{ 0 }
 };
 
 void lprocfs_lov_init_vars(struct lprocfs_static_vars *lvars)

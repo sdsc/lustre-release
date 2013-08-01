@@ -949,8 +949,14 @@ static int lprocfs_wr_enable_remote_dir_gid(struct file *file,
 	return count;
 }
 
+LPROC_SEQ_FOPS_RO_TYPE(mdt, uuid);
+
 static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
-        { "uuid",                       lprocfs_rd_uuid,                 0, 0 },
+	{ "uuid",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &mdt_uuid_fops,	0,	0 },
         { "recovery_status",            lprocfs_obd_rd_recovery_status,  0, 0 },
         { "num_exports",                lprocfs_rd_num_exports,          0, 0 },
         { "identity_expire",            lprocfs_rd_identity_expire,
@@ -992,9 +998,15 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	{ 0 }
 };
 
+LPROC_SEQ_FOPS_RO_TYPE(mdt, numrefs);
+
 static struct lprocfs_vars lprocfs_mdt_module_vars[] = {
-        { "num_refs",                   lprocfs_rd_numrefs,              0, 0 },
-        { 0 }
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &mdt_numrefs_fops,	0,	0 },
+	{ 0 }
 };
 
 void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars)
@@ -1003,13 +1015,25 @@ void lprocfs_mdt_init_vars(struct lprocfs_static_vars *lvars)
 	lvars->obd_vars     = lprocfs_mdt_obd_vars;
 }
 
+LPROC_SEQ_FOPS_RO_TYPE(mds, uuid);
+
 struct lprocfs_vars lprocfs_mds_obd_vars[] = {
-	{ "uuid",	 lprocfs_rd_uuid,	0, 0 },
+	{ "uuid",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &mds_uuid_fops,	0,	0 },
 	{ 0 }
 };
 
+LPROC_SEQ_FOPS_RO_TYPE(mds, numrefs);
+
 struct lprocfs_vars lprocfs_mds_module_vars[] = {
-	{ "num_refs",     lprocfs_rd_numrefs,     0, 0 },
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &mds_numrefs_fops,	0,	0 },
 	{ 0 }
 };
 

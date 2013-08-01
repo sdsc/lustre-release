@@ -468,14 +468,50 @@ int lprocfs_ofd_wr_grant_compat_disable(struct file *file, const char *buffer,
 	return count;
 }
 
+LPROC_SEQ_FOPS_RO_TYPE(ofd, uuid);
+LPROC_SEQ_FOPS_RO_TYPE(ofd, blksize);
+LPROC_SEQ_FOPS_RO_TYPE(ofd, kbytestotal);
+LPROC_SEQ_FOPS_RO_TYPE(ofd, kbytesfree);
+LPROC_SEQ_FOPS_RO_TYPE(ofd, kbytesavail);
+LPROC_SEQ_FOPS_RO_TYPE(ofd, filestotal);
+LPROC_SEQ_FOPS_RO_TYPE(ofd, filesfree);
+
 static struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
-	{ "uuid",		 lprocfs_rd_uuid, 0, 0 },
-	{ "blocksize",		 lprocfs_rd_blksize, 0, 0 },
-	{ "kbytestotal",	 lprocfs_rd_kbytestotal, 0, 0 },
-	{ "kbytesfree",		 lprocfs_rd_kbytesfree, 0, 0 },
-	{ "kbytesavail",	 lprocfs_rd_kbytesavail, 0, 0 },
-	{ "filestotal",		 lprocfs_rd_filestotal, 0, 0 },
-	{ "filesfree",		 lprocfs_rd_filesfree, 0, 0 },
+	{ "uuid",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &ofd_uuid_fops,		0,	0 },
+	{ "blocksize",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &ofd_blksize_fops,		0,	0 },
+	{ "kbytestotal",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &ofd_kbytestotal_fops,	0,	0 },
+	{ "kbytesfree",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &ofd_kbytesfree_fops,	0,	0 },
+	{ "kbytesavail",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &ofd_kbytesavail_fops,	0,	0 },
+	{ "filestotal",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &ofd_filestotal_fops,	0,	0 },
+	{ "filesfree",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &ofd_filesfree_fops,		0,	0 },
 	{ "seqs_allocated",	 lprocfs_ofd_rd_seqs, 0, 0 },
 	{ "fstype",		 lprocfs_ofd_rd_fstype, 0, 0 },
 	{ "last_id",		 lprocfs_ofd_rd_last_id, 0, 0 },
@@ -518,8 +554,14 @@ static struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 	{ 0 }
 };
 
-static struct lprocfs_vars lprocfs_ofd_module_vars[] = {
-	{ "num_refs",	  lprocfs_rd_numrefs,	0, 0 },
+LPROC_SEQ_FOPS_RO_TYPE(ofd, numrefs);
+
+struct lprocfs_vars lprocfs_ofd_module_vars[] = {
+	{ "num_refs",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	   NULL, NULL,
+#endif
+	   &ofd_numrefs_fops,	0,	0 },
 	{ 0 }
 };
 

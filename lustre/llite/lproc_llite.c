@@ -788,7 +788,6 @@ static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "filestotal",   ll_rd_filestotal,       0, 0 },
         { "filesfree",    ll_rd_filesfree,        0, 0 },
         { "client_type",  ll_rd_client_type,      0, 0 },
-        //{ "filegroups",   lprocfs_rd_filegroups,  0, 0 },
         { "max_read_ahead_mb", ll_rd_max_readahead_mb,
                                ll_wr_max_readahead_mb, 0 },
         { "max_read_ahead_per_file_mb", ll_rd_max_readahead_per_file_mb,
@@ -898,6 +897,8 @@ static const char *ra_stat_string[] = {
         [RA_STAT_WRONG_GRAB_PAGE] = "wrong page from grab_cache_page",
 };
 
+LPROC_SEQ_FOPS_RO_TYPE(llite, name);
+LPROC_SEQ_FOPS_RO_TYPE(llite, uuid);
 
 int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
                                 struct super_block *sb, char *osc, char *mdc)
@@ -905,6 +906,7 @@ int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
         struct lprocfs_vars lvars[2];
         struct lustre_sb_info *lsi = s2lsi(sb);
         struct ll_sb_info *sbi = ll_s2sbi(sb);
+	struct proc_dir_entry *dir;
         struct obd_device *obd;
         char name[MAX_STRING_SIZE + 1], *ptr;
         int err, id, len, rc;
@@ -1005,18 +1007,21 @@ int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
         LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
         LASSERT(obd->obd_type->typ_name != NULL);
 
-        snprintf(name, MAX_STRING_SIZE, "%s/common_name",
-                 obd->obd_type->typ_name);
-        lvars[0].read_fptr = lprocfs_rd_name;
-        err = lprocfs_add_vars(sbi->ll_proc_root, lvars, obd);
-        if (err)
-                GOTO(out, err);
+	dir = proc_mkdir(obd->obd_type->typ_name, sbi->ll_proc_root);
+	if (dir == NULL)
+		GOTO(out, err = -ENOMEM);
 
-        snprintf(name, MAX_STRING_SIZE, "%s/uuid", obd->obd_type->typ_name);
-        lvars[0].read_fptr = lprocfs_rd_uuid;
-        err = lprocfs_add_vars(sbi->ll_proc_root, lvars, obd);
-        if (err)
-                GOTO(out, err);
+	snprintf(name, MAX_STRING_SIZE, "common_name");
+	lvars[0].fops = &llite_name_fops;
+	err = lprocfs_add_vars(dir, lvars, obd);
+	if (err)
+		GOTO(out, err);
+
+	snprintf(name, MAX_STRING_SIZE, "uuid");
+	lvars[0].fops = &llite_uuid_fops;
+	err = lprocfs_add_vars(dir, lvars, obd);
+	if (err)
+		GOTO(out, err);
 
         /* OSC */
         obd = class_name2obd(osc);
@@ -1025,16 +1030,19 @@ int lprocfs_register_mountpoint(struct proc_dir_entry *parent,
         LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
         LASSERT(obd->obd_type->typ_name != NULL);
 
-        snprintf(name, MAX_STRING_SIZE, "%s/common_name",
-                 obd->obd_type->typ_name);
-        lvars[0].read_fptr = lprocfs_rd_name;
-        err = lprocfs_add_vars(sbi->ll_proc_root, lvars, obd);
-        if (err)
-                GOTO(out, err);
+	dir = proc_mkdir(obd->obd_type->typ_name, sbi->ll_proc_root);
+	if (dir == NULL)
+		GOTO(out, err = -ENOMEM);
 
-        snprintf(name, MAX_STRING_SIZE, "%s/uuid", obd->obd_type->typ_name);
-        lvars[0].read_fptr = lprocfs_rd_uuid;
-        err = lprocfs_add_vars(sbi->ll_proc_root, lvars, obd);
+	snprintf(name, MAX_STRING_SIZE, "common_name");
+	lvars[0].fops = &llite_name_fops;
+	err = lprocfs_add_vars(dir, lvars, obd);
+	if (err)
+		GOTO(out, err);
+
+	snprintf(name, MAX_STRING_SIZE, "uuid");
+	lvars[0].fops = &llite_uuid_fops;
+	err = lprocfs_add_vars(dir, lvars, obd);
 out:
         if (err) {
                 lprocfs_remove(&sbi->ll_proc_root);
