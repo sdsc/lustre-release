@@ -1549,6 +1549,25 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# 3.10 release for block device doesn't return int
+AC_DEFUN([LC_BLKDEV_RELEASE_RETURN_INT],
+[AC_MSG_CHECKING([if block_device_operations release returns int])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/blkdev.h>
+],[
+	struct block_device_operations fops;
+	int i __attribute__ ((unused));
+
+	i = fops.release(NULL,0);
+],[
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_BLKDEV_RELEASE_RETURN_INT, 1,
+		  [block device release returns int])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
 #
 # LC_PROG_LINUX
 #
@@ -1681,6 +1700,9 @@ AC_DEFUN([LC_PROG_LINUX],
 	 LC_HAVE_HLIST_FOR_EACH_3ARG
 	 LC_HAVE_F_PATH_MNT
 
+	 # 3.10
+	 LC_BLKDEV_RELEASE_RETURN_INT
+
 	 #
 	 if test x$enable_server = xyes ; then
 		AC_DEFINE(HAVE_SERVER_SUPPORT, 1, [support server])
@@ -1745,22 +1767,6 @@ AC_MSG_RESULT([$enable_liblustre_acl])
 if test x$enable_liblustre_acl = xyes ; then
   AC_DEFINE(LIBLUSTRE_POSIX_ACL, 1, Liblustre Support ACL-enabled MDS)
 fi
-
-# 2.6.29 blkdev_put has 2 arguments
-AC_DEFUN([LC_BLKDEV_PUT_2ARGS],
-[AC_MSG_CHECKING([blkdev_put needs 2 parameters])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/fs.h>
-],[
-        blkdev_put(NULL, 0);
-],[
-        AC_DEFINE(HAVE_BLKDEV_PUT_2ARGS, 1,
-                [blkdev_put needs 2 paramters])
-        AC_MSG_RESULT([yes])
-],[
-        AC_MSG_RESULT([no])
-])
-])
 
 #
 # --enable-mpitest
@@ -2035,10 +2041,6 @@ if test x$enable_pgstat_track = xyes ; then
         AC_DEFINE([CONFIG_DEBUG_PAGESTATE_TRACKING], 1,
                   [enable page state tracking code])
 fi
-
-         #2.6.29
-         LC_BLKDEV_PUT_2ARGS
-
 ])
 
 #
