@@ -1382,7 +1382,7 @@ relock:
                         /* If the file has not been changed for some time, we
                          * return not only a LOOKUP lock, but also an UPDATE
                          * lock and this might save us RPC on later STAT. For
-                         * directories, it also let negative dentry starts
+                         * directories, it also let negative dentry cache start
                          * working for this dir. */
                         if (ma->ma_valid & MA_INODE &&
                             ma->ma_attr.la_valid & LA_CTIME &&
