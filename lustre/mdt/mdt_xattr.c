@@ -258,6 +258,9 @@ int mdt_getxattr(struct mdt_thread_info *info)
 		for (b = buf->lb_buf;
 		     b < (char *)buf->lb_buf + eadatasize;
 		     b += strlen(b) + 1, v += rc) {
+			/* Filter out ACL ACCESS since it is cached separately */
+			if (!strcmp(b, XATTR_NAME_ACL_ACCESS))
+				continue;
 			buf2.lb_buf = v;
 			rc = mdt_getxattr_one(info, b, next, &buf2, med, uc);
 			if (rc < 0)
@@ -346,7 +349,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 {
         struct ptlrpc_request   *req = mdt_info_req(info);
 	struct lu_ucred         *uc  = mdt_ucred(info);
-        struct mdt_lock_handle  *lh;
+        struct mdt_lock_handle  *lh  = NULL;
         const struct lu_env     *env  = info->mti_env;
         struct lu_buf           *buf  = &info->mti_buf;
         struct mdt_reint_record *rr   = &info->mti_rr;
@@ -406,7 +409,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
                         GOTO(out, -ERANGE);
         }
 
-        lockpart = MDS_INODELOCK_UPDATE;
+        lockpart = 0;
         /* Revoke all clients' lookup lock, since the access
          * permissions for this inode is changed when ACL_ACCESS is
          * set. This isn't needed for ACL_DEFAULT, since that does
@@ -414,21 +417,25 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
          * other existing inodes. It is setting the ACLs inherited
          * by new directories/files at create time. */
 	/* We need revoke both LOOKUP|PERM lock here, see mdt_attr_set. */
+	/* We also need to take the xattr lock on behalf of old clients
+	 * so that newer clients flush their xattr caches */
         if (!strcmp(xattr_name, XATTR_NAME_ACL_ACCESS))
 		lockpart |= MDS_INODELOCK_PERM | MDS_INODELOCK_LOOKUP;
-
-	/* We need to take the lock on behalf of old clients so that newer
-	 * clients flush their xattr caches */
-	if (!(valid & OBD_MD_FLXATTRLOCKED))
+	else if (!(valid & OBD_MD_FLXATTRLOCKED))
 		lockpart |= MDS_INODELOCK_XATTR;
 
-        lh = &info->mti_lh[MDT_LH_PARENT];
-        /* ACLs were sent to clients under LCK_CR locks, so taking LCK_EX
-         * to cancel them. */
-        mdt_lock_reg_init(lh, LCK_EX);
-        obj = mdt_object_find_lock(info, rr->rr_fid1, lh, lockpart);
-        if (IS_ERR(obj))
-                GOTO(out, rc =  PTR_ERR(obj));
+	if (lockpart) {
+		lh = &info->mti_lh[MDT_LH_PARENT];
+		/* ACLs were sent to clients under LCK_CR locks, so taking LCK_EX
+		 * to cancel them. */
+		mdt_lock_reg_init(lh, LCK_EX);
+		obj = mdt_object_find_lock(info, rr->rr_fid1, lh, lockpart);
+	} else {
+		obj = mdt_object_find(env, info->mti_mdt, rr->rr_fid1);
+	}
+
+	if (IS_ERR(obj))
+		GOTO(out, rc = PTR_ERR(obj));
 
 	down_write(&obj->mot_xattr_sem);
 
@@ -503,9 +510,12 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
         EXIT;
 out_unlock:
 	up_write(&obj->mot_xattr_sem);
-        mdt_object_unlock_put(info, obj, lh, rc);
-        if (unlikely(new_xattr != NULL))
-                lustre_posix_acl_xattr_free(new_xattr, xattr_len);
+	if (lockpart != 0)
+		mdt_object_unlock_put(info, obj, lh, rc);
+	else
+		mdt_object_put(env, obj);
+	if (unlikely(new_xattr != NULL))
+		lustre_posix_acl_xattr_free(new_xattr, xattr_len);
 out:
 	mdt_exit_ucred(info);
 	return rc;
