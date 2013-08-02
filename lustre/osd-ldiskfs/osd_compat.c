@@ -112,7 +112,7 @@ static struct dentry *simple_mkdir(struct dentry *dir, struct vfsmount *mnt,
 		GOTO(out_up, dchild);
 	}
 
-	err = ll_vfs_mkdir(dir->d_inode, dchild, mnt, mode);
+	err = vfs_mkdir(dir->d_inode, dchild, mode);
 	if (err)
 		GOTO(out_err, err);
 
