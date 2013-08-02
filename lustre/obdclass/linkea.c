@@ -28,7 +28,7 @@
  */
 
 #include <lustre/lustre_idl.h>
-#include <obd.h>
+#include <obd_support.h>
 #include <lustre_linkea.h>
 
 int linkea_data_new(struct linkea_data *ldata, struct lu_buf *buf)
