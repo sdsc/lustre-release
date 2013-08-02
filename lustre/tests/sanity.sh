@@ -11461,8 +11461,6 @@ test_234() {
 	touch $DIR/$tdir/$tfile || error "touch failed"
 	# OBD_FAIL_LLITE_XATTR_ENOMEM
 	$LCTL set_param fail_loc=0x1405
-	setfattr -n user.attr -v value $DIR/$tdir/$tfile &&
-		error "setfattr should have failed with ENOMEM"
 	# attr pre-2.4.44-7 had a bug with rc
 	getfattr -n user.attr $DIR/$tdir/$tfile &&
 		error "getfattr should have failed with ENOMEM"
