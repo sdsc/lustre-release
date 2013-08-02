@@ -23,6 +23,39 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
+#
+# In order to test multiple remote HSM agents, a new facet type named "AGT" and
+# the following associated variables are added:
+#
+# AGTCOUNT: number of agents
+# AGTDEV{N}: target HSM mount point (root path of the backend)
+# agt{N}_HOST: hostname of the agent agt{N}
+# SINGLEAGT: facet of the single agent
+#
+# The number of agents is initialized as the number of remote client nodes.
+# By default, only single copytool is started on a remote client/agent. If there
+# was no remote client, then the copytool will be started on the local client.
+#
+export AGTCOUNT=${AGTCOUNT:-$((CLIENTCOUNT - 1))}
+[[ $AGTCOUNT -gt 0 ]] || AGTCOUNT=1
+
+export SHARED_DIRECTORY=${SHARED_DIRECTORY:-$TMP}
+if [[ $AGTCOUNT -gt 1 ]] && ! check_shared_dir $SHARED_DIRECTORY; then
+	skip_env "SHARED_DIRECTORY should be accessible on all agent nodes"
+	exit 0
+fi
+
+for n in $(seq $AGTCOUNT); do
+	eval export AGTDEV$n=\$\{AGTDEV$n:-"$SHARED_DIRECTORY/arc$n"\}
+	agent=CLIENT$((n + 1))
+	if [[ -z "${!agent}" ]]; then
+		[[ $CLIENTCOUNT -eq 1 ]] && agent=CLIENT1 || agent=CLIENT2
+	fi
+	eval export agt${n}_HOST=\$\{agt${n}_HOST:-${!agent}\}
+done
+
+export SINGLEAGT=${SINGLEAGT:-agt1}
+
 MULTIOP=${MULTIOP:-multiop}
 OPENFILE=${OPENFILE:-openfile}
 MCREATE=${MCREATE:-mcreate}
@@ -35,8 +68,8 @@ fi
 
 check_and_setup_lustre
 
-if [ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.52) ]; then
-	skip_env "Need MDS version at least 2.4.52" && exit
+if [ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.53) ]; then
+	skip_env "Need MDS version at least 2.4.53" && exit
 fi
 
 build_test_filter
@@ -47,10 +80,18 @@ build_test_filter
 # as some test changes the default, we need to re-make it
 cleanup() {
 	copytool_cleanup
-	if ! is_mounted $MOUNT2
-	then
-		mount_client $MOUNT2
-	fi
+
+	local agent=$(facet_active_host $SINGLEAGT)
+	do_rpc_nodes $agent is_mounted $MOUNT2 || zconf_mount $agent $MOUNT2
+	mount_client $MOUNT2
+}
+
+# Get the backend root path for the given agent facet.
+copytool_device() {
+	local facet=$1
+	local dev=AGTDEV$(facet_number $facet)
+
+	echo -n ${!dev}
 }
 
 export HT=${HT:-"lhsmtool_posix"}
@@ -60,53 +101,67 @@ export HTBASE=$(basename "$HT" | cut -f1 -d" ")
 MDT_PARAM="mdt.$FSNAME-MDT0000"
 HSM_PARAM="$MDT_PARAM.hsm"
 
-ARC=${ARC:-$TMP/arc}
+ARC=$(copytool_device $SINGLEAGT)
 AN=2
 # archive is purged at copytool setup
 ARC_PURGE=true
 
 search_and_kill_copytool() {
-	echo "Killing existing copy tools"
-	killall -q $HTBASE || true
+	local agents=${1:-$(facet_active_host $SINGLEAGT)}
+
+	echo "Killing existing copytools on $agents"
+	do_nodesv $agents "killall -q $HTBASE" || true
 }
 
-
 copytool_setup() {
-	if pkill -CONT -x $HTBASE; then
-		echo "Wakeup copytool"
-		return
-	fi
+	local facet=${1:-$SINGLEAGT}
+	local lustre_mntpnt=${2:-$MOUNT}
+	local arc_id=$3
+	local hsm_root=$(copytool_device $facet)
+	local agent=$(facet_active_host $facet)
 
-	if ! $HT --commcheck --noexecute $FSNAME; then
-		error "Copytool not runnable: $?"
+	if [[ -z "$arc_id" ]] && do_facet $facet "pkill -CONT -x $HTBASE"; then
+		echo "Wakeup copytool $facet on $agent"
+		return 0
 	fi
 
 	if $ARC_PURGE; then
-		echo "Purging archive"
-		rm -rf $ARC/*
+		echo "Purging archive on $agent"
+		do_facet $facet "rm -rf $hsm_root/*"
 	fi
 
-	echo "Starting copytool"
-	mkdir -p $ARC
+	echo "Starting copytool $facet on $agent"
+	do_facet $facet "mkdir -p $hsm_root" || error "mkdir '$hsm_root' failed"
 	# bandwidth is limited to 1MB/s so we copy time is known and
 	# independent of hardware
-	local CMD="$HT $HT_VERB --hsm_root $ARC --bandwidth 1 $FSNAME"
-	[[ -z "$1" ]] || CMD+=" --archive $1"
+	local cmd="$HT $HT_VERB --daemon --hsm-root $hsm_root --bandwidth 1"
+	[[ -z "$arc_id" ]] || cmd+=" --archive $arc_id"
+	cmd+=" $lustre_mntpnt"
 
-	echo "$CMD"
-	$CMD  &
+	# Redirect the standard output and error to a log file which
+	# can be uploaded to Maloo.
+	local prefix=$TESTLOG_PREFIX
+	[[ -z "$TESTNAME" ]] || prefix=$prefix.$TESTNAME
+	local copytool_log=$prefix.copytool${arc_id}_log.$agent.log
+
+	do_facet $facet "$cmd < /dev/null > $copytool_log 2>&1" ||
+		error "start copytool $facet on $agent failed"
 	trap cleanup EXIT
 }
 
 copytool_cleanup() {
-	pkill -INT -x $HTBASE || return 0
+	local agents=${1:-$(facet_active_host $SINGLEAGT)}
+
+	do_nodesv $agents "pkill -INT -x $HTBASE" || return 0
 	sleep 1
-	echo "Copytool is stopped"
+	echo "Copytool is stopped on $agents"
 }
 
 copytool_suspend() {
-	pkill -STOP -x $HTBASE || return 0
-	echo "Copytool is suspended"
+	local agents=${1:-$(facet_active_host $SINGLEAGT)}
+
+	do_nodesv $agents "pkill -STOP -x $HTBASE" || return 0
+	echo "Copytool is suspended on $agents"
 }
 
 copytool_remove_backend() {
@@ -117,7 +172,8 @@ copytool_remove_backend() {
 }
 
 import_file() {
-	$HT --archive $AN --hsm_root $ARC --import $1 $2 $FSNAME ||
+	do_facet $SINGLEAGT \
+		"$HT --archive $AN --hsm-root $ARC --import $1 $2 $MOUNT" ||
 		error "import of $i to $2 failed"
 }
 
@@ -134,11 +190,10 @@ changelog_setup() {
 	do_facet $SINGLEMDS lctl set_param mdd.$MDT0.changelog_mask="+hsm"
 }
 
-changelog_cleanup(){
+changelog_cleanup() {
 #	$LFS changelog $MDT0
 	do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $CL_USER
 }
-
 
 get_hsm_param() {
 	local param=$1
@@ -351,50 +406,40 @@ wait_result() {
 	wait_update --verbose $(facet_active_host $facet) "$@"
 }
 
-wait_request_state()
-{
+wait_request_state() {
 	local fid=$1
 	local request=$2
 	local state=$3
-	wait_result $SINGLEMDS "$LCTL get_param -n $HSM_PARAM.agent_actions |\
-				grep $fid | grep action=$request |\
-				cut -f 13 -d ' ' | cut -f 2 -d =" $state 100 ||
-		error "request on $fid is not $state"
+	wait_result $SINGLEMDS "$LCTL get_param -n $HSM_PARAM.agent_actions |
+		awk '/"'$fid'".*"'action=$request'"/ {print \\\$13}' |
+		cut -f2 -d=" $state 100 || error "request on $fid is not $state"
 }
 
-get_request_state()
-{
+get_request_state() {
 	local fid=$1
 	local request=$2
-	do_facet $SINGLEMDS "$LCTL get_param -n $HSM_PARAM.agent_actions |\
-				grep $fid | grep action=$request |\
-				cut -f 13 -d ' ' | cut -f 2 -d ="
+	do_facet $SINGLEMDS "$LCTL get_param -n $HSM_PARAM.agent_actions |
+		awk '/"'$fid'".*"'action=$request'"/ {print \\\$13}' |
+		cut -f2 -d="
 }
 
-get_request_count()
-{
+get_request_count() {
 	local fid=$1
 	local request=$2
-	do_facet $SINGLEMDS "$LCTL get_param -n $HSM_PARAM.agent_actions |\
-				grep $fid | grep action=$request | wc -l"
+	do_facet $SINGLEMDS "$LCTL get_param -n $HSM_PARAM.agent_actions |
+		awk '/"'$fid'".*"'action=$request'"/ {print \\\$0}' | wc -l"
 }
 
-wait_all_done()
-{
+wait_all_done() {
 	local timeout=$1
-	wait_result $SINGLEMDS "$LCTL get_param -n $HSM_PARAM.agent_actions |\
+	wait_result $SINGLEMDS "$LCTL get_param -n $HSM_PARAM.agent_actions |
 		egrep 'WAITING|STARTED' " "" $timeout ||
 	error "requests did not complete"
 }
 
-wait_for_grace_delay()
-{
+wait_for_grace_delay() {
 	local val=$(get_hsm_param grace_delay)
 	sleep $val
-}
-
-my_uuid() {
-	$LCTL get_param -n llite.$FSNAME-*.uuid
 }
 
 MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
@@ -568,7 +613,7 @@ test_9() {
 	# we do not use the default one to be sure
 	local new_an=$((AN + 1))
 	copytool_cleanup
-	copytool_setup $new_an
+	copytool_setup $SINGLEAGT $MOUNT $new_an
 	$LFS hsm_archive --archive $new_an $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
@@ -577,6 +622,38 @@ test_9() {
 	copytool_cleanup
 }
 run_test 9 "Use of explict archive number, with dedicated copytool"
+
+test_9a() {
+	[[ $CLIENTCOUNT -ge 3 ]] ||
+		{ skip "Need three or more clients"; return 0; }
+
+	local n
+	local file
+	local fid
+
+	copytool_cleanup $(comma_list $(agts_nodes))
+
+	# start all of the copytools
+	for n in $(seq $AGTCOUNT); do
+		copytool_setup agt$n
+	done
+
+	trap "copytool_cleanup $(comma_list $(agts_nodes))" EXIT
+	# archive files
+	mkdir -p $DIR/$tdir
+	for n in $(seq $AGTCOUNT); do
+		file=$DIR/$tdir/$tfile.$n
+		fid=$(make_small $file)
+
+		$LFS hsm_archive $file || error "could not archive file $file"
+		wait_request_state $fid ARCHIVE SUCCEED
+		check_hsm_flags $file "0x00000001"
+	done
+
+	trap - EXIT
+	copytool_cleanup $(comma_list $(agts_nodes))
+}
+run_test 9a "Multiple remote agents"
 
 test_10a() {
 	# test needs a running copytool
@@ -954,7 +1031,8 @@ test_14() {
 
 	# rebind the archive to the newly created file
 	echo "rebind $fid to $fid2"
-	$HT --archive $AN --hsm_root="$ARC" --rebind $fid $fid2 $DIR ||
+	do_facet $SINGLEAGT \
+		"$HT --archive $AN --hsm-root $ARC --rebind $fid $fid2 $DIR" ||
 		error "could not rebind file"
 
 	# restore file and compare md5sum
@@ -974,7 +1052,7 @@ test_15() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local count=5
-	local tmpfile=$TMP/tmp.$$
+	local tmpfile=$SHARED_DIRECTORY/tmp.$$
 
 	local fids=()
 	local sums=()
@@ -1003,7 +1081,8 @@ test_15() {
 	[[ $nl == $count ]] || error "$nl files in list, $count expected"
 
 	echo "rebind list of files"
-	$HT --archive $AN --hsm_root="$ARC" --rebind $tmpfile $DIR ||
+	do_facet $SINGLEAGT \
+		"$HT --archive $AN --hsm-root $ARC --rebind $tmpfile $DIR" ||
 		error "could not rebind file list"
 
 	# restore files and compare md5sum
@@ -1398,8 +1477,7 @@ test_30b() {
 }
 run_test 30b "Restore at exec (release case)"
 
-restore_and_check_size()
-{
+restore_and_check_size() {
 	local f=$1
 	local fid=$2
 	local s=$(stat -c "%s" $f)
@@ -1960,12 +2038,14 @@ run_test 105 "Restart of coordinator"
 
 test_106() {
 	# Test behave badly if 2 mount points are present
-	umount_client $MOUNT2
+	zconf_umount $(facet_active_host $SINGLEAGT) $MOUNT2
 
 	# test needs a running copytool
 	copytool_setup
 
-	local uuid=$(my_uuid)
+	local uuid=$(do_facet $SINGLEAGT \
+			$LCTL get_param -n llite.$FSNAME-*.uuid)
+
 	local agent=$(do_facet $SINGLEMDS $LCTL get_param -n $HSM_PARAM.agents |
 		grep $uuid)
 	copytool_cleanup
@@ -1984,7 +2064,7 @@ test_106() {
 		      " copytool restart"
 
 	# Restore test environment
-	mount_client $MOUNT2
+	zconf_mount $(facet_active_host $SINGLEAGT) $MOUNT2
 }
 run_test 106 "Copytool register/unregister"
 
