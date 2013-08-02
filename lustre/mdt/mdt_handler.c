@@ -5084,6 +5084,11 @@ static int mdt_obd_connect(const struct lu_env *env,
         int                     rc;
         ENTRY;
 
+	/* Deny LWP connection request from MDTs/OSTs, which will be sent
+	 * when upgrading b2_1_x (say, to b2_4_x),  LU-3929 */
+	if (data->ocd_connect_flags & OBD_CONNECT_LIGHTWEIGHT)
+		RETURN(-EOPNOTSUPP);
+	
         LASSERT(env != NULL);
         if (!exp || !obd || !cluuid)
                 RETURN(-EINVAL);
