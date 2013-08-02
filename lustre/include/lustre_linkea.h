@@ -26,6 +26,10 @@
  *
  * Author: di wang <di.wang@intel.com>
  */
+#ifndef __LUSTRE_LINKEA_H
+#define __LUSTRE_LINKEA_H
+
+#include <lu_object.h> /* for lu_name */
 
 #define DEFAULT_LINKEA_SIZE	4096
 
@@ -76,3 +80,5 @@ static inline void linkea_next_entry(struct linkea_data *ldata)
 			ldata->ld_lee = NULL;
 	}
 }
+
+#endif

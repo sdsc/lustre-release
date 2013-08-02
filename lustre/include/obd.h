@@ -68,6 +68,7 @@
 #include <lustre_fid.h>
 #include <lustre_fld.h>
 #include <lustre_capa.h>
+#include <lvfs.h> /* for struct lvfs_run_ctxt */
 
 #define MAX_OBD_DEVICES 8192
 

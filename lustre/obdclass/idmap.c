@@ -45,6 +45,7 @@
 #include <lustre_idmap.h>
 #include <md_object.h>
 #include <obd_support.h>
+#include <libcfs/lucache.h> /* for struct md_identity */
 
 #define lustre_get_group_info(group_info) do {             \
         cfs_atomic_inc(&(group_info)->usage);              \
