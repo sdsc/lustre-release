@@ -299,7 +299,7 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 		 * with running request
 		 */
 		car = mdt_cdt_find_request(cdt, larr->arr_hai.hai_cookie, NULL);
-		if (IS_ERR(car)) {
+		if (car == NULL) {
 			last = larr->arr_req_create;
 		} else {
 			last = car->car_req_update;
@@ -731,7 +731,7 @@ static int hsm_restore_cb(const struct lu_env *env,
 
 	/* restore request not in a final state */
 
-	crh = mdt_cdt_restore_handle_alloc();
+	OBD_SLAB_ALLOC_PTR(crh, mdt_hsm_cdt_kmem);
 	if (crh == NULL)
 		RETURN(-ENOMEM);
 
@@ -842,7 +842,7 @@ int mdt_hsm_cdt_init(struct mdt_device *mdt)
 	cdt->cdt_state = CDT_STOPPED;
 
 	rc = lu_env_init(&cdt->cdt_env, LCT_MD_THREAD|LCT_DT_THREAD);
-	if (rc)
+	if (rc < 0)
 		RETURN(rc);
 
 	OBD_ALLOC_PTR(cdt->cdt_env.le_ses);
@@ -868,8 +868,8 @@ int mdt_hsm_cdt_init(struct mdt_device *mdt)
 	OBD_ALLOC_PTR(cdt->cdt_thread);
 	if (cdt->cdt_thread == NULL)
 		GOTO(free, rc = -ENOMEM);
-	cfs_waitq_init(&cdt->cdt_thread->t_ctl_waitq);
 
+	cfs_waitq_init(&cdt->cdt_thread->t_ctl_waitq);
 	mutex_init(&cdt->cdt_llog_lock);
 	init_rwsem(&cdt->cdt_agent_lock);
 	init_rwsem(&cdt->cdt_request_lock);
@@ -882,11 +882,16 @@ int mdt_hsm_cdt_init(struct mdt_device *mdt)
 	RETURN(0);
 
 free:
-	if (cdt->cdt_env.le_ses)
+	lu_env_fini(&cdt->cdt_env);
+	if (cdt->cdt_env.le_ses != NULL) {
+		lu_context_fini(cdt->cdt_env.le_ses);
 		OBD_FREE_PTR(cdt->cdt_env.le_ses);
-	if (cdt_mti && cdt_mti->mti_exp)
+	}
+
+	if (cdt_mti != NULL && cdt_mti->mti_exp != NULL)
 		OBD_FREE_PTR(cdt_mti->mti_exp);
-	if (cdt->cdt_thread)
+
+	if (cdt->cdt_thread != NULL)
 		OBD_FREE_PTR(cdt->cdt_thread);
 
 	RETURN(rc);
@@ -1023,7 +1028,7 @@ int mdt_hsm_cdt_stop(struct mdt_device *mdt)
 
 		list_del(&crh->crh_list);
 
-		mdt_cdt_restore_handle_free(crh);
+		OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
 	}
 	mutex_unlock(&cdt->cdt_restore_lock);
 
@@ -1045,6 +1050,7 @@ int  mdt_hsm_cdt_fini(struct mdt_device *mdt)
 	OBD_FREE_PTR(cdt->cdt_thread);
 
 	cdt_mti = lu_context_key_get(&cdt->cdt_env.le_ctx, &mdt_thread_key);
+
 	OBD_FREE_PTR(cdt_mti->mti_exp);
 
 	lu_context_fini(cdt->cdt_env.le_ses);
@@ -1099,7 +1105,7 @@ int mdt_hsm_add_hal(struct mdt_thread_info *mti,
 
 			/* find the running request to set it canceled */
 			car = mdt_cdt_find_request(cdt, hai->hai_cookie, NULL);
-			if (!IS_ERR(car)) {
+			if (car != NULL) {
 				car->car_canceled = 1;
 				/* uuid has to be changed to the one running the
 				* request to cancel */
@@ -1395,7 +1401,7 @@ unlock:
 		if (!IS_ERR(obj))
 			mdt_object_unlock(mti, obj, &crh->crh_lh, 1);
 		if (crh != NULL)
-			mdt_cdt_restore_handle_free(crh);
+			OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
 	}
 
 	GOTO(out, rc);

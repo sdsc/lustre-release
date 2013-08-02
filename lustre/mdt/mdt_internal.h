@@ -587,6 +587,7 @@ struct cdt_agent_req {
 	struct cdt_req_progress	 car_progress;     /**< track data mvt
 						    *   progress */
 };
+extern struct kmem_cache *mdt_hsm_car_kmem;
 
 struct hsm_agent {
 	cfs_list_t	 ha_list;		/**< to chain the agents */
@@ -606,9 +607,7 @@ struct cdt_restore_handle {
 	struct ldlm_extent	 crh_extent;	/**< extent of the restore */
 	struct mdt_lock_handle	 crh_lh;	/**< lock handle */
 };
-
-struct cdt_restore_handle *mdt_cdt_restore_handle_alloc(void);
-void mdt_cdt_restore_handle_free(struct cdt_restore_handle *crh);
+extern struct kmem_cache *mdt_hsm_cdt_kmem;	/** restore handle slab cache */
 
 static inline const struct md_device_operations *
 mdt_child_ops(struct mdt_device * m)

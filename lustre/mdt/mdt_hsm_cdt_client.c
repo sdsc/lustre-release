@@ -365,7 +365,7 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 			struct cdt_restore_handle	*crh;
 			struct mdt_object		*child;
 
-			crh = mdt_cdt_restore_handle_alloc();
+			OBD_SLAB_ALLOC_PTR(crh, mdt_hsm_cdt_kmem);
 			if (crh == NULL)
 				GOTO(out, rc = -ENOMEM);
 
@@ -387,7 +387,7 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 				CERROR("%s: cannot take layout lock for "
 				       DFID": rc = %d\n", mdt_obd_name(mdt),
 				       PFID(&crh->crh_fid), rc);
-				mdt_cdt_restore_handle_free(crh);
+				OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
 				GOTO(out, rc);
 			}
 			/* we choose to not keep a keep a reference
@@ -446,7 +446,7 @@ int mdt_hsm_get_running(struct mdt_thread_info *mti,
 			RETURN(-EINVAL);
 
 		car = mdt_cdt_find_request(cdt, 0, &hai->hai_fid);
-		if (IS_ERR(car)) {
+		if (car == NULL) {
 			hai->hai_cookie = 0;
 			hai->hai_action = HSMA_NONE;
 		} else {
@@ -535,7 +535,7 @@ int mdt_hsm_get_actions(struct mdt_thread_info *mti,
 		struct cdt_agent_req *car;
 
 		car = mdt_cdt_find_request(cdt, hai->hai_cookie, NULL);
-		if (IS_ERR(car)) {
+		if (car == NULL) {
 			hai->hai_cookie = 0;
 		} else {
 			__u64 data_moved;
