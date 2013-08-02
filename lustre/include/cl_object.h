@@ -719,8 +719,6 @@ enum cl_page_flags {
  * cl_page::cp_owner (when set).
  */
 struct cl_page {
-        /** Reference counter. */
-        cfs_atomic_t             cp_ref;
         /** An object this page is a part of. Immutable after creation. */
         struct cl_object        *cp_obj;
         /** Logical page index within the object. Immutable after creation. */
@@ -732,11 +730,6 @@ struct cl_page {
         /** Lower-layer page. NULL for bottommost page. Immutable after
          * creation. */
         struct cl_page          *cp_child;
-        /**
-         * Page state. This field is const to avoid accidental update, it is
-         * modified only internally within cl_page.c. Protected by a VM lock.
-         */
-        const enum cl_page_state cp_state;
 	/** Linkage of pages within group. Protected by cl_page::cp_mutex. */
 	cfs_list_t		cp_batch;
 	/** Mutex serializing membership of a page in a batch. */
@@ -745,12 +738,8 @@ struct cl_page {
         cfs_list_t               cp_flight;
         /** Transfer error. */
         int                      cp_error;
-
-        /**
-         * Page type. Only CPT_TRANSIENT is used so far. Immutable after
-         * creation.
-         */
-        enum cl_page_type        cp_type;
+	/** Reference counter. */
+	cfs_atomic_t             cp_ref;
 
         /**
          * Owning IO in cl_page_state::CPS_OWNED state. Sub-page can be owned
@@ -767,16 +756,30 @@ struct cl_page {
          * the top-level pages. Protected by a VM lock.
          */
         struct cl_req           *cp_req;
+
         /** List of references to this page, for debugging. */
         struct lu_ref            cp_reference;
 	/** Link to an object, for debugging. */
 	struct lu_ref_link       cp_obj_ref;
 	/** Link to a queue, for debugging. */
 	struct lu_ref_link       cp_queue_ref;
-	/** Per-page flags from enum cl_page_flags. Protected by a VM lock. */
-	unsigned                 cp_flags;
+
 	/** Assigned if doing a sync_io */
 	struct cl_sync_io       *cp_sync_io;
+
+	/**
+	 * Page state. This field is const to avoid accidental update, it is
+	 * modified only internally within cl_page.c. Protected by a VM lock.
+	 */
+	const enum cl_page_state cp_state;
+	/**
+	 * Page type. Only CPT_TRANSIENT is used so far. Immutable after
+	 * creation.
+	 */
+	enum cl_page_type        cp_type:2;
+	/** Per-page flags from enum cl_page_flags. Protected by a VM lock. */
+	unsigned                 cp_flags:1;
+
 };
 
 /**
@@ -2553,13 +2556,13 @@ struct cl_req_obj {
  * req's pages.
  */
 struct cl_req {
-        enum cl_req_type      crq_type;
+	enum cl_req_type      crq_type;
         /** A list of pages being transfered */
         cfs_list_t            crq_pages;
-        /** Number of pages in cl_req::crq_pages */
-        unsigned              crq_nrpages;
         /** An array of objects which pages are in ->crq_pages */
         struct cl_req_obj    *crq_o;
+	/** Number of pages in cl_req::crq_pages */
+	unsigned              crq_nrpages;
         /** Number of elements in cl_req::crq_objs[] */
         unsigned              crq_nrobjs;
         cfs_list_t            crq_layers;
