@@ -153,8 +153,8 @@ out:
 /**
  * update data moved information during a request
  */
-static int mdt_cdt_update_work(struct cdt_req_progress *crp,
-			       struct hsm_extent *extent)
+static int hsm_update_work(struct cdt_req_progress *crp,
+			   const struct hsm_extent *extent)
 {
 	int			  rc, osz, nsz;
 	struct interval_node	**new_vv;
@@ -357,9 +357,7 @@ int mdt_cdt_add_request(struct coordinator *cdt, struct cdt_agent_req *new_car)
 
 	mdt_hsm_agent_update_statistics(cdt, 0, 0, 1, &new_car->car_uuid);
 
-	down(&cdt->cdt_counter_lock);
-	cdt->cdt_request_count++;
-	up(&cdt->cdt_counter_lock);
+	atomic_inc(&cdt->cdt_request_count);
 
 	RETURN(0);
 }
@@ -372,7 +370,7 @@ int mdt_cdt_add_request(struct coordinator *cdt, struct cdt_agent_req *new_car)
  * \retval request pointer
  */
 struct cdt_agent_req *mdt_cdt_find_request(struct coordinator *cdt,
-					   __u64 cookie,
+					   const __u64 cookie,
 					   const struct lu_fid *fid)
 {
 	struct cdt_agent_req	*car;
@@ -399,21 +397,22 @@ int mdt_cdt_remove_request(struct coordinator *cdt, __u64 cookie)
 	ENTRY;
 
 	down_write(&cdt->cdt_request_lock);
-
 	car = cdt_find_request_nolock(cdt, cookie, NULL);
 	if (!IS_ERR(car)) {
+		/* put for get from find */
+		mdt_cdt_put_request(car);
 		cfs_list_del(&car->car_request_list);
+		/* put for get from list_add */
 		mdt_cdt_put_request(car);
 		up_write(&cdt->cdt_request_lock);
 
-		down(&cdt->cdt_counter_lock);
-		cdt->cdt_request_count--;
-		up(&cdt->cdt_counter_lock);
+		LASSERT(atomic_read(&cdt->cdt_request_count) > 0);
+		atomic_dec(&cdt->cdt_request_count);
 
 		RETURN(0);
 	}
-	up_write(&cdt->cdt_request_lock);
 
+	up_write(&cdt->cdt_request_lock);
 	RETURN(-ENOENT);
 }
 
@@ -426,7 +425,7 @@ int mdt_cdt_remove_request(struct coordinator *cdt, __u64 cookie)
  * \retval -ve failure
  */
 struct cdt_agent_req *mdt_cdt_update_request(struct coordinator *cdt,
-					     struct hsm_progress_kernel *pgs)
+					  const struct hsm_progress_kernel *pgs)
 {
 	struct cdt_agent_req	*car;
 	int			 rc;
@@ -440,7 +439,7 @@ struct cdt_agent_req *mdt_cdt_update_request(struct coordinator *cdt,
 
 	/* update progress done by copy tool */
 	if (pgs->hpk_errval == 0 && pgs->hpk_extent.length != 0) {
-		rc = mdt_cdt_update_work(&car->car_progress, &pgs->hpk_extent);
+		rc = hsm_update_work(&car->car_progress, &pgs->hpk_extent);
 		if (rc) {
 			mdt_cdt_put_request(car);
 			RETURN(ERR_PTR(rc));
