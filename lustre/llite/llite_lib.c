@@ -2786,3 +2786,102 @@ void ll_compute_rootsquash_state(struct ll_sb_info *sbi)
 	}
 	up_write(&squash->rsi_sem);
 }
+
+static int ll_linkea_decode(struct linkea_data *ldata, unsigned int linkno,
+			    struct getparent *gpout, size_t namelen)
+{
+	unsigned int	idx;
+	struct lu_name	ln;
+	int		rc;
+
+	rc = linkea_init(ldata);
+	if (rc < 0)
+		return rc;
+
+	if (linkno >= ldata->ld_leh->leh_reccount)
+		/* beyond last link */
+		return -ENODATA;
+
+	linkea_first_entry(ldata);
+	idx = 0;
+	while (ldata->ld_lee != NULL) {
+		linkea_entry_unpack(ldata->ld_lee, &ldata->ld_reclen, &ln,
+				    &gpout->gp_fid);
+		if (idx == linkno)
+			break;
+
+		linkea_next_entry(ldata);
+		idx++;
+	}
+
+	if (idx < linkno)
+		return -ENODATA;
+
+	if (ln.ln_namelen >= namelen)
+		return -EOVERFLOW;
+
+	gpout->gp_linkno = linkno;
+	gpout->gp_namelen = ln.ln_namelen;
+	strlcpy(gpout->gp_name, ln.ln_name, namelen);
+	return 0;
+}
+
+int ll_getparent(struct file *file, void __user *arg)
+{
+	const struct getparent __user	*gpin = arg;
+	struct dentry			*dentry = file->f_dentry;
+	struct inode			*inode = file->f_dentry->d_inode;
+	struct linkea_data		 ldata;
+	struct lu_buf			 buf;
+	struct getparent		*gpout;
+	__u32				 linkno;
+	__u32				 namelen;
+	size_t				 outlen;
+	int				 rc;
+
+	ENTRY;
+
+	if (!cfs_capable(CFS_CAP_DAC_READ_SEARCH) &&
+	    !(ll_i2sbi(inode)->ll_flags & LL_SBI_USER_FID2PATH))
+		RETURN(-EPERM);
+
+	if (get_user(namelen, &gpin->gp_namelen))
+		RETURN(-EFAULT);
+
+	if (get_user(linkno, &gpin->gp_linkno))
+		RETURN(-EFAULT);
+
+	if (namelen > PATH_MAX)
+		RETURN(-EINVAL);
+
+	memset(&ldata, 0, sizeof(ldata));
+	memset(&buf, 0, sizeof(buf));
+	rc = linkea_data_new(&ldata, &buf);
+	if (rc < 0)
+		RETURN(rc);
+
+	outlen = sizeof(*gpout) + namelen;
+	OBD_ALLOC(gpout, outlen);
+	if (gpout == NULL)
+		GOTO(lb_free, rc = -ENOMEM);
+
+	if (copy_from_user(gpout, arg, sizeof(*gpout)))
+		GOTO(gp_free, rc = -EFAULT);
+
+	rc = ll_getxattr(dentry, XATTR_NAME_LINK, buf.lb_buf, buf.lb_len);
+	if (rc < 0)
+		GOTO(gp_free, rc);
+
+	rc = ll_linkea_decode(&ldata, linkno, gpout, namelen);
+	if (rc < 0)
+		GOTO(gp_free, rc);
+
+	if (copy_to_user(arg, gpout, outlen))
+		GOTO(gp_free, rc = -EFAULT);
+
+gp_free:
+	OBD_FREE(gpout, outlen);
+lb_free:
+	lu_buf_free(&buf);
+	RETURN(rc);
+}
