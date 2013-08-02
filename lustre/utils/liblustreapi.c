@@ -4415,6 +4415,50 @@ int llapi_path2fid(const char *path, lustre_fid *fid)
 	return rc;
 }
 
+int llapi_fd2parent(int fd, unsigned int linkno, lustre_fid *parent_fid,
+		    char *name, size_t namelen)
+{
+	int			 rc;
+	struct getparent	*gp;
+
+	gp = (struct getparent *)malloc(sizeof(*gp) + namelen);
+	if (gp == NULL)
+		return -ENOMEM;
+
+	memset(gp, 0, sizeof(*gp) + namelen);
+	gp->gp_linkno = linkno;
+	gp->gp_namelen = namelen;
+
+	rc = ioctl(fd, LL_IOC_GETPARENT, gp);
+	if (rc < 0) {
+		rc = -errno;
+		goto err_free;
+	}
+
+	*parent_fid = gp->gp_fid;
+	memcpy(name, gp->gp_name, gp->gp_namelen);
+	name[gp->gp_namelen] = '\0';
+
+err_free:
+	free(gp);
+	return rc;
+}
+
+int llapi_path2parent(const char *path, unsigned int linkno,
+		      lustre_fid *parent_fid, char *name, size_t namelen)
+{
+	int	rc;
+	int	fd;
+
+	fd = open(path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+	if (fd < 0)
+		return -errno;
+
+	rc = llapi_fd2parent(fd, linkno, parent_fid, name, namelen);
+	close(fd);
+	return rc;
+}
+
 int llapi_get_connect_flags(const char *mnt, __u64 *flags)
 {
         DIR *root;
