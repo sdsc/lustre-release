@@ -74,6 +74,7 @@
 #include <obd.h>
 #include <obd_lov.h>
 #include <lustre/lustreapi.h>
+#include <lustre_linkea.h>
 #include "lustreapi_internal.h"
 
 static unsigned llapi_dir_filetype_table[] = {
@@ -4198,6 +4199,93 @@ int llapi_path2fid(const char *path, lustre_fid *fid)
 		rc = fid_from_lma(path, -1, fid);
 
 	close(fd);
+	return rc;
+}
+
+static int linkea_decode(struct  linkea_data *ldata, unsigned int linkno,
+			 lustre_fid *parent_fid, char *name_buf,
+			 int name_buf_size)
+{
+	int		rc;
+	unsigned int    idx;
+	struct lu_name  ln;
+
+	rc = linkea_init(ldata);
+	if (rc)
+		return rc;
+
+	if (linkno >= ldata->ld_leh->leh_reccount)
+		/* beyond last link */
+		return -ENODATA;
+
+	linkea_first_entry(ldata);
+	idx = 0;
+	while (ldata->ld_lee != NULL) {
+		linkea_entry_unpack(ldata->ld_lee, &ldata->ld_reclen, &ln,
+				    parent_fid);
+		if (idx == linkno)
+			break;
+
+		linkea_next_entry(ldata);
+		idx++;
+	}
+	if (idx < linkno)
+		return -ENODATA;
+
+	if (ln.ln_namelen >= name_buf_size)
+		return -EOVERFLOW;
+
+	strncpy(name_buf, ln.ln_name, ln.ln_namelen);
+	name_buf[ln.ln_namelen] = '\0';
+	return 0;
+}
+
+int llapi_fd2parent(int fd, unsigned int linkno, lustre_fid *parent_fid,
+		    char *name_buf, int name_buf_size)
+{
+	int    rc;
+	struct linkea_data	ldata = {0};
+	struct lu_buf		lb = {0};
+
+	rc = linkea_data_new(&ldata, &lb);
+	if (rc < 0)
+		return rc;
+
+	rc = fgetxattr(fd, XATTR_NAME_LINK, lb.lb_buf, lb.lb_len);
+	if (rc < 0) {
+		rc = -errno;
+		goto out_free;
+	}
+
+	rc = linkea_decode(&ldata, linkno, parent_fid, name_buf, name_buf_size);
+
+out_free:
+	lu_buf_free(&lb);
+	return rc;
+}
+
+extern int llapi_path2parent(const char *path, unsigned int linkno,
+			     lustre_fid *parent_fid, char *name_buf,
+			     int name_buf_size)
+{
+	int    rc;
+	struct linkea_data	ldata = {0};
+	struct lu_buf		lb = {0};
+
+	rc = linkea_data_new(&ldata, &lb);
+	if (rc < 0)
+		return rc;
+
+	rc = lgetxattr(path, XATTR_NAME_LINK, lb.lb_buf, lb.lb_len);
+	if (rc < 0) {
+		rc = -errno;
+		goto out_free;
+	}
+
+	rc = linkea_decode(&ldata, linkno, parent_fid, name_buf, name_buf_size);
+
+out_free:
+	lu_buf_free(&lb);
 	return rc;
 }
 

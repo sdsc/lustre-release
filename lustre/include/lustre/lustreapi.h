@@ -264,6 +264,13 @@ extern int llapi_fid2path(const char *device, const char *fidstr, char *path,
 			  int pathlen, long long *recno, int *linkno);
 extern int llapi_path2fid(const char *path, lustre_fid *fid);
 extern int llapi_fd2fid(const int fd, lustre_fid *fid);
+/* get FID of parent dir + the related name of entry in this parent dir */
+extern int llapi_path2parent(const char *path, unsigned int linkno,
+			     lustre_fid *parent_fid, char *name_buf,
+			     int name_buf_size);
+extern int llapi_fd2parent(int fd, unsigned int linkno,
+			   lustre_fid *parent_fid, char *name_buf,
+			   int name_buf_size);
 
 extern int llapi_get_version(char *buffer, int buffer_size, char **version);
 extern int llapi_get_data_version(int fd, __u64 *data_version, __u64 flags);
