@@ -3198,7 +3198,6 @@ int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat)
         return ll_getattr_it(mnt, de, &it, stat);
 }
 
-#ifdef HAVE_LINUX_FIEMAP_H
 int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
                 __u64 start, __u64 len)
 {
@@ -3231,7 +3230,6 @@ int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
         OBD_FREE_LARGE(fiemap, num_bytes);
         return rc;
 }
-#endif
 
 struct posix_acl * ll_get_acl(struct inode *inode, int type)
 {
@@ -3383,9 +3381,7 @@ struct inode_operations ll_file_inode_operations = {
 	.getxattr	= ll_getxattr,
 	.listxattr	= ll_listxattr,
 	.removexattr	= ll_removexattr,
-#ifdef  HAVE_LINUX_FIEMAP_H
 	.fiemap		= ll_fiemap,
-#endif
 #ifdef HAVE_IOP_GET_ACL
 	.get_acl	= ll_get_acl,
 #endif
