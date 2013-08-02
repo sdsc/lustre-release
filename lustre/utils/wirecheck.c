@@ -1789,6 +1789,17 @@ check_getinfo_fid2path(void)
 	CHECK_MEMBER(getinfo_fid2path, gf_path[0]);
 }
 
+static void
+check_getparent(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(getparent);
+	CHECK_MEMBER(getparent, gp_fid);
+	CHECK_MEMBER(getparent, gp_linkno);
+	CHECK_MEMBER(getparent, gp_namelen);
+	CHECK_MEMBER(getparent, gp_name[0]);
+}
+
 /* We don't control the definitions of posix_acl_xattr_{entry,header}
  * and so we shouldn't have used them in our wire protocol. But it's
  * too late now and so we emit checks against the *fixed* definitions
@@ -2534,6 +2545,7 @@ main(int argc, char **argv)
 	check_lustre_capa();
 	check_lustre_capa_key();
 	check_getinfo_fid2path();
+	check_getparent();
 	check_ll_user_fiemap();
 	check_ll_fiemap_extent();
 	check_posix_acl_xattr_entry();

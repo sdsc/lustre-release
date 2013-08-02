@@ -4055,6 +4055,26 @@ void lustre_assert_wire_constants(void)
 	LASSERTF((int)sizeof(((struct getinfo_fid2path *)0)->gf_path[0]) == 1, "found %lld\n",
 		 (long long)(int)sizeof(((struct getinfo_fid2path *)0)->gf_path[0]));
 
+	/* Checks for struct getparent */
+	LASSERTF((int)sizeof(struct getparent) == 24, "found %lld\n",
+		 (long long)(int)sizeof(struct getparent));
+	LASSERTF((int)offsetof(struct getparent, gp_fid) == 0, "found %lld\n",
+		 (long long)(int)offsetof(struct getparent, gp_fid));
+	LASSERTF((int)sizeof(((struct getparent *)0)->gp_fid) == 16, "found %lld\n",
+		 (long long)(int)sizeof(((struct getparent *)0)->gp_fid));
+	LASSERTF((int)offsetof(struct getparent, gp_linkno) == 16, "found %lld\n",
+		 (long long)(int)offsetof(struct getparent, gp_linkno));
+	LASSERTF((int)sizeof(((struct getparent *)0)->gp_linkno) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct getparent *)0)->gp_linkno));
+	LASSERTF((int)offsetof(struct getparent, gp_namelen) == 20, "found %lld\n",
+		 (long long)(int)offsetof(struct getparent, gp_namelen));
+	LASSERTF((int)sizeof(((struct getparent *)0)->gp_namelen) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct getparent *)0)->gp_namelen));
+	LASSERTF((int)offsetof(struct getparent, gp_name[0]) == 24, "found %lld\n",
+		 (long long)(int)offsetof(struct getparent, gp_name[0]));
+	LASSERTF((int)sizeof(((struct getparent *)0)->gp_name[0]) == 1, "found %lld\n",
+		 (long long)(int)sizeof(((struct getparent *)0)->gp_name[0]));
+
 	/* Checks for struct ll_user_fiemap */
 	LASSERTF((int)sizeof(struct ll_user_fiemap) == 32, "found %lld\n",
 		 (long long)(int)sizeof(struct ll_user_fiemap));
