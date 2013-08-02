@@ -1382,7 +1382,7 @@ relock:
                         /* If the file has not been changed for some time, we
                          * return not only a LOOKUP lock, but also an UPDATE
                          * lock and this might save us RPC on later STAT. For
-                         * directories, it also let negative dentry starts
+                         * directories, it also let negative dentry cache start
                          * working for this dir. */
                         if (ma->ma_valid & MA_INODE &&
                             ma->ma_attr.la_valid & LA_CTIME &&
@@ -4067,7 +4067,7 @@ static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
 				ptlrpc_status_hton(rep->lock_policy_res2);
 		}
         } else {
-                rc = -EOPNOTSUPP;
+                rc = -EPROTO;
         }
         RETURN(rc);
 }
@@ -5169,7 +5169,6 @@ static struct lu_object *mdt_object_alloc(const struct lu_env *env,
 		mutex_init(&mo->mot_ioepoch_mutex);
 		mutex_init(&mo->mot_lov_mutex);
 		init_rwsem(&mo->mot_open_sem);
-		init_rwsem(&mo->mot_xattr_sem);
 		RETURN(o);
 	}
 	RETURN(NULL);

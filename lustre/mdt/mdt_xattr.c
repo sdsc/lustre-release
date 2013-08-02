@@ -187,8 +187,6 @@ int mdt_getxattr(struct mdt_thread_info *info)
         if (rc)
                 RETURN(err_serious(rc));
 
-	down_read(&info->mti_object->mot_xattr_sem);
-
         next = mdt_object_child(info->mti_object);
 
         if (info->mti_body->valid & OBD_MD_FLRMTRGETFACL) {
@@ -258,6 +256,9 @@ int mdt_getxattr(struct mdt_thread_info *info)
 		for (b = buf->lb_buf;
 		     b < (char *)buf->lb_buf + eadatasize;
 		     b += strlen(b) + 1, v += rc) {
+			/* Filter out ACL ACCESS since it is cached separately */
+			if (!strcmp(b, XATTR_NAME_ACL_ACCESS))
+				continue;
 			buf2.lb_buf = v;
 			rc = mdt_getxattr_one(info, b, next, &buf2, med, uc);
 			if (rc < 0)
@@ -283,8 +284,6 @@ int mdt_getxattr(struct mdt_thread_info *info)
 
 	EXIT;
 out:
-	up_read(&info->mti_object->mot_xattr_sem);
-
 	if (rc >= 0) {
 		mdt_counter_incr(req, LPROC_MDT_GETXATTR);
 		repbody->eadatasize = rc;
@@ -366,6 +365,9 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 
         CDEBUG(D_INODE, "setxattr for "DFID"\n", PFID(rr->rr_fid1));
 
+	if (info->mti_dlm_req)
+		ldlm_request_cancel(req, info->mti_dlm_req, 0);
+
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_SETXATTR))
                 RETURN(err_serious(-ENOMEM));
 
@@ -416,10 +418,9 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 	/* We need revoke both LOOKUP|PERM lock here, see mdt_attr_set. */
         if (!strcmp(xattr_name, XATTR_NAME_ACL_ACCESS))
 		lockpart |= MDS_INODELOCK_PERM | MDS_INODELOCK_LOOKUP;
-
 	/* We need to take the lock on behalf of old clients so that newer
 	 * clients flush their xattr caches */
-	if (!(valid & OBD_MD_FLXATTRLOCKED))
+	else
 		lockpart |= MDS_INODELOCK_XATTR;
 
         lh = &info->mti_lh[MDT_LH_PARENT];
@@ -429,8 +430,6 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
         obj = mdt_object_find_lock(info, rr->rr_fid1, lh, lockpart);
         if (IS_ERR(obj))
                 GOTO(out, rc =  PTR_ERR(obj));
-
-	down_write(&obj->mot_xattr_sem);
 
         info->mti_mos = obj;
         rc = mdt_version_get_check_save(info, obj, 0);
@@ -502,7 +501,6 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 
         EXIT;
 out_unlock:
-	up_write(&obj->mot_xattr_sem);
         mdt_object_unlock_put(info, obj, lh, rc);
         if (unlikely(new_xattr != NULL))
                 lustre_posix_acl_xattr_free(new_xattr, xattr_len);
