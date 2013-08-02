@@ -239,7 +239,7 @@ run_test 6e "touch f6e; chgrp f6e; $RUNAS chgrp f6e (should return error) =="
 
 test_6g() {
 	[ $RUNAS_ID -eq $UID ] && skip_env "RUNAS_ID = UID = $UID" && return
-	test_mkdir $DIR/$tdir || error "mkdir $tfile failed"
+	test_mkdir -p $DIR/$tdir || error "mkdir $tdir failed"
 	chmod 777 $DIR/$tdir || error "chmod 0777 $tdir failed"
 	$RUNAS mkdir $DIR/$tdir/d || error "mkdir $tdir/d failed"
 	chmod g+s $DIR/$tdir/d || error "chmod g+s $tdir/d failed"
@@ -261,7 +261,7 @@ test_6h() { # bug 7331
 run_test 6h "$RUNAS chown RUNAS_ID.0 .../f6h (should return error)"
 
 test_7a() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	$MCREATE $DIR/$tdir/$tfile
 	chmod 0666 $DIR/$tdir/$tfile
 	$CHECKSTAT -t file -p 0666 $DIR/$tdir/$tfile ||
@@ -281,7 +281,7 @@ test_7b() {
 run_test 7b "mkdir .../d7; mcreate d7/f2; echo foo > d7/f2 ====="
 
 test_8() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	chmod 0666 $DIR/$tdir/$tfile
 	$CHECKSTAT -t file -p 0666 $DIR/$tdir/$tfile ||
@@ -290,7 +290,7 @@ test_8() {
 run_test 8 "mkdir .../d8; touch .../d8/f; chmod .../d8/f ======="
 
 test_9() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	test_mkdir $DIR/$tdir/d2
 	test_mkdir $DIR/$tdir/d2/d3
 	$CHECKSTAT -t dir $DIR/$tdir/d2/d3 || error "$tdir/d2/d3 not a dir"
@@ -298,7 +298,7 @@ test_9() {
 run_test 9 "mkdir .../d9 .../d9/d2 .../d9/d2/d3 ================"
 
 test_10() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	test_mkdir $DIR/$tdir/d2
 	touch $DIR/$tdir/d2/$tfile
 	$CHECKSTAT -t file $DIR/$tdir/d2/$tfile ||
@@ -307,7 +307,7 @@ test_10() {
 run_test 10 "mkdir .../d10 .../d10/d2; touch .../d10/d2/f ======"
 
 test_11() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	test_mkdir $DIR/$tdir/d2
 	chmod 0666 $DIR/$tdir/d2
 	chmod 0705 $DIR/$tdir/d2
@@ -317,7 +317,7 @@ test_11() {
 run_test 11 "mkdir .../d11 d11/d2; chmod .../d11/d2 ============"
 
 test_12() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	chmod 0666 $DIR/$tdir/$tfile
 	chmod 0654 $DIR/$tdir/$tfile
@@ -327,7 +327,7 @@ test_12() {
 run_test 12 "touch .../d12/f; chmod .../d12/f .../d12/f ========"
 
 test_13() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	dd if=/dev/zero of=$DIR/$tdir/$tfile count=10
 	>  $DIR/$tdir/$tfile
 	$CHECKSTAT -t file -s 0 $DIR/$tdir/$tfile ||
@@ -336,7 +336,7 @@ test_13() {
 run_test 13 "creat .../d13/f; dd .../d13/f; > .../d13/f ========"
 
 test_14() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	rm $DIR/$tdir/$tfile
 	$CHECKSTAT -a $DIR/$tdir/$tfile || error "$tdir/$tfile not removed"
@@ -344,7 +344,7 @@ test_14() {
 run_test 14 "touch .../d14/f; rm .../d14/f; rm .../d14/f ======="
 
 test_15() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	mv $DIR/$tdir/$tfile $DIR/$tdir/${tfile}_2
 	$CHECKSTAT -t file $DIR/$tdir/${tfile}_2 ||
@@ -353,7 +353,7 @@ test_15() {
 run_test 15 "touch .../d15/f; mv .../d15/f .../d15/f2 =========="
 
 test_16() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	rm -rf $DIR/$tdir/$tfile
 	$CHECKSTAT -a $DIR/$tdir/$tfile || error "$tdir/$tfile not removed"
@@ -760,7 +760,7 @@ run_test 23b "O_APPEND check =========================="
 # rename sanity
 test_24a() {
 	echo '-- same directory rename'
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile.1
 	mv $DIR/$tdir/$tfile.1 $DIR/$tdir/$tfile.2
 	$CHECKSTAT -t file $DIR/$tdir/$tfile.2 || error "$tfile.2 not a file"
@@ -768,7 +768,7 @@ test_24a() {
 run_test 24a "rename file to non-existent target"
 
 test_24b() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile.{1,2}
 	mv $DIR/$tdir/$tfile.1 $DIR/$tdir/$tfile.2
 	$CHECKSTAT -a $DIR/$tdir/$tfile.1 || error "$tfile.1 exists"
@@ -777,7 +777,7 @@ test_24b() {
 run_test 24b "rename file to existing target"
 
 test_24c() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	test_mkdir $DIR/$tdir/d$testnum.1
 	mv $DIR/$tdir/d$testnum.1 $DIR/$tdir/d$testnum.2
 	$CHECKSTAT -a $DIR/$tdir/d$testnum.1 || error "d$testnum.1 exists"
@@ -786,7 +786,7 @@ test_24c() {
 run_test 24c "rename directory to non-existent target"
 
 test_24d() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	test_mkdir $DIR/$tdir/d$testnum.1
 	test_mkdir $DIR/$tdir/d$ttestnum.2
 	mrename $DIR/$tdir/d$testnum.1 $DIR/$tdir/d$testnum.2
@@ -3631,7 +3631,7 @@ run_test 49 "Change max_pages_per_rpc won't break osc extent"
 
 test_50() {
 	# bug 1485
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	cd $DIR/$tdir
 	ls /proc/$$/cwd || error "ls /proc/$$/cwd failed"
 }

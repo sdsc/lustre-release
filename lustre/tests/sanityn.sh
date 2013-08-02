@@ -476,7 +476,7 @@ cleanup_21() {
 }
 
 test_21() { # Bug 5907
-	test_mkdir $DIR1/$tdir
+	test_mkdir -p $DIR1/$tdir
 	mount /etc $DIR1/$tdir --bind || error "mount failed" # Poor man's mount.
 	trap cleanup_21 EXIT
 	rmdir -v $DIR1/$tdir && error "Removed mounted directory"
