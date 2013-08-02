@@ -2817,34 +2817,35 @@ test_39() {
 run_test 39 "mtime changed on create ==========================="
 
 test_39b() {
-	test_mkdir -p $DIR/$tdir
-	cp -p /etc/passwd $DIR/$tdir/fopen
-	cp -p /etc/passwd $DIR/$tdir/flink
-	cp -p /etc/passwd $DIR/$tdir/funlink
-	cp -p /etc/passwd $DIR/$tdir/frename
-	ln $DIR/$tdir/funlink $DIR/$tdir/funlink2
+	# create parent directory on a single MDT to avoid cross-MDT hardlinks
+	test_mkdir -c1 -p $DIR/$tdir/d
+	cp -p /etc/passwd $DIR/$tdir/d/fopen
+	cp -p /etc/passwd $DIR/$tdir/d/flink
+	cp -p /etc/passwd $DIR/$tdir/d/funlink
+	cp -p /etc/passwd $DIR/$tdir/d/frename
+	ln $DIR/$tdir/d/funlink $DIR/$tdir/d/funlink2
 
 	sleep 1
-	echo "aaaaaa" >> $DIR/$tdir/fopen
-	echo "aaaaaa" >> $DIR/$tdir/flink
-	echo "aaaaaa" >> $DIR/$tdir/funlink
-	echo "aaaaaa" >> $DIR/$tdir/frename
+	echo "aaaaaa" >> $DIR/$tdir/d/fopen
+	echo "aaaaaa" >> $DIR/$tdir/d/flink
+	echo "aaaaaa" >> $DIR/$tdir/d/funlink
+	echo "aaaaaa" >> $DIR/$tdir/d/frename
 
-	local open_new=`stat -c %Y $DIR/$tdir/fopen`
-	local link_new=`stat -c %Y $DIR/$tdir/flink`
-	local unlink_new=`stat -c %Y $DIR/$tdir/funlink`
-	local rename_new=`stat -c %Y $DIR/$tdir/frename`
+	local open_new=`stat -c %Y $DIR/$tdir/d/fopen`
+	local link_new=`stat -c %Y $DIR/$tdir/d/flink`
+	local unlink_new=`stat -c %Y $DIR/$tdir/d/funlink`
+	local rename_new=`stat -c %Y $DIR/$tdir/d/frename`
 
-	cat $DIR/$tdir/fopen > /dev/null
-	ln $DIR/$tdir/flink $DIR/$tdir/flink2
-	rm -f $DIR/$tdir/funlink2
-	mv -f $DIR/$tdir/frename $DIR/$tdir/frename2
+	cat $DIR/$tdir/d/fopen > /dev/null
+	ln $DIR/$tdir/d/flink $DIR/$tdir/d/flink2
+	rm -f $DIR/$tdir/d/funlink2
+	mv -f $DIR/$tdir/d/frename $DIR/$tdir/d/frename2
 
 	for (( i=0; i < 2; i++ )) ; do
-		local open_new2=`stat -c %Y $DIR/$tdir/fopen`
-		local link_new2=`stat -c %Y $DIR/$tdir/flink`
-		local unlink_new2=`stat -c %Y $DIR/$tdir/funlink`
-		local rename_new2=`stat -c %Y $DIR/$tdir/frename2`
+		local open_new2=`stat -c %Y $DIR/$tdir/d/fopen`
+		local link_new2=`stat -c %Y $DIR/$tdir/d/flink`
+		local unlink_new2=`stat -c %Y $DIR/$tdir/d/funlink`
+		local rename_new2=`stat -c %Y $DIR/$tdir/d/frename2`
 
 		[ $open_new2 -eq $open_new ] || error "open file reverses mtime"
 		[ $link_new2 -eq $link_new ] || error "link file reverses mtime"
@@ -9981,12 +9982,14 @@ check_path() {
 test_162() {
 	# Make changes to filesystem
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	test_mkdir -p $DIR/$tdir/d2
+	# create parent directory on a single MDT to avoid cross-MDT hardlinks
+	test_mkdir -c1 -p $DIR/$tdir/d2
 	touch $DIR/$tdir/d2/$tfile
 	touch $DIR/$tdir/d2/x1
 	touch $DIR/$tdir/d2/x2
-	test_mkdir -p $DIR/$tdir/d2/a/b/c
-	test_mkdir -p $DIR/$tdir/d2/p/q/r
+	# subdirs inherit from d2 MD striping
+	mkdir -p $DIR/$tdir/d2/a/b/c || error "mkdir failed"
+	mkdir -p $DIR/$tdir/d2/p/q/r || error "mkdir failed"
 	# regular file
 	FID=$($LFS path2fid $DIR/$tdir/d2/$tfile | tr -d '[]')
 	check_path "$tdir/d2/$tfile" $FSNAME $FID --link 0
@@ -10021,6 +10024,81 @@ test_162() {
 	return 0
 }
 run_test 162 "path lookup sanity"
+
+test_164() {
+	# create parent directory on a single MDT to avoid cross-MDT hardlinks
+	test_mkdir -c1 -p $DIR/$tdir/d
+	# test dirs inherit from its stripe
+	mkdir -p $DIR/$tdir/d/foo1 || error "mkdir error"
+	mkdir -p $DIR/$tdir/d/foo2 || error "mkdir error"
+	cp /etc/hosts $DIR/$tdir/d/foo1/$tfile
+	ln $DIR/$tdir/d/foo1/$tfile $DIR/$tdir/d/foo2/link
+	touch $DIR/f
+
+	# get fid of parents
+	local FID0=$($LFS path2fid $DIR/$tdir/d)
+	local FID1=$($LFS path2fid $DIR/$tdir/d/foo1)
+	local FID2=$($LFS path2fid $DIR/$tdir/d/foo2)
+	local FID3=$($LFS path2fid $DIR)
+
+	# check that path2fid --parents returns expected <parent_fid>/name
+	# 1) test for a directory (single parent)
+	local parent=$($LFS path2fid --parents $DIR/$tdir/d/foo1)
+	[ "$parent" ==  "$FID0/foo1" ] ||
+		error "expected parent: $FID0/foo1, got: $parent"
+
+	# 2) test for a file with nlink > 1 (multiple parents)
+	parent=$($LFS path2fid --parents $DIR/$tdir/d/foo1/$tfile)
+	echo "$parent" | grep -F "$FID1/$tfile" ||
+		error "$FID1/$tfile not returned in parent list"
+	echo "$parent" | grep -F "$FID2/link" ||
+		error "$FID2/link not returned in parent list"
+
+	# 3) get parent by fid
+	local file_fid=$($LFS path2fid $DIR/$tdir/d/foo1/$tfile)
+	parent=$($LFS path2fid --parents $MOUNT/.lustre/fid/$file_fid)
+	echo "$parent" | grep -F "$FID1/$tfile" ||
+		error "$FID1/$tfile not returned in parent list (by fid)"
+	echo "$parent" | grep -F "$FID2/link" ||
+		error "$FID2/link not returned in parent list (by fid)"
+
+	# 4) test for entry in root directory
+	parent=$($LFS path2fid --parents $DIR/f)
+	echo "$parent" | grep -F "$FID3/f" ||
+		error "$FID3/f not returned in parent list"
+
+	# 5) test it on root directory
+	[ -z "$($LFS path2fid --parents $MOUNT 2>/dev/null)" ] ||
+		error "$MOUNT should not have parents"
+
+	# enable xattr caching and check that linkea is correctly updated
+	local save="$TMP/$TESTSUITE-$TESTNAME.parameters"
+	save_lustre_params client "llite.*.xattr_cache" > $save
+	lctl set_param llite.*.xattr_cache 1
+
+	# 6.1) linkea update on rename
+	mv $DIR/$tdir/d/foo1/$tfile $DIR/$tdir/d/foo2/$tfile.moved
+
+	# get parents by fid
+	parent=$($LFS path2fid --parents $MOUNT/.lustre/fid/$file_fid)
+	# foo1 should no longer be returned in parent list
+	echo "$parent" | grep -F "$FID1" &&
+		error "$FID1 should no longer be in parent list"
+	# the new path should appear
+	echo "$parent" | grep -F "$FID2/$tfile.moved" ||
+		error "$FID2/$tfile.moved is not in parent list"
+
+	# 6.2) linkea update on unlink
+	rm -f $DIR/$tdir/d/foo2/link
+	parent=$($LFS path2fid --parents $MOUNT/.lustre/fid/$file_fid)
+	# foo2/link should no longer be returned in parent list
+	echo "$parent" | grep -F "$FID2/link" &&
+		error "$FID2/link should no longer be in parent list"
+	true
+
+	restore_lustre_params < $save
+}
+run_test 164 "get parent fids by reading link ea"
 
 test_169() {
 	# do directio so as not to populate the page cache
