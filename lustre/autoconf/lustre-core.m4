@@ -589,7 +589,7 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.27 use 5th parameter in quota_on for remount.
+# v2.6.26-v2.6.35 use 5th parameter in quota_on for remount.
 AC_DEFUN([LC_QUOTA_ON_5ARGS],
 [AC_MSG_CHECKING([quota_on needs 5 parameters])
 LB_LINUX_TRY_COMPILE([
@@ -607,7 +607,7 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
-# 2.6.27 use 3th parameter in quota_off for remount.
+# v2.6.26-v2.6.35 use 3rd parameter in quota_off for remount.
 AC_DEFUN([LC_QUOTA_OFF_3ARGS],
 [AC_MSG_CHECKING([quota_off needs 3 parameters])
 LB_LINUX_TRY_COMPILE([
@@ -1598,8 +1598,6 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.27
          LC_SECURITY_PLUG  # for SLES10 SP2
          LC_INODE_PERMISION_2ARGS
-         LC_QUOTA_ON_5ARGS
-         LC_QUOTA_OFF_3ARGS
          LC_LOCK_MAP_ACQUIRE
 
          # 2.6.27.15-2 sles11
@@ -1620,6 +1618,8 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.36
          LC_FS_STRUCT_RWLOCK
          LC_SBOPS_EVICT_INODE
+	 LC_QUOTA_ON_5ARGS
+	 LC_QUOTA_OFF_3ARGS
 
          # 2.6.37
          LC_KERNEL_LOCKED
