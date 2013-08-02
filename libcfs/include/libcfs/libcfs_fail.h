@@ -93,6 +93,8 @@ static inline int cfs_fail_check_set(__u32 id, __u32 value,
 	return ret;
 }
 
+#ifndef LUSTRE_UTILS
+
 /* If id hit cfs_fail_loc, return 1, otherwise return 0 */
 #define CFS_FAIL_CHECK(id) \
 	cfs_fail_check_set(id, 0, CFS_FAIL_LOC_NOSET, 0)
@@ -170,6 +172,27 @@ static inline void cfs_race(__u32 id)
 #else
 /* sigh.  an expedient fix until CFS_RACE is fixed up */
 #define CFS_RACE(foo) do {} while(0)
+#endif
+
+#else
+
+/* no kernel error injection for liblustreapi and userland tools:
+ * make all these macros return 0.
+ */
+#define CFS_FAIL_CHECK(id)			 (0)
+#define CFS_FAIL_CHECK_QUIET(id)		 (0)
+#define CFS_FAIL_CHECK_VALUE(id, value)		 (0)
+#define CFS_FAIL_CHECK_VALUE_QUIET(id, value)	 (0)
+#define CFS_FAIL_CHECK_ORSET(id, value)		 (0)
+#define CFS_FAIL_CHECK_ORSET_QUIET(id, value)	 (0)
+#define CFS_FAIL_CHECK_RESET(id, value)		 (0)
+#define CFS_FAIL_CHECK_RESET_QUIET(id, value)	 (0)
+#define CFS_FAIL_TIMEOUT(id, secs)		 (0)
+#define CFS_FAIL_TIMEOUT_MS(id, ms)		 (0)
+#define CFS_FAIL_TIMEOUT_ORSET(id, value, secs)	 (0)
+#define CFS_FAIL_TIMEOUT_MS_ORSET(id, value, ms) (0)
+#define CFS_RACE(id)
+
 #endif
 
 #endif /* _LIBCFS_FAIL_H */

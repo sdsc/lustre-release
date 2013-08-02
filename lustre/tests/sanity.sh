@@ -9498,6 +9498,29 @@ test_162() {
 }
 run_test 162 "path lookup sanity"
 
+test_164() {
+	test_mkdir -p $DIR/$tdir/foo1
+	test_mkdir -p $DIR/$tdir/foo2
+	cp /etc/hosts $DIR/$tdir/foo1/$tfile
+	ln $DIR/$tdir/foo1/$tfile $DIR/$tdir/foo2/link
+	# get fid of parents
+	local FID0=$($LFS path2fid $DIR/$tdir)
+	local FID1=$($LFS path2fid $DIR/$tdir/foo1)
+	local FID2=$($LFS path2fid $DIR/$tdir/foo2)
+	# check that path2fid --parents returns expected <parent_fid>/name
+	# 1) test for a directory (single parent)
+	local parent0=$($LFS path2fid --parents $DIR/$tdir/foo1)
+	[ "$parent0" ==  "$FID0/foo1" ] ||
+		error "expected parent: $FID0/foo1, got: $parent0"
+	# 2) test for a file with nlink > 1 (multiple parents)
+	local parent1=$($LFS path2fid --parents $DIR/$tdir/foo1/$tfile)
+	echo "$parent1" | grep -F "$FID1/$tfile" > /dev/null ||
+		error "$FID1/$tfile not returned in parent list"
+	echo "$parent1" | grep -F "$FID2/link" > /dev/null ||
+		error "$FID2/link not returned in parent list"
+}
+run_test 164 "get parent fids by reading link ea"
+
 test_169() {
 	# do directio so as not to populate the page cache
 	log "creating a 10 Mb file"

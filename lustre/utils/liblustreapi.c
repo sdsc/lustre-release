@@ -74,6 +74,7 @@
 #include <obd.h>
 #include <obd_lov.h>
 #include <lustre/lustreapi.h>
+#include <lustre_linkea.h>
 #include "lustreapi_internal.h"
 
 static unsigned llapi_dir_filetype_table[] = {
@@ -4117,6 +4118,55 @@ int llapi_path2fid(const char *path, lustre_fid *fid)
 		rc = fid_from_lma(path, -1, fid);
 
 	close(fd);
+	return rc;
+}
+
+int llapi_path2parent(const char *path, int linkno, lustre_fid *fid,
+		      char *name, int namelen)
+{
+	int	rc, i;
+	struct	linkea_data	ldata = { 0 };
+	struct	lu_buf		lb = { 0 };
+	struct  lu_name		ln;
+
+	rc = linkea_data_new(&ldata, &lb);
+	if (rc)
+		return rc;
+
+	rc = lgetxattr(path, XATTR_NAME_LINK, lb.lb_buf, lb.lb_len);
+	if (rc < 0) {
+		rc = -errno;
+		goto out_free;
+	}
+
+	rc = linkea_init(&ldata);
+	if (rc)
+		goto out_free;
+
+	if (linkno >= ldata.ld_leh->leh_reccount) {
+		/* beyond last link */
+		rc = -ENODATA;
+		goto out_free;
+	}
+
+	linkea_first_entry(&ldata);
+	linkea_entry_unpack(ldata.ld_lee, &ldata.ld_reclen, &ln, fid);
+
+	for (i = 0; i < linkno; i++) {
+		linkea_next_entry(&ldata);
+		linkea_entry_unpack(ldata.ld_lee, &ldata.ld_reclen, &ln, fid);
+	}
+
+	if (ln.ln_namelen >= namelen) {
+		rc = -EOVERFLOW;
+		goto out_free;
+	}
+	strncpy(name, ln.ln_name, ln.ln_namelen);
+	name[ln.ln_namelen] = '\0';
+	rc = 0;
+
+out_free:
+	lu_buf_free(&lb);
 	return rc;
 }
 
