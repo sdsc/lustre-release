@@ -83,9 +83,10 @@ llverdev_LDADD := $(EXT2FSLIB) $(BLKIDLIB)
 
 L_IOCTL := $(top_builddir)/libcfs/libcfs/util/l_ioctl.c
 L_KERNELCOMM := $(top_builddir)/libcfs/libcfs/kernel_user_comm.c
+L_LINKEA := $(top_builddir)/lustre/obdclass/linkea.c $(top_builddir)/lustre/obdclass/lu_buf.c
 liblustreapitmp_a_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			    lustreapi_internal.h \
-			    $(L_IOCTL) $(L_KERNELCOMM)
+			    $(L_IOCTL) $(L_KERNELCOMM) $(L_LINKEA)
 
 # build static and shared lib lustreapi
 liblustreapi.a : liblustreapitmp.a
