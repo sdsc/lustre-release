@@ -47,6 +47,7 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 		echoerr "$(date +'%F %H:%M:%S'): dd succeeded"
 		cd $TMP
 		rm -rf $TESTDIR
+		sync;
 		echoerr "$(date +'%F %H:%M:%S'): dd run finished"
 	else
 		echoerr "$(date +'%F %H:%M:%S'): dd failed"
