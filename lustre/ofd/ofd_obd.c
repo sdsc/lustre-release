@@ -517,6 +517,30 @@ static int ofd_set_info_async(const struct lu_env *env, struct obd_export *exp,
 		ofd_info_init(env, exp);
 		/** handle grant shrink, similar to a read request */
 		ofd_grant_prepare_read(env, exp, &body->oa);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_control_request *lcr = val;
+
+		switch (lcr->lcr_event) {
+		case LNE_LAYOUT_START: {
+			struct lfsck_start_param lsp;
+
+			lsp.lsp_start = &lcr->lcr_start;
+			lsp.lsp_namespace = ofd->ofd_namespace;
+			rc = lfsck_start(env, ofd->ofd_osd, &lsp, exp);
+			break;
+		}
+		case LNE_LAYOUT_STOP:
+			rc = lfsck_stop(env, ofd->ofd_osd, &lcr->lcr_stop, exp);
+			break;
+		case LNE_LAYOUT_PHASE1_DONE:
+			rc = lfsck_in_notify(env, ofd->ofd_osd, lcr, exp);
+			break;
+		default:
+			CERROR("%s: Unsupported lfsck_event %d\n",
+			       exp->exp_obd->obd_name, lcr->lcr_event);
+			rc = -EOPNOTSUPP;
+			break;
+		}
 	} else {
 		CERROR("%s: Unsupported key %s\n",
 		       exp->exp_obd->obd_name, (char*)key);
@@ -661,6 +685,17 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		*vallen = sizeof(*fid);
 out_put:
 		ofd_seq_put(env, oseq);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_control_request *lcr = val;
+
+		if (lcr == NULL) {
+			LASSERT(vallen != NULL);
+
+			*vallen = sizeof(*lcr);
+		} else {
+			lcr->lcr_event = LNE_LAYOUT_QUERY;
+			lcr->lcr_status = lfsck_query(ofd->ofd_osd, LT_LAYOUT);
+		}
 	} else {
 		CERROR("Not supported key %s\n", (char*)key);
 		rc = -EOPNOTSUPP;
@@ -1588,11 +1623,15 @@ int ofd_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 
 		lsp.lsp_start = (struct lfsck_start *)(data->ioc_inlbuf1);
 		lsp.lsp_namespace = ofd->ofd_namespace;
-		rc = lfsck_start(&env, ofd->ofd_osd, &lsp);
+		rc = lfsck_start(&env, ofd->ofd_osd, &lsp, NULL);
 		break;
 	}
 	case OBD_IOC_STOP_LFSCK: {
-		rc = lfsck_stop(&env, ofd->ofd_osd, false);
+		struct lfsck_stop *stop = &ofd_info(&env)->fti_stop;
+
+		stop->ls_status = LS_STOPPED;
+		stop->ls_index = ofd->ofd_lut.lut_lsd.lsd_osd_index;;
+		rc = lfsck_stop(&env, ofd->ofd_osd, stop, NULL);
 		break;
 	}
 	case OBD_IOC_GET_OBJ_VERSION:

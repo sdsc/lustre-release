@@ -48,6 +48,7 @@
 #include <lustre_param.h>
 #include <lustre_log.h>
 #include <lustre_mdc.h>
+#include <lustre_lfsck.h>
 
 #include "osp_internal.h"
 
@@ -1124,20 +1125,166 @@ static int osp_obd_health_check(const struct lu_env *env,
 	RETURN(!d->opd_imp_seen_connected);
 }
 
+struct osp_async_info_args {
+	struct osp_device *oaia_osp;
+	void		  *oaia_data;
+};
+
+static int osp_async_info_interpret(const struct lu_env *env,
+				    struct ptlrpc_request *req,
+				    void *args, int rc)
+{
+	struct osp_async_info_args *oaia = args;
+	struct osp_device	   *osp  = oaia->oaia_osp;
+	struct lfsck_async_info    *lai  = oaia->oaia_data;
+
+	switch (lai->lai_lcr->lcr_event) {
+	case LNE_LAYOUT_START:
+		if (rc != 0) {
+			osp->opd_in_lfsck = 0;
+		} else {
+			osp->opd_in_lfsck = 1;
+			atomic_inc(&lai->lai_in_lfsck);
+		}
+		break;
+	case LNE_LAYOUT_PHASE1_DONE:
+		if (rc != 0)
+			osp->opd_in_lfsck = 0;
+		break;
+	case LNE_LAYOUT_QUERY: {
+		struct lfsck_control_request *lcr;
+
+		if (rc != 0) {
+			/* It is quite probably caused by target crash,
+			 * to make the LFSCK can go ahead, assume that
+			 * the target finished the LFSCK prcoessing. */
+			osp->opd_in_lfsck = 0;
+		} else {
+			lcr = req_capsule_server_get(&req->rq_pill,
+						     &RMF_GENERIC_DATA);
+			if (ptlrpc_req_need_swab(req))
+				lustre_swab_lfsck_control_request(lcr);
+
+			if (lcr->lcr_status != LS_SCANNING_PHASE1 &&
+			    lcr->lcr_status != LS_SCANNING_PHASE2)
+				osp->opd_in_lfsck= 0;
+		}
+		if (osp->opd_in_lfsck)
+			atomic_inc(&lai->lai_in_lfsck);
+		break;
+	}
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static int osp_get_info(const struct lu_env *env, struct obd_export *exp,
 			__u32 keylen, void *key, __u32 *vallen, void *val,
 			struct lov_stripe_md *lsm)
 {
-	/* XXX: To be extended in other patch. */
-	return 0;
+	int rc = 0;
+
+	if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_async_info    *lai = val;
+		struct osp_device	   *osp =
+					lu2osp_dev(exp->exp_obd->obd_lu_dev);
+		struct osp_async_info_args *oaia;
+		struct ptlrpc_request	   *req;
+		char			   *tmp;
+
+		if (!osp->opd_imp_active || !osp->opd_imp_connected)
+			return -ENOTCONN;
+
+		LASSERT(lai->lai_lcr->lcr_event == LNE_LAYOUT_QUERY);
+
+		if (!(exp_connect_flags(exp) & OBD_CONNECT_LFSCK))
+			return -EOPNOTSUPP;
+
+		if (!osp->opd_in_lfsck)
+			return 0;
+
+		req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+					   &RQF_OST_GET_INFO_GENERIC);
+		if (req == NULL)
+			return -ENOMEM;
+
+		req_capsule_set_size(&req->rq_pill, &RMF_SETINFO_KEY,
+				     RCL_CLIENT, keylen);
+		rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GET_INFO);
+		if (rc != 0) {
+			ptlrpc_request_free(req);
+			return rc;
+		}
+
+		tmp = req_capsule_client_get(&req->rq_pill, &RMF_SETINFO_KEY);
+		memcpy(tmp, key, keylen);
+		req_capsule_set_size(&req->rq_pill, &RMF_GENERIC_DATA,
+				     RCL_SERVER,
+				     sizeof(struct lfsck_control_request));
+		ptlrpc_request_set_replen(req);
+
+		oaia = ptlrpc_req_async_args(req);
+		oaia->oaia_osp = osp;
+		oaia->oaia_data = lai;
+		req->rq_interpret_reply = osp_async_info_interpret;
+		ptlrpc_set_add_req(lai->lai_set, req);
+	}
+
+	return rc;
 }
 
 static int osp_set_info_async(const struct lu_env *env, struct obd_export *exp,
 			      obd_count keylen, void *key, obd_count vallen,
 			      void *val, struct ptlrpc_request_set *set)
 {
-	/* XXX: To be extended in other patch. */
-	return 0;
+	int rc = 0;
+
+	if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_async_info      *lai = val;
+		struct lfsck_control_request *lcr = lai->lai_lcr;
+		struct osp_device	     *osp =
+					lu2osp_dev(exp->exp_obd->obd_lu_dev);
+		struct osp_async_info_args   *oaia;
+		struct ptlrpc_request	     *req;
+		char			     *tmp;
+
+		if (!osp->opd_imp_active || !osp->opd_imp_connected)
+			return -ENOTCONN;
+
+		if (!(exp_connect_flags(exp) & OBD_CONNECT_LFSCK))
+			return -EOPNOTSUPP;
+
+		req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+					   &RQF_OBD_SET_INFO);
+		if (req == NULL)
+			return -ENOMEM;
+
+		req_capsule_set_size(&req->rq_pill, &RMF_SETINFO_KEY,
+				     RCL_CLIENT, keylen);
+		req_capsule_set_size(&req->rq_pill, &RMF_SETINFO_VAL,
+				     RCL_CLIENT, sizeof(*lcr));
+		rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_SET_INFO);
+		if (rc != 0) {
+			ptlrpc_request_free(req);
+			return rc;
+		}
+
+		tmp = req_capsule_client_get(&req->rq_pill, &RMF_SETINFO_KEY);
+		memcpy(tmp, key, keylen);
+		tmp = req_capsule_client_get(&req->rq_pill, &RMF_SETINFO_VAL);
+		memcpy(tmp, lcr, sizeof(*lcr));
+		ptlrpc_request_set_replen(req);
+
+		oaia = ptlrpc_req_async_args(req);
+		oaia->oaia_osp = lu2osp_dev(exp->exp_obd->obd_lu_dev);
+		oaia->oaia_data = lai;
+		req->rq_interpret_reply = osp_async_info_interpret;
+		ptlrpc_set_add_req(set, req);
+	}
+
+	return rc;
 }
 
 /* context key constructor/destructor: mdt_key_init, mdt_key_fini */

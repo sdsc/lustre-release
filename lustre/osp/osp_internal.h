@@ -95,12 +95,13 @@ struct osp_device {
 	cfs_proc_dir_entry_t		*opd_proc_entry;
 	struct lprocfs_stats		*opd_stats;
 	/* connection status. */
-	int				 opd_new_connection;
-	int				 opd_got_disconnected;
-	int				 opd_imp_connected;
-	int				 opd_imp_active;
-	unsigned int			 opd_imp_seen_connected:1,
-					 opd_connect_mdt:1;
+	unsigned int			 opd_new_connection:1,
+					 opd_got_disconnected:1,
+					 opd_imp_connected:1,
+					 opd_imp_active:1,
+					 opd_imp_seen_connected:1,
+					 opd_connect_mdt:1,
+					 opd_in_lfsck:1;
 
 	/* whether local recovery is completed:
 	 * reported via ->ldo_recovery_complete() */
