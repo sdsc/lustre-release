@@ -59,6 +59,230 @@ static void osp_object_assign_fid(const struct lu_env *env,
 	lu_object_assign_fid(env, &o->opo_obj.do_lu, &osi->osi_fid);
 }
 
+static void osp_attr_from_obdo(struct osp_object *o, struct obdo *obdo)
+{
+	struct lu_attr *attr = &o->opo_attr;
+
+	attr->la_valid = 0;
+	if (obdo->o_valid & OBD_MD_FLATIME) {
+		attr->la_atime = obdo->o_atime;
+		attr->la_valid |= LA_ATIME;
+	}
+	if (obdo->o_valid & OBD_MD_FLMTIME) {
+		attr->la_mtime = obdo->o_mtime;
+		attr->la_valid |= LA_MTIME;
+	}
+	if (obdo->o_valid & OBD_MD_FLCTIME) {
+		attr->la_ctime = obdo->o_ctime;
+		attr->la_valid |= LA_CTIME;
+	}
+	if (obdo->o_valid & OBD_MD_FLSIZE) {
+		attr->la_size = obdo->o_size;
+		attr->la_valid |= LA_SIZE;
+	}
+	if (obdo->o_valid & OBD_MD_FLMODE) {
+		attr->la_mode = (obdo->o_mode & ~S_IFMT);
+		attr->la_valid |= LA_MODE;
+	}
+	if (obdo->o_valid & OBD_MD_FLUID) {
+		attr->la_uid = obdo->o_uid;
+		attr->la_valid |= LA_UID;
+	}
+	if (obdo->o_valid & OBD_MD_FLGID) {
+		attr->la_gid = obdo->o_gid;
+		attr->la_valid |= LA_GID;
+	}
+	if (obdo->o_valid & OBD_MD_FLBLOCKS) {
+		attr->la_blocks = obdo->o_blocks;
+		attr->la_valid |= LA_BLOCKS;
+	}
+	if (obdo->o_valid & OBD_MD_FLTYPE) {
+		attr->la_mode |= (obdo->o_mode & S_IFMT);
+		attr->la_valid |= LA_MODE;
+	}
+	if (obdo->o_valid & OBD_MD_FLFLAGS) {
+		attr->la_flags = obdo->o_flags;
+		attr->la_valid |= LA_FLAGS;
+	}
+	if (obdo->o_valid & OBD_MD_FLNLINK) {
+		attr->la_nlink = obdo->o_nlink;
+		attr->la_valid |= LA_NLINK;
+	}
+	if (obdo->o_valid & OBD_MD_FLBLKSZ) {
+		attr->la_blkbits = obdo->o_blksize;
+		attr->la_valid |= LA_BLKSIZE;
+	}
+	if (obdo->o_valid & OBD_MD_FLFID) {
+		o->opo_pfid.f_seq = obdo->o_parent_seq;
+		o->opo_pfid.f_oid = obdo->o_parent_oid;
+		o->opo_pfid.f_ver = obdo->o_stripe_idx;
+		o->opo_pfid_ready = 1;
+	}
+}
+
+static int osp_async_getattr_interpret(const struct lu_env *env,
+				       struct ptlrpc_request *req,
+				       void *arg, int rc)
+{
+	struct osp_object *o	=
+			(*(union ptlrpc_async_args *)arg).pointer_arg[0];
+	struct ost_body   *body = NULL;
+
+	if (rc == 0) {
+		body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+		if (body == NULL)
+			rc = -EPROTO;
+	}
+	spin_lock(&o->opo_async_getattr_lock);
+	if (rc == 0) {
+		osp_attr_from_obdo(o, &body->oa);
+	} else {
+		o->opo_attr.la_valid = 0;
+		o->opo_pfid_ready = 0;
+	}
+	o->opo_async_getattr_wait = 0;
+	spin_unlock(&o->opo_async_getattr_lock);
+	cfs_waitq_broadcast(&o->opo_async_getattr_waitq);
+	lu_object_put(env, osp2lu_obj(o));
+	return 0;
+}
+
+static void osp_getattr_fill_oa(struct obdo *oa, struct osp_object *o)
+{
+	fid_to_ostid(lu_object_fid(&o->opo_obj.do_lu), &oa->o_oi);
+	oa->o_valid = OBD_MD_FLID | OBD_MD_FLGROUP;
+}
+
+static int osp_declare_attr_get(const struct lu_env *env, struct dt_object *dt)
+{
+	struct osp_object	*o	  = dt2osp_obj(dt);
+	struct osp_device	*d	  = lu2osp_dev(dt->do_lu.lo_dev);
+	struct lu_attr		*la	  = &o->opo_attr;
+	struct ptlrpc_request	*req;
+	struct ost_body 	*body;
+	int			 rc	  = 0;
+	ENTRY;
+
+	spin_lock(&o->opo_async_getattr_lock);
+	if (o->opo_async_getattr_wait) {
+		spin_unlock(&o->opo_async_getattr_lock);
+		RETURN(0);
+	}
+
+	/* Re-fetch the attribute because OSP does not hold related
+	 * ldlm lock to protect OST-object attributes. */
+	la->la_valid = 0;
+	o->opo_pfid_ready = 0;
+	o->opo_async_getattr_wait = 1;
+	spin_unlock(&o->opo_async_getattr_lock);
+
+	req = ptlrpc_request_alloc(d->opd_obd->u.cli.cl_import,
+				   &RQF_OST_GETATTR);
+	if (req == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	req_capsule_set_size(&req->rq_pill, &RMF_CAPA1, RCL_CLIENT, 0);
+	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GETATTR);
+	if (rc != 0) {
+		ptlrpc_request_free(req);
+		GOTO(out, rc);
+	}
+
+	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
+	osp_getattr_fill_oa(&body->oa, o);
+	ptlrpc_request_set_replen(req);
+	req->rq_interpret_reply = osp_async_getattr_interpret;
+	lu_object_get(osp2lu_obj(o));
+	req->rq_async_args.pointer_arg[0] = o;
+	ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+
+	GOTO(out, rc = 0);
+
+out:
+	if (rc != 0) {
+		spin_lock(&o->opo_async_getattr_lock);
+		o->opo_async_getattr_wait = 0;
+		spin_unlock(&o->opo_async_getattr_lock);
+		cfs_waitq_broadcast(&o->opo_async_getattr_waitq);
+	}
+	return rc;
+}
+
+static inline int osp_async_attr_wakeup(struct osp_object *o)
+{
+	int rc = 0;
+	spin_lock(&o->opo_async_getattr_lock);
+	if (!o->opo_async_getattr_wait)
+		rc = 1;
+	spin_unlock(&o->opo_async_getattr_lock);
+	return rc;
+}
+
+static int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
+			struct lu_attr *attr, struct lustre_capa *capa)
+{
+	struct osp_object	*o	= dt2osp_obj(dt);
+	struct osp_device	*d	= lu2osp_dev(dt->do_lu.lo_dev);
+	struct lu_attr		*la	= &o->opo_attr;
+	struct ptlrpc_request	*req;
+	struct ost_body 	*body;
+	int			 rc	= 0;
+	ENTRY;
+
+	spin_lock(&o->opo_async_getattr_lock);
+	if (la->la_valid) {
+		memcpy(attr, la, sizeof(*attr));
+		spin_unlock(&o->opo_async_getattr_lock);
+		RETURN(0);
+	}
+
+	if (o->opo_async_getattr_wait) {
+		struct l_wait_info lwi = { 0 };
+
+		spin_unlock(&o->opo_async_getattr_lock);
+		l_wait_event(o->opo_async_getattr_waitq,
+			     osp_async_attr_wakeup(o),
+			     &lwi);
+		spin_lock(&o->opo_async_getattr_lock);
+		if (la->la_valid) {
+			memcpy(attr, la, sizeof(*attr));
+			spin_unlock(&o->opo_async_getattr_lock);
+			RETURN(0);
+		}
+	}
+	spin_unlock(&o->opo_async_getattr_lock);
+
+	req = ptlrpc_request_alloc(d->opd_obd->u.cli.cl_import,
+				   &RQF_OST_GETATTR);
+	if (req == NULL)
+		RETURN(-ENOMEM);
+
+	req_capsule_set_size(&req->rq_pill, &RMF_CAPA1, RCL_CLIENT, 0);
+	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GETATTR);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
+	osp_getattr_fill_oa(&body->oa, o);
+	ptlrpc_request_set_replen(req);
+	rc = ptlrpc_queue_wait(req);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+	if (body == NULL)
+		GOTO(out, rc = -EPROTO);
+
+	osp_attr_from_obdo(o, &body->oa);
+	memcpy(attr, la, sizeof(*attr));
+
+	GOTO(out, rc = 0);
+
+out:
+	ptlrpc_request_free(req);
+	return rc;
+}
+
 static int osp_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 				const struct lu_attr *attr, struct thandle *th)
 {
@@ -147,6 +371,80 @@ static int osp_attr_set(const struct lu_env *env, struct dt_object *dt,
 	/* XXX: send new uid/gid to OST ASAP? */
 
 	RETURN(rc);
+}
+
+static int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
+			 struct lu_buf *buf, const char *name,
+			 struct lustre_capa *capa)
+{
+	struct osp_object	*o	= dt2osp_obj(dt);
+	struct osp_device	*d	= lu2osp_dev(dt->do_lu.lo_dev);
+	struct ptlrpc_request	*req;
+	struct ost_body 	*body;
+	int			 rc	= 0;
+
+	if (strcmp(name, XATTR_NAME_FID) != 0)
+		return -EOPNOTSUPP;
+
+	if (buf == NULL || buf->lb_len == 0)
+		return sizeof(struct lu_fid);
+
+	if (buf->lb_len < sizeof(struct lu_fid))
+		return -ERANGE;
+
+	spin_lock(&o->opo_async_getattr_lock);
+	if (o->opo_pfid_ready) {
+		memcpy(buf->lb_buf, &o->opo_pfid, sizeof(struct lu_fid));
+		spin_unlock(&o->opo_async_getattr_lock);
+		return 0;
+	}
+
+	if (o->opo_async_getattr_wait) {
+		struct l_wait_info lwi = { 0 };
+
+		spin_unlock(&o->opo_async_getattr_lock);
+		l_wait_event(o->opo_async_getattr_waitq,
+			     osp_async_attr_wakeup(o),
+			     &lwi);
+		spin_lock(&o->opo_async_getattr_lock);
+		if (o->opo_pfid_ready) {
+			memcpy(buf->lb_buf, &o->opo_pfid,
+			       sizeof(struct lu_fid));
+			spin_unlock(&o->opo_async_getattr_lock);
+			return 0;
+		}
+	}
+	spin_unlock(&o->opo_async_getattr_lock);
+
+	req = ptlrpc_request_alloc(d->opd_obd->u.cli.cl_import,
+				   &RQF_OST_GETATTR);
+	if (req == NULL)
+		RETURN(-ENOMEM);
+
+	req_capsule_set_size(&req->rq_pill, &RMF_CAPA1, RCL_CLIENT, 0);
+	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GETATTR);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
+	osp_getattr_fill_oa(&body->oa, o);
+	ptlrpc_request_set_replen(req);
+	rc = ptlrpc_queue_wait(req);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+	if (body == NULL)
+		GOTO(out, rc = -EPROTO);
+
+	osp_attr_from_obdo(o, &body->oa);
+	memcpy(buf->lb_buf, &o->opo_pfid, sizeof(struct lu_fid));
+
+	GOTO(out, rc = 0);
+
+out:
+	ptlrpc_request_free(req);
+	return rc;
 }
 
 static int osp_declare_object_create(const struct lu_env *env,
@@ -340,8 +638,11 @@ static int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 }
 
 struct dt_object_operations osp_obj_ops = {
+	.do_declare_attr_get	= osp_declare_attr_get,
+	.do_attr_get		= osp_attr_get,
 	.do_declare_attr_set	= osp_declare_attr_set,
 	.do_attr_set		= osp_attr_set,
+	.do_xattr_get		= osp_xattr_get,
 	.do_declare_create	= osp_declare_object_create,
 	.do_create		= osp_object_create,
 	.do_declare_destroy	= osp_declare_object_destroy,
@@ -361,6 +662,10 @@ static int osp_object_init(const struct lu_env *env, struct lu_object *o,
 	struct osp_object	*po = lu2osp_obj(o);
 	int			rc = 0;
 	ENTRY;
+
+	init_rwsem(&po->opo_sem);
+	spin_lock_init(&po->opo_async_getattr_lock);
+	cfs_waitq_init(&po->opo_async_getattr_waitq);
 
 	if (is_ost_obj(o)) {
 		po->opo_obj.do_ops = &osp_obj_ops;
