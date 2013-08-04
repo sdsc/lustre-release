@@ -99,17 +99,38 @@ static const struct lu_object_operations mdt_obj_ops;
 
 /* Slab for MDT object allocation */
 static struct kmem_cache *mdt_object_kmem;
+/* Slab cache for HSM CDT objects */
+static struct kmem_cache *mdt_hsm_cdt_kmem;
 
 static struct lu_kmem_descr mdt_caches[] = {
 	{
-		.ckd_cache = &mdt_object_kmem,
-		.ckd_name  = "mdt_obj",
-		.ckd_size  = sizeof(struct mdt_object)
+		.ckd_cache	= &mdt_object_kmem,
+		.ckd_name	= "mdt_obj",
+		.ckd_size	= sizeof(struct mdt_object)
 	},
 	{
-		.ckd_cache = NULL
+		.ckd_cache	= &mdt_hsm_cdt_kmem,
+		.ckd_name	= "cdt_restore_handle",
+		.ckd_size	= sizeof(struct cdt_restore_handle)
+	},
+	{
+		.ckd_cache	= NULL
 	}
 };
+
+struct cdt_restore_handle *mdt_cdt_restore_handle_alloc(void)
+{
+	struct cdt_restore_handle *crh;
+
+	OBD_SLAB_ALLOC_PTR_GFP(crh, mdt_hsm_cdt_kmem, __GFP_IO);
+	return crh;
+}
+
+void mdt_cdt_restore_handle_free(struct cdt_restore_handle *crh)
+{
+	OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
+}
+
 
 int mdt_get_disposition(struct ldlm_reply *rep, int flag)
 {
@@ -5548,6 +5569,31 @@ static int mdt_obd_reconnect(const struct lu_env *env,
         RETURN(rc);
 }
 
+static int mdt_ctxt_add_dirty_flag(struct lu_env *env,
+				   struct mdt_thread_info *info,
+				   struct mdt_file_data *mfd)
+{
+	struct lu_context ses;
+	int rc;
+	ENTRY;
+
+	rc = lu_context_init(&ses, LCT_SESSION);
+	if (rc)
+		RETURN(rc);
+
+	env->le_ses = &ses;
+	lu_context_enter(&ses);
+
+	mdt_ucred(info)->uc_valid = UCRED_OLD;
+	rc = mdt_add_dirty_flag(info, mfd->mfd_object, &info->mti_attr);
+
+	lu_context_exit(&ses);
+	lu_context_fini(&ses);
+	env->le_ses = NULL;
+
+	RETURN(rc);
+}
+
 static int mdt_export_cleanup(struct obd_export *exp)
 {
         struct mdt_export_data *med = &exp->exp_mdt_data;
@@ -5592,6 +5638,24 @@ static int mdt_export_cleanup(struct obd_export *exp)
                 cfs_list_for_each_entry_safe(mfd, n, &closing_list, mfd_list) {
                         cfs_list_del_init(&mfd->mfd_list);
 			ma->ma_need = ma->ma_valid = 0;
+
+			/* This file is being closed due to an eviction, it
+			 * could have been modified and now dirty regarding to
+			 * HSM archive, check this!
+			 * The logic here is to mark a file dirty if there's a
+			 * chance it was dirtied before the client was evicted,
+			 * so that we don't have to wait for a release attempt
+			 * before finding out the file was actually dirty and
+			 * fail the release. Aggressively marking it dirty here
+			 * will cause the policy engine to attempt to
+			 * re-archive it; when rearchiving, we can compare the
+			 * current version to the HSM data_version and make the
+			 * archive request into a noop if it's not actually
+			 * dirty.
+			 */
+			if (mfd->mfd_mode & (FMODE_WRITE|MDS_FMODE_TRUNC))
+				rc = mdt_ctxt_add_dirty_flag(&env, info, mfd);
+
 			/* Don't unlink orphan on failover umount, LU-184 */
 			if (exp->exp_flags & OBD_OPT_FAILOVER) {
 				ma->ma_valid = MA_FLAGS;
