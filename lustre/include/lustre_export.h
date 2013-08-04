@@ -240,7 +240,9 @@ struct obd_export {
 				  exp_abort_active_req:1,
 				  /* if to swap nidtbl entries for 2.2 clients.
 				   * Only used by the MGS to fix LU-1644. */
-				  exp_need_mne_swab:1;
+				  exp_need_mne_swab:1,
+				  /* For the connection sponsor is in LFSCK. */
+				  exp_in_lfsck:1;
         /* also protected by exp_lock */
         enum lustre_sec_part      exp_sp_peer;
         struct sptlrpc_flavor     exp_flvr;             /* current */
@@ -253,6 +255,19 @@ struct obd_export {
 
         /** blocking dlm lock list, protected by exp_bl_list_lock */
         cfs_list_t                exp_bl_list;
+	/* If it is a connection from MDT to OST,
+	 * then link to related obd_device::obd_mds_exports. */
+	cfs_list_t		  exp_mdt_list;
+	/* Sometimes, we need to scan all the exports on the list, and for each
+	 * export to perform some blocked operations, such as send RPC. Becuase
+	 * some exports may be off the list during the scan, and some new ones
+	 * may be added into the list. So use 'exp_touch_gen' to simplify the
+	 * scanning: before the scanning, generate new cookie; fetch the first
+	 * export from the list head, compare its 'exp_touch_gen' with the new
+	 * cookie, if the same, scan finished, otherwise sign 'exp_touch_gen'
+	 * with the new cookie and move it to the list tail; perform the real
+	 * blocked operations; repeat above processing. */
+	__u64			  exp_touch_gen;
 	spinlock_t		  exp_bl_list_lock;
 
         /** Target specific data */

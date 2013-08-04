@@ -435,6 +435,7 @@ struct lfsck_thread_info {
 	struct lu_dirent	lti_ent;
 	char			lti_key[NAME_MAX + 16];
 	struct lfsck_control_request lti_lcr;
+	struct lfsck_info_local lti_lil;
 };
 
 /* lfsck_lib.c */
