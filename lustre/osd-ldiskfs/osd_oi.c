@@ -538,11 +538,10 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 
 static int osd_oi_iam_refresh(struct osd_thread_info *oti, struct osd_oi *oi,
 			     const struct dt_rec *rec, const struct dt_key *key,
-			     struct thandle *th, bool insert)
+			     handle_t *th, bool insert)
 {
 	struct iam_container	*bag;
 	struct iam_path_descr	*ipd;
-	struct osd_thandle	*oh;
 	int			rc;
 	ENTRY;
 
@@ -555,14 +554,13 @@ static int osd_oi_iam_refresh(struct osd_thread_info *oti, struct osd_oi *oi,
 	if (unlikely(ipd == NULL))
 		RETURN(-ENOMEM);
 
-	oh = container_of0(th, struct osd_thandle, ot_super);
-	LASSERT(oh->ot_handle != NULL);
-	LASSERT(oh->ot_handle->h_transaction != NULL);
+	LASSERT(th != NULL);
+	LASSERT(th->h_transaction != NULL);
 	if (insert)
-		rc = iam_insert(oh->ot_handle, bag, (const struct iam_key *)key,
+		rc = iam_insert(th, bag, (const struct iam_key *)key,
 				(const struct iam_rec *)rec, ipd);
 	else
-		rc = iam_update(oh->ot_handle, bag, (const struct iam_key *)key,
+		rc = iam_update(th, bag, (const struct iam_key *)key,
 				(const struct iam_rec *)rec, ipd);
 	osd_ipd_put(oti->oti_env, bag, ipd);
 	LINVRNT(osd_invariant(obj));
@@ -571,7 +569,7 @@ static int osd_oi_iam_refresh(struct osd_thread_info *oti, struct osd_oi *oi,
 
 int osd_oi_insert(struct osd_thread_info *info, struct osd_device *osd,
 		  const struct lu_fid *fid, const struct osd_inode_id *id,
-		  struct thandle *th, enum oi_check_flags flags)
+		  handle_t *th, enum oi_check_flags flags)
 {
 	struct lu_fid	    *oi_fid = &info->oti_fid2;
 	struct osd_inode_id *oi_id  = &info->oti_id2;
@@ -644,11 +642,10 @@ update:
 }
 
 static int osd_oi_iam_delete(struct osd_thread_info *oti, struct osd_oi *oi,
-                             const struct dt_key *key, struct thandle *handle)
+                             const struct dt_key *key, handle_t *th)
 {
         struct iam_container  *bag;
         struct iam_path_descr *ipd;
-        struct osd_thandle    *oh;
         int                    rc;
         ENTRY;
 
@@ -661,11 +658,10 @@ static int osd_oi_iam_delete(struct osd_thread_info *oti, struct osd_oi *oi,
         if (unlikely(ipd == NULL))
                 RETURN(-ENOMEM);
 
-        oh = container_of0(handle, struct osd_thandle, ot_super);
-        LASSERT(oh->ot_handle != NULL);
-        LASSERT(oh->ot_handle->h_transaction != NULL);
+        LASSERT(th != NULL);
+        LASSERT(th->h_transaction != NULL);
 
-        rc = iam_delete(oh->ot_handle, bag, (const struct iam_key *)key, ipd);
+        rc = iam_delete(th, bag, (const struct iam_key *)key, ipd);
         osd_ipd_put(oti->oti_env, bag, ipd);
         LINVRNT(osd_invariant(obj));
         RETURN(rc);
@@ -673,7 +669,7 @@ static int osd_oi_iam_delete(struct osd_thread_info *oti, struct osd_oi *oi,
 
 int osd_oi_delete(struct osd_thread_info *info,
 		  struct osd_device *osd, const struct lu_fid *fid,
-		  struct thandle *th, enum oi_check_flags flags)
+		  handle_t *th, enum oi_check_flags flags)
 {
 	struct lu_fid *oi_fid = &info->oti_fid2;
 
@@ -694,7 +690,7 @@ int osd_oi_delete(struct osd_thread_info *info,
 
 int osd_oi_update(struct osd_thread_info *info, struct osd_device *osd,
 		  const struct lu_fid *fid, const struct osd_inode_id *id,
-		  struct thandle *th, enum oi_check_flags flags)
+		  handle_t *th, enum oi_check_flags flags)
 {
 	struct lu_fid	    *oi_fid = &info->oti_fid2;
 	struct osd_inode_id *oi_id  = &info->oti_id2;
