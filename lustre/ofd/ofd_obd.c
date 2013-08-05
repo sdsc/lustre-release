@@ -304,6 +304,11 @@ out:
 		class_disconnect(exp);
 		*_exp = NULL;
 	} else {
+		if ((data->ocd_connect_flags  & OBD_CONNECT_MDS) != 0 &&
+		    OBD_OCD_VERSION_MAJOR(data->ocd_version) == 2 &&
+		    OBD_OCD_VERSION_MINOR(data->ocd_version) >= 4)
+			cfs_atomic_set(&obd->obd_mdt_with_lwp_connected, 1);
+
 		*_exp = exp;
 	}
 	RETURN(rc);

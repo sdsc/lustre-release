@@ -413,6 +413,8 @@ int class_attach(struct lustre_cfg *lcfg)
 
         llog_group_init(&obd->obd_olg, FID_SEQ_LLOG);
 
+	cfs_atomic_set(&obd->obd_mdt_with_lwp_connected, 0);
+
 	obd->obd_conn_inprogress = 0;
 
         len = strlen(uuid);

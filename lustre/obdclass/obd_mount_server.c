@@ -774,6 +774,10 @@ static int client_lwp_config_process(const struct lu_env *env,
 		if (!tgt_is_mdt0(marker->cm_tgtname))
 			GOTO(out, rc = 0);
 
+		if (OBD_OCD_VERSION_MAJOR(marker->cm_vers) == 2 &&
+		    OBD_OCD_VERSION_MINOR(marker->cm_vers) < 4)
+			GOTO(out, rc = 0);
+
 		if (!strncmp(marker->cm_comment, "add mdc", 7) ||
 		    !strncmp(marker->cm_comment, "add failnid", 11)) {
 			if (marker->cm_flags & CM_START) {
@@ -806,7 +810,8 @@ static int client_lwp_config_process(const struct lu_env *env,
 		break;
 	}
 	case LCFG_ADD_CONN: {
-		if (is_mdc_for_mdt0(lustre_cfg_string(lcfg, 0)))
+		if (is_mdc_for_mdt0(lustre_cfg_string(lcfg, 0)) &&
+		    (clli->cfg_flags & CFG_F_MARKER) != 0)
 			rc = lustre_lwp_add_conn(lcfg, lsi);
 		break;
 	}
@@ -909,11 +914,40 @@ out:
 	RETURN(rc);
 }
 
+static int lustre_start_lwp(struct obd_device *obd, struct super_block *sb);
+
+struct lwp_param
+{
+	struct obd_device	*lp_obd;
+	struct super_block	*lp_sb;
+};
+
+static int lustre_wait_lwp_thread(void *arg)
+{
+	struct lwp_param *lp = (struct lwp_param *)arg;
+	struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
+	CFS_DECL_WAITQ(lwp_waitq);
+
+	ENTRY;
+
+	l_wait_event(lwp_waitq,
+		     cfs_atomic_read(&lp->lp_obd->obd_mdt_with_lwp_connected),
+		     &lwi);
+
+	cfs_atomic_set(&lp->lp_obd->obd_mdt_with_lwp_connected, 0);
+
+	lustre_start_lwp(lp->lp_obd, lp->lp_sb);
+
+	OBD_FREE_PTR(lp);
+
+	RETURN(0);
+}
+
 /**
  * Start the lwp(fsname-MDT0000-lwp-OSTxxxx) for an OST or MDT target,
  * which would be used to establish connection from OST to MDT0.
  **/
-static int lustre_start_lwp(struct super_block *sb)
+static int lustre_start_lwp(struct obd_device *obd, struct super_block *sb)
 {
 	struct lustre_sb_info	    *lsi = s2lsi(sb);
 	struct config_llog_instance *cfg = NULL;
@@ -943,6 +977,20 @@ static int lustre_start_lwp(struct super_block *sb)
 	cfg->cfg_instance = sb;
 
 	rc = lustre_process_log(sb, logname, cfg);
+
+	/* Upgrading old OST, wait MDT to be upgraded and reconnect lwp */
+	if (rc == 0 && class_name2obd(lwpname) == NULL) {
+		struct lwp_param *param;
+
+		OBD_ALLOC_PTR(param);
+		if (param == NULL)
+			GOTO(out, rc = -ENOMEM);
+
+		param->lp_obd = obd;
+		param->lp_sb = sb;
+		kthread_run(lustre_wait_lwp_thread, param, "wait_lwp");
+	}
+
 out:
 	if (lwpname != NULL)
 		OBD_FREE(lwpname, MTI_NAME_MAXLEN);
@@ -950,6 +998,7 @@ out:
 		OBD_FREE(logname, MTI_NAME_MAXLEN);
 	if (cfg != NULL)
 		OBD_FREE_PTR(cfg);
+
 	RETURN(rc);
 }
 
@@ -1267,7 +1316,7 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
 	}
 
 	if (IS_OST(lsi) || IS_MDT(lsi)) {
-		rc = lustre_start_lwp(sb);
+		rc = lustre_start_lwp(obd, sb);
 		if (rc) {
 			CERROR("%s: failed to start LWP: %d\n",
 			       lsi->lsi_svname, rc);

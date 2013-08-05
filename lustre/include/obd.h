@@ -980,6 +980,9 @@ struct obd_device {
         struct lu_ref          obd_reference;
 
 	int		       obd_conn_inprogress;
+
+	/* during upgrading, wait MDT0 to be ready and reconnect LWP */
+	cfs_atomic_t		obd_mdt_with_lwp_connected;
 };
 
 #define OBD_LLOG_FL_SENDNOW     0x0001
