@@ -60,11 +60,11 @@ enum ct_action {
 	CA_IMPORT = 1,
 	CA_REBIND,
 	CA_MAXSEQ,
-	CA_DAEMON,
 };
 
 struct options {
 	int			 o_copy_attrs;
+	int			 o_daemonize;
 	int			 o_dry_run;
 	int			 o_abort_on_error;
 	int			 o_shadow_tree;
@@ -125,7 +125,7 @@ static void usage(const char *name, int rc)
 	"to copy files to and from an HSM archive system.\n"
 	"This POSIX-flavored daemon makes regular POSIX filesystem calls\n"
 	"to an HSM mounted at a given hsm_root.\n"
-	"   -d, --daemon        Daemon mode, run in background\n"
+	"   --daemon            Daemon mode, run in background\n"
 	" Options:\n"
 	"   --no-attr           Don't copy file attributes\n"
 	"   --no-shadow         Don't create shadow namespace in archive\n"
@@ -172,7 +172,7 @@ static int ct_parseopts(int argc, char * const *argv)
 		{"bandwidth",	   required_argument, NULL,		   'b'},
 		{"chunk-size",	   required_argument, NULL,		   'c'},
 		{"chunk_size",	   required_argument, NULL,		   'c'},
-		{"daemon",	   no_argument,	      NULL,		   'd'},
+		{"daemon",	   no_argument,	      &opt.o_daemonize,	    1},
 		{"dry-run",	   no_argument,	      &opt.o_dry_run,	    1},
 		{"help",	   no_argument,	      NULL,		   'h'},
 		{"hsm-root",	   required_argument, NULL,		   'p'},
@@ -221,9 +221,6 @@ static int ct_parseopts(int argc, char * const *argv)
 				opt.o_chunk_size = value;
 			else
 				opt.o_bandwidth = value;
-			break;
-		case 'd':
-			opt.o_action = CA_DAEMON;
 			break;
 		case 'h':
 			usage(argv[0], 0);
@@ -379,7 +376,7 @@ static int ct_save_stripe(int src_fd, const char *src, const char *dst)
 
 	rc = write(fd, lum, xattr_size);
 	if (rc < 0) {
-		CT_ERROR("'%s' cannot write %d bytes (%s)\n",
+		CT_ERROR("'%s' cannot write %lu bytes (%s)\n",
 			 lov_file, xattr_size, strerror(errno));
 		close(fd);
 		return -errno;
@@ -394,8 +391,7 @@ static int ct_save_stripe(int src_fd, const char *src, const char *dst)
 	return 0;
 }
 
-static int ct_load_stripe(const char *src, struct lov_user_md_v3 *lum,
-			  size_t *lum_size)
+static int ct_load_stripe(const char *src, void *lovea, size_t *lovea_size)
 {
 	char	 lov_file[PATH_MAX];
 	int	 rc;
@@ -410,41 +406,34 @@ static int ct_load_stripe(const char *src, struct lov_user_md_v3 *lum,
 		return -ENODATA;
 	}
 
-	rc = read(fd, lum, *lum_size);
+	rc = read(fd, lovea, *lovea_size);
 	if (rc < 0) {
 		CT_ERROR("'%s' cannot read %lu bytes (%s)\n", lov_file,
-			 lum_size, strerror(errno));
+			 *lovea_size, strerror(errno));
 		close(fd);
 		return -ENODATA;
 	}
 
-	*lum_size = (size_t)rc;
+	*lovea_size = (size_t)rc;
 	close(fd);
 
 	return 0;
 }
 
-static int ct_restore_stripe(const char *src, const char *dst, int dst_fd)
+static int ct_restore_stripe(const char *src, const char *dst, int dst_fd,
+			     const void *lovea, size_t lovea_size)
 {
-	int			 rc;
-	char			 lov_buf[XATTR_SIZE_MAX];
-	size_t			 lum_size = sizeof(lov_buf);
+	int	rc;
 
-	rc = ct_load_stripe(src, (struct lov_user_md_v3 *)lov_buf, &lum_size);
-	if (rc) {
-		CT_WARN("'%s' cannot get stripe rules (%s), use default\n",
-			src, strerror(-rc));
-		return 0;
-	}
-
-	rc = fsetxattr(dst_fd, XATTR_LUSTRE_LOV, lov_buf, lum_size, XATTR_CREATE);
+	rc = fsetxattr(dst_fd, XATTR_LUSTRE_LOV, lovea, lovea_size,
+		       XATTR_CREATE);
 	if (rc < 0) {
 		CT_ERROR("'%s' cannot set striping (%s)\n",
 			 dst, strerror(errno));
-		return -errno;
+		rc = -errno;
 	}
 
-	return 0;
+	return rc;
 }
 
 /* non-blocking read or write */
@@ -787,19 +776,29 @@ static bool ct_is_retryable(int err)
 	return err == -ETIMEDOUT;
 }
 
-static int ct_begin(struct hsm_copyaction_private **phcp,
-		    const struct hsm_action_item *hai)
+static int ct_begin_restore(struct hsm_copyaction_private **phcp,
+			    const struct hsm_action_item *hai,
+			    int vlt_index, int vlt_mode)
 {
 	char	 src[PATH_MAX];
 	int	 rc;
 
-	rc = llapi_hsm_action_begin(phcp, ctdata, hai, false);
+	rc = llapi_hsm_action_begin(phcp, ctdata, hai, vlt_index, vlt_mode,
+				    false);
 	if (rc < 0) {
 		ct_path_lustre(src, sizeof(src), opt.o_mnt, &hai->hai_fid);
 		CT_ERROR("'%s' copy start failed (%s)\n", src, strerror(-rc));
 	}
 
 	return rc;
+}
+
+static int ct_begin(struct hsm_copyaction_private **phcp,
+		    const struct hsm_action_item *hai)
+{
+	/* Restore takes specific parameters. Call the same function w/ default
+	 * values for all other operations. */
+	return ct_begin_restore(phcp, hai, -1, 0);
 }
 
 static int ct_fini(struct hsm_copyaction_private **phcp,
@@ -1064,15 +1063,16 @@ static int ct_restore(const struct hsm_action_item *hai, const long hal_flags)
 	struct hsm_copyaction_private	*hcp = NULL;
 	char				 src[PATH_MAX];
 	char				 dst[PATH_MAX];
+	char				 lov_buf[XATTR_SIZE_MAX];
+	size_t				 lov_size = sizeof(lov_buf);
 	int				 rc;
 	int				 flags = 0;
 	int				 src_fd = -1;
 	int				 dst_fd = -1;
+	int				 vlt_index = -1; /* Not implemented */
+	int				 vlt_mode = 0;
+	bool				 set_lovea;
 	lustre_fid			 dfid;
-
-	rc = ct_begin(&hcp, hai);
-	if (rc)
-		goto fini;
 
 	/* we fill lustre so:
 	 * source = lustre FID in the backend
@@ -1081,6 +1081,22 @@ static int ct_restore(const struct hsm_action_item *hai, const long hal_flags)
 
 	/* build backend file name from released file FID */
 	ct_path_archive(src, sizeof(src), opt.o_hsm_root, &hai->hai_fid);
+
+	/* restore loads and sets the LOVEA w/o interpreting it to avoid
+	 * dependency on the structure format. */
+	rc = ct_load_stripe(src, lov_buf, &lov_size);
+	if (rc) {
+		CT_WARN("'%s' cannot get stripe rules (%s), use default\n",
+			src, strerror(-rc));
+		set_lovea = false;
+	} else {
+		vlt_mode = O_LOV_DELAY_CREATE;
+		set_lovea = true;
+	}
+
+	rc = ct_begin_restore(&hcp, hai, vlt_index, vlt_mode);
+	if (rc < 0)
+		goto fini;
 
 	/* get the FID of the volatile file */
 	rc = llapi_hsm_action_get_dfid(hcp, &dfid);
@@ -1110,14 +1126,16 @@ static int ct_restore(const struct hsm_action_item *hai, const long hal_flags)
 
 	dst_fd = llapi_hsm_action_get_fd(hcp);
 
-	/* the layout cannot be allocated through .fid so we have to
-	 * restore a layout */
-	rc = ct_restore_stripe(src, dst, dst_fd);
-	if (rc) {
-		CT_ERROR("'%s' cannot restore file striping info from '%s'"
-			 " (%s)\n", dst, src, strerror(-rc));
-		err_major++;
-		goto fini;
+	if (set_lovea) {
+		/* the layout cannot be allocated through .fid so we have to
+		 * restore a layout */
+		rc = ct_restore_stripe(src, dst, dst_fd, lov_buf, lov_size);
+		if (rc) {
+			CT_ERROR("'%s' cannot restore file striping info from "
+				 "'%s' (%s)\n", dst, src, strerror(-rc));
+			err_major++;
+			goto fini;
+		}
 	}
 
 	rc = ct_copy_data(hcp, src, dst, src_fd, dst_fd, hai, hal_flags);
@@ -1187,7 +1205,7 @@ static int ct_report_error(const struct hsm_action_item *hai, int flags,
 	struct hsm_copyaction_private	*hcp;
 	int				 rc;
 
-	rc = llapi_hsm_action_begin(&hcp, ctdata, hai, true);
+	rc = llapi_hsm_action_begin(&hcp, ctdata, hai, 0, -1, true);
 	if (rc)
 		return rc;
 
@@ -1677,15 +1695,17 @@ static void handler(int signal)
 }
 
 /* Daemon waits for messages from the kernel; run it in the background. */
-static int ct_daemon(void)
+static int ct_run(void)
 {
 	int	rc;
 
-	rc = daemon(1, 1);
-	if (rc < 0) {
-		CT_ERROR("%d: cannot start as daemon (%s)", getpid(),
-			 strerror(errno));
-		return -errno;
+	if (opt.o_daemonize) {
+		rc = daemon(1, 1);
+		if (rc < 0) {
+			CT_ERROR("%d: cannot start as daemon (%s)", getpid(),
+				 strerror(errno));
+			return -errno;
+		}
 	}
 
 	rc = llapi_hsm_copytool_register(&ctdata, opt.o_mnt, 0,
@@ -1826,13 +1846,8 @@ int main(int argc, char **argv)
 	case CA_MAXSEQ:
 		rc = ct_max_sequence();
 		break;
-	case CA_DAEMON:
-		rc = ct_daemon();
-		break;
 	default:
-		CT_ERROR("no action specified. Try '%s --help' for more "
-			 "information.\n", cmd_name);
-		rc = -EINVAL;
+		rc = ct_run();
 		break;
 	}
 
