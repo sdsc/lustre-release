@@ -340,10 +340,13 @@ static int fid_parent(const char *mnt, const lustre_fid *fid, char *parent,
 
 /** Create the destination volatile file for a restore operation.
  *
- * \param hcp  Private copyaction handle.
+ * \param hcp        Private copyaction handle.
+ * \param vlt_index  MDT index where to create the volatile file.
+ * \param vlt_mode   Volatile file creation mode.
  * \return 0 on success.
  */
-static int create_restore_volatile(struct hsm_copyaction_private *hcp)
+static int create_restore_volatile(struct hsm_copyaction_private *hcp,
+				   int vlt_index, int vlt_mode)
 {
 	int			 rc;
 	int			 fd;
@@ -360,7 +363,7 @@ static int create_restore_volatile(struct hsm_copyaction_private *hcp)
 		snprintf(parent, sizeof(parent), "%s", mnt);
 	}
 
-	fd = llapi_create_volatile_idx(parent, 0, O_LOV_DELAY_CREATE);
+	fd = llapi_create_volatile_idx(parent, vlt_index, vlt_mode);
 	if (fd < 0)
 		return fd;
 
@@ -384,17 +387,24 @@ err_cleanup:
  * It could be skipped if copytool only want to directly report an error,
  * \see llapi_hsm_action_end().
  *
- * \param hcp      Opaque action handle to be passed to
- *                 llapi_hsm_action_progress and llapi_hsm_action_end.
- * \param ct       Copytool handle acquired at registration.
- * \param hai      The hsm_action_item describing the request.
- * \param is_error Whether this call is just to report an error.
+ * \param hcp                Opaque action handle to be passed to
+ *                           llapi_hsm_action_progress and llapi_hsm_action_end.
+ * \param ct                 Copytool handle acquired at registration.
+ * \param hai                The hsm_action_item describing the request.
+ * \param restore_vlt_index  On restore: MDT index where to create the volatile
+ *                           file. Use -1 for default.
+ * \param restore_vlt_mode   On restore: volatile file creation mode. Use
+ *                           O_LOV_DELAY_CREATE to manually set the LOVEA
+ *                           afterwards.
+ * \param is_error           Whether this call is just to report an error.
  *
  * \return 0 on success.
  */
 int llapi_hsm_action_begin(struct hsm_copyaction_private **phcp,
 			   const struct hsm_copytool_private *ct,
-			   const struct hsm_action_item *hai, bool is_error)
+			   const struct hsm_action_item *hai,
+			   int restore_vlt_index, int restore_vlt_mode,
+			   bool is_error)
 {
 	struct hsm_copyaction_private	*hcp;
 	int				 rc;
@@ -412,7 +422,8 @@ int llapi_hsm_action_begin(struct hsm_copyaction_private **phcp,
 		goto ok_out;
 
 	if (hai->hai_action == HSMA_RESTORE) {
-		rc = create_restore_volatile(hcp);
+		rc = create_restore_volatile(hcp, restore_vlt_index,
+					     restore_vlt_mode);
 		if (rc < 0)
 			goto err_out;
 	}
