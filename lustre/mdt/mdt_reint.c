@@ -417,7 +417,7 @@ int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
         if (mdt_object_exists(mo) == 0)
                 GOTO(out_unlock, rc = -ENOENT);
 
-        /* all attrs are packed into mti_attr in unpack_setattr */
+	/* all attrs are packed into mti_attr in mdt_setattr_unpack */
         mdt_fail_write(info->mti_env, info->mti_mdt->mdt_bottom,
                        OBD_FAIL_MDS_REINT_SETATTR_WRITE);
 
@@ -434,9 +434,17 @@ int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
                         GOTO(out_unlock, rc);
         }
 
-        /* all attrs are packed into mti_attr in unpack_setattr */
-        rc = mo_attr_set(info->mti_env, mdt_object_child(mo), ma);
-        if (rc != 0)
+	/* all attrs are packed into mti_attr in mdt_setattr_unpack */
+	/* chown case to avoid race with setstripe - LU-2789 */
+	if (ma->ma_attr.la_valid & (LA_UID | LA_GID))
+		 mutex_lock(&mo->mot_lov_mutex);
+
+	rc = mo_attr_set(info->mti_env, mdt_object_child(mo), ma);
+
+	if (ma->ma_attr.la_valid & (LA_UID | LA_GID))
+		 mutex_unlock(&mo->mot_lov_mutex);
+
+	if (rc != 0)
                 GOTO(out_unlock, rc);
 
         EXIT;
