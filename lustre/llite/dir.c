@@ -934,7 +934,7 @@ static int ll_ioc_copy_start(struct super_block *sb, struct hsm_copy *copy)
 		/* Get inode for this fid */
 		inode = search_inode_for_lustre(sb, &copy->hc_hai.hai_fid);
 		if (IS_ERR(inode)) {
-			hpk.hpk_flags |= HP_FLAG_RETRY;
+			hpk.hpk_flags |= HP_FLAG_RETRY | HP_FLAG_COMPLETED;
 			/* hpk_errval is >= 0 */
 			hpk.hpk_errval = -PTR_ERR(inode);
 			GOTO(progress, rc = PTR_ERR(inode));
@@ -949,7 +949,7 @@ static int ll_ioc_copy_start(struct super_block *sb, struct hsm_copy *copy)
 				      LPX64") could not be done.\n",
 				      PFID(&copy->hc_hai.hai_fid), rc,
 				      copy->hc_hai.hai_cookie);
-			hpk.hpk_flags |= HP_FLAG_RETRY;
+			hpk.hpk_flags |= HP_FLAG_RETRY | HP_FLAG_COMPLETED;
 			/* hpk_errval must be >= 0 */
 			hpk.hpk_errval = -rc;
 			GOTO(progress, rc);
