@@ -72,7 +72,7 @@ static const char *libcfs_debug_masks[] =
          "other", "dentry", "nettrace", "page",
          "dlmtrace", "error", "emerg", "ha",
          "rpctrace", "vfstrace", "reada", "mmap",
-         "config", "console", "quota", "sec", NULL};
+         "config", "console", "quota", "sec", "lfsck", "hsm", NULL};
 
 #ifdef __linux__
 

@@ -152,9 +152,8 @@ struct ptldebug_header {
 #define D_QUOTA       0x04000000
 #define D_SEC         0x08000000
 #define D_LFSCK	      0x10000000 /* For both OI scrub and LFSCK */
-/* keep these in sync with lnet/{utils,libcfs}/debug.c */
-
-#define D_HSM         D_TRACE
+#define D_HSM         0x20000000
+/* keep these in sync with lnet/utils/debug.c and libcfs/libcfs/debug.c */
 
 #define D_CANTMASK   (D_ERROR | D_EMERG | D_WARNING | D_CONSOLE)
 

@@ -251,6 +251,8 @@ libcfs_debug_dbg2str(int debug)
                 return "sec";
 	case D_LFSCK:
 		return "lfsck";
+	case D_HSM:
+		return "hsm";
 	}
 }
 
