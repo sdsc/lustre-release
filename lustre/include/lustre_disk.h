@@ -190,8 +190,8 @@ static inline int server_make_name(__u32 flags, __u16 index, char *fs,
         if (flags & (LDD_F_SV_TYPE_MDT | LDD_F_SV_TYPE_OST)) {
                 if (!(flags & LDD_F_SV_ALL))
 			sprintf(name, "%.8s%c%s%04x", fs,
-				(flags & LDD_F_VIRGIN) ? ':' :
-					((flags & LDD_F_WRITECONF) ? '=' : '-'),
+				(flags & LDD_F_WRITECONF) ? '=' :
+					((flags & LDD_F_VIRGIN) ? ':' : '-'),
 				(flags & LDD_F_SV_TYPE_MDT) ? "MDT" : "OST",
 				index);
         } else if (flags & LDD_F_SV_TYPE_MGS) {
