@@ -1907,28 +1907,37 @@ static int mgs_write_log_failnids(const struct lu_env *env,
         #07 L add_conn 0:OSC_uml1_ost1_mdsA  1:uml2_UUID
         */
 
-        /* Pull failnid info out of params string */
-        while (class_find_param(ptr, PARAM_FAILNODE, &ptr) == 0) {
-                while (class_parse_nid(ptr, &nid, &ptr) == 0) {
-                        if (failnodeuuid == NULL) {
-                                /* We don't know the failover node name,
-                                   so just use the first nid as the uuid */
-                                rc = name_create(&failnodeuuid,
-                                                 libcfs_nid2str(nid), "");
-                                if (rc)
-                                        return rc;
-                        }
-                        CDEBUG(D_MGS, "add nid %s for failover uuid %s, "
-                               "client %s\n", libcfs_nid2str(nid),
-                               failnodeuuid, cliname);
+	/* Pull failnid info out of params string */
+	while (class_find_param(ptr, PARAM_FAILNODE, &ptr) == 0) {
+		while (class_parse_nid(ptr, &nid, &ptr) == 0) {
+			/* We don't know the failover node name,
+			 * so just use the first nid as the uuid */
+			rc = name_create(&failnodeuuid, libcfs_nid2str(nid), "");
+			if (rc)
+				return rc;
+
+			CDEBUG(D_MGS, "add nid %s for failover uuid %s, "
+			       "client %s\n", libcfs_nid2str(nid),
+			       failnodeuuid, cliname);
+
 			rc = record_add_uuid(env, llh, nid, failnodeuuid);
-                }
-		if (failnodeuuid)
+			if (rc)
+				GOTO(out, rc);
+
 			rc = record_add_conn(env, llh, cliname, failnodeuuid);
+			if (rc)
+				GOTO(out, rc);
+
+			name_destroy(&failnodeuuid);
+			failnodeuuid = NULL;
+		}
         }
 
-	name_destroy(&failnodeuuid);
-        return rc;
+out:
+	if (failnodeuuid != NULL)
+		name_destroy(&failnodeuuid);
+
+	return rc;
 }
 
 static int mgs_write_log_mdc_to_lmv(const struct lu_env *env,
