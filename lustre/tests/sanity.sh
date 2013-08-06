@@ -11600,6 +11600,26 @@ test_235() {
 run_test 235 "LU-1715: flock deadlock detection does not work properly"
 
 #
+# test to verify file handle related system calls
+# (name_to_handle_at/open_by_handle_at)
+# The new system calls are supported in glibc >= 2.14. Currently only FC18
+# clients have the required glibc >= 2.14
+
+test_236() {
+	if [ -f /etc/redhat-release ]; then
+		release=$(awk '/release/ { printf("%s %s %s", $1, $2, $3)}' /etc/redhat-release)
+		if [ "$release" == "Fedora release 18" ]; then
+			echo "Test file_handle syscalls" > $MOUNT/temp_file
+			check_fhandle_syscalls temp_file $MOUNT ||
+				error "check_fhandle_syscalls failed"
+		else
+			skip "Run only on FC-18 clients"
+		fi
+	fi
+}
+run_test 236 "Verify name_to_handle_at/open_by_handle_at syscalls"
+
+#
 # tests that do cleanup/setup should be run at the end
 #
 

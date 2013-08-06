@@ -83,6 +83,36 @@ AC_TRY_COMPILE([
 ])
 
 #
+# 2.6.39 The open_by_handle_at() and name_to_handle_at() system calls were
+# added to Linux kernel 2.6.39.
+# Check if client supports these functions
+#
+AC_DEFUN([LC_HAVE_FHANDLE_SYSCALLS],
+[AC_MSG_CHECKING([if file handle and related syscalls are supported])
+AC_TRY_COMPILE([
+	#ifndef _GNU_SOURCE
+	#define _GNU_SOURCE
+	#endif
+
+	#include <fcntl.h>
+	#include <stdlib.h>
+],[
+	int size;
+	struct file_handle fh;
+
+	size = sizeof(fh);
+	name_to_handle_at(0, NULL, NULL, NULL, 0);
+	open_by_handle_at(0, NULL, 0);
+],[
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_FHANDLE_SYSCALLS,, 1,
+		[file handle and related syscalls are supported])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_FUNC_DEV_SET_RDONLY
 #
 # check whether dev_set_rdonly is exported.  This is needed until we
@@ -1785,6 +1815,9 @@ AC_CHECK_FUNCS([inet_ntoa])
 
 # libsysio/src/readlink.c
 LC_READLINK_SSIZE_T
+
+# file handle system calls
+LC_HAVE_FHANDLE_SYSCALLS
 
 # lvfs/prng.c - depends on linux/types.h from liblustre/dir.c
 AC_CHECK_HEADERS([linux/random.h], [], [],
