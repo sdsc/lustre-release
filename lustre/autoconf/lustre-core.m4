@@ -83,6 +83,37 @@ AC_TRY_COMPILE([
 ])
 
 #
+# 2.6.39 The open_by_handle_at() and name_to_handle_at() system calls were
+# added to Linux kernel 2.6.39.
+# Check if client supports these functions
+#
+AC_DEFUN([LC_HAVE_FHANDLE_SYSCALLS],
+[AC_MSG_CHECKING([if file handle and related syscalls are supported])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/syscalls.h>
+	#include <linux/fs.h>
+],[
+	int size;
+	struct file_handle fh;
+
+	mm_segment_t old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	size = sizeof(fh);
+	sys_name_to_handle_at(0, NULL, NULL, NULL, 0);
+	sys_open_by_handle_at(0, NULL, 0);
+
+	set_fs(old_fs);
+],[
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_FHANDLE_SYSCALLS, 1,
+		[file handle and related syscalls are supported])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_FUNC_DEV_SET_RDONLY
 #
 # check whether dev_set_rdonly is exported.  This is needed until we
@@ -1339,6 +1370,7 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.39
          LC_REQUEST_QUEUE_UNPLUG_FN
 	 LC_HAVE_FSTYPE_MOUNT
+	 LC_HAVE_FHANDLE_SYSCALLS
 
 	 # 3.0
 	 LC_DIRTY_INODE_WITH_FLAG
