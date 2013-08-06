@@ -522,7 +522,11 @@ static int get_param_lmv(const char *path,
 	return get_param_cli("lmv", uuid.uuid, param, buf, buf_size);
 }
 
-static int get_mds_md_size(const char *path)
+/*
+ * return the maximum size a layout can have
+ * this can be used to allocate a lov_user_md
+ */
+int llapi_layout_max_size(const char *path)
 {
 	int md_size = lov_user_md_size(LOV_MAX_STRIPE_COUNT, LOV_USER_MAGIC_V3);
 	char buf[80];
@@ -1320,7 +1324,7 @@ typedef int (semantic_func_t)(char *path, DIR *parent, DIR *d,
 
 static int common_param_init(struct find_param *param, char *path)
 {
-	int lumlen = get_mds_md_size(path);
+	int lumlen = llapi_layout_max_size(path);
 
 	if (lumlen < PATH_MAX + 1)
 		lumlen = PATH_MAX + 1;
