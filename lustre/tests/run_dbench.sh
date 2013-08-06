@@ -29,11 +29,11 @@ TESTDIR=$MOUNT/d0.dbench-$(hostname)
 CONTINUE=true
 
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
-    echoerr "$(date +'%F %H:%M:%S'): dbench run starting"
+	echoerr "$(date +'%F %H:%M:%S'): dbench run starting"
 
-    mkdir -p $TESTDIR
-    rundbench -D $TESTDIR 2 1>$LOG &
-    load_pid=$!
+	mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
+	rundbench -D $TESTDIR 2 1>$LOG &
+	load_pid=$!
 
     wait $load_pid
     if [ ${PIPESTATUS[0]} -eq 0 ]; then

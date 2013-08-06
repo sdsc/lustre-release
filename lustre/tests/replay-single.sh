@@ -51,10 +51,10 @@ if [ $LINUX_VERSION_CODE -lt $(version_code 2.6.33) ]; then
 fi
 
 test_0a() {	# was test_0
-    mkdir $DIR/$tfile
-    replay_barrier $SINGLEMDS
-    fail $SINGLEMDS
-    rmdir $DIR/$tfile
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	replay_barrier $SINGLEMDS
+	fail $SINGLEMDS
+	rmdir $DIR/$tdir
 }
 run_test 0a "empty replay"
 
@@ -194,34 +194,34 @@ run_test 5 "|x| 220 open(O_CREAT)"
 
 
 test_6a() {	# was test_6
-    mkdir -p $DIR/$tdir
-    replay_barrier $SINGLEMDS
-    mcreate $DIR/$tdir/$tfile
-    fail $SINGLEMDS
-    $CHECKSTAT -t dir $DIR/$tdir || return 1
-    $CHECKSTAT -t file $DIR/$tdir/$tfile || return 2
-    sleep 2
-    # waiting for log process thread
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	replay_barrier $SINGLEMDS
+	mcreate $DIR/$tdir/$tfile
+	fail $SINGLEMDS
+	$CHECKSTAT -t dir $DIR/$tdir || return 1
+	$CHECKSTAT -t file $DIR/$tdir/$tfile || return 2
+	sleep 2
+# waiting for log process thread
 }
 run_test 6a "mkdir + contained create"
 
 test_6b() {
-    mkdir -p $DIR/$tdir
-    replay_barrier $SINGLEMDS
-    rm -rf $DIR/$tdir
-    fail $SINGLEMDS
-    $CHECKSTAT -t dir $DIR/$tdir && return 1 || true
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	replay_barrier $SINGLEMDS
+	rm -rf $DIR/$tdir
+	fail $SINGLEMDS
+	$CHECKSTAT -t dir $DIR/$tdir && return 1 || true
 }
 run_test 6b "|X| rmdir"
 
 test_7() {
-    mkdir -p $DIR/$tdir
-    replay_barrier $SINGLEMDS
-    mcreate $DIR/$tdir/$tfile
-    fail $SINGLEMDS
-    $CHECKSTAT -t dir $DIR/$tdir || return 1
-    $CHECKSTAT -t file $DIR/$tdir/$tfile || return 2
-    rm -fr $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	replay_barrier $SINGLEMDS
+	mcreate $DIR/$tdir/$tfile
+	fail $SINGLEMDS
+	$CHECKSTAT -t dir $DIR/$tdir || return 1
+	$CHECKSTAT -t file $DIR/$tdir/$tfile || return 2
+	rm -fr $DIR/$tdir
 }
 run_test 7 "mkdir |X| contained create"
 
@@ -1083,13 +1083,13 @@ run_test 52 "time out lock replay (3764)"
 
 # bug 3462 - simultaneous MDC requests
 test_53a() {
-        cancel_lru_locks mdc    # cleanup locks from former test cases
-        mkdir -p $DIR/${tdir}-1
-        mkdir -p $DIR/${tdir}-2
-        multiop $DIR/${tdir}-1/f O_c &
-        close_pid=$!
-        # give multiop a change to open
-        sleep 1
+	cancel_lru_locks mdc    # cleanup locks from former test cases
+	mkdir $DIR/${tdir}-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/${tdir}-2 || error "mkdir $tdir-2 failed"
+	multiop $DIR/${tdir}-1/f O_c &
+	close_pid=$!
+	# give multiop a change to open
+	sleep 1
 
         #define OBD_FAIL_MDS_CLOSE_NET 0x115
         do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000115"
@@ -1113,13 +1113,13 @@ test_53a() {
 run_test 53a "|X| close request while two MDC requests in flight"
 
 test_53b() {
-        cancel_lru_locks mdc    # cleanup locks from former test cases
-        rm -rf $DIR/${tdir}-1 $DIR/${tdir}-2
+	cancel_lru_locks mdc    # cleanup locks from former test cases
+	rm -rf $DIR/${tdir}-1 $DIR/${tdir}-2
 
-        mkdir -p $DIR/${tdir}-1
-        mkdir -p $DIR/${tdir}-2
-        multiop_bg_pause $DIR/${tdir}-1/f O_c || return 6
-        close_pid=$!
+	mkdir $DIR/${tdir}-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/${tdir}-2 || error "mkdir $tdir-2 failed"
+	multiop_bg_pause $DIR/${tdir}-1/f O_c || return 6
+	close_pid=$!
 
         #define OBD_FAIL_MDS_REINT_NET 0x107
         do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000107"
@@ -1145,13 +1145,13 @@ test_53b() {
 run_test 53b "|X| open request while two MDC requests in flight"
 
 test_53c() {
-        cancel_lru_locks mdc    # cleanup locks from former test cases
-        rm -rf $DIR/${tdir}-1 $DIR/${tdir}-2
+	cancel_lru_locks mdc    # cleanup locks from former test cases
+	rm -rf $DIR/${tdir}-1 $DIR/${tdir}-2
 
-        mkdir -p $DIR/${tdir}-1
-        mkdir -p $DIR/${tdir}-2
-        multiop $DIR/${tdir}-1/f O_c &
-        close_pid=$!
+	mkdir $DIR/${tdir}-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/${tdir}-2 || error "mkdir $tdir-2 failed"
+	multiop $DIR/${tdir}-1/f O_c &
+	close_pid=$!
 
         #define OBD_FAIL_MDS_REINT_NET 0x107
         do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000107"
@@ -1182,15 +1182,15 @@ test_53c() {
 run_test 53c "|X| open request and close request while two MDC requests in flight"
 
 test_53d() {
-        cancel_lru_locks mdc    # cleanup locks from former test cases
-        rm -rf $DIR/${tdir}-1 $DIR/${tdir}-2
+	cancel_lru_locks mdc    # cleanup locks from former test cases
+	rm -rf $DIR/${tdir}-1 $DIR/${tdir}-2
 
-        mkdir -p $DIR/${tdir}-1
-        mkdir -p $DIR/${tdir}-2
-        multiop $DIR/${tdir}-1/f O_c &
-        close_pid=$!
-        # give multiop a chance to open
-        sleep 1
+	mkdir $DIR/${tdir}-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/${tdir}-2 || error "mkdir $tdir-2 failed"
+	multiop $DIR/${tdir}-1/f O_c &
+	close_pid=$!
+	# give multiop a chance to open
+	sleep 1
 
         #define OBD_FAIL_MDS_CLOSE_NET_REP 0x13b
         do_facet $SINGLEMDS "lctl set_param fail_loc=0x8000013b"
@@ -1211,13 +1211,12 @@ test_53d() {
 run_test 53d "|X| close reply while two MDC requests in flight"
 
 test_53e() {
-        cancel_lru_locks mdc    # cleanup locks from former test cases
-        rm -rf $DIR/${tdir}-1 $DIR/${tdir}-2
+	cancel_lru_locks mdc    # cleanup locks from former test cases
 
-        mkdir -p $DIR/${tdir}-1
-        mkdir -p $DIR/${tdir}-2
-        multiop $DIR/${tdir}-1/f O_c &
-        close_pid=$!
+	mkdir $DIR/${tdir}-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/${tdir}-2 || error "mkdir $tdir-2 failed"
+	multiop $DIR/${tdir}-1/f O_c &
+	close_pid=$!
 
         #define OBD_FAIL_MDS_REINT_NET_REP 0x119
         do_facet $SINGLEMDS "lctl set_param fail_loc=0x119"
@@ -1243,13 +1242,12 @@ test_53e() {
 run_test 53e "|X| open reply while two MDC requests in flight"
 
 test_53f() {
-        cancel_lru_locks mdc    # cleanup locks from former test cases
-        rm -rf $DIR/${tdir}-1 $DIR/${tdir}-2
+	cancel_lru_locks mdc    # cleanup locks from former test cases
 
-        mkdir -p $DIR/${tdir}-1
-        mkdir -p $DIR/${tdir}-2
-        multiop $DIR/${tdir}-1/f O_c &
-        close_pid=$!
+	mkdir $DIR/${tdir}-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/${tdir}-2 || error "mkdir $tdir-2 failed"
+	multiop $DIR/${tdir}-1/f O_c &
+	close_pid=$!
 
         #define OBD_FAIL_MDS_REINT_NET_REP 0x119
         do_facet $SINGLEMDS "lctl set_param fail_loc=0x119"
@@ -1280,13 +1278,12 @@ test_53f() {
 run_test 53f "|X| open reply and close reply while two MDC requests in flight"
 
 test_53g() {
-        cancel_lru_locks mdc    # cleanup locks from former test cases
-        rm -rf $DIR/${tdir}-1 $DIR/${tdir}-2
+	cancel_lru_locks mdc    # cleanup locks from former test cases
 
-        mkdir -p $DIR/${tdir}-1
-        mkdir -p $DIR/${tdir}-2
-        multiop $DIR/${tdir}-1/f O_c &
-        close_pid=$!
+	mkdir $DIR/${tdir}-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/${tdir}-2 || error "mkdir $tdir-1 failed"
+	multiop $DIR/${tdir}-1/f O_c &
+	close_pid=$!
 
         #define OBD_FAIL_MDS_REINT_NET_REP 0x119
         do_facet $SINGLEMDS "lctl set_param fail_loc=0x119"
@@ -1310,20 +1307,21 @@ test_53g() {
         # close should be gone
         [ -d /proc/$close_pid ] && return 2
 
-        $CHECKSTAT -t file $DIR/${tdir}-1/f || return 3
-        $CHECKSTAT -t file $DIR/${tdir}-2/f || return 4
-        rm -rf $DIR/${tdir}-*
+	$CHECKSTAT -t file $DIR/${tdir}-1/f ||
+		error "$CHECKSTAT $tdir-1/f attribute check failed"
+	$CHECKSTAT -t file $DIR/${tdir}-2/f ||
+		error "$CHECKSTAT $tdir-2/f attribute check failed"
+	rm -rf $DIR/${tdir}-*
 }
 run_test 53g "|X| drop open reply and close request while close and open are both in flight"
 
 test_53h() {
-        cancel_lru_locks mdc    # cleanup locks from former test cases
-        rm -rf $DIR/${tdir}-1 $DIR/${tdir}-2
+	cancel_lru_locks mdc    # cleanup locks from former test cases
 
-        mkdir -p $DIR/${tdir}-1
-        mkdir -p $DIR/${tdir}-2
-        multiop $DIR/${tdir}-1/f O_c &
-        close_pid=$!
+	mkdir $DIR/${tdir}-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/${tdir}-2 || error "mkdir $tdir-2 failed"
+	multiop $DIR/${tdir}-1/f O_c &
+	close_pid=$!
 
         #define OBD_FAIL_MDS_REINT_NET 0x107
         do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000107"
@@ -1395,38 +1393,38 @@ run_test 57 "test recovery from llog for setattr op"
 
 #recovery many mds-ost setattr from llog
 test_58a() {
-    mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 #define OBD_FAIL_MDS_OST_SETATTR       0x12c
-    do_facet $SINGLEMDS "lctl set_param fail_loc=0x8000012c"
-    createmany -o $DIR/$tdir/$tfile-%d 2500
-    replay_barrier $SINGLEMDS
-    fail $SINGLEMDS
-    sleep 2
-    $CHECKSTAT -t file $DIR/$tdir/$tfile-* >/dev/null || return 1
-    do_facet $SINGLEMDS "lctl set_param fail_loc=0x0"
-    unlinkmany $DIR/$tdir/$tfile-%d 2500
-    rmdir $DIR/$tdir
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x8000012c"
+	createmany -o $DIR/$tdir/$tfile-%d 2500
+	replay_barrier $SINGLEMDS
+	fail $SINGLEMDS
+	sleep 2
+	$CHECKSTAT -t file $DIR/$tdir/$tfile-* >/dev/null || return 1
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x0"
+	unlinkmany $DIR/$tdir/$tfile-%d 2500
+	rmdir $DIR/$tdir
 }
 run_test 58a "test recovery from llog for setattr op (test llog_gen_rec)"
 
 test_58b() {
-    local orig
-    local new
+	local orig
+	local new
 
-    large_xattr_enabled &&
-        orig="$(generate_string $(max_xattr_size))" || orig="bar"
+	large_xattr_enabled &&
+		orig="$(generate_string $(max_xattr_size))" || orig="bar"
 
-    mount_client $MOUNT2
-    mkdir -p $DIR/$tdir
-    touch $DIR/$tdir/$tfile
-    replay_barrier $SINGLEMDS
-    setfattr -n trusted.foo -v $orig $DIR/$tdir/$tfile
-    fail $SINGLEMDS
-    new=$(get_xattr_value trusted.foo $MOUNT2/$tdir/$tfile)
-    [[ "$new" = "$orig" ]] || return 1
-    rm -f $DIR/$tdir/$tfile
-    rmdir $DIR/$tdir
-    zconf_umount `hostname` $MOUNT2
+	mount_client $MOUNT2
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	touch $DIR/$tdir/$tfile
+	replay_barrier $SINGLEMDS
+	setfattr -n trusted.foo -v $orig $DIR/$tdir/$tfile
+	fail $SINGLEMDS
+	new=$(get_xattr_value trusted.foo $MOUNT2/$tdir/$tfile)
+	[[ "$new" = "$orig" ]] || return 1
+	rm -f $DIR/$tdir/$tfile
+	rmdir $DIR/$tdir
+	zconf_umount `hostname` $MOUNT2
 }
 run_test 58b "test replay of setxattr op"
 
@@ -1444,12 +1442,12 @@ test_58c() { # bug 16570
         orig1="bar1"
     fi
 
-    mount_client $MOUNT2
-    mkdir -p $DIR/$tdir
-    touch $DIR/$tdir/$tfile
-    drop_request "setfattr -n trusted.foo -v $orig $DIR/$tdir/$tfile" ||
-        return 1
-    new=$(get_xattr_value trusted.foo $MOUNT2/$tdir/$tfile)
+	mount_client $MOUNT2
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	touch $DIR/$tdir/$tfile
+	drop_request "setfattr -n trusted.foo -v $orig $DIR/$tdir/$tfile" ||
+		return 1
+	new=$(get_xattr_value trusted.foo $MOUNT2/$tdir/$tfile)
     [[ "$new" = "$orig" ]] || return 2
     drop_reint_reply "setfattr -n trusted.foo1 -v $orig1 $DIR/$tdir/$tfile" ||
         return 3
@@ -1464,12 +1462,12 @@ run_test 58c "resend/reconstruct setxattr op"
 # log_commit_thread vs filter_destroy race used to lead to import use after free
 # bug 11658
 test_59() {
-    remote_ost_nodsh && skip "remote OST with nodsh" && return 0
+	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
-    mkdir -p $DIR/$tdir
-    createmany -o $DIR/$tdir/$tfile-%d 200
-    sync
-    unlinkmany $DIR/$tdir/$tfile-%d 200
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	createmany -o $DIR/$tdir/$tfile-%d 200
+	sync
+	unlinkmany $DIR/$tdir/$tfile-%d 200
 #define OBD_FAIL_PTLRPC_DELAY_RECOV       0x507
     do_facet ost1 "lctl set_param fail_loc=0x507"
     fail ost1
@@ -1483,24 +1481,24 @@ run_test 59 "test log_commit_thread vs filter_destroy race"
 # race between add unlink llog vs cat log init in post_recovery (only for b1_6)
 # bug 12086: should no oops and No ctxt error for this test
 test_60() {
-    mkdir -p $DIR/$tdir
-    createmany -o $DIR/$tdir/$tfile-%d 200
-    replay_barrier $SINGLEMDS
-    unlinkmany $DIR/$tdir/$tfile-%d 0 100
-    fail $SINGLEMDS
-    unlinkmany $DIR/$tdir/$tfile-%d 100 100
-    local no_ctxt=`dmesg | grep "No ctxt"`
-    [ -z "$no_ctxt" ] || error "ctxt is not initialized in recovery"
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	createmany -o $DIR/$tdir/$tfile-%d 200
+	replay_barrier $SINGLEMDS
+	unlinkmany $DIR/$tdir/$tfile-%d 0 100
+	fail $SINGLEMDS
+	unlinkmany $DIR/$tdir/$tfile-%d 100 100
+	local no_ctxt=`dmesg | grep "No ctxt"`
+	[ -z "$no_ctxt" ] || error "ctxt is not initialized in recovery"
 }
 run_test 60 "test llog post recovery init vs llog unlink"
 
 #test race  llog recovery thread vs llog cleanup
 test_61a() {	# was test_61
-    remote_ost_nodsh && skip "remote OST with nodsh" && return 0
+	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
-    mkdir -p $DIR/$tdir
-    createmany -o $DIR/$tdir/$tfile-%d 800
-    replay_barrier ost1
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	createmany -o $DIR/$tdir/$tfile-%d 800
+	replay_barrier ost1
 #   OBD_FAIL_OST_LLOG_RECOVERY_TIMEOUT 0x221
     unlinkmany $DIR/$tdir/$tfile-%d 800
     set_nodes_failloc "$(osts_nodes)" 0x80000221
@@ -1551,9 +1549,9 @@ test_61d() { # bug 16002 # bug 17466 # bug 22137
 run_test 61d "error in llog_setup should cleanup the llog context correctly"
 
 test_62() { # Bug 15756 - don't mis-drop resent replay
-    mkdir -p $DIR/$tdir
-    replay_barrier $SINGLEMDS
-    createmany -o $DIR/$tdir/$tfile- 25
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	replay_barrier $SINGLEMDS
+	createmany -o $DIR/$tdir/$tfile- 25
 #define OBD_FAIL_TGT_REPLAY_DROP         0x707
     do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000707"
     fail $SINGLEMDS
@@ -1777,9 +1775,9 @@ test_67b() #bug 3055
     local next_id=$(do_facet $SINGLEMDS lctl get_param -n \
         osc.$mdtosc.prealloc_next_id)
 
-    mkdir -p $DIR/$tdir/${OST}
-    $SETSTRIPE -i 0 -c 1 $DIR/$tdir/${OST} || error "$SETSTRIPE"
-    echo "Creating to objid $last_id on ost $OST..."
+	mkdir -p $DIR/$tdir/${OST} || error "mkdir $tdir/$OST failed"
+	$SETSTRIPE -i 0 -c 1 $DIR/$tdir/${OST} || error "$SETSTRIPE"
+	echo "Creating to objid $last_id on ost $OST..."
 #define OBD_FAIL_OST_PAUSE_CREATE        0x223
     do_facet ost1 "$LCTL set_param fail_val=20000"
     do_facet ost1 "$LCTL set_param fail_loc=0x80000223"
@@ -1819,9 +1817,8 @@ test_68 () #bug 13813
     echo $TIMEOUT >> $ldlm_enqueue_min
     do_facet ost1 "echo $TIMEOUT >> $ldlm_enqueue_min_r"
 
-    rm -rf $DIR/$tdir
-    mkdir -p $DIR/$tdir
-    $SETSTRIPE --stripe-index=0 --count=1 $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	$SETSTRIPE --stripe-index=0 --count=1 $DIR/$tdir
 #define OBD_FAIL_LDLM_PAUSE_CANCEL       0x312
     $LCTL set_param fail_val=$(($TIMEOUT - 1))
     $LCTL set_param fail_loc=0x80000312
@@ -2029,7 +2026,7 @@ test_80a() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
 	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
@@ -2056,7 +2053,7 @@ test_80b() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
 	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
@@ -2083,7 +2080,7 @@ test_80c() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
 	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
@@ -2106,7 +2103,7 @@ test_80d() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
 	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
@@ -2133,7 +2130,7 @@ test_80e() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
 	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
@@ -2159,7 +2156,7 @@ test_80f() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
 	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
@@ -2186,7 +2183,7 @@ test_80g() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
 	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
@@ -2209,7 +2206,7 @@ test_80h() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
 	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
@@ -2236,7 +2233,7 @@ test_81a() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
 	touch $remote_dir
@@ -2266,7 +2263,7 @@ test_81b() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
 	# OBD_FAIL_OBJ_UPDATE_NET_REP       0x1701
@@ -2296,7 +2293,7 @@ test_81c() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
 	# OBD_FAIL_OBJ_UPDATE_NET_REP       0x1701
@@ -2322,7 +2319,7 @@ test_81d() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
 	# OBD_FAIL_OBJ_UPDATE_NET_REP       0x1701
@@ -2352,7 +2349,7 @@ test_81e() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
@@ -2383,7 +2380,7 @@ test_81f() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
@@ -2413,7 +2410,7 @@ test_81g() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
@@ -2439,7 +2436,7 @@ test_81h() {
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
@@ -2460,22 +2457,22 @@ test_81h() {
 run_test 81h "DNE: unlink remote dir, drop request reply, fail 2 MDTs"
 
 test_83a() {
-    mkdir -p $DIR/$tdir
-    createmany -o $DIR/$tdir/$tfile- 10 || return 1
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	createmany -o $DIR/$tdir/$tfile- 10 || return 1
 #define OBD_FAIL_MDS_FAIL_LOV_LOG_ADD       0x140
-    do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000140"
-    unlinkmany $DIR/$tdir/$tfile- 10 || return 2
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000140"
+	unlinkmany $DIR/$tdir/$tfile- 10 || return 2
 }
 run_test 83a "fail log_add during unlink recovery"
 
 test_83b() {
-    mkdir -p $DIR/$tdir
-    createmany -o $DIR/$tdir/$tfile- 10 || return 1
-    replay_barrier $SINGLEMDS
-    unlinkmany $DIR/$tdir/$tfile- 10 || return 2
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	createmany -o $DIR/$tdir/$tfile- 10 || return 1
+	replay_barrier $SINGLEMDS
+	unlinkmany $DIR/$tdir/$tfile- 10 || return 2
 #define OBD_FAIL_MDS_FAIL_LOV_LOG_ADD       0x140
-    do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000140"
-    fail $SINGLEMDS
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000140"
+	fail $SINGLEMDS
 }
 run_test 83b "fail log_add during unlink recovery"
 
@@ -2599,10 +2596,10 @@ test_87b() {
 run_test 87b "write replay with changed data (checksum resend)"
 
 test_88() { #bug 17485
-    mkdir -p $DIR/$tdir
-    mkdir -p $TMP/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	mkdir $TMP/$tdir || error "mkdir $TMP/$tdir failed"
 
-    $SETSTRIPE -i 0 -c 1 $DIR/$tdir || error "$SETSTRIPE"
+	$SETSTRIPE -i 0 -c 1 $DIR/$tdir || error "$SETSTRIPE"
 
     replay_barrier ost1
     replay_barrier $SINGLEMDS
@@ -2679,10 +2676,10 @@ test_88() { #bug 17485
 run_test 88 "MDS should not assign same objid to different files "
 
 test_89() {
-        cancel_lru_locks osc
-        mkdir -p $DIR/$tdir
-        rm -f $DIR/$tdir/$tfile
-        wait_mds_ost_sync
+	cancel_lru_locks osc
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	rm -f $DIR/$tdir/$tfile
+	wait_mds_ost_sync
 	wait_delete_completed
         BLOCKS1=$(df -P $MOUNT | tail -n 1 | awk '{ print $3 }')
         $SETSTRIPE -i 0 -c 1 $DIR/$tdir/$tfile
@@ -2726,9 +2723,9 @@ test_90() { # bug 19494
         fi
     fi
 
-    mkdir -p $dir
+	mkdir $dir || error "mkdir $dir failed"
 
-    echo "Create the files"
+	echo "Create the files"
 
     # file "f${index}" striped over 1 OST
     # file "all" striped over all OSTs
