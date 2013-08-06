@@ -1894,12 +1894,12 @@ wait_update () {
 		if [[ "$RESULT" == "$FINAL" ]]; then
 			[[ -z "$RESULT" || $WAIT -le $sleep ]] ||
 				echo "Updated after ${WAIT}s: wanted '$FINAL'"\
-					" got '$RESULT'"
+				     "got '$RESULT'"
 			return 0
 		fi
 		if [[ $verbose && "$RESULT" != "$PREV_RESULT" ]]; then
-			echo "Change after ${WAIT}s from '$PREV_RESULT'"\
-				" to '$RESULT'"
+			echo "Changed after ${WAIT}s: from '$PREV_RESULT'"\
+			     "to '$RESULT'"
 			PREV_RESULT=$RESULT
 		fi
 		[[ $WAIT -ge $MAX ]] && break
@@ -2326,14 +2326,32 @@ replay_barrier_nosync() {
 	$LCTL mark "local REPLAY BARRIER on ${!svc}"
 }
 
+#
+# Get Lustre client uuid for a given Lustre mount point.
+#
+get_client_uuid() {
+	local mntpnt=${1:-$MOUNT}
+
+	local name=$($LFS getname $mntpnt | cut -d' ' -f1)
+	local uuid=$($LCTL get_param -n llite.$name.uuid)
+
+	echo -n $uuid
+}
+
 mds_evict_client() {
-    UUID=`lctl get_param -n mdc.${mds1_svc}-mdc-*.uuid`
-    do_facet mds1 "lctl set_param -n mdt.${mds1_svc}.evict_client $UUID"
+	local mntpnt=${1:-$MOUNT}
+	local uuid=$(get_client_uuid $mntpnt)
+
+	do_facet $SINGLEMDS \
+		"$LCTL set_param -n mdt.${mds1_svc}.evict_client $uuid"
 }
 
 ost_evict_client() {
-    UUID=`lctl get_param -n devices| grep ${ost1_svc}-osc- | egrep -v 'MDT' | awk '{print $5}'`
-    do_facet ost1 "lctl set_param -n obdfilter.${ost1_svc}.evict_client $UUID"
+	local mntpnt=${1:-$MOUNT}
+	local uuid=$(get_client_uuid $mntpnt)
+
+	do_facet ost1 \
+		"$LCTL set_param -n obdfilter.${ost1_svc}.evict_client $uuid"
 }
 
 fail() {
@@ -3956,7 +3974,7 @@ get_facets () {
 
         case $type in
                 MGS ) list="$list $name";;
-            MDS|OST ) local count=${type}COUNT
+            MDS|OST|AGT ) local count=${type}COUNT
                        for ((i=1; i<=${!count}; i++)) do
                           list="$list ${name}$i"
                       done;;
@@ -4745,6 +4763,11 @@ mdts_nodes () {
 # Get all of the active OSS nodes.
 osts_nodes () {
 	echo -n $(facets_nodes $(get_facets OST))
+}
+
+# Get all of the active AGT (HSM agent) nodes.
+agts_nodes () {
+	echo -n $(facets_nodes $(get_facets AGT))
 }
 
 # Get all of the client nodes and active server nodes.
