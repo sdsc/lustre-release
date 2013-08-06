@@ -175,7 +175,13 @@ int lmv_intent_open(struct obd_export *exp, struct md_op_data *op_data,
 	int			rc;
 	ENTRY;
 
-	tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
+	if (it->it_flags & MDS_OPEN_BY_FID) {
+		LASSERTF(fid_is_sane(&op_data->op_fid2), DFID" is insane.",
+			 PFID(&op_data->op_fid2));
+		tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
+	} else {
+		tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
+	}
 	if (IS_ERR(tgt))
 		RETURN(PTR_ERR(tgt));
 
