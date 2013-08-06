@@ -49,17 +49,17 @@ assert_DIR
 rm -rf $DIR/[df][0-9]*
 
 test_dbench() {
-    if ! which dbench > /dev/null 2>&1 ; then
-	skip_env "No dbench installed"
-	return
-    fi
+	if ! which dbench > /dev/null 2>&1 ; then
+		skip_env "No dbench installed"
+		return
+	fi
 
-    local DBENCHDIR=$DIR/d0.$HOSTNAME
-    mkdir -p $DBENCHDIR
-    local SPACE=`df -P $MOUNT | tail -n 1 | awk '{ print $4 }'`
-    DB_THREADS=$((SPACE / 50000))
-    [ $THREADS -lt $DB_THREADS ] && DB_THREADS=$THREADS
-    
+	local DBENCHDIR=$DIR/d0.$HOSTNAME
+	test_mkdir $DBENCHDIR || error "mkdir $DBENCHDIR failed"
+	local SPACE=`df -P $MOUNT | tail -n 1 | awk '{ print $4 }'`
+	DB_THREADS=$((SPACE / 50000))
+	[ $THREADS -lt $DB_THREADS ] && DB_THREADS=$THREADS
+
     $DEBUG_OFF
     myUID=$RUNAS_ID
     myGID=$RUNAS_GID
@@ -83,49 +83,49 @@ test_dbench() {
 run_test dbench "dbench"
 
 test_bonnie() {
-    if ! which bonnie++ > /dev/null 2>&1; then
-	skip_env "No bonnie++ installed"
-	return 0
-    fi
-    local BONDIR=$DIR/d0.bonnie
-    mkdir -p $BONDIR
-    $LFS setstripe -c -1 $BONDIR
-    sync
-    local MIN=`lctl get_param -n osc.*.kbytesavail | sort -n | head -n1`
-    local SPACE=$(( OSTCOUNT * MIN ))
-    [ $SPACE -lt $SIZE ] && SIZE=$((SPACE * 3 / 4))
-    log "min OST has ${MIN}kB available, using ${SIZE}kB file size"
-    $DEBUG_OFF
-    myUID=$RUNAS_ID
-    myGID=$RUNAS_GID
-    myRUNAS=$RUNAS
-    FAIL_ON_ERROR=false check_runas_id_ret $myUID $myGID $myRUNAS || \
-      { myRUNAS="" && myUID=$UID && myGID=`id -$USER`; }
-    chown $myUID:$myGID $BONDIR		
-    $myRUNAS bonnie++ -f -r 0 -s$((SIZE / 1024)) -n 10 -u$myUID:$myGID -d$BONDIR
-    $DEBUG_ON
+	if ! which bonnie++ > /dev/null 2>&1; then
+		skip_env "No bonnie++ installed"
+		return 0
+	fi
+	local BONDIR=$DIR/d0.bonnie
+	test_mkdir $BONDIR || error "mkdir $BONDIR failed"
+	$LFS setstripe -c -1 $BONDIR
+	sync
+	local MIN=`lctl get_param -n osc.*.kbytesavail | sort -n | head -n1`
+	local SPACE=$(( OSTCOUNT * MIN ))
+	[ $SPACE -lt $SIZE ] && SIZE=$((SPACE * 3 / 4))
+	log "min OST has ${MIN}kB available, using ${SIZE}kB file size"
+	$DEBUG_OFF
+	myUID=$RUNAS_ID
+	myGID=$RUNAS_GID
+	myRUNAS=$RUNAS
+	FAIL_ON_ERROR=false check_runas_id_ret $myUID $myGID $myRUNAS ||
+		{ myRUNAS="" && myUID=$UID && myGID=`id -$USER`; }
+	chown $myUID:$myGID $BONDIR
+	$myRUNAS bonnie++ -f -r 0 -s$((SIZE / 1024)) -n 10 -u$myUID:$myGID -d$BONDIR
+	$DEBUG_ON
 }
 run_test bonnie "bonnie++"
 
 test_iozone() {
-    if ! which iozone > /dev/null 2>&1; then
-	skip_env "No iozone installed"
-	return 0
-    fi
+	if ! which iozone > /dev/null 2>&1; then
+		skip_env "No iozone installed"
+		return 0
+	fi
 
-    export O_DIRECT
-    
-    local IOZDIR=$DIR/d0.iozone
-    mkdir -p $IOZDIR
-    $LFS setstripe -c -1 $IOZDIR
-    sync
-    local MIN=`lctl get_param -n osc.*.kbytesavail | sort -n | head -n1`
-    local SPACE=$(( OSTCOUNT * MIN ))
-    [ $SPACE -lt $SIZE ] && SIZE=$((SPACE * 3 / 4))
-    log "min OST has ${MIN}kB available, using ${SIZE}kB file size"
-    IOZONE_OPTS="-i 0 -i 1 -i 2 -e -+d -r $RSIZE"
-    IOZFILE="$IOZDIR/iozone"
-    IOZLOG=$TMP/iozone.log
+	export O_DIRECT
+
+	local IOZDIR=$DIR/d0.iozone
+	test_mkdir $IOZDIR || error "mkdir $IOZDIR failed"
+	$LFS setstripe -c -1 $IOZDIR
+	sync
+	local MIN=`lctl get_param -n osc.*.kbytesavail | sort -n | head -n1`
+	local SPACE=$(( OSTCOUNT * MIN ))
+	[ $SPACE -lt $SIZE ] && SIZE=$((SPACE * 3 / 4))
+	log "min OST has ${MIN}kB available, using ${SIZE}kB file size"
+	IOZONE_OPTS="-i 0 -i 1 -i 2 -e -+d -r $RSIZE"
+	IOZFILE="$IOZDIR/iozone"
+	IOZLOG=$TMP/iozone.log
 		# $SPACE was calculated with all OSTs
     $DEBUG_OFF
     myUID=$RUNAS_ID
@@ -263,13 +263,13 @@ space_check () {
 }
 
 pios_setup() { 
-    local testdir=$DIR/$tdir
-    mkdir -p $testdir
+	local testdir=$DIR/$tdir
+	mkdir -p $testdir || error "mkdir $testdir failed"
 
-    stripes=1
-    [ "$1" == "--stripe" ] && stripes=-1
-    $LFS setstripe $testdir -c $stripes
-    echo "Test directory $testdir stripe count: $stripes"
+	stripes=1
+	[ "$1" == "--stripe" ] && stripes=-1
+	$LFS setstripe $testdir -c $stripes
+	 echo "Test directory $testdir stripe count: $stripes"
 }
 
 pios_cleanup() {

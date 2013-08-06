@@ -69,7 +69,7 @@ scrub_prep() {
 	setupall > /dev/null
 
 	echo "preparing... ${nfiles} files will be created."
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	cp $LUSTRE/tests/*.sh $DIR/$tdir/
 	[[ $nfiles -gt 0 ]] && { createmany -o $DIR/$tdir/$tfile $nfiles ||
 				error "createmany failed"; }
@@ -817,7 +817,7 @@ test_12() {
 	echo "setupall"
 	setupall > /dev/null
 
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
 
 	#define OBD_FAIL_OSD_COMPAT_INVALID_ENTRY		0x195
@@ -853,7 +853,7 @@ test_13() {
 	echo "setupall"
 	setupall > /dev/null
 
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
 
 	#define OBD_FAIL_OSD_COMPAT_NO_ENTRY		0x196
@@ -890,7 +890,7 @@ test_14() {
 	echo "setupall"
 	setupall > /dev/null
 
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
 
 	#define OBD_FAIL_OSD_COMPAT_NO_ENTRY		0x196

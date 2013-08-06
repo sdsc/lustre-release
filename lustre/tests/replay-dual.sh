@@ -125,46 +125,46 @@ run_test 1 "|X| simple create"
 
 
 test_2() {
-    replay_barrier $SINGLEMDS
-    mkdir $MOUNT1/adir
+	replay_barrier $SINGLEMDS
+	mkdir $MOUNT1/adir || error "mkdir $MOUNT1/adir failed"
 
-    fail $SINGLEMDS
-    checkstat $MOUNT2/adir || return 1
-    rmdir $MOUNT2/adir
-    checkstat $MOUNT2/adir && return 2
-    return 0
+	fail $SINGLEMDS
+	checkstat $MOUNT2/adir || return 1
+	rmdir $MOUNT2/adir
+	checkstat $MOUNT2/adir && return 2
+	return 0
 }
 run_test 2 "|X| mkdir adir"
 
 test_3() {
-    replay_barrier $SINGLEMDS
-    mkdir $MOUNT1/adir
-    mkdir $MOUNT2/adir/bdir
+	replay_barrier $SINGLEMDS
+	mkdir $MOUNT1/adir || error "mkdir $MOUNT1/adir failed"
+	mkdir $MOUNT2/adir/bdir || error "mkdir $MOUNT1/adir/bdir failed"
 
-    fail $SINGLEMDS
-    checkstat $MOUNT2/adir      || return 1
-    checkstat $MOUNT1/adir/bdir || return 2
-    rmdir $MOUNT2/adir/bdir $MOUNT1/adir
-    checkstat $MOUNT1/adir      && return 3
-    checkstat $MOUNT2/adir/bdir && return 4
-    return 0
+	fail $SINGLEMDS
+	checkstat $MOUNT2/adir      || return 1
+	checkstat $MOUNT1/adir/bdir || return 2
+	rmdir $MOUNT2/adir/bdir $MOUNT1/adir
+	checkstat $MOUNT1/adir      && return 3
+	checkstat $MOUNT2/adir/bdir && return 4
+	return 0
 }
 run_test 3 "|X| mkdir adir, mkdir adir/bdir "
 
 test_4() {
-    mkdir $MOUNT1/adir
-    replay_barrier $SINGLEMDS
-    mkdir $MOUNT1/adir  && return 1
-    mkdir $MOUNT2/adir/bdir
+	mkdir $MOUNT1/adir || error "mkdir $MOUNT1/adir failed"
+	replay_barrier $SINGLEMDS
+	mkdir $MOUNT1/adir  && return 1
+	mkdir $MOUNT2/adir/bdir || error "mkdir $MOUNT1/adir/bdir failed"
 
-    fail $SINGLEMDS
-    checkstat $MOUNT2/adir      || return 2
-    checkstat $MOUNT1/adir/bdir || return 3
+	fail $SINGLEMDS
+	checkstat $MOUNT2/adir      || return 2
+	checkstat $MOUNT1/adir/bdir || return 3
 
-    rmdir $MOUNT2/adir/bdir $MOUNT1/adir
-    checkstat $MOUNT1/adir      && return 4
-    checkstat $MOUNT2/adir/bdir && return 5
-    return 0
+	rmdir $MOUNT2/adir/bdir $MOUNT1/adir
+	checkstat $MOUNT1/adir      && return 4
+	checkstat $MOUNT2/adir/bdir && return 5
+	return 0
 }
 run_test 4 "|X| mkdir adir (-EEXIST), mkdir adir/bdir "
 
@@ -324,7 +324,7 @@ test_14b() {
 
 	local BEFOREUSED=$(df -P $DIR | tail -1 | awk '{ print $3 }')
 
-	mkdir -p $MOUNT1/$tdir
+	mkdir -p $MOUNT1/$tdir || error "mkdir $MOUNT1/$tdir failed"
 	$SETSTRIPE -i 0 $MOUNT1/$tdir
 	replay_barrier $SINGLEMDS
 	createmany -o $MOUNT1/$tdir/$tfile- 5
@@ -429,9 +429,9 @@ run_test 17 "fail OST during recovery (3571)"
 export NOW=0
 
 test_18() { # bug 3822 - evicting client with enqueued lock
-    #set -vx
-    mkdir -p $MOUNT1/$tdir
-    touch $MOUNT1/$tdir/f0
+	#set -vx
+	mkdir -p $MOUNT1/$tdir || error "mkdir $MOUNT1/$tdir failed"
+	touch $MOUNT1/$tdir/f0
 #define OBD_FAIL_LDLM_ENQUEUE_BLOCKED    0x30b
     statmany -s $MOUNT1/$tdir/f 1 500 &
     OPENPID=$!

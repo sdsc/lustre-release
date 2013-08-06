@@ -61,58 +61,57 @@ test_0b() {
 run_test 0b "ensure object created after recover exists. (3284)"
 
 test_1a() {
-    mkdir $DIR/dir01
-    replay_barrier mds2
-    $CHECKSTAT -t dir $DIR/dir01 || return 1
-    rmdir $DIR/dir01
-    fail mds2
-    stat $DIR/dir01
+	mkdir $DIR/dir01 || error "mkdir dir01 failed"
+	replay_barrier mds2
+	$CHECKSTAT -t dir $DIR/dir01 || return 1
+	rmdir $DIR/dir01
+	fail mds2
+	stat $DIR/dir01
 }
 run_test 1a "unlink cross-node dir (fail mds with inode)"
 
 test_1b() {
-    mkdir $DIR/dir11
-    replay_barrier mds1
-    $CHECKSTAT -t dir $DIR/dir11 || return 1
-    rmdir $DIR/dir11
-    fail mds1
-    stat $DIR/dir11
+	mkdir $DIR/dir11 || error "mkdir dir11 failed"
+	replay_barrier mds1
+	$CHECKSTAT -t dir $DIR/dir11 || return 1
+	rmdir $DIR/dir11
+	fail mds1
+	stat $DIR/dir11
 }
 run_test 1b "unlink cross-node dir (fail mds with name)"
 
 test_2a() {
-    mkdir $DIR/dir21
-    createmany -o $DIR/dir21/f 3000
-    sleep 10
-    $CHECKSTAT -t dir $DIR/dir21 || return 1
-    $CHECKSTAT -t file $DIR/dir21/f1002 || return 1
-    replay_barrier mds1
-    rm $DIR/dir21/f1002
-    fail mds1
-    stat $DIR/dir21/f1002
+	mkdir $DIR/dir21 || error "mkdir dir21 failed"
+	createmany -o $DIR/dir21/f 3000
+	sleep 10
+	$CHECKSTAT -t dir $DIR/dir21 || return 1
+	$CHECKSTAT -t file $DIR/dir21/f1002 || return 1
+	replay_barrier mds1
+	rm $DIR/dir21/f1002
+	fail mds1
+	stat $DIR/dir21/f1002
 }
 run_test 2a "unlink cross-node file (fail mds with name)"
 
 test_3a() {
-    replay_barrier mds2
-    mkdir $DIR/dir3a1
-    $LCTL mark "FAILOVER mds2"
-    fail mds2
-    stat $DIR
-    $CHECKSTAT -t dir $DIR/dir3a1 || return 1
+	replay_barrier mds2
+	mkdir $DIR/dir3a1 || error "mkdir dir3a1 failed"
+	$LCTL mark "FAILOVER mds2"
+	fail mds2
+	stat $DIR
+	$CHECKSTAT -t dir $DIR/dir3a1 || return 1
 }
 run_test 3a "mkdir cross-node dir (fail mds with inode)"
 
 test_3b() {
-    replay_barrier mds1
-    mkdir $DIR/dir3b1
-    $LCTL mark "FAILOVER mds1"
-    fail mds1
-    stat $DIR
-    $CHECKSTAT -t dir $DIR/dir3b1 || return 1
+	replay_barrier mds1
+	mkdir $DIR/dir3b1 || error "mkdir dir3b1 failed"
+	$LCTL mark "FAILOVER mds1"
+	fail mds1
+	stat $DIR
+	$CHECKSTAT -t dir $DIR/dir3b1 || return 1
 }
 run_test 3b "mkdir cross-node dir (fail mds with inode)"
 
 complete $SECONDS
 $CLEANUP
-
