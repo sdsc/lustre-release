@@ -286,6 +286,10 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	tsi->tsi_env = req->rq_svc_thread->t_env;
 	tsi->tsi_dlm_req = NULL;
 
+	/* Refill(initilize) the context, in case it is
+	 * not initialized yet. */
+	lu_env_refill(tsi->tsi_env);
+
 	/* if request has export then get handlers slice from corresponding
 	 * target, otherwise that should be connect operation */
 	if (opc == MDS_CONNECT || opc == OST_CONNECT ||
