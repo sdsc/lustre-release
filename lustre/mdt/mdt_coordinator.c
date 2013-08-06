@@ -53,7 +53,7 @@ static struct lprocfs_vars lprocfs_mdt_hsm_vars[];
  * \param mti [IN] context
  * \param fid [IN] object fid
  * \param hsm [OUT] HSM meta data
- * \retval obj
+ * \retval obj or NULL if not found
  */
 struct mdt_object *mdt_hsm_get_md_hsm(struct mdt_thread_info *mti,
 				      const struct lu_fid *fid,
@@ -76,7 +76,7 @@ struct mdt_object *mdt_hsm_get_md_hsm(struct mdt_thread_info *mti,
 	if (!mdt_object_exists(obj)) {
 		/* no more object */
 		mdt_object_put(mti->mti_env, obj);
-		RETURN(ERR_PTR(-ENOENT));
+		RETURN(NULL);
 	}
 
 	rc = mdt_attr_get_complex(mti, obj, ma);
@@ -105,7 +105,7 @@ void mdt_hsm_dump_hal(int level, const char *prefix,
 	       prefix, hal->hal_version, hal->hal_count,
 	       hal->hal_compound_id, hal->hal_archive_id, hal->hal_flags);
 
-	hai = hai_zero(hal);
+	hai = hai_first(hal);
 	for (i = 0; i < hal->hal_count; i++) {
 		sz = hai->hai_len - sizeof(*hai);
 		CDEBUG(level, "%s %d: fid="DFID" dfid="DFID
@@ -201,7 +201,7 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 				continue;
 			}
 		}
-		if ((found == -1) && (empty_slot == -1))
+		if (found == -1 && empty_slot == -1)
 			/* unknown request and no more room for new request,
 			 * continue scan for to find other entries for
 			 * already found request
@@ -239,7 +239,7 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 			hsd->request[empty_slot].hal = hal;
 			hsd->request_cnt++;
 			found = empty_slot;
-			hai = hai_zero(hal);
+			hai = hai_first(hal);
 		} else {
 			/* request is known */
 			/* we check if record archive num is the same as the
@@ -276,7 +276,7 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 				hsd->request[found].hal = hal_buffer;
 				hsd->request[found].hal_sz = sz;
 			}
-			hai = hai_zero(hsd->request[found].hal);
+			hai = hai_first(hsd->request[found].hal);
 			for (i = 0; i < hsd->request[found].hal->hal_count;
 			     i++)
 				hai = hai_next(hai);
@@ -299,7 +299,7 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 		 * with running request
 		 */
 		car = mdt_cdt_find_request(cdt, larr->arr_hai.hai_cookie, NULL);
-		if (IS_ERR(car)) {
+		if (IS_ERR(car) || car == NULL) {
 			last = larr->arr_req_create;
 		} else {
 			last = car->car_req_update;
@@ -461,8 +461,8 @@ static int mdt_coordinator(void *data)
 
 		CDEBUG(D_HSM, "coordinator resumes\n");
 
-		if ((cdt->cdt_thread->t_flags & SVC_STOPPING) ||
-		    (cdt->cdt_state == CDT_STOPPING)) {
+		if (cdt->cdt_thread->t_flags & SVC_STOPPING ||
+		    cdt->cdt_state == CDT_STOPPING) {
 			cdt->cdt_thread->t_flags &= ~SVC_STOPPING;
 			rc = 0;
 			break;
@@ -589,7 +589,7 @@ static int mdt_coordinator(void *data)
 				kuc_free(hal, hsd.request[i].hal_used_sz);
 				continue;
 			}
-			hai = hai_zero(hal);
+			hai = hai_first(hal);
 			for (j = 0; j < hsd.request[i].hal->hal_count; j++) {
 				cookies[j] = hai->hai_cookie;
 				hai = hai_next(hai);
@@ -725,8 +725,8 @@ static int hsm_restore_cb(const struct lu_env *env,
 
 	larr = (struct llog_agent_req_rec *)hdr;
 	hai = &larr->arr_hai;
-	if ((hai->hai_action != HSMA_RESTORE) ||
-	     agent_req_in_final_state(larr->arr_status))
+	if (hai->hai_action != HSMA_RESTORE ||
+	    agent_req_in_final_state(larr->arr_status))
 		RETURN(0);
 
 	/* restore request not in a final state */
@@ -905,7 +905,7 @@ int mdt_hsm_cdt_start(struct mdt_device *mdt)
 	int			 rc;
 	void			*ptr;
 	struct mdt_thread_info	*cdt_mti;
-	cfs_task_t		*task;
+	struct task_struct	*task;
 	ENTRY;
 
 	/* functions defined but not yet used
@@ -922,7 +922,7 @@ int mdt_hsm_cdt_start(struct mdt_device *mdt)
 	cdt->cdt_policy = CDT_DEFAULT_POLICY;
 	cdt->cdt_state = CDT_INIT;
 
-	cfs_atomic_set(&cdt->cdt_compound_id, cfs_time_current_sec());
+	atomic_set(&cdt->cdt_compound_id, cfs_time_current_sec());
 	/* just need to be larger than previous one */
 	/* cdt_last_cookie is protected by cdt_llog_lock */
 	cdt->cdt_last_cookie = cfs_time_current_sec();
@@ -1075,7 +1075,7 @@ int mdt_hsm_add_hal(struct mdt_thread_info *mti,
 	ENTRY;
 
 	/* register request in memory list */
-	hai = hai_zero(hal);
+	hai = hai_first(hal);
 	for (i = 0; i < hal->hal_count; i++, hai = hai_next(hai)) {
 		struct cdt_agent_req *car;
 
@@ -1100,7 +1100,7 @@ int mdt_hsm_add_hal(struct mdt_thread_info *mti,
 
 			/* find the running request to set it canceled */
 			car = mdt_cdt_find_request(cdt, hai->hai_cookie, NULL);
-			if (!IS_ERR(car)) {
+			if (!IS_ERR(car) && car != NULL) {
 				car->car_canceled = 1;
 				/* uuid has to be changed to the one running the
 				* request to cancel */
@@ -1119,7 +1119,7 @@ int mdt_hsm_add_hal(struct mdt_thread_info *mti,
 			struct md_hsm hsm;
 
 			obj = mdt_hsm_get_md_hsm(mti, &hai->hai_fid, &hsm);
-			if (IS_ERR(obj) && (PTR_ERR(obj) == -ENOENT))
+			if (obj == NULL)
 				continue;
 			if (IS_ERR(obj))
 				GOTO(out, rc = PTR_ERR(obj));
@@ -1221,7 +1221,7 @@ static int hsm_cdt_request_completed(struct mdt_thread_info *mti,
 	obj = mdt_hsm_get_md_hsm(mti, &car->car_hai->hai_fid, &mh);
 	/* we will update MD HSM only if needed */
 	is_mh_changed = false;
-	if (IS_ERR(obj)) {
+	if (IS_ERR(obj) || obj == NULL) {
 		/* object removed */
 		*status = ARS_SUCCEED;
 		goto unlock;
@@ -1253,8 +1253,7 @@ static int hsm_cdt_request_completed(struct mdt_thread_info *mti,
 			*status = ARS_SUCCEED;
 			break;
 		default:
-			*status = (((cdt->cdt_policy &
-				   CDT_NORETRY_ACTION) ||
+			*status = ((cdt->cdt_policy & CDT_NORETRY_ACTION ||
 				   !(pgs->hpk_flags & HP_FLAG_RETRY)) ?
 				   ARS_FAILED : ARS_WAITING);
 			break;
@@ -1353,8 +1352,8 @@ static int hsm_cdt_request_completed(struct mdt_thread_info *mti,
 	 * a crasy CT no need to manage DIRTY
 	 */
 	if (rc == 0)
-		hsm_set_cl_flags(&cl_flags, ((mh.mh_flags & HS_DIRTY) ?
-					     CLF_HSM_DIRTY : 0));
+		hsm_set_cl_flags(&cl_flags,
+				 (mh.mh_flags & HS_DIRTY) ?  CLF_HSM_DIRTY : 0);
 
 	/* unlock is done later, after layout lock management */
 	if (is_mh_changed)
@@ -1364,9 +1363,9 @@ unlock:
 	/* we give back layout lock only if restore was successful or
 	 * if restore was canceled or if policy is to not retry
 	 * in other cases we just unlock the object */
-	if ((car->car_hai->hai_action == HSMA_RESTORE) &&
-	    ((pgs->hpk_errval == 0) || (pgs->hpk_errval == ECANCELED) ||
-	     (cdt->cdt_policy & CDT_NORETRY_ACTION))) {
+	if (car->car_hai->hai_action == HSMA_RESTORE &&
+	    (pgs->hpk_errval == 0 || pgs->hpk_errval == ECANCELED ||
+	     cdt->cdt_policy & CDT_NORETRY_ACTION)) {
 		struct cdt_restore_handle	*crh;
 
 		/* restore in data FID done, we swap the layouts
@@ -1402,7 +1401,7 @@ unlock:
 	GOTO(out, rc);
 
 out:
-	if ((obj != NULL) && !IS_ERR(obj)) {
+	if (obj != NULL && !IS_ERR(obj)) {
 		mo_changelog(env, CL_HSM, cl_flags,
 			     mdt_object_child(obj));
 		mdt_object_put(mti->mti_env, obj);
@@ -1435,11 +1434,13 @@ int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
 
 	/* first do sanity checks */
 	car = mdt_cdt_update_request(cdt, pgs);
-	if (IS_ERR(car)) {
+	if (IS_ERR(car) || car == NULL) {
 		CERROR("%s: Cannot find running request for cookie "LPX64
 		       " on fid="DFID"\n",
 		       mdt_obd_name(mdt),
 		       pgs->hpk_cookie, PFID(&pgs->hpk_fid));
+		if (car == NULL)
+			RETURN(-ENOENT);
 		RETURN(PTR_ERR(car));
 	}
 
@@ -1454,12 +1455,12 @@ int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
 	/* progress is done on FID or data FID depending of the action and
 	 * of the copy progress */
 	/* for restore progress is used to send back the data FID to cdt */
-	if ((car->car_hai->hai_action == HSMA_RESTORE) &&
-	    (lu_fid_eq(&car->car_hai->hai_fid, &car->car_hai->hai_dfid)))
+	if (car->car_hai->hai_action == HSMA_RESTORE &&
+	    lu_fid_eq(&car->car_hai->hai_fid, &car->car_hai->hai_dfid))
 		car->car_hai->hai_dfid = pgs->hpk_fid;
 
-	if (((car->car_hai->hai_action == HSMA_RESTORE) ||
-	     (car->car_hai->hai_action == HSMA_ARCHIVE)) &&
+	if ((car->car_hai->hai_action == HSMA_RESTORE ||
+	     car->car_hai->hai_action == HSMA_ARCHIVE) &&
 	    (!lu_fid_eq(&pgs->hpk_fid, &car->car_hai->hai_dfid) &&
 	     !lu_fid_eq(&pgs->hpk_fid, &car->car_hai->hai_fid))) {
 		CERROR("%s: Progress on "DFID" for cookie "LPX64
@@ -1566,8 +1567,8 @@ static int mdt_cancel_all_cb(const struct lu_env *env,
 
 	larr = (struct llog_agent_req_rec *)hdr;
 	hcad = data;
-	if ((larr->arr_status == ARS_WAITING) ||
-	    (larr->arr_status == ARS_STARTED)) {
+	if (larr->arr_status == ARS_WAITING ||
+	    larr->arr_status == ARS_STARTED) {
 		larr->arr_status = ARS_CANCELED;
 		larr->arr_req_change = cfs_time_current_sec();
 		rc = mdt_agent_llog_update_rec(env, hcad->mdt, llh, larr);
@@ -1617,7 +1618,7 @@ static int hsm_cancel_all_actions(struct mdt_device *mdt)
 		hal_len = sizeof(*hal) + cfs_size_round(MTI_NAME_MAXLEN + 1) +
 			  cfs_size_round(car->car_hai->hai_len);
 
-		if ((hal_len > hal_sz) && (hal_sz > 0)) {
+		if (hal_len > hal_sz && hal_sz > 0) {
 			/* not enough room, free old buffer */
 			OBD_FREE(hal, hal_sz);
 			hal = NULL;
@@ -1643,7 +1644,7 @@ static int hsm_cancel_all_actions(struct mdt_device *mdt)
 		hal->hal_flags = car->car_flags;
 		hal->hal_count = 0;
 
-		hai = hai_zero(hal);
+		hai = hai_first(hal);
 		memcpy(hai, car->car_hai, car->car_hai->hai_len);
 		hai->hai_action = HSMA_CANCEL;
 		hal->hal_count = 1;
@@ -1697,12 +1698,12 @@ bool mdt_hsm_is_action_compat(const struct hsm_action_item *hai,
 	switch (hai->hai_action) {
 	case HSMA_ARCHIVE:
 		if (!(hsm_flags & HS_NOARCHIVE) &&
-		    ((hsm_flags & HS_DIRTY) || !(hsm_flags & HS_ARCHIVED)))
+		    (hsm_flags & HS_DIRTY || !(hsm_flags & HS_ARCHIVED)))
 			is_compat = true;
 		break;
 	case HSMA_RESTORE:
 		if (!(hsm_flags & HS_DIRTY) && (hsm_flags & HS_RELEASED) &&
-		    (hsm_flags & HS_ARCHIVED) && !(hsm_flags & HS_LOST))
+		    hsm_flags & HS_ARCHIVED && !(hsm_flags & HS_LOST))
 			is_compat = true;
 		break;
 	case HSMA_REMOVE:

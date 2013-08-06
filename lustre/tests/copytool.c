@@ -129,7 +129,7 @@ int main(int argc, char **argv) {
 		printf("Copytool fs=%s archive#=%d item_count=%d\n",
 			hal->hal_fsname, hal->hal_archive_id, hal->hal_count);
 
-		hai = hai_zero(hal);
+		hai = hai_first(hal);
 		while (++i <= hal->hal_count) {
 			printf("Item %d: action %d reclen %d\n", i,
 				hai->hai_action, hai->hai_len);

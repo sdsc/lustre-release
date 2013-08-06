@@ -46,13 +46,10 @@
  */
 void dump_requests(char *prefix, struct coordinator *cdt)
 {
-	cfs_list_t		*pos;
 	struct cdt_agent_req	*car;
 
 	down_read(&cdt->cdt_request_lock);
-	cfs_list_for_each(pos, &cdt->cdt_requests) {
-		car = cfs_list_entry(pos, struct cdt_agent_req,
-				     car_request_list);
+	list_for_each_entry(car, &cdt->cdt_requests, car_request_list) {
 		CDEBUG(D_HSM, "%s fid="DFID" dfid="DFID
 		       " compound/cookie="LPX64"/"LPX64
 		       " action=%s archive#=%d flags="LPX64
@@ -66,7 +63,7 @@ void dump_requests(char *prefix, struct coordinator *cdt)
 		       car->car_hai->hai_extent.offset,
 		       car->car_hai->hai_extent.length,
 		       car->car_hai->hai_gid,
-		       cfs_atomic_read(&car->car_refcount),
+		       atomic_read(&car->car_refcount),
 		       car->car_canceled);
 	}
 	up_read(&cdt->cdt_request_lock);
@@ -243,7 +240,7 @@ struct cdt_agent_req *mdt_cdt_alloc_request(__u64 compound_id, __u32 archive_id,
 	if (car == NULL)
 		RETURN(ERR_PTR(-ENOMEM));
 
-	cfs_atomic_set(&car->car_refcount, 0);
+	atomic_set(&car->car_refcount, 1);
 	car->car_compound_id = compound_id;
 	car->car_archive_id = archive_id;
 	car->car_flags = flags;
@@ -280,7 +277,7 @@ void mdt_cdt_free_request(struct cdt_agent_req *car)
  */
 void mdt_cdt_get_request(struct cdt_agent_req *car)
 {
-	cfs_atomic_inc(&car->car_refcount);
+	atomic_inc(&car->car_refcount);
 }
 
 /**
@@ -290,7 +287,8 @@ void mdt_cdt_get_request(struct cdt_agent_req *car)
  */
 void mdt_cdt_put_request(struct cdt_agent_req *car)
 {
-	if (cfs_atomic_dec_and_test(&car->car_refcount))
+	LASSERT(atomic_read(&car->car_refcount) > 0);
+	if (atomic_dec_and_test(&car->car_refcount))
 		mdt_cdt_free_request(car);
 }
 
@@ -300,31 +298,28 @@ void mdt_cdt_put_request(struct cdt_agent_req *car)
  * \param cdt [IN] coordinator
  * \param cookie [IN] request cookie
  * \param fid [IN] fid
- * \retval request pointer
+ * \retval request pointer or NULL is not found
  */
 static struct cdt_agent_req *cdt_find_request_nolock(struct coordinator *cdt,
 						     __u64 cookie,
 						     const struct lu_fid *fid)
 {
-	cfs_list_t		*pos;
 	struct cdt_agent_req	*car;
 	ENTRY;
 
-	if (cfs_list_empty(&cdt->cdt_requests))
+	if (list_empty(&cdt->cdt_requests))
 		goto notfound;
 
-	cfs_list_for_each(pos, &cdt->cdt_requests) {
-		car = cfs_list_entry(pos, struct cdt_agent_req,
-				     car_request_list);
-		if ((car->car_hai->hai_cookie == cookie) ||
-		    ((fid != NULL) && lu_fid_eq(fid, &car->car_hai->hai_fid))) {
+	list_for_each_entry(car, &cdt->cdt_requests, car_request_list) {
+		if (car->car_hai->hai_cookie == cookie ||
+		    (fid != NULL && lu_fid_eq(fid, &car->car_hai->hai_fid))) {
 			mdt_cdt_get_request(car);
 			RETURN(car);
 		}
 	}
 
 notfound:
-	RETURN(ERR_PTR(-ENOENT));
+	RETURN(NULL);
 }
 
 /**
@@ -345,14 +340,13 @@ int mdt_cdt_add_request(struct coordinator *cdt, struct cdt_agent_req *new_car)
 	down_write(&cdt->cdt_request_lock);
 
 	car = cdt_find_request_nolock(cdt, new_car->car_hai->hai_cookie, NULL);
-	if (!IS_ERR(car)) {
+	if (!IS_ERR(car) && car != NULL) {
 		mdt_cdt_put_request(car);
 		up_write(&cdt->cdt_request_lock);
 		RETURN(-EEXIST);
 	}
 
-	mdt_cdt_get_request(new_car);
-	cfs_list_add_tail(&new_car->car_request_list, &cdt->cdt_requests);
+	list_add_tail(&new_car->car_request_list, &cdt->cdt_requests);
 	up_write(&cdt->cdt_request_lock);
 
 	mdt_hsm_agent_update_statistics(cdt, 0, 0, 1, &new_car->car_uuid);
@@ -367,7 +361,7 @@ int mdt_cdt_add_request(struct coordinator *cdt, struct cdt_agent_req *new_car)
  * \param cdt [IN] coordinator
  * \param cookie [IN] request cookie
  * \param fid [IN] fid
- * \retval request pointer
+ * \retval request pointer or NULL if not found
  */
 struct cdt_agent_req *mdt_cdt_find_request(struct coordinator *cdt,
 					   const __u64 cookie,
@@ -398,16 +392,18 @@ int mdt_cdt_remove_request(struct coordinator *cdt, __u64 cookie)
 
 	down_write(&cdt->cdt_request_lock);
 	car = cdt_find_request_nolock(cdt, cookie, NULL);
-	if (!IS_ERR(car)) {
-		cfs_list_del(&car->car_request_list);
+	if (!IS_ERR(car) && car != NULL) {
+		list_del(&car->car_request_list);
 		up_write(&cdt->cdt_request_lock);
+
+		LASSERT(atomic_read(&cdt->cdt_request_count) >= 1);
+		atomic_dec(&cdt->cdt_request_count);
+
 		/* put for get from list_add */
 		mdt_cdt_put_request(car);
+
 		/* put for get from find */
 		mdt_cdt_put_request(car);
-
-		LASSERT(atomic_read(&cdt->cdt_request_count) > 0);
-		atomic_dec(&cdt->cdt_request_count);
 
 		RETURN(0);
 	}
@@ -421,7 +417,7 @@ int mdt_cdt_remove_request(struct coordinator *cdt, __u64 cookie)
  * on success, add a ref to the request returned
  * \param cdt [IN] coordinator
  * \param pgs [IN] progression (cookie + extent + err)
- * \retval request pointer
+ * \retval request pointer or NULL if not found
  * \retval -ve failure
  */
 struct cdt_agent_req *mdt_cdt_update_request(struct coordinator *cdt,
@@ -432,7 +428,7 @@ struct cdt_agent_req *mdt_cdt_update_request(struct coordinator *cdt,
 	ENTRY;
 
 	car = mdt_cdt_find_request(cdt, pgs->hpk_cookie, NULL);
-	if (IS_ERR(car))
+	if (IS_ERR(car) || car == NULL)
 		RETURN(car);
 
 	car->car_req_update = cfs_time_current_sec();
@@ -464,20 +460,20 @@ static void *mdt_hsm_request_proc_start(struct seq_file *s, loff_t *p)
 {
 	struct mdt_device	*mdt = s->private;
 	struct coordinator	*cdt = &mdt->mdt_coordinator;
-	cfs_list_t		*pos;
+	struct list_head	*pos;
 	loff_t			 i;
 	ENTRY;
 
 	down_read(&cdt->cdt_request_lock);
 
-	if (cfs_list_empty(&cdt->cdt_requests))
+	if (list_empty(&cdt->cdt_requests))
 		RETURN(NULL);
 
 	if (*p == 0)
 		RETURN(SEQ_START_TOKEN);
 
 	i = 0;
-	cfs_list_for_each(pos, &cdt->cdt_requests) {
+	list_for_each(pos, &cdt->cdt_requests) {
 		i++;
 		if (i >= *p)
 			RETURN(pos);
@@ -493,7 +489,7 @@ static void *mdt_hsm_request_proc_next(struct seq_file *s, void *v, loff_t *p)
 {
 	struct mdt_device	*mdt = s->private;
 	struct coordinator	*cdt = &mdt->mdt_coordinator;
-	cfs_list_t		*pos = v;
+	struct list_head	*pos = v;
 	ENTRY;
 
 	if (pos == SEQ_START_TOKEN)
@@ -513,7 +509,7 @@ static void *mdt_hsm_request_proc_next(struct seq_file *s, void *v, loff_t *p)
  */
 static int mdt_hsm_request_proc_show(struct seq_file *s, void *v)
 {
-	cfs_list_t		*pos = v;
+	struct list_head	*pos = v;
 	struct cdt_agent_req	*car;
 	char			 buf[12];
 	__u64			 data_moved;
@@ -522,7 +518,7 @@ static int mdt_hsm_request_proc_show(struct seq_file *s, void *v)
 	if (pos == SEQ_START_TOKEN)
 		RETURN(0);
 
-	car = cfs_list_entry(pos, struct cdt_agent_req, car_request_list);
+	car = list_entry(pos, struct cdt_agent_req, car_request_list);
 	mdt_cdt_get_work_done(car, &data_moved);
 
 	seq_printf(s, "fid="DFID" dfid="DFID
