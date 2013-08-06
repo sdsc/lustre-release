@@ -113,6 +113,7 @@ struct tgt_thread_info {
 	/* transno storage during last_rcvd update */
 	__u64			 tti_transno;
 
+	__u32			tti_has_trans:1; /* has txn already? */
 	/* Updates data for OUT target */
 	struct thandle_exec_args tti_tea;
 	union {

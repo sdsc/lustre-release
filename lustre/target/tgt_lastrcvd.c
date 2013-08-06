@@ -700,6 +700,16 @@ int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 
 	ENTRY;
 
+	if (tti->tti_has_trans) {
+		/* XXX: currently there are allowed cases, but the wrong cases
+		 * are also possible, so better check is needed here */
+		CDEBUG(D_INFO, "More than one transaction "LPU64"\n",
+		       tti->tti_transno);
+		return 0;
+	}
+
+	tti->tti_has_trans = 1;
+
 	/* that can be OUT target and we need tgt_session_info */
 	if (req == NULL) {
 		struct tgt_session_info	*tsi = tgt_ses_info(env);
@@ -830,3 +840,11 @@ srv_update:
 	return rc;
 }
 EXPORT_SYMBOL(tgt_last_rcvd_update);
+
+void tgt_thread_info_init(const struct lu_env *env)
+{
+	struct tgt_thread_info	*tti = tgt_th_info(env);
+
+	tti->tti_has_trans = 0;
+}
+EXPORT_SYMBOL(tgt_thread_info_init);

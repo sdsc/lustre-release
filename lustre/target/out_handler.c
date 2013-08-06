@@ -1229,6 +1229,7 @@ int out_handle(struct tgt_session_info *tsi)
 
 	ENTRY;
 
+	tgt_thread_info_init(env);
 	req_capsule_set(pill, &RQF_UPDATE_OBJ);
 	bufsize = req_capsule_get_size(pill, &RMF_UPDATE, RCL_CLIENT);
 	if (bufsize != UPDATE_BUFFER_SIZE) {

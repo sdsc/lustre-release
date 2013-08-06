@@ -251,6 +251,7 @@ int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tg,
 int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 			 struct dt_object *obj, __u64 opdata,
 			 struct thandle *th, struct ptlrpc_request *req);
+void tgt_thread_info_init(const struct lu_env *env);
 
 enum {
 	ESERIOUS = 0x0001000
