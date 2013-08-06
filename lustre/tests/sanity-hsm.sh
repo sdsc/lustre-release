@@ -83,7 +83,7 @@ make_small() {
 }
 
 test_1() {
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	chmod 777 $DIR/$tdir
 
 	TESTFILE=$DIR/$tdir/file
@@ -129,7 +129,7 @@ test_1() {
 run_test 1 "lfs hsm flags root/non-root access"
 
 test_2() {
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	TESTFILE=$DIR/$tdir/file
 	touch $TESTFILE
 
@@ -170,7 +170,7 @@ test_2() {
 run_test 2 "Check file dirtyness when doing setattr"
 
 test_3() {
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	TESTFILE=$DIR/$tdir/file
 
 	# New files are not dirty
@@ -241,7 +241,7 @@ test_3() {
 run_test 3 "Check file dirtyness when opening for write"
 
 test_20() {
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 
 	local f=$DIR/$tdir/sample
 	touch $f
@@ -274,7 +274,7 @@ test_21() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	local f=$DIR/$tdir/test_release
 
 	# Create a file and check its states
@@ -326,7 +326,7 @@ test_22() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 
 	local f=$DIR/$tdir/test_release
 	local swap=$DIR/$tdir/test_swap
@@ -358,7 +358,7 @@ test_23() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 
 	local f=$DIR/$tdir/test_mtime
 
@@ -391,7 +391,7 @@ test_24() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 
 	local f=$DIR/$tdir/test_mtime
 

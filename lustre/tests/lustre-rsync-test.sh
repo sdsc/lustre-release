@@ -62,16 +62,16 @@ init_changelog() {
 }
 
 init_src() {
-    rm -rf $TGT/$tdir $TGT/d*.lustre_rsync-test 2> /dev/null
-    rm -rf $TGT2/$tdir $TGT2/d*.lustre_rsync-test 2> /dev/null
-    rm -rf ${DIR}/$tdir $DIR/d*.lustre_rsync-test ${DIR}/tgt 2> /dev/null
-    rm -f $LREPL_LOG
-    mkdir -p ${DIR}/$tdir
-    mkdir -p ${TGT}/$tdir
-    mkdir -p ${TGT2}/$tdir
-    if [ $? -ne 0 ]; then
-        error "Failed to create target: " $TGT
-    fi
+	rm -rf $TGT/$tdir $TGT/d*.lustre_rsync-test 2> /dev/null
+	rm -rf $TGT2/$tdir $TGT2/d*.lustre_rsync-test 2> /dev/null
+	rm -rf ${DIR}/$tdir $DIR/d*.lustre_rsync-test ${DIR}/tgt 2> /dev/null
+	rm -f $LREPL_LOG
+	mkdir ${DIR}/$tdir || error "mkdir $tdir failed"
+	mkdir -p ${TGT}/$tdir || error "mkdir $TGT/$tdir failed"
+	mkdir -p ${TGT2}/$tdir || error "mkdir $TGT2/$tdir failed"
+	if [ $? -ne 0 ]; then
+		error "Failed to create target: " $TGT
+	fi
 }
 
 cleanup_src_tgt() {
@@ -123,13 +123,13 @@ check_diff() {
 
 # Test 1 - test basic operations
 test_1() {
-    init_src
-    init_changelog
-    local xattr=$(check_xattr $TGT/foo)
+	init_src
+	init_changelog
+	local xattr=$(check_xattr $TGT/foo)
 
-    # Directory create
-    mkdir $DIR/$tdir/d1
-    mkdir $DIR/$tdir/d2
+	# Directory create
+	mkdir $DIR/$tdir/d1 || error "mkdir $tdir/d1 failed"
+	mkdir $DIR/$tdir/d2 || error "mkdir $tdir/d2 failed"
 
     # File create
     touch $DIR/$tdir/file1
@@ -140,13 +140,13 @@ test_1() {
     # File rename
     mv $DIR/$tdir/d1/file2 $DIR/$tdir/d2/file3
 
-    # File and directory delete
-    touch $DIR/$tdir/d1/file4
-    mkdir $DIR/$tdir/d1/del
-    touch  $DIR/$tdir/d1/del/del1
-    touch  $DIR/$tdir/d1/del/del2
-    rm -rf $DIR/$tdir/d1/del
-    rm $DIR/$tdir/d1/file4
+	# File and directory delete
+	touch $DIR/$tdir/d1/file4
+	mkdir $DIR/$tdir/d1/del || error "mkdir $tdir/d1/del failed"
+	touch  $DIR/$tdir/d1/del/del1
+	touch  $DIR/$tdir/d1/del/del2
+	rm -rf $DIR/$tdir/d1/del
+	rm $DIR/$tdir/d1/file4
 
     #hard and soft links
     cat /etc/hosts > $DIR/$tdir/d1/link1
@@ -521,13 +521,13 @@ run_test 6 "lustre_rsync large no of hard links"
 
 # Test 7 - lustre_rsync stripesize
 test_7() {
-    init_src
-    mkdir -p ${DIR}/tgt/$tdir
-    init_changelog
+	init_src
+	mkdir -p ${DIR}/tgt/$tdir || error "mkdir tgt/$tdir failed"
+	init_changelog
 
-    local NUMFILES=100
-    lfs setstripe -c $OSTCOUNT $DIR/$tdir
-    createmany -o $DIR/$tdir/$tfile $NUMFILES
+	local NUMFILES=100
+	lfs setstripe -c $OSTCOUNT $DIR/$tdir
+	createmany -o $DIR/$tdir/$tfile $NUMFILES
 
 	# To simulate replication to another lustre filesystem, replicate
 	# the changes to $DIR/tgt. We can't turn off the changelogs
@@ -557,22 +557,21 @@ run_test 7 "lustre_rsync stripesize"
 
 # Test 8 - Replicate multiple file/directory moves
 test_8() {
-    init_src
-    init_changelog
+	init_src
+	init_changelog
 
-    for i in 1 2 3 4 5 6 7 8 9; do
-	mkdir $DIR/$tdir/d$i
-	    for j in 1 2 3 4 5 6 7 8 9; do
-		mkdir $DIR/$tdir/d$i/d$i$j
-		createmany -o $DIR/$tdir/d$i/d$i$j/a 10 \
-		    > /dev/null
-		mv $DIR/$tdir/d$i/d$i$j $DIR/$tdir/d$i/d0$i$j
-		createmany -o $DIR/$tdir/d$i/d0$i$j/b 10 \
-	            > /dev/null
-		mv $DIR/$tdir/d$i/d0$i$j/a0 $DIR/$tdir/d$i/d0$i$j/c0
-	    done
-	    mv $DIR/$tdir/d$i $DIR/$tdir/d0$i
-    done
+	for i in 1 2 3 4 5 6 7 8 9; do
+		mkdir $DIR/$tdir/d$i || error "mkdir $tdir/d$i failed"
+			for j in 1 2 3 4 5 6 7 8 9; do
+				mkdir $DIR/$tdir/d$i/d$i$j ||
+					error "mkdir $tdir/d$i/d$i$j failed"
+				createmany -o $DIR/$tdir/d$i/d$i$j/a 10 > /dev/null
+				mv $DIR/$tdir/d$i/d$i$j $DIR/$tdir/d$i/d0$i$j
+				createmany -o $DIR/$tdir/d$i/d0$i$j/b 10 > /dev/null
+			mv $DIR/$tdir/d$i/d0$i$j/a0 $DIR/$tdir/d$i/d0$i$j/c0
+			done
+		mv $DIR/$tdir/d$i $DIR/$tdir/d0$i
+	done
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	$LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG \
@@ -587,11 +586,11 @@ test_8() {
 run_test 8 "Replicate multiple file/directory moves"
 
 test_9() {
-    init_src
-    init_changelog
+	init_src
+	init_changelog
 
-    mkdir $DIR/$tdir/foo
-    touch $DIR/$tdir/foo/a1
+	mkdir $DIR/$tdir/foo || error "mkdir $tdir/foo failed"
+	touch $DIR/$tdir/foo/a1
 
 	local LRSYNC_LOG=$(generate_logname "lrsync_log")
 	$LRSYNC -s $DIR -t $TGT -m $MDT0 -u $CL_USER -l $LREPL_LOG \

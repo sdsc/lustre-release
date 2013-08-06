@@ -139,9 +139,9 @@ test_2f() {
 	local MDTIDX=1
 	local remote_dir=$tdir/remote_dir
 
-	mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $DIR1/$remote_dir ||
-	           error "Create remote directory failed"
+		error "Create remote directory failed"
 
 	touch $DIR1/$remote_dir/$tfile ||
 		error "Create file under remote directory failed"
@@ -257,7 +257,7 @@ test_10b() {
 run_test 10b "write of file with sub-page size on multiple mounts "
 
 test_11() {
-	test_mkdir $DIR1/d11
+	test_mkdir $DIR1/d11 || error "mkdir d11 failed"
 	multiop_bg_pause $DIR1/d11/f O_c || return 1
 	MULTIPID=$!
 	cp -p /bin/ls $DIR1/d11/f
@@ -267,7 +267,7 @@ test_11() {
 	wait $MULTIPID || error
 	[ $RC -eq 0 ] && error || true
 }
-run_test 11 "execution of file opened for write should return error ===="
+run_test 11 "execution of file opened for write should return error"
 
 test_12() {
        DIR=$DIR DIR2=$DIR2 sh lockorder.sh
@@ -275,23 +275,23 @@ test_12() {
 run_test 12 "test lock ordering (link, stat, unlink) ==========="
 
 test_13() {	# bug 2451 - directory coherency
-	test_mkdir $DIR1/d13 || error
-       cd $DIR1/d13 || error
-       ls
-       ( touch $DIR1/d13/f13 ) # needs to be a separate shell
-       ls
-       rm -f $DIR2/d13/f13 || error
-       ls 2>&1 | grep f13 && error "f13 shouldn't return an error (1)" || true
-       # need to run it twice
-       ( touch $DIR1/d13/f13 ) # needs to be a separate shell
-       ls
-       rm -f $DIR2/d13/f13 || error
-       ls 2>&1 | grep f13 && error "f13 shouldn't return an error (2)" || true
+	test_mkdir $DIR1/d13 || error "mkdir d13 failed"
+	cd $DIR1/d13 || error
+	ls
+	( touch $DIR1/d13/f13 ) # needs to be a separate shell
+	ls
+	rm -f $DIR2/d13/f13 || error
+	ls 2>&1 | grep f13 && error "f13 shouldn't return an error (1)" || true
+	# need to run it twice
+	( touch $DIR1/d13/f13 ) # needs to be a separate shell
+	ls
+	rm -f $DIR2/d13/f13 || error
+	ls 2>&1 | grep f13 && error "f13 shouldn't return an error (2)" || true
 }
-run_test 13 "test directory page revocation ===================="
+run_test 13 "test directory page revocation"
 
 test_14() {
-	test_mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 	cp -p /bin/ls $DIR1/$tdir/$tfile
 	multiop_bg_pause $DIR1/$tdir/$tfile Ow_c || return 1
 	MULTIPID=$!
@@ -303,57 +303,61 @@ test_14() {
 run_test 14 "execution of file open for write returns -ETXTBSY ="
 
 test_14a() {
-	test_mkdir -p $DIR1/d14
+	test_mkdir $DIR1/d14 || error "mkdir d14 failed"
 	cp -p `which multiop` $DIR1/d14/multiop || error "cp failed"
-        MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c || return 1
-        MULTIOP_PID=$!
-        $MULTIOP $DIR2/d14/multiop Oc && error "expected error, got success"
-        kill -USR1 $MULTIOP_PID || return 2
-        wait $MULTIOP_PID || return 3
-        rm $TMP/test14.junk $DIR1/d14/multiop || error "removing multiop"
-}
-run_test 14a "open(RDWR) of executing file returns -ETXTBSY ===="
-
-test_14b() { # bug 3192, 7040
-	test_mkdir -p $DIR1/d14
-	cp -p `which multiop` $DIR1/d14/multiop || error "cp failed"
-        MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c || return 1
-        MULTIOP_PID=$!
-        $TRUNCATE $DIR2/d14/multiop 0 && kill -9 $MULTIOP_PID && \
-		error "expected truncate error, got success"
-        kill -USR1 $MULTIOP_PID || return 2
-        wait $MULTIOP_PID || return 3
-	cmp `which multiop` $DIR1/d14/multiop || error "binary changed"
+	MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c ||
+		return 1
+	MULTIOP_PID=$!
+	$MULTIOP $DIR2/d14/multiop Oc && error "expected error, got success"
+	kill -USR1 $MULTIOP_PID || return 2
+	wait $MULTIOP_PID || return 3
 	rm $TMP/test14.junk $DIR1/d14/multiop || error "removing multiop"
 }
-run_test 14b "truncate of executing file returns -ETXTBSY ======"
+run_test 14a "open(RDWR) of executing file returns -ETXTBSY"
+
+test_14b() { # bug 3192, 7040
+	test_mkdir $DIR1/d14 || error "mkdir d14 failed"
+	cp -p $(which multiop) $DIR1/d14/multiop || error "cp failed"
+	MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c ||
+		return 1
+	MULTIOP_PID=$!
+	$TRUNCATE $DIR2/d14/multiop 0 && kill -9 $MULTIOP_PID && \
+		error "expected truncate error, got success"
+	kill -USR1 $MULTIOP_PID || return 2
+	wait $MULTIOP_PID || return 3
+	cmp $(which multiop) $DIR1/d14/multiop || error "binary changed"
+	rm $TMP/test14.junk $DIR1/d14/multiop || error "removing multiop"
+}
+run_test 14b "truncate of executing file returns -ETXTBSY"
 
 test_14c() { # bug 3430, 7040
-	test_mkdir -p $DIR1/d14
-	cp -p `which multiop` $DIR1/d14/multiop || error "cp failed"
-	MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c || return 1
-        MULTIOP_PID=$!
+	test_mkdir $DIR1/d14 || error "mkdir d14 failed"
+	cp -p $(which multiop) $DIR1/d14/multiop || error "cp failed"
+	MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c ||
+		return 1
+	MULTIOP_PID=$!
 	cp /etc/hosts $DIR2/d14/multiop && error "expected error, got success"
 	kill -USR1 $MULTIOP_PID || return 2
 	wait $MULTIOP_PID || return 3
-	cmp `which multiop` $DIR1/d14/multiop || error "binary changed"
+	cmp $(which multiop) $DIR1/d14/multiop || error "binary changed"
 	rm $TMP/test14.junk $DIR1/d14/multiop || error "removing multiop"
 }
-run_test 14c "open(O_TRUNC) of executing file return -ETXTBSY =="
+run_test 14c "open(O_TRUNC) of executing file return -ETXTBSY"
 
 test_14d() { # bug 10921
-	test_mkdir -p $DIR1/d14
-	cp -p `which multiop` $DIR1/d14/multiop || error "cp failed"
-	MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c || return 1
-        MULTIOP_PID=$!
+	test_mkdir $DIR1/d14 || error "mkdir d14 failed"
+	cp -p $(which multiop) $DIR1/d14/multiop || error "cp failed"
+	MULTIOP_PROG=$DIR1/d14/multiop multiop_bg_pause $TMP/test14.junk O_c ||
+	return 1
+	MULTIOP_PID=$!
 	log chmod
 	chmod 600 $DIR1/d14/multiop || error "chmod failed"
 	kill -USR1 $MULTIOP_PID || return 2
 	wait $MULTIOP_PID || return 3
-	cmp `which multiop` $DIR1/d14/multiop || error "binary changed"
+	cmp $(which multiop) $DIR1/d14/multiop || error "binary changed"
 	rm $TMP/test14.junk $DIR1/d14/multiop || error "removing multiop"
 }
-run_test 14d "chmod of executing file is still possible ========"
+run_test 14d "chmod of executing file is still possible"
 
 test_15() {	# bug 974 - ENOSPC
 	echo "PATH=$PATH"
@@ -457,7 +461,7 @@ test_19() { # bug3811
 run_test 19 "test concurrent uncached read races ==============="
 
 test_20() {
-	test_mkdir $DIR1/d20
+	test_mkdir $DIR1/d20 || error "mkdir d20 failed"
 	cancel_lru_locks osc
 	CNT=$((`lctl get_param -n llite.*.dump_page_cache | wc -l`))
 	$MULTIOP $DIR1/f20 Ow8190c
@@ -468,7 +472,7 @@ test_20() {
 	[ $CNTD -gt 0 ] && \
 	    error $CNTD" page left in cache after lock cancel" || true
 }
-run_test 20 "test extra readahead page left in cache ===="
+run_test 20 "test extra readahead page left in cache"
 
 cleanup_21() {
 	trap 0
@@ -476,7 +480,7 @@ cleanup_21() {
 }
 
 test_21() { # Bug 5907
-	test_mkdir $DIR1/$tdir
+	test_mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 	mount /etc $DIR1/$tdir --bind || error "mount failed" # Poor man's mount.
 	trap cleanup_21 EXIT
 	rmdir -v $DIR1/$tdir && error "Removed mounted directory"
@@ -544,7 +548,7 @@ test_25a() {
 								grep -c acl)
 	[ "$acl" -lt 1 ] && skip "must have acl, skipping" && return
 
-	mkdir -p $DIR1/$tdir
+	mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 	touch $DIR1/$tdir/f1 || error "touch $DIR1/$tdir/f1"
 	chmod 0755 $DIR1/$tdir/f1 || error "chmod 0755 $DIR1/$tdir/f1"
 
@@ -564,7 +568,7 @@ test_25a() {
 
 	rm -rf $DIR1/$tdir
 }
-run_test 25a "change ACL on one mountpoint be seen on another ==="
+run_test 25a "change ACL on one mountpoint be seen on another"
 
 test_25b() {
 	local acl=$(lctl get_param -n mdc.*MDT0000-mdc-*.connect_flags |
@@ -687,7 +691,7 @@ test_29() { # bug 10999
 run_test 29 "lock put race between glimpse and enqueue ========="
 
 test_30() { #bug #11110, LU-2523
-	test_mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 	cp -f /bin/bash $DIR1/$tdir/bash
 	/bin/sh -c 'sleep 1; rm -f $DIR2/$tdir/bash;
 		    cp /bin/bash $DIR2/$tdir' &
@@ -700,7 +704,7 @@ test_30() { #bug #11110, LU-2523
 run_test 30 "recreate file race"
 
 test_31a() {
-	test_mkdir -p $DIR1/$tdir || error "Creating dir $DIR1/$tdir"
+	test_mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 	local writes=$(LANG=C dd if=/dev/zero of=$DIR/$tdir/$tfile \
 		       count=1 2>&1 | awk 'BEGIN { FS="+" } /out/ {print $1}')
 	#define OBD_FAIL_LDLM_CANCEL_BL_CB_RACE   0x314
@@ -709,7 +713,7 @@ test_31a() {
 		      awk 'BEGIN { FS="+" } /in/ {print $1}')
 	[ $reads -eq $writes ] || error "read" $reads "blocks, must be" $writes
 }
-run_test 31a "voluntary cancel / blocking ast race=============="
+run_test 31a "voluntary cancel / blocking ast race"
 
 test_31b() {
 	remote_ost || { skip "local OST" && return 0; }
@@ -719,21 +723,21 @@ test_31b() {
 	wait_mds_ost_sync || error "wait_mds_ost_sync()"
 	wait_delete_completed || error "wait_delete_completed()"
 
-	test_mkdir -p $DIR1/$tdir || error "Creating dir $DIR1/$tdir"
-        lfs setstripe $DIR/$tdir/$tfile -i 0 -c 1
-        cp /etc/hosts $DIR/$tdir/$tfile
-        #define OBD_FAIL_LDLM_CANCEL_BL_CB_RACE   0x314
-        lctl set_param fail_loc=0x314
-        #define OBD_FAIL_LDLM_OST_FAIL_RACE      0x316
-        do_facet ost1 lctl set_param fail_loc=0x316
-        # Don't crash kernel
-        cat $DIR2/$tdir/$tfile > /dev/null 2>&1
-        lctl set_param fail_loc=0
-        do_facet ost1 lctl set_param fail_loc=0
-        # cleanup: reconnect the client back
-        df $DIR2
+	test_mkdir $DIR1/$tdir || error "mkdir $tdir failed"
+	lfs setstripe $DIR/$tdir/$tfile -i 0 -c 1
+	cp /etc/hosts $DIR/$tdir/$tfile
+	#define OBD_FAIL_LDLM_CANCEL_BL_CB_RACE   0x314
+	lctl set_param fail_loc=0x314
+	#define OBD_FAIL_LDLM_OST_FAIL_RACE      0x316
+	do_facet ost1 lctl set_param fail_loc=0x316
+	# Don't crash kernel
+	cat $DIR2/$tdir/$tfile > /dev/null 2>&1
+	lctl set_param fail_loc=0
+	do_facet ost1 lctl set_param fail_loc=0
+	# cleanup: reconnect the client back
+	df $DIR2
 }
-run_test 31b "voluntary OST cancel / blocking ast race=============="
+run_test 31b "voluntary OST cancel / blocking ast race"
 
 # enable/disable lockless truncate feature, depending on the arg 0/1
 enable_lockless_truncate() {
@@ -862,25 +866,25 @@ test_33a() {
     local jbdnew="N/A"
     local jbd
 
-    for COS in 0 1; do
-        do_facet $SINGLEMDS lctl set_param mdt.*.commit_on_sharing=$COS
-        avgjbd=0
-        avgtime=0
-        for i in 1 2 3; do
-            do_nodes $CLIENT1,$CLIENT2 "mkdir -p $DIR1/$tdir-\\\$(hostname)-$i"
+	for COS in 0 1; do
+		do_facet $SINGLEMDS lctl set_param mdt.*.commit_on_sharing=$COS
+		avgjbd=0
+		avgtime=0
+		for i in 1 2 3; do
+			do_nodes $CLIENT1,$CLIENT2 "mkdir $DIR1/$tdir-\\\$(hostname)-$i"
 
-            [ $fstype = ldiskfs ] && jbdold=$(print_jbd_stat)
-            echo "=== START createmany old: $jbdold transaction"
-            local elapsed=$(do_and_time "do_nodes $CLIENT1,$CLIENT2 createmany -o $DIR1/$tdir-\\\$(hostname)-$i/f- -r $DIR2/$tdir-\\\$(hostname)-$i/f- $nfiles > /dev/null 2>&1")
-            [ $fstype = ldiskfs ] && jbdnew=$(print_jbd_stat)
-            [ $fstype = ldiskfs ] && jbd=$(( jbdnew - jbdold ))
-            echo "=== END   createmany new: $jbdnew transaction :  $jbd transactions  nfiles $nfiles time $elapsed COS=$COS"
-            [ $fstype = ldiskfs ] && avgjbd=$(( avgjbd + jbd ))
-            avgtime=$(( avgtime + elapsed ))
-        done
-        eval cos${COS}_jbd=$((avgjbd / 3))
-        eval cos${COS}_time=$((avgtime / 3))
-    done
+			[ $fstype = ldiskfs ] && jbdold=$(print_jbd_stat)
+			echo "=== START createmany old: $jbdold transaction"
+			local elapsed=$(do_and_time "do_nodes $CLIENT1,$CLIENT2 createmany -o $DIR1/$tdir-\\\$(hostname)-$i/f- -r $DIR2/$tdir-\\\$(hostname)-$i/f- $nfiles > /dev/null 2>&1")
+			[ $fstype = ldiskfs ] && jbdnew=$(print_jbd_stat)
+			[ $fstype = ldiskfs ] && jbd=$(( jbdnew - jbdold ))
+			echo "=== END   createmany new: $jbdnew transaction :  $jbd transactions  nfiles $nfiles time $elapsed COS=$COS"
+			[ $fstype = ldiskfs ] && avgjbd=$(( avgjbd + jbd ))
+			avgtime=$(( avgtime + elapsed ))
+		done
+		eval cos${COS}_jbd=$((avgjbd / 3))
+		eval cos${COS}_time=$((avgtime / 3))
+	done
 
     echo "COS=0 transactions (avg): $cos0_jbd  time (avg): $cos0_time"
     echo "COS=1 transactions (avg): $cos1_jbd  time (avg): $cos1_time"
@@ -1022,16 +1026,16 @@ test_34() { #16129
 run_test 34 "no lock timeout under IO"
 
 test_35() { # bug 17645
-        local generation=[]
-        local count=0
-        for imp in /proc/fs/lustre/mdc/$FSNAME-MDT*-mdc-*; do
-            g=$(awk '/generation/{print $2}' $imp/import)
-            generation[count]=$g
-            let count=count+1
-        done
+	local generation=[]
+	local count=0
+	for imp in /proc/fs/lustre/mdc/$FSNAME-MDT*-mdc-*; do
+		g=$(awk '/generation/{print $2}' $imp/import)
+		generation[count]=$g
+		let count=count+1
+	done
 
-	test_mkdir -p $MOUNT1/$tfile
-        cancel_lru_locks mdc
+	test_mkdir $MOUNT1/$tfile || error "mkdir $tfile failed"
+	cancel_lru_locks mdc
 
         # Let's initiate -EINTR situation by setting fail_loc and take
         # write lock on same file from same client. This will not cause
@@ -1082,7 +1086,7 @@ test_36() { #bug 16417
 	local SIZE_B
 	local i
 
-	test_mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 	$LFS setstripe -c -1 $DIR1/$tdir
 	i=0
 	SIZE=50
@@ -1116,7 +1120,7 @@ test_36() { #bug 16417
 run_test 36 "handle ESTALE/open-unlink correctly"
 
 test_37() { # bug 18695
-	test_mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 	multiop_bg_pause $DIR1/$tdir D_c || return 1
 	MULTIPID=$!
 	# create large directory (32kB seems enough from e2fsck, ~= 1000 files)
@@ -1124,11 +1128,12 @@ test_37() { # bug 18695
 	# set mtime/atime backward
 	touch -t 198001010000 $DIR2/$tdir
 	kill -USR1 $MULTIPID
-	nr_files=`lfs find $DIR1/$tdir -type f | wc -l`
-	[ $nr_files -eq 10000 ] || error "$nr_files != 10000 truncated directory?"
+	nr_files=$(lfs find $DIR1/$tdir -type f | wc -l)
+	[ $nr_files -eq 10000 ] ||
+		error "$nr_files != 10000 truncated directory?"
 
 }
-run_test 37 "check i_size is not updated for directory on close (bug 18695) =============="
+run_test 37 "check i_size is not updated for directory on close (bug 18695)"
 
 # this should be set to past
 TEST_39_MTIME=`date -d "1 year ago" +%s`
@@ -1248,7 +1253,7 @@ test_40a() {
 	sleep 1
 	touch $DIR2/$tfile-2
 	check_pdo_conflict $PID1 || error "create is blocked"
-	mkdir $DIR2/$tfile-3
+	mkdir $DIR2/$tfile-3 || error "mkdir $tfile-3 failed"
 	check_pdo_conflict $PID1 || error "mkdir is blocked"
 	link $DIR2/$tfile-2 $DIR2/$tfile-4
 	check_pdo_conflict $PID1 || error "link is blocked"
@@ -1271,7 +1276,7 @@ test_40a() {
 	rm -r $DIR1/*
 	return 0
 }
-run_test 40a "pdirops: create vs others =============="
+run_test 40a "pdirops: create vs others"
 
 test_40b() {
 #define OBD_FAIL_ONCE|OBD_FAIL_MDS_PDO_LOCK    0x145
@@ -1282,7 +1287,7 @@ test_40b() {
 	# open|create
 	touch $DIR2/$tfile-2
 	check_pdo_conflict $PID1 || error "create is blocked"
-	mkdir $DIR2/$tfile-3
+	test_mkdir $DIR2/$tfile-3 || error "mkdir $tfile-3 failed"
 	check_pdo_conflict $PID1 || error "mkdir is blocked"
 	link $DIR2/$tfile-2 $DIR2/$tfile-4
 	check_pdo_conflict $PID1 || error "link is blocked"
@@ -1305,7 +1310,7 @@ test_40b() {
 	rm -r $DIR1/*
 	return 0
 }
-run_test 40b "pdirops: open|create and others =============="
+run_test 40b "pdirops: open|create and others"
 
 test_40c() {
 	touch $DIR1/$tfile
@@ -1317,7 +1322,7 @@ test_40c() {
 	# open|create
 	touch $DIR2/$tfile-2
 	check_pdo_conflict $PID1 || error "create is blocked"
-	mkdir $DIR2/$tfile-3
+	test_mkdir $DIR2/$tfile-3 || error "mkdir $tfile-3 failed"
 	check_pdo_conflict $PID1 || error "mkdir is blocked"
 	link $DIR2/$tfile-2 $DIR2/$tfile-4
 	check_pdo_conflict $PID1 || error "link is blocked"
@@ -1340,7 +1345,7 @@ test_40c() {
 	rm -r $DIR1/*
 	return 0
 }
-run_test 40c "pdirops: link and others =============="
+run_test 40c "pdirops: link and others"
 
 test_40d() {
 	touch $DIR1/$tfile
@@ -1352,7 +1357,7 @@ test_40d() {
 	# open|create
 	touch $DIR2/$tfile-2
 	check_pdo_conflict $PID1 || error "create is blocked"
-	mkdir $DIR2/$tfile-3
+	test_mkdir $DIR2/$tfile-3 || error "mkdir $tdile-3 failed"
 	check_pdo_conflict $PID1 || error "mkdir is blocked"
 	link $DIR2/$tfile-2 $DIR2/$tfile-4
 	check_pdo_conflict $PID1 || error "link is blocked"
@@ -1374,7 +1379,7 @@ test_40d() {
 	wait $PID1
 	return 0
 }
-run_test 40d "pdirops: unlink and others =============="
+run_test 40d "pdirops: unlink and others"
 
 test_40e() {
 	touch $DIR1/$tfile
@@ -1386,7 +1391,7 @@ test_40e() {
 	# open|create
 	touch $DIR2/$tfile-2
 	check_pdo_conflict $PID1 || error "create is blocked"
-	mkdir $DIR2/$tfile-3
+	test_mkdir $DIR2/$tfile-3 || error "mkdir $tfile-3 failed"
 	check_pdo_conflict $PID1 || error "mkdir is blocked"
 	link $DIR2/$tfile-2 $DIR2/$tfile-4
 	check_pdo_conflict $PID1 || error "link is blocked"
@@ -1407,7 +1412,7 @@ test_40e() {
 	rm -r $DIR1/*
 	return 0
 }
-run_test 40e "pdirops: rename and others =============="
+run_test 40e "pdirops: rename and others"
 
 # test 41: create blocking operations
 test_41a() {
@@ -1631,12 +1636,12 @@ test_43a() {
 	rm $DIR1/$tfile &
 	PID1=$!
 	sleep 1
-	mkdir $DIR2/$tfile || error "mkdir must succeed"
+	mkdir $DIR2/$tfile || error "mkdir $tfile failed"
 	check_pdo_conflict $PID1 && { wait $PID1; error "mkdir isn't blocked"; }
 	rm -r $DIR1/*
 	return 0
 }
-run_test 43a "pdirops: unlink vs mkdir =============="
+run_test 43a "pdirops: unlink vs mkdir"
 
 test_43b() {
 	touch $DIR1/$tfile
@@ -2352,7 +2357,7 @@ test_60() {
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.0) ]] ||
 	{ skip "Need MDS version at least 2.3.0"; return; }
 	# Create a file
-	test_mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 	file1=$DIR1/$tdir/file
 	file2=$DIR2/$tdir/file
 
@@ -2400,7 +2405,7 @@ run_test 60 "Verify data_version behaviour"
 test_70a() {
 	local test_dir=$tdir/test_dir
 
-	mkdir -p $DIR1/$tdir
+	test_mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 	if [ $MDSCOUNT -ge 2 ]; then
 		local MDTIDX=1
 		$LFS mkdir -i $MDTIDX $DIR1/$test_dir ||
@@ -2417,7 +2422,7 @@ run_test 70a "cd directory && rm directory"
 
 test_70b() { # LU-2781
 	local i
-	mkdir -p $DIR1/$tdir
+	mkdir $DIR1/$tdir || error "mkdir $tdir failed"
 
 	touch $DIR1/$tdir/file
 	for ((i = 0; i < 32; i++)); do

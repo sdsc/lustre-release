@@ -29,7 +29,7 @@ TESTDIR=$MOUNT/d0.dd-$(hostname)
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	echoerr "$(date +'%F %H:%M:%S'): dd run starting"
-	mkdir -p $TESTDIR
+	mkdir $TESTDIR || error "mkdir $TESTDIR failed"
 	$LFS setstripe -c -1 $TESTDIR
 	cd $TESTDIR
 	# suppress dd xfer stat to workaround buggy coreutils/gettext
@@ -50,7 +50,7 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 		echoerr "$(date +'%F %H:%M:%S'): dd run finished"
 	else
 		echoerr "$(date +'%F %H:%M:%S'): dd failed"
-        	if [ -z "$ERRORS_OK" ]; then
+		if [ -z "$ERRORS_OK" ]; then
 			echo $(hostname) >> $END_RUN_FILE
 		fi
 		if [ $BREAK_ON_ERROR ]; then

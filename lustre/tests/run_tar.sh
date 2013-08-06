@@ -33,13 +33,13 @@ do_tar() {
 
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
-    echoerr "$(date +'%F %H:%M:%S'): tar run starting"
-    mkdir -p $TESTDIR
-    cd $TESTDIR
-    do_tar &
-    wait $!
-    RC=$?
-    PREV_ERRORS=$(grep "exit delayed from previous errors" $LOG) || true
+	echoerr "$(date +'%F %H:%M:%S'): tar run starting"
+	mkdir $TESTDIR || error "mkdir $TESTDIR failed"
+	cd $TESTDIR
+	do_tar &
+	wait $!
+	RC=$?
+	PREV_ERRORS=$(grep "exit delayed from previous errors" $LOG) || true
     if [ $RC -ne 0 -a "$ERRORS_OK" -a "$PREV_ERRORS" ]; then
         echoerr "$(date +'%F %H:%M:%S'): tar errors earlier, ignoring"
         RC=0

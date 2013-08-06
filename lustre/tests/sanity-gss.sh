@@ -379,13 +379,13 @@ run_test 7 "exercise enlarge_reqbuf()"
 
 test_8()
 {
-    local ATHISTORY=$(do_facet $SINGLEMDS "find /sys/ -name at_history")
-    local ATOLDBASE=$(do_facet $SINGLEMDS "cat $ATHISTORY")
-    local REQ_DELAY
-    do_facet $SINGLEMDS "echo 8 >> $ATHISTORY"
+	local ATHISTORY=$(do_facet $SINGLEMDS "find /sys/ -name at_history")
+	local ATOLDBASE=$(do_facet $SINGLEMDS "cat $ATHISTORY")
+	local REQ_DELAY
+	do_facet $SINGLEMDS "echo 8 >> $ATHISTORY"
 
-    mkdir -p $DIR/d8
-    chmod a+w $DIR/d8
+	mkdir -$DIR/d8 || error "mkdir d8 failed"
+	chmod a+w $DIR/d8
 
     $LCTL dk > /dev/null
     debugsave
