@@ -731,6 +731,10 @@ struct lu_object *lu_object_find_slice(const struct lu_env *env,
                                        struct lu_device *dev,
                                        const struct lu_fid *f,
                                        const struct lu_object_conf *conf);
+struct lu_object *lu_object_find_last_slice(const struct lu_env *env,
+					    struct lu_device *dev,
+					    const struct lu_fid *f,
+					    const struct lu_object_conf *conf);
 /** @} caching */
 
 /** \name helpers
