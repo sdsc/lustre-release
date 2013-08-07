@@ -859,8 +859,42 @@ put_lfsck:
 }
 EXPORT_SYMBOL(lfsck_dump);
 
+int lfsck_query(struct dt_device *key, enum lfsck_type type)
+{
+	struct lu_env		env;
+	struct lfsck_instance  *lfsck;
+	struct lfsck_component *com;
+	int			rc;
+	ENTRY;
+
+	lfsck = lfsck_instance_find(key, true, false);
+	if (unlikely(lfsck == NULL))
+		RETURN(-ENODEV);
+
+	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD);
+	if (rc != 0)
+		GOTO(put_lfsck, rc);
+
+	com = lfsck_component_find(lfsck, type);
+	if (com == NULL)
+		GOTO(env_fini, rc = -ENOENT);
+
+	rc = com->lc_ops->lfsck_query(&env, com);
+	lfsck_component_put(&env, com);
+
+	GOTO(env_fini, rc);
+
+env_fini:
+	lu_env_fini(&env);
+
+put_lfsck:
+	lfsck_instance_put(&env, lfsck);
+	return rc;
+}
+EXPORT_SYMBOL(lfsck_query);
+
 int lfsck_start(const struct lu_env *env, struct dt_device *key,
-		struct lfsck_start_param *lsp)
+		struct lfsck_start_param *lsp, struct obd_export *exp)
 {
 	struct lfsck_start     *start  = lsp->lsp_start;
 	struct lfsck_instance  *lfsck;
@@ -915,7 +949,7 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 	spin_unlock(&lfsck->li_lock);
 
 	lfsck->li_namespace = lsp->lsp_namespace;
-	lfsck->li_paused = 0;
+	lfsck->li_status = 0;
 	lfsck->li_oit_over = 0;
 	lfsck->li_drop_dryrun = 0;
 	lfsck->li_new_scanned = 0;
@@ -1049,15 +1083,22 @@ out:
 	mutex_unlock(&lfsck->li_mutex);
 put:
 	lfsck_instance_put(env, lfsck);
+	if (exp != NULL) {
+		if (rc == -EALREADY)
+			rc = 0;
+		/* XXX: more processing in other patches. */
+	}
 	return (rc < 0 ? rc : 0);
 }
 EXPORT_SYMBOL(lfsck_start);
 
-int lfsck_stop(const struct lu_env *env, struct dt_device *key, bool pause)
+int lfsck_stop(const struct lu_env *env, struct dt_device *key,
+	       struct lfsck_stop *stop, struct obd_export *exp)
 {
 	struct lfsck_instance	*lfsck;
 	struct ptlrpc_thread	*thread;
 	struct l_wait_info	 lwi    = { 0 };
+	int			 rc;
 	ENTRY;
 
 	lfsck = lfsck_instance_find(key, true, false);
@@ -1069,13 +1110,10 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key, bool pause)
 	spin_lock(&lfsck->li_lock);
 	if (thread_is_init(thread) || thread_is_stopped(thread)) {
 		spin_unlock(&lfsck->li_lock);
-		mutex_unlock(&lfsck->li_mutex);
-		lfsck_instance_put(env, lfsck);
-		RETURN(-EALREADY);
+		GOTO(out, rc = -EALREADY);
 	}
 
-	if (pause)
-		lfsck->li_paused = 1;
+	lfsck->li_status = stop->ls_status;
 	thread_set_flags(thread, SVC_STOPPING);
 	spin_unlock(&lfsck->li_lock);
 
@@ -1083,12 +1121,57 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key, bool pause)
 	l_wait_event(thread->t_ctl_waitq,
 		     thread_is_stopped(thread),
 		     &lwi);
+
+	GOTO(out, rc = 0);
+
+out:
 	mutex_unlock(&lfsck->li_mutex);
 	lfsck_instance_put(env, lfsck);
-
-	RETURN(0);
+	if (exp != NULL) {
+		if (rc == -EALREADY)
+			rc = 0;
+		/* XXX: more processing in other patches. */
+	}
+	return rc;
 }
 EXPORT_SYMBOL(lfsck_stop);
+
+int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
+		    struct lfsck_event_request *ler, struct obd_export *exp)
+{
+	struct lfsck_instance  *lfsck;
+	struct lfsck_component *com;
+	enum lfsck_type 	type;
+	int			rc;
+	ENTRY;
+
+	switch (ler->ler_event) {
+	case LNE_LAYOUT_PHASE1_DONE:
+	case LNE_LAYOUT_PHASE2_DONE:
+		type = LT_LAYOUT;
+		break;
+	default:
+		RETURN(-EOPNOTSUPP);
+	}
+
+	lfsck = lfsck_instance_find(key, true, false);
+	if (unlikely(lfsck == NULL))
+		RETURN(-ENODEV);
+
+	com = lfsck_component_find(lfsck, type);
+	if (com == NULL)
+		GOTO(put, rc = -ENOENT);
+
+	rc = com->lc_ops->lfsck_in_notify(env, com, ler, exp);
+	lfsck_component_put(env, com);
+
+	GOTO(put, rc);
+
+put:
+	lfsck_instance_put(env, lfsck);
+	return rc;
+}
+EXPORT_SYMBOL(lfsck_in_notify);
 
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
 		   struct dt_device *next, struct obd_export *exp,

@@ -322,6 +322,7 @@ struct ofd_thread_info {
 	/* Space used by the I/O, used by grant code */
 	unsigned long			 fti_used;
 	struct ost_lvb			 fti_lvb;
+	struct lfsck_stop		 fti_stop;
 };
 
 extern void target_recovery_fini(struct obd_device *obd);

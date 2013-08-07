@@ -45,7 +45,6 @@
 #include <lustre_fid.h>
 #include <lustre_param.h>
 #include <lustre_update.h>
-#include <lustre_lfsck.h>
 
 #include "lod_internal.h"
 
@@ -994,19 +993,159 @@ static int lod_get_info(const struct lu_env *env, struct obd_export *exp,
 			__u32 keylen, void *key, __u32 *vallen, void *val,
 			struct lov_stripe_md *lsm)
 {
-	struct lfsck_event_request *ler = val;
+	int rc = 0;
 
-	/* XXX: To be extended in other patch. */
-	ler->u.ler_status = 0;
-	return 0;
+	if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_async_info    *lai  = &lod_env_info(env)->lti_lai;
+		struct lfsck_event_request *ler  = val;
+		struct lod_device	   *lod  =
+					lu2lod_dev(exp->exp_obd->obd_lu_dev);
+		struct lod_tgt_descs	   *ltd  = &lod->lod_ost_descs;
+		int			    done = 0;
+		int			    i;
+
+		lai->lai_set = ptlrpc_prep_set();
+		if (lai->lai_set == NULL)
+			return -ENOMEM;
+
+		lai->lai_ler = val;
+		atomic_set(&lai->lai_in_lfsck, 0);
+
+		lod_getref(ltd);
+		if (ltd->ltd_tgts_size <= 0) {
+			lod_putref(lod, ltd);
+			ler->u.ler_status = 0;
+			return 0;
+		}
+
+		mutex_lock(&ltd->ltd_mutex);
+		cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
+			struct lod_tgt_desc *tgt;
+			int		     size = sizeof(*lai);
+
+			tgt = LTD_TGT(ltd, i);
+
+			LASSERT(tgt && tgt->ltd_tgt && tgt->ltd_exp);
+
+			if (tgt->ltd_reap || !tgt->ltd_active) {
+				CWARN("%s: skip to get_info from "
+				       "target: index = %d, rc = %d\n",
+				       lod2obd(lod)->obd_name, i, rc);
+				continue;
+			}
+
+			rc = obd_get_info(env, tgt->ltd_exp, keylen, key,
+					  &size, lai, lsm);
+			if (rc != 0) {
+				if (rc == -ENOTCONN)
+					CWARN("%s: skip to get_info from "
+					       "target: index = %d, rc = %d\n",
+					       lod2obd(lod)->obd_name, i, rc);
+				else
+					CERROR("%s: fail to get_info from "
+					       "target: index = %d, rc = %d\n",
+					       lod2obd(lod)->obd_name, i, rc);
+			} else {
+				done++;
+			}
+		}
+		mutex_unlock(&ltd->ltd_mutex);
+		lod_putref(lod, ltd);
+		if (done > 0)
+			rc = ptlrpc_set_wait(lai->lai_set);
+		ptlrpc_set_destroy(lai->lai_set);
+		ler->u.ler_status = atomic_read(&lai->lai_in_lfsck);
+		/* Ignore failures if there are some targets in LFSCK. */
+		if (ler->u.ler_status > 0)
+			rc = 0;
+	}
+
+	return rc;
 }
 
 static int lod_set_info_async(const struct lu_env *env, struct obd_export *exp,
 			      obd_count keylen, void *key, obd_count vallen,
 			      void *val, struct ptlrpc_request_set *set)
 {
-	/* XXX: To be extended in other patch. */
-	return 0;
+	int rc = 0;
+
+	if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_async_info    *lai  = &lod_env_info(env)->lti_lai;
+		struct dt_lfsck_control    *dlc  = val;
+		struct lfsck_event_request *ler  = &dlc->dlc_req;
+		struct lod_device	   *lod  =
+					lu2lod_dev(exp->exp_obd->obd_lu_dev);
+		struct lod_tgt_descs	   *ltd  = &lod->lod_ost_descs;
+		int			    done = 0;
+		int			    i;
+
+		if (set == NULL) {
+			lai->lai_set = ptlrpc_prep_set();
+			if (lai->lai_set == NULL)
+				return -ENOMEM;
+
+			set = lai->lai_set;
+		}
+
+		lai->lai_ler = ler;
+		lai->lai_key = dlc->dlc_key;
+		atomic_set(&lai->lai_in_lfsck, 0);
+
+		lod_getref(ltd);
+		if (ltd->ltd_tgts_size <= 0) {
+			lod_putref(lod, ltd);
+			if (ler->ler_event == LNE_LAYOUT_START)
+				return -ENODEV;
+			else
+				return 0;
+		}
+
+		mutex_lock(&ltd->ltd_mutex);
+		cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
+			struct lod_tgt_desc *tgt;
+
+			tgt = LTD_TGT(ltd, i);
+
+			LASSERT(tgt && tgt->ltd_tgt && tgt->ltd_exp);
+
+			if (tgt->ltd_reap || !tgt->ltd_active) {
+				CWARN("%s: skip to set_info from "
+				       "target: index = %d, rc = %d\n",
+				       lod2obd(lod)->obd_name, i, rc);
+				continue;
+			}
+
+			rc = obd_set_info_async(env, tgt->ltd_exp, keylen, key,
+						sizeof(*lai), lai, set);
+			if (rc != 0) {
+				if (rc == -ENOTCONN)
+					CWARN("%s: skip to set_info from "
+					       "target: index = %d, rc = %d\n",
+					       lod2obd(lod)->obd_name, i, rc);
+				else
+					CERROR("%s: fail to set_info from "
+					       "target: index = %d, rc = %d\n",
+					       lod2obd(lod)->obd_name, i, rc);
+			} else {
+				done++;
+			}
+		}
+		mutex_unlock(&ltd->ltd_mutex);
+		lod_putref(lod, ltd);
+		if (done > 0)
+			rc = ptlrpc_set_wait(set);
+		if (lai->lai_set != NULL)
+			ptlrpc_set_destroy(lai->lai_set);
+		ler->u.ler_status = atomic_read(&lai->lai_in_lfsck);
+		/* Ignore failures if there are some targets in LFSCK. */
+		if (ler->u.ler_status > 0)
+			rc = 0;
+		else if (ler->ler_event == LNE_LAYOUT_START &&
+			 ler->u.ler_status == 0 && rc == 0)
+			rc = -ENODEV;
+	}
+
+	return rc;
 }
 
 static struct obd_ops lod_obd_device_ops = {
