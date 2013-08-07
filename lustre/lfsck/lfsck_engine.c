@@ -292,7 +292,7 @@ int lfsck_master_engine(void *args)
 
 	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD);
 	if (rc != 0) {
-		CERROR("%s: LFSCK, fail to init env, rc = %d\n",
+		CERROR("%s: LFSCK, fail to init env: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
 		GOTO(noenv, rc);
 	}
@@ -300,7 +300,7 @@ int lfsck_master_engine(void *args)
 	oit_di = oit_iops->init(&env, oit_obj, lfsck->li_args_oit, BYPASS_CAPA);
 	if (IS_ERR(oit_di)) {
 		rc = PTR_ERR(oit_di);
-		CERROR("%s: LFSCK, fail to init iteration, rc = %d\n",
+		CERROR("%s: LFSCK, fail to init iteration: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
 		GOTO(fini_env, rc);
 	}
