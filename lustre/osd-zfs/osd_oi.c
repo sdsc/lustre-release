@@ -237,32 +237,6 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 	return rc;
 }
 
-int fid_is_on_ost(const struct lu_env *env, struct osd_device *osd,
-		  const struct lu_fid *fid)
-{
-	struct lu_seq_range *range = &osd_oti_get(env)->oti_seq_range;
-	int rc;
-	ENTRY;
-
-	if (fid_is_idif(fid))
-		RETURN(1);
-
-	rc = osd_fld_lookup(env, osd, fid, range);
-	if (rc != 0) {
-		CERROR("%s: Can not lookup fld for "DFID"\n",
-		       osd_name(osd), PFID(fid));
-		RETURN(rc);
-	}
-
-	CDEBUG(D_INFO, "fid "DFID" range "DRANGE"\n", PFID(fid),
-	       PRANGE(range));
-
-	if (fld_range_is_ost(range))
-		RETURN(1);
-
-	RETURN(0);
-}
-
 static struct osd_seq *osd_seq_find_locked(struct osd_seq_list *seq_list,
 					   obd_seq seq)
 {
@@ -430,7 +404,7 @@ uint64_t osd_get_name_n_idx(const struct lu_env *env, struct osd_device *osd,
 	LASSERT(fid);
 	LASSERT(buf);
 
-	if (fid_is_on_ost(env, osd, fid) == 1 || fid_seq(fid) == FID_SEQ_ECHO) {
+	if (osd->od_is_ost || fid_seq(fid) == FID_SEQ_ECHO) {
 		zapid = osd_get_idx_for_ost_obj(env, osd, fid, buf);
 	} else if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE)) {
 		/* special objects with fixed known fids get their name */

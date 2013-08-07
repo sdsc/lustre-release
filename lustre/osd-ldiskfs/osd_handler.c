@@ -394,8 +394,12 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 
 	/* Search order: 1. per-thread cache. */
 	if (lu_fid_eq(fid, &oic->oic_fid)) {
-		id = &oic->oic_lid;
-		goto iget;
+		if (likely(oic->oic_dev == dev)) {
+			id = &oic->oic_lid;
+			goto iget;
+		} else {
+			fid_zero(&oic->oic_fid);
+		}
 	}
 
 	id = &info->oti_id;
@@ -3880,6 +3884,7 @@ int osd_add_oi_cache(struct osd_thread_info *info, struct osd_device *osd,
 	       id->oii_ino, id->oii_gen, info);
 	info->oti_cache.oic_lid = *id;
 	info->oti_cache.oic_fid = *fid;
+	info->oti_cache.oic_dev = osd;
 
 	return 0;
 }
@@ -3942,7 +3947,7 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 			rc = osd_ea_fid_get(env, obj, ino, fid, id);
 		else
 			osd_id_gen(id, ino, OSD_OII_NOGEN);
-		if (rc != 0 || osd_remote_fid(env, dev, fid)) {
+		if (rc != 0) {
 			fid_zero(&oic->oic_fid);
 			GOTO(out, rc);
 		}
@@ -5536,6 +5541,11 @@ static int osd_device_init0(const struct lu_env *env,
 	if (cplen >= sizeof(o->od_svname)) {
 		rc = -E2BIG;
 		GOTO(out_mnt, rc);
+	}
+
+	if (server_name_is_ost(o->od_svname)) {
+		CERROR("%s is ost\n", o->od_svname);
+		o->od_is_ost = 1;
 	}
 
 	rc = osd_obj_map_init(env, o);
