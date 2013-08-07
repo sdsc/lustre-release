@@ -1088,6 +1088,74 @@ static int ptlrpc_lprocfs_wr_hp_ratio(struct file *file, const char *buffer,
 	return count;
 }
 
+/**
+ * Reads and prints RPC rate information of a PTLRPC service.
+ */
+static int ptlrpc_lprocfs_rd_rpc_rate(char *page, char **start, off_t off,
+				      int count, int *eof, void *data)
+{
+	struct ptlrpc_service *svc = data;
+	int rc;
+	struct ptlrpc_service_summary *summary = &svc->srv_summary;
+	cfs_list_t *l;
+	struct ptlrpc_summary_period *period;
+	int length = summary->ss_timeout;
+	ENTRY;
+
+	/**
+	 * By default, a timer collects the number of RPC handled every
+	 * 5 seconds. Whenever the timer timeouts, it updates the value
+	 * of 'last'.
+	 */
+	rc = snprintf(page, count, "last %d\n", summary->ss_last_number);
+	/**
+	 * The RPC numbers in the history is devided to serveral periods.
+	 * The 'interval' field represents the time interval of each period.
+	 * The interval of each period is a multiple of the pervious one,
+	 * so that the time intervals of these periods are exponential
+	 * increasing.
+	 *
+	 * The 'statistic' field represents the RPC number during each period.
+	 * Whenever the statistic of one period is updated, its former
+	 * statistic is added as a carry to the next period. That's what the
+	 * 'carry' means.
+	 *
+	 * The number of times of the carry from previous period is printed
+	 * out as 'times'. When the times reaches its upper limit, it is the
+	 * time to update the statistic of the period. Obviously, the maximum
+	 * of the number of times is the same with the multiple of time
+	 * intervals between adjacent periods.
+	 *
+	 * Here is an example with timeout configured to 1 second, multiple
+	 * configured to 10 and depth configured to 5.
+	 *
+	 * cat rpc_rate
+	 * last 96
+	 * interval: 10 seconds, statistic: 897, carry: 0, times: 0
+	 * interval: 100 seconds, statistic: 8998, carry: 3608, times: 4
+	 * interval: 1000 seconds, statistic: 82580, carry: 36471, times: 4
+	 * interval: 10000 seconds, statistic: 0, carry: 0, times: 1
+	 * interval: 100000 seconds, statistic: 0, carry: 0, times: 0
+	 *
+	 */
+	cfs_list_for_each(l, &summary->ss_history_head) {
+		length *= summary->ss_multiple;
+		period = cfs_list_entry(l, struct ptlrpc_summary_period,
+					sp_linkage);
+		rc += snprintf(page + rc, count - rc,
+			       "interval: %d seconds, "
+			       "statistic: %llu, "
+			       "carry: %llu, "
+			       "times: %d\n",
+			       length,
+			       period->sp_statistic,
+			       period->sp_carry,
+			       period->sp_carry_times);
+	}
+	EXIT;
+	return rc;
+}
+
 void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
                                      struct ptlrpc_service *svc)
 {
@@ -1121,6 +1189,9 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
 		 .read_fptr  = ptlrpc_lprocfs_rd_nrs,
 		 .write_fptr = ptlrpc_lprocfs_wr_nrs,
 		 .data	     = svc},
+		{.name       = "rpc_rate",
+		 .read_fptr  = ptlrpc_lprocfs_rd_rpc_rate,
+		 .data       = svc},
 		{NULL}
         };
         static struct file_operations req_history_fops = {
