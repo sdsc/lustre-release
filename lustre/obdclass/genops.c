@@ -868,6 +868,7 @@ struct obd_export *class_new_export(struct obd_device *obd,
 	CFS_INIT_HLIST_NODE(&export->exp_nid_hash);
 	spin_lock_init(&export->exp_bl_list_lock);
 	CFS_INIT_LIST_HEAD(&export->exp_bl_list);
+	CFS_INIT_LIST_HEAD(&export->exp_mdt_list);
 
 	export->exp_sp_peer = LUSTRE_SP_ANY;
 	export->exp_flvr.sf_rpc = SPTLRPC_FLVR_INVALID;

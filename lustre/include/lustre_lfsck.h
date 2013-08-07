@@ -101,6 +101,19 @@ struct lfsck_async_info {
 	cfs_atomic_t		    lai_in_lfsck;
 };
 
+enum lfsck_local_events {
+	LLE_LAYOUT_CLEAR	= 1,
+	LLE_LAYOUT_CHECKALL	= 2,
+};
+
+struct lfsck_info_local {
+	union {
+		__u32		lil_index;
+		int		lil_status;
+	};
+	enum lfsck_local_events lil_event;
+};
+
 typedef int (*lfsck_out_notify)(void *data, enum lfsck_notify_events event);
 
 int lfsck_register(const struct lu_env *env, struct dt_device *key,

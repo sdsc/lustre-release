@@ -330,6 +330,17 @@ static const struct req_msg_field *obd_set_info_client[] = {
         &RMF_SETINFO_VAL
 };
 
+static const struct req_msg_field *obd_get_info_client[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_GETINFO_KEY,
+	&RMF_GETINFO_VALLEN
+};
+
+static const struct req_msg_field *obd_get_info_server[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_GETINFO_VAL,
+};
+
 static const struct req_msg_field *ost_grant_shrink_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_SETINFO_KEY,
@@ -678,8 +689,9 @@ static const struct req_msg_field *mdt_hsm_request[] = {
 };
 
 static struct req_format *req_formats[] = {
-        &RQF_OBD_PING,
-        &RQF_OBD_SET_INFO,
+	&RQF_OBD_PING,
+	&RQF_OBD_SET_INFO,
+	&RQF_OBD_GET_INFO,
 	&RQF_OBD_IDX_READ,
         &RQF_SEC_CTX,
         &RQF_MGS_TARGET_REG,
@@ -1210,6 +1222,11 @@ EXPORT_SYMBOL(RQF_OBD_PING);
 struct req_format RQF_OBD_SET_INFO =
         DEFINE_REQ_FMT0("OBD_SET_INFO", obd_set_info_client, empty);
 EXPORT_SYMBOL(RQF_OBD_SET_INFO);
+
+struct req_format RQF_OBD_GET_INFO =
+	DEFINE_REQ_FMT0("OBD_GET_INFO", obd_get_info_client,
+			obd_get_info_server);
+EXPORT_SYMBOL(RQF_OBD_GET_INFO);
 
 /* Read index file through the network */
 struct req_format RQF_OBD_IDX_READ =
