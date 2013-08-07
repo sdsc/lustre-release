@@ -143,6 +143,93 @@ void ofd_object_put(const struct lu_env *env, struct ofd_object *fo)
 	lu_object_put(env, &fo->ofo_obj.do_lu);
 }
 
+int ofd_recreate_object(const struct lu_env *env, struct ofd_device *ofd,
+			struct obdo *oa)
+{
+	struct ofd_thread_info	*info = ofd_info(env);
+	struct filter_fid	*ff   = &info->fti_mds_fid;
+	struct lu_fid		*fid  = &ff->ff_parent;
+	struct lu_attr		*attr = &info->fti_attr;
+	struct dt_object_format *dof  = &info->fti_dof;
+	struct lu_buf		*buf  = &info->fti_buf;
+	struct thandle		*th;
+	struct ofd_object	*fo;
+	struct dt_object	*next;
+	int			 rc;
+	ENTRY;
+
+	attr->la_atime = 0;
+	attr->la_mtime = 0;
+	attr->la_ctime = 0;
+	attr->la_uid = oa->o_uid;
+	attr->la_gid = oa->o_gid;
+	/* If the others find that the object has SUID+SGID but with PFID
+	 * initialized already (set via ofd_recreate_object()), then know
+	 * it is a recreated one. For LFSCK, the recreating may be wrong,
+	 * it may be replaced (if it is NOT modified) by other existing
+	 * OST-object as the LFSCK processing */
+	attr->la_mode = S_IFREG | S_ISUID | S_ISGID | 0666;
+	attr->la_valid = LA_TYPE | LA_MODE | LA_UID | LA_GID |
+			 LA_ATIME | LA_MTIME | LA_CTIME;
+	dof->dof_type = dt_mode_to_dft(S_IFREG);
+
+	rc = ostid_to_fid(fid, &oa->o_oi, 0);
+	if (rc != 0)
+		RETURN(rc);
+
+	fo = ofd_object_find(env, ofd, fid);
+	if (IS_ERR(fo))
+		RETURN(rc);
+
+	ofd_write_lock(env, fo);
+	if (unlikely(ofd_object_exists(fo)))
+		GOTO(put, rc = 0);
+
+	th = ofd_trans_create(env, ofd);
+	if (IS_ERR(th))
+		GOTO(put, rc = PTR_ERR(th));
+
+	th->th_sync = 1;
+	next = ofd_object_child(fo);
+	LASSERT(next != NULL);
+
+	rc = dt_declare_create(env, next, attr, NULL, dof, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	fid->f_seq = oa->o_parent_seq;
+	fid->f_oid = oa->o_parent_oid;
+	fid->f_ver = oa->o_stripe_idx;
+	buf->lb_buf = ff;
+	buf->lb_len = sizeof(*ff);
+	rc = dt_declare_xattr_set(env, next, buf, XATTR_NAME_FID, 0, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start_local(env, ofd->ofd_osd, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	CDEBUG(D_LFSCK, "%s: recreate object "DFID" for parent "DFID"\n",
+	       ofd_name(ofd), PFID(lu_object_fid(&next->do_lu)), PFID(fid));
+
+	rc = dt_create(env, next, attr, NULL, dof, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_xattr_set(env, next, buf, XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+
+	GOTO(stop, rc);
+
+stop:
+	ofd_trans_stop(env, ofd, th, rc);
+
+put:
+	ofd_write_unlock(env, fo);
+	ofd_object_put(env, fo);
+	return rc;
+}
+
 int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 			  obd_id id, struct ofd_seq *oseq, int nr, int sync)
 {
@@ -292,7 +379,8 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 		fo = batch[i];
 		LASSERT(fo);
 
-		if (likely(!ofd_object_exists(fo))) {
+		if (likely(!ofd_object_exists(fo) &&
+			   !OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DANGLING))) {
 			next = ofd_object_child(fo);
 			LASSERT(next != NULL);
 
