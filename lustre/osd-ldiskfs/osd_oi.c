@@ -487,8 +487,6 @@ static int osd_oi_iam_lookup(struct osd_thread_info *oti,
 int fid_is_on_ost(struct osd_thread_info *info, struct osd_device *osd,
 		  const struct lu_fid *fid)
 {
-	struct lu_seq_range *range = &info->oti_seq_range;
-	int rc;
 	ENTRY;
 
 	if (unlikely(fid_is_local_file(fid) || fid_is_igif(fid) ||
@@ -499,17 +497,7 @@ int fid_is_on_ost(struct osd_thread_info *info, struct osd_device *osd,
 	if (fid_is_idif(fid) || fid_is_last_id(fid))
 		RETURN(1);
 
-	rc = osd_fld_lookup(info->oti_env, osd, fid, range);
-	if (rc != 0) {
-		CERROR("%s: Can not lookup fld for "DFID"\n",
-		       osd_name(osd), PFID(fid));
-		RETURN(rc);
-	}
-
-	CDEBUG(D_INFO, "fid "DFID" range "DRANGE"\n", PFID(fid),
-	       PRANGE(range));
-
-	if (fld_range_is_ost(range))
+	if (osd->od_is_ost)
 		RETURN(1);
 
 	RETURN(0);
