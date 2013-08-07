@@ -732,6 +732,34 @@ static inline void osd_oid_name(char *name, size_t name_size,
 		  fid_seq_is_idif(fid_seq(fid))) ? LPU64 : LPX64i, id);
 }
 
+/**
+ * Check whether the seq exists under od_ost_map.
+ **/
+int osd_ost_seq_exists(struct osd_thread_info *info, struct osd_device *osd,
+		       __u64 seq)
+{
+	struct osd_obj_map	*map = osd->od_ost_map;
+	struct dentry		*dchild;
+	char			dir_name[32];
+
+	if (map == NULL || map->om_root == NULL) {
+		CERROR("seq is "LPX64"\n", seq);
+		return 0;
+	}
+
+	osd_seq_name(dir_name, sizeof(dir_name), seq);
+	dchild = ll_lookup_one_len(dir_name, map->om_root, strlen(dir_name));
+	if (IS_ERR(dchild))
+		return PTR_ERR(dchild);
+	if (dchild->d_inode != NULL) {
+		dput(dchild);
+		return 1;
+	}
+
+	dput(dchild);
+	return 0;
+}
+
 /* external locking is required */
 static int osd_seq_load_locked(struct osd_thread_info *info,
 			       struct osd_device *osd,
