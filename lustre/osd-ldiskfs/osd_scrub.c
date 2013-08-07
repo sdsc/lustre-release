@@ -482,7 +482,7 @@ osd_scrub_convert_ff(struct osd_thread_info *info, struct osd_device *dev,
 
 		rc1 = __osd_xattr_set(info, inode, XATTR_NAME_FID, ff, size,
 				      XATTR_CREATE);
-		if (rc1 != 0 && rc != 0)
+		if (rc1 != 0 && rc == 0)
 			rc = rc1;
 	}
 
@@ -787,7 +787,10 @@ static int osd_scrub_check_local_fldb(struct osd_thread_info *info,
 	 *	a small local FLDB according to the <seq>. If the given FID
 	 *	is in the local FLDB, then it is FID-on-OST; otherwise it's
 	 *	quite possible for FID-on-MDT. */
-	return 0;
+	if (dev->od_is_ost)
+		return SCRUB_NEXT_OSTOBJ_OLD;
+	else
+		return 0;
 }
 
 static int osd_scrub_get_fid(struct osd_thread_info *info,
@@ -2095,7 +2098,10 @@ int osd_scrub_setup(const struct lu_env *env, struct osd_device *dev)
 		    !(sf->sf_internal_flags & SIF_NO_HANDLE_OLD_FID ||
 		      sf->sf_success_count > 0)) {
 			dev->od_igif_inoi = 0;
-			dev->od_check_ff = 1;
+			if (dev->od_is_ost)
+				dev->od_check_ff = 1;
+			else
+				dev->od_check_ff = 0;
 		} else {
 			dev->od_igif_inoi = 1;
 			dev->od_check_ff = 0;
