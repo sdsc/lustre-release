@@ -1251,6 +1251,15 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
 	if (rc)
 		GOTO(out_mgc, rc);
 
+	if (IS_OST(lsi) || IS_MDT(lsi)) {
+		rc = lustre_start_lwp(sb);
+		if (rc) {
+			CERROR("%s: failed to start LWP: %d\n",
+			       lsi->lsi_svname, rc);
+			GOTO(out_mgc, rc);
+		}
+	}
+
 	/* Start targets using the llog named for the target */
 	memset(&cfg, 0, sizeof(cfg));
 	cfg.cfg_callback = class_config_llog_handler;
@@ -1268,15 +1277,6 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
 	if (!obd) {
 		CERROR("no server named %s was started\n", lsi->lsi_svname);
 		GOTO(out_mgc, rc = -ENXIO);
-	}
-
-	if (IS_OST(lsi) || IS_MDT(lsi)) {
-		rc = lustre_start_lwp(sb);
-		if (rc) {
-			CERROR("%s: failed to start LWP: %d\n",
-			       lsi->lsi_svname, rc);
-			GOTO(out_mgc, rc);
-		}
 	}
 
 	server_notify_target(sb, obd);
