@@ -6059,8 +6059,14 @@ run_llverdev()
         local llverdev_opts=$2
         local devname=$(basename $1)
         local size=$(grep "$devname"$ /proc/partitions | awk '{print $3}')
-        # loop devices aren't in /proc/partitions
-        [ "x$size" == "x" ] && local size=$(ls -l $dev | awk '{print $5}')
+	# loop devices aren't in /proc/partitions
+	[ "x$size" == "x" ] && size=$(ls -l $dev 2>/dev/null | awk '{print $5}')
+	# ZFS volumes aren't in the partition tables
+	if [ "x$size" == "x" ]; then
+	    local used=$(zfs get -o value -Hp used $dev)
+	    local avail=$(zfs get -o value -Hp avail $dev)
+	    size=$((used + avail))
+	fi
 
         size=$(($size / 1024 / 1024)) # Gb
 
