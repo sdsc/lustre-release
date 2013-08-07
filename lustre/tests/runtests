@@ -85,7 +85,7 @@ done
 
 log "finished at `date` ($(($(date +%s) - START)))"
 
-stopall || exit 19
+stopall safe|| exit 19
 setupall || exit 20
 
 log "comparing $COUNT previously copied files"
@@ -95,7 +95,7 @@ cat $FILES | tr "\0" "\n" | ( rc=0; while read f; do
 done
 [ "$rc" = 0 ] || error_exit "old and new files are different: rc=$rc" )
 
-stopall || exit 21
+stopall safe || exit 21
 setupall || exit 22
 
 log "removing $DST"

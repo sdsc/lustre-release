@@ -2931,6 +2931,11 @@ facet_mntpt () {
 ## MountConf setup
 
 stopall() {
+
+    local flags="-f"
+    if [ "$1" == "safe" ]; then
+	flags=""
+    fi
     # make sure we are using the primary server, so test-framework will
     # be able to clean up properly.
     activemds=`facet_active mds1`
@@ -2948,16 +2953,16 @@ stopall() {
     # The add fn does rm ${facet}active file, this would be enough
     # if we use do_facet <facet> only after the facet added, but
     # currently we use do_facet mds in local.sh
+    for num in `seq $OSTCOUNT`; do
+        stop ost$num $flags
+        rm -f $TMP/ost${num}active
+    done
+
     for num in `seq $MDSCOUNT`; do
-        stop mds$num -f
+        stop mds$num $flags
         rm -f ${TMP}/mds${num}active
     done
     combined_mgs_mds && rm -f $TMP/mgsactive
-
-    for num in `seq $OSTCOUNT`; do
-        stop ost$num -f
-        rm -f $TMP/ost${num}active
-    done
 
     if ! combined_mgs_mds ; then
         stop mgs
