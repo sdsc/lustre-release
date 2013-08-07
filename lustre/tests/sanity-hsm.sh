@@ -31,9 +31,9 @@ MCREATE=${MCREATE:-mcreate}
 MOUNT_2=${MOUNT_2:-"yes"}
 FAIL_ON_ERROR=false
 
-if [[ $MDSCOUNT -ge 2 ]]; then
-	skip_env "Only run with single MDT for now" && exit
-fi
+# script only handles up to 10 MDTs (because of MDT_PREFIX)
+[ $MDSCOUNT -gt 9 ] &&
+	error "script cannot handle more than 9 MDTs, please fix" && exit
 
 check_and_setup_lustre
 
@@ -95,8 +95,9 @@ init_agt_vars() {
 	HSM_ARCHIVE=$(copytool_device $SINGLEAGT)
 	HSM_ARCHIVE_NUMBER=2
 
-	MDT_PARAM="mdt.$FSNAME-MDT0000"
-	HSM_PARAM="$MDT_PARAM.hsm"
+	# The test only support up to 10 MDTs
+	MDT_PREFIX="mdt.$FSNAME-MDT000"
+	HSM_PARAM="${MDT_PREFIX}0.hsm"
 
 	# archive is purged at copytool setup
 	HSM_ARCHIVE_PURGE=true
@@ -115,6 +116,17 @@ cleanup() {
 	copytool_cleanup
 	changelog_cleanup
 	cdt_set_sanity_policy
+}
+
+get_mdt_devices() {
+	local mdtno
+	# get MDT device for each mdc
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		MDT[$idx]=$($LCTL get_param -n \
+			mdc.$FSNAME-MDT000${idx}-mdc-*.mds_server_uuid |
+			awk '{gsub(/_UUID/,""); print $1}' | head -1)
+	done
 }
 
 search_and_kill_copytool() {
@@ -204,20 +216,83 @@ copy2archive() {
 	do_facet $SINGLEAGT cp -p $1 $file || error "cannot copy $1 to $file"
 }
 
+mdts_conf_param() {
+	# this runs 1 command per MDT on the MGS
+	local arg=$1
+	local key=$2
+	local value=$3
+	local mdtno
+	local rc=0
+	if [[ "$value" != "" ]]; then
+		value="=$value"
+	fi
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		do_facet mgs $LCTL set_param -P $arg \
+			mdt.${MDT[$idx]}.$key$value
+		[[ $? != 0 ]] && rc=1
+	done
+	return $rc
+}
+
+mdts_set_param() {
+	# this runs 1 command for each MDT on the related MDS
+	local arg=$1
+	local key=$2
+	local value=$3
+	local mdtno
+	local rc=0
+	if [[ "$value" != "" ]]; then
+		value="=$value"
+	fi
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		do_facet mds${mdtno} $LCTL set_param $arg \
+			mdt.${MDT[$idx]}.$key$value
+		[[ $? != 0 ]] && rc=1
+	done
+	return $rc
+}
+
+mdts_check_param() {
+	local key="$1"
+	local target="$2"
+	local timeout="$3"
+	local mdtno
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		wait_result mds${mdtno} \
+			"$LCTL get_param -n $MDT_PREFIX${idx}.$key" "$target" \
+			$timeout ||
+			error "$key state is not '$target' on mds${mdtno}"
+	done
+}
+
 changelog_setup() {
-	CL_USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0\
-		  changelog_register -n)
-	do_facet $SINGLEMDS lctl set_param mdd.$MDT0.changelog_mask="+hsm"
-	$LFS changelog_clear $MDT0 $CL_USER 0
+	CL_USERS=()
+	local mdtno
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		local cl_user=$(do_facet mds${mdtno} $LCTL \
+			     --device ${MDT[$idx]} \
+			     changelog_register -n)
+		CL_USERS+=($cl_user)
+		do_facet mds${mdtno} lctl set_param \
+			mdd.${MDT[$idx]}.changelog_mask="+hsm"
+		$LFS changelog_clear ${MDT[$idx]} $cl_user 0
+	done
 }
 
 changelog_cleanup() {
-#	$LFS changelog $MDT0
-	[[ -n "$CL_USER" ]] || return 0
-
-	$LFS changelog_clear $MDT0 $CL_USER 0
-	do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $CL_USER
-	CL_USER=
+	local mdtno
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		[[ -z  ${CL_USERS[$idx]} ]] && continue
+		$LFS changelog_clear ${MDT[$idx]} ${CL_USERS[$idx]} 0
+		do_facet mds${mdtno} lctl --device ${MDT[$idx]} \
+			changelog_deregister ${CL_USERS[$idx]}
+	done
+	CL_USERS=()
 }
 
 changelog_get_flags() {
@@ -237,65 +312,57 @@ get_hsm_param() {
 set_hsm_param() {
 	local param=$1
 	local value=$2
-	local opt=$3
-	if [[ "$value" != "" ]]; then
-		value="=$value"
-	fi
-	do_facet $SINGLEMDS $LCTL set_param $opt -n $HSM_PARAM.$param$value
+	mdts_set_param -n "hsm.$param" "$value"
 	return $?
 }
 
 set_test_state() {
 	local cmd=$1
 	local target=$2
-	do_facet $SINGLEMDS $LCTL set_param $MDT_PARAM.hsm_control=$cmd
-	wait_result $SINGLEMDS "$LCTL get_param -n $MDT_PARAM.hsm_control"\
-		$target 10 || error "cdt state is not $target"
+	mdts_set_param "" hsm_control "$cmd"
+	mdts_check_param hsm_control "$target" 10
 }
 
 cdt_set_sanity_policy() {
 	if [[ "$CDT_POLICY_HAD_CHANGED" ]]
 	then
 		# clear all
-		do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=+NRA
-		do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=-NBR
+		mdts_set_param "" hsm.policy "+NRA"
+		mdts_set_param "" hsm.policy "-NBR"
 		CDT_POLICY_HAD_CHANGED=
 	fi
 }
 
 cdt_set_no_retry() {
-	do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=+NRA
+	mdts_set_param "" hsm.policy "+NRA"
 	CDT_POLICY_HAD_CHANGED=true
 }
 
 cdt_clear_no_retry() {
-	do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=-NRA
+	mdts_set_param "" hsm.policy "-NRA"
 	CDT_POLICY_HAD_CHANGED=true
 }
 
 cdt_set_non_blocking_restore() {
-	do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=+NBR
+	mdts_set_param "" hsm.policy "+NBR"
 	CDT_POLICY_HAD_CHANGED=true
 }
 
 cdt_clear_non_blocking_restore() {
-	do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=-NBR
+	mdts_set_param "" hsm.policy "-NBR"
 	CDT_POLICY_HAD_CHANGED=true
 }
 
 cdt_clear_mount_state() {
-	do_facet $SINGLEMDS $LCTL set_param -d -P $MDT_PARAM.hsm_control
+	mdts_conf_param "-d" hsm_control ""
 }
 
 cdt_set_mount_state() {
-	do_facet $SINGLEMDS $LCTL set_param -P $MDT_PARAM.hsm_control=$1
+	mdts_conf_param "" hsm_control "$1"
 }
 
 cdt_check_state() {
-	local target=$1
-	wait_result $SINGLEMDS\
-		"$LCTL get_param -n $MDT_PARAM.hsm_control" "$target" 20 ||
-			error "cdt state is not $target"
+	mdts_check_param hsm_control "$1" 20
 }
 
 cdt_disable() {
@@ -504,8 +571,8 @@ wait_for_grace_delay() {
 	sleep $val
 }
 
-MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
-	awk '{gsub(/_UUID/,""); print $1}' | head -1)
+# populate MDT device array
+get_mdt_devices
 
 # initiate variables
 init_agt_vars
@@ -2639,7 +2706,7 @@ test_220() {
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 	changelog_cleanup
 
 	local target=0x0
@@ -2666,7 +2733,7 @@ test_221() {
 	wait_request_state $fid ARCHIVE CANCELED
 	wait_request_state $fid CANCEL SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 
 	local target=0x7d
 	[[ $flags == $target ]] || error "Changelog flag is $flags not $target"
@@ -2691,7 +2758,7 @@ test_222a() {
 	$LFS hsm_restore $f
 	wait_request_state $fid RESTORE SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 
 	local target=0x80
 	[[ $flags == $target ]] || error "Changelog flag is $flags not $target"
@@ -2717,7 +2784,7 @@ test_222b() {
 
 	wait_request_state $fid RESTORE SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 
 	local target=0x80
 	[[ $flags == $target ]] || error "Changelog flag is $flags not $target"
@@ -2746,7 +2813,7 @@ test_223a() {
 	wait_request_state $fid RESTORE CANCELED
 	wait_request_state $fid CANCEL SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 
 	local target=0xfd
 	[[ $flags == $target ]] ||
@@ -2775,7 +2842,7 @@ test_223b() {
 	wait_request_state $fid RESTORE CANCELED
 	wait_request_state $fid CANCEL SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 
 	local target=0xfd
 	[[ $flags == $target ]] ||
@@ -2801,7 +2868,7 @@ test_224() {
 	$LFS hsm_remove $f
 	wait_request_state $fid REMOVE SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -n 1)
 
 	local target=0x200
 	[[ $flags == $target ]] ||
@@ -2837,9 +2904,9 @@ test_225() {
 	wait_request_state $fid REMOVE CANCELED
 	wait_request_state $fid CANCEL SUCCEED
 
-	flags=$(changelog_get_flags $MDT0 RENME $fid2)
-	local flags=$($LFS changelog $MDT0 | grep HSM | grep $fid | tail -1 |
-		awk '{print $5}')
+	flags=$(changelog_get_flags ${MDT[0]} RENME $fid2)
+	local flags=$($LFS changelog ${MDT[0]} | grep HSM | grep $fid |
+		tail -n 1 | awk '{print $5}')
 
 	local target=0x27d
 	[[ $flags == $target ]] ||
@@ -2871,7 +2938,7 @@ test_226() {
 
 	rm $f1 || error "rm $f1 failed"
 
-	local flags=$(changelog_get_flags $MDT0 UNLNK $fid1)
+	local flags=$(changelog_get_flags ${MDT[0]} UNLNK $fid1)
 
 	local target=0x3
 	[[ $flags == $target ]] ||
@@ -2879,7 +2946,7 @@ test_226() {
 
 	mv $f3 $f2 || error "mv $f3 $f2 failed"
 
-	flags=$(changelog_get_flags $MDT0 RENME $fid2)
+	flags=$(changelog_get_flags ${MDT[0]} RENME $fid2)
 
 	target=0x3
 	[[ $flags == $target ]] ||
@@ -2899,7 +2966,7 @@ check_flags_changes() {
 	local target=0x280
 	$LFS hsm_set --$hsm_flag $f ||
 		error "Cannot set $hsm_flag on $f"
-	local flags=($(changelog_get_flags $MDT0 HSM $fid))
+	local flags=($(changelog_get_flags ${MDT[0]} HSM $fid))
 	local seen=${#flags[*]}
 	cnt=$((fst + cnt))
 	[[ $seen == $cnt ]] ||
@@ -2910,7 +2977,7 @@ check_flags_changes() {
 
 	$LFS hsm_clear --$hsm_flag $f ||
 		error "Cannot clear $hsm_flag on $f"
-	flags=($(changelog_get_flags $MDT0 HSM $fid))
+	flags=($(changelog_get_flags ${MDT[0]} HSM $fid))
 	seen=${#flags[*]}
 	cnt=$(($cnt + 1))
 	[[ $cnt == $seen ]] ||
