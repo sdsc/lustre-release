@@ -764,6 +764,7 @@ EXPORT_SYMBOL(cl_page_at);
         do {                                                            \
                 cfs_list_for_each_entry(__scan, &__page->cp_layers,     \
                                         cpl_linkage) {                  \
+			LASSERT(__scan->cpl_linkage.next != NULL);	\
                         __method = *(void **)((char *)__scan->cpl_ops + \
                                               __op);                    \
                         if (__method != NULL) {                         \

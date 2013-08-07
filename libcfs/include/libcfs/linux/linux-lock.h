@@ -88,11 +88,19 @@
 
 typedef spinlock_t cfs_spinlock_t;
 
+static inline void cfs_spin_unlock(cfs_spinlock_t *lock)
+{
+        if (lock->raw_lock.slock == 0) {
+                printk(KERN_ERR "spin lock is unlocked or overwritten\n");
+                dump_stack();
+        }
+        spin_unlock(lock);
+}
+
 #define cfs_spin_lock_init(lock)             spin_lock_init(lock)
 #define cfs_spin_lock(lock)                  spin_lock(lock)
 #define cfs_spin_lock_bh(lock)               spin_lock_bh(lock)
 #define cfs_spin_lock_bh_init(lock)          spin_lock_bh_init(lock)
-#define cfs_spin_unlock(lock)                spin_unlock(lock)
 #define cfs_spin_unlock_bh(lock)             spin_unlock_bh(lock)
 #define cfs_spin_trylock(lock)               spin_trylock(lock)
 #define cfs_spin_is_locked(lock)             spin_is_locked(lock)
