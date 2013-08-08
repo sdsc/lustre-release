@@ -9,7 +9,7 @@ init_test_env $@
 init_logging
 
 #              bug 20670
-ALWAYS_EXCEPT="parallel_grouplock $PARALLEL_SCALE_EXCEPT"
+ALWAYS_EXCEPT="parallel_grouplock $PARALLEL_SCALE_EXCEPT compilebench metabench simul mdtestssf mdtestfpp"
 
 # common setup
 MACHINEFILE=${MACHINEFILE:-$TMP/$(basename $0 .sh).machines}
