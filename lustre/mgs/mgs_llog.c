@@ -67,9 +67,6 @@ int class_dentry_readdir(const struct lu_env *env,
 
 	CFS_INIT_LIST_HEAD(list);
 
-	if (!dt_try_as_dir(env, dir))
-		GOTO(out, rc = -ENOTDIR);
-
 	LASSERT(dir);
 	LASSERT(dir->do_index_ops);
 
