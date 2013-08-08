@@ -289,6 +289,8 @@ int llapi_hsm_copy_start(char *mnt, struct hsm_copy *copy,
 		return rc;
 
 	rc = ioctl(fd, LL_IOC_HSM_COPY_START, copy);
+	/* If error, return errno value */
+	rc = rc ? -errno : 0;
 	close(fd);
 
 	return rc;
@@ -338,12 +340,17 @@ int llapi_hsm_copy_end(char *mnt, struct hsm_copy *copy,
 	copy->hc_errval = hp->hp_errval;
 	/* Update hai if it has changed since start */
 	copy->hc_hai.hai_extent = hp->hp_extent;
+	/* In some cases, like restore, 2 FIDs are used. hp knows the right FID
+	 * to use here. */
+	copy->hc_hai.hai_fid = hp->hp_fid;
 
 	rc = get_root_path(WANT_FD, NULL, &fd, mnt, -1);
 	if (rc)
 		goto out_free;
 
 	rc = ioctl(fd, LL_IOC_HSM_COPY_END, copy);
+	/* If error, return errno value */
+	rc = rc ? -errno : 0;
 	close(fd);
 
 out_free:

@@ -673,6 +673,9 @@ test_17n() {
 run_test 17n "run e2fsck against master/slave MDT which contains remote dir"
 
 test_17o() {
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.64) ]] &&
+		skip "Need MDS version at least 2.3.64" && return
+
 	local WDIR=$DIR/${tdir}o
 	local mdt_index
 	local mdtdevname
@@ -5879,12 +5882,13 @@ test_101d() {
 
 	local space=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
 	[ $space -gt $((size * 1024)) ] ||
-		{ skip "Need free space ${size}M, have $space" && return; }
+		{ skip "Need free space ${size}M, have ${space}K" && return; }
 
-    echo Creating ${size}M test file $file
-    dd if=/dev/zero of=$file bs=1M count=$size || error "dd failed"
-    echo Cancel LRU locks on lustre client to flush the client cache
-    cancel_lru_locks osc
+	echo "Creating test file $file of size ${size}M with ${space}K free space"
+	$SETSTRIPE -c -1 $file || error "setstripe failed"
+	dd if=/dev/zero of=$file bs=1M count=$size || error "dd failed"
+	echo Cancel LRU locks on lustre client to flush the client cache
+	cancel_lru_locks osc
 
     echo Disable read-ahead
     local old_READAHEAD=$(set_read_ahead 0)
@@ -8597,12 +8601,48 @@ test_150() {
 }
 run_test 150 "truncate/append tests"
 
+#LU-2902 roc_hit was not able to read all values from lproc
+function roc_hit_init() {
+	local list=$(comma_list $(osts_nodes))
+	local dir=$DIR/$tdir-check
+	local file=$dir/file
+	local BEFORE
+	local AFTER
+	local idx
+
+	test_mkdir -p $dir
+	#use setstripe to do a write to every ost
+	for i in $(seq 0 $((OSTCOUNT-1))); do
+		$SETSTRIPE -c 1 -i $i $dir || error "$SETSTRIPE $file failed"
+		dd if=/dev/urandom of=$file bs=4k count=4 2>&1 > /dev/null
+		idx=$(printf %04x $i)
+		BEFORE=$(get_osd_param $list *OST*$idx stats |
+		    awk '$1 == "cache_access" {sum += $2} END { print sum }')
+		if [ -z "$BEFORE" ]; then
+			BEFORE=0
+		fi
+
+		cancel_lru_locks osc
+		cat $file >/dev/null
+
+		AFTER=$(get_osd_param $list *OST*$idx stats |
+		    awk '$1 == "cache_access" {sum += $2} END { print sum }')
+
+		echo BEFORE:$BEFORE AFTER:$AFTER
+		if ! let "AFTER - BEFORE == 4"; then
+			rm -rf $dir
+			error "roc_hit is not safe to use"
+		fi
+		rm $file
+	done
+
+	rm -rf $dir
+}
+
 function roc_hit() {
 	local list=$(comma_list $(osts_nodes))
-	#debug temp debug for LU-2902: lets see what values we get back
-	echo $(get_osd_param $list '' stats) 1>&2
 	echo $(get_osd_param $list '' stats |
-	       awk '/'cache_hit'/ {sum+=$2} END {print sum}')
+		awk '$1 == "cache_hit" {sum += $2} END { print sum }')
 }
 
 function set_cache() {
@@ -8643,6 +8683,8 @@ test_151() {
 		echo "oss write cache is NOT enabled"
 		return 0
 	fi
+
+	roc_hit_init
 
 	#define OBD_FAIL_OBD_NO_LRU  0x609
 	do_nodes $list $LCTL set_param fail_loc=0x609
@@ -9011,6 +9053,8 @@ test_156() {
 		skip "LU-1956/LU-2261: stats unimplemented on OSD ZFS" &&
 		return
 
+	roc_hit_init
+
     log "Turn on read and write cache"
     set_cache read on
     set_cache writethrough on
@@ -9145,113 +9189,132 @@ run_test 156 "Verification of tunables ============================"
 
 #Changelogs
 err17935 () {
-    if [ $MDSCOUNT -gt 1 ]; then
-	error_ignore 17935 $*
-    else
-	error $*
-    fi
+	if [ $MDSCOUNT -gt 1 ]; then
+		error_ignore 17935 $*
+	else
+		error $*
+	fi
 }
 
 changelog_chmask()
 {
-    MASK=$(do_facet $SINGLEMDS $LCTL get_param mdd.$MDT0.changelog_mask |\
-           grep -c $1)
+	local CL_MASK_PARAM="mdd.$MDT0.changelog_mask"
 
-    if [ $MASK -eq 1 ]; then
-        do_facet $SINGLEMDS $LCTL set_param mdd.$MDT0.changelog_mask="-$1"
-    else
-        do_facet $SINGLEMDS $LCTL set_param mdd.$MDT0.changelog_mask="+$1"
-    fi
+	MASK=$(do_facet $SINGLEMDS $LCTL get_param $CL_MASK_PARAM| grep -c "$1")
+
+	if [ $MASK -eq 1 ]; then
+		do_facet $SINGLEMDS $LCTL set_param $CL_MASK_PARAM="-$1"
+	else
+		do_facet $SINGLEMDS $LCTL set_param $CL_MASK_PARAM="+$1"
+	fi
+}
+
+changelog_extract_field() {
+	local mdt=$1
+	local cltype=$2
+	local file=$3
+	local identifier=$4
+
+	$LFS changelog $mdt | gawk "/$cltype.*$file$/ {
+		print gensub(/^.* "$identifier'(\[[^\]]*\]).*$/,"\\1",1)}' |
+		tail -1
 }
 
 test_160() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-    remote_mds_nodsh && skip "remote MDS with nodsh" && return
-    [ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.0) ] ||
-        { skip "Need MDS version at least 2.2.0"; return; }
-    USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
-    echo "Registered as changelog user $USER"
-    do_facet $SINGLEMDS $LCTL get_param -n mdd.$MDT0.changelog_users | \
-	grep -q $USER || error "User $USER not found in changelog_users"
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.0) ] ||
+		{ skip "Need MDS version at least 2.2.0"; return; }
 
-    # change something
-    test_mkdir -p $DIR/$tdir/pics/2008/zachy
-    touch $DIR/$tdir/pics/2008/zachy/timestamp
-    cp /etc/hosts $DIR/$tdir/pics/2008/zachy/pic1.jpg
-    mv $DIR/$tdir/pics/2008/zachy $DIR/$tdir/pics/zach
-    ln $DIR/$tdir/pics/zach/pic1.jpg $DIR/$tdir/pics/2008/portland.jpg
-    ln -s $DIR/$tdir/pics/2008/portland.jpg $DIR/$tdir/pics/desktop.jpg
-    rm $DIR/$tdir/pics/desktop.jpg
+	local CL_USERS="mdd.$MDT0.changelog_users"
+	local GET_CL_USERS="do_facet $SINGLEMDS $LCTL get_param -n $CL_USERS"
+	USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
+	echo "Registered as changelog user $USER"
+	$GET_CL_USERS | grep -q $USER ||
+		error "User $USER not found in changelog_users"
 
-    $LFS changelog $MDT0 | tail -5
+	# change something
+	test_mkdir -p $DIR/$tdir/pics/2008/zachy
+	touch $DIR/$tdir/pics/2008/zachy/timestamp
+	cp /etc/hosts $DIR/$tdir/pics/2008/zachy/pic1.jpg
+	mv $DIR/$tdir/pics/2008/zachy $DIR/$tdir/pics/zach
+	ln $DIR/$tdir/pics/zach/pic1.jpg $DIR/$tdir/pics/2008/portland.jpg
+	ln -s $DIR/$tdir/pics/2008/portland.jpg $DIR/$tdir/pics/desktop.jpg
+	rm $DIR/$tdir/pics/desktop.jpg
 
-    echo "verifying changelog mask"
-    changelog_chmask "MKDIR"
-    changelog_chmask "CLOSE"
+	$LFS changelog $MDT0 | tail -5
 
-    test_mkdir -p $DIR/$tdir/pics/zach/sofia
-    echo "zzzzzz" > $DIR/$tdir/pics/zach/file
+	echo "verifying changelog mask"
+	changelog_chmask "MKDIR"
+	changelog_chmask "CLOSE"
 
-    changelog_chmask "MKDIR"
-    changelog_chmask "CLOSE"
+	test_mkdir -p $DIR/$tdir/pics/zach/sofia
+	echo "zzzzzz" > $DIR/$tdir/pics/zach/file
 
-    test_mkdir -p $DIR/$tdir/pics/2008/sofia
-    echo "zzzzzz" > $DIR/$tdir/pics/zach/file
+	changelog_chmask "MKDIR"
+	changelog_chmask "CLOSE"
 
-    $LFS changelog $MDT0
-    MKDIRS=$($LFS changelog $MDT0 | tail -5 | grep -c "MKDIR")
-    CLOSES=$($LFS changelog $MDT0 | tail -5 | grep -c "CLOSE")
-    [ $MKDIRS -eq 1 ] || err17935 "MKDIR changelog mask count $DIRS != 1"
-    [ $CLOSES -eq 1 ] || err17935 "CLOSE changelog mask count $DIRS != 1"
+	test_mkdir -p $DIR/$tdir/pics/2008/sofia
+	echo "zzzzzz" > $DIR/$tdir/pics/zach/file
 
-    # verify contents
-    echo "verifying target fid"
-    fidc=$($LFS changelog $MDT0 | grep timestamp | grep "CREAT" | \
-	tail -1 | awk '{print $6}')
-    fidf=$($LFS path2fid $DIR/$tdir/pics/zach/timestamp)
-    [ "$fidc" == "t=$fidf" ] || \
-	err17935 "fid in changelog $fidc != file fid $fidf"
-    echo "verifying parent fid"
-    fidc=$($LFS changelog $MDT0 | grep timestamp | grep "CREAT" | \
-	tail -1 | awk '{print $7}')
-    fidf=$($LFS path2fid $DIR/$tdir/pics/zach)
-    [ "$fidc" == "p=$fidf" ] || \
-	err17935 "pfid in changelog $fidc != dir fid $fidf"
+	$LFS changelog $MDT0
+	MKDIRS=$($LFS changelog $MDT0 | tail -5 | grep -c "MKDIR")
+	CLOSES=$($LFS changelog $MDT0 | tail -5 | grep -c "CLOSE")
+	[ $MKDIRS -eq 1 ] || err17935 "MKDIR changelog mask count $DIRS != 1"
+	[ $CLOSES -eq 1 ] || err17935 "CLOSE changelog mask count $DIRS != 1"
 
-    USER_REC1=$(do_facet $SINGLEMDS $LCTL get_param -n \
-	mdd.$MDT0.changelog_users | grep $USER | awk '{print $2}')
-    $LFS changelog_clear $MDT0 $USER $(($USER_REC1 + 5))
-    USER_REC2=$(do_facet $SINGLEMDS $LCTL get_param -n \
-	mdd.$MDT0.changelog_users | grep $USER | awk '{print $2}')
-    echo "verifying user clear: $(( $USER_REC1 + 5 )) == $USER_REC2"
-    [ $USER_REC2 == $(($USER_REC1 + 5)) ] || \
-	err17935 "user index should be $(($USER_REC1 + 5)); is $USER_REC2"
+	# verify contents
+	echo "verifying target fid"
+	fidc=$(changelog_extract_field $MDT0 "CREAT" "timestamp" "t=")
+	fidf=$($LFS path2fid $DIR/$tdir/pics/zach/timestamp)
+	[ "$fidc" == "$fidf" ] ||
+		err17935 "fid in changelog $fidc != file fid $fidf"
+	echo "verifying parent fid"
+	fidc=$(changelog_extract_field $MDT0 "CREAT" "timestamp" "p=")
+	fidf=$($LFS path2fid $DIR/$tdir/pics/zach)
+	[ "$fidc" == "$fidf" ] ||
+		err17935 "pfid in changelog $fidc != dir fid $fidf"
 
-    MIN_REC=$(do_facet $SINGLEMDS $LCTL get_param mdd.$MDT0.changelog_users | \
-	awk 'min == "" || $2 < min {min = $2}; END {print min}')
-    FIRST_REC=$($LFS changelog $MDT0 | head -1 | awk '{print $1}')
-    echo "verifying min purge: $(( $MIN_REC + 1 )) == $FIRST_REC"
-    [ $FIRST_REC == $(($MIN_REC + 1)) ] || \
-	err17935 "first index should be $(($MIN_REC + 1)); is $FIRST_REC"
+	USER_REC1=$($GET_CL_USERS | awk "\$1 == \"$USER\" {print \$2}")
+	$LFS changelog_clear $MDT0 $USER $(($USER_REC1 + 5))
+	USER_REC2=$($GET_CL_USERS | awk "\$1 == \"$USER\" {print \$2}")
+	echo "verifying user clear: $(( $USER_REC1 + 5 )) == $USER_REC2"
+	[ $USER_REC2 == $(($USER_REC1 + 5)) ] ||
+		err17935 "user index expected $(($USER_REC1 + 5)) is $USER_REC2"
 
-    echo "verifying user deregister"
-    do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
-    do_facet $SINGLEMDS $LCTL get_param -n mdd.$MDT0.changelog_users | \
-	grep -q $USER && error "User $USER still found in changelog_users"
+	MIN_REC=$($GET_CL_USERS |
+		awk 'min == "" || $2 < min {min = $2}; END {print min}')
+	FIRST_REC=$($LFS changelog $MDT0 | head -1 | awk '{print $1}')
+	echo "verifying min purge: $(( $MIN_REC + 1 )) == $FIRST_REC"
+	[ $FIRST_REC == $(($MIN_REC + 1)) ] ||
+		err17935 "first index should be $(($MIN_REC + 1)) is $FIRST_REC"
 
-    USERS=$(( $(do_facet $SINGLEMDS $LCTL get_param -n \
-	mdd.$MDT0.changelog_users | wc -l) - 2 ))
-    if [ $USERS -eq 0 ]; then
-	LAST_REC1=$(do_facet $SINGLEMDS $LCTL get_param -n \
-	    mdd.$MDT0.changelog_users | head -1 | awk '{print $3}')
-	touch $DIR/$tdir/chloe
-	LAST_REC2=$(do_facet $SINGLEMDS $LCTL get_param -n \
-	    mdd.$MDT0.changelog_users | head -1 | awk '{print $3}')
-	echo "verify changelogs are off if we were the only user: $LAST_REC1 == $LAST_REC2"
-	[ $LAST_REC1 == $LAST_REC2 ] || error "changelogs not off"
-    else
-	echo "$USERS other changelog users; can't verify off"
-    fi
+	# LU-3446 changelog index reset on MDT restart
+	local MDT_DEV=$(mdsdevname ${SINGLEMDS//mds/})
+	CUR_REC1=$($GET_CL_USERS | head -1 | cut -f3 -d' ')
+	$LFS changelog_clear $MDT0 $USER 0
+	stop $SINGLEMDS || error "Fail to stop MDT."
+	start $SINGLEMDS $MDT_DEV $MDS_MOUNT_OPTS || error "Fail to start MDT."
+	CUR_REC2=$($GET_CL_USERS | head -1 | cut -f3 -d' ')
+	echo "verifying index survives MDT restart: $CUR_REC1 == $CUR_REC2"
+	[ $CUR_REC1 == $CUR_REC2 ] ||
+		err17935 "current index should be $CUR_REC1 is $CUR_REC2"
+
+	echo "verifying user deregister"
+	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
+	$GET_CL_USERS | grep -q $USER &&
+		error "User $USER still in changelog_users"
+
+	USERS=$(( $($GET_CL_USERS | wc -l) - 2 ))
+	if [ $USERS -eq 0 ]; then
+		LAST_REC1=$($GET_CL_USERS | head -1 | cut -f3 -d' ')
+		touch $DIR/$tdir/chloe
+		LAST_REC2=$($GET_CL_USERS | head -1 | cut -f3 -d' ')
+		echo "verify changelogs are off: $LAST_REC1 == $LAST_REC2"
+		[ $LAST_REC1 == $LAST_REC2 ] || error "changelogs not off"
+	else
+		echo "$USERS other changelog users; can't verify off"
+	fi
 }
 run_test 160 "changelog sanity"
 
@@ -9681,6 +9744,9 @@ test_182() {
 run_test 182 "Disable MDC RPCs semaphore wouldn't crash client ================"
 
 test_183() { # LU-2275
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.56) ]] &&
+		skip "Need MDS version at least 2.3.56" && return
+
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	mkdir -p $DIR/$tdir || error "creating dir $DIR/$tdir"
 	echo aaa > $DIR/$tdir/$tfile

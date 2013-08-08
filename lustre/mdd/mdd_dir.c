@@ -926,7 +926,7 @@ static int mdd_linkea_prepare(const struct lu_env *env,
 	if (oldpfid != NULL) {
 		rc = __mdd_links_del(env, mdd_obj, ldata, oldlname, oldpfid);
 		if (rc) {
-			if ((check == 0) ||
+			if ((check == 1) ||
 			    (rc != -ENODATA && rc != -ENOENT))
 				RETURN(rc);
 			/* No changes done. */
@@ -940,8 +940,6 @@ static int mdd_linkea_prepare(const struct lu_env *env,
 		 * old link */
 		rc2 = __mdd_links_add(env, mdd_obj, ldata, newlname, newpfid,
 				      first, check);
-		if (rc2 == -EEXIST)
-			rc2 = 0;
 	}
 
 	rc = rc != 0 ? rc : rc2;
@@ -981,7 +979,7 @@ out:
 		rc = rc2;
 	if (rc) {
 		int error = 1;
-		if (rc == -EOVERFLOW || rc == -ENOENT || rc == -ENOSPC)
+		if (rc == -EOVERFLOW || rc == -ENOSPC)
 			error = 0;
 		if (oldpfid == NULL)
 			CDEBUG(error ? D_ERROR : D_OTHER,
@@ -1069,8 +1067,7 @@ int mdd_links_read(const struct lu_env *env, struct mdd_object *mdd_obj,
 	if (rc < 0)
 		return rc;
 
-	linkea_init(ldata);
-	return 0;
+	return linkea_init(ldata);
 }
 
 /** Read the link EA into a temp buffer.
@@ -1845,10 +1842,11 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 			      struct mdd_object *p, struct mdd_object *c,
 			      const struct lu_name *name,
 			      struct lu_attr *attr,
-			      int got_def_acl,
 			      struct thandle *handle,
 			      const struct md_op_spec *spec,
-			      struct linkea_data *ldata)
+			      struct linkea_data *ldata,
+			      struct lu_buf *def_acl_buf,
+			      struct lu_buf *acl_buf)
 {
 	int rc;
 
@@ -1857,19 +1855,16 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
                 GOTO(out, rc);
 
 #ifdef CONFIG_FS_POSIX_ACL
-	if (got_def_acl > 0) {
-		struct lu_buf *acl_buf;
-
-		acl_buf = mdd_buf_get(env, NULL, got_def_acl);
+	if (def_acl_buf->lb_len > 0 && S_ISDIR(attr->la_mode)) {
 		/* if dir, then can inherit default ACl */
-		if (S_ISDIR(attr->la_mode)) {
-			rc = mdo_declare_xattr_set(env, c, acl_buf,
-						   XATTR_NAME_ACL_DEFAULT,
-						   0, handle);
-			if (rc)
-				GOTO(out, rc);
-		}
+		rc = mdo_declare_xattr_set(env, c, def_acl_buf,
+					   XATTR_NAME_ACL_DEFAULT,
+					   0, handle);
+		if (rc)
+			GOTO(out, rc);
+	}
 
+	if (acl_buf->lb_len > 0) {
 		rc = mdo_declare_attr_set(env, c, attr, handle);
 		if (rc)
 			GOTO(out, rc);
@@ -1934,27 +1929,31 @@ out:
 }
 
 static int mdd_acl_init(const struct lu_env *env, struct mdd_object *pobj,
-			struct lu_attr *la, struct lu_buf *acl_buf,
-			int *got_def_acl, int *reset_acl)
+			struct lu_attr *la, struct lu_buf *def_acl_buf,
+			struct lu_buf *acl_buf)
 {
 	int	rc;
 	ENTRY;
 
-	if (S_ISLNK(la->la_mode))
+	if (S_ISLNK(la->la_mode)) {
+		acl_buf->lb_len = 0;
+		def_acl_buf->lb_len = 0;
 		RETURN(0);
+	}
 
 	mdd_read_lock(env, pobj, MOR_TGT_PARENT);
-	rc = mdo_xattr_get(env, pobj, acl_buf,
+	rc = mdo_xattr_get(env, pobj, def_acl_buf,
 			   XATTR_NAME_ACL_DEFAULT, BYPASS_CAPA);
 	mdd_read_unlock(env, pobj);
 	if (rc > 0) {
-		/* If there are default ACL, fix mode by default ACL */
-		*got_def_acl = rc;
+		/* If there are default ACL, fix mode/ACL by default ACL */
+		def_acl_buf->lb_len = rc;
+		LASSERT(def_acl_buf->lb_len <= acl_buf->lb_len);
+		memcpy(acl_buf->lb_buf, def_acl_buf->lb_buf, rc);
 		acl_buf->lb_len = rc;
 		rc = __mdd_fix_mode_acl(env, acl_buf, &la->la_mode);
 		if (rc < 0)
 			RETURN(rc);
-		*reset_acl = rc;
 	} else if (rc == -ENODATA || rc == -EOPNOTSUPP) {
 		/* If there are no default ACL, fix mode by mask */
 		struct lu_ucred *uc = lu_ucred(env);
@@ -1964,6 +1963,8 @@ static int mdd_acl_init(const struct lu_env *env, struct mdd_object *pobj,
 		if (unlikely(uc != NULL))
 			la->la_mode &= ~uc->uc_umask;
 		rc = 0;
+		acl_buf->lb_len = 0;
+		def_acl_buf->lb_len = 0;
 	}
 
 	RETURN(rc);
@@ -1985,12 +1986,11 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	struct thandle		*handle;
 	struct lu_attr		*pattr = &info->mti_pattr;
 	struct lu_buf		acl_buf;
+	struct lu_buf		def_acl_buf;
 	struct linkea_data	*ldata = &info->mti_link_data;
 	struct dynlock_handle	*dlh;
 	const char		*name = lname->ln_name;
 	int			 rc, created = 0, initialized = 0, inserted = 0;
-	int			 got_def_acl = 0;
-	int			 reset_acl = 0;
 	ENTRY;
 
         /*
@@ -2043,8 +2043,9 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 
 	acl_buf.lb_buf = info->mti_xattr_buf;
 	acl_buf.lb_len = sizeof(info->mti_xattr_buf);
-	rc = mdd_acl_init(env, mdd_pobj, attr, &acl_buf, &got_def_acl,
-			  &reset_acl);
+	def_acl_buf.lb_buf = info->mti_key;
+	def_acl_buf.lb_len = sizeof(info->mti_key);
+	rc = mdd_acl_init(env, mdd_pobj, attr, &def_acl_buf, &acl_buf);
 	if (rc < 0)
 		GOTO(out_free, rc);
 
@@ -2057,8 +2058,9 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	memset(ldata, 0, sizeof(*ldata));
 	mdd_linkea_prepare(env, son, NULL, NULL, mdd_object_fid(mdd_pobj),
 			   lname, 1, 0, ldata);
+
 	rc = mdd_declare_create(env, mdd, mdd_pobj, son, lname, attr,
-				got_def_acl, handle, spec, ldata);
+				handle, spec, ldata, &def_acl_buf, &acl_buf);
         if (rc)
                 GOTO(out_stop, rc);
 
@@ -2080,34 +2082,24 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	created = 1;
 
 #ifdef CONFIG_FS_POSIX_ACL
-	if (got_def_acl) {
+	if (def_acl_buf.lb_len > 0 && S_ISDIR(attr->la_mode)) {
 		/* set default acl */
-		if (S_ISDIR(attr->la_mode)) {
-			LASSERTF(acl_buf.lb_len  == got_def_acl,
-				 "invalid acl_buf: %p:%d got_def %d\n",
-				 acl_buf.lb_buf, (int)acl_buf.lb_len,
-				 got_def_acl);
-			rc = mdo_xattr_set(env, son, &acl_buf,
-					   XATTR_NAME_ACL_DEFAULT, 0,
-					   handle, BYPASS_CAPA);
-			if (rc) {
-				mdd_write_unlock(env, son);
-				GOTO(cleanup, rc);
-			}
+		rc = mdo_xattr_set(env, son, &def_acl_buf,
+				   XATTR_NAME_ACL_DEFAULT, 0,
+				   handle, BYPASS_CAPA);
+		if (rc) {
+			mdd_write_unlock(env, son);
+			GOTO(cleanup, rc);
 		}
-
-		/* set its own acl */
-		if (reset_acl) {
-			LASSERTF(acl_buf.lb_buf != NULL && acl_buf.lb_len != 0,
-				 "invalid acl_buf %p:%d\n", acl_buf.lb_buf,
-				 (int)acl_buf.lb_len);
-			rc = mdo_xattr_set(env, son, &acl_buf,
-					   XATTR_NAME_ACL_ACCESS,
-					   0, handle, BYPASS_CAPA);
-			if (rc) {
-				mdd_write_unlock(env, son);
-				GOTO(cleanup, rc);
-			}
+	}
+	/* set its own acl */
+	if (acl_buf.lb_len > 0) {
+		rc = mdo_xattr_set(env, son, &acl_buf,
+				   XATTR_NAME_ACL_ACCESS,
+				   0, handle, BYPASS_CAPA);
+		if (rc) {
+			mdd_write_unlock(env, son);
+			GOTO(cleanup, rc);
 		}
 	}
 #endif
