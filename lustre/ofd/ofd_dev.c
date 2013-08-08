@@ -48,6 +48,7 @@
 #include <lustre_lfsck.h>
 #include <lustre/lustre_idl.h>
 #include <lustre_dlm.h>
+#include <lustre_quota.h>
 
 #include "ofd_internal.h"
 
@@ -698,49 +699,6 @@ static int ofd_fiemap_get(const struct lu_env *env, struct ofd_device *ofd,
 	return rc;
 }
 
-/**
- * Helper function for getting server side [start, start+count] DLM lock
- * if asked by client.
- */
-int ofd_extent_lock(struct ldlm_namespace *ns, struct ldlm_res_id *res_id,
-		    __u64 start, __u64 count, struct lustre_handle *lh,
-		    int mode, __u64 flags)
-{
-	ldlm_policy_data_t	 policy;
-	__u64			 end = start + count;
-	int			 rc;
-
-	ENTRY;
-
-	LASSERT(lh != NULL);
-	LASSERT(ns != NULL);
-	LASSERT(!lustre_handle_is_used(lh));
-
-	memset(&policy, 0, sizeof policy);
-	policy.l_extent.start = start & CFS_PAGE_MASK;
-
-	/*
-	 * If ->o_blocks is EOF it means "lock till the end of the file".
-	 * Otherwise, it's size of an extent or hole being punched (in bytes).
-	 */
-	if (count == OBD_OBJECT_EOF || end < start)
-		policy.l_extent.end = OBD_OBJECT_EOF;
-	else
-		policy.l_extent.end = end | ~CFS_PAGE_MASK;
-
-	rc = ldlm_cli_enqueue_local(ns, res_id, LDLM_EXTENT, &policy, mode,
-				    &flags, ldlm_blocking_ast,
-				    ldlm_completion_ast, ldlm_glimpse_ast,
-				    NULL, 0, LVB_T_NONE, NULL, lh);
-	RETURN(rc == ELDLM_OK ? 0 : -EIO);
-}
-
-void ofd_extent_unlock(struct lustre_handle *lh, ldlm_mode_t mode)
-{
-	LASSERT(lh != NULL);
-	ldlm_lock_decref(lh, mode);
-}
-
 struct locked_region {
 	cfs_list_t		list;
 	struct lustre_handle	lh;
@@ -758,7 +716,7 @@ static int lock_region(struct ldlm_namespace *ns, struct ldlm_res_id *res_id,
 	if (region == NULL)
 		return -ENOMEM;
 
-	rc = ofd_extent_lock(ns, res_id, begin, end - begin, &region->lh,
+	rc = tgt_extent_lock(ns, res_id, begin, end, &region->lh,
 			     LCK_PR, 0);
 	if (rc != 0)
 		return rc;
@@ -812,7 +770,7 @@ static void unlock_zero_regions(struct ldlm_namespace *ns, cfs_list_t *locked)
 
 	cfs_list_for_each_entry_safe(entry, temp, locked, list) {
 		CDEBUG(D_OTHER, "ost unlock lh=%p\n", &entry->lh);
-		ofd_extent_unlock(&entry->lh, LCK_PR);
+		tgt_extent_unlock(&entry->lh, LCK_PR);
 		cfs_list_del(&entry->list);
 		OBD_FREE_PTR(entry);
 	}
@@ -984,7 +942,7 @@ static int ofd_getattr_hdl(struct tgt_session_info *tsi)
 	repbody->oa.o_valid = OBD_MD_FLID | OBD_MD_FLGROUP;
 
 	ost_fid_build_resid(lu_object_fid(tsi->tsi_corpus), &fti->fti_resid);
-	rc = ofd_extent_lock(ofd->ofd_namespace, &fti->fti_resid,
+	rc = tgt_extent_lock(ofd->ofd_namespace, &fti->fti_resid,
 			     0, OBD_OBJECT_EOF, &lh, LCK_PR, 0);
 	if (rc != 0)
 		RETURN(rc);
@@ -1006,7 +964,7 @@ static int ofd_getattr_hdl(struct tgt_session_info *tsi)
 		repbody->oa.o_data_version = curr_version;
 	}
 	ofd_object_put(tsi->tsi_env, fo);
-	ofd_extent_unlock(&lh, LCK_PR);
+	tgt_extent_unlock(&lh, LCK_PR);
 	RETURN(rc);
 }
 
@@ -1394,9 +1352,8 @@ static int ofd_sync_hdl(struct tgt_session_info *tsi)
 {
 	struct ost_body		*body = tsi->tsi_ost_body;
 	struct ost_body		*repbody;
-	struct ofd_device	*ofd = ofd_exp(tsi->tsi_exp);
 	struct ofd_thread_info	*fti = tsi2ofd_info(tsi);
-	struct ofd_object	*fo;
+        struct ofd_object	*fo = NULL;
 	int			 rc = 0;
 
 	ENTRY;
@@ -1404,22 +1361,21 @@ static int ofd_sync_hdl(struct tgt_session_info *tsi)
 	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
 
 	/* if no objid is specified, it means "sync whole filesystem" */
-	if (tsi->tsi_corpus == NULL) {
-		rc = dt_sync(tsi->tsi_env, ofd->ofd_osd);
-		RETURN(rc);
+	if (tsi->tsi_corpus != NULL) {
+		fo = ofd_obj(tsi->tsi_corpus);
+		lu_object_get(&fo->ofo_obj.do_lu);
 	}
-
-	fo = ofd_obj(tsi->tsi_corpus);
-	lu_object_get(&fo->ofo_obj.do_lu);
 
 	LASSERT(ofd_object_exists(fo));
+	rc = tgt_sync(tsi->tsi_env, tsi->tsi_tgt,
+		      fo != NULL ? ofd_object_child(fo) : NULL);
+	if (rc)
+		GOTO(put, rc);
 
-	if (dt_version_get(tsi->tsi_env, ofd_object_child(fo)) >
-	    ofd_obd(ofd)->obd_last_committed) {
-		rc = dt_object_sync(tsi->tsi_env, ofd_object_child(fo));
-		if (rc)
-			GOTO(put, rc);
-	}
+	ofd_counter_incr(tsi->tsi_exp, LPROC_OFD_STATS_SYNC,
+			 lustre_msg_get_jobid(tgt_ses_req(tsi)->rq_reqmsg), 1);
+	if (fo == NULL)
+		RETURN(0);
 
 	repbody->oa.o_oi = body->oa.o_oi;
 	repbody->oa.o_valid = OBD_MD_FLID | OBD_MD_FLGROUP;
@@ -1430,12 +1386,133 @@ static int ofd_sync_hdl(struct tgt_session_info *tsi)
 		     OFD_VALID_FLAGS | LA_UID | LA_GID);
 	ofd_drop_id(tsi->tsi_exp, &repbody->oa);
 
-	ofd_counter_incr(tsi->tsi_exp, LPROC_OFD_STATS_SYNC,
-			 lustre_msg_get_jobid(tgt_ses_req(tsi)->rq_reqmsg), 1);
 	EXIT;
 put:
 	ofd_object_put(tsi->tsi_env, fo);
 	return rc;
+}
+
+static int ofd_punch(struct tgt_session_info *tsi)
+{
+	const struct obdo	*oa = &tsi->tsi_ost_body->oa;
+	struct ost_body		*repbody;
+	struct ofd_thread_info	*info = tsi2ofd_info(tsi);
+	struct ldlm_namespace	*ns = tsi->tsi_tgt->lut_obd->obd_namespace;
+	struct ldlm_resource	*res;
+	struct ofd_object	*fo;
+	struct filter_fid	*ff = NULL;
+	__u64			 flags = 0;
+	struct lustre_handle	 lh = { 0, };
+	int			 rc;
+	__u64			 start, end;
+	bool			 srvlock;
+
+	ENTRY;
+
+	/* check that we do support OBD_CONNECT_TRUNCLOCK. */
+	CLASSERT(OST_CONNECT_SUPPORTED & OBD_CONNECT_TRUNCLOCK);
+
+	if ((oa->o_valid & (OBD_MD_FLSIZE | OBD_MD_FLBLOCKS)) !=
+	    (OBD_MD_FLSIZE | OBD_MD_FLBLOCKS))
+		RETURN(err_serious(-EPROTO));
+
+	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
+	if (repbody == NULL)
+		RETURN(err_serious(-ENOMEM));
+
+	/* punch start,end are passed in o_size,o_blocks throught wire */
+	start = oa->o_size;
+	end = oa->o_blocks;
+
+	if (end != OBD_OBJECT_EOF) /* Only truncate is supported */
+		RETURN(-EPROTO);
+
+	/* standard truncate optimization: if file body is completely
+	 * destroyed, don't send data back to the server. */
+	if (start == 0)
+		flags |= LDLM_FL_AST_DISCARD_DATA;
+
+	repbody->oa.o_oi = oa->o_oi;
+	repbody->oa.o_valid = OBD_MD_FLID;
+
+	srvlock = oa->o_valid & OBD_MD_FLFLAGS &&
+		  oa->o_flags & OBD_FL_SRVLOCK;
+
+	if (srvlock) {
+		rc = tgt_extent_lock(ns, &tsi->tsi_resid, start, end, &lh,
+				     LCK_PW, &flags);
+		if (rc != 0)
+			RETURN(rc);
+	}
+
+	CDEBUG(D_INODE, "calling punch for object "DFID", valid = "LPX64
+	       ", start = "LPD64", end = "LPD64"\n", PFID(&tsi->tsi_fid),
+	       oa->o_valid, start, end);
+
+	fo = ofd_obj(tsi->tsi_corpus);
+	lu_object_get(&fo->ofo_obj.do_lu);
+
+	la_from_obdo(&info->fti_attr, oa,
+		     OBD_MD_FLMTIME | OBD_MD_FLATIME | OBD_MD_FLCTIME);
+	info->fti_attr.la_size = start;
+	info->fti_attr.la_valid |= LA_SIZE;
+
+	if (oa->o_valid & OBD_MD_FLFID) {
+		ff = &info->fti_mds_fid;
+		ofd_prepare_fidea(ff, oa);
+	}
+
+	rc = ofd_object_punch(tsi->tsi_env, fo, start, end, &info->fti_attr, ff);
+	if (rc)
+		GOTO(out, rc);
+
+	res = ldlm_resource_get(ns, NULL, &tsi->tsi_resid, LDLM_EXTENT, 0);
+	if (res != NULL) {
+		ldlm_res_lvbo_update(res, NULL, 0);
+		ldlm_resource_putref(res);
+	}
+
+	/* Quota release needs uid/gid info */
+	rc = ofd_attr_get(tsi->tsi_env, fo, &info->fti_attr);
+	obdo_from_la(&repbody->oa, &info->fti_attr,
+		     OFD_VALID_FLAGS | LA_UID | LA_GID);
+	ofd_drop_id(tsi->tsi_exp, &repbody->oa);
+
+	ofd_counter_incr(tsi->tsi_exp, LPROC_OFD_STATS_PUNCH,
+			 lustre_msg_get_jobid(tgt_ses_req(tsi)->rq_reqmsg), 1);
+	EXIT;
+out:
+	ofd_object_put(tsi->tsi_env, fo);
+	if (srvlock)
+		tgt_extent_unlock(&lh, LCK_PW);
+	return rc;
+}
+
+
+static int ofd_quotactl(struct tgt_session_info *tsi)
+{
+	struct obd_quotactl	*oqctl, *repoqc;
+	int			 rc;
+
+	ENTRY;
+
+	oqctl = req_capsule_client_get(tsi->tsi_pill, &RMF_OBD_QUOTACTL);
+	if (oqctl == NULL)
+		RETURN(err_serious(-EPROTO));
+
+	repoqc = req_capsule_server_get(tsi->tsi_pill, &RMF_OBD_QUOTACTL);
+	if (repoqc == NULL)
+		RETURN(err_serious(-ENOMEM));
+
+	/* report success for quota on/off for interoperability with current MDT
+	 * stack */
+	if (oqctl->qc_cmd == Q_QUOTAON || oqctl->qc_cmd == Q_QUOTAOFF)
+		RETURN(0);
+
+	*repoqc = *oqctl;
+	rc = lquotactl_slv(tsi->tsi_env, tsi->tsi_tgt->lut_bottom, repoqc);
+
+	RETURN(rc);
 }
 
 int ofd_notsupp(struct tgt_session_info *tsi)
@@ -1467,12 +1544,12 @@ TGT_OST_HDL(0		| HABEO_REFERO | MUTABOR,
 TGT_OST_HDL(0		| HABEO_REFERO | MUTABOR,
 					OST_DESTROY,	ofd_destroy_hdl),
 TGT_OST_HDL(0		| HABEO_REFERO,	OST_STATFS,	ofd_statfs_hdl),
-TGT_OST_HDL(HABEO_CORPUS,		OST_BRW_READ,	ofd_notsupp),
-TGT_OST_HDL(HABEO_CORPUS| MUTABOR,	OST_BRW_WRITE,	ofd_notsupp),
-TGT_OST_HDL(HABEO_CORPUS| MUTABOR,	OST_PUNCH,	ofd_notsupp),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_BRW_READ,	tgt_brw_read),
+TGT_OST_HDL(HABEO_CORPUS| MUTABOR,	OST_BRW_WRITE,	tgt_brw_write),
+TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
+					OST_PUNCH,	ofd_punch),
 TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_SYNC,	ofd_sync_hdl),
-TGT_OST_HDL(0,				OST_QUOTACTL,	ofd_notsupp),
-TGT_OST_HDL(0,				OST_QUOTACHECK,	ofd_notsupp),
+TGT_OST_HDL(0		| HABEO_REFERO,	OST_QUOTACTL,	ofd_quotactl),
 };
 
 static struct tgt_opc_slice ofd_common_slice[] = {

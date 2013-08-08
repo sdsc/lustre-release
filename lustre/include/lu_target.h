@@ -58,6 +58,10 @@ struct lu_target {
 	unsigned int		 lut_mds_capa:1,
 				 lut_oss_capa:1;
 
+	spinlock_t		 lut_flags_lock;
+	unsigned int		 lut_syncjournal:1,
+				 lut_sync_lock_cancel:2;
+
 	/* LAST_RCVD parameters */
 	/** last_rcvd file */
 	struct dt_object	*lut_last_rcvd;
@@ -99,6 +103,8 @@ struct tgt_session_info {
 	struct ost_body		*tsi_ost_body;
 	struct lu_object	*tsi_corpus;
 
+	struct lu_fid		 tsi_fid;
+	struct ldlm_res_id	 tsi_resid;
 	/*
 	 * Additional fail id that can be set by handler.
 	 */
@@ -162,6 +168,8 @@ struct tgt_handler {
 	int			 th_version;
 	/* Handler function */
 	int			(*th_act)(struct tgt_session_info *tti);
+	/* Handler function for high priority requests */
+	int			(*th_hp)(struct tgt_session_info *tti);
 	/* Request format for this request */
 	const struct req_format	*th_fmt;
 };
@@ -214,6 +222,20 @@ int tgt_sec_ctx_init_cont(struct tgt_session_info *tsi);
 int tgt_sec_ctx_fini(struct tgt_session_info *tsi);
 int tgt_sendpage(struct tgt_session_info *tsi, struct lu_rdpg *rdpg, int nob);
 int tgt_validate_obdo(struct tgt_session_info *tsi, struct obdo *oa);
+int tgt_sync(const struct lu_env *env, struct lu_target *tgt,
+	     struct dt_object *obj);
+int tgt_extent_lock(struct ldlm_namespace *ns, struct ldlm_res_id *res_id,
+		    __u64 start, __u64 end, struct lustre_handle *lh,
+		    int mode, __u64 *flags);
+void tgt_extent_unlock(struct lustre_handle *lh, ldlm_mode_t mode);
+int tgt_brw_lock(struct ldlm_namespace *ns, struct ldlm_res_id *res_id,
+		 struct obd_ioobj *obj, struct niobuf_remote *nb,
+		 struct lustre_handle *lh, int mode);
+void tgt_brw_unlock(struct obd_ioobj *obj, struct niobuf_remote *niob,
+		    struct lustre_handle *lh, int mode);
+int tgt_brw_read(struct tgt_session_info *tsi);
+int tgt_brw_write(struct tgt_session_info *tsi);
+int tgt_hpreq_handler(struct ptlrpc_request *req);
 
 extern struct tgt_handler tgt_sec_ctx_handlers[];
 extern struct tgt_handler tgt_obd_handlers[];

@@ -1758,7 +1758,7 @@ static void ost_io_thread_done(struct ptlrpc_thread *thread)
          */
         tls = thread->t_data;
         if (tls != NULL) {
-                OBD_FREE_PTR(tls);
+                OBD_FREE_LARGE(tls, sizeof(*tls));
                 thread->t_data = NULL;
         }
         EXIT;
@@ -1776,7 +1776,7 @@ static int ost_io_thread_init(struct ptlrpc_thread *thread)
         LASSERT(thread != NULL);
         LASSERT(thread->t_data == NULL);
 
-        OBD_ALLOC_PTR(tls);
+        OBD_ALLOC_LARGE(tls, sizeof(*tls));
         if (tls == NULL)
                 RETURN(-ENOMEM);
         thread->t_data = tls;
@@ -1937,7 +1937,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		.psc_ops		= {
 			.so_thr_init		= ost_io_thread_init,
 			.so_thr_done		= ost_io_thread_done,
-			.so_req_handler		= ost_handle,
+			.so_req_handler		= tgt_request_handle,
 			.so_hpreq_handler	= ost_io_hpreq_handler,
 			.so_req_printer		= target_print_req,
 		},

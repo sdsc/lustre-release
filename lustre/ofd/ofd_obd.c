@@ -611,9 +611,6 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 			ofd_read_unlock(env, fo);
 			ofd_object_put(env, fo);
 		}
-	} else if (KEY_IS(KEY_SYNC_LOCK_CANCEL)) {
-		*((__u32 *) val) = ofd->ofd_sync_lock_cancel;
-		*vallen = sizeof(__u32);
 	} else if (KEY_IS(KEY_LAST_FID)) {
 		struct ofd_device	*ofd = ofd_exp(exp);
 		struct ofd_seq		*oseq;
