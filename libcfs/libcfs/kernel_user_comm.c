@@ -54,23 +54,25 @@
  */
 int libcfs_ukuc_start(lustre_kernelcomm *link, int group)
 {
-        int pfd[2];
+	int pfd[2];
 
-        if (pipe(pfd) < 0)
-                return -errno;
+	link->lk_rfd = link->lk_wfd = LK_NOFD;
 
-        memset(link, 0, sizeof(*link));
-        link->lk_rfd = pfd[0];
-        link->lk_wfd = pfd[1];
-        link->lk_group = group;
-        link->lk_uid = getpid();
-        return 0;
+	if (pipe(pfd) < 0)
+		return -errno;
+
+	memset(link, 0, sizeof(*link));
+	link->lk_rfd = pfd[0];
+	link->lk_wfd = pfd[1];
+	link->lk_group = group;
+	link->lk_uid = getpid();
+	return 0;
 }
 
 int libcfs_ukuc_stop(lustre_kernelcomm *link)
 {
-        if (link->lk_wfd > 0)
-                close(link->lk_wfd);
+	if (link->lk_wfd != LK_NOFD)
+		close(link->lk_wfd);
         return close(link->lk_rfd);
 }
 
