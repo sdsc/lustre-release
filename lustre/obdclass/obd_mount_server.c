@@ -771,6 +771,10 @@ static int client_lwp_config_process(const struct lu_env *env,
 		if (!tgt_is_mdt0(marker->cm_tgtname))
 			GOTO(out, rc = 0);
 
+		if (OBD_OCD_VERSION_MAJOR(marker->cm_vers) == 2 &&
+		    OBD_OCD_VERSION_MINOR(marker->cm_vers) < 4)
+			GOTO(out, rc = 0);
+
 		if (!strncmp(marker->cm_comment, "add mdc", 7) ||
 		    !strncmp(marker->cm_comment, "add failnid", 11)) {
 			if (marker->cm_flags & CM_START) {
@@ -803,7 +807,8 @@ static int client_lwp_config_process(const struct lu_env *env,
 		break;
 	}
 	case LCFG_ADD_CONN: {
-		if (is_mdc_for_mdt0(lustre_cfg_string(lcfg, 0)))
+		if (is_mdc_for_mdt0(lustre_cfg_string(lcfg, 0)) &&
+		    (clli->cfg_flags & CFG_F_MARKER) != 0)
 			rc = lustre_lwp_add_conn(lcfg, lsi);
 		break;
 	}
