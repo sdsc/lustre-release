@@ -779,6 +779,11 @@ struct dt_object *llog_osd_dir_get(const struct lu_env *env,
 		dir = ctxt->loc_dir;
 	}
 
+	if (!IS_ERR(dir) && !dt_try_as_dir(env, dir)) {
+		lu_object_put(env, &dir->do_lu);
+		return ERR_PTR(-ENOTDIR);
+	}
+
 	return dir;
 }
 
