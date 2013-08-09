@@ -1324,6 +1324,8 @@ static int ost_set_info(struct obd_export *exp, struct ptlrpc_request *req)
 		struct lfsck_event_request *ler =
 					(struct lfsck_event_request *)val;
 
+		LASSERT(exp_connect_flags(exp) & OBD_CONNECT_MDS);
+
 		if (vallen < sizeof(*ler))
 			RETURN(-EFAULT);
 
