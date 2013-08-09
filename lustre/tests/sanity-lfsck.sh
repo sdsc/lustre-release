@@ -1161,6 +1161,45 @@ test_12() {
 }
 run_test 12 "LFSCK can repair crashed lmm_oi"
 
+test_13() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+
+	#define OBD_FAIL_LFSCK_DANGLING	0x1610
+	do_facet ost1 $LCTL set_param fail_loc=0x1610
+	createmany -o $DIR/$tdir/f 64
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	echo "stopall to cleanup object cache"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	ls -ail $DIR/$tdir > /dev/null 2>&1 && error "(1) ls should fail."
+
+	$START_LAYOUT || error "(2) Fail to start LFSCK for layout!"
+	sleep 3
+
+	local STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(3) Expect 'completed', but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_dangling/ { print $2 }')
+	[ $repaired -eq 32 ] ||
+		error "(4) Fail to repair dangling reference: $repaired"
+
+	ls -ail $DIR/$tdir > /dev/null || error "(5) ls should success."
+}
+run_test 13 "LFSCK can repair MDT-object with dangling reference"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size
