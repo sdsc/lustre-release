@@ -294,8 +294,14 @@ int lfsck_master_engine(void *args)
 	if (rc != 0) {
 		CERROR("%s: LFSCK, fail to init env: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
-		GOTO(noenv, rc);
+		spin_lock(&lfsck->li_lock);
+		thread_set_flags(thread, SVC_STOPPED);
+		cfs_waitq_broadcast(&thread->t_ctl_waitq);
+		spin_unlock(&lfsck->li_lock);
+		RETURN(rc);
 	}
+
+	lfsck_instance_get(lfsck);
 
 	oit_di = oit_iops->init(&env, oit_obj, lfsck->li_args_oit, BYPASS_CAPA);
 	if (IS_ERR(oit_di)) {
@@ -352,17 +358,18 @@ fini_oit:
 			rc = lfsck_double_scan(&env, lfsck);
 		else
 			rc = 0;
+	} else {
+		lfsck_quit(&env, lfsck);
 	}
 
 	/* XXX: Purge the pinned objects in the future. */
 
 fini_env:
-	lu_env_fini(&env);
-
-noenv:
 	spin_lock(&lfsck->li_lock);
 	thread_set_flags(thread, SVC_STOPPED);
 	cfs_waitq_broadcast(&thread->t_ctl_waitq);
 	spin_unlock(&lfsck->li_lock);
+	lfsck_instance_put(&env, lfsck);
+	lu_env_fini(&env);
 	return rc;
 }

@@ -92,4 +92,9 @@ struct lfsck_start {
 	__u16   ls_padding;
 };
 
+struct lfsck_stop {
+	__u32	ls_status;
+	__u32	ls_index;
+};
+
 #endif /* _LUSTRE_LFSCK_USER_H */
