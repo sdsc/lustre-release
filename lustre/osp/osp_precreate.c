@@ -1206,6 +1206,8 @@ int osp_object_truncate(const struct lu_env *env, struct dt_object *dt,
 			__u64 size)
 {
 	struct osp_device	*d = lu2osp_dev(dt->do_lu.lo_dev);
+	struct osp_object	*o = dt2osp_obj(dt);
+	struct lu_fid		*pfid = &o->opo_pfid;
 	struct ptlrpc_request	*req = NULL;
 	struct obd_import	*imp;
 	struct ost_body		*body;
@@ -1213,6 +1215,8 @@ int osp_object_truncate(const struct lu_env *env, struct dt_object *dt,
 	int			 rc;
 
 	ENTRY;
+
+	LASSERT(o->opo_pfid_set);
 
 	imp = d->opd_obd->u.cli.cl_import;
 	LASSERT(imp);
@@ -1248,11 +1252,14 @@ int osp_object_truncate(const struct lu_env *env, struct dt_object *dt,
 	oa->o_size = size;
 	oa->o_blocks = OBD_OBJECT_EOF;
 	oa->o_valid = OBD_MD_FLSIZE | OBD_MD_FLBLOCKS |
-		      OBD_MD_FLID | OBD_MD_FLGROUP;
+		      OBD_MD_FLID | OBD_MD_FLGROUP | OBD_MD_FLFID;
 
 	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
 	LASSERT(body);
 	lustre_set_wire_obdo(&req->rq_import->imp_connect_data, &body->oa, oa);
+	body->oa.o_parent_seq = pfid->f_seq;
+	body->oa.o_parent_oid = pfid->f_oid;
+	body->oa.o_stripe_idx = pfid->f_ver;
 
 	/* XXX: capa support? */
 	/* osc_pack_capa(req, body, capa); */
