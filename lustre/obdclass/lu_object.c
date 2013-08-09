@@ -794,6 +794,27 @@ struct lu_object *lu_object_find_slice(const struct lu_env *env,
 EXPORT_SYMBOL(lu_object_find_slice);
 
 /**
+ * Find object with given fid, and return the last slice.
+ */
+struct lu_object *lu_object_find_last_slice(const struct lu_env *env,
+					    struct lu_device *dev,
+					    const struct lu_fid *f,
+					    const struct lu_object_conf *conf)
+{
+	struct lu_object *top;
+	struct lu_object *obj;
+
+	top = lu_object_find(env, dev, f, conf);
+	if (!IS_ERR(top))
+		obj = cfs_list_entry(top->lo_header->loh_layers.prev,
+				     struct lu_object, lo_linkage);
+	else
+		obj = top;
+	return obj;
+}
+EXPORT_SYMBOL(lu_object_find_last_slice);
+
+/**
  * Global list of all device types.
  */
 static CFS_LIST_HEAD(lu_device_types);

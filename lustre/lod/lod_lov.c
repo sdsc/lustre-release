@@ -540,6 +540,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 		const struct lu_fid	*fid;
 		struct lod_device	*lod;
 		__u32			index;
+		int			type	= LU_SEQ_RANGE_OST;
 
 		lod = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
 		LASSERT(lo->ldo_stripe[i]);
@@ -550,7 +551,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 
 		ostid_cpu_to_le(&info->lti_ostid, &objs[i].l_ost_oi);
 		objs[i].l_ost_gen    = cpu_to_le32(0);
-		rc = lod_fld_lookup(env, lod, fid, &index, LU_SEQ_RANGE_OST);
+		rc = lod_fld_lookup(env, lod, fid, &index, &type);
 		if (rc < 0) {
 			CERROR("%s: Can not locate "DFID": rc = %d\n",
 			       lod2obd(lod)->obd_name, PFID(fid), rc);
@@ -692,7 +693,7 @@ int lod_initialize_objects(const struct lu_env *env, struct lod_object *lo,
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		ostid_le_to_cpu(&objs[i].l_ost_oi, &info->lti_ostid);
-		idx = le64_to_cpu(objs[i].l_ost_idx);
+		idx = le32_to_cpu(objs[i].l_ost_idx);
 		rc = ostid_to_fid(&info->lti_fid, &info->lti_ostid, idx);
 		if (rc != 0)
 			GOTO(out, rc);
