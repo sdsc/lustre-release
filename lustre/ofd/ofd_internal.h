@@ -113,7 +113,8 @@ struct ofd_seq {
 	struct mutex		os_create_lock;
 	cfs_atomic_t		os_refc;
 	struct dt_object	*os_lastid_obj;
-	unsigned long		os_destroys_in_progress:1;
+	unsigned long		os_destroys_in_progress:1,
+				os_lastid_rebuilt:1;
 };
 
 struct ofd_device {
@@ -184,8 +185,11 @@ struct ofd_device {
 				 ofd_sync_lock_cancel:2,
 				 /* shall we grant space to clients not
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
-				 ofd_grant_compat_disable:1;
+				 ofd_grant_compat_disable:1,
+				 ofd_lastid_rebuilding:1;
 	struct seq_server_site	 ofd_seq_site;
+	/* Protect ::ofd_lastid_rebuilding */
+	struct rw_semaphore	 ofd_lastid_rwsem;
 };
 
 static inline struct ofd_device *ofd_dev(struct lu_device *d)
