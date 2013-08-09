@@ -301,6 +301,8 @@ struct dt_object_operations {
          * lu_object_operations, but that would break existing symmetry.
          */
 
+	int   (*do_declare_attr_get)(const struct lu_env *env,
+				     struct dt_object *dt);
         /**
          * Return standard attributes.
          *
@@ -1088,6 +1090,15 @@ static inline int dt_write_locked(const struct lu_env *env,
         LASSERT(dt->do_ops);
         LASSERT(dt->do_ops->do_write_locked);
         return dt->do_ops->do_write_locked(env, dt);
+}
+
+static inline int dt_declare_attr_get(const struct lu_env *env,
+				      struct dt_object *dt)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_ops);
+	LASSERT(dt->do_ops->do_declare_attr_get);
+	return dt->do_ops->do_declare_attr_get(env, dt);
 }
 
 static inline int dt_attr_get(const struct lu_env *env, struct dt_object *dt,
