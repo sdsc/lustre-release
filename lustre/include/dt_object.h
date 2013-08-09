@@ -224,14 +224,19 @@ extern const struct dt_index_features dt_quota_glb_features;
 /* index features supported by the quota slave indexes */
 extern const struct dt_index_features dt_quota_slv_features;
 
+enum dt_allocation_hint_flags {
+	DAHF_RECREATE	= 0x00000001,
+};
+
 /**
  * This is a general purpose dt allocation hint.
  * It now contains the parent object.
  * It can contain any allocation hint in the future.
  */
 struct dt_allocation_hint {
-        struct dt_object           *dah_parent;
-        __u32                       dah_mode;
+	struct dt_object	*dah_parent;
+	__u32			 dah_mode;
+	__u32			 dah_flags;
 };
 
 /**
