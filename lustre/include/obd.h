@@ -1030,6 +1030,8 @@ enum obd_cleanup_stage {
 #define KEY_CACHE_LRU_SHRINK	"cache_lru_shrink"
 #define KEY_CHANGELOG_INDEX	"changelog_index"
 
+#define KEY_LFSCK_EVENT 	"lfsck_event_gen"
+
 struct lu_context;
 
 /* /!\ must be coherent with include/linux/namei.h on patched kernel */
