@@ -3067,10 +3067,10 @@ struct llog_setattr64_rec {
 	struct llog_rec_hdr	lsr_hdr;
 	struct ost_id		lsr_oi;
 	__u32			lsr_uid;
-	__u32			lsr_uid_h;
+	__u32			lsr_uid_h; /* reused as pfid::f_oid */
 	__u32			lsr_gid;
-	__u32			lsr_gid_h;
-	__u64			lsr_padding;
+	__u32			lsr_gid_h; /* reused as pfid::f_ver */
+	__u64			lsr_seq;
 	struct llog_rec_tail    lsr_tail;
 } __attribute__((packed));
 

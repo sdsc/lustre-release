@@ -195,6 +195,7 @@ struct osp_object {
 				opo_new:1,
 				opo_empty:1,
 				opo_pfid_ready:1,
+				opo_pfid_set:1,
 				opo_async_getattr_wait:1;
 
 	/* read/write lock for md osp object */
@@ -428,7 +429,7 @@ int osp_sync_declare_add(const struct lu_env *env, struct osp_object *o,
 			 llog_op_type type, struct thandle *th);
 int osp_sync_add(const struct lu_env *env, struct osp_object *o,
 		 llog_op_type type, struct thandle *th,
-		 const struct lu_attr *attr);
+		 const struct lu_attr *attr, const struct lu_fid *pfid);
 int osp_sync_init(const struct lu_env *env, struct osp_device *d);
 int osp_sync_fini(struct osp_device *d);
 void __osp_sync_check_for_work(struct osp_device *d);

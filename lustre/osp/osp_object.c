@@ -114,7 +114,7 @@ static void osp_attr_from_obdo(struct osp_object *o, struct obdo *obdo)
 	}
 	if (obdo->o_valid & OBD_MD_FLFID) {
 		o->opo_pfid.f_seq = obdo->o_parent_seq;
-		o->opo_pfid.f_oid = obdo->o_parent_oid;
+		o->opo_pfid.f_oid = obdo->o_parent_oid & ~LUSTRE_MAX_OID;
 		o->opo_pfid.f_ver = obdo->o_stripe_idx;
 		o->opo_pfid_ready = 1;
 	}
@@ -363,11 +363,13 @@ static int osp_attr_set(const struct lu_env *env, struct dt_object *dt,
 		RETURN(0);
 	}
 
+	LASSERT(o->opo_pfid_set);
+
 	/*
 	 * once transaction is committed put proper command on
 	 * the queue going to our OST
 	 */
-	rc = osp_sync_add(env, o, MDS_SETATTR64_REC, th, attr);
+	rc = osp_sync_add(env, o, MDS_SETATTR64_REC, th, attr, &o->opo_pfid);
 
 	/* XXX: send new uid/gid to OST ASAP? */
 
@@ -446,6 +448,23 @@ static int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
 out:
 	ptlrpc_req_finished(req);
 	return rc;
+}
+
+static int osp_declare_xattr_set(const struct lu_env *env,
+				 struct dt_object *dt,
+				 const struct lu_buf *buf,
+				 const char *name, int fl,
+				 struct thandle *handle)
+{
+	struct osp_object *o = dt2osp_obj(dt);
+
+	if (strcmp(name, XATTR_NAME_FID) != 0)
+		return -EOPNOTSUPP;
+
+	o->opo_pfid = *(struct lu_fid *)(buf->lb_buf);
+	o->opo_pfid_set = 1;
+	o->opo_pfid_ready = 1;
+	return 0;
 }
 
 static int osp_declare_object_create(const struct lu_env *env,
@@ -691,7 +710,7 @@ static int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 	 * once transaction is committed put proper command on
 	 * the queue going to our OST
 	 */
-	rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL);
+	rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL, NULL);
 
 	/* not needed in cache any more */
 	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
@@ -705,6 +724,7 @@ struct dt_object_operations osp_obj_ops = {
 	.do_declare_attr_set	= osp_declare_attr_set,
 	.do_attr_set		= osp_attr_set,
 	.do_xattr_get		= osp_xattr_get,
+	.do_declare_xattr_set	= osp_declare_xattr_set,
 	.do_declare_create	= osp_declare_object_create,
 	.do_create		= osp_object_create,
 	.do_declare_destroy	= osp_declare_object_destroy,
