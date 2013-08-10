@@ -1121,11 +1121,15 @@ int osd_obj_map_recover(struct osd_thread_info *info,
 		 * 	So keep it there before we have suitable solution. */
 		brelse(bh);
 
+		mutex_unlock(&dir->i_mutex);
+		mutex_unlock(&src_parent->i_mutex);
+
 		/* If the src object has never been modified, then remove it. */
 		if (inode->i_size == 0 && inode->i_mode & S_ISUID &&
 		    inode->i_mode & S_ISGID)
 			vfs_unlink(src_parent, src_child);
-		GOTO(unlock_src, rc = 0);
+		ldiskfs_journal_stop(jh);
+		RETURN(0);
 	}
 
 	bh = osd_ldiskfs_find_entry(src_parent, src_child, &de, NULL);
@@ -1143,8 +1147,6 @@ int osd_obj_map_recover(struct osd_thread_info *info,
 
 unlock:
 	mutex_unlock(&dir->i_mutex);
-
-unlock_src:
 	mutex_unlock(&src_parent->i_mutex);
 	ldiskfs_journal_stop(jh);
 	return rc;
