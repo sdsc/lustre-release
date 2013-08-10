@@ -6696,9 +6696,10 @@ test_116a() { # was previously test_116()
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2 OSTs" && return
 
 	echo -n "Free space priority "
-do_facet $SINGLEMDS lctl get_param -n lov.*-mdtlov.qos_prio_free
+	do_facet $SINGLEMDS lctl get_param -n lov.*-mdtlov.qos_prio_free
 	declare -a AVAIL
 	free_min_max
+
 #	[ $MINV -gt 960000 ] && skip "too much free space in OST$MINI, skip" &&\
 #		return
 
@@ -6708,12 +6709,18 @@ do_facet $SINGLEMDS lctl get_param -n lov.*-mdtlov.qos_prio_free
 	FILL=$(($MINV / 4))
 	echo "Filling 25% remaining space in OST${MINI} with ${FILL}Kb"
 	$SETSTRIPE -i $MINI -c 1 $DIR/$tdir/OST${MINI}||error "setstripe failed"
+
+dd if=/dev/zero of=$DIR/$tdir/OST${MINI}/$tfile bs=1M count=$(($FILL / 1024))
+
+	free_min_max
+	FILL=$(($MINV / 4))
+	echo "Filling 25% remaining space in OST${MINI} with ${FILL}Kb"
 	i=0
 	while [ $FILL -gt 0 ]; do
-	    i=$(($i + 1))
-	    dd if=/dev/zero of=$DIR/$tdir/OST${MINI}/$tfile-$i bs=2M count=1 2>/dev/null
-	    FILL=$(($FILL - 2048))
-	    echo -n .
+		i=$(($i + 1))
+		dd if=/dev/zero of=$DIR/$tdir/OST${MINI}/$tfile-$i bs=2M count=1 2>/dev/null
+		FILL=$(($FILL - 2048))
+		echo -n .
 	done
 	FILL=$(($MINV / 4))
 	sync
