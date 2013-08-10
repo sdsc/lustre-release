@@ -76,6 +76,8 @@ struct osc_create_async_args {
 
 static int oscc_internal_create(struct osc_creator *oscc);
 static int handle_async_create(struct ptlrpc_request *req, int rc);
+static int async_create_interpret(const struct lu_env *env,
+				  struct ptlrpc_request *req, void *data, int rc);
 
 static int osc_interpret_create(const struct lu_env *env,
                                 struct ptlrpc_request *req, void *data, int rc)
@@ -86,11 +88,11 @@ static int osc_interpret_create(const struct lu_env *env,
         struct ptlrpc_request *fake_req, *pos;
         ENTRY;
 
-        if (req->rq_repmsg) {
-                body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
-                if (body == NULL && rc == 0)
-                        rc = -EPROTO;
-        }
+	if (req->rq_repmsg && rc == 0) {
+		body = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+		if (body == NULL)
+			rc = -EPROTO;
+	}
 
         LASSERT(oscc && (oscc->oscc_obd != LP_POISON));
 
@@ -412,7 +414,8 @@ static int handle_async_create(struct ptlrpc_request *req, int rc)
 
         LASSERT_SPIN_LOCKED(&oscc->oscc_lock);
 
-        if(rc)
+	/* continue waiting for recoverable errors */
+        if(rc != 0 && rc != -ENOTCONN && rc != -ENODEV);
                 GOTO(out_wake, rc);
 
         /* Handle the critical type errors first.
@@ -453,30 +456,86 @@ out_wake:
         RETURN(rc);
 }
 
+static int osc_create_with_fakereq(struct osc_creator *oscc,
+				   struct obd_info *oinfo,
+				   struct lov_stripe_md *lsm)
+{
+	int rc;
+	struct ptlrpc_request *fake_req;
+	struct osc_create_async_args *args;
+
+	fake_req = ptlrpc_prep_fakereq(oscc->oscc_obd->u.cli.cl_import,
+				       osc_create_timeout,
+				       async_create_interpret);
+	if (fake_req == NULL) {
+		oinfo->oi_cb_up(oinfo, -ENOMEM);
+		RETURN(-ENOMEM);
+	}
+
+	args = ptlrpc_req_async_args(fake_req);
+	CLASSERT(sizeof(*args) <= sizeof(fake_req->rq_async_args));
+
+	args->rq_oscc  = oscc;
+	args->rq_lsm   = lsm;
+        args->rq_oinfo = oinfo;
+
+	cfs_spin_lock(&oscc->oscc_lock);
+	/* try fast path */
+	rc = handle_async_create(fake_req, 0);
+	if (rc == -EAGAIN) {
+		int is_add;
+		/* we not have objects - try wait */
+		is_add = ptlrpcd_add_req(fake_req, PSCOPE_OTHER);
+		if (!is_add)
+			cfs_list_add(&fake_req->rq_list,
+				     &oscc->oscc_wait_create_list);
+		else
+			rc = is_add;
+	}
+	cfs_spin_unlock(&oscc->oscc_lock);
+
+	if (rc != -EAGAIN)
+		/* need free request if was error hit or
+		 * objects already allocated */
+		ptlrpc_req_finished(fake_req);
+	else
+		/* EAGAIN mean - request is delayed */
+		rc = 0;
+
+	return rc; 
+}
+
 static int async_create_interpret(const struct lu_env *env,
                                   struct ptlrpc_request *req, void *data,
                                   int rc)
 {
-        struct osc_create_async_args *args = ptlrpc_req_async_args(req);
-        struct osc_creator    *oscc = args->rq_oscc;
-        int ret;
+	struct osc_create_async_args *args = ptlrpc_req_async_args(req);
+	struct osc_creator    *oscc = args->rq_oscc;
+	struct lov_stripe_md *lsm = args->rq_lsm;
+	struct obd_info *oinfo = args->rq_oinfo;
+	int ret;
 
-        cfs_spin_lock(&oscc->oscc_lock);
-        ret = handle_async_create(req, rc);
-        cfs_spin_unlock(&oscc->oscc_lock);
+	cfs_spin_lock(&oscc->oscc_lock);
+        if (rc == 0 ||
+	    (rc != -EAGAIN && !(oscc->oscc_flags & OSCC_FLAG_RECOVERING))) {
+		ret = handle_async_create(req, rc);
+		cfs_spin_unlock(&oscc->oscc_lock);
+		return ret;
+	}
 
-        return ret;
+	ptlrpc_fakereq_finished(req);
+	cfs_spin_unlock(&oscc->oscc_lock);
+
+	return osc_create_with_fakereq(oscc, oinfo, lsm);
 }
 
 int osc_create_async(struct obd_export *exp, struct obd_info *oinfo,
                      struct lov_stripe_md **ea, struct obd_trans_info *oti)
 {
-        int rc;
-        struct ptlrpc_request *fake_req;
-        struct osc_create_async_args *args;
-        struct osc_creator *oscc = &exp->exp_obd->u.cli.cl_oscc;
-        struct obdo *oa = oinfo->oi_oa;
-        ENTRY;
+	int rc;
+	struct osc_creator *oscc = &exp->exp_obd->u.cli.cl_oscc;
+	struct obdo *oa = oinfo->oi_oa;
+	ENTRY;
 
         if ((oa->o_valid & OBD_MD_FLGROUP) && !fid_seq_is_mdt(oa->o_seq)) {
                 rc = osc_real_create(exp, oinfo->oi_oa, ea, oti);
@@ -491,47 +550,9 @@ int osc_create_async(struct obd_export *exp, struct obd_info *oinfo,
                 RETURN(rc);
         }
 
-        LASSERT((*ea) != NULL);
+	LASSERT((*ea) != NULL);
 
-        fake_req = ptlrpc_prep_fakereq(oscc->oscc_obd->u.cli.cl_import,
-                                       osc_create_timeout,
-                                       async_create_interpret);
-        if (fake_req == NULL) {
-                rc = oinfo->oi_cb_up(oinfo, -ENOMEM);
-                RETURN(-ENOMEM);
-        }
-
-        args = ptlrpc_req_async_args(fake_req);
-        CLASSERT(sizeof(*args) <= sizeof(fake_req->rq_async_args));
-
-        args->rq_oscc  = oscc;
-        args->rq_lsm   = *ea;
-        args->rq_oinfo = oinfo;
-
-        cfs_spin_lock(&oscc->oscc_lock);
-        /* try fast path */
-        rc = handle_async_create(fake_req, 0);
-        if (rc == -EAGAIN) {
-                int is_add;
-                /* we not have objects - try wait */
-                is_add = ptlrpcd_add_req(fake_req, PSCOPE_OTHER);
-                if (!is_add)
-                        cfs_list_add(&fake_req->rq_list,
-                                     &oscc->oscc_wait_create_list);
-                else
-                        rc = is_add;
-        }
-        cfs_spin_unlock(&oscc->oscc_lock);
-
-        if (rc != -EAGAIN)
-                /* need free request if was error hit or
-                 * objects already allocated */
-                ptlrpc_req_finished(fake_req);
-        else
-                /* EAGAIN mean - request is delayed */
-                rc = 0;
-
-        RETURN(rc);
+	RETURN(osc_create_with_fakereq(oscc, oinfo, *ea));
 }
 
 int osc_create(struct obd_export *exp, struct obdo *oa,
