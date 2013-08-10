@@ -1,0 +1,9 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Amir Shehata <amir.shehata@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Sat, 10 Aug 2013 00:08:40 +0000
+Reviewed-on: http://review.whamcloud.com/7277
+Project: fs/lustre-release
+Branch: refs/heads/b2_4
