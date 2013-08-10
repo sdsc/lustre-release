@@ -6696,9 +6696,10 @@ test_116a() { # was previously test_116()
 	[ "$OSTCOUNT" -lt "2" ] && skip_env "$OSTCOUNT < 2 OSTs" && return
 
 	echo -n "Free space priority "
-do_facet $SINGLEMDS lctl get_param -n lov.*-mdtlov.qos_prio_free
+	do_facet $SINGLEMDS lctl get_param -n lov.*-mdtlov.qos_prio_free
 	declare -a AVAIL
 	free_min_max
+
 #	[ $MINV -gt 960000 ] && skip "too much free space in OST$MINI, skip" &&\
 #		return
 
