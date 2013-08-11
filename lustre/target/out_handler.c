@@ -68,16 +68,12 @@ static int out_tx_start(const struct lu_env *env, struct dt_device *dt,
 		return PTR_ERR(ta->ta_handle);
 	}
 	ta->ta_dev = dt;
-	/*For phase I, sync for cross-ref operation*/
-	ta->ta_handle->th_sync = 1;
 	return 0;
 }
 
 static int out_trans_start(const struct lu_env *env,
 			   struct thandle_exec_args *ta)
 {
-	/* Always do sync commit for Phase I */
-	LASSERT(ta->ta_handle->th_sync != 0);
 	return dt_trans_start(env, ta->ta_dev, ta->ta_handle);
 }
 
@@ -88,7 +84,6 @@ static int out_trans_stop(const struct lu_env *env,
 	int rc;
 
 	ta->ta_handle->th_result = err;
-	LASSERT(ta->ta_handle->th_sync != 0);
 	rc = dt_trans_stop(env, ta->ta_dev, ta->ta_handle);
 	for (i = 0; i < ta->ta_argno; i++) {
 		if (ta->ta_args[i].object != NULL) {
@@ -114,6 +109,11 @@ int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta)
 	rc = out_trans_start(env, ta);
 	if (unlikely(rc))
 		GOTO(stop, rc);
+
+	/* for phase I, sync for cross-ref operation */
+	/* doesn't apply to OST with has no reconstruction support */
+	if (tsi->tsi_tgt->lut_no_reconstruct == 0)
+		ta->ta_handle->th_sync = 1;
 
 	for (i = 0; i < ta->ta_argno; i++) {
 		rc = ta->ta_args[i].exec_fn(env, ta->ta_handle,
@@ -344,21 +344,24 @@ static int out_tx_attr_set_exec(const struct lu_env *env, struct thandle *th,
 				struct tx_arg *arg)
 {
 	struct dt_object	*dt_obj = arg->object;
-	int			rc;
+	int			rc = -ENOENT;
+	ENTRY;
 
 	CDEBUG(D_OTHER, "%s: attr set "DFID"\n", dt_obd_name(th->th_dev),
 	       PFID(lu_object_fid(&dt_obj->do_lu)));
 
-	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
-	rc = dt_attr_set(env, dt_obj, &arg->u.attr_set.attr, th, NULL);
-	dt_write_unlock(env, dt_obj);
+	if (lu_object_exists(&dt_obj->do_lu)) {
+		dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+		rc = dt_attr_set(env, dt_obj, &arg->u.attr_set.attr, th, NULL);
+		dt_write_unlock(env, dt_obj);
+	}
 
 	CDEBUG(D_INFO, "%s: insert attr_set reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
 
 	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
 
-	return rc;
+	RETURN(0);
 }
 
 static int __out_tx_attr_set(const struct lu_env *env,
@@ -1077,16 +1080,17 @@ static int out_tx_destroy_exec(const struct lu_env *env, struct thandle *th,
 			       struct tx_arg *arg)
 {
 	struct dt_object *dt_obj = arg->object;
-	int rc;
+	int rc = -ENOENT;
 
-	rc = out_obj_destroy(env, dt_obj, th);
+	if (lu_object_exists(&dt_obj->do_lu))
+		rc = out_obj_destroy(env, dt_obj, th);
 
 	CDEBUG(D_INFO, "%s: insert destroy reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
 
 	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
 
-	RETURN(rc);
+	RETURN(0);
 }
 
 static int out_tx_destroy_undo(const struct lu_env *env, struct thandle *th,
@@ -1105,9 +1109,16 @@ static int __out_tx_destroy(const struct lu_env *env, struct dt_object *dt_obj,
 	struct tx_arg *arg;
 
 	LASSERT(ta->ta_handle != NULL);
-	ta->ta_err = dt_declare_destroy(env, dt_obj, ta->ta_handle);
-	if (ta->ta_err)
-		return ta->ta_err;
+
+	/*
+	 * postpone -ENOENT till actual execution so we can
+	 * proceed with other updates
+	 */
+	if (lu_object_exists(&dt_obj->do_lu)) {
+		ta->ta_err = dt_declare_destroy(env, dt_obj, ta->ta_handle);
+		if (ta->ta_err)
+			return ta->ta_err;
+	}
 
 	arg = tx_add_exec(ta, out_tx_destroy_exec, out_tx_destroy_undo,
 			  file, line);
@@ -1136,9 +1147,6 @@ static int out_destroy(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	if (!lu_object_exists(&obj->do_lu))
-		RETURN(-ENOENT);
-
 	rc = out_tx_destroy(tsi->tsi_env, obj, &tti->tti_tea,
 			    tti->tti_u.update.tti_update_reply,
 			    tti->tti_u.update.tti_update_reply_index);
@@ -1157,7 +1165,6 @@ static int out_destroy(struct tgt_session_info *tsi)
 	.th_version = 0,				\
 }
 
-#define out_handler mdt_handler
 static struct tgt_handler out_update_ops[] = {
 	DEF_OUT_HNDL(OBJ_CREATE, "obj_create", MUTABOR | HABEO_REFERO,
 		     out_create),
@@ -1228,6 +1235,8 @@ int out_handle(struct tgt_session_info *tsi)
 	int				 rc1 = 0;
 
 	ENTRY;
+
+	lu_env_refill((struct lu_env *)env);
 
 	req_capsule_set(pill, &RQF_UPDATE_OBJ);
 	bufsize = req_capsule_get_size(pill, &RMF_UPDATE, RCL_CLIENT);

@@ -429,6 +429,18 @@ static int osp_rd_old_sync_processed(char *page, char **start, off_t off,
 	return rc;
 }
 
+static int osp_wr_force_sync(struct file *file, const char *buffer,
+			     unsigned long count, void *data)
+{
+	struct obd_device	*dev = data;
+	struct osp_device	*osp = lu2osp_dev(dev->obd_lu_dev);
+
+	osp->opd_syn_force_sync = 1;
+	wake_up(&osp->opd_syn_waitq);
+
+	return count;
+}
+
 static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	{ "uuid",		lprocfs_rd_uuid, 0, 0 },
 	{ "ping",		0, lprocfs_wr_ping, 0, 0, 0222 },
@@ -458,6 +470,7 @@ static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	{ "sync_in_flight",	osp_rd_syn_in_flight, 0, 0 },
 	{ "sync_in_progress",	osp_rd_syn_in_prog, 0, 0 },
 	{ "old_sync_processed",	osp_rd_old_sync_processed, 0, 0 },
+	{ "force_sync",		0, osp_wr_force_sync },
 
 	/* for compatibility reasons */
 	{ "destroys_in_flight",	osp_rd_destroys_in_flight, 0, 0 },

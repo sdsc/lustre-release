@@ -1298,6 +1298,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_SHORTIO     0x2000000000000ULL/* short io */
 #define OBD_CONNECT_PINGLESS	0x4000000000000ULL/* pings not required */
 #define OBD_CONNECT_FLOCK_DEAD	0x8000000000000ULL/* improved flock deadlock detection */
+#define OBD_CONNECT_OUT		0x10000000000000ULL/* OUT support */
 
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
@@ -1419,7 +1420,8 @@ struct obd_connect_data {
          * if the corresponding flag in ocd_connect_flags is set. Accessing
          * any field after ocd_maxbytes on the receiver without a valid flag
          * may result in out-of-bound memory access and kernel oops. */
-        __u64 padding1;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u32 ocd_out_max_txs;	 /* 2.5, max # of transactions in OUT batch */
+	__u32 ocd_out_max_bytes; /* 2.5, max bytes in OUT batch */
         __u64 padding2;          /* added 2.1.0. also fix lustre_swab_connect */
         __u64 padding3;          /* added 2.1.0. also fix lustre_swab_connect */
         __u64 padding4;          /* added 2.1.0. also fix lustre_swab_connect */
@@ -3685,7 +3687,7 @@ extern void lustre_swab_hsm_request(struct hsm_request *hr);
  *   	 result(4 bytes):Other stuff
  */
 
-#define UPDATE_MAX_OPS		10
+#define UPDATE_MAX_OPS		32
 #define UPDATE_BUFFER_MAGIC_V1	0xBDDE0001
 #define UPDATE_BUFFER_MAGIC	UPDATE_BUFFER_MAGIC_V1
 #define UPDATE_BUF_COUNT	8
