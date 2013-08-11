@@ -380,6 +380,11 @@ static inline bool imp_connect_lvb_type(struct obd_import *imp)
 		return false;
 }
 
+static inline int exp_connect_out(struct obd_export *exp)
+{
+	return !!(exp_connect_flags(exp) & OBD_CONNECT_OUT);
+}
+
 extern struct obd_export *class_conn2export(struct lustre_handle *conn);
 extern struct obd_device *class_conn2obd(struct lustre_handle *conn);
 

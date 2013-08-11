@@ -344,14 +344,16 @@ static int out_tx_attr_set_exec(const struct lu_env *env, struct thandle *th,
 				struct tx_arg *arg)
 {
 	struct dt_object	*dt_obj = arg->object;
-	int			rc;
+	int			rc = -ENOENT;
 
 	CDEBUG(D_OTHER, "%s: attr set "DFID"\n", dt_obd_name(th->th_dev),
 	       PFID(lu_object_fid(&dt_obj->do_lu)));
 
-	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
-	rc = dt_attr_set(env, dt_obj, &arg->u.attr_set.attr, th, NULL);
-	dt_write_unlock(env, dt_obj);
+	if (lu_object_exists(&dt_obj->do_lu)) {
+		dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+		rc = dt_attr_set(env, dt_obj, &arg->u.attr_set.attr, th, NULL);
+		dt_write_unlock(env, dt_obj);
+	}
 
 	CDEBUG(D_INFO, "%s: insert attr_set reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
@@ -1077,9 +1079,10 @@ static int out_tx_destroy_exec(const struct lu_env *env, struct thandle *th,
 			       struct tx_arg *arg)
 {
 	struct dt_object *dt_obj = arg->object;
-	int rc;
+	int rc = -ENOENT;
 
-	rc = out_obj_destroy(env, dt_obj, th);
+	if (lu_object_exists(&dt_obj->do_lu))
+		rc = out_obj_destroy(env, dt_obj, th);
 
 	CDEBUG(D_INFO, "%s: insert destroy reply %p index %d: rc = %d\n",
 	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
@@ -1105,9 +1108,16 @@ static int __out_tx_destroy(const struct lu_env *env, struct dt_object *dt_obj,
 	struct tx_arg *arg;
 
 	LASSERT(ta->ta_handle != NULL);
-	ta->ta_err = dt_declare_destroy(env, dt_obj, ta->ta_handle);
-	if (ta->ta_err)
-		return ta->ta_err;
+
+	/*
+	 * postpone -ENOENT till actual execution so we can
+	 * proceed with other updates
+	 */
+	if (lu_object_exists(&dt_obj->do_lu)) {
+		ta->ta_err = dt_declare_destroy(env, dt_obj, ta->ta_handle);
+		if (ta->ta_err)
+			return ta->ta_err;
+	}
 
 	arg = tx_add_exec(ta, out_tx_destroy_exec, out_tx_destroy_undo,
 			  file, line);
@@ -1136,9 +1146,6 @@ static int out_destroy(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	if (!lu_object_exists(&obj->do_lu))
-		RETURN(-ENOENT);
-
 	rc = out_tx_destroy(tsi->tsi_env, obj, &tti->tti_tea,
 			    tti->tti_u.update.tti_update_reply,
 			    tti->tti_u.update.tti_update_reply_index);
@@ -1157,7 +1164,6 @@ static int out_destroy(struct tgt_session_info *tsi)
 	.th_version = 0,				\
 }
 
-#define out_handler mdt_handler
 static struct tgt_handler out_update_ops[] = {
 	DEF_OUT_HNDL(OBJ_CREATE, "obj_create", MUTABOR | HABEO_REFERO,
 		     out_create),
@@ -1228,6 +1234,8 @@ int out_handle(struct tgt_session_info *tsi)
 	int				 rc1 = 0;
 
 	ENTRY;
+
+	lu_env_refill((struct lu_env *)env);
 
 	req_capsule_set(pill, &RQF_UPDATE_OBJ);
 	bufsize = req_capsule_get_size(pill, &RMF_UPDATE, RCL_CLIENT);

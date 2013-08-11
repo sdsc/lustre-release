@@ -895,8 +895,6 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 	ocd = &imp->imp_connect_data;
 	*ocd = *data;
 
-	imp->imp_connect_flags_orig = ocd->ocd_connect_flags;
-
 	ocd->ocd_version = LUSTRE_VERSION_CODE;
 	ocd->ocd_index = data->ocd_index;
 	imp->imp_connect_flags_orig = ocd->ocd_connect_flags;

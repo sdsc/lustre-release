@@ -2797,7 +2797,7 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 			.bc_buf_size		= OUT_BUFSIZE,
 			.bc_req_max_size	= OUT_MAXREQSIZE,
 			.bc_rep_max_size	= OUT_MAXREPSIZE,
-			.bc_req_portal		= OUT_PORTAL,
+			.bc_req_portal		= OUT_OST_PORTAL,
 			.bc_rep_portal		= OSC_REPLY_PORTAL,
 		},
 		/*

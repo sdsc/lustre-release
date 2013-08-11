@@ -167,6 +167,8 @@ struct osp_device {
 	unsigned long			 opd_syn_last_processed_id;
 	struct osp_id_tracker		*opd_syn_tracker;
 	cfs_list_t			 opd_syn_ontrack;
+	struct update_request		*opd_syn_update;
+	struct llog_cookie		*opd_syn_update_cookies;
 
 	/*
 	 * statfs related fields: OSP maintains it on its own
@@ -395,6 +397,15 @@ extern struct llog_operations osp_mds_ost_orig_logops;
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th);
 int osp_trans_stop(const struct lu_env *env, struct thandle *th);
+struct update_request *osp_create_update_req(struct dt_device *dt);
+void osp_destroy_update_req(struct update_request *update);
+int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
+			struct update_buf *ubuf, int ubuf_len,
+			struct ptlrpc_request **reqp);
+int osp_insert_update(const struct lu_env *env, struct update_request *update,
+		      int op, struct lu_fid *fid, int count, int *lens,
+		      char **bufs);
+
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);
