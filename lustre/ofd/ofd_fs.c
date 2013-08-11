@@ -648,7 +648,7 @@ int ofd_fs_setup(const struct lu_env *env, struct ofd_device *ofd,
 		RETURN (-ENOENT);
 
 	/* prepare transactions callbacks */
-	ofd->ofd_txn_cb.dtc_txn_start = NULL;
+	ofd->ofd_txn_cb.dtc_txn_start = ofd_txn_start_cb;
 	ofd->ofd_txn_cb.dtc_txn_stop = ofd_txn_stop_cb;
 	ofd->ofd_txn_cb.dtc_txn_commit = NULL;
 	ofd->ofd_txn_cb.dtc_cookie = ofd;

@@ -38,10 +38,9 @@
 static const char dot[] = ".";
 static const char dotdot[] = "..";
 
-static int osp_prep_update_req(const struct lu_env *env,
-			       struct osp_device *osp,
-			       struct update_buf *ubuf, int ubuf_len,
-			       struct ptlrpc_request **reqp)
+int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
+			struct update_buf *ubuf, int ubuf_len,
+			struct ptlrpc_request **reqp)
 {
 	struct obd_import      *imp;
 	struct ptlrpc_request  *req;
@@ -116,8 +115,7 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 /**
  * Create a new update request for the device.
  */
-static struct update_request
-*osp_create_update_req(struct dt_device *dt)
+struct update_request *osp_create_update_req(struct dt_device *dt)
 {
 	struct update_request *update;
 
@@ -140,7 +138,7 @@ static struct update_request
 	return update;
 }
 
-static void osp_destroy_update_req(struct update_request *update)
+void osp_destroy_update_req(struct update_request *update)
 {
 	if (update == NULL)
 		return;
@@ -192,10 +190,9 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 /**
  * Insert the update into the th_bufs for the device.
  */
-static int osp_insert_update(const struct lu_env *env,
-			     struct update_request *update, int op,
-			     struct lu_fid *fid, int count,
-			     int *lens, char **bufs)
+int osp_insert_update(const struct lu_env *env, struct update_request *update,
+		      int op, struct lu_fid *fid, int count, int *lens,
+		      char **bufs)
 {
 	struct update_buf    *ubuf = update->ur_buf;
 	struct update        *obj_update;
@@ -216,7 +213,8 @@ static int osp_insert_update(const struct lu_env *env,
 
 	if (cfs_size_round(update_buf_size(ubuf)) + update_length >
 	    UPDATE_BUFFER_SIZE || ubuf->ub_count >= UPDATE_MAX_OPS) {
-		CERROR("%s: insert up %p, idx %d cnt %d len %lu: rc = %d\n",
+		CDEBUG(D_OTHER,
+			"%s: insert up %p, idx %d cnt %d len %lu: rc = %d\n",
 			update->ur_dt->dd_lu_dev.ld_obd->obd_name, ubuf,
 			update_length, ubuf->ub_count, update_buf_size(ubuf),
 			-E2BIG);

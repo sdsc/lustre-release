@@ -376,6 +376,7 @@ int ofd_trans_start(const struct lu_env *env,
 		    struct thandle *th);
 void ofd_trans_stop(const struct lu_env *env, struct ofd_device *ofd,
 		    struct thandle *th, int rc);
+int ofd_txn_start_cb(const struct lu_env *env, struct thandle *th, void *cookie);
 int ofd_txn_stop_cb(const struct lu_env *env, struct thandle *txn,
 		    void *cookie);
 
