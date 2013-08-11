@@ -56,7 +56,8 @@ struct lu_target {
 	struct sptlrpc_rule_set	 lut_sptlrpc_rset;
 	int			 lut_sec_level;
 	unsigned int		 lut_mds_capa:1,
-				 lut_oss_capa:1;
+				 lut_oss_capa:1,
+				 lut_reconstruct:1;/* support for reconstruct */
 
 	/* LAST_RCVD parameters */
 	/** last_rcvd file */

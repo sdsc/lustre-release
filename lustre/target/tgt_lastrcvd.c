@@ -799,6 +799,10 @@ int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 	/* Update transno in slot only if non-zero number, i.e. no errors */
 	if (likely(tti->tti_transno != 0)) {
 		if (*transno_p > tti->tti_transno) {
+			if (tgt->lut_reconstruct == 0) {
+				mutex_unlock(&ted->ted_lcd_lock);
+				RETURN(req_is_replay(req) ? -EOVERFLOW : 0);
+			}
 			CERROR("%s: trying to overwrite bigger transno:"
 			       "on-disk: "LPU64", new: "LPU64" replay: %d. "
 			       "see LU-617.\n", tgt_name(tgt), *transno_p,

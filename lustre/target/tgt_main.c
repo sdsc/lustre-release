@@ -69,6 +69,12 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	lut->lut_mds_capa = 1;
 	lut->lut_oss_capa = 1;
 
+	/*
+	 * XXX: no multislot support on OST yet
+	 */
+	if (strstr(obd->obd_name, "-MDT"))
+		lut->lut_reconstruct = 1;
+
 	/* last_rcvd initialization is needed by replayable targets only */
 	if (!obd->obd_replayable)
 		RETURN(0);
