@@ -283,14 +283,14 @@ static struct seq_operations pool_proc_ops = {
 
 static int pool_proc_open(struct inode *inode, struct file *file)
 {
-        int rc;
+	int rc;
 
-        rc = seq_open(file, &pool_proc_ops);
-        if (!rc) {
-                struct seq_file *s = file->private_data;
-                s->private = PROC_I(inode)->pde->data;
-        }
-        return rc;
+	rc = seq_open(file, &pool_proc_ops);
+	if (!rc) {
+		struct seq_file *s = file->private_data;
+		s->private = PDE_DATA(inode);
+	}
+	return rc;
 }
 
 static struct file_operations pool_proc_operations = {
@@ -468,19 +468,22 @@ int lov_pool_new(struct obd_device *obd, char *poolname)
         CFS_INIT_HLIST_NODE(&new_pool->pool_hash);
 
 #ifdef LPROCFS
-        /* we need this assert seq_file is not implementated for liblustre */
-        /* get ref for /proc file */
-        lov_pool_getref(new_pool);
-        new_pool->pool_proc_entry = lprocfs_add_simple(lov->lov_pool_proc_entry,
-                                                       poolname, NULL, NULL,
-                                                       new_pool,
-                                                       &pool_proc_operations);
-        if (IS_ERR(new_pool->pool_proc_entry)) {
-                CWARN("Cannot add proc pool entry "LOV_POOLNAMEF"\n", poolname);
-                new_pool->pool_proc_entry = NULL;
-                lov_pool_putref(new_pool);
-        }
-        CDEBUG(D_INFO, "pool %p - proc %p\n", new_pool, new_pool->pool_proc_entry);
+	/* we need this assert seq_file is not implementated for liblustre */
+	/* get ref for /proc file */
+	lov_pool_getref(new_pool);
+	new_pool->pool_proc_entry = lprocfs_add_simple(lov->lov_pool_proc_entry,
+							poolname,
+#ifndef HAVE_ONLY_PROCFS_SEQ
+							NULL, NULL,
+#endif
+							new_pool,
+							&pool_proc_operations);
+	if (IS_ERR(new_pool->pool_proc_entry)) {
+		CWARN("Cannot add proc pool entry "LOV_POOLNAMEF"\n", poolname);
+		new_pool->pool_proc_entry = NULL;
+		lov_pool_putref(new_pool);
+	}
+	CDEBUG(D_INFO, "pool %p - proc %p\n", new_pool, new_pool->pool_proc_entry);
 #endif
 
 	spin_lock(&obd->obd_dev_lock);
