@@ -43,24 +43,21 @@
 #include <obd_class.h>
 
 #ifndef LPROCFS
-static struct lprocfs_vars lprocfs_module_vars[] = { {0} };
-static struct lprocfs_vars lprocfs_obd_vars[] = { {0} };
+static struct lprocfs_seq_vars lprocfs_obd_vars[] = { {0} };
 #else
-static int lmv_rd_numobd(char *page, char **start, off_t off, int count,
-                         int *eof, void *data)
+static int lmv_numobd_seq_show(struct seq_file *m, void *v)
 {
-        struct obd_device       *dev = (struct obd_device*)data;
-        struct lmv_desc         *desc;
+	struct obd_device	*dev = (struct obd_device *)m->private;
+	struct lmv_desc		*desc;
 
-        LASSERT(dev != NULL);
-        desc = &dev->u.lmv.desc;
-        *eof = 1;
-        return snprintf(page, count, "%u\n", desc->ld_tgt_count);
-
+	LASSERT(dev != NULL);
+	desc = &dev->u.lmv.desc;
+	return seq_printf(m, "%u\n", desc->ld_tgt_count);
 }
+LPROC_SEQ_FOPS_RO(lmv_numobd);
 
 static const char *placement_name[] = {
-        [PLACEMENT_CHAR_POLICY] = "CHAR",
+	[PLACEMENT_CHAR_POLICY] = "CHAR",
 	[PLACEMENT_NID_POLICY]  = "NID",
 	[PLACEMENT_INVAL_POLICY]  = "INVAL"
 };
@@ -82,30 +79,26 @@ static const char *placement_policy2name(placement_policy_t placement)
         return placement_name[placement];
 }
 
-static int lmv_rd_placement(char *page, char **start, off_t off, int count,
-                            int *eof, void *data)
+static int lmv_placement_seq_show(struct seq_file *m, void *v)
 {
-        struct obd_device       *dev = (struct obd_device*)data;
-        struct lmv_obd          *lmv;
+	struct obd_device	*dev = (struct obd_device *)m->private;
+	struct lmv_obd		*lmv;
 
-        LASSERT(dev != NULL);
-        lmv = &dev->u.lmv;
-        *eof = 1;
-        return snprintf(page, count, "%s\n",
-                        placement_policy2name(lmv->lmv_placement));
-
+	LASSERT(dev != NULL);
+	lmv = &dev->u.lmv;
+	return seq_printf(m, "%s\n", placement_policy2name(lmv->lmv_placement));
 }
 
 #define MAX_POLICY_STRING_SIZE 64
 
-static int lmv_wr_placement(struct file *file, const char *buffer,
-                            unsigned long count, void *data)
+static ssize_t lmv_placement_seq_write(struct file *file, const char *buffer,
+					size_t count, loff_t *off)
 {
-        struct obd_device       *dev = (struct obd_device *)data;
-        char                     dummy[MAX_POLICY_STRING_SIZE + 1];
-        int                      len = count;
-        placement_policy_t       policy;
-        struct lmv_obd          *lmv;
+	struct obd_device *dev = ((struct seq_file *)file->private_data)->private;
+	char			 dummy[MAX_POLICY_STRING_SIZE + 1];
+	int			 len = count;
+	placement_policy_t	 policy;
+	struct lmv_obd		*lmv;
 
 	if (copy_from_user(dummy, buffer, MAX_POLICY_STRING_SIZE))
                 return -EFAULT;
@@ -131,30 +124,29 @@ static int lmv_wr_placement(struct file *file, const char *buffer,
         }
         return count;
 }
+LPROC_SEQ_FOPS(lmv_placement);
 
-static int lmv_rd_activeobd(char *page, char **start, off_t off, int count,
-                            int *eof, void *data)
+static int lmv_activeobd_seq_show(struct seq_file *m, void *v)
 {
-        struct obd_device       *dev = (struct obd_device*)data;
-        struct lmv_desc         *desc;
+	struct obd_device	*dev = (struct obd_device *)m->private;
+	struct lmv_desc		*desc;
 
-        LASSERT(dev != NULL);
-        desc = &dev->u.lmv.desc;
-        *eof = 1;
-        return snprintf(page, count, "%u\n", desc->ld_active_tgt_count);
+	LASSERT(dev != NULL);
+	desc = &dev->u.lmv.desc;
+	return seq_printf(m, "%u\n", desc->ld_active_tgt_count);
 }
+LPROC_SEQ_FOPS_RO(lmv_activeobd);
 
-static int lmv_rd_desc_uuid(char *page, char **start, off_t off, int count,
-                            int *eof, void *data)
+static int lmv_desc_uuid_seq_show(struct seq_file *m, void *v)
 {
-        struct obd_device       *dev = (struct obd_device*) data;
-        struct lmv_obd          *lmv;
+	struct obd_device	*dev = (struct obd_device*)m->private;
+	struct lmv_obd		*lmv;
 
-        LASSERT(dev != NULL);
-        lmv = &dev->u.lmv;
-        *eof = 1;
-        return snprintf(page, count, "%s\n", lmv->desc.ld_uuid.uuid);
+	LASSERT(dev != NULL);
+	lmv = &dev->u.lmv;
+	return seq_printf(m, "%s\n", lmv->desc.ld_uuid.uuid);
 }
+LPROC_SEQ_FOPS_RO(lmv_desc_uuid);
 
 static void *lmv_tgt_seq_start(struct seq_file *p, loff_t *pos)
 {
@@ -195,32 +187,27 @@ struct seq_operations lmv_tgt_sops = {
 
 static int lmv_target_seq_open(struct inode *inode, struct file *file)
 {
-        struct proc_dir_entry   *dp = PDE(inode);
-        struct seq_file         *seq;
-        int                     rc;
+	struct seq_file	*seq;
+	int		rc;
 
-        rc = seq_open(file, &lmv_tgt_sops);
-        if (rc)
-                return rc;
+	rc = seq_open(file, &lmv_tgt_sops);
+	if (rc)
+		return rc;
 
-        seq = file->private_data;
-        seq->private = dp->data;
-
-        return 0;
+	seq = file->private_data;
+	seq->private = PDE_DATA(inode);
+	return 0;
 }
 
-struct lprocfs_vars lprocfs_lmv_obd_vars[] = {
-        { "numobd",             lmv_rd_numobd,          0, 0 },
-        { "placement",          lmv_rd_placement,       lmv_wr_placement, 0 },
-        { "activeobd",          lmv_rd_activeobd,       0, 0 },
-        { "uuid",               lprocfs_rd_uuid,        0, 0 },
-        { "desc_uuid",          lmv_rd_desc_uuid,       0, 0 },
-        { 0 }
-};
+LPROC_SEQ_FOPS_RO_TYPE(lmv, uuid);
 
-static struct lprocfs_vars lprocfs_lmv_module_vars[] = {
-        { "num_refs",           lprocfs_rd_numrefs,     0, 0 },
-        { 0 }
+struct lprocfs_seq_vars lprocfs_lmv_obd_vars[] = {
+	{ "numobd",	&lmv_numobd_fops	},
+	{ "placement",	&lmv_placement_fops	},
+	{ "activeobd",	&lmv_activeobd_fops	},
+	{ "uuid",	&lmv_uuid_fops		},
+	{ "desc_uuid",	&lmv_desc_uuid_fops	},
+	{ 0 }
 };
 
 struct file_operations lmv_proc_target_fops = {
@@ -231,9 +218,9 @@ struct file_operations lmv_proc_target_fops = {
         .release              = seq_release,
 };
 
-#endif /* LPROCFS */
-void lprocfs_lmv_init_vars(struct lprocfs_static_vars *lvars)
+void lprocfs_lmv_init_vars(struct obd_device *obd)
 {
-        lvars->module_vars    = lprocfs_lmv_module_vars;
-        lvars->obd_vars       = lprocfs_lmv_obd_vars;
+	obd->obd_vars = lprocfs_lmv_obd_vars;
 }
+#endif /* LPROCFS */
+
