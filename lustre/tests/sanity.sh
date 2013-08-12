@@ -16,6 +16,10 @@ ALWAYS_EXCEPT="                42a  42b  42c  42d  45   51d   68b   $SANITY_EXCE
 # bug number for skipped tests: LU-2036
 ALWAYS_EXCEPT="                 76     $ALWAYS_EXCEPT"
 
+if [[ $MDSCOUNT -ge 2 ]]; then
+# bug number for skipped tests: LU-3708
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 161c"
+fi
 
 SRCDIR=$(cd $(dirname $0); echo $PWD)
 export PATH=$PATH:/sbin

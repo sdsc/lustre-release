@@ -16,6 +16,11 @@ ONLY=${ONLY:-"$*"}
 ALWAYS_EXCEPT=${ALWAYS_EXCEPT:-"$MMP_EXCEPT"}
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
+if [[ $MDSCOUNT -ge 2 ]]; then
+# bug number for skipped tests: LU-3708 LU-3708
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 9 10"
+fi
+
 SRCDIR=$(cd $(dirname $0); echo $PWD)
 export PATH=$PWD/$SRCDIR:$SRCDIR:$SRCDIR/../utils:$PATH:/sbin
 
