@@ -136,52 +136,48 @@ static struct shrinker *pools_shrinker;
 /*
  * /proc/fs/lustre/sptlrpc/encrypt_page_pools
  */
-int sptlrpc_proc_read_enc_pool(char *page, char **start, off_t off, int count,
-                               int *eof, void *data)
+int sptlrpc_proc_enc_pool_seq_show(struct seq_file *m, void *v)
 {
-        int     rc;
+	int rc;
 
 	spin_lock(&page_pools.epp_lock);
 
-        rc = snprintf(page, count,
-                      "physical pages:          %lu\n"
-                      "pages per pool:          %lu\n"
-                      "max pages:               %lu\n"
-                      "max pools:               %u\n"
-                      "total pages:             %lu\n"
-                      "total free:              %lu\n"
-                      "idle index:              %lu/100\n"
-                      "last shrink:             %lds\n"
-                      "last access:             %lds\n"
-                      "max pages reached:       %lu\n"
-                      "grows:                   %u\n"
-                      "grows failure:           %u\n"
-                      "shrinks:                 %u\n"
-                      "cache access:            %lu\n"
-                      "cache missing:           %lu\n"
-                      "low free mark:           %lu\n"
-                      "max waitqueue depth:     %u\n"
-                      "max wait time:           "CFS_TIME_T"/%u\n"
-                      ,
-		      num_physpages,
-                      PAGES_PER_POOL,
-                      page_pools.epp_max_pages,
-                      page_pools.epp_max_pools,
-                      page_pools.epp_total_pages,
-                      page_pools.epp_free_pages,
-                      page_pools.epp_idle_idx,
-                      cfs_time_current_sec() - page_pools.epp_last_shrink,
-                      cfs_time_current_sec() - page_pools.epp_last_access,
-                      page_pools.epp_st_max_pages,
-                      page_pools.epp_st_grows,
-                      page_pools.epp_st_grow_fails,
-                      page_pools.epp_st_shrinks,
-                      page_pools.epp_st_access,
-                      page_pools.epp_st_missings,
-                      page_pools.epp_st_lowfree,
-                      page_pools.epp_st_max_wqlen,
-                      page_pools.epp_st_max_wait, CFS_HZ
-                     );
+	rc = seq_printf(m, "physical pages:          %lu\n"
+			   "pages per pool:          %lu\n"
+			   "max pages:               %lu\n"
+			   "max pools:               %u\n"
+			   "total pages:             %lu\n"
+			   "total free:              %lu\n"
+			   "idle index:              %lu/100\n"
+			   "last shrink:             %lds\n"
+			   "last access:             %lds\n"
+			   "max pages reached:       %lu\n"
+			   "grows:                   %u\n"
+			   "grows failure:           %u\n"
+			   "shrinks:                 %u\n"
+			   "cache access:            %lu\n"
+			   "cache missing:           %lu\n"
+			   "low free mark:           %lu\n"
+			   "max waitqueue depth:     %u\n"
+			   "max wait time:           "CFS_TIME_T"/%u\n",
+			   num_physpages,
+			   PAGES_PER_POOL,
+			   page_pools.epp_max_pages,
+			   page_pools.epp_max_pools,
+			   page_pools.epp_total_pages,
+			   page_pools.epp_free_pages,
+			   page_pools.epp_idle_idx,
+			   cfs_time_current_sec() - page_pools.epp_last_shrink,
+			   cfs_time_current_sec() - page_pools.epp_last_access,
+			   page_pools.epp_st_max_pages,
+			   page_pools.epp_st_grows,
+			   page_pools.epp_st_grow_fails,
+			   page_pools.epp_st_shrinks,
+			   page_pools.epp_st_access,
+			   page_pools.epp_st_missings,
+			   page_pools.epp_st_lowfree,
+			   page_pools.epp_st_max_wqlen,
+			   page_pools.epp_st_max_wait, CFS_HZ);
 
 	spin_unlock(&page_pools.epp_lock);
 	return rc;
