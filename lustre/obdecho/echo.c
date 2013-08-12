@@ -561,12 +561,11 @@ commitrw_cleanup:
 
 static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-        struct lprocfs_static_vars lvars;
-        int                        rc;
-	__u64                      lock_flags = 0;
-        struct ldlm_res_id         res_id = {.name = {1}};
-        char                       ns_name[48];
-        ENTRY;
+	int			rc;
+	__u64			lock_flags = 0;
+	struct ldlm_res_id	res_id = {.name = {1}};
+	char			ns_name[48];
+	ENTRY;
 
         obd->u.echo.eo_obt.obt_magic = OBT_MAGIC;
 	spin_lock_init(&obd->u.echo.eo_lock);
@@ -588,16 +587,16 @@ static int echo_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 				    LVB_T_NONE, NULL, &obd->u.echo.eo_nl_lock);
         LASSERT (rc == ELDLM_OK);
 
-        lprocfs_echo_init_vars(&lvars);
-        if (lprocfs_obd_setup(obd, lvars.obd_vars) == 0 &&
-            lprocfs_alloc_obd_stats(obd, LPROC_ECHO_LAST) == 0) {
-                lprocfs_counter_init(obd->obd_stats, LPROC_ECHO_READ_BYTES,
-                                     LPROCFS_CNTR_AVGMINMAX,
-                                     "read_bytes", "bytes");
-                lprocfs_counter_init(obd->obd_stats, LPROC_ECHO_WRITE_BYTES,
-                                     LPROCFS_CNTR_AVGMINMAX,
-                                     "write_bytes", "bytes");
-        }
+	lprocfs_echo_init_vars(obd);
+	if (lprocfs_seq_obd_setup(obd) == 0 &&
+	    lprocfs_alloc_obd_stats(obd, LPROC_ECHO_LAST) == 0) {
+		lprocfs_counter_init(obd->obd_stats, LPROC_ECHO_READ_BYTES,
+				     LPROCFS_CNTR_AVGMINMAX,
+				     "read_bytes", "bytes");
+		lprocfs_counter_init(obd->obd_stats, LPROC_ECHO_WRITE_BYTES,
+				     LPROCFS_CNTR_AVGMINMAX,
+				     "write_bytes", "bytes");
+	}
 
         ptlrpc_init_client (LDLM_CB_REQUEST_PORTAL, LDLM_CB_REPLY_PORTAL,
                             "echo_ldlm_cb_client", &obd->obd_ldlm_client);
