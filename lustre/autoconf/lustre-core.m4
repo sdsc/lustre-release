@@ -1558,6 +1558,7 @@ AC_DEFUN([LC_PROG_LINUX],
          [
          LC_CONFIG_PINGER
          LC_CONFIG_CHECKSUM
+         LC_CONFIG_FAILOVER
          LC_CONFIG_LIBLUSTRE_RECOVERY
          LC_CONFIG_HEALTH_CHECK_WRITE
          LC_CONFIG_LRU_RESIZE
@@ -2151,4 +2152,26 @@ lustre/lod/Makefile
 lustre/lod/autoMakefile
 lustre/obdclass/darwin/Makefile
 ])
+])
+
+#
+# LC_CONFIG_FAILOVER
+#
+AC_DEFUN([LC_CONFIG_FAILOVER],
+[#### To disable Lustre failover support
+AC_MSG_CHECKING([whether to enable failover support])
+AC_ARG_ENABLE([hg],
+        AC_HELP_STRING([--disable-hg],
+                [disable Lustre failover support]),
+        [],[enable_hg='yes'])
+
+if test x$enable_hg == xyes ; then
+        initdscripts="lustre lnet"
+        AC_MSG_RESULT([yes])
+else
+        AC_MSG_RESULT([no])
+        initdscripts=""
+fi
+AC_SUBST(initdscripts)
+AC_SUBST(init_SCRIPTS)
 ])
