@@ -1325,11 +1325,6 @@ t32_check() {
 		exit 0
 	fi
 
-	if [ -n "$($LCTL list_nids | grep -v '\(tcp\|lo\)[[:digit:]]*$')" ]; then
-		skip "LU-2200: Test cannot run over Infiniband"
-		exit 0
-	fi
-
 	local IMGTYPE=$(facet_fstype $SINGLEMDS)
 
 	tarballs=$($r find $RLUSTRE/tests -maxdepth 1 -name \'disk*-$IMGTYPE.tar.bz2\')
@@ -1550,6 +1545,20 @@ t32_test() {
 			}
 		fi
 	else
+		if [ -n "$($LCTL list_nids | grep -v '\(tcp\|lo\)[[:digit:]]*$')" ]; then
+			[[ $(lustre_version_code mgs) -ge $(version_code 2.3.59) ]] ||
+			{ skip "LU-2200: Cannot run over Inifiniband w/o lctl replace_nids "
+				"(Need MGS version at least 2.3.59)"; return 0; }
+
+			local osthost=$(facet_active_host ost1)
+			local ostnid=$(do_node $osthost $LCTL list_nids | head -1)
+
+			$r mount -t lustre -o loop,nosvc $tmp/mdt $tmp/mnt/mdt
+			$r lctl replace_nids $fsname-OST0000 $ostnid
+			$r lctl replace_nids $fsname-MDT0000 $nid
+			$r umount $tmp/mnt/mdt
+		fi
+
 		mopts=loop,exclude=$fsname-OST0000
 	fi
 
@@ -1760,8 +1769,8 @@ t32_test() {
 			# on an architecture with different number of bits per
 			# "long".
 			#
-			if [ $(t32_bits_per_long $(uname -m)) !=						\
-				 $(t32_bits_per_long $img_arch) ]; then
+			if [ $(t32_bits_per_long $(uname -m)) != \
+				$(t32_bits_per_long $img_arch) ]; then
 				echo "Different number of bits per \"long\" from the disk image"
 				for list in list.orig list; do
 					sed -i -e 's/^[0-9]\+[ \t]\+//' $tmp/$list
@@ -1834,7 +1843,7 @@ t32_test() {
 			error_noexit "tunefs.lustre before remounting the MDT"
 			return 1
 		}
-		$r mount -t lustre -o loop,exclude=$fsname-OST0000 $tmp/mdt			\
+		$r mount -t lustre -o loop,exclude=$fsname-OST0000 $tmp/mdt \
 				 $tmp/mnt/mdt || {
 			error_noexit "Remounting the MDT"
 			return 1
@@ -1850,7 +1859,7 @@ test_32a() {
 
 	t32_check
 	for tarball in $tarballs; do
-		t32_test $tarball || rc=$?
+		t32_test $tarball || let "rc += $?"
 	done
 	return $rc
 }
@@ -1863,7 +1872,7 @@ test_32b() {
 
 	t32_check
 	for tarball in $tarballs; do
-		t32_test $tarball writeconf || rc=$?
+		t32_test $tarball writeconf || let "rc += $?"
 	done
 	return $rc
 }
@@ -1999,9 +2008,10 @@ test_35a() { # bug 12459
 
 	log "Set up a fake failnode for the MDS"
 	FAKENID="127.0.0.2"
-	local device=$(do_facet $SINGLEMDS "lctl get_param -n devices" | awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -1)
-	do_facet mgs "$LCTL conf_param ${device}.failover.node=" \
-		"$(h2$NETTYPE $FAKENID)" || return 4
+	local device=$(do_facet $SINGLEMDS "lctl get_param -n devices" |
+		awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -1)
+	do_facet mgs "$LCTL conf_param \
+		${device}.failover.node=$(h2$NETTYPE $FAKENID)" || return 4
 
 	log "Wait for RECONNECT_INTERVAL seconds (10s)"
 	sleep 10
@@ -2053,10 +2063,10 @@ test_35b() { # bug 18674
 
 	log "Set up a fake failnode for the MDS"
 	FAKENID="127.0.0.2"
-	local device=$(do_facet $SINGLEMDS "$LCTL get_param -n devices" | \
-			awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -1)
-	do_facet mgs "$LCTL conf_param ${device}.failover.node=" \
-		"$(h2$NETTYPE $FAKENID)" || return 1
+	local device=$(do_facet $SINGLEMDS "$LCTL get_param -n devices" |
+		awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -1)
+	do_facet mgs "$LCTL conf_param \
+		${device}.failover.node=$(h2$NETTYPE $FAKENID)" || return 1
 
 	local at_max_saved=0
 	# adaptive timeouts may prevent seeing the issue
@@ -3231,7 +3241,7 @@ thread_sanity() {
         tmin=$(do_facet $facet "lctl get_param -n ${paramp}.threads_min")
         tmax=$(do_facet $facet "lctl get_param -n ${paramp}.threads_max")
         tstarted=$(do_facet $facet "lctl get_param -n ${paramp}.threads_started")
-        lassert 28 "$msg" '(($tstarted == $tmin && $tstarted == $tmax ))' || return $?
+        lassert 28 "$msg" '(($tstarted >= $tmin && $tstarted <= $tmax ))' || return $?
         cleanup
 
         load_modules
@@ -3353,6 +3363,7 @@ run_test 56 "check big indexes"
 test_57a() { # bug 22656
 	local NID=$(do_facet ost1 "$LCTL get_param nis" | tail -1 | awk '{print $1}')
 	writeconf_or_reformat
+	[ $(facet_fstype ost1) == zfs ] && import_zpool ost1
 	do_facet ost1 "$TUNEFS --failnode=$NID `ostdevname 1`" || error "tunefs failed"
 	start_mgsmds
 	start_ost && error "OST registration from failnode should fail"
@@ -3363,6 +3374,7 @@ run_test 57a "initial registration from failnode should fail (should return errs
 test_57b() {
 	local NID=$(do_facet ost1 "$LCTL get_param nis" | tail -1 | awk '{print $1}')
 	writeconf_or_reformat
+	[ $(facet_fstype ost1) == zfs ] && import_zpool ost1
 	do_facet ost1 "$TUNEFS --servicenode=$NID `ostdevname 1`" || error "tunefs failed"
 	start_mgsmds
 	start_ost || error "OST registration from servicenode should not fail"
@@ -4052,13 +4064,14 @@ run_test 72 "test fast symlink with extents flag enabled"
 
 test_73() { #LU-3006
 	load_modules
-	do_facet ost1 "$TUNEFS --failnode=1.2.3.4@tcp $(ostdevname 1)" ||
+	[ $(facet_fstype ost1) == zfs ] && import_zpool ost1
+	do_facet ost1 "$TUNEFS --failnode=1.2.3.4@$NETTYPE $(ostdevname 1)" ||
 		error "1st tunefs failed"
 	start_mgsmds || error "start mds failed"
 	start_ost || error "start ost failed"
 	mount_client $MOUNT || error "mount client failed"
 	lctl get_param -n osc.*OST0000-osc-[^M]*.import | grep failover_nids |
-		grep 1.2.3.4@tcp || error "failover nids haven't changed"
+		grep 1.2.3.4@$NETTYPE || error "failover nids haven't changed"
 	umount_client $MOUNT || error "umount client failed"
 	stopall
 	reformat
