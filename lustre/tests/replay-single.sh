@@ -24,6 +24,11 @@ require_dsh_mds || exit 0
 # bug number:  17466 18857      LU-1867 LU-1473
 ALWAYS_EXCEPT="61d   33a 33b    89      62	$REPLAY_SINGLE_EXCEPT"
 
+if [[ $MDSCOUNT -ge 2 ]]; then
+# bug number for skipped tests:       LU-3707
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 81b 81c"
+fi
+
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
 # bug number for skipped test:        LU-951
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 73a"

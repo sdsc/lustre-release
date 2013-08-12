@@ -13,6 +13,11 @@ ONLY=${ONLY:-"$*"}
 ALWAYS_EXCEPT="$CONF_SANITY_EXCEPT 59 64"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
+if [[ $MDSCOUNT -ge 2 ]]; then
+# bug number for skipped tests:       LU-3695
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 32c"
+fi
+
 is_sles11()						# LU-2181
 {
 	if [ -r /etc/SuSE-release ]
