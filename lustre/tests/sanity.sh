@@ -8,8 +8,12 @@
 set -e
 
 ONLY=${ONLY:-"$*"}
-# bug number for skipped test: 13297 2108 9789 3637 9789 3561 12622 5188
-ALWAYS_EXCEPT="                42a  42b  42c  42d  45   51d   68b   $SANITY_EXCEPT"
+# bug number for skipped test: 13297 2108 9789 3637 9789 3561 12622 5188 LU-3705 LU-2998 LU-3712
+TMPDNESKIPS=""
+if [ $MDSCOUNT -ge 2 ]; then
+    TMPDNESKIPS="17k 27c 65ic"
+fi
+ALWAYS_EXCEPT="                42a  42b  42c  42d  45   51d   68b $TMPDNESKIPS  $SANITY_EXCEPT"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 # with LOD/OSP landing

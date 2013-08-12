@@ -21,8 +21,12 @@ GRANT_CHECK_LIST=${GRANT_CHECK_LIST:-""}
 require_dsh_mds || exit 0
 
 # Skip these tests
-# bug number:  17466 18857      LU-1867 LU-1473
-ALWAYS_EXCEPT="61d   33a 33b    89      62	$REPLAY_SINGLE_EXCEPT"
+# bug number:  17466 18857      LU-1867 LU-1473 LU-3707
+TMPDNESKIPS=""
+if [ $MDSCOUNT -ge 2 ]; then
+	TMPDNESKIPS="81b"
+fi
+ALWAYS_EXCEPT="61d   33a 33b    89      62 $REPLAY_SINGLE_EXCEPT $TMPDNESKIPS"
 
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
 # bug number for skipped test:        LU-951
