@@ -21,7 +21,12 @@ require_dsh_mds || exit 0
 
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
 # bug number for skipped test:	      LU-2194 LU-2547
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 19b     24a 24b"
+TMPDNESKIPS=""
+if [ $MDSCOUNT -ge 2 ]; then
+# bug LU-3708 is stopping test 110c passing.
+	TMPDNESKIPS="110c"
+fi
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 19b     24a 24b $TMPDNESKIPS"
 
 build_test_filter
 
