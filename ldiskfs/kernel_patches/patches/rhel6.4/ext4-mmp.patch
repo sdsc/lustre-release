@@ -156,7 +156,7 @@ Index: linux-stage/fs/ext4/mmp.c
 ===================================================================
 --- /dev/null
 +++ linux-stage/fs/ext4/mmp.c
-@@ -0,0 +1,351 @@
+@@ -0,0 +1,353 @@
 +#include <linux/fs.h>
 +#include <linux/random.h>
 +#include <linux/buffer_head.h>
@@ -171,11 +171,12 @@ Index: linux-stage/fs/ext4/mmp.c
 + */
 +static int write_mmp_block(struct buffer_head *bh)
 +{
++	ext4_msg(bh->b_bdev->bd_super, KERN_DEBUG, "%s", __func__);
 +       mark_buffer_dirty(bh);
 +       lock_buffer(bh);
 +       bh->b_end_io = end_buffer_write_sync;
 +       get_bh(bh);
-+       submit_bh(WRITE_SYNC, bh);
++       submit_bh(WRITE_FUA, bh);
 +       wait_on_buffer(bh);
 +       if (unlikely(!buffer_uptodate(bh)))
 +               return 1;
@@ -192,6 +193,7 @@ Index: linux-stage/fs/ext4/mmp.c
 +{
 +       struct mmp_struct *mmp;
 +
++	ext4_msg(sb, KERN_DEBUG, "%s", __func__);
 +       if (*bh)
 +               clear_buffer_uptodate(*bh);
 +
@@ -204,7 +206,7 @@ Index: linux-stage/fs/ext4/mmp.c
 +               get_bh(*bh);
 +               lock_buffer(*bh);
 +               (*bh)->b_end_io = end_buffer_read_sync;
-+               submit_bh(READ_SYNC, *bh);
++               submit_bh(READ_SYNC | REQ_NOCACHE, *bh);
 +               wait_on_buffer(*bh);
 +               if (!buffer_uptodate(*bh)) {
 +                       brelse(*bh);
