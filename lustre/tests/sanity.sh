@@ -11599,6 +11599,32 @@ test_235() {
 }
 run_test 235 "LU-1715: flock deadlock detection does not work properly"
 
+#LU-2935
+test_236() {
+	check_swap_layouts_support && return 0
+	test_mkdir -p $DIR/$tdir || error "mkdir $tdir failed"
+
+	local ref1=/etc/passwd
+	local ref2=/etc/group
+	local file1=$DIR/$tdir/f1
+	local file2=$DIR/$tdir/f2
+
+	$SETSTRIPE -c 1 $file1 || error "setstripe on $file1 failed: rc=$?"
+	cp $ref1 $file1 || error "cp $ref1 $file1 failed: rc=$?"
+	$SETSTRIPE -c 2 $file2 || error "setstripe on $file2 failed: rc=$?"
+	cp $ref2 $file2 || error "cp $ref2 $file2 failed: rc=$?"
+	exec {FD}<>$file2
+	rm -f $file2
+	$LFS swap_layouts $file1 /proc/self/fd/${FD} ||
+		error "swap of file layouts failed"
+	exec {FD}>&-
+	cmp $ref2 $file1 || error "content compare failed ($ref2 != $file1)"
+
+	#cleanup
+	rm -rf $DIR/$tdir
+}
+run_test 236 "Layout swap on open unlinked file"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
