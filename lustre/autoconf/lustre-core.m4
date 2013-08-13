@@ -1537,6 +1537,25 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# 3.10 release for block device doesn't return int
+AC_DEFUN([LC_BLKDEV_RELEASE_RETURN_INT],
+[AC_MSG_CHECKING([if block_device_operations release returns int])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/blkdev.h>
+],[
+	struct block_device_operations fops;
+	int i __attribute__ ((unused));
+
+	i = fops.release(NULL,0);
+],[
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_BLKDEV_RELEASE_RETURN_INT, 1,
+		  [block device release returns int])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
 #
 # LC_PROG_LINUX
 #
@@ -1662,7 +1681,7 @@ AC_DEFUN([LC_PROG_LINUX],
 	 LC_HAVE_IOP_ATOMIC_OPEN
 
 	 # 3.7
- 	 LC_HAVE_POSIXACL_USER_NS
+	 LC_HAVE_POSIXACL_USER_NS
 
 	 # 3.9
 	 LC_HAVE_HLIST_FOR_EACH_3ARG
@@ -1670,6 +1689,7 @@ AC_DEFUN([LC_PROG_LINUX],
 
 	 # 3.10
 	 LC_HAVE_ONLY_PROCFS_SEQ
+	 LC_BLKDEV_RELEASE_RETURN_INT
 
 	 #
 	 if test x$enable_server = xyes ; then
