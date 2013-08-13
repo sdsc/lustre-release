@@ -28,7 +28,7 @@ done
 echo "Checking for a complete tree..."
 REQUIRED_DIRS="libcfs lnet lustre"
 OPTIONAL_DIRS="snmp portals"
-CONFIGURE_DIRS="libsysio lustre-iokit ldiskfs"
+CONFIGURE_DIRS="libsysio ldiskfs"
 
 for dir in $REQUIRED_DIRS ; do
 	test -d "$dir" || \
