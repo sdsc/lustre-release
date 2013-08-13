@@ -232,40 +232,20 @@ AC_CONFIG_SUBDIRS(libsysio)
 #
 # LB_PATH_LUSTREIOKIT
 #
-# Handle internal/external lustre-iokit
+# We no longer handle external lustre-iokit
 #
 AC_DEFUN([LB_PATH_LUSTREIOKIT],
-[AC_ARG_WITH([lustre-iokit],
-	AC_HELP_STRING([--with-lustre-iokit=path],
-			[set path to lustre-iokit source (default is included lustre-iokit)]),
-	[],[
-			with_lustre_iokit='yes'
-	])
-AC_MSG_CHECKING([location of lustre-iokit])
-enable_lustre_iokit="$with_lustre_iokit"
-case x$with_lustre_iokit in
-	xyes)
-		AC_MSG_RESULT([internal])
-		LB_CHECK_FILE([$srcdir/lustre-iokit/ior-survey/ior-survey],[],[
-			AC_MSG_ERROR([A complete internal lustre-iokit was not found.])
-		])
-		LUSTREIOKIT_SUBDIR="lustre-iokit"
-		LUSTREIOKIT="$PWD/lustre-iokit"
-		;;
-	xno)
-		AC_MSG_RESULT([disabled])
-		;;
-	*)
-		AC_MSG_RESULT([$with_lustre_iokit])
-		LB_CHECK_FILE([$with_lustre_iokit/ior-survey/ior_survey],[],[
-			AC_MSG_ERROR([A complete (built) external lustre-iokit was not found.])
-		])
-		LUSTREIOKIT="$with_lustre_iokit"
-		;;
-esac
-AC_SUBST(LUSTREIOKIT_SUBDIR)
+[AC_ARG_ENABLE([iokit],
+        AC_HELP_STRING([--disable-iokit],
+                [disable iokit (default is enable)]),
+        [],[   
+                enable_iokit='yes'
+        ])
+AC_MSG_CHECKING([whether to build iokit])
+AC_MSG_RESULT([$enable_iokit])
 # We have to configure even if we don't build here for make dist to work
 AC_CONFIG_SUBDIRS(lustre-iokit)
+AM_CONDITIONAL(BUILD_LUSTREIOKIT, [test "x$enable_iokit" = xyes])
 ])
 
 # Define no libcfs by default.

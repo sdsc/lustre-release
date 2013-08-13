@@ -7,7 +7,6 @@ RELEASE="1"
 AC_SUBST(RELEASE)
 
 AC_OUTPUT(
-lustre-iokit.spec
 Makefile
 sgpdd-survey/Makefile
 obdfilter-survey/Makefile
