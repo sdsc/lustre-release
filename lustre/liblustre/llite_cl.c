@@ -528,7 +528,7 @@ static int llu_queue_pio(const struct lu_env *env, struct cl_io *io,
 
                 rc = cl_page_own(env, io, clp);
                 if (rc) {
-                        LASSERT(clp->cp_state == CPS_FREEING);
+                        cl_page_delete(env, clp);
                         cl_page_put(env, clp);
                         break;
                 }
