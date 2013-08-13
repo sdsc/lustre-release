@@ -79,7 +79,7 @@ log "comparing $COUNT newly copied files at `date`"
 
 cat $FILES | tr "\0" "\n" | ( rc=0; while read f; do
 	[ $V ] && log "verifying $DST/$f"
-	diff -q "$f" "$DST/$f" || rc=11
+	diff "$f" "$DST/$f" || rc=11
 done
 [ "$rc" = 0 ] || error_exit "old and new files are different: rc=$rc" ) 
 
@@ -91,7 +91,7 @@ setupall || exit 20
 log "comparing $COUNT previously copied files"
 cat $FILES | tr "\0" "\n" | ( rc=0; while read f; do
 	[ $V ] && log "verifying $DST/$f"
-	diff -q "$f" "$DST/$f" || rc=22
+	diff "$f" "$DST/$f" || rc=22
 done
 [ "$rc" = 0 ] || error_exit "old and new files are different: rc=$rc" )
 
