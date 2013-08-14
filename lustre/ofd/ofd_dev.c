@@ -923,7 +923,6 @@ static inline void ofd_drop_id(struct obd_export *exp, struct obdo *oa)
 static int ofd_getattr_hdl(struct tgt_session_info *tsi)
 {
 	struct ofd_thread_info	*fti = tsi2ofd_info(tsi);
-	struct ofd_device	*ofd = ofd_exp(tsi->tsi_exp);
 	struct ost_body		*repbody;
 	struct lustre_handle	 lh = { 0 };
 	struct ofd_object	*fo;
@@ -931,7 +930,6 @@ static int ofd_getattr_hdl(struct tgt_session_info *tsi)
 	__u64			 flags = 0;
 	bool			 srvlock;
 	int			 rc;
-
 	ENTRY;
 
 	LASSERT(tsi->tsi_ost_body != NULL);
@@ -1278,15 +1276,6 @@ static int ofd_destroy_hdl(struct tgt_session_info *tsi)
 	else
 		count = 1; /* default case - single destroy */
 
-	/**
-	 * There can be sequence of objects to destroy. Therefore this request
-	 * may have multiple transaction involved in. It is OK, we need only
-	 * the highest used transno to be reported back in reply but not for
-	 * replays, they must report their transno
-	 */
-	if (fti->fti_transno == 0) /* not replay */
-		fti->fti_mult_trans = 1;
-
 	CDEBUG(D_HA, "%s: Destroy object "DOSTID" count %d\n", ofd_name(ofd),
 	       POSTID(&body->oa.o_oi), count);
 	while (count > 0) {
@@ -1316,22 +1305,6 @@ static int ofd_destroy_hdl(struct tgt_session_info *tsi)
 		ostid_inc_id(&repbody->oa.o_oi);
 	}
 
-	/* if we have transaction then there were some deletions, we don't
-	 * need to return ENOENT in that case because it will not wait
-	 * for commit of these deletions. The ENOENT must be returned only
-	 * if there were no transations.
-	 */
-	if (rc == -ENOENT) {
-		if (fti->fti_transno != 0)
-			rc = 0;
-	} else if (rc != 0) {
-		/*
-		 * If we have at least one transaction then llog record
-		 * on server will be removed upon commit, so for rc != 0
-		 * we return no transno and llog record will be reprocessed.
-		 */
-		fti->fti_transno = 0;
-	}
 out:
 	RETURN(rc);
 }
@@ -1832,11 +1805,7 @@ static void ofd_key_exit(const struct lu_context *ctx,
 	info->fti_exp = NULL;
 
 	info->fti_xid = 0;
-	info->fti_transno = 0;
 	info->fti_pre_version = 0;
-	info->fti_obj = NULL;
-	info->fti_has_trans = 0;
-	info->fti_mult_trans = 0;
 	info->fti_used = 0;
 
 	memset(&info->fti_attr, 0, sizeof info->fti_attr);
