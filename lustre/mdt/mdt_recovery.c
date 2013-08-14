@@ -349,96 +349,41 @@ out:
  */
 extern struct lu_context_key mdt_thread_key;
 
-/* add credits for last_rcvd update */
-static int mdt_txn_start_cb(const struct lu_env *env,
-			    struct thandle *th, void *cookie)
-{
-	struct lu_target	*tgt = cookie;
-	struct mdt_thread_info	*mti;
-	int			 rc;
-
-	/* if there is no session, then this transaction is not result of
-	 * request processing but some local operation or echo client */
-	if (env->le_ses == NULL)
-		return 0;
-
-	mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
-
-	LASSERT(tgt->lut_last_rcvd);
-	if (mti->mti_exp == NULL)
-		return 0;
-
-	rc = dt_declare_record_write(env, tgt->lut_last_rcvd,
-				     sizeof(struct lsd_client_data),
-				     mti->mti_exp->exp_target_data.ted_lr_off,
-				     th);
-	if (rc)
-		return rc;
-
-	rc = dt_declare_record_write(env, tgt->lut_last_rcvd,
-				     sizeof(struct lr_server_data), 0, th);
-	if (rc)
-		return rc;
-
-	/* we probably should not set local transno to the remote object
-	 * on another storage, What about VBR on remote object? XXX */
-	if (mti->mti_mos != NULL && !mdt_object_remote(mti->mti_mos))
-		rc = dt_declare_version_set(env, mdt_obj2dt(mti->mti_mos), th);
-
-	return rc;
-}
-
-/* Update last_rcvd records with latests transaction data */
+/* this callback is needed just to notify MDT that transaction was
+ * done. This is needed by mdt_save_lock() */
 static int mdt_txn_stop_cb(const struct lu_env *env,
                            struct thandle *txn, void *cookie)
 {
-	struct lu_target	*tgt = cookie;
 	struct mdt_thread_info	*mti;
-	struct dt_object	*obj = NULL;
-	int			 rc;
-
-	if (env->le_ses == NULL)
-		return 0;
 
 	mti = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
 	LASSERT(mti);
-	if (mti->mti_has_trans) {
-		/* XXX: currently there are allowed cases, but the wrong cases
-		 * are also possible, so better check is needed here */
-		CDEBUG(D_INFO, "More than one transaction "LPU64"\n",
-		       mti->mti_transno);
-		return 0;
-	}
 
-	mti->mti_has_trans = 1;
+	if (mti->mti_has_trans)
+		CDEBUG(D_INFO, "More than one transaction\n");
+	else
+		mti->mti_has_trans = 1;
 
-	if (mti->mti_mos != NULL &&
-	    mdt_object_remote(mti->mti_mos)) {
-		obj = mdt_obj2dt(mti->mti_mos);
-	}
-
-	rc = tgt_last_rcvd_update(env, tgt, obj, mti->mti_opdata, txn,
-				  mdt_info_req(mti));
-	return rc;
+	return 0;
 }
 
 int mdt_fs_setup(const struct lu_env *env, struct mdt_device *mdt,
-                 struct obd_device *obd,
-                 struct lustre_sb_info *lsi)
+		 struct obd_device *obd, struct lustre_sb_info *lsi)
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
 
-        if (OBD_FAIL_CHECK(OBD_FAIL_MDS_FS_SETUP))
-                RETURN(-ENOENT);
+	ENTRY;
 
-        /* prepare transactions callbacks */
-        mdt->mdt_txn_cb.dtc_txn_start = mdt_txn_start_cb;
-        mdt->mdt_txn_cb.dtc_txn_stop = mdt_txn_stop_cb;
-        mdt->mdt_txn_cb.dtc_txn_commit = NULL;
-        mdt->mdt_txn_cb.dtc_cookie = &mdt->mdt_lut;
-        mdt->mdt_txn_cb.dtc_tag = LCT_MD_THREAD;
-        CFS_INIT_LIST_HEAD(&mdt->mdt_txn_cb.dtc_linkage);
+	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_FS_SETUP))
+		RETURN(-ENOENT);
+
+	/* prepare transactions callbacks */
+	mdt->mdt_txn_cb.dtc_txn_start = NULL;
+	mdt->mdt_txn_cb.dtc_txn_stop = mdt_txn_stop_cb;
+	mdt->mdt_txn_cb.dtc_txn_commit = NULL;
+	mdt->mdt_txn_cb.dtc_cookie = NULL;
+	mdt->mdt_txn_cb.dtc_tag = LCT_MD_THREAD;
+	CFS_INIT_LIST_HEAD(&mdt->mdt_txn_cb.dtc_linkage);
 
 	rc = mdt_server_data_init(env, mdt, lsi);
 	if (rc != 0)

@@ -112,6 +112,8 @@ struct tgt_thread_info {
 
 	/* transno storage during last_rcvd update */
 	__u64			 tti_transno;
+	__u32			 tti_has_trans:1,
+				 tti_mult_trans:1;
 
 	/* Updates data for OUT target */
 	struct thandle_exec_args tti_tea;
@@ -212,4 +214,11 @@ static inline void tgt_drop_id(struct obd_export *exp, struct obdo *oa)
 		oa->o_valid &= ~(OBD_MD_FLUID | OBD_MD_FLGID);
 	}
 }
+
+int tgt_server_data_init(const struct lu_env *env, struct lu_target *tgt);
+int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
+		     void *cookie);
+int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
+		    void *cookie);
+
 #endif /* _TG_INTERNAL_H */
