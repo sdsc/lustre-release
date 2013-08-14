@@ -42,7 +42,7 @@ test_1() {
 		is_mounted $d || continue
 
 		RDIRS="$RDIRS $d/racer"
-		mkdir -p $d/racer
+		mkdir -p $d/racer || error "mkdir $d/racer failed"
 	#	lfs setstripe $d/racer -c -1
 		if [ $MDSCOUNT -ge 2 ]; then
 			for i in $(seq $((MDSCOUNT - 1))); do

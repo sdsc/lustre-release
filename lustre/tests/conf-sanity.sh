@@ -1239,7 +1239,7 @@ test_32newtarball() {
 		return 1
 	}
 
-	mkdir $tmp/src
+	test_mkdir $tmp/src || error "mkdir $tmp/src failed"
 	tar cf - -C $src . | tar xf - -C $tmp/src
 	dd if=/dev/zero of=$tmp/src/t32_qf_old bs=1M \
 		count=$(($T32_BLIMIT / 1024 / 2))
@@ -1257,7 +1257,7 @@ test_32newtarball() {
 	tar cf - -C $tmp/src . | tar xf - -C /mnt/$FSNAME
 	stopall
 
-	mkdir $tmp/img
+	mkdir $tmp/img || error "mkdir $tmp/img failed"
 
 	setupall
 	pushd /mnt/$FSNAME
@@ -1515,7 +1515,7 @@ t32_test() {
 
 	trap 'trap - RETURN; t32_test_cleanup' RETURN
 
-	mkdir -p $tmp/mnt/lustre
+	mkdir -p $tmp/mnt/lustre || error "mkdir $tmp/mnt/lustre failed"
 	$r mkdir -p $tmp/mnt/{mdt,ost}
 	$r tar xjvf $tarball -S -C $tmp || {
 		error_noexit "Unpacking the disk image tarball"
@@ -1963,12 +1963,12 @@ test_33a() { # bug 12333, was test_33
 		--fsname=${FSNAME2} --index=8191 --reformat $fs2ostdev \
 		$fs2ostvdev || exit 10
 
-        start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && trap cleanup_24a EXIT INT
-        start fs2ost $fs2ostdev $OST_MOUNT_OPTS
-        do_facet $SINGLEMDS "$LCTL conf_param $FSNAME2.sys.timeout=200" || rc=1
-        mkdir -p $MOUNT2
-        mount -t lustre $MGSNID:/${FSNAME2} $MOUNT2 || rc=2
-        echo "ok."
+	start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS && trap cleanup_24a EXIT INT
+	start fs2ost $fs2ostdev $OST_MOUNT_OPTS
+	do_facet $SINGLEMDS "$LCTL conf_param $FSNAME2.sys.timeout=200" || rc=1
+	mkdir -p $MOUNT2 || error "mkdir $MOUNT2 failed"
+	mount -t lustre $MGSNID:/${FSNAME2} $MOUNT2 || rc=2
+	echo "ok."
 
         cp /etc/hosts $MOUNT2/ || rc=3
         $LFS getstripe $MOUNT2/hosts
@@ -2116,7 +2116,7 @@ test_35b() { # bug 18674
 		at_max_set 0 mds client
 	fi
 
-	mkdir -p $MOUNT/$tdir
+	test_mkdir $MOUNT/$tdir || error "mkdir $tdir failed"
 
 	log "Injecting EBUSY on MDS"
 	# Setting OBD_FAIL_MDS_RESEND=0x136
@@ -2206,11 +2206,11 @@ test_36() { # 12743
 	add fs3ost $(mkfs_opts ost1 ${fs3ostdev}) --mgsnode=$MGSNID \
 		--fsname=${FSNAME2} --reformat $fs3ostdev $fs3ostvdev || exit 10
 
-        start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS
-        start fs2ost $fs2ostdev $OST_MOUNT_OPTS
-        start fs3ost $fs3ostdev $OST_MOUNT_OPTS
-        mkdir -p $MOUNT2
-        mount -t lustre $MGSNID:/${FSNAME2} $MOUNT2 || return 1
+	start fs2mds $fs2mdsdev $MDS_MOUNT_OPTS
+	start fs2ost $fs2ostdev $OST_MOUNT_OPTS
+	start fs3ost $fs3ostdev $OST_MOUNT_OPTS
+	mkdir -p $MOUNT2 || error "mkdir $MOUNT2 failed"
+	mount -t lustre $MGSNID:/${FSNAME2} $MOUNT2 || return 1
 
         sleep 5 # until 11778 fixed
 
@@ -2305,7 +2305,7 @@ test_38() { # bug 14222
 	SRC="/etc /bin"
 	FILES=`find $SRC -type f -mtime +1 | head -n $COUNT`
 	log "copying $(echo $FILES | wc -w) files to $DIR/$tdir"
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	tar cf - $FILES | tar xf - -C $DIR/$tdir || \
 		error "copying $SRC to $DIR/$tdir"
 	sync
@@ -2380,15 +2380,15 @@ test_41a() { #bug 14134
 		return
 	fi
 
-        local rc
-        local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
+	local rc
+	local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
-        start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nosvc -n
-        start ost1 `ostdevname 1` $OST_MOUNT_OPTS
-        start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nomgs,force
-        mkdir -p $MOUNT
-        mount_client $MOUNT || return 1
-        sleep 5
+	start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nosvc -n
+	start ost1 `ostdevname 1` $OST_MOUNT_OPTS
+	start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nomgs,force
+	mkdir -p $MOUNT || error "mkdir $MOUNT failed"
+	mount_client $MOUNT || return 1
+	sleep 5
 
         echo "blah blah" > $MOUNT/$tfile
         cat $MOUNT/$tfile
@@ -2415,12 +2415,12 @@ test_41b() {
         reformat
         local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
-        start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nosvc -n
-        start_ost
-        start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nomgs,force
-        mkdir -p $MOUNT
-        mount_client $MOUNT || return 1
-        sleep 5
+	start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nosvc -n
+	start_ost
+	start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nomgs,force
+	mkdir -p $MOUNT || error "mkdir $MOUNT failed"
+	mount_client $MOUNT || return 1
+	sleep 5
 
         echo "blah blah" > $MOUNT/$tfile
         cat $MOUNT/$tfile || return 200
@@ -2476,9 +2476,9 @@ test_43() {
     echo "222" > $DIR/$tfile-rootfile || error "write 2 failed"
     chmod go-rw $DIR/$tfile-rootfile  || error "chmod 2 faield"
 
-    mkdir $DIR/$tdir-rootdir -p       || error "mkdir failed"
-    chmod go-rwx $DIR/$tdir-rootdir   || error "chmod 3 failed"
-    touch $DIR/$tdir-rootdir/tfile-1  || error "touch failed"
+	mkdir $DIR/$tdir-rootdir -p || error "mkdir $tdir-rootdir failed"
+	chmod go-rwx $DIR/$tdir-rootdir   || error "chmod 3 failed"
+	touch $DIR/$tdir-rootdir/tfile-1  || error "touch failed"
 
 	#
 	# check root_squash:
@@ -2997,7 +2997,7 @@ test_50h() {
 	start_ost2 || error "Unable to start OST2"
 	mount_client $MOUNT || error "client start failed"
 
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 
 	# activatate OSC for OST1
 	local TEST="$LCTL get_param -n osc.${FSNAME}-OST0000-osc-[!M]*.active"
@@ -3005,7 +3005,7 @@ test_50h() {
 		"$TEST" "${FSNAME}-OST0000.osc.active" 1 ||
 		error "Unable to activate OST1"
 
-	mkdir -p $DIR/$tdir/2
+	mkdir $DIR/$tdir/2 || error "mkdir $tdir/2 failed"
 	$LFS setstripe -c -1 -i 0 $DIR/$tdir/2
 	sleep 1 && echo "create a file after OST1 is activated"
 	# create some file
@@ -3029,9 +3029,9 @@ test_51() {
 	setup_noconfig
 	check_mount || return 1
 
-	mkdir $MOUNT/d1
+	mkdir $MOUNT/d1 || error "mkdir d1 failed"
 	$LFS setstripe -c -1 $MOUNT/d1
-        #define OBD_FAIL_MDS_REINT_DELAY         0x142
+	#define OBD_FAIL_MDS_REINT_DELAY         0x142
 	do_facet $SINGLEMDS "lctl set_param fail_loc=0x142"
 	touch $MOUNT/d1/f1 &
 	local pid=$!
@@ -3112,7 +3112,7 @@ test_52() {
 	local ost1tmp=$TMP/conf52
 	local loop
 
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	[ $? -eq 0 ] || { error "Unable to create tdir"; return 4; }
 	touch $TMP/modified_first
 	[ $? -eq 0 ] || { error "Unable to create temporary file"; return 5; }
@@ -3433,7 +3433,7 @@ test_58() { # bug 22658
 		return
 	fi
 	setup_noconfig
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	createmany -o $DIR/$tdir/$tfile-%d 100
 	# make sure that OSTs do not cancel llog cookies before we unmount the MDS
 #define OBD_FAIL_OBD_LOG_CANCEL_NET      0x601
@@ -3874,7 +3874,7 @@ test_70a() {
 
 	mount_client $MOUNT || error "mount client fails"
 
-	mkdir -p $DIR/$tdir || error "create dir fail"
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 
 	$LFS mkdir -i $MDTIDX $DIR/$tdir/remote_dir ||
 					error "create remote dir fail"
@@ -3895,7 +3895,7 @@ test_70b() {
 
 	mount_client $MOUNT || error "mount client fails"
 
-	mkdir -p $DIR/$tdir || error "create dir fail"
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 
 	$LFS mkdir -i $MDTIDX $DIR/$tdir/remote_dir ||
 					error "create remote dir fail"
@@ -3945,10 +3945,10 @@ test_70d() {
 	local mdc_for_mdt2=$($LCTL dl | grep MDT0001-mdc |
 			     awk '{print $4}')
 	echo "deactivate $mdc_for_mdt2"
-        $LCTL --device $mdc_for_mdt2 deactivate ||
-			error "set $mdc_for_mdt2 deactivate failed"
+	$LCTL --device $mdc_for_mdt2 deactivate ||
+		error "set $mdc_for_mdt2 deactivate failed"
 
-	mkdir -p $DIR/$tdir || error "mkdir fail"
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $DIR/$tdir/remote_dir &&
 			error "create remote dir succeed"
 
@@ -3972,9 +3972,9 @@ test_71a() {
 
 	mount_client $MOUNT || error "mount client fails"
 
-	mkdir -p $DIR/$tdir || error "mkdir fail"
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $DIR/$tdir/remote_dir ||
-			error "create remote dir succeed"
+		error "create remote dir succeed"
 
 	mcreate $DIR/$tdir/remote_dir/$tfile || error "create file failed"
 	rm -rf $DIR/$tdir || error "delete dir fail"
@@ -4001,9 +4001,9 @@ test_71b() {
 
 	mount_client $MOUNT || error "mount client fails"
 
-	mkdir -p $DIR/$tdir || error "mkdir fail"
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $DIR/$tdir/remote_dir ||
-			error "create remote dir succeed"
+		error "create remote dir succeed"
 
 	mcreate $DIR/$tdir/remote_dir/$tfile || error "create file failed"
 	rm -rf $DIR/$tdir || error "delete dir fail"
@@ -4030,9 +4030,9 @@ test_71c() {
 
 	mount_client $MOUNT || error "mount client fails"
 
-	mkdir -p $DIR/$tdir || error "mkdir fail"
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $DIR/$tdir/remote_dir ||
-			error "create remote dir succeed"
+		error "create remote dir succeed"
 
 	mcreate $DIR/$tdir/remote_dir/$tfile || error "create file failed"
 	rm -rf $DIR/$tdir || error "delete dir fail"
@@ -4060,9 +4060,9 @@ test_71d() {
 
 	mount_client $MOUNT || error "mount client fails"
 
-	mkdir -p $DIR/$tdir || error "mkdir fail"
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $DIR/$tdir/remote_dir ||
-			error "create remote dir succeed"
+		error "create remote dir succeed"
 
 	mcreate $DIR/$tdir/remote_dir/$tfile || error "create file failed"
 	rm -rf $DIR/$tdir || error "delete dir fail"
@@ -4090,9 +4090,9 @@ test_71e() {
 
 	mount_client $MOUNT || error "mount client fails"
 
-	mkdir -p $DIR/$tdir || error "mkdir fail"
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $DIR/$tdir/remote_dir ||
-			error "create remote dir succeed"
+		error "create remote dir succeed"
 
 	mcreate $DIR/$tdir/remote_dir/$tfile || error "create file failed"
 	rm -rf $DIR/$tdir || error "delete dir fail"
@@ -4131,7 +4131,7 @@ test_72() { #LU-2634
 	mount_client $MOUNT || error "mount client failed"
 
 	#create some short symlinks
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	createmany -o $DIR/$tdir/$tfile-%d $fn
 	echo "create $fn short symlinks"
 	for i in $(seq -w 1 $fn); do
