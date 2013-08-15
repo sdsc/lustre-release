@@ -1,0 +1,8 @@
+--- compat/compat-3.3.c.org	2013-08-15 14:54:00.000000000 -0700
++++ compat/compat-3.3.c	2013-08-15 14:54:13.000000000 -0700
+@@ -170,4 +170,4 @@ struct sk_buff *__pskb_copy(struct sk_bu
+ out:
+ 	return n;
+ }
+-EXPORT_SYMBOL_GPL(__pskb_copy);
++/*EXPORT_SYMBOL_GPL(__pskb_copy);*/
