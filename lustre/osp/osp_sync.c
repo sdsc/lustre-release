@@ -705,6 +705,9 @@ static void osp_sync_process_committed(const struct lu_env *env,
 		}
 
 		ptlrpc_req_finished(req);
+
+		cond_resched();
+
 		done++;
 	}
 
@@ -746,6 +749,8 @@ static int osp_sync_process_queues(const struct lu_env *env,
 			CDEBUG(D_HA, "stop llog processing\n");
 			return LLOG_PROC_BREAK;
 		}
+
+		cond_resched();
 
 		/* process requests committed by OST */
 		osp_sync_process_committed(env, d);
@@ -829,6 +834,8 @@ static int osp_sync_thread(void *_arg)
 		       obd->obd_name, rc);
 		RETURN(rc);
 	}
+
+	set_user_nice(current, 10);
 
 	spin_lock(&d->opd_syn_lock);
 	thread->t_flags = SVC_RUNNING;
