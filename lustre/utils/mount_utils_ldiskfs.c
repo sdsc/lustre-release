@@ -1070,7 +1070,7 @@ set_params:
 		for (i = 0; rc == 0 && i < glob_info.gl_pathc; i++){
 			slave = basename(glob_info.gl_pathv[i]);
 			snprintf(real_path, sizeof(real_path), "/dev/%s", slave);
-			rc = set_blockdev_tunables(real_path, mop, 0);
+			rc = set_blockdev_tunables(real_path, mop, 1);
 		}
 
 		if (rc == GLOB_NOMATCH) {
