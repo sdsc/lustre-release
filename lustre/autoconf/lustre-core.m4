@@ -1558,6 +1558,7 @@ AC_DEFUN([LC_PROG_LINUX],
          [
          LC_CONFIG_PINGER
          LC_CONFIG_CHECKSUM
+         LC_CONFIG_HIGH_AVAILABILITY
          LC_CONFIG_LIBLUSTRE_RECOVERY
          LC_CONFIG_HEALTH_CHECK_WRITE
          LC_CONFIG_LRU_RESIZE
@@ -2151,4 +2152,26 @@ lustre/lod/Makefile
 lustre/lod/autoMakefile
 lustre/obdclass/darwin/Makefile
 ])
+])
+
+#
+# LC_CONFIG_HIGH_AVAILABILITY
+#
+AC_DEFUN([LC_CONFIG_HIGH_AVAILABILITY],
+[#### To disable high availability support
+AC_MSG_CHECKING([whether to enable high availability support])
+AC_ARG_ENABLE([HA],
+        AC_HELP_STRING([--disable-HA],
+                [disable high availability support]),
+        [],[enable_HA='yes'])
+
+if test x$enable_HA == xyes ; then
+        initdscripts="lustre lnet"
+        AC_MSG_RESULT([yes])
+else
+        AC_MSG_RESULT([no])
+        initdscripts=""
+fi
+AC_SUBST(initdscripts)
+AC_SUBST(init_SCRIPTS)
 ])

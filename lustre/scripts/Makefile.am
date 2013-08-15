@@ -42,7 +42,7 @@ genscripts = lustre_config lc_modprobe lc_net lc_hb lc_cluman lustre_createcsv \
     lc_md lc_lvm lustre_start
 
 initdir = $(sysconfdir)/init.d
-init_SCRIPTS = lustre lnet
+init_SCRIPTS = $(initdscripts)
 
 hadir = $(sysconfdir)/ha.d/resource.d
 ha_SCRIPTS = Lustre.ha_v2
