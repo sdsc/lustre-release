@@ -83,8 +83,9 @@ int mdd_lookup(const struct lu_env *env,
                struct lu_fid* fid, struct md_op_spec *spec)
 {
         int rc;
+	int mask = spec->sp_permitted ? 0 : MAY_EXEC;
         ENTRY;
-        rc = __mdd_lookup_locked(env, pobj, lname, fid, MAY_EXEC);
+	rc = __mdd_lookup_locked(env, pobj, lname, fid, mask);
         RETURN(rc);
 }
 
