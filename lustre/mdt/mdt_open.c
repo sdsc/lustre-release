@@ -1498,25 +1498,18 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 			GOTO(out, result = -EFAULT);
 		}
 		CDEBUG(D_INFO, "No object(1), continue as regular open.\n");
-	} else if ((rr->rr_namelen == 0 && create_flags & MDS_OPEN_LOCK) ||
-		   (create_flags & MDS_OPEN_BY_FID)) {
+	} else if (create_flags & MDS_OPEN_BY_FID) {
 		result = mdt_open_by_fid_lock(info, ldlm_rep, lhc);
-		/* If result is 0 then open by FID has found the file
-		 * and there is nothing left for us to do here.  More
-		 * generally if it is anything other than -ENOENT or
-		 * -EREMOTE then we return that now.  If -ENOENT and
-		 * MDS_OPEN_CREAT is set then we must create the file
-		 * below.  If -EREMOTE then we need to return a LOOKUP
-		 * lock to the client, which we do below.  Hence this
-		 * odd looking condition.  See LU-2523. */
-		if (!(result == -ENOENT && (create_flags & MDS_OPEN_CREAT)) &&
-		    result != -EREMOTE)
-			GOTO(out, result);
-
-		if (unlikely(rr->rr_namelen == 0))
-			GOTO(out, result = -EINVAL);
-
-		CDEBUG(D_INFO, "No object(2), continue as regular open.\n");
+		if (result < 0)
+			CDEBUG(D_INFO, "no object for "DFID": %d\n",
+			       PFID(rr->rr_fid2), result);
+		/*
+		 * LU-3765
+		 * if client specified MDS_OPEN_BY_FID, server should never go
+		 * to regular open with name because the name may not be valid,
+		 * and even if it's valid, it may cause inconsistency.
+		 */
+		GOTO(out, result);
 	}
 
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OPEN_PACK))
