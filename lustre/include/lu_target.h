@@ -119,6 +119,7 @@ struct tgt_session_info {
 	 * Additional fail id that can be set by handler.
 	 */
 	int			 tsi_reply_fail_id;
+	bool			 tsi_preprocessed;
 	/* request JobID */
 	char                    *tsi_jobid;
 };
