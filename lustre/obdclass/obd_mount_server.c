@@ -1632,9 +1632,51 @@ const struct inode_operations server_inode_operations = {
 #define log2(n) ffz(~(n))
 #define LUSTRE_SUPER_MAGIC 0x0BD00BD1
 
-static int server_fill_super_common(struct super_block *sb)
+/*
+ * Ioctl support, to call ioctl methods of underlying filesystems
+ */
+static long server_ioctl(struct file *filp, unsigned int command,
+			 unsigned long arg)
+{
+	struct inode		*inode = filp->f_dentry->d_inode;
+	struct lustre_sb_info	*lsi = s2lsi(inode->i_sb);
+	struct super_block	*lfs_sb = lsi->lsi_srv_mnt->mnt_sb;
+	struct file		active_filp;
+	struct inode		*active_inode;
+	struct dentry		*active_dentry;
+	int err;
+
+	active_inode = igrab(lfs_sb->s_root->d_inode);
+
+	if (active_inode == NULL)
+		return -EACCES;
+
+	active_dentry = d_obtain_alias(active_inode);
+	if (IS_ERR(active_dentry))
+		return PTR_ERR(active_dentry);
+
+	active_filp.f_dentry = active_dentry;
+	active_filp.f_path.mnt = lsi->lsi_srv_mnt;
+
+	err = -ENOTTY;
+	if (active_inode->i_fop && active_inode->i_fop->unlocked_ioctl)
+		err = active_inode->i_fop->unlocked_ioctl(&active_filp,
+							  command, arg);
+
+	/* This will iput(active_inode) */
+	dput(active_dentry);
+	return err;
+}
+
+static const struct file_operations server_file_operations = {
+	.unlocked_ioctl	= server_ioctl,
+};
+
+static int server_fill_super_common(struct super_block *sb,
+				    struct vfsmount *mnt)
 {
 	struct inode *root = 0;
+	struct inode *actual_root = mnt->mnt_root->d_inode;
 	ENTRY;
 
 	CDEBUG(D_MOUNT, "Server sb, dev=%d\n", (int)sb->s_dev);
@@ -1645,6 +1687,8 @@ static int server_fill_super_common(struct super_block *sb)
 	sb->s_maxbytes = 0; /* we don't allow file IO on server mountpoints */
 	sb->s_flags |= MS_RDONLY;
 	sb->s_op = &server_ops;
+	/* so stat of mountpoint matches underlying device */
+	sb->s_dev = mnt->mnt_sb->s_dev;
 
 	root = new_inode(sb);
 	if (!root) {
@@ -1655,8 +1699,15 @@ static int server_fill_super_common(struct super_block *sb)
 	/* returns -EIO for every operation */
 	/* make_bad_inode(root); -- badness - can't umount */
 	/* apparently we need to be a directory for the mount to finish */
-	root->i_mode = S_IFDIR;
-	root->i_op = &server_inode_operations;
+	root->i_mode	= S_IFDIR;
+	root->i_op	= &server_inode_operations;
+	root->i_fop	= &server_file_operations;
+	root->i_ino	= actual_root->i_ino;
+	root->i_atime	= actual_root->i_atime;
+	root->i_mtime	= actual_root->i_mtime;
+	root->i_ctime	= actual_root->i_ctime;
+	root->i_size	= actual_root->i_size;
+	root->i_blocks	= actual_root->i_blocks;
 	sb->s_root = d_make_root(root);
 	if (!sb->s_root) {
 		CERROR("%s: can't make root dentry\n", sb->s_id);
@@ -1789,7 +1840,7 @@ int server_fill_super(struct super_block *sb)
 		 * associated - the MGS is for all lustre fs's */
 	}
 
-	rc = server_fill_super_common(sb);
+	rc = server_fill_super_common(sb, lsi->lsi_srv_mnt);
 	if (rc)
 		GOTO(out_mnt, rc);
 
