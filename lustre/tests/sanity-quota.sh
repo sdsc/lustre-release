@@ -1712,6 +1712,15 @@ test_18() {
 	# test output
 	do_facet ost1 dmesg -c > /dev/null
 
+	# LU-3572
+	USAGE=$((200 * 1024))	# needed space for test in KB
+	FREE_SPACE=$($LFS df $MOUNT |
+			awk '/'$(ostuuid_from_index 0)'/ { print $4 }')
+	AVAIL=$((FREE_SPACE * 9 / 10))
+	[ $AVAIL -lt $USAGE ] &&
+		skip "not enough space $FREE_SPACE KB, " \
+			"required $USAGE KB" && return
+
 	test_18_sub normal
 	test_18_sub directio
 
