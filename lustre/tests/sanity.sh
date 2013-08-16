@@ -11521,6 +11521,25 @@ test_235() {
 run_test 235 "LU-1715: flock deadlock detection does not work properly"
 
 #
+# LU-137: test to verify ioctl passthrough mechanism for Lustre server
+# (OST/MDT) mountpoints.
+#
+test_236() {
+	local mds_mtpt="/mnt/mds1"
+
+	echo "MDS:"
+	ioctl_passthru $mds_mtpt ||
+		error "ioctl_passthru failed for $mds_mtpt, rc=$?"
+
+	for (( i=1; i <= OSTCOUNT; i++ )); do
+		echo "OST$i:"
+		ioctl_passthru /mnt/ost$i ||
+			error "ioctl_passthru failed for /mnt/ost$i, rc=$?"
+	done
+}
+run_test 236 "Verify ioctl passthrough mechanism for Lustre server mountpoints"
+
+#
 # tests that do cleanup/setup should be run at the end
 #
 
