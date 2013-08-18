@@ -1632,7 +1632,7 @@
  }
  
  /*
-@@ -541,7 +842,7 @@ static void dx_release (struct dx_frame 
+@@ -541,7 +842,7 @@ static void dx_release (struct dx_frame
  static int ext4_htree_next_block(struct inode *dir, __u32 hash,
  				 struct dx_frame *frame,
  				 struct dx_frame *frames,
@@ -1641,7 +1641,7 @@
  {
  	struct dx_frame *p;
  	struct buffer_head *bh;
-@@ -556,12 +857,22 @@ static int ext4_htree_next_block(struct 
+@@ -556,12 +857,22 @@ static int ext4_htree_next_block(struct
  	 * this loop, num_frames indicates the number of interior
  	 * nodes need to be read.
  	 */
@@ -1666,7 +1666,7 @@
  		p--;
  	}
  
-@@ -584,6 +895,13 @@ static int ext4_htree_next_block(struct 
+@@ -584,6 +895,13 @@ static int ext4_htree_next_block(struct
  	 * block so no check is necessary
  	 */
  	while (num_frames--) {
@@ -1680,7 +1680,7 @@
  		if (!(bh = ext4_bread(NULL, dir, dx_get_block(p->at),
  				      0, &err)))
  			return err; /* Failure */
-@@ -592,6 +910,7 @@ static int ext4_htree_next_block(struct 
+@@ -592,6 +910,7 @@ static int ext4_htree_next_block(struct
  		p->bh = bh;
  		p->at = p->entries = ((struct dx_node *) bh->b_data)->entries;
  	}
