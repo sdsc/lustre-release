@@ -383,11 +383,6 @@ static inline int ll_quota_off(struct super_block *sb, int off, int remount)
 #define DECLARE_LL_D_HLIST_NODE_PTR(name) /* nothing */
 #endif
 
-
-#ifndef HAVE_BI_HW_SEGMENTS
-#define bio_hw_segments(q, bio) 0
-#endif
-
 #ifndef QUOTA_OK
 # define QUOTA_OK 0
 #endif
