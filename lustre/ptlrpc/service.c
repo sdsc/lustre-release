@@ -1025,7 +1025,10 @@ static void ptlrpc_server_finish_request(struct ptlrpc_service_part *svcpt,
 	if (req->rq_session.lc_thread != NULL) {
 		lu_context_exit(&req->rq_session);
 		lu_context_fini(&req->rq_session);
+		req->rq_session.lc_thread = NULL;
+		req->rq_svc_thread->t_env->le_ses = NULL;
 	}
+	req->rq_svc_thread = NULL;
 
 	ptlrpc_server_drop_request(req);
 }
@@ -1980,6 +1983,13 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt,
 	if (rc)
 		GOTO(err_req, rc);
 
+	/* the current thread is not the processing thread for this request
+	 * since that, but request is in exp_hp_list and can be find there.
+	 * Remove all connections between request and old thread. */
+	thread->t_env->le_ses = NULL;
+	req->rq_svc_thread = NULL;
+	req->rq_session.lc_thread = NULL;
+
 	wake_up(&svcpt->scp_waitq);
 	RETURN(1);
 
@@ -2075,9 +2085,8 @@ ptlrpc_server_handle_request(struct ptlrpc_service_part *svcpt,
 	/* re-assign request and sesson thread to the current one */
 	request->rq_svc_thread = thread;
 	if (thread != NULL) {
-		LASSERT(request->rq_session.lc_thread != NULL);
+		LASSERT(request->rq_session.lc_thread == NULL);
 		request->rq_session.lc_thread = thread;
-		request->rq_session.lc_cookie = 0x55;
 		thread->t_env->le_ses = &request->rq_session;
 	}
 	svc->srv_ops.so_req_handler(request);
