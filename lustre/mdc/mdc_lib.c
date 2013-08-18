@@ -120,6 +120,12 @@ void mdc_pack_body(struct ptlrpc_request *req,
         b->eadatasize = ea_size;
         b->flags = flags;
         __mdc_pack_body(b, suppgid);
+	if (valid & OBD_MD_PERMITTED) {
+		b->uid = 0;
+		b->gid = 0;
+		b->fsuid = 0;
+		b->fsgid = 0;
+	}
         if (fid) {
                 b->fid1 = *fid;
                 b->valid |= OBD_MD_FLID;
