@@ -134,7 +134,7 @@ struct dt_device_operations {
         /**
          * Finish previously started transaction.
          */
-        int   (*dt_trans_stop)(const struct lu_env *env,
+        int   (*dt_trans_stop)(const struct lu_env *env, struct dt_device *dev,
                                struct thandle *th);
         /**
          * Add commit callback to the transaction.
@@ -736,6 +736,14 @@ static inline struct dt_object *lu2dt_obj(struct lu_object *o)
 	return container_of0(o, struct dt_object, do_lu);
 }
 
+/* Used to track updates on one dt device */
+struct thandle_update_dt {
+	struct dt_device	*tud_dt;
+	cfs_list_t		tud_list;
+	int			tud_rc;
+	int			tud_count;
+};
+
 /**
  * This is the general purpose transaction handle.
  * 1. Transaction Life Cycle
@@ -776,8 +784,39 @@ struct thandle {
 	 * Only single thread will access the list, no need lock
 	 */
 	cfs_list_t		th_remote_update_list;
-	struct update_request	*th_current_request;
+	struct update_buf	*th_update_buf;	/* Holding the update buf */
+	int			th_update_buf_size; /* size of update buf */
+	__u64			th_batchid;	/* Current batch(trans) id */
 };
+
+int dt_trans_update_create(const struct lu_env *env, struct dt_object *dt,
+			   struct lu_attr *attr,
+			   struct dt_allocation_hint *hint,
+			   struct dt_object_format *dof, struct thandle *th);
+int dt_trans_update_object_destroy(const struct lu_env *env,
+				   struct dt_object *dt, struct thandle *th);
+int dt_trans_update_index_delete(const struct lu_env *env, struct dt_object *dt,
+				 const struct dt_key *key, struct thandle *th);
+int dt_trans_update_index_insert(const struct lu_env *env, struct dt_object *dt,
+				 const struct dt_rec *rec,
+				 const struct dt_key *key, struct thandle *th);
+int dt_trans_update_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			      const struct lu_buf *buf, const char *name,
+			      int flag, struct thandle *th);
+int dt_trans_update_attr_set(const struct lu_env *env, struct dt_object *dt,
+			     const struct lu_attr *attr, struct thandle *th);
+int dt_trans_update_ref_add(const struct lu_env *env, struct dt_object *dt,
+			    struct thandle *th);
+int dt_trans_update_ref_del(const struct lu_env *env, struct dt_object *dt,
+			    struct thandle *th);
+
+int dt_update_attr_get(const struct lu_env *env, struct update_buf *ubuf,
+		       int buffer_len, struct dt_object *dt);
+int dt_update_index_lookup(const struct lu_env *env, struct update_buf *ubuf,
+			   int buffer_len, struct dt_object *dt,
+			   struct dt_rec *rec, const struct dt_key *key);
+int dt_update_xattr_get(const struct lu_env *env, struct update_buf *ubuf,
+			int buffer_len, struct dt_object *dt, char *name);
 
 /**
  * Transaction call-backs.
@@ -981,8 +1020,8 @@ static inline int dt_trans_start_local(const struct lu_env *env,
 static inline int dt_trans_stop(const struct lu_env *env,
                                 struct dt_device *d, struct thandle *th)
 {
-        LASSERT(d->dd_ops->dt_trans_stop);
-        return d->dd_ops->dt_trans_stop(env, th);
+	LASSERT(d->dd_ops->dt_trans_stop);
+	return d->dd_ops->dt_trans_stop(env, d, th);
 }
 
 static inline int dt_trans_cb_add(struct thandle *th,

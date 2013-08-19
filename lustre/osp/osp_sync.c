@@ -530,7 +530,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 				      struct ptlrpc_request **reqp)
 {
 	struct llog_unlink64_rec	*rec = (struct llog_unlink64_rec *)h;
-	struct update_request		*update = NULL;
+	struct update_buf		*ubuf;
 	struct ptlrpc_request		*req;
 	char				*buf;
 	struct llog_cookie		lcookie;
@@ -538,19 +538,19 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	int				rc;
 	ENTRY;
 
-	update = osp_create_update_req(&osp->opd_dt_dev);
-	if (IS_ERR(update))
-		RETURN(PTR_ERR(update));
+	ubuf = update_buf_alloc();
+	if (ubuf == NULL)
+		RETURN(-ENOMEM);
 
 	/* This can only happens for unlink slave directory, so decrease
 	 * ref for ".." and "." */
-	rc = osp_insert_update(env, update, OBJ_REF_DEL, &rec->lur_fid, 0,
-			       NULL, NULL);
+	rc = update_insert(env, ubuf, UPDATE_BUFFER_SIZE, OBJ_REF_DEL,
+			   &rec->lur_fid, 0, NULL, NULL, 0);
 	if (rc != 0)
 		GOTO(out, rc);
 
-	rc = osp_insert_update(env, update, OBJ_REF_DEL, &rec->lur_fid, 0,
-			       NULL, NULL);
+	rc = update_insert(env, ubuf, UPDATE_BUFFER_SIZE, OBJ_REF_DEL,
+			   &rec->lur_fid, 0, NULL, NULL, 0);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -559,14 +559,14 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	lcookie.lgc_index = h->lrh_index;
 	size = sizeof(lcookie);
 	buf = (char *)&lcookie;
-
-	rc = osp_insert_update(env, update, OBJ_DESTROY, &rec->lur_fid, 1,
-			       &size, &buf);
+	rc = update_insert(env, ubuf, UPDATE_BUFFER_SIZE, OBJ_DESTROY,
+			   &rec->lur_fid, 1, &size, &buf, 0);
 	if (rc != 0)
 		GOTO(out, rc);
 
-	rc = osp_prep_update_req(env, osp, update->ur_buf, UPDATE_BUFFER_SIZE,
-				 &req);
+	rc = osp_prep_update_req(env, osp, ubuf, UPDATE_BUFFER_SIZE, &req);
+	if (rc != 0)
+		GOTO(out, rc);
 
 	CFS_INIT_LIST_HEAD(&req->rq_exp_list);
 	req->rq_svc_thread = (void *) OSP_JOB_MAGIC;
@@ -578,8 +578,8 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	ptlrpc_request_set_replen(req);
 	*reqp = req;
 out:
-	if (update != NULL)
-		osp_destroy_update_req(update);
+	if (ubuf != NULL)
+		update_buf_free(ubuf);
 	RETURN(rc);
 }
 

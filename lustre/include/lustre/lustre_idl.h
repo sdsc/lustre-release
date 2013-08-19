@@ -3728,7 +3728,7 @@ extern void lustre_swab_hsm_request(struct hsm_request *hr);
 /**
  * Maximum number of buffers per update
  */
-#define	UPDATE_BUF_COUNT	8
+#define	UPDATE_PARAM_COUNT	8
 
 /**
  * Type of each update
@@ -3761,7 +3761,7 @@ struct update {
 	__u32		u_flags;		/* enum update_flag */
 	__u64		u_batchid;		/* op transno on master */
 	struct lu_fid	u_fid;			/* object to be updated */
-	__u32		u_lens[UPDATE_BUF_COUNT];
+	__u32		u_lens[UPDATE_PARAM_COUNT];
 						/* lengths of per-update
 						   buffers (multiples of 8
 						   bytes) */

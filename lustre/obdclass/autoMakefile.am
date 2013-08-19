@@ -38,7 +38,7 @@ obdclass_SOURCES =						\
 	obdo.c debug.c llog_ioctl.c uuid.c			\
 	llog_swab.c llog_obd.c llog.c llog_cat.c		\
 	mea.c lu_object.c dt_object.c lu_ref.c			\
-	lprocfs_counters.c
+	lprocfs_counters.c dt_update.c
 
 obdclass_CFLAGS := $(EXTRA_KCFLAGS)
 obdclass_LDFLAGS := $(EXTRA_KLDFLAGS)
