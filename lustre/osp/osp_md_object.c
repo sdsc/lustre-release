@@ -55,8 +55,7 @@ int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
-	req_capsule_set_size(&req->rq_pill, &RMF_UPDATE, RCL_CLIENT,
-			     UPDATE_BUFFER_SIZE);
+	req_capsule_set_size(&req->rq_pill, &RMF_UPDATE, RCL_CLIENT, ubuf_len);
 
 	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, UPDATE_OBJ);
 	if (rc != 0) {
@@ -78,16 +77,16 @@ int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
 }
 
 static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
-			   struct update_request *update,
-			   struct ptlrpc_request **reqp)
+			   struct update_buf *ubuf,
+			   struct ptlrpc_request **reqp,
+			   struct thandle_update_dt *tud)
 {
 	struct osp_device	*osp = dt2osp_dev(dt);
 	struct ptlrpc_request	*req = NULL;
 	int			rc;
 	ENTRY;
 
-	rc = osp_prep_update_req(env, osp, update->ur_buf, UPDATE_BUFFER_SIZE,
-				 &req);
+	rc = osp_prep_update_req(env, osp, ubuf, UPDATE_BUFFER_SIZE, &req);
 	if (rc)
 		RETURN(rc);
 
@@ -96,7 +95,8 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 	rc = ptlrpc_queue_wait(req);
 	if (rc < 0) {
 		ptlrpc_req_finished(req);
-		update->ur_rc = rc;
+		if (tud != NULL)
+			tud->tud_rc = rc;
 		RETURN(rc);
 	}
 
@@ -105,7 +105,8 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 		RETURN(rc);
 	}
 
-	update->ur_rc = rc;
+	if (tud != NULL)
+		tud->tud_rc = rc;
 
 	ptlrpc_req_finished(req);
 
@@ -115,49 +116,51 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 /**
  * Create a new update request for the device.
  */
-struct update_request *osp_create_update_req(struct dt_device *dt)
+struct thandle_update_dt
+*osp_alloc_update_request(struct dt_device *dt)
 {
-	struct update_request *update;
+	struct thandle_update_dt *tud;
 
-	OBD_ALLOC_PTR(update);
-	if (!update)
+	OBD_ALLOC_PTR(tud);
+	if (!tud)
 		return ERR_PTR(-ENOMEM);
 
-	OBD_ALLOC_LARGE(update->ur_buf, UPDATE_BUFFER_SIZE);
-	if (update->ur_buf == NULL) {
-		OBD_FREE_PTR(update);
-		return ERR_PTR(-ENOMEM);
+	CFS_INIT_LIST_HEAD(&tud->tud_list);
+	tud->tud_dt = dt;
+	return tud;
+}
+
+static struct thandle_update_dt
+*osp_find_update(struct thandle *th, struct dt_device *dt_dev)
+{
+	struct thandle_update_dt   *tud;
+
+	/* Because transaction api does not proivde the interface
+	 * to transfer the update from LOD to OSP,  we need walk
+	 * remote update list to find the update, this probably
+	 * should move to LOD layer, when update can be part of
+	 * the trancation api parameter. XXX */
+	cfs_list_for_each_entry(tud, &th->th_remote_update_list, tud_list) {
+		if (tud->tud_dt == dt_dev)
+			return tud;
 	}
-
-	CFS_INIT_LIST_HEAD(&update->ur_list);
-	update->ur_dt = dt;
-	update->ur_batchid = 0;
-	update->ur_buf->ub_magic = UPDATE_REQUEST_MAGIC;
-	update->ur_buf->ub_count = 0;
-
-	return update;
+	return NULL;
 }
 
-void osp_destroy_update_req(struct update_request *update)
+int osp_trans_stop(const struct lu_env *env, struct dt_device *dt_dev,
+		   struct thandle *th)
 {
-	if (update == NULL)
-		return;
-
-	cfs_list_del(&update->ur_list);
-	if (update->ur_buf != NULL)
-		OBD_FREE_LARGE(update->ur_buf, UPDATE_BUFFER_SIZE);
-
-	OBD_FREE_PTR(update);
-	return;
-}
-
-int osp_trans_stop(const struct lu_env *env, struct thandle *th)
-{
+	struct thandle_update_dt *tud;
 	int rc = 0;
 
-	rc = th->th_current_request->ur_rc;
-	osp_destroy_update_req(th->th_current_request);
-	th->th_current_request = NULL;
+	tud = osp_find_update(th, dt_dev);
+	if (tud == NULL)
+		return rc;
+
+	rc = tud->tud_rc;
+
+	cfs_list_del(&tud->tud_list);
+	OBD_FREE_PTR(tud);
 
 	return rc;
 }
@@ -172,126 +175,59 @@ int osp_trans_stop(const struct lu_env *env, struct thandle *th)
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th)
 {
-	struct update_request *update;
+	struct thandle_update_dt *tud;
 	int rc = 0;
+
+	tud = osp_find_update(th, dt);
+	if (tud == NULL)
+		return rc;
 
 	/* In phase I, if the transaction includes remote updates, the local
 	 * update should be synchronized, so it will set th_sync = 1 */
-	update = th->th_current_request;
-	LASSERT(update != NULL && update->ur_dt == dt);
-	if (update->ur_buf->ub_count > 0) {
-		rc = osp_remote_sync(env, dt, update, NULL);
-		th->th_sync = 1;
-	}
-
+	LASSERT(tud->tud_count > 0);
+	LASSERT(tud->tud_count <= UPDATE_PER_RPC_MAX);
+	rc = osp_remote_sync(env, dt, th->th_update_buf, NULL, tud);
+	th->th_sync = 1;
 	RETURN(rc);
 }
 
-/**
- * Insert the update into the th_bufs for the device.
- */
-int osp_insert_update(const struct lu_env *env, struct update_request *update,
-		      int op, struct lu_fid *fid, int count, int *lens,
-		      char **bufs)
+static inline void osp_md_add_update_batchid(struct thandle *handle)
 {
-	struct update_buf    *ubuf = update->ur_buf;
-	struct update        *obj_update;
-	char                 *ptr;
-	int                   i;
-	int                   update_length;
-	int                   rc = 0;
-	ENTRY;
-
-	obj_update = (struct update *)((char *)ubuf + update_buf_size(ubuf));
-
-	/* Check update size to make sure it can fit into the buffer */
-	update_length = cfs_size_round(offsetof(struct update,
-				       u_bufs[0]));
-	for (i = 0; i < count; i++)
-		update_length += cfs_size_round(lens[i]);
-
-	if (cfs_size_round(update_buf_size(ubuf)) + update_length >
-	    UPDATE_BUFFER_SIZE || ubuf->ub_count >= UPDATE_PER_RPC_MAX) {
-		CERROR("%s: insert up %p, idx %d cnt %d len %lu: rc = %d\n",
-			update->ur_dt->dd_lu_dev.ld_obd->obd_name, ubuf,
-			update_length, ubuf->ub_count, update_buf_size(ubuf),
-			-E2BIG);
-		RETURN(-E2BIG);
-	}
-
-	if (count > UPDATE_BUF_COUNT) {
-		CERROR("%s: Insert too much params %d "DFID" op %d: rc = %d\n",
-			update->ur_dt->dd_lu_dev.ld_obd->obd_name, count,
-			PFID(fid), op, -E2BIG);
-		RETURN(-E2BIG);
-	}
-
-	/* fill the update into the update buffer */
-	obj_update->u_fid = *fid;
-	obj_update->u_type = op;
-	obj_update->u_batchid = update->ur_batchid;
-	for (i = 0; i < count; i++)
-		obj_update->u_lens[i] = lens[i];
-
-	ptr = (char *)obj_update +
-			cfs_size_round(offsetof(struct update, u_bufs[0]));
-	for (i = 0; i < count; i++)
-		LOGL(bufs[i], lens[i], ptr);
-
-	ubuf->ub_count++;
-
-	CDEBUG(D_INFO, "%s: %p "DFID" idx %d: op %d params %d:%lu\n",
-	       update->ur_dt->dd_lu_dev.ld_obd->obd_name, ubuf, PFID(fid),
-	       ubuf->ub_count, op, count, update_buf_size(ubuf));
-
-	RETURN(rc);
-}
-
-static struct update_request
-*osp_find_update(struct thandle *th, struct dt_device *dt_dev)
-{
-	struct update_request   *update;
-
-	/* Because transaction api does not proivde the interface
-	 * to transfer the update from LOD to OSP,  we need walk
-	 * remote update list to find the update, this probably
-	 * should move to LOD layer, when update can be part of
-	 * the trancation api parameter. XXX */
-	cfs_list_for_each_entry(update, &th->th_remote_update_list, ur_list) {
-		if (update->ur_dt == dt_dev)
-			return update;
-	}
-	return NULL;
-}
-
-static inline void osp_md_add_update_batchid(struct update_request *update)
-{
-	update->ur_batchid++;
+	handle->th_batchid++;
 }
 
 /**
- * Find one loc in th_dev/dev_obj_update for the update,
+ * Find one loc in th_dev for the thandle_update_dt,
  * Because only one thread can access this thandle, no need
  * lock now.
  */
-static struct update_request
+static struct thandle_update_dt
 *osp_find_create_update_loc(struct thandle *th, struct dt_object *dt)
 {
-	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
-	struct update_request	*update;
+	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	struct thandle_update_dt *tud;
 	ENTRY;
 
-	update = osp_find_update(th, dt_dev);
-	if (update != NULL)
-		RETURN(update);
+	if (th->th_update_buf == NULL) {
+		th->th_update_buf = update_buf_alloc();
+		if (th->th_update_buf == NULL)
+			RETURN(ERR_PTR(-ENOMEM));
+		th->th_update_buf_size = UPDATE_BUFFER_SIZE;
+	}
 
-	update = osp_create_update_req(dt_dev);
-	if (IS_ERR(update))
-		RETURN(update);
+	tud = osp_find_update(th, dt_dev);
+	if (tud != NULL)
+		RETURN(tud);
 
-	cfs_list_add_tail(&update->ur_list, &th->th_remote_update_list);
+	OBD_ALLOC_PTR(tud);
+	if (tud == NULL)
+		return ERR_PTR(-ENOMEM);
 
-	RETURN(update);
+	CFS_INIT_LIST_HEAD(&tud->tud_list);
+	tud->tud_dt = dt_dev;
+
+	cfs_list_add_tail(&tud->tud_list, &th->th_remote_update_list);
+	RETURN(tud);
 }
 
 static int osp_get_attr_from_req(const struct lu_env *env,
@@ -331,37 +267,15 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 					struct dt_object_format *dof,
 					struct thandle *th)
 {
-	struct osp_thread_info	*osi = osp_env_info(env);
-	struct update_request	*update;
-	struct lu_fid		*fid1;
-	int			sizes[2] = {sizeof(struct obdo), 0};
-	char			*bufs[2] = {NULL, NULL};
-	int			buf_count;
+	struct thandle_update_dt *tud;
 	int			rc;
 
-	update = osp_find_create_update_loc(th, dt);
-	if (IS_ERR(update)) {
+	tud = osp_find_create_update_loc(th, dt);
+	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
-
-	osi->osi_obdo.o_valid = 0;
-	LASSERT(S_ISDIR(attr->la_mode));
-	obdo_from_la(&osi->osi_obdo, attr, attr->la_valid);
-	lustre_set_wire_obdo(NULL, &osi->osi_obdo, &osi->osi_obdo);
-
-	bufs[0] = (char *)&osi->osi_obdo;
-	buf_count = 1;
-	fid1 = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-	if (hint != NULL && hint->dah_parent) {
-		struct lu_fid *fid2;
-
-		fid2 = (struct lu_fid *)lu_object_fid(&hint->dah_parent->do_lu);
-		sizes[1] = sizeof(*fid2);
-		bufs[1] = (char *)fid2;
-		buf_count++;
+		       (int)PTR_ERR(tud));
+		return PTR_ERR(tud);
 	}
 
 	if (lu_object_exists(&dt->do_lu)) {
@@ -379,34 +293,38 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 		 *    but find the object already exists
 		 */
 		CDEBUG(D_HA, "%s: object "DFID" exists, destroy this orphan\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name, PFID(fid1));
+		       dt->do_lu.lo_dev->ld_obd->obd_name,
+		       PFID(lu_object_fid(&dt->do_lu)));
 
-		rc = osp_insert_update(env, update, OBJ_REF_DEL, fid1, 0,
-				       NULL, NULL);
+		rc = dt_trans_update_ref_del(env, dt, th);
 		if (rc != 0)
 			GOTO(out, rc);
+		tud->tud_count++;
 
 		if (S_ISDIR(lu_object_attr(&dt->do_lu))) {
 			/* decrease for ".." */
-			rc = osp_insert_update(env, update, OBJ_REF_DEL, fid1,
-					       0, NULL, NULL);
+			rc = dt_trans_update_ref_del(env, dt, th);
 			if (rc != 0)
 				GOTO(out, rc);
+			tud->tud_count++;
 		}
 
-		rc = osp_insert_update(env, update, OBJ_DESTROY, fid1, 0, NULL,
-				       NULL);
+		rc = dt_trans_update_object_destroy(env, dt, th);
 		if (rc != 0)
 			GOTO(out, rc);
+		tud->tud_count++;
 
 		dt->do_lu.lo_header->loh_attr &= ~LOHA_EXISTS;
 		/* Increase batchid to add this orphan object deletion
 		 * to separate transaction */
-		osp_md_add_update_batchid(update);
+		osp_md_add_update_batchid(th);
 	}
 
-	rc = osp_insert_update(env, update, OBJ_CREATE, fid1, buf_count, sizes,
-			       bufs);
+	rc = dt_trans_update_create(env, dt, attr, hint, dof, th);
+	if (rc != 0)
+		GOTO(out, rc);
+	tud->tud_count++;
+
 out:
 	if (rc)
 		CERROR("%s: Insert update error: rc = %d\n",
@@ -439,23 +357,24 @@ static int osp_md_declare_object_ref_del(const struct lu_env *env,
 					 struct dt_object *dt,
 					 struct thandle *th)
 {
-	struct update_request	*update;
-	struct lu_fid		*fid;
-	int			rc;
+	struct thandle_update_dt	*tud;
+	int				rc;
 
-	update = osp_find_create_update_loc(th, dt);
-	if (IS_ERR(update)) {
+	tud = osp_find_create_update_loc(th, dt);
+	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		      (int)PTR_ERR(update));
-		return PTR_ERR(update);
+		      (int)PTR_ERR(tud));
+		return PTR_ERR(tud);
 	}
 
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
 
-	rc = osp_insert_update(env, update, OBJ_REF_DEL, fid, 0, NULL, NULL);
+	rc = dt_trans_update_ref_del(env, dt, th);
+	if (rc != 0)
+		return rc;
 
-	return rc;
+	tud->tud_count++;
+	return 0;
 }
 
 static int osp_md_object_ref_del(const struct lu_env *env,
@@ -471,23 +390,23 @@ static int osp_md_object_ref_del(const struct lu_env *env,
 static int osp_md_declare_ref_add(const struct lu_env *env,
 				  struct dt_object *dt, struct thandle *th)
 {
-	struct update_request	*update;
-	struct lu_fid		*fid;
-	int			rc;
+	struct thandle_update_dt *tud;
+	int rc;
 
-	update = osp_find_create_update_loc(th, dt);
-	if (IS_ERR(update)) {
+	tud = osp_find_create_update_loc(th, dt);
+	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
+		       (int)PTR_ERR(tud));
+		return PTR_ERR(tud);
 	}
 
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
+	rc = dt_trans_update_ref_add(env, dt, th);
+	if (rc != 0)
+		return rc;
 
-	rc = osp_insert_update(env, update, OBJ_REF_ADD, fid, 0, NULL, NULL);
-
-	return rc;
+	tud->tud_count++;
+	return 0;
 }
 
 static int osp_md_object_ref_add(const struct lu_env *env,
@@ -518,33 +437,23 @@ static int osp_md_declare_attr_set(const struct lu_env *env,
 				   const struct lu_attr *attr,
 				   struct thandle *th)
 {
-	struct osp_thread_info *osi = osp_env_info(env);
-	struct update_request  *update;
-	struct lu_fid          *fid;
-	int                     size = sizeof(struct obdo);
-	char                   *buf;
-	int                     rc;
+	struct thandle_update_dt *tud;
+	int rc;
 
-	update = osp_find_create_update_loc(th, dt);
-	if (IS_ERR(update)) {
+	tud = osp_find_create_update_loc(th, dt);
+	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
+		       (int)PTR_ERR(tud));
+		return PTR_ERR(tud);
 	}
 
-	osi->osi_obdo.o_valid = 0;
-	LASSERT(!(attr->la_valid & (LA_MODE | LA_TYPE)));
-	obdo_from_la(&osi->osi_obdo, (struct lu_attr *)attr,
-		     attr->la_valid);
-	lustre_set_wire_obdo(NULL, &osi->osi_obdo, &osi->osi_obdo);
+	rc = dt_trans_update_attr_set(env, dt, attr, th);
+	if (rc != 0)
+		return rc;
 
-	buf = (char *)&osi->osi_obdo;
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-
-	rc = osp_insert_update(env, update, OBJ_ATTR_SET, fid, 1, &size, &buf);
-
-	return rc;
+	tud->tud_count++;
+	return 0;
 }
 
 static int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
@@ -563,29 +472,24 @@ static int osp_md_declare_xattr_set(const struct lu_env *env,
 				    const char *name, int flag,
 				    struct thandle *th)
 {
-	struct update_request	*update;
-	struct lu_fid		*fid;
-	int			sizes[3] = {strlen(name) + 1, buf->lb_len,
-					    sizeof(int)};
-	char			*bufs[3] = {(char *)name, (char *)buf->lb_buf };
-	int			rc;
+	struct thandle_update_dt *tud;
+	int rc;
 
 	LASSERT(buf->lb_len > 0 && buf->lb_buf != NULL);
-	update = osp_find_create_update_loc(th, dt);
-	if (IS_ERR(update)) {
+	tud = osp_find_create_update_loc(th, dt);
+	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
+		       (int)PTR_ERR(tud));
+		return PTR_ERR(tud);
 	}
 
-	bufs[2] = (char *)&flag;
+	rc = dt_trans_update_xattr_set(env, dt, buf, name, flag, th);
+	if (rc != 0)
+		return rc;
 
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-	rc = osp_insert_update(env, update, OBJ_XATTR_SET, fid,
-			       ARRAY_SIZE(sizes), sizes, bufs);
-
-	return rc;
+	tud->tud_count++;
+	return 0;
 }
 
 static int osp_md_xattr_set(const struct lu_env *env, struct dt_object *dt,
@@ -603,41 +507,34 @@ static int osp_md_xattr_get(const struct lu_env *env, struct dt_object *dt,
 			    struct lustre_capa *capa)
 {
 	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
-	struct update_request	*update = NULL;
 	struct ptlrpc_request	*req = NULL;
 	int			rc;
-	int			buf_len;
-	int			size;
 	struct update_reply	*reply;
 	void			*ea_buf;
+	struct update_buf	*ubuf;
+	int			size;
 	ENTRY;
 
-	/* Because it needs send the update buffer right away,
-	 * just create an update buffer, instead of attaching the
-	 * update_remote list of the thandle.
-	 */
-	update = osp_create_update_req(dt_dev);
-	if (IS_ERR(update))
-		RETURN(PTR_ERR(update));
+	ubuf = update_buf_alloc();
+	if (ubuf == NULL)
+		RETURN(-ENOMEM);
 
 	LASSERT(name != NULL);
-	buf_len = strlen(name) + 1;
-	rc = osp_insert_update(env, update, OBJ_XATTR_GET,
-			       (struct lu_fid *)lu_object_fid(&dt->do_lu),
-			       1, &buf_len, (char **)&name);
+	rc = dt_update_xattr_get(env, ubuf, UPDATE_BUFFER_SIZE, dt,
+				 (char *)name);
 	if (rc != 0) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name, rc);
 		GOTO(out, rc);
 	}
-	dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 
-	rc = osp_remote_sync(env, dt_dev, update, &req);
+	dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	rc = osp_remote_sync(env, dt_dev, ubuf, &req, NULL);
 	if (rc != 0)
 		GOTO(out, rc);
 
 	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
-					    UPDATE_BUFFER_SIZE);
+					     UPDATE_BUFFER_SIZE);
 	if (reply->ur_version != UPDATE_REPLY_V1) {
 		CERROR("%s: Wrong version %x expected %x: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name,
@@ -659,7 +556,8 @@ out:
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
-	osp_destroy_update_req(update);
+	if (ubuf != NULL)
+		update_buf_free(ubuf);
 
 	RETURN(rc);
 }
@@ -717,40 +615,30 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 			       struct lustre_capa *capa)
 {
 	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
-	struct update_request	*update;
+	struct update_buf	*ubuf;
 	struct ptlrpc_request	*req = NULL;
-	int			size = strlen((char *)key) + 1;
-	char			*name = (char *)key;
+	int			size;
 	int			rc;
 	struct update_reply	*reply;
 	struct lu_fid		*fid;
 
 	ENTRY;
 
-	/* Because it needs send the update buffer right away,
-	 * just create an update buffer, instead of attaching the
-	 * update_remote list of the thandle.
-	 */
-	update = osp_create_update_req(dt_dev);
-	if (IS_ERR(update))
-		RETURN(PTR_ERR(update));
+	ubuf = update_buf_alloc();
+	if (ubuf == NULL)
+		RETURN(-ENOMEM);
 
-	rc = osp_insert_update(env, update, OBJ_INDEX_LOOKUP,
-			       (struct lu_fid *)lu_object_fid(&dt->do_lu),
-			       1, &size, (char **)&name);
+	rc = dt_update_index_lookup(env, ubuf, UPDATE_BUFFER_SIZE, dt, rec,
+				    key);
 	if (rc) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
 		GOTO(out, rc);
 	}
 
-	rc = osp_remote_sync(env, dt_dev, update, &req);
-	if (rc < 0) {
-		CERROR("%s: lookup "DFID" %s failed: rc = %d\n",
-		       dt_dev->dd_lu_dev.ld_obd->obd_name,
-		       PFID(lu_object_fid(&dt->do_lu)), (char *)key, rc);
+	rc = osp_remote_sync(env, dt_dev, ubuf, &req, NULL);
+	if (rc < 0)
 		GOTO(out, rc);
-	}
 
 	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
 					     UPDATE_BUFFER_SIZE);
@@ -787,80 +675,63 @@ out:
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
-	osp_destroy_update_req(update);
+	if (ubuf != NULL)
+		update_buf_free(ubuf);
 
 	RETURN(rc);
 }
 
-static int osp_md_declare_insert(const struct lu_env *env,
-				 struct dt_object *dt,
+static int osp_md_declare_insert(const struct lu_env *env, struct dt_object *dt,
 				 const struct dt_rec *rec,
-				 const struct dt_key *key,
-				 struct thandle *th)
+				 const struct dt_key *key, struct thandle *th)
 {
-	struct update_request	*update;
-	struct lu_fid		*fid;
-	struct lu_fid		*rec_fid = (struct lu_fid *)rec;
-	int			size[2] = {strlen((char *)key) + 1,
-						  sizeof(*rec_fid)};
-	char			*bufs[2] = {(char *)key, (char *)rec_fid};
-	int			rc;
+	struct thandle_update_dt *tud;
+	int			 rc;
 
-	update = osp_find_create_update_loc(th, dt);
-	if (IS_ERR(update)) {
+	tud = osp_find_create_update_loc(th, dt);
+	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
+		       (int)PTR_ERR(tud));
+		return PTR_ERR(tud);
 	}
 
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
+	rc = dt_trans_update_index_insert(env, dt, rec, key, th);
+	if (rc != 0)
+		return rc;
 
-	CDEBUG(D_INFO, "%s: insert index of "DFID" %s: "DFID"\n",
-	       dt->do_lu.lo_dev->ld_obd->obd_name,
-	       PFID(fid), (char *)key, PFID(rec_fid));
-
-	rc = osp_insert_update(env, update, OBJ_INDEX_INSERT, fid,
-			       ARRAY_SIZE(size), size, bufs);
-	return rc;
+	tud->tud_count++;
+	return 0;
 }
 
-static int osp_md_index_insert(const struct lu_env *env,
-			       struct dt_object *dt,
+static int osp_md_index_insert(const struct lu_env *env, struct dt_object *dt,
 			       const struct dt_rec *rec,
-			       const struct dt_key *key,
-			       struct thandle *th,
-			       struct lustre_capa *capa,
-			       int ignore_quota)
+			       const struct dt_key *key, struct thandle *th,
+			       struct lustre_capa *capa, int ignore_quota)
 {
 	return 0;
 }
 
-static int osp_md_declare_delete(const struct lu_env *env,
-				 struct dt_object *dt,
-				 const struct dt_key *key,
-				 struct thandle *th)
+static int osp_md_declare_delete(const struct lu_env *env, struct dt_object *dt,
+				 const struct dt_key *key, struct thandle *th)
 {
-	struct update_request *update;
-	struct lu_fid *fid;
-	int size = strlen((char *)key) + 1;
-	char *buf = (char *)key;
-	int rc;
+	struct thandle_update_dt *tud;
+	int			 rc;
 
-	update = osp_find_create_update_loc(th, dt);
-	if (IS_ERR(update)) {
+	tud = osp_find_create_update_loc(th, dt);
+	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
+		       (int)PTR_ERR(tud));
+		return PTR_ERR(tud);
 	}
 
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
+	rc = dt_trans_update_index_delete(env, dt, key, th);
+	if (rc != 0)
+		return rc;
 
-	rc = osp_insert_update(env, update, OBJ_INDEX_DELETE, fid, 1, &size,
-			       &buf);
-
-	return rc;
+	tud->tud_count++;
+	return 0;
 }
 
 static int osp_md_index_delete(const struct lu_env *env,
@@ -997,22 +868,16 @@ static int osp_md_attr_get(const struct lu_env *env,
 {
 	struct osp_object     *obj = dt2osp_obj(dt);
 	struct dt_device      *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
-	struct update_request *update = NULL;
+	struct update_buf     *ubuf;
 	struct ptlrpc_request *req = NULL;
 	int rc;
 	ENTRY;
 
-	/* Because it needs send the update buffer right away,
-	 * just create an update buffer, instead of attaching the
-	 * update_remote list of the thandle.
-	 */
-	update = osp_create_update_req(dt_dev);
-	if (IS_ERR(update))
-		RETURN(PTR_ERR(update));
+	ubuf = update_buf_alloc();
+	if (ubuf == NULL)
+		RETURN(-ENOMEM);
 
-	rc = osp_insert_update(env, update, OBJ_ATTR_GET,
-			       (struct lu_fid *)lu_object_fid(&dt->do_lu),
-			       0, NULL, NULL);
+	rc = dt_update_attr_get(env, ubuf, UPDATE_BUFFER_SIZE, dt);
 	if (rc) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
@@ -1020,7 +885,7 @@ static int osp_md_attr_get(const struct lu_env *env,
 	}
 	dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 
-	rc = osp_remote_sync(env, dt_dev, update, &req);
+	rc = osp_remote_sync(env, dt_dev, ubuf, &req, NULL);
 	if (rc < 0)
 		GOTO(out, rc);
 
@@ -1036,7 +901,8 @@ out:
 	if (req != NULL)
 		ptlrpc_req_finished(req);
 
-	osp_destroy_update_req(update);
+	if (ubuf != NULL)
+		update_buf_free(ubuf);
 
 	RETURN(rc);
 }

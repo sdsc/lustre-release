@@ -949,7 +949,8 @@ static int osd_remote_fid(const struct lu_env *env,
 /*
  * Concurrency: shouldn't matter.
  */
-static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
+static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
+			  struct thandle *th)
 {
         int                     rc = 0;
         struct osd_thandle     *oh;
