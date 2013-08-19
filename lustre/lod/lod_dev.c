@@ -516,14 +516,18 @@ static struct thandle *lod_trans_create(const struct lu_env *env,
 	if (IS_ERR(th))
 		return th;
 
+	th->th_batchid = 0;
 	CFS_INIT_LIST_HEAD(&th->th_remote_update_list);
+	/* Use the buffer in lod_thread_info first, if it is
+	 * not enough, osp_insert_update will re-allocate a
+	 * bigger buffer to store update */
 	return th;
 }
 
 static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
-	struct update_request *update;
+	struct thandle_update_dt *update;
 	int    rc = 0;
 	ENTRY;
 
@@ -531,17 +535,16 @@ static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
 		RETURN(0);
 
 	cfs_list_for_each_entry(update, &th->th_remote_update_list,
-				ur_list) {
+				tud_list) {
 		/* In DNE phase I, there should be only one OSP
 		 * here, so we will do send/receive one by one,
 		 * instead of sending them parallel, will fix this
 		 * in Phase II */
-		th->th_current_request = update;
-		rc = dt_trans_start(env, update->ur_dt, th);
+		rc = dt_trans_start(env, update->tud_dt, th);
 		if (rc != 0) {
 			/* FIXME how to revert the partial results
 			 * once error happened? Resolved by 2 Phase commit */
-			update->ur_rc = rc;
+			update->tud_rc = rc;
 			break;
 		}
 	}
@@ -562,20 +565,30 @@ static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 	return dt_trans_start(env, lod->lod_child, th);
 }
 
-static int lod_trans_stop(const struct lu_env *env, struct thandle *th)
+static int lod_trans_stop(const struct lu_env *env, struct dt_device *dev,
+			  struct thandle *th)
 {
-	struct update_request *update;
-	struct update_request *tmp;
+	struct thandle_update_dt *update;
+	struct thandle_update_dt *tmp;
 	int rc = 0;
 	int rc2 = 0;
 
 	cfs_list_for_each_entry_safe(update, tmp,
-				     &th->th_remote_update_list,
-				     ur_list) {
-		th->th_current_request = update;
-		rc2 = dt_trans_stop(env, update->ur_dt, th);
+				     &th->th_remote_update_list, tud_list) {
+		/* Each tud will be freed in trans_stop */
+		rc2 = dt_trans_stop(env, update->tud_dt, th);
 		if (unlikely(rc2 != 0 && rc == 0))
 			rc = rc2;
+	}
+
+	LASSERT(cfs_list_empty(&th->th_remote_update_list));
+	/* Free update buf if necessary */
+	/* If the buf_size > LOD_UPDATE_BUFFER_SIZE, it means
+	 * osp re-allocate the buffer, it should be free here. */
+	if (th->th_update_buf_size > 0) {
+		update_buf_free(th->th_update_buf);
+		th->th_update_buf = NULL;
+		th->th_update_buf_size = 0;
 	}
 
 	rc2 = dt_trans_stop(env, th->th_dev, th);
