@@ -2942,7 +2942,7 @@ init_param_vars () {
 			setup_quota $MOUNT || return 2
 		else
 			echo "disable quota as required"
-			$LFS quotaoff -ug $MOUNT > /dev/null 2>&1
+#			$LFS quotaoff -ug $MOUNT > /dev/null 2>&1
 		fi
 	fi
 	return 0

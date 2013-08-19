@@ -71,6 +71,11 @@ export QUOTA_AUTO=0
 
 check_and_setup_lustre
 
+if [ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.3.50) ]; then
+	skip "Need MDS version at least 2.3.50"
+	exit 0
+fi
+
 LOVNAME=`lctl get_param -n llite.*.lov.common_name | tail -n 1`
 OSTCOUNT=`lctl get_param -n lov.$LOVNAME.numobd`
 
