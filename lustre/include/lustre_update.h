@@ -32,14 +32,33 @@
 #define _LUSTRE_UPDATE_H
 
 #define UPDATE_BUFFER_SIZE	8192
-struct update_request {
-	struct dt_device	*ur_dt;
-	cfs_list_t		ur_list;    /* attached itself to thandle */
-	int			ur_flags;
-	int			ur_rc;	    /* request result */
-	int			ur_batchid; /* Current batch(trans) id */
-	struct update_buf	*ur_buf;   /* Holding the update req */
-};
+
+static inline void update_buf_init(struct update_buf *ubuf)
+{
+	ubuf->ub_magic = UPDATE_REQUEST_MAGIC;
+	ubuf->ub_count = 0;
+}
+
+static inline struct update_buf *update_buf_alloc(void)
+{
+	struct update_buf *buf;
+
+	OBD_ALLOC_LARGE(buf, UPDATE_BUFFER_SIZE);
+	if (buf == NULL)
+		return NULL;
+
+	update_buf_init(buf);
+	return buf;
+}
+
+static inline void update_buf_free(struct update_buf *ubuf)
+{
+	if (ubuf == NULL)
+		return;
+	LASSERT(ubuf->ub_magic == UPDATE_REQUEST_MAGIC);
+	OBD_FREE_LARGE(ubuf, UPDATE_BUFFER_SIZE);
+	return;
+}
 
 static inline unsigned long update_size(struct update *update)
 {
@@ -47,7 +66,7 @@ static inline unsigned long update_size(struct update *update)
 	int	   i;
 
 	size = cfs_size_round(offsetof(struct update, u_bufs[0]));
-	for (i = 0; i < UPDATE_BUF_COUNT; i++)
+	for (i = 0; i < UPDATE_PARAM_COUNT; i++)
 		size += cfs_size_round(update->u_lens[i]);
 
 	return size;
@@ -59,7 +78,7 @@ static inline void *update_param_buf(struct update *update, int index,
 	int	i;
 	void	*ptr;
 
-	if (index >= UPDATE_BUF_COUNT)
+	if (index >= UPDATE_PARAM_COUNT)
 		return NULL;
 
 	ptr = (char *)update + cfs_size_round(offsetof(struct update,
@@ -177,5 +196,14 @@ static inline int update_get_reply_buf(struct ptlrpc_request *req,
 	*buf = ptr + sizeof(int);
 	return size - sizeof(int);
 }
+
+struct update *update_pack(const struct lu_env *env,
+			   struct update_buf *ubuf, int buf_len, int op,
+			   const struct lu_fid *fid, int count, int *lens,
+			   __u64 batchid);
+
+int update_insert(const struct lu_env *env, struct update_buf *ubuf,
+		  int buf_len, int op, const struct lu_fid *fid, int count,
+		  int *lens, char **bufs, __u64 batchid);
 
 #endif
