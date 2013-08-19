@@ -11877,6 +11877,112 @@ test_236() {
 }
 run_test 236 "Layout swap on open unlinked file"
 
+test_striped_dir() {
+	local MDTIDX=$1
+	local STRIPECNT=2
+	local stripe_count
+	local stripe_index
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i $MDTIDX -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	stripe_count=$($LFS getdirstripe -c $DIR/$tdir/striped_dir)
+	if [ "$stripe_count" != "$STRIPECNT" ]; then
+		error "stripe_count is $stripe_count, expect $STRIPECNT"
+	fi
+
+	stripe_index=$($LFS getdirstripe -i $DIR/$tdir/striped_dir)
+	if [ "$stripe_index" != "$MDTIDX" ]; then
+		error "stripe_index is $stripe_index, expect $MDTIDX"
+	fi
+
+	[ `stat -c%h $DIR/$tdir/striped_dir` == '2' ] ||
+		error "nlink error after create striped dir"
+
+	mkdir $DIR/$tdir/striped_dir/a	
+	mkdir $DIR/$tdir/striped_dir/b
+
+	stat $DIR/$tdir/striped_dir/a ||
+		error "create dir under striped dir failed"
+	stat $DIR/$tdir/striped_dir/b ||
+		error "create dir under striped dir failed"
+
+	[ `stat -c%h $DIR/$tdir/striped_dir` == '4' ] ||
+		error "nlink error after mkdir"
+
+	rmdir $DIR/$tdir/striped_dir/a 
+	[ `stat -c%h $DIR/$tdir/striped_dir` == '3' ] ||
+		error "nlink error after rmdir"
+	
+	rmdir $DIR/$tdir/striped_dir/b
+	[ `stat -c%h $DIR/$tdir/striped_dir` == '2' ] ||
+		error "nlink error after rmdir"
+
+	rmdir $DIR/$tdir/striped_dir ||
+		error "rmdir striped dir error"
+	true
+}
+
+test_300a() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	test_striped_dir 0 || error "failed on striped dir on MDT0"
+	test_striped_dir 1 || error "failed on striped dir on MDT0"
+}
+run_test 300a "basic striped dir sanity test"
+
+test_300b() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+	local i
+	local mtime1
+	local mtime2
+	local mtime3
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+	for ((i=0;i<10;i++)); do
+		mtime1=`stat -c %Y $DIR/$tdir/striped_dir`
+		sleep 1
+		touch $DIR/$tdir/striped_dir/file_$i
+		mtime2=`stat -c %Y $DIR/$tdir/striped_dir`
+		[ $mtime1 -eq $mtime2 ] &&
+			error "mtime not change after create"
+		sleep 1
+		rm -rf $DIR/$tdir/striped_dir/file_$i
+		mtime3=`stat -c %Y $DIR/$tdir/striped_dir`
+		[ $mtime2 -eq $mtime3 ] &&
+			error "mtime did not change after unlink"
+	done
+	rm -rf $DIR/$tdir
+}
+run_test 300b "check ctime/mtime for striped dir"
+
+test_300c() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+	local file_count
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	createmany -o $DIR/$tdir/striped_dir/f 5000 ||
+		error "create 10k files failed"
+
+	file_count=$(ls $DIR/$tdir/striped_dir | wc -l)
+
+	[ "$file_count" = "5000" ] || error "file count $file_count != 5000"
+
+	rm -rf $DIR/$tdir
+}
+run_test 300c "check ls understand striped directory"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
