@@ -380,12 +380,11 @@ struct tx_arg {
 	} u;
 };
 
-#define TX_MAX_OPS	  10
 struct thandle_exec_args {
 	struct thandle		*ta_handle;
 	struct dt_device	*ta_dev;
 	int			ta_err;
-	struct tx_arg		ta_args[TX_MAX_OPS];
+	struct tx_arg		ta_args[UPDATE_PER_RPC_MAX];
 	int			ta_argno;   /* used args */
 };
 
