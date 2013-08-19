@@ -96,6 +96,39 @@ static struct lu_kmem_descr cl_page_caches[] = {
         ((void)sizeof(env), (void)sizeof(page), (void)sizeof !!(exp))
 #endif /* !INVARIANT_CHECK */
 
+static inline void page_linkage_check(const struct cl_page *page, const cfs_list_t *list)
+{
+	static cfs_atomic_t count = CFS_ATOMIC_INIT(0);
+	cfs_list_t *p;
+	int info = list == &page->cp_layers;
+
+	if (likely(list->next != NULL && list->prev != NULL))
+		return;
+
+	if (list->next == NULL) {
+		LASSERT(list->prev != NULL);
+		cfs_list_for_each_prev(p, list) {
+			if (p->prev == list)
+				((cfs_list_t *)list)->next = p;
+		}
+	} else if (list->prev == NULL) {
+		info |= 0x2;
+		cfs_list_for_each(p, list) {
+			if (p->next == list)
+				((cfs_list_t *)list)->prev = p;
+		}
+	}
+
+	if (page->cp_parent != NULL) {
+		page = page->cp_parent;
+		info |= 0x4;
+	}
+
+	CERROR("XXXXX %d: %p: %x: " DFID ".\n",
+		cfs_atomic_inc_return(&count), page, info,
+		PFID(lu_object_fid(&page->cp_obj->co_lu)));
+}
+
 /**
  * Internal version of cl_page_top, it should be called if the page is
  * known to be not freed, says with page referenced, or radix tree lock held,
@@ -140,7 +173,9 @@ cl_page_at_trusted(const struct cl_page *page,
 
         page = cl_page_top_trusted((struct cl_page *)page);
         do {
+		page_linkage_check(page, &page->cp_layers);
                 cfs_list_for_each_entry(slice, &page->cp_layers, cpl_linkage) {
+			page_linkage_check(page, &slice->cpl_linkage);
                         if (slice->cpl_obj->co_lu.lo_dev->ld_type == dtype)
                                 RETURN(slice);
                 }
@@ -288,11 +323,13 @@ static void cl_page_free(const struct lu_env *env, struct cl_page *page)
 
         ENTRY;
         cfs_might_sleep();
+	page_linkage_check(page, &page->cp_layers);
         while (!cfs_list_empty(&page->cp_layers)) {
                 struct cl_page_slice *slice;
 
                 slice = cfs_list_entry(page->cp_layers.next,
                                        struct cl_page_slice, cpl_linkage);
+		page_linkage_check(page, &slice->cpl_linkage);
                 cfs_list_del_init(page->cp_layers.next);
                 slice->cpl_ops->cpo_fini(env, slice);
         }
@@ -684,7 +721,9 @@ cfs_page_t *cl_page_vmpage(const struct lu_env *env, struct cl_page *page)
          */
         page = cl_page_top(page);
         do {
+		page_linkage_check(page, &page->cp_layers);
                 cfs_list_for_each_entry(slice, &page->cp_layers, cpl_linkage) {
+			page_linkage_check(page, &slice->cpl_linkage);
                         if (slice->cpl_ops->cpo_vmpage != NULL)
                                 RETURN(slice->cpl_ops->cpo_vmpage(env, slice));
                 }
@@ -762,8 +801,10 @@ EXPORT_SYMBOL(cl_page_at);
         __result = 0;                                                   \
         __page = cl_page_top(__page);                                   \
         do {                                                            \
+		page_linkage_check(__page, &__page->cp_layers);		\
                 cfs_list_for_each_entry(__scan, &__page->cp_layers,     \
                                         cpl_linkage) {                  \
+			page_linkage_check(__page, &__scan->cpl_linkage);\
                         __method = *(void **)((char *)__scan->cpl_ops + \
                                               __op);                    \
                         if (__method != NULL) {                         \
@@ -790,8 +831,10 @@ do {                                                                    \
                                                                         \
         __page = cl_page_top(__page);                                   \
         do {                                                            \
+		page_linkage_check(__page, &__page->cp_layers);		\
                 cfs_list_for_each_entry(__scan, &__page->cp_layers,     \
                                         cpl_linkage) {                  \
+			page_linkage_check(__page, &__scan->cpl_linkage	);\
                         __method = *(void **)((char *)__scan->cpl_ops + \
                                               __op);                    \
                         if (__method != NULL)                           \
@@ -814,8 +857,10 @@ do {                                                                        \
         while (__page->cp_child != NULL)                                    \
                 __page = __page->cp_child;                                  \
         do {                                                                \
+		page_linkage_check(__page, &__page->cp_layers);		    \
                 cfs_list_for_each_entry_reverse(__scan, &__page->cp_layers, \
                                                 cpl_linkage) {              \
+			page_linkage_check(__page, &__scan->cpl_linkage);   \
                         __method = *(void **)((char *)__scan->cpl_ops +     \
                                               __op);                        \
                         if (__method != NULL)                               \
