@@ -182,6 +182,7 @@ struct lod_it {
 	struct dt_it		*lit_it;  /* iterator from the layer below */
 };
 
+#define LOD_UPDATE_BUFFER_SIZE 1024
 struct lod_thread_info {
 	/* per-thread buffer for LOV EA */
 	void             *lti_ea_store;

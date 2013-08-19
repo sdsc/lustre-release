@@ -226,9 +226,10 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 /*
  * Concurrency: shouldn't matter.
  */
-static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
+static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
+			  struct thandle *th)
 {
-	struct osd_device	*osd = osd_dt_dev(th->th_dev);
+	struct osd_device	*osd = osd_dt_dev(dt);
 	struct osd_thandle	*oh;
 	uint64_t		 txg;
 	int			 rc;
