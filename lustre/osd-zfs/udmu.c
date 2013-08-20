@@ -259,10 +259,10 @@ int udmu_objset_statfs(udmu_objset_t *uos, struct obd_statfs *osfs)
 	 * largest possible block size as IO size for the optimum performance
 	 * and scale the free and used blocks count appropriately.
 	 */
-	osfs->os_bsize = 1ULL << SPA_MAXBLOCKSHIFT;
+	osfs->os_bsize = 1ULL << OSD_ZFS_BLOCKSHIFT;
 
-	osfs->os_blocks = (refdbytes + availbytes) >> SPA_MAXBLOCKSHIFT;
-	osfs->os_bfree = availbytes >> SPA_MAXBLOCKSHIFT;
+	osfs->os_blocks = (refdbytes + availbytes) >> OSD_ZFS_BLOCKSHIFT;
+	osfs->os_bfree = availbytes >> OSD_ZFS_BLOCKSHIFT;
 	osfs->os_bavail = osfs->os_bfree; /* no extra root reservation */
 
 	/* Take replication (i.e. number of copies) into account */
@@ -334,7 +334,7 @@ uint64_t udmu_objset_user_iused(udmu_objset_t *uos, uint64_t uidbytes)
 
 	/* estimate the number of objects based on the disk usage */
 	uidobjs = udmu_objs_count_estimate(refdbytes, usedobjs,
-					uidbytes >> SPA_MAXBLOCKSHIFT);
+					   uidbytes >> OSD_ZFS_BLOCKSHIFT);
 	if (uidbytes > 0)
 		/* if we have at least 1 byte, we have at least one dnode ... */
 		uidobjs = max_t(uint64_t, uidobjs, 1);

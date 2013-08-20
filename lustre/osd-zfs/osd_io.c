@@ -478,7 +478,7 @@ static int osd_count_not_mapped(struct osd_object *obj, uint64_t start,
 		if (start < dn->dn_datablksz)
 			start = dn->dn_datablksz;
 		/* assume largest block size */
-		blkshift = SPA_MAXBLOCKSHIFT;
+		blkshift = OSD_ZFS_BLOCKSHIFT;
 	} else {
 		/* blocksize can't change */
 		blkshift = dn->dn_datablkshift;

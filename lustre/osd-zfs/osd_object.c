@@ -778,7 +778,7 @@ static int osd_attr_get(const struct lu_env *env,
 		attr->la_size = 512 * blocks;
 	/* Block size may be not set; suggest maximal I/O transfers. */
 	if (blksize == 0)
-		blksize = 1ULL << SPA_MAXBLOCKSHIFT;
+		blksize = 1ULL << OSD_ZFS_BLOCKSHIFT;
 
 	attr->la_blksize = blksize;
 	attr->la_blocks = blocks;

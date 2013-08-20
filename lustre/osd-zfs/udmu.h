@@ -66,6 +66,8 @@ typedef struct udmu_objset {
 #define TXG_NOWAIT      2ULL
 #endif
 
+#define OSD_ZFS_BLOCKSHIFT	LU_PAGE_SHIFT
+
 #define ZFS_DIRENT_MAKE(type, obj) (((uint64_t)type << 60) | obj)
 
 /* Statfs space reservation for grant, fragmentation, and unlink space. */
