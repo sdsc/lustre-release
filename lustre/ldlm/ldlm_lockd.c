@@ -50,6 +50,7 @@
 #include <lustre_dlm.h>
 #include <obd_class.h>
 #include <libcfs/list.h>
+#include <lustre_lfsck.h>
 #include "ldlm_internal.h"
 
 static int ldlm_num_threads;
@@ -2031,17 +2032,76 @@ static int ldlm_handle_setinfo(struct ptlrpc_request *req)
 
         /* We are responsible for swabbing contents of val */
 
-        if (KEY_IS(KEY_HSM_COPYTOOL_SEND))
-                /* Pass it on to mdc (the "export" in this case) */
-                rc = obd_set_info_async(req->rq_svc_thread->t_env,
-                                        req->rq_export,
-                                        sizeof(KEY_HSM_COPYTOOL_SEND),
-                                        KEY_HSM_COPYTOOL_SEND,
-                                        vallen, val, NULL);
-        else
-                DEBUG_REQ(D_WARNING, req, "ignoring unknown key %s", key);
+	if (KEY_IS(KEY_HSM_COPYTOOL_SEND)) {
+		/* Pass it on to mdc (the "export" in this case) */
+		rc = obd_set_info_async(req->rq_svc_thread->t_env,
+					req->rq_export,
+					sizeof(KEY_HSM_COPYTOOL_SEND),
+					KEY_HSM_COPYTOOL_SEND,
+					vallen, val, NULL);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_event_request *ler = val;
 
-        return rc;
+		if (ptlrpc_req_need_swab(req))
+			lustre_swab_lfsck_event_request(ler);
+
+		/* Pass it on to osp (the "export" in this case) */
+		rc = obd_set_info_async(req->rq_svc_thread->t_env,
+					req->rq_export,
+					sizeof(KEY_LFSCK_EVENT_IN),
+					KEY_LFSCK_EVENT_IN, vallen, val, NULL);
+	} else {
+		DEBUG_REQ(D_WARNING, req, "ignoring unknown key %s", key);
+	}
+
+	return rc;
+}
+
+static int ldlm_handle_getinfo(struct ptlrpc_request *req)
+{
+	struct obd_device *obd	= req->rq_export->exp_obd;
+	char		  *key;
+	void		  *val;
+	int		   keylen;
+	__u32		  *vallen;
+	int		   rc	= -ENOSYS;
+        ENTRY;
+
+	DEBUG_REQ(D_LFSCK, req, "%s: handle getinfo\n", obd->obd_name);
+
+	req_capsule_set(&req->rq_pill, &RQF_OBD_GET_INFO);
+	key = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_KEY);
+	if (key == NULL) {
+		DEBUG_REQ(D_LFSCK, req, "no get_info key");
+		RETURN(-EFAULT);
+	}
+
+	keylen = req_capsule_get_size(&req->rq_pill, &RMF_GETINFO_KEY,
+				      RCL_CLIENT);
+	vallen = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_VALLEN);
+	req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_VAL, RCL_SERVER,
+			     *vallen);
+        rc = req_capsule_server_pack(&req->rq_pill);
+	if (rc != 0) {
+		DEBUG_REQ(D_LFSCK, req, "fail to pack reply");
+		RETURN(rc);
+	}
+
+	val = req_capsule_server_get(&req->rq_pill, &RMF_GETINFO_VAL);
+
+	if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_event_request *ler = val;
+
+		ler->ler_event = LNE_LAYOUT_QUERY;
+		/* Pass it on to osp (the "export" in this case) */
+		rc = obd_get_info(req->rq_svc_thread->t_env, req->rq_export,
+				  sizeof(KEY_LFSCK_EVENT_IN),
+				  KEY_LFSCK_EVENT_IN, vallen, val, NULL);
+	} else {
+		DEBUG_REQ(D_WARNING, req, "ignoring unknown key %s", key);
+	}
+
+	return rc;
 }
 
 static inline void ldlm_callback_errmsg(struct ptlrpc_request *req,
@@ -2122,6 +2182,10 @@ static int ldlm_callback_handler(struct ptlrpc_request *req)
                 rc = ldlm_handle_setinfo(req);
                 ldlm_callback_reply(req, rc);
                 RETURN(0);
+	case LDLM_GET_INFO:
+		rc = ldlm_handle_getinfo(req);
+		ldlm_callback_reply(req, rc);
+		RETURN(0);
         case LLOG_ORIGIN_HANDLE_CREATE:
                 req_capsule_set(&req->rq_pill, &RQF_LLOG_ORIGIN_HANDLE_CREATE);
                 if (OBD_FAIL_CHECK(OBD_FAIL_OBD_LOGD_NET))

@@ -140,6 +140,7 @@ void req_layout_fini(void);
 
 extern struct req_format RQF_OBD_PING;
 extern struct req_format RQF_OBD_SET_INFO;
+extern struct req_format RQF_OBD_GET_INFO;
 extern struct req_format RQF_SEC_CTX;
 extern struct req_format RQF_OBD_IDX_READ;
 /* MGS req_format */
