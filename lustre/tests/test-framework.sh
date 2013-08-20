@@ -6440,6 +6440,31 @@ mds_remove_ois() {
 	# OI files will be recreated when mounted as lustre next time.
 }
 
+# remove LAST_ID
+ost_remove_lastid() {
+	local devname=$(ostdevname 1)
+	local mntpt=$(facet_mntpt brpt)
+	local rcmd="do_facet ost1"
+	local idx=$1
+	local opts=${OST_MOUNT_OPTS}
+
+	if ! ${rcmd} test -b ${devname}; then
+		opts=$(csa_add "$opts" -o loop)
+	fi
+
+	echo "remove LAST_ID: idx=${idx}"
+
+	# step 1: build mount point
+	${rcmd} mkdir -p $mntpt
+	# step 2: mount dev
+	${rcmd} mount -t ldiskfs $opts $devname $mntpt || return 1
+	# step 3: remove the specified LAST_ID
+	${rcmd} rm -fv $mntpt/O/${idx}/LAST_ID
+	# step 4: umount
+	${rcmd} umount -d $mntpt || return 2
+	# OI files will be recreated when mounted as lustre next time.
+}
+
 # generate maloo upload-able log file name
 # \param logname specify unique part of file name
 generate_logname() {
