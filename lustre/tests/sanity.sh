@@ -9484,6 +9484,8 @@ test_161c() {
 	# rename overwrite a target having nlink = 1 (changelog flag 0x1)
 	local USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
 		changelog_register -n)
+
+	rm -rf $DIR/$tdir
 	mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/foo_161c
 	touch $DIR/$tdir/bar_161c
