@@ -41,6 +41,7 @@
 #include <libcfs/libcfs.h>
 #include <obd.h>
 #include <dt_object.h>
+#include <lustre_lfsck.h>
 
 #define LOV_USES_ASSIGNED_STRIPE        0
 #define LOV_USES_DEFAULT_STRIPE         1
@@ -183,6 +184,7 @@ struct lod_thread_info {
 	struct obd_statfs lti_osfs;
 	struct lu_attr    lti_attr;
 	struct lod_it	  lti_it;
+	struct lfsck_async_info lti_lai;
 };
 
 extern const struct lu_device_operations lod_lu_ops;

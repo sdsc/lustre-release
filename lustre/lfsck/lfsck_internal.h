@@ -52,47 +52,6 @@
 #define LFSCK_NAMEENTRY_REMOVED 	2 /* The entry has been removed. */
 #define LFSCK_NAMEENTRY_RECREATED	3 /* The entry has been recreated. */
 
-enum lfsck_status {
-	/* The lfsck file is new created, for new MDT, upgrading from old disk,
-	 * or re-creating the lfsck file manually. */
-	LS_INIT			= 0,
-
-	/* The first-step system scanning. */
-	LS_SCANNING_PHASE1	= 1,
-
-	/* The second-step system scanning. */
-	LS_SCANNING_PHASE2	= 2,
-
-	/* The LFSCK processing has completed for all objects. */
-	LS_COMPLETED		= 3,
-
-	/* The LFSCK exited automatically for failure, will not auto restart. */
-	LS_FAILED		= 4,
-
-	/* The LFSCK is stopped manually, will not auto restart. */
-	LS_STOPPED		= 5,
-
-	/* LFSCK is paused automatically when umount,
-	 * will be restarted automatically when remount. */
-	LS_PAUSED		= 6,
-
-	/* System crashed during the LFSCK,
-	 * will be restarted automatically after recovery. */
-	LS_CRASHED		= 7,
-
-	/* Some OST/MDT failed during the LFSCK, or not join the LFSCK. */
-	LS_PARTIAL		= 8,
-
-	/* The LFSCK is failed because its controller is failed. */
-	LS_CO_FAILED		= 9,
-
-	/* The LFSCK is stopped because its controller is stopped. */
-	LS_CO_STOPPED		= 10,
-
-	/* The LFSCK is paused because its controller is paused. */
-	LS_CO_PAUSED		= 11,
-};
-
 enum lfsck_flags {
 	/* Finish the first cycle scanning. */
 	LF_SCANNED_ONCE		= 0x00000001ULL,
@@ -336,6 +295,14 @@ struct lfsck_operations {
 
 	void (*lfsck_quit)(const struct lu_env *env,
 			   struct lfsck_component *com);
+
+	int (*lfsck_in_notify)(const struct lu_env *env,
+			       struct lfsck_component *com,
+			       struct lfsck_event_request *ler,
+			       struct obd_export *exp);
+
+	int (*lfsck_query)(const struct lu_env *env,
+			   struct lfsck_component *com);
 };
 
 struct lfsck_component {
@@ -437,8 +404,10 @@ struct lfsck_instance {
 	/* How many objects have been scanned since last sleep. */
 	__u32			  li_new_scanned;
 
-	unsigned int		  li_paused:1, /* The lfsck is paused. */
-				  li_oit_over:1, /* oit is finished. */
+	/* The status when the LFSCK stopped or paused. */
+	__u32			  li_status;
+
+	unsigned int		  li_oit_over:1, /* oit is finished. */
 				  li_drop_dryrun:1, /* Ever dryrun, not now. */
 				  li_master:1, /* Master instance or not. */
 				  li_current_oit_processed:1;

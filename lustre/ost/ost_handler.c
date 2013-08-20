@@ -55,6 +55,7 @@
 #include <libcfs/list.h>
 #include <lustre_quota.h>
 #include <lustre_fid.h>
+#include <lustre_lfsck.h>
 #include "ost_internal.h"
 #include <lustre_fid.h>
 
@@ -1337,15 +1338,26 @@ static int ost_set_info(struct obd_export *exp, struct ptlrpc_request *req)
                 if (vallen < sizeof(__u32))
                         RETURN(-EFAULT);
                 __swab32s((__u32 *)val);
-        }
+	} else if (KEY_IS(KEY_LFSCK_EVENT) && ptlrpc_req_need_swab(req)) {
+		struct lfsck_event_request *ler =
+					(struct lfsck_event_request *)val;
 
-        /* OBD will also check if KEY_IS(KEY_GRANT_SHRINK), and will cast val to
-         * a struct ost_body * value */
-        rc = obd_set_info_async(req->rq_svc_thread->t_env, exp, keylen,
-                                key, vallen, val, NULL);
+		if (vallen < sizeof(*ler))
+			RETURN(-EFAULT);
+
+		lustre_swab_lfsck_event_request(ler);
+	}
+
+	/* OBD will also check if KEY_IS(KEY_GRANT_SHRINK),
+	 * and will cast val to a struct ost_body * value */
+	rc = obd_set_info_async(req->rq_svc_thread->t_env, exp, keylen,
+				key, vallen, val, NULL);
+
+	GOTO(out, rc);
+
 out:
-        lustre_msg_set_status(req->rq_repmsg, 0);
-        RETURN(rc);
+	lustre_msg_set_status(req->rq_repmsg, rc);
+	return rc;
 }
 
 struct locked_region {
@@ -1501,9 +1513,9 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
 			RETURN(rc);
 	}
 
-	lustre_msg_set_status(req->rq_repmsg, 0);
+	lustre_msg_set_status(req->rq_repmsg, rc);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static int ost_handle_quotactl(struct ptlrpc_request *req)

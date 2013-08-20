@@ -163,6 +163,7 @@ struct mdd_thread_info {
         struct dt_object_format   mti_dof;
         struct obd_quotactl       mti_oqctl;
 	struct linkea_data	  mti_link_data;
+	struct lfsck_stop	  mti_stop;
 };
 
 extern const char orph_index_name[];
