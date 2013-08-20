@@ -30,12 +30,12 @@ MINDIR=$DIR
 MAXDIR=$DIR
 MINRES=4294967295
 MAXRES=0
-mkdir -p $MINDIR
+mkdir -p $MINDIR || error "mkdir $MINDIR failed"
 while [ $MINRES -gt $MAXRES ]; do
 	FILETMP=$MINDIR/f$$${NUM}
 	DIRTMP=$DIR/d$$/d${NUM}
 	touch $FILETMP
-	mkdir -p $DIRTMP
+	mkdir -p $DIRTMP || error "mkdir $DIRTMP failed"
 	FILERES=`ls -id $FILETMP | awk '{ print $1 }'`
 	DIRRES=`ls -id $DIRTMP | awk '{ print $1 }'`
 	if [ $DIRRES -gt $MAXRES ]; then

@@ -434,7 +434,7 @@ copytool_setup
 set_hsm_param grace_delay 10
 
 test_1() {
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	chmod 777 $DIR/$tdir
 
 	local f=$DIR/$tdir/$tfile

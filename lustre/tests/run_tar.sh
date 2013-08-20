@@ -34,7 +34,7 @@ do_tar() {
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	echoerr "$(date +'%F %H:%M:%S'): tar run starting"
-	mkdir -p $TESTDIR
+	mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
 	USAGE=$(du -s /etc | awk '{print $1}')
 	FREE_SPACE=$($LFS df $TESTDIR | awk '/filesystem summary:/ {print $5}')
 	AVAIL=$((FREE_SPACE * 9 / 10 / CLIENT_COUNT))

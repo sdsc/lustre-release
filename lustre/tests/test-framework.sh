@@ -4462,19 +4462,19 @@ banner() {
 }
 
 #
-# Run a single test function and cleanup after it.  
+# Run a single test function and cleanup after it.
 #
 # This function should be run in a subshell so the test func can
 # exit() without stopping the whole script.
 #
 run_one() {
-    local testnum=$1
-    local message=$2
-    tfile=f.${TESTSUITE}.${testnum}
-    export tdir=d0.${TESTSUITE}/d${base}
-    export TESTNAME=test_$testnum
-    local SAVE_UMASK=`umask`
-    umask 0022
+	local testnum=$1
+	local message=$2
+	tfile=f.${TESTSUITE}.${testnum}
+	export tdir=d${testnum}.${TESTSUITE}
+	export TESTNAME=test_$testnum
+	local SAVE_UMASK=`umask`
+	umask 0022
 
     banner "test $testnum: $message"
     test_${testnum} || error "test_$testnum failed with $?"
@@ -5001,12 +5001,12 @@ check_runas_id_ret() {
         $myRUNAS krb5_login.sh || \
             error "Failed to refresh Kerberos V5 TGT for UID $myRUNAS_ID."
     fi
-    mkdir $DIR/d0_runas_test
-    chmod 0755 $DIR
-    chown $myRUNAS_UID:$myRUNAS_GID $DIR/d0_runas_test
-    $myRUNAS touch $DIR/d0_runas_test/f$$ || myRC=$?
-    rm -rf $DIR/d0_runas_test
-    return $myRC
+	mkdir $DIR/d0_runas_test || error "mkdir d0_runas_test failed"
+	chmod 0755 $DIR
+	chown $myRUNAS_UID:$myRUNAS_GID $DIR/d0_runas_test
+	$myRUNAS touch $DIR/d0_runas_test/f$$ || myRC=$?
+	rm -rf $DIR/d0_runas_test
+	return $myRC
 }
 
 check_runas_id() {

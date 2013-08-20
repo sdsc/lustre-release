@@ -207,7 +207,7 @@ run_test 12 "recover from timed out resend in ptlrpcd (b=2494)"
 
 # Bug 113, check that readdir lost recv timeout works.
 test_13() {
-	mkdir -p $DIR/$tdir || { error "mkdir failed: $?"; return 1; }
+	mkdir $DIR/$tdir || { error "mkdir $tdir failed: $?"; return 1; }
 	touch $DIR/$tdir/newentry || { error "touch failed: $?"; return 2; }
 # OBD_FAIL_MDS_READPAGE_NET|OBD_FAIL_ONCE
 	do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000104"
@@ -219,12 +219,12 @@ run_test 13 "mdc_readpage restart test (bug 1138)"
 
 # Bug 113, check that readdir lost send timeout works.
 test_14() {
-    mkdir -p $DIR/$tdir
-    touch $DIR/$tdir/newentry
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	touch $DIR/$tdir/newentry
 # OBD_FAIL_MDS_SENDPAGE|OBD_FAIL_ONCE
-    do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000106"
-    ls $DIR/$tdir || return 1
-    do_facet $SINGLEMDS "lctl set_param fail_loc=0"
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000106"
+	ls $DIR/$tdir || return 1
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0"
 }
 run_test 14 "mdc_readpage resend test (bug 1138)"
 
@@ -309,8 +309,8 @@ test_18a() {
 	do_facet_create_file client $TMP/$tfile 20K ||
 		{ error_noexit "Create file $TMP/$tfile" ; return 0; }
 
-    do_facet client mkdir -p $DIR/$tdir
-    f=$DIR/$tdir/$tfile
+	do_facet client mkdir $DIR/$tdir
+	f=$DIR/$tdir/$tfile
 
     cancel_lru_locks osc
     pgcache_empty || return 1
@@ -343,8 +343,8 @@ test_18b() {
 	do_facet_create_file client $TMP/$tfile 20K ||
 		{ error_noexit "Create file $TMP/$tfile" ; return 0; }
 
-    do_facet client mkdir -p $DIR/$tdir
-    f=$DIR/$tdir/$tfile
+	do_facet client mkdir $DIR/$tdir
+	f=$DIR/$tdir/$tfile
 
     cancel_lru_locks osc
     pgcache_empty || return 1
@@ -376,8 +376,8 @@ test_18c() {
 	do_facet_create_file client $TMP/$tfile 20K ||
 		{ error_noexit "Create file $TMP/$tfile" ; return 0; }
 
-    do_facet client mkdir -p $DIR/$tdir
-    f=$DIR/$tdir/$tfile
+	do_facet client mkdir $DIR/$tdir
+	f=$DIR/$tdir/$tfile
 
     cancel_lru_locks osc
     pgcache_empty || return 1
@@ -471,7 +471,7 @@ test_19c() {
 	mount_client $DIR2
 	$LCTL set_param ldlm.namespaces.*.early_lock_cancel=0
 
-	mkdir -p $DIR1/$tfile
+	mkdir -p $DIR1/$tfile || error "mkdir $DIR1/$tfile failed"
 	stat $DIR1/$tfile
 
 #define OBD_FAIL_PTLRPC_CANCEL_RESEND 0x516
@@ -498,7 +498,7 @@ run_test 19c "check reconnect and lock resend do not trigger expired_lock_main"
 test_20a() {	# bug 2983 - ldlm_handle_enqueue cleanup
 	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS setstripe -i 0 -c 1 $DIR/$tdir/${tfile}
 	multiop_bg_pause $DIR/$tdir/${tfile} O_wc || return 1
 	MULTI_PID=$!
@@ -510,12 +510,12 @@ test_20a() {	# bug 2983 - ldlm_handle_enqueue cleanup
 	rc=$?
 	[ $rc -eq 0 ] && error "multiop didn't fail enqueue: rc $rc" || true
 }
-run_test 20a "ldlm_handle_enqueue error (should return error)" 
+run_test 20a "ldlm_handle_enqueue error (should return error)"
 
 test_20b() {	# bug 2986 - ldlm_handle_enqueue error during open
 	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS setstripe -i 0 -c 1 $DIR/$tdir/${tfile}
 	cancel_lru_locks osc
 #define OBD_FAIL_LDLM_ENQUEUE_EXTENT_ERR 0x308
@@ -526,10 +526,10 @@ test_20b() {	# bug 2986 - ldlm_handle_enqueue error during open
 run_test 20b "ldlm_handle_enqueue error (should return error)"
 
 test_21a() {
-       mkdir -p $DIR/$tdir-1
-       mkdir -p $DIR/$tdir-2
-       multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
-       close_pid=$!
+	mkdir $DIR/$tdir-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/$tdir-2 || error "mkdir $tdir-2 failed"
+	multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
+	close_pid=$!
 
        do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000129"
        $MULTIOP $DIR/$tdir-2/f Oc &
@@ -552,10 +552,10 @@ test_21a() {
 run_test 21a "drop close request while close and open are both in flight"
 
 test_21b() {
-       mkdir -p $DIR/$tdir-1
-       mkdir -p $DIR/$tdir-2
-       multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
-       close_pid=$!
+	mkdir $DIR/$tdir-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/$tdir-2 || error "mkdir $tdir-2 failed"
+	multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
+	close_pid=$!
 
        do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000107"
        mcreate $DIR/$tdir-2/f &
@@ -575,10 +575,10 @@ test_21b() {
 run_test 21b "drop open request while close and open are both in flight"
 
 test_21c() {
-       mkdir -p $DIR/$tdir-1
-       mkdir -p $DIR/$tdir-2
-       multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
-       close_pid=$!
+	mkdir $DIR/$tdir-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/$tdir-2 || error "mkdir $tdir-2 failed"
+	multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
+	close_pid=$!
 
        do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000107"
        mcreate $DIR/$tdir-2/f &
@@ -601,10 +601,10 @@ test_21c() {
 run_test 21c "drop both request while close and open are both in flight"
 
 test_21d() {
-       mkdir -p $DIR/$tdir-1
-       mkdir -p $DIR/$tdir-2
-       multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
-       pid=$!
+	mkdir $DIR/$tdir-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/$tdir-2 || error "mkdir $tdir-2 failed"
+	multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
+	pid=$!
 
        do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000129"
        $MULTIOP $DIR/$tdir-2/f Oc &
@@ -625,10 +625,10 @@ test_21d() {
 run_test 21d "drop close reply while close and open are both in flight"
 
 test_21e() {
-       mkdir -p $DIR/$tdir-1
-       mkdir -p $DIR/$tdir-2
-       multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
-       pid=$!
+	mkdir $DIR/$tdir-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/$tdir-2 || error "mkdir $tdir-2 failed"
+	multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
+	pid=$!
 
        do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000119"
        touch $DIR/$tdir-2/f &
@@ -647,10 +647,10 @@ test_21e() {
 run_test 21e "drop open reply while close and open are both in flight"
 
 test_21f() {
-       mkdir -p $DIR/$tdir-1
-       mkdir -p $DIR/$tdir-2
-       multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
-       pid=$!
+	mkdir $DIR/$tdir-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/$tdir-2 || error "mkdir $tdir-2 failed"
+	multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
+	pid=$!
 
        do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000119"
        touch $DIR/$tdir-2/f &
@@ -670,10 +670,10 @@ test_21f() {
 run_test 21f "drop both reply while close and open are both in flight"
 
 test_21g() {
-       mkdir -p $DIR/$tdir-1
-       mkdir -p $DIR/$tdir-2
-       multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
-       pid=$!
+	mkdir $DIR/$tdir-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/$tdir-2 || error "mkdir $tdir-2 failed"
+	multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
+	pid=$!
 
        do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000119"
        touch $DIR/$tdir-2/f &
@@ -693,10 +693,10 @@ test_21g() {
 run_test 21g "drop open reply and close request while close and open are both in flight"
 
 test_21h() {
-       mkdir -p $DIR/$tdir-1
-       mkdir -p $DIR/$tdir-2
-       multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
-       pid=$!
+	mkdir $DIR/$tdir-1 || error "mkdir $tdir-1 failed"
+	mkdir $DIR/$tdir-2 || error "mkdir $tdir-2 failed"
+	multiop_bg_pause $DIR/$tdir-1/f O_c || return 1
+	pid=$!
 
        do_facet $SINGLEMDS "lctl set_param fail_loc=0x80000107"
        touch $DIR/$tdir-2/f &
@@ -756,7 +756,7 @@ run_test 23 "client hang when close a file after mds crash"
 test_24a() { # bug 11710 details correct fsync() behavior
 	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS setstripe -i 0 -c 1 $DIR/$tdir
 	cancel_lru_locks osc
 	multiop_bg_pause $DIR/$tdir/$tfile Owy_wyc || return 1
@@ -767,7 +767,8 @@ test_24a() { # bug 11710 details correct fsync() behavior
 	rc=$?
 	lctl set_param fail_loc=0x0
 	client_reconnect
-	[ $rc -eq 0 ] && error_ignore 5494 "multiop didn't fail fsync: rc $rc" || true
+	[ $rc -eq 0 ] &&
+		error_ignore 5494 "multiop didn't fail fsync: rc $rc" || true
 }
 run_test 24a "fsync error (should return error)"
 
@@ -785,7 +786,7 @@ test_24b() {
 	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
 	dmesg -c > /dev/null
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	lfs setstripe $DIR/$tdir -s 0 -i 0 -c 1
 	cancel_lru_locks osc
 	multiop_bg_pause $DIR/$tdir/$tfile-1 Ow8192_yc ||
@@ -884,7 +885,7 @@ test_26b() {      # bug 10140 - evict dead exports by pinger
 run_test 26b "evict dead exports"
 
 test_27() {
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	writemany -q -a $DIR/$tdir/$tfile 0 5 &
 	CLIENT_PID=$!
 	sleep 1
@@ -898,8 +899,8 @@ test_27() {
 	wait_update_facet $SINGLEMDS "lctl get_param -n fail_loc" "-2147482617"
 	facet_failover $SINGLEMDS
 	#no crashes allowed!
-        kill -USR1 $CLIENT_PID
-	wait $CLIENT_PID 
+	kill -USR1 $CLIENT_PID
+	wait $CLIENT_PID
 	true
 	FAILURE_MODE=$save_FAILURE_MODE
 }
@@ -939,7 +940,7 @@ test_29b() { # bug 22273 - error adding new clients
 run_test 29b "error adding new clients doesn't cause LBUG (bug 22273)"
 
 test_50() {
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	# put a load of file creates/writes/deletes
 	writemany -q $DIR/$tdir/$tfile 0 5 &
 	CLIENT_PID=$!
@@ -954,8 +955,8 @@ test_50() {
 	fail $SINGLEMDS
 	# client process should see no problems even though MDS went down
 	sleep $TIMEOUT
-        kill -USR1 $CLIENT_PID
-	wait $CLIENT_PID 
+	kill -USR1 $CLIENT_PID
+	wait $CLIENT_PID
 	rc=$?
 	echo writemany returned $rc
 	#these may fail because of eviction due to slow AST response.
@@ -967,7 +968,7 @@ test_51() {
 	#define OBD_FAIL_MDS_SYNC_CAPA_SL                    0x1310
 	do_facet ost1 lctl set_param fail_loc=0x00001310
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	# put a load of file creates/writes/deletes
 	writemany -q $DIR/$tdir/$tfile 0 5 &
 	CLIENT_PID=$!
@@ -996,7 +997,7 @@ test_51() {
 run_test 51 "failover MDS during recovery"
 
 test_52_guts() {
-	do_facet client "mkdir -p $DIR/$tdir"
+	do_facet client "mkdir $DIR/$tdir"
 	do_facet client "writemany -q -a $DIR/$tdir/$tfile 300 5" &
 	CLIENT_PID=$!
 	echo writemany pid $CLIENT_PID
@@ -1016,7 +1017,7 @@ test_52_guts() {
 test_52() {
 	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	test_52_guts
 	rc=$?
 	[ $rc -ne 0 ] && { return $rc; }
@@ -1058,7 +1059,7 @@ run_test 54 "back in time"
 test_55() {
 	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 
 	# Minimum pass speed is 2MBps
 	local ddtimeout=64
@@ -1194,11 +1195,11 @@ err17935 () {
 }
 
 test_60() {
-        MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid | \
-	    awk '{gsub(/_UUID/,""); print $1}' | head -1)
+	MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
+	      awk '{gsub(/_UUID/,""); print $1}' | head -1)
 
 	NUM_FILES=15000
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 
 	# Register (and start) changelog
 	USER=$(do_facet $SINGLEMDS lctl --device $MDT0 changelog_register -n)
@@ -1253,12 +1254,12 @@ test_61()
 	do_facet $SINGLEMDS "lctl get_param -n $cflags" |grep -q skip_orphan
 	[ $? -ne 0 ] && skip "don't have skip orphan feature" && return
 
-	mkdir -p $DIR/$tdir || error "mkdir dir $DIR/$tdir failed"
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	# Set the default stripe of $DIR/$tdir to put the files to ost1
 	$LFS setstripe -c 1 -i 0 $DIR/$tdir
 
 	replay_barrier $SINGLEMDS
-	createmany -o $DIR/$tdir/$tfile-%d 10 
+	createmany -o $DIR/$tdir/$tfile-%d 10
 	local oid=`do_facet ost1 "lctl get_param -n obdfilter.${ost1_svc}.last_id"`
 
 	fail_abort $SINGLEMDS
@@ -1656,7 +1657,7 @@ test_107 () {
 	local CLIENT_PID
 	local close_pid
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	# OBD_FAIL_MDS_REINT_NET_REP   0x119
 	do_facet $SINGLEMDS lctl set_param fail_loc=0x119
 	multiop $DIR/$tdir D_c &
@@ -1681,9 +1682,9 @@ test_110a () {
 	local remote_dir=$DIR/$tdir/remote_dir
 	local MDTIDX=1
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	drop_request "$LFS mkdir -i $MDTIDX $remote_dir" ||
-					error "lfs mkdir failed"
+		error "lfs mkdir failed"
 	local diridx=$($GETSTRIPE -M $remote_dir)
 	[ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
 
@@ -1696,9 +1697,9 @@ test_110b () {
 	local remote_dir=$DIR/$tdir/remote_dir
 	local MDTIDX=1
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	drop_reint_reply "$LFS mkdir -i $MDTIDX $remote_dir" ||
-					error "lfs mkdir failed"
+		error "lfs mkdir failed"
 
 	diridx=$($GETSTRIPE -M $remote_dir)
 	[ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
@@ -1712,9 +1713,9 @@ test_110c () {
 	local remote_dir=$DIR/$tdir/remote_dir
 	local MDTIDX=1
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	drop_update_reply $((MDTIDX + 1)) "$LFS mkdir -i $MDTIDX $remote_dir" ||
-						error "lfs mkdir failed"
+		error "lfs mkdir failed"
 
 	diridx=$($GETSTRIPE -M $remote_dir)
 	[ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
@@ -1728,7 +1729,7 @@ test_110d () {
 	local remote_dir=$DIR/$tdir/remote_dir
 	local MDTIDX=1
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 
 	drop_request "rm -rf $remote_dir" || error "rm remote dir failed"
@@ -1744,7 +1745,7 @@ test_110e () {
 	local remote_dir=$DIR/$tdir/remote_dir
 	local MDTIDX=1
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir  || error "lfs mkdir failed"
 	drop_reint_reply "rm -rf $remote_dir" || error "rm remote dir failed"
 
@@ -1759,10 +1760,10 @@ test_110f () {
 	local remote_dir=$DIR/$tdir/remote_dir
 	local MDTIDX=1
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$LFS mkdir -i $MDTIDX $remote_dir || error "lfs mkdir failed"
 	drop_update_reply $MDTIDX "rm -rf $remote_dir" ||
-					error "rm remote dir failed"
+		error "rm remote dir failed"
 
 	rm -rf $DIR/$tdir || error "rmdir failed"
 }
