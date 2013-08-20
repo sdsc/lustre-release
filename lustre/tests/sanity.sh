@@ -16,6 +16,7 @@ ALWAYS_EXCEPT="                42a  42b  42c  42d  45   51d   68b   $SANITY_EXCE
 # bug number for skipped tests: LU-2036
 ALWAYS_EXCEPT="                 76     $ALWAYS_EXCEPT"
 
+# NULL CHANGE TO TEST mdtcount=2 test parameter.
 
 SRCDIR=$(cd $(dirname $0); echo $PWD)
 export PATH=$PATH:/sbin
