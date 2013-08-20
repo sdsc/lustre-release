@@ -147,9 +147,9 @@ ldlm_flock_destroy(struct ldlm_lock *lock, ldlm_mode_t mode, __u64 flags)
 
         cfs_list_del_init(&lock->l_res_link);
         if (flags == LDLM_FL_WAIT_NOREPROC &&
-            !(lock->l_flags & LDLM_FL_FAILED)) {
-                /* client side - set a flag to prevent sending a CANCEL */
-                lock->l_flags |= LDLM_FL_LOCAL_ONLY | LDLM_FL_CBPENDING;
+	    !ldlm_is_failed(lock)) {
+		/* client side - set a flag to prevent sending a CANCEL */
+		lock->l_flags |= LDLM_FL_LOCAL_ONLY | LDLM_FL_CBPENDING;
 
                 /* when reaching here, it is under lock_res_and_lock(). Thus,
                    need call the nolock version of ldlm_lock_decref_internal*/
@@ -224,7 +224,7 @@ static void ldlm_flock_cancel_on_deadlock(struct ldlm_lock *lock,
 				"support flock canceliation\n");
 	} else {
 		LASSERT(lock->l_completion_ast);
-		LASSERT((lock->l_flags & LDLM_FL_AST_SENT) == 0);
+		LASSERT(!ldlm_is_ast_sent(lock));
 		lock->l_flags |= LDLM_FL_AST_SENT | LDLM_FL_CANCEL_ON_BLOCK |
 			LDLM_FL_FLOCK_DEADLOCK;
 		ldlm_flock_blocking_unlink(lock);
@@ -606,7 +606,7 @@ ldlm_flock_interrupted_wait(void *data)
         ldlm_flock_blocking_unlink(lock);
 
 	/* client side - set flag to prevent lock from being put on LRU list */
-        lock->l_flags |= LDLM_FL_CBPENDING;
+	ldlm_set_cbpending(lock);
         unlock_res_and_lock(lock);
 
         EXIT;
@@ -641,8 +641,7 @@ ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
          * references being held, so that it can go away. No point in
          * holding the lock even if app still believes it has it, since
          * server already dropped it anyway. Only for granted locks too. */
-        if ((lock->l_flags & (LDLM_FL_FAILED|LDLM_FL_LOCAL_ONLY)) ==
-            (LDLM_FL_FAILED|LDLM_FL_LOCAL_ONLY)) {
+	if (ldlm_is_failed(lock) && ldlm_is_local_only(lock)) {
                 if (lock->l_req_mode == lock->l_granted_mode &&
                     lock->l_granted_mode != LCK_NL &&
                     NULL == data)
@@ -694,12 +693,12 @@ ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 granted:
         OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_CP_CB_WAIT, 10);
 
-	if (lock->l_flags & LDLM_FL_DESTROYED) {
+	if (ldlm_is_destroyed(lock)) {
 		LDLM_DEBUG(lock, "client-side enqueue waking up: destroyed");
 		RETURN(0);
 	}
 
-        if (lock->l_flags & LDLM_FL_FAILED) {
+	if (ldlm_is_failed(lock)) {
                 LDLM_DEBUG(lock, "client-side enqueue waking up: failed");
                 RETURN(-EIO);
         }
@@ -714,7 +713,7 @@ granted:
         /* ldlm_lock_enqueue() has already placed lock on the granted list. */
         cfs_list_del_init(&lock->l_res_link);
 
-	if (lock->l_flags & LDLM_FL_FLOCK_DEADLOCK) {
+	if (ldlm_is_flock_deadlock(lock)) {
 		LDLM_DEBUG(lock, "client-side enqueue deadlock received");
 		rc = -EDEADLK;
 	} else if (flags & LDLM_FL_TEST_LOCK) {
