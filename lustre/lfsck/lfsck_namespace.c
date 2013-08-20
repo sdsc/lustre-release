@@ -1356,6 +1356,11 @@ static int lfsck_namespace_double_scan(const struct lu_env *env,
 	__u8			 flags;
 	ENTRY;
 
+	if (unlikely(ns->ln_status != LS_SCANNING_PHASE2))
+		RETURN(0);
+
+	atomic_inc(&lfsck->li_double_scan_count);
+
 	lfsck->li_new_scanned = 0;
 	lfsck->li_time_last_checkpoint = cfs_time_current();
 	lfsck->li_time_next_checkpoint = lfsck->li_time_last_checkpoint +
@@ -1363,7 +1368,7 @@ static int lfsck_namespace_double_scan(const struct lu_env *env,
 
 	di = iops->init(env, obj, 0, BYPASS_CAPA);
 	if (IS_ERR(di))
-		RETURN(PTR_ERR(di));
+		GOTO(out, rc = PTR_ERR(di));
 
 	fid_cpu_to_be(&fid, &ns->ln_fid_latest_scanned_phase2);
 	rc = iops->get(env, di, (const struct dt_key *)&fid);
@@ -1468,6 +1473,8 @@ put:
 
 fini:
 	iops->fini(env, di);
+
+out:
 	down_write(&com->lc_sem);
 
 	ns->ln_run_time_phase2 += cfs_duration_sec(cfs_time_current() +
@@ -1502,6 +1509,9 @@ fini:
 	rc = lfsck_namespace_store(env, com, false);
 
 	up_write(&com->lc_sem);
+	if (atomic_dec_and_test(&lfsck->li_double_scan_count))
+		wake_up_all(&thread->t_ctl_waitq);
+
 	return rc;
 }
 
