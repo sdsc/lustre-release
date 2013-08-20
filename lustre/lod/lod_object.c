@@ -901,6 +901,62 @@ out:
 	RETURN(rc);
 }
 
+static int lod_declare_create_specified_object(const struct lu_env *env,
+					       struct dt_object *dt,
+					       struct lu_attr *attr,
+					       struct dt_allocation_hint *hint,
+					       struct dt_object_format *dof,
+					       struct thandle *th)
+{
+	struct lod_thread_info	*info	= lod_env_info(env);
+	struct lu_buf		*buf	= &info->lti_buf;
+	struct lod_object	*lo	= lod_dt_obj(dt);
+	struct lod_device	*lod	= lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
+	struct dt_object	*child;
+	struct lov_mds_md_v1	*lmm;
+	__u32			 magic;
+	int			 rc;
+	ENTRY;
+
+	LASSERT(hint != NULL);
+	LASSERT(hint->dah_child == NULL);
+	LASSERT(dof->dof_type == DFT_REGULAR);
+
+	rc = lod_get_lov_ea(env, lo);
+	if (rc <= 0)
+		RETURN(rc = (rc == 0 ? -EAGAIN : rc));
+
+	lmm = (struct lov_mds_md_v1 *)info->lti_ea_store;
+	magic = le32_to_cpu(lmm->lmm_magic);
+	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)
+		RETURN(-EINVAL);
+
+	buf->lb_buf = info->lti_ea_store;
+	buf->lb_len = lov_mds_md_size(le16_to_cpu(lmm->lmm_stripe_count),
+				      magic);
+	rc = dt_declare_xattr_set(env, dt_object_child(dt), buf, XATTR_NAME_LOV,
+				  LU_XATTR_REPLACE, th);
+	if (rc != 0)
+		RETURN(rc);
+
+	/* XXX: Currently, we only allocate the object on the OST with
+	 *	the specified index. */
+	child = lod_qos_declare_object_on(env, lod, hint->dah_ost_index, th);
+	if (IS_ERR(child))
+		RETURN(PTR_ERR(child));
+
+	/* For the create error handling. */
+	rc = dt_declare_destroy(env, child, th);
+	if (rc != 0) {
+		lu_object_put_nocache(env, &child->do_lu);
+		RETURN(rc);
+	}
+
+	hint->dah_child = child;
+
+	RETURN(0);
+}
+
 static int lod_declare_object_create(const struct lu_env *env,
 				     struct dt_object *dt,
 				     struct lu_attr *attr,
@@ -916,6 +972,13 @@ static int lod_declare_object_create(const struct lu_env *env,
 	LASSERT(dof);
 	LASSERT(attr);
 	LASSERT(th);
+
+	if (hint != NULL && unlikely(hint->dah_flags & DAHF_INDEX)) {
+		rc = lod_declare_create_specified_object(env, dt, attr, hint,
+							 dof, th);
+
+		RETURN(rc);
+	}
 
 	/*
 	 * first of all, we declare creation of local object
@@ -1002,6 +1065,87 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+static int lod_create_specified_object(const struct lu_env *env,
+				       struct dt_object *dt,
+				       struct lu_attr *attr,
+				       struct dt_allocation_hint *hint,
+				       struct dt_object_format *dof,
+				       struct thandle *th)
+{
+	struct lod_thread_info	*info		= lod_env_info(env);
+	struct ost_id		*oi		= &info->lti_ostid;
+	struct lu_buf		*buf		= &info->lti_buf;
+	struct lod_object	*lo		= lod_dt_obj(dt);
+	struct lov_mds_md_v1	*lmm;
+	struct lov_ost_data_v1	*objs;
+	__u32			 magic;
+	int			 rc;
+	bool			 created	= false;
+	ENTRY;
+
+	LASSERT(hint != NULL);
+	LASSERT(hint->dah_child != NULL);
+
+	/* XXX: Currently, we only allocate the object on the OST with
+	 *	the specified index. */
+	rc = dt_create(env, hint->dah_child, attr, hint, dof, th);
+	if (rc != 0)
+		RETURN(rc);
+
+	created = true;
+	rc = lod_get_lov_ea(env, lo);
+	if (rc <= 0)
+		GOTO(out, rc = (rc == 0 ? -EAGAIN : rc));
+
+	lmm = (struct lov_mds_md_v1 *)info->lti_ea_store;
+	magic = le32_to_cpu(lmm->lmm_magic);
+	if (magic == LOV_MAGIC_V1)
+		objs = &(lmm->lmm_objects[0]);
+	else if (magic == LOV_MAGIC_V3)
+		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
+	else
+		GOTO(out, rc = -EINVAL);
+
+	/* layout has been changed */
+	if (le16_to_cpu(lmm->lmm_layout_gen) != hint->dah_gen)
+		GOTO(out, rc = -EAGAIN);
+
+	lmm->lmm_layout_gen = cpu_to_le16(hint->dah_gen + 1);
+	fid_to_ostid(lu_object_fid(&hint->dah_child->do_lu), oi);
+	ostid_cpu_to_le(oi, &objs[hint->dah_lov_index].l_ost_oi);
+	objs[hint->dah_lov_index].l_ost_gen = cpu_to_le32(0);
+	objs[hint->dah_lov_index].l_ost_idx = cpu_to_le32(hint->dah_ost_index);
+
+	buf->lb_buf = info->lti_ea_store;
+	buf->lb_len = lov_mds_md_size(le16_to_cpu(lmm->lmm_stripe_count),
+				      magic);
+	rc = dt_xattr_set(env, dt_object_child(dt), buf, XATTR_NAME_LOV,
+			  LU_XATTR_REPLACE, th, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	lo->ldo_layout_gen = hint->dah_gen + 1;
+	if (lo->ldo_stripe != NULL &&
+	    lo->ldo_stripe[hint->dah_lov_index] != NULL) {
+		lu_object_put(env, &lo->ldo_stripe[hint->dah_lov_index]->do_lu);
+		lo->ldo_stripe[hint->dah_lov_index] = hint->dah_child;
+		hint->dah_child = NULL;
+	}
+
+	GOTO(out, rc = 0);
+
+out:
+	if (rc != 0 && created)
+		dt_destroy(env, hint->dah_child, th);
+
+	if (hint->dah_child != NULL) {
+		lu_object_put(env, &hint->dah_child->do_lu);
+		hint->dah_child = NULL;
+	}
+
+	return rc;
+}
+
 static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 			     struct lu_attr *attr,
 			     struct dt_allocation_hint *hint,
@@ -1011,6 +1155,12 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	struct lod_object  *lo = lod_dt_obj(dt);
 	int		    rc;
 	ENTRY;
+
+	if (hint != NULL && unlikely(hint->dah_flags & DAHF_INDEX)) {
+		rc = lod_create_specified_object(env, dt, attr, hint, dof, th);
+
+		RETURN(rc);
+	}
 
 	/* create local object */
 	rc = dt_create(env, next, attr, hint, dof, th);
