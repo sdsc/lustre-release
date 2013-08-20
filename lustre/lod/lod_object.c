@@ -277,6 +277,7 @@ static int lod_declare_attr_set(const struct lu_env *env,
 				const struct lu_attr *attr,
 				struct thandle *handle)
 {
+	struct lu_buf	  *buf = &lod_env_info(env)->lti_buf;
 	struct dt_object  *next = dt_object_child(dt);
 	struct lod_object *lo = lod_dt_obj(dt);
 	int                rc, i;
@@ -308,12 +309,22 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	buf->lb_buf = (void *)lu_object_fid(&dt->do_lu);
+	buf->lb_len = sizeof(struct lu_fid);
+
 	/*
 	 * if object is striped declare changes on the stripes
 	 */
 	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
+
+		/* Initialize parent FID when chown/chgrp. */
+		rc = dt_declare_xattr_set(env, lo->ldo_stripe[i], buf,
+					  XATTR_NAME_FID, 0, handle);
+		if (rc != 0)
+			break;
+
 		rc = dt_declare_attr_set(env, lo->ldo_stripe[i], attr, handle);
 		if (rc) {
 			CERROR("failed declaration: %d\n", rc);
@@ -790,11 +801,15 @@ static void lod_ah_init(const struct lu_env *env,
 static int lod_declare_init_size(const struct lu_env *env,
 				 struct dt_object *dt, struct thandle *th)
 {
-	struct dt_object   *next = dt_object_child(dt);
-	struct lod_object  *lo = lod_dt_obj(dt);
-	struct lu_attr	   *attr = &lod_env_info(env)->lti_attr;
-	uint64_t	    size, offs;
-	int		    rc, stripe;
+	struct dt_object	*next	= dt_object_child(dt);
+	struct lod_object	*lo	= lod_dt_obj(dt);
+	struct lod_thread_info	*info	= lod_env_info(env);
+	struct lu_attr		*attr	= &info->lti_attr;
+	struct lu_buf		*buf	= &info->lti_buf;
+	uint64_t		 size;
+	uint64_t		 offs;
+	int			 rc;
+	int			 stripe;
 	ENTRY;
 
 	/* XXX: we support the simplest (RAID0) striping so far */
@@ -813,6 +828,14 @@ static int lod_declare_init_size(const struct lu_env *env,
 	/* ll_do_div64(a, b) returns a % b, and a = a / b */
 	ll_do_div64(size, (__u64) lo->ldo_stripe_size);
 	stripe = ll_do_div64(size, (__u64) lo->ldo_stripenr);
+
+	/* Initialize parent FID when set size. */
+	buf->lb_buf = (void *)lu_object_fid(&dt->do_lu);
+	buf->lb_len = sizeof(struct lu_fid);
+	rc = dt_declare_xattr_set(env, lo->ldo_stripe[stripe], buf,
+				  XATTR_NAME_FID, 0, th);
+	if (rc != 0)
+		RETURN(rc);
 
 	size = size * lo->ldo_stripe_size;
 	offs = attr->la_size;

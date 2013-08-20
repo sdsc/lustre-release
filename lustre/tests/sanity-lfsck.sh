@@ -1200,6 +1200,84 @@ test_13() {
 }
 run_test 13 "LFSCK can repair MDT-object with dangling reference"
 
+test_14a() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+	touch $DIR/$tdir/guard
+
+	#define OBD_FAIL_LFSCK_UNMATCHED_PAIR1	0x1611
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1611
+	createmany -o $DIR/$tdir/f 1
+	chown 1.1 $DIR/$tdir/f0
+	sync
+	sleep 2
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	echo "stopall to cleanup object cache"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	$START_LAYOUT || error "(1) Fail to start LFSCK for layout!"
+	sleep 2
+
+	local STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(2) Expect 'completed', but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_unmatched_pair/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Fail to repair unmatched pair: $repaired"
+}
+run_test 14a "LFSCK can repair unmatched MDT-object/OST-object pair (1)"
+
+test_14b() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+	touch $DIR/$tdir/guard
+
+	#define OBD_FAIL_LFSCK_UNMATCHED_PAIR2	0x1612
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1612
+	createmany -o $DIR/$tdir/f 1
+	chown 1.1 $DIR/$tdir/f0
+	sync
+	sleep 2
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	echo "stopall to cleanup object cache"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	$START_LAYOUT || error "(1) Fail to start LFSCK for layout!"
+	sleep 2
+
+	local STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(2) Expect 'completed', but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_unmatched_pair/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Fail to repair unmatched pair: $repaired"
+}
+run_test 14b "LFSCK can repair unmatched MDT-object/OST-object pair (2)"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size
