@@ -810,12 +810,12 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 
 		OBD_CPT_ALLOC(svcpt, cptable, cpt, sizeof(*svcpt));
 		if (svcpt == NULL)
-			GOTO(failed, rc = -ENOMEM);
+			RETURN(ERR_PTR(-ENOMEM));
 
 		service->srv_parts[i] = svcpt;
 		rc = ptlrpc_service_part_init(service, svcpt, cpt);
 		if (rc != 0)
-			GOTO(failed, rc);
+			RETURN(ERR_PTR(rc));
 	}
 
 	ptlrpc_server_nthreads_check(service, conf);
