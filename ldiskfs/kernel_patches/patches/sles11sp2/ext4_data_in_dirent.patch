@@ -80,6 +80,14 @@
  	while (*p) {
 --- a/fs/ext4/ext4.h
 +++ b/fs/ext4/ext4.h
+@@ -902,6 +902,7 @@ struct ext4_inode_info {
+ #define EXT4_MOUNT_ERRORS_PANIC		0x00040	/* Panic on errors */
+ #define EXT4_MOUNT_MINIX_DF		0x00080	/* Mimics the Minix statfs */
+ #define EXT4_MOUNT_NOLOAD		0x00100	/* Don't use existing journal*/
++#define EXT4_MOUNT_DIRDATA		0x00200	/* Data in directory entries */
+ #define EXT4_MOUNT_DATA_FLAGS		0x00C00	/* Mode for data writes: */
+ #define EXT4_MOUNT_JOURNAL_DATA		0x00400	/* Write data to journal */
+ #define EXT4_MOUNT_ORDERED_DATA		0x00800	/* Flush data before commit */
 @@ -1414,7 +1414,9 @@ static inline void ext4_clear_state_flag
  					 EXT4_FEATURE_INCOMPAT_EXTENTS| \
  					 EXT4_FEATURE_INCOMPAT_64BIT| \
