@@ -1139,6 +1139,10 @@ static int osp_async_info_interpret(const struct lu_env *env,
 	struct lfsck_async_info    *lai  = oaia->oaia_data;
 
 	switch (lai->lai_ler->ler_event) {
+	case LNE_START_ALL:
+		if (rc == 0)
+			atomic_inc(&lai->lai_in_lfsck);
+		break;
 	case LNE_LAYOUT_START:
 		if (rc != 0) {
 			osp->opd_in_lfsck = 0;
@@ -1295,7 +1299,15 @@ static int osp_set_info_async(const struct lu_env *env, struct obd_export *exp,
 				     RCL_CLIENT, keylen);
 		req_capsule_set_size(&req->rq_pill, &RMF_SETINFO_VAL,
 				     RCL_CLIENT, sizeof(*ler));
-		rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_SET_INFO);
+		if (ler->ler_event == LNE_START_ALL ||
+		    ler->ler_event == LNE_STOP_ALL) {
+			rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION,
+						 MDS_SET_INFO);
+			req->rq_request_portal = MDS_REQUEST_PORTAL;
+		} else {
+			rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION,
+						 OST_SET_INFO);
+		}
 		if (rc != 0) {
 			ptlrpc_request_free(req);
 			return rc;

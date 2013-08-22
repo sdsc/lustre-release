@@ -533,6 +533,7 @@ static int ofd_set_info_async(const struct lu_env *env, struct obd_export *exp,
 		struct lfsck_event_request *ler = val;
 
 		switch (ler->ler_event) {
+		case LNE_START_ALL:
 		case LNE_LAYOUT_START: {
 			struct lfsck_start_param lsp;
 
@@ -541,6 +542,7 @@ static int ofd_set_info_async(const struct lu_env *env, struct obd_export *exp,
 			rc = lfsck_start(env, ofd->ofd_osd, &lsp, exp);
 			break;
 		}
+		case LNE_STOP_ALL:
 		case LNE_LAYOUT_STOP:
 			rc = lfsck_stop(env, ofd->ofd_osd, &ler->u.ler_stop, exp);
 			break;
@@ -1683,6 +1685,7 @@ int ofd_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 
 		stop->ls_status = LS_STOPPED;
 		stop->ls_index = ofd->ofd_lut.lut_lsd.lsd_osd_index;;
+		stop->ls_flags = 0;
 		rc = lfsck_stop(&env, ofd->ofd_osd, stop, NULL);
 		break;
 	}

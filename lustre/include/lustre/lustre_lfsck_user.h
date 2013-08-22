@@ -42,6 +42,9 @@ enum lfsck_param_flags {
 
 	/* Dryrun mode, only check without modification */
 	LPF_DRYRUN      = 0x0004,
+
+	/* Start/stop LFSCK on all MDT devices. */
+	LPF_ALL_TARGET	= 0x0008,
 };
 
 enum lfsck_type {
@@ -95,6 +98,8 @@ struct lfsck_start {
 struct lfsck_stop {
 	__u32	ls_status;
 	__u32	ls_index;
+	__u16	ls_flags;
+	__u16	ls_padding;
 };
 
 #endif /* _LUSTRE_LFSCK_USER_H */
