@@ -89,7 +89,12 @@ ifndef PLUGIN_DIR
 endif
 
 
-all: check $(PLUGINS)
+all: check $(PLUGINS) lustre_dlm_flags_wshark.c
+
+lustre_dlm_flags_wshark.c :
+	cd ../../../contrib/bit-masks ; \
+	make
+	test -f lustre_dlm_flags_wshark.c
 
 check:
 	@if ! ${CHECK}; then\
