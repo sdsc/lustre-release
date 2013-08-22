@@ -345,10 +345,11 @@ for ((rsz=$rszlo;rsz<=$rszhi;rsz*=2)); do
 		    for ((j=0;j<crg;j++)); do
 			rtmp=${tmpf}_${i}_${j}_local
 			remote_shell ${hosts[$i]} cat ${tmpf}_${i}_${j} > $rtmp
-			if grep 'error' $rtmp > /dev/null 2>&1; then
-			    echo "Error found in $rtmp"
-			elif grep 'time to transfer data' $rtmp > /dev/null 2>&1; then
-			    ok=$((ok + 1))
+			if grep 'time to transfer data' $rtmp >
+							/dev/null 2>&1; then
+				ok=$((ok + 1))
+			else
+				echo Error found in $rtmp
 			fi
 			cat ${rtmp} >> $tmpf
 			cat ${rtmp} >> $workf
