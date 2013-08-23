@@ -1236,7 +1236,7 @@ out:
 int osp_init_precreate(struct osp_device *d)
 {
 	struct l_wait_info	 lwi = { 0 };
-	cfs_task_t		*task;
+	struct task_struct		*task;
 
 	ENTRY;
 

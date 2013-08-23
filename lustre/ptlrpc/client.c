@@ -2141,7 +2141,7 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                  * it being ignored forever */
                 if (rc == -ETIMEDOUT && !lwi.lwi_allow_intr &&
                     cfs_signal_pending()) {
-                        cfs_sigset_t blocked_sigs =
+			sigset_t blocked_sigs =
                                            cfs_block_sigsinv(LUSTRE_FATAL_SIGS);
 
                         /* In fact we only interrupt for the "fatal" signals

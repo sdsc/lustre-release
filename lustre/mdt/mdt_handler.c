@@ -6074,7 +6074,7 @@ static int mdt_ioc_child(struct lu_env *env, struct mdt_device *mdt,
         rc = lu_context_init(&ioctl_session, LCT_SESSION);
         if (rc)
                 RETURN(rc);
-        ioctl_session.lc_thread = (struct ptlrpc_thread *)cfs_current();
+	ioctl_session.lc_thread = (struct ptlrpc_thread *)current;
         lu_context_enter(&ioctl_session);
         env->le_ses = &ioctl_session;
 
