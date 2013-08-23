@@ -832,7 +832,7 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 
 	rc = ptlrpc_service_nrs_setup(service);
 	if (rc != 0)
-		GOTO(failed, rc);
+		GOTO(failed_late, rc);
 
 	CDEBUG(D_NET, "%s: Started, listening on portal %d\n",
 	       service->srv_name, service->srv_req_portal);
@@ -842,13 +842,21 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 	if (rc != 0) {
 		CERROR("Failed to start threads for service %s: %d\n",
 		       service->srv_name, rc);
-		GOTO(failed, rc);
+		ptlrpc_unregister_service(service);
+		RETURN(ERR_PTR(rc));
 	}
 #endif
-
 	RETURN(service);
+
+failed_late:
+	mutex_lock(&ptlrpc_all_services_mutex);
+	cfs_list_del_init(&service->srv_list);
+	mutex_unlock(&ptlrpc_all_services_mutex);
+	ptlrpc_service_nrs_cleanup(service);
+	ptlrpc_lprocfs_unregister_service(service);
 failed:
-	ptlrpc_unregister_service(service);
+	ptlrpc_service_free(service);
+
 	RETURN(ERR_PTR(rc));
 }
 EXPORT_SYMBOL(ptlrpc_register_service);

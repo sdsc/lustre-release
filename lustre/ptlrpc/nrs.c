@@ -1423,13 +1423,16 @@ void ptlrpc_service_nrs_cleanup(struct ptlrpc_service *svc)
 	 * Clean up NRS heads on all service partitions
 	 */
 	ptlrpc_service_for_each_part(svcpt, i, svc)
-		nrs_svcpt_cleanup_locked(svcpt);
+		if (svcpt != NULL)
+			nrs_svcpt_cleanup_locked(svcpt);
 
 	/**
 	 * Clean up lprocfs interfaces for all supported policies for the
 	 * service.
 	 */
 	cfs_list_for_each_entry(desc, &nrs_core.nrs_policies, pd_list) {
+		if (desc == NULL)
+			continue;
 		if (!nrs_policy_compatible(svc, desc))
 			continue;
 
