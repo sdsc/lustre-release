@@ -88,9 +88,8 @@
 #endif
 
 #ifdef NR_CPUS
-#define CFS_NR_CPUS     NR_CPUS
 #else
-#define CFS_NR_CPUS     1
+#define NR_CPUS     1
 #endif
 
 /*
