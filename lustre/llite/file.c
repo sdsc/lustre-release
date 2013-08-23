@@ -1074,6 +1074,9 @@ void ll_io_init(struct cl_io *io, const struct file *file, int write)
         } else if (file->f_flags & O_APPEND) {
                 io->ci_lockreq = CILR_MANDATORY;
         }
+
+	if (file->f_flags & O_NOATIME)
+		io->ci_noatime = 1;
 }
 
 static ssize_t
