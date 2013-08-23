@@ -51,7 +51,7 @@ typedef struct cfs_wi_sched {
 	/** serialised workitems */
 	spinlock_t		ws_lock;
 	/** where schedulers sleep */
-	cfs_waitq_t		ws_waitq;
+	wait_queue_head_t		ws_waitq;
 #endif
 	/** concurrent workitems */
 	cfs_list_t		ws_runq;
@@ -226,7 +226,7 @@ cfs_wi_schedule(struct cfs_wi_sched *sched, cfs_workitem_t *wi)
                 if (!wi->wi_running) {
                         cfs_list_add_tail(&wi->wi_list, &sched->ws_runq);
 #ifdef __KERNEL__
-                        cfs_waitq_signal(&sched->ws_waitq);
+			wake_up(&sched->ws_waitq);
 #endif
                 } else {
                         cfs_list_add(&wi->wi_list, &sched->ws_rerunq);
@@ -307,7 +307,7 @@ cfs_wi_scheduler (void *arg)
                         cfs_wi_sched_unlock(sched);
                         /* don't sleep because some workitems still
                          * expect me to come back soon */
-                        cfs_cond_resched();
+			cond_resched();
                         cfs_wi_sched_lock(sched);
                         continue;
                 }
@@ -396,7 +396,7 @@ cfs_wi_sched_destroy(struct cfs_wi_sched *sched)
 	spin_unlock(&cfs_wi_data.wi_glock);
 
 #ifdef __KERNEL__
-	cfs_waitq_broadcast(&sched->ws_waitq);
+	wake_up_all(&sched->ws_waitq);
 
 	spin_lock(&cfs_wi_data.wi_glock);
 	{
@@ -445,7 +445,7 @@ cfs_wi_sched_create(char *name, struct cfs_cpt_table *cptab,
 
 #ifdef __KERNEL__
 	spin_lock_init(&sched->ws_lock);
-	cfs_waitq_init(&sched->ws_waitq);
+	init_waitqueue_head(&sched->ws_waitq);
 #endif
 	CFS_INIT_LIST_HEAD(&sched->ws_runq);
 	CFS_INIT_LIST_HEAD(&sched->ws_rerunq);
@@ -459,7 +459,7 @@ cfs_wi_sched_create(char *name, struct cfs_cpt_table *cptab,
 		spin_lock(&cfs_wi_data.wi_glock);
 		while (sched->ws_starting > 0) {
 			spin_unlock(&cfs_wi_data.wi_glock);
-			cfs_schedule();
+			schedule();
 			spin_lock(&cfs_wi_data.wi_glock);
 		}
 
@@ -529,7 +529,7 @@ cfs_wi_shutdown (void)
 	/* nobody should contend on this list */
 	cfs_list_for_each_entry(sched, &cfs_wi_data.wi_scheds, ws_list) {
 		sched->ws_stopping = 1;
-		cfs_waitq_broadcast(&sched->ws_waitq);
+		wake_up_all(&sched->ws_waitq);
 	}
 
 	cfs_list_for_each_entry(sched, &cfs_wi_data.wi_scheds, ws_list) {

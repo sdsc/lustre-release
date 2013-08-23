@@ -39,7 +39,7 @@
 extern unsigned long cfs_fail_loc;
 extern unsigned int cfs_fail_val;
 
-extern cfs_waitq_t cfs_race_waitq;
+extern wait_queue_head_t cfs_race_waitq;
 extern int cfs_race_state;
 
 int __cfs_fail_check_set(__u32 id, __u32 value, int set);
@@ -162,7 +162,7 @@ static inline void cfs_race(__u32 id)
                 } else {
                         CERROR("cfs_fail_race id %x waking\n", id);
                         cfs_race_state = 1;
-                        cfs_waitq_signal(&cfs_race_waitq);
+			wake_up(&cfs_race_waitq);
                 }
         }
 }

@@ -379,7 +379,7 @@ void request_in_callback(lnet_event_t *ev)
 
 	/* NB everything can disappear under us once the request
 	 * has been queued and we unlock, so do the wake now... */
-	cfs_waitq_signal(&svcpt->scp_waitq);
+	wake_up(&svcpt->scp_waitq);
 
 	spin_unlock(&svcpt->scp_lock);
 	EXIT;
@@ -470,7 +470,7 @@ void server_bulk_callback (lnet_event_t *ev)
 		desc->bd_md_count--;
 		/* This is the last callback no matter what... */
 		if (desc->bd_md_count == 0)
-			cfs_waitq_signal(&desc->bd_waitq);
+			wake_up(&desc->bd_waitq);
 	}
 
 	spin_unlock(&desc->bd_lock);
@@ -553,7 +553,7 @@ int ptlrpc_uuid_to_peer (struct obd_uuid *uuid,
 
 void ptlrpc_ni_fini(void)
 {
-        cfs_waitq_t         waitq;
+	wait_queue_head_t         waitq;
         struct l_wait_info  lwi;
         int                 rc;
         int                 retries;
@@ -578,7 +578,7 @@ void ptlrpc_ni_fini(void)
                                 CWARN("Event queue still busy\n");
 
                         /* Wait for a bit */
-                        cfs_waitq_init(&waitq);
+			init_waitqueue_head(&waitq);
                         lwi = LWI_TIMEOUT(cfs_time_seconds(2), NULL, NULL);
                         l_wait_event(waitq, 0, &lwi);
                         break;

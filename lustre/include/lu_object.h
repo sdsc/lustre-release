@@ -576,7 +576,7 @@ struct lu_site_bkt_data {
          *
          * \see htable_lookup().
          */
-        cfs_waitq_t               lsb_marche_funebre;
+	wait_queue_head_t               lsb_marche_funebre;
 };
 
 enum {

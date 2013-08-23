@@ -57,7 +57,7 @@ static void lov_init_set(struct lov_request_set *set)
 	set->set_cookies = 0;
 	CFS_INIT_LIST_HEAD(&set->set_list);
 	cfs_atomic_set(&set->set_refcount, 1);
-	cfs_waitq_init(&set->set_waitq);
+	init_waitqueue_head(&set->set_waitq);
 	spin_lock_init(&set->set_lock);
 }
 
@@ -119,7 +119,7 @@ void lov_update_set(struct lov_request_set *set,
         if (rc == 0)
                 cfs_atomic_inc(&set->set_success);
 
-        cfs_waitq_signal(&set->set_waitq);
+	wake_up(&set->set_waitq);
 }
 
 int lov_update_common_set(struct lov_request_set *set,
@@ -167,7 +167,7 @@ static int lov_check_set(struct lov_obd *lov, int idx)
  */
 int lov_check_and_wait_active(struct lov_obd *lov, int ost_idx)
 {
-	cfs_waitq_t waitq;
+	wait_queue_head_t waitq;
 	struct l_wait_info lwi;
 	struct lov_tgt_desc *tgt;
 	int rc = 0;
@@ -187,7 +187,7 @@ int lov_check_and_wait_active(struct lov_obd *lov, int ost_idx)
 
 	mutex_unlock(&lov->lov_lock);
 
-	cfs_waitq_init(&waitq);
+	init_waitqueue_head(&waitq);
 	lwi = LWI_TIMEOUT_INTERVAL(cfs_time_seconds(obd_timeout),
 				   cfs_time_seconds(1), NULL, NULL);
 

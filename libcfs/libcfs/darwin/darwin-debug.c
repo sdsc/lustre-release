@@ -56,7 +56,7 @@ void lbug_with_loc(struct libcfs_debug_msg_data *msgdata)
         libcfs_debug_dumplog();
         libcfs_run_lbug_upcall(msgdata);
         while (1)
-                cfs_schedule();
+		schedule();
 
 	/* panic("lbug_with_loc(%s, %s, %d)", file, func, line) */
 }
