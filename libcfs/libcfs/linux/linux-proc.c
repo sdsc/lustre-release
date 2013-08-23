@@ -68,7 +68,7 @@
 #include "tracefile.h"
 
 #ifdef CONFIG_SYSCTL
-static cfs_sysctl_table_header_t *lnet_table_header = NULL;
+static struct ctl_table_header *lnet_table_header = NULL;
 #endif
 extern char lnet_upcall[1024];
 /**
@@ -246,9 +246,9 @@ DECLARE_PROC_HANDLER(proc_debug_mb)
 
 int LL_PROC_PROTO(proc_console_max_delay_cs)
 {
-        int rc, max_delay_cs;
-        cfs_sysctl_table_t dummy = *table;
-        cfs_duration_t d;
+	int rc, max_delay_cs;
+	struct ctl_table dummy = *table;
+	cfs_duration_t d;
 
         dummy.data = &max_delay_cs;
         dummy.proc_handler = &proc_dointvec;
@@ -277,9 +277,9 @@ int LL_PROC_PROTO(proc_console_max_delay_cs)
 
 int LL_PROC_PROTO(proc_console_min_delay_cs)
 {
-        int rc, min_delay_cs;
-        cfs_sysctl_table_t dummy = *table;
-        cfs_duration_t d;
+	int rc, min_delay_cs;
+	struct ctl_table dummy = *table;
+	cfs_duration_t d;
 
         dummy.data = &min_delay_cs;
         dummy.proc_handler = &proc_dointvec;
@@ -308,8 +308,8 @@ int LL_PROC_PROTO(proc_console_min_delay_cs)
 
 int LL_PROC_PROTO(proc_console_backoff)
 {
-        int rc, backoff;
-        cfs_sysctl_table_t dummy = *table;
+	int rc, backoff;
+	struct ctl_table dummy = *table;
 
         dummy.data = &backoff;
         dummy.proc_handler = &proc_dointvec;
@@ -393,7 +393,7 @@ static int __proc_cpt_table(void *data, int write,
 }
 DECLARE_PROC_HANDLER(proc_cpt_table)
 
-static cfs_sysctl_table_t lnet_table[] = {
+static struct ctl_table lnet_table[] = {
         /*
          * NB No .strategy entries have been provided since sysctl(8) prefers
          * to go via /proc for portability.
@@ -571,7 +571,7 @@ static cfs_sysctl_table_t lnet_table[] = {
 };
 
 #ifdef CONFIG_SYSCTL
-static cfs_sysctl_table_t top_table[] = {
+static struct ctl_table top_table[] = {
         {
                 INIT_CTL_NAME(CTL_LNET)
                 .procname = "lnet",
@@ -589,18 +589,18 @@ static cfs_sysctl_table_t top_table[] = {
 int insert_proc(void)
 {
 #ifdef CONFIG_SYSCTL
-        if (lnet_table_header == NULL)
-                lnet_table_header = cfs_register_sysctl_table(top_table, 0);
+	if (lnet_table_header == NULL)
+		lnet_table_header = register_sysctl_table(top_table);
 #endif
-        return 0;
+	return 0;
 }
 
 void remove_proc(void)
 {
 #ifdef CONFIG_SYSCTL
-        if (lnet_table_header != NULL)
-                cfs_unregister_sysctl_table(lnet_table_header);
+	if (lnet_table_header != NULL)
+		unregister_sysctl_table(lnet_table_header);
 
-        lnet_table_header = NULL;
+	lnet_table_header = NULL;
 #endif
 }
