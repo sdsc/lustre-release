@@ -14,7 +14,7 @@ ONLY=${ONLY:-"$*"}
 # bug number for skipped test:
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 # skip test cases failed before landing - Jinshan
-ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 24 34 35 58 59 200 221 223a 223b 225 226"
+ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 24 58 59 200 221 223a 223b 225 226"
 
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 
@@ -1576,8 +1576,8 @@ test_34() {
 
 	rm $f || error "rm $f failed"
 	# rm must not block during restore
-	wait_request_state $fid RESTORE STARTED
 
+	echo "continue wait_request_state $fid action RESTORE to SUCCEED"
 	wait_request_state $fid RESTORE SUCCEED
 	# check md5sum pgm finished
 	local there=$(ps -o pid,comm hp $pid >/dev/null)
@@ -1610,8 +1610,8 @@ test_35() {
 
 	mv $f1 $f || error "mv $f1 $f failed"
 	# mv must not block during restore
-	wait_request_state $fid RESTORE STARTED
 
+	echo "continue wait_request_state $fid action RESTORE to SUCCEED"
 	wait_request_state $fid RESTORE SUCCEED
 	# check md5sum pgm finished
 	local there=$(ps -o pid,comm hp $pid >/dev/null)
