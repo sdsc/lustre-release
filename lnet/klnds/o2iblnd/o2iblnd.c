@@ -738,7 +738,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
 	int			i;
 
 	LASSERT(net != NULL);
-	LASSERT(!cfs_in_interrupt());
+	LASSERT(!in_interrupt());
 
 	dev = net->ibn_dev;
 
@@ -930,7 +930,7 @@ kiblnd_destroy_conn (kib_conn_t *conn)
         kib_peer_t        *peer = conn->ibc_peer;
         int                rc;
 
-        LASSERT (!cfs_in_interrupt());
+	LASSERT (!in_interrupt());
         LASSERT (cfs_atomic_read(&conn->ibc_refcount) == 0);
         LASSERT (cfs_list_empty(&conn->ibc_early_rxs));
         LASSERT (cfs_list_empty(&conn->ibc_tx_noops));

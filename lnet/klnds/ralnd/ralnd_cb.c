@@ -389,7 +389,7 @@ kranal_tx_done (kra_tx_t *tx, int completion)
         unsigned long    flags;
         int              i;
 
-        LASSERT (!cfs_in_interrupt());
+	LASSERT (!in_interrupt());
 
         kranal_unmap_buffer(tx);
 
@@ -628,7 +628,7 @@ kranal_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
         LASSERT (nob == 0 || niov > 0);
         LASSERT (niov <= LNET_MAX_IOV);
 
-        LASSERT (!cfs_in_interrupt());
+	LASSERT (!in_interrupt());
         /* payload is either all vaddrs or all pages */
         LASSERT (!(kiov != NULL && iov != NULL));
 
@@ -802,7 +802,7 @@ kranal_recv (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg,
         int          rc;
 
         LASSERT (mlen <= rlen);
-        LASSERT (!cfs_in_interrupt());
+	LASSERT (!in_interrupt());
         /* Either all pages or all vaddrs */
         LASSERT (!(kiov != NULL && iov != NULL));
 

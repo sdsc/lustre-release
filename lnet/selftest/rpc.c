@@ -1452,7 +1452,7 @@ srpc_lnet_ev_handler(lnet_event_t *ev)
         srpc_msg_t        *msg;
         srpc_msg_type_t    type;
 
-        LASSERT (!cfs_in_interrupt());
+	LASSERT (!in_interrupt());
 
         if (ev->status != 0) {
 		spin_lock(&srpc_data.rpc_glock);

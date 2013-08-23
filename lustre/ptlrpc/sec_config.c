@@ -267,7 +267,7 @@ int sptlrpc_rule_set_expand(struct sptlrpc_rule_set *rset)
         struct sptlrpc_rule *rules;
         int nslot;
 
-        cfs_might_sleep();
+	might_sleep();
 
         if (rset->srs_nrule < rset->srs_nslot)
                 return 0; 
@@ -325,7 +325,7 @@ int sptlrpc_rule_set_merge(struct sptlrpc_rule_set *rset,
         int                       spec_dir, spec_net;
         int                       rc, n, match = 0;
 
-        cfs_might_sleep();
+	might_sleep();
 
         spec_net = rule_spec_net(rule);
         spec_dir = rule_spec_dir(rule);
@@ -465,7 +465,7 @@ static int sptlrpc_rule_set_extract(struct sptlrpc_rule_set *gen,
         struct sptlrpc_rule     *rule;
         int                      i, n, rc;
 
-        cfs_might_sleep();
+	might_sleep();
 
         /* merge general rules firstly, then target-specific rules */
         for (i = 0; i < 2; i++) {

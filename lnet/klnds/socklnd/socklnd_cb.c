@@ -222,7 +222,7 @@ ksocknal_transmit (ksock_conn_t *conn, ksock_tx_t *tx)
                                 cfs_time_shift(*ksocknal_tunables.ksnd_timeout);
                         conn->ksnc_peer->ksnp_last_alive = cfs_time_current();
                         conn->ksnc_tx_bufnob = bufnob;
-                        cfs_mb();
+			smp_mb();
                 }
 
                 if (rc <= 0) { /* Didn't write anything? */
@@ -269,7 +269,7 @@ ksocknal_recv_iov (ksock_conn_t *conn)
         conn->ksnc_peer->ksnp_last_alive = cfs_time_current();
         conn->ksnc_rx_deadline =
                 cfs_time_shift(*ksocknal_tunables.ksnd_timeout);
-        cfs_mb();                       /* order with setting rx_started */
+	smp_mb();                       /* order with setting rx_started */
         conn->ksnc_rx_started = 1;
 
         conn->ksnc_rx_nob_wanted -= nob;
@@ -313,7 +313,7 @@ ksocknal_recv_kiov (ksock_conn_t *conn)
         conn->ksnc_peer->ksnp_last_alive = cfs_time_current();
         conn->ksnc_rx_deadline =
                 cfs_time_shift(*ksocknal_tunables.ksnd_timeout);
-        cfs_mb();                       /* order with setting rx_started */
+	smp_mb();                       /* order with setting rx_started */
         conn->ksnc_rx_started = 1;
 
         conn->ksnc_rx_nob_wanted -= nob;
@@ -738,7 +738,7 @@ ksocknal_queue_tx_locked (ksock_tx_t *tx, ksock_conn_t *conn)
                 if (conn->ksnc_tx_bufnob > 0) /* something got ACKed */
                         conn->ksnc_peer->ksnp_last_alive = cfs_time_current();
                 conn->ksnc_tx_bufnob = 0;
-                cfs_mb(); /* order with adding to tx_queue */
+		smp_mb(); /* order with adding to tx_queue */
         }
 
         if (msg->ksm_type == KSOCK_MSG_NOOP) {
@@ -950,7 +950,7 @@ ksocknal_send(lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
         LASSERT (payload_niov <= LNET_MAX_IOV);
         /* payload is either all vaddrs or all pages */
         LASSERT (!(payload_kiov != NULL && payload_iov != NULL));
-        LASSERT (!cfs_in_interrupt ());
+	LASSERT (!in_interrupt ());
 
         if (payload_iov != NULL)
                 desc_size = offsetof(ksock_tx_t,
@@ -1046,7 +1046,7 @@ ksocknal_new_packet (ksock_conn_t *conn, int nob_to_skip)
 
         if (nob_to_skip == 0) {         /* right at next packet boundary now */
                 conn->ksnc_rx_started = 0;
-                cfs_mb();                       /* racing with timeout thread */
+		smp_mb();                       /* racing with timeout thread */
 
                 switch (conn->ksnc_proto->pro_version) {
                 case  KSOCK_PROTO_V2:

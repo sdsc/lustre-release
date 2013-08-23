@@ -80,7 +80,7 @@ static void mdt_identity_entry_free(struct upcall_cache *cache,
         struct md_identity *identity = &entry->u.identity;
 
         if (identity->mi_ginfo) {
-                cfs_put_group_info(identity->mi_ginfo);
+		put_group_info(identity->mi_ginfo);
                 identity->mi_ginfo = NULL;
         }
 
@@ -152,7 +152,7 @@ static int mdt_identity_parse_downcall(struct upcall_cache *cache,
 {
         struct md_identity *identity = &entry->u.identity;
         struct identity_downcall_data *data = args;
-        cfs_group_info_t *ginfo = NULL;
+	struct group_info *ginfo = NULL;
         struct md_perm *perms = NULL;
         int size, i;
         ENTRY;
@@ -162,7 +162,7 @@ static int mdt_identity_parse_downcall(struct upcall_cache *cache,
                 RETURN(-E2BIG);
 
         if (data->idd_ngroups > 0) {
-                ginfo = cfs_groups_alloc(data->idd_ngroups);
+		ginfo = groups_alloc(data->idd_ngroups);
                 if (!ginfo) {
                         CERROR("failed to alloc %d groups\n", data->idd_ngroups);
                         RETURN(-ENOMEM);
@@ -179,7 +179,7 @@ static int mdt_identity_parse_downcall(struct upcall_cache *cache,
                         CERROR("failed to alloc %d permissions\n",
                                data->idd_nperms);
                         if (ginfo != NULL)
-                                cfs_put_group_info(ginfo);
+				put_group_info(ginfo);
                         RETURN(-ENOMEM);
                 }
 

@@ -404,7 +404,7 @@ kqswnal_tx_done_in_thread_context (kqswnal_tx_t *ktx)
         int            status1  = 0;
         kqswnal_rx_t  *krx;
 
-        LASSERT (!cfs_in_interrupt());
+	LASSERT (!in_interrupt());
 
         if (ktx->ktx_status == -EHOSTDOWN)
                 kqswnal_notify_peer_down(ktx);
@@ -508,7 +508,7 @@ kqswnal_tx_done (kqswnal_tx_t *ktx, int status)
 
         ktx->ktx_status = status;
 
-        if (!cfs_in_interrupt()) {
+	if (!in_interrupt()) {
                 kqswnal_tx_done_in_thread_context(ktx);
                 return;
         }
@@ -603,7 +603,7 @@ int
 kqswnal_launch (kqswnal_tx_t *ktx)
 {
         /* Don't block for transmit descriptor if we're in interrupt context */
-        int   attr = cfs_in_interrupt() ? (EP_NO_SLEEP | EP_NO_ALLOC) : 0;
+	int   attr = in_interrupt() ? (EP_NO_SLEEP | EP_NO_ALLOC) : 0;
         int   dest = kqswnal_nid2elanid (ktx->ktx_nid);
         unsigned long flags;
         int   rc;
@@ -1009,7 +1009,7 @@ kqswnal_send (lnet_ni_t *ni, void *private, lnet_msg_t *lntmsg)
         LASSERT (payload_niov <= LNET_MAX_IOV);
 
         /* It must be OK to kmap() if required */
-        LASSERT (payload_kiov == NULL || !cfs_in_interrupt ());
+	LASSERT (payload_kiov == NULL || !in_interrupt ());
         /* payload is either all vaddrs or all pages */
         LASSERT (!(payload_kiov != NULL && payload_iov != NULL));
 
@@ -1305,7 +1305,7 @@ kqswnal_rx_done (kqswnal_rx_t *krx)
                 krx->krx_rpc_reply.msg.magic   = LNET_PROTO_QSW_MAGIC;
                 krx->krx_rpc_reply.msg.version = QSWLND_PROTO_VERSION;
 
-                LASSERT (!cfs_in_interrupt());
+		LASSERT (!in_interrupt());
 
                 rc = ep_complete_rpc(krx->krx_rxd, 
                                      kqswnal_rpc_complete, krx,
@@ -1534,7 +1534,7 @@ kqswnal_rxhandler(EP_RXD *rxd)
                 return;
         }
 
-        if (!cfs_in_interrupt()) {
+	if (!in_interrupt()) {
                 kqswnal_parse(krx);
                 return;
         }
@@ -1567,7 +1567,7 @@ kqswnal_recv (lnet_ni_t     *ni,
         int                 msg_offset;
         int                 rc;
 
-        LASSERT (!cfs_in_interrupt ());             /* OK to map */
+	LASSERT (!in_interrupt ());             /* OK to map */
         /* Either all pages or all vaddrs */
         LASSERT (!(kiov != NULL && iov != NULL));
 

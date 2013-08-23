@@ -255,7 +255,7 @@ void ptlrpc_abort_bulk(struct ptlrpc_bulk_desc *desc)
         struct l_wait_info       lwi;
         int                      rc;
 
-        LASSERT(!cfs_in_interrupt());           /* might sleep */
+	LASSERT(!in_interrupt());           /* might sleep */
 
         if (!ptlrpc_server_bulk_active(desc))   /* completed or */
                 return;                         /* never started */
@@ -429,7 +429,7 @@ int ptlrpc_unregister_bulk(struct ptlrpc_request *req, int async)
         int                      rc;
         ENTRY;
 
-        LASSERT(!cfs_in_interrupt());     /* might sleep */
+	LASSERT(!in_interrupt());     /* might sleep */
 
         /* Let's setup deadline for reply unlink. */
         if (OBD_FAIL_CHECK(OBD_FAIL_PTLRPC_LONG_BULK_UNLINK) &&

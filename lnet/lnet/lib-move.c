@@ -343,7 +343,7 @@ lnet_copy_kiov2kiov (unsigned int ndiov, lnet_kiov_t *diov, unsigned int doffset
         if (nob == 0)
                 return;
 
-        LASSERT (!cfs_in_interrupt ());
+	LASSERT (!in_interrupt ());
 
         LASSERT (ndiov > 0);
         while (doffset >= diov->kiov_len) {
@@ -424,7 +424,7 @@ lnet_copy_kiov2iov (unsigned int niov, struct iovec *iov, unsigned int iovoffset
         if (nob == 0)
                 return;
 
-        LASSERT (!cfs_in_interrupt ());
+	LASSERT (!in_interrupt ());
 
         LASSERT (niov > 0);
         while (iovoffset >= iov->iov_len) {
@@ -494,7 +494,7 @@ lnet_copy_iov2kiov (unsigned int nkiov, lnet_kiov_t *kiov, unsigned int kiovoffs
         if (nob == 0)
                 return;
 
-        LASSERT (!cfs_in_interrupt ());
+	LASSERT (!in_interrupt ());
 
         LASSERT (nkiov > 0);
         while (kiovoffset >= kiov->kiov_len) {
@@ -611,7 +611,7 @@ lnet_ni_recv(lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
         lnet_kiov_t  *kiov = NULL;
         int           rc;
 
-        LASSERT (!cfs_in_interrupt ());
+	LASSERT (!in_interrupt ());
         LASSERT (mlen == 0 || msg != NULL);
 
         if (msg != NULL) {
@@ -686,7 +686,7 @@ lnet_ni_send(lnet_ni_t *ni, lnet_msg_t *msg)
         void   *priv = msg->msg_private;
         int     rc;
 
-        LASSERT (!cfs_in_interrupt ());
+	LASSERT (!in_interrupt ());
         LASSERT (LNET_NETTYP(LNET_NIDNET(ni->ni_nid)) == LOLND ||
                  (msg->msg_txcredit && msg->msg_peertxcredit));
 
@@ -1781,7 +1781,7 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
         __u32          payload_length;
         __u32          type;
 
-        LASSERT (!cfs_in_interrupt ());
+	LASSERT (!in_interrupt ());
 
         type = le32_to_cpu(hdr->type);
         src_nid = le64_to_cpu(hdr->src_nid);

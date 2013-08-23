@@ -107,7 +107,7 @@ ksocknal_create_peer (ksock_peer_t **peerp, lnet_ni_t *ni, lnet_process_id_t id)
 
         LASSERT (id.nid != LNET_NID_ANY);
         LASSERT (id.pid != LNET_PID_ANY);
-        LASSERT (!cfs_in_interrupt());
+	LASSERT (!in_interrupt());
 
         LIBCFS_ALLOC (peer, sizeof (*peer));
         if (peer == NULL)
@@ -1270,7 +1270,7 @@ ksocknal_create_conn (lnet_ni_t *ni, ksock_route_t *route,
         /* Set the deadline for the outgoing HELLO to drain */
         conn->ksnc_tx_bufnob = libcfs_sock_wmem_queued(sock);
         conn->ksnc_tx_deadline = cfs_time_shift(*ksocknal_tunables.ksnd_timeout);
-        cfs_mb();   /* order with adding to peer's conn list */
+	smp_mb();   /* order with adding to peer's conn list */
 
         cfs_list_add (&conn->ksnc_list, &peer->ksnp_conns);
         ksocknal_conn_addref(conn);
