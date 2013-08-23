@@ -1345,7 +1345,7 @@ static int ldlm_pools_thread_main(void *arg)
         ENTRY;
 
         thread_set_flags(thread, SVC_RUNNING);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 
         CDEBUG(D_DLMTRACE, "%s: pool thread starting, process %d\n",
 	       "ldlm_poold", current_pid());
@@ -1377,7 +1377,7 @@ static int ldlm_pools_thread_main(void *arg)
         }
 
         thread_set_flags(thread, SVC_STOPPED);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 
         CDEBUG(D_DLMTRACE, "%s: pool thread exiting, process %d\n",
 		"ldlm_poold", current_pid());
@@ -1399,7 +1399,7 @@ static int ldlm_pools_thread_start(void)
 		RETURN(-ENOMEM);
 
 	init_completion(&ldlm_pools_comp);
-	cfs_waitq_init(&ldlm_pools_thread->t_ctl_waitq);
+	init_waitqueue_head(&ldlm_pools_thread->t_ctl_waitq);
 
 	task = kthread_run(ldlm_pools_thread_main, ldlm_pools_thread,
 			   "ldlm_poold");
@@ -1424,7 +1424,7 @@ static void ldlm_pools_thread_stop(void)
         }
 
         thread_set_flags(ldlm_pools_thread, SVC_STOPPING);
-        cfs_waitq_signal(&ldlm_pools_thread->t_ctl_waitq);
+	wake_up(&ldlm_pools_thread->t_ctl_waitq);
 
         /*
          * Make sure that pools thread is finished before freeing @thread.

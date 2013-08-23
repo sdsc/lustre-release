@@ -199,7 +199,7 @@ void mdt_ck_timer_callback(unsigned long castmeharder)
 
         ENTRY;
         thread_add_flags(thread, SVC_EVENT);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
         EXIT;
 }
 
@@ -222,7 +222,7 @@ static int mdt_ck_thread_main(void *args)
         cfs_block_allsigs();
 
         thread_set_flags(thread, SVC_RUNNING);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 
         rc = lu_env_init(&env, LCT_MD_THREAD|LCT_REMEMBER|LCT_NOREF);
         if (rc)
@@ -284,7 +284,7 @@ static int mdt_ck_thread_main(void *args)
         lu_env_fini(&env);
 
         thread_set_flags(thread, SVC_STOPPED);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
         RETURN(0);
 }
 
@@ -293,7 +293,7 @@ int mdt_ck_thread_start(struct mdt_device *mdt)
 	struct ptlrpc_thread *thread = &mdt->mdt_ck_thread;
 	cfs_task_t *task;
 
-	cfs_waitq_init(&thread->t_ctl_waitq);
+	init_waitqueue_head(&thread->t_ctl_waitq);
 	task = kthread_run(mdt_ck_thread_main, mdt, "mdt_ck");
 	if (IS_ERR(task)) {
 		CERROR("cannot start mdt_ck thread, rc = %ld\n", PTR_ERR(task));
@@ -312,6 +312,6 @@ void mdt_ck_thread_stop(struct mdt_device *mdt)
                 return;
 
         thread_set_flags(thread, SVC_STOPPING);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
         l_wait_condition(thread->t_ctl_waitq, thread_is_stopped(thread));
 }

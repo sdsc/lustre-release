@@ -458,7 +458,7 @@ static void ll_agl_add(struct ll_statahead_info *sai,
 	}
 
 	if (added > 0)
-		cfs_waitq_signal(&sai->sai_agl_thread.t_ctl_waitq);
+		wake_up(&sai->sai_agl_thread.t_ctl_waitq);
 }
 
 static struct ll_statahead_info *ll_sai_alloc(void)
@@ -481,9 +481,9 @@ static struct ll_statahead_info *ll_sai_alloc(void)
 
         sai->sai_max = LL_SA_RPC_MIN;
         sai->sai_index = 1;
-        cfs_waitq_init(&sai->sai_waitq);
-        cfs_waitq_init(&sai->sai_thread.t_ctl_waitq);
-        cfs_waitq_init(&sai->sai_agl_thread.t_ctl_waitq);
+	init_waitqueue_head(&sai->sai_waitq);
+	init_waitqueue_head(&sai->sai_thread.t_ctl_waitq);
+	init_waitqueue_head(&sai->sai_agl_thread.t_ctl_waitq);
 
 	CFS_INIT_LIST_HEAD(&sai->sai_entries);
         CFS_INIT_LIST_HEAD(&sai->sai_entries_received);
@@ -700,7 +700,7 @@ out:
 	rc = ll_sa_entry_to_stated(sai, entry,
 				   rc < 0 ? SA_ENTRY_INVA : SA_ENTRY_SUCC);
 	if (rc == 0 && entry->se_index == sai->sai_index_wait)
-                cfs_waitq_signal(&sai->sai_waitq);
+		wake_up(&sai->sai_waitq);
         ll_sa_entry_put(sai, entry);
 }
 
@@ -760,7 +760,7 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 
 		ll_sa_entry_put(sai, entry);
 		if (wakeup)
-			cfs_waitq_signal(&sai->sai_thread.t_ctl_waitq);
+			wake_up(&sai->sai_thread.t_ctl_waitq);
         }
 
         EXIT;
@@ -954,7 +954,7 @@ static void ll_statahead_one(struct dentry *parent, const char* entry_name,
                 rc1 = ll_sa_entry_to_stated(sai, entry,
                                         rc < 0 ? SA_ENTRY_INVA : SA_ENTRY_SUCC);
                 if (rc1 == 0 && entry->se_index == sai->sai_index_wait)
-                        cfs_waitq_signal(&sai->sai_waitq);
+			wake_up(&sai->sai_waitq);
         } else {
                 sai->sai_sent++;
         }
@@ -986,7 +986,7 @@ static int ll_agl_thread(void *arg)
 	sai->sai_agl_valid = 1;
 	thread_set_flags(thread, SVC_RUNNING);
 	spin_unlock(&plli->lli_agl_lock);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 
         while (1) {
                 l_wait_event(thread->t_ctl_waitq,
@@ -1022,7 +1022,7 @@ static int ll_agl_thread(void *arg)
 	}
 	thread_set_flags(thread, SVC_STOPPED);
 	spin_unlock(&plli->lli_agl_lock);
-	cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 	ll_sai_put(sai);
 	CDEBUG(D_READA, "agl thread stopped: [pid %d] [parent %.*s]\n",
 	       current_pid(), parent->d_name.len, parent->d_name.name);
@@ -1083,7 +1083,7 @@ static int ll_statahead_thread(void *arg)
 	spin_lock(&plli->lli_sa_lock);
 	thread_set_flags(thread, SVC_RUNNING);
 	spin_unlock(&plli->lli_sa_lock);
-	cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&thread->t_ctl_waitq);
 
 	ll_dir_chain_init(&chain);
 	page = ll_get_dir_page(dir, pos, &chain);
@@ -1261,7 +1261,7 @@ out:
 		spin_lock(&plli->lli_agl_lock);
 		thread_set_flags(agl_thread, SVC_STOPPING);
 		spin_unlock(&plli->lli_agl_lock);
-                cfs_waitq_signal(&agl_thread->t_ctl_waitq);
+		wake_up(&agl_thread->t_ctl_waitq);
 
 		CDEBUG(D_READA, "stop agl thread: [pid %d]\n",
 		       current_pid());
@@ -1286,8 +1286,8 @@ out:
 	}
 	thread_set_flags(thread, SVC_STOPPED);
 	spin_unlock(&plli->lli_sa_lock);
-        cfs_waitq_signal(&sai->sai_waitq);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	wake_up(&sai->sai_waitq);
+	wake_up(&thread->t_ctl_waitq);
         ll_sai_put(sai);
         dput(parent);
 	CDEBUG(D_READA, "statahead thread stopped: [pid %d] [parent %.*s]\n",
@@ -1320,7 +1320,7 @@ void ll_stop_statahead(struct inode *dir, void *key)
                 if (!thread_is_stopped(thread)) {
                         thread_set_flags(thread, SVC_STOPPING);
 			spin_unlock(&lli->lli_sa_lock);
-			cfs_waitq_signal(&thread->t_ctl_waitq);
+			wake_up(&thread->t_ctl_waitq);
 
 			CDEBUG(D_READA, "stop statahead thread: [pid %d]\n",
 			       current_pid());
@@ -1512,7 +1512,7 @@ ll_sai_unplug(struct ll_statahead_info *sai, struct ll_sa_entry *entry)
 	}
 
 	if (!thread_is_stopped(thread))
-		cfs_waitq_signal(&thread->t_ctl_waitq);
+		wake_up(&thread->t_ctl_waitq);
 
 	EXIT;
 }

@@ -2095,7 +2095,7 @@ void ll_umount_begin(struct super_block *sb)
          * and then continue.  For now, we just invalidate the requests,
          * schedule() and sleep one second if needed, and hope.
          */
-        cfs_schedule();
+	schedule();
         EXIT;
 }
 

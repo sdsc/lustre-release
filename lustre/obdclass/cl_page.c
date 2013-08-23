@@ -259,7 +259,7 @@ int cl_page_gang_lookup(const struct lu_env *env, struct cl_object *obj,
                 if (nr < CLT_PVEC_SIZE || end_of_region)
                         break;
 
-                if (res == CLP_GANG_OKAY && cfs_need_resched())
+		if (res == CLP_GANG_OKAY && need_resched())
                         res = CLP_GANG_RESCHED;
                 if (res != CLP_GANG_OKAY)
                         break;
@@ -1499,7 +1499,7 @@ int cl_pages_prune(const struct lu_env *env, struct cl_object *clobj)
                 result = cl_page_gang_lookup(env, obj, io, 0, CL_PAGE_EOF,
                                              page_prune_cb, NULL);
                 if (result == CLP_GANG_RESCHED)
-                        cfs_cond_resched();
+			cond_resched();
         } while (result != CLP_GANG_OKAY);
 
         cl_io_fini(env, io);

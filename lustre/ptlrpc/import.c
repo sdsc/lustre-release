@@ -377,7 +377,7 @@ void ptlrpc_invalidate_import(struct obd_import *imp)
         sptlrpc_import_flush_all_ctx(imp);
 
         cfs_atomic_dec(&imp->imp_inval_count);
-        cfs_waitq_broadcast(&imp->imp_recovery_waitq);
+	wake_up_all(&imp->imp_recovery_waitq);
 }
 EXPORT_SYMBOL(ptlrpc_invalidate_import);
 
@@ -1185,7 +1185,7 @@ out:
                        (char *)imp->imp_connection->c_remote_uuid.uuid, rc);
         }
 
-        cfs_waitq_broadcast(&imp->imp_recovery_waitq);
+	wake_up_all(&imp->imp_recovery_waitq);
         RETURN(rc);
 }
 
@@ -1410,7 +1410,7 @@ int ptlrpc_import_recovery_state_machine(struct obd_import *imp)
         }
 
         if (imp->imp_state == LUSTRE_IMP_FULL) {
-                cfs_waitq_broadcast(&imp->imp_recovery_waitq);
+		wake_up_all(&imp->imp_recovery_waitq);
                 ptlrpc_wake_delayed(imp);
         }
 

@@ -1036,7 +1036,7 @@ do {                                                                         \
 	CDEBUG(D_NET, "Waiting for thread pause to be over...\n");           \
 	while (kgnilnd_data.kgn_quiesce_trigger) {                           \
 		set_current_state(TASK_INTERRUPTIBLE);                       \
-		cfs_schedule_timeout_and_set_state(TASK_INTERRUPTIBLE,       \
+		schedule_timeout_and_set_state(TASK_INTERRUPTIBLE,       \
 			cfs_time_seconds(1));                                \
 	}                                                                    \
 	/* Mom, my homework is done */                                       \

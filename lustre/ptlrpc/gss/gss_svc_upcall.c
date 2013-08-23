@@ -121,13 +121,13 @@ static inline unsigned long hash_mem(char *buf, int length, int bits)
 #define RSI_HASHMASK    (RSI_HASHMAX - 1)
 
 struct rsi {
-        struct cache_head       h;
-        __u32                   lustre_svc;
-        __u64                   nid;
-        cfs_waitq_t             waitq;
-        rawobj_t                in_handle, in_token;
-        rawobj_t                out_handle, out_token;
-        int                     major_status, minor_status;
+	struct cache_head       h;
+	__u32                   lustre_svc;
+	__u64                   nid;
+	wait_queue_head_t       waitq;
+	rawobj_t                in_handle, in_token;
+	rawobj_t                out_handle, out_token;
+	int                     major_status, minor_status;
 };
 
 static struct cache_head *rsi_table[RSI_HASHMAX];
@@ -194,7 +194,7 @@ static inline void __rsi_init(struct rsi *new, struct rsi *item)
 
         new->lustre_svc = item->lustre_svc;
         new->nid = item->nid;
-        cfs_waitq_init(&new->waitq);
+	init_waitqueue_head(&new->waitq);
 }
 
 static inline void __rsi_update(struct rsi *new, struct rsi *item)
@@ -337,7 +337,7 @@ static int rsi_parse(struct cache_detail *cd, char *mesg, int mlen)
 out:
         rsi_free(&rsii);
         if (rsip) {
-                cfs_waitq_broadcast(&rsip->waitq);
+		wake_up_all(&rsip->waitq);
                 cache_put(&rsip->h, &rsi_cache);
         } else {
                 status = -ENOMEM;
@@ -854,7 +854,7 @@ int gss_svc_upcall_handle_init(struct ptlrpc_request *req,
         struct ptlrpc_reply_state *rs;
         struct rsc                *rsci = NULL;
         struct rsi                *rsip = NULL, rsikey;
-        cfs_waitlink_t             wait;
+	wait_queue_t             wait;
         int                        replen = sizeof(struct ptlrpc_body);
         struct gss_rep_header     *rephdr;
         int                        first_check = 1;
@@ -889,9 +889,9 @@ int gss_svc_upcall_handle_init(struct ptlrpc_request *req,
         }
 
         cache_get(&rsip->h); /* take an extra ref */
-        cfs_waitq_init(&rsip->waitq);
-        cfs_waitlink_init(&wait);
-        cfs_waitq_add(&rsip->waitq, &wait);
+	init_waitqueue_head(&rsip->waitq);
+	init_waitqueue_entry_current(&wait);
+	add_wait_queue(&rsip->waitq, &wait);
 
 cache_check:
         /* Note each time cache_check() will drop a reference if return
@@ -908,11 +908,11 @@ cache_check:
                         read_lock(&rsi_cache.hash_lock);
 			valid = test_bit(CACHE_VALID, &rsip->h.flags);
                         if (valid == 0)
-                                cfs_set_current_state(CFS_TASK_INTERRUPTIBLE);
+				set_current_state(TASK_INTERRUPTIBLE);
                         read_unlock(&rsi_cache.hash_lock);
 
 			if (valid == 0)
-				cfs_schedule_timeout(GSS_SVC_UPCALL_TIMEOUT *
+				schedule_timeout(GSS_SVC_UPCALL_TIMEOUT *
 						     HZ);
 
 			cache_get(&rsip->h);
@@ -933,7 +933,7 @@ cache_check:
                 break;
         }
 
-        cfs_waitq_del(&rsip->waitq, &wait);
+	remove_wait_queue(&rsip->waitq, &wait);
         cache_put(&rsip->h, &rsi_cache);
 
         if (rc)
@@ -1081,9 +1081,9 @@ int __init gss_init_svc_upcall(void)
 	for (i = 0; i < 6; i++) {
 		if (atomic_read(&rsi_cache.readers) > 0)
 			break;
-		cfs_set_current_state(TASK_UNINTERRUPTIBLE);
+		set_current_state(TASK_UNINTERRUPTIBLE);
 		LASSERT(HZ >= 4);
-		cfs_schedule_timeout(HZ / 4);
+		schedule_timeout(HZ / 4);
 	}
 
         if (atomic_read(&rsi_cache.readers) == 0)

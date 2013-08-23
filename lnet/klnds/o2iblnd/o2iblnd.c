@@ -795,7 +795,7 @@ kiblnd_create_conn(kib_peer_t *peer, struct rdma_cm_id *cmid,
                 if (kiblnd_dev_can_failover(dev)) {
                         cfs_list_add_tail(&dev->ibd_fail_list,
                                       &kiblnd_data.kib_failed_devs);
-                        cfs_waitq_signal(&kiblnd_data.kib_failover_waitq);
+			wake_up(&kiblnd_data.kib_failover_waitq);
                 }
 
 		write_unlock_irqrestore(glock, flags);
@@ -1325,7 +1325,7 @@ kiblnd_current_hdev(kib_dev_t *dev)
 		if (i++ % 50 == 0)
 			CDEBUG(D_NET, "%s: Wait for failover\n",
 			       dev->ibd_ifname);
-		cfs_schedule_timeout(cfs_time_seconds(1) / 100);
+		schedule_timeout(cfs_time_seconds(1) / 100);
 
 		read_lock_irqsave(&kiblnd_data.kib_global_lock, flags);
 	}
@@ -1672,7 +1672,7 @@ kiblnd_fmr_pool_map(kib_fmr_poolset_t *fps, __u64 *pages, int npages,
 		spin_unlock(&fps->fps_lock);
 		CDEBUG(D_NET, "Another thread is allocating new "
 		       "FMR pool, waiting for her to complete\n");
-		cfs_schedule();
+		schedule();
 		goto again;
 
 	}
@@ -1875,7 +1875,7 @@ kiblnd_pool_alloc_node(kib_poolset_t *ps)
                 CDEBUG(D_NET, "Another thread is allocating new "
                        "%s pool, waiting for her to complete\n",
                        ps->ps_name);
-                cfs_schedule();
+		schedule();
                 goto again;
         }
 
@@ -2838,10 +2838,10 @@ kiblnd_base_shutdown(void)
 		 * instead of the whole module, this should be improved
 		 * with dynamic configuration LNet */
 		cfs_percpt_for_each(sched, i, kiblnd_data.kib_scheds)
-			cfs_waitq_broadcast(&sched->ibs_waitq);
+			wake_up_all(&sched->ibs_waitq);
 
-                cfs_waitq_broadcast(&kiblnd_data.kib_connd_waitq);
-                cfs_waitq_broadcast(&kiblnd_data.kib_failover_waitq);
+		wake_up_all(&kiblnd_data.kib_connd_waitq);
+		wake_up_all(&kiblnd_data.kib_failover_waitq);
 
                 i = 2;
                 while (cfs_atomic_read(&kiblnd_data.kib_nthreads) != 0) {
@@ -2977,8 +2977,8 @@ kiblnd_base_startup(void)
 	spin_lock_init(&kiblnd_data.kib_connd_lock);
         CFS_INIT_LIST_HEAD(&kiblnd_data.kib_connd_conns);
         CFS_INIT_LIST_HEAD(&kiblnd_data.kib_connd_zombies);
-        cfs_waitq_init(&kiblnd_data.kib_connd_waitq);
-	cfs_waitq_init(&kiblnd_data.kib_failover_waitq);
+	init_waitqueue_head(&kiblnd_data.kib_connd_waitq);
+	init_waitqueue_head(&kiblnd_data.kib_failover_waitq);
 
 	kiblnd_data.kib_scheds = cfs_percpt_alloc(lnet_cpt_table(),
 						  sizeof(*sched));
@@ -2990,7 +2990,7 @@ kiblnd_base_startup(void)
 
 		spin_lock_init(&sched->ibs_lock);
 		CFS_INIT_LIST_HEAD(&sched->ibs_conns);
-		cfs_waitq_init(&sched->ibs_waitq);
+		init_waitqueue_head(&sched->ibs_waitq);
 
 		nthrs = cfs_cpt_weight(lnet_cpt_table(), i);
 		if (*kiblnd_tunables.kib_nscheds > 0) {

@@ -562,7 +562,7 @@ int mdc_enter_request(struct client_obd *cli)
         client_obd_list_lock(&cli->cl_loi_list_lock);
         if (cli->cl_r_in_flight >= cli->cl_max_rpcs_in_flight) {
                 cfs_list_add_tail(&mcw.mcw_entry, &cli->cl_cache_waiters);
-                cfs_waitq_init(&mcw.mcw_waitq);
+		init_waitqueue_head(&mcw.mcw_waitq);
                 client_obd_list_unlock(&cli->cl_loi_list_lock);
                 rc = l_wait_event(mcw.mcw_waitq, mdc_req_avail(cli, &mcw), &lwi);
                 if (rc) {
@@ -595,7 +595,7 @@ void mdc_exit_request(struct client_obd *cli)
                 mcw = cfs_list_entry(l, struct mdc_cache_waiter, mcw_entry);
                 cfs_list_del_init(&mcw->mcw_entry);
                 cli->cl_r_in_flight++;
-                cfs_waitq_signal(&mcw->mcw_waitq);
+		wake_up(&mcw->mcw_waitq);
         }
         /* Empty waiting list? Decrease reqs in-flight number */
 

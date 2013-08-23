@@ -553,7 +553,7 @@ int sptlrpc_req_replace_dead_ctx(struct ptlrpc_request *req)
                        "ctx (%p, fl %lx) doesn't switch, relax a little bit\n",
                        newctx, newctx->cc_flags);
 
-		cfs_schedule_timeout_and_set_state(CFS_TASK_INTERRUPTIBLE,
+		schedule_timeout_and_set_state(TASK_INTERRUPTIBLE,
 						   HZ);
 	} else {
                 /*
@@ -923,8 +923,8 @@ int sptlrpc_import_check_ctx(struct obd_import *imp)
 	spin_lock_init(&req->rq_lock);
         cfs_atomic_set(&req->rq_refcount, 10000);
         CFS_INIT_LIST_HEAD(&req->rq_ctx_chain);
-        cfs_waitq_init(&req->rq_reply_waitq);
-        cfs_waitq_init(&req->rq_set_waitq);
+	init_waitqueue_head(&req->rq_reply_waitq);
+	init_waitqueue_head(&req->rq_set_waitq);
         req->rq_import = imp;
         req->rq_flvr = sec->ps_flvr;
         req->rq_cli_ctx = ctx;
