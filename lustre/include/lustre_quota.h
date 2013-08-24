@@ -175,21 +175,36 @@ struct qsd_instance;
  * enforcement. Arguments are documented where each function is defined.  */
 
 struct qsd_instance *qsd_init(const struct lu_env *, char *, struct dt_device *,
-			      cfs_proc_dir_entry_t *);
-int qsd_prepare(const struct lu_env *, struct qsd_instance *);
+			      cfs_proc_dir_entry_t *, char *, int);
+void qsd_all_fini(const struct lu_env *, cfs_list_t *, cfs_hash_t *hash);
+int qsd_all_start(const struct lu_env *env, cfs_list_t *list);
+int qsd_all_prepare(const struct lu_env *env, cfs_list_t *list,
+		    struct dt_object *);
+void qsd_list_add(struct qsd_instance *qsd, cfs_list_t *list);
+void qsd_list_unlink(struct qsd_instance *qsd);
+int qsd_hash_add_unique(cfs_hash_t *hash, struct qsd_instance *qsd);
+void qsd_hash_del(cfs_hash_t *hash, struct qsd_instance *qsd);
+struct qsd_instance *qsd_hash_lookup(cfs_hash_t *hash, int pool_id);
+struct qsd_instance *qsd_hash_del_key(cfs_hash_t *hash, int pool_id);
+int qsd_prepare(const struct lu_env *, struct qsd_instance *,
+		struct dt_object *);
 int qsd_start(const struct lu_env *, struct qsd_instance *);
 void qsd_fini(const struct lu_env *, struct qsd_instance *);
+void qsd_putref(const struct lu_env *, struct qsd_instance *);
 int qsd_op_begin(const struct lu_env *, struct qsd_instance *,
 		 struct lquota_trans *, struct lquota_id_info *, int *);
 void qsd_op_end(const struct lu_env *, struct qsd_instance *,
 		struct lquota_trans *);
 void qsd_op_adjust(const struct lu_env *, struct qsd_instance *,
 		   union lquota_id *, int);
+extern cfs_hash_ops_t qsd_hash_ops;
 /* This is exported for the ldiskfs quota migration only,
  * see convert_quota_file() */
 int lquota_disk_write_glb(const struct lu_env *, struct dt_object *,
 			  __u64, struct lquota_glb_rec *);
-
+struct dt_object *lquota_disk_dir_find_create(const struct lu_env *,
+					      struct dt_device *,
+					      struct dt_object *, const char *);
 /*
  * Quota information attached to a transaction
  */
@@ -199,6 +214,10 @@ struct lquota_entry;
 struct lquota_id_info {
 	/* quota identifier */
 	union lquota_id		 lqi_id;
+
+	/* pool ID */
+	bool			 lqi_valid;
+	__u32			 lqi_pool_id;
 
 	/* USRQUOTA or GRPQUOTA for now, could be expanded for
 	 * directory quota or other types later.  */

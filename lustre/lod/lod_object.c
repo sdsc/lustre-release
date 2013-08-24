@@ -332,6 +332,11 @@ static int lod_attr_set(const struct lu_env *env,
 	struct dt_object  *next = dt_object_child(dt);
 	struct lod_object *lo = lod_dt_obj(dt);
 	int                rc, i;
+	struct lod_device *m = lu2lod_dev(dt->do_lu.lo_dev);
+	struct lu_attr	   copy_attr;
+	struct lu_attr	  *final_attr = (struct lu_attr *)attr;
+	int		   pool_id;
+	struct pool_desc  *pool;
 	ENTRY;
 
 	/*
@@ -344,13 +349,26 @@ static int lod_attr_set(const struct lu_env *env,
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
 		RETURN(rc);
 
+	if (lo->ldo_pool) {
+		pool = lod_find_pool(m, lo->ldo_pool);
+		if (pool != NULL) {
+			pool_id = pool->pool_id;
+			lod_pool_putref(pool);
+			copy_attr = *attr;
+			copy_attr.la_pool_id = pool_id;
+			final_attr = &copy_attr;
+			CERROR("ZZZ: set pool id %d\n", pool_id);
+		}
+	}
+
 	/*
 	 * if object is striped, apply changes to all the stripes
 	 */
 	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_attr_set(env, lo->ldo_stripe[i], attr, handle, capa);
+		rc = dt_attr_set(env, lo->ldo_stripe[i], final_attr, handle,
+				 capa);
 		if (rc) {
 			CERROR("failed declaration: %d\n", rc);
 			break;
@@ -586,6 +604,8 @@ static int lod_xattr_list(const struct lu_env *env,
 int lod_object_set_pool(struct lod_object *o, char *pool)
 {
 	int len;
+	struct pool_desc *pool_desc;
+	struct lod_device *m = lu2lod_dev(o->ldo_obj.do_lu.lo_dev);
 
 	if (o->ldo_pool) {
 		len = strlen(o->ldo_pool);
@@ -598,7 +618,14 @@ int lod_object_set_pool(struct lod_object *o, char *pool)
 		if (o->ldo_pool == NULL)
 			return -ENOMEM;
 		strcpy(o->ldo_pool, pool);
+
+		pool_desc = lod_find_pool(m, o->ldo_pool);
+		if (pool_desc != NULL) {
+			o->ldo_pool_id = pool_desc->pool_id;
+			lod_pool_putref(pool_desc);
+		}
 	}
+	o->ldo_pool_valid = 1;
 	return 0;
 }
 
@@ -659,6 +686,9 @@ static int lod_cache_parent_striping(const struct lu_env *env,
 		if (v3->lmm_pool_name[0])
 			lod_object_set_pool(lp, v3->lmm_pool_name);
 	}
+
+	if (!lp->ldo_pool_valid)
+		lod_object_set_pool(lp, NULL);
 
 	CDEBUG(D_OTHER, "def. striping: # %d, sz %d, off %d %s%s on "DFID"\n",
 	       lp->ldo_def_stripenr, lp->ldo_def_stripe_size,
@@ -729,6 +759,8 @@ static void lod_ah_init(const struct lu_env *env,
 			       (int)lc->ldo_def_stripe_size,
 			       (int)lc->ldo_def_stripe_offset);
 		}
+		if (!lc->ldo_pool_valid)
+			lod_object_set_pool(lc, NULL);
 		return;
 	}
 
@@ -764,6 +796,9 @@ static void lod_ah_init(const struct lu_env *env,
 			       lp->ldo_pool ? lp->ldo_pool : "");
 		}
 	}
+
+	if (!lc->ldo_pool_valid)
+		lod_object_set_pool(lc, NULL);
 
 	/*
 	 * if the parent doesn't provide with specific pattern, grab fs-wide one
@@ -885,14 +920,16 @@ static int lod_declare_object_create(const struct lu_env *env,
 				     struct dt_object_format *dof,
 				     struct thandle *th)
 {
-	struct dt_object   *next = dt_object_child(dt);
-	struct lod_object  *lo = lod_dt_obj(dt);
-	int		    rc;
+	struct dt_object       *next = dt_object_child(dt);
+	struct lod_object      *lo = lod_dt_obj(dt);
+	int			rc;
+	struct lod_thread_info *info = lod_env_info(env);
 	ENTRY;
 
 	LASSERT(dof);
 	LASSERT(attr);
 	LASSERT(th);
+	LASSERT(lo->ldo_pool_valid);
 
 	/*
 	 * first of all, we declare creation of local object
@@ -918,8 +955,6 @@ static int lod_declare_object_create(const struct lu_env *env,
 			rc = lod_declare_striped_object(env, dt, attr,
 							NULL, th);
 	} else if (dof->dof_type == DFT_DIR && lo->ldo_striping_cached) {
-		struct lod_thread_info *info = lod_env_info(env);
-
 		struct lov_user_md_v3 *v3;
 
 		if (LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
@@ -951,6 +986,15 @@ static int lod_declare_object_create(const struct lu_env *env,
 		OBD_FREE_PTR(v3);
 	}
 
+	if (rc)
+		GOTO(out, rc);
+
+	LASSERT(lo->ldo_pool_valid);
+	info->lti_buf.lb_buf = &lo->ldo_pool_id;
+	info->lti_buf.lb_len = sizeof(lo->ldo_pool_id);
+	rc = dt_declare_xattr_set(env, next, &info->lti_buf,
+				  XATTR_NAME_POOL, 0, th);
+	CERROR("declaring setting pool id\n");
 out:
 	RETURN(rc);
 }
@@ -997,6 +1041,16 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 			rc = lod_store_def_striping(env, dt, th);
 		else if (lo->ldo_stripe)
 			rc = lod_striping_create(env, dt, attr, dof, th);
+	}
+
+	if (rc == 0) {
+		struct lod_thread_info *info = lod_env_info(env);
+		LASSERT(lo->ldo_pool_valid);
+		info->lti_buf.lb_buf = &lo->ldo_pool_id;
+		info->lti_buf.lb_len = sizeof(lo->ldo_pool_id);
+		rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_POOL,
+				  0, th, BYPASS_CAPA);
+		CERROR("setting pool id\n");
 	}
 
 	RETURN(rc);

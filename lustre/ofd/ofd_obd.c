@@ -1691,6 +1691,28 @@ static int ofd_quotactl(struct obd_device *obd, struct obd_export *exp,
 	RETURN(rc);
 }
 
+int ofd_pool_new(struct obd_device *obd, char *poolname, int pool_id)
+{
+	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
+	struct obd_device *osd_obd = ofd->ofd_osd->dd_lu_dev.ld_obd;
+	int rc;
+	ENTRY;
+
+	rc = obd_pool_new(osd_obd, poolname, pool_id);
+	RETURN(rc);
+}
+
+int ofd_pool_del(struct obd_device *obd, char *poolname, int pool_id)
+{
+	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
+	struct obd_device *osd_obd = ofd->ofd_osd->dd_lu_dev.ld_obd;
+	int rc;
+	ENTRY;
+
+	rc = obd_pool_del(osd_obd, poolname, pool_id);
+	RETURN(rc);
+}
+
 struct obd_ops ofd_obd_ops = {
 	.o_owner		= THIS_MODULE,
 	.o_connect		= ofd_obd_connect,
@@ -1715,4 +1737,6 @@ struct obd_ops ofd_obd_ops = {
 	.o_ping			= ofd_ping,
 	.o_health_check		= ofd_health_check,
 	.o_quotactl		= ofd_quotactl,
+	.o_pool_new		= ofd_pool_new,
+	.o_pool_del		= ofd_pool_del,
 };

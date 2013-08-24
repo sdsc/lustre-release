@@ -1643,6 +1643,7 @@ static inline void lmm_oi_cpu_to_le(struct ost_id *dst_oi,
 #define XATTR_NAME_SOM		"trusted.som"
 #define XATTR_NAME_HSM		"trusted.hsm"
 #define XATTR_NAME_LFSCK_NAMESPACE "trusted.lfsck_namespace"
+#define XATTR_NAME_POOL		"trusted.pool"
 
 struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 	__u32 lmm_magic;          /* magic number = LOV_MAGIC_V3 */
@@ -1681,7 +1682,7 @@ static inline __u32 lov_mds_md_size(__u16 stripes, __u32 lmm_magic)
 #define OBD_MD_FLFLAGS     (0x00000800ULL) /* flags word */
 #define OBD_MD_FLNLINK     (0x00002000ULL) /* link count */
 #define OBD_MD_FLGENER     (0x00004000ULL) /* generation number */
-/*#define OBD_MD_FLINLINE    (0x00008000ULL)  inline data. used until 1.6.5 */
+#define OBD_MD_FLPOOLID    (0x00008000ULL) /* pool id */
 #define OBD_MD_FLRDEV      (0x00010000ULL) /* device number */
 #define OBD_MD_FLEASIZE    (0x00020000ULL) /* extended attribute data */
 #define OBD_MD_LINKNAME    (0x00040000ULL) /* symbolic link target */
@@ -3281,7 +3282,8 @@ struct obdo {
 						 * each stripe.
 						 * brw: grant space consumed on
 						 * the client for the write */
-	__u64			o_padding_4;
+	__u32			o_pool_id;
+	__u32			o_padding_4;
 	__u64			o_padding_5;
 	__u64			o_padding_6;
 };
