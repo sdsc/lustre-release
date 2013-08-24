@@ -212,6 +212,7 @@ struct ofd_object {
 	struct lu_object_header	ofo_header;
 	struct dt_object	ofo_obj;
 	int			ofo_ff_exists;
+	int			ofo_pool_exists;
 };
 
 static inline struct ofd_object *ofd_obj(struct lu_object *o)
@@ -400,6 +401,7 @@ struct ofd_object *ofd_object_find_or_create(const struct lu_env *env,
 					     const struct lu_fid *fid,
 					     struct lu_attr *attr);
 int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo);
+int ofd_object_pool_check(const struct lu_env *env, struct ofd_object *fo);
 int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 			  obd_id id, struct ofd_seq *oseq, int nr, int sync);
 

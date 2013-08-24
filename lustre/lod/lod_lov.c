@@ -1109,7 +1109,7 @@ int lod_pools_fini(struct lod_device *lod)
 		/* In the function below, .hs_keycmp resolves to
 		 * pool_hashkey_keycmp() */
 		/* coverity[overrun-buffer-val] */
-		lod_pool_del(obd, pool->pool_name);
+		lod_pool_del(obd, pool->pool_name, pool->pool_id);
 	}
 
 	cfs_hash_putref(lod->lod_pools_hash_body);

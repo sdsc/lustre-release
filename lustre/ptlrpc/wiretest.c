@@ -1268,9 +1268,13 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct obdo, o_data_version));
 	LASSERTF((int)sizeof(((struct obdo *)0)->o_data_version) == 8, "found %lld\n",
 		 (long long)(int)sizeof(((struct obdo *)0)->o_data_version));
-	LASSERTF((int)offsetof(struct obdo, o_padding_4) == 184, "found %lld\n",
+	LASSERTF((int)offsetof(struct obdo, o_pool_id) == 184, "found %lld\n",
+		 (long long)(int)offsetof(struct obdo, o_pool_id));
+	LASSERTF((int)sizeof(((struct obdo *)0)->o_pool_id) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct obdo *)0)->o_pool_id));
+	LASSERTF((int)offsetof(struct obdo, o_padding_4) == 188, "found %lld\n",
 		 (long long)(int)offsetof(struct obdo, o_padding_4));
-	LASSERTF((int)sizeof(((struct obdo *)0)->o_padding_4) == 8, "found %lld\n",
+	LASSERTF((int)sizeof(((struct obdo *)0)->o_padding_4) == 4, "found %lld\n",
 		 (long long)(int)sizeof(((struct obdo *)0)->o_padding_4));
 	LASSERTF((int)offsetof(struct obdo, o_padding_5) == 192, "found %lld\n",
 		 (long long)(int)offsetof(struct obdo, o_padding_5));

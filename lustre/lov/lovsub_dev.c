@@ -72,14 +72,33 @@ static void lovsub_req_attr_set(const struct lu_env *env,
                                 struct cl_req_attr *attr, obd_valid flags)
 {
         struct lovsub_object *subobj;
-
+	struct lov_object    *lov;
+	int		      pool_id = 0;
+	struct pool_desc     *pool;
+	struct lov_device    *lov_device;
         ENTRY;
         subobj = cl2lovsub(obj);
+	lov = subobj->lso_super;
         /*
          * There is no OBD_MD_* flag for obdo::o_stripe_idx, so set it
          * unconditionally. It never changes anyway.
          */
         attr->cra_oa->o_stripe_idx = subobj->lso_index;
+	LASSERT(lov->lo_lsm != NULL);
+	LASSERT(lov->lo_lsm->lsm_pool_name != NULL);
+	if (lov->lo_lsm->lsm_pool_name[0] != '\0') {
+		lov_device = lu2lov_dev(lov->lo_cl.co_lu.lo_dev);
+		pool = lov_find_pool(lov_device->ld_lov,
+				     lov->lo_lsm->lsm_pool_name);
+		if (pool != NULL) {
+			pool_id = pool->pool_id;
+			lov_pool_putref(pool);
+		}
+	}
+	CERROR("AAAAAAA: pool %s, id %d\n",
+	       lov->lo_lsm->lsm_pool_name, pool_id);
+	attr->cra_oa->o_pool_id = pool_id;
+	attr->cra_oa->o_valid |= OBD_MD_FLPOOLID;
         EXIT;
 }
 
