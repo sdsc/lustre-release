@@ -46,7 +46,6 @@
  * @{
  */
 #include <fcntl.h>
-#include <sys/queue.h>
 
 #ifdef __KERNEL__
 #error Kernel files should not #include <liblustre.h>
@@ -349,7 +348,7 @@ static inline void libcfs_run_lbug_upcall(char *file, const char *fn,
 
 
 struct liblustre_wait_callback {
-        cfs_list_t              llwc_list;
+	struct list_head              llwc_list;
         const char             *llwc_name;
         int                   (*llwc_fn)(void *arg);
         void                   *llwc_arg;
@@ -374,8 +373,8 @@ struct nfs_lock_info {
 
 struct file_lock {
         struct file_lock *fl_next;  /* singly linked list for this inode  */
-        cfs_list_t fl_link;   /* doubly linked list of all locks */
-        cfs_list_t fl_block;  /* circular list of blocked processes */
+	struct list_head fl_link;   /* doubly linked list of all locks */
+	struct list_head fl_block;  /* circular list of blocked processes */
 	void *fl_owner;
 	unsigned int fl_pid;
 	wait_queue_head_t fl_wait;

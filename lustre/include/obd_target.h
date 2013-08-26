@@ -58,8 +58,8 @@ struct filter_obd {
 
 	/* capability related */
 	unsigned int			fo_fl_oss_capa;
-	cfs_list_t			fo_capa_keys;
-	cfs_hlist_head_t	       *fo_capa_hash;
+	struct list_head			fo_capa_keys;
+	struct hlist_head	       *fo_capa_hash;
 	int				fo_sec_level;
 };
 

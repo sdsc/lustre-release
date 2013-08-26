@@ -289,7 +289,7 @@ static struct ptlrpc_request *mdc_intent_open_pack(struct obd_export *exp,
         struct ptlrpc_request *req;
         struct obd_device     *obddev = class_exp2obd(exp);
         struct ldlm_intent    *lit;
-        CFS_LIST_HEAD(cancels);
+	LIST_HEAD(cancels);
         int                    count = 0;
         int                    mode;
         int                    rc;
@@ -381,7 +381,7 @@ mdc_intent_getxattr_pack(struct obd_export *exp,
 	struct ptlrpc_request	*req;
 	struct ldlm_intent	*lit;
 	int			rc, count = 0, maxdata;
-	CFS_LIST_HEAD(cancels);
+	LIST_HEAD(cancels);
 
 	ENTRY;
 
