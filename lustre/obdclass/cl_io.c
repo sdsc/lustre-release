@@ -1286,27 +1286,6 @@ void cl_page_list_discard(const struct lu_env *env, struct cl_io *io,
 EXPORT_SYMBOL(cl_page_list_discard);
 
 /**
- * Unmaps all pages in a queue from user virtual memory.
- */
-int cl_page_list_unmap(const struct lu_env *env, struct cl_io *io,
-                        struct cl_page_list *plist)
-{
-        struct cl_page *page;
-        int result;
-
-        LINVRNT(plist->pl_owner == cfs_current());
-        ENTRY;
-        result = 0;
-        cl_page_list_for_each(page, plist) {
-                result = cl_page_unmap(env, io, page);
-                if (result != 0)
-                        break;
-        }
-        RETURN(result);
-}
-EXPORT_SYMBOL(cl_page_list_unmap);
-
-/**
  * Initialize dual page queue.
  */
 void cl_2queue_init(struct cl_2queue *queue)

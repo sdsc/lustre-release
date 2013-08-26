@@ -43,7 +43,6 @@
  *
  *  i_mutex
  *      PG_locked
- *          ->coh_page_guard
  *          ->coh_lock_guard
  *          ->coh_attr_guard
  *          ->ls_guard
@@ -63,8 +62,6 @@
 
 static cfs_mem_cache_t *cl_env_kmem;
 
-/** Lock class of cl_object_header::coh_page_guard */
-static struct lock_class_key cl_page_guard_class;
 /** Lock class of cl_object_header::coh_lock_guard */
 static struct lock_class_key cl_lock_guard_class;
 /** Lock class of cl_object_header::coh_attr_guard */
@@ -82,15 +79,10 @@ int cl_object_header_init(struct cl_object_header *h)
         ENTRY;
         result = lu_object_header_init(&h->coh_lu);
         if (result == 0) {
-		spin_lock_init(&h->coh_page_guard);
 		spin_lock_init(&h->coh_lock_guard);
 		spin_lock_init(&h->coh_attr_guard);
-		lockdep_set_class(&h->coh_page_guard, &cl_page_guard_class);
 		lockdep_set_class(&h->coh_lock_guard, &cl_lock_guard_class);
 		lockdep_set_class(&h->coh_attr_guard, &cl_attr_guard_class);
-                h->coh_pages = 0;
-                /* XXX hard coded GFP_* mask. */
-                INIT_RADIX_TREE(&h->coh_tree, GFP_ATOMIC);
                 CFS_INIT_LIST_HEAD(&h->coh_locks);
 		h->coh_page_bufsize = ALIGN(sizeof(struct cl_page), 8);
         }
@@ -342,8 +334,6 @@ void cl_object_kill(const struct lu_env *env, struct cl_object *obj)
         struct cl_object_header *hdr;
 
         hdr = cl_object_header(obj);
-        LASSERT(hdr->coh_tree.rnode == NULL);
-        LASSERT(hdr->coh_pages == 0);
 
 	set_bit(LU_OBJECT_HEARD_BANSHEE, &hdr->coh_lu.loh_flags);
         /*
@@ -363,7 +353,7 @@ EXPORT_SYMBOL(cl_object_kill);
 void cl_object_prune(const struct lu_env *env, struct cl_object *obj)
 {
         ENTRY;
-        cl_pages_prune(env, obj);
+        //cl_pages_prune(env, obj);
         cl_locks_prune(env, obj, 1);
         EXIT;
 }

@@ -142,6 +142,7 @@ static void vvp_page_discard(const struct lu_env *env,
         cfs_page_t           *vmpage  = cl2vm_page(slice);
 	struct address_space *mapping;
         struct ccc_page      *cpg     = cl2ccc_page(slice);
+	__u64       offset;
 
         LASSERT(vmpage != NULL);
         LASSERT(PageLocked(vmpage));
@@ -151,30 +152,14 @@ static void vvp_page_discard(const struct lu_env *env,
         if (cpg->cpg_defer_uptodate && !cpg->cpg_ra_used)
                 ll_ra_stats_inc(mapping, RA_STAT_DISCARDED);
 
+	offset = vmpage->index << CFS_PAGE_SHIFT;
+        ll_teardown_mmaps(vmpage->mapping, offset, offset + CFS_PAGE_SIZE);
+
         /*
          * truncate_complete_page() calls
          * a_ops->invalidatepage()->cl_page_delete()->vvp_page_delete().
          */
         truncate_complete_page(mapping, vmpage);
-}
-
-static int vvp_page_unmap(const struct lu_env *env,
-                          const struct cl_page_slice *slice,
-                          struct cl_io *unused)
-{
-        cfs_page_t *vmpage = cl2vm_page(slice);
-	__u64       offset;
-
-        LASSERT(vmpage != NULL);
-        LASSERT(PageLocked(vmpage));
-
-	offset = vmpage->index << CFS_PAGE_SHIFT;
-
-        /*
-         * XXX is it safe to call this with the page lock held?
-         */
-        ll_teardown_mmaps(vmpage->mapping, offset, offset + CFS_PAGE_SIZE);
-        return 0;
 }
 
 static void vvp_page_delete(const struct lu_env *env,
@@ -183,12 +168,20 @@ static void vvp_page_delete(const struct lu_env *env,
         cfs_page_t       *vmpage = cl2vm_page(slice);
         struct inode     *inode  = vmpage->mapping->host;
         struct cl_object *obj    = slice->cpl_obj;
+	struct cl_page   *page   = slice->cpl_page;
+	int refc;
 
         LASSERT(PageLocked(vmpage));
-        LASSERT((struct cl_page *)vmpage->private == slice->cpl_page);
+        LASSERT((struct cl_page *)vmpage->private == page);
         LASSERT(inode == ccc_object_inode(obj));
 
         vvp_write_complete(cl2ccc(obj), cl2ccc_page(slice));
+
+	/* Drop the reference count held in vvp_page_init */
+	refc = atomic_dec_return(&page->cp_ref);
+	LASSERTF(refc >= 1, "page = %p, refc = %d\n", page, refc);
+
+	ClearPageUptodate(vmpage);
         ClearPagePrivate(vmpage);
         vmpage->private = 0;
         /*
@@ -408,7 +401,6 @@ static const struct cl_page_operations vvp_page_ops = {
         .cpo_vmpage        = ccc_page_vmpage,
         .cpo_discard       = vvp_page_discard,
         .cpo_delete        = vvp_page_delete,
-        .cpo_unmap         = vvp_page_unmap,
         .cpo_export        = vvp_page_export,
         .cpo_is_vmlocked   = vvp_page_is_vmlocked,
         .cpo_fini          = vvp_page_fini,
@@ -545,6 +537,8 @@ int vvp_page_init(const struct lu_env *env, struct cl_object *obj,
 
 	CFS_INIT_LIST_HEAD(&cpg->cpg_pending_linkage);
 	if (page->cp_type == CPT_CACHEABLE) {
+		/* in cache, decref in vvp_page_delete */
+		atomic_inc(&page->cp_ref);
 		SetPagePrivate(vmpage);
 		vmpage->private = (unsigned long)page;
 		cl_page_slice_add(page, &cpg->cpg_cl, obj,
