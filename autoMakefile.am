@@ -103,23 +103,24 @@ dist-hook:
 	  top_distdir="$(top_distdir)" distdir="$(distdir)" \
 	  module-dist-hook
 
-EXTRA_DIST = @PACKAGE_TARNAME@.spec					\
-	build/Makefile 							\
-	build/Rules.in
-
-if ARCH_MIC
-EXTRA_DIST += build/gen_filelist.sh
-endif
+EXTRA_DIST = @PACKAGE_TARNAME@.spec	\
+	build/Makefile 			\
+	build/Rules.in			\
+	build/gen_filelist.sh
 
 rpms-real: @PACKAGE_TARNAME@.spec dist Makefile
-	CONFIGURE_ARGS=$$(echo $$(eval echo $(ac_configure_args)) | \
-		sed -re 's/--(en|dis)able-tests//'); \
-	if [ -n "@LINUX@" ]; then \
-		CONFIGURE_ARGS=$$(echo $$(eval echo $$CONFIGURE_ARGS) | \
-			sed -re 's/--with-linux=[^ ][^ ]*//'); \
-		RPMARGS="--define \"kdir @LINUX@\""; \
-		CONFIGURE_ARGS=$$(echo $$(eval echo $$CONFIGURE_ARGS) | \
-			sed -re 's/--with-linux-obj=[^ ][^ ]*//'); \
+	@CONFIGURE_ARGS=""; \
+	for arg in $(ac_configure_args); do \
+		case $$arg in \
+			--with-release=* ) ;; \
+			--enable-tests | --disable-tests ) ;; \
+			--with-linux=* | --with-linux-obj=* ) ;; \
+			* ) CONFIGURE_ARGS="$$CONFIGURE_ARGS '$$arg'" ;; \
+		esac; \
+	done; \
+	RPMARGS="--define \"configure_args $$CONFIGURE_ARGS\""; \
+	if [ -n "@LINUX@" ]; then  \
+		RPMARGS="$$RPMARGS --define \"kdir @LINUX@\""; \
 		if [ -n "@LINUX_OBJ@" -a "@LINUX_OBJ@" != "@LINUX@" ]; then \
 			RPMARGS="$$RPMARGS --define \"kobjdir @LINUX_OBJ@\""; \
 		fi; \
@@ -138,22 +139,18 @@ rpms-real: @PACKAGE_TARNAME@.spec dist Makefile
 		RPMARGS="$$RPMARGS --define \"_mandir %{_prefix}/share/man\""; \
 		RPMARGS="$$RPMARGS --define \"_sysconfdir %{cross_path}/etc\""; \
 		RPMARGS="$$RPMARGS --define \"make_args @CROSS_VARS@\""; \
-		if [ -s @LINUX@/../../.ver.build ]; then \
-			MPSS_VERSION=$$(sed -ne 's/DRIVERS_\(.*\)-.*/\1/p' @LINUX@/../../.ver.build); \
-			if [ -n "$$MPSS_VERSION" ]; then \
-				RPMARGS="$$RPMARGS --define \"cross_requires intel-mic-gpl = 2.1.$$MPSS_VERSION\""; \
-			fi; \
+		if [ "@CC_TARGET_ARCH@" = "k1om-mpss-linux" ]; then \
+			RPMARGS="$$RPMARGS --define \"cross_requires mpss-bootimage\""; \
+		else \
+			RPMARGS="$$RPMARGS --define \"cross_requires intel-mic-gpl\""; \
 		fi; \
 	fi; \
-	CONFIGURE_ARGS=$$(echo $$(eval echo $$CONFIGURE_ARGS) | \
-		sed -re 's/--with-release=[^ ][^ ]*//'); \
-	RPMARGS="$$RPMARGS --define \"configure_args $$CONFIGURE_ARGS\""; \
 	if [[ "X$(BUILD_TESTS)" = Xfalse ]]; then \
 		RPMARGS="$$RPMARGS --without lustre_tests"; \
 	fi; \
 	if [[ "X$(BUILD_SERVER)" = Xfalse ]]; then \
 		RPMARGS="$$RPMARGS --without servers"; \
-		if [ -n "@CROSS_PATH@" ]; then \
+		if [ -n "$$CROSS_SUFFIX" ]; then \
 			RPMARGS="$$RPMARGS --define \"lustre_name lustre-client$$CROSS_SUFFIX\""; \
 		fi; \
 	fi; \
