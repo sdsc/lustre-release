@@ -70,7 +70,7 @@
 #include <lustre_linkea.h>
 #include <lustre_lfsck.h>
 
-mdl_mode_t mdt_mdl_lock_modes[] = {
+enum md_lock_mode mdt_mdl_lock_modes[] = {
         [LCK_MINMODE] = MDL_MINMODE,
         [LCK_EX]      = MDL_EX,
         [LCK_PW]      = MDL_PW,
@@ -165,33 +165,33 @@ void mdt_lock_reg_init(struct mdt_lock_handle *lh, ldlm_mode_t lm)
 }
 
 void mdt_lock_pdo_init(struct mdt_lock_handle *lh, ldlm_mode_t lm,
-                       const char *name, int namelen)
+		       const char *name, int namelen)
 {
-        lh->mlh_reg_mode = lm;
+	lh->mlh_reg_mode = lm;
 	lh->mlh_rreg_mode = lm;
-        lh->mlh_type = MDT_PDO_LOCK;
+	lh->mlh_type = MDT_PDO_LOCK;
 
-        if (name != NULL && (name[0] != '\0')) {
-                LASSERT(namelen > 0);
-                lh->mlh_pdo_hash = full_name_hash(name, namelen);
+	if (name != NULL && (name[0] != '\0')) {
+		LASSERT(namelen > 0);
+		lh->mlh_pdo_hash = full_name_hash(name, namelen);
 		/* XXX Workaround for LU-2856
 		 * Zero is a valid return value of full_name_hash, but several
 		 * users of mlh_pdo_hash assume a non-zero hash value. We
 		 * therefore map zero onto an arbitrary, but consistent
 		 * value (1) to avoid problems further down the road. */
-		if (unlikely(!lh->mlh_pdo_hash))
+		if (unlikely(lh->mlh_pdo_hash == 0))
 			lh->mlh_pdo_hash = 1;
-        } else {
-                LASSERT(namelen == 0);
-                lh->mlh_pdo_hash = 0ull;
-        }
+	} else {
+		LASSERT(namelen == 0);
+		lh->mlh_pdo_hash = 0;
+	}
 }
 
-static void mdt_lock_pdo_mode(struct mdt_thread_info *info, struct mdt_object *o,
-                              struct mdt_lock_handle *lh)
+static void mdt_lock_pdo_mode(struct mdt_thread_info *info,
+			      struct mdt_object *o, struct mdt_lock_handle *lh)
 {
-        mdl_mode_t mode;
-        ENTRY;
+	enum md_lock_mode mode;
+	ENTRY;
 
         /*
          * Any dir access needs couple of locks:
@@ -2602,6 +2602,8 @@ static int mdt_init_capa_ctxt(const struct lu_env *env, struct mdt_device *m)
 
 void mdt_lock_handle_init(struct mdt_lock_handle *lh)
 {
+#if 0
+	/* Until this initializes to something other than 0 */
         lh->mlh_type = MDT_NUL_LOCK;
         lh->mlh_reg_lh.cookie = 0ull;
         lh->mlh_reg_mode = LCK_MINMODE;
@@ -2609,6 +2611,11 @@ void mdt_lock_handle_init(struct mdt_lock_handle *lh)
         lh->mlh_pdo_mode = LCK_MINMODE;
 	lh->mlh_rreg_lh.cookie = 0ull;
 	lh->mlh_rreg_mode = LCK_MINMODE;
+#else
+	CLASSERT(MDT_NUL_LOCK == 0);
+	CLASSERT(LCK_MINMODE == 0);
+	memset(lh, 0, sizeof(*lh));
+#endif
 }
 
 void mdt_lock_handle_fini(struct mdt_lock_handle *lh)
@@ -2625,36 +2632,50 @@ void mdt_lock_handle_fini(struct mdt_lock_handle *lh)
 void mdt_thread_info_init(struct ptlrpc_request *req,
 			  struct mdt_thread_info *info)
 {
-        int i;
+	/* Initialize mdt_thread_info Part One to specific values
+	 * (see struct mdt_thread_info comments for details) */
+	req_capsule_init(&req->rq_pill, req, RCL_SERVER);
+	info->mti_pill = &req->rq_pill;
 
-        info->mti_pill = &req->rq_pill;
-
-        /* lock handle */
-        for (i = 0; i < ARRAY_SIZE(info->mti_lh); i++)
-                mdt_lock_handle_init(&info->mti_lh[i]);
-
-        /* mdt device: it can be NULL while CONNECT */
-        if (req->rq_export) {
-                info->mti_mdt = mdt_dev(req->rq_export->exp_obd->obd_lu_dev);
-                info->mti_exp = req->rq_export;
-        } else
-                info->mti_mdt = NULL;
+	/* mdt device: it can be NULL while CONNECT */
+	if (req->rq_export) {
+		info->mti_exp = req->rq_export;
+		info->mti_mdt = mdt_dev(req->rq_export->exp_obd->obd_lu_dev);
+	} else {
+		info->mti_exp = NULL;
+		info->mti_mdt = NULL;
+	}
 	info->mti_env = req->rq_svc_thread->t_env;
 	info->mti_transno = lustre_msg_get_transno(req->rq_reqmsg);
 
-        memset(&info->mti_attr, 0, sizeof(info->mti_attr));
+	/* Initialize mdt_thread_info Part Two (all-zero) */
+#if 0
+	int i;
+
+	/* lock handle */
+	for (i = 0; i < ARRAY_SIZE(info->mti_lh); i++)
+		mdt_lock_handle_init(&info->mti_lh[i]);
+
+	memset(&info->mti_attr, 0, sizeof(info->mti_attr));
 	info->mti_big_buf = LU_BUF_NULL;
 	info->mti_body = NULL;
-        info->mti_object = NULL;
-        info->mti_dlm_req = NULL;
-        info->mti_has_trans = 0;
-        info->mti_cross_ref = 0;
-        info->mti_opdata = 0;
+	info->mti_object = NULL;
+	info->mti_dlm_req = NULL;
+	info->mti_has_trans = 0;
+	info->mti_cross_ref = 0;
+	info->mti_opdata = 0;
 	info->mti_big_lmm_used = 0;
+#else
+	CLASSERT(MDT_NUL_LOCK == 0); /* or use mdt_lock_handle_init() */
+	CLASSERT(LCK_MINMODE == 0);
+	memset(&info->mti_lh, 0, offsetof(typeof(*info), mti_rr) -
+				 offsetof(typeof(*info), mti_lh));
+#endif
 
-        /* To not check for split by default. */
-        info->mti_spec.no_create = 0;
+	/* To not check for split by default. */
+	info->mti_spec.no_create = 0;
 	info->mti_spec.sp_rm_entry = 0;
+	info->mti_mos = NULL;
 }
 
 void mdt_thread_info_fini(struct mdt_thread_info *info)

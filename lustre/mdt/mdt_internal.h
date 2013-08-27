@@ -282,21 +282,21 @@ enum mdt_object_flags {
 };
 
 struct mdt_lock_handle {
-        /* Lock type, reg for cross-ref use or pdo lock. */
-        mdl_type_t              mlh_type;
+	/* Lock type, reg for cross-ref use or pdo lock. */
+	enum md_handle_type	mlh_type;
 
-        /* Regular lock */
-        struct lustre_handle    mlh_reg_lh;
-        ldlm_mode_t             mlh_reg_mode;
+	/* Regular lock */
+	ldlm_mode_t		mlh_reg_mode;
+	struct lustre_handle	mlh_reg_lh;
 
-        /* Pdirops lock */
-        struct lustre_handle    mlh_pdo_lh;
-        ldlm_mode_t             mlh_pdo_mode;
-        unsigned int            mlh_pdo_hash;
+	/* Pdirops lock */
+	struct lustre_handle	mlh_pdo_lh;
+	ldlm_mode_t		mlh_pdo_mode;
+	unsigned int		mlh_pdo_hash;
 
 	/* Remote regular lock */
-	struct lustre_handle    mlh_rreg_lh;
-	ldlm_mode_t	     mlh_rreg_mode;
+	struct lustre_handle	mlh_rreg_lh;
+	ldlm_mode_t		mlh_rreg_mode;
 };
 
 enum {
@@ -316,19 +316,19 @@ enum {
 };
 
 struct mdt_reint_record {
-        mdt_reint_t             rr_opcode;
-        const struct lustre_handle *rr_handle;
-        const struct lu_fid    *rr_fid1;
-        const struct lu_fid    *rr_fid2;
-        const char             *rr_name;
-        int                     rr_namelen;
-        const char             *rr_tgt;
-        int                     rr_tgtlen;
-        const void             *rr_eadata;
-        int                     rr_eadatalen;
-        int                     rr_logcookielen;
-        const struct llog_cookie  *rr_logcookies;
-        __u32                   rr_flags;
+	mdt_reint_t			rr_opcode;
+	__u32				rr_flags;
+	const struct lustre_handle	*rr_handle;
+	const struct lu_fid		*rr_fid1;
+	const struct lu_fid		*rr_fid2;
+	const char			*rr_name;
+	int				rr_namelen;
+	int				rr_tgtlen;
+	const char			*rr_tgt;
+	const void			*rr_eadata;
+	int				rr_eadatalen;
+	int				rr_logcookielen;
+	const struct llog_cookie	*rr_logcookies;
 };
 
 enum mdt_reint_flag {
@@ -340,63 +340,61 @@ enum mdt_reint_flag {
  * reduce stack consumption.
  */
 struct mdt_thread_info {
-        /*
-         * XXX: Part One:
-         * The following members will be filled explicitly
-         * with specific data in mdt_thread_info_init().
-         */
-        /* TODO: move this into mdt_session_key(with LCT_SESSION), because
-         * request handling may migrate from one server thread to another.
-         */
-        struct req_capsule        *mti_pill;
+	/*
+	 * XXX: Part One:
+	 * The following members will be filled explicitly
+	 * with specific data in mdt_thread_info_init().
+	 */
+	/* TODO: move this into mdt_session_key(with LCT_SESSION), because
+	 * request handling may migrate from one server thread to another.
+	 */
+	struct req_capsule		*mti_pill;
 
-        /* although we have export in req, there are cases when it is not
-         * available, e.g. closing files upon export destroy */
-        struct obd_export          *mti_exp;
-        /*
-         * A couple of lock handles.
-         */
-        struct mdt_lock_handle     mti_lh[MDT_LH_NR];
+	/* transaction number of current request */
+	__u64				mti_transno;
 
-        struct mdt_device         *mti_mdt;
-        const struct lu_env       *mti_env;
+	/*
+	 * Additional fail id that can be set by handler. Passed to
+	 * target_send_reply().
+	 */
+	int				mti_fail_id;
 
-        /* transaction number of current request */
-        __u64                      mti_transno;
+	/*
+	 * XXX: Part Two:
+	 * The following members will be filled expilictly with zero in
+	 * mdt_thread_info_init(). These members may be used by all requests.
+	 */
+	__u32				mti_has_trans:1, /* has txn already? */
+					mti_cross_ref:1, /* on remote MDT? */
+					mti_big_lmm_used;
 
+	/*
+	 * A few lock handles.
+	 */
+	struct mdt_lock_handle		mti_lh[MDT_LH_NR];
+	/*
+	 * Body for "habeo corpus" operations.
+	 */
+	const struct mdt_body		*mti_body;
+	/*
+	 * Host object. This is released at the end of mdt_handler().
+	 */
+	struct mdt_object		*mti_object;
+	/*
+	 * Lock request for "habeo clavis" operations.
+	 */
+	const struct ldlm_request	*mti_dlm_req;
 
-        /*
-         * XXX: Part Two:
-         * The following members will be filled expilictly
-         * with zero in mdt_thread_info_init(). These members may be used
-         * by all requests.
-         */
+	/* opdata for mdt_reint_open(), has the same as
+	 * ldlm_reply:lock_policy_res1.  mdt_update_last_rcvd() stores this
+	 * value onto disk for recovery when mdt_trans_stop_cb() is called.
+	 */
+	__u64				mti_opdata;
 
-        /*
-         * Object attributes.
-         */
-        struct md_attr             mti_attr;
-        /*
-         * Body for "habeo corpus" operations.
-         */
-        const struct mdt_body     *mti_body;
-        /*
-         * Host object. This is released at the end of mdt_handler().
-         */
-        struct mdt_object         *mti_object;
-        /*
-         * Lock request for "habeo clavis" operations.
-         */
-        const struct ldlm_request *mti_dlm_req;
-
-        __u32                      mti_has_trans:1, /* has txn already? */
-                                   mti_cross_ref:1;
-
-        /* opdata for mdt_reint_open(), has the same as
-         * ldlm_reply:lock_policy_res1.  mdt_update_last_rcvd() stores this
-         * value onto disk for recovery when mdt_trans_stop_cb() is called.
-         */
-        __u64                      mti_opdata;
+	/*
+	 * Object attributes.
+	 */
+	struct md_attr			mti_attr;
 
         /*
          * XXX: Part Three:
@@ -411,6 +409,7 @@ struct mdt_thread_info {
         struct mdt_reint_record    mti_rr;
 
         __u64                      mti_ver[PTLRPC_NUM_VERSIONS];
+
         /*
          * Operation specification (currently create and lookup)
          */
@@ -457,13 +456,12 @@ struct mdt_thread_info {
 	struct lu_buf              mti_big_buf;
 	struct lustre_capa_key     mti_capa_key;
 
-        /* Ops object filename */
-        struct lu_name             mti_name;
+	/* Ops object filename */
+	struct lu_name			mti_name;
 	/* per-thread values, can be re-used */
-	void			  *mti_big_lmm;
-	int			   mti_big_lmmsize;
+	int				mti_big_lmmsize;
+	void				*mti_big_lmm;
 	/* big_lmm buffer was used and must be used in reply */
-	int			   mti_big_lmm_used;
 	/* should be enough to fit lustre_mdt_attrs */
 	char			   mti_xattr_buf[128];
 	struct ldlm_enqueue_info   mti_einfo;
@@ -1016,16 +1014,16 @@ static inline void mdt_fid_unlock(struct lustre_handle *lh,
         ldlm_lock_decref(lh, mode);
 }
 
-extern mdl_mode_t mdt_mdl_lock_modes[];
+extern enum md_lock_mode mdt_mdl_lock_modes[];
 extern ldlm_mode_t mdt_dlm_lock_modes[];
 
-static inline mdl_mode_t mdt_dlm_mode2mdl_mode(ldlm_mode_t mode)
+static inline enum md_lock_mode mdt_dlm_mode2mdl_mode(ldlm_mode_t mode)
 {
         LASSERT(IS_PO2(mode));
         return mdt_mdl_lock_modes[mode];
 }
 
-static inline ldlm_mode_t mdt_mdl_mode2dlm_mode(mdl_mode_t mode)
+static inline ldlm_mode_t mdt_mdl_mode2dlm_mode(enum md_lock_mode mode)
 {
         LASSERT(IS_PO2(mode));
         return mdt_dlm_lock_modes[mode];
