@@ -92,8 +92,8 @@ struct thandle_exec_args {
 	struct thandle		*ta_handle;
 	struct dt_device	*ta_dev;
 	int			 ta_err;
-	struct tx_arg		 ta_args[TX_MAX_OPS];
 	int			 ta_argno;   /* used args */
+	struct tx_arg		 ta_args[TX_MAX_OPS];
 };
 
 /**
