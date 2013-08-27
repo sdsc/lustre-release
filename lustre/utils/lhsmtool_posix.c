@@ -92,9 +92,15 @@ struct options opt = {
 	.o_chunk_size = ONE_MB,
 };
 
-/* The LLAPI will hold an open FD on lustre for us. Additionally open one on
- * the archive FS root to make sure it doesn't drop out from under us (and
- * remind the admin to shutdown the copytool before unmounting). */
+/* hsm_copytool_private will hold an open FD on the lustre mount point
+ * for us. But we'll take one for our own purposes. Additionally open
+ * one on the archive FS root to make sure it doesn't drop out from
+ * under us (and remind the admin to shutdown the copytool before
+ * unmounting). */
+
+#define open_by_fid_name dot_lustre_name"/fid"
+static int mnt_fd = -1;
+static int open_by_fid_fd = -1;
 static int arc_fd = -1;
 
 static int err_major;
@@ -680,16 +686,6 @@ out:
 		}
 	}
 
-	if (rc == 0) {
-		rc = fsync(dst_fd);
-		if (rc < 0) {
-			rc = -errno;
-			CT_ERROR("'%s' fsync failed (%s)\n", dst,
-				 strerror(-rc));
-			err_major++;
-		}
-	}
-
 	free(buf);
 
 	return rc;
@@ -836,6 +832,24 @@ static int ct_fini(struct hsm_copyaction_private **phcp,
 	return rc;
 }
 
+static int ct_open_by_fid(const struct lu_fid *fid, int flags)
+{
+	char fid_name[FID_NOBRACE_LEN + 1];
+
+	snprintf(fid_name, sizeof(fid_name), DFID_NOBRACE, PFID(fid));
+
+	return openat(open_by_fid_fd, fid_name, flags);
+}
+
+static int ct_stat_by_fid(const struct lu_fid *fid, struct stat *st)
+{
+	char fid_name[FID_NOBRACE_LEN + 1];
+
+	snprintf(fid_name, sizeof(fid_name), DFID_NOBRACE, PFID(fid));
+
+	return fstatat(open_by_fid_fd, fid_name, st, 0);
+}
+
 static int ct_archive(const struct hsm_action_item *hai, const long hal_flags)
 {
 	struct hsm_copyaction_private	*hcp = NULL;
@@ -868,7 +882,7 @@ static int ct_archive(const struct hsm_action_item *hai, const long hal_flags)
 		rename_needed = true;
 	}
 
-	CT_TRACE("'%s' archived to %s\n", src, dst);
+	CT_TRACE("'%s' archiving to %s\n", src, dst);
 
 	if (opt.o_dry_run) {
 		rc = 0;
@@ -881,8 +895,9 @@ static int ct_archive(const struct hsm_action_item *hai, const long hal_flags)
 		goto fini_major;
 	}
 
-	src_fd = open(src, O_RDONLY | O_NOATIME | O_NONBLOCK | O_NOFOLLOW);
-	if (src_fd == -1) {
+	src_fd = ct_open_by_fid(&hai->hai_dfid,
+				O_RDONLY | O_NOATIME | O_NOFOLLOW);
+	if (src_fd < 0) {
 		CT_ERROR("'%s' open read failed (%s)\n", src, strerror(errno));
 		rc = -errno;
 		goto fini_major;
@@ -909,6 +924,14 @@ static int ct_archive(const struct hsm_action_item *hai, const long hal_flags)
 	if (rc < 0) {
 		CT_ERROR("'%s' data copy failed to '%s' (%s)\n",
 			 src, dst, strerror(-rc));
+		goto fini_major;
+	}
+
+	rc = fsync(dst_fd);
+	if (rc < 0) {
+		CT_ERROR("'%s' cannot synchronize archive file '%s' (%s)\n",
+			 src, dst, strerror(errno));
+		rc = -errno;
 		goto fini_major;
 	}
 
@@ -1082,15 +1105,18 @@ static int ct_restore(const struct hsm_action_item *hai, const long hal_flags)
 	int				 mdt_index = -1; /* Not implemented */
 	int				 open_flags = 0;
 	bool				 set_lovea;
-	lustre_fid			 dfid;
-
+	const struct lu_fid		*fid;
+	struct lu_fid			 dfid;
+	struct stat			 st;
+	struct timeval			 tv[2];
 	/* we fill lustre so:
 	 * source = lustre FID in the backend
 	 * destination = data FID = volatile file
 	 */
 
 	/* build backend file name from released file FID */
-	ct_path_archive(src, sizeof(src), opt.o_hsm_root, &hai->hai_fid);
+	fid = &hai->hai_fid;
+	ct_path_archive(src, sizeof(src), opt.o_hsm_root, fid);
 
 	/* restore loads and sets the LOVEA w/o interpreting it to avoid
 	 * dependency on the structure format. */
@@ -1134,7 +1160,23 @@ static int ct_restore(const struct hsm_action_item *hai, const long hal_flags)
 		goto fini;
 	}
 
+	/* We must copy the ownership and {a,m}times of the original
+	 * file to the volatile file before we report completion. */
+	if (ct_stat_by_fid(fid, &st) < 0) {
+		CT_ERROR("cannot stat FID "DFID": %s\n",
+			 PFID(fid), strerror(errno));
+		rc = -errno;
+		goto fini;
+	}
+
 	dst_fd = llapi_hsm_action_get_fd(hcp);
+
+	if (fchown(dst_fd, st.st_uid, st.st_gid) < 0) {
+		CT_ERROR("'%s' cannot change ownership of volatile file: %s\n",
+			 dst, strerror(errno));
+		rc = -errno;
+		goto fini;
+	}
 
 	if (set_lovea) {
 		/* the layout cannot be allocated through .fid so we have to
@@ -1155,6 +1197,26 @@ static int ct_restore(const struct hsm_action_item *hai, const long hal_flags)
 		err_major++;
 		if (ct_is_retryable(rc))
 			flags |= HP_FLAG_RETRY;
+		goto fini;
+	}
+
+	/* Set {a,m}time of volatile file to that of original. */
+	tv[0].tv_sec = st.st_atime;
+	tv[0].tv_usec = 0;
+	tv[1].tv_sec = st.st_mtime;
+	tv[1].tv_usec = 0;
+	if (futimes(dst_fd, tv) < 0) {
+		CT_ERROR("'%s' cannot change times of volatile file (%s)\n",
+			 dst, strerror(errno));
+		rc = -errno;
+		goto fini;
+	}
+
+	rc = fsync(dst_fd);
+	if (rc < 0) {
+		CT_ERROR("'%s' cannot synchronize volatile file (%s)\n",
+			 dst, strerror(errno));
+		rc = -errno;
 		goto fini;
 	}
 
@@ -1812,7 +1874,21 @@ static int ct_setup(void)
 	/* set llapi message level */
 	llapi_msg_set_level(opt.o_verbose);
 
-	arc_fd = open(opt.o_hsm_root, O_DIRECTORY);
+	mnt_fd = open(opt.o_mnt, O_RDONLY);
+	if (mnt_fd < 0) {
+		CT_ERROR("cannot open lustre mount point '%s': %s\n",
+			 opt.o_mnt, strerror(errno));
+		return -errno;
+	}
+
+	open_by_fid_fd = openat(mnt_fd, open_by_fid_name, O_RDONLY);
+	if (open_by_fid_fd < 0) {
+		CT_ERROR("cannot open '%s/%s': %s\n",
+			 opt.o_mnt, open_by_fid_name, strerror(errno));
+		return -errno;
+	}
+
+	arc_fd = open(opt.o_hsm_root, O_RDONLY);
 	if (arc_fd < 0) {
 		CT_ERROR("cannot open archive at '%s': %s\n", opt.o_hsm_root,
 			 strerror(errno));
