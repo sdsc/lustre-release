@@ -95,9 +95,8 @@ static int mdt_lvbo_size(struct ldlm_lock *lock)
 static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 {
 	struct lu_env env;
-	struct mdt_thread_info *info;
 	struct mdt_device *mdt;
-	struct lu_fid *fid;
+	struct lu_fid fid;
 	struct mdt_object *obj = NULL;
 	struct md_object *child = NULL;
 	int rc;
@@ -127,21 +126,9 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 	if (rc)
 		RETURN(rc);
 
-	info = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
-	/* Likely ENOMEM */
-	if (info == NULL)
-		GOTO(out, rc = -ENOMEM);
+	fid_extract_from_res_name(&fid, &lock->l_resource->lr_name);
 
-	memset(info, 0, sizeof *info);
-	info->mti_env = &env;
-	info->mti_exp = lock->l_export;
-	info->mti_mdt = mdt;
-
-	/* XXX get fid by resource id. why don't include fid in ldlm_resource */
-	fid = &info->mti_tmp_fid2;
-	fid_extract_from_res_name(fid, &lock->l_resource->lr_name);
-
-	obj = mdt_object_find(&env, info->mti_mdt, fid);
+	obj = mdt_object_find(&env, mdt, &fid);
 	if (IS_ERR(obj))
 		GOTO(out, rc = PTR_ERR(obj));
 
@@ -156,19 +143,18 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 		GOTO(out, rc);
 
 	if (rc > 0) {
-		struct lu_buf *lmm = NULL;
+		struct lu_buf lmm;
 
 		if (lvblen < rc) {
 			CERROR("%s: expected %d actual %d.\n",
-				mdt_obd_name(mdt), rc, lvblen);
+			       mdt_obd_name(mdt), rc, lvblen);
 			GOTO(out, rc = -ERANGE);
 		}
 
-		lmm = &info->mti_buf;
-		lmm->lb_buf = lvb;
-		lmm->lb_len = rc;
+		lmm.lb_buf = lvb;
+		lmm.lb_len = rc;
 
-		rc = mo_xattr_get(&env, child, lmm, XATTR_NAME_LOV);
+		rc = mo_xattr_get(&env, child, &lmm, XATTR_NAME_LOV);
 		if (rc < 0)
 			GOTO(out, rc);
 	}

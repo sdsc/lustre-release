@@ -1179,26 +1179,26 @@ out:
 
 int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 {
-        struct mdt_device       *mdt = info->mti_mdt;
-        struct ptlrpc_request   *req = mdt_info_req(info);
-        struct mdt_object       *parent;
-        struct mdt_object       *child;
-        struct mdt_lock_handle  *lh;
-        struct ldlm_reply       *ldlm_rep;
-        struct mdt_body         *repbody;
-        struct lu_fid           *child_fid = &info->mti_tmp_fid1;
-        struct md_attr          *ma = &info->mti_attr;
-        __u64                    create_flags = info->mti_spec.sp_cr_flags;
-	__u64			 ibits = 0;
-        struct mdt_reint_record *rr = &info->mti_rr;
-        int                      result, rc;
-        int                      created = 0;
-	int			 object_locked = 0;
-        __u32                    msg_flags;
-        ENTRY;
+	struct mdt_device *mdt = info->mti_mdt;
+	struct ptlrpc_request *req = mdt_info_req(info);
+	struct mdt_object *parent;
+	struct mdt_object *child;
+	struct mdt_lock_handle *lh;
+	struct ldlm_reply *ldlm_rep;
+	struct mdt_body *repbody;
+	struct lu_fid child_fid;
+	struct md_attr *ma = &info->mti_attr;
+	__u64 create_flags = info->mti_spec.sp_cr_flags;
+	__u64 ibits = 0;
+	struct mdt_reint_record *rr = &info->mti_rr;
+	int result, rc;
+	int created = 0;
+	int object_locked = 0;
+	__u32 msg_flags;
+	ENTRY;
 
-        OBD_FAIL_TIMEOUT_ORSET(OBD_FAIL_MDS_PAUSE_OPEN, OBD_FAIL_ONCE,
-                               (obd_timeout + 1) / 4);
+	OBD_FAIL_TIMEOUT_ORSET(OBD_FAIL_MDS_PAUSE_OPEN, OBD_FAIL_ONCE,
+			       (obd_timeout + 1) / 4);
 
 	mdt_counter_incr(req, LPROC_MDT_OPEN);
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
@@ -1289,23 +1289,23 @@ again:
 		GOTO(out, result);
 	}
 
-        /* get and check version of parent */
-        result = mdt_version_get_check(info, parent, 0);
-        if (result)
-                GOTO(out_parent, result);
+	/* get and check version of parent */
+	result = mdt_version_get_check(info, parent, 0);
+	if (result)
+		GOTO(out_parent, result);
 
-        fid_zero(child_fid);
+	fid_zero(&child_fid);
 
 	result = mdo_lookup(info->mti_env, mdt_object_child(parent),
-			    &rr->rr_name, child_fid, &info->mti_spec);
+			    &rr->rr_name, &child_fid, &info->mti_spec);
 
-	LASSERTF(ergo(result == 0, fid_is_sane(child_fid)),
+	LASSERTF(ergo(result == 0, fid_is_sane(&child_fid)),
 		 "looking for "DFID"/"DNAME", found FID = "DFID"\n",
 		 PFID(mdt_object_fid(parent)), PNAME(&rr->rr_name),
-		 PFID(child_fid));
+		 PFID(&child_fid));
 
-        if (result != 0 && result != -ENOENT && result != -ESTALE)
-                GOTO(out_parent, result);
+	if (result != 0 && result != -ENOENT && result != -ESTALE)
+		GOTO(out_parent, result);
 
 	if (result == -ENOENT || result == -ESTALE) {
 		/* If the object is dead, let's check if the object
@@ -1346,34 +1346,34 @@ again:
 			GOTO(out_parent, result = -ENOENT);
 		}
 
-                if (!(create_flags & MDS_OPEN_CREAT))
-                        GOTO(out_parent, result);
+		if (!(create_flags & MDS_OPEN_CREAT))
+			GOTO(out_parent, result);
 		if (exp_connect_flags(req->rq_export) & OBD_CONNECT_RDONLY)
 			GOTO(out_parent, result = -EROFS);
-                *child_fid = *info->mti_rr.rr_fid2;
-                LASSERTF(fid_is_sane(child_fid), "fid="DFID"\n",
-                         PFID(child_fid));
+		child_fid = *info->mti_rr.rr_fid2;
+		LASSERTF(fid_is_sane(&child_fid), "fid="DFID"\n",
+			 PFID(&child_fid));
 		/* In the function below, .hs_keycmp resolves to
 		 * lu_obj_hop_keycmp() */
 		/* coverity[overrun-buffer-val] */
-		child = mdt_object_new(info->mti_env, mdt, child_fid);
+		child = mdt_object_new(info->mti_env, mdt, &child_fid);
 	} else {
 		/*
-		 * Check for O_EXCL is moved to the mdt_finish_open(), we need to
-		 * return FID back in that case.
+		 * Check for O_EXCL is moved to the mdt_finish_open(), we
+		 * need to return FID back in that case.
 		 */
 		mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
-		child = mdt_object_find(info->mti_env, mdt, child_fid);
+		child = mdt_object_find(info->mti_env, mdt, &child_fid);
 	}
-        if (IS_ERR(child))
-                GOTO(out_parent, result = PTR_ERR(child));
+	if (IS_ERR(child))
+		GOTO(out_parent, result = PTR_ERR(child));
 
-        /** check version of child  */
-        rc = mdt_version_get_check(info, child, 1);
-        if (rc)
-                GOTO(out_child, result = rc);
+	/** check version of child  */
+	rc = mdt_version_get_check(info, child, 1);
+	if (rc)
+		GOTO(out_child, result = rc);
 
-        if (result == -ENOENT) {
+	if (result == -ENOENT) {
 		/* Create under OBF and .lustre is not permitted */
 		if (!fid_is_md_operative(rr->rr_fid1))
 			GOTO(out_child, result = -EPERM);
@@ -1459,10 +1459,10 @@ again:
 			/* Object does not exist. Likely FS corruption. */
 			CERROR("%s: name '"DNAME"' present, but FID "
 			       DFID" is invalid\n", mdt_obd_name(info->mti_mdt),
-			       PNAME(&rr->rr_name), PFID(child_fid));
+			       PNAME(&rr->rr_name), PFID(&child_fid));
 			GOTO(out_child, result = -EIO);
 		}
-        }
+	}
 
 	rc = mdt_check_resent_lock(info, child, lhc);
 	if (rc < 0) {
@@ -1540,7 +1540,7 @@ static struct mdt_object *mdt_orphan_open(struct mdt_thread_info *info,
 {
 	const struct lu_env *env = info->mti_env;
 	struct md_op_spec *spec = &info->mti_spec;
-	struct lu_fid *local_root_fid = &info->mti_tmp_fid1;
+	struct lu_fid local_root_fid;
 	struct mdt_object *obj = NULL;
 	struct mdt_object *local_root;
 	static const struct lu_name lname = {
@@ -1552,11 +1552,11 @@ static struct mdt_object *mdt_orphan_open(struct mdt_thread_info *info,
 	int rc;
 	ENTRY;
 
-	rc = dt_root_get(env, mdt->mdt_bottom, local_root_fid);
+	rc = dt_root_get(env, mdt->mdt_bottom, &local_root_fid);
 	if (rc != 0)
 		RETURN(ERR_PTR(rc));
 
-	local_root = mdt_object_find(env, mdt, local_root_fid);
+	local_root = mdt_object_find(env, mdt, &local_root_fid);
 	if (IS_ERR(local_root))
 		RETURN(local_root);
 
@@ -1711,7 +1711,7 @@ static int mdt_hsm_release(struct mdt_thread_info *info, struct mdt_object *o,
 	/* Set file as released */
 	ma->ma_lmm->lmm_pattern |= cpu_to_le32(LOV_PATTERN_F_RELEASED);
 
-	orp_ma = &info->mti_u.hsm.attr;
+	orp_ma = &info->mti_u.mti_hsm_attr;
 	orp_ma->ma_attr.la_mode = S_IFREG | S_IWUSR;
 	orp_ma->ma_attr.la_uid = ma->ma_attr.la_uid;
 	orp_ma->ma_attr.la_gid = ma->ma_attr.la_gid;

@@ -75,7 +75,7 @@ static unsigned int max_mod_rpcs_per_client = 8;
 CFS_MODULE_PARM(max_mod_rpcs_per_client, "i", uint, 0644,
 		"maximum number of modify RPCs in flight allowed per client");
 
-mdl_mode_t mdt_mdl_lock_modes[] = {
+enum md_lock_mode mdt_mdl_lock_modes[] = {
         [LCK_MINMODE] = MDL_MINMODE,
         [LCK_EX]      = MDL_EX,
         [LCK_PW]      = MDL_PW,
@@ -193,11 +193,11 @@ void mdt_lock_pdo_init(struct mdt_lock_handle *lh, enum ldlm_mode lock_mode,
 	}
 }
 
-static void mdt_lock_pdo_mode(struct mdt_thread_info *info, struct mdt_object *o,
-                              struct mdt_lock_handle *lh)
+static void mdt_lock_pdo_mode(struct mdt_thread_info *info,
+			      struct mdt_object *o, struct mdt_lock_handle *lh)
 {
-        mdl_mode_t mode;
-        ENTRY;
+	enum md_lock_mode mode;
+	ENTRY;
 
         /*
          * Any dir access needs couple of locks:
@@ -1239,21 +1239,21 @@ static int mdt_raw_lookup(struct mdt_thread_info *info,
 			  const struct lu_name *lname,
 			  struct ldlm_reply *ldlm_rep)
 {
-	struct lu_fid	*child_fid = &info->mti_tmp_fid1;
-	int		 rc;
+	struct lu_fid child_fid;
+	int rc;
 	ENTRY;
 
 	LASSERT(!info->mti_cross_ref);
 
 	/* Only got the fid of this obj by name */
-	fid_zero(child_fid);
+	fid_zero(&child_fid);
 	rc = mdo_lookup(info->mti_env, mdt_object_child(info->mti_object),
-			lname, child_fid, &info->mti_spec);
+			lname, &child_fid, &info->mti_spec);
 	if (rc == 0) {
 		struct mdt_body *repbody;
 
 		repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
-		repbody->mbo_fid1 = *child_fid;
+		repbody->mbo_fid1 = child_fid;
 		repbody->mbo_valid = OBD_MD_FLID;
 		mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
 	} else if (rc == -ENOENT) {
@@ -1270,22 +1270,22 @@ static int mdt_raw_lookup(struct mdt_thread_info *info,
  *            (2)intent request will grant the lock to client.
  */
 static int mdt_getattr_name_lock(struct mdt_thread_info *info,
-                                 struct mdt_lock_handle *lhc,
-                                 __u64 child_bits,
-                                 struct ldlm_reply *ldlm_rep)
+				 struct mdt_lock_handle *lhc,
+				 __u64 child_bits,
+				 struct ldlm_reply *ldlm_rep)
 {
-        struct ptlrpc_request  *req       = mdt_info_req(info);
-        struct mdt_body        *reqbody   = NULL;
-        struct mdt_object      *parent    = info->mti_object;
-        struct mdt_object      *child;
-        struct lu_fid          *child_fid = &info->mti_tmp_fid1;
-        struct lu_name         *lname     = NULL;
-        struct mdt_lock_handle *lhp       = NULL;
-        struct ldlm_lock       *lock;
-	bool			is_resent;
-	bool			try_layout;
-	int			ma_need = 0;
-	int			rc;
+	struct ptlrpc_request *req = mdt_info_req(info);
+	struct mdt_body *reqbody = NULL;
+	struct mdt_object *parent = info->mti_object;
+	struct mdt_object *child;
+	struct lu_fid child_fid;
+	struct lu_name *lname = NULL;
+	struct mdt_lock_handle *lhp = NULL;
+	struct ldlm_lock *lock;
+	bool is_resent;
+	bool try_layout;
+	int ma_need = 0;
+	int rc;
 	ENTRY;
 
 	is_resent = lustre_handle_is_used(&lhc->mlh_reg_lh);
@@ -1352,9 +1352,9 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 		if (unlikely(reqbody == NULL))
 			RETURN(err_serious(-EPROTO));
 
-		*child_fid = reqbody->mbo_fid2;
+		child_fid = reqbody->mbo_fid2;
 
-		if (unlikely(!fid_is_sane(child_fid)))
+		if (unlikely(!fid_is_sane(&child_fid)))
 			RETURN(err_serious(-EINVAL));
 
 		CDEBUG(D_INODE, "getattr with lock for "DFID"/"DFID", "
@@ -1402,10 +1402,10 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 				RETURN(rc);
 		}
 
-                /* step 2: lookup child's fid by name */
-                fid_zero(child_fid);
+		/* step 2: lookup child's fid by name */
+		fid_zero(&child_fid);
 		rc = mdo_lookup(info->mti_env, mdt_object_child(parent), lname,
-				child_fid, &info->mti_spec);
+				&child_fid, &info->mti_spec);
 		if (rc == -ENOENT)
 			mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_NEG);
 
@@ -1424,12 +1424,12 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 	 *	we should not lu_object_find() the object again, could lead
 	 *	to hung if there is a concurrent unlink destroyed the object.
 	 */
-	if (lu_fid_eq(mdt_object_fid(parent), child_fid)) {
+	if (lu_fid_eq(mdt_object_fid(parent), &child_fid)) {
 		mdt_object_get(info->mti_env, parent);
 		child = parent;
 	} else {
 		child = mdt_object_find(info->mti_env, info->mti_mdt,
-					child_fid);
+					&child_fid);
 	}
 
 	if (unlikely(IS_ERR(child)))
@@ -1643,7 +1643,7 @@ static int mdt_readpage(struct tgt_session_info *tsi)
 {
 	struct mdt_thread_info	*info = mdt_th_info(tsi->tsi_env);
 	struct mdt_object	*object = mdt_obj(tsi->tsi_corpus);
-	struct lu_rdpg		*rdpg = &info->mti_u.rdpg.mti_rdpg;
+	struct lu_rdpg		*rdpg = &info->mti_u.mti_rdpg;
 	const struct mdt_body	*reqbody = tsi->tsi_mdt_body;
 	struct mdt_body		*repbody;
 	int			 rc;
@@ -2698,13 +2698,10 @@ static int mdt_unpack_req_pack_rep(struct mdt_thread_info *info, __u32 flags)
 
 void mdt_lock_handle_init(struct mdt_lock_handle *lh)
 {
-        lh->mlh_type = MDT_NUL_LOCK;
-        lh->mlh_reg_lh.cookie = 0ull;
-        lh->mlh_reg_mode = LCK_MINMODE;
-        lh->mlh_pdo_lh.cookie = 0ull;
-        lh->mlh_pdo_mode = LCK_MINMODE;
-	lh->mlh_rreg_lh.cookie = 0ull;
-	lh->mlh_rreg_mode = LCK_MINMODE;
+	/* Until this initializes to something other than 0 */
+	CLASSERT(MDT_NUL_LOCK == 0);
+	CLASSERT(LCK_MINMODE == 0);
+	memset(lh, 0, sizeof(*lh));
 }
 
 void mdt_lock_handle_fini(struct mdt_lock_handle *lh)
@@ -2721,34 +2718,29 @@ void mdt_lock_handle_fini(struct mdt_lock_handle *lh)
 void mdt_thread_info_init(struct ptlrpc_request *req,
 			  struct mdt_thread_info *info)
 {
-        int i;
+	/* Initialize mdt_thread_info Part One to specific values
+	 * (see struct mdt_thread_info comments for details) */
+	info->mti_pill = &req->rq_pill;
 
-        info->mti_pill = &req->rq_pill;
-
-        /* lock handle */
-        for (i = 0; i < ARRAY_SIZE(info->mti_lh); i++)
-                mdt_lock_handle_init(&info->mti_lh[i]);
-
-        /* mdt device: it can be NULL while CONNECT */
-        if (req->rq_export) {
-                info->mti_mdt = mdt_dev(req->rq_export->exp_obd->obd_lu_dev);
-                info->mti_exp = req->rq_export;
-        } else
-                info->mti_mdt = NULL;
+	/* mdt device: it can be NULL while CONNECT */
+	if (req->rq_export) {
+		info->mti_mdt = mdt_dev(req->rq_export->exp_obd->obd_lu_dev);
+		info->mti_exp = req->rq_export;
+	} else {
+		info->mti_mdt = NULL;
+		info->mti_exp = NULL;
+	}
 	info->mti_env = req->rq_svc_thread->t_env;
 	info->mti_transno = lustre_msg_get_transno(req->rq_reqmsg);
 
-        memset(&info->mti_attr, 0, sizeof(info->mti_attr));
-	info->mti_big_buf = LU_BUF_NULL;
-	info->mti_body = NULL;
-        info->mti_object = NULL;
-        info->mti_dlm_req = NULL;
-        info->mti_has_trans = 0;
-        info->mti_cross_ref = 0;
-        info->mti_opdata = 0;
-	info->mti_big_lmm_used = 0;
+	/* Initialize mdt_thread_info Part Two (all-zero) */
+	CLASSERT(MDT_NUL_LOCK == 0); /* or use mdt_lock_handle_init() */
+	CLASSERT(LCK_MINMODE == 0);
+	memset(&info->mti_attr, 0, offsetof(typeof(*info), mti_rr) -
+				   offsetof(typeof(*info), mti_attr));
 
-        info->mti_spec.no_create = 0;
+	/* To not check for split by default. */
+	info->mti_spec.no_create = 0;
 	info->mti_spec.sp_rm_entry = 0;
 	info->mti_spec.sp_permitted = 0;
 	info->mti_spec.sp_migrate_close = 0;
@@ -3169,7 +3161,7 @@ static int mdt_intent_layout(enum mdt_it_code opcode,
 {
 	struct mdt_lock_handle *lhc = &info->mti_lh[MDT_LH_LAYOUT];
 	struct layout_intent *layout;
-	struct lu_fid *fid;
+	struct lu_fid fid;
 	struct mdt_object *obj = NULL;
 	int rc = 0;
 	ENTRY;
@@ -3180,13 +3172,11 @@ static int mdt_intent_layout(enum mdt_it_code opcode,
 		RETURN(-EINVAL);
 	}
 
-	fid = &info->mti_tmp_fid2;
-	fid_extract_from_res_name(fid, &(*lockp)->l_resource->lr_name);
+	fid_extract_from_res_name(&fid, &(*lockp)->l_resource->lr_name);
 
 	/* Get lock from request for possible resent case. */
 	mdt_intent_fixup_resent(info, *lockp, lhc, flags);
-
-	obj = mdt_object_find(info->mti_env, info->mti_mdt, fid);
+	obj = mdt_object_find(info->mti_env, info->mti_mdt, &fid);
 	if (IS_ERR(obj))
 		RETURN(PTR_ERR(obj));
 
@@ -3707,7 +3697,6 @@ static int mdt_fld_init(const struct lu_env *env,
 static void mdt_stack_pre_fini(const struct lu_env *env,
 			   struct mdt_device *m, struct lu_device *top)
 {
-	struct lustre_cfg_bufs  *bufs;
 	struct lustre_cfg       *lcfg;
 	struct mdt_thread_info  *info;
 	ENTRY;
@@ -3717,8 +3706,6 @@ static void mdt_stack_pre_fini(const struct lu_env *env,
 	info = lu_context_key_get(&env->le_ctx, &mdt_thread_key);
 	LASSERT(info != NULL);
 
-	bufs = &info->mti_u.bufs;
-
 	LASSERT(m->mdt_child_exp);
 	LASSERT(m->mdt_child_exp->exp_obd);
 
@@ -3727,9 +3714,9 @@ static void mdt_stack_pre_fini(const struct lu_env *env,
 	 * objects (some of them are pinned by osd, for example *
 	 * the proper solution should be a model where object used
 	 * by osd only doesn't have mdt/mdd slices -bzzz */
-	lustre_cfg_bufs_reset(bufs, mdt_obd_name(m));
-	lustre_cfg_bufs_set_string(bufs, 1, NULL);
-	lcfg = lustre_cfg_new(LCFG_PRE_CLEANUP, bufs);
+	lustre_cfg_bufs_reset(&info->mti_u.mti_bufs, mdt_obd_name(m));
+	lustre_cfg_bufs_set_string(&info->mti_u.mti_bufs, 1, NULL);
+	lcfg = lustre_cfg_new(LCFG_PRE_CLEANUP, &info->mti_u.mti_bufs);
 	if (lcfg == NULL)
 		RETURN_EXIT;
 
@@ -3742,7 +3729,6 @@ static void mdt_stack_fini(const struct lu_env *env,
 			   struct mdt_device *m, struct lu_device *top)
 {
 	struct obd_device	*obd = mdt2obd_dev(m);
-	struct lustre_cfg_bufs	*bufs;
 	struct lustre_cfg	*lcfg;
 	struct mdt_thread_info	*info;
 	char			 flags[3] = "";
@@ -3755,16 +3741,15 @@ static void mdt_stack_fini(const struct lu_env *env,
 
 	lu_site_purge(env, top->ld_site, -1);
 
-	bufs = &info->mti_u.bufs;
 	/* process cleanup, pass mdt obd name to get obd umount flags */
 	/* another purpose is to let all layers to release their objects */
-	lustre_cfg_bufs_reset(bufs, mdt_obd_name(m));
+	lustre_cfg_bufs_reset(&info->mti_u.mti_bufs, mdt_obd_name(m));
 	if (obd->obd_force)
 		strcat(flags, "F");
 	if (obd->obd_fail)
 		strcat(flags, "A");
-	lustre_cfg_bufs_set_string(bufs, 1, flags);
-	lcfg = lustre_cfg_new(LCFG_CLEANUP, bufs);
+	lustre_cfg_bufs_set_string(&info->mti_u.mti_bufs, 1, flags);
+	lcfg = lustre_cfg_new(LCFG_CLEANUP, &info->mti_u.mti_bufs);
 	if (lcfg == NULL)
 		RETURN_EXIT;
 
@@ -4412,14 +4397,14 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	if (rc)
 		GOTO(err_fini_fld, rc);
 
-	snprintf(info->mti_u.ns_name, sizeof(info->mti_u.ns_name), "%s-%s",
+	snprintf(info->mti_u.mti_name, sizeof(info->mti_u.mti_name), "%s-%s",
 		 LUSTRE_MDT_NAME, obd->obd_uuid.uuid);
-        m->mdt_namespace = ldlm_namespace_new(obd, info->mti_u.ns_name,
-                                              LDLM_NAMESPACE_SERVER,
-                                              LDLM_NAMESPACE_GREEDY,
-                                              LDLM_NS_TYPE_MDT);
-        if (m->mdt_namespace == NULL)
-                GOTO(err_fini_seq, rc = -ENOMEM);
+	m->mdt_namespace = ldlm_namespace_new(obd, info->mti_u.mti_name,
+					      LDLM_NAMESPACE_SERVER,
+					      LDLM_NAMESPACE_GREEDY,
+					      LDLM_NS_TYPE_MDT);
+	if (m->mdt_namespace == NULL)
+		GOTO(err_fini_seq, rc = -ENOMEM);
 
 	m->mdt_namespace->ns_lvbp = m;
 	m->mdt_namespace->ns_lvbo = &mdt_lvbo;
@@ -5217,18 +5202,18 @@ static int mdt_path_current(struct mdt_thread_info *info,
 			    struct mdt_object *obj,
 			    struct getinfo_fid2path *fp)
 {
-	struct mdt_device	*mdt = info->mti_mdt;
-	struct mdt_object	*mdt_obj;
-	struct link_ea_header	*leh;
-	struct link_ea_entry	*lee;
-	struct lu_name		*tmpname = &info->mti_name;
-	struct lu_fid		*tmpfid = &info->mti_tmp_fid1;
-	struct lu_buf		*buf = &info->mti_big_buf;
-	char			*ptr;
-	int			reclen;
-	struct linkea_data	ldata = { NULL };
-	int			rc = 0;
-	bool			first = true;
+	struct mdt_device *mdt = info->mti_mdt;
+	struct mdt_object *mdt_obj;
+	struct link_ea_header *leh;
+	struct link_ea_entry *lee;
+	struct lu_name *tmpname = &info->mti_name;
+	struct lu_fid tmpfid;
+	struct lu_buf *buf = &info->mti_big_buf;
+	struct linkea_data ldata = { NULL };
+	char *ptr;
+	int reclen;
+	bool first = true;
+	int rc = 0;
 	ENTRY;
 
 	/* temp buffer for path element, the buffer will be finally freed
@@ -5241,14 +5226,14 @@ static int mdt_path_current(struct mdt_thread_info *info,
 	ptr = fp->gf_path + fp->gf_pathlen - 1;
 	*ptr = 0;
 	--ptr;
-	*tmpfid = fp->gf_fid = *mdt_object_fid(obj);
+	tmpfid = fp->gf_fid = *mdt_object_fid(obj);
 
 	/* root FID only exists on MDT0, and fid2path should also ends at MDT0,
 	 * so checking root_fid can only happen on MDT0. */
 	while (!lu_fid_eq(&mdt->mdt_md_root_fid, &fp->gf_fid)) {
 		struct lu_buf		lmv_buf;
 
-		mdt_obj = mdt_object_find(info->mti_env, mdt, tmpfid);
+		mdt_obj = mdt_object_find(info->mti_env, mdt, &tmpfid);
 		if (IS_ERR(mdt_obj))
 			GOTO(out, rc = PTR_ERR(mdt_obj));
 
@@ -5270,7 +5255,7 @@ static int mdt_path_current(struct mdt_thread_info *info,
 
 		leh = buf->lb_buf;
 		lee = (struct link_ea_entry *)(leh + 1); /* link #0 */
-		linkea_entry_unpack(lee, &reclen, tmpname, tmpfid);
+		linkea_entry_unpack(lee, &reclen, tmpname, &tmpfid);
 		/* If set, use link #linkno for path lookup, otherwise use
 		   link #0.  Only do this for the final path element. */
 		if (first && fp->gf_linkno < leh->leh_reccount) {
@@ -5279,7 +5264,7 @@ static int mdt_path_current(struct mdt_thread_info *info,
 				lee = (struct link_ea_entry *)
 				     ((char *)lee + reclen);
 				linkea_entry_unpack(lee, &reclen, tmpname,
-						    tmpfid);
+						    &tmpfid);
 			}
 			if (fp->gf_linkno < leh->leh_reccount - 1)
 				/* indicate to user there are more links */
@@ -5297,7 +5282,7 @@ static int mdt_path_current(struct mdt_thread_info *info,
 
 			/* For slave stripes, get its master */
 			if (le32_to_cpu(lmm->lmv_magic) == LMV_MAGIC_STRIPE) {
-				fp->gf_fid = *tmpfid;
+				fp->gf_fid = tmpfid;
 				continue;
 			}
 		} else if (rc < 0 && rc != -ENODATA) {
@@ -5316,7 +5301,7 @@ static int mdt_path_current(struct mdt_thread_info *info,
 		/* keep the last resolved fid to the client, so the
 		 * client will build the left path on another MDT for
 		 * remote object */
-		fp->gf_fid = *tmpfid;
+		fp->gf_fid = tmpfid;
 
 		first = false;
 	}
@@ -5653,12 +5638,10 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 break;
         }
 	case OBD_IOC_CATLOGLIST: {
-		struct mdt_thread_info *mti;
+		struct lu_fid fid;
 
-		mti = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
-		lu_local_obj_fid(&mti->mti_tmp_fid1, LLOG_CATALOGS_OID);
-		rc = llog_catalog_list(&env, mdt->mdt_bottom, 0, karg,
-				       &mti->mti_tmp_fid1);
+		lu_local_obj_fid(&fid, LLOG_CATALOGS_OID);
+		rc = llog_catalog_list(&env, mdt->mdt_bottom, 0, karg, &fid);
 		break;
 	 }
 	default:

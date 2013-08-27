@@ -240,13 +240,19 @@ struct mdt_object {
 	atomic_t		mot_open_count;
 };
 
+enum md_handle_type {
+	MDT_NUL_LOCK = 0,
+	MDT_REG_LOCK = (1 << 0),
+	MDT_PDO_LOCK = (1 << 1)
+};
+
 struct mdt_lock_handle {
 	/* Lock type, reg for cross-ref use or pdo lock. */
-	mdl_type_t		mlh_type;
+	enum md_handle_type	mlh_type;
 
 	/* Regular lock */
-	struct lustre_handle	mlh_reg_lh;
 	enum ldlm_mode		mlh_reg_mode;
+	struct lustre_handle	mlh_reg_lh;
 
 	/* Pdirops lock */
 	struct lustre_handle	mlh_pdo_lh;
@@ -302,126 +308,101 @@ enum mdt_reint_flag {
  * reduce stack consumption.
  */
 struct mdt_thread_info {
-        /*
-         * XXX: Part One:
-         * The following members will be filled explicitly
-         * with specific data in mdt_thread_info_init().
-         */
-        /* TODO: move this into mdt_session_key(with LCT_SESSION), because
-         * request handling may migrate from one server thread to another.
-         */
-        struct req_capsule        *mti_pill;
+	/*
+	 * Part One:
+	 * The following members will be filled explicitly
+	 * with specific data in mdt_thread_info_init().
+	 */
+	/* TODO: move this into mdt_session_key(with LCT_SESSION), because
+	 * request handling may migrate from one server thread to another.
+	 */
+	struct req_capsule		*mti_pill;
 
-        /* although we have export in req, there are cases when it is not
-         * available, e.g. closing files upon export destroy */
-        struct obd_export          *mti_exp;
-        /*
-         * A couple of lock handles.
-         */
-        struct mdt_lock_handle     mti_lh[MDT_LH_NR];
+	/* although we have export in req, there are cases when it is not
+	 * available, e.g. closing files upon export destroy */
+	struct obd_export		*mti_exp;
 
-        struct mdt_device         *mti_mdt;
-        const struct lu_env       *mti_env;
+	struct mdt_device		*mti_mdt;
+	const struct lu_env		*mti_env;
 
-        /* transaction number of current request */
-        __u64                      mti_transno;
+	/* transaction number of current request */
+	__u64				mti_transno;
 
+	/*
+	 * Part Two:
+	 * The following members will be filled explictly with zero in
+	 * mdt_thread_info_init(). These members may be used by all requests.
+	 */
+	/* Object attributes. */
+	struct md_attr			mti_attr;
+	/* Body for "habeo corpus" operations. */
+	const struct mdt_body		*mti_body;
+	/* Host object. This is released at the end of mdt_handler(). */
+	struct mdt_object		*mti_object;
+	/* Lock request for "habeo clavis" operations. */
+	const struct ldlm_request	*mti_dlm_req;
 
-        /*
-         * XXX: Part Two:
-         * The following members will be filled expilictly
-         * with zero in mdt_thread_info_init(). These members may be used
-         * by all requests.
-         */
-
-        /*
-         * Object attributes.
-         */
-        struct md_attr             mti_attr;
-        /*
-         * Body for "habeo corpus" operations.
-         */
-        const struct mdt_body     *mti_body;
-        /*
-         * Host object. This is released at the end of mdt_handler().
-         */
-        struct mdt_object         *mti_object;
-        /*
-         * Lock request for "habeo clavis" operations.
-         */
-        const struct ldlm_request *mti_dlm_req;
-
-        __u32                      mti_has_trans:1, /* has txn already? */
-                                   mti_cross_ref:1;
-
-        /* opdata for mdt_reint_open(), has the same as
-         * ldlm_reply:lock_policy_res1.  mdt_update_last_rcvd() stores this
-         * value onto disk for recovery when mdt_trans_stop_cb() is called.
-         */
-        __u64                      mti_opdata;
-
-        /*
-         * XXX: Part Three:
-         * The following members will be filled explicitly
-         * with zero in mdt_reint_unpack(), because they are only used
-         * by reint requests (including mdt_reint_open()).
-         */
-
-        /*
-         * reint record. contains information for reint operations.
-         */
-        struct mdt_reint_record    mti_rr;
-
-        __u64                      mti_ver[PTLRPC_NUM_VERSIONS];
-        /*
-         * Operation specification (currently create and lookup)
-         */
-        struct md_op_spec          mti_spec;
-
-        /*
-         * XXX: Part Four:
-         * The following members will _NOT_ be initialized at all.
-         * DO NOT expect them to contain any valid value.
-         * They should be initialized explicitly by the user themselves.
-         */
-
-	/* XXX: If something is in a union, make sure they do not conflict */
-	struct lu_fid			mti_tmp_fid1;
-	struct lu_fid			mti_tmp_fid2;
-	union ldlm_policy_data		mti_policy; /* for mdt_object_lock() */
-	struct ldlm_res_id		mti_res_id; /* and mdt_rename_lock() */
-	union {
-		struct obd_uuid		uuid[2];    /* for mdt_seq_init_cli() */
-		char			ns_name[48];/* for mdt_init0()        */
-		struct lustre_cfg_bufs	bufs;       /* for mdt_stack_fini()   */
-		struct obd_statfs	osfs;       /* for mdt_statfs()       */
-                struct {
-                        /* for mdt_readpage()      */
-                        struct lu_rdpg     mti_rdpg;
-                        /* for mdt_sendpage()      */
-                        struct l_wait_info mti_wait_info;
-                } rdpg;
-		struct {
-			struct md_attr attr;
-		} hsm;
-        } mti_u;
-
-	struct lustre_handle	   mti_close_handle;
-	loff_t                     mti_off;
-	struct lu_buf              mti_buf;
-	struct lu_buf              mti_big_buf;
-
-        /* Ops object filename */
-        struct lu_name             mti_name;
+	__u32				mti_has_trans:1, /* has txn already? */
+					mti_cross_ref:1, /* on remote MDT? */
+					mti_big_lmm_used:1; /* used in reply */
 	/* per-thread values, can be re-used */
-	void			  *mti_big_lmm;
-	int			   mti_big_lmmsize;
-	/* big_lmm buffer was used and must be used in reply */
-	int			   mti_big_lmm_used;
+	int				mti_big_lmmsize;
+	void				*mti_big_lmm;
+
+	/* A few lock handles. */
+	struct mdt_lock_handle		mti_lh[MDT_LH_NR];
+
+	/* opdata for mdt_reint_open(), has the same as
+	 * ldlm_reply:lock_policy_res1.  mdt_update_last_rcvd() stores this
+	 * value onto disk for recovery when mdt_trans_stop_cb() is called.
+	 */
+	__u64				mti_opdata;
+
+	/*
+	 * Part Three:
+	 * The following members will be filled explicitly with
+	 * zero in mdt_reint_unpack(), because they are only
+	 * used by reint requests (including mdt_reint_open()).
+	 */
+
+	/*
+	 * reint record. contains information for reint operations.
+	 */
+	struct mdt_reint_record		mti_rr;
+
+	__u64				mti_ver[PTLRPC_NUM_VERSIONS];
+	/*
+	 * Operation specification (currently create and lookup)
+	 */
+	struct md_op_spec		mti_spec;
+
+	/*
+	 * Part Four:
+	 * The following members will _NOT_ be initialized at all.
+	 * DO NOT expect them to contain any valid value.
+	 * They should be initialized explicitly by the user themselves.
+	 */
+
+	union ldlm_policy_data		mti_policy;  /* for mdt_object_lock() */
+	struct ldlm_res_id		mti_res_id;  /* and mdt_rename_lock() */
+	/* XXX: If something is in a union, make sure they do not conflict */
+	union {
+		char			mti_name[48];/* for mdt_init0() */
+		struct lustre_cfg_bufs	mti_bufs;    /* for mdt_stack_fini() */
+		struct lu_rdpg		mti_rdpg;    /* for mdt_readpage() */
+		struct md_attr		mti_hsm_attr;/* for mdt_hsm_release() */
+	} mti_u;
+
+	struct lustre_handle		mti_close_handle;
+	struct lu_buf			mti_buf;
+	struct lu_buf			mti_big_buf;
+
+	/* Ops object filename */
+	struct lu_name			mti_name;
 	/* should be enough to fit lustre_mdt_attrs */
-	char			   mti_xattr_buf[128];
-	struct ldlm_enqueue_info   mti_einfo;
-	struct tg_reply_data	  *mti_reply_data;
+	char				mti_xattr_buf[128];
+	struct ldlm_enqueue_info	mti_einfo;
+	struct tg_reply_data		*mti_reply_data;
 };
 
 extern struct lu_context_key mdt_thread_key;
@@ -964,19 +945,19 @@ static inline void mdt_fid_unlock(struct lustre_handle *lh, enum ldlm_mode mode)
 	ldlm_lock_decref(lh, mode);
 }
 
-extern mdl_mode_t mdt_mdl_lock_modes[];
-extern enum ldlm_mode mdt_dlm_lock_modes[];
+enum md_lock_mode mdt_mdl_lock_modes[];
+enum ldlm_mode mdt_dlm_lock_modes[];
 
-static inline mdl_mode_t mdt_dlm_mode2mdl_mode(enum ldlm_mode mode)
+static inline enum md_lock_mode mdt_dlm_mode2mdl_mode(enum ldlm_mode dlm_mode)
 {
-	LASSERT(IS_PO2(mode));
-	return mdt_mdl_lock_modes[mode];
+	LASSERT(IS_PO2(dlm_mode));
+	return mdt_mdl_lock_modes[dlm_mode];
 }
 
-static inline enum ldlm_mode mdt_mdl_mode2dlm_mode(mdl_mode_t mode)
+static inline enum ldlm_mode mdt_mdl_mode2dlm_mode(enum md_lock_mode mdt_mode)
 {
-	LASSERT(IS_PO2(mode));
-	return mdt_dlm_lock_modes[mode];
+	LASSERT(IS_PO2(mdt_mode));
+	return mdt_dlm_lock_modes[mdt_mode];
 }
 
 /* mdt_lvb.c */
