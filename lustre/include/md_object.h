@@ -104,7 +104,7 @@ enum ma_valid {
         MA_PFID      = (1 << 10)
 };
 
-typedef enum {
+typedef enum md_lock_mode {
         MDL_MINMODE  = 0,
         MDL_EX       = 1,
         MDL_PW       = 2,
@@ -116,11 +116,11 @@ typedef enum {
         MDL_MAXMODE
 } mdl_mode_t;
 
-typedef enum {
-        MDT_NUL_LOCK = 0,
-        MDT_REG_LOCK = (1 << 0),
-        MDT_PDO_LOCK = (1 << 1)
-} mdl_type_t;
+enum md_handle_type {
+	MDT_NUL_LOCK = 0,
+	MDT_REG_LOCK = (1 << 0),
+	MDT_PDO_LOCK = (1 << 1)
+};
 
 /* memory structure for hsm attributes
  * for fields description see the on disk structure hsm_attrs
