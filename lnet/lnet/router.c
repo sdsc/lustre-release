@@ -666,10 +666,7 @@ lnet_parse_rc_info(lnet_rc_data_t *rcd)
 				continue;
 
 			if (stat->ns_status == LNET_NI_STATUS_DOWN) {
-				if (LNET_NETTYP(LNET_NIDNET(nid)) != PTLLND)
-					down++;
-				else if (ptl_status != LNET_NI_STATUS_UP)
-					ptl_status = LNET_NI_STATUS_DOWN;
+				down++;
 				continue;
 			}
 
@@ -678,10 +675,6 @@ lnet_parse_rc_info(lnet_rc_data_t *rcd)
 					up = 1;
 					break;
 				}
-				/* ptl NIs are considered down only when
-				 * they're all down */
-				if (LNET_NETTYP(LNET_NIDNET(nid)) == PTLLND)
-					ptl_status = LNET_NI_STATUS_UP;
 				continue;
 			}
 
