@@ -436,6 +436,7 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
 {
         struct it_cb_data *icbd = data;
         struct dentry **de = icbd->icbd_childp;
+	struct dentry *alias;
         struct inode *parent = icbd->icbd_parent;
         struct inode *inode = NULL;
 	__u64 bits = 0;
@@ -467,9 +468,11 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
 	 * Atoimc_open may passin hashed dentries for open.
 	 */
 	if (d_unhashed(*de)) {
-		*de = ll_splice_alias(inode, *de);
-		if (IS_ERR(*de))
-			RETURN(PTR_ERR(*de));
+		alias = ll_splice_alias(inode, *de);
+		if (IS_ERR(alias))
+			RETURN(PTR_ERR(alias));
+		else
+			*de = alias;
 	}
 
 	if (!it_disposition(it, DISP_LOOKUP_NEG)) {

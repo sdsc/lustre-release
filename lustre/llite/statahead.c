@@ -1531,7 +1531,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
 {
         struct ll_inode_info     *lli   = ll_i2info(dir);
         struct ll_statahead_info *sai   = lli->lli_sai;
-        struct dentry            *parent;
+	struct dentry		 *parent, *alias;
         struct ll_sa_entry       *entry;
         struct ptlrpc_thread     *thread;
         struct l_wait_info        lwi   = { 0 };
@@ -1615,11 +1615,13 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
 						ll_inode2fid(inode), &bits);
 			if (rc == 1) {
 				if ((*dentryp)->d_inode == NULL) {
-					*dentryp = ll_splice_alias(inode,
+					alias = ll_splice_alias(inode,
 								   *dentryp);
-					if (IS_ERR(*dentryp)) {
+					if (IS_ERR(alias)) {
 						ll_sai_unplug(sai, entry);
-						RETURN(PTR_ERR(*dentryp));
+						RETURN(PTR_ERR(alias));
+					} else {
+						*dentryp = alias;
 					}
                                 } else if ((*dentryp)->d_inode != inode) {
                                         /* revalidate, but inode is recreated */
