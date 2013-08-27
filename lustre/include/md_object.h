@@ -82,23 +82,17 @@ enum ma_valid {
 	MA_LMV_DEF   = (1 << 10)
 };
 
-typedef enum {
-        MDL_MINMODE  = 0,
-        MDL_EX       = 1,
-        MDL_PW       = 2,
-        MDL_PR       = 4,
-        MDL_CW       = 8,
-        MDL_CR       = 16,
-        MDL_NL       = 32,
-        MDL_GROUP    = 64,
-        MDL_MAXMODE
-} mdl_mode_t;
-
-typedef enum {
-        MDT_NUL_LOCK = 0,
-        MDT_REG_LOCK = (1 << 0),
-        MDT_PDO_LOCK = (1 << 1)
-} mdl_type_t;
+enum md_lock_mode {
+	MDL_MINMODE	= 0,
+	MDL_EX		= 1,
+	MDL_PW		= 2,
+	MDL_PR		= 4,
+	MDL_CW		= 8,
+	MDL_CR		= 16,
+	MDL_NL		= 32,
+	MDL_GROUP	= 64,
+	MDL_MAXMODE
+};
 
 /* memory structure for hsm attributes
  * for fields description see the on disk structure hsm_attrs
@@ -165,10 +159,10 @@ struct md_op_spec {
 		     sp_permitted:1; /* do not check permission */
 
 	/** Current lock mode for parent dir where create is performing. */
-        mdl_mode_t sp_cr_mode;
+	enum md_lock_mode		sp_cr_mode;
 
-        /** to create directory */
-        const struct dt_index_features *sp_feat;
+	/** to create directory */
+	const struct dt_index_features	*sp_feat;
 };
 
 union ldlm_policy_data;
@@ -239,16 +233,16 @@ struct md_object_operations {
  * Operations implemented for each directory object.
  */
 struct md_dir_operations {
-        int (*mdo_is_subdir) (const struct lu_env *env, struct md_object *obj,
-                              const struct lu_fid *fid, struct lu_fid *sfid);
+	int (*mdo_is_subdir) (const struct lu_env *env, struct md_object *obj,
+			      const struct lu_fid *fid, struct lu_fid *sfid);
 
-        int (*mdo_lookup)(const struct lu_env *env, struct md_object *obj,
-                          const struct lu_name *lname, struct lu_fid *fid,
-                          struct md_op_spec *spec);
+	int (*mdo_lookup)(const struct lu_env *env, struct md_object *obj,
+			  const struct lu_name *lname, struct lu_fid *fid,
+			  struct md_op_spec *spec);
 
-        mdl_mode_t (*mdo_lock_mode)(const struct lu_env *env,
-                                    struct md_object *obj,
-                                    mdl_mode_t mode);
+	enum md_lock_mode (*mdo_lock_mode)(const struct lu_env *env,
+					   struct md_object *obj,
+					   enum md_lock_mode mode);
 
         int (*mdo_create)(const struct lu_env *env, struct md_object *pobj,
                           const struct lu_name *lname, struct md_object *child,
@@ -517,13 +511,13 @@ static inline int mdo_lookup(const struct lu_env *env,
         return p->mo_dir_ops->mdo_lookup(env, p, lname, f, spec);
 }
 
-static inline mdl_mode_t mdo_lock_mode(const struct lu_env *env,
-                                       struct md_object *mo,
-                                       mdl_mode_t lm)
+static inline enum md_lock_mode mdo_lock_mode(const struct lu_env *env,
+					      struct md_object *mo,
+					      enum md_lock_mode lm)
 {
-        if (mo->mo_dir_ops->mdo_lock_mode == NULL)
-                return MDL_MINMODE;
-        return mo->mo_dir_ops->mdo_lock_mode(env, mo, lm);
+	if (mo->mo_dir_ops->mdo_lock_mode == NULL)
+		return MDL_MINMODE;
+	return mo->mo_dir_ops->mdo_lock_mode(env, mo, lm);
 }
 
 static inline int mdo_create(const struct lu_env *env,
