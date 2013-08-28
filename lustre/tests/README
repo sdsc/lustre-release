@@ -83,3 +83,5 @@ a copy of the /etc filesystem into the Lustre filesystem.  It then does
 data verification both before and after the filesystem is remounted, and
 finally deletes all of the files and verifies that the amount of space
 left in the filesystem is (nearly) the same as it was before the test.
+
+Testing mdscount=2
