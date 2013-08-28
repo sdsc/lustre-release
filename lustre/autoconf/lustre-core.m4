@@ -1013,13 +1013,13 @@ AC_DEFINE(HAVE_FILEMAP_FDATAWRITE_RANGE, 1,
 
 # The actual symbol exported varies among architectures, so we need
 # to check many symbols (but only in the current architecture.)  No
-# matter what symbol is exported, the kernel #defines node_to_cpumask
+# matter what symbol is exported, the kernel #defines node_to_cpumask_map
 # to the appropriate function and that's what we use.
 AC_DEFUN([LC_EXPORT_NODE_TO_CPUMASK],
-         [LB_CHECK_SYMBOL_EXPORT([node_to_cpumask],
+         [LB_CHECK_SYMBOL_EXPORT([node_to_cpumask_map],
                                  [arch/$LINUX_ARCH/mm/numa.c],
                                  [AC_DEFINE(HAVE_NODE_TO_CPUMASK, 1,
-                                            [node_to_cpumask is exported by
+                                            [node_to_cpumask_map is exported by
                                              the kernel])]) # x86_64
           LB_CHECK_SYMBOL_EXPORT([node_to_cpu_mask],
                                  [arch/$LINUX_ARCH/kernel/smpboot.c],
