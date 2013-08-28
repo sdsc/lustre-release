@@ -764,8 +764,8 @@ run_write_disjoint() {
     local cmd="$WRITE_DISJOINT -f $testdir/file -n $wdisjoint_REP"
 
 	echo "+ $cmd"
-	mpi_run -np $((num_clients * $wdisjoint_THREADS)) \
-		${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
+	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+		-np $((num_clients * $wdisjoint_THREADS)) $cmd
 
     local rc=$?
     if [ $rc != 0 ] ; then
