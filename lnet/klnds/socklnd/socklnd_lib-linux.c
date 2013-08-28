@@ -57,6 +57,8 @@ enum {
         SOCKLND_TX_BUFFER_SIZE,
         SOCKLND_NAGLE,
         SOCKLND_IRQ_AFFINITY,
+        SOCKLND_NCPUS,
+        SOCKLND_CPU_AFFINITY_OFF,
         SOCKLND_ROUND_ROBIN,
         SOCKLND_KEEPALIVE,
         SOCKLND_KEEPALIVE_IDLE,
@@ -86,6 +88,8 @@ enum {
 #define SOCKLND_TX_BUFFER_SIZE  CTL_UNNUMBERED
 #define SOCKLND_NAGLE           CTL_UNNUMBERED
 #define SOCKLND_IRQ_AFFINITY    CTL_UNNUMBERED
+#define SOCKLND_NCPUS           CTL_UNNUMBERED
+#define SOCKLND_CPU_AFFINITY_OFF CTL_UNNUMBERED
 #define SOCKLND_ROUND_ROBIN     CTL_UNNUMBERED
 #define SOCKLND_KEEPALIVE       CTL_UNNUMBERED
 #define SOCKLND_KEEPALIVE_IDLE  CTL_UNNUMBERED
@@ -260,6 +264,24 @@ static cfs_sysctl_table_t ksocknal_ctl_table[] = {
                 .data     = &ksocknal_tunables.ksnd_irq_affinity,
                 .maxlen   = sizeof(int),
                 .mode     = 0644,
+                .proc_handler = &proc_dointvec,
+                .strategy = &sysctl_intvec,
+        },
+        {
+                .ctl_name = SOCKLND_NCPUS,
+                .procname = "ncpus",
+                .data     = &ksocknal_tunables.ksnd_ncpus,
+                .maxlen   = sizeof(int),
+                .mode     = 0444,
+                .proc_handler = &proc_dointvec,
+                .strategy = &sysctl_intvec,
+        },
+        {
+                .ctl_name = SOCKLND_CPU_AFFINITY_OFF,
+                .procname = "cpu_affinity_off",
+                .data     = &ksocknal_tunables.cpu_affinity_off,
+                .maxlen   = sizeof(int),
+                .mode     = 0444,
                 .proc_handler = &proc_dointvec,
                 .strategy = &sysctl_intvec,
         },
@@ -1296,11 +1318,11 @@ int
 ksocknal_lib_bind_thread_to_cpu(int id)
 {
 #if defined(CONFIG_SMP) && defined(CPU_AFFINITY)
-        id = ksocknal_sched2cpu(id);
+        id = ksocknal_sched2cpu(id) + *ksocknal_tunables.ksnd_cpu_affinity_off;
         if (cpu_online(id)) {
                 cpumask_t m = CPU_MASK_NONE;
                 cpu_set(id, m);
-                set_cpus_allowed(current, m);
+                set_cpus_allowed_ptr(current, m);
                 return 0;
         }
 
@@ -1310,3 +1332,22 @@ ksocknal_lib_bind_thread_to_cpu(int id)
         return 0;
 #endif
 }
+
+int
+ksocknal_lib_bind_thread_to_node_cpu(int id)
+{
+#if defined(CONFIG_SMP) && defined(CPU_AFFINITY)
+        id = ksocknal_sched2cpu(id) + *ksocknal_tunables.ksnd_cpu_affinity_off;
+        if (cpu_online(id)) {
+                cpumask_t *m = node_to_cpumask_map[cpu_to_node(id)];
+                set_cpus_allowed_ptr(current, m);
+                return 0;
+        }
+
+        return -1;
+
+#else
+        return 0;
+#endif
+}
+

@@ -1685,6 +1685,7 @@ static int ptlrpc_main(void *arg)
          * we get the per-thread allocations on local node.  bug 7342 */
         if (svc->srv_cpu_affinity) {
                 int cpu, num_cpu;
+                cpumask_t *m;
 
                 for (cpu = 0, num_cpu = 0; cpu < num_possible_cpus(); cpu++) {
                         if (!cpu_online(cpu))
@@ -1693,7 +1694,8 @@ static int ptlrpc_main(void *arg)
                                 break;
                         num_cpu++;
                 }
-                set_cpus_allowed(cfs_current(), node_to_cpumask(cpu_to_node(cpu)));
+                m = node_to_cpumask_map[cpu_to_node(cpu)];
+                set_cpus_allowed_ptr(cfs_current(), m);
         }
 #endif
 

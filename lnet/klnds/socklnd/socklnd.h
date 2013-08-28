@@ -129,6 +129,8 @@ typedef struct
         int              *ksnd_zc_recv_min_nfrags; /* minimum # of fragments to enable ZC receive */
 #ifdef CPU_AFFINITY
         int              *ksnd_irq_affinity;    /* enable IRQ affinity? */
+        unsigned int     *ksnd_ncpus;           /* # CPUs */
+        unsigned int     *ksnd_cpu_affinity_off;/* affinity offset */
 #endif
 #ifdef SOCKNAL_BACKOFF
         int              *ksnd_backoff_init;    /* initial TCP backoff */
@@ -609,3 +611,4 @@ extern void ksocknal_lib_csum_tx(ksock_tx_t *tx);
 extern int ksocknal_lib_memory_pressure(ksock_conn_t *conn);
 extern __u64 ksocknal_lib_new_incarnation(void);
 extern int ksocknal_lib_bind_thread_to_cpu(int id);
+extern int ksocknal_lib_bind_thread_to_node_cpu(int id);
