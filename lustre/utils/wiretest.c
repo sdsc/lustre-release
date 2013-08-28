@@ -314,7 +314,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)LDLM_GL_CALLBACK);
 	LASSERTF(LDLM_SET_INFO == 107, "found %lld\n",
 		 (long long)LDLM_SET_INFO);
-	LASSERTF(LDLM_LAST_OPC == 108, "found %lld\n",
+	LASSERTF(LDLM_LAST_OPC == 109, "found %lld\n",
 		 (long long)LDLM_LAST_OPC);
 	LASSERTF(LCK_MINMODE == 0, "found %lld\n",
 		 (long long)LCK_MINMODE);
@@ -1167,7 +1167,7 @@ void lustre_assert_wire_constants(void)
 	LASSERTF(OBD_CONNECT_PINGLESS == 0x4000000000000ULL, "found 0x%.16llxULL\n",
 		 OBD_CONNECT_PINGLESS);
 	LASSERTF(OBD_CONNECT_FLOCK_DEAD == 0x8000000000000ULL, "found 0x%.16llxULL\n",
-	         OBD_CONNECT_FLOCK_DEAD);
+		 OBD_CONNECT_FLOCK_DEAD);
 	LASSERTF(OBD_CKSUM_CRC32 == 0x00000001UL, "found 0x%.8xUL\n",
 		(unsigned)OBD_CKSUM_CRC32);
 	LASSERTF(OBD_CKSUM_ADLER == 0x00000002UL, "found 0x%.8xUL\n",

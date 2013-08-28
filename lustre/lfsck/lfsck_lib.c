@@ -1128,7 +1128,10 @@ put:
 	if (exp != NULL) {
 		if (rc == -EALREADY)
 			rc = 0;
-		/* XXX: more processing in other patches. */
+		if (rc == 0)
+			exp->exp_in_lfsck = 1;
+		else
+			exp->exp_in_lfsck = 0;
 	}
 	return (rc < 0 ? rc : 0);
 }
@@ -1172,7 +1175,7 @@ out:
 	if (exp != NULL) {
 		if (rc == -EALREADY)
 			rc = 0;
-		/* XXX: more processing in other patches. */
+		exp->exp_in_lfsck = 0;
 	}
 	return rc;
 }
