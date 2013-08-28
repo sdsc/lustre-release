@@ -1245,7 +1245,9 @@ int class_process_config(struct lustre_cfg *lcfg)
                 GOTO(out, err = 0);
         }
         case LCFG_POOL_NEW: {
-                err = obd_pool_new(obd, lustre_cfg_string(lcfg, 2));
+		int pool_id = simple_strtol(lustre_cfg_string(lcfg, 4),
+					    NULL, 10);
+		err = obd_pool_new(obd, lustre_cfg_string(lcfg, 2), pool_id);
                 GOTO(out, err = 0);
         }
         case LCFG_POOL_ADD: {
@@ -1259,7 +1261,9 @@ int class_process_config(struct lustre_cfg *lcfg)
                 GOTO(out, err = 0);
         }
         case LCFG_POOL_DEL: {
-                err = obd_pool_del(obd, lustre_cfg_string(lcfg, 2));
+		int pool_id = simple_strtol(lustre_cfg_string(lcfg, 4),
+					    NULL, 10);
+		err = obd_pool_del(obd, lustre_cfg_string(lcfg, 2), pool_id);
                 GOTO(out, err = 0);
         }
         default: {

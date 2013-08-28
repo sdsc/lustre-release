@@ -583,7 +583,7 @@ static int osd_mount(const struct lu_env *env,
 
 	/* initialize quota slave instance */
 	o->od_quota_slave = qsd_init(env, o->od_svname, &o->od_dt_dev,
-				     o->od_proc_entry);
+				     o->od_proc_entry, NULL, 0);
 	if (IS_ERR(o->od_quota_slave)) {
 		rc = PTR_ERR(o->od_quota_slave);
 		o->od_quota_slave = NULL;
@@ -828,11 +828,26 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
 {
 	struct osd_device	*osd = osd_dev(dev);
 	int			 rc = 0;
+	struct dt_object	*qsd_root;
 	ENTRY;
+
+
+	/* initialize quota slave root directory where all index files will be
+	 * stored */
+	qsd_root = lquota_disk_dir_find_create(env, lu2dt_dev(dev), NULL,
+					       QSD_DIR);
+	if (IS_ERR(qsd_root)) {
+		rc = PTR_ERR(qsd_root);
+		CERROR("failed to create slave quota directory (%d)\n",
+		       rc);
+		RETURN(rc);
+	}
 
 	if (osd->od_quota_slave != NULL)
 		/* set up quota slave objects */
-		rc = qsd_prepare(env, osd->od_quota_slave);
+		rc = qsd_prepare(env, osd->od_quota_slave, qsd_root);
+
+	lu_object_put(env, &qsd_root->do_lu);
 
 	RETURN(rc);
 }
