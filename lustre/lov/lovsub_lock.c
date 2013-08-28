@@ -423,7 +423,6 @@ static void lovsub_lock_delete(const struct lu_env *env,
                         lov     = scan->lll_super;
                         subdata = &lov->lls_sub[scan->lll_idx];
                         lovsub_parent_lock(env, lov);
-                        subdata->sub_got = subdata->sub_descr;
                         lov_lock_unlink(env, scan, sub);
                         restart = lovsub_lock_delete_one(env, child, lov);
                         lovsub_parent_unlock(env, lov);
