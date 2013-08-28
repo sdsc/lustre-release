@@ -206,7 +206,8 @@ int osp_sync_declare_add(const struct lu_env *env, struct osp_object *o,
 static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 			    const struct lu_fid *fid, llog_op_type type,
 			    int count, struct thandle *th,
-			    const struct lu_attr *attr)
+			    const struct lu_attr *attr,
+			    const struct lu_fid *pfid)
 {
 	struct osp_thread_info	*osi = osp_env_info(env);
 	struct llog_ctxt	*ctxt;
@@ -235,6 +236,24 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 		LASSERT(attr);
 		osi->osi_setattr.lsr_uid = attr->la_uid;
 		osi->osi_setattr.lsr_gid = attr->la_gid;
+
+		/* XXX: reusing llog_setattr64_rec::lsr_uid_h/lsr_gid_h
+		 *	for parent FID. */
+		LASSERT(pfid != NULL);
+
+		osi->osi_setattr.lsr_seq = pfid->f_seq;
+		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_UNMATCHED_PAIR1))
+			osi->osi_setattr.lsr_uid_h = ~LUSTRE_MAX_OID;
+		else if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_UNMATCHED_PAIR2))
+			osi->osi_setattr.lsr_uid_h = pfid->f_oid - 1;
+		else
+			osi->osi_setattr.lsr_uid_h = pfid->f_oid;
+
+		LASSERT(!(attr->la_valid & LA_RDEV));
+		LASSERT(attr->la_valid & LA_STRIPE_IDX);
+
+		/* XXX: We are ignoring fid::f_ver here. */
+		osi->osi_setattr.lsr_gid_h = attr->la_rdev;
 		break;
 	default:
 		LBUG();
@@ -272,17 +291,18 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 
 int osp_sync_add(const struct lu_env *env, struct osp_object *o,
 		 llog_op_type type, struct thandle *th,
-		 const struct lu_attr *attr)
+		 const struct lu_attr *attr, const struct lu_fid *pfid)
 {
 	return osp_sync_add_rec(env, lu2osp_dev(o->opo_obj.do_lu.lo_dev),
 				lu_object_fid(&o->opo_obj.do_lu), type, 1,
-				th, attr);
+				th, attr, pfid);
 }
 
 int osp_sync_gap(const struct lu_env *env, struct osp_device *d,
 		 struct lu_fid *fid, int lost, struct thandle *th)
 {
-	return osp_sync_add_rec(env, d, fid, MDS_UNLINK64_REC, lost, th, NULL);
+	return osp_sync_add_rec(env, d, fid, MDS_UNLINK64_REC, lost, th,
+				NULL, NULL);
 }
 
 /*
@@ -486,8 +506,19 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
 	body->oa.o_oi = rec->lsr_oi;
 	body->oa.o_uid = rec->lsr_uid;
 	body->oa.o_gid = rec->lsr_gid;
+	body->oa.o_parent_seq = rec->lsr_seq;
+	body->oa.o_parent_oid = rec->lsr_uid_h;
+	body->oa.o_parent_ver = 0;
+	body->oa.o_stripe_idx = rec->lsr_gid_h;
 	body->oa.o_valid = OBD_MD_FLGROUP | OBD_MD_FLID |
-			   OBD_MD_FLUID | OBD_MD_FLGID;
+			   OBD_MD_FLUID | OBD_MD_FLGID | OBD_MD_FLFID;
+	if (body->oa.o_parent_oid & LUSTRE_MAX_OID) {
+		/* XXX: it is some hack, we use LUSTRE_MAX_OID to indicate
+		 *	it is for LFSCK repairing. */
+		body->oa.o_parent_oid &= ~LUSTRE_MAX_OID;
+		body->oa.o_flags = OBD_FL_LFSCK;
+		body->oa.o_valid |= OBD_MD_FLFLAGS;
+	}
 
 	osp_sync_send_new_rpc(d, req);
 	RETURN(0);

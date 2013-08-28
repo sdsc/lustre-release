@@ -879,6 +879,7 @@ int ofd_setattr(const struct lu_env *env, struct obd_export *exp,
 	struct ofd_object	*fo;
 	struct obdo		*oa = oinfo->oi_oa;
 	struct filter_fid	*ff = NULL;
+	bool			 force_ff = false;
 	int			 rc = 0;
 
 	ENTRY;
@@ -928,10 +929,12 @@ int ofd_setattr(const struct lu_env *env, struct obd_export *exp,
 	if (oa->o_valid & OBD_MD_FLFID) {
 		ff = &info->fti_mds_fid;
 		ofd_prepare_fidea(ff, oa);
+		if (oa->o_valid & OBD_MD_FLFLAGS && oa->o_flags & OBD_FL_LFSCK)
+			force_ff = true;
 	}
 
 	/* setting objects attributes (including owner/group) */
-	rc = ofd_attr_set(env, fo, &info->fti_attr, ff);
+	rc = ofd_attr_set(env, fo, &info->fti_attr, ff, force_ff);
 	if (rc)
 		GOTO(out_unlock, rc);
 

@@ -1083,7 +1083,7 @@ static int osp_md_object_destroy(const struct lu_env *env,
 	 * once transaction is committed put proper command on
 	 * the queue going to our OST
 	 */
-	rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL);
+	rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL, NULL);
 
 	/* not needed in cache any more */
 	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);

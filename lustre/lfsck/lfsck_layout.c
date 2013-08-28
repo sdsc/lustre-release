@@ -822,12 +822,180 @@ stop:
 	return rc;
 }
 
+static int lfsck_layout_check_parent(const struct lu_env *env,
+				     struct lfsck_component *com,
+				     struct dt_object *parent,
+				     const struct lu_fid *pfid,
+				     const struct lu_fid *cfid,
+				     struct lfsck_layout_req *llr,
+				     struct lu_buf *buf, __u32 idx)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct dt_object		*tobj;
+	struct lov_mds_md_v1		*lmm;
+	struct lov_ost_data_v1		*objs;
+	__u32				 magic;
+	__u32				 patten;
+	int				 rc;
+	int				 i;
+	__u16				 count;
+	ENTRY;
+
+	if (lu_fid_eq(pfid, lu_object_fid(&parent->do_lu))) {
+		if (llr->llr_lov_idx == idx)
+			RETURN(0);
+		else
+			RETURN(LLI_UNMATCHED_PAIR);
+	}
+
+	tobj = lfsck_object_find(env, com->lc_lfsck, pfid);
+	if (tobj == NULL)
+		RETURN(LLI_UNMATCHED_PAIR);
+
+	if (IS_ERR(tobj))
+		RETURN(PTR_ERR(tobj));
+
+	if (!dt_object_exists(tobj))
+		GOTO(out, rc = LLI_UNMATCHED_PAIR);
+
+	if (buf->lb_buf == NULL) {
+		buf->lb_len = PAGE_CACHE_SIZE;
+
+again:
+		OBD_ALLOC_LARGE(buf->lb_buf, buf->lb_len);
+		if (buf->lb_buf == NULL)
+			GOTO(out, rc = -ENOMEM);
+	}
+
+	rc = dt_xattr_get(env, tobj, buf, XATTR_NAME_LOV, BYPASS_CAPA);
+	if (rc == -ENODATA || rc == 0)
+		GOTO(out, rc = LLI_UNMATCHED_PAIR);
+
+	if (rc == -ERANGE) {
+		rc = dt_xattr_get(env, tobj, &LU_BUF_NULL, XATTR_NAME_LOV,
+				  BYPASS_CAPA);
+		if (unlikely(rc == -ENODATA || rc == 0))
+			GOTO(out, rc = LLI_UNMATCHED_PAIR);
+
+		if (rc < 0)
+			GOTO(out, rc);
+
+		OBD_FREE_LARGE(buf->lb_buf, buf->lb_len);
+		buf->lb_buf = NULL;
+		buf->lb_len = rc;
+		goto again;
+	}
+
+	if (rc < 0)
+		GOTO(out, rc);
+
+	lmm = buf->lb_buf;
+	magic = le32_to_cpu(lmm->lmm_magic);
+	/* If magic crashed, we do not know whether it is unmatched pair or not.
+	 * Keep it there to avoid more inconsistence introduced. */
+	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)
+		GOTO(out, rc = -EINVAL);
+
+	patten = le32_to_cpu(lmm->lmm_pattern);
+	/* XXX: currently, we only support LOV_PATTERN_RAID0. */
+	if (patten != LOV_PATTERN_RAID0)
+		GOTO(out, rc = -EOPNOTSUPP);
+
+	if (magic == LOV_MAGIC_V1)
+		objs = &(lmm->lmm_objects[0]);
+	else
+		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
+
+	count = le16_to_cpu(lmm->lmm_stripe_count);
+	for (i = 0; i < count; i++, objs++) {
+		struct lu_fid		*tfid	= &info->lti_fid2;
+		struct ost_id		*oi	= &info->lti_oi;
+
+		ostid_le_to_cpu(&objs->l_ost_oi, oi);
+		ostid_to_fid(tfid, oi, le32_to_cpu(objs->l_ost_idx));
+		if (lu_fid_eq(cfid, tfid))
+			GOTO(out, rc = LLI_MULTIPLE_REFERENCED);
+	}
+
+	GOTO(out, rc = LLI_UNMATCHED_PAIR);
+
+out:
+	lfsck_object_put(env, tobj);
+	return rc;
+}
+
+static int lfsck_layout_repair_unmatched_pair(const struct lu_env *env,
+					      struct lfsck_component *com,
+					      struct lfsck_layout_req *llr,
+					      const struct lu_attr* pla)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct lu_attr			*tla	= &info->lti_la3;
+	struct lu_fid			*fid	= &info->lti_fid2;
+	struct dt_device		*dev	= com->lc_lfsck->li_next;
+	struct dt_object		*parent = llr->llr_parent->llo_obj;
+	struct dt_object		*child  = llr->llr_child;
+	struct thandle			*handle;
+	struct lu_buf			 buf;
+	int				 rc;
+	ENTRY;
+
+	handle = dt_trans_create(env, dev);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	*fid = *lu_object_fid(&parent->do_lu);
+	/* XXX: it is some hack, we use LUSTRE_MAX_OID to indicate
+	 *	it is for LFSCK repairing. */
+	fid->f_oid |= LUSTRE_MAX_OID;
+	buf.lb_buf = fid;
+	buf.lb_len = sizeof(*fid);
+	rc = dt_declare_xattr_set(env, child, &buf, XATTR_NAME_FID, 0, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	tla->la_valid = LA_UID | LA_GID | LA_STRIPE_IDX;
+	tla->la_uid = pla->la_uid;
+	tla->la_gid = pla->la_gid;
+	tla->la_rdev = llr->llr_lov_idx;
+	rc = dt_declare_attr_set(env, child, tla, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start(env, dev, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	dt_read_lock(env, parent, 0);
+	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+		GOTO(unlock, rc = 0);
+
+	/* Get the latest parent's owner. */
+	rc = dt_attr_get(env, parent, tla, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	tla->la_valid = LA_UID | LA_GID | LA_STRIPE_IDX;
+	tla->la_rdev = llr->llr_lov_idx;
+	rc = dt_attr_set(env, child, tla, handle, BYPASS_CAPA);
+
+	GOTO(unlock, rc = (rc == 0 ? 1 : rc));
+
+unlock:
+	dt_read_unlock(env, parent);
+stop:
+	dt_trans_stop(env, dev, handle);
+	return rc;
+}
+
 static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 					     struct lfsck_component *com,
-					     struct lfsck_layout_req *llr)
+					     struct lfsck_layout_req *llr,
+					     struct lu_buf *buf)
 {
 	struct lfsck_layout		*lo	   = com->lc_file_ram;
 	struct lfsck_thread_info	*info	   = lfsck_env_info(env);
+	struct lu_fid			*pfid	   = &info->lti_fid;
 	struct dt_object		*parent    = llr->llr_parent->llo_obj;
 	struct dt_object		*child	   = llr->llr_child;
 	struct lu_attr			*pla	   = &info->lti_la;
@@ -835,6 +1003,7 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 	struct lfsck_instance		*lfsck	   = com->lc_lfsck;
 	struct lfsck_bookmark		*bk	   = &lfsck->li_bookmark_ram;
 	enum lfsck_layout_inconsistency  type	   = LLI_NONE;
+	__u32				 idx;
 	int				 rc;
 	ENTRY;
 
@@ -854,6 +1023,53 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out, rc);
 
+	rc= dt_xattr_get(env, child,
+			 lfsck_buf_get(env, pfid, sizeof(*pfid)),
+			 XATTR_NAME_FID, BYPASS_CAPA);
+	if (rc >= 0 && rc != sizeof(*pfid)) {
+		type = LLI_UNMATCHED_PAIR;
+		goto repair;
+	}
+
+	if (rc < 0 && rc != -ENODATA)
+		GOTO(out, rc);
+
+	if (rc == -ENODATA)
+		fid_zero(pfid);
+
+	/* XXX: OST-object does not save parent FID::f_ver, instead,
+	 *	the OST-object index in the parent MDT-object layout
+	 *	EA reuses the pfid->f_ver. */
+	idx = pfid->f_ver;
+	pfid->f_ver = 0;
+
+	if (fid_is_zero(pfid)) {
+		/* non-modified. */
+		if (cla->la_mode & S_ISUID && cla->la_uid == 0 &&
+		    cla->la_mode & S_ISGID && cla->la_gid == 0 &&
+		    cla->la_size == 0 && cla->la_blocks == 0)
+			RETURN(0);
+
+		type = LLI_UNMATCHED_PAIR;
+		goto repair;
+	}
+
+	if (!fid_is_sane(pfid)) {
+		type = LLI_UNMATCHED_PAIR;
+		goto repair;
+	}
+
+	rc = lfsck_layout_check_parent(env, com, parent, pfid,
+				       lu_object_fid(&child->do_lu),
+				       llr, buf, idx);
+	if (rc > 0) {
+		type = rc;
+		goto repair;
+	}
+
+	if (rc < 0)
+		GOTO(out, rc);
+
 	/* XXX: other inconsistency will be checked in other patches. */
 
 repair:
@@ -868,11 +1084,12 @@ repair:
 	case LLI_DANGLING:
 		rc = lfsck_layout_recreate_ostobj(env, com, llr, pla);
 		break;
+	case LLI_UNMATCHED_PAIR:
+		rc = lfsck_layout_repair_unmatched_pair(env, com, llr, pla);
+		break;
 
 	/* XXX: other inconsistency will be fixed in other patches. */
 
-	case LLI_UNMATCHED_PAIR:
-		break;
 	case LLI_MULTIPLE_REFERENCED:
 		break;
 	case LLI_INCONSISTENT_OWNER:
@@ -927,6 +1144,7 @@ static int lfsck_layout_assistant(void *args)
 	struct ptlrpc_thread		*thread = &llmd->llmd_thread;
 	struct lfsck_layout_req		*llr;
 	struct l_wait_info		 lwi    = { 0 };
+	struct lu_buf			 buf	= { 0 };
 	__u32				 event  = LNE_LAYOUT_PHASE1_DONE;
 	int				 rc	= 0;
 	int				 rc1	= 0;
@@ -960,7 +1178,7 @@ static int lfsck_layout_assistant(void *args)
 			llr = cfs_list_entry(llmd->llmd_list.next,
 					     struct lfsck_layout_req,
 					     llr_list);
-			rc = lfsck_layout_assistant_handle_one(env, com, llr);
+			rc = lfsck_layout_assistant_handle_one(env, com, llr, &buf);
 			spin_lock(&llmd->llmd_lock);
 			cfs_list_del_init(&llr->llr_list);
 			spin_unlock(&llmd->llmd_lock);
@@ -1115,6 +1333,8 @@ fini:
 	thread_set_flags(thread, SVC_STOPPED);
 	wake_up_all(&thread->t_ctl_waitq);
 	spin_unlock(&llmd->llmd_lock);
+	if (buf.lb_buf != NULL)
+		OBD_FREE_LARGE(buf.lb_buf, buf.lb_len);
 	lfsck_thread_args_fini(lta);
 	return rc;
 }
