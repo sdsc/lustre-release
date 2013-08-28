@@ -45,6 +45,8 @@ struct qsd_instance {
 	/* name of service which created this qsd instance */
 	char			 qsd_svname[MAX_OBD_NAME];
 
+	/* pool name */
+	char			 qsd_pool_name[LOV_MAXPOOLNAME + 1];
 	/* pool ID is always 0 for now */
 	int			 qsd_pool_id;
 
@@ -115,6 +117,12 @@ struct qsd_instance {
 				 qsd_stopping:1, /* qsd_instance is stopping */
 				 qsd_acct_failed:1; /* failed to set up acct
 						     * for one quota type */
+	/* link into od_quota_slaves of osd_device */
+	cfs_list_t		 qsd_osd_link;
+	/* link to osd_device's pool hash */
+	cfs_hlist_node_t	 qsd_osd_hash;
+	/* track users of this instance */
+	cfs_atomic_t		 qsd_ref;
 };
 
 /*

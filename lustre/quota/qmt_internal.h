@@ -70,6 +70,9 @@ struct qmt_device {
 	/* List of pools managed by this master target */
 	cfs_list_t		 qmt_pool_list;
 
+	/* Lock protecting qmt_pool_list */
+	struct rw_semaphore      qmt_pool_sem;
+
 	/* procfs root directory for this qmt */
 	cfs_proc_dir_entry_t	*qmt_proc;
 
@@ -84,6 +87,7 @@ struct qmt_device {
 
 	unsigned long		 qmt_stopping:1; /* qmt is stopping */
 
+	int			 qmt_pool_index;
 };
 
 /*
@@ -275,6 +279,8 @@ int qmt_pool_prepare(const struct lu_env *, struct qmt_device *,
 int qmt_pool_new_conn(const struct lu_env *, struct qmt_device *,
 		      struct lu_fid *, struct lu_fid *, __u64 *,
 		      struct obd_uuid *);
+int qmt_pool_new(struct obd_device *obd, char *poolname, int pool_id);
+int qmt_pool_del(struct obd_device *obd, char *poolname, int pool_id);
 struct lquota_entry *qmt_pool_lqe_lookup(const struct lu_env *,
 					 struct qmt_device *, int, int, int,
 					 union lquota_id *);

@@ -154,6 +154,8 @@ struct lod_object {
 	__u32		   ldo_pattern;
 	__u16		   ldo_released_stripenr;
 	char		  *ldo_pool;
+	__u32		   ldo_pool_id;
+	int		   ldo_pool_valid;
 	struct dt_object **ldo_stripe;
 	/* to know how much memory to free, ldo_stripenr can be less */
 	/* default striping for directory represented by this object
@@ -301,11 +303,11 @@ int lod_ost_pool_extend(struct ost_pool *op, unsigned int min_count);
 struct pool_desc *lod_find_pool(struct lod_device *lod, char *poolname);
 void lod_pool_putref(struct pool_desc *pool);
 int lod_ost_pool_free(struct ost_pool *op);
-int lod_pool_del(struct obd_device *obd, char *poolname);
+int lod_pool_del(struct obd_device *obd, char *poolname, int pool_id);
 int lod_ost_pool_init(struct ost_pool *op, unsigned int count);
 extern cfs_hash_ops_t pool_hash_operations;
 int lod_check_index_in_pool(__u32 idx, struct pool_desc *pool);
-int lod_pool_new(struct obd_device *obd, char *poolname);
+int lod_pool_new(struct obd_device *obd, char *poolname, int pool_id);
 int lod_pool_add(struct obd_device *obd, char *poolname, char *ostname);
 int lod_pool_remove(struct obd_device *obd, char *poolname, char *ostname);
 

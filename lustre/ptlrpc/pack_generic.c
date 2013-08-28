@@ -1756,6 +1756,7 @@ void lustre_swab_obdo (struct obdo  *o)
         __swab32s (&o->o_uid_h);
         __swab32s (&o->o_gid_h);
         __swab64s (&o->o_data_version);
+	__swab32s (&o->o_pool_id);
         CLASSERT(offsetof(typeof(*o), o_padding_4) != 0);
         CLASSERT(offsetof(typeof(*o), o_padding_5) != 0);
         CLASSERT(offsetof(typeof(*o), o_padding_6) != 0);
@@ -1993,6 +1994,9 @@ void lustre_swab_obd_quotactl (struct obd_quotactl *q)
         __swab32s (&q->qc_stat);
         lustre_swab_obd_dqinfo (&q->qc_dqinfo);
         lustre_swab_obd_dqblk (&q->qc_dqblk);
+	__swab32s (&q->qc_pool_id);
+	__swab32s (&q->qc_pool_type);
+	__swab32s (&q->qc_pool_valid);
 }
 EXPORT_SYMBOL(lustre_swab_obd_quotactl);
 
