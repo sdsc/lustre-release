@@ -41,6 +41,7 @@
 #include <obd.h>
 #include <lprocfs_status.h>
 #include <linux/seq_file.h>
+#include <lustre_lfsck.h>
 
 #include "ofd_internal.h"
 
@@ -469,6 +470,46 @@ int lprocfs_ofd_wr_grant_compat_disable(struct file *file, const char *buffer,
 	return count;
 }
 
+static int lprocfs_rd_lfsck_speed_limit(char *page, char **start, off_t off,
+					int count, int *eof, void *data)
+{
+	struct obd_device	*obd = data;
+	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+	int			 rc;
+
+	*eof = 1;
+	rc = lfsck_get_speed(ofd->ofd_osd, page, count);
+	return rc != 0 ? rc : count;
+}
+
+static int lprocfs_wr_lfsck_speed_limit(struct file *file, const char *buffer,
+					unsigned long count, void *data)
+{
+	struct obd_device	*obd = data;
+	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+	__u32			 val;
+	int			 rc;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc != 0)
+		return rc;
+
+	rc = lfsck_set_speed(ofd->ofd_osd, val);
+	return rc != 0 ? rc : count;
+}
+
+static int lprocfs_rd_lfsck_layout(char *page, char **start, off_t off,
+				   int count, int *eof, void *data)
+{
+	struct obd_device	*obd = data;
+	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+	int			 rc;
+
+	*eof = 1;
+	rc = lfsck_dump(ofd->ofd_osd, page, count, LT_LAYOUT);
+	return rc;
+}
+
 static struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 	{ "uuid",		 lprocfs_rd_uuid, 0, 0 },
 	{ "blocksize",		 lprocfs_rd_blksize, 0, 0 },
@@ -516,6 +557,9 @@ static struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 	{ "capa_count",		 lprocfs_ofd_rd_capa_count, 0, 0 },
 	{ "job_cleanup_interval", lprocfs_rd_job_interval,
 				  lprocfs_wr_job_interval, 0},
+	{ "lfsck_speed_limit",	lprocfs_rd_lfsck_speed_limit,
+				lprocfs_wr_lfsck_speed_limit, 0 },
+	{ "lfsck_layout",	lprocfs_rd_lfsck_layout, 0, 0 },
 	{ 0 }
 };
 
