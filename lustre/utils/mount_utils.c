@@ -169,27 +169,57 @@ char *strscpy(char *dst, char *src, int buflen)
 	return strscat(dst, src, buflen);
 }
 
+static int check_losetup(char *device, char *file_path)
+{
+	FILE *fp;
+	char cmd[PATH_MAX];
+	int cmdsz = sizeof(cmd);
+	int ret = 0;
+
+	snprintf(cmd, cmdsz, "losetup %s | grep \"(%s)\"", device, file_path);
+	fp = popen(cmd, "r");
+	if (fp != NULL) {
+		ret = fread(cmd, 1, cmdsz - 1, fp);
+		pclose(fp);
+	}
+
+	return (ret > 0 ? EEXIST : 0);
+}
+
 int check_mtab_entry(char *spec1, char *spec2, char *mtpt, char *type)
 {
 	FILE *fp;
 	struct mntent *mnt;
+	char lo_dev[] = "/dev/loop";
+	int lo_dev_len = strlen(lo_dev);
+	int ret = 0;
 
 	fp = setmntent(MOUNTED, "r");
 	if (fp == NULL)
 		return 0;
 
 	while ((mnt = getmntent(fp)) != NULL) {
-		if ((strcmp(mnt->mnt_fsname, spec1) == 0 ||
-		     strcmp(mnt->mnt_fsname, spec2) == 0) &&
+		char *fsname = mnt->mnt_fsname;
+
+		if ((strcmp(fsname, spec1) == 0 ||
+		     strcmp(fsname, spec2) == 0) &&
 		    (mtpt == NULL || strcmp(mnt->mnt_dir, mtpt) == 0) &&
 		    (type == NULL || strcmp(mnt->mnt_type, type) == 0)) {
-			endmntent(fp);
-			return(EEXIST);
+			ret = EEXIST;
+			break;
+		}
+		/* Check whether the loop device has already been mounted */
+		if (strncmp(fsname, lo_dev, lo_dev_len) != 0)
+			continue;
+		if (check_losetup(fsname, spec1) != 0 ||
+		    check_losetup(fsname, spec2) != 0) {
+			ret = EEXIST;
+			break;
 		}
 	}
 	endmntent(fp);
 
-	return 0;
+	return ret;
 }
 
 #define PROC_DIR	"/proc/"
