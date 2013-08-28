@@ -1275,6 +1275,14 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 		/* do nothing because we create objects during first write */
 		GOTO(out_nolock, rc = 0);
 	}
+
+	if (unlikely(oa->o_valid & OBD_MD_FLFLAGS &&
+		     oa->o_flags & OBD_FL_LFSCK)) {
+		rc = ofd_recreate_object(env, ofd, oa);
+
+		GOTO(out_nolock, rc);
+	}
+
 	/* former ofd_handle_precreate */
 	if ((oa->o_valid & OBD_MD_FLFLAGS) &&
 	    (oa->o_flags & OBD_FL_DELORPHAN)) {

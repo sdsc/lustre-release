@@ -266,6 +266,7 @@ static int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
 	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
 	osp_getattr_fill_oa(&body->oa, o);
 	ptlrpc_request_set_replen(req);
+
 	rc = ptlrpc_queue_wait(req);
 	if (rc != 0)
 		GOTO(out, rc);
@@ -463,6 +464,15 @@ static int osp_declare_object_create(const struct lu_env *env,
 
 	ENTRY;
 
+	if (hint != NULL && unlikely(hint->dah_flags & DAHF_RECREATE)) {
+		LASSERT(fid_is_sane(lu_object_fid(&dt->do_lu)));
+
+		/* If the the MDT object is destroyed during recreate the
+		 * OST-object, then the recreated OST-object via llog. */
+		rc = osp_sync_declare_add(env, o, MDS_UNLINK64_REC, th);
+		RETURN(rc);
+	}
+
 	/* should happen to non-0 OSP only so that at least one object
 	 * has been already declared in the scenario and LOD should
 	 * cleanup that */
@@ -518,6 +528,53 @@ static int osp_declare_object_create(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static int osp_object_recreate(const struct lu_env *env, struct osp_device *osp,
+			       struct dt_object *dt, struct lu_attr *attr,
+			       struct dt_allocation_hint *hint,
+			       struct dt_object_format *dof, struct thandle *th)
+{
+	struct ptlrpc_request	*req;
+	struct ost_body 	*body;
+	const struct lu_fid	*pfid;
+	int			 rc;
+	ENTRY;
+
+	LASSERT(hint != NULL && hint->dah_parent != NULL);
+
+	pfid = lu_object_fid(&hint->dah_parent->do_lu);
+	req = ptlrpc_request_alloc(osp->opd_obd->u.cli.cl_import,
+				   &RQF_OST_CREATE);
+	if (req == NULL)
+		RETURN(-ENOMEM);
+
+	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_CREATE);
+	if (rc)
+		GOTO(out, rc);
+
+	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
+	fid_to_ostid(lu_object_fid(&dt->do_lu), &body->oa.o_oi);
+	body->oa.o_parent_seq = pfid->f_seq;
+	body->oa.o_parent_oid = pfid->f_oid;
+	body->oa.o_parent_ver = pfid->f_ver;
+	body->oa.o_stripe_idx = hint->dah_lov_index;
+	body->oa.o_uid = attr->la_uid;
+	body->oa.o_gid = attr->la_gid;
+	body->oa.o_mode = attr->la_mode;
+	body->oa.o_flags = OBD_FL_LFSCK;
+	body->oa.o_valid = OBD_MD_FLID | OBD_MD_FLGROUP | OBD_MD_FLFID |
+			   OBD_MD_FLMODE | OBD_MD_FLUID | OBD_MD_FLGID |
+			   OBD_MD_FLFLAGS;
+
+	ptlrpc_request_set_replen(req);
+	rc = ptlrpc_queue_wait(req);
+
+	GOTO(out, rc);
+
+out:
+	ptlrpc_req_finished(req);
+	return rc;
+}
+
 static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 			     struct lu_attr *attr,
 			     struct dt_allocation_hint *hint,
@@ -529,6 +586,12 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 	int			rc = 0;
 	struct lu_fid		*fid = &osi->osi_fid;
 	ENTRY;
+
+	if (hint != NULL && unlikely(hint->dah_flags & DAHF_RECREATE)) {
+		rc = osp_object_recreate(env, d, dt, attr, hint, dof, th);
+
+		RETURN(rc);
+	}
 
 	if (o->opo_reserved) {
 		/* regular case, fid is assigned holding trunsaction open */
