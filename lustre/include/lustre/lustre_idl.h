@@ -2379,6 +2379,12 @@ extern void lustre_swab_mdt_rec_setattr (struct mdt_rec_setattr *sa);
 					      */
 #define MDS_OPEN_RELEASE   02000000000000ULL /* Open the file for HSM release */
 
+/* lustre internal open flags, which should not be set from user space */
+#define MDS_OPEN_INTERNAL (MDS_OPEN_HAS_EA | MDS_OPEN_HAS_OBJS |	\
+			   MDS_OPEN_OWNEROVERRIDE | MDS_OPEN_LOCK |	\
+			   MDS_OPEN_BY_FID | MDS_OPEN_LEASE |		\
+			   MDS_OPEN_RELEASE)
+
 /* permission for create non-directory file */
 #define MAY_CREATE      (1 << 7)
 /* permission for create directory file */

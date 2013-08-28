@@ -391,40 +391,43 @@ int ll_file_release(struct inode *inode, struct file *file)
 static int ll_intent_file_open(struct file *file, void *lmm,
                                int lmmsize, struct lookup_intent *itp)
 {
-        struct ll_sb_info *sbi = ll_i2sbi(file->f_dentry->d_inode);
-        struct dentry *parent = file->f_dentry->d_parent;
-        struct md_op_data *op_data;
-        struct ptlrpc_request *req;
-        __u32 opc = LUSTRE_OPC_ANY;
-        int rc;
-        ENTRY;
+	struct dentry *child = file->f_dentry;
+	struct ll_sb_info *sbi = ll_i2sbi(child->d_inode);
+	struct dentry *parent = child->d_parent;
+	struct md_op_data *op_data;
+	struct ptlrpc_request *req;
+	int rc;
+	ENTRY;
 
-        if (!parent)
-                RETURN(-ENOENT);
+	LASSERT(parent != NULL);
 
-        /* Usually we come here only for NFSD, and we want open lock.
-           But we can also get here with pre 2.6.15 patchless kernels, and in
-           that case that lock is also ok */
-        /* We can also get here if there was cached open handle in revalidate_it
-         * but it disappeared while we were getting from there to ll_file_open.
-         * But this means this file was closed and immediatelly opened which
-         * makes a good candidate for using OPEN lock */
-        /* If lmmsize & lmm are not 0, we are just setting stripe info
-         * parameters. No need for the open lock */
-        if (lmm == NULL && lmmsize == 0) {
-                itp->it_flags |= MDS_OPEN_LOCK;
-                if (itp->it_flags & FMODE_WRITE)
-                        opc = LUSTRE_OPC_CREATE;
-        }
-
-	op_data  = ll_prep_md_op_data(NULL, parent->d_inode,
-				      file->f_dentry->d_inode, NULL, 0,
-				      O_RDWR, opc, NULL);
-
+	op_data = ll_prep_md_op_data(NULL, parent->d_inode, child->d_inode,
+				     NULL, 0, 0, LUSTRE_OPC_ANY, NULL);
         if (IS_ERR(op_data))
                 RETURN(PTR_ERR(op_data));
 
-	itp->it_flags |= MDS_OPEN_BY_FID;
+	if (parent == child) {
+		/*
+		 * Fixup for NFS export open.
+		 *
+		 * We're called in the context of NFS export, and parent
+		 * unknown, use parent fid saved in lli_pfid which will
+		 * be used by MDS to create data.
+		 */
+		struct ll_inode_info *lli = ll_i2info(child->d_inode);
+
+		spin_lock(&lli->lli_lock);
+		op_data->op_fid1 = lli->lli_pfid;
+		spin_unlock(&lli->lli_lock);
+
+		LASSERT(fid_is_sane(&op_data->op_fid1));
+		/** We ignore parent's capability temporary. */
+		if (op_data->op_capa1 != NULL) {
+			capa_put(op_data->op_capa1);
+			op_data->op_capa1 = NULL;
+		}
+	}
+
         rc = md_intent_lock(sbi->ll_md_exp, op_data, lmm, lmmsize, itp,
                             0 /*unused */, &req, ll_md_blocking_ast, 0);
         ll_finish_md_op_data(op_data);
@@ -435,7 +438,7 @@ static int ll_intent_file_open(struct file *file, void *lmm,
                 if (!it_disposition(itp, DISP_OPEN_OPEN) ||
                      it_open_error(DISP_OPEN_OPEN, itp))
                         GOTO(out, rc);
-                ll_release_openhandle(file->f_dentry, itp);
+		ll_release_openhandle(child, itp);
                 GOTO(out, rc);
         }
 
@@ -448,10 +451,9 @@ static int ll_intent_file_open(struct file *file, void *lmm,
                 GOTO(out, rc);
         }
 
-        rc = ll_prep_inode(&file->f_dentry->d_inode, req, NULL, itp);
-        if (!rc && itp->d.lustre.it_lock_mode)
-                ll_set_lock_data(sbi->ll_md_exp, file->f_dentry->d_inode,
-                                 itp, NULL);
+	rc = ll_prep_inode(&child->d_inode, req, NULL, itp);
+	if (!rc && itp->d.lustre.it_lock_mode)
+		ll_set_lock_data(sbi->ll_md_exp, child->d_inode, itp, NULL);
 
 out:
 	ptlrpc_req_finished(req);
@@ -588,16 +590,8 @@ int ll_file_open(struct inode *inode, struct file *file)
                 if (oit.it_flags & (FMODE_WRITE | FMODE_READ))
                         oit.it_flags |= MDS_OPEN_OWNEROVERRIDE;
 
-                /* We do not want O_EXCL here, presumably we opened the file
-                 * already? XXX - NFS implications? */
-                oit.it_flags &= ~O_EXCL;
-
-                /* bug20584, if "it_flags" contains O_CREAT, the file will be
-                 * created if necessary, then "IT_CREAT" should be set to keep
-                 * consistent with it */
-                if (oit.it_flags & O_CREAT)
-                        oit.it_op |= IT_CREAT;
-
+		/* open never create new file, so create related flag is not
+		 * touched, and MDS won't use them at all. */
                 it = &oit;
         }
 
@@ -644,9 +638,19 @@ restart:
                            would attempt to grab och_mutex as well, that would
                            result in a deadlock */
 			mutex_unlock(&lli->lli_och_mutex);
-                        it->it_create_mode |= M_CHECK_STALE;
+			/*
+			 * Always fetch MDS_OPEN_LOCK if this is not setstripe.
+			 *
+			 * This is normally called from NFS export, or
+			 * revalidate with IT_OPEN (revalidate doesn't execute
+			 * this intent any more).
+			 *
+			 * Always specify MDS_OPEN_BY_FID because open never
+			 * create file, which means file exists on MDS already,
+			 * and client should open by fid only.
+			 */
+			it->it_flags |= MDS_OPEN_LOCK | MDS_OPEN_BY_FID;
                         rc = ll_intent_file_open(file, NULL, 0, it);
-                        it->it_create_mode &= ~M_CHECK_STALE;
                         if (rc)
                                 GOTO(out_openerr, rc);
 
@@ -1445,6 +1449,7 @@ int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
 	}
 
 	ll_inode_size_lock(inode);
+	oit.it_flags |= MDS_OPEN_BY_FID;
         rc = ll_intent_file_open(file, lum, lum_size, &oit);
         if (rc)
                 GOTO(out, rc);
@@ -3059,14 +3064,12 @@ int __ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
                 if (IS_ERR(op_data))
                         RETURN(PTR_ERR(op_data));
 
-                oit.it_create_mode |= M_CHECK_STALE;
                 rc = md_intent_lock(exp, op_data, NULL, 0,
                                     /* we are not interested in name
                                        based lookup */
                                     &oit, 0, &req,
                                     ll_md_blocking_ast, 0);
                 ll_finish_md_op_data(op_data);
-                oit.it_create_mode &= ~M_CHECK_STALE;
                 if (rc < 0) {
                         rc = ll_inode_revalidate_fini(inode, rc);
                         GOTO (out, rc);

@@ -138,6 +138,7 @@ static struct dentry *
 ll_iget_for_nfs(struct super_block *sb, struct lu_fid *fid, struct lu_fid *parent)
 {
         struct inode  *inode;
+	struct ll_inode_info *lli;
         struct dentry *result;
         ENTRY;
 
@@ -155,24 +156,22 @@ ll_iget_for_nfs(struct super_block *sb, struct lu_fid *fid, struct lu_fid *paren
                 RETURN(ERR_PTR(-ESTALE));
         }
 
-        /**
-         * It is an anonymous dentry without OST objects created yet.
-         * We have to find the parent to tell MDS how to init lov objects.
-         */
-	if (S_ISREG(inode->i_mode) && !ll_i2info(inode)->lli_has_smd &&
-	    parent != NULL) {
-		struct ll_inode_info *lli = ll_i2info(inode);
-
-		spin_lock(&lli->lli_lock);
-		lli->lli_pfid = *parent;
-		spin_unlock(&lli->lli_lock);
-	}
-
 	result = d_obtain_alias(inode);
 	if (IS_ERR(result)) {
 		iput(inode);
 		RETURN(result);
 	}
+
+	/**
+	 * In case d_obtain_alias() found a disconnected dentry, always update
+	 * lli_pfid to allow later operation (normally open) have parent fid,
+	 * which may be used by MDS to create data.
+	 */
+	lli = ll_i2info(inode);
+
+	spin_lock(&lli->lli_lock);
+	lli->lli_pfid = *parent;
+	spin_unlock(&lli->lli_lock);
 
         RETURN(result);
 }
