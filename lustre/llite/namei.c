@@ -648,6 +648,9 @@ static int ll_atomic_open(struct inode *dir, struct dentry *dentry,
 	       dentry->d_name.len, dentry->d_name.name,
 	       PFID(ll_inode2fid(dir)), dir, file, open_flags, mode, *opened);
 
+	if (open_flags & MDS_OPEN_FL_INTERNAL)
+		RETURN(-EINVAL);
+
 	OBD_ALLOC(it, sizeof(*it));
 	if (!it)
 		RETURN(-ENOMEM);
@@ -718,7 +721,7 @@ ll_convert_intent(struct open_intent *oit, int lookup_flags)
 {
 	struct lookup_intent *it;
 
-	OBD_ALLOC(it, sizeof(*it));
+	OBD_ALLOC_PTR(it);
 	if (!it)
 		return ERR_PTR(-ENOMEM);
 
@@ -728,6 +731,10 @@ ll_convert_intent(struct open_intent *oit, int lookup_flags)
 			it->it_op |= IT_CREAT;
 		it->it_create_mode = (oit->create_mode & S_IALLUGO) | S_IFREG;
 		it->it_flags = ll_namei_to_lookup_intent_flag(oit->flags);
+		if (it->it_flags & MDS_OPEN_FL_INTERNAL) {
+			OBD_FREE_PTR(it);
+			return ERR_PTR(-EINVAL);
+		}
 	} else {
 		it->it_op = IT_GETATTR;
 	}
