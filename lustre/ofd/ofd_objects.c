@@ -43,6 +43,7 @@
 
 #include <dt_object.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_lfsck.h>
 
 #include "ofd_internal.h"
 
@@ -90,14 +91,35 @@ struct ofd_object *ofd_object_find(const struct lu_env *env,
 	RETURN(fo);
 }
 
+struct ofd_object *ofd_object_find_and_record(const struct lu_env *env,
+					      struct ofd_device *ofd,
+					      const struct lu_fid *fid,
+					      struct obd_export *exp)
+{
+	struct ofd_object *fo;
+
+	fo = ofd_object_find(env, ofd, fid);
+	if (!IS_ERR(fo)) {
+		struct ofd_thread_info		*info = ofd_info(env);
+		struct lfsck_event_request	*ler  = &info->fti_ler;
+
+		ler->ler_event = LNE_OBJ_ACCESSED;
+		ler->u.ler_fid = *fid;
+		lfsck_in_notify(env, ofd->ofd_osd, ler, exp);
+	}
+	return fo;
+}
+
 struct ofd_object *ofd_object_find_or_create(const struct lu_env *env,
 					     struct ofd_device *ofd,
 					     const struct lu_fid *fid,
-					     struct lu_attr *attr)
+					     struct lu_attr *attr,
+					     struct obd_export *exp)
 {
-	struct ofd_thread_info	*info = ofd_info(env);
-	struct lu_object	*fo_obj;
-	struct dt_object	*dto;
+	struct ofd_thread_info		*info = ofd_info(env);
+	struct lfsck_event_request	*ler  = &info->fti_ler;
+	struct lu_object		*fo_obj;
+	struct dt_object		*dto;
 
 	ENTRY;
 
@@ -106,6 +128,10 @@ struct ofd_object *ofd_object_find_or_create(const struct lu_env *env,
 	dto = dt_find_or_create(env, ofd->ofd_osd, fid, &info->fti_dof, attr);
 	if (IS_ERR(dto))
 		RETURN((struct ofd_object *)dto);
+
+	ler->ler_event = LNE_OBJ_ACCESSED;
+	ler->u.ler_fid = *fid;
+	lfsck_in_notify(env, ofd->ofd_osd, ler, exp);
 
 	fo_obj = lu_object_locate(dto->do_lu.lo_header,
 				  ofd->ofd_dt_dev.dd_lu_dev.ld_type);
@@ -189,7 +215,7 @@ int ofd_recreate_object(const struct lu_env *env, struct ofd_device *ofd,
 	if (rc != 0)
 		RETURN(rc);
 
-	fo = ofd_object_find(env, ofd, fid);
+	fo = ofd_object_find_and_record(env, ofd, fid, info->fti_exp);
 	if (IS_ERR(fo))
 		RETURN(rc);
 
@@ -310,7 +336,8 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 			break;
 		}
 
-		fo = ofd_object_find(env, ofd, &info->fti_fid);
+		fo = ofd_object_find_and_record(env, ofd, &info->fti_fid,
+						info->fti_exp);
 		if (IS_ERR(fo)) {
 			if (i == 0)
 				GOTO(out, rc = PTR_ERR(fo));

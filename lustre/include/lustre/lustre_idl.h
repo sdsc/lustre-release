@@ -3309,6 +3309,7 @@ struct lfsck_event_request {
 		struct lfsck_start	ler_start;
 		struct lfsck_stop	ler_stop;
 		__u32			ler_status;
+		struct lu_fid		ler_fid;
 	} u;
 	__u32				ler_event;
 	__u32				ler_padding;

@@ -496,6 +496,9 @@ int lfsck_namespace_setup(const struct lu_env *env,
 			  struct lfsck_instance *lfsck);
 
 /* lfsck_layout.c */
+void lfsck_rbtree_update_bitmap(const struct lu_env *env,
+				struct lfsck_component *com,
+				const struct lu_fid *fid, bool accessed);
 int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck);
 
 extern const char *lfsck_status_names[];

@@ -336,6 +336,7 @@ struct ofd_thread_info {
 	struct ost_lvb			 fti_lvb;
 	struct lfsck_stop		 fti_stop;
 	struct lu_seq_range		 fti_range;
+	struct lfsck_event_request	 fti_ler;
 };
 
 extern void target_recovery_fini(struct obd_device *obd);
@@ -416,10 +417,15 @@ static inline void ofd_stats_counter_init(struct lprocfs_stats *stats) {}
 struct ofd_object *ofd_object_find(const struct lu_env *env,
 				   struct ofd_device *ofd,
 				   const struct lu_fid *fid);
+struct ofd_object *ofd_object_find_and_record(const struct lu_env *env,
+					      struct ofd_device *ofd,
+					      const struct lu_fid *fid,
+					      struct obd_export *exp);
 struct ofd_object *ofd_object_find_or_create(const struct lu_env *env,
 					     struct ofd_device *ofd,
 					     const struct lu_fid *fid,
-					     struct lu_attr *attr);
+					     struct lu_attr *attr,
+					     struct obd_export *exp);
 int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo);
 int ofd_recreate_object(const struct lu_env *env, struct ofd_device *ofd,
 			struct obdo *oa);

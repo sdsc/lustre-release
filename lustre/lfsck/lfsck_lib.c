@@ -1228,6 +1228,9 @@ int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
 	ENTRY;
 
 	switch (ler->ler_event) {
+	case LNE_OBJ_ACCESSED:
+		if (!exp->exp_in_lfsck)
+			RETURN(0);
 	case LNE_LAYOUT_PHASE1_DONE:
 	case LNE_LAYOUT_PHASE2_DONE:
 		type = LT_LAYOUT;

@@ -34,6 +34,7 @@
 #define DEBUG_SUBSYSTEM S_LFSCK
 
 #include <linux/bitops.h>
+#include <linux/rbtree.h>
 
 #include <lustre/lustre_idl.h>
 #include <lu_object.h>
@@ -71,9 +72,20 @@ struct lfsck_layout_seq {
 	unsigned int		 lls_dirty:1;
 };
 
+struct lfsck_layout_slave_dst {
+	cfs_list_t		 dst_link;
+	struct obd_export	*dst_exp;
+	__u32			 dst_mdsno;
+};
+
 struct lfsck_layout_slave_data {
 	/* list for lfsck_layout_seq */
 	cfs_list_t	 llsd_seq_list;
+	struct rb_root	 llsd_rb_root;
+	rwlock_t	 llsd_rb_lock;
+	cfs_list_t	 llsd_double_scan_list;
+	spinlock_t	 llsd_double_scan_lock;
+	unsigned int	 llsd_rbtree_valid:1;
 };
 
 struct lfsck_layout_object {
@@ -186,6 +198,314 @@ static inline bool lfsck_layout_req_empty(struct lfsck_layout_master_data *llmd)
 		empty = true;
 	spin_unlock(&llmd->llmd_lock);
 	return empty;
+}
+
+static inline bool
+lfsck_layout_slave_dst_empty(struct lfsck_layout_slave_data *llsd)
+{
+	bool empty = false;
+
+	spin_lock(&llsd->llsd_double_scan_lock);
+	if (cfs_list_empty(&llsd->llsd_double_scan_list))
+		empty = true;
+	spin_unlock(&llsd->llsd_double_scan_lock);
+	return empty;
+}
+
+static struct lfsck_layout_slave_dst *
+lfsck_layout_slave_dst_init(struct lfsck_layout_slave_data *llsd,
+			    struct obd_export *exp, __u32 mdsno)
+{
+	struct lfsck_layout_slave_dst *dst;
+
+	OBD_ALLOC_PTR(dst);
+	if (dst == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	CFS_INIT_LIST_HEAD(&dst->dst_link);
+	dst->dst_exp = class_export_get(exp);
+	dst->dst_mdsno = mdsno;
+
+	spin_lock(&llsd->llsd_double_scan_lock);
+	cfs_list_add_tail(&dst->dst_link, &llsd->llsd_double_scan_list);
+	spin_unlock(&llsd->llsd_double_scan_lock);
+	return dst;
+}
+
+static void lfsck_layout_slave_dst_fini(struct lfsck_layout_slave_data *llsd,
+					struct lfsck_layout_slave_dst *dst)
+{
+	spin_lock(&llsd->llsd_double_scan_lock);
+	cfs_list_del_init(&dst->dst_link);
+	spin_unlock(&llsd->llsd_double_scan_lock);
+
+	class_export_put(dst->dst_exp);
+	OBD_FREE_PTR(dst);
+}
+
+static void
+lfsck_layout_slave_dst_cleanup(struct lfsck_layout_slave_data *llsd)
+{
+	while (!cfs_list_empty(&llsd->llsd_double_scan_list)) {
+		struct lfsck_layout_slave_dst *dst =
+			cfs_list_entry(llsd->llsd_double_scan_list.next,
+				       struct lfsck_layout_slave_dst,
+				       dst_link);
+
+		lfsck_layout_slave_dst_fini(llsd, dst);
+	}
+}
+
+#define LFSCK_RBTREE_BITMAP_SIZE	PAGE_CACHE_SIZE
+#define LFSCK_RBTREE_BITMAP_WIDTH	(LFSCK_RBTREE_BITMAP_SIZE << 3)
+#define LFSCK_RBTREE_BITMAP_MASK	(LFSCK_RBTREE_BITMAP_SIZE - 1)
+
+struct lfsck_rbtree_node {
+	struct rb_node	 lrn_node;
+	__u64		 lrn_seq;
+	__u32		 lrn_first_oid;
+	__u32		 lrn_mdsno;
+	atomic_t	 lrn_known_count;
+	atomic_t	 lrn_accessed_count;
+	void		*lrn_known_bitmap;
+	void		*lrn_accessed_bitmap;
+};
+
+static inline int lfsck_rbtree_cmp(struct lfsck_rbtree_node *lrn,
+				   __u64 seq, __u32 oid)
+{
+	if (seq < lrn->lrn_seq)
+		return -1;
+
+	if (seq > lrn->lrn_seq)
+		return 1;
+
+	if (oid < lrn->lrn_first_oid)
+		return -1;
+
+	if (oid >= lrn->lrn_first_oid + LFSCK_RBTREE_BITMAP_WIDTH)
+		return 1;
+
+	return 0;
+}
+
+static struct lfsck_rbtree_node *
+lfsck_rbtree_search_by_mds(struct lfsck_layout_slave_data *llsd, __u32 mds)
+{
+	struct rb_node		 *node;
+	struct lfsck_rbtree_node *lrn;
+
+	read_lock(&llsd->llsd_rb_lock);
+	node = rb_first(&llsd->llsd_rb_root);
+	while (node != NULL) {
+		lrn = rb_entry(node, struct lfsck_rbtree_node, lrn_node);
+		if (lrn->lrn_mdsno == mds) {
+			read_unlock(&llsd->llsd_rb_lock);
+			return lrn;
+		}
+
+		node = rb_next(node);
+	}
+	read_unlock(&llsd->llsd_rb_lock);
+	return NULL;
+}
+
+/* The caller should hold lock. */
+static struct lfsck_rbtree_node *
+lfsck_rbtree_search(struct lfsck_layout_slave_data *llsd,
+		    const struct lu_fid *fid)
+{
+	struct rb_node		 *node;
+	struct lfsck_rbtree_node *lrn;
+	int			  rc;
+
+	node = llsd->llsd_rb_root.rb_node;
+	while (node != NULL) {
+		lrn = rb_entry(node, struct lfsck_rbtree_node, lrn_node);
+		rc = lfsck_rbtree_cmp(lrn, fid_seq(fid), fid_oid(fid));
+		if (rc < 0)
+			node = node->rb_left;
+		else if (rc > 0)
+			node = node->rb_right;
+		else
+			return lrn;
+	}
+	return NULL;
+}
+
+static struct lfsck_rbtree_node *
+lfsck_rbtree_new(const struct lu_env *env, const struct lu_fid *fid, __u32 mds)
+{
+	struct lfsck_rbtree_node *lrn;
+
+	OBD_ALLOC_PTR(lrn);
+	if (lrn == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	OBD_ALLOC(lrn->lrn_known_bitmap, LFSCK_RBTREE_BITMAP_SIZE);
+	if (lrn->lrn_known_bitmap == NULL) {
+		OBD_FREE_PTR(lrn);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	OBD_ALLOC(lrn->lrn_accessed_bitmap, LFSCK_RBTREE_BITMAP_SIZE);
+	if (lrn->lrn_accessed_bitmap == NULL) {
+		OBD_FREE(lrn->lrn_known_bitmap, LFSCK_RBTREE_BITMAP_SIZE);
+		OBD_FREE_PTR(lrn);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	rb_init_node(&lrn->lrn_node);
+	lrn->lrn_seq = fid_seq(fid);
+	lrn->lrn_first_oid = fid_oid(fid) & ~LFSCK_RBTREE_BITMAP_MASK;
+	lrn->lrn_mdsno = mds;
+	atomic_set(&lrn->lrn_known_count, 0);
+	atomic_set(&lrn->lrn_accessed_count, 0);
+	return lrn;
+}
+
+static void lfsck_rbtree_free(struct lfsck_rbtree_node *lrn)
+{
+	OBD_FREE(lrn->lrn_accessed_bitmap, LFSCK_RBTREE_BITMAP_SIZE);
+	OBD_FREE(lrn->lrn_known_bitmap, LFSCK_RBTREE_BITMAP_SIZE);
+	OBD_FREE_PTR(lrn);
+}
+
+/* The caller should hold lock. */
+static struct lfsck_rbtree_node *
+lfsck_rbtree_insert(struct lfsck_layout_slave_data *llsd,
+		    struct lfsck_rbtree_node *lrn)
+{
+	struct rb_node		 **pos   = &(llsd->llsd_rb_root.rb_node);
+	struct rb_node		 *parent = NULL;
+	struct lfsck_rbtree_node *tmp;
+	int			  rc;
+
+	while (*pos) {
+		parent = *pos;
+		tmp  = rb_entry(*pos, struct lfsck_rbtree_node, lrn_node);
+		rc = lfsck_rbtree_cmp(tmp, lrn->lrn_seq, lrn->lrn_first_oid);
+		if (rc < 0)
+			pos = &((*pos)->rb_left);
+		else if (rc > 0)
+			pos = &((*pos)->rb_right);
+		else
+			return tmp;
+	}
+
+	rb_link_node(&lrn->lrn_node, parent, pos);
+	rb_insert_color(&lrn->lrn_node, &llsd->llsd_rb_root);
+	return lrn;
+}
+
+static void lfsck_rbtree_cleanup(struct lfsck_layout_slave_data *llsd)
+{
+	struct rb_node		 *node;
+	struct rb_node		 *next;
+	struct lfsck_rbtree_node *lrn;
+
+	/* Invalid the rbtree, then no others will use it. */
+	write_lock(&llsd->llsd_rb_lock);
+	llsd->llsd_rbtree_valid = 0;
+	write_unlock(&llsd->llsd_rb_lock);
+
+	node = rb_first(&llsd->llsd_rb_root);
+	while (node != NULL) {
+		next = rb_next(node);
+		lrn  = rb_entry(node, struct lfsck_rbtree_node, lrn_node);
+		rb_erase(node, &llsd->llsd_rb_root);
+		lfsck_rbtree_free(lrn);
+		node = next;
+	}
+}
+
+void lfsck_rbtree_update_bitmap(const struct lu_env *env,
+				struct lfsck_component *com,
+				const struct lu_fid *fid, bool accessed)
+{
+	struct lfsck_layout_slave_data	*llsd	= com->lc_data;
+	struct lfsck_rbtree_node	*lrn;
+	bool				 insert = false;
+	int				 idx;
+	int				 rc	= 0;
+	ENTRY;
+
+	if (unlikely(!fid_is_sane(fid)))
+		RETURN_EXIT;
+
+	read_lock(&llsd->llsd_rb_lock);
+	if (!llsd->llsd_rbtree_valid)
+		GOTO(unlock, rc = 0);
+
+	lrn = lfsck_rbtree_search(llsd, fid);
+	if (lrn == NULL) {
+		struct seq_server_site		*ss;
+		struct lu_server_fld		*sf;
+		struct lu_seq_range		 range = { 0 };
+		struct lfsck_rbtree_node	*tmp;
+
+		LASSERT(!insert);
+
+		read_unlock(&llsd->llsd_rb_lock);
+		ss = lu_site2seq(com->lc_lfsck->li_next->dd_lu_dev.ld_site);
+		if (unlikely(ss == NULL))
+			GOTO(out, rc = -EFAULT);
+
+		sf = ss->ss_server_fld;
+		LASSERT(sf != NULL);
+
+		fld_range_set_any(&range);
+		rc = fld_server_lookup(env, sf, fid_seq(fid), &range);
+		if (rc != 0)
+			GOTO(out, rc);
+
+		if (unlikely(!fld_range_is_mdt(&range)))
+			GOTO(out, rc = 0);
+
+		tmp = lfsck_rbtree_new(env, fid, range.lsr_index);
+		if (IS_ERR(tmp))
+			GOTO(out, rc = PTR_ERR(tmp));
+
+		insert = true;
+		write_lock(&llsd->llsd_rb_lock);
+		if (!llsd->llsd_rbtree_valid) {
+			lfsck_rbtree_free(tmp);
+			GOTO(unlock, rc = 0);
+		}
+
+		lrn = lfsck_rbtree_insert(llsd, tmp);
+		if (lrn != tmp)
+			lfsck_rbtree_free(tmp);
+	}
+
+	idx = fid_oid(fid) & LFSCK_RBTREE_BITMAP_MASK;
+	/* Any accessed object must be a known object. */
+	if (!test_and_set_bit(idx, lrn->lrn_known_bitmap))
+		atomic_inc(&lrn->lrn_known_count);
+	if (accessed) {
+		if (!test_and_set_bit(idx, lrn->lrn_accessed_bitmap))
+			atomic_inc(&lrn->lrn_accessed_count);
+	}
+
+	GOTO(unlock, rc = 0);
+
+unlock:
+	if (insert)
+		write_unlock(&llsd->llsd_rb_lock);
+	else
+		read_unlock(&llsd->llsd_rb_lock);
+out:
+	if (rc != 0 && accessed) {
+		struct lfsck_layout *lo = com->lc_file_ram;
+
+		CERROR("%s: Fail to update object accessed bitmap, will cause "
+		       "incorrect LFSCK OST-object handling, so disable it to "
+		       "cancel OST-object handling for related device. rc = %d",
+		       lfsck_lfsck2name(com->lc_lfsck), rc);
+		/* Equal to the server restarted. */
+		lo->ll_flags |= LF_INCOMPLETE;
+		lfsck_rbtree_cleanup(llsd);
+	}
 }
 
 static void lfsck_layout_le_to_cpu(struct lfsck_layout *des,
@@ -1893,8 +2213,9 @@ static int lfsck_layout_prep(const struct lu_env *env,
 static int lfsck_layout_slave_prep(const struct lu_env *env,
 				   struct lfsck_component *com)
 {
-	/* XXX: For a new scanning, generate OST-objects
-	 *	bitmap for orphan detection. */
+	struct lfsck_layout_slave_data *llsd = com->lc_data;
+
+	llsd->llsd_rbtree_valid = 1;
 
 	return lfsck_layout_prep(env, com);
 }
@@ -2223,9 +2544,9 @@ static int lfsck_layout_slave_exec_oit(const struct lu_env *env,
 	int				 rc;
 	ENTRY;
 
-	/* XXX: Update OST-objects bitmap for orphan detection. */
-
 	LASSERT(llsd != NULL);
+
+	lfsck_rbtree_update_bitmap(env, com, fid, false);
 
 	down_write(&com->lc_sem);
 	if (fid_is_idif(fid))
@@ -2648,46 +2969,106 @@ static int lfsck_layout_master_double_scan(const struct lu_env *env,
 		return 0;
 }
 
+static int lfsck_layout_slave_scan_orphan(const struct lu_env *env,
+					  struct lfsck_component *com,
+					  struct lfsck_rbtree_node *lrn)
+{
+	/* XXX: to be extended. */
+
+	return 0;
+}
+
+static int
+lfsck_layout_slave_double_scan_one(const struct lu_env *env,
+				   struct lfsck_component *com,
+				   struct lfsck_layout_slave_dst *dst)
+{
+	struct lfsck_thread_info	*info  = lfsck_env_info(env);
+	struct lfsck_event_request	*ler   = &info->lti_dlc.dlc_req;
+	struct obd_export		*exp   = dst->dst_exp;
+	struct lfsck_instance		*lfsck = com->lc_lfsck;
+	struct lfsck_bookmark		*bk    = &lfsck->li_bookmark_ram;
+	struct lfsck_layout_slave_data	*llsd  = com->lc_data;
+	struct lfsck_rbtree_node	*lrn;
+	int				 rc    = 1;
+	bool				 scan  = true;
+
+	lrn = lfsck_rbtree_search_by_mds(llsd, dst->dst_mdsno);
+	while (lrn != NULL) {
+		int rc1 = 0;
+
+		if (scan)
+			rc1 = lfsck_layout_slave_scan_orphan(env, com, lrn);
+		if (rc1 < 0 && bk->lb_param & LPF_FAILOUT) {
+			rc = rc1;
+			scan = false;
+		}
+		rb_erase(&lrn->lrn_node, &llsd->llsd_rb_root);
+		lfsck_rbtree_free(lrn);
+		lrn = lfsck_rbtree_search_by_mds(llsd, dst->dst_mdsno);
+	}
+
+	ler->ler_event = LNE_LAYOUT_PHASE2_DONE;
+	ler->u.ler_stop.ls_status = rc;
+	ler->u.ler_stop.ls_index = lfsck_dev_idx(lfsck->li_bottom);
+	rc = do_set_info_async(exp->exp_imp_reverse, LDLM_SET_INFO,
+			       LUSTRE_OBD_VERSION, sizeof(KEY_LFSCK_EVENT),
+			       KEY_LFSCK_EVENT, sizeof(*ler), ler, NULL);
+	return rc;
+}
+
 static int lfsck_layout_slave_double_scan(const struct lu_env *env,
 					  struct lfsck_component *com)
 {
-	struct lfsck_instance	*lfsck	= com->lc_lfsck;
-	struct lfsck_layout	*lo	= com->lc_file_ram;
-	struct ptlrpc_thread	*thread = &lfsck->li_thread;
-	int			 result;
-	int			 rc;
+	struct lfsck_layout_slave_data	*llsd	= com->lc_data;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct lfsck_layout		*lo	= com->lc_file_ram;
+	struct ptlrpc_thread		*thread = &lfsck->li_thread;
+	struct lfsck_bookmark		*bk	= &lfsck->li_bookmark_ram;
+	int				 result;
+	int				 rc;
+	ENTRY;
 
 	if (unlikely(lo->ll_status != LS_SCANNING_PHASE2))
-		return 0;
+		RETURN(0);
 
 	atomic_inc(&lfsck->li_double_scan_count);
 
 	while (1) {
+		struct lfsck_layout_slave_dst *dst;
 		struct l_wait_info lwi = LWI_TIMEOUT(cfs_time_seconds(60),
 						     NULL, NULL);
 
-		rc = l_wait_event(thread->t_ctl_waitq,
-				  !thread_is_running(thread) ||
-				  lfsck_layout_slave_check_active(env, com,
-								  false) <= 0,
-				  &lwi);
-		if (unlikely(!thread_is_running(thread)))
-				GOTO(done, rc = 0);
+		while (!lfsck_layout_slave_dst_empty(llsd) &&
+			thread_is_running(thread)) {
+			dst = cfs_list_entry(llsd->llsd_double_scan_list.next,
+					     struct lfsck_layout_slave_dst,
+					     dst_link);
+			rc = lfsck_layout_slave_double_scan_one(env, com, dst);
+			lfsck_layout_slave_dst_fini(llsd, dst);
+			if (rc < 0 && bk->lb_param & LPF_FAILOUT)
+				GOTO(out, result = rc);
+		}
 
-		if (rc == -ETIMEDOUT)
+		rc = l_wait_event(thread->t_ctl_waitq,
+			!thread_is_running(thread) ||
+			!lfsck_layout_slave_dst_empty(llsd) ||
+			lfsck_layout_slave_check_active(env, com, false) <= 0,
+			&lwi);
+		if (unlikely(!thread_is_running(thread)))
+			GOTO(out, result = 0);
+
+		if (!lfsck_layout_slave_dst_empty(llsd) ||
+		    rc == -ETIMEDOUT)
 			continue;
 
-		if (rc < 0)
-			GOTO(done, rc);
-
-		break;
+		GOTO(out, result = rc < 0 ? rc : 1);
 	}
 
-	/* XXX: To be extended for orphan OST-objects handling in the future.
-	 * 	set result = 1 now. */
-	GOTO(done, result = 1);
+out:
+	lfsck_layout_slave_dst_cleanup(llsd);
+	lfsck_rbtree_cleanup(llsd);
 
-done:
 	rc = lfsck_layout_double_scan_result(env, com, result);
 
 	lfsck_layout_slave_notify_master(env, com, LNE_LAYOUT_PHASE2_DONE,
@@ -2696,7 +3077,7 @@ done:
 	if (atomic_dec_and_test(&lfsck->li_double_scan_count))
 		wake_up_all(&lfsck->li_thread.t_ctl_waitq);
 
-	return rc;
+	RETURN(rc);
 }
 
 static void lfsck_layout_master_data_release(const struct lu_env *env,
@@ -2738,6 +3119,8 @@ static void lfsck_layout_slave_data_release(const struct lu_env *env,
 		OBD_FREE(lls, sizeof(*lls));
 	}
 
+	lfsck_layout_slave_dst_cleanup(llsd);
+	lfsck_rbtree_cleanup(llsd);
 	OBD_FREE(llsd, sizeof(*llsd));
 }
 
@@ -2824,11 +3207,25 @@ static int lfsck_layout_slave_in_notify(const struct lu_env *env,
 	int				 rc    = 0;
 
 	switch (ler->ler_event) {
-	case LNE_LAYOUT_PHASE1_DONE:
+	case LNE_LAYOUT_PHASE1_DONE: {
+		struct lfsck_layout_slave_dst *dst;
+
+		dst = lfsck_layout_slave_dst_init(com->lc_data, exp,
+					ler->u.ler_stop.ls_index);
+		exp->exp_in_lfsck = 0;
+		if (lo->ll_status == LS_SCANNING_PHASE2)
+			wake_up_all(&lfsck->li_thread.t_ctl_waitq);
+		if (IS_ERR(dst))
+			rc = PTR_ERR(dst);
+		break;
+	}
 	case LNE_LAYOUT_PHASE2_DONE:
 		exp->exp_in_lfsck = 0;
 		if (lo->ll_status == LS_SCANNING_PHASE2)
 			wake_up_all(&lfsck->li_thread.t_ctl_waitq);
+		break;
+	case LNE_OBJ_ACCESSED:
+		lfsck_rbtree_update_bitmap(env, com, &ler->u.ler_fid, true);
 		break;
 	default:
 		rc = -EINVAL;
@@ -2915,6 +3312,10 @@ int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck)
 			GOTO(out, rc = -ENOMEM);
 
 		CFS_INIT_LIST_HEAD(&llsd->llsd_seq_list);
+		llsd->llsd_rb_root = RB_ROOT;
+		rwlock_init(&llsd->llsd_rb_lock);
+		CFS_INIT_LIST_HEAD(&llsd->llsd_double_scan_list);
+		spin_lock_init(&llsd->llsd_double_scan_lock);
 		com->lc_data = llsd;
 	}
 	com->lc_file_size = sizeof(struct lfsck_layout);

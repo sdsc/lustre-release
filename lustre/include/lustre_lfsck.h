@@ -94,6 +94,7 @@ enum lfsck_notify_events {
 	LNE_LAYOUT_QUERY	= 7,
 	LNE_START_ALL		= 8,
 	LNE_STOP_ALL		= 9,
+	LNE_OBJ_ACCESSED	= 10,
 };
 
 #ifdef __KERNEL__
