@@ -620,6 +620,11 @@ struct dt_index_operations {
         } dio_it;
 };
 
+struct dt_lfsck_control {
+	struct lfsck_event_request	 dlc_req;
+	void				*dlc_key;
+};
+
 enum dt_otable_it_valid {
 	DOIV_ERROR_HANDLE	= 0x0001,
 	DOIV_DRYRUN		= 0x0002,
