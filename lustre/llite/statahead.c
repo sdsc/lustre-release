@@ -59,29 +59,31 @@ typedef enum {
 
 struct ll_sa_entry {
 	/* link into sai->sai_entries */
-	cfs_list_t              se_link;
+	cfs_list_t		se_link;
 	/* link into sai->sai_entries_{received,stated} */
-	cfs_list_t              se_list;
+	cfs_list_t		se_list;
 	/* link into sai hash table locally */
-	cfs_list_t              se_hash;
+	cfs_list_t		se_hash;
 	/* entry reference count */
-	cfs_atomic_t            se_refcount;
+	cfs_atomic_t		se_refcount;
 	/* entry index in the sai */
-	__u64                   se_index;
+	__u64			se_index;
 	/* low layer ldlm lock handle */
-	__u64                   se_handle;
+	__u64			se_handle;
 	/* entry status */
-	se_stat_t               se_stat;
+	se_stat_t		se_stat;
 	/* entry size, contains name */
-	int                     se_size;
+	int			se_size;
 	/* pointer to async getattr enqueue info */
-	struct md_enqueue_info *se_minfo;
+	struct md_enqueue_info	*se_minfo;
 	/* pointer to the async getattr request */
-	struct ptlrpc_request  *se_req;
+	struct ptlrpc_request	*se_req;
 	/* pointer to the target inode */
-	struct inode           *se_inode;
+	struct inode		*se_inode;
+	/* entry fid */
+	struct lu_fid		se_fid;
 	/* entry name */
-	struct qstr             se_qstr;
+	struct qstr		se_qstr;
 };
 
 static unsigned int sai_generation = 0;
@@ -194,58 +196,59 @@ static inline int is_omitted_entry(struct ll_statahead_info *sai, __u64 index)
  */
 static struct ll_sa_entry *
 ll_sa_entry_alloc(struct ll_statahead_info *sai, __u64 index,
-                  const char *name, int len)
+		  const struct lu_fid *fid, const char *name, int len)
 {
-        struct ll_inode_info *lli;
-        struct ll_sa_entry   *entry;
-        int                   entry_size;
-        char                 *dname;
-        ENTRY;
+	struct ll_inode_info *lli;
+	struct ll_sa_entry *entry;
+	int entry_size;
+	char *dname;
+	ENTRY;
 
-        entry_size = sizeof(struct ll_sa_entry) + (len & ~3) + 4;
-        OBD_ALLOC(entry, entry_size);
-        if (unlikely(entry == NULL))
-                RETURN(ERR_PTR(-ENOMEM));
+	entry_size = sizeof(struct ll_sa_entry) + (len & ~3) + 4;
+	OBD_ALLOC(entry, entry_size);
+	if (unlikely(entry == NULL))
+		RETURN(ERR_PTR(-ENOMEM));
 
 	CDEBUG(D_READA, "alloc sa entry %.*s(%p) index "LPU64"\n",
-	       len, name, entry, index);
+		len, name, entry, index);
 
-        entry->se_index = index;
+	entry->se_index = index;
 
-        /*
-         * Statahead entry reference rules:
-         *
-         * 1) When statahead entry is initialized, its reference is set as 2.
-         *    One reference is used by the directory scanner. When the scanner
-         *    searches the statahead cache for the given name, it can perform
-         *    lockless hash lookup (only the scanner can remove entry from hash
-         *    list), and once found, it needn't to call "atomic_inc()" for the
-         *    entry reference. So the performance is improved. After using the
-         *    statahead entry, the scanner will call "atomic_dec()" to drop the
-         *    reference held when initialization. If it is the last reference,
-         *    the statahead entry will be freed.
-         *
-         * 2) All other threads, including statahead thread and ptlrpcd thread,
-         *    when they process the statahead entry, the reference for target
-         *    should be held to guarantee the entry will not be released by the
-         *    directory scanner. After processing the entry, these threads will
-         *    drop the entry reference. If it is the last reference, the entry
-         *    will be freed.
-         *
-         *    The second reference when initializes the statahead entry is used
-         *    by the statahead thread, following the rule 2).
-         */
-        cfs_atomic_set(&entry->se_refcount, 2);
-        entry->se_stat = SA_ENTRY_INIT;
-        entry->se_size = entry_size;
-        dname = (char *)entry + sizeof(struct ll_sa_entry);
-        memcpy(dname, name, len);
-        dname[len] = 0;
-        entry->se_qstr.hash = full_name_hash(name, len);
-        entry->se_qstr.len = len;
-        entry->se_qstr.name = dname;
+	/*
+	 * Statahead entry reference rules:
+	 *
+	 * 1) When statahead entry is initialized, its reference is set as 2.
+	 *    One reference is used by the directory scanner. When the scanner
+	 *    searches the statahead cache for the given name, it can perform
+	 *    lockless hash lookup (only the scanner can remove entry from hash
+	 *    list), and once found, it needn't to call "atomic_inc()" for the
+	 *    entry reference. So the performance is improved. After using the
+	 *    statahead entry, the scanner will call "atomic_dec()" to drop the
+	 *    reference held when initialization. If it is the last reference,
+	 *    the statahead entry will be freed.
+	 *
+	 * 2) All other threads, including statahead thread and ptlrpcd thread,
+	 *    when they process the statahead entry, the reference for target
+	 *    should be held to guarantee the entry will not be released by the
+	 *    directory scanner. After processing the entry, these threads will
+	 *    drop the entry reference. If it is the last reference, the entry
+	 *    will be freed.
+	 *
+	 *    The second reference when initializes the statahead entry is used
+	 *    by the statahead thread, following the rule 2).
+	 */
+	cfs_atomic_set(&entry->se_refcount, 2);
+	entry->se_stat = SA_ENTRY_INIT;
+	entry->se_size = entry_size;
+	fid_le_to_cpu(&entry->se_fid, fid);
+	dname = (char *)entry + sizeof(struct ll_sa_entry);
+	memcpy(dname, name, len);
+	dname[len] = 0;
+	entry->se_qstr.hash = full_name_hash(name, len);
+	entry->se_qstr.len = len;
+	entry->se_qstr.name = dname;
 
-        lli = ll_i2info(sai->sai_inode);
+	lli = ll_i2info(sai->sai_inode);
 	spin_lock(&lli->lli_sa_lock);
 	cfs_list_add_tail(&entry->se_link, &sai->sai_entries);
 	CFS_INIT_LIST_HEAD(&entry->se_list);
@@ -650,27 +653,14 @@ static void ll_post_statahead(struct ll_statahead_info *sai)
                 GOTO(out, rc = -EFAULT);
 
         child = entry->se_inode;
-        if (child == NULL) {
-                /*
-                 * lookup.
-                 */
-                LASSERT(fid_is_zero(&minfo->mi_data.op_fid2));
 
-                /* XXX: No fid in reply, this is probaly cross-ref case.
-                 * SA can't handle it yet. */
-                if (body->valid & OBD_MD_MDS)
-                        GOTO(out, rc = -EAGAIN);
-        } else {
-                /*
-                 * revalidate.
-                 */
-                /* unlinked and re-created with the same name */
-                if (unlikely(!lu_fid_eq(&minfo->mi_data.op_fid2, &body->fid1))){
-                        entry->se_inode = NULL;
-                        iput(child);
-                        child = NULL;
-                }
-        }
+	/* XXX: No fid in reply, this is probaly cross-ref case.
+	 * SA can't handle it yet. */
+	if (body->valid & OBD_MD_MDS)
+		GOTO(out, rc = -EAGAIN);
+
+	if (!lu_fid_eq(&entry->se_fid, &body->fid1))
+		GOTO(out, rc = -EFAULT);
 
         it->d.lustre.it_lock_handle = entry->se_handle;
 	rc = md_revalidate_lock(ll_i2mdexp(dir), it, ll_inode2fid(dir), NULL);
@@ -797,77 +787,74 @@ static void sa_args_fini(struct md_enqueue_info *minfo,
  * "ocapa". So here reserve "op_data.op_capa[1,2]" in "pcapa" before calling
  * "md_intent_getattr_async".
  */
-static int sa_args_init(struct inode *dir, struct inode *child,
-                        struct ll_sa_entry *entry, struct md_enqueue_info **pmi,
-                        struct ldlm_enqueue_info **pei,
-                        struct obd_capa **pcapa)
+static int sa_args_init(struct inode *dir, struct ll_sa_entry *entry,
+			struct md_enqueue_info **pmi,
+			struct ldlm_enqueue_info **pei,
+			struct obd_capa **pcapa)
 {
-        struct qstr              *qstr = &entry->se_qstr;
-        struct ll_inode_info     *lli  = ll_i2info(dir);
-        struct md_enqueue_info   *minfo;
-        struct ldlm_enqueue_info *einfo;
-        struct md_op_data        *op_data;
+	struct ll_inode_info *lli  = ll_i2info(dir);
+	struct md_enqueue_info *minfo;
+	struct ldlm_enqueue_info *einfo;
+	struct md_op_data *op_data;
 
-        OBD_ALLOC_PTR(einfo);
-        if (einfo == NULL)
-                return -ENOMEM;
+	OBD_ALLOC_PTR(einfo);
+	if (einfo == NULL)
+		return -ENOMEM;
 
-        OBD_ALLOC_PTR(minfo);
-        if (minfo == NULL) {
-                OBD_FREE_PTR(einfo);
-                return -ENOMEM;
-        }
+	OBD_ALLOC_PTR(minfo);
+	if (minfo == NULL) {
+		OBD_FREE_PTR(einfo);
+		return -ENOMEM;
+	}
 
-        op_data = ll_prep_md_op_data(&minfo->mi_data, dir, child, qstr->name,
-                                     qstr->len, 0, LUSTRE_OPC_ANY, NULL);
-        if (IS_ERR(op_data)) {
-                OBD_FREE_PTR(einfo);
-                OBD_FREE_PTR(minfo);
-                return PTR_ERR(op_data);
-        }
+	op_data = ll_prep_md_op_data(&minfo->mi_data, dir, NULL, NULL, 0, 0,
+				     LUSTRE_OPC_ANY, NULL);
+	if (IS_ERR(op_data)) {
+		OBD_FREE_PTR(einfo);
+		OBD_FREE_PTR(minfo);
+		return PTR_ERR(op_data);
+	}
+	op_data->op_fid2 = entry->se_fid;
 
-        minfo->mi_it.it_op = IT_GETATTR;
-        minfo->mi_dir = igrab(dir);
-        minfo->mi_cb = ll_statahead_interpret;
-        minfo->mi_generation = lli->lli_sai->sai_generation;
-        minfo->mi_cbdata = entry->se_index;
+	minfo->mi_it.it_op = IT_GETATTR;
+	minfo->mi_dir = igrab(dir);
+	minfo->mi_cb = ll_statahead_interpret;
+	minfo->mi_generation = lli->lli_sai->sai_generation;
+	minfo->mi_cbdata = entry->se_index;
 
-        einfo->ei_type   = LDLM_IBITS;
-        einfo->ei_mode   = it_to_lock_mode(&minfo->mi_it);
-        einfo->ei_cb_bl  = ll_md_blocking_ast;
-        einfo->ei_cb_cp  = ldlm_completion_ast;
-        einfo->ei_cb_gl  = NULL;
-        einfo->ei_cbdata = NULL;
+	einfo->ei_type   = LDLM_IBITS;
+	einfo->ei_mode   = it_to_lock_mode(&minfo->mi_it);
+	einfo->ei_cb_bl  = ll_md_blocking_ast;
+	einfo->ei_cb_cp  = ldlm_completion_ast;
+	einfo->ei_cb_gl  = NULL;
+	einfo->ei_cbdata = NULL;
 
-        *pmi = minfo;
-        *pei = einfo;
-        pcapa[0] = op_data->op_capa1;
-        pcapa[1] = op_data->op_capa2;
+	*pmi = minfo;
+	*pei = einfo;
+	*pcapa = op_data->op_capa1;
 
-        return 0;
+	return 0;
 }
 
 static int do_sa_lookup(struct inode *dir, struct ll_sa_entry *entry)
 {
-        struct md_enqueue_info   *minfo;
-        struct ldlm_enqueue_info *einfo;
-        struct obd_capa          *capas[2];
-        int                       rc;
-        ENTRY;
+	struct md_enqueue_info   *minfo;
+	struct ldlm_enqueue_info *einfo;
+	struct obd_capa          *capa;
+	int                       rc;
+	ENTRY;
 
-        rc = sa_args_init(dir, NULL, entry, &minfo, &einfo, capas);
-        if (rc)
-                RETURN(rc);
+	rc = sa_args_init(dir, entry, &minfo, &einfo, &capa);
+	if (rc)
+		RETURN(rc);
 
-        rc = md_intent_getattr_async(ll_i2mdexp(dir), minfo, einfo);
-        if (!rc) {
-                capa_put(capas[0]);
-                capa_put(capas[1]);
-        } else {
-                sa_args_fini(minfo, einfo);
-        }
+	rc = md_intent_getattr_async(ll_i2mdexp(dir), minfo, einfo);
+	if (!rc)
+		capa_put(capa);
+	else
+		sa_args_fini(minfo, einfo);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /**
@@ -879,51 +866,58 @@ static int do_sa_lookup(struct inode *dir, struct ll_sa_entry *entry)
 static int do_sa_revalidate(struct inode *dir, struct ll_sa_entry *entry,
                             struct dentry *dentry)
 {
-        struct inode             *inode = dentry->d_inode;
-        struct lookup_intent      it = { .it_op = IT_GETATTR,
-                                         .d.lustre.it_lock_handle = 0 };
-        struct md_enqueue_info   *minfo;
-        struct ldlm_enqueue_info *einfo;
-        struct obd_capa          *capas[2];
-        int rc;
-        ENTRY;
+	struct inode *inode = dentry->d_inode;
+	struct lookup_intent it = { .it_op = IT_GETATTR,
+				    .d.lustre.it_lock_handle = 0 };
+	struct md_enqueue_info *minfo;
+	struct ldlm_enqueue_info *einfo;
+	struct obd_capa *capa;
+	int rc;
+	ENTRY;
 
-        if (unlikely(inode == NULL))
-                RETURN(1);
+	if (unlikely(inode == NULL))
+		RETURN(1);
 
-        if (d_mountpoint(dentry))
-                RETURN(1);
+	if (d_mountpoint(dentry))
+		RETURN(1);
 
-        entry->se_inode = igrab(inode);
-        rc = md_revalidate_lock(ll_i2mdexp(dir), &it, ll_inode2fid(inode),NULL);
-        if (rc == 1) {
-                entry->se_handle = it.d.lustre.it_lock_handle;
-                ll_intent_release(&it);
-                RETURN(1);
+	/*
+	 * if fid not equal, either fid in inode or fid from readdir is stale,
+	 * just return error, and let caller to handle this.
+	 */
+	if (!lu_fid_eq(ll_inode2fid(inode), &entry->se_fid))
+		RETURN(-ESTALE);
+
+	entry->se_inode = igrab(inode);
+	rc = md_revalidate_lock(ll_i2mdexp(dir), &it, ll_inode2fid(inode),
+				NULL);
+	if (rc == 1) {
+		entry->se_handle = it.d.lustre.it_lock_handle;
+		ll_intent_release(&it);
+		RETURN(1);
         }
 
-        rc = sa_args_init(dir, inode, entry, &minfo, &einfo, capas);
-        if (rc) {
-                entry->se_inode = NULL;
-                iput(inode);
-                RETURN(rc);
-        }
+	rc = sa_args_init(dir, entry, &minfo, &einfo, &capa);
+	if (rc) {
+		entry->se_inode = NULL;
+		iput(inode);
+		RETURN(rc);
+	}
 
-        rc = md_intent_getattr_async(ll_i2mdexp(dir), minfo, einfo);
-        if (!rc) {
-                capa_put(capas[0]);
-                capa_put(capas[1]);
-        } else {
-                entry->se_inode = NULL;
-                iput(inode);
-                sa_args_fini(minfo, einfo);
-        }
+	rc = md_intent_getattr_async(ll_i2mdexp(dir), minfo, einfo);
+	if (!rc) {
+		capa_put(capa);
+	} else {
+		entry->se_inode = NULL;
+		iput(inode);
+		sa_args_fini(minfo, einfo);
+	}
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
-static void ll_statahead_one(struct dentry *parent, const char* entry_name,
-                             int entry_name_len)
+static void ll_statahead_one(struct dentry *parent, const struct lu_fid *fid,
+			     const char *entry_name, int entry_name_len)
 {
         struct inode             *dir    = parent->d_inode;
         struct ll_inode_info     *lli    = ll_i2info(dir);
@@ -934,10 +928,10 @@ static void ll_statahead_one(struct dentry *parent, const char* entry_name,
         int                       rc1;
         ENTRY;
 
-        entry = ll_sa_entry_alloc(sai, sai->sai_index, entry_name,
-                                  entry_name_len);
-        if (IS_ERR(entry))
-                RETURN_EXIT;
+	entry = ll_sa_entry_alloc(sai, sai->sai_index, fid, entry_name,
+				  entry_name_len);
+	if (IS_ERR(entry))
+		RETURN_EXIT;
 
         dentry = d_lookup(parent, &entry->se_qstr);
         if (!dentry) {
@@ -1199,7 +1193,7 @@ interpret_it:
                         }
 
 do_it:
-                        ll_statahead_one(parent, name, namelen);
+			ll_statahead_one(parent, &ent->lde_fid, name, namelen);
                 }
                 pos = le64_to_cpu(dp->ldp_hash_end);
                 if (pos == MDS_DIR_END_OFF) {
