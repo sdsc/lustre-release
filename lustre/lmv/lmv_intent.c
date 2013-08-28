@@ -117,9 +117,6 @@ static int lmv_intent_remote(struct obd_export *exp, void *lmm,
 		 * see mdt_cross_open */
 		LASSERT(it->it_op & IT_OPEN);
 		op_data->op_fid2 = *parent_fid;
-		/* Add object FID to op_fid3, in case it needs to check stale
-		 * (M_CHECK_STALE), see mdc_finish_intent_lock */
-		op_data->op_fid3 = body->fid1;
 	}
 
 	op_data->op_bias = MDS_CROSS_REF;
@@ -174,25 +171,30 @@ int lmv_intent_open(struct obd_export *exp, struct md_op_data *op_data,
 	int			rc;
 	ENTRY;
 
-	/* Note: client might open with some random flags(sanity 33b), so we can
-	 * not make sure op_fid2 is being initialized with BY_FID flag */
-	if (it->it_flags & MDS_OPEN_BY_FID && fid_is_sane(&op_data->op_fid2))
+	if (it->it_flags & MDS_OPEN_BY_FID) {
+		LASSERT(!(it->it_op & IT_CREAT));
+		LASSERT(fid_is_sane(&op_data->op_fid2));
+		LASSERT(op_data->op_name == NULL);
+
 		tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
-	else
+	} else {
+		LASSERT(fid_is_sane(&op_data->op_fid1));
+		LASSERT(fid_is_zero(&op_data->op_fid2));
+		LASSERT(op_data->op_name != NULL);
+
 		tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
+	}
 
 	if (IS_ERR(tgt))
 		RETURN(PTR_ERR(tgt));
 
 	/* If it is ready to open the file by FID, do not need
 	 * allocate FID at all, otherwise it will confuse MDT */
-	if ((it->it_op & IT_CREAT) &&
-	    !(it->it_flags & MDS_OPEN_BY_FID)) {
+	if (it->it_op & IT_CREAT) {
 		/*
-		 * For open with IT_CREATE and for IT_CREATE cases allocate new
-		 * fid and setup FLD for it.
+		 * For lookup(IT_CREATE) cases allocate new fid and setup FLD
+		 * for it.
 		 */
-		op_data->op_fid3 = op_data->op_fid2;
 		rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
 		if (rc != 0)
 			RETURN(rc);
@@ -315,9 +317,9 @@ int lmv_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
         LASSERT(it != NULL);
         LASSERT(fid_is_sane(&op_data->op_fid1));
 
-        CDEBUG(D_INODE, "INTENT LOCK '%s' for '%*s' on "DFID"\n",
-               LL_IT2STR(it), op_data->op_namelen, op_data->op_name,
-               PFID(&op_data->op_fid1));
+	CDEBUG(D_INODE, "INTENT LOCK '%s' for "DFID" '%*s' on "DFID"\n",
+		LL_IT2STR(it), PFID(&op_data->op_fid2), op_data->op_namelen,
+		op_data->op_name, PFID(&op_data->op_fid1));
 
         rc = lmv_check_connect(obd);
         if (rc)
