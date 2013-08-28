@@ -2186,6 +2186,10 @@ ksocknal_connd (void *arg)
         cfs_daemonize (name);
         cfs_block_allsigs ();
 
+        if (ksocknal_lib_bind_thread_to_node_cpu(id))
+                CERROR ("Can't set CPU affinity for %s to node of CPU %d\n", name, (int)id % *ksocknal_tunables.ksnd_ncpus);
+
+
         cfs_waitlink_init (&wait);
 
         cfs_spin_lock_bh (connd_lock);
@@ -2577,6 +2581,9 @@ ksocknal_reaper (void *arg)
 
         cfs_daemonize ("socknal_reaper");
         cfs_block_allsigs ();
+
+        if (ksocknal_lib_bind_thread_to_node_cpu(0))
+                CERROR ("Can't set CPU affinity for %s to node of CPU %d\n", "socknal_reaper", 0);
 
         CFS_INIT_LIST_HEAD(&enomem_conns);
         cfs_waitlink_init (&wait);

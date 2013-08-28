@@ -107,7 +107,7 @@ else
 	        #else
 	        unsigned long m;
 		#endif
-		set_cpus_allowed(&t, m);
+		set_cpus_allowed_ptr(&t, m);
 	],[
 		AC_DEFINE(CPU_AFFINITY, 1, [kernel has cpu affinity support])
 		AC_MSG_RESULT([yes])

@@ -2373,7 +2373,14 @@ ksocknal_base_startup (void)
         ksocknal_data.ksnd_init = SOCKNAL_INIT_DATA;
         PORTAL_MODULE_USE;
 
+#ifdef CPU_AFFINITY
+        if ((*ksocknal_tunables.ksnd_ncpus < 1) || (*ksocknal_tunables.ksnd_ncpus > ksocknal_nsched()))
+                *ksocknal_tunables.ksnd_ncpus = ksocknal_nsched();
+
+        ksocknal_data.ksnd_nschedulers = *ksocknal_tunables.ksnd_ncpus;
+#else
         ksocknal_data.ksnd_nschedulers = ksocknal_nsched();
+#endif
         LIBCFS_ALLOC(ksocknal_data.ksnd_schedulers,
                      sizeof(ksock_sched_t) * ksocknal_data.ksnd_nschedulers);
         if (ksocknal_data.ksnd_schedulers == NULL)

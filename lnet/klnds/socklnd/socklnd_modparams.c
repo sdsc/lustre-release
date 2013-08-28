@@ -133,6 +133,14 @@ CFS_MODULE_PARM(inject_csum_error, "i", int, 0644,
 static int enable_irq_affinity = 0;
 CFS_MODULE_PARM(enable_irq_affinity, "i", int, 0644,
                 "enable IRQ affinity");
+
+static unsigned int ncpus = 0;
+CFS_MODULE_PARM(ncpus, "i", int, 0444,
+                "maximum number of CPUs to use");
+
+static unsigned int cpu_affinity_off = 0;
+CFS_MODULE_PARM(cpu_affinity_off, "i", int, 0444,
+                "CPU affinity offset");
 #endif
 
 static int nonblk_zcack = 1;
@@ -196,6 +204,8 @@ ksock_tunables_t ksocknal_tunables = {
         .ksnd_zc_recv_min_nfrags = &zc_recv_min_nfrags,
 #ifdef CPU_AFFINITY
         .ksnd_irq_affinity    = &enable_irq_affinity,
+        .ksnd_ncpus           = &ncpus,
+        .ksnd_cpu_affinity_off = &cpu_affinity_off,
 #endif
 #ifdef SOCKNAL_BACKOFF
         .ksnd_backoff_init    = &backoff_init,
