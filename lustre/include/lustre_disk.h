@@ -501,6 +501,9 @@ struct lustre_sb_info {
 	char			  lsi_fstype[16];
         struct backing_dev_info   lsi_bdi;     /* each client mountpoint needs
                                                   own backing_dev_info */
+	cfs_list_t		  lsi_lwp_list;
+	spinlock_t		  lsi_lwp_lock;
+	unsigned long		  lsi_lwp_started:1;
 };
 
 #define LSI_UMOUNT_FAILOVER              0x00200000
