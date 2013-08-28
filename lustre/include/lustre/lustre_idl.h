@@ -1341,7 +1341,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_LIGHTWEIGHT | OBD_CONNECT_UMASK | \
 				OBD_CONNECT_LVB_TYPE | OBD_CONNECT_LAYOUTLOCK |\
 				OBD_CONNECT_PINGLESS | OBD_CONNECT_MAX_EASIZE |\
-				OBD_CONNECT_FLOCK_DEAD)
+				OBD_CONNECT_FLOCK_DEAD | \
+				OBD_CONNECT_OPEN_BY_FID)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
@@ -2378,6 +2379,12 @@ extern void lustre_swab_mdt_rec_setattr (struct mdt_rec_setattr *sa);
 					      * being opened with conflict mode.
 					      */
 #define MDS_OPEN_RELEASE   02000000000000ULL /* Open the file for HSM release */
+
+/* lustre internal open flags, which should not be set from user space */
+#define MDS_OPEN_INTERNAL (MDS_OPEN_HAS_EA | MDS_OPEN_HAS_OBJS |	\
+			   MDS_OPEN_OWNEROVERRIDE | MDS_OPEN_LOCK |	\
+			   MDS_OPEN_BY_FID | MDS_OPEN_LEASE |		\
+			   MDS_OPEN_RELEASE)
 
 /* permission for create non-directory file */
 #define MAY_CREATE      (1 << 7)
