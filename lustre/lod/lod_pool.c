@@ -427,7 +427,7 @@ int lod_ost_pool_free(struct ost_pool *op)
 	RETURN(0);
 }
 
-int lod_pool_new(struct obd_device *obd, char *poolname)
+int lod_pool_new(struct obd_device *obd, char *poolname, int pool_id)
 {
 	struct lod_device *lod = lu2lod_dev(obd->obd_lu_dev);
 	struct pool_desc  *new_pool;
@@ -442,6 +442,7 @@ int lod_pool_new(struct obd_device *obd, char *poolname)
 		RETURN(-ENOMEM);
 
 	strncpy(new_pool->pool_name, poolname, LOV_MAXPOOLNAME);
+	new_pool->pool_id = pool_id;
 	new_pool->pool_name[LOV_MAXPOOLNAME] = '\0';
 	new_pool->pool_lobd = obd;
 	/* ref count init to 1 because when created a pool is always used
@@ -504,7 +505,7 @@ out_free_pool_obds:
 	return rc;
 }
 
-int lod_pool_del(struct obd_device *obd, char *poolname)
+int lod_pool_del(struct obd_device *obd, char *poolname, int pool_id)
 {
 	struct lod_device *lod = lu2lod_dev(obd->obd_lu_dev);
 	struct pool_desc  *pool;

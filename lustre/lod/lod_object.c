@@ -332,6 +332,8 @@ static int lod_attr_set(const struct lu_env *env,
 	struct dt_object  *next = dt_object_child(dt);
 	struct lod_object *lo = lod_dt_obj(dt);
 	int                rc, i;
+	struct lu_attr	   copy_attr;
+	struct lu_attr	  *final_attr = (struct lu_attr *)attr;
 	ENTRY;
 
 	/*
@@ -344,13 +346,22 @@ static int lod_attr_set(const struct lu_env *env,
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
 		RETURN(rc);
 
+	if (lo->ldo_pool_valid) {
+		copy_attr = *attr;
+		copy_attr.la_pool_id = lo->ldo_pool_id;
+		copy_attr.la_valid |= LA_POOLID;
+		final_attr = &copy_attr;
+		CERROR("ZZZ: set pool id %d\n", lo->ldo_pool_id);
+	}
+
 	/*
 	 * if object is striped, apply changes to all the stripes
 	 */
 	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_attr_set(env, lo->ldo_stripe[i], attr, handle, capa);
+		rc = dt_attr_set(env, lo->ldo_stripe[i], final_attr, handle,
+				 capa);
 		if (rc) {
 			CERROR("failed declaration: %d\n", rc);
 			break;
@@ -586,6 +597,8 @@ static int lod_xattr_list(const struct lu_env *env,
 int lod_object_set_pool(struct lod_object *o, char *pool)
 {
 	int len;
+	struct pool_desc *pool_desc;
+	struct lod_device *m = lu2lod_dev(o->ldo_obj.do_lu.lo_dev);
 
 	if (o->ldo_pool) {
 		len = strlen(o->ldo_pool);
@@ -598,7 +611,14 @@ int lod_object_set_pool(struct lod_object *o, char *pool)
 		if (o->ldo_pool == NULL)
 			return -ENOMEM;
 		strcpy(o->ldo_pool, pool);
+
+		pool_desc = lod_find_pool(m, o->ldo_pool);
+		if (pool_desc != NULL) {
+			o->ldo_pool_id = pool_desc->pool_id;
+			lod_pool_putref(pool_desc);
+		}
 	}
+	o->ldo_pool_valid = 1;
 	return 0;
 }
 
@@ -660,6 +680,9 @@ static int lod_cache_parent_striping(const struct lu_env *env,
 			lod_object_set_pool(lp, v3->lmm_pool_name);
 	}
 
+	if (!lp->ldo_pool_valid)
+		lod_object_set_pool(lp, NULL);
+
 	CDEBUG(D_OTHER, "def. striping: # %d, sz %d, off %d %s%s on "DFID"\n",
 	       lp->ldo_def_stripenr, lp->ldo_def_stripe_size,
 	       lp->ldo_def_stripe_offset, v3 ? "from " : "",
@@ -701,6 +724,9 @@ static void lod_ah_init(const struct lu_env *env,
 	LASSERT(lc->ldo_stripenr == 0);
 	LASSERT(lc->ldo_stripe == NULL);
 
+	/* Whenever the funtion returns, pool ID will be valid */
+	if (!lc->ldo_pool_valid)
+		lod_object_set_pool(lc, NULL);
 	/*
 	 * local object may want some hints
 	 * in case of late striping creation, ->ah_init()
@@ -885,14 +911,16 @@ static int lod_declare_object_create(const struct lu_env *env,
 				     struct dt_object_format *dof,
 				     struct thandle *th)
 {
-	struct dt_object   *next = dt_object_child(dt);
-	struct lod_object  *lo = lod_dt_obj(dt);
-	int		    rc;
+	struct dt_object       *next = dt_object_child(dt);
+	struct lod_object      *lo = lod_dt_obj(dt);
+	int			rc;
+	struct lod_thread_info *info = lod_env_info(env);
 	ENTRY;
 
 	LASSERT(dof);
 	LASSERT(attr);
 	LASSERT(th);
+	LASSERT(lo->ldo_pool_valid);
 
 	/*
 	 * first of all, we declare creation of local object
@@ -904,6 +932,13 @@ static int lod_declare_object_create(const struct lu_env *env,
 	if (dof->dof_type == DFT_SYM)
 		dt->do_body_ops = &lod_body_lnk_ops;
 
+	info->lti_buf.lb_buf = &lo->ldo_pool_id;
+	info->lti_buf.lb_len = sizeof(lo->ldo_pool_id);
+	rc = dt_declare_xattr_set(env, next, &info->lti_buf,
+				  XATTR_NAME_POOL, 0, th);
+	CERROR("declaring setting pool id\n");
+	if (rc)
+		GOTO(out, rc);
 	/*
 	 * it's lod_ah_init() who has decided the object will striped
 	 */
@@ -918,8 +953,6 @@ static int lod_declare_object_create(const struct lu_env *env,
 			rc = lod_declare_striped_object(env, dt, attr,
 							NULL, th);
 	} else if (dof->dof_type == DFT_DIR && lo->ldo_striping_cached) {
-		struct lod_thread_info *info = lod_env_info(env);
-
 		struct lov_user_md_v3 *v3;
 
 		if (LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
@@ -991,6 +1024,17 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 
 	/* create local object */
 	rc = dt_create(env, next, attr, hint, dof, th);
+
+	if (rc == 0) {
+		struct lod_thread_info *info = lod_env_info(env);
+
+		LASSERT(lo->ldo_pool_valid);
+		info->lti_buf.lb_buf = &lo->ldo_pool_id;
+		info->lti_buf.lb_len = sizeof(lo->ldo_pool_id);
+		rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_POOL,
+				  0, th, BYPASS_CAPA);
+		CERROR("setting pool id\n");
+	}
 
 	if (rc == 0) {
 		if (S_ISDIR(dt->do_lu.lo_header->loh_attr))

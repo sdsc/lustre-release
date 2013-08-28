@@ -138,6 +138,34 @@ int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo)
 	RETURN(rc);
 }
 
+int ofd_object_pool_check(const struct lu_env *env, struct ofd_object *fo)
+{
+	int rc = 0;
+
+	ENTRY;
+
+	if (!fo->ofo_pool_exists) {
+		/*
+		 * This actually means that we don't know whether the object
+		 * has the "fid" EA or not.
+		 */
+		rc = dt_xattr_get(env, ofd_object_child(fo), &LU_BUF_NULL,
+				  XATTR_NAME_POOL, BYPASS_CAPA);
+		if (rc >= 0 || rc == -ENODATA) {
+			/*
+			 * Here we assume that, if the object doesn't have the
+			 * "pool" EA, the caller will add one, unless a fatal
+			 * error (e.g., a memory or disk failure) prevents it
+			 * from doing so.
+			 */
+			fo->ofo_pool_exists = 1;
+		}
+		if (rc > 0)
+			rc = 0;
+	}
+	RETURN(rc);
+}
+
 void ofd_object_put(const struct lu_env *env, struct ofd_object *fo)
 {
 	lu_object_put(env, &fo->ofo_obj.do_lu);

@@ -6231,6 +6231,28 @@ int mdt_obd_postrecov(struct obd_device *obd)
         return rc;
 }
 
+int mdt_obd_pool_new(struct obd_device *obd, char *poolname, int pool_id)
+{
+	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+	struct obd_device *osd_obd = mdt->mdt_bottom->dd_lu_dev.ld_obd;
+	int rc;
+	ENTRY;
+
+	rc = obd_pool_new(osd_obd, poolname, pool_id);
+	RETURN(rc);
+}
+
+int mdt_obd_pool_del(struct obd_device *obd, char *poolname, int pool_id)
+{
+	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+	struct obd_device *osd_obd = mdt->mdt_bottom->dd_lu_dev.ld_obd;
+	int rc;
+	ENTRY;
+
+	rc = obd_pool_del(osd_obd, poolname, pool_id);
+	RETURN(rc);
+}
+
 static struct obd_ops mdt_obd_device_ops = {
         .o_owner          = THIS_MODULE,
         .o_set_info_async = mdt_obd_set_info_async,
@@ -6241,6 +6263,8 @@ static struct obd_ops mdt_obd_device_ops = {
         .o_destroy_export = mdt_destroy_export,
         .o_iocontrol      = mdt_iocontrol,
         .o_postrecov      = mdt_obd_postrecov,
+	.o_pool_new       = mdt_obd_pool_new,
+	.o_pool_del       = mdt_obd_pool_del,
 };
 
 static struct lu_device* mdt_device_fini(const struct lu_env *env,

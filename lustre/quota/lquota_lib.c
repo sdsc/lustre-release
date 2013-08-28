@@ -264,9 +264,6 @@ int lquota_extract_fid(const struct lu_fid *fid, int *pool_id, int *pool_type,
 
 	if (pool_id != NULL) {
 		tmp = fid->f_oid & 0xffffU;
-		if (tmp != 0)
-			/* we only support pool ID 0 for the time being */
-			RETURN(-ENOTSUPP);
 		*pool_id = tmp;
 	}
 
@@ -287,6 +284,18 @@ int lquota_extract_fid(const struct lu_fid *fid, int *pool_id, int *pool_type,
 	}
 
 	RETURN(0);
+}
+
+void lquota_generate_local_fid(struct lu_fid *fid, int pool_id, int pool_type,
+			       int quota_type)
+{
+	__u8	 qtype;
+
+	qtype = (quota_type == USRQUOTA) ? LQUOTA_USR_OID : LQUOTA_GRP_OID;
+
+	fid->f_seq = FID_SEQ_QUOTA;
+	fid->f_oid = (qtype << 24) | (pool_type << 16) | (__u16)pool_id;
+	fid->f_ver = 0;
 }
 
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2,7,50,0)

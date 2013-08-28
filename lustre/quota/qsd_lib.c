@@ -525,23 +525,44 @@ EXPORT_SYMBOL(qsd_fini);
  */
 struct qsd_instance *qsd_init(const struct lu_env *env, char *svname,
 			      struct dt_device *dev,
-			      cfs_proc_dir_entry_t *osd_proc)
+			      cfs_proc_dir_entry_t *osd_proc,
+			      char *pool_name,
+			      int pool_id)
 {
 	struct qsd_thread_info	*qti = qsd_info(env);
 	struct qsd_instance	*qsd;
 	int			 rc, type, idx;
+	char			*proc_name;
+	int			 length;
 	ENTRY;
 
 	/* only configure qsd for MDT & OST */
 	type = server_name2index(svname, &idx, NULL);
 	if (type != LDD_F_SV_TYPE_MDT && type != LDD_F_SV_TYPE_OST)
-		RETURN(NULL);
+		RETURN(ERR_PTR(-EINVAL));
 
 	/* allocate qsd instance */
 	OBD_ALLOC_PTR(qsd);
 	if (qsd == NULL)
 		RETURN(ERR_PTR(-ENOMEM));
 
+	if (!equi(pool_name == NULL, pool_id == 0))
+		RETURN(ERR_PTR(-EINVAL));
+
+	length = strlen(QSD_DIR) + LOV_MAXPOOLNAME + 2;
+	OBD_ALLOC(proc_name, length);
+	if (proc_name == NULL) {
+		OBD_FREE_PTR(qsd);
+		RETURN(ERR_PTR(-ENOMEM));
+	}
+
+	if (pool_name != NULL)
+		snprintf(proc_name, length - 1, "%s_%s", QSD_DIR, pool_name);
+	else
+		snprintf(proc_name, length - 1, "%s", QSD_DIR);
+	if (pool_name)
+		strncpy(qsd->qsd_pool_name, pool_name,
+			sizeof(qsd->qsd_pool_name) - 1);
 	/* generic initializations */
 	rwlock_init(&qsd->qsd_lock);
 	CFS_INIT_LIST_HEAD(&qsd->qsd_link);
@@ -552,6 +573,9 @@ struct qsd_instance *qsd_init(const struct lu_env *env, char *svname,
 	CFS_INIT_LIST_HEAD(&qsd->qsd_adjust_list);
 	qsd->qsd_prepared = false;
 	qsd->qsd_started = false;
+	/* initialize refcount to 1, hash table will then grab an additional
+	 * reference */
+	atomic_set(&qsd->qsd_ref, 1);
 
 	/* copy service name */
 	if (strlcpy(qsd->qsd_svname, svname, sizeof(qsd->qsd_svname))
@@ -566,7 +590,7 @@ struct qsd_instance *qsd_init(const struct lu_env *env, char *svname,
 	/* we only support pool ID 0 (default data or metadata pool) for the
 	 * time being. A different pool ID could be assigned to this target via
 	 * the configuration log in the future */
-	qsd->qsd_pool_id  = 0;
+	qsd->qsd_pool_id  = pool_id;
 
 	/* get fsname from svname */
 	rc = server_name2fsname(svname, qti->qti_buf, NULL);
@@ -588,7 +612,7 @@ struct qsd_instance *qsd_init(const struct lu_env *env, char *svname,
 	up(&qsd->qsd_fsinfo->qfs_sem);
 
 	/* register procfs directory */
-	qsd->qsd_proc = lprocfs_register(QSD_DIR, osd_proc,
+	qsd->qsd_proc = lprocfs_register(proc_name, osd_proc,
 					 lprocfs_quota_qsd_vars, qsd);
 	if (IS_ERR(qsd->qsd_proc)) {
 		rc = PTR_ERR(qsd->qsd_proc);
@@ -603,6 +627,7 @@ out:
 		qsd_fini(env, qsd);
 		return ERR_PTR(rc);
 	}
+	OBD_FREE(proc_name, length);
 	RETURN(qsd);
 }
 EXPORT_SYMBOL(qsd_init);
@@ -622,7 +647,8 @@ EXPORT_SYMBOL(qsd_init);
  *
  * \retval - 0 on success, appropriate error on failure
  */
-int qsd_prepare(const struct lu_env *env, struct qsd_instance *qsd)
+int qsd_prepare(const struct lu_env *env, struct qsd_instance *qsd,
+		struct dt_object *root)
 {
 	struct qsd_thread_info	*qti = qsd_info(env);
 	int			 qtype, rc = 0;
@@ -650,8 +676,9 @@ int qsd_prepare(const struct lu_env *env, struct qsd_instance *qsd)
 	}
 
 	/* look-up on-disk directory for the quota slave */
-	qsd->qsd_root = lquota_disk_dir_find_create(env, qsd->qsd_dev, NULL,
-						    QSD_DIR);
+	sprintf(qti->qti_buf, "%s_0x%x", QSD_DIR, qsd->qsd_pool_id);
+	qsd->qsd_root = lquota_disk_dir_find_create(env, qsd->qsd_dev, root,
+						    qti->qti_buf);
 	if (IS_ERR(qsd->qsd_root)) {
 		rc = PTR_ERR(qsd->qsd_root);
 		qsd->qsd_root = NULL;
@@ -798,3 +825,188 @@ void qsd_glb_fini(void)
 	lu_kmem_fini(qsd_caches);
 	lu_context_key_degister(&qsd_thread_key);
 }
+
+void qsd_list_add(struct qsd_instance *qsd, cfs_list_t *list)
+{
+	cfs_list_add(&qsd->qsd_osd_link, list);
+}
+EXPORT_SYMBOL(qsd_list_add);
+
+void qsd_list_unlink(struct qsd_instance *qsd)
+{
+	cfs_list_del_init(&qsd->qsd_osd_link);
+}
+EXPORT_SYMBOL(qsd_list_unlink);
+
+int qsd_hash_add_unique(cfs_hash_t *hash, struct qsd_instance *qsd)
+{
+	return cfs_hash_add_unique(hash, &qsd->qsd_pool_id,
+				   &qsd->qsd_osd_hash);
+}
+EXPORT_SYMBOL(qsd_hash_add_unique);
+
+void qsd_hash_del(cfs_hash_t *hash, struct qsd_instance *qsd)
+{
+	cfs_hash_del(hash, &qsd->qsd_pool_id,
+		     &qsd->qsd_osd_hash);
+}
+EXPORT_SYMBOL(qsd_hash_del);
+
+struct qsd_instance *qsd_hash_lookup(cfs_hash_t *hash, int pool_id)
+{
+	struct qsd_instance *qsd;
+
+	qsd = cfs_hash_lookup(hash, (void *)&pool_id);
+	if (qsd == NULL) {
+		/* this qmt isn't managing this pool! */
+		CERROR("failed to lookup (0x%x)\n",
+		       pool_id);
+		return ERR_PTR(-ENOENT);
+	}
+
+	return qsd;
+}
+EXPORT_SYMBOL(qsd_hash_lookup);
+
+struct qsd_instance *qsd_hash_del_key(cfs_hash_t *hash, int pool_id)
+{
+	struct qsd_instance *qsd;
+
+	qsd = cfs_hash_del_key(hash, (void *)&pool_id);
+	if (qsd == NULL) {
+		/* this qmt isn't managing this pool! */
+		CERROR("failed to del (0x%x)\n",
+		       pool_id);
+		return ERR_PTR(-ENOENT);
+	}
+
+	return qsd;
+}
+EXPORT_SYMBOL(qsd_hash_del_key);
+
+void qsd_all_fini(const struct lu_env *env,
+		  cfs_list_t *list, cfs_hash_t *hash)
+{
+	cfs_list_t *l, *tmp;
+	struct qsd_instance *qsd;
+
+	cfs_list_for_each_safe(l, tmp, list) {
+		qsd = cfs_list_entry(l, struct qsd_instance, qsd_osd_link);
+		qsd_hash_del(hash, qsd);
+		/* remove from list */
+		cfs_list_del_init(&qsd->qsd_osd_link);
+		/* release extra reference taken in qsd_init */
+		qsd_putref(env, qsd);
+	}
+}
+EXPORT_SYMBOL(qsd_all_fini);
+
+int qsd_all_start(const struct lu_env *env, cfs_list_t *list)
+{
+	cfs_list_t *l, *tmp;
+	struct qsd_instance *qsd;
+	int rc = 0;
+
+	cfs_list_for_each_safe(l, tmp, list) {
+		qsd = cfs_list_entry(l, struct qsd_instance, qsd_osd_link);
+		rc = qsd_start(env, qsd);
+		if (rc)
+			break;
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(qsd_all_start);
+
+int qsd_all_prepare(const struct lu_env *env, cfs_list_t *list,
+		    struct dt_object *root)
+{
+	cfs_list_t *l, *tmp;
+	struct qsd_instance *qsd;
+	int rc = 0;
+
+	cfs_list_for_each_safe(l, tmp, list) {
+		qsd = cfs_list_entry(l, struct qsd_instance, qsd_osd_link);
+		CERROR("prepare pool %d\n", qsd->qsd_pool_id);
+		rc = qsd_prepare(env, qsd, root);
+		if (rc)
+			break;
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(qsd_all_prepare);
+
+static inline void qsd_getref(struct qsd_instance *qsd)
+{
+	cfs_atomic_inc(&qsd->qsd_ref);
+}
+
+void qsd_putref(const struct lu_env *env,
+		struct qsd_instance *qsd)
+{
+	LASSERT(atomic_read(&qsd->qsd_ref) > 0);
+	if (cfs_atomic_dec_and_test(&qsd->qsd_ref))
+		qsd_fini(env, qsd);
+}
+EXPORT_SYMBOL(qsd_putref);
+
+static inline void qsd_putref_locked(struct qsd_instance *qsd)
+{
+	LASSERT(cfs_atomic_read(&qsd->qsd_ref) > 1);
+	cfs_atomic_dec(&qsd->qsd_ref);
+}
+
+static unsigned qsd_hash_hash(cfs_hash_t *hs, const void *key, unsigned mask)
+{
+	return cfs_hash_u32_hash(*((__u32 *)key), mask);
+}
+
+static void *qsd_hash_key(cfs_hlist_node_t *hnode)
+{
+	struct qsd_instance *qsd;
+	qsd = cfs_hlist_entry(hnode, struct qsd_instance, qsd_osd_hash);
+	return &qsd->qsd_pool_id;
+}
+
+static int qsd_hash_keycmp(const void *key, cfs_hlist_node_t *hnode)
+{
+	struct qsd_instance *qsd;
+	qsd = cfs_hlist_entry(hnode, struct qsd_instance, qsd_osd_hash);
+	return qsd->qsd_pool_id == *((__u32 *)key);
+}
+
+static void *qsd_hash_object(cfs_hlist_node_t *hnode)
+{
+	return cfs_hlist_entry(hnode, struct qsd_instance, qsd_osd_hash);
+}
+
+static void qsd_hash_get(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
+{
+	struct qsd_instance *qsd;
+	qsd = cfs_hlist_entry(hnode, struct qsd_instance, qsd_osd_hash);
+	qsd_getref(qsd);
+}
+
+static void qsd_hash_put_locked(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
+{
+	struct qsd_instance *qsd;
+	qsd = cfs_hlist_entry(hnode, struct qsd_instance, qsd_osd_hash);
+	qsd_putref_locked(qsd);
+}
+
+static void qsd_hash_exit(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
+{
+	CERROR("Should not have any item left!\n");
+}
+
+cfs_hash_ops_t qsd_hash_ops = {
+	.hs_hash	= qsd_hash_hash,
+	.hs_key		= qsd_hash_key,
+	.hs_keycmp	= qsd_hash_keycmp,
+	.hs_object	= qsd_hash_object,
+	.hs_get		= qsd_hash_get,
+	.hs_put_locked	= qsd_hash_put_locked,
+	.hs_exit	= qsd_hash_exit
+};
+EXPORT_SYMBOL(qsd_hash_ops);
