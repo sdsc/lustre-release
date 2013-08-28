@@ -136,6 +136,26 @@ lsm_name_to_stripe_info(const struct lmv_stripe_md *lsm, const char *name,
 	return &lsm->lsm_md_oinfo[stripe_index];
 }
 
+static inline const struct lmv_oinfo *
+lsm_fid_to_stripe_info(struct lmv_obd *lmv,
+		       const struct lmv_stripe_md *lsm,
+		       const struct lu_fid *fid)
+{
+	mdsno_t mds = 0;
+	int rc;
+
+	if (lmv->desc.ld_tgt_count > 1) {
+		rc = lmv_fld_lookup(lmv, fid, &mds);
+		if (rc)
+			return ERR_PTR(rc);
+	}
+
+	LASSERTF(mds < lsm->lsm_md_stripe_count,
+		"stripe_index = %d, stripe_count = %d\n",
+		mds, lsm->lsm_md_stripe_count);
+
+	return &lsm->lsm_md_oinfo[mds];
+}
 
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
