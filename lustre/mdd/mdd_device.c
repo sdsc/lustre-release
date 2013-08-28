@@ -1399,6 +1399,10 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
 
 		stop->ls_status = LS_STOPPED;
 		stop->ls_index = mdd_seq_site(mdd)->ss_node_id;
+		if (karg != NULL)
+			stop->ls_flags = ((struct lfsck_stop *)karg)->ls_flags;
+		else
+			stop->ls_flags = 0;
 		rc = lfsck_stop(env, mdd->mdd_bottom, stop, NULL);
 		RETURN(rc);
 	}
@@ -1407,6 +1411,7 @@ static int mdd_iocontrol(const struct lu_env *env, struct md_device *m,
 
 		stop->ls_status = LS_PAUSED;
 		stop->ls_index = mdd_seq_site(mdd)->ss_node_id;
+		stop->ls_flags = 0;
 		rc = lfsck_stop(env, mdd->mdd_bottom, stop, NULL);
 		RETURN(rc);
 	}

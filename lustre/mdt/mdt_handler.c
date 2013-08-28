@@ -1576,10 +1576,50 @@ int mdt_set_info(struct mdt_thread_info *info)
                                    vallen, val, NULL);
                 lustre_msg_set_status(req->rq_repmsg, rc);
 
-        } else {
-                RETURN(-EINVAL);
-        }
-        RETURN(0);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lu_env		   env;
+		struct mdt_device	   *mdt = info->mti_mdt;
+		struct md_device	   *next = mdt->mdt_child;
+		struct lfsck_event_request *ler =
+					(struct lfsck_event_request *)val;
+
+		if (vallen < sizeof(*ler))
+			RETURN(-EFAULT);
+
+		if (ptlrpc_req_need_swab(req))
+			lustre_swab_lfsck_event_request(ler);
+
+		rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD);
+		if (rc != 0)
+			RETURN(rc);
+
+		switch (ler->ler_event) {
+		case LNE_START_ALL: {
+			struct lfsck_start_param lsp;
+
+			lsp.lsp_start = &ler->u.ler_start;
+			lsp.lsp_namespace = mdt->mdt_namespace;
+			rc = next->md_ops->mdo_iocontrol(&env, next,
+						OBD_IOC_START_LFSCK, 0, &lsp);
+			break;
+		}
+		case LNE_STOP_ALL:
+			rc = next->md_ops->mdo_iocontrol(&env, next,
+						OBD_IOC_STOP_LFSCK, 0, NULL);
+			break;
+		default:
+			CERROR("%s: Unsupported lfsck_event %d\n",
+			       mdt_obd_name(mdt), ler->ler_event);
+			rc = -EOPNOTSUPP;
+			break;
+		}
+
+		lu_env_fini(&env);
+	} else {
+		rc = -EINVAL;
+	}
+
+	RETURN(rc);
 }
 
 int mdt_connect_check_sptlrpc(struct mdt_device *mdt, struct obd_export *exp,
@@ -6184,7 +6224,8 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 	case OBD_IOC_STOP_LFSCK: {
 		struct md_device *next = mdt->mdt_child;
 
-		rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0, NULL);
+		rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0,
+				((struct obd_ioctl_data *)karg)->ioc_inlbuf1);
 		break;
 	}
         case OBD_IOC_GET_OBJ_VERSION: {

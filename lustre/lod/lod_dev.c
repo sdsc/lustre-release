@@ -1102,9 +1102,15 @@ static int lod_set_info_async(const struct lu_env *env, struct obd_export *exp,
 		struct lfsck_event_request *ler  = &dlc->dlc_req;
 		struct lod_device	   *lod  =
 					lu2lod_dev(exp->exp_obd->obd_lu_dev);
-		struct lod_tgt_descs	   *ltd  = &lod->lod_ost_descs;
+		struct lod_tgt_descs	   *ltd;
 		int			    done = 0;
 		int			    i;
+
+		if (ler->ler_event == LNE_START_ALL ||
+		    ler->ler_event == LNE_STOP_ALL)
+			ltd = &lod->lod_mdt_descs;
+		else
+			ltd  = &lod->lod_ost_descs;
 
 		if (set == NULL) {
 			lai->lai_set = ptlrpc_prep_set();
