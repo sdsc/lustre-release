@@ -2835,8 +2835,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 		count = data->ioc_count;
 		cmd = data->ioc_command;
 
-		id = ostid_id(&data->ioc_obdo2.o_oi);
-
+		id = data->ioc_obdo2.o_oi.oi.oi_id;
 		dirlen = data->ioc_plen1;
 		OBD_ALLOC(dir, dirlen + 1);
 		if (dir == NULL)

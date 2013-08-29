@@ -943,6 +943,9 @@ static int mdd_prepare(const struct lu_env *env,
 		if (rc)
 			GOTO(out_los, rc);
 
+	} else {
+		lu_root_fid(&fid);
+		mdd->mdd_root_fid = fid;
 	}
 
 	rc = orph_index_init(env, mdd);
