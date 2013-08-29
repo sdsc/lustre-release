@@ -1029,7 +1029,7 @@ static int lov_lock_fits_into(const struct lu_env *env,
                  */
                 result = cl_lock_ext_match(&lov->lls_orig, need);
         else if (lov->lls_nr == 1) {
-                struct cl_lock_descr *got = &lov->lls_sub[0].sub_got;
+		struct cl_lock_descr *got = &lov->lls_sub[0].sub_descr;
                 result = lov_lock_stripe_is_matching(env,
                                                      cl2lov(slice->cls_obj),
                                                      lov->lls_sub[0].sub_stripe,
