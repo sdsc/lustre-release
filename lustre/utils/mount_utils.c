@@ -169,27 +169,57 @@ char *strscpy(char *dst, char *src, int buflen)
 	return strscat(dst, src, buflen);
 }
 
+static int check_losetup(char *device, char *file_path)
+{
+	FILE *fp;
+	char cmd[PATH_MAX];
+	int cmdsz = sizeof(cmd);
+	int ret = 0;
+
+	snprintf(cmd, cmdsz, "losetup %s | grep \"(%s)\"", device, file_path);
+	fp = popen(cmd, "r");
+	if (fp != NULL) {
+		ret = fread(cmd, 1, cmdsz - 1, fp);
+		pclose(fp);
+	}
+
+	return (ret > 0 ? EEXIST : 0);
+}
+
 int check_mtab_entry(char *spec1, char *spec2, char *mtpt, char *type)
 {
 	FILE *fp;
 	struct mntent *mnt;
+	char lo_dev[] = "/dev/loop";
+	int lo_dev_len = strlen(lo_dev);
+	int ret = 0;
 
 	fp = setmntent(MOUNTED, "r");
 	if (fp == NULL)
 		return 0;
 
 	while ((mnt = getmntent(fp)) != NULL) {
-		if ((strcmp(mnt->mnt_fsname, spec1) == 0 ||
-		     strcmp(mnt->mnt_fsname, spec2) == 0) &&
+		char *fsname = mnt->mnt_fsname;
+
+		if ((strcmp(fsname, spec1) == 0 ||
+		     strcmp(fsname, spec2) == 0) &&
 		    (mtpt == NULL || strcmp(mnt->mnt_dir, mtpt) == 0) &&
 		    (type == NULL || strcmp(mnt->mnt_type, type) == 0)) {
-			endmntent(fp);
-			return(EEXIST);
+			ret = EEXIST;
+			break;
+		}
+		/* Check if the loop device is already mounted */
+		if (strncmp(fsname, lo_dev, lo_dev_len) != 0)
+			continue;
+		if (check_losetup(fsname, spec1) != 0 ||
+		    check_losetup(fsname, spec2) != 0) {
+			ret = EEXIST;
+			break;
 		}
 	}
 	endmntent(fp);
 
-	return 0;
+	return ret;
 }
 
 #define PROC_DIR	"/proc/"
@@ -741,6 +771,43 @@ int file_create(char *path, __u64 size)
 			progname, strerror(errno));
 		return errno;
 	}
+
+	return 0;
+}
+
+/**
+ * Try to get the real path to the device, in case it is a
+ * symbolic link or dm device for instance
+ */
+int get_realpath(char *path, char **device)
+{
+	FILE *f;
+	size_t sz;
+	char *ptr;
+	char name[256];
+	char real_path[PATH_MAX] = {'\0'};
+
+	if (realpath(path, real_path) == NULL)
+		return errno;
+
+	ptr = strrchr(real_path, '/');
+	if (ptr && strncmp(ptr, "/dm-", 4) == 0 && isdigit(*(ptr + 4))) {
+		snprintf(path, sizeof(path), "/sys/block/%s/dm/name", ptr+1);
+		f = fopen(path, "r");
+		if (f != NULL) {
+			/* read "<name>\n" from sysfs */
+			if (fgets(name, sizeof(name), f) != NULL) {
+				sz = strlen(name);
+				if (sz > 1) {
+					name[sz - 1] = '\0';
+					snprintf(real_path, sizeof(real_path),
+						 "/dev/mapper/%s", name);
+				}
+			}
+			fclose(f);
+		}
+	}
+	*device = strdup(real_path);
 
 	return 0;
 }
