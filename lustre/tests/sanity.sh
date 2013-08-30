@@ -4330,10 +4330,10 @@ run_test 56t "check lfs find -stripe-size works"
 
 test_56u() { # LU-611
 	TDIR=$DIR/${tdir}u
-	setup_56 $NUMFILES $NUMDIRS "-i 0"
+	setup_56 $NUMFILES $NUMDIRS "-i 0 -c 1"
 
 	if [ $OSTCOUNT -gt 1 ]; then
-		$SETSTRIPE -i 1 $TDIR/$tfile.{0,1,2,3}
+		$SETSTRIPE -i 1 -c 1 $TDIR/$tfile.{0,1,2,3}
 		ONESTRIPE=4
 	else
 		ONESTRIPE=0
