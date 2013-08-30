@@ -498,8 +498,12 @@ static void ptlrpc_master_callback(lnet_event_t *ev)
         callback (ev);
 }
 
+/*
+ * \param idx:	indicates which peer nid to be returned for the obd, if @idx is
+ *		-1, only returns the closest peer nid
+ */
 int ptlrpc_uuid_to_peer (struct obd_uuid *uuid,
-                         lnet_process_id_t *peer, lnet_nid_t *self)
+			 lnet_process_id_t *peer, lnet_nid_t *self, int idx)
 {
         int               best_dist = 0;
         __u32             best_order = 0;
@@ -514,6 +518,21 @@ int ptlrpc_uuid_to_peer (struct obd_uuid *uuid,
         portals_compatibility = LNetCtl(IOC_LIBCFS_PORTALS_COMPATIBILITY, NULL);
 
         peer->pid = LUSTRE_SRV_LNET_PID;
+
+	if (idx >= 0) {
+		rc = lustre_uuid_to_peer(uuid->uuid, &dst_nid, idx);
+		dist = LNetDist(dst_nid, &src_nid, NULL);
+		if (rc == 0) {
+			if (portals_compatibility > 1) {
+				dst_nid = LNET_MKNID(0, LNET_NIDADDR(dst_nid));
+				src_nid = LNET_MKNID(0, LNET_NIDADDR(src_nid));
+			}
+			peer->nid = dst_nid;
+			*self = src_nid;
+		}
+		CDEBUG(D_NET, "%s->%s\n", uuid->uuid, libcfs_id2str(*peer));
+		return rc;
+	}
 
         /* Choose the matching UUID that's closest */
         while (lustre_uuid_to_peer(uuid->uuid, &dst_nid, count++) == 0) {

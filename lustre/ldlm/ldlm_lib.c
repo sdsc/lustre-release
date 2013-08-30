@@ -59,73 +59,93 @@
  * @create: If zero, only search in existing connections.
  */
 static int import_set_conn(struct obd_import *imp, struct obd_uuid *uuid,
-                           int priority, int create)
+			   int priority, int create)
 {
-        struct ptlrpc_connection *ptlrpc_conn;
-        struct obd_import_conn *imp_conn = NULL, *item;
-        int rc = 0;
-        ENTRY;
+	struct ptlrpc_connection	*ptlrpc_conn = NULL;
+	struct obd_import_conn		*imp_conn    = NULL;
+	struct obd_import_conn		*item;
+	int				rc = -ENOENT;
+	int				i  = -1;
+	ENTRY;
 
-        if (!create && !priority) {
-                CDEBUG(D_HA, "Nothing to do\n");
-                RETURN(-EINVAL);
-        }
-
-        ptlrpc_conn = ptlrpc_uuid_to_connection(uuid);
-        if (!ptlrpc_conn) {
-                CDEBUG(D_HA, "can't find connection %s\n", uuid->uuid);
-                RETURN (-ENOENT);
-        }
-
-        if (create) {
-                OBD_ALLOC(imp_conn, sizeof(*imp_conn));
-                if (!imp_conn) {
-                        GOTO(out_put, rc = -ENOMEM);
-                }
-        }
-
-	spin_lock(&imp->imp_lock);
-        cfs_list_for_each_entry(item, &imp->imp_conn_list, oic_item) {
-                if (obd_uuid_equals(uuid, &item->oic_uuid)) {
-                        if (priority) {
-                                cfs_list_del(&item->oic_item);
-                                cfs_list_add(&item->oic_item,
-                                             &imp->imp_conn_list);
-                                item->oic_last_attempt = 0;
-                        }
-                        CDEBUG(D_HA, "imp %p@%s: found existing conn %s%s\n",
-                               imp, imp->imp_obd->obd_name, uuid->uuid,
-                               (priority ? ", moved to head" : ""));
-			spin_unlock(&imp->imp_lock);
-                        GOTO(out_free, rc = 0);
-                }
-        }
-	/* No existing import connection found for \a uuid. */
-        if (create) {
-                imp_conn->oic_conn = ptlrpc_conn;
-                imp_conn->oic_uuid = *uuid;
-                imp_conn->oic_last_attempt = 0;
-                if (priority)
-                        cfs_list_add(&imp_conn->oic_item, &imp->imp_conn_list);
-                else
-                        cfs_list_add_tail(&imp_conn->oic_item,
-                                          &imp->imp_conn_list);
-                CDEBUG(D_HA, "imp %p@%s: add connection %s at %s\n",
-                       imp, imp->imp_obd->obd_name, uuid->uuid,
-                       (priority ? "head" : "tail"));
-        } else {
-		spin_unlock(&imp->imp_lock);
-		GOTO(out_free, rc = -ENOENT);
+	if (!create && !priority) {
+		CDEBUG(D_HA, "Nothing to do\n");
+		RETURN(-EINVAL);
 	}
 
-	spin_unlock(&imp->imp_lock);
-        RETURN(0);
-out_free:
-        if (imp_conn)
-                OBD_FREE(imp_conn, sizeof(*imp_conn));
+again:
+	while (1) {
+		++i;
+		ptlrpc_conn = ptlrpc_uuid_to_connection(uuid, i);
+		if (ptlrpc_conn == NULL) {
+			if (i == 0) {
+				CDEBUG(D_HA, "can't find connection %s\n",
+				       uuid->uuid);
+				RETURN(-ENOENT);
+			}
+			break;
+		}
+
+		CDEBUG(D_HA, "%s->%s\n", uuid->uuid,
+		       libcfs_id2str(ptlrpc_conn->c_peer));
+
+		if (create && imp_conn == NULL) {
+			/* prepare imp_conn out of spin lock */
+			OBD_ALLOC(imp_conn, sizeof(*imp_conn));
+			if (imp_conn == NULL)
+				GOTO(out_put, rc = -ENOMEM);
+		}
+
+		spin_lock(&imp->imp_lock);
+		cfs_list_for_each_entry(item, &imp->imp_conn_list, oic_item) {
+			if (obd_uuid_equals(uuid, &item->oic_uuid) &&
+			    ptlrpc_conn == item->oic_conn) {
+				if (priority) {
+					cfs_list_del(&item->oic_item);
+					cfs_list_add(&item->oic_item,
+						     &imp->imp_conn_list);
+					item->oic_last_attempt = 0;
+				}
+				CDEBUG(D_HA, "imp %p@%s: found existing "
+				       "conn %s%s\n", imp,
+				       imp->imp_obd->obd_name, uuid->uuid,
+				       (priority ? ", moved to head" : ""));
+				spin_unlock(&imp->imp_lock);
+				ptlrpc_connection_put(ptlrpc_conn);
+				rc = 0;
+				if (create)
+					goto again;
+				GOTO(out_free, rc);
+			}
+		}
+		/* No existing import connection found for \a uuid. */
+		if (create) {
+			imp_conn->oic_conn = ptlrpc_conn;
+			imp_conn->oic_uuid = *uuid;
+			imp_conn->oic_last_attempt = 0;
+			if (priority)
+				cfs_list_add(&imp_conn->oic_item,
+					     &imp->imp_conn_list);
+			else
+				cfs_list_add_tail(&imp_conn->oic_item,
+						  &imp->imp_conn_list);
+			CDEBUG(D_HA, "imp %p@%s: add connection %s at %s\n",
+			       imp, imp->imp_obd->obd_name, uuid->uuid,
+			       (priority ? "head" : "tail"));
+			imp_conn = NULL;
+			rc = 0;
+		}
+		spin_unlock(&imp->imp_lock);
+		if (!create)
+			ptlrpc_connection_put(ptlrpc_conn);
+	}
 out_put:
-        ptlrpc_connection_put(ptlrpc_conn);
-        RETURN(rc);
+	if (ptlrpc_conn != NULL)
+		ptlrpc_connection_put(ptlrpc_conn);
+out_free:
+	if (imp_conn != NULL)
+		OBD_FREE(imp_conn, sizeof(*imp_conn));
+	RETURN(rc);
 }
 
 int import_set_conn_priority(struct obd_import *imp, struct obd_uuid *uuid)
@@ -185,7 +205,6 @@ int client_import_del_conn(struct obd_import *imp, struct obd_uuid *uuid)
                 CDEBUG(D_HA, "imp %p@%s: remove connection %s\n",
                        imp, imp->imp_obd->obd_name, uuid->uuid);
                 rc = 0;
-                break;
         }
 out:
 	spin_unlock(&imp->imp_lock);
@@ -424,7 +443,7 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
                LUSTRE_CFG_BUFLEN(lcfg, 1));
         class_import_put(imp);
 
-        rc = client_import_add_conn(imp, &server_uuid, 1);
+	rc = client_import_add_conn(imp, &server_uuid, 0);
         if (rc) {
                 CERROR("can't add initial connection\n");
                 GOTO(err_import, rc);
