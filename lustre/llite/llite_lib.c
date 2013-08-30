@@ -1505,23 +1505,18 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 		ccc_inode_lsm_put(inode, lsm);
 	}
 
-	/* if not in HSM import mode, clear size attr for released file
-	 * we clear the attribute send to MDT in op_data, not the original
-	 * received from caller in attr which is used later to
-	 * decide return code */
-	if (file_is_released && (attr->ia_valid & ATTR_SIZE) && !hsm_import)
-		op_data->op_attr.ia_valid &= ~ATTR_SIZE;
-
         rc = ll_md_setattr(dentry, op_data, &mod);
         if (rc)
                 GOTO(out, rc);
 
-	/* truncate failed (only when non HSM import), others succeed */
-	if (file_is_released) {
-		if ((attr->ia_valid & ATTR_SIZE) && !hsm_import)
-			GOTO(out, rc = -ENODATA);
-		else
+	if (file_is_released && attr->ia_valid & ATTR_SIZE) {
+		if (hsm_import || attr->ia_size >= i_size_read(inode))
 			GOTO(out, rc = 0);
+
+		/* Restore the file */
+		rc = ll_layout_restore(inode, 0, attr->ia_size);
+		if (rc < 0)
+			GOTO(out, rc);
 	}
 
 	/* RPC to MDT is sent, cancel data modification flag */

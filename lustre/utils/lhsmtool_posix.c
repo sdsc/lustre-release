@@ -562,8 +562,9 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 
 	errno = 0;
 	/* Don't read beyond a given extent */
-	rlen = (hai->hai_extent.length == -1LL) ?
-		src_st.st_size : hai->hai_extent.length;
+	rlen = min(hai->hai_extent.length, src_st.st_size);
+
+	CT_DEBUG("Going to copy %lld bytes %s -> %s\n", rlen, src, dst);
 
 	while (wpos < rlen) {
 		int chunk = (rlen - wpos > opt.o_chunk_size) ?

@@ -14,7 +14,7 @@ ONLY=${ONLY:-"$*"}
 # bug number for skipped test:
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 # skip test cases failed before landing - Jinshan
-ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 34 35 58 59"
+ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 34 35"
 
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 
@@ -2001,6 +2001,7 @@ test_54() {
 	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(make_small $f)
+	local sz=$(stat -c %s $f)
 
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f ||
 		error "could not archive file"
@@ -2122,15 +2123,16 @@ test_58() {
 
 	$LFS hsm_release $f || error "could not release file"
 
-	$TRUNCATE $f 0 || error "truncate failed"
+	$TRUNCATE $f $((sz*2)) || error "truncate failed"
 	sync
 
-	local sz=$(stat -c %s $f)
-	[[ $sz == 0 ]] || error "size after truncate is $sz != 0"
+	local new_sz=$(stat -c %s $f)
+	[[ $new_sz == $((sz*2)) ]] ||
+		error "size after truncate up is $new_sz, expect $((sz*2))"
 
 	$LFS hsm_state $f
 
-	check_hsm_flags $f "0x0000000b"
+	check_hsm_flags $f "0x0000000d"
 
 	local state=$(get_request_state $fid RESTORE)
 	[[ "$state" == "" ]] ||
@@ -2138,7 +2140,7 @@ test_58() {
 
 	copytool_cleanup
 }
-run_test 58 "Truncate 0 on a released file must not trigger restore"
+run_test 58 "Truncate up a released file must not trigger restore"
 
 test_59() {
 	# test needs a running copytool
@@ -2163,11 +2165,11 @@ test_59() {
 	sync
 
 	local sz1=$(stat -c %s $f)
-	[[ $sz1 == $sz ]] || error "size after truncate is $sz1 != $sz"
+	[[ $sz1 == $sz ]] || error "size after truncate down is $sz1 expect $sz"
 
 	$LFS hsm_state $f
 
-	check_hsm_flags $f "0x0000000b"
+	check_hsm_flags $f "0x00000009"
 
 	local state=$(get_request_state $fid RESTORE)
 	[[ "$state" == "SUCCEED" ]] ||
@@ -2178,7 +2180,7 @@ test_59() {
 
 	copytool_cleanup
 }
-run_test 59 "Truncate != 0 on a released file"
+run_test 59 "Truncate down a released file will trigger restore"
 
 test_90() {
 	file_count=57
