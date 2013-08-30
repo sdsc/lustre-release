@@ -2816,7 +2816,8 @@ static inline bool nrs_policy_compat_one(const struct ptlrpc_service *svc,
 /* ptlrpc/events.c */
 extern lnet_handle_eq_t ptlrpc_eq_h;
 extern int ptlrpc_uuid_to_peer(struct obd_uuid *uuid,
-                               lnet_process_id_t *peer, lnet_nid_t *self);
+			       lnet_process_id_t *peer, lnet_nid_t *self,
+			       int idx);
 /**
  * These callbacks are invoked by LNet when something happened to
  * underlying buffer
@@ -2912,7 +2913,8 @@ int ptlrpc_register_rqbd(struct ptlrpc_request_buffer_desc *rqbd);
 void ptlrpc_init_client(int req_portal, int rep_portal, char *name,
                         struct ptlrpc_client *);
 void ptlrpc_cleanup_client(struct obd_import *imp);
-struct ptlrpc_connection *ptlrpc_uuid_to_connection(struct obd_uuid *uuid);
+struct ptlrpc_connection *ptlrpc_uuid_to_connection(struct obd_uuid *uuid,
+						    int idx);
 
 int ptlrpc_queue_wait(struct ptlrpc_request *req);
 int ptlrpc_replay_req(struct ptlrpc_request *req);
