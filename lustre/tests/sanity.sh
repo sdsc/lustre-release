@@ -1802,6 +1802,8 @@ test_27A() { # b=19102
         local restore_count=$($GETSTRIPE -c $MOUNT)
         local restore_offset=$($GETSTRIPE -i $MOUNT)
         $SETSTRIPE -c 0 -i -1 -S 0 $MOUNT
+        wait_update $HOSTNAME "$GETSTRIPE -c $MOUNT | sed 's/  *//g'" "1" ||
+                error "tripe count $default_count != 1"
         local default_size=$($GETSTRIPE -S $MOUNT)
         local default_count=$($GETSTRIPE -c $MOUNT)
         local default_offset=$($GETSTRIPE -i $MOUNT)
