@@ -376,7 +376,7 @@ test_0() {
 	local MB=100 # 100M
 	[ "$SLOW" = "no" ] && MB=10
 
-	local free_space=$(lfs_df | grep "summary" | awk '{print $5}')
+	local free_space=$(lfs_df | grep "summary" | awk '{print $4}')
 	[ $free_space -le $((MB * 1024)) ] &&
 		skip "not enough space ${free_space} KB, " \
 			"required $((MB * 1024)) KB" && return
