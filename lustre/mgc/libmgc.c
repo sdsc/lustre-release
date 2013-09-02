@@ -56,7 +56,9 @@ static int mgc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         int rc;
         ENTRY;
 
-        ptlrpcd_addref();
+	rc = ptlrpcd_addref();
+	if (rc)
+		RETURN(rc);
 
         rc = client_obd_setup(obd, lcfg);
         if (rc)
