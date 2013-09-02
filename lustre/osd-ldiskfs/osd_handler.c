@@ -874,6 +874,7 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		 *     credits precisely. */
 		oh->ot_credits = osd_journal(dev)->j_max_transaction_buffers;
 	}
+	CDEBUG(D_OTHER, "start tx with %d credits\n", oh->ot_credits);
 
         /*
          * XXX temporary stuff. Some abstraction layer should
@@ -921,6 +922,12 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
 
         if (oh->ot_handle != NULL) {
                 handle_t *hdl = oh->ot_handle;
+
+		if (oh->ot_credits > 1 && hdl->h_buffer_credits < 10) {
+			CERROR("too many credits used? %d left from %d\n",
+			       hdl->h_buffer_credits, oh->ot_credits);
+			dump_stack();
+		}
 
                 /*
                  * add commit callback

@@ -333,6 +333,15 @@ static int ext3_ext_new_extent_cb(struct ext3_ext_base *base,
 	tgen = EXT_GENERATION(base);
 	count = ext3_ext_calc_credits_for_insert(base, path);
 
+	{
+		handle_t *handle = journal_current_handle();
+		if (handle) {
+			LASSERTF(handle->h_buffer_credits >=
+				 count+EXT3_ALLOC_NEEDED+1, "%d\n",
+				 handle->h_buffer_credits);
+		}
+	}
+
 	handle = ext3_journal_start(inode, count+EXT3_ALLOC_NEEDED+1);
 	if (IS_ERR(handle)) {
 		return PTR_ERR(handle);

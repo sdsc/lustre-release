@@ -985,6 +985,8 @@ static int ofd_setattr_hdl(struct tgt_session_info *tsi)
 	ENTRY;
 
 	LASSERT(body != NULL);
+	LASSERT(body->oa.o_valid & OBD_MD_FLID);
+	LASSERT(fid_is_sane(&tsi->tsi_fid));
 	LASSERT(tsi->tsi_corpus != NULL);
 
 	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
