@@ -778,12 +778,12 @@ setup_quota() {
 
 	# get_filesystem_size
 	local disksz=$(lfs_df $mntpt | grep "summary" |
-		     awk '{print $3}')
+		     awk '{print $2}')
 	local blk_soft=$((disksz + 1024))
 	local blk_hard=$((blk_soft + blk_soft / 20)) # Go 5% over
 
 	local inodes=$(lfs_df -i $mntpt | grep "summary" |
-		     awk '{print $3}')
+		     awk '{print $2}')
 	local i_soft=$inodes
 	local i_hard=$((i_soft + i_soft / 20))
 
