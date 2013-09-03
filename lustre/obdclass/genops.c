@@ -162,74 +162,95 @@ EXPORT_SYMBOL(class_put_type);
 
 #define CLASS_MAX_NAME 1024
 
+#ifdef LPROCFS
+LPROC_SEQ_FOPS_RO_TYPE(modules, numrefs);
+static struct lprocfs_seq_vars lprocfs_modules_vars[] = {
+	{ "num_refs",	&modules_numrefs_fops,	0,	0 },
+	{ 0 }
+};
+#endif
+
 int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
-                        struct lprocfs_vars *vars, const char *name,
-                        struct lu_device_type *ldt)
+#ifndef HAVE_ONLY_PROCFS_SEQ
+			struct lprocfs_vars *vars,
+#endif
+			const char *name, struct lu_device_type *ldt)
 {
-        struct obd_type *type;
-        int rc = 0;
-        ENTRY;
+	struct obd_type *type;
+	int rc = 0;
+	ENTRY;
 
-        /* sanity check */
-        LASSERT(strnlen(name, CLASS_MAX_NAME) < CLASS_MAX_NAME);
+	/* sanity check */
+	LASSERT(strnlen(name, CLASS_MAX_NAME) < CLASS_MAX_NAME);
 
-        if (class_search_type(name)) {
-                CDEBUG(D_IOCTL, "Type %s already registered\n", name);
-                RETURN(-EEXIST);
-        }
+	if (class_search_type(name)) {
+		CDEBUG(D_IOCTL, "Type %s already registered\n", name);
+		RETURN(-EEXIST);
+	}
 
-        rc = -ENOMEM;
-        OBD_ALLOC(type, sizeof(*type));
-        if (type == NULL)
-                RETURN(rc);
+	rc = -ENOMEM;
+	OBD_ALLOC(type, sizeof(*type));
+	if (type == NULL)
+		RETURN(rc);
 
-        OBD_ALLOC_PTR(type->typ_dt_ops);
-        OBD_ALLOC_PTR(type->typ_md_ops);
-        OBD_ALLOC(type->typ_name, strlen(name) + 1);
+	OBD_ALLOC_PTR(type->typ_dt_ops);
+	OBD_ALLOC_PTR(type->typ_md_ops);
+	OBD_ALLOC(type->typ_name, strlen(name) + 1);
 
-        if (type->typ_dt_ops == NULL ||
-            type->typ_md_ops == NULL ||
-            type->typ_name == NULL)
-                GOTO (failed, rc);
+	if (type->typ_dt_ops == NULL ||
+	    type->typ_md_ops == NULL ||
+	    type->typ_name == NULL)
+		GOTO (failed, rc);
 
-        *(type->typ_dt_ops) = *dt_ops;
-        /* md_ops is optional */
-        if (md_ops)
-                *(type->typ_md_ops) = *md_ops;
-        strcpy(type->typ_name, name);
+	*(type->typ_dt_ops) = *dt_ops;
+	/* md_ops is optional */
+	if (md_ops)
+		*(type->typ_md_ops) = *md_ops;
+	strcpy(type->typ_name, name);
 	spin_lock_init(&type->obd_type_lock);
 
 #ifdef LPROCFS
-        type->typ_procroot = lprocfs_register(type->typ_name, proc_lustre_root,
-                                              vars, type);
-        if (IS_ERR(type->typ_procroot)) {
-                rc = PTR_ERR(type->typ_procroot);
-                type->typ_procroot = NULL;
-                GOTO (failed, rc);
-        }
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	if (vars)
+		type->typ_procroot = lprocfs_register(type->typ_name,
+						      proc_lustre_root,
+						      vars, type);
+	else
 #endif
-        if (ldt != NULL) {
-                type->typ_lu = ldt;
-                rc = lu_device_type_init(ldt);
-                if (rc != 0)
-                        GOTO (failed, rc);
-        }
+	{
+		type->typ_procroot = lprocfs_seq_register(type->typ_name,
+							  proc_lustre_root,
+							  lprocfs_modules_vars,
+							  type);
+	}
+	if (IS_ERR(type->typ_procroot)) {
+		rc = PTR_ERR(type->typ_procroot);
+		type->typ_procroot = NULL;
+		GOTO (failed, rc);
+	}
+#endif
+	if (ldt != NULL) {
+		type->typ_lu = ldt;
+		rc = lu_device_type_init(ldt);
+		if (rc != 0)
+			GOTO (failed, rc);
+	}
 
 	spin_lock(&obd_types_lock);
 	cfs_list_add(&type->typ_chain, &obd_types);
 	spin_unlock(&obd_types_lock);
 
-        RETURN (0);
+	RETURN (0);
 
- failed:
-        if (type->typ_name != NULL)
-                OBD_FREE(type->typ_name, strlen(name) + 1);
-        if (type->typ_md_ops != NULL)
-                OBD_FREE_PTR(type->typ_md_ops);
-        if (type->typ_dt_ops != NULL)
-                OBD_FREE_PTR(type->typ_dt_ops);
-        OBD_FREE(type, sizeof(*type));
-        RETURN(rc);
+failed:
+	if (type->typ_name != NULL)
+		OBD_FREE(type->typ_name, strlen(name) + 1);
+	if (type->typ_md_ops != NULL)
+		OBD_FREE_PTR(type->typ_md_ops);
+	if (type->typ_dt_ops != NULL)
+		OBD_FREE_PTR(type->typ_dt_ops);
+	OBD_FREE(type, sizeof(*type));
+	RETURN(rc);
 }
 EXPORT_SYMBOL(class_register_type);
 
@@ -252,11 +273,8 @@ int class_unregister_type(const char *name)
                 RETURN(-EBUSY);
         }
 
-	/* we do not use type->typ_procroot as for compatibility purposes
-	 * other modules can share names (i.e. lod can use lov entry). so
-	 * we can't reference pointer as it can get invalided when another
-	 * module removes the entry */
-	lprocfs_try_remove_proc_entry(type->typ_name, proc_lustre_root);
+	if (type->typ_procroot)
+		lprocfs_remove(&type->typ_procroot);
 
         if (type->typ_lu)
                 lu_device_type_fini(type->typ_lu);
@@ -264,13 +282,13 @@ int class_unregister_type(const char *name)
 	spin_lock(&obd_types_lock);
 	cfs_list_del(&type->typ_chain);
 	spin_unlock(&obd_types_lock);
-        OBD_FREE(type->typ_name, strlen(name) + 1);
-        if (type->typ_dt_ops != NULL)
-                OBD_FREE_PTR(type->typ_dt_ops);
-        if (type->typ_md_ops != NULL)
-                OBD_FREE_PTR(type->typ_md_ops);
-        OBD_FREE(type, sizeof(*type));
-        RETURN(0);
+	OBD_FREE(type->typ_name, strlen(name) + 1);
+	if (type->typ_dt_ops != NULL)
+		OBD_FREE_PTR(type->typ_dt_ops);
+	if (type->typ_md_ops != NULL)
+		OBD_FREE_PTR(type->typ_md_ops);
+	OBD_FREE(type, sizeof(*type));
+	RETURN(0);
 } /* class_unregister_type */
 EXPORT_SYMBOL(class_unregister_type);
 
