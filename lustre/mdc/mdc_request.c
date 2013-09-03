@@ -2439,7 +2439,6 @@ struct ldlm_valblock_ops inode_lvbo = {
 static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
 {
         struct client_obd *cli = &obd->u.cli;
-        struct lprocfs_static_vars lvars = { 0 };
         int rc;
         ENTRY;
 
@@ -2458,11 +2457,13 @@ static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
         rc = client_obd_setup(obd, cfg);
         if (rc)
                 GOTO(err_close_lock, rc);
-        lprocfs_mdc_init_vars(&lvars);
-        lprocfs_obd_setup(obd, lvars.obd_vars);
+#ifdef LPROCFS
+	lprocfs_mdc_init_vars(obd);
+	lprocfs_seq_obd_setup(obd);
 	lprocfs_alloc_md_stats(obd, 0);
-        sptlrpc_lprocfs_cliobd_attach(obd);
-        ptlrpc_lprocfs_register_obd(obd);
+#endif
+	sptlrpc_lprocfs_cliobd_attach(obd);
+	ptlrpc_lprocfs_register_obd(obd);
 
         ns_register_cancel(obd->obd_namespace, mdc_cancel_for_recovery);
 
@@ -2584,19 +2585,9 @@ static int mdc_llog_finish(struct obd_device *obd, int count)
 static int mdc_process_config(struct obd_device *obd, obd_count len, void *buf)
 {
         struct lustre_cfg *lcfg = buf;
-        struct lprocfs_static_vars lvars = { 0 };
-        int rc = 0;
-
-        lprocfs_mdc_init_vars(&lvars);
-        switch (lcfg->lcfg_command) {
-        default:
-                rc = class_process_proc_param(PARAM_MDC, lvars.obd_vars,
-                                              lcfg, obd);
-                if (rc > 0)
-                        rc = 0;
-                break;
-        }
-        return(rc);
+	int rc = class_process_proc_seq_param(PARAM_MDC, obd->obd_vars,
+					      lcfg, obd);
+	return (rc > 0 ? 0: rc);
 }
 
 
@@ -2758,13 +2749,12 @@ struct md_ops mdc_md_ops = {
 
 int __init mdc_init(void)
 {
-        int rc;
-        struct lprocfs_static_vars lvars = { 0 };
-        lprocfs_mdc_init_vars(&lvars);
-
-        rc = class_register_type(&mdc_obd_ops, &mdc_md_ops, lvars.module_vars,
-                                 LUSTRE_MDC_NAME, NULL);
-        RETURN(rc);
+	int rc = class_register_type(&mdc_obd_ops, &mdc_md_ops,
+#ifndef HAVE_ONLY_PROCFS_SEQ
+				     NULL,
+#endif
+				     LUSTRE_MDC_NAME, NULL);
+	RETURN(rc);
 }
 
 #ifdef __KERNEL__
