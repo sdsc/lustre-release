@@ -431,6 +431,7 @@ struct lfsck_thread_info {
 	struct lu_name		lti_name;
 	struct lu_buf		lti_buf;
 	struct lu_buf		lti_linkea_buf;
+	struct lu_buf		lti_big_buf;
 	struct lu_fid		lti_fid;
 	struct lu_fid		lti_fid2;
 	struct lu_attr		lti_la;
@@ -442,6 +443,10 @@ struct lfsck_thread_info {
 	char			lti_key[NAME_MAX + 16];
 	struct dt_lfsck_control lti_dlc;
 	struct lfsck_info_local lti_lil;
+	struct ost_id		lti_oi;
+	ldlm_policy_data_t	lti_policy;
+	struct ldlm_res_id	lti_resid;
+	struct lustre_handle	lti_lh;
 };
 
 /* lfsck_lib.c */

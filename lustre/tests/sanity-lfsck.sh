@@ -38,7 +38,7 @@ check_and_setup_lustre
 	exit 0
 
 [[ $(lustre_version_code ost1) -lt $(version_code 2.4.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12"
 
 build_test_filter
 
@@ -49,10 +49,14 @@ OST_DEV="${FSNAME}-OST0000"
 MDT_DEVNAME=$(mdsdevname ${SINGLEMDS//mds/})
 START_NAMESPACE="do_facet $SINGLEMDS \
 		$LCTL lfsck_start -M ${MDT_DEV} -t namespace"
+START_LAYOUT="do_facet $SINGLEMDS \
+		$LCTL lfsck_start -M ${MDT_DEV} -t layout"
 START_LAYOUT_ON_OST="do_facet ost1 $LCTL lfsck_start -M ${OST_DEV} -t layout"
 STOP_LFSCK="do_facet $SINGLEMDS $LCTL lfsck_stop -M ${MDT_DEV}"
 SHOW_NAMESPACE="do_facet $SINGLEMDS \
 		$LCTL get_param -n mdd.${MDT_DEV}.lfsck_namespace"
+SHOW_LAYOUT="do_facet $SINGLEMDS \
+		$LCTL get_param -n mdd.${MDT_DEV}.lfsck_layout"
 SHOW_LAYOUT_ON_OST="do_facet ost1 \
 		$LCTL get_param -n obdfilter.${OST_DEV}.lfsck_layout"
 MOUNT_OPTS_SCRUB="-o user_xattr"
@@ -1125,6 +1129,40 @@ test_11b() {
 	do_facet ost1 $LCTL set_param fail_loc=0
 }
 run_test 11b "LFSCK can rebuild crashed last_id"
+
+test_12() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+
+	#define OBD_FAIL_LFSCK_BAD_LMMOI	0x160f
+	do_facet ost1 $LCTL set_param fail_loc=0x160f
+	createmany -o $DIR/$tdir/f 32
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	echo "stopall to cleanup object cache"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	$START_LAYOUT || error "(1) Fail to start LFSCK for layout!"
+	sleep 2
+
+	local STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(2) Expect 'completed', but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_others/ { print $2 }')
+	[ $repaired -eq 32 ] ||
+		error "(3) Fail to repair crashed lmm_oi: $repaired"
+}
+run_test 12 "LFSCK can repair crashed lmm_oi"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 

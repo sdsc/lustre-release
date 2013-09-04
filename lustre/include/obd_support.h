@@ -496,6 +496,7 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_LFSCK_NO_DOUBLESCAN	0x160c
 #define OBD_FAIL_LFSCK_SKIP_LASTID	0x160d
 #define OBD_FAIL_LFSCK_DELAY4		0x160e
+#define OBD_FAIL_LFSCK_BAD_LMMOI	0x160f
 
 /* UPDATE */
 #define OBD_FAIL_UPDATE_OBJ_NET			0x1700
