@@ -52,6 +52,16 @@
 
 static const char lfsck_layout_name[] = "lfsck_layout";
 
+enum lfsck_layout_inconsistency {
+	LLI_NONE		= 0,
+	LLI_DANGLING		= 1,
+	LLI_UNMATCHED_PAIR	= 2,
+	LLI_MULTIPLE_REFERENCED = 3,
+	LLI_ORPHAN		= 4,
+	LLI_INCONSISTENT_OWNER	= 5,
+	LLI_OTHERS		= 6,
+};
+
 struct lfsck_layout_seq {
 	cfs_list_t		 lls_list;
 	__u64			 lls_seq;
@@ -765,6 +775,149 @@ static void lfsck_layout_unlock(struct lustre_handle *lh)
 	ldlm_lock_decref(lh, LCK_EX);
 }
 
+static int lfsck_layout_recreate_ostobj(const struct lu_env *env,
+					struct lfsck_component *com,
+					struct lfsck_layout_req *llr,
+					struct lu_attr *la)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct dt_allocation_hint	*hint	= &info->lti_hint;
+	struct dt_device		*dev	= com->lc_lfsck->li_next;
+	struct dt_object		*parent = llr->llr_parent->llo_obj;
+	struct dt_object		*child  = llr->llr_child;
+	struct thandle			*handle;
+	int				 rc;
+	ENTRY;
+
+	handle = dt_trans_create(env, dev);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	hint->dah_parent = parent;
+	hint->dah_flags = DAHF_RECREATE;
+	hint->dah_lov_index = llr->llr_lov_idx;
+	rc = dt_declare_create(env, child, la, hint, NULL, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start(env, dev, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_create(env, child, la, hint, NULL, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = 1;
+	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header))) {
+		dt_destroy(env, child, handle);
+		rc = 0;
+	}
+
+	GOTO(stop, rc);
+
+stop:
+	dt_trans_stop(env, dev, handle);
+	return rc;
+}
+
+static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
+					     struct lfsck_component *com,
+					     struct lfsck_layout_req *llr)
+{
+	struct lfsck_layout		*lo	   = com->lc_file_ram;
+	struct lfsck_thread_info	*info	   = lfsck_env_info(env);
+	struct dt_object		*parent    = llr->llr_parent->llo_obj;
+	struct dt_object		*child	   = llr->llr_child;
+	struct lu_attr			*pla	   = &info->lti_la;
+	struct lu_attr			*cla	   = &info->lti_la2;
+	struct lfsck_instance		*lfsck	   = com->lc_lfsck;
+	struct lfsck_bookmark		*bk	   = &lfsck->li_bookmark_ram;
+	enum lfsck_layout_inconsistency  type	   = LLI_NONE;
+	int				 rc;
+	ENTRY;
+
+	rc = dt_attr_get(env, parent, pla, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = dt_attr_get(env, child, cla, BYPASS_CAPA);
+	if (rc == -ENOENT) {
+		if (lu_object_is_dying(parent->do_lu.lo_header))
+			RETURN(0);
+
+		type = LLI_DANGLING;
+		goto repair;
+	}
+
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* XXX: other inconsistency will be checked in other patches. */
+
+repair:
+	if (bk->lb_param & LPF_DRYRUN) {
+		if (type != LLI_NONE)
+			GOTO(out, rc = 1);
+		else
+			GOTO(out, rc = 0);
+	}
+
+	switch (type) {
+	case LLI_DANGLING:
+		rc = lfsck_layout_recreate_ostobj(env, com, llr, pla);
+		break;
+
+	/* XXX: other inconsistency will be fixed in other patches. */
+
+	case LLI_UNMATCHED_PAIR:
+		break;
+	case LLI_MULTIPLE_REFERENCED:
+		break;
+	case LLI_INCONSISTENT_OWNER:
+		break;
+	default:
+		rc = 0;
+		break;
+	}
+
+	GOTO(out, rc);
+
+out:
+	down_write(&com->lc_sem);
+	if (rc < 0) {
+		/* If cannot touch the target server,
+		 * mark the LFSCK as INCOMPLETE. */
+		if (rc == -ENOTCONN || rc == -ESHUTDOWN || rc == -ETIMEDOUT ||
+		    rc == -EHOSTDOWN || rc == -EHOSTUNREACH) {
+			lo->ll_flags |= LF_INCOMPLETE;
+			lo->ll_objs_skipped++;
+			rc = 0;
+		} else {
+			lo->ll_objs_failed_phase1++;
+		}
+	} else if (rc > 0) {
+		switch (type) {
+		case LLI_DANGLING:
+			lo->ll_objs_repaired_dangling++;
+			break;
+		case LLI_UNMATCHED_PAIR:
+			lo->ll_objs_repaired_unmatched_pair++;
+			break;
+		case LLI_MULTIPLE_REFERENCED:
+			lo->ll_objs_repaired_multiple_referenced++;
+			break;
+		case LLI_INCONSISTENT_OWNER:
+			lo->ll_objs_repaired_inconsistent_owner++;
+			break;
+		default:
+			LBUG();
+		}
+	}
+	up_write(&com->lc_sem);
+	return rc;
+}
+
 static int lfsck_layout_assistant(void *args)
 {
 	struct lfsck_thread_args	*lta	= args;
@@ -812,19 +965,17 @@ static int lfsck_layout_assistant(void *args)
 
 	while (1) {
 		while (!cfs_list_empty(&llmd->llmd_list)) {
-
-			/* XXX: To be extended in other patch.
-			 *
-			 * Compare the OST side attribute with local attribute,
-			 * and fix it if found inconsistency. */
-
-			spin_lock(&llmd->llmd_lock);
 			llr = cfs_list_entry(llmd->llmd_list.next,
 					     struct lfsck_layout_req,
 					     llr_list);
+			rc = lfsck_layout_assistant_handle_one(env, com, llr);
+			spin_lock(&llmd->llmd_lock);
 			cfs_list_del_init(&llr->llr_list);
 			spin_unlock(&llmd->llmd_lock);
 			lfsck_layout_req_fini(env, llr);
+
+			if (rc < 0 && bk->lb_param & LPF_FAILOUT)
+				GOTO(cleanup1, rc);
 
 			if (unlikely(llmd->llmd_exit))
 				GOTO(cleanup1, rc = 0);
@@ -917,6 +1068,8 @@ cleanup1:
 	} else {
 		/* Cleanup the unfinished requests. */
 		spin_lock(&llmd->llmd_lock);
+		if (rc < 0)
+			llmd->llmd_assistant_status = rc;
 		while (!cfs_list_empty(&llmd->llmd_list)) {
 			llr = cfs_list_entry(llmd->llmd_list.next,
 					     struct lfsck_layout_req,
