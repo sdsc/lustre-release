@@ -711,7 +711,7 @@ unlock:
 }
 
 int ofd_object_destroy(const struct lu_env *env, struct ofd_object *fo,
-		       int orphan)
+		       bool orphan)
 {
 	struct ofd_device	*ofd = ofd_obj2dev(fo);
 	struct thandle		*th;

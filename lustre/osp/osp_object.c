@@ -705,6 +705,38 @@ static int osp_declare_object_destroy(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static int osp_object_destroy_sync(const struct lu_env *env,
+				   struct dt_object *dt)
+{
+	struct osp_object	*o	  = dt2osp_obj(dt);
+	struct osp_device	*d	  = lu2osp_dev(dt->do_lu.lo_dev);
+	struct ptlrpc_request	*req;
+	struct ost_body		*body;
+	int			rc;
+	ENTRY;
+
+	req = ptlrpc_request_alloc(d->opd_obd->u.cli.cl_import,
+				   &RQF_OST_DESTROY);
+	if (req == NULL)
+		RETURN(-ENOMEM);
+
+	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_DESTROY);
+	if (rc != 0) {
+		ptlrpc_req_finished(req);
+		RETURN(rc);
+	}
+
+	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
+	osp_getattr_fill_oa(&body->oa, o);
+	body->oa.o_flags = OBD_FL_LFSCK;
+	body->oa.o_valid |= OBD_MD_FLFLAGS;
+	ptlrpc_request_set_replen(req);
+	rc = ptlrpc_queue_wait(req);
+	ptlrpc_req_finished(req);
+
+	RETURN(rc);
+}
+
 static int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 			      struct thandle *th)
 {
@@ -712,6 +744,13 @@ static int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 	int			 rc = 0;
 
 	ENTRY;
+
+	if (unlikely(th == NULL)) {
+		/* XXX: It is from LFSCK for detect and conditional destroy
+		 *	the OST-object with sync mode. */
+		rc = osp_object_destroy_sync(env, dt);
+		RETURN(rc);
+	}
 
 	/*
 	 * once transaction is committed put proper command on

@@ -392,6 +392,9 @@ struct lfsck_instance {
 	struct lfsck_bookmark	  li_bookmark_disk;
 	struct lfsck_position	  li_pos_current;
 
+	/* lost+found */
+	struct dt_object	 *li_obj_lf;
+
 	/* Obj for otable-based iteration */
 	struct dt_object	 *li_obj_oit;
 

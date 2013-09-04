@@ -1043,9 +1043,8 @@ out_env:
 	return rc;
 }
 
-static int ofd_destroy_by_fid(const struct lu_env *env,
-			      struct ofd_device *ofd,
-			      const struct lu_fid *fid, int orphan)
+static int ofd_destroy_by_fid(const struct lu_env *env, struct ofd_device *ofd,
+			      const struct lu_fid *fid, bool orphan, bool force)
 {
 	struct ofd_thread_info	*info = ofd_info(env);
 	struct lustre_handle	 lockh;
@@ -1073,16 +1072,44 @@ static int ofd_destroy_by_fid(const struct lu_env *env,
 				    NULL, NULL, 0, LVB_T_NONE, NULL, &lockh);
 
 	/* We only care about the side-effects, just drop the lock. */
-	if (rc == ELDLM_OK)
+	if (rc == ELDLM_OK && force)
 		ldlm_lock_decref(&lockh, LCK_PW);
 
 	LASSERT(fo != NULL);
 
+	if (!force) {
+		struct lu_attr *la = &info->fti_attr;
+
+		rc = ofd_object_ff_check(env, fo);
+		if (rc != 0) {
+			ldlm_lock_decref(&lockh, LCK_PW);
+			GOTO(out, rc);
+		}
+
+		/* It is not LFSCK created for repairing dangling
+		 * referenced MDT-object case. */
+		if (!fo->ofo_pfid_exists) {
+			ldlm_lock_decref(&lockh, LCK_PW);
+			GOTO(out, rc = -EPERM);
+		}
+
+		rc = ofd_attr_get(env, fo, la);
+		ldlm_lock_decref(&lockh, LCK_PW);
+		if (rc != 0)
+			GOTO(out, rc);
+
+		/* It has been modified since created. */
+		if (!(la->la_mode & S_ISUID) || !(la->la_mode & S_ISGID))
+			GOTO(out, rc = -EPERM);
+	}
+
 	rc = ofd_object_destroy(env, fo, orphan);
-	EXIT;
+
+	GOTO(out, rc);
+
 out:
 	ofd_object_put(env, fo);
-	RETURN(rc);
+	return rc;
 }
 
 int ofd_destroy(const struct lu_env *env, struct obd_export *exp,
@@ -1122,6 +1149,7 @@ int ofd_destroy(const struct lu_env *env, struct obd_export *exp,
 	       POSTID(&oa->o_oi), count);
 	while (count > 0) {
 		int lrc;
+		bool force = true;
 
 		lrc = ostid_to_fid(&info->fti_fid, &oa->o_oi, 0);
 		if (lrc != 0) {
@@ -1129,7 +1157,10 @@ int ofd_destroy(const struct lu_env *env, struct obd_export *exp,
 				rc = lrc;
 			GOTO(out, rc);
 		}
-		lrc = ofd_destroy_by_fid(env, ofd, &info->fti_fid, 0);
+		if (oa->o_valid & OBD_MD_FLFLAGS && oa->o_flags & OBD_FL_LFSCK)
+			force = false;
+		lrc = ofd_destroy_by_fid(env, ofd, &info->fti_fid, false,
+					 force);
 		if (lrc == -ENOENT) {
 			CDEBUG(D_INODE,
 			       "%s: destroying non-existent object "DFID"\n",
@@ -1202,7 +1233,7 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 		rc = ostid_to_fid(&info->fti_fid, &oi, 0);
 		if (rc != 0)
 			GOTO(out_put, rc);
-		rc = ofd_destroy_by_fid(env, ofd, &info->fti_fid, 1);
+		rc = ofd_destroy_by_fid(env, ofd, &info->fti_fid, true, true);
 		if (rc && rc != -ENOENT) /* this is pretty fatal... */
 			CEMERG("%s: error destroying precreated id "DOSTID
 			       ": rc = %d\n", ofd_name(ofd), POSTID(&oi), rc);

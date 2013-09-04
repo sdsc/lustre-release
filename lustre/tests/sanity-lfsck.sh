@@ -1578,6 +1578,137 @@ test_19a() {
 }
 run_test 19a "Find out orphan OST-object and repair it (1)"
 
+# The target MDT-object is lost, recreate it under /lost+found
+test_19b() {
+	[ $OSTCOUNT -lt 2 ] &&
+		skip "We need at least 2 OSTs for test_19a" && exit 0
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir/a1
+	mkdir -p $DIR/$tdir/a2
+	$LFS setstripe -c 1 -i 0 -s 1M $DIR/$tdir/a1
+	$LFS setstripe -c 2 -i 0 -s 1M $DIR/$tdir/a2
+	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=1M count=2
+	dd if=/dev/zero of=$DIR/$tdir/a2/f2 bs=1M count=2
+	$LFS getstripe $DIR/$tdir/a1/f1
+	$LFS getstripe $DIR/$tdir/a2/f2
+	sync
+        cancel_lru_locks osc
+
+	#define OBD_FAIL_LFSCK_LOST_MDTOBJ	0x1617
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1617
+	rm -f $DIR/$tdir/a1/f1
+	rm -f $DIR/$tdir/a2/f2
+	sync
+	sleep 2
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	$START_LAYOUT || error "(1) Fail to start LFSCK for layout!"
+	sleep 2
+
+	local STATUS=$($SHOW_LAYOUT_ON_OST2 | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(2) Expect 'completed' on ost2, but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT_ON_OST2 |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Expect 1 objects fixed on ost2, but got: $repaired"
+
+	STATUS=$($SHOW_LAYOUT_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(4) Expect 'completed' on ost1, but got '$STATUS'"
+
+	repaired=$($SHOW_LAYOUT_ON_OST |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 2 ] ||
+		error "(5) Expect 2 objects fixed on ost1, but got: $repaired"
+
+	STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(6) Expect 'completed' on mds, but got '$STATUS'"
+
+	repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 3 ] ||
+		error "(7) Expect 3 objects fixed on mds, but got: $repaired"
+}
+run_test 19b "Find out orphan OST-object and repair it (2)"
+
+# The target MDT-object layout EA slot is occpuied by new created OST-object
+# when repair dangling reference case. Replace the new created OST-object is
+# not modified.
+test_19c() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir/a1
+	$LFS setstripe -c 1 -i 0 -s 1M $DIR/$tdir/a1
+	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=1M count=1
+	dd if=/dev/zero of=$DIR/$tdir/a1/f2 bs=1M count=1
+	$LFS getstripe $DIR/$tdir/a1/f1
+	$LFS getstripe $DIR/$tdir/a1/f2
+	sync
+        cancel_lru_locks osc
+
+	#define OBD_FAIL_LFSCK_CHANGE_STRIPE	0x1618
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1618
+	chown 1.1 $DIR/$tdir/a1/f2
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+	rm -f $DIR/$tdir/a1/f1
+	sync
+	sleep 1
+	echo "stopall"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	$LFS getstripe $DIR/$tdir/a1/f2
+
+	$START_LAYOUT || error "(1) Fail to start LFSCK for layout!"
+	sleep 2
+
+	local STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(2) Expect 'completed' on mds, but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_dangling/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Fail to repair dangling reference: $repaired"
+
+	repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(4) Expect 1 objects fixed on mds, but got: $repaired"
+
+	STATUS=$($SHOW_LAYOUT_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(5) Expect 'completed' on ost1, but got '$STATUS'"
+
+	repaired=$($SHOW_LAYOUT_ON_OST |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(6) Expect 1 objects fixed on ost1, but got: $repaired"
+	$LFS getstripe $DIR/$tdir/a1/f2
+}
+run_test 19c "Find out orphan OST-object and repair it (3)"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size

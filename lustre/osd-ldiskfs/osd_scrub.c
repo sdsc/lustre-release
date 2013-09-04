@@ -1329,6 +1329,9 @@ static int
 osd_ios_general_scan(struct osd_thread_info *info, struct osd_device *dev,
 		     struct dentry *dentry, filldir_t filldir);
 static int
+osd_ios_lf_scan(struct osd_thread_info *info, struct osd_device *dev,
+		struct dentry *dentry, filldir_t filldir);
+static int
 osd_ios_ROOT_scan(struct osd_thread_info *info, struct osd_device *dev,
 		  struct dentry *dentry, filldir_t filldir);
 
@@ -1340,7 +1343,6 @@ enum osd_lf_flags {
 	OLF_SCAN_SUBITEMS	= 0x0001,
 	OLF_HIDE_FID		= 0x0002,
 	OLF_SHOW_NAME		= 0x0004,
-	OLF_NO_OI		= 0x0008,
 };
 
 struct osd_lf_map {
@@ -1435,8 +1437,8 @@ static const struct osd_lf_map osd_lf_maps[] = {
 		OLF_SHOW_NAME, NULL, NULL },
 
 	/* lost+found */
-	{ "lost+found", { 0, 0, 0 }, OLF_SCAN_SUBITEMS | OLF_NO_OI,
-		osd_ios_general_scan, osd_ios_lf_fill },
+	{ "lost+found", { FID_SEQ_LOCAL_FILE, LOST_FOUND_OID, 0 },
+		OLF_SCAN_SUBITEMS, osd_ios_lf_scan, osd_ios_lf_fill },
 
 	{ NULL, { 0, 0, 0 }, 0, NULL, NULL }
 };
@@ -1693,9 +1695,8 @@ static int osd_ios_root_fill(void *buf, const char *name, int namelen,
 	if (IS_ERR(child))
 		RETURN(PTR_ERR(child));
 
-	if (!(map->olm_flags & OLF_NO_OI))
-		rc = osd_ios_scan_one(fill_buf->oifb_info, dev, child->d_inode,
-				      &map->olm_fid, map->olm_flags);
+	rc = osd_ios_scan_one(fill_buf->oifb_info, dev, child->d_inode,
+			      &map->olm_fid, map->olm_flags);
 	if (rc == 0 && map->olm_flags & OLF_SCAN_SUBITEMS)
 		rc = osd_ios_new_item(dev, child, map->olm_scandir,
 				      map->olm_filldir);
@@ -1728,6 +1729,17 @@ osd_ios_general_scan(struct osd_thread_info *info, struct osd_device *dev,
 	fops->release(inode, filp);
 
 	RETURN(rc);
+}
+
+static int
+osd_ios_lf_scan(struct osd_thread_info *info, struct osd_device *dev,
+		struct dentry *dentry, filldir_t filldir)
+{
+	/* XXX: currently, we only scan /lost+found on OST. */
+	if (dev->od_is_ost)
+		return osd_ios_general_scan(info, dev, dentry, filldir);
+	else
+		return 0;
 }
 
 static int

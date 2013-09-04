@@ -3602,7 +3602,8 @@ static int lfsck_layout_refill_lovea(const struct lu_env *env,
 				     struct dt_object *obj,
 				     struct lfsck_reint_req *lrr,
 				     struct lu_buf *buf,
-				     struct lov_ost_data_v1 *slot, int fl)
+				     struct lov_ost_data_v1 *slot,
+				     int fl, bool local)
 {
 	struct ost_id	*oi	= &lfsck_env_info(env)->lti_oi;
 	int		 rc;
@@ -3611,9 +3612,13 @@ static int lfsck_layout_refill_lovea(const struct lu_env *env,
 	ostid_cpu_to_le(oi, &slot->l_ost_oi);
 	slot->l_ost_gen = cpu_to_le32(0);
 	slot->l_ost_idx = cpu_to_le32(lrr->lrr_index);
-	/* XXX: to indicate it is to re-create layout EA. */
-	rc = dt_xattr_set(env, obj, buf, XATTR_NAME_LOV, fl | LU_XATTR_REPLACE,
-			  handle, BYPASS_CAPA);
+	if (local)
+		fl &= ~LU_XATTR_REPLACE;
+	else
+		/* XXX: to indicate it is to re-create layout EA. */
+		fl |= LU_XATTR_REPLACE;
+	rc = dt_xattr_set(env, obj, buf, XATTR_NAME_LOV, fl, handle,
+			  BYPASS_CAPA);
 	return rc;
 }
 
@@ -3621,7 +3626,7 @@ static int lfsck_layout_extend_lovea(const struct lu_env *env,
 				     struct thandle *handle,
 				     struct dt_object *obj,
 				     struct lfsck_reint_req *lrr,
-				     struct lu_buf *buf, int fl)
+				     struct lu_buf *buf, int fl, bool local)
 {
 	struct lov_mds_md_v1	*lmm	= buf->lb_buf;
 	struct lov_ost_data_v1	*objs;
@@ -3665,7 +3670,8 @@ static int lfsck_layout_extend_lovea(const struct lu_env *env,
 
 	lmm->lmm_stripe_count = cpu_to_le16(lrr->lrr_index + 1);
 
-	rc = lfsck_layout_refill_lovea(env, handle, obj, lrr, buf, objs, fl);
+	rc = lfsck_layout_refill_lovea(env, handle, obj, lrr, buf, objs, fl,
+				       local);
 
 	RETURN(rc);
 }
@@ -3675,8 +3681,103 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 					struct dt_object *obj,
 					struct lfsck_reint_req *lrr)
 {
-	/* XXX: to be implemented. */
-	return 0;
+	struct lfsck_thread_info  *info		= lfsck_env_info(env);
+	struct dt_object_format   *dof		= &info->lti_dof;
+	struct lu_buf		  *buf		= &info->lti_big_buf;
+	struct lfsck_instance	  *lfsck 	= com->lc_lfsck;
+	struct dt_device	  *dt		= lfsck->li_bottom;
+	struct thandle		  *handle;
+	struct dt_object	  *pobj;
+	int			   buflen	= buf->lb_len;
+	int			   rc;
+	bool			   created	= false;
+	ENTRY;
+
+	pobj = lu2dt(lu_object_find_slice(env, dt2lu_dev(dt),
+					  lrr->lrr_fid1, NULL));
+	if (pobj == NULL)
+		RETURN(-EINVAL);
+
+	if (IS_ERR(pobj))
+		RETURN(PTR_ERR(pobj));
+
+	handle = dt_trans_create(env, dt);
+	if (IS_ERR(handle))
+		GOTO(put, rc = PTR_ERR(handle));
+
+	dof->dof_type = dt_mode_to_dft(lrr->lrr_attr->la_mode);
+	if (dof->dof_type != DFT_REGULAR)
+		GOTO(stop, rc = -EOPNOTSUPP);
+
+	dof->u.dof_reg.striped = 1;
+	rc = dt_declare_create(env, pobj, lrr->lrr_attr, NULL, dof, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = lov_mds_md_size(lrr->lrr_index + 1, LOV_MAGIC_V1);
+	lu_buf_check_and_alloc(buf, rc);
+	buflen = buf->lb_len;
+	if (buflen == 0)
+		GOTO(stop, rc = -ENOMEM);
+
+	buf->lb_len = rc;
+	rc = dt_declare_xattr_set(env, pobj, buf, XATTR_NAME_LOV,
+				  LU_XATTR_CREATE, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_declare_insert(env, lfsck->li_obj_lf,
+			       (struct dt_rec *)lrr->lrr_fid1,
+			       (const struct dt_key *)lrr->lrr_name, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start_local(env, dt, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	dt_write_lock(env, pobj, 0);
+	if (dt_object_exists(pobj) != 0)
+		GOTO(unlock, rc = -EAGAIN);
+
+	rc = dt_create(env, pobj, lrr->lrr_attr, NULL, dof, handle);
+	if (rc != 0)
+		GOTO(unlock, rc = (rc == -EEXIST ? -EAGAIN : rc));
+
+	created = true;
+	rc = lfsck_layout_extend_lovea(env, handle, pobj, lrr, buf,
+				       LU_XATTR_CREATE, true);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	rc = dt_insert(env, lfsck->li_obj_lf,
+		       (struct dt_rec *)lrr->lrr_fid1,
+		       (const struct dt_key *)lrr->lrr_name, handle,
+		       BYPASS_CAPA, 1);
+	if (rc != 0) {
+		/* When dt_create() above, the OI mapping for the obj should
+		 * has been inserted in the OI table. So no other can create
+		 * the same object. In fact, the @name is converted from the
+		 * the @fid, So here if it is "-EEXIST", then just use it. */
+		if (unlikely(rc == -EEXIST)) {
+			CDEBUG(D_LFSCK, "%s: reuse the existing entry %s\n",
+			       lfsck_lfsck2name(lfsck), lrr->lrr_name);
+			rc = 0;
+		}
+	}
+
+	GOTO(unlock, rc);
+
+unlock:
+	if (rc != 0 && created)
+		dt_destroy(env, pobj, handle);
+	dt_write_unlock(env, pobj);
+stop:
+	dt_trans_stop(env, dt, handle);
+put:
+	lfsck_object_put(env, pobj);
+	buf->lb_len = buflen;
+	return rc;
 }
 
 static int lfsck_layout_replace_create(const struct lu_env *env,
@@ -3686,8 +3787,74 @@ static int lfsck_layout_replace_create(const struct lu_env *env,
 				       struct lu_buf *buf,
 				       struct lov_ost_data_v1 *slot)
 {
-	/* XXX: to be implemented. */
-	return 0;
+	struct lfsck_thread_info *info		= lfsck_env_info(env);
+	struct lu_fid		 *fid		= &info->lti_fid;
+	struct ost_id		 *oi		= &info->lti_oi;
+	struct lfsck_instance	 *lfsck 	= com->lc_lfsck;
+	struct dt_device	 *dev		= lfsck->li_next;
+	struct lov_mds_md_v1	 *lmm		= buf->lb_buf;
+	struct dt_object	 *cobj;
+	struct thandle		 *handle;
+	int			 rc;
+	ENTRY;
+
+	ostid_le_to_cpu(&slot->l_ost_oi, oi);
+	ostid_to_fid(fid, oi, le32_to_cpu(slot->l_ost_idx));
+	cobj = lu2dt(lu_object_find_last_slice(env, dt2lu_dev(dev), fid, NULL));
+	if (cobj == NULL)
+		RETURN(-EINVAL);
+
+	if (IS_ERR(cobj))
+		RETURN(PTR_ERR(cobj));
+
+	/* XXX: Some OST-object has occupied the specified layout EA slot.
+	 *	Such OST-object may be generated by the LFSCK when repair
+	 *	dangling referenced MDT-object. Here, trigger conditional
+	 *	(@handle = NULL) dt_destroy to detect. If yes, and nobody
+	 *	has modified such OST-object, then we can replace it with
+	 *	the given one. */
+	rc = dt_destroy(env, cobj, NULL);
+	lfsck_object_put(env, cobj);
+	if (rc != 0 && rc != -ENOENT) {
+		/* XXX: If the conflict OST-object is not generated by LFSCK,
+		 *	or it has been modified by some others, or we failed
+		 *	to destroy it. Then it cannot be replaced by the given
+		 *	orphan OST-object.
+		 *
+		 *	Under such case, how to handle the orphan OST-object?
+		 *	We may can generate a new MDT-object with a new FID
+		 *	under lsot+found. Things to be considered:
+		 *	1) fid client to allocate a client visible FID.
+		 *	2) travel and parse lost+found to find other orphan
+		 *	   OST-objects those belong to the same MDT-object,
+		 *	   and merge them together. */
+		RETURN(rc);
+	}
+
+	handle = dt_trans_create(env, dev);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	rc = dt_declare_xattr_set(env, pobj, buf, XATTR_NAME_LOV,
+				  LU_XATTR_REPLACE, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start(env, dev, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	dt_write_lock(env, pobj, 0);
+	lmm->lmm_layout_gen = cpu_to_le16(le16_to_cpu(lmm->lmm_layout_gen) + 1);
+	rc = lfsck_layout_refill_lovea(env, handle, pobj, lrr, buf, slot,
+				       LU_XATTR_REPLACE, false);
+	dt_write_unlock(env, pobj);
+
+	GOTO(stop, rc);
+
+stop:
+	dt_trans_stop(env, dev, handle);
+	return rc;
 }
 
 static int lfsck_layout_recreate_lovea(const struct lu_env *env,
@@ -3809,7 +3976,8 @@ again:
 		}
 
 		buf->lb_len = rc;
-		rc = lfsck_layout_extend_lovea(env, handle, obj, lrr, buf, fl);
+		rc = lfsck_layout_extend_lovea(env, handle, obj, lrr, buf, fl,
+					       false);
 		GOTO(unlock, rc);
 	}
 
@@ -3866,7 +4034,8 @@ again:
 		}
 
 		buf->lb_len = rc;
-		rc = lfsck_layout_extend_lovea(env, handle, obj, lrr, buf, fl);
+		rc = lfsck_layout_extend_lovea(env, handle, obj, lrr, buf, fl,
+					       false);
 		GOTO(unlock, rc);
 	}
 
@@ -3895,7 +4064,7 @@ again:
 			lmm->lmm_layout_gen =
 			    cpu_to_le16(le16_to_cpu(lmm->lmm_layout_gen) + 1);
 			rc = lfsck_layout_refill_lovea(env, handle, obj, lrr,
-						       buf, objs, fl);
+						       buf, objs, fl, false);
 			GOTO(unlock, rc);
 		}
 
@@ -3920,7 +4089,8 @@ again:
 		GOTO(unlock, rc = 0);
 
 	dt_write_unlock(env, obj);
-	dt_trans_stop(env, dt, handle);
+	if (handle != NULL)
+		dt_trans_stop(env, dt, handle);
 
 	if (magic == LOV_MAGIC_V1)
 		objs = &(lmm->lmm_objects[lrr->lrr_index]);
@@ -3978,10 +4148,14 @@ static int lfsck_layout_master_reint_create(const struct lu_env *env,
 		GOTO(put, rc);
 
 	if (dt_object_exists(obj) == 0) {
-		if (bk->lb_param & LPF_DRYRUN)
+		if (bk->lb_param & LPF_DRYRUN) {
 			rc = 0;
-		else
+		} else {
 			rc = lfsck_layout_recreate_parent(env, com, obj, lrr);
+			if (rc == -EAGAIN)
+				rc = lfsck_layout_recreate_lovea(env, com,
+								 obj, lrr);
+		}
 		GOTO(unlock, rc);
 	}
 

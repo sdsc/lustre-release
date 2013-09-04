@@ -155,6 +155,11 @@ void lfsck_instance_cleanup(const struct lu_env *env,
 		lfsck->li_obj_oit = NULL;
 	}
 
+	if (lfsck->li_obj_lf != NULL) {
+		lfsck_object_put(env, lfsck->li_obj_lf);
+		lfsck->li_obj_lf = NULL;
+	}
+
 	LASSERT(lfsck->li_obj_dir == NULL);
 
 	while (!cfs_list_empty(&lfsck->li_list_scan)) {
@@ -1372,6 +1377,8 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 
 	lfsck->li_local_root_fid = *fid;
 	if (master) {
+		struct dt_object *lf;
+
 		lfsck->li_master = 1;
 		if (lfsck_dev_idx(lfsck->li_bottom) == 0) {
 			rc = dt_lookup(env, root,
@@ -1380,6 +1387,30 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 			if (rc != 0)
 				GOTO(out, rc);
 		}
+
+		fid->f_seq = FID_SEQ_LOCAL_NAME;
+		fid->f_oid = LOST_FOUND_OID;
+		fid->f_ver = 0;
+		lf = local_file_find_or_create_with_fid(env, lfsck->li_bottom,
+							fid, root, "lost+found",
+							S_IFDIR | S_IRWXU);
+		if (IS_ERR(lf))
+			GOTO(out, rc = PTR_ERR(lf));
+
+		*fid = *lu_object_fid(&lf->do_lu);
+		/* Use the full stack instead of the local_storage stack to
+		 * rebuild the object in cache. */
+		lu_object_put_nocache(env, &lf->do_lu);
+		lf = dt_locate(env, lfsck->li_bottom, fid);
+		if (unlikely(IS_ERR(lf)))
+			GOTO(out, rc = PTR_ERR(lf));
+
+		if (unlikely(!dt_try_as_dir(env, lf))) {
+			lfsck_object_put(env, lf);
+			GOTO(out, rc = -ENOTDIR);
+		}
+
+		lfsck->li_obj_lf = lf;
 	}
 
 	fid->f_seq = FID_SEQ_LOCAL_FILE;
