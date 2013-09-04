@@ -488,7 +488,7 @@ int lprocfs_mgc_rd_ir_state(char *page, char **start, off_t off,
 #define RQ_LATER   0x4
 #define RQ_STOP    0x8
 static int                    rq_state = 0;
-static cfs_waitq_t            rq_waitq;
+static wait_queue_head_t      rq_waitq;
 static DECLARE_COMPLETION(rq_exit);
 
 static void do_requeue(struct config_llog_data *cld)
@@ -637,7 +637,7 @@ static void mgc_requeue_add(struct config_llog_data *cld)
 	} else {
 		rq_state |= RQ_NOW;
 		spin_unlock(&config_list_lock);
-		cfs_waitq_signal(&rq_waitq);
+		wake_up(&rq_waitq);
 	}
 	EXIT;
 }
@@ -847,7 +847,7 @@ static int mgc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 				rq_state |= RQ_STOP;
 			spin_unlock(&config_list_lock);
 			if (running) {
-				cfs_waitq_signal(&rq_waitq);
+				wake_up(&rq_waitq);
 				wait_for_completion(&rq_exit);
                         }
                 }
@@ -902,7 +902,7 @@ static int mgc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
         if (cfs_atomic_inc_return(&mgc_count) == 1) {
 		rq_state = 0;
-		cfs_waitq_init(&rq_waitq);
+		init_waitqueue_head(&rq_waitq);
 
 		/* start requeue thread */
 		rc = PTR_ERR(kthread_run(mgc_requeue_thread, NULL,
@@ -1092,7 +1092,7 @@ static void mgc_notify_active(struct obd_device *unused)
 	spin_lock(&config_list_lock);
 	rq_state |= RQ_NOW;
 	spin_unlock(&config_list_lock);
-	cfs_waitq_signal(&rq_waitq);
+	wake_up(&rq_waitq);
 
 	/* TODO: Help the MGS rebuild nidtbl. -jay */
 }

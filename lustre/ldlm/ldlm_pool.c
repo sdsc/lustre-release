@@ -1340,18 +1340,18 @@ EXPORT_SYMBOL(ldlm_pools_recalc);
 
 static int ldlm_pools_thread_main(void *arg)
 {
-        struct ptlrpc_thread *thread = (struct ptlrpc_thread *)arg;
+	struct ptlrpc_thread *thread = (struct ptlrpc_thread *)arg;
 	int s_time, c_time;
-        ENTRY;
+	ENTRY;
 
-        thread_set_flags(thread, SVC_RUNNING);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	thread_set_flags(thread, SVC_RUNNING);
+	wake_up(&thread->t_ctl_waitq);
 
-        CDEBUG(D_DLMTRACE, "%s: pool thread starting, process %d\n",
+	CDEBUG(D_DLMTRACE, "%s: pool thread starting, process %d\n",
 	       "ldlm_poold", cfs_curproc_pid());
 
-        while (1) {
-                struct l_wait_info lwi;
+	while (1) {
+		struct l_wait_info lwi;
 
 		/*
 		 * Recal all pools on this tick.
@@ -1365,21 +1365,21 @@ static int ldlm_pools_thread_main(void *arg)
 		 */
 		lwi = LWI_TIMEOUT(cfs_time_seconds(min(s_time, c_time)),
 				  NULL, NULL);
-                l_wait_event(thread->t_ctl_waitq,
-                             thread_is_stopping(thread) ||
-                             thread_is_event(thread),
-                             &lwi);
+		l_wait_event(thread->t_ctl_waitq,
+			     thread_is_stopping(thread) ||
+			     thread_is_event(thread),
+			     &lwi);
 
-                if (thread_test_and_clear_flags(thread, SVC_STOPPING))
-                        break;
-                else
-                        thread_test_and_clear_flags(thread, SVC_EVENT);
-        }
+		if (thread_test_and_clear_flags(thread, SVC_STOPPING))
+			break;
+		else
+			thread_test_and_clear_flags(thread, SVC_EVENT);
+	}
 
-        thread_set_flags(thread, SVC_STOPPED);
-        cfs_waitq_signal(&thread->t_ctl_waitq);
+	thread_set_flags(thread, SVC_STOPPED);
+	wake_up(&thread->t_ctl_waitq);
 
-        CDEBUG(D_DLMTRACE, "%s: pool thread exiting, process %d\n",
+	CDEBUG(D_DLMTRACE, "%s: pool thread exiting, process %d\n",
 		"ldlm_poold", cfs_curproc_pid());
 
 	complete_and_exit(&ldlm_pools_comp, 0);
@@ -1399,7 +1399,7 @@ static int ldlm_pools_thread_start(void)
 		RETURN(-ENOMEM);
 
 	init_completion(&ldlm_pools_comp);
-	cfs_waitq_init(&ldlm_pools_thread->t_ctl_waitq);
+	init_waitqueue_head(&ldlm_pools_thread->t_ctl_waitq);
 
 	task = kthread_run(ldlm_pools_thread_main, ldlm_pools_thread,
 			   "ldlm_poold");
@@ -1416,25 +1416,25 @@ static int ldlm_pools_thread_start(void)
 
 static void ldlm_pools_thread_stop(void)
 {
-        ENTRY;
+	ENTRY;
 
-        if (ldlm_pools_thread == NULL) {
-                EXIT;
-                return;
-        }
+	if (ldlm_pools_thread == NULL) {
+		EXIT;
+		return;
+	}
 
-        thread_set_flags(ldlm_pools_thread, SVC_STOPPING);
-        cfs_waitq_signal(&ldlm_pools_thread->t_ctl_waitq);
+	thread_set_flags(ldlm_pools_thread, SVC_STOPPING);
+	wake_up(&ldlm_pools_thread->t_ctl_waitq);
 
-        /*
-         * Make sure that pools thread is finished before freeing @thread.
-         * This fixes possible race and oops due to accessing freed memory
-         * in pools thread.
-         */
+	/*
+	 * Make sure that pools thread is finished before freeing @thread.
+	 * This fixes possible race and oops due to accessing freed memory
+	 * in pools thread.
+	 */
 	wait_for_completion(&ldlm_pools_comp);
-        OBD_FREE_PTR(ldlm_pools_thread);
-        ldlm_pools_thread = NULL;
-        EXIT;
+	OBD_FREE_PTR(ldlm_pools_thread);
+	ldlm_pools_thread = NULL;
+	EXIT;
 }
 
 int ldlm_pools_init(void)
