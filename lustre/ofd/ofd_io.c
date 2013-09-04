@@ -487,7 +487,7 @@ static int ofd_preprw_read(const struct lu_env *env, struct obd_export *exp,
 	ENTRY;
 	LASSERT(env != NULL);
 
-	fo = ofd_object_find(env, ofd, fid);
+	fo = ofd_object_find_and_record(env, ofd, fid, exp);
 	if (IS_ERR(fo))
 		RETURN(PTR_ERR(fo));
 	LASSERT(fo != NULL);
@@ -572,9 +572,10 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 		info->fti_attr.la_mtime = 0;
 		info->fti_attr.la_ctime = 0;
 
-		fo = ofd_object_find_or_create(env, ofd, fid, &info->fti_attr);
+		fo = ofd_object_find_or_create(env, ofd, fid, &info->fti_attr,
+					       exp);
 	} else {
-		fo = ofd_object_find(env, ofd, fid);
+		fo = ofd_object_find_and_record(env, ofd, fid, exp);
 	}
 
 	if (IS_ERR(fo))

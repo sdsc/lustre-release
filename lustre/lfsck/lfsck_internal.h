@@ -321,10 +321,21 @@ struct lfsck_component {
 	void			*lc_file_ram;
 	void			*lc_file_disk;
 	void			*lc_data;
+
+	/* The time for last checkpoint, jiffies */
+	cfs_time_t		 lc_time_last_checkpoint;
+
+	/* The time for next checkpoint, jiffies */
+	cfs_time_t		 lc_time_next_checkpoint;
+
 	__u32			 lc_file_size;
 
 	/* How many objects have been checked since last checkpoint. */
 	__u32			 lc_new_checked;
+
+	/* How many objects have been scanned since last sleep. */
+	__u32			 lc_new_scanned;
+
 	unsigned int		 lc_journal:1;
 	__u16			 lc_type;
 };
@@ -465,6 +476,7 @@ int lfsck_pos_dump(char **buf, int *len, struct lfsck_position *pos,
 void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,
 		    struct lfsck_position *pos, bool init);
 void lfsck_control_speed(struct lfsck_instance *lfsck);
+void lfsck_control_speed_by_self(struct lfsck_component *com);
 int lfsck_reset(const struct lu_env *env, struct lfsck_instance *lfsck,
 		bool init);
 struct lfsck_thread_args *lfsck_thread_args_init(struct lfsck_instance *lfsck,

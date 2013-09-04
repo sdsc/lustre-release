@@ -376,6 +376,31 @@ void lfsck_control_speed(struct lfsck_instance *lfsck)
 	}
 }
 
+void lfsck_control_speed_by_self(struct lfsck_component *com)
+{
+	struct lfsck_instance	*lfsck  = com->lc_lfsck;
+	struct ptlrpc_thread	*thread = &lfsck->li_thread;
+	struct l_wait_info	 lwi;
+
+	if (lfsck->li_sleep_jif > 0 &&
+	    com->lc_new_scanned >= lfsck->li_sleep_rate) {
+		spin_lock(&lfsck->li_lock);
+		if (likely(lfsck->li_sleep_jif > 0 &&
+			   com->lc_new_scanned >= lfsck->li_sleep_rate)) {
+			lwi = LWI_TIMEOUT_INTR(lfsck->li_sleep_jif, NULL,
+					       LWI_ON_SIGNAL_NOOP, NULL);
+			spin_unlock(&lfsck->li_lock);
+
+			l_wait_event(thread->t_ctl_waitq,
+				     !thread_is_running(thread),
+				     &lwi);
+			com->lc_new_scanned = 0;
+		} else {
+			spin_unlock(&lfsck->li_lock);
+		}
+	}
+}
+
 static int lfsck_parent_fid(const struct lu_env *env, struct dt_object *obj,
 			    struct lu_fid *fid)
 {
@@ -1150,10 +1175,16 @@ put:
 	if (exp != NULL) {
 		if (rc == -EALREADY)
 			rc = 0;
-		if (rc == 0)
+		if (rc == 0) {
 			exp->exp_in_lfsck = 1;
-		else
+			if (start != NULL && start->ls_active & LT_LAYOUT)
+				exp->exp_record_fid_accessed = 1;
+			else
+				exp->exp_record_fid_accessed = 0;
+		} else {
 			exp->exp_in_lfsck = 0;
+			exp->exp_record_fid_accessed = 0;
+		}
 	}
 	return (rc < 0 ? rc : 0);
 }
@@ -1229,6 +1260,9 @@ int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
 	ENTRY;
 
 	switch (ler->ler_event) {
+	case LNE_OBJ_ACCESSED:
+		if (!exp->exp_in_lfsck || !exp->exp_record_fid_accessed)
+			RETURN(0);
 	case LNE_LAYOUT_PHASE1_DONE:
 	case LNE_LAYOUT_PHASE2_DONE:
 		type = LT_LAYOUT;

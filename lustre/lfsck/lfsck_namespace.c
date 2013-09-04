@@ -1370,9 +1370,10 @@ static int lfsck_namespace_double_scan(const struct lu_env *env,
 
 	atomic_inc(&lfsck->li_double_scan_count);
 
-	lfsck->li_new_scanned = 0;
-	lfsck->li_time_last_checkpoint = cfs_time_current();
-	lfsck->li_time_next_checkpoint = lfsck->li_time_last_checkpoint +
+	com->lc_new_checked = 0;
+	com->lc_new_scanned = 0;
+	com->lc_time_last_checkpoint = cfs_time_current();
+	com->lc_time_next_checkpoint = com->lc_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 
 	di = iops->init(env, obj, 0, BYPASS_CAPA);
@@ -1428,8 +1429,8 @@ static int lfsck_namespace_double_scan(const struct lu_env *env,
 		lfsck_object_put(env, target);
 
 checkpoint:
-		lfsck->li_new_scanned++;
 		com->lc_new_checked++;
+		com->lc_new_scanned++;
 		ns->ln_fid_latest_scanned_phase2 = fid;
 		if (rc > 0)
 			ns->ln_objs_repaired_phase2++;
@@ -1447,13 +1448,13 @@ checkpoint:
 		if (rc < 0 && bk->lb_param & LPF_FAILOUT)
 			GOTO(put, rc);
 
-		if (unlikely(cfs_time_beforeq(lfsck->li_time_next_checkpoint,
+		if (unlikely(cfs_time_beforeq(com->lc_time_next_checkpoint,
 					      cfs_time_current())) &&
 		    com->lc_new_checked != 0) {
 			down_write(&com->lc_sem);
 			ns->ln_run_time_phase2 +=
 				cfs_duration_sec(cfs_time_current() +
-				HALF_SEC - lfsck->li_time_last_checkpoint);
+				HALF_SEC - com->lc_time_last_checkpoint);
 			ns->ln_time_last_checkpoint = cfs_time_current_sec();
 			ns->ln_objs_checked_phase2 += com->lc_new_checked;
 			com->lc_new_checked = 0;
@@ -1462,13 +1463,13 @@ checkpoint:
 			if (rc != 0)
 				GOTO(put, rc);
 
-			lfsck->li_time_last_checkpoint = cfs_time_current();
-			lfsck->li_time_next_checkpoint =
-				lfsck->li_time_last_checkpoint +
+			com->lc_time_last_checkpoint = cfs_time_current();
+			com->lc_time_next_checkpoint =
+				com->lc_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 		}
 
-		lfsck_control_speed(lfsck);
+		lfsck_control_speed_by_self(com);
 		if (unlikely(!thread_is_running(thread)))
 			GOTO(put, rc = 0);
 

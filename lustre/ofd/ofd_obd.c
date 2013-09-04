@@ -547,6 +547,7 @@ static int ofd_set_info_async(const struct lu_env *env, struct obd_export *exp,
 			rc = lfsck_stop(env, ofd->ofd_osd, &ler->u.ler_stop, exp);
 			break;
 		case LNE_LAYOUT_PHASE1_DONE:
+		case LNE_LAYOUT_PHASE2_DONE:
 			rc = lfsck_in_notify(env, ofd->ofd_osd, ler, exp);
 			break;
 		default:
@@ -643,7 +644,7 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 		CDEBUG(D_INODE, "get FIEMAP of object "DFID"\n",
 		       PFID(&fid));
 
-		fo = ofd_object_find(env, ofd, &fid);
+		fo = ofd_object_find_and_record(env, ofd, &fid, exp);
 		if (IS_ERR(fo)) {
 			CERROR("%s: error finding object "DFID"\n",
 			       exp->exp_obd->obd_name, PFID(&fid));
@@ -918,7 +919,7 @@ int ofd_setattr(const struct lu_env *env, struct obd_export *exp,
 		GOTO(out, rc = -EPERM);
 	}
 
-	fo = ofd_object_find(env, ofd, &info->fti_fid);
+	fo = ofd_object_find_and_record(env, ofd, &info->fti_fid, exp);
 	if (IS_ERR(fo)) {
 		CERROR("%s: can't find object "DFID"\n",
 		       exp->exp_obd->obd_name, PFID(&info->fti_fid));
@@ -988,7 +989,7 @@ static int ofd_punch(const struct lu_env *env, struct obd_export *exp,
 	if (rc)
 		GOTO(out_env, rc);
 
-	fo = ofd_object_find(env, ofd, &info->fti_fid);
+	fo = ofd_object_find_and_record(env, ofd, &info->fti_fid, exp);
 	if (IS_ERR(fo)) {
 		CERROR("%s: error finding object "DFID": rc = %ld\n",
 		       exp->exp_obd->obd_name, PFID(&info->fti_fid),
@@ -1057,7 +1058,7 @@ static int ofd_destroy_by_fid(const struct lu_env *env,
 
 	ENTRY;
 
-	fo = ofd_object_find(env, ofd, fid);
+	fo = ofd_object_find_and_record(env, ofd, fid, info->fti_exp);
 	if (IS_ERR(fo))
 		RETURN(PTR_ERR(fo));
 	if (!ofd_object_exists(fo))
@@ -1476,7 +1477,7 @@ int ofd_getattr(const struct lu_env *env, struct obd_export *exp,
 	if (rc)
 		GOTO(out, rc);
 
-	fo = ofd_object_find(env, ofd, &info->fti_fid);
+	fo = ofd_object_find_and_record(env, ofd, &info->fti_fid, exp);
 	if (IS_ERR(fo))
 		GOTO(out, rc = PTR_ERR(fo));
 	if (!ofd_object_exists(fo))
@@ -1558,7 +1559,7 @@ static int ofd_sync(const struct lu_env *env, struct obd_export *exp,
 	if (rc)
 		GOTO(out, rc);
 
-	fo = ofd_object_find(env, ofd, &info->fti_fid);
+	fo = ofd_object_find_and_record(env, ofd, &info->fti_fid, exp);
 	if (IS_ERR(fo)) {
 		CERROR("%s: error finding object "DFID": rc = %ld\n",
 		       exp->exp_obd->obd_name, PFID(&info->fti_fid),
@@ -1589,7 +1590,8 @@ out:
 }
 
 static int ofd_ioc_get_obj_version(const struct lu_env *env,
-				   struct ofd_device *ofd, void *karg)
+				   struct ofd_device *ofd, void *karg,
+				   struct obd_export *exp)
 {
 	struct obd_ioctl_data *data = karg;
 	struct lu_fid	       fid;
@@ -1622,7 +1624,7 @@ static int ofd_ioc_get_obj_version(const struct lu_env *env,
 	if (!fid_is_sane(&fid))
 		GOTO(out, rc = -EINVAL);
 
-	fo = ofd_object_find(env, ofd, &fid);
+	fo = ofd_object_find_and_record(env, ofd, &fid, exp);
 	if (IS_ERR(fo))
 		GOTO(out, rc = PTR_ERR(fo));
 
@@ -1698,7 +1700,7 @@ int ofd_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 		break;
 	}
 	case OBD_IOC_GET_OBJ_VERSION:
-		rc = ofd_ioc_get_obj_version(&env, ofd, karg);
+		rc = ofd_ioc_get_obj_version(&env, ofd, karg, exp);
 		break;
 	default:
 		CERROR("%s: not supported cmd = %d\n", obd->obd_name, cmd);

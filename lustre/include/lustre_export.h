@@ -241,7 +241,8 @@ struct obd_export {
 				   * Only used by the MGS to fix LU-1644. */
 				  exp_need_mne_swab:1,
 				  /* For the connection sponsor is in LFSCK. */
-				  exp_in_lfsck:1;
+				  exp_in_lfsck:1,
+				  exp_record_fid_accessed:1;
         /* also protected by exp_lock */
         enum lustre_sec_part      exp_sp_peer;
         struct sptlrpc_flavor     exp_flvr;             /* current */
