@@ -1058,6 +1058,41 @@ static int lod_get_info(const struct lu_env *env, struct obd_export *exp,
 		/* Ignore failures if there are some targets in LFSCK. */
 		if (ler->u.ler_status > 0)
 			rc = 0;
+	} else if (KEY_IS(KEY_LFSCK_EVENT_LOCAL)) {
+		struct lod_device	*lod   =
+					lu2lod_dev(exp->exp_obd->obd_lu_dev);
+		struct lod_tgt_descs	*ltd   = &lod->lod_ost_descs;
+		struct lfsck_info_local *lil   = val;
+		int			 i;
+
+		if (lil->lil_event != LLE_LAYOUT_CHECKALL)
+			return -EINVAL;
+
+		lil->lil_status = 0;
+		lod_getref(ltd);
+		if (ltd->ltd_tgts_size <= 0) {
+			lod_putref(lod, ltd);
+			return 0;
+		}
+
+		mutex_lock(&ltd->ltd_mutex);
+		cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
+			struct lod_tgt_desc *tgt;
+
+			tgt = LTD_TGT(ltd, i);
+
+			LASSERT(tgt && tgt->ltd_tgt && tgt->ltd_exp);
+
+			if (tgt->ltd_reap || !tgt->ltd_active)
+				continue;
+
+			rc = obd_get_info(env, tgt->ltd_exp, keylen, key,
+					  vallen, val, lsm);
+			if (rc != 0)
+				break;
+		}
+		mutex_unlock(&ltd->ltd_mutex);
+		lod_putref(lod, ltd);
 	}
 
 	return rc;
@@ -1143,6 +1178,38 @@ static int lod_set_info_async(const struct lu_env *env, struct obd_export *exp,
 		else if (ler->ler_event == LNE_LAYOUT_START &&
 			 ler->u.ler_status == 0 && rc == 0)
 			rc = -ENODEV;
+	} else if (KEY_IS(KEY_LFSCK_EVENT_LOCAL)) {
+		struct lod_device	*lod   =
+					lu2lod_dev(exp->exp_obd->obd_lu_dev);
+		struct lod_tgt_descs	*ltd   = &lod->lod_ost_descs;
+		struct lod_tgt_desc	*tgt;
+		struct lfsck_info_local *lil   = val;
+
+		lod_getref(ltd);
+		if (ltd->ltd_tgts_size <= 0) {
+			lod_putref(lod, ltd);
+			return -ENOENT;
+		}
+
+		mutex_lock(&ltd->ltd_mutex);
+		if (!cfs_bitmap_check(ltd->ltd_tgt_bitmap, lil->lil_index)) {
+			mutex_unlock(&ltd->ltd_mutex);
+			lod_putref(lod, ltd);
+			return -ENOENT;
+		}
+
+		tgt = LTD_TGT(ltd, lil->lil_index);
+		if (tgt == NULL || tgt->ltd_tgt == NULL ||
+		    tgt->ltd_exp == NULL || tgt->ltd_reap || !tgt->ltd_active) {
+			mutex_unlock(&ltd->ltd_mutex);
+			lod_putref(lod, ltd);
+			return -ENOENT;
+		}
+
+		rc = obd_set_info_async(env, tgt->ltd_exp, keylen, key,
+					sizeof(__u32), &(lil->lil_event), NULL);
+		mutex_unlock(&ltd->ltd_mutex);
+		lod_putref(lod, ltd);
 	}
 
 	return rc;

@@ -323,6 +323,13 @@ out:
 		*_exp = NULL;
 	} else {
 		*_exp = exp;
+		if (data != NULL &&
+		    data->ocd_connect_flags & OBD_CONNECT_MDS) {
+			spin_lock(&obd->obd_dev_lock);
+			cfs_list_add_tail(&exp->exp_mdt_list,
+					  &obd->obd_mdt_exports);
+			spin_unlock(&obd->obd_dev_lock);
+		}
 	}
 	RETURN(rc);
 }
@@ -354,6 +361,12 @@ static int ofd_obd_disconnect(struct obd_export *exp)
 	    (!exp->exp_obd->obd_fail || exp->exp_failed))
 		tgt_client_del(&env, exp);
 	lu_env_fini(&env);
+
+	if (!cfs_list_empty(&exp->exp_mdt_list)) {
+		spin_lock(&exp->exp_obd->obd_dev_lock);
+		cfs_list_del_init(&exp->exp_mdt_list);
+		spin_unlock(&exp->exp_obd->obd_dev_lock);
+	}
 
 	class_export_put(exp);
 	RETURN(rc);
