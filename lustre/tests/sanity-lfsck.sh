@@ -1281,6 +1281,40 @@ test_14b() {
 }
 run_test 14b "LFSCK can repair unmatched MDT-object/OST-object pair (2)"
 
+test_15() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+	touch $DIR/$tdir/guard
+
+	#define OBD_FAIL_LFSCK_BAD_OWNER	0x1613
+	do_facet ost1 $LCTL set_param fail_loc=0x1613
+	createmany -o $DIR/$tdir/f 1
+	chown 1.1 $DIR/$tdir/f0
+	sync
+	sleep 2
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	$START_LAYOUT || error "(1) Fail to start LFSCK for layout!"
+	sleep 2
+
+	local STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(2) Expect 'completed', but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_inconsistent_owner/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Fail to repair inconsistent owner: $repaired"
+}
+run_test 15 "LFSCK can repair inconsistent MDT-object/OST-object owner"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size

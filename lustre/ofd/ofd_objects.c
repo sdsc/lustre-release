@@ -537,10 +537,12 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 	if (rc)
 		GOTO(stop, rc);
 
-	rc = dt_attr_set(env, ofd_object_child(fo), la, th,
-			 ofd_object_capa(env, fo));
-	if (rc)
-		GOTO(stop, rc);
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_OWNER)) {
+		rc = dt_attr_set(env, ofd_object_child(fo), la, th,
+				 ofd_object_capa(env, fo));
+		if (rc)
+			GOTO(stop, rc);
+	}
 
 	if (ff_needed)
 		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
