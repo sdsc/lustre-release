@@ -93,3 +93,9 @@ const struct lu_fid LU_OBF_FID = { .f_seq = FID_SEQ_DOT_LUSTRE,
                                    .f_oid = FID_OID_DOT_LUSTRE_OBF,
                                    .f_ver = 0x0000000000000000 };
 EXPORT_SYMBOL(LU_OBF_FID);
+
+/** Special fid "lost+found, it is NOT unique, every server has "lost+found" */
+const struct lu_fid LU_LOSTFOUND_FID = { .f_seq = FID_SEQ_LOCAL_FILE,
+					 .f_oid = LOST_FOUND_OID,
+					 .f_ver = 0x0000000000000000 };
+EXPORT_SYMBOL(LU_LOSTFOUND_FID);

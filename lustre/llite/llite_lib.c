@@ -2280,6 +2280,47 @@ int ll_process_config(struct lustre_cfg *lcfg)
         return(rc);
 }
 
+struct md_op_data *ll_prep_md_op_data_byfid(const struct lu_fid *fid1,
+					    const struct lu_fid *fid2,
+					    const char *name, int namelen,
+					    int mode, __u32 opc, void *data)
+{
+	struct md_op_data *op_data;
+
+	LASSERT(fid1 != NULL);
+
+	OBD_ALLOC_PTR(op_data);
+	if (op_data == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	op_data->op_suppgids[0] = -1;
+	op_data->op_suppgids[1] = -1;
+	op_data->op_fid1 = *fid1;
+
+	if (fid2 != NULL)
+		op_data->op_fid2 = *fid2;
+	else
+		fid_zero(&op_data->op_fid2);
+
+	op_data->op_name = name;
+	op_data->op_namelen = namelen;
+	op_data->op_mode = mode;
+	op_data->op_mod_time = cfs_time_current_sec();
+	op_data->op_fsuid = current_fsuid();
+	op_data->op_fsgid = current_fsgid();
+	op_data->op_cap = cfs_curproc_cap_pack();
+	op_data->op_bias = 0;
+	op_data->op_cli_flags = 0;
+	if ((opc == LUSTRE_OPC_CREATE) && (name != NULL) &&
+	     filename_is_volatile(name, namelen, NULL))
+		op_data->op_bias |= MDS_CREATE_VOLATILE;
+	op_data->op_opc = opc;
+	op_data->op_mds = 0;
+	op_data->op_data = data;
+
+	return op_data;
+}
+
 /* this function prepares md_op_data hint for passing ot down to MD stack. */
 struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
                                        struct inode *i1, struct inode *i2,

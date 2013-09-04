@@ -1709,6 +1709,65 @@ test_19c() {
 }
 run_test 19c "Find out orphan OST-object and repair it (3)"
 
+test_20() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir/a1
+	$LFS setstripe -c 1 -i 0 -s 1M $DIR/$tdir/a1
+	cp $LUSTRE/tests/test-framework.sh $DIR/$tdir/a1/f1
+	chown 1.1 $DIR/$tdir/a1/f1
+	stat $DIR/$tdir/a1/f1
+	$LFS getstripe $DIR/$tdir/a1/f1
+	sync
+	sleep 1
+        cancel_lru_locks osc
+
+	local fid1=$($LFS path2fid $DIR/$tdir/a1/f1)
+
+	#define OBD_FAIL_LFSCK_LOST_MDTOBJ	0x1617
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1617
+	rm -f $DIR/$tdir/a1/f1
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+	sync
+	sleep 1
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	$START_LAYOUT || error "(1) Fail to start LFSCK for layout!"
+	sleep 2
+
+	STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(2) Expect 'completed' on mds, but got '$STATUS'"
+
+	repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Expect 1 objects fixed on mds, but got: $repaired"
+
+	local fid2=$($LFS list_orphans $MOUNT 0)
+	[ "$fid1" == "$fid2" ] ||
+		error "(4) FID1 $fid1 does not match FID2 $fid2"
+
+	$LFS stat_orphan $MOUNT 0 $fid1 ||
+		error "(5) Failed to stat the orphan $fid1"
+
+	$LFS move_orphan $MOUNT 0 $fid1 $DIR/$tdir/a1/f1 ||
+		error "(6) Failed to move the orphan $fid1"
+
+	diff -q $LUSTRE/tests/test-framework.sh $DIR/$tdir/a1/f1 ||
+		error "(7) File data check failed"
+}
+run_test 20 "User space tools for orphan handling"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size

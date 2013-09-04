@@ -4328,3 +4328,306 @@ int llapi_swap_layouts(const char *path1, const char *path2,
 	close(fd2);
 	return rc;
 }
+
+static char *llapi_mode2type(__u32 mode)
+{
+	char *ptr;
+
+	switch (mode) {
+	case S_IFDIR:
+		ptr = "directory";
+		break;
+        case S_IFREG:
+		ptr = "regular";
+		break;
+        case S_IFLNK:
+		ptr = "symbol";
+		break;
+        case S_IFCHR:
+		ptr = "character";
+		break;
+        case S_IFBLK:
+		ptr = "block";
+		break;
+        case S_IFIFO:
+		ptr = "fifo";
+		break;
+	case S_IFSOCK:
+		ptr = "socket";
+		break;
+	default:
+		ptr = "unknown";
+		break;
+	}
+
+	return ptr;
+}
+
+static void llapi_stat_orphan_print_body(const char *path,
+					 struct mdt_body *body)
+{
+	fprintf(stdout, "%s\n"
+			"FID:\t"DFID"\n"
+			"size:\t"LPU64" (may be not trustable)\n"
+			"blocks:\t"LPU64" (may be not trustable)\n"
+			"uid:\t%d\n"
+			"gid:\t%d\n"
+			"type:\t%s\n"
+			"mode:\t%o\n"
+			"flags:\t0x%x\n"
+			"links:\t%d\n"
+			"dev:\t%d\n"
+			"atime:\t%s"
+			"mtime:\t%s"
+			"ctime:\t%s",
+			path,
+			PFID(&body->fid1),
+			body->size,
+			body->blocks,
+			body->uid,
+			body->gid,
+			llapi_mode2type(body->mode & S_IFMT),
+			body->mode & ~S_IFMT,
+			body->flags,
+			body->nlink,
+			body->rdev,
+			ctime((time_t *)&body->atime),
+			ctime((time_t *)&body->mtime),
+			ctime((time_t *)&body->ctime));
+}
+
+int llapi_list_orphans(const char *mnt, int index)
+{
+	struct lmv_user_md	 lmu	= { 0 };
+	struct obd_ioctl_data	 data	= { 0 };
+	char			 rawbuf[PAGE_CACHE_SIZE];
+	char			*buf	= rawbuf;
+	struct lu_dirpage	*dp;
+	struct lu_dirent	*ent;
+	__u64			 offset = 0;
+	int			 fd;
+	int			 rc;
+
+	lmu.lum_magic = LMV_USER_MAGIC;
+	lmu.lum_type = LMV_STRIPE_TYPE;
+	lmu.lum_stripe_offset = index;
+
+	data.ioc_inlbuf1 = (char *)&lmu;
+	data.ioc_inllen1 = sizeof(struct lmv_user_md);
+
+	fd = open(mnt, O_DIRECTORY | O_RDONLY);
+	if (fd < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "LL_IOC_LIST_ORPHANS fail to open: %s, %d",
+			    mnt, index);
+		return rc;
+	}
+
+again:
+	data.ioc_inlbuf2 = (char *)&offset;
+	data.ioc_inllen2 = sizeof(offset);
+
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc != 0) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "LL_IOC_LIST_ORPHANS fail to pack: %s, %d",
+			    mnt, index);
+		close(fd);
+		return rc;
+	}
+
+	rc = ioctl(fd, LL_IOC_LIST_ORPHANS, buf);
+	if (rc < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "LL_IOC_LIST_ORPHANS fail to ioctl: %s, %d",
+			    mnt, index);
+		close(fd);
+		return rc;
+	}
+
+	dp = (struct lu_dirpage *)buf;
+	for (ent = lu_dirent_start(dp); ent != NULL;
+	     ent = lu_dirent_next(ent)) {
+		int namelen = le16_to_cpu(ent->lde_namelen);
+		char *name = ent->lde_name;
+
+		/* skip dummy */
+		if (namelen == 0)
+			continue;
+
+		/* skip "." and ".." */
+		if (name[0] == '.' &&
+		    (namelen == 1 || (name[1] == '.' && namelen == 2)))
+			continue;
+
+		fprintf(stdout, "%.*s\n", namelen, name);
+	}
+
+	offset = le64_to_cpu(dp->ldp_hash_end);
+	if (offset != MDS_DIR_END_OFF)
+		goto again;
+
+	close(fd);
+	return 0;
+}
+
+int llapi_stat_orphan(const char *mnt, int index, char *orphan)
+{
+	struct lmv_user_md	 lmu	= { 0 };
+	struct obd_ioctl_data	 data	= { 0 };
+	char			 path[128];
+	char			 rawbuf[PAGE_CACHE_SIZE];
+	char			*buf	= rawbuf;
+	struct mdt_body 	*body;
+	int			 fd;
+	int			 rc;
+
+	lmu.lum_magic = LMV_USER_MAGIC;
+	lmu.lum_type = LMV_STRIPE_TYPE;
+	lmu.lum_stripe_offset = index;
+
+	data.ioc_inlbuf1 = (char *)&lmu;
+	data.ioc_inllen1 = sizeof(struct lmv_user_md);
+
+	data.ioc_inlbuf2 = orphan;
+	data.ioc_inllen2 = strlen(orphan) + 1;
+
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc != 0) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "LL_IOC_STAT_ORPHAN fail to pack: %s, %d, %s",
+			    mnt, index, orphan);
+		return rc;
+	}
+
+	fd = open(mnt, O_DIRECTORY | O_RDONLY);
+	if (fd < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "LL_IOC_STAT_ORPHAN fail to open: %s, %d, %s",
+			    mnt, index, orphan);
+		return rc;
+	}
+
+	rc = ioctl(fd, LL_IOC_STAT_ORPHAN, buf);
+	close(fd);
+	if (rc < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "LL_IOC_STAT_ORPHAN fail to ioctl: %s, %d, %s",
+			    mnt, index, orphan);
+		return rc;
+	}
+
+	sprintf(path, "<%s,MDT-%04x,/lost+found/%s>", mnt, index, orphan);
+	body = (struct mdt_body *)buf;
+	llapi_stat_orphan_print_body(path, body);
+	if (body->valid & (OBD_MD_FLEASIZE | OBD_MD_FLDIREA)) {
+		if (body->eadatasize == 0) {
+			fprintf(stdout, "%s\nHas no stripe info.\n", path);
+		} else {
+			struct lov_user_md *lmm;
+			struct lov_user_ost_data_v1 *objs;
+			char *pool;
+
+			lmm = (struct lov_user_md *)((void *)buf +
+						     sizeof(*body));
+			if (lmm->lmm_magic == LOV_MAGIC_V1) {
+				pool = NULL;
+				objs = &(lmm->lmm_objects[0]);
+			} else {
+				pool = ((struct lov_user_md_v3 *)lmm)->
+							lmm_pool_name;
+				objs = &((struct lov_user_md_v3 *)lmm)->
+							lmm_objects[0];
+			}
+			lov_dump_user_lmm_v1v3(lmm, pool, objs, path,
+						!!S_ISDIR(body->mode),
+						OBD_NOT_FOUND, 0,
+						VERBOSE_ALL, 0);
+		}
+	}
+
+	return 0;
+}
+
+int llapi_move_orphan(const char *mnt, int index, char *orphan, char *target)
+{
+	struct lmv_user_md	 lmu	= { 0 };
+	struct obd_ioctl_data	 data	= { 0 };
+	struct lu_fid		 tgt_pfid;
+	char			 rawbuf[PAGE_CACHE_SIZE];
+	char			*buf	= rawbuf;
+	char			*tgt_name;
+	int			 fd;
+	int			 rc;
+
+	rc = llapi_path2fid(target, &tgt_pfid);
+	if (rc == 0) {
+		/* The target exists. Assume it is the target directoty
+		 * where the orphan will be moved to. Because we do not
+		 * allow to replace the taget with the orphan, which is
+		 * dangerous. */
+		tgt_name = orphan;
+	} else {
+		char *dir;
+
+		rc = -errno;
+		if (rc != -ENOENT)
+			return rc;
+
+		/* The target name is specified, we need to parse out
+		 * the target directory name, then its FID. */
+		tgt_name = basename(target);
+		dir = dirname(target);
+		rc = llapi_path2fid(dir, &tgt_pfid);
+		if (rc != 0)
+			return -errno;
+	}
+
+	lmu.lum_magic = LMV_USER_MAGIC;
+	lmu.lum_type = LMV_STRIPE_TYPE;
+	lmu.lum_stripe_offset = index;
+
+	data.ioc_inlbuf1 = (char *)&lmu;
+	data.ioc_inllen1 = sizeof(struct lmv_user_md);
+
+	data.ioc_inlbuf2 = orphan;
+	data.ioc_inllen2 = strlen(orphan) + 1;
+
+	data.ioc_inlbuf3 = (char *)&tgt_pfid;
+	data.ioc_inllen3 = sizeof(struct lu_fid);
+
+	data.ioc_inlbuf4 = tgt_name;
+	data.ioc_inllen4 = strlen(tgt_name) + 1;
+
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc != 0) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "LL_IOC_MOVE_ORPHAN fail to pack: %s, %d, %s, %s",
+			    mnt, index, orphan, target);
+		return rc;
+	}
+
+	fd = open(mnt, O_DIRECTORY | O_RDONLY);
+	if (fd < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "LL_IOC_MOVE_ORPHAN fail to open: %s, %d, %s, %s",
+			    mnt, index, orphan, target);
+		return rc;
+	}
+
+	rc = ioctl(fd, LL_IOC_MOVE_ORPHAN, buf);
+	close(fd);
+	if (rc < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "LL_IOC_MOVE_ORPHAN fail to ioctl: %s, %d, %s, %s",
+			    mnt, index, orphan, target);
+	}
+
+	return rc;
+}

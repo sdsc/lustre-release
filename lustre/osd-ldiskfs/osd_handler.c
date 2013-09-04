@@ -4734,14 +4734,15 @@ static int osd_ldiskfs_it_fill(const struct lu_env *env,
         else
 		up_read(&obj->oo_ext_idx_sem);
 
-        if (it->oie_rd_dirent == 0) {
-                result = -EIO;
-        } else {
-                it->oie_dirent = it->oie_buf;
-                it->oie_it_dirent = 1;
-        }
+	if (it->oie_rd_dirent == 0) {
+		if (result == 0)
+			result = 1;
+	} else {
+		it->oie_dirent = it->oie_buf;
+		it->oie_it_dirent = 1;
+	}
 
-        RETURN(result);
+	RETURN(result);
 }
 
 /**

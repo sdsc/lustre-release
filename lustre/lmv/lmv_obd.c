@@ -1694,13 +1694,27 @@ static int lmv_close(struct obd_export *exp, struct md_op_data *op_data,
         RETURN(rc);
 }
 
-struct lmv_tgt_desc
-*lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
+struct lmv_tgt_desc *
+lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
 		struct lu_fid *fid)
 {
 	struct lmv_tgt_desc *tgt;
 
 	tgt = lmv_find_target(lmv, fid);
+	if (IS_ERR(tgt))
+		return tgt;
+
+	op_data->op_mds = tgt->ltd_idx;
+
+	return tgt;
+}
+
+struct lmv_tgt_desc *
+lmv_condition_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data)
+{
+	struct lmv_tgt_desc *tgt;
+
+	tgt = lmv_condition_find_target(lmv, op_data);
 	if (IS_ERR(tgt))
 		return tgt;
 
@@ -1885,7 +1899,7 @@ lmv_getattr_name(struct obd_export *exp,struct md_op_data *op_data,
 	if (rc)
 		RETURN(rc);
 
-	tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
+	tgt = lmv_condition_locate_mds(lmv, op_data);
 	if (IS_ERR(tgt))
 		RETURN(PTR_ERR(tgt));
 
@@ -2033,7 +2047,7 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	op_data->op_fsuid = current_fsuid();
 	op_data->op_fsgid = current_fsgid();
 	op_data->op_cap = cfs_curproc_cap_pack();
-	src_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
+	src_tgt = lmv_condition_locate_mds(lmv, op_data);
 	if (IS_ERR(src_tgt))
 		RETURN(PTR_ERR(src_tgt));
 
@@ -2249,7 +2263,7 @@ static int lmv_readpage(struct obd_export *exp, struct md_op_data *op_data,
 	CDEBUG(D_INODE, "READPAGE at "LPX64" from "DFID"\n",
 	       offset, PFID(&op_data->op_fid1));
 
-	tgt = lmv_find_target(lmv, &op_data->op_fid1);
+	tgt = lmv_condition_find_target(lmv, op_data);
 	if (IS_ERR(tgt))
 		RETURN(PTR_ERR(tgt));
 

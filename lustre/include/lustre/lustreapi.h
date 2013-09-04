@@ -277,6 +277,10 @@ extern int llapi_fswap_layouts(const int fd1, const int fd2,
 extern int llapi_swap_layouts(const char *path1, const char *path2,
 			      __u64 dv1, __u64 dv2, __u64 flags);
 
+extern int llapi_list_orphans(const char *mnt, int index);
+extern int llapi_stat_orphan(const char *mnt, int index, char *orphan);
+extern int llapi_move_orphan(const char *mnt, int index, char *orphan,
+			     char *target);
 /* Changelog interface.  priv is private state, managed internally
    by these functions */
 #define CHANGELOG_FLAG_FOLLOW 0x01   /* Not yet implemented */

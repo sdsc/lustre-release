@@ -166,6 +166,9 @@ static int mdd_is_parent(const struct lu_env *env,
                         GOTO(out, rc);
                 if (mdd_is_root(mdd, pfid))
                         GOTO(out, rc = 0);
+		if (unlikely(fid_seq(pfid) == FID_SEQ_LOCAL_FILE &&
+			     fid_oid(pfid) == OSD_FS_ROOT_OID))
+			GOTO(out, rc = 0);
                 if (lu_fid_eq(pfid, lf))
                         GOTO(out, rc = 1);
                 if (parent)

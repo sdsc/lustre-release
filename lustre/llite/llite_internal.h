@@ -899,6 +899,10 @@ void lustre_dump_inode(struct inode *);
 int ll_obd_statfs(struct inode *inode, void *arg);
 int ll_get_max_mdsize(struct ll_sb_info *sbi, int *max_mdsize);
 int ll_process_config(struct lustre_cfg *lcfg);
+struct md_op_data *ll_prep_md_op_data_byfid(const struct lu_fid *fid1,
+					    const struct lu_fid *fid2,
+					    const char *name, int namelen,
+					    int mode, __u32 opc, void *data);
 struct md_op_data *ll_prep_md_op_data(struct md_op_data *op_data,
                                       struct inode *i1, struct inode *i2,
                                       const char *name, int namelen,

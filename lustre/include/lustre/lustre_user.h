@@ -259,6 +259,10 @@ struct ost_id {
 #define LL_IOC_GET_LEASE		_IO('f', 244)
 #define LL_IOC_HSM_IMPORT		_IOWR('f', 245, struct hsm_user_import)
 
+#define LL_IOC_LIST_ORPHANS		_IOWR('f', 260, struct lmv_user_md)
+#define LL_IOC_STAT_ORPHAN		_IOWR('f', 261, struct lmv_user_md)
+#define LL_IOC_MOVE_ORPHAN		_IOWR('f', 262, struct lmv_user_md)
+
 #define LL_STATFS_LMV		1
 #define LL_STATFS_LOV		2
 #define LL_STATFS_NODELAY	4
@@ -1186,6 +1190,10 @@ struct hsm_copy {
 	__u32			padding;
 	struct hsm_action_item	hc_hai;
 };
+
+#define ORPHAN_STAT_BODY	0x00000001
+#define ORPHAN_STAT_LAYOUT	0x00000002
+#define ORPHAN_STAT_SIZE	0x00000004
 
 /** @} lustreuser */
 
