@@ -320,7 +320,7 @@ int cfs_curproc_is_in_groups(gid_t gid);
 #define unlikely(exp) (exp)
 #endif
 
-#define cfs_might_sleep()
+#define might_sleep()
 #define might_sleep_if(c)
 #define smp_mb()
 
