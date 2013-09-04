@@ -1362,6 +1362,64 @@ test_16() {
 }
 run_test 16 "LFSCK can repair multiple references"
 
+test_17() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for test_17" && exit 0
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	for ((k = 0; k < $MDSCOUNT; k++)); do
+		local STATUS=$(do_facet mds$((k + 1)) $LCTL get_param -n \
+				mdd.${FSNAME}-MDT000${k}.lfsck_namespace |
+				awk '/^status/ { print $2 }')
+		[ "$STATUS" == "init" ] ||
+			error "(1) ${k} Expect 'init', but got '$STATUS'"
+
+		$LFS mkdir -i ${k} $DIR/${k}
+		createmany -o $DIR/${k}/f 100
+	done
+
+	do_facet mds1 $LCTL lfsck_start -M ${FSNAME}-MDT0000 -t namespace -A \
+		-s 10 || error "(2) Fail to start LFSCK on all devices!"
+
+	for ((k = 0; k < $MDSCOUNT; k++)); do
+		local STATUS=$(do_facet mds$((k + 1)) $LCTL get_param -n \
+				mdd.${FSNAME}-MDT000${k}.lfsck_namespace |
+				awk '/^status/ { print $2 }')
+		[ "$STATUS" == "scanning-phase1" ] ||
+		error "(3) ${k} Expect 'scanning-phase1', but got '$STATUS'"
+	done
+
+	do_facet mds1 $LCTL lfsck_stop -M ${FSNAME}-MDT0000 -A ||
+		error "(4) Fail to stop LFSCK on all devices!"
+
+	for ((k = 0; k < $MDSCOUNT; k++)); do
+		local STATUS=$(do_facet mds$((k + 1)) $LCTL get_param -n \
+				mdd.${FSNAME}-MDT000${k}.lfsck_namespace |
+				awk '/^status/ { print $2 }')
+		[ "$STATUS" == "stopped" ] ||
+			error "(5) ${k} Expect 'stopped', but got '$STATUS'"
+	done
+
+	do_facet mds1 $LCTL lfsck_start -M ${FSNAME}-MDT0000 -t namespace -A \
+		-s 0 || error "(6) Fail to start LFSCK on all devices!"
+
+	sleep 3
+	for ((k = 0; k < $MDSCOUNT; k++)); do
+		local STATUS=$(do_facet mds$((k + 1)) $LCTL get_param -n \
+				mdd.${FSNAME}-MDT000${k}.lfsck_namespace |
+				awk '/^status/ { print $2 }')
+		[ "$STATUS" == "completed" ] ||
+			error "(7) ${k} Expect 'completed', but got '$STATUS'"
+	done
+}
+run_test 17 "single command to trigger LFSCK on all devices"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size

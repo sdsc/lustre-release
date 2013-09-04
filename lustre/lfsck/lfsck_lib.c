@@ -39,6 +39,7 @@
 #include <lustre_net.h>
 #include <lustre_lfsck.h>
 #include <lustre/lustre_lfsck_user.h>
+#include <obd_class.h>
 
 #include "lfsck_internal.h"
 
@@ -1125,6 +1126,26 @@ trigger:
 out:
 	mutex_unlock(&lfsck->li_mutex);
 put:
+	if (rc == 0 && lfsck->li_master &&
+	    start != NULL && start->ls_flags & LPF_ALL_TARGET) {
+		struct dt_lfsck_control 	*dlc = &lfsck_env_info(env)->lti_dlc;
+		struct lfsck_event_request	*ler = &dlc->dlc_req;
+		struct lfsck_start		*tls = &ler->u.ler_start;
+		int				 rc1;
+
+		dlc->dlc_key = lfsck->li_bottom;
+		ler->ler_event = LNE_START_ALL;
+		tls->ls_speed_limit = bk->lb_speed_limit;
+		tls->ls_version = bk->lb_version;
+		tls->ls_active = start->ls_active;
+		tls->ls_flags = bk->lb_param & ~LPF_ALL_TARGET;
+		tls->ls_valid = LSV_SPEED_LIMIT | LSV_ERROR_HANDLE | LSV_DRYRUN;
+		rc1 = obd_set_info_async(env, lfsck->li_exp, strlen(KEY_LFSCK_EVENT),
+					 KEY_LFSCK_EVENT, sizeof(*dlc), dlc, NULL);
+		if (rc1 != 0)
+			CWARN("%s: Fail to start LFSCK on all devices, rc = %d\n",
+			      lfsck_lfsck2name(lfsck), rc1);
+	}
 	lfsck_instance_put(env, lfsck);
 	if (exp != NULL) {
 		if (rc == -EALREADY)
@@ -1172,6 +1193,22 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key,
 
 out:
 	mutex_unlock(&lfsck->li_mutex);
+	if (rc == 0 && lfsck->li_master &&
+	    stop != NULL && stop->ls_flags & LPF_ALL_TARGET) {
+		struct dt_lfsck_control 	*dlc = &lfsck_env_info(env)->lti_dlc;
+		struct lfsck_event_request	*ler = &dlc->dlc_req;
+		struct lfsck_stop		*tls = &ler->u.ler_stop;
+		int				 rc1;
+
+		dlc->dlc_key = lfsck->li_bottom;
+		ler->ler_event = LNE_STOP_ALL;
+		tls->ls_flags = 0;
+		rc1 = obd_set_info_async(env, lfsck->li_exp, strlen(KEY_LFSCK_EVENT),
+					 KEY_LFSCK_EVENT, sizeof(*dlc), dlc, NULL);
+		if (rc1 != 0)
+			CWARN("%s: Fail to stop LFSCK on all devices, rc = %d\n",
+			      lfsck_lfsck2name(lfsck), rc1);
+	}
 	lfsck_instance_put(env, lfsck);
 	if (exp != NULL) {
 		if (rc == -EALREADY)

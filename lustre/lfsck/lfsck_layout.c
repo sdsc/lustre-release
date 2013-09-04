@@ -1292,7 +1292,7 @@ static int lfsck_layout_assistant(void *args)
 	start->ls_speed_limit = bk->lb_speed_limit;
 	start->ls_version = bk->lb_version;
 	start->ls_active = LT_LAYOUT;
-	start->ls_flags = bk->lb_param;
+	start->ls_flags = bk->lb_param & ~LPF_ALL_TARGET;
 	start->ls_valid = LSV_SPEED_LIMIT | LSV_ERROR_HANDLE | LSV_DRYRUN;
 	if (pos->lp_oit_cookie <= 1)
 		start->ls_flags |= LPF_RESET;
@@ -1344,6 +1344,7 @@ static int lfsck_layout_assistant(void *args)
 		if (llmd->llmd_to_post) {
 			llmd->llmd_to_post = 0;
 			stop->ls_index = lfsck_dev_idx(lfsck->li_bottom);
+			stop->ls_flags = 0;
 			if (llmd->llmd_post_result > 0) {
 				ler->ler_event = event;
 			} else if (llmd->llmd_post_result == 0) {
@@ -1431,6 +1432,7 @@ cleanup1:
 
 cleanup2:
 	stop->ls_index = lfsck_dev_idx(lfsck->li_bottom);
+	stop->ls_flags = 0;
 	if (rc > 0) {
 		ler->ler_event = event;
 	} else if (rc == 0) {
