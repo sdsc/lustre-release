@@ -889,6 +889,7 @@ struct obd_device {
         cfs_list_t              obd_delayed_exports;
 	/* For the connect from MDT to OST. */
 	cfs_list_t		obd_mdt_exports;
+	cfs_list_t		obd_lwp_list;
         int                     obd_num_exports;
 	spinlock_t		obd_nid_lock;
 	struct ldlm_namespace  *obd_namespace;
@@ -907,6 +908,7 @@ struct obd_device {
 	struct rw_semaphore	obd_observer_link_sem;
         struct obd_notify_upcall obd_upcall;
         struct obd_export       *obd_self_export;
+	struct obd_export	*obd_lwp_export;
         /* list of exports in LRU order, for ping evictor, with obd_dev_lock */
         cfs_list_t              obd_exports_timed;
         time_t                  obd_eviction_timer; /* for ping evictor */
