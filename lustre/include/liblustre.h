@@ -300,7 +300,7 @@ int cfs_curproc_is_in_groups(gid_t gid);
 
 #define USERMODEHELPER(path, argv, envp) (0)
 #define SIGNAL_MASK_ASSERT()
-#define CFS_KERN_INFO
+#define KERN_INFO
 
 #if HZ != 1
 #error "liblustre's jiffies currently expects HZ to be 1"
