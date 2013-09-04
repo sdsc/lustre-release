@@ -1448,16 +1448,17 @@ int ofd_getattr(const struct lu_env *env, struct obd_export *exp,
 	struct ofd_device	*ofd = ofd_exp(exp);
 	struct ofd_thread_info	*info;
 	struct ofd_object	*fo;
+	struct obdo		*oa = oinfo->oi_oa;
 	int			 rc = 0;
 
 	ENTRY;
 
 	info = ofd_info_init(env, exp);
 
-	rc = ostid_to_fid(&info->fti_fid, &oinfo->oi_oa->o_oi, 0);
+	rc = ostid_to_fid(&info->fti_fid, &oa->o_oi, 0);
 	if (rc != 0)
 		GOTO(out, rc);
-	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oinfo->oi_oa->o_oi),
+	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oa->o_oi),
 			   oinfo_capa(oinfo), CAPA_OPC_META_READ);
 	if (rc)
 		GOTO(out, rc);
@@ -1470,25 +1471,59 @@ int ofd_getattr(const struct lu_env *env, struct obd_export *exp,
 
 	LASSERT(fo != NULL);
 	rc = ofd_attr_get(env, fo, &info->fti_attr);
-	oinfo->oi_oa->o_valid = OBD_MD_FLID;
+	oa->o_valid = OBD_MD_FLID;
 	if (rc == 0) {
 		__u64 curr_version;
 
-		obdo_from_la(oinfo->oi_oa, &info->fti_attr,
+		obdo_from_la(oa, &info->fti_attr,
 			     OFD_VALID_FLAGS | LA_UID | LA_GID);
 
 		/* Store object version in reply */
 		curr_version = dt_version_get(env, ofd_object_child(fo));
 		if ((__s64)curr_version != -EOPNOTSUPP) {
-			oinfo->oi_oa->o_valid |= OBD_MD_FLDATAVERSION;
-			oinfo->oi_oa->o_data_version = curr_version;
+			oa->o_valid |= OBD_MD_FLDATAVERSION;
+			oa->o_data_version = curr_version;
+		}
+
+		if (exp_connect_flags(exp) & OBD_CONNECT_MDS) {
+			struct filter_fid_old *ff  = &info->fti_mds_fid_old;
+			struct lu_buf	      *buf = &info->fti_buf;
+
+			buf->lb_buf = ff;
+			buf->lb_len = sizeof(*ff);
+			rc = dt_xattr_get(env, ofd_object_child(fo), buf,
+					  XATTR_NAME_FID, BYPASS_CAPA);
+			if (rc == sizeof(struct filter_fid_old) ||
+			    rc == sizeof(struct filter_fid)) {
+				oa->o_parent_seq =
+					le64_to_cpu(ff->ff_parent.f_seq);
+				oa->o_parent_oid =
+					le32_to_cpu(ff->ff_parent.f_oid);
+				oa->o_parent_ver = 0;
+				/* XXX: Here the ff_parent.f_ver is not the real
+				 *	parent FID version, it is the OST-object
+				 *	index (offset) in its parent MDT-object
+				 *	layout EA. */
+				oa->o_stripe_idx =
+					le32_to_cpu(ff->ff_parent.f_ver);
+			} else {
+				/* For rc != 0 case, regard crashed ff. */
+				oa->o_parent_seq = 0;
+				oa->o_parent_oid = 0;
+				oa->o_parent_ver = 0;
+				oa->o_stripe_idx = 0;
+			}
+			oa->o_valid |= OBD_MD_FLFID;
+			rc = 0;
 		}
 	}
+
+	GOTO(out_put, rc);
 
 out_put:
 	ofd_object_put(env, fo);
 out:
-	RETURN(rc);
+	return rc;
 }
 
 static int ofd_sync(const struct lu_env *env, struct obd_export *exp,
