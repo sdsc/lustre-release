@@ -2095,8 +2095,8 @@ typedef enum {
 	REINT_OPEN     = 6,
 	REINT_SETXATTR = 7,
 	REINT_RMENTRY  = 8,
-//      REINT_WRITE    = 9,
-        REINT_MAX
+	REINT_LFSCK_LAYOUT_CREATE = 9,
+	REINT_MAX
 } mds_reint_t, mdt_reint_t;
 
 extern void lustre_swab_generic_32s (__u32 *val);
@@ -2231,7 +2231,7 @@ struct mdt_body {
         __u32          flags; /* from vfs for pin/unpin, LUSTRE_BFLAG close */
         __u32          rdev;
         __u32          nlink; /* #bytes to read in the case of MDS_READPAGE */
-	__u32	       unused2; /* was "generation" until 2.4.0 */
+	__u32	       index;
         __u32          suppgid;
         __u32          eadatasize;
         __u32          aclsize;
@@ -2442,7 +2442,7 @@ struct mdt_rec_create {
         __u32           cr_flags_l;     /* for use with open, low  32 bits  */
         __u32           cr_flags_h;     /* for use with open, high 32 bits */
         __u32           cr_umask;       /* umask for create */
-        __u32           cr_padding_4;   /* rr_padding_4 */
+	__u32		cr_index;	/* rr_index */
 };
 
 static inline void set_mrc_cr_flags(struct mdt_rec_create *mrc, __u64 flags)
@@ -2480,7 +2480,7 @@ struct mdt_rec_link {
         __u32           lk_padding_6;   /* rr_flags */
         __u32           lk_padding_7;   /* rr_padding_2 */
         __u32           lk_padding_8;   /* rr_padding_3 */
-        __u32           lk_padding_9;   /* rr_padding_4 */
+	__u32		lk_padding_9;   /* rr_index */
 };
 
 /* instance of mdt_reint_rec */
@@ -2507,7 +2507,7 @@ struct mdt_rec_unlink {
         __u32           ul_padding_6;   /* rr_flags */
         __u32           ul_padding_7;   /* rr_padding_2 */
         __u32           ul_padding_8;   /* rr_padding_3 */
-        __u32           ul_padding_9;   /* rr_padding_4 */
+	__u32		ul_padding_9;   /* rr_index */
 };
 
 /* instance of mdt_reint_rec */
@@ -2534,7 +2534,7 @@ struct mdt_rec_rename {
         __u32           rn_padding_5;   /* rr_flags */
         __u32           rn_padding_6;   /* rr_padding_2 */
         __u32           rn_padding_7;   /* rr_padding_3 */
-        __u32           rn_padding_8;   /* rr_padding_4 */
+	__u32		rn_padding_8;   /* rr_index */
 };
 
 /* instance of mdt_reint_rec */
@@ -2563,7 +2563,7 @@ struct mdt_rec_setxattr {
         __u32           sx_padding_8;   /* rr_flags */
         __u32           sx_padding_9;   /* rr_padding_2 */
         __u32           sx_padding_10;  /* rr_padding_3 */
-        __u32           sx_padding_11;  /* rr_padding_4 */
+	__u32		sx_padding_11;  /* rr_index */
 };
 
 /*
@@ -2597,7 +2597,7 @@ struct mdt_rec_reint {
 	__u32           rr_flags;
 	__u32           rr_flags_h;
 	__u32           rr_umask;
-	__u32           rr_padding_4; /* also fix lustre_swab_mdt_rec_reint */
+	__u32		rr_index;
 };
 
 extern void lustre_swab_mdt_rec_reint(struct mdt_rec_reint *rr);

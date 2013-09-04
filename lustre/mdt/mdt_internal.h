@@ -63,6 +63,7 @@
 #include <lustre_idmap.h>
 #include <lustre_eacl.h>
 #include <lustre_quota.h>
+#include <lustre_lfsck.h>
 
 /* check if request's xid is equal to last one or not*/
 static inline int req_xid_is_last(struct ptlrpc_request *req)
@@ -333,6 +334,7 @@ struct mdt_reint_record {
         int                     rr_logcookielen;
         const struct llog_cookie  *rr_logcookies;
         __u32                   rr_flags;
+	__u32			rr_index;
 };
 
 enum mdt_reint_flag {
@@ -545,6 +547,7 @@ struct mdt_thread_info {
 	char			   mti_xattr_buf[128];
 	struct thandle_exec_args   mti_handle;
 	struct ldlm_enqueue_info   mti_einfo;
+	struct lfsck_reint_req	   mti_lrr;
 };
 
 /* ptlrpc request handler for MDT. All handlers are

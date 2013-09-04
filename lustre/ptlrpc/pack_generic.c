@@ -1889,7 +1889,7 @@ void lustre_swab_mdt_body (struct mdt_body *b)
 	__swab32s(&b->flags);
 	__swab32s(&b->rdev);
 	__swab32s(&b->nlink);
-	CLASSERT(offsetof(typeof(*b), unused2) != 0);
+	__swab32s(&b->index);
 	__swab32s(&b->suppgid);
 	__swab32s(&b->eadatasize);
 	__swab32s(&b->aclsize);
@@ -2090,8 +2090,7 @@ void lustre_swab_mdt_rec_reint (struct mdt_rec_reint *rr)
 	__swab32s(&rr->rr_flags);
 	__swab32s(&rr->rr_flags_h);
 	__swab32s(&rr->rr_umask);
-
-	CLASSERT(offsetof(typeof(*rr), rr_padding_4) != 0);
+	__swab32s(&rr->rr_index);
 };
 EXPORT_SYMBOL(lustre_swab_mdt_rec_reint);
 

@@ -949,6 +949,33 @@ put_lfsck:
 }
 EXPORT_SYMBOL(lfsck_query);
 
+int lfsck_reint(const struct lu_env *env, struct dt_device *key,
+		enum lfsck_type type, struct lfsck_reint_req *lrr)
+{
+	struct lfsck_instance  *lfsck;
+	struct lfsck_component *com;
+	int			rc;
+	ENTRY;
+
+	lfsck = lfsck_instance_find(key, true, false);
+	if (unlikely(lfsck == NULL))
+		RETURN(-ENODEV);
+
+	com = lfsck_component_find(lfsck, type);
+	if (com == NULL)
+		GOTO(put, rc = -ENOENT);
+
+	rc = com->lc_ops->lfsck_reint(env, com, lrr);
+	lfsck_component_put(env, com);
+
+	GOTO(put, rc);
+
+put:
+	lfsck_instance_put(env, lfsck);
+	return rc;
+}
+EXPORT_SYMBOL(lfsck_reint);
+
 int lfsck_start(const struct lu_env *env, struct dt_device *key,
 		struct lfsck_start_param *lsp, struct obd_export *exp)
 {

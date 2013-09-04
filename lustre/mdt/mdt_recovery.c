@@ -659,7 +659,8 @@ static mdt_reconstructor reconstructors[REINT_MAX] = {
         [REINT_UNLINK]   = mdt_reconstruct_generic,
         [REINT_RENAME]   = mdt_reconstruct_generic,
         [REINT_OPEN]     = mdt_reconstruct_open,
-        [REINT_SETXATTR] = mdt_reconstruct_generic
+	[REINT_SETXATTR] = mdt_reconstruct_generic,
+	[REINT_LFSCK_LAYOUT_CREATE] = mdt_reconstruct_generic,
 };
 
 void mdt_reconstruct(struct mdt_thread_info *mti,

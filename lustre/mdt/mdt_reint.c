@@ -1357,6 +1357,30 @@ out_rename_lock:
 	return rc;
 }
 
+static int mdt_reint_lfsck_layout_create(struct mdt_thread_info *info,
+					 struct mdt_lock_handle *lhc)
+{
+	struct lfsck_reint_req	*lrr = &info->mti_lrr;
+	struct mdt_reint_record *rr  = &info->mti_rr;
+	struct md_attr		*ma  = &info->mti_attr;
+	struct mdt_device	*mdt = info->mti_mdt;
+	int			 rc;
+	ENTRY;
+
+	lrr->lrr_pill = info->mti_pill;
+	lrr->lrr_fid1 = rr->rr_fid1;
+	lrr->lrr_fid2 = rr->rr_fid2;
+	lrr->lrr_attr = &ma->ma_attr;
+	lrr->lrr_name = rr->rr_name;
+	lrr->lrr_namelen = rr->rr_namelen;
+	lrr->lrr_opcode = REINT_LFSCK_LAYOUT_CREATE;
+	lrr->lrr_index = rr->rr_index;
+
+	rc = lfsck_reint(info->mti_env, mdt->mdt_bottom, LT_LAYOUT, lrr);
+
+	RETURN(rc);
+}
+
 typedef int (*mdt_reinter)(struct mdt_thread_info *info,
                            struct mdt_lock_handle *lhc);
 
@@ -1368,7 +1392,8 @@ static mdt_reinter reinters[REINT_MAX] = {
 	[REINT_RENAME]   = mdt_reint_rename,
 	[REINT_OPEN]     = mdt_reint_open,
 	[REINT_SETXATTR] = mdt_reint_setxattr,
-	[REINT_RMENTRY]  = mdt_reint_unlink
+	[REINT_RMENTRY]  = mdt_reint_unlink,
+	[REINT_LFSCK_LAYOUT_CREATE] = mdt_reint_lfsck_layout_create,
 };
 
 int mdt_reint_rec(struct mdt_thread_info *info,

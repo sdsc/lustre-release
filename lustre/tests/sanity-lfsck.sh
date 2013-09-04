@@ -46,6 +46,7 @@ $LCTL set_param debug=+lfsck > /dev/null || true
 
 MDT_DEV="${FSNAME}-MDT0000"
 OST_DEV="${FSNAME}-OST0000"
+OST_DEV2="${FSNAME}-OST0001"
 MDT_DEVNAME=$(mdsdevname ${SINGLEMDS//mds/})
 START_NAMESPACE="do_facet $SINGLEMDS \
 		$LCTL lfsck_start -M ${MDT_DEV} -t namespace"
@@ -59,6 +60,8 @@ SHOW_LAYOUT="do_facet $SINGLEMDS \
 		$LCTL get_param -n mdd.${MDT_DEV}.lfsck_layout"
 SHOW_LAYOUT_ON_OST="do_facet ost1 \
 		$LCTL get_param -n obdfilter.${OST_DEV}.lfsck_layout"
+SHOW_LAYOUT_ON_OST2="do_facet ost2 \
+		$LCTL get_param -n obdfilter.${OST_DEV2}.lfsck_layout"
 MOUNT_OPTS_SCRUB="-o user_xattr"
 MOUNT_OPTS_NOSCRUB="-o user_xattr,noscrub"
 
@@ -1488,6 +1491,92 @@ test_18b() {
 	[ $repaired -eq 1 ] || error "(5) Expected 1 repaired, but got $repaired"
 }
 run_test 18b "OST-object inconsistency self repair"
+
+# The target MDT-object is there, but related stripe information is partly lost,
+# Re-generate the lost layout EA entries.
+test_19a() {
+	[ $OSTCOUNT -lt 2 ] &&
+		skip "We need at least 2 OSTs for test_19a" && exit 0
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir/a1
+	mkdir -p $DIR/$tdir/a2
+	$LFS setstripe -c 1 -i 0 -s 1M $DIR/$tdir/a1
+	$LFS setstripe -c 2 -i 0 -s 1M $DIR/$tdir/a2
+	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=1M count=2
+	dd if=/dev/zero of=$DIR/$tdir/a2/f2 bs=1M count=2
+	$LFS getstripe $DIR/$tdir/a1/f1
+	$LFS getstripe $DIR/$tdir/a2/f2
+	sync
+        cancel_lru_locks osc
+
+	#define OBD_FAIL_LFSCK_LOST_STRIPE 0x1616
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1616
+	chown 1.1 $DIR/$tdir/a1/f1
+	chown 1.1 $DIR/$tdir/a2/f2
+	sync
+	sleep 2
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	local SIZE=$(ls -il $DIR/$tdir/a1/f1 | awk '{ print $6 }')
+	[ $SIZE -ne 2097152 ] || error "(1) Expect incorrect file1 size"
+
+	SIZE=$(ls -il $DIR/$tdir/a2/f2 | awk '{ print $6 }')
+	[ $SIZE -ne 2097152 ] || error "(2) Expect incorrect file2 size"
+
+	$START_LAYOUT || error "(3) Fail to start LFSCK for layout!"
+	sleep 2
+
+	local STATUS=$($SHOW_LAYOUT_ON_OST2 | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(4) Expect 'completed' on ost2, but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT_ON_OST2 |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(5) Expect 1 objects fixed on ost2, but got: $repaired"
+
+	STATUS=$($SHOW_LAYOUT_ON_OST | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(6) Expect 'completed' on ost1, but got '$STATUS'"
+
+	repaired=$($SHOW_LAYOUT_ON_OST |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 2 ] ||
+		error "(7) Expect 2 objects fixed on ost1, but got: $repaired"
+
+	STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(8) Expect 'completed' on mds, but got '$STATUS'"
+
+	repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 3 ] ||
+		error "(9) Expect 3 objects fixed on mds, but got: $repaired"
+
+	$LFS getstripe $DIR/$tdir/a1/f1
+	$LFS getstripe $DIR/$tdir/a2/f2
+
+	SIZE=$(ls -il $DIR/$tdir/a1/f1 | awk '{ print $6 }')
+	[ $SIZE -eq 2097152 ] ||
+		error "(10) Expect correct file1 size, but got $SIZE"
+
+	SIZE=$(ls -il $DIR/$tdir/a2/f2 | awk '{ print $6 }')
+	[ $SIZE -eq 2097152 ] ||
+		error "(11) Expect correct file2 size, but got $SIZE"
+}
+run_test 19a "Find out orphan OST-object and repair it (1)"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 

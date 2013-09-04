@@ -986,6 +986,7 @@ static int mdt_create_unpack(struct mdt_thread_info *info)
 
         rr->rr_fid1 = &rec->cr_fid1;
         rr->rr_fid2 = &rec->cr_fid2;
+	rr->rr_index = rec->cr_index;
         attr->la_mode = rec->cr_mode;
         attr->la_rdev  = rec->cr_rdev;
         attr->la_uid   = rec->cr_fsuid;
@@ -1385,6 +1386,7 @@ static reint_unpacker mdt_reint_unpackers[REINT_MAX] = {
 	[REINT_OPEN]     = mdt_open_unpack,
 	[REINT_SETXATTR] = mdt_setxattr_unpack,
 	[REINT_RMENTRY]  = mdt_rmentry_unpack,
+	[REINT_LFSCK_LAYOUT_CREATE] = mdt_create_unpack,
 };
 
 int mdt_reint_unpack(struct mdt_thread_info *info, __u32 op)

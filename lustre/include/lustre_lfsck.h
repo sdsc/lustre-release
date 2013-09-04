@@ -119,6 +119,17 @@ struct lfsck_info_local {
 	enum lfsck_local_events lil_event;
 };
 
+struct lfsck_reint_req {
+	struct req_capsule	*lrr_pill;
+	const struct lu_fid	*lrr_fid1;
+	const struct lu_fid	*lrr_fid2;
+	struct lu_attr		*lrr_attr;
+	const char		*lrr_name;
+	int			 lrr_namelen;
+	__u32			 lrr_opcode;
+	__u32			 lrr_index;
+};
+
 typedef int (*lfsck_out_notify)(const struct lu_env *env, void *data,
 				enum lfsck_notify_events event);
 
@@ -139,5 +150,8 @@ int lfsck_set_speed(struct dt_device *key, int val);
 
 int lfsck_dump(struct dt_device *key, void *buf, int len, enum lfsck_type type);
 int lfsck_query(struct dt_device *key, enum lfsck_type type);
+
+int lfsck_reint(const struct lu_env *env, struct dt_device *key,
+		enum lfsck_type type, struct lfsck_reint_req *lrr);
 
 #endif /* _LUSTRE_LFSCK_H */

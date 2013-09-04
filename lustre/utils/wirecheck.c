@@ -885,7 +885,7 @@ check_mdt_body(void)
 	CHECK_MEMBER(mdt_body, flags);
 	CHECK_MEMBER(mdt_body, rdev);
 	CHECK_MEMBER(mdt_body, nlink);
-	CHECK_MEMBER(mdt_body, unused2);
+	CHECK_MEMBER(mdt_body, index);
 	CHECK_MEMBER(mdt_body, suppgid);
 	CHECK_MEMBER(mdt_body, eadatasize);
 	CHECK_MEMBER(mdt_body, aclsize);
@@ -1028,7 +1028,7 @@ check_mdt_rec_create(void)
 	CHECK_MEMBER(mdt_rec_create, cr_flags_l);
 	CHECK_MEMBER(mdt_rec_create, cr_flags_h);
 	CHECK_MEMBER(mdt_rec_create, cr_umask);
-	CHECK_MEMBER(mdt_rec_create, cr_padding_4);
+	CHECK_MEMBER(mdt_rec_create, cr_index);
 }
 
 static void
@@ -1180,7 +1180,7 @@ check_mdt_rec_reint(void)
 	CHECK_MEMBER(mdt_rec_reint, rr_flags);
 	CHECK_MEMBER(mdt_rec_reint, rr_flags_h);
 	CHECK_MEMBER(mdt_rec_reint, rr_umask);
-	CHECK_MEMBER(mdt_rec_reint, rr_padding_4);
+	CHECK_MEMBER(mdt_rec_reint, rr_index);
 }
 
 static void

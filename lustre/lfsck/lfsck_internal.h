@@ -246,8 +246,11 @@ struct lfsck_layout {
 	 * do not participate in the LFSCK */
 	__u64	ll_objs_skipped;
 
+	/* The latest object has been processed (failed) during double scan. */
+	struct lu_fid ll_fid_latest_scanned_phase2;
+
 	/* For further using. 256-bytes aligned now. */
-	__u64	ll_reserved[12];
+	__u64	ll_reserved[10];
 };
 
 struct lfsck_component;
@@ -303,6 +306,10 @@ struct lfsck_operations {
 
 	int (*lfsck_query)(const struct lu_env *env,
 			   struct lfsck_component *com);
+
+	int (*lfsck_reint)(const struct lu_env *env,
+			   struct lfsck_component *com,
+			   struct lfsck_reint_req *lrr);
 };
 
 struct lfsck_component {
@@ -461,6 +468,7 @@ struct lfsck_thread_info {
 	struct ldlm_res_id	lti_resid;
 	struct lustre_handle	lti_lh;
 	struct dt_allocation_hint lti_hint;
+	struct filter_fid_old	lti_ff;
 };
 
 /* lfsck_lib.c */
