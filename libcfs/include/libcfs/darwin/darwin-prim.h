@@ -156,25 +156,25 @@ extern void             *get_bsdtask_info(task_t);
 
 #ifdef __DARWIN8__
 
-typedef struct {}		cfs_task_t;
-#define cfs_current()		((cfs_task_t *)current_thread())
+typedef struct task_struct {};
+#define current		((struct task_struct *)current_thread())
 #else	/* !__DARWIN8__ */
 
-typedef struct uthread		cfs_task_t;
+#define task_struct uthread
 
 #define current_uthread()       ((struct uthread *)get_bsdthread_info(current_act()))
-#define cfs_current()		current_uthread()
+#define current		current_uthread()
 
 #endif /* !__DARWIN8__ */
 
-#define cfs_task_lock(t)	do {;} while (0)
-#define cfs_task_unlock(t)	do {;} while (0)
+#define task_lock(t)	do {;} while (0)
+#define task_unlock(t)	do {;} while (0)
 
 #define set_current_state(s)	do {;} while (0)
 
-#define CFS_DECL_JOURNAL_DATA	
-#define CFS_PUSH_JOURNAL	do {;} while(0)
-#define CFS_POP_JOURNAL		do {;} while(0)
+#define DECL_JOURNAL_DATA
+#define PUSH_JOURNAL	do {;} while(0)
+#define POP_JOURNAL		do {;} while(0)
 
 #define THREAD_NAME(comm, fmt, a...)
 /*
@@ -205,7 +205,7 @@ extern task_t	kernel_task;
 
 #define CLONE_SIGNAL    (CLONE_SIGHAND | CLONE_THREAD)
 
-extern cfs_task_t kthread_run(cfs_thread_t func, void *arg,
+extern struct task_struct kthread_run(cfs_thread_t func, void *arg,
 			      const char namefmt[], ...);
 
 /*
@@ -366,15 +366,14 @@ static inline void sleep_on(wait_queue_head_t *waitq)
 /*
  * Signal
  */
-typedef sigset_t	cfs_sigset_t;
 
 #define SIGNAL_MASK_ASSERT()
 /*
  * Timer
  */
-typedef struct cfs_timer {
+struct timer_list {
 	struct ktimer t;
-} cfs_timer_t;
+};
 
 #define cfs_init_timer(t)	do {} while(0)
 void cfs_timer_init(struct cfs_timer *t, void (*func)(unsigned long), void *arg);

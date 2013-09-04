@@ -269,8 +269,6 @@ struct task_struct {
 };
 
 
-typedef struct task_struct cfs_task_t;
-#define cfs_current()           current
 #define cfs_curproc_pid()       (current->pid)
 #define cfs_curproc_comm()      (current->comm)
 #define cfs_curproc_fsuid()     (current->fsuid)
