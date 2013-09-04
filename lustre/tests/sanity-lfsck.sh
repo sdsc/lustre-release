@@ -1315,6 +1315,53 @@ test_15() {
 }
 run_test 15 "LFSCK can repair inconsistent MDT-object/OST-object owner"
 
+test_16() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+
+	do_facet $SINGLEMDS $LCTL set_param fail_val=0
+	#define OBD_FAIL_LFSCK_MULTIPLE_REF	0x1614
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1614
+
+	touch $DIR/$tdir/guard
+	chown 1.1 $DIR/$tdir/guard
+	sync
+	sleep 1
+	createmany -o $DIR/$tdir/f 1
+
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+	do_facet $SINGLEMDS $LCTL set_param fail_val=0
+
+	echo "stopall to cleanup object cache"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	$START_LAYOUT || error "(1) Fail to start LFSCK for layout!"
+	sleep 2
+
+	local STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(2) Expect 'completed', but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_multiple_referenced/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Fail to repair multiple references: $repaired"
+
+	echo "foo" > $DIR/$tdir/f0 || error "(4) Fail to write f0."
+	local size=$(ls -l $DIR/$tdir/guard | awk '{ print $5 }')
+	[ $size -eq 0 ] || error "Unexpected size: $size"
+}
+run_test 16 "LFSCK can repair multiple references"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size

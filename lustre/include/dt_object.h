@@ -226,6 +226,7 @@ extern const struct dt_index_features dt_quota_slv_features;
 
 enum dt_allocation_hint_flags {
 	DAHF_RECREATE	= 0x00000001,
+	DAHF_INDEX	= 0x00000002,
 };
 
 /**
@@ -235,9 +236,12 @@ enum dt_allocation_hint_flags {
  */
 struct dt_allocation_hint {
 	struct dt_object	*dah_parent;
+	struct dt_object	*dah_child;
 	__u32			 dah_mode;
 	__u32			 dah_flags;
+	__u32			 dah_ost_index;
 	__u32			 dah_lov_index;
+	__u16			 dah_gen;
 };
 
 /**
