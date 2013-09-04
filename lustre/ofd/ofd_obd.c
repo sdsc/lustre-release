@@ -1499,28 +1499,20 @@ int ofd_getattr(const struct lu_env *env, struct obd_export *exp,
 		}
 
 		if (exp_connect_flags(exp) & OBD_CONNECT_MDS) {
-			struct filter_fid_old *ff  = &info->fti_mds_fid_old;
-			struct lu_buf	      *buf = &info->fti_buf;
+			rc = ofd_object_ff_check(env, fo);
+			if (rc == 0) {
+				struct lu_fid *pfid = &fo->ofo_pfid;
 
-			buf->lb_buf = ff;
-			buf->lb_len = sizeof(*ff);
-			rc = dt_xattr_get(env, ofd_object_child(fo), buf,
-					  XATTR_NAME_FID, BYPASS_CAPA);
-			if (rc == sizeof(struct filter_fid_old) ||
-			    rc == sizeof(struct filter_fid)) {
-				oa->o_parent_seq =
-					le64_to_cpu(ff->ff_parent.f_seq);
-				oa->o_parent_oid =
-					le32_to_cpu(ff->ff_parent.f_oid);
+				oa->o_parent_seq = pfid->f_seq;
+				oa->o_parent_oid = pfid->f_oid;
 				oa->o_parent_ver = 0;
 				/* XXX: Here the ff_parent.f_ver is not the real
 				 *	parent FID version, it is the OST-object
 				 *	index (offset) in its parent MDT-object
 				 *	layout EA. */
-				oa->o_stripe_idx =
-					le32_to_cpu(ff->ff_parent.f_ver);
+				oa->o_stripe_idx = pfid->f_ver;
 			} else {
-				/* For rc != 0 case, regard crashed ff. */
+				/* For rc != 0 case, regard as crashed ff. */
 				oa->o_parent_seq = 0;
 				oa->o_parent_oid = 0;
 				oa->o_parent_ver = 0;

@@ -1420,6 +1420,75 @@ test_17() {
 }
 run_test 17 "single command to trigger LFSCK on all devices"
 
+test_18a() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+
+	echo "foo" > $DIR/$tdir/a0
+	echo "guard" > $DIR/$tdir/a1
+
+        cancel_lru_locks osc
+	umount_client $MOUNT || error "(1) Fail to stop client!"
+	mount_client $MOUNT || error "(2) Fail to start client!"
+
+	do_facet ost1 $LCTL set_param -n \
+		obdfilter.${FSNAME}-OST0000.fail_on_inconsistency 1
+	#define OBD_FAIL_LFSCK_INVALID_PFID	0x1615
+	$LCTL set_param fail_loc=0x1615
+
+	cat $DIR/$tdir/a0 && error "(3) Read should be denied!"
+	$LCTL set_param fail_loc=0
+}
+run_test 18a "OST-object inconsistency self detect"
+
+test_18b() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+
+	#define OBD_FAIL_LFSCK_UNMATCHED_PAIR1	0x1611
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1611
+	createmany -o $DIR/$tdir/f 1
+	chown 1.1 $DIR/$tdir/f0
+	sync
+	sleep 2
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	local repaired=$(do_facet ost1 $LCTL get_param -n \
+			obdfilter.${FSNAME}-OST0000.inconsistency_self_cure |
+			awk '/^repaired/ { print $2 }')
+	[ $repaired -eq 0 ] || error "(1) Expected 0 repaired, but got $repaired"
+
+	echo "foo" >> $DIR/$tdir/f0
+
+        cancel_lru_locks osc
+	umount_client $MOUNT || error "(2) Fail to stop client!"
+	mount_client $MOUNT || error "(3) Fail to start client!"
+
+	do_facet ost1 $LCTL set_param -n \
+		obdfilter.${FSNAME}-OST0000.fail_on_inconsistency 1
+	cat $DIR/$tdir/f0 || error "(4) Read should not be denied!"
+
+	repaired=$(do_facet ost1 $LCTL get_param -n \
+		obdfilter.${FSNAME}-OST0000.inconsistency_self_cure |
+		awk '/^repaired/ { print $2 }')
+	[ $repaired -eq 1 ] || error "(5) Expected 1 repaired, but got $repaired"
+}
+run_test 18b "OST-object inconsistency self repair"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size

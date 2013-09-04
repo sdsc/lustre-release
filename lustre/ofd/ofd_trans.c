@@ -68,7 +68,7 @@ int ofd_trans_start(const struct lu_env *env, struct ofd_device *ofd,
 	int			 rc;
 
 	if (info->fti_exp == NULL)
-		return 0;
+		return dt_trans_start(env, ofd->ofd_osd, th);
 
 	/* declare last_rcvd update */
 	rc = dt_declare_record_write(env, ofd->ofd_lut.lut_last_rcvd,
