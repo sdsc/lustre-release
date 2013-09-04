@@ -193,7 +193,11 @@ enum {
 	 * This is how many sequences may be in one super-sequence allocated to
 	 * MDTs.
 	 */
-	LUSTRE_SEQ_SUPER_WIDTH = ((1ULL << 30ULL) * LUSTRE_SEQ_META_WIDTH)
+	LUSTRE_SEQ_SUPER_WIDTH = ((1ULL << 30ULL) * LUSTRE_SEQ_META_WIDTH),
+
+	/* The max oid for a FID within a given sequence. For metadata sequence,
+	 * the valid oid cannot be larger than LUSTRE_METADATA_SEQ_MAX_WIDTH. */
+	LUSTRE_MAX_OID = (1UL << 31),
 };
 
 enum {

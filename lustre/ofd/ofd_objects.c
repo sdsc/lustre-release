@@ -477,7 +477,7 @@ int ofd_attr_handle_ugid(const struct lu_env *env, struct ofd_object *fo,
 }
 
 int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
-		 struct lu_attr *la, struct filter_fid *ff)
+		 struct lu_attr *la, struct filter_fid *ff, bool force_ff)
 {
 	struct ofd_thread_info	*info = ofd_info(env);
 	struct ofd_device	*ofd = ofd_obj2dev(fo);
@@ -523,7 +523,7 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 	if (rc)
 		GOTO(stop, rc);
 
-	if (ff_needed) {
+	if (ff_needed || force_ff) {
 		info->fti_buf.lb_buf = ff;
 		info->fti_buf.lb_len = sizeof(*ff);
 		rc = dt_declare_xattr_set(env, ofd_object_child(fo),

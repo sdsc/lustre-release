@@ -277,9 +277,13 @@ static int lod_declare_attr_set(const struct lu_env *env,
 				const struct lu_attr *attr,
 				struct thandle *handle)
 {
-	struct dt_object  *next = dt_object_child(dt);
-	struct lod_object *lo = lod_dt_obj(dt);
-	int                rc, i;
+	struct lod_thread_info	*info = lod_env_info(env);
+	struct lu_attr		*la   = &info->lti_attr;
+	struct lu_buf		*buf  = &info->lti_buf;
+	struct dt_object	*next = dt_object_child(dt);
+	struct lod_object	*lo   = lod_dt_obj(dt);
+	int			 rc;
+	int			 i;
 	ENTRY;
 
 	/*
@@ -308,13 +312,27 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	buf->lb_buf = (void *)lu_object_fid(&dt->do_lu);
+	buf->lb_len = sizeof(struct lu_fid);
+
 	/*
 	 * if object is striped declare changes on the stripes
 	 */
 	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
+
+	*la = *attr;
+	la->la_valid |= LA_STRIPE_IDX;
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_declare_attr_set(env, lo->ldo_stripe[i], attr, handle);
+
+		la->la_rdev = i;
+		/* Initialize parent FID when chown/chgrp. */
+		rc = dt_declare_xattr_set(env, lo->ldo_stripe[i], buf,
+					  XATTR_NAME_FID, 0, handle);
+		if (rc != 0)
+			break;
+
+		rc = dt_declare_attr_set(env, lo->ldo_stripe[i], la, handle);
 		if (rc) {
 			CERROR("failed declaration: %d\n", rc);
 			break;
@@ -330,6 +348,7 @@ static int lod_attr_set(const struct lu_env *env,
 			struct thandle *handle,
 			struct lustre_capa *capa)
 {
+	struct lu_attr    *la   = &lod_env_info(env)->lti_attr;
 	struct dt_object  *next = dt_object_child(dt);
 	struct lod_object *lo = lod_dt_obj(dt);
 	int                rc, i;
@@ -349,9 +368,14 @@ static int lod_attr_set(const struct lu_env *env,
 	 * if object is striped, apply changes to all the stripes
 	 */
 	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
+
+	*la = *attr;
+	la->la_valid |= LA_STRIPE_IDX;
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_attr_set(env, lo->ldo_stripe[i], attr, handle, capa);
+
+		la->la_rdev = i;
+		rc = dt_attr_set(env, lo->ldo_stripe[i], la, handle, capa);
 		if (rc) {
 			CERROR("failed declaration: %d\n", rc);
 			break;
@@ -790,11 +814,15 @@ static void lod_ah_init(const struct lu_env *env,
 static int lod_declare_init_size(const struct lu_env *env,
 				 struct dt_object *dt, struct thandle *th)
 {
-	struct dt_object   *next = dt_object_child(dt);
-	struct lod_object  *lo = lod_dt_obj(dt);
-	struct lu_attr	   *attr = &lod_env_info(env)->lti_attr;
-	uint64_t	    size, offs;
-	int		    rc, stripe;
+	struct dt_object	*next	= dt_object_child(dt);
+	struct lod_object	*lo	= lod_dt_obj(dt);
+	struct lod_thread_info	*info	= lod_env_info(env);
+	struct lu_attr		*attr	= &info->lti_attr;
+	struct lu_buf		*buf	= &info->lti_buf;
+	uint64_t		 size;
+	uint64_t		 offs;
+	int			 rc;
+	int			 stripe;
 	ENTRY;
 
 	/* XXX: we support the simplest (RAID0) striping so far */
@@ -814,12 +842,21 @@ static int lod_declare_init_size(const struct lu_env *env,
 	ll_do_div64(size, (__u64) lo->ldo_stripe_size);
 	stripe = ll_do_div64(size, (__u64) lo->ldo_stripenr);
 
+	/* Initialize parent FID when set size. */
+	buf->lb_buf = (void *)lu_object_fid(&dt->do_lu);
+	buf->lb_len = sizeof(struct lu_fid);
+	rc = dt_declare_xattr_set(env, lo->ldo_stripe[stripe], buf,
+				  XATTR_NAME_FID, 0, th);
+	if (rc != 0)
+		RETURN(rc);
+
 	size = size * lo->ldo_stripe_size;
 	offs = attr->la_size;
 	size += ll_do_div64(offs, lo->ldo_stripe_size);
 
-	attr->la_valid = LA_SIZE;
+	attr->la_valid = LA_SIZE | LA_STRIPE_IDX;
 	attr->la_size = size;
+	attr->la_rdev = stripe;
 
 	rc = dt_declare_attr_set(env, lo->ldo_stripe[stripe], attr, th);
 

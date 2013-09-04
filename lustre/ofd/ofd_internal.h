@@ -416,7 +416,7 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 
 void ofd_object_put(const struct lu_env *env, struct ofd_object *fo);
 int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
-		 struct lu_attr *la, struct filter_fid *ff);
+		 struct lu_attr *la, struct filter_fid *ff, bool force_ff);
 int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 		     __u64 start, __u64 end, struct lu_attr *la,
 		     struct filter_fid *ff);
