@@ -230,7 +230,12 @@ get_hsm_param() {
 set_hsm_param() {
 	local param=$1
 	local value=$2
-	do_facet $SINGLEMDS $LCTL set_param -n $HSM_PARAM.$param=$value
+	local opt=$3
+	if [[ "$value" != "" ]]
+	then
+		value="=$value"
+	fi
+	do_facet $SINGLEMDS $LCTL set_param $opt -n $HSM_PARAM.$param$value
 	return $?
 }
 
@@ -266,15 +271,11 @@ cdt_clear_no_blocking_restore() {
 }
 
 cdt_clear_mount_state() {
-	# /!\ conf_param and set_param syntax differ +> we cannot use
-	# $MDT_PARAM
-	do_facet $SINGLEMDS $LCTL conf_param -d $FSNAME-MDT0000.mdt.hsm_control
+	do_facet $SINGLEMDS $LCTL set_param -d -P $MDT_PARAM.hsm_control
 }
 
 cdt_set_mount_state() {
-	# /!\ conf_param and set_param syntax differ +> we cannot use
-	# $MDT_PARAM
-	do_facet $SINGLEMDS $LCTL conf_param $FSNAME-MDT0000.mdt.hsm_control=$1
+	do_facet $SINGLEMDS $LCTL set_param -P $MDT_PARAM.hsm_control=$1
 }
 
 cdt_check_state() {
@@ -2981,6 +2982,21 @@ test_300() {
 	# we are back to original state (cdt started at mount)
 }
 run_test 300 "On disk coordinator state kept between MDT umount/mount"
+
+test_301() {
+	local ai=$(get_hsm_param default_archive_id)
+	local new=$((ai + 1))
+
+	set_hsm_param default_archive_id $new -P
+	fail $SINGLEMDS
+	local res=$(get_hsm_param default_archive_id)
+
+	# clear value
+	set_hsm_param default_archive_id "" "-P -d"
+
+	[[ $new == $res ]] || error "Value after MDS restart is $res != $new"
+}
+run_test 301 "HSM tunnable are persistent"
 
 copytool_cleanup
 
