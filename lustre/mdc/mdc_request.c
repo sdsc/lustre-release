@@ -2494,6 +2494,7 @@ static int mdc_setup(struct obd_device *obd, struct lustre_cfg *cfg)
 
         rc = obd_llog_init(obd, &obd->obd_olg, obd, NULL);
         if (rc) {
+		obd_cleanup_client_import(obd);
                 mdc_cleanup(obd);
                 CERROR("failed to setup llogging subsystems\n");
         }

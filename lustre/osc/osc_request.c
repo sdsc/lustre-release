@@ -3531,6 +3531,7 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 out_ptlrpcd_work:
 	ptlrpcd_destroy_work(handler);
 out_client_setup:
+	obd_cleanup_client_import(obd);
 	client_obd_cleanup(obd);
 out_ptlrpcd:
 	ptlrpcd_decref();
