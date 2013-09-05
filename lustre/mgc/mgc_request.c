@@ -922,6 +922,7 @@ static int mgc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
         RETURN(rc);
 
 err_cleanup:
+	obd_cleanup_client_import(obd);
         client_obd_cleanup(obd);
 err_decref:
         ptlrpcd_decref();

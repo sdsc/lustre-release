@@ -143,8 +143,10 @@ out:
 		OBD_FREE(fsname, strlen(lwpname));
 	if (lcfg != NULL)
 		lustre_cfg_free(lcfg);
-	if (rc)
+	if (rc) {
+		obd_cleanup_client_import(lwp->lpd_obd);
 		client_obd_cleanup(lwp->lpd_obd);
+	}
 	RETURN(rc);
 }
 
