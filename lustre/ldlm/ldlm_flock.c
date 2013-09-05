@@ -316,7 +316,20 @@ reprocess:
                         }
 
                         if (added) {
-                                ldlm_flock_destroy(lock, mode, *flags);
+                            /* Handle very unlikely+racy case where current
+                             * lock is a transient LDLM_FL_TEST_LOCK return
+                             * for same owner but with inverted mode.
+                             * This is LU-1126.
+                             */
+                            if ((lock->l_ast_data) &&
+                                (cfs_flock_type((cfs_flock_t)
+                                                lock->l_ast_data) != mode))
+                                   ldlm_flock_destroy(lock,
+                                          cfs_flock_type((cfs_flock_t)
+                                                         lock->l_ast_data),
+                                          *flags);
+                            else
+                                   ldlm_flock_destroy(lock, mode, *flags);
                         } else {
                                 new = lock;
                                 added = 1;
@@ -342,7 +355,21 @@ reprocess:
                                         new->l_policy_data.l_flock.end + 1;
                                 break;
                         }
-                        ldlm_flock_destroy(lock, lock->l_req_mode, *flags);
+                        /* Handle very unlikely+racy case where current
+                         * lock is a transient LDLM_FL_TEST_LOCK return
+                         * for same owner but with inverted mode.
+                         * This is LU-1126.
+                         */
+                        if ((lock->l_ast_data) &&
+                            (cfs_flock_type((cfs_flock_t)lock->l_ast_data) !=
+                             lock->l_req_mode))
+                                ldlm_flock_destroy(lock,
+                                       cfs_flock_type((cfs_flock_t)
+                                                      lock->l_ast_data),
+                                       *flags);
+                        else
+                                ldlm_flock_destroy(lock, lock->l_req_mode,
+                                                   *flags);
                         continue;
                 }
                 if (new->l_policy_data.l_flock.end >=
