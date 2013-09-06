@@ -1050,6 +1050,9 @@ test_24x() {
 	mkdir -p $remote_dir/tgt_dir
 	touch $remote_dir/tgt_file
 
+	mrename $remote_dir $DIR/ &&
+		error "rename dir cross MDT works!"
+
 	mrename $DIR/$tdir/src_dir $remote_dir/tgt_dir &&
 		error "rename dir cross MDT works!"
 
@@ -10767,7 +10770,7 @@ test_213() {
 run_test 213 "OSC lock completion and cancel race don't crash - bug 18829"
 
 test_214() { # for bug 20133
-	test_mkdir -p $DIR/d214p/d214c
+	mkdir -p $DIR/d214p/d214c
 	for (( i=0; i < 340; i++ )) ; do
 		touch $DIR/d214p/d214c/a$i
 	done
