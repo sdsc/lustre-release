@@ -130,41 +130,64 @@ void llapi_msg_set_level(int level)
                 llapi_msg_level = level;
 }
 
+static void error_callback_default(int level, int errcode, const char *fmt,
+				   va_list ap)
+{
+	vfprintf(stderr, fmt, ap);
+	if (level & LLAPI_MSG_NO_ERRNO)
+		fprintf(stderr, "\n");
+	else
+		fprintf(stderr, ": %s (%d)\n", strerror(errcode),
+			errcode);
+}
+
+static llapi_log_cb_t llapi_error_callback = error_callback_default;
+
+
 /* llapi_error will preserve errno */
 void llapi_error(int level, int _rc, const char *fmt, ...)
 {
-        va_list args;
-        int tmp_errno = errno;
-        /* to protect using errno as _rc argument */
-        int rc = abs(_rc);
+	va_list	 args;
+	int	 tmp_errno = errno;
+	/* to protect using errno as _rc argument */
+	int	 tmp_rc = abs(_rc);
 
-        if ((level & LLAPI_MSG_MASK) > llapi_msg_level)
-                return;
+	if ((level & LLAPI_MSG_MASK) > llapi_msg_level)
+		return;
 
-        va_start(args, fmt);
-        vfprintf(stderr, fmt, args);
-        va_end(args);
-
-        if (level & LLAPI_MSG_NO_ERRNO)
-                fprintf(stderr, "\n");
-        else
-                fprintf(stderr, ": %s (%d)\n", strerror(rc), rc);
-        errno = tmp_errno;
+	if (llapi_error_callback != NULL) {
+		va_start(args, fmt);
+		llapi_error_callback(level, tmp_rc, fmt, args);
+		va_end(args);
+	}
+	errno = tmp_errno;
 }
 
 /* llapi_printf will preserve errno */
 void llapi_printf(int level, const char *fmt, ...)
 {
-        va_list args;
-        int tmp_errno = errno;
+	va_list	 args;
+	int	 tmp_errno = errno;
 
-        if ((level & LLAPI_MSG_MASK) > llapi_msg_level)
-                return;
+	if ((level & LLAPI_MSG_MASK) > llapi_msg_level)
+		return;
 
-        va_start(args, fmt);
-        vfprintf(stdout, fmt, args);
-        va_end(args);
-        errno = tmp_errno;
+	va_start(args, fmt);
+	vfprintf(stdout, fmt, args);
+	va_end(args);
+	errno = tmp_errno;
+}
+
+/**
+ * Set a custom logging function. Passing in NULL will reset the logger to its
+ * default value.
+ */
+void llapi_msg_error_callback_set(llapi_log_cb_t cb)
+{
+	if (cb != NULL)
+		llapi_error_callback = cb;
+	else
+		llapi_error_callback = error_callback_default;
 }
 
 /**
