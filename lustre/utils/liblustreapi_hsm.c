@@ -81,6 +81,404 @@ struct hsm_copyaction_private {
 	struct stat				 stat;
 };
 
+enum ct_event {
+	CT_REGISTER		= 1,
+	CT_UNREGISTER		= 2,
+	CT_ARCHIVE_START	= HSMA_ARCHIVE,
+	CT_ARCHIVE_RUNNING	= HSMA_ARCHIVE + 50,
+	CT_ARCHIVE_FINISH	= HSMA_ARCHIVE + 100,
+	CT_ARCHIVE_CANCEL	= HSMA_ARCHIVE + 150,
+	CT_ARCHIVE_ERROR	= HSMA_ARCHIVE + 175,
+	CT_RESTORE_START	= HSMA_RESTORE,
+	CT_RESTORE_RUNNING	= HSMA_RESTORE + 50,
+	CT_RESTORE_FINISH	= HSMA_RESTORE + 100,
+	CT_RESTORE_CANCEL	= HSMA_RESTORE + 150,
+	CT_RESTORE_ERROR	= HSMA_RESTORE + 175,
+	CT_REMOVE_START		= HSMA_REMOVE,
+	CT_REMOVE_RUNNING	= HSMA_REMOVE + 50,
+	CT_REMOVE_FINISH	= HSMA_REMOVE + 100,
+	CT_REMOVE_CANCEL	= HSMA_REMOVE + 150,
+	CT_REMOVE_ERROR		= HSMA_REMOVE + 175,
+	CT_EVENT_MAX
+};
+
+enum ct_progress_type {
+	CT_START	= 0,
+	CT_RUNNING	= 50,
+	CT_FINISH	= 100,
+	CT_CANCEL	= 150,
+	CT_ERROR	= 175
+};
+
+/* initialized in llapi_hsm_register_event_fifo() */
+FILE *llapi_hsm_event_fp;
+
+static inline const char *ev2str(int type)
+{
+	switch (type) {
+	case CT_REGISTER:
+		return "REGISTER";
+	case CT_UNREGISTER:
+		return "UNREGISTER";
+	case CT_ARCHIVE_START:
+		return "ARCHIVE_START";
+	case CT_ARCHIVE_RUNNING:
+		return "ARCHIVE_RUNNING";
+	case CT_ARCHIVE_FINISH:
+		return "ARCHIVE_FINISH";
+	case CT_ARCHIVE_CANCEL:
+		return "ARCHIVE_CANCEL";
+	case CT_ARCHIVE_ERROR:
+		return "ARCHIVE_ERROR";
+	case CT_RESTORE_START:
+		return "RESTORE_START";
+	case CT_RESTORE_RUNNING:
+		return "RESTORE_RUNNING";
+	case CT_RESTORE_FINISH:
+		return "RESTORE_FINISH";
+	case CT_RESTORE_CANCEL:
+		return "RESTORE_CANCEL";
+	case CT_RESTORE_ERROR:
+		return "RESTORE_ERROR";
+	case CT_REMOVE_START:
+		return "REMOVE_START";
+	case CT_REMOVE_RUNNING:
+		return "REMOVE_RUNNING";
+	case CT_REMOVE_FINISH:
+		return "REMOVE_FINISH";
+	case CT_REMOVE_CANCEL:
+		return "REMOVE_CANCEL";
+	case CT_REMOVE_ERROR:
+		return "REMOVE_ERROR";
+	default:
+		llapi_err_noerrno(LLAPI_MSG_ERROR,
+				  "Unknown event type: %d", type);
+		return NULL;
+	}
+}
+
+int write_json_event(struct llapi_json_item_list **event)
+{
+	int				rc;
+	char				time_string[40];
+	time_t				event_time = time(0);
+	struct tm			*time_components;
+	struct llapi_json_item_list	*json_items;
+
+	/* Noop unless the event fp was initialized */
+	if (llapi_hsm_event_fp == NULL)
+		return 0;
+
+	if (event == NULL || *event == NULL)
+		return -EINVAL;
+
+	json_items = *event;
+
+	time_components = localtime(&event_time);
+	if (time_components == NULL) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "localtime() failed");
+		return rc;
+	}
+
+	if (strftime(time_string, sizeof(time_string), "%Y-%m-%d %T %z",
+		     time_components) == 0) {
+		rc = -EINVAL;
+		llapi_error(LLAPI_MSG_ERROR, rc, "strftime() failed");
+		return rc;
+	}
+
+	if (llapi_json_add_item(&json_items, "event_time", LLAPI_JSON_STRING,
+				time_string))
+		return -1;
+
+	rc = llapi_json_write_list(event, llapi_hsm_event_fp);
+	if (rc < 0) {
+		if (rc == -EPIPE || rc == -EAGAIN) {
+			llapi_err_noerrno(LLAPI_MSG_WARN,
+					  "Write to event fd failed: no reader");
+		} else {
+			llapi_error(LLAPI_MSG_ERROR, rc,
+					  "Write to event fd failed");
+			return rc;
+		}
+	}
+
+	return 0;
+}
+
+int log_ct_registration(struct hsm_copytool_private **priv, __u32 event_type)
+{
+	int				rc;
+	char				agent_uuid[UUID_MAX];
+	struct hsm_copytool_private	*ct;
+	struct llapi_json_item_list	*json_items;
+
+	if (priv == NULL || *priv == NULL)
+		return -EINVAL;
+
+	ct = *priv;
+	if (ct->magic != CT_PRIV_MAGIC)
+		return -EINVAL;
+
+	if (event_type != CT_REGISTER && event_type != CT_UNREGISTER)
+		return -EINVAL;
+
+	if (llapi_json_init_list(&json_items))
+		goto err;
+
+	if (llapi_get_agent_uuid(ct->mnt, agent_uuid, sizeof(agent_uuid)))
+		goto err;
+
+	if (llapi_json_add_item(&json_items, "uuid", LLAPI_JSON_STRING,
+				agent_uuid))
+		goto err;
+
+	if (llapi_json_add_item(&json_items, "mount_point", LLAPI_JSON_STRING,
+				ct->mnt))
+		goto err;
+
+	if (llapi_json_add_item(&json_items, "archive", LLAPI_JSON_INTEGER,
+				&ct->archives))
+		goto err;
+
+	if (llapi_json_add_item(&json_items, "event_type", LLAPI_JSON_STRING,
+				(char *)ev2str(event_type)))
+		goto err;
+
+	rc = write_json_event(&json_items);
+
+	goto out_free;
+
+err:
+	rc = -1;
+	llapi_error(LLAPI_MSG_ERROR, errno, "error in log_ct_registration()");
+
+out_free:
+	if (json_items != NULL)
+		llapi_json_destroy_list(&json_items);
+
+	return rc;
+}
+
+int log_ct_progress(struct hsm_copyaction_private **phcp,
+		    const struct hsm_action_item *hai, __u32 progress_type,
+		    __u64 total, __u64 current)
+{
+	int				rc;
+	int				linkno = 0;
+	long long			recno = -1;
+	char				lustre_path[PATH_MAX];
+	char				strfid[FID_NOBRACE_LEN + 1];
+	struct hsm_copyaction_private	*hcp;
+	struct llapi_json_item_list	*json_items;
+
+	if (phcp == NULL || *phcp == NULL)
+		return -EINVAL;
+
+	hcp = *phcp;
+
+	if (llapi_json_init_list(&json_items))
+		goto err;
+
+	snprintf(strfid, sizeof(strfid), DFID_NOBRACE, PFID(&hai->hai_fid));
+
+	if (llapi_json_add_item(&json_items, "fid", LLAPI_JSON_STRING, strfid))
+		goto err;
+
+	if (hcp->copy.hc_errval == ECANCELED) {
+		progress_type = CT_CANCEL;
+		goto cancel;
+	}
+
+	if (hcp->copy.hc_errval != 0) {
+		progress_type = CT_ERROR;
+
+		if (llapi_json_add_item(&json_items, "errno",
+					LLAPI_JSON_INTEGER,
+					&hcp->copy.hc_errval))
+			goto err;
+
+		if (llapi_json_add_item(&json_items, "error",
+					LLAPI_JSON_STRING,
+					strerror(hcp->copy.hc_errval)))
+			goto err;
+
+		goto cancel;
+	}
+
+	/* lustre_path isn't available after a restore completes */
+	/* total_bytes isn't available after a restore or archive completes */
+	if (progress_type != CT_FINISH) {
+		if (llapi_fid2path(hcp->ct_priv->mnt, strfid, lustre_path,
+				   sizeof(lustre_path), &recno, &linkno) < 0)
+			goto err;
+
+		if (llapi_json_add_item(&json_items, "lustre_path",
+					LLAPI_JSON_STRING, lustre_path))
+			goto err;
+
+		if (llapi_json_add_item(&json_items, "total_bytes",
+					LLAPI_JSON_BIGNUM, &total))
+			goto err;
+	}
+
+	if (progress_type == CT_RUNNING)
+		if (llapi_json_add_item(&json_items, "current_bytes",
+					LLAPI_JSON_BIGNUM, &current))
+			goto err;
+
+cancel:
+	if (llapi_json_add_item(&json_items, "event_type", LLAPI_JSON_STRING,
+				(char *)ev2str(hai->hai_action + progress_type)))
+		goto err;
+
+	rc = write_json_event(&json_items);
+	goto out_free;
+
+err:
+	rc = -1;
+	llapi_error(LLAPI_MSG_ERROR, errno, "error in log_ct_progress()");
+
+out_free:
+	if (json_items != NULL)
+		llapi_json_destroy_list(&json_items);
+
+	return rc;
+}
+
+int llapi_hsm_register_event_fifo(char *path)
+{
+	int fd;
+
+	/* Strictly speaking, the reader should create the FIFO. Leaving
+	 * this here for reference/completeness. */
+	if ((mknod(path, S_IFIFO | 0666, 0) < 0) && (errno != EEXIST)) {
+		llapi_error(LLAPI_MSG_ERROR, errno, "mknod(%s) failed", path);
+		return -errno;
+	}
+
+	/* This will fail if there is not someone already reading on
+	 * the other side of the FIFO. */
+	fd = open(path, O_WRONLY | O_NONBLOCK);
+	if (fd < 0) {
+		llapi_error(LLAPI_MSG_ERROR, errno,
+			    "cannot open(%s) for write", path);
+		return -errno;
+	}
+
+	llapi_hsm_event_fp = fdopen(fd, "w");
+	if (llapi_hsm_event_fp == NULL) {
+		llapi_error(LLAPI_MSG_ERROR, errno,
+			    "cannot fdopen(%s) for write", path);
+		return -errno;
+	}
+
+	/* Ignore SIGPIPEs -- can occur if the reader goes away. */
+	signal(SIGPIPE, SIG_IGN);
+
+	/* Don't buffer the event stream. */
+	setbuf(llapi_hsm_event_fp, NULL);
+
+	return 0;
+}
+
+int llapi_hsm_unregister_event_fifo(char *path)
+{
+	/* Noop unless the event fp was initialized */
+	if (llapi_hsm_event_fp == NULL)
+		return 0;
+
+	if (fclose(llapi_hsm_event_fp) != 0)
+		return -errno;
+
+	unlink(path);
+
+	llapi_hsm_event_fp = NULL;
+
+	return 0;
+}
+
+int llapi_hsm_log_error(int level, int _rc, const char *fmt, va_list args)
+{
+	int				rc;
+	int				msg_len;
+	int				real_level;
+	char				*msg = NULL;
+	va_list				args2;
+	struct llapi_json_item_list	*json_items;
+
+	/* Noop unless the event fp was initialized */
+	if (llapi_hsm_event_fp == NULL)
+		return 0;
+
+	if (llapi_json_init_list(&json_items))
+		goto err;
+
+	if ((level & LLAPI_MSG_NO_ERRNO) == 0) {
+		if (llapi_json_add_item(&json_items, "errno",
+					LLAPI_JSON_INTEGER,
+					&_rc))
+			goto err;
+
+		if (llapi_json_add_item(&json_items, "error",
+					LLAPI_JSON_STRING,
+					strerror(abs(_rc))))
+			goto err;
+	}
+
+	va_copy(args2, args);
+	msg_len = vsnprintf(NULL, 0, fmt, args2) + 1;
+	va_end(args2);
+	if (msg_len >= 0) {
+		msg = calloc(1, msg_len);
+		if (msg == NULL)
+			return -ENOMEM;
+
+		if (vsnprintf(msg, msg_len, fmt, args) < 0)
+			goto err;
+
+		if (llapi_json_add_item(&json_items, "message",
+					LLAPI_JSON_STRING,
+					msg))
+			goto err;
+	} else {
+		if (llapi_json_add_item(&json_items, "message",
+					LLAPI_JSON_STRING,
+					"INTERNAL ERROR: message failed"))
+			goto err;
+	}
+
+	real_level = level & LLAPI_MSG_NO_ERRNO;
+	real_level = real_level > 0 ? level - LLAPI_MSG_NO_ERRNO : level;
+
+	if (llapi_json_add_item(&json_items, "level", LLAPI_JSON_STRING,
+				(void *)llapi_msg_level2str(real_level)))
+		goto err;
+
+	if (llapi_json_add_item(&json_items, "event_type", LLAPI_JSON_STRING,
+				"LOGGED_MESSAGE"))
+		goto err;
+
+	rc = write_json_event(&json_items);
+
+	goto out_free;
+
+err:
+	fprintf(stderr, "\nFATAL ERROR IN llapi_hsm_log_error: %s\n",
+		strerror(errno));
+	rc = -1;
+
+out_free:
+	if (json_items != NULL)
+		llapi_json_destroy_list(&json_items);
+
+	if (msg != NULL)
+		free(msg);
+
+	return rc;
+}
+
 #include <libcfs/libcfs.h>
 
 /** Register a copytool
@@ -167,6 +565,8 @@ int llapi_hsm_copytool_register(struct hsm_copytool_private **priv,
 		rc = 0;
 	}
 
+	log_ct_registration(&ct, CT_REGISTER);
+
 	/* Only the kernel reference keeps the write side open */
 	close(ct->kuc.lk_wfd);
 	ct->kuc.lk_wfd = LK_NOFD;
@@ -217,6 +617,8 @@ int llapi_hsm_copytool_unregister(struct hsm_copytool_private **priv)
 
 	/* Shut down the kernelcomms */
 	libcfs_ukuc_stop(&ct->kuc);
+
+	log_ct_registration(&ct, CT_UNREGISTER);
 
 	close(ct->open_by_fid_fd);
 	close(ct->mnt_fd);
@@ -484,6 +886,8 @@ int llapi_hsm_action_begin(struct hsm_copyaction_private **phcp,
 		goto err_out;
 	}
 
+	log_ct_progress(&hcp, hai, CT_START, 0, 0);
+
 ok_out:
 	hcp->magic = CP_PRIV_MAGIC;
 	*phcp = hcp;
@@ -564,6 +968,7 @@ end:
 		goto err_cleanup;
 	}
 
+	log_ct_progress(&hcp, hai, CT_FINISH, 0, 0);
 err_cleanup:
 	if (!(hcp->data_fd < 0))
 		close(hcp->data_fd);
@@ -577,11 +982,13 @@ err_cleanup:
 /** Notify a progress in processing an HSM action.
  * \param hdl[in,out]   handle returned by llapi_hsm_action_start.
  * \param he[in]        the range of copied data (for copy actions).
+ * \param total[in]     the expected total of copied data (for copy actions).
  * \param hp_flags[in]  HSM progress flags.
  * \return 0 on success.
  */
 int llapi_hsm_action_progress(struct hsm_copyaction_private *hcp,
-			      const struct hsm_extent *he, int hp_flags)
+			      const struct hsm_extent *he, __u64 total,
+			      int hp_flags)
 {
 	int			 rc;
 	struct hsm_progress	 hp;
@@ -607,6 +1014,8 @@ int llapi_hsm_action_progress(struct hsm_copyaction_private *hcp,
 	rc = ioctl(hcp->ct_priv->mnt_fd, LL_IOC_HSM_PROGRESS, &hp);
 	if (rc < 0)
 		rc = -errno;
+
+	log_ct_progress(&hcp, hai, CT_RUNNING, total, he->length);
 
 	return rc;
 }

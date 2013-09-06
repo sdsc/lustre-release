@@ -42,6 +42,7 @@
  * @{
  */
 
+#include <stdio.h> /* needed for FILE and snprintf? */
 #include <lustre/lustre_user.h>
 
 typedef void (*llapi_cb_t)(char *obd_type_name, char *obd_name, char *obd_uuid, void *args);
@@ -62,6 +63,7 @@ enum llapi_message_level {
 #define LLAPI_MSG_MASK          0x00000007
 #define LLAPI_MSG_NO_ERRNO      0x00000010
 
+const char* llapi_msg_level2str(int level);
 extern void llapi_msg_set_level(int level);
 
 void llapi_error(int level, int rc, const char *fmt, ...)
@@ -264,7 +266,12 @@ extern int llapi_hsm_state_set_fd(int fd, __u64 setmask, __u64 clearmask,
 				  __u32 archive_id);
 extern int llapi_hsm_state_set(const char *path, __u64 setmask, __u64 clearmask,
 			       __u32 archive_id);
+extern int llapi_hsm_register_event_fifo(char *path);
+extern int llapi_hsm_unregister_event_fifo(char *path);
+extern int llapi_hsm_log_error(int level, int _rc, const char *fmt,
+			       va_list args);
 
+extern int llapi_get_agent_uuid(char *path, char *buf, size_t bufsize);
 extern int llapi_create_volatile_idx(char *directory, int idx, int mode);
 static inline int llapi_create_volatile(char *directory, int mode)
 {
@@ -320,7 +327,8 @@ extern int llapi_hsm_action_end(struct hsm_copyaction_private **phcp,
 				const struct hsm_extent *he,
 				int hp_flags, int errval);
 extern int llapi_hsm_action_progress(struct hsm_copyaction_private *hcp,
-				     const struct hsm_extent *he, int hp_flags);
+				     const struct hsm_extent *he, __u64 total,
+				     int hp_flags);
 extern int llapi_hsm_action_get_dfid(const struct hsm_copyaction_private *hcp,
 				     lustre_fid *fid);
 extern int llapi_hsm_action_get_fd(const struct hsm_copyaction_private *hcp);
@@ -336,6 +344,14 @@ extern int llapi_hsm_request(const char *path,
 			     const struct hsm_user_request *request);
 extern int llapi_hsm_current_action(const char *path,
 				    struct hsm_current_action *hca);
+
+/* JSON handling */
+extern int llapi_json_init_list(struct llapi_json_item_list **item_list);
+extern int llapi_json_destroy_list(struct llapi_json_item_list **item_list);
+extern int llapi_json_add_item(struct llapi_json_item_list **item_list,
+			       char *key, __u32 type, void *val);
+extern int llapi_json_write_list(struct llapi_json_item_list **item_list,
+				 FILE *fp);
 /** @} llapi */
 
 #endif
