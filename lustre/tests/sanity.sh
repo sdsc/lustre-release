@@ -8836,7 +8836,7 @@ function roc_hit_init() {
 		dd if=/dev/urandom of=$file bs=4k count=4 2>&1 > /dev/null
 		idx=$(printf %04x $i)
 		BEFORE=$(get_osd_param $list *OST*$idx stats |
-		    awk '$1 == "cache_access" {sum += $2} END { print sum }')
+		    awk '$1 == "cache_access" {sum += $7} END { print sum }')
 		if [ -z "$BEFORE" ]; then
 			BEFORE=0
 		fi
@@ -8845,7 +8845,7 @@ function roc_hit_init() {
 		cat $file >/dev/null
 
 		AFTER=$(get_osd_param $list *OST*$idx stats |
-		    awk '$1 == "cache_access" {sum += $2} END { print sum }')
+		    awk '$1 == "cache_access" {sum += $7} END { print sum }')
 
 		echo BEFORE:$BEFORE AFTER:$AFTER
 		if ! let "AFTER - BEFORE == 4"; then
@@ -8861,7 +8861,7 @@ function roc_hit_init() {
 function roc_hit() {
 	local list=$(comma_list $(osts_nodes))
 	echo $(get_osd_param $list '' stats |
-		awk '$1 == "cache_hit" {sum += $2} END { print sum }')
+		awk '$1 == "cache_hit" {sum += $7} END { print sum }')
 }
 
 function set_cache() {
