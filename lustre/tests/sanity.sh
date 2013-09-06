@@ -8747,7 +8747,7 @@ function roc_hit_init() {
 function roc_hit() {
 	local list=$(comma_list $(osts_nodes))
 	echo $(get_osd_param $list '' stats |
-		awk '$1 == "cache_hit" {sum += $2} END { print sum }')
+		awk '$1 == "cache_hit" {sum += $7} END { print sum }')
 }
 
 function set_cache() {
