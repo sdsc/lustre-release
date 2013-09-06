@@ -545,6 +545,13 @@ static int lod_xattr_set(const struct lu_env *env,
 		if (fl & LU_XATTR_REPLACE) {
 			/* free stripes, then update disk */
 			lod_object_free_striping(env, lod_dt_obj(dt));
+			/* LU_XATTR_REPLACE & LU_XATTR_CREATE indicating a
+			 * setea command (LL_IOC_LOV_SETEA) from user, in
+			 * such case, we don't care if the file already has
+			 * LOV EA or not. */
+			if ((fl & LU_XATTR_REPLACE) && (fl & LU_XATTR_CREATE))
+				fl = 0;
+
 			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
 		} else {
 			rc = lod_striping_create(env, dt, NULL, NULL, th);
