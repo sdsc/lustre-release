@@ -1187,6 +1187,31 @@ struct hsm_copy {
 	struct hsm_action_item	hc_hai;
 };
 
+/* JSON objects */
+typedef enum llapi_json_types {
+	LLAPI_JSON_INTEGER = 1,
+	LLAPI_JSON_BIGNUM,
+	LLAPI_JSON_REAL,
+	LLAPI_JSON_STRING
+} llapi_json_type_t;
+
+struct llapi_json_item {
+	char			*key;
+	llapi_json_type_t	type;
+	union {
+		int	integer;
+		__u64	u64;
+		double	real;
+		char	*string;
+	} value;
+	struct llapi_json_item	*next;
+};
+
+struct llapi_json_item_list {
+	int			item_count;
+	struct llapi_json_item  *items;
+};
+
 /** @} lustreuser */
 
 #endif /* _LUSTRE_USER_H */
