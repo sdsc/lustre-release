@@ -130,41 +130,83 @@ void llapi_msg_set_level(int level)
                 llapi_msg_level = level;
 }
 
+static void llapi_default_logger(int level, int errcode, const char *msg)
+{
+	if (level & LLAPI_MSG_IS_ERROR) {
+		if (level & LLAPI_MSG_NO_ERRNO)
+			fprintf(stderr, "%s\n", msg);
+		else
+			fprintf(stderr, "%s: %s (%d)\n", msg, strerror(errcode),
+				errcode);
+	} else {
+		/* msg has already been formatted by a printf-like function */
+		fprintf(stdout, msg);
+	}
+}
+
+static llapi_log_cb_t llapi_log_func = llapi_default_logger;
+
+
 /* llapi_error will preserve errno */
 void llapi_error(int level, int _rc, const char *fmt, ...)
 {
-        va_list args;
-        int tmp_errno = errno;
-        /* to protect using errno as _rc argument */
-        int rc = abs(_rc);
+	char	*msg;
+	va_list	 args;
+	int	 rc;
+	int	 tmp_errno = errno;
+	/* to protect using errno as _rc argument */
+	int	 tmp_rc = abs(_rc);
 
-        if ((level & LLAPI_MSG_MASK) > llapi_msg_level)
-                return;
+	if ((level & LLAPI_MSG_MASK) > llapi_msg_level)
+		return;
 
-        va_start(args, fmt);
-        vfprintf(stderr, fmt, args);
-        va_end(args);
+	level |= LLAPI_MSG_IS_ERROR;
 
-        if (level & LLAPI_MSG_NO_ERRNO)
-                fprintf(stderr, "\n");
-        else
-                fprintf(stderr, ": %s (%d)\n", strerror(rc), rc);
-        errno = tmp_errno;
+	if (llapi_log_func != NULL) {
+		va_start(args, fmt);
+		rc = vasprintf(&msg, fmt, args);
+		if (rc >= 0) {
+			llapi_log_func(level, tmp_rc, msg);
+			free(msg);
+		}
+		va_end(args);
+	}
+	errno = tmp_errno;
 }
 
 /* llapi_printf will preserve errno */
 void llapi_printf(int level, const char *fmt, ...)
 {
-        va_list args;
-        int tmp_errno = errno;
+	char	*msg;
+	va_list	 args;
+	int	 rc;
+	int	 tmp_errno = errno;
 
-        if ((level & LLAPI_MSG_MASK) > llapi_msg_level)
-                return;
+	if ((level & LLAPI_MSG_MASK) > llapi_msg_level)
+		return;
 
-        va_start(args, fmt);
-        vfprintf(stdout, fmt, args);
-        va_end(args);
-        errno = tmp_errno;
+	if (llapi_log_func != NULL) {
+		va_start(args, fmt);
+		rc = vasprintf(&msg, fmt, args);
+		if (rc >= 0) {
+			llapi_log_func(level, 0, msg);
+			free(msg);
+		}
+		va_end(args);
+	}
+	errno = tmp_errno;
+}
+
+/**
+ * Set a custom logging function. Passing in NULL will reset the logger to its
+ * default value.
+ */
+void llapi_msg_set_callback(llapi_log_cb_t cb)
+{
+	if (cb != NULL)
+		llapi_log_func = cb;
+	else
+		llapi_log_func = llapi_default_logger;
 }
 
 /**
