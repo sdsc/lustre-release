@@ -147,6 +147,7 @@ copytool_setup() {
 	# independent of hardware
 	local cmd="$HSMTOOL $HSMTOOL_VERBOSE --daemon --hsm-root $hsm_root"
 	[[ -z "$arc_id" ]] || cmd+=" --archive $arc_id"
+	cmd+=" --no-attr --no-xattr"
 	cmd+=" --bandwidth 1 $lustre_mntpnt"
 
 	# Redirect the standard output and error to a log file which
