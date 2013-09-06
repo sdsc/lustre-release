@@ -15,10 +15,10 @@ ONLY=${ONLY:-"$*"}
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 # skip test cases failed before landing - Jinshan
 
-ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 12a 12b 12n 13 30a 31a 34 35 36 58 59"
-ALWAYS_EXCEPT="$ALWAYS_EXCEPT 110a 200 201 221 222a 223a 223b 225"
+ALWAYS_EXCEPT=""
 
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+PTLDEBUG="vfstrace rpctrace dlmtrace neterror ha config ioctl super hsm"
 
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
@@ -90,7 +90,7 @@ init_agt_vars() {
 	export SINGLEAGT=${SINGLEAGT:-agt1}
 
 	export HSMTOOL=${HSMTOOL:-"lhsmtool_posix"}
-	export HSMTOOL_VERBOSE=${HSMTOOL_VERBOSE:-""}
+	export HSMTOOL_VERBOSE=${HSMTOOL_VERBOSE:-"-vvvv"}
 	export HSMTOOL_BASE=$(basename "$HSMTOOL" | cut -f1 -d" ")
 	HSM_ARCHIVE=$(copytool_device $SINGLEAGT)
 	HSM_ARCHIVE_NUMBER=2
@@ -496,6 +496,9 @@ copytool_setup
 
 # finished requests are quickly removed from list
 set_hsm_param grace_delay 10
+
+env >&2
+mount >&2
 
 test_1() {
 	mkdir -p $DIR/$tdir
