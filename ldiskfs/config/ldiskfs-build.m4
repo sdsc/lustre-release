@@ -643,7 +643,16 @@ AS_IF([$1], [
 		AS_VERSION_COMPARE([$LINUXRELEASE],[3.0.0],[
 		AS_VERSION_COMPARE([$LINUXRELEASE],[2.6.32],[],
 		[SER="2.6-sles11.series"],[SER="2.6-sles11.series"])],
-		[SER="3.0-sles11.series"],[SER="3.0-sles11.series"])
+		[SER="3.0-sles11.series"],[
+			PLEV=$(grep PATCHLEVEL /etc/SuSE-release | \
+			       sed -e 's/.*= *//')
+			case $PLEV in
+			2) SER="3.0-sles11.series"
+				;;
+			3) SER="3.0-sles11sp3.series"
+				;;
+			esac
+		])
 	])
 	LDISKFS_SERIES=$SER
 
