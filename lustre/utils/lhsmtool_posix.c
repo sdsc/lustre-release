@@ -467,45 +467,36 @@ static int ct_restore_stripe(const char *src, const char *dst, int dst_fd,
 	return rc;
 }
 
-/* non-blocking read or write */
-static int nonblock_rw(bool wr, int fd, char *buf, int size)
+static void bandwidth_ctl_delay(int wsize)
 {
-	int rc;
+	static unsigned long long	tot_bytes;
+	static time_t			start_time;
+	static time_t			last_time;
+	time_t				now = time(0);
+	double				tot_time;
+	double				excess;
+	unsigned int			sleep_time;
 
-	if (wr)
-		rc = write(fd, buf, size);
-	else
-		rc = read(fd, buf, size);
-
-	if ((rc < 0) && (errno == -EAGAIN)) {
-		fd_set set;
-		struct timeval timeout;
-
-		timeout.tv_sec = opt.o_report_int;
-
-		FD_ZERO(&set);
-		FD_SET(fd, &set);
-		if (wr)
-			rc = select(FD_SETSIZE, NULL, &set, NULL, &timeout);
-		else
-			rc = select(FD_SETSIZE, &set, NULL, NULL, &timeout);
-		if (rc < 0)
-			return -errno;
-		if (rc == 0)
-			/* Timed out, we read nothing */
-			return -EAGAIN;
-
-		/* Should be available now */
-		if (wr)
-			rc = write(fd, buf, size);
-		else
-			rc = read(fd, buf, size);
+	if (now > last_time + 5) {
+		tot_bytes = 0;
+		start_time = last_time = now;
 	}
 
-	if (rc < 0)
-		rc = -errno;
+	tot_bytes += wsize;
+	tot_time = now - start_time;
+	if (tot_time < 1)
+		tot_time = 1;
 
-	return rc;
+	excess = tot_bytes - tot_time * opt.o_bandwidth;
+	sleep_time = excess * 1000000 / opt.o_bandwidth;
+	if ((now - start_time) % 10 == 1)
+		CT_TRACE("bandwith control: excess=%E sleep for %dus", excess,
+			 sleep_time);
+
+	if (excess > 0)
+		usleep(sleep_time);
+
+	last_time = now;
 }
 
 static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
@@ -513,16 +504,15 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 			const struct hsm_action_item *hai, long hal_flags)
 {
 	struct hsm_extent	 he;
+	off_t			 offset = hai->hai_extent.offset;
 	struct stat		 src_st;
 	struct stat		 dst_st;
 	char			*buf;
 	__u64			 wpos = 0;
-	__u64			 rpos = 0;
 	__u64			 rlen;
 	time_t			 last_print_time = time(0);
 	int			 rsize;
 	int			 wsize;
-	int			 bufoff = 0;
 	int			 rc = 0;
 
 	CT_TRACE("going to copy data from '%s' to '%s'", src, dst);
@@ -570,7 +560,7 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 		goto out;
 	}
 
-	he.offset = hai->hai_extent.offset;
+	he.offset = offset;
 	he.length = 0;
 	rc = llapi_hsm_action_progress(hcp, &he, 0);
 	if (rc < 0) {
@@ -590,78 +580,30 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 		int chunk = (rlen - wpos > opt.o_chunk_size) ?
 			    opt.o_chunk_size : rlen - wpos;
 
-		/* Only read more if we wrote everything in the buffer */
-		if (wpos == rpos) {
-			rsize = nonblock_rw(0, src_fd, buf, chunk);
-			if (rsize == 0)
-				/* EOF */
-				break;
+		rsize = pread(src_fd, buf, chunk, offset);
+		if (rsize == 0)
+			/* EOF */
+			break;
 
-			if (rsize == -EAGAIN) {
-				/* Timed out */
-				rsize = 0;
-				if (rpos == 0) {
-					/* Haven't read anything yet, let's
-					 * give it back to the coordinator
-					 * for rescheduling */
-					rc = -EAGAIN;
-					break;
-				}
-			}
-
-			if (rsize < 0) {
-				rc = rsize;
-				CT_ERROR(rc, "cannot read from '%s'", src);
-				break;
-			}
-
-			rpos += rsize;
-			bufoff = 0;
+		if (rsize < 0) {
+			rc = -errno;
+			CT_ERROR(rc, "cannot read from '%s'", src);
+			break;
 		}
 
-		wsize = nonblock_rw(1, dst_fd, buf + bufoff, rpos - wpos);
-		if (wsize == -EAGAIN)
-			/* Timed out */
-			wsize = 0;
-
+		wsize = pwrite(dst_fd, buf, rsize, offset);
 		if (wsize < 0) {
-			rc = wsize;
+			rc = -errno;
 			CT_ERROR(rc, "cannot write to '%s'", dst);
 			break;
 		}
 
 		wpos += wsize;
-		bufoff += wsize;
+		offset += wsize;
 
-		if (opt.o_bandwidth != 0) {
-			static unsigned long long	tot_bytes;
-			static time_t			start_time, last_time;
-			time_t				now = time(0);
-			double				tot_time, excess;
-			unsigned int			sleep_time;
-
-			if (now > last_time + 5) {
-				tot_bytes = 0;
-				start_time = last_time = now;
-			}
-
-			tot_bytes += wsize;
-			tot_time = now - start_time;
-			if (tot_time < 1)
-				tot_time = 1;
-
-			excess = tot_bytes - tot_time * opt.o_bandwidth;
-			sleep_time = excess * 1000000 / opt.o_bandwidth;
-			if ((now - start_time) % 10 == 1)
-				CT_TRACE("bandwith control: excess=%E"
-					 " sleep for %dus",
-					 excess, sleep_time);
-
-			if (excess > 0)
-				usleep(sleep_time);
-
-			last_time = now;
-		}
+		if (opt.o_bandwidth != 0)
+			/* sleep if needed, to honor bandwidth limits */
+			bandwidth_ctl_delay(wsize);
 
 		if (time(0) >= last_print_time + opt.o_report_int) {
 			last_print_time = time(0);
