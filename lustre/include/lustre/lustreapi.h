@@ -42,9 +42,12 @@
  * @{
  */
 
+#include <stdio.h>
+#include <stdarg.h>
 #include <lustre/lustre_user.h>
 
 typedef void (*llapi_cb_t)(char *obd_type_name, char *obd_name, char *obd_uuid, void *args);
+typedef void (*llapi_log_cb_t)(int level, int errcode, const char *fmt, va_list ap);
 
 /* lustreapi message severity level */
 enum llapi_message_level {
@@ -63,6 +66,7 @@ enum llapi_message_level {
 #define LLAPI_MSG_NO_ERRNO      0x00000010
 
 extern void llapi_msg_set_level(int level);
+extern void llapi_msg_error_callback_set(llapi_log_cb_t cb);
 
 void llapi_error(int level, int rc, const char *fmt, ...)
 	__attribute__((__format__(__printf__, 3, 4)));
