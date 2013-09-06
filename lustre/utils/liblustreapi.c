@@ -542,6 +542,28 @@ out:
 	return md_size;
 }
 
+/* FIXME: there must be a better way to do this... */
+int llapi_hsm_get_agent_uuid(char *path, char *buf, size_t bufsize)
+{
+	struct obd_uuid uuid;
+	int rc;
+
+	rc = llapi_file_get_lmv_uuid(path, &uuid);
+	if (rc)
+		return rc;
+
+	rc = get_param_cli("lmv", uuid.uuid, "uuid", buf, bufsize);
+	if (rc)
+		return rc;
+
+	/* hacky trim */
+	int len = strlen(buf) - 1;
+	if (buf[len] == '\n')
+		buf[len] = '\0';
+
+	return 0;
+}
+
 /*
  * if pool is NULL, search ostname in target_obd
  * if pool is not NULL:
@@ -4055,7 +4077,7 @@ int llapi_fid2path(const char *device, const char *fidstr, char *buf,
                 return -EINVAL;
         }
 
-        gf = malloc(sizeof(*gf) + buflen);
+	gf = calloc(1, sizeof(*gf) + buflen);
         if (gf == NULL)
                 return -ENOMEM;
         gf->gf_fid = fid;
@@ -4327,4 +4349,206 @@ int llapi_swap_layouts(const char *path1, const char *path2,
 	close(fd1);
 	close(fd2);
 	return rc;
+}
+
+/** Write a list of JSON items to a filehandle.
+ * \param	json_items	list of JSON items to be written
+ * \param	fp		open filehandle to use for write
+ *
+ * \retval	0 on success.
+ * \retval	-errno on error.
+ */
+int llapi_json_write_list(struct llapi_json_item_list **json_items, FILE *fp)
+{
+	int				i;
+	struct llapi_json_item_list	*list;
+	struct llapi_json_item		*item;
+
+	if (json_items == NULL || *json_items == NULL)
+		return -EINVAL;
+
+	list = *json_items;
+	item = list->items;
+
+	if (fprintf(fp, "{") < 0)
+		return -errno;
+	for (i = 0; i < list->item_count; i++) {
+		if (item == NULL) {
+			llapi_err_noerrno(LLAPI_MSG_ERROR,
+					  "%d json items but %d is NULL!",
+					  list->item_count, i);
+			/* Don't bomb out here so that we still emit
+			 * valid JSON. */
+			break;
+		}
+
+		if (fprintf(fp, "\"%s\": ", item->key) < 0)
+			return -errno;
+		switch (item->type) {
+		case LLAPI_JSON_INTEGER:
+			if (fprintf(fp, "%d", item->value.integer) < 0)
+				return -errno;
+			break;
+		case LLAPI_JSON_BIGNUM:
+			if (fprintf(fp, LPU64, item->value.u64) < 0)
+				return -errno;
+			break;
+		case LLAPI_JSON_REAL:
+			if (fprintf(fp, "%f", item->value.real) < 0)
+				return -errno;
+			break;
+		case LLAPI_JSON_STRING:
+			if (fprintf(fp, "\"%s\"", item->value.string) < 0)
+				return -errno;
+			break;
+		default:
+			llapi_err_noerrno(LLAPI_MSG_ERROR,
+				    "Invalid item type: %d", item->type);
+			/* Ensure valid JSON */
+			if (fprintf(fp, "\"\"") < 0)
+				return -errno;
+			break;
+		}
+
+		if (i < list->item_count - 1)
+			if (fprintf(fp, ", ") < 0)
+				return -errno;
+
+		item = item->next;
+	}
+	if (fprintf(fp, "}\n") < 0)
+		return -errno;
+
+	return 0;
+}
+
+/** Create a list to hold JSON items.
+ * \param[out]	json_items	Item list handle, allocated here
+ *
+ * \retval	0 on success.
+ * \retval	-errno on error.
+ */
+int llapi_json_init_list(struct llapi_json_item_list **json_items)
+{
+	struct llapi_json_item_list	*new_list;
+
+	new_list = calloc(1, sizeof(*new_list));
+	if (new_list == NULL)
+		return -ENOMEM;
+
+	new_list->item_count = 0;
+
+	*json_items = new_list;
+
+	return 0;
+}
+
+/** Deallocate a list of JSON items.
+ * \param	json_items	Item list handle, deallocated here
+ *
+ * \retval	0 on success.
+ * \retval	-errno on error.
+ */
+int llapi_json_destroy_list(struct llapi_json_item_list **json_items)
+{
+	int				i;
+	struct llapi_json_item_list	*list;
+	struct llapi_json_item		*cur_item;
+	struct llapi_json_item		*last_item;
+
+	if (json_items == NULL || *json_items == NULL)
+		return -EINVAL;
+
+	list = *json_items;
+	cur_item = list->items;
+
+	for (i = 0; i < list->item_count; i++) {
+		if (cur_item == NULL) {
+			llapi_err_noerrno(LLAPI_MSG_ERROR,
+					  "%d json items but %d is NULL!",
+					  list->item_count, i);
+			return -EINVAL;
+		}
+
+		if (cur_item->key != NULL)
+			free(cur_item->key);
+
+		if (cur_item->type == LLAPI_JSON_STRING
+		    && cur_item->value.string != NULL)
+			free(cur_item->value.string);
+
+		last_item = cur_item;
+		cur_item = last_item->next;
+		free(last_item);
+	}
+
+	free(list);
+
+	return 0;
+}
+
+/** Add an item to a list of JSON items.
+ * \param	json_items	Item list handle
+ * \param	key		Item key name
+ * \param	type		Item key type
+ * \param	val		Item key value
+ *
+ * \retval	0 on success.
+ * \retval	-errno on error.
+ */
+int llapi_json_add_item(struct llapi_json_item_list **json_items,
+			char *key, __u32 type, void *val)
+{
+	struct llapi_json_item_list	*list;
+	struct llapi_json_item		*new_item;
+
+	if (json_items == NULL || *json_items == NULL)
+		return -EINVAL;
+
+	list = *json_items;
+
+	new_item = calloc(1, sizeof(*new_item));
+	if (new_item == NULL)
+		return -ENOMEM;
+
+	new_item->key = calloc(1, strlen(key) + 1);
+	if (new_item->key == NULL)
+		return -ENOMEM;
+
+	strncpy(new_item->key, key, strlen(key));
+	new_item->type = type;
+	new_item->next = NULL;
+
+	switch (new_item->type) {
+	case LLAPI_JSON_INTEGER:
+		new_item->value.integer = *(int *)val;
+		break;
+	case LLAPI_JSON_BIGNUM:
+		new_item->value.u64 = *(__u64 *)val;
+		break;
+	case LLAPI_JSON_REAL:
+		new_item->value.real = *(double *)val;
+		break;
+	case LLAPI_JSON_STRING:
+		new_item->value.string = calloc(1, strlen((char *)val) + 1);
+		if (new_item->value.string == NULL)
+			return -ENOMEM;
+		strncpy(new_item->value.string,
+			(char *)val, strlen((char *)val));
+		break;
+	default:
+		llapi_err_noerrno(LLAPI_MSG_ERROR, "Unknown JSON type: %d",
+				  new_item->type);
+		return -EINVAL;
+	}
+
+	if (list->item_count == 0) {
+		list->items = new_item;
+	} else {
+		new_item->next = list->items;
+		list->items = new_item;
+	}
+	list->item_count++;
+
+	return 0;
 }
