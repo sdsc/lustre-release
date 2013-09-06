@@ -13,21 +13,22 @@ dist-hook:
 	  module-dist-hook
 
 rpms: @PACKAGE_TARNAME@.spec dist Makefile
-	CONFIGURE_ARGS=$$(echo $$(eval echo $(ac_configure_args)) | \
-		sed -re 's/--(en|dis)able-tests//'); \
+	@CONFIGURE_ARGS=""; \
+	for arg in $(ac_configure_args); do \
+		case $$arg in \
+			--with-release=* ) ;; \
+			--enable-tests | --disable-tests ) ;; \
+			--with-linux=* | --with-linux-obj=* ) ;; \
+			* ) CONFIGURE_ARGS="$$CONFIGURE_ARGS '$$arg'" ;; \
+		esac; \
+	done; \
+	RPMARGS="--define \"configure_args $$CONFIGURE_ARGS\""; \
 	if [ -n "@LINUX@" ]; then \
-		CONFIGURE_ARGS=$$(echo $$(eval echo $$CONFIGURE_ARGS) | \
-			sed -re 's/--with-linux=[^ ][^ ]*//'); \
-		RPMARGS="--define \"kdir @LINUX@\""; \
-		CONFIGURE_ARGS=$$(echo $$(eval echo $$CONFIGURE_ARGS) | \
-			sed -re 's/--with-linux-obj=[^ ][^ ]*//'); \
+		RPMARGS="$$RPMARGS --define \"kdir @LINUX@\""; \
 		if [ -n "@LINUX_OBJ@" -a "@LINUX_OBJ@" != "@LINUX@" ]; then \
 			RPMARGS="$$RPMARGS --define \"kobjdir @LINUX_OBJ@\""; \
 		fi; \
 	fi; \
-	CONFIGURE_ARGS=$$(echo $$(eval echo $$CONFIGURE_ARGS) | \
-		sed -re 's/--with-release=[^ ][^ ]*//'); \
-	RPMARGS="$$RPMARGS --define \"configure_args $$CONFIGURE_ARGS\""; \
 	echo "Building ldiskfs RPM with $$RPMARGS"; \
 	eval rpmbuild $$RPMARGS -ta $(distdir).tar.gz
 
