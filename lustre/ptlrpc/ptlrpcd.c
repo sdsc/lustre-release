@@ -406,7 +406,8 @@ static int ptlrpcd(void *arg)
 {
         struct ptlrpcd_ctl *pc = arg;
         struct ptlrpc_request_set *set = pc->pc_set;
-        struct lu_env env = { .le_ses = NULL };
+	struct lu_context ses = { 0 };
+        struct lu_env env = { .le_ses = &ses };
         int rc, exit = 0;
         ENTRY;
 
@@ -432,6 +433,12 @@ static int ptlrpcd(void *arg)
          */
         rc = lu_context_init(&env.le_ctx,
                              LCT_CL_THREAD|LCT_REMEMBER|LCT_NOREF);
+	if (rc == 0) {
+		rc = lu_context_init(env.le_ses,
+				     LCT_SESSION|LCT_REMEMBER|LCT_NOREF);
+		if (rc != 0)
+			lu_context_fini(&env.le_ctx);
+	}
 	complete(&pc->pc_starting);
 
         if (rc != 0)
@@ -452,9 +459,11 @@ static int ptlrpcd(void *arg)
                                   ptlrpc_expired_set, set);
 
                 lu_context_enter(&env.le_ctx);
+                lu_context_enter(env.le_ses);
                 l_wait_event(set->set_waitq,
                              ptlrpcd_check(&env, pc), &lwi);
                 lu_context_exit(&env.le_ctx);
+                lu_context_exit(env.le_ses);
 
                 /*
                  * Abort inflight rpcs for forced stop case.
@@ -477,6 +486,7 @@ static int ptlrpcd(void *arg)
         if (!cfs_list_empty(&set->set_requests))
                 ptlrpc_set_wait(set);
         lu_context_fini(&env.le_ctx);
+        lu_context_fini(env.le_ses);
 
 	complete(&pc->pc_finishing);
 

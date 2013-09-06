@@ -89,15 +89,11 @@ static struct ll_sb_info *ll_init_sbi(void)
 	mutex_init(&sbi->ll_lco.lco_lock);
 	spin_lock_init(&sbi->ll_pp_extent_lock);
 	spin_lock_init(&sbi->ll_process_lock);
-        sbi->ll_rw_stats_on = 0;
+	sbi->ll_rw_stats_on = 0;
 
-        si_meminfo(&si);
-        pages = si.totalram - si.totalhigh;
-	if (pages >> (20 - PAGE_CACHE_SHIFT) < 512) {
-		lru_page_max = pages / 2;
-	} else {
-		lru_page_max = (pages / 4) * 3;
-	}
+	si_meminfo(&si);
+	pages = si.totalram - si.totalhigh;
+	lru_page_max = pages >> 1;
 
 	/* initialize lru data */
 	cfs_atomic_set(&sbi->ll_cache.ccc_users, 0);
