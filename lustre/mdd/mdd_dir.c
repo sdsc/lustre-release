@@ -1607,8 +1607,8 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
         struct thandle    *handle;
 	const struct lu_buf *buf;
 	struct lu_attr    *attr = &mdd_env_info(env)->mti_cattr;
-        int                rc;
-        ENTRY;
+	int		   rc, flags = 0;
+	ENTRY;
 
         rc = mdd_cd_sanity_check(env, son);
         if (rc)
@@ -1642,16 +1642,20 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 	       spec->u.sp_ea.eadata, spec->u.sp_ea.eadatalen,
 	       spec->sp_cr_flags, spec->no_create);
 
-	if (spec->no_create || spec->sp_cr_flags & MDS_OPEN_HAS_EA) {
+	if (spec->no_create ||
+	    spec->sp_cr_flags & (MDS_OPEN_HAS_EA | MDS_OPEN_HAS_OBJS)) {
 		/* replay case or lfs setstripe */
 		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
 					spec->u.sp_ea.eadatalen);
+		/* set lov ea directly */
+		if (spec->sp_cr_flags & MDS_OPEN_HAS_OBJS)
+			flags = (LU_XATTR_REPLACE | LU_XATTR_CREATE);
 	} else {
 		buf = &LU_BUF_NULL;
 	}
 
 	rc = dt_declare_xattr_set(env, mdd_object_child(son), buf,
-				  XATTR_NAME_LOV, 0, handle);
+				  XATTR_NAME_LOV, flags, handle);
 	if (rc)
 		GOTO(stop, rc);
 
@@ -1664,7 +1668,7 @@ static int mdd_create_data(const struct lu_env *env, struct md_object *pobj,
 		GOTO(stop, rc);
 
 	rc = dt_xattr_set(env, mdd_object_child(son), buf, XATTR_NAME_LOV,
-			  0, handle, mdd_object_capa(env, son));
+			  flags, handle, mdd_object_capa(env, son));
 
 	if (rc)
 		GOTO(stop, rc);
