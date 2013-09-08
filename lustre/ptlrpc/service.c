@@ -60,7 +60,15 @@ CFS_MODULE_PARM(at_early_margin, "i", int, 0644,
                 "How soon before an RPC deadline to send an early reply");
 CFS_MODULE_PARM(at_extra, "i", int, 0644,
                 "How much extra time to give with each early reply");
-
+int summary_timeout = 10;
+CFS_MODULE_PARM(summary_timeout, "i", int, 0644,
+		"How many seconds to wait to get a summary");
+int summary_multiple = 10;
+CFS_MODULE_PARM(summary_multiple, "i", int, 0644,
+		"How many time intervals to wait to generate a carry to next period");
+int summary_depth = 3;
+CFS_MODULE_PARM(summary_depth, "i", int, 0644,
+		"How many periods in total");
 
 /* forward ref */
 static int ptlrpc_server_post_idle_rqbds(struct ptlrpc_service_part *svcpt);
@@ -648,6 +656,7 @@ ptlrpc_service_part_init(struct ptlrpc_service *svc,
 	CFS_INIT_LIST_HEAD(&svcpt->scp_rep_idle);
 	cfs_waitq_init(&svcpt->scp_rep_waitq);
 	cfs_atomic_set(&svcpt->scp_nreps_difficult, 0);
+	cfs_atomic_set(&svcpt->scp_rpc_count, 0);
 
 	/* adaptive timeout */
 	spin_lock_init(&svcpt->scp_at_lock);
@@ -701,6 +710,114 @@ ptlrpc_service_part_init(struct ptlrpc_service *svc,
 	}
 
 	return -ENOMEM;
+}
+
+static void
+ptlrpc_service_summary_update(struct ptlrpc_service *svc, __u64 new_data)
+{
+	struct ptlrpc_service_summary *summary = &svc->srv_summary;
+	int i;
+	ENTRY;
+
+	summary->ss_last_count = new_data;
+
+	for (i = 0; i < summary->ss_depth; i++) {
+		struct ptlrpc_summary_period *period = &summary->ss_history[i];
+		__u64 tmp;
+		if (period->sp_carry_times < summary->ss_multiple - 1) {
+			period->sp_carry_times++;
+			period->sp_carry += new_data;
+			break;
+		}
+		tmp = period->sp_count;
+		period->sp_count = period->sp_carry + new_data;
+		period->sp_carry_times = 0;
+		period->sp_carry = 0;
+		new_data = tmp;
+	}
+	EXIT;
+}
+
+
+static void ptlrpc_service_summary_cb(ulong_ptr_t data)
+{
+	struct ptlrpc_service *svc = (struct ptlrpc_service *)data;
+	struct ptlrpc_service_summary *summary = &svc->srv_summary;
+	struct ptlrpc_service_part *svcpt;
+	int new_data = 0;
+	int i;
+	ENTRY;
+
+	for (i = 0; i < svc->srv_ncpts; i++) {
+		int cpt_data;
+
+		svcpt = svc->srv_parts[i];
+#ifdef __KERNEL__
+		cpt_data = atomic_xchg(&svcpt->scp_rpc_count, 0);
+#else
+		cpt_data = cfs_atomic_read(&svcpt->scp_rpc_count);
+		cfs_atomic_sub(cpt_data, &svcpt->scp_rpc_count);
+#endif
+		new_data += cpt_data;
+	}
+	ptlrpc_service_summary_update(svc, new_data);
+	cfs_timer_arm(&summary->ss_timer,
+		      cfs_time_seconds(summary->ss_timeout) +
+		      cfs_time_current());
+
+	EXIT;
+}
+
+static void
+ptlrpc_service_summary_fini(struct ptlrpc_service *svc)
+{
+	struct ptlrpc_service_summary *summary = &svc->srv_summary;
+	ENTRY;
+
+#ifdef __KERNEL__
+	del_timer_sync(&svc->srv_summary.ss_timer);
+#else
+	cfs_timer_disarm(&svc->srv_summary.ss_timer);
+#endif
+	OBD_FREE(summary->ss_history,
+		 summary->ss_depth * sizeof(*summary->ss_history));
+
+	EXIT;
+}
+
+static int ptlrpc_service_summary_init(struct ptlrpc_service *svc)
+{
+	struct ptlrpc_service_summary *summary = &svc->srv_summary;
+	int i;
+	int rc = 0;
+	ENTRY;
+
+	summary->ss_timeout = summary_timeout;
+	summary->ss_depth = summary_depth;
+	summary->ss_multiple = summary_multiple;
+	summary->ss_last_count = 0;
+	OBD_ALLOC(summary->ss_history,
+		  summary->ss_depth * sizeof(*summary->ss_history));
+	if (summary->ss_history == NULL) {
+		rc = -ENOMEM;
+		RETURN(rc);
+	}
+
+	for (i = 0; i < summary->ss_depth; i++) {
+		struct ptlrpc_summary_period *period;
+		period = &summary->ss_history[i];
+		period->sp_count = 0;
+		period->sp_carry_times = 0;
+		period->sp_carry = 0;
+	}
+
+	cfs_timer_init(&summary->ss_timer,
+		       ptlrpc_service_summary_cb, svc);
+	cfs_timer_arm(&summary->ss_timer,
+		      cfs_time_seconds(summary->ss_timeout) +
+		      cfs_time_current());
+
+	RETURN(rc);
 }
 
 /**
@@ -826,6 +943,10 @@ ptlrpc_register_service(struct ptlrpc_service_conf *conf,
 	mutex_lock(&ptlrpc_all_services_mutex);
 	cfs_list_add (&service->srv_list, &ptlrpc_all_services);
 	mutex_unlock(&ptlrpc_all_services_mutex);
+
+	rc = ptlrpc_service_summary_init(service);
+	if (rc != 0)
+		GOTO(failed, rc);
 
 	if (proc_entry != NULL)
 		ptlrpc_lprocfs_register_service(proc_entry, service);
@@ -1998,6 +2119,7 @@ ptlrpc_server_handle_request(struct ptlrpc_service_part *svcpt,
                           request->rq_deadline));
                 goto put_conn;
         }
+	cfs_atomic_inc(&svcpt->scp_rpc_count);
 
 	CDEBUG(D_RPCTRACE, "Handling RPC pname:cluuid+ref:pid:xid:nid:opc "
 	       "%s:%s+%d:%d:x"LPU64":%s:%d\n", current_comm(),
@@ -3180,6 +3302,7 @@ int ptlrpc_unregister_service(struct ptlrpc_service *service)
 	ptlrpc_service_nrs_cleanup(service);
 
 	ptlrpc_lprocfs_unregister_service(service);
+	ptlrpc_service_summary_fini(service);
 
 	ptlrpc_service_free(service);
 
