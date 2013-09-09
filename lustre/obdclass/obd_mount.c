@@ -336,29 +336,30 @@ int lustre_start_mgc(struct super_block *sb)
         sprintf(niduuid, "%s_%x", mgcname, i);
 	if (IS_SERVER(lsi)) {
 		ptr = lsi->lsi_lmd->lmd_mgs;
+		CDEBUG(D_MOUNT, "mgs nids %s.\n", ptr);
 		if (IS_MGS(lsi)) {
-                        /* Use local nids (including LO) */
-                        lnet_process_id_t id;
-                        while ((rc = LNetGetId(i++, &id)) != -ENOENT) {
-                                rc = do_lcfg(mgcname, id.nid,
-                                             LCFG_ADD_UUID, niduuid, 0,0,0);
-                        }
-                } else {
-                        /* Use mgsnode= nids */
+			/* Use local nids (including LO) */
+			lnet_process_id_t id;
+			while ((rc = LNetGetId(i++, &id)) != -ENOENT) {
+				rc = do_lcfg(mgcname, id.nid,
+					     LCFG_ADD_UUID, niduuid, 0, 0, 0);
+			}
+		} else {
+			/* Use mgsnode= nids */
 			/* mount -o mgsnode=nid */
 			if (lsi->lsi_lmd->lmd_mgs) {
 				ptr = lsi->lsi_lmd->lmd_mgs;
 			} else if (class_find_param(ptr, PARAM_MGSNODE,
 						    &ptr) != 0) {
-                                CERROR("No MGS nids given.\n");
-                                GOTO(out_free, rc = -EINVAL);
-                        }
-                        while (class_parse_nid(ptr, &nid, &ptr) == 0) {
-                                rc = do_lcfg(mgcname, nid,
-                                             LCFG_ADD_UUID, niduuid, 0,0,0);
-                                i++;
-                        }
-                }
+				CERROR("No MGS nids given.\n");
+				GOTO(out_free, rc = -EINVAL);
+			}
+			if (class_parse_nid(ptr, &nid, &ptr) == 0) {
+				rc = do_lcfg(mgcname, nid,
+					     LCFG_ADD_UUID, niduuid, 0, 0, 0);
+				i++;
+			}
+		}
         } else { /* client */
                 /* Use nids from mount line: uml1,1@elan:uml2,2@elan:/lustre */
                 ptr = lsi->lsi_lmd->lmd_dev;
