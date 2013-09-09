@@ -101,7 +101,7 @@ scrub_prep() {
 	for n in $(seq $MDSCOUNT); do
 		echo "creating $nfiles files on mds$n"
 		if [ $n -eq 1 ]; then
-			mkdir -p $DIR/$tdir/mds$n ||
+			mkdir $DIR/$tdir/mds$n ||
 				error "Failed to create directory mds$n"
 		else
 			$LFS mkdir -i $((n - 1)) $DIR/$tdir/mds$n ||
@@ -789,7 +789,7 @@ test_11() {
 	local CREATED=100
 	local tname=`date +%s`
 	rm -rf $MOUNT/$tname > /dev/null
-	mkdir -p $MOUNT/$tname || error "(0) Failed to create $MOUNT/$tname"
+	mkdir $MOUNT/$tname || error "(0) Failed to create $MOUNT/$tname"
 	local n
 	for n in $(seq $MDSCOUNT); do
 		$LFS mkdir -i $((n - 1)) $MOUNT/$tname/mds$n ||
@@ -847,7 +847,7 @@ test_12() {
 	echo "setupall"
 	setupall > /dev/null
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
 
 	#define OBD_FAIL_OSD_COMPAT_INVALID_ENTRY		0x195
@@ -883,7 +883,7 @@ test_13() {
 	echo "setupall"
 	setupall > /dev/null
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
 
 	#define OBD_FAIL_OSD_COMPAT_NO_ENTRY		0x196
@@ -920,7 +920,7 @@ test_14() {
 	echo "setupall"
 	setupall > /dev/null
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
 
 	#define OBD_FAIL_OSD_COMPAT_NO_ENTRY		0x196

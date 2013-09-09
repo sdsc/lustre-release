@@ -61,15 +61,15 @@ test_3a() {
     local IFree=$(inodes_available)
     [ $IFree -gt $nfiles ] || nfiles=$IFree
 
-    local dir=$DIR/d0.$TESTNAME
-    mkdir -p $dir
-    chmod 0777 $dir
+	local dir=$DIR/d0.$TESTNAME
+	mkdir -p $dir || error "mkdir $dir failed"
+	chmod 0777 $dir
 
-    local pid
-    local list
-    local -a res
+	local pid
+	local list
+	local -a res
 
-    local num=$increment
+	local num=$increment
 
 	while [ $num -le $CLIENTCOUNT ]; do
 		list=$(comma_list ${nodes[@]:0:$num})

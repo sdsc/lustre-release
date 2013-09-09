@@ -39,10 +39,10 @@ TESTDIR=${TESTDIR:-$MOUNT/d0.ior-$(hostname)}
 
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
-    echoerr "$(date +'%F %H:%M:%S'): IOR run starting"
-    mkdir -p $TESTDIR
-    # need this only if TESTDIR is not default
-    chmod -R 777 $TESTDIR
+	echoerr "$(date +'%F %H:%M:%S'): IOR run starting"
+	mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
+	# need this only if TESTDIR is not default
+	chmod -R 777 $TESTDIR
 
 	mpi_run -np $((NUM_CLIENTS * THREADS_PER_CLIENT)) \
 		${MACHINEFILE_OPTION} ${MACHINEFILE} $IOR -a POSIX -b 1g \

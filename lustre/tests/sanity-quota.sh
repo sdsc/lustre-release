@@ -299,7 +299,7 @@ setup_quota_test() {
 	rm -rf $DIR/$tdir
 	wait_delete_completed
 	echo "Creating test directory"
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	chmod 0777 $DIR/$tdir
 	# always clear fail_loc in case of fail_loc isn't cleared
 	# properly when previous test failed

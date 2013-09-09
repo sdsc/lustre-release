@@ -66,15 +66,15 @@ lfsck_prep() {
 	fi
 
 	echo "preparing... ${nfiles} * ${ndirs} files will be created."
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 	cp $LUSTRE/tests/*.sh $DIR/
 	for ((i = 0; i < ${ndirs}; i++)); do
-		mkdir $DIR/$tdir/d${i}
+		mkdir $DIR/$tdir/d${i} || error "mkdir $tdir/d${i} failed"
 		touch $DIR/$tdir/f${i}
 		for ((j = 0; j < ${nfiles}; j++)); do
 			touch $DIR/$tdir/d${i}/f${j}
 		done
-		mkdir $DIR/$tdir/e${i}
+		mkdir $DIR/$tdir/e${i} || error "mkdir $tdir/e${i} failed"
 	done
 
 	if [ ! -z $igif ]; then
@@ -650,7 +650,7 @@ test_8()
 
 	#define OBD_FAIL_LFSCK_LINKEA_CRASH	0x1603
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1603
-	mkdir $DIR/$tdir/crashed
+	test_mkdir $DIR/$tdir/crashed || error "mkdir $tdir/crashed failed"
 
 	#define OBD_FAIL_LFSCK_LINKEA_MORE	0x1604
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1604
@@ -845,7 +845,7 @@ test_9b() {
 	#define OBD_FAIL_LFSCK_LINKEA_MORE	0x1604
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1604
 	for ((i = 0; i < 50; i++)); do
-		mkdir -p $DIR/$tdir/d${i}
+		mkdir -p $DIR/$tdir/d${i} || error "mkdir $tdir/d${i} failed"
 		touch $DIR/$tdir/f${i}
 		for ((j = 0; j < 50; j++)); do
 			touch $DIR/$tdir/d${i}/f${j}
@@ -930,7 +930,8 @@ test_10()
 	#define OBD_FAIL_LFSCK_LINKEA_CRASH	0x1603
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1603
 	for ((i = 0; i < 1000; i = $((i+2)))); do
-		mkdir -p $DIR/$tdir/d${i}
+		test_mkdir -p $DIR/$tdir/d${i} ||
+			error "mkdir $tdir/d${i} failed"
 		touch $DIR/$tdir/f${i}
 		for ((j = 0; j < 5; j++)); do
 			touch $DIR/$tdir/d${i}/f${j}
@@ -940,7 +941,8 @@ test_10()
 	#define OBD_FAIL_LFSCK_LINKEA_MORE	0x1604
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1604
 	for ((i = 1; i < 1000; i = $((i+2)))); do
-		mkdir -p $DIR/$tdir/d${i}
+		test_mkdir -p $DIR/$tdir/d${i} ||
+			error "mkdir $tdir/d${i} failed"
 		touch $DIR/$tdir/f${i}
 		for ((j = 0; j < 5; j++)); do
 			touch $DIR/$tdir/d${i}/f${j}

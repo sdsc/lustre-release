@@ -54,7 +54,7 @@ setup_loop_dev() {
 		echo "mkfs.$BASELINE_FS on $dev failed"
 		return $rc
 	fi
-	mkdir -p $mnt
+	mkdir -p $mnt || error "mkdir $mnt failed"
 	if ! mount -t $BASELINE_FS $dev $mnt; then
 		rc=$?
 		echo "mount $BASELINE_FS failed"

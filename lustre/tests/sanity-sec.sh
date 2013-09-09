@@ -18,7 +18,7 @@ SRCDIR=`dirname $0`
 export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/../utils:$PATH:/sbin
 export NAME=${NAME:-local}
 
-LUSTRE=${LUSTRE:-`dirname $0`/..} 
+LUSTRE=${LUSTRE:-`dirname $0`/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
@@ -137,7 +137,7 @@ test_0() {
 
 	chmod 0755 $DIR || error "chmod (1)"
 	rm -rf $DIR/$tdir || error "rm (1)"
-	mkdir -p $DIR/$tdir || error "mkdir (1)"
+	mkdir $DIR/$tdir || error "mkdir (1)"
 
 	if [ "$CLIENT_TYPE" = "remote" ]; then
 		do_facet $SINGLEMDS "echo '* 0 normtown' > $PERM_CONF"
@@ -168,7 +168,7 @@ test_0() {
 	        do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
 	fi
 }
-run_test 0 "uid permission ============================="
+run_test 0 "uid permission"
 
 # setuid/gid
 test_1() {
@@ -180,7 +180,7 @@ test_1() {
 	fi
 
 	rm -rf $DIR/$tdir
-	mkdir -p $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
 
 	chown $USER0 $DIR/$tdir || error "chown (1)"
 	$RUNAS -u $ID1 -v $ID0 touch $DIR/$tdir/f0 && error "touch (2)"
@@ -205,7 +205,7 @@ test_1() {
 	do_facet $SINGLEMDS "rm -f $PERM_CONF"
 	do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
 }
-run_test 1 "setuid/gid ============================="
+run_test 1 "setuid/gid"
 
 run_rmtacl_subtest() {
     $SAVE_PWD/rmtacl/run $SAVE_PWD/rmtacl/$1.test
@@ -279,9 +279,9 @@ test_4() {
 	fi
 
 	rm -rf $DIR/$tdir
-        mkdir -p $DIR/$tdir
-        chmod 0771 $DIR/$tdir
-        chgrp $ID0 $DIR/$tdir
+	test_mkdir $DIR/$tdir || error "mkdir $tdir failed"
+	chmod 0771 $DIR/$tdir
+	chgrp $ID0 $DIR/$tdir
 	$RUNAS -u $ID0 ls $DIR/$tdir || error "setgroups (1)"
 	if [ "$CLIENT_TYPE" = "local" ]; then
 		do_facet $SINGLEMDS "echo '* $ID1 setgrp' > $PERM_CONF"
@@ -294,7 +294,7 @@ test_4() {
 	do_facet $SINGLEMDS "rm -f $PERM_CONF"
 	do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
 }
-run_test 4 "set supplementary group ==============="
+run_test 4 "set supplementary group"
 
 mds_capability_timeout() {
         [ $# -lt 1 ] && echo "Miss mds capability timeout value" && return 1

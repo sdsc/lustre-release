@@ -28,12 +28,12 @@ TESTDIR=$MOUNT/d0.iozone-$(hostname)
 
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
-    echoerr "$(date +'%F %H:%M:%S'): iozone run starting"
-    mkdir -p $TESTDIR
-    cd $TESTDIR
-    iozone -a -M -R -V 0xab -g 100M -q 512k -i0 -i1 -f $TESTDIR/iozone-file 1>$LOG &
-    load_pid=$!
-    wait $load_pid
+	echoerr "$(date +'%F %H:%M:%S'): iozone run starting"
+	mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
+	cd $TESTDIR
+	iozone -a -M -R -V 0xab -g 100M -q 512k -i0 -i1 -f $TESTDIR/iozone-file 1>$LOG &
+	load_pid=$!
+	wait $load_pid
     if [ ${PIPESTATUS[0]} -eq 0 ]; then
         echoerr "$(date +'%F %H:%M:%S'): iozone succeeded"
         cd $TMP

@@ -191,7 +191,7 @@ get_svr_devs
 TESTDIR=$DIR/d0.$TESTSUITE
 if is_empty_fs $MOUNT; then
 	# create test directory
-	mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
+	mkdir $TESTDIR || error "mkdir $TESTDIR failed"
 
 	# create some dirs and files on the filesystem
 	create_files $TESTDIR $NUMDIRS $NUMFILES

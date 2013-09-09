@@ -77,7 +77,7 @@ run_mdsrate() {
 
 	# set the default stripe count for files in this test to one
 	local testdir=$MOUNT/mdsrate
-	mkdir -p $testdir
+	mkdir $testdir || error "mkdir $testdir failed"
 	chmod 0777 $testdir
 	$LFS setstripe $testdir -i 0 -c 1
 	get_stripe $testdir
