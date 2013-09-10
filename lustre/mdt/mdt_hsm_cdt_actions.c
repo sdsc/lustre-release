@@ -338,12 +338,11 @@ int mdt_agent_llog_update_rec(const struct lu_env *env,
 #define AGENT_ACTIONS_IT_MAGIC 0x19660426
 struct agent_action_iterator {
 	int			 aai_magic;	 /**< magic number */
+	bool			 aai_eof;	 /**< all done */
 	struct lu_env		 aai_env;	 /**< lustre env for llog */
 	struct obd_device	*aai_obd;	 /**< metadata device */
 	struct llog_ctxt	*aai_ctxt;	 /**< llog context */
-	int			 aai_index_done; /**< idx already shown */
-	int			 aai_index_cb;	 /**< current idx in loop cb */
-	int			 aai_eof;	 /**< all done */
+	__u64			 aai_index_done; /**< idx already shown */
 };
 
 /**
@@ -369,9 +368,12 @@ static void *mdt_agent_actions_proc_start(struct seq_file *s, loff_t *pos)
 	/* first call = rewind */
 	if (*pos == 0) {
 		aai->aai_index_done = 0;
-		aai->aai_eof = 0;
+		aai->aai_eof = false;
 		*pos = 1;
 	}
+
+	if (aai->aai_eof)
+		RETURN(NULL);
 
 	RETURN(aai);
 }
@@ -384,20 +386,7 @@ static void *mdt_agent_actions_proc_start(struct seq_file *s, loff_t *pos)
 static void *mdt_agent_actions_proc_next(struct seq_file *s, void *v,
 					 loff_t *pos)
 {
-	struct agent_action_iterator *aai = s->private;
-	ENTRY;
-
-	LASSERTF(aai->aai_magic == AGENT_ACTIONS_IT_MAGIC, "%08X",
-		 aai->aai_magic);
-
-	CDEBUG(D_HSM, "set current="LPD64" to done=%d, eof=%d\n",
-	       *pos, aai->aai_index_done, aai->aai_eof);
-	(*pos) = aai->aai_index_done;
-
-	if (aai->aai_eof)
-		RETURN(NULL);
-
-	RETURN(aai);
+	RETURN(NULL);
 }
 
 /**
@@ -412,6 +401,7 @@ static int agent_actions_show_cb(const struct lu_env *env,
 	struct seq_file		     *s = data;
 	struct agent_action_iterator *aai;
 	int			      rc, sz;
+	size_t			      count;
 	char			      buf[12];
 	ENTRY;
 
@@ -419,11 +409,11 @@ static int agent_actions_show_cb(const struct lu_env *env,
 	LASSERTF(aai->aai_magic == AGENT_ACTIONS_IT_MAGIC, "%08X",
 		 aai->aai_magic);
 
-	aai->aai_index_cb++;
 	/* if rec already printed => skip */
-	if (aai->aai_index_cb <= aai->aai_index_done)
+	if (larr->arr_compound_id <= aai->aai_index_done)
 		RETURN(0);
 
+	count = s->count;
 	sz = larr->arr_hai.hai_len - sizeof(larr->arr_hai);
 	rc = seq_printf(s, "lrh=[type=%X len=%d idx=%d] fid="DFID
 			" dfid="DFID
@@ -445,12 +435,14 @@ static int agent_actions_show_cb(const struct lu_env *env,
 			larr->arr_hai.hai_gid, sz,
 			agent_req_status2name(larr->arr_status),
 			hai_dump_data_field(&larr->arr_hai, buf, sizeof(buf)));
-	if (rc >= 0) {
-		aai->aai_index_done++;
-		RETURN(0);
+	if (rc == 0) {
+		aai->aai_index_done = larr->arr_compound_id;
+	} else {
+		if (s->count == s->size && count > 0) /* rewind the buffer */
+			s->count = count;
+		rc = LLOG_PROC_BREAK;
 	}
-	/* buffer is full, stop filling */
-	RETURN(LLOG_PROC_BREAK);
+	RETURN(rc);
 }
 
 /**
@@ -467,21 +459,17 @@ static int mdt_agent_actions_proc_show(struct seq_file *s, void *v)
 	LASSERTF(aai->aai_magic == AGENT_ACTIONS_IT_MAGIC, "%08X",
 		 aai->aai_magic);
 
-	CDEBUG(D_HSM, "show from done=%d, eof=%d\n",
+	CDEBUG(D_HSM, "show from done=" LPU64", eof=%d\n",
 	       aai->aai_index_done, aai->aai_eof);
 	if (aai->aai_eof)
 		RETURN(0);
 
-	aai->aai_index_cb = 0;
 	rc = llog_cat_process(&aai->aai_env, aai->aai_ctxt->loc_handle,
 			      agent_actions_show_cb, s, 0, 0);
-	/* was all llog parsed? */
-	if (rc == 0)
-		aai->aai_eof = 1;
-	/* not enough room in buffer? */
-	if (rc == LLOG_PROC_BREAK)
-		RETURN(0);
-	/* error */
+	if (rc == 0) /* all llog parsed */
+		aai->aai_eof = true;
+	if (rc == LLOG_PROC_BREAK) /* buffer full */
+		rc = 0;
 	RETURN(rc);
 }
 
