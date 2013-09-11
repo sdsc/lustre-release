@@ -472,6 +472,45 @@ static const struct file_operations lod_proc_target_fops = {
 	.release = lprocfs_seq_release,
 };
 
+static void lod_procfs_add_brw_stats_symlink(struct obd_device *obd)
+{
+	cfs_proc_dir_entry_t	*osd_root_dir;
+	cfs_proc_dir_entry_t	*osd_obd_dir;
+	char			*devname = NULL;
+	char			*suffix;
+	int			devname_len;
+
+	osd_root_dir = lprocfs_srch(proc_lustre_root, "osd-ldiskfs");
+	if (osd_root_dir == NULL) {
+		osd_root_dir = lprocfs_srch(proc_lustre_root, "osd-zfs");
+		if (osd_root_dir == NULL)
+			return;
+	}
+
+	suffix = strstr(obd->obd_name, "-mdtlov");
+	if (suffix == NULL)
+		return;
+
+	devname_len = strlen(obd->obd_name) - strlen(suffix);
+	OBD_ALLOC(devname, devname_len + 1);
+	if (devname == NULL)
+		return;
+
+	strncpy(devname, obd->obd_name, devname_len);
+	osd_obd_dir = lprocfs_srch(osd_root_dir, devname);
+	if (osd_obd_dir == NULL)
+		goto out;
+
+	if (lprocfs_srch(osd_obd_dir, "brw_stats") != NULL)
+		lprocfs_add_symlink("brw_stats", obd->obd_proc_entry,
+				    "../../%s/%s/brw_stats",
+				    osd_root_dir->name, osd_obd_dir->name);
+out:
+	if (devname != NULL)
+		OBD_FREE(devname, devname_len + 1);
+	return;
+}
+
 int lod_procfs_init(struct lod_device *lod)
 {
 	struct obd_device *obd = lod2obd(lod);
@@ -521,6 +560,7 @@ int lod_procfs_init(struct lod_device *lod)
 						       lov_proc_dir,
 						       "../lod/%s",
 						       obd->obd_name);
+	lod_procfs_add_brw_stats_symlink(obd);
 
 	RETURN(0);
 
@@ -541,6 +581,8 @@ void lod_procfs_fini(struct lod_device *lod)
 		lprocfs_remove(&lod->lod_pool_proc_entry);
 		lod->lod_pool_proc_entry = NULL;
 	}
+
+	lprocfs_remove_proc_entry("brw_stats", obd->obd_proc_entry);
 
 	lprocfs_obd_cleanup(obd);
 }
