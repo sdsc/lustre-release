@@ -274,13 +274,16 @@ AC_DEFUN([LC_CONFIG_GSS_KEYRING],
 
  if test x$enable_gss_keyring != xno; then
         LB_LINUX_CONFIG_IM([KEYS],[],
-                           [AC_MSG_ERROR([GSS keyring backend require that CONFIG_KEYS be enabled in your kernel.])])
+                           [enable_gss_keyring='no';
+                            AC_MSG_ERROR([GSS keyring backend require that CONFIG_KEYS be enabled in your kernel.])])
 
         AC_CHECK_LIB([keyutils], [keyctl_search], [],
-                     [AC_MSG_ERROR([libkeyutils is not found, which is required by gss keyring backend])],)
+                     [enable_gss_keyring='no';
+                      AC_MSG_ERROR([libkeyutils is not found, which is required by gss keyring backend])],)
 
-        AC_DEFINE([HAVE_GSS_KEYRING], [1],
-                  [Define this if you enable gss keyring backend])
+        AS_IF([test "x$enable_gss_keyring" != xno],
+              [AC_DEFINE([HAVE_GSS_KEYRING], [1], [Define this if you enable gss keyring backend])],
+              [AC_MSG_WARN([Disable gss keyring backend])])
  fi
 ])
 
@@ -292,7 +295,7 @@ AC_DEFUN([LC_CONFIG_SUNRPC],
 ])
 
 #
-# LC_CONFIG_GSS (default disabled)
+# LC_CONFIG_GSS (default is to auto enable if required libraries are presented)
 #
 # Build gss and related tools of Lustre. Currently both kernel and user space
 # parts are depend on linux platform.
@@ -306,34 +309,39 @@ AC_DEFUN([LC_CONFIG_GSS],
 
  if test x$enable_gss != xno; then
         LC_CONFIG_GSS_KEYRING
-        sunrpc_required=$enable_gss
-        LC_CONFIG_SUNRPC
-        sunrpc_required=no
+        if test x$enable_gss_keyring != xno; then
+               sunrpc_required=$enable_gss
+               LC_CONFIG_SUNRPC
+               sunrpc_required=no
 
-        AC_DEFINE([HAVE_GSS], [1], [Define this if you enable gss])
+               LB_LINUX_CONFIG_IM([CRYPTO_MD5],[],
+                                  [AC_MSG_WARN([kernel MD5 support is recommended by using GSS.])])
+               LB_LINUX_CONFIG_IM([CRYPTO_SHA1],[],
+                                  [AC_MSG_WARN([kernel SHA1 support is recommended by using GSS.])])
+               LB_LINUX_CONFIG_IM([CRYPTO_SHA256],[],
+                                  [AC_MSG_WARN([kernel SHA256 support is recommended by using GSS.])])
+               LB_LINUX_CONFIG_IM([CRYPTO_SHA512],[],
+                                  [AC_MSG_WARN([kernel SHA512 support is recommended by using GSS.])])
 
-        LB_LINUX_CONFIG_IM([CRYPTO_MD5],[],
-                           [AC_MSG_WARN([kernel MD5 support is recommended by using GSS.])])
-        LB_LINUX_CONFIG_IM([CRYPTO_SHA1],[],
-                           [AC_MSG_WARN([kernel SHA1 support is recommended by using GSS.])])
-        LB_LINUX_CONFIG_IM([CRYPTO_SHA256],[],
-                           [AC_MSG_WARN([kernel SHA256 support is recommended by using GSS.])])
-        LB_LINUX_CONFIG_IM([CRYPTO_SHA512],[],
-                           [AC_MSG_WARN([kernel SHA512 support is recommended by using GSS.])])
+               require_krb5=$enable_gss
+               AC_KERBEROS_V5
+               require_krb5=no
 
-        require_krb5=$enable_gss
-        AC_KERBEROS_V5
-        require_krb5=no
-
-        if test x$KRBDIR != x; then
-            AC_CHECK_LIB([gssapi], [gss_export_lucid_sec_context],
-                         [GSSAPI_LIBS="$GSSAPI_LDFLAGS -lgssapi"],
-                         [AC_CHECK_LIB([gssglue], [gss_export_lucid_sec_context],
-                                       [GSSAPI_LIBS="$GSSAPI_LDFLAGS -lgssglue"],
-                                       [if test x$enable_gss == xyes; then
-                                            AC_MSG_ERROR([libgssapi or libgssglue is not found, which is required by GSS.])
-                                        fi])],)
-            AC_SUBST(GSSAPI_LIBS)
+               if test x$KRBDIR != x; then
+                   AC_CHECK_LIB([gssapi], [gss_export_lucid_sec_context],
+                                [GSSAPI_LIBS="$GSSAPI_LDFLAGS -lgssapi"],
+                                [AC_CHECK_LIB([gssglue], [gss_export_lucid_sec_context],
+                                              [GSSAPI_LIBS="$GSSAPI_LDFLAGS -lgssglue"],
+                                              [if test x$enable_gss == xyes; then
+                                                   AC_MSG_ERROR([libgssapi or libgssglue is not found, which is required by GSS.])
+                                               fi])],)
+                   AC_SUBST(GSSAPI_LIBS)
+               fi
+               AC_DEFINE([HAVE_GSS], [1], [Define this if you enable gss])
+               enable_gss='yes'
+        else
+               enable_gss='no'
+               AC_MSG_WARN([Disable gss/krb5 support])
         fi
  fi
 ])
