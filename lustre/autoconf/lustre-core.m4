@@ -971,26 +971,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
-# 3.1.1 has ext4_blocks_for_truncate
-#
-AC_DEFUN([LC_BLOCKS_FOR_TRUNCATE],
-[AC_MSG_CHECKING([if kernel has ext4_blocks_for_truncate])
-LB_LINUX_TRY_COMPILE([
-	#include <linux/fs.h>
-	#include "$LINUX/fs/ext4/ext4_jbd2.h"
-	#include "$LINUX/fs/ext4/truncate.h"
-],[
-	ext4_blocks_for_truncate(NULL);
-],[
-	AC_MSG_RESULT([yes])
-	AC_DEFINE(HAVE_BLOCKS_FOR_TRUNCATE, 1,
-		  [kernel has ext4_blocks_for_truncate])
-],[
-	AC_MSG_RESULT([no])
-])
-])
-
-#
 # 3.1 introduced generic_file_llseek_size()
 #
 AC_DEFUN([LC_FILE_LLSEEK_SIZE],
@@ -1744,7 +1724,7 @@ AC_CHECK_FUNCS([inet_ntoa])
 # libsysio/src/readlink.c
 LC_READLINK_SSIZE_T
 
-# lvfs/prng.c - depends on linux/types.h from liblustre/dir.c
+# libcfs prng.c - depends on linux/types.h from liblustre/dir.c
 AC_CHECK_HEADERS([linux/random.h], [], [],
                  [#ifdef HAVE_LINUX_TYPES_H
                   # include <linux/types.h>
@@ -1893,8 +1873,6 @@ lustre/llite/autoMakefile
 lustre/lclient/Makefile
 lustre/lov/Makefile
 lustre/lov/autoMakefile
-lustre/lvfs/Makefile
-lustre/lvfs/autoMakefile
 lustre/mdc/Makefile
 lustre/mdc/autoMakefile
 lustre/lmv/Makefile
