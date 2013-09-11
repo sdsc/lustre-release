@@ -41,7 +41,6 @@
 
 #define CTL_KRANAL      201
 #define CTL_O2IBLND     205
-#define CTL_PTLLND      206
 #define CTL_QSWNAL      207
 #define CTL_SOCKLND     208
 #define CTL_GNILND      210
@@ -50,7 +49,6 @@
 
 #define CTL_KRANAL      CTL_UNNUMBERED
 #define CTL_O2IBLND     CTL_UNNUMBERED
-#define CTL_PTLLND      CTL_UNNUMBERED
 #define CTL_QSWNAL	CTL_UNNUMBERED
 #define CTL_SOCKLND     CTL_UNNUMBERED
 #define CTL_GNILND      CTL_UNNUMBERED
