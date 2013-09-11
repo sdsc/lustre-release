@@ -429,12 +429,13 @@ static int ll_wr_max_cached_mb(struct file *file, const char *buffer,
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	struct cl_client_cache *cache = &sbi->ll_cache;
 	int mult, rc, pages_number;
+	size_t nob = count;
 	int diff = 0;
 	int nrpages = 0;
 	ENTRY;
 
 	mult = 1 << (20 - PAGE_CACHE_SHIFT);
-	buffer = lprocfs_find_named_value(buffer, "max_cached_mb:", &count);
+	buffer = lprocfs_find_named_value(buffer, "max_cached_mb:", &nob);
 	rc = lprocfs_write_frac_helper(buffer, count, &pages_number, mult);
 	if (rc)
 		RETURN(rc);
