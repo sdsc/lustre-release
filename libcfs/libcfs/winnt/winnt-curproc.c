@@ -47,7 +47,7 @@
  * for Linux kernel.
  */
 
-cfs_task_t this_task =
+struct task_struct this_task =
     { /* umask */ 0,/* blocked*/0, /* pid */ 0, /* pgrp */ 0,
       /* uid,euid,suid,fsuid */  0, 0, 0, 0, 
       /* gid_t gid,egid,sgid,fsgid */ 0, 0, 0, 0,
@@ -81,7 +81,7 @@ gid_t current_fsgid(void)
 
 pid_t current_pid(void)
 {
-    return cfs_current()->pid;
+    return current->pid;
 }
 
 mode_t current_umask(void)
@@ -285,8 +285,8 @@ cleanup_task_manager()
  */
 
 
-cfs_task_t *
-cfs_current()
+struct task_struct *
+current
 {
     HANDLE      Pid = PsGetCurrentProcessId();
     HANDLE      Tid = PsGetCurrentThreadId();
@@ -411,7 +411,7 @@ cfs_pause(cfs_duration_t ticks)
 void
 schedule_timeout_and_set_state(long state, int64_t time)
 {
-    cfs_task_t * task = cfs_current();
+    struct task_struct * task = current;
     PTASK_SLOT   slot = NULL;
 
     if (!task) {
@@ -437,7 +437,7 @@ schedule()
 
 int
 wake_up_process(
-    cfs_task_t * task
+    struct task_struct * task
     )
 {
     PTASK_SLOT   slot = NULL;
