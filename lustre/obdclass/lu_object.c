@@ -126,7 +126,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
                         o->lo_ops->loo_object_release(env, o);
         }
 
-        if (!lu_object_is_dying(top)) {
+	if (!lu_object_is_dying(top) && !lu_object_is_nocache(top)) {
                 LASSERT(cfs_list_empty(&top->loh_lru));
                 cfs_list_add_tail(&top->loh_lru, &bkt->lsb_lru);
                 cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
@@ -161,7 +161,7 @@ EXPORT_SYMBOL(lu_object_put);
  */
 void lu_object_put_nocache(const struct lu_env *env, struct lu_object *o)
 {
-	set_bit(LU_OBJECT_HEARD_BANSHEE, &o->lo_header->loh_flags);
+	set_bit(LU_OBJECT_NO_CACHE, &o->lo_header->loh_flags);
 	return lu_object_put(env, o);
 }
 EXPORT_SYMBOL(lu_object_put_nocache);
