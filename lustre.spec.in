@@ -379,7 +379,6 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/updates -name "*.ko" -ty
 %exclude %{?rootdir}/lib/modules/%{kversion}/updates/kernel/fs/lustre/llog_test.ko
 %endif
 %if %{with ldiskfs}
-%exclude %{?rootdir}/lib/modules/%{kversion}/updates/kernel/fs/lustre/fsfilt_ldiskfs.ko
 %exclude %{?rootdir}/lib/modules/%{kversion}/updates/kernel/fs/lustre/osd_ldiskfs.ko
 %endif
 %if %{with zfs}
@@ -394,7 +393,6 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/updates -name "*.ko" -ty
 
 %if %{with ldiskfs}
 %files osd-ldiskfs
-%attr(-, root, root) %{?rootdir}/lib/modules/%{kversion}/updates/kernel/fs/lustre/fsfilt_ldiskfs.ko
 %attr(-, root, root) %{?rootdir}/lib/modules/%{kversion}/updates/kernel/fs/lustre/osd_ldiskfs.ko
 %if %{defined rpm_post_base}
 %attr(0555, root, root) %{rpm_post_base}-osd-ldiskfs.sh
