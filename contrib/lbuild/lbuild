@@ -531,6 +531,15 @@ download_ofed() {
         return 0
     fi
 
+    # If a full filename has been provided instead of just a version
+    # then use that.
+    if [ -n "$OFED_FILENAME" ]; then
+        if [ -f $KERNELTREE/$OFED_FILENAME ]; then
+            return 0
+        fi
+        fatal 1 "$OFED_FILENAME not found in $KERNELTREE"
+    fi
+
     local OFED_BASE_VERSION=$OFED_VERSION
     if [[ $OFED_VERSION = *.*.*.* ]]; then
         OFED_BASE_VERSION=${OFED_VERSION%.*}
@@ -697,10 +706,17 @@ untar() {
 
 unpack_ofed() {
 
-    if ! untar "$KERNELTREE/OFED-${OFED_VERSION}.tgz"; then
-        return 1
+    if [ -n "$OFED_FILENAME" ]; then
+        if ! untar "$KERNELTREE/$OFED_FILENAME"; then
+            return 1
+        fi
+    else
+        if ! untar "$KERNELTREE/OFED-${OFED_VERSION}.tgz"; then
+            return 1
+        fi
     fi
     [ -d OFED ] || ln -sf OFED-[0-9].[0-9]* OFED
+    [ -d OFED ] || ln -sf *OFED_SRC-[0-9].[0-9]* OFED
 
 }
 
@@ -1207,7 +1223,6 @@ EOF
                   --define "_topdir ${TOPDIR}" --target ${TARGET_ARCH} \
                   --define "KVERSION ${linuxrelease}" \
                   --define "$K_SRC ${linux}" \
-                  --define "LIB_MOD_DIR /lib/modules/${linuxrelease}/updates" \
                   ${OFA_KERNEL_RELEASE:+--define "_release $OFA_KERNEL_RELEASE"} \
                   --define "configure_options --without-quilt $OFED_CORE $OFED_HARDWARE $OFED_ISCSI" \
                   ${SOURCE} 2>&1; then
@@ -1544,7 +1559,7 @@ build_ofed() {
     # can remove following filter.
     ofed_version=$(echo $ofed_version |
                    sed -re 's/-([0-9]*-[rR][cC][0-9]*)$//')
-    local rpm=$(ls $TOPDIR/RPMS/*/${kib_rpm}-devel-${ofed_version}-${linuxrelease//-/_}.*.rpm)
+    local rpm=$(ls $TOPDIR/RPMS/*/${kib_rpm}-devel-${ofed_version}-${linuxrelease//-/_}*.rpm)
     if ! rpm2cpio < $rpm | cpio -id; then
         fatal 1 "could not unpack the ${kib_rpm}-devel rpm."
     fi
@@ -1778,7 +1793,7 @@ set -E
 
 [ -r ~/.lbuildrc ] && . ~/.lbuildrc
 
-options=$(getopt -o D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,noiokit,ofed-version:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
+options=$(getopt -o D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ldiskfs,ccache,reuse:,norpm,disable-datestamp,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,noiokit,ofed-version:,ofed-filename:,publish,release,set-value:,src,stage:,tag:,target:,target-archs:,with-linux:,xen -- "$@")
 
 if [ $? != 0 ]; then
     usage 1
@@ -1882,6 +1897,10 @@ while [ "$1" ]; do
             ;;
         --ofed-version)
             OFED_VERSION="$2"
+            shift 2
+            ;;
+        --ofed-filename)
+            OFED_FILENAME="$2"
             shift 2
             ;;
         --publish)
