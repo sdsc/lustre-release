@@ -1154,8 +1154,14 @@ static int hsm_swap_layouts(struct mdt_thread_info *mti,
 	 * progress through llapi_hsm_copy_end(), all the objects
 	 * are removed and mdd_swap_layout LBUG */
 	if (mdt_object_exists(child2)) {
+		/* Since we only handle restores here, unconditionally use
+		 * SWAP_LAYOUTS_MDS_HSM flag to ensure original layout will
+		 * be preserved in case of failure during swap_layout and not
+		 * leave a file in an intermediate but incoherent state.
+		 */
 		rc = mo_swap_layouts(mti->mti_env, mdt_object_child(child1),
-				     mdt_object_child(child2), 0);
+				     mdt_object_child(child2),
+				     SWAP_LAYOUTS_MDS_HSM);
 	} else {
 		CERROR("%s: Copytool has closed volatile file "DFID"\n",
 		       mdt_obd_name(mti->mti_mdt), PFID(dfid));
