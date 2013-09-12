@@ -29,8 +29,6 @@
  *
  * Author: Mikhail Pershin <mike.pershin@intel.com>
  */
-#ifndef __LOCAL_STORAGE_H
-#define __LOCAL_STORAGE_H
 
 #include <dt_object.h>
 #include <obd.h>
@@ -89,4 +87,3 @@ struct los_ondisk {
 
 #define LOS_MAGIC	0xdecafbee
 
-#endif
