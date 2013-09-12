@@ -25,6 +25,7 @@ Run Lustre regression tests suites.
       -i N      Repeat tests N times (default 1). A new directory
                 will be created under LOGDIR for each iteration.
       -k        Don't stop when subtests fail
+      -K	Keep filesystem mounted after test run
       -R        Remount lustre between tests
       -r        Reformat (during initial configuration if needed)
       -s        SLOW=yes
@@ -65,24 +66,26 @@ repeat_count=1
 upload_logs=false
 reformat=false
 test_logs_dir=/tmp/test_logs/$(date +%Y-%m-%d)/$(date +%H%M%S)
+keepmounted=${keepmounted:=false}
 export ${SLOW:=no}
 export ${NAME:=local}
-while getopts "c:d:D:nkf:S:g:i:rRslhv" opt
+while getopts "c:d:D:nkKf:S:g:i:rRslhv" opt
 do
     case "$opt" in
-        c) CONFIG=$OPTARG;;
+        c) export CONFIG=$OPTARG;;
         d) test_logs_dir=$OPTARG/$(date +%Y-%m-%d)/$(date +%H%M%S);;
         D) test_logs_dir=$OPTARG;;
         g) test_group_file=$OPTARG;;
         S) FIRST_SUITE=$OPTARG;;
         k) export FAIL_ON_ERROR=false;;
+	K) keepmounted=true;;
         n) dry_run=:;;
         v) verbose=:;;
         i) repeat_count=$OPTARG;;
         f) NAME=$OPTARG;;
         R) do_reset=:;;
         r) reformat=:;;
-        s) SLOW=yes;;
+        s) export SLOW=yes;;
         l) upload_logs=true;;
         h|\?) usage;;
     esac
@@ -155,7 +158,7 @@ setup_if_needed() {
 
 cleanup_if_needed() {
     if $auster_cleanup; then
-        cleanupall
+        $keepmounted || cleanupall
     fi
 }
 
