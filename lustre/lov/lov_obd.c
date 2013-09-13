@@ -2276,8 +2276,18 @@ static int lov_fiemap(struct lov_obd *lov, __u32 keylen, void *key,
         int cur_stripe = 0, cur_stripe_wrap = 0, stripe_count;
         unsigned int buffer_size = FIEMAP_BUFFER_SIZE;
 
-	if (!lsm_has_objects(lsm))
+	if (!lsm_has_objects(lsm)) {
+		if (lsm && lsm_is_released(lsm)) {
+			/* released file, return a minimal FIEMAP */
+			fiemap->fm_mapped_extents = 1;
+			fiemap->fm_extents[0].fe_logical = fm_key->fiemap.fm_start;
+			fiemap->fm_extents[0].fe_length = fm_key->fiemap.fm_length;
+			fiemap->fm_extents[0].fe_flags |= (FIEMAP_EXTENT_UNKNOWN |
+							   FIEMAP_EXTENT_LAST |
+							   FIEMAP_EXTENT_DELALLOC);
+		}
                 GOTO(out, rc = 0);
+	}
 
         if (fiemap_count_to_size(fm_key->fiemap.fm_extent_count) < buffer_size)
                 buffer_size = fiemap_count_to_size(fm_key->fiemap.fm_extent_count);

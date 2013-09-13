@@ -2675,6 +2675,44 @@ test_227() {
 }
 run_test 227 "changelog when explicit setting of HSM flags"
 
+test_228() {
+	# test needs a running copytool
+	copytool_setup
+
+	dd if=/dev/urandom of=$DIR/$tfile bs=1M count=1 conv=sync ||
+		error "creating $DIR/$tfile"
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $DIR/$tfile
+	wait_request_state $(path2fid $DIR/$tfile) ARCHIVE SUCCEED
+
+	$LFS hsm_release $DIR/$tfile
+	check_hsm_flags $f "0x0000000d"
+
+	# verify st_blocks == Null
+	[ $(stat -c "%b" $DIR/$tfile) -eq "0" ] || error "wrong block number"
+
+	mkdir $DIR/$tdir
+	# only newer versions of cp detect sparse files by stat/FIEMAP
+	# (LU-2580)
+	cp --sparse=auto $DIR/$tfile $DIR/$tfile.2 ||
+		error "copying $DIR/$tfile"
+	cmp $DIR/$tfile $DIR/$tfile.2 || error "comparing copied $DIR/$tfile"
+
+	$LFS hsm_release $DIR/$tfile
+	check_hsm_flags $f "0x0000000d"
+
+	# verify st_blocks == Null
+	[ $(stat -c "%b" $DIR/$tfile) -eq "0" ] || error "wrong block number"
+
+	tar cf - --sparse $DIR/$tfile | tar xvf - -C $DIR/$tdir ||
+		error "tar failed"
+	cmp $DIR/$tfile $DIR/$tdir/$DIR/$tfile ||
+		error "comparing untarred $DIR/$tfile"
+
+	copytool_cleanup
+}
+run_test 228 "FIEMAP returns enough for released files to make sparse-aware"\
+		" coreutils happy"
+
 test_250() {
 	# test needs a running copytool
 	copytool_setup
