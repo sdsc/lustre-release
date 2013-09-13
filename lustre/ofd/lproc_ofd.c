@@ -191,7 +191,7 @@ static int lprocfs_ofd_rd_last_id(char *page, char **start, off_t off,
 	ofd = ofd_dev(obd->obd_lu_dev);
 
 	read_lock(&ofd->ofd_seq_list_lock);
-	cfs_list_for_each_entry(oseq, &ofd->ofd_seq_list, os_list) {
+	list_for_each_entry(oseq, &ofd->ofd_seq_list, os_list) {
 		__u64 seq;
 
 		seq = ostid_seq(&oseq->os_oi) == 0 ?

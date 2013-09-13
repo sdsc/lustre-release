@@ -1349,13 +1349,13 @@ out:
 }
 
 struct locked_region {
-	cfs_list_t  list;
+	struct list_head  list;
 	struct lustre_handle lh;
 };
 
 static int lock_region(struct obd_export *exp, struct obdo *oa,
 		       unsigned long long begin, unsigned long long end,
-		       cfs_list_t *locked)
+		       struct list_head *locked)
 {
 	struct locked_region *region = NULL;
 	int rc;
@@ -1373,14 +1373,14 @@ static int lock_region(struct obd_export *exp, struct obdo *oa,
 
 	CDEBUG(D_OTHER, "ost lock [%llu,%llu], lh=%p\n",
 	       begin, end, &region->lh);
-	cfs_list_add(&region->list, locked);
+	list_add(&region->list, locked);
 
 	return 0;
 }
 
 static int lock_zero_regions(struct obd_export *exp, struct obdo *oa,
 			     struct ll_user_fiemap *fiemap,
-			     cfs_list_t *locked)
+			     struct list_head *locked)
 {
 	__u64 begin = fiemap->fm_start;
 	unsigned int i;
@@ -1412,13 +1412,13 @@ static int lock_zero_regions(struct obd_export *exp, struct obdo *oa,
 	RETURN(rc);
 }
 
-static void unlock_zero_regions(struct obd_export *exp, cfs_list_t *locked)
+static void unlock_zero_regions(struct obd_export *exp, struct list_head *locked)
 {
 	struct locked_region *entry, *temp;
-	cfs_list_for_each_entry_safe(entry, temp, locked, list) {
+	list_for_each_entry_safe(entry, temp, locked, list) {
 		CDEBUG(D_OTHER, "ost unlock lh=%p\n", &entry->lh);
 		ost_lock_put(exp, &entry->lh, LCK_PR);
-		cfs_list_del(&entry->list);
+		list_del(&entry->list);
 		OBD_FREE_PTR(entry);
 	}
 }
@@ -1428,7 +1428,7 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
         void *key, *reply;
         int keylen, replylen, rc = 0;
         struct req_capsule *pill = &req->rq_pill;
-	cfs_list_t locked = CFS_LIST_HEAD_INIT(locked);
+	struct list_head locked = LIST_HEAD_INIT(locked);
 	struct ll_fiemap_info_key *fm_key = NULL;
 	struct ll_user_fiemap *fiemap;
         ENTRY;
@@ -1493,7 +1493,7 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
 		fm_key = key;
 
 		rc = lock_zero_regions(exp, &fm_key->oa, fiemap, &locked);
-		if (rc == 0 && !cfs_list_empty(&locked))
+		if (rc == 0 && !list_empty(&locked))
 			rc = obd_get_info(req->rq_svc_thread->t_env, exp,
 					  keylen, key, &replylen, reply, NULL);
 		unlock_zero_regions(exp, &locked);
@@ -1969,7 +1969,7 @@ static void ost_prolong_locks(struct ost_prolong_data *data)
 
 
 	spin_lock_bh(&exp->exp_bl_list_lock);
-        cfs_list_for_each_entry(lock, &exp->exp_bl_list, l_exp_list) {
+	list_for_each_entry(lock, &exp->exp_bl_list, l_exp_list) {
                 LASSERT(lock->l_flags & LDLM_FL_AST_SENT);
                 LASSERT(lock->l_resource->lr_type == LDLM_EXTENT);
 

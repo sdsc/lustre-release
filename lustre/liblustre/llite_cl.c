@@ -459,8 +459,8 @@ static struct page *llu_get_user_page(int index, void *addr, int offset,
         page->_offset = offset;
         page->_count = count;
 
-        CFS_INIT_LIST_HEAD(&page->list);
-        CFS_INIT_LIST_HEAD(&page->_node);
+	INIT_LIST_HEAD(&page->list);
+	INIT_LIST_HEAD(&page->_node);
 
         return page;
 }

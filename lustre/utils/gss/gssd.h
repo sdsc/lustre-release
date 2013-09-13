@@ -32,7 +32,6 @@
 #define _RPC_GSSD_H_
 
 #include <sys/types.h>
-#include <sys/queue.h>
 #include <gssapi/gssapi.h>
 
 #define MAX_FILE_NAMELEN	32

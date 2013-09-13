@@ -104,7 +104,12 @@ struct filesys_ops {
 /*
  * Inode list head record.
  */
-LIST_HEAD(itable_entry, inode);
+/* HACK around sys/queue.h definition... */
+#define CFS_LIST_HEAD(name, type)					\
+struct name {								\
+	struct type *lh_first;	/* first element */			\
+}
+CFS_LIST_HEAD(itable_entry, inode);
 
 /*
  * A filesys record is maintained for each active file system or volume.

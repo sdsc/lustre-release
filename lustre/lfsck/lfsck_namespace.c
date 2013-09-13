@@ -769,11 +769,11 @@ static int lfsck_namespace_prep(const struct lu_env *env,
 		if (!lfsck->li_drop_dryrun ||
 		    lfsck_pos_is_zero(&ns->ln_pos_first_inconsistent)) {
 			ns->ln_status = LS_SCANNING_PHASE2;
-			cfs_list_del_init(&com->lc_link);
-			cfs_list_add_tail(&com->lc_link,
+			list_del_init(&com->lc_link);
+			list_add_tail(&com->lc_link,
 					  &lfsck->li_list_double_scan);
-			if (!cfs_list_empty(&com->lc_link_dir))
-				cfs_list_del_init(&com->lc_link_dir);
+			if (!list_empty(&com->lc_link_dir))
+				list_del_init(&com->lc_link_dir);
 			lfsck_pos_set_zero(pos);
 		} else {
 			ns->ln_status = LS_SCANNING_PHASE1;
@@ -790,15 +790,15 @@ static int lfsck_namespace_prep(const struct lu_env *env,
 			ns->ln_objs_nlink_repaired = 0;
 			ns->ln_objs_lost_found = 0;
 			fid_zero(&ns->ln_fid_latest_scanned_phase2);
-			if (cfs_list_empty(&com->lc_link_dir))
-				cfs_list_add_tail(&com->lc_link_dir,
+			if (list_empty(&com->lc_link_dir))
+				list_add_tail(&com->lc_link_dir,
 						  &lfsck->li_list_dir);
 			*pos = ns->ln_pos_first_inconsistent;
 		}
 	} else {
 		ns->ln_status = LS_SCANNING_PHASE1;
-		if (cfs_list_empty(&com->lc_link_dir))
-			cfs_list_add_tail(&com->lc_link_dir,
+		if (list_empty(&com->lc_link_dir))
+			list_add_tail(&com->lc_link_dir,
 					  &lfsck->li_list_dir);
 		if (!lfsck->li_drop_dryrun ||
 		    lfsck_pos_is_zero(&ns->ln_pos_first_inconsistent)) {
@@ -1042,23 +1042,23 @@ static int lfsck_namespace_post(const struct lu_env *env,
 		ns->ln_status = LS_SCANNING_PHASE2;
 		ns->ln_flags |= LF_SCANNED_ONCE;
 		ns->ln_flags &= ~LF_UPGRADE;
-		cfs_list_del_init(&com->lc_link);
-		cfs_list_del_init(&com->lc_link_dir);
-		cfs_list_add_tail(&com->lc_link, &lfsck->li_list_double_scan);
+		list_del_init(&com->lc_link);
+		list_del_init(&com->lc_link_dir);
+		list_add_tail(&com->lc_link, &lfsck->li_list_double_scan);
 	} else if (result == 0) {
 		if (lfsck->li_paused) {
 			ns->ln_status = LS_PAUSED;
 		} else {
 			ns->ln_status = LS_STOPPED;
-			cfs_list_del_init(&com->lc_link);
-			cfs_list_del_init(&com->lc_link_dir);
-			cfs_list_add_tail(&com->lc_link, &lfsck->li_list_idle);
+			list_del_init(&com->lc_link);
+			list_del_init(&com->lc_link_dir);
+			list_add_tail(&com->lc_link, &lfsck->li_list_idle);
 		}
 	} else {
 		ns->ln_status = LS_FAILED;
-		cfs_list_del_init(&com->lc_link);
-		cfs_list_del_init(&com->lc_link_dir);
-		cfs_list_add_tail(&com->lc_link, &lfsck->li_list_idle);
+		list_del_init(&com->lc_link);
+		list_del_init(&com->lc_link_dir);
+		list_add_tail(&com->lc_link, &lfsck->li_list_idle);
 	}
 	spin_unlock(&lfsck->li_lock);
 
@@ -1496,8 +1496,8 @@ fini:
 
 	if (ns->ln_status != LS_PAUSED) {
 		spin_lock(&lfsck->li_lock);
-		cfs_list_del_init(&com->lc_link);
-		cfs_list_add_tail(&com->lc_link, &lfsck->li_list_idle);
+		list_del_init(&com->lc_link);
+		list_add_tail(&com->lc_link, &lfsck->li_list_idle);
 		spin_unlock(&lfsck->li_lock);
 	}
 
@@ -1534,8 +1534,8 @@ int lfsck_namespace_setup(const struct lu_env *env,
 	if (com == NULL)
 		RETURN(-ENOMEM);
 
-	CFS_INIT_LIST_HEAD(&com->lc_link);
-	CFS_INIT_LIST_HEAD(&com->lc_link_dir);
+	INIT_LIST_HEAD(&com->lc_link);
+	INIT_LIST_HEAD(&com->lc_link_dir);
 	init_rwsem(&com->lc_sem);
 	atomic_set(&com->lc_ref, 1);
 	com->lc_lfsck = lfsck;
@@ -1577,7 +1577,7 @@ int lfsck_namespace_setup(const struct lu_env *env,
 	case LS_COMPLETED:
 	case LS_FAILED:
 	case LS_STOPPED:
-		cfs_list_add_tail(&com->lc_link, &lfsck->li_list_idle);
+		list_add_tail(&com->lc_link, &lfsck->li_list_idle);
 		break;
 	default:
 		CERROR("%s: unknown lfsck_namespace status: %u\n",
@@ -1592,8 +1592,8 @@ int lfsck_namespace_setup(const struct lu_env *env,
 		/* fall through */
 	case LS_PAUSED:
 	case LS_CRASHED:
-		cfs_list_add_tail(&com->lc_link, &lfsck->li_list_scan);
-		cfs_list_add_tail(&com->lc_link_dir, &lfsck->li_list_dir);
+		list_add_tail(&com->lc_link, &lfsck->li_list_scan);
+		list_add_tail(&com->lc_link_dir, &lfsck->li_list_dir);
 		break;
 	}
 
