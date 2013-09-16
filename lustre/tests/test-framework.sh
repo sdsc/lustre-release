@@ -468,7 +468,7 @@ load_modules_local() {
 		echo "libcfs will create CPU partition based on online CPUs"
 	fi
 
-	load_module ../libcfs/libcfs/libcfs
+	load_module ../libcfs/libcfs/libcfs libcfs_panic_on_lbug=0
 
     [ "$PTLDEBUG" ] && lctl set_param debug="$PTLDEBUG"
     [ "$SUBSYSTEM" ] && lctl set_param subsystem_debug="${SUBSYSTEM# }"
