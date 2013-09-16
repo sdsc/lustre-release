@@ -2067,6 +2067,7 @@ wait_mds_ost_sync () {
 	# orphan cleanup. Wait for llogs to get synchronized.
 	echo "Waiting for orphan cleanup..."
 	# MAX value includes time needed for MDS-OST reconnection
+	local WAIT_TIMEOUT=$1 
 	local MAX=$(( TIMEOUT * 2 ))
 	local WAIT=0
 	local new_wait=true
@@ -2080,7 +2081,12 @@ wait_mds_ost_sync () {
 		list=$(comma_list $(osts_nodes))
 		cmd="$LCTL get_param -n obdfilter.*.mds_sync"
 	fi
-	while [ $WAIT -lt $MAX ]; do
+	if [ -z "$WAIT_TIMEOUT" ]; then
+		WAIT_TIMEOUT=$MAX
+	fi
+
+	echo "wait $WAIT_TIMEOUT secs maximumly for $list mds-ost sync done."
+	while [ $WAIT -lt $WAIT_TIMEOUT ]; do
 		local -a sync=($(do_nodes $list "$cmd"))
 		local con=1
 		local i
@@ -2096,10 +2102,14 @@ wait_mds_ost_sync () {
 		done
 		sleep 2 # increase waiting time and cover statfs cache
 		[ ${con} -eq 1 ] && return 0
-		echo "Waiting $WAIT secs for $facet mds-ost sync done."
+		echo "Waiting $WAIT secs for $list $i mds-ost sync done."
 		WAIT=$((WAIT + 2))
 	done
-	echo "$facet recovery not done in $MAX sec. $STATUS"
+
+	# show which nodes are not finished.
+	do_nodes $list \
+		"$LCTL list_param osp.*osc*.old_sync_processed 2> /dev/null"
+	echo "$facet recovery node $i not done in $WAIT_TIMEOUT sec. $STATUS"
 	return 1
 }
 
