@@ -422,6 +422,10 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
 				  XATTR_NAME_FID, 0, th, BYPASS_CAPA);
 
+	if (likely(rc == 0))
+		rc = dt_attr_get(env, ofd_object_child(fo), la,
+				 ofd_object_capa(env, fo));
+
 stop:
 	ofd_trans_stop(env, ofd, th, rc);
 unlock:

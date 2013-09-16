@@ -353,6 +353,8 @@ static int osp_sync_interpret(const struct lu_env *env,
 		 * we tried to destroy object or update attributes,
 		 * but object doesn't exist anymore - cancell llog record
 		 */
+		if (unlikely(req->rq_transno != 0))
+			DEBUG_REQ(D_ERROR, req, "zero transno expected\n");
 		LASSERT(req->rq_transno == 0);
 		LASSERT(cfs_list_empty(&req->rq_exp_list));
 

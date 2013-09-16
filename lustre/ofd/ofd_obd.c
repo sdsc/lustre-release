@@ -894,10 +894,13 @@ int ofd_setattr(const struct lu_env *env, struct obd_export *exp,
 		ldlm_resource_putref(res);
 	}
 
+	/* Quota release needs uid/gid info */
+
+	/* notice ofd_attr_set() returned actual attributes */
+	/* which are refreshed with the object locked */
+	/* otherwise we can race with destroy */
 	oinfo->oi_oa->o_valid = OBD_MD_FLID;
 
-	/* Quota release needs uid/gid info */
-	rc = ofd_attr_get(env, fo, &info->fti_attr);
 	obdo_from_la(oinfo->oi_oa, &info->fti_attr,
 		     OFD_VALID_FLAGS | LA_UID | LA_GID);
 	ofd_info2oti(info, oti);
