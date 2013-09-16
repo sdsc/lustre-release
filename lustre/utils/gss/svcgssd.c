@@ -148,7 +148,7 @@ mydaemon(int nochdir, int noclose)
 static void
 release_parent()
 {
-	int status;
+	int status, rc;
 
 	if (pipefds[1] > 0) {
 		write(pipefds[1], &status, 1);
