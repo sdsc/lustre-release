@@ -465,51 +465,19 @@ out:
 static int lprocfs_rd_capa(char *page, char **start, off_t off,
                            int count, int *eof, void *data)
 {
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-
-        return snprintf(page, count, "capability on: %s %s\n",
-                        mdt->mdt_opts.mo_oss_capa ? "oss" : "",
-                        mdt->mdt_opts.mo_mds_capa ? "mds" : "");
+	return snprintf(page, count, "capability on: \n");
 }
 
 static int lprocfs_wr_capa(struct file *file, const char *buffer,
 			   unsigned long count, void *data)
 {
-	struct obd_device *obd = data;
-	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-	int val, rc;
+        int val, rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
-	if (rc)
-		return rc;
+        rc = lprocfs_write_helper(buffer, count, &val);
+        if (rc)
+                return rc;
 
-	if (val < 0 || val > 3) {
-		CERROR("invalid capability mode, only 0/2/3 is accepted.\n"
-		       " 0:  disable fid capability\n"
-		       " 2:  enable MDS fid capability\n"
-		       " 3:  enable both MDS and OSS fid capability\n");
-		return -EINVAL;
-	}
-
-	/* OSS fid capability needs enable both MDS and OSS fid capability on
-	 * MDS */
-	if (val == 1) {
-		CERROR("can't enable OSS fid capability only, you should use "
-		       "'3' to enable both MDS and OSS fid capability.\n");
-		return -EINVAL;
-	}
-
-	mdt->mdt_opts.mo_oss_capa = (val & 0x1);
-	mdt->mdt_opts.mo_mds_capa = !!(val & 0x2);
-	mdt->mdt_capa_conf = 1;
-	LCONSOLE_INFO("MDS %s %s MDS fid capability.\n",
-		      mdt_obd_name(mdt),
-		      mdt->mdt_opts.mo_mds_capa ? "enabled" : "disabled");
-	LCONSOLE_INFO("MDS %s %s OSS fid capability.\n",
-		      mdt_obd_name(mdt),
-		      mdt->mdt_opts.mo_oss_capa ? "enabled" : "disabled");
-	return count;
+	return -ENOTSUPP;
 }
 
 static int lprocfs_rd_capa_count(char *page, char **start, off_t off,
@@ -532,51 +500,37 @@ static int lprocfs_rd_site_stats(char *page, char **start, off_t off,
 static int lprocfs_rd_capa_timeout(char *page, char **start, off_t off,
                                    int count, int *eof, void *data)
 {
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-
-        return snprintf(page, count, "%lu\n", mdt->mdt_capa_timeout);
+	return snprintf(page, count, "0\n");
 }
 
 static int lprocfs_wr_capa_timeout(struct file *file, const char *buffer,
                                    unsigned long count, void *data)
 {
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
         int val, rc;
 
         rc = lprocfs_write_helper(buffer, count, &val);
         if (rc)
                 return rc;
 
-        mdt->mdt_capa_timeout = (unsigned long)val;
-        mdt->mdt_capa_conf = 1;
-        return count;
+	return -ENOTSUPP;
 }
 
 static int lprocfs_rd_ck_timeout(char *page, char **start, off_t off, int count,
                                  int *eof, void *data)
 {
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-
-        return snprintf(page, count, "%lu\n", mdt->mdt_ck_timeout);
+	return snprintf(page, count, "0\n");
 }
 
 static int lprocfs_wr_ck_timeout(struct file *file, const char *buffer,
                                  unsigned long count, void *data)
 {
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
         int val, rc;
 
         rc = lprocfs_write_helper(buffer, count, &val);
         if (rc)
                 return rc;
 
-        mdt->mdt_ck_timeout = (unsigned long)val;
-        mdt->mdt_capa_conf = 1;
-        return count;
+	return -ENOTSUPP;
 }
 
 #define BUFLEN (UUID_MAX + 4)

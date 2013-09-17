@@ -69,7 +69,7 @@ int mdd_acl_chmod(const struct lu_env *env, struct mdd_object *o, __u32 mode,
 	buf = mdd_buf_get(env, mdd_env_info(env)->mti_xattr_buf,
 			  sizeof(mdd_env_info(env)->mti_xattr_buf));
 
-	rc = mdo_xattr_get(env, o, buf, XATTR_NAME_ACL_ACCESS, BYPASS_CAPA);
+	rc = mdo_xattr_get(env, o, buf, XATTR_NAME_ACL_ACCESS);
 	if ((rc == -EOPNOTSUPP) || (rc == -ENODATA))
 		RETURN(0);
 	else if (rc <= 0)
@@ -87,8 +87,7 @@ int mdd_acl_chmod(const struct lu_env *env, struct mdd_object *o, __u32 mode,
 	if (rc)
 		RETURN(rc);
 
-	rc = mdo_xattr_set(env, o, buf, XATTR_NAME_ACL_ACCESS,
-			   0, handle, BYPASS_CAPA);
+	rc = mdo_xattr_set(env, o, buf, XATTR_NAME_ACL_ACCESS, 0, handle);
 	RETURN(rc);
 }
 
@@ -105,7 +104,7 @@ int mdd_acl_set(const struct lu_env *env, struct mdd_object *obj,
 	mode_t			 mode;
 	ENTRY;
 
-	rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
+	rc = mdd_la_get(env, obj, la);
 	if (rc)
 		RETURN(rc);
 
@@ -151,17 +150,15 @@ int mdd_acl_set(const struct lu_env *env, struct mdd_object *obj,
 	mdd_write_lock(env, obj, MOR_TGT_CHILD);
 	/* whether ACL can be represented by i_mode only */
 	if (not_equiv)
-		rc = mdo_xattr_set(env, obj, buf, XATTR_NAME_ACL_ACCESS, fl,
-				handle, mdd_object_capa(env, obj));
+		rc = mdo_xattr_set(env, obj, buf, XATTR_NAME_ACL_ACCESS,
+				   fl, handle);
 	else
-		rc = mdo_xattr_del(env, obj, XATTR_NAME_ACL_ACCESS, handle,
-				mdd_object_capa(env, obj));
+		rc = mdo_xattr_del(env, obj, XATTR_NAME_ACL_ACCESS, handle);
 	if (rc)
 		GOTO(unlock, rc);
 
 	if (mode_change)
-		rc = mdo_attr_set(env, obj, la, handle,
-				mdd_object_capa(env, obj));
+		rc = mdo_attr_set(env, obj, la, handle);
 
 	/* security-replated changes may require sync */
 	if (S_ISDIR(mdd_object_type(obj)))
@@ -221,8 +218,7 @@ static int mdd_check_acl(const struct lu_env *env, struct mdd_object *obj,
 
         buf = mdd_buf_get(env, mdd_env_info(env)->mti_xattr_buf,
                           sizeof(mdd_env_info(env)->mti_xattr_buf));
-        rc = mdo_xattr_get(env, obj, buf, XATTR_NAME_ACL_ACCESS,
-                           mdd_object_capa(env, obj));
+	rc = mdo_xattr_get(env, obj, buf, XATTR_NAME_ACL_ACCESS);
         if (rc <= 0)
                 RETURN(rc ? : -EACCES);
 
@@ -265,12 +261,12 @@ int __mdd_permission_internal(const struct lu_env *env, struct mdd_object *obj,
         if ((mask & MAY_WRITE) && mdd_is_immutable(obj))
                 RETURN(-EACCES);
 
-        if (la == NULL) {
-                la = &mdd_env_info(env)->mti_la;
-                rc = mdd_la_get(env, obj, la, BYPASS_CAPA);
-                if (rc)
-                        RETURN(rc);
-        }
+	if (la == NULL) {
+		la = &mdd_env_info(env)->mti_la;
+		rc = mdd_la_get(env, obj, la);
+		if (rc)
+			RETURN(rc);
+	}
 
         mode = la->la_mode;
 	if (uc->uc_fsuid == la->la_uid) {
@@ -324,10 +320,10 @@ int mdd_permission(const struct lu_env *env,
         int rc = 0;
         ENTRY;
 
-        LASSERT(cobj);
-        mdd_cobj = md2mdd_obj(cobj);
+	LASSERT(cobj);
+	mdd_cobj = md2mdd_obj(cobj);
 
-	rc = mdd_la_get(env, mdd_cobj, la, BYPASS_CAPA);
+	rc = mdd_la_get(env, mdd_cobj, la);
 	if (rc)
 		RETURN(rc);
 
@@ -370,12 +366,12 @@ int mdd_permission(const struct lu_env *env,
 
         if (!rc && (check_vtx_part || check_vtx_full)) {
 		uc = lu_ucred_assert(env);
-                if (likely(!la)) {
-                        la = &mdd_env_info(env)->mti_la;
-                        rc = mdd_la_get(env, mdd_cobj, la, BYPASS_CAPA);
-                        if (rc)
-                                RETURN(rc);
-                }
+		if (likely(!la)) {
+			la = &mdd_env_info(env)->mti_la;
+			rc = mdd_la_get(env, mdd_cobj, la);
+			if (rc)
+				RETURN(rc);
+		}
 
 		if (!(la->la_mode & S_ISVTX) || (la->la_uid == uc->uc_fsuid) ||
 		    (check_vtx_full && (ma->ma_attr.la_valid & LA_UID) &&
@@ -395,26 +391,6 @@ int mdd_permission(const struct lu_env *env,
 		if (la->la_uid != uc->uc_fsuid &&
 		    !md_capable(uc, CFS_CAP_FOWNER))
 			rc = -EPERM;
-        }
-
-        RETURN(rc);
-}
-
-int mdd_capa_get(const struct lu_env *env, struct md_object *obj,
-                 struct lustre_capa *capa, int renewal)
-{
-        struct mdd_object *mdd_obj = md2mdd_obj(obj);
-        struct obd_capa *oc;
-        int rc = 0;
-        ENTRY;
-
-        oc = mdo_capa_get(env, mdd_obj, renewal ? capa : NULL,
-                          capa->lc_opc);
-        if (IS_ERR(oc)) {
-                rc = PTR_ERR(oc);
-        } else if (likely(oc != NULL)) {
-                capa_cpy(capa, oc);
-                capa_put(oc);
         }
 
         RETURN(rc);

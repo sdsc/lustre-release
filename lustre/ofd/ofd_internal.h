@@ -43,7 +43,6 @@
 #include <md_object.h>
 #include <lustre_fid.h>
 #include <obd_ost.h>
-#include <lustre_capa.h>
 
 #define OFD_INIT_OBJID	0
 #define OFD_ROCOMPAT_SUPP (0)
@@ -244,13 +243,6 @@ static inline struct ofd_device *ofd_obj2dev(const struct ofd_object *fo)
 	return ofd_dev(fo->ofo_obj.do_lu.lo_dev);
 }
 
-static inline struct lustre_capa *ofd_object_capa(const struct lu_env *env,
-						  const struct ofd_object *obj)
-{
-	/* TODO: see mdd_object_capa() */
-	return BYPASS_CAPA;
-}
-
 static inline void ofd_read_lock(const struct lu_env *env,
 				 struct ofd_object *fo)
 {
@@ -322,12 +314,6 @@ struct ofd_thread_info {
 
 extern void target_recovery_fini(struct obd_device *obd);
 extern void target_recovery_init(struct lu_target *lut, svc_handler_t handler);
-
-/* ofd_capa.c */
-int ofd_update_capa_key(struct ofd_device *ofd, struct lustre_capa_key *key);
-int ofd_auth_capa(struct obd_export *exp, struct lu_fid *fid, obd_seq seq,
-		  struct lustre_capa *capa, __u64 opc);
-void ofd_free_capa_keys(struct ofd_device *ofd);
 
 /* ofd_dev.c */
 extern struct lu_context_key ofd_thread_key;
