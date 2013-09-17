@@ -373,3 +373,21 @@ your distribution.
 
 	AM_CONDITIONAL(ZFS_ENABLED, test x$enable_zfs = xyes)
 ])
+
+#
+# Determine if ZFS has dsl_prop_set or dsl_prop_set_* flavors.
+#
+AC_DEFUN([LB_ZFS_HAS_DSL_PROP_SET],
+[AC_MSG_CHECKING([if zfs uses dsl_prop_set])
+LB_LINUX_TRY_COMPILE([
+	#include <sys/dsl_prop.h>
+],[
+	dsl_prop_set((char*)NULL, (char*)NULL, ZPROP_SRC_LOCAL, 1, 0, (char*)NULL);
+],[
+        AC_MSG_RESULT(yes)
+        AC_DEFINE(ZFS_HAS_DSL_PROP_SET, 1, [ZFS have dsl_prop_set])
+],[
+        AC_MSG_RESULT(no);
+])
+])
+

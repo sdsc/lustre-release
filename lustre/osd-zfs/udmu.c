@@ -390,8 +390,12 @@ int udmu_userprop_set_str(udmu_objset_t *uos, const char *prop_name,
 	if (rc != 0)
 		return rc;
 
+#ifdef ZFS_HAS_DSL_PROP_SET
 	rc = dsl_prop_set(os_name, real_prop, ZPROP_SRC_LOCAL, 1,
 			strlen(val) + 1, val);
+#else
+	rc = dsl_prop_set_string(os_name, real_prop, ZPROP_SRC_LOCAL, val);
+#endif
 	udmu_userprop_cleanup(&os_name, &real_prop);
 
 	return rc;
