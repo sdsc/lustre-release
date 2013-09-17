@@ -285,6 +285,18 @@ enum llog_ctxt_id {
 	LLOG_MAX_CTXTS
 };
 
+#define FILTER_SUBDIR_COUNT      32            /* set to zero for no subdirs */
+
+struct filter_subdirs {
+	struct dentry *dentry[FILTER_SUBDIR_COUNT];
+};
+
+
+struct filter_ext {
+        __u64                fe_start;
+        __u64                fe_end;
+};
+
 struct timeout_item {
         enum timeout_event ti_event;
         cfs_time_t         ti_timeout;
