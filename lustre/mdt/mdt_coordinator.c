@@ -175,7 +175,6 @@ static int mdt_coordinator_cb(const struct lu_env *env,
 	cdt = &mdt->mdt_coordinator;
 
 	larr = (struct llog_agent_req_rec *)hdr;
-	dump_llog_agent_req_rec("mdt_coordinator_cb(): ", larr);
 	switch (larr->arr_status) {
 	case ARS_WAITING: {
 		int i, empty_slot, found;

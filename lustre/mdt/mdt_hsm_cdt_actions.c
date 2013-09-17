@@ -228,12 +228,8 @@ static int mdt_agent_record_update_cb(const struct lu_env *env,
 		RETURN(0);
 
 	rc = 0;
-	for (i = 0 ; i < ducb->cookies_count ; i++) {
-		CDEBUG(D_HSM, "%s: search "LPX64", found "LPX64"\n",
-		       mdt_obd_name(ducb->mdt), ducb->cookies[i],
-		       larr->arr_hai.hai_cookie);
+	for (i = 0; i < ducb->cookies_count; i++) {
 		if (larr->arr_hai.hai_cookie == ducb->cookies[i]) {
-
 			larr->arr_status = ducb->status;
 			larr->arr_req_change = ducb->change_time;
 			rc = mdt_agent_llog_update_rec(env, ducb->mdt, llh,
