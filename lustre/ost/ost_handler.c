@@ -200,7 +200,6 @@ static int ost_destroy(struct obd_export *exp, struct ptlrpc_request *req,
                        struct obd_trans_info *oti)
 {
         struct ost_body *body, *repbody;
-        struct lustre_capa *capa = NULL;
         int rc;
         ENTRY;
 
@@ -226,15 +225,6 @@ static int ost_destroy(struct obd_export *exp, struct ptlrpc_request *req,
                 ldlm_request_cancel(req, dlm, 0);
         }
 
-        /* If there's a capability, get it */
-        if (body->oa.o_valid & OBD_MD_FLOSSCAPA) {
-                capa = req_capsule_client_get(&req->rq_pill, &RMF_CAPA1);
-                if (capa == NULL) {
-                        CERROR("Missing capability for OST DESTROY");
-                        RETURN (-EFAULT);
-                }
-        }
-
         /* Prepare the reply */
         rc = req_capsule_server_pack(&req->rq_pill);
         if (rc)
@@ -250,7 +240,7 @@ static int ost_destroy(struct obd_export *exp, struct ptlrpc_request *req,
 
         /* Do the destroy and set the reply status accordingly  */
         req->rq_status = obd_destroy(req->rq_svc_thread->t_env, exp,
-                                     &repbody->oa, NULL, oti, NULL, capa);
+				     &repbody->oa, NULL, oti, NULL, NULL);
         RETURN(0);
 }
 
@@ -316,7 +306,6 @@ static int ost_getattr(struct obd_export *exp, struct ptlrpc_request *req)
         struct ost_body *body, *repbody;
         struct obd_info *oinfo;
         struct lustre_handle lh = { 0 };
-        struct lustre_capa *capa = NULL;
 	ldlm_mode_t lock_mode;
         int rc;
         ENTRY;
@@ -328,14 +317,6 @@ static int ost_getattr(struct obd_export *exp, struct ptlrpc_request *req)
         rc = ost_validate_obdo(exp, &body->oa, NULL);
         if (rc)
                 RETURN(rc);
-
-        if (body->oa.o_valid & OBD_MD_FLOSSCAPA) {
-                capa = req_capsule_client_get(&req->rq_pill, &RMF_CAPA1);
-                if (capa == NULL) {
-                        CERROR("Missing capability for OST GETATTR");
-                        RETURN(-EFAULT);
-                }
-        }
 
         rc = req_capsule_server_pack(&req->rq_pill);
         if (rc)
@@ -360,7 +341,6 @@ static int ost_getattr(struct obd_export *exp, struct ptlrpc_request *req)
         if (!oinfo)
                 GOTO(unlock, rc = -ENOMEM);
         oinfo->oi_oa = &repbody->oa;
-        oinfo->oi_capa = capa;
 
         req->rq_status = obd_getattr(req->rq_svc_thread->t_env, exp, oinfo);
 
@@ -473,7 +453,6 @@ static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
                           repbody->oa.o_blocks, &lh, LCK_PW, flags);
         if (rc == 0) {
                 struct obd_info *oinfo;
-                struct lustre_capa *capa = NULL;
 
                 if (repbody->oa.o_valid & OBD_MD_FLFLAGS &&
                     repbody->oa.o_flags == OBD_FL_SRVLOCK)
@@ -484,22 +463,12 @@ static int ost_punch(struct obd_export *exp, struct ptlrpc_request *req,
                          */
                         repbody->oa.o_valid &= ~OBD_MD_FLFLAGS;
 
-                if (repbody->oa.o_valid & OBD_MD_FLOSSCAPA) {
-                        capa = req_capsule_client_get(&req->rq_pill,
-                                                      &RMF_CAPA1);
-                        if (capa == NULL) {
-                                CERROR("Missing capability for OST PUNCH");
-                                GOTO(unlock, rc = -EFAULT);
-                        }
-                }
-
                 OBD_ALLOC_PTR(oinfo);
                 if (!oinfo)
                         GOTO(unlock, rc = -ENOMEM);
                 oinfo->oi_oa = &repbody->oa;
                 oinfo->oi_policy.l_extent.start = oinfo->oi_oa->o_size;
                 oinfo->oi_policy.l_extent.end = oinfo->oi_oa->o_blocks;
-                oinfo->oi_capa = capa;
                 oinfo->oi_flags = OBD_FL_PUNCH;
 
                 req->rq_status = obd_punch(req->rq_svc_thread->t_env, exp,
@@ -518,7 +487,6 @@ static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req,
 {
         struct ost_body *body, *repbody;
         struct obd_info *oinfo;
-        struct lustre_capa *capa = NULL;
         int rc;
         ENTRY;
 
@@ -529,14 +497,6 @@ static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req,
         rc = ost_validate_obdo(exp, &body->oa, NULL);
         if (rc)
                 RETURN(rc);
-
-        if (body->oa.o_valid & OBD_MD_FLOSSCAPA) {
-                capa = req_capsule_client_get(&req->rq_pill, &RMF_CAPA1);
-                if (capa == NULL) {
-                        CERROR("Missing capability for OST SYNC");
-                        RETURN (-EFAULT);
-                }
-        }
 
         rc = req_capsule_server_pack(&req->rq_pill);
         if (rc)
@@ -550,7 +510,6 @@ static int ost_sync(struct obd_export *exp, struct ptlrpc_request *req,
                 RETURN(-ENOMEM);
 
         oinfo->oi_oa = &repbody->oa;
-        oinfo->oi_capa = capa;
 	oinfo->oi_jobid = oti->oti_jobid;
         req->rq_status = obd_sync(req->rq_svc_thread->t_env, exp, oinfo,
                                   repbody->oa.o_size, repbody->oa.o_blocks,
@@ -566,7 +525,6 @@ static int ost_setattr(struct obd_export *exp, struct ptlrpc_request *req,
 {
         struct ost_body *body, *repbody;
         struct obd_info *oinfo;
-        struct lustre_capa *capa = NULL;
         int rc;
         ENTRY;
 
@@ -582,14 +540,6 @@ static int ost_setattr(struct obd_export *exp, struct ptlrpc_request *req,
         if (rc)
                 RETURN(rc);
 
-        if (body->oa.o_valid & OBD_MD_FLOSSCAPA) {
-                capa = req_capsule_client_get(&req->rq_pill, &RMF_CAPA1);
-                if (capa == NULL) {
-                        CERROR("Missing capability for OST SETATTR");
-                        RETURN (-EFAULT);
-                }
-        }
-
         repbody = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
         repbody->oa = body->oa;
 
@@ -597,7 +547,6 @@ static int ost_setattr(struct obd_export *exp, struct ptlrpc_request *req,
         if (!oinfo)
                 RETURN(-ENOMEM);
         oinfo->oi_oa = &repbody->oa;
-        oinfo->oi_capa = capa;
 
         req->rq_status = obd_setattr(req->rq_svc_thread->t_env, exp, oinfo,
                                      oti);
@@ -772,7 +721,6 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
         struct niobuf_local *local_nb;
         struct obd_ioobj *ioo;
         struct ost_body *body, *repbody;
-        struct lustre_capa *capa = NULL;
         struct l_wait_info lwi;
         struct lustre_handle lockh = { 0 };
         int niocount, npages, nob = 0, rc, i;
@@ -822,14 +770,6 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
         if (remote_nb == NULL)
                 GOTO(out, rc = -EFAULT);
 
-        if (body->oa.o_valid & OBD_MD_FLOSSCAPA) {
-                capa = req_capsule_client_get(&req->rq_pill, &RMF_CAPA1);
-                if (capa == NULL) {
-                        CERROR("Missing capability for OST BRW READ");
-                        GOTO(out, rc = -EFAULT);
-                }
-        }
-
         rc = req_capsule_server_pack(&req->rq_pill);
         if (rc)
                 GOTO(out, rc);
@@ -864,7 +804,7 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
         npages = OST_THREAD_POOL_SIZE;
         rc = obd_preprw(req->rq_svc_thread->t_env, OBD_BRW_READ, exp,
                         &repbody->oa, 1, ioo, remote_nb, &npages, local_nb,
-                        oti, capa);
+			oti, NULL);
         if (rc != 0)
                 GOTO(out_lock, rc);
 
@@ -1030,7 +970,6 @@ static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
         struct ost_body         *body, *repbody;
         struct l_wait_info       lwi;
         struct lustre_handle     lockh = {0};
-        struct lustre_capa      *capa = NULL;
         __u32                   *rcs;
         int objcount, niocount, npages;
         int rc, i, j;
@@ -1083,14 +1022,6 @@ static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
         if ((remote_nb[0].flags & OBD_BRW_MEMALLOC) &&
             (exp->exp_connection->c_peer.nid == exp->exp_connection->c_self))
 		memory_pressure_set();
-
-        if (body->oa.o_valid & OBD_MD_FLOSSCAPA) {
-                capa = req_capsule_client_get(&req->rq_pill, &RMF_CAPA1);
-                if (capa == NULL) {
-                        CERROR("Missing capability for OST BRW WRITE");
-                        GOTO(out, rc = -EFAULT);
-                }
-        }
 
         req_capsule_set_size(&req->rq_pill, &RMF_RCS, RCL_SERVER,
                              niocount * sizeof(*rcs));
@@ -1152,7 +1083,7 @@ static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
         npages = OST_THREAD_POOL_SIZE;
         rc = obd_preprw(req->rq_svc_thread->t_env, OBD_BRW_WRITE, exp,
                         &repbody->oa, objcount, ioo, remote_nb, &npages,
-                        local_nb, oti, capa);
+			local_nb, oti, NULL);
         if (rc != 0)
                 GOTO(out_lock, rc);
 
@@ -1632,15 +1563,6 @@ static int ost_init_sec_level(struct ptlrpc_request *req)
                        "as remote by default.\n", client, obd->obd_name);
         }
 
-        if (remote) {
-                if (!filter->fo_fl_oss_capa) {
-                        CDEBUG(D_SEC, "client %s -> target %s is set as remote,"
-                               " but OSS capabilities are not enabled: %d.\n",
-                               client, obd->obd_name, filter->fo_fl_oss_capa);
-                        RETURN(-EACCES);
-                }
-        }
-
         switch (filter->fo_sec_level) {
         case LUSTRE_SEC_NONE:
                 if (!remote) {
@@ -1660,8 +1582,7 @@ static int ost_init_sec_level(struct ptlrpc_request *req)
                 if (!remote) {
                         reply->ocd_connect_flags &= ~(OBD_CONNECT_RMT_CLIENT |
                                                       OBD_CONNECT_RMT_CLIENT_FORCE);
-                        if (!filter->fo_fl_oss_capa)
-                                reply->ocd_connect_flags &= ~OBD_CONNECT_OSS_CAPA;
+			reply->ocd_connect_flags &= ~OBD_CONNECT_OSS_CAPA;
 
 			spin_lock(&exp->exp_lock);
 			*exp_connect_flags_ptr(exp) = reply->ocd_connect_flags;
@@ -1773,7 +1694,6 @@ int ost_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		ostid_res_name_to_id(&oa->o_oi, &lock->l_resource->lr_name);
 		oa->o_valid = OBD_MD_FLID|OBD_MD_FLGROUP;
 		oinfo->oi_oa = oa;
-		oinfo->oi_capa = BYPASS_CAPA;
 
 		rc = obd_sync(&env, lock->l_export, oinfo,
 			      lock->l_policy_data.l_extent.start,

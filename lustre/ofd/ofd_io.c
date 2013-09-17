@@ -68,7 +68,7 @@ static int ofd_preprw_read(const struct lu_env *env, struct obd_export *exp,
 	*nr_local = 0;
 	for (i = 0, j = 0; i < niocount; i++) {
 		rc = dt_bufs_get(env, ofd_object_child(fo), rnb + i,
-				 lnb + j, 0, ofd_object_capa(env, fo));
+				 lnb + j, 0);
 		if (unlikely(rc < 0))
 			GOTO(buf_put, rc);
 		LASSERT(rc <= PTLRPC_MAX_BRW_PAGES);
@@ -80,8 +80,7 @@ static int ofd_preprw_read(const struct lu_env *env, struct obd_export *exp,
 	}
 
 	LASSERT(*nr_local > 0 && *nr_local <= PTLRPC_MAX_BRW_PAGES);
-	rc = dt_attr_get(env, ofd_object_child(fo), la,
-			 ofd_object_capa(env, fo));
+	rc = dt_attr_get(env, ofd_object_child(fo), la);
 	if (unlikely(rc))
 		GOTO(buf_put, rc);
 
@@ -163,8 +162,7 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 	*nr_local = 0;
 	for (i = 0, j = 0; i < obj->ioo_bufcnt; i++) {
 		rc = dt_bufs_get(env, ofd_object_child(fo),
-				 rnb + i, lnb + j, 1,
-				 ofd_object_capa(env, fo));
+				 rnb + i, lnb + j, 1);
 		if (unlikely(rc < 0))
 			GOTO(err, rc);
 		LASSERT(rc <= PTLRPC_MAX_BRW_PAGES);
@@ -259,24 +257,16 @@ int ofd_preprw(const struct lu_env* env, int cmd, struct obd_export *exp,
 		RETURN(rc);
 
 	if (cmd == OBD_BRW_WRITE) {
-		rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oa->o_oi),
-				   capa, CAPA_OPC_OSS_WRITE);
-		if (rc == 0) {
-			la_from_obdo(&info->fti_attr, oa, OBD_MD_FLGETATTR);
-			rc = ofd_preprw_write(env, exp, ofd, &info->fti_fid,
-					      &info->fti_attr, oa, objcount,
-					      obj, rnb, nr_local, lnb, oti);
-		}
+		la_from_obdo(&info->fti_attr, oa, OBD_MD_FLGETATTR);
+		rc = ofd_preprw_write(env, exp, ofd, &info->fti_fid,
+				      &info->fti_attr, oa, objcount,
+				      obj, rnb, nr_local, lnb, oti);
 	} else if (cmd == OBD_BRW_READ) {
-		rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oa->o_oi),
-				   capa, CAPA_OPC_OSS_READ);
-		if (rc == 0) {
-			ofd_grant_prepare_read(env, exp, oa);
-			rc = ofd_preprw_read(env, exp, ofd, &info->fti_fid,
-					     &info->fti_attr, obj->ioo_bufcnt,
-					     rnb, nr_local, lnb, oti);
-			obdo_from_la(oa, &info->fti_attr, LA_ATIME);
-		}
+		ofd_grant_prepare_read(env, exp, oa);
+		rc = ofd_preprw_read(env, exp, ofd, &info->fti_fid,
+				     &info->fti_attr, obj->ioo_bufcnt,
+				     rnb, nr_local, lnb, oti);
+		obdo_from_la(oa, &info->fti_attr, LA_ATIME);
 	} else {
 		CERROR("%s: wrong cmd %d received!\n",
 		       exp->exp_obd->obd_name, cmd);
@@ -375,16 +365,15 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 
 	/* set uid/gid */
 	if (la->la_valid) {
-		rc = dt_attr_set(env, dt_obj, la, th,
-				 ofd_object_capa(env, ofd_obj));
+		rc = dt_attr_set(env, dt_obj, la, th);
 		if (rc)
 			GOTO(out_tx, rc);
 	}
 
 	/* set filter fid EA */
 	if (ff_needed) {
-		rc = dt_xattr_set(env, dt_obj, &info->fti_buf, XATTR_NAME_FID,
-				  0, th, BYPASS_CAPA);
+		rc = dt_xattr_set(env, dt_obj, &info->fti_buf,
+				  XATTR_NAME_FID, 0, th);
 		if (rc)
 			GOTO(out_tx, rc);
 	}
@@ -467,13 +456,13 @@ retry:
 		GOTO(out_stop, rc);
 
 	if (la->la_valid) {
-		rc = dt_attr_set(env, o, la, th, ofd_object_capa(env, fo));
+		rc = dt_attr_set(env, o, la, th);
 		if (rc)
 			GOTO(out_stop, rc);
 	}
 
 	/* get attr to return */
-	rc = dt_attr_get(env, o, la, ofd_object_capa(env, fo));
+	rc = dt_attr_get(env, o, la);
 
 out_stop:
 	/* Force commit to make the just-deleted blocks

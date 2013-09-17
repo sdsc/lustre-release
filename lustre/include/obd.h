@@ -285,6 +285,89 @@ enum llog_ctxt_id {
 	LLOG_MAX_CTXTS
 };
 
+#define FILTER_SUBDIR_COUNT      32            /* set to zero for no subdirs */
+
+struct filter_subdirs {
+	struct dentry *dentry[FILTER_SUBDIR_COUNT];
+};
+
+
+struct filter_ext {
+        __u64                fe_start;
+        __u64                fe_end;
+};
+
+struct filter_obd {
+	/* NB this field MUST be first */
+	struct obd_device_target fo_obt;
+	const char		*fo_fstype;
+
+	int			fo_group_count;
+	struct dentry		*fo_dentry_O;
+	struct dentry		**fo_dentry_O_groups;
+	struct filter_subdirs	*fo_dentry_O_sub;
+	struct mutex		fo_init_lock;	/* group initialization lock*/
+	int			fo_committed_group;
+
+	spinlock_t		fo_objidlock;	/* protect fo_lastobjid */
+
+	unsigned long		fo_destroys_in_progress;
+	struct mutex		fo_create_locks[FILTER_SUBDIR_COUNT];
+
+        cfs_list_t fo_export_list;
+        int                  fo_subdir_count;
+
+        obd_size             fo_tot_dirty;      /* protected by obd_osfs_lock */
+        obd_size             fo_tot_granted;    /* all values in bytes */
+        obd_size             fo_tot_pending;
+        int                  fo_tot_granted_clients;
+
+        obd_size             fo_readcache_max_filesize;
+	spinlock_t		fo_flags_lock;
+        unsigned int         fo_read_cache:1,   /**< enable read-only cache */
+                             fo_writethrough_cache:1,/**< read cache writes */
+                             fo_mds_ost_sync:1, /**< MDS-OST orphan recovery*/
+                             fo_raid_degraded:1;/**< RAID device degraded */
+
+        struct obd_import   *fo_mdc_imp;
+        struct obd_uuid      fo_mdc_uuid;
+        struct lustre_handle fo_mdc_conn;
+        struct file        **fo_last_objid_files;
+        __u64               *fo_last_objids; /* last created objid for groups,
+                                              * protected by fo_objidlock */
+
+	struct mutex		fo_alloc_lock;
+
+        cfs_atomic_t         fo_r_in_flight;
+        cfs_atomic_t         fo_w_in_flight;
+
+	/*
+	 * per-filter pool of kiobuf's allocated by filter_common_setup() and
+	 * torn down by filter_cleanup().
+	 *
+	 * This pool contains kiobuf used by
+	 * filter_{prep,commit}rw_{read,write}() and is shared by all OST
+	 * threads.
+	 *
+	 * Locking: protected by internal lock of cfs_hash, pool can be
+	 * found from this hash table by t_id of ptlrpc_thread.
+	 */
+	struct cfs_hash		*fo_iobuf_hash;
+
+        struct brw_stats         fo_filter_stats;
+
+        int                      fo_fmd_max_num; /* per exp filter_mod_data */
+        int                      fo_fmd_max_age; /* jiffies to fmd expiry */
+        unsigned long            fo_syncjournal:1, /* sync journal on writes */
+                                 fo_sync_lock_cancel:2;/* sync on lock cancel */
+
+        /* sptlrpc stuff */
+	rwlock_t		fo_sptlrpc_lock;
+        struct sptlrpc_rule_set  fo_sptlrpc_rset;
+
+        int                      fo_sec_level;
+};
+
 struct timeout_item {
         enum timeout_event ti_event;
         cfs_time_t         ti_timeout;

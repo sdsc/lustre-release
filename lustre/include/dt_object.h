@@ -167,13 +167,6 @@ struct dt_device_operations {
           */
          int   (*dt_commit_async)(const struct lu_env *env,
                                   struct dt_device *dev);
-        /**
-         * Initialize capability context.
-         */
-        int   (*dt_init_capa_ctxt)(const struct lu_env *env,
-                                   struct dt_device *dev,
-                                   int mode, unsigned long timeout,
-                                   __u32 alg, struct lustre_capa_key *keys);
 };
 
 struct dt_index_features {
@@ -307,8 +300,7 @@ struct dt_object_operations {
          * precondition: lu_object_exists(&dt->do_lu);
          */
         int   (*do_attr_get)(const struct lu_env *env,
-                             struct dt_object *dt, struct lu_attr *attr,
-                             struct lustre_capa *capa);
+			     struct dt_object *dt, struct lu_attr *attr);
         /**
          * Set standard attributes.
          *
@@ -319,18 +311,16 @@ struct dt_object_operations {
                                      const struct lu_attr *attr,
                                      struct thandle *handle);
         int   (*do_attr_set)(const struct lu_env *env,
-                             struct dt_object *dt,
-                             const struct lu_attr *attr,
-                             struct thandle *handle,
-                             struct lustre_capa *capa);
+			     struct dt_object *dt,
+			     const struct lu_attr *attr,
+			     struct thandle *handle);
         /**
          * Return a value of an extended attribute.
          *
          * precondition: dt_object_exists(dt);
          */
         int   (*do_xattr_get)(const struct lu_env *env, struct dt_object *dt,
-                              struct lu_buf *buf, const char *name,
-                              struct lustre_capa *capa);
+			      struct lu_buf *buf, const char *name);
         /**
          * Set value of an extended attribute.
          *
@@ -344,9 +334,8 @@ struct dt_object_operations {
                                       const char *name, int fl,
                                       struct thandle *handle);
         int   (*do_xattr_set)(const struct lu_env *env,
-                              struct dt_object *dt, const struct lu_buf *buf,
-                              const char *name, int fl, struct thandle *handle,
-                              struct lustre_capa *capa);
+			      struct dt_object *dt, const struct lu_buf *buf,
+			      const char *name, int fl, struct thandle *handle);
         /**
          * Delete existing extended attribute.
          *
@@ -355,10 +344,8 @@ struct dt_object_operations {
         int   (*do_declare_xattr_del)(const struct lu_env *env,
                                       struct dt_object *dt,
                                       const char *name, struct thandle *handle);
-        int   (*do_xattr_del)(const struct lu_env *env,
-                              struct dt_object *dt,
-                              const char *name, struct thandle *handle,
-                              struct lustre_capa *capa);
+	int   (*do_xattr_del)(const struct lu_env *env, struct dt_object *dt,
+			      const char *name, struct thandle *handle);
         /**
          * Place list of existing extended attributes into \a buf (which has
          * length len).
@@ -366,8 +353,7 @@ struct dt_object_operations {
          * precondition: dt_object_exists(dt);
          */
         int   (*do_xattr_list)(const struct lu_env *env,
-                               struct dt_object *dt, struct lu_buf *buf,
-                               struct lustre_capa *capa);
+			       struct dt_object *dt, struct lu_buf *buf);
         /**
          * Init allocation hint using parent object and child mode.
          * (1) The \a parent might be NULL if this is a partial creation for
@@ -437,18 +423,7 @@ struct dt_object_operations {
         int   (*do_ref_del)(const struct lu_env *env,
                             struct dt_object *dt, struct thandle *th);
 
-        struct obd_capa *(*do_capa_get)(const struct lu_env *env,
-                                        struct dt_object *dt,
-                                        struct lustre_capa *old,
-                                        __u64 opc);
         int (*do_object_sync)(const struct lu_env *, struct dt_object *);
-        /**
-         * Get object info of next level. Currently, only get inode from osd.
-         * This is only used by quota b=16542
-         * precondition: dt_object_exists(dt);
-         */
-        int (*do_data_get)(const struct lu_env *env, struct dt_object *dt,
-                           void **data);
 
 	/**
 	 * Lock object.
@@ -467,8 +442,7 @@ struct dt_body_operations {
          * precondition: dt_object_exists(dt);
          */
         ssize_t (*dbo_read)(const struct lu_env *env, struct dt_object *dt,
-                            struct lu_buf *buf, loff_t *pos,
-                            struct lustre_capa *capa);
+			    struct lu_buf *buf, loff_t *pos);
         /**
          * precondition: dt_object_exists(dt);
          */
@@ -477,9 +451,8 @@ struct dt_body_operations {
                                      const loff_t size, loff_t pos,
                                      struct thandle *handle);
         ssize_t (*dbo_write)(const struct lu_env *env, struct dt_object *dt,
-                             const struct lu_buf *buf, loff_t *pos,
-                             struct thandle *handle, struct lustre_capa *capa,
-                             int ignore_quota);
+			     const struct lu_buf *buf, loff_t *pos,
+			     struct thandle *handle, int ignore_quota);
         /*
          * methods for zero-copy IO
          */
@@ -492,13 +465,13 @@ struct dt_body_operations {
          * > 0 - number of local buffers prepared
          */
         int (*dbo_bufs_get)(const struct lu_env *env, struct dt_object *dt,
-                            loff_t pos, ssize_t len, struct niobuf_local *lb,
-                            int rw, struct lustre_capa *capa);
+			    loff_t pos, ssize_t len, struct niobuf_local *lb,
+			    int rw);
         /*
          * precondition: dt_object_exists(dt);
          */
         int (*dbo_bufs_put)(const struct lu_env *env, struct dt_object *dt,
-                            struct niobuf_local *lb, int nr);
+			    struct niobuf_local *lb, int nr);
         /*
          * precondition: dt_object_exists(dt);
          */
@@ -530,8 +503,7 @@ struct dt_body_operations {
         int   (*dbo_declare_punch)(const struct lu_env *, struct dt_object *,
                                   __u64, __u64, struct thandle *th);
         int   (*dbo_punch)(const struct lu_env *env, struct dt_object *dt,
-                          __u64 start, __u64 end, struct thandle *th,
-                          struct lustre_capa *capa);
+			   __u64 start, __u64 end, struct thandle *th);
 };
 
 /**
@@ -557,8 +529,7 @@ struct dt_index_operations {
          * precondition: dt_object_exists(dt);
          */
         int (*dio_lookup)(const struct lu_env *env, struct dt_object *dt,
-                          struct dt_rec *rec, const struct dt_key *key,
-                          struct lustre_capa *capa);
+			  struct dt_rec *rec, const struct dt_key *key);
         /**
          * precondition: dt_object_exists(dt);
          */
@@ -568,9 +539,8 @@ struct dt_index_operations {
                                   const struct dt_key *key,
                                   struct thandle *handle);
         int (*dio_insert)(const struct lu_env *env, struct dt_object *dt,
-                          const struct dt_rec *rec, const struct dt_key *key,
-                          struct thandle *handle, struct lustre_capa *capa,
-                          int ignore_quota);
+			  const struct dt_rec *rec, const struct dt_key *key,
+			  struct thandle *handle, int ignore_quota);
         /**
          * precondition: dt_object_exists(dt);
          */
@@ -579,8 +549,7 @@ struct dt_index_operations {
                                   const struct dt_key *key,
                                   struct thandle *handle);
         int (*dio_delete)(const struct lu_env *env, struct dt_object *dt,
-                          const struct dt_key *key, struct thandle *handle,
-                          struct lustre_capa *capa);
+			  const struct dt_key *key, struct thandle *handle);
         /**
          * Iterator interface
          */
@@ -591,9 +560,7 @@ struct dt_index_operations {
                  * precondition: dt_object_exists(dt);
                  */
                 struct dt_it *(*init)(const struct lu_env *env,
-                                      struct dt_object *dt,
-                                      __u32 attr,
-                                      struct lustre_capa *capa);
+				      struct dt_object *dt, __u32 attr);
                 void          (*fini)(const struct lu_env *env,
                                       struct dt_it *di);
                 int            (*get)(const struct lu_env *env,
@@ -1086,12 +1053,12 @@ static inline int dt_write_locked(const struct lu_env *env,
 }
 
 static inline int dt_attr_get(const struct lu_env *env, struct dt_object *dt,
-                              struct lu_attr *la, void *arg)
+			      struct lu_attr *la)
 {
         LASSERT(dt);
         LASSERT(dt->do_ops);
         LASSERT(dt->do_ops->do_attr_get);
-        return dt->do_ops->do_attr_get(env, dt, la, arg);
+	return dt->do_ops->do_attr_get(env, dt, la);
 }
 
 static inline int dt_declare_attr_set(const struct lu_env *env,
@@ -1106,13 +1073,12 @@ static inline int dt_declare_attr_set(const struct lu_env *env,
 }
 
 static inline int dt_attr_set(const struct lu_env *env, struct dt_object *dt,
-                              const struct lu_attr *la, struct thandle *th,
-                              struct lustre_capa *capa)
+			      const struct lu_attr *la, struct thandle *th)
 {
         LASSERT(dt);
         LASSERT(dt->do_ops);
         LASSERT(dt->do_ops->do_attr_set);
-        return dt->do_ops->do_attr_set(env, dt, la, th, capa);
+	return dt->do_ops->do_attr_set(env, dt, la, th);
 }
 
 static inline int dt_declare_ref_add(const struct lu_env *env,
@@ -1151,26 +1117,15 @@ static inline int dt_ref_del(const struct lu_env *env,
         return dt->do_ops->do_ref_del(env, dt, th);
 }
 
-static inline struct obd_capa *dt_capa_get(const struct lu_env *env,
-                                           struct dt_object *dt,
-                                           struct lustre_capa *old, __u64 opc)
-{
-        LASSERT(dt);
-        LASSERT(dt->do_ops);
-	LASSERT(dt->do_ops->do_capa_get);
-        return dt->do_ops->do_capa_get(env, dt, old, opc);
-}
-
 static inline int dt_bufs_get(const struct lu_env *env, struct dt_object *d,
-                              struct niobuf_remote *rnb,
-                              struct niobuf_local *lnb, int rw,
-                              struct lustre_capa *capa)
+			      struct niobuf_remote *rnb, struct niobuf_local *lnb,
+			      int rw)
 {
         LASSERT(d);
         LASSERT(d->do_body_ops);
         LASSERT(d->do_body_ops->dbo_bufs_get);
         return d->do_body_ops->dbo_bufs_get(env, d, rnb->offset,
-                                            rnb->len, lnb, rw, capa);
+					    rnb->len, lnb, rw);
 }
 
 static inline int dt_bufs_put(const struct lu_env *env, struct dt_object *d,
@@ -1232,13 +1187,12 @@ static inline int dt_declare_punch(const struct lu_env *env,
 }
 
 static inline int dt_punch(const struct lu_env *env, struct dt_object *dt,
-                           __u64 start, __u64 end, struct thandle *th,
-                           struct lustre_capa *capa)
+			   __u64 start, __u64 end, struct thandle *th)
 {
-        LASSERT(dt);
-        LASSERT(dt->do_body_ops);
-        LASSERT(dt->do_body_ops->dbo_punch);
-        return dt->do_body_ops->dbo_punch(env, dt, start, end, th, capa);
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_punch);
+	return dt->do_body_ops->dbo_punch(env, dt, start, end, th);
 }
 
 static inline int dt_fiemap_get(const struct lu_env *env, struct dt_object *d,
@@ -1309,18 +1263,16 @@ static inline int dt_declare_insert(const struct lu_env *env,
 }
 
 static inline int dt_insert(const struct lu_env *env,
-                                    struct dt_object *dt,
-                                    const struct dt_rec *rec,
-                                    const struct dt_key *key,
-                                    struct thandle *th,
-                                    struct lustre_capa *capa,
-                                    int noquota)
+			    struct dt_object *dt,
+			    const struct dt_rec *rec,
+			    const struct dt_key *key,
+			    struct thandle *th,
+			    int noquota)
 {
         LASSERT(dt);
         LASSERT(dt->do_index_ops);
         LASSERT(dt->do_index_ops->dio_insert);
-        return dt->do_index_ops->dio_insert(env, dt, rec, key, th,
-                                            capa, noquota);
+	return dt->do_index_ops->dio_insert(env, dt, rec, key, th, noquota);
 }
 
 static inline int dt_declare_xattr_del(const struct lu_env *env,
@@ -1334,58 +1286,54 @@ static inline int dt_declare_xattr_del(const struct lu_env *env,
         return dt->do_ops->do_declare_xattr_del(env, dt, name, th);
 }
 
-static inline int dt_xattr_del(const struct lu_env *env,
-                               struct dt_object *dt, const char *name,
-                               struct thandle *th,
-                               struct lustre_capa *capa)
+static inline int dt_xattr_del(const struct lu_env *env, struct dt_object *dt,
+			       const char *name, struct thandle *th)
 {
         LASSERT(dt);
         LASSERT(dt->do_ops);
         LASSERT(dt->do_ops->do_xattr_del);
-        return dt->do_ops->do_xattr_del(env, dt, name, th, capa);
+	return dt->do_ops->do_xattr_del(env, dt, name, th);
 }
 
 static inline int dt_declare_xattr_set(const struct lu_env *env,
-                                      struct dt_object *dt,
-                                      const struct lu_buf *buf,
-                                      const char *name, int fl,
-                                      struct thandle *th)
+				       struct dt_object *dt,
+				       const struct lu_buf *buf,
+				       const char *name, int fl,
+				       struct thandle *th)
 {
         LASSERT(dt);
         LASSERT(dt->do_ops);
         LASSERT(dt->do_ops->do_declare_xattr_set);
-        return dt->do_ops->do_declare_xattr_set(env, dt, buf, name, fl, th);
+	return dt->do_ops->do_declare_xattr_set(env, dt, buf, name, fl, th);
 }
 
-static inline int dt_xattr_set(const struct lu_env *env,
-                              struct dt_object *dt, const struct lu_buf *buf,
-                              const char *name, int fl, struct thandle *th,
-                              struct lustre_capa *capa)
+static inline int dt_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			       const struct lu_buf *buf, const char *name, int fl,
+			       struct thandle *th)
 {
         LASSERT(dt);
         LASSERT(dt->do_ops);
         LASSERT(dt->do_ops->do_xattr_set);
-        return dt->do_ops->do_xattr_set(env, dt, buf, name, fl, th, capa);
+	return dt->do_ops->do_xattr_set(env, dt, buf, name, fl, th);
 }
 
 static inline int dt_xattr_get(const struct lu_env *env,
-                              struct dt_object *dt, struct lu_buf *buf,
-                              const char *name, struct lustre_capa *capa)
+			       struct dt_object *dt, struct lu_buf *buf,
+			       const char *name)
 {
-        LASSERT(dt);
-        LASSERT(dt->do_ops);
-        LASSERT(dt->do_ops->do_xattr_get);
-        return dt->do_ops->do_xattr_get(env, dt, buf, name, capa);
+	LASSERT(dt);
+	LASSERT(dt->do_ops);
+	LASSERT(dt->do_ops->do_xattr_get);
+	return dt->do_ops->do_xattr_get(env, dt, buf, name);
 }
 
 static inline int dt_xattr_list(const struct lu_env *env,
-                               struct dt_object *dt, struct lu_buf *buf,
-                               struct lustre_capa *capa)
+				struct dt_object *dt, struct lu_buf *buf)
 {
         LASSERT(dt);
         LASSERT(dt->do_ops);
         LASSERT(dt->do_ops->do_xattr_list);
-        return dt->do_ops->do_xattr_list(env, dt, buf, capa);
+	return dt->do_ops->do_xattr_list(env, dt, buf);
 }
 
 static inline int dt_declare_delete(const struct lu_env *env,
@@ -1399,16 +1347,13 @@ static inline int dt_declare_delete(const struct lu_env *env,
         return dt->do_index_ops->dio_declare_delete(env, dt, key, th);
 }
 
-static inline int dt_delete(const struct lu_env *env,
-                            struct dt_object *dt,
-                            const struct dt_key *key,
-                            struct thandle *th,
-                            struct lustre_capa *capa)
+static inline int dt_delete(const struct lu_env *env, struct dt_object *dt,
+			    const struct dt_key *key, struct thandle *th)
 {
         LASSERT(dt);
         LASSERT(dt->do_index_ops);
         LASSERT(dt->do_index_ops->dio_delete);
-        return dt->do_index_ops->dio_delete(env, dt, key, th, capa);
+	return dt->do_index_ops->dio_delete(env, dt, key, th);
 }
 
 static inline int dt_commit_async(const struct lu_env *env,
@@ -1420,36 +1365,21 @@ static inline int dt_commit_async(const struct lu_env *env,
         return dev->dd_ops->dt_commit_async(env, dev);
 }
 
-static inline int dt_init_capa_ctxt(const struct lu_env *env,
-				    struct dt_device *dev,
-				    int mode, unsigned long timeout,
-				    __u32 alg, struct lustre_capa_key *keys)
+static inline int dt_lookup(const struct lu_env *env, struct dt_object *dt,
+			    struct dt_rec *rec, const struct dt_key *key)
 {
-	LASSERT(dev);
-	LASSERT(dev->dd_ops);
-	LASSERT(dev->dd_ops->dt_init_capa_ctxt);
-	return dev->dd_ops->dt_init_capa_ctxt(env, dev, mode,
-					      timeout, alg, keys);
-}
+	int ret;
 
-static inline int dt_lookup(const struct lu_env *env,
-                            struct dt_object *dt,
-                            struct dt_rec *rec,
-                            const struct dt_key *key,
-                            struct lustre_capa *capa)
-{
-        int ret;
+	LASSERT(dt);
+	LASSERT(dt->do_index_ops);
+	LASSERT(dt->do_index_ops->dio_lookup);
 
-        LASSERT(dt);
-        LASSERT(dt->do_index_ops);
-        LASSERT(dt->do_index_ops->dio_lookup);
-
-        ret = dt->do_index_ops->dio_lookup(env, dt, rec, key, capa);
-        if (ret > 0)
-                ret = 0;
-        else if (ret == 0)
-                ret = -ENOENT;
-        return ret;
+	ret = dt->do_index_ops->dio_lookup(env, dt, rec, key);
+	if (ret > 0)
+		ret = 0;
+	else if (ret == 0)
+		ret = -ENOENT;
+	return ret;
 }
 
 #define LU221_BAD_TIME (0x80000000U + 24 * 3600)
