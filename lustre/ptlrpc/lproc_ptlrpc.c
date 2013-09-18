@@ -138,6 +138,7 @@ struct ll_rpc_opcode {
 	{ FLD_QUERY,        "fld_query" },
 	{ FLD_READ,	    "fld_read" },
 	{ UPDATE_OBJ,	    "update_obj" },
+	{ UPDATE_LOG_CANCEL, "update_log_cancel" },
 };
 
 struct ll_eopcode {
