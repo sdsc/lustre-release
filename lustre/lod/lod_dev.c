@@ -569,19 +569,20 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dev,
 	int rc = 0;
 	int rc2 = 0;
 
+	rc = dt_trans_stop(env, th->th_dev, th);
 	if (tu != NULL) {
+		tu->tu_result = rc;
 		cfs_list_for_each_entry_safe(update, tmp,
 					     &tu->tu_remote_update_list,
 					     tud_list) {
 			/* Each tud will be freed in trans_stop */
-			rc2 = dt_trans_stop(env, update->tud_dt, th);
+			rc2 = dt_trans_stop(env, update->tud_dt,
+					    (struct thandle *)tu);
 			if (unlikely(rc2 != 0 && rc == 0))
 				rc = rc2;
 		}
 		LASSERT(cfs_list_empty(&tu->tu_remote_update_list));
 	}
-
-	rc2 = dt_trans_stop(env, th->th_dev, th);
 
 	/* Free update buf if necessary */
 	/* If the buf_size > LOD_UPDATE_BUFFER_SIZE, it means
@@ -591,7 +592,7 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dev,
 		OBD_FREE_PTR(tu);
 	}
 
-	return rc2 != 0 ? rc2 : rc;
+	return rc;
 }
 
 static void lod_conf_get(const struct lu_env *env,

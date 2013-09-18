@@ -2576,7 +2576,10 @@ void lustre_swab_update(struct update *u)
 	int	i;
 
 	__swab16s(&u->u_type);
+	__swab16s(&u->u_master_index);
+	__swab32s(&u->u_flags);
 	__swab64s(&u->u_batchid);
+	__swab64s(&u->u_xid);
 	lustre_swab_lu_fid(&u->u_fid);
 	for (i = 0; i < ARRAY_SIZE(u->u_lens); i++)
 		__swab32s(&u->u_lens[i]);
@@ -2597,6 +2600,8 @@ void lustre_swab_update_reply(struct update_reply *ur)
 {
 	__swab32s(&ur->ur_rc);
 	__swab64s(&ur->ur_transno);
+	__swab64s(&ur->ur_xid);
+	__swab32s(&ur->ur_transno_idx);
 	__swab32s(&ur->ur_datalen);
 }
 EXPORT_SYMBOL(lustre_swab_update_reply);

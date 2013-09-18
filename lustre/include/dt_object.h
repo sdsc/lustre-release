@@ -745,13 +745,22 @@ struct thandle_update_dt {
 	int			(*tud_txn_stop_cb)(const struct lu_env *env,
 						struct thandle *th, void *data);
 	void			*tud_cb_data;
+	__u64			tud_transno;
+	struct llog_cookie	tud_logcookie;
+	int			tud_commit;
 };
 
 struct thandle_update {
 	cfs_list_t		tu_remote_update_list;
 	struct update_buf	*tu_update_buf;	/* Holding the update buf */
 	int			tu_update_buf_size; /* size of update buf */
+	int			tu_result;
 	__u64			tu_batchid;	/* Current batch(trans) id */
+	int			tu_master_index; /* master index of the trans */
+	int			(*tu_txn_stop_cb)(const struct lu_env *env,
+						  struct thandle *th,
+						  void *data);
+	void			*tu_cb_data;
 };
 
 /**
@@ -797,6 +806,8 @@ struct thandle {
 	struct thandle_update	*th_update;
 };
 
+struct llog_operations;
+
 int dt_trans_update_create(const struct lu_env *env, struct dt_object *dt,
 			   struct lu_attr *attr,
 			   struct dt_allocation_hint *hint,
@@ -819,18 +830,28 @@ int dt_trans_update_ref_del(const struct lu_env *env, struct dt_object *dt,
 			    struct thandle *th);
 
 int dt_update_attr_get(const struct lu_env *env, struct update_buf *ubuf,
-		       int buffer_len, struct dt_object *dt);
+		       int buffer_len, struct dt_object *dt, int master_index);
 int dt_update_index_lookup(const struct lu_env *env, struct update_buf *ubuf,
 			   int buffer_len, struct dt_object *dt,
-			   struct dt_rec *rec, const struct dt_key *key);
+			   struct dt_rec *rec, const struct dt_key *key,
+			   int master_index);
 int dt_update_xattr_get(const struct lu_env *env, struct update_buf *ubuf,
-			int buffer_len, struct dt_object *dt, char *name);
-
+			int buffer_len, struct dt_object *dt, char *name,
+			int master_index);
 int dt_trans_update_declare_llog_add(const struct lu_env *env,
-				     struct thandle *th);
+				     struct dt_device *dt, struct thandle *th,
+				     int index);
 int dt_trans_update_llog_add(const struct lu_env *env, struct dt_device *dt,
-			     struct update_buf *ubuf, struct thandle *th);
+			     struct update_buf *ubuf,
+			     struct llog_cookie *cookie, int index,
+			     struct thandle *th);
+int dt_update_llog_cancel(const struct lu_env *env, struct dt_device *dt,
+			  struct llog_cookie *cookie, int index);
 int dt_trans_update_hook_stop(const struct lu_env *env, struct thandle *th);
+int dt_update_llog_init(const struct lu_env *env, struct dt_device *dt,
+		        int index, struct llog_operations *logops);
+void dt_update_llog_fini(const struct lu_env *env, struct dt_device *dt,
+			 int index);
 /**
  * Transaction call-backs.
  *

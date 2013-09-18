@@ -56,6 +56,7 @@ struct update_opcode {
 	{ OBJ_INDEX_LOOKUP,	"lookup" },
 	{ OBJ_INDEX_INSERT,	"insert" },
 	{ OBJ_INDEX_DELETE,	"delete" },
+	{ OBJ_LOG_CANCEL,	"log_cancel" },
 };
 
 const char *update_op_str(__u16 opcode)
@@ -70,7 +71,8 @@ EXPORT_SYMBOL(update_op_str);
  **/
 struct update *update_pack(const struct lu_env *env, struct update_buf *ubuf,
 			   int buf_len, int op, const struct lu_fid *fid,
-			   int count, int *lens, __u64 batchid)
+			   int count, int *lens, __u64 batchid,
+			   int master_index)
 {
 	struct update        *update;
 	int                   i;
@@ -96,6 +98,7 @@ struct update *update_pack(const struct lu_env *env, struct update_buf *ubuf,
 	update->u_fid = *fid;
 	update->u_type = op;
 	update->u_batchid = batchid;
+	update->u_master_index = master_index;
 	for (i = 0; i < count; i++)
 		update->u_lens[i] = lens[i];
 
@@ -111,14 +114,16 @@ EXPORT_SYMBOL(update_pack);
 
 int update_insert(const struct lu_env *env, struct update_buf *ubuf,
 		  int buf_len, int op, const struct lu_fid *fid,
-		  int count, int *lens, char **bufs, __u64 batchid)
+		  int count, int *lens, char **bufs, __u64 batchid,
+		  int master_index)
 {
 	struct update	*update;
 	char		*ptr;
 	int		i;
 	ENTRY;
 
-	update = update_pack(env, ubuf, buf_len, op, fid, count, lens, batchid);
+	update = update_pack(env, ubuf, buf_len, op, fid, count, lens,
+			     batchid, master_index);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
@@ -151,7 +156,8 @@ int dt_trans_update_create(const struct lu_env *env, struct dt_object *dt,
 	update = update_pack(env, th->th_update->tu_update_buf,
 			     th->th_update->tu_update_buf_size, OBJ_CREATE,
 			     lu_object_fid(&dt->do_lu), buf_count, sizes,
-			     th->th_update->tu_batchid);
+			     th->th_update->tu_batchid,
+			     th->th_update->tu_master_index);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
@@ -175,7 +181,8 @@ int dt_trans_update_ref_del(const struct lu_env *env, struct dt_object *dt,
 	return update_insert(env, th->th_update->tu_update_buf,
 			     th->th_update->tu_update_buf_size, OBJ_REF_DEL,
 			     lu_object_fid(&dt->do_lu), 0, NULL, NULL,
-			     th->th_update->tu_batchid);
+			     th->th_update->tu_batchid,
+			     th->th_update->tu_master_index);
 }
 EXPORT_SYMBOL(dt_trans_update_ref_del);
 
@@ -185,7 +192,8 @@ int dt_trans_update_ref_add(const struct lu_env *env, struct dt_object *dt,
 	return update_insert(env, th->th_update->tu_update_buf,
 			     th->th_update->tu_update_buf_size, OBJ_REF_ADD,
 			     lu_object_fid(&dt->do_lu), 0, NULL, NULL,
-			     th->th_update->tu_batchid);
+			     th->th_update->tu_batchid,
+			     th->th_update->tu_master_index);
 }
 EXPORT_SYMBOL(dt_trans_update_ref_add);
 
@@ -201,7 +209,8 @@ int dt_trans_update_attr_set(const struct lu_env *env, struct dt_object *dt,
 	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
 	update = update_pack(env, th->th_update->tu_update_buf,
 			     th->th_update->tu_update_buf_size, OBJ_ATTR_SET,
-			     fid, 1, &size, th->th_update->tu_batchid);
+			     fid, 1, &size, th->th_update->tu_batchid,
+			     th->th_update->tu_master_index);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
@@ -224,7 +233,8 @@ int dt_trans_update_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	return update_insert(env, th->th_update->tu_update_buf,
 			     th->th_update->tu_update_buf_size, OBJ_XATTR_SET,
 			     lu_object_fid(&dt->do_lu), 3, sizes, bufs,
-			     th->th_update->tu_batchid);
+			     th->th_update->tu_batchid,
+			     th->th_update->tu_master_index);
 }
 EXPORT_SYMBOL(dt_trans_update_xattr_set);
 
@@ -238,7 +248,8 @@ int dt_trans_update_index_insert(const struct lu_env *env, struct dt_object *dt,
 	return update_insert(env, th->th_update->tu_update_buf,
 			     th->th_update->tu_update_buf_size,
 			     OBJ_INDEX_INSERT, lu_object_fid(&dt->do_lu), 2,
-			     sizes, bufs, th->th_update->tu_batchid);
+			     sizes, bufs, th->th_update->tu_batchid,
+			     th->th_update->tu_master_index);
 }
 EXPORT_SYMBOL(dt_trans_update_index_insert);
 
@@ -251,7 +262,8 @@ int dt_trans_update_index_delete(const struct lu_env *env, struct dt_object *dt,
 	return update_insert(env, th->th_update->tu_update_buf,
 			     th->th_update->tu_update_buf_size,
 			     OBJ_INDEX_DELETE, lu_object_fid(&dt->do_lu), 1,
-			     &size, &buf, th->th_update->tu_batchid);
+			     &size, &buf, th->th_update->tu_batchid,
+			     th->th_update->tu_master_index);
 }
 EXPORT_SYMBOL(dt_trans_update_index_delete);
 
@@ -261,37 +273,194 @@ int dt_trans_update_object_destroy(const struct lu_env *env,
 	return update_insert(env, th->th_update->tu_update_buf,
 			     th->th_update->tu_update_buf_size, OBJ_DESTROY,
 			     lu_object_fid(&dt->do_lu), 0, NULL, NULL,
-			     th->th_update->tu_batchid);
+			     th->th_update->tu_batchid,
+			     th->th_update->tu_master_index);
 }
 EXPORT_SYMBOL(dt_trans_update_object_destroy);
 
-int dt_trans_update_declare_llog_add(const struct lu_env *env,
-				     struct thandle *th)
+struct obd_llog_group *dt_update_find_olg(struct dt_device *dt, int index)
 {
-	struct llog_ctxt *ctxt;
-	struct llog_rec_hdr hdr;
-	int rc;
+	struct obd_device	*obd = dt->dd_lu_dev.ld_obd;
+	struct obd_llog_group	*olg;
+	struct obd_llog_group	*found = NULL;
 
-	ctxt = llog_get_context(th->th_dev->dd_lu_dev.ld_obd,
-				LLOG_UPDATE_ORIG_CTXT);
-	LASSERT(ctxt);
+	down_read(&obd->obd_olg_list_sem);
+	cfs_list_for_each_entry(olg, &obd->obd_olg_list, olg_list) {
+		if (olg->olg_seq == index) {
+			found = olg;
+			break;
+		}
+	}
+	up_read(&obd->obd_olg_list_sem);
+	return found;
+}
+EXPORT_SYMBOL(dt_update_find_olg);
 
-	hdr.lrh_len = llog_data_len(UPDATE_BUFFER_SIZE);
-	rc = llog_declare_add(env, ctxt->loc_handle, &hdr, th);
+static int dt_update_add_olg(struct dt_device *dt, struct obd_llog_group *olg)
+{
+	struct obd_device	*obd = dt->dd_lu_dev.ld_obd;
+	struct obd_llog_group	*tmp;
+	int rc = 0;
+
+	down_write(&obd->obd_olg_list_sem);
+	cfs_list_for_each_entry(tmp, &obd->obd_olg_list, olg_list) {
+		if (tmp->olg_seq == olg->olg_seq) {
+			rc = -EEXIST;
+			break;
+		}
+	}
+	if (rc == 0)
+		cfs_list_add_tail(&olg->olg_list, &obd->obd_olg_list);
+	up_write(&obd->obd_olg_list_sem);
+	RETURN(rc);
+}
+
+int dt_trans_update_declare_llog_add(const struct lu_env *env,
+				     struct dt_device *dt, struct thandle *th,
+				     int index)
+{
+	struct llog_thread_info	*info = llog_info(env);
+	struct obd_llog_group	*olg;
+	struct llog_ctxt	*ctxt;
+	struct llog_rec_hdr	*hdr = &info->lgi_lrh;
+	int			rc;
+
+	olg = dt_update_find_olg(dt, index);
+	LASSERTF(olg != NULL, "%s: olg %d does not exist!\n",
+		dt->dd_lu_dev.ld_obd->obd_name, index);
+	ctxt = llog_group_get_ctxt(olg, LLOG_UPDATE_ORIG_CTXT);
+	if (ctxt == NULL)
+		return -ENXIO;
+
+	hdr->lrh_len = llog_data_len(UPDATE_BUFFER_SIZE);
+	rc = llog_declare_add(env, ctxt->loc_handle, hdr, th);
 	llog_ctxt_put(ctxt);
 	return rc;
 }
 EXPORT_SYMBOL(dt_trans_update_declare_llog_add);
 
+int dt_update_llog_init(const struct lu_env *env, struct dt_device *dt,
+			int index, struct llog_operations *logops)
+{
+	struct llog_thread_info		*info = llog_info(env);
+	struct lu_fid			*fid = &info->lgi_fid;
+	struct llog_catid		*cid = &info->lgi_cid;
+	struct llog_handle		*lgh = NULL;
+	struct obd_device		*obd = dt->dd_lu_dev.ld_obd;
+	struct llog_ctxt		*ctxt;
+	struct obd_llog_group		*olg;
+	int				rc;
+	ENTRY;
+
+	olg = dt_update_find_olg(dt, index);
+	if (olg != NULL)
+		RETURN(0);
+
+	OBD_ALLOC_PTR(olg);
+	if (olg == NULL)
+		RETURN(-ENOMEM);
+
+	llog_group_init(olg, index);
+
+	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
+	obd->obd_lvfs_ctxt.dt = dt;
+	lu_local_obj_fid(fid, UPDATE_LLOG_CATALOGS_OID);
+	rc = llog_osd_get_cat_list(env, dt, index, 1, cid, fid);
+	if (rc) {
+		CERROR("%s: can't get id from catalogs: rc = %d\n",
+		       obd->obd_name, rc);
+		RETURN(rc);
+	}
+
+	rc = llog_setup(env, obd, olg, LLOG_UPDATE_ORIG_CTXT, obd, logops);
+	if (rc)
+		RETURN(rc);
+
+        ctxt = llog_group_get_ctxt(olg, LLOG_UPDATE_ORIG_CTXT);
+	LASSERT(ctxt);
+
+	if (likely(logid_id(&cid->lci_logid) != 0)) {
+		rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
+			       LLOG_OPEN_EXISTS);
+		/* re-create llog if it is missing */
+		if (rc == -ENOENT)
+			logid_set_id(&cid->lci_logid, 0);
+		else if (rc < 0)
+			GOTO(out_cleanup, rc);
+	}
+
+	if (unlikely(logid_id(&cid->lci_logid) == 0)) {
+		rc = llog_open_create(env, ctxt, &lgh, NULL, NULL);
+		if (rc < 0)
+			GOTO(out_cleanup, rc);
+		cid->lci_logid = lgh->lgh_id;
+	}
+
+	LASSERT(lgh != NULL);
+	ctxt->loc_handle = lgh;
+	rc = llog_cat_init_and_process(env, ctxt->loc_handle);
+	if (rc)
+		GOTO(out_close, rc);
+
+	rc = dt_update_add_olg(dt, olg);
+	if (rc != 0)
+		GOTO(out_close, rc);
+
+	llog_ctxt_put(ctxt);
+	RETURN(0);
+out_close:
+	llog_cat_close(env, lgh);
+out_cleanup:
+	llog_cleanup(env, ctxt);
+	OBD_FREE_PTR(olg);
+	RETURN(rc);
+}
+EXPORT_SYMBOL(dt_update_llog_init);
+
+void dt_update_llog_fini(const struct lu_env *env, struct dt_device *dt,
+			 int index)
+{
+	struct obd_device	*obd = dt->dd_lu_dev.ld_obd;
+	struct obd_llog_group	*olg;
+	struct obd_llog_group	*found = NULL;
+	struct llog_ctxt	*ctxt;
+
+	down_write(&obd->obd_olg_list_sem);
+	cfs_list_for_each_entry(olg, &obd->obd_olg_list, olg_list) {
+		if (olg->olg_seq == index) {
+			found = olg;
+			break;
+		}
+	}
+	if (found != NULL)
+		cfs_list_del_init(&found->olg_list);
+	up_write(&obd->obd_olg_list_sem);
+	if (found == NULL)
+		return;
+
+	ctxt = llog_group_get_ctxt(found, LLOG_UPDATE_ORIG_CTXT);
+	if (ctxt == NULL)
+		return;
+	llog_cat_close(env, ctxt->loc_handle);
+	llog_cleanup(env, ctxt);
+	OBD_FREE_PTR(found);
+	return;
+}
+EXPORT_SYMBOL(dt_update_llog_fini);
+
 int dt_trans_update_llog_add(const struct lu_env *env, struct dt_device *dt,
-			     struct update_buf *ubuf, struct thandle *th)
+			     struct update_buf *ubuf,
+			     struct llog_cookie *cookie, int index,
+			     struct thandle *th)
 {
 	struct llog_thread_info		*info = llog_info(env);
 	struct llog_updatelog_rec	*rec = &info->lgi_update_lrec;
 	struct lu_buf			*lbuf = &info->lgi_update_lb;
+	struct obd_llog_group		*olg;
 	struct llog_ctxt		*ctxt;
 	int				reclen;
 	int				rc;
+	ENTRY;
 
 	reclen = llog_data_len(sizeof(*rec) + update_buf_size(ubuf));
 	lbuf = lu_buf_check_and_alloc(lbuf, reclen);
@@ -303,19 +472,45 @@ int dt_trans_update_llog_add(const struct lu_env *env, struct dt_device *dt,
 			      sizeof(struct llog_rec_tail) +
 			      llog_data_len(update_buf_size(ubuf));
 	rec->ur_hdr.lrh_type = UPDATE_REC;
+	update_dump_buf(ubuf);
 	memcpy(&rec->urb, ubuf, update_buf_size(ubuf));
-	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd, LLOG_UPDATE_ORIG_CTXT);
+	update_buf_cpu_to_le(&rec->urb, &rec->urb);
+
+	olg = dt_update_find_olg(dt, index);
+	LASSERTF(olg != NULL, "olg %d does not exist!\n", index);
+	ctxt = llog_group_get_ctxt(olg, LLOG_UPDATE_ORIG_CTXT);
 	if (ctxt == NULL)
 		RETURN(-ENXIO);
 
 	LASSERT(ctxt->loc_handle != NULL);
-	rc = llog_add(env, ctxt->loc_handle, &rec->ur_hdr, NULL, NULL, th);
+	rc = llog_add(env, ctxt->loc_handle, &rec->ur_hdr, cookie, NULL, th);
 	llog_ctxt_put(ctxt);
 	if (rc > 0)
 		rc = 0;
 	RETURN(rc);
 }
 EXPORT_SYMBOL(dt_trans_update_llog_add);
+
+int dt_update_llog_cancel(const struct lu_env *env, struct dt_device *dt,
+			  struct llog_cookie *cookie, int index)
+{
+	struct obd_llog_group	*olg;
+	struct llog_ctxt	*ctxt;
+	int			rc;
+	ENTRY;
+
+	olg = dt_update_find_olg(dt, index);
+	LASSERTF(olg != NULL, "olg %d does not exist!\n", index);
+	ctxt = llog_group_get_ctxt(olg, LLOG_UPDATE_ORIG_CTXT);
+	if (ctxt == NULL)
+		RETURN(-ENXIO);
+
+	LASSERT(ctxt->loc_handle != NULL);
+	rc = llog_cat_cancel_records(env, ctxt->loc_handle, 1, cookie);
+	llog_ctxt_put(ctxt);
+	RETURN(rc);
+}
+EXPORT_SYMBOL(dt_update_llog_cancel);
 
 /**
  * The following update funcs are only used by read-only ops, lookup,
@@ -324,28 +519,30 @@ EXPORT_SYMBOL(dt_trans_update_llog_add);
  **/
 int dt_update_index_lookup(const struct lu_env *env, struct update_buf *ubuf,
 			   int buffer_len, struct dt_object *dt,
-			   struct dt_rec *rec, const struct dt_key *key)
+			   struct dt_rec *rec, const struct dt_key *key,
+			   int master_index)
 {
 	int	size = strlen((char *)key) + 1;
 	char	*name = (char *)key;
 
 	return update_insert(env, ubuf, buffer_len, OBJ_INDEX_LOOKUP,
 			     lu_object_fid(&dt->do_lu), 1, &size,
-			     (char **)&name, 0);
+			     (char **)&name, 0, master_index);
 }
 EXPORT_SYMBOL(dt_update_index_lookup);
 
 int dt_update_attr_get(const struct lu_env *env, struct update_buf *ubuf,
-		       int buffer_len, struct dt_object *dt) 
+		       int buffer_len, struct dt_object *dt, int master_index)
 {
 	return update_insert(env, ubuf, buffer_len, OBJ_ATTR_GET,
 			     (struct lu_fid *)lu_object_fid(&dt->do_lu), 0,
-			     NULL, NULL, 0);
+			     NULL, NULL, 0, master_index);
 }
 EXPORT_SYMBOL(dt_update_attr_get);
 
 int dt_update_xattr_get(const struct lu_env *env, struct update_buf *ubuf,
-			int buffer_len, struct dt_object *dt, char *name)
+			int buffer_len, struct dt_object *dt, char *name,
+			int master_index)
 {
 	int	size;
 
@@ -353,7 +550,7 @@ int dt_update_xattr_get(const struct lu_env *env, struct update_buf *ubuf,
 	size = strlen(name) + 1;
 	return update_insert(env, ubuf, UPDATE_BUFFER_SIZE, OBJ_XATTR_GET,
 			     (struct lu_fid *)lu_object_fid(&dt->do_lu), 1,
-			     &size, (char **)&name, 0);
+			     &size, (char **)&name, 0, master_index);
 }
 EXPORT_SYMBOL(dt_update_xattr_get);
 
@@ -370,21 +567,31 @@ EXPORT_SYMBOL(dt_update_xid);
 
 int dt_trans_update_hook_stop(const struct lu_env *env, struct thandle *th)
 {
+	struct thandle_update	 *tu = th->th_update;
         struct thandle_update_dt *tud;
-        int                     rc = 0;
+        int			 rc = 0;
+	ENTRY;
 
-        if (th->th_update == NULL)
-                return 0;
+        if (tu == NULL)
+                RETURN(0);
 
-        cfs_list_for_each_entry(tud, &th->th_update->tu_remote_update_list,
-				tud_list) {
+	/* local dt call back first */
+	if (tu->tu_txn_stop_cb != NULL) {
+		rc = tu->tu_txn_stop_cb(env, th, tu->tu_cb_data);
+		if (rc < 0)
+			RETURN(rc);
+	}
+
+	/* then remote dt call back */
+        cfs_list_for_each_entry(tud, &tu->tu_remote_update_list, tud_list) {
                 if (tud->tud_txn_stop_cb == NULL)
                         continue;
 
                 rc = tud->tud_txn_stop_cb(env, th, tud->tud_cb_data);
                 if (rc < 0)
                         break;
-        }
-        return rc;
+	}
+
+	RETURN(rc);
 }
 EXPORT_SYMBOL(dt_trans_update_hook_stop);

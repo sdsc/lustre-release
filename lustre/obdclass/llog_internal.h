@@ -50,13 +50,6 @@ struct llog_process_info {
 
 };
 
-/** updatelog record */
-struct llog_updatelog_rec {
-	struct llog_rec_hdr  ur_hdr;
-	struct update_buf    urb;
-	struct llog_rec_tail ur_tail; /**< for_sizezof_only */
-} __attribute__((packed));
-
 struct llog_thread_info {
 	struct lu_attr			 lgi_attr;
 	struct lu_fid			 lgi_fid;
@@ -67,6 +60,9 @@ struct llog_thread_info {
 	struct llog_rec_tail		 lgi_tail;
 	struct llog_updatelog_rec	 lgi_update_lrec;
 	struct lu_buf			 lgi_update_lb;
+	struct llog_cookie		 lgi_cookie;
+	struct llog_catid		 lgi_cid;
+	struct llog_gen_rec		 lgi_gen;
 };
 
 extern struct lu_context_key llog_thread_key;

@@ -129,8 +129,8 @@ struct osp_device {
 	int				 opd_imp_connected;
 	int				 opd_imp_active;
 	unsigned int			 opd_imp_seen_connected:1,
-					 opd_connect_mdt:1;
-
+					 opd_connect_mdt:1,
+					 opd_new_committed:1;
 	/* whether local recovery is completed:
 	 * reported via ->ldo_recovery_complete() */
 	int				 opd_recovery_completed;
@@ -182,6 +182,11 @@ struct osp_device {
 	int				 opd_statfs_update_in_progress;
 	/* how often to update statfs data */
 	int				 opd_statfs_maxage;
+
+	/* update threads */
+	struct ptlrpc_thread		opd_update_thread;
+	wait_queue_head_t		opd_update_waitq;
+	__u64				opd_last_committed_transno;
 
 	cfs_proc_dir_entry_t		*opd_symlink;
 };
@@ -235,6 +240,7 @@ struct osp_thread_info {
 		struct llog_gen_rec		osi_gen;
 	};
 	struct llog_cookie	 osi_cookie;
+	struct llog_cookie	 osi_cookie1;
 	struct llog_catid	 osi_cid;
 	struct lu_seq_range	 osi_seq;
 	struct ldlm_res_id	 osi_resid;
@@ -411,6 +417,13 @@ static inline int osp_is_fid_client(struct osp_device *osp)
 	return imp->imp_connect_data.ocd_connect_flags & OBD_CONNECT_FID;
 }
 
+static inline __u64 osp_last_local_committed(struct osp_device *osp)
+{
+	struct lu_site *site;
+	site = osp->opd_dt_dev.dd_lu_dev.ld_site;
+	return site->ls_top_dev->ld_obd->obd_last_committed;
+}
+
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
 extern struct llog_operations osp_mds_ost_orig_logops;
@@ -421,8 +434,8 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		   struct thandle *th);
 int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
-			struct update_buf *ubuf, int ubuf_len,
-			struct ptlrpc_request **reqp);
+			struct update_buf *ubuf, struct ptlrpc_request **reqp,
+			int op);
 struct update_buf *osp_alloc_update_buf(void);
 void osp_free_update_buf(struct update_buf *ubuf);
 

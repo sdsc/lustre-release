@@ -953,10 +953,11 @@ static int osd_update_transno(const struct lu_env *env, struct osd_device *osd,
 {
 	struct update_buf *ubuf = tu->tu_update_buf;
 	int i;
+	ENTRY;
 
 	LASSERT(ubuf != NULL);
 	if (tu->tu_batchid == 0)
-		return 0;
+		RETURN(0);
 
 	for (i = 0; i < ubuf->ub_count; i++) {
 		struct update *update;
@@ -968,7 +969,7 @@ static int osd_update_transno(const struct lu_env *env, struct osd_device *osd,
 	}
 
 	update_dump_buf(ubuf);
-	return 0;
+	RETURN(0);
 }
 
 /*

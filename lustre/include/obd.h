@@ -837,6 +837,7 @@ struct obd_llog_group {
 	wait_queue_head_t  olg_waitq;
 	spinlock_t	   olg_lock;
 	struct mutex	   olg_cat_processing;
+	cfs_list_t	   olg_list;
 };
 
 /* corresponds to one of the obd's */
@@ -903,6 +904,8 @@ struct obd_device {
 	__u64			obd_osfs_age;
 	struct lvfs_run_ctxt	obd_lvfs_ctxt;
 	struct obd_llog_group	obd_olg;	/* default llog group */
+	cfs_list_t		obd_olg_list; /* list for different llog grp */
+	struct rw_semaphore	obd_olg_list_sem;	
 	struct obd_device	*obd_observer;
 	struct rw_semaphore	obd_observer_link_sem;
         struct obd_notify_upcall obd_upcall;

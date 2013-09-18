@@ -39,25 +39,38 @@ static const char dot[] = ".";
 static const char dotdot[] = "..";
 
 int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
-			struct update_buf *ubuf, int ubuf_len,
-			struct ptlrpc_request **reqp)
+			struct update_buf *ubuf, struct ptlrpc_request **reqp,
+			int op)
 {
 	struct obd_import      *imp;
-	struct ptlrpc_request  *req;
+	struct ptlrpc_request  *req = NULL;
 	struct update_buf      *tmp;
 	int			rc;
+	int			ubuf_len = update_buf_size(ubuf);
 	ENTRY;
 
 	imp = osp->opd_obd->u.cli.cl_import;
 	LASSERT(imp);
 
-	req = ptlrpc_request_alloc(imp, &RQF_UPDATE_OBJ);
+	switch (op) {
+	case UPDATE_LOG_CANCEL:
+		req = ptlrpc_request_alloc(imp, &RQF_UPDATE_LOG_CANCEL);
+		break;
+	case UPDATE_OBJ:
+		req = ptlrpc_request_alloc(imp, &RQF_UPDATE_OBJ);
+		break;
+	default:
+		CERROR("%s: unknown op %d\n", osp->opd_obd->obd_name,
+		       op);
+		LBUG();
+		break;
+	}
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
 	req_capsule_set_size(&req->rq_pill, &RMF_UPDATE, RCL_CLIENT, ubuf_len);
 
-	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, UPDATE_OBJ);
+	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, op);
 	if (rc != 0) {
 		ptlrpc_req_finished(req);
 		RETURN(rc);
@@ -66,6 +79,7 @@ int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
 	req_capsule_set_size(&req->rq_pill, &RMF_UPDATE_REPLY, RCL_SERVER,
 			     UPDATE_BUFFER_SIZE);
 
+	update_dump_buf(ubuf);
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_UPDATE);
 	memcpy(tmp, ubuf, ubuf_len);
 
@@ -86,7 +100,7 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 	int			rc;
 	ENTRY;
 
-	rc = osp_prep_update_req(env, osp, ubuf, UPDATE_BUFFER_SIZE, &req);
+	rc = osp_prep_update_req(env, osp, ubuf, &req, UPDATE_OBJ);
 	if (rc)
 		RETURN(rc);
 
@@ -111,6 +125,37 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 	ptlrpc_req_finished(req);
 
 	RETURN(rc);
+}
+
+static int osp_fld_lookup(const struct lu_env *env, struct osp_device *osp,
+			  seqno_t seq, struct lu_seq_range *range)
+{
+	struct seq_server_site	*ss = osp_seq_site(osp);
+	int			rc;
+
+	if (fid_seq_is_idif(seq)) {
+		fld_range_set_ost(range);
+		range->lsr_index = idif_ost_idx(seq);
+		return 0;
+	}
+
+	if (!fid_seq_in_fldb(seq)) {
+		fld_range_set_mdt(range);
+		if (ss != NULL)
+			/* FIXME: If ss is NULL, it suppose not get lsr_index
+			 * at all */
+			range->lsr_index = ss->ss_node_id;
+		return 0;
+	}
+
+	LASSERT(ss != NULL);
+	fld_range_set_any(range);
+	rc = fld_server_lookup(env, ss->ss_server_fld, seq, range);
+	if (rc != 0) {
+		CERROR("%s: cannot find FLD range for "LPX64": rc = %d\n",
+		       osp->opd_obd->obd_name, seq, rc);
+	}
+	return rc;
 }
 
 /**
@@ -184,28 +229,50 @@ static int osp_update_transno_xid(struct update_buf *buf,
 int osp_trans_stop(const struct lu_env *env, struct dt_device *dt_dev,
 		   struct thandle *th)
 {
+	struct thandle_update	 *tu = (struct thandle_update *)th;
 	struct thandle_update_dt *tud;
-	struct ptlrpc_request *req;
-	int rc = 0;
+	struct ptlrpc_request	 *req = NULL;
+	struct osp_device	 *osp = dt2osp_dev(dt_dev);
+	int			 rc = 0;
 	ENTRY;
 
-	tud = osp_find_update(th->th_update, dt_dev);
+	LASSERT(tu != NULL);
+	tud = osp_find_update(tu, dt_dev);
 	if (tud == NULL)
-		return rc;
+		RETURN(rc);
 
-	update_dump_buf(th->th_update->tu_update_buf);
+	if (tu->tu_result != 0)
+		GOTO(out, rc = tu->tu_result);
+
 	LASSERT(tud->tud_count > 0);
 	LASSERT(tud->tud_count <= UPDATE_PER_RPC_MAX);
-	rc = osp_remote_sync(env, dt_dev, th->th_update->tu_update_buf,
-			     &req, tud);
-	if (rc == 0) {
-		rc = osp_update_transno_xid(th->th_update->tu_update_buf, req);
-		ptlrpc_req_finished(req);
-	}
 
+	rc = osp_prep_update_req(env, osp, tu->tu_update_buf, &req, UPDATE_OBJ);
+	if (rc)
+		GOTO(out, rc);
+
+	rc = ptlrpc_queue_wait(req);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	if (lustre_msg_get_last_committed(req->rq_repmsg) >
+	    osp->opd_last_committed_transno) {
+		/* If last committed transno changed, wakeup
+		 * update log thread */
+		osp->opd_last_committed_transno =
+			lustre_msg_get_last_committed(req->rq_repmsg);
+		osp->opd_new_committed = 1;
+		wake_up(&osp->opd_update_waitq);
+
+		CDEBUG(D_HA, "%s: trans "LPU64" wake up update log thread\n",
+		       osp->opd_obd->obd_name, osp->opd_last_committed_transno);
+	}
+	rc = osp_update_transno_xid(tu->tu_update_buf, req);
+out:
 	cfs_list_del(&tud->tud_list);
 	OBD_FREE_PTR(tud);
-
+	if (req != NULL)
+		ptlrpc_req_finished(req);
 	RETURN(rc);
 }
 
@@ -242,20 +309,44 @@ static inline void osp_md_add_update_batchid(struct thandle *handle)
 static int osp_update_stop_txn_cb(const struct lu_env *env,
 				  struct thandle *th, void *data)
 {
+	struct llog_cookie	*cookie = &osp_env_info(env)->osi_cookie;
 	struct dt_device	*dt_dev = (struct dt_device *)data;
+	struct lu_seq_range	*range = &osp_env_info(env)->osi_seq;
+	struct osp_device	*osp = dt2osp_dev(dt_dev);
+	struct update_buf	*ubuf;
+	int i;
 	int rc;
+	ENTRY;
 
-	LASSERT(th->th_update != NULL);
-	LASSERT(th->th_update->tu_update_buf != NULL);
 	LASSERT(dt_dev != NULL);
+	LASSERT(th->th_update != NULL);
+	ubuf = th->th_update->tu_update_buf;
+	LASSERT(ubuf != NULL);
 
-	rc = dt_trans_update_llog_add(env, dt_dev, th->th_update->tu_update_buf,
-				      th);
-	if (rc != 0)
+	rc = dt_trans_update_llog_add(env, osp->opd_storage, ubuf, cookie,
+				      osp->opd_index, th);
+	if (rc != 0) {
 		CERROR("%s: update llog failed: rc = %d\n",
 		       (dt2osp_dev(dt_dev))->opd_obd->obd_name, rc);
+		RETURN(rc);
+	}
 
-	return rc;
+	for (i = 0; i < ubuf->ub_count; i++) {
+		struct update *update = update_buf_get(ubuf, i, NULL);
+
+		rc = osp_fld_lookup(env, osp, fid_seq(&update->u_fid), range);
+		if (rc != 0) {
+			CDEBUG(D_ERROR, "%s:"DFID"seq lookup failed\n",
+			       osp->opd_obd->obd_name,
+			       PFID(&update->u_fid));
+			continue;
+		}
+
+		if (osp->opd_group == range->lsr_index)
+			update->u_cookie = *cookie;
+	}
+
+	RETURN(rc);
 }
 
 /**
@@ -267,10 +358,11 @@ static struct thandle_update_dt
 *osp_find_create_update_loc(const struct lu_env *env, struct thandle *th,
 			    struct dt_object *dt)
 {
-	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
-	struct thandle_update_dt *tud = NULL;
-	int			 rc;
-	int			 allocated = 0;
+	struct dt_device		*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	struct osp_device		*osp = dt2osp_dev(dt_dev);
+	struct thandle_update_dt	*tud = NULL;
+	int				allocated = 0;
+	int				rc;
 	ENTRY;
 
 	if (th->th_update == NULL) {
@@ -286,6 +378,7 @@ static struct thandle_update_dt
 		CFS_INIT_LIST_HEAD(&th->th_update->tu_remote_update_list);
 		th->th_update->tu_update_buf_size = UPDATE_BUFFER_SIZE;
 		th->th_record_update = 1;
+		th->th_update->tu_master_index = osp->opd_group;
 		allocated = 1;
 	}
 
@@ -293,7 +386,8 @@ static struct thandle_update_dt
 	if (tud != NULL)
 		RETURN(tud);
 
-	rc = dt_trans_update_declare_llog_add(env, th);
+	rc = dt_trans_update_declare_llog_add(env, osp->opd_storage, th,
+					      osp->opd_index);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -642,7 +736,7 @@ static int osp_md_xattr_get(const struct lu_env *env, struct dt_object *dt,
 
 	LASSERT(name != NULL);
 	rc = dt_update_xattr_get(env, ubuf, UPDATE_BUFFER_SIZE, dt,
-				 (char *)name);
+				 (char *)name, dt2osp_dev(dt_dev)->opd_group);
 	if (rc != 0) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name, rc);
@@ -751,7 +845,7 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 		RETURN(-ENOMEM);
 
 	rc = dt_update_index_lookup(env, ubuf, UPDATE_BUFFER_SIZE, dt, rec,
-				    key);
+				    key, dt2osp_dev(dt_dev)->opd_group);
 	if (rc) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
@@ -1018,7 +1112,8 @@ static int osp_md_attr_get(const struct lu_env *env,
 	if (ubuf == NULL)
 		RETURN(-ENOMEM);
 
-	rc = dt_update_attr_get(env, ubuf, UPDATE_BUFFER_SIZE, dt);
+	rc = dt_update_attr_get(env, ubuf, UPDATE_BUFFER_SIZE, dt,
+				dt2osp_dev(dt_dev)->opd_group);
 	if (rc) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
@@ -1184,92 +1279,380 @@ static int osp_update_llog_init(const struct lu_env *env,
 				struct osp_device *osp)
 {
 	struct osp_thread_info	*osi = osp_env_info(env);
-	struct lu_fid		*fid = &osi->osi_fid;
-	struct llog_catid	*cid = &osi->osi_cid;
-	struct llog_handle	*lgh = NULL;
-	struct obd_device	*obd = osp->opd_obd;
+	struct dt_device	*dt = osp->opd_storage;
+	struct obd_llog_group	*olg;
 	struct llog_ctxt	*ctxt;
 	int			rc;
-
 	ENTRY;
 
-	/*
-	 * open llog corresponding to our OST
-	 */
-	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
-	obd->obd_lvfs_ctxt.dt = osp->opd_storage;
-
-	lu_local_obj_fid(fid, UPDATE_LLOG_CATALOGS_OID);
-	rc = llog_osd_get_cat_list(env, osp->opd_storage, osp->opd_group, 1,
-				   cid, fid);
-	if (rc) {
-		CERROR("%s: can't get id from catalogs: rc = %d\n",
-		       obd->obd_name, rc);
-		RETURN(rc);
-	}
-
-	CDEBUG(D_INFO, "%s: Init llog for %d - catid "DOSTID":%x\n",
-	       obd->obd_name, osp->opd_group, POSTID(&cid->lci_logid.lgl_oi),
-	       cid->lci_logid.lgl_ogen);
-
-	rc = llog_setup(env, obd, &obd->obd_olg, LLOG_UPDATE_ORIG_CTXT, obd,
-			&osp_mds_ost_orig_logops);
-	if (rc)
+	CDEBUG(D_HA, "%s: init update log %d\n", osp->opd_obd->obd_name,
+	       osp->opd_index);
+	rc = dt_update_llog_init(env, dt, osp->opd_index,
+				 &osp_mds_ost_orig_logops);
+	if (rc != 0)
 		RETURN(rc);
 
-	ctxt = llog_get_context(obd, LLOG_UPDATE_ORIG_CTXT);
-	LASSERT(ctxt);
+	/* add generation log, so llog_update_process thread
+	 * can process records during initialization */
+	osi->osi_gen.lgr_hdr.lrh_type = LLOG_GEN_REC;
+	osi->osi_gen.lgr_hdr.lrh_len = sizeof(osi->osi_gen);
 
-	if (likely(logid_id(&cid->lci_logid) != 0)) {
-		rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
-			       LLOG_OPEN_EXISTS);
-		/* re-create llog if it is missing */
-		if (rc == -ENOENT)
-			logid_set_id(&cid->lci_logid, 0);
-		else if (rc < 0)
-			GOTO(out_cleanup, rc);
+	olg = dt_update_find_olg(osp->opd_storage, osp->opd_index);
+	if (olg == NULL) {
+		CERROR("%s: can't get appropriate context: rc = %d\n",
+		       osp->opd_obd->obd_name, -EINVAL);
+		GOTO(out, rc = -EINVAL);
 	}
 
-	if (unlikely(logid_id(&cid->lci_logid) == 0)) {
-		rc = llog_open_create(env, ctxt, &lgh, NULL, NULL);
-		if (rc < 0)
-			GOTO(out_cleanup, rc);
-		cid->lci_logid = lgh->lgh_id;
+	ctxt = llog_group_get_ctxt(olg, LLOG_UPDATE_ORIG_CTXT);
+	if (ctxt == NULL) {
+		CERROR("%s: can't get appropriate context: rc = %d\n",
+		       osp->opd_obd->obd_name, -EINVAL);
+		GOTO(out, rc = -EINVAL);
 	}
 
-	LASSERT(lgh != NULL);
-	ctxt->loc_handle = lgh;
-	rc = llog_cat_init_and_process(env, ctxt->loc_handle);
-	if (rc)
-		GOTO(out_cleanup, rc);
-
+	rc = llog_cat_add(env, ctxt->loc_handle, &osi->osi_gen.lgr_hdr,
+			  NULL, NULL);
 	llog_ctxt_put(ctxt);
-	RETURN(0);
-out_cleanup:
-	llog_cleanup(env, ctxt);
+out:
+	if (rc != 0)
+		dt_update_llog_fini(env, dt, osp->opd_index);
 	RETURN(rc);
 }
 
 static void osp_update_llog_fini(const struct lu_env *env,
 				 struct osp_device *osp)
 {
-	struct obd_device	*obd = osp->opd_obd;
-	struct llog_ctxt	*ctxt;
+	struct dt_device	*dt = osp->opd_storage;
 
-	ctxt = llog_get_context(obd, LLOG_UPDATE_ORIG_CTXT);
-	if (ctxt == NULL)
-		return;
-	llog_cat_close(env, ctxt->loc_handle);
-	llog_cleanup(env, ctxt);
+	return dt_update_llog_fini(env, dt, osp->opd_index);
+}
+
+static inline int osp_update_running(struct osp_device *d)
+{
+	return !!(d->opd_update_thread.t_flags & SVC_RUNNING);
+}
+
+static inline int osp_update_stopped(struct osp_device *d)
+{
+	return !!(d->opd_update_thread.t_flags & SVC_STOPPED);
+}
+
+#define MAXIM_UPDATE_LOG_PER_RPC 2
+static int osp_cancel_remote_log(const struct lu_env *env,
+				 struct osp_device *osp,
+				 struct update_buf *ubuf,
+				 struct llog_cookie *rcookie)
+{
+	struct lu_fid *fid = &osp_env_info(env)->osi_fid;
+	int rc;
+	int size = sizeof(*rcookie);
+	ENTRY;
+
+	CDEBUG(D_HA, "%s: cancel remote cookie "DOSTID": %x\n",
+	       osp->opd_obd->obd_name, POSTID(&rcookie->lgc_lgl.lgl_oi),
+	       rcookie->lgc_lgl.lgl_ogen);
+
+	logid_to_fid(&rcookie->lgc_lgl, fid);
+	rc = update_insert(env, ubuf, UPDATE_BUFFER_SIZE, OBJ_LOG_CANCEL,
+			   fid, 1, &size, (char **)&rcookie, 0, osp->opd_group);
+	if (ubuf->ub_count >= MAXIM_UPDATE_LOG_PER_RPC) {
+		struct ptlrpc_request	*req;
+		int			ulen = update_buf_size(ubuf);
+		struct l_wait_info	lwi = { 0 };
+
+		do {
+			rc = osp_prep_update_req(env, osp, ubuf, &req,
+						 UPDATE_LOG_CANCEL);
+			if (rc)
+				GOTO(out, rc);
+
+			rc = ptlrpc_queue_wait(req);
+
+			if (rc != 0) {
+				ptlrpc_req_finished(req);
+				CDEBUG(D_HA, "%s: cancel "DOSTID
+				       ":%x: rc = %d\n", osp->opd_obd->obd_name,
+				       POSTID(&rcookie->lgc_lgl.lgl_oi),
+				       rcookie->lgc_lgl.lgl_ogen, rc);
+				l_wait_event(osp->opd_update_waitq,
+					     !osp_update_running(osp) ||
+					     osp->opd_imp_connected, &lwi);
+			}
+		} while (rc != 0);
+		ptlrpc_req_finished(req);
+		memset(ubuf, 0, ulen);
+		update_buf_init(ubuf);
+	}
+out:
+	RETURN(rc);
+}
+
+struct update_process_args {
+	struct osp_device	*upa_osp;
+	struct update_buf	*upa_ubuf;
+};
+
+static inline int osp_update_can_process_new(const struct lu_env *env,
+					     struct osp_device *osp,
+					     struct llog_handle *llh,
+					     struct llog_rec_hdr *rec,
+					     struct llog_cookie **cookie)
+{
+	struct llog_updatelog_rec *urec = (struct llog_updatelog_rec *)rec;
+	struct update_buf	  *ubuf = &urec->urb;
+	struct obd_import	  *imp = osp->opd_obd->u.cli.cl_import;
+	struct lu_seq_range	  *range = &osp_env_info(env)->osi_seq;
+	__u64			  transno = osp_last_local_committed(osp);
+	__u64			  peer_transno;
+	int			  committed = 1;
+	int			  i;
+	int			  rc;
+	ENTRY;
+
+	LASSERT(osp);
+	if (!osp->opd_imp_connected)
+		RETURN(0);
+
+	if (llh->lgh_hdr->llh_count == 0)
+		RETURN(0);
+
+	if (unlikely(rec->lrh_type == LLOG_GEN_REC))
+		RETURN(1);
+
+	peer_transno = imp->imp_peer_committed_transno;
+	update_buf_le_to_cpu(ubuf, ubuf);
+	update_dump_buf(ubuf);
+	CDEBUG(D_HA, "%s: local committed "LPU64" peer committed "LPU64"\n",
+	       osp->opd_obd->obd_name, transno, peer_transno);
+	for (i = 0; i < ubuf->ub_count; i++) {
+		struct update *update = update_buf_get(ubuf, i, NULL);
+
+		rc = osp_fld_lookup(env, osp, fid_seq(&update->u_fid),
+				    range);
+		if (rc != 0) {
+			CDEBUG(D_HA, "%s:"DFID"seq lookup failed\n",
+			       osp->opd_obd->obd_name,
+			       PFID(&update->u_fid));
+			committed = 0;
+			break;
+		}
+
+		if (osp->opd_group == range->lsr_index) {
+			if (update->u_batchid == 0) {
+				committed = 0;
+				break;
+			}
+			if (transno < update->u_batchid) {
+				committed = 0;
+				break;
+			}
+		}
+
+		if (osp->opd_index == range->lsr_index) {
+			if (update->u_batchid == 0) {
+				committed = 0;
+				break;
+			}
+			if (peer_transno < update->u_batchid) {
+				committed = 0;
+				break;
+			}
+			if (cookie != NULL)
+				*cookie = &update->u_cookie;
+		}
+	}
+	RETURN(committed);
+}
+
+/**
+ * It will check whether all of updates for the operation have
+ * been committed on all of MDTs, by the transno it collects from
+ * all other MDT (by each osp reply).
+ *
+ * The update log on slave MDT log should include the transno of
+ * operation on the master MDT. The slave MDT will destroy log rec
+ * once it finds the update has been committed on Master MDT, then
+ * it will send RPC to Master MDT to destroy the update log there.
+ **/
+static int osp_update_process_queues(const struct lu_env *env,
+				     struct llog_handle *llh,
+				     struct llog_rec_hdr *rec,
+				     void *data)
+{
+	struct update_process_args *upa = (struct update_process_args *)data;
+	struct osp_device	   *osp = upa->upa_osp;
+	struct update_buf	   *cancel_ubuf = upa->upa_ubuf;
+	struct llog_cookie	   *rcookie = NULL;
+	int			   rc = 0;
+	ENTRY;
+
+	if (!osp_update_running(osp)) {
+		CDEBUG(D_HA, "%s: stop llog processing\n",
+		       osp->opd_obd->obd_name);
+		RETURN(LLOG_PROC_BREAK);
+	}
+
+	if (osp_update_can_process_new(env, osp, llh, rec, &rcookie)) {
+		struct llog_cookie	*lcookie;
+
+		if (unlikely(rec->lrh_type == LLOG_GEN_REC)) {
+			/* cancel any generation record */
+			lcookie = &osp_env_info(env)->osi_cookie;
+			lcookie->lgc_lgl = llh->lgh_id;
+			lcookie->lgc_subsys = LLOG_UPDATE_ORIG_CTXT;
+			lcookie->lgc_index = rec->lrh_index;
+			CDEBUG(D_HA, "%s: cancel gen log "DOSTID": %x\n",
+			       osp->opd_obd->obd_name,
+			       POSTID(&lcookie->lgc_lgl.lgl_oi),
+			       lcookie->lgc_lgl.lgl_ogen);
+			rc = llog_cat_cancel_records(env,
+					llh->u.phd.phd_cat_handle,
+					1, lcookie);
+		} else {
+			LASSERT(rcookie != NULL);
+			rc = osp_cancel_remote_log(env, osp, cancel_ubuf,
+						   rcookie);
+			if (rc != 0) {
+				CDEBUG(D_HA, "%s: cancel "DOSTID": %x failed:"
+				       " rc = %d\n", osp->opd_obd->obd_name,
+				       POSTID(&rcookie->lgc_lgl.lgl_oi),
+				       rcookie->lgc_lgl.lgl_ogen, rc);
+			}
+
+			/* cancel local record */
+			lcookie = &osp_env_info(env)->osi_cookie;
+			lcookie->lgc_lgl = llh->lgh_id;
+			lcookie->lgc_subsys = LLOG_UPDATE_ORIG_CTXT;
+			lcookie->lgc_index = rec->lrh_index;
+			rc = llog_cat_cancel_records(env,
+						llh->u.phd.phd_cat_handle,
+						1, lcookie);
+			if (rc != 0) {
+				CDEBUG(D_HA, "%s: cancel "DOSTID": %x failed:"
+				       " rc = %d\n", osp->opd_obd->obd_name,
+				       POSTID(&lcookie->lgc_lgl.lgl_oi),
+				       lcookie->lgc_lgl.lgl_ogen, rc);
+			}
+		}
+	}
+
+	RETURN(rc);
+}
+
+static int osp_update_thread(void *_arg)
+{
+	struct osp_device	*osp = _arg;
+	struct l_wait_info	lwi = { 0 };
+	struct ptlrpc_thread	*thread = &osp->opd_update_thread;
+	struct llog_ctxt	*ctxt;
+	struct llog_handle	*llh;
+	struct obd_llog_group	*olg;
+	struct update_process_args upa;
+	struct lu_env		 env;
+	int			 rc;
+
+	ENTRY;
+
+	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags);
+	if (rc) {
+		CERROR("%s: init env error: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
+		RETURN(rc);
+	}
+
+	thread->t_flags = SVC_RUNNING;
+	wake_up(&thread->t_ctl_waitq);
+
+	olg = dt_update_find_olg(osp->opd_storage, osp->opd_index);
+	if (olg == NULL) {
+		CERROR("%s: can't get appropriate context: rc = %d\n",
+		       osp->opd_obd->obd_name, -EINVAL);
+		GOTO(out, rc = -EINVAL);
+	}
+	ctxt = llog_group_get_ctxt(olg, LLOG_UPDATE_ORIG_CTXT);
+	if (ctxt == NULL) {
+		CERROR("%s: can't get appropriate context: rc = %d\n",
+		       osp->opd_obd->obd_name, -EINVAL);
+		GOTO(out, rc = -EINVAL);
+	}
+
+	llh = ctxt->loc_handle;
+	if (llh == NULL) {
+		llog_ctxt_put(ctxt);
+		GOTO(out, rc = -EINVAL);
+	}
+
+	upa.upa_osp = osp;
+	upa.upa_ubuf = update_buf_alloc();
+
+	do {
+		rc = llog_cat_process(&env, llh, osp_update_process_queues,
+				      &upa, 0, 0);
+		osp->opd_new_committed = 0;
+		l_wait_event(osp->opd_update_waitq,
+			     !osp_update_running(osp) || osp->opd_new_committed,
+			     &lwi);
+		if (!osp_update_running(osp))
+			break;
+	} while (1);
+	/* we don't expect llog_process_thread() to exit till umount */
+	LASSERT(thread->t_flags != SVC_RUNNING);
+	update_buf_free(upa.upa_ubuf);
+	llog_ctxt_put(ctxt);
+out:
+	thread->t_flags = SVC_STOPPED;
+
+	wake_up(&thread->t_ctl_waitq);
+
+	lu_env_fini(&env);
+
+	RETURN(0);
 }
 
 int osp_update_init(const struct lu_env *env, struct osp_device *osp)
 {
-	return osp_update_llog_init(env, osp);
+	struct l_wait_info	lwi = { 0 };
+	int			rc;
+	ENTRY;
+
+	rc = osp_update_llog_init(env, osp);
+	if (rc != 0)
+		RETURN(rc);
+
+	/*
+	 * Start synchronization thread
+	 */
+	init_waitqueue_head(&osp->opd_update_waitq);
+	init_waitqueue_head(&osp->opd_update_thread.t_ctl_waitq);
+	rc = PTR_ERR(kthread_run(osp_update_thread, osp,
+				 "osp-update-%u-%u", osp->opd_index,
+				 osp->opd_group));
+	if (IS_ERR_VALUE(rc)) {
+		CERROR("%s: can't start update thread: rc = %d\n",
+		       osp->opd_obd->obd_name, rc);
+		GOTO(err_llog, rc);
+	}
+
+	l_wait_event(osp->opd_update_thread.t_ctl_waitq,
+		     osp_update_running(osp) || osp_update_stopped(osp), &lwi);
+
+	RETURN(0);
+err_llog:
+	osp_update_llog_fini(env, osp);
+	return rc;
 }
 
 int osp_update_fini(const struct lu_env *env, struct osp_device *osp)
 {
+	struct ptlrpc_thread *thread = &osp->opd_update_thread;
+
+	ENTRY;
+
+	thread->t_flags = SVC_STOPPING;
+	wake_up(&osp->opd_update_waitq);
+	wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+
 	osp_update_llog_fini(env, osp);
 	return 0;
 }

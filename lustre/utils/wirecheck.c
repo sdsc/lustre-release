@@ -2033,6 +2033,7 @@ static void check_update(void)
 	CHECK_MEMBER(update, u_batchid);
 	CHECK_MEMBER(update, u_xid);
 	CHECK_MEMBER(update, u_fid);
+	CHECK_MEMBER(update, u_cookie);
 	CHECK_MEMBER(update, u_lens);
 	CHECK_MEMBER(update, u_bufs);
 }
@@ -2274,6 +2275,7 @@ main(int argc, char **argv)
 	/* CHECK_CVALUE(LUSTRE_RES_ID_WAS_VER_OFF); packed with OID */
 
 	CHECK_VALUE(UPDATE_OBJ);
+	CHECK_VALUE(UPDATE_LOG_CANCEL);
 	CHECK_VALUE(UPDATE_LAST_OPC);
 	CHECK_CVALUE(LUSTRE_RES_ID_QUOTA_SEQ_OFF);
 	CHECK_CVALUE(LUSTRE_RES_ID_QUOTA_VER_OID_OFF);
@@ -2326,6 +2328,7 @@ main(int argc, char **argv)
 	CHECK_VALUE(OBJ_INDEX_LOOKUP);
 	CHECK_VALUE(OBJ_INDEX_INSERT);
 	CHECK_VALUE(OBJ_INDEX_DELETE);
+	CHECK_VALUE(OBJ_LOG_CANCEL);
 
 	check_som_attrs();
 	check_hsm_attrs();

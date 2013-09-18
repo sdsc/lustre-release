@@ -545,12 +545,12 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	/* This can only happens for unlink slave directory, so decrease
 	 * ref for ".." and "." */
 	rc = update_insert(env, ubuf, UPDATE_BUFFER_SIZE, OBJ_REF_DEL,
-			   &rec->lur_fid, 0, NULL, NULL, 0);
+			   &rec->lur_fid, 0, NULL, NULL, 0, osp->opd_group);
 	if (rc != 0)
 		GOTO(out, rc);
 
 	rc = update_insert(env, ubuf, UPDATE_BUFFER_SIZE, OBJ_REF_DEL,
-			   &rec->lur_fid, 0, NULL, NULL, 0);
+			   &rec->lur_fid, 0, NULL, NULL, 0, osp->opd_group);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -560,11 +560,11 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	size = sizeof(lcookie);
 	buf = (char *)&lcookie;
 	rc = update_insert(env, ubuf, UPDATE_BUFFER_SIZE, OBJ_DESTROY,
-			   &rec->lur_fid, 1, &size, &buf, 0);
+			   &rec->lur_fid, 1, &size, &buf, 0, osp->opd_group);
 	if (rc != 0)
 		GOTO(out, rc);
 
-	rc = osp_prep_update_req(env, osp, ubuf, UPDATE_BUFFER_SIZE, &req);
+	rc = osp_prep_update_req(env, osp, ubuf, &req, UPDATE_OBJ);
 	if (rc != 0)
 		GOTO(out, rc);
 
