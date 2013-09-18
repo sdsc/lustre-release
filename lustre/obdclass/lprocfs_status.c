@@ -54,6 +54,40 @@ static int lprocfs_no_percpu_stats = 0;
 CFS_MODULE_PARM(lprocfs_no_percpu_stats, "i", int, 0644,
                 "Do not alloc percpu data for lprocfs stats");
 
+static int lprocfs_history_timeout = 10;
+CFS_MODULE_PARM(lprocfs_history_timeout, "i", int, 0644,
+		"How many seconds to wait to collect a count");
+
+static int lprocfs_history_multiple = 10;
+CFS_MODULE_PARM(lprocfs_history_multiple, "i", int, 0644,
+		"How many time intervals to wait to generate a carry to next "
+		"period");
+
+static int lprocfs_history_depth = 3;
+CFS_MODULE_PARM(lprocfs_history_depth, "i", int, 0644,
+		"How many periods in total");
+
+static int lprocfs_history_print_carry;
+CFS_MODULE_PARM(lprocfs_history_print_carry, "i", int, 0644,
+		"Print carry of stats history");
+
+static int lprocfs_history_print_zero;
+CFS_MODULE_PARM(lprocfs_history_print_zero, "i", int, 0644,
+		"Print history no matter the counter is zero");
+
+/**
+ * Timer which collects the history regularly
+ */
+cfs_timer_t lprocfs_history_timer;
+/**
+ * Lock which protects lprocfs_history_list
+ */
+spinlock_t lprocfs_history_lock;
+/**
+ * History updating list
+ */
+cfs_list_t lprocfs_history_list;
+
 #define MAX_STRING_SIZE 128
 
 /* for bug 10866, global variable */
@@ -766,14 +800,63 @@ int lprocfs_rd_conn_uuid(char *page, char **start, off_t off, int count,
 }
 EXPORT_SYMBOL(lprocfs_rd_conn_uuid);
 
-/** add up per-cpu counters */
-void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
-			   struct lprocfs_counter *cnt)
+/** add the values of counter b to a */
+static void lprocfs_counter_value_add(struct lprocfs_counter *a,
+				      struct lprocfs_counter *b)
 {
-	unsigned int			num_entry;
-	struct lprocfs_counter		*percpu_cntr;
-	int				i;
-	unsigned long			flags = 0;
+	a->lc_count += b->lc_count;
+	a->lc_sum += b->lc_sum;
+	if (b->lc_min < a->lc_min)
+		a->lc_min = b->lc_min;
+	if (b->lc_max > a->lc_max)
+		a->lc_max = b->lc_max;
+	a->lc_sumsquare += b->lc_sumsquare;
+}
+
+/** init the values of counter a */
+static void lprocfs_counter_value_init(struct lprocfs_stats *stats,
+				       struct lprocfs_counter *a)
+{
+	a->lc_count		= 0;
+	a->lc_min		= LC_MIN_INIT;
+	a->lc_max		= 0;
+	a->lc_sumsquare		= 0;
+	a->lc_sum		= 0;
+	if ((stats->ls_flags & LPROCFS_STATS_FLAG_IRQ_SAFE) != 0)
+		a->lc_sum_irq	= 0;
+}
+
+/** assign the values of counter a with b */
+static void lprocfs_counter_value_set(struct lprocfs_counter *a,
+				      struct lprocfs_counter *b)
+{
+	a->lc_count		= b->lc_count;
+	a->lc_min		= b->lc_min;
+	a->lc_max		= b->lc_max;
+	a->lc_sumsquare		= b->lc_sumsquare;
+	a->lc_sum		= b->lc_sum;
+}
+
+/** Swap the values of two counters */
+static void lprocfs_counter_value_swap(struct lprocfs_counter *a,
+				      struct lprocfs_counter *b)
+{
+	swap(a->lc_count, b->lc_count);
+	swap(a->lc_min, b->lc_min);
+	swap(a->lc_max, b->lc_max);
+	swap(a->lc_sumsquare, b->lc_sumsquare);
+	swap(a->lc_sum, b->lc_sum);
+}
+
+/** add up and maybe clear per-cpu counters */
+void _lprocfs_stats_collect_clear(struct lprocfs_stats *stats, int idx,
+				  struct lprocfs_counter *cnt,
+				  bool clear)
+{
+	struct lprocfs_counter	*percpu_cntr;
+	int			 i;
+	unsigned int		 num_entry;
+	unsigned long		 flags = 0;
 
 	memset(cnt, 0, sizeof(*cnt));
 
@@ -799,11 +882,27 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
 		if (percpu_cntr->lc_max > cnt->lc_max)
 			cnt->lc_max = percpu_cntr->lc_max;
 		cnt->lc_sumsquare += percpu_cntr->lc_sumsquare;
+		if (clear)
+			lprocfs_counter_value_init(stats, percpu_cntr);
 	}
 
 	lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU, &flags);
 }
+
+/** add up per-cpu counters */
+void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
+			   struct lprocfs_counter *cnt)
+{
+	_lprocfs_stats_collect_clear(stats, idx, cnt, false);
+}
 EXPORT_SYMBOL(lprocfs_stats_collect);
+
+/** add up and clear per-cpu counters */
+static void lprocfs_stats_collect_clear(struct lprocfs_stats *stats, int idx,
+					struct lprocfs_counter *cnt)
+{
+	_lprocfs_stats_collect_clear(stats, idx, cnt, true);
+}
 
 /**
  * Append a space separated list of current set flags to str.
@@ -1266,6 +1365,95 @@ void lprocfs_free_per_client_stats(struct obd_device *obd)
 }
 EXPORT_SYMBOL(lprocfs_free_per_client_stats);
 
+/** collect and update the history of one counter */
+static void lprocfs_history_update_one(struct lprocfs_stats *stats, int idx)
+{
+	struct lprocfs_stats_history	*history;
+	struct lprocfs_counter		 counter;
+	int				 i;
+	struct lprocfs_stats_period	*period;
+
+	history = stats->ls_history[idx];
+	lprocfs_stats_collect_clear(stats, idx,
+				    &history->lsh_periods[0].lsp_count);
+	lprocfs_counter_value_set(&counter, &history->lsh_periods[0].lsp_count);
+	for (i = 1; i < stats->ls_depth; i++) {
+		period = &history->lsh_periods[i];
+		if (period->lsp_carry_times < stats->ls_multiple - 1) {
+			period->lsp_carry_times++;
+			lprocfs_counter_value_add(&period->lsp_carry,
+						  &counter);
+			return;
+		}
+		lprocfs_counter_value_swap(&counter, &period->lsp_count);
+		lprocfs_counter_value_add(&period->lsp_count,
+					  &period->lsp_carry);
+		period->lsp_carry_times = 0;
+		lprocfs_counter_value_init(stats, &period->lsp_carry);
+	}
+	period = &history->lsh_periods[stats->ls_depth];
+	period->lsp_carry_times++;
+	lprocfs_counter_value_add(&period->lsp_carry,
+				  &counter);
+}
+
+/** collect and update the histories of all counters in a stats */
+static void lprocfs_history_update(struct lprocfs_stats *stats)
+{
+	int i;
+
+	for (i = 0; i < stats->ls_num; i++)
+		lprocfs_history_update_one(stats, i);
+}
+
+/** collect and update the histories of all counters regularly */
+static void lprocfs_history_cb(ulong_ptr_t data)
+{
+	struct lprocfs_stats *stats;
+
+	spin_lock(&lprocfs_history_lock);
+	cfs_list_for_each_entry(stats, &lprocfs_history_list,
+				ls_history_linkage) {
+		lprocfs_history_update(stats);
+	}
+	spin_unlock(&lprocfs_history_lock);
+	cfs_timer_arm(&lprocfs_history_timer,
+		      cfs_time_seconds(lprocfs_history_timeout) +
+		      cfs_time_current());
+}
+
+void lprocfs_history_init(void)
+{
+	spin_lock_init(&lprocfs_history_lock);
+	CFS_INIT_LIST_HEAD(&lprocfs_history_list);
+	cfs_timer_init(&lprocfs_history_timer,
+		       lprocfs_history_cb, NULL);
+	cfs_timer_arm(&lprocfs_history_timer,
+		      cfs_time_seconds(lprocfs_history_timeout) +
+		      cfs_time_current());
+}
+
+void lprocfs_history_fini(void)
+{
+	del_timer_sync(&lprocfs_history_timer);
+}
+
+/** add an entry to history list */
+static void lprocfs_history_add(struct lprocfs_stats *stats)
+{
+	spin_lock(&lprocfs_history_lock);
+	cfs_list_add(&stats->ls_history_linkage, &lprocfs_history_list);
+	spin_unlock(&lprocfs_history_lock);
+}
+
+/** remove an entry from history list */
+static void lprocfs_history_del(struct lprocfs_stats *stats)
+{
+	spin_lock(&lprocfs_history_lock);
+	cfs_list_del(&stats->ls_history_linkage);
+	spin_unlock(&lprocfs_history_lock);
+}
+
 struct lprocfs_stats *lprocfs_alloc_stats(unsigned int num,
                                           enum lprocfs_stats_flags flags)
 {
@@ -1314,6 +1502,25 @@ struct lprocfs_stats *lprocfs_alloc_stats(unsigned int num,
 				goto fail;
 	}
 
+	if ((flags & LPROCFS_STATS_FLAG_HISTORY) != 0) {
+		/* history enabled, alloc neccessary memory */
+		stats->ls_multiple = lprocfs_history_multiple;
+		stats->ls_depth = lprocfs_history_depth;
+		LIBCFS_ALLOC(stats->ls_history,
+			     stats->ls_num * sizeof(*stats->ls_history));
+		if (stats->ls_history == NULL)
+			goto fail;
+		for (i = 0; i < stats->ls_num; ++i) {
+			LIBCFS_ALLOC(stats->ls_history[i],
+				offsetof(typeof(struct lprocfs_stats_history),
+				lsh_periods[stats->ls_depth + 1]));
+			if (stats->ls_history[i] == NULL)
+				goto fail;
+		}
+		/* add to the history list */
+		lprocfs_history_add(stats);
+	}
+
 	return stats;
 
 fail:
@@ -1333,6 +1540,9 @@ void lprocfs_free_stats(struct lprocfs_stats **statsh)
                 return;
         *statsh = NULL;
 
+	if (stats->ls_history != NULL)
+		lprocfs_history_del(stats);
+
 	if (stats->ls_flags & LPROCFS_STATS_FLAG_NOPERCPU)
 		num_entry = 1;
 	else
@@ -1345,9 +1555,37 @@ void lprocfs_free_stats(struct lprocfs_stats **statsh)
 	if (stats->ls_cnt_header != NULL)
 		LIBCFS_FREE(stats->ls_cnt_header, stats->ls_num *
 					sizeof(struct lprocfs_counter_header));
+
+	if (stats->ls_history != NULL) {
+		for (i = 0; i < stats->ls_num; ++i) {
+			if (stats->ls_history[i] != NULL)
+				LIBCFS_FREE(stats->ls_history[i],
+					offsetof(struct lprocfs_stats_history,
+					lsh_periods[stats->ls_depth + 1]));
+		}
+		LIBCFS_FREE(stats->ls_history,
+			    stats->ls_num *
+			    sizeof(*stats->ls_history));
+	}
+
 	LIBCFS_FREE(stats, offsetof(typeof(*stats), ls_percpu[num_entry]));
 }
 EXPORT_SYMBOL(lprocfs_free_stats);
+
+/* clear the collected history */
+static void lprocfs_clear_hisotry(struct lprocfs_stats *stats,
+				  struct lprocfs_stats_history *history)
+{
+	int				 i;
+	struct lprocfs_stats_period	*period;
+
+	for (i = 1; i < stats->ls_depth + 1; i++) {
+		period = &history->lsh_periods[i];
+		lprocfs_counter_value_init(stats, &period->lsp_carry);
+		lprocfs_counter_value_init(stats, &period->lsp_count);
+		period->lsp_carry_times = 0;
+	}
+}
 
 void lprocfs_clear_stats(struct lprocfs_stats *stats)
 {
@@ -1364,13 +1602,15 @@ void lprocfs_clear_stats(struct lprocfs_stats *stats)
 			continue;
 		for (j = 0; j < stats->ls_num; j++) {
 			percpu_cntr = lprocfs_stats_counter_get(stats, i, j);
-			percpu_cntr->lc_count		= 0;
-			percpu_cntr->lc_min		= LC_MIN_INIT;
-			percpu_cntr->lc_max		= 0;
-			percpu_cntr->lc_sumsquare	= 0;
-			percpu_cntr->lc_sum		= 0;
-			if (stats->ls_flags & LPROCFS_STATS_FLAG_IRQ_SAFE)
-				percpu_cntr->lc_sum_irq	= 0;
+			lprocfs_counter_value_init(stats, percpu_cntr);
+		}
+	}
+
+	if (stats->ls_history != NULL) {
+		for (i = 0; i < stats->ls_num; ++i) {
+			if (stats->ls_history[i] != NULL)
+				lprocfs_clear_hisotry(stats,
+						      stats->ls_history[i]);
 		}
 	}
 
@@ -1407,6 +1647,90 @@ static void *lprocfs_stats_seq_next(struct seq_file *p, void *v, loff_t *pos)
 	return lprocfs_stats_seq_start(p, pos);
 }
 
+/** print history head */
+static int lprocfs_history_head_show(struct seq_file *p,
+				     const char *head,
+				     int seconds)
+{
+	int rc;
+
+	rc = seq_printf(p, "%-25s history", head);
+	if (rc < 0)
+		return rc;
+
+	if (seconds != -1)
+		rc = seq_printf(p, " %d seconds",
+				seconds);
+	else
+		rc = seq_printf(p, " infinity");
+
+	return rc;
+}
+
+
+
+/** print a counter of history */
+static int lprocfs_counter_seq_show(struct seq_file *p,
+				    struct lprocfs_counter_header *hdr,
+				    struct lprocfs_counter *ctr)
+{
+	int rc;
+
+	rc = seq_printf(p, " "LPD64" samples [%s]", ctr->lc_count,
+			hdr->lc_units);
+	if (rc < 0)
+		return rc;
+
+	if (hdr->lc_config & LPROCFS_CNTR_AVGMINMAX) {
+		rc = seq_printf(p, " "LPD64" "LPD64" "LPD64,
+				ctr->lc_min,
+				ctr->lc_max,
+				ctr->lc_sum);
+		if (rc < 0)
+			return rc;
+		if (hdr->lc_config & LPROCFS_CNTR_STDDEV) {
+			rc = seq_printf(p, " "LPD64, ctr->lc_sumsquare);
+			if (rc < 0)
+				return rc;
+		}
+	}
+	rc = seq_printf(p, "\n");
+	return rc;
+}
+
+/** print the counter of a history period */
+static int lprocfs_history_counter_show(struct seq_file *p,
+					struct lprocfs_counter_header *hdr,
+					struct lprocfs_stats_period *period,
+					int seconds, bool no_head)
+{
+	int rc;
+
+	rc = lprocfs_history_head_show(p, no_head ? "" : hdr->lc_name,
+				       seconds);
+	if (rc < 0)
+		return rc;
+	return lprocfs_counter_seq_show(p, hdr, &period->lsp_count);
+}
+
+/** print the carry of a history period */
+static int lprocfs_history_carry_show(struct seq_file *p,
+					struct lprocfs_counter_header *hdr,
+					struct lprocfs_stats_period *period,
+					int seconds, bool no_head)
+{
+	int rc;
+
+	rc = lprocfs_history_head_show(p, no_head ? "" : hdr->lc_name,
+				       seconds);
+	if (rc < 0)
+		return rc;
+	rc = seq_printf(p, " %d carries", period->lsp_carry_times);
+	if (rc < 0)
+		return rc;
+	return lprocfs_counter_seq_show(p, hdr, &period->lsp_carry);
+}
+
 /* seq file export of one lprocfs counter */
 static int lprocfs_stats_seq_show(struct seq_file *p, void *v)
 {
@@ -1415,6 +1739,10 @@ static int lprocfs_stats_seq_show(struct seq_file *p, void *v)
 	struct lprocfs_counter		 ctr;
 	int				 idx	= *(loff_t *)v;
 	int				 rc	= 0;
+	int				 seconds = lprocfs_history_timeout;
+	int                              i;
+	struct lprocfs_stats_period	*period;
+	bool                             head_printed = false;
 
 	if (idx == 0) {
 		struct timeval now;
@@ -1428,26 +1756,52 @@ static int lprocfs_stats_seq_show(struct seq_file *p, void *v)
 
 	hdr = &stats->ls_cnt_header[idx];
 	lprocfs_stats_collect(stats, idx, &ctr);
-
-	if (ctr.lc_count == 0)
-		goto out;
-
-	rc = seq_printf(p, "%-25s "LPD64" samples [%s]", hdr->lc_name,
-			ctr.lc_count, hdr->lc_units);
-	if (rc < 0)
-		goto out;
-
-	if ((hdr->lc_config & LPROCFS_CNTR_AVGMINMAX) && ctr.lc_count > 0) {
-		rc = seq_printf(p, " "LPD64" "LPD64" "LPD64,
-				ctr.lc_min, ctr.lc_max, ctr.lc_sum);
+	if (ctr.lc_count > 0) {
+		rc = seq_printf(p, "%-25s", hdr->lc_name);
 		if (rc < 0)
 			goto out;
-		if (hdr->lc_config & LPROCFS_CNTR_STDDEV)
-			rc = seq_printf(p, " "LPD64, ctr.lc_sumsquare);
+		rc = lprocfs_counter_seq_show(p, hdr, &ctr);
 		if (rc < 0)
 			goto out;
+		head_printed = true;
 	}
-	rc = seq_printf(p, "\n");
+
+	if ((stats->ls_flags & LPROCFS_STATS_FLAG_HISTORY) == 0)
+		goto out;
+
+	for (i = 0; i < stats->ls_depth + 1; i++) {
+		period = &stats->ls_history[idx]->lsh_periods[i];
+
+		if (i == stats->ls_depth)
+			seconds = -1;
+
+		if (period->lsp_count.lc_count == 0 &&
+		    period->lsp_carry.lc_count == 0 &&
+		    lprocfs_history_print_zero == 0)
+			continue;
+
+		if  (period->lsp_count.lc_count > 0 ||
+		     lprocfs_history_print_zero) {
+			rc = lprocfs_history_counter_show(p, hdr, period,
+							  seconds,
+							  head_printed);
+			if (rc < 0)
+				goto out;
+			head_printed = true;
+		}
+
+		if ((period->lsp_carry.lc_count > 0 ||
+		     lprocfs_history_print_zero) &&
+		    (lprocfs_history_print_carry || i == stats->ls_depth)) {
+			rc = lprocfs_history_carry_show(p, hdr, period,
+							seconds,
+							head_printed);
+			if (rc < 0)
+				goto out;
+			head_printed = true;
+		}
+		seconds *= lprocfs_history_multiple;
+	}
 out:
 	return (rc < 0) ? rc : 0;
 }
@@ -1531,13 +1885,7 @@ void lprocfs_counter_init(struct lprocfs_stats *stats, int index,
 		if (stats->ls_percpu[i] == NULL)
 			continue;
 		percpu_cntr = lprocfs_stats_counter_get(stats, i, index);
-		percpu_cntr->lc_count		= 0;
-		percpu_cntr->lc_min		= LC_MIN_INIT;
-		percpu_cntr->lc_max		= 0;
-		percpu_cntr->lc_sumsquare	= 0;
-		percpu_cntr->lc_sum		= 0;
-		if ((stats->ls_flags & LPROCFS_STATS_FLAG_IRQ_SAFE) != 0)
-			percpu_cntr->lc_sum_irq	= 0;
+		lprocfs_counter_value_init(stats, percpu_cntr);
 	}
 	lprocfs_stats_unlock(stats, LPROCFS_GET_NUM_CPU, &flags);
 }

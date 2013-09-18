@@ -529,6 +529,10 @@ int obd_init_checks(void)
 extern spinlock_t obd_types_lock;
 extern int class_procfs_init(void);
 extern int class_procfs_clean(void);
+#ifdef LPROCFS
+extern void lprocfs_history_init(void);
+extern void lprocfs_history_fini(void);
+#endif
 
 #ifdef __KERNEL__
 static int __init init_obdclass(void)
@@ -549,6 +553,7 @@ int init_obdclass(void)
 	spin_lock_init(&obd_types_lock);
         obd_zombie_impexp_init();
 #ifdef LPROCFS
+	lprocfs_history_init();
         obd_memory = lprocfs_alloc_stats(OBD_STATS_NUM,
 					 LPROCFS_STATS_FLAG_NONE |
 					 LPROCFS_STATS_FLAG_IRQ_SAFE);
@@ -724,6 +729,7 @@ static void cleanup_obdclass(void)
         memory_max = obd_memory_max();
         pages_max = obd_pages_max();
 
+	lprocfs_history_fini();
         lprocfs_free_stats(&obd_memory);
         CDEBUG((memory_leaked) ? D_ERROR : D_INFO,
                "obd_memory max: "LPU64", leaked: "LPU64"\n",
