@@ -6,7 +6,7 @@
 
 --- a/fs/ext4/dir.c
 +++ b/fs/ext4/dir.c
-@@ -53,11 +53,18 @@ const struct file_operations ext4_dir_op
+@@ -53,11 +53,16 @@ const struct file_operations ext4_dir_op
  
  static unsigned char get_dtype(struct super_block *sb, int filetype)
  {
@@ -19,11 +19,9 @@
  
 -	return (ext4_filetype_table[filetype]);
 +	if (!EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_DIRDATA))
-+		return (ext4_filetype_table[fl_index]);
++		return ext4_filetype_table[fl_index];
 +
-+	return (ext4_filetype_table[fl_index]) |
-+		(filetype & EXT4_DIRENT_LUFID);
-+
++	return ext4_filetype_table[fl_index] | (filetype & EXT4_DIRENT_LUFID);
  }
  
  /*
