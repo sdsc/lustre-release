@@ -160,22 +160,6 @@ static int osc_unpackmd(struct obd_export *exp, struct lov_stripe_md **lsmp,
 	RETURN(lsm_size);
 }
 
-static inline void osc_pack_capa(struct ptlrpc_request *req,
-                                 struct ost_body *body, void *capa)
-{
-        struct obd_capa *oc = (struct obd_capa *)capa;
-        struct lustre_capa *c;
-
-        if (!capa)
-                return;
-
-        c = req_capsule_client_get(&req->rq_pill, &RMF_CAPA1);
-        LASSERT(c);
-        capa_cpy(c, oc);
-        body->oa.o_valid |= OBD_MD_FLOSSCAPA;
-        DEBUG_CAPA(D_SEC, c, "pack");
-}
-
 static inline void osc_pack_req_body(struct ptlrpc_request *req,
                                      struct obd_info *oinfo)
 {
@@ -186,18 +170,6 @@ static inline void osc_pack_req_body(struct ptlrpc_request *req,
 
 	lustre_set_wire_obdo(&req->rq_import->imp_connect_data, &body->oa,
 			     oinfo->oi_oa);
-	osc_pack_capa(req, body, oinfo->oi_capa);
-}
-
-static inline void osc_set_capa_size(struct ptlrpc_request *req,
-                                     const struct req_msg_field *field,
-                                     struct obd_capa *oc)
-{
-        if (oc == NULL)
-                req_capsule_set_size(&req->rq_pill, field, RCL_CLIENT, 0);
-        else
-                /* it is already calculated as sizeof struct obd_capa */
-                ;
 }
 
 static int osc_getattr_interpret(const struct lu_env *env,
@@ -241,7 +213,6 @@ static int osc_getattr_async(struct obd_export *exp, struct obd_info *oinfo,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
         rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GETATTR);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -273,7 +244,6 @@ static int osc_getattr(const struct lu_env *env, struct obd_export *exp,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
         rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GETATTR);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -319,7 +289,6 @@ static int osc_setattr(const struct lu_env *env, struct obd_export *exp,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
         rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_SETATTR);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -382,7 +351,6 @@ int osc_setattr_async_base(struct obd_export *exp, struct obd_info *oinfo,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
         rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_SETATTR);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -526,7 +494,6 @@ int osc_punch_base(struct obd_export *exp, struct obd_info *oinfo,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
         rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_PUNCH);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -539,7 +506,6 @@ int osc_punch_base(struct obd_export *exp, struct obd_info *oinfo,
 	LASSERT(body);
 	lustre_set_wire_obdo(&req->rq_import->imp_connect_data, &body->oa,
 			     oinfo->oi_oa);
-	osc_pack_capa(req, body, oinfo->oi_capa);
 
         ptlrpc_request_set_replen(req);
 
@@ -605,7 +571,6 @@ int osc_sync_base(struct obd_export *exp, struct obd_info *oinfo,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
-        osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
         rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_SYNC);
         if (rc) {
                 ptlrpc_request_free(req);
@@ -617,7 +582,6 @@ int osc_sync_base(struct obd_export *exp, struct obd_info *oinfo,
 	LASSERT(body);
 	lustre_set_wire_obdo(&req->rq_import->imp_connect_data, &body->oa,
 			     oinfo->oi_oa);
-	osc_pack_capa(req, body, oinfo->oi_capa);
 
         ptlrpc_request_set_replen(req);
         req->rq_interpret_reply = osc_sync_interpret;
@@ -754,9 +718,8 @@ int osc_create(const struct lu_env *env, struct obd_export *exp,
  * it will retrieve the llog unlink logs and then sends the log cancellation
  * cookies to the MDS after committing destroy transactions. */
 static int osc_destroy(const struct lu_env *env, struct obd_export *exp,
-                       struct obdo *oa, struct lov_stripe_md *ea,
-                       struct obd_trans_info *oti, struct obd_export *md_export,
-                       void *capa)
+		       struct obdo *oa, struct lov_stripe_md *ea,
+		       struct obd_trans_info *oti, struct obd_export *md_export)
 {
         struct client_obd     *cli = &exp->exp_obd->u.cli;
         struct ptlrpc_request *req;
@@ -779,7 +742,6 @@ static int osc_destroy(const struct lu_env *env, struct obd_export *exp,
                 RETURN(-ENOMEM);
         }
 
-        osc_set_capa_size(req, &RMF_CAPA1, (struct obd_capa *)capa);
         rc = ldlm_prep_elc_req(exp, req, LUSTRE_OST_VERSION, OST_DESTROY,
                                0, &cancels, count);
         if (rc) {
@@ -796,7 +758,6 @@ static int osc_destroy(const struct lu_env *env, struct obd_export *exp,
 	LASSERT(body);
 	lustre_set_wire_obdo(&req->rq_import->imp_connect_data, &body->oa, oa);
 
-        osc_pack_capa(req, body, (struct obd_capa *)capa);
         ptlrpc_request_set_replen(req);
 
 	/* If osc_destory is for destroying the unlink orphan,
@@ -1243,11 +1204,10 @@ static obd_count osc_checksum_bulk(int nob, obd_count pg_count,
 }
 
 static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
-                                struct lov_stripe_md *lsm, obd_count page_count,
-                                struct brw_page **pga,
-                                struct ptlrpc_request **reqp,
-                                struct obd_capa *ocapa, int reserve,
-                                int resend)
+				struct lov_stripe_md *lsm, obd_count page_count,
+				struct brw_page **pga,
+				struct ptlrpc_request **reqp,
+				int reserve, int resend)
 {
         struct ptlrpc_request   *req;
         struct ptlrpc_bulk_desc *desc;
@@ -1287,7 +1247,6 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                              sizeof(*ioobj));
         req_capsule_set_size(pill, &RMF_NIOBUF_REMOTE, RCL_CLIENT,
                              niocount * sizeof(*niobuf));
-        osc_set_capa_size(req, &RMF_CAPA1, ocapa);
 
         rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, opc);
         if (rc) {
@@ -1324,7 +1283,6 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 	 * "max - 1" for old client compatibility sending "0", and also so the
 	 * the actual maximum is a power-of-two number, not one less. LU-1431 */
 	ioobj_max_brw_set(ioobj, desc->bd_md_max_brw);
-	osc_pack_capa(req, body, ocapa);
 	LASSERT(page_count > 0);
 	pg_prev = pga[0];
         for (requested_nob = i = 0; i < page_count; i++, niobuf++) {
@@ -1439,8 +1397,6 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
         aa->aa_ppga = pga;
         aa->aa_cli = cli;
         CFS_INIT_LIST_HEAD(&aa->aa_oaps);
-        if (ocapa && reserve)
-                aa->aa_ocapa = capa_get(ocapa);
 
         *reqp = req;
         RETURN(0);
@@ -1653,9 +1609,8 @@ out:
 }
 
 static int osc_brw_internal(int cmd, struct obd_export *exp, struct obdo *oa,
-                            struct lov_stripe_md *lsm,
-                            obd_count page_count, struct brw_page **pga,
-                            struct obd_capa *ocapa)
+			    struct lov_stripe_md *lsm,
+			    obd_count page_count, struct brw_page **pga)
 {
 	struct ptlrpc_request *req;
 	int                    rc;
@@ -1670,7 +1625,7 @@ static int osc_brw_internal(int cmd, struct obd_export *exp, struct obdo *oa,
 
 restart_bulk:
         rc = osc_brw_prep_request(cmd, &exp->exp_obd->u.cli, oa, lsm,
-                                  page_count, pga, &req, ocapa, 0, resends);
+				  page_count, pga, &req, 0, resends);
         if (rc != 0)
                 return (rc);
 
@@ -1734,11 +1689,11 @@ static int osc_brw_redo_request(struct ptlrpc_request *request,
 		  "redo for recoverable error %d", rc);
 
         rc = osc_brw_prep_request(lustre_msg_get_opc(request->rq_reqmsg) ==
-                                        OST_WRITE ? OBD_BRW_WRITE :OBD_BRW_READ,
-                                  aa->aa_cli, aa->aa_oa,
-                                  NULL /* lsm unused by osc currently */,
-                                  aa->aa_page_count, aa->aa_ppga,
-                                  &new_req, aa->aa_ocapa, 0, 1);
+				  OST_WRITE ? OBD_BRW_WRITE :OBD_BRW_READ,
+				  aa->aa_cli, aa->aa_oa,
+				  NULL /* lsm unused by osc currently */,
+				  aa->aa_page_count, aa->aa_ppga,
+				  &new_req, 0, 1);
         if (rc)
                 RETURN(rc);
 
@@ -1781,9 +1736,6 @@ static int osc_brw_redo_request(struct ptlrpc_request *request,
                         oap->oap_request = ptlrpc_request_addref(new_req);
                 }
         }
-
-        new_aa->aa_ocapa = aa->aa_ocapa;
-        aa->aa_ocapa = NULL;
 
 	/* XXX: This code will run into problem if we're going to support
 	 * to add a series of BRW RPCs into a self-defined ptlrpc_request_set
@@ -1927,8 +1879,8 @@ static int osc_brw(int cmd, struct obd_export *exp, struct obd_info *oinfo,
                         *saved_oa = *oinfo->oi_oa;
                 }
 
-                rc = osc_brw_internal(cmd, exp, oinfo->oi_oa, oinfo->oi_md,
-                                      pages_per_brw, ppga, oinfo->oi_capa);
+		rc = osc_brw_internal(cmd, exp, oinfo->oi_oa, oinfo->oi_md,
+				      pages_per_brw, ppga);
 
                 if (rc != 0)
                         break;
@@ -1982,11 +1934,6 @@ static int brw_interpret(const struct lu_env *env,
 		else if (rc == -EAGAIN || rc == -EINPROGRESS)
 			rc = -EIO;
 	}
-
-        if (aa->aa_ocapa) {
-                capa_put(aa->aa_ocapa);
-                aa->aa_ocapa = NULL;
-        }
 
 	cfs_list_for_each_entry_safe(ext, tmp, &aa->aa_exts, oe_link) {
 		if (obj == NULL && rc == 0) {
@@ -2156,7 +2103,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 
 	sort_brw_pages(pga, page_count);
 	rc = osc_brw_prep_request(cmd, cli, oa, NULL, page_count,
-			pga, &req, crattr->cra_capa, 1, 0);
+				  pga, &req, 1, 0);
 	if (rc != 0) {
 		CERROR("prep_req failed: %d\n", rc);
 		GOTO(out, rc);
@@ -2242,7 +2189,6 @@ out:
 		cfs_memory_pressure_restore(mpflag);
 
 	if (crattr != NULL) {
-		capa_put(crattr->cra_capa);
 		OBD_FREE(crattr, sizeof(*crattr));
 	}
 

@@ -1604,8 +1604,6 @@ void lprocfs_init_ops_stats(int num_private_stats, struct lprocfs_stats *stats)
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, llog_init);
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, llog_connect);
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, llog_finish);
-        LPROCFS_OBD_OP_INIT(num_private_stats, stats, pin);
-        LPROCFS_OBD_OP_INIT(num_private_stats, stats, unpin);
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, import_event);
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, notify);
         LPROCFS_OBD_OP_INIT(num_private_stats, stats, health_check);
@@ -1711,8 +1709,6 @@ void lprocfs_init_mps_stats(int num_private_stats, struct lprocfs_stats *stats)
         LPROCFS_MD_OP_INIT(num_private_stats, stats, set_lock_data);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, lock_match);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, cancel_unused);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, renew_capa);
-        LPROCFS_MD_OP_INIT(num_private_stats, stats, unpack_capa);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, get_remote_perm);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, intent_getattr_async);
         LPROCFS_MD_OP_INIT(num_private_stats, stats, revalidate_lock);

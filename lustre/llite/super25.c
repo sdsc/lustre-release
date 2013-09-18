@@ -192,9 +192,6 @@ static int __init init_lustre_lite(void)
 	do_gettimeofday(&tv);
 	cfs_srand(tv.tv_sec ^ seed[0], tv.tv_usec ^ seed[1]);
 
-        init_timer(&ll_capa_timer);
-        ll_capa_timer.function = ll_capa_timer_callback;
-        rc = ll_capa_thread_start();
         /*
          * XXX normal cleanup is needed here.
          */
@@ -211,11 +208,6 @@ static void __exit exit_lustre_lite(void)
 {
 	ll_xattr_fini();
         vvp_global_fini();
-        del_timer(&ll_capa_timer);
-        ll_capa_thread_stop();
-        LASSERTF(capa_count[CAPA_SITE_CLIENT] == 0,
-                 "client remaining capa count %d\n",
-                 capa_count[CAPA_SITE_CLIENT]);
 
         lustre_register_client_fill_super(NULL);
         lustre_register_kill_super_cb(NULL);

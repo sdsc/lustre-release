@@ -148,11 +148,9 @@ struct ll_inode_info {
         struct lu_fid                   lli_pfid;
 
         cfs_list_t                      lli_close_list;
-        cfs_list_t                      lli_oss_capas;
         /* open count currently used by capability only, indicate whether
          * capability needs renewal */
         cfs_atomic_t                    lli_open_count;
-        struct obd_capa                *lli_mds_capa;
         cfs_time_t                      lli_rmtperm_time;
 
         /* handle is to be sent to MDS later on done_writing and setattr.
@@ -1197,21 +1195,6 @@ int ll_update_remote_perm(struct inode *inode, struct mdt_remote_perm *perm);
 int lustre_check_remote_perm(struct inode *inode, int mask);
 
 /* llite/llite_capa.c */
-extern cfs_timer_t ll_capa_timer;
-
-int ll_capa_thread_start(void);
-void ll_capa_thread_stop(void);
-void ll_capa_timer_callback(unsigned long unused);
-
-struct obd_capa *ll_add_capa(struct inode *inode, struct obd_capa *ocapa);
-int ll_update_capa(struct obd_capa *ocapa, struct lustre_capa *capa);
-
-void ll_capa_open(struct inode *inode);
-void ll_capa_close(struct inode *inode);
-
-struct obd_capa *ll_mdscapa_get(struct inode *inode);
-struct obd_capa *ll_osscapa_get(struct inode *inode, __u64 opc);
-
 void ll_truncate_free_capa(struct obd_capa *ocapa);
 void ll_clear_inode_capas(struct inode *inode);
 void ll_print_capa_stat(struct ll_sb_info *sbi);

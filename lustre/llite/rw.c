@@ -291,14 +291,6 @@ int ll_commit_write(struct file *file, struct page *vmpage, unsigned from,
         RETURN(result);
 }
 
-struct obd_capa *cl_capa_lookup(struct inode *inode, enum cl_req_type crt)
-{
-        __u64 opc;
-
-        opc = crt == CRT_WRITE ? CAPA_OPC_OSS_WRITE : CAPA_OPC_OSS_RW;
-        return ll_osscapa_get(inode, opc);
-}
-
 static void ll_ra_stats_inc_sbi(struct ll_sb_info *sbi, enum ra_stat which);
 
 /**

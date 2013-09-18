@@ -461,65 +461,6 @@ out:
 	return rc ? rc : count;
 }
 
-/* for debug only */
-static int lprocfs_rd_capa(char *page, char **start, off_t off,
-                           int count, int *eof, void *data)
-{
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-
-        return snprintf(page, count, "capability on: %s %s\n",
-                        mdt->mdt_opts.mo_oss_capa ? "oss" : "",
-                        mdt->mdt_opts.mo_mds_capa ? "mds" : "");
-}
-
-static int lprocfs_wr_capa(struct file *file, const char *buffer,
-			   unsigned long count, void *data)
-{
-	struct obd_device *obd = data;
-	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-	int val, rc;
-
-	rc = lprocfs_write_helper(buffer, count, &val);
-	if (rc)
-		return rc;
-
-	if (val < 0 || val > 3) {
-		CERROR("invalid capability mode, only 0/2/3 is accepted.\n"
-		       " 0:  disable fid capability\n"
-		       " 2:  enable MDS fid capability\n"
-		       " 3:  enable both MDS and OSS fid capability\n");
-		return -EINVAL;
-	}
-
-	/* OSS fid capability needs enable both MDS and OSS fid capability on
-	 * MDS */
-	if (val == 1) {
-		CERROR("can't enable OSS fid capability only, you should use "
-		       "'3' to enable both MDS and OSS fid capability.\n");
-		return -EINVAL;
-	}
-
-	mdt->mdt_opts.mo_oss_capa = (val & 0x1);
-	mdt->mdt_opts.mo_mds_capa = !!(val & 0x2);
-	mdt->mdt_capa_conf = 1;
-	LCONSOLE_INFO("MDS %s %s MDS fid capability.\n",
-		      mdt_obd_name(mdt),
-		      mdt->mdt_opts.mo_mds_capa ? "enabled" : "disabled");
-	LCONSOLE_INFO("MDS %s %s OSS fid capability.\n",
-		      mdt_obd_name(mdt),
-		      mdt->mdt_opts.mo_oss_capa ? "enabled" : "disabled");
-	return count;
-}
-
-static int lprocfs_rd_capa_count(char *page, char **start, off_t off,
-                                 int count, int *eof, void *data)
-{
-        return snprintf(page, count, "%d %d\n",
-                        capa_count[CAPA_SITE_CLIENT],
-                        capa_count[CAPA_SITE_SERVER]);
-}
-
 static int lprocfs_rd_site_stats(char *page, char **start, off_t off,
                                  int count, int *eof, void *data)
 {
@@ -527,56 +468,6 @@ static int lprocfs_rd_site_stats(char *page, char **start, off_t off,
         struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
 
         return lu_site_stats_print(mdt_lu_site(mdt), page, count);
-}
-
-static int lprocfs_rd_capa_timeout(char *page, char **start, off_t off,
-                                   int count, int *eof, void *data)
-{
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-
-        return snprintf(page, count, "%lu\n", mdt->mdt_capa_timeout);
-}
-
-static int lprocfs_wr_capa_timeout(struct file *file, const char *buffer,
-                                   unsigned long count, void *data)
-{
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-        int val, rc;
-
-        rc = lprocfs_write_helper(buffer, count, &val);
-        if (rc)
-                return rc;
-
-        mdt->mdt_capa_timeout = (unsigned long)val;
-        mdt->mdt_capa_conf = 1;
-        return count;
-}
-
-static int lprocfs_rd_ck_timeout(char *page, char **start, off_t off, int count,
-                                 int *eof, void *data)
-{
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-
-        return snprintf(page, count, "%lu\n", mdt->mdt_ck_timeout);
-}
-
-static int lprocfs_wr_ck_timeout(struct file *file, const char *buffer,
-                                 unsigned long count, void *data)
-{
-        struct obd_device *obd = data;
-        struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
-        int val, rc;
-
-        rc = lprocfs_write_helper(buffer, count, &val);
-        if (rc)
-                return rc;
-
-        mdt->mdt_ck_timeout = (unsigned long)val;
-        mdt->mdt_capa_conf = 1;
-        return count;
 }
 
 #define BUFLEN (UUID_MAX + 4)
@@ -967,17 +858,6 @@ static struct lprocfs_vars lprocfs_mdt_obd_vars[] = {
 	{ "identity_flush",		NULL, lprocfs_wr_identity_flush,
 					NULL, NULL, 0 },
 	{ "identity_info",		NULL, lprocfs_wr_identity_info,
-					NULL, NULL, 0 },
-	{ "capa",			lprocfs_rd_capa,
-					lprocfs_wr_capa,
-					NULL, NULL, 0 },
-	{ "capa_timeout",		lprocfs_rd_capa_timeout,
-					lprocfs_wr_capa_timeout,
-					NULL, NULL, 0 },
-	{ "capa_key_timeout",		lprocfs_rd_ck_timeout,
-					lprocfs_wr_ck_timeout,
-					NULL, NULL, 0 },
-	{ "capa_count",			lprocfs_rd_capa_count, NULL,
 					NULL, NULL, 0 },
 	{ "site_stats",			lprocfs_rd_site_stats, NULL,
 					NULL, NULL, 0 },

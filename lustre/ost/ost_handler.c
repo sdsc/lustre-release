@@ -250,7 +250,7 @@ static int ost_destroy(struct obd_export *exp, struct ptlrpc_request *req,
 
         /* Do the destroy and set the reply status accordingly  */
         req->rq_status = obd_destroy(req->rq_svc_thread->t_env, exp,
-                                     &repbody->oa, NULL, oti, NULL, capa);
+				     &repbody->oa, NULL, oti, NULL);
         RETURN(0);
 }
 
@@ -863,8 +863,8 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
 
         npages = OST_THREAD_POOL_SIZE;
         rc = obd_preprw(req->rq_svc_thread->t_env, OBD_BRW_READ, exp,
-                        &repbody->oa, 1, ioo, remote_nb, &npages, local_nb,
-                        oti, capa);
+			&repbody->oa, 1, ioo, remote_nb, &npages, local_nb,
+			oti);
         if (rc != 0)
                 GOTO(out_lock, rc);
 
@@ -1152,7 +1152,7 @@ static int ost_brw_write(struct ptlrpc_request *req, struct obd_trans_info *oti)
         npages = OST_THREAD_POOL_SIZE;
         rc = obd_preprw(req->rq_svc_thread->t_env, OBD_BRW_WRITE, exp,
                         &repbody->oa, objcount, ioo, remote_nb, &npages,
-                        local_nb, oti, capa);
+			local_nb, oti);
         if (rc != 0)
                 GOTO(out_lock, rc);
 

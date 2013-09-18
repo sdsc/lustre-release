@@ -539,9 +539,6 @@ int init_obdclass(void)
         int i, err;
 #ifdef __KERNEL__
         int lustre_register_fs(void);
-
-        for (i = CAPA_SITE_CLIENT; i < CAPA_SITE_MAX; i++)
-                CFS_INIT_LIST_HEAD(&capa_list[i]);
 #endif
 
         LCONSOLE_INFO("Lustre: Build Version: "BUILD_VERSION"\n");

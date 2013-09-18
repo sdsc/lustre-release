@@ -808,8 +808,6 @@ int lov_prep_brw_set(struct obd_export *exp, struct obd_info *oinfo,
                 /* remember the index for sort brw_page array */
                 info[i].index = req->rq_pgaidx;
 
-                req->rq_oi.oi_capa = oinfo->oi_capa;
-
                 lov_set_add_req(req, set);
         }
         if (!set->set_count)
@@ -910,7 +908,6 @@ int lov_prep_getattr_set(struct obd_export *exp, struct obd_info *oinfo,
                        sizeof(*req->rq_oi.oi_oa));
                 req->rq_oi.oi_oa->o_oi = loi->loi_oi;
                 req->rq_oi.oi_cb_up = cb_getattr_update;
-                req->rq_oi.oi_capa = oinfo->oi_capa;
 
                 lov_set_add_req(req, set);
         }
@@ -1098,7 +1095,6 @@ int lov_prep_setattr_set(struct obd_export *exp, struct obd_info *oinfo,
 		req->rq_oi.oi_oa->o_oi = loi->loi_oi;
 		req->rq_oi.oi_oa->o_stripe_idx = i;
 		req->rq_oi.oi_cb_up = cb_setattr_update;
-		req->rq_oi.oi_capa = oinfo->oi_capa;
 
                 if (oinfo->oi_oa->o_valid & OBD_MD_FLSIZE) {
                         int off = lov_stripe_offset(oinfo->oi_md,
@@ -1234,8 +1230,6 @@ int lov_prep_punch_set(struct obd_export *exp, struct obd_info *oinfo,
                 req->rq_oi.oi_policy.l_extent.start = rs;
                 req->rq_oi.oi_policy.l_extent.end = re;
                 req->rq_oi.oi_policy.l_extent.gid = -1;
-
-                req->rq_oi.oi_capa = oinfo->oi_capa;
 
                 lov_set_add_req(req, set);
         }

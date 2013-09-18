@@ -655,10 +655,6 @@ void obd_cleanup_caches(void)
 		kmem_cache_destroy(import_cachep);
                 import_cachep = NULL;
         }
-        if (capa_cachep) {
-		kmem_cache_destroy(capa_cachep);
-                capa_cachep = NULL;
-        }
         EXIT;
 }
 
@@ -686,17 +682,10 @@ int obd_init_caches(void)
 	if (!import_cachep)
 		GOTO(out, -ENOMEM);
 
-	LASSERT(capa_cachep == NULL);
-	capa_cachep = kmem_cache_create("capa_cache", sizeof(struct obd_capa),
-					0, 0, NULL);
-	if (!capa_cachep)
-		GOTO(out, -ENOMEM);
-
 	RETURN(0);
 out:
 	obd_cleanup_caches();
 	RETURN(-ENOMEM);
-
 }
 
 /* map connection to client */

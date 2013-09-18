@@ -336,12 +336,6 @@ static struct ptlrpc_request *mdc_intent_open_pack(struct obd_export *exp,
                 RETURN(ERR_PTR(-ENOMEM));
         }
 
-        /* parent capability */
-        mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
-        /* child capability, reserve the size according to parent capa, it will
-         * be filled after we get the reply */
-        mdc_set_capa_size(req, &RMF_CAPA2, op_data->op_capa1);
-
         req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
                              op_data->op_namelen + 1);
         req_capsule_set_size(&req->rq_pill, &RMF_EADATA, RCL_CLIENT,
@@ -437,7 +431,6 @@ static struct ptlrpc_request *mdc_intent_unlink_pack(struct obd_export *exp,
         if (req == NULL)
                 RETURN(ERR_PTR(-ENOMEM));
 
-        mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
         req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
                              op_data->op_namelen + 1);
 
@@ -482,7 +475,6 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
         if (req == NULL)
                 RETURN(ERR_PTR(-ENOMEM));
 
-        mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
         req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
                              op_data->op_namelen + 1);
 
@@ -717,27 +709,6 @@ static int mdc_finish_enqueue(struct obd_export *exp,
                         perm = req_capsule_server_swab_get(pill, &RMF_ACL,
                                                 lustre_swab_mdt_remote_perm);
                         if (perm == NULL)
-                                RETURN(-EPROTO);
-                }
-                if (body->valid & OBD_MD_FLMDSCAPA) {
-                        struct lustre_capa *capa, *p;
-
-                        capa = req_capsule_server_get(pill, &RMF_CAPA1);
-                        if (capa == NULL)
-                                RETURN(-EPROTO);
-
-                        if (it->it_op & IT_OPEN) {
-                                /* client fid capa will be checked in replay */
-                                p = req_capsule_client_get(pill, &RMF_CAPA2);
-                                LASSERT(p);
-                                *p = *capa;
-                        }
-                }
-                if (body->valid & OBD_MD_FLOSSCAPA) {
-                        struct lustre_capa *capa;
-
-                        capa = req_capsule_server_get(pill, &RMF_CAPA2);
-                        if (capa == NULL)
                                 RETURN(-EPROTO);
                 }
         } else if (it->it_op & IT_LAYOUT) {
