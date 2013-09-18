@@ -421,6 +421,7 @@ static inline void llog_group_init(struct obd_llog_group *olg, int group)
 	spin_lock_init(&olg->olg_lock);
 	mutex_init(&olg->olg_cat_processing);
 	olg->olg_seq = group;
+	CFS_INIT_LIST_HEAD(&olg->olg_list);
 }
 
 static inline int llog_group_set_ctxt(struct obd_llog_group *olg,
@@ -585,6 +586,14 @@ int llog_erase(const struct lu_env *env, struct llog_ctxt *ctxt,
 int llog_write(const struct lu_env *env, struct llog_handle *loghandle,
 	       struct llog_rec_hdr *rec, struct llog_cookie *reccookie,
 	       int cookiecount, void *buf, int idx);
+
+struct update_buf;
+/** updatelog record */
+struct llog_updatelog_rec {
+	struct llog_rec_hdr  ur_hdr;
+	struct update_buf    urb;
+	struct llog_rec_tail ur_tail; /**< for_sizezof_only */
+} __attribute__((packed));
 
 /** @} log */
 

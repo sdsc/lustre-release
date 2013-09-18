@@ -734,6 +734,7 @@ static struct req_format *req_formats[] = {
 	&RQF_MDS_HSM_REQUEST,
 	&RQF_MDS_SWAP_LAYOUTS,
 	&RQF_UPDATE_OBJ,
+	&RQF_UPDATE_LOG_CANCEL,
 	&RQF_QC_CALLBACK,
         &RQF_OST_CONNECT,
         &RQF_OST_DISCONNECT,
@@ -1388,6 +1389,11 @@ struct req_format RQF_UPDATE_OBJ =
 	DEFINE_REQ_FMT0("OBJECT_UPDATE_OBJ", mds_update_client,
 			mds_update_server);
 EXPORT_SYMBOL(RQF_UPDATE_OBJ);
+
+struct req_format RQF_UPDATE_LOG_CANCEL =
+	DEFINE_REQ_FMT0("OBJECT_UPDATE_LOG_CANCEL", mds_update_client,
+			mds_update_server);
+EXPORT_SYMBOL(RQF_UPDATE_LOG_CANCEL);
 
 struct req_format RQF_LDLM_ENQUEUE =
         DEFINE_REQ_FMT0("LDLM_ENQUEUE",

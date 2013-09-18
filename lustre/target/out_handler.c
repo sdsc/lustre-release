@@ -73,7 +73,8 @@ static int out_tx_start(const struct lu_env *env, struct dt_device *dt,
 	/*For phase I, sync for cross-ref operation*/
 	ta->ta_handle->th_sync = 1;
 	if (ubuf != NULL)
-		rc = dt_trans_update_declare_llog_add(env, ta->ta_handle);
+		rc = dt_trans_update_declare_llog_add(env, dt, ta->ta_handle,
+						update_buf_master_idx(ubuf));
 	return rc;
 }
 
@@ -125,6 +126,24 @@ static int out_trans_stop(const struct lu_env *env,
 	return rc;
 }
 
+static int out_txn_stop_cb(const struct lu_env *env, struct thandle *th,
+			   void *data)
+{
+	struct thandle_update	*tu = th->th_update;
+	int			master_index;
+	int			rc;
+
+	ENTRY;
+
+	if (tu == NULL)
+	       RETURN(0);
+
+	master_index = update_buf_master_idx(tu->tu_update_buf);
+	rc = dt_trans_update_llog_add(env, th->th_dev, tu->tu_update_buf,
+				      NULL, master_index, th);
+	RETURN(rc);
+}
+
 int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta,
 	       struct update_buf *ubuf, __u64 xid)
 {
@@ -162,14 +181,11 @@ int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta,
 		dt_update_xid(ubuf, ta->ta_args[i].uidx, xid);
 	}
 
-	rc = dt_trans_update_llog_add(env, ta->ta_dev, ubuf, ta->ta_handle);
-	if (rc != 0)
-		GOTO(stop, rc);
-
 	memset(tu, 0, sizeof(*tu));
 	CFS_INIT_LIST_HEAD(&tu->tu_remote_update_list);
 	tu->tu_update_buf = ubuf;
 	tu->tu_update_buf_size = update_buf_size(ubuf);
+	tu->tu_txn_stop_cb = out_txn_stop_cb;
 	ta->ta_handle->th_update = tu;
 	/* Only fail for real update */
 	tsi->tsi_reply_fail_id = OBD_FAIL_UPDATE_OBJ_NET_REP;
@@ -1290,17 +1306,17 @@ int out_handle(struct tgt_session_info *tsi)
 	ENTRY;
 
 	req_capsule_set(pill, &RQF_UPDATE_OBJ);
-	bufsize = req_capsule_get_size(pill, &RMF_UPDATE, RCL_CLIENT);
-	if (bufsize != UPDATE_BUFFER_SIZE) {
-		CERROR("%s: invalid bufsize %d: rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), bufsize, -EPROTO);
-		RETURN(err_serious(-EPROTO));
-	}
-
 	ubuf = req_capsule_client_get(pill, &RMF_UPDATE);
 	if (ubuf == NULL) {
 		CERROR("%s: No buf!: rc = %d\n", tgt_name(tsi->tsi_tgt),
 		       -EPROTO);
+		RETURN(err_serious(-EPROTO));
+	}
+
+	bufsize = req_capsule_get_size(pill, &RMF_UPDATE, RCL_CLIENT);
+	if (bufsize != update_buf_size(ubuf)) {
+		CERROR("%s: invalid bufsize %d: rc = %d\n",
+		       tgt_name(tsi->tsi_tgt), bufsize, -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
@@ -1431,8 +1447,90 @@ out:
 	RETURN(rc);
 }
 
+int out_log_handle(struct tgt_session_info *tsi)
+{
+	const struct lu_env		*env = tsi->tsi_env;
+	struct tgt_thread_info		*tti = tgt_th_info(env);
+	struct req_capsule		*pill = tsi->tsi_pill;
+	struct dt_device		*dt = tsi->tsi_tgt->lut_bottom;
+	struct update_buf		*ubuf;
+	struct update_reply_buf		*reply_buf;
+	int				 bufsize;
+	int				 count;
+	int				 i;
+	int				 master_index;
+	int				 rc = 0;
+
+	ENTRY;
+
+	req_capsule_set(pill, &RQF_UPDATE_LOG_CANCEL);
+	ubuf = req_capsule_client_get(pill, &RMF_UPDATE);
+	if (ubuf == NULL) {
+		CERROR("%s: No buf!: rc = %d\n", tgt_name(tsi->tsi_tgt),
+		       -EPROTO);
+		RETURN(err_serious(-EPROTO));
+	}
+
+	bufsize = req_capsule_get_size(pill, &RMF_UPDATE, RCL_CLIENT);
+	if (bufsize != update_buf_size(ubuf)) {
+		CERROR("%s: invalid bufsize %d: rc = %d\n",
+		       tgt_name(tsi->tsi_tgt), bufsize, -EPROTO);
+		RETURN(err_serious(-EPROTO));
+	}
+
+	if (ubuf->ub_magic != UPDATE_REQUEST_MAGIC) {
+		CERROR("%s: invalid update buffer magic %x expect %x: "
+		       "rc = %d\n", tgt_name(tsi->tsi_tgt), ubuf->ub_magic,
+		       UPDATE_REQUEST_MAGIC, -EPROTO);
+		RETURN(err_serious(-EPROTO));
+	}
+
+	count = ubuf->ub_count;
+	if (count <= 0) {
+		CERROR("%s: empty update: rc = %d\n", tgt_name(tsi->tsi_tgt),
+		       -EPROTO);
+		RETURN(err_serious(-EPROTO));
+	}
+
+	req_capsule_set_size(pill, &RMF_UPDATE_REPLY, RCL_SERVER,
+			     UPDATE_BUFFER_SIZE);
+	rc = req_capsule_server_pack(pill);
+	if (rc != 0) {
+		CERROR("%s: Can't pack response: rc = %d\n",
+		       tgt_name(tsi->tsi_tgt), rc);
+		RETURN(rc);
+	}
+
+	/* Prepare the update reply buffer */
+	reply_buf = req_capsule_server_get(pill, &RMF_UPDATE_REPLY);
+	if (reply_buf == NULL)
+		RETURN(err_serious(-EPROTO));
+	update_init_reply_buf(reply_buf, count);
+	tti->tti_u.update.tti_update_reply = reply_buf;
+	
+	master_index = update_buf_master_idx(ubuf);
+
+	for (i = 0; i < count; i++) {
+		struct update		*update;
+		struct llog_cookie	*cookie;
+
+		update = (struct update *)update_buf_get(ubuf, i, NULL);
+
+		if (ptlrpc_req_need_swab(pill->rc_req))
+			lustre_swab_update(update);
+
+		cookie = (struct llog_cookie *)update_param_buf(update, 0,
+								NULL);
+		rc = dt_update_llog_cancel(env, dt, cookie, master_index);
+
+		update_insert_reply(reply_buf, NULL, 0, i, rc);
+	}
+	RETURN(rc);
+}
+
 struct tgt_handler tgt_out_handlers[] = {
 TGT_UPDATE_HDL(MUTABOR,	UPDATE_OBJ,	out_handle),
+TGT_UPDATE_HDL(MUTABOR,	UPDATE_LOG_CANCEL,	out_log_handle),
 };
 EXPORT_SYMBOL(tgt_out_handlers);
 

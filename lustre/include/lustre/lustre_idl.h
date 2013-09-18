@@ -2075,10 +2075,10 @@ typedef enum {
 
 #define MDS_FIRST_OPC    MDS_GETATTR
 
-
 /* opcodes for object update */
 typedef enum {
 	UPDATE_OBJ	= 1000,
+	UPDATE_LOG_CANCEL = 1001,
 	UPDATE_LAST_OPC
 } update_cmd_t;
 
@@ -3269,6 +3269,26 @@ struct llog_cookie {
         __u32                   lgc_padding;
 } __attribute__((packed));
 
+static inline void llog_cookie_cpu_to_le(struct llog_cookie *dst,
+					 struct llog_cookie *src)
+{
+	ostid_cpu_to_le(&src->lgc_lgl.lgl_oi, &dst->lgc_lgl.lgl_oi);
+	dst->lgc_lgl.lgl_ogen = cpu_to_le32(src->lgc_lgl.lgl_ogen);
+	dst->lgc_subsys = cpu_to_le32(src->lgc_subsys);
+	dst->lgc_index = cpu_to_le32(src->lgc_index);
+	dst->lgc_padding = cpu_to_le32(src->lgc_padding);
+}
+
+static inline void llog_cookie_le_to_cpu(struct llog_cookie *dst,
+					 struct llog_cookie *src)
+{
+	ostid_le_to_cpu(&src->lgc_lgl.lgl_oi, &dst->lgc_lgl.lgl_oi);
+	dst->lgc_lgl.lgl_ogen = le32_to_cpu(src->lgc_lgl.lgl_ogen);
+	dst->lgc_subsys = le32_to_cpu(src->lgc_subsys);
+	dst->lgc_index = le32_to_cpu(src->lgc_index);
+	dst->lgc_padding = le32_to_cpu(src->lgc_padding);
+}
+
 /** llog protocol */
 enum llogd_rpc_ops {
         LLOG_ORIGIN_HANDLE_CREATE       = 501,
@@ -3747,6 +3767,7 @@ enum update_type {
 	OBJ_INDEX_LOOKUP	= 9,
 	OBJ_INDEX_INSERT	= 10,
 	OBJ_INDEX_DELETE	= 11,
+	OBJ_LOG_CANCEL		= 12,
 	OBJ_LAST
 };
 
@@ -3764,6 +3785,7 @@ struct update {
 	__u64		u_batchid;		/* op transno on master */
 	__u64		u_xid;			/* req xid for update */
 	struct lu_fid	u_fid;			/* object to be updated */
+	struct llog_cookie u_cookie;		/* log cookie for this update */
 	__u32		u_lens[UPDATE_PARAM_COUNT];
 						/* lengths of per-update
 						   buffers (multiples of 8
