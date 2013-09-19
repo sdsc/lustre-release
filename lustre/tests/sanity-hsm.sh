@@ -127,7 +127,7 @@ copytool_setup() {
 	local facet=${1:-$SINGLEAGT}
 	local lustre_mntpnt=${2:-$MOUNT}
 	local arc_id=$3
-	local hsm_root=$(copytool_device $facet)
+	local hsm_root=${4:-$(copytool_device $facet)}
 	local agent=$(facet_active_host $facet)
 
 	if [[ -z "$arc_id" ]] &&
@@ -1940,7 +1940,15 @@ test_40() {
 			fid=$(copy_file /etc/hosts $f.$p.$i)
 		done
 	done
-	copytool_setup
+	# force copytool to use a local/temp archive dir to ensure best
+	# performance vs remote/NFS mounts used in auto-tests
+	df -l $HSM_ARCHIVE >/dev/null 2>&1
+	if [ $? = 0 ]
+	then
+		copytool_setup
+	else
+		copytool_setup $SINGLEAGT $MOUNT $HSM_ARCHIVE_NUMBER /tmp/arc
+	fi
 	# to be sure wait_all_done will not be mislead by previous tests
 	cdt_purge
 	wait_for_grace_delay
