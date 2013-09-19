@@ -117,8 +117,7 @@ static int osp_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 }
 
 static int osp_attr_set(const struct lu_env *env, struct dt_object *dt,
-			const struct lu_attr *attr, struct thandle *th,
-			struct lustre_capa *capa)
+			const struct lu_attr *attr, struct thandle *th)
 {
 	struct osp_object	*o = dt2osp_obj(dt);
 	int			 rc = 0;
@@ -369,8 +368,7 @@ static int osp_object_init(const struct lu_env *env, struct lu_object *o,
 
 		po->opo_obj.do_ops = &osp_md_obj_ops;
 		o->lo_header->loh_attr |= LOHA_REMOTE;
-		rc = po->opo_obj.do_ops->do_attr_get(env, lu2dt_obj(o),
-						     la, NULL);
+		rc = po->opo_obj.do_ops->do_attr_get(env, lu2dt_obj(o), la);
 		if (rc == 0)
 			o->lo_header->loh_attr |=
 				LOHA_EXISTS | (la->la_mode & S_IFMT);

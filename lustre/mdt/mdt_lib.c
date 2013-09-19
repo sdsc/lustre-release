@@ -673,7 +673,6 @@ int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
 {
         struct mdt_body       *repbody;
         const struct lu_attr *la = &ma->ma_attr;
-        int rc;
         ENTRY;
 
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
@@ -691,21 +690,6 @@ int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
         if (ma->ma_cookie_size && (ma->ma_valid & MA_COOKIE)) {
                 repbody->aclsize = ma->ma_cookie_size;
                 repbody->valid |= OBD_MD_FLCOOKIE;
-        }
-
-	if (info->mti_mdt->mdt_opts.mo_oss_capa &&
-	    exp_connect_flags(info->mti_exp) & OBD_CONNECT_OSS_CAPA &&
-	    repbody->valid & OBD_MD_FLEASIZE) {
-                struct lustre_capa *capa;
-
-                capa = req_capsule_server_get(info->mti_pill, &RMF_CAPA2);
-                LASSERT(capa);
-                capa->lc_opc = CAPA_OPC_OSS_DESTROY;
-                rc = mo_capa_get(info->mti_env, mdt_object_child(mo), capa, 0);
-                if (rc)
-                        RETURN(rc);
-
-                repbody->valid |= OBD_MD_FLOSSCAPA;
         }
 
         RETURN(0);
@@ -764,10 +748,6 @@ void mdt_set_capainfo(struct mdt_thread_info *info, int offset,
 	struct lu_capainfo *lci;
 
 	LASSERT(offset >= 0 && offset < LU_CAPAINFO_MAX);
-	if (!info->mti_mdt->mdt_opts.mo_mds_capa ||
-	    !(exp_connect_flags(info->mti_exp) & OBD_CONNECT_MDS_CAPA))
-		return;
-
 	lci = lu_capainfo_get(info->mti_env);
 	LASSERT(lci);
 	lci->lci_fid[offset]  = *fid;
@@ -859,10 +839,6 @@ static int mdt_setattr_unpack_rec(struct mdt_thread_info *info)
 		ma->ma_attr_flags |= MDS_HSM_RELEASE;
 	else
 		ma->ma_attr_flags &= ~MDS_HSM_RELEASE;
-
-	if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
-		mdt_set_capainfo(info, 0, rr->rr_fid1,
-				 req_capsule_client_get(pill, &RMF_CAPA1));
 
 	RETURN(0);
 }
@@ -998,11 +974,6 @@ static int mdt_create_unpack(struct mdt_thread_info *info)
         memset(&sp->u, 0, sizeof(sp->u));
         sp->sp_cr_flags = get_mrc_cr_flags(rec);
 
-        if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
-                mdt_set_capainfo(info, 0, rr->rr_fid1,
-                                 req_capsule_client_get(pill, &RMF_CAPA1));
-        mdt_set_capainfo(info, 1, rr->rr_fid2, BYPASS_CAPA);
-
 	rr->rr_name = req_capsule_client_get(pill, &RMF_NAME);
 	rr->rr_namelen = req_capsule_get_size(pill, &RMF_NAME,
 					      RCL_CLIENT) - 1;
@@ -1056,13 +1027,6 @@ static int mdt_link_unpack(struct mdt_thread_info *info)
         attr->la_mtime = rec->lk_time;
         attr->la_valid = LA_UID | LA_GID | LA_CTIME | LA_MTIME;
 
-        if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
-                mdt_set_capainfo(info, 0, rr->rr_fid1,
-                                 req_capsule_client_get(pill, &RMF_CAPA1));
-        if (req_capsule_get_size(pill, &RMF_CAPA2, RCL_CLIENT))
-                mdt_set_capainfo(info, 1, rr->rr_fid2,
-                                 req_capsule_client_get(pill, &RMF_CAPA2));
-
         rr->rr_name = req_capsule_client_get(pill, &RMF_NAME);
         if (rr->rr_name == NULL)
                 RETURN(-EFAULT);
@@ -1105,10 +1069,6 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
         attr->la_mtime = rec->ul_time;
         attr->la_mode  = rec->ul_mode;
         attr->la_valid = LA_UID | LA_GID | LA_CTIME | LA_MTIME | LA_MODE;
-
-        if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
-                mdt_set_capainfo(info, 0, rr->rr_fid1,
-                                 req_capsule_client_get(pill, &RMF_CAPA1));
 
 	rr->rr_name = req_capsule_client_get(pill, &RMF_NAME);
 	rr->rr_namelen = req_capsule_get_size(pill, &RMF_NAME, RCL_CLIENT) - 1;
@@ -1164,13 +1124,6 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
         /* rename_tgt contains the mode already */
         attr->la_mode = rec->rn_mode;
         attr->la_valid = LA_UID | LA_GID | LA_CTIME | LA_MTIME | LA_MODE;
-
-        if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
-                mdt_set_capainfo(info, 0, rr->rr_fid1,
-                                 req_capsule_client_get(pill, &RMF_CAPA1));
-        if (req_capsule_get_size(pill, &RMF_CAPA2, RCL_CLIENT))
-                mdt_set_capainfo(info, 1, rr->rr_fid2,
-                                 req_capsule_client_get(pill, &RMF_CAPA2));
 
         rr->rr_name = req_capsule_client_get(pill, &RMF_NAME);
         rr->rr_tgt = req_capsule_client_get(pill, &RMF_SYMTGT);
@@ -1260,24 +1213,6 @@ static int mdt_open_unpack(struct mdt_thread_info *info)
 
         info->mti_cross_ref = !!(rec->cr_bias & MDS_CROSS_REF);
 
-        if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
-                mdt_set_capainfo(info, 0, rr->rr_fid1,
-                                 req_capsule_client_get(pill, &RMF_CAPA1));
-        if (req_is_replay(req) &&
-            req_capsule_get_size(pill, &RMF_CAPA2, RCL_CLIENT)) {
-#if 0
-                mdt_set_capainfo(info, 1, rr->rr_fid2,
-                                 req_capsule_client_get(pill, &RMF_CAPA2));
-#else
-                /*
-                 * FIXME: capa in replay open request might have expired,
-                 * bypass capa check. Security hole?
-                 */
-                mdt_set_capainfo(info, 0, rr->rr_fid1, BYPASS_CAPA);
-                mdt_set_capainfo(info, 1, rr->rr_fid2, BYPASS_CAPA);
-#endif
-        }
-
         rr->rr_name = req_capsule_client_get(pill, &RMF_NAME);
         if (rr->rr_name == NULL)
                 RETURN(-EFAULT);
@@ -1338,12 +1273,6 @@ static int mdt_setxattr_unpack(struct mdt_thread_info *info)
         attr->la_ctime = rec->sx_time;
         attr->la_size = rec->sx_size;
         attr->la_flags = rec->sx_flags;
-
-        if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
-                mdt_set_capainfo(info, 0, rr->rr_fid1,
-                                 req_capsule_client_get(pill, &RMF_CAPA1));
-        else
-                mdt_set_capainfo(info, 0, rr->rr_fid1, BYPASS_CAPA);
 
         rr->rr_name = req_capsule_client_get(pill, &RMF_NAME);
         if (rr->rr_name == NULL)

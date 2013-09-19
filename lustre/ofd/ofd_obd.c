@@ -503,10 +503,9 @@ static int ofd_set_info_async(const struct lu_env *env, struct obd_export *exp,
 	ofd = ofd_exp(exp);
 
 	if (KEY_IS(KEY_CAPA_KEY)) {
-		rc = ofd_update_capa_key(ofd, val);
-		if (rc)
-			CERROR("%s: update capability key failed: rc = %d\n",
-			       exp->exp_obd->obd_name, rc);
+		rc = -ENOTSUPP;
+		CERROR("%s: capability feature is not supported\n",
+		       exp->exp_obd->obd_name);
 	} else if (KEY_IS(KEY_SPTLRPC_CONF)) {
 		ofd_adapt_sptlrpc_conf(env, exp->exp_obd, 0);
 	} else if (KEY_IS(KEY_MDS_CONN)) {
@@ -842,12 +841,7 @@ int ofd_setattr(const struct lu_env *env, struct obd_export *exp,
 	rc = ostid_to_fid(&info->fti_fid, &oinfo->oi_oa->o_oi, 0);
 	if (rc != 0)
 		RETURN(rc);
-
 	ost_fid_build_resid(&info->fti_fid, &info->fti_resid);
-	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oa->o_oi),
-			   oinfo_capa(oinfo), CAPA_OPC_META_WRITE);
-	if (rc)
-		GOTO(out, rc);
 
 	/* This would be very bad - accidentally truncating a file when
 	 * changing the time or similar - bug 12203. */
@@ -936,11 +930,6 @@ static int ofd_punch(const struct lu_env *env, struct obd_export *exp,
 	       ", start = "LPD64", end = "LPD64"\n", PFID(&info->fti_fid),
 	       oinfo->oi_oa->o_valid, oinfo->oi_policy.l_extent.start,
 	       oinfo->oi_policy.l_extent.end);
-
-	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oinfo->oi_oa->o_oi),
-			   oinfo_capa(oinfo), CAPA_OPC_OSS_TRUNC);
-	if (rc)
-		GOTO(out_env, rc);
 
 	fo = ofd_object_find(env, ofd, &info->fti_fid);
 	if (IS_ERR(fo)) {
@@ -1376,10 +1365,6 @@ int ofd_getattr(const struct lu_env *env, struct obd_export *exp,
 	rc = ostid_to_fid(&info->fti_fid, &oinfo->oi_oa->o_oi, 0);
 	if (rc != 0)
 		GOTO(out, rc);
-	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oinfo->oi_oa->o_oi),
-			   oinfo_capa(oinfo), CAPA_OPC_META_READ);
-	if (rc)
-		GOTO(out, rc);
 
 	fo = ofd_object_find(env, ofd, &info->fti_fid);
 	if (IS_ERR(fo))
@@ -1430,11 +1415,6 @@ static int ofd_sync(const struct lu_env *env, struct obd_export *exp,
 	info = ofd_info_init(env, exp);
 	rc = ostid_to_fid(&info->fti_fid, &oinfo->oi_oa->o_oi, 0);
 	if (rc != 0)
-		GOTO(out, rc);
-
-	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oinfo->oi_oa->o_oi),
-			   oinfo_capa(oinfo), CAPA_OPC_OSS_TRUNC);
-	if (rc)
 		GOTO(out, rc);
 
 	fo = ofd_object_find(env, ofd, &info->fti_fid);

@@ -194,10 +194,6 @@ int mdt_hsm_state_get(struct mdt_thread_info *info)
 	if (rc)
 		GOTO(out_ucred, rc);
 
-	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA1, RCL_CLIENT))
-		mdt_set_capainfo(info, 0, &info->mti_body->fid1,
-			    req_capsule_client_get(info->mti_pill, &RMF_CAPA1));
-
 	hus = req_capsule_server_get(info->mti_pill, &RMF_HSM_USER_STATE);
 	if (hus == NULL)
 		GOTO(out_ucred, rc = -EPROTO);
@@ -255,10 +251,6 @@ int mdt_hsm_state_set(struct mdt_thread_info *info)
 	hss = req_capsule_client_get(info->mti_pill, &RMF_HSM_STATE_SET);
 	if (hss == NULL)
 		GOTO(out_ucred, rc = -EPROTO);
-
-	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA1, RCL_CLIENT))
-		mdt_set_capainfo(info, 0, &info->mti_body->fid1,
-			    req_capsule_client_get(info->mti_pill, &RMF_CAPA1));
 
 	/* Change HSM flags depending on provided masks */
 	if (hss->hss_valid & HSS_SETMASK)
@@ -327,11 +319,6 @@ int mdt_hsm_action(struct mdt_thread_info *info)
 	rc = mdt_init_ucred(info, (struct mdt_body *)info->mti_body);
 	if (rc)
 		RETURN(rc = err_serious(rc));
-
-	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA1, RCL_CLIENT))
-		mdt_set_capainfo(info, 0, &info->mti_body->fid1,
-				 req_capsule_client_get(info->mti_pill,
-							&RMF_CAPA1));
 
 	hca = req_capsule_server_get(info->mti_pill,
 				     &RMF_MDS_HSM_CURRENT_ACTION);
