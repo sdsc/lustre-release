@@ -2071,6 +2071,7 @@ int mdt_quotactl(struct mdt_thread_info *info)
 
 	case Q_GETOINFO:
 	case Q_GETOQUOTA:
+		oqctl->qc_pool_type = LQUOTA_RES_MD;
 		/* slave quotactl */
 		rc = lquotactl_slv(info->mti_env, info->mti_mdt->mdt_bottom,
 				   oqctl);
@@ -4639,13 +4640,6 @@ static int mdt_quota_init(const struct lu_env *env, struct mdt_device *mdt,
 
 	mdt->mdt_qmt_dev = obd->obd_lu_dev;
 
-	/* configure local quota objects */
-	rc = mdt->mdt_qmt_dev->ld_ops->ldo_prepare(env,
-						   &mdt->mdt_lu_dev,
-						   mdt->mdt_qmt_dev);
-	if (rc)
-		GOTO(class_cleanup, rc);
-
 	/* connect to quota master target */
 	data->ocd_connect_flags = OBD_CONNECT_VERSION;
 	data->ocd_version = LUSTRE_VERSION_CODE;
@@ -5269,6 +5263,14 @@ static int mdt_prepare(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(obd);
+
+	if (mdt->mdt_seq_site.ss_node_id == 0) {
+		rc = mdt->mdt_qmt_dev->ld_ops->ldo_prepare(env,
+							   &mdt->mdt_lu_dev,
+							   mdt->mdt_qmt_dev);
+		if (rc)
+			RETURN(rc);
+	}
 
 	rc = next->ld_ops->ldo_prepare(env, cdev, next);
 	if (rc)
@@ -6231,6 +6233,28 @@ int mdt_obd_postrecov(struct obd_device *obd)
         return rc;
 }
 
+int mdt_obd_pool_new(struct obd_device *obd, char *poolname, int pool_id)
+{
+	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+	struct obd_device *osd_obd = mdt->mdt_bottom->dd_lu_dev.ld_obd;
+	int rc;
+	ENTRY;
+
+	rc = obd_pool_new(osd_obd, poolname, pool_id);
+	RETURN(rc);
+}
+
+int mdt_obd_pool_del(struct obd_device *obd, char *poolname, int pool_id)
+{
+	struct mdt_device *mdt = mdt_dev(obd->obd_lu_dev);
+	struct obd_device *osd_obd = mdt->mdt_bottom->dd_lu_dev.ld_obd;
+	int rc;
+	ENTRY;
+
+	rc = obd_pool_del(osd_obd, poolname, pool_id);
+	RETURN(rc);
+}
+
 static struct obd_ops mdt_obd_device_ops = {
         .o_owner          = THIS_MODULE,
         .o_set_info_async = mdt_obd_set_info_async,
@@ -6241,6 +6265,8 @@ static struct obd_ops mdt_obd_device_ops = {
         .o_destroy_export = mdt_destroy_export,
         .o_iocontrol      = mdt_iocontrol,
         .o_postrecov      = mdt_obd_postrecov,
+	.o_pool_new       = mdt_obd_pool_new,
+	.o_pool_del       = mdt_obd_pool_del,
 };
 
 static struct lu_device* mdt_device_fini(const struct lu_env *env,

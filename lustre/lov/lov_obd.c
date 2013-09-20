@@ -912,7 +912,7 @@ static int lov_cleanup(struct obd_device *obd)
 		/* In the function below, .hs_keycmp resolves to
 		 * pool_hashkey_keycmp() */
 		/* coverity[overrun-buffer-val] */
-                lov_pool_del(obd, pool->pool_name);
+		lov_pool_del(obd, pool->pool_name, pool->pool_id);
         }
         cfs_hash_putref(lov->lov_pools_hash_body);
         lov_ost_pool_free(&lov->lov_packed);

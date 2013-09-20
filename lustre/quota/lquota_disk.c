@@ -216,6 +216,7 @@ out:
 	}
 	return qt_dir;
 }
+EXPORT_SYMBOL(lquota_disk_dir_find_create);
 
 /*
  * Look-up/create a global index file.
@@ -403,21 +404,18 @@ struct dt_object *lquota_disk_slv_find_create(const struct lu_env *env,
 	if (rc)
 		RETURN(ERR_PTR(rc));
 
-	/* Slave indexes uses the FID_SEQ_QUOTA sequence since they can be read
-	 * through the network */
-	qti->qti_fid.f_seq = FID_SEQ_QUOTA;
-	qti->qti_fid.f_ver = 0;
 	if (local) {
-		int type;
+		int quota_type;
+		int pool_type;
+		int pool_id;
 
-		rc = lquota_extract_fid(glb_fid, NULL, NULL, &type);
+		rc = lquota_extract_fid(glb_fid, &pool_id, &pool_type,
+					&quota_type);
 		if (rc)
 			RETURN(ERR_PTR(rc));
 
-		/* use predefined fid in the reserved oid list */
-		qti->qti_fid.f_oid = (type == USRQUOTA) ? LQUOTA_USR_OID
-							: LQUOTA_GRP_OID;
-
+		lquota_generate_local_fid(&qti->qti_fid, pool_id, pool_type,
+					  quota_type);
 		slv_idx = local_index_find_or_create_with_fid(env, dev,
 							      &qti->qti_fid,
 							      parent,
@@ -425,6 +423,10 @@ struct dt_object *lquota_disk_slv_find_create(const struct lu_env *env,
 							      LQUOTA_MODE,
 							&dt_quota_slv_features);
 	} else {
+		/* Slave indexes uses the FID_SEQ_QUOTA sequence since they
+		 * can be read through the network */
+		qti->qti_fid.f_seq = FID_SEQ_QUOTA;
+		qti->qti_fid.f_ver = 0;
 		/* allocate fid dynamically if index does not exist already */
 		qti->qti_fid.f_oid = LQUOTA_GENERATED_OID;
 

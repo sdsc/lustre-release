@@ -322,6 +322,7 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 	struct thandle		*th;
 	struct dt_object	*dt_obj;
 	int			 ff_needed = 0;
+	int			 pool_needed = 0;
 
 	ENTRY;
 
@@ -330,7 +331,7 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 	dt_obj = ofd_object_child(ofd_obj);
 	LASSERT(dt_obj != NULL);
 
-	la->la_valid &= LA_UID | LA_GID;
+	la->la_valid &= LA_UID | LA_GID | LA_POOLID;
 
 	rc = ofd_attr_handle_ugid(env, ofd_obj, la, 0 /* !is_setattr */);
 	if (rc != 0)
@@ -344,7 +345,15 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 			GOTO(out, rc);
 	}
 
-	if (!la->la_valid && !ff_needed)
+	if (valid & LA_POOLID) {
+		rc = ofd_object_pool_check(env, ofd_obj);
+		if (rc == -ENODATA)
+			pool_needed = 1;
+		else if (rc < 0)
+			GOTO(out, rc);
+	}
+
+	if (!la->la_valid && !ff_needed && !pool_needed)
 		/* no attributes to set */
 		GOTO(out, rc = 0);
 
@@ -367,6 +376,15 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 			GOTO(out_tx, rc);
 	}
 
+	if (pool_needed) {
+		info->fti_buf.lb_buf = &la->la_pool_id;
+		info->fti_buf.lb_len = sizeof(la->la_pool_id);
+		rc = dt_declare_xattr_set(env, dt_obj, &info->fti_buf,
+					  XATTR_NAME_POOL, 0, th);
+		if (rc)
+			GOTO(out_tx, rc);
+	}
+
 	/* We don't need a transno for this operation which will be re-executed
 	 * anyway when the OST_WRITE (with a transno assigned) is replayed */
 	rc = dt_trans_start_local(env, ofd->ofd_osd , th);
@@ -383,7 +401,18 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 
 	/* set filter fid EA */
 	if (ff_needed) {
+		info->fti_buf.lb_buf = ff;
+		info->fti_buf.lb_len = sizeof(*ff);
 		rc = dt_xattr_set(env, dt_obj, &info->fti_buf, XATTR_NAME_FID,
+				  0, th, BYPASS_CAPA);
+		if (rc)
+			GOTO(out_tx, rc);
+	}
+
+	if (pool_needed) {
+		info->fti_buf.lb_buf = &la->la_pool_id;
+		info->fti_buf.lb_len = sizeof(la->la_pool_id);
+		rc = dt_xattr_set(env, dt_obj, &info->fti_buf, XATTR_NAME_POOL,
 				  0, th, BYPASS_CAPA);
 		if (rc)
 			GOTO(out_tx, rc);
@@ -527,7 +556,7 @@ int ofd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
 		 * to be changed to ofd_fmd_get() to create the fmd if it
 		 * doesn't already exist so we can store the reservation handle
 		 * there. */
-		valid = OBD_MD_FLUID | OBD_MD_FLGID;
+		valid = OBD_MD_FLUID | OBD_MD_FLGID | OBD_MD_FLPOOLID;
 		fmd = ofd_fmd_find(exp, &info->fti_fid);
 		if (!fmd || fmd->fmd_mactime_xid < info->fti_xid)
 			valid |= OBD_MD_FLATIME | OBD_MD_FLMTIME |
@@ -539,6 +568,11 @@ int ofd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
 			ff = &info->fti_mds_fid;
 			ofd_prepare_fidea(ff, oa);
 		}
+		CERROR("AAAAAAA: vaild: %d (%d), pool: %d(%d)\n",
+		       !!(info->fti_attr.la_valid & LA_POOLID),
+		       !!(oa->o_valid & OBD_MD_FLPOOLID),
+		       info->fti_attr.la_pool_id,
+		       oa->o_pool_id);
 
 		rc = ofd_commitrw_write(env, ofd, &info->fti_fid,
 					&info->fti_attr, ff, objcount, npages,

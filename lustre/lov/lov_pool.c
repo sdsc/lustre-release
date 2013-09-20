@@ -260,10 +260,17 @@ static int pool_proc_show(struct seq_file *s, void *v)
 {
         struct pool_iterator *iter = (struct pool_iterator *)v;
         struct lov_tgt_desc *tgt;
+	int rc;
 
         LASSERTF(iter->magic == POOL_IT_MAGIC, "%08X", iter->magic);
         LASSERT(iter->pool != NULL);
         LASSERT(iter->idx <= pool_tgt_count(iter->pool));
+
+	if (iter->idx == 0) {
+		rc = seq_printf(s, "pool_id: %d\n", iter->pool->pool_id);
+		if (rc)
+			return rc;
+	}
 
 	down_read(&pool_tgt_rw_sem(iter->pool));
         tgt = pool_tgt(iter->pool, iter->idx);
@@ -433,7 +440,7 @@ int lov_ost_pool_free(struct ost_pool *op)
 }
 
 
-int lov_pool_new(struct obd_device *obd, char *poolname)
+int lov_pool_new(struct obd_device *obd, char *poolname, int pool_id)
 {
         struct lov_obd *lov;
         struct pool_desc *new_pool;
@@ -451,6 +458,7 @@ int lov_pool_new(struct obd_device *obd, char *poolname)
 
         strncpy(new_pool->pool_name, poolname, LOV_MAXPOOLNAME);
         new_pool->pool_name[LOV_MAXPOOLNAME] = '\0';
+	new_pool->pool_id = pool_id;
 	new_pool->pool_lobd = obd;
         /* ref count init to 1 because when created a pool is always used
          * up to deletion
@@ -514,7 +522,7 @@ out_free_pool_obds:
         return rc;
 }
 
-int lov_pool_del(struct obd_device *obd, char *poolname)
+int lov_pool_del(struct obd_device *obd, char *poolname, int pool_id)
 {
         struct lov_obd *lov;
         struct pool_desc *pool;
