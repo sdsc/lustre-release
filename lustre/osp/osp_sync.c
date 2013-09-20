@@ -233,8 +233,10 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 		osi->osi_hdr.lrh_type = MDS_SETATTR64_REC;
 		osi->osi_setattr.lsr_oi  = osi->osi_oi;
 		LASSERT(attr);
+		LASSERT(attr->la_valid & LA_POOLID);
 		osi->osi_setattr.lsr_uid = attr->la_uid;
 		osi->osi_setattr.lsr_gid = attr->la_gid;
+		osi->osi_setattr.lsr_pool_id = attr->la_pool_id;
 		break;
 	default:
 		LBUG();
@@ -486,8 +488,9 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
 	body->oa.o_oi = rec->lsr_oi;
 	body->oa.o_uid = rec->lsr_uid;
 	body->oa.o_gid = rec->lsr_gid;
+	body->oa.o_pool_id = rec->lsr_pool_id;
 	body->oa.o_valid = OBD_MD_FLGROUP | OBD_MD_FLID |
-			   OBD_MD_FLUID | OBD_MD_FLGID;
+			   OBD_MD_FLUID | OBD_MD_FLGID | OBD_MD_FLPOOLID;
 
 	osp_sync_send_new_rpc(d, req);
 	RETURN(0);
