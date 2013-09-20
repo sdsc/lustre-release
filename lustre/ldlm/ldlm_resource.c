@@ -85,6 +85,19 @@ static int ldlm_proc_dump_ns(struct file *file, const char *buffer,
         RETURN(count);
 }
 
+static int ldlm_proc_drop_caches(struct file *file, const char *buffer,
+				 unsigned long count, void * data)
+{
+	int rc = 0;
+	rc = ldlm_drop_caches(LDLM_NAMESPACE_CLIENT);
+	if (rc < 0)
+		RETURN(rc);
+	rc = ldlm_drop_caches(LDLM_NAMESPACE_SERVER);
+	if (rc < 0)
+		RETURN(rc);
+	RETURN(count);
+}
+
 int ldlm_proc_setup(void)
 {
         int rc;
@@ -96,6 +109,7 @@ int ldlm_proc_setup(void)
                 { "cancel_unused_locks_before_replay",
                   lprocfs_rd_uint, lprocfs_wr_uint,
                   &ldlm_cancel_unused_locks_before_replay, NULL },
+		{ "drop_caches", NULL, ldlm_proc_drop_caches, NULL },
                 { NULL }};
         ENTRY;
         LASSERT(ldlm_ns_proc_dir == NULL);
@@ -201,29 +215,12 @@ static int lprocfs_wr_lru_size(struct file *file, const char *buffer,
                 return -EFAULT;
 
         if (strncmp(dummy, "clear", 5) == 0) {
-                CDEBUG(D_DLMTRACE,
-                       "dropping all unused locks from namespace %s\n",
-                       ldlm_ns_name(ns));
-                if (ns_connect_lru_resize(ns)) {
-                        int canceled, unused  = ns->ns_nr_unused;
-
-                        /* Try to cancel all @ns_nr_unused locks. */
-			canceled = ldlm_cancel_lru(ns, unused, 0,
-						   LDLM_CANCEL_PASSED);
-                        if (canceled < unused) {
-                                CDEBUG(D_DLMTRACE,
-                                       "not all requested locks are canceled, "
-                                       "requested: %d, canceled: %d\n", unused,
-                                       canceled);
-                                return -EINVAL;
-                        }
-                } else {
-                        tmp = ns->ns_max_unused;
-                        ns->ns_max_unused = 0;
-			ldlm_cancel_lru(ns, 0, 0, LDLM_CANCEL_PASSED);
-                        ns->ns_max_unused = tmp;
-                }
-                return count;
+		int rc = 0;
+		rc = ldlm_ns_drop_cache(ns);
+		if (rc != 0)
+			return rc;
+		else
+			return count;
         }
 
         tmp = simple_strtoul(dummy, &end, 0);
@@ -1471,3 +1468,142 @@ void ldlm_resource_dump(int level, struct ldlm_resource *res)
                         LDLM_DEBUG_LIMIT(level, lock, "###");
         }
 }
+
+/**
+ * Clears the lustre cache for the namespace \a ns.
+ *
+ * \param[in] ns the namespace to clear
+ *
+ * \retval 0 if successful
+ * \retval -EINVAL if canceling all unused locks fails
+ */
+int ldlm_ns_drop_cache(struct ldlm_namespace *ns)
+{
+	unsigned long tmp;
+	CDEBUG(D_DLMTRACE,
+	       "dropping all unused locks from namespace %s\n",
+	       ldlm_ns_name(ns));
+	if (ns_connect_lru_resize(ns)) {
+		int canceled, unused  = ns->ns_nr_unused;
+		/* Try to cancel all @ns_nr_unused locks. */
+		canceled = ldlm_cancel_lru(ns, unused, 0,
+					   LDLM_CANCEL_PASSED);
+		if (canceled < unused) {
+			CDEBUG(D_DLMTRACE,
+			       "not all requested locks are canceled, "
+			       "requested: %d, canceled: %d\n", unused,
+			       canceled);
+			return -EINVAL;
+		}
+	} else {
+		tmp = ns->ns_max_unused;
+		ns->ns_max_unused = 0;
+		ldlm_cancel_lru(ns, 0, 0, LDLM_CANCEL_PASSED);
+		ns->ns_max_unused = tmp;
+	}
+
+	return 0;
+}
+
+/**
+ * Per-namespace cache-clearing thread function.
+ *
+ * \param arg pointer to ldlm_drop_cache_ctl struct
+ */
+static int ldlm_drop_cachesd(void *arg)
+{
+	struct ldlm_drop_cache_ctl *dc_ctl = arg;
+	char *t_name = "ldlm_drop_cachesd";
+
+	cfs_daemonize(t_name);
+	dc_ctl->dcc_rc = ldlm_ns_drop_cache(dc_ctl->dcc_ns);
+
+	complete(&dc_ctl->dcc_finished);
+	/* Always return 0 since ldlm_drop_caches uses dc_ctl->dcc_rc
+	 * instead of the actual return code from the thread. */
+	return 0;
+}
+
+/**
+ * Clears lustre caches for all namespaces.
+ */
+int ldlm_drop_caches(ldlm_side_t cli_or_srv)
+{
+	int num_namespaces = 0;
+	int num_threads = 0;
+	cfs_list_t *tmp;
+	int i;
+	int rc = 0;
+	int pid = 0;
+	struct ldlm_drop_cache_ctl *dc_ctls;
+
+	num_namespaces = ldlm_namespace_nr_read(cli_or_srv);
+	if (num_namespaces == 0)
+		return 0;
+
+	LIBCFS_ALLOC(dc_ctls,
+		     num_namespaces * sizeof(struct ldlm_drop_cache_ctl));
+	if (dc_ctls == NULL) {
+		CERROR("Failed to allocate %lu bytes of memory for dc_ctls.\n",
+		       num_namespaces * sizeof(struct ldlm_drop_cache_ctl));
+		return -ENOMEM;
+	}
+
+	mutex_lock(ldlm_namespace_lock(cli_or_srv));
+
+	cfs_list_for_each(tmp, ldlm_namespace_list(cli_or_srv)) {
+		struct ldlm_namespace *ns;
+		ns = cfs_list_entry(tmp, struct ldlm_namespace, ns_list_chain);
+
+		/* The size of the namespace list may have changed
+		 * since we allocated the array dc_ctls, so make sure
+		 * we don't write off the end of the dc_ctls array.
+		 */
+		if (num_threads >= num_namespaces) {
+			CWARN("Number of namespaces increased, "
+			      "from %d to %d. "
+			      "No thread being created for namespaces "
+			      "after and including namespace: %s",
+			      num_namespaces,
+			      ldlm_namespace_nr_read(cli_or_srv),
+			      ldlm_ns_name(ns));
+			break;
+		}
+
+		dc_ctls[num_threads].dcc_rc = 0;
+		dc_ctls[num_threads].dcc_ns = ns;
+		init_completion(&dc_ctls[num_threads].dcc_finished);
+		pid = cfs_create_thread(ldlm_drop_cachesd,
+					&dc_ctls[num_threads], 0);
+		if (pid < 0) {
+			CERROR("%s: thread %d/%d namespace cleanup error: "
+			       "rc = %d\n",
+			       ldlm_ns_name(ns), num_threads + 1,
+			       num_namespaces, pid)
+			/* Stop thread creation and do cleanup */
+			break;
+		}
+		num_threads++;
+	}
+
+	mutex_unlock(ldlm_namespace_lock(cli_or_srv));
+
+	for (i = 0; i < num_threads; i++) {
+		wait_for_completion(&dc_ctls[i].dcc_finished);
+		if (dc_ctls[i].dcc_rc < 0) {
+			rc = dc_ctls[i].dcc_rc;
+		}
+	}
+
+	LIBCFS_FREE(dc_ctls,
+		    num_namespaces * sizeof(struct ldlm_drop_cache_ctl));
+
+	/** Return error if either rc or pid is negative. */
+	if (rc < 0)
+		return rc;
+	else if (pid < 0)
+		return pid;
+	else
+		return 0;
+}
+EXPORT_SYMBOL(ldlm_drop_caches);
