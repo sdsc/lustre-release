@@ -140,6 +140,112 @@ static cfs_hash_ops_t qpi_hash_ops = {
 	.hs_exit	= qpi_hash_exit
 };
 
+int qpi_set_init(const struct lu_env *env, struct quota_set *set)
+{
+	set->qs_hash = cfs_hash_create("POOL_HASH",
+				       HASH_POOLS_CUR_BITS,
+				       HASH_POOLS_MAX_BITS,
+				       HASH_POOLS_BKT_BITS, 0,
+				       CFS_HASH_MIN_THETA,
+				       CFS_HASH_MAX_THETA,
+				       &qpi_hash_ops,
+				       CFS_HASH_DEFAULT);
+	if (!set->qs_hash)
+		return -ENOMEM;
+
+	CFS_INIT_LIST_HEAD(&set->qs_list);
+	init_rwsem(&set->qs_sem);
+
+	set->qs_inited = true;
+	set->qs_started = false;
+	return 0;
+}
+
+int qpi_set_prepare(const struct lu_env *env, struct quota_set *set)
+{
+	cfs_list_t *l;
+	struct qmt_pool_info *qpi;
+	int rc = 0;
+
+	LASSERT(set->qs_inited);
+	down_read(&set->qs_sem);
+	cfs_list_for_each(l, &set->qs_list) {
+		qpi = cfs_list_entry(l, struct qmt_pool_info, qpi_set_link);
+		//rc = qpi_prepare(env, qpi);
+		if (rc)
+			break;
+	}
+	up_write(&set->qs_sem);
+	set->qs_started = true;
+
+	return rc;
+}
+
+void qpi_set_fini(const struct lu_env *env, struct quota_set *set)
+{
+	cfs_list_t *l, *tmp;
+	struct qmt_pool_info *qpi;
+
+	LASSERT(set->qs_inited);
+	down_write(&set->qs_sem);
+	cfs_list_for_each_safe(l, tmp, &set->qs_list) {
+		qpi = cfs_list_entry(l, struct qmt_pool_info, qpi_set_link);
+		cfs_hash_del(set->qs_hash, &qpi->qpi_key,
+			     &qpi->qpi_set_hash);
+		/* remove from list */
+		cfs_list_del_init(&qpi->qpi_set_link);
+		/* release extra reference taken in qpi_init */
+		qpi_putref(env, qpi);
+	}
+	LASSERT(cfs_list_empty(&set->qs_list));
+	up_write(&set->qs_sem);
+	cfs_hash_putref(set->qs_hash);
+	set->qs_inited = false;
+	set->qs_started = false;
+}
+
+struct qmt_pool_info *qpi_set_lookup(struct quota_set *set, __u32 key)
+{
+	struct qmt_pool_info *qpi;
+
+	LASSERT(set->qs_inited);
+	qpi = cfs_hash_lookup(set->qs_hash, (void *)&key);
+	return qpi;
+}
+
+int qpi_set_add(struct quota_set *set, struct qmt_pool_info *qpi)
+{
+	int rc;
+
+	LASSERT(set->qs_inited);
+	rc = cfs_hash_add_unique(set->qs_hash, &qpi->qpi_key,
+				 &qpi->qpi_set_hash);
+	if (rc)
+		return rc;
+
+	down_write(&set->qs_sem);
+	cfs_list_add(&qpi->qpi_set_link, &set->qs_list);
+	up_write(&set->qs_sem);
+
+	return rc;
+}
+
+struct qmt_pool_info *qpi_set_del(struct quota_set *set, __u32 key)
+{
+	struct qmt_pool_info *qpi;
+
+	LASSERT(set->qs_inited);
+	qpi = cfs_hash_del_key(set->qs_hash, (void *)&key);
+	if (qpi == NULL)
+		return qpi;
+
+	down_write(&set->qs_sem);
+	cfs_list_del_init(&qpi->qpi_set_link);
+	up_write(&set->qs_sem);
+
+	return qpi;
+}
+
 /* some procfs helpers */
 static int lprocfs_qpi_rd_state(char *page, char **start, off_t off,
 				int count, int *eof, void *data)
@@ -160,6 +266,8 @@ static int lprocfs_qpi_rd_state(char *page, char **start, off_t off,
 		     cfs_atomic_read(&pool->qpi_ref),
 		     pool->qpi_least_qunit);
 
+	if (!pool->qpi_prepared)
+		return i;
 
 	for (type = 0; type < MAXQUOTAS; type++)
 		i += snprintf(page + i, count - i,
@@ -191,7 +299,7 @@ static struct lprocfs_vars lprocfs_quota_qpi_vars[] = {
  * \retval - 0 on success, appropriate error on failure
  */
 static int qmt_pool_alloc(const struct lu_env *env, struct qmt_device *qmt,
-			  int pool_id, int pool_type)
+			  const char *pool_name, int pool_id, int pool_type)
 {
 	struct qmt_thread_info	*qti = qmt_info(env);
 	struct qmt_pool_info	*pool;
@@ -213,8 +321,17 @@ static int qmt_pool_alloc(const struct lu_env *env, struct qmt_device *qmt,
 	/* set up least qunit size to use for this pool */
 	pool->qpi_least_qunit = LQUOTA_LEAST_QUNIT(pool_type);
 
+	rwlock_init(&pool->qpi_lock);
+	pool->qpi_preparing = false;
+	pool->qpi_prepared = false;
+
 	/* create pool proc directory */
-	sprintf(qti->qti_buf, "%s-0x%x", RES_NAME(pool_type), pool_id);
+	if (pool_name != NULL)
+		snprintf(qti->qti_buf, LQUOTA_NAME_MAX - 1,
+			 "%s_%s", RES_NAME(pool_type), pool_name);
+	else
+		snprintf(qti->qti_buf, LQUOTA_NAME_MAX - 1,
+			 "%s", RES_NAME(pool_type));
 	pool->qpi_proc = lprocfs_register(qti->qti_buf, qmt->qmt_proc,
 					  lprocfs_quota_qpi_vars, pool);
 	if (IS_ERR(pool->qpi_proc)) {
@@ -239,8 +356,10 @@ static int qmt_pool_alloc(const struct lu_env *env, struct qmt_device *qmt,
 		GOTO(out, rc);
 	}
 
+	down_write(&qmt->qmt_pool_sem);
 	/* add to qmt pool list */
 	cfs_list_add_tail(&pool->qpi_linkage, &qmt->qmt_pool_list);
+	up_write(&qmt->qmt_pool_sem);
 	EXIT;
 out:
 	if (rc)
@@ -350,6 +469,7 @@ void qmt_pool_fini(const struct lu_env *env, struct qmt_device *qmt)
 	cfs_list_t		*pos, *n;
 	ENTRY;
 
+	/* --------------------------------------------------- */
 	if (qmt->qmt_pool_hash == NULL)
 		RETURN_EXIT;
 
@@ -371,6 +491,8 @@ void qmt_pool_fini(const struct lu_env *env, struct qmt_device *qmt)
 
 	cfs_hash_putref(qmt->qmt_pool_hash);
 	qmt->qmt_pool_hash = NULL;
+	/* +++++++++++++++++++++++++++++++++++++++++++++++++++ */
+	qpi_set_fini(env, &qmt->qmt_pool_set);
 	EXIT;
 }
 
@@ -390,6 +512,7 @@ int qmt_pool_init(const struct lu_env *env, struct qmt_device *qmt)
 	int	res, rc = 0;
 	ENTRY;
 
+	/* -------------------------- */
 	/* initialize pool hash table */
 	qmt->qmt_pool_hash = cfs_hash_create("POOL_HASH",
 					     HASH_POOLS_CUR_BITS,
@@ -407,16 +530,24 @@ int qmt_pool_init(const struct lu_env *env, struct qmt_device *qmt)
 
 	/* initialize pool list */
 	CFS_INIT_LIST_HEAD(&qmt->qmt_pool_list);
+	init_rwsem(&qmt->qmt_pool_sem);
+	/* +++++++++++++++++++++++++++++ */
+	rc = qpi_set_init(env, &qmt->qmt_pool_set);
+	if (rc) {
+		CERROR("%s: failed to init qpi set\n", qmt->qmt_svname);
+		RETURN(rc);
+	}
 
 	/* Instantiate pool master for the default data and metadata pool (both
 	 * have pool ID equals to 0).
 	 * This code will have to be revisited once we support quota on
 	 * non-default pools */
 	for (res = LQUOTA_FIRST_RES; res < LQUOTA_LAST_RES; res++) {
-		rc = qmt_pool_alloc(env, qmt, 0, res);
+		rc = qmt_pool_alloc(env, qmt, NULL, 0, res);
 		if (rc)
 			break;
 	}
+	qmt->qmt_pool_index = 1;
 
 	if (rc)
 		qmt_pool_fini(env, qmt);
@@ -435,6 +566,147 @@ static int qmt_slv_cnt(const struct lu_env *env, struct lu_fid *glb_fid,
 	return 0;
 }
 
+static int qpi_prepare(const struct lu_env *env, struct qmt_pool_info *qpi,
+		       struct dt_object *qmt_root)
+{
+	struct qmt_thread_info	*qti = qmt_info(env);
+	struct lquota_glb_rec	*rec = &qti->qti_glb_rec;
+	struct qmt_device	*qmt = qpi->qpi_qmt;
+	struct dt_object	*obj;
+	int			 pool_type, pool_id;
+	struct lquota_entry	*lqe;
+	int			 rc = 0;
+	struct dt_device	*dev = qpi->qpi_qmt->qmt_child;
+	int			 qtype;
+	dt_obj_version_t	 version;
+	ENTRY;
+
+	write_lock(&qpi->qpi_lock);
+	if (qpi->qpi_preparing || qpi->qpi_prepared) {
+		CERROR("qpi is %s\n", qpi->qpi_preparing ?
+		       "under preparing" : "already prepared");
+		rc = -EALREADY;
+	} else
+		qpi->qpi_preparing = true;
+	write_unlock(&qpi->qpi_lock);
+
+	if (rc)
+		RETURN(rc);
+
+	pool_id   = qpi->qpi_key & 0x0000ffff;
+	pool_type = qpi->qpi_key >> 16;
+
+	/* allocate directory for this pool */
+	sprintf(qti->qti_buf, "%s-0x%x", RES_NAME(pool_type), pool_id);
+	obj = lquota_disk_dir_find_create(env, qmt->qmt_child, qmt_root,
+					  qti->qti_buf);
+	if (IS_ERR(obj))
+		RETURN(PTR_ERR(obj));
+	qpi->qpi_root = obj;
+
+	for (qtype = 0; qtype < MAXQUOTAS; qtype++) {
+		/* Generating FID of global index in charge of storing
+		 * settings for this quota type */
+		lquota_generate_fid(&qti->qti_fid, pool_id, pool_type,
+				    qtype);
+
+		/* open/create the global index file for this quota
+		 * type */
+		obj = lquota_disk_glb_find_create(env, dev,
+						  qpi->qpi_root,
+						  &qti->qti_fid, false);
+		if (IS_ERR(obj)) {
+			rc = PTR_ERR(obj);
+			CERROR("%s: failed to create glb index copy for"
+			       " %s type (%d)\n", qmt->qmt_svname,
+			       QTYPE_NAME(qtype), rc);
+			RETURN(rc);
+		}
+
+		qpi->qpi_glb_obj[qtype] = obj;
+
+		version = dt_version_get(env, obj);
+		/* set default grace time for newly created index */
+		if (version == 0) {
+			rec->qbr_hardlimit = 0;
+			rec->qbr_softlimit = 0;
+			rec->qbr_granted = 0;
+			rec->qbr_time = pool_type == LQUOTA_RES_MD ?
+				MAX_IQ_TIME : MAX_DQ_TIME;
+
+			rc = lquota_disk_write_glb(env, obj, 0, rec);
+			if (rc) {
+				CERROR("%s: failed to set default "
+				       "grace time for %s type (%d)\n",
+				       qmt->qmt_svname,
+				       QTYPE_NAME(qtype), rc);
+				RETURN(rc);
+			}
+				rc = lquota_disk_update_ver(env, dev, obj, 1);
+			if (rc) {
+				CERROR("%s: failed to set initial "
+				       "version for %s type (%d)\n",
+				       qmt->qmt_svname,
+				       QTYPE_NAME(qtype), rc);
+				RETURN(rc);
+			}
+		}
+			/* create quota entry site for this quota type */
+		qpi->qpi_site[qtype] = lquota_site_alloc(env, qpi,
+							 true, qtype,
+							 &qmt_lqe_ops);
+		if (IS_ERR(qpi->qpi_site[qtype])) {
+			rc = PTR_ERR(qpi->qpi_site[qtype]);
+			CERROR("%s: failed to create site for %s type "
+			       "(%d)\n", qmt->qmt_svname,
+			       QTYPE_NAME(qtype), rc);
+			RETURN(rc);
+		}
+			/* count number of slaves which already connected to
+		 * the master in the past */
+		qpi->qpi_slv_nr[qtype] = 0;
+		rc = lquota_disk_for_each_slv(env, qpi->qpi_root,
+					      &qti->qti_fid,
+					      qmt_slv_cnt,
+					      &qpi->qpi_slv_nr[qtype]);
+		if (rc) {
+			CERROR("%s: failed to scan & count slave "
+			       "indexes for %s type (%d)\n",
+			       qmt->qmt_svname, QTYPE_NAME(qtype), rc);
+			RETURN(rc);
+		}
+
+		/* Global grace time is stored in quota settings of
+		 * ID 0. */
+		qti->qti_id.qid_uid = 0;
+
+		/* look-up quota entry storing grace time */
+		lqe = lqe_locate(env, qpi->qpi_site[qtype],
+				 &qti->qti_id);
+		if (IS_ERR(lqe))
+			RETURN(PTR_ERR(lqe));
+		qpi->qpi_grace_lqe[qtype] = lqe;
+#ifdef LPROCFS
+		/* add procfs file to dump the global index, mostly for
+		 * debugging purpose */
+		sprintf(qti->qti_buf, "glb-%s", QTYPE_NAME(qtype));
+		rc = lprocfs_seq_create(qpi->qpi_proc, qti->qti_buf,
+					0444, &lprocfs_quota_seq_fops,
+					obj);
+		if (rc)
+			CWARN("%s: Error adding procfs file for global"
+			      "quota index "DFID", rc:%d\n",
+			      qmt->qmt_svname, PFID(&qti->qti_fid), rc);
+#endif
+	}
+	write_lock(&qpi->qpi_lock);
+	qpi->qpi_preparing = false;
+	qpi->qpi_prepared = true;
+	write_unlock(&qpi->qpi_lock);
+
+	RETURN(0);
+}
+
 /*
  * Set up on-disk index files associated with each pool.
  *
@@ -448,141 +720,29 @@ static int qmt_slv_cnt(const struct lu_env *env, struct lu_fid *glb_fid,
 int qmt_pool_prepare(const struct lu_env *env, struct qmt_device *qmt,
 		     struct dt_object *qmt_root)
 {
-	struct qmt_thread_info	*qti = qmt_info(env);
-	struct lquota_glb_rec	*rec = &qti->qti_glb_rec;
-	struct qmt_pool_info	*pool;
-	struct dt_device	*dev = NULL;
-	dt_obj_version_t	 version;
+	struct qmt_pool_info	*qpi;
 	cfs_list_t		*pos;
-	int			 rc = 0, qtype;
+	int			 rc = 0;
 	ENTRY;
 
 	LASSERT(qmt->qmt_pool_hash != NULL);
 
+	down_read(&qmt->qmt_pool_sem);
 	/* iterate over each pool in the hash and allocate a quota site for each
 	 * one. This involves creating a global index file on disk */
 	cfs_list_for_each(pos, &qmt->qmt_pool_list) {
-		struct dt_object	*obj;
-		int			 pool_type, pool_id;
-		struct lquota_entry	*lqe;
+		qpi = cfs_list_entry(pos, struct qmt_pool_info,
+				     qpi_linkage);
 
-		pool = cfs_list_entry(pos, struct qmt_pool_info,
-				      qpi_linkage);
-
-		pool_id   = pool->qpi_key & 0x0000ffff;
-		pool_type = pool->qpi_key >> 16;
-		if (dev == NULL)
-			dev = pool->qpi_qmt->qmt_child;
-
-		/* allocate directory for this pool */
-		sprintf(qti->qti_buf, "%s-0x%x", RES_NAME(pool_type), pool_id);
-		obj = lquota_disk_dir_find_create(env, qmt->qmt_child, qmt_root,
-						  qti->qti_buf);
-		if (IS_ERR(obj))
-			RETURN(PTR_ERR(obj));
-		pool->qpi_root = obj;
-
-		for (qtype = 0; qtype < MAXQUOTAS; qtype++) {
-			/* Generating FID of global index in charge of storing
-			 * settings for this quota type */
-			lquota_generate_fid(&qti->qti_fid, pool_id, pool_type,
-					    qtype);
-
-			/* open/create the global index file for this quota
-			 * type */
-			obj = lquota_disk_glb_find_create(env, dev,
-							  pool->qpi_root,
-							  &qti->qti_fid, false);
-			if (IS_ERR(obj)) {
-				rc = PTR_ERR(obj);
-				CERROR("%s: failed to create glb index copy for"
-				       " %s type (%d)\n", qmt->qmt_svname,
-				       QTYPE_NAME(qtype), rc);
-				RETURN(rc);
-			}
-
-			pool->qpi_glb_obj[qtype] = obj;
-
-			version = dt_version_get(env, obj);
-			/* set default grace time for newly created index */
-			if (version == 0) {
-				rec->qbr_hardlimit = 0;
-				rec->qbr_softlimit = 0;
-				rec->qbr_granted = 0;
-				rec->qbr_time = pool_type == LQUOTA_RES_MD ?
-					MAX_IQ_TIME : MAX_DQ_TIME;
-
-				rc = lquota_disk_write_glb(env, obj, 0, rec);
-				if (rc) {
-					CERROR("%s: failed to set default "
-					       "grace time for %s type (%d)\n",
-					       qmt->qmt_svname,
-					       QTYPE_NAME(qtype), rc);
-					RETURN(rc);
-				}
-
-				rc = lquota_disk_update_ver(env, dev, obj, 1);
-				if (rc) {
-					CERROR("%s: failed to set initial "
-					       "version for %s type (%d)\n",
-					       qmt->qmt_svname,
-					       QTYPE_NAME(qtype), rc);
-					RETURN(rc);
-				}
-			}
-
-			/* create quota entry site for this quota type */
-			pool->qpi_site[qtype] = lquota_site_alloc(env, pool,
-								  true, qtype,
-								  &qmt_lqe_ops);
-			if (IS_ERR(pool->qpi_site[qtype])) {
-				rc = PTR_ERR(pool->qpi_site[qtype]);
-				CERROR("%s: failed to create site for %s type "
-				       "(%d)\n", qmt->qmt_svname,
-				       QTYPE_NAME(qtype), rc);
-				RETURN(rc);
-			}
-
-			/* count number of slaves which already connected to
-			 * the master in the past */
-			pool->qpi_slv_nr[qtype] = 0;
-			rc = lquota_disk_for_each_slv(env, pool->qpi_root,
-						      &qti->qti_fid,
-						      qmt_slv_cnt,
-						      &pool->qpi_slv_nr[qtype]);
-			if (rc) {
-				CERROR("%s: failed to scan & count slave "
-				       "indexes for %s type (%d)\n",
-				       qmt->qmt_svname, QTYPE_NAME(qtype), rc);
-				RETURN(rc);
-			}
-
-			/* Global grace time is stored in quota settings of
-			 * ID 0. */
-			qti->qti_id.qid_uid = 0;
-
-			/* look-up quota entry storing grace time */
-			lqe = lqe_locate(env, pool->qpi_site[qtype],
-					 &qti->qti_id);
-			if (IS_ERR(lqe))
-				RETURN(PTR_ERR(lqe));
-			pool->qpi_grace_lqe[qtype] = lqe;
-#ifdef LPROCFS
-			/* add procfs file to dump the global index, mostly for
-			 * debugging purpose */
-			sprintf(qti->qti_buf, "glb-%s", QTYPE_NAME(qtype));
-			rc = lprocfs_seq_create(pool->qpi_proc, qti->qti_buf,
-						0444, &lprocfs_quota_seq_fops,
-						obj);
-			if (rc)
-				CWARN("%s: Error adding procfs file for global"
-				      "quota index "DFID", rc:%d\n",
-				      qmt->qmt_svname, PFID(&qti->qti_fid), rc);
-#endif
-		}
+		rc = qpi_prepare(env, qpi, qmt_root);
+		if (rc == -EALREADY)
+			rc = 0;
+		if (rc)
+			break;
 	}
+	up_read(&qmt->qmt_pool_sem);
 
-	RETURN(0);
+	RETURN(rc);
 }
 
 /*
@@ -689,4 +849,88 @@ struct lquota_entry *qmt_pool_lqe_lookup(const struct lu_env *env,
 out:
 	qpi_putref(env, pool);
 	RETURN(lqe);
+}
+
+int qmt_pool_new(struct obd_device *obd, char *poolname, int pool_id)
+{
+	struct qmt_device	*qmt = lu2qmt_dev(obd->obd_lu_dev);
+	int			 res, rc = 0;
+	struct lu_env		*env;
+	ENTRY;
+
+	CERROR("%s: creating pool %s\n", qmt->qmt_svname, poolname);
+
+	OBD_ALLOC_PTR(env);
+	if (env == NULL)
+		RETURN(-ENOMEM);
+
+	/* initialize environment */
+	rc = lu_env_init(env, LCT_MD_THREAD);
+	if (rc) {
+		OBD_FREE_PTR(env);
+		RETURN(rc);
+	}
+
+	for (res = LQUOTA_FIRST_RES; res < LQUOTA_LAST_RES; res++) {
+		rc = qmt_pool_alloc(env, qmt, poolname, pool_id, res);
+		if (rc)
+			break;
+	}
+
+	lu_env_fini(env);
+	OBD_FREE_PTR(env);
+
+	CERROR("%s: created pool %s\n", qmt->qmt_svname, poolname);
+
+	RETURN(rc);
+}
+
+int qmt_pool_del(struct obd_device *obd, char *poolname, int pool_id)
+{
+	struct qmt_device	*qmt = lu2qmt_dev(obd->obd_lu_dev);
+	int			 res, rc = 0;
+	struct qmt_pool_info	*pool;
+	struct lu_env		*env;
+	ENTRY;
+
+	CERROR("%s: deleting pool %s\n", qmt->qmt_svname, poolname);
+
+	OBD_ALLOC_PTR(env);
+	if (env == NULL)
+		RETURN(-ENOMEM);
+
+	/* initialize environment */
+	rc = lu_env_init(env, LCT_MD_THREAD);
+	if (rc) {
+		OBD_FREE_PTR(env);
+		RETURN(rc);
+	}
+
+	for (res = LQUOTA_FIRST_RES; res < LQUOTA_LAST_RES; res++) {
+		pool = qmt_pool_lookup(env, qmt, pool_id, res);
+		if (IS_ERR(pool)) {
+			rc = PTR_ERR(pool);
+			break;
+		}
+
+		/* remove from hash */
+		cfs_hash_del(qmt->qmt_pool_hash, &pool->qpi_key,
+			     &pool->qpi_hash);
+
+		/* remove from list */
+		down_write(&qmt->qmt_pool_sem);
+		cfs_list_del_init(&pool->qpi_linkage);
+		up_write(&qmt->qmt_pool_sem);
+
+		/* release twice including taken in qmt_pool_alloc */
+		qpi_putref(env, pool);
+		qpi_putref(env, pool);
+	}
+
+	lu_env_fini(env);
+	OBD_FREE_PTR(env);
+
+	CERROR("%s: deleted pool %s, rc = %d\n", qmt->qmt_svname, poolname, rc);
+
+	RETURN(rc);
 }
