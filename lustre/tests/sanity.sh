@@ -7663,6 +7663,60 @@ test_124b() {
 }
 run_test 124b "lru resize (performance test) ======================="
 
+get_unused_locks() {
+	local total_unused_locks=0
+	for n in $($LCTL get_param -n ldlm.namespace.*mdc*.lock_unused_count); do
+		total_unused_locks=$((total_unused_locks + n))
+	done
+	for n in $($LCTL get_param -n ldlm.namespace.*osc*.lock_unused_count); do
+		total_unused_locks=$((total_unused_locks + n))
+	done
+	echo $total_unused_locks
+}
+
+test_124c() {
+	local unused_locks_before=0
+	local unused_locks_after=0
+
+	mkdir -p $DIR/$tdir/lru_size_clear/f
+	createmany -o $DIR/$tdir/lru_size_clear/f 1000
+	unused_locks_before=$(get_unused_locks)
+	test $unused_locks_before -gt 0 || skip "no unused locks present after creating files"
+	log "Number of unused locks after opening files, before clear: $unused_locks_before"
+
+	# Clear caches using lru_size interface
+	$LCTL set_param ldlm.namespaces.*osc*.lru_size=clear
+	$LCTL set_param ldlm.namespaces.*mdc*.lru_size=clear
+
+	unused_locks_after=$(get_unused_locks)
+	log "Number of unused locks after opening files, after clear: $unused_locks_after"
+
+	test $unused_locks_after -eq 0 ||
+		error "Not all unused locks were dropped, total lock_unused_count: $(unused_locks_after)"
+}
+run_test 124c "clearing lustre caches with lru_size"
+
+test_124d() {
+	local unused_locks_before=0
+	local unused_locks_after=0
+
+	mkdir -p $DIR/$tdir/drop_caches/f
+	createmany -o $DIR/$tdir/drop_caches/f 1000
+	unused_locks_before=$(get_unused_locks)
+	test $unused_locks_before -gt 0 || skip "no unused locks present after creating files"
+	log "Number of unused locks after opening files, before clear: $unused_locks_before"
+
+	# Clear caches using drop_caches interface
+	$LCTL set_param ldlm.drop_caches=1
+
+	unused_locks_after=$(get_unused_locks)
+	log "Number of unused locks after opening files, after clear: $unused_locks_after"
+
+	test $unused_locks_after -eq 0 ||
+		error "Not all unused locks were dropped, total lock_unused_count: $(unused_locks_after)"
+}
+run_test 124d "clearing lustre caches in parallel with drop_caches"
+
 test_125() { # 13358
 	[ -z "$(lctl get_param -n llite.*.client_type | grep local)" ] && skip "must run as local client" && return
 	[ -z "$(lctl get_param -n mdc.*-mdc-*.connect_flags | grep acl)" ] && skip "must have acl enabled" && return
