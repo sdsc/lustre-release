@@ -598,6 +598,50 @@ int llapi_search_ost(char *fsname, char *poolname, char *ostname)
         return 0;
 }
 
+/*
+ *  if pool not found returns errno < 0
+ *  if ost numer of pool is 0, returns errno < 0
+ *  return the pool id
+ */
+int llapi_pool_id(char *fsname, char *poolname)
+{
+	FILE *fd;
+	char buffer[PATH_MAX + 1];
+	char *ptr, *term;
+	int rc;
+
+	if (fsname == NULL || poolname == NULL)
+		return -EINVAL;
+
+	rc = find_poolpath(fsname, poolname, buffer);
+	if (rc)
+		return rc;
+
+	fd = fopen(buffer, "r");
+	if (fd == NULL) {
+		fclose(fd);
+		return -errno;
+	}
+
+	if (fgets(buffer, sizeof(buffer), fd) == NULL) {
+		fclose(fd);
+		return -ENOENT;
+	}
+
+	/* Line format is pool_id: xxxx */
+	ptr = strchr(buffer, ' ');
+	if (ptr == NULL) {
+		fclose(fd);
+		printf("2\n");
+		return -ENOENT;
+	}
+
+	rc = (int)strtol(ptr, &term, 0);
+
+	fclose(fd);
+	return rc;
+}
+
 int llapi_file_open_pool(const char *name, int flags, int mode,
                          unsigned long long stripe_size, int stripe_offset,
                          int stripe_count, int stripe_pattern, char *pool_name)

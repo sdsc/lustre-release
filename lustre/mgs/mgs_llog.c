@@ -144,10 +144,109 @@ static inline void name_destroy(char **name)
         *name = NULL;
 }
 
+/* must called with hold of fsdb_mutex */
+static int mgs_fsdb_pool_new_id(struct fs_db *fsdb, const char *poolname)
+{
+	int pool_id;
+	int stub;
+	struct mgs_pool *pool;
+
+	pool_id = full_name_hash(poolname, strlen(poolname));
+	/* pool_id only has 16 bits */
+	pool_id &= (1 << 16) - 1;
+	/* 0 is reserved as the ID for default pool */
+	if (pool_id == 0)
+		pool_id = 1;
+	stub = pool_id;
+again:
+	cfs_list_for_each_entry(pool, &fsdb->fsdb_pools, mp_fsdb_list) {
+		if (pool->mp_pool_id == pool_id) {
+			pool_id++;
+			if (pool_id >= (1 << 16))
+				pool_id = 1;
+			if (unlikely(pool_id == stub))
+				return -ENOSPC;
+			goto again;
+		}
+	}
+	return pool_id;
+}
+
+/* must called with hold of fsdb_mutex */
+static int mgs_fsdb_pool_add(struct fs_db *fsdb,
+			     const char *poolname,
+			     int pool_id)
+{
+	struct mgs_pool *pool;
+	OBD_ALLOC_PTR(pool);
+	if (pool == NULL)
+		return -ENOMEM;
+
+	pool->mp_pool_id = pool_id;
+	strncpy(pool->mp_poolname, poolname, LOV_MAXPOOLNAME);
+	cfs_list_add(&pool->mp_fsdb_list, &fsdb->fsdb_pools);
+
+	return 0;
+}
+
+static struct mgs_pool *
+mgs_fsdb_pool_get(struct fs_db *fsdb, const char *poolname)
+{
+	struct mgs_pool *pool;
+
+	LASSERT(poolname != NULL);
+	cfs_list_for_each_entry(pool, &fsdb->fsdb_pools,
+				mp_fsdb_list) {
+		if (strcmp(pool->mp_poolname, poolname) == 0)
+			return pool;
+	}
+
+	return NULL;
+}
+
+static int
+mgs_fsdb_pool_get_id(struct fs_db *fsdb, const char *poolname)
+{
+	struct mgs_pool *pool = mgs_fsdb_pool_get(fsdb, poolname);
+	if (pool && pool->mp_pool_id > 0)
+		return pool->mp_pool_id;
+	else
+		return -ENOENT;
+}
+
+static int mgs_fsdb_pool_del(struct fs_db *fsdb, const char *poolname)
+{
+	struct mgs_pool *pool;
+
+	LASSERT(poolname != NULL);
+	cfs_list_for_each_entry(pool, &fsdb->fsdb_pools,
+				mp_fsdb_list) {
+		if (strcmp(pool->mp_poolname, poolname) == 0) {
+			cfs_list_del_init(&pool->mp_fsdb_list);
+			OBD_FREE_PTR(pool);
+			return 0;
+		}
+	}
+
+	return -ENOENT;
+}
+
+static void mgs_fsdb_pool_cleanup(struct fs_db *fsdb)
+{
+	struct mgs_pool *pool, *tmp;
+
+	cfs_list_for_each_entry_safe(pool, tmp, &fsdb->fsdb_pools,
+				     mp_fsdb_list) {
+		cfs_list_del_init(&pool->mp_fsdb_list);
+		OBD_FREE_PTR(pool);
+	}
+}
+
 struct mgs_fsdb_handler_data
 {
         struct fs_db   *fsdb;
         __u32           ver;
+	int		skip;
 };
 
 /* from the (client) config log, figure out:
@@ -166,6 +265,7 @@ static int mgs_fsdb_handler(const struct lu_env *env, struct llog_handle *llh,
         char *cfg_buf = (char*) (rec + 1);
         struct lustre_cfg *lcfg;
         __u32 index;
+	int pool_id;
         int rc = 0;
         ENTRY;
 
@@ -244,6 +344,32 @@ static int mgs_fsdb_handler(const struct lu_env *env, struct llog_handle *llh,
 
                 /* Keep track of the latest marker step */
                 fsdb->fsdb_gen = max(fsdb->fsdb_gen, marker->cm_step);
+
+		if (marker->cm_flags & CM_START &&
+		    marker->cm_flags & CM_SKIP)
+			d->skip = 1;
+		if (marker->cm_flags & CM_END)
+			d->skip = 0;
+	} else {
+		if (d->skip)
+			RETURN(0);
+		/* 0:, 1:fsname, 2:pool_name, 3:OST name, 4:pool ID */
+		if (lcfg->lcfg_command == LCFG_POOL_NEW) {
+			if (lustre_cfg_string(lcfg, 2) == NULL ||
+			    lustre_cfg_string(lcfg, 4) == NULL)
+				RETURN(-EINVAL);
+
+			pool_id = simple_strtol(lustre_cfg_string(lcfg, 4),
+						NULL, 10);
+			if (pool_id <= 0)
+				RETURN(-EINVAL);
+
+			rc = mgs_fsdb_pool_add(fsdb,
+					       lustre_cfg_string(lcfg, 2),
+					       pool_id);
+			if (rc)
+				RETURN(rc);
+		}
         }
 
         RETURN(rc);
@@ -257,7 +383,7 @@ static int mgs_get_fsdb_from_llog(const struct lu_env *env,
 	char				*logname;
 	struct llog_handle		*loghandle;
 	struct llog_ctxt		*ctxt;
-	struct mgs_fsdb_handler_data	 d = { fsdb, 0 };
+	struct mgs_fsdb_handler_data	 d = { fsdb, 0, 0 };
 	int rc;
 
 	ENTRY;
@@ -279,6 +405,7 @@ static int mgs_get_fsdb_from_llog(const struct lu_env *env,
 		set_bit(FSDB_LOG_EMPTY, &fsdb->fsdb_flags);
 
 	rc = llog_process(env, loghandle, mgs_fsdb_handler, (void *)&d, NULL);
+
 	CDEBUG(D_INFO, "get_db = %d\n", rc);
 out_close:
 	llog_close(env, loghandle);
@@ -364,6 +491,7 @@ static struct fs_db *mgs_new_fsdb(const struct lu_env *env,
 
                 /* initialise data for NID table */
 		mgs_ir_init_fs(env, mgs, fsdb);
+		CFS_INIT_LIST_HEAD(&fsdb->fsdb_pools);
 
 		lproc_mgs_add_live(mgs, fsdb);
         }
@@ -389,6 +517,10 @@ static void mgs_free_fsdb(struct mgs_device *mgs, struct fs_db *fsdb)
 	lproc_mgs_del_live(mgs, fsdb);
         cfs_list_del(&fsdb->fsdb_list);
 
+	if (!test_bit(FSDB_MGS_SELF, &fsdb->fsdb_flags)) {
+		mgs_fsdb_pool_cleanup(fsdb);
+		LASSERT(cfs_list_empty(&fsdb->fsdb_pools));
+	}
         /* deinitialize fsr */
 	mgs_ir_fini_fs(mgs, fsdb);
 
@@ -1025,7 +1157,6 @@ static int mgs_replace_nids_log(const struct lu_env *env,
 	struct llog_ctxt *ctxt;
 	struct mgs_replace_uuid_lookup *mrul;
 	struct mgs_device *mgs_dev = lu2mgs_dev(mgs->obd_lu_dev);
-	static struct obd_uuid	 cfg_uuid = { .uuid = "config_uuid" };
 	char *backup;
 	int rc, rc2;
 	ENTRY;
@@ -1064,7 +1195,7 @@ static int mgs_replace_nids_log(const struct lu_env *env,
 	if (rc)
 		GOTO(out_restore, rc);
 
-	rc = llog_init_handle(env, orig_llh, LLOG_F_IS_PLAIN, &cfg_uuid);
+	rc = llog_init_handle(env, orig_llh, LLOG_F_IS_PLAIN, NULL);
 	if (rc)
 		GOTO(out_closel, rc);
 
@@ -1178,6 +1309,37 @@ static int name_create_mdt(char **logname, char *fsname, int i)
 
 	sprintf(mdt_index, "-MDT%04x", i);
 	return name_create(logname, fsname, mdt_index);
+}
+
+static int name_create_qmt(char **logname, char *fsname, int i)
+{
+	char qmt_index[9];
+
+	sprintf(qmt_index, "-QMT%04x", i);
+	return name_create(logname, fsname, qmt_index);
+}
+
+static int name_create_ost(char **logname, char *fsname, int i)
+{
+	char ost_index[9];
+
+	sprintf(ost_index, "-OST%04x", i);
+	return name_create(logname, fsname, ost_index);
+}
+
+static int name_create_mdt_and_qmt(char **logname, char **qmtname,
+				   char *fsname, int i)
+{
+	int rc;
+
+	rc = name_create_mdt(logname, fsname, i);
+	if (rc)
+		return rc;
+
+	rc = name_create_qmt(qmtname, fsname, i);
+	if (rc)
+		name_destroy(logname);
+	return rc;
 }
 
 /**
@@ -3822,11 +3984,14 @@ static int mgs_write_log_pool(const struct lu_env *env,
 			      struct fs_db *fsdb, char *tgtname,
                               enum lcfg_command_type cmd,
 			      char *fsname, char *poolname,
-                              char *ostname, char *comment)
+			      char *ostname, int pool_id,
+			      char *comment)
 {
         struct llog_handle *llh = NULL;
+	char pool_id_str[7]; /* 16 bit interger */
         int rc;
 
+	snprintf(pool_id_str, sizeof(pool_id_str), "%d", pool_id);
 	rc = record_start_log(env, mgs, &llh, logname);
 	if (rc)
 		return rc;
@@ -3834,7 +3999,7 @@ static int mgs_write_log_pool(const struct lu_env *env,
 	if (rc)
 		goto out;
 	rc = record_base(env, llh, tgtname, 0, cmd,
-			 fsname, poolname, ostname, 0);
+			 fsname, poolname, ostname, pool_id_str);
 	if (rc)
 		goto out;
 	rc = record_marker(env, llh, fsdb, CM_END, tgtname, comment);
@@ -3850,10 +4015,12 @@ int mgs_pool_cmd(const struct lu_env *env, struct mgs_device *mgs,
         struct fs_db *fsdb;
         char *lovname;
         char *logname;
+	char *qmtname;
         char *label = NULL, *canceled_label = NULL;
         int label_sz;
         struct mgs_target_info *mti = NULL;
         int rc, i;
+	int pool_id;
         ENTRY;
 
 	rc = mgs_find_or_make_fsdb(env, mgs, fsname, &fsdb);
@@ -3922,6 +4089,21 @@ int mgs_pool_cmd(const struct lu_env *env, struct mgs_device *mgs,
         }
 
 	mutex_lock(&fsdb->fsdb_mutex);
+
+	if (cmd == LCFG_POOL_NEW) {
+		pool_id = mgs_fsdb_pool_new_id(fsdb, poolname);
+		if (pool_id < 0) {
+			mutex_unlock(&fsdb->fsdb_mutex);
+			GOTO(out_mti, rc = pool_id);
+		}
+	} else {
+		pool_id = mgs_fsdb_pool_get_id(fsdb, poolname);
+		if (pool_id < 0) {
+			mutex_unlock(&fsdb->fsdb_mutex);
+			GOTO(out_mti, rc = pool_id);
+		}
+	}
+
         /* write pool def to all MDT logs */
         for (i = 0; i < INDEX_MAP_SIZE * 8; i++) {
 		if (test_bit(i,  fsdb->fsdb_mdt_index_map)) {
@@ -3942,7 +4124,8 @@ int mgs_pool_cmd(const struct lu_env *env, struct mgs_device *mgs,
 				rc = mgs_write_log_pool(env, mgs, logname,
 							fsdb, lovname, cmd,
 							fsname, poolname,
-							ostname, label);
+							ostname, pool_id,
+							label);
                         name_destroy(&logname);
                         name_destroy(&lovname);
 			if (rc) {
@@ -3967,14 +4150,118 @@ int mgs_pool_cmd(const struct lu_env *env, struct mgs_device *mgs,
 		}
 	}
 
-	rc = mgs_write_log_pool(env, mgs, logname, fsdb, fsdb->fsdb_clilov,
-				cmd, fsname, poolname, ostname, label);
-	mutex_unlock(&fsdb->fsdb_mutex);
+	rc = mgs_write_log_pool(env, mgs, logname,
+				fsdb, fsdb->fsdb_clilov,
+				cmd, fsname, poolname,
+				ostname, pool_id, label);
 	name_destroy(&logname);
+	if (rc) {
+		mutex_unlock(&fsdb->fsdb_mutex);
+		GOTO(out_mti, rc);
+	}
+
+	/* quota master is on MDT0 only for now */
+	rc = name_create_mdt_and_qmt(&logname, &qmtname, fsname, 0);
+	if (rc) {
+		mutex_unlock(&fsdb->fsdb_mutex);
+		GOTO(out_mti, rc);
+	}
+
+	if (canceled_label != NULL) {
+		strcpy(mti->mti_svname, "qmt");
+		rc = mgs_modify(env, mgs, fsdb, mti, logname,
+				qmtname, canceled_label, CM_SKIP);
+		if (rc < 0) {
+			mutex_unlock(&fsdb->fsdb_mutex);
+			name_destroy(&logname);
+			name_destroy(&qmtname);
+			GOTO(out_mti, rc);
+		}
+	}
+	rc = mgs_write_log_pool(env, mgs, logname,
+				fsdb, qmtname,
+				cmd, fsname, poolname,
+				ostname, pool_id, label);
+	name_destroy(&logname);
+	name_destroy(&qmtname);
+	if (rc) {
+		mutex_unlock(&fsdb->fsdb_mutex);
+		GOTO(out_mti, rc);
+	}
+
+	/* Notify the pool def to all MDT OSDs */
+	for (i = 0; i < INDEX_MAP_SIZE * 8; i++) {
+		if (test_bit(i,  fsdb->fsdb_mdt_index_map)) {
+			rc = name_create_mdt(&logname, fsname, i);
+			if (rc) {
+				mutex_unlock(&fsdb->fsdb_mutex);
+				GOTO(out_mti, rc);
+			}
+			if (canceled_label != NULL) {
+				strcpy(mti->mti_svname, "mdt");
+				rc = mgs_modify(env, mgs, fsdb, mti, logname,
+						logname, canceled_label,
+						CM_SKIP);
+			}
+
+			if (rc >= 0)
+				rc = mgs_write_log_pool(env, mgs, logname,
+							fsdb, logname, cmd,
+							fsname, poolname,
+							ostname, pool_id,
+							label);
+			name_destroy(&logname);
+			if (rc) {
+				mutex_unlock(&fsdb->fsdb_mutex);
+				GOTO(out_mti, rc);
+			}
+		}
+	}
+
+	/* Notify the pool def to all OST OSDs */
+	for (i = 0; i < INDEX_MAP_SIZE * 8; i++) {
+		if (test_bit(i,  fsdb->fsdb_mdt_index_map)) {
+			rc = name_create_ost(&logname,
+					     fsname, i);
+			if (rc) {
+				mutex_unlock(&fsdb->fsdb_mutex);
+				GOTO(out_mti, rc);
+			}
+			if (canceled_label != NULL) {
+				strcpy(mti->mti_svname, "ost");
+				rc = mgs_modify(env, mgs, fsdb, mti, logname,
+						logname, canceled_label,
+						CM_SKIP);
+			}
+
+			if (rc >= 0)
+				rc = mgs_write_log_pool(env, mgs, logname,
+							fsdb, logname, cmd,
+							fsname, poolname,
+							ostname, pool_id,
+							label);
+			name_destroy(&logname);
+			if (rc) {
+				mutex_unlock(&fsdb->fsdb_mutex);
+				GOTO(out_mti, rc);
+			}
+		}
+	}
+
+	if (cmd == LCFG_POOL_NEW)
+		rc = mgs_fsdb_pool_add(fsdb, poolname, pool_id);
+	else if (cmd == LCFG_POOL_DEL)
+		rc = mgs_fsdb_pool_del(fsdb, poolname);
+
+	if (rc) {
+		mutex_unlock(&fsdb->fsdb_mutex);
+		GOTO(out_mti, rc);
+	}
+
+	mutex_unlock(&fsdb->fsdb_mutex);
         /* request for update */
 	mgs_revoke_lock(mgs, fsdb, CONFIG_T_CONFIG);
 
-        EXIT;
 out_mti:
         if (mti != NULL)
                 OBD_FREE_PTR(mti);
@@ -3983,5 +4270,5 @@ out_cancel:
 		OBD_FREE(canceled_label, label_sz);
 out_label:
 	OBD_FREE(label, label_sz);
-        return rc;
+	RETURN(rc);
 }

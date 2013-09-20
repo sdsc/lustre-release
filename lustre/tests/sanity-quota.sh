@@ -2272,7 +2272,7 @@ test_36() {
 	local id_cnt
 	local limit
 
-	local proc="qmt.*.md-0x0.glb-usr"
+	local proc="qmt.*.md.glb-usr"
 	id_cnt=$(do_node $mdt0_node $LCTL get_param -n $proc | wc -l)
 	[ $id_cnt -eq 403 ] || error "Migrate inode user limit failed: $id_cnt"
 	limit=$(getquota -u 1 global isoftlimit)
@@ -2280,7 +2280,7 @@ test_36() {
 	limit=$(getquota -u 1 global ihardlimit)
 	[ $limit -eq 2048 ] || error "User inode hardlimit: $limit"
 
-	proc="qmt.*.md-0x0.glb-grp"
+	proc="qmt.*.md.glb-grp"
 	id_cnt=$(do_node $mdt0_node $LCTL get_param -n $proc | wc -l)
 	[ $id_cnt -eq 403 ] || error "Migrate inode group limit failed: $id_cnt"
 	limit=$(getquota -g 1 global isoftlimit)
@@ -2288,7 +2288,7 @@ test_36() {
 	limit=$(getquota -g 1 global ihardlimit)
 	[ $limit -eq 2048 ] || error "Group inode hardlimit: $limit"
 
-	proc=" qmt.*.dt-0x0.glb-usr"
+	proc=" qmt.*.dt.glb-usr"
 	id_cnt=$(do_node $mdt0_node $LCTL get_param -n $proc | wc -l)
 	[ $id_cnt -eq 403 ] || error "Migrate block user limit failed: $id_cnt"
 	limit=$(getquota -u 60001 global bsoftlimit)
@@ -2296,7 +2296,7 @@ test_36() {
 	limit=$(getquota -u 60001 global bhardlimit)
 	[ $limit -eq 20971520 ] || error "User block hardlimit: $limit"
 
-	proc="qmt.*.dt-0x0.glb-grp"
+	proc="qmt.*.dt.glb-grp"
 	id_cnt=$(do_node $mdt0_node $LCTL get_param -n $proc | wc -l)
 	[ $id_cnt -eq 403 ] || error "Migrate block user limit failed: $id_cnt"
 	limit=$(getquota -g 60001 global bsoftlimit)

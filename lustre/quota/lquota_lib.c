@@ -107,15 +107,16 @@ struct dt_object *acct_obj_lookup(const struct lu_env *env,
  * \param type - is the quota type, either USRQUOTA or GRPQUOTA
  */
 static struct dt_object *quota_obj_lookup(const struct lu_env *env,
-					  struct dt_device *dev, int type)
+					  struct dt_device *dev, int pool_id,
+					  int pool_type, int quota_type)
 {
 	struct lquota_thread_info	*qti = lquota_info(env);
 	struct dt_object		*obj = NULL;
 	ENTRY;
 
-	qti->qti_fid.f_seq = FID_SEQ_QUOTA;
-	qti->qti_fid.f_oid = type == USRQUOTA ? LQUOTA_USR_OID : LQUOTA_GRP_OID;
-	qti->qti_fid.f_ver = 0;
+	/* TODO: pool ID and pool type */
+	lquota_generate_local_fid(&qti->qti_fid, pool_id, pool_type,
+				  quota_type);
 
 	/* lookup the quota object */
 	obj = dt_locate(env, dev, &qti->qti_fid);
@@ -134,10 +135,10 @@ static struct dt_object *quota_obj_lookup(const struct lu_env *env,
 		rc = obj->do_ops->do_index_try(env, obj,
 					       &dt_quota_slv_features);
 		if (rc) {
-			CERROR("%s: failed to set up indexing operations for %s"
-			       " slave index object rc:%d\n",
+			CERROR("%s: failed to set up indexing operations for "
+			       "%s(%d) slave index object rc:%d\n",
 			       dev->dd_lu_dev.ld_obd->obd_name,
-			       QTYPE_NAME(type), rc);
+			       QTYPE_NAME(quota_type), pool_id, rc);
 			lu_object_put(env, &obj->do_lu);
 			RETURN(ERR_PTR(rc));
 		}
@@ -203,7 +204,10 @@ int lquotactl_slv(const struct lu_env *env, struct dt_device *dev,
 
 	/* Step 2: collect enforcement information */
 
-	obj = quota_obj_lookup(env, dev, oqctl->qc_type);
+	CERROR("XXXX %d\n", oqctl->qc_pool_id);
+	LASSERT(oqctl->qc_pool_valid);
+	obj = quota_obj_lookup(env, dev, oqctl->qc_pool_id,
+			       oqctl->qc_pool_type, oqctl->qc_type);
 	if (IS_ERR(obj))
 		RETURN(0);
 	if (obj->do_index_ops == NULL)
@@ -264,9 +268,6 @@ int lquota_extract_fid(const struct lu_fid *fid, int *pool_id, int *pool_type,
 
 	if (pool_id != NULL) {
 		tmp = fid->f_oid & 0xffffU;
-		if (tmp != 0)
-			/* we only support pool ID 0 for the time being */
-			RETURN(-ENOTSUPP);
 		*pool_id = tmp;
 	}
 
@@ -287,6 +288,18 @@ int lquota_extract_fid(const struct lu_fid *fid, int *pool_id, int *pool_type,
 	}
 
 	RETURN(0);
+}
+
+void lquota_generate_local_fid(struct lu_fid *fid, int pool_id, int pool_type,
+			       int quota_type)
+{
+	__u8	 qtype;
+
+	qtype = (quota_type == USRQUOTA) ? LQUOTA_USR_OID : LQUOTA_GRP_OID;
+
+	fid->f_seq = FID_SEQ_QUOTA;
+	fid->f_oid = (qtype << 24) | (pool_type << 16) | (__u16)pool_id;
+	fid->f_ver = 0;
 }
 
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2,7,50,0)

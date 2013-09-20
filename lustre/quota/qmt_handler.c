@@ -265,9 +265,9 @@ static int qmt_quotactl(const struct lu_env *env, struct lu_device *ld,
 		id->qid_uid = oqctl->qc_id;
 
 		/* look-up inode quota settings */
-		rc = qmt_get(env, qmt, 0, LQUOTA_RES_MD, oqctl->qc_type, id,
-			     &dqb->dqb_ihardlimit, &dqb->dqb_isoftlimit,
-			     &dqb->dqb_itime);
+		rc = qmt_get(env, qmt, oqctl->qc_pool_id, LQUOTA_RES_MD,
+			     oqctl->qc_type, id, &dqb->dqb_ihardlimit,
+			     &dqb->dqb_isoftlimit, &dqb->dqb_itime);
 		if (rc)
 			break;
 
@@ -276,9 +276,9 @@ static int qmt_quotactl(const struct lu_env *env, struct lu_device *ld,
 		dqb->dqb_curinodes = 0;
 
 		/* look-up block quota settings */
-		rc = qmt_get(env, qmt, 0, LQUOTA_RES_DT, oqctl->qc_type, id,
-			     &dqb->dqb_bhardlimit, &dqb->dqb_bsoftlimit,
-			     &dqb->dqb_btime);
+		rc = qmt_get(env, qmt, oqctl->qc_pool_id, LQUOTA_RES_DT,
+			     oqctl->qc_type, id, &dqb->dqb_bhardlimit,
+			     &dqb->dqb_bsoftlimit, &dqb->dqb_btime);
 		if (rc)
 			break;
 
@@ -296,7 +296,8 @@ static int qmt_quotactl(const struct lu_env *env, struct lu_device *ld,
 
 		if ((dqb->dqb_valid & QIF_IFLAGS) != 0) {
 			/* update inode quota settings */
-			rc = qmt_set(env, qmt, 0, LQUOTA_RES_MD, oqctl->qc_type,
+			rc = qmt_set(env, qmt, oqctl->qc_pool_id,
+				     LQUOTA_RES_MD, oqctl->qc_type,
 				     id, dqb->dqb_ihardlimit,
 				     dqb->dqb_isoftlimit, dqb->dqb_itime,
 				     dqb->dqb_valid & QIF_IFLAGS);
@@ -306,7 +307,8 @@ static int qmt_quotactl(const struct lu_env *env, struct lu_device *ld,
 
 		if ((dqb->dqb_valid & QIF_BFLAGS) != 0)
 			/* update block quota settings */
-			rc = qmt_set(env, qmt, 0, LQUOTA_RES_DT, oqctl->qc_type,
+			rc = qmt_set(env, qmt, oqctl->qc_pool_id,
+				     LQUOTA_RES_DT, oqctl->qc_type,
 				     id, dqb->dqb_bhardlimit,
 				     dqb->dqb_bsoftlimit, dqb->dqb_btime,
 				     dqb->dqb_valid & QIF_BFLAGS);

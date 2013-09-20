@@ -1177,6 +1177,9 @@ static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
                         RETURN(-ENOMEM);
 
                 QCTL_COPY(oqctl, qctl);
+		oqctl->qc_pool_id = qctl->qc_pool_id;
+		/* TODO: remove */
+		oqctl->qc_pool_valid = 1;
                 rc = obd_quotactl(sbi->ll_md_exp, oqctl);
                 if (rc) {
                         if (rc != -EALREADY && cmd == Q_QUOTAON) {
@@ -1200,6 +1203,9 @@ static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
                         oqctl_tmp->qc_cmd = Q_GETOQUOTA;
                         oqctl_tmp->qc_id = oqctl->qc_id;
                         oqctl_tmp->qc_type = oqctl->qc_type;
+			oqctl_tmp->qc_pool_id = oqctl->qc_pool_id;
+			/* TODO: remove */
+			oqctl_tmp->qc_pool_valid = 1;
 
                         /* collect space usage from OSTs */
                         oqctl_tmp->qc_dqblk.dqb_curspace = 0;
@@ -1228,6 +1234,7 @@ static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
                 }
 out:
                 QCTL_COPY(qctl, oqctl);
+		qctl->qc_pool_id = oqctl->qc_pool_id;
                 OBD_FREE_PTR(oqctl);
         }
 
