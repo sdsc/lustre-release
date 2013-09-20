@@ -500,7 +500,7 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
 {
 	struct osd_thread_info  *info = osd_oti_get(env);
 	struct osd_device       *dev = info->oti_dev;
-	struct qsd_instance     *qsd = dev->od_quota_slave;
+	struct qsd_instance     *qsd = oh->ot_qsd;
 	int                      i, rc;
 	bool                     found = false;
 	ENTRY;
@@ -508,6 +508,7 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
 	LASSERT(oh != NULL);
 	LASSERTF(oh->ot_id_cnt <= OSD_MAX_UGID_CNT, "count=%d\n",
 		 oh->ot_id_cnt);
+	LASSERT(qi->lqi_valid);
 
 	for (i = 0; i < oh->ot_id_cnt; i++) {
 		if (oh->ot_id_array[i] == qi->lqi_id.qid_uid &&
@@ -533,8 +534,21 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
 		oh->ot_id_cnt++;
 	}
 
+	if (qsd == NULL) {
+		if (!dev->od_quota_set.qs_inited)
+			/* quota instances havn't been allocated yet */
+			RETURN(0);
+
+		/* qsd is dereferenced in osd_trans_stop() */
+		qsd = qsd_set_lookup(&dev->od_quota_set,
+				     qi->lqi_pool_id);
+		if (qsd == NULL)
+			CERROR("failed to find qsd for pool %d\n",
+			       qi->lqi_pool_id);
+		oh->ot_qsd = qsd;
+	}
+
 	if (unlikely(qsd == NULL))
-		/* quota slave instance hasn't been allocated yet */
 		RETURN(0);
 
 	/* check quota */
@@ -561,8 +575,9 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
  * \retval -ve    - failure
  */
 int osd_declare_inode_qid(const struct lu_env *env, qid_t uid, qid_t gid,
-			  long long space, struct osd_thandle *oh,
-			  bool is_blk, bool allocated, int *flags, bool force)
+			  __u32 pool_id, long long space,
+			  struct osd_thandle *oh, bool is_blk, bool allocated,
+			  int *flags, bool force)
 {
 	struct osd_thread_info  *info = osd_oti_get(env);
 	struct lquota_id_info   *qi = &info->oti_qi;
@@ -574,6 +589,8 @@ int osd_declare_inode_qid(const struct lu_env *env, qid_t uid, qid_t gid,
 	qi->lqi_type       = USRQUOTA;
 	qi->lqi_space      = space;
 	qi->lqi_is_blk     = is_blk;
+	qi->lqi_pool_id    = pool_id;
+	qi->lqi_valid      = true;
 	rcu = osd_declare_qid(env, oh, qi, allocated, flags);
 
 	if (force && (rcu == -EDQUOT || rcu == -EINPROGRESS))
