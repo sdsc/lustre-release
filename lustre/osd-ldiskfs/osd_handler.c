@@ -360,6 +360,24 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	RETURN(rc);
 }
 
+static int osd_get_pool(struct inode *inode, struct dentry *dentry,
+			__u32 *pool_id)
+{
+	__u32 pool;
+	int   rc;
+
+	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_POOL, &pool,
+			     sizeof(pool));
+	if (rc == sizeof(pool)) {
+		rc = 0;
+		*pool_id = pool;
+	} else if (rc >= 0) {
+		rc = -EINVAL;
+	}
+
+	return rc;
+}
+
 static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 			  const struct lu_fid *fid,
 			  const struct lu_object_conf *conf)
@@ -512,6 +530,19 @@ trigger:
 
                 GOTO(out, result);
         }
+
+	result = osd_get_pool(inode, &info->oti_obj_dentry,
+			      &obj->oo_pool_id);
+	if (result == -ENODATA) {
+		/* Default pool ID is 0 */
+		obj->oo_pool_id = 0;
+		obj->oo_pool_valid = true;
+	} else if (result != 0) {
+		iput(inode);
+		GOTO(out, result);
+	} else {
+		obj->oo_pool_valid = true;
+	}
 
         obj->oo_inode = inode;
         LASSERT(obj->oo_inode->i_sb == osd_sb(dev));
@@ -908,15 +939,18 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
         struct osd_thandle     *oh;
         struct osd_thread_info *oti = osd_oti_get(env);
         struct osd_iobuf       *iobuf = &oti->oti_iobuf;
-	struct qsd_instance    *qsd = oti->oti_dev->od_quota_slave;
+	struct qsd_instance    *qsd;
         ENTRY;
 
         oh = container_of0(th, struct osd_thandle, ot_super);
-
-	if (qsd != NULL)
+	qsd = oh->ot_qsd;
+	if (qsd != NULL) {
 		/* inform the quota slave device that the transaction is
 		 * stopping */
 		qsd_op_end(env, qsd, oh->ot_quota_trans);
+		qsd_putref(env, qsd);
+		oh->ot_qsd = NULL;
+	}
 	oh->ot_quota_trans = NULL;
 
         if (oh->ot_handle != NULL) {
@@ -997,10 +1031,18 @@ static void osd_object_delete(const struct lu_env *env, struct lu_object *l)
 
         osd_index_fini(obj);
         if (inode != NULL) {
-		struct qsd_instance	*qsd = osd_obj2dev(obj)->od_quota_slave;
+		struct qsd_instance	*qsd = NULL;
 		qid_t			 uid = inode->i_uid;
 		qid_t			 gid = inode->i_gid;
 
+		if (osd_obj2dev(obj)->od_quota_set.qs_inited &&
+		    obj->oo_pool_valid) {
+			qsd = qsd_set_lookup(&osd_obj2dev(obj)->od_quota_set,
+					     obj->oo_pool_id);
+			if (qsd == NULL)
+				CERROR("failed to find qsd for pool %d\n",
+				       obj->oo_pool_id);
+		}
                 iput(inode);
                 obj->oo_inode = NULL;
 
@@ -1014,6 +1056,7 @@ static void osd_object_delete(const struct lu_env *env, struct lu_object *l)
 
 			qi->lqi_id.qid_uid = gid;
 			qsd_op_adjust(env, qsd, &qi->lqi_id, GRPQUOTA);
+			qsd_putref(env, qsd);
 		}
         }
 }
@@ -1570,6 +1613,17 @@ static int osd_declare_attr_set(const struct lu_env *env,
 		/* one more inode for the new owner ... */
 		qi->lqi_id.qid_uid = attr->la_uid;
 		qi->lqi_space      = 1;
+		if ((attr->la_valid & LA_POOLID) != 0) {
+			/*
+			 * Set pool id for the first time,
+			 * this is neccessary for OST,
+			 */
+			qi->lqi_pool_id = attr->la_pool_id;
+		} else {
+			LASSERT(obj->oo_pool_valid);
+			qi->lqi_pool_id = obj->oo_pool_id;
+		}
+		qi->lqi_valid = 1;
 		allocated = (attr->la_uid == 0) ? true : false;
 		rc = osd_declare_qid(env, oh, qi, allocated, NULL);
 		if (rc == -EDQUOT || rc == -EINPROGRESS)
@@ -1619,6 +1673,13 @@ static int osd_declare_attr_set(const struct lu_env *env,
 		/* one more inode for the new group owner ... */
 		qi->lqi_id.qid_gid = attr->la_gid;
 		qi->lqi_space      = 1;
+		if ((attr->la_valid & LA_POOLID) != 0) {
+			/* Set pool id for the first time */
+			qi->lqi_pool_id = attr->la_pool_id;
+		} else {
+			LASSERT(obj->oo_pool_valid);
+			qi->lqi_pool_id = obj->oo_pool_id;
+		}
 		allocated = (attr->la_gid == 0) ? true : false;
 		rc = osd_declare_qid(env, oh, qi, allocated, NULL);
 		if (rc == -EDQUOT || rc == -EINPROGRESS)
@@ -2170,8 +2231,9 @@ static int osd_declare_object_create(const struct lu_env *env,
 	if (!attr)
 		RETURN(0);
 
-	rc = osd_declare_inode_qid(env, attr->la_uid, attr->la_gid, 1, oh,
-				   false, false, NULL, false);
+	rc = osd_declare_inode_qid(env, attr->la_uid, attr->la_gid,
+				   attr->la_pool_id, 1, oh, false,
+				   false, NULL, false);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -2251,13 +2313,15 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	osd_trans_declare_op(env, oh, OSD_OT_DELETE,
 			     osd_dto_credits_noquota[DTO_INDEX_DELETE] + 3);
 	/* one less inode */
-	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, -1, oh,
-				   false, true, NULL, false);
+	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid,
+				   obj->oo_pool_id, -1, oh, false, true, NULL,
+				   false);
 	if (rc)
 		RETURN(rc);
 	/* data to be truncated */
-	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, 0, oh,
-				   true, true, NULL, false);
+	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid,
+				   obj->oo_pool_id, 0, oh, true, true, NULL,
+				   false);
 	RETURN(rc);
 }
 
@@ -2795,6 +2859,14 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
                 return sizeof(dt_obj_version_t);
         }
 
+	if (strcmp(name, XATTR_NAME_POOL) == 0) {
+		spin_lock(&obj->oo_guard);
+		obj->oo_pool_id = *((__u32 *)buf->lb_buf);
+		obj->oo_pool_valid = 1;
+		spin_unlock(&obj->oo_guard);
+		CERROR("update pool id: %d\n", obj->oo_pool_id);
+	}
+
         if (osd_object_auth(env, dt, capa, CAPA_OPC_META_WRITE))
                 return -EACCES;
 
@@ -3305,8 +3377,9 @@ static int osd_index_declare_ea_delete(const struct lu_env *env,
 	inode = osd_dt_obj(dt)->oo_inode;
 	LASSERT(inode);
 
-	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, 0, oh,
-				   true, true, NULL, false);
+	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid,
+				   osd_dt_obj(dt)->oo_pool_id, 0, oh, true,
+				   true, NULL, false);
 	RETURN(rc);
 }
 
@@ -4094,8 +4167,9 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 		/* We ignore block quota on meta pool (MDTs), so needn't
 		 * calculate how many blocks will be consumed by this index
 		 * insert */
-		rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, 0,
-					   oh, true, true, NULL, false);
+		rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid,
+					   osd_dt_obj(dt)->oo_pool_id, 0, oh,
+					   true, true, NULL, false);
 	}
 
 	if (fid == NULL)
@@ -5362,10 +5436,9 @@ static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 {
 	ENTRY;
 
-	/* shutdown quota slave instance associated with the device */
-	if (o->od_quota_slave != NULL) {
-		qsd_fini(env, o->od_quota_slave);
-		o->od_quota_slave = NULL;
+	if (o->od_quota_set.qs_inited) {
+		/* shutdown quota slave instance associated with the device */
+		qsd_set_fini(env, &o->od_quota_set);
 	}
 
 	RETURN(0);
@@ -5522,9 +5595,11 @@ static int osd_device_init0(const struct lu_env *env,
 			    struct lustre_cfg *cfg)
 {
 	struct lu_device	*l = osd2lu_dev(o);
-	struct osd_thread_info *info;
-	int			rc;
-	int			cplen = 0;
+	struct osd_thread_info	*info;
+	int			 rc;
+	int			 cplen = 0;
+	int			 type, idx;
+	struct qsd_instance	*qsd;
 
 	/* if the module was re-loaded, env can loose its keys */
 	rc = lu_env_refill((struct lu_env *) env);
@@ -5590,17 +5665,40 @@ static int osd_device_init0(const struct lu_env *env,
 
 	LASSERT(l->ld_site->ls_linkage.next && l->ld_site->ls_linkage.prev);
 
-	/* initialize quota slave instance */
-	o->od_quota_slave = qsd_init(env, o->od_svname, &o->od_dt_dev,
-				     o->od_proc_entry);
-	if (IS_ERR(o->od_quota_slave)) {
-		rc = PTR_ERR(o->od_quota_slave);
-		o->od_quota_slave = NULL;
+	/* only configure qsd for MDT & OST */
+	type = server_name2index(o->od_svname, &idx, NULL);
+	if (type != LDD_F_SV_TYPE_MDT && type != LDD_F_SV_TYPE_OST) {
+		o->od_quota_set.qs_inited = false;
+		RETURN(0);
+	}
+
+	rc = qsd_set_init(env, &o->od_quota_set);
+	if (rc) {
+		CERROR("%s: can't initialize quota: rc = %d\n",
+		       o->od_svname, rc);
 		GOTO(out_procfs, rc);
 	}
 
-	RETURN(0);
+	qsd = qsd_init(env, o->od_svname, &o->od_dt_dev,
+		       o->od_proc_entry, NULL, 0);
+	if (IS_ERR(qsd)) {
+		CERROR("%s: can't init default quota instance: rc = %d\n",
+		       o->od_svname, rc);
+		GOTO(out_set, rc = PTR_ERR(qsd));
+	}
 
+	rc = qsd_set_add(&o->od_quota_set, qsd);
+	if (rc) {
+		CERROR("%s: can't add default quota instance: rc = %d\n",
+		       o->od_svname, rc);
+		GOTO(out_qsd, rc);
+	}
+
+	RETURN(0);
+out_qsd:
+	qsd_putref(env, qsd);
+out_set:
+	qsd_set_fini(env, &o->od_quota_set);
 out_procfs:
 	osd_procfs_fini(o);
 out_scrub:
@@ -5660,6 +5758,7 @@ static struct lu_device *osd_device_free(const struct lu_env *env,
 	}
 	lu_site_fini(&o->od_site);
         dt_device_fini(&o->od_dt_dev);
+	LASSERT(!o->od_quota_set.qs_inited);
         OBD_FREE_PTR(o);
         RETURN(NULL);
 }
@@ -5693,12 +5792,14 @@ static int osd_recovery_complete(const struct lu_env *env,
 	int			 rc = 0;
 	ENTRY;
 
-	if (osd->od_quota_slave == NULL)
-		RETURN(0);
-
 	/* start qsd instance on recovery completion, this notifies the quota
 	 * slave code that we are about to process new requests now */
-	rc = qsd_start(env, osd->od_quota_slave);
+	if (osd->od_quota_set.qs_inited) {
+		rc = qsd_set_start(env, &osd->od_quota_set);
+		if (rc)
+			RETURN(rc);
+	}
+
 	RETURN(rc);
 }
 
@@ -5754,18 +5855,132 @@ static int osd_obd_disconnect(struct obd_export *exp)
 	RETURN(rc);
 }
 
+int osd_obd_pool_new(struct obd_device *obd, char *poolname, int pool_id)
+{
+	int			 rc = 0;
+	struct lu_env		*env;
+	struct osd_device	*osd = osd_dev(obd->obd_lu_dev);
+	struct qsd_instance	*qsd;
+	ENTRY;
+
+	CERROR("%s: creating pool %s\n", obd->obd_name, poolname);
+	if (!osd->od_quota_set.qs_inited)
+		GOTO(out, rc = -EOPNOTSUPP);
+
+	LASSERT(!IS_ERR(NULL));
+	OBD_ALLOC_PTR(env);
+	if (env == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	/* initialize environment */
+	rc = lu_env_init(env, LCT_MD_THREAD);
+	if (rc)
+		GOTO(out_free, rc);
+
+	qsd = qsd_init(env, osd->od_svname, &osd->od_dt_dev,
+		       osd->od_proc_entry, poolname, pool_id);
+	if (IS_ERR(qsd)) {
+		CERROR("%s: can't initialize quota: rc = %d\n",
+		       osd->od_svname, rc);
+		GOTO(out_fini, rc);
+	}
+
+	if (osd->od_quota_set.qs_started) {
+		struct dt_object  *qsd_root;
+		qsd_root = lquota_disk_dir_find_create(env, &osd->od_dt_dev,
+						       NULL, QSD_DIR);
+		if (IS_ERR(qsd_root)) {
+			rc = PTR_ERR(qsd_root);
+			CERROR("failed to create slave quota directory (%d)\n",
+			       rc);
+			GOTO(out_qsd, rc);
+		}
+		rc = qsd_prepare(env, qsd, qsd_root);
+		if (!rc)
+			rc = qsd_start(env, qsd);
+		lu_object_put(env, &qsd_root->do_lu);
+		if (rc)
+			GOTO(out_qsd, rc);
+		CERROR("%s: newly added pool %s\n", obd->obd_name, poolname);
+	}
+
+	rc = qsd_set_add(&osd->od_quota_set, qsd);
+	if (rc)
+		GOTO(out_qsd, rc);
+
+	goto out_fini;
+out_qsd:
+	qsd_putref(env, qsd);
+out_fini:
+	lu_env_fini(env);
+out_free:
+	OBD_FREE_PTR(env);
+out:
+	CERROR("%s: created pool %s, rc = %d\n", obd->obd_name, poolname, rc);
+	RETURN(rc);
+}
+
+int osd_obd_pool_del(struct obd_device *obd, char *poolname, int pool_id)
+{
+	int			 rc = 0;
+	struct lu_env		*env;
+	struct osd_device	*osd = osd_dev(obd->obd_lu_dev);
+	struct qsd_instance	*qsd;
+	ENTRY;
+
+	CERROR("%s: deleting pool %s\n", obd->obd_name, poolname);
+	if (!osd->od_quota_set.qs_inited)
+		GOTO(out, rc = -EOPNOTSUPP);
+
+	OBD_ALLOC_PTR(env);
+	if (env == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	/* initialize environment */
+	rc = lu_env_init(env, LCT_MD_THREAD);
+	if (rc)
+		GOTO(out_free, rc);
+
+	qsd = qsd_set_del(&osd->od_quota_set, pool_id);
+	if (qsd == NULL)
+		GOTO(out_fini, rc = -ENOENT);
+
+	qsd_putref(env, qsd);
+out_fini:
+	lu_env_fini(env);
+out_free:
+	OBD_FREE_PTR(env);
+out:
+	CERROR("%s: deleted pool %s, rc = %d\n", obd->obd_name, poolname, rc);
+	RETURN(rc);
+}
+
 static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
                        struct lu_device *dev)
 {
 	struct osd_device *osd = osd_dev(dev);
-	int		   result = 0;
+	int		   rc;
+	struct dt_object  *qsd_root;
 	ENTRY;
 
-	if (osd->od_quota_slave != NULL)
-		/* set up quota slave objects */
-		result = qsd_prepare(env, osd->od_quota_slave);
+	if (!osd->od_quota_set.qs_inited)
+		RETURN(0);
 
-	RETURN(result);
+	/* initialize quota slave root directory where all index files will be
+	 * stored */
+	qsd_root = lquota_disk_dir_find_create(env, lu2dt_dev(dev), NULL,
+					       QSD_DIR);
+	if (IS_ERR(qsd_root)) {
+		rc = PTR_ERR(qsd_root);
+		CERROR("failed to create slave quota directory (%d)\n",
+		       rc);
+		RETURN(rc);
+	}
+
+	rc = qsd_set_prepare(env, &osd->od_quota_set, qsd_root);
+
+	lu_object_put(env, &qsd_root->do_lu);
+	RETURN(rc);
 }
 
 static const struct lu_object_operations osd_lu_obj_ops = {
@@ -5811,7 +6026,9 @@ struct lu_device_type osd_device_type = {
 static struct obd_ops osd_obd_device_ops = {
 	.o_owner = THIS_MODULE,
 	.o_connect	= osd_obd_connect,
-	.o_disconnect	= osd_obd_disconnect
+	.o_disconnect	= osd_obd_disconnect,
+	.o_pool_new	= osd_obd_pool_new,
+	.o_pool_del	= osd_obd_pool_del,
 };
 
 static int __init osd_mod_init(void)

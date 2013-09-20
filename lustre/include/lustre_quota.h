@@ -126,6 +126,16 @@ extern struct qmt_handlers qmt_hdls;
  * Quota enforcement support on slaves
  */
 
+struct qsd_set {
+	/* quota instance list */
+	cfs_list_t		 qs_list;
+	cfs_hash_t		*qs_hash;
+	/* Lock protecting qs_list */
+	struct rw_semaphore	 qs_sem;
+	unsigned long		 qs_inited:1,
+				 qs_started:1;
+};
+
 struct qsd_instance;
 
 /* The quota slave feature is implemented under the form of a library.
@@ -175,21 +185,34 @@ struct qsd_instance;
  * enforcement. Arguments are documented where each function is defined.  */
 
 struct qsd_instance *qsd_init(const struct lu_env *, char *, struct dt_device *,
-			      cfs_proc_dir_entry_t *);
-int qsd_prepare(const struct lu_env *, struct qsd_instance *);
+			      cfs_proc_dir_entry_t *, char *, int);
+int qsd_prepare(const struct lu_env *, struct qsd_instance *,
+		struct dt_object *);
 int qsd_start(const struct lu_env *, struct qsd_instance *);
 void qsd_fini(const struct lu_env *, struct qsd_instance *);
+void qsd_putref(const struct lu_env *, struct qsd_instance *);
 int qsd_op_begin(const struct lu_env *, struct qsd_instance *,
 		 struct lquota_trans *, struct lquota_id_info *, int *);
 void qsd_op_end(const struct lu_env *, struct qsd_instance *,
 		struct lquota_trans *);
 void qsd_op_adjust(const struct lu_env *, struct qsd_instance *,
 		   union lquota_id *, int);
+extern cfs_hash_ops_t qsd_hash_ops;
 /* This is exported for the ldiskfs quota migration only,
  * see convert_quota_file() */
 int lquota_disk_write_glb(const struct lu_env *, struct dt_object *,
 			  __u64, struct lquota_glb_rec *);
-
+struct dt_object *lquota_disk_dir_find_create(const struct lu_env *,
+					      struct dt_device *,
+					      struct dt_object *, const char *);
+int qsd_set_init(const struct lu_env *, struct qsd_set *);
+int qsd_set_start(const struct lu_env *, struct qsd_set *);
+int qsd_set_prepare(const struct lu_env *, struct qsd_set *,
+		    struct dt_object *);
+void qsd_set_fini(const struct lu_env *, struct qsd_set *);
+struct qsd_instance *qsd_set_lookup(struct qsd_set *, int);
+int qsd_set_add(struct qsd_set *, struct qsd_instance *);
+struct qsd_instance *qsd_set_del(struct qsd_set *, int);
 /*
  * Quota information attached to a transaction
  */
@@ -199,6 +222,10 @@ struct lquota_entry;
 struct lquota_id_info {
 	/* quota identifier */
 	union lquota_id		 lqi_id;
+
+	/* pool ID */
+	bool			 lqi_valid;
+	__u32			 lqi_pool_id;
 
 	/* USRQUOTA or GRPQUOTA for now, could be expanded for
 	 * directory quota or other types later.  */
