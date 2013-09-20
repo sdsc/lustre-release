@@ -226,19 +226,23 @@ command_t cmdlist[] = {
         {"setquota", lfs_setquota, 0, "Set filesystem quotas.\n"
          "usage: setquota <-u|-g> <uname>|<uid>|<gname>|<gid>\n"
          "                -b <block-softlimit> -B <block-hardlimit>\n"
-         "                -i <inode-softlimit> -I <inode-hardlimit> <filesystem>\n"
+	 "                -i <inode-softlimit> -I <inode-hardlimit>\n"
+	 "                -p <pool-name> <filesystem>\n"
          "       setquota <-u|--user|-g|--group> <uname>|<uid>|<gname>|<gid>\n"
          "                [--block-softlimit <block-softlimit>]\n"
          "                [--block-hardlimit <block-hardlimit>]\n"
          "                [--inode-softlimit <inode-softlimit>]\n"
-         "                [--inode-hardlimit <inode-hardlimit>] <filesystem>\n"
+	 "                [--inode-hardlimit <inode-hardlimit>]\n"
+	 "                [--pool <pool-name>] <filesystem>\n"
          "       setquota [-t] <-u|--user|-g|--group>\n"
          "                [--block-grace <block-grace>]\n"
-         "                [--inode-grace <inode-grace>] <filesystem>\n"
+	 "                [--inode-grace <inode-grace>]\n"
+	 "                [--pool <pool-name>] <filesystem>\n"
          "       -b can be used instead of --block-softlimit/--block-grace\n"
          "       -B can be used instead of --block-hardlimit\n"
          "       -i can be used instead of --inode-softlimit/--inode-grace\n"
-	 "       -I can be used instead of --inode-hardlimit\n\n"
+	 "       -I can be used instead of --inode-hardlimit\n"
+	 "       -p can be used instead of --pool\n\n"
 	 "Note: The total quota space will be split into many qunits and\n"
 	 "      balanced over all server targets, the minimal qunit size is\n"
 	 "      1M bytes for block space and 1K inodes for inode space.\n\n"
@@ -248,8 +252,10 @@ command_t cmdlist[] = {
 	 "      quota space."},
         {"quota", lfs_quota, 0, "Display disk usage and limits.\n"
          "usage: quota [-q] [-v] [-o <obd_uuid>|-i <mdt_idx>|-I <ost_idx>]\n"
-         "             [<-u|-g> <uname>|<uid>|<gname>|<gid>] <filesystem>\n"
-         "       quota [-o <obd_uuid>|-i <mdt_idx>|-I <ost_idx>] -t <-u|-g> <filesystem>"},
+	 "	       [<-u|-g> <uname>|<uid>|<gname>|<gid>] [-p <pool-name>]\n"
+	 "	       <filesystem>\n"
+	 "       quota [-o <obd_uuid>|-i <mdt_idx>|-I <ost_idx>] -t <-u|-g>\n"
+	 "             [-p <pool-name>] <filesystem>"},
 #endif
         {"flushctx", lfs_flushctx, 0, "Flush security context for current user.\n"
          "usage: flushctx [-k] [mountpoint...]"},
@@ -2302,10 +2308,14 @@ int lfs_setquota(int argc, char **argv)
                 {"inode-softlimit", required_argument, 0, 'i'},
                 {"inode-hardlimit", required_argument, 0, 'I'},
                 {"user",            required_argument, 0, 'u'},
+		{"pool",            required_argument, 0, 'p'},
                 {0, 0, 0, 0}
         };
         unsigned limit_mask = 0;
         char *endptr;
+	char pool_name[LOV_MAXPOOLNAME + 1];
+	char fsname[PATH_MAX + 1];
+	int len;
 
         if (has_times_option(argc, argv))
                 return lfs_setquota_times(argc, argv);
@@ -2315,9 +2325,12 @@ int lfs_setquota(int argc, char **argv)
         qctl.qc_type = UGQUOTA; /* UGQUOTA makes no sense for setquota,
                                  * so it can be used as a marker that qc_type
                                  * isn't reinitialized from command line */
+	qctl.qc_pool_id = 0;
+	pool_name[0] = '\0';
 
         optind = 0;
-        while ((c = getopt_long(argc, argv, "b:B:g:i:I:u:", long_opts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "b:B:g:i:I:p:u:", long_opts,
+				NULL)) != -1) {
                 switch (c) {
                 case 'u':
                 case 'g':
@@ -2380,6 +2393,19 @@ int lfs_setquota(int argc, char **argv)
 					"please see the help of setquota or "
 					"Lustre manual for details.\n");
                         break;
+		case 'p':
+			len = strlen(optarg);
+			if (len > LOV_MAXPOOLNAME) {
+				fprintf(stderr,
+					"poolname %s is too long "
+					"(length is %d max is %d)\n",
+					optarg + 1, len, LOV_MAXPOOLNAME);
+				return CMD_HELP;
+			}
+
+			strncpy(pool_name, optarg, LOV_MAXPOOLNAME);
+			pool_name[LOV_MAXPOOLNAME] = '\0';
+			break;
                 default: /* getopt prints error message for us when opterr != 0 */
                         return CMD_HELP;
                 }
@@ -2402,12 +2428,32 @@ int lfs_setquota(int argc, char **argv)
 
         mnt = argv[optind];
 
+	if (pool_name[0] != '\0') {
+		rc = llapi_search_fsname(mnt, fsname);
+		if (rc) {
+			fprintf(stderr, "error: setquota failed while getting "
+				"filesystem name (%s)\n",
+				strerror(-rc));
+			return rc;
+		}
+
+		rc = llapi_pool_id(fsname, pool_name);
+		if (rc < 0) {
+			fprintf(stderr, "error: setquota failed while getting "
+				"pool id (%s)\n",
+				strerror(-rc));
+			return rc;
+		}
+		qctl.qc_pool_id = rc;
+	}
+
         if ((!(limit_mask & BHLIMIT) ^ !(limit_mask & BSLIMIT)) ||
             (!(limit_mask & IHLIMIT) ^ !(limit_mask & ISLIMIT))) {
                 /* sigh, we can't just set blimits/ilimits */
                 struct if_quotactl tmp_qctl = {.qc_cmd  = LUSTRE_Q_GETQUOTA,
                                                .qc_type = qctl.qc_type,
-                                               .qc_id   = qctl.qc_id};
+					       .qc_id   = qctl.qc_id,
+					       .qc_pool_id = qctl.qc_pool_id};
 
                 rc = llapi_quotactl(mnt, &tmp_qctl);
                 if (rc < 0) {
@@ -2520,8 +2566,8 @@ static void diff2str(time_t seconds, char *buf, time_t now)
 
 static void print_quota_title(char *name, struct if_quotactl *qctl)
 {
-        printf("Disk quotas for %s %s (%cid %u):\n",
-               type2name(qctl->qc_type), name,
+	printf("Disk quotas of pool %d for %s %s (%cid %u):\n",
+	       qctl->qc_pool_id, type2name(qctl->qc_type), name,
                *type2name(qctl->qc_type), qctl->qc_id);
         printf("%15s%8s %7s%8s%8s%8s %7s%8s%8s\n",
                "Filesystem",
@@ -2670,16 +2716,20 @@ static int lfs_quota(int argc, char **argv)
         int c;
         char *mnt, *name = NULL;
         struct if_quotactl qctl = { .qc_cmd = LUSTRE_Q_GETQUOTA,
-                                    .qc_type = UGQUOTA };
+				    .qc_type = UGQUOTA, .qc_pool_id = 0 };
         char *obd_type = (char *)qctl.obd_type;
         char *obd_uuid = (char *)qctl.obd_uuid.uuid;
         int rc, rc1 = 0, rc2 = 0, rc3 = 0,
             verbose = 0, pass = 0, quiet = 0, inacc;
         char *endptr;
         __u32 valid = QC_GENERAL, idx = 0;
+	int len;
+	char pool_name[LOV_MAXPOOLNAME + 1];
+	char fsname[PATH_MAX + 1];
 
+	pool_name[0] = '\0';
         optind = 0;
-        while ((c = getopt(argc, argv, "gi:I:o:qtuv")) != -1) {
+	while ((c = getopt(argc, argv, "gi:I:o:p:qtuv")) != -1) {
                 switch (c) {
                 case 'u':
                         if (qctl.qc_type != UGQUOTA) {
@@ -2716,6 +2766,19 @@ static int lfs_quota(int argc, char **argv)
                 case 'q':
                         quiet = 1;
                         break;
+		case 'p':
+			len = strlen(optarg);
+			if (len > LOV_MAXPOOLNAME) {
+				fprintf(stderr,
+					"poolname %s is too long "
+					"(length is %d max is %d)\n",
+					optarg + 1, len, LOV_MAXPOOLNAME);
+				return CMD_HELP;
+			}
+
+			strncpy(pool_name, optarg, LOV_MAXPOOLNAME);
+			pool_name[LOV_MAXPOOLNAME] = '\0';
+			break;
                 default:
                         fprintf(stderr, "error: %s: option '-%c' "
                                         "unrecognized\n", argv[0], c);
@@ -2767,6 +2830,24 @@ ug_output:
         }
 
         mnt = argv[optind];
+	if (pool_name[0] != '\0') {
+		rc = llapi_search_fsname(mnt, fsname);
+		if (rc) {
+			fprintf(stderr, "error: setquota failed while getting "
+				"filesystem name (%s)\n",
+				strerror(-rc));
+			return rc;
+		}
+
+		rc = llapi_pool_id(fsname, pool_name);
+		if (rc < 0) {
+			fprintf(stderr, "error: setquota failed while getting "
+				"pool id (%s)\n",
+				strerror(-rc));
+			return rc;
+		}
+		qctl.qc_pool_id = rc;
+	}
 
         rc1 = llapi_quotactl(mnt, &qctl);
         if (rc1 < 0) {

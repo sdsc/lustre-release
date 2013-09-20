@@ -222,6 +222,7 @@ extern int llapi_lov_get_uuids(int fd, struct obd_uuid *uuidp, int *ost_count);
 extern int llapi_lmv_get_uuids(int fd, struct obd_uuid *uuidp, int *mdt_count);
 extern int llapi_is_lustre_mnttype(const char *type);
 extern int llapi_search_ost(char *fsname, char *poolname, char *ostname);
+extern int llapi_pool_id(char *fsname, char *poolname);
 extern int llapi_get_obd_count(char *mnt, int *count, int is_mdt);
 extern int llapi_parse_size(const char *optarg, unsigned long long *size,
 			    unsigned long long *size_units, int bytes_spec);

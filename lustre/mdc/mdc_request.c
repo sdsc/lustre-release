@@ -1948,9 +1948,13 @@ static int mdc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 			GOTO(out, rc = -ENOMEM);
 
 		QCTL_COPY(oqctl, qctl);
+		oqctl->qc_pool_id = qctl->qc_pool_id;
+		/* TODO: remove */
+		oqctl->qc_pool_valid = 1;
 		rc = obd_quotactl(exp, oqctl);
 		if (rc == 0) {
 			QCTL_COPY(qctl, oqctl);
+			qctl->qc_pool_id = oqctl->qc_pool_id;
 			qctl->qc_valid = QC_MDTIDX;
 			qctl->obd_uuid = obd->u.cli.cl_target_uuid;
 		}

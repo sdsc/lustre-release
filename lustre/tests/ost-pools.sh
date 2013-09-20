@@ -168,7 +168,8 @@ check_dir_not_in_pool() {
 
 drain_pool() {
     pool=$1
-    wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$pool" "" ||
+    wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$pool \
+    	| grep -v pool_id" "" ||
         error "Failed to remove targets from pool: $pool"
 }
 
@@ -176,14 +177,15 @@ add_pool() {
     local pool=$1
     local osts=$2
     local tgt="${3}$(lctl get_param -n lov.$FSNAME-*.pools.$pool |
-               sort -u | tr '\n' ' ')"
+               grep -v pool_id | sort -u | tr '\n' ' ')"
 
     do_facet $SINGLEMDS lctl pool_add $FSNAME.$pool $osts
     local RC=$?
     [[ $RC -ne 0 ]] && return $RC
 
     wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$pool |
-                           sort -u | tr '\n' ' ' " "$tgt" >/dev/null || RC=1
+                           grep -v pool_id | sort -u | tr '\n' ' ' " \
+                           "$tgt" >/dev/null || RC=1
     [[ $RC -ne 0 ]] && error "pool_add failed: $1; $2"
     return $RC
 }
@@ -383,7 +385,8 @@ test_2c() {
     RC=$?; [[ $RC -eq 0 ]] ||
         error "pool_add failed. $FSNAME $POOL" "$TGT_ALL $RC"
     wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$POOL |
-      sort -u | tr '\n' ' ' " "$TGT_UUID" || error "Add to pool failed"
+      grep -v pool_id | sort -u | tr '\n' ' ' " "$TGT_UUID" \
+      || error "Add to pool failed"
     do_facet $SINGLEMDS lctl pool_remove $FSNAME.$POOL $TGT_ALL
     drain_pool $POOL
 
@@ -424,7 +427,8 @@ test_2e() {
     TGT="$FSNAME-OST0000_UUID "
     do_facet $SINGLEMDS lctl pool_add $FSNAME.$POOL $TGT
     wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$POOL |
-        sort -u | tr '\n' ' ' " "$TGT" || error "Add to pool failed"
+        | grep -v pool_id | sort -u | tr '\n' ' ' " "$TGT" \
+        || error "Add to pool failed"
     RESULT=$(do_facet $SINGLEMDS \
              "LOCALE=C $LCTL pool_add $FSNAME.$POOL $TGT 2>&1")
     RC=$?
@@ -1396,7 +1400,8 @@ test_25() {
         create_pool_nofail $POOL$i
         do_facet $SINGLEMDS "lctl pool_add $FSNAME.$POOL$i OST0000; sync"
         wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$POOL$i |
-            sort -u | tr '\n' ' ' " "$FSNAME-OST0000_UUID " >/dev/null ||
+            grep -v pool_id | sort -u | tr '\n' ' ' " \
+            "$FSNAME-OST0000_UUID " >/dev/null ||
                 error "pool_add failed: $1; $2"
 
 	facet_failover $SINGLEMDS || error "failed to failover $SINGLEMDS"
@@ -1436,12 +1441,14 @@ test_26() {
 
     do_facet $SINGLEMDS "lctl pool_add $FSNAME.$POOL2 OST0000; sync"
     wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$POOL2 |
-        sort -u | grep $FSNAME-OST0000_UUID " "$FSNAME-OST0000_UUID" ||
+        grep -v pool_id | sort -u | grep $FSNAME-OST0000_UUID" \
+        "$FSNAME-OST0000_UUID" ||
             error "pool_add failed: $1; $2"
 
     do_facet $SINGLEMDS "lctl pool_add $FSNAME.$POOL2 OST0002; sync"
     wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$POOL2 |
-        sort -u | grep $FSNAME-OST0002_UUID" "$FSNAME-OST0002_UUID" ||
+        grep -v pool_id | sort -u | grep $FSNAME-OST0002_UUID" \
+        "$FSNAME-OST0002_UUID" ||
             error "pool_add failed: $1; $2"
 
     # Veriy that the pool got created and is usable

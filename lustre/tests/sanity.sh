@@ -10186,7 +10186,7 @@ pool_add_targets() {
 	do_facet mgs $LCTL pool_add \
 			$FSNAME.$pool $FSNAME-OST[$first-$last/$step]
 	wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$pool \
-			| sort -u | tr '\n' ' ' " "$t" || { 
+			| grep -v pool_id | sort -u | tr '\n' ' ' " "$t" || {
 		error_noexit "Add to pool failed"
 		return 1
 	}
@@ -10285,7 +10285,7 @@ pool_lfs_df() {
 	local pool=$1
 
 	local t=$($LCTL get_param -n lov.$FSNAME-clilov-*.pools.$pool |
-			tr '\n' ' ')
+			grep -v pool_id | tr '\n' ' ')
 	local res=$($LFS df --pool $FSNAME.$pool |
 			awk '{print $1}' |
 			grep "$FSNAME-OST" |
@@ -10319,9 +10319,10 @@ pool_remove_first_target() {
 	local pool=$1
 
 	local pname="lov.$FSNAME-*.pools.$pool"
-	local t=$($LCTL get_param -n $pname | head -1)
+	local t=$($LCTL get_param -n $pname | grep -v pool_id | head -1)
 	do_facet mgs $LCTL pool_remove $FSNAME.$pool $t
-	wait_update $HOSTNAME "lctl get_param -n $pname | grep $t" "" || {
+	wait_update $HOSTNAME "lctl get_param -n $pname \
+			       | grep -v pool_id | grep $t" "" || {
 		error_noexit "$t not removed from $FSNAME.$pool"
 		return 1
 	}
@@ -10332,7 +10333,7 @@ pool_remove_all_targets() {
 	local pool=$1
 	local file=$2
 	local pname="lov.$FSNAME-*.pools.$pool"
-	for t in $($LCTL get_param -n $pname | sort -u)
+	for t in $($LCTL get_param -n $pname | grep -v pool_id | sort -u)
 	do
 		do_facet mgs $LCTL pool_remove $FSNAME.$pool $t
 	done
@@ -10378,7 +10379,8 @@ pool_remove() {
 
 	# get param should return err once pool is gone
 	if wait_update $HOSTNAME "lctl get_param -n \
-		lov.$FSNAME-*.pools.$pool 2>/dev/null || echo foo" "foo"
+		lov.$FSNAME-*.pools.$pool | grep -v pool_id \
+		2>/dev/null || echo foo" "foo"
 	then
 		remove_pool_from_list $FSNAME.$pool
 		return 0

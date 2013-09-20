@@ -908,11 +908,12 @@ static int lov_cleanup(struct obd_device *obd)
         cfs_list_for_each_safe(pos, tmp, &lov->lov_pool_list) {
                 pool = cfs_list_entry(pos, struct pool_desc, pool_list);
                 /* free pool structs */
-                CDEBUG(D_INFO, "delete pool %p\n", pool);
+		CDEBUG(D_INFO, "delete pool %s(%d) %p\n", pool->pool_name,
+		       pool->pool_id, pool);
 		/* In the function below, .hs_keycmp resolves to
 		 * pool_hashkey_keycmp() */
 		/* coverity[overrun-buffer-val] */
-                lov_pool_del(obd, pool->pool_name);
+		lov_pool_del(obd, pool->pool_name, pool->pool_id);
         }
         cfs_hash_putref(lov->lov_pools_hash_body);
         lov_ost_pool_free(&lov->lov_packed);
@@ -2068,9 +2069,13 @@ static int lov_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                         RETURN(-ENOMEM);
 
                 QCTL_COPY(oqctl, qctl);
+		oqctl->qc_pool_id = qctl->qc_pool_id;
+		/* TODO: remove */
+		oqctl->qc_pool_valid = 1;
                 rc = obd_quotactl(tgt->ltd_exp, oqctl);
                 if (rc == 0) {
                         QCTL_COPY(qctl, oqctl);
+			qctl->qc_pool_id = oqctl->qc_pool_id;
                         qctl->qc_valid = QC_OSTIDX;
                         qctl->obd_uuid = tgt->ltd_uuid;
                 }

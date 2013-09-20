@@ -44,6 +44,7 @@ struct qsd_async_args {
 	struct lquota_lvb     *aa_lvb;
 	struct lustre_handle   aa_lockh;
 	qsd_req_completion_t   aa_completion;
+	int                    aa_opc;
 };
 
 /*
@@ -313,6 +314,7 @@ int qsd_intent_lock(const struct lu_env *env, struct obd_export *exp,
 	aa->aa_arg = arg;
 	aa->aa_lvb = lvb;
 	aa->aa_completion = completion;
+	aa->aa_opc = it_op;
 	lustre_handle_copy(&aa->aa_lockh, &qti->qti_lockh);
 
 	if (sync) {

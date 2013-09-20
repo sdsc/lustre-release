@@ -5586,7 +5586,7 @@ create_pool() {
     [[ $RC -ne 0 ]] && return $RC
 
     wait_update $HOSTNAME "lctl get_param -n lov.$fsname-*.pools.$poolname \
-        2>/dev/null || echo foo" "" || RC=1
+        | grep -v pool_id 2>/dev/null || echo foo" "" || RC=1
     if [[ $RC -eq 0 ]]; then
         add_pool_to_list $1
     else
@@ -5637,7 +5637,7 @@ destroy_pool() {
     [[ $RC -ne 0 ]] && return $RC
 
     wait_update $HOSTNAME "lctl get_param -n lov.$fsname-*.pools.$poolname \
-      2>/dev/null || echo foo" "foo" || RC=1
+      | grep -v pool_id 2>/dev/null || echo foo" "foo" || RC=1
 
     if [[ $RC -eq 0 ]]; then
         remove_pool_from_list $fsname.$poolname

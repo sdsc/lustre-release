@@ -56,19 +56,8 @@ struct qmt_device {
 	/* pointer to ldlm namespace to be used for quota locks */
 	struct ldlm_namespace	*qmt_ns;
 
-	/* Hash table containing a qmt_pool_info structure for each pool
-	 * this quota master is in charge of. We only have 2 pools in this
-	 * hash for the time being:
-	 * - one for quota management on the default metadata pool
-	 * - one for quota managment on the default data pool
-	 *
-	 * Once we support quota on non-default pools, then more pools will
-	 * be added to this hash table and pool master setup would have to be
-	 * handled via configuration logs */
-	cfs_hash_t		*qmt_pool_hash;
-
-	/* List of pools managed by this master target */
-	cfs_list_t		 qmt_pool_list;
+	/* Pool set */
+	struct quota_set	 qmt_pool_set;
 
 	/* procfs root directory for this qmt */
 	cfs_proc_dir_entry_t	*qmt_proc;
@@ -83,7 +72,6 @@ struct qmt_device {
 	spinlock_t		 qmt_reba_lock;
 
 	unsigned long		 qmt_stopping:1; /* qmt is stopping */
-
 };
 
 /*
@@ -139,6 +127,10 @@ struct qmt_pool_info {
 	/* Global quota parameters which apply to all quota type */
 	/* the least value of qunit */
 	unsigned long		 qpi_least_qunit;
+
+	unsigned long		 qpi_preparing:1,
+				 qpi_prepared:1;
+	rwlock_t		 qpi_lock;
 };
 
 /*
@@ -275,6 +267,8 @@ int qmt_pool_prepare(const struct lu_env *, struct qmt_device *,
 int qmt_pool_new_conn(const struct lu_env *, struct qmt_device *,
 		      struct lu_fid *, struct lu_fid *, __u64 *,
 		      struct obd_uuid *);
+int qmt_pool_new(struct obd_device *obd, char *poolname, int pool_id);
+int qmt_pool_del(struct obd_device *obd, char *poolname, int pool_id);
 struct lquota_entry *qmt_pool_lqe_lookup(const struct lu_env *,
 					 struct qmt_device *, int, int, int,
 					 union lquota_id *);

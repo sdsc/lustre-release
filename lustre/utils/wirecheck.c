@@ -559,6 +559,7 @@ check_obdo(void)
 	CHECK_MEMBER(obdo, o_uid_h);
 	CHECK_MEMBER(obdo, o_gid_h);
 	CHECK_MEMBER(obdo, o_data_version);
+	CHECK_MEMBER(obdo, o_pool_id);
 	CHECK_MEMBER(obdo, o_padding_4);
 	CHECK_MEMBER(obdo, o_padding_5);
 	CHECK_MEMBER(obdo, o_padding_6);
@@ -738,6 +739,10 @@ check_obd_quotactl(void)
 	CHECK_MEMBER(obd_quotactl, qc_stat);
 	CHECK_MEMBER(obd_quotactl, qc_dqinfo);
 	CHECK_MEMBER(obd_quotactl, qc_dqblk);
+	CHECK_MEMBER(obd_quotactl, qc_pool_id);
+	CHECK_MEMBER(obd_quotactl, qc_pool_type);
+	CHECK_MEMBER(obd_quotactl, qc_pool_valid);
+	CHECK_MEMBER(obd_quotactl, qc_padding);
 
 	BLANK_LINE();
 	CHECK_STRUCT(obd_dqinfo);
@@ -1506,6 +1511,7 @@ check_llog_setattr64_rec(void)
 	CHECK_MEMBER(llog_setattr64_rec, lsr_uid_h);
 	CHECK_MEMBER(llog_setattr64_rec, lsr_gid);
 	CHECK_MEMBER(llog_setattr64_rec, lsr_gid_h);
+	CHECK_MEMBER(llog_setattr64_rec, lsr_pool_id);
 	CHECK_MEMBER(llog_setattr64_rec, lsr_padding);
 	CHECK_MEMBER(llog_setattr64_rec, lsr_tail);
 }

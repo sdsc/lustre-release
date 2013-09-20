@@ -1024,9 +1024,13 @@ static int lmv_iocontrol(unsigned int cmd, struct obd_export *exp,
                         RETURN(-ENOMEM);
 
                 QCTL_COPY(oqctl, qctl);
+		oqctl->qc_pool_id = qctl->qc_pool_id;
+		/* TODO: remove */
+		oqctl->qc_pool_valid = 1;
                 rc = obd_quotactl(tgt->ltd_exp, oqctl);
                 if (rc == 0) {
                         QCTL_COPY(qctl, oqctl);
+			qctl->qc_pool_id = oqctl->qc_pool_id;
                         qctl->qc_valid = QC_MDTIDX;
                         qctl->obd_uuid = tgt->ltd_uuid;
                 }

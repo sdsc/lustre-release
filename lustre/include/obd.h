@@ -544,6 +544,7 @@ struct lov_tgt_desc {
 
 struct pool_desc {
         char                  pool_name[LOV_MAXPOOLNAME + 1]; /* name of pool */
+	int		      pool_id;		      /* pool id */
         struct ost_pool       pool_obds;              /* pool members */
         cfs_atomic_t          pool_refcount;          /* pool ref. counter */
         struct lov_qos_rr     pool_rr;                /* round robin qos */
@@ -1303,8 +1304,8 @@ struct obd_ops {
         int (*o_ping)(const struct lu_env *, struct obd_export *exp);
 
         /* pools methods */
-        int (*o_pool_new)(struct obd_device *obd, char *poolname);
-        int (*o_pool_del)(struct obd_device *obd, char *poolname);
+	int (*o_pool_new)(struct obd_device *obd, char *poolname, int pool_id);
+	int (*o_pool_del)(struct obd_device *obd, char *poolname, int pool_id);
         int (*o_pool_add)(struct obd_device *obd, char *poolname,
                           char *ostname);
         int (*o_pool_rem)(struct obd_device *obd, char *poolname,
