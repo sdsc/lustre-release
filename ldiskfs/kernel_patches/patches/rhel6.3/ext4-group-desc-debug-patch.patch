@@ -1,0 +1,27 @@
+--- linux-stage.orig/fs/ext4/ext4.h	2013-09-21 01:03:36.912958609 +0800
++++ linux-stage/fs/ext4/ext4.h	2013-09-21 01:19:26.246989738 +0800
+@@ -2180,7 +2180,12 @@ static inline int ext4_fs_is_busy(struct
+ 
+ static inline void ext4_lock_group(struct super_block *sb, ext4_group_t group)
+ {
++	struct buffer_head *bh;
+ 	spinlock_t *lock = ext4_group_lock_ptr(sb, group);
++
++	ext4_get_group_desc(sb, group, &bh);
++	lock_buffer(bh);
++
+ 	if (spin_trylock(lock))
+ 		/*
+ 		 * We're able to grab the lock right away, so drop the
+@@ -2201,6 +2206,11 @@ static inline void ext4_lock_group(struc
+ static inline void ext4_unlock_group(struct super_block *sb,
+ 					ext4_group_t group)
+ {
++	struct buffer_head *bh;
++
++	ext4_get_group_desc(sb, group, &bh);
++	unlock_buffer(bh);
++
+ 	spin_unlock(ext4_group_lock_ptr(sb, group));
+ }
+ 
