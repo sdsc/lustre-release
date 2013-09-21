@@ -15,6 +15,11 @@ ONLY=${ONLY:-"$*"}
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 # skip test cases failed before landing - Jinshan
 
+# Overriding SANITY_HSM_EXCEPT to allow test_40 to be run during
+# Maloo/auto-tests session, since it was disable by this mean and
+# reverting via [Test-Parameters envdefinitions=SANITY_HSM_EXCEPT="251"]
+# in Commit-msg does not appear to work ...
+SANITY_HSM_EXCEPT=251
 ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 12a 12b 12n 13 30a 31a 34 35 36 58 59"
 ALWAYS_EXCEPT="$ALWAYS_EXCEPT 110a 200 201 221 222a 223a 223b 225"
 
@@ -127,7 +132,7 @@ copytool_setup() {
 	local facet=${1:-$SINGLEAGT}
 	local lustre_mntpnt=${2:-$MOUNT}
 	local arc_id=$3
-	local hsm_root=$(copytool_device $facet)
+	local hsm_root=${4:-$(copytool_device $facet)}
 	local agent=$(facet_active_host $facet)
 
 	if [[ -z "$arc_id" ]] &&
@@ -1940,7 +1945,15 @@ test_40() {
 			fid=$(copy_file /etc/hosts $f.$p.$i)
 		done
 	done
-	copytool_setup
+	# force copytool to use a local/temp archive dir to ensure best
+	# performance vs remote/NFS mounts used in auto-tests
+	df -l $HSM_ARCHIVE >/dev/null 2>&1
+	if [ $? = 0 ]
+	then
+		copytool_setup
+	else
+		copytool_setup $SINGLEAGT $MOUNT $HSM_ARCHIVE_NUMBER /tmp/arc
+	fi
 	# to be sure wait_all_done will not be mislead by previous tests
 	cdt_purge
 	wait_for_grace_delay
