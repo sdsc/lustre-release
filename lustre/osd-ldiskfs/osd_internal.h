@@ -171,8 +171,6 @@ struct osd_mdobj_map {
 	struct dentry	*omm_remote_parent;
 };
 
-#define osd_ldiskfs_find_entry(dir, dentry, de, lock)   \
-        ll_ldiskfs_find_entry(dir, dentry, de, lock)
 #define osd_ldiskfs_add_entry(handle, child, cinode, hlock) \
         ldiskfs_add_entry(handle, child, cinode, hlock)
 
@@ -1066,5 +1064,34 @@ static inline int fid_is_internal(const struct lu_fid *fid)
 {
 	return (!fid_is_namespace_visible(fid) && !fid_is_idif(fid));
 }
+
+#ifndef JOURNAL_START_HAS_3ARGS
+# define osd_journal_start(inode, type, nblocks) \
+			ext4_journal_start(inode, nblocks);
+#else
+# define osd_journal_start(inode, type, nblocks) \
+			ext4_journal_start(inode, type, nblocks);
+#endif
+
+#ifdef JOURNAL_START_HAS_3ARGS
+# define osd_journal_start_sb(sb, type, nblock) \
+		ldiskfs_journal_start_sb(sb, type, nblock)
+# define osd_ldiskfs_append(handle, inode, nblock, err) \
+		ldiskfs_append(handle, inode, nblock)
+# define osd_ldiskfs_find_entry(dir, name, de, inlined, lock) \
+		ldiskfs_find_entry(dir, name, de, inlined, lock)
+#else
+# define LDISKFS_HT_MISC	0
+# define osd_journal_start_sb(sb, type, nblock) \
+		ldiskfs_journal_start_sb(sb, nblock)
+# define osd_ldiskfs_append(handle, inode, nblock, err) \
+		ldiskfs_append(handle, inode, nblock, err)
+# define osd_ldiskfs_find_entry(dir, name, de, inlined, lock) \
+		ldiskfs_find_entry(dir, name, de, lock)
+#endif
+
+void ldiskfs_inc_count(handle_t *handle, struct inode *inode);
+void ldiskfs_dec_count(handle_t *handle, struct inode *inode);
+
 #endif /* __KERNEL__ */
 #endif /* _OSD_INTERNAL_H */
