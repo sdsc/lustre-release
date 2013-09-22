@@ -544,9 +544,7 @@ static int parse_opts(int argc, char *const argv[], struct mount_opts *mop)
 		usage(stderr);
 
 	/* Try to get the real path to the device */
-	rc = get_realpath(argv[optind], &mop->mo_usource);
-	if (rc != 0)
-		mop->mo_usource = argv[optind];
+	get_realpath(argv[optind], &mop->mo_usource);
 
 	ptr = strstr(mop->mo_usource, ":/");
 	if (ptr != NULL) {

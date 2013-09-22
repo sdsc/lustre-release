@@ -554,9 +554,7 @@ int main(int argc, char *const argv[])
         set_defaults(&mop);
 
 	/* Try to get the real path to the device */
-	ret = get_realpath(argv[argc - 1], &mop.mo_device);
-	if (ret != 0)
-		return ret;
+	get_realpath(argv[argc - 1], &mop.mo_device);
 
 	ret = osd_init();
 	if (ret)
