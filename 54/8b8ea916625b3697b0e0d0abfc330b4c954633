@@ -1,0 +1,10 @@
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Liang Zhen <liang.zhen@intel.com>
+Code-Review+1: Emoly Liu <emoly.liu@intel.com>
+Code-Review+1: Li Xi <pkuelelixi@gmail.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Mon, 23 Sep 2013 16:42:25 +0000
+Reviewed-on: http://review.whamcloud.com/7623
+Project: fs/lustre-release
+Branch: refs/heads/master
