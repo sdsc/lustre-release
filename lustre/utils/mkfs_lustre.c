@@ -270,6 +270,34 @@ static char *convert_hostnames(char *s1)
         return converted;
 }
 
+static int get_devname(char *path, char **device, int mount_type)
+{
+	int rc;
+
+	switch (mount_type) {
+		case LDD_MT_ZFS:
+			*device = strdup(path);
+			break;
+		case LDD_MT_LDISKFS:
+		case LDD_MT_LDISKFS2:
+			rc = get_realpath(path, device);
+			if (rc != 0) {
+				fprintf(stderr, "%s: Failed to get realpath to "
+						"%s: %s\n",
+					progname, path, strerror(rc));
+				return rc;
+			}
+			break;
+		default:
+			fatal();
+			fprintf(stderr, "%s: Unknown mount type %d\n",
+				progname, mount_type);
+			return EINVAL;
+	}
+
+	return 0;
+}
+
 static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                char **mountopts)
 {
@@ -522,6 +550,11 @@ static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 			"pool/dataset name not specified.\n");
 		return EINVAL;
 	} else {
+		/* The device or pool/filesystem name */
+		rc = get_devname(argv[optind], &mop->mo_device,
+				 mop->mo_ldd.ldd_mount_type);
+		if (rc != 0)
+			return rc;
 		/* Followed by optional vdevs */
 		if (optind < argc - 1)
 			mop->mo_pool_vdevs = (char **) &argv[optind + 1];
@@ -553,11 +586,6 @@ int main(int argc, char *const argv[])
         memset(&mop, 0, sizeof(mop));
         set_defaults(&mop);
 
-	/* Try to get the real path to the device */
-	ret = get_realpath(argv[argc - 1], &mop.mo_device);
-	if (ret != 0)
-		return ret;
-
 	ret = osd_init();
 	if (ret)
 		goto out;
@@ -565,6 +593,14 @@ int main(int argc, char *const argv[])
 #ifdef TUNEFS
         /* For tunefs, we must read in the old values before parsing any
            new ones. */
+
+	/* device is the last arg and try to get its real path */
+	ret = get_realpath(argv[argc - 1], &mop.mo_device);
+	if (ret != 0) {
+		fprintf(stderr, "%s: Failed to get realpath to %s: %s\n",
+			progname, argv[argc - 1], strerror(ret));
+		return ret;
+	}
 
         /* Check whether the disk has already been formatted by mkfs.lustre */
 	ret = osd_is_lustre(mop.mo_device, &mount_type);
