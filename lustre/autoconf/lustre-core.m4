@@ -1409,6 +1409,25 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 3.11 invalidatepage requires the length of the range to invalidate
+#
+AC_DEFUN([LC_INVALIDATE_RANGE],
+[AC_MSG_CHECKING([if invalidatepage requires the size to invalidate])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	struct address_space_operations a_ops;
+
+	a_ops.invalidatepage(NULL,0,0);
+],[
+	AC_DEFINE(HAVE_INVALIDATE_RANGE, 1, [need to know the size])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_PROG_LINUX
 #
 # Lustre linux kernel checks
@@ -1521,6 +1540,9 @@ AC_DEFUN([LC_PROG_LINUX],
 	 # 3.10
 	 LC_HAVE_ONLY_PROCFS_SEQ
 	 LC_BLKDEV_RELEASE_RETURN_INT
+
+	 # 3.11
+	 LC_INVALIDATE_RANGE
 
 	 #
 	 if test x$enable_server != xno ; then
