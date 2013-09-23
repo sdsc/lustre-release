@@ -814,8 +814,8 @@ cfs_cpt_table_create(int ncpt)
 			struct cfs_cpu_partition *part;
 			int    n;
 
-			if (cpt >= ncpt)
-				goto failed;
+			if (cpt == ncpt)
+				break;
 
 			part = &cptab->ctb_parts[cpt];
 
