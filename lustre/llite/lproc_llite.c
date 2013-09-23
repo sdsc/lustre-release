@@ -293,10 +293,10 @@ static int ll_wr_max_readahead_mb(struct file *file, const char *buffer,
 	if (rc)
 		return rc;
 
-	if (pages_number < 0 || pages_number > num_physpages / 2) {
+	if (pages_number < 0 || pages_number > get_num_physpages() / 2) {
 		/* 1/2 of RAM */
 		CERROR("can't set file readahead more than %lu MB\n",
-		       num_physpages >> (20 - PAGE_CACHE_SHIFT + 1));
+		       get_num_physpages() >> (20 - PAGE_CACHE_SHIFT + 1));
 		return -ERANGE;
 	}
 
@@ -440,10 +440,10 @@ static int ll_wr_max_cached_mb(struct file *file, const char *buffer,
 	if (rc)
 		RETURN(rc);
 
-	if (pages_number < 0 || pages_number > num_physpages) {
+	if (pages_number < 0 || pages_number > get_num_physpages()) {
 		CERROR("%s: can't set max cache more than %lu MB\n",
 		       ll_get_fsname(sb, NULL, 0),
-		       num_physpages >> (20 - PAGE_CACHE_SHIFT));
+		       get_num_physpages() >> (20 - PAGE_CACHE_SHIFT));
 		RETURN(-ERANGE);
 	}
 
