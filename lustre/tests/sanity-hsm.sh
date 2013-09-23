@@ -15,8 +15,8 @@ ONLY=${ONLY:-"$*"}
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 # skip test cases failed before landing - Jinshan
 
-ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 12a 12b 12n 13 30a 31a 34 35 36 58 59"
-ALWAYS_EXCEPT="$ALWAYS_EXCEPT 110a 200 201 221 222a 223a 223b 225"
+ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 31a 34 35 36 58 59"
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT 200 201 221 223a 223b 225"
 
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 
@@ -180,7 +180,7 @@ copytool_remove_backend() {
 	local fid=$1
 	local be=$(find $HSM_ARCHIVE -name $fid)
 	echo "Remove from backend: $fid = $be"
-	rm -f $be
+	do_facet $SINGLEAGT rm -f $be
 }
 
 import_file() {
@@ -192,9 +192,15 @@ import_file() {
 
 make_archive() {
 	local file=$HSM_ARCHIVE/$1
-	mkdir -p $(dirname $file)
-	dd if=/dev/urandom of=$file count=32 bs=1000000 ||
+	do_facet $SINGLEAGT mkdir -p $(dirname $file)
+	do_facet $SINGLEAGT dd if=/dev/urandom of=$file count=32 bs=1000000 ||
 		error "cannot create $file"
+}
+
+copy2archive() {
+	local file=$HSM_ARCHIVE/$2
+	do_facet $SINGLEAGT mkdir -p $(dirname $file)
+	do_facet $SINGLEAGT cp -p $1 $file || error "cannot copy $1 to $file"
 }
 
 changelog_setup() {
@@ -719,10 +725,10 @@ test_10a() {
 		error "hsm_archive failed"
 	wait_request_state $fid ARCHIVE SUCCEED
 
-	local AFILE=$(ls $HSM_ARCHIVE/*/*/*/*/*/*/$fid) ||
+	local AFILE=$(do_facet $SINGLEAGT ls $HSM_ARCHIVE'/*/*/*/*/*/*/'$fid) ||
 		error "fid $fid not in archive $HSM_ARCHIVE"
 	echo "Verifying content"
-	diff $f $AFILE || error "archived file differs"
+	do_facet $SINGLEAGT diff $f $AFILE || error "archived file differs"
 	echo "Verifying hsm state "
 	check_hsm_flags $f "0x00000009"
 
@@ -740,7 +746,7 @@ test_10b() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
+	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(copy_file /etc/hosts $f)
 	$LFS hsm_archive $f || error "archive request failed"
@@ -759,7 +765,7 @@ test_10c() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
+	mkdir -p $DIR/$tdir
 	local f=$DIR/$tdir/$tfile
 	local fid=$(copy_file /etc/hosts $f)
 	$LFS hsm_set --noarchive $f
@@ -789,8 +795,8 @@ test_10d() {
 run_test 10d "Archive a file on the default archive id"
 
 test_11() {
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
-	cp /etc/hosts $HSM_ARCHIVE/$tdir/$tfile
+	mkdir -p $DIR/$tdir
+	copy2archive /etc/hosts $tdir/$tfile
 	local f=$DIR/$tdir/$tfile
 
 	import_file $tdir/$tfile $f
@@ -809,7 +815,7 @@ test_11() {
 	local fid=$(path2fid $f)
 	echo "Verifying new fid $fid in archive"
 
-	local AFILE=$(ls $HSM_ARCHIVE/*/*/*/*/*/*/$fid) ||
+	local AFILE=$(do_facet $SINGLEAGT ls $HSM_ARCHIVE'/*/*/*/*/*/*/'$fid) ||
 		error "fid $fid not in archive $HSM_ARCHIVE"
 }
 run_test 11 "Import a file"
@@ -818,8 +824,9 @@ test_12a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
-	cp /etc/hosts $HSM_ARCHIVE/$tdir/$tfile
+	mkdir -p $DIR/$tdir
+	copy2archive /etc/hosts $tdir/$tfile
+
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
 	local f=$DIR2/$tdir/$tfile
@@ -833,7 +840,7 @@ test_12a() {
 	echo "Verifying file state: "
 	check_hsm_flags $f "0x00000009"
 
-	diff -q $HSM_ARCHIVE/$tdir/$tfile $f
+	do_facet $SINGLEAGT diff -q $HSM_ARCHIVE/$tdir/$tfile $f
 
 	[[ $? -eq 0 ]] || error "Restored file differs"
 
@@ -845,8 +852,9 @@ test_12b() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
-	cp /etc/hosts $HSM_ARCHIVE/$tdir/$tfile
+	mkdir -p $DIR/$tdir
+	copy2archive /etc/hosts $tdir/$tfile
+
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
 	echo "Verifying released state: "
@@ -857,7 +865,7 @@ test_12b() {
 	echo "Verifying file state after restore: "
 	check_hsm_flags $f "0x00000009"
 
-	diff -q $HSM_ARCHIVE/$tdir/$tfile $f
+	do_facet $SINGLEAGT diff -q $HSM_ARCHIVE/$tdir/$tfile $f
 
 	[[ $? -eq 0 ]] || error "Restored file differs"
 
@@ -893,7 +901,8 @@ test_12d() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
+	mkdir -p $DIR/$tdir
+
 	local f=$DIR/$tdir/$tfile
 	local fid=$(copy_file /etc/hosts $f)
 	$LFS hsm_restore $f || error "restore of non archived file failed"
@@ -1034,12 +1043,14 @@ test_12n() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
-	cp /etc/hosts $HSM_ARCHIVE/$tdir/$tfile
+	mkdir -p $DIR/$tdir
+	copy2archive /etc/hosts $tdir/$tfile
+
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
 
-	cmp /etc/hosts $f || error "Restored file differs"
+	do_facet $SINGLEAGT cmp /etc/hosts $f ||
+		error "Restored file differs"
 
 	$LFS hsm_release $f || error "release of $f failed"
 
@@ -1058,24 +1069,23 @@ test_13() {
 	# populate directory to be imported
 	for d in $(seq 1 10); do
 		local CURR_DIR="$HSM_ARCHIVE/$ARC_SUBDIR/dir.$d"
-		mkdir -p "$CURR_DIR"
+		do_facet $SINGLEAGT mkdir -p "$CURR_DIR"
 		for f in $(seq 1 10); do
 			CURR_FILE="$CURR_DIR/$tfile.$f"
 			# write file-specific data
-			echo "d=$d, f=$f, dir=$CURR_DIR, file=$CURR_FILE"\
-				> $CURR_FILE
+			do_facet $SINGLEAGT \
+				echo "d=$d, f=$f, dir=$CURR_DIR, "\
+				     "file=$CURR_FILE" > $CURR_FILE
 		done
 	done
 	# import to Lustre
 	import_file "$ARC_SUBDIR" $DIR/$tdir
 	# diff lustre content and origin (triggers file restoration)
 	# there must be 10x10 identical files, and no difference
-	local cnt_ok=$(diff -rs $HSM_ARCHIVE/$ARC_SUBDIR \
-		       $DIR/$tdir/$ARC_SUBDIR |
-		grep identical | wc -l)
-	local cnt_diff=$(diff -r $HSM_ARCHIVE/$ARC_SUBDIR \
-			 $DIR/$tdir/$ARC_SUBDIR |
-		wc -l)
+	local cnt_ok=$(do_facet $SINGLEAGT diff -rs $HSM_ARCHIVE/$ARC_SUBDIR \
+		       $DIR/$tdir/$ARC_SUBDIR | grep identical | wc -l)
+	local cnt_diff=$(do_facet $SINGLEAGT diff -r $HSM_ARCHIVE/$ARC_SUBDIR \
+			 $DIR/$tdir/$ARC_SUBDIR | wc -l)
 
 	[ $cnt_diff -eq 0 ] ||
 		error "$cnt_diff imported files differ from read data"
@@ -1495,8 +1505,9 @@ test_25a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
-	cp /etc/hosts $HSM_ARCHIVE/$tdir/$tfile
+	mkdir -p $DIR/$tdir
+	copy2archive /etc/hosts $tdir/$tfile
+
 	local f=$DIR/$tdir/$tfile
 
 	import_file $tdir/$tfile $f
@@ -1624,8 +1635,9 @@ test_30a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
-	cp -p /bin/true $HSM_ARCHIVE/$tdir/$tfile
+	mkdir -p $DIR/$tdir
+	copy2archive /bin/true $tdir/$tfile
+
 	local f=$DIR/$tdir/true
 	import_file $tdir/$tfile $f
 
@@ -2390,8 +2402,10 @@ test_110a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
-	cp /etc/passwd $HSM_ARCHIVE/$tdir/$tfile
+	mkdir -p $DIR/$tdir
+
+	copy2archive /etc/passwd $tdir/$tfile
+
 	local f=$DIR/$tdir/$tfile
 	import_file $tdir/$tfile $f
 	local fid=$(path2fid $f)
@@ -2445,9 +2459,11 @@ test_111a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
+	mkdir -p $DIR/$tdir
+	copy2archive /etc/passwd $tdir/$tfile
+
 	local f=$DIR/$tdir/$tfile
-	cp /etc/passwd $HSM_ARCHIVE/$tdir/$tfile
+
 	import_file $tdir/$tfile $f
 	local fid=$(path2fid $f)
 
@@ -2638,9 +2654,10 @@ test_222a() {
 	# test needs a running copytool
 	copytool_setup
 
-	mkdir -p $DIR/$tdir $HSM_ARCHIVE/$tdir
+	mkdir -p $DIR/$tdir
+	copy2archive /etc/passwd $tdir/$tfile
+
 	local f=$DIR/$tdir/$tfile
-	cp /etc/passwd $HSM_ARCHIVE/$tdir/$tfile
 	import_file $tdir/$tfile $f
 	local fid=$(path2fid $f)
 
