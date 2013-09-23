@@ -522,6 +522,8 @@ static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 			"pool/dataset name not specified.\n");
 		return EINVAL;
 	} else {
+		/* The device or pool/filesystem name */
+		get_realpath(argv[optind], &mop->mo_device);
 		/* Followed by optional vdevs */
 		if (optind < argc - 1)
 			mop->mo_pool_vdevs = (char **) &argv[optind + 1];
@@ -553,10 +555,8 @@ int main(int argc, char *const argv[])
         memset(&mop, 0, sizeof(mop));
         set_defaults(&mop);
 
-	/* Try to get the real path to the device */
-	ret = get_realpath(argv[argc - 1], &mop.mo_device);
-	if (ret != 0)
-		return ret;
+	/* device is last arg and try to get its real path */
+	get_realpath(argv[argc - 1], &mop.mo_device);
 
 	ret = osd_init();
 	if (ret)

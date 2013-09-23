@@ -781,7 +781,7 @@ int file_create(char *path, __u64 size)
  * Try to get the real path to the device, in case it is a
  * symbolic link or dm device for instance
  */
-int get_realpath(char *path, char **device)
+void get_realpath(char *path, char **device)
 {
 	FILE *f;
 	size_t sz;
@@ -789,8 +789,10 @@ int get_realpath(char *path, char **device)
 	char name[256];
 	char real_path[PATH_MAX] = {'\0'};
 
-	if (realpath(path, real_path) == NULL)
-		return errno;
+	if (realpath(path, real_path) == NULL) {
+		*device = strdup(path);
+		return;
+	}
 
 	ptr = strrchr(real_path, '/');
 	if (ptr && strncmp(ptr, "/dm-", 4) == 0 && isdigit(*(ptr + 4))) {
@@ -810,6 +812,4 @@ int get_realpath(char *path, char **device)
 		}
 	}
 	*device = strdup(real_path);
-
-	return 0;
 }

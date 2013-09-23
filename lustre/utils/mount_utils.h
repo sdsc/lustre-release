@@ -122,7 +122,7 @@ int update_mtab_entry(char *spec, char *mtpt, char *type, char *opts,
 int check_mountfsoptions(char *mountopts, char *wanted_mountopts, int justwarn);
 void trim_mountfsoptions(char *s);
 __u64 get_device_size(char *device);
-int get_realpath(char *path, char **device);
+void get_realpath(char *path, char **device);
 
 int is_block(char *devname);
 void disp_old_e2fsprogs_msg(const char *feature, int make_backfs);
