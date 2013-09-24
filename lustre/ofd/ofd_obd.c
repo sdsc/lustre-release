@@ -123,6 +123,7 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 {
 	struct ofd_device		 *ofd = ofd_exp(exp);
 	struct filter_export_data	 *fed = &exp->exp_filter_data;
+	int				 rc = 0;
 
 	if (!data)
 		RETURN(0);
@@ -170,6 +171,11 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 	if (data->ocd_connect_flags & OBD_CONNECT_INDEX) {
 		struct lr_server_data *lsd = &ofd->ofd_lut.lut_lsd;
 		int		       index = lsd->lsd_ost_index;
+
+		rc = ofd_fid_set_index(env, ofd, (int)data->ocd_index);
+		if (rc)
+			CERROR("%s: fid client init error %d\n",
+			       ofd_name(ofd), rc);
 
 		if (!(lsd->lsd_feature_compat & OBD_COMPAT_OST)) {
 			/* this will only happen on the first connect */
@@ -1186,7 +1192,9 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			GOTO(out, rc = 0);
 		}
 		/* only precreate if seq == 0 and o_id is specfied */
-		if (!fid_seq_is_mdt(oa->o_seq) || oa->o_id == 0) {
+		if ((!fid_seq_is_mdt(oa->o_seq) &&
+		     !fid_seq_is_norm(oa->o_seq) &&
+		     !fid_seq_is_idif(oa->o_seq)) || oa->o_id == 0) {
 			diff = 1; /* shouldn't we create this right now? */
 		} else {
 			diff = oa->o_id - ofd_seq_last_oid(oseq);
