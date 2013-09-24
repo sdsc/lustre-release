@@ -819,6 +819,15 @@ out:
 	return rc;
 }
 
+int llapi_nodemap_exists(char *nodemap)
+{
+	char mapname[PATH_MAX + 1];
+
+	snprintf(mapname, sizeof(mapname) - 1, "nodemap/%s", nodemap);
+
+	return get_param(mapname, NULL, 0);
+}
+
 int llapi_direntry_remove(char *dname)
 {
 	char *dirpath = NULL;
