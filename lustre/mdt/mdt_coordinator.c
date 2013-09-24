@@ -1986,8 +1986,7 @@ int lprocfs_rd_hsm_cdt_control(char *page, char **start, off_t off,
 
 static struct lprocfs_vars lprocfs_mdt_hsm_vars[] = {
 	{ "agents",		NULL, NULL, NULL, &mdt_hsm_agent_fops, 0 },
-	{ "agent_actions",	NULL, NULL, NULL,
-				&mdt_agent_actions_fops, 0444 },
+	{ "actions",		NULL, NULL, NULL, &mdt_hsm_actions_fops, 0444},
 	{ "archive_id",		lprocfs_rd_hsm_cdt_archive_id,
 				lprocfs_wr_hsm_cdt_archive_id,
 				NULL, NULL, 0 },
@@ -2002,9 +2001,9 @@ static struct lprocfs_vars lprocfs_mdt_hsm_vars[] = {
 				NULL, NULL, 0 },
 	{ "policy",		lprocfs_rd_hsm_policy, lprocfs_wr_hsm_policy,
 				NULL, NULL, 0 },
-	{ "request_timeout",	lprocfs_rd_hsm_cdt_timeout,
+	{ "active_request_timeout", lprocfs_rd_hsm_cdt_timeout,
 				lprocfs_wr_hsm_cdt_timeout,
 				NULL, NULL, 0 },
-	{ "requests",		NULL, NULL, NULL, &mdt_hsm_request_fops, 0 },
+	{ "active_requests",	NULL, NULL, NULL, &mdt_hsm_request_fops, 0 },
 	{ 0 }
 };

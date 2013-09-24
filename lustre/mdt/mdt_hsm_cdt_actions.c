@@ -572,8 +572,8 @@ static int lprocfs_release_agent_actions(struct inode *inode, struct file *file)
 	return lprocfs_seq_release(inode, file);
 }
 
-/* methods to access agent actions llog through /proc */
-const struct file_operations mdt_agent_actions_fops = {
+/* Methods to access HSM action list LLOG through /proc */
+const struct file_operations mdt_hsm_actions_fops = {
 	.owner		= THIS_MODULE,
 	.open		= lprocfs_open_agent_actions,
 	.read		= seq_read,
