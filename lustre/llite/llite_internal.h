@@ -856,6 +856,9 @@ void ll_lookup_finish_locks(struct lookup_intent *it, struct dentry *dentry);
 int ll_dcompare(const struct dentry *parent, const struct inode *pinode,
 		const struct dentry *dentry, const struct inode *inode,
 		unsigned int len, const char *str, const struct qstr *d_name);
+#elif defined(HAVE_D_COMPARE_5ARGS)
+int ll_dcompare(const struct dentry *parent, const struct dentry *dentry,
+		unsigned int len, const char *str, const struct qstr *name);
 #else
 int ll_dcompare(struct dentry *parent, struct qstr *d_name, struct qstr *name);
 #endif
