@@ -498,6 +498,7 @@ load_modules_local() {
 			modprobe zfs
 			load_module osd-zfs/osd_zfs
 		fi
+		load_module nodemap/nodemap
 		load_module mgs/mgs
 		load_module mdd/mdd
 		if [[ $(node_fstypes $HOSTNAME) == *ldiskfs* ]]; then

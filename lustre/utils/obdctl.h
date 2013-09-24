@@ -133,6 +133,10 @@ int jt_blockdev_detach(int argc, char **argv);
 int jt_blockdev_info(int argc, char **argv);
 
 int jt_pool_cmd(int argc, char **argv);
+int jt_nodemap_activate(int argc, char **argv);
+int jt_nodemap_new(int argc, char **argv);
+int jt_nodemap_del(int argc, char **argv);
+int jt_nodemap_modify(int argc, char **argv);
 int jt_changelog_register(int argc, char **argv);
 int jt_changelog_deregister(int argc, char **argv);
 

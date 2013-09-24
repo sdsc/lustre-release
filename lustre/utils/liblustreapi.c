@@ -819,6 +819,26 @@ out:
 	return rc;
 }
 
+int llapi_nodemap_exists(char *nodemap)
+{
+	glob_t glob_info;
+	char path[PATH_MAX + 1];
+	int rc;
+
+	snprintf(path, PATH_MAX,
+		"/proc/fs/lustre/nodemap/%s", nodemap);
+
+	rc = glob(path, 0, NULL, &glob_info);
+
+	if (rc == GLOB_NOMATCH)
+		return -ENODEV;
+	else if (rc != 0)
+		return -EINVAL;
+	globfree(&glob_info);
+
+	return 0;
+}
+
 int llapi_direntry_remove(char *dname)
 {
 	char *dirpath = NULL;
