@@ -620,6 +620,69 @@ static int mgs_extract_fs_pool(char * arg, char *fsname, char *poolname)
         RETURN(0);
 }
 
+static int mgs_iocontrol_nodemap(const struct lu_env *env,
+				 struct mgs_device *mgs,
+				 struct obd_ioctl_data *data)
+{
+	int rc = 0;
+	struct lustre_cfg *lcfg = NULL;
+	char nodemap_name[LUSTRE_NODEMAP_NAME_LENGTH + 1];
+	char *param = NULL;
+	ENTRY;
+
+	if (data->ioc_type != LUSTRE_CFG_TYPE) {
+		CERROR("%s: unknown cfg record type: %d\n",
+		       mgs->mgs_obd->obd_name, data->ioc_type);
+		GOTO(out_nodemap, rc = -EINVAL);
+	}
+
+	if (data->ioc_plen1 > PAGE_CACHE_SIZE)
+		GOTO(out_nodemap, rc = -E2BIG);
+
+	OBD_ALLOC(lcfg, data->ioc_plen1);
+	if (lcfg == NULL)
+		GOTO(out_nodemap, rc = -ENOMEM);
+
+	if (copy_from_user(lcfg, data->ioc_pbuf1, data->ioc_plen1))
+		GOTO(out_lcfg, rc = -EFAULT);
+
+	snprintf(nodemap_name, LUSTRE_NODEMAP_NAME_LENGTH, "%s",
+		lustre_cfg_string(lcfg, 1));
+	nodemap_name[LUSTRE_NODEMAP_NAME_LENGTH] = '\0';
+
+	if (rc != 0)
+		GOTO(out_lcfg, rc);
+
+	switch (lcfg->lcfg_command) {
+	case LCFG_NODEMAP_ADD:
+		if (lcfg->lcfg_bufcount != 2)
+			GOTO(out_lcfg, rc = -EINVAL);
+		rc = mgs_nodemap_cmd(env, mgs, LCFG_NODEMAP_ADD,
+				    nodemap_name, param);
+		break;
+	case LCFG_NODEMAP_DEL:
+		if (lcfg->lcfg_bufcount != 2)
+			GOTO(out_lcfg, rc = -EINVAL);
+		rc = mgs_nodemap_cmd(env, mgs, LCFG_NODEMAP_DEL,
+				     nodemap_name, param);
+		break;
+	default:
+		rc = -ENOTTY;
+	}
+
+	if (rc != 0) {
+		CERROR("%s: OBD_IOC_NODEMAP command %X for %s: rc = %d\n",
+			mgs->mgs_obd->obd_name, lcfg->lcfg_command,
+			nodemap_name, rc);
+		GOTO(out_lcfg, rc);
+	}
+
+out_lcfg:
+	OBD_FREE(lcfg, data->ioc_plen1);
+out_nodemap:
+	RETURN(rc);
+}
+
 static int mgs_iocontrol_pool(const struct lu_env *env,
 			      struct mgs_device *mgs,
                               struct obd_ioctl_data *data)
@@ -792,8 +855,12 @@ out_free:
 		rc = mgs_iocontrol_pool(&env, mgs, data);
 		break;
 
-        case OBD_IOC_DUMP_LOG: {
-                struct llog_ctxt *ctxt;
+	case OBD_IOC_NODEMAP:
+		rc = mgs_iocontrol_nodemap(&env, mgs, data);
+		break;
+
+	case OBD_IOC_DUMP_LOG: {
+		struct llog_ctxt *ctxt;
 
 		ctxt = llog_get_context(mgs->mgs_obd, LLOG_CONFIG_ORIG_CTXT);
 		rc = class_config_dump_llog(&env, ctxt, data->ioc_inlbuf1,
