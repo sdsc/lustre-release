@@ -277,7 +277,7 @@ seq_client_proc_write_width(struct file *file, const char *buffer,
                 RETURN(rc);
         }
 
-        if (val <= LUSTRE_SEQ_MAX_WIDTH && val > 0) {
+	if (val <= LUSTRE_METADATA_SEQ_MAX_WIDTH && val > 0) {
                 seq->lcs_width = val;
 
                 if (rc == 0) {
