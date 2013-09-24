@@ -3742,5 +3742,67 @@ struct close_data {
 
 void lustre_swab_close_data(struct close_data *data);
 
+/* On disk representations of the nodemap structures for indexed
+ * files. Each nodemap_*_stored structured is unioned to create
+ * a single record type for the indexed file.
+ */
+
+#define LUSTRE_NODEMAP_NAME_LENGTH 64
+
+struct nodemap_node_key {
+	__u32 nk_id;
+	__u32 nk_unused;
+};
+
+struct nodemap_range_key {
+	__u32 rk_nodemap_id;
+	__u32 rk_range_id;
+};
+
+struct nodemap_idmap_key {
+	__u32 ik_nodemap_id;
+	__u32 ik_remote_id;
+};
+
+struct nodemap_key {
+	__u32 nmk_type;
+	union {
+		struct nodemap_node_key n;
+		struct nodemap_range_key r;
+		struct nodemap_idmap_key i;
+	} nmk_uid;
+};
+
+struct nodemap_node_stored {
+	char name[LUSTRE_NODEMAP_NAME_LENGTH];
+	__u32 nm_squash_uid;
+	__u32 nm_squash_gid;
+	__u32 nm_admin_uid;
+	__u32 nm_flags;
+};
+
+struct nodemap_range_stored {
+	lnet_nid_t range_start_nid;
+	lnet_nid_t range_end_nid;
+	struct range_p {
+		__u32 a[8];
+	} range_stored_padding;
+};
+
+struct nodemap_id_stored {
+	__u32 idmap_local_id;
+	struct id_p {
+		__u32 a[11];
+	} idmap_stored_padding;
+};
+
+struct nodemap_stored {
+	union {
+		struct nodemap_node_stored n;
+		struct nodemap_range_stored r;
+		struct nodemap_id_stored i;
+	} nodemap_val;
+};
+
 #endif
 /** @} lustreidl */

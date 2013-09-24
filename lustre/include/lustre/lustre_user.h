@@ -306,6 +306,9 @@ struct ost_id {
 #define LOV_MAXPOOLNAME 16
 #define LOV_POOLNAMEF "%.16s"
 
+#define LOV_MAX_NODEMAP_NAME 6
+#define LOV_NODEMAPF "%.16s"
+
 #define LOV_MIN_STRIPE_BITS 16   /* maximum PAGE_SIZE (ia64), power of 2 */
 #define LOV_MIN_STRIPE_SIZE (1 << LOV_MIN_STRIPE_BITS)
 #define LOV_MAX_STRIPE_COUNT_OLD 160

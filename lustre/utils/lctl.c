@@ -230,6 +230,18 @@ command_t cmdlist[] = {
          "list pools and pools members\n"
          "usage pool_list  <fsname>[.<poolname>] | <pathname>"},
 
+	/* Nodemap commands */
+	{"=== Nodemap ===", jt_noop, 0, "nodemap management"},
+	{"nodemap_activate_idmap", jt_nodemap_activate, 0,
+	 "activate nodemap idmapping functions\n"
+	 "usage nodemap_activate_idmap"},
+	{"nodemap_new", jt_nodemap_new, 0,
+	 "add a new nodemap\n"
+	 "usage nodemap_new <nodemap_name>"},
+	{"nodemap_del", jt_nodemap_del, 0,
+	 "remove a nodemap\n"
+	 "usage nodemap_del <nodemap_name>"},
+
         /* Changelog commands */
         {"===  Changelogs ==", jt_noop, 0, "changelog user management"},
         {"changelog_register", jt_changelog_register, 0,
