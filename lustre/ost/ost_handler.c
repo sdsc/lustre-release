@@ -52,6 +52,7 @@
 #include <lprocfs_status.h>
 #include <libcfs/list.h>
 #include "ost_internal.h"
+#include <lustre_fid.h>
 
 static int oss_num_threads;
 CFS_MODULE_PARM(oss_num_threads, "i", int, 0444,
@@ -1674,6 +1675,7 @@ int ost_msg_check_version(struct lustre_msg *msg)
         case OST_SYNC:
         case OST_SET_INFO:
         case OST_GET_INFO:
+	case SEQ_QUERY:
         case OST_QUOTACHECK:
         case OST_QUOTACTL:
                 rc = lustre_msg_check_version(msg, LUSTRE_OST_VERSION);
@@ -2299,6 +2301,10 @@ int ost_handle(struct ptlrpc_request *req)
                 req_capsule_set(&req->rq_pill, &RQF_OST_GET_INFO_GENERIC);
                 rc = ost_get_info(req->rq_export, req);
                 break;
+	case SEQ_QUERY:
+		CDEBUG(D_INODE, "seq\n");
+		rc = seq_handle(req);
+		break;
         case OST_QUOTACHECK:
                 CDEBUG(D_INODE, "quotacheck\n");
                 req_capsule_set(&req->rq_pill, &RQF_OST_QUOTACHECK);
@@ -2605,10 +2611,53 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		GOTO(out_create, rc);
         }
 
+	memset(&svc_conf, 0, sizeof(svc_conf));
+	svc_conf = (typeof(svc_conf)) {
+		.psc_name		= "ost_seq",
+		.psc_watchdog_factor	= OSS_SERVICE_WATCHDOG_FACTOR,
+		.psc_buf		= {
+			.bc_nbufs		= OST_NBUFS,
+			.bc_buf_size		= OST_BUFSIZE,
+			.bc_req_max_size	= OST_MAXREQSIZE,
+			.bc_rep_max_size	= OST_MAXREPSIZE,
+			.bc_req_portal		= SEQ_DATA_PORTAL,
+			.bc_rep_portal		= OSC_REPLY_PORTAL,
+		},
+		.psc_thr		= {
+			.tc_thr_name		= "ll_ost_seq",
+			.tc_thr_factor		= OSS_CR_THR_FACTOR,
+			.tc_nthrs_init		= OSS_CR_NTHRS_INIT,
+			.tc_nthrs_base		= OSS_CR_NTHRS_BASE,
+			.tc_nthrs_max		= OSS_CR_NTHRS_MAX,
+			.tc_nthrs_user		= oss_num_create_threads,
+			.tc_cpu_affinity	= 1,
+			.tc_ctx_tags		= LCT_DT_THREAD,
+		},
+
+		.psc_cpt		= {
+			.cc_pattern	     = oss_cpts,
+		},
+		.psc_ops		= {
+			.so_req_handler		= ost_handle,
+			.so_req_printer		= target_print_req,
+			.so_hpreq_handler	= NULL,
+		},
+	};
+	ost->ost_seq_service = ptlrpc_register_service(&svc_conf,
+						      obd->obd_proc_entry);
+	if (IS_ERR(ost->ost_seq_service)) {
+		rc = PTR_ERR(ost->ost_seq_service);
+		CERROR("failed to start OST seq service: %d\n", rc);
+		ost->ost_seq_service = NULL;
+		GOTO(out_io, rc);
+	}
+
         ping_evictor_start();
 
         RETURN(0);
-
+out_io:
+	ptlrpc_unregister_service(ost->ost_io_service);
+	ost->ost_io_service = NULL;
 out_create:
         ptlrpc_unregister_service(ost->ost_create_service);
         ost->ost_create_service = NULL;
@@ -2635,9 +2684,11 @@ static int ost_cleanup(struct obd_device *obd)
         ptlrpc_unregister_service(ost->ost_service);
         ptlrpc_unregister_service(ost->ost_create_service);
         ptlrpc_unregister_service(ost->ost_io_service);
+	ptlrpc_unregister_service(ost->ost_seq_service);
         ost->ost_service = NULL;
         ost->ost_create_service = NULL;
 	ost->ost_io_service = NULL;
+	ost->ost_seq_service = NULL;
 
 	mutex_unlock(&ost->ost_health_mutex);
 
