@@ -1,0 +1,11 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Code-Review+1: jacques-Charles Lafoucriere <jacques-charles.lafoucriere@cea.fr>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Aurelien Degremont <aurelien.degremont@cea.fr>
+Code-Review+1: Henri Doreau <henri.doreau@cea.fr>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Tue, 24 Sep 2013 04:04:04 +0000
+Reviewed-on: http://review.whamcloud.com/7505
+Project: fs/lustre-release
+Branch: refs/heads/master
