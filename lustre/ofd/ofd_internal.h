@@ -170,6 +170,7 @@ struct ofd_device {
 				 /* shall we grant space to clients not
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
 				 ofd_grant_compat_disable:1;
+	struct md_site		 ofd_site;
 };
 
 static inline struct ofd_device *ofd_dev(struct lu_device *d)
@@ -472,6 +473,10 @@ void ofd_fmd_drop(struct obd_export *exp, struct lu_fid *fid);
 #define ofd_fmd_drop(exp, fid) do {} while (0)
 #endif
 
+/* ofd_dev.c */
+int ofd_fid_init(const struct lu_env *env, struct ofd_device *ofd);
+int ofd_fid_fini(const struct lu_env *env, struct ofd_device *ofd);
+
 /* ofd_lvb.c */
 extern struct ldlm_valblock_ops ofd_lvbo;
 
@@ -510,6 +515,12 @@ static inline struct ofd_thread_info * ofd_info_init(const struct lu_env *env,
 	return info;
 }
 
+/*ofd_dev.c*/
+int ofd_fid_set_index(const struct lu_env *env, struct ofd_device *ofd,
+		      int index);
+
+int ofd_fid_init(const struct lu_env *env, struct ofd_device *ofd);
+int ofd_fid_fini(const struct lu_env *env, struct ofd_device *ofd);
 /* The same as osc_build_res_name() */
 static inline void ofd_build_resid(const struct lu_fid *fid,
 				   struct ldlm_res_id *resname)
