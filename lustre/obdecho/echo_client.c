@@ -2876,7 +2876,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 if (cfs_copy_to_user(data->ioc_pbuf1, &seq, data->ioc_plen1))
                         return -EFAULT;
 
-                max_count = LUSTRE_SEQ_MAX_WIDTH;
+		max_count = LUSTRE_METADATA_SEQ_MAX_WIDTH;
                 if (cfs_copy_to_user(data->ioc_pbuf2, &max_count,
                                      data->ioc_plen2))
                         return -EFAULT;
