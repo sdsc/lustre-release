@@ -11,12 +11,9 @@ SRCDIR=$(dirname $0)
 export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/utils:$PATH:/sbin:/usr/sbin
 
 ONLY=${ONLY:-"$*"}
-# bug number for skipped test:
+# bug number for skipped test:    3815
+ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 34 35 36"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
-# skip test cases failed before landing - Jinshan
-
-ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 12a 12b 12n 13 30a 31a 34 35 36"
-ALWAYS_EXCEPT="$ALWAYS_EXCEPT 110a 200 201 221 222a 223a 223b 225"
 
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 
@@ -524,7 +521,7 @@ echo "Set sanity-hsm HSM policy"
 cdt_set_sanity_policy
 
 # finished requests are quickly removed from list
-set_hsm_param grace_delay 10
+set_hsm_param grace_delay 30
 
 test_1() {
 	mkdir -p $DIR/$tdir
