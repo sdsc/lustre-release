@@ -260,6 +260,19 @@ static inline int fid_is_quota(const struct lu_fid *fid)
 	       fid_seq(fid) == FID_SEQ_QUOTA_GLB;
 }
 
+static inline void lu_last_id_fid(struct lu_fid *fid, __u64 seq)
+{
+	if (fid_seq_is_mdt0(seq)) {
+		fid->f_seq = fid_idif_seq(0, 0);
+	} else {
+		LASSERTF(fid_seq_is_norm(seq) || fid_seq_is_echo(seq) ||
+			 fid_seq_is_idif(seq), LPX64"\n", seq);
+		fid->f_seq = seq;
+	}
+	fid->f_oid = 0;
+	fid->f_ver = 0;
+}
+
 enum lu_mgr_type {
         LUSTRE_SEQ_SERVER,
         LUSTRE_SEQ_CONTROLLER
