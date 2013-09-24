@@ -573,10 +573,11 @@ struct echo_obd {
 };
 
 struct ost_obd {
-	struct ptlrpc_service	*ost_service;
-	struct ptlrpc_service	*ost_create_service;
-	struct ptlrpc_service	*ost_io_service;
-	struct mutex		ost_health_mutex;
+	struct ptlrpc_service *ost_service;
+	struct ptlrpc_service *ost_create_service;
+	struct ptlrpc_service *ost_io_service;
+	struct ptlrpc_service *ost_seq_service;
+	struct mutex	      ost_health_mutex;
 };
 
 struct echo_client_obd {
