@@ -358,7 +358,7 @@ static int get_param(const char *param_path, char *result,
         snprintf(pattern, PATH_MAX, "/proc/{fs,sys}/{lnet,lustre}/%s",
                  param_path);
         rc = first_match(pattern, file);
-        if (rc)
+	if (rc != 0 || result == NULL)
                 return rc;
 
         fp = fopen(file, "r");
@@ -817,6 +817,15 @@ out:
 	free(dirpath);
 	free(namepath);
 	return rc;
+}
+
+int llapi_nodemap_exists(char *nodemap)
+{
+	char mapname[PATH_MAX + 1];
+
+	snprintf(mapname, sizeof(mapname) - 1, "nodemap/%s", nodemap);
+
+	return get_param(mapname, NULL, 0);
 }
 
 int llapi_direntry_remove(char *dname)
