@@ -387,6 +387,7 @@ struct lu_server_seq {
 };
 
 int seq_query(struct com_thread_info *info);
+int seq_handle(struct ptlrpc_request *req);
 
 /* Server methods */
 int seq_server_init(struct lu_server_seq *seq,
