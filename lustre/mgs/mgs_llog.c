@@ -1459,6 +1459,8 @@ int mgs_write_log_direct_all(const struct lu_env *env,
 	if (mgs_log_is_empty(env, mgs, logname)) {
 		struct llog_handle *llh = NULL;
 		rc = record_start_log(env, mgs, &llh, logname);
+		if (rc)
+			RETURN(rc);
 		record_end_log(env, &llh);
         }
         name_destroy(&logname);
