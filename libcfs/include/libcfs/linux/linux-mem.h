@@ -66,12 +66,19 @@
 #define memory_pressure_set() do { current->flags |= PF_MEMALLOC; } while (0)
 #define memory_pressure_clr() do { current->flags &= ~PF_MEMALLOC; } while (0)
 
+#ifndef HAVE_GET_NUM_PAGES
+static inline unsigned long get_num_physpages(void)
+{
+	return num_physpages;
+}
+#endif
+
 #if BITS_PER_LONG == 32
 /* limit to lowmem on 32-bit systems */
 #define NUM_CACHEPAGES \
-	min(num_physpages, 1UL << (30 - PAGE_CACHE_SHIFT) * 3 / 4)
+	min(get_num_physpages(), 1UL << (30 - PAGE_CACHE_SHIFT) * 3 / 4)
 #else
-#define NUM_CACHEPAGES num_physpages
+#define NUM_CACHEPAGES get_num_physpages()
 #endif
 
 /*

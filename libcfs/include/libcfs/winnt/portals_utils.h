@@ -297,8 +297,11 @@ clear_user(void __user *to, unsigned long n)
     0                           \
 )
 
-#define num_physpages               (64 * 1024)
-#define NUM_CACHEPAGES              num_physpages
+static inline unsigned long get_num_physpages(void)
+{
+	return (64 * 1024);
+}
+#define NUM_CACHEPAGES		get_num_physpages()
 
 #else
 

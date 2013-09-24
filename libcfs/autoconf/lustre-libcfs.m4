@@ -356,6 +356,22 @@ LB_CHECK_SYMBOL_EXPORT([sock_alloc_file], [net/socket.c],[
 ])
 ])
 
+AC_DEFUN([LIBCFS_GET_PAGE_COUNT],
+[AC_MSG_CHECKING([whether function get_num_physpages exist])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/mm.h>
+],[
+	get_num_physpages();
+],[
+	AC_MSG_RESULT(yes)
+	AC_DEFINE(HAVE_GET_NUM_PAGES, 1,
+		[get_num_physpages exist])
+],[
+	AC_MSG_RESULT(no)
+],[
+])
+])
+
 #
 # LIBCFS_PROG_LINUX
 #
@@ -385,6 +401,8 @@ LC_SK_SLEEP
 LC_SHRINK_CONTROL
 # 3.7
 LIBCFS_SOCK_ALLOC_FILE
+# 3.11
+LIBCFS_GET_PAGE_COUNT
 ])
 
 #

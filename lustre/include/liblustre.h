@@ -167,9 +167,11 @@ void cfs_get_random_bytes(void *ptr, int size);
 /* memory */
 
 /* memory size: used for some client tunables */
-#define num_physpages  (256 * 1024) /* 1GB */
-#define NUM_CACHEPAGES num_physpages
-
+static inline unsigned long get_num_physpages(void)
+{
+	return (256 * 1024); /* 1GB */
+}
+#define NUM_CACHEPAGES get_num_physpages()
 
 /* VFS stuff */
 #define ATTR_MODE       0x0001
