@@ -9420,6 +9420,36 @@ test_160() {
 }
 run_test 160 "changelog sanity"
 
+test_160b() { # LU-3587
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.0) ] ||
+		{ skip "Need MDS version at least 2.2.0"; return; }
+
+	local CL_USERS="mdd.$MDT0.changelog_users"
+	local GET_CL_USERS="do_facet $SINGLEMDS $LCTL get_param -n $CL_USERS"
+	USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_register -n)
+	echo "Registered as changelog user $USER"
+	$GET_CL_USERS | grep -q $USER ||
+		error "User $USER not found in changelog_users"
+
+	LONGNAME1=$(str_repeat a 255)
+	LONGNAME2=$(str_repeat b 255)
+
+	echo "creating very long named file"
+	touch $TDIR/$LONGNAME1
+	echo "moving very long named file"
+	mv $TDIR/$LONGNAME1 $TDIR/$LONGNAME2
+
+	$LFS changelog $MDT0 | grep RENME
+
+	echo "deregistering $USER"
+	do_facet $SINGLEMDS $LCTL --device $MDT0 changelog_deregister $USER
+
+	rm -f $TDIR/$LONGNAME2
+}
+run_test 160b "Verify that very long rename doesn't crash in changelog"
+
 test_161a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
     test_mkdir -p $DIR/$tdir
