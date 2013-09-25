@@ -2100,8 +2100,11 @@ struct obdo {
         __u32                   o_mds;
         __u32                   o_stripe_idx;   /* holds stripe idx */
         __u32                   o_padding_1;
-        struct lustre_handle    o_handle;       /* brw: lock handle to prolong locks */
-        struct llog_cookie      o_lcookie;      /* destroy: unlink cookie from MDS */
+	/* brw: lock handle to prolong locks at OST, or the handle of lock
+	 * to protect reada at client (see bug LU-3067) */
+	struct lustre_handle    o_handle;
+	/* destroy: unlink cookie from MDS */
+	struct llog_cookie      o_lcookie;
 
         __u64                   o_padding_2;
         __u64                   o_padding_3;
