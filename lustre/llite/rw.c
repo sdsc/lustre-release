@@ -1203,6 +1203,12 @@ int ll_ap_completion(void *data, int cmd, struct obdo *oa, int rc)
 	if (cmd & OBD_BRW_READ && llap->llap_defer_uptodate) {
 		ll_ra_count_put(ll_i2sbi(page->mapping->host), 1);
 
+		/* oa->o_handle is used by client to store the handle of
+		 * the lock to be sent to OST for prolonging its valid time,
+		 * afer reply it will be available to be used to store the
+		 * handle of the lock protecting the reada, which could be
+		 * freed later. (see bug LU-2703 and LU-3067)
+		 */
 		LASSERT(lustre_handle_is_used(&llap->llap_lockh_granted));
 		oa->o_flags |= OBD_FL_HAVE_LOCK;
 		oa->o_handle = llap->llap_lockh_granted;
