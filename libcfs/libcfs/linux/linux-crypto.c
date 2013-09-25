@@ -221,7 +221,7 @@ static void cfs_crypto_performance_test(unsigned char alg_id,
 		       1000) / (1024 * 1024);
 		cfs_crypto_hash_speeds[alg_id] = (int)tmp;
 	}
-	CDEBUG(D_INFO, "Crypto hash algorithm %s speed = %d MB/s\n",
+	CDEBUG(D_CONFIG, "Crypto hash algorithm %s speed = %d MB/s\n",
 	       cfs_crypto_hash_name(alg_id), cfs_crypto_hash_speeds[alg_id]);
 }
 
@@ -262,38 +262,47 @@ static int cfs_crypto_test_hashes(void)
 	return 0;
 }
 
-static int crc32, adler32;
+static int adler32;
 
+#ifdef NEED_EXTRA_CRYPTO
+static int crc32;
 #ifdef HAVE_PCLMULQDQ
 static int crc32pclmul;
+static int crc32c_pclmul;
+#endif
 #endif
 
 int cfs_crypto_register(void)
 {
 	request_module("crc32c");
 
-	crc32 = cfs_crypto_crc32_register();
 	adler32 = cfs_crypto_adler32_register();
 
+#ifdef NEED_EXTRA_CRYPTO
+	crc32 = cfs_crypto_crc32_register();
 #ifdef HAVE_PCLMULQDQ
 	crc32pclmul = cfs_crypto_crc32_pclmul_register();
+	crc32c_pclmul = cfs_crypto_crc32c_pclmul_register();
 #endif
-
+#endif
 	/* check all algorithms and do performance test */
 	cfs_crypto_test_hashes();
 	return 0;
 }
 void cfs_crypto_unregister(void)
 {
-	if (crc32 == 0)
-		cfs_crypto_crc32_unregister();
 	if (adler32 == 0)
 		cfs_crypto_adler32_unregister();
 
+#ifdef NEED_EXTRA_CRYPTO
+	if (crc32 == 0)
+		cfs_crypto_crc32_unregister();
 #ifdef HAVE_PCLMULQDQ
 	if (crc32pclmul == 0)
 		cfs_crypto_crc32_pclmul_unregister();
+	if (crc32c_pclmul == 0)
+		cfs_crypto_crc32c_pclmul_unregister();
 #endif
-
+#endif
 	return;
 }

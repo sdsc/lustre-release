@@ -356,6 +356,22 @@ LB_CHECK_SYMBOL_EXPORT([sock_alloc_file], [net/socket.c],[
 ])
 ])
 
+AC_DEFUN([LIBCFS_USE_UPSTREAM_CRYPTO],
+[AC_MSG_CHECKING([kernel has pclmulqdq crypto api])
+AS_VERSION_COMPARE([$LINUXRELEASE],[3.10.0], [
+		AC_MSG_RESULT(no)
+		AC_DEFINE(NEED_EXTRA_CRYPTO, 1, [need extra pclmulqdq crypto])
+		enable_extra_crypto=true
+	],[
+		enable_extra_crypto=false
+		AC_MSG_RESULT(yes)
+	],[
+		enable_extra_crypto=false
+		AC_MSG_RESULT(yes)
+	])
+AM_CONDITIONAL(NEED_PCLMULQDQ_CRYPTO, test x$enable_extra_crypto = xtrue)
+])
+
 #
 # LIBCFS_PROG_LINUX
 #
@@ -385,6 +401,8 @@ LC_SK_SLEEP
 LC_SHRINK_CONTROL
 # 3.7
 LIBCFS_SOCK_ALLOC_FILE
+# 3.10
+LIBCFS_USE_UPSTREAM_CRYPTO
 ])
 
 #
