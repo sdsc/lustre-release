@@ -65,9 +65,6 @@ AC_DEFUN([LN_CONFIG_OFED_SPEC],
 		#if !HAVE_GFP_T
 		typedef int gfp_t;
 		#endif
-		#if !defined(HAVE_OFED_BACKPORT_H) && defined(HAVE_SCSI_FC_COMPAT_H)
-	        #include <scsi/fc_compat.h>
-		#endif
 		#include <rdma/rdma_cm.h>
 	],[
 		return (RDMA_CM_EVENT_ADDR_CHANGE == 0);
@@ -85,9 +82,6 @@ AC_DEFUN([LN_CONFIG_OFED_SPEC],
 		#include <linux/pci.h>
 		#if !HAVE_GFP_T
 		typedef int gfp_t;
-		#endif
-		#if !defined(HAVE_OFED_BACKPORT_H) && defined(HAVE_SCSI_FC_COMPAT_H)
-	        #include <scsi/fc_compat.h>
 		#endif
 		#include <rdma/rdma_cm.h>
 	],[
