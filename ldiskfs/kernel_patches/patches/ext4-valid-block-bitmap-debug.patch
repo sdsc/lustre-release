@@ -1,0 +1,35 @@
+--- linux-stage.orig/fs/ext4/balloc.c	2013-07-31 02:55:16.000000000 +0800
++++ linux-stage/fs/ext4/balloc.c	2013-07-31 03:52:39.000000000 +0800
+@@ -240,6 +240,7 @@ static int ext4_valid_block_bitmap(struc
+ 	ext4_grpblk_t next_zero_bit;
+ 	ext4_fsblk_t bitmap_blk;
+ 	ext4_fsblk_t group_first_block;
++	int i;
+ 
+ 	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_FLEX_BG)) {
+ 		/* with FLEX_BG, the inode/block bitmaps and itable
+@@ -277,8 +278,23 @@ static int ext4_valid_block_bitmap(struc
+ 		return 1;
+ 
+ err_out:
++
++	printk(KERN_CRIT"block bitmap of block_group %d : \n", block_group);
++	for (i = 0; i < (sb->s_blocksize >> 3); i++) {
++		printk(KERN_CRIT"%016lx ", *(((long int*)bh->b_data) + i));
++		if (i &&  ((i % 4) == 0))
++			printk(KERN_CRIT"\n");
++	}
++
+-	ext4_error(sb, "Invalid block bitmap - block_group = %d, block = %llu",
++	ext4_error(sb, "Invalid block bitmap - group_first_block = %llu, "
++			"block_bitmap = %llu, inode_bitmap = %llu "
++			"inode_table_bitmap = %llu, "
++			"inode_table_block_per_group =%ld, "
++			"next_zero_bit = %llu, block_group = %d, block = %llu",
++			group_first_block, ext4_block_bitmap(sb, desc),
++			ext4_inode_bitmap(sb, desc), ext4_inode_table(sb, desc),
++			EXT4_SB(sb)->s_itb_per_group, next_zero_bit,
+ 			block_group, bitmap_blk);
+ 	return 0;
+ }
+ /**
