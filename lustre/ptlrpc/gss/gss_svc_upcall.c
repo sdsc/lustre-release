@@ -1058,7 +1058,7 @@ void gss_svc_upcall_destroy_ctx(struct gss_svc_ctx *ctx)
 
 int __init gss_init_svc_upcall(void)
 {
-	int     i;
+	int     i, rc = 0;
 
 	spin_lock_init(&__ctx_index_lock);
         /*
@@ -1069,9 +1069,16 @@ int __init gss_init_svc_upcall(void)
          */
         cfs_get_random_bytes(&__ctx_index, sizeof(__ctx_index));
 
-
-        cache_register(&rsi_cache);
-        cache_register(&rsc_cache);
+	rc = cache_register_net(&rsi_cache, &init_net);
+	if (rc) {
+		cache_unregister_net(&rsi_cache, &init_net);
+		return rc;
+	}
+	rc = cache_register_net(&rsc_cache, &init_net);
+	if (rc) {
+		cache_unregister_net(&rsc_cache, &init_net);
+		return rc;
+	}
 
         /* FIXME this looks stupid. we intend to give lsvcgssd a chance to open
          * the init upcall channel, otherwise there's big chance that the first
@@ -1090,14 +1097,14 @@ int __init gss_init_svc_upcall(void)
                 CWARN("Init channel is not opened by lsvcgssd, following "
                       "request might be dropped until lsvcgssd is active\n");
 
-        return 0;
+        return rc;
 }
 
 void __exit gss_exit_svc_upcall(void)
 {
         cache_purge(&rsi_cache);
-        cache_unregister(&rsi_cache);
+        cache_unregister_net(&rsi_cache, &init_net);
 
         cache_purge(&rsc_cache);
-        cache_unregister(&rsc_cache);
+        cache_unregister_net(&rsc_cache, &init_net);
 }
