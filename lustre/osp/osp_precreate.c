@@ -246,6 +246,18 @@ static inline int osp_precreate_near_empty(const struct lu_env *env,
 	return rc;
 }
 
+static inline int osp_create_end_seq(const struct lu_env *env,
+				     struct osp_device *osp)
+{
+	struct lu_fid *fid = &osp->opd_pre_used_fid;
+	int rc;
+
+	spin_lock(&osp->opd_pre_lock);
+	rc = osp_fid_end_seq(env, fid);
+	spin_unlock(&osp->opd_pre_lock);
+	return rc;
+}
+
 /**
  * Write fid into last_oid/last_seq file.
  **/
@@ -308,6 +320,40 @@ static int osp_write_last_oid_seq_files(struct lu_env *env,
 	}
 out:
 	dt_trans_stop(env, osp->opd_storage, th);
+	RETURN(rc);
+}
+
+int osp_precreate_rollover_new_seq(struct lu_env *env, struct osp_device *osp)
+{
+	struct lu_fid	   *current_fid;
+	struct lu_fid	   *last_fid = &osp->opd_last_used_fid;
+	int		      rc;
+	ENTRY;
+
+	current_fid = seq_client_get_current_fid(osp->opd_obd->u.cli.cl_seq);
+	LASSERTF(fid_seq(current_fid) != fid_seq(last_fid),
+		 "current_fid "DFID", last_fid "DFID"\n", PFID(current_fid),
+		 PFID(last_fid));
+
+	rc = osp_write_last_oid_seq_files(env, osp, current_fid, 1);
+	if (rc != 0) {
+		CERROR("%s: Can not update oid/seq file: rc = %d]n",
+			osp->opd_obd->obd_name, rc);
+		RETURN(rc);
+	}
+
+	LCONSOLE_INFO("%s: update sequence from "LPX64" to "LPX64"\n",
+		      osp->opd_obd->obd_name, fid_seq(last_fid),
+		      fid_seq(current_fid));
+	/* Update last_xxx to the new seq */
+	spin_lock(&osp->opd_pre_lock);
+	osp->opd_last_used_fid = *current_fid;
+	osp->opd_gap_start_fid = *current_fid;
+	osp->opd_pre_used_fid = *current_fid;
+	osp->opd_pre_last_created_fid = *current_fid;
+	osp->opd_pre_grow_count = OST_MIN_PRECREATE;
+	spin_unlock(&osp->opd_pre_lock);
+
 	RETURN(rc);
 }
 
@@ -923,6 +969,29 @@ static int osp_precreate_thread(void *_arg)
 			if (osp_statfs_need_update(d))
 				osp_statfs_update(d);
 
+			/**
+			 * To avoid handling different seq in precreate/orphan
+			 * cleanup, it will hold precreate until current seq is
+			 * used up.
+			 **/
+			if (osp_precreate_end_seq(&env, d) &&
+			    !osp_create_end_seq(&env, d))
+				continue;
+
+			if (osp_precreate_end_seq(&env, d) &&
+						  osp_create_end_seq(&env, d)) {
+				LCONSOLE_INFO("%s:"LPX64" is used up"
+					      "update new seq\n",
+					       d->opd_obd->obd_name,
+					 fid_seq(&d->opd_pre_last_created_fid));
+				rc = osp_precreate_rollover_new_seq(&env, d);
+				if (rc) {
+					CERROR("%s: update seq failed %d\n",
+						d->opd_obd->obd_name, rc);
+					continue;
+				}
+			}
+
 			if (osp_precreate_near_empty(&env, d)) {
 				rc = osp_precreate_send(&env, d);
 				/* osp_precreate_send() sets opd_pre_status
@@ -1048,7 +1117,8 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 			rc = 0;
 
 			/* XXX: don't wake up if precreation is in progress */
-			if (osp_precreate_near_empty_nolock(env, d))
+			if (osp_precreate_near_empty_nolock(env, d) &&
+				!osp_precreate_end_seq_nolock(env, d))
 				cfs_waitq_signal(&d->opd_pre_waitq);
 
 			break;
