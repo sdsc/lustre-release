@@ -350,6 +350,23 @@ AC_MSG_RESULT([$enable_tests])
 ])
 
 #
+# LB_CONFIG_SEPARATE_DEBUGINFO
+#
+# Strip symbols & create separate debuginfo RPM?
+#
+AC_DEFUN([LB_CONFIG_SEPARATE_DEBUGINFO],
+	 [AC_MSG_CHECKING([whether to create separate debuginfo RPM & strip symbols from modules])
+	 AC_ARG_ENABLE([separate-debuginfo],
+		       AC_HELP_STRING([--disable-separate-debuginfo],
+				      [disable creation of a separate debuginfo rpm]),
+	 [],
+	 [
+		enable_separate_debuginfo='auto'
+	 ])
+AC_MSG_RESULT([$enable_separate_debuginfo])
+])
+
+#
 # LB_CONFIG_DIST
 #
 # Just enough configure so that "make dist" is useful
@@ -512,6 +529,8 @@ AC_DEFUN([LB_CONDITIONALS],
 [AM_CONDITIONAL(MODULES, test x$enable_modules = xyes)
 AM_CONDITIONAL(UTILS, test x$enable_utils = xyes)
 AM_CONDITIONAL(TESTS, test x$enable_tests = xyes)
+AM_CONDITIONAL([ENABLE_SEPARATE_DEBUGINFO], [test x$enable_separate_debuginfo = xyes])
+AM_CONDITIONAL([DISABLE_SEPARATE_DEBUGINFO], [test x$enable_separate_debuginfo = xno])
 AM_CONDITIONAL(DOC, test x$ENABLE_DOC = x1)
 AM_CONDITIONAL(INIT_SCRIPTS, test x$ENABLE_INIT_SCRIPTS = "x1")
 AM_CONDITIONAL(LINUX, test x$lb_target_os = "xlinux")

@@ -6,12 +6,29 @@
 %bcond_with zfs
 %bcond_without lustre_tests
 %bcond_without lustre_iokit
+%bcond_with enable_separate_debuginfo
+%bcond_with disable_separate_debuginfo
 
 %if %{without servers}
     # --without servers overrides --with {ldiskfs|zfs}
     # so undefine the internal variables set by bcond_*
     %undefine with_ldiskfs
     %undefine with_zfs
+%endif
+
+%if %{with enable_separate_debuginfo}
+    # TO DO: Find a distribution-independent way to force the debuginfo RPM to be built
+    #%global debug_package %{nil}
+    %global __os_install_post \
+	/usr/lib/rpm/brp-compress \
+	/usr/lib/rpm/brp-strip \
+	/usr/lib/rpm/brp-python-bytecompile \
+    %{nil}
+%endif
+
+%if %{with disable_separate_debuginfo}
+    %global debug_package %{nil}
+    %global __os_install_post /usr/lib/rpm/brp-compress %{nil}
 %endif
 
 %{!?version: %global version @VERSION@}
