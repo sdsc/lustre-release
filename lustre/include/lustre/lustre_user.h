@@ -338,6 +338,11 @@ static inline void obd_uuid2fsname(char *buf, char *uuid, int buflen)
            *p = '\0';
 }
 
+enum lu_cli_type {
+	LUSTRE_SEQ_METADATA,
+	LUSTRE_SEQ_DATA
+};
+
 /**
  * File IDentifier.
  *
