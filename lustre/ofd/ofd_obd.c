@@ -1232,6 +1232,24 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			diff = 1; /* shouldn't we create this right now? */
 		} else {
 			diff = oa->o_id - ofd_seq_last_oid(oseq);
+			if (fid_seq_is_idif(oa->o_seq) ||
+				fid_seq_is_mdt0(oa->o_seq)) {
+				/* Do sync create if the seq is about to
+				 * used up */
+				if (oa->o_id >= IDIF_MAX_OID - 1)
+					info->fti_sync_trans = 1;
+			} else {
+				if (!fid_seq_is_norm(oa->o_seq)) {
+					CERROR("%s : invalid o_seq "LPX64"\n",
+						ofd_name(ofd), oa->o_seq);
+					GOTO(out, rc = EINVAL);
+				}
+				/* Do sync create if the seq is about to
+				 * used up */
+				if (oa->o_id >= LUSTRE_DATA_SEQ_MAX_WIDTH - 1)
+					info->fti_sync_trans = 1;
+			}
+
 		}
 	}
 	if (diff > 0) {
