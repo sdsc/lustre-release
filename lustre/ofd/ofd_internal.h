@@ -280,7 +280,8 @@ struct ofd_thread_info {
 	__u64				 fti_transno;
 	__u64				 fti_pre_version;
 	__u32				 fti_has_trans:1, /* has txn already */
-					 fti_mult_trans:1;
+					 fti_mult_trans:1,
+					 fti_sync_trans:1;
 
 	struct lu_fid			 fti_fid;
 	struct lu_attr			 fti_attr;
@@ -512,6 +513,7 @@ static inline struct ofd_thread_info * ofd_info_init(const struct lu_env *env,
 	info->fti_pre_version = 0;
 	info->fti_transno = 0;
 	info->fti_has_trans = 0;
+	info->fti_sync_trans = 0;
 	return info;
 }
 
