@@ -888,7 +888,7 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
          * XXX temporary stuff. Some abstraction layer should
          * be used.
          */
-        jh = ldiskfs_journal_start_sb(osd_sb(dev), oh->ot_credits);
+        jh = osd_journal_start_sb(osd_sb(dev), LDISKFS_HT_MISC, oh->ot_credits);
         osd_th_started(oh);
         if (!IS_ERR(jh)) {
                 oh->ot_handle = jh;
@@ -3436,7 +3436,7 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
 		down_write(&obj->oo_ext_idx_sem);
         }
 
-        bh = ldiskfs_find_entry(dir, &dentry->d_name, &de, hlock);
+        bh = osd_find_entry(dir, &dentry->d_name, &de, NULL, hlock);
         if (bh) {
 		__u32 ino = 0;
 
@@ -3959,7 +3959,7 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 		down_read(&obj->oo_ext_idx_sem);
         }
 
-        bh = osd_ldiskfs_find_entry(dir, dentry, &de, hlock);
+        bh = osd_ldiskfs_find_entry(dir, dentry, &de, NULL, hlock);
         if (bh) {
 		struct osd_thread_info *oti = osd_oti_get(env);
 		struct osd_inode_id *id = &oti->oti_id;
@@ -4955,7 +4955,7 @@ osd_dirent_check_repair(const struct lu_env *env, struct osd_object *obj,
 
 again:
 	if (dev->od_dirent_journal) {
-		jh = ldiskfs_journal_start_sb(sb, credits);
+		jh = osd_journal_start_sb(sb, LDISKFS_HT_MISC, credits);
 		if (IS_ERR(jh)) {
 			rc = PTR_ERR(jh);
 			CERROR("%.16s: fail to start trans for dirent "
@@ -4985,7 +4985,7 @@ again:
 		}
 	}
 
-	bh = osd_ldiskfs_find_entry(dir, dentry, &de, hlock);
+	bh = osd_ldiskfs_find_entry(dir, dentry, &de, NULL, hlock);
 	/* For dot/dotdot entry, if there is not enough space to hold the
 	 * FID-in-dirent, just keep them there. It only happens when the
 	 * device upgraded from 1.8 or restored from MDT file-level backup.
