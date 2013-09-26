@@ -11,6 +11,7 @@ init_logging
 #              bug 20670
 ALWAYS_EXCEPT="parallel_grouplock $PARALLEL_SCALE_EXCEPT"
 
+
 # common setup
 MACHINEFILE=${MACHINEFILE:-$TMP/$(basename $0 .sh).machines}
 clients=${CLIENTS:-$HOSTNAME}
