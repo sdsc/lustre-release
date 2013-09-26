@@ -817,6 +817,18 @@ static inline int lu_fid_eq(const struct lu_fid *f0,
         return memcmp(f0, f1, sizeof *f0) == 0;
 }
 
+static inline int lu_fid_diff(struct lu_fid *fid1, struct lu_fid *fid2)
+{
+	LASSERTF(fid_seq(fid1) == fid_seq(fid2), "fid1:"DFID", fid2:"DFID"\n",
+		 PFID(fid1), PFID(fid2));
+
+	if (fid_is_idif(fid1) && fid_is_idif(fid2))
+		return fid_idif_id(fid1->f_seq, fid1->f_oid, fid1->f_ver) -
+		       fid_idif_id(fid2->f_seq, fid2->f_oid, fid2->f_ver);
+
+	return fid_oid(fid1) - fid_oid(fid2);
+}
+
 #define __diff_normalize(val0, val1)                            \
 ({                                                              \
         typeof(val0) __val0 = (val0);                           \
@@ -1246,7 +1258,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
                                 OBD_CONNECT_MAX_EASIZE | \
 				OBD_CONNECT_EINPROGRESS | \
 				OBD_CONNECT_JOBSTATS | \
-				OBD_CONNECT_LIGHTWEIGHT | OBD_CONNECT_LVB_TYPE)
+				OBD_CONNECT_LIGHTWEIGHT | \
+				OBD_CONNECT_LVB_TYPE)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
 				OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV | \
