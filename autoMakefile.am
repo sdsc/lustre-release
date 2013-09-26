@@ -162,15 +162,9 @@ srpm-real: @PACKAGE_TARNAME@.spec dist Makefile
 	eval rpmbuild $$RPMARGS -ts $(distdir).tar.gz
 
 rpms:
-if BUILD_LUSTREIOKIT
-	$(MAKE) -C @LUSTREIOKIT_SUBDIR@ $(AM_MAKEFLAGS) $@
-endif
 	$(MAKE) $(AM_MAKEFLAGS) rpms-real
 
 srpm:
-if BUILD_LUSTREIOKIT
-	$(MAKE) -C @LUSTREIOKIT_SUBDIR@ $(AM_MAKEFLAGS) $@
-endif
 	$(MAKE) $(AM_MAKEFLAGS) srpm-real
 
 # In the debs target, first make sure what's in the changelog reflects
