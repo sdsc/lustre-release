@@ -486,6 +486,54 @@ fid_build_pdo_res_name(const struct lu_fid *f,
         return name;
 }
 
+/**
+ * Build DLM resource name from object id & seq, which will be removed
+ * finnally, when we replace ost_id with FID in data stack.
+ *
+ * To keep the compatibility,
+ *    seq == fid_seq_mdt0(0), [0] = oid, [1] = seq
+ *    seq != fid_seq_mdt0(0), [0] = seq, [1] = oid
+ */
+static inline void ostid_build_res_name(obd_id id, obd_seq seq,
+					struct ldlm_res_id *name)
+{
+	memset(name, 0, sizeof *name);
+	if (fid_seq_is_mdt0(seq)) {
+		name->name[LUSTRE_RES_ID_SEQ_OFF] = id;
+		name->name[LUSTRE_RES_ID_VER_OID_OFF] = seq;
+	} else {
+		name->name[LUSTRE_RES_ID_SEQ_OFF] = seq;
+		name->name[LUSTRE_RES_ID_VER_OID_OFF] = id;
+	}
+}
+
+static inline void ostid_res_name_to_id(__u64 *id, __u64 *seq,
+					struct ldlm_res_id *name)
+{
+	/* the oid for the new fid would start from 1, otherwise it
+	 * confuse the function */
+	if (fid_seq_is_mdt0(name->name[LUSTRE_RES_ID_VER_OID_OFF])) {
+		*id = name->name[LUSTRE_RES_ID_SEQ_OFF];
+		*seq = name->name[LUSTRE_RES_ID_VER_OID_OFF];
+	} else {
+		*id = name->name[LUSTRE_RES_ID_VER_OID_OFF];
+		*seq = name->name[LUSTRE_RES_ID_SEQ_OFF];
+	}
+}
+
+/**
+ * Return true if the resource is for the object identified by this id & group.
+ */
+static inline int ostid_res_name_eq(__u64 id, __u64 seq,
+				    struct ldlm_res_id *name)
+{
+	if (fid_seq_is_mdt0(seq)) {
+		return name->name[0] == id && name->name[1] == seq;
+	} else {
+		return name->name[LUSTRE_RES_ID_VER_OID_OFF] == id &&
+		       name->name[LUSTRE_RES_ID_SEQ_OFF] == seq;
+	}
+}
 
 /**
  * Flatten 128-bit FID values into a 64-bit value for use as an inode number.
