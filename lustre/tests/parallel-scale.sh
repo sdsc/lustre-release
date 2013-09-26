@@ -11,6 +11,12 @@ init_logging
 #              bug 20670
 ALWAYS_EXCEPT="parallel_grouplock $PARALLEL_SCALE_EXCEPT"
 
+if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
+# bug number for skipped test:        LU-2887
+	ZFSSLOW=$SLOW
+	SLOW=no
+fi
+
 # common setup
 MACHINEFILE=${MACHINEFILE:-$TMP/$(basename $0 .sh).machines}
 clients=${CLIENTS:-$HOSTNAME}
@@ -123,6 +129,8 @@ test_statahead () {
     run_statahead
 }
 run_test statahead "statahead test, multiple clients"
+
+[ $(facet_fstype $SINGLEMDS) = "zfs" ] && SLOW=$ZFSSLOW
 
 complete $SECONDS
 check_and_cleanup_lustre
