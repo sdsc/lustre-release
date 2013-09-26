@@ -11,6 +11,10 @@ init_logging
 #              bug 20670
 ALWAYS_EXCEPT="parallel_grouplock $PARALLEL_SCALE_EXCEPT"
 
+[ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
+# bug number for skipped test:        LU-2887
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT simul"
+
 # common setup
 MACHINEFILE=${MACHINEFILE:-$TMP/$(basename $0 .sh).machines}
 clients=${CLIENTS:-$HOSTNAME}
