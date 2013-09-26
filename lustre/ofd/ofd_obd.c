@@ -1152,7 +1152,8 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 	struct ofd_thread_info	*info;
 	obd_seq			seq = oa->o_seq;
 	struct ofd_seq		*oseq;
-	int			 rc = 0, diff;
+	int			rc = 0, diff;
+	int			sync_trans = 0;
 
 	ENTRY;
 
@@ -1227,6 +1228,24 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			diff = 1; /* shouldn't we create this right now? */
 		} else {
 			diff = oa->o_id - ofd_seq_last_oid(oseq);
+			if (fid_seq_is_idif(oa->o_seq) ||
+				fid_seq_is_mdt0(oa->o_seq)) {
+				/* Do sync create if the seq is about to
+				 * used up */
+				if (oa->o_id >= IDIF_MAX_OID - 1)
+					sync_trans = 1;
+			} else {
+				if (!fid_seq_is_norm(oa->o_seq)) {
+					CERROR("%s : invalid o_seq "LPX64"\n",
+						ofd_name(ofd), oa->o_seq);
+					GOTO(out, rc = EINVAL);
+				}
+				/* Do sync create if the seq is about to
+				 * used up */
+				if (oa->o_id >= LUSTRE_DATA_SEQ_MAX_WIDTH - 1)
+					sync_trans = 1;
+			}
+
 		}
 	}
 	if (diff > 0) {
@@ -1267,7 +1286,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			}
 
 			rc = ofd_precreate_objects(env, ofd, next_id,
-						   oseq, count);
+						   oseq, count, sync_trans);
 			if (rc > 0) {
 				created += rc;
 				diff -= rc;
