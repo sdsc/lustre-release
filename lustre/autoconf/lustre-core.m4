@@ -1630,7 +1630,7 @@ AC_CHECK_FUNCS([inet_ntoa])
 # libsysio/src/readlink.c
 LC_READLINK_SSIZE_T
 
-# lvfs/prng.c - depends on linux/types.h from liblustre/dir.c
+# libcfs prng.c - depends on linux/types.h from liblustre/dir.c
 AC_CHECK_HEADERS([linux/random.h], [], [],
                  [#ifdef HAVE_LINUX_TYPES_H
                   # include <linux/types.h>
@@ -1779,8 +1779,6 @@ lustre/llite/autoMakefile
 lustre/lclient/Makefile
 lustre/lov/Makefile
 lustre/lov/autoMakefile
-lustre/lvfs/Makefile
-lustre/lvfs/autoMakefile
 lustre/mdc/Makefile
 lustre/mdc/autoMakefile
 lustre/lmv/Makefile
