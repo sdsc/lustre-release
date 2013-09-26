@@ -247,6 +247,8 @@ static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 	/* stop sync thread */
 	osp_sync_fini(d);
 
+	obd_fid_fini(d->opd_obd);
+
 	RETURN(rc);
 }
 
@@ -489,6 +491,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 
 	osp_lprocfs_init(m);
 
+<<<<<<< HEAD
 	/*
 	 * Initialize last id from the storage - will be used in orphan cleanup
 	 */
@@ -511,6 +514,12 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	if (rc)
 		GOTO(out_precreat, rc);
 
+	rc = obd_fid_init(m->opd_obd, NULL, LUSTRE_SEQ_DATA);
+	if (rc) {
+		CERROR("%s: fid init error: rc = %d\n",
+		       m->opd_obd->obd_name, rc);
+		GOTO(out, rc);
+	}
 	/*
 	 * Initiate connect to OST
 	 */
@@ -833,6 +842,9 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		d->opd_imp_seen_connected = 1;
 		if (is_osp_on_ost(d->opd_obd->obd_name))
 			break;
+		if (d->opd_obd->u.cli.cl_seq->lcs_exp == NULL)
+			d->opd_obd->u.cli.cl_seq->lcs_exp =
+					class_export_get(d->opd_exp);
 		cfs_waitq_signal(&d->opd_pre_waitq);
 		__osp_sync_check_for_work(d);
 		CDEBUG(D_HA, "got connected\n");
