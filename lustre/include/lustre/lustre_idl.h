@@ -455,15 +455,9 @@ static inline int fid_seq_is_mdt0(obd_seq seq)
         return (seq == FID_SEQ_OST_MDT0);
 }
 
-static inline int fid_seq_is_cmd(const __u64 seq)
-{
-        return (seq >= FID_SEQ_OST_MDT1 && seq <= FID_SEQ_OST_MAX);
-};
-
 static inline int fid_seq_is_mdt(const __u64 seq)
 {
-        return seq == FID_SEQ_OST_MDT0 ||
-               (seq >= FID_SEQ_OST_MDT1 && seq <= FID_SEQ_OST_MAX);
+	return seq == FID_SEQ_OST_MDT0 || seq >= FID_SEQ_NORMAL;
 };
 
 static inline int fid_seq_is_echo(obd_seq seq)
@@ -838,6 +832,11 @@ static inline int lu_fid_cmp(const struct lu_fid *f0,
                 __diff_normalize(fid_oid(f0), fid_oid(f1)) ?:
                 __diff_normalize(fid_ver(f0), fid_ver(f1));
 }
+
+enum lu_cli_type {
+	LUSTRE_SEQ_METADATA = 1,
+	LUSTRE_SEQ_DATA
+};
 
 /** @} lu_fid */
 
