@@ -327,6 +327,18 @@ int seq_client_get_seq(const struct lu_env *env,
 }
 EXPORT_SYMBOL(seq_client_get_seq);
 
+struct lu_fid *seq_client_get_current_fid(struct lu_client_seq *seq)
+{
+	RETURN(&seq->lcs_fid);
+}
+EXPORT_SYMBOL(seq_client_get_current_fid);
+
+void seq_client_set_fid(struct lu_client_seq *seq, struct lu_fid *fid)
+{
+	memcpy(&seq->lcs_fid, fid, sizeof(*fid));
+}
+EXPORT_SYMBOL(seq_client_set_fid);
+
 /* Allocate new fid on passed client @seq and save it to @fid. */
 int seq_client_alloc_fid(const struct lu_env *env,
                          struct lu_client_seq *seq, struct lu_fid *fid)
