@@ -4275,7 +4275,11 @@ error_noexit() {
 	if [ -z "$*" ]; then
 		echo "error() without useful message, please fix" > $LOGDIR/err
 	else
-		echo "$@" > $LOGDIR/err
+		if [[ `echo $TYPE | grep ^IGNORE` ]]; then
+			echo "$@" > $LOGDIR/ignore
+		else
+			echo "$@" > $LOGDIR/err
+		fi
 	fi
 }
 
