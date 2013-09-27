@@ -370,6 +370,9 @@ if test x$enable_dist != xno; then
         enable_liblustre='no'
         enable_doc='no'
         enable_tests='no'
+	# Enable following to avoid error during configure --enable-dist
+	AM_CONDITIONAL(NEED_PCLMULQDQ_CRC32,  true)
+	AM_CONDITIONAL(NEED_PCLMULQDQ_CRC32C, true)
 fi
 ])
 
