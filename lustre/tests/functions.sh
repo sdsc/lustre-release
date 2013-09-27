@@ -608,7 +608,7 @@ run_ior() {
     if [ $rc != 0 ] ; then
         error "ior failed! $rc"
     fi
-    rm -rf $testdir
+    strace -v rm -rf $testdir
 }
 
 run_mib() {
