@@ -356,6 +356,32 @@ LB_CHECK_SYMBOL_EXPORT([sock_alloc_file], [net/socket.c],[
 ])
 ])
 
+AC_DEFUN([LIBCFS_ENABLE_CRC32_ACCEL],
+[AC_MSG_CHECKING([kernel has crc32 pclmulqdq crypto api])
+LB_CHECK_FILE([$LINUX/arch/x86/crypto/crc32-pclmul_asm.S],[
+		enable_crc32_crypto=false
+		AC_MSG_RESULT(yes)
+	],[
+		enable_crc32_crypto=true
+		AC_MSG_RESULT(no)
+		AC_DEFINE(NEED_CRC32_ACCEL, 1, [need pclmulqdq based crc32])
+	])
+AM_CONDITIONAL(NEED_PCLMULQDQ_CRC32, test x$enable_crc32_crypto = xtrue)
+])
+
+AC_DEFUN([LIBCFS_ENABLE_CRC32C_ACCEL],
+[AC_MSG_CHECKING([kernel has crc32c pclmulqdq crypto api])
+LB_CHECK_FILE([$LINUX/arch/x86/crypto/crc32c-pcl-intel-asm_64.S],[
+		enable_crc32c_crypto=false
+		AC_MSG_RESULT(yes)
+	],[
+		enable_crc32c_crypto=true
+		AC_MSG_RESULT(no)
+		AC_DEFINE(NEED_CRC32C_ACCEL, 1, [need pclmulqdq based crc32c])
+	])
+AM_CONDITIONAL(NEED_PCLMULQDQ_CRC32C, test x$enable_crc32c_crypto = xtrue)
+])
+
 #
 # LIBCFS_PROG_LINUX
 #
@@ -385,6 +411,10 @@ LC_SK_SLEEP
 LC_SHRINK_CONTROL
 # 3.7
 LIBCFS_SOCK_ALLOC_FILE
+# 3.8
+LIBCFS_ENABLE_CRC32_ACCEL
+# 3.10
+LIBCFS_ENABLE_CRC32C_ACCEL
 ])
 
 #
