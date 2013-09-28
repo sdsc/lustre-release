@@ -73,6 +73,7 @@
 #include <lustre_quota.h>
 
 #include <ldiskfs/xattr.h>
+#include <ldiskfs/ldiskfs_extents.h>
 #include <lustre_linkea.h>
 
 int ldiskfs_pdo = 1;
@@ -1241,18 +1242,17 @@ static int osd_object_print(const struct lu_env *env, void *cookie,
                     d ? d->id_ops->id_name : "plain");
 }
 
-#define GRANT_FOR_LOCAL_OIDS 32 /* 128kB for last_rcvd, quota files, ... */
-
 /*
  * Concurrency: shouldn't matter.
  */
 int osd_statfs(const struct lu_env *env, struct dt_device *d,
                struct obd_statfs *sfs)
 {
-        struct osd_device  *osd = osd_dt_dev(d);
-        struct super_block *sb = osd_sb(osd);
-        struct kstatfs     *ksfs;
-        int result = 0;
+	struct osd_device	*osd = osd_dt_dev(d);
+	struct super_block	*sb = osd_sb(osd);
+	struct kstatfs		*ksfs;
+	__u64			 reserved;
+	int			 result = 0;
 
 	if (unlikely(osd->od_mnt == NULL))
 		return -EINPROGRESS;
@@ -1266,7 +1266,6 @@ int osd_statfs(const struct lu_env *env, struct dt_device *d,
                 ksfs = &osd_oti_get(env)->oti_ksfs;
         }
 
-	spin_lock(&osd->od_osfs_lock);
 	result = sb->s_op->statfs(sb->s_root, ksfs);
 	if (likely(result == 0)) { /* N.B. statfs can't really fail */
 		statfs_pack(sfs, ksfs);
@@ -1274,20 +1273,25 @@ int osd_statfs(const struct lu_env *env, struct dt_device *d,
 			sfs->os_state = OS_STATE_READONLY;
 	}
 
-	spin_unlock(&osd->od_osfs_lock);
-
 	if (unlikely(env == NULL))
                 OBD_FREE_PTR(ksfs);
 
-	/* Reserve a small amount of space for local objects like last_rcvd,
-	 * llog, quota files, ... */
-	if (sfs->os_bavail <= GRANT_FOR_LOCAL_OIDS) {
-		sfs->os_bavail = 0;
-	} else {
-		sfs->os_bavail -= GRANT_FOR_LOCAL_OIDS;
-		/** Take out metadata overhead for indirect blocks */
-		sfs->os_bavail -= sfs->os_bavail >> (sb->s_blocksize_bits - 3);
-	}
+	/*
+	 * Reserve some space so to avoid fragmenting the filesystem too much.
+	 * Fragmentation not only impacts performance, but can also increase
+	 * metadata overhead significantly, causing grant calculation to be
+	 * wrong.
+	 *
+	 * Reserve 0.78% of total space, at least 8MB for small filesystems.
+	 */
+	CLASSERT(OSD_STATFS_RESERVED > LDISKFS_MAX_BLOCK_SIZE);
+	reserved = OSD_STATFS_RESERVED >> sb->s_blocksize_bits;
+	if (likely(sfs->os_blocks >= reserved << OSD_STATFS_RESERVED_SHIFT))
+		reserved = sfs->os_blocks >> OSD_STATFS_RESERVED_SHIFT;
+
+	sfs->os_blocks -= reserved;
+	sfs->os_bfree  -= MIN(reserved, sfs->os_bfree);
+	sfs->os_bavail -= MIN(reserved, sfs->os_bavail);
 
         return result;
 }
@@ -1321,14 +1325,13 @@ static void osd_conf_get(const struct lu_env *env,
 	param->ddp_block_shift  = sb->s_blocksize_bits;
 	param->ddp_mount_type     = LDD_MT_LDISKFS;
 	param->ddp_maxbytes       = sb->s_maxbytes;
-	/* Overhead estimate should be fairly accurate, so we really take a tiny
-	 * error margin which also avoids fragmenting the filesystem too much */
-	param->ddp_grant_reserved = 2; /* end up to be 1.9% after conversion */
 	/* inode are statically allocated, so per-inode space consumption
 	 * is the space consumed by the directory entry */
 	param->ddp_inodespace     = PER_OBJ_USAGE;
-	/* per-fragment overhead to be used by the client code */
-	param->ddp_grant_frag     = 6 * LDISKFS_BLOCK_SIZE(sb);
+	/* maximum extent size */
+	param->ddp_max_ext_blks = EXT_INIT_MAX_LEN;
+	/* extent insertion metadata overhead */
+	param->ddp_ext_tax = 6 * LDISKFS_BLOCK_SIZE(sb);
         param->ddp_mntopts      = 0;
         if (test_opt(sb, XATTR_USER))
                 param->ddp_mntopts |= MNTOPT_USERXATTR;
