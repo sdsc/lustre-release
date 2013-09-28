@@ -1939,7 +1939,7 @@ static int mdd_create_sanity_check(const struct lu_env *env,
         case S_IFLNK: {
                 unsigned int symlen = strlen(spec->u.sp_symname) + 1;
 
-                if (symlen > (1 << m->mdd_dt_conf.ddp_block_shift))
+                if (symlen > m->mdd_dt_conf.ddp_symlink_max)
                         RETURN(-ENAMETOOLONG);
                 else
                         RETURN(0);
