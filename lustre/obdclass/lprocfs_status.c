@@ -697,7 +697,7 @@ EXPORT_SYMBOL(obd_connect_flags2str);
 static void obd_connect_data_seqprint(struct seq_file *m,
 				      struct obd_connect_data *ocd)
 {
-	int flags;
+	__u64 flags;
 
 	LASSERT(ocd != NULL);
 	flags = ocd->ocd_connect_flags;
@@ -727,10 +727,12 @@ static void obd_connect_data_seqprint(struct seq_file *m,
 	if (flags & OBD_CONNECT_GRANT_PARAM)
 		seq_printf(m, "       grant_block_size: %d\n"
 			      "       grant_inode_size: %d\n"
-			      "       grant_extent_overhead: %d\n",
-			      ocd->ocd_blocksize,
-			      ocd->ocd_inodespace,
-			      ocd->ocd_grant_extent);
+			      "       grant_max_extent_size: %d\n"
+			      "       grant_extent_tax: %d\n",
+			      1 << ocd->ocd_grant_blkbits,
+			      1 << ocd->ocd_grant_inobits,
+			      ocd->ocd_grant_max_blks << ocd->ocd_grant_blkbits,
+			      ocd->ocd_grant_tax_kb << 10);
 	if (flags & OBD_CONNECT_TRANSNO)
 		seq_printf(m, "       first_transno: "LPX64"\n",
 				ocd->ocd_transno);
