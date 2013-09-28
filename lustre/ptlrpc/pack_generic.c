@@ -1683,43 +1683,43 @@ EXPORT_SYMBOL(lustre_swab_ptlrpc_body);
 
 void lustre_swab_connect(struct obd_connect_data *ocd)
 {
-        __swab64s(&ocd->ocd_connect_flags);
-        __swab32s(&ocd->ocd_version);
-        __swab32s(&ocd->ocd_grant);
-        __swab64s(&ocd->ocd_ibits_known);
-        __swab32s(&ocd->ocd_index);
-        __swab32s(&ocd->ocd_brw_size);
-        /* ocd_blocksize and ocd_inodespace don't need to be swabbed because
-         * they are 8-byte values */
-        __swab16s(&ocd->ocd_grant_extent);
-        __swab32s(&ocd->ocd_unused);
-        __swab64s(&ocd->ocd_transno);
-        __swab32s(&ocd->ocd_group);
-        __swab32s(&ocd->ocd_cksum_types);
-        __swab32s(&ocd->ocd_instance);
-        /* Fields after ocd_cksum_types are only accessible by the receiver
-         * if the corresponding flag in ocd_connect_flags is set. Accessing
-         * any field after ocd_maxbytes on the receiver without a valid flag
-         * may result in out-of-bound memory access and kernel oops. */
-        if (ocd->ocd_connect_flags & OBD_CONNECT_MAX_EASIZE)
-                __swab32s(&ocd->ocd_max_easize);
-        if (ocd->ocd_connect_flags & OBD_CONNECT_MAXBYTES)
-                __swab64s(&ocd->ocd_maxbytes);
-        CLASSERT(offsetof(typeof(*ocd), padding1) != 0);
-        CLASSERT(offsetof(typeof(*ocd), padding2) != 0);
-        CLASSERT(offsetof(typeof(*ocd), padding3) != 0);
-        CLASSERT(offsetof(typeof(*ocd), padding4) != 0);
-        CLASSERT(offsetof(typeof(*ocd), padding5) != 0);
-        CLASSERT(offsetof(typeof(*ocd), padding6) != 0);
-        CLASSERT(offsetof(typeof(*ocd), padding7) != 0);
-        CLASSERT(offsetof(typeof(*ocd), padding8) != 0);
-        CLASSERT(offsetof(typeof(*ocd), padding9) != 0);
-        CLASSERT(offsetof(typeof(*ocd), paddingA) != 0);
-        CLASSERT(offsetof(typeof(*ocd), paddingB) != 0);
-        CLASSERT(offsetof(typeof(*ocd), paddingC) != 0);
-        CLASSERT(offsetof(typeof(*ocd), paddingD) != 0);
-        CLASSERT(offsetof(typeof(*ocd), paddingE) != 0);
-        CLASSERT(offsetof(typeof(*ocd), paddingF) != 0);
+	__swab64s(&ocd->ocd_connect_flags);
+	__swab32s(&ocd->ocd_version);
+	__swab32s(&ocd->ocd_grant);
+	__swab64s(&ocd->ocd_ibits_known);
+	__swab32s(&ocd->ocd_index);
+	__swab32s(&ocd->ocd_brw_size);
+	/* ocd_blocksize and ocd_inodespace don't need to be swabbed because
+	 * they are 8-byte values */
+	__swab16s(&ocd->ocd_grant_tax_kb);
+	__swab32s(&ocd->ocd_grant_max_blks);
+	__swab64s(&ocd->ocd_transno);
+	__swab32s(&ocd->ocd_group);
+	__swab32s(&ocd->ocd_cksum_types);
+	__swab32s(&ocd->ocd_instance);
+	/* Fields after ocd_cksum_types are only accessible by the receiver
+	 * if the corresponding flag in ocd_connect_flags is set. Accessing
+	 * any field after ocd_maxbytes on the receiver without a valid flag
+	 * may result in out-of-bound memory access and kernel oops. */
+	if (ocd->ocd_connect_flags & OBD_CONNECT_MAX_EASIZE)
+		__swab32s(&ocd->ocd_max_easize);
+	if (ocd->ocd_connect_flags & OBD_CONNECT_MAXBYTES)
+		__swab64s(&ocd->ocd_maxbytes);
+	CLASSERT(offsetof(typeof(*ocd), padding1) != 0);
+	CLASSERT(offsetof(typeof(*ocd), padding2) != 0);
+	CLASSERT(offsetof(typeof(*ocd), padding3) != 0);
+	CLASSERT(offsetof(typeof(*ocd), padding4) != 0);
+	CLASSERT(offsetof(typeof(*ocd), padding5) != 0);
+	CLASSERT(offsetof(typeof(*ocd), padding6) != 0);
+	CLASSERT(offsetof(typeof(*ocd), padding7) != 0);
+	CLASSERT(offsetof(typeof(*ocd), padding8) != 0);
+	CLASSERT(offsetof(typeof(*ocd), padding9) != 0);
+	CLASSERT(offsetof(typeof(*ocd), paddingA) != 0);
+	CLASSERT(offsetof(typeof(*ocd), paddingB) != 0);
+	CLASSERT(offsetof(typeof(*ocd), paddingC) != 0);
+	CLASSERT(offsetof(typeof(*ocd), paddingD) != 0);
+	CLASSERT(offsetof(typeof(*ocd), paddingE) != 0);
+	CLASSERT(offsetof(typeof(*ocd), paddingF) != 0);
 }
 
 void lustre_swab_obdo (struct obdo  *o)
