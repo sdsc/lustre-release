@@ -418,15 +418,17 @@ int fld_client_rpc(struct obd_export *exp,
                    struct lu_seq_range *range, __u32 fld_op)
 {
         struct ptlrpc_request *req;
-        struct lu_seq_range      *prange;
+	struct lu_seq_range   *prange;
         __u32                 *op;
         int                    rc;
+	struct obd_import     *imp;
         ENTRY;
 
         LASSERT(exp != NULL);
 
-        req = ptlrpc_request_alloc_pack(class_exp2cliimp(exp), &RQF_FLD_QUERY,
-                                        LUSTRE_MDS_VERSION, FLD_QUERY);
+	imp = class_exp2cliimp(exp);
+	req = ptlrpc_request_alloc_pack(imp, &RQF_FLD_QUERY, LUSTRE_MDS_VERSION,
+					FLD_QUERY);
         if (req == NULL)
                 RETURN(-ENOMEM);
 
@@ -439,6 +441,10 @@ int fld_client_rpc(struct obd_export *exp,
         ptlrpc_request_set_replen(req);
         req->rq_request_portal = FLD_REQUEST_PORTAL;
         ptlrpc_at_set_req_timeout(req);
+
+	if (fld_op == FLD_LOOKUP &&
+	    imp->imp_connect_flags_orig & OBD_CONNECT_MDS_MDS)
+		req->rq_allow_replay = 1;
 
         if (fld_op != FLD_LOOKUP)
                 mdc_get_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
@@ -488,9 +494,8 @@ int fld_client_lookup(struct lu_client_fld *fld, seqno_t seq, mdsno_t *mds,
         res.lsr_flags = flags;
 #ifdef __KERNEL__
         if (target->ft_srv != NULL) {
-                LASSERT(env != NULL);
-                rc = fld_server_lookup(target->ft_srv,
-                                       env, seq, &res);
+		LASSERT(env != NULL);
+		rc = fld_server_lookup(env, target->ft_srv, seq, &res);
         } else {
 #endif
                 rc = fld_client_rpc(target->ft_exp,
@@ -502,7 +507,7 @@ int fld_client_lookup(struct lu_client_fld *fld, seqno_t seq, mdsno_t *mds,
         if (rc == 0) {
                 *mds = res.lsr_index;
 
-                fld_cache_insert(fld->lcf_cache, &res);
+		fld_cache_insert(fld->lcf_cache, &res);
         }
         RETURN(rc);
 }

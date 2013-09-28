@@ -1520,6 +1520,7 @@ node_var_name() {
 start_client_load() {
     local client=$1
     local load=$2
+	local nodenum=$3
     local var=$(node_var_name $client)_load
     eval export ${var}=$load
 
@@ -1531,6 +1532,9 @@ TESTLOG_PREFIX=$TESTLOG_PREFIX \
 TESTNAME=$TESTNAME \
 DBENCH_LIB=$DBENCH_LIB \
 DBENCH_SRC=$DBENCH_SRC \
+MDTCOUNT=$MDSCOUNT \
+LFS=$LFS \
+NODENUM=$nodenum \
 run_${load}.sh" &
     local ppid=$!
     log "Started client load: ${load} on $client"
@@ -1546,10 +1550,11 @@ start_client_loads () {
     local numloads=${#CLIENT_LOADS[@]}
     local testnum
 
-    for ((nodenum=0; nodenum < ${#clients[@]}; nodenum++ )); do
-        testnum=$((nodenum % numloads))
-        start_client_load ${clients[nodenum]} ${CLIENT_LOADS[testnum]}
-    done
+	for ((nodenum=0; nodenum < ${#clients[@]}; nodenum++ )); do
+		testnum=$((nodenum % numloads))
+		start_client_load ${clients[nodenum]} ${CLIENT_LOADS[testnum]} \
+								$nodenum
+	done
     # bug 22169: wait the background threads to start
     sleep 2
 }
@@ -1622,30 +1627,33 @@ check_client_loads () {
 }
 
 restart_client_loads () {
-    local clients=${1//,/ }
-    local expectedfail=${2:-""}
-    local client=
-    local rc=0
+	local clients=${1//,/ }
+	local nodes=$2
+	local expectedfail=${3:-""}
+	local client=
+	local client_index=
+	local rc=0
 
-    for client in $clients; do
-        check_client_load $client
-        rc=${PIPESTATUS[0]}
-        if [ "$rc" != 0 -a "$expectedfail" ]; then
-            local var=$(node_var_name $client)_load
-            start_client_load $client ${!var}
-            echo "Restarted client load ${!var}: on $client. Checking ..."
-            check_client_load $client
-            rc=${PIPESTATUS[0]}
-            if [ "$rc" != 0 ]; then
-                log "Client load failed to restart on node $client, rc=$rc"
-                # failure one client load means test fail
-                # we do not need to check other
-                return $rc
-            fi
-        else
-            return $rc
-        fi
-    done
+	for client in $clients; do
+		client_index=$(get_entry_index $client $nodes)
+		check_client_load $client
+		rc=${PIPESTATUS[0]}
+		if [ "$rc" != 0 -a "$expectedfail" ]; then
+			local var=$(node_var_name $client)_load
+			start_client_load $client ${!var} $client_index
+			echo "Restarted client load ${!var}: on $client."
+    			check_client_load $client
+			rc=${PIPESTATUS[0]}
+			if [ "$rc" != 0 ]; then
+				log "start load failed on $client, rc=$rc"
+				# failure one client load means test fail
+				# we do not need to check other
+				return $rc
+			fi
+		else
+			return $rc
+		fi
+	done
 }
 
 # Start vmstat and save its process ID in a file.
@@ -2110,7 +2118,6 @@ obd_name() {
 
 replay_barrier() {
     local facet=$1
-    do_facet $facet "sync; sync; sync"
     df $MOUNT
 
     # make sure there will be no seq change
@@ -2118,6 +2125,8 @@ replay_barrier() {
     local f=fsa-\\\$\(hostname\)
     do_nodes $clients "mcreate $MOUNT/$f; rm $MOUNT/$f"
     do_nodes $clients "if [ -d $MOUNT2 ]; then mcreate $MOUNT2/$f; rm $MOUNT2/$f; fi"
+
+    do_facet $facet "sync; sync; sync"
 
     local svc=${facet}_svc
     do_facet $facet $LCTL --device %${!svc} notransno
@@ -2790,6 +2799,7 @@ upper() {
 mkfs_opts() {
 	local facet=$1
 	local dev=$2
+	local fsname=${3:-"$FSNAME"}
 	local type=$(facet_type $facet)
 	local index=$(($(facet_number $facet) - 1))
 	local fstype=$(facet_fstype $facet)
@@ -2811,7 +2821,7 @@ mkfs_opts() {
 	fi
 
 	if [ $type != MGS ]; then
-		opts+=" --fsname=$FSNAME --$(lower ${type/MDS/MDT}) --index=$index"
+		opts+=" --fsname=$fsname --$(lower ${type/MDS/MDT}) --index=$index"
 	fi
 
 	var=${facet}failover_HOST
@@ -2945,23 +2955,31 @@ remount_client()
         zconf_mount `hostname` $1 || error "mount failed"
 }
 
-writeconf_facet () {
-    local facet=$1
-    local dev=$2
+writeconf_facet() {
+	local facet=$1
+	local dev=$2
 
-    do_facet $facet "$TUNEFS --writeconf $dev"
+	stop ${facet} -f
+	rm -f ${facet}active
+	do_facet ${facet} "$TUNEFS --quiet --writeconf $dev" || return 1
+	return 0
 }
 
 writeconf_all () {
-    for num in `seq $MDSCOUNT`; do
-        DEVNAME=$(mdsdevname $num)
-        writeconf_facet mds$num $DEVNAME
-    done
+	local mdt_count=${1:-$MDSCOUNT}
+	local ost_count=${2:-$OSTCOUNT}
+	local rc=0
 
-    for num in `seq $OSTCOUNT`; do
-        DEVNAME=$(ostdevname $num)
-        writeconf_facet ost$num $DEVNAME
-    done
+	for num in $(seq $mdt_count); do
+		DEVNAME=$(mdsdevname $num)
+		writeconf_facet mds$num $DEVNAME || rc=$?
+	done
+
+	for num in $(seq $ost_count); do
+		DEVNAME=$(ostdevname $num)
+		writeconf_facet ost$num $DEVNAME || rc=$?
+	done
+	return $rc
 }
 
 setupall() {
@@ -3763,6 +3781,17 @@ drop_reint_reply() {
     return $RC
 }
 
+drop_update_reply() {
+# OBD_FAIL_MDS_OBJ_UPDATE_NET
+	local index=$1
+	shift 1
+	RC=0
+	do_facet mds${index} lctl set_param fail_loc=0x188
+	do_facet client "$@" || RC=$?
+	do_facet mds${index} lctl set_param fail_loc=0
+	return $RC
+}
+
 pause_bulk() {
 #define OBD_FAIL_OST_BRW_PAUSE_BULK      0x214
     RC=0
@@ -4183,7 +4212,10 @@ run_one() {
     reset_fail_loc
     check_grant ${testnum} || error "check_grant $testnum failed with $?"
     check_catastrophe || error "LBUG/LASSERT detected"
-    ps auxww | grep -v grep | grep -q multiop && error "multiop still running"
+	if [ "$PARALLEL" != "yes" ]; then
+		ps auxww | grep -v grep | grep -q multiop &&
+					error "multiop still running"
+	fi
     unset TESTNAME
     unset tdir
     umask $SAVE_UMASK
@@ -4474,6 +4506,23 @@ get_random_entry () {
     local i=$((RANDOM * num * 2 / 65536))
 
     echo ${nodes[i]}
+}
+
+get_entry_index () {
+	local node=$1
+	local rnodes=$2
+	local i
+
+	rnodes=${rnodes//,/ }
+
+	local -a nodes=($rnodes)
+
+	for ((i=0; $i<${#nodes[@]}; i++)); do
+		if [ "$node" == "${nodes[i]}" ]; then
+			break;
+		fi
+	done
+	echo $i
 }
 
 client_only () {
@@ -5888,3 +5937,65 @@ generate_logname() {
 
 	echo "$TESTLOG_PREFIX.$TESTNAME.$logname.$(hostname -s).log"
 }
+
+# mkdir directory on different MDTs
+test_mkdir() {
+	local option
+	local parent
+	local child
+	local path
+	local dir
+	local rc=0
+
+	if [ $# -eq 2 ]; then
+		option=$1
+		path=$2
+	else
+		path=$1
+	fi
+
+	child=${path##*/}
+	parent=${path%/*}
+
+	if [ "$parent" == "$child" ]; then
+		parent=$(pwd)
+	fi
+
+	if [ "$option" == "-p" -a -d ${parent}/${child} ]; then
+		return $rc
+	fi
+
+	# it needs to check whether there is further / in child
+	dir=$(echo $child | awk -F '/' '{print $2}')
+	if [ ! -z "$dir" ]; then
+		local subparent=$(echo $child | awk -F '/' '{ print $1 }')
+		parent=${parent}"/"${subparent}
+		child=$dir
+	fi
+
+	if [ ! -d ${parent} ]; then
+		if [ "$option" == "-p" ]; then
+			mkdir -p ${parent}
+		else
+			return 1
+		fi
+	fi
+
+	if [ $MDSCOUNT -le 1 ]; then
+		mkdir $option ${parent}/${child} || rc=$?
+	else
+		local mdt_idx=$($LFS getstripe -M $parent)
+
+		if [ "$mdt_idx" -ne 0 ]; then
+			mkdir $option ${parent}/${child} || rc=$?
+			return $rc
+		fi
+
+		local test_num=$(echo $testnum | sed -e 's/[^0-9]*//g')
+		local mdt_idx=$((test_num % MDSCOUNT))
+		echo "mkdir $mdt_idx for ${parent}/${child}"
+		$LFS mkdir -i $mdt_idx ${parent}/${child} || rc=$?
+	fi
+	return $rc
+}
+

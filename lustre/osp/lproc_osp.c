@@ -291,7 +291,8 @@ static int osp_rd_prealloc_next_id(char *page, char **start, off_t off,
 	if (osp == NULL)
 		return 0;
 
-	return snprintf(page, count, LPU64"\n", osp->opd_pre_used_id + 1);
+	return snprintf(page, count, "%u\n",
+			fid_oid(&osp->opd_pre_used_fid) + 1);
 }
 
 static int osp_rd_prealloc_last_id(char *page, char **start, off_t off,
@@ -303,7 +304,34 @@ static int osp_rd_prealloc_last_id(char *page, char **start, off_t off,
 	if (osp == NULL)
 		return 0;
 
-	return snprintf(page, count, LPU64"\n", osp->opd_pre_last_created);
+	return snprintf(page, count, "%u\n",
+			fid_oid(&osp->opd_pre_last_created_fid));
+}
+
+static int osp_rd_prealloc_next_seq(char *page, char **start, off_t off,
+				    int count, int *eof, void *data)
+{
+	struct obd_device *obd = data;
+	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
+
+	if (osp == NULL)
+		return 0;
+
+	return snprintf(page, count, LPX64"\n",
+			fid_seq(&osp->opd_pre_used_fid));
+}
+
+static int osp_rd_prealloc_last_seq(char *page, char **start, off_t off,
+				    int count, int *eof, void *data)
+{
+	struct obd_device *obd = data;
+	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
+
+	if (osp == NULL)
+		return 0;
+
+	return snprintf(page, count, LPX64"\n",
+			fid_seq(&osp->opd_pre_last_created_fid));
 }
 
 static int osp_rd_prealloc_reserved(char *page, char **start, off_t off,
@@ -414,7 +442,9 @@ static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	{ "max_create_count",	osp_rd_max_create_count,
 				osp_wr_max_create_count, 0 },
 	{ "prealloc_next_id",	osp_rd_prealloc_next_id, 0, 0 },
-	{ "prealloc_last_id",	osp_rd_prealloc_last_id, 0, 0 },
+	{ "prealloc_next_seq",  osp_rd_prealloc_next_seq, 0, 0 },
+	{ "prealloc_last_id",   osp_rd_prealloc_last_id,  0, 0 },
+	{ "prealloc_last_seq",  osp_rd_prealloc_last_seq, 0, 0 },
 	{ "prealloc_reserved",	osp_rd_prealloc_reserved, 0, 0 },
 	{ "timeouts",		lprocfs_rd_timeouts, 0, 0 },
 	{ "import",		lprocfs_rd_import, lprocfs_wr_import, 0 },
@@ -479,22 +509,24 @@ void osp_lprocfs_init(struct osp_device *osp)
 	ptlrpc_lprocfs_register_obd(obd);
 
 	/* for compatibility we link old procfs's OSC entries to osp ones */
-	osc_proc_dir = lprocfs_srch(proc_lustre_root, "osc");
-	if (osc_proc_dir) {
-		cfs_proc_dir_entry_t	*symlink = NULL;
-		char			*name;
+	if (!osp->opd_connect_mdt) {
+		osc_proc_dir = lprocfs_srch(proc_lustre_root, "osc");
+		if (osc_proc_dir) {
+			cfs_proc_dir_entry_t	*symlink = NULL;
+			char			*name;
 
-		OBD_ALLOC(name, strlen(obd->obd_name) + 1);
-		if (name == NULL)
-			return;
+			OBD_ALLOC(name, strlen(obd->obd_name) + 1);
+			if (name == NULL)
+				return;
 
-		strcpy(name, obd->obd_name);
-		if (strstr(name, "osc"))
-			symlink = lprocfs_add_symlink(name, osc_proc_dir,
-						      "../osp/%s",
-						      obd->obd_name);
-		OBD_FREE(name, strlen(obd->obd_name) + 1);
-		osp->opd_symlink = symlink;
+			strcpy(name, obd->obd_name);
+			if (strstr(name, "osc"))
+				symlink = lprocfs_add_symlink(name, osc_proc_dir,
+							      "../osp/%s",
+							      obd->obd_name);
+			OBD_FREE(name, strlen(obd->obd_name) + 1);
+			osp->opd_symlink = symlink;
+		}
 	}
 }
 
