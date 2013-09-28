@@ -410,11 +410,10 @@ static int osd_objset_statfs(struct objset *os, struct obd_statfs *osfs)
 	 * for internal files to be created/unlinked when space is tight.
 	 */
 	CLASSERT(OSD_STATFS_RESERVED_BLKS > 0);
-	if (likely(osfs->os_blocks >=
-			OSD_STATFS_RESERVED_BLKS << OSD_STATFS_RESERVED_SHIFT))
+	reserved = OSD_STATFS_RESERVED_BLKS;
+	if (likely(osfs->os_blocks >= reserved << OSD_STATFS_RESERVED_SHIFT &&
+		   osfs->os_bavail > reserved))
 		reserved = osfs->os_blocks >> OSD_STATFS_RESERVED_SHIFT;
-	else
-		reserved = OSD_STATFS_RESERVED_BLKS;
 
 	osfs->os_blocks -= reserved;
 	osfs->os_bfree  -= MIN(reserved, osfs->os_bfree);
@@ -516,20 +515,15 @@ static void osd_conf_get(const struct lu_env *env,
 	/* for maxbytes, report same value as ZPL */
 	param->ddp_maxbytes	= MAX_LFS_FILESIZE;
 
-	/* Default reserved fraction of the available space that should be kept
-	 * for error margin. Unfortunately, there are many factors that can
-	 * impact the overhead with zfs, so let's be very cautious for now and
-	 * reserve 20% of the available space which is not given out as grant.
-	 * This tunable can be changed on a live system via procfs if needed. */
-	param->ddp_grant_reserved = 20;
-
 	/* inodes are dynamically allocated, so we report the per-inode space
 	 * consumption to upper layers. This static value is not really accurate
 	 * and we should use the same logic as in udmu_objset_statfs() to
 	 * estimate the real size consumed by an object */
 	param->ddp_inodespace = OSD_DNODE_EST_COUNT;
-	/* per-fragment overhead to be used by the client code */
-	param->ddp_grant_frag = osd_blk_insert_cost();
+	/* ZFS isn't an extent-based filesystem, so report 1 block per extent */
+	param->ddp_max_ext_blks = 1;
+	/* metadata overhead of block insertion */
+	param->ddp_ext_tax = osd_blk_insert_cost();
 }
 
 /*
