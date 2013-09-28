@@ -71,7 +71,7 @@
 #define OSD_GFP_IO		(GFP_NOFS | __GFP_HIGHMEM)
 
 /* Statfs space reservation for grant, fragmentation, and unlink space. */
-#define OSD_STATFS_RESERVED_BLKS  (1ULL << (22 - SPA_MAXBLOCKSHIFT)) /* 4MB */
+#define OSD_STATFS_RESERVED_BLKS  (1ULL << (24 - SPA_MAXBLOCKSHIFT)) /* 16MB */
 #define OSD_STATFS_RESERVED_SHIFT (7)         /* reserve 0.78% of all space */
 
 /* Statfs {minimum, safe estimate, and maximum} dnodes per block */
