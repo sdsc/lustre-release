@@ -44,6 +44,7 @@
 #define _LUSTRE_OST_H
 
 #include <obd_class.h>
+#include <lustre_fid.h>
 
 struct osc_brw_async_args {
         struct obdo       *aa_oa;
@@ -97,21 +98,44 @@ int osc_extent_blocking_cb(struct ldlm_lock *lock,
 /** 
  * Build DLM resource name from object id & group for osc-ost extent lock.
  */
-static inline struct ldlm_res_id *osc_build_res_name(__u64 id, __u64 gr,
-                                                     struct ldlm_res_id *name)
+static inline struct ldlm_res_id *osc_build_res_name(__u64 id, __u64 seq,
+						      struct ldlm_res_id *name)
 {
-        memset(name, 0, sizeof *name);
-        name->name[0] = id;
-        name->name[1] = gr;
-        return name;
+	memset(name, 0, sizeof *name);
+	if (fid_seq_is_mdt0(seq)) {
+		name->name[LUSTRE_RES_ID_SEQ_OFF] = id;
+		name->name[LUSTRE_RES_ID_VER_OID_OFF] = seq;
+	} else {
+		name->name[LUSTRE_RES_ID_VER_OID_OFF] = id;
+		name->name[LUSTRE_RES_ID_SEQ_OFF] = seq;
+	}
+	return name;
+}
+
+static inline void osc_res_name_to_id(__u64 *id, __u64 *seq,
+				      struct ldlm_res_id *name)
+{
+	/* XXX: the oid for the new fid would start from 1, otherwise it
+	 * confuse the function */
+	if (fid_seq_is_mdt0(name->name[LUSTRE_RES_ID_VER_OID_OFF])) {
+		*id = name->name[LUSTRE_RES_ID_SEQ_OFF];
+		*seq = name->name[LUSTRE_RES_ID_VER_OID_OFF];
+	} else {
+		*id = name->name[LUSTRE_RES_ID_VER_OID_OFF];
+		*seq = name->name[LUSTRE_RES_ID_SEQ_OFF];
+	}
 }
 
 /**
  * Return true if the resource is for the object identified by this id & group.
  */
-static inline int osc_res_name_eq(__u64 id, __u64 gr, struct ldlm_res_id *name)
+static inline int osc_res_name_eq(__u64 id, __u64 seq, struct ldlm_res_id *name)
 {
-        return name->name[0] == id && name->name[1] == gr;
+	if (fid_seq_is_mdt0(seq))
+		return name->name[0] == id && name->name[1] == seq;
+	else
+		return name->name[LUSTRE_RES_ID_VER_OID_OFF] == id &&
+		       name->name[LUSTRE_RES_ID_SEQ_OFF] == seq;
 }
 
 #endif

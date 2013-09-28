@@ -156,6 +156,7 @@ struct osd_thread_info {
 	struct luz_direntry	 oti_zde;
 
 	struct lquota_id_info	 oti_qi;
+	struct lu_seq_range	oti_seq_range;
 };
 
 extern struct lu_context_key osd_key;
@@ -334,6 +335,15 @@ static inline int osd_object_invariant(const struct lu_object *l)
 	return osd_invariant(osd_obj(l));
 }
 
+static inline struct md_site *osd_md_site(struct osd_device *osd)
+{
+	return osd->od_dt_dev.dd_lu_dev.ld_site->ld_md_site;
+}
+
+static inline char *osd_name(struct osd_device *osd)
+{
+	return osd->od_dt_dev.dd_lu_dev.ld_obd->obd_name;
+}
 
 #ifdef LPROCFS
 enum {

@@ -61,6 +61,7 @@
 #include <sys/xattr.h>
 #include <fnmatch.h>
 #include <glob.h>
+#include <libgen.h>
 #ifdef HAVE_LINUX_UNISTD_H
 #include <linux/unistd.h>
 #else
@@ -646,6 +647,149 @@ int llapi_file_create_pool(const char *name, unsigned long long stripe_size,
         return 0;
 }
 
+int llapi_dir_create_pool(const char *name, int flags, int stripe_offset,
+			  int stripe_count, int stripe_pattern, char *pool_name)
+{
+	struct lmv_user_md lmu = {0};
+	struct obd_ioctl_data data = { 0 };
+	char rawbuf[8192];
+	char *buf = rawbuf;
+	char *dirpath = NULL;
+	char *namepath = NULL;
+	char *dir;
+	char *filename;
+	int fd = 0;
+	uid_t uid;
+	gid_t gid;
+	int rc;
+
+	uid = geteuid();
+	gid = getegid();
+	if (uid != 0 || gid != 0) {
+		fprintf(stderr, "only sysadmin can create remote dir\n");
+		return -EACCES;
+	}
+
+	dirpath = strdup(name);
+	namepath = strdup(name);
+	if (!dirpath || !namepath)
+		return -ENOMEM;
+
+	lmu.lum_magic = LMV_USER_MAGIC;
+	lmu.lum_stripe_offset = stripe_offset;
+	lmu.lum_stripe_count = stripe_count;
+	filename = basename(namepath);
+
+	lmu.lum_type = LMV_STRIPE_TYPE;
+	dir = dirname(dirpath);
+
+	data.ioc_inlbuf1 = (char *)filename;
+	data.ioc_inllen1 = strlen(filename) + 1;
+	data.ioc_inlbuf2 = (char *)&lmu;
+	data.ioc_inllen2 = sizeof(struct lmv_user_md);
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "error: IOC_LMV_SETSTRIPE pack failed for '%s'.",
+			    name);
+		free(dirpath);
+		free(namepath);
+		return rc;
+	}
+
+	fd = open(dir, O_DIRECTORY|O_RDONLY);
+	if (fd < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "unable to open '%s'", name);
+		free(dirpath);
+		free(namepath);
+		return rc;
+	}
+
+	if (ioctl(fd, LL_IOC_LMV_SETSTRIPE, buf)) {
+		char *errmsg = "stripe already set";
+		rc = -errno;
+		if (errno != EEXIST && errno != EALREADY)
+			errmsg = strerror(errno);
+
+		llapi_err_noerrno(LLAPI_MSG_ERROR,
+				  "error on ioctl "LPX64" for '%s' (%d): %s",
+				  (__u64)LL_IOC_LMV_SETSTRIPE, name, fd,
+				  errmsg);
+	}
+
+	free(dirpath);
+	free(namepath);
+	close(fd);
+	return rc;
+}
+
+int llapi_direntry_remove(char *dname)
+{
+	struct obd_ioctl_data data = { 0 };
+	char rawbuf[8192];
+	char *buf = rawbuf;
+	char *dirpath = NULL;
+	char *namepath = NULL;
+	char *dir;
+	char *filename;
+	int fd = 0;
+	int rc;
+	uid_t uid;
+	gid_t gid;
+
+	uid = geteuid();
+	gid = getegid();
+	if (uid != 0 || gid != 0) {
+		fprintf(stderr, "only sysadmin can remove remote dir\n");
+		return -EACCES;
+	}
+
+	dirpath = strdup(dname);
+	namepath = strdup(dname);
+	if (!dirpath || !namepath)
+		return -ENOMEM;
+
+	filename = basename(namepath);
+
+	dir = dirname(dirpath);
+
+	data.ioc_inlbuf1 = (char *)filename;
+	data.ioc_inllen1 = strlen(filename) + 1;
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "error: IOC_REMOVE_ENTRY pack failed for '%s'.",
+			    filename);
+		free(dirpath);
+		free(namepath);
+		return rc;
+	}
+
+	fd = open(dir, O_DIRECTORY|O_RDONLY);
+	if (fd < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "unable to open '%s'",
+			    filename);
+		free(dirpath);
+		free(namepath);
+		return rc;
+	}
+
+	if (ioctl(fd, LL_IOC_REMOVE_ENTRY, buf)) {
+		char *errmsg = strerror(errno);
+		llapi_err_noerrno(LLAPI_MSG_ERROR,
+				  "error on ioctl "LPX64" for '%s' (%d): %s",
+				  (__u64)LL_IOC_LMV_SETSTRIPE, filename,
+				  fd, errmsg);
+	}
+
+	free(dirpath);
+	free(namepath);
+	close(fd);
+	return rc;
+}
+
 /*
  * Find the fsname, the full path, and/or an open fd.
  * Either the fsname or path must not be NULL
@@ -1130,6 +1274,16 @@ static int common_param_init(struct find_param *param, char *path)
                 return -ENOMEM;
         }
 
+	/* FIXME: need allocate more, if there are real dir stripe */
+	param->lmvlen = lmv_user_md_size(1, LMV_MAGIC_V1);
+	param->lmv_md = malloc(param->lmvlen);
+	if (param->lmv_md == NULL) {
+		llapi_error(LLAPI_MSG_ERROR, -ENOMEM,
+			  "error: allocation of %d bytes for ioctl",
+			  param->lmvlen);
+		return -ENOMEM;
+	}
+
         param->got_uuids = 0;
         param->obdindexes = NULL;
         param->obdindex = OBD_NOT_FOUND;
@@ -1143,6 +1297,9 @@ static void find_param_fini(struct find_param *param)
 
         if (param->lmd)
                 free(param->lmd);
+
+	if (param->lmv_md)
+		free(param->lmv_md);
 }
 
 static int cb_common_fini(char *path, DIR *parent, DIR *d, void *data,
@@ -1169,6 +1326,16 @@ static DIR *opendir_parent(char *path)
         parent = opendir(path);
         fname[1] = c;
         return parent;
+}
+
+static int cb_get_dirstripe(char *path, DIR *d, struct find_param *param)
+{
+	struct lmv_user_md *lmv = (struct lmv_user_md *)param->lmv_md;
+	int ret = 0;
+
+	lmv->lum_magic = LMV_MAGIC_V1;
+	ret = ioctl(dirfd(d), LL_IOC_LMV_GETSTRIPE, lmv);
+	return ret;
 }
 
 static int get_lmd_info(char *path, DIR *parent, DIR *dir,
@@ -1218,7 +1385,7 @@ static int get_lmd_info(char *path, DIR *parent, DIR *dir,
                 } else {
                         ret = -errno;
                         llapi_error(LLAPI_MSG_ERROR, ret,
-                                   "error: %s: IOC_MDC_GETFILEINFO failed for %s",
+				 "error: %s: IOC_MDC_GETFILEINFO failed for %s",
                                    __func__, path);
                 }
         }
@@ -1238,6 +1405,7 @@ static int llapi_semantic_traverse(char *path, int size, DIR *parent,
                                    semantic_func_t sem_fini, void *data,
                                    cfs_dirent_t *de)
 {
+	struct find_param *param = (struct find_param *)data;
         cfs_dirent_t *dent;
         int len, ret;
         DIR *d, *p = NULL;
@@ -1261,11 +1429,11 @@ static int llapi_semantic_traverse(char *path, int size, DIR *parent,
         if (sem_init && (ret = sem_init(path, parent ?: p, d, data, de)))
                 goto err;
 
-        if (!d)
+	if (!d || (param->get_lmv && !param->recursive))
                 GOTO(out, ret = 0);
 
         while ((dent = readdir64(d)) != NULL) {
-                ((struct find_param *)data)->have_fileinfo = 0;
+		param->have_fileinfo = 0;
 
                 if (!strcmp(dent->d_name, ".") || !strcmp(dent->d_name, ".."))
                         continue;
@@ -1285,15 +1453,38 @@ static int llapi_semantic_traverse(char *path, int size, DIR *parent,
                 strcat(path, dent->d_name);
 
                 if (dent->d_type == DT_UNKNOWN) {
-                        lstat_t *st = &((struct find_param *)data)->lmd->lmd_st;
+			lstat_t *st = &param->lmd->lmd_st;
 
-                        ret = llapi_mds_getfileinfo(path, d,
-                                             ((struct find_param *)data)->lmd);
+			ret = llapi_mds_getfileinfo(path, d, param->lmd);
                         if (ret == 0) {
-                                ((struct find_param *)data)->have_fileinfo = 1;
                                 dent->d_type =
                                         llapi_filetype_dir_table[st->st_mode &
                                                                  S_IFMT];
+				if (dent->d_type == DT_DIR) {
+					DIR *dir = opendir(path);
+					if (!dir) {
+						ret = errno;
+						llapi_error(LLAPI_MSG_ERROR,
+						 ret, "%s: Failed to open '%s'",
+						      __func__, path);
+					} else {
+						ret = cb_get_dirstripe(path,
+								    dir, param);
+						closedir(dir);
+					}
+				} else {
+					int fd;
+					fd = open(path, O_RDONLY);
+					if (fd > 0) {
+						ret = llapi_file_fget_mdtidx(fd,
+							      &param->mdtindex);
+						close(fd);
+					} else {
+						ret = fd;
+					}
+				}
+				if (ret == 0)
+					param->have_fileinfo = 1;
                         }
                         if (ret == -ENOENT)
                                 continue;
@@ -2009,26 +2200,106 @@ void lov_dump_user_lmm_v1v3(struct lov_user_md *lum, char *pool_name,
         if (!is_dir && (header & VERBOSE_OBJID)) {
                 if (obdstripe == 1)
                         llapi_printf(LLAPI_MSG_NORMAL,
-                                     "\tobdidx\t\t objid\t\tobjid\t\t group\n");
+				   "\tobdidx\t\t objid\t\t objid\t\t group\n");
 
                 for (i = 0; i < lum->lmm_stripe_count; i++) {
                         int idx = objects[i].l_ost_idx;
                         long long oid = objects[i].l_object_id;
                         long long gr = objects[i].l_object_seq;
-                        if ((obdindex == OBD_NOT_FOUND) || (obdindex == idx))
-                                llapi_printf(LLAPI_MSG_NORMAL,
-                                           "\t%6u\t%14llu\t%#13llx\t%14llu%s\n",
-                                           idx, oid, oid, gr,
-                                           obdindex == idx ? " *" : "");
+			if ((obdindex == OBD_NOT_FOUND) || (obdindex == idx)) {
+				char fmt[48];
+				sprintf(fmt, "%s%s%s\n",
+					"\t%6u\t%14llu\t%#13llx\t",
+					(fid_seq_is_rsvd(gr) ||
+					 fid_seq_is_mdt0(gr)) ?
+					 "%14llu" : "%#14llx", "%s");
+				llapi_printf(LLAPI_MSG_NORMAL, fmt, idx, oid,
+					     oid, gr,
+					     obdindex == idx ? " *" : "");
+			}
+
                 }
                 llapi_printf(LLAPI_MSG_NORMAL, "\n");
         }
 }
 
+void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
+		       char *path, int obdindex, int depth, int verbose)
+{
+	struct lmv_user_mds_data *objects = lum->lum_objects;
+	char *prefix = lum->lum_magic == LMV_USER_MAGIC ? "(Default)" : "";
+	int i, obdstripe = 0;
+
+	if (obdindex != OBD_NOT_FOUND) {
+		for (i = 0; i < lum->lum_stripe_count; i++) {
+			if (obdindex == objects[i].lum_mds) {
+				llapi_printf(LLAPI_MSG_NORMAL, "%s%s\n", prefix,
+					     path);
+				obdstripe = 1;
+				break;
+			}
+		}
+	} else {
+		obdstripe = 1;
+	}
+
+	/* show all information default */
+	if (!verbose) {
+		if (lum->lum_magic == LMV_USER_MAGIC)
+			verbose = VERBOSE_POOL | VERBOSE_COUNT | VERBOSE_OFFSET;
+		else
+			verbose = VERBOSE_OBJID;
+	}
+
+	if (lum->lum_magic == LMV_USER_MAGIC)
+		verbose &= ~VERBOSE_OBJID;
+
+	if (depth && path && ((verbose != VERBOSE_OBJID)))
+		llapi_printf(LLAPI_MSG_NORMAL, "%s\n", path);
+
+	if (verbose & VERBOSE_COUNT) {
+		if (verbose & ~VERBOSE_COUNT)
+			llapi_printf(LLAPI_MSG_NORMAL, "lmv_stripe_count: ");
+		llapi_printf(LLAPI_MSG_NORMAL, "%u\n",
+			     (int)lum->lum_stripe_count);
+	}
+
+	if (verbose & VERBOSE_OFFSET) {
+		if (verbose & ~VERBOSE_OFFSET)
+			llapi_printf(LLAPI_MSG_NORMAL, "lmv_stripe_offset: ");
+		llapi_printf(LLAPI_MSG_NORMAL, "%d\n",
+			     (int)lum->lum_stripe_offset);
+	}
+
+	if (verbose & VERBOSE_OBJID) {
+		if ((obdstripe == 1))
+			llapi_printf(LLAPI_MSG_NORMAL,
+				     "\tmdtidx\t\t  seq\t\toid\t\tversion\n");
+		for (i = 0; i < lum->lum_stripe_count; i++) {
+			int idx = objects[i].lum_mds;
+			struct lu_fid *fid = &objects[i].lum_fid;
+			if ((obdindex == OBD_NOT_FOUND) || (obdindex == idx))
+				llapi_printf(LLAPI_MSG_NORMAL,
+					     "\t%6u\t%16llx\t%#3llx\t%12llu%s\n",
+					    idx, fid->f_seq, fid->f_oid,
+					    fid->f_ver,
+					    obdindex == idx ? " *" : "");
+		}
+		llapi_printf(LLAPI_MSG_NORMAL, "\n");
+	}
+}
+
 void llapi_lov_dump_user_lmm(struct find_param *param,
                              char *path, int is_dir)
 {
-        switch(*(__u32 *)&param->lmd->lmd_lmm) { /* lum->lmm_magic */
+	__u32 magic;
+
+	if (param->get_lmv)
+		magic = (__u32)param->lmv_md->lum_magic;
+	else
+		magic = *(__u32 *)&param->lmd->lmd_lmm; /* lum->lmm_magic */
+
+	switch (magic) {
         case LOV_USER_MAGIC_V1:
                 lov_dump_user_lmm_v1v3(&param->lmd->lmd_lmm, NULL,
                                        param->lmd->lmd_lmm.lmm_objects,
@@ -2050,9 +2321,21 @@ void llapi_lov_dump_user_lmm(struct find_param *param,
                                        param->verbose, param->raw);
                 break;
         }
+	case LMV_MAGIC_V1:
+	case LMV_USER_MAGIC: {
+		char pool_name[LOV_MAXPOOLNAME + 1];
+		struct lmv_user_md *lum;
+
+		lum = (struct lmv_user_md *)param->lmv_md;
+		strncpy(pool_name, lum->lum_pool_name, LOV_MAXPOOLNAME);
+		lmv_dump_user_lmm(lum, pool_name, path,
+				  param->obdindex, param->maxdepth,
+				  param->verbose);
+		break;
+	}
         default:
                 llapi_printf(LLAPI_MSG_NORMAL, "unknown lmm_magic:  %#x "
-                             "(expecting one of %#x %#x %#x)\n",
+			     "(expecting one of %#x %#x %#x %#x)\n",
                              *(__u32 *)&param->lmd->lmd_lmm,
                              LOV_USER_MAGIC_V1, LOV_USER_MAGIC_V3);
                 return;
@@ -2727,11 +3010,23 @@ static int cb_getstripe(char *path, DIR *parent, DIR *d, void *data,
         }
 
         if (d) {
-                ret = ioctl(dirfd(d), LL_IOC_LOV_GETSTRIPE,
-                            (void *)&param->lmd->lmd_lmm);
+		if (param->get_lmv) {
+			ret = cb_get_dirstripe(path, d, param);
+		} else {
+			ret = ioctl(dirfd(d), LL_IOC_LOV_GETSTRIPE,
+				     (void *)&param->lmd->lmd_lmm);
+		}
+
         } else if (parent) {
                 char *fname = strrchr(path, '/');
                 fname = (fname == NULL ? path : fname + 1);
+
+		if (param->get_lmv) {
+			llapi_printf(LLAPI_MSG_NORMAL,
+				     "%s get dirstripe information for file\n",
+				     path);
+			goto out;
+		}
 
                 strncpy((char *)&param->lmd->lmd_lmm, fname, param->lumlen);
 
@@ -2757,7 +3052,7 @@ static int cb_getstripe(char *path, DIR *parent, DIR *d, void *data,
                         goto dump;
 
                 } else if (errno == ENODATA && parent != NULL) {
-                        if (!param->obduuid)
+			if (!param->obduuid && !param->mdtuuid)
                                 llapi_printf(LLAPI_MSG_NORMAL,
                                              "%s has no stripe info\n", path);
                         goto out;

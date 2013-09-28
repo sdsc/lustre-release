@@ -185,13 +185,15 @@ static struct lu_object *lu_object_alloc(const struct lu_env *env,
         int result;
         ENTRY;
 
-        /*
-         * Create top-level object slice. This will also create
-         * lu_object_header.
-         */
-        top = dev->ld_ops->ldo_object_alloc(env, NULL, dev);
-        if (top == NULL)
-                RETURN(ERR_PTR(-ENOMEM));
+	/*
+	 * Create top-level object slice. This will also create
+	 * lu_object_header.
+	 */
+	top = dev->ld_ops->ldo_object_alloc(env, NULL, dev);
+	if (top == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
+	if (IS_ERR(top))
+		RETURN(top);
         /*
          * This is the only place where object fid is assigned. It's constant
          * after this point.
@@ -718,20 +720,22 @@ static CFS_LIST_HEAD(lu_device_types);
 
 int lu_device_type_init(struct lu_device_type *ldt)
 {
-        int result;
+	int result = 0;
 
-        CFS_INIT_LIST_HEAD(&ldt->ldt_linkage);
-        result = ldt->ldt_ops->ldto_init(ldt);
-        if (result == 0)
-                cfs_list_add(&ldt->ldt_linkage, &lu_device_types);
-        return result;
+	CFS_INIT_LIST_HEAD(&ldt->ldt_linkage);
+	if (ldt->ldt_ops->ldto_init)
+		result = ldt->ldt_ops->ldto_init(ldt);
+	if (result == 0)
+		cfs_list_add(&ldt->ldt_linkage, &lu_device_types);
+	return result;
 }
 EXPORT_SYMBOL(lu_device_type_init);
 
 void lu_device_type_fini(struct lu_device_type *ldt)
 {
-        cfs_list_del_init(&ldt->ldt_linkage);
-        ldt->ldt_ops->ldto_fini(ldt);
+	cfs_list_del_init(&ldt->ldt_linkage);
+	if (ldt->ldt_ops->ldto_fini)
+		ldt->ldt_ops->ldto_fini(ldt);
 }
 EXPORT_SYMBOL(lu_device_type_fini);
 
@@ -739,10 +743,10 @@ void lu_types_stop(void)
 {
         struct lu_device_type *ldt;
 
-        cfs_list_for_each_entry(ldt, &lu_device_types, ldt_linkage) {
-                if (ldt->ldt_device_nr == 0)
-                        ldt->ldt_ops->ldto_stop(ldt);
-        }
+	cfs_list_for_each_entry(ldt, &lu_device_types, ldt_linkage) {
+		if (ldt->ldt_device_nr == 0 && ldt->ldt_ops->ldto_stop)
+			ldt->ldt_ops->ldto_stop(ldt);
+	}
 }
 EXPORT_SYMBOL(lu_types_stop);
 
