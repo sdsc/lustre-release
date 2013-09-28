@@ -88,6 +88,10 @@ struct inode;
 #define ADMIN_USR	"admin_quotafile_v2.usr"
 #define ADMIN_GRP	"admin_quotafile_v2.grp"
 
+/* Statfs space reservation for fragmentation and local objects */
+#define OSD_STATFS_RESERVED		(1ULL << 23) /* 8MB */
+#define OSD_STATFS_RESERVED_SHIFT	(7) /* reserve 0.78% of all space */
+
 struct osd_directory {
         struct iam_container od_container;
         struct iam_descr     od_descr;
