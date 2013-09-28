@@ -146,11 +146,12 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 	else if (data->ocd_connect_flags & OBD_CONNECT_SKIP_ORPHAN)
 		RETURN(-EPROTO);
 
-	if (ofd_grant_param_supp(exp)) {
+	if (OCD_HAS_FLAG(data, GRANT_PARAM)) {
+		/* client is reporting its page size, for future use */
 		exp->exp_filter_data.fed_pagesize = data->ocd_blocksize;
 		/* ocd_{blocksize,inodespace} are log2 values */
 		data->ocd_blocksize  = ofd->ofd_blockbits;
-		data->ocd_inodespace = ofd->ofd_dt_conf.ddp_inodespace;
+		data->ocd_inodespace = fls(ofd->ofd_dt_conf.ddp_inodespace) - 1;
 		/* ocd_grant_extent is in 1K blocks */
 		data->ocd_grant_extent = ofd->ofd_dt_conf.ddp_grant_frag >> 10;
 	}

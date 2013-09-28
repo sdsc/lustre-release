@@ -419,6 +419,10 @@ static inline int ofd_grant_rnb_size(struct obd_export *exp,
 	if (exp)
 		/* Apply per-export pecularities if one is given */
 		bytes = ofd_grant_from_cli(exp, ofd, (obd_size)bytes);
+	if (exp == NULL || ofd_grant_param_supp(exp))
+		/* add per extent cost */
+		bytes += ofd->ofd_dt_conf.ddp_grant_frag;
+
 	return bytes;
 }
 

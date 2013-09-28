@@ -400,6 +400,10 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 		GOTO(out_md_fid, err = -ENODEV);
 	}
 
+	/* pass client page size in ocd_blocksize, the server should report
+	 * back its backend blocksize for grant calculation purpose */
+	data->ocd_blocksize = PAGE_SHIFT;
+
         data->ocd_connect_flags = OBD_CONNECT_GRANT     | OBD_CONNECT_VERSION  |
 				  OBD_CONNECT_REQPORTAL | OBD_CONNECT_BRW_SIZE |
                                   OBD_CONNECT_CANCELSET | OBD_CONNECT_FID      |
@@ -410,7 +414,9 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                   OBD_CONNECT_MAXBYTES |
 				  OBD_CONNECT_EINPROGRESS |
 				  OBD_CONNECT_JOBSTATS | OBD_CONNECT_LVB_TYPE |
-				  OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_PINGLESS;
+				  OBD_CONNECT_LAYOUTLOCK |
+				  OBD_CONNECT_PINGLESS |
+				  OBD_CONNECT_GRANT_PARAM;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
