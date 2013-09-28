@@ -479,8 +479,8 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 		}
 	}
 
-	/* Process incoming grant info, set OBD_BRW_GRANTED flag and grant some
-	 * space back if possible */
+	/* Process incoming grant info, set OBD_BRW_UNGRANTED flag and grant
+	 * some space back if possible */
 	ofd_grant_prepare_write(env, exp, oa, rnb, obj->ioo_bufcnt);
 
 	/* parse remote buffers to local buffers and prepare the latter */
@@ -495,7 +495,7 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 		/* correct index for local buffers to continue with */
 		for (k = 0; k < rc; k++) {
 			lnb[j+k].lnb_flags = rnb[i].rnb_flags;
-			if (!(rnb[i].rnb_flags & OBD_BRW_GRANTED))
+			if (rnb[i].rnb_flags & OBD_BRW_UNGRANTED)
 				lnb[j+k].lnb_rc = -ENOSPC;
 
 			/* remote client can't break through quota */

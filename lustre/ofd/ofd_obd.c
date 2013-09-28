@@ -143,13 +143,16 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 	else if (data->ocd_connect_flags & OBD_CONNECT_SKIP_ORPHAN)
 		RETURN(-EPROTO);
 
-	if (ofd_grant_param_supp(exp)) {
-		exp->exp_filter_data.fed_pagesize = data->ocd_blocksize;
-		/* ocd_{blocksize,inodespace} are log2 values */
-		data->ocd_blocksize  = ofd->ofd_blockbits;
-		data->ocd_inodespace = ofd->ofd_dt_conf.ddp_inodespace;
-		/* ocd_grant_extent is in 1K blocks */
-		data->ocd_grant_extent = ofd->ofd_dt_conf.ddp_grant_frag >> 10;
+	if (OCD_HAS_FLAG(data, GRANT_PARAM)) {
+		/* client is reporting its page size, for future use */
+		exp->exp_filter_data.fed_pagesize = data->ocd_blockbits;
+		data->ocd_blockbits  = ofd->ofd_blockbits;
+		/* ddp_inodespace may not be power-of-two value, eg. for ldiskfs
+		 * it's LDISKFS_DIR_REC_LEN(20) = 28. */
+		data->ocd_inodebits = fls(ofd->ofd_dt_conf.ddp_inodespace - 1);
+		/* ocd_grant_extent is in 1K byte blocks */
+		data->ocd_grant_extent_kb = ofd->ofd_dt_conf.ddp_grant_frag >>
+						 10;
 	}
 
 	if (data->ocd_connect_flags & OBD_CONNECT_GRANT)

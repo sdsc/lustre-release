@@ -1103,12 +1103,12 @@ static void obd_connect_data_seqprint(struct seq_file *m,
 		seq_printf(m, "       ibits_known: "LPX64"\n",
 				ocd->ocd_ibits_known);
 	if (flags & OBD_CONNECT_GRANT_PARAM)
-		seq_printf(m, "       grant_block_size: %d\n"
-			      "       grant_inode_size: %d\n"
+		seq_printf(m, "       grant_blockbits: %d\n"
+			      "       grant_inodebits: %d\n"
 			      "       grant_extent_overhead: %d\n",
-			      ocd->ocd_blocksize,
-			      ocd->ocd_inodespace,
-			      ocd->ocd_grant_extent);
+			      ocd->ocd_blockbits,
+			      ocd->ocd_inodebits,
+			      ocd->ocd_grant_extent_kb);
 	if (flags & OBD_CONNECT_TRANSNO)
 		seq_printf(m, "       first_transno: "LPX64"\n",
 				ocd->ocd_transno);
