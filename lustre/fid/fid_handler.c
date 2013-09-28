@@ -58,7 +58,56 @@
 #include <lustre_fid.h>
 #include "fid_internal.h"
 
+int client_fid_init(struct obd_export *exp, enum lu_cli_type type)
+{
+	struct client_obd *cli = &exp->exp_obd->u.cli;
+	char *prefix;
+	int rc;
+	ENTRY;
+
+	OBD_ALLOC_PTR(cli->cl_seq);
+	if (cli->cl_seq == NULL)
+		RETURN(-ENOMEM);
+
+	OBD_ALLOC(prefix, MAX_OBD_NAME + 5);
+	if (prefix == NULL)
+		GOTO(out_free_seq, rc = -ENOMEM);
+
+	snprintf(prefix, MAX_OBD_NAME + 5, "cli-%s",
+		 exp->exp_obd->obd_name);
+
+	/* Init client side sequence-manager */
+	rc = seq_client_init(cli->cl_seq, exp, type, prefix, NULL);
+	OBD_FREE(prefix, MAX_OBD_NAME + 5);
+	if (rc)
+		GOTO(out_free_seq, rc);
+
+	RETURN(rc);
+out_free_seq:
+	OBD_FREE_PTR(cli->cl_seq);
+	cli->cl_seq = NULL;
+	return rc;
+}
+EXPORT_SYMBOL(client_fid_init);
+
+int client_fid_fini(struct obd_export *exp)
+{
+	struct client_obd *cli = &exp->exp_obd->u.cli;
+	ENTRY;
+
+	if (cli->cl_seq != NULL) {
+		seq_client_fini(cli->cl_seq);
+		OBD_FREE_PTR(cli->cl_seq);
+		cli->cl_seq = NULL;
+	}
+
+	RETURN(0);
+}
+EXPORT_SYMBOL(client_fid_fini);
+
 #ifdef __KERNEL__
+static void seq_server_proc_fini(struct lu_server_seq *seq);
+
 /* Assigns client to sequence controller node. */
 int seq_server_set_cli(struct lu_server_seq *seq,
                        struct lu_client_seq *cli,
@@ -81,15 +130,16 @@ int seq_server_set_cli(struct lu_server_seq *seq,
         }
 
         if (seq->lss_cli != NULL) {
-                CERROR("%s: Sequence controller is already "
+		CDEBUG(D_HA, "%s: Sequence controller is already "
                        "assigned\n", seq->lss_name);
-                GOTO(out_up, rc = -EINVAL);
+		GOTO(out_up, rc = -EEXIST);
         }
 
         CDEBUG(D_INFO, "%s: Attached sequence controller %s\n",
                seq->lss_name, cli->lcs_name);
 
         seq->lss_cli = cli;
+	LASSERT(seq->lss_site != NULL);
         cli->lcs_space.lsr_index = seq->lss_site->ms_node_id;
         EXIT;
 out_up:
@@ -298,6 +348,7 @@ static int seq_server_handle(struct lu_site *site,
         ENTRY;
 
         mite = lu_site2md(site);
+	LASSERT(mite != NULL);
         switch (opc) {
         case SEQ_ALLOC_META:
                 if (!mite->ms_server_seq) {
@@ -329,6 +380,7 @@ static int seq_req_handle(struct ptlrpc_request *req,
 {
         struct lu_seq_range *out, *tmp;
         struct lu_site *site;
+	struct md_site *mite;
         int rc = -EPROTO;
         __u32 *opc;
         ENTRY;
@@ -340,6 +392,26 @@ static int seq_req_handle(struct ptlrpc_request *req,
         rc = req_capsule_server_pack(info->sti_pill);
         if (rc)
                 RETURN(err_serious(rc));
+
+	mite = lu_site2md(site);
+
+	if (mite->ms_client_seq != NULL) {
+		/* lcs_exp of Sequence controller is always NULL, so we do not
+		 * need check sequence controller here */
+		if (mite->ms_client_seq->lcs_exp == NULL &&
+		    mite->ms_control_seq == NULL) {
+			CWARN("%s: seq server is not setup %p control %p\n",
+			       req->rq_export->exp_obd->obd_name,
+			       mite->ms_client_seq, mite->ms_control_seq);
+			RETURN(-EINPROGRESS);
+		}
+		if (mite->ms_server_seq != NULL &&
+		    mite->ms_server_seq->lss_cli == NULL) {
+			CWARN("%s: seq server is still not being setup yet\n",
+			      req->rq_export->exp_obd->obd_name);
+			RETURN(-EINPROGRESS);
+		}
+	}
 
         opc = req_capsule_client_get(info->sti_pill, &RMF_SEQ_OPC);
         if (opc != NULL) {
@@ -365,7 +437,7 @@ static int seq_req_handle(struct ptlrpc_request *req,
 LU_KEY_INIT_FINI(seq, struct seq_thread_info);
 
 /* context key: seq_thread_key */
-LU_CONTEXT_KEY_DEFINE(seq, LCT_MD_THREAD);
+LU_CONTEXT_KEY_DEFINE(seq, LCT_MD_THREAD | LCT_DT_THREAD);
 
 static void seq_thread_info_init(struct ptlrpc_request *req,
                                  struct seq_thread_info *info)
@@ -381,7 +453,7 @@ static void seq_thread_info_fini(struct seq_thread_info *info)
         req_capsule_fini(info->sti_pill);
 }
 
-static int seq_handle(struct ptlrpc_request *req)
+int seq_handle(struct ptlrpc_request *req)
 {
         const struct lu_env *env;
         struct seq_thread_info *info;
@@ -402,6 +474,7 @@ static int seq_handle(struct ptlrpc_request *req)
 
         return rc;
 }
+EXPORT_SYMBOL(seq_handle);
 
 /*
  * Entry point for handling FLD RPCs called from MDT.
@@ -412,7 +485,6 @@ int seq_query(struct com_thread_info *info)
 }
 EXPORT_SYMBOL(seq_query);
 
-static void seq_server_proc_fini(struct lu_server_seq *seq);
 
 #ifdef LPROCFS
 static int seq_server_proc_init(struct lu_server_seq *seq)
@@ -510,6 +582,7 @@ int seq_server_init(struct lu_server_seq *seq,
                         LUSTRE_SEQ_ZERO_RANGE:
                         LUSTRE_SEQ_SPACE_RANGE;
 
+		LASSERT(ms != NULL);
                 seq->lss_space.lsr_index = ms->ms_node_id;
 		LCONSOLE_INFO("%s: No data found "
 			      "on store. Initialize space\n",
@@ -556,6 +629,32 @@ void seq_server_fini(struct lu_server_seq *seq,
         EXIT;
 }
 EXPORT_SYMBOL(seq_server_fini);
+
+int ms_seq_fini(const struct lu_env *env, struct md_site *ms)
+{
+	LASSERT(ms != NULL);
+
+	if (ms->ms_server_seq) {
+		seq_server_fini(ms->ms_server_seq, env);
+		OBD_FREE_PTR(ms->ms_server_seq);
+		ms->ms_server_seq = NULL;
+	}
+
+	if (ms->ms_control_seq) {
+		seq_server_fini(ms->ms_control_seq, env);
+		OBD_FREE_PTR(ms->ms_control_seq);
+		ms->ms_control_seq = NULL;
+	}
+
+	if (ms->ms_client_seq) {
+		seq_client_fini(ms->ms_client_seq);
+		OBD_FREE_PTR(ms->ms_client_seq);
+		ms->ms_client_seq = NULL;
+	}
+
+	RETURN(0);
+}
+EXPORT_SYMBOL(ms_seq_fini);
 
 cfs_proc_dir_entry_t *seq_type_proc_dir = NULL;
 
