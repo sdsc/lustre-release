@@ -1081,8 +1081,16 @@ static void osc_init_grant(struct client_obd *cli, struct obd_connect_data *ocd)
 		cli->cl_avail_grant = ocd->ocd_grant;
         }
 
-	/* determine the appropriate chunk size used by osc_extent. */
-	cli->cl_chunkbits = max_t(int, PAGE_CACHE_SHIFT, ocd->ocd_blocksize);
+	if (OCD_HAS_FLAG(ocd, GRANT_PARAM)) {
+		/* overhead for each extent */
+		cli->cl_extent_tax = ocd->ocd_grant_extent << 10;
+		/* determine the appropriate chunk size used by osc_extent. */
+		cli->cl_chunkbits = max_t(int, PAGE_CACHE_SHIFT,
+					  ocd->ocd_blockbits);
+	} else {
+		cli->cl_extent_tax = 0;
+		cli->cl_chunkbits = PAGE_CACHE_SHIFT;
+	}
 	client_obd_list_unlock(&cli->cl_loi_list_lock);
 
 	CDEBUG(D_CACHE, "%s, setting cl_avail_grant: %ld cl_lost_grant: %ld."
@@ -2099,6 +2107,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	int				mem_tight = 0;
 	int				page_count = 0;
 	int				i;
+	int				grant = 0;
 	int				rc;
 	CFS_LIST_HEAD(rpc_list);
 
@@ -2109,6 +2118,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	cfs_list_for_each_entry(ext, ext_list, oe_link) {
 		LASSERT(ext->oe_state == OES_RPC);
 		mem_tight |= ext->oe_memalloc;
+		grant += ext->oe_grants;
 		cfs_list_for_each_entry(oap, &ext->oe_pages, oap_pending_item) {
 			++page_count;
 			cfs_list_add_tail(&oap->oap_rpc_item, &rpc_list);
@@ -2169,6 +2179,9 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 		oa->o_handle = lock->l_remote_handle;
 		oa->o_valid |= OBD_MD_FLHANDLE;
 	}
+
+	if (cmd == OST_WRITE)
+		oa->o_grant_used = grant;
 
 	rc = cl_req_prep(env, clerq);
 	if (rc != 0) {

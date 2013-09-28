@@ -1361,7 +1361,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_JOBSTATS | \
 				OBD_CONNECT_LIGHTWEIGHT | OBD_CONNECT_LVB_TYPE|\
 				OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_FID | \
-				OBD_CONNECT_PINGLESS)
+				OBD_CONNECT_PINGLESS | OBD_CONNECT_GRANT_PARAM)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
 				OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV | \
@@ -1388,17 +1388,17 @@ struct obd_connect_data_v1 {
 	__u32 ocd_grant;	 /* initial cache grant amount (bytes) */
 	__u32 ocd_index;	 /* LOV index to connect to */
 	__u32 ocd_brw_size;	 /* Maximum BRW size in bytes, must be 2^n */
-        __u64 ocd_ibits_known;   /* inode bits this client understands */
-        __u8  ocd_blocksize;     /* log2 of the backend filesystem blocksize */
-        __u8  ocd_inodespace;    /* log2 of the per-inode space consumption */
-        __u16 ocd_grant_extent;  /* per-extent grant overhead, in 1K blocks */
-        __u32 ocd_unused;        /* also fix lustre_swab_connect */
-        __u64 ocd_transno;       /* first transno from client to be replayed */
-        __u32 ocd_group;         /* MDS group on OST */
-        __u32 ocd_cksum_types;   /* supported checksum algorithms */
-        __u32 ocd_max_easize;    /* How big LOV EA can be on MDS */
-        __u32 ocd_instance;      /* also fix lustre_swab_connect */
-        __u64 ocd_maxbytes;      /* Maximum stripe size in bytes */
+	__u64 ocd_ibits_known;   /* inode bits this client understands */
+	__u8  ocd_blockbits;     /* log2 of the backend filesystem blocksize */
+	__u8  ocd_inodebits;	 /* log2 of the per-inode space consumption */
+	__u16 ocd_grant_extent;  /* per-extent grant overhead, in 1K blocks */
+	__u32 ocd_unused;        /* also fix lustre_swab_connect */
+	__u64 ocd_transno;       /* first transno from client to be replayed */
+	__u32 ocd_group;         /* MDS group on OST */
+	__u32 ocd_cksum_types;   /* supported checksum algorithms */
+	__u32 ocd_max_easize;    /* How big LOV EA can be on MDS */
+	__u32 ocd_instance;      /* also fix lustre_swab_connect */
+	__u64 ocd_maxbytes;      /* Maximum stripe size in bytes */
 };
 
 struct obd_connect_data {
@@ -1407,36 +1407,36 @@ struct obd_connect_data {
 	__u32 ocd_grant;	 /* initial cache grant amount (bytes) */
 	__u32 ocd_index;	 /* LOV index to connect to */
 	__u32 ocd_brw_size;	 /* Maximum BRW size in bytes */
-        __u64 ocd_ibits_known;   /* inode bits this client understands */
-        __u8  ocd_blocksize;     /* log2 of the backend filesystem blocksize */
-        __u8  ocd_inodespace;    /* log2 of the per-inode space consumption */
-        __u16 ocd_grant_extent;  /* per-extent grant overhead, in 1K blocks */
-        __u32 ocd_unused;        /* also fix lustre_swab_connect */
-        __u64 ocd_transno;       /* first transno from client to be replayed */
-        __u32 ocd_group;         /* MDS group on OST */
-        __u32 ocd_cksum_types;   /* supported checksum algorithms */
-        __u32 ocd_max_easize;    /* How big LOV EA can be on MDS */
-        __u32 ocd_instance;      /* instance # of this target */
-        __u64 ocd_maxbytes;      /* Maximum stripe size in bytes */
-        /* Fields after ocd_maxbytes are only accessible by the receiver
-         * if the corresponding flag in ocd_connect_flags is set. Accessing
-         * any field after ocd_maxbytes on the receiver without a valid flag
-         * may result in out-of-bound memory access and kernel oops. */
-        __u64 padding1;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 padding2;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 padding3;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 padding4;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 padding5;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 padding6;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 padding7;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 padding8;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 padding9;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 paddingA;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 paddingB;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 paddingC;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 paddingD;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 paddingE;          /* added 2.1.0. also fix lustre_swab_connect */
-        __u64 paddingF;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 ocd_ibits_known;   /* inode bits this client understands */
+	__u8  ocd_blockbits;     /* log2 of the backend filesystem blocksize */
+	__u8  ocd_inodebits;	 /* log2 of the per-inode space consumption */
+	__u16 ocd_grant_extent;  /* per-extent grant overhead, in 1K blocks */
+	__u32 ocd_unused;        /* also fix lustre_swab_connect */
+	__u64 ocd_transno;       /* first transno from client to be replayed */
+	__u32 ocd_group;         /* MDS group on OST */
+	__u32 ocd_cksum_types;   /* supported checksum algorithms */
+	__u32 ocd_max_easize;    /* How big LOV EA can be on MDS */
+	__u32 ocd_instance;      /* instance # of this target */
+	__u64 ocd_maxbytes;      /* Maximum stripe size in bytes */
+	/* Fields after ocd_maxbytes are only accessible by the receiver
+	 * if the corresponding flag in ocd_connect_flags is set. Accessing
+	 * any field after ocd_maxbytes on the receiver without a valid flag
+	 * may result in out-of-bound memory access and kernel oops. */
+	__u64 padding1;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 padding2;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 padding3;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 padding4;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 padding5;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 padding6;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 padding7;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 padding8;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 padding9;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 paddingA;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 paddingB;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 paddingC;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 paddingD;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 paddingE;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 paddingF;          /* added 2.1.0. also fix lustre_swab_connect */
 };
 /* XXX README XXX:
  * Please DO NOT use any fields here before first ensuring that this same

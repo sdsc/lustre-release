@@ -445,8 +445,8 @@ check_obd_connect_data(void)
 	CHECK_MEMBER(obd_connect_data, ocd_index);
 	CHECK_MEMBER(obd_connect_data, ocd_brw_size);
 	CHECK_MEMBER(obd_connect_data, ocd_ibits_known);
-	CHECK_MEMBER(obd_connect_data, ocd_blocksize);
-	CHECK_MEMBER(obd_connect_data, ocd_inodespace);
+	CHECK_MEMBER(obd_connect_data, ocd_blockbits);
+	CHECK_MEMBER(obd_connect_data, ocd_inodebits);
 	CHECK_MEMBER(obd_connect_data, ocd_grant_extent);
 	CHECK_MEMBER(obd_connect_data, ocd_unused);
 	CHECK_MEMBER(obd_connect_data, ocd_transno);
