@@ -1325,6 +1325,18 @@ static int lustre_disconnect_osp(struct super_block *sb)
 	ENTRY;
 
 	LASSERT(IS_OST(lsi) || IS_MDT(lsi));
+	if (IS_MDT(lsi)) {
+		int	index;
+
+		/* Only disconnect MDT0-osp-MDT0 here, other osp on MDT
+		 * will be disconnect during MDT stack cleanup.
+		 * FIXME: remove later when quota on DNE is finished */
+		rc = server_name2index(lsi->lsi_svname, &index, NULL);
+		if (rc < 0)
+			RETURN(rc);
+		if (index != 0)
+			RETURN(0);
+	}
 	OBD_ALLOC(logname, MTI_NAME_MAXLEN);
 	if (logname == NULL)
 		RETURN(-ENOMEM);
@@ -1395,7 +1407,7 @@ out:
 }
 
 /**
- * Stop the osp(fsname-MDT0000-osp-OSTxxxx) for an OST target.
+ * Stop the osp(fsname-MDT0000-osp-OSTxxxx) or (fsname-MDT0000-osp-MDT0000) for an OST target.
  **/
 static int lustre_stop_osp(struct super_block *sb)
 {
@@ -1406,8 +1418,20 @@ static int lustre_stop_osp(struct super_block *sb)
 	ENTRY;
 
 	LASSERT(IS_OST(lsi) || IS_MDT(lsi));
-	OBD_ALLOC(ospname, MTI_NAME_MAXLEN);
+	if (IS_MDT(lsi)) {
+		int	index;
 
+		/* Only disconnect MDT0-osp-MDT0 here, other osp on MDT
+		 * will be disconnect during MDT stack cleanup.
+		 * FIXME: remove later when quota on DNE is finished */
+		rc = server_name2index(lsi->lsi_svname, &index, NULL);
+		if (rc < 0)
+			RETURN(rc);
+		if (index != 0)
+			RETURN(0);
+	}
+
+	OBD_ALLOC(ospname, MTI_NAME_MAXLEN);
 	rc = tgt_name2ospname(lsi->lsi_svname, ospname);
 	if (rc != 0) {
 		CERROR("%s get fsname error: rc %d\n",
@@ -1445,11 +1469,10 @@ static int server_stop_servers(int lsiflags)
         /* Either an MDT or an OST or neither  */
         /* if this was an MDT, and there are no more MDT's, clean up the MDS */
 	if ((lsiflags & LDD_F_SV_TYPE_MDT) &&
-            (obd = class_name2obd(LUSTRE_MDS_OBDNAME))) {
-                /*FIXME pre-rename, should eventually be LUSTRE_MDT_NAME*/
-                type = class_search_type(LUSTRE_MDS_NAME);
-        }
-        /* if this was an OST, and there are no more OST's, clean up the OSS */
+	    (obd = class_name2obd(LUSTRE_MDS_OBDNAME))) {
+		type = class_search_type(LUSTRE_MDT_NAME);
+	}
+       /* if this was an OST, and there are no more OST's, clean up the OSS */
 	if ((lsiflags & LDD_F_SV_TYPE_OST) &&
             (obd = class_name2obd(LUSTRE_OSS_OBDNAME))) {
                 type = class_search_type(LUSTRE_OST_NAME);
@@ -1784,27 +1807,23 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
 
 	CDEBUG(D_MOUNT, "starting target %s\n", lsi->lsi_svname);
 
-#if 0
-        /* If we're an MDT, make sure the global MDS is running */
-        if (lsi->lsi_ldd->ldd_flags & LDD_F_SV_TYPE_MDT) {
-                /* make sure the MDS is started */
+	if (IS_MDT(lsi)) {
+		/* make sure the MDS is started */
 		mutex_lock(&server_start_lock);
-                obd = class_name2obd(LUSTRE_MDS_OBDNAME);
-                if (!obd) {
-                        rc = lustre_start_simple(LUSTRE_MDS_OBDNAME,
-                    /* FIXME pre-rename, should eventually be LUSTRE_MDS_NAME */
-                                                 LUSTRE_MDT_NAME,
-                                                 LUSTRE_MDS_OBDNAME"_uuid",
-                                                 0, 0);
-                        if (rc) {
+		obd = class_name2obd(LUSTRE_MDS_OBDNAME);
+		if (!obd) {
+			rc = lustre_start_simple(LUSTRE_MDS_OBDNAME,
+						 LUSTRE_MDS_NAME,
+						 LUSTRE_MDS_OBDNAME"_uuid",
+						 0, 0, 0, 0);
+			if (rc) {
 				mutex_unlock(&server_start_lock);
-                                CERROR("failed to start MDS: %d\n", rc);
-                                RETURN(rc);
-                        }
-                }
+				CERROR("failed to start MDS: %d\n", rc);
+				RETURN(rc);
+			}
+		}
 		mutex_unlock(&server_start_lock);
-        }
-#endif
+	}
 
         /* If we're an OST, make sure the global OSS is running */
 	if (IS_OST(lsi)) {
@@ -1830,7 +1849,7 @@ static int server_start_targets(struct super_block *sb, struct vfsmount *mnt)
 	if (lsi->lsi_srv_mnt) {
 		rc = server_mgc_set_fs(lsi->lsi_mgc, sb);
 		if (rc)
-			RETURN(rc);
+			GOTO(out_stop_service, rc);
 	}
 
         /* Register with MGS */
@@ -1912,6 +1931,10 @@ out_mgc:
         /* Release the mgc fs for others to use */
 	if (lsi->lsi_srv_mnt)
 		server_mgc_clear_fs(lsi->lsi_mgc);
+
+out_stop_service:
+	if (rc != 0)
+		server_stop_servers(lsi->lsi_flags);
 
         RETURN(rc);
 }
@@ -2135,7 +2158,7 @@ static void server_put_super(struct super_block *sb)
 		obd = class_name2obd(lsi->lsi_svname);
                 if (obd) {
                         CDEBUG(D_MOUNT, "stopping %s\n", obd->obd_name);
-                        if (lsi->lsi_flags & LSI_UMOUNT_FAILOVER)
+			if (lsiflags & LSI_UMOUNT_FAILOVER)
                                 obd->obd_fail = 1;
                         /* We can't seem to give an error return code
                          * to .put_super, so we better make sure we clean up! */

@@ -784,7 +784,6 @@ run_test 21d "start mgs then ost and then mds"
 
 test_22() {
 	local num
-
 	start_mds
 
 	echo Client mount with ost in logs, but none running
@@ -1445,6 +1444,28 @@ t32_test() {
 		return 1
 	}
 	shall_cleanup_mdt=true
+	
+	if [ "$dne_upgrade" != "no" ]; then
+		echo "mkfs new MDT...."
+		add mds2 $(mkfs_opts mds2 $(mdsdevname 2) $fsname) --reformat \
+			$(mdsdevname 2) $(mdsvdevname 2) > /dev/null || {
+			error_noexit "Mkfs new MDT failed"
+			return 1
+		}
+
+		$r2 $TUNEFS --dryrun $(mdsdevname 2) || {
+			error_noexit "tunefs.lustre before mounting the MDT"
+			return 1
+		}
+
+		echo "mount new MDT...."
+		$r2 mkdir -p $tmp/mnt/mdt1
+		$r2 mount -t lustre -o $mopts $(mdsdevname 2) $tmp/mnt/mdt1 || {
+			error_noexit "mount mdt1 failed"
+			return 1
+		}
+		shall_cleanup_mdt1=true
+	fi
 
 	if [ "$dne_upgrade" != "no" ]; then
 		echo "mkfs new MDT...."
@@ -3049,9 +3070,15 @@ test_53a() {
 run_test 53a "check OSS thread count params"
 
 test_53b() {
-	thread_sanity MDT $SINGLEMDS 'mdt.*.*.' 'mdt_num_threads' '16'
+	$LCTL get_param -N mds.*.*.threads_max
+	if [ $? -eq 0 ]; then
+		thread_sanity MDT $SINGLEMDS 'mds.*.*.' 'mds_num_threads' 16
+	else
+		#running this on an old MDT
+		thread_sanity MDT $SINGLEMDS 'mdt.*.*' 'mdt_num_threads' 16
+	fi
 }
-run_test 53b "check MDT thread count params"
+run_test 53b "check MDS thread count params"
 
 test_54a() {
 	if [ $(facet_fstype $SINGLEMDS) != ldiskfs ]; then
