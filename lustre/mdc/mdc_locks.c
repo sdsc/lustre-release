@@ -437,28 +437,6 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
         RETURN(req);
 }
 
-static struct ptlrpc_request *
-mdc_enqueue_pack(struct obd_export *exp, int lvb_len)
-{
-        struct ptlrpc_request *req;
-        int rc;
-        ENTRY;
-
-        req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_LDLM_ENQUEUE);
-        if (req == NULL)
-                RETURN(ERR_PTR(-ENOMEM));
-
-        rc = ldlm_prep_enqueue_req(exp, req, NULL, 0);
-        if (rc) {
-                ptlrpc_request_free(req);
-                RETURN(ERR_PTR(rc));
-        }
-
-	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER, lvb_len);
-        ptlrpc_request_set_replen(req);
-        RETURN(req);
-}
-
 static int mdc_finish_enqueue(struct obd_export *exp,
                               struct ptlrpc_request *req,
                               struct ldlm_enqueue_info *einfo,
@@ -679,7 +657,7 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
         int                    rc;
         struct ldlm_res_id res_id;
         static const ldlm_policy_data_t lookup_policy =
-                            { .l_inodebits = { MDS_INODELOCK_LOOKUP } };
+			    { .l_inodebits = { MDS_INODELOCK_LOOKUP} };
         static const ldlm_policy_data_t update_policy =
                             { .l_inodebits = { MDS_INODELOCK_UPDATE } };
 	static const ldlm_policy_data_t layout_policy =
@@ -727,12 +705,12 @@ resend:
 	} else if (it->it_op & (IT_GETATTR | IT_LOOKUP)) {
 		req = mdc_intent_getattr_pack(exp, it, op_data);
 	} else if (it->it_op & IT_READDIR) {
-		req = mdc_enqueue_pack(exp, 0);
+		req = ldlm_enqueue_pack(exp, 0);
 	} else if (it->it_op & IT_LAYOUT) {
 		if (!imp_connect_lvb_type(class_exp2cliimp(exp)))
 			RETURN(-EOPNOTSUPP);
 
-		req = mdc_enqueue_pack(exp, obddev->u.cli.cl_max_mds_easize);
+		req = ldlm_enqueue_pack(exp, obddev->u.cli.cl_max_mds_easize);
 		lvb_type = LVB_T_LAYOUT;
 	} else {
                 LBUG();
