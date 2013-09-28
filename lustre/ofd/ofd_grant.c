@@ -288,10 +288,11 @@ static obd_size ofd_grant_space_left(struct obd_export *exp)
  *
  * \param env - is the lu environment supplying osfs storage
  * \param exp - is the export for which we received the request
- * \paral oa - is the incoming obdo sent by the client
+ * \param oa - is the incoming obdo sent by the client
+ * \param niocount - is niocount for WRITE, used to calculate dirty
  */
 static void ofd_grant_incoming(const struct lu_env *env, struct obd_export *exp,
-			       struct obdo *oa)
+			       struct obdo *oa, int niocount)
 {
 	struct filter_export_data	*fed;
 	struct ofd_device		*ofd = ofd_exp(exp);
@@ -324,6 +325,10 @@ static void ofd_grant_incoming(const struct lu_env *env, struct obd_export *exp,
 	dropped     = ofd_grant_from_cli(exp, ofd, (obd_size)oa->o_dropped);
 	grant_chunk = ofd_grant_chunk(exp, ofd);
 
+	/* o_dirty from client oa is pure dirty data size, not including extent
+	 * grant overhead */
+	if (ofd_grant_param_supp(exp) && oa->o_grant_used > 0 && niocount > 0)
+		dirty += niocount * ofd->ofd_dt_conf.ddp_grant_frag;
 	/* Update our accounting now so that statfs takes it into account.
 	 * Note that fed_dirty is only approximate and can become incorrect
 	 * if RPCs arrive out-of-order.  No important calculations depend
@@ -421,6 +426,10 @@ static inline int ofd_grant_rnb_size(struct obd_export *exp,
 	if (exp)
 		/* Apply per-export pecularities if one is given */
 		bytes = ofd_grant_from_cli(exp, ofd, (obd_size)bytes);
+	if (exp == NULL || ofd_grant_param_supp(exp))
+		/* add per extent cost */
+		bytes += ofd->ofd_dt_conf.ddp_grant_frag;
+
 	return bytes;
 }
 
@@ -467,6 +476,27 @@ static void ofd_grant_check(const struct lu_env *env, struct obd_export *exp,
 				"accounting\n");
 	}
 
+	if (ofd_grant_param_supp(exp) && oa->o_grant_used > 0 &&
+	    !obd->obd_recovering)  {
+		/* client send grant used, but server may think different, if
+		 * so check each buf as before */
+		if (fed->fed_grant < granted) {
+			CERROR("%s: cli %s claims %lu GRANT, real grant %lu\n",
+			       exp->exp_obd->obd_name,
+			       exp->exp_client_uuid.uuid,
+			       (unsigned long)oa->o_grant_used, fed->fed_grant);
+
+			if (*left > (oa->o_grant_used - fed->fed_grant)) {
+				granted = fed->fed_grant;
+				ungranted = oa->o_grant_used - granted;
+				goto out;
+			}
+		} else {
+			granted = oa->o_grant_used;
+			goto out;
+		}
+	}
+
 	for (i = 0; i < niocount; i++) {
 		int bytes;
 
@@ -478,9 +508,9 @@ static void ofd_grant_check(const struct lu_env *env, struct obd_export *exp,
 			 * If one page hasn't OBD_BRW_FROM_GRANT set, then
 			 * the whole bulk is written synchronously */
 			if (rnb[i].rnb_flags & OBD_BRW_FROM_GRANT) {
-				 rnb[i].rnb_flags |= OBD_BRW_GRANTED;
-				 continue;
+				continue;
 			} else {
+				rnb[i].rnb_flags |= OBD_BRW_UNGRANTED;
 				CERROR("%s: cli %s is replaying OST_WRITE "
 				       "while one rnb hasn't OBD_BRW_FROM_GRANT"
 				       " set (0x%x)\n", exp->exp_obd->obd_name,
@@ -490,12 +520,10 @@ static void ofd_grant_check(const struct lu_env *env, struct obd_export *exp,
 			}
 		} else if ((oa->o_valid & OBD_MD_FLGRANT) &&
 			   (rnb[i].rnb_flags & OBD_BRW_FROM_GRANT)) {
-			if (resend) {
+			if (resend)
 				/* This is a recoverable resend so grant
 				 * information have already been processed */
-				rnb[i].rnb_flags |= OBD_BRW_GRANTED;
 				continue;
-			}
 
 			/* inflate consumed space if needed */
 			bytes = ofd_grant_rnb_size(exp, ofd, &rnb[i]);
@@ -507,7 +535,6 @@ static void ofd_grant_check(const struct lu_env *env, struct obd_export *exp,
 				       granted, bytes, fed->fed_grant, i);
 			} else {
 				granted += bytes;
-				rnb[i].rnb_flags |= OBD_BRW_GRANTED;
 				continue;
 			}
 		}
@@ -521,23 +548,23 @@ static void ofd_grant_check(const struct lu_env *env, struct obd_export *exp,
 		if (*left > ungranted + bytes) {
 			/* if enough space, pretend it was granted */
 			ungranted += bytes;
-			rnb[i].rnb_flags |= OBD_BRW_GRANTED;
 			continue;
 		}
 
 		/* We can't check for already-mapped blocks here (make sense
 		 * when backend filesystem does not use COW) as it requires
 		 * dropping the grant lock.
-		 * Instead, we clear ~OBD_BRW_GRANTED and in that case we need
+		 * Instead, we set OBD_BRW_UNGRANTED and in that case we need
 		 * to go through and verify if all of the blocks not marked
 		 *  BRW_GRANTED are already mapped and we can ignore this error.
 		 */
-		rnb[i].rnb_flags &= ~OBD_BRW_GRANTED;
+		rnb[i].rnb_flags |= OBD_BRW_UNGRANTED;
 		CDEBUG(D_CACHE,"%s: cli %s/%p idx %d no space for %d\n",
 				exp->exp_obd->obd_name,
 				exp->exp_client_uuid.uuid, exp, i, bytes);
 	}
 
+out:
 	/* record space used for the I/O, will be used in ofd_grant_commmit() */
 	/* Now substract what the clients has used already.  We don't subtract
 	 * this from the tot_granted yet, so that other client's can't grab
@@ -816,7 +843,7 @@ void ofd_grant_prepare_read(const struct lu_env *env,
 	}
 
 	/* extract incoming grant infomation provided by the client */
-	ofd_grant_incoming(env, exp, oa);
+	ofd_grant_incoming(env, exp, oa, 0);
 
 	/* unlike writes, we don't return grants back on reads unless a grant
 	 * shrink request was packed and we decided to turn it down. */
@@ -896,7 +923,7 @@ refresh:
 	}
 
 	/* extract incoming grant information provided by the client */
-	ofd_grant_incoming(env, exp, oa);
+	ofd_grant_incoming(env, exp, oa, niocount);
 
 	/* check limit */
 	ofd_grant_check(env, exp, oa, rnb, niocount, &left);

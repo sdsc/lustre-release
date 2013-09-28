@@ -489,6 +489,7 @@ static int osc_extent_merge(const struct lu_env *env, struct osc_extent *cur,
 			    struct osc_extent *victim)
 {
 	struct osc_object *obj = cur->oe_obj;
+	struct client_obd *cli = osc_cli(obj);
 	pgoff_t chunk_start;
 	pgoff_t chunk_end;
 	int ppc_bits;
@@ -516,7 +517,7 @@ static int osc_extent_merge(const struct lu_env *env, struct osc_extent *cur,
 
 	cur->oe_start     = min(cur->oe_start, victim->oe_start);
 	cur->oe_end       = max(cur->oe_end,   victim->oe_end);
-	cur->oe_grants   += victim->oe_grants;
+	cur->oe_grants   += (victim->oe_grants - cli->cl_extent_tax);
 	cur->oe_nr_pages += victim->oe_nr_pages;
 	/* only the following bits are needed to merge */
 	cur->oe_urgent   |= victim->oe_urgent;

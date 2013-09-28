@@ -445,9 +445,9 @@ check_obd_connect_data(void)
 	CHECK_MEMBER(obd_connect_data, ocd_index);
 	CHECK_MEMBER(obd_connect_data, ocd_brw_size);
 	CHECK_MEMBER(obd_connect_data, ocd_ibits_known);
-	CHECK_MEMBER(obd_connect_data, ocd_blocksize);
-	CHECK_MEMBER(obd_connect_data, ocd_inodespace);
-	CHECK_MEMBER(obd_connect_data, ocd_grant_extent);
+	CHECK_MEMBER(obd_connect_data, ocd_blockbits);
+	CHECK_MEMBER(obd_connect_data, ocd_inodebits);
+	CHECK_MEMBER(obd_connect_data, ocd_grant_extent_kb);
 	CHECK_MEMBER(obd_connect_data, ocd_unused);
 	CHECK_MEMBER(obd_connect_data, ocd_transno);
 	CHECK_MEMBER(obd_connect_data, ocd_group);
@@ -838,7 +838,7 @@ check_niobuf_remote(void)
 	CHECK_DEFINE_X(OBD_BRW_SYNC);
 	CHECK_DEFINE_X(OBD_BRW_CHECK);
 	CHECK_DEFINE_X(OBD_BRW_FROM_GRANT);
-	CHECK_DEFINE_X(OBD_BRW_GRANTED);
+	CHECK_DEFINE_X(OBD_BRW_UNGRANTED);
 	CHECK_DEFINE_X(OBD_BRW_NOCACHE);
 	CHECK_DEFINE_X(OBD_BRW_NOQUOTA);
 	CHECK_DEFINE_X(OBD_BRW_SRVLOCK);
