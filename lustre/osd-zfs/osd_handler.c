@@ -204,9 +204,8 @@ static int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		struct osd_device *osd = osd_dt_dev(d);
 		/* dmu will call commit callback with error code during abort */
 		if (!lu_device_is_md(&d->dd_lu_dev) && rc == -ENOSPC)
-			CERROR("%s: failed to start transaction due to ENOSPC. "
-			       "Metadata overhead is underestimated or "
-			       "grant_ratio is too low.\n", osd->od_svname);
+			CERROR("%s: failed to start transaction due to ENOSPC"
+			       "\n", osd->od_svname);
 		else
 			CERROR("%s: can't assign tx: rc = %d\n",
 			       osd->od_svname, rc);
@@ -406,19 +405,19 @@ static int osd_objset_statfs(struct objset *os, struct obd_statfs *osfs)
 	 * Rather than report this via os_bavail (which makes users unhappy if
 	 * they can't fill the filesystem 100%), reduce os_blocks as well.
 	 *
-	 * Reserve 0.78% of total space, at least 4MB for small filesystems,
+	 * Reserve 0.78% of total space, at least 16MB for small filesystems,
 	 * for internal files to be created/unlinked when space is tight.
 	 */
 	CLASSERT(OSD_STATFS_RESERVED_BLKS > 0);
-	if (likely(osfs->os_blocks >=
-			OSD_STATFS_RESERVED_BLKS << OSD_STATFS_RESERVED_SHIFT))
+	reserved = OSD_STATFS_RESERVED_BLKS;
+	if (likely(osfs->os_blocks >= reserved << OSD_STATFS_RESERVED_SHIFT))
 		reserved = osfs->os_blocks >> OSD_STATFS_RESERVED_SHIFT;
 	else
 		reserved = OSD_STATFS_RESERVED_BLKS;
 
 	osfs->os_blocks -= reserved;
-	osfs->os_bfree  -= MIN(reserved, osfs->os_bfree);
-	osfs->os_bavail -= MIN(reserved, osfs->os_bavail);
+	osfs->os_bfree  -= min(reserved, osfs->os_bfree);
+	osfs->os_bavail -= min(reserved, osfs->os_bavail);
 
 	/*
 	 * The availobjs value returned from dmu_objset_space() is largely
@@ -516,20 +515,15 @@ static void osd_conf_get(const struct lu_env *env,
 	/* for maxbytes, report same value as ZPL */
 	param->ddp_maxbytes	= MAX_LFS_FILESIZE;
 
-	/* Default reserved fraction of the available space that should be kept
-	 * for error margin. Unfortunately, there are many factors that can
-	 * impact the overhead with zfs, so let's be very cautious for now and
-	 * reserve 20% of the available space which is not given out as grant.
-	 * This tunable can be changed on a live system via procfs if needed. */
-	param->ddp_grant_reserved = 20;
-
 	/* inodes are dynamically allocated, so we report the per-inode space
 	 * consumption to upper layers. This static value is not really accurate
 	 * and we should use the same logic as in udmu_objset_statfs() to
 	 * estimate the real size consumed by an object */
 	param->ddp_inodespace = OSD_DNODE_EST_COUNT;
-	/* per-fragment overhead to be used by the client code */
-	param->ddp_grant_frag = osd_blk_insert_cost();
+	/* ZFS isn't an extent-based filesystem, so report 1 block per extent */
+	param->ddp_max_extent_blks = 1;
+	/* metadata overhead of block insertion */
+	param->ddp_extent_tax = osd_blk_insert_cost();
 }
 
 /*
