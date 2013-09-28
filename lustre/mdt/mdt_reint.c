@@ -828,11 +828,11 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 		GOTO(put_child, rc);
 	}
 
-	rc = mdt_object_lock(info, mc, child_lh, MDS_INODELOCK_FULL,
-                             MDT_CROSS_LOCK);
-	if (rc != 0) {
+	rc = mdt_object_lock(info, mc, child_lh,
+			     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE,
+			     MDT_CROSS_LOCK);
+	if (rc != 0)
 		GOTO(put_child, rc);
-	}
 
         mdt_fail_write(info->mti_env, info->mti_mdt->mdt_bottom,
                        OBD_FAIL_MDS_REINT_UNLINK_WRITE);
@@ -1290,8 +1290,10 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
 			GOTO(out_unlock_old, rc = -EXDEV);
 		}
 
-                rc = mdt_object_lock(info, mnew, lh_newp,
-                                     MDS_INODELOCK_FULL, MDT_CROSS_LOCK);
+		rc = mdt_object_lock(info, mnew, lh_newp,
+				     MDS_INODELOCK_LOOKUP |
+				     MDS_INODELOCK_UPDATE,
+				     MDT_CROSS_LOCK);
                 if (rc != 0) {
                         mdt_object_put(info->mti_env, mnew);
                         GOTO(out_unlock_old, rc);
