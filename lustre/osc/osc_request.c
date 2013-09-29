@@ -2500,7 +2500,7 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
         struct obd_device *obd = exp->exp_obd;
         struct ptlrpc_request *req = NULL;
         int intent = *flags & LDLM_FL_HAS_INTENT;
-        int match_lvb = (agl != 0 ? 0 : LDLM_FL_LVB_READY);
+	__u64 match_lvb = (agl != 0 ? 0 : LDLM_FL_LVB_READY);
         ldlm_mode_t mode;
         int rc;
         ENTRY;
