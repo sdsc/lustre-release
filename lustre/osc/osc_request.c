@@ -658,8 +658,8 @@ static int osc_sync(const struct lu_env *env, struct obd_export *exp,
  * @objid. Found locks are added into @cancel list. Returns the amount of
  * locks added to @cancels list. */
 static int osc_resource_get_unused(struct obd_export *exp, struct obdo *oa,
-                                   cfs_list_t *cancels,
-                                   ldlm_mode_t mode, int lock_flags)
+				   cfs_list_t *cancels,
+				   ldlm_mode_t mode, __u64 lock_flags)
 {
         struct ldlm_namespace *ns = exp->exp_obd->obd_namespace;
         struct ldlm_res_id res_id;
@@ -2436,8 +2436,8 @@ static int osc_enqueue_interpret(const struct lu_env *env,
 }
 
 void osc_update_enqueue(struct lustre_handle *lov_lockhp,
-                        struct lov_oinfo *loi, int flags,
-                        struct ost_lvb *lvb, __u32 mode, int rc)
+			struct lov_oinfo *loi, __u64 flags,
+			struct ost_lvb *lvb, __u32 mode, int rc)
 {
         struct ldlm_lock *lock = ldlm_handle2lock(lov_lockhp);
 
@@ -2497,13 +2497,13 @@ int osc_enqueue_base(struct obd_export *exp, struct ldlm_res_id *res_id,
                      struct lustre_handle *lockh,
                      struct ptlrpc_request_set *rqset, int async, int agl)
 {
-        struct obd_device *obd = exp->exp_obd;
-        struct ptlrpc_request *req = NULL;
-        int intent = *flags & LDLM_FL_HAS_INTENT;
-        int match_lvb = (agl != 0 ? 0 : LDLM_FL_LVB_READY);
-        ldlm_mode_t mode;
-        int rc;
-        ENTRY;
+	struct obd_device *obd = exp->exp_obd;
+	struct ptlrpc_request *req = NULL;
+	int intent = *flags & LDLM_FL_HAS_INTENT;
+	__u64 match_lvb = (agl != 0 ? 0 : LDLM_FL_LVB_READY);
+	ldlm_mode_t mode;
+	int rc;
+	ENTRY;
 
         /* Filesystem lock extents are extended to page boundaries so that
          * dealing with the page cache is a little smoother.  */
