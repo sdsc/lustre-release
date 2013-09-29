@@ -287,7 +287,7 @@ int ll_md_close(struct obd_export *md_exp, struct inode *inode,
            we can skip talking to MDS */
         if (file->f_dentry->d_inode) { /* Can this ever be false? */
                 int lockmode;
-                int flags = LDLM_FL_BLOCK_GRANTED | LDLM_FL_TEST_LOCK;
+		__u64 flags = LDLM_FL_BLOCK_GRANTED | LDLM_FL_TEST_LOCK;
                 struct lustre_handle lockh;
                 struct inode *inode = file->f_dentry->d_inode;
                 ldlm_policy_data_t policy = {.l_inodebits={MDS_INODELOCK_OPEN}};
@@ -2858,7 +2858,7 @@ int ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 	struct md_op_data *op_data;
 	struct lustre_handle lockh = {0};
 	ldlm_policy_data_t flock = {{0}};
-	int flags = 0;
+	__u64 flags = 0;
 	int rc;
 	int rc2 = 0;
 	ENTRY;
