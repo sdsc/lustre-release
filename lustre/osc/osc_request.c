@@ -2002,7 +2002,9 @@ static int brw_interpret(const struct lu_env *env,
 
 	if (obj != NULL) {
 		struct obdo *oa = aa->aa_oa;
-		struct cl_attr *attr  = &osc_env_info(env)->oti_attr;
+		struct cl_attr *attr = &osc_env_info(env)->oti_attr;
+		struct lov_oinfo *loi = cl2osc(obj)->oo_oinfo;
+		struct brw_page *pg = aa->aa_ppga[aa->aa_page_count - 1];
 		unsigned long valid = 0;
 
 		LASSERT(rc == 0);
@@ -2022,6 +2024,16 @@ static int brw_interpret(const struct lu_env *env,
 			attr->cat_ctime = oa->o_ctime;
 			valid |= CAT_CTIME;
 		}
+
+		/* In case this is an out of quota write and it extends the
+		 * file size should be updated but not KMS because it may be
+		 * a lockless write. */
+		if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE &&
+		    loi->loi_lvb.lvb_size < pg->off + pg->count) {
+			attr->cat_size = pg->off + pg->count;
+			valid |= CAT_SIZE;
+		}
+
 		if (valid != 0) {
 			cl_object_attr_lock(obj);
 			cl_object_attr_set(env, obj, attr, valid);
