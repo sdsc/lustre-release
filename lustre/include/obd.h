@@ -438,8 +438,9 @@ struct client_obd {
 
         cfs_atomic_t             cl_resends; /* resend count */
 
-        /* ptlrpc work for writeback in ptlrpcd context */
-        void                    *cl_writeback_work;
+	/* ptlrpc work for writeback in ptlrpcd context */
+	void                    *cl_writeback_work;
+	void                    *cl_lru_work;
 	/* hash tables for osc_quota_info */
 	cfs_hash_t              *cl_quota_hash[MAXQUOTAS];
 };
