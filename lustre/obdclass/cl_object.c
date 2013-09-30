@@ -85,7 +85,7 @@ int cl_object_header_init(struct cl_object_header *h)
 		lockdep_set_class(&h->coh_lock_guard, &cl_lock_guard_class);
 		lockdep_set_class(&h->coh_attr_guard, &cl_attr_guard_class);
                 CFS_INIT_LIST_HEAD(&h->coh_locks);
-		h->coh_page_bufsize = ALIGN(sizeof(struct cl_page), 8);
+		h->coh_page_bufsize = round_up(sizeof(struct cl_page), 8);
         }
         RETURN(result);
 }
