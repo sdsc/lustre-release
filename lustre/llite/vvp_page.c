@@ -323,6 +323,8 @@ static void vvp_page_completion_write(const struct lu_env *env,
          */
         if (pg->cp_sync_io == NULL)
                 vvp_vmpage_error(ccc_object_inode(pg->cp_obj), vmpage, ioret);
+	else if (!PageUptodate(vmpage))
+		SetPageUptodate(vmpage);
 
         end_page_writeback(vmpage);
         EXIT;
