@@ -141,7 +141,7 @@ static inline int ffs(int x)
         return r;
 }
 
-static inline unsigned long __cfs_ffs(unsigned long word)
+static inline unsigned long __ffs(unsigned long word)
 {
         int num = 0;
 
@@ -217,7 +217,7 @@ static inline unsigned find_first_bit(const unsigned long *addr,
         while (x < size) {
                 unsigned long val = *addr++;
                 if (val)
-                        return __cfs_ffs(val) + x;
+                        return __ffs(val) + x;
                 x += (sizeof(*addr)<<3);
         }
         return x;

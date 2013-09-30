@@ -102,7 +102,7 @@
  *   hash tables, cfs_hash_rehash_key will overwrite hash-key
  *   inside lock by calling hs_keycpy.
  *
- * - better hash iteration:
+´´ * - better hash iteration:
  *   Now we support both locked iteration & lockless iteration of hash
  *   table. Also, user can break the iteration by return 1 in callback.
  */
@@ -2119,7 +2119,7 @@ int cfs_hash_debug_str(cfs_hash_t *hs, char *str, int size)
 #endif
                 }
                 total += bd.bd_bucket->hsb_count;
-                dist[min(fls(bd.bd_bucket->hsb_count/max(theta,1)),7)]++;
+		dist[min(__fls(bd.bd_bucket->hsb_count/max(theta,1)),7UL)]++;
                 cfs_hash_bd_unlock(hs, &bd, 0);
         }
 
