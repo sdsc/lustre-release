@@ -462,14 +462,11 @@ static struct osc_extent *osc_extent_hold(struct osc_extent *ext)
 	return osc_extent_get(ext);
 }
 
-static void __osc_extent_remove(struct osc_extent *ext)
+static inline void __osc_extent_remove(struct osc_extent *ext)
 {
 	LASSERT(osc_object_is_locked(ext->oe_obj));
-	LASSERT(cfs_list_empty(&ext->oe_pages));
 	osc_extent_erase(ext);
 	cfs_list_del_init(&ext->oe_link);
-	osc_extent_state_set(ext, OES_INV);
-	OSC_EXTENT_DUMP(D_CACHE, ext, "destroyed.\n");
 }
 
 static void osc_extent_remove(struct osc_extent *ext)
@@ -479,6 +476,26 @@ static void osc_extent_remove(struct osc_extent *ext)
 	osc_object_lock(obj);
 	__osc_extent_remove(ext);
 	osc_object_unlock(obj);
+}
+
+static inline void osc_extent_destroy_nolock(struct osc_extent *ext)
+{
+	LASSERT(osc_object_is_locked(ext->oe_obj));
+
+	LASSERT(cfs_list_empty(&ext->oe_pages));
+	__osc_extent_remove(ext);
+	osc_extent_state_set(ext, OES_INV);
+}
+
+static void osc_extent_destroy(struct osc_extent *ext)
+{
+	struct osc_object *obj = ext->oe_obj;
+
+	osc_object_lock(obj);
+	osc_extent_destroy_nolock(ext);
+	osc_object_unlock(obj);
+
+	OSC_EXTENT_DUMP(D_CACHE, ext, "destroyed.\n");
 }
 
 /**
@@ -526,7 +543,7 @@ static int osc_extent_merge(const struct lu_env *env, struct osc_extent *cur,
 	victim->oe_nr_pages = 0;
 
 	osc_extent_get(victim);
-	__osc_extent_remove(victim);
+	osc_extent_destroy_nolock(victim);
 	osc_extent_put(env, victim);
 
 	OSC_EXTENT_DUMP(D_CACHE, cur, "after merging %p.\n", victim);
@@ -812,6 +829,10 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 	ext->oe_rc = rc ?: ext->oe_nr_pages;
 	EASSERT(ergo(rc == 0, ext->oe_state == OES_RPC), ext);
 
+	/* Take the extent out of rbtree before calling completion callback
+	 * so that the pages can be redirtied in osc_queue_async_pages(). */
+	osc_extent_remove(ext);
+
 	osc_lru_add_batch(cli, &ext->oe_pages);
 	cfs_list_for_each_entry_safe(oap, tmp, &ext->oe_pages,
 				     oap_pending_item) {
@@ -834,9 +855,9 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 		/* For short writes we shouldn't count parts of pages that
 		 * span a whole chunk on the OST side, or our accounting goes
 		 * wrong.  Should match the code in filter_grant_check. */
-		int offset = oap->oap_page_off & ~CFS_PAGE_MASK;
-		int count = oap->oap_count + (offset & (blocksize - 1));
-		int end = (offset + oap->oap_count) & (blocksize - 1);
+		int offset = last_off & ~CFS_PAGE_MASK;
+		int count = last_count + (offset & (blocksize - 1));
+		int end = (offset + last_count) & (blocksize - 1);
 		if (end)
 			count += blocksize - end;
 
@@ -845,7 +866,7 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 	if (ext->oe_grants > 0)
 		osc_free_grant(cli, nr_pages, lost_grant);
 
-	osc_extent_remove(ext);
+	osc_extent_destroy(ext);
 	/* put the refcount for RPC */
 	osc_extent_put(env, ext);
 	RETURN(0);
@@ -2559,6 +2580,114 @@ int osc_cancel_async_page(const struct lu_env *env, struct osc_page *ops)
 	RETURN(rc);
 }
 
+int osc_queue_async_pages(const struct lu_env *env, struct osc_object *obj,
+			  cfs_list_t *list, struct osc_io *oio)
+{
+	struct client_obd     *cli = osc_cli(obj);
+	struct cl_lock        *lock = NULL;
+	struct osc_extent     *ext;
+	struct osc_async_page *oap;
+	pgoff_t start = CL_PAGE_EOF;
+	pgoff_t end = 0;
+	int chunk_mask = (1 << (cli->cl_chunkbits - PAGE_CACHE_SHIFT)) - 1;
+	int mppr = cli->cl_max_pages_per_rpc;
+	int page_count = 0;
+	int grant = 0;
+	int rc = 0;
+	ENTRY;
+
+	if (cfs_list_empty(list)) /* wtf */
+		RETURN(0);
+
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+	cfs_list_for_each_entry(oap, list, oap_pending_item) {
+		pgoff_t index = osc_index(oap2osc(oap));
+		int tmp_grant = 0;
+
+		if (start == CL_PAGE_EOF) {
+			LASSERT((start & chunk_mask) == 0);
+			start = end = index;
+			tmp_grant = 1 << cli->cl_extent_tax; /* extent starts */
+		} else {
+			LASSERT(index == end + 1);
+			end = index;
+		}
+
+		if ((index & chunk_mask) == 0) /* new chunk starts */
+			tmp_grant += 1 << cli->cl_chunkbits;
+
+		if (!osc_enter_cache_try(cli, oap, tmp_grant, 0)) {
+			rc = -EDQUOT;
+			break;
+		}
+
+		grant += tmp_grant;
+		++page_count;
+		mppr <<= (page_count > mppr);
+	}
+	LASSERT(ergo(rc == 0, ((end + 1) & chunk_mask) == 0));
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	ext = osc_extent_alloc(obj);
+	if (ext == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	lock = cl_lock_at_pgoff(env, osc2cl(obj), start, NULL, 1, 0);
+	LASSERT(lock != NULL);
+	LASSERT(lock->cll_descr.cld_mode >= CLM_WRITE);
+	LASSERT(lock->cll_descr.cld_end >= end);
+
+	cfs_list_for_each_entry(oap, list, oap_pending_item) {
+		struct osc_page *opg = oap2osc(oap);
+		osc_page_transfer_get(opg, "transfer\0cache");
+		osc_page_transfer_add(env, opg, CRT_WRITE);
+	}
+	osc_unreserve_grant(cli, grant, 0);
+
+	ext->oe_rw = 0;
+	ext->oe_urgent = 0;
+	ext->oe_start = start;
+	ext->oe_end = end;
+	ext->oe_max_end = min_t(pgoff_t, ((end + mppr) & ~(mppr - 1)) - 1,
+				lock->cll_descr.cld_end); /* RPC boundary */
+	ext->oe_mppr = mppr;
+	ext->oe_osclock = lock;
+	ext->oe_grants = grant;
+	ext->oe_srvlock = osc_io_srvlock(oio);
+	ext->oe_state = OES_ACTIVE;
+	ext->oe_nr_pages = page_count;
+	cfs_list_splice_init(list, &ext->oe_pages);
+
+	osc_object_lock(obj);
+	osc_extent_hold(ext);
+	osc_extent_insert(obj, ext);
+	osc_object_unlock(obj);
+
+	OSC_EXTENT_DUMP(D_CACHE, ext, "added by queue_async_pages\n");
+
+	/* workaround for sanity:39j */
+	if (oio->oi_active != NULL)
+		osc_extent_release(env, oio->oi_active);
+	oio->oi_active = ext;
+
+	/* refcount from osc_extent_alloc() */
+	osc_extent_put(env, ext);
+
+out:
+	if (rc < 0) {
+		struct osc_async_page *tmp;
+		cfs_list_for_each_entry_safe(oap, tmp, list, oap_pending_item) {
+			cfs_list_del_init(&oap->oap_pending_item);
+			osc_exit_cache(cli, oap);
+		}
+		osc_unreserve_grant(cli, grant, grant);
+	}
+	LASSERT(cfs_list_empty(list));
+	RETURN(rc);
+}
+
 int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 			 cfs_list_t *list, int cmd, int brw_flags)
 {
@@ -2701,7 +2830,7 @@ again:
 			OSC_EXTENT_DUMP(D_ERROR, ext,
 					"truncate error %d\n", rc);
 		} else if (ext->oe_nr_pages == 0) {
-			osc_extent_remove(ext);
+			osc_extent_destroy(ext);
 		} else {
 			/* this must be an overlapped extent which means only
 			 * part of pages in this extent have been truncated.
@@ -3083,14 +3212,13 @@ static int discard_cb(const struct lu_env *env, struct cl_io *io,
 	struct cl_page *page = cl_page_top(ops->ops_cl.cpl_page);
 
 	LASSERT(lock->cll_descr.cld_mode >= CLM_WRITE);
-	KLASSERT(ergo(page->cp_type == CPT_CACHEABLE,
-		      !PageWriteback(cl_page_vmpage(env, page))));
-	KLASSERT(ergo(page->cp_type == CPT_CACHEABLE,
-		      !PageDirty(cl_page_vmpage(env, page))));
 
 	/* page is top page. */
 	info->oti_next_index = osc_index(ops) + 1;
 	if (cl_page_own(env, io, page) == 0) {
+		KLASSERT(ergo(page->cp_type == CPT_CACHEABLE,
+			      !PageDirty(cl_page_vmpage(env, page))));
+
 		/* discard the page */
 		cl_page_discard(env, io, page);
 		cl_page_disown(env, io, page);
