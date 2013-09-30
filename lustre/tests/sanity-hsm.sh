@@ -15,6 +15,20 @@ ONLY=${ONLY:-"$*"}
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 # skip test cases failed before landing - Jinshan
 
+# Excluding test_40 from current settings applied by the Tools-team as
+# part of TEI-570 (ie, disable test_40 execution via SANITY_HSM_EXCEPT
+# and EXCEPT env. vars), to allow test run and verify changes for
+# LU-3939 work as expected. To be removed when TEI-570 changes will
+# disapear.
+if [[ -n $EXCEPT]] ; then
+	EXCEPT=`echo $EXCEPT | sed -E -e 's/\b40\b//g' -e 's/^ *//' \
+		-e 's/ *$//' -e 's/( )+/ /g'`
+fi
+if [[ -n $SANITY_HSM_EXCEPT ]] ; then
+	SANITY_HSM_EXCEPT=`echo $SANITY_HSM_EXCEPT | sed -E -e 's/\b40\b//g' \
+			   -e 's/^ *//' -e 's/ *$//' -e 's/( )+/ /g'`
+fi
+
 ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 12a 12b 12n 13 30a 31a 34 35 36 58 59"
 ALWAYS_EXCEPT="$ALWAYS_EXCEPT 110a 200 201 221 222a 223a 223b 225"
 
@@ -127,7 +141,7 @@ copytool_setup() {
 	local facet=${1:-$SINGLEAGT}
 	local lustre_mntpnt=${2:-$MOUNT}
 	local arc_id=$3
-	local hsm_root=$(copytool_device $facet)
+	local hsm_root=${4:-$(copytool_device $facet)}
 	local agent=$(facet_active_host $facet)
 
 	if [[ -z "$arc_id" ]] &&
@@ -1940,7 +1954,13 @@ test_40() {
 			fid=$(copy_file /etc/hosts $f.$p.$i)
 		done
 	done
-	copytool_setup
+	# force copytool to use a local/temp archive dir to ensure best
+	# performance vs remote/NFS mounts used in auto-tests
+	if df --local $HSM_ARCHIVE >/dev/null 2>&1 ; then
+		copytool_setup
+	else
+		copytool_setup $SINGLEAGT $MOUNT $HSM_ARCHIVE_NUMBER $TMP/$tdir
+	fi
 	# to be sure wait_all_done will not be mislead by previous tests
 	cdt_purge
 	wait_for_grace_delay
