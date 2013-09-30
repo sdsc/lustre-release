@@ -1959,6 +1959,7 @@ static int brw_interpret(const struct lu_env *env,
 	struct osc_extent *tmp;
 	struct cl_object  *obj = NULL;
 	struct client_obd *cli = aa->aa_cli;
+	loff_t last_offset;
         ENTRY;
 
         rc = osc_brw_fini_request(req, rc);
@@ -1993,6 +1994,10 @@ static int brw_interpret(const struct lu_env *env,
                 aa->aa_ocapa = NULL;
         }
 
+	/* Save the highest offset before page is released. */
+	last_offset = aa->aa_ppga[aa->aa_page_count - 1]->off +
+		      aa->aa_ppga[aa->aa_page_count - 1]->count;
+
 	cfs_list_for_each_entry_safe(ext, tmp, &aa->aa_exts, oe_link) {
 		if (obj == NULL && rc == 0) {
 			obj = osc2cl(ext->oe_obj);
@@ -2007,7 +2012,8 @@ static int brw_interpret(const struct lu_env *env,
 
 	if (obj != NULL) {
 		struct obdo *oa = aa->aa_oa;
-		struct cl_attr *attr  = &osc_env_info(env)->oti_attr;
+		struct cl_attr *attr = &osc_env_info(env)->oti_attr;
+		struct lov_oinfo *loi = cl2osc(obj)->oo_oinfo;
 		unsigned long valid = 0;
 
 		LASSERT(rc == 0);
@@ -2027,6 +2033,16 @@ static int brw_interpret(const struct lu_env *env,
 			attr->cat_ctime = oa->o_ctime;
 			valid |= CAT_CTIME;
 		}
+
+		/* In case this is an out of quota write and it extends the
+		 * file size, the file size should be updated here. However,
+		 * KMS can't be changed because it may be a lockless write. */
+		if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE &&
+		    loi->loi_lvb.lvb_size < last_offset) {
+			attr->cat_size = last_offset;
+			valid |= CAT_SIZE;
+		}
+
 		if (valid != 0) {
 			cl_object_attr_lock(obj);
 			cl_object_attr_set(env, obj, attr, valid);
