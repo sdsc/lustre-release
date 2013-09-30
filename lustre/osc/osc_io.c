@@ -210,7 +210,8 @@ static void osc_page_touch_at(const struct lu_env *env,
                kms > loi->loi_kms ? "" : "not ", loi->loi_kms, kms,
                loi->loi_lvb.lvb_size);
 
-        valid = 0;
+	attr->cat_mtime = attr->cat_ctime = LTIME_S(CFS_CURRENT_TIME);
+	valid = CAT_MTIME | CAT_CTIME;
         if (kms > loi->loi_kms) {
                 attr->cat_kms = kms;
                 valid |= CAT_KMS;
@@ -240,75 +241,174 @@ static void osc_page_touch(const struct lu_env *env,
         osc_page_touch_at(env, obj, page->cp_index, to);
 }
 
-/**
- * Implements cl_io_operations::cio_prepare_write() method for osc layer.
- *
- * \retval -EIO transfer initiated against this osc will most likely fail
- * \retval 0    transfer initiated against this osc will most likely succeed.
- *
- * The reason for this check is to immediately return an error to the caller
- * in the case of a deactivated import. Note, that import can be deactivated
- * later, while pages, dirtied by this IO, are still in the cache, but this is
- * irrelevant, because that would still return an error to the application (if
- * it does fsync), but many applications don't do fsync because of performance
- * issues, and we wanted to return an -EIO at write time to notify the
- * application.
- */
-static int osc_io_prepare_write(const struct lu_env *env,
-                                const struct cl_io_slice *ios,
-                                const struct cl_page_slice *slice,
-                                unsigned from, unsigned to)
+static void drain_pages(const struct lu_env *env, struct cl_io *io,
+			struct cl_page_list *plist, struct cl_page *end,
+			cl_commit_cbt cb)
 {
-        struct osc_device *dev = lu2osc_dev(slice->cpl_obj->co_lu.lo_dev);
-        struct obd_import *imp = class_exp2cliimp(dev->od_exp);
-        struct osc_io     *oio = cl2osc_io(env, ios);
-        int result = 0;
-        ENTRY;
+	struct cl_page *page;
+	struct cl_page *tmp;
 
-        /*
-         * This implements OBD_BRW_CHECK logic from old client.
-         */
+	cl_page_list_for_each_safe(page, tmp, plist) {
+		cl_page_list_del(env, plist, page);
 
-        if (imp == NULL || imp->imp_invalid)
-                result = -EIO;
-        if (result == 0 && oio->oi_lockless)
-                /* this page contains `invalid' data, but who cares?
-                 * nobody can access the invalid data.
-                 * in osc_io_commit_write(), we're going to write exact
-                 * [from, to) bytes of this page to OST. -jay */
-                cl_page_export(env, slice->cpl_page, 1);
+		cb(env, io, page);
+		/* Can't access page any more. Page can be in transfer and
+		 * complete at any time. */
 
-        RETURN(result);
+		if (page == end)
+			break;
+	}
 }
 
-static int osc_io_commit_write(const struct lu_env *env,
-                               const struct cl_io_slice *ios,
-                               const struct cl_page_slice *slice,
-                               unsigned from, unsigned to)
+static int osc_io_commit_async(const struct lu_env *env,
+				const struct cl_io_slice *ios,
+				struct cl_page_list *qin, int from, int to,
+				cl_commit_cbt cb)
 {
-        struct osc_io         *oio = cl2osc_io(env, ios);
-        struct osc_page       *opg = cl2osc_page(slice);
-        struct osc_object     *obj = cl2osc(opg->ops_cl.cpl_obj);
-        struct osc_async_page *oap = &opg->ops_oap;
-        ENTRY;
+	struct cl_io      *io = ios->cis_io;
+	struct osc_io     *oio = cl2osc_io(env, ios);
+	struct osc_object *osc = cl2osc(ios->cis_obj);
+	struct client_obd *cli = osc_cli(osc);
+	struct cl_page    *page;
+	struct cl_page    *tmp;
+	struct cl_page    *last_page;
+	struct osc_page   *opg;
+	CFS_LIST_HEAD(list);
+	int result = 0;
+	int nrpages = 0;
+	int brw_flags = OBD_BRW_ASYNC;
+	int cmd = OBD_BRW_WRITE;
+	ENTRY;
 
-        LASSERT(to > 0);
-        /*
-         * XXX instead of calling osc_page_touch() here and in
-         * osc_io_fault_start() it might be more logical to introduce
-         * cl_page_touch() method, that generic cl_io_commit_write() and page
-         * fault code calls.
-         */
-        osc_page_touch(env, cl2osc_page(slice), to);
-        if (!client_is_remote(osc_export(obj)) &&
-            cfs_capable(CFS_CAP_SYS_RESOURCE))
-                oap->oap_brw_flags |= OBD_BRW_NOQUOTA;
+	LASSERT(qin->pl_nr > 0);
 
-        if (oio->oi_lockless)
-                /* see osc_io_prepare_write() for lockless io handling. */
-                cl_page_clip(env, slice->cpl_page, from, to);
+	last_page = cl_page_list_last(qin);
+	if (cl_io_is_mkwrite(io)) {
+		LASSERT(qin->pl_nr == 1);
+		opg = osc_cl_page_osc(last_page);
+		result = osc_page_cache_add(env, &opg->ops_cl, io);
+		if (result == 0) {
+			drain_pages(env, io, qin, NULL, cb);
 
-        RETURN(0);
+			if (oio->oi_active != NULL) {
+				osc_extent_release(env, oio->oi_active);
+				oio->oi_active = NULL;
+			}
+		}
+		RETURN(result);
+	}
+
+	if (oio->oi_lockless) {
+		/* Handle partial page cases */
+		page = cl_page_list_first(qin);
+		if (page == last_page) {
+			cl_page_clip(env, page, from, to);
+		} else {
+			if (from != 0)
+				cl_page_clip(env, page, from, PAGE_SIZE);
+			if (to != PAGE_SIZE)
+				cl_page_clip(env, last_page, 0, to);
+		}
+	}
+
+	/* Set the OBD_BRW_SRVLOCK before the page is queued. */
+	brw_flags |= osc_io_srvlock(oio) ? OBD_BRW_SRVLOCK : 0;
+	if (!client_is_remote(osc_export(osc)) &&
+	    cfs_capable(CFS_CAP_SYS_RESOURCE)) {
+		brw_flags |= OBD_BRW_NOQUOTA;
+		cmd |= OBD_BRW_NOQUOTA;
+	}
+
+	/* check if the file's owner/group is over quota */
+	if (!(cmd & OBD_BRW_NOQUOTA)) {
+		struct cl_object *obj;
+		struct cl_attr   *attr;
+		unsigned int qid[MAXQUOTAS];
+
+		obj = cl_object_top(&osc->oo_cl);
+		attr = &osc_env_info(env)->oti_attr;
+
+		cl_object_attr_lock(obj);
+		result = cl_object_attr_get(env, obj, attr);
+		cl_object_attr_unlock(obj);
+
+		qid[USRQUOTA] = attr->cat_uid;
+		qid[GRPQUOTA] = attr->cat_gid;
+		if (result == 0 && osc_quota_chkdq(cli, qid) == NO_QUOTA)
+			result = -EDQUOT;
+		if (result)
+			RETURN(result);
+	}
+
+	/* TODO: get rid of chunk unaligned pages at the beginning and
+	 * end of list. osc_queue_async_pages() only accepts chunk aligned
+	 * pages. */
+	cl_page_list_for_each_safe(page, tmp, qin) {
+		struct osc_async_page *oap;
+		pgoff_t index;
+
+		opg = osc_cl_page_osc(page);
+		oap = &opg->ops_oap;
+		index = osc_index(opg);
+
+		if (!cfs_list_empty(&oap->oap_rpc_item) ||
+		    !cfs_list_empty(&oap->oap_pending_item)) {
+			/* page is already in cache, commit now */
+			result = osc_queue_async_pages(env, osc, &list, oio);
+			if (result != 0)
+				break;
+
+			osc_page_touch(env, opg,
+				       page == last_page ? to : PAGE_SIZE);
+			drain_pages(env, io, qin, page, cb);
+			nrpages = 0;
+
+			/* skip this page */
+			continue;
+		}
+
+		oap->oap_cmd = cmd;
+		oap->oap_page_off = opg->ops_from;
+		oap->oap_count = opg->ops_to - opg->ops_from;
+		oap->oap_async_flags = 0;
+		oap->oap_brw_flags = brw_flags;
+		cfs_list_add_tail(&oap->oap_pending_item, &list);
+
+		++nrpages;
+		/* check if index is at the end of current RPC boundary */
+		if (((index + 1) & (cli->cl_max_pages_per_rpc - 1)) == 0 ||
+		    nrpages >= cli->cl_max_pages_per_rpc) {
+			result = osc_queue_async_pages(env, osc, &list, oio);
+			if (result != 0)
+				break;
+
+			osc_page_touch(env, opg,
+				       page == last_page ? to : PAGE_SIZE);
+			drain_pages(env, io, qin, page, cb);
+			nrpages = 0;
+		}
+	}
+
+	LASSERT(ergo(result != 0, cfs_list_empty(&list)));
+	if (!cfs_list_empty(&list)) {
+		result = osc_queue_async_pages(env, osc, &list, oio);
+		if (result == 0) {
+			opg = osc_cl_page_osc(last_page);
+			osc_page_touch(env, opg, to);
+			drain_pages(env, io, qin, NULL, cb);
+		}
+	}
+
+	/* for sync write, kernel will wait for this page to be flushed before
+	 * osc_io_end() is called, so release it earlier.
+	 * for mkwrite(), it's known there is no further pages. */
+	if (cl_io_is_sync_write(io) && oio->oi_active != NULL) {
+		osc_extent_release(env, oio->oi_active);
+		oio->oi_active = NULL;
+	}
+
+	CDEBUG(D_INFO, "%d %d\n", qin->pl_nr, result);
+	RETURN(result);
 }
 
 static int osc_io_rw_iter_init(const struct lu_env *env,
@@ -747,16 +847,8 @@ static const struct cl_io_operations osc_io_ops = {
                         .cio_fini   = osc_io_fini
                 }
         },
-        .req_op = {
-                 [CRT_READ] = {
-                         .cio_submit    = osc_io_submit
-                 },
-                 [CRT_WRITE] = {
-                         .cio_submit    = osc_io_submit
-                 }
-         },
-        .cio_prepare_write = osc_io_prepare_write,
-        .cio_commit_write  = osc_io_commit_write
+	.cio_submit    = osc_io_submit,
+	.cio_commit_async = osc_io_commit_async
 };
 
 /*****************************************************************************
