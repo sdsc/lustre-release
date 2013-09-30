@@ -167,6 +167,7 @@ extern const struct lu_seq_range LUSTRE_SEQ_ZERO_RANGE;
 extern const struct lu_fid LUSTRE_BFL_FID;
 extern const struct lu_fid LU_OBF_FID;
 extern const struct lu_fid LU_DOT_LUSTRE_FID;
+extern const struct lu_fid LU_LOSTFOUND_FID;
 
 enum {
 	/*

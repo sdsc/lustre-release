@@ -120,6 +120,9 @@ static int lfs_hsm_release(int argc, char **argv);
 static int lfs_hsm_remove(int argc, char **argv);
 static int lfs_hsm_cancel(int argc, char **argv);
 static int lfs_swap_layouts(int argc, char **argv);
+static int lfs_list_orphans(int argc, char **argv);
+static int lfs_stat_orphan(int argc, char **argv);
+static int lfs_move_orphan(int argc, char **argv);
 
 #define SETSTRIPE_USAGE(_cmd, _tgt) \
 	"usage: "_cmd" [--stripe-count|-c <stripe_count>]\n"\
@@ -318,6 +321,16 @@ command_t cmdlist[] = {
 	 "usage: hsm_cancel [--filelist FILELIST] [--data DATA] <file> ..."},
 	{"swap_layouts", lfs_swap_layouts, 0, "Swap layouts between 2 files.\n"
 	 "usage: swap_layouts <path1> <path2>"},
+	{"list_orphans", lfs_list_orphans, 0,
+	 "List orphans on the specified MDT.\n"
+	 "usage: list_orphans <mount_point> <MDT_index>"},
+	{"stat_orphan", lfs_stat_orphan, 0,
+	 "Stat the specified orphan on the specified MDT.\n"
+	 "usage: stat_orphan <mount_point> <MDT_index> <orphan_name>"},
+	{"move_orphan", lfs_move_orphan, 0,
+	 "Move the specified orphan to normal visible namespace. "
+	 "Do NOT allow to replace an existing file with the orphan.\n"
+	 "usage: move_orphan <mount_point> <MDT_index> <orphan_name> <target>"},
 	{"migrate", lfs_setstripe, 0, "migrate file from one layout to "
 	 "another (may be not safe with concurent writes).\n"
 	 SETSTRIPE_USAGE("migrate  ", "<filename>")},
@@ -3657,6 +3670,39 @@ static int lfs_swap_layouts(int argc, char **argv)
 	return llapi_swap_layouts(argv[1], argv[2], 0, 0,
 				  SWAP_LAYOUTS_KEEP_MTIME |
 				  SWAP_LAYOUTS_KEEP_ATIME);
+}
+
+static int lfs_list_orphans(int argc, char **argv)
+{
+	int index;
+
+	if (argc != 3)
+		return CMD_HELP;
+
+	index = atoi(argv[2]);
+	return llapi_list_orphans(argv[1], index);
+}
+
+static int lfs_stat_orphan(int argc, char **argv)
+{
+	int index;
+
+	if (argc != 4)
+		return CMD_HELP;
+
+	index = atoi(argv[2]);
+	return llapi_stat_orphan(argv[1], index, argv[3]);
+}
+
+static int lfs_move_orphan(int argc, char **argv)
+{
+	int index;
+
+	if (argc != 5)
+		return CMD_HELP;
+
+	index = atoi(argv[2]);
+	return llapi_move_orphan(argv[1], index, argv[3], argv[4]);
 }
 
 int main(int argc, char **argv)

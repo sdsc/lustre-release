@@ -142,6 +142,21 @@ lmv_find_target(struct lmv_obd *lmv, const struct lu_fid *fid)
         return lmv_get_target(lmv, mds);
 }
 
+static inline struct lmv_tgt_desc *
+lmv_condition_find_target(struct lmv_obd *lmv,
+			  struct md_op_data *op_data)
+{
+	if (op_data->op_cli_flags & CLI_SET_MEA) {
+		struct lmv_user_md *lum;
+
+		lum = (struct lmv_user_md *)op_data->op_data;
+		if (lum->lum_type == LMV_STRIPE_TYPE)
+			return lmv->tgts[lum->lum_stripe_offset];
+	}
+
+	return lmv_find_target(lmv, &op_data->op_fid1);
+}
+
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
 		struct lu_fid *fid);

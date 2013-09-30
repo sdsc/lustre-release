@@ -1281,6 +1281,212 @@ static long ll_dir_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         case FSFILT_IOC_GETVERSION_OLD:
         case FSFILT_IOC_GETVERSION:
                 RETURN(put_user(inode->i_generation, (int *)arg));
+	case LL_IOC_LIST_ORPHANS: {
+		struct page		*page	 = NULL;
+                struct ptlrpc_request	*req	 = NULL;
+		struct md_op_data	*op_data = NULL;
+		struct lmv_user_md	*lum;
+		char			*buf	 = NULL;
+		__u64			*offset;
+		int			 buflen  = 0;
+
+		rc = obd_ioctl_getdata(&buf, &buflen, (void *)arg);
+		if (rc != 0)
+			RETURN(rc);
+
+		data = (void *)buf;
+		if (data->ioc_inlbuf1 == NULL || data->ioc_inllen1 == 0 ||
+		    data->ioc_inlbuf2 == NULL || data->ioc_inllen2 == 0)
+			GOTO(free_data1, rc = -EINVAL);
+
+		lum = (struct lmv_user_md *)data->ioc_inlbuf1;
+		offset = (__u64 *)data->ioc_inlbuf2;
+		if (data->ioc_inllen1 != sizeof(*lum) ||
+		    data->ioc_inllen2 != sizeof(*offset))
+			GOTO(free_data1, rc = -EFAULT);
+
+		page = alloc_page(GFP_KERNEL);
+		if (page == NULL)
+			GOTO(free_data1, rc = -ENOMEM);
+
+		op_data->op_cli_flags |= CLI_SET_MEA;
+		op_data = ll_prep_md_op_data_byfid(&LU_LOSTFOUND_FID, NULL,
+						   NULL, 0, 0, LUSTRE_OPC_ANY,
+						   lum);
+		if (op_data == NULL)
+			GOTO(free_data1, rc = -ENOMEM);
+
+		op_data->op_npages = 1;
+		op_data->op_offset = *offset;
+		rc = md_readpage(sbi->ll_md_exp, op_data, &page, &req);
+		if (rc != 0)
+			GOTO(free_data1, rc);
+
+		ptlrpc_req_finished(req);
+
+		if (copy_to_user((void *)arg, page_address(page),
+				 PAGE_CACHE_SIZE))
+			GOTO(free_data1, rc = -EFAULT);
+
+		GOTO(free_data1, rc = 0);
+
+free_data1:
+		if (op_data != NULL)
+			ll_finish_md_op_data(op_data);
+		if (page != NULL)
+			__free_page(page);
+		obd_ioctl_freedata(buf, buflen);
+		return rc;
+
+	}
+	case LL_IOC_STAT_ORPHAN: {
+                struct ptlrpc_request	*req	 = NULL;
+		struct md_op_data	*op_data = NULL;
+		struct lov_mds_md	*lmm;
+		struct mdt_body		*body;
+		struct lmv_user_md	*lum;
+		char			*buf	 = NULL;
+		char			*orphan;
+		int			 lmmsize = 0;
+		int			 buflen  = 0;
+
+		rc = obd_ioctl_getdata(&buf, &buflen, (void *)arg);
+		if (rc != 0)
+			RETURN(rc);
+
+		data = (void *)buf;
+		if (data->ioc_inlbuf1 == NULL || data->ioc_inllen1 == 0 ||
+		    data->ioc_inlbuf2 == NULL || data->ioc_inllen2 == 0)
+			GOTO(free_data2, rc = -EINVAL);
+
+		lum = (struct lmv_user_md *)data->ioc_inlbuf1;
+		orphan = data->ioc_inlbuf2;
+		if (data->ioc_inllen1 != sizeof(*lum) ||
+		    data->ioc_inllen2 != strlen(orphan) + 1)
+			GOTO(free_data2, rc = -EFAULT);
+
+		rc = ll_get_max_mdsize(sbi, &lmmsize);
+		if (rc != 0)
+			GOTO(free_data2, rc);
+
+		op_data->op_cli_flags |= CLI_SET_MEA;
+		op_data = ll_prep_md_op_data_byfid(&LU_LOSTFOUND_FID, NULL,
+						   orphan, strlen(orphan),
+						   lmmsize, LUSTRE_OPC_ANY,
+						   lum);
+		if (op_data == NULL)
+			GOTO(free_data2, rc = -ENOMEM);
+
+		op_data->op_valid = OBD_MD_FLGETATTR | OBD_MD_FLEASIZE |
+				    OBD_MD_FLDIREA;
+		rc = md_getattr_name(sbi->ll_md_exp, op_data, &req);
+		if (rc != 0)
+			GOTO(free_data2, rc);
+
+		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+		if (copy_to_user((void *)arg, body, sizeof(*body)))
+			GOTO(free_data2, rc = -EFAULT);
+
+		if (!(body->valid & (OBD_MD_FLEASIZE | OBD_MD_FLDIREA)) ||
+		    body->eadatasize == 0)
+			GOTO(free_data2, rc = 0);
+
+		lmm = req_capsule_server_sized_get(&req->rq_pill, &RMF_MDT_MD,
+						   body->eadatasize);
+		if (lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_V1) &&
+		    lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_V3))
+			GOTO(free_data2, rc = -EPROTO);
+
+		if (LOV_MAGIC != cpu_to_le32(LOV_MAGIC)) {
+			int stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
+
+			if (le32_to_cpu(lmm->lmm_pattern) &
+			    LOV_PATTERN_F_RELEASED)
+				stripe_count = 0;
+			if (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1)) {
+				lustre_swab_lov_user_md_v1(
+						(struct lov_user_md_v1 *)lmm);
+				if (S_ISREG(body->mode))
+					lustre_swab_lov_user_md_objects(
+						((struct lov_user_md_v1 *)lmm)->
+						lmm_objects, stripe_count);
+			} else {
+				lustre_swab_lov_user_md_v3(
+						(struct lov_user_md_v3 *)lmm);
+				if (S_ISREG(body->mode))
+					lustre_swab_lov_user_md_objects(
+						((struct lov_user_md_v3 *)lmm)->
+						lmm_objects, stripe_count);
+			}
+		}
+
+		if (copy_to_user((void *)arg + sizeof(*body), lmm,
+				 body->eadatasize))
+			GOTO(free_data2, rc = -EFAULT);
+
+		GOTO(free_data2, rc = 0);
+
+free_data2:
+		if (req != NULL)
+			ptlrpc_req_finished(req);
+		if (op_data != NULL)
+			ll_finish_md_op_data(op_data);
+		obd_ioctl_freedata(buf, buflen);
+		return rc;
+
+	}
+	case LL_IOC_MOVE_ORPHAN: {
+                struct ptlrpc_request	*req	 = NULL;
+		struct md_op_data	*op_data = NULL;
+		struct lmv_user_md	*lum;
+		char			*buf	 = NULL;
+		char			*orphan;
+		char			*tgt_name;
+		struct lu_fid		*tgt_pfid;
+		int			 buflen  = 0;
+
+		rc = obd_ioctl_getdata(&buf, &buflen, (void *)arg);
+		if (rc != 0)
+			RETURN(rc);
+
+		data = (void *)buf;
+		if (data->ioc_inlbuf1 == NULL || data->ioc_inllen1 == 0 ||
+		    data->ioc_inlbuf2 == NULL || data->ioc_inllen2 == 0 ||
+		    data->ioc_inlbuf3 == NULL || data->ioc_inllen3 == 0 ||
+		    data->ioc_inlbuf4 == NULL || data->ioc_inllen4 == 0)
+			GOTO(free_data3, rc = -EINVAL);
+
+		lum = (struct lmv_user_md *)data->ioc_inlbuf1;
+		orphan = data->ioc_inlbuf2;
+		tgt_pfid = (struct lu_fid *)data->ioc_inlbuf3;
+		tgt_name = data->ioc_inlbuf4;
+		if (data->ioc_inllen1 != sizeof(*lum) ||
+		    data->ioc_inllen2 != strlen(orphan) + 1 ||
+		    data->ioc_inllen3 != sizeof(*tgt_pfid) ||
+		    data->ioc_inllen4 != strlen(tgt_name) + 1)
+			GOTO(free_data3, rc = -EFAULT);
+
+		op_data->op_cli_flags |= CLI_SET_MEA;
+		op_data = ll_prep_md_op_data_byfid(&LU_LOSTFOUND_FID, tgt_pfid,
+						   NULL, 0, 0,
+						   LUSTRE_OPC_ANY, lum);
+		if (op_data == NULL)
+			GOTO(free_data3, rc = -ENOMEM);
+
+		rc = md_rename(sbi->ll_md_exp, op_data, orphan, strlen(orphan),
+			       tgt_name, strlen(tgt_name), &req);
+		if (req != NULL)
+			ptlrpc_req_finished(req);
+
+		GOTO(free_data3, rc);
+
+free_data3:
+		if (op_data != NULL)
+			ll_finish_md_op_data(op_data);
+		obd_ioctl_freedata(buf, buflen);
+		return rc;
+
+	}
         /* We need to special case any other ioctls we want to handle,
          * to send them to the MDS/OST as appropriate and to properly
          * network encode the arg field.
