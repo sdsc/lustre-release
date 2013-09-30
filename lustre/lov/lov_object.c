@@ -669,7 +669,6 @@ static int lov_layout_change(const struct lu_env *unused,
 	const struct lov_layout_operations *old_ops;
 	const struct lov_layout_operations *new_ops;
 
-	struct cl_object_header *hdr = cl_object_header(&lov->lo_cl);
 	void *cookie;
 	struct lu_env *env;
 	int refcheck;
@@ -700,8 +699,6 @@ static int lov_layout_change(const struct lu_env *unused,
 		old_ops->llo_fini(env, lov, &lov->u);
 
 		LASSERT(cfs_atomic_read(&lov->lo_active_ios) == 0);
-		LASSERT(hdr->coh_tree.rnode == NULL);
-		LASSERT(hdr->coh_pages == 0);
 
 		lov->lo_type = LLT_EMPTY;
 		result = new_ops->llo_init(env,
