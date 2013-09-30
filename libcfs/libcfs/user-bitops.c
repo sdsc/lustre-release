@@ -89,7 +89,7 @@ unsigned long find_next_zero_bit(unsigned long *addr,
                 return size;
         if (first_bit != 0) {
                 int tmp = (*word++) & (~0UL << first_bit);
-                bit = ffz(tmp);
+		bit = __cfs_ffz(tmp);
                 if (bit < BITS_PER_LONG)
                         goto found;
                 word++;
@@ -97,7 +97,7 @@ unsigned long find_next_zero_bit(unsigned long *addr,
         }
         while (word <= last) {
                 if (*word != ~0UL) {
-                        bit = ffz(*word);
+			bit = __cfs_ffz(*word);
                         goto found;
                 }
                 word++;

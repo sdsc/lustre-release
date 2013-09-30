@@ -42,6 +42,13 @@
 #define LL_FID_NAMELEN (16 + 1 + 8 + 1)
 
 #include <libcfs/libcfs.h>
+
+struct lvfs_callback_ops {
+	struct dentry *(*l_fid2dentry)(__u64 id_ino, __u32 gen, __u64 gr,
+				       void *data);
+};
+
+
 #if defined(__linux__)
 #include <linux/lvfs.h>
 #elif defined(__APPLE__)
@@ -53,10 +60,6 @@
 #endif
 
 #include <libcfs/lucache.h>
-
-#ifdef LIBLUSTRE
-#include <lvfs_user_fs.h>
-#endif
 
 /* lvfs_common.c */
 struct dentry *lvfs_fid2dentry(struct lvfs_run_ctxt *, __u64, __u32, __u64 ,void *data);

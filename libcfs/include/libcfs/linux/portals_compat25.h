@@ -37,10 +37,6 @@
 #ifndef __LIBCFS_LINUX_PORTALS_COMPAT_H__
 #define __LIBCFS_LINUX_PORTALS_COMPAT_H__
 
-#ifndef __user
-#define __user
-#endif
-
 #ifdef HAVE_5ARGS_SYSCTL_PROC_HANDLER
 #define ll_proc_dointvec(table, write, filp, buffer, lenp, ppos)        \
         proc_dointvec(table, write, buffer, lenp, ppos);

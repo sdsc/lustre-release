@@ -24,23 +24,19 @@
  * GPL HEADER END
  */
 /*
- * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
- * Use is subject to license terms.
- *
- * Copyright (c) 2012, Intel Corporation.
- */
-/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
- *
- * libcfs/include/libcfs/linux/linux-bitops.h
  */
-#include <linux/bitops.h>
 
+#ifndef __LIBCFS_POSIX_TRACEFILE_H__
+#define __LIBCFS_POSIX_TRACEFILE_H__
 
-#ifndef __fls
-#define __cfs_fls fls
-#else
-#define __cfs_fls __fls
+/**
+ * three types of trace_data in linux
+ */
+typedef enum {
+	CFS_TCD_TYPE_PROC = 0,
+	CFS_TCD_TYPE_MAX
+} cfs_trace_buf_type_t;
+
 #endif
-

@@ -67,6 +67,7 @@
 #include <sys/utsname.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <limits.h>
 
 #ifdef HAVE_NETDB_H
 #include <netdb.h>
@@ -193,10 +194,8 @@ typedef unsigned long long cfs_cycles_t;
 #define __swab64s(x)                            do { *(x) = __swab64(*(x)); } while (0)
 #endif
 
-#if !defined(ALIGN)
 #define __ALIGN_MASK(x, mask)	(((x) + (mask)) & ~(mask))
-#define ALIGN(x, a)		__ALIGN_MASK(x, (typeof(x))(a) - 1)
-#endif
+#define CFS_ALIGN(x, a)		__ALIGN_MASK(x, (typeof(x))(a) - 1)
 
 # ifndef THREAD_SIZE /* x86_64 linux has THREAD_SIZE in userspace */
 #  define THREAD_SIZE 8192
@@ -491,5 +490,9 @@ typedef ssize_t (*read_actor_t)();
 #  define IFTODT(type)		(((type) & S_IFMT) >> IFSHIFT)
 #  define DTTOIF(dirtype)	((dirtype) << IFSHIFT)
 # endif
+
+#ifndef ERESTARTSYS
+#define ERESTARTSYS ERESTART
+#endif
 
 #endif
