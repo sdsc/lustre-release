@@ -41,6 +41,12 @@
 #define __user
 #endif
 
+#ifndef __fls
+#define __cfs_fls fls
+#else
+#define __cfs_fls __fls
+#endif
+
 #ifdef HAVE_5ARGS_SYSCTL_PROC_HANDLER
 #define ll_proc_dointvec(table, write, filp, buffer, lenp, ppos)        \
         proc_dointvec(table, write, buffer, lenp, ppos);

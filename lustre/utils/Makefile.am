@@ -166,16 +166,17 @@ l_getidentity_LDADD := $(LIBPTLCTL)
 l_getidentity_DEPENDENCIES := $(LIBPTLCTL)
 
 ltrack_stats_SOURCES = ltrack_stats.c
+
+lhsmtool_posix_SOURCES = lhsmtool_posix.c
+lhsmtool_posix_LDADD := liblustreapi.a $(PTHREAD_LIBS)
+lhsmtool_posix_DEPENDENCIES := liblustreapi.a
+
 endif # UTILS
 
 wirecheck_SOURCES = wirecheck.c
 wirecheck_CPPFLAGS = -DCC="\"$(CC)\""
 
 wiretest_SOURCES = wiretest.c
-
-lhsmtool_posix_SOURCES = lhsmtool_posix.c
-lhsmtool_posix_LDADD := liblustreapi.a $(PTHREAD_LIBS)
-lhsmtool_posix_DEPENDENCIES := liblustreapi.a
 
 EXTRA_DIST = $(sbin_scripts) $(bin_scripts)
 
