@@ -137,4 +137,6 @@ typedef long long_ptr_t;
 /* check if task is running in compat mode.*/
 int current_is_32bit(void);
 
+#define CFS_ALIGN ALIGN
+
 #endif /* _LINUX_LIBCFS_H */

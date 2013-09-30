@@ -24,51 +24,19 @@
  * GPL HEADER END
  */
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Use is subject to license terms.
- */
-/*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
- *
- * lustre/include/lvfs.h
- *
- * lustre VFS/process permission interface
  */
 
-#ifndef __LVFS_H__
-#define __LVFS_H__
+#ifndef __LIBCFS_POSIX_TRACEFILE_H__
+#define __LIBCFS_POSIX_TRACEFILE_H__
 
-#define LL_FID_NAMELEN (16 + 1 + 8 + 1)
+/**
+ * three types of trace_data in linux
+ */
+typedef enum {
+	CFS_TCD_TYPE_PROC = 0,
+	CFS_TCD_TYPE_MAX
+} cfs_trace_buf_type_t;
 
-#include <libcfs/libcfs.h>
-
-struct lvfs_callback_ops {
-        struct dentry *(*l_fid2dentry)(__u64 id_ino, __u32 gen, __u64 gr, void *data);
-};
-
-
-#if defined(__linux__)
-#include <linux/lvfs.h>
-#elif defined(__APPLE__)
-#include <darwin/lvfs.h>
-#elif defined(__WINNT__)
-#include <winnt/lvfs.h>
-#else
-#error Unsupported operating system.
-#endif
-
-#include <libcfs/lucache.h>
-
-#ifdef LIBLUSTRE
-#include <lvfs_user_fs.h>
-#endif
-
-/* lvfs_common.c */
-struct dentry *lvfs_fid2dentry(struct lvfs_run_ctxt *, __u64, __u32, __u64 ,void *data);
-
-void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx,
-               struct lvfs_ucred *cred);
-void pop_ctxt(struct lvfs_run_ctxt *saved, struct lvfs_run_ctxt *new_ctx,
-              struct lvfs_ucred *cred);
 #endif
