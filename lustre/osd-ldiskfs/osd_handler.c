@@ -3244,12 +3244,7 @@ static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
 		RETURN(rc);
 	}
 
-	/* Only check remote for MDT object */
-	if ((range->lsr_flags == LU_SEQ_RANGE_MDT) ||
-	    (ss->ss_node_id == range->lsr_index))
-		RETURN(0);
-
-	RETURN(1);
+	RETURN(ss->ss_node_id != range->lsr_index);
 }
 
 /**
