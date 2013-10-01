@@ -296,7 +296,7 @@ int mdd_may_create(const struct lu_env *env, struct mdd_object *pobj,
         int rc = 0;
         ENTRY;
 
-        if (cobj && mdd_object_exists(cobj))
+	if (cobj && mdd_object_exists(cobj) > 0)
                 RETURN(-EEXIST);
 
         if (mdd_is_dead_obj(pobj))
@@ -1136,7 +1136,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	int rc, is_dir;
         ENTRY;
 
-        if (mdd_object_exists(mdd_cobj) <= 0)
+	if (mdd_object_exists(mdd_cobj) == 0)
                 RETURN(-ENOENT);
 
         handle = mdd_trans_create(env, mdd);
@@ -1399,10 +1399,11 @@ __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
         RETURN(rc);
 }
 
-int mdd_declare_object_initialize(const struct lu_env *env,
-				  struct mdd_object *child,
-				  struct lu_attr *attr,
-				  struct thandle *handle)
+static int mdd_declare_object_initialize(const struct lu_env *env,
+					 struct mdd_object *parent,
+					 struct mdd_object *child,
+					 struct lu_attr *attr,
+					 struct thandle *handle)
 {
         int rc;
 
@@ -1412,6 +1413,9 @@ int mdd_declare_object_initialize(const struct lu_env *env,
 					      dot, handle);
                 if (rc == 0)
                         rc = mdo_declare_ref_add(env, child, handle);
+
+		rc = mdo_declare_index_insert(env, child, mdo2fid(parent),
+					      dotdot, handle);
         }
 
         if (rc == 0)
@@ -1593,7 +1597,7 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 			GOTO(out, rc);
         }
 
-	rc = mdd_declare_object_initialize(env, c, attr, handle);
+	rc = mdd_declare_object_initialize(env, p, c, attr, handle);
         if (rc)
                 GOTO(out, rc);
 
@@ -2527,6 +2531,13 @@ static int mdd_declare_links_add(const struct lu_env *env,
                                  struct thandle *handle)
 {
         int rc;
+
+	/* FIXME: the linkea buf is not ready yet, so
+	 * we skip linkea for remote directory, besides
+	 * for remote directory, it can always find parent
+	 * by lookup dotdot. */
+	if (mdd_object_exists(mdd_obj) < 0)
+		return 0;
 
         /* XXX: max size? */
         rc = mdo_declare_xattr_set(env, mdd_obj,

@@ -1360,7 +1360,7 @@ static int osd_attr_get(const struct lu_env *env,
 {
         struct osd_object *obj = osd_dt_obj(dt);
 
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LINVRNT(osd_invariant(obj));
 
         if (osd_object_auth(env, dt, capa, CAPA_OPC_META_READ))
@@ -1595,7 +1595,7 @@ static int osd_attr_set(const struct lu_env *env,
         int rc;
 
         LASSERT(handle != NULL);
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(osd_invariant(obj));
 
         if (osd_object_auth(env, dt, capa, CAPA_OPC_META_WRITE))
@@ -1951,6 +1951,11 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 	return rc;
 }
 
+/*
+ * Concurrency: no external locking is necessary.
+ */
+static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
+			 const struct dt_index_features *feat);
 
 static int osd_declare_object_create(const struct lu_env *env,
 				     struct dt_object *dt,
@@ -1989,6 +1994,11 @@ static int osd_declare_object_create(const struct lu_env *env,
 		OSD_DECLARE_OP(oh, insert,
 			       osd_dto_credits_noquota[DTO_WRITE_BASE]);
 		OSD_DECLARE_OP(oh, insert, 0);
+		/* Note: we need assign the index operation for the directory
+		 * right now, though the object does not exist yet, so the
+		 * following index declare operation can follow the object
+		 * chain */
+		osd_index_try(env, dt, &dt_directory_features);
 	}
 
 	if (!attr)
@@ -2041,7 +2051,7 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
         if (result == 0)
                 result = __osd_oi_insert(env, obj, fid, th);
 
-        LASSERT(ergo(result == 0, dt_object_exists(dt)));
+	LASSERT(ergo(result == 0, dt_object_exists(dt) > 0));
         LASSERT(osd_invariant(obj));
         RETURN(result);
 }
@@ -2145,7 +2155,7 @@ static int __osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
         int                     fs_flags = 0;
         int                     rc;
 
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(inode->i_op != NULL && inode->i_op->setxattr != NULL);
 
         if (fl & LU_XATTR_REPLACE)
@@ -2271,7 +2281,7 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
         if (result == 0)
                 result = __osd_oi_insert(env, obj, fid, th);
 
-        LASSERT(ergo(result == 0, dt_object_exists(dt)));
+	LASSERT(ergo(result == 0, dt_object_exists(dt) > 0));
         LINVRNT(osd_invariant(obj));
         RETURN(result);
 }
@@ -2303,7 +2313,7 @@ static int osd_object_ref_add(const struct lu_env *env,
         struct inode      *inode = obj->oo_inode;
 
         LINVRNT(osd_invariant(obj));
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(osd_write_locked(env, obj));
         LASSERT(th != NULL);
 
@@ -2344,7 +2354,7 @@ static int osd_declare_object_ref_del(const struct lu_env *env,
 {
         struct osd_thandle *oh;
 
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(handle != NULL);
 
         oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -2365,7 +2375,7 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
         struct inode      *inode = obj->oo_inode;
 
         LINVRNT(osd_invariant(obj));
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(osd_write_locked(env, obj));
         LASSERT(th != NULL);
 
@@ -2421,7 +2431,7 @@ static int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
                 return sizeof(dt_obj_version_t);
         }
 
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(inode->i_op != NULL && inode->i_op->getxattr != NULL);
 
         if (osd_object_auth(env, dt, capa, CAPA_OPC_META_READ))
@@ -2505,7 +2515,7 @@ static int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
         struct osd_thread_info *info   = osd_oti_get(env);
         struct dentry          *dentry = &info->oti_obj_dentry;
 
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(inode->i_op != NULL && inode->i_op->listxattr != NULL);
         LASSERT(osd_read_locked(env, obj) || osd_write_locked(env, obj));
 
@@ -2522,7 +2532,7 @@ static int osd_declare_xattr_del(const struct lu_env *env,
 {
         struct osd_thandle *oh;
 
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(handle != NULL);
 
         oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -2546,7 +2556,7 @@ static int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
         struct dentry          *dentry = &info->oti_obj_dentry;
         int                     rc;
 
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(inode->i_op != NULL && inode->i_op->removexattr != NULL);
         LASSERT(osd_write_locked(env, obj));
         LASSERT(handle != NULL);
@@ -2581,7 +2591,7 @@ static struct obd_capa *osd_capa_get(const struct lu_env *env,
         if (!dev->od_fl_capa)
                 RETURN(ERR_PTR(-ENOENT));
 
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LINVRNT(osd_invariant(obj));
 
         /* renewal sanity check */
@@ -2746,14 +2756,13 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 	struct osd_object	*obj = osd_dt_obj(dt);
 
         LINVRNT(osd_invariant(obj));
-        LASSERT(dt_object_exists(dt));
 
         if (osd_object_is_root(obj)) {
                 dt->do_index_ops = &osd_index_ea_ops;
                 result = 0;
 	} else if (feat == &dt_directory_features) {
                 dt->do_index_ops = &osd_index_ea_ops;
-                if (S_ISDIR(obj->oo_inode->i_mode))
+		if (obj->oo_inode != NULL && S_ISDIR(obj->oo_inode->i_mode))
                         result = 0;
                 else
                         result = -ENOTDIR;
@@ -2932,7 +2941,7 @@ static int osd_index_iam_delete(const struct lu_env *env, struct dt_object *dt,
         ENTRY;
 
         LINVRNT(osd_invariant(obj));
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(bag->ic_object == obj->oo_inode);
         LASSERT(handle != NULL);
 
@@ -2971,7 +2980,7 @@ static int osd_index_declare_ea_delete(const struct lu_env *env,
 	int		    rc;
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
 	LASSERT(handle != NULL);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -3027,7 +3036,7 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
         ENTRY;
 
         LINVRNT(osd_invariant(obj));
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(handle != NULL);
 
         OSD_EXEC_OP(handle, delete);
@@ -3094,7 +3103,7 @@ static int osd_index_iam_lookup(const struct lu_env *env, struct dt_object *dt,
         ENTRY;
 
         LASSERT(osd_invariant(obj));
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(bag->ic_object == obj->oo_inode);
 
         if (osd_object_auth(env, dt, capa, CAPA_OPC_INDEX_LOOKUP))
@@ -3146,7 +3155,6 @@ static int osd_index_declare_iam_insert(const struct lu_env *env,
 {
         struct osd_thandle *oh;
 
-        LASSERT(dt_object_exists(dt));
         LASSERT(handle != NULL);
 
         oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -3184,7 +3192,7 @@ static int osd_index_iam_insert(const struct lu_env *env, struct dt_object *dt,
         ENTRY;
 
         LINVRNT(osd_invariant(obj));
-        LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
         LASSERT(bag->ic_object == obj->oo_inode);
         LASSERT(th != NULL);
 
@@ -3578,7 +3586,7 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 	int			rc;
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt));
+	LASSERT(dt_object_exists(dt) > 0);
 	LASSERT(handle != NULL);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -3587,7 +3595,7 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 	OSD_DECLARE_OP(oh, insert, osd_dto_credits_noquota[DTO_INDEX_INSERT]);
 
 	inode = osd_dt_obj(dt)->oo_inode;
-	LASSERT(inode);
+	LASSERT(inode != NULL);
 
 	/* We ignore block quota on meta pool (MDTs), so needn't
 	 * calculate how many blocks will be consumed by this index
