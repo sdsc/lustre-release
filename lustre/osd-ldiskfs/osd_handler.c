@@ -1956,6 +1956,11 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 	return rc;
 }
 
+/*
+ * Concurrency: no external locking is necessary.
+ */
+static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
+			 const struct dt_index_features *feat);
 
 static int osd_declare_object_create(const struct lu_env *env,
 				     struct dt_object *dt,
@@ -1994,6 +1999,11 @@ static int osd_declare_object_create(const struct lu_env *env,
 		OSD_DECLARE_OP(oh, insert,
 			       osd_dto_credits_noquota[DTO_WRITE_BASE]);
 		OSD_DECLARE_OP(oh, insert, 0);
+		/* Note: we need assign the index operation for the directory
+		 * right now, though the object does not exist yet, so the
+		 * following index declare operation can follow the object
+		 * chain */
+		osd_index_try(env, dt, &dt_directory_features);
 	}
 
 	if (!attr)
@@ -2751,14 +2761,13 @@ static int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 	struct osd_object	*obj = osd_dt_obj(dt);
 
         LINVRNT(osd_invariant(obj));
-        LASSERT(dt_object_exists(dt));
 
         if (osd_object_is_root(obj)) {
                 dt->do_index_ops = &osd_index_ea_ops;
                 result = 0;
 	} else if (feat == &dt_directory_features) {
                 dt->do_index_ops = &osd_index_ea_ops;
-                if (S_ISDIR(obj->oo_inode->i_mode))
+		if (obj->oo_inode != NULL && S_ISDIR(obj->oo_inode->i_mode))
                         result = 0;
                 else
                         result = -ENOTDIR;
@@ -3151,7 +3160,6 @@ static int osd_index_declare_iam_insert(const struct lu_env *env,
 {
         struct osd_thandle *oh;
 
-        LASSERT(dt_object_exists(dt));
         LASSERT(handle != NULL);
 
         oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -3615,7 +3623,7 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 	OSD_DECLARE_OP(oh, insert, osd_dto_credits_noquota[DTO_INDEX_INSERT]);
 
 	inode = osd_dt_obj(dt)->oo_inode;
-	LASSERT(inode);
+	LASSERT(inode != NULL);
 
 	/* We ignore block quota on meta pool (MDTs), so needn't
 	 * calculate how many blocks will be consumed by this index

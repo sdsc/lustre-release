@@ -611,6 +611,7 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 				       const struct md_op_spec *spec)
 {
         struct dt_object_format *dof = &mdd_env_info(env)->mti_dof;
+	struct dt_allocation_hint *hint = &mdd_env_info(env)->mti_hint;
         const struct dt_index_features *feat = spec->sp_feat;
         int rc;
         ENTRY;
@@ -632,7 +633,7 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 		}
 	}
 
-	rc = mdo_declare_create_obj(env, c, attr, NULL, dof, handle);
+	rc = mdo_declare_create_obj(env, c, attr, hint, dof, handle);
 
         RETURN(rc);
 }
