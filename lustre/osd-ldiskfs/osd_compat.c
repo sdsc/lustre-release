@@ -737,6 +737,16 @@ int osd_obj_spec_insert(struct osd_thread_info *info, struct osd_device *osd,
 			RETURN(PTR_ERR(osd_seq));
 		rc = osd_obj_add_entry(info, osd, osd_seq->oos_root,
 				       "LAST_ID", id, th);
+	} else if (fid_is_catalogs(fid)) {
+		char cata_name[16];
+
+		name = osd_lf_fid2name(fid);
+		if (fid_oid(fid) >= LLOG_GROUP1_CATALOGS_OID) {
+			sprintf(cata_name, "%s_%d", name,
+				fid_oid(fid) - LLOG_GROUP1_CATALOGS_OID + 1);
+			name = cata_name;
+		}
+		rc = osd_obj_add_entry(info, osd, root, name, id, th);
 	} else {
 		name = osd_lf_fid2name(fid);
 		if (name == NULL)
@@ -755,6 +765,7 @@ int osd_obj_spec_lookup(struct osd_thread_info *info, struct osd_device *osd,
 	struct dentry *dentry;
 	struct inode  *inode;
 	char	      *name;
+	char		cata_name[16];
 	int	       rc = -ENOENT;
 	ENTRY;
 
@@ -766,6 +777,14 @@ int osd_obj_spec_lookup(struct osd_thread_info *info, struct osd_device *osd,
 			RETURN(PTR_ERR(osd_seq));
 		root = osd_seq->oos_root;
 		name = "LAST_ID";
+	} else if (fid_is_catalogs(fid)) {
+		root = osd_sb(osd)->s_root;
+		name = osd_lf_fid2name(fid);
+		if (fid_oid(fid) >= LLOG_GROUP1_CATALOGS_OID) {
+			sprintf(cata_name, "%s_%d", name,
+				fid_oid(fid) - LLOG_GROUP1_CATALOGS_OID + 1);
+			name = cata_name;
+		}
 	} else {
 		root = osd_sb(osd)->s_root;
 		name = osd_lf_fid2name(fid);
