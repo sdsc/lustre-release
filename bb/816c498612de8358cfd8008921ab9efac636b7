@@ -1,0 +1,11 @@
+Verified+1: Hudson
+Code-Review+1: Christopher J. Morrone <chris.morrone.llnl@gmail.com>
+Code-Review+1: Brian J. Murrell <brian.murrell@intel.com>
+Code-Review+2: Andreas Dilger <andreas.dilger@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Minh Diep <minh.diep@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Tue, 01 Oct 2013 04:21:03 +0000
+Reviewed-on: http://review.whamcloud.com/7771
+Project: fs/lustre-release
+Branch: refs/heads/master
