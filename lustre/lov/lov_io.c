@@ -1005,10 +1005,6 @@ int lov_io_init_released(const struct lu_env *env, struct cl_object *obj,
 		result = -ENODATA;
 		break;
 	}
-	if (result == 0) {
-		cl_io_slice_add(io, &lio->lis_cl, obj, &lov_empty_io_ops);
-		cfs_atomic_inc(&lov->lo_active_ios);
-	}
 
 	io->ci_result = result < 0 ? result : 0;
 	RETURN(result != 0);
