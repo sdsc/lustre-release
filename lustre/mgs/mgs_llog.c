@@ -1920,8 +1920,10 @@ static int mgs_write_log_failnids(const struct lu_env *env,
                                failnodeuuid, cliname);
 			rc = record_add_uuid(env, llh, nid, failnodeuuid);
                 }
-		if (failnodeuuid)
+		if (failnodeuuid != NULL) {
 			rc = record_add_conn(env, llh, cliname, failnodeuuid);
+			name_destroy(&failnodeuuid);
+		}
         }
 
 	name_destroy(&failnodeuuid);
