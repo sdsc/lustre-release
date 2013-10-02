@@ -1842,7 +1842,8 @@ typedef enum {
         MDS_WRITEPAGE    = 51,
         MDS_IS_SUBDIR    = 52,
         MDS_GET_INFO     = 53,
-        MDS_LAST_OPC
+	MDS_OBJ_UPDATE   = 54,
+	MDS_LAST_OPC
 } mds_cmd_t;
 
 #define MDS_FIRST_OPC    MDS_GETATTR
@@ -2980,16 +2981,18 @@ struct obdo {
                                                  * locks */
         struct llog_cookie      o_lcookie;      /* destroy: unlink cookie from
                                                  * MDS */
-        __u32                   o_uid_h;
-        __u32                   o_gid_h;
+	__u32			o_uid_h;	/* o_blkbits: attr get between
+						   MDTs */
+	__u32			o_gid_h;	/* o_rdev: attr get between
+						   MDTs */
 
-        __u64                   o_data_version; /* getattr: sum of iversion for
-                                                 * each stripe.
-                                                 * brw: grant space consumed on
-                                                 * the client for the write */
-        __u64                   o_padding_4;
-        __u64                   o_padding_5;
-        __u64                   o_padding_6;
+	__u64			o_data_version; /* getattr: sum of iversion for
+						 * each stripe.
+						 * brw: grant space consumed on
+						 * the client for the write */
+	__u64			o_padding_4;
+	__u64			o_padding_5;
+	__u64			o_padding_6;
 };
 
 #define o_id     o_oi.oi_id
@@ -2999,6 +3002,8 @@ struct obdo {
 #define o_dropped o_misc
 #define o_cksum   o_nlink
 #define o_grant_used o_data_version
+#define o_blkbits o_uid_h
+#define o_rdev	  o_gid_h
 
 static inline void lustre_set_wire_obdo(struct obdo *wobdo, struct obdo *lobdo)
 {
@@ -3024,6 +3029,42 @@ static inline void lustre_get_wire_obdo(struct obdo *lobdo, struct obdo *wobdo)
 }
 
 extern void lustre_swab_obdo (struct obdo *o);
+
+static inline void obdo_cpu_to_le(struct obdo *dobdo, struct obdo *sobdo)
+{
+	dobdo->o_size = cpu_to_le64(sobdo->o_size);
+	dobdo->o_mtime = cpu_to_le64(sobdo->o_mtime);
+	dobdo->o_atime = cpu_to_le64(sobdo->o_atime);
+	dobdo->o_ctime = cpu_to_le64(sobdo->o_ctime);
+	dobdo->o_blocks = cpu_to_le64(sobdo->o_blocks);
+	dobdo->o_mode = cpu_to_le32(sobdo->o_mode);
+	dobdo->o_uid = cpu_to_le32(sobdo->o_uid);
+	dobdo->o_gid = cpu_to_le32(sobdo->o_gid);
+	dobdo->o_flags = cpu_to_le32(sobdo->o_flags);
+	dobdo->o_nlink = cpu_to_le32(sobdo->o_nlink);
+	dobdo->o_blkbits = cpu_to_le32(sobdo->o_blkbits);
+	dobdo->o_blksize = cpu_to_le32(sobdo->o_blksize);
+	dobdo->o_rdev = cpu_to_le32(sobdo->o_rdev);
+	dobdo->o_valid = cpu_to_le64(sobdo->o_valid);
+}
+
+static inline void obdo_le_to_cpu(struct obdo *dobdo, struct obdo *sobdo)
+{
+	dobdo->o_size = le64_to_cpu(sobdo->o_size);
+	dobdo->o_mtime = le64_to_cpu(sobdo->o_mtime);
+	dobdo->o_atime = le64_to_cpu(sobdo->o_atime);
+	dobdo->o_ctime = le64_to_cpu(sobdo->o_ctime);
+	dobdo->o_blocks = le64_to_cpu(sobdo->o_blocks);
+	dobdo->o_mode = le32_to_cpu(sobdo->o_mode);
+	dobdo->o_uid = le32_to_cpu(sobdo->o_uid);
+	dobdo->o_gid = le32_to_cpu(sobdo->o_gid);
+	dobdo->o_flags = le32_to_cpu(sobdo->o_flags);
+	dobdo->o_nlink = le32_to_cpu(sobdo->o_nlink);
+	dobdo->o_blkbits = le32_to_cpu(sobdo->o_blkbits);
+	dobdo->o_blksize = le32_to_cpu(sobdo->o_blksize);
+	dobdo->o_rdev = le32_to_cpu(sobdo->o_rdev);
+	dobdo->o_valid = le64_to_cpu(sobdo->o_valid);
+}
 
 /* request structure for OST's */
 struct ost_body {
@@ -3290,5 +3331,81 @@ struct layout_intent {
 
 void lustre_swab_layout_intent(struct layout_intent *li);
 
+
+/* These are object update opcode under MDS_OBJ_UPDATE, which is currently being
+ * used by cross-ref operations between MDT.
+ *
+ * During the cross-ref operation, the Master MDT, which the client send the
+ * request to, will disassembly the operation into object updates, then OSP
+ * will send these updates to the remote MDT to be executed. 
+ * 
+ * Format of the object update request
+ *	
+ *   MDS_OBJ_UPDATE 
+ *   magic:  UPDATE_BUFFER_MAGIC_V1 
+ *   Count:  How many updates in the req.        
+ *   bufs[0] : following are packets of object.
+ *   update[0]:   
+ *		type: object_update_op, the op code of update 
+ *		fid: The object fid of the update.
+ *		lens/bufs: other parameters of the update. 
+ *   update[1]:
+ *   		type/fid/lens/bufs.
+ *   ........
+ *   update[7]: type/fid/lens/bufs.
+ *   
+ *   Current 8 maxim updates per object update request. 
+ *   
+ *   reply:
+ *   ur_version: UPDATE_REPLY_V1
+ *   ur_count: The count of the reply, which is usually equal to the number of 
+ *   	       updates in the request.
+ *   ur_lens: The reply lengths of each object update.
+ *   For each reply of the update, the format would be
+ *   	 result(4 bytes):Other stuff 
+ */
+#define UPDATE_MAX_OPS		10
+#define UPDATE_BUFFER_MAGIC_V1	0xBDDE0001
+#define UPDATE_BUFFER_MAGIC	UPDATE_BUFFER_MAGIC_V1
+#define UPDATE_BUF_COUNT	8
+
+enum object_update_op {
+	OBJ_CREATE		= 1,
+	OBJ_DESTROY		= 2,
+	OBJ_REF_ADD		= 3,
+	OBJ_REF_DEL		= 4,
+	OBJ_ATTR_SET		= 5,
+	OBJ_ATTR_GET		= 6,
+	OBJ_XATTR_SET		= 7,
+	OBJ_XATTR_GET		= 8,
+	OBJ_INDEX_LOOKUP	= 9,
+	OBJ_INDEX_INSERT	= 10,
+	OBJ_INDEX_DELETE	= 11,
+	OBJ_LAST
+};
+
+struct update {
+	__u32		u_type;
+	__u32		u_padding;
+	struct lu_fid	u_fid;
+	__u32		u_lens[UPDATE_BUF_COUNT];
+	__u32		u_bufs[0];
+};
+
+struct update_buf {
+	__u32	ub_magic;
+	__u32	ub_count;
+	__u32	ub_bufs[0];
+};
+
+#define UPDATE_REPLY_V1		0x00BD0001
+struct update_reply {
+	__u32	ur_version;
+	__u32	ur_count;
+	__u32	ur_lens[0];
+};
+
+void lustre_swab_update_buf(struct update_buf *ub);
+void lustre_swab_update_reply_buf(struct update_reply *ur);
 #endif
 /** @} lustreidl */
