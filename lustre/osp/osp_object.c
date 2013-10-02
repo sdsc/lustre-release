@@ -384,8 +384,26 @@ static int osp_object_init(const struct lu_env *env, struct lu_object *o,
 	int			rc = 0;
 	ENTRY;
 
-	if (is_ost_obj(o))
+	if (is_ost_obj(o)) {
 		po->opo_obj.do_ops = &osp_obj_ops;
+	} else {
+		struct lu_attr *la = &osp_env_info(env)->osi_attr;
+
+		po->opo_obj.do_ops = &osp_md_obj_ops;
+		o->lo_header->loh_attr |=  LOHA_REMOTE;
+		rc = po->opo_obj.do_ops->do_attr_get(env, lu2dt_obj(o), la,
+						     NULL);
+		if (rc) {
+			/* FIXME: Needs to tell whether attr is valid */
+			if (rc != -ENOENT)
+				CERROR("Get attr for "DFID" rc = %d\n",
+					PFID(&o->lo_header->loh_fid), rc);
+			else
+				rc = 0;
+		} else {
+			o->lo_header->loh_attr |= (la->la_mode & S_IFMT);
+		}
+	}
 
 	RETURN(rc);
 }
