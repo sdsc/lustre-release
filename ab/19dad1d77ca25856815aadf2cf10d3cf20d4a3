@@ -1,0 +1,9 @@
+Verified+1: Hudson
+Code-Review+2: Andreas Dilger <andreas.dilger@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Aurelien Degremont <aurelien.degremont@cea.fr>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Wed, 02 Oct 2013 20:16:12 +0000
+Reviewed-on: http://review.whamcloud.com/7584
+Project: fs/lustre-release
+Branch: refs/heads/master
