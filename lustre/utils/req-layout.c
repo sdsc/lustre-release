@@ -83,6 +83,8 @@
 #define lustre_swab_mgs_config_body NULL
 #define lustre_swab_mgs_config_res NULL
 #define lustre_swab_lu_fid NULL
+#define lustre_swab_update_buf NULL
+#define lustre_swab_update_reply_buf NULL
 #define dump_rniobuf NULL
 #define dump_ioo NULL
 #define dump_obdo NULL
