@@ -160,6 +160,7 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 
 	if (!io->ci_ignore_layout && io->ci_verify_layout) {
 		__u32 gen = 0;
+		struct ll_inode_info *lli = ll_i2info(ccc_object_inode(obj));
 
 		/* check layout version */
 		ll_layout_refresh(inode, &gen);
@@ -172,8 +173,9 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
 			/* today successful restore is the only possible
 			 * case */
 			/* restore was done, clear restoring state */
-			ll_i2info(ccc_object_inode(obj))->lli_flags &=
-				~LLIF_FILE_RESTORING;
+			spin_lock(&lli->lli_lock);
+			lli->lli_flags &= ~LLIF_FILE_RESTORING;
+			spin_unlock(&lli->lli_lock);
 		}
 	}
 }
