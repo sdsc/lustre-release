@@ -1842,8 +1842,9 @@ static int lprocfs_wr_hsm_policy(struct file *file, const char *buffer,
 	if (buf == NULL)
 		RETURN(-ENOMEM);
 
-	if (copy_from_user(buf, buffer, count))
-		RETURN(-EFAULT);
+	if (copy_from_user(buf, buffer, count)) {
+		GOTO(out, rc = -EFAULT);
+	}
 	buf[count] = '\0';
 
 	start = buf;
