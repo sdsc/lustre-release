@@ -2078,8 +2078,11 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
 	}
 
 	if (body->mbo_valid & OBD_MD_TSTATE) {
-		if (body->mbo_t_state & MS_RESTORE)
+		if (body->mbo_t_state & MS_RESTORE) {
+			spin_lock(&lli->lli_lock);
 			lli->lli_flags |= LLIF_FILE_RESTORING;
+			spin_unlock(&lli->lli_lock);
+		}
 	}
 
 	return 0;
