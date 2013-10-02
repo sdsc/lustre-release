@@ -434,6 +434,8 @@ out_child:
 	}
 
 out:
+	close(fd);
+	close(fd2);
 	printf("%d: exit rc=%d\n", getpid(), rc);
 	return rc;
 }

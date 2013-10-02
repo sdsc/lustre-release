@@ -4465,7 +4465,7 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 	strcpy(name, dev);
 	p = strstr(name, "-MDT");
 	if (p == NULL)
-		GOTO(cleanup_mem, rc = -ENOMEM);
+		GOTO(free_bufs, rc = -ENOMEM);
 	p[3] = 'D';
 
 	snprintf(uuid, MAX_OBD_NAME, "%s_UUID", name);
@@ -4474,7 +4474,7 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 	if (lprof == NULL || lprof->lp_dt == NULL) {
 		CERROR("can't find the profile: %s\n",
 		       lustre_cfg_string(cfg, 0));
-		GOTO(cleanup_mem, rc = -EINVAL);
+		GOTO(free_bufs, rc = -EINVAL);
 	}
 
 	lustre_cfg_bufs_reset(bufs, name);

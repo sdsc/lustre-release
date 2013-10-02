@@ -1842,8 +1842,10 @@ static int lprocfs_wr_hsm_policy(struct file *file, const char *buffer,
 	if (buf == NULL)
 		RETURN(-ENOMEM);
 
-	if (copy_from_user(buf, buffer, count))
+	if (copy_from_user(buf, buffer, count)) {
+		OBD_FREE(buf, count + 1);
 		RETURN(-EFAULT);
+	}
 	buf[count] = '\0';
 
 	start = buf;
