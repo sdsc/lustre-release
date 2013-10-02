@@ -488,6 +488,8 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 const struct dt_device_operations osp_dt_ops = {
 	.dt_statfs	= osp_statfs,
 	.dt_sync	= osp_sync,
+	.dt_trans_start = osp_trans_start,
+	.dt_trans_stop  = osp_trans_stop,
 };
 
 static int osp_connect_to_osd(const struct lu_env *env, struct osp_device *m,
@@ -1115,8 +1117,12 @@ static void osp_key_exit(const struct lu_context *ctx,
 	info->osi_attr.la_valid = 0;
 }
 
+/* LCT_CL_THREAD is currently only for osp_md_object_create_callback,
+ * which is called from ptlrpcd, there only CL_THREAD context will be
+ * initialized, since the client side usually does not include OSP
+ * module, so this should not add more memory pressure */
 struct lu_context_key osp_thread_key = {
-	.lct_tags = LCT_MD_THREAD,
+	.lct_tags = LCT_MD_THREAD | LCT_CL_THREAD,
 	.lct_init = osp_key_init,
 	.lct_fini = osp_key_fini,
 	.lct_exit = osp_key_exit
