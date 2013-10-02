@@ -615,6 +615,7 @@ restart:
                 och_p = &lli->lli_mds_read_och;
                 och_usecount = &lli->lli_open_fd_read_count;
         }
+	LASSERT(och_p != NULL);
 
 	mutex_lock(&lli->lli_och_mutex);
         if (*och_p) { /* Open handle is present */
