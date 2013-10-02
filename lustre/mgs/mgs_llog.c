@@ -112,8 +112,12 @@ int class_dentry_readdir(const struct lu_env *env,
 
 next:
 		rc = iops->next(env, it);
+		if (rc == 1) {
+			/* normal loop exit */
+			rc = 0;
+			break;
+		}
 	} while (rc == 0);
-	rc = 0;
 
 	iops->put(env, it);
 

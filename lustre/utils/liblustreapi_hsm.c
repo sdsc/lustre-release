@@ -162,7 +162,6 @@ int llapi_hsm_copytool_register(struct hsm_copytool_private **priv,
 		rc = -errno;
 		llapi_error(LLAPI_MSG_ERROR, rc,
 			    "cannot start copytool on '%s'", mnt);
-		goto out_err;
 	} else {
 		rc = 0;
 	}
