@@ -703,6 +703,221 @@ static inline int dt_object_exists(const struct dt_object *dt)
         return lu_object_exists(&dt->do_lu);
 }
 
+static inline struct dt_object *lu2dt_obj(struct lu_object *o)
+{
+	LASSERT(ergo(o != NULL, lu_device_is_dt(o->lo_dev)));
+	return container_of0(o, struct dt_object, do_lu);
+}
+
+enum object_update {
+	OBJ_CREATE = 1,
+	OBJ_DESTROY   ,
+	OBJ_REF_ADD   ,
+	OBJ_REF_DEL   ,
+	OBJ_ATTR_SET  ,
+	OBJ_ATTR_GET  ,
+	OBJ_XATTR_SET ,
+	OBJ_XATTR_GET ,
+	OBJ_INDEX_LOOKUP ,
+	OBJ_INDEX_INSERT ,
+	OBJ_INDEX_DELETE ,
+	OBJ_MAX,
+};
+
+#define UPDATE_BUFFER_SIZE	 1024
+#define UPDATE_MAX_OPS	     10
+#define UPDATE_BUFFER_MAGIC_V1     0xBDDE0001
+#define UPDATE_BUFFER_MAGIC	UPDATE_BUFFER_MAGIC_V1
+#define UPDATE_BUF_COUNT	   8
+
+struct ptlrpc_request;
+/** Type of thandle update call-back */
+typedef int (*update_callback_t)(const struct lu_env *env,
+				 struct ptlrpc_request *req, int index,
+				 void *arg, int rc);
+struct update_callback {
+	update_callback_t	uc_callback;
+	cfs_list_t		uc_list;
+	int			uc_idx;
+	void			*uc_args;
+};
+
+struct update {
+	__u32		u_type;
+	struct lu_fid	u_fid;
+	__u8		u_lens[UPDATE_BUF_COUNT];
+	__u32		u_bufs[0];
+};
+
+struct update_buf {
+	__u32	ub_magic;
+	__u32	ub_count;
+	__u32	ub_bufs[0];
+};
+
+struct update_request {
+	struct dt_device	*ur_dt;
+	cfs_list_t		ur_cb_list;
+	spinlock_t		ur_cb_list_lock;
+	cfs_list_t		ur_list;
+	int			ur_rc;
+	char			ur_buf[UPDATE_BUFFER_SIZE];
+};
+
+static inline unsigned long update_size(struct update *update)
+{
+	unsigned long size;
+	int	   i;
+
+	size = cfs_size_round(offsetof(struct update, u_bufs[0]));
+	for (i = 0; i < UPDATE_BUF_COUNT; i++)
+		size += cfs_size_round(update->u_lens[i]);
+
+	return size;
+}
+
+static inline void *update_param_buf(struct update *update, int index,
+				     int *size)
+{
+	int	i;
+	void	*ptr;
+
+	if (index >= UPDATE_BUF_COUNT)
+		return NULL;
+
+	ptr = (char *)update + cfs_size_round(
+		     offsetof(struct update, u_bufs[0]));
+	for (i = 0; i < index; i++) {
+		LASSERT(update->u_lens[i] > 0);
+		ptr += cfs_size_round(update->u_lens[i]);
+	}
+
+	if (size != NULL)
+		*size = update->u_lens[index];
+
+	return ptr;
+}
+
+static inline unsigned long update_buf_size(struct update_buf *buf)
+{
+	unsigned long size;
+	int	   i = 0;
+
+	size = cfs_size_round(offsetof(struct update_buf, ub_bufs[0]));
+	for (i = 0; i < buf->ub_count; i++) {
+		struct update *update;
+
+		update = (struct update *)((char *)buf + size);
+		size += update_size(update);
+	}
+	LASSERT(size <= UPDATE_BUFFER_SIZE);
+	return size;
+}
+
+static inline void *update_buf_get(struct update_buf *buf, int index, int *size)
+{
+	int	count = buf->ub_count;
+	void	*ptr;
+	int	i = 0;
+
+	if (index >= count)
+		return NULL;
+
+	ptr = (char *)buf + cfs_size_round(offsetof(struct update_buf,
+						    ub_bufs[0]));
+	for (i = 0; i < index; i++)
+		ptr += update_size((struct update *)ptr);
+
+	if (size != NULL)
+		*size = update_size((struct update *)ptr);
+
+	return ptr;
+}
+
+#define UPDATE_REPLY_V1		0x00BD0001
+struct update_reply {
+	int	ur_version;
+	int	ur_count;
+	__u32	ur_lens[0];
+};
+
+static inline void update_init_reply_buf(struct update_reply *reply, int count)
+{
+	reply->ur_version = UPDATE_REPLY_V1;
+	reply->ur_count = count;
+}
+
+static inline void *update_get_buf_internal(struct update_reply *reply,
+					    int index, int *size)
+{
+	char *ptr;
+	int count = reply->ur_count;
+	int i;
+
+	if (index >= count)
+		return NULL;
+
+	ptr = (char *)reply + cfs_size_round(offsetof(struct update_reply,
+					     ur_lens[count]));
+	for (i = 0; i < index; i++) {
+		LASSERT(reply->ur_lens[i] > 0);
+		ptr += cfs_size_round(reply->ur_lens[i]);
+	}
+
+	if (size != NULL)
+		*size = reply->ur_lens[index];
+
+	return ptr;
+}
+
+static inline void update_insert_reply(struct update_reply *reply, void *data,
+				       int data_len, int index, int rc)
+{
+	char *ptr;
+
+	ptr = update_get_buf_internal(reply, index, NULL);
+	LASSERT(ptr != NULL);
+
+	*(int *)ptr = cpu_to_le32(rc);
+	ptr += sizeof(int);
+	if (data_len > 0) {
+		LASSERT(data != NULL);
+		memcpy(ptr, data, data_len);
+	}
+	reply->ur_lens[index] = data_len + sizeof(int);
+}
+
+static inline int update_get_reply_buf(struct update_reply *reply, void **buf,
+				       int index)
+{
+	char *ptr;
+	int  size = 0;
+	int  result;
+
+	ptr = update_get_buf_internal(reply, index, &size);
+	result = *(int *)ptr;
+
+	if (result < 0)
+		return result;
+
+	LASSERT((ptr != NULL && size >= sizeof(int)));
+	*buf = ptr + sizeof(int);
+	return size - sizeof(int);
+}
+
+static inline int update_get_reply_result(struct update_reply *reply,
+					  void **buf, int index)
+{
+	void *ptr;
+	int  size;
+
+	ptr = update_get_buf_internal(reply, index, &size);
+	LASSERT(ptr != NULL && size > sizeof(int));
+	return *(int *)ptr;
+}
+
+typedef int(*th_sync_callback_t)(void *data);
+
 /**
  * This is the general purpose transaction handle.
  * 1. Transaction Life Cycle
@@ -736,6 +951,17 @@ struct thandle {
 
         /* local transation, no need to inform other layers */
         int               th_local:1;
+
+	/* In DNE, one transaction can be dis-assemblied into
+	 * updates on several different MDTs, and these updates
+	 * will be attached to th_remote_update_list per target.
+	 * Only single thread will access the list, no need lock
+	 */
+	cfs_list_t		th_remote_update_list;
+	struct update_request	*th_current_request;
+
+	th_sync_callback_t	th_sync_cb;
+	void			*th_sync_data;
 };
 
 /**

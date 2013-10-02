@@ -499,19 +499,110 @@ static int lod_statfs(const struct lu_env *env,
 static struct thandle *lod_trans_create(const struct lu_env *env,
 					struct dt_device *dev)
 {
-	return dt_trans_create(env, dt2lod_dev(dev)->lod_child);
+	struct thandle *th;
+
+	th = dt_trans_create(env, dt2lod_dev(dev)->lod_child);
+	if (IS_ERR(th))
+		return th;
+
+	CFS_INIT_LIST_HEAD(&th->th_remote_update_list);
+	return th;
+}
+
+static void lod_sync_set_init(struct lod_sync_set *lss)
+{
+	lss->lss_completes = 0;
+	lss->lss_async_count = 0;
+	cfs_waitq_init(&lss->lss_waitq);
+}
+
+static int lod_sync_callback(void *data)
+{
+	struct lod_sync_set *lss = (struct lod_sync_set *)data;
+
+	lss->lss_completes++;
+	CDEBUG(D_INFO, "check set %d/%d\n", lss->lss_completes,
+	       lss->lss_async_count);
+	cfs_waitq_signal(&lss->lss_waitq);
+	return 0;
+}
+
+static int lod_sync_complete(struct lod_sync_set *lss)
+{
+	CDEBUG(D_INFO, "check set %d/%d\n", lss->lss_completes,
+	       lss->lss_async_count);
+	return lss->lss_completes == lss->lss_async_count;
+}
+
+static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
+			   struct thandle *th)
+{
+	struct update_request *update;
+	struct l_wait_info  lwi = { 0 };
+	struct lod_sync_set *lss = &lod_env_info(env)->lti_sync_set;
+	int    rc = 0;
+	ENTRY;
+
+	if (cfs_list_empty(&th->th_remote_update_list))
+		RETURN(0);
+
+	/*FIXME: Two phase commit later */
+	lod_sync_set_init(lss);
+	lss->lss_update = th;
+	th->th_sync_cb = lod_sync_callback;
+	th->th_sync_data = (void *)lss;
+	cfs_list_for_each_entry(update, &th->th_remote_update_list,
+				ur_list) {
+		th->th_current_request = update;
+		rc = dt_trans_start(env, update->ur_dt, th);
+		if (rc == 0) {
+			lss->lss_async_count++;
+		} else {
+			/* FIXME how to revert the partial results
+			 * once error happened ? Resolved by 2 Phase commit*/
+			update->ur_rc = rc;
+			break;
+		}
+	}
+
+	l_wait_event(lss->lss_waitq, lod_sync_complete(lss), &lwi);
+
+	RETURN(rc);
 }
 
 static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
-	return dt_trans_start(env, dt2lod_dev(dev)->lod_child, th);
+	struct lod_device *lod = dt2lod_dev((struct dt_device *) dev);
+	int rc;
+
+	rc = lod_remote_sync(env, dev, th);
+	if (rc) {
+		CERROR("%s: remote sync error %d\n",
+			lod2obd(lod)->obd_name, rc);
+		return rc;
+	}
+	return dt_trans_start(env, lod->lod_child, th);
 }
 
 static int lod_trans_stop(const struct lu_env *env, struct thandle *th)
 {
+	struct update_request *update;
+	struct update_request *tmp;
+	int rc = 0;
+	int rc1 = 0;
+
+	cfs_list_for_each_entry_safe(update, tmp,
+				     &th->th_remote_update_list,
+				     ur_list) {
+		th->th_current_request = update;
+		rc = dt_trans_stop(env, update->ur_dt, th);
+	}
+
 	/* XXX: we don't know next device, will be fixed with DNE */
-	return dt_trans_stop(env, th->th_dev, th);
+	rc1 = dt_trans_stop(env, th->th_dev, th);
+
+	return (rc1 != 0 ? rc1 : rc);
 }
 
 static void lod_conf_get(const struct lu_env *env,
