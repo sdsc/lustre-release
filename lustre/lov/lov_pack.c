@@ -363,7 +363,7 @@ int lov_unpackmd(struct obd_export *exp,  struct lov_stripe_md **lsmp,
         int rc = 0, lsm_size;
         __u16 stripe_count;
         __u32 magic;
-	__u32 pattern;
+	__u32 pattern = 0;
         ENTRY;
 
         /* If passed an MDS struct use values from there, otherwise defaults */
@@ -389,7 +389,8 @@ int lov_unpackmd(struct obd_export *exp,  struct lov_stripe_md **lsmp,
                 RETURN(0);
         }
 
-	pattern = le32_to_cpu(lmm->lmm_pattern);
+	if (lmm)
+		pattern = le32_to_cpu(lmm->lmm_pattern);
         lsm_size = lov_alloc_memmd(lsmp, stripe_count, pattern, magic);
         if (lsm_size < 0)
                 RETURN(lsm_size);
