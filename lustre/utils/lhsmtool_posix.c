@@ -1032,6 +1032,12 @@ static int ct_archive(const struct hsm_action_item *hai, const long hal_flags)
 		}
 		/* symlink already exists ? */
 		sz = readlink(src, buf, sizeof(buf));
+		/* detect truncation */
+		if (sz == sizeof(buf)) {
+			CT_ERROR(errno, "readlink '%s' truncated", src);
+			rcf = rcf ? rcf : -E2BIG;
+			goto fini_minor;
+		}
 		if (sz >= 0) {
 			buf[sz] = '\0';
 			if (sz == 0 || strncmp(buf, dst, sz) != 0) {
