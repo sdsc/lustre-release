@@ -2092,6 +2092,18 @@ static int mdd_object_sync(const struct lu_env *env, struct md_object *obj)
         return dt_object_sync(env, mdd_object_child(mdd_obj));
 }
 
+static int mdd_object_lock(const struct lu_env *env,
+			   struct md_object *obj,
+			   struct lustre_handle *lh,
+			   struct ldlm_enqueue_info *einfo,
+			   void *policy)
+{
+	struct mdd_object *mdd_obj = md2mdd_obj(obj);
+	LASSERT(mdd_object_exists(mdd_obj));
+	return dt_object_lock(env, mdd_object_child(mdd_obj), lh,
+			      einfo, policy);
+}
+
 const struct md_object_operations mdd_obj_ops = {
 	.moo_permission		= mdd_permission,
 	.moo_attr_get		= mdd_attr_get,
@@ -2109,4 +2121,5 @@ const struct md_object_operations mdd_obj_ops = {
 	.moo_capa_get		= mdd_capa_get,
 	.moo_object_sync	= mdd_object_sync,
 	.moo_path		= mdd_path,
+	.moo_object_lock	= mdd_object_lock,
 };
