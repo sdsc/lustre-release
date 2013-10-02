@@ -369,6 +369,10 @@ static inline int osp_is_fid_client(struct osp_device *osp)
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
 
+/* osp_md_object.c */
+int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
+		    struct thandle *th);
+int osp_trans_stop(const struct lu_env *env, struct thandle *th);
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);
