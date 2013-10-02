@@ -2560,8 +2560,7 @@ void mdt_object_unlock_put(struct mdt_thread_info * info,
         mdt_object_put(info->mti_env, o);
 }
 
-static struct mdt_handler *mdt_handler_find(__u32 opc,
-                                            struct mdt_opc_slice *supported)
+struct mdt_handler *mdt_handler_find(__u32 opc, struct mdt_opc_slice *supported)
 {
         struct mdt_opc_slice *s;
         struct mdt_handler   *h;
@@ -3057,6 +3056,7 @@ static int mdt_msg_check_version(struct lustre_msg *msg)
         case MDS_GET_INFO:
         case MDS_QUOTACHECK:
         case MDS_QUOTACTL:
+	case MDS_OBJ_UPDATE:
         case QUOTA_DQACQ:
         case QUOTA_DQREL:
         case SEQ_QUERY:
