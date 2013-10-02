@@ -515,7 +515,7 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 	struct hsm_extent	 he;
 	struct stat		 src_st;
 	struct stat		 dst_st;
-	char			*buf;
+	char			*buf = NULL;
 	__u64			 wpos = 0;
 	__u64			 rpos = 0;
 	__u64			 rlen;
@@ -526,10 +526,6 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 	int			 rc = 0;
 
 	CT_TRACE("going to copy data from '%s' to '%s'", src, dst);
-
-	buf = malloc(opt.o_chunk_size);
-	if (buf == NULL)
-		return -ENOMEM;
 
 	if (fstat(src_fd, &src_st) < 0) {
 		CT_ERROR(errno, "cannot stat '%s'", src);
@@ -584,6 +580,12 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 	errno = 0;
 	/* Don't read beyond a given extent */
 	rlen = min(hai->hai_extent.length, src_st.st_size);
+
+	buf = malloc(opt.o_chunk_size);
+	if (buf == NULL) {
+		rc = -ENOMEM;
+		goto out;
+	}
 
 	CT_DEBUG("Going to copy "LPU64" bytes %s -> %s\n", rlen, src, dst);
 
