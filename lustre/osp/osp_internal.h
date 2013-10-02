@@ -183,14 +183,21 @@ struct osp_object {
 	struct lu_object_header	 opo_header;
 	struct dt_object	 opo_obj;
 	int			 opo_reserved:1,
-				 opo_new:1;
+				 opo_new:1,
+				 opo_empty:1;
 
 	struct rw_semaphore	 opo_sem;
 	const struct lu_env	 *opo_owner;
+
+	/* Some attributes retrieve from remote MDT, cached in
+	 * OSP object. Not protected by lock now. */
 };
 
 extern struct lu_object_operations osp_lu_obj_ops;
 extern const struct dt_device_operations osp_dt_ops;
+extern struct dt_object_operations osp_md_obj_ops;
+extern struct dt_lock_operations osp_md_lock_ops;
+
 
 struct osp_thread_info {
 	struct lu_buf		 osi_lb;
@@ -210,6 +217,7 @@ struct osp_thread_info {
 	struct llog_cookie	 osi_cookie;
 	struct llog_catid	 osi_cid;
 	struct lu_seq_range	 osi_seq;
+	struct ldlm_res_id	 osi_resid;
 };
 
 static inline void osp_objid_buf_prep(struct osp_thread_info *osi, int index)
