@@ -468,9 +468,9 @@ static int ct_restore_stripe(const char *src, const char *dst, int dst_fd,
 }
 
 /* non-blocking read or write */
-static int nonblock_rw(bool wr, int fd, char *buf, int size)
+static ssize_t nonblock_rw(bool wr, int fd, const char *buf, size_t size)
 {
-	int rc;
+	ssize_t rc;
 
 	if (wr)
 		rc = write(fd, buf, size);
@@ -515,25 +515,22 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 	struct hsm_extent	 he;
 	struct stat		 src_st;
 	struct stat		 dst_st;
-	char			*buf;
+	char			*buf = NULL;
 	__u64			 wpos = 0;
 	__u64			 rpos = 0;
 	__u64			 rlen;
 	time_t			 last_print_time = time(0);
-	int			 rsize;
-	int			 wsize;
+	ssize_t			 rsize;
+	ssize_t			 wsize;
 	int			 bufoff = 0;
 	int			 rc = 0;
 
 	CT_TRACE("going to copy data from '%s' to '%s'", src, dst);
 
-	buf = malloc(opt.o_chunk_size);
-	if (buf == NULL)
-		return -ENOMEM;
-
 	if (fstat(src_fd, &src_st) < 0) {
-		CT_ERROR(errno, "cannot stat '%s'", src);
-		return -errno;
+		rc = -errno;
+		CT_ERROR(rc, "cannot stat '%s'", src);
+		return rc;
 	}
 
 	if (!S_ISREG(src_st.st_mode)) {
@@ -544,16 +541,17 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 
 	rc = lseek(src_fd, hai->hai_extent.offset, SEEK_SET);
 	if (rc < 0) {
-		CT_ERROR(errno,
+		rc = -errno;
+		CT_ERROR(rc,
 			 "cannot seek for read to "LPU64" (len %jd) in '%s'",
 			 hai->hai_extent.offset, (intmax_t)src_st.st_size, src);
-		rc = -errno;
-		goto out;
+		return rc;
 	}
 
 	if (fstat(dst_fd, &dst_st) < 0) {
-		CT_ERROR(errno, "cannot stat '%s'", dst);
-		return -errno;
+		rc = -errno;
+		CT_ERROR(rc, "cannot stat '%s'", dst);
+		return rc;
 	}
 
 	if (!S_ISREG(dst_st.st_mode)) {
@@ -567,7 +565,7 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 		rc = -errno;
 		CT_ERROR(rc, "cannot seek for write to "LPU64" on '%s'",
 			 hai->hai_extent.offset, src);
-		goto out;
+		return rc;
 	}
 
 	he.offset = hai->hai_extent.offset;
@@ -585,11 +583,17 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 	/* Don't read beyond a given extent */
 	rlen = min(hai->hai_extent.length, src_st.st_size);
 
+	buf = malloc(opt.o_chunk_size);
+	if (buf == NULL) {
+		rc = -ENOMEM;
+		goto out;
+	}
+
 	CT_DEBUG("Going to copy "LPU64" bytes %s -> %s\n", rlen, src, dst);
 
 	while (wpos < rlen) {
-		int chunk = (rlen - wpos > opt.o_chunk_size) ?
-			    opt.o_chunk_size : rlen - wpos;
+		size_t chunk = (rlen - wpos > opt.o_chunk_size) ?
+				opt.o_chunk_size : rlen - wpos;
 
 		/* Only read more if we wrote everything in the buffer */
 		if (wpos == rpos) {
@@ -695,14 +699,14 @@ out:
 		rc = ftruncate(dst_fd, src_st.st_size);
 		if (rc < 0) {
 			rc = -errno;
-			CT_ERROR(rc,
-				 "cannot truncate '%s' to size %jd",
+			CT_ERROR(rc, "cannot truncate '%s' to size %jd",
 				 dst, (intmax_t)src_st.st_size);
 			err_major++;
 		}
 	}
 
-	free(buf);
+	if (buf != NULL)
+		free(buf);
 
 	return rc;
 }
