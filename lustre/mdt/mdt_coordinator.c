@@ -1128,9 +1128,11 @@ out:
  * \param mti [IN] context
  * \param fid1 [IN]
  * \param fid2 [IN]
+ * \param mh_common [IN] MD HSM
  */
 static int hsm_swap_layouts(struct mdt_thread_info *mti,
-			    const lustre_fid *fid, const lustre_fid *dfid)
+			    const lustre_fid *fid, const lustre_fid *dfid,
+			    struct md_hsm *mh_common)
 {
 	struct mdt_device	*mdt = mti->mti_mdt;
 	struct mdt_object	*child1, *child2;
@@ -1154,8 +1156,23 @@ static int hsm_swap_layouts(struct mdt_thread_info *mti,
 	 * progress through llapi_hsm_copy_end(), all the objects
 	 * are removed and mdd_swap_layout LBUG */
 	if (mdt_object_exists(child2)) {
-		rc = mo_swap_layouts(mti->mti_env, mdt_object_child(child1),
-				     mdt_object_child(child2), 0);
+		/* Since we only handle restores here, unconditionally use
+		 * SWAP_LAYOUTS_MDS_HSM flag to ensure original layout will
+		 * be preserved in case of failure during swap_layout and not
+		 * leave a file in an intermediate but incoherent state.
+		 * But need to setup HSM xattr of data FID before, reuse
+		 * mti and mh presets for FID in hsm_cdt_request_completed().
+		 */
+		mh_common->mh_flags |= HS_RELEASED;
+		lustre_hsm2buf(mti->mti_xattr_buf, mh_common);
+		mh_common->mh_flags &= ~HS_RELEASED;
+		rc = mo_xattr_set(mti->mti_env, mdt_object_child(child2),
+				  mti->mti_buf, XATTR_NAME_HSM, 0);
+		if (!rc)
+			rc = mo_swap_layouts(mti->mti_env,
+					     mdt_object_child(child1),
+					     mdt_object_child(child2),
+					     SWAP_LAYOUTS_MDS_HSM);
 	} else {
 		CERROR("%s: Copytool has closed volatile file "DFID"\n",
 		       mdt_obd_name(mti->mti_mdt), PFID(dfid));
@@ -1340,7 +1357,7 @@ unlock:
 	/* we give back layout lock only if restore was successful or
 	 * if restore was canceled or if policy is to not retry
 	 * in other cases we just unlock the object */
-	if (car->car_hai->hai_action == HSMA_RESTORE &&
+	if (car->car_hai->hai_action == HSMA_RESTORE && is_mh_changed &&
 	    (pgs->hpk_errval == 0 || pgs->hpk_errval == ECANCELED ||
 	     cdt->cdt_policy & CDT_NORETRY_ACTION)) {
 		struct cdt_restore_handle	*crh;
@@ -1349,7 +1366,7 @@ unlock:
 		 * only if restore is successfull */
 		if (pgs->hpk_errval == 0) {
 			rc = hsm_swap_layouts(mti, &car->car_hai->hai_fid,
-					      &car->car_hai->hai_dfid);
+					      &car->car_hai->hai_dfid, &mh);
 			if (rc) {
 				if (cdt->cdt_policy & CDT_NORETRY_ACTION)
 					*status = ARS_FAILED;
