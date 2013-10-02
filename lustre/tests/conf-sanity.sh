@@ -3883,7 +3883,7 @@ test_69() {
 	createmany $DIR/$tdir/$tfile- $num_create
 	# delete all of the files with objects on OST0 so the
 	# filesystem is not inconsistent later on
-	$LFS find $MOUNT --index 0 -print0 | xargs -0 unlink
+	$LFS find $MOUNT -stripe-index 0 -print0 | xargs -0 unlink
 
 	stop_ost || error "OST0 stop failure"
 	add ost1 $(mkfs_opts ost1 $ostdev) --reformat --replace $ostdev ||
