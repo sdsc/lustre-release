@@ -172,7 +172,9 @@ void lustre_assert_wire_constants(void)
                  (long long)MDS_IS_SUBDIR);
         LASSERTF(MDS_GET_INFO == 53, "found %lld\n",
                  (long long)MDS_GET_INFO);
-        LASSERTF(MDS_LAST_OPC == 54, "found %lld\n",
+	LASSERTF(MDS_OBJ_UPDATE == 54, " found %lld\n",
+		 (long long)MDS_OBJ_UPDATE);
+	LASSERTF(MDS_LAST_OPC == 55, " found %lld\n",
                  (long long)MDS_LAST_OPC);
         LASSERTF(REINT_SETATTR == 1, "found %lld\n",
                  (long long)REINT_SETATTR);

@@ -1854,6 +1854,7 @@ typedef enum {
         MDS_WRITEPAGE    = 51,
         MDS_IS_SUBDIR    = 52,
         MDS_GET_INFO     = 53,
+	MDS_OBJ_UPDATE   = 54,
         MDS_LAST_OPC
 } mds_cmd_t;
 
