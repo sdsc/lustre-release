@@ -37,6 +37,12 @@ RANGES=3
 IPADDRS=30
 IDS=200
 
+TEST_NID="/proc/fs/lustre/nodemap/test_nid"
+TEST_UID="/proc/fs/lustre/nodemap/test_uid_map"
+TEST_GID="/proc/fs/lustre/nodemap/test_gid_map"
+
+NODEMAP=$(lsmod | grep -c ^nodemap)
+
 require_dsh_mds || exit 0
 require_dsh_ost || exit 0
 
@@ -562,6 +568,7 @@ test_6() {
 run_test 6 "capa expiry ========================="
 
 test_7() {
+	[[ $NODEMAP != 1 ]] && return 0
 	for i in $(eval echo {0..$NODEMAPS}); do
 		out=$(lctl nodemap_new ${i} 2>&1)
 		rc=$?
@@ -575,6 +582,7 @@ test_7() {
 run_test 7 "nodemap create  ========================="
 
 test_8() {
+	[[ $NODEMAP != 1 ]] && return 0
 	for i in $(eval echo {0..$NODEMAPS}); do
 		out=$(lctl nodemap_new ${i} 2>&1)
 		rc=$?
@@ -583,6 +591,113 @@ test_8() {
 	return 0
 }
 run_test 8 "nodemap reject duplicates  ========================="
+
+test_9() {
+	[[ $NODEMAP != 1 ]] && return 0
+	subnet=0
+	cmd="lctl nodemap_add_range"
+	for i in $(eval echo {0..$NODEMAPS}); do
+		for j in $(eval echo {0..$RANGES}); do
+			range="10.${subnet}.${j}.0:10.${subnet}.${j}.253"
+			out=$(${cmd} $i $range 2>&1)
+			rc=$?
+			[[ $rc != 0 ]] && return 1
+		done
+
+		subnet=$(expr $subnet + 1)
+	done
+}
+run_test 9 "nodemap range add ========================="
+
+test_10() {
+	[[ $NODEMAP != 1 ]] && return 0
+	subnet=0
+	cmd="lctl nodemap_add_range"
+	for i in $(eval echo {0..$NODEMAPS}); do
+		for j in $(eval echo {0..$RANGES}); do
+			range="10.${subnet}.${j}.0:10.${subnet}.${j}.253"
+			out=$(${cmd} $i $range 2>&1)
+			rc=$?
+			[[ $rc == 0 ]] && return 1
+		done
+
+		subnet=$(expr $subnet + 1)
+	done
+
+}
+run_test 10 "nodemap reject duplicate ranges ========================="
+
+test_11() {
+	[[ $NODEMAP != 1 ]] && return 0
+	proc[0]="admin_nodemap"
+	proc[1]="trusted_nodemap"
+	option[0]="admin"
+	option[1]="trusted"
+	for idx in `seq 0 1`; do
+		for i in $(eval echo {0..$NODEMAPS}); do
+			out=$(lctl nodemap_modify ${i} ${option[$idx]} 1)
+			val=$(lctl get_param nodemap.${i}.${proc[$idx]})
+			[[ $val != "nodemap.${i}.${proc[$idx]}=1" ]] && return 1
+			out=$(lctl nodemap_modify ${i} ${option[$idx]} 0)
+			val=$(lctl get_param nodemap.${i}.${proc[$idx]})
+			[[ $val != "nodemap.${i}.${proc[$idx]}=0" ]] && return 1
+		done
+	done
+	return 0
+}
+run_test 11 "nodemap test flags ========================="
+
+test_12() {
+	[[ $NODEMAP != 1 ]] && return 0
+	for i in $(eval echo {0..$NODEMAPS}); do
+		out=$(lctl nodemap_modify ${i} squash_uid 88)
+		val=$(lctl get_param nodemap.${i}.squash_uid)
+		[[ $val != "nodemap.${i}.squash_uid=88" ]] && return 1
+
+		out=$(lctl nodemap_modify $i squash_uid 99)
+		val=$(lctl get_param nodemap.${i}.squash_uid)
+		[[ $val != "nodemap.${i}.squash_uid=99" ]] && return 1
+
+		out=$(lctl nodemap_modify $i squash_gid 88)
+		val=$(lctl get_param nodemap.${i}.squash_gid)
+		[[ $val != "nodemap.${i}.squash_gid=88" ]] && return 1
+
+		out=$(lctl nodemap_modify $i squash_gid 99)
+		val=$(lctl get_param nodemap.${i}.squash_gid)
+		[[ $val != "nodemap.${i}.squash_gid=99" ]] && return 1
+	done
+	return 0
+}
+run_test 12 "nodemap squash ids ========================="
+
+test_13() {
+	[[ $NODEMAP != 1 ]] && return 0
+	subnet=0
+	for i in $(eval echo {0..$NODEMAPS}); do
+		for j in $(eval echo {0..$RANGES}); do
+			for k in $(eval echo {0..$IPADDRS}); do
+				val=$(lctl nodemap_test_nid 10.$subnet.$j.$k)
+				nm=$(echo $val | awk -F: '{ print $1 }')
+				[[ $nm != $i ]] && return 1
+			done
+		done
+		subnet=$(expr $subnet + 1)
+	done
+}
+run_test 13 "nodemap test nid lookups ========================="
+
+test_14() {
+	[[ $NODEMAP != 1 ]] && return 0
+	for i in $(eval echo {0..$IPADDRS}); do
+		echo "11.0.0.${i}" > ${TEST_NID}
+		val=$(cat $TEST_NID)
+		nodemap=$(echo $val | awk -F: '{ print $1 }')
+		echo $nodemap > /tmp/foo
+		[[ $nodemap != "default" ]] && return 1
+	done
+	return 0
+}
+run_test 14 "nodemap default nid lookups ========================="
 
 log "cleanup: ======================================================"
 
