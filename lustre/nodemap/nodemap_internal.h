@@ -81,8 +81,8 @@ gid_t nodemap_simple_gidmap(lnet_nid_t, gid_t);
 
 int nodemap_check_nid(lnet_nid_t *);
 
-struct nodemap *search_nodemaps_by_id(unsigned int);
-struct nodemap *search_nodemaps_by_name(char *);
+struct nodemap *nodemap_search_by_id(unsigned int id);
+struct nodemap *nodemap_search_by_name(char *nodemap_name);
 
 int nodemap_rd_active(char *page, char **start, off_t off, int count,
 		     int *eof, void *data);
