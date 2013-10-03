@@ -183,10 +183,11 @@ static int osc_wr_cached_mb(struct file *file, const char *buffer,
 	struct obd_device *dev = data;
 	struct client_obd *cli = &dev->u.cli;
 	int pages_number, mult, rc;
+	size_t nob = count;
 
 	mult = 1 << (20 - PAGE_CACHE_SHIFT);
-	buffer = lprocfs_find_named_value(buffer, "used_mb:", &count);
-	rc = lprocfs_write_frac_helper(buffer, count, &pages_number, mult);
+	buffer = lprocfs_find_named_value(buffer, "used_mb:", &nob);
+	rc = lprocfs_write_frac_helper(buffer, nob, &pages_number, mult);
 	if (rc)
 		return rc;
 
@@ -197,7 +198,7 @@ static int osc_wr_cached_mb(struct file *file, const char *buffer,
 	if (rc > 0)
 		(void)osc_lru_shrink(cli, rc);
 
-	return count;
+	return nob;
 }
 
 static int osc_rd_cur_dirty_bytes(char *page, char **start, off_t off,

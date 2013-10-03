@@ -163,8 +163,10 @@ EXPORT_SYMBOL(class_put_type);
 #define CLASS_MAX_NAME 1024
 
 int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
-                        struct lprocfs_vars *vars, const char *name,
-                        struct lu_device_type *ldt)
+#ifndef HAVE_ONLY_PROCFS_SEQ
+			struct lprocfs_vars *vars,
+#endif
+			const char *name, struct lu_device_type *ldt)
 {
         struct obd_type *type;
         int rc = 0;
@@ -200,8 +202,19 @@ int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
 	spin_lock_init(&type->obd_type_lock);
 
 #ifdef LPROCFS
-        type->typ_procroot = lprocfs_register(type->typ_name, proc_lustre_root,
-                                              vars, type);
+#ifndef HAVE_ONLY_PROCFS_SEQ
+	if (vars)
+		type->typ_procroot = lprocfs_register(type->typ_name,
+							proc_lustre_root,
+							vars, type);
+	else
+#endif
+	{
+		type->typ_procroot = lprocfs_seq_register(type->typ_name,
+							proc_lustre_root,
+							NULL,
+							type);
+	}
         if (IS_ERR(type->typ_procroot)) {
                 rc = PTR_ERR(type->typ_procroot);
                 type->typ_procroot = NULL;
@@ -228,6 +241,8 @@ int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
                 OBD_FREE_PTR(type->typ_md_ops);
         if (type->typ_dt_ops != NULL)
                 OBD_FREE_PTR(type->typ_dt_ops);
+	if (type->typ_procroot)
+		lprocfs_remove(&type->typ_procroot);
         OBD_FREE(type, sizeof(*type));
         RETURN(rc);
 }
@@ -252,11 +267,8 @@ int class_unregister_type(const char *name)
                 RETURN(-EBUSY);
         }
 
-	/* we do not use type->typ_procroot as for compatibility purposes
-	 * other modules can share names (i.e. lod can use lov entry). so
-	 * we can't reference pointer as it can get invalided when another
-	 * module removes the entry */
-	lprocfs_try_remove_proc_entry(type->typ_name, proc_lustre_root);
+	if (type->typ_procroot)
+		lprocfs_remove(&type->typ_procroot);
 
         if (type->typ_lu)
                 lu_device_type_fini(type->typ_lu);
