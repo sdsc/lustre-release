@@ -3860,10 +3860,40 @@ int mgs_nodemap_cmd(const struct lu_env *env, struct mgs_device *mgs,
 	case LCFG_NODEMAP_NEW:
 		rc = nodemap_add(nodemap_name);
 		if (rc)
-			RETURN(rc);
+			return rc;
 		break;
 	case LCFG_NODEMAP_DEL:
 		rc = nodemap_del(nodemap_name);
+		if (rc)
+			return rc;
+		break;
+	case LCFG_NODEMAP_ADD_RANGE:
+		rc = nodemap_add_range(nodemap_name, param);
+		if (rc)
+			return rc;
+		break;
+	case LCFG_NODEMAP_DEL_RANGE:
+		rc = nodemap_del_range(nodemap_name, param);
+		if (rc)
+			return rc;
+		break;
+	case LCFG_NODEMAP_ADMIN:
+		rc = nodemap_admin(nodemap_name, param);
+		if (rc)
+			RETURN(rc);
+		break;
+	case LCFG_NODEMAP_TRUSTED:
+		rc = nodemap_trusted(nodemap_name, param);
+		if (rc)
+			RETURN(rc);
+		break;
+	case LCFG_NODEMAP_SQUASH_UID:
+		rc = nodemap_squash_uid(nodemap_name, param);
+		if (rc)
+			RETURN(rc);
+		break;
+	case LCFG_NODEMAP_SQUASH_GID:
+		rc = nodemap_squash_gid(nodemap_name, param);
 		if (rc)
 			RETURN(rc);
 		break;

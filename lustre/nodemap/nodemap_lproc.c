@@ -40,15 +40,30 @@
 
 #include "nodemap_internal.h"
 
+static int ranges_open(struct inode *, struct file *);
+static int ranges_show(struct seq_file *, void *);
+static lnet_nid_t test_nid;
+
+const struct file_operations proc_range_operations = {
+	.open		= ranges_open,
+	.read		= seq_read,
+	.llseek         = seq_lseek,
+	.release	= single_release,
+};
+
 static struct lprocfs_vars lprocfs_nodemap_module_vars[] = {
 	{ "active", nodemap_rd_active, nodemap_wr_active, 0 },
 	{ "add_nodemap", 0, nodemap_proc_add_nodemap, 0 },
 	{ "remove_nodemap", 0, nodemap_proc_del_nodemap, 0 },
+	{ "test_nid", rd_nid_test, wr_nid_test, 0 },
 	{ 0 }
 };
 
 static struct lprocfs_vars lprocfs_nodemap_vars[] = {
 	{ "id", nodemap_rd_id, 0, 0 },
+	{ "add_range", 0, nodemap_proc_add_range, 0 },
+	{ "remove_range", 0, nodemap_proc_del_range, 0 },
+	{ "ranges", 0, 0, 0, &proc_range_operations },
 	{ "trusted_nodemap", nodemap_rd_trusted, nodemap_wr_trusted, 0 },
 	{ "admin_nodemap", nodemap_rd_admin, nodemap_wr_admin, 0 },
 	{ "squash_uid", nodemap_rd_squash_uid, nodemap_wr_squash_uid, 0},
@@ -58,12 +73,199 @@ static struct lprocfs_vars lprocfs_nodemap_vars[] = {
 
 static struct lprocfs_vars lprocfs_default_nodemap_vars[] = {
 	{ "id", nodemap_rd_id, 0, 0 },
-	{ "trusted_nodemap", nodemap_rd_trusted, nodemap_wr_trusted, 0 },
 	{ "admin_nodemap", nodemap_rd_admin, nodemap_wr_admin, 0 },
 	{ "squash_uid", nodemap_rd_squash_uid, nodemap_wr_squash_uid, 0},
 	{ "squash_gid", nodemap_rd_squash_gid, nodemap_wr_squash_gid, 0},
 	{ 0 }
 };
+
+int rd_nid_test(char *page, char **start, off_t off, int count,
+		int *eof, void *data)
+{
+	int len;
+	struct nodemap *nodemap;
+	struct range_node *range;
+
+	nodemap = nodemap_search_by_nid(&test_nid);
+
+	if (nodemap == NULL)
+		return 0;
+
+	if (nodemap->nm_id == 0) {
+		len = sprintf(page, "%s:0\n", nodemap->nm_name);
+		return len;
+	}
+
+	range = range_search(&nodemap->nm_ranges, &test_nid);
+
+	len = sprintf(page, "%s:%u\n", nodemap->nm_name, range->rn_id);
+
+	return len;
+}
+
+int wr_nid_test(struct file *file, const char __user *buffer,
+		unsigned long count, void *data)
+{
+	char string[count + 1];
+
+	if (copy_from_user(string, buffer, count))
+		return -EFAULT;
+
+	if (count > 0)
+		string[count - 1] = 0;
+	else
+		return count;
+
+	test_nid = libcfs_str2nid(string);
+
+	return count;
+}
+
+static int ranges_open(struct inode *inode, struct file *file)
+{
+	cfs_proc_dir_entry_t *dir;
+	struct nodemap *nodemap;
+
+	dir = PDE(inode);
+	nodemap = (struct nodemap *) dir->data;
+
+	return single_open(file, ranges_show, nodemap);
+}
+
+static int ranges_show(struct seq_file *m, void *v)
+{
+	struct nodemap *nodemap;
+	struct range_node *range = NULL;
+	struct rb_node *node;
+
+	nodemap = (struct nodemap *) m->private;
+
+	for (node = rb_first(&(nodemap->nm_ranges)); node;
+			     node = rb_next(node)) {
+		range = rb_entry(node, struct range_node, rn_node);
+		seq_printf(m, "%u %s : %s\n", range->rn_id,
+				libcfs_nid2str(range->rn_start_nid),
+				libcfs_nid2str(range->rn_end_nid));
+	}
+
+	return 0;
+}
+
+int nodemap_proc_add_range(struct file *file, const char __user *buffer,
+		      unsigned long count, void *data)
+{
+	char range_str[count + 1];
+	char *buf_p, *min_string, *max_string;
+	struct nodemap *nodemap;
+	lnet_nid_t min, max;
+	struct range_node *range;
+	int rc;
+
+	if (copy_from_user(range_str, buffer, count))
+		return -EFAULT;
+
+	/* Check syntax for nodemap names here */
+
+	if (count > 2) {
+		range_str[count] = 0;
+		range_str[count - 1] = 0;
+	} else {
+		return count;
+	}
+
+	nodemap = (struct nodemap *) data;
+
+	buf_p = range_str;
+	min_string = strsep(&buf_p, " ");
+	max_string = strsep(&buf_p, " ");
+
+	min = libcfs_str2nid(min_string);
+	max = libcfs_str2nid(max_string);
+
+	if ((nodemap_check_nid(&min) != 0) ||
+	    (nodemap_check_nid(&max) != 0))
+		return -EINVAL;
+
+	/* Do some range and network test here */
+
+	if (LNET_NIDNET(min) != LNET_NIDNET(max))
+		return -EINVAL;
+
+	if (LNET_NIDADDR(min) > LNET_NIDADDR(max))
+		return -EINVAL;
+
+	range = kmalloc(sizeof(struct range_node), GFP_KERNEL);
+
+	if (range == NULL) {
+		CERROR("Cannot allocate memory (%lu o)"
+		      "for range_node", sizeof(struct range_node));
+		return -ENOMEM;
+	}
+
+	range->rn_start_nid = min;
+	range->rn_end_nid = max;
+
+	rc = range_insert(&(nodemap->nm_ranges), range);
+
+	if (rc != 0) {
+		CERROR("nodemap range insert failed for %s: rc = %d",
+		      nodemap->nm_name, rc);
+		kfree(range);
+	}
+
+	return count;
+}
+
+int nodemap_proc_del_range(struct file *file, const char __user *buffer,
+			 unsigned long count, void *data)
+{
+	char range_str[count + 1];
+	char *buf_p, *min_string, *max_string;
+	struct nodemap *nodemap;
+	lnet_nid_t min, max;
+	struct range_node *range;
+
+	if (copy_from_user(range_str, buffer, count))
+		return -EFAULT;
+
+	/* Check syntax for nodemap names here */
+
+	if (count > 2) {
+		range_str[count] = 0;
+		range_str[count - 1] = 0;
+	} else {
+		return count;
+	}
+
+	nodemap = (struct nodemap *) data;
+
+	buf_p = range_str;
+	min_string = strsep(&buf_p, " ");
+	max_string = strsep(&buf_p, " ");
+
+	min = libcfs_str2nid(min_string);
+	max = libcfs_str2nid(max_string);
+
+	/* Do some range and network test here */
+
+	if (LNET_NIDNET(min) != LNET_NIDNET(max))
+		return -EINVAL;
+
+	if (LNET_NIDADDR(min) > LNET_NIDADDR(max))
+		return -EINVAL;
+
+	range = range_search(&(nodemap->nm_ranges), &min);
+
+	if (range == NULL)
+		return count;
+
+	if ((range->rn_start_nid == min) && (range->rn_end_nid == max)) {
+		rb_erase(&(range->rn_node), &(nodemap->nm_ranges));
+		kfree(range);
+	}
+
+	return count;
+}
 
 int nodemap_rd_active(char *page, char **start, off_t off, int count,
 		     int *eof, void *data)

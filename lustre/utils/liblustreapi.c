@@ -839,6 +839,101 @@ int llapi_nodemap_exists(char *nodemap)
 	return 0;
 }
 
+int llapi_search_nodemap_range(char *range)
+{
+	char buffer[PATH_MAX + 1];
+	char *start, *end;
+	__u32 start_range_id = 0, end_range_id = 0;
+
+	snprintf(buffer, PATH_MAX, "%s", range);
+
+	start = strtok(buffer, ":");
+	if (start == NULL)
+		return 1;
+
+	end = strtok(NULL, ":");
+	if (end == NULL)
+		return 1;
+
+	start_range_id = llapi_search_nodemap_nid(start);
+	end_range_id = llapi_search_nodemap_nid(end);
+
+	if (start_range_id != end_range_id)
+		return 1;
+
+	if ((start_range_id != 0) || (end_range_id != 0))
+		return 1;
+
+	return 0;
+}
+
+int llapi_find_nodemap_nid(char *nid, char *nodemap)
+{
+	char buffer[PATH_MAX + 1];
+	FILE *fp;
+	char *rs;
+
+	fp = fopen("/proc/fs/lustre/nodemap/test_nid", "w");
+
+	if (fp == NULL)
+		return -1;
+
+	fprintf(fp, "%s\n", nid);
+
+	fclose(fp);
+
+	fp = fopen("/proc/fs/lustre/nodemap/test_nid", "r");
+
+	rs = fgets(buffer, sizeof(buffer), fp);
+
+	if (rs == NULL)
+		return -1;
+
+	if (buffer == NULL)
+		return -1;
+
+	strcpy(nodemap, buffer);
+
+	return 0;
+}
+
+int llapi_search_nodemap_nid(char *nid)
+{
+	char buffer[PATH_MAX + 1];
+	FILE *fp;
+	char *nodemap, *range_id_str;
+	char *rs;
+
+	fp = fopen("/proc/fs/lustre/nodemap/test_nid", "w");
+
+	if (fp == NULL)
+		return -1;
+
+	fprintf(fp, "%s\n", nid);
+
+	fclose(fp);
+
+	fp = fopen("/proc/fs/lustre/nodemap/test_nid", "r");
+
+	rs = fgets(buffer, sizeof(buffer), fp);
+
+	if (rs == NULL)
+		return -1;
+
+	if (buffer == NULL)
+		return -1;
+
+	nodemap = strtok(buffer, ":");
+	if (nodemap == NULL)
+		return -1;
+
+	range_id_str = strtok(NULL, ":");
+	if (range_id_str == NULL)
+		return -1;
+
+	return atoi(range_id_str);
+}
+
 int llapi_direntry_remove(char *dname)
 {
 	char *dirpath = NULL;
