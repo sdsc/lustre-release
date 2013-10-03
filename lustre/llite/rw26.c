@@ -420,7 +420,12 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
 	 * 1. Need inode mutex to operate transient pages.
 	 */
 	if (rw == READ)
-		mutex_lock(&inode->i_mutex);
+		mutex_lock(&lli->lli_write_mutex);
+
+	/* Many assertions later in the code assume the inode mutex is
+	 * locked during direct IO. Thus, to satisfy these constraints,
+	 * grab the mutex here. */
+	mutex_lock(&inode->i_mutex);
 
         LASSERT(obj->cob_transient_pages == 0);
         for (seg = 0; seg < nr_segs; seg++) {
@@ -483,8 +488,9 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
         }
 out:
 	LASSERT(obj->cob_transient_pages == 0);
+	mutex_unlock(&inode->i_mutex);
 	if (rw == READ)
-		mutex_unlock(&inode->i_mutex);
+		mutex_unlock(&lli->lli_write_mutex);
 
         if (tot_bytes > 0) {
                 if (rw == WRITE) {

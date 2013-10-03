@@ -1135,7 +1135,6 @@ restart:
         if (cl_io_rw_init(env, io, iot, *ppos, count) == 0) {
                 struct vvp_io *vio = vvp_env_io(env);
                 struct ccc_io *cio = ccc_env_io(env);
-                int write_mutex_locked = 0;
 
                 cio->cui_fd  = LUSTRE_FPRIVATE(file);
                 vio->cui_io_subtype = args->via_io_subtype;
@@ -1146,15 +1145,15 @@ restart:
                         cio->cui_nrsegs = args->u.normal.via_nrsegs;
                         cio->cui_tot_nrsegs = cio->cui_nrsegs;
                         cio->cui_iocb = args->u.normal.via_iocb;
-                        if ((iot == CIT_WRITE) &&
-                            !(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED)) {
-				if (mutex_lock_interruptible(&lli->
-                                                               lli_write_mutex))
-                                        GOTO(out, result = -ERESTARTSYS);
-                                write_mutex_locked = 1;
-                        } else if (iot == CIT_READ) {
+			if ((!(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED) &&
+			      (iot == CIT_WRITE)) || (iot == CIT_READ)) {
 				down_read(&lli->lli_trunc_sem);
-                        }
+				if (iot == CIT_WRITE &&
+				    mutex_lock_interruptible(&lli->lli_write_mutex)) {
+					up_read(&lli->lli_trunc_sem);
+					GOTO(out, result = -ERESTARTSYS);
+				}
+			}
                         break;
                 case IO_SENDFILE:
                         vio->u.sendfile.cui_actor = args->u.sendfile.via_actor;
@@ -1169,10 +1168,13 @@ restart:
                         LBUG();
                 }
                 result = cl_io_loop(env, io);
-                if (write_mutex_locked)
-			mutex_unlock(&lli->lli_write_mutex);
-                else if (args->via_io_subtype == IO_NORMAL && iot == CIT_READ)
+		if ((args->via_io_subtype == IO_NORMAL) &&
+		    ((!(cio->cui_fd->fd_flags & LL_FILE_GROUP_LOCKED) &&
+		      (iot == CIT_WRITE)) || (iot == CIT_READ))) {
+			if (iot == CIT_WRITE)
+				mutex_unlock(&lli->lli_write_mutex);
 			up_read(&lli->lli_trunc_sem);
+		}
         } else {
                 /* cl_io_rw_init() handled IO */
                 result = io->ci_result;
