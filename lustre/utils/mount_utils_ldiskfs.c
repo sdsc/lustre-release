@@ -437,7 +437,7 @@ static int enable_default_ext4_features(struct mkfs_opts *mop, char *anchor,
 	 * If --backfstype=ext3 is specified, do not enable them. */
 	if (mop->mo_ldd.ldd_mount_type == LDD_MT_EXT3)
 		return 0;
-
+#if 0
 	/* Enable quota by default */
 	if (is_e2fsprogs_feature_supp("-O quota") == 0) {
 		append_unique(anchor, ",", "quota", NULL, maxbuflen);
@@ -447,7 +447,7 @@ static int enable_default_ext4_features(struct mkfs_opts *mop, char *anchor,
 			"e2fsprogs, please upgrade your e2fsprogs.\n");
 		return EINVAL;
 	}
-
+#endif
 	/* Allow files larger than 2TB.  Also needs LU-16, but not harmful. */
 	if (is_e2fsprogs_feature_supp("-O huge_file") == 0)
 		append_unique(anchor, ",", "huge_file", NULL, maxbuflen);
