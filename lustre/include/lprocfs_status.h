@@ -183,6 +183,7 @@ enum lprocfs_stats_flags {
 	LPROCFS_STATS_FLAG_NOPERCPU = 0x0001, /* stats have no percpu
 					       * area and need locking */
 	LPROCFS_STATS_FLAG_IRQ_SAFE = 0x0002, /* alloc need irq safe */
+	LPROCFS_STATS_FLAG_HISTORY = 0x0004,  /* collect history */
 };
 
 enum lprocfs_fields_flags {
@@ -195,6 +196,29 @@ enum lprocfs_fields_flags {
         LPROCFS_FIELDS_FLAGS_COUNT      = 0x0007,
 };
 
+struct lprocfs_stats_period {
+	/**
+	 * Count of this period
+	 */
+	struct lprocfs_counter	lsp_count;
+	/**
+	 * Carry sum of count from last period
+	 */
+	struct lprocfs_counter	lsp_carry;
+	/**
+	 * The number of carries
+	 */
+	int			lsp_carry_times;
+};
+
+struct lprocfs_stats_history {
+	/**
+	 *  lsh_periods[0 ~ depth - 1]: stats during history periods
+	 *  lsh_periods[depth]: stats since the beginning of history
+	 */
+	struct lprocfs_stats_period	lsh_periods[0];
+};
+
 struct lprocfs_stats {
 	/* # of counters */
 	unsigned short			ls_num;
@@ -205,6 +229,23 @@ struct lprocfs_stats {
 	 * it is used to protect ls_biggest_alloc_num change */
 	spinlock_t			ls_lock;
 
+	/**
+	 * The time interval of a period is a multiple of the pervious one
+	 */
+	int				ls_multiple;
+	/**
+	 * Depth of the deepest period, i.e. the number of the periods
+	 */
+	int				ls_depth;
+	/**
+	 * History is combined by serveral periods
+	 * The time intervals of these periods are exponential increasing
+	 */
+	struct lprocfs_stats_history	**ls_history;
+	/**
+	 * Linkage to history updating list
+	 */
+	cfs_list_t			ls_history_linkage;
 	/* has ls_num of counter headers */
 	struct lprocfs_counter_header	*ls_cnt_header;
 	struct lprocfs_percpu		*ls_percpu[0];
