@@ -174,9 +174,12 @@ out:
  * \param osp - is the name of OSP device name about to be added
  * \param index - is the OSP index
  * \param gen - is the generation number
+ * \param mdt_index - is the group of the OSP.
+ * \param type - is the type of device (mdc or osc)
  */
 int lod_add_device(const struct lu_env *env, struct lod_device *lod,
-		   char *osp, unsigned index, unsigned gen, int active)
+		   char *osp, unsigned index, unsigned gen, int mdt_index,
+		   char *type, int active)
 {
 	struct obd_connect_data *data = NULL;
 	struct obd_export	*exp = NULL;
@@ -185,7 +188,7 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 	struct dt_device	*d;
 	int			 rc;
 	struct lod_tgt_desc     *tgt_desc;
-	struct lod_tgt_descs    *ltd = &lod->lod_ost_descs;
+	struct lod_tgt_descs    *ltd;
 	struct obd_uuid		obd_uuid;
 	ENTRY;
 
@@ -213,6 +216,51 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 	data->ocd_connect_flags = OBD_CONNECT_INDEX | OBD_CONNECT_VERSION;
 	data->ocd_version = LUSTRE_VERSION_CODE;
 	data->ocd_index = index;
+
+	if (strcmp(LUSTRE_OSC_NAME, type) == 0) {
+		data->ocd_connect_flags |= OBD_CONNECT_AT |
+					   OBD_CONNECT_FULL20 |
+					   OBD_CONNECT_INDEX |
+#ifdef HAVE_LRU_RESIZE_SUPPORT
+					   OBD_CONNECT_LRU_RESIZE |
+#endif
+					   OBD_CONNECT_MDS |
+					   OBD_CONNECT_OSS_CAPA |
+					   OBD_CONNECT_REQPORTAL |
+					   OBD_CONNECT_SKIP_ORPHAN |
+					   OBD_CONNECT_FID |
+					   OBD_CONNECT_LVB_TYPE |
+					   OBD_CONNECT_VERSION;
+
+		data->ocd_group = mdt_index;
+		ltd = &lod->lod_ost_descs;
+	} else {
+		struct obd_import *imp = obd->u.cli.cl_import;
+		/*
+		 * XXX These flags needs to be revisited in later phase.
+		 */
+
+		data->ocd_ibits_known = MDS_INODELOCK_UPDATE;
+		data->ocd_connect_flags |= OBD_CONNECT_ACL |
+					   OBD_CONNECT_RMT_CLIENT |
+					   OBD_CONNECT_MDS_CAPA |
+					   OBD_CONNECT_OSS_CAPA |
+					   OBD_CONNECT_IBITS |
+					   OBD_CONNECT_MDS_MDS |
+					   OBD_CONNECT_FID |
+					   OBD_CONNECT_AT |
+					   OBD_CONNECT_FULL20;
+		/* XXX set MDS-MDS flags, remove this when running this
+		 * on client*/
+		data->ocd_connect_flags |= OBD_CONNECT_MDS_MDS;
+		spin_lock(&imp->imp_lock);
+		imp->imp_server_timeout = 1;
+		spin_unlock(&imp->imp_lock);
+		imp->imp_client->cli_request_portal = MDS_MDS_PORTAL;
+		CDEBUG(D_OTHER, "%s: Set 'mds' portal and timeout\n",
+		      obd->obd_name);
+		ltd = &lod->lod_mdt_descs;
+	}
 
 	rc = obd_connect(env, &exp, obd, &obd->obd_uuid, data, NULL);
 	OBD_FREE_PTR(data);
@@ -276,33 +324,43 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 		}
 	}
 
-	/* pool and qos are not supported for MDS stack yet */
-	rc = lod_ost_pool_add(&lod->lod_pool_info, index,
-			      lod->lod_osts_size);
-	if (rc) {
-		CERROR("%s: can't set up pool, failed with %d\n",
-		       obd->obd_name, rc);
-		GOTO(out_mutex, rc);
-	}
+	if (!strcmp(LUSTRE_OSC_NAME, type)) {
+		/* pool and qos are not supported for MDS stack yet */
+		rc = lod_ost_pool_add(&lod->lod_pool_info, index,
+				      lod->lod_osts_size);
+		if (rc) {
+			CERROR("%s: can't set up pool, failed with %d\n",
+			       obd->obd_name, rc);
+			GOTO(out_mutex, rc);
+		}
 
-	rc = qos_add_tgt(lod, tgt_desc);
-	if (rc) {
-		CERROR("%s: qos_add_tgt failed with %d\n",
-			obd->obd_name, rc);
-		GOTO(out_pool, rc);
-	}
+		rc = qos_add_tgt(lod, tgt_desc);
+		if (rc) {
+			CERROR("%s: qos_add_tgt failed with %d\n",
+				obd->obd_name, rc);
+			GOTO(out_pool, rc);
+		}
 
-	rc = obd_fid_init(exp, LUSTRE_SEQ_DATA);
-	if (rc) {
-		CERROR("%s: fid init error %d\n", obd->obd_name, rc);
-		GOTO(out_pool, rc);
-	}
-	/* The new OST is now a full citizen */
-	if (index >= lod->lod_desc.ld_tgt_count)
-		lod->lod_desc.ld_tgt_count = index + 1;
-	if (active)
-		lod->lod_desc.ld_active_tgt_count++;
+		rc = obd_fid_init(exp, LUSTRE_SEQ_DATA);
+		if (rc) {
+			CERROR("%s: fid init error %d\n", obd->obd_name, rc);
+			GOTO(out_pool, rc);
+		}
+		/* The new OST is now a full citizen */
+		if (index >= lod->lod_desc.ld_tgt_count)
+			lod->lod_desc.ld_tgt_count = index + 1;
+		if (active)
+			lod->lod_desc.ld_active_tgt_count++;
+	} else {
+		/* set seq controller export for MDC0 if exists */
+		if (index == 0) {
+			struct seq_server_site *ss;
 
+			ss = lu_site2seq(lod2lu_dev(lod)->ld_site);
+			ss->ss_control_exp = class_export_get(exp);
+			ss->ss_server_fld->lsf_control_exp = exp;
+		}
+	}
 	LTD_TGT(ltd, index) = tgt_desc;
 	cfs_bitmap_set(ltd->ltd_tgt_bitmap, index);
 	ltd->ltd_tgtnr++;
@@ -384,7 +442,10 @@ int lod_del_device(const struct lu_env *env, struct lod_device *lod,
 
 	CDEBUG(D_CONFIG, "osp:%s idx:%d gen:%d\n", osp, idx, gen);
 
-	obd = class_name2obd(osp);
+	obd_str2uuid(&uuid, osp);
+
+	obd = class_find_client_obd(&uuid, LUSTRE_OSP_NAME,
+				   &lod->lod_dt_dev.dd_lu_dev.ld_obd->obd_uuid);
 	if (obd == NULL) {
 		CERROR("can't find %s device\n", osp);
 		RETURN(-EINVAL);

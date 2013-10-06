@@ -93,7 +93,8 @@ struct osp_device {
 	int				 opd_got_disconnected;
 	int				 opd_imp_connected;
 	int				 opd_imp_active;
-	int				 opd_imp_seen_connected:1;
+	int				 opd_imp_seen_connected:1,
+					 opd_connect_mdt:1;
 
 	/* whether local recovery is completed:
 	 * reported via ->ldo_recovery_complete() */
@@ -183,6 +184,9 @@ struct osp_object {
 	struct dt_object	 opo_obj;
 	int			 opo_reserved:1,
 				 opo_new:1;
+
+	struct rw_semaphore	 opo_sem;
+	const struct lu_env	 *opo_owner;
 };
 
 extern struct lu_object_operations osp_lu_obj_ops;
@@ -205,6 +209,7 @@ struct osp_thread_info {
 	};
 	struct llog_cookie	 osi_cookie;
 	struct llog_catid	 osi_cid;
+	struct lu_seq_range	 osi_seq;
 };
 
 static inline void osp_objid_buf_prep(struct osp_thread_info *osi, int index)
@@ -356,6 +361,10 @@ static inline int osp_is_fid_client(struct osp_device *osp)
 
 	return imp->imp_connect_data.ocd_connect_flags & OBD_CONNECT_FID;
 }
+
+#define osp_init_rpc_lock(lck) mdc_init_rpc_lock(lck)
+#define osp_get_rpc_lock(lck, it)  mdc_get_rpc_lock(lck, it)
+#define osp_put_rpc_lock(lck, it) mdc_put_rpc_lock(lck, it)
 
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
