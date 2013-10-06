@@ -277,8 +277,7 @@ static inline int cfs_module_refcount(cfs_module_t *m)
  ***************************************************************************/
 
 struct cfs_shrinker {
-        ;
-};
+}
 
 #define CFS_DEFAULT_SEEKS (0)
 
