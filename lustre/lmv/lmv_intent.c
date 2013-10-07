@@ -209,7 +209,7 @@ repeat:
                        PFID(&rpid), tgt->ltd_idx);
         } else {
                 sop_data->op_bias |= MDS_CHECK_SPLIT;
-                tgt = lmv_find_target(lmv, &rpid);
+		tgt = lmv_find_target(lmv, &rpid);
                 sop_data->op_mds = tgt->ltd_idx;
         }
         if (IS_ERR(tgt))
