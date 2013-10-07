@@ -2,6 +2,7 @@
 #set -vx
 set -e
 
+#for test only LU-3607
 ONLY=${ONLY:-"$*"}
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 . $LUSTRE/tests/test-framework.sh
