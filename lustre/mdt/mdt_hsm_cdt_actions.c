@@ -368,7 +368,7 @@ static void *mdt_agent_actions_proc_start(struct seq_file *s, loff_t *pos)
 	/* first call = rewind */
 	if (*pos == 0) {
 		aai->aai_cat_index = 0;
-		aai->aai_index = 0;
+		aai->aai_index = -1;
 		aai->aai_eof = false;
 		*pos = 1;
 	}
