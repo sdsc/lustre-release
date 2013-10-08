@@ -482,7 +482,7 @@ int dt_trans_update_llog_add(const struct lu_env *env, struct dt_device *dt,
 			      sizeof(struct llog_rec_tail) +
 			      llog_data_len(update_buf_size(ubuf));
 	rec->ur_hdr.lrh_type = UPDATE_REC;
-	update_dump_buf(ubuf);
+	update_dump_buf(ubuf, D_INFO);
 	memcpy(&rec->urb, ubuf, update_buf_size(ubuf));
 	update_buf_cpu_to_le(&rec->urb, &rec->urb);
 
