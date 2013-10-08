@@ -767,6 +767,28 @@ static inline void range_be_to_cpu(struct lu_seq_range *dst, const struct lu_seq
         dst->lsr_flags = be32_to_cpu(src->lsr_flags);
 }
 
+#define range_array_size(array) (sizeof(struct lu_seq_range_array) +	\
+				array->lsra_count * sizeof(struct lu_seq_range))
+
+static inline void range_array_cpu_to_le(struct lu_seq_range_array *dst,
+					 const struct lu_seq_range_array *src)
+{
+	int i;
+	for (i = 0; i < src->lsra_count; i++)
+		range_cpu_to_le(&dst->lsra_lsr[i], &src->lsra_lsr[i]);
+
+	dst->lsra_count = cpu_to_le32(src->lsra_count);
+}
+
+static inline void range_array_le_to_cpu(struct lu_seq_range_array *dst,
+					 const struct lu_seq_range_array *src)
+{
+	int i;
+	dst->lsra_count = le32_to_cpu(src->lsra_count);
+	for (i = 0; i < dst->lsra_count; i++)
+		range_le_to_cpu(&dst->lsra_lsr[i], &src->lsra_lsr[i]);
+}
+
 /** @} fid */
 
 #endif /* __LUSTRE_FID_H */

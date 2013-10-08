@@ -3498,7 +3498,7 @@ static int mdt_fld_init(const struct lu_env *env,
 		RETURN(rc = -ENOMEM);
 
 	rc = fld_server_init(env, ss->ss_server_fld, m->mdt_bottom, uuid,
-			     ss->ss_node_id, LU_SEQ_RANGE_MDT);
+			     LU_SEQ_RANGE_MDT);
 	if (rc) {
 		OBD_FREE_PTR(ss->ss_server_fld);
 		ss->ss_server_fld = NULL;

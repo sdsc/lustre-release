@@ -1015,6 +1015,38 @@ out:
 	return rc;
 }
 
+/**
+ * It will retrieve its FLDB entries from MDT0, and it only happens
+ * when upgrading existent FS to 2.6.
+ **/
+static int osp_update_fldb_from_controller(struct osp_device *osp)
+{
+	struct lu_env		env;
+	struct lu_server_fld	*fld = osp_seq_site(osp)->ss_server_fld;
+	int			rc;
+	ENTRY;
+
+	if (!likely(fld->lsf_new) || osp->opd_index != 0)
+		RETURN(0);
+
+	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags);
+	if (rc) {
+		CERROR("%s: init env error: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
+		RETURN(rc);
+	}
+
+	rc = fld_update_from_controller(&env, fld);
+	if (rc != 0) {
+		CERROR("%s: update controller failed: rc = %d\n",
+		       osp->opd_obd->obd_name, rc);
+		GOTO(out, rc);
+	}
+out:
+	lu_env_fini(&env);
+	RETURN(rc);
+}
+
 static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			    enum obd_import_event event)
 {
@@ -1044,8 +1076,10 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			d->opd_new_connection = 1;
 		d->opd_imp_connected = 1;
 		d->opd_imp_seen_connected = 1;
-		if (d->opd_connect_mdt)
+		if (d->opd_connect_mdt) {
+			osp_update_fldb_from_controller(d);
 			break;
+		}
 		wake_up(&d->opd_pre_waitq);
 		__osp_sync_check_for_work(d);
 		CDEBUG(D_HA, "got connected\n");
