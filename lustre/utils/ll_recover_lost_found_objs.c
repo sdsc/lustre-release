@@ -117,21 +117,21 @@ static int _ll_sprintf(char *buf, size_t size, const char *func, int line,
 
 static int mkdir_p(const char *dest_path, const char *mount)
 {
-        struct stat stat_buf;
-        int retval;
-        mode_t mode = 0700;
+	struct stat stat_buf;
+	int retval;
+	mode_t mode = 0700;
 
-        if (stat(dest_path, &stat_buf) == 0)
-                return 0;
+	if (stat(dest_path, &stat_buf) == 0 && S_ISDIR(stat_buf))
+		return 0;
 
-        retval = mkdir(dest_path, mode);
-        if (retval < 0) {
-                fprintf(stderr, "error: creating directory %s: "
-                        "%s\n", dest_path, strerror(errno));
-                return 1;
-        }
+	retval = mkdir(dest_path, mode);
+	if (retval != 0) {
+		fprintf(stderr, "error: creating directory %s: %s\n",
+			dest_path, strerror(errno));
+		return -errno;
+	}
 
-        return 0;
+	return 0;
 }
 
 /* This is returning 0 for an error */
@@ -167,13 +167,13 @@ static __u64 read_last_id(char *file_path)
         return le64_to_cpu(last_id);
 }
 
-struct obd_group_info *find_or_create_grp(cfs_list_t *list, __u64 seq,
+struct obd_group_info *find_or_create_grp(cfs_list_t *list,
+					  const char *seq_name,
 					  const char *mount)
 {
 	struct obd_group_info	*grp;
 	cfs_list_t		*entry;
 	char			tmp_path[PATH_MAX];
-	char			seq_name[32];
 	struct stat		stat_buf;
 	int			retval;
 	__u64			tmp_last_id;
@@ -190,24 +190,16 @@ struct obd_group_info *find_or_create_grp(cfs_list_t *list, __u64 seq,
 	if (grp == NULL)
 		return NULL;
 
-	sprintf(seq_name, (fid_seq_is_rsvd(seq) ||
-			   fid_seq_is_mdt0(seq)) ? LPU64 : LPX64i,
-			   fid_seq_is_idif(seq) ? 0 : seq);
-
 	/* Check whether the obj dir has been created */
 	if (ll_sprintf(tmp_path, PATH_MAX, "%s/O/%s", mount, seq_name)) {
 		free(grp);
 		return NULL;
 	}
 
-	if (stat(tmp_path, &stat_buf) != 0) {
-		retval = mkdir(tmp_path, 0700);
-		if (retval < 0) {
-			free(grp);
-			fprintf(stderr, "error: creating directory %s: "
-				"%s\n", tmp_path, strerror(errno));
-			return NULL;
-		}
+	retval = mkdir_p(tmp_path, 0700);
+	if (retval != 0) {
+		free(grp);
+		return NULL;
 	}
 
 	if (ll_sprintf(tmp_path, PATH_MAX, "%s/O/%s/LAST_ID",
@@ -219,7 +211,7 @@ struct obd_group_info *find_or_create_grp(cfs_list_t *list, __u64 seq,
 	/*
 	 * Object ID needs to be verified against last_id.
 	 * LAST_ID file may not be present in the group directory
-	 * due to corruption. In case of any error tyr to recover
+	 * due to corruption. In case of any error try to recover
 	 * as many objects as possible by setting last_id to ~0ULL.
 	 */
 	tmp_last_id = read_last_id(tmp_path);
@@ -311,8 +303,8 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
                 }
                 break;
 
-                case DT_REG:
-                file_path = src_dir;
+		case DT_REG:
+		file_path = src_dir;
 		xattr_len = getxattr(file_path, "trusted.lma",
 				     (void *)&lma, sizeof(lma));
 		if (xattr_len == -1 || xattr_len < sizeof(lma)) {
@@ -323,8 +315,8 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 					     (void *)&ff, sizeof(ff));
 			if (xattr_len == -1 || xattr_len < sizeof(ff)) {
 				/*
-				 * Its very much possible that we dont find fid
-				 * on precreated files, LAST_ID
+				 * Its very much possible that we don't find
+				 * FID on precreated files, LAST_ID
 				 */
 				continue;
 			}
@@ -335,54 +327,53 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 			ff_objid = le32_to_cpu(lma.lma_self_fid.f_oid);
 		}
 
+		/* All of the IDIF objects are actually kept in O/0 */
+		if (fid_seq_is_idif(ff_seq))
+			ff_seq = FID_SEQ_OST_MDT0;
+
 		sprintf(seq_name, (fid_seq_is_rsvd(ff_seq) ||
 				   fid_seq_is_mdt0(ff_seq)) ? LPU64 : LPX64i,
-			fid_seq_is_idif(ff_seq) ? 0 : ff_seq);
-
+			ff_seq);
 
 		sprintf(obj_name, (fid_seq_is_rsvd(ff_seq) ||
-				   fid_seq_is_mdt0(ff_seq) ||
-				   fid_seq_is_idif(ff_seq)) ?
+				   fid_seq_is_mdt0(ff_seq)) ?
 				   LPU64 : LPX64i, ff_objid);
 
-		grp_info = find_or_create_grp(&grp_info_list, ff_seq,
+		grp_info = find_or_create_grp(&grp_info_list, seq_name,
 					      mount_path);
 		if (grp_info == NULL) {
 			closedir(dir_ptr);
 			return 1;
 		}
 
-                /* might need to create the parent directories for
-                   this object */
+		/* Might need to create the parent directory for this object */
 		if (ll_sprintf(dest_path, PATH_MAX, "%s/O/%s/d"LPU64,
-				mount_path, seq_name, ff_objid % 32)) {
+			       mount_path, seq_name, ff_objid % 32)) {
 			closedir(dir_ptr);
 			return 1;
 		}
 
+		/* The O/{seq} directory was created in find_or_create_grp() */
 		ret = mkdir_p(dest_path, mount_path);
-		if (ret) {
+		if (ret != 0) {
 			closedir(dir_ptr);
 			return ret;
 		}
 
 		if (ff_objid > grp_info->grp_last_id) {
-			fprintf(stderr, "error: file skipped because object ID "
-				"greater than LAST_ID\nFilename: %s\n"
-				"Group: "LPU64"\nObjectid: "LPU64"\n"
-				"LAST_ID: "LPU64, file_path, ff_seq, ff_objid,
-				grp_info->grp_last_id);
+			fprintf(stderr, "error: file '%s' skipped because its "
+				"object ID "LPU64" > O/%s/LAST_ID "LPU64"\n",
+				file_path, ff_objid,
+				seq_name, grp_info->grp_last_id);
 			continue;
 		}
 
-                /* move file from lost+found to proper object
-                   directory */
-                if (ll_sprintf(dest_path, PATH_MAX,
-				"%s/O/%s/d"LPU64"/%s", mount_path,
-				seq_name, ff_objid % 32, obj_name)) {
-                        closedir(dir_ptr);
-                        return 1;
-                }
+		/* move file from lost+found to proper object directory */
+		if (ll_sprintf(dest_path, PATH_MAX, "%s/O/%s/d"LPU64"/%s",
+			       mount_path, seq_name, ff_objid % 32, obj_name)) {
+			closedir(dir_ptr);
+			return 1;
+		}
 
                 obj_exists = 1;
                 ret = stat(dest_path, &st);
@@ -578,32 +569,27 @@ int main(int argc, char **argv)
         if (src_dir[0] == 0)
                 usage(progname);
 
-        /* Check if 'O' directory exists and create it if needed */
-        if (ll_sprintf(tmp_path, PATH_MAX, "%s/O",  mount_path))
-                return 1;
+	/* Check if 'O' directory exists and create it if needed */
+	if (ll_sprintf(tmp_path, PATH_MAX, "%s/O",  mount_path))
+		return 1;
 
-        if (stat(tmp_path, &stat_buf) != 0) {
-                retval = mkdir(tmp_path, 0700);
-                if (retval == -1) {
-                        fprintf(stderr, "error: creating objects directory %s:"
-                                " %s\n", tmp_path, strerror(errno));
-                        return 1;
-                }
-        }
+	retval = mkdir_p(tmp_path, 0700);
+	if (retval != 0)
+		return retval;
 
 	CFS_INIT_LIST_HEAD(&grp_info_list);
-        retval = traverse_lost_found(src_dir, mount_path);
-        if (retval) {
-                fprintf(stderr, "error: traversing lost+found looking for "
-                        "orphan objects.\n");
+	retval = traverse_lost_found(src_dir, mount_path);
+	if (retval) {
+		fprintf(stderr, "error: traversing lost+found looking for "
+			"orphan objects.\n");
 		goto grp_destory;
 	}
 
-        retval = check_last_id(mount_path);
-        if (retval)
-                fprintf(stderr, "error: while checking/restoring LAST_ID.\n");
+	retval = check_last_id(mount_path);
+	if (retval)
+		fprintf(stderr, "error: while checking/restoring LAST_ID.\n");
 
 grp_destory:
 	grp_info_list_destroy(&grp_info_list);
-        return retval;
+	return retval;
 }
