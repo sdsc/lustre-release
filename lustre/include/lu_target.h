@@ -358,8 +358,8 @@ static inline int is_serious(int rc)
 			LUSTRE_MDS_VERSION)
 
 /* FID Location Database handlers */
-#define TGT_FLD_HDL(flags, name, fn)					\
-	TGT_RPC_HANDLER(FLD_QUERY, flags, name, fn, &RQF_ ## name,	\
+#define TGT_FLD_HDL_VAR(flags, name, fn)				\
+	TGT_RPC_HANDLER(FLD_QUERY, flags, name, fn, NULL,		\
 			LUSTRE_MDS_VERSION)
 
 /* Request with a format known in advance */
