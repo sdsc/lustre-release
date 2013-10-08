@@ -290,17 +290,17 @@ static inline void update_buf_le_to_cpu(struct update_buf *dst_ubuf,
 
 const char *update_op_str(__u16 opcode);
 /* For debugging purpose */
-static inline void update_dump_buf(struct update_buf *ubuf)
+static inline void update_dump_buf(struct update_buf *ubuf, __u32 umask)
 {
 	int i;
 
-	CDEBUG(D_INFO, "ubuf %p magic %x count %d\n", ubuf, ubuf->ub_magic,
+	CDEBUG(umask, "ubuf %p magic %x count %d\n", ubuf, ubuf->ub_magic,
 	       ubuf->ub_count);
 
 	for (i = 0; i < ubuf->ub_count; i++) {
 		struct update *update;
 		update = (struct update *)update_buf_get(ubuf, i, NULL);
-		CDEBUG(D_INFO, "i: %d fid: "DFID" op: %s master: %d idx %d"
+		CDEBUG(umask, "i: %d fid: "DFID" op: %s master: %d idx %d"
 		       "batchid: "LPU64" xid: "LPU64" cookie %u "DOSTID":%u\n",
 		       i, PFID(&update->u_fid), update_op_str(update->u_type),
 		       (int)update->u_master_index, update->u_index,

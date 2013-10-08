@@ -79,7 +79,7 @@ int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
 	req_capsule_set_size(&req->rq_pill, &RMF_UPDATE_REPLY, RCL_SERVER,
 			     UPDATE_BUFFER_SIZE);
 
-	update_dump_buf(ubuf);
+	update_dump_buf(ubuf, D_INFO);
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_UPDATE);
 	memcpy(tmp, ubuf, ubuf_len);
 
@@ -190,8 +190,8 @@ static int osp_update_transno_xid(struct update_buf *buf,
 		update->u_batchid = reply->ur_transno;
 		update->u_xid = reply->ur_xid;
 	}
-	update_dump_buf(buf);
 
+	update_dump_buf(buf, D_INFO);
 	RETURN(0);
 }
 
@@ -1283,6 +1283,18 @@ static int osp_update_llog_init(const struct lu_env *env,
 	rc = llog_cat_add(env, ctxt->loc_handle, &osi->osi_gen.lgr_hdr,
 			  NULL, NULL);
 	llog_ctxt_put(ctxt);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	/* update recovery log init */
+	rc = llog_setup(NULL, osp->opd_obd, &osp->opd_obd->obd_olg,
+		        LLOG_UPDATE_REPL_CTXT, osp->opd_obd,
+			&llog_client_ops);
+	ctxt = llog_group_get_ctxt(&osp->opd_obd->obd_olg,
+				   LLOG_UPDATE_REPL_CTXT);
+	llog_initiator_connect(ctxt);
+
+	llog_ctxt_put(ctxt);
 out:
 	if (rc != 0)
 		dt_update_llog_fini(env, dt, osp->opd_index);
@@ -1293,6 +1305,12 @@ static void osp_update_llog_fini(const struct lu_env *env,
 				 struct osp_device *osp)
 {
 	struct dt_device	*dt = osp->opd_storage;
+	struct llog_ctxt	*ctxt;
+	struct obd_device	*obd = osp->opd_obd;
+
+	ctxt = llog_get_context(obd, LLOG_UPDATE_REPL_CTXT);
+	if (ctxt)
+		llog_cleanup(env, ctxt);
 
 	return dt_update_llog_fini(env, dt, osp->opd_index);
 }
@@ -1390,7 +1408,7 @@ static inline int osp_update_can_process_new(const struct lu_env *env,
 
 	peer_transno = imp->imp_peer_committed_transno;
 	update_buf_le_to_cpu(ubuf, ubuf);
-	update_dump_buf(ubuf);
+	update_dump_buf(ubuf, D_INFO);
 	CDEBUG(D_HA, "%s: local committed "LPU64" peer committed "LPU64"\n",
 	       osp->opd_obd->obd_name, transno, peer_transno);
 	for (i = 0; i < ubuf->ub_count; i++) {
@@ -1498,6 +1516,347 @@ static int osp_update_process_queues(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static int osp_resend_updates(const struct lu_env *env,
+			      struct osp_device *osp,
+			      struct update_replay *u_replay)
+{
+	struct ptlrpc_request	*req;
+	int			rc;
+	ENTRY;
+
+	update_dump_buf(u_replay->ur_ubuf, D_HA);
+	rc = osp_prep_update_req(env, osp, u_replay->ur_ubuf, &req, UPDATE_OBJ);
+	if (rc != 0)
+		RETURN(rc);
+
+	rc = ptlrpc_queue_wait(req);
+
+	ptlrpc_req_finished(req);
+	RETURN(rc);
+}
+
+static void osp_destroy_replay_update(const struct lu_env *env,
+				      struct osp_device *osp,
+				      struct update_replay *u_replay)
+{
+	LASSERT(spin_is_locked(&osp->opd_update_replay_lock));
+	cfs_list_del(&u_replay->ur_list);
+	OBD_FREE(u_replay->ur_ubuf, update_buf_size(u_replay->ur_ubuf));
+	OBD_FREE_PTR(u_replay);
+}
+
+static int osp_update_get_batchid(const struct lu_env *env,
+				  struct osp_device *osp,
+				  struct update_buf *ubuf,
+				  int mdt_index,
+				  __u64 *batchid)
+{
+	struct lu_server_fld	*fld;
+	struct update		*update;
+	struct lu_seq_range	*range = &osp_env_info(env)->osi_seq;
+	int			rc = 0;
+	int			found = 0;
+	int			i;
+	ENTRY;
+
+	range = &osp_env_info(env)->osi_seq;
+	fld = lu_site2seq(osp2lu_dev(osp)->ld_site)->ss_server_fld;
+	for (i = 0; i < ubuf->ub_count; i++) {
+		update = update_buf_get(ubuf, i, NULL);
+		LASSERT(update != NULL);
+		if (update->u_index == mdt_index) {
+			*batchid = update->u_batchid;
+			found = 1;
+			break;
+		}
+	}
+
+	if (found == 1)
+		CDEBUG(D_HA, "%s: find batch id "LPX64" index %d: rc = %d\n",
+		       osp->opd_obd->obd_name, *batchid, mdt_index, rc);
+	else
+		rc = -ENOENT;
+	
+
+	RETURN(rc); 
+}
+
+static int osp_replay_updates(const struct lu_env *env, struct osp_device *osp)
+{
+	struct update_replay	*u_replay;
+	struct update_replay	*tmp;
+	__u64			transno;
+	int			rc;
+
+	ENTRY;
+	spin_lock(&osp->opd_update_replay_lock);
+	cfs_list_for_each_entry_safe(u_replay, tmp,
+				     &osp->opd_update_replay_list,
+				     ur_list) {
+		update_dump_buf(u_replay->ur_ubuf, D_HA);
+		/* redo local update if needed */
+		if (u_replay->ur_transno > osp_last_local_committed(osp)) {
+			rc = out_do_updates(env, osp->opd_storage,
+					    u_replay->ur_ubuf);
+			if (rc != 0)
+				GOTO(next, rc);
+			continue;
+		}
+
+		rc = osp_update_get_batchid(env, osp, u_replay->ur_ubuf,
+					    osp->opd_index, &transno);
+		if (rc != 0 || transno != 0)
+			GOTO(next, rc);
+
+		/* resend update to the slave MDT */
+		rc = osp_resend_updates(env, osp, u_replay);
+next:
+		osp_destroy_replay_update(env, osp, u_replay);
+		if (rc != 0)
+			break;
+	}
+	spin_unlock(&osp->opd_update_replay_lock);
+
+	RETURN(rc);
+}
+
+static int osp_recovery_process_queues(const struct lu_env *env,
+				       struct llog_handle *llh,
+				       struct llog_rec_hdr *rec,
+				       void *data)
+{
+	struct llog_updatelog_rec *urec = (struct llog_updatelog_rec *)rec;
+	struct update_buf	  *ubuf = &urec->urb;
+	int			  ubuf_size;
+	struct osp_device	  *osp = (struct osp_device *)data;
+	struct update_replay	  *u_replay;
+	struct update_replay	  *tmp;
+	int			  rc;
+	int			  found = 0;
+	int			  master_index;
+	__u64			  batchid;
+	ENTRY;
+
+	if (unlikely(rec->lrh_type == LLOG_GEN_REC))
+		RETURN(0);
+
+	update_buf_le_to_cpu(ubuf, ubuf);
+	update_dump_buf(ubuf, D_HA);
+
+	master_index = update_buf_master_idx(ubuf);
+	if (master_index != osp->opd_group)
+		RETURN(0);
+
+	rc = osp_update_get_batchid(env, osp, ubuf, osp->opd_group,
+				    &batchid);
+	if (rc != 0)
+		RETURN(rc);
+
+
+	spin_lock(&osp->opd_update_replay_lock);
+	cfs_list_for_each_entry_safe(u_replay, tmp,
+				     &osp->opd_update_replay_list, ur_list) {
+		if (batchid == u_replay->ur_transno) {
+			osp_destroy_replay_update(env, osp, u_replay);
+			found = 1;
+			break;
+		}
+	}
+	spin_unlock(&osp->opd_update_replay_lock);
+
+	if (found == 1) {
+		CDEBUG(D_HA, "%s: update master %d transno "LPU64" has been"
+		       " committed on both mdt\n", osp->opd_obd->obd_name,
+		       master_index, batchid);
+		RETURN(0);
+	}
+
+	ubuf_size = update_buf_size(ubuf);
+	OBD_ALLOC_PTR(u_replay);
+	if (u_replay == NULL)
+		GOTO(out, rc = -ENOMEM);
+	CFS_INIT_LIST_HEAD(&u_replay->ur_list);
+	u_replay->ur_transno = batchid;
+	u_replay->ur_master_idx = master_index;
+	OBD_ALLOC(u_replay->ur_ubuf, ubuf_size);
+	if (u_replay->ur_ubuf == NULL)
+		GOTO(free_replay, rc);
+	memcpy(u_replay->ur_ubuf, ubuf, ubuf_size);
+
+	spin_lock(&osp->opd_update_replay_lock);
+	cfs_list_add(&u_replay->ur_list, &osp->opd_update_replay_list);
+	spin_unlock(&osp->opd_update_replay_lock);
+
+free_replay:
+	if (rc != 0)
+		OBD_FREE_PTR(u_replay);
+out:
+	RETURN(rc);
+}
+
+static int osp_process_local_master(const struct lu_env *env,
+				    struct osp_device *osp)
+{
+	struct llog_ctxt	*ctxt;
+	struct obd_llog_group	*olg;
+	struct llog_handle	*lgh;
+	int			 rc;
+	ENTRY;
+
+	olg = dt_update_find_olg(osp->opd_storage, osp->opd_index);
+	if (olg == NULL) {
+		CERROR("%s: can't get appropriate context: rc = %d\n",
+		       osp->opd_obd->obd_name, -EINVAL);
+		RETURN(-EINVAL);
+	}
+
+	ctxt = llog_group_get_ctxt(olg, LLOG_UPDATE_ORIG_CTXT);
+	if (ctxt == NULL) {
+		CERROR("%s: can't get appropriate context: rc = %d\n",
+		       osp->opd_obd->obd_name, -EINVAL);
+		RETURN(-EINVAL);
+	}
+
+	lgh = ctxt->loc_handle;
+	if (lgh == NULL) {
+		llog_ctxt_put(ctxt);
+		GOTO(out_put, rc = -EINVAL);
+	}
+
+	rc = llog_cat_process(env, lgh, osp_recovery_process_queues,
+			      osp, 0, 0);
+out_put:
+	llog_ctxt_put(ctxt);
+	RETURN(rc);
+
+}
+
+static int osp_process_slave_updates(const struct lu_env *env,
+				     struct osp_device *osp)
+{
+	struct llog_ctxt	*ctxt;
+	struct obd_llog_group	*olg = &osp->opd_obd->obd_olg;
+	struct llog_catid	*cid;
+	struct lu_fid		*fid;
+	struct llog_handle	*lgh;
+	int			 rc;
+	ENTRY;
+
+	ctxt = llog_group_get_ctxt(olg, LLOG_UPDATE_REPL_CTXT);
+	if (ctxt == NULL) {
+		CERROR("%s: can't get appropriate context: rc = %d\n",
+		       osp->opd_obd->obd_name, -EINVAL);
+		RETURN(-EINVAL);
+	}
+
+	cid = &osp_env_info(env)->osi_cid;
+	fid = &osp_env_info(env)->osi_fid;
+	lu_local_obj_fid(fid, UPDATE_LLOG_CATALOGS_OID);
+	fid_to_logid(fid, &cid->lci_logid);
+	rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
+		       LLOG_OPEN_CATLIST);
+	if (rc != 0)
+		GOTO(out_put, rc);
+
+	if (lgh == NULL)
+		GOTO(out_put, rc = -EINVAL);
+
+	ctxt->loc_handle = lgh;
+	rc = llog_init_handle(env, lgh, LLOG_F_IS_CAT|LLOG_F_IS_CATLIST, NULL);
+	if (rc != 0)
+		GOTO(out_close, rc);
+
+	rc = llog_cat_process(env, lgh, osp_recovery_process_queues, osp,
+			      0, 0);
+out_close:
+	llog_cat_close(env, lgh);
+out_put:
+	/* we don't expect llog_process_thread() to exit till umount */
+	llog_ctxt_put(ctxt);
+	RETURN(rc);
+}
+
+static int osp_recovery_thread(void *_arg)
+{
+	struct osp_device	*osp = _arg;
+	struct lu_env		env;
+	struct lu_context	session;
+	int			rc;
+	ENTRY;
+
+	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags);
+	if (rc) {
+		CERROR("%s: init env error: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
+		RETURN(rc);
+	}
+
+	rc = lu_context_init(&session, LCT_SESSION | LCT_NOREF);
+        if (rc != 0)
+		GOTO(out_env, rc);
+	lu_context_enter(&session);
+	env.le_ses = &session;
+
+	rc = osp_process_local_master(&env, osp);
+	if (rc != 0) {
+		CERROR("%s: recovery failed: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
+		GOTO(out_session, rc);
+	}
+
+	rc = osp_process_slave_updates(&env, osp);
+	if (rc != 0) {
+		CERROR("%s: recovery failed: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
+		GOTO(out_session, rc);
+	}
+
+	rc = osp_replay_updates(&env, osp);
+	if (rc != 0) {
+		CERROR("%s: recovery failed: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
+		GOTO(out_session, rc);
+	}
+
+	if (unlikely(!cfs_list_empty(&osp->opd_update_replay_list))) {
+		struct update_replay *u_replay;
+		struct update_replay *tmp;
+
+		CERROR("%s: some replay updates are left!!!\n",
+		       osp->opd_obd->obd_name);
+
+		spin_lock(&osp->opd_update_replay_lock);
+		cfs_list_for_each_entry_safe(u_replay, tmp,
+					     &osp->opd_update_replay_list,
+					     ur_list) {
+			update_dump_buf(u_replay->ur_ubuf, D_ERROR);
+			osp_destroy_replay_update(&env, osp, u_replay);
+		};
+		spin_unlock(&osp->opd_update_replay_lock);
+		rc = -EIO;
+	}
+
+out_session:
+	lu_context_exit(&session);
+	lu_context_fini(&session);
+out_env:
+	lu_env_fini(&env);
+	RETURN(rc);
+}
+
+int osp_recovery(struct osp_device *osp)
+{
+	int rc;
+
+	rc = PTR_ERR(kthread_run(osp_recovery_thread, osp,
+				 "osp-recovery-%u-%u", osp->opd_index,
+				 osp->opd_group));
+	if (IS_ERR_VALUE(rc))
+		CERROR("%s: can't start update thread: rc = %d\n",
+		       osp->opd_obd->obd_name, rc);
+	return rc;
+}
+
 static int osp_update_thread(void *_arg)
 {
 	struct osp_device	*osp = _arg;
@@ -1578,6 +1937,9 @@ int osp_update_init(const struct lu_env *env, struct osp_device *osp)
 	if (rc != 0)
 		RETURN(rc);
 
+	CFS_INIT_LIST_HEAD(&osp->opd_update_replay_list);
+	spin_lock_init(&osp->opd_update_replay_lock);
+
 	/*
 	 * Start synchronization thread
 	 */
@@ -1594,6 +1956,8 @@ int osp_update_init(const struct lu_env *env, struct osp_device *osp)
 
 	l_wait_event(osp->opd_update_thread.t_ctl_waitq,
 		     osp_update_running(osp) || osp_update_stopped(osp), &lwi);
+
+	osp->opd_update_recovery = 1;
 
 	RETURN(0);
 err_llog:
