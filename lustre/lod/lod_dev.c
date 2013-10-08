@@ -70,7 +70,7 @@ int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 		RETURN(rc);
 	}
 
-	if (!lod->lod_initialized || (!fid_seq_in_fldb(fid_seq(fid)))) {
+	if (!fid_seq_in_fldb(fid_seq(fid))) {
 		LASSERT(lu_site2seq(lod2lu_dev(lod)->ld_site) != NULL);
 		*tgt = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_node_id;
 		RETURN(rc);
@@ -84,8 +84,8 @@ int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 
 	*tgt = range.lsr_index;
 
-	CDEBUG(D_INFO, "LOD: got tgt %x for sequence: "
-	       LPX64"\n", *tgt, fid_seq(fid));
+	CDEBUG(D_INFO, "LOD: got tgt %x for sequence: " LPX64"\n", *tgt,
+	       fid_seq(fid));
 
 	RETURN(rc);
 }

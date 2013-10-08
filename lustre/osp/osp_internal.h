@@ -130,7 +130,8 @@ struct osp_device {
 	int				 opd_imp_active;
 	unsigned int			 opd_imp_seen_connected:1,
 					 opd_connect_mdt:1,
-					 opd_new_committed:1;
+					 opd_new_committed:1,
+					 opd_update_recovery:1;
 	/* whether local recovery is completed:
 	 * reported via ->ldo_recovery_complete() */
 	int				 opd_recovery_completed;
@@ -188,6 +189,10 @@ struct osp_device {
 	wait_queue_head_t		opd_update_waitq;
 	__u64				opd_last_committed_transno;
 
+
+	cfs_list_t			opd_update_replay_list;
+	spinlock_t			opd_update_replay_lock;
+
 	cfs_proc_dir_entry_t		*opd_symlink;
 };
 
@@ -204,6 +209,13 @@ struct osp_device {
 #define opd_pre_max_grow_count		opd_pre->osp_pre_max_grow_count
 #define opd_pre_grow_slow		opd_pre->osp_pre_grow_slow
 #define opd_pre_recovering		opd_pre->osp_pre_recovering
+
+struct update_replay {
+	cfs_list_t		ur_list;
+	__u64			ur_transno;
+	int			ur_master_idx;
+	struct update_buf	*ur_ubuf;
+};
 
 extern struct kmem_cache *osp_object_kmem;
 
@@ -442,6 +454,7 @@ void osp_free_update_buf(struct update_buf *ubuf);
 int osp_update_init(const struct lu_env *env, struct osp_device *osp);
 int osp_update_fini(const struct lu_env *env, struct osp_device *osp);
 
+int osp_recovery(struct osp_device *osp);
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);

@@ -968,7 +968,7 @@ static int osd_update_transno(const struct lu_env *env, struct osd_device *osd,
 			update->u_batchid = tu->tu_batchid;
 	}
 
-	update_dump_buf(ubuf);
+	update_dump_buf(ubuf, D_INFO);
 	RETURN(0);
 }
 

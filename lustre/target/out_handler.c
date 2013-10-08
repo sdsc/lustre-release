@@ -1306,7 +1306,7 @@ static int out_handle_updates(const struct lu_env *env, struct dt_device *dt,
 	if (count <= 0)
 		RETURN(err_serious(-EPROTO));
 
-	update_dump_buf(ubuf);
+	update_dump_buf(ubuf, D_INFO);
 	if (reply_buf != NULL)
 		update_init_reply_buf(reply_buf, count);
 	tti->tti_u.update.tti_update_reply = reply_buf;

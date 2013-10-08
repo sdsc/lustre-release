@@ -1116,8 +1116,10 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			d->opd_new_connection = 1;
 		d->opd_imp_connected = 1;
 		d->opd_imp_seen_connected = 1;
-		if (d->opd_connect_mdt) {
+		if (d->opd_connect_mdt && d->opd_update_recovery) {
+			d->opd_update_recovery = 0;
 			osp_update_fldb_from_controller(d);
+			osp_recovery(d);	
 			break;
 		}
 		if (d->opd_pre != NULL)
