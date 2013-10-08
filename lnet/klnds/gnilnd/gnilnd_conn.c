@@ -652,7 +652,6 @@ kgnilnd_nid2dgramlist(kgn_device_t *dev, lnet_nid_t nid)
 	RETURN(&dev->gnd_dgrams[hash]);
 }
 
-
 /* needs dev->gnd_dgram_lock held */
 kgn_dgram_t *
 kgnilnd_find_dgram_locked(kgn_device_t *dev, lnet_nid_t dst_nid)
@@ -921,11 +920,15 @@ kgnilnd_unpack_connreq(kgn_dgram_t *dgram)
 }
 
 int
-kgnilnd_alloc_dgram(kgn_dgram_t **dgramp, kgn_device_t *dev, kgn_dgram_type_t type)
+kgnilnd_alloc_dgram(kgn_dgram_t **dgramp, kgn_device_t *dev,
+		    kgn_dgram_type_t type)
 {
 	kgn_dgram_t         *dgram;
 
-	dgram = kmem_cache_alloc(kgnilnd_data.kgn_dgram_cache, GFP_ATOMIC);
+	dgram = cfs_mem_cache_cpt_alloc(kgnilnd_data.kgn_dgram_cache,
+					lnet_cpt_table(),
+					dev->gnd_dgram_cpt->kgn_cpt,
+					GFP_ATOMIC);
 	if (dgram == NULL)
 		return -ENOMEM;
 
@@ -1161,6 +1164,7 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 		   int data_rc)
 {
 	int              rc = 0;
+	int		 cpt;
 	kgn_dgram_t     *dgram = NULL;
 	kgn_dgram_t     *tmpdgram;
 	kgn_dgram_type_t dgtype;
@@ -1184,13 +1188,24 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 		LBUG();
 	}
 
+	/* If we are posting wildcards post using a net of 0, otherwise we'll use the
+	 * net of the destination node.
+	 */
+	if (dstnid == LNET_NID_ANY) {
+		srcnid = LNET_MKNID(LNET_MKNET(GNILND, 0), dev->gnd_nid);
+	} else {
+		srcnid = LNET_MKNID(LNET_NIDNET(dstnid), dev->gnd_nid);
+	}
+
+	cpt = lnet_cpt_of_nid(srcnid);
+
 	rc = kgnilnd_alloc_dgram(&dgram, dev, dgtype);
 	if (rc < 0) {
 		rc = -ENOMEM;
 		GOTO(post_failed, rc);
 	}
 
-	rc = kgnilnd_create_conn(&dgram->gndg_conn, dev);
+	rc = kgnilnd_create_conn(&dgram->gndg_conn, dev, cpt);
 	if (rc) {
 		GOTO(post_failed, rc);
 	}
@@ -1223,16 +1238,6 @@ kgnilnd_post_dgram(kgn_device_t *dev, lnet_nid_t dstnid, kgn_connreq_type_t type
 			GOTO(post_failed, rc);
 		}
 
-	}
-
-	/* If we are posting wildcards post using a net of 0, otherwise we'll use the
-	 * net of the destination node.
-	 */
-
-	if (dstnid == LNET_NID_ANY) {
-		srcnid = LNET_MKNID(LNET_MKNET(GNILND, 0), dev->gnd_nid);
-	} else {
-		srcnid = LNET_MKNID(LNET_NIDNET(dstnid), dev->gnd_nid);
 	}
 
 	rc = kgnilnd_pack_connreq(&dgram->gndg_conn_out, dgram->gndg_conn,
@@ -1339,7 +1344,6 @@ kgnilnd_release_dgram(kgn_device_t *dev, kgn_dgram_t *dgram)
 		kgnilnd_free_dgram(dev, dgram);
 	}
 }
-
 
 int
 kgnilnd_probe_for_dgram(kgn_device_t *dev, kgn_dgram_t **dgramp)
@@ -1819,7 +1823,7 @@ kgnilnd_finish_connect(kgn_dgram_t *dgram)
 	if (CFS_FAIL_CHECK(CFS_FAIL_GNI_FINISH_PURG)) {
 		cfs_fail_loc = 0x0;
 		/* get scheduler thread moving again */
-		kgnilnd_schedule_device(conn->gnc_device);
+		kgnilnd_schedule_device(conn->gnc_sched);
 	}
 
 	CDEBUG(D_NET, "New conn 0x%p->%s dev %d\n",
@@ -2165,12 +2169,20 @@ kgnilnd_reaper_dgram_check(kgn_device_t *dev)
 int
 kgnilnd_dgram_waitq(void *arg)
 {
-	kgn_device_t     *dev = (kgn_device_t *) arg;
-	gni_return_t      grc;
-	__u64             readyid;
+	kgn_device_t		*dev = (kgn_device_t *) arg;
+	struct kgn_cpt_dgram	*dgram = dev->gnd_dgram_cpt;
+	gni_return_t		grc;
+	__u64			readyid;
+	int			rc;
 	DEFINE_WAIT(mover_done);
 
 	cfs_block_allsigs();
+
+	rc = cfs_cpt_bind(lnet_cpt_table(), dgram->kgn_cpt);
+	if (rc != 0) {
+		CERROR("Can't set CPT affinity for kgnilnd_dg_%02d to %d: %d\n",
+			dev->gnd_id, dgram->kgn_cpt, rc);
+	}
 
 	/* all gnilnd threads need to run fairly urgently */
 	set_user_nice(current, *kgnilnd_tunables.kgn_nice);
@@ -2190,17 +2202,17 @@ kgnilnd_dgram_waitq(void *arg)
 
 		if (grc == GNI_RC_SUCCESS) {
 			CDEBUG(D_INFO, "waking up dgram mover thread\n");
-			kgnilnd_schedule_dgram(dev);
+			kgnilnd_schedule_dgram(dgram);
 
 			/* wait for dgram thread to ping us before spinning again */
-			prepare_to_wait(&dev->gnd_dgping_waitq, &mover_done,
+			prepare_to_wait(&dgram->kgn_dgping_waitq, &mover_done,
 					TASK_INTERRUPTIBLE);
 
 			/* don't sleep if we need to quiesce */
 			if (likely(!kgnilnd_data.kgn_quiesce_trigger)) {
 				schedule();
 			}
-			finish_wait(&dev->gnd_dgping_waitq, &mover_done);
+			finish_wait(&dgram->kgn_dgping_waitq, &mover_done);
 		}
 	}
 
@@ -2330,25 +2342,32 @@ kgnilnd_repost_wc_dgrams(kgn_device_t *dev)
 static void
 kgnilnd_dgram_poke_with_stick(unsigned long arg)
 {
-	int             dev_id = arg;
-	kgn_device_t    *dev = &kgnilnd_data.kgn_devices[dev_id];
+	struct kgn_cpt_dgram *dgram = (struct kgn_cpt_dgram *) arg;
 
-	wake_up(&dev->gnd_dgram_waitq);
+	wake_up(&dgram->kgn_dgram_waitq);
 }
 
 /* use single thread for dgrams - should be sufficient for performance */
 int
 kgnilnd_dgram_mover(void *arg)
 {
-	kgn_device_t            *dev = (kgn_device_t *)arg;
-	int                      rc, did_something;
-	unsigned long            next_purge_check = jiffies - 1;
-	unsigned long            timeout;
-	struct timer_list        timer;
-	unsigned long		 deadline = 0;
+	kgn_device_t		*dev = (kgn_device_t *)arg;
+	struct kgn_cpt_dgram	*dgram = dev->gnd_dgram_cpt;
+	int			rc, did_something;
+	unsigned long		next_purge_check = jiffies - 1;
+	unsigned long		timeout;
+	struct timer_list	timer;
+	unsigned long		deadline = 0;
 	DEFINE_WAIT(wait);
 
 	cfs_block_allsigs();
+
+	rc = cfs_cpt_bind(lnet_cpt_table(), dgram->kgn_cpt);
+	if (rc != 0) {
+		CERROR("Can't set CPT affinity for kgnilnd_dgn_%02d to %d: %d\n",
+			dev->gnd_id, dgram->kgn_cpt, rc);
+	}
+
 	/* all gnilnd threads need to run fairly urgently */
 	set_user_nice(current, *kgnilnd_tunables.kgn_nice);
 
@@ -2410,13 +2429,13 @@ kgnilnd_dgram_mover(void *arg)
 			continue;
 		}
 
-		prepare_to_wait(&dev->gnd_dgram_waitq, &wait, TASK_INTERRUPTIBLE);
+		prepare_to_wait(&dgram->kgn_dgram_waitq, &wait, TASK_INTERRUPTIBLE);
 
-		setup_timer(&timer, kgnilnd_dgram_poke_with_stick, dev->gnd_id);
+		setup_timer(&timer, kgnilnd_dgram_poke_with_stick, (unsigned long)dgram);
 		mod_timer(&timer, (long) jiffies + timeout);
 
 		/* last second chance for others to poke us */
-		did_something += xchg(&dev->gnd_dgram_ready, GNILND_DGRAM_IDLE);
+		did_something += xchg(&dgram->kgn_dgram_ready, GNILND_DGRAM_IDLE);
 
 		/* check flag variables before comittingi even if we did something;
 		 * if we are after the deadline call schedule */
@@ -2425,14 +2444,14 @@ kgnilnd_dgram_mover(void *arg)
 		    !kgnilnd_data.kgn_quiesce_trigger) {
 			CDEBUG(D_INFO, "schedule timeout %ld (%lu sec)\n",
 			       timeout, cfs_duration_sec(timeout));
-			wake_up_all(&dev->gnd_dgping_waitq);
+			wake_up_all(&dgram->kgn_dgping_waitq);
 			schedule();
 			CDEBUG(D_INFO, "awake after schedule\n");
 			deadline = jiffies + cfs_time_seconds(*kgnilnd_tunables.kgn_dgram_timeout);
 		}
 
 		del_singleshot_timer_sync(&timer);
-		finish_wait(&dev->gnd_dgram_waitq, &wait);
+		finish_wait(&dgram->kgn_dgram_waitq, &wait);
 	}
 
 	kgnilnd_thread_fini();
