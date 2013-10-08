@@ -391,9 +391,10 @@ struct ll_ra_read *ll_ra_read_get(struct file *f)
 }
 
 static int cl_read_ahead_page(const struct lu_env *env, struct cl_io *io,
-                              struct cl_page_list *queue, struct cl_page *page,
-                              struct page *vmpage)
+			      struct cl_page_list *queue, struct cl_page *page,
+			      struct cl_object *clob)
 {
+	struct page *vmpage = page->cp_vmpage;
         struct ccc_page *cp;
         int              rc;
 
@@ -402,7 +403,7 @@ static int cl_read_ahead_page(const struct lu_env *env, struct cl_io *io,
         rc = 0;
         cl_page_assume(env, io, page);
 	lu_ref_add(&page->cp_reference, "ra", cfs_current());
-	cp = cl2ccc_page(cl_page_at(page, &vvp_device_type));
+	cp = cl2ccc_page(cl_object_page_slice(clob, page));
 	if (!cp->cpg_defer_uptodate && !PageUptodate(vmpage)) {
 		rc = cl_page_is_under_lock(env, io, page);
                 if (rc == -EBUSY) {
@@ -459,7 +460,7 @@ static int ll_read_ahead_page(const struct lu_env *env, struct cl_io *io,
                                             vmpage, CPT_CACHEABLE);
                         if (!IS_ERR(page)) {
                                 rc = cl_read_ahead_page(env, io, queue,
-                                                        page, vmpage);
+							page, clob);
                                 if (rc == -ENOLCK) {
                                         which = RA_STAT_FAILED_MATCH;
                                         msg   = "lock match failed";

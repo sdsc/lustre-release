@@ -68,7 +68,7 @@ struct lov_layout_operations {
         int  (*llo_print)(const struct lu_env *env, void *cookie,
                           lu_printer_t p, const struct lu_object *o);
         int  (*llo_page_init)(const struct lu_env *env, struct cl_object *obj,
-				struct cl_page *page, cfs_page_t *vmpage);
+				struct cl_page *page, pgoff_t index);
         int  (*llo_lock_init)(const struct lu_env *env,
                               struct cl_object *obj, struct cl_lock *lock,
                               const struct cl_io *io);
@@ -189,6 +189,17 @@ static int lov_init_sub(const struct lu_env *env, struct lov_object *lov,
         return result;
 }
 
+static int lov_page_slice_fixup(struct lov_object *lov, struct cl_object *stripe)
+{
+	struct cl_object_header *hdr = cl_object_header(&lov->lo_cl);
+	struct cl_object *o;
+
+	cl_object_for_each(o, stripe)
+		o->co_slice_off += hdr->coh_page_bufsize;
+
+	return cl_object_header(stripe)->coh_page_bufsize;
+}
+
 static int lov_init_raid0(const struct lu_env *env,
                           struct lov_device *dev, struct lov_object *lov,
                           const struct cl_object_conf *conf,
@@ -219,6 +230,8 @@ static int lov_init_raid0(const struct lu_env *env,
 
         OBD_ALLOC_LARGE(r0->lo_sub, r0->lo_nr * sizeof r0->lo_sub[0]);
         if (r0->lo_sub != NULL) {
+		int stripe_psz = 0;
+
                 result = 0;
                 subconf->coc_inode = conf->coc_inode;
 		spin_lock_init(&r0->lo_sub_lock);
@@ -229,6 +242,7 @@ static int lov_init_raid0(const struct lu_env *env,
                         struct cl_device *subdev;
                         struct lov_oinfo *oinfo = lsm->lsm_oinfo[i];
                         int ost_idx = oinfo->loi_ost_idx;
+			int sz;
 
                         result = ostid_to_fid(ofid, &oinfo->loi_oi,
 					      oinfo->loi_ost_idx);
@@ -247,11 +261,21 @@ static int lov_init_raid0(const struct lu_env *env,
 				if (result == -EAGAIN) { /* try again */
 					--i;
 					result = 0;
+					continue;
 				}
+
                         } else {
                                 result = PTR_ERR(stripe);
 			}
+
+			if (result == 0) {
+				sz = lov_page_slice_fixup(lov, stripe);
+				LASSERT(ergo(stripe_psz > 0, stripe_psz == sz));
+				stripe_psz = sz;
+			}
                 }
+		if (result == 0)
+			cl_object_header(&lov->lo_cl)->coh_page_bufsize += stripe_psz;
         } else
                 result = -ENOMEM;
 out:
@@ -759,10 +783,10 @@ static int lov_object_print(const struct lu_env *env, void *cookie,
 }
 
 int lov_page_init(const struct lu_env *env, struct cl_object *obj,
-		struct cl_page *page, cfs_page_t *vmpage)
+		  struct cl_page *page, pgoff_t index)
 {
         return LOV_2DISPATCH_NOLOCK(cl2lov(obj),
-				    llo_page_init, env, obj, page, vmpage);
+				    llo_page_init, env, obj, page, index);
 }
 
 /**
