@@ -346,7 +346,7 @@ static int ofd_fld_init(const struct lu_env *env, const char *uuid,
 		RETURN(rc = -ENOMEM);
 
 	rc = fld_server_init(env, ss->ss_server_fld, ofd->ofd_osd, uuid,
-			     ss->ss_node_id, LU_SEQ_RANGE_OST);
+			     LU_SEQ_RANGE_OST);
 	if (rc) {
 		OBD_FREE_PTR(ss->ss_server_fld);
 		ss->ss_server_fld = NULL;

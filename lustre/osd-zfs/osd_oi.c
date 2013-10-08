@@ -211,7 +211,6 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 		   obd_seq seq, struct lu_seq_range *range)
 {
 	struct seq_server_site	*ss = osd_seq_site(osd);
-	int			rc;
 
 	if (fid_seq_is_idif(seq)) {
 		fld_range_set_ost(range);
@@ -230,11 +229,8 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 
 	LASSERT(ss != NULL);
 	fld_range_set_any(range);
-	rc = fld_server_lookup(env, ss->ss_server_fld, seq, range);
-	if (rc != 0)
-		CERROR("%s: cannot find FLD range for "LPX64": rc = %d\n",
-		       osd_name(osd), seq, rc);
-	return rc;
+	/* OSD will only do local fld lookup */
+	return fld_local_lookup(env, ss->ss_server_fld, seq, range);
 }
 
 int fid_is_on_ost(const struct lu_env *env, struct osd_device *osd,

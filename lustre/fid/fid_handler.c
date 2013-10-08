@@ -218,8 +218,8 @@ static int __seq_set_init(const struct lu_env *env,
  * flaged as sync write op.
  */
 static int range_alloc_set(const struct lu_env *env,
-                            struct lu_seq_range *out,
-                            struct lu_server_seq *seq)
+                           struct lu_seq_range *out,
+                           struct lu_server_seq *seq)
 {
         struct lu_seq_range *space = &seq->lss_space;
         struct lu_seq_range *loset = &seq->lss_lowater_set;
@@ -290,6 +290,14 @@ static int __seq_server_alloc_meta(struct lu_server_seq *seq,
 		/* Saving new range to allocation space. */
 		*space = seq->lss_cli->lcs_space;
 		LASSERT(range_is_sane(space));
+		if (seq->lss_cli->lcs_srv == NULL &&
+		    seq->lss_cli->lcs_type == LUSTRE_SEQ_METADATA) {
+			struct lu_server_fld *fld;
+			fld = seq->lss_site->ss_server_fld;
+			mutex_lock(&fld->lsf_lock);
+			rc = fld_insert_entry(env, fld, space);
+			mutex_unlock(&fld->lsf_lock);
+		}
 	}
 
 	rc = range_alloc_set(env, out, seq);
