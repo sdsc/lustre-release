@@ -196,6 +196,11 @@ struct lu_seq_range {
 	__u32 lsr_flags;
 };
 
+struct lu_seq_range_array {
+	__u32 lsra_count;
+	struct lu_seq_range lsra_lsr[0];
+};
+
 #define LU_SEQ_RANGE_MDT	0x0
 #define LU_SEQ_RANGE_OST	0x1
 #define LU_SEQ_RANGE_ANY	0x3
@@ -2637,9 +2642,9 @@ extern void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *mea);
 #define MAX_HASH_HIGHEST_BIT     0x1000000000000000ULL
 
 enum fld_rpc_opc {
-        FLD_QUERY                       = 900,
-        FLD_LAST_OPC,
-        FLD_FIRST_OPC                   = FLD_QUERY
+	FLD_QUERY	= 900,
+	FLD_LAST_OPC,
+	FLD_FIRST_OPC   = FLD_QUERY
 };
 
 enum seq_rpc_opc {

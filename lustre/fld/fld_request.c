@@ -419,30 +419,49 @@ void fld_client_fini(struct lu_client_fld *fld)
 EXPORT_SYMBOL(fld_client_fini);
 
 int fld_client_rpc(struct obd_export *exp,
-                   struct lu_seq_range *range, __u32 fld_op)
+		   struct lu_seq_range *range, __u32 fld_op,
+		   struct ptlrpc_request **reqp)
 {
-	struct ptlrpc_request *req;
+	struct ptlrpc_request *req = NULL;
 	struct lu_seq_range   *prange;
 	__u32                 *op;
-	int                    rc;
+	int                    rc = 0;
 	struct obd_import     *imp;
 	ENTRY;
 
 	LASSERT(exp != NULL);
 
 	imp = class_exp2cliimp(exp);
-	req = ptlrpc_request_alloc_pack(imp, &RQF_FLD_QUERY, LUSTRE_MDS_VERSION,
-					FLD_QUERY);
-        if (req == NULL)
-                RETURN(-ENOMEM);
+	switch (fld_op) {
+	case FLD_LOOKUP:
+		req = ptlrpc_request_alloc_pack(imp, &RQF_FLD_QUERY,
+						LUSTRE_MDS_VERSION, FLD_QUERY);
+		break;
+	case FLD_READ:
+		req = ptlrpc_request_alloc_pack(imp, &RQF_FLD_READ,
+						LUSTRE_MDS_VERSION, FLD_QUERY);
+		break;
+	default:
+		rc = -EINVAL;
+		break;
+	}
+	if (req == NULL || rc != 0) {
+		if (req == NULL && rc == 0)
+			rc = -ENOMEM;
+		RETURN(rc);
+	}
 
-        op = req_capsule_client_get(&req->rq_pill, &RMF_FLD_OPC);
+	op = req_capsule_client_get(&req->rq_pill, &RMF_FLD_OPC);
         *op = fld_op;
 
-        prange = req_capsule_client_get(&req->rq_pill, &RMF_FLD_MDFLD);
-        *prange = *range;
+	prange = req_capsule_client_get(&req->rq_pill, &RMF_FLD_MDFLD);
+	*prange = *range;
 
-        ptlrpc_request_set_replen(req);
+	if (fld_op == FLD_READ) {
+		req_capsule_set_size(&req->rq_pill, &RMF_GENERIC_DATA,
+				     RCL_SERVER, PAGE_CACHE_SIZE);
+	}
+	ptlrpc_request_set_replen(req);
         req->rq_request_portal = FLD_REQUEST_PORTAL;
         ptlrpc_at_set_req_timeout(req);
 
@@ -450,24 +469,31 @@ int fld_client_rpc(struct obd_export *exp,
 	    imp->imp_connect_flags_orig & OBD_CONNECT_MDS_MDS)
 		req->rq_allow_replay = 1;
 
-        if (fld_op != FLD_LOOKUP)
-                mdc_get_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
-        fld_enter_request(&exp->exp_obd->u.cli);
-        rc = ptlrpc_queue_wait(req);
-        fld_exit_request(&exp->exp_obd->u.cli);
-        if (fld_op != FLD_LOOKUP)
-                mdc_put_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
-        if (rc)
-                GOTO(out_req, rc);
+	fld_enter_request(&exp->exp_obd->u.cli);
+	rc = ptlrpc_queue_wait(req);
+	fld_exit_request(&exp->exp_obd->u.cli);
+	if (rc)
+		GOTO(out_req, rc);
 
-        prange = req_capsule_server_get(&req->rq_pill, &RMF_FLD_MDFLD);
-        if (prange == NULL)
-                GOTO(out_req, rc = -EFAULT);
-        *range = *prange;
-        EXIT;
+	if (fld_op == FLD_LOOKUP) {
+		prange = req_capsule_server_get(&req->rq_pill,
+						&RMF_FLD_MDFLD);
+		if (prange == NULL)
+			GOTO(out_req, rc = -EFAULT);
+		*range = *prange;
+	}
+
+	EXIT;
 out_req:
-        ptlrpc_req_finished(req);
-        return rc;
+	if (rc != 0 || reqp == NULL) {
+		ptlrpc_req_finished(req);
+		req = NULL;
+	}
+
+	if (reqp != NULL)
+		*reqp = req;
+
+	return rc;
 }
 
 int fld_client_lookup(struct lu_client_fld *fld, seqno_t seq, mdsno_t *mds,
@@ -504,7 +530,7 @@ int fld_client_lookup(struct lu_client_fld *fld, seqno_t seq, mdsno_t *mds,
 	} else
 #endif
 	{
-		rc = fld_client_rpc(target->ft_exp, &res, FLD_LOOKUP);
+		rc = fld_client_rpc(target->ft_exp, &res, FLD_LOOKUP, NULL);
 	}
 
 	if (rc == 0) {
