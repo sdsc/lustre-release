@@ -1450,7 +1450,6 @@ static ldlm_policy_res_t ldlm_cancel_no_wait_policy(struct ldlm_namespace *ns,
 {
         ldlm_policy_res_t result = LDLM_POLICY_CANCEL_LOCK;
         ldlm_cancel_for_recovery cb = ns->ns_cancel_for_recovery;
-        lock_res_and_lock(lock);
 
         /* don't check added & count since we want to process all locks
          * from unused list */
@@ -1460,13 +1459,14 @@ static ldlm_policy_res_t ldlm_cancel_no_wait_policy(struct ldlm_namespace *ns,
                         if (cb && cb(lock))
                                 break;
                 default:
-                        result = LDLM_POLICY_SKIP_LOCK;
-                        lock->l_flags |= LDLM_FL_SKIPPED;
-                        break;
-        }
+			lock_res_and_lock(lock);
+			lock->l_flags |= LDLM_FL_SKIPPED;
+			unlock_res_and_lock(lock);
+			result = LDLM_POLICY_SKIP_LOCK;
+			break;
+	}
 
-        unlock_res_and_lock(lock);
-        RETURN(result);
+	RETURN(result);
 }
 
 /**
