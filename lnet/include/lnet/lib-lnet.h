@@ -747,7 +747,11 @@ int lnet_get_route(int idx, __u32 *net, __u32 *hops,
 void lnet_proc_init(void);
 void lnet_proc_fini(void);
 int  lnet_rtrpools_alloc(int im_a_router);
-void lnet_rtrpools_free(void);
+void lnet_destroy_rtrbuf(lnet_rtrbuf_t *rb, int npages);
+int  lnet_adjust_rtrpools(int tiny, int small, int large);
+int lnet_enable_rtrpools(void);
+int lnet_disable_rtrpools(void);
+void lnet_rtrpools_free(int keep_pools);
 lnet_remotenet_t *lnet_find_net_locked (__u32 net);
 
 int lnet_islocalnid(lnet_nid_t nid);
@@ -767,6 +771,7 @@ void lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
 int lnet_send(lnet_nid_t nid, lnet_msg_t *msg, lnet_nid_t rtr_nid);
 void lnet_return_tx_credits_locked(lnet_msg_t *msg);
 void lnet_return_rx_credits_locked(lnet_msg_t *msg);
+void lnet_schedule_blocked_locked(lnet_rtrbufpool_t *rbp);
 
 /* portals functions */
 /* portals attributes */
@@ -927,6 +932,11 @@ void lnet_connect_console_error(int rc, lnet_nid_t peer_nid,
 int lnet_count_acceptor_nis(void);
 int lnet_acceptor_timeout(void);
 int lnet_acceptor_port(void);
+int lnet_startup_lndnis(char *net, int from_mod_params,
+			int peer_to,
+			int peer_cr,
+			int peer_buf_cr,
+			int credits);
 #else
 void lnet_router_checker(void);
 #endif
@@ -947,19 +957,19 @@ int lnet_router_checker_start(void);
 void lnet_router_checker_stop(void);
 void lnet_swap_pinginfo(lnet_ping_info_t *info);
 
-int lnet_ping_target_init(void);
-void lnet_ping_target_fini(void);
 int lnet_ping(lnet_process_id_t id, int timeout_ms,
               lnet_process_id_t *ids, int n_ids);
 
 int lnet_parse_ip2nets (char **networksp, char *ip2nets);
 int lnet_parse_routes (char *route_str, int *im_a_router);
-int lnet_parse_networks (cfs_list_t *nilist, char *networks);
+int lnet_parse_networks (struct list_head *nilist, char *networks,
+			 int *ni_count);
+int lnet_net_unique(__u32 net, struct list_head *nilist);
 
 int lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt);
 lnet_peer_t *lnet_find_peer_locked(struct lnet_peer_table *ptable,
 				   lnet_nid_t nid);
-void lnet_peer_tables_cleanup(void);
+void lnet_peer_tables_cleanup(lnet_ni_t *ni);
 void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);
 void lnet_debug_peer(lnet_nid_t nid);
