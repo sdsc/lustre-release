@@ -450,6 +450,8 @@ typedef struct lnet_ni {
 #define LNET_PING_FEAT_INVAL		(0)		/* no feature */
 #define LNET_PING_FEAT_BASE		(1 << 0)	/* just a ping */
 #define LNET_PING_FEAT_NI_STATUS	(1 << 1)	/* return NI status */
+#define LNET_PING_FEAT_ROUTING		(1 << 2)        /* Routing enabled */
+#define LNET_PING_FEAT_DEAD		(1 << 3)	/* Ping info dead */
 
 #define LNET_PING_FEAT_MASK		(LNET_PING_FEAT_BASE | \
 					 LNET_PING_FEAT_NI_STATUS)
@@ -514,6 +516,8 @@ typedef struct lnet_peer {
 struct lnet_peer_table {
 	int			pt_version;	/* /proc validity stamp */
 	int			pt_number;	/* # peers extant */
+	int			pt_zombies;	/* # zombies to go to deathrow
+						 * (and not there yet) */
 	cfs_list_t		pt_deathrow;	/* zombie peers */
 	cfs_list_t		*pt_hash;	/* NID->peer hash */
 };
@@ -575,7 +579,12 @@ typedef struct {
 
 #define LNET_PEER_HASHSIZE   503                /* prime! */
 
-#define LNET_NRBPOOLS         3                 /* # different router buffer pools */
+#define LNET_TINY_BUF_IDX	0
+#define LNET_SMALL_BUF_IDX	1
+#define LNET_LARGE_BUF_IDX	2
+
+/* # different router buffer pools */
+#define LNET_NRBPOOLS		(LNET_LARGE_BUF_IDX + 1)
 
 enum {
 	/* Didn't match anything */
@@ -768,6 +777,7 @@ typedef struct
 	lnet_rtrbufpool_t		**ln_rtrpools;
 
 	lnet_handle_md_t		ln_ping_target_md;
+	lnet_handle_me_t		ln_ping_target_me;
 	lnet_handle_eq_t		ln_ping_target_eq;
 	lnet_ping_info_t		*ln_ping_info;
 
@@ -809,9 +819,6 @@ typedef struct
 	/* registered LNDs */
 	cfs_list_t			ln_lnds;
 
-	/* space for network names */
-	char				*ln_network_tokens;
-	int				ln_network_tokens_nob;
 	/* test protocol compatibility flags */
 	int				ln_testprotocompat;
 
