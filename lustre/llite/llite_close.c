@@ -51,6 +51,7 @@ void vvp_write_pending(struct ccc_object *club, struct ccc_page *page)
 	struct ll_inode_info *lli = ll_i2info(club->cob_inode);
 
 	ENTRY;
+	RETURN_EXIT;
 	spin_lock(&lli->lli_lock);
 	lli->lli_flags |= LLIF_SOM_DIRTY;
 	if (page != NULL && cfs_list_empty(&page->cpg_pending_linkage))
@@ -67,6 +68,7 @@ void vvp_write_complete(struct ccc_object *club, struct ccc_page *page)
 	int rc = 0;
 
 	ENTRY;
+	RETURN_EXIT;
 	spin_lock(&lli->lli_lock);
 	if (page != NULL && !cfs_list_empty(&page->cpg_pending_linkage)) {
 		cfs_list_del_init(&page->cpg_pending_linkage);
