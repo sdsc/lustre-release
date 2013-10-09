@@ -806,41 +806,43 @@ int jt_dbg_clear_debug_buf(int argc, char **argv)
 
 int jt_dbg_mark_debug_buf(int argc, char **argv)
 {
-        static char scratch[MAX_MARK_SIZE] = { '\0' };
-        int rc, max_size = MAX_MARK_SIZE-1;
-        struct libcfs_ioctl_data data = { 0 };
-        char *text;
-        time_t now = time(NULL);
+	static char scratch[MAX_MARK_SIZE] = { '\0' };
+	int rc, max_size = MAX_MARK_SIZE-1;
+	struct libcfs_ioctl_data data;
+	char *text;
+	time_t now = time(NULL);
 
-        if (argc > 1) {
-                int count;
-                text = scratch;
-                strncpy(text, argv[1], max_size);
-                max_size-=strlen(argv[1]);
-                for (count = 2; (count < argc) && (max_size > 0); count++){
-                        strncat(text, " ", max_size);
-                        max_size -= 1;
-                        strncat(text, argv[count], max_size);
-                        max_size -= strlen(argv[count]);
-                }
-        } else {
-                text = ctime(&now);
-        }
+	memset(&data, 0, sizeof(data));
 
-        data.ioc_inllen1 = strlen(text) + 1;
-        data.ioc_inlbuf1 = text;
-        if (libcfs_ioctl_pack(&data, &buf, max) != 0) {
-                fprintf(stderr, "libcfs_ioctl_pack failed.\n");
-                return -1;
-        }
+	if (argc > 1) {
+		int count;
+		text = scratch;
+		strncpy(text, argv[1], max_size);
+		max_size -= strlen(argv[1]);
+		for (count = 2; (count < argc) && (max_size > 0); count++){
+			strncat(text, " ", max_size);
+			max_size -= 1;
+			strncat(text, argv[count], max_size);
+			max_size -= strlen(argv[count]);
+		}
+	} else {
+		text = ctime(&now);
+	}
 
-        rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_MARK_DEBUG, buf);
-        if (rc) {
-                fprintf(stderr, "IOC_LIBCFS_MARK_DEBUG failed: %s\n",
-                        strerror(errno));
-                return -1;
-        }
-        return 0;
+	data.ioc_inllen1 = strlen(text) + 1;
+	data.ioc_inlbuf1 = text;
+	if (libcfs_ioctl_pack(&data, &buf, max) != 0) {
+		fprintf(stderr, "libcfs_ioctl_pack failed.\n");
+		return -1;
+	}
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_MARK_DEBUG, buf);
+	if (rc) {
+		fprintf(stderr, "IOC_LIBCFS_MARK_DEBUG failed: %s\n",
+			strerror(errno));
+		return -1;
+	}
+	return 0;
 }
 
 static struct mod_paths {
