@@ -450,6 +450,7 @@ typedef struct lnet_ni {
 #define LNET_PING_FEAT_INVAL		(0)		/* no feature */
 #define LNET_PING_FEAT_BASE		(1 << 0)	/* just a ping */
 #define LNET_PING_FEAT_NI_STATUS	(1 << 1)	/* return NI status */
+#define LNET_PING_FEAT_ROUTING		(1 << 2)        /* Routing enabled */
 
 #define LNET_PING_FEAT_MASK		(LNET_PING_FEAT_BASE | \
 					 LNET_PING_FEAT_NI_STATUS)
@@ -514,6 +515,8 @@ typedef struct lnet_peer {
 struct lnet_peer_table {
 	int			pt_version;	/* /proc validity stamp */
 	int			pt_number;	/* # peers extant */
+	int			pt_zombies;	/* # zombies to go to deathrow
+						 * (and not there yet) */
 	cfs_list_t		pt_deathrow;	/* zombie peers */
 	cfs_list_t		*pt_hash;	/* NID->peer hash */
 };
@@ -575,7 +578,12 @@ typedef struct {
 
 #define LNET_PEER_HASHSIZE   503                /* prime! */
 
-#define LNET_NRBPOOLS         3                 /* # different router buffer pools */
+#define LNET_TINY_BUF_IDX	0
+#define LNET_SMALL_BUF_IDX	1
+#define LNET_LARGE_BUF_IDX	2
+
+/* # different router buffer pools */
+#define LNET_NRBPOOLS		(LNET_LARGE_BUF_IDX + 1)
 
 enum {
 	/* Didn't match anything */
@@ -785,13 +793,16 @@ typedef struct
 
 	struct mutex			ln_api_mutex;
 	struct mutex			ln_lnd_mutex;
+	struct mutex			ln_ping_info_mutex;
 #else
 # ifndef HAVE_LIBPTHREAD
 	int				ln_api_mutex;
 	int				ln_lnd_mutex;
+	int				ln_ping_info_mutex;
 # else
 	pthread_mutex_t			ln_api_mutex;
 	pthread_mutex_t			ln_lnd_mutex;
+	pthread_mutex_t			ln_ping_info_mutex;
 # endif
 #endif
 	int				ln_init;	/* LNetInit() called? */
