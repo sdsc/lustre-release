@@ -298,9 +298,9 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
                 cli->cl_sp_to = LUSTRE_SP_MGS;
                 cli->cl_flvr_mgc.sf_rpc = SPTLRPC_FLVR_INVALID;
                 ns_type = LDLM_NS_TYPE_MGC;
-	} else if (!strcmp(name, LUSTRE_OSP_NAME)) {
-		if (is_osp_for_connection(lustre_cfg_buf(lcfg, 0)) ||
-		    (is_osp_on_mdt(lustre_cfg_buf(lcfg, 0)) &&
+
+	} else if (strcmp(name, LUSTRE_OSP_NAME) == 0) {
+		if ((is_osp_on_mdt(lustre_cfg_buf(lcfg, 0)) &&
 		     strstr(lustre_cfg_buf(lcfg, 1), "OST") == NULL)) {
 			rq_portal = MDS_REQUEST_PORTAL;
 			rp_portal = MDC_REPLY_PORTAL;
@@ -316,6 +316,15 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 			cli->cl_sp_to = LUSTRE_SP_OST;
 			ns_type = LDLM_NS_TYPE_OSC;
 		}
+
+	} else if (strcmp(name, LUSTRE_LWP_NAME) == 0) {
+		rq_portal = MDS_REQUEST_PORTAL;
+		rp_portal = MDC_REPLY_PORTAL;
+		connect_op = MDS_CONNECT;
+		cli->cl_sp_me = LUSTRE_SP_CLI;
+		cli->cl_sp_to = LUSTRE_SP_MDT;
+		ns_type = LDLM_NS_TYPE_MDC;
+
         } else {
                 CERROR("unknown client OBD type \"%s\", can't setup\n",
                        name);
