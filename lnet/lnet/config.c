@@ -694,7 +694,7 @@ lnet_parse_route (char *str, int *im_a_router)
 			sep++;
 		if (*sep != 0)
 			*sep++ = 0;
-		
+
 		if (ntokens == 1) {
 			tmp2 = &nets;		/* expanding nets */
                 } else if (ntokens == 2 &&
@@ -704,7 +704,7 @@ lnet_parse_route (char *str, int *im_a_router)
                 } else {
 			tmp2 = &gateways;	/* expanding gateways */
                 }
-                
+
 		ltb = lnet_new_text_buf(strlen(token));
 		if (ltb == NULL)
 			goto out;
@@ -712,7 +712,7 @@ lnet_parse_route (char *str, int *im_a_router)
 		strcpy(ltb->ltb_text, token);
 		tmp1 = &ltb->ltb_list;
 		cfs_list_add_tail(tmp1, tmp2);
-		
+
 		while (tmp1 != tmp2) {
 			ltb = cfs_list_entry(tmp1, lnet_text_buf_t, ltb_list);
 
@@ -721,7 +721,7 @@ lnet_parse_route (char *str, int *im_a_router)
 				goto token_error;
 
 			tmp1 = tmp1->next;
-			
+
 			if (rc > 0) {		/* expanded! */
 				cfs_list_del(&ltb->ltb_list);
 				lnet_free_text_buf(ltb);
@@ -747,8 +747,8 @@ lnet_parse_route (char *str, int *im_a_router)
 		}
 	}
 
-        if (!got_hops)
-                hops = 1;
+	if (!got_hops)
+		hops = 1;
 
 	LASSERT (!cfs_list_empty(&nets));
 	LASSERT (!cfs_list_empty(&gateways));
@@ -763,28 +763,28 @@ lnet_parse_route (char *str, int *im_a_router)
 			nid = libcfs_str2nid(ltb->ltb_text);
 			LASSERT(nid != LNET_NID_ANY);
 
-                        if (lnet_islocalnid(nid)) {
-                                *im_a_router = 1;
-                                continue;
-                        }
-                        
-			rc = lnet_add_route(net, hops, nid, priority);
-                        if (rc != 0) {
-                                CERROR("Can't create route "
-                                       "to %s via %s\n",
-                                       libcfs_net2str(net),
-                                       libcfs_nid2str(nid));
-                                goto out;
-                        }
+			if (lnet_islocalnid(nid)) {
+				*im_a_router = 1;
+				continue;
+			}
+
+			rc = lnet_add_route(net, hops, nid, priority, 1);
+			if (rc != 0) {
+				CERROR("Can't create route "
+				       "to %s via %s\n",
+				       libcfs_net2str(net),
+				       libcfs_nid2str(nid));
+				goto out;
+			}
 		}
 	}
 
-        myrc = 0;
-        goto out;
-        
- token_error:
+	myrc = 0;
+	goto out;
+
+token_error:
 	lnet_syntax("routes", cmd, (int)(token - str), strlen(token));
- out:
+out:
 	lnet_free_text_bufs(&nets);
 	lnet_free_text_bufs(&gateways);
 	return myrc;

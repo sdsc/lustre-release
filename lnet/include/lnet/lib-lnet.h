@@ -727,7 +727,7 @@ extern lnet_ni_t *lnet_net2ni(__u32 net);
 int lnet_notify(lnet_ni_t *ni, lnet_nid_t peer, int alive, cfs_time_t when);
 void lnet_notify_locked(lnet_peer_t *lp, int notifylnd, int alive, cfs_time_t when);
 int lnet_add_route(__u32 net, unsigned int hops, lnet_nid_t gateway_nid,
-		   unsigned int priority);
+		   unsigned int priority, int ignore_failure);
 int lnet_check_routes(void);
 int lnet_del_route(__u32 net, lnet_nid_t gw_nid);
 void lnet_destroy_routes(void);
@@ -736,7 +736,10 @@ int lnet_get_route(int idx, __u32 *net, __u32 *hops,
 void lnet_proc_init(void);
 void lnet_proc_fini(void);
 int  lnet_rtrpools_alloc(int im_a_router);
-void lnet_rtrpools_free(void);
+void lnet_destroy_rtrbuf(lnet_rtrbuf_t *rb, int npages);
+int  lnet_adjust_rtrpools(int tiny, int small, int large);
+int lnet_enable_rtrpools(int enable);
+void lnet_rtrpools_free(int keep_pools);
 lnet_remotenet_t *lnet_find_net_locked (__u32 net);
 
 int lnet_islocalnid(lnet_nid_t nid);
@@ -756,6 +759,7 @@ void lnet_prep_send(lnet_msg_t *msg, int type, lnet_process_id_t target,
 int lnet_send(lnet_nid_t nid, lnet_msg_t *msg, lnet_nid_t rtr_nid);
 void lnet_return_tx_credits_locked(lnet_msg_t *msg);
 void lnet_return_rx_credits_locked(lnet_msg_t *msg);
+void lnet_schedule_blocked_locked(lnet_rtrbufpool_t *rbp);
 
 /* portals functions */
 /* portals attributes */
@@ -916,6 +920,12 @@ void lnet_connect_console_error(int rc, lnet_nid_t peer_nid,
 int lnet_count_acceptor_nis(void);
 int lnet_acceptor_timeout(void);
 int lnet_acceptor_port(void);
+int lnet_startup_lndnis(char *net, int from_mod_params,
+			int peer_to,
+			int peer_cr,
+			int peer_buf_cr,
+			int credits);
+int lnet_shutdown_lndni(__u32 net);
 #else
 void lnet_router_checker(void);
 #endif
@@ -944,11 +954,12 @@ int lnet_ping(lnet_process_id_t id, int timeout_ms,
 int lnet_parse_ip2nets (char **networksp, char *ip2nets);
 int lnet_parse_routes (char *route_str, int *im_a_router);
 int lnet_parse_networks (cfs_list_t *nilist, char *networks);
+int lnet_net_unique(__u32 net, cfs_list_t *nilist);
 
 int lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt);
 lnet_peer_t *lnet_find_peer_locked(struct lnet_peer_table *ptable,
 				   lnet_nid_t nid);
-void lnet_peer_tables_cleanup(void);
+void lnet_peer_tables_cleanup(lnet_ni_t *ni);
 void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);
 void lnet_debug_peer(lnet_nid_t nid);
