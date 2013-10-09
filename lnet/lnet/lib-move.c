@@ -1053,69 +1053,96 @@ lnet_return_tx_credits_locked(lnet_msg_t *msg)
 }
 
 void
+lnet_schedule_blocked_locked(lnet_rtrbufpool_t *rbp)
+{
+#ifdef __KERNEL__
+	lnet_msg_t	*msg;
+
+	if ((rbp == NULL) || cfs_list_empty(&rbp->rbp_msgs))
+		return;
+	msg = cfs_list_entry(rbp->rbp_msgs.next,
+			     lnet_msg_t, msg_list);
+	cfs_list_del(&msg->msg_list);
+
+	(void) lnet_post_routed_recv_locked(msg, 1);
+#endif
+}
+
+void
 lnet_return_rx_credits_locked(lnet_msg_t *msg)
 {
 	lnet_peer_t	*rxpeer = msg->msg_rxpeer;
 #ifdef __KERNEL__
 	lnet_msg_t	*msg2;
 
-        if (msg->msg_rtrcredit) {
-                /* give back global router credits */
-                lnet_rtrbuf_t     *rb;
-                lnet_rtrbufpool_t *rbp;
+	if (msg->msg_rtrcredit) {
+		/* give back global router credits */
+		lnet_rtrbuf_t     *rb;
+		lnet_rtrbufpool_t *rbp;
 
-                /* NB If a msg ever blocks for a buffer in rbp_msgs, it stays
-                 * there until it gets one allocated, or aborts the wait
-                 * itself */
-                LASSERT (msg->msg_kiov != NULL);
+		/* NB If a msg ever blocks for a buffer in rbp_msgs, it stays
+		 * there until it gets one allocated, or aborts the wait
+		 * itself */
+		LASSERT (msg->msg_kiov != NULL);
 
-                rb = cfs_list_entry(msg->msg_kiov, lnet_rtrbuf_t, rb_kiov[0]);
-                rbp = rb->rb_pool;
-                LASSERT (rbp == lnet_msg2bufpool(msg));
+		rb = cfs_list_entry(msg->msg_kiov, lnet_rtrbuf_t, rb_kiov[0]);
+		rbp = rb->rb_pool;
 
-                msg->msg_kiov = NULL;
-                msg->msg_rtrcredit = 0;
+		/* If routing is now turned off, we just drop this buffer and
+		 * don't bother trying to return credits. */
+		if (!the_lnet.ln_routing) {
+			lnet_destroy_rtrbuf(rb, rbp->rbp_npages);
+			goto routing_off;
+		}
+		LASSERT (rbp == lnet_msg2bufpool(msg));
 
-                LASSERT((rbp->rbp_credits < 0) ==
-                        !cfs_list_empty(&rbp->rbp_msgs));
-                LASSERT((rbp->rbp_credits > 0) ==
-                        !cfs_list_empty(&rbp->rbp_bufs));
+		msg->msg_kiov = NULL;
+		msg->msg_rtrcredit = 0;
 
-                cfs_list_add(&rb->rb_list, &rbp->rbp_bufs);
-                rbp->rbp_credits++;
-                if (rbp->rbp_credits <= 0) {
-                        msg2 = cfs_list_entry(rbp->rbp_msgs.next,
-                                              lnet_msg_t, msg_list);
-                        cfs_list_del(&msg2->msg_list);
+		LASSERT((rbp->rbp_credits < 0) ==
+			!cfs_list_empty(&rbp->rbp_msgs));
+		LASSERT((rbp->rbp_credits > 0) ==
+			!cfs_list_empty(&rbp->rbp_bufs));
 
-                        (void) lnet_post_routed_recv_locked(msg2, 1);
-                }
-        }
+		/* It is possible that a user has lowered the desired number of
+		 * buffers in this pool.  Make sure we never put back
+		 * more buffers than the stated number. */
+		if (rbp->rbp_credits >= rbp->rbp_nbuffers) {
+			/* Discard this buffer so we don't have too many. */
+			lnet_destroy_rtrbuf(rb, rbp->rbp_npages);
+		} else {
+			cfs_list_add(&rb->rb_list, &rbp->rbp_bufs);
+			rbp->rbp_credits++;
+			if (rbp->rbp_credits <= 0)
+				lnet_schedule_blocked_locked(rbp);
+		}
+	}
 
-        if (msg->msg_peerrtrcredit) {
-                /* give back peer router credits */
-                msg->msg_peerrtrcredit = 0;
+routing_off:
+	if (msg->msg_peerrtrcredit) {
+		/* give back peer router credits */
+		msg->msg_peerrtrcredit = 0;
 
-                LASSERT((rxpeer->lp_rtrcredits < 0) ==
-                        !cfs_list_empty(&rxpeer->lp_rtrq));
+		LASSERT((rxpeer->lp_rtrcredits < 0) ==
+			!cfs_list_empty(&rxpeer->lp_rtrq));
 
-                rxpeer->lp_rtrcredits++;
-                if (rxpeer->lp_rtrcredits <= 0) {
-                        msg2 = cfs_list_entry(rxpeer->lp_rtrq.next,
-                                              lnet_msg_t, msg_list);
-                        cfs_list_del(&msg2->msg_list);
+		rxpeer->lp_rtrcredits++;
+		if (rxpeer->lp_rtrcredits <= 0) {
+			msg2 = cfs_list_entry(rxpeer->lp_rtrq.next,
+					      lnet_msg_t, msg_list);
+			cfs_list_del(&msg2->msg_list);
 
-                        (void) lnet_post_routed_recv_locked(msg2, 1);
-                }
-        }
+			(void) lnet_post_routed_recv_locked(msg2, 1);
+		}
+	}
 #else
-        LASSERT (!msg->msg_rtrcredit);
-        LASSERT (!msg->msg_peerrtrcredit);
+	LASSERT (!msg->msg_rtrcredit);
+	LASSERT (!msg->msg_peerrtrcredit);
 #endif
-        if (rxpeer != NULL) {
-                msg->msg_rxpeer = NULL;
-                lnet_peer_decref_locked(rxpeer);
-        }
+	if (rxpeer != NULL) {
+		msg->msg_rxpeer = NULL;
+		lnet_peer_decref_locked(rxpeer);
+	}
 }
 
 static int
@@ -1777,8 +1804,8 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	int		cpt;
 	int		for_me;
 	struct lnet_msg	*msg;
-        lnet_pid_t     dest_pid;
-        lnet_nid_t     dest_nid;
+	lnet_pid_t     dest_pid;
+	lnet_nid_t     dest_nid;
 	lnet_nid_t     src_nid;
 	__u32          payload_length;
 	__u32          type;
@@ -1789,129 +1816,130 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	src_nid = le64_to_cpu(hdr->src_nid);
 	dest_nid = le64_to_cpu(hdr->dest_nid);
 	dest_pid = le32_to_cpu(hdr->dest_pid);
-        payload_length = le32_to_cpu(hdr->payload_length);
+	payload_length = le32_to_cpu(hdr->payload_length);
 
-        for_me = (ni->ni_nid == dest_nid);
+	for_me = (ni->ni_nid == dest_nid);
 	cpt = lnet_cpt_of_nid(from_nid);
 
-        switch (type) {
-        case LNET_MSG_ACK:
-        case LNET_MSG_GET:
-                if (payload_length > 0) {
-                        CERROR("%s, src %s: bad %s payload %d (0 expected)\n",
-                               libcfs_nid2str(from_nid),
-                               libcfs_nid2str(src_nid),
-                               lnet_msgtyp2str(type), payload_length);
-                        return -EPROTO;
-                }
-                break;
+	switch (type) {
+	case LNET_MSG_ACK:
+	case LNET_MSG_GET:
+		if (payload_length > 0) {
+			CERROR("%s, src %s: bad %s payload %d (0 expected)\n",
+			       libcfs_nid2str(from_nid),
+			       libcfs_nid2str(src_nid),
+			       lnet_msgtyp2str(type), payload_length);
+			return -EPROTO;
+		}
+		break;
 
-        case LNET_MSG_PUT:
-        case LNET_MSG_REPLY:
-                if (payload_length > (__u32)(for_me ? LNET_MAX_PAYLOAD : LNET_MTU)) {
-                        CERROR("%s, src %s: bad %s payload %d "
-                               "(%d max expected)\n",
-                               libcfs_nid2str(from_nid),
-                               libcfs_nid2str(src_nid),
-                               lnet_msgtyp2str(type),
-                               payload_length,
-                               for_me ? LNET_MAX_PAYLOAD : LNET_MTU);
-                        return -EPROTO;
-                }
-                break;
+	case LNET_MSG_PUT:
+	case LNET_MSG_REPLY:
+		if (payload_length > (__u32)(for_me ? LNET_MAX_PAYLOAD : LNET_MTU)) {
+			CERROR("%s, src %s: bad %s payload %d "
+			       "(%d max expected)\n",
+			       libcfs_nid2str(from_nid),
+			       libcfs_nid2str(src_nid),
+			       lnet_msgtyp2str(type),
+			       payload_length,
+			       for_me ? LNET_MAX_PAYLOAD : LNET_MTU);
+			return -EPROTO;
+		}
+		break;
 
-        default:
-                CERROR("%s, src %s: Bad message type 0x%x\n",
-                       libcfs_nid2str(from_nid),
-                       libcfs_nid2str(src_nid), type);
-                return -EPROTO;
-        }
+	default:
+		CERROR("%s, src %s: Bad message type 0x%x\n",
+		       libcfs_nid2str(from_nid),
+		       libcfs_nid2str(src_nid), type);
+		return -EPROTO;
+	}
 
 	if (the_lnet.ln_routing &&
 	    ni->ni_last_alive != cfs_time_current_sec()) {
-		lnet_ni_lock(ni);
-
 		/* NB: so far here is the only place to set NI status to "up */
+		LNET_MUTEX_LOCK(&the_lnet.ln_ping_info_mutex);
+		lnet_ni_lock(ni);
 		ni->ni_last_alive = cfs_time_current_sec();
 		if (ni->ni_status != NULL &&
 		    ni->ni_status->ns_status == LNET_NI_STATUS_DOWN)
 			ni->ni_status->ns_status = LNET_NI_STATUS_UP;
 		lnet_ni_unlock(ni);
-        }
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_ping_info_mutex);
+	}
 
-        /* Regard a bad destination NID as a protocol error.  Senders should
-         * know what they're doing; if they don't they're misconfigured, buggy
-         * or malicious so we chop them off at the knees :) */
+	/* Regard a bad destination NID as a protocol error.  Senders should
+	 * know what they're doing; if they don't they're misconfigured, buggy
+	 * or malicious so we chop them off at the knees :) */
 
-        if (!for_me) {
-                if (LNET_NIDNET(dest_nid) == LNET_NIDNET(ni->ni_nid)) {
-                        /* should have gone direct */
-                        CERROR ("%s, src %s: Bad dest nid %s "
-                                "(should have been sent direct)\n",
-                                libcfs_nid2str(from_nid),
-                                libcfs_nid2str(src_nid),
-                                libcfs_nid2str(dest_nid));
-                        return -EPROTO;
-                }
+	if (!for_me) {
+		if (LNET_NIDNET(dest_nid) == LNET_NIDNET(ni->ni_nid)) {
+			/* should have gone direct */
+			CERROR ("%s, src %s: Bad dest nid %s "
+				"(should have been sent direct)\n",
+				libcfs_nid2str(from_nid),
+				libcfs_nid2str(src_nid),
+				libcfs_nid2str(dest_nid));
+			return -EPROTO;
+		}
 
-                if (lnet_islocalnid(dest_nid)) {
-                        /* dest is another local NI; sender should have used
-                         * this node's NID on its own network */
-                        CERROR ("%s, src %s: Bad dest nid %s "
-                                "(it's my nid but on a different network)\n",
-                                libcfs_nid2str(from_nid),
-                                libcfs_nid2str(src_nid),
-                                libcfs_nid2str(dest_nid));
-                        return -EPROTO;
-                }
+		if (lnet_islocalnid(dest_nid)) {
+			/* dest is another local NI; sender should have used
+			 * this node's NID on its own network */
+			CERROR ("%s, src %s: Bad dest nid %s "
+				"(it's my nid but on a different network)\n",
+				libcfs_nid2str(from_nid),
+				libcfs_nid2str(src_nid),
+				libcfs_nid2str(dest_nid));
+			return -EPROTO;
+		}
 
-                if (rdma_req && type == LNET_MSG_GET) {
-                        CERROR ("%s, src %s: Bad optimized GET for %s "
-                                "(final destination must be me)\n",
-                                libcfs_nid2str(from_nid),
-                                libcfs_nid2str(src_nid),
-                                libcfs_nid2str(dest_nid));
-                        return -EPROTO;
-                }
+		if (rdma_req && type == LNET_MSG_GET) {
+			CERROR ("%s, src %s: Bad optimized GET for %s "
+				"(final destination must be me)\n",
+				libcfs_nid2str(from_nid),
+				libcfs_nid2str(src_nid),
+				libcfs_nid2str(dest_nid));
+			return -EPROTO;
+		}
 
-                if (!the_lnet.ln_routing) {
-                        CERROR ("%s, src %s: Dropping message for %s "
-                                "(routing not enabled)\n",
-                                libcfs_nid2str(from_nid),
-                                libcfs_nid2str(src_nid),
-                                libcfs_nid2str(dest_nid));
-                        goto drop;
-                }
-        }
+		if (!the_lnet.ln_routing) {
+			CERROR ("%s, src %s: Dropping message for %s "
+				"(routing not enabled)\n",
+				libcfs_nid2str(from_nid),
+				libcfs_nid2str(src_nid),
+				libcfs_nid2str(dest_nid));
+			goto drop;
+		}
+	}
 
-        /* Message looks OK; we're not going to return an error, so we MUST
-         * call back lnd_recv() come what may... */
+	/* Message looks OK; we're not going to return an error, so we MUST
+	 * call back lnd_recv() come what may... */
 
-        if (!cfs_list_empty (&the_lnet.ln_test_peers) && /* normally we don't */
-            fail_peer (src_nid, 0))             /* shall we now? */
-        {
-                CERROR("%s, src %s: Dropping %s to simulate failure\n",
-                       libcfs_nid2str(from_nid), libcfs_nid2str(src_nid),
-                       lnet_msgtyp2str(type));
-                goto drop;
-        }
+	if (!cfs_list_empty (&the_lnet.ln_test_peers) && /* normally we don't */
+	    fail_peer (src_nid, 0))             /* shall we now? */
+	{
+		CERROR("%s, src %s: Dropping %s to simulate failure\n",
+		       libcfs_nid2str(from_nid), libcfs_nid2str(src_nid),
+		       lnet_msgtyp2str(type));
+		goto drop;
+	}
 
-        msg = lnet_msg_alloc();
-        if (msg == NULL) {
-                CERROR("%s, src %s: Dropping %s (out of memory)\n",
-                       libcfs_nid2str(from_nid), libcfs_nid2str(src_nid), 
-                       lnet_msgtyp2str(type));
-                goto drop;
-        }
+	msg = lnet_msg_alloc();
+	if (msg == NULL) {
+		CERROR("%s, src %s: Dropping %s (out of memory)\n",
+		       libcfs_nid2str(from_nid), libcfs_nid2str(src_nid), 
+		       lnet_msgtyp2str(type));
+		goto drop;
+	}
 
-        /* msg zeroed in lnet_msg_alloc; i.e. flags all clear, pointers NULL etc */
+	/* msg zeroed in lnet_msg_alloc; i.e. flags all clear, pointers NULL etc */
 
-        msg->msg_type = type;
-        msg->msg_private = private;
-        msg->msg_receiving = 1;
-        msg->msg_len = msg->msg_wanted = payload_length;
-        msg->msg_offset = 0;
-        msg->msg_hdr = *hdr;
+	msg->msg_type = type;
+	msg->msg_private = private;
+	msg->msg_receiving = 1;
+	msg->msg_len = msg->msg_wanted = payload_length;
+	msg->msg_offset = 0;
+	msg->msg_hdr = *hdr;
 	/* for building message event */
 	msg->msg_from = from_nid;
 	if (!for_me) {
@@ -1958,29 +1986,29 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 
 	lnet_net_unlock(cpt);
 
-        switch (type) {
-        case LNET_MSG_ACK:
-                rc = lnet_parse_ack(ni, msg);
-                break;
-        case LNET_MSG_PUT:
-                rc = lnet_parse_put(ni, msg);
-                break;
-        case LNET_MSG_GET:
-                rc = lnet_parse_get(ni, msg, rdma_req);
-                break;
-        case LNET_MSG_REPLY:
-                rc = lnet_parse_reply(ni, msg);
-                break;
-        default:
-                LASSERT(0);
+	switch (type) {
+	case LNET_MSG_ACK:
+		rc = lnet_parse_ack(ni, msg);
+		break;
+	case LNET_MSG_PUT:
+		rc = lnet_parse_put(ni, msg);
+		break;
+	case LNET_MSG_GET:
+		rc = lnet_parse_get(ni, msg, rdma_req);
+		break;
+	case LNET_MSG_REPLY:
+		rc = lnet_parse_reply(ni, msg);
+		break;
+	default:
+		LASSERT(0);
 		rc = -EPROTO;
-                goto free_drop;  /* prevent an unused label if !kernel */
-        }
+		goto free_drop;  /* prevent an unused label if !kernel */
+	}
 
-        if (rc == 0)
-                return 0;
+	if (rc == 0)
+		return 0;
 
-        LASSERT (rc == ENOENT);
+	LASSERT (rc == ENOENT);
 
  free_drop:
 	LASSERT(msg->msg_md == NULL);
