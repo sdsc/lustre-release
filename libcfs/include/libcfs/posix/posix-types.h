@@ -100,4 +100,6 @@ typedef unsigned long long __u64;
 typedef unsigned long ulong_ptr_t;
 typedef long long_ptr_t;
 
+typedef unsigned long pgoff_t;
+
 #endif
