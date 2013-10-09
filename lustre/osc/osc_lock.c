@@ -1430,6 +1430,7 @@ static int check_cb(const struct lu_env *env, struct cl_io *io,
 		    struct osc_page *ops, void *cbdata)
 {
 	struct cl_lock *lock = cbdata;
+	struct osc_page *opg = osc_cl_page_osc(page);
 
 	if (lock->cll_descr.cld_mode == CLM_READ) {
 		struct cl_lock *tmp;
