@@ -84,7 +84,6 @@ LNetMEAttach(unsigned int portal,
 	cfs_list_t		*head;
 
 	LASSERT(the_lnet.ln_init);
-	LASSERT(the_lnet.ln_refcount > 0);
 
 	if ((int)portal >= the_lnet.ln_nportals)
 		return -EINVAL;
@@ -234,7 +233,6 @@ LNetMEUnlink(lnet_handle_me_t meh)
 	int		cpt;
 
 	LASSERT(the_lnet.ln_init);
-	LASSERT(the_lnet.ln_refcount > 0);
 
 	cpt = lnet_cpt_of_cookie(meh.cookie);
 	lnet_res_lock(cpt);

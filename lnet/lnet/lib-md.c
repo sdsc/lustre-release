@@ -274,20 +274,19 @@ LNetMDAttach(lnet_handle_me_t meh, lnet_md_t umd,
 	int			cpt;
 	int			rc;
 
-        LASSERT (the_lnet.ln_init);
-        LASSERT (the_lnet.ln_refcount > 0);
+	LASSERT (the_lnet.ln_init);
 
-        if (lnet_md_validate(&umd) != 0)
-                return -EINVAL;
+	if (lnet_md_validate(&umd) != 0)
+		return -EINVAL;
 
-        if ((umd.options & (LNET_MD_OP_GET | LNET_MD_OP_PUT)) == 0) {
-                CERROR("Invalid option: no MD_OP set\n");
-                return -EINVAL;
-        }
+	if ((umd.options & (LNET_MD_OP_GET | LNET_MD_OP_PUT)) == 0) {
+		CERROR("Invalid option: no MD_OP set\n");
+		return -EINVAL;
+	}
 
-        md = lnet_md_alloc(&umd);
-        if (md == NULL)
-                return -ENOMEM;
+	md = lnet_md_alloc(&umd);
+	if (md == NULL)
+		return -ENOMEM;
 
 	rc = lnet_md_build(md, &umd, unlink);
 	cpt = lnet_cpt_of_cookie(meh.cookie);
@@ -427,7 +426,6 @@ LNetMDUnlink (lnet_handle_md_t mdh)
 	int		cpt;
 
 	LASSERT(the_lnet.ln_init);
-	LASSERT(the_lnet.ln_refcount > 0);
 
 	cpt = lnet_cpt_of_cookie(mdh.cookie);
 	lnet_res_lock(cpt);
