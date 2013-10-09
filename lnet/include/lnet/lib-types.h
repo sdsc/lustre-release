@@ -457,6 +457,7 @@ typedef struct {
 	__u32			pi_magic;
 	__u32			pi_features;
 	lnet_pid_t		pi_pid;
+	int			pi_forwarding;
 	__u32			pi_nnis;
 	lnet_ni_status_t	pi_ni[0];
 } WIRE_ATTR lnet_ping_info_t;
@@ -513,6 +514,8 @@ typedef struct lnet_peer {
 struct lnet_peer_table {
 	int			pt_version;	/* /proc validity stamp */
 	int			pt_number;	/* # peers extant */
+	int			pt_zombies;	/* # zombies to go to deathrow
+						 * (and not there yet) */
 	cfs_list_t		pt_deathrow;	/* zombie peers */
 	cfs_list_t		*pt_hash;	/* NID->peer hash */
 };
@@ -784,13 +787,16 @@ typedef struct
 
 	struct mutex			ln_api_mutex;
 	struct mutex			ln_lnd_mutex;
+	struct mutex			ln_ping_info_mutex;
 #else
 # ifndef HAVE_LIBPTHREAD
 	int				ln_api_mutex;
 	int				ln_lnd_mutex;
+	int				ln_ping_info_mutex;
 # else
 	pthread_mutex_t			ln_api_mutex;
 	pthread_mutex_t			ln_lnd_mutex;
+	pthread_mutex_t			ln_ping_info_mutex;
 # endif
 #endif
 	int				ln_init;	/* LNetInit() called? */
