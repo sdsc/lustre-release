@@ -368,13 +368,13 @@ int libcfs_ioctl_pack(struct libcfs_ioctl_data *data, char **pbuf,
 {
         char *ptr;
         struct libcfs_ioctl_data *overlay;
-        data->ioc_len = libcfs_ioctl_packlen(data);
-        data->ioc_version = LIBCFS_IOCTL_VERSION;
+        data->hdr.ioc_len = libcfs_ioctl_packlen(data);
+        data->hdr.ioc_version = LIBCFS_IOCTL_VERSION;
 
         if (*pbuf && libcfs_ioctl_packlen(data) > max)
                 return 1;
         if (*pbuf == NULL) {
-                *pbuf = malloc(data->ioc_len);
+                *pbuf = malloc(data->hdr.ioc_len);
         }
         if (!*pbuf)
                 return 1;

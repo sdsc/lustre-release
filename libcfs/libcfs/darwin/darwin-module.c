@@ -41,50 +41,52 @@
 #define DEBUG_SUBSYSTEM S_LNET
 #include <libcfs/libcfs.h>
 
-int libcfs_ioctl_getdata(char *buf, char *end, void *arg)
+int libcfs_ioctl_data_adjust(struct libcfs_ioctl_data *data)
 {
-        struct libcfs_ioctl_hdr *hdr;
-        struct libcfs_ioctl_data *data;
-        int err = 0;
-        ENTRY;
+	char *buf = &data->ioc_bulk[0];
 
-        hdr = (struct libcfs_ioctl_hdr *)buf;
-        data = (struct libcfs_ioctl_data *)buf;
-	/* libcfs_ioctl_data has been copied in by ioctl of osx */
-	memcpy(buf, arg, sizeof(struct libcfs_ioctl_data));
+	if (libcfs_ioctl_is_invalid(data)) {
+		CERROR("PORTALS: ioctl not correctly formatted\n");
+		RETURN(-EINVAL);
+	}
 
-        if (hdr->ioc_version != LIBCFS_IOCTL_VERSION) {
-                CERROR("LIBCFS: version mismatch kernel vs application\n");
-                RETURN(-EINVAL);
-        }
+	if (data->ioc_inllen1) {
+		data->ioc_inlbuf1 = buf;
+		buf += size_round(data->ioc_inllen1);
+	}
 
-        if (hdr->ioc_len + buf >= end) {
-                CERROR("LIBCFS: user buffer exceeds kernel buffer\n");
-                RETURN(-EINVAL);
-        }
+	if (data->ioc_inllen2) {
+		data->ioc_inlbuf2 = buf;
+	}
 
-        if (hdr->ioc_len < sizeof(struct libcfs_ioctl_data)) {
-                CERROR("LIBCFS: user buffer too small for ioctl\n");
-                RETURN(-EINVAL);
-        }
-	buf += size_round(sizeof(*data));
+	RETURN(0);
+}
 
-        if (data->ioc_inllen1) {
-                err = copy_from_user(buf, data->ioc_inlbuf1, size_round(data->ioc_inllen1));
-		if (err)
-			RETURN(err);
-                data->ioc_inlbuf1 = buf;
-                buf += size_round(data->ioc_inllen1);
-        }
+int libcfs_ioctl_getdata_len(void *arg, __u32 *buf_len)
+{
+	int err;
+	struct libcfs_ioctl_hdr hdr;
+	ENTRY;
 
-        if (data->ioc_inllen2) {
-                copy_from_user(buf, data->ioc_inlbuf2, size_round(data->ioc_inllen2));
-		if (err)
-			RETURN(err);
-                data->ioc_inlbuf2 = buf;
-        }
+	memcpy(&hdr, arg, sizeof(hdr));
 
-        RETURN(err);
+	if (hdr.ioc_version != LIBCFS_IOCTL_VERSION) {
+		CERROR("PORTALS: version mismatch kernel vs application\n");
+		RETURN(-EINVAL);
+	}
+
+	*buf_len = hdr.ioc_len;
+	RETURN(0);
+}
+
+int libcfs_ioctl_getdata(char *buf, __u32 buf_len, void *arg)
+{
+	int err;
+	ENTRY;
+
+	memcpy(buf, arg, buf_len);
+
+	RETURN(0);
 }
 
 int libcfs_ioctl_popdata(void *arg, void *data, int size)
