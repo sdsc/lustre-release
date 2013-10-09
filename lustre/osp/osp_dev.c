@@ -298,7 +298,7 @@ static void osp_last_used_fini(const struct lu_env *env, struct osp_device *d)
 	}
 }
 
-int osp_disconnect(struct osp_device *d)
+static int osp_disconnect(struct osp_device *d)
 {
 	struct obd_import *imp;
 	int rc = 0;
@@ -337,11 +337,6 @@ static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 	int			 rc = 0;
 	ENTRY;
 
-	if (is_osp_for_connection(d->opd_obd->obd_name)) {
-		rc = osp_disconnect(d);
-		RETURN(rc);
-	}
-
 	LASSERT(env);
 	/* release last_used file */
 	if (!d->opd_connect_mdt)
@@ -371,8 +366,7 @@ static int osp_process_config(const struct lu_env *env,
 
 	switch (lcfg->lcfg_command) {
 	case LCFG_CLEANUP:
-		if (!is_osp_for_connection(d->opd_obd->obd_name))
-			lu_dev_del_linkage(dev->ld_site, dev);
+		lu_dev_del_linkage(dev->ld_site, dev);
 		rc = osp_shutdown(env, d);
 		break;
 	case LCFG_PARAM:
@@ -763,10 +757,7 @@ static struct lu_device *osp_device_alloc(const struct lu_env *env,
 
 		l = osp2lu_dev(m);
 		dt_device_init(&m->opd_dt_dev, t);
-		if (is_osp_for_connection(lustre_cfg_string(lcfg, 0)))
-			rc = osp_init_for_ost(env, m, t, lcfg);
-		else
-			rc = osp_init0(env, m, t, lcfg);
+		rc = osp_init0(env, m, t, lcfg);
 		if (rc != 0) {
 			osp_device_free(env, l);
 			l = ERR_PTR(rc);
@@ -786,9 +777,6 @@ static struct lu_device *osp_device_fini(const struct lu_env *env,
 
 	if (m->opd_storage_exp)
 		obd_disconnect(m->opd_storage_exp);
-
-	if (is_osp_for_connection(m->opd_obd->obd_name))
-		osp_fini_for_ost(m);
 
 	imp = m->opd_obd->u.cli.cl_import;
 
@@ -853,8 +841,6 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 		RETURN(rc);
 
 	*exp = class_conn2export(&conn);
-	if (is_osp_for_connection(obd->obd_name))
-		osp->opd_exp = *exp;
 
 	/* Why should there ever be more than 1 connect? */
 	osp->opd_connects++;
@@ -869,8 +855,6 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 	LASSERT(data->ocd_connect_flags & OBD_CONNECT_INDEX);
 	ocd = &imp->imp_connect_data;
 	*ocd = *data;
-	if (is_osp_for_connection(osp->opd_obd->obd_name))
-		ocd->ocd_connect_flags |= OBD_CONNECT_LIGHTWEIGHT;
 
 	imp->imp_connect_flags_orig = ocd->ocd_connect_flags;
 
@@ -913,8 +897,7 @@ static int osp_obd_disconnect(struct obd_export *exp)
 	}
 
 	/* destroy the device */
-	if (!is_osp_for_connection(obd->obd_name))
-		class_manual_cleanup(obd);
+	class_manual_cleanup(obd);
 
 	RETURN(rc);
 }
@@ -1177,6 +1160,16 @@ static int __init osp_mod_init(void)
 		return rc;
 	}
 
+	lprocfs_lwp_init_vars(&lvars);
+
+	rc = class_register_type(&lwp_obd_device_ops, NULL, lvars.module_vars,
+				 LUSTRE_LWP_NAME, &lwp_device_type);
+	if (rc != 0) {
+		class_unregister_type(LUSTRE_OSP_NAME);
+		lu_kmem_fini(osp_caches);
+		return rc;
+	}
+
 	osc_proc_dir = lprocfs_srch(proc_lustre_root, "osc");
 	if (osc_proc_dir == NULL) {
 		osc_proc_dir = lprocfs_register("osc", proc_lustre_root, NULL,
@@ -1192,6 +1185,7 @@ static void __exit osp_mod_exit(void)
 {
 	lprocfs_try_remove_proc_entry("osc", proc_lustre_root);
 
+	class_unregister_type(LUSTRE_LWP_NAME);
 	class_unregister_type(LUSTRE_OSP_NAME);
 	lu_kmem_fini(osp_caches);
 }
