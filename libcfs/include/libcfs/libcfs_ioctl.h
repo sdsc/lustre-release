@@ -41,68 +41,68 @@
 #ifndef __LIBCFS_IOCTL_H__
 #define __LIBCFS_IOCTL_H__
 
+#include <lnet/lib-types.h>
 
 #define LIBCFS_IOCTL_VERSION 0x0001000a
 
+struct libcfs_ioctl_hdr {
+	__u32 ioc_len;
+	__u32 ioc_version;
+};
+
 struct libcfs_ioctl_data {
-        __u32 ioc_len;
-        __u32 ioc_version;
+	struct libcfs_ioctl_hdr hdr;
 
-        __u64 ioc_nid;
-        __u64 ioc_u64[1];
+	__u64 ioc_nid;
+	__u64 ioc_u64[1];
 
-        __u32 ioc_flags;
-        __u32 ioc_count;
-        __u32 ioc_net;
-        __u32 ioc_u32[7];
+	__u32 ioc_flags;
+	__u32 ioc_count;
+	__u32 ioc_net;
+	__u32 ioc_u32[7];
 
-        __u32 ioc_inllen1;
-        char *ioc_inlbuf1;
-        __u32 ioc_inllen2;
-        char *ioc_inlbuf2;
+	__u32 ioc_inllen1;
+	char *ioc_inlbuf1;
+	__u32 ioc_inllen2;
+	char *ioc_inlbuf2;
 
-        __u32 ioc_plen1; /* buffers in userspace */
-        char *ioc_pbuf1;
-        __u32 ioc_plen2; /* buffers in userspace */
-        char *ioc_pbuf2;
+	__u32 ioc_plen1; /* buffers in userspace */
+	char *ioc_pbuf1;
+	__u32 ioc_plen2; /* buffers in userspace */
+	char *ioc_pbuf2;
 
-        char ioc_bulk[0];
+	char ioc_bulk[0];
 };
 
 #define ioc_priority ioc_u32[0]
 
 
-struct libcfs_ioctl_hdr {
-        __u32 ioc_len;
-        __u32 ioc_version;
-};
-
 struct libcfs_debug_ioctl_data
 {
-        struct libcfs_ioctl_hdr hdr;
-        unsigned int subs;
-        unsigned int debug;
+	struct libcfs_ioctl_hdr hdr;
+	unsigned int subs;
+	unsigned int debug;
 };
 
 #define LIBCFS_IOC_INIT(data)                           \
 do {                                                    \
-        memset(&data, 0, sizeof(data));                 \
-        data.ioc_version = LIBCFS_IOCTL_VERSION;        \
-        data.ioc_len = sizeof(data);                    \
+	memset(&data, 0, sizeof(data));                 \
+	data.hdr.ioc_version = LIBCFS_IOCTL_VERSION;        \
+	data.hdr.ioc_len = sizeof(data);                    \
 } while (0)
 
 #ifdef __KERNEL__
 
 struct libcfs_ioctl_handler {
-        cfs_list_t item;
-        int (*handle_ioctl)(unsigned int cmd, struct libcfs_ioctl_data *data);
+	cfs_list_t item;
+	int (*handle_ioctl)(unsigned int cmd, struct libcfs_ioctl_hdr *hdr);
 };
 
 #define DECLARE_IOCTL_HANDLER(ident, func)                      \
-        struct libcfs_ioctl_handler ident = {                   \
-                /* .item = */ CFS_LIST_HEAD_INIT(ident.item),   \
-                /* .handle_ioctl = */ func                      \
-        }
+	struct libcfs_ioctl_handler ident = {                   \
+		/* .item = */ CFS_LIST_HEAD_INIT(ident.item),   \
+		/* .handle_ioctl = */ func                      \
+	}
 
 #endif
 
@@ -154,75 +154,77 @@ struct libcfs_ioctl_handler {
 
 static inline int libcfs_ioctl_packlen(struct libcfs_ioctl_data *data)
 {
-        int len = sizeof(*data);
-        len += cfs_size_round(data->ioc_inllen1);
-        len += cfs_size_round(data->ioc_inllen2);
-        return len;
+	int len = sizeof(*data);
+	len += cfs_size_round(data->ioc_inllen1);
+	len += cfs_size_round(data->ioc_inllen2);
+	return len;
 }
 
 static inline int libcfs_ioctl_is_invalid(struct libcfs_ioctl_data *data)
 {
-        if (data->ioc_len > (1<<30)) {
-                CERROR ("LIBCFS ioctl: ioc_len larger than 1<<30\n");
-                return 1;
-        }
-        if (data->ioc_inllen1 > (1<<30)) {
-                CERROR ("LIBCFS ioctl: ioc_inllen1 larger than 1<<30\n");
-                return 1;
-        }
-        if (data->ioc_inllen2 > (1<<30)) {
-                CERROR ("LIBCFS ioctl: ioc_inllen2 larger than 1<<30\n");
-                return 1;
-        }
-        if (data->ioc_inlbuf1 && !data->ioc_inllen1) {
-                CERROR ("LIBCFS ioctl: inlbuf1 pointer but 0 length\n");
-                return 1;
-        }
-        if (data->ioc_inlbuf2 && !data->ioc_inllen2) {
-                CERROR ("LIBCFS ioctl: inlbuf2 pointer but 0 length\n");
-                return 1;
-        }
-        if (data->ioc_pbuf1 && !data->ioc_plen1) {
-                CERROR ("LIBCFS ioctl: pbuf1 pointer but 0 length\n");
-                return 1;
-        }
-        if (data->ioc_pbuf2 && !data->ioc_plen2) {
-                CERROR ("LIBCFS ioctl: pbuf2 pointer but 0 length\n");
-                return 1;
-        }
-        if (data->ioc_plen1 && !data->ioc_pbuf1) {
-                CERROR ("LIBCFS ioctl: plen1 nonzero but no pbuf1 pointer\n");
-                return 1;
-        }
-        if (data->ioc_plen2 && !data->ioc_pbuf2) {
-                CERROR ("LIBCFS ioctl: plen2 nonzero but no pbuf2 pointer\n");
-                return 1;
-        }
-        if ((__u32)libcfs_ioctl_packlen(data) != data->ioc_len ) {
-                CERROR ("LIBCFS ioctl: packlen != ioc_len\n");
-                return 1;
-        }
-        if (data->ioc_inllen1 &&
-            data->ioc_bulk[data->ioc_inllen1 - 1] != '\0') {
-                CERROR ("LIBCFS ioctl: inlbuf1 not 0 terminated\n");
-                return 1;
-        }
-        if (data->ioc_inllen2 &&
-            data->ioc_bulk[cfs_size_round(data->ioc_inllen1) +
-                           data->ioc_inllen2 - 1] != '\0') {
-                CERROR ("LIBCFS ioctl: inlbuf2 not 0 terminated\n");
-                return 1;
-        }
-        return 0;
+	if (data->hdr.ioc_len > (1<<30)) {
+		CERROR("LIBCFS ioctl: ioc_len larger than 1<<30\n");
+		return 1;
+	}
+	if (data->ioc_inllen1 > (1<<30)) {
+		CERROR("LIBCFS ioctl: ioc_inllen1 larger than 1<<30\n");
+		return 1;
+	}
+	if (data->ioc_inllen2 > (1<<30)) {
+		CERROR("LIBCFS ioctl: ioc_inllen2 larger than 1<<30\n");
+		return 1;
+	}
+	if (data->ioc_inlbuf1 && !data->ioc_inllen1) {
+		CERROR("LIBCFS ioctl: inlbuf1 pointer but 0 length\n");
+		return 1;
+	}
+	if (data->ioc_inlbuf2 && !data->ioc_inllen2) {
+		CERROR("LIBCFS ioctl: inlbuf2 pointer but 0 length\n");
+		return 1;
+	}
+	if (data->ioc_pbuf1 && !data->ioc_plen1) {
+		CERROR("LIBCFS ioctl: pbuf1 pointer but 0 length\n");
+		return 1;
+	}
+	if (data->ioc_pbuf2 && !data->ioc_plen2) {
+		CERROR("LIBCFS ioctl: pbuf2 pointer but 0 length\n");
+		return 1;
+	}
+	if (data->ioc_plen1 && !data->ioc_pbuf1) {
+		CERROR("LIBCFS ioctl: plen1 nonzero but no pbuf1 pointer\n");
+		return 1;
+	}
+	if (data->ioc_plen2 && !data->ioc_pbuf2) {
+		CERROR("LIBCFS ioctl: plen2 nonzero but no pbuf2 pointer\n");
+		return 1;
+	}
+	if ((__u32)libcfs_ioctl_packlen(data) != data->hdr.ioc_len) {
+		CERROR("LIBCFS ioctl: packlen != ioc_len\n");
+		return 1;
+	}
+	if (data->ioc_inllen1 &&
+	    data->ioc_bulk[data->ioc_inllen1 - 1] != '\0') {
+		CERROR("LIBCFS ioctl: inlbuf1 not 0 terminated\n");
+		return 1;
+	}
+	if (data->ioc_inllen2 &&
+	    data->ioc_bulk[cfs_size_round(data->ioc_inllen1) +
+			   data->ioc_inllen2 - 1] != '\0') {
+		CERROR("LIBCFS ioctl: inlbuf2 not 0 terminated\n");
+		return 1;
+	}
+	return 0;
 }
 
 #ifdef __KERNEL__
 
 extern int libcfs_register_ioctl(struct libcfs_ioctl_handler *hand);
 extern int libcfs_deregister_ioctl(struct libcfs_ioctl_handler *hand);
-extern int libcfs_ioctl_getdata(char *buf, char *end, void *arg);
+extern int libcfs_ioctl_getdata(char *buf, __u32 buf_len, void *arg);
+extern int libcfs_ioctl_getdata_len(void *arg, __u32 *buf_len);
 extern int libcfs_ioctl_popdata(void *arg, void *buf, int size);
+#endif
 
-#endif 
+extern int libcfs_ioctl_data_adjust(struct libcfs_ioctl_data *data);
 
 #endif /* __LIBCFS_IOCTL_H__ */
