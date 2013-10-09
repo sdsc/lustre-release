@@ -35,6 +35,11 @@
  */
 
 #define DEBUG_SUBSYSTEM S_LNET
+/* TODO - This will be completed in the subsequent patches.
+ * For this patch the MAX is hardcoded, in the next patch
+ * the value will be set to the largest data structure that 
+ * can be sent from user space */
+#define LIBCFS_MAX_KERNEL_BUF_LEN 2048
 
 #include <libcfs/libcfs.h>
 #include <libcfs/libcfs_crypto.h>
@@ -218,75 +223,86 @@ int libcfs_deregister_ioctl(struct libcfs_ioctl_handler *hand)
 EXPORT_SYMBOL(libcfs_deregister_ioctl);
 
 static int libcfs_ioctl_int(struct cfs_psdev_file *pfile,unsigned long cmd,
-                            void *arg, struct libcfs_ioctl_data *data)
+			    void *arg, struct libcfs_ioctl_hdr *hdr)
 {
-        int err = -EINVAL;
-        ENTRY;
+	int err = -EINVAL;
+	struct libcfs_ioctl_data *data;
+	ENTRY;
 
-        switch (cmd) {
-        case IOC_LIBCFS_CLEAR_DEBUG:
-                libcfs_debug_clear_buffer();
-                RETURN(0);
-        /*
-         * case IOC_LIBCFS_PANIC:
-         * Handled in arch/cfs_module.c
-         */
-        case IOC_LIBCFS_MARK_DEBUG:
-                if (data->ioc_inlbuf1 == NULL ||
-                    data->ioc_inlbuf1[data->ioc_inllen1 - 1] != '\0')
-                        RETURN(-EINVAL);
-                libcfs_debug_mark_buffer(data->ioc_inlbuf1);
-                RETURN(0);
+	/* TODO: this is going to change in subsequent patches
+	 * to exclude messages which use the new data structures */
+	if ((cmd <= IOC_LIBCFS_LNETST) ||
+	    (cmd >= IOC_LIBCFS_REGISTER_MYNID)) {
+		data = (struct libcfs_ioctl_data *) hdr;
+		if ((err = libcfs_ioctl_data_adjust(data))) {
+			RETURN(err);
+		}
+	}
+
+	switch (cmd) {
+	case IOC_LIBCFS_CLEAR_DEBUG:
+		libcfs_debug_clear_buffer();
+		RETURN(0);
+	/*
+	 * case IOC_LIBCFS_PANIC:
+	 * Handled in arch/cfs_module.c
+	 */
+	case IOC_LIBCFS_MARK_DEBUG:
+		if (data->ioc_inlbuf1 == NULL ||
+		    data->ioc_inlbuf1[data->ioc_inllen1 - 1] != '\0')
+			RETURN(-EINVAL);
+		libcfs_debug_mark_buffer(data->ioc_inlbuf1);
+		RETURN(0);
 #if LWT_SUPPORT
-        case IOC_LIBCFS_LWT_CONTROL:
-                err = lwt_control ((data->ioc_flags & 1) != 0, 
-                                   (data->ioc_flags & 2) != 0);
-                break;
+	case IOC_LIBCFS_LWT_CONTROL:
+		err = lwt_control ((data->ioc_flags & 1) != 0, 
+				   (data->ioc_flags & 2) != 0);
+		break;
 
-        case IOC_LIBCFS_LWT_SNAPSHOT: {
-                cfs_cycles_t   now;
-                int            ncpu;
-                int            total_size;
+	case IOC_LIBCFS_LWT_SNAPSHOT: {
+		cfs_cycles_t   now;
+		int            ncpu;
+		int            total_size;
 
-                err = lwt_snapshot (&now, &ncpu, &total_size,
-                                    data->ioc_pbuf1, data->ioc_plen1);
-                data->ioc_u64[0] = now;
-                data->ioc_u32[0] = ncpu;
-                data->ioc_u32[1] = total_size;
+		err = lwt_snapshot (&now, &ncpu, &total_size,
+				    data->ioc_pbuf1, data->ioc_plen1);
+		data->ioc_u64[0] = now;
+		data->ioc_u32[0] = ncpu;
+		data->ioc_u32[1] = total_size;
 
-                /* Hedge against broken user/kernel typedefs (e.g. cycles_t) */
-                data->ioc_u32[2] = sizeof(lwt_event_t);
-                data->ioc_u32[3] = offsetof(lwt_event_t, lwte_where);
+		/* Hedge against broken user/kernel typedefs (e.g. cycles_t) */
+		data->ioc_u32[2] = sizeof(lwt_event_t);
+		data->ioc_u32[3] = offsetof(lwt_event_t, lwte_where);
 
-                if (err == 0 &&
-                    libcfs_ioctl_popdata(arg, data, sizeof (*data)))
-                        err = -EFAULT;
-                break;
-        }
+		if (err == 0 &&
+		    libcfs_ioctl_popdata(arg, data, sizeof (*data)))
+			err = -EFAULT;
+		break;
+	}
 
-        case IOC_LIBCFS_LWT_LOOKUP_STRING:
-                err = lwt_lookup_string (&data->ioc_count, data->ioc_pbuf1,
-                                         data->ioc_pbuf2, data->ioc_plen2);
-                if (err == 0 &&
-                    libcfs_ioctl_popdata(arg, data, sizeof (*data)))
-                        err = -EFAULT;
-                break;
+	case IOC_LIBCFS_LWT_LOOKUP_STRING:
+		err = lwt_lookup_string (&data->ioc_count, data->ioc_pbuf1,
+					 data->ioc_pbuf2, data->ioc_plen2);
+		if (err == 0 &&
+		    libcfs_ioctl_popdata(arg, data, sizeof (*data)))
+			err = -EFAULT;
+		break;
 #endif
-        case IOC_LIBCFS_MEMHOG:
-                if (pfile->private_data == NULL) {
-                        err = -EINVAL;
-                } else {
-                        kportal_memhog_free(pfile->private_data);
-                        /* XXX The ioc_flags is not GFP flags now, need to be fixed */
-                        err = kportal_memhog_alloc(pfile->private_data,
-                                                   data->ioc_count,
-                                                   data->ioc_flags);
-                        if (err != 0)
-                                kportal_memhog_free(pfile->private_data);
-                }
-                break;
+	case IOC_LIBCFS_MEMHOG:
+		if (pfile->private_data == NULL) {
+			err = -EINVAL;
+		} else {
+			kportal_memhog_free(pfile->private_data);
+			/* XXX The ioc_flags is not GFP flags now, need to be fixed */
+			err = kportal_memhog_alloc(pfile->private_data,
+						   data->ioc_count,
+						   data->ioc_flags);
+			if (err != 0)
+				kportal_memhog_free(pfile->private_data);
+		}
+		break;
 
-        case IOC_LIBCFS_PING_TEST: {
+	case IOC_LIBCFS_PING_TEST: {
 		extern void (kping_client)(struct libcfs_ioctl_data *);
 		void (*ping)(struct libcfs_ioctl_data *);
 
@@ -303,52 +319,68 @@ static int libcfs_ioctl_int(struct cfs_psdev_file *pfile,unsigned long cmd,
 		RETURN(0);
 	}
 
-        default: {
-                struct libcfs_ioctl_handler *hand;
-                err = -EINVAL;
+	default: {
+		struct libcfs_ioctl_handler *hand;
+		err = -EINVAL;
 		down_read(&ioctl_list_sem);
-                cfs_list_for_each_entry_typed(hand, &ioctl_list,
-                        struct libcfs_ioctl_handler, item) {
-                        err = hand->handle_ioctl(cmd, data);
-                        if (err != -EINVAL) {
-                                if (err == 0)
-                                        err = libcfs_ioctl_popdata(arg, 
-                                                        data, sizeof (*data));
-                                break;
-                        }
-                }
+		cfs_list_for_each_entry_typed(hand, &ioctl_list,
+			struct libcfs_ioctl_handler, item) {
+			err = hand->handle_ioctl(cmd, hdr);
+			if (err != -EINVAL) {
+				if (err == 0)
+					err = libcfs_ioctl_popdata(arg,
+							hdr, hdr->ioc_len);
+				break;
+			}
+		}
 		up_read(&ioctl_list_sem);
-                break;
-        }
-        }
+		break;
+	}
+	}
 
-        RETURN(err);
+	RETURN(err);
 }
 
 static int libcfs_ioctl(struct cfs_psdev_file *pfile,
 			unsigned long cmd, void *arg)
 {
 	char    *buf;
-	struct libcfs_ioctl_data *data;
+	struct libcfs_ioctl_hdr *hdr;
 	int err = 0;
+	__u32 buf_len;
 	ENTRY;
 
-	LIBCFS_ALLOC_GFP(buf, 1024, GFP_IOFS);
+	if ((err = libcfs_ioctl_getdata_len(arg, &buf_len))) {
+		RETURN(err);
+	}
+
+	/*
+	 * do a check here to restrict the size of the memory
+	 * to allocate to guard against DoS attacks.
+	*/
+
+	if (buf_len > LIBCFS_MAX_KERNEL_BUF_LEN) {
+		CERROR("PORTALS: user buffer exceeds kernel buffer\n");
+		RETURN(-EINVAL);
+	}
+
+	LIBCFS_ALLOC_GFP(buf, buf_len, GFP_IOFS);
 	if (buf == NULL)
 		RETURN(-ENOMEM);
 
-        /* 'cmd' and permissions get checked in our arch-specific caller */
-        if (libcfs_ioctl_getdata(buf, buf + 800, (void *)arg)) {
-                CERROR("PORTALS ioctl: data error\n");
-                GOTO(out, err = -EINVAL);
-        }
-        data = (struct libcfs_ioctl_data *)buf;
+	/* 'cmd' and permissions get checked in our arch-specific caller */
+	if (libcfs_ioctl_getdata(buf, buf_len, arg)) {
+		CERROR("PORTALS ioctl: data error\n");
+		GOTO(out, err = -EINVAL);
+	}
 
-        err = libcfs_ioctl_int(pfile, cmd, arg, data);
+	hdr = (struct libcfs_ioctl_hdr *)buf;
+
+	err = libcfs_ioctl_int(pfile, cmd, arg, hdr);
 
 out:
-        LIBCFS_FREE(buf, 1024);
-        RETURN(err);
+	LIBCFS_FREE(buf, buf_len);
+	RETURN(err);
 }
 
 
