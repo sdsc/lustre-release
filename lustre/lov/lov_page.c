@@ -52,59 +52,9 @@
  *
  */
 
-static int lov_page_invariant(const struct cl_page_slice *slice)
-{
-        const struct cl_page  *page = slice->cpl_page;
-        const struct cl_page  *sub  = lov_sub_page(slice);
-
-        return ergo(sub != NULL,
-                    page->cp_child == sub &&
-                    sub->cp_parent == page &&
-                    page->cp_state == sub->cp_state);
-}
-
 static void lov_page_fini(const struct lu_env *env,
                           struct cl_page_slice *slice)
 {
-        struct cl_page  *sub = lov_sub_page(slice);
-
-        LINVRNT(lov_page_invariant(slice));
-        ENTRY;
-
-        if (sub != NULL) {
-                LASSERT(sub->cp_state == CPS_FREEING);
-                lu_ref_del(&sub->cp_reference, "lov", sub->cp_parent);
-                sub->cp_parent = NULL;
-                slice->cpl_page->cp_child = NULL;
-                cl_page_put(env, sub);
-        }
-        EXIT;
-}
-
-static int lov_page_own(const struct lu_env *env,
-                        const struct cl_page_slice *slice, struct cl_io *io,
-                        int nonblock)
-{
-        struct lov_io     *lio = lov_env_io(env);
-        struct lov_io_sub *sub;
-
-        LINVRNT(lov_page_invariant(slice));
-        LINVRNT(!cl2lov_page(slice)->lps_invalid);
-        ENTRY;
-
-        sub = lov_page_subio(env, lio, slice);
-        if (!IS_ERR(sub)) {
-                lov_sub_page(slice)->cp_owner = sub->sub_io;
-                lov_sub_put(sub);
-        } else
-                LBUG(); /* Arrgh */
-        RETURN(0);
-}
-
-static void lov_page_assume(const struct lu_env *env,
-                            const struct cl_page_slice *slice, struct cl_io *io)
-{
-        lov_page_own(env, slice, io, 0);
 }
 
 static int lov_page_print(const struct lu_env *env,
@@ -118,26 +68,24 @@ static int lov_page_print(const struct lu_env *env,
 
 static const struct cl_page_operations lov_page_ops = {
         .cpo_fini   = lov_page_fini,
-        .cpo_own    = lov_page_own,
-        .cpo_assume = lov_page_assume,
         .cpo_print  = lov_page_print
 };
 
 static void lov_empty_page_fini(const struct lu_env *env,
                                 struct cl_page_slice *slice)
 {
-        LASSERT(slice->cpl_page->cp_child == NULL);
 }
 
 int lov_page_init_raid0(const struct lu_env *env, struct cl_object *obj,
-			struct cl_page *page, cfs_page_t *vmpage)
+			struct cl_page *page, pgoff_t index)
 {
-        struct lov_object *loo = cl2lov(obj);
-        struct lov_layout_raid0 *r0 = lov_r0(loo);
-        struct lov_io     *lio = lov_env_io(env);
-        struct cl_page    *subpage;
+	struct lov_object *loo = cl2lov(obj);
+	struct lov_layout_raid0 *r0 = lov_r0(loo);
+	struct lov_io     *lio = lov_env_io(env);
+	struct lu_object_header *hdr;
         struct cl_object  *subobj;
         struct lov_io_sub *sub;
+        struct cl_object  *o;
         struct lov_page   *lpg = cl_object_page_slice(obj, page);
         loff_t             offset;
         obd_off            suboff;
@@ -145,14 +93,13 @@ int lov_page_init_raid0(const struct lu_env *env, struct cl_object *obj,
         int                rc;
         ENTRY;
 
-        offset = cl_offset(obj, page->cp_index);
+        offset = cl_offset(obj, index);
 	stripe = lov_stripe_number(loo->lo_lsm, offset);
 	LASSERT(stripe < r0->lo_nr);
 	rc = lov_stripe_offset(loo->lo_lsm, offset, stripe,
                                    &suboff);
         LASSERT(rc == 0);
 
-        lpg->lps_invalid = 1;
         cl_page_slice_add(page, &lpg->lps_cl, obj, &lov_page_ops);
 
         sub = lov_sub_get(env, lio, stripe);
@@ -160,15 +107,19 @@ int lov_page_init_raid0(const struct lu_env *env, struct cl_object *obj,
                 RETURN(PTR_ERR(sub));
 
         subobj = lovsub2cl(r0->lo_sub[stripe]);
-        subpage = cl_page_alloc(sub->sub_env, subobj, cl_index(subobj, suboff),
-				vmpage, page->cp_type);
-        if (!IS_ERR(subpage)) {
-		subpage->cp_parent = page;
-		page->cp_child = subpage;
-	} else
-		rc = PTR_ERR(subpage);
-        lov_sub_put(sub);
-        RETURN(rc);
+	hdr = subobj->co_lu.lo_header;
+	cfs_list_for_each_entry(o, &subobj->co_lu.lo_header->loh_layers,
+				co_lu.lo_linkage) {
+		if (o->co_ops->coo_page_init != NULL) {
+			rc = o->co_ops->coo_page_init(sub->sub_env, o, page,
+						      cl_index(subobj, suboff));
+			if (rc != 0)
+				break;
+		}
+	}
+	lov_sub_put(sub);
+
+	RETURN(rc);
 }
 
 static const struct cl_page_operations lov_empty_page_ops = {
@@ -177,16 +128,16 @@ static const struct cl_page_operations lov_empty_page_ops = {
 };
 
 int lov_page_init_empty(const struct lu_env *env, struct cl_object *obj,
-			struct cl_page *page, cfs_page_t *vmpage)
+			struct cl_page *page, pgoff_t index)
 {
         struct lov_page *lpg = cl_object_page_slice(obj, page);
 	void *addr;
         ENTRY;
 
 	cl_page_slice_add(page, &lpg->lps_cl, obj, &lov_empty_page_ops);
-	addr = cfs_kmap(vmpage);
+	addr = cfs_kmap(page->cp_vmpage);
 	memset(addr, 0, cl_page_size(obj));
-	cfs_kunmap(vmpage);
+	cfs_kunmap(page->cp_vmpage);
 	cl_page_export(env, page, 1);
         RETURN(0);
 }
