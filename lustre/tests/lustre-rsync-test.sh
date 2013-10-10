@@ -233,14 +233,15 @@ run_test 2a "Replicate files created by dbench."
 
 # Test 2b - Replicate files changed by dbench.
 test_2b() {
+	local child_pid
 	init_src
 	init_changelog
 
 	# Run dbench
 	sh rundbench -C -D $DIR/$tdir 2 -t $DBENCH_TIME &
-	sleep 20
+	# wait for dbench to start
+	wait_for_function 'child_pid=$(pgrep dbench)' 360
 
-	local child_pid=$(pgrep dbench)
 	echo PIDs: $child_pid
 	echo Stopping dbench
 	$KILL -SIGSTOP $child_pid
