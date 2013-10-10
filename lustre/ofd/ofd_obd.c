@@ -1071,7 +1071,7 @@ int ofd_destroy(const struct lu_env *env, struct obd_export *exp,
 	if (info->fti_transno == 0) /* not replay */
 		info->fti_mult_trans = 1;
 
-	CDEBUG(D_HA, "%s: Destroy object "DOSTID" count %d\n", ofd_name(ofd),
+	CDEBUG(D_INODE, "%s: Destroy object "DOSTID" count %d\n", ofd_name(ofd),
 	       POSTID(&oa->o_oi), count);
 	while (count > 0) {
 		int lrc;
