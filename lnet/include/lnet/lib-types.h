@@ -409,7 +409,7 @@ struct lnet_tx_queue {
 	cfs_list_t		tq_delayed;	/* delayed TXs */
 };
 
-#define LNET_MAX_INTERFACES   16
+#define LNET_MAX_INTERFACES	LIBCFS_MAX_INTERFACES
 
 typedef struct lnet_ni {
 #ifdef __KERNEL__
@@ -562,19 +562,7 @@ typedef struct {
         lnet_kiov_t            rb_kiov[0];          /* the buffer space */
 } lnet_rtrbuf_t;
 
-typedef struct {
-        __u32        msgs_alloc;
-        __u32        msgs_max;
-        __u32        errors;
-        __u32        send_count;
-        __u32        recv_count;
-        __u32        route_count;
-        __u32        drop_count;
-        __u64        send_length;
-        __u64        recv_length;
-        __u64        route_length;
-        __u64        drop_length;
-} WIRE_ATTR lnet_counters_t;
+typedef struct lnet_counters lnet_counters_t;
 
 #define LNET_PEER_HASHSIZE   503                /* prime! */
 
