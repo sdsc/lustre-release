@@ -1580,93 +1580,188 @@ EXPORT_SYMBOL(LNetNIFini);
 int
 LNetCtl(unsigned int cmd, void *arg)
 {
-        struct libcfs_ioctl_data *data = arg;
-        lnet_process_id_t         id = {0};
-        lnet_ni_t                *ni;
-        int                       rc;
+	struct libcfs_ioctl_data *data = arg;
+	struct libcfs_ioctl_config_data_s *config;
+	lnet_process_id_t         id = {0};
+	lnet_ni_t                *ni;
+	int                       rc;
 
-        LASSERT (the_lnet.ln_init);
-        LASSERT (the_lnet.ln_refcount > 0);
+	LASSERT (the_lnet.ln_init);
+	LASSERT (the_lnet.ln_refcount > 0);
 
-        switch (cmd) {
-        case IOC_LIBCFS_GET_NI:
-                rc = LNetGetId(data->ioc_count, &id);
-                data->ioc_nid = id.nid;
-                return rc;
+	switch (cmd) {
+	case IOC_LIBCFS_GET_NI:
+		rc = LNetGetId(data->ioc_count, &id);
+		data->ioc_nid = id.nid;
+		return rc;
 
-        case IOC_LIBCFS_FAIL_NID:
-                return lnet_fail_nid(data->ioc_nid, data->ioc_count);
+	case IOC_LIBCFS_FAIL_NID:
+		return lnet_fail_nid(data->ioc_nid, data->ioc_count);
 
-        case IOC_LIBCFS_ADD_ROUTE:
-		rc = lnet_add_route(data->ioc_net, data->ioc_count,
-				    data->ioc_nid, data->ioc_priority);
-                return (rc != 0) ? rc : lnet_check_routes();
+	case IOC_LIBCFS_ADD_ROUTE:
+		/* TODO: this code will change in subsequent patches to
+		 * handle extra parameters added for DLC
+		 */
+		config = arg;
+		rc = lnet_add_route(config->ioc_net,
+				    config->ioc_config_u.route.hop,
+				    config->ioc_nid,
+				    config->ioc_config_u.route.priority);
+		return (rc != 0) ? rc : lnet_check_routes();
 
-        case IOC_LIBCFS_DEL_ROUTE:
-                return lnet_del_route(data->ioc_net, data->ioc_nid);
+	case IOC_LIBCFS_DEL_ROUTE:
+		config = arg;
+		return lnet_del_route(config->ioc_net,
+				      config->ioc_nid);
 
-        case IOC_LIBCFS_GET_ROUTE:
-                return lnet_get_route(data->ioc_count,
-                                      &data->ioc_net, &data->ioc_count,
-				      &data->ioc_nid, &data->ioc_flags,
-				      &data->ioc_priority);
-        case IOC_LIBCFS_NOTIFY_ROUTER:
-                return lnet_notify(NULL, data->ioc_nid, data->ioc_flags,
-                                   cfs_time_current() -
-                                   cfs_time_seconds(cfs_time_current_sec() -
-                                                    (time_t)data->ioc_u64[0]));
+	case IOC_LIBCFS_GET_ROUTE:
+		config = arg;
+		return lnet_get_route(config->ioc_count,
+				      &config->ioc_net,
+				      &config->ioc_config_u.route.hop,
+				      &config->ioc_nid,
+				      &config->ioc_config_u.route.flags,
+				      &config->ioc_config_u.route.priority);
 
-        case IOC_LIBCFS_PORTALS_COMPATIBILITY:
-                /* This can be removed once lustre stops calling it */
-                return 0;
+	case IOC_LIBCFS_ADD_NET:
+		/* TODO: The code to handle IOC_LIBCFS_ADD_NET will be
+		 * added in subsequent patches
+		 */
+		config = arg;
+		return 0;
 
-        case IOC_LIBCFS_LNET_DIST:
-                rc = LNetDist(data->ioc_nid, &data->ioc_nid, &data->ioc_u32[1]);
-                if (rc < 0 && rc != -EHOSTUNREACH)
-                        return rc;
+	case IOC_LIBCFS_DEL_NET:
+		/* TODO: The code to handle IOC_LIBCFS_DEL_NET will be
+		 * added in subsequent patches
+		 */
+		config = arg;
+		return 0;
 
-                data->ioc_u32[0] = rc;
-                return 0;
+	case IOC_LIBCFS_GET_NET:
+	{
+		struct libcfs_ioctl_net_config_s *net_config;
+		config = arg;
+		net_config = (struct libcfs_ioctl_net_config_s *)config->ioc_bulk;
+		if ((!config) || (!net_config)) {
+			return -1;
+		}
 
-        case IOC_LIBCFS_TESTPROTOCOMPAT:
+		return lnet_get_net(config->ioc_count,
+				    &config->ioc_ncpts,
+				    &config->ioc_nid,
+				    &config->ioc_config_u.net.peer_to,
+				    &config->ioc_config_u.net.peer_cr,
+				    &config->ioc_config_u.net.peer_buf_cr,
+				    &config->ioc_config_u.net.credits,
+				    net_config);
+	}
+
+	case IOC_LIBCFS_GET_LNET_STATS:
+	{
+		struct libcfs_ioctl_lnet_stats *lnet_stats;
+		lnet_stats = arg;
+
+		lnet_counters_get(&lnet_stats->cntrs);
+		return 0;
+	}
+
+#if defined(__KERNEL__) && defined(LNET_ROUTER)
+	case IOC_LIBCFS_ENABLE_RTR:
+		/* TODO: The code to handle IOC_LIBCFS_ENABLE_RTR will be
+		 * added in subsequent patches
+		 */
+		config = arg;
+		return 0;
+
+	case IOC_LIBCFS_ADD_BUF:
+		/* TODO: The code to handle IOC_LIBCFS_ADD_BUF will be
+		 * added in subsequent patches
+		 */
+		config = arg;
+		return 0;
+#endif
+
+	case IOC_LIBCFS_GET_BUF:
+	{
+		struct libcfs_ioctl_pool_cfg_s *pool_cfg;
+		config = arg;
+		pool_cfg = (struct libcfs_ioctl_pool_cfg_s *)config->ioc_bulk;
+		return lnet_get_rtrpools(config->ioc_count, pool_cfg);
+	}
+
+	case IOC_LIBCFS_GET_PEER_INFO:
+	{
+		struct libcfs_ioctl_peer *peer_info = arg;
+		return lnet_get_peers
+		  (peer_info->ioc_count,
+		   &peer_info->ioc_nid,
+		   peer_info->lnd_u.peer_credits.aliveness,
+		   &peer_info->lnd_u.peer_credits.ncpt,
+		   &peer_info->lnd_u.peer_credits.refcount,
+		   &peer_info->lnd_u.peer_credits.ni_peertxcredits,
+		   &peer_info->lnd_u.peer_credits.peertxcredits,
+		   &peer_info->lnd_u.peer_credits.peerrtrcredits,
+		   &peer_info->lnd_u.peer_credits.peerminrtrcredtis,
+		   &peer_info->lnd_u.peer_credits.peertxqnob);
+	}
+
+	case IOC_LIBCFS_NOTIFY_ROUTER:
+		return lnet_notify(NULL, data->ioc_nid, data->ioc_flags,
+				   cfs_time_current() -
+				   cfs_time_seconds(cfs_time_current_sec() -
+						    (time_t)data->ioc_u64[0]));
+
+	case IOC_LIBCFS_PORTALS_COMPATIBILITY:
+		/* This can be removed once lustre stops calling it */
+		return 0;
+
+	case IOC_LIBCFS_LNET_DIST:
+		rc = LNetDist(data->ioc_nid, &data->ioc_nid, &data->ioc_u32[1]);
+		if (rc < 0 && rc != -EHOSTUNREACH)
+			return rc;
+
+		data->ioc_u32[0] = rc;
+		return 0;
+
+	case IOC_LIBCFS_TESTPROTOCOMPAT:
 		lnet_net_lock(LNET_LOCK_EX);
 		the_lnet.ln_testprotocompat = data->ioc_flags;
 		lnet_net_unlock(LNET_LOCK_EX);
-                return 0;
+		return 0;
 
-        case IOC_LIBCFS_PING:
-                id.nid = data->ioc_nid;
-                id.pid = data->ioc_u32[0];
-                rc = lnet_ping(id, data->ioc_u32[1], /* timeout */
-                               (lnet_process_id_t *)data->ioc_pbuf1,
-                               data->ioc_plen1/sizeof(lnet_process_id_t));
-                if (rc < 0)
-                        return rc;
-                data->ioc_count = rc;
-                return 0;
+	case IOC_LIBCFS_PING:
+		id.nid = data->ioc_nid;
+		id.pid = data->ioc_u32[0];
+		rc = lnet_ping(id, data->ioc_u32[1], /* timeout */
+			       (lnet_process_id_t *)data->ioc_pbuf1,
+			       data->ioc_plen1/sizeof(lnet_process_id_t));
+		if (rc < 0)
+			return rc;
+		data->ioc_count = rc;
+		return 0;
 
-        case IOC_LIBCFS_DEBUG_PEER: {
-                /* CAVEAT EMPTOR: this one designed for calling directly; not
-                 * via an ioctl */
-                id = *((lnet_process_id_t *) arg);
+	case IOC_LIBCFS_DEBUG_PEER: {
+		/* CAVEAT EMPTOR: this one designed for calling directly; not
+		 * via an ioctl */
+		id = *((lnet_process_id_t *) arg);
 
-                lnet_debug_peer(id.nid);
+		lnet_debug_peer(id.nid);
 
-                ni = lnet_net2ni(LNET_NIDNET(id.nid));
-                if (ni == NULL) {
-                        CDEBUG(D_WARNING, "No NI for %s\n", libcfs_id2str(id));
-                } else {
-                        if (ni->ni_lnd->lnd_ctl == NULL) {
-                                CDEBUG(D_WARNING, "No ctl for %s\n",
-                                       libcfs_id2str(id));
-                        } else {
-                                (void)ni->ni_lnd->lnd_ctl(ni, cmd, arg);
-                        }
+		ni = lnet_net2ni(LNET_NIDNET(id.nid));
+		if (ni == NULL) {
+			CDEBUG(D_WARNING, "No NI for %s\n", libcfs_id2str(id));
+		} else {
+			if (ni->ni_lnd->lnd_ctl == NULL) {
+				CDEBUG(D_WARNING, "No ctl for %s\n",
+				       libcfs_id2str(id));
+			} else {
+				(void)ni->ni_lnd->lnd_ctl(ni, cmd, arg);
+			}
 
-                        lnet_ni_decref(ni);
-                }
-                return 0;
-        }
+			lnet_ni_decref(ni);
+		}
+		return 0;
+	}
 
         default:
                 ni = lnet_net2ni(data->ioc_net);
