@@ -150,7 +150,7 @@ static int ll_dir_filler(void *_hash, struct page *page0)
         struct mdt_body *body;
         struct md_op_data *op_data;
 	__u64 hash = *((__u64 *)_hash);
-        struct page **page_pool;
+        struct page **page_pool = NULL;
         struct page *page;
         struct lu_dirpage *dp;
 	int max_pages = ll_i2sbi(inode)->ll_md_brw_size >> PAGE_CACHE_SHIFT;
@@ -163,9 +163,14 @@ static int ll_dir_filler(void *_hash, struct page *page0)
         CDEBUG(D_VFSTRACE, "VFS Op:inode=%lu/%u(%p) hash "LPU64"\n",
                inode->i_ino, inode->i_generation, inode, hash);
 
+	npages = i_size_read(inode) >> PAGE_CACHE_SHIFT;
+	if (npages > 1 && npages < max_pages)
+		max_pages = npages;
 	LASSERT(max_pages > 0 && max_pages <= MD_MAX_BRW_PAGES);
 
-        OBD_ALLOC(page_pool, sizeof(page) * max_pages);
+	if (max_pages > 1)
+		OBD_ALLOC(page_pool, sizeof(page) * max_pages);
+
         if (page_pool != NULL) {
                 page_pool[0] = page0;
         } else {
