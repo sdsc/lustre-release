@@ -947,6 +947,7 @@ finish:
                         RETURN(0);
                 }
         } else {
+                static int warned;
                 struct obd_connect_data *ocd;
                 struct obd_export *exp;
                 int ret;
@@ -1001,22 +1002,22 @@ finish:
                         CERROR("Inodebits aware server returned zero compatible"
                                " bits?\n");
 
-                if ((ocd->ocd_connect_flags & OBD_CONNECT_VERSION) &&
+                if (!warned && (ocd->ocd_connect_flags & OBD_CONNECT_VERSION) &&
                     (ocd->ocd_version > LUSTRE_VERSION_CODE +
                                         LUSTRE_VERSION_OFFSET_WARN ||
                      ocd->ocd_version < LUSTRE_VERSION_CODE -
                                         LUSTRE_VERSION_OFFSET_WARN)) {
                         /* Sigh, some compilers do not like #ifdef in the middle
                            of macro arguments */
+                        const char *older = "older than client. "
+                                            "Consider upgrading server";
 #ifdef __KERNEL__
-                        const char *older = "older. Consider upgrading server "
-                                            "or downgrading client";
+                        const char *newer = "newer than client. "
+                                            "Consider recompiling application";
 #else
-                        const char *older = "older. Consider recompiling this "
-                                            "application";
-#endif
-                        const char *newer = "newer than client version. "
+                        const char *newer = "newer than client. "
                                             "Consider upgrading client";
+#endif
 
                         LCONSOLE_WARN("Server %s version (%d.%d.%d.%d) "
                                       "is much %s (%s)\n",
@@ -1027,6 +1028,7 @@ finish:
                                       OBD_OCD_VERSION_FIX(ocd->ocd_version),
                                       ocd->ocd_version > LUSTRE_VERSION_CODE ?
                                       newer : older, LUSTRE_VERSION_STRING);
+                        warned = 1;
                 }
 
                 if (ocd->ocd_connect_flags & OBD_CONNECT_CKSUM) {
