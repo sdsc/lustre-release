@@ -423,3 +423,64 @@ lnet_debug_peer(lnet_nid_t nid)
 
 	lnet_net_unlock(cpt);
 }
+
+int lnet_get_peers(int count, __u64 *nid, char *aliveness,
+		   int *ncpt, int *refcount,
+		   int *ni_peertxcredits, int *peertxcredits,
+		   int *peerrtrcredits, int *peerminrtrcredtis,
+		   int *peertxqnob)
+{
+	struct lnet_peer_table	*ptable;
+	lnet_peer_t		*lp, *tmp;
+	int			j;
+	int			lncpt, found = 0;
+
+	/* get the number of CPTs */
+	lncpt = cfs_percpt_number(the_lnet.ln_peer_tables);
+	/* if the cpt number to be examined is >= the number of cpts in
+	 * the system then indicate that there is no more cpts to examin
+	 */
+	if (*ncpt > lncpt)
+		return -1;
+
+	/* get the current table */
+	ptable = the_lnet.ln_peer_tables[*ncpt];
+	/* if the ptable is NULL then there are no more cpts to examine */
+	if (!ptable)
+		return -1;
+
+	lnet_net_lock(*ncpt);
+
+	for (j = 0; j < LNET_PEER_HASH_SIZE; j++) {
+		cfs_list_t *peers = &ptable->pt_hash[j];
+
+		cfs_list_for_each_entry_safe(lp, tmp, peers,
+					     lp_hashlist) {
+			if (count-- == 0) {
+				lnet_peer_addref_locked(lp);
+
+				sprintf(aliveness, "NA");
+				if (lnet_isrouter(lp) || lnet_peer_aliveness_enabled(lp))
+					sprintf(aliveness, lp->lp_alive ? "up" : "down");
+
+				*nid = lp->lp_nid;
+				*refcount = lp->lp_refcount;
+				*ni_peertxcredits = lp->lp_ni->ni_peertxcredits;
+				*peertxcredits = lp->lp_txcredits;
+				*peerrtrcredits = lp->lp_rtrcredits;
+				*peerminrtrcredtis = lp->lp_mintxcredits;
+				*peertxqnob = lp->lp_txqnob;
+
+				lnet_peer_decref_locked(lp);
+
+				found = 1;
+				break;
+			}
+		}
+
+	}
+	lnet_net_unlock(*ncpt);
+
+	*ncpt = lncpt;
+	return (found) ? 0 : -ENOENT;
+}
