@@ -35,11 +35,8 @@
  */
 
 #define DEBUG_SUBSYSTEM S_LNET
-/* TODO - This will be completed in the subsequent patches.
- * For this patch the MAX is hardcoded, in the next patch
- * the value will be set to the largest data structure that
- * can be sent from user space */
-#define LIBCFS_MAX_KERNEL_BUF_LEN 2048
+#define LIBCFS_MAX_KERNEL_BUF_LEN (sizeof(struct libcfs_ioctl_net_config) + \
+				   sizeof(struct libcfs_ioctl_config_data))
 
 #include <libcfs/libcfs.h>
 #include <libcfs/libcfs_crypto.h>
@@ -229,10 +226,11 @@ static int libcfs_ioctl_handle(struct cfs_psdev_file *pfile, unsigned long cmd,
 	int err;
 	ENTRY;
 
-	/* TODO: this is going to change in subsequent patches
-	 * to exclude messages which use the new data structures */
-	if ((cmd <= IOC_LIBCFS_LNETST) ||
-	    (cmd >= IOC_LIBCFS_REGISTER_MYNID)) {
+	/* The libcfs_ioctl_data_adjust() function performs adjustment
+	   operations on the libcfs_ioctl_data structure to make
+	   it usable by the code.  This doesn't need to be called
+	   for new data structures added. */
+	if (hdr->ioc_version == LIBCFS_IOCTL_VERSION) {
 		data = container_of(hdr, struct libcfs_ioctl_data, ioc_hdr);
 		err = libcfs_ioctl_data_adjust(data);
 		if (err != 0) {
