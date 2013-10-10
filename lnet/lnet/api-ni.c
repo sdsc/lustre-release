@@ -1752,6 +1752,7 @@ int
 LNetCtl(unsigned int cmd, void *arg)
 {
 	struct libcfs_ioctl_data *data = arg;
+	struct libcfs_ioctl_config_data_s *config;
 	lnet_process_id_t         id = {0};
 	lnet_ni_t                *ni;
 	int                       rc;
@@ -1769,18 +1770,113 @@ LNetCtl(unsigned int cmd, void *arg)
 		return lnet_fail_nid(data->ioc_nid, data->ioc_count);
 
 	case IOC_LIBCFS_ADD_ROUTE:
-		rc = lnet_add_route(data->ioc_net, data->ioc_count,
-				    data->ioc_nid, data->ioc_priority, 0);
+		/* TODO: this code will change in subsequent patches to
+		 * handle extra parameters added for DLC
+		 */
+		config = arg;
+		rc = lnet_add_route(config->ioc_net,
+				    config->ioc_config_u.route.hop,
+				    config->ioc_nid,
+				    config->ioc_config_u.route.priority,
+				    0);
 		return (rc != 0) ? rc : lnet_check_routes();
 
 	case IOC_LIBCFS_DEL_ROUTE:
-		return lnet_del_route(data->ioc_net, data->ioc_nid);
+		config = arg;
+		return lnet_del_route(config->ioc_net,
+				      config->ioc_nid);
 
 	case IOC_LIBCFS_GET_ROUTE:
-		return lnet_get_route(data->ioc_count,
-				      &data->ioc_net, &data->ioc_count,
-				      &data->ioc_nid, &data->ioc_flags,
-				      &data->ioc_priority);
+		config = arg;
+		return lnet_get_route(config->ioc_count,
+				      &config->ioc_net,
+				      &config->ioc_config_u.route.hop,
+				      &config->ioc_nid,
+				      &config->ioc_config_u.route.flags,
+				      &config->ioc_config_u.route.priority);
+
+	case IOC_LIBCFS_ADD_NET:
+		/* TODO: The code to handle IOC_LIBCFS_ADD_NET will be
+		 * added in subsequent patches
+		 */
+		config = arg;
+		return 0;
+
+	case IOC_LIBCFS_DEL_NET:
+		/* TODO: The code to handle IOC_LIBCFS_DEL_NET will be
+		 * added in subsequent patches
+		 */
+		config = arg;
+		return 0;
+
+	case IOC_LIBCFS_GET_NET:
+	{
+		struct libcfs_ioctl_net_config_s *net_config;
+		config = arg;
+		net_config = (struct libcfs_ioctl_net_config_s *)config->ioc_bulk;
+		if ((!config) || (!net_config)) {
+			return -1;
+		}
+
+		return lnet_get_net(config->ioc_count,
+				    &config->ioc_ncpts,
+				    &config->ioc_nid,
+				    &config->ioc_config_u.net.peer_to,
+				    &config->ioc_config_u.net.peer_cr,
+				    &config->ioc_config_u.net.peer_buf_cr,
+				    &config->ioc_config_u.net.credits,
+				    net_config);
+	}
+
+	case IOC_LIBCFS_GET_LNET_STATS:
+	{
+		struct libcfs_ioctl_lnet_stats *lnet_stats;
+		lnet_stats = arg;
+
+		lnet_counters_get(&lnet_stats->cntrs);
+		return 0;
+	}
+
+#if defined(__KERNEL__) && defined(LNET_ROUTER)
+	case IOC_LIBCFS_ENABLE_RTR:
+		/* TODO: The code to handle IOC_LIBCFS_ENABLE_RTR will be
+		 * added in subsequent patches
+		 */
+		config = arg;
+		return 0;
+
+	case IOC_LIBCFS_ADD_BUF:
+		/* TODO: The code to handle IOC_LIBCFS_ADD_BUF will be
+		 * added in subsequent patches
+		 */
+		config = arg;
+		return 0;
+#endif
+
+	case IOC_LIBCFS_GET_BUF:
+	{
+		struct libcfs_ioctl_pool_cfg_s *pool_cfg;
+		config = arg;
+		pool_cfg = (struct libcfs_ioctl_pool_cfg_s *)config->ioc_bulk;
+		return lnet_get_rtrpools(config->ioc_count, pool_cfg);
+	}
+
+	case IOC_LIBCFS_GET_PEER_INFO:
+	{
+		struct libcfs_ioctl_peer *peer_info = arg;
+		return lnet_get_peers
+		  (peer_info->ioc_count,
+		   &peer_info->ioc_nid,
+		   peer_info->lnd_u.peer_credits.aliveness,
+		   &peer_info->lnd_u.peer_credits.ncpt,
+		   &peer_info->lnd_u.peer_credits.refcount,
+		   &peer_info->lnd_u.peer_credits.ni_peertxcredits,
+		   &peer_info->lnd_u.peer_credits.peertxcredits,
+		   &peer_info->lnd_u.peer_credits.peerrtrcredits,
+		   &peer_info->lnd_u.peer_credits.peerminrtrcredtis,
+		   &peer_info->lnd_u.peer_credits.peertxqnob);
+	}
+
 	case IOC_LIBCFS_NOTIFY_ROUTER:
 		return lnet_notify(NULL, data->ioc_nid, data->ioc_flags,
 				   cfs_time_current() -
