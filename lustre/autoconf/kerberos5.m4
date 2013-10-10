@@ -103,11 +103,11 @@ AC_DEFUN([AC_KERBEROS_V5],[
 
   dnl Check for krb5int_derive_key
   AC_CHECK_LIB($gssapi_lib, krb5int_derive_key,
-    AC_DEFINE(HAVE_KRB5INT_DERIVE_KEY, 1, [Define this if the function krb5int_derive_key is available]), ,$KRBLIBS)
+    [HAVE_KRB5INT_DERIVE_KEY=1; AC_DEFINE(HAVE_KRB5INT_DERIVE_KEY, 1, [Define this if the function krb5int_derive_key is available])], ,$KRBLIBS)
 
   dnl Check for krb5_derive_key
   AC_CHECK_LIB($gssapi_lib, krb5_derive_key,
-    AC_DEFINE(HAVE_KRB5_DERIVE_KEY, 1, [Define this if the function krb5_derive_key is available]), ,$KRBLIBS)
+    [HAVE_KRB5_DERIVE_KEY=1; AC_DEFINE(HAVE_KRB5_DERIVE_KEY, 1, [Define this if the function krb5_derive_key is available])], ,$KRBLIBS)
 
   AS_IF([test "x$HAVE_KRB5INT_DERIVE_KEY" = "x1" -o "x$HAVE_KRB5_DERIVE_KEY" = "x1"],
         [AC_DEFINE(HAVE_KRB5, 1, [Define this if you have MIT Kerberos libraries])],
