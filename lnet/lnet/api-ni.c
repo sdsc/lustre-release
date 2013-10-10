@@ -1752,6 +1752,7 @@ int
 LNetCtl(unsigned int cmd, void *arg)
 {
 	struct libcfs_ioctl_data *data = arg;
+	struct libcfs_ioctl_config_data_s *config;
 	lnet_process_id_t         id = {0};
 	lnet_ni_t                *ni;
 	int                       rc;
@@ -1774,13 +1775,51 @@ LNetCtl(unsigned int cmd, void *arg)
 		return (rc != 0) ? rc : lnet_check_routes();
 
 	case IOC_LIBCFS_DEL_ROUTE:
-		return lnet_del_route(data->ioc_net, data->ioc_nid);
+		config = arg;
+		return lnet_del_route(config->ioc_net,
+				      config->ioc_nid);
 
 	case IOC_LIBCFS_GET_ROUTE:
-		return lnet_get_route(data->ioc_count,
-				      &data->ioc_net, &data->ioc_count,
-				      &data->ioc_nid, &data->ioc_flags,
-				      &data->ioc_priority);
+		config = arg;
+		return lnet_get_route(config->ioc_count,
+				      &config->ioc_net,
+				      &config->ioc_config_u.route.hop,
+				      &config->ioc_nid,
+				      &config->ioc_config_u.route.flags,
+				      &config->ioc_config_u.route.priority);
+
+	case IOC_LIBCFS_ADD_NET:
+		return 0;
+
+	case IOC_LIBCFS_DEL_NET:
+		return 0;
+
+	case IOC_LIBCFS_GET_NET:
+		return 0;
+
+	case IOC_LIBCFS_GET_LNET_STATS:
+	{
+		struct libcfs_ioctl_lnet_stats *lnet_stats;
+		lnet_stats = arg;
+
+		lnet_counters_get(&lnet_stats->cntrs);
+		return 0;
+	}
+
+#if defined(__KERNEL__) && defined(LNET_ROUTER)
+	case IOC_LIBCFS_ENABLE_RTR:
+		return 0;
+
+	case IOC_LIBCFS_ADD_BUF:
+		return 0;
+#endif
+
+	case IOC_LIBCFS_GET_BUF:
+		return 0;
+
+	case IOC_LIBCFS_GET_PEER_INFO:
+		return 0;
+
 	case IOC_LIBCFS_NOTIFY_ROUTER:
 		return lnet_notify(NULL, data->ioc_nid, data->ioc_flags,
 				   cfs_time_current() -

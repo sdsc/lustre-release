@@ -1123,12 +1123,12 @@ jt_ptl_fail_nid (int argc, char **argv)
 int
 jt_ptl_add_route (int argc, char **argv)
 {
-        struct libcfs_ioctl_data data;
-        lnet_nid_t               gateway_nid;
-        unsigned int             hops = 1;
+	struct libcfs_ioctl_config_data_s data;
+	lnet_nid_t               gateway_nid;
+	unsigned int             hops = 1;
 	unsigned int		 priority = 0;
-        char                    *end;
-        int                      rc;
+	char                    *end;
+	int                      rc;
 
 	if (argc < 2 || argc > 4) {
 		fprintf(stderr, "usage: %s gateway [hopcount [priority]]\n",
@@ -1136,14 +1136,14 @@ jt_ptl_add_route (int argc, char **argv)
 		return -1;
 	}
 
-        if (!g_net_is_set(argv[0]))
-                return (-1);
+	if (!g_net_is_set(argv[0]))
+		return -1;
 
-        gateway_nid = libcfs_str2nid(argv[1]);
-        if (gateway_nid == LNET_NID_ANY) {
-                fprintf (stderr, "Can't parse gateway NID \"%s\"\n", argv[1]);
-                return (-1);
-        }
+	gateway_nid = libcfs_str2nid(argv[1]);
+	if (gateway_nid == LNET_NID_ANY) {
+		fprintf(stderr, "Can't parse gateway NID \"%s\"\n", argv[1]);
+		return -1;
+	}
 
 	if (argc > 2) {
 		hops = strtoul(argv[2], &end, 0);
@@ -1165,49 +1165,50 @@ jt_ptl_add_route (int argc, char **argv)
 
 	LIBCFS_IOC_INIT(data);
 	data.ioc_net = g_net;
-	data.ioc_count = hops;
+	data.ioc_config_u.route.hop = hops;
 	data.ioc_nid = gateway_nid;
-	data.ioc_priority = priority;
+	data.ioc_config_u.route.priority = priority;
 
-        rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_ROUTE, &data);
-        if (rc != 0) {
-                fprintf (stderr, "IOC_LIBCFS_ADD_ROUTE failed: %s\n", strerror (errno));
-                return (-1);
-        }
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_ADD_ROUTE, &data);
+	if (rc != 0) {
+		fprintf(stderr, "IOC_LIBCFS_ADD_ROUTE failed: %s\n",
+			strerror(errno));
+		return -1;
+	}
 
-        return (0);
+	return 0;
 }
 
 int
 jt_ptl_del_route (int argc, char **argv)
 {
-        struct libcfs_ioctl_data data;
-        lnet_nid_t               nid;
-        int                      rc;
+	struct libcfs_ioctl_config_data_s data;
+	lnet_nid_t               nid;
+	int                      rc;
 
-        if (argc != 2) {
-                fprintf (stderr, "usage: %s gatewayNID\n", argv[0]);
-                return (0);
-        }
+	if (argc != 2) {
+		fprintf(stderr, "usage: %s gatewayNID\n", argv[0]);
+		return 0;
+	}
 
-        if (!libcfs_str2anynid(&nid, argv[1])) {
-                fprintf (stderr, "Can't parse gateway NID "
-                         "\"%s\"\n", argv[1]);
-                return -1;
-        }
+	if (!libcfs_str2anynid(&nid, argv[1])) {
+		fprintf(stderr, "Can't parse gateway NID "
+			"\"%s\"\n", argv[1]);
+		return -1;
+	}
 
-        LIBCFS_IOC_INIT(data);
-        data.ioc_net = g_net_set ? g_net : LNET_NIDNET(LNET_NID_ANY);
-        data.ioc_nid = nid;
+	LIBCFS_IOC_INIT(data);
+	data.ioc_net = g_net_set ? g_net : LNET_NIDNET(LNET_NID_ANY);
+	data.ioc_nid = nid;
 
-        rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DEL_ROUTE, &data);
-        if (rc != 0) {
-                fprintf (stderr, "IOC_LIBCFS_DEL_ROUTE (%s) failed: %s\n",
-                         libcfs_nid2str(nid), strerror (errno));
-                return (-1);
-        }
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DEL_ROUTE, &data);
+	if (rc != 0) {
+		fprintf(stderr, "IOC_LIBCFS_DEL_ROUTE (%s) failed: %s\n",
+			libcfs_nid2str(nid), strerror(errno));
+		return -1;
+	}
 
-        return (0);
+	return 0;
 }
 
 int
@@ -1272,40 +1273,39 @@ jt_ptl_notify_router (int argc, char **argv)
 int
 jt_ptl_print_routes (int argc, char **argv)
 {
-        struct libcfs_ioctl_data  data;
-        int                       rc;
-        int                       index;
-        __u32                     net;
-        lnet_nid_t                nid;
-        unsigned int              hops;
-        int                       alive;
+	struct libcfs_ioctl_config_data_s  data;
+	int                       rc;
+	int                       index;
+	__u32                     net;
+	lnet_nid_t                nid;
+	unsigned int              hops;
+	int                       alive;
 	unsigned int		  pri;
 
-        for (index = 0;;index++)
-        {
-                LIBCFS_IOC_INIT(data);
-                data.ioc_count = index;
+	for (index = 0; ; index++) {
+		LIBCFS_IOC_INIT(data);
+		data.ioc_count = index;
 
-                rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_ROUTE, &data);
-                if (rc != 0)
-                        break;
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_ROUTE, &data);
+		if (rc != 0)
+			break;
 
-                net     = data.ioc_net;
-                hops    = data.ioc_count;
-                nid     = data.ioc_nid;
-                alive   = data.ioc_flags;
-		pri     = data.ioc_priority;
+		net     = data.ioc_net;
+		hops    = data.ioc_config_u.route.hop;
+		nid     = data.ioc_nid;
+		alive   = data.ioc_config_u.route.flags;
+		pri     = data.ioc_config_u.route.priority;
 
 		printf("net %18s hops %u gw %32s %s pri %u\n",
 		       libcfs_net2str(net), hops,
 		       libcfs_nid2str(nid), alive ? "up" : "down", pri);
-        }
+	}
 
-        if (errno != ENOENT)
-                fprintf(stderr, "Error getting routes: %s: check dmesg.\n",
-                        strerror(errno));
+	if (errno != ENOENT)
+		fprintf(stderr, "Error getting routes: %s: check dmesg.\n",
+			strerror(errno));
 
-        return (0);
+	return 0;
 }
 
 static int
