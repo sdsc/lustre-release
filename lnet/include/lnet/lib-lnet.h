@@ -963,6 +963,11 @@ void lnet_peer_tables_cleanup(lnet_ni_t *ni);
 void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);
 void lnet_debug_peer(lnet_nid_t nid);
+int lnet_get_peers(int count, __u64 *nid, char *alivness,
+		   int *ncpt, int *refcount,
+		   int *ni_peertxcredits, int *peertxcredits,
+		   int *peerrtrcredits, int *peerminrtrcredtis,
+		   int *peertxqnob);
 
 #ifndef __KERNEL__
 static inline int
