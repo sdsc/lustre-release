@@ -552,6 +552,117 @@ lnet_destroy_routes (void)
         lnet_del_route(LNET_NIDNET(LNET_NID_ANY), LNET_NID_ANY);
 }
 
+static void
+lnet_fill_ni_info(struct lnet_ni *ni,
+		  __u32 *ncpts,
+		  __u64 *nid,
+		  int *peer_to,
+		  int *peer_cr,
+		  int *peer_buf_cr,
+		  int *credits,
+		  struct libcfs_ioctl_net_config_s *net_config)
+{
+	int i;
+
+	if (!ni) {
+		CERROR("ni is NULL!\n");
+		return;
+	}
+
+	if (!net_config) {
+		CERROR("net_config is NULL\n");
+		return;
+	}
+
+	if (ni->ni_interfaces[0]) {
+		int i;
+		for (i = 0; i < LNET_MAX_INTERFACES; i++) {
+			if (ni->ni_interfaces[i]) {
+				strncpy(net_config->ni_interfaces[i],
+					ni->ni_interfaces[i],
+					LNET_MAX_STR_LEN);
+			}
+		}
+		*nid = ni->ni_nid;
+	} else {
+		*nid = ni->ni_nid;
+	}
+	*peer_to = ni->ni_peertimeout;
+	*peer_cr = ni->ni_peertxcredits;
+	*peer_buf_cr = ni->ni_peerrtrcredits;
+	*credits = ni->ni_maxtxcredits;
+
+	/* TODO: grab the the_lnet.ln_ping_info_mutex before setting the
+	 * ni status.  This will be brought in, in a separate glue patch
+	 */
+	net_config->ni_status = ni->ni_status->ns_status;
+
+	for (i = 0;
+	     (ni->ni_cpts != NULL) && (i < ni->ni_ncpts) &&
+	     (i < LNET_MAX_SHOW_NUM_CPT);
+	     i++) {
+		net_config->cpts[i] = ni->ni_cpts[i];
+	}
+
+	*ncpts = ni->ni_ncpts;
+}
+
+int
+lnet_get_net(int idx,
+	     __u32 *ncpts,
+	     __u64 *nid,
+	     int *peer_to,
+	     int *peer_cr,
+	     int *peer_buf_cr,
+	     int *credits,
+	     struct libcfs_ioctl_net_config_s *net_config)
+{
+	struct lnet_ni	*ni;
+	cfs_list_t	*tmp;
+	int		cpt;
+	int		rc = -ENOENT;
+
+	cpt = lnet_net_lock_current();
+
+	cfs_list_for_each(tmp, &the_lnet.ln_nis) {
+		ni = cfs_list_entry(tmp, lnet_ni_t, ni_list);
+		if (idx-- == 0) {
+			rc = 0;
+			lnet_fill_ni_info(ni, ncpts, nid, peer_to, peer_cr,
+					  peer_buf_cr, credits, net_config);
+			break;
+		}
+	}
+
+	lnet_net_unlock(cpt);
+	return rc;
+}
+
+int lnet_get_rtrpools(int idx, struct libcfs_ioctl_pool_cfg_s *pool_cfg)
+{
+	int i, rc = -ENOENT, lidx, j;
+	if (the_lnet.ln_rtrpools == NULL)
+		return rc;
+
+	for (i = 0; i < LNET_NRBPOOLS; i++) {
+		lnet_rtrbufpool_t *rbp;
+		lnet_net_lock(LNET_LOCK_EX);
+		lidx = idx;
+		cfs_percpt_for_each(rbp, j, the_lnet.ln_rtrpools) {
+			if (lidx-- == 0) {
+				rc = 0;
+				pool_cfg->pools[i].npages = rbp[i].rbp_npages;
+				pool_cfg->pools[i].nbuffers = rbp[i].rbp_nbuffers;
+				pool_cfg->pools[i].credits = rbp[i].rbp_credits;
+				pool_cfg->pools[i].mincredits = rbp[i].rbp_mincredits;
+				break;
+			}
+		}
+		lnet_net_unlock(LNET_LOCK_EX);
+	}
+	return rc;
+}
+
 int
 lnet_get_route(int idx, __u32 *net, __u32 *hops,
 	       lnet_nid_t *gateway, __u32 *alive, __u32 *priority)
