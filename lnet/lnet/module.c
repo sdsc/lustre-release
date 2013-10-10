@@ -95,6 +95,9 @@ lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_hdr *hdr)
 	case IOC_LIBCFS_UNCONFIGURE:
 		return lnet_unconfigure();
 
+	case IOC_LIBCFS_ADD_NET:
+		return LNetCtl(cmd, hdr);
+
 	default:
 		/* Passing LNET_PID_ANY only gives me a ref if the net is up
 		 * already; I'll need it to ensure the net can't go down while
