@@ -67,7 +67,8 @@ int libcfs_ioctl_getdata_len(const struct libcfs_ioctl_hdr __user *arg,
 	if (err)
 		RETURN(err);
 
-	if (hdr.ioc_version != LIBCFS_IOCTL_VERSION) {
+	if ((hdr.ioc_version != LIBCFS_IOCTL_VERSION) &&
+	    (hdr.ioc_version != LIBCFS_IOCTL_VERSION2)) {
 		CERROR("LNET: version mismatch kernel vs application\n");
 		RETURN(-EINVAL);
 	}
@@ -132,34 +133,34 @@ libcfs_ioctl(struct file *file, unsigned int cmd, ulong_ptr_t arg)
 	struct cfs_psdev_file	 pfile;
 	int    rc = 0;
 
-	if ( _IOC_TYPE(cmd) != IOC_LIBCFS_TYPE || 
-	     _IOC_NR(cmd) < IOC_LIBCFS_MIN_NR  || 
-	     _IOC_NR(cmd) > IOC_LIBCFS_MAX_NR ) { 
-		CDEBUG(D_IOCTL, "invalid ioctl ( type %d, nr %d, size %d )\n", 
-		       _IOC_TYPE(cmd), _IOC_NR(cmd), _IOC_SIZE(cmd)); 
-		return (-EINVAL); 
-	} 
-	
+	if (_IOC_TYPE(cmd) != IOC_LIBCFS_TYPE ||
+	    _IOC_NR(cmd) < IOC_LIBCFS_MIN_NR  ||
+	    _IOC_NR(cmd) > IOC_LIBCFS_MAX_NR) {
+		CDEBUG(D_IOCTL, "invalid ioctl ( type %d, nr %d, size %d )\n",
+		       _IOC_TYPE(cmd), _IOC_NR(cmd), _IOC_SIZE(cmd));
+		return -EINVAL;
+	}
+
 	/* Handle platform-dependent IOC requests */
-	switch (cmd) { 
-	case IOC_LIBCFS_PANIC: 
-		if (!cfs_capable(CFS_CAP_SYS_BOOT)) 
-			return (-EPERM); 
+	switch (cmd) {
+	case IOC_LIBCFS_PANIC:
+		if (!cfs_capable(CFS_CAP_SYS_BOOT))
+			return -EPERM;
 		CERROR("debugctl-invoked panic");
 		KeBugCheckEx('LUFS', (ULONG_PTR)libcfs_ioctl, (ULONG_PTR)NULL, (ULONG_PTR)NULL, (ULONG_PTR)NULL);
 
 		return (0);
 	case IOC_LIBCFS_MEMHOG:
 
-		if (!cfs_capable(CFS_CAP_SYS_ADMIN)) 
+		if (!cfs_capable(CFS_CAP_SYS_ADMIN))
 			return -EPERM;
         break;
 	}
 
 	pfile.off = 0;
 	pfile.private_data = file->private_data;
-	if (libcfs_psdev_ops.p_ioctl != NULL) 
-		rc = libcfs_psdev_ops.p_ioctl(&pfile, cmd, (void *)arg); 
+	if (libcfs_psdev_ops.p_ioctl != NULL)
+		rc = libcfs_psdev_ops.p_ioctl(&pfile, cmd, (void *)arg);
 	else
 		rc = -EPERM;
 	return (rc);
