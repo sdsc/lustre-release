@@ -384,7 +384,7 @@ int mdt_hsm_action(struct mdt_thread_info *info)
 			MTI_NAME_MAXLEN);
 	hal->hal_count = 1;
 	hai = hai_first(hal);
-	hai->hai_action = HSMA_NONE;
+	hai_action_set(hai, HSMA_NONE);
 	hai->hai_cookie = 0;
 	hai->hai_gid = 0;
 	hai->hai_fid = info->mti_body->fid1;
@@ -400,7 +400,7 @@ int mdt_hsm_action(struct mdt_thread_info *info)
 	else
 		hca->hca_state = HPS_RUNNING;
 
-	switch (hai->hai_action) {
+	switch (hai_action_get(hai)) {
 	case HSMA_NONE:
 		hca->hca_action = HUA_NONE;
 		break;
@@ -420,7 +420,7 @@ int mdt_hsm_action(struct mdt_thread_info *info)
 		hca->hca_action = HUA_NONE;
 		CERROR("%s: Unknown hsm action: %d on "DFID"\n",
 		       mdt_obd_name(info->mti_mdt),
-		       hai->hai_action, PFID(&hai->hai_fid));
+		       hai_action_get(hai), PFID(&hai->hai_fid));
 		break;
 	}
 
@@ -449,11 +449,13 @@ int mdt_hsm_request(struct mdt_thread_info *info)
 	struct hsm_user_item		*hui;
 	struct hsm_action_list		*hal;
 	struct hsm_action_item		*hai;
+	struct hsm_restore_item		*hri;
 	const void			*data;
 	int				 hui_list_size;
 	int				 data_size;
 	enum hsm_copytool_action	 action = HSMA_NONE;
 	__u64				 compound_id;
+	int				 action_item_size;
 	int				 hal_size, i, rc;
 	ENTRY;
 
@@ -491,15 +493,19 @@ int mdt_hsm_request(struct mdt_thread_info *info)
 	/* end of code to be removed */
 	case HUA_ARCHIVE:
 		action = HSMA_ARCHIVE;
+		action_item_size = sizeof(*hai);
 		break;
 	case HUA_RESTORE:
-		action = HSMA_RESTORE;
+		action = HSMA_RESTORE | HSMA_FL_RESTORE_ITEM;
+		action_item_size = sizeof(*hri);
 		break;
 	case HUA_REMOVE:
 		action = HSMA_REMOVE;
+		action_item_size = sizeof(*hai);
 		break;
 	case HUA_CANCEL:
 		action = HSMA_CANCEL;
+		action_item_size = sizeof(*hai);
 		break;
 	default:
 		CERROR("Unknown hsm action: %d\n", hr->hr_action);
@@ -507,8 +513,8 @@ int mdt_hsm_request(struct mdt_thread_info *info)
 	}
 
 	hal_size = sizeof(*hal) + cfs_size_round(MTI_NAME_MAXLEN) /* fsname */ +
-		   (sizeof(*hai) + cfs_size_round(hr->hr_data_len)) *
-		   hr->hr_itemcount;
+		(action_item_size + cfs_size_round(hr->hr_data_len)) *
+		hr->hr_itemcount;
 
 	MDT_HSM_ALLOC(hal, hal_size);
 	if (hal == NULL)
@@ -528,8 +534,8 @@ int mdt_hsm_request(struct mdt_thread_info *info)
 		hai->hai_gid = 0;
 		hai->hai_fid = hui[i].hui_fid;
 		hai->hai_extent = hui[i].hui_extent;
-		memcpy(hai->hai_data, data, hr->hr_data_len);
-		hai->hai_len = sizeof(*hai) + hr->hr_data_len;
+		memcpy((char *)hai + action_item_size, data, hr->hr_data_len);
+		hai->hai_len = action_item_size + hr->hr_data_len;
 	}
 
 	rc = mdt_hsm_add_actions(info, hal, &compound_id);

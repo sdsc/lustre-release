@@ -360,7 +360,7 @@ int mdt_hsm_agent_send(struct mdt_thread_info *mti,
 	fail_request = false;
 	hai = hai_first(hal);
 	for (i = 0; i < hal->hal_count; i++, hai = hai_next(hai)) {
-		if (hai->hai_action != HSMA_CANCEL) {
+		if (hai_action_get(hai) != HSMA_CANCEL) {
 			struct mdt_object *obj;
 			struct md_hsm hsm;
 
@@ -368,7 +368,7 @@ int mdt_hsm_agent_send(struct mdt_thread_info *mti,
 			if (!IS_ERR(obj) && obj != NULL) {
 				mdt_object_put(mti->mti_env, obj);
 			} else {
-				if (hai->hai_action == HSMA_REMOVE)
+				if (hai_action_get(hai) == HSMA_REMOVE)
 					continue;
 
 				if (obj == NULL) {
@@ -479,7 +479,7 @@ out:
 		/* in case of error, we have to unregister requests */
 		hai = hai_first(hal);
 		for (i = 0; i < hal->hal_count; i++, hai = hai_next(hai)) {
-			if (hai->hai_action == HSMA_CANCEL)
+			if (hai_action_get(hai) == HSMA_CANCEL)
 				continue;
 			mdt_cdt_remove_request(cdt, hai->hai_cookie);
 		}

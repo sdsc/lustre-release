@@ -687,7 +687,7 @@ out:
 	 * restore after a force release which leaves the file with the
 	 * wrong size (can big bigger than the new size)
 	 */
-	if ((hai->hai_action == HSMA_RESTORE) &&
+	if ((hai_action_get(hai) == HSMA_RESTORE) &&
 	    (src_st.st_size < dst_st.st_size)) {
 		/*
 		 * make sure the file is on disk before reporting success.
@@ -1266,7 +1266,7 @@ static int ct_process_item(struct hsm_action_item *hai, const long hal_flags)
 
 		sprintf(fid, DFID, PFID(&hai->hai_fid));
 		CT_TRACE("'%s' action %s reclen %d, cookie="LPX64,
-			 fid, hsm_copytool_action2name(hai->hai_action),
+			 fid, hsm_copytool_action2name(hai_action_get(hai)),
 			 hai->hai_len, hai->hai_cookie);
 		rc = llapi_fid2path(opt.o_mnt, fid, path,
 				    sizeof(path), &recno, &linkno);
@@ -1276,7 +1276,7 @@ static int ct_process_item(struct hsm_action_item *hai, const long hal_flags)
 			CT_TRACE("processing file '%s'", path);
 	}
 
-	switch (hai->hai_action) {
+	switch (hai_action_get(hai)) {
 	/* set err_major, minor inside these functions */
 	case HSMA_ARCHIVE:
 		rc = ct_archive(hai, hal_flags);
@@ -1298,7 +1298,7 @@ static int ct_process_item(struct hsm_action_item *hai, const long hal_flags)
 		break;
 	default:
 		rc = -EINVAL;
-		CT_ERROR(rc, "unknown action %d, on '%s'", hai->hai_action,
+		CT_ERROR(rc, "unknown action %d, on '%s'", hai_action_get(hai),
 			 opt.o_mnt);
 		err_minor++;
 		ct_report_error(hai, 0, rc);

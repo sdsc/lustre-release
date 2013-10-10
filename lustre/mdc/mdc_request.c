@@ -2027,6 +2027,22 @@ int mdc_get_info_rpc(struct obd_export *exp,
 	RETURN(rc);
 }
 
+static void lustre_swab_hra(struct hsm_restore_attr *hra)
+{
+	__swab32s(&hra->hra_valid);
+	__swab64s(&hra->hra_size);
+	__swab64s(&hra->hra_atime);
+	__swab32s(&hra->hra_atime_ns);
+	__swab64s(&hra->hra_mtime);
+	__swab32s(&hra->hra_mtime_ns);
+	__swab32s(&hra->hra_uid);
+	__swab32s(&hra->hra_gid);
+	lustre_swab_lu_fid(&hra->hra_parent_fid);
+	__swab32s(&hra->hra_reserved_0); /* XXX? */
+	__swab32s(&hra->hra_reserved_1); /* XXX? */
+	__swab32s(&hra->hra_reserved_2); /* XXX? */
+}
+
 static void lustre_swab_hai(struct hsm_action_item *h)
 {
 	__swab32s(&h->hai_len);
@@ -2037,6 +2053,13 @@ static void lustre_swab_hai(struct hsm_action_item *h)
 	__swab64s(&h->hai_extent.offset);
 	__swab64s(&h->hai_extent.length);
 	__swab64s(&h->hai_gid);
+
+	if (hai_is_restore_item(h)) {
+		struct hsm_restore_item *hri;
+
+		hri = container_of(h, struct hsm_restore_item, hri_action_item);
+		lustre_swab_hra(&hri->hri_attr);
+	}
 }
 
 static void lustre_swab_hal(struct hsm_action_list *h)

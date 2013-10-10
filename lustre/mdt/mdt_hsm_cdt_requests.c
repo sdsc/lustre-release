@@ -58,7 +58,7 @@ void dump_requests(char *prefix, struct coordinator *cdt)
 		       prefix, PFID(&car->car_hai->hai_fid),
 		       PFID(&car->car_hai->hai_dfid),
 		       car->car_compound_id, car->car_hai->hai_cookie,
-		       hsm_copytool_action2name(car->car_hai->hai_action),
+		       hsm_copytool_action2name(hai_action_get(car->car_hai)),
 		       car->car_archive_id, car->car_flags,
 		       car->car_hai->hai_extent.offset,
 		       car->car_hai->hai_extent.length,
@@ -333,7 +333,7 @@ int mdt_cdt_add_request(struct coordinator *cdt, struct cdt_agent_req *new_car)
 	ENTRY;
 
 	/* cancel requests are not kept in memory */
-	LASSERT(new_car->car_hai->hai_action != HSMA_CANCEL);
+	LASSERT(hai_action_get(new_car->car_hai) != HSMA_CANCEL);
 
 	down_write(&cdt->cdt_request_lock);
 	car = cdt_find_request_nolock(cdt, new_car->car_hai->hai_cookie, NULL);
@@ -524,7 +524,7 @@ static int mdt_hsm_request_proc_show(struct seq_file *s, void *v)
 		   PFID(&car->car_hai->hai_fid),
 		   PFID(&car->car_hai->hai_dfid),
 		   car->car_compound_id, car->car_hai->hai_cookie,
-		   hsm_copytool_action2name(car->car_hai->hai_action),
+		   hsm_copytool_action2name(hai_action_get(car->car_hai)),
 		   car->car_archive_id, car->car_flags,
 		   car->car_hai->hai_extent.offset,
 		   car->car_hai->hai_extent.length,

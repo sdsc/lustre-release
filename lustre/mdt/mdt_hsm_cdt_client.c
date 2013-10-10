@@ -92,14 +92,14 @@ static int hsm_find_compatible_cb(const struct lu_env *env,
 		 * if the caller sets the cookie, we assume he also sets the
 		 * arr_archive_id
 		 */
-		if (hai->hai_action == HSMA_CANCEL && hai->hai_cookie != 0)
+		if (hai_action_get(hai) == HSMA_CANCEL && hai->hai_cookie != 0)
 			continue;
 
 		if (!lu_fid_eq(&hai->hai_fid, &larr->arr_hai.hai_fid))
 			continue;
 
 		/* HSMA_NONE is used to find running request for some FID */
-		if (hai->hai_action == HSMA_NONE) {
+		if (hai_action_get(hai) == HSMA_NONE) {
 			hcdcb->hal->hal_archive_id = larr->arr_archive_id;
 			hcdcb->hal->hal_flags = larr->arr_flags;
 			*hai = larr->arr_hai;
@@ -110,7 +110,7 @@ static int hsm_find_compatible_cb(const struct lu_env *env,
 		 */
 		hai->hai_cookie = larr->arr_hai.hai_cookie;
 		/* we read the archive number from the request we cancel */
-		if (hai->hai_action == HSMA_CANCEL &&
+		if (hai_action_get(hai) == HSMA_CANCEL &&
 		    hcdcb->hal->hal_archive_id == 0)
 			hcdcb->hal->hal_archive_id = larr->arr_archive_id;
 	}
@@ -142,7 +142,7 @@ static int hsm_find_compatible(const struct lu_env *env, struct mdt_device *mdt,
 		 * show the request to be canceled
 		 * if not we need to search by FID
 		 */
-		if (hai->hai_action == HSMA_CANCEL && hai->hai_cookie != 0)
+		if (hai_action_get(hai) == HSMA_CANCEL && hai->hai_cookie != 0)
 			ok_cnt++;
 		else
 			hai->hai_cookie = 0;
@@ -179,7 +179,10 @@ static bool hsm_action_is_needed(struct hsm_action_item *hai, int hal_an,
 		RETURN(true);
 
 	hsm_flags = hsm->mh_flags;
-	switch (hai->hai_action) {
+	switch (hai_action_get(hai)) {
+	case HSMA_NONE:
+		is_needed = false;
+		break;
 	case HSMA_ARCHIVE:
 		if (hsm_flags & HS_DIRTY || !(hsm_flags & HS_ARCHIVED))
 			is_needed = true;
@@ -203,7 +206,7 @@ static bool hsm_action_is_needed(struct hsm_action_item *hai, int hal_an,
 	CDEBUG(D_HSM, "fid="DFID" action=%s rq_flags="LPX64
 		      " extent="LPX64"-"LPX64" hsm_flags=%X %s\n",
 		      PFID(&hai->hai_fid),
-		      hsm_copytool_action2name(hai->hai_action), rq_flags,
+		      hsm_copytool_action2name(hai_action_get(hai)), rq_flags,
 		      hai->hai_extent.offset, hai->hai_extent.length,
 		      hsm->mh_flags,
 		      (is_needed ? "action needed" : "no action needed"));
@@ -231,7 +234,7 @@ static bool hal_is_sane(struct hsm_action_list *hal)
 	for (i = 0; i < hal->hal_count; i++, hai = hai_next(hai)) {
 		if (!fid_is_sane(&hai->hai_fid))
 			RETURN(false);
-		switch (hai->hai_action) {
+		switch (hai_action_get(hai)) {
 		case HSMA_NONE:
 		case HSMA_ARCHIVE:
 		case HSMA_RESTORE:
@@ -339,7 +342,7 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 		hai->hai_dfid = hai->hai_fid;
 
 		/* done here to manage first and redundant requests cases */
-		if (hai->hai_action == HSMA_RESTORE)
+		if (hai_action_get(hai) == HSMA_RESTORE)
 			is_restore = true;
 
 		/* test result of hsm_find_compatible()
@@ -347,10 +350,10 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 		 * do not record
 		 */
 		/* redundant case */
-		if (hai->hai_action != HSMA_CANCEL && hai->hai_cookie != 0)
+		if (hai_action_get(hai) != HSMA_CANCEL && hai->hai_cookie != 0)
 			continue;
 		/* cancel nothing case */
-		if (hai->hai_action == HSMA_CANCEL && hai->hai_cookie == 0)
+		if (hai_action_get(hai) == HSMA_CANCEL && hai->hai_cookie == 0)
 			continue;
 
 		/* new request or cancel request
@@ -365,21 +368,21 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 			 * is not mandatory, but restrict this
 			 * exception to admins. */
 			if (md_capable(mdt_ucred(mti), CFS_CAP_SYS_ADMIN) &&
-			    (hai->hai_action == HSMA_REMOVE ||
-			     hai->hai_action == HSMA_CANCEL))
+			    (hai_action_get(hai) == HSMA_REMOVE ||
+			     hai_action_get(hai) == HSMA_CANCEL))
 				goto record;
 			else
 				GOTO(out, rc = PTR_ERR(obj));
 		}
 
-		rc = hsm_action_permission(mti, obj, hai->hai_action);
+		rc = hsm_action_permission(mti, obj, hai_action_get(hai));
 		mdt_object_put(mti->mti_env, obj);
 
 		if (rc < 0)
 			GOTO(out, rc);
 
 		/* if action is cancel, also no need to check */
-		if (hai->hai_action == HSMA_CANCEL)
+		if (hai_action_get(hai) == HSMA_CANCEL)
 			goto record;
 
 		/* Check if an action is needed, compare request
@@ -403,7 +406,7 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 		 * warranty an agent can serve any combinaison of archive
 		 * backend
 		 */
-		if (hai->hai_action != HSMA_CANCEL && archive_id == 0) {
+		if (hai_action_get(hai) != HSMA_CANCEL && archive_id == 0) {
 			if (mh.mh_arch_id != 0)
 				archive_id = mh.mh_arch_id;
 			else
@@ -411,8 +414,16 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 		}
 
 		/* if restore, take an exclusive lock on layout */
-		if (hai->hai_action == HSMA_RESTORE) {
+		if (hai_action_get(hai) == HSMA_RESTORE) {
 			struct cdt_restore_handle *crh;
+			struct hsm_restore_item *hri;
+			struct hsm_restore_attr *hra;
+			struct md_attr *ma;
+
+			LASSERT(hai_is_restore_item(hai));
+			hri = container_of(hai, struct hsm_restore_item,
+					   hri_action_item);
+			hra = &hri->hri_attr;
 
 			/* in V1 only whole file is supported. */
 			if (hai->hai_extent.offset != 0)
@@ -440,6 +451,51 @@ int mdt_hsm_add_actions(struct mdt_thread_info *mti,
 				OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
 				GOTO(out, rc);
 			}
+
+			ma = &mti->mti_attr;
+			ma->ma_need = MA_INODE | MA_PFID;
+			rc = mdt_attr_get_complex(mti, obj, ma);
+			if (rc < 0) {
+				mdt_object_put(mti->mti_env, obj);
+				OBD_SLAB_FREE_PTR(crh, mdt_hsm_cdt_kmem);
+				GOTO(out, rc);
+			}
+
+			if (ma->ma_attr.la_valid & LA_SIZE) {
+				hra->hra_valid |= HRA_SIZE;
+				hra->hra_size = ma->ma_attr.la_size;
+			}
+
+			if (ma->ma_attr.la_valid & LA_ATIME) {
+				hra->hra_valid |= HRA_ATIME;
+				hra->hra_atime = ma->ma_attr.la_atime;
+				/* TODO hra->hra_atime_ns. */
+			}
+
+			if (ma->ma_attr.la_valid & LA_MTIME) {
+				hra->hra_valid |= HRA_MTIME;
+				hra->hra_mtime = ma->ma_attr.la_mtime;
+				/* TODO hra->hra_mtime_ns. */
+			}
+
+			if (ma->ma_attr.la_valid & LA_UID) {
+				hra->hra_valid |= HRA_UID;
+				hra->hra_uid = ma->ma_attr.la_uid;
+			}
+
+			if (ma->ma_attr.la_valid & LA_GID) {
+				hra->hra_valid |= HRA_GID;
+				hra->hra_gid = ma->ma_attr.la_gid;
+			}
+
+			if (ma->ma_valid & MA_PFID) {
+				hra->hra_valid |= HRA_PARENT_FID;
+				hra->hra_parent_fid = ma->ma_pfid;
+			}
+
+			/* XXX */
+			CERROR("la_valid "LPX64", hra_valid %x\n",
+			       ma->ma_attr.la_valid, hra->hra_valid);
 
 			/* we choose to not keep a keep a reference
 			 * on the object during the restore time which can be
@@ -498,7 +554,7 @@ int mdt_hsm_get_running(struct mdt_thread_info *mti,
 		car = mdt_cdt_find_request(cdt, 0, &hai->hai_fid);
 		if (car == NULL) {
 			hai->hai_cookie = 0;
-			hai->hai_action = HSMA_NONE;
+			hai_action_set(hai, HSMA_NONE);
 		} else {
 			*hai = *car->car_hai;
 			mdt_cdt_put_request(car);
@@ -557,7 +613,7 @@ int mdt_hsm_get_actions(struct mdt_thread_info *mti,
 
 	hai = hai_first(hal);
 	for (i = 0; i < hal->hal_count; i++, hai = hai_next(hai)) {
-		hai->hai_action = HSMA_NONE;
+		hai_action_set(hai, HSMA_NONE);
 		if (!fid_is_sane(&hai->hai_fid))
 			RETURN(-EINVAL);
 	}

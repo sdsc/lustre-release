@@ -90,7 +90,7 @@ init_agt_vars() {
 	export SINGLEAGT=${SINGLEAGT:-agt1}
 
 	export HSMTOOL=${HSMTOOL:-"lhsmtool_posix"}
-	export HSMTOOL_VERBOSE=${HSMTOOL_VERBOSE:-""}
+	export HSMTOOL_VERBOSE=${HSMTOOL_VERBOSE:-"-vvvvvvvv"}
 	export HSMTOOL_BASE=$(basename "$HSMTOOL" | cut -f1 -d" ")
 	HSM_ARCHIVE=$(copytool_device $SINGLEAGT)
 	HSM_ARCHIVE_NUMBER=2

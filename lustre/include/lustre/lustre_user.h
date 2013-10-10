@@ -1046,6 +1046,9 @@ enum hsm_copytool_action {
         HSMA_CANCEL  = 23
 };
 
+#define HSMA_ACTION_MASK 0xFF
+#define HSMA_FL_RESTORE_ITEM (1U << 31)
+
 static inline char *hsm_copytool_action2name(enum hsm_copytool_action  a)
 {
         switch  (a) {
@@ -1069,6 +1072,54 @@ struct hsm_action_item {
 	__u64      hai_gid;     /* grouplock id */
 	char       hai_data[0]; /* variable length */
 } __attribute__((packed));
+
+struct hsm_restore_attr {
+	__u32		hra_valid;
+	__u64		hra_size;
+	__u64		hra_atime;
+	__u32		hra_atime_ns;
+	__u64		hra_mtime;
+	__u32		hra_mtime_ns;
+	__u32		hra_uid;
+	__u32		hra_gid;
+	struct lu_fid	hra_parent_fid;
+	__u32		hra_reserved_0;
+	__u32		hra_reserved_1;
+	__u32		hra_reserved_2;
+}  __attribute__((__packed__));
+
+struct hsm_restore_item {
+	struct hsm_action_item	hri_action_item;
+	struct hsm_restore_attr	hri_attr;
+} __attribute__((__packed__));
+
+enum hra_valid {
+	HRA_SIZE	= 1 << 0,
+	HRA_ATIME	= 1 << 1,
+	HRA_MTIME	= 1 << 2,
+	HRA_UID		= 1 << 3,
+	HRA_GID		= 1 << 4,
+	HRA_PARENT_FID	= 1 << 5,
+};
+
+static inline enum hsm_copytool_action
+hai_action_get(const struct hsm_action_item *hai)
+{
+	return hai->hai_action & HSMA_ACTION_MASK;
+}
+
+static inline void
+hai_action_set(struct hsm_action_item *hai, enum hsm_copytool_action action)
+{
+	hai->hai_action = (hai->hai_action & ~HSMA_ACTION_MASK) | action;
+}
+
+static inline bool
+hai_is_restore_item(const struct hsm_action_item *hai)
+{
+	return hai_action_get(hai) == HSMA_RESTORE &&
+		(hai->hai_action & HSMA_FL_RESTORE_ITEM);
+}
 
 /*
  * helper function which print in hexa the first bytes of

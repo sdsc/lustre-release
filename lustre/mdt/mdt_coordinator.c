@@ -115,7 +115,7 @@ void mdt_hsm_dump_hal(int level, const char *prefix,
 		       prefix, i,
 		       PFID(&hai->hai_fid), PFID(&hai->hai_dfid),
 		       hal->hal_compound_id, hai->hai_cookie,
-		       hsm_copytool_action2name(hai->hai_action),
+		       hsm_copytool_action2name(hai_action_get(hai)),
 		       hai->hai_extent.offset,
 		       hai->hai_extent.length,
 		       hai->hai_gid, sz,
@@ -748,7 +748,7 @@ static int hsm_restore_cb(const struct lu_env *env,
 		/* update the cookie to avoid collision */
 		cdt->cdt_last_cookie = hai->hai_cookie + 1;
 
-	if (hai->hai_action != HSMA_RESTORE ||
+	if (hai_action_get(hai) != HSMA_RESTORE ||
 	    agent_req_in_final_state(larr->arr_status))
 		RETURN(0);
 
@@ -1090,7 +1090,7 @@ int mdt_hsm_add_hal(struct mdt_thread_info *mti,
 		 * this does not change the cancel record
 		 * it will be done when updating the request status
 		 */
-		if (hai->hai_action == HSMA_CANCEL) {
+		if (hai_action_get(hai) == HSMA_CANCEL) {
 			rc = mdt_agent_record_update(mti->mti_env, mti->mti_mdt,
 						     &hai->hai_cookie,
 						     1, ARS_CANCELED);
@@ -1120,7 +1120,7 @@ int mdt_hsm_add_hal(struct mdt_thread_info *mti,
 			continue;
 		}
 
-		if (hai->hai_action == HSMA_ARCHIVE) {
+		if (hai_action_get(hai) == HSMA_ARCHIVE) {
 			struct mdt_object *obj;
 			struct md_hsm hsm;
 
@@ -1278,7 +1278,7 @@ static int hsm_cdt_request_completed(struct mdt_thread_info *mti,
 			hsm_set_cl_error(&cl_flags, pgs->hpk_errval);
 		}
 
-		switch (car->car_hai->hai_action) {
+		switch (hai_action_get(car->car_hai)) {
 		case HSMA_ARCHIVE:
 			hsm_set_cl_event(&cl_flags, HE_ARCHIVE);
 			break;
@@ -1301,13 +1301,13 @@ static int hsm_cdt_request_completed(struct mdt_thread_info *mti,
 			       " %d is an unknown action\n",
 			       mdt_obd_name(mdt),
 			       pgs->hpk_cookie, PFID(&pgs->hpk_fid),
-			       car->car_hai->hai_action);
+			       hai_action_get(car->car_hai));
 			rc = -EINVAL;
 			break;
 		}
 	} else {
 		*status = ARS_SUCCEED;
-		switch (car->car_hai->hai_action) {
+		switch (hai_action_get(car->car_hai)) {
 		case HSMA_ARCHIVE:
 			hsm_set_cl_event(&cl_flags, HE_ARCHIVE);
 			/* set ARCHIVE keep EXIST and clear LOST and
@@ -1348,7 +1348,7 @@ static int hsm_cdt_request_completed(struct mdt_thread_info *mti,
 			       " %d is an unknown action\n",
 			       mdt_obd_name(mdt),
 			       pgs->hpk_cookie, PFID(&pgs->hpk_fid),
-			       car->car_hai->hai_action);
+			       hai_action_get(car->car_hai));
 			rc = -EINVAL;
 			break;
 		}
@@ -1369,7 +1369,7 @@ unlock:
 	/* we give back layout lock only if restore was successful or
 	 * if restore was canceled or if policy is to not retry
 	 * in other cases we just unlock the object */
-	if (car->car_hai->hai_action == HSMA_RESTORE &&
+	if (hai_action_get(car->car_hai) == HSMA_RESTORE &&
 	    (pgs->hpk_errval == 0 || pgs->hpk_errval == ECANCELED ||
 	     cdt->cdt_policy & CDT_NORETRY_ACTION)) {
 		struct cdt_restore_handle	*crh;
@@ -1454,7 +1454,7 @@ int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
 	CDEBUG(D_HSM, "Progress received for fid="DFID" cookie="LPX64
 		      " action=%s flags=%d err=%d fid="DFID" dfid="DFID"\n",
 		      PFID(&pgs->hpk_fid), pgs->hpk_cookie,
-		      hsm_copytool_action2name(car->car_hai->hai_action),
+		      hsm_copytool_action2name(hai_action_get(car->car_hai)),
 		      pgs->hpk_flags, pgs->hpk_errval,
 		      PFID(&car->car_hai->hai_fid),
 		      PFID(&car->car_hai->hai_dfid));
@@ -1462,12 +1462,12 @@ int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
 	/* progress is done on FID or data FID depending of the action and
 	 * of the copy progress */
 	/* for restore progress is used to send back the data FID to cdt */
-	if (car->car_hai->hai_action == HSMA_RESTORE &&
+	if (hai_action_get(car->car_hai) == HSMA_RESTORE &&
 	    lu_fid_eq(&car->car_hai->hai_fid, &car->car_hai->hai_dfid))
 		car->car_hai->hai_dfid = pgs->hpk_fid;
 
-	if ((car->car_hai->hai_action == HSMA_RESTORE ||
-	     car->car_hai->hai_action == HSMA_ARCHIVE) &&
+	if ((hai_action_get(car->car_hai) == HSMA_RESTORE ||
+	     hai_action_get(car->car_hai) == HSMA_ARCHIVE) &&
 	    (!lu_fid_eq(&pgs->hpk_fid, &car->car_hai->hai_dfid) &&
 	     !lu_fid_eq(&pgs->hpk_fid, &car->car_hai->hai_fid))) {
 		CERROR("%s: Progress on "DFID" for cookie "LPX64
@@ -1486,7 +1486,7 @@ int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
 		       " (flags=%d))\n",
 		       mdt_obd_name(mdt),
 		       PFID(&pgs->hpk_fid), pgs->hpk_cookie,
-		       hsm_copytool_action2name(car->car_hai->hai_action),
+		       hsm_copytool_action2name(hai_action_get(car->car_hai)),
 		       pgs->hpk_errval, pgs->hpk_flags);
 		GOTO(out, rc = -EINVAL);
 	}
@@ -1507,7 +1507,7 @@ int mdt_hsm_update_request_state(struct mdt_thread_info *mti,
 		CDEBUG(D_HSM, "Updating record: fid="DFID" cookie="LPX64
 			      " action=%s status=%s\n", PFID(&pgs->hpk_fid),
 		       pgs->hpk_cookie,
-		       hsm_copytool_action2name(car->car_hai->hai_action),
+		       hsm_copytool_action2name(hai_action_get(car->car_hai)),
 		       agent_req_status2name(status));
 
 		if (update_record) {
@@ -1616,7 +1616,7 @@ static int hsm_cancel_all_actions(struct mdt_device *mdt)
 		 * when copytool will return progress
 		 */
 
-		if (car->car_hai->hai_action == HSMA_CANCEL) {
+		if (hai_action_get(car->car_hai) == HSMA_CANCEL) {
 			mdt_cdt_put_request(car);
 			continue;
 		}
@@ -1653,7 +1653,7 @@ static int hsm_cancel_all_actions(struct mdt_device *mdt)
 
 		hai = hai_first(hal);
 		memcpy(hai, car->car_hai, car->car_hai->hai_len);
-		hai->hai_action = HSMA_CANCEL;
+		hai_action_set(hai, HSMA_CANCEL);
 		hal->hal_count = 1;
 
 		/* it is possible to safely call mdt_hsm_agent_send()
@@ -1702,7 +1702,10 @@ bool mdt_hsm_is_action_compat(const struct hsm_action_item *hai,
 	ENTRY;
 
 	hsm_flags = hsm->mh_flags;
-	switch (hai->hai_action) {
+	switch (hai_action_get(hai)) {
+	case HSMA_NONE:
+		is_compat = true;
+		break;
 	case HSMA_ARCHIVE:
 		if (!(hsm_flags & HS_NOARCHIVE) &&
 		    (hsm_flags & HS_DIRTY || !(hsm_flags & HS_ARCHIVED)))
@@ -1725,7 +1728,7 @@ bool mdt_hsm_is_action_compat(const struct hsm_action_item *hai,
 	CDEBUG(D_HSM, "fid="DFID" action=%s flags="LPX64
 		      " extent="LPX64"-"LPX64" hsm_flags=%.8X %s\n",
 		      PFID(&hai->hai_fid),
-		      hsm_copytool_action2name(hai->hai_action), rq_flags,
+		      hsm_copytool_action2name(hai_action_get(hai)), rq_flags,
 		      hai->hai_extent.offset, hai->hai_extent.length,
 		      hsm->mh_flags,
 		      (is_compat ? "compatible" : "uncompatible"));

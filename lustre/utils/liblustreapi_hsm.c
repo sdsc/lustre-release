@@ -79,6 +79,7 @@ struct hsm_copyaction_private {
 	const struct hsm_copytool_private	*ct_priv;
 	struct hsm_copy				 copy;
 	struct stat				 stat;
+	struct hsm_restore_attr			 hcp_restore_attr;
 };
 
 #include <libcfs/libcfs.h>
@@ -395,7 +396,20 @@ static int create_restore_volatile(struct hsm_copyaction_private *hcp,
 	char			 parent[PATH_MAX + 1];
 	const char		*mnt = hcp->ct_priv->mnt;
 	struct hsm_action_item	*hai = &hcp->copy.hc_hai;
+	const struct hsm_restore_attr *hra = &hcp->hcp_restore_attr;
 
+	llapi_error(LLAPI_MSG_ERROR, 0,
+		    "hai for restore of "DFID" hra_valid %x",
+		    PFID(&hai->hai_fid), hra->hra_valid);
+
+	if (0) {
+		/* FIXME Remove this. */
+		rc = ct_stat_by_fid(hcp->ct_priv, &hai->hai_fid, &hcp->stat);
+		if (rc < 0)
+			return -1;
+	}
+
+	/* FIXME Use hra_parent_fid. */
 	rc = fid_parent(mnt, &hai->hai_fid, parent, sizeof(parent));
 	if (rc < 0) {
 		/* fid_parent() failed, try to keep on going */
@@ -409,7 +423,7 @@ static int create_restore_volatile(struct hsm_copyaction_private *hcp,
 	if (fd < 0)
 		return fd;
 
-	rc = fchown(fd, hcp->stat.st_uid, hcp->stat.st_gid);
+	rc = fchown(fd, hra->hra_uid, hra->hra_gid);
 	if (rc < 0)
 		goto err_cleanup;
 
@@ -426,6 +440,19 @@ err_cleanup:
 	close(fd);
 
 	return rc;
+}
+
+static inline const struct hsm_restore_attr *
+hai_restore_attr_get(const struct hsm_action_item *hai)
+{
+	struct hsm_restore_item *hri;
+
+	if (!hai_is_restore_item(hai))
+		return NULL;
+
+	hri = container_of(hai, struct hsm_restore_item, hri_action_item);
+
+	return &hri->hri_attr;
 }
 
 /** Start processing an HSM action.
@@ -462,16 +489,17 @@ int llapi_hsm_action_begin(struct hsm_copyaction_private **phcp,
 	hcp->data_fd = -1;
 	hcp->ct_priv = ct;
 	hcp->copy.hc_hai = *hai;
+	/* Use action wrappers to clear HSMA flags. */
+	hai_action_set(&hcp->copy.hc_hai, hai_action_get(hai));
 	hcp->copy.hc_hai.hai_len = sizeof(*hai);
 
 	if (is_error)
 		goto ok_out;
 
-	if (hai->hai_action == HSMA_RESTORE) {
-		rc = ct_stat_by_fid(hcp->ct_priv, &hai->hai_fid, &hcp->stat);
-		if (rc < 0)
-			goto err_out;
+	if (hai_is_restore_item(hai))
+		hcp->hcp_restore_attr = *hai_restore_attr_get(hai);
 
+	if (hai_action_get(hai) == HSMA_RESTORE) {
 		rc = create_restore_volatile(hcp, restore_mdt_index,
 					     restore_open_flags);
 		if (rc < 0)
@@ -525,18 +553,28 @@ int llapi_hsm_action_end(struct hsm_copyaction_private **phcp,
 
 	hai = &hcp->copy.hc_hai;
 
-	if (hai->hai_action == HSMA_RESTORE && errval == 0) {
-		struct timeval tv[2];
+	if (hai_action_get(hai) == HSMA_RESTORE && errval == 0) {
+		const struct hsm_restore_attr *hra = &hcp->hcp_restore_attr;
+		struct timespec times[2];
 
+		llapi_error(LLAPI_MSG_ERROR, 0,
+			    "hai for restore of "DFID" hra_valid %x",
+			    PFID(&hai->hai_fid), hra->hra_valid);
+
+		/* FIXME Check hra_valid. */
 		/* Set {a,m}time of volatile file to that of original. */
-		tv[0].tv_sec = hcp->stat.st_atime;
-		tv[0].tv_usec = 0;
-		tv[1].tv_sec = hcp->stat.st_mtime;
-		tv[1].tv_usec = 0;
-		if (futimes(hcp->data_fd, tv) < 0) {
+		/* TODO UTIME_OMIT */
+
+		times[0].tv_sec = hra->hra_atime;
+		times[0].tv_nsec = hra->hra_atime_ns;
+		times[1].tv_sec = hra->hra_mtime;
+		times[1].tv_nsec = hra->hra_mtime_ns;
+		if (futimens(hcp->data_fd, times) < 0) {
 			errval = -errno;
 			goto end;
 		}
+
+		/* TODO hra_size. */
 
 		rc = fsync(hcp->data_fd);
 		if (rc < 0) {
@@ -548,7 +586,8 @@ int llapi_hsm_action_end(struct hsm_copyaction_private **phcp,
 end:
 	/* In some cases, like restore, 2 FIDs are used.
 	 * Set the right FID to use here. */
-	if (hai->hai_action == HSMA_ARCHIVE || hai->hai_action == HSMA_RESTORE)
+	if (hai_action_get(hai) == HSMA_ARCHIVE ||
+	    hai_action_get(hai) == HSMA_RESTORE)
 		hai->hai_fid = hai->hai_dfid;
 
 	/* Fill the last missing data that will be needed by
@@ -622,7 +661,8 @@ int llapi_hsm_action_get_dfid(const struct hsm_copyaction_private *hcp,
 	if (hcp->magic != CP_PRIV_MAGIC)
 		return -EINVAL;
 
-	if (hai->hai_action != HSMA_RESTORE && hai->hai_action != HSMA_ARCHIVE)
+	if (hai_action_get(hai) != HSMA_RESTORE &&
+	    hai_action_get(hai) != HSMA_ARCHIVE)
 		return -EINVAL;
 
 	*fid = hai->hai_dfid;
@@ -644,10 +684,10 @@ int llapi_hsm_action_get_fd(const struct hsm_copyaction_private *hcp)
 	if (hcp->magic != CP_PRIV_MAGIC)
 		return -EINVAL;
 
-	if (hai->hai_action == HSMA_ARCHIVE)
+	if (hai_action_get(hai) == HSMA_ARCHIVE)
 		return ct_open_by_fid(hcp->ct_priv, &hai->hai_dfid,
 				O_RDONLY | O_NOATIME | O_NOFOLLOW | O_NONBLOCK);
-	else if (hai->hai_action == HSMA_RESTORE)
+	else if (hai_action_get(hai) == HSMA_RESTORE)
 		return dup(hcp->data_fd);
 	else
 		return -EINVAL;
