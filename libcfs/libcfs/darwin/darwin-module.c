@@ -69,7 +69,8 @@ int libcfs_ioctl_getdata_len(void *arg, __u32 *buf_len)
 
 	memcpy(&hdr, arg, sizeof(hdr));
 
-	if (hdr.ioc_version != LIBCFS_IOCTL_VERSION) {
+	if ((hdr.ioc_version != LIBCFS_IOCTL_VERSION) &&
+	    (hdr.ioc_version != LIBCFS_IOCTL_VERSION2)) {
 		CERROR("LNET: version mismatch kernel vs application\n");
 		RETURN(-EINVAL);
 	}
@@ -90,7 +91,7 @@ int libcfs_ioctl_getdata(char *buf, __u32 buf_len, void *arg)
 
 int libcfs_ioctl_popdata(void *arg, void *data, int size)
 {
-	/* 
+	/*
 	 * system call will copy out ioctl arg to user space
 	 */
 	memcpy(arg, data, size);
