@@ -813,6 +813,7 @@ repeat_find:
 		rc = 0;
 	} else {
 		/* nobody provided us with a single object */
+		lo->ldo_stripenr = 0;
 		rc = -ENOSPC;
 	}
 
