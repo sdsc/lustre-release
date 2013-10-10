@@ -397,13 +397,14 @@ static loff_t vvp_pgcache_find(const struct lu_env *env,
 } while(0)
 
 static void vvp_pgcache_page_show(const struct lu_env *env,
-                                  struct seq_file *seq, struct cl_page *page)
+				  struct seq_file *seq, struct cl_page *page,
+				  struct cl_object *clob)
 {
 	struct ccc_page *cpg;
 	struct page      *vmpage;
 	int              has_flags;
 
-        cpg = cl2ccc_page(cl_page_at(page, &vvp_device_type));
+	cpg = cl2ccc_page(cl_object_page_slice(clob, page));
         vmpage = cpg->cpg_page;
         seq_printf(seq," %5i | %p %p %s %s %s %s | %p %lu/%u(%p) %lu %u [",
                    0 /* gen */,
@@ -460,7 +461,7 @@ static int vvp_pgcache_show(struct seq_file *f, void *v)
 			seq_printf(f, "%8x@"DFID": ", id.vpi_index,
 				   PFID(lu_object_fid(&clob->co_lu)));
 			if (page != NULL) {
-				vvp_pgcache_page_show(env, f, page);
+				vvp_pgcache_page_show(env, f, page, clob);
 				cl_page_put(env, page);
 			} else
 				seq_puts(f, "missing\n");
