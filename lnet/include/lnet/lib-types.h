@@ -409,6 +409,8 @@ struct lnet_tx_queue {
 };
 
 #define LNET_MAX_INTERFACES   16
+#define LNET_MAX_STR_LEN      128
+#define LNET_MAX_SHOW_NUM_CPT 128
 
 typedef struct lnet_ni {
 #ifdef __KERNEL__
