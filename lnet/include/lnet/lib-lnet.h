@@ -733,6 +733,15 @@ int lnet_del_route(__u32 net, lnet_nid_t gw_nid);
 void lnet_destroy_routes(void);
 int lnet_get_route(int idx, __u32 *net, __u32 *hops,
 		   lnet_nid_t *gateway, __u32 *alive, __u32 *priority);
+int lnet_get_net(int idx,
+		 __u32 *ncpts,
+		 __u64 *nid,
+		 int *peer_to,
+		 int *peer_cr,
+		 int *peer_buf_cr,
+		 int *credits,
+		 struct libcfs_ioctl_net_config_s *net_config);
+int lnet_get_rtrpools(int idx, struct libcfs_ioctl_pool_cfg_s *pool_cfg);
 void lnet_proc_init(void);
 void lnet_proc_fini(void);
 int  lnet_rtrpools_alloc(int im_a_router);
@@ -952,6 +961,11 @@ void lnet_peer_tables_cleanup(void);
 void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);
 void lnet_debug_peer(lnet_nid_t nid);
+int lnet_get_peers(int count, __u64 *nid, char *alivness,
+		   int *ncpt, int *refcount,
+		   int *ni_peertxcredits, int *peertxcredits,
+		   int *peerrtrcredits, int *peerminrtrcredtis,
+		   int *peertxqnob);
 
 #ifndef __KERNEL__
 static inline int
