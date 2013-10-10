@@ -44,6 +44,11 @@
 #include <lnet/lib-types.h>
 
 #define LIBCFS_IOCTL_VERSION 0x0001000a
+#define IOCTL_CONFIG_TYPE    struct libcfs_ioctl_config_data
+
+/* forward declaration of DLC specifc IOCTL structure, for use in
+ * determining the DLC IOCTL numbers */
+struct libcfs_ioctl_config_data;
 
 struct libcfs_ioctl_hdr {
 	__u32 ioc_len;
@@ -111,8 +116,8 @@ struct libcfs_ioctl_handler {
 
 
 /* ioctls for manipulating snapshots 30- */
-#define IOC_LIBCFS_TYPE                   'e'
-#define IOC_LIBCFS_MIN_NR                 30
+#define IOC_LIBCFS_TYPE				      'e'
+#define IOC_LIBCFS_MIN_NR			      30
 /* libcfs ioctls */
 #define IOC_LIBCFS_PANIC                   _IOWR('e', 30, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_CLEAR_DEBUG             _IOWR('e', 31, IOCTL_LIBCFS_TYPE)
@@ -120,34 +125,51 @@ struct libcfs_ioctl_handler {
 #define IOC_LIBCFS_MEMHOG                  _IOWR('e', 36, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_PING_TEST               _IOWR('e', 37, IOCTL_LIBCFS_TYPE)
 /* lnet ioctls */
-#define IOC_LIBCFS_GET_NI                  _IOWR('e', 50, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_FAIL_NID                _IOWR('e', 51, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_ADD_ROUTE               _IOWR('e', 52, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_DEL_ROUTE               _IOWR('e', 53, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_GET_ROUTE               _IOWR('e', 54, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_NOTIFY_ROUTER           _IOWR('e', 55, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_UNCONFIGURE             _IOWR('e', 56, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_NI		   _IOWR('e', 50, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_FAIL_NID		   _IOWR('e', 51, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_NOTIFY_ROUTER	   _IOWR('e', 55, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_UNCONFIGURE		   _IOWR('e', 56, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_PORTALS_COMPATIBILITY   _IOWR('e', 57, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_LNET_DIST               _IOWR('e', 58, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_CONFIGURE               _IOWR('e', 59, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_TESTPROTOCOMPAT         _IOWR('e', 60, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_PING                    _IOWR('e', 61, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_DEBUG_PEER              _IOWR('e', 62, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_LNETST                  _IOWR('e', 63, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_LNET_DIST		   _IOWR('e', 58, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_CONFIGURE		   _IOWR('e', 59, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_TESTPROTOCOMPAT	   _IOWR('e', 60, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_PING			   _IOWR('e', 61, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DEBUG_PEER		   _IOWR('e', 62, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_LNETST		   _IOWR('e', 63, IOCTL_LIBCFS_TYPE)
 /* lnd ioctls */
-#define IOC_LIBCFS_REGISTER_MYNID          _IOWR('e', 70, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_CLOSE_CONNECTION        _IOWR('e', 71, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_PUSH_CONNECTION         _IOWR('e', 72, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_GET_CONN                _IOWR('e', 73, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_DEL_PEER                _IOWR('e', 74, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_ADD_PEER                _IOWR('e', 75, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_GET_PEER                _IOWR('e', 76, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_GET_TXDESC              _IOWR('e', 77, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_ADD_INTERFACE           _IOWR('e', 78, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_DEL_INTERFACE           _IOWR('e', 79, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_GET_INTERFACE           _IOWR('e', 80, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_REGISTER_MYNID	   _IOWR('e', 70, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_CLOSE_CONNECTION	   _IOWR('e', 71, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_PUSH_CONNECTION	   _IOWR('e', 72, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_CONN		   _IOWR('e', 73, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DEL_PEER		   _IOWR('e', 74, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_ADD_PEER		   _IOWR('e', 75, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_PEER		   _IOWR('e', 76, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_TXDESC		   _IOWR('e', 77, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_ADD_INTERFACE	   _IOWR('e', 78, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DEL_INTERFACE	   _IOWR('e', 79, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_INTERFACE	   _IOWR('e', 80, IOCTL_LIBCFS_TYPE)
 
-#define IOC_LIBCFS_MAX_NR                             80
+#define IOC_LIBCFS_MAX_NR			      80
+
+/*
+ * DLC Speicif IOCTL numbers.
+ * In order to maintain backward compatibility with any possible external
+ * tools which might be accessing the IOCTL numbers, a new group of IOCTL
+ * number have been allocated.
+ */
+#define IOC_LIBCFS_CFG_MIN_NR			      81
+#define IOC_LIBCFS_ADD_ROUTE		   _IOWR('e', 81, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_DEL_ROUTE		   _IOWR('e', 82, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_GET_ROUTE		   _IOWR('e', 83, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_ADD_NET		   _IOWR('e', 84, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_DEL_NET		   _IOWR('e', 85, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_GET_NET		   _IOWR('e', 86, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_ENABLE_RTR		   _IOWR('e', 87, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_ADD_BUF		   _IOWR('e', 88, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_GET_BUF		   _IOWR('e', 89, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_GET_PEER_INFO	   _IOWR('e', 90, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_GET_LNET_STATS	   _IOWR('e', 91, IOCTL_CONFIG_TYPE)
+#define IOC_LIBCFS_CFG_MAX_NR			      91
 
 static inline int libcfs_ioctl_packlen(struct libcfs_ioctl_data *data)
 {
