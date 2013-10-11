@@ -1360,13 +1360,11 @@ static struct obd_ops mgs_obd_device_ops = {
 
 static int __init mgs_init(void)
 {
-	struct lprocfs_static_vars lvars;
-
-	lprocfs_mgs_init_vars(&lvars);
-	class_register_type(&mgs_obd_device_ops, NULL, lvars.module_vars,
+	return class_register_type(&mgs_obd_device_ops, NULL,
+#ifndef HAVE_ONLY_PROCFS_SEQ
+			    NULL,
+#endif
 			    LUSTRE_MGS_NAME, &mgs_device_type);
-
-	return 0;
 }
 
 static void /*__exit*/ mgs_exit(void)
