@@ -1662,8 +1662,13 @@ check_seq_oid()
                 #       { error "mounting $dev as $FSTYPE failed"; return 3; }
                 #local obj_file=$(do_facet ost$ost find $dir/O/$seq -name $oid)
                 #local ff=$(do_facet ost$ost $LL_DECODE_FILTER_FID $obj_file)
-
-                local obj_file="O/$seq/d$((oid %32))/$oid"
+		seq=$(echo $seq | sed -e "s/^0x//g")
+		if [ $seq == 0 ]; then
+			oid_hex=$(echo $oid)
+		else
+			oid_hex=$(echo $hex | sed -e "s/^0x//g")
+		fi
+                local obj_file="O/$seq/d$((oid %32))/$oid_hex"
                 local ff=$(do_facet ost$ost "$DEBUGFS -c -R 'stat $obj_file' \
                            $dev 2>/dev/null" | grep "parent=")
 
@@ -8663,11 +8668,12 @@ test_161() {
     ln $DIR/$tdir/$tfile $DIR/$tdir/foo2/zachary
     ln $DIR/$tdir/$tfile $DIR/$tdir/foo1/luna
     ln $DIR/$tdir/$tfile $DIR/$tdir/foo2/thor
-    local FID=$($LFS path2fid $DIR/$tdir/$tfile | tr -d '[')
-    if [ "$($LFS fid2path $DIR $FID | wc -l)" != "5" ]; then
-	$LFS fid2path $DIR $FID
-	err17935 "bad link ea"
-    fi
+	local FID=$($LFS path2fid $DIR/$tdir/$tfile |
+				tr -d '[' | tr -d ']')
+	if [ "$($LFS fid2path $DIR $FID | wc -l)" != "5" ]; then
+		$LFS fid2path $DIR $FID
+		err17935 "bad link ea"
+	fi
     # middle
     rm $DIR/$tdir/foo2/zachary
     # last
@@ -8694,6 +8700,57 @@ test_161() {
 	error "failed to unlink many hardlinks"
 }
 run_test 161 "link ea sanity"
+
+test_161b() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "skipping remote directory test" && return
+	local MDTIDX=1
+	local remote_dir=$DIR/$tdir/remote_dir
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i $MDTIDX $remote_dir ||
+		error "create remote directory failed"
+
+	cp /etc/hosts $remote_dir/$tfile
+	mkdir -p $remote_dir/foo1
+	mkdir -p $remote_dir/foo2
+	ln $remote_dir/$tfile $remote_dir/foo1/sofia
+	ln $remote_dir/$tfile $remote_dir/foo2/zachary
+	ln $remote_dir/$tfile $remote_dir/foo1/luna
+	ln $remote_dir/$tfile $remote_dir/foo2/thor
+
+	local FID=$($LFS path2fid $remote_dir/$tfile | tr -d '[' |
+		     tr -d ']')
+	if [ "$($LFS fid2path $DIR $FID | wc -l)" != "5" ]; then
+		$LFS fid2path $DIR $FID
+		err17935 "bad link ea"
+	fi
+	# middle
+	rm $remote_dir/foo2/zachary
+	# last
+	rm $remote_dir/foo2/thor
+	# first
+	rm $remote_dir/$tfile
+	# rename
+	mv $remote_dir/foo1/sofia $remote_dir/foo2/maggie
+	local link_path=$($LFS fid2path $FSNAME --link 1 $FID)
+	if [ "$DIR/$link_path" != "$remote_dir/foo2/maggie" ]; then
+		$LFS fid2path $DIR $FID
+		err17935 "bad link rename"
+	fi
+	rm $remote_dir/foo2/maggie
+
+	# overflow the EA
+	local longname=filename_avg_len_is_thirty_two_
+	createmany -l$remote_dir/foo1/luna $remote_dir/foo2/$longname 1000 ||
+		error "failed to hardlink many files"
+	links=$($LFS fid2path $DIR $FID | wc -l)
+	echo -n "${links}/1000 links in link EA"
+	[ ${links} -gt 60 ] || err17935 "expected at least 60 links in link EA"
+	unlinkmany $remote_dir/foo2/$longname 1000 ||
+	error "failed to unlink many hardlinks"
+}
+run_test 161b "link ea sanity under remote directory"
 
 check_path() {
     local expected=$1
@@ -10004,6 +10061,28 @@ test_226 () {
 }
 run_test 226 "call path2fid and fid2path on files of all type"
 
+test_226b () {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	rm -rf $DIR/$tdir
+	local MDTIDX=1
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i $MDTIDX $DIR/$tdir/remote_dir ||
+		error "create remote directory failed"
+	mcreate_path2fid 0010666 0 0 "remote_dir/fifo" "FIFO"
+	mcreate_path2fid 0020666 1 3 "remote_dir/null" \
+				"character special file (null)"
+	mcreate_path2fid 0020666 1 255 "remote_dir/none" \
+				"character special file (no device)"
+	mcreate_path2fid 0040666 0 0 "remote_dir/dir" "directory"
+	mcreate_path2fid 0060666 7 0 "remote_dir/loop0" \
+				"block special file (loop)"
+	mcreate_path2fid 0100666 0 0 "remote_dir/file" "regular file"
+	mcreate_path2fid 0120666 0 0 "remote_dir/link" "symbolic link"
+	mcreate_path2fid 0140666 0 0 "remote_dir/sock" "socket"
+}
+run_test 226b "call path2fid and fid2path on files of all type under remote dir"
+
 # LU-1299 Executing or running ldd on a truncated executable does not
 # cause an out-of-memory condition.
 test_227() {
@@ -10176,6 +10255,7 @@ test_230b() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 	local MDTIDX=1
 	local remote_dir=$DIR/$tdir/remote_dir
+	local rc=0
 
 	mkdir -p $DIR/$tdir
 	$LFS mkdir -i $MDTIDX $remote_dir ||
@@ -10183,6 +10263,13 @@ test_230b() {
 
 	$LFS mkdir -i 0 $remote_dir/new_dir &&
 		error "nested remote directory create succeed!"
+
+	do_facet mds$((MDTIDX + 1)) lctl set_param mdd.*.enable_remote_dir=1
+	$LFS mkdir -i 0 $remote_dir/new_dir || rc=$?
+	do_facet mds$((MDTIDX + 1)) lctl set_param mdd.*.enable_remote_dir=0
+
+	[ $rc -ne 0 ] &&
+	   error "create remote directory failed after set enable_remote_dir"
 
 	rm -r $DIR/$tdir || error "unlink remote directory failed"
 }

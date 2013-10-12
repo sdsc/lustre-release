@@ -170,9 +170,14 @@ extern const struct lu_fid LU_DOT_LUSTRE_FID;
 
 enum {
         /*
-         * This is how may FIDs may be allocated in one sequence(128k)
+	 * This is how may metadata FIDs may be allocated in one sequence(128k)
          */
-        LUSTRE_SEQ_MAX_WIDTH = 0x0000000000020000ULL,
+	LUSTRE_METADATA_SEQ_MAX_WIDTH = 0x0000000000020000ULL,
+
+	/*
+	 * This is how many data FIDs could be allocated in one sequence(4B - 1)
+	 */
+	LUSTRE_DATA_SEQ_MAX_WIDTH = 0x00000000FFFFFFFFULL,
 
         /*
          * How many sequences to allocate to a client at once.
@@ -224,6 +229,9 @@ enum local_oid {
         LLOG_CATALOGS_OID       = 4118UL,
         MGS_CONFIGS_OID         = 4119UL,
         OFD_HEALTH_CHECK_OID    = 4120UL,
+	MDD_LOV_OBJ_OSEQ	= 4121UL,
+	LLOG_GROUP1_CATALOGS_OID = 4122UL,
+	LLOG_GROUP4k_CATALOGS_OID = 4122UL + 4095,
 };
 
 static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)
@@ -259,15 +267,32 @@ static inline int fid_is_quota(const struct lu_fid *fid)
 	       fid_seq(fid) == FID_SEQ_QUOTA_GLB;
 }
 
+static inline int fid_is_catalogs(const struct lu_fid *fid)
+{
+	return (fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
+		(fid_oid(fid) == LLOG_CATALOGS_OID ||
+		(fid_oid(fid) >= LLOG_GROUP1_CATALOGS_OID &&
+		 fid_oid(fid) <= LLOG_GROUP4k_CATALOGS_OID)));
+}
+
+static inline void lu_last_id_fid(struct lu_fid *fid, __u64 seq)
+{
+	if (fid_seq_is_mdt0(seq)) {
+		fid->f_seq = fid_idif_seq(0, 0);
+	} else {
+		LASSERTF(fid_seq_is_norm(seq) || fid_seq_is_echo(seq) ||
+			 fid_seq_is_idif(seq), LPX64"\n", seq);
+		fid->f_seq = seq;
+	}
+	fid->f_oid = 0;
+	fid->f_ver = 0;
+}
+
 enum lu_mgr_type {
         LUSTRE_SEQ_SERVER,
         LUSTRE_SEQ_CONTROLLER
 };
 
-enum lu_cli_type {
-        LUSTRE_SEQ_METADATA,
-        LUSTRE_SEQ_DATA
-};
 
 struct lu_server_seq;
 
@@ -363,21 +388,23 @@ struct lu_server_seq {
 
         /* sync is needed for update operation */
         __u32                   lss_need_sync;
-        /**
-         * Pointer to site object, required to access site fld.
-         */
-        struct md_site         *lss_site;
+
+	/**
+	 * Pointer to site object, required to access site fld.
+	 */
+	struct seq_server_site  *lss_site;
 };
 
 int seq_query(struct com_thread_info *info);
+int seq_handle(struct ptlrpc_request *req);
 
 /* Server methods */
 int seq_server_init(struct lu_server_seq *seq,
-                    struct dt_device *dev,
-                    const char *prefix,
-                    enum lu_mgr_type type,
-                    struct md_site *ls,
-                    const struct lu_env *env);
+		    struct dt_device *dev,
+		    const char *prefix,
+		    enum lu_mgr_type type,
+		    struct seq_server_site *ss,
+		    const struct lu_env *env);
 
 void seq_server_fini(struct lu_server_seq *seq,
                      const struct lu_env *env);
@@ -409,10 +436,16 @@ int seq_client_alloc_fid(const struct lu_env *env, struct lu_client_seq *seq,
                          struct lu_fid *fid);
 int seq_client_get_seq(const struct lu_env *env, struct lu_client_seq *seq,
                        seqno_t *seqnr);
+struct lu_fid *seq_client_get_current_fid(struct lu_client_seq *seq);
+void seq_client_set_fid(struct lu_client_seq *seq, struct lu_fid *fid);
 
+int seq_site_fini(const struct lu_env *env, struct seq_server_site *ss);
 /* Fids common stuff */
 int fid_is_local(const struct lu_env *env,
                  struct lu_site *site, const struct lu_fid *fid);
+
+int client_fid_init(struct obd_export *exp, enum lu_cli_type type);
+int client_fid_fini(struct obd_export *exp);
 
 /* fid locking */
 
@@ -486,6 +519,37 @@ fid_build_pdo_res_name(const struct lu_fid *f,
         return name;
 }
 
+/**
+ * Build DLM resource name from object id & seq, which will be removed
+ * finnally, when we replace ost_id with FID in data stack.
+ *
+ * To keep the compatibility, res[0] = oid, res[1] = seq
+ */
+static inline void ostid_build_res_name(obd_id id, obd_seq seq,
+					struct ldlm_res_id *name)
+{
+	memset(name, 0, sizeof *name);
+	name->name[LUSTRE_RES_ID_SEQ_OFF] = id;
+	name->name[LUSTRE_RES_ID_VER_OID_OFF] = seq;
+}
+
+static inline void ostid_res_name_to_id(__u64 *id, __u64 *seq,
+					struct ldlm_res_id *name)
+{
+	/* the oid for the new fid would start from 1, otherwise it
+	 * confuse the function */
+	*id = name->name[LUSTRE_RES_ID_SEQ_OFF];
+	*seq = name->name[LUSTRE_RES_ID_VER_OID_OFF];
+}
+
+/**
+ * Return true if the resource is for the object identified by this id & group.
+ */
+static inline int ostid_res_name_eq(__u64 id, __u64 seq,
+				    struct ldlm_res_id *name)
+{
+	return name->name[0] == id && name->name[1] == seq;
+}
 
 /**
  * Flatten 128-bit FID values into a 64-bit value for use as an inode number.

@@ -155,10 +155,9 @@ static int lmv_rd_desc_uuid(char *page, char **start, off_t off, int count,
 
 static void *lmv_tgt_seq_start(struct seq_file *p, loff_t *pos)
 {
-        struct obd_device       *dev = p->private;
-        struct lmv_obd          *lmv = &dev->u.lmv;
-        return (*pos >= lmv->desc.ld_tgt_count) ? NULL : &(lmv->tgts[*pos]);
-
+	struct obd_device       *dev = p->private;
+	struct lmv_obd          *lmv = &dev->u.lmv;
+	return (*pos >= lmv->desc.ld_tgt_count) ? NULL : lmv->tgts[*pos];
 }
 
 static void lmv_tgt_seq_stop(struct seq_file *p, void *v)
@@ -168,10 +167,10 @@ static void lmv_tgt_seq_stop(struct seq_file *p, void *v)
 
 static void *lmv_tgt_seq_next(struct seq_file *p, void *v, loff_t *pos)
 {
-        struct obd_device       *dev = p->private;
-        struct lmv_obd          *lmv = &dev->u.lmv;
-        ++*pos;
-        return (*pos >=lmv->desc.ld_tgt_count) ? NULL : &(lmv->tgts[*pos]);
+	struct obd_device       *dev = p->private;
+	struct lmv_obd          *lmv = &dev->u.lmv;
+	++*pos;
+	return (*pos >= lmv->desc.ld_tgt_count) ? NULL : lmv->tgts[*pos];
 }
 
 static int lmv_tgt_seq_show(struct seq_file *p, void *v)
@@ -179,10 +178,12 @@ static int lmv_tgt_seq_show(struct seq_file *p, void *v)
         struct lmv_tgt_desc     *tgt = v;
         struct obd_device       *dev = p->private;
         struct lmv_obd          *lmv = &dev->u.lmv;
-        int                      idx = tgt - &(lmv->tgts[0]);
+	int                      idx = tgt - lmv->tgts[0];
 
-        return seq_printf(p, "%d: %s %sACTIVE\n", idx, tgt->ltd_uuid.uuid,
-                          tgt->ltd_active ? "" : "IN");
+	if (tgt == NULL)
+		return 0;
+	return seq_printf(p, "%d: %s %sACTIVE\n", idx, tgt->ltd_uuid.uuid,
+			  tgt->ltd_active ? "" : "IN");
 }
 
 struct seq_operations lmv_tgt_sops = {
