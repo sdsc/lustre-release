@@ -1197,7 +1197,6 @@ int __osd_object_create(const struct lu_env *env, udmu_objset_t *uos,
 	if (rc)
 		return rc;
 
-	LASSERT(la->la_valid & LA_MODE);
 	la->la_size = 0;
 	la->la_nlink = 1;
 
