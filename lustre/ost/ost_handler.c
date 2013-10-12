@@ -48,10 +48,15 @@
 #include <lustre_dlm.h>
 #include <lustre_export.h>
 #include <lustre_debug.h>
+#include <lustre_fid.h>
+#include <lustre_fld.h>
 #include <linux/init.h>
 #include <lprocfs_status.h>
 #include <libcfs/list.h>
+#include <lustre_quota.h>
+#include <lustre_fid.h>
 #include "ost_internal.h"
+#include <lustre_fid.h>
 
 static int oss_num_threads;
 CFS_MODULE_PARM(oss_num_threads, "i", int, 0444,
@@ -109,8 +114,9 @@ static int ost_validate_obdo(struct obd_export *exp, struct obdo *oa,
                 if (ioobj)
                         ioobj->ioo_seq = FID_SEQ_OST_MDT0;
         /* remove fid_seq_is_rsvd() after FID-on-OST allows SEQ > 9 */
-        } else if (oa == NULL || !(fid_seq_is_rsvd(oa->o_seq) ||
-                                   fid_seq_is_mdt0(oa->o_seq))) {
+	} else if (oa == NULL ||
+		   !(fid_seq_is_norm(oa->o_seq) || fid_seq_is_mdt(oa->o_seq) ||
+		     fid_seq_is_echo(oa->o_seq))) {
                 CERROR("%s: client %s sent invalid object "POSTID"\n",
                        exp->exp_obd->obd_name, obd_export_nid2str(exp),
                        oa ? oa->o_id : -1, oa ? oa->o_seq : -1);
@@ -230,7 +236,7 @@ static int ost_lock_get(struct obd_export *exp, struct obdo *oa,
             !(oa->o_flags & OBD_FL_SRVLOCK))
                 RETURN(0);
 
-        osc_build_res_name(oa->o_id, oa->o_seq, &res_id);
+	ostid_build_res_name(oa->o_id, oa->o_seq, &res_id);
         CDEBUG(D_INODE, "OST-side extent lock.\n");
 
         policy.l_extent.start = start & CFS_PAGE_MASK;
@@ -624,7 +630,7 @@ static int ost_brw_lock_get(int mode, struct obd_export *exp,
         int i;
         ENTRY;
 
-        osc_build_res_name(obj->ioo_id, obj->ioo_seq, &res_id);
+	ostid_build_res_name(obj->ioo_id, obj->ioo_seq, &res_id);
         LASSERT(mode == LCK_PR || mode == LCK_PW);
         LASSERT(!lustre_handle_is_used(lh));
 
@@ -1324,10 +1330,27 @@ static int ost_get_info(struct obd_export *exp, struct ptlrpc_request *req)
         if (reply == NULL)
                 RETURN(-ENOMEM);
 
+	if (KEY_IS(KEY_LAST_FID)) {
+		void *val;
+		int vallen;
+
+		req_capsule_extend(pill, &RQF_OST_GET_INFO_LAST_FID);
+		val = req_capsule_client_get(pill, &RMF_SETINFO_VAL);
+		vallen = req_capsule_get_size(pill, &RMF_SETINFO_VAL,
+					      RCL_CLIENT);
+		if (val != NULL && vallen > 0 && replylen >= vallen) {
+			memcpy(reply, val, vallen);
+		} else {
+			CERROR("%s: invalid req val %p vallen %d replylen %d\n",
+			       exp->exp_obd->obd_name, val, vallen, replylen);
+			GOTO(out, rc = -EINVAL);
+		}
+	}
+
         /* call again to fill in the reply buffer */
         rc = obd_get_info(req->rq_svc_thread->t_env, exp, keylen, key,
                           &replylen, reply, NULL);
-
+out:
         lustre_msg_set_status(req->rq_repmsg, 0);
         RETURN(rc);
 }
@@ -1595,8 +1618,9 @@ int ost_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			OBD_FREE_PTR(oinfo);
 			GOTO(out_env, rc = -ENOMEM);
 		}
-		oa->o_id = lock->l_resource->lr_name.name[0];
-		oa->o_seq = lock->l_resource->lr_name.name[1];
+
+		ostid_res_name_to_id(&oa->o_id, &oa->o_seq,
+				    &lock->l_resource->lr_name);
 		oa->o_valid = OBD_MD_FLID|OBD_MD_FLGROUP;
 		oinfo->oi_oa = oa;
 		oinfo->oi_capa = BYPASS_CAPA;
@@ -1674,6 +1698,7 @@ int ost_msg_check_version(struct lustre_msg *msg)
         case OST_SYNC:
         case OST_SET_INFO:
         case OST_GET_INFO:
+	case SEQ_QUERY:
         case OST_QUOTACHECK:
         case OST_QUOTACTL:
                 rc = lustre_msg_check_version(msg, LUSTRE_OST_VERSION);
@@ -1839,10 +1864,10 @@ static int ost_rw_hpreq_lock_match(struct ptlrpc_request *req,
         nb += ioo->ioo_bufcnt - 1;
         ext.end = nb->offset + nb->len - 1;
 
-        LASSERT(lock->l_resource != NULL);
-        if (!osc_res_name_eq(ioo->ioo_id, ioo->ioo_seq,
-                             &lock->l_resource->lr_name))
-                RETURN(0);
+	LASSERT(lock->l_resource != NULL);
+	if (!ostid_res_name_eq(ioo->ioo_id, ioo->ioo_seq,
+			     &lock->l_resource->lr_name))
+		RETURN(0);
 
         mode = LCK_PW;
         if (opc == OST_READ)
@@ -1890,7 +1915,7 @@ static int ost_rw_hpreq_check(struct ptlrpc_request *req)
         LASSERT(nb != NULL);
         LASSERT(!(nb->flags & OBD_BRW_SRVLOCK));
 
-        osc_build_res_name(ioo->ioo_id, ioo->ioo_seq, &opd.opd_resid);
+	ostid_build_res_name(ioo->ioo_id, ioo->ioo_seq, &opd.opd_resid);
 
         opd.opd_req = req;
         mode = LCK_PW;
@@ -1974,7 +1999,7 @@ static int ost_punch_hpreq_check(struct ptlrpc_request *req)
                 opd.opd_extent.end = OBD_OBJECT_EOF;
         opd.opd_timeout = prolong_timeout(req);
 
-        osc_build_res_name(oa->o_id, oa->o_seq, &opd.opd_resid);
+	ostid_build_res_name(oa->o_id, oa->o_seq, &opd.opd_resid);
 
         CDEBUG(D_DLMTRACE,
                "%s: refresh locks: "LPU64"/"LPU64" ("LPU64"->"LPU64")\n",
@@ -2299,6 +2324,10 @@ int ost_handle(struct ptlrpc_request *req)
                 req_capsule_set(&req->rq_pill, &RQF_OST_GET_INFO_GENERIC);
                 rc = ost_get_info(req->rq_export, req);
                 break;
+	case SEQ_QUERY:
+		CDEBUG(D_INODE, "seq\n");
+		rc = seq_handle(req);
+		break;
         case OST_QUOTACHECK:
                 CDEBUG(D_INODE, "quotacheck\n");
                 req_capsule_set(&req->rq_pill, &RQF_OST_QUOTACHECK);
@@ -2605,10 +2634,53 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 		GOTO(out_create, rc);
         }
 
+	memset(&svc_conf, 0, sizeof(svc_conf));
+	svc_conf = (typeof(svc_conf)) {
+		.psc_name		= "ost_seq",
+		.psc_watchdog_factor	= OSS_SERVICE_WATCHDOG_FACTOR,
+		.psc_buf		= {
+			.bc_nbufs		= OST_NBUFS,
+			.bc_buf_size		= OST_BUFSIZE,
+			.bc_req_max_size	= OST_MAXREQSIZE,
+			.bc_rep_max_size	= OST_MAXREPSIZE,
+			.bc_req_portal		= SEQ_DATA_PORTAL,
+			.bc_rep_portal		= OSC_REPLY_PORTAL,
+		},
+		.psc_thr		= {
+			.tc_thr_name		= "ll_ost_seq",
+			.tc_thr_factor		= OSS_CR_THR_FACTOR,
+			.tc_nthrs_init		= OSS_CR_NTHRS_INIT,
+			.tc_nthrs_base		= OSS_CR_NTHRS_BASE,
+			.tc_nthrs_max		= OSS_CR_NTHRS_MAX,
+			.tc_nthrs_user		= oss_num_create_threads,
+			.tc_cpu_affinity	= 1,
+			.tc_ctx_tags		= LCT_DT_THREAD,
+		},
+
+		.psc_cpt		= {
+			.cc_pattern	     = oss_cpts,
+		},
+		.psc_ops		= {
+			.so_req_handler		= ost_handle,
+			.so_req_printer		= target_print_req,
+			.so_hpreq_handler	= NULL,
+		},
+	};
+	ost->ost_seq_service = ptlrpc_register_service(&svc_conf,
+						      obd->obd_proc_entry);
+	if (IS_ERR(ost->ost_seq_service)) {
+		rc = PTR_ERR(ost->ost_seq_service);
+		CERROR("failed to start OST seq service: %d\n", rc);
+		ost->ost_seq_service = NULL;
+		GOTO(out_io, rc);
+	}
+
         ping_evictor_start();
 
         RETURN(0);
-
+out_io:
+	ptlrpc_unregister_service(ost->ost_io_service);
+	ost->ost_io_service = NULL;
 out_create:
         ptlrpc_unregister_service(ost->ost_create_service);
         ost->ost_create_service = NULL;
@@ -2635,9 +2707,11 @@ static int ost_cleanup(struct obd_device *obd)
         ptlrpc_unregister_service(ost->ost_service);
         ptlrpc_unregister_service(ost->ost_create_service);
         ptlrpc_unregister_service(ost->ost_io_service);
+	ptlrpc_unregister_service(ost->ost_seq_service);
         ost->ost_service = NULL;
         ost->ost_create_service = NULL;
 	ost->ost_io_service = NULL;
+	ost->ost_seq_service = NULL;
 
 	mutex_unlock(&ost->ost_health_mutex);
 

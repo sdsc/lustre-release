@@ -195,8 +195,9 @@ struct md_op_spec {
         __u64      sp_cr_flags;
 
         /** Should mdd do lookup sanity check or not. */
-        int        sp_cr_lookup;
-
+	int	sp_cr_lookup:1,
+		sp_rm_entry:1,    /* only remove name entry */
+		sp_cr_recreate:1; /* create from a resend req */
         /** Current lock mode for parent dir where create is performing. */
         mdl_mode_t sp_cr_mode;
 
@@ -205,7 +206,7 @@ struct md_op_spec {
 };
 
 /**
- * Operations implemented for each md object (both directory and leaf).
+ * Operations implemented for each md object by(both directory and leaf).
  */
 struct md_object_operations {
         int (*moo_permission)(const struct lu_env *env,
@@ -277,6 +278,10 @@ struct md_object_operations {
         int (*moo_file_unlock)(const struct lu_env *env, struct md_object *obj,
                                struct lov_mds_md *lmm,
                                struct lustre_handle *lockh);
+	int (*moo_object_lock)(const struct lu_env *env, struct md_object *obj,
+			       struct lustre_handle *lh,
+			       struct ldlm_enqueue_info *einfo,
+			       void *policy);
 };
 
 /**
@@ -439,35 +444,35 @@ struct md_object {
 };
 
 /**
- * md-server site.
+ * seq-server site.
  */
-struct md_site {
-	struct lu_site	     *ms_lu;
-        /**
-         * mds number of this site.
-         */
-        mdsno_t               ms_node_id;
-        /**
-         * Fid location database
-         */
-        struct lu_server_fld *ms_server_fld;
-        struct lu_client_fld *ms_client_fld;
+struct seq_server_site {
+	struct lu_site	     *ss_lu;
+	/**
+	 * mds number of this site.
+	 */
+	mdsno_t               ss_node_id;
+	/**
+	 * Fid location database
+	 */
+	struct lu_server_fld *ss_server_fld;
+	struct lu_client_fld *ss_client_fld;
 
-        /**
-         * Server Seq Manager
-         */
-        struct lu_server_seq *ms_server_seq;
+	/**
+	 * Server Seq Manager
+	 */
+	struct lu_server_seq *ss_server_seq;
 
-        /**
-         * Controller Seq Manager
-         */
-        struct lu_server_seq *ms_control_seq;
-        struct obd_export    *ms_control_exp;
+	/**
+	 * Controller Seq Manager
+	 */
+	struct lu_server_seq *ss_control_seq;
+	struct obd_export    *ss_control_exp;
 
-        /**
-         * Client Seq Manager
-         */
-        struct lu_client_seq *ms_client_seq;
+	/**
+	 * Client Seq Manager
+	 */
+	struct lu_client_seq *ss_client_seq;
 };
 
 static inline int lu_device_is_md(const struct lu_device *d)
@@ -503,9 +508,9 @@ static inline struct md_device *md_obj2dev(const struct md_object *o)
         return container_of0(o->mo_lu.lo_dev, struct md_device, md_lu_dev);
 }
 
-static inline struct md_site *lu_site2md(const struct lu_site *s)
+static inline struct seq_server_site *lu_site2seq(const struct lu_site *s)
 {
-	return s->ld_md_site;
+	return s->ld_seq_site;
 }
 
 static inline int md_device_init(struct md_device *md, struct lu_device_type *t)
@@ -705,6 +710,16 @@ static inline int mo_file_unlock(const struct lu_env *env, struct md_object *m,
         return m->mo_ops->moo_file_unlock(env, m, lmm, lockh);
 }
 
+static inline int mo_object_lock(const struct lu_env *env,
+				 struct md_object *m,
+				 struct lustre_handle *lh,
+				 struct ldlm_enqueue_info *einfo,
+				 void *policy)
+{
+	LASSERT(m->mo_ops->moo_object_lock);
+	return m->mo_ops->moo_object_lock(env, m, lh, einfo, policy);
+}
+
 static inline int mdo_lookup(const struct lu_env *env,
                              struct md_object *p,
                              const struct lu_name *lname,
@@ -784,8 +799,8 @@ static inline int mdo_unlink(const struct lu_env *env,
                              const struct lu_name *lname,
                              struct md_attr *ma)
 {
-        LASSERT(c->mo_dir_ops->mdo_unlink);
-        return c->mo_dir_ops->mdo_unlink(env, p, c, lname, ma);
+	LASSERT(p->mo_dir_ops->mdo_unlink);
+	return p->mo_dir_ops->mdo_unlink(env, p, c, lname, ma);
 }
 
 static inline int mdo_lum_lmm_cmp(const struct lu_env *env,
