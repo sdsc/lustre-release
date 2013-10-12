@@ -573,10 +573,11 @@ struct echo_obd {
 };
 
 struct ost_obd {
-	struct ptlrpc_service	*ost_service;
-	struct ptlrpc_service	*ost_create_service;
-	struct ptlrpc_service	*ost_io_service;
-	struct mutex		ost_health_mutex;
+	struct ptlrpc_service *ost_service;
+	struct ptlrpc_service *ost_create_service;
+	struct ptlrpc_service *ost_io_service;
+	struct ptlrpc_service *ost_seq_service;
+	struct mutex	      ost_health_mutex;
 };
 
 struct echo_client_obd {
@@ -707,11 +708,12 @@ struct lov_obd {
 };
 
 struct lmv_tgt_desc {
-        struct obd_uuid         ltd_uuid;
-        struct obd_export      *ltd_exp;
-        int                     ltd_active; /* is this target up for requests */
-        int                     ltd_idx;
+	struct obd_uuid		ltd_uuid;
+	struct obd_export	*ltd_exp;
+	int			ltd_idx;
 	struct mutex		ltd_fid_mutex;
+	unsigned long		ltd_active:1;
+				/* is this target up for requests */
 };
 
 enum placement_policy {
@@ -739,11 +741,8 @@ struct lmv_obd {
         int                     server_timeout;
 	struct mutex		init_mutex;
 
-        struct lmv_tgt_desc     *tgts;
-        int                     tgts_size;
-
-        struct obd_connect_data *datas;
-        int                     datas_size;
+	struct lmv_tgt_desc	**tgts;
+	int			tgts_size; /* size of tgts array */
 
         struct obd_connect_data conn_data;
 };
@@ -762,16 +761,15 @@ struct niobuf_local {
 #define LUSTRE_FLD_NAME         "fld"
 #define LUSTRE_SEQ_NAME         "seq"
 
-#define LUSTRE_CMM_NAME         "cmm"
 #define LUSTRE_MDD_NAME         "mdd"
 #define LUSTRE_OSD_LDISKFS_NAME	"osd-ldiskfs"
 #define LUSTRE_OSD_ZFS_NAME     "osd-zfs"
 #define LUSTRE_VVP_NAME         "vvp"
 #define LUSTRE_LMV_NAME         "lmv"
-#define LUSTRE_CMM_MDC_NAME     "cmm-mdc"
 #define LUSTRE_SLP_NAME         "slp"
 #define LUSTRE_LOD_NAME		"lod"
 #define LUSTRE_OSP_NAME		"osp"
+#define LUSTRE_LWP_NAME		"lwp"
 
 /* obd device type names */
  /* FIXME all the references to LUSTRE_MDS_NAME should be swapped with LUSTRE_MDT_NAME */
@@ -785,7 +783,6 @@ struct niobuf_local {
 #define LUSTRE_MGS_NAME         "mgs"
 #define LUSTRE_MGC_NAME         "mgc"
 
-#define LUSTRE_CACHEOBD_NAME    "cobd"
 #define LUSTRE_ECHO_NAME        "obdecho"
 #define LUSTRE_ECHO_CLIENT_NAME "echo_client"
 #define LUSTRE_QMT_NAME         "qmt"
@@ -796,10 +793,7 @@ struct niobuf_local {
 #define LUSTRE_MGS_OBDNAME "MGS"
 #define LUSTRE_MGC_OBDNAME "MGC"
 
-/* Don't conflict with on-wire flags OBD_BRW_WRITE, etc */
-#define N_LOCAL_TEMP_PAGE 0x10000000
-
-static inline int is_osp_on_ost(char *name)
+static inline int is_osp_on_mdt(char *name)
 {
 	char   *ptr;
 
@@ -809,22 +803,23 @@ static inline int is_osp_on_ost(char *name)
 		return 0;
 	}
 
-	if (strncmp(ptr + 1, "OST", 3) != 0 && strncmp(ptr + 1, "MDT", 3) != 0)
+	if (strncmp(ptr + 1, "MDT", 3) != 0)
 		return 0;
 
-	/* match the "-osp" */
-	if (ptr - name < strlen(LUSTRE_OSP_NAME) + 1)
+	while (*(--ptr) != '-' && ptr != name);
+
+	if (ptr == name)
 		return 0;
 
-	ptr -= (strlen(LUSTRE_OSP_NAME) + 1);
-	if (*ptr != '-')
-		return 0;
-
-	if (strncmp(ptr + 1, LUSTRE_OSP_NAME, strlen(LUSTRE_OSP_NAME)) != 0)
+	if (strncmp(ptr + 1, LUSTRE_OSP_NAME, strlen(LUSTRE_OSP_NAME)) != 0 &&
+	    strncmp(ptr + 1, LUSTRE_OSC_NAME, strlen(LUSTRE_OSC_NAME)) != 0)
 		return 0;
 
 	return 1;
 }
+
+/* Don't conflict with on-wire flags OBD_BRW_WRITE, etc */
+#define N_LOCAL_TEMP_PAGE 0x10000000
 
 struct obd_trans_info {
         __u64                    oti_transno;
@@ -1171,6 +1166,7 @@ enum obd_cleanup_stage {
 #define KEY_INIT_RECOV          "initial_recov"
 #define KEY_INTERMDS            "inter_mds"
 #define KEY_LAST_ID             "last_id"
+#define KEY_LAST_FID		"last_fid"
 #define KEY_LOCK_TO_STRIPE      "lock_to_stripe"
 #define KEY_LOVDESC             "lovdesc"
 #define KEY_LOV_IDX             "lov_idx"
@@ -1321,7 +1317,7 @@ struct obd_ops {
         int (*o_disconnect)(struct obd_export *exp);
 
         /* Initialize/finalize fids infrastructure. */
-        int (*o_fid_init)(struct obd_export *exp);
+	int (*o_fid_init)(struct obd_export *exp, enum lu_cli_type type);
         int (*o_fid_fini)(struct obd_export *exp);
 
         /* Allocate new fid according to passed @hint. */

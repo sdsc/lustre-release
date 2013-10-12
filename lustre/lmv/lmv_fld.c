@@ -62,8 +62,15 @@ int lmv_fld_lookup(struct lmv_obd *lmv,
         int rc;
         ENTRY;
 
-        LASSERT(fid_is_sane(fid));
-        rc = fld_client_lookup(&lmv->lmv_fld, fid_seq(fid), mds,
+	LASSERTF(fid_is_sane(fid), DFID" is insane!\n", PFID(fid));
+
+	/* FIXME: move this to the server side */
+	if (fid_is_root(fid)) {
+		*mds = fid_index_get_by_rootfid(fid);
+		RETURN(0);
+	}
+
+	rc = fld_client_lookup(&lmv->lmv_fld, fid_seq(fid), mds,
                                LU_SEQ_RANGE_MDT, NULL);
         if (rc) {
                 CERROR("Error while looking for mds number. Seq "LPX64

@@ -473,6 +473,16 @@ static const struct req_msg_field *mds_setattr_server[] = {
         &RMF_CAPA2
 };
 
+static const struct req_msg_field *mds_update_client[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_EADATA,
+};
+
+static const struct req_msg_field *mds_update_server[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_EADATA,
+};
+
 static const struct req_msg_field *llog_origin_handle_create_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_LLOGD_BODY,
@@ -563,6 +573,11 @@ static const struct req_msg_field *ost_get_last_id_server[] = {
         &RMF_OBD_ID
 };
 
+static const struct req_msg_field *ost_get_last_fid_server[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_FID
+};
+
 static const struct req_msg_field *ost_get_fiemap_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_FIEMAP_KEY,
@@ -613,6 +628,7 @@ static struct req_format *req_formats[] = {
         &RQF_MDS_REINT_SETXATTR,
         &RQF_MDS_QUOTACHECK,
         &RQF_MDS_QUOTACTL,
+	&RQF_MDS_OBJ_UPDATE,
         &RQF_QC_CALLBACK,
         &RQF_OST_CONNECT,
         &RQF_OST_DISCONNECT,
@@ -630,6 +646,8 @@ static struct req_format *req_formats[] = {
         &RQF_OST_SET_GRANT_INFO,
         &RQF_OST_GET_INFO_GENERIC,
         &RQF_OST_GET_INFO_LAST_ID,
+	&RQF_OST_GET_INFO_LAST_FID,
+	&RQF_OST_SET_INFO_LAST_FID,
         &RQF_OST_GET_INFO_FIEMAP,
         &RQF_LDLM_ENQUEUE,
         &RQF_LDLM_ENQUEUE_LVB,
@@ -964,6 +982,11 @@ struct req_msg_field RMF_OBD_ID =
                     sizeof(obd_id), lustre_swab_ost_last_id, NULL);
 EXPORT_SYMBOL(RMF_OBD_ID);
 
+struct req_msg_field RMF_FID =
+	DEFINE_MSGF("fid", 0,
+		    sizeof(struct lu_fid), lustre_swab_lu_fid, NULL);
+EXPORT_SYMBOL(RMF_FID);
+
 struct req_msg_field RMF_FIEMAP_KEY =
         DEFINE_MSGF("fiemap", 0, sizeof(struct ll_fiemap_info_key),
                     lustre_swab_fiemap, NULL);
@@ -1177,6 +1200,11 @@ struct req_format RQF_MDS_GET_INFO =
                         mds_getinfo_server);
 EXPORT_SYMBOL(RQF_MDS_GET_INFO);
 
+struct req_format RQF_MDS_OBJ_UPDATE =
+	DEFINE_REQ_FMT0("MDS_OBJECT_OBJ_UPDATE", mds_update_client,
+			mds_update_server);
+EXPORT_SYMBOL(RQF_MDS_OBJ_UPDATE);
+
 struct req_format RQF_LDLM_ENQUEUE =
         DEFINE_REQ_FMT0("LDLM_ENQUEUE",
                         ldlm_enqueue_client, ldlm_enqueue_lvb_server);
@@ -1371,6 +1399,16 @@ struct req_format RQF_OST_GET_INFO_LAST_ID =
         DEFINE_REQ_FMT0("OST_GET_INFO_LAST_ID", ost_get_info_generic_client,
                                                 ost_get_last_id_server);
 EXPORT_SYMBOL(RQF_OST_GET_INFO_LAST_ID);
+
+struct req_format RQF_OST_GET_INFO_LAST_FID =
+	DEFINE_REQ_FMT0("OST_GET_INFO_LAST_FID", obd_set_info_client,
+						 ost_get_last_fid_server);
+EXPORT_SYMBOL(RQF_OST_GET_INFO_LAST_FID);
+
+struct req_format RQF_OST_SET_INFO_LAST_FID =
+	DEFINE_REQ_FMT0("OST_SET_INFO_LAST_FID", obd_set_info_client,
+						 empty);
+EXPORT_SYMBOL(RQF_OST_SET_INFO_LAST_FID);
 
 struct req_format RQF_OST_GET_INFO_FIEMAP =
         DEFINE_REQ_FMT0("OST_GET_INFO_FIEMAP", ost_get_fiemap_client,
