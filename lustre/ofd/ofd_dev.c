@@ -44,6 +44,7 @@
 
 #include <obd_class.h>
 #include <lustre_param.h>
+#include <lustre_fid.h>
 
 #include "ofd_internal.h"
 
@@ -475,6 +476,112 @@ static int ofd_procfs_fini(struct ofd_device *ofd)
 
 extern int ost_handle(struct ptlrpc_request *req);
 
+/**
+ * Set the index for fid client on OFD, which will be used to get META
+ * FID sequence from MDT0.
+ **/
+int ofd_fid_set_index(const struct lu_env *env, struct ofd_device *ofd,
+		      int index)
+{
+	struct lu_server_seq *server_seq = ofd->ofd_seq_site.ss_server_seq;
+	struct lu_client_seq *client_seq = ofd->ofd_seq_site.ss_client_seq;
+	int rc;
+	ENTRY;
+
+	LASSERTF(server_seq->lss_space.lsr_index == 0 ||
+		 server_seq->lss_space.lsr_index == index,
+		 "%s: seq lsr_index %d != connect index %d\n",
+		 ofd_name(ofd), (int)server_seq->lss_space.lsr_index, index);
+
+	ofd->ofd_seq_site.ss_node_id = index;
+	server_seq->lss_space.lsr_index = index;
+
+	rc = seq_server_set_cli(server_seq, client_seq, env);
+	if (rc == -EEXIST)
+		rc = 0;
+	if (rc)
+		CERROR("%s : set seq client error %d\n", ofd_name(ofd), rc);
+
+	RETURN(rc);
+}
+
+int ofd_fid_fini(const struct lu_env *env, struct ofd_device *ofd)
+{
+	return seq_site_fini(env, &ofd->ofd_seq_site);
+}
+
+int ofd_fid_init(const struct lu_env *env, struct ofd_device *ofd)
+{
+	struct seq_server_site	*ss = &ofd->ofd_seq_site;
+	struct lu_device	*lu = &ofd->ofd_dt_dev.dd_lu_dev;
+	char			*obd_name = ofd_name(ofd);
+	char			*name = NULL;
+	int			rc = 0;
+	int			server_inited = 0;
+	int			super_client_inited = 0;
+
+	ss = &ofd->ofd_seq_site;
+	lu->ld_site->ld_seq_site = ss;
+	ss->ss_lu = lu->ld_site;
+	ss->ss_node_id = ofd->ofd_lut.lut_lsd.lsd_ost_index;
+
+	OBD_ALLOC_PTR(ss->ss_client_seq);
+	if (ss->ss_client_seq == NULL)
+		return -ENOMEM;
+
+	OBD_ALLOC_PTR(ss->ss_server_seq);
+	if (ss->ss_server_seq == NULL)
+		GOTO(out_free, rc = -ENOMEM);
+
+	OBD_ALLOC(name, strlen(obd_name) + 10);
+	if (!name)
+		GOTO(out_free, rc = -ENOMEM);
+
+	rc = seq_server_init(ss->ss_server_seq, ofd->ofd_osd, obd_name,
+			     LUSTRE_SEQ_SERVER, ss, env);
+	if (rc) {
+		CERROR("%s : seq server init error %d\n", obd_name, rc);
+		GOTO(out_free, rc);
+	}
+	server_inited = 1;
+
+	snprintf(name, strlen(obd_name) + 6, "%p-super", obd_name);
+	rc = seq_client_init(ss->ss_client_seq, NULL, LUSTRE_SEQ_DATA,
+			     name, NULL);
+	if (rc) {
+		CERROR("%s : seq client init error %d\n", obd_name, rc);
+		GOTO(out_free, rc);
+	}
+	super_client_inited = 1;
+	OBD_FREE(name, strlen(obd_name) + 10);
+	name = NULL;
+
+out_free:
+	if (rc) {
+		if (server_inited)
+			seq_server_fini(ss->ss_server_seq, env);
+
+		if (super_client_inited)
+			seq_client_fini(ss->ss_client_seq);
+
+		if (name) {
+			OBD_FREE(name, strlen(obd_name) + 10);
+			name = NULL;
+		}
+
+		if (ss->ss_client_seq != NULL) {
+			OBD_FREE_PTR(ss->ss_client_seq);
+			ss->ss_client_seq = NULL;
+		}
+
+		if (ss->ss_server_seq != NULL) {
+			OBD_FREE_PTR(ss->ss_server_seq);
+			ss->ss_server_seq = NULL;
+		}
+	}
+	return rc;
+}
+
 static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 		     struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
@@ -519,8 +626,9 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	m->ofd_tot_dirty = 0;
 	m->ofd_tot_granted = 0;
 	m->ofd_tot_pending = 0;
-	m->ofd_max_group = 0;
+	m->ofd_seq_count = 0;
 
+	spin_lock_init(&m->ofd_batch_lock);
 	rwlock_init(&obd->u.filter.fo_sptlrpc_lock);
 	sptlrpc_rule_set_init(&obd->u.filter.fo_sptlrpc_rset);
 

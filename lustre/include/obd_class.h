@@ -68,7 +68,8 @@
                                          * interpret routine to be called.
                                          * lov_statfs_fini() must thus be called
                                          * by the request interpret routine */
-
+#define OBD_STATFS_FOR_MDT0   0x0008	/* The statfs is only for retrieving
+					 * information from MDT0. */
 #define OBD_FL_PUNCH    0x00000001      /* To indicate it is punch operation */
 
 /* OBD Device Declarations */
@@ -1039,7 +1040,7 @@ static inline int obd_disconnect(struct obd_export *exp)
         RETURN(rc);
 }
 
-static inline int obd_fid_init(struct obd_export *exp)
+static inline int obd_fid_init(struct obd_export *exp, enum lu_cli_type type)
 {
         int rc;
         ENTRY;
@@ -1047,7 +1048,7 @@ static inline int obd_fid_init(struct obd_export *exp)
         OBD_CHECK_DT_OP(exp->exp_obd, fid_init, 0);
         EXP_COUNTER_INCREMENT(exp, fid_init);
 
-        rc = OBP(exp->exp_obd, fid_init)(exp);
+	rc = OBP(exp->exp_obd, fid_init)(exp, type);
         RETURN(rc);
 }
 
@@ -2259,14 +2260,14 @@ static inline void fid2obdo(struct lu_fid *fid, struct obdo *oa)
         /* something here */
 }
 
-typedef int (*register_osp_cb)(void *data);
+typedef int (*register_lwp_cb)(void *data);
 
-struct osp_register_item {
-	struct obd_export **ori_exp;
-	register_osp_cb	    ori_cb_func;
-	void		   *ori_cb_data;
-	cfs_list_t	    ori_list;
-	char		    ori_name[MTI_NAME_MAXLEN];
+struct lwp_register_item {
+	struct obd_export **lri_exp;
+	register_lwp_cb	    lri_cb_func;
+	void		   *lri_cb_data;
+	cfs_list_t	    lri_list;
+	char		    lri_name[MTI_NAME_MAXLEN];
 };
 
 /* I'm as embarrassed about this as you are.
@@ -2277,10 +2278,10 @@ extern int (*ptlrpc_put_connection_superhack)(struct ptlrpc_connection *c);
 
 /* obd_mount.c */
 int server_name2fsname(char *svname, char *fsname, char **endptr);
-int lustre_register_osp_item(char *ospname, struct obd_export **exp,
-			     register_osp_cb cb_func, void *cb_data);
-void lustre_deregister_osp_item(struct obd_export **exp);
-int tgt_name2ospname(char *ost_name, char *osp_name);
+int lustre_register_lwp_item(char *lwpname, struct obd_export **exp,
+			     register_lwp_cb cb_func, void *cb_data);
+void lustre_deregister_lwp_item(struct obd_export **exp);
+int tgt_name2lwpname(char *tgt_name, char *lwp_name);
 
 /* sysctl.c */
 extern void obd_sysctl_init (void);
