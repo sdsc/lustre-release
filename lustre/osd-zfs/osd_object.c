@@ -1197,7 +1197,6 @@ int __osd_object_create(const struct lu_env *env, udmu_objset_t *uos,
 	if (rc)
 		return rc;
 
-	LASSERT(la->la_valid & LA_MODE);
 	la->la_size = 0;
 	la->la_nlink = 1;
 
@@ -1446,6 +1445,7 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 
 	/* Add new object to inode accounting.
 	 * Errors are not considered as fatal */
+	/*
 	rc = -zap_increment_int(osd->od_objset.os, osd->od_iusr_oid,
 				(attr->la_valid & LA_UID) ? attr->la_uid : 0, 1,
 				oh->ot_tx);
@@ -1458,7 +1458,7 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	if (rc)
 		CERROR("%s: failed to add "DFID" to accounting ZAP for grp %d "
 			"(%d)\n", osd->od_svname, PFID(fid), attr->la_gid, rc);
-
+	*/
 	/* configure new osd object */
 	obj->oo_db = db;
 	rc = osd_object_init0(env, obj);
