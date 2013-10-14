@@ -182,10 +182,10 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 	}
 
         if (rc == 0) {
-                rc = ll_objects_destroy(req, inode);
-                if (rc)
-                        CERROR("inode %lu ll_objects destroy: rc = %d\n",
-                               inode->i_ino, rc);
+		struct mdt_body *body;
+		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+		if (body->valid & OBD_MD_FLREMOVED)
+			ll_inode_mark_removed(inode);
         }
 
 	if (rc == 0 && op_data->op_bias & MDS_HSM_RELEASE) {

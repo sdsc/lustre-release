@@ -128,6 +128,9 @@ enum lli_flags {
 	LLIF_FILE_RESTORING	= (1 << 7),
 	/* Xattr cache is attached to the file */
 	LLIF_XATTR_CACHE	= (1 << 8),
+	/* File is already destroyed, i.e, unlinked and no active open
+	 * on the MDT. */
+	LLIF_FILE_REMOVED	= (1 << 9),
 };
 
 struct ll_inode_info {
@@ -147,7 +150,10 @@ struct ll_inode_info {
          * for allocating OST objects after a mknod() and later open-by-FID. */
         struct lu_fid                   lli_pfid;
 
-        cfs_list_t                      lli_close_list;
+	/* deathrow list - for deathrow thread */
+	cfs_list_t			lli_deathrow_list;
+	cfs_time_t			lli_deathrow_time;
+
         cfs_list_t                      lli_oss_capas;
         /* open count currently used by capability only, indicate whether
          * capability needs renewal */
@@ -223,6 +229,8 @@ struct ll_inode_info {
 			struct rw_semaphore		f_trunc_sem;
 			struct mutex			f_write_mutex;
 
+			cfs_list_t			f_close_list;
+
 			struct rw_semaphore		f_glimpse_sem;
 			cfs_time_t			f_glimpse_time;
 			cfs_list_t			f_agl_list;
@@ -253,6 +261,7 @@ struct ll_inode_info {
 #define lli_maxbytes            u.f.f_maxbytes
 #define lli_trunc_sem           u.f.f_trunc_sem
 #define lli_write_mutex         u.f.f_write_mutex
+#define lli_close_list		u.f.f_close_list
 #define lli_glimpse_sem 	u.f.f_glimpse_sem
 #define lli_glimpse_time	u.f.f_glimpse_time
 #define lli_agl_list		u.f.f_agl_list
@@ -723,8 +732,6 @@ int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
 
 int ll_get_mdt_idx(struct inode *inode);
 /* llite/namei.c */
-int ll_objects_destroy(struct ptlrpc_request *request,
-                       struct inode *dir);
 struct inode *ll_iget(struct super_block *sb, ino_t hash,
                       struct lustre_md *lic);
 int ll_md_blocking_ast(struct ldlm_lock *, struct ldlm_lock_desc *,
@@ -931,7 +938,10 @@ struct ll_close_queue {
 	cfs_list_t		lcq_head;
 	wait_queue_head_t	lcq_waitq;
 	struct completion	lcq_comp;
-	cfs_atomic_t		lcq_stop;
+	bool			lcq_stop;
+
+	cfs_list_t		lcq_deathrow;
+	unsigned int		lcq_survive_time;
 };
 
 struct ccc_object *cl_inode2ccc(struct inode *inode);
@@ -1087,6 +1097,8 @@ static inline struct vvp_io *vvp_env_io(const struct lu_env *env)
 void ll_queue_done_writing(struct inode *inode, unsigned long flags);
 void ll_close_thread_shutdown(struct ll_close_queue *lcq);
 int ll_close_thread_start(struct ll_close_queue **lcq_ret);
+int ll_add_deathrow(struct inode *inode);
+void ll_delete_deathrow(struct inode *inode);
 
 /* llite/llite_mmap.c */
 typedef struct rb_root  rb_root_t;
@@ -1560,10 +1572,24 @@ static inline void ll_set_lock_data(struct obd_export *exp, struct inode *inode,
 		md_set_lock_data(exp, &handle.cookie, inode,
 				 &it->d.lustre.it_lock_bits);
 		it->d.lustre.it_lock_set = 1;
+
+		ll_delete_deathrow(inode);
 	}
 
 	if (bits != NULL)
 		*bits = it->d.lustre.it_lock_bits;
+}
+
+static inline void ll_inode_mark_removed(struct inode *inode)
+{
+	struct ll_inode_info *lli = ll_i2info(inode);
+
+	spin_lock(&lli->lli_lock);
+	lli->lli_flags |= LLIF_FILE_REMOVED;
+	spin_unlock(&lli->lli_lock);
+
+	clear_nlink(inode);
+	ll_delete_deathrow(inode);
 }
 
 static inline void ll_lock_dcache(struct inode *inode)

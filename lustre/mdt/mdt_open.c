@@ -2214,15 +2214,21 @@ int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd)
                                "needed on "DFID"\n", PFID(mdt_object_fid(o)));
                 }
         } else {
+		int open_count;
+
+		mdt_mfd_free(mfd);
+
 		/* adjust open and lease count */
 		if (mode & MDS_OPEN_LEASE) {
 			LASSERT(atomic_read(&o->mot_lease_count) > 0);
 			atomic_dec(&o->mot_lease_count);
 		}
 		LASSERT(atomic_read(&o->mot_open_count) > 0);
-		atomic_dec(&o->mot_open_count);
+		open_count = atomic_dec_return(&o->mot_open_count);
 
-		mdt_mfd_free(mfd);
+		CDEBUG(D_INODE, DFID "remaining open_count = %d\n",
+		       PFID(mdt_object_fid(o)), open_count);
+
 		mdt_object_put(info->mti_env, o);
 	}
 
