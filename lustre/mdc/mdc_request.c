@@ -876,9 +876,13 @@ int mdc_close(struct obd_export *exp, struct md_op_data *op_data,
                 RETURN(rc);
         }
 
-        /* To avoid a livelock (bug 7034), we need to send CLOSE RPCs to a
-         * portal whose threads are not taking any DLM locks and are therefore
-         * always progressing */
+	/* To avoid a livelock (bug 7034), we need to send CLOSE RPCs to a
+	 * portal whose threads are not taking any DLM locks and are therefore
+	 * always progressing.
+	 * Special cases - it acquires LAYOUT lock for release, and revokes
+	 * FULL IBITS lock for last close on unlinked files, but this is okay
+	 * as release is protected by exclusive open and last close is last
+	 * close, both of them implies no active open out there. -Jinshan */
         req->rq_request_portal = MDS_READPAGE_PORTAL;
         ptlrpc_at_set_req_timeout(req);
 

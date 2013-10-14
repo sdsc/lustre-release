@@ -2228,15 +2228,34 @@ int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd)
                                "needed on "DFID"\n", PFID(mdt_object_fid(o)));
                 }
         } else {
+		int open_count;
+
+		mdt_mfd_free(mfd);
+
 		/* adjust open and lease count */
 		if (mode & MDS_OPEN_LEASE) {
 			LASSERT(atomic_read(&o->mot_lease_count) > 0);
 			atomic_dec(&o->mot_lease_count);
 		}
 		LASSERT(atomic_read(&o->mot_open_count) > 0);
-		atomic_dec(&o->mot_open_count);
+		open_count = atomic_dec_return(&o->mot_open_count);
 
-		mdt_mfd_free(mfd);
+		/* last close on unlinked file */
+		if (open_count == 0 && lu_object_is_dying(&o->mot_header)) {
+			struct mdt_lock_handle *lh = &info->mti_lh[MDT_LH_LOCAL];
+			int lrc = 0;
+
+			CDEBUG(D_INODE, DFID " Revoking locks for last close\n",
+			       PFID(mdt_object_fid(o)));
+
+			/* revoke all ibits locks */
+			mdt_lock_reg_init(lh, LCK_EX);
+			lrc = mdt_object_lock(info, o, lh, MDS_INODELOCK_FULL,
+					      MDT_LOCAL_LOCK);
+			if (lrc == 0)
+				mdt_object_unlock(info, o, lh, 1);
+		}
+
 		mdt_object_put(info->mti_env, o);
 	}
 

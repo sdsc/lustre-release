@@ -294,7 +294,11 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		    inode != inode->i_sb->s_root->d_inode &&
 		    (bits & (MDS_INODELOCK_LOOKUP | MDS_INODELOCK_PERM)))
 			ll_invalidate_aliases(inode);
-                iput(inode);
+
+		bits = MDS_INODELOCK_FULL;
+		ll_have_md_lock(inode, &bits, LCK_MINMODE);
+		if (bits != MDS_INODELOCK_FULL || ll_add_deathrow(inode) < 0)
+			iput(inode);
                 break;
         }
         default:
@@ -1234,10 +1238,6 @@ out:
 	return rc;
 }
 
-/* ll_unlink_generic() doesn't update the inode with the new link count.
- * Instead, ll_ddelete() and ll_d_iput() will update it based upon if there
- * is any lock existing. They will recycle dentries and inodes based upon locks
- * too. b=20433 */
 static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
                              struct dentry *dchild, struct qstr *name)
 {
