@@ -147,6 +147,10 @@ struct ll_inode_info {
          * for allocating OST objects after a mknod() and later open-by-FID. */
         struct lu_fid                   lli_pfid;
 
+	/* deathrow list - for deathrow thread */
+	cfs_list_t			lli_deathrow_list;
+	cfs_time_t			lli_deathrow_time;
+
         cfs_list_t                      lli_close_list;
         cfs_list_t                      lli_oss_capas;
         /* open count currently used by capability only, indicate whether
@@ -932,6 +936,9 @@ struct ll_close_queue {
 	wait_queue_head_t	lcq_waitq;
 	struct completion	lcq_comp;
 	cfs_atomic_t		lcq_stop;
+
+	cfs_list_t		lcq_deathrow;
+	unsigned int		lcq_survive_time;
 };
 
 struct ccc_object *cl_inode2ccc(struct inode *inode);
@@ -1087,6 +1094,8 @@ static inline struct vvp_io *vvp_env_io(const struct lu_env *env)
 void ll_queue_done_writing(struct inode *inode, unsigned long flags);
 void ll_close_thread_shutdown(struct ll_close_queue *lcq);
 int ll_close_thread_start(struct ll_close_queue **lcq_ret);
+void ll_refresh_deathrow(struct inode *inode);
+void ll_delete_deathrow(struct inode *inode);
 
 /* llite/llite_mmap.c */
 typedef struct rb_root  rb_root_t;
@@ -1560,6 +1569,8 @@ static inline void ll_set_lock_data(struct obd_export *exp, struct inode *inode,
 		md_set_lock_data(exp, &handle.cookie, inode,
 				 &it->d.lustre.it_lock_bits);
 		it->d.lustre.it_lock_set = 1;
+
+		ll_delete_deathrow(inode);
 	}
 
 	if (bits != NULL)

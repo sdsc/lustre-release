@@ -931,6 +931,7 @@ void ll_lli_init(struct ll_inode_info *lli)
         /* Do not set lli_fid, it has been initialized already. */
         fid_zero(&lli->lli_pfid);
         CFS_INIT_LIST_HEAD(&lli->lli_close_list);
+        CFS_INIT_LIST_HEAD(&lli->lli_deathrow_list);
         CFS_INIT_LIST_HEAD(&lli->lli_oss_capas);
         cfs_atomic_set(&lli->lli_open_count, 0);
         lli->lli_mds_capa = NULL;
@@ -1911,10 +1912,9 @@ void ll_delete_inode(struct inode *inode)
 	ENTRY;
 
 	if (S_ISREG(inode->i_mode) && lli->lli_clob != NULL)
-		/* discard all dirty pages before truncating them, required by
+		/* writeback all dirty pages before truncating them, required by
 		 * osc_extent implementation at LU-1030. */
-		cl_sync_file_range(inode, 0, OBD_OBJECT_EOF,
-				   CL_FSYNC_DISCARD, 1);
+		cl_sync_file_range(inode, 0, OBD_OBJECT_EOF, CL_FSYNC_ALL, 1);
 
         truncate_inode_pages(&inode->i_data, 0);
 
@@ -2449,7 +2449,7 @@ char *ll_get_fsname(struct super_block *sb, char *buf, int buflen)
 	return buf;
 }
 
-static char* ll_d_path(struct dentry *dentry, char *buf, int bufsize)
+static char *ll_d_path(struct dentry *dentry, char *buf, int bufsize)
 {
 	char *path = NULL;
 

@@ -725,9 +725,11 @@ out_it:
 
 void ll_d_iput(struct dentry *de, struct inode *inode)
 {
-	LASSERT(inode);
-	if (!find_cbdata(inode))
+	LASSERT(inode != NULL);
+	if (!find_cbdata(inode)) {
 		clear_nlink(inode);
+		ll_delete_deathrow(inode);
+	}
 	iput(inode);
 }
 

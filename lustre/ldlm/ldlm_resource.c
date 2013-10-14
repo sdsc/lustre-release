@@ -284,6 +284,20 @@ static int lprocfs_rd_elc(char *page, char **start, off_t off,
 	return lprocfs_rd_uint(page, start, off, count, eof, &supp);
 }
 
+static int lprocfs_rd_ns_dump(char *page, char **start, off_t off,
+			  int count, int *eof, void *data)
+{
+	struct ldlm_namespace *ns = data;
+
+	/* override time limit */
+	spin_lock(&ns->ns_lock);
+	ns->ns_next_dump = 0;
+	spin_unlock(&ns->ns_lock);
+
+	ldlm_namespace_dump(D_DLMTRACE, ns);
+	return 0;
+}
+
 static int lprocfs_wr_elc(struct file *file, const char *buffer,
 			       unsigned long count, void *data)
 {
@@ -348,6 +362,12 @@ int ldlm_namespace_proc_register(struct ldlm_namespace *ns)
                  ldlm_ns_name(ns));
         lock_vars[0].data = ns;
         lock_vars[0].read_fptr = lprocfs_rd_ns_locks;
+        lprocfs_add_vars(ldlm_ns_proc_dir, lock_vars, 0);
+
+        snprintf(lock_name, MAX_STRING_SIZE, "%s/lock_dump",
+                 ldlm_ns_name(ns));
+        lock_vars[0].data = ns;
+        lock_vars[0].read_fptr = lprocfs_rd_ns_dump;
         lprocfs_add_vars(ldlm_ns_proc_dir, lock_vars, 0);
 
         if (ns_is_client(ns)) {

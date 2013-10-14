@@ -294,7 +294,13 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		    inode != inode->i_sb->s_root->d_inode &&
 		    (bits & (MDS_INODELOCK_LOOKUP | MDS_INODELOCK_PERM)))
 			ll_invalidate_aliases(inode);
-                iput(inode);
+
+		bits = MDS_INODELOCK_FULL;
+		ll_have_md_lock(inode, &bits, LCK_MINMODE);
+		if (bits == MDS_INODELOCK_FULL) /* no md lock existing */
+			ll_refresh_deathrow(inode);
+
+		iput(inode);
                 break;
         }
         default:
@@ -1234,10 +1240,6 @@ out:
 	return rc;
 }
 
-/* ll_unlink_generic() doesn't update the inode with the new link count.
- * Instead, ll_ddelete() and ll_d_iput() will update it based upon if there
- * is any lock existing. They will recycle dentries and inodes based upon locks
- * too. b=20433 */
 static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
                              struct dentry *dchild, struct qstr *name)
 {
@@ -1268,6 +1270,9 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
 	ll_finish_md_op_data(op_data);
 	if (rc)
 		GOTO(out, rc);
+
+	/* clear nlink if this file is known to have been deleted. */
+	clear_nlink(dchild->d_inode);
 
         ll_update_times(request, dir);
         ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_UNLINK, 1);
@@ -1312,6 +1317,9 @@ static int ll_rename_generic(struct inode *src, struct dentry *src_dparent,
                         tgt_name->name, tgt_name->len, &request);
         ll_finish_md_op_data(op_data);
         if (!err) {
+		/* clear nlink if this file is known to have been deleted. */
+		clear_nlink(tgt);
+
                 ll_update_times(request, src);
                 ll_update_times(request, tgt);
                 ll_stats_ops_tally(sbi, LPROC_LL_RENAME, 1);
