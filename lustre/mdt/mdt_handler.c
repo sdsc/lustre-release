@@ -3878,7 +3878,12 @@ static int mdt_intent_layout(enum mdt_it_code opcode,
 	if (IS_ERR(obj))
 		RETURN(PTR_ERR(obj));
 
-	if (mdt_object_exists(obj) && !mdt_object_remote(obj)) {
+	if (!mdt_object_exists(obj)) {
+		mdt_object_put(info->mti_env, obj);
+		RETURN(-ENOENT);
+	}
+
+	if (!mdt_object_remote(obj)) {
 		child = mdt_object_child(obj);
 
 		/* get the length of lsm */
