@@ -389,34 +389,32 @@ static unsigned nrs_orr_hop_hash(cfs_hash_t *hs, const void *key, unsigned mask)
 	return cfs_hash_djb2_hash(key, sizeof(struct nrs_orr_key), mask);
 }
 
-static void *nrs_orr_hop_key(cfs_hlist_node_t *hnode)
+static void *nrs_orr_hop_key(struct hlist_node *hnode)
 {
-	struct nrs_orr_object *orro = cfs_hlist_entry(hnode,
+	struct nrs_orr_object *orro = hlist_entry(hnode,
 						      struct nrs_orr_object,
 						      oo_hnode);
 	return &orro->oo_key;
 }
 
-static int nrs_orr_hop_keycmp(const void *key, cfs_hlist_node_t *hnode)
+static int nrs_orr_hop_keycmp(const void *key, struct hlist_node *hnode)
 {
-	struct nrs_orr_object *orro = cfs_hlist_entry(hnode,
-						      struct nrs_orr_object,
-						      oo_hnode);
+	struct nrs_orr_object *orro = hlist_entry(hnode, struct nrs_orr_object,
+							oo_hnode);
 
 	return lu_fid_eq(&orro->oo_key.ok_fid,
 			 &((struct nrs_orr_key *)key)->ok_fid);
 }
 
-static void *nrs_orr_hop_object(cfs_hlist_node_t *hnode)
+static void *nrs_orr_hop_object(struct hlist_node *hnode)
 {
-	return cfs_hlist_entry(hnode, struct nrs_orr_object, oo_hnode);
+	return hlist_entry(hnode, struct nrs_orr_object, oo_hnode);
 }
 
-static void nrs_orr_hop_get(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
+static void nrs_orr_hop_get(cfs_hash_t *hs, struct hlist_node *hnode)
 {
-	struct nrs_orr_object *orro = cfs_hlist_entry(hnode,
-						      struct nrs_orr_object,
-						      oo_hnode);
+	struct nrs_orr_object *orro = hlist_entry(hnode, struct nrs_orr_object,
+							oo_hnode);
 	orro->oo_ref++;
 }
 
@@ -424,11 +422,10 @@ static void nrs_orr_hop_get(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
  * Removes an nrs_orr_object the hash and frees its memory, if the object has
  * no active users.
  */
-static void nrs_orr_hop_put_free(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
+static void nrs_orr_hop_put_free(cfs_hash_t *hs, struct hlist_node *hnode)
 {
-	struct nrs_orr_object *orro = cfs_hlist_entry(hnode,
-						      struct nrs_orr_object,
-						      oo_hnode);
+	struct nrs_orr_object *orro = hlist_entry(hnode, struct nrs_orr_object,
+							oo_hnode);
 	struct nrs_orr_data   *orrd = container_of(orro->oo_res.res_parent,
 						   struct nrs_orr_data, od_res);
 	cfs_hash_bd_t	       bd;
@@ -448,28 +445,25 @@ static void nrs_orr_hop_put_free(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
 	OBD_SLAB_FREE_PTR(orro, orrd->od_cache);
 }
 
-static void nrs_orr_hop_put(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
+static void nrs_orr_hop_put(cfs_hash_t *hs, struct hlist_node *hnode)
 {
-	struct nrs_orr_object *orro = cfs_hlist_entry(hnode,
-						      struct nrs_orr_object,
-						      oo_hnode);
+	struct nrs_orr_object *orro = hlist_entry(hnode, struct nrs_orr_object,
+							oo_hnode);
 	orro->oo_ref--;
 }
 
-static int nrs_trr_hop_keycmp(const void *key, cfs_hlist_node_t *hnode)
+static int nrs_trr_hop_keycmp(const void *key, struct hlist_node *hnode)
 {
-	struct nrs_orr_object *orro = cfs_hlist_entry(hnode,
-						      struct nrs_orr_object,
-						      oo_hnode);
+	struct nrs_orr_object *orro = hlist_entry(hnode, struct nrs_orr_object,
+							oo_hnode);
 
 	return orro->oo_key.ok_idx == ((struct nrs_orr_key *)key)->ok_idx;
 }
 
-static void nrs_trr_hop_exit(cfs_hash_t *hs, cfs_hlist_node_t *hnode)
+static void nrs_trr_hop_exit(cfs_hash_t *hs, struct hlist_node *hnode)
 {
-	struct nrs_orr_object *orro = cfs_hlist_entry(hnode,
-						      struct nrs_orr_object,
-						      oo_hnode);
+	struct nrs_orr_object *orro = hlist_entry(hnode, struct nrs_orr_object,
+							oo_hnode);
 	struct nrs_orr_data   *orrd = container_of(orro->oo_res.res_parent,
 						   struct nrs_orr_data, od_res);
 

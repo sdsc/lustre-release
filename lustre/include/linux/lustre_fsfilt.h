@@ -51,7 +51,7 @@
 #include <obd_class.h>
 
 struct fsfilt_operations {
-	cfs_list_t fs_list;
+	struct list_head fs_list;
 	struct module *fs_owner;
 	char   *fs_type;
 	int     (* fs_map_inode_pages)(struct inode *inode, struct page **page,
