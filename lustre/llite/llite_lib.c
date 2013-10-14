@@ -1911,10 +1911,9 @@ void ll_delete_inode(struct inode *inode)
 	ENTRY;
 
 	if (S_ISREG(inode->i_mode) && lli->lli_clob != NULL)
-		/* discard all dirty pages before truncating them, required by
+		/* writeback all dirty pages before truncating them, required by
 		 * osc_extent implementation at LU-1030. */
-		cl_sync_file_range(inode, 0, OBD_OBJECT_EOF,
-				   CL_FSYNC_DISCARD, 1);
+		cl_sync_file_range(inode, 0, OBD_OBJECT_EOF, CL_FSYNC_ALL, 1);
 
         truncate_inode_pages(&inode->i_data, 0);
 

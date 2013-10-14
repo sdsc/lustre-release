@@ -2119,7 +2119,7 @@ extern void lustre_swab_generic_32s (__u32 *val);
 #define MDS_INODELOCK_PERM   0x000010       /* for permission */
 #define MDS_INODELOCK_XATTR  0x000020       /* extended attributes */
 
-#define MDS_INODELOCK_MAXSHIFT 5
+#define MDS_INODELOCK_MAXSHIFT 6
 /* This FULL lock is useful to take on unlink sort of operations */
 #define MDS_INODELOCK_FULL ((1<<(MDS_INODELOCK_MAXSHIFT+1))-1)
 
