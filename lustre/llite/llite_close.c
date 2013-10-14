@@ -327,49 +327,88 @@ out:
         EXIT;
 }
 
-static struct ll_inode_info *ll_close_next_lli(struct ll_close_queue *lcq)
+static bool ll_close_has_job(struct ll_close_queue *lcq)
 {
-	struct ll_inode_info *lli = NULL;
+	bool has;
 
 	spin_lock(&lcq->lcq_lock);
-
-        if (!cfs_list_empty(&lcq->lcq_head)) {
-                lli = cfs_list_entry(lcq->lcq_head.next, struct ll_inode_info,
-                                     lli_close_list);
-                cfs_list_del_init(&lli->lli_close_list);
-        } else if (cfs_atomic_read(&lcq->lcq_stop))
-                lli = ERR_PTR(-EALREADY);
-
+        has = !cfs_list_empty(&lcq->lcq_head) ||
+	      cfs_atomic_read(&lcq->lcq_stop) > 0;
 	spin_unlock(&lcq->lcq_lock);
-	return lli;
+
+	return has;
 }
 
 static int ll_close_thread(void *arg)
 {
-        struct ll_close_queue *lcq = arg;
-        ENTRY;
+	struct ll_close_queue *lcq = arg;
+	struct l_wait_info lwi = LWI_TIMEOUT(lcq->lcq_survive_time, NULL, NULL);
+	struct ll_inode_info *lli;
+	struct inode *inode;
+	__u64 bits;
+	ENTRY;
 
 	complete(&lcq->lcq_comp);
 
-        while (1) {
-                struct l_wait_info lwi = { 0 };
-                struct ll_inode_info *lli;
-                struct inode *inode;
+again:
+	l_wait_event_exclusive(lcq->lcq_waitq, ll_close_has_job(lcq), &lwi);
 
-                l_wait_event_exclusive(lcq->lcq_waitq,
-                                       (lli = ll_close_next_lli(lcq)) != NULL,
-                                       &lwi);
-                if (IS_ERR(lli))
-                        break;
+	spin_lock(&lcq->lcq_lock);
+	while (!cfs_list_empty(&lcq->lcq_head)) {
+		lli = cfs_list_entry(lcq->lcq_head.next, typeof(*lli),
+				     lli_close_list);
+		cfs_list_del_init(&lli->lli_close_list);
+		spin_unlock(&lcq->lcq_lock);
 
-                inode = ll_info2i(lli);
-                CDEBUG(D_INFO, "done_writting for inode %lu/%u\n",
-                       inode->i_ino, inode->i_generation);
-                ll_done_writing(inode);
-                iput(inode);
-        }
+		inode = ll_info2i(lli);
 
-        CDEBUG(D_INFO, "ll_close exiting\n");
+		CDEBUG(D_INFO, DFID " done_writting\n", PFID(&lli->lli_fid));
+
+		ll_done_writing(inode);
+		iput(inode);
+
+		spin_lock(&lcq->lcq_lock);
+	}
+
+	/**
+	 * Thread to prune inode from cache.
+	 * The current policy is if an inode loses all of its ibits lock, and
+	 * not is accessed in one minute, it will be kicked out from cache.
+	 */
+	while (!cfs_list_empty(&lcq->lcq_deathrow)) {
+		lli = cfs_list_entry(lcq->lcq_deathrow.next, typeof(*lli),
+				     lli_deathrow_list);
+		if (cfs_atomic_read(&lcq->lcq_stop) == 0 &&
+		    cfs_time_before(cfs_time_shift(-lcq->lcq_survive_time),
+				    lli->lli_deathrow_time))
+			break;
+
+		cfs_list_del_init(&lli->lli_deathrow_list);
+		spin_unlock(&lcq->lcq_lock);
+
+		inode = ll_info2i(lli);
+		if (cfs_atomic_read(&lcq->lcq_stop) == 0) {
+			bits = MDS_INODELOCK_FULL;
+			ll_have_md_lock(inode, &bits, LCK_MINMODE);
+			if (bits == MDS_INODELOCK_FULL) {
+				clear_nlink(inode);
+				d_prune_aliases(inode);
+			}
+		}
+		iput(inode);
+
+		spin_lock(&lcq->lcq_lock);
+	}
+
+	if (cfs_atomic_read(&lcq->lcq_stop) == 0 ||
+	    !cfs_list_empty(&lcq->lcq_deathrow) ||
+	    !cfs_list_empty(&lcq->lcq_head)) {
+		spin_unlock(&lcq->lcq_lock);
+		goto again;
+	}
+	spin_unlock(&lcq->lcq_lock);
+
+	CDEBUG(D_INFO, "ll_close exiting\n");
 	complete(&lcq->lcq_comp);
 	RETURN(0);
 }
@@ -390,6 +429,10 @@ int ll_close_thread_start(struct ll_close_queue **lcq_ret)
 	CFS_INIT_LIST_HEAD(&lcq->lcq_head);
 	init_waitqueue_head(&lcq->lcq_waitq);
 	init_completion(&lcq->lcq_comp);
+	cfs_atomic_set(&lcq->lcq_stop, 0);
+
+	CFS_INIT_LIST_HEAD(&lcq->lcq_deathrow);
+	lcq->lcq_survive_time = 5; /* 5 seconds */
 
 	task = kthread_run(ll_close_thread, lcq, "ll_close");
 	if (IS_ERR(task)) {
@@ -409,4 +452,48 @@ void ll_close_thread_shutdown(struct ll_close_queue *lcq)
 	wake_up(&lcq->lcq_waitq);
 	wait_for_completion(&lcq->lcq_comp);
 	OBD_FREE(lcq, sizeof(*lcq));
+}
+
+int ll_add_deathrow(struct inode *inode)
+{
+	struct ll_close_queue *lcq = ll_i2sbi(inode)->ll_lcq;
+	struct ll_inode_info *lli = ll_i2info(inode);
+	int rc = -EBUSY;
+
+	if (!S_ISREG(inode->i_mode) || cfs_atomic_read(&lcq->lcq_stop) > 0)
+		return rc;
+
+	spin_lock(&lcq->lcq_lock);
+	if (cfs_list_empty(&lli->lli_deathrow_list)) {
+		cfs_list_move_tail(&lli->lli_deathrow_list, &lcq->lcq_deathrow);
+		lli->lli_deathrow_time = cfs_time_current();
+		rc = 0;
+
+		CDEBUG(D_INODE, "File "DFID" was added into deathrow.\n",
+		       PFID(ll_inode2fid(inode)));
+	}
+	spin_unlock(&lcq->lcq_lock);
+	return rc;
+}
+
+void ll_delete_deathrow(struct inode *inode)
+{
+	struct ll_close_queue *lcq = ll_i2sbi(inode)->ll_lcq;
+	struct ll_inode_info *lli = ll_i2info(inode);
+	bool inlist = false;
+
+	if (!S_ISREG(inode->i_mode))
+		return;
+
+	spin_lock(&lcq->lcq_lock);
+	inlist = !cfs_list_empty(&lli->lli_deathrow_list);
+	if (inlist)
+		cfs_list_del_init(&lli->lli_deathrow_list);
+	spin_unlock(&lcq->lcq_lock);
+
+	if (inlist) {
+		CDEBUG(D_INODE, "File "DFID" was taken out of deathrow.\n",
+		       PFID(ll_inode2fid(inode)));
+		iput(inode);
+	}
 }
