@@ -171,14 +171,7 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 		struct lr_server_data *lsd = &ofd->ofd_lut.lut_lsd;
 		int		       index = lsd->lsd_ost_index;
 
-		if (!(lsd->lsd_feature_compat & OBD_COMPAT_OST)) {
-			/* this will only happen on the first connect */
-			lsd->lsd_ost_index = data->ocd_index;
-			lsd->lsd_feature_compat |= OBD_COMPAT_OST;
-			/* sync is not needed here as lut_client_add will
-			 * set exp_need_sync flag */
-			tgt_server_data_update(env, &ofd->ofd_lut, 0);
-		} else if (index != data->ocd_index) {
+		if (index != data->ocd_index) {
 			LCONSOLE_ERROR_MSG(0x136, "Connection from %s to index"
 					   " %u doesn't match actual OST index"
 					   " %u in last_rcvd file, bad "
@@ -187,8 +180,15 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 					   data->ocd_index);
 			RETURN(-EBADF);
 		}
+		if (!(lsd->lsd_feature_compat & OBD_COMPAT_OST)) {
+			/* this will only happen on the first connect */
+			lsd->lsd_ost_index = data->ocd_index;
+			lsd->lsd_feature_compat |= OBD_COMPAT_OST;
+			/* sync is not needed here as lut_client_add will
+			 * set exp_need_sync flag */
+			tgt_server_data_update(env, &ofd->ofd_lut, 0);
+		}
 	}
-
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_BRW_SIZE)) {
 		data->ocd_brw_size = 65536;
 	} else if (data->ocd_connect_flags & OBD_CONNECT_BRW_SIZE) {
