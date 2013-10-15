@@ -223,7 +223,7 @@ static int libcfs_ioctl_int(struct cfs_psdev_file *pfile,unsigned long cmd,
 			    void *arg, struct libcfs_ioctl_hdr *hdr)
 {
 	int err = -EINVAL;
-	struct libcfs_ioctl_data *data;
+	struct libcfs_ioctl_data *data = NULL;
 	ENTRY;
 
 	/* The libcfs_ioctl_data_adjust() function performs adjustment
