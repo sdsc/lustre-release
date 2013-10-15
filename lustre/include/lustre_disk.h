@@ -327,8 +327,8 @@ struct lr_server_data {
         __u64 lsd_catalog_oid;     /* recovery catalog object id */
         __u32 lsd_catalog_ogen;    /* recovery catalog inode generation */
         __u8  lsd_peeruuid[40];    /* UUID of MDS associated with this OST */
-        __u32 lsd_ost_index;       /* index number of OST in LOV */
-        __u32 lsd_mdt_index;       /* index number of MDT in LMV */
+	__u32 lsd_osd_index;       /* index number of OST in LOV */
+	__u32 lsd_padding1;        /* Used to be lsd_mdt_index, now obsolete */
         __u32 lsd_start_epoch;     /* VBR: start epoch from last boot */
         /** transaction values since lsd_trans_table_time */
         __u64 lsd_trans_table[LR_EXPIRE_INTERVALS];
@@ -391,8 +391,7 @@ static inline void lsd_le_to_cpu(struct lr_server_data *buf,
         lsd->lsd_catalog_oid      = le64_to_cpu(buf->lsd_catalog_oid);
         lsd->lsd_catalog_ogen     = le32_to_cpu(buf->lsd_catalog_ogen);
         memcpy(lsd->lsd_peeruuid, buf->lsd_peeruuid, sizeof(lsd->lsd_peeruuid));
-        lsd->lsd_ost_index        = le32_to_cpu(buf->lsd_ost_index);
-        lsd->lsd_mdt_index        = le32_to_cpu(buf->lsd_mdt_index);
+	lsd->lsd_osd_index        = le32_to_cpu(buf->lsd_osd_index);
         lsd->lsd_start_epoch      = le32_to_cpu(buf->lsd_start_epoch);
         for (i = 0; i < LR_EXPIRE_INTERVALS; i++)
                 lsd->lsd_trans_table[i] = le64_to_cpu(buf->lsd_trans_table[i]);
@@ -418,8 +417,7 @@ static inline void lsd_cpu_to_le(struct lr_server_data *lsd,
         buf->lsd_catalog_oid      = cpu_to_le64(lsd->lsd_catalog_oid);
         buf->lsd_catalog_ogen     = cpu_to_le32(lsd->lsd_catalog_ogen);
         memcpy(buf->lsd_peeruuid, lsd->lsd_peeruuid, sizeof(buf->lsd_peeruuid));
-        buf->lsd_ost_index        = cpu_to_le32(lsd->lsd_ost_index);
-        buf->lsd_mdt_index        = cpu_to_le32(lsd->lsd_mdt_index);
+	buf->lsd_osd_index        = cpu_to_le32(lsd->lsd_osd_index);
         buf->lsd_start_epoch      = cpu_to_le32(lsd->lsd_start_epoch);
         for (i = 0; i < LR_EXPIRE_INTERVALS; i++)
                 buf->lsd_trans_table[i] = cpu_to_le64(lsd->lsd_trans_table[i]);
