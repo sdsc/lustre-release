@@ -20,3 +20,4 @@ install-exec-hook:
 	cp libyaml.so  $(DESTDIR)$(libdir)/
 
 EXTRA_DIST = yaml.h
+

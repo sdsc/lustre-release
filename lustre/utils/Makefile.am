@@ -1,6 +1,6 @@
 # Administration utilities Makefile
 
-SUBDIRS = libyaml
+SUBDIRS = cYAML libyaml lustreconfigapi
 
 if GSS
 SUBDIRS += gss
