@@ -374,6 +374,16 @@ if [ -f $RPM_BUILD_ROOT%{_libdir}/liblustre.so ] ; then
   echo '%attr(-, root, root) %{_libdir}/liblustre.so' >>lustre.files
 fi
 
+if [ -f $RPM_BUILD_ROOT%{_libdir}/libcYAML.so ] ; then
+  echo '%attr(-, root, root) %{_libdir}/libcYAML.a' >>lustre.files
+  echo '%attr(-, root, root) %{_libdir}/libcYAML.so' >>lustre.files
+fi
+
+if [ -f $RPM_BUILD_ROOT%{_libdir}/liblustreconfigapi.so ] ; then
+  echo '%attr(-, root, root) %{_libdir}/liblustreconfigapi.a' >>lustre.files
+  echo '%attr(-, root, root) %{_libdir}/liblustreconfigapi.so' >>lustre.files
+fi
+
 if [ -f $RPM_BUILD_ROOT%{_libdir}/libyaml.so ] ; then
   echo '%attr(-, root, root) %{_libdir}/libyaml.a' >>lustre.files
   echo '%attr(-, root, root) %{_libdir}/libyaml.so' >>lustre.files
