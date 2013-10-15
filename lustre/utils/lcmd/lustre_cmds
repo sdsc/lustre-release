@@ -1,0 +1,169 @@
+---
+configure:
+   lnet_cmd_help: Dynamically configure LNET parameters
+   route:
+     lnet_cmd_help: Add or change an LNET route
+     lnet_cmd_callback: lnet_config_route
+     --net:
+        lnet_cmd_help: route network
+        lnet_cmd_value:
+            lnet_cmd_help: "net name ex: tcp0"
+            lnet_cmd_back: 2
+     --gateway:
+        lnet_cmd_help: route gateway
+        lnet_cmd_value:
+            lnet_cmd_help: gateway address
+            lnet_cmd_back: 2
+     --hop:
+        lnet_cmd_help: Number of hops to final destination
+        lnet_cmd_value:
+            lnet_cmd_help: a value from 1-255
+            lnet_cmd_back: 2
+     --priority:
+        lnet_cmd_help: Priority of the route
+        lnet_cmd_value:
+            lnet_cmd_help: a value from 0-2^32
+            lnet_cmd_back: 2
+   net:
+     lnet_cmd_help: Add or change network
+     lnet_cmd_callback: lnet_config_net
+     --net:
+        lnet_cmd_help: specifiy a network name
+        lnet_cmd_value:
+            lnet_cmd_help: "network ex: tcp0"
+            lnet_cmd_back: 2
+     --if:
+        lnet_cmd_help: specifiy an interface
+        lnet_cmd_value:
+            lnet_cmd_help: "interface ex: eth0"
+            lnet_cmd_back: 2
+     --peer_timeout:
+        lnet_cmd_help: time to wait before declaring a peer dead
+        lnet_cmd_value:
+            lnet_cmd_help: a value between 1-10
+            lnet_cmd_back: 2
+     --peer_credits:
+        lnet_cmd_help: define the max number of inflight messages
+        lnet_cmd_value:
+            lnet_cmd_help: a value from 1-15
+            lnet_cmd_back: 2
+     --peer_buffer_credits:
+        lnet_cmd_help: some stuff I have to figure out
+        lnet_cmd_value:
+            lnet_cmd_help: a value from 2-45
+            lnet_cmd_back: 2
+     --credits:
+        lnet_cmd_help: some stuff I have to figure out
+        lnet_cmd_value:
+            lnet_cmd_help: a value from 2-45
+            lnet_cmd_back: 2
+     --SMP:
+        lnet_cmd_help: CPU Partitions configured net uses
+        lnet_cmd_value:
+            lnet_cmd_help: list of comma separated numbers
+            lnet_cmd_back: 2
+   buffer:
+     lnet_cmd_help: Add or change LNET router buffer configuration
+     lnet_cmd_callback: lnet_config_buf
+     --tiny:
+        lnet_cmd_help: specify size of tiny buffers
+        lnet_cmd_value:
+            lnet_cmd_help: a value between 493-303
+            lnet_cmd_back: 2
+     --small:
+        lnet_cmd_help: spcify size of small buffers
+        lnet_cmd_value:
+            lnet_cmd_help: a value between 1-103
+            lnet_cmd_back: 2
+     --large:
+        lnet_cmd_help: specify size of large buffers
+        lnet_cmd_value:
+            lnet_cmd_help: a value from 1-150
+            lnet_cmd_back: 2
+   routing:
+     lnet_cmd_help: Enable routing
+     lnet_cmd_callback: lnet_config_enable_routing
+   file:
+     lnet_cmd_help: Supply a YAML file with entities to configure
+     lnet_cmd_callback: lnet_config_file
+     lnet_cmd_value:
+        lnet_cmd_help: file name
+del:
+   lnet_cmd_help: Remove configuration
+   route:
+     lnet_cmd_help: delete an LNET route
+     lnet_cmd_callback: lnet_del_route
+     --net:
+        lnet_cmd_help: route network
+        lnet_cmd_value:
+            lnet_cmd_help: "net name ex: tcp0"
+            lnet_cmd_back: 2
+     --gateway:
+        lnet_cmd_help: route gateway
+        lnet_cmd_value:
+            lnet_cmd_help: gateway address
+            lnet_cmd_back: 2
+   net:
+     lnet_cmd_help: delete a network
+     lnet_cmd_callback: lnet_del_net
+     --net:
+        lnet_cmd_help: specifiy an interface
+        lnet_cmd_value:
+            lnet_cmd_help: "interface ex: tcp0"
+            lnet_cmd_back: 2
+   buffer:
+     lnet_cmd_help: delete buffer configuration
+     lnet_cmd_callback: lnet_del_buf
+   routing:
+     lnet_cmd_help: disable routing
+     lnet_cmd_callback: lnet_config_disable_routing
+   file:
+     lnet_cmd_help: Supply a YAML file with entities to delete
+     lnet_cmd_callback: lnet_del_file
+     lnet_cmd_value:
+        lnet_cmd_help: file name
+show:
+   lnet_cmd_help: show configuration
+   route:
+     lnet_cmd_help: show LNET route
+     lnet_cmd_callback: lnet_show_route
+     --net:
+        lnet_cmd_help: route network
+        lnet_cmd_value:
+            lnet_cmd_help: "net name ex: tcp0"
+            lnet_cmd_back: 2
+     --gateway:
+        lnet_cmd_help: route gateway
+        lnet_cmd_value:
+            lnet_cmd_help: gateway address
+            lnet_cmd_back: 2
+     detail:
+        lnet_cmd_help: detailed output
+        lnet_cmd_back: 1
+   net:
+     lnet_cmd_help: show network
+     lnet_cmd_callback: lnet_show_net
+     --net:
+        lnet_cmd_help: specifiy an interface
+        lnet_cmd_value:
+            lnet_cmd_help: "network ex: tcp0"
+            lnet_cmd_back: 2
+     detail:
+        lnet_cmd_help: detailed output
+        lnet_cmd_back: 1
+   buffer:
+     lnet_cmd_help: show buffer configuration
+     lnet_cmd_callback: lnet_show_buf
+   file:
+     lnet_cmd_help: Supply a YAML file with entities to show
+     lnet_cmd_callback: lnet_show_file
+     lnet_cmd_value:
+        lnet_cmd_help: file name
+   credits:
+     lnet_cmd_help: show credit detail of peers in the system
+     lnet_cmd_callback: lnet_show_peer_credits
+   statistics:
+     lnet_cmd_help: show lnet traffic statistics
+     lnet_cmd_callback: lnet_show_stats
+...
+
