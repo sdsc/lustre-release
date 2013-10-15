@@ -1,7 +1,9 @@
 # Administration utilities Makefile
 
+SUBDIRS = cYAML libyaml lustreconfigapi
+
 if GSS
-SUBDIRS = gss
+SUBDIRS += gss
 endif
 
 AM_CFLAGS=$(LLCFLAGS)
