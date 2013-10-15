@@ -37,19 +37,14 @@
 #include <obd_class.h>
 
 #ifdef LPROCFS
-static struct lprocfs_vars lprocfs_echo_obd_vars[] = {
-        { "uuid",         lprocfs_rd_uuid,        0, 0 },
-        { 0 }
+LPROC_SEQ_FOPS_RO_TYPE(echo, uuid);
+static struct lprocfs_seq_vars lprocfs_echo_obd_vars[] = {
+	{ "uuid",	&echo_uuid_fops		},
+	{ 0 }
 };
 
-static struct lprocfs_vars lprocfs_echo_module_vars[] = {
-        { "num_refs",     lprocfs_rd_numrefs,     0, 0 },
-        { 0 }
-};
-
-void lprocfs_echo_init_vars(struct lprocfs_static_vars *lvars)
+void lprocfs_echo_init_vars(struct obd_device *obd)
 {
-    lvars->module_vars  = lprocfs_echo_module_vars;
-    lvars->obd_vars     = lprocfs_echo_obd_vars;
+	obd->obd_vars = lprocfs_echo_obd_vars;
 }
 #endif /* LPROCFS */
