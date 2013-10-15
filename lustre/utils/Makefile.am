@@ -1,9 +1,7 @@
 # Administration utilities Makefile
 
-SUBDIRS = libyaml
-
 if GSS
-SUBDIRS += gss
+SUBDIRS = gss
 endif
 
 AM_CFLAGS=$(LLCFLAGS)
