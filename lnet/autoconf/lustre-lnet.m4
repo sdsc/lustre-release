@@ -139,6 +139,18 @@ AC_SUBST(USOCKLND)
 ]) # LN_CONFIG_USOCKLND
 
 #
+# LN_CHECK_LIBYAML
+#
+# Check if libyaml-devel is installed, if not disable building DLC.
+#
+AC_DEFUN([LN_CHECK_LIBYAML],
+[AC_MSG_CHECKING([whether to build dlc])
+AC_CHECK_LIB([yaml],  [yaml_parser_initialize],[
+	LIBYAML="libyaml"],[
+	LIBYAML=""],[-lm])
+])
+
+#
 # LN_CONFIG_QUADRICS
 #
 # check if quadrics support is in this kernel
@@ -656,6 +668,7 @@ AC_SUBST(LIBWRAP)
 
 LN_CONFIG_MAX_PAYLOAD
 LN_CONFIG_USOCKLND
+LN_CHECK_LIBYAML
 ]) # LN_CONFIGURE
 
 #
@@ -671,6 +684,7 @@ AM_CONDITIONAL(BUILD_RALND,      test x$RALND = "xralnd")
 AM_CONDITIONAL(BUILD_GNILND,     test x$GNILND = "xgnilnd")
 AM_CONDITIONAL(BUILD_GNILND_RCA, test x$GNILNDRCA = "xgnilndrca")
 AM_CONDITIONAL(BUILD_USOCKLND,   test x$USOCKLND = "xusocklnd")
+AM_CONDITIONAL(BUILD_DLC, test x$LIBYAML = "xlibyaml")
 ]) # LN_CONDITIONALS
 
 #
@@ -710,6 +724,7 @@ lnet/ulnds/Makefile
 lnet/ulnds/autoMakefile
 lnet/ulnds/socklnd/Makefile
 lnet/utils/Makefile
+lnet/utils/lnetconfig/Makefile
 lnet/include/lnet/darwin/Makefile
 ])
 ]) # LN_CONFIG_FILES
