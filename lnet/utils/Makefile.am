@@ -42,6 +42,8 @@ if BUILD_DLC
 SUBDIRS = lnetconfig
 endif
 
+AM_LDFLAGS := -L$(top_builddir)/lnet/utils/lnetconfig
+
 LIBCFS= $(top_builddir)/libcfs/libcfs/libcfs.a
 LIBCFSUTIL= $(top_builddir)/libcfs/libcfs/libcfsutil.a
 
@@ -55,6 +57,10 @@ if UTILS
 sbin_PROGRAMS += routerstat wirecheck lst
 endif
 
+if BUILD_DLC
+sbin_PROGRAMS += lnetctl
+endif
+
 wirecheck_SOURCES = wirecheck.c
 
 routerstat_SOURCES = routerstat.c
@@ -62,6 +68,12 @@ routerstat_SOURCES = routerstat.c
 lst_SOURCES = lst.c
 lst_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
 lst_DEPENDENCIES = libptlctl.a
+
+CYAML := $(top_builddir)/lnet/utils/cyaml/cyaml.c
+lnetctl_SOURCES = lnetctl.c $(CYAML)
+lnetctl_LDADD = -L. -lm -lyaml -llnetconfig \
+		$(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
+lnetctl_DEPENDENCIES = $(top_builddir)/lnet/utils/lnetconfig/liblnetconfig.so
 
 LND_LIBS =
 if BUILD_USOCKLND
