@@ -1827,6 +1827,7 @@ lustre/utils/gss/Makefile
 lustre/utils/cYAML/Makefile
 lustre/utils/libyaml/Makefile
 lustre/utils/lustreconfigapi/Makefile
+lustre/utils/lcmd/Makefile
 lustre/osp/Makefile
 lustre/osp/autoMakefile
 lustre/lod/Makefile
