@@ -62,14 +62,11 @@ int lmv_fld_lookup(struct lmv_obd *lmv,
         int rc;
         ENTRY;
 
-        LASSERT(fid_is_sane(fid));
+	LASSERTF(fid_is_sane(fid), DFID" is insane!\n", PFID(fid));
 
-	/* FIXME: Because ZFS still use LOCAL fid sequence for root,
-	 * and root will always be in MDT0, for local fid, it will
-	 * return 0 directly. And it should be removed once the root
-	 * FID has been assigned with special sequence */
-	if (fid_seq(fid) == FID_SEQ_LOCAL_FILE) {
-		*mds = 0;
+	/* FIXME: move this to the server side */
+	if (fid_is_root(fid)) {
+		*mds = fid_index_get_by_rootfid(fid);
 		RETURN(0);
 	}
 

@@ -133,6 +133,9 @@ struct mdd_device {
 	struct md_lfsck			 mdd_lfsck;
 	unsigned int			 mdd_sync_permission;
 	int				 mdd_connects;
+	unsigned int			 mdd_remote_dir:1; /* enable to create
+							    * remote dir on this
+							    * MDD */
 };
 
 enum mod_flags {
@@ -167,6 +170,22 @@ struct mdd_object {
 #endif
 };
 
+/**
+ * The data that link search is done on.
+ */
+struct mdd_link_data {
+	/**
+	 * Buffer to keep link EA body.
+	 */
+	struct lu_buf           *ml_buf;
+	/**
+	 * The matched header, entry and its lenght in the EA
+	 */
+	struct link_ea_header   *ml_leh;
+	struct link_ea_entry    *ml_lee;
+	int                      ml_reclen;
+};
+
 struct mdd_thread_info {
         struct lu_fid             mti_fid;
         struct lu_fid             mti_fid2; /* used for be & cpu converting */
@@ -194,6 +213,7 @@ struct mdd_thread_info {
         int                       mti_max_cookie_size;
         struct dt_object_format   mti_dof;
         struct obd_quotactl       mti_oqctl;
+	struct mdd_link_data	  mti_link_data;
 };
 
 extern const char orph_index_name[];
@@ -311,10 +331,6 @@ int mdd_unlink_sanity_check(const struct lu_env *env, struct mdd_object *pobj,
 			    struct mdd_object *cobj, struct lu_attr *cattr);
 int mdd_finish_unlink(const struct lu_env *env, struct mdd_object *obj,
                       struct md_attr *ma, struct thandle *th);
-int mdd_object_initialize(const struct lu_env *env, const struct lu_fid *pfid,
-			  const struct lu_name *lname, struct mdd_object *child,
-			  struct lu_attr *attr, struct thandle *handle,
-			  const struct md_op_spec *spec);
 int mdd_link_sanity_check(const struct lu_env *env, struct mdd_object *tgt_obj,
                           const struct lu_name *lname, struct mdd_object *src_obj);
 int mdd_is_root(struct mdd_device *mdd, const struct lu_fid *fid);
@@ -445,6 +461,7 @@ struct lu_object *mdd_object_alloc(const struct lu_env *env,
                                    const struct lu_object_header *hdr,
                                    struct lu_device *d);
 
+extern struct llog_operations changelog_orig_logops;
 /* mdd_permission.c */
 #define mdd_cap_t(x) (x)
 
@@ -573,6 +590,11 @@ static inline int mdd_object_exists(struct mdd_object *obj)
 static inline const struct lu_fid *mdd_object_fid(struct mdd_object *obj)
 {
         return lu_object_fid(mdd2lu_obj(obj));
+}
+
+static inline struct seq_server_site *mdd_seq_site(struct mdd_device *mdd)
+{
+	return mdd->mdd_md_dev.md_lu_dev.ld_site->ld_seq_site;
 }
 
 static inline struct lustre_capa *mdd_object_capa(const struct lu_env *env,
