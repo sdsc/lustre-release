@@ -1288,12 +1288,13 @@ int mdc_intent_getattr_async(struct obd_export *exp,
         /*XXX: Both MDS_INODELOCK_LOOKUP and MDS_INODELOCK_UPDATE are needed
          *     for statahead currently. Consider CMD in future, such two bits
          *     maybe managed by different MDS, should be adjusted then. */
-        ldlm_policy_data_t       policy = {
-                                        .l_inodebits = { MDS_INODELOCK_LOOKUP | 
-                                                         MDS_INODELOCK_UPDATE }
-                                 };
-        int                      rc = 0;
-	__u64                    flags = LDLM_FL_HAS_INTENT;
+	ldlm_policy_data_t	 policy = {
+					.l_inodebits = { MDS_INODELOCK_LOOKUP |
+							 MDS_INODELOCK_UPDATE |
+							 MDS_INODELOCK_PERM }
+				 };
+	int			 rc = 0;
+	__u64			 flags = LDLM_FL_HAS_INTENT;
 	ENTRY;
 
 	CDEBUG(D_DLMTRACE,"name: %.*s in inode "DFID", intent: %s flags %#Lo\n",

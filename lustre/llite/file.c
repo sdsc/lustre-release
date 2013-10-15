@@ -3207,8 +3207,9 @@ int ll_getattr_it(struct vfsmount *mnt, struct dentry *de,
         struct ll_inode_info *lli = ll_i2info(inode);
         int res = 0;
 
-        res = ll_inode_revalidate_it(de, it, MDS_INODELOCK_UPDATE |
-                                             MDS_INODELOCK_LOOKUP);
+	res = ll_inode_revalidate_it(de, it, MDS_INODELOCK_UPDATE |
+					     MDS_INODELOCK_LOOKUP |
+					     MDS_INODELOCK_PERM);
         ll_stats_ops_tally(sbi, LPROC_LL_GETATTR, 1);
 
         if (res)
