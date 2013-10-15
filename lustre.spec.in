@@ -120,6 +120,8 @@ Requires: kernel-%{flavor}
 # for RHEL we need to require the specific kernel still since weak-modules
 # support on RH is, well, weak, to be punny about it
 Requires: kernel = %{krequires}
+Requires: libyaml
+BuildRequires: libyaml-devel
 %endif
 %endif
 %endif
@@ -365,6 +367,9 @@ cat >lustre.files <<EOF
 %attr(-, root, root) %{_sysconfdir}/ha.d/resource.d/Lustre
 EOF
 
+echo '%attr(-, root, root) %{_libdir}/liblnetconfig.a' >>lustre.files
+echo '%attr(-, root, root) %{_libdir}/liblnetconfig.so' >>lustre.files
+
 if [ -f $RPM_BUILD_ROOT%{_libdir}/libcfsutil.a ] ; then
   echo '%attr(-, root, root) %{_libdir}/libcfsutil.a' >>lustre.files
 fi
@@ -372,11 +377,6 @@ fi
 if [ -f $RPM_BUILD_ROOT%{_libdir}/liblustre.so ] ; then
   echo '%attr(-, root, root) %{_libdir}/liblustre.a' >>lustre.files
   echo '%attr(-, root, root) %{_libdir}/liblustre.so' >>lustre.files
-fi
-
-if [ -f $RPM_BUILD_ROOT%{_libdir}/libyaml.so ] ; then
-  echo '%attr(-, root, root) %{_libdir}/libyaml.a' >>lustre.files
-  echo '%attr(-, root, root) %{_libdir}/libyaml.so' >>lustre.files
 fi
 
 if [ -f $RPM_BUILD_ROOT%{_libdir}/libiam.a ] ; then
