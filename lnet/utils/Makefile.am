@@ -38,6 +38,10 @@
 #COMPILE = $(CC) -Wall -g -I$(srcdir)/../include -I../../include
 #LINK = $(CC) -o $@
 
+if BUILD_DLC
+SUBDIRS = lnetconfig
+endif
+
 LIBCFS= $(top_builddir)/libcfs/libcfs/libcfs.a
 LIBCFSUTIL= $(top_builddir)/libcfs/libcfs/libcfsutil.a
 
