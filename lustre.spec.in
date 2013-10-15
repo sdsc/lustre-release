@@ -124,6 +124,8 @@ AutoReqProv: no
 # for RHEL we need to require the specific kernel still since weak-modules
 # support on RH is, well, weak, to be punny about it
 Requires: kernel = %{krequires}
+Requires: libyaml
+BuildRequires: libyaml-devel
 %endif
 %endif
 Group: Development/Kernel
@@ -328,6 +330,11 @@ chmod -R go-w lustre-source/lustre-%{version}
 find $RPM_BUILD_ROOT -name '*.so' | xargs chmod +x
 
 :> lustre.files
+
+if [ -f $RPM_BUILD_ROOT%{_libdir}/liblnetconfig.a ] ; then
+  echo '%attr(-, root, root) %{_libdir}/liblnetconfig.a' >>lustre.files
+  echo '%attr(-, root, root) %{_libdir}/liblnetconfig.so' >>lustre.files
+fi
 
 if [ -f $RPM_BUILD_ROOT%{_libdir}/liblustre.so ] ; then
   echo '%{_libdir}/liblustre.a' >>lustre.files
