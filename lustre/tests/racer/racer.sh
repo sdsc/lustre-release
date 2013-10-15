@@ -23,7 +23,7 @@ racer_cleanup()
 {
 	echo "racer cleanup"
 	for P in $RACER_PROGS; do
-		killall $P.sh
+		killall $P.sh 2>&1 | grep -v "no process killed"
 	done
 	trap 0
 
@@ -43,7 +43,7 @@ racer_cleanup()
 		done
 		if [[ $rc -eq 0 ]]; then
 			echo there should be NO racer processes:
-			ps aux | grep -E "${RACER_PROGS// /|}"
+			ps aux | grep -E "${RACER_PROGS// /|}" | grep -v grep
 			return 0
 		fi
 		echo -n "Waited $(( TOT_WAIT + SHORT_WAIT)), rc=$rc "
@@ -76,7 +76,5 @@ racer_cleanup || RC=$?
 # Check our to see whether our test DIR is still available.
 df $DIR
 (( RC+=$? ))
-if [ $RC -eq 0 ]; then
-    echo "We survived $0 for $DURATION seconds."
-fi
+[ $RC -eq 0 ] && echo "We survived $0 for $DURATION seconds."
 exit $RC
