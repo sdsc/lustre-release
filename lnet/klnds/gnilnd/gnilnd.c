@@ -1761,8 +1761,9 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 		int device_id = 0;
 		int tx_seq = 0, rx_seq = 0;
 		int fmaq_len = 0, nfma = 0, nrdma = 0;
+		struct libcfs_ioctl_peer *data_peer = arg;
 
-		rc = kgnilnd_get_peer_info(data->ioc_count, &peer,
+		rc = kgnilnd_get_peer_info(data_peer->ioc_count, &peer,
 					   &nid, &nic_addr, &peer_refcount,
 					   &peer_connecting);
 		if (rc)
@@ -1774,8 +1775,8 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 		 * wants to see instead of the underlying network that is being used to send the data
 		 */
 		data->ioc_nid    = LNET_MKNID(LNET_NIDNET(ni->ni_nid), LNET_NIDADDR(nid));
-		data->ioc_flags  = peer_connecting;
-		data->ioc_count  = peer_refcount;
+		data->lnd_u.gnilnd.peer_status = peer_connecting;
+		data->lnd_u.gnilnd.peer_ref_count = peer_refcount;
 
 		rc = kgnilnd_get_conn_info(peer, &device_id, &peerstamp,
 					   &tx_seq, &rx_seq, &fmaq_len,
@@ -1786,17 +1787,17 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 		if (rc) {
 			/* flag to indicate we are not connected -
 			 * need to print as such */
-			data->ioc_flags |= (1<<16);
+			data->lnd_u.gnilnd.peer_status |= (1<<16);
 			rc = 0;
 		} else {
 			/* still barf */
-			data->ioc_net = device_id;
-			data->ioc_u64[0] = peerstamp;
-			data->ioc_u32[0] = fmaq_len;
-			data->ioc_u32[1] = nfma;
-			data->ioc_u32[2] = tx_seq;
-			data->ioc_u32[3] = rx_seq;
-			data->ioc_u32[4] = nrdma;
+			data->lnd_u.gnilnd.dev_id = device_id;
+			data->lnd_u.gnilnd.peer_stamp = peerstamp;
+			data->lnd_u.gnilnd.fmaq_len = fmaq_len;
+			data->lnd_u.gnilnd.nfma = nfma;
+			data->lnd_u.gnilnd.tx_seq = tx_seq;
+			data->lnd_u.gnilnd.rx_seq = rx_seq;
+			data->lnd_u.gnilnd.nrdma = nrdma;
 		}
 		break;
 	}
@@ -1815,7 +1816,9 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 		break;
 	}
 	case IOC_LIBCFS_GET_CONN: {
-		kgn_conn_t *conn = kgnilnd_get_conn_by_idx(data->ioc_count);
+		struct libcfs_ioctl_conn *data_conn = arg;
+		kgn_conn_t *conn =
+		  kgnilnd_get_conn_by_idx(data_conn->ioc_count);
 
 		if (conn == NULL)
 			rc = -ENOENT;
@@ -1824,8 +1827,11 @@ kgnilnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
 			/* LNET_MKNID is used to build the correct address based on what LNET wants to see instead of
 			 * the generic connection that is used to send the data
 			 */
-			data->ioc_nid    = LNET_MKNID(LNET_NIDNET(ni->ni_nid), LNET_NIDADDR(conn->gnc_peer->gnp_nid));
-			data->ioc_u32[0] = conn->gnc_device->gnd_id;
+			data_conn->ioc_nid =
+			  LNET_MKNID(LNET_NIDNET(ni->ni_nid),
+				     LNET_NIDADDR(conn->gnc_peer->gnp_nid));
+			data_conn->lnd_u.gnilnd.gnd_id =
+			  conn->gnc_device->gnd_id;
 			kgnilnd_conn_decref(conn);
 		}
 		break;

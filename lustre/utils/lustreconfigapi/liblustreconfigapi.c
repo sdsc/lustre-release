@@ -807,6 +807,251 @@ fn_exit:
 	return rc;
 }
 
+static char *
+ipaddr_2_str(__u32 ipaddr, char *str, size_t strsize, int lookup)
+{
+#ifdef HAVE_GETHOSTBYNAME
+	__u32           net_ip;
+	struct hostent *he;
+
+	if (lookup) {
+		net_ip = htonl(ipaddr);
+		he = gethostbyaddr(&net_ip, sizeof(net_ip), AF_INET);
+		if (he != NULL) {
+			strncpy(str, he->h_name, strsize - 1);
+			str[strsize - 1] = '\0';
+			return str;
+		}
+	}
+#endif
+
+	sprintf (str, "%d.%d.%d.%d",
+		 (ipaddr >> 24) & 0xff, (ipaddr >> 16) & 0xff,
+		 (ipaddr >> 8) & 0xff, ipaddr & 0xff);
+	return str;
+}
+
+static int create_show_conn_socklnd(cYAML *root,
+				    struct libcfs_ioctl_conn *data)
+{
+	cYAML *conn;
+	lnet_process_id_t id;
+	__u32 type = data->lnd_u.socklnd.type;
+	char buf[HOST_NAME_MAX + 1];
+
+	id.nid = data->ioc_nid;
+	id.pid = data->lnd_u.socklnd.pid;
+
+	conn = cYAML_create_object(root,
+				   libcfs_id2str(id));
+	if (!conn)
+		return -1;
+
+	if (!cYAML_create_string(conn,
+				 "type",
+				(type == SOCKLND_CONN_ANY) ? "A" :
+				(type == SOCKLND_CONN_CONTROL) ? "C" :
+				(type == SOCKLND_CONN_BULK_IN) ? "I" :
+				(type == SOCKLND_CONN_BULK_OUT) ? "O" : "?"))
+		return -1;
+	if (!cYAML_create_number(conn,
+				 "cpt",
+				 data->lnd_u.socklnd.cpt))
+		return -1;
+	if (!cYAML_create_string(conn,
+				 "loca_ip",
+				 ipaddr_2_str(data->lnd_u.socklnd.local_ip,
+						  buf,
+						  sizeof(buf), 1)))
+		return -1;
+	if (!cYAML_create_string(conn,
+				 "peer_ip",
+				 ipaddr_2_str(data->lnd_u.socklnd.peer_ip,
+						  buf,
+						  sizeof(buf), 1)))
+		return -1;
+	if (!cYAML_create_number(conn,
+				 "peer_port",
+				 data->lnd_u.socklnd.peer_port))
+		return -1;
+	if (!cYAML_create_number(conn,
+				 "tx_buf_size",
+				 data->lnd_u.socklnd.tx_buf_size))
+		return -1;
+	if (!cYAML_create_number(conn,
+				 "rx_buf_size",
+				 data->lnd_u.socklnd.rx_buf_size))
+		return -1;
+	if (!cYAML_create_string(conn,
+				 "nagle",
+				 (data->lnd_u.socklnd.nagle) ? "nagle"
+					: "nonagle"))
+		return -1;
+
+	return 0;
+}
+
+static int create_show_conn_o2iblnd(cYAML *root,
+				    char *qname,
+				    struct libcfs_ioctl_conn *data)
+{
+	cYAML *conn, *tx_q;
+	int j;
+
+	conn = cYAML_create_object(root,
+				   libcfs_nid2str(data->ioc_nid));
+	if (!conn)
+		return -1;
+
+	if (!cYAML_create_number(conn,
+				 "mtu",
+				 data->lnd_u.o2iblnd.path_mtu))
+		return -1;
+
+	for (j = 0; j < data->lnd_u.o2iblnd.num_entries; j++) {
+		tx_q = cYAML_create_object(conn,
+					   qname);
+		if (!tx_q)
+			return -1;
+
+		if (!cYAML_create_number(tx_q,
+					 "tx_sending",
+					 data->lnd_u.o2iblnd.
+					  tx_q[j].tx_sending))
+			return -1;
+		if (!cYAML_create_number(tx_q,
+					 "tx_queued",
+					 data->lnd_u.o2iblnd.
+					  tx_q[j].tx_queued))
+			return -1;
+		if (!cYAML_create_number(tx_q,
+					 "tx_waiting",
+					 data->lnd_u.o2iblnd.
+					  tx_q[j].tx_waiting))
+			return -1;
+		if (!cYAML_create_number(tx_q,
+					 "tx_status",
+					 data->lnd_u.o2iblnd.
+					  tx_q[j].tx_status))
+			return -1;
+		if (!cYAML_create_number(tx_q,
+					 "tx_deadline",
+					 data->lnd_u.o2iblnd.
+					  tx_q[j].tx_deadline))
+			return -1;
+		if (!cYAML_create_number(tx_q,
+					 "tx_cookie",
+					 data->lnd_u.o2iblnd.
+					  tx_q[j].tx_cookie))
+			return -1;
+		if (!cYAML_create_number(tx_q,
+					 "tx_msg_type",
+					 data->lnd_u.o2iblnd.
+					  tx_q[j].tx_msg_type))
+			return -1;
+		if (!cYAML_create_number(tx_q,
+					 "tx_msg_credits",
+					 data->lnd_u.o2iblnd.
+					  tx_q[j].tx_msg_credits))
+			return -1;
+	}
+
+	return 0;
+}
+
+static tx_conn_queue_type_t conn_get_q_type(char *qname)
+{
+	if (strncmp("tx_queue_noop", qname, strlen(qname)) == 0)
+		return TX_QUEUE_NOOPS;
+	if (strncmp("tx_queue_cr", qname, strlen(qname)) == 0)
+		return TX_QUEUE_CR;
+	if (strncmp("tx_queue_ncr", qname, strlen(qname)) == 0)
+		return TX_QUEUE_NCR;
+	if (strncmp("tx_queue_rsrvd", qname, strlen(qname)) == 0)
+		return TX_QUEUE_RSRVD;
+	if (strncmp("tx_queue_active", qname, strlen(qname)) == 0)
+		return TX_QUEUE_ACTIVE;
+
+	return TX_QUEUE_MAX;
+}
+
+static int create_show_peer_socklnd(cYAML *root,
+				    struct libcfs_ioctl_peer *data)
+{
+	cYAML *peer;
+	lnet_process_id_t id;
+	char buf[HOST_NAME_MAX + 1];
+
+	id.nid = data->ioc_nid;
+	id.pid = data->lnd_u.socklnd.pid;
+
+	peer = cYAML_create_object(root,
+				   libcfs_id2str(id));
+	if (!peer)
+		return -1;
+
+	if (!cYAML_create_string(peer,
+				 "loca_ip",
+				 ipaddr_2_str(data->lnd_u.socklnd.local_ip,
+						  buf,
+						  sizeof(buf), 1)))
+		return -1;
+	if (!cYAML_create_string(peer,
+				 "peer_ip",
+				 ipaddr_2_str(data->lnd_u.socklnd.peer_ip,
+						  buf,
+						  sizeof(buf), 1)))
+		return -1;
+	if (!cYAML_create_number(peer,
+				 "peer_port",
+				 data->lnd_u.socklnd.peer_port))
+		return -1;
+	if (!cYAML_create_number(peer,
+				 "conn_count",
+				 data->lnd_u.socklnd.conn_count))
+		return -1;
+	if (!cYAML_create_number(peer,
+				 "shared_count",
+				 data->lnd_u.socklnd.shared_count))
+		return -1;
+
+	return 0;
+}
+
+static int create_show_peer_o2iblnd(cYAML *root,
+				    struct libcfs_ioctl_peer *data)
+{
+	cYAML *peer;
+
+	peer = cYAML_create_object(root,
+				   libcfs_nid2str(data->ioc_nid));
+	if (!peer)
+		return -1;
+
+	if (!cYAML_create_number(peer,
+				 "peer_ref_count",
+				 data->lnd_u.o2iblnd.peer_ref_count))
+		return -1;
+	if (!cYAML_create_number(peer,
+				 "connecting",
+				 data->lnd_u.o2iblnd.connecting))
+		return -1;
+	if (!cYAML_create_number(peer,
+				 "accepting",
+				 data->lnd_u.o2iblnd.accepting))
+		return -1;
+	if (!cYAML_create_number(peer,
+				 "active_conn",
+				 data->lnd_u.o2iblnd.active_conn))
+		return -1;
+	if (!cYAML_create_number(peer,
+				 "waiting_conn",
+				 data->lnd_u.o2iblnd.waiting_conn))
+		return -1;
+
+	return 0;
+}
+
 extern int lustre_lnet_show_peer_credits(int seq_no,
 					 cYAML **show_rc,
 					 cYAML **err_rc)
@@ -923,6 +1168,235 @@ fn_exit:
 	cYAML_build_error(rc, seq_no, "show", "peer_credits", err_str, err_rc);
 	return rc;
 
+}
+
+extern int lustre_lnet_show_peer(char *nw, int seq_no,
+				 cYAML **show_rc,
+				 cYAML **err_rc)
+{
+	struct libcfs_ioctl_peer data;
+	int rc = LUSTRE_CFG_RC_OUT_OF_MEM, i;
+	__u32 net = LNET_NIDNET(LNET_NID_ANY);
+	char err_str[LNET_MAX_STR_LEN];
+	cYAML *root = NULL;
+
+	snprintf(err_str, LNET_MAX_STR_LEN, "Out of memory");
+
+	if (!g_lib_init) {
+		lustre_config_api_init();
+		g_lib_init = true;
+	}
+
+	if (!nw) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "Missing mandatory parameter: network");
+		rc = LUSTRE_CFG_RC_MISSING_PARAM;
+		goto fn_exit;
+	}
+
+	net = libcfs_str2net(nw);
+	if (net == LNET_NIDNET(LNET_NID_ANY)) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "Can't parse net %s", nw);
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto fn_exit;
+	}
+
+	if (LNET_NETTYP(net) == CIBLND    ||
+	    LNET_NETTYP(net) == OPENIBLND ||
+	    LNET_NETTYP(net) == IIBLND    ||
+	    LNET_NETTYP(net) == VIBLND) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "Net %s obsolete", libcfs_lnd2str(net));
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto fn_exit;
+	}
+
+	/* TODO: for now only support O2IBLND and SOCKLND */
+	if ((LNET_NETTYP(net) != O2IBLND) &&
+	    (LNET_NETTYP(net) != SOCKLND)) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "Net %s unsupported", libcfs_lnd2str(net));
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto fn_exit;
+	}
+
+	root = cYAML_create_object(NULL, NULL);
+	if (!root)
+		goto fn_exit;
+
+	for (i = 0;; i++) {
+		LIBCFS_IOC_INIT(data);
+		data.ioc_count = i;
+		data.ioc_net = net;
+
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_CONN, &data);
+		if (rc != 0)
+			break;
+
+		/* build the cYAML tree */
+		if (LNET_NETTYP(net) == SOCKLND) {
+			if (create_show_peer_socklnd(root, &data))
+				goto fn_exit;
+		} else if (LNET_NETTYP(net) == O2IBLND) {
+			if (create_show_peer_o2iblnd(root, &data))
+				goto fn_exit;
+		}
+	}
+
+	if (!show_rc)
+		cYAML_print_tree(root, 0);
+
+	if (errno != ENOENT) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "Error getting peer details: %s: check dmesg.",
+			 strerror(errno));
+		rc = -errno;
+		goto fn_exit;
+	} else
+		rc = LUSTRE_CFG_RC_NO_ERR;
+
+	snprintf(err_str, LNET_MAX_STR_LEN, "Success");
+fn_exit:
+	if ((!show_rc) || (rc != LUSTRE_CFG_RC_NO_ERR))
+		cYAML_free_tree(root);
+	else if (show_rc) {
+		if (*show_rc) {
+			cYAML_insert_sibling((*show_rc)->child, root->child);
+			free(root);
+		} else
+			*show_rc = root;
+	}
+
+	cYAML_build_error(rc, seq_no, "show", "peer", err_str, err_rc);
+	return rc;
+}
+
+extern int lustre_lnet_show_conn_queue(char *nw, char *qname,
+				       int seq_no, cYAML **show_rc,
+				       cYAML **err_rc)
+{
+	struct libcfs_ioctl_conn data;
+	int rc = LUSTRE_CFG_RC_OUT_OF_MEM, i;
+	__u32 net = LNET_NIDNET(LNET_NID_ANY);
+	char err_str[LNET_MAX_STR_LEN];
+	tx_conn_queue_type_t type;
+	cYAML *root = NULL;
+
+	snprintf(err_str, LNET_MAX_STR_LEN, "Out of memory");
+
+	if (!g_lib_init) {
+		lustre_config_api_init();
+		g_lib_init = true;
+	}
+
+	if ((!nw) || (!qname)) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "Missing mandatory parameter: %s", (!nw) ? "network" :
+				"queue name");
+		rc = LUSTRE_CFG_RC_MISSING_PARAM;
+		goto fn_exit;
+	}
+
+	net = libcfs_str2net(nw);
+	if (net == LNET_NIDNET(LNET_NID_ANY)) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "Can't parse net %s", nw);
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto fn_exit;
+	}
+
+	if (LNET_NETTYP(net) == CIBLND    ||
+	    LNET_NETTYP(net) == OPENIBLND ||
+	    LNET_NETTYP(net) == IIBLND    ||
+	    LNET_NETTYP(net) == VIBLND) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "Net %s obsolete", libcfs_lnd2str(net));
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto fn_exit;
+	}
+
+	/* TODO: for now only support O2IBLND and SOCKLND */
+	if ((LNET_NETTYP(net) != O2IBLND) &&
+	    (LNET_NETTYP(net) != SOCKLND)) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "Net %s unsupported", libcfs_lnd2str(net));
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto fn_exit;
+	}
+
+	type = conn_get_q_type(qname);
+	if ((LNET_NETTYP(net) == O2IBLND) && (type == TX_QUEUE_MAX)) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "bad queue name %s", qname);
+		rc = LUSTRE_CFG_RC_BAD_PARAM;
+		goto fn_exit;
+	}
+
+	root = cYAML_create_object(NULL, NULL);
+	if (!root)
+		goto fn_exit;
+
+	for (i = 0;; i++) {
+		LIBCFS_IOC_INIT(data);
+		data.ioc_count = i;
+		data.ioc_net = net;
+		data.ioc_detail = 1;
+
+		if (LNET_NETTYP(net) == O2IBLND)
+			data.lnd_u.o2iblnd.q_type = type;
+
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_CONN, &data);
+		if (rc != 0)
+			break;
+
+		/* build the cYAML tree */
+		if (LNET_NETTYP(net) == SOCKLND) {
+			if (create_show_conn_socklnd(root, &data))
+				goto fn_exit;
+		} else if (LNET_NETTYP(net) == O2IBLND) {
+			if (create_show_conn_o2iblnd(root, qname, &data))
+				goto fn_exit;
+		}
+	}
+
+	if (!show_rc)
+		cYAML_print_tree(root, 0);
+
+	if (errno != ENOENT) {
+		snprintf(err_str,
+			 LNET_MAX_STR_LEN,
+			 "Error getting conn queue details: %s: check dmesg.",
+			 strerror(errno));
+		rc = -errno;
+		goto fn_exit;
+	} else
+		rc = LUSTRE_CFG_RC_NO_ERR;
+
+	snprintf(err_str, LNET_MAX_STR_LEN, "Success");
+fn_exit:
+	if ((!show_rc) || (rc != LUSTRE_CFG_RC_NO_ERR))
+		cYAML_free_tree(root);
+	else if (show_rc) {
+		if (*show_rc) {
+			cYAML_insert_sibling((*show_rc)->child, root->child);
+			free(root);
+		} else
+			*show_rc = root;
+	}
+
+	cYAML_build_error(rc, seq_no, "show", "queue", err_str, err_rc);
+	return rc;
 }
 
 extern int lustre_lnet_show_stats(int seq_no, cYAML **show_rc,
@@ -1216,6 +1690,36 @@ static int handle_yaml_show_buf(cYAML *tree,
 				    show_rc, err_rc);
 }
 
+static int handle_yaml_show_conn(cYAML *tree,
+				 cYAML **show_rc,
+				 cYAML **err_rc)
+{
+	cYAML *seq_no, *net, *queue;
+
+	seq_no = cYAML_get_object_item(tree, "seq_no");
+	net = cYAML_get_object_item(tree, "net");
+	queue = cYAML_get_object_item(tree, "queue");
+
+	return lustre_lnet_show_conn_queue((net) ? net->valuestring : NULL,
+					   (queue) ? queue->valuestring : NULL,
+					   (seq_no) ? seq_no->valueint : -1,
+					   show_rc, err_rc);
+}
+
+static int handle_yaml_show_peer(cYAML *tree,
+				 cYAML **show_rc,
+				 cYAML **err_rc)
+{
+	cYAML *seq_no, *net;
+
+	seq_no = cYAML_get_object_item(tree, "seq_no");
+	net = cYAML_get_object_item(tree, "net");
+
+	return lustre_lnet_show_peer((net) ? net->valuestring : NULL,
+				     (seq_no) ? seq_no->valueint : -1,
+				     show_rc, err_rc);
+}
+
 static int handle_yaml_show_credits(cYAML *tree,
 				    cYAML **show_rc,
 				    cYAML **err_rc)
@@ -1263,6 +1767,8 @@ static lookup_cmd_hdlr_tbl_t lookup_show_tbl[] = {
 	{"route", handle_yaml_show_route},
 	{"net", handle_yaml_show_net},
 	{"buffer", handle_yaml_show_buf},
+	{"tx_queue" , handle_yaml_show_conn},
+	{"peer" , handle_yaml_show_peer},
 	{"credits", handle_yaml_show_credits},
 	{"statistics", handle_yaml_show_stats},
 	{NULL, NULL}
