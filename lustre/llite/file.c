@@ -2722,7 +2722,7 @@ int ll_flush(struct file *file, fl_owner_t id)
  * Return how many pages have been written.
  */
 int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
-		       enum cl_fsync_mode mode, int ignore_layout)
+		       enum cl_fsync_mode mode)
 {
 	struct cl_env_nest nest;
 	struct lu_env *env;
@@ -2744,7 +2744,7 @@ int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
 
 	io = ccc_env_thread_io(env);
 	io->ci_obj = cl_i2info(inode)->lli_clob;
-	io->ci_ignore_layout = ignore_layout;
+	io->ci_ignore_layout = 1;
 
 	/* initialize parameters for sync */
 	fio = &io->u.ci_fsync;
@@ -2832,7 +2832,7 @@ int ll_fsync(struct file *file, struct dentry *dentry, int datasync)
 		struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
 
 		err = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF,
-				CL_FSYNC_ALL, 0);
+				CL_FSYNC_ALL);
 		if (rc == 0 && err < 0)
 			rc = err;
 		if (rc < 0)
