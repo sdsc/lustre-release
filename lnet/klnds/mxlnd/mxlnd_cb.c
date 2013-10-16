@@ -1621,32 +1621,34 @@ mxlnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
         LASSERT (ni == kmxlnd_data.kmx_ni);
 
         switch (cmd) {
-        case IOC_LIBCFS_GET_PEER: {
-                lnet_nid_t      nid     = 0;
-                int             count   = 0;
+	case IOC_LIBCFS_GET_PEER: {
+		lnet_nid_t nid     = 0;
+		int count   = 0;
+		libcfs_ioctl_peer *data_peer = arg;
 
-                ret = mxlnd_get_peer_info(data->ioc_count, &nid, &count);
-                data->ioc_nid    = nid;
-                data->ioc_count  = count;
-                break;
-        }
+		ret = mxlnd_get_peer_info(data->ioc_count, &nid, &count);
+		data->ioc_nid = nid;
+		data->lnd_u.mxlnd.ref_count = count;
+		break;
+	}
         case IOC_LIBCFS_DEL_PEER: {
                 ret = mxlnd_del_peer(data->ioc_nid);
                 break;
         }
-        case IOC_LIBCFS_GET_CONN: {
-                kmx_conn_t      *conn = NULL;
+	case IOC_LIBCFS_GET_CONN: {
+		kmx_conn_t *conn = NULL;
+		struct libcfs_ioctl_conn *data_con = arg;
 
-                conn = mxlnd_get_conn_by_idx(data->ioc_count);
-                if (conn == NULL) {
-                        ret = -ENOENT;
-                } else {
-                        ret = 0;
-                        data->ioc_nid = conn->mxk_peer->mxp_nid;
-                        mxlnd_conn_decref(conn); /* dec ref taken in get_conn_by_idx() */
-                }
-                break;
-        }
+		conn = mxlnd_get_conn_by_idx(data_conn->ioc_count);
+		if (conn == NULL) {
+			ret = -ENOENT;
+		} else {
+			ret = 0;
+			data_conn->ioc_nid = conn->mxk_peer->mxp_nid;
+			mxlnd_conn_decref(conn); /* dec ref taken in get_conn_by_idx() */
+		}
+		break;
+	}
         case IOC_LIBCFS_CLOSE_CONNECTION: {
                 ret = mxlnd_close_matching_conns(data->ioc_nid);
                 break;
