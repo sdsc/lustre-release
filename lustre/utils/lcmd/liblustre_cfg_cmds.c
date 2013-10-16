@@ -491,6 +491,75 @@ int lnet_show_file(struct kvl_s *params)
 	return rc;
 }
 
+int lnet_show_tx_queue(struct kvl_s *params)
+{
+	struct kvl_s *net, *q;
+	int rc;
+	cYAML *show_rc = NULL, *err_rc = NULL;
+
+	net = kvl_find(params, NET_PARAM);
+	q = kvl_find(params, TX_Q_NOOP);
+	if (q)
+		goto fn_cont;
+	q = kvl_find(params, TX_Q_CR);
+	if (q)
+		goto fn_cont;
+	q = kvl_find(params, TX_Q_NCR);
+	if (q)
+		goto fn_cont;
+	q = kvl_find(params, TX_Q_RSRVD);
+	if (q)
+		goto fn_cont;
+	q = kvl_find(params, TX_Q_ACTV);
+	if (q)
+		goto fn_cont;
+
+fn_cont:
+	rc = lustre_lnet_show_conn_queue((net) ? net->value : NULL,
+					 (q) ? q->key : NULL,
+					 -1,
+					 &show_rc,
+					 &err_rc);
+
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree(err_rc, 0);
+	else if (show_rc)
+		cYAML_print_tree(show_rc, 0);
+	else if ((!show_rc) || (show_rc && (show_rc->child == NULL)))
+		fprintf(stdout, "Nothing to show\n");
+
+	cYAML_free_tree(err_rc);
+	cYAML_free_tree(show_rc);
+
+	return rc;
+}
+
+int lnet_show_peer(struct kvl_s *params)
+{
+	struct kvl_s *net;
+	int rc;
+	cYAML *show_rc = NULL, *err_rc = NULL;
+
+	net = kvl_find(params, NET_PARAM);
+
+	rc = lustre_lnet_show_peer((net) ? net->value : NULL,
+				   -1,
+				   &show_rc,
+				   &err_rc);
+
+	if (rc != LUSTRE_CFG_RC_NO_ERR)
+		cYAML_print_tree(err_rc, 0);
+	else if (show_rc)
+		cYAML_print_tree(show_rc, 0);
+	else if ((!show_rc) || (show_rc && (show_rc->child == NULL)))
+		fprintf(stdout, "Nothing to show\n");
+
+	cYAML_free_tree(err_rc);
+	cYAML_free_tree(show_rc);
+
+	return rc;
+}
+
 int lnet_show_peer_credits(struct kvl_s *params)
 {
 	int rc;

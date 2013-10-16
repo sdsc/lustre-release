@@ -560,102 +560,119 @@ jt_ptl_del_interface (int argc, char **argv)
 int
 jt_ptl_print_peers (int argc, char **argv)
 {
-        struct libcfs_ioctl_data data;
-        lnet_process_id_t        id;
+	struct libcfs_ioctl_peer data;
+	lnet_process_id_t        id;
 	char                     buffer[2][HOST_NAME_MAX + 1];
-        int                      index;
-        int                      rc;
+	int                      index;
+	int                      rc;
 
-        if (!g_net_is_compatible (argv[0], SOCKLND, RALND, PTLLND, MXLND,
-				  O2IBLND, GNILND, 0))
-                return -1;
+	if (!g_net_is_compatible(argv[0], SOCKLND, RALND, PTLLND, MXLND,
+				 O2IBLND, GNILND, 0))
+		return -1;
 
-        for (index = 0;;index++) {
-                LIBCFS_IOC_INIT(data);
-                data.ioc_net     = g_net;
-                data.ioc_count   = index;
+	for (index = 0;; index++) {
+		LIBCFS_IOC_INIT(data);
+		data.ioc_net     = g_net;
+		data.ioc_count   = index;
 
-                rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_PEER, &data);
-                if (rc != 0)
-                        break;
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_PEER, &data);
+		if (rc != 0)
+			break;
 
-                if (g_net_is_compatible(NULL, SOCKLND, 0)) {
-                        id.nid = data.ioc_nid;
-                        id.pid = data.ioc_u32[4];
-                        printf ("%-20s [%d]%s->%s:%d #%d\n",
-                                libcfs_id2str(id), 
-                                data.ioc_count, /* persistence */
+		if (g_net_is_compatible(NULL, SOCKLND, 0)) {
+			id.nid = data.ioc_nid;
+			id.pid = data.lnd_u.socklnd.pid;
+			printf("%-20s [%d]%s->%s:%d #%d\n",
+				libcfs_id2str(id),
+				/* persistence */
+				data.lnd_u.socklnd.shared_count,
 				/* my ip */
-				ptl_ipaddr_2_str(data.ioc_u32[2], buffer[0],
+				ptl_ipaddr_2_str(data.lnd_u.socklnd.local_ip,
+						 buffer[0],
 						 sizeof(buffer[0]), 1),
 				/* peer ip */
-				ptl_ipaddr_2_str(data.ioc_u32[0], buffer[1],
+				ptl_ipaddr_2_str(data.lnd_u.socklnd.peer_ip,
+						 buffer[1],
 						 sizeof(buffer[1]), 1),
-                                data.ioc_u32[1], /* peer port */
-                                data.ioc_u32[3]); /* conn_count */
-                } else if (g_net_is_compatible(NULL, PTLLND, 0)) {
-                        id.nid = data.ioc_nid;
-                        id.pid = data.ioc_u32[4];
-                        printf ("%-20s s %d%s [%d] "LPD64".%06d"
-                                " m "LPD64"/"LPD64" q %d/%d c %d/%d\n",
-                                libcfs_id2str(id),
-                                data.ioc_net,   /* state */
-                                data.ioc_flags ? "" : " ~!h", /* sent_hello */
-                                data.ioc_count, /* refcount */
-                                data.ioc_u64[0]/1000000, /* incarnation secs */
-                                (int)(data.ioc_u64[0]%1000000), /* incarnation usecs */
-                                (((__u64)data.ioc_u32[1])<<32) |
-                                ((__u64)data.ioc_u32[0]), /* next_matchbits */
-                                (((__u64)data.ioc_u32[3])<<32) |
-                                ((__u64)data.ioc_u32[2]), /* last_matchbits_seen */
-                                data.ioc_u32[5] >> 16, /* nsendq */
-                                data.ioc_u32[5] & 0xffff, /* nactiveq */
-                                data.ioc_u32[6] >> 16, /* credits */
-                                data.ioc_u32[6] & 0xffff); /* outstanding_credits */
-                } else if (g_net_is_compatible(NULL, RALND, 0)) {
-                        printf ("%-20s [%d]@%s:%d\n",
-                                libcfs_nid2str(data.ioc_nid), /* peer nid */
-                                data.ioc_count,   /* peer persistence */
+				/* peer port */
+				data.lnd_u.socklnd.peer_port,
+				/* conn_count */
+				data.lnd_u.socklnd.conn_count);
+		} else if (g_net_is_compatible(NULL, PTLLND, 0)) {
+			id.nid = data.ioc_nid;
+			id.pid = data.lnd_u.ptllnd.pid;
+			printf("%-20s s %d%s [%d] "LPD64".%06d"
+				" m "LPD64"/"LPD64" q %d/%d c %d/%d\n",
+				libcfs_id2str(id),
+				data.ioc_net,   /* state */
+				data.lnd_u.ptllnd.sent_hello ? "" : " ~!h",
+				data.lnd_u.ptllnd.peer_ref_count,
+				data.lnd_u.ptllnd.incarnation/1000000,
+				/* incarnation usecs */
+				(int)(data.lnd_u.ptllnd.incarnation%1000000),
+				data.lnd_u.ptllnd.next_matchbits,
+				data.lnd_u.ptllnd.last_matchbits_seen,
+				/* nsendq */
+				data.lnd_u.ptllnd.nsendq_nactiveq >> 16,
+				data.lnd_u.ptllnd.nsendq_nactiveq & 0xffff,
+				/* credits */
+				data.lnd_u.ptllnd.
+					credits_outstanding_creidts >> 16,
+				/* outstanding_credits */
+				data.lnd_u.ptllnd.
+					credits_outstanding_creidts & 0xffff);
+		} else if (g_net_is_compatible(NULL, RALND, 0)) {
+			printf("%-20s [%d]@%s:%d\n",
+				libcfs_nid2str(data.ioc_nid), /* peer nid */
+				/* peer persistence */
+				data.lnd_u.ralnd.share_count,
 				/* peer ip */
-				ptl_ipaddr_2_str(data.ioc_u32[0], buffer[1],
+				ptl_ipaddr_2_str(data.lnd_u.ralnd.peer_ip,
+						 buffer[1],
 						 sizeof(buffer[1]), 1),
-                                data.ioc_u32[1]); /* peer port */
+				data.lnd_u.ralnd.peer_port); /* peer port */
 		} else if (g_net_is_compatible(NULL, GNILND, 0)) {
-			int disconn = data.ioc_flags >> 16;
+			int disconn = data.lnd_u.gnilnd.peer_status >> 16;
 			char *state;
 
 			if (disconn)
 				state = "D";
 			else
-				state = data.ioc_flags & 0xffff ? "C" : "U";
+				state = data.lnd_u.gnilnd.peer_status
+				  & 0xffff ? "C" : "U";
 
-			printf ("%-20s (%d) %s [%d] "LPU64" "
+			printf("%-20s (%d) %s [%d] "LPU64" "
 				"sq %d/%d tx %d/%d/%d\n",
 				libcfs_nid2str(data.ioc_nid), /* peer nid */
-				data.ioc_net, /* gemini device id */
+				data.lnd_u.gnilnd.dev_id, /* gemini device id */
 				state, /* peer is Connecting, Up, or Down */
-				data.ioc_count,   /* peer refcount */
-				data.ioc_u64[0], /* peerstamp */
-				data.ioc_u32[2], data.ioc_u32[3], /* tx and rx seq */
+				/* peer refcount */
+				data.lnd_u.gnilnd.peer_ref_count,
+				/* peerstamp */
+				data.lnd_u.gnilnd.peer_stamp,
+				/* tx and rx seq */
+				data.lnd_u.gnilnd.tx_seq,
+				data.lnd_u.gnilnd.rx_seq,
 				/* fmaq, nfma, nrdma */
-				data.ioc_u32[0], data.ioc_u32[1], data.ioc_u32[4]
-				);
-                } else {
-                        printf ("%-20s [%d]\n",
-                                libcfs_nid2str(data.ioc_nid), data.ioc_count);
-                }
-        }
+				data.lnd_u.gnilnd.fmaq_len,
+				data.lnd_u.gnilnd.nfma,
+				data.lnd_u.gnilnd.nrdma);
+		} else {
+			printf("%-20s [%d]\n",
+				libcfs_nid2str(data.ioc_nid), data.ioc_count);
+		}
+	}
 
-        if (index == 0) {
-                if (errno == ENOENT) {
-                        printf ("<no peers>\n");
-                } else {
-                        fprintf(stderr, "Error getting peer list: %s: "
-                                "check dmesg.\n",
-                                strerror(errno));
-                }
-        }
-        return 0;
+	if (index == 0) {
+		if (errno == ENOENT) {
+			printf ("<no peers>\n");
+		} else {
+			fprintf(stderr, "Error getting peer list: %s: "
+				"check dmesg.\n",
+				strerror(errno));
+		}
+	}
+	return 0;
 }
 
 int
@@ -783,72 +800,78 @@ jt_ptl_del_peer (int argc, char **argv)
 int
 jt_ptl_print_connections (int argc, char **argv)
 {
-        struct libcfs_ioctl_data data;
-        lnet_process_id_t        id;
+	struct libcfs_ioctl_conn data;
+	lnet_process_id_t        id;
 	char                     buffer[2][HOST_NAME_MAX + 1];
-        int                      index;
-        int                      rc;
+	int                      index;
+	int                      rc;
 
 	if (!g_net_is_compatible (argv[0], SOCKLND, RALND, MXLND, O2IBLND,
 				  GNILND, 0))
-                return -1;
+		return -1;
 
-        for (index = 0; ; index++) {
-                LIBCFS_IOC_INIT(data);
-                data.ioc_net     = g_net;
-                data.ioc_count   = index;
+	for (index = 0; ; index++) {
+		LIBCFS_IOC_INIT(data);
+		data.ioc_net     = g_net;
+		data.ioc_count   = index;
 
-                rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_CONN, &data);
-                if (rc != 0)
-                        break;
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_GET_CONN, &data);
+		if (rc != 0)
+			break;
 
-                if (g_net_is_compatible (NULL, SOCKLND, 0)) {
-                        id.nid = data.ioc_nid;
-                        id.pid = data.ioc_u32[6];
-                        printf ("%-20s %s[%d]%s->%s:%d %d/%d %s\n",
-                                libcfs_id2str(id),
-                                (data.ioc_u32[3] == SOCKLND_CONN_ANY) ? "A" :
-                                (data.ioc_u32[3] == SOCKLND_CONN_CONTROL) ? "C" :
-                                (data.ioc_u32[3] == SOCKLND_CONN_BULK_IN) ? "I" :
-                                (data.ioc_u32[3] == SOCKLND_CONN_BULK_OUT) ? "O" : "?",
-                                data.ioc_u32[4], /* scheduler */
+		if (g_net_is_compatible(NULL, SOCKLND, 0)) {
+			__u32 type = data.lnd_u.socklnd.type;
+			__u32 local_ip = data.lnd_u.socklnd.local_ip;
+			__u32 peer_ip = data.lnd_u.socklnd.peer_ip;
+			id.nid = data.ioc_nid;
+			id.pid = data.lnd_u.socklnd.pid;
+			printf("%-20s %s[%d]%s->%s:%d %d/%d %s\n",
+				libcfs_id2str(id),
+				(type == SOCKLND_CONN_ANY) ? "A" :
+				(type == SOCKLND_CONN_CONTROL) ? "C" :
+				(type == SOCKLND_CONN_BULK_IN) ? "I" :
+				(type == SOCKLND_CONN_BULK_OUT) ? "O" : "?",
+				data.lnd_u.socklnd.cpt, /* scheduler */
 				/* local IP addr */
-				ptl_ipaddr_2_str(data.ioc_u32[2], buffer[0],
+				ptl_ipaddr_2_str(local_ip, buffer[0],
 						 sizeof(buffer[0]), 1),
 				/* remote IP addr */
-				ptl_ipaddr_2_str(data.ioc_u32[0], buffer[1],
+				ptl_ipaddr_2_str(peer_ip, buffer[1],
 						 sizeof(buffer[1]), 1),
-                                data.ioc_u32[1],         /* remote port */
-                                data.ioc_count, /* tx buffer size */
-                                data.ioc_u32[5], /* rx buffer size */
-                                data.ioc_flags ? "nagle" : "nonagle");
-                } else if (g_net_is_compatible (NULL, RALND, 0)) {
-                        printf ("%-20s [%d]\n",
-                                libcfs_nid2str(data.ioc_nid),
-                                data.ioc_u32[0] /* device id */);
-                } else if (g_net_is_compatible (NULL, O2IBLND, 0)) {
-                        printf ("%s mtu %d\n",
-                                libcfs_nid2str(data.ioc_nid),
-                                data.ioc_u32[0]); /* path MTU */
-		} else if (g_net_is_compatible (NULL, GNILND, 0)) {
-			printf ("%-20s [%d]\n",
+				/* remote port */
+				data.lnd_u.socklnd.peer_port,
+				/* tx buffer size */
+				data.lnd_u.socklnd.tx_buf_size,
+				/* rx buffer size */
+				data.lnd_u.socklnd.rx_buf_size,
+				data.lnd_u.socklnd.nagle ? "nagle" : "nonagle");
+		} else if (g_net_is_compatible(NULL, RALND, 0)) {
+			printf("%-20s [%d]\n",
 				libcfs_nid2str(data.ioc_nid),
-				data.ioc_u32[0] /* device id */);
-                } else {
-                        printf ("%s\n", libcfs_nid2str(data.ioc_nid));
-                }
-        }
+				data.lnd_u.ralnd.rad_id /* device id */);
+		} else if (g_net_is_compatible(NULL, O2IBLND, 0)) {
+			printf("%s mtu %d\n",
+				libcfs_nid2str(data.ioc_nid),
+				data.lnd_u.o2iblnd.path_mtu); /* path MTU */
+		} else if (g_net_is_compatible(NULL, GNILND, 0)) {
+			printf("%-20s [%d]\n",
+				libcfs_nid2str(data.ioc_nid),
+				data.lnd_u.gnilnd.gnd_id /* device id */);
+		} else {
+			printf("%s\n", libcfs_nid2str(data.ioc_nid));
+		}
+	}
 
-        if (index == 0) {
-                if (errno == ENOENT) {
-                        printf ("<no connections>\n");
-                } else {
-                        fprintf(stderr, "Error getting connection list: %s: "
-                                "check dmesg.\n",
-                                strerror(errno));
-                }
-        }
-        return 0;
+	if (index == 0) {
+		if (errno == ENOENT) {
+			printf ("<no connections>\n");
+		} else {
+			fprintf(stderr, "Error getting connection list: %s: "
+				"check dmesg.\n",
+				strerror(errno));
+		}
+	}
+	return 0;
 }
 
 int jt_ptl_disconnect(int argc, char **argv)
