@@ -127,7 +127,7 @@ static int osc_lock_invariant(struct osc_lock *ols)
 	 * ast.
 	 */
 	if (! ergo(olock != NULL && ols->ols_state < OLS_CANCELLED,
-		   ((olock->l_flags & LDLM_FL_DESTROYED) == 0)))
+		   !ldlm_is_destroyed(olock)))
 		return 0;
 
 	if (! ergo(ols->ols_state == OLS_GRANTED,
@@ -1333,7 +1333,7 @@ static void osc_lock_cancel(const struct lu_env *env,
         if (dlmlock != NULL) {
                 int do_cancel;
 
-                discard = !!(dlmlock->l_flags & LDLM_FL_DISCARD_DATA);
+		discard = ldlm_is_discard_data(dlmlock) ? 1 : 0;
 		if (olck->ols_state >= OLS_GRANTED)
 			result = osc_lock_flush(olck, discard);
                 osc_lock_unhold(olck);
