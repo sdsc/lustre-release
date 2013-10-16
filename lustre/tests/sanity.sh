@@ -4568,6 +4568,9 @@ test_56x() {
 run_test 56x "lfs migration support"
 
 test_56y() {
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.5.0) ] &&
+		skip "Need MDS version at least 2.5.0" && return
+
 	local res=""
 
 	local dir0=$DIR/$tdir/$testnum
