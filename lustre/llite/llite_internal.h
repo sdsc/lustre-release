@@ -486,8 +486,7 @@ struct ll_sb_info {
         struct lu_fid             ll_root_fid; /* root object fid */
 
         int                       ll_flags;
-	unsigned int		  ll_umounting:1,
-				  ll_xattr_cache_enabled:1;
+	unsigned int		  ll_xattr_cache_enabled:1;
         cfs_list_t                ll_conn_chain; /* per-conn chain of SBs */
         struct lustre_client_ocd  ll_lco;
 
@@ -1487,7 +1486,7 @@ static inline int cl_merge_lvb(const struct lu_env *env, struct inode *inode)
 struct obd_capa *cl_capa_lookup(struct inode *inode, enum cl_req_type crt);
 
 int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
-		       enum cl_fsync_mode mode, int ignore_layout);
+		       enum cl_fsync_mode mode);
 
 /** direct write pages */
 struct ll_dio_pages {

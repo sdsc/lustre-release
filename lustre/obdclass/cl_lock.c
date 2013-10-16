@@ -1994,6 +1994,7 @@ int cl_lock_discard_pages(const struct lu_env *env, struct cl_lock *lock)
 
         io->ci_obj = cl_object_top(descr->cld_obj);
 	io->ci_ignore_layout = 1;
+	io->ci_no_conflock = 1;
         result = cl_io_init(env, io, CIT_MISC, io->ci_obj);
         if (result != 0)
                 GOTO(out, result);

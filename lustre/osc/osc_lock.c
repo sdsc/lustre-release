@@ -1409,6 +1409,7 @@ static int osc_lock_has_pages(struct osc_lock *olck)
 
         io->ci_obj = cl_object_top(obj);
 	io->ci_ignore_layout = 1;
+	io->ci_no_conflock = 1;
         cl_io_init(env, io, CIT_MISC, io->ci_obj);
 	do {
 		result = cl_page_gang_lookup(env, obj, io,

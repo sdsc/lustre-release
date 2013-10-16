@@ -2384,6 +2384,24 @@ struct cl_io {
 	 */
 			     ci_ignore_layout:1,
 	/**
+	 * To avoid deadlock, some io initiated from OSC layer has to skip
+	 * the conf lock (lov->lo_type_guard) in lov_io_init(). For instance:
+	 *
+	 * Thread1: lov_conf_set(holding lo_type_guard) -> lov_layout_change()
+	 * 	    -> lov_delete_raid0() -> cl_locks_prune()
+	 * 	    -> cl_lock_mutex_get().
+	 *
+	 * Thread2: osc_ldlm_blocking_ast()-> cl_lock_mutex_get()
+	 * 	    -> cl_lock_cancel() -> osc_lock_cancel()
+	 * 	    -> osc_lock_flush() -> cl_lock_discard_pages()
+	 *	    -> cl_io_init() -> lov_io_init()
+	 *	    -> acquire lo_type_guard.
+	 *
+	 * In above example, cl_lock_mutex_get() guarantees sub object not
+	 * be destroyed by thread1 while thread2 accessing it in lov_io_init().
+	 */
+			     ci_no_conflock:1,
+	/**
 	 * Check if layout changed after the IO finishes. Mainly for HSM
 	 * requirement. If IO occurs to openning files, it doesn't need to
 	 * verify layout because HSM won't release openning files.

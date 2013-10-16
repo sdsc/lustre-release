@@ -848,7 +848,7 @@ int lov_io_init(const struct lu_env *env, struct cl_object *obj,
 {
 	CL_IO_SLICE_CLEAN(lov_env_io(env), lis_cl);
 	return LOV_2DISPATCH_MAYLOCK(cl2lov(obj), llo_io_init,
-				     !io->ci_ignore_layout, env, obj, io);
+			!io->ci_no_conflock, env, obj, io);
 }
 
 /**
