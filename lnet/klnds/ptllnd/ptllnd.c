@@ -437,42 +437,44 @@ kptllnd_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
                 break;
         }
 
-        case IOC_LIBCFS_GET_PEER: {
-                lnet_process_id_t   id = {.nid = LNET_NID_ANY,
-                                          .pid = LNET_PID_ANY};
-                __u64               incarnation = 0;
-                __u64               next_matchbits = 0;
-                __u64               last_matchbits_seen = 0;
-                int                 state = 0;
-                int                 sent_hello = 0;
-                int                 refcount = 0;
-                int                 nsendq = 0;
-                int                 nactiveq = 0;
-                int                 credits = 0;
-                int                 outstanding_credits = 0;
+	case IOC_LIBCFS_GET_PEER: {
+		lnet_process_id_t id = {.nid = LNET_NID_ANY,
+					.pid = LNET_PID_ANY};
+		__u64 incarnation = 0;
+		__u64 next_matchbits = 0;
+		__u64 last_matchbits_seen = 0;
+		int state = 0;
+		int sent_hello = 0;
+		int refcount = 0;
+		int nsendq = 0;
+		int nactiveq = 0;
+		int credits = 0;
+		int outstanding_credits = 0;
+		struct libcfs_ioctl_peer *data_peer = arg;
 
-                rc = kptllnd_get_peer_info(data->ioc_count, &id,
-                                           &state, &sent_hello,
-                                           &refcount, &incarnation,
-                                           &next_matchbits, &last_matchbits_seen,
-                                           &nsendq, &nactiveq,
-                                           &credits, &outstanding_credits);
-                /* wince... */
-                data->ioc_nid = id.nid;
-                data->ioc_net = state;
-                data->ioc_flags  = sent_hello;
-                data->ioc_count = refcount;
-                data->ioc_u64[0] = incarnation;
-                data->ioc_u32[0] = (__u32)next_matchbits;
-                data->ioc_u32[1] = (__u32)(next_matchbits >> 32);
-                data->ioc_u32[2] = (__u32)last_matchbits_seen;
-                data->ioc_u32[3] = (__u32)(last_matchbits_seen >> 32);
-                data->ioc_u32[4] = id.pid;
-                data->ioc_u32[5] = (nsendq << 16) | nactiveq;
-                data->ioc_u32[6] = (credits << 16) | outstanding_credits;
-                break;
-        }
-                
+		rc = kptllnd_get_peer_info(data_peer->ioc_count, &id,
+					   &state, &sent_hello,
+					   &refcount, &incarnation,
+					   &next_matchbits, &last_matchbits_seen,
+					   &nsendq, &nactiveq,
+					   &credits, &outstanding_credits);
+		/* wince... */
+		data_peer->ioc_nid = id.nid;
+		data_peer->lnd_u.ptllnd.state = state;
+		data_peer->lnd_u.ptllnd.sent_hello= sent_hello;
+		data_peer->lnd_u.ptllnd.peer_ref_count = refcount;
+		data_peer->lnd_u.ptllnd.incarnation = incarnation;
+		data_peer->lnd_u.ptllnd.next_matchbits = next_matchbits;
+		data_peer->lnd_u.ptllnd.last_matchbits_seen =
+		  last_matchbits_seen;
+		data_peer->lnd_u.ptllnd.pid = id.pid;
+		data_peer->lnd_u.ptllnd.nsendq_nactiveq =
+		  (nsendq << 16) | nactiveq;
+		data_peer->lnd_u.ptllnd.credits_outstanding_creidts =
+		  (credits << 16) | outstanding_credits;
+		break;
+	}
+
         default:
                 rc=-EINVAL;
                 break;
