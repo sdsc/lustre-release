@@ -1257,20 +1257,21 @@ kranal_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
         LASSERT (ni == kranal_data.kra_ni);
 
         switch(cmd) {
-        case IOC_LIBCFS_GET_PEER: {
-                lnet_nid_t   nid = 0;
-                __u32       ip = 0;
-                int         port = 0;
-                int         share_count = 0;
+	case IOC_LIBCFS_GET_PEER: {
+		lnet_nid_t nid = 0;
+		__u32 ip = 0;
+		int port = 0;
+		int share_count = 0;
+		struct libcfs_ioctl_peer *data_peer = arg;
 
-                rc = kranal_get_peer_info(data->ioc_count,
-                                          &nid, &ip, &port, &share_count);
-                data->ioc_nid    = nid;
-                data->ioc_count  = share_count;
-                data->ioc_u32[0] = ip;
-                data->ioc_u32[1] = port;
-                break;
-        }
+		rc = kranal_get_peer_info(data_peer->ioc_count,
+					  &nid, &ip, &port, &share_count);
+		data_peer->ioc_nid    = nid;
+		data_peer->lnd_u.ralnd.share_count= share_count;
+		data_peer->lnd_u.ralnd.peer_ip = ip;
+		data_peer->lnd_u.ralnd.peer_port = port;
+		break;
+	}
         case IOC_LIBCFS_ADD_PEER: {
                 rc = kranal_add_persistent_peer(data->ioc_nid,
                                                 data->ioc_u32[0], /* IP */
@@ -1281,19 +1282,20 @@ kranal_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
                 rc = kranal_del_peer(data->ioc_nid);
                 break;
         }
-        case IOC_LIBCFS_GET_CONN: {
-                kra_conn_t *conn = kranal_get_conn_by_idx(data->ioc_count);
-
-                if (conn == NULL)
-                        rc = -ENOENT;
-                else {
-                        rc = 0;
-                        data->ioc_nid    = conn->rac_peer->rap_nid;
-                        data->ioc_u32[0] = conn->rac_device->rad_id;
-                        kranal_conn_decref(conn);
-                }
-                break;
-        }
+	case IOC_LIBCFS_GET_CONN: {
+		libcfs_ioctl_conn *data_conn = arg;
+		kra_conn_t *conn = kranal_get_conn_by_idx(data_conn->ioc_count);
+		if (conn == NULL)
+			rc = -ENOENT;
+		else {
+			rc = 0;
+			data_conn->ioc_nid = conn->rac_peer->rap_nid;
+			data_conn->lnd_u.ralnd.rad_id =
+			  conn->rac_device->rad_id;
+			kranal_conn_decref(conn);
+		}
+		break;
+	}
         case IOC_LIBCFS_CLOSE_CONNECTION: {
                 rc = kranal_close_matching_conns(data->ioc_nid);
                 break;
