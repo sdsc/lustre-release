@@ -223,7 +223,7 @@ static int libcfs_ioctl_int(struct cfs_psdev_file *pfile,unsigned long cmd,
 			    void *arg, struct libcfs_ioctl_hdr *hdr)
 {
 	int err = -EINVAL;
-	struct libcfs_ioctl_data *data;
+	struct libcfs_ioctl_data *data = NULL;
 	ENTRY;
 
 	/* The libcfs_ioctl_data_adjust() function performs adjustment
@@ -231,7 +231,7 @@ static int libcfs_ioctl_int(struct cfs_psdev_file *pfile,unsigned long cmd,
 	   it usable by the code.  This doesn't need to be called
 	   for new data structures added. */
 	if ((cmd <= IOC_LIBCFS_LNETST) ||
-	    (cmd >= IOC_LIBCFS_REGISTER_MYNID)) {
+	    (cmd >= IOC_LIBCFS_GET_TXDESC)) {
 		data = (struct libcfs_ioctl_data *) hdr;
 		if ((err = libcfs_ioctl_data_adjust(data))) {
 			RETURN(err);

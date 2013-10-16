@@ -146,17 +146,17 @@ struct libcfs_ioctl_handler {
 #define IOC_LIBCFS_GET_PEER_INFO           _IOWR('e', 70, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_GET_LNET_STATS          _IOWR('e', 71, IOCTL_LIBCFS_TYPE)
 /* lnd ioctls */
-#define IOC_LIBCFS_REGISTER_MYNID          _IOWR('e', 72, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_CLOSE_CONNECTION        _IOWR('e', 73, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_PUSH_CONNECTION         _IOWR('e', 74, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_GET_CONN                _IOWR('e', 75, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_DEL_PEER                _IOWR('e', 76, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_ADD_PEER                _IOWR('e', 77, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_GET_PEER                _IOWR('e', 78, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_GET_TXDESC              _IOWR('e', 79, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_CONN                _IOWR('e', 72, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_PEER                _IOWR('e', 73, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_TXDESC              _IOWR('e', 74, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_GET_INTERFACE           _IOWR('e', 75, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_REGISTER_MYNID          _IOWR('e', 76, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_CLOSE_CONNECTION        _IOWR('e', 77, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_PUSH_CONNECTION         _IOWR('e', 78, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_ADD_PEER                _IOWR('e', 79, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_ADD_INTERFACE           _IOWR('e', 80, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_DEL_INTERFACE           _IOWR('e', 81, IOCTL_LIBCFS_TYPE)
-#define IOC_LIBCFS_GET_INTERFACE           _IOWR('e', 82, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DEL_PEER                _IOWR('e', 81, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DEL_INTERFACE           _IOWR('e', 82, IOCTL_LIBCFS_TYPE)
 
 #define IOC_LIBCFS_MAX_NR                             83
 
