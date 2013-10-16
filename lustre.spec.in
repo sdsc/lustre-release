@@ -384,6 +384,15 @@ if [ -f $RPM_BUILD_ROOT%{_libdir}/liblustreconfigapi.so ] ; then
   echo '%attr(-, root, root) %{_libdir}/liblustreconfigapi.so' >>lustre.files
 fi
 
+# TODO: figure out why the pyc and pyo files are being generated
+# during the build
+if [ -f $RPM_BUILD_ROOT%{_libdir}/_lustreconfigapi.so ] ; then
+  echo '%attr(-, root, root) %{_libdir}/_lustreconfigapi.so' >>lustre.files
+  echo '%attr(-, root, root) %{_libdir}/lustreconfigapi.py' >>lustre.files
+  echo '%attr(-, root, root) %{_libdir}/lustreconfigapi.pyc' >>lustre.files
+  echo '%attr(-, root, root) %{_libdir}/lustreconfigapi.pyo' >>lustre.files
+fi
+
 if [ -f $RPM_BUILD_ROOT%{_libdir}/libyaml.so ] ; then
   echo '%attr(-, root, root) %{_libdir}/libyaml.a' >>lustre.files
   echo '%attr(-, root, root) %{_libdir}/libyaml.so' >>lustre.files
