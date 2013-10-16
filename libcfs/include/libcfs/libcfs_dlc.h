@@ -54,6 +54,7 @@ struct libcfs_ioctl_config_data_s {
 
 struct libcfs_ioctl_peer {
 	struct libcfs_ioctl_hdr hdr;
+	__u32 ioc_net;
 	__u32 ioc_count;
 	__u64 ioc_nid;
 
@@ -68,6 +69,51 @@ struct libcfs_ioctl_peer {
 			int peertxqnob;
 			int ncpt;
 		} peer_credits;
+		struct {
+			__u32 local_ip;
+			__u32 peer_ip;
+			__u32 peer_port;
+			__u32 conn_count;
+			__u32 shared_count;
+			__u32 pid;
+		} socklnd;
+		struct {
+			__u32 state;
+			__u32 sent_hello;
+			__u32 peer_ref_count;
+			__u32 pid;
+			__u32 nsendq_nactiveq;
+			__u32 credits_outstanding_creidts;
+			__u64 incarnation;
+			__u64 next_matchbits;
+			__u64 last_matchbits_seen;
+		} ptllnd;
+		struct {
+			__u32 share_count;
+			__u32 peer_ip;
+			__u32 peer_port;
+		} ralnd;
+		struct {
+			__u64 peer_stamp;
+			__u32 dev_id;
+			__u32 peer_status;
+			__u32 peer_ref_count;
+			__u32 fmaq_len;
+			__u32 nfma;
+			__u32 tx_seq;
+			__u32 rx_seq;
+			__u32 nrdma;
+		} gnilnd;
+		struct {
+			__u32 peer_ref_count;
+			__u32 connecting;
+			__u32 accepting;
+			__u32 active_conn;
+			__u32 waiting_conn;
+		} o2iblnd;
+		struct {
+			__u32 peer_ref_count;
+		} mxlnd;
 	} lnd_u;
 };
 

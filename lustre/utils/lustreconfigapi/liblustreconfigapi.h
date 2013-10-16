@@ -151,6 +151,35 @@ extern int lustre_lnet_show_buf(int seq_no,
 				cYAML **err_rc);
 
 /*
+ * lustre_lnet_show_conn_queue
+ *   Shows details on the connection queue specified for the net passed
+ *   in.
+ *
+ *     nw - net to query
+ *     qname - queue name
+ *     seq_no - sequence number of the command
+ *     show_rc - YAML structure of the resultant show
+ *     err_rc - YAML strucutre of the resultant return code.
+ */
+extern int lustre_lnet_show_conn_queue(char *nw, char *qname,
+				       int seq_no, cYAML **show_rc,
+				       cYAML **err_rc);
+
+/*
+ * lustre_lnet_show_peer
+ *   Shows details on the peer specified for the net passed
+ *   in.
+ *
+ *     nw - net to query
+ *     seq_no - sequence number of the command
+ *     show_rc - YAML structure of the resultant show
+ *     err_rc - YAML strucutre of the resultant return code.
+ */
+extern int lustre_lnet_show_peer(char *nw, int seq_no,
+				 cYAML **show_rc,
+				 cYAML **err_rc);
+
+/*
  * lustre_lnet_show_peer_credits
  *   Shows credit details on the peers in the system
  *
