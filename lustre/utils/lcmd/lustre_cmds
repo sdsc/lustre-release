@@ -159,9 +159,33 @@ show:
      lnet_cmd_callback: lnet_show_file
      lnet_cmd_value:
         lnet_cmd_help: file name
+   peer:
+     lnet_cmd_help: show peer details for a network
+     lnet_cmd_callback: lnet_show_peer
+     --net:
+        lnet_cmd_help: specifiy network
+        lnet_cmd_value:
+            lnet_cmd_help: "network ex: tcp0"
    credits:
      lnet_cmd_help: show credit detail of peers in the system
      lnet_cmd_callback: lnet_show_peer_credits
+   tx_queue:
+     lnet_cmd_help: show transmit queue details
+     lnet_cmd_callback: lnet_show_tx_queue
+     --net:
+        lnet_cmd_help: specifiy network
+        lnet_cmd_value:
+            lnet_cmd_help: "network ex: tcp0"
+            tx_queue_noop:
+                lnet_cmd_help: "show noop queue"
+            tx_queue_cr:
+                lnet_cmd_help: "show sends that need a credit"
+            tx_queue_ncr:
+                lnet_cmd_help: "show sends that don't need a credit"
+            tx_queue_rsrvd:
+                lnet_cmd_help: "show sends that need to reserve an ACK/DONE msg"
+            tx_queue_active:
+                lnet_cmd_help: "show active transmits awaiting completion"
    statistics:
      lnet_cmd_help: show lnet traffic statistics
      lnet_cmd_callback: lnet_show_stats

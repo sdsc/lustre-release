@@ -2129,28 +2129,29 @@ ksocknal_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
                 return ksocknal_del_interface(ni,
                                               data->ioc_u32[0]); /* IP address */
 
-        case IOC_LIBCFS_GET_PEER: {
-                __u32            myip = 0;
-                __u32            ip = 0;
-                int              port = 0;
-                int              conn_count = 0;
-                int              share_count = 0;
+	case IOC_LIBCFS_GET_PEER: {
+		__u32 myip = 0;
+		__u32 ip = 0;
+		int port = 0;
+		int conn_count = 0;
+		int share_count = 0;
+		struct libcfs_ioctl_peer *data_peer = arg;
 
-                rc = ksocknal_get_peer_info(ni, data->ioc_count,
-                                            &id, &myip, &ip, &port,
-                                            &conn_count,  &share_count);
-                if (rc != 0)
-                        return rc;
+		rc = ksocknal_get_peer_info(ni, data_peer->ioc_count,
+					    &id, &myip, &ip, &port,
+					    &conn_count,  &share_count);
+		if (rc != 0)
+			return rc;
 
-                data->ioc_nid    = id.nid;
-                data->ioc_count  = share_count;
-                data->ioc_u32[0] = ip;
-                data->ioc_u32[1] = port;
-                data->ioc_u32[2] = myip;
-                data->ioc_u32[3] = conn_count;
-                data->ioc_u32[4] = id.pid;
-                return 0;
-        }
+		data_peer->ioc_nid = id.nid;
+		data_peer->lnd_u.socklnd.shared_count = share_count;
+		data_peer->lnd_u.socklnd.peer_ip = ip;
+		data_peer->lnd_u.socklnd.peer_port = port;
+		data_peer->lnd_u.socklnd.local_ip = myip;
+		data_peer->lnd_u.socklnd.conn_count = conn_count;
+		data_peer->lnd_u.socklnd.pid = id.pid;
+		return 0;
+	}
 
         case IOC_LIBCFS_ADD_PEER:
                 id.nid = data->ioc_nid;
@@ -2165,30 +2166,33 @@ ksocknal_ctl(lnet_ni_t *ni, unsigned int cmd, void *arg)
                 return ksocknal_del_peer (ni, id,
                                           data->ioc_u32[0]); /* IP */
 
-        case IOC_LIBCFS_GET_CONN: {
-                int           txmem;
-                int           rxmem;
-                int           nagle;
-                ksock_conn_t *conn = ksocknal_get_conn_by_idx (ni, data->ioc_count);
+	case IOC_LIBCFS_GET_CONN: {
+		struct libcfs_ioctl_conn *data_conn = arg;
+		int txmem;
+		int rxmem;
+		int nagle;
+		ksock_conn_t *conn =
+		  ksocknal_get_conn_by_idx(ni, data_conn->ioc_count);
 
-                if (conn == NULL)
-                        return -ENOENT;
+		if (conn == NULL)
+			return -ENOENT;
+		CDEBUG(D_CONSOLE, "IOC_LIBCFS_GET_CONN conn is not null\n");
+		ksocknal_lib_get_conn_tunables(conn, &txmem, &rxmem, &nagle);
 
-                ksocknal_lib_get_conn_tunables(conn, &txmem, &rxmem, &nagle);
-
-                data->ioc_count  = txmem;
-                data->ioc_nid    = conn->ksnc_peer->ksnp_id.nid;
-                data->ioc_flags  = nagle;
-                data->ioc_u32[0] = conn->ksnc_ipaddr;
-                data->ioc_u32[1] = conn->ksnc_port;
-                data->ioc_u32[2] = conn->ksnc_myipaddr;
-                data->ioc_u32[3] = conn->ksnc_type;
-		data->ioc_u32[4] = conn->ksnc_scheduler->kss_info->ksi_cpt;
-                data->ioc_u32[5] = rxmem;
-                data->ioc_u32[6] = conn->ksnc_peer->ksnp_id.pid;
-                ksocknal_conn_decref(conn);
-                return 0;
-        }
+		data_conn->lnd_u.socklnd.tx_buf_size = txmem;
+		data_conn->ioc_nid = conn->ksnc_peer->ksnp_id.nid;
+		data_conn->lnd_u.socklnd.nagle = nagle;
+		data_conn->lnd_u.socklnd.peer_ip = conn->ksnc_ipaddr;
+		data_conn->lnd_u.socklnd.peer_port = conn->ksnc_port;
+		data_conn->lnd_u.socklnd.local_ip = conn->ksnc_myipaddr;
+		data_conn->lnd_u.socklnd.type = conn->ksnc_type;
+		data_conn->lnd_u.socklnd.cpt =
+		  conn->ksnc_scheduler->kss_info->ksi_cpt;
+		data_conn->lnd_u.socklnd.rx_buf_size = rxmem;
+		data_conn->lnd_u.socklnd.pid = conn->ksnc_peer->ksnp_id.pid;
+		ksocknal_conn_decref(conn);
+		return 0;
+	}
 
         case IOC_LIBCFS_CLOSE_CONNECTION:
                 id.nid = data->ioc_nid;

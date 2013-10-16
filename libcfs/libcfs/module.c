@@ -231,7 +231,7 @@ static int libcfs_ioctl_int(struct cfs_psdev_file *pfile,unsigned long cmd,
 	   it usable by the code.  This doesn't need to be called
 	   for new data structures added. */
 	if ((cmd <= IOC_LIBCFS_LNETST) ||
-	    (cmd >= IOC_LIBCFS_REGISTER_MYNID)) {
+	    (cmd >= IOC_LIBCFS_GET_TXDESC)) {
 		data = (struct libcfs_ioctl_data *) hdr;
 		if ((err = libcfs_ioctl_data_adjust(data))) {
 			RETURN(err);
