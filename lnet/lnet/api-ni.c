@@ -1813,7 +1813,8 @@ LNetCtl(unsigned int cmd, void *arg)
 	{
 		struct libcfs_ioctl_net_config_s *net_config;
 		config = arg;
-		net_config = (struct libcfs_ioctl_net_config_s *)config->ioc_bulk;
+		net_config =
+		  (struct libcfs_ioctl_net_config_s *)config->ioc_bulk;
 		if ((!config) || (!net_config)) {
 			return -1;
 		}
