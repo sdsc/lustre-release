@@ -780,7 +780,7 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
         ENTRY;
 
         /* on pending IO in this thread should left from prev. request */
-        LASSERT(cfs_atomic_read(&iobuf->dr_numreqs) == 0);
+	LASSERT(atomic_read(&iobuf->dr_numreqs) == 0);
 
         th = ERR_PTR(-ENOMEM);
 	OBD_ALLOC_GFP(oh, sizeof *oh, __GFP_IO);
@@ -967,7 +967,7 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
 	 * completed otherwise iobuf may be corrupted by different request
 	 */
 	wait_event(iobuf->dr_wait,
-		       cfs_atomic_read(&iobuf->dr_numreqs) == 0);
+		       atomic_read(&iobuf->dr_numreqs) == 0);
 	if (!rc)
 		rc = iobuf->dr_error;
 
