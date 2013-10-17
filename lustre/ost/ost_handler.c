@@ -789,10 +789,10 @@ static int ost_brw_read(struct ptlrpc_request *req, struct obd_trans_info *oti)
 
         /* Check if there is eviction in progress, and if so, wait for it to
          * finish */
-        if (unlikely(cfs_atomic_read(&exp->exp_obd->obd_evict_inprogress))) {
+	if (unlikely(atomic_read(&exp->exp_obd->obd_evict_inprogress))) {
                 lwi = LWI_INTR(NULL, NULL); // We do not care how long it takes
                 rc = l_wait_event(exp->exp_obd->obd_evict_inprogress_waitq,
-                        !cfs_atomic_read(&exp->exp_obd->obd_evict_inprogress),
+			!atomic_read(&exp->exp_obd->obd_evict_inprogress),
                         &lwi);
         }
         if (exp->exp_failed)

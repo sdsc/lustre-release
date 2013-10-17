@@ -178,16 +178,16 @@ void ptlrpcd_add_rqset(struct ptlrpc_request_set *set)
                 cfs_list_del_init(&req->rq_set_chain);
                 req->rq_set = NULL;
                 ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
-                cfs_atomic_dec(&set->set_remaining);
+		atomic_dec(&set->set_remaining);
 #endif
         }
 
 #ifdef __KERNEL__
 	spin_lock(&new->set_new_req_lock);
 	cfs_list_splice_init(&set->set_requests, &new->set_new_requests);
-	i = cfs_atomic_read(&set->set_remaining);
-	count = cfs_atomic_add_return(i, &new->set_new_count);
-	cfs_atomic_set(&set->set_remaining, 0);
+	i = atomic_read(&set->set_remaining);
+	count = atomic_add_return(i, &new->set_new_count);
+	atomic_set(&set->set_remaining, 0);
 	spin_unlock(&new->set_new_req_lock);
 	if (count == i) {
 		wake_up(&new->set_waitq);
@@ -222,9 +222,9 @@ static int ptlrpcd_steal_rqset(struct ptlrpc_request_set *des,
                 }
                 cfs_list_splice_init(&src->set_new_requests,
                                      &des->set_requests);
-                rc = cfs_atomic_read(&src->set_new_count);
-                cfs_atomic_add(rc, &des->set_remaining);
-                cfs_atomic_set(&src->set_new_count, 0);
+		rc = atomic_read(&src->set_new_count);
+		atomic_add(rc, &des->set_remaining);
+		atomic_set(&src->set_new_count, 0);
         }
 	spin_unlock(&src->set_new_req_lock);
 	return rc;
@@ -257,7 +257,7 @@ void ptlrpcd_add_req(struct ptlrpc_request *req, pdl_policy_t policy, int idx)
                 LASSERT(req->rq_send_state == LUSTRE_IMP_REPLAY);
 
                 /* ptlrpc_check_set will decrease the count */
-                cfs_atomic_inc(&req->rq_set->set_remaining);
+		atomic_inc(&req->rq_set->set_remaining);
 		spin_unlock(&req->rq_lock);
 		wake_up(&req->rq_set->set_waitq);
 		return;
@@ -276,7 +276,7 @@ EXPORT_SYMBOL(ptlrpcd_add_req);
 
 static inline void ptlrpc_reqset_get(struct ptlrpc_request_set *set)
 {
-        cfs_atomic_inc(&set->set_refcount);
+	atomic_inc(&set->set_refcount);
 }
 
 /**
@@ -292,14 +292,14 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
         int rc2;
         ENTRY;
 
-        if (cfs_atomic_read(&set->set_new_count)) {
+	if (atomic_read(&set->set_new_count)) {
 		spin_lock(&set->set_new_req_lock);
                 if (likely(!cfs_list_empty(&set->set_new_requests))) {
                         cfs_list_splice_init(&set->set_new_requests,
                                              &set->set_requests);
-                        cfs_atomic_add(cfs_atomic_read(&set->set_new_count),
+			atomic_add(atomic_read(&set->set_new_count),
                                        &set->set_remaining);
-                        cfs_atomic_set(&set->set_new_count, 0);
+			atomic_set(&set->set_new_count, 0);
                         /*
                          * Need to calculate its timeout.
                          */
@@ -327,7 +327,7 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
                 RETURN(rc);
         }
 
-        if (cfs_atomic_read(&set->set_remaining))
+	if (atomic_read(&set->set_remaining))
                 rc |= ptlrpc_check_set(env, set);
 
         if (!cfs_list_empty(&set->set_requests)) {
@@ -351,7 +351,7 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
                 /*
                  * If new requests have been added, make sure to wake up.
                  */
-                rc = cfs_atomic_read(&set->set_new_count);
+		rc = atomic_read(&set->set_new_count);
 
 #ifdef __KERNEL__
                 /* If we have nothing to do, check whether we can take some
@@ -378,7 +378,7 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
 				ptlrpc_reqset_get(ps);
 				spin_unlock(&partner->pc_lock);
 
-                                if (cfs_atomic_read(&ps->set_new_count)) {
+				if (atomic_read(&ps->set_new_count)) {
                                         rc = ptlrpcd_steal_rqset(set, ps);
                                         if (rc > 0)
                                                 CDEBUG(D_RPCTRACE, "transfer %d"
@@ -665,8 +665,8 @@ int ptlrpcd_idle(void *arg)
 {
         struct ptlrpcd_ctl *pc = arg;
 
-        return (cfs_atomic_read(&pc->pc_set->set_new_count) == 0 &&
-                cfs_atomic_read(&pc->pc_set->set_remaining) == 0);
+	return (atomic_read(&pc->pc_set->set_new_count) == 0 &&
+		atomic_read(&pc->pc_set->set_remaining) == 0);
 }
 
 #endif

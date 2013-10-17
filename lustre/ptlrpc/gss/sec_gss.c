@@ -330,7 +330,7 @@ out_free:
 
 int cli_ctx_expire(struct ptlrpc_cli_ctx *ctx)
 {
-        LASSERT(cfs_atomic_read(&ctx->cc_refcount));
+	LASSERT(atomic_read(&ctx->cc_refcount));
 
 	if (!test_and_set_bit(PTLRPC_CTX_DEAD_BIT, &ctx->cc_flags)) {
                 if (!ctx->cc_early_expire)
@@ -667,7 +667,7 @@ int gss_cli_ctx_sign(struct ptlrpc_cli_ctx *ctx,
                 flags |= LUSTRE_GSS_PACK_USER;
 
 redo:
-        seq = cfs_atomic_inc_return(&gctx->gc_seq);
+	seq = atomic_inc_return(&gctx->gc_seq);
 
         rc = gss_sign_msg(req->rq_reqbuf, gctx->gc_mechctx,
                           ctx->cc_sec->ps_part,
@@ -684,8 +684,8 @@ redo:
          *
          * Note: null mode dosen't check sequence number. */
         if (svc != SPTLRPC_SVC_NULL &&
-            cfs_atomic_read(&gctx->gc_seq) - seq > GSS_SEQ_REPACK_THRESHOLD) {
-                int behind = cfs_atomic_read(&gctx->gc_seq) - seq;
+	    atomic_read(&gctx->gc_seq) - seq > GSS_SEQ_REPACK_THRESHOLD) {
+		int behind = atomic_read(&gctx->gc_seq) - seq;
 
                 gss_stat_oos_record_cli(behind);
                 CWARN("req %p: %u behind, retry signing\n", req, behind);
@@ -941,7 +941,7 @@ int gss_cli_ctx_seal(struct ptlrpc_cli_ctx *ctx,
                 ghdr->gh_flags |= LUSTRE_GSS_PACK_USER;
 
 redo:
-        ghdr->gh_seq = cfs_atomic_inc_return(&gctx->gc_seq);
+	ghdr->gh_seq = atomic_inc_return(&gctx->gc_seq);
 
         /* buffer objects */
         hdrobj.len = PTLRPC_GSS_HEADER_SIZE;
@@ -960,14 +960,14 @@ redo:
         LASSERT(token.len <= buflens[1]);
 
         /* see explain in gss_cli_ctx_sign() */
-        if (unlikely(cfs_atomic_read(&gctx->gc_seq) - ghdr->gh_seq >
+	if (unlikely(atomic_read(&gctx->gc_seq) - ghdr->gh_seq >
                      GSS_SEQ_REPACK_THRESHOLD)) {
-                int behind = cfs_atomic_read(&gctx->gc_seq) - ghdr->gh_seq;
+		int behind = atomic_read(&gctx->gc_seq) - ghdr->gh_seq;
 
                 gss_stat_oos_record_cli(behind);
                 CWARN("req %p: %u behind, retry sealing\n", req, behind);
 
-                ghdr->gh_seq = cfs_atomic_inc_return(&gctx->gc_seq);
+		ghdr->gh_seq = atomic_inc_return(&gctx->gc_seq);
                 goto redo;
         }
 
@@ -1124,8 +1124,8 @@ int gss_sec_create_common(struct gss_sec *gsec,
         /* initialize upper ptlrpc_sec */
         sec = &gsec->gs_base;
         sec->ps_policy = policy;
-        cfs_atomic_set(&sec->ps_refcount, 0);
-        cfs_atomic_set(&sec->ps_nctx, 0);
+	atomic_set(&sec->ps_refcount, 0);
+	atomic_set(&sec->ps_nctx, 0);
         sec->ps_id = sptlrpc_get_next_secid();
         sec->ps_flvr = *sf;
         sec->ps_import = class_import_get(imp);
@@ -1155,8 +1155,8 @@ void gss_sec_destroy_common(struct gss_sec *gsec)
         ENTRY;
 
         LASSERT(sec->ps_import);
-        LASSERT(cfs_atomic_read(&sec->ps_refcount) == 0);
-        LASSERT(cfs_atomic_read(&sec->ps_nctx) == 0);
+	LASSERT(atomic_read(&sec->ps_refcount) == 0);
+	LASSERT(atomic_read(&sec->ps_nctx) == 0);
 
         if (gsec->gs_mech) {
                 lgss_mech_put(gsec->gs_mech);
@@ -1184,10 +1184,10 @@ int gss_cli_ctx_init_common(struct ptlrpc_sec *sec,
         struct gss_cli_ctx    *gctx = ctx2gctx(ctx);
 
         gctx->gc_win = 0;
-        cfs_atomic_set(&gctx->gc_seq, 0);
+	atomic_set(&gctx->gc_seq, 0);
 
         CFS_INIT_HLIST_NODE(&ctx->cc_cache);
-        cfs_atomic_set(&ctx->cc_refcount, 0);
+	atomic_set(&ctx->cc_refcount, 0);
         ctx->cc_sec = sec;
         ctx->cc_ops = ctxops;
         ctx->cc_expire = 0;
@@ -1198,9 +1198,9 @@ int gss_cli_ctx_init_common(struct ptlrpc_sec *sec,
         CFS_INIT_LIST_HEAD(&ctx->cc_gc_chain);
 
         /* take a ref on belonging sec, balanced in ctx destroying */
-        cfs_atomic_inc(&sec->ps_refcount);
+	atomic_inc(&sec->ps_refcount);
         /* statistic only */
-        cfs_atomic_inc(&sec->ps_nctx);
+	atomic_inc(&sec->ps_nctx);
 
         CDEBUG(D_SEC, "%s@%p: create ctx %p(%u->%s)\n",
                sec->ps_policy->sp_name, ctx->cc_sec,
@@ -1218,8 +1218,8 @@ int gss_cli_ctx_fini_common(struct ptlrpc_sec *sec,
 {
         struct gss_cli_ctx *gctx = ctx2gctx(ctx);
 
-        LASSERT(cfs_atomic_read(&sec->ps_nctx) > 0);
-        LASSERT(cfs_atomic_read(&ctx->cc_refcount) == 0);
+	LASSERT(atomic_read(&sec->ps_nctx) > 0);
+	LASSERT(atomic_read(&ctx->cc_refcount) == 0);
         LASSERT(ctx->cc_sec == sec);
 
         /*
@@ -1236,12 +1236,12 @@ int gss_cli_ctx_fini_common(struct ptlrpc_sec *sec,
                  * asynchronous which finished by request_out_callback(). so
                  * we add refcount, whoever drop finally drop the refcount to
                  * 0 should responsible for the rest of destroy. */
-                cfs_atomic_inc(&ctx->cc_refcount);
+		atomic_inc(&ctx->cc_refcount);
 
                 gss_do_ctx_fini_rpc(gctx);
                 gss_cli_ctx_finalize(gctx);
 
-                if (!cfs_atomic_dec_and_test(&ctx->cc_refcount))
+		if (!atomic_dec_and_test(&ctx->cc_refcount))
                         return 1;
         }
 
@@ -1874,16 +1874,16 @@ void gss_svc_reqctx_free(struct gss_svc_reqctx *grctx)
 static inline
 void gss_svc_reqctx_addref(struct gss_svc_reqctx *grctx)
 {
-        LASSERT(cfs_atomic_read(&grctx->src_base.sc_refcount) > 0);
-        cfs_atomic_inc(&grctx->src_base.sc_refcount);
+	LASSERT(atomic_read(&grctx->src_base.sc_refcount) > 0);
+	atomic_inc(&grctx->src_base.sc_refcount);
 }
 
 static inline
 void gss_svc_reqctx_decref(struct gss_svc_reqctx *grctx)
 {
-        LASSERT(cfs_atomic_read(&grctx->src_base.sc_refcount) > 0);
+	LASSERT(atomic_read(&grctx->src_base.sc_refcount) > 0);
 
-        if (cfs_atomic_dec_and_test(&grctx->src_base.sc_refcount))
+	if (atomic_dec_and_test(&grctx->src_base.sc_refcount))
                 gss_svc_reqctx_free(grctx);
 }
 
@@ -2380,7 +2380,7 @@ int gss_svc_accept(struct ptlrpc_sec_policy *policy, struct ptlrpc_request *req)
                 RETURN(SECSVC_DROP);
 
         grctx->src_base.sc_policy = sptlrpc_policy_get(policy);
-        cfs_atomic_set(&grctx->src_base.sc_refcount, 1);
+	atomic_set(&grctx->src_base.sc_refcount, 1);
         req->rq_svc_ctx = &grctx->src_base;
         gw = &grctx->src_wirectx;
 
@@ -2772,7 +2772,7 @@ void gss_svc_free_rs(struct ptlrpc_reply_state *rs)
 
 void gss_svc_free_ctx(struct ptlrpc_svc_ctx *ctx)
 {
-        LASSERT(cfs_atomic_read(&ctx->sc_refcount) == 0);
+	LASSERT(atomic_read(&ctx->sc_refcount) == 0);
         gss_svc_reqctx_free(gss_svc_ctx2reqctx(ctx));
 }
 
@@ -2798,7 +2798,7 @@ int gss_copy_rvc_cli_ctx(struct ptlrpc_cli_ctx *cli_ctx,
          * each reverse root ctx will record its latest sequence number on its
          * buddy svcctx before be destroied, so here we continue use it.
          */
-        cfs_atomic_set(&cli_gctx->gc_seq, svc_gctx->gsc_rvs_seq);
+	atomic_set(&cli_gctx->gc_seq, svc_gctx->gsc_rvs_seq);
 
         if (gss_svc_upcall_dup_handle(&cli_gctx->gc_svc_handle, svc_gctx)) {
                 CERROR("failed to dup svc handle\n");

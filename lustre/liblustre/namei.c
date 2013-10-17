@@ -316,7 +316,7 @@ static int lookup_it_finish(struct ptlrpc_request *request, int offset,
                 if (it_disposition(it, DISP_OPEN_CREATE) &&
                     !it_open_error(DISP_OPEN_CREATE, it)) {
                         LASSERT(request);
-                        LASSERT(cfs_atomic_read(&request->rq_refcount) > 1);
+			LASSERT(atomic_read(&request->rq_refcount) > 1);
                         CDEBUG(D_INODE, "dec a ref of req %p\n", request);
                         ptlrpc_req_finished(request);
                 }
