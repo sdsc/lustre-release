@@ -1015,6 +1015,14 @@ static int osp_precreate_ready_condition(const struct lu_env *env,
 	if (d->opd_pre_status == -EIO)
 		return 1;
 
+	/* DEBUG LU-3230 */
+	if (d->opd_pre_status != 0 && 
+	    d->opd_pre_status != -EAGAIN &&
+	    d->opd_pre_status != -ENOSPC) {
+		CERROR("%s: bad pre_status %d\n", d->opd_obd->obd_name,
+		       d->opd_pre_status);
+	}
+
 	return 0;
 }
 
