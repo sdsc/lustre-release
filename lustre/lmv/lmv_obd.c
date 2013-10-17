@@ -415,17 +415,17 @@ int lmv_connect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
         tgt->ltd_exp = mdc_exp;
         lmv->desc.ld_active_tgt_count++;
 
-        md_init_ea_size(tgt->ltd_exp, lmv->max_easize,
-                        lmv->max_def_easize, lmv->max_cookiesize);
+	md_init_ea_size(tgt->ltd_exp, lmv->max_easize,
+			lmv->max_def_easize, lmv->max_cookiesize);
 
-        CDEBUG(D_CONFIG, "Connected to %s(%s) successfully (%d)\n",
-                mdc_obd->obd_name, mdc_obd->obd_uuid.uuid,
-                cfs_atomic_read(&obd->obd_refcount));
+	CDEBUG(D_CONFIG, "Connected to %s(%s) successfully (%d)\n",
+		mdc_obd->obd_name, mdc_obd->obd_uuid.uuid,
+		atomic_read(&obd->obd_refcount));
 
 #ifdef __KERNEL__
-        lmv_proc_dir = lprocfs_srch(obd->obd_proc_entry, "target_obds");
-        if (lmv_proc_dir) {
-                struct proc_dir_entry *mdc_symlink;
+	lmv_proc_dir = lprocfs_srch(obd->obd_proc_entry, "target_obds");
+	if (lmv_proc_dir) {
+		struct proc_dir_entry *mdc_symlink;
 
                 LASSERT(mdc_obd->obd_type != NULL);
                 LASSERT(mdc_obd->obd_type->typ_name != NULL);
