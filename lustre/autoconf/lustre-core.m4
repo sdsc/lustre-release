@@ -1824,6 +1824,7 @@ lustre/tests/Makefile
 lustre/tests/mpi/Makefile
 lustre/utils/Makefile
 lustre/utils/gss/Makefile
+lustre/utils/libyaml/Makefile
 lustre/osp/Makefile
 lustre/osp/autoMakefile
 lustre/lod/Makefile
