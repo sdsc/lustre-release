@@ -320,7 +320,7 @@ int lov_alloc_memmd(struct lov_stripe_md **lsmp, __u16 stripe_count,
                 RETURN(-ENOMEM);
         }
 
-	cfs_atomic_set(&(*lsmp)->lsm_refc, 1);
+	atomic_set(&(*lsmp)->lsm_refc, 1);
 	spin_lock_init(&(*lsmp)->lsm_lock);
         (*lsmp)->lsm_magic = magic;
         (*lsmp)->lsm_stripe_count = stripe_count;
@@ -343,8 +343,8 @@ int lov_free_memmd(struct lov_stripe_md **lsmp)
 	int refc;
 
 	*lsmp = NULL;
-	LASSERT(cfs_atomic_read(&lsm->lsm_refc) > 0);
-	if ((refc = cfs_atomic_dec_return(&lsm->lsm_refc)) == 0) {
+	LASSERT(atomic_read(&lsm->lsm_refc) > 0);
+	if ((refc = atomic_dec_return(&lsm->lsm_refc)) == 0) {
 		LASSERT(lsm_op_find(lsm->lsm_magic) != NULL);
 		lsm_op_find(lsm->lsm_magic)->lsm_free(lsm);
 	}

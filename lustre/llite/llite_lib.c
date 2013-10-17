@@ -100,9 +100,9 @@ static struct ll_sb_info *ll_init_sbi(void)
 	}
 
 	/* initialize lru data */
-	cfs_atomic_set(&sbi->ll_cache.ccc_users, 0);
+	atomic_set(&sbi->ll_cache.ccc_users, 0);
 	sbi->ll_cache.ccc_lru_max = lru_page_max;
-	cfs_atomic_set(&sbi->ll_cache.ccc_lru_left, lru_page_max);
+	atomic_set(&sbi->ll_cache.ccc_lru_left, lru_page_max);
 	spin_lock_init(&sbi->ll_cache.ccc_lru_lock);
 	CFS_INIT_LIST_HEAD(&sbi->ll_cache.ccc_lru);
 
@@ -140,9 +140,9 @@ static struct ll_sb_info *ll_init_sbi(void)
 
         /* metadata statahead is enabled by default */
         sbi->ll_sa_max = LL_SA_RPC_DEF;
-        cfs_atomic_set(&sbi->ll_sa_total, 0);
-        cfs_atomic_set(&sbi->ll_sa_wrong, 0);
-        cfs_atomic_set(&sbi->ll_agl_total, 0);
+	atomic_set(&sbi->ll_sa_total, 0);
+	atomic_set(&sbi->ll_sa_wrong, 0);
+	atomic_set(&sbi->ll_agl_total, 0);
         sbi->ll_flags |= LL_SBI_AGL_ENABLED;
 
         RETURN(sbi);
@@ -932,7 +932,7 @@ void ll_lli_init(struct ll_inode_info *lli)
         fid_zero(&lli->lli_pfid);
         CFS_INIT_LIST_HEAD(&lli->lli_close_list);
         CFS_INIT_LIST_HEAD(&lli->lli_oss_capas);
-        cfs_atomic_set(&lli->lli_open_count, 0);
+	atomic_set(&lli->lli_open_count, 0);
         lli->lli_mds_capa = NULL;
         lli->lli_rmtperm_time = 0;
         lli->lli_pending_och = NULL;
@@ -1249,7 +1249,7 @@ void ll_clear_inode(struct inode *inode)
         }
 #ifdef CONFIG_FS_POSIX_ACL
         else if (lli->lli_posix_acl) {
-                LASSERT(cfs_atomic_read(&lli->lli_posix_acl->a_refcount) == 1);
+		LASSERT(atomic_read(&lli->lli_posix_acl->a_refcount) == 1);
                 LASSERT(lli->lli_remote_perms == NULL);
                 posix_acl_release(lli->lli_posix_acl);
                 lli->lli_posix_acl = NULL;

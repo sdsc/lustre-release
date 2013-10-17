@@ -43,7 +43,7 @@
 
 struct lov_lock_handles {
         struct portals_handle   llh_handle;
-        cfs_atomic_t            llh_refcount;
+	atomic_t            llh_refcount;
         int                     llh_stripe_count;
         struct lustre_handle    llh_handles[0];
 };
@@ -67,15 +67,15 @@ struct lov_request {
 struct lov_request_set {
 	struct ldlm_enqueue_info	*set_ei;
 	struct obd_info			*set_oi;
-	cfs_atomic_t			set_refcount;
+	atomic_t			set_refcount;
 	struct obd_export		*set_exp;
 	/* XXX: There is @set_exp already, however obd_statfs gets obd_device
 	   only. */
 	struct obd_device		*set_obd;
 	int				set_count;
-	cfs_atomic_t			set_completes;
-	cfs_atomic_t			set_success;
-	cfs_atomic_t			set_finish_checked;
+	atomic_t			set_completes;
+	atomic_t			set_success;
+	atomic_t			set_finish_checked;
 	struct llog_cookie		*set_cookies;
 	int				set_cookie_sent;
 	struct obd_trans_info		*set_oti;
@@ -94,13 +94,13 @@ void lov_finish_set(struct lov_request_set *set);
 static inline void lov_get_reqset(struct lov_request_set *set)
 {
         LASSERT(set != NULL);
-        LASSERT(cfs_atomic_read(&set->set_refcount) > 0);
-        cfs_atomic_inc(&set->set_refcount);
+	LASSERT(atomic_read(&set->set_refcount) > 0);
+	atomic_inc(&set->set_refcount);
 }
 
 static inline void lov_put_reqset(struct lov_request_set *set)
 {
-        if (cfs_atomic_dec_and_test(&set->set_refcount))
+	if (atomic_dec_and_test(&set->set_refcount))
                 lov_finish_set(set);
 }
 
@@ -114,14 +114,14 @@ lov_handle2llh(const struct lustre_handle *handle)
 static inline void lov_llh_put(struct lov_lock_handles *llh)
 {
         CDEBUG(D_INFO, "PUTting llh %p : new refcount %d\n", llh,
-               cfs_atomic_read(&llh->llh_refcount) - 1);
-        LASSERT(cfs_atomic_read(&llh->llh_refcount) > 0 &&
-                cfs_atomic_read(&llh->llh_refcount) < 0x5a5a);
-        if (cfs_atomic_dec_and_test(&llh->llh_refcount)) {
+	       atomic_read(&llh->llh_refcount) - 1);
+	LASSERT(atomic_read(&llh->llh_refcount) > 0 &&
+		atomic_read(&llh->llh_refcount) < 0x5a5a);
+	if (atomic_dec_and_test(&llh->llh_refcount)) {
                 class_handle_unhash(&llh->llh_handle);
                 /* The structure may be held by other threads because RCU.
                  *   -jxiong */
-                if (cfs_atomic_read(&llh->llh_refcount))
+		if (atomic_read(&llh->llh_refcount))
                         return;
 
                 OBD_FREE_RCU(llh, sizeof *llh +
@@ -315,8 +315,8 @@ void lov_pool_putref(struct pool_desc *pool);
 
 static inline struct lov_stripe_md *lsm_addref(struct lov_stripe_md *lsm)
 {
-	LASSERT(cfs_atomic_read(&lsm->lsm_refc) > 0);
-	cfs_atomic_inc(&lsm->lsm_refc);
+	LASSERT(atomic_read(&lsm->lsm_refc) > 0);
+	atomic_inc(&lsm->lsm_refc);
 	return lsm;
 }
 

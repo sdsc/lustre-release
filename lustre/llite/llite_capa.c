@@ -63,7 +63,7 @@ static cfs_list_t *ll_capa_list = &capa_list[CAPA_SITE_CLIENT];
 /* llite capa renewal timer */
 struct timer_list ll_capa_timer;
 /* for debug: indicate whether capa on llite is enabled or not */
-static cfs_atomic_t ll_capa_debug = CFS_ATOMIC_INIT(0);
+static atomic_t ll_capa_debug = ATOMIC_INIT(0);
 static unsigned long long ll_capa_renewed = 0;
 static unsigned long long ll_capa_renewal_noent = 0;
 static unsigned long long ll_capa_renewal_failed = 0;
@@ -139,7 +139,7 @@ static void sort_add_capa(struct obd_capa *ocapa, cfs_list_t *head)
 static inline int obd_capa_open_count(struct obd_capa *oc)
 {
         struct ll_inode_info *lli = ll_i2info(oc->u.cli.inode);
-        return cfs_atomic_read(&lli->lli_open_count);
+	return atomic_read(&lli->lli_open_count);
 }
 
 static void ll_delete_capa(struct obd_capa *ocapa)
@@ -262,10 +262,10 @@ static int capa_thread_main(void *unused)
                                 break;
                         }
 
-                        if (cfs_atomic_read(&ocapa->c_refc) > 1) {
+			if (atomic_read(&ocapa->c_refc) > 1) {
                                 DEBUG_CAPA(D_SEC, &ocapa->c_capa,
                                            "expired(c_refc %d), don't release",
-                                           cfs_atomic_read(&ocapa->c_refc));
+					   atomic_read(&ocapa->c_refc));
                                 /* don't try to renew any more */
                                 cfs_list_del_init(&ocapa->c_list);
                                 continue;
@@ -361,10 +361,10 @@ struct obd_capa *ll_osscapa_get(struct inode *inode, __u64 opc)
         } else {
                 ocapa = NULL;
 
-                if (cfs_atomic_read(&ll_capa_debug)) {
+		if (atomic_read(&ll_capa_debug)) {
                         CERROR("no capability for "DFID" opc "LPX64"\n",
                                PFID(&lli->lli_fid), opc);
-                        cfs_atomic_set(&ll_capa_debug, 0);
+			atomic_set(&ll_capa_debug, 0);
                 }
         }
 	spin_unlock(&capa_lock);
@@ -387,9 +387,9 @@ struct obd_capa *ll_mdscapa_get(struct inode *inode)
 	spin_lock(&capa_lock);
 	ocapa = capa_get(lli->lli_mds_capa);
 	spin_unlock(&capa_lock);
-        if (!ocapa && cfs_atomic_read(&ll_capa_debug)) {
+	if (!ocapa && atomic_read(&ll_capa_debug)) {
                 CERROR("no mds capability for "DFID"\n", PFID(&lli->lli_fid));
-                cfs_atomic_set(&ll_capa_debug, 0);
+		atomic_set(&ll_capa_debug, 0);
         }
 
         RETURN(ocapa);
@@ -511,7 +511,7 @@ struct obd_capa *ll_add_capa(struct inode *inode, struct obd_capa *ocapa)
 
 	spin_unlock(&capa_lock);
 
-	cfs_atomic_set(&ll_capa_debug, 1);
+	atomic_set(&ll_capa_debug, 1);
 	return ocapa;
 }
 
@@ -598,7 +598,7 @@ void ll_capa_open(struct inode *inode)
         if (!S_ISREG(inode->i_mode))
                 return;
 
-        cfs_atomic_inc(&lli->lli_open_count);
+	atomic_inc(&lli->lli_open_count);
 }
 
 void ll_capa_close(struct inode *inode)
@@ -612,7 +612,7 @@ void ll_capa_close(struct inode *inode)
         if (!S_ISREG(inode->i_mode))
                 return;
 
-        cfs_atomic_dec(&lli->lli_open_count);
+	atomic_dec(&lli->lli_open_count);
 }
 
 /* delete CAPA_OPC_OSS_TRUNC only */

@@ -374,8 +374,8 @@ static void lov_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
                 lio->lis_nr_subios = 0;
         }
 
-	LASSERT(cfs_atomic_read(&lov->lo_active_ios) > 0);
-	if (cfs_atomic_dec_and_test(&lov->lo_active_ios))
+	LASSERT(atomic_read(&lov->lo_active_ios) > 0);
+	if (atomic_dec_and_test(&lov->lo_active_ios))
 		wake_up_all(&lov->lo_waitq);
 	EXIT;
 }
@@ -847,7 +847,7 @@ static void lov_empty_io_fini(const struct lu_env *env,
 	struct lov_object *lov = cl2lov(ios->cis_obj);
         ENTRY;
 
-	if (cfs_atomic_dec_and_test(&lov->lo_active_ios))
+	if (atomic_dec_and_test(&lov->lo_active_ios))
 		wake_up_all(&lov->lo_waitq);
         EXIT;
 }
@@ -926,7 +926,7 @@ int lov_io_init_raid0(const struct lu_env *env, struct cl_object *obj,
                 io->ci_result = lov_io_subio_init(env, lio, io);
                 if (io->ci_result == 0) {
                         cl_io_slice_add(io, &lio->lis_cl, obj, &lov_io_ops);
-			cfs_atomic_inc(&lov->lo_active_ios);
+			atomic_inc(&lov->lo_active_ios);
 		}
         }
         RETURN(io->ci_result);
@@ -963,7 +963,7 @@ int lov_io_init_empty(const struct lu_env *env, struct cl_object *obj,
         }
         if (result == 0) {
                 cl_io_slice_add(io, &lio->lis_cl, obj, &lov_empty_io_ops);
-		cfs_atomic_inc(&lov->lo_active_ios);
+		atomic_inc(&lov->lo_active_ios);
 	}
 
 	io->ci_result = result < 0 ? result : 0;
@@ -1007,7 +1007,7 @@ int lov_io_init_released(const struct lu_env *env, struct cl_object *obj,
 	}
 	if (result == 0) {
 		cl_io_slice_add(io, &lio->lis_cl, obj, &lov_empty_io_ops);
-		cfs_atomic_inc(&lov->lo_active_ios);
+		atomic_inc(&lov->lo_active_ios);
 	}
 
 	io->ci_result = result < 0 ? result : 0;

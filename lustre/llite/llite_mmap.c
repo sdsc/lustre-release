@@ -437,8 +437,8 @@ static void ll_vm_open(struct vm_area_struct * vma)
 
         ENTRY;
         LASSERT(vma->vm_file);
-        LASSERT(cfs_atomic_read(&vob->cob_mmap_cnt) >= 0);
-        cfs_atomic_inc(&vob->cob_mmap_cnt);
+	LASSERT(atomic_read(&vob->cob_mmap_cnt) >= 0);
+	atomic_inc(&vob->cob_mmap_cnt);
         EXIT;
 }
 
@@ -452,8 +452,8 @@ static void ll_vm_close(struct vm_area_struct *vma)
 
         ENTRY;
         LASSERT(vma->vm_file);
-        cfs_atomic_dec(&vob->cob_mmap_cnt);
-        LASSERT(cfs_atomic_read(&vob->cob_mmap_cnt) >= 0);
+	atomic_dec(&vob->cob_mmap_cnt);
+	LASSERT(atomic_read(&vob->cob_mmap_cnt) >= 0);
         EXIT;
 }
 

@@ -65,7 +65,7 @@ struct ll_sa_entry {
 	/* link into sai hash table locally */
 	cfs_list_t              se_hash;
 	/* entry reference count */
-	cfs_atomic_t            se_refcount;
+	atomic_t            se_refcount;
 	/* entry index in the sai */
 	__u64                   se_index;
 	/* low layer ldlm lock handle */
@@ -154,7 +154,7 @@ agl_first_entry(struct ll_statahead_info *sai)
 
 static inline int sa_sent_full(struct ll_statahead_info *sai)
 {
-        return cfs_atomic_read(&sai->sai_cache_count) >= sai->sai_max;
+	return atomic_read(&sai->sai_cache_count) >= sai->sai_max;
 }
 
 static inline int sa_received_empty(struct ll_statahead_info *sai)
@@ -235,7 +235,7 @@ ll_sa_entry_alloc(struct ll_statahead_info *sai, __u64 index,
          *    The second reference when initializes the statahead entry is used
          *    by the statahead thread, following the rule 2).
          */
-        cfs_atomic_set(&entry->se_refcount, 2);
+	atomic_set(&entry->se_refcount, 2);
         entry->se_stat = SA_ENTRY_INIT;
         entry->se_size = entry_size;
         dname = (char *)entry + sizeof(struct ll_sa_entry);
@@ -252,7 +252,7 @@ ll_sa_entry_alloc(struct ll_statahead_info *sai, __u64 index,
 	ll_sa_entry_enhash(sai, entry);
 	spin_unlock(&lli->lli_sa_lock);
 
-	cfs_atomic_inc(&sai->sai_cache_count);
+	atomic_inc(&sai->sai_cache_count);
 
 	RETURN(entry);
 }
@@ -294,7 +294,7 @@ ll_sa_entry_get_byindex(struct ll_statahead_info *sai, __u64 index)
 	cfs_list_for_each_entry(entry, &sai->sai_entries, se_link) {
 		if (entry->se_index == index) {
 			LASSERT(atomic_read(&entry->se_refcount) > 0);
-			cfs_atomic_inc(&entry->se_refcount);
+			atomic_inc(&entry->se_refcount);
 			return entry;
                 }
 		if (entry->se_index > index)
@@ -325,7 +325,7 @@ static void ll_sa_entry_cleanup(struct ll_statahead_info *sai,
 static void ll_sa_entry_put(struct ll_statahead_info *sai,
                              struct ll_sa_entry *entry)
 {
-	if (cfs_atomic_dec_and_test(&entry->se_refcount)) {
+	if (atomic_dec_and_test(&entry->se_refcount)) {
 		CDEBUG(D_READA, "free sa entry %.*s(%p) index "LPU64"\n",
 		       entry->se_qstr.len, entry->se_qstr.name, entry,
 		       entry->se_index);
@@ -339,7 +339,7 @@ static void ll_sa_entry_put(struct ll_statahead_info *sai,
 			iput(entry->se_inode);
 
 		OBD_FREE(entry, entry->se_size);
-		cfs_atomic_dec(&sai->sai_cache_count);
+		atomic_dec(&sai->sai_cache_count);
 	}
 }
 
@@ -471,7 +471,7 @@ static struct ll_statahead_info *ll_sai_alloc(void)
 	if (!sai)
 		RETURN(NULL);
 
-	cfs_atomic_set(&sai->sai_refcount, 1);
+	atomic_set(&sai->sai_refcount, 1);
 
 	spin_lock(&sai_generation_lock);
 	sai->sai_generation = ++sai_generation;
@@ -494,7 +494,7 @@ static struct ll_statahead_info *ll_sai_alloc(void)
 		CFS_INIT_LIST_HEAD(&sai->sai_cache[i]);
 		spin_lock_init(&sai->sai_cache_lock[i]);
 	}
-	cfs_atomic_set(&sai->sai_cache_count, 0);
+	atomic_set(&sai->sai_cache_count, 0);
 
 	RETURN(sai);
 }
@@ -502,7 +502,7 @@ static struct ll_statahead_info *ll_sai_alloc(void)
 static inline struct ll_statahead_info *
 ll_sai_get(struct ll_statahead_info *sai)
 {
-        cfs_atomic_inc(&sai->sai_refcount);
+	atomic_inc(&sai->sai_refcount);
         return sai;
 }
 
@@ -512,10 +512,10 @@ static void ll_sai_put(struct ll_statahead_info *sai)
         struct ll_inode_info *lli   = ll_i2info(inode);
         ENTRY;
 
-        if (cfs_atomic_dec_and_lock(&sai->sai_refcount, &lli->lli_sa_lock)) {
+	if (atomic_dec_and_lock(&sai->sai_refcount, &lli->lli_sa_lock)) {
                 struct ll_sa_entry *entry, *next;
 
-                if (unlikely(cfs_atomic_read(&sai->sai_refcount) > 0)) {
+		if (unlikely(atomic_read(&sai->sai_refcount) > 0)) {
                         /* It is race case, the interpret callback just hold
                          * a reference count */
 			spin_unlock(&lli->lli_sa_lock);
@@ -544,7 +544,7 @@ static void ll_sai_put(struct ll_statahead_info *sai)
 		LASSERT(sa_received_empty(sai));
 		LASSERT(list_empty(&sai->sai_entries_stated));
 
-                LASSERT(cfs_atomic_read(&sai->sai_cache_count) == 0);
+		LASSERT(atomic_read(&sai->sai_cache_count) == 0);
                 LASSERT(agl_list_empty(sai));
 
                 iput(inode);
@@ -636,7 +636,7 @@ static void ll_post_statahead(struct ll_statahead_info *sai)
 		RETURN_EXIT;
 	}
 	entry = sa_first_received_entry(sai);
-	cfs_atomic_inc(&entry->se_refcount);
+	atomic_inc(&entry->se_refcount);
 	cfs_list_del_init(&entry->se_list);
 	spin_unlock(&lli->lli_sa_lock);
 
