@@ -2141,7 +2141,7 @@ static int replay_lock_interpret(const struct lu_env *env,
         struct obd_export    *exp;
 
         ENTRY;
-        cfs_atomic_dec(&req->rq_import->imp_replay_inflight);
+	atomic_dec(&req->rq_import->imp_replay_inflight);
         if (rc != ELDLM_OK)
                 GOTO(out, rc);
 
@@ -2257,7 +2257,7 @@ static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
 
         LDLM_DEBUG(lock, "replaying lock:");
 
-        cfs_atomic_inc(&req->rq_import->imp_replay_inflight);
+	atomic_inc(&req->rq_import->imp_replay_inflight);
         CLASSERT(sizeof(*aa) <= sizeof(req->rq_async_args));
         aa = ptlrpc_req_async_args(req);
         aa->lock_handle = body->lock_handle[0];
@@ -2305,14 +2305,14 @@ int ldlm_replay_locks(struct obd_import *imp)
 
         ENTRY;
 
-        LASSERT(cfs_atomic_read(&imp->imp_replay_inflight) == 0);
+	LASSERT(atomic_read(&imp->imp_replay_inflight) == 0);
 
         /* don't replay locks if import failed recovery */
         if (imp->imp_vbr_failed)
                 RETURN(0);
 
         /* ensure this doesn't fall to 0 before all have been queued */
-        cfs_atomic_inc(&imp->imp_replay_inflight);
+	atomic_inc(&imp->imp_replay_inflight);
 
         if (ldlm_cancel_unused_locks_before_replay)
                 ldlm_cancel_unused_locks_for_replay(ns);
@@ -2329,7 +2329,7 @@ int ldlm_replay_locks(struct obd_import *imp)
                 LDLM_LOCK_RELEASE(lock);
         }
 
-        cfs_atomic_dec(&imp->imp_replay_inflight);
+	atomic_dec(&imp->imp_replay_inflight);
 
         RETURN(rc);
 }
