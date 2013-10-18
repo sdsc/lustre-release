@@ -424,11 +424,10 @@ lnet_debug_peer(lnet_nid_t nid)
 	lnet_net_unlock(cpt);
 }
 
-int lnet_get_peers(int count, __u64 *nid, char *aliveness,
-		   int *ncpt, int *refcount,
-		   int *ni_peertxcredits, int *peertxcredits,
-		   int *peerrtrcredits, int *peerminrtrcredtis,
-		   int *peertxqnob)
+int lnet_get_peers(__u32 count, __u64 *nid, char *aliveness,
+		   __u32 *ncpt, __u32 *refcount, __u32 *ni_peertxcredits,
+		   __u32 *peertxcredits, __u32 *peerrtrcredits,
+		   __u32 *peerminrtrcredtis, __u32 *peertxqnob)
 {
 	struct lnet_peer_table	*ptable;
 	lnet_peer_t		*lp, *tmp;
