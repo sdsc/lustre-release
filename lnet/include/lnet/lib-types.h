@@ -844,6 +844,11 @@ typedef struct
 	/* test protocol compatibility flags */
 	int				ln_testprotocompat;
 
+	/* 1 - load the NIs from the mod params
+	 * 0 - do not load the NIs from the mod params
+	 */
+	bool				ln_nis_from_mod_params;
+
 #ifndef __KERNEL__
 	/* Temporary workaround to allow uOSS and test programs force
 	 * server mode in userspace. The only place where we use it is
