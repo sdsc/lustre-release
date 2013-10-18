@@ -47,6 +47,15 @@ AC_DEFUN([LB_LINUX_RELEASE],
 [
 LDISKFS_AC_LINUX_VERSION
 
+AC_MSG_CHECKING([for kernel module package directory])
+AC_ARG_WITH([kmp-moddir],
+	AC_HELP_STRING([--with-kmp-moddir=string],
+	               [set the kmod updates directory (default=updates)]),
+	[KMP_MODDIR=$withval],
+	KMP_MODDIR="updates")
+AC_MSG_RESULT($KMP_MODDIR)
+AC_SUBST(KMP_MODDIR)
+
 # ------------ RELEASE --------------------------------
 AC_MSG_CHECKING([for ldiskfs release])
 AC_ARG_WITH([release],

@@ -70,7 +70,16 @@ fi
 AC_MSG_RESULT([$LINUXRELEASE])
 AC_SUBST(LINUXRELEASE)
 
-moduledir='$(CROSS_PATH)/lib/modules/$(LINUXRELEASE)/updates/kernel'
+AC_MSG_CHECKING([for kernel module package directory])
+AC_ARG_WITH([kmp-moddir],
+	AC_HELP_STRING([--with-kmp-moddir=string],
+	               [set the kmod updates directory (default=updates)]),
+	[KMP_MODDIR=$withval],
+	KMP_MODDIR="updates")
+AC_MSG_RESULT($KMP_MODDIR)
+AC_SUBST(KMP_MODDIR)
+
+moduledir='$(CROSS_PATH)/lib/modules/$(LINUXRELEASE)/$(KMP_MODDIR)/kernel'
 AC_SUBST(moduledir)
 
 modulefsdir='$(moduledir)/fs/$(PACKAGE)'
