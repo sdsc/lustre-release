@@ -539,7 +539,8 @@ static int lmv_add_target(struct obd_device *obd, struct obd_uuid *uuidp,
 		rc = lmv_connect_mdc(obd, tgt);
 		if (rc) {
 			spin_lock(&lmv->lmv_lock);
-			lmv->desc.ld_tgt_count--;
+			if (index == (int)(lmv->desc.ld_tgt_count - 1))
+				lmv->desc.ld_tgt_count--;
 			memset(tgt, 0, sizeof(*tgt));
 			spin_unlock(&lmv->lmv_lock);
                 } else {
@@ -1661,27 +1662,36 @@ static int lmv_null_inode(struct obd_export *exp, const struct lu_fid *fid)
 static int lmv_find_cbdata(struct obd_export *exp, const struct lu_fid *fid,
                            ldlm_iterator_t it, void *data)
 {
-        struct obd_device   *obd = exp->exp_obd;
-        struct lmv_obd      *lmv = &obd->u.lmv;
-	__u32                i;
-        int                  rc;
-        ENTRY;
+	struct obd_device	*obd = exp->exp_obd;
+	struct lmv_obd		*lmv = &obd->u.lmv;
+	int			i;
+	int			tgt;
+	int			rc;
+	ENTRY;
 
-        rc = lmv_check_connect(obd);
-        if (rc)
-                RETURN(rc);
+	rc = lmv_check_connect(obd);
+	if (rc)
+		RETURN(rc);
 
-        CDEBUG(D_INODE, "CBDATA for "DFID"\n", PFID(fid));
+	CDEBUG(D_INODE, "CBDATA for "DFID"\n", PFID(fid));
 
-	/*
+	/* 
 	 * With DNE every object can have two locks in different namespaces:
 	 * lookup lock in space of MDT storing direntry and update/open lock in
-	 * space of MDT storing inode.
+	 * space of MDT storing inode.  Try the MDT that the FID maps to first,
+	 * since this can be easily found, and only try others if that fails.
 	 */
-	for (i = 0; i < lmv->desc.ld_tgt_count; i++) {
-		if (lmv->tgts[i] == NULL || lmv->tgts[i]->ltd_exp == NULL)
+	for (i = 0, tgt = lmv_find_target_index(lmv, fid);
+	     i < lmv->desc.ld_tgt_count;
+	     i++, tgt = (tgt + 1) % lmv->desc.ld_tgt_count) {
+		if (tgt < 0)
 			continue;
-		rc = md_find_cbdata(lmv->tgts[i]->ltd_exp, fid, it, data);
+
+		if (lmv->tgts[tgt] == NULL ||
+		    lmv->tgts[tgt]->ltd_exp == NULL)
+			continue;
+
+		rc = md_find_cbdata(lmv->tgts[tgt]->ltd_exp, fid, it, data);
 		if (rc)
 			RETURN(rc);
 	}
@@ -2645,33 +2655,39 @@ ldlm_mode_t lmv_lock_match(struct obd_export *exp, __u64 flags,
                            ldlm_policy_data_t *policy, ldlm_mode_t mode,
                            struct lustre_handle *lockh)
 {
-        struct obd_device       *obd = exp->exp_obd;
-        struct lmv_obd          *lmv = &obd->u.lmv;
-        ldlm_mode_t              rc;
-	__u32                    i;
-        ENTRY;
+	struct obd_device	*obd = exp->exp_obd;
+	struct lmv_obd		*lmv = &obd->u.lmv;
+	ldlm_mode_t		rc;
+	int			tgt;
+	int			i;
+	ENTRY;
 
-        CDEBUG(D_INODE, "Lock match for "DFID"\n", PFID(fid));
+	CDEBUG(D_INODE, "Lock match for "DFID"\n", PFID(fid));
 
-        /*
-         * With CMD every object can have two locks in different namespaces:
-         * lookup lock in space of mds storing direntry and update/open lock in
-         * space of mds storing inode. Thus we check all targets, not only that
-         * one fid was created in.
-         */
-        for (i = 0; i < lmv->desc.ld_tgt_count; i++) {
-		if (lmv->tgts[i] == NULL ||
-		    lmv->tgts[i]->ltd_exp == NULL ||
-		    lmv->tgts[i]->ltd_active == 0)
+        /* 
+	 * With DNE every object can have two locks in different namespaces:
+	 * lookup lock in space of MDT storing direntry and update/open lock in
+	 * space of MDT storing inode.  Try the MDT that the FID maps to first,
+	 * since this can be easily found, and only try others if that fails.
+	 */
+	for (i = 0, tgt = lmv_find_target_index(lmv, fid);
+	     i < lmv->desc.ld_tgt_count;
+	     i++, tgt = (tgt + 1) % lmv->desc.ld_tgt_count) {
+		if (tgt < 0)
 			continue;
 
-		rc = md_lock_match(lmv->tgts[i]->ltd_exp, flags, fid,
-                                   type, policy, mode, lockh);
-                if (rc)
-                        RETURN(rc);
-        }
+		if (lmv->tgts[tgt] == NULL ||
+		    lmv->tgts[tgt]->ltd_exp == NULL ||
+		    lmv->tgts[tgt]->ltd_active == 0)
+			continue;
 
-        RETURN(0);
+		rc = md_lock_match(lmv->tgts[tgt]->ltd_exp, flags, fid,
+				   type, policy, mode, lockh);
+		if (rc)
+			RETURN(rc);
+	}
+
+	RETURN(0);
 }
 
 int lmv_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,

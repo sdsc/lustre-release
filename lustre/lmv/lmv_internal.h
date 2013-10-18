@@ -142,6 +142,30 @@ lmv_find_target(struct lmv_obd *lmv, const struct lu_fid *fid)
         return lmv_get_target(lmv, mds);
 }
 
+static inline int 
+lmv_find_target_index(struct lmv_obd *lmv, const struct lu_fid *fid)
+{
+	int i;
+	mdsno_t mds = 0;
+
+	if (lmv->desc.ld_tgt_count > 1) {
+		int rc; 
+		rc = lmv_fld_lookup(lmv, fid, &mds);
+		if (rc < 0)
+			return rc;
+	}
+
+	for (i = 0; i < lmv->desc.ld_tgt_count; i++) {
+		if (lmv->tgts[i] == NULL)
+			continue;
+
+		if (lmv->tgts[i]->ltd_idx == mds)
+			return i;
+	}
+
+	return -ENODEV;	
+}
+
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
 		struct lu_fid *fid);
