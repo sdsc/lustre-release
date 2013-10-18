@@ -295,6 +295,10 @@ AC_ARG_ENABLE([modules],
 	])
 AC_MSG_RESULT([$enable_modules ($target_os)])
 
+# set default old modules location for Darwin and --enable-dist
+KMP_MODDIR="updates"
+AC_SUBST(KMP_MODDIR)
+
 if test x$enable_modules = xyes ; then
 	case $target_os in
 		linux*)
