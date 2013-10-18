@@ -1215,13 +1215,15 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 	 * because it might not grant layout lock in IT_OPEN. */
 	if (result == 0 && !io->ci_ignore_layout) {
 		result = ll_layout_refresh(inode, &cio->cui_layout_gen);
-		if (result == -ENOENT)
-			/* If the inode on MDS has been removed, but the objects
-			 * on OSTs haven't been destroyed (async unlink), layout
-			 * fetch will return -ENOENT, we'd ingore this error
-			 * and continue with dirty flush. LU-3230. */
+		if (result == -ENOENT) {
+			/* missing object means the file have been removed
+			 * and nobody can find it, so nobody should be
+			 * interested in the data we have dirty in the cache
+			 * we can just drop the inode and the pages now */
+			io->u.ci_fsync.fi_mode = CL_FSYNC_DISCARD;
+			clear_nlink(inode);
 			result = 0;
-		if (result < 0)
+		} else if (result < 0)
 			CERROR("%s: refresh file layout " DFID " error %d.\n",
 				ll_get_fsname(inode->i_sb, NULL, 0),
 				PFID(lu_object_fid(&obj->co_lu)), result);
