@@ -45,23 +45,23 @@ CFS_MODULE_PARM(config_on_load, "i", int, 0444,
 static struct mutex lnet_config_mutex;
 
 int
-lnet_configure (void *arg)
+lnet_configure(void *arg)
 {
-        /* 'arg' only there so I can be passed to cfs_create_thread() */
-        int    rc = 0;
+	/* 'arg' only there so I can be passed to cfs_create_thread() */
+	int    rc = 0;
 
-        LNET_MUTEX_LOCK(&lnet_config_mutex);
+	LNET_MUTEX_LOCK(&lnet_config_mutex);
 
-        if (!the_lnet.ln_niinit_self) {
-                rc = LNetNIInit(LUSTRE_SRV_LNET_PID);
-                if (rc >= 0) {
-                        the_lnet.ln_niinit_self = 1;
-                        rc = 0;
-                }
-        }
+	if (!the_lnet.ln_niinit_self) {
+		rc = LNetNIInit(LUSTRE_SRV_LNET_PID);
+		if (rc >= 0) {
+			the_lnet.ln_niinit_self = 1;
+			rc = 0;
+		}
+	}
 
-        LNET_MUTEX_UNLOCK(&lnet_config_mutex);
-        return rc;
+	LNET_MUTEX_UNLOCK(&lnet_config_mutex);
+	return rc;
 }
 
 int
@@ -85,19 +85,61 @@ lnet_unconfigure (void)
 }
 
 int
+lnet_dyn_configure(struct libcfs_ioctl_hdr *hdr)
+{
+	int			      rc = -EINVAL;
+	struct lnet_ioctl_config_data *conf =
+	  (struct lnet_ioctl_config_data *) hdr;
+
+	LNET_MUTEX_LOCK(&lnet_config_mutex);
+	if (the_lnet.ln_niinit_self)
+		rc = lnet_dyn_add_ni(LUSTRE_SRV_LNET_PID,
+				     conf->ioc_config_u.net.intf,
+				     conf->ioc_config_u.net.peer_timeout,
+				     conf->ioc_config_u.net.peer_tx_credits,
+				     conf->ioc_config_u.net.peer_rtr_credits,
+				     conf->ioc_config_u.net.max_tx_credits);
+	LNET_MUTEX_UNLOCK(&lnet_config_mutex);
+	return rc;
+}
+
+int
+lnet_dyn_unconfigure(struct libcfs_ioctl_hdr *hdr)
+{
+	int			      rc = -EINVAL;
+	struct lnet_ioctl_config_data *conf =
+	  (struct lnet_ioctl_config_data *) hdr;
+
+	LNET_MUTEX_LOCK(&lnet_config_mutex);
+	if (the_lnet.ln_niinit_self)
+		rc = lnet_dyn_del_ni(conf->ioc_net);
+	LNET_MUTEX_UNLOCK(&lnet_config_mutex);
+
+	return rc;
+}
+
+int
 lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_hdr *hdr)
 {
 	int   rc;
 
 	switch (cmd) {
 	case IOC_LIBCFS_CONFIGURE:
+	{
+		struct libcfs_ioctl_data *data =
+		  (struct libcfs_ioctl_data *) hdr;
+		the_lnet.ln_suppress_ni_load = data->ioc_flags;
 		return lnet_configure(NULL);
+	}
 
 	case IOC_LIBCFS_UNCONFIGURE:
 		return lnet_unconfigure();
 
 	case IOC_LIBCFS_ADD_NET:
-		return LNetCtl(cmd, hdr);
+		return lnet_dyn_configure(hdr);
+
+	case IOC_LIBCFS_DEL_NET:
+		return lnet_dyn_unconfigure(hdr);
 
 	default:
 		/* Passing LNET_PID_ANY only gives me a ref if the net is up
