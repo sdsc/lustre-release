@@ -60,6 +60,13 @@
 #error Unsupported operating system.
 #endif
 
+#include <stdio.h>
+#ifdef __cplusplus
+#define LUSTRE_ANONYMOUS_UNION_NAME u
+#else
+#define LUSTRE_ANONYMOUS_UNION_NAME
+#endif
+
 /* for statfs() */
 #define LL_SUPER_MAGIC 0x0BD00BD0
 
@@ -187,7 +194,7 @@ struct ost_id {
 			__u64	oi_seq;
 		} oi;
 		struct lu_fid oi_fid;
-	};
+	} LUSTRE_ANONYMOUS_UNION_NAME;
 };
 
 #define DOSTID LPX64":"LPU64
@@ -752,7 +759,7 @@ enum hsm_event {
 
 static inline enum hsm_event hsm_get_cl_event(__u16 flags)
 {
-        return CLF_GET_BITS(flags, CLF_HSM_EVENT_H, CLF_HSM_EVENT_L);
+        return (enum hsm_event) CLF_GET_BITS(flags, CLF_HSM_EVENT_H, CLF_HSM_EVENT_L);
 }
 
 static inline void hsm_set_cl_event(int *flags, enum hsm_event he)
@@ -867,7 +874,7 @@ struct ioc_data_version {
 #define LL_DV_WR_FLUSH (1 << 1) /* Flush all caching pages from clients */
 
 #ifndef offsetof
-# define offsetof(typ,memb)     ((unsigned long)((char *)&(((typ *)0)->memb)))
+#define offsetof(typ, memb)     ((unsigned long)((char *)&(((typ *)0)->memb)))
 #endif
 
 #define dot_lustre_name ".lustre"
@@ -913,10 +920,10 @@ enum hsm_progress_states {
 static inline char *hsm_progress_state2name(enum hsm_progress_states s)
 {
 	switch  (s) {
-	case HPS_WAITING:	return "waiting";
-	case HPS_RUNNING:	return "running";
-	case HPS_DONE:		return "done";
-	default:		return "unknown";
+	case HPS_WAITING:	return (char *)"waiting";
+	case HPS_RUNNING:	return (char *)"running";
+	case HPS_DONE:		return (char *)"done";
+	default:		return (char *)"unknown";
 	}
 }
 
@@ -975,13 +982,13 @@ enum hsm_user_action {
 static inline char *hsm_user_action2name(enum hsm_user_action  a)
 {
         switch  (a) {
-        case HUA_NONE:    return "NOOP";
-        case HUA_ARCHIVE: return "ARCHIVE";
-        case HUA_RESTORE: return "RESTORE";
-        case HUA_RELEASE: return "RELEASE";
-        case HUA_REMOVE:  return "REMOVE";
-        case HUA_CANCEL:  return "CANCEL";
-        default:          return "UNKNOWN";
+        case HUA_NONE:    return (char *)"NOOP";
+        case HUA_ARCHIVE: return (char *)"ARCHIVE";
+        case HUA_RESTORE: return (char *)"RESTORE";
+        case HUA_RELEASE: return (char *)"RELEASE";
+        case HUA_REMOVE:  return (char *)"REMOVE";
+        case HUA_CANCEL:  return (char *)"CANCEL";
+        default:          return (char *)"UNKNOWN";
         }
 }
 
@@ -1026,8 +1033,11 @@ static inline void *hur_data(struct hsm_user_request *hur)
 /** Compute the current length of the provided hsm_user_request. */
 static inline int hur_len(struct hsm_user_request *hur)
 {
-	return offsetof(struct hsm_user_request,
-			hur_user_item[hur->hur_request.hr_itemcount]) +
+	/* A bug http://gcc.gnu.org/bugzilla/show_bug.cgi?id=14932
+	 * in offsetof codes that doesn't take the offset of an array element
+	 */
+	return offsetof(struct hsm_user_request, hur_user_item[0]) +
+		hur->hur_request.hr_itemcount * sizeof(hur->hur_user_item[0]) +
 		hur->hur_request.hr_data_len;
 }
 
@@ -1049,12 +1059,12 @@ enum hsm_copytool_action {
 static inline char *hsm_copytool_action2name(enum hsm_copytool_action  a)
 {
         switch  (a) {
-        case HSMA_NONE:    return "NOOP";
-        case HSMA_ARCHIVE: return "ARCHIVE";
-        case HSMA_RESTORE: return "RESTORE";
-        case HSMA_REMOVE:  return "REMOVE";
-        case HSMA_CANCEL:  return "CANCEL";
-        default:           return "UNKNOWN";
+        case HSMA_NONE:    return (char *)"NOOP";
+        case HSMA_ARCHIVE: return (char *)"ARCHIVE";
+        case HSMA_RESTORE: return (char *)"RESTORE";
+        case HSMA_REMOVE:  return (char *)"REMOVE";
+        case HSMA_CANCEL:  return (char *)"CANCEL";
+        default:           return (char *)"UNKNOWN";
         }
 }
 
@@ -1145,7 +1155,7 @@ static inline int hal_size(struct hsm_action_list *hal)
 
 	sz = sizeof(*hal) + cfs_size_round(strlen(hal->hal_fsname));
 	hai = hai_first(hal);
-	for (i = 0 ; i < hal->hal_count ; i++, hai = hai_next(hai))
+	for (i = 0 ; i < (int)hal->hal_count ; i++, hai = hai_next(hai))
 		sz += cfs_size_round(hai->hai_len);
 
 	return sz;
