@@ -75,10 +75,10 @@ struct libcfs_ioctl_config_data {
 		} route;
 		struct {
 			char intf[LIBCFS_MAX_STR_LEN];
-			__s32 peer_to;
-			__s32 peer_cr;
-			__s32 peer_buf_cr;
-			__s32 credits;
+			__s32 peer_timeout;
+			__s32 peer_tx_credits;
+			__s32 peer_rtr_credits;
+			__s32 max_tx_credits;
 		} net;
 		struct {
 			__u32 enable;
@@ -104,7 +104,7 @@ struct libcfs_ioctl_peer {
 			__u32 ni_peer_tx_credits;
 			__u32 peer_tx_credits;
 			__u32 peer_rtr_credits;
-			__u32 peer_min_rtr_credtis;
+			__u32 peer_min_rtr_credits;
 			__u32 peer_tx_qnob;
 			__u32 ncpt;
 		} peer_credits;
