@@ -307,10 +307,23 @@ if test x$enable_modules = xyes ; then
 		darwin*)
 			LB_PROG_DARWIN
 			LIBCFS_PROG_DARWIN
+			KMP_MODDIR="updates"
+			AC_SUBST(KMP_MODDIR)
 			;;
 		*)
 			# This is strange - Lustre supports a target we don't
 			AC_MSG_ERROR([Modules are not supported on $target_os])
+			;;
+	esac
+else
+	case $target_os in
+		linux*)
+			# Need for correct KMP_MODDIR setting
+			LB_LINUX_PATH
+			;;
+		*)
+			KMP_MODDIR="updates"
+			AC_SUBST(KMP_MODDIR)
 			;;
 	esac
 fi
