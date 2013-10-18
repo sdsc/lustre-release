@@ -295,6 +295,8 @@ AC_ARG_ENABLE([modules],
 	])
 AC_MSG_RESULT([$enable_modules ($target_os)])
 
+KMP_MODDIR="updates"
+AC_SUBST(KMP_MODDIR)
 if test x$enable_modules = xyes ; then
 	case $target_os in
 		linux*)
@@ -311,6 +313,13 @@ if test x$enable_modules = xyes ; then
 		*)
 			# This is strange - Lustre supports a target we don't
 			AC_MSG_ERROR([Modules are not supported on $target_os])
+			;;
+	esac
+elif test x$enable_dist == xyes; then
+	case $target_os in
+		linux*)
+			# Need for correct KMP_MODDIR setting
+			LB_LINUX_PATH
 			;;
 	esac
 fi
