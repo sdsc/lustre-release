@@ -723,8 +723,6 @@ int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
 
 int ll_get_mdt_idx(struct inode *inode);
 /* llite/namei.c */
-int ll_objects_destroy(struct ptlrpc_request *request,
-                       struct inode *dir);
 struct inode *ll_iget(struct super_block *sb, ino_t hash,
                       struct lustre_md *lic);
 int ll_md_blocking_ast(struct ldlm_lock *, struct ldlm_lock_desc *,
