@@ -1543,11 +1543,8 @@ lnet_post_ni_config_init(int from_mod_params)
 }
 
 int
-lnet_startup_lndnis(char *net, int from_mod_params,
-		    int peer_to,
-		    int peer_cr,
-		    int peer_buf_cr,
-		    int credits)
+lnet_startup_lndnis(char *net, int from_mod_params, __s32 peer_to,
+		    __s32 peer_cr, __s32 peer_buf_cr, __s32 credits)
 {
 	cfs_list_t		nilist;
 	int			rc = 0;
@@ -2059,8 +2056,11 @@ LNetCtl(unsigned int cmd, void *arg)
 		return lnet_fail_nid(data->ioc_nid, data->ioc_count);
 
 	case IOC_LIBCFS_ADD_ROUTE:
-		rc = lnet_add_route(data->ioc_net, data->ioc_count,
-				    data->ioc_nid, data->ioc_priority);
+		config = arg;
+		rc = lnet_add_route(config->ioc_net,
+				    config->ioc_config_u.route.hop,
+				    config->ioc_nid,
+				    config->ioc_config_u.route.priority);
 		return (rc != 0) ? rc : lnet_check_routes();
 
 	case IOC_LIBCFS_DEL_ROUTE:
@@ -2078,13 +2078,49 @@ LNetCtl(unsigned int cmd, void *arg)
 				      &config->ioc_config_u.route.priority);
 
 	case IOC_LIBCFS_ADD_NET:
-		return 0;
+		config = arg;
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		rc = lnet_startup_lndnis(config->ioc_config_u.net.intf,
+					 0,
+					 config->ioc_config_u.net.peer_timeout,
+					 config->ioc_config_u.net.
+						peer_tx_credits,
+					 config->ioc_config_u.net.
+						peer_rtr_credits,
+					 config->ioc_config_u.net.
+						max_tx_credits);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 
 	case IOC_LIBCFS_DEL_NET:
-		return 0;
+		config = arg;
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		rc = lnet_shutdown_lndni(config->ioc_net);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 
 	case IOC_LIBCFS_GET_NET:
-		return 0;
+	{
+		struct libcfs_ioctl_net_config *net_config;
+		config = arg;
+		net_config = (struct libcfs_ioctl_net_config *)
+			config->ioc_bulk;
+		if ((config == NULL) || (net_config == NULL))
+			return -1;
+
+		return lnet_get_net_config(config->ioc_count,
+					   &config->ioc_ncpts,
+					   &config->ioc_nid,
+					   &config->ioc_config_u.
+						net.peer_timeout,
+					   &config->ioc_config_u.net.
+						peer_tx_credits,
+					   &config->ioc_config_u.net.
+						peer_rtr_credits,
+					   &config->ioc_config_u.net.
+						max_tx_credits,
+					   net_config);
+	}
 
 	case IOC_LIBCFS_GET_LNET_STATS:
 	{
@@ -2096,17 +2132,50 @@ LNetCtl(unsigned int cmd, void *arg)
 
 #if defined(__KERNEL__) && defined(LNET_ROUTER)
 	case IOC_LIBCFS_CONFIG_RTR:
-		return 0;
+		config = arg;
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		if (config->ioc_config_u.buffers.enable) {
+			rc = lnet_enable_rtrpools();
+			LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+			return rc;
+		}
+		rc = lnet_disable_rtrpools();
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 
 	case IOC_LIBCFS_ADD_BUF:
-		return 0;
+		config = arg;
+		LNET_MUTEX_LOCK(&the_lnet.ln_api_mutex);
+		rc = lnet_adjust_rtrpools(config->ioc_config_u.buffers.tiny,
+					  config->ioc_config_u.buffers.small,
+					  config->ioc_config_u.buffers.large);
+		LNET_MUTEX_UNLOCK(&the_lnet.ln_api_mutex);
+		return rc;
 #endif
 
 	case IOC_LIBCFS_GET_BUF:
-		return 0;
+	{
+		struct libcfs_ioctl_pool_cfg *pool_cfg;
+		config = arg;
+		pool_cfg = (struct libcfs_ioctl_pool_cfg *)config->ioc_bulk;
+		return lnet_get_rtrpools(config->ioc_count, pool_cfg);
+	}
 
 	case IOC_LIBCFS_GET_PEER_INFO:
-		return 0;
+	{
+		struct libcfs_ioctl_peer *peer_info = arg;
+		return lnet_get_peers_info
+		  (peer_info->ioc_count,
+		   &peer_info->ioc_nid,
+		   peer_info->lnd_u.peer_credits.aliveness,
+		   &peer_info->lnd_u.peer_credits.ncpt,
+		   &peer_info->lnd_u.peer_credits.refcount,
+		   &peer_info->lnd_u.peer_credits.ni_peer_tx_credits,
+		   &peer_info->lnd_u.peer_credits.peer_tx_credits,
+		   &peer_info->lnd_u.peer_credits.peer_rtr_credits,
+		   &peer_info->lnd_u.peer_credits.peer_min_rtr_credits,
+		   &peer_info->lnd_u.peer_credits.peer_tx_qnob);
+	}
 
 	case IOC_LIBCFS_NOTIFY_ROUTER:
 		return lnet_notify(NULL, data->ioc_nid, data->ioc_flags,
