@@ -59,6 +59,12 @@ int LNetNIInit(lnet_pid_t requested_pid);
 int LNetNIFini(void);
 /** @} lnet_init_fini */
 
+/* API to dynamically configure and unconfigure an NI */
+int LNetDynNIInit(lnet_pid_t requested_pid, bool prepare, char *nets,
+		  __s32 peer_to, __s32 peer_cr, __s32 peer_buf_cr,
+		  __s32 credits);
+int LNetDynNIFini(__u32 net);
+
 /** \defgroup lnet_addr LNet addressing and basic types
  *
  * Addressing scheme and basic data types of LNet.

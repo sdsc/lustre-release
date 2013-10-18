@@ -55,6 +55,7 @@
 #include <lnet/types.h>
 #include <lnet/lnet.h>
 #include <lnet/lib-types.h>
+#include <lnet/lib-dlc.h>
 
 extern lnet_t  the_lnet;                        /* THE network */
 
@@ -744,6 +745,16 @@ int lnet_del_route(__u32 net, lnet_nid_t gw_nid);
 void lnet_destroy_routes(void);
 int lnet_get_route(int idx, __u32 *net, __u32 *hops,
 		   lnet_nid_t *gateway, __u32 *alive, __u32 *priority);
+int lnet_get_net_config(int idx,
+			__u32 *cpt_count,
+			__u64 *nid,
+			int *peer_timeout,
+			int *peer_tx_credits,
+			int *peer_rtr_cr,
+			int *max_tx_credits,
+			struct lnet_ioctl_net_config *net_config);
+int lnet_get_rtrpools(int idx, struct lnet_ioctl_pool_cfg *pool_cfg);
+
 void lnet_proc_init(void);
 void lnet_proc_fini(void);
 int  lnet_rtrpools_alloc(int im_a_router);
@@ -967,11 +978,11 @@ void lnet_peer_tables_cleanup(lnet_ni_t *ni);
 void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);
 void lnet_debug_peer(lnet_nid_t nid);
-int lnet_get_peers(int count, __u64 *nid, char *alivness,
-		   int *ncpt, int *refcount,
-		   int *ni_peer_tx_credits, int *peer_tx_credits,
-		   int *peer_rtr_credits, int *peer_min_rtr_credtis,
-		   int *peer_tx_qnob);
+int lnet_get_peers_info(__u32 count, __u64 *nid, char *alivness,
+			__u32 *cpt_count, __u32 *refcount,
+			__u32 *ni_peer_tx_credits, __u32 *peer_tx_credits,
+			__u32 *peer_rtr_credits, __u32 *peer_min_rtr_credtis,
+			__u32 *peer_tx_qnob);
 
 #ifndef __KERNEL__
 static inline int
