@@ -57,6 +57,7 @@ static struct lu_device_type mdd_device_type;
 
 static const char mdd_root_dir_name[] = "ROOT";
 static const char mdd_obf_dir_name[] = "fid";
+static const char mdd_lf_dir_name[] = "lost+found";
 
 /* Slab for MDD object allocation */
 struct kmem_cache *mdd_object_kmem;
@@ -589,42 +590,61 @@ out:
         return rc;
 }
 
-static int obf_create(const struct lu_env *env, struct md_object *pobj,
-                      const struct lu_name *lname, struct md_object *child,
-                      struct md_op_spec *spec, struct md_attr* ma)
+static int mdd_dummy_create(const struct lu_env *env,
+			    struct md_object *pobj,
+			    const struct lu_name *lname,
+			    struct md_object *child,
+			    struct md_op_spec *spec,
+			    struct md_attr* ma)
 {
-        return -EPERM;
+	return -EPERM;
 }
 
-static int obf_rename(const struct lu_env *env,
-                      struct md_object *src_pobj, struct md_object *tgt_pobj,
-                      const struct lu_fid *lf, const struct lu_name *lsname,
-                      struct md_object *tobj, const struct lu_name *ltname,
-                      struct md_attr *ma)
+static int mdd_dummy_rename(const struct lu_env *env,
+			    struct md_object *src_pobj,
+			    struct md_object *tgt_pobj,
+			    const struct lu_fid *lf,
+			    const struct lu_name *lsname,
+			    struct md_object *tobj,
+			    const struct lu_name *ltname,
+			    struct md_attr *ma)
 {
-        return -EPERM;
+	return -EPERM;
 }
 
-static int obf_link(const struct lu_env *env, struct md_object *tgt_obj,
-                    struct md_object *src_obj, const struct lu_name *lname,
-                    struct md_attr *ma)
+static int mdd_dummy_link(const struct lu_env *env,
+			  struct md_object *tgt_obj,
+			  struct md_object *src_obj,
+			  const struct lu_name *lname,
+			  struct md_attr *ma)
 {
-        return -EPERM;
+	return -EPERM;
 }
 
-static int obf_unlink(const struct lu_env *env, struct md_object *pobj,
-		      struct md_object *cobj, const struct lu_name *lname,
-		      struct md_attr *ma, int no_name)
+static int mdd_dummy_unlink(const struct lu_env *env,
+			    struct md_object *pobj,
+			    struct md_object *cobj,
+			    const struct lu_name *lname,
+			    struct md_attr *ma,
+			    int no_name)
 {
 	return -EPERM;
 }
 
 static struct md_dir_operations mdd_obf_dir_ops = {
-        .mdo_lookup = obf_lookup,
-        .mdo_create = obf_create,
-        .mdo_rename = obf_rename,
-        .mdo_link   = obf_link,
-        .mdo_unlink = obf_unlink
+	.mdo_lookup = obf_lookup,
+	.mdo_create = mdd_dummy_create,
+	.mdo_rename = mdd_dummy_rename,
+	.mdo_link   = mdd_dummy_link,
+	.mdo_unlink = mdd_dummy_unlink
+};
+
+static struct md_dir_operations mdd_lf_dir_ops = {
+	.mdo_lookup = mdd_lookup,
+	.mdo_create = mdd_dummy_create,
+	.mdo_rename = mdd_dummy_rename,
+	.mdo_link   = mdd_dummy_link,
+	.mdo_unlink = mdd_dummy_unlink
 };
 
 static struct md_object *mdo_locate(const struct lu_env *env,
@@ -643,6 +663,33 @@ static struct md_object *mdo_locate(const struct lu_env *env,
 		mdo = ERR_PTR(PTR_ERR(obj));
 	}
 	return mdo;
+}
+
+static int mdd_lf_setup(const struct lu_env *env, struct mdd_device *m)
+{
+	struct md_object	*mdo;
+	struct mdd_object	*mdd_lf;
+	struct lu_fid		 fid	= LU_LF_FID;
+	int			 rc;
+	ENTRY;
+
+	rc = mdd_local_file_create(env, m, mdd_object_fid(m->mdd_dot_lustre),
+				   mdd_lf_dir_name, S_IFDIR | S_IRUSR | S_IXUSR,
+				   &fid);
+	if (rc != 0)
+		RETURN(rc);
+
+	mdo = mdo_locate(env, &m->mdd_md_dev, &fid);
+	if (IS_ERR(mdo))
+		RETURN(PTR_ERR(mdo));
+
+	LASSERT(lu_object_exists(&mdo->mo_lu));
+
+	mdd_lf = md2mdd_obj(mdo);
+	mdd_lf->mod_obj.mo_dir_ops = &mdd_lf_dir_ops;
+	m->mdd_dot_lustre_objs.mdd_lf = mdd_lf;
+
+	RETURN(0);
 }
 
 /**
@@ -671,6 +718,23 @@ static int mdd_obf_setup(const struct lu_env *env, struct mdd_device *m)
 	m->mdd_dot_lustre_objs.mdd_obf = mdd_obf;
 
 	return 0;
+}
+
+static void mdd_dot_lustre_cleanup(const struct lu_env *env,
+				   struct mdd_device *m)
+{
+	if (m->mdd_dot_lustre_objs.mdd_lf != NULL) {
+		mdd_object_put(env, m->mdd_dot_lustre_objs.mdd_lf);
+		m->mdd_dot_lustre_objs.mdd_lf = NULL;
+	}
+	if (m->mdd_dot_lustre_objs.mdd_obf != NULL) {
+		mdd_object_put(env, m->mdd_dot_lustre_objs.mdd_obf);
+		m->mdd_dot_lustre_objs.mdd_obf = NULL;
+	}
+	if (m->mdd_dot_lustre != NULL) {
+		mdd_object_put(env, m->mdd_dot_lustre);
+		m->mdd_dot_lustre = NULL;
+	}
 }
 
 /** Setup ".lustre" directory object */
@@ -702,10 +766,18 @@ static int mdd_dot_lustre_setup(const struct lu_env *env, struct mdd_device *m)
 		       mdd2obd_dev(m)->obd_name, rc);
 		GOTO(out, rc);
 	}
+
+	rc = mdd_lf_setup(env, m);
+	if (rc != 0) {
+		CERROR("%s: error initializing \"lost+found\": rc = %d.\n",
+		       mdd2obd_dev(m)->obd_name, rc);
+		GOTO(out, rc);
+	}
+
 	RETURN(0);
+
 out:
-	mdd_object_put(env, m->mdd_dot_lustre);
-	m->mdd_dot_lustre = NULL;
+	mdd_dot_lustre_cleanup(env, m);
 	return rc;
 }
 
@@ -789,10 +861,7 @@ static void mdd_device_shutdown(const struct lu_env *env, struct mdd_device *m,
 	mdd_hsm_actions_llog_fini(env, m);
 	mdd_changelog_fini(env, m);
 	orph_index_fini(env, m);
-	if (m->mdd_dot_lustre_objs.mdd_obf)
-		mdd_object_put(env, m->mdd_dot_lustre_objs.mdd_obf);
-	if (m->mdd_dot_lustre)
-		mdd_object_put(env, m->mdd_dot_lustre);
+	mdd_dot_lustre_cleanup(env, m);
 	if (m->mdd_los != NULL)
 		local_oid_storage_fini(env, m->mdd_los);
 	lu_site_purge(env, mdd2lu_dev(m)->ld_site, ~0);
@@ -946,9 +1015,8 @@ static int mdd_prepare(const struct lu_env *env,
 		}
 
 		rc = mdd_compat_fixes(env, mdd);
-		if (rc)
-			GOTO(out_los, rc);
-
+		if (rc != 0)
+			GOTO(out_dot, rc);
 	} else {
 		/* Normal client usually send root access to MDT0 directly,
 		 * the root FID on non-MDT0 will only be used by echo client. */
@@ -986,12 +1054,8 @@ out_changelog:
 out_orph:
 	orph_index_fini(env, mdd);
 out_dot:
-	if (mdd_seq_site(mdd)->ss_node_id == 0) {
-		mdd_object_put(env, mdd->mdd_dot_lustre);
-		mdd->mdd_dot_lustre = NULL;
-		mdd_object_put(env, mdd->mdd_dot_lustre_objs.mdd_obf);
-		mdd->mdd_dot_lustre_objs.mdd_obf = NULL;
-	}
+	if (mdd_seq_site(mdd)->ss_node_id == 0)
+		mdd_dot_lustre_cleanup(env, mdd);
 out_los:
 	local_oid_storage_fini(env, mdd->mdd_los);
 	mdd->mdd_los = NULL;
