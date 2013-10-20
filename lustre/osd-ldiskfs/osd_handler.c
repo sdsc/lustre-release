@@ -396,6 +396,109 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	RETURN(rc);
 }
 
+static struct inode *osd_iget_check(struct osd_thread_info *info,
+				    struct osd_device *dev,
+				    const struct lu_fid *fid,
+				    struct osd_inode_id *id,
+				    bool in_oi)
+{
+	struct inode	*inode	= NULL;
+	int		 rc	= 0;
+	ENTRY;
+
+	inode = ldiskfs_iget(osd_sb(dev), id->oii_ino);
+	if (IS_ERR(inode)) {
+		CDEBUG(D_INODE, "no inode: ino = %u, rc = %ld\n",
+		       id->oii_ino, PTR_ERR(inode));
+		RETURN(inode);
+	}
+
+	if (id->oii_gen != OSD_OII_NOGEN &&
+	    inode->i_generation != id->oii_gen) {
+		rc = -ESTALE;
+		if (!in_oi) {
+			CDEBUG(D_INODE, "unmatched inode: ino = %u, gen0 = %u, "
+			       "gen1 = %u\n",
+			       id->oii_ino, id->oii_gen, inode->i_generation);
+			GOTO(put, rc);
+		}
+
+		goto check_oi;
+	}
+
+	if (inode->i_nlink == 0) {
+		make_bad_inode(inode);
+		rc = -ENOENT;
+		if (!in_oi) {
+			CDEBUG(D_INODE, "stale inode: ino = %u\n", id->oii_ino);
+			GOTO(put, rc);
+		}
+
+		goto check_oi;
+	}
+
+	if (is_bad_inode(inode)) {
+		CWARN("%.16s: bad inode: ino = %u\n",
+		      LDISKFS_SB(osd_sb(dev))->s_es->s_volume_name,
+		      id->oii_ino);
+		GOTO(put, rc = -ENOENT);
+	}
+
+check_oi:
+	if (ldiskfs_test_inode_state(inode, LDISKFS_STATE_LUSTRE_DEAD))
+		GOTO(put, rc = -ENOENT);
+
+	if (rc != 0) {
+		LASSERTF(rc == -ESTALE || rc == -ENOENT, "rc = %d\n", rc);
+
+		rc = osd_oi_lookup(info, dev, fid, id, OI_CHECK_FLD);
+		/* XXX: There are three possible cases:
+		 *	1. rc = 0.
+		 *	   Backup/restore caused the OI invalid.
+		 *	2. rc = 0.
+		 *	   Someone unlinked the object but NOT removed
+		 *	   the OI mapping, such as mount target device
+		 *	   as ldiskfs, and modify something directly.
+		 *	3. rc = -ENOENT.
+		 *	   Someone just removed the object between the
+		 *	   former oi_lookup and the iget. It is normal.
+		 *	4. Other failure cases.
+		 *
+		 *	Generally, when the device is mounted, it will
+		 *	auto check whether the system is restored from
+		 *	file-level backup or not. We trust such detect
+		 *	to distinguish the 1st case from the 2nd case. */
+		if (rc == 0) {
+			struct scrub_file *sf = &dev->od_scrub.os_file;
+
+			if (sf->sf_flags & SF_INCONSISTENT)
+				rc = -EREMCHG;
+			else
+				rc = -ENOENT;
+		}
+	} else {
+		if (id->oii_gen == OSD_OII_NOGEN)
+			osd_id_gen(id, inode->i_ino, inode->i_generation);
+
+		/* Do not update file c/mtime in ldiskfs.
+		 * NB: we don't have any lock to protect this because we don't
+		 * have reference on osd_object now, but contention with
+		 * another lookup + attr_set can't happen in the tiny window
+		 * between if (...) and set S_NOCMTIME. */
+		if (!(inode->i_flags & S_NOCMTIME))
+			inode->i_flags |= S_NOCMTIME;
+	}
+
+	GOTO(put, rc);
+
+put:
+	if (rc != 0) {
+		iput(inode);
+		inode = ERR_PTR(rc);
+	}
+	return inode;
+}
+
 static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 			  const struct lu_fid *fid,
 			  const struct lu_object_conf *conf)
@@ -469,33 +572,18 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	in_oi = true;
 
 iget:
-	inode = osd_iget(info, dev, id);
+	inode = osd_iget_check(info, dev, fid, id, in_oi);
 	if (IS_ERR(inode)) {
 		result = PTR_ERR(inode);
 		if (result == -ENOENT || result == -ESTALE) {
-			if (!in_oi) {
+			if (!in_oi)
 				fid_zero(&oic->oic_fid);
-				GOTO(out, result = -ENOENT);
-			}
-
-			/* XXX: There are three possible cases:
-			 *	1. Backup/restore caused the OI invalid.
-			 *	2. Someone unlinked the object but NOT removed
-			 *	   the OI mapping, such as mount target device
-			 *	   as ldiskfs, and modify something directly.
-			 *	3. Someone just removed the object between the
-			 *	   former oi_lookup and the iget. It is normal.
-			 *
-			 *	It is diffcult to distinguish the 2nd from the
-			 *	1st case. Relatively speaking, the 1st case is
-			 *	common than the 2nd case, trigger OI scrub. */
-			result = osd_oi_lookup(info, dev, fid, id, true);
-			if (result == 0)
-				/* It is the case 1 or 2. */
-				goto trigger;
+			GOTO(out, result = -ENOENT);
 		} else if (result == -EREMCHG) {
 
 trigger:
+			if (!in_oi)
+				fid_zero(&oic->oic_fid);
 			if (unlikely(triggered))
 				GOTO(out, result = saved);
 
@@ -550,8 +638,18 @@ trigger:
 	if (result != 0) {
 		iput(inode);
 		obj->oo_inode = NULL;
-		if (result == -EREMCHG)
+		if (result == -EREMCHG) {
+			if (!in_oi) {
+				result = osd_oi_lookup(info, dev, fid, id,
+						       OI_CHECK_FLD);
+				if (result != 0) {
+					fid_zero(&oic->oic_fid);
+					GOTO(out, result);
+				}
+			}
+
 			goto trigger;
+		}
 
 		GOTO(out, result);
 	}
@@ -2311,6 +2409,8 @@ static int osd_object_destroy(const struct lu_env *env,
 	if (unlikely(fid_is_acct(fid)))
 		RETURN(-EPERM);
 
+	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_DEAD);
+
 	if (S_ISDIR(inode->i_mode)) {
 		LASSERT(osd_inode_unlinked(inode) || inode->i_nlink == 1);
 		/* it will check/delete the inode from remote parent,
@@ -2704,6 +2804,7 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
 			     D_ERROR : D_INODE, "%s: nlink == 0 on "DFID
 			     ", maybe an upgraded file? (LU-3915)\n",
 			     osd_name(osd), PFID(lu_object_fid(&dt->do_lu)));
+		ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_DEAD);
 		spin_unlock(&obj->oo_guard);
 		return 0;
 	}
@@ -2717,6 +2818,9 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
 	 * nlink == 1 means the directory has/had > EXT4_LINK_MAX subdirs.
 	 */
 	if (!S_ISDIR(inode->i_mode) || inode->i_nlink > 1) {
+		if (inode->i_nlink == 1)
+			ldiskfs_set_inode_state(inode,
+						LDISKFS_STATE_LUSTRE_DEAD);
 		drop_nlink(inode);
 
 		spin_unlock(&obj->oo_guard);
