@@ -370,7 +370,7 @@ static int ofd_register_seq_exp(struct ofd_device *ofd)
 	if (lwp_name == NULL)
 		GOTO(out_free, rc = -ENOMEM);
 
-	rc = tgt_name2lwpname(ofd_name(ofd), lwp_name);
+	rc = tgt_name2lwpname(ofd_name(ofd), lwp_name, 0);
 	if (rc != 0)
 		GOTO(out_free, rc);
 

@@ -341,43 +341,19 @@ static int is_mdc_device(const char *devname)
 	return 0;
 }
 
-static inline int tgt_is_mdt0(const char *tgtname)
+static inline int tgt_is_mdt(const char *tgtname, __u32 *idx)
 {
-	__u32 idx;
-	int   type;
+	int type;
 
-	type = server_name2index(tgtname, &idx, NULL);
-	if (type != LDD_F_SV_TYPE_MDT)
-		return 0;
-
-	return idx == 0;
-}
-
-static inline int is_mdc_for_mdt0(const char *devname)
-{
-	char   *ptr;
-
-	if (!is_mdc_device(devname))
-		return 0;
-
-	ptr = strrchr(devname, '-');
-	if (ptr == NULL)
-		return 0;
-
-	*ptr = 0;
-	if (tgt_is_mdt0(devname)) {
-		*ptr = '-';
-		return 1;
-	}
-	*ptr = '-';
-	return 0;
+	type = server_name2index(tgtname, idx, NULL);
+	return type == LDD_F_SV_TYPE_MDT;
 }
 
 /**
  * Convert OST/MDT name(fsname-OSTxxxx) to a lwp name
- * (fsname-MDT0000-lwp-OSTxxxx)
+ * (fsname-MDTnnnn-lwp-OSTxxxx)
  **/
-int tgt_name2lwpname(const char *svname, char *lwpname)
+int tgt_name2lwpname(const char *svname, char *lwpname, __u32 idx)
 {
 	char		*fsname;
 	const char	*tgt;
@@ -405,7 +381,7 @@ int tgt_name2lwpname(const char *svname, char *lwpname)
 		CERROR("%s is not an OST or MDT target!\n", svname);
 		GOTO(cleanup, rc = -EINVAL);
 	}
-	sprintf(lwpname, "%s-MDT0000-%s-%s", fsname, LUSTRE_LWP_NAME, tgt);
+	sprintf(lwpname, "%s-MDT%04x-%s-%s", fsname, idx, LUSTRE_LWP_NAME, tgt);
 cleanup:
 	if (fsname != NULL)
 		OBD_FREE(fsname, MTI_NAME_MAXLEN);
@@ -481,6 +457,34 @@ void lustre_deregister_lwp_item(struct obd_export **exp)
 }
 EXPORT_SYMBOL(lustre_deregister_lwp_item);
 
+struct obd_export *lustre_find_lwp_by_index(const char *dev, __u32 idx)
+{
+	char			  name[16];
+	struct lustre_mount_info *lmi;
+	struct lustre_sb_info	 *lsi;
+	struct obd_device	 *lwp;
+	struct obd_export	 *exp = NULL;
+
+	lmi = server_get_mount_2(dev);
+	if (lmi == NULL)
+		return NULL;
+
+	sprintf(name, "MDT%04x", idx);
+	lsi = s2lsi(lmi->lmi_sb);
+	spin_lock(&lsi->lsi_lwp_lock);
+	cfs_list_for_each_entry(lwp, &lsi->lsi_lwp_list, obd_lwp_list) {
+		char *ptr = strstr(lwp->obd_name, name);
+
+		if (ptr != NULL) {
+			exp = class_export_get(lwp->obd_lwp_export);
+			break;
+		}
+	}
+	spin_unlock(&lsi->lsi_lwp_lock);
+	return exp;
+}
+EXPORT_SYMBOL(lustre_find_lwp_by_index);
+
 static void lustre_notify_lwp_list(struct obd_export *exp)
 {
 	struct lwp_register_item *lri, *tmp;
@@ -542,10 +546,16 @@ static int lustre_lwp_connect(struct obd_device *lwp)
 	/* Use lwp name as the uuid, so we find the export by lwp name later */
 	memcpy(uuid->uuid, lwp->obd_name, strlen(lwp->obd_name));
 	rc = obd_connect(&env, &exp, lwp, uuid, data, NULL);
-	if (rc != 0)
+	if (rc != 0) {
 		CERROR("%s: connect failed: rc = %d\n", lwp->obd_name, rc);
-	else
+	} else {
+		if (unlikely(lwp->obd_lwp_export != NULL))
+			class_export_put(lwp->obd_lwp_export);
+		lwp->obd_lwp_export = class_export_get(exp);
 		lustre_notify_lwp_list(exp);
+	}
+
+	GOTO(out, rc);
 
 out:
 	if (data != NULL)
@@ -556,15 +566,15 @@ out:
 	lu_env_fini(&env);
 	lu_context_exit(&session_ctx);
 	lu_context_fini(&session_ctx);
-
-	RETURN(rc);
+	return rc;
 }
 
 /**
  * lwp is used by slaves (Non-MDT0 targets) to manage the connection
  * to MDT0.
  **/
-static int lustre_lwp_setup(struct lustre_cfg *lcfg, struct lustre_sb_info *lsi)
+static int lustre_lwp_setup(struct lustre_cfg *lcfg, struct lustre_sb_info *lsi,
+			    __u32 idx)
 {
 	struct obd_device	*obd;
 	char			*lwpname = NULL;
@@ -574,16 +584,16 @@ static int lustre_lwp_setup(struct lustre_cfg *lcfg, struct lustre_sb_info *lsi)
 
 	rc = class_add_uuid(lustre_cfg_string(lcfg, 1),
 			    lcfg->lcfg_nid);
-	if (rc) {
+	if (rc != 0) {
 		CERROR("%s: Can't add uuid: rc =%d\n", lsi->lsi_svname, rc);
-		GOTO(out, rc);
+		RETURN(rc);
 	}
 
 	OBD_ALLOC(lwpname, MTI_NAME_MAXLEN);
 	if (lwpname == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	rc = tgt_name2lwpname(lsi->lsi_svname, lwpname);
+	rc = tgt_name2lwpname(lsi->lsi_svname, lwpname, idx);
 	if (rc != 0) {
 		CERROR("%s: failed to generate lwp name. %d\n",
 		       lsi->lsi_svname, rc);
@@ -607,20 +617,29 @@ static int lustre_lwp_setup(struct lustre_cfg *lcfg, struct lustre_sb_info *lsi)
 	LASSERT(obd != NULL);
 
 	rc = lustre_lwp_connect(obd);
-	if (rc != 0)
+	if (rc == 0) {
+		obd->u.cli.cl_max_mds_easize = MAX_MD_SIZE;
+		spin_lock(&lsi->lsi_lwp_lock);
+		cfs_list_add_tail(&obd->obd_lwp_list, &lsi->lsi_lwp_list);
+		spin_unlock(&lsi->lsi_lwp_lock);
+	} else {
 		CERROR("%s: connect failed: rc = %d\n", lwpname, rc);
+	}
+
+	GOTO(out, rc);
+
 out:
 	if (lwpname != NULL)
 		OBD_FREE(lwpname, MTI_NAME_MAXLEN);
 	if (lwpuuid != NULL)
 		OBD_FREE(lwpuuid, MTI_NAME_MAXLEN);
 
-	RETURN(rc);
+	return rc;
 }
 
 /* the caller is responsible for memory free */
 static struct obd_device *lustre_find_lwp(struct lustre_sb_info *lsi,
-					  char **lwpname, char **logname)
+					  char **lwpname, __u32 idx)
 {
 	struct obd_device	*lwp;
 	int			 rc = 0;
@@ -633,20 +652,7 @@ static struct obd_device *lustre_find_lwp(struct lustre_sb_info *lsi,
 	if (*lwpname == NULL)
 		RETURN(ERR_PTR(-ENOMEM));
 
-	if (logname != NULL) {
-		OBD_ALLOC(*logname, MTI_NAME_MAXLEN);
-		if (*logname == NULL)
-			GOTO(out, rc = -ENOMEM);
-		rc = server_name2fsname(lsi->lsi_svname, *lwpname, NULL);
-		if (rc != 0) {
-			CERROR("%s: failed to get fsname from svname. %d\n",
-			       lsi->lsi_svname, rc);
-			GOTO(out, rc = -EINVAL);
-		}
-		sprintf(*logname, "%s-client", *lwpname);
-	}
-
-	rc = tgt_name2lwpname(lsi->lsi_svname, *lwpname);
+	rc = tgt_name2lwpname(lsi->lsi_svname, *lwpname, idx);
 	if (rc != 0) {
 		CERROR("%s: failed to generate lwp name. %d\n",
 		       lsi->lsi_svname, rc);
@@ -661,10 +667,6 @@ out:
 			OBD_FREE(*lwpname, MTI_NAME_MAXLEN);
 			*lwpname = NULL;
 		}
-		if (logname != NULL && *logname != NULL) {
-			OBD_FREE(*logname, MTI_NAME_MAXLEN);
-			*logname = NULL;
-		}
 		lwp = ERR_PTR(rc);
 	}
 
@@ -672,7 +674,7 @@ out:
 }
 
 static int lustre_lwp_add_conn(struct lustre_cfg *cfg,
-			       struct lustre_sb_info *lsi)
+			       struct lustre_sb_info *lsi, __u32 idx)
 {
 	struct lustre_cfg_bufs *bufs = NULL;
 	struct lustre_cfg      *lcfg = NULL;
@@ -681,7 +683,7 @@ static int lustre_lwp_add_conn(struct lustre_cfg *cfg,
 	int			rc;
 	ENTRY;
 
-	lwp = lustre_find_lwp(lsi, &lwpname, NULL);
+	lwp = lustre_find_lwp(lsi, &lwpname, idx);
 	if (IS_ERR(lwp)) {
 		CERROR("%s: can't find lwp device.\n", lsi->lsi_svname);
 		GOTO(out, rc = PTR_ERR(lwp));
@@ -716,19 +718,19 @@ out:
  * Retrieve MDT nids from the client log, then start the lwp device.
  * there are only two scenarios which would include mdt nid.
  * 1.
- * marker   5 (flags=0x01, v2.1.54.0) lustre-MDT0000  'add mdc' xxx-
+ * marker   5 (flags=0x01, v2.1.54.0) lustre-MDTnnnn  'add mdc' xxx-
  * add_uuid  nid=192.168.122.162@tcp(0x20000c0a87aa2)  0:  1:192.168.122.162@tcp
- * attach    0:lustre-MDT0000-mdc  1:mdc  2:lustre-clilmv_UUID
- * setup     0:lustre-MDT0000-mdc  1:lustre-MDT0000_UUID  2:192.168.122.162@tcp
+ * attach    0:lustre-MDTnnnn-mdc  1:mdc  2:lustre-clilmv_UUID
+ * setup     0:lustre-MDTnnnn-mdc  1:lustre-MDTnnnn_UUID  2:192.168.122.162@tcp
  * add_uuid  nid=192.168.172.1@tcp(0x20000c0a8ac01)  0:  1:192.168.172.1@tcp
- * add_conn  0:lustre-MDT0000-mdc  1:192.168.172.1@tcp
- * modify_mdc_tgts add 0:lustre-clilmv  1:lustre-MDT0000_UUID xxxx
- * marker   5 (flags=0x02, v2.1.54.0) lustre-MDT0000  'add mdc' xxxx-
+ * add_conn  0:lustre-MDTnnnn-mdc  1:192.168.172.1@tcp
+ * modify_mdc_tgts add 0:lustre-clilmv  1:lustre-MDTnnnn_UUID xxxx
+ * marker   5 (flags=0x02, v2.1.54.0) lustre-MDTnnnn  'add mdc' xxxx-
  * 2.
- * marker   7 (flags=0x01, v2.1.54.0) lustre-MDT0000  'add failnid' xxxx-
+ * marker   7 (flags=0x01, v2.1.54.0) lustre-MDTnnnn  'add failnid' xxxx-
  * add_uuid  nid=192.168.122.2@tcp(0x20000c0a87a02)  0:  1:192.168.122.2@tcp
- * add_conn  0:lustre-MDT0000-mdc  1:192.168.122.2@tcp
- * marker   7 (flags=0x02, v2.1.54.0) lustre-MDT0000  'add failnid' xxxx-
+ * add_conn  0:lustre-MDTnnnn-mdc  1:192.168.122.2@tcp
+ * marker   7 (flags=0x02, v2.1.54.0) lustre-MDTnnnn  'add failnid' xxxx-
  **/
 static int client_lwp_config_process(const struct lu_env *env,
 				     struct llog_handle *handle,
@@ -771,7 +773,10 @@ static int client_lwp_config_process(const struct lu_env *env,
 		    marker->cm_flags & CM_EXCLUDE)
 			GOTO(out, rc = 0);
 
-		if (!tgt_is_mdt0(marker->cm_tgtname))
+		if (!tgt_is_mdt(marker->cm_tgtname, &clli->cfg_lwp_idx))
+			GOTO(out, rc = 0);
+
+		if (IS_MDT(lsi) && clli->cfg_lwp_idx != 0)
 			GOTO(out, rc = 0);
 
 		if (!strncmp(marker->cm_comment, "add mdc", 7) ||
@@ -792,7 +797,7 @@ static int client_lwp_config_process(const struct lu_env *env,
 	}
 	case LCFG_ADD_UUID: {
 		if (clli->cfg_flags == CFG_F_MARKER) {
-			rc = lustre_lwp_setup(lcfg, lsi);
+			rc = lustre_lwp_setup(lcfg, lsi, clli->cfg_lwp_idx);
 			/* XXX: process only the first nid as
 			 * we don't need another instance of lwp */
 			clli->cfg_flags |= CFG_F_SKIP;
@@ -806,8 +811,25 @@ static int client_lwp_config_process(const struct lu_env *env,
 		break;
 	}
 	case LCFG_ADD_CONN: {
-		if (is_mdc_for_mdt0(lustre_cfg_string(lcfg, 0)))
-			rc = lustre_lwp_add_conn(lcfg, lsi);
+		char *devname = lustre_cfg_string(lcfg, 0);
+		char *ptr;
+		__u32 idx     = 0;
+
+		if (!is_mdc_device(devname))
+			break;
+
+		ptr = strrchr(devname, '-');
+		if (ptr == NULL)
+			break;
+
+		*ptr = 0;
+		if (!tgt_is_mdt(devname, &idx)) {
+			*ptr = '-';
+			break;
+		}
+
+		*ptr = '-';
+		rc = lustre_lwp_add_conn(lcfg, lsi, idx);
 		break;
 	}
 	default:
@@ -819,67 +841,81 @@ out:
 
 static int lustre_disconnect_lwp(struct super_block *sb)
 {
-	struct lustre_sb_info		*lsi = s2lsi(sb);
+	struct lustre_sb_info		*lsi	 = s2lsi(sb);
 	struct obd_device		*lwp;
-	char				*lwpname = NULL;
 	char				*logname = NULL;
-	struct lustre_cfg		*lcfg = NULL;
-	struct lustre_cfg_bufs		*bufs = NULL;
-	struct config_llog_instance	*cfg = NULL;
-	int				 rc;
+	struct lustre_cfg_bufs		*bufs	 = NULL;
+	struct config_llog_instance	*cfg	 = NULL;
+	int				 rc	 = 0;
+	int				 rc1	 = 0;
 	ENTRY;
 
-	lwp = lustre_find_lwp(lsi, &lwpname, &logname);
-	if (IS_ERR(lwp) && PTR_ERR(lwp) != -ENOENT)
-		GOTO(out, rc = PTR_ERR(lwp));
+	if (likely(lsi->lsi_lwp_started)) {
+		OBD_ALLOC(logname, MTI_NAME_MAXLEN);
+		if (logname == NULL)
+			RETURN(-ENOMEM);
 
-	LASSERT(lwpname != NULL);
-	LASSERT(logname != NULL);
+		rc = server_name2fsname(lsi->lsi_svname, logname, NULL);
+		if (rc != 0) {
+			CERROR("%s: failed to get fsname from svname. %d\n",
+			       lsi->lsi_svname, rc);
+			GOTO(out, rc = -EINVAL);
+		}
 
-	OBD_ALLOC_PTR(cfg);
-	if (cfg == NULL)
-		GOTO(out, rc = -ENOMEM);
+		strcat(logname, "-client");
+		OBD_ALLOC_PTR(cfg);
+		if (cfg == NULL)
+			GOTO(out, rc = -ENOMEM);
 
-	/* end log first */
-	cfg->cfg_instance = sb;
-	rc = lustre_end_log(sb, logname, cfg);
-	if (rc != 0) {
-		CERROR("%s: Can't end config log %s.\n", lwpname, logname);
-		GOTO(out, rc);
-	}
+		/* end log first */
+		cfg->cfg_instance = sb;
+		rc = lustre_end_log(sb, logname, cfg);
+		if (rc != 0)
+			GOTO(out, rc);
 
-	if (PTR_ERR(lwp) == -ENOENT) {
-		CDEBUG(D_CONFIG, "%s: lwp device wasn't started.\n",
-		       lsi->lsi_svname);
-		GOTO(out, rc = 0);
+		lsi->lsi_lwp_started = 0;
 	}
 
 	OBD_ALLOC_PTR(bufs);
 	if (bufs == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	lustre_cfg_bufs_reset(bufs, lwp->obd_name);
-	lustre_cfg_bufs_set_string(bufs, 1, NULL);
-	lcfg = lustre_cfg_new(LCFG_CLEANUP, bufs);
-	if (!lcfg)
-		GOTO(out, rc = -ENOMEM);
+	cfs_list_for_each_entry(lwp, &lsi->lsi_lwp_list, obd_lwp_list) {
+		struct lustre_cfg *lcfg;
 
-	/* Disconnect import first. NULL is passed for the '@env', since
-	 * it will not be used. */
-	rc = lwp->obd_lu_dev->ld_ops->ldo_process_config(NULL, lwp->obd_lu_dev,
-							 lcfg);
-out:
-	if (lcfg)
+		if (likely(lwp->obd_lwp_export != NULL)) {
+			class_export_put(lwp->obd_lwp_export);
+			lwp->obd_lwp_export = NULL;
+		}
+
+		lustre_cfg_bufs_reset(bufs, lwp->obd_name);
+		lustre_cfg_bufs_set_string(bufs, 1, NULL);
+		lcfg = lustre_cfg_new(LCFG_CLEANUP, bufs);
+		if (lcfg == NULL)
+			GOTO(out, rc = -ENOMEM);
+
+		/* Disconnect import first. NULL is passed for the '@env',
+		 * since it will not be used. */
+		rc = lwp->obd_lu_dev->ld_ops->ldo_process_config(NULL,
+							lwp->obd_lu_dev, lcfg);
 		lustre_cfg_free(lcfg);
-	if (bufs)
+		if (rc != 0 && rc != -ETIMEDOUT) {
+			CERROR("Fail to disconnect LWP for %s, rc = %d\n",
+			       lwp->obd_name, rc);
+			rc1 = rc;
+		}
+	}
+
+	GOTO(out, rc);
+
+out:
+	if (bufs != NULL)
 		OBD_FREE_PTR(bufs);
-	if (cfg)
+	if (cfg != NULL)
 		OBD_FREE_PTR(cfg);
-	if (lwpname)
-		OBD_FREE(lwpname, MTI_NAME_MAXLEN);
-	if (logname)
+	if (logname != NULL)
 		OBD_FREE(logname, MTI_NAME_MAXLEN);
-	RETURN(rc);
+	return rc1 != 0 ? rc1 : rc;
 }
 
 /**
@@ -888,69 +924,71 @@ out:
 static int lustre_stop_lwp(struct super_block *sb)
 {
 	struct lustre_sb_info	*lsi = s2lsi(sb);
-	struct obd_device	*lwp = NULL;
-	char			*lwpname = NULL;
-	int			 rc = 0;
+	struct obd_device	*lwp;
+	int			 rc  = 0;
+	int			 rc1 = 0;
 	ENTRY;
 
-	lwp = lustre_find_lwp(lsi, &lwpname, NULL);
-	if (IS_ERR(lwp)) {
-		CDEBUG(PTR_ERR(lwp) == -ENOENT ? D_CONFIG : D_ERROR,
-		       "%s: lwp wasn't started.\n", lsi->lsi_svname);
-		GOTO(out, rc = 0);
+	while (!cfs_list_empty(&lsi->lsi_lwp_list)) {
+		lwp = cfs_list_entry(lsi->lsi_lwp_list.next, struct obd_device,
+				     obd_lwp_list);
+		cfs_list_del_init(&lwp->obd_lwp_list);
+		lwp->obd_force = 1;
+		rc = class_manual_cleanup(lwp);
+		if (rc != 0) {
+			CERROR("Fail to stop LWP for %s, rc = %d\n",
+			       lwp->obd_name, rc);
+			rc1 = rc;
+		}
 	}
 
-	lwp->obd_force = 1;
-	rc = class_manual_cleanup(lwp);
-
-out:
-	if (lwpname != NULL)
-		OBD_FREE(lwpname, MTI_NAME_MAXLEN);
-	RETURN(rc);
+	RETURN(rc1 != 0 ? rc1 : rc);
 }
 
 /**
- * Start the lwp(fsname-MDT0000-lwp-OSTxxxx) for an OST or MDT target,
+ * Start the lwp(fsname-MDTnnnn-lwp-OSTxxxx) for an OST or MDT target,
  * which would be used to establish connection from OST to MDT0.
  **/
 static int lustre_start_lwp(struct super_block *sb)
 {
 	struct lustre_sb_info	    *lsi = s2lsi(sb);
 	struct config_llog_instance *cfg = NULL;
-	struct obd_device	    *lwp;
-	char			    *lwpname = NULL;
-	char			    *logname = NULL;
+	char			    *logname;
 	int			     rc;
 	ENTRY;
 
-	lwp = lustre_find_lwp(lsi, &lwpname, &logname);
+	if (unlikely(lsi->lsi_lwp_started))
+		RETURN(0);
 
-	/* the lwp device already stared */
-	if (lwp && !IS_ERR(lwp))
-		GOTO(out, rc = 0);
+	OBD_ALLOC(logname, MTI_NAME_MAXLEN);
+	if (logname == NULL)
+		RETURN(-ENOMEM);
 
-	if (PTR_ERR(lwp) != -ENOENT)
-		GOTO(out, rc = PTR_ERR(lwp));
+	rc = server_name2fsname(lsi->lsi_svname, logname, NULL);
+	if (rc != 0) {
+		CERROR("%s: failed to get fsname from svname. %d\n",
+		       lsi->lsi_svname, rc);
+		GOTO(out, rc = -EINVAL);
+	}
 
-	LASSERT(lwpname != NULL);
-	LASSERT(logname != NULL);
-
+	strcat(logname, "-client");
 	OBD_ALLOC_PTR(cfg);
 	if (cfg == NULL)
 		GOTO(out, rc = -ENOMEM);
 
 	cfg->cfg_callback = client_lwp_config_process;
 	cfg->cfg_instance = sb;
-
 	rc = lustre_process_log(sb, logname, cfg);
+	if (rc == 0)
+		lsi->lsi_lwp_started = 1;
+
+	GOTO(out, rc);
+
 out:
-	if (lwpname != NULL)
-		OBD_FREE(lwpname, MTI_NAME_MAXLEN);
-	if (logname != NULL)
-		OBD_FREE(logname, MTI_NAME_MAXLEN);
+	OBD_FREE(logname, MTI_NAME_MAXLEN);
 	if (cfg != NULL)
 		OBD_FREE_PTR(cfg);
-	RETURN(rc);
+	return rc;
 }
 
 DEFINE_MUTEX(server_start_lock);
@@ -1420,7 +1458,7 @@ static void server_put_super(struct super_block *sb)
 		int	rc;
 
 		rc = lustre_disconnect_lwp(sb);
-		if (rc && rc != ETIMEDOUT)
+		if (rc != 0 && rc != -ETIMEDOUT)
 			CERROR("%s: failed to disconnect lwp. (rc=%d)\n",
 			       tmpname, rc);
 	}

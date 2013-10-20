@@ -42,6 +42,7 @@
 #ifdef __KERNEL__
 #include <obd_class.h>
 #include <linux/string.h>
+#include <lustre_disk.h>
 #else
 #include <liblustre.h>
 #include <string.h>
@@ -410,6 +411,7 @@ int class_attach(struct lustre_cfg *lcfg)
 	CFS_INIT_LIST_HEAD(&obd->obd_lock_replay_queue);
 	CFS_INIT_LIST_HEAD(&obd->obd_final_req_queue);
 	CFS_INIT_LIST_HEAD(&obd->obd_evict_list);
+	CFS_INIT_LIST_HEAD(&obd->obd_lwp_list);
 
         llog_group_init(&obd->obd_olg, FID_SEQ_LLOG);
 
@@ -1417,6 +1419,10 @@ int class_config_llog_handler(const struct lu_env *env,
                         if (marker->cm_flags & CM_START) {
                                 /* all previous flags off */
                                 clli->cfg_flags = CFG_F_MARKER;
+#ifdef __KERNEL__
+				server_name2index(marker->cm_tgtname,
+						  &clli->cfg_lwp_idx, NULL);
+#endif
                                 if (marker->cm_flags & CM_SKIP) {
                                         clli->cfg_flags |= CFG_F_SKIP;
                                         CDEBUG(D_CONFIG, "SKIP #%d\n",
