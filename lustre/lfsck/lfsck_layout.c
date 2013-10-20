@@ -1565,6 +1565,61 @@ stop:
 	return rc;
 }
 
+static int lfsck_layout_repair_owner(const struct lu_env *env,
+				     struct lfsck_component *com,
+				     struct lfsck_layout_req *llr,
+				     struct lu_attr *pla)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct lu_attr			*tla	= &info->lti_la3;
+	struct dt_device		*dev	= com->lc_lfsck->li_next;
+	struct dt_object		*parent = llr->llr_parent->llo_obj;
+	struct dt_object		*child  = llr->llr_child;
+	struct thandle			*handle;
+	int				 rc;
+	ENTRY;
+
+	handle = dt_trans_create(env, dev);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	tla->la_valid = LA_UID | LA_GID;
+	tla->la_uid = pla->la_uid;
+	tla->la_gid = pla->la_gid;
+	rc = dt_declare_attr_set(env, child, tla, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start(env, dev, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	dt_read_lock(env, parent, 0);
+	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+		GOTO(unlock, rc = 0);
+
+	/* Get the latest parent's owner. */
+	rc = dt_attr_get(env, parent, tla, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	/* If some others chown/chgrp during the LFSCK, then related
+	 * inconsistency will be repaired automatically. */
+	if (unlikely(tla->la_uid != pla->la_uid && tla->la_gid != pla->la_gid))
+		GOTO(unlock, rc = 0);
+
+	tla->la_valid = LA_UID | LA_GID;
+	rc = dt_attr_set(env, child, tla, handle, BYPASS_CAPA);
+
+	GOTO(unlock, rc = (rc == 0 ? 1 : rc));
+
+unlock:
+	dt_read_unlock(env, parent);
+stop:
+	dt_trans_stop(env, dev, handle);
+	return rc;
+}
+
 static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 					     struct lfsck_component *com,
 					     struct lfsck_layout_req *llr)
@@ -1629,8 +1684,15 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 
 	if (fid_is_zero(pfid)) {
 		/* client never write. */
-		if (cla->la_size == 0 && cla->la_blocks == 0)
+		if (cla->la_size == 0 && cla->la_blocks == 0) {
+			if (cla->la_uid != pla->la_uid ||
+			    cla->la_gid != pla->la_gid) {
+				type = LLI_INCONSISTENT_OWNER;
+				goto repair;
+			}
+
 			RETURN(0);
+		}
 
 		type = LLI_UNMATCHED_PAIR;
 		goto repair;
@@ -1652,7 +1714,10 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 	if (rc < 0)
 		GOTO(out, rc);
 
-	/* XXX: other inconsistency will be checked in other patches. */
+	if (cla->la_uid != pla->la_uid || cla->la_gid != pla->la_gid) {
+		type = LLI_INCONSISTENT_OWNER;
+		goto repair;
+	}
 
 repair:
 	if (bk->lb_param & LPF_DRYRUN) {
@@ -1684,12 +1749,13 @@ repair:
 	case LLI_UNMATCHED_PAIR:
 		rc = lfsck_layout_repair_unmatched_pair(env, com, llr, pla);
 		break;
+	case LLI_MULTIPLE_REFERENCED:
 
 	/* XXX: other inconsistency will be fixed in other patches. */
 
-	case LLI_MULTIPLE_REFERENCED:
 		break;
 	case LLI_INCONSISTENT_OWNER:
+		rc = lfsck_layout_repair_owner(env, com, llr, pla);
 		break;
 	default:
 		rc = 0;
