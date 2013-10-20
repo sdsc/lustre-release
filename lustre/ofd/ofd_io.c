@@ -40,11 +40,428 @@
 
 #define DEBUG_SUBSYSTEM S_FILTER
 
+#include <lustre_update.h>
 #include "ofd_internal.h"
+
+static CFS_LIST_HEAD(ofd_inconsistency_list);
+static DEFINE_SPINLOCK(ofd_inconsistency_lock);
+
+struct ofd_inconsistency_item {
+	cfs_list_t		 oii_list;
+	struct ofd_object	*oii_obj;
+};
+
+static int ofd_pfid_set(const struct lu_env *env,
+			struct ofd_object *fo,
+			struct filter_fid *ff)
+{
+	struct ofd_thread_info	*info = ofd_info(env);
+	struct ofd_device	*ofd  = ofd_obj2dev(fo);
+	struct thandle		*th;
+	int			 rc;
+	ENTRY;
+
+	ofd_write_lock(env, fo);
+	if (!ofd_object_exists(fo))
+		GOTO(unlock, rc = -ENOENT);
+
+	th = ofd_trans_create(env, ofd);
+	if (IS_ERR(th))
+		GOTO(unlock, rc = PTR_ERR(th));
+
+	info->fti_buf.lb_buf = ff;
+	info->fti_buf.lb_len = sizeof(*ff);
+	rc = dt_declare_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
+				  XATTR_NAME_FID, 0, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = ofd_trans_start(env, ofd, NULL, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
+			  XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+
+	GOTO(stop, rc);
+
+stop:
+	ofd_trans_stop(env, ofd, th, rc);
+unlock:
+	ofd_write_unlock(env, fo);
+	return rc;
+}
+
+static int ofd_inconsistency_self_repair_main(void *args)
+{
+	struct lu_env		       env;
+	struct ofd_thread_info	      *info;
+	struct filter_fid	      *ff;
+	struct ofd_device	      *ofd    = args;
+	struct ptlrpc_thread	      *thread = &ofd->ofd_inconsistency_thread;
+	struct ofd_inconsistency_item *oii;
+	struct ofd_object	      *fo;
+	struct l_wait_info	       lwi    = { 0 };
+	int			       rc;
+	ENTRY;
+
+	rc = lu_env_init(&env, LCT_DT_THREAD);
+	spin_lock(&ofd_inconsistency_lock);
+	thread_set_flags(thread, rc != 0 ? SVC_STOPPED : SVC_RUNNING);
+	wake_up_all(&thread->t_ctl_waitq);
+	if (rc != 0) {
+		spin_unlock(&ofd_inconsistency_lock);
+		RETURN(rc);
+	}
+
+	info = ofd_info_init(&env, NULL);
+	ff = &info->fti_mds_fid;
+
+	while (1) {
+		if (unlikely(!thread_is_running(thread)))
+			break;
+
+		while (!cfs_list_empty(&ofd_inconsistency_list)) {
+			oii = cfs_list_entry(ofd_inconsistency_list.next,
+					     struct ofd_inconsistency_item,
+					     oii_list);
+			cfs_list_del_init(&oii->oii_list);
+			spin_unlock(&ofd_inconsistency_lock);
+
+			fo = oii->oii_obj;
+			LASSERT(fo->ofo_pfid_inconsistent);
+
+			fid_cpu_to_le(&ff->ff_parent, &fo->ofo_pfid);
+			rc = ofd_pfid_set(&env, fo, ff);
+			if (rc == 0)
+				ofd->ofd_inconsistency_self_repaired++;
+			else
+				CDEBUG(D_LFSCK, "%s: fail to self_repair for "
+				       DFID" to "DFID", rc = %d\n",
+				       ofd_obd(ofd)->obd_name,
+				       PFID(lu_object_fid(&fo->ofo_obj.do_lu)),
+				       PFID(&fo->ofo_pfid), rc);
+
+			spin_lock(&fo->ofo_lock);
+			/* Clear the ofo_pfid_inconsistent even if failed to
+			 * fix the parent FID. Otherwise, others can not fix
+			 * it neither next time. */
+			fo->ofo_pfid_inconsistent = 0;
+			spin_unlock(&fo->ofo_lock);
+			lu_object_put(&env, &fo->ofo_obj.do_lu);
+			OBD_FREE_PTR(oii);
+			spin_lock(&ofd_inconsistency_lock);
+		}
+		spin_unlock(&ofd_inconsistency_lock);
+		l_wait_event(thread->t_ctl_waitq,
+			     !cfs_list_empty(&ofd_inconsistency_list) ||
+			     !thread_is_running(thread),
+			     &lwi);
+		spin_lock(&ofd_inconsistency_lock);
+	}
+
+	while (!cfs_list_empty(&ofd_inconsistency_list)) {
+		oii = cfs_list_entry(ofd_inconsistency_list.next,
+				     struct ofd_inconsistency_item,
+				     oii_list);
+		cfs_list_del_init(&oii->oii_list);
+		spin_unlock(&ofd_inconsistency_lock);
+
+		fo = oii->oii_obj;
+		fo->ofo_pfid_inconsistent = 0;
+		spin_unlock(&fo->ofo_lock);
+		lu_object_put(&env, &fo->ofo_obj.do_lu);
+		lu_object_put(&env, &oii->oii_obj->ofo_obj.do_lu);
+		OBD_FREE_PTR(oii);
+		spin_lock(&ofd_inconsistency_lock);
+	}
+
+	thread_set_flags(thread, SVC_STOPPED);
+	wake_up_all(&thread->t_ctl_waitq);
+	spin_unlock(&ofd_inconsistency_lock);
+	lu_env_fini(&env);
+
+	RETURN(0);
+}
+
+int ofd_start_inconsistency_self_repair_thread(struct ofd_device *ofd)
+{
+	struct ptlrpc_thread	*thread = &ofd->ofd_inconsistency_thread;
+	struct l_wait_info	 lwi	= { 0 };
+	long			 rc;
+
+	spin_lock(&ofd_inconsistency_lock);
+	if (unlikely(thread_is_running(thread))) {
+		spin_unlock(&ofd_inconsistency_lock);
+		return -EALREADY;
+	}
+
+	thread_set_flags(thread, 0);
+	spin_unlock(&ofd_inconsistency_lock);
+	rc = PTR_ERR(kthread_run(ofd_inconsistency_self_repair_main, ofd,
+				 "self_repair"));
+	if (IS_ERR_VALUE(rc)) {
+		CERROR("%s: cannot start self_repair thread: rc = %ld\n",
+		       ofd_obd(ofd)->obd_name, rc);
+	} else {
+		rc = 0;
+		l_wait_event(thread->t_ctl_waitq,
+			     thread_is_running(thread) ||
+			     thread_is_stopped(thread),
+			     &lwi);
+	}
+
+	return rc;
+}
+
+int ofd_stop_inconsistency_self_repair_thread(struct ofd_device *ofd)
+{
+	struct ptlrpc_thread	*thread = &ofd->ofd_inconsistency_thread;
+	struct l_wait_info	 lwi	= { 0 };
+
+	spin_lock(&ofd_inconsistency_lock);
+	if (thread_is_init(thread) || thread_is_stopped(thread)) {
+		spin_unlock(&ofd_inconsistency_lock);
+		return -EALREADY;
+	}
+
+	thread_set_flags(thread, SVC_STOPPING);
+	spin_unlock(&ofd_inconsistency_lock);
+	wake_up_all(&thread->t_ctl_waitq);
+	l_wait_event(thread->t_ctl_waitq,
+		     thread_is_stopped(thread),
+		     &lwi);
+
+	return 0;
+}
+
+static int ofd_fld_lookup(const struct lu_env *env, struct ofd_device *ofd,
+			  obd_seq seq, struct lu_seq_range *range)
+{
+	int rc;
+
+	if (fid_seq_is_igif(seq)) {
+		fld_range_set_mdt(range);
+		range->lsr_index = 0;
+		return 0;
+	}
+
+	if (fid_seq_is_idif(seq)) {
+		fld_range_set_ost(range);
+		range->lsr_index = idif_ost_idx(seq);
+		return 0;
+	}
+
+	fld_range_set_any(range);
+	rc = fld_server_lookup(env, ofd->ofd_seq_site.ss_server_fld, seq,
+			       range);
+	return rc;
+}
+
+/*
+ * \ret > 0: unrecognized stripe
+ * \ret ==0: recognized stripe
+ * \ret < 0: other failures
+ */
+static int ofd_lwp_check_stripe(const struct lu_env *env,
+				struct obd_export *exp, struct ofd_device *ofd,
+				struct obdo *oa)
+{
+	struct ofd_thread_info	*info = ofd_info(env);
+	struct lu_fid		*fid  = &info->fti_fid;
+	struct update_request	*update;
+	struct ptlrpc_request	*req  = NULL;
+	struct update_reply	*reply;
+	struct lov_mds_md_v1	*lmm  = NULL;
+	struct lov_ost_data_v1	*objs;
+	const char		*name = XATTR_NAME_LOV;
+	__u32			 magic;
+	__u32			 patten;
+	int			 size = strlen(name);
+	int			 rc;
+	int			 i;
+	__u16			 count;
+	ENTRY;
+
+	fid->f_seq = oa->o_parent_seq;
+	fid->f_oid = oa->o_parent_oid;
+	fid->f_ver = oa->o_parent_ver;
+
+	update = out_create_update_req(&ofd->ofd_dt_dev);
+	if (IS_ERR(update))
+		RETURN(PTR_ERR(update));
+
+	rc = out_insert_update(env, update, OBJ_XATTR_GET, fid, 1,
+			       &size, (char **)&name);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = out_remote_sync(env, class_exp2cliimp(exp), update, &req);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
+					     UPDATE_BUFFER_SIZE);
+	if (reply == NULL || reply->ur_version != UPDATE_REPLY_V1)
+		GOTO(out, rc = -EPROTO);
+
+	rc = update_get_reply_buf(reply, (void **)&lmm, 0);
+	if (rc < 0)
+		GOTO(out, rc = (rc == -ENODATA ? 1 : rc));
+
+	if (lmm == NULL)
+		GOTO(out, rc = -EFAULT);
+
+	magic = le32_to_cpu(lmm->lmm_magic);
+	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)
+		GOTO(out, rc = -EINVAL);
+
+	patten = le32_to_cpu(lmm->lmm_pattern);
+	/* XXX: currently, we only support LOV_PATTERN_RAID0. */
+	if (patten != LOV_PATTERN_RAID0)
+		GOTO(out, rc = -EOPNOTSUPP);
+
+	if (magic == LOV_MAGIC_V1)
+		objs = &(lmm->lmm_objects[0]);
+	else
+		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
+
+	count = le16_to_cpu(lmm->lmm_stripe_count);
+	for (i = 0; i < count; i++, objs++) {
+		struct ost_id *oi = &info->fti_ostid;
+
+		ostid_le_to_cpu(&objs->l_ost_oi, oi);
+		if (memcmp(oi, &oa->o_oi, sizeof(*oi)) == 0) {
+			if (i == oa->o_stripe_idx)
+				GOTO(out, rc = 0);
+			else
+				GOTO(out, rc = 1);
+		}
+	}
+
+	GOTO(out, rc = 1);
+
+out:
+	ptlrpc_req_finished(req);
+	out_destroy_update_req(update);
+	return rc;
+}
+
+static void ofd_add_inconsistency_item(struct ofd_object *fo, struct obdo *oa)
+{
+	struct ofd_device		*ofd	= ofd_obj2dev(fo);
+	struct lu_fid			*pfid	= &fo->ofo_pfid;
+	struct ofd_inconsistency_item	*oii;
+	bool				 wakeup = false;
+
+	OBD_ALLOC_PTR(oii);
+	if (oii == NULL) {
+		CERROR("%s: cannot alloc memory to repair OST "
+		       "inconsistency for "DFID"\n",
+		       ofd_obd(ofd)->obd_name, PFID(&fo->ofo_pfid));
+		return;
+	}
+
+	spin_lock(&fo->ofo_lock);
+	pfid->f_seq = oa->o_parent_seq;
+	pfid->f_oid = oa->o_parent_oid;
+	/* XXX: In fact, the ff_parent::f_ver is not the real parent
+	 *	FID::f_ver, instead, it is the OST-object index in
+	 *	its parent MDT-object layout EA. */
+	pfid->f_ver = oa->o_stripe_idx;
+	if (fo->ofo_pfid_inconsistent) {
+		spin_unlock(&fo->ofo_lock);
+		OBD_FREE_PTR(oii);
+		return;
+	}
+
+	fo->ofo_pfid_inconsistent = 1;
+	spin_unlock(&fo->ofo_lock);
+
+	lu_object_get(&fo->ofo_obj.do_lu);
+	oii->oii_obj = fo;
+	CFS_INIT_LIST_HEAD(&oii->oii_list);
+	spin_lock(&ofd_inconsistency_lock);
+	if (cfs_list_empty(&ofd_inconsistency_list))
+		wakeup = true;
+	cfs_list_add_tail(&oii->oii_list, &ofd_inconsistency_list);
+	ofd->ofd_inconsistency_self_detected++;
+	spin_unlock(&ofd_inconsistency_lock);
+	if (wakeup)
+		wake_up_all(&ofd->ofd_inconsistency_thread.t_ctl_waitq);
+
+	/* XXX: When the found inconsistency exceeds some threshold,
+	 *	we can trigger the LFSCK to scan part of the system
+	 *	or the whole system, which depends on how to define
+	 *	the threshold, a simple way maybe like that: define
+	 *	the absolute value of how many inconsisteny allowed
+	 *	to be repaired via self detect/repair mechanism, if
+	 *	exceeded, then trigger the LFSCK to scan the layout
+	 *	inconsistency within the whole system. */
+}
+
+static int ofd_verify_ff(const struct lu_env *env, struct ofd_object *fo,
+			 struct obdo *oa, bool write)
+{
+	struct lu_fid		*pfid	= &fo->ofo_pfid;
+	struct ofd_device	*ofd	= ofd_obj2dev(fo);
+	struct lu_seq_range	*range	= &ofd_info(env)->fti_range;
+	struct obd_export	*exp;
+	int			 rc	= 0;
+	ENTRY;
+
+	if (fid_is_sane(pfid)) {
+		if (likely(oa->o_parent_seq == pfid->f_seq &&
+			   oa->o_parent_oid == pfid->f_oid &&
+			   oa->o_stripe_idx == pfid->f_ver))
+			RETURN(0);
+	}
+
+	/* Do not overwrite the MDS-side parent FID with local xattr. */
+	if (!fo->ofo_pfid_inconsistent) {
+		rc = ofd_object_ff_check(env, fo, true);
+		if (rc == -ENODATA)
+			RETURN(0);
+
+		if (rc < 0)
+			RETURN(rc);
+
+		if (likely(oa->o_parent_seq == pfid->f_seq &&
+			   oa->o_parent_oid == pfid->f_oid &&
+			   oa->o_stripe_idx == pfid->f_ver))
+			RETURN(0);
+	}
+
+	rc = ofd_fld_lookup(env, ofd, oa->o_parent_seq, range);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (unlikely(!fld_range_is_mdt(range)))
+		RETURN(-EPERM);
+
+	exp = lustre_find_lwp_by_index(ofd_obd(ofd)->obd_name,
+				       range->lsr_index);
+	if (unlikely(exp == NULL))
+		RETURN(-EPERM);
+
+	rc = ofd_lwp_check_stripe(env, exp, ofd, oa);
+	class_export_put(exp);
+	if (rc > 0)
+		RETURN(-EPERM);
+
+	if (rc < 0)
+		RETURN(rc);
+
+	/* The client given parent FID is correct, need to fix
+	 * server-side inconsistency via a dedicated thread. */
+	ofd_add_inconsistency_item(fo, oa);
+
+	RETURN(0);
+}
 
 static int ofd_preprw_read(const struct lu_env *env, struct obd_export *exp,
 			   struct ofd_device *ofd, struct lu_fid *fid,
-			   struct lu_attr *la, int niocount,
+			   struct lu_attr *la, struct obdo *oa, int niocount,
 			   struct niobuf_remote *rnb, int *nr_local,
 			   struct niobuf_local *lnb, char *jobid)
 {
@@ -62,6 +479,12 @@ static int ofd_preprw_read(const struct lu_env *env, struct obd_export *exp,
 	ofd_read_lock(env, fo);
 	if (!ofd_object_exists(fo))
 		GOTO(unlock, rc = -ENOENT);
+
+	if (ofd->ofd_fail_on_inconsistency && oa->o_valid & OBD_MD_FLFID) {
+		rc = ofd_verify_ff(env, fo, oa, false);
+		if (rc != 0)
+			GOTO(unlock, rc = -EPERM);
+	}
 
 	/* parse remote buffers to local buffers and prepare the latter */
 	*nr_local = 0;
@@ -146,6 +569,15 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 		ofd_read_unlock(env, fo);
 		ofd_object_put(env, fo);
 		GOTO(out, rc = -ENOENT);
+	}
+
+	if (ofd->ofd_fail_on_inconsistency && oa->o_valid & OBD_MD_FLFID) {
+		rc = ofd_verify_ff(env, fo, oa, true);
+		if (rc != 0) {
+			ofd_read_unlock(env, fo);
+			ofd_object_put(env, fo);
+			GOTO(out, rc = -EPERM);
+		}
 	}
 
 	/* Process incoming grant info, set OBD_BRW_GRANTED flag and grant some
@@ -272,8 +704,9 @@ int ofd_preprw(const struct lu_env *env, int cmd, struct obd_export *exp,
 		if (rc == 0) {
 			ofd_grant_prepare_read(env, exp, oa);
 			rc = ofd_preprw_read(env, exp, ofd, &info->fti_fid,
-					     &info->fti_attr, obj->ioo_bufcnt,
-					     rnb, nr_local, lnb, jobid);
+					     &info->fti_attr, oa,
+					     obj->ioo_bufcnt, rnb, nr_local,
+					     lnb, jobid);
 			obdo_from_la(oa, &info->fti_attr, LA_ATIME);
 		}
 	} else {
@@ -336,7 +769,7 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 		GOTO(out, rc);
 
 	if (ff != NULL) {
-		rc = ofd_object_ff_check(env, ofd_obj);
+		rc = ofd_object_ff_check(env, ofd_obj, false);
 		if (rc == -ENODATA)
 			ff_needed = 1;
 		else if (rc < 0)
@@ -390,11 +823,15 @@ ofd_write_attr_set(const struct lu_env *env, struct ofd_device *ofd,
 	if (ff_needed) {
 		rc = dt_xattr_set(env, dt_obj, &info->fti_buf, XATTR_NAME_FID,
 				  0, th, BYPASS_CAPA);
-		if (rc)
-			GOTO(out_tx, rc);
+		if (rc == 0) {
+			ofd_obj->ofo_pfid.f_seq = le64_to_cpu(ff->ff_parent.f_seq);
+			ofd_obj->ofo_pfid.f_oid = le32_to_cpu(ff->ff_parent.f_oid);
+			ofd_obj->ofo_pfid.f_ver = le32_to_cpu(ff->ff_parent.f_ver);
+		}
 	}
 
-	EXIT;
+	GOTO(out_tx, rc);
+
 out_tx:
 	dt_trans_stop(env, ofd->ofd_osd, th);
 out:
