@@ -842,7 +842,8 @@ int ofd_get_info_hdl(struct tgt_session_info *tsi)
 		if (fiemap == NULL)
 			RETURN(-ENOMEM);
 
-		rc = ostid_to_fid(fid, &fm_key->oa.o_oi, 0);
+		rc = ostid_to_fid(fid, &fm_key->oa.o_oi,
+				  ofd->ofd_lut.lut_lsd.lsd_osd_index);
 		if (rc != 0)
 			RETURN(rc);
 
@@ -1311,7 +1312,8 @@ static int ofd_destroy_hdl(struct tgt_session_info *tsi)
 	while (count > 0) {
 		int lrc;
 
-		lrc = ostid_to_fid(&fti->fti_fid, &repbody->oa.o_oi, 0);
+		lrc = ostid_to_fid(&fti->fti_fid, &repbody->oa.o_oi,
+				   ofd->ofd_lut.lut_lsd.lsd_osd_index);
 		if (lrc != 0) {
 			if (rc == 0)
 				rc = lrc;

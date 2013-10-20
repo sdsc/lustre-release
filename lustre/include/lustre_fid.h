@@ -644,14 +644,15 @@ static inline void ost_fid_build_resid(const struct lu_fid *fid,
 }
 
 static inline void ost_fid_from_resid(struct lu_fid *fid,
-				      const struct ldlm_res_id *name)
+				      const struct ldlm_res_id *name,
+				      int ost_idx)
 {
 	if (fid_seq_is_mdt0(name->name[LUSTRE_RES_ID_VER_OID_OFF])) {
 		/* old resid */
 		struct ost_id oi;
 		ostid_set_seq(&oi, name->name[LUSTRE_RES_ID_VER_OID_OFF]);
 		ostid_set_id(&oi, name->name[LUSTRE_RES_ID_SEQ_OFF]);
-		ostid_to_fid(fid, &oi, 0);
+		ostid_to_fid(fid, &oi, ost_idx);
 	} else {
 		/* new resid */
 		fid_extract_from_res_name(fid, name);

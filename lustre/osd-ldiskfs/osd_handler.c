@@ -294,7 +294,7 @@ osd_iget_fid(struct osd_thread_info *info, struct osd_device *dev,
  * \retval -v: other failure cases
  */
 int osd_get_idif(struct osd_thread_info *info, struct inode *inode,
-		 struct dentry *dentry, struct lu_fid *fid)
+		 struct dentry *dentry, struct lu_fid *fid, __u32 idx)
 {
 	struct filter_fid_old	*ff	= &info->oti_ff;
 	struct ost_id		*ostid	= &info->oti_ostid;
@@ -305,8 +305,7 @@ int osd_get_idif(struct osd_thread_info *info, struct inode *inode,
 		rc = 0;
 		ostid_set_seq(ostid, le64_to_cpu(ff->ff_seq));
 		ostid_set_id(ostid, le64_to_cpu(ff->ff_objid));
-		/* XXX: should use real OST index in the future. LU-3569 */
-		ostid_to_fid(fid, ostid, 0);
+		ostid_to_fid(fid, ostid, idx);
 	} else if (rc == sizeof(struct filter_fid)) {
 		rc = 1;
 	} else if (rc >= 0) {
@@ -319,10 +318,13 @@ int osd_get_idif(struct osd_thread_info *info, struct inode *inode,
 static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 {
 	struct osd_thread_info	*info	= osd_oti_get(env);
+	struct osd_device	*osd	= osd_obj2dev(obj);
 	struct lustre_mdt_attrs	*lma	= &info->oti_mdt_attrs;
 	struct inode		*inode	= obj->oo_inode;
 	struct dentry		*dentry = &info->oti_obj_dentry;
 	struct lu_fid		*fid	= NULL;
+	const struct lu_fid	*rfid	= lu_object_fid(&obj->oo_dt.do_lu);
+	__u32			 idx	= osd->od_index;
 	int			 rc;
 	ENTRY;
 
@@ -330,12 +332,12 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 		RETURN(0);
 
 	CLASSERT(LMA_OLD_SIZE >= sizeof(*lma));
+
 	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_LMA,
 			     info->oti_mdt_attrs_old, LMA_OLD_SIZE);
-	if (rc == -ENODATA && !fid_is_igif(lu_object_fid(&obj->oo_dt.do_lu)) &&
-	    osd_obj2dev(obj)->od_check_ff) {
+	if (rc == -ENODATA && osd->od_is_ost && osd->od_check_ff) {
 		fid = &lma->lma_self_fid;
-		rc = osd_get_idif(info, inode, dentry, fid);
+		rc = osd_get_idif(info, inode, dentry, fid, idx);
 		if (rc > 0)
 			RETURN(0);
 	}
@@ -352,23 +354,42 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 		if (unlikely((lma->lma_incompat & ~LMA_INCOMPAT_SUPP) ||
 			     CFS_FAIL_CHECK(OBD_FAIL_OSD_LMA_INCOMPAT))) {
 			CWARN("%s: unsupported incompat LMA feature(s) %#x for "
-			      "fid = "DFID", ino = %lu\n",
-			      osd_obj2dev(obj)->od_svname,
+			      "fid = "DFID", ino = %lu\n", osd->od_svname,
 			      lma->lma_incompat & ~LMA_INCOMPAT_SUPP,
-			      PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-			      inode->i_ino);
+			      PFID(rfid), inode->i_ino);
 			rc = -EOPNOTSUPP;
 		} else if (!(lma->lma_compat & LMAC_NOT_IN_OI)) {
 			fid = &lma->lma_self_fid;
 		}
 	}
 
-	if (fid != NULL &&
-	    unlikely(!lu_fid_eq(lu_object_fid(&obj->oo_dt.do_lu), fid))) {
+	if (fid != NULL && unlikely(!lu_fid_eq(rfid, fid))) {
+		if (osd->od_is_ost && fid_is_idif(rfid) && fid_is_idif(fid)) {
+			struct ost_id *oi = &info->oti_ostid;
+			struct lu_fid *fid1 = &info->oti_fid3;
+			__u32 idx1 = fid_idif_ost_idx(rfid);
+			__u32 idx2 = fid_idif_ost_idx(fid);
+
+			/* For old IDIF, the OST index is not part of the IDIF,
+			 * Means that different OSTs may have the same IDIFs.
+			 * Under such case, we need to make some compatible
+			 * check to make sure to trigger OI scrub properly. */
+			if (idx1 == 0 && idx2 != 0) {
+				/* Given @rfid is old, LMA is new. */
+				fid_to_ostid(rfid, oi);
+				ostid_to_fid(fid1, oi, idx);
+				if (lu_fid_eq(fid1, fid))
+					RETURN(0);
+			} else if (idx1 != 0 && idx2 == 0) {
+				/* Given @rfid is new, LMA is old. */
+				fid_to_ostid(fid, oi);
+				ostid_to_fid(fid1, oi, idx);
+				if (lu_fid_eq(fid1, rfid))
+					RETURN(0);
+			}
+		}
 		CDEBUG(D_INODE, "%s: FID "DFID" != self_fid "DFID"\n",
-		       osd_obj2dev(obj)->od_svname,
-		       PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-		       PFID(&lma->lma_self_fid));
+		       osd->od_svname, PFID(rfid), PFID(fid));
 		rc = -EREMCHG;
 	}
 
@@ -5566,7 +5587,8 @@ static int osd_device_init0(const struct lu_env *env,
 		GOTO(out_mnt, rc);
 	}
 
-	if (server_name_is_ost(o->od_svname))
+	rc = server_name2index(o->od_svname, &o->od_index, NULL);
+	if (rc == LDD_F_SV_TYPE_OST)
 		o->od_is_ost = 1;
 
 	rc = osd_obj_map_init(env, o);

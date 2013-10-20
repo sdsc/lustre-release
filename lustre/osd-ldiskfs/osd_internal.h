@@ -240,7 +240,9 @@ struct osd_device {
 				  od_dirent_journal:1,
 				  od_igif_inoi:1,
 				  od_check_ff:1,
-				  od_is_ost:1;
+				  od_is_ost:1,
+				  od_read_cache:1,
+				  od_writethrough_cache:1;
 
         unsigned long             od_capa_timeout;
         __u32                     od_capa_alg;
@@ -257,14 +259,13 @@ struct osd_device {
 	spinlock_t		  od_osfs_lock;
 
 	int			  od_connects;
+	__u32			  od_index;
 	struct lu_site		  od_site;
 
 	struct osd_obj_map	*od_ost_map;
 	struct osd_mdobj_map	*od_mdt_map;
 
         unsigned long long        od_readcache_max_filesize;
-        int                       od_read_cache;
-        int                       od_writethrough_cache;
 
         struct brw_stats          od_brw_stats;
         cfs_atomic_t              od_r_in_flight;
@@ -643,7 +644,7 @@ int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
 int osd_add_oi_cache(struct osd_thread_info *info, struct osd_device *osd,
 		     struct osd_inode_id *id, const struct lu_fid *fid);
 int osd_get_idif(struct osd_thread_info *info, struct inode *inode,
-		 struct dentry *dentry, struct lu_fid *fid);
+		 struct dentry *dentry, struct lu_fid *fid, __u32 idx);
 
 int osd_obj_map_init(const struct lu_env *env, struct osd_device *osd);
 void osd_obj_map_fini(struct osd_device *dev);
