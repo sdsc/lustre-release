@@ -753,7 +753,8 @@ static int lfsck_namespace_checkpoint(const struct lu_env *env,
 }
 
 static int lfsck_namespace_prep(const struct lu_env *env,
-				struct lfsck_component *com)
+				struct lfsck_component *com,
+				struct lfsck_start_param *lsp)
 {
 	struct lfsck_instance	*lfsck	= com->lc_lfsck;
 	struct lfsck_namespace	*ns	= com->lc_file_ram;
