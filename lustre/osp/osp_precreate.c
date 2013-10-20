@@ -477,6 +477,25 @@ static int osp_precreate_send(const struct lu_env *env, struct osp_device *d)
 
 	rc = ptlrpc_queue_wait(req);
 	if (rc) {
+		if (unlikely(rc == -ERANGE) &&
+		    exp_connect_flags(d->opd_exp) & OBD_CONNECT_LFSCK) {
+			body = req_capsule_server_get(&req->rq_pill,
+						      &RMF_OST_BODY);
+			if (body == NULL)
+				GOTO(out_req, rc = -EPROTO);
+
+			ostid_to_fid(fid, &body->oa.o_oi, d->opd_index);
+
+			if (!fid_is_sane(fid)) {
+				CERROR("%s: Got insane last_fid "DFID"\n",
+				       d->opd_obd->obd_name, PFID(fid));
+				GOTO(out_req, rc = -EPROTO);
+			}
+
+			if (likely(fid_oid(fid)) > 0)
+				d->opd_last_fid_ost = *fid;
+		}
+
 		CERROR("%s: can't precreate: rc = %d\n", d->opd_obd->obd_name,
 		       rc);
 		GOTO(out_req, rc);
@@ -639,6 +658,12 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 
 	CDEBUG(D_HA, "%s: going to cleanup orphans since "DFID"\n",
 	       d->opd_obd->obd_name, PFID(&d->opd_last_used_fid));
+
+	/* OST has told me its last FID, no need to fetch again to save RPC. */
+	if (!fid_is_zero(&d->opd_last_fid_ost)) {
+		d->opd_last_used_fid = d->opd_last_fid_ost;
+		fid_zero(&d->opd_last_fid_ost);
+	}
 
 	*last_fid = d->opd_last_used_fid;
 	/* The OSP should already get the valid seq now */
@@ -974,6 +999,18 @@ static int osp_precreate_thread(void *_arg)
 
 			if (osp_precreate_near_empty(&env, d)) {
 				rc = osp_precreate_send(&env, d);
+				/* Resync the last_id from the OST*/
+				if (unlikely(rc == -ERANGE) &&
+				    exp_connect_flags(d->opd_exp) &
+				    OBD_CONNECT_LFSCK) {
+					CDEBUG(D_LFSCK, "%s: to resync last_id "
+					       "on OST<%x> for seq<"LPX64">\n",
+					       d->opd_obd->obd_name,
+					       d->opd_index,
+					fid_seq(&d->opd_pre_last_created_fid));
+					break;
+				}
+
 				/* osp_precreate_send() sets opd_pre_status
 				 * in case of error, that prevent the using of
 				 * failed device. */

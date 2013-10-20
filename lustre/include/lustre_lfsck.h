@@ -43,8 +43,17 @@ struct lfsck_start_param {
 	struct ldlm_namespace	*lsp_namespace;
 };
 
+enum lfsck_notify_events {
+	LNE_LASTID_REBUILDING	= 1,
+	LNE_LASTID_REBUILT	= 2,
+};
+
+typedef int (*lfsck_out_notify)(const struct lu_env *env, void *data,
+				enum lfsck_notify_events event);
+
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
-		   struct dt_device *next, bool master);
+		   struct dt_device *next, lfsck_out_notify notify,
+		   void *data, bool master);
 void lfsck_degister(const struct lu_env *env, struct dt_device *key);
 
 int lfsck_start(const struct lu_env *env, struct dt_device *key,
