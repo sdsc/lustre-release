@@ -1566,6 +1566,7 @@ int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
 	case LNE_LAYOUT_STOP:
 	case LNE_LAYOUT_PHASE1_DONE:
 	case LNE_LAYOUT_PHASE2_DONE:
+	case LNE_FID_ACCESSED:
 		type = LT_LAYOUT;
 		break;
 	default:
