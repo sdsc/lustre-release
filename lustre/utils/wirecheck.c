@@ -2058,6 +2058,8 @@ static void check_lfsck_event_request(void)
 	check_lfsck_start();
 	CHECK_MEMBER(lfsck_event_request, ler_event);
 	CHECK_MEMBER(lfsck_event_request, ler_index);
+	CHECK_MEMBER(lfsck_event_request, ler_flags);
+	CHECK_MEMBER(lfsck_event_request, ler_padding);
 }
 
 static void system_string(char *cmdline, char *str, int len)

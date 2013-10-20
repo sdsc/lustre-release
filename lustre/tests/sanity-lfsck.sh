@@ -38,7 +38,7 @@ check_and_setup_lustre
 	exit 0
 
 [[ $(lustre_version_code ost1) -lt $(version_code 2.4.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12"
 
 build_test_filter
 
@@ -1131,6 +1131,79 @@ test_11b() {
 	do_facet ost1 $LCTL set_param fail_loc=0
 }
 run_test 11b "LFSCK can rebuild crashed last_id"
+
+test_12() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for test_12" && exit 0
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	echo "All the LFSCK targets should be in 'init' status."
+	for k in $(seq $MDSCOUNT); do
+		local STATUS=$(do_facet mds${k} $LCTL get_param -n \
+				mdd.$(facet_svc mds${k}).lfsck_layout |
+				awk '/^status/ { print $2 }')
+		[ "$STATUS" == "init" ] ||
+			error "(1) MDS${k} Expect 'init', but got '$STATUS'"
+
+		$LFS mkdir -i $((k - 1)) $DIR/${k}
+		createmany -o $DIR/${k}/f 100
+	done
+
+	echo "Trigger LFSCK on all targets by single command (limited speed)."
+	do_facet mds1 $LCTL lfsck_start -M ${FSNAME}-MDT0000 -t layout -A \
+		-s 10 || error "(2) Fail to start LFSCK on all devices!"
+
+	echo "All the LFSCK targets should be in 'scanning-phase1' status."
+	for k in $(seq $MDSCOUNT); do
+		local STATUS=$(do_facet mds${k} $LCTL get_param -n \
+				mdd.$(facet_svc mds${k}).lfsck_layout |
+				awk '/^status/ { print $2 }')
+		[ "$STATUS" == "scanning-phase1" ] ||
+		error "(3) MDS${k} Expect 'scanning-phase1', but got '$STATUS'"
+	done
+
+	echo "Stop layout LFSCK on all targets by single lctl command."
+	do_facet mds1 $LCTL lfsck_stop -M ${FSNAME}-MDT0000 -A ||
+		error "(4) Fail to stop LFSCK on all devices!"
+
+	echo "All the LFSCK targets should be in 'stopped' status."
+	for k in $(seq $MDSCOUNT); do
+		local STATUS=$(do_facet mds${k} $LCTL get_param -n \
+				mdd.$(facet_svc mds${k}).lfsck_layout |
+				awk '/^status/ { print $2 }')
+		[ "$STATUS" == "stopped" ] ||
+			error "(5) MDS${k} Expect 'stopped', but got '$STATUS'"
+	done
+
+	for k in $(seq $OSTCOUNT); do
+		local STATUS=$(do_facet ost${k} $LCTL get_param -n \
+				obdfilter.$(facet_svc ost${k}).lfsck_layout |
+				awk '/^status/ { print $2 }')
+		[ "$STATUS" == "stopped" ] ||
+			error "(6) OST${k} Expect 'stopped', but got '$STATUS'"
+	done
+
+	echo "Re-trigger LFSCK on all targets by single command (full speed)."
+	do_facet mds1 $LCTL lfsck_start -M ${FSNAME}-MDT0000 -t layout -A \
+		-s 0 || error "(7) Fail to start LFSCK on all devices!"
+
+	sleep 3
+	echo "All the LFSCK targets should be in 'completed' status."
+	for k in $(seq $MDSCOUNT); do
+		local STATUS=$(do_facet mds${k} $LCTL get_param -n \
+				mdd.$(facet_svc mds${k}).lfsck_layout |
+				awk '/^status/ { print $2 }')
+		[ "$STATUS" == "completed" ] ||
+		error "(8) MDS${k} expect 'completed', but got '$STATUS'"
+	done
+}
+run_test 12 "single command to trigger LFSCK on all devices"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 

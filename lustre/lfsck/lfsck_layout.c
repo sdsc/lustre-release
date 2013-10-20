@@ -107,6 +107,15 @@ struct lfsck_layout_master_data {
 	/* list for the ost targets in phase1 scanning. */
 	cfs_list_t		llmd_ost_phase2_list;
 
+	/* list for the mdt targets involve layout verification. */
+	cfs_list_t		llmd_mdt_list;
+
+	/* list for the mdt targets in phase1 scanning. */
+	cfs_list_t		llmd_mdt_phase1_list;
+
+	/* list for the mdt targets in phase1 scanning. */
+	cfs_list_t		llmd_mdt_phase2_list;
+
 	struct ptlrpc_thread	llmd_thread;
 	atomic_t		llmd_rpc_in_flight;
 	__u32			llmd_touch_gen;
@@ -725,24 +734,39 @@ static int lfsck_layout_master_async_interpret(const struct lu_env *env,
 {
 	struct lfsck_async_interpret_args *laia = args;
 	struct lfsck_component		  *com  = laia->laia_com;
-	struct lfsck_layout_master_data	  *llmd = com->lc_data;
 	struct lfsck_tgt_descs		  *ltds = laia->laia_ltds;
 	struct lfsck_tgt_desc		  *ltd  = laia->laia_ltd;
 	struct lfsck_event_request	  *ler  = laia->laia_ler;
+	struct lfsck_layout_master_data	  *llmd = com->lc_data;
 
 	switch (ler->ler_event) {
 	case LNE_LAYOUT_START:
 		if (rc == 0) {
 			spin_lock(&ltds->ltd_lock);
 			if (!ltd->ltd_dead && !ltd->ltd_layout_done) {
-				if (cfs_list_empty(&ltd->ltd_layout_list))
-					cfs_list_add_tail(
+				if (ler->ler_flags & LEF_TO_OST) {
+					if (cfs_list_empty(
+						&ltd->ltd_layout_list))
+						cfs_list_add_tail(
 						&ltd->ltd_layout_list,
 						&llmd->llmd_ost_list);
-				if (cfs_list_empty(&ltd->ltd_layout_phase_list))
-					cfs_list_add_tail(
+					if (cfs_list_empty(
+						&ltd->ltd_layout_phase_list))
+						cfs_list_add_tail(
 						&ltd->ltd_layout_phase_list,
 						&llmd->llmd_ost_phase1_list);
+				} else {
+					if (cfs_list_empty(
+						&ltd->ltd_layout_list))
+						cfs_list_add_tail(
+						&ltd->ltd_layout_list,
+						&llmd->llmd_mdt_list);
+					if (cfs_list_empty(
+						&ltd->ltd_layout_phase_list))
+						cfs_list_add_tail(
+						&ltd->ltd_layout_phase_list,
+						&llmd->llmd_mdt_phase1_list);
+				}
 			}
 			spin_unlock(&ltds->ltd_lock);
 		} else {
@@ -756,13 +780,34 @@ static int lfsck_layout_master_async_interpret(const struct lu_env *env,
 		CERROR("%s: unexpected event: %d\n",
 		       lfsck_lfsck2name(com->lc_lfsck), ler->ler_event);
 	case LNE_LAYOUT_STOP:
+	case LNE_LAYOUT_PHASE1_DONE:
 	case LNE_LAYOUT_PHASE2_DONE:
+		if (rc != 0)
+			CERROR("%s: fail to notify %s %x for layout: "
+			       "event = %d, rc = %d\n",
+			       lfsck_lfsck2name(com->lc_lfsck),
+			       (ler->ler_flags & LEF_TO_OST) ? "OST" : "MDT",
+			       ltd->ltd_index, ler->ler_event, rc);
 		break;
 	case LNE_LAYOUT_QUERY:
-		spin_lock(&ltds->ltd_lock);
-		if (rc == 0 && !ltd->ltd_dead && !ltd->ltd_layout_done) {
-			ler = req_capsule_server_get(&req->rq_pill,
-						     &RMF_GETINFO_VAL);
+		if (rc == 0) {
+			if (ler->ler_flags & LEF_TO_OST)
+				ler = req_capsule_server_get(&req->rq_pill,
+							     &RMF_GENERIC_DATA);
+			else
+				ler = req_capsule_server_get(&req->rq_pill,
+							     &RMF_GETINFO_VAL);
+			if (ler == NULL) {
+				CERROR("%s: invalid return value\n",
+				       lfsck_lfsck2name(com->lc_lfsck));
+				spin_lock(&ltds->ltd_lock);
+				cfs_list_del_init(&ltd->ltd_layout_phase_list);
+				cfs_list_del_init(&ltd->ltd_layout_list);
+				spin_unlock(&ltds->ltd_lock);
+				lfsck_tgt_put(ltd);
+				return -EPROTO;
+			}
+
 			if (ptlrpc_req_need_swab(req))
 				lustre_swab_lfsck_event_request(ler);
 
@@ -770,21 +815,38 @@ static int lfsck_layout_master_async_interpret(const struct lu_env *env,
 			case LS_SCANNING_PHASE1:
 				break;
 			case LS_SCANNING_PHASE2:
+				spin_lock(&ltds->ltd_lock);
 				cfs_list_del_init(&ltd->ltd_layout_phase_list);
-				cfs_list_add_tail(&ltd->ltd_layout_phase_list,
-						  &llmd->llmd_ost_phase2_list);
+				if (!ltd->ltd_dead && !ltd->ltd_layout_done) {
+					if (ler->ler_flags & LEF_FROM_OST)
+						cfs_list_add_tail(
+						&ltd->ltd_layout_phase_list,
+						&llmd->llmd_ost_phase2_list);
+					else
+						cfs_list_add_tail(
+						&ltd->ltd_layout_phase_list,
+						&llmd->llmd_mdt_phase2_list);
+				}
+				spin_unlock(&ltds->ltd_lock);
 				break;
 			default:
+				spin_lock(&ltds->ltd_lock);
 				cfs_list_del_init(&ltd->ltd_layout_phase_list);
 				cfs_list_del_init(&ltd->ltd_layout_list);
+				spin_unlock(&ltds->ltd_lock);
 				break;
 			}
+		} else {
+			spin_lock(&ltds->ltd_lock);
+			cfs_list_del_init(&ltd->ltd_layout_phase_list);
+			cfs_list_del_init(&ltd->ltd_layout_list);
+			spin_unlock(&ltds->ltd_lock);
 		}
-		spin_unlock(&ltds->ltd_lock);
 		lfsck_tgt_put(ltd);
 		break;
 	}
 
+	lfsck_component_put(env, com);
 	return 0;
 }
 
@@ -799,6 +861,7 @@ static int lfsck_layout_master_query_others(const struct lu_env *env,
 	struct ptlrpc_request_set	  *set;
 	struct lfsck_tgt_descs		  *ltds;
 	struct lfsck_tgt_desc		  *ltd;
+	cfs_list_t			  *head;
 	__u32				   cnt   = 0;
 	int				   rc    = 0;
 	int				   rc1   = 0;
@@ -809,17 +872,28 @@ static int lfsck_layout_master_query_others(const struct lu_env *env,
 		RETURN(-ENOMEM);
 
 	llmd->llmd_touch_gen++;
-	ltds = &lfsck->li_ost_descs;
 	memset(ler, 0, sizeof(*ler));
 	ler->ler_index = lfsck_dev_idx(lfsck->li_bottom);
 	ler->ler_event = LNE_LAYOUT_QUERY;
-
 	laia->laia_com = com;
-	laia->laia_ltds = ltds;
 	laia->laia_ler = ler;
+
+	if (!cfs_list_empty(&llmd->llmd_mdt_phase1_list)) {
+		ltds = &lfsck->li_mdt_descs;
+		ler->ler_flags = 0;
+		head = &llmd->llmd_mdt_phase1_list;
+	} else {
+
+again:
+		ltds = &lfsck->li_ost_descs;
+		ler->ler_flags = LEF_TO_OST;
+		head = &llmd->llmd_ost_phase1_list;
+	}
+
+	laia->laia_ltds = ltds;
 	spin_lock(&ltds->ltd_lock);
-	while (!cfs_list_empty(&llmd->llmd_ost_phase1_list)) {
-		ltd = cfs_list_entry(llmd->llmd_ost_phase1_list.next,
+	while (!cfs_list_empty(head)) {
+		ltd = cfs_list_entry(head->next,
 				     struct lfsck_tgt_desc,
 				     ltd_layout_phase_list);
 		if (ltd->ltd_layout_gen == llmd->llmd_touch_gen)
@@ -827,8 +901,7 @@ static int lfsck_layout_master_query_others(const struct lu_env *env,
 
 		ltd->ltd_layout_gen = llmd->llmd_touch_gen;
 		cfs_list_del_init(&ltd->ltd_layout_phase_list);
-		cfs_list_add_tail(&ltd->ltd_layout_phase_list,
-				  &llmd->llmd_ost_phase1_list);
+		cfs_list_add_tail(&ltd->ltd_layout_phase_list, head);
 		atomic_inc(&ltd->ltd_ref);
 		laia->laia_ltd = ltd;
 		spin_unlock(&ltds->ltd_lock);
@@ -836,8 +909,10 @@ static int lfsck_layout_master_query_others(const struct lu_env *env,
 					  lfsck_layout_master_async_interpret,
 					  laia);
 		if (rc != 0) {
-			CERROR("%s: fail to query OST %x for layout: %d\n",
-			       lfsck_lfsck2name(lfsck), ltd->ltd_index, rc);
+			CERROR("%s: fail to query %s %x for layout: %d\n",
+			       lfsck_lfsck2name(lfsck),
+			       (ler->ler_flags & LEF_TO_OST) ? "OST" : "MDT",
+			       ltd->ltd_index, rc);
 			lfsck_tgt_put(ltd);
 			rc1 = rc;
 		} else {
@@ -847,8 +922,19 @@ static int lfsck_layout_master_query_others(const struct lu_env *env,
 	}
 	spin_unlock(&ltds->ltd_lock);
 
-	if (cnt > 0)
+	if (cnt > 0) {
 		rc = ptlrpc_set_wait(set);
+		if (rc < 0) {
+			ptlrpc_set_destroy(set);
+			RETURN(rc);
+		}
+		cnt = 0;
+	}
+
+	if (!(ler->ler_flags & LEF_TO_OST) &&
+	    cfs_list_empty(&llmd->llmd_mdt_phase1_list))
+		goto again;
+
 	ptlrpc_set_destroy(set);
 
 	RETURN(rc1 != 0 ? rc1 : rc);
@@ -861,8 +947,9 @@ static int lfsck_layout_master_wait_others(const struct lu_env *env,
 	int				 rc;
 
 	rc = lfsck_layout_master_query_others(env, com);
-	if (!cfs_list_empty(&llmd->llmd_ost_phase2_list) ||
-	    cfs_list_empty(&llmd->llmd_ost_phase1_list))
+	if (cfs_list_empty(&llmd->llmd_mdt_phase1_list) &&
+	    (!cfs_list_empty(&llmd->llmd_ost_phase2_list) ||
+	     cfs_list_empty(&llmd->llmd_ost_phase1_list)))
 		return 1;
 
 	return rc;
@@ -870,7 +957,8 @@ static int lfsck_layout_master_wait_others(const struct lu_env *env,
 
 static int lfsck_layout_master_notify_others(const struct lu_env *env,
 					     struct lfsck_component *com,
-					     struct lfsck_event_request *ler)
+					     struct lfsck_event_request *ler,
+					     __u32 flags)
 {
 	struct lfsck_thread_info	  *info  = lfsck_env_info(env);
 	struct lfsck_async_interpret_args *laia  = &info->lti_laia;
@@ -880,6 +968,8 @@ static int lfsck_layout_master_notify_others(const struct lu_env *env,
 	struct ptlrpc_request_set	  *set;
 	struct lfsck_tgt_descs		  *ltds;
 	struct lfsck_tgt_desc		  *ltd;
+	struct lfsck_tgt_desc		  *next;
+	cfs_list_t			  *head;
 	__u32				   idx;
 	__u32				   cnt   = 0;
 	int				   rc    = 0;
@@ -891,9 +981,14 @@ static int lfsck_layout_master_notify_others(const struct lu_env *env,
 
 	laia->laia_com = com;
 	laia->laia_ler = ler;
+	ler->ler_flags = 0;
 	switch (ler->ler_event) {
 	case LNE_LAYOUT_START:
+		/* Notify OSTs firstly, then other MDTs if needed. */
+		ler->ler_flags |= LEF_TO_OST;
 		ltds = &lfsck->li_ost_descs;
+
+lable1:
 		laia->laia_ltds = ltds;
 		down_read(&ltds->ltd_rw_sem);
 		cfs_foreach_bit(ltds->ltd_tgts_bitmap, idx) {
@@ -907,9 +1002,10 @@ static int lfsck_layout_master_notify_others(const struct lu_env *env,
 					lfsck_layout_master_async_interpret,
 					laia);
 			if (rc != 0) {
-				CERROR("%s: fail to notify OST %x for layout "
-				       "start: %d\n",
-				       lfsck_lfsck2name(lfsck), idx, rc);
+				CERROR("%s: fail to notify %s %x for layout "
+				       "start: %d\n", lfsck_lfsck2name(lfsck),
+				       (ler->ler_flags & LEF_TO_OST) ? "OST" :
+				       "MDT", idx, rc);
 				lfsck_tgt_put(ltd);
 				lo->ll_flags |= LF_INCOMPLETE;
 			} else {
@@ -918,17 +1014,84 @@ static int lfsck_layout_master_notify_others(const struct lu_env *env,
 			down_read(&ltds->ltd_rw_sem);
 		}
 		up_read(&ltds->ltd_rw_sem);
+
+		/* Sync up */
+		if (cnt > 0) {
+			rc = ptlrpc_set_wait(set);
+			if (rc < 0) {
+				ptlrpc_set_destroy(set);
+				RETURN(rc);
+			}
+			cnt = 0;
+		}
+
+		if (!(flags & LPF_ALL_TARGETS))
+			break;
+
+		ltds = &lfsck->li_mdt_descs;
+		/* The sponsor broadcasts the request to other MDTs. */
+		if (flags & LPF_BROADCAST) {
+			flags &= ~LPF_ALL_TARGETS;
+			ler->ler_flags &= ~LEF_TO_OST;
+			goto lable1;
+		}
+
+		/* non-sponsors link other MDT targets locallly. */
+		spin_lock(&ltds->ltd_lock);
+		cfs_foreach_bit(ltds->ltd_tgts_bitmap, idx) {
+			ltd = LTD_TGT(ltds, idx);
+			LASSERT(ltd != NULL);
+
+			if (!cfs_list_empty(&ltd->ltd_layout_list))
+				continue;
+
+			cfs_list_add_tail(&ltd->ltd_layout_list,
+					  &llmd->llmd_mdt_list);
+			cfs_list_add_tail(&ltd->ltd_layout_phase_list,
+					  &llmd->llmd_mdt_phase1_list);
+		}
+		spin_unlock(&ltds->ltd_lock);
+
 		break;
 	case LNE_LAYOUT_STOP:
+		if (flags & LPF_BROADCAST)
+			ler->ler_flags |= LEF_FORCE_STOP;
 	case LNE_LAYOUT_PHASE2_DONE:
+		/* Notify other MDTs if needed, then the OSTs. */
+		if (flags & LPF_ALL_TARGETS) {
+			/* The sponsor broadcasts the request to other MDTs. */
+			if (flags & LPF_BROADCAST) {
+				ler->ler_flags &= ~LEF_TO_OST;
+				head = &llmd->llmd_mdt_list;
+				ltds = &lfsck->li_mdt_descs;
+				goto lable3;
+			}
+
+			/* non-sponsors unlink other MDT targets locallly. */
+			ltds = &lfsck->li_mdt_descs;
+			spin_lock(&ltds->ltd_lock);
+			cfs_list_for_each_entry_safe(ltd, next,
+						     &llmd->llmd_mdt_list,
+						     ltd_layout_list) {
+				cfs_list_del_init(&ltd->ltd_layout_phase_list);
+				cfs_list_del_init(&ltd->ltd_layout_list);
+			}
+			spin_unlock(&ltds->ltd_lock);
+		}
+
+lable2:
+		ler->ler_flags |= LEF_TO_OST;
+		head = &llmd->llmd_ost_list;
 		ltds = &lfsck->li_ost_descs;
+
+lable3:
 		laia->laia_ltds = ltds;
 		spin_lock(&ltds->ltd_lock);
-		while (!cfs_list_empty(&llmd->llmd_ost_list)) {
-			ltd = cfs_list_entry(llmd->llmd_ost_list.next,
-					     struct lfsck_tgt_desc,
+		while (!cfs_list_empty(head)) {
+			ltd = cfs_list_entry(head->next, struct lfsck_tgt_desc,
 					     ltd_layout_list);
-			cfs_list_del_init(&ltd->ltd_layout_phase_list);
+			if (!cfs_list_empty(&ltd->ltd_layout_phase_list))
+				cfs_list_del_init(&ltd->ltd_layout_phase_list);
 			cfs_list_del_init(&ltd->ltd_layout_list);
 			laia->laia_ltd = ltd;
 			spin_unlock(&ltds->ltd_lock);
@@ -936,8 +1099,57 @@ static int lfsck_layout_master_notify_others(const struct lu_env *env,
 					lfsck_layout_master_async_interpret,
 					laia);
 			if (rc != 0)
-				CERROR("%s: fail to notify OST %x for layout "
-				       "stop/done: %d\n",
+				CERROR("%s: fail to notify %s %x for layout "
+				       "stop/phase2: %d\n",
+				       lfsck_lfsck2name(lfsck),
+				       (ler->ler_flags & LEF_TO_OST) ? "OST" :
+				       "MDT", ltd->ltd_index, rc);
+			else
+				cnt++;
+			spin_lock(&ltds->ltd_lock);
+		}
+		spin_unlock(&ltds->ltd_lock);
+
+		if (!(flags & LPF_BROADCAST))
+			break;
+
+		/* Sync up */
+		if (cnt > 0) {
+			rc = ptlrpc_set_wait(set);
+			if (rc < 0) {
+				ptlrpc_set_destroy(set);
+				RETURN(rc);
+			}
+			cnt = 0;
+		}
+
+		flags &= ~LPF_BROADCAST;
+		goto lable2;
+	case LNE_LAYOUT_PHASE1_DONE:
+		llmd->llmd_touch_gen++;
+		ler->ler_flags &= ~LEF_TO_OST;
+		ltds = &lfsck->li_mdt_descs;
+		laia->laia_ltds = ltds;
+		spin_lock(&ltds->ltd_lock);
+		while (!cfs_list_empty(&llmd->llmd_mdt_phase1_list)) {
+			ltd = cfs_list_entry(llmd->llmd_mdt_phase1_list.next,
+					     struct lfsck_tgt_desc,
+					     ltd_layout_phase_list);
+			if (ltd->ltd_layout_gen == llmd->llmd_touch_gen)
+				break;
+
+			ltd->ltd_layout_gen = llmd->llmd_touch_gen;
+			cfs_list_del_init(&ltd->ltd_layout_phase_list);
+			cfs_list_add_tail(&ltd->ltd_layout_phase_list,
+					  &llmd->llmd_mdt_phase1_list);
+			laia->laia_ltd = ltd;
+			spin_unlock(&ltds->ltd_lock);
+			rc = lfsck_async_set_info(env, ltd->ltd_exp, ler, set,
+					lfsck_layout_master_async_interpret,
+					laia);
+			if (rc != 0)
+				CERROR("%s: fail to notify MDT %x for layout "
+				       "phase1 done: %d\n",
 				       lfsck_lfsck2name(lfsck),
 				       ltd->ltd_index, rc);
 			else
@@ -945,6 +1157,7 @@ static int lfsck_layout_master_notify_others(const struct lu_env *env,
 			spin_lock(&ltds->ltd_lock);
 		}
 		spin_unlock(&ltds->ltd_lock);
+
 		break;
 	default:
 		CERROR("%s: unexpected LFSCK event: %u\n",
@@ -1038,8 +1251,13 @@ static int lfsck_layout_assistant(void *args)
 	struct l_wait_info		 lwi    = { 0 };
 	int				 rc	= 0;
 	int				 rc1	= 0;
+	__u32				 flags;
 	ENTRY;
 
+	if (lta->lta_lsp->lsp_start != NULL)
+		flags  = lta->lta_lsp->lsp_start->ls_flags;
+	else
+		flags = bk->lb_param;
 	memset(ler, 0, sizeof(*ler));
 	ler->ler_index = lfsck_dev_idx(lfsck->li_bottom);
 	ler->ler_event = LNE_LAYOUT_START;
@@ -1051,7 +1269,7 @@ static int lfsck_layout_assistant(void *args)
 	if (pos->lp_oit_cookie <= 1)
 		start->ls_flags |= LPF_RESET;
 
-	rc = lfsck_layout_master_notify_others(env, com, ler);
+	rc = lfsck_layout_master_notify_others(env, com, ler, flags);
 	if (rc != 0) {
 		CERROR("%s: fail to notify others for layout start: %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
@@ -1098,35 +1316,47 @@ static int lfsck_layout_assistant(void *args)
 
 		if (llmd->llmd_to_post) {
 			llmd->llmd_to_post = 0;
-			if (llmd->llmd_post_result <= 0) {
-				memset(ler, 0, sizeof(*ler));
-				ler->ler_index =
-					lfsck_dev_idx(lfsck->li_bottom);
+			memset(ler, 0, sizeof(*ler));
+			ler->ler_index = lfsck_dev_idx(lfsck->li_bottom);
+			if (llmd->llmd_post_result > 0) {
+				ler->ler_event = LNE_LAYOUT_PHASE1_DONE;
+				ler->u.ler_status = llmd->llmd_post_result;
+			} else {
+				ler->ler_event = LNE_LAYOUT_STOP;
 				if (llmd->llmd_post_result == 0) {
-					ler->ler_event = LNE_LAYOUT_STOP;
 					if (lfsck->li_status == LS_PAUSED ||
-					    lfsck->li_status == LS_CO_PAUSED)
+					    lfsck->li_status == LS_CO_PAUSED) {
+						flags = 0;
 						stop->ls_status = LS_CO_PAUSED;
-					else if (lfsck->li_status ==
+					} else if (lfsck->li_status ==
 								LS_STOPPED ||
 						 lfsck->li_status ==
-								LS_CO_STOPPED)
-						stop->ls_status = LS_CO_STOPPED;
-					else
+								LS_CO_STOPPED) {
+						flags = lfsck->li_flags;
+						if (flags & LPF_BROADCAST)
+							stop->ls_status =
+								LS_STOPPED;
+						else
+							stop->ls_status =
+								LS_CO_STOPPED;
+					} else {
 						LBUG();
+					}
 				} else {
-					ler->ler_event = LNE_LAYOUT_STOP;
+					flags = 0;
 					stop->ls_status = LS_CO_FAILED;
 				}
-				rc = lfsck_layout_master_notify_others(env, com,
-								       ler);
-				if (rc != 0)
-					CERROR("%s: failed to notify others "
-					       "for layout post: %d\n",
-					       lfsck_lfsck2name(lfsck), rc);
-
-				GOTO(fini, rc);
 			}
+
+			rc = lfsck_layout_master_notify_others(env, com, ler,
+							       flags);
+			if (rc != 0)
+				CERROR("%s: failed to notify others for layout "
+				       "post: %d\n",
+				       lfsck_lfsck2name(lfsck), rc);
+
+			if (llmd->llmd_post_result <= 0)
+				GOTO(fini, rc);
 
 			/* Wakeup the master engine to go ahead. */
 			wake_up_all(&thread->t_ctl_waitq);
@@ -1177,6 +1407,9 @@ static int lfsck_layout_assistant(void *args)
 					if (rc != 0)
 						GOTO(cleanup2, rc = 1);
 
+					if (unlikely(llmd->llmd_exit))
+						GOTO(cleanup2, rc = 0);
+
 					spin_lock(&ltds->ltd_lock);
 				}
 
@@ -1217,18 +1450,25 @@ cleanup2:
 	} else if (rc == 0) {
 		ler->ler_event = LNE_LAYOUT_STOP;
 		if (lfsck->li_status == LS_PAUSED ||
-		    lfsck->li_status == LS_CO_PAUSED)
+		    lfsck->li_status == LS_CO_PAUSED) {
+			flags = 0;
 			stop->ls_status = LS_CO_PAUSED;
-		else if (lfsck->li_status == LS_STOPPED ||
-			 lfsck->li_status == LS_CO_STOPPED)
-			stop->ls_status = LS_CO_STOPPED;
-		else
+		} else if (lfsck->li_status == LS_STOPPED ||
+			 lfsck->li_status == LS_CO_STOPPED) {
+			flags = lfsck->li_flags;
+			if (flags & LPF_BROADCAST)
+				stop->ls_status = LS_STOPPED;
+			else
+				stop->ls_status = LS_CO_STOPPED;
+		} else {
 			LBUG();
+		}
 	} else {
 		ler->ler_event = LNE_LAYOUT_STOP;
+		flags = 0;
 		stop->ls_status = LS_CO_FAILED;
 	}
-	rc1 = lfsck_layout_master_notify_others(env, com, ler);
+	rc1 = lfsck_layout_master_notify_others(env, com, ler, flags);
 	if (rc1 != 0) {
 		CERROR("%s: failed to notify others for layout quit: %d\n",
 		       lfsck_lfsck2name(lfsck), rc1);
@@ -1433,6 +1673,7 @@ lfsck_layout_slave_notify_master(const struct lu_env *env,
 
 	memset(ler, 0, sizeof(*ler));
 	ler->ler_event = event;
+	ler->ler_flags = LEF_FROM_OST;
 	ler->u.ler_status = result;
 	ler->ler_index = lfsck_dev_idx(lfsck->li_bottom);
 	llsd->llsd_touch_gen++;
@@ -2277,6 +2518,18 @@ static void lfsck_layout_master_data_release(const struct lu_env *env,
 				     ltd_layout_list) {
 		cfs_list_del_init(&ltd->ltd_layout_list);
 	}
+	cfs_list_for_each_entry_safe(ltd, next, &llmd->llmd_mdt_phase1_list,
+				     ltd_layout_phase_list) {
+		cfs_list_del_init(&ltd->ltd_layout_phase_list);
+	}
+	cfs_list_for_each_entry_safe(ltd, next, &llmd->llmd_mdt_phase2_list,
+				     ltd_layout_phase_list) {
+		cfs_list_del_init(&ltd->ltd_layout_phase_list);
+	}
+	cfs_list_for_each_entry_safe(ltd, next, &llmd->llmd_mdt_list,
+				     ltd_layout_list) {
+		cfs_list_del_init(&ltd->ltd_layout_list);
+	}
 	spin_unlock(&ltds->ltd_lock);
 
 	OBD_FREE(llmd, sizeof(*llmd));
@@ -2344,10 +2597,15 @@ static int lfsck_layout_master_in_notify(const struct lu_env *env,
 	struct lfsck_tgt_descs		*ltds;
 	struct lfsck_tgt_desc		*ltd;
 
-	if (ler->ler_event != LNE_LAYOUT_PHASE1_DONE)
+	if (ler->ler_event != LNE_LAYOUT_PHASE1_DONE &&
+	    ler->ler_event != LNE_LAYOUT_PHASE2_DONE &&
+	    ler->ler_event != LNE_LAYOUT_STOP)
 		return -EINVAL;
 
-	ltds = &lfsck->li_ost_descs;
+	if (ler->ler_flags & LEF_FROM_OST)
+		ltds = &lfsck->li_ost_descs;
+	else
+		ltds = &lfsck->li_mdt_descs;
 	spin_lock(&ltds->ltd_lock);
 	ltd = LTD_TGT(ltds, ler->ler_index);
 	if (ltd == NULL) {
@@ -2356,20 +2614,46 @@ static int lfsck_layout_master_in_notify(const struct lu_env *env,
 	}
 
 	cfs_list_del_init(&ltd->ltd_layout_phase_list);
-	if (ler->u.ler_status > 0) {
-		if (cfs_list_empty(&ltd->ltd_layout_list))
-			cfs_list_add_tail(&ltd->ltd_layout_list,
-					  &llmd->llmd_ost_list);
-		cfs_list_add_tail(&ltd->ltd_layout_phase_list,
-				  &llmd->llmd_ost_phase2_list);
-	} else {
+	switch (ler->ler_event) {
+	case LNE_LAYOUT_PHASE1_DONE:
+		if (ler->u.ler_status > 0) {
+			if (ler->ler_flags & LEF_FROM_OST) {
+				if (cfs_list_empty(&ltd->ltd_layout_list))
+					cfs_list_add_tail(&ltd->ltd_layout_list,
+							  &llmd->llmd_ost_list);
+				cfs_list_add_tail(&ltd->ltd_layout_phase_list,
+						  &llmd->llmd_ost_phase2_list);
+			} else {
+				if (cfs_list_empty(&ltd->ltd_layout_list))
+					cfs_list_add_tail(&ltd->ltd_layout_list,
+							  &llmd->llmd_mdt_list);
+				cfs_list_add_tail(&ltd->ltd_layout_phase_list,
+						  &llmd->llmd_mdt_phase2_list);
+			}
+		} else {
+			ltd->ltd_layout_done = 1;
+			cfs_list_del_init(&ltd->ltd_layout_list);
+			lo->ll_flags |= LF_INCOMPLETE;
+		}
+		break;
+	case LNE_LAYOUT_PHASE2_DONE:
 		ltd->ltd_layout_done = 1;
 		cfs_list_del_init(&ltd->ltd_layout_list);
-		lo->ll_flags |= LF_INCOMPLETE;
+		break;
+	case LNE_LAYOUT_STOP:
+		ltd->ltd_layout_done = 1;
+		cfs_list_del_init(&ltd->ltd_layout_list);
+		if (!(ler->ler_flags & LEF_FORCE_STOP))
+			lo->ll_flags |= LF_INCOMPLETE;
+		break;
+	default:
+		break;
 	}
 	spin_unlock(&ltds->ltd_lock);
 
-	if (cfs_list_empty(&llmd->llmd_ost_phase1_list))
+	if (ler->ler_flags & LEF_FORCE_STOP)
+		lfsck_stop(env, lfsck->li_bottom, &ler->u.ler_stop);
+	else if (cfs_list_empty(&llmd->llmd_ost_phase1_list))
 		wake_up_all(&llmd->llmd_thread.t_ctl_waitq);
 
 	return 0;
@@ -2427,6 +2711,13 @@ static int lfsck_layout_master_stop_notify(const struct lu_env *env,
 	memset(ler, 0, sizeof(*ler));
 	ler->ler_index = lfsck_dev_idx(lfsck->li_bottom);
 	ler->ler_event = LNE_LAYOUT_STOP;
+	if (ltds == &lfsck->li_ost_descs) {
+		ler->ler_flags = LEF_TO_OST;
+	} else {
+		if (ltd->ltd_index == lfsck_dev_idx(lfsck->li_bottom))
+			return 0;
+		ler->ler_flags = 0;
+	}
 	stop->ls_status = LS_CO_STOPPED;
 
 	laia->laia_com = com;
@@ -2438,9 +2729,42 @@ static int lfsck_layout_master_stop_notify(const struct lu_env *env,
 				  lfsck_layout_master_async_interpret,
 				  laia);
 	if (rc != 0)
-		CERROR("%s: Fail to notify OST %x for stop: %d\n",
-		       lfsck_lfsck2name(lfsck), ltd->ltd_index, rc);
+		CERROR("%s: Fail to notify %s %x for co-stop: %d\n",
+		       lfsck_lfsck2name(lfsck),
+		       (ler->ler_flags & LEF_TO_OST) ? "OST" : "MDT",
+		       ltd->ltd_index, rc);
 	return rc;
+}
+
+/* with lfsck::li_lock held */
+static int lfsck_layout_slave_join(const struct lu_env *env,
+				   struct lfsck_component *com,
+				   struct lfsck_start_param *lsp)
+{
+	struct lfsck_instance		 *lfsck = com->lc_lfsck;
+	struct lfsck_layout_slave_data	 *llsd  = com->lc_data;
+	struct lfsck_layout_slave_target *llst;
+	struct lfsck_start		 *start = lsp->lsp_start;
+	int				  rc    = 0;
+	ENTRY;
+
+	if (!lsp->lsp_index_valid || start == NULL ||
+	    !(start->ls_flags & LPF_ALL_TARGETS))
+		RETURN(-EALREADY);
+
+	spin_unlock(&lfsck->li_lock);
+	rc = lfsck_layout_llst_add(llsd, lsp->lsp_index);
+	spin_lock(&lfsck->li_lock);
+	if (rc == 0 && !thread_is_running(&lfsck->li_thread)) {
+		spin_unlock(&lfsck->li_lock);
+		llst = lfsck_layout_llst_find_and_del(llsd, lsp->lsp_index);
+		if (llst != NULL)
+			lfsck_layout_llst_put(llst);
+		spin_lock(&lfsck->li_lock);
+		rc = -EAGAIN;
+	}
+
+	RETURN(rc);
 }
 
 static struct lfsck_operations lfsck_layout_master_ops = {
@@ -2473,6 +2797,7 @@ static struct lfsck_operations lfsck_layout_slave_ops = {
 	.lfsck_data_release	= lfsck_layout_slave_data_release,
 	.lfsck_query		= lfsck_layout_query,
 	.lfsck_in_notify	= lfsck_layout_slave_in_notify,
+	.lfsck_join		= lfsck_layout_slave_join,
 };
 
 int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck)
@@ -2503,10 +2828,13 @@ int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck)
 			GOTO(out, rc = -ENOMEM);
 
 		CFS_INIT_LIST_HEAD(&llmd->llmd_req_list);
+		spin_lock_init(&llmd->llmd_lock);
 		CFS_INIT_LIST_HEAD(&llmd->llmd_ost_list);
 		CFS_INIT_LIST_HEAD(&llmd->llmd_ost_phase1_list);
 		CFS_INIT_LIST_HEAD(&llmd->llmd_ost_phase2_list);
-		spin_lock_init(&llmd->llmd_lock);
+		CFS_INIT_LIST_HEAD(&llmd->llmd_mdt_list);
+		CFS_INIT_LIST_HEAD(&llmd->llmd_mdt_phase1_list);
+		CFS_INIT_LIST_HEAD(&llmd->llmd_mdt_phase2_list);
 		init_waitqueue_head(&llmd->llmd_thread.t_ctl_waitq);
 		atomic_set(&llmd->llmd_rpc_in_flight, 0);
 		com->lc_data = llmd;

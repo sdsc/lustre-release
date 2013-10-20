@@ -1159,7 +1159,7 @@ void lustre_assert_wire_constants(void)
 	LASSERTF(OBD_CONNECT_PINGLESS == 0x4000000000000ULL, "found 0x%.16llxULL\n",
 		 OBD_CONNECT_PINGLESS);
 	LASSERTF(OBD_CONNECT_FLOCK_DEAD == 0x8000000000000ULL, "found 0x%.16llxULL\n",
-	         OBD_CONNECT_FLOCK_DEAD);
+		 OBD_CONNECT_FLOCK_DEAD);
 	LASSERTF(OBD_CKSUM_CRC32 == 0x00000001UL, "found 0x%.8xUL\n",
 		(unsigned)OBD_CKSUM_CRC32);
 	LASSERTF(OBD_CKSUM_ADLER == 0x00000002UL, "found 0x%.8xUL\n",
@@ -4534,7 +4534,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)sizeof(((struct update *)0)->u_bufs));
 
 	/* Checks for struct lfsck_event_request */
-	LASSERTF((int)sizeof(struct lfsck_event_request) == 24, "found %lld\n",
+	LASSERTF((int)sizeof(struct lfsck_event_request) == 32, "found %lld\n",
 		 (long long)(int)sizeof(struct lfsck_event_request));
 
 	/* Checks for struct lfsck_start */
@@ -4572,5 +4572,13 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct lfsck_event_request, ler_index));
 	LASSERTF((int)sizeof(((struct lfsck_event_request *)0)->ler_index) == 4, "found %lld\n",
 		 (long long)(int)sizeof(((struct lfsck_event_request *)0)->ler_index));
+	LASSERTF((int)offsetof(struct lfsck_event_request, ler_flags) == 24, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_event_request, ler_flags));
+	LASSERTF((int)sizeof(((struct lfsck_event_request *)0)->ler_flags) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_event_request *)0)->ler_flags));
+	LASSERTF((int)offsetof(struct lfsck_event_request, ler_padding) == 28, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_event_request, ler_padding));
+	LASSERTF((int)sizeof(((struct lfsck_event_request *)0)->ler_padding) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_event_request *)0)->ler_padding));
 }
 

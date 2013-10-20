@@ -2597,5 +2597,7 @@ void lustre_swab_lfsck_event_request(struct lfsck_event_request *ler)
 	__swab16s(&ler->u.ler_start.ls_flags);
 	__swab32s(&ler->ler_event);
 	__swab32s(&ler->ler_index);
+	__swab32s(&ler->ler_flags);
+	CLASSERT(offsetof(typeof(*ler), ler_padding) != 0);
 }
 EXPORT_SYMBOL(lustre_swab_lfsck_event_request);
