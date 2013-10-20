@@ -1768,8 +1768,181 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 					const char *postfix,
 					__u32 ea_off)
 {
-	/* XXX: To be extended in other patch. */
-	return 0;
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	char				*name	= info->lti_key;
+	struct lu_attr			*la	= &info->lti_la;
+	struct dt_object_format 	*dof	= &info->lti_dof;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct lu_fid			*pfid	= &rec->lor_fid;
+	struct lu_fid			*tfid	= &info->lti_fid3;
+	struct dt_device		*next	= lfsck->li_next;
+	struct dt_object		*pobj	= NULL;
+	struct dt_object		*cobj	= NULL;
+	struct thandle			*th	= NULL;
+	struct lu_buf			*pbuf	= NULL;
+	struct lu_buf			*ea_buf = &info->lti_big_buf;
+	int				 buflen = ea_buf->lb_len;
+	int				 rc	= 0;
+	ENTRY;
+
+	/* Create .lustre/lost+found/MDTxxxx when needed. */
+	if (unlikely(lfsck->li_lf_obj == NULL)) {
+		rc = lfsck_create_lf(env, lfsck);
+		if (rc != 0)
+			RETURN(rc);
+	}
+
+	if (fid_is_zero(pfid)) {
+		struct filter_fid *ff = &info->lti_new_pfid;
+
+		rc = lfsck_fid_alloc(env, lfsck, pfid, false);
+		if (rc != 0)
+			RETURN(rc);
+
+		ff->ff_parent.f_seq = cpu_to_le64(pfid->f_seq);
+		ff->ff_parent.f_oid = cpu_to_le32(pfid->f_oid);
+		/* XXX: In fact, the ff_parent::f_ver is not the real parent
+		 *	FID::f_ver, instead, it is the OST-object index in
+		 *	its parent MDT-object layout EA. */
+		ff->ff_parent.f_ver = cpu_to_le32(ea_off);
+		pbuf = lfsck_buf_get(env, ff, sizeof(struct filter_fid));
+		cobj = lfsck_object_find_by_dev(env, ltd->ltd_tgt, cfid);
+		if (IS_ERR(cobj))
+			RETURN(PTR_ERR(cobj));
+	}
+
+	pobj = lfsck_object_find_by_dev(env, lfsck->li_bottom, pfid);
+	if (IS_ERR(pobj))
+		GOTO(put, rc = PTR_ERR(pobj));
+
+	LASSERT(prefix != NULL);
+	LASSERT(postfix != NULL);
+
+	/** name rules:
+	 *
+	 *  1. Use the MDT-object's FID as the name with prefix and postfix.
+	 *
+	 *  1.1 prefix "C-":	Two OST-objects cliam the some MDT-object and
+	 *			the same slot in the layout EA.
+	 *  1.2 prefix "E-":	The OST-object was created by LFSCK to repair
+	 *			dangling reference, but it found out the real
+	 *			OST-object as progressing and exchanged them.
+	 *  1.3 prefix "N-":	The orphan OST-object does not know which one
+	 *			is the real parent, so the LFSCK assign a new
+	 *			FID as its parent.
+	 *  1.4 prefix "R-":	The orphan OST-object know its parent FID but
+	 *			does not know the position in the namespace.
+	 *
+	 *  2. If there is name conflict, increase FID::f_ver for new name. */
+	sprintf(name, "%s"DFID"%s", prefix, PFID(pfid), postfix);
+	do {
+		rc = dt_lookup(env, lfsck->li_lf_obj, (struct dt_rec *)tfid,
+			       (const struct dt_key *)name, BYPASS_CAPA);
+		if (rc != 0 && rc != -ENOENT)
+			GOTO(put, rc);
+
+		if (unlikely(rc == 0)) {
+			CWARN("%s: The name %s under lost+found has been used "
+			      "by the "DFID". Try to increase the FID version "
+			      "for the new file name.\n",
+			      lfsck_lfsck2name(lfsck), name, PFID(tfid));
+			*tfid = *pfid;
+			tfid->f_ver++;
+			sprintf(name, "%s"DFID"%s", prefix, PFID(tfid), postfix);
+		}
+	} while (rc == 0);
+
+	memset(la, 0, sizeof(*la));
+	la->la_uid = rec->lor_uid;
+	la->la_gid = rec->lor_gid;
+	la->la_mode = S_IFREG | S_IRUSR | S_IWUSR;
+	la->la_valid = LA_MODE | LA_UID | LA_GID;
+
+	memset(dof, 0, sizeof(*dof));
+	dof->dof_type = dt_mode_to_dft(S_IFREG);
+
+	rc = lov_mds_md_size(ea_off + 1, LOV_MAGIC_V1);
+	if (buflen < rc) {
+		lu_buf_realloc(ea_buf, rc);
+		buflen = ea_buf->lb_len;
+		if (ea_buf->lb_buf == NULL)
+			GOTO(put, rc = -ENOMEM);
+	} else {
+		ea_buf->lb_len = rc;
+	}
+
+	th = dt_trans_create(env, next);
+	if (IS_ERR(th))
+		GOTO(put, rc = PTR_ERR(th));
+
+	/* 1a. Update OST-object's parent information remotely.
+	 *
+	 * If other subsequent modifications failed, then next LFSCK scanning
+	 * will process the OST-object as orphan again with known parent FID. */
+	if (cobj != NULL) {
+		rc = dt_declare_xattr_set(env, cobj, pbuf, XATTR_NAME_FID, 0, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
+	/* 2a. Create the MDT-object locally. */
+	rc = dt_declare_create(env, pobj, la, NULL, dof, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	/* 3a. Add layout EA for the MDT-object. */
+	rc = dt_declare_xattr_set(env, pobj, ea_buf, XATTR_NAME_LOV,
+				  LU_XATTR_CREATE, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	/* 4a. Insert the MDT-object to .lustre/lost+found/MDTxxxx/ */
+	rc = dt_declare_insert(env, lfsck->li_lf_obj,
+			       (const struct dt_rec *)pfid,
+			       (const struct dt_key *)name, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start(env, next, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	/* 1b. Update OST-object's parent information remotely. */
+	if (cobj != NULL) {
+		rc = dt_xattr_set(env, cobj, pbuf, XATTR_NAME_FID, 0, th,
+				  BYPASS_CAPA);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
+	dt_write_lock(env, pobj, 0);
+	/* 2b. Create the MDT-object locally. */
+	rc = dt_create(env, pobj, la, NULL, dof, th);
+	if (rc == 0)
+		/* 3b. Add layout EA for the MDT-object. */
+		rc = lfsck_layout_extend_lovea(env, th, pobj, cfid, ea_buf,
+					       LU_XATTR_CREATE, ltd->ltd_index,
+					       ea_off);
+	dt_write_unlock(env, pobj);
+	if (rc < 0)
+		GOTO(stop, rc);
+
+	/* 4b. Insert the MDT-object to .lustre/lost+found/MDTxxxx/ */
+	rc = dt_insert(env, lfsck->li_lf_obj,
+		       (const struct dt_rec *)pfid,
+		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
+
+	GOTO(stop, rc);
+
+stop:
+	dt_trans_stop(env, next, th);
+put:
+	if (cobj != NULL && !IS_ERR(cobj))
+		lu_object_put(env, &cobj->do_lu);
+	if (pobj != NULL && !IS_ERR(pobj))
+		lu_object_put(env, &pobj->do_lu);
+	ea_buf->lb_len = buflen;
+	return (rc >= 0 ? 1 : rc);
 }
 
 /**
