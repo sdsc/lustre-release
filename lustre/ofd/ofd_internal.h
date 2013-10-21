@@ -184,7 +184,8 @@ struct ofd_device {
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
 				 ofd_grant_compat_disable:1,
 				 ofd_lastid_rebuilding:1,
-				 ofd_fail_on_inconsistency:1;
+				 ofd_fail_on_inconsistency:1,
+				 ofd_record_fid_accessed:1;
 	struct seq_server_site	 ofd_seq_site;
 	/* Protect ::ofd_lastid_rebuilding */
 	struct rw_semaphore	 ofd_lastid_rwsem;
@@ -324,6 +325,7 @@ struct ofd_thread_info {
 	unsigned long			 fti_used;
 	struct ost_lvb			 fti_lvb;
 	struct lu_seq_range		 fti_range;
+	struct lfsck_event_request	 fti_ler;
 };
 
 extern void target_recovery_fini(struct obd_device *obd);

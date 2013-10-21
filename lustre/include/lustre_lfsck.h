@@ -94,6 +94,7 @@ enum lfsck_notify_events {
 	LNE_LAYOUT_START	= 5,
 	LNE_LAYOUT_STOP		= 6,
 	LNE_LAYOUT_QUERY	= 7,
+	LNE_FID_ACCESSED	= 8,
 };
 
 enum lfsck_event_flags {
@@ -128,5 +129,16 @@ int lfsck_set_speed(struct dt_device *key, int val);
 
 int lfsck_dump(struct dt_device *key, void *buf, int len, enum lfsck_type type);
 int lfsck_query(struct dt_device *key, enum lfsck_type type);
+
+static inline int lfsck_record_fid_accessed(const struct lu_env *env,
+					    struct dt_device *key,
+					    struct lfsck_event_request *ler,
+					    const struct lu_fid *fid)
+{
+	ler->ler_event = LNE_FID_ACCESSED;
+	ler->u.ler_fid = *fid;
+
+	return lfsck_in_notify(env, key, ler);
+}
 
 #endif /* _LUSTRE_LFSCK_H */
