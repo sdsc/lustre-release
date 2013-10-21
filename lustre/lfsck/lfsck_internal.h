@@ -527,6 +527,7 @@ struct lfsck_thread_info {
 	struct lu_fid		lti_fid2;
 	struct lu_attr		lti_la;
 	struct lu_attr		lti_la2;
+	struct lu_attr		lti_la3;
 	struct lustre_mdt_attrs lti_lma;
 	struct dt_object_format lti_dof;
 	/* lti_ent and lti_key must be conjoint,

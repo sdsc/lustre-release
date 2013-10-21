@@ -1299,6 +1299,105 @@ test_14() {
 }
 run_test 14 "LFSCK can repair MDT-object with dangling reference"
 
+test_15a() {
+	echo "#####"
+	echo "If the OST-object referenced by the MDT-object back points"
+	echo "to some non-exist MDT-object, then the LFSCK should repair"
+	echo "the OST-object to back point to the right MDT-object."
+	echo "#####"
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+	touch $DIR/$tdir/guard
+
+	echo "Inject failure stub to make the OST-object to back point to"
+	echo "non-exist MDT-object."
+	#define OBD_FAIL_LFSCK_UNMATCHED_PAIR1	0x1611
+
+	do_facet ost1 $LCTL set_param fail_loc=0x1611
+	dd if=/dev/zero of=$DIR/$tdir/f0 bs=1M count=1
+	cancel_lru_locks osc
+	sync
+	sleep 2
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	echo "stopall to cleanup object cache"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	echo "Trigger layout LFSCK to find out unmatched pairs and fix them"
+	$START_LAYOUT || error "(1) Fail to start LFSCK for layout!"
+	sleep 2
+
+	local STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(2) Expect 'completed', but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_unmatched_pair/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Fail to repair unmatched pair: $repaired"
+}
+run_test 15a "LFSCK can repair unmatched MDT-object/OST-object pairs (1)"
+
+test_15b() {
+	echo "#####"
+	echo "If the OST-object referenced by the MDT-object back points"
+	echo "to other MDT-object that doesn't recognize the OST-object,"
+	echo "then the LFSCK should repair it to back point to the right"
+	echo "MDT-object (the first one)."
+	echo "#####"
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+	touch $DIR/$tdir/guard
+
+	echo "Inject failure stub to make the OST-object to back point to"
+	echo "other MDT-object"
+
+	#define OBD_FAIL_LFSCK_UNMATCHED_PAIR2	0x1612
+	do_facet ost1 $LCTL set_param fail_loc=0x1612
+	dd if=/dev/zero of=$DIR/$tdir/f0 bs=1M count=1
+	cancel_lru_locks osc
+	sync
+	sleep 2
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	echo "stopall to cleanup object cache"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	echo "Trigger layout LFSCK to find out unmatched pairs and fix them"
+	$START_LAYOUT || error "(1) Fail to start LFSCK for layout!"
+	sleep 2
+
+	local STATUS=$($SHOW_LAYOUT | awk '/^status/ { print $2 }')
+	[ "$STATUS" == "completed" ] ||
+		error "(2) Expect 'completed', but got '$STATUS'"
+
+	local repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_unmatched_pair/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Fail to repair unmatched pair: $repaired"
+}
+run_test 15b "LFSCK can repair unmatched MDT-object/OST-object pairs (2)"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size
