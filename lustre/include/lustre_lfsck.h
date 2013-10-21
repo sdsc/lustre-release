@@ -38,9 +38,52 @@
 #include <lu_object.h>
 #include <dt_object.h>
 
+enum lfsck_status {
+	/* The lfsck file is new created, for new MDT, upgrading from old disk,
+	 * or re-creating the lfsck file manually. */
+	LS_INIT			= 0,
+
+	/* The first-step system scanning. */
+	LS_SCANNING_PHASE1	= 1,
+
+	/* The second-step system scanning. */
+	LS_SCANNING_PHASE2	= 2,
+
+	/* The LFSCK processing has completed for all objects. */
+	LS_COMPLETED		= 3,
+
+	/* The LFSCK exited automatically for failure, will not auto restart. */
+	LS_FAILED		= 4,
+
+	/* The LFSCK is stopped manually, will not auto restart. */
+	LS_STOPPED		= 5,
+
+	/* LFSCK is paused automatically when umount,
+	 * will be restarted automatically when remount. */
+	LS_PAUSED		= 6,
+
+	/* System crashed during the LFSCK,
+	 * will be restarted automatically after recovery. */
+	LS_CRASHED		= 7,
+
+	/* Some OST/MDT failed during the LFSCK, or not join the LFSCK. */
+	LS_PARTIAL		= 8,
+
+	/* The LFSCK is failed because its controller is failed. */
+	LS_CO_FAILED		= 9,
+
+	/* The LFSCK is stopped because its controller is stopped. */
+	LS_CO_STOPPED		= 10,
+
+	/* The LFSCK is paused because its controller is paused. */
+	LS_CO_PAUSED		= 11,
+};
+
 struct lfsck_start_param {
-	struct lfsck_start	*lsp_start;
 	struct ldlm_namespace	*lsp_namespace;
+	struct lfsck_start	*lsp_start;
+	__u32			 lsp_index;
+	unsigned int		 lsp_index_valid:1;
 };
 
 enum lfsck_notify_events {
@@ -50,6 +93,7 @@ enum lfsck_notify_events {
 	LNE_LAYOUT_PHASE2_DONE	= 4,
 	LNE_LAYOUT_START	= 5,
 	LNE_LAYOUT_STOP		= 6,
+	LNE_LAYOUT_QUERY	= 7,
 };
 
 typedef int (*lfsck_out_notify)(const struct lu_env *env, void *data,
@@ -69,11 +113,14 @@ void lfsck_del_target(const struct lu_env *env, struct dt_device *key,
 int lfsck_start(const struct lu_env *env, struct dt_device *key,
 		struct lfsck_start_param *lsp);
 int lfsck_stop(const struct lu_env *env, struct dt_device *key,
-	       bool pause);
+	       struct lfsck_stop *stop);
+int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
+		    struct lfsck_event_request *ler);
 
 int lfsck_get_speed(struct dt_device *key, void *buf, int len);
 int lfsck_set_speed(struct dt_device *key, int val);
 
 int lfsck_dump(struct dt_device *key, void *buf, int len, enum lfsck_type type);
+int lfsck_query(struct dt_device *key, enum lfsck_type type);
 
 #endif /* _LUSTRE_LFSCK_H */

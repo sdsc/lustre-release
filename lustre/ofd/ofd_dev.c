@@ -404,8 +404,9 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 		RETURN(rc);
 	}
 
-	lsp.lsp_start = NULL;
 	lsp.lsp_namespace = ofd->ofd_namespace;
+	lsp.lsp_start = NULL;
+	lsp.lsp_index_valid = 0;
 	rc = lfsck_start(env, ofd->ofd_osd, &lsp);
 	if (rc != 0) {
 		CWARN("%s: auto trigger paused LFSCK failed: rc = %d\n",
@@ -699,6 +700,41 @@ int ofd_set_info_hdl(struct tgt_session_info *tsi)
 		rc = ofd_update_capa_key(ofd, val);
 	} else if (KEY_IS(KEY_SPTLRPC_CONF)) {
 		rc = tgt_adapt_sptlrpc_conf(tsi->tsi_tgt, 0);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_event_request *ler = val;
+		struct obd_export *exp = tsi->tsi_exp;
+		const struct lu_env *env = tsi->tsi_env;
+
+		if (vallen < sizeof(*ler))
+			RETURN(-EFAULT);
+
+		if (!(exp_connect_flags(exp) & OBD_CONNECT_MDS))
+			RETURN(-EPERM);
+
+		if (ptlrpc_req_need_swab(req))
+			lustre_swab_lfsck_event_request(ler);
+
+		switch (ler->ler_event) {
+		case LNE_LAYOUT_START: {
+			struct lfsck_start_param lsp;
+
+			lsp.lsp_namespace = ofd->ofd_namespace;
+			lsp.lsp_start = &ler->u.ler_start;
+			lsp.lsp_index = ler->ler_index;
+			lsp.lsp_index_valid = 1;
+			rc = lfsck_start(env, ofd->ofd_osd, &lsp);
+			break;
+		}
+		case LNE_LAYOUT_STOP:
+		case LNE_LAYOUT_PHASE2_DONE:
+			rc = lfsck_in_notify(env, ofd->ofd_osd, ler);
+			break;
+		default:
+			CERROR("%s: Unsupported lfsck_event %d\n",
+			       exp->exp_obd->obd_name, ler->ler_event);
+			rc = -EOPNOTSUPP;
+			break;
+		}
 	} else {
 		CERROR("%s: Unsupported key %s\n",
 		       tgt_name(tsi->tsi_tgt), (char *)key);
@@ -935,6 +971,22 @@ int ofd_get_info_hdl(struct tgt_session_info *tsi)
 		       PFID(fid));
 out_put:
 		ofd_seq_put(tsi->tsi_env, oseq);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_event_request *ler;
+
+		req_capsule_set_size(tsi->tsi_pill, &RMF_GENERIC_DATA,
+				     RCL_SERVER, sizeof(*ler));
+		rc = req_capsule_server_pack(tsi->tsi_pill);
+		if (rc != 0)
+			RETURN(rc);
+
+		ler = req_capsule_server_get(tsi->tsi_pill, &RMF_GENERIC_DATA);
+		if (ler == NULL) {
+			rc = -ENOMEM;
+		} else {
+			ler->ler_event = LNE_LAYOUT_QUERY;
+			ler->u.ler_status = lfsck_query(ofd->ofd_osd, LT_LAYOUT);
+		}
 	} else {
 		CERROR("%s: not supported key %s\n", tgt_name(tsi->tsi_tgt),
 		       (char *)key);
@@ -1808,10 +1860,12 @@ err_fini_proc:
 
 static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 {
-	struct obd_device *obd = ofd_obd(m);
-	struct lu_device  *d = &m->ofd_dt_dev.dd_lu_dev;
+	struct obd_device	*obd = ofd_obd(m);
+	struct lu_device	*d   = &m->ofd_dt_dev.dd_lu_dev;
+	struct lfsck_stop	 stop;
 
-	lfsck_stop(env, m->ofd_osd, true);
+	stop.ls_status = LS_PAUSED;
+	lfsck_stop(env, m->ofd_osd, &stop);
 	lfsck_degister(env, m->ofd_osd);
 	target_recovery_fini(obd);
 	obd_exports_barrier(obd);
