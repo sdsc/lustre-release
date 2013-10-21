@@ -487,7 +487,8 @@ out_unlock:
 	       0, rc);
 
 	update_insert_reply(tti->tti_u.update.tti_update_reply, obdo,
-			    sizeof(*obdo), 0, rc);
+			    sizeof(*obdo),
+			    tti->tti_u.update.tti_update_reply_index, rc);
 	RETURN(rc);
 }
 
@@ -501,6 +502,7 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 	struct dt_object        *obj = tti->tti_u.update.tti_dt_object;
 	char			*name;
 	void			*ptr;
+	int			 idx = tti->tti_u.update.tti_update_reply_index;
 	int			 rc;
 
 	ENTRY;
@@ -512,7 +514,7 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	ptr = update_get_buf_internal(reply, 0, NULL);
+	ptr = update_get_buf_internal(reply, idx, NULL);
 	LASSERT(ptr != NULL);
 
 	/* The first 4 bytes(int) are used to store the result */
@@ -534,10 +536,13 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 	CDEBUG(D_INFO, "%s: "DFID" get xattr %s len %d\n",
 	       tgt_name(tsi->tsi_tgt), PFID(lu_object_fid(&obj->do_lu)),
 	       name, (int)lbuf->lb_len);
+
+	GOTO(out, rc);
+
 out:
 	*(int *)ptr = rc;
-	reply->ur_lens[0] = lbuf->lb_len + sizeof(int);
-	RETURN(rc);
+	reply->ur_lens[idx] = lbuf->lb_len + sizeof(int);
+	return rc;
 }
 
 static int out_index_lookup(struct tgt_session_info *tsi)
@@ -587,7 +592,8 @@ out_unlock:
 	       0, rc);
 
 	update_insert_reply(tti->tti_u.update.tti_update_reply,
-			    &tti->tti_fid1, sizeof(tti->tti_fid1), 0, rc);
+			    &tti->tti_fid1, sizeof(tti->tti_fid1),
+			    tti->tti_u.update.tti_update_reply_index, rc);
 	RETURN(rc);
 }
 
@@ -1244,14 +1250,14 @@ int out_handle(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	if (le32_to_cpu(ubuf->ub_magic) != UPDATE_BUFFER_MAGIC) {
+	if (ubuf->ub_magic != UPDATE_BUFFER_MAGIC) {
 		CERROR("%s: invalid magic %x expect %x: rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), le32_to_cpu(ubuf->ub_magic),
+		       tgt_name(tsi->tsi_tgt), ubuf->ub_magic,
 		       UPDATE_BUFFER_MAGIC, -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
-	count = le32_to_cpu(ubuf->ub_count);
+	count = ubuf->ub_count;
 	if (count <= 0) {
 		CERROR("%s: No update!: rc = %d\n",
 		       tgt_name(tsi->tsi_tgt), -EPROTO);

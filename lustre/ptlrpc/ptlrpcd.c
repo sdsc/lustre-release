@@ -425,13 +425,8 @@ static int ptlrpcd(void *arg)
 		}
 	}
 #endif
-        /*
-         * XXX So far only "client" ptlrpcd uses an environment. In
-         * the future, ptlrpcd thread (or a thread-set) has to given
-         * an argument, describing its "scope".
-         */
-        rc = lu_context_init(&env.le_ctx,
-                             LCT_CL_THREAD|LCT_REMEMBER|LCT_NOREF);
+	rc = lu_context_init(&env.le_ctx, LCT_MD_THREAD|LCT_DT_THREAD|
+					  LCT_CL_THREAD|LCT_REMEMBER|LCT_NOREF);
 	complete(&pc->pc_starting);
 
         if (rc != 0)
