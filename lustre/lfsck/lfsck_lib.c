@@ -72,6 +72,9 @@ const char *lfsck_status_names[] = {
 	"paused",
 	"crashed",
 	"partial",
+	"co-failed",
+	"co-stopped",
+	"co-paused",
 	NULL
 };
 
@@ -90,37 +93,6 @@ const char *lfsck_param_names[] = {
 	"dryrun",
 	NULL
 };
-
-static inline mdsno_t lfsck_dev_idx(struct dt_device *dev)
-{
-	return dev->dd_lu_dev.ld_site->ld_seq_site->ss_node_id;
-}
-
-static inline void lfsck_component_get(struct lfsck_component *com)
-{
-	atomic_inc(&com->lc_ref);
-}
-
-static inline void lfsck_component_put(const struct lu_env *env,
-				       struct lfsck_component *com)
-{
-	if (atomic_dec_and_test(&com->lc_ref)) {
-		if (com->lc_obj != NULL)
-			lu_object_put_nocache(env, &com->lc_obj->do_lu);
-		if (com->lc_file_ram != NULL)
-			OBD_FREE(com->lc_file_ram, com->lc_file_size);
-		if (com->lc_file_disk != NULL)
-			OBD_FREE(com->lc_file_disk, com->lc_file_size);
-
-		if (com->lc_data != NULL) {
-			LASSERT(com->lc_ops->lfsck_data_release != NULL);
-
-			com->lc_ops->lfsck_data_release(env, com);
-		}
-
-		OBD_FREE_PTR(com);
-	}
-}
 
 static inline struct lfsck_component *
 __lfsck_component_find(struct lfsck_instance *lfsck, __u16 type, cfs_list_t *list)
@@ -334,8 +306,8 @@ again:
 	return 0;
 }
 
-static void lfsck_instance_cleanup(const struct lu_env *env,
-				   struct lfsck_instance *lfsck)
+void lfsck_instance_cleanup(const struct lu_env *env,
+			    struct lfsck_instance *lfsck)
 {
 	struct ptlrpc_thread	*thread = &lfsck->li_thread;
 	struct lfsck_component	*com;
@@ -388,18 +360,6 @@ static void lfsck_instance_cleanup(const struct lu_env *env,
 	}
 
 	OBD_FREE_PTR(lfsck);
-}
-
-static inline void lfsck_instance_get(struct lfsck_instance *lfsck)
-{
-	atomic_inc(&lfsck->li_ref);
-}
-
-static inline void lfsck_instance_put(const struct lu_env *env,
-				      struct lfsck_instance *lfsck)
-{
-	if (atomic_dec_and_test(&lfsck->li_ref))
-		lfsck_instance_cleanup(env, lfsck);
 }
 
 static inline struct lfsck_instance *
@@ -1004,7 +964,9 @@ int lfsck_double_scan(const struct lu_env *env, struct lfsck_instance *lfsck)
 {
 	struct lfsck_component *com;
 	struct lfsck_component *next;
-	int			rc;
+	struct l_wait_info	lwi = { 0 };
+	int			rc  = 0;
+	int			rc1 = 0;
 
 	cfs_list_for_each_entry_safe(com, next, &lfsck->li_list_double_scan,
 				     lc_link) {
@@ -1013,9 +975,32 @@ int lfsck_double_scan(const struct lu_env *env, struct lfsck_instance *lfsck)
 
 		rc = com->lc_ops->lfsck_double_scan(env, com);
 		if (rc != 0)
-			return rc;
+			rc1 = rc;
 	}
-	return 0;
+
+	l_wait_event(lfsck->li_thread.t_ctl_waitq,
+		     atomic_read(&lfsck->li_double_scan_count) == 0,
+		     &lwi);
+
+	return (rc1 != 0 ? rc1 : rc);
+}
+
+void lfsck_quit(const struct lu_env *env, struct lfsck_instance *lfsck)
+{
+	struct lfsck_component *com;
+	struct lfsck_component *next;
+
+	cfs_list_for_each_entry_safe(com, next, &lfsck->li_list_scan,
+				     lc_link) {
+		if (com->lc_ops->lfsck_quit != NULL)
+			com->lc_ops->lfsck_quit(env, com);
+	}
+
+	cfs_list_for_each_entry_safe(com, next, &lfsck->li_list_double_scan,
+				     lc_link) {
+		if (com->lc_ops->lfsck_quit != NULL)
+			com->lc_ops->lfsck_quit(env, com);
+	}
 }
 
 /* external interfaces */
@@ -1353,8 +1338,8 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key, bool pause)
 EXPORT_SYMBOL(lfsck_stop);
 
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
-		   struct dt_device *next, lfsck_out_notify notify,
-		   void *data, bool master)
+		   struct dt_device *next, struct obd_device *obd,
+		   lfsck_out_notify notify, void *data, bool master)
 {
 	struct lfsck_instance	*lfsck;
 	struct dt_object	*root  = NULL;
@@ -1379,11 +1364,13 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 	CFS_INIT_LIST_HEAD(&lfsck->li_list_double_scan);
 	CFS_INIT_LIST_HEAD(&lfsck->li_list_idle);
 	atomic_set(&lfsck->li_ref, 1);
+	atomic_set(&lfsck->li_double_scan_count, 0);
 	init_waitqueue_head(&lfsck->li_thread.t_ctl_waitq);
 	lfsck->li_out_notify = notify;
 	lfsck->li_out_notify_data = data;
 	lfsck->li_next = next;
 	lfsck->li_bottom = key;
+	lfsck->li_obd = obd;
 
 	rc = lfsck_tgt_descs_init(&lfsck->li_ost_descs);
 	if (rc != 0)
