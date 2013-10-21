@@ -52,7 +52,9 @@ int ofd_version_get_check(struct ofd_thread_info *info,
 	dt_obj_version_t curr_version;
 
 	LASSERT(ofd_object_exists(fo));
-	LASSERT(info->fti_exp);
+
+	if (info->fti_exp)
+		RETURN(0);
 
 	curr_version = dt_version_get(info->fti_env, ofd_object_child(fo));
 	if ((__s64)curr_version == -EOPNOTSUPP)
@@ -111,32 +113,41 @@ struct ofd_object *ofd_object_find_or_create(const struct lu_env *env,
 	RETURN(ofd_obj(fo_obj));
 }
 
-int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo)
+int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo,
+			bool reload)
 {
-	int rc = 0;
+	struct ofd_thread_info	*info = ofd_info(env);
+	struct filter_fid_old	*ff   = &info->fti_mds_fid_old;
+	struct lu_buf		*buf  = &info->fti_buf;
+	struct lu_fid		*pfid = &fo->ofo_pfid;
+	int			 rc   = 0;
 
-	ENTRY;
+	if (fid_is_sane(pfid) && !reload)
+		return 0;
 
-	if (!fo->ofo_ff_exists) {
-		/*
-		 * This actually means that we don't know whether the object
-		 * has the "fid" EA or not.
-		 */
-		rc = dt_xattr_get(env, ofd_object_child(fo), &LU_BUF_NULL,
-				  XATTR_NAME_FID, BYPASS_CAPA);
-		if (rc >= 0 || rc == -ENODATA) {
-			/*
-			 * Here we assume that, if the object doesn't have the
-			 * "fid" EA, the caller will add one, unless a fatal
-			 * error (e.g., a memory or disk failure) prevents it
-			 * from doing so.
-			 */
-			fo->ofo_ff_exists = 1;
-		}
-		if (rc > 0)
-			rc = 0;
+	buf->lb_buf = ff;
+	buf->lb_len = sizeof(*ff);
+	rc = dt_xattr_get(env, ofd_object_child(fo), buf, XATTR_NAME_FID,
+			  BYPASS_CAPA);
+	if (rc < 0)
+		return rc;
+
+	if (rc < sizeof(struct lu_fid)) {
+		fid_zero(pfid);
+		return -ENODATA;
 	}
-	RETURN(rc);
+
+	spin_lock(&fo->ofo_lock);
+	if (!fo->ofo_pfid_inconsistent) {
+		pfid->f_seq = le64_to_cpu(ff->ff_parent.f_seq);
+		pfid->f_oid = le32_to_cpu(ff->ff_parent.f_oid);
+		/* XXX: In fact, the ff_parent::f_ver is not the real parent
+		 *	FID::f_ver, instead, it is the OST-object index in
+		 *	its parent MDT-object layout EA. */
+		pfid->f_ver = le32_to_cpu(ff->ff_parent.f_ver);
+	}
+	spin_unlock(&fo->ofo_lock);
+	return 0;
 }
 
 void ofd_object_put(const struct lu_env *env, struct ofd_object *fo)
@@ -425,7 +436,7 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 		GOTO(unlock, rc);
 
 	if (ff != NULL) {
-		rc = ofd_object_ff_check(env, fo);
+		rc = ofd_object_ff_check(env, fo, false);
 		if (rc == -ENODATA)
 			ff_needed = 1;
 		else if (rc < 0)
@@ -461,15 +472,23 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 			GOTO(stop, rc);
 	}
 
-	if (ff_needed)
+	if (ff_needed) {
 		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
 				  XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+		if (rc == 0) {
+			fo->ofo_pfid.f_seq = le64_to_cpu(ff->ff_parent.f_seq);
+			fo->ofo_pfid.f_oid = le32_to_cpu(ff->ff_parent.f_oid);
+			fo->ofo_pfid.f_ver = le32_to_cpu(ff->ff_parent.f_ver);
+		}
+	}
+
+	GOTO(stop, rc);
 
 stop:
 	ofd_trans_stop(env, ofd, th, rc);
 unlock:
 	ofd_write_unlock(env, fo);
-	RETURN(rc);
+	return rc;
 }
 
 int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
@@ -508,7 +527,7 @@ int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 		GOTO(unlock, rc);
 
 	if (ff != NULL) {
-		rc = ofd_object_ff_check(env, fo);
+		rc = ofd_object_ff_check(env, fo, false);
 		if (rc == -ENODATA)
 			ff_needed = 1;
 		else if (rc < 0)
@@ -550,15 +569,23 @@ int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 	if (rc)
 		GOTO(stop, rc);
 
-	if (ff_needed)
+	if (ff_needed) {
 		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
 				  XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+		if (rc == 0) {
+			fo->ofo_pfid.f_seq = le64_to_cpu(ff->ff_parent.f_seq);
+			fo->ofo_pfid.f_oid = le32_to_cpu(ff->ff_parent.f_oid);
+			fo->ofo_pfid.f_ver = le32_to_cpu(ff->ff_parent.f_ver);
+		}
+	}
+
+	GOTO(stop, rc);
 
 stop:
 	ofd_trans_stop(env, ofd, th, rc);
 unlock:
 	ofd_write_unlock(env, fo);
-	RETURN(rc);
+	return rc;
 }
 
 int ofd_object_destroy(const struct lu_env *env, struct ofd_object *fo,
