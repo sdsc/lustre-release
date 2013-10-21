@@ -985,6 +985,7 @@ out_put:
 			rc = -ENOMEM;
 		} else {
 			ler->ler_event = LNE_LAYOUT_QUERY;
+			ler->ler_flags = LEF_FROM_OST;
 			ler->u.ler_status = lfsck_query(ofd->ofd_osd, LT_LAYOUT);
 		}
 	} else {
@@ -1865,6 +1866,7 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	struct lfsck_stop	 stop;
 
 	stop.ls_status = LS_PAUSED;
+	stop.ls_flags = 0;
 	lfsck_stop(env, m->ofd_osd, &stop);
 	lfsck_degister(env, m->ofd_osd);
 	target_recovery_fini(obd);

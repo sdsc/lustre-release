@@ -96,6 +96,12 @@ enum lfsck_notify_events {
 	LNE_LAYOUT_QUERY	= 7,
 };
 
+enum lfsck_event_flags {
+	LEF_TO_OST		= 0x00000001,
+	LEF_FROM_OST		= 0x00000002,
+	LEF_FORCE_STOP		= 0x00000004,
+};
+
 typedef int (*lfsck_out_notify)(const struct lu_env *env, void *data,
 				enum lfsck_notify_events event);
 

@@ -1343,7 +1343,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_LIGHTWEIGHT | OBD_CONNECT_UMASK | \
 				OBD_CONNECT_LVB_TYPE | OBD_CONNECT_LAYOUTLOCK |\
 				OBD_CONNECT_PINGLESS | OBD_CONNECT_MAX_EASIZE |\
-				OBD_CONNECT_FLOCK_DEAD)
+				OBD_CONNECT_FLOCK_DEAD | OBD_CONNECT_LFSCK)
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
                                 OBD_CONNECT_TRUNCLOCK | OBD_CONNECT_INDEX | \
@@ -3314,6 +3314,8 @@ struct lfsck_event_request {
 	} u;
 	__u32				ler_event;
 	__u32				ler_index;
+	__u32				ler_flags;
+	__u32				ler_padding;
 } __attribute__((packed));
 
 void lustre_swab_lfsck_event_request(struct lfsck_event_request *ler);
