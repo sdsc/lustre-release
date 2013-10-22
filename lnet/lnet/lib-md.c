@@ -391,7 +391,8 @@ EXPORT_SYMBOL(LNetMDBind);
 
 /**
  * Unlink the memory descriptor from any ME it may be linked to and release
- * the internal resources associated with it.
+ * the internal resources associated with it. As a result, active messages
+ * associated with the MD may get aborted.
  *
  * This function does not free the memory region associated with the MD;
  * i.e., the memory the user allocated for this MD. If the ME associated with
