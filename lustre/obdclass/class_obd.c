@@ -61,10 +61,8 @@
 atomic_t libcfs_kmemory = {0};
 #endif
 
-struct obd_device *obd_devs[MAX_OBD_DEVICES];
-EXPORT_SYMBOL(obd_devs);
 cfs_list_t obd_types;
-DEFINE_RWLOCK(obd_dev_lock);
+extern rwlock_t obd_dev_lock;
 
 __u64 obd_max_pages = 0;
 __u64 obd_max_alloc = 0;
@@ -357,7 +355,11 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
                         GOTO(out, err = -EINVAL);
                 }
 
-                obd = class_num2obd(index);
+		read_lock(&obd_dev_lock);
+		obd = class_num2obd(index);
+		if (obd)
+			class_incref(obd, __func__, current);
+		read_unlock(&obd_dev_lock);
                 if (!obd)
                         GOTO(out, err = -ENOENT);
 
@@ -386,9 +388,17 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
                         GOTO(out, err = -EINVAL);
                 if (strnlen(data->ioc_inlbuf4, MAX_OBD_NAME) >= MAX_OBD_NAME)
                         GOTO(out, err = -EINVAL);
-                obd = class_name2obd(data->ioc_inlbuf4);
-        } else if (data->ioc_dev < class_devno_max()) {
-                obd = class_num2obd(data->ioc_dev);
+		read_lock(&obd_dev_lock);
+		obd = class_name2obd(data->ioc_inlbuf4);
+		if (obd)
+			class_incref(obd, __func__, current);
+		read_unlock(&obd_dev_lock);
+	} else if (data->ioc_dev < class_devno_max()) {
+		read_lock(&obd_dev_lock);
+		obd = class_num2obd(data->ioc_dev);
+		if (obd)
+			class_incref(obd, __func__, current);
+		read_unlock(&obd_dev_lock);
         } else {
                 CERROR("OBD ioctl: No device\n");
                 GOTO(out, err = -EINVAL);
@@ -430,6 +440,8 @@ int class_handle_ioctl(unsigned int cmd, unsigned long arg)
         }
 
  out:
+	if (obd)
+		class_decref(obd, __func__, current);
         if (buf)
                 obd_ioctl_freedata(buf, len);
         RETURN(err);
@@ -568,10 +580,6 @@ int init_obdclass(void)
 		CERROR("cannot register %d err %d\n", OBD_DEV_MINOR, err);
 		return err;
 	}
-
-        /* This struct is already zeroed for us (static global) */
-        for (i = 0; i < class_devno_max(); i++)
-                obd_devs[i] = NULL;
 
         /* Default the dirty page cache cap to 1/2 of system memory.
          * For clients with less memory, a larger fraction is needed
