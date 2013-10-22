@@ -3883,6 +3883,9 @@ osd_consistency_check(struct osd_thread_info *oti, struct osd_device *dev,
 	if (!fid_is_norm(fid) && !fid_is_igif(fid))
 		RETURN_EXIT;
 
+	if (osd_remote_fid(oti->oti_env, dev, fid))
+		RETURN_EXIT;
+
 again:
 	rc = osd_oi_lookup(oti, dev, fid, id, OI_CHECK_FLD);
 	if (rc != 0 && rc != -ENOENT)

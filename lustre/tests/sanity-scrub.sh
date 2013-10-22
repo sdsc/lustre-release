@@ -555,9 +555,6 @@ test_6() {
 run_test 6 "OI scrub resumes from last checkpoint"
 
 test_7() {
-	# skip test_7 for LU-4149
-	[ $MDSCOUNT -ge 2 ] && skip "skip now for >= 2 MDTs" && return
-
 	scrub_prep 500
 	scrub_backup_restore 1
 
