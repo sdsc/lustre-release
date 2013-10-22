@@ -927,7 +927,7 @@ int tgt_clients_data_init(const struct lu_env *env, struct lu_target *tgt,
 		       " srv lr: "LPU64" lx: "LPU64"\n", lcd->lcd_uuid, cl_idx,
 		       last_transno, lsd->lsd_last_transno, lcd_last_xid(lcd));
 
-		exp = class_new_export(obd, (struct obd_uuid *)lcd->lcd_uuid);
+		exp = class_new_export(obd, (struct obd_uuid *)lcd->lcd_uuid, 0);
 		if (IS_ERR(exp)) {
 			if (PTR_ERR(exp) == -EALREADY) {
 				/* export already exists, zero out this one */
