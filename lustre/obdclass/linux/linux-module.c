@@ -78,6 +78,9 @@
 #include <lustre_ioctl.h>
 #include <lustre_ver.h>
 #include <lustre/lustre_build_version.h>
+
+extern rwlock_t obd_dev_lock;
+
 #ifdef __KERNEL__
 
 int proc_version;
