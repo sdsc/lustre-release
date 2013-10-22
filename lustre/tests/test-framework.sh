@@ -517,6 +517,7 @@ load_modules_local() {
 		load_module osp/osp
 		load_module ofd/ofd
 		load_module osp/osp
+		load_module obdecho/obdecho
     fi
 
 

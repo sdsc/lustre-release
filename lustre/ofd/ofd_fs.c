@@ -464,7 +464,7 @@ int ofd_clients_data_init(const struct lu_env *env, struct ofd_device *ofd,
 		/* These exports are cleaned up by ofd_disconnect(), so they
 		 * need to be set up like real exports as ofd_connect() does.
 		 */
-		exp = class_new_export(obd, (struct obd_uuid *)lcd->lcd_uuid);
+		exp = class_new_export(obd, (struct obd_uuid *)lcd->lcd_uuid, 0);
 
 		CDEBUG(D_HA, "RCVRNG CLIENT uuid: %s idx: %d lr: "LPU64
 		       " srv lr: "LPU64"\n", lcd->lcd_uuid, cl_idx,

@@ -759,7 +759,7 @@ check_and_start_recovery_timer(struct obd_device *obd,
 
 int target_handle_connect(struct ptlrpc_request *req)
 {
-	struct obd_device *target = NULL, *targref = NULL;
+	struct obd_device *target = NULL;
         struct obd_export *export = NULL;
         struct obd_import *revimp;
 	struct obd_import *tmp_imp = NULL;
@@ -787,11 +787,13 @@ int target_handle_connect(struct ptlrpc_request *req)
         }
 
         obd_str2uuid(&tgtuuid, str);
+	read_lock(&obd_dev_lock);
         target = class_uuid2obd(&tgtuuid);
         if (!target)
                 target = class_name2obd(str);
 
 	if (!target) {
+		read_unlock(&obd_dev_lock);
 		deuuidify(str, NULL, &target_start, &target_len);
 		LCONSOLE_ERROR_MSG(0x137, "%s: not available for connect "
 				   "from %s (no target). If you are running "
@@ -800,6 +802,11 @@ int target_handle_connect(struct ptlrpc_request *req)
 				   libcfs_nid2str(req->rq_peer.nid));
 		GOTO(out, rc = -ENODEV);
 	}
+	/* Make sure the target isn't cleaned up while we're here. Yes,
+	 * there's still a race between the above check and our incref here.
+	 * Really, class_uuid2obd should take the ref. */
+	class_incref(target, __func__, current);
+	read_unlock(&obd_dev_lock);
 
 	spin_lock(&target->obd_dev_lock);
 	if (target->obd_stopping || !target->obd_set_up) {
@@ -823,10 +830,6 @@ int target_handle_connect(struct ptlrpc_request *req)
 		GOTO(out, rc = -EAGAIN);
 	}
 
-	/* Make sure the target isn't cleaned up while we're here. Yes,
-	 * there's still a race between the above check and our incref here.
-	 * Really, class_uuid2obd should take the ref. */
-	targref = class_incref(target, __FUNCTION__, current);
 
 	target->obd_conn_inprogress++;
 	spin_unlock(&target->obd_dev_lock);
@@ -1266,12 +1269,11 @@ out:
 
 		class_export_put(export);
 	}
-	if (targref) {
+	if (target != NULL) {
 		spin_lock(&target->obd_dev_lock);
 		target->obd_conn_inprogress--;
 		spin_unlock(&target->obd_dev_lock);
-
-		class_decref(targref, __func__, current);
+		class_decref(target, __func__, current);
 	}
 	if (rc)
 		req->rq_status = rc;
