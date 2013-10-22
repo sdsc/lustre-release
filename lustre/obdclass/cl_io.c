@@ -728,6 +728,7 @@ cl_io_slice_page(const struct cl_io_slice *ios, struct cl_page *page)
  */
 static int cl_page_in_io(const struct cl_page *page, const struct cl_io *io)
 {
+#if 0
         int     result = 1;
         loff_t  start;
         loff_t  end;
@@ -756,6 +757,9 @@ static int cl_page_in_io(const struct cl_page *page, const struct cl_io *io)
                 LBUG();
         }
         return result;
+#else
+	return 1;
+#endif
 }
 
 /**
@@ -1205,7 +1209,6 @@ int cl_page_list_own(const struct lu_env *env,
 {
 	struct cl_page *page;
 	struct cl_page *temp;
-	pgoff_t index = 0;
 	int result;
 
 	LINVRNT(plist->pl_owner == current);
@@ -1213,8 +1216,6 @@ int cl_page_list_own(const struct lu_env *env,
 	ENTRY;
 	result = 0;
 	cl_page_list_for_each_safe(page, temp, plist) {
-		LASSERT(index <= page->cp_index);
-		index = page->cp_index;
 		if (cl_page_own(env, io, page) == 0)
 			result = result ?: page->cp_error;
 		else
@@ -1342,7 +1343,7 @@ EXPORT_SYMBOL(cl_2queue_init_page);
 /**
  * Returns top-level io.
  *
- * \see cl_object_top(), cl_page_top().
+ * \see cl_object_top()
  */
 struct cl_io *cl_io_top(struct cl_io *io)
 {
@@ -1418,19 +1419,15 @@ static int cl_req_init(const struct lu_env *env, struct cl_req *req,
 
         ENTRY;
         result = 0;
-        page = cl_page_top(page);
-        do {
-                cfs_list_for_each_entry(slice, &page->cp_layers, cpl_linkage) {
-                        dev = lu2cl_dev(slice->cpl_obj->co_lu.lo_dev);
-                        if (dev->cd_ops->cdo_req_init != NULL) {
-                                result = dev->cd_ops->cdo_req_init(env,
-                                                                   dev, req);
-                                if (result != 0)
-                                        break;
-                        }
-                }
-                page = page->cp_child;
-        } while (page != NULL && result == 0);
+	cfs_list_for_each_entry(slice, &page->cp_layers, cpl_linkage) {
+		dev = lu2cl_dev(slice->cpl_obj->co_lu.lo_dev);
+		if (dev->cd_ops->cdo_req_init != NULL) {
+			result = dev->cd_ops->cdo_req_init(env,
+					dev, req);
+			if (result != 0)
+				break;
+		}
+	}
         RETURN(result);
 }
 
@@ -1503,7 +1500,6 @@ void cl_req_page_add(const struct lu_env *env,
         int i;
 
         ENTRY;
-        page = cl_page_top(page);
 
         LASSERT(cfs_list_empty(&page->cp_flight));
         LASSERT(page->cp_req == NULL);
@@ -1537,7 +1533,6 @@ void cl_req_page_done(const struct lu_env *env, struct cl_page *page)
         struct cl_req *req = page->cp_req;
 
         ENTRY;
-        page = cl_page_top(page);
 
         LASSERT(!cfs_list_empty(&page->cp_flight));
         LASSERT(req->crq_nrpages > 0);
