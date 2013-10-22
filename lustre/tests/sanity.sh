@@ -10808,15 +10808,23 @@ test_180b() {
 	local rc=0
 	local rmmod_remote=0
 
-	do_facet ost1 "lsmod | grep -q obdecho || "                      \
-		      "{ insmod ${LUSTRE}/obdecho/obdecho.ko || "        \
-		      "modprobe obdecho; }" && rmmod_remote=1
+	if ! do_rpc_nodes $(facet_host ost1) "module_loaded obdecho"; then
+		rmmod_remote=1
+		do_rpc_nodes $(facet_host ost1) "load_module obdecho/obdecho"
+	fi
 	target=$(do_facet ost1 $LCTL dl | awk '/obdfilter/ {print $4;exit}')
-	[[ -n $target ]] && { obdecho_test $target ost1 || rc=1; }
+	if [ -n $target ]; then
+#define OBD_FAIL_OBD_ZOMBIE_SLEEP	0x610
+		do_facet ost1 $LCTL set_param fail_loc=0x80000610
+		obdecho_test $target ost1 || rc=1
+		obdecho_test $target ost1 || rc=1
+		do_facet ost1 $LCTL set_param fail_loc=0
+	fi
 	[ $rmmod_remote -eq 1 ] && do_facet ost1 "rmmod obdecho"
-	return $rc
+	[ $rc -eq 1 ] && error "obdecho failed"
+	return 0
 }
-run_test 180b "test obdecho directly on obdfilter"
+run_test 180b "test obdecho directly on obdfilter and correctly handle zombies"
 
 test_180c() { # LU-2598
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
