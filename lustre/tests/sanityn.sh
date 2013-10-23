@@ -2554,5 +2554,6 @@ log "cleanup: ======================================================"
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
 
 complete $SECONDS
+[ -f $SAMPLE_FILE ] && rm $SAMPLE_FILE
 check_and_cleanup_lustre
 exit_status
