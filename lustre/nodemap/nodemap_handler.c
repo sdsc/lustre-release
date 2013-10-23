@@ -144,6 +144,7 @@ static int nodemap_iter_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 			   cfs_hlist_node_t *hnode, void *data)
 {
 	struct nodemap *nodemap;
+	struct range_node *range, *temp;
 
 	nodemap = cfs_hlist_entry(hnode, struct nodemap, nm_hash);
 
@@ -153,6 +154,13 @@ static int nodemap_iter_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 
 	lprocfs_remove(&(nodemap->nm_proc_entry));
 
+	list_for_each_entry_safe(range, temp, &(nodemap->nm_ranges),
+				 rn_list) {
+		list_del(&(range->rn_list));
+		range_delete(range);
+		OBD_FREE(range, sizeof(struct range_node));
+	}
+
 	OBD_FREE(nodemap, sizeof(struct nodemap));
 
 	return 0;
@@ -161,8 +169,8 @@ static int nodemap_iter_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 int nodemap_cleanup_nodemaps()
 {
 	cfs_hash_for_each_safe(nodemap_hash, nodemap_iter_cb, NULL);
-
 	cfs_hash_putref(nodemap_hash);
+
 	return 0;
 }
 
@@ -178,6 +186,114 @@ int nodemap_init_hash(void)
 
 	return 0;
 }
+
+int nodemap_add_range(char *nodemap_name, char *range_str)
+{
+	struct nodemap *nodemap;
+	struct range_node *range;
+	char *min_string, *max_string;
+	lnet_nid_t min, max;
+	int rc;
+
+	if (strlen(nodemap_name) > LUSTRE_NODEMAP_NAME_LENGTH)
+		return -EINVAL;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, nodemap_name);
+
+	if ((nodemap == NULL) || (nodemap->nm_id == 0))
+		return -EINVAL;
+
+	min_string = strsep(&range_str, ":");
+	max_string = strsep(&range_str, ":");
+
+	if ((min_string == NULL) || (max_string == NULL))
+		return -EINVAL;
+
+	min = libcfs_str2nid(min_string);
+	max = libcfs_str2nid(max_string);
+
+	if (LNET_NIDNET(min) != LNET_NIDNET(max))
+		return -EINVAL;
+
+	if (LNET_NIDADDR(min) > LNET_NIDADDR(max))
+		return -EINVAL;
+
+	OBD_ALLOC(range, sizeof(struct range_node));
+
+	if (range == NULL) {
+		CERROR("Cannot allocate memory (%zu o)"
+		      "for range_node", sizeof(struct range_node));
+		return -ENOMEM;
+	}
+
+	range->rn_id = nodemap_range_highest_id;
+	nodemap_range_highest_id++;
+	range->rn_start_nid = min;
+	range->rn_end_nid = max;
+	range->rn_nodemap = nodemap;
+
+	rc = range_insert(range);
+
+	if (rc != 0) {
+		CERROR("nodemap range insert failed for %s: rc = %d",
+		      nodemap->nm_name, rc);
+		OBD_FREE(range, sizeof(struct range_node));
+		return -ENOMEM;
+	}
+
+	INIT_LIST_HEAD(&range->rn_list);
+	list_add(&(range->rn_list), &(nodemap->nm_ranges));
+
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_add_range);
+
+int nodemap_del_range(char *nodemap_name, char *range_str)
+{
+	struct nodemap *nodemap;
+	struct range_node *range;
+	char *min_string, *max_string;
+	lnet_nid_t min, max;
+
+	if (strlen(nodemap_name) > LUSTRE_NODEMAP_NAME_LENGTH)
+		return -EINVAL;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, nodemap_name);
+
+	if ((nodemap == NULL) || (nodemap->nm_id == 0))
+		return -EINVAL;
+
+	min_string = strsep(&range_str, ":");
+	max_string = strsep(&range_str, ":");
+
+	if ((min_string == NULL) || (max_string == NULL))
+		return -EINVAL;
+
+	min = libcfs_str2nid(min_string);
+	max = libcfs_str2nid(max_string);
+
+	/* Do some range and network test here */
+
+	if (LNET_NIDNET(min) != LNET_NIDNET(max))
+		return -EINVAL;
+
+	if (LNET_NIDADDR(min) > LNET_NIDADDR(max))
+		return -EINVAL;
+
+	range = range_search(&min);
+
+	if (range == NULL)
+		return -EINVAL;
+
+	if ((range->rn_start_nid == min) && (range->rn_end_nid == max)) {
+		range_delete(range);
+		list_del(&(range->rn_list));
+		OBD_FREE(range, sizeof(struct range_node));
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(nodemap_del_range);
 
 int nodemap_init_nodemap(char *nodemap_name, int def_nodemap,
 			 struct nodemap *nodemap)
@@ -244,6 +360,80 @@ out_err:
 	return rc;
 }
 
+int nodemap_admin(char *nodemap_name, char *admin_string)
+{
+	struct nodemap *nodemap;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, nodemap_name);
+
+	if (nodemap == NULL)
+		return -EFAULT;
+
+	if (strcmp(admin_string, "0") == 0)
+		nodemap->nm_flags.nmf_admin = 0;
+	else
+		nodemap->nm_flags.nmf_admin = 1;
+
+	return 0;
+}
+EXPORT_SYMBOL(nodemap_admin);
+
+int nodemap_trusted(char *nodemap_name, char *trusted_string)
+{
+	struct nodemap *nodemap;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, nodemap_name);
+
+	if (nodemap == NULL)
+		return -EFAULT;
+
+	if (strcmp(trusted_string, "0") == 0)
+		nodemap->nm_flags.nmf_trusted = 0;
+	else
+		nodemap->nm_flags.nmf_trusted = 1;
+
+	return 0;
+}
+EXPORT_SYMBOL(nodemap_trusted);
+
+int nodemap_squash_uid(char *nodemap_name, char *uid_string)
+{
+	struct nodemap *nodemap;
+	uid_t uid = NODEMAP_NOBODY_UID;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, nodemap_name);
+
+	if (nodemap == NULL)
+		return -EFAULT;
+
+	if (sscanf(uid_string, "%u", &uid) != 1)
+		return -EFAULT;
+
+	nodemap->nm_squash_uid = uid;
+
+	return 0;
+}
+EXPORT_SYMBOL(nodemap_squash_uid);
+
+int nodemap_squash_gid(char *nodemap_name, char *gid_string)
+{
+	struct nodemap *nodemap;
+	gid_t gid = NODEMAP_NOBODY_GID;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, nodemap_name);
+
+	if (nodemap == NULL)
+		return -EFAULT;
+
+	if (sscanf(gid_string, "%u", &gid) != 1)
+		return -EFAULT;
+
+	nodemap->nm_squash_gid = gid;
+
+	return 0;
+}
+EXPORT_SYMBOL(nodemap_squash_gid);
+
 int nodemap_add(char *nodemap_name)
 {
 	struct nodemap *nodemap = NULL;
@@ -263,6 +453,7 @@ EXPORT_SYMBOL(nodemap_add);
 int nodemap_del(char *nodemap_name)
 {
 	struct nodemap *nodemap;
+	struct range_node *range, *temp;
 
 	nodemap = cfs_hash_lookup(nodemap_hash, nodemap_name);
 
@@ -271,6 +462,12 @@ int nodemap_del(char *nodemap_name)
 
 	if (nodemap->nm_id == LUSTRE_NODEMAP_DEFAULT_ID)
 		return -EPERM;
+
+	list_for_each_entry_safe(range, temp, &(nodemap->nm_ranges),
+				 rn_list) {
+		list_del(&(range->rn_list));
+		range_delete(range);
+	}
 
 	cfs_hash_del(nodemap_hash, nodemap_name, &(nodemap->nm_hash));
 

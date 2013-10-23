@@ -43,15 +43,31 @@
 
 #include "nodemap_internal.h"
 
+static int ranges_open(struct inode *inode, struct file *file);
+static int ranges_show(struct seq_file *file, void *data);
+
+static lnet_nid_t test_nid;
+
+const struct file_operations proc_range_operations = {
+	.open		= ranges_open,
+	.read		= seq_read,
+	.llseek         = seq_lseek,
+	.release	= single_release,
+};
+
 static struct lprocfs_vars lprocfs_nodemap_module_vars[] = {
 	{ "active", nodemap_rd_active, nodemap_wr_active, 0 },
 	{ "add_nodemap", 0, nodemap_proc_add_nodemap, 0 },
 	{ "remove_nodemap", 0, nodemap_proc_del_nodemap, 0 },
+	{ "test_nid", rd_nid_test, wr_nid_test, 0 },
 	{ 0 }
 };
 
 static struct lprocfs_vars lprocfs_nodemap_vars[] = {
 	{ "id", nodemap_rd_id, 0, 0 },
+	{ "add_range", 0, nodemap_proc_add_range, 0 },
+	{ "remove_range", 0, nodemap_proc_del_range, 0 },
+	{ "ranges", 0, 0, 0, &proc_range_operations },
 	{ "trusted_nodemap", nodemap_rd_trusted, nodemap_wr_trusted, 0 },
 	{ "admin_nodemap", nodemap_rd_admin, nodemap_wr_admin, 0 },
 	{ "squash_uid", nodemap_rd_squash_uid, nodemap_wr_squash_uid, 0},
@@ -67,6 +83,139 @@ static struct lprocfs_vars lprocfs_default_nodemap_vars[] = {
 	{ "squash_gid", nodemap_rd_squash_gid, nodemap_wr_squash_gid, 0},
 	{ 0 }
 };
+
+int rd_nid_test(char *page, char **start, off_t off, int count,
+		int *eof, void *data)
+{
+	int len;
+	struct nodemap *nodemap;
+	struct range_node *range;
+
+	range = range_search(&test_nid);
+
+	if (range == NULL)
+		nodemap = default_nodemap;
+	else
+		nodemap = range->rn_nodemap;
+
+	if (nodemap == NULL)
+		return 0;
+
+	if (nodemap->nm_id == 0) {
+		len = sprintf(page, "%s:0\n", nodemap->nm_name);
+		return len;
+	}
+
+	len = sprintf(page, "%s:%u\n", nodemap->nm_name, range->rn_id);
+
+	return len;
+}
+
+int wr_nid_test(struct file *file, const char __user *buffer,
+		unsigned long count, void *data)
+{
+	char string[count + 1];
+
+	if (copy_from_user(string, buffer, count))
+		return -EFAULT;
+
+	if (count > 0)
+		string[count - 1] = 0;
+	else
+		return count;
+
+	test_nid = libcfs_str2nid(string);
+
+	return count;
+}
+
+static int ranges_open(struct inode *inode, struct file *file)
+{
+	cfs_proc_dir_entry_t *dir;
+	struct nodemap *nodemap;
+
+	dir = PDE(inode);
+	nodemap = (struct nodemap *) dir->data;
+
+	return single_open(file, ranges_show, nodemap);
+}
+
+static int ranges_show(struct seq_file *file, void *data)
+{
+	struct nodemap *nodemap;
+	struct range_node *range;
+
+	nodemap = (struct nodemap *) file->private;
+
+	list_for_each_entry(range, &(nodemap->nm_ranges), rn_list) {
+		seq_printf(file, "%u %s : %s\n", range->rn_id,
+			   libcfs_nid2str(range->rn_start_nid),
+			   libcfs_nid2str(range->rn_end_nid));
+	}
+
+	return 0;
+}
+
+int nodemap_proc_add_range(struct file *file, const char __user *buffer,
+		      unsigned long count, void *data)
+{
+	char range_str[count + 1];
+	struct nodemap *nodemap;
+	int rc;
+
+	if (copy_from_user(range_str, buffer, count))
+		return -EFAULT;
+
+	/* Check syntax for nodemap names here */
+
+	if (count > 2) {
+		range_str[count] = 0;
+		range_str[count - 1] = 0;
+	} else
+		return count;
+
+	nodemap = (struct nodemap *) data;
+
+	rc = nodemap_add_range(nodemap->nm_name, range_str);
+
+	if (rc != 0) {
+		CERROR("nodemap range insert failed for %s: rc = %d",
+		       nodemap->nm_name, rc);
+	}
+
+	return count;
+}
+
+int nodemap_proc_del_range(struct file *file, const char __user *buffer,
+			 unsigned long count, void *data)
+{
+	char range_str[count + 1];
+	struct nodemap *nodemap;
+	int rc;
+
+	if (copy_from_user(range_str, buffer, count))
+		return -EFAULT;
+
+	/* Check syntax for nodemap names here */
+
+	if (count > 2) {
+		range_str[count] = 0;
+		range_str[count - 1] = 0;
+	} else {
+		return count;
+	}
+
+	nodemap = (struct nodemap *) data;
+
+	rc = nodemap_del_range(nodemap->nm_name, range_str);
+
+	if (rc != 0) {
+		CERROR("nodemap range delete failed for %s: rc = %d",
+		       nodemap->nm_name, rc);
+	}
+
+	return count;
+}
 
 int nodemap_rd_active(char *page, char **start, off_t off, int count,
 		      int *eof, void *data)

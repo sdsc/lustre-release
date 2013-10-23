@@ -28,7 +28,7 @@
 #define _LUSTRE_NODEMAP_H
 
 #define LUSTRE_NODEMAP_NAME "nodemap"
-#define LUSTRE_NODEMAP_NAME_LENGTH 64
+#define LUSTRE_NODEMAP_NAME_LENGTH 16
 
 #define LUSTRE_NODEMAP_DEFAULT_ID 0
 
@@ -69,7 +69,23 @@ struct nodemap {
 						       * name */
 };
 
+struct range_node {
+	unsigned int rn_id;			     /* Unique ID set by MGS */
+	lnet_nid_t rn_start_nid;		     /* Inclusive starting
+						      * NID */
+	lnet_nid_t rn_end_nid;			     /* Inclusive ending NID */
+	struct nodemap *rn_nodemap;		     /* Member of nodemap */
+	struct list_head rn_list;		     /* List for nodemap */
+	struct rb_node rn_node;			     /* Global tree */
+};
+
 int nodemap_add(char *nodemap_name);
 int nodemap_del(char *nodemap_name);
+int nodemap_add_range(char *nodemap_name, char *nodemap_range);
+int nodemap_del_range(char *nodemap_name, char *nodemap_range);
+int nodemap_admin(char *nodemap_name, char *admin_string);
+int nodemap_trusted(char *nodemap_name, char *trusted_string);
+int nodemap_squash_uid(char *nodemap_name, char *squash_string);
+int nodemap_squash_gid(char *nodemap_name, char *squash_string);
 
 #endif

@@ -61,35 +61,46 @@ extern struct nodemap *default_nodemap;
 
 int nodemap_procfs_init(void);
 int nodemap_init_nodemap(char *nodemap_name, int def_nodemap,
-			struct nodemap *nodemap);
+			 struct nodemap *nodemap);
 void lprocfs_nodemap_register(char *nodemap_name, int def_ndoemap,
-			     struct nodemap *nodemap);
+			      struct nodemap *nodemap);
 void lprocfs_nodemap_init_vars(struct lprocfs_static_vars *lvars);
 
 int nodemap_rd_active(char *page, char **start, off_t off, int count,
-		     int *eof, void *data);
-int nodemap_wr_active(struct file *file, const char *buffer,
-		     unsigned long count, void *data);
-int nodemap_rd_id(char *page, char **start, off_t off, int count,
-		 int *eof, void *data);
-int nodemap_rd_squash_uid(char *page, char **start, off_t off, int count,
-			 int *eof, void *data);
-int nodemap_wr_squash_uid(struct file *file, const char *buffer,
-			 unsigned long count, void *data);
-int nodemap_rd_squash_gid(char *page, char **start, off_t off, int count,
-			 int *eof, void *data);
-int nodemap_wr_squash_gid(struct file *file, const char *buffer,
-			 unsigned long count, void *data);
-int nodemap_rd_trusted(char *page, char **start, off_t off, int count,
 		      int *eof, void *data);
-int nodemap_wr_trusted(struct file *file, const char *start,
+int nodemap_wr_active(struct file *file, const char *buffer,
 		      unsigned long count, void *data);
+int nodemap_rd_id(char *page, char **start, off_t off, int count,
+		  int *eof, void *data);
+int nodemap_rd_squash_uid(char *page, char **start, off_t off, int count,
+			  int *eof, void *data);
+int nodemap_wr_squash_uid(struct file *file, const char *buffer,
+			  unsigned long count, void *data);
+int nodemap_rd_squash_gid(char *page, char **start, off_t off, int count,
+			  int *eof, void *data);
+int nodemap_wr_squash_gid(struct file *file, const char *buffer,
+			  unsigned long count, void *data);
+int nodemap_rd_trusted(char *page, char **start, off_t off, int count,
+		       int *eof, void *data);
+int nodemap_wr_trusted(struct file *file, const char *start,
+		       unsigned long count, void *data);
 int nodemap_rd_admin(char *page, char **start, off_t off, int count,
-		    int *eof, void *data);
+		     int *eof, void *data);
 int nodemap_wr_admin(struct file *file, const char *buffer,
-		    unsigned long count, void *data);
+		     unsigned long count, void *data);
 int nodemap_proc_add_nodemap(struct file *file, const char *buffer,
-			    unsigned long count, void *data);
+			     unsigned long count, void *data);
 int nodemap_proc_del_nodemap(struct file *file, const char *buffer,
+			     unsigned long count, void *data);
+int nodemap_proc_add_range(struct file *file, const char *buffer,
 			   unsigned long count, void *data);
+int nodemap_proc_del_range(struct file *file, const char *buffer,
+			   unsigned long count, void *data);
+int rd_nid_test(char *page, char **start, off_t off, int count,
+		int *eof, void *data);
+int wr_nid_test(struct file *file, const char *buffer,
+		unsigned long count, void *data);
 int nodemap_cleanup_nodemaps(void);
+int range_insert(struct range_node *data);
+int range_delete(struct range_node *data);
+struct range_node *range_search(lnet_nid_t *);

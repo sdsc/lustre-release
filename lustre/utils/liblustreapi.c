@@ -332,6 +332,43 @@ static int find_poolpath(char *fsname, char *poolname, char *poolpath)
 }
 
 /**
+  * set a parameter for a specific device type or mountpoint
+  *
+  * \param param_path the path to the file containing the param data
+  * \param param string containing the parameter
+  *
+  * The \param param_path is appended to /proc/{fs,sys}/{lnet,lustre} to
+  * complete the absolute path to the file containing the parameter data
+  * the user is requesting. If that file exist then the data is written
+  * to the file.
+  *
+  * Return 0 for success
+  * Return -ve value for error
+  */
+
+static int set_param(const char *param_path, char *param)
+{
+	char file[PATH_MAX + 1], pattern[PATH_MAX + 1];
+	FILE *fp = NULL;
+	int rc = 0;
+
+	snprintf(pattern, PATH_MAX, "/proc/{fs,sys}/{lnet,lustre}/%s",
+		 param_path);
+	rc = first_match(pattern, file);
+	if (rc)
+		return rc;
+
+	fp = fopen(file, "w");
+	if (fp != NULL) {
+		fprintf(fp, "%s\n", param);
+		fclose(fp);
+	} else
+		rc = -errno;
+
+	return rc;
+}
+
+/**
   * return a parameter string for a specific device type or mountpoint
   *
   * \param param_path the path to the file containing parameter data
@@ -826,6 +863,75 @@ int llapi_nodemap_exists(char *nodemap)
 	snprintf(mapname, sizeof(mapname) - 1, "nodemap/%s", nodemap);
 
 	return get_param(mapname, NULL, 0);
+}
+
+int llapi_search_nodemap_range(char *range)
+{
+	char buffer[PATH_MAX + 1];
+	char *start, *end;
+	__u32 start_range_id = 0, end_range_id = 0;
+
+	snprintf(buffer, PATH_MAX, "%s", range);
+
+	start = strtok(buffer, ":");
+	if (start == NULL)
+		return 1;
+
+	end = strtok(NULL, ":");
+	if (end == NULL)
+		return 1;
+
+	start_range_id = llapi_search_nodemap_nid(start);
+	end_range_id = llapi_search_nodemap_nid(end);
+
+	if (start_range_id != end_range_id)
+		return 1;
+
+	if ((start_range_id != 0) || (end_range_id != 0))
+		return 1;
+
+	return 0;
+}
+
+int llapi_find_nodemap_nid(char *nid, char *nodemap)
+{
+	char mapname[PATH_MAX + 1], buffer[PATH_MAX + 1];
+
+	snprintf(mapname, sizeof(mapname) - 1, "nodemap/%s/test_nid", nodemap);
+
+	set_param(mapname, nid);
+	get_param(mapname, buffer, PATH_MAX);
+
+	if (buffer == NULL)
+		return -1;
+
+	strncpy(nodemap, buffer, PATH_MAX);
+
+	return 0;
+}
+
+int llapi_search_nodemap_nid(char *nid)
+{
+	char buffer[PATH_MAX + 1], mapname[PATH_MAX + 1];
+	char *nodemap, *range_id_str;
+
+	snprintf(mapname, sizeof(mapname) - 1, "nodemap/test_nid");
+
+	set_param(mapname, nid);
+	get_param(mapname, buffer, PATH_MAX);
+
+	if (buffer == NULL)
+		return -1;
+
+	nodemap = strtok(buffer, ":");
+	if (nodemap == NULL)
+		return -1;
+
+	range_id_str = strtok(NULL, ":");
+	if (range_id_str == NULL)
+		return -1;
+
+	return atoi(range_id_str);
 }
 
 int llapi_direntry_remove(char *dname)

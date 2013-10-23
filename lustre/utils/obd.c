@@ -3448,6 +3448,101 @@ int jt_nodemap_del(int argc, char **argv)
 	return rc;
 }
 
+int jt_nodemap_add_range(int argc, char **argv)
+{
+	enum lcfg_command_type cmd = 0;
+	int rc = 0;
+
+	cmd = LCFG_NODEMAP_ADD_RANGE;
+
+	rc = llapi_search_nodemap_range(argv[2]);
+
+	if (rc != 0) {
+		fprintf(stderr, "error: cannot add range\n");
+		return 1;
+	}
+
+	rc = nodemap_cmd(cmd, 3, argv[0], argv[1], argv[2]);
+
+	if (rc != 0) {
+		errno = -rc;
+		perror(argv[0]);
+	}
+
+	return rc;
+}
+
+int jt_nodemap_del_range(int argc, char **argv)
+{
+	enum lcfg_command_type cmd = 0;
+	int rc = 0;
+
+	cmd = LCFG_NODEMAP_DEL_RANGE;
+	rc = llapi_search_nodemap_range(argv[2]);
+
+	if (rc == 0) {
+		fprintf(stderr, "error: cannot delete range\n");
+		return 1;
+	}
+
+	rc = nodemap_cmd(cmd, 3, argv[0], argv[1], argv[2]);
+
+	if (rc != 0) {
+		errno = -rc;
+		perror(argv[0]);
+	}
+
+	return rc;
+}
+
+int jt_nodemap_test_nid(int argc, char **argv)
+{
+	int rc;
+	char nodemap[PATH_MAX + 1];
+
+	rc = llapi_find_nodemap_nid(argv[1], nodemap);
+
+	if (rc != 0) {
+		fprintf(stderr, "lctl nodemap_test_nid failed\n");
+		return -1;
+	}
+
+	printf("%s", nodemap);
+
+	return 0;
+}
+
+int jt_nodemap_modify(int argc, char **argv)
+{
+	enum lcfg_command_type cmd = 0;
+	int rc = 0;
+
+	if (strcmp("admin", argv[2]) == 0)
+		cmd = LCFG_NODEMAP_ADMIN;
+	else if (strcmp("admin", argv[2]) == 0)
+		cmd = LCFG_NODEMAP_ADMIN;
+	else if (strcmp("trusted", argv[2]) == 0)
+		cmd = LCFG_NODEMAP_TRUSTED;
+	else if (strcmp("squash_uid", argv[2]) == 0)
+		cmd = LCFG_NODEMAP_SQUASH_UID;
+	else if (strcmp("squash_gid", argv[2]) == 0)
+		cmd = LCFG_NODEMAP_SQUASH_GID;
+	else {
+		fprintf(stderr, "lctl nodemap_modify invalid subcommand\n");
+		return -1;
+	}
+
+	rc = nodemap_cmd(cmd, 4, argv[0], argv[1], argv[2],
+			argv[3]);
+
+	if (rc != 0) {
+		errno = -rc;
+		perror(argv[0]);
+	}
+
+	return rc;
+}
+
 /*
  * this function tranforms a rule [start-end/step] into an array
  * of matching numbers
