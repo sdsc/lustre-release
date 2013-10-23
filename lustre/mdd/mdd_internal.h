@@ -340,7 +340,7 @@ int orph_declare_index_delete(const struct lu_env *, struct mdd_object *,
                               struct thandle *);
 
 /* mdd_lproc.c */
-void lprocfs_mdd_init_vars(struct lprocfs_static_vars *lvars);
+void lprocfs_mdd_init_vars(struct obd_device *obd);
 int mdd_procfs_init(struct mdd_device *mdd, const char *name);
 int mdd_procfs_fini(struct mdd_device *mdd);
 
