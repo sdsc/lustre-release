@@ -1182,7 +1182,7 @@ static int mdt_raw_lookup(struct mdt_thread_info *info,
                 repbody->fid1 = *child_fid;
                 repbody->valid = OBD_MD_FLID;
         }
-        RETURN(1);
+	RETURN(rc);
 }
 
 /*
@@ -1488,6 +1488,7 @@ int mdt_getattr_name(struct mdt_thread_info *info)
         struct mdt_lock_handle *lhc = &info->mti_lh[MDT_LH_CHILD];
         struct mdt_body        *reqbody;
         struct mdt_body        *repbody;
+	struct md_op_spec      *sp = &info->mti_spec;
         int rc, rc2;
         ENTRY;
 
@@ -1497,6 +1498,7 @@ int mdt_getattr_name(struct mdt_thread_info *info)
         LASSERT(repbody != NULL);
 
         info->mti_cross_ref = !!(reqbody->valid & OBD_MD_FLCROSSREF);
+	sp->sp_permitted = !!(reqbody->valid & OBD_MD_PERMITTED);
         repbody->eadatasize = 0;
         repbody->aclsize = 0;
 
@@ -3146,6 +3148,7 @@ void mdt_thread_info_init(struct ptlrpc_request *req,
         /* To not check for split by default. */
         info->mti_spec.no_create = 0;
 	info->mti_spec.sp_rm_entry = 0;
+	info->mti_spec.sp_permitted = 0;
 }
 
 void mdt_thread_info_fini(struct mdt_thread_info *info)

@@ -106,13 +106,14 @@ __mdd_lookup(const struct lu_env *env, struct md_object *pobj,
 }
 
 int mdd_lookup(const struct lu_env *env,
-               struct md_object *pobj, const struct lu_name *lname,
-               struct lu_fid* fid, struct md_op_spec *spec)
+	       struct md_object *pobj, const struct lu_name *lname,
+	       struct lu_fid *fid, struct md_op_spec *spec)
 {
-        int rc;
-        ENTRY;
-	rc = __mdd_lookup(env, pobj, lname, fid, MAY_EXEC);
-        RETURN(rc);
+	int rc;
+	ENTRY;
+	rc = __mdd_lookup(env, pobj, lname, fid,
+			  (spec != NULL && spec->sp_permitted) ? 0 : MAY_EXEC);
+	RETURN(rc);
 }
 
 int mdd_parent_fid(const struct lu_env *env, struct mdd_object *obj,
