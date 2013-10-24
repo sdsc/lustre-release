@@ -301,6 +301,7 @@ static struct dentry *ll_get_parent(struct dentry *dchild)
         if (IS_ERR(op_data))
                 RETURN((void *)op_data);
 
+	op_data->op_valid = OBD_MD_PERMITTED;
         rc = md_getattr_name(sbi->ll_md_exp, op_data, &req);
         ll_finish_md_op_data(op_data);
         if (rc) {
