@@ -270,7 +270,35 @@ static char *convert_hostnames(char *s1)
         return converted;
 }
 
-int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
+static int get_devname(char *const path, char **device, int mount_type)
+{
+	int rc;
+
+	switch (mount_type) {
+	case LDD_MT_ZFS:
+		*device = strdup(path);
+		break;
+	case LDD_MT_LDISKFS:
+	case LDD_MT_LDISKFS2:
+		rc = get_realpath(path, device);
+		if (rc != 0) {
+			fprintf(stderr, "%s: Failed to get realpath to "
+					"%s: %s\n",
+				progname, path, strerror(rc));
+			return rc;
+		}
+		break;
+	default:
+		fatal();
+		fprintf(stderr, "%s: Unknown mount type %d\n",
+			progname, mount_type);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                char **mountopts)
 {
 	static struct option long_opt[] = {
@@ -527,9 +555,11 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 			"pool/dataset name not specified.\n");
 		return EINVAL;
 	} else {
-		/*  The device or pool/filesystem name */
-		strscpy(mop->mo_device, argv[optind], sizeof(mop->mo_device));
-
+		/* The device or pool/filesystem name */
+		rc = get_devname(argv[optind], &mop->mo_device,
+				 mop->mo_ldd.ldd_mount_type);
+		if (rc != 0)
+			return rc;
 		/* Followed by optional vdevs */
 		if (optind < argc - 1)
 			mop->mo_pool_vdevs = (char **) &argv[optind + 1];
@@ -561,16 +591,21 @@ int main(int argc, char *const argv[])
         memset(&mop, 0, sizeof(mop));
         set_defaults(&mop);
 
-        /* device is last arg */
-        strscpy(mop.mo_device, argv[argc - 1], sizeof(mop.mo_device));
-
 	ret = osd_init();
 	if (ret)
-		return ret;
+		goto out;
 
 #ifdef TUNEFS
         /* For tunefs, we must read in the old values before parsing any
            new ones. */
+
+	/* At this moment, tunefs.lustre doesn't know the device's mount type.
+	 * If it is ldiskfs, the device path might be a symlink and its realpath
+	 * should be resolved. And if it is ZFS, the pool name should be passed
+	 * directly. */
+	ret = get_realpath(argv[argc - 1], &mop.mo_device);
+	if (ret != 0)
+		mop.mo_device = strdup(argv[argc - 1]);
 
         /* Check whether the disk has already been formatted by mkfs.lustre */
 	ret = osd_is_lustre(mop.mo_device, &mount_type);
@@ -729,8 +764,12 @@ int main(int argc, char *const argv[])
                 goto out;
         }
 
-	if (check_mtab_entry(mop.mo_device, mop.mo_device, NULL, NULL))
-		return(EEXIST);
+	ret = check_mtab_entry(mop.mo_device, mop.mo_device, NULL, NULL);
+	if (ret != 0) {
+		fprintf(stderr, "%s: %s is already mounted\n",
+			progname, mop.mo_device);
+		goto out;
+	}
 
         /* Create the loopback file */
         if (mop.mo_flags & MO_IS_LOOP) {
@@ -803,6 +842,7 @@ int main(int argc, char *const argv[])
 
 out:
         loop_cleanup(&mop);
+	free(mop.mo_device);
 	osd_fini();
 
         /* Fix any crazy return values from system() */
