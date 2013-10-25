@@ -127,10 +127,10 @@ ll_iget_for_nfs(struct super_block *sb, struct lu_fid *fid, struct lu_fid *paren
         struct dentry *result;
         ENTRY;
 
-        CDEBUG(D_INFO, "Get dentry for fid: "DFID"\n", PFID(fid));
         if (!fid_is_sane(fid))
                 RETURN(ERR_PTR(-ESTALE));
 
+	CDEBUG(D_INFO, "Get dentry for fid: "DFID"\n", PFID(fid));
         inode = search_inode_for_lustre(sb, fid);
         if (IS_ERR(inode))
                 RETURN(ERR_PTR(PTR_ERR(inode)));
@@ -197,7 +197,11 @@ static int ll_encode_fh(struct inode *inode, __u32 *fh, int *plen,
 		RETURN(255);
 
 	nfs_fid->lnf_child = *ll_inode2fid(inode);
-	nfs_fid->lnf_parent = *ll_inode2fid(parent);
+	if (parent != NULL)
+		nfs_fid->lnf_parent = *ll_inode2fid(parent);
+	else
+		memset(&(nfs_fid->lnf_parent), 0, sizeof(struct lu_fid));
+
 	*plen = sizeof(struct lustre_nfs_fid) / 4;
 
 	RETURN(LUSTRE_NFS_FID);
