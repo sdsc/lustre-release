@@ -1,0 +1,10 @@
+Verified+1: Hudson
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Code-Review+1: jacques-Charles Lafoucriere <jacques-charles.lafoucriere@cea.fr>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Emoly Liu <emoly.liu@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Fri, 25 Oct 2013 02:52:11 +0000
+Reviewed-on: http://review.whamcloud.com/7821
+Project: fs/lustre-release
+Branch: refs/heads/master
