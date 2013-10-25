@@ -196,7 +196,8 @@ static int ll_encode_fh(struct inode *inode, __u32 *fh, int *plen,
 		RETURN(255);
 
 	nfs_fid->lnf_child = *ll_inode2fid(inode);
-	nfs_fid->lnf_parent = *ll_inode2fid(parent);
+	if (parent != NULL)
+		nfs_fid->lnf_parent = *ll_inode2fid(parent);
 	*plen = sizeof(struct lustre_nfs_fid) / 4;
 
 	RETURN(LUSTRE_NFS_FID);
