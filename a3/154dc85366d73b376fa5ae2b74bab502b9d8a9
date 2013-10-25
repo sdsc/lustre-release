@@ -1,0 +1,11 @@
+Verified+1: Hudson
+Code-Review+1: Jinshan Xiong <jinshan.xiong@intel.com>
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Code-Review+1: jacques-Charles Lafoucriere <jacques-charles.lafoucriere@cea.fr>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: James Nunez <james.a.nunez@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Fri, 25 Oct 2013 03:05:15 +0000
+Reviewed-on: http://review.whamcloud.com/7885
+Project: fs/lustre-release
+Branch: refs/heads/master
