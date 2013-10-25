@@ -1059,7 +1059,7 @@ __u32 ldlm_pool_get_lvf(struct ldlm_pool *pl)
 EXPORT_SYMBOL(ldlm_pool_get_lvf);
 
 #ifdef __KERNEL__
-static unsigned int ldlm_pool_granted(struct ldlm_pool *pl)
+static inline int ldlm_pool_granted(struct ldlm_pool *pl)
 {
         return cfs_atomic_read(&pl->pl_granted);
 }
@@ -1077,11 +1077,11 @@ static struct completion ldlm_pools_comp;
 static int ldlm_pools_shrink(ldlm_side_t client, int nr,
                              unsigned int gfp_mask)
 {
-	unsigned int total = 0, cached = 0;
+	__u64 total = 0, cached = 0;
 	int nr_ns;
-        struct ldlm_namespace *ns;
+	struct ldlm_namespace *ns;
 	struct ldlm_namespace *ns_old = NULL; /* loop detection */
-        void *cookie;
+	void *cookie;
 
         if (client == LDLM_NAMESPACE_CLIENT && nr != 0 &&
             !(gfp_mask & __GFP_FS))
@@ -1139,7 +1139,7 @@ static int ldlm_pools_shrink(ldlm_side_t client, int nr,
 	     nr_ns > 0; nr_ns--)
         {
 		__u64 cancel;
-		unsigned int nr_locks;
+		int nr_locks;
 
                 /*
                  * Do not call shrink under ldlm_namespace_lock(client)
