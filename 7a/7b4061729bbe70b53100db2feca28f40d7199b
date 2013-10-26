@@ -1,0 +1,12 @@
+Verified+1: Hudson
+Code-Review+1: Christopher J. Morrone <chris.morrone.llnl@gmail.com>
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Verified+1: Maloo <whamcloud.maloo@gmail.com>
+Code-Review+1: Stephen Champion <schamp@sgi.com>
+Code-Review+1: Bob Glossman <bob.glossman@intel.com>
+Code-Review+1: Dmitry Eremin <dmitry.eremin@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Sat, 26 Oct 2013 22:34:48 +0000
+Reviewed-on: http://review.whamcloud.com/5493
+Project: fs/lustre-release
+Branch: refs/heads/master
