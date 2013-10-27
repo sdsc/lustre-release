@@ -425,6 +425,8 @@ struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de)
 	rc = ll_d_init(de);
 	if (rc < 0)
 		return ERR_PTR(rc);
+	if (!d_unhashed(de))
+		d_drop(de);
 	d_add(de, inode);
 	CDEBUG(D_DENTRY, "Add dentry %p inode %p refc %d flags %#x\n",
 	       de, de->d_inode, d_refcount(de), de->d_flags);
@@ -466,7 +468,7 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
 	/* Only hash *de if it is unhashed (new dentry).
 	 * Atoimc_open may passin hashed dentries for open.
 	 */
-	if (d_unhashed(*de)) {
+	if (d_unhashed(*de) || (inode && (*de)->d_inode == NULL)) {
 		struct dentry *alias;
 
 		alias = ll_splice_alias(inode, *de);
