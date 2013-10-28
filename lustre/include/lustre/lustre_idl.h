@@ -142,6 +142,7 @@
 #define SEQ_DATA_PORTAL                31
 #define SEQ_CONTROLLER_PORTAL          32
 #define MGS_BULK_PORTAL                33
+#define OST_IDX_PORTAL		       34
 
 /* Portal 63 is reserved for the Cray Inc DVS - nic@cray.com, roe@cray.com, n8851@cray.com */
 
@@ -601,6 +602,11 @@ static inline int fid_is_norm(const struct lu_fid *fid)
         return fid_seq_is_norm(fid_seq(fid));
 }
 
+static inline int fid_is_layout_rbtree(const struct lu_fid *fid)
+{
+	return fid_seq(fid) == FID_SEQ_LAYOUT_RBTREE;
+}
+
 /* convert an OST objid into an IDIF FID SEQ number */
 static inline obd_seq fid_idif_seq(obd_id id, __u32 ost_idx)
 {
@@ -923,6 +929,20 @@ static inline void ostid_le_to_cpu(const struct ost_id *src_oi,
 		fid_le_to_cpu(&dst_oi->oi_fid, &src_oi->oi_fid);
 	}
 }
+
+struct lu_orphan_rec {
+	/* The MDT-object's FID referenced by the orphan OST-object */
+	struct lu_fid	lor_fid;
+	__u32		lor_uid;
+	__u32		lor_gid;
+};
+
+struct lu_orphan_ent {
+	/* The orphan OST-object's FID */
+	struct lu_fid		loe_key;
+	struct lu_orphan_rec	loe_rec;
+};
+void lustre_swab_orphan_ent(struct lu_orphan_ent *ent);
 
 /** @} lu_fid */
 
@@ -3454,8 +3474,14 @@ struct idx_info {
 	/* request: hash to start with:
 	 * reply: hash of the first entry of the first lu_idxpage and hash
 	 *        of the entry to read next if any */
-	__u64		ii_hash_start;
-	__u64		ii_hash_end;
+	union {
+		__u64	ii_hash_start;
+		__u64	ii_seq_start;
+	};
+	union {
+		__u64	ii_hash_end;
+		__u64	ii_seq_end;
+	};
 
 	/* reply: size of keys in lu_idxpages, minimal one if II_FL_VARKEY is
 	 * set */
@@ -3465,9 +3491,11 @@ struct idx_info {
 	 * is set */
 	__u16		ii_recsize;
 
-	__u32		ii_pad1;
-	__u64		ii_pad2;
-	__u64		ii_pad3;
+	__u32		ii_oid_start;
+	__u32		ii_oid_end;
+	__u32		ii_ver_start;
+	__u32		ii_ver_end;
+	__u32		ii_index;
 };
 extern void lustre_swab_idx_info(struct idx_info *ii);
 
@@ -3479,6 +3507,8 @@ enum idx_info_flags {
 	II_FL_VARKEY	= 1 << 1, /* keys can be of variable size */
 	II_FL_VARREC	= 1 << 2, /* records can be of variable size */
 	II_FL_NONUNQ	= 1 << 3, /* index supports non-unique keys */
+	IT_FL_VIRTUAL	= 1 << 4, /* virtual object in-RAM only */
+	IT_FL_BIGKEY	= 1 << 5, /* use large key to locate the it position */
 };
 
 #define LIP_MAGIC 0x8A6D6B6C

@@ -801,9 +801,11 @@ check_obd_idx_read(void)
 	CHECK_MEMBER(idx_info, ii_hash_end);
 	CHECK_MEMBER(idx_info, ii_keysize);
 	CHECK_MEMBER(idx_info, ii_recsize);
-	CHECK_MEMBER(idx_info, ii_pad1);
-	CHECK_MEMBER(idx_info, ii_pad2);
-	CHECK_MEMBER(idx_info, ii_pad3);
+	CHECK_MEMBER(idx_info, ii_oid_start);
+	CHECK_MEMBER(idx_info, ii_oid_end);
+	CHECK_MEMBER(idx_info, ii_ver_start);
+	CHECK_MEMBER(idx_info, ii_ver_end);
+	CHECK_MEMBER(idx_info, ii_index);
 	CHECK_CDEFINE(IDX_INFO_MAGIC);
 
 	BLANK_LINE();
@@ -820,6 +822,8 @@ check_obd_idx_read(void)
 	CHECK_VALUE(II_FL_VARKEY);
 	CHECK_VALUE(II_FL_VARREC);
 	CHECK_VALUE(II_FL_NONUNQ);
+	CHECK_VALUE(IT_FL_VIRTUAL);
+	CHECK_VALUE(IT_FL_BIGKEY);
 }
 
 static void

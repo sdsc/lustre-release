@@ -587,6 +587,17 @@ EXPORT_SYMBOL(dt_directory_features);
 const struct dt_index_features dt_otable_features;
 EXPORT_SYMBOL(dt_otable_features);
 
+/* lfsck orphan */
+const struct dt_index_features dt_lfsck_orphan_features = {
+	.dif_flags		= 0,
+	.dif_keysize_min	= sizeof(struct lu_fid),
+	.dif_keysize_max	= sizeof(struct lu_fid),
+	.dif_recsize_min	= sizeof(struct lu_orphan_rec),
+	.dif_recsize_max	= sizeof(struct lu_orphan_rec),
+	.dif_ptrsize		= 4
+};
+EXPORT_SYMBOL(dt_lfsck_orphan_features);
+
 /* lfsck */
 const struct dt_index_features dt_lfsck_features = {
 	.dif_flags		= DT_IND_UPDATE,
@@ -650,6 +661,8 @@ static inline const struct dt_index_features *dt_index_feat_select(__u64 seq,
 			/* slave index should be a regular file */
 			return ERR_PTR(-ENOENT);
 		return &dt_quota_slv_features;
+	} else if (seq == FID_SEQ_LAYOUT_RBTREE){
+		return &dt_lfsck_orphan_features;
 	} else if (seq >= FID_SEQ_NORMAL) {
 		/* object is part of the namespace, verify that it is a
 		 * directory */
@@ -703,11 +716,25 @@ static int dt_index_page_build(const struct lu_env *env, union lu_page *lp,
 	do {
 		char		*tmp_entry = entry;
 		struct dt_key	*key;
-		__u64		 hash;
+		__u64		 hash	   = 0;
 
-		/* fetch 64-bit hash value */
-		hash = iops->store(env, it);
-		ii->ii_hash_end = hash;
+		LASSERT(iops->key_size(env, it) == ii->ii_keysize);
+
+		key = iops->key(env, it);
+		if (ii->ii_flags & IT_FL_BIGKEY) {
+			memcpy(&ii->ii_seq_end, key, sizeof(ii->ii_seq_end));
+			memcpy(&ii->ii_oid_end,
+			       (void *)key + sizeof(ii->ii_seq_end),
+			       sizeof(ii->ii_oid_end));
+			memcpy(&ii->ii_ver_end,
+			       (void *)key + sizeof(ii->ii_seq_end) +
+				sizeof(ii->ii_oid_end),
+			       sizeof(ii->ii_ver_end));
+		} else {
+			/* fetch 64-bit hash value */
+			hash = iops->store(env, it);
+			ii->ii_hash_end = hash;
+		}
 
 		if (OBD_FAIL_CHECK(OBD_FAIL_OBD_IDX_READ_BREAK)) {
 			if (lip->lip_nr != 0)
@@ -720,16 +747,14 @@ static int dt_index_page_build(const struct lu_env *env, union lu_page *lp,
 			GOTO(out, rc = 0);
 		}
 
-		if ((ii->ii_flags & II_FL_NOHASH) == 0) {
+		if (!(ii->ii_flags & II_FL_NOHASH) &&
+		    !(ii->ii_flags & IT_FL_BIGKEY)) {
 			/* client wants to the 64-bit hash value associated with
 			 * each record */
 			memcpy(tmp_entry, &hash, sizeof(hash));
 			tmp_entry += sizeof(hash);
 		}
 
-		/* then the key value */
-		LASSERT(iops->key_size(env, it) == ii->ii_keysize);
-		key = iops->key(env, it);
 		memcpy(tmp_entry, key, ii->ii_keysize);
 		tmp_entry += ii->ii_keysize;
 
@@ -741,8 +766,23 @@ static int dt_index_page_build(const struct lu_env *env, union lu_page *lp,
 
 			/* hash/key/record successfully copied! */
 			lip->lip_nr++;
-			if (unlikely(lip->lip_nr == 1 && ii->ii_count == 0))
-				ii->ii_hash_start = hash;
+			if (unlikely(lip->lip_nr == 1 && ii->ii_count == 0)) {
+				if (ii->ii_flags & IT_FL_BIGKEY) {
+					memcpy(&ii->ii_seq_start, key,
+					       sizeof(ii->ii_seq_start));
+					memcpy(&ii->ii_oid_start,
+					       (void *)key +
+						sizeof(ii->ii_seq_start),
+					       sizeof(ii->ii_oid_start));
+					memcpy(&ii->ii_ver_start,
+					       (void *)key +
+						sizeof(ii->ii_seq_start) +
+						sizeof(ii->ii_oid_start),
+					       sizeof(ii->ii_ver_start));
+				} else {
+					ii->ii_hash_start = hash;
+				}
+			}
 			entry = tmp_entry + ii->ii_recsize;
 			nob -= size;
 		}
@@ -759,9 +799,12 @@ out:
 	if (rc >= 0 && lip->lip_nr > 0)
 		/* one more container */
 		ii->ii_count++;
-	if (rc > 0)
+	if (rc > 0) {
 		/* no more entries */
 		ii->ii_hash_end = II_END_OFF;
+		ii->ii_oid_end = 0;
+		ii->ii_ver_end = 0;
+	}
 	return rc;
 }
 
@@ -817,6 +860,18 @@ int dt_index_walk(const struct lu_env *env, struct dt_object *obj,
 		rc = iops->next(env, it);
 	} else if (rc > 0) {
 		rc = 0;
+	} else if (rc == -E2BIG) {
+		rc = iops->get(env, it, arg);
+		if (rc == 0)
+			rc = iops->next(env, it);
+		else if (rc > 0)
+			rc = 0;
+	}
+
+	if (rc != 0) {
+		iops->put(env, it);
+		iops->fini(env, it);
+		RETURN(rc = (rc > 0 ? 0 : rc));
 	}
 
 	/* Fill containers one after the other. There might be multiple
@@ -890,8 +945,9 @@ int dt_index_read(const struct lu_env *env, struct dt_device *dev,
 		 * time being */
 		RETURN(-EOPNOTSUPP);
 
-	if (!fid_is_quota(&ii->ii_fid))
-		/* block access to all local files except quota files */
+	if (!fid_is_quota(&ii->ii_fid) && !fid_is_layout_rbtree(&ii->ii_fid))
+		/* Block access to all local files except quota files and
+		 * layout brtree. */
 		RETURN(-EPERM);
 
 	/* lookup index object subject to the transfer */
@@ -915,7 +971,7 @@ int dt_index_read(const struct lu_env *env, struct dt_device *dev,
 	}
 
 	/* fill ii_flags with supported index features */
-	ii->ii_flags &= II_FL_NOHASH;
+	ii->ii_flags &= (II_FL_NOHASH | IT_FL_VIRTUAL | IT_FL_BIGKEY);
 
 	ii->ii_keysize = feat->dif_keysize_max;
 	if ((feat->dif_flags & DT_IND_VARKEY) != 0) {
@@ -937,18 +993,23 @@ int dt_index_read(const struct lu_env *env, struct dt_device *dev,
 		/* key isn't necessarily unique */
 		ii->ii_flags |= II_FL_NONUNQ;
 
-	dt_read_lock(env, obj, 0);
-	/* fetch object version before walking the index */
-	ii->ii_version = dt_version_get(env, obj);
+	if (!(ii->ii_flags & IT_FL_VIRTUAL)) {
+		dt_read_lock(env, obj, 0);
+		/* fetch object version before walking the index */
+		ii->ii_version = dt_version_get(env, obj);
+	}
 
 	/* walk the index and fill lu_idxpages with key/record pairs */
 	rc = dt_index_walk(env, obj, rdpg, dt_index_page_build ,ii);
-	dt_read_unlock(env, obj);
+	if (!(ii->ii_flags & IT_FL_VIRTUAL))
+		dt_read_unlock(env, obj);
 
 	if (rc == 0) {
 		/* index is empty */
 		LASSERT(ii->ii_count == 0);
 		ii->ii_hash_end = II_END_OFF;
+		ii->ii_oid_end = 0;
+		ii->ii_ver_end = 0;
 	}
 
 	GOTO(out, rc);
