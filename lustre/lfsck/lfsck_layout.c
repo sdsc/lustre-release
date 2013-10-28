@@ -337,13 +337,18 @@ static inline int lfsck_rbtree_cmp(struct lfsck_rbtree_node *lrn,
 /* The caller should hold lock. */
 static struct lfsck_rbtree_node *
 lfsck_rbtree_search(struct lfsck_layout_slave_data *llsd,
-		    const struct lu_fid *fid)
+		    const struct lu_fid *fid, bool *exact)
 {
-	struct rb_node		 *node = llsd->llsd_rb_root.rb_node;
-	struct lfsck_rbtree_node *lrn;
-	int			  rc;
+	struct rb_node		 *node	= llsd->llsd_rb_root.rb_node;
+	struct rb_node		 *prev	= NULL;
+	struct lfsck_rbtree_node *lrn	= NULL;
+	int			  rc	= 0;
+
+	if (exact != NULL)
+		*exact = true;
 
 	while (node != NULL) {
+		prev = node;
 		lrn = rb_entry(node, struct lfsck_rbtree_node, lrn_node);
 		rc = lfsck_rbtree_cmp(lrn, fid_seq(fid), fid_oid(fid));
 		if (rc < 0)
@@ -353,7 +358,28 @@ lfsck_rbtree_search(struct lfsck_layout_slave_data *llsd,
 		else
 			return lrn;
 	}
-	return NULL;
+
+	if (exact == NULL)
+		return NULL;
+
+	/* If there is no exactly matched one, then to the next valid one. */
+	*exact = false;
+
+	/* The rbtree is empty. */
+	if (rc == 0)
+		return NULL;
+
+	if (rc < 0)
+		return lrn;
+
+	node = rb_next(prev);
+
+	/* The end of the rbtree. */
+	if (node == NULL)
+		return NULL;
+
+	lrn = rb_entry(node, struct lfsck_rbtree_node, lrn_node);
+	return lrn;
 }
 
 static struct lfsck_rbtree_node *lfsck_rbtree_new(const struct lu_env *env,
@@ -420,6 +446,8 @@ lfsck_rbtree_insert(struct lfsck_layout_slave_data *llsd,
 	return lrn;
 }
 
+extern const struct dt_index_operations lfsck_orphan_index_ops;
+
 static int lfsck_rbtree_setup(const struct lu_env *env,
 			      struct lfsck_component *com)
 {
@@ -443,6 +471,7 @@ static int lfsck_rbtree_setup(const struct lu_env *env,
 	 *
 	 *	Mark the object to be as exist. */
 	obj->do_lu.lo_header->loh_attr |= LOHA_EXISTS;
+	obj->do_index_ops = &lfsck_orphan_index_ops;
 	llsd->llsd_rb_obj = obj;
 	llsd->llsd_rbtree_valid = 1;
 	dev->dd_record_fid_accessed = 1;
@@ -503,7 +532,7 @@ static void lfsck_rbtree_update_bitmap(const struct lu_env *env,
 	if (!llsd->llsd_rbtree_valid)
 		GOTO(unlock, rc = 0);
 
-	lrn = lfsck_rbtree_search(llsd, fid);
+	lrn = lfsck_rbtree_search(llsd, fid, NULL);
 	if (lrn == NULL) {
 		struct lfsck_rbtree_node *tmp;
 
@@ -1585,13 +1614,121 @@ static void lfsck_layout_unlock(struct lustre_handle *lh)
 	ldlm_lock_decref(lh, LCK_EX);
 }
 
+static int lfsck_layout_scan_orphan_one(const struct lu_env *env,
+					struct lfsck_component *com,
+					struct lfsck_tgt_desc *ltd,
+					struct lu_orphan_rec *rec,
+					struct lu_fid *cfid)
+{
+	struct lfsck_layout		*lo	= com->lc_file_ram;
+	int				 rc	= 0;
+
+	/* XXX: To be extended in other patch. */
+
+	down_write(&com->lc_sem);
+	com->lc_new_scanned++;
+	com->lc_new_checked++;
+	if (rc > 0) {
+		lo->ll_objs_repaired_orphan++;
+		rc = 0;
+	} else if (rc < 0) {
+		lo->ll_objs_failed_phase2++;
+	}
+	up_write(&com->lc_sem);
+	return rc;
+}
+
 static int lfsck_layout_scan_orphan(const struct lu_env *env,
 				    struct lfsck_component *com,
 				    struct lfsck_tgt_desc *ltd)
 {
-	/* XXX: To be extended in other patch. */
+	struct lfsck_layout		*lo	= com->lc_file_ram;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct lfsck_bookmark		*bk	= &lfsck->li_bookmark_ram;
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct idx_info			*ii	= &info->lti_ii;
+	struct ost_id			*oi	= &info->lti_oi;
+	struct lu_fid			*fid	= &info->lti_fid;
+	struct dt_object		*obj;
+	const struct dt_it_ops		*iops;
+	struct dt_it			*di;
+	int				 rc	= 0;
+	ENTRY;
 
-	return 0;
+	CDEBUG(D_LFSCK, "%s: start the orphan scanning for OST%04x\n",
+	       lfsck_lfsck2name(lfsck), ltd->ltd_index);
+
+	ostid_set_seq(oi, FID_SEQ_IDIF);
+	ostid_set_id(oi, 0);
+	ostid_to_fid(fid, oi, ltd->ltd_index);
+	obj = lfsck_object_find_by_dev(env, ltd->ltd_tgt, fid);
+	if (unlikely(IS_ERR(obj)))
+		RETURN(PTR_ERR(obj));
+
+	rc = obj->do_ops->do_index_try(env, obj, &dt_lfsck_orphan_features);
+	if (rc != 0)
+		GOTO(put, rc);
+
+	iops = &obj->do_index_ops->dio_it;
+	di = iops->init(env, obj, 0, BYPASS_CAPA);
+	if (IS_ERR(di))
+		GOTO(put, rc = PTR_ERR(di));
+
+	memset(ii, 0, sizeof(ii));
+	ii->ii_fid.f_seq = FID_SEQ_LAYOUT_RBTREE;
+	ii->ii_fid.f_oid = ltd->ltd_index;
+	ii->ii_fid.f_ver = 0;
+	ii->ii_index = lfsck_dev_idx(ltd->ltd_tgt);
+	rc = iops->get(env, di, (const struct dt_key *)ii);
+	if (rc == -ESRCH) {
+		/* -ESRCH means that the orphan OST-objects rbtree has been
+		 * cleanup because of the OSS server restart or other errors. */
+		lo->ll_flags |= LF_INCOMPLETE;
+		GOTO(fini, rc);
+	}
+
+	if (rc == 0)
+		rc = iops->next(env, di);
+	else if (rc > 0)
+		rc = 0;
+
+	if (rc < 0)
+		GOTO(fini, rc);
+
+	if (rc > 0)
+		GOTO(fini, rc = 0);
+
+	do {
+		struct dt_key		*key;
+		struct lu_orphan_rec	*rec = &info->lti_rec;
+
+		key = iops->key(env, di);
+		com->lc_fid_latest_scanned_phase2 = *(struct lu_fid *)key;
+		rc = iops->rec(env, di, (struct dt_rec *)rec, 0);
+		if (rc == 0)
+			rc = lfsck_layout_scan_orphan_one(env, com, ltd, rec,
+					&com->lc_fid_latest_scanned_phase2);
+		if (rc != 0 && bk->lb_param & LPF_FAILOUT)
+			GOTO(fini, rc);
+
+		lfsck_control_speed_by_self(com);
+		do {
+			rc = iops->next(env, di);
+		} while (rc < 0 && !(bk->lb_param & LPF_FAILOUT));
+	} while (rc == 0);
+
+	GOTO(fini, rc);
+
+fini:
+	iops->put(env, di);
+	iops->fini(env, di);
+put:
+	lu_object_put(env, &obj->do_lu);
+
+	CDEBUG(D_LFSCK, "%s: finish the orphan scanning for OST%04x, rc = %d\n",
+	       lfsck_lfsck2name(lfsck), ltd->ltd_index, rc);
+
+	return (rc > 0 ? 0 : rc);
 }
 
 static int lfsck_layout_recreate_ostobj(const struct lu_env *env,
@@ -2263,6 +2400,13 @@ static int lfsck_layout_assistant(void *args)
 			llmd->llmd_in_double_scan = 1;
 			wake_up_all(&thread->t_ctl_waitq);
 
+			com->lc_new_checked = 0;
+			com->lc_new_scanned = 0;
+			com->lc_time_last_checkpoint = cfs_time_current();
+			com->lc_time_next_checkpoint =
+				com->lc_time_last_checkpoint +
+				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
+
 			while (llmd->llmd_in_double_scan) {
 				struct lfsck_tgt_descs	*ltds =
 							&lfsck->li_ost_descs;
@@ -2297,10 +2441,13 @@ static int lfsck_layout_assistant(void *args)
 						&ltd->ltd_layout_phase_list);
 					spin_unlock(&ltds->ltd_lock);
 
-					rc = lfsck_layout_scan_orphan(env, com,
-								      ltd);
-					if (rc != 0)
-						GOTO(cleanup2, rc = 1);
+					if (bk->lb_param & LPF_ALL_TARGETS) {
+						rc = lfsck_layout_scan_orphan(
+								env, com, ltd);
+						if (rc != 0 &&
+						    bk->lb_param & LPF_FAILOUT)
+							GOTO(cleanup2, rc);
+					}
 
 					if (unlikely(llmd->llmd_exit))
 						GOTO(cleanup2, rc = 0);
@@ -2781,6 +2928,7 @@ static int lfsck_layout_prep(const struct lu_env *env,
 			lo->ll_objs_repaired_inconsistent_owner = 0;
 			lo->ll_objs_repaired_others = 0;
 			pos->lp_oit_cookie = lo->ll_pos_first_inconsistent;
+			fid_zero(&com->lc_fid_latest_scanned_phase2);
 		}
 	} else {
 		lo->ll_status = LS_SCANNING_PHASE1;
@@ -3535,8 +3683,60 @@ static int lfsck_layout_dump(const struct lu_env *env,
 
 		buf += rc;
 		len -= rc;
+	} else if (lo->ll_status == LS_SCANNING_PHASE2) {
+		cfs_duration_t duration = cfs_time_current() -
+					  lfsck->li_time_last_checkpoint;
+		__u64 checked = lo->ll_objs_checked_phase1 + com->lc_new_checked;
+		__u64 speed = checked;
+		__u64 new_checked = com->lc_new_checked * HZ;
+		__u32 rtime = lo->ll_run_time_phase1 +
+			      cfs_duration_sec(duration + HALF_SEC);
+
+		if (duration != 0)
+			do_div(new_checked, duration);
+		if (rtime != 0)
+			do_div(speed, rtime);
+		rc = snprintf(buf, len,
+			      "checked_phase1: "LPU64"\n"
+			      "checked_phase2: "LPU64"\n"
+			      "repaired_dangling: "LPU64"\n"
+			      "repaired_unmatched_pair: "LPU64"\n"
+			      "repaired_multiple_referenced: "LPU64"\n"
+			      "repaired_orphan: "LPU64"\n"
+			      "repaired_inconsistent_owner: "LPU64"\n"
+			      "repaired_others: "LPU64"\n"
+			      "failed_phase1: "LPU64"\n"
+			      "failed_phase2: "LPU64"\n"
+			      "success_count: %u\n"
+			      "run_time_phase1: %u seconds\n"
+			      "run_time_phase2: %u seconds\n"
+			      "average_speed_phase1: "LPU64" items/sec\n"
+			      "average_speed_phase2: N/A\n"
+			      "real-time_speed_phase1: "LPU64" items/sec\n"
+			      "real-time_speed_phase2: N/A\n"
+			      "current_position: "DFID"\n",
+			      checked,
+			      lo->ll_objs_checked_phase2,
+			      lo->ll_objs_repaired_dangling,
+			      lo->ll_objs_repaired_unmatched_pair,
+			      lo->ll_objs_repaired_multiple_referenced,
+			      lo->ll_objs_repaired_orphan,
+			      lo->ll_objs_repaired_inconsistent_owner,
+			      lo->ll_objs_repaired_others,
+			      lo->ll_objs_failed_phase1,
+			      lo->ll_objs_failed_phase2,
+			      lo->ll_success_count,
+			      rtime,
+			      lo->ll_run_time_phase2,
+			      speed,
+			      new_checked,
+			      PFID(&com->lc_fid_latest_scanned_phase2));
+		if (rc <= 0)
+			goto out;
+
+		buf += rc;
+		len -= rc;
 	} else {
-		/* XXX: LS_SCANNING_PHASE2 will be handled in the future. */
 		__u64 speed1 = lo->ll_objs_checked_phase1;
 		__u64 speed2 = lo->ll_objs_checked_phase2;
 
@@ -4106,3 +4306,477 @@ out:
 		out_register_record_fid_accessed(lfsck_record_fid_accessed);
 	return rc;
 }
+
+struct lfsck_orphan_it {
+	struct lfsck_component		*loi_com;
+	struct lfsck_rbtree_node	*loi_lrn;
+	struct lu_fid			 loi_key;
+	struct lu_orphan_rec		 loi_rec;
+	int				 loi_idx;
+	unsigned int			 loi_over:1;
+};
+
+static int lfsck_fid_match_idx(const struct lu_env *env,
+			       struct lfsck_instance *lfsck,
+			       const struct lu_fid *fid, int idx)
+{
+	struct seq_server_site	*ss;
+	struct lu_server_fld	*sf;
+	struct lu_seq_range	 range	= { 0 };
+	int			 rc;
+
+	/* All abnormal cases will be returned to MDT0. */
+	if (!fid_is_norm(fid)) {
+		if (idx == 0)
+			return 1;
+		else
+			return 0;
+	}
+
+	ss = lu_site2seq(lfsck->li_bottom->dd_lu_dev.ld_site);
+	if (unlikely(ss == NULL))
+		return -ENOTCONN;
+
+	sf = ss->ss_server_fld;
+	LASSERT(sf != NULL);
+
+	fld_range_set_any(&range);
+	rc = fld_server_lookup(env, sf, fid_seq(fid), &range);
+	if (rc != 0)
+		return rc;
+
+	if (!fld_range_is_mdt(&range))
+		return -EINVAL;
+
+	if (range.lsr_index == idx)
+		return 1;
+	else
+		return 0;
+}
+
+static int lfsck_orphan_index_lookup(const struct lu_env *env,
+				     struct dt_object *dt,
+				     struct dt_rec *rec,
+				     const struct dt_key *key,
+				     struct lustre_capa *capa)
+{
+	return -EOPNOTSUPP;
+}
+
+static int lfsck_orphan_index_declare_insert(const struct lu_env *env,
+					     struct dt_object *dt,
+					     const struct dt_rec *rec,
+					     const struct dt_key *key,
+					     struct thandle *handle)
+{
+	return -EOPNOTSUPP;
+}
+
+static int lfsck_orphan_index_insert(const struct lu_env *env,
+				     struct dt_object *dt,
+				     const struct dt_rec *rec,
+				     const struct dt_key *key,
+				     struct thandle *handle,
+				     struct lustre_capa *capa,
+				     int ignore_quota)
+{
+	return -EOPNOTSUPP;
+}
+
+static int lfsck_orphan_index_declare_delete(const struct lu_env *env,
+					     struct dt_object *dt,
+					     const struct dt_key *key,
+					     struct thandle *handle)
+{
+	return -EOPNOTSUPP;
+}
+
+static int lfsck_orphan_index_delete(const struct lu_env *env,
+				     struct dt_object *dt,
+				     const struct dt_key *key,
+				     struct thandle *handle,
+				     struct lustre_capa *capa)
+{
+	return -EOPNOTSUPP;
+}
+
+static struct dt_it *lfsck_orphan_it_init(const struct lu_env *env,
+					  struct dt_object *dt,
+					  __u32 attr,
+					  struct lustre_capa *capa)
+{
+	struct dt_device		*dev	= lu2dt_dev(dt->do_lu.lo_dev);
+	struct lfsck_instance		*lfsck;
+	struct lfsck_component		*com	= NULL;
+	struct lfsck_layout_slave_data	*llsd;
+	struct lfsck_orphan_it		*it	= NULL;
+	int				 rc	= 0;
+	ENTRY;
+
+	lfsck = lfsck_instance_find(dev, true, false);
+	if (unlikely(lfsck == NULL))
+		RETURN(ERR_PTR(-ENODEV));
+
+	com = lfsck_component_find(lfsck, LT_LAYOUT);
+	if (unlikely(com == NULL))
+		GOTO(out, rc = -ENOENT);
+
+	OBD_ALLOC_PTR(it);
+	if (it == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	llsd = com->lc_data;
+	if (dev->dd_record_fid_accessed) {
+		/* The first iteratino against the rbtree, scan the whole rbtree
+		 * to remove the nodes which do NOT need to be handled. */
+		write_lock(&llsd->llsd_rb_lock);
+		if (dev->dd_record_fid_accessed) {
+			struct rb_node			*node;
+			struct rb_node			*next;
+			struct lfsck_rbtree_node	*lrn;
+
+			/* No need to record the fid accessing anymore. */
+			dev->dd_record_fid_accessed = 0;
+
+			node = rb_first(&llsd->llsd_rb_root);
+			while (node != NULL) {
+				next = rb_next(node);
+				lrn = rb_entry(node, struct lfsck_rbtree_node,
+					       lrn_node);
+				if (atomic_read(&lrn->lrn_known_count) <=
+				    atomic_read(&lrn->lrn_accessed_count)) {
+					rb_erase(node, &llsd->llsd_rb_root);
+					lfsck_rbtree_free(lrn);
+				}
+				node = next;
+			}
+		}
+		write_unlock(&llsd->llsd_rb_lock);
+	}
+
+	/* read lock the rbtree when init, and unlock when fini */
+	read_lock(&llsd->llsd_rb_lock);
+	it->loi_com = com;
+	com = NULL;
+	it->loi_idx = -1;
+
+	GOTO(out, rc = 0);
+
+out:
+	if (com != NULL)
+		lfsck_component_put(env, com);
+	lfsck_instance_put(env, lfsck);
+	if (rc != 0)
+		it = (struct lfsck_orphan_it *)ERR_PTR(rc);
+	return (struct dt_it *)it;
+}
+
+static void lfsck_orphan_it_fini(const struct lu_env *env,
+				 struct dt_it *di)
+{
+	struct lfsck_orphan_it		*it	= (struct lfsck_orphan_it *)di;
+	struct lfsck_component		*com	= it->loi_com;
+	struct lfsck_layout_slave_data	*llsd;
+
+	if (com != NULL) {
+		llsd = com->lc_data;
+		read_unlock(&llsd->llsd_rb_lock);
+		lfsck_component_put(env, com);
+	}
+	OBD_FREE_PTR(it);
+}
+
+/**
+ * \retval	 +1: the iteration finished
+ * \retval	  0: on success, not finished
+ * \retval	-ve: on error
+ */
+static int lfsck_orphan_it_next(const struct lu_env *env,
+				struct dt_it *di)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct filter_fid_old		*pfid	= &info->lti_old_pfid;
+	struct lu_attr			*la	= &info->lti_la;
+	struct lfsck_orphan_it		*it	= (struct lfsck_orphan_it *)di;
+	struct lu_fid			*key	= &it->loi_key;
+	struct lu_orphan_rec		*rec	= &it->loi_rec;
+	struct lfsck_component		*com	= it->loi_com;
+	struct lfsck_layout_slave_data	*llsd	= com->lc_data;
+	struct dt_object		*obj;
+	struct lfsck_rbtree_node	*lrn;
+	int				 pos;
+	int				 rc;
+	__u32				 save;
+	bool				 exact	= false;
+	ENTRY;
+
+	if (it->loi_over)
+		RETURN(1);
+
+again0:
+	lrn = it->loi_lrn;
+	if (lrn == NULL) {
+		lrn = lfsck_rbtree_search(llsd, key, &exact);
+		if (lrn == NULL) {
+			it->loi_over = 1;
+			RETURN(1);
+		}
+
+		it->loi_lrn = lrn;
+		if (!exact) {
+			key->f_seq = lrn->lrn_seq;
+			key->f_oid = lrn->lrn_first_oid;
+			key->f_ver = 0;
+		}
+	} else {
+		key->f_oid++;
+		if (unlikely(key->f_oid == 0)) {
+			key->f_seq++;
+			it->loi_lrn = NULL;
+			goto again0;
+		}
+
+		if (key->f_oid >=
+		    lrn->lrn_first_oid + LFSCK_RBTREE_BITMAP_WIDTH) {
+			it->loi_lrn = NULL;
+			goto again0;
+		}
+	}
+
+	if (unlikely(atomic_read(&lrn->lrn_known_count) <=
+		     atomic_read(&lrn->lrn_accessed_count))) {
+		struct rb_node *next = rb_next(&lrn->lrn_node);
+
+		while (next != NULL) {
+			lrn = rb_entry(next, struct lfsck_rbtree_node,
+				       lrn_node);
+			if (atomic_read(&lrn->lrn_known_count) >
+			    atomic_read(&lrn->lrn_accessed_count))
+				break;
+			next = rb_next(next);
+		}
+
+		if (next == NULL) {
+			it->loi_over = 1;
+			RETURN(1);
+		}
+
+		it->loi_lrn = lrn;
+		key->f_seq = lrn->lrn_seq;
+		key->f_oid = lrn->lrn_first_oid;
+		key->f_ver = 0;
+	}
+
+	pos = key->f_oid - lrn->lrn_first_oid;
+
+again1:
+	pos = find_next_bit(lrn->lrn_known_bitmap,
+			    LFSCK_RBTREE_BITMAP_WIDTH, pos);
+	if (pos >= LFSCK_RBTREE_BITMAP_WIDTH) {
+		key->f_oid = lrn->lrn_first_oid + pos;
+		if (unlikely(key->f_oid < lrn->lrn_first_oid)) {
+			key->f_seq++;
+			key->f_oid = 0;
+		}
+		it->loi_lrn = NULL;
+		goto again0;
+	}
+
+	if (test_bit(pos, lrn->lrn_accessed_bitmap)) {
+		pos++;
+		goto again1;
+	}
+
+	key->f_oid = lrn->lrn_first_oid + pos;
+	obj = lfsck_object_find(env, com->lc_lfsck, key);
+	if (IS_ERR(obj)) {
+		rc = PTR_ERR(obj);
+		if (rc == -ENOENT) {
+			pos++;
+			goto again1;
+		}
+		RETURN(rc);
+	}
+
+	dt_read_lock(env, obj, 0);
+	if (!dt_object_exists(obj)) {
+		dt_read_unlock(env, obj);
+		lfsck_object_put(env, obj);
+		pos++;
+		goto again1;
+	}
+
+	rc = dt_attr_get(env, obj, la, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = dt_xattr_get(env, obj, lfsck_buf_get(env, pfid, sizeof(*pfid)),
+			  XATTR_NAME_FID, BYPASS_CAPA);
+	if (rc == -ENODATA) {
+		/* If the orphan OST-object has no parent information,
+		 * regard it as referenced by the MDT-object on MDT0. */
+		if (it->loi_idx == 0 && la->la_ctime != 0) {
+			fid_zero(&rec->lor_fid);
+			rec->lor_uid = la->la_uid;
+			rec->lor_gid = la->la_gid;
+			GOTO(out, rc = 0);
+		}
+
+		/* For the pre-created OST-object, update the bitmap to avoid
+		 * others LFSCK (second phase )iteration to touch it again. */
+		if (la->la_ctime == 0) {
+			if (!test_and_set_bit(pos, lrn->lrn_accessed_bitmap))
+				atomic_inc(&lrn->lrn_accessed_count);
+		}
+
+		dt_read_unlock(env, obj);
+		lfsck_object_put(env, obj);
+		pos++;
+		goto again1;
+	}
+
+	if (rc < 0)
+		GOTO(out, rc);
+
+	if (rc != sizeof(struct filter_fid) &&
+	    rc != sizeof(struct filter_fid_old))
+		GOTO(out, rc = -EINVAL);
+
+	fid_le_to_cpu(&rec->lor_fid, &pfid->ff_parent);
+	/* XXX: In fact, the ff_parent::f_ver is not the real parent
+	 *	FID::f_ver, instead, it is the OST-object index in
+	 *	its parent MDT-object layout EA. */
+	save = rec->lor_fid.f_ver;
+	rec->lor_fid.f_ver = 0;
+	rc = lfsck_fid_match_idx(env, com->lc_lfsck, &rec->lor_fid,
+				 it->loi_idx);
+	/* If the orphan OST-object does not claim the MDT, then next.
+	 *
+	 * If we do not know whether it matches or not, then return it
+	 * to the MDT for further check. */
+	if (rc == 0) {
+		dt_read_unlock(env, obj);
+		lfsck_object_put(env, obj);
+		pos++;
+		goto again1;
+	}
+
+	rec->lor_fid.f_ver = save;
+	rec->lor_uid = la->la_uid;
+	rec->lor_gid = la->la_gid;
+
+	GOTO(out, rc = 0);
+
+out:
+	dt_read_unlock(env, obj);
+	lfsck_object_put(env, obj);
+	return rc;
+}
+
+/**
+ * \retval	 +1: locate to the exactly position
+ * \retval	  0: cannot locate to the exactly position,
+ *		     call next() to move to a valid position.
+ * \retval	-ve: on error
+ */
+static int lfsck_orphan_it_get(const struct lu_env *env,
+			       struct dt_it *di,
+			       const struct dt_key *key)
+{
+	struct lfsck_orphan_it		*it   = (struct lfsck_orphan_it *)di;
+	struct idx_info 		*ii   = (struct idx_info *)key;
+	struct lfsck_layout_slave_data	*llsd = it->loi_com->lc_data;
+	int				 rc;
+
+	/* Forbid to set iteration position after iteration started. */
+	if (it->loi_idx != -1)
+		return -EPERM;
+
+	LASSERT(ii->ii_flags & IT_FL_BIGKEY);
+	LASSERT(ii->ii_index != -1);
+
+	if (!llsd->llsd_rbtree_valid)
+		return -ESRCH;
+
+	it->loi_key.f_seq = ii->ii_seq_start;
+	it->loi_key.f_oid = ii->ii_oid_start;
+	it->loi_key.f_ver = ii->ii_ver_start;
+	it->loi_idx = ii->ii_index;
+	rc = lfsck_orphan_it_next(env, di);
+	if (rc == 1)
+		return 0;
+	if (rc == 0)
+		return 1;
+	return rc;
+}
+
+static void lfsck_orphan_it_put(const struct lu_env *env,
+				struct dt_it *di)
+{
+}
+
+static struct dt_key *lfsck_orphan_it_key(const struct lu_env *env,
+					  const struct dt_it *di)
+{
+	struct lfsck_orphan_it *it = (struct lfsck_orphan_it *)di;
+
+	return (struct dt_key *)&it->loi_key;
+}
+
+static int lfsck_orphan_it_key_size(const struct lu_env *env,
+				    const struct dt_it *di)
+{
+	return sizeof(struct lu_fid);
+}
+
+static int lfsck_orphan_it_rec(const struct lu_env *env,
+			       const struct dt_it *di,
+			       struct dt_rec *rec,
+			       __u32 attr)
+{
+	struct lfsck_orphan_it *it = (struct lfsck_orphan_it *)di;
+
+	*(struct lu_orphan_rec *)rec = it->loi_rec;
+	return 0;
+}
+
+static __u64 lfsck_orphan_it_store(const struct lu_env *env,
+				   const struct dt_it *di)
+{
+	return -E2BIG;
+}
+
+static int lfsck_orphan_it_load(const struct lu_env *env,
+				const struct dt_it *di,
+				__u64 hash)
+{
+	return -E2BIG;
+}
+
+static int lfsck_orphan_it_key_rec(const struct lu_env *env,
+				   const struct dt_it *di,
+				   void *key_rec)
+{
+	return 0;
+}
+
+const struct dt_index_operations lfsck_orphan_index_ops = {
+	.dio_lookup		= lfsck_orphan_index_lookup,
+	.dio_declare_insert	= lfsck_orphan_index_declare_insert,
+	.dio_insert		= lfsck_orphan_index_insert,
+	.dio_declare_delete	= lfsck_orphan_index_declare_delete,
+	.dio_delete		= lfsck_orphan_index_delete,
+	.dio_it = {
+		.init		= lfsck_orphan_it_init,
+		.fini		= lfsck_orphan_it_fini,
+		.get		= lfsck_orphan_it_get,
+		.put		= lfsck_orphan_it_put,
+		.next		= lfsck_orphan_it_next,
+		.key		= lfsck_orphan_it_key,
+		.key_size	= lfsck_orphan_it_key_size,
+		.rec		= lfsck_orphan_it_rec,
+		.store		= lfsck_orphan_it_store,
+		.load		= lfsck_orphan_it_load,
+		.key_rec	= lfsck_orphan_it_key_rec,
+	}
+};
