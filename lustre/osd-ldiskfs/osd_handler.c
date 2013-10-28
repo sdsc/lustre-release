@@ -3524,6 +3524,10 @@ static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
 {
 	ENTRY;
 
+	/* FID_SEQ_DOT_LUSTRE only can be used on MDT0. */
+	if (fid_seq(fid) == FID_SEQ_DOT_LUSTRE)
+		RETURN(!(!osd->od_is_ost && osd->od_index == 0));
+
 	/* FID seqs not in FLDB, must be local seq */
 	if (unlikely(!fid_seq_in_fldb(fid_seq(fid))))
 		RETURN(0);
