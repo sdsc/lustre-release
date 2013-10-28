@@ -299,6 +299,9 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
 		RETURN(rc);
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_OWNER))
+		RETURN(0);
+
 	/*
 	 * load striping information, notice we don't do this when object
 	 * is being initialized as we don't need this information till
@@ -344,6 +347,9 @@ static int lod_attr_set(const struct lu_env *env,
 
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
 		RETURN(rc);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_OWNER))
+		RETURN(0);
 
 	/*
 	 * if object is striped, apply changes to all the stripes
