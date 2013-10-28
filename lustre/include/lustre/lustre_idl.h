@@ -97,6 +97,7 @@
 
 /* Defn's shared with user-space. */
 #include <lustre/lustre_user.h>
+#include <lustre/lustre_lfsck_user.h>
 
 #include <lustre/lustre_errno.h>
 
@@ -3322,6 +3323,18 @@ struct obdo {
 #define o_dropped o_misc
 #define o_cksum   o_nlink
 #define o_grant_used o_data_version
+
+struct lfsck_event_request {
+	union {
+		struct lfsck_start	ler_start;
+		struct lfsck_stop	ler_stop;
+		__u32			ler_status;
+	} u;
+	__u32				ler_event;
+	__u32				ler_index;
+} __attribute__((packed));
+
+void lustre_swab_lfsck_event_request(struct lfsck_event_request *ler);
 
 static inline void lustre_set_wire_obdo(struct obd_connect_data *ocd,
 					struct obdo *wobdo,

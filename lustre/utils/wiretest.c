@@ -4544,5 +4544,45 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct update, u_bufs));
 	LASSERTF((int)sizeof(((struct update *)0)->u_bufs) == 0, "found %lld\n",
 		 (long long)(int)sizeof(((struct update *)0)->u_bufs));
+
+	/* Checks for struct lfsck_event_request */
+	LASSERTF((int)sizeof(struct lfsck_event_request) == 24, "found %lld\n",
+		 (long long)(int)sizeof(struct lfsck_event_request));
+
+	/* Checks for struct lfsck_start */
+	LASSERTF((int)sizeof(struct lfsck_start) == 16, "found %lld\n",
+		 (long long)(int)sizeof(struct lfsck_start));
+	LASSERTF((int)offsetof(struct lfsck_start, ls_valid) == 0, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_start, ls_valid));
+	LASSERTF((int)sizeof(((struct lfsck_start *)0)->ls_valid) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_start *)0)->ls_valid));
+	LASSERTF((int)offsetof(struct lfsck_start, ls_speed_limit) == 4, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_start, ls_speed_limit));
+	LASSERTF((int)sizeof(((struct lfsck_start *)0)->ls_speed_limit) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_start *)0)->ls_speed_limit));
+	LASSERTF((int)offsetof(struct lfsck_start, ls_version) == 8, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_start, ls_version));
+	LASSERTF((int)sizeof(((struct lfsck_start *)0)->ls_version) == 2, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_start *)0)->ls_version));
+	LASSERTF((int)offsetof(struct lfsck_start, ls_active) == 10, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_start, ls_active));
+	LASSERTF((int)sizeof(((struct lfsck_start *)0)->ls_active) == 2, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_start *)0)->ls_active));
+	LASSERTF((int)offsetof(struct lfsck_start, ls_flags) == 12, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_start, ls_flags));
+	LASSERTF((int)sizeof(((struct lfsck_start *)0)->ls_flags) == 2, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_start *)0)->ls_flags));
+	LASSERTF((int)offsetof(struct lfsck_start, ls_padding) == 14, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_start, ls_padding));
+	LASSERTF((int)sizeof(((struct lfsck_start *)0)->ls_padding) == 2, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_start *)0)->ls_padding));
+	LASSERTF((int)offsetof(struct lfsck_event_request, ler_event) == 16, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_event_request, ler_event));
+	LASSERTF((int)sizeof(((struct lfsck_event_request *)0)->ler_event) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_event_request *)0)->ler_event));
+	LASSERTF((int)offsetof(struct lfsck_event_request, ler_index) == 20, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_event_request, ler_index));
+	LASSERTF((int)sizeof(((struct lfsck_event_request *)0)->ler_index) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_event_request *)0)->ler_index));
 }
 

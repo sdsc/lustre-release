@@ -2587,3 +2587,15 @@ void lustre_swab_close_data(struct close_data *cd)
 	__swab64s(&cd->cd_data_version);
 }
 EXPORT_SYMBOL(lustre_swab_close_data);
+
+void lustre_swab_lfsck_event_request(struct lfsck_event_request *ler)
+{
+	__swab32s(&ler->u.ler_start.ls_valid);
+	__swab32s(&ler->u.ler_start.ls_speed_limit);
+	__swab16s(&ler->u.ler_start.ls_version);
+	__swab16s(&ler->u.ler_start.ls_active);
+	__swab16s(&ler->u.ler_start.ls_flags);
+	__swab32s(&ler->ler_event);
+	__swab32s(&ler->ler_index);
+}
+EXPORT_SYMBOL(lustre_swab_lfsck_event_request);
