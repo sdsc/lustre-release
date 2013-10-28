@@ -264,6 +264,7 @@ static int ofd_object_init(const struct lu_env *env, struct lu_object *o,
 			   const struct lu_object_conf *conf)
 {
 	struct ofd_device	*d = ofd_dev(o->lo_dev);
+	struct ofd_object	*fo = ofd_obj(o);
 	struct lu_device	*under;
 	struct lu_object	*below;
 	int			 rc = 0;
@@ -273,6 +274,7 @@ static int ofd_object_init(const struct lu_env *env, struct lu_object *o,
 	CDEBUG(D_INFO, "object init, fid = "DFID"\n",
 	       PFID(lu_object_fid(o)));
 
+	spin_lock_init(&fo->ofo_lock);
 	under = &d->ofd_osd->dd_lu_dev;
 	below = under->ld_ops->ldo_object_alloc(env, o->lo_header, under);
 	if (below != NULL)
@@ -1742,6 +1744,7 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	m->ofd_tot_granted = 0;
 	m->ofd_tot_pending = 0;
 	m->ofd_seq_count = 0;
+	init_waitqueue_head(&m->ofd_inconsistency_thread.t_ctl_waitq);
 
 	spin_lock_init(&m->ofd_batch_lock);
 	rwlock_init(&obd->u.filter.fo_sptlrpc_lock);
@@ -1846,7 +1849,14 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	if (rc)
 		GOTO(err_fini_lut, rc);
 
+	rc = ofd_start_inconsistency_self_repair_thread(m);
+	if (rc != 0)
+		GOTO(err_fini_fs, rc);
+
 	RETURN(0);
+
+err_fini_fs:
+	ofd_fs_cleanup(env, m);
 err_fini_lut:
 	tgt_fini(env, &m->ofd_lut);
 err_free_ns:
@@ -1874,6 +1884,7 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	obd_zombie_barrier();
 
 	tgt_fini(env, &m->ofd_lut);
+	ofd_stop_inconsistency_self_repair_thread(m);
 	ofd_fs_cleanup(env, m);
 
 	ofd_free_capa_keys(m);

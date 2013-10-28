@@ -40,7 +40,7 @@ check_and_setup_lustre
 	exit 0
 
 [[ $(lustre_version_code ost1) -lt $(version_code 2.5.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18"
 
 build_test_filter
 
@@ -1521,6 +1521,80 @@ test_17() {
 		error "(6) guard size should be 1048576, but got $size"
 }
 run_test 17 "LFSCK can repair multiple references"
+
+test_18a() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+
+	echo "foo" > $DIR/$tdir/a0
+	echo "guard" > $DIR/$tdir/a1
+
+	cancel_lru_locks osc
+	umount_client $MOUNT || error "(1) Fail to stop client!"
+	mount_client $MOUNT || error "(2) Fail to start client!"
+
+	echo "Inject failure, then client will offer wrong parent FID when read"
+	do_facet ost1 $LCTL set_param -n \
+		obdfilter.${FSNAME}-OST0000.fail_on_inconsistency 1
+	#define OBD_FAIL_LFSCK_INVALID_PFID	0x1615
+	$LCTL set_param fail_loc=0x1615
+
+	echo "Read RPC with wrong parent FID should be denied"
+	cat $DIR/$tdir/a0 && error "(3) Read should be denied!"
+	$LCTL set_param fail_loc=0
+}
+run_test 18a "OST-object inconsistency self detect"
+
+test_18b() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+
+	echo "Inject failure stub to make the OST-object to back point to"
+	echo "non-exist MDT-object"
+
+	#define OBD_FAIL_LFSCK_UNMATCHED_PAIR1	0x1611
+	do_facet ost1 $LCTL set_param fail_loc=0x1611
+	echo "foo" > $DIR/$tdir/f0
+	cancel_lru_locks osc
+	sync
+	sleep 2
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	echo "Nothing should be fixed since self detect and repair is disabled"
+	local repaired=$(do_facet ost1 $LCTL get_param -n \
+			obdfilter.${FSNAME}-OST0000.inconsistency_self_cure |
+			awk '/^repaired/ { print $2 }')
+	[ $repaired -eq 0 ] ||
+		error "(1) Expected 0 repaired, but got $repaired"
+
+	echo "Read RPC with right parent FID should be accepted,"
+	echo "and cause parent FID on OST to be fixed"
+
+	do_facet ost1 $LCTL set_param -n \
+		obdfilter.${FSNAME}-OST0000.fail_on_inconsistency 1
+	cat $DIR/$tdir/f0 || error "(2) Read should not be denied!"
+
+	repaired=$(do_facet ost1 $LCTL get_param -n \
+		obdfilter.${FSNAME}-OST0000.inconsistency_self_cure |
+		awk '/^repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Expected 1 repaired, but got $repaired"
+}
+run_test 18b "OST-object inconsistency self repair"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 
