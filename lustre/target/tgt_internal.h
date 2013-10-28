@@ -133,6 +133,7 @@ struct tgt_thread_info {
 			struct dt_object	*tti_dt_object;
 		} update;
 	} tti_u;
+	struct lfsck_event_request tti_ler;
 };
 
 extern struct lu_context_key tgt_thread_key;
