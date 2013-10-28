@@ -419,7 +419,7 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
                             sizeof(XATTR_NAME_ACL_DEFAULT) - 1) == 0)) {
                 /* currently lustre limit acl access size */
                 if (xattr_len > LUSTRE_POSIX_ACL_MAX_SIZE)
-                        GOTO(out, -ERANGE);
+			GOTO(out, rc = -ERANGE);
         }
 
         lockpart = MDS_INODELOCK_UPDATE;
