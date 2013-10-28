@@ -522,6 +522,7 @@ struct lfsck_thread_info {
 	struct lu_name		lti_name;
 	struct lu_buf		lti_buf;
 	struct lu_buf		lti_linkea_buf;
+	struct lu_buf		lti_big_buf;
 	struct lu_fid		lti_fid;
 	struct lu_fid		lti_fid2;
 	struct lu_attr		lti_la;
@@ -533,6 +534,11 @@ struct lfsck_thread_info {
 	char			lti_key[NAME_MAX + 16];
 	struct lfsck_event_request lti_ler;
 	struct lfsck_async_interpret_args lti_laia;
+	struct ost_id		lti_oi;
+	ldlm_policy_data_t	lti_policy;
+	struct ldlm_res_id	lti_resid;
+	struct lustre_handle	lti_lh;
+	struct filter_fid_old	lti_pfid;
 };
 
 /* lfsck_lib.c */
@@ -739,6 +745,19 @@ static inline void lfsck_object_put(const struct lu_env *env,
 				    struct dt_object *obj)
 {
 	lu_object_put(env, &obj->do_lu);
+}
+
+static inline struct dt_object *
+lfsck_object_find_by_dev(const struct lu_env *env, struct dt_device *dev,
+			 const struct lu_fid *fid)
+{
+	struct dt_object *obj;
+
+	obj = lu2dt(lu_object_find_slice(env, dt2lu_dev(dev), fid, NULL));
+	if (unlikely(obj == NULL))
+		return ERR_PTR(-ENOENT);
+
+	return obj;
 }
 
 static inline struct lfsck_tgt_desc *lfsck_tgt_get(struct lfsck_tgt_descs *ltds,
