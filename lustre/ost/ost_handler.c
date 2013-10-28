@@ -287,7 +287,25 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
 			.bc_req_max_size	= OUT_MAXREQSIZE,
 			.bc_rep_max_size	= OUT_MAXREPSIZE,
 			.bc_req_portal		= OUT_PORTAL,
-			.bc_rep_portal		= OSC_REPLY_PORTAL,
+			/* XXX: It is some confused here, we can NOT use
+			 *	OSC_REPLY_PORTAL as the OST-side OUT RPC
+			 *	reply protal, because that both MDS-side
+			 *	and OST-side OUT RPC service threads use
+			 *	the same request protal OUT_PORTAL, when
+			 *	MDT and OST resides on the same physical
+			 *	server, the RPC requests dispatcher will
+			 *	not distinguish them for OUT request. So
+			 *	using different reply portals will cause
+			 *	peer side trouble. Maybe we can use some
+			 *	new reply portal, but because DNE phase1
+			 *	has already used MDC_REPLY_PORTAL, to be
+			 *	compatible with the old version, we have
+			 *	to use MDC_REPLY_PORTAL on OST-side.
+			 *
+			 *	It is a tempory solution, and it will be
+			 *	replaced by following patch in future:
+			 *	http://review.whamcloud.com/#/c/8390/ */
+			.bc_rep_portal		= MDC_REPLY_PORTAL,
 		},
 		/*
 		 * We'd like to have a mechanism to set this on a per-device

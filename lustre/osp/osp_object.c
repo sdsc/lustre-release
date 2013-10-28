@@ -45,6 +45,13 @@
 
 #include "osp_internal.h"
 
+static inline int is_ost_obj(struct lu_object *lo)
+{
+	struct osp_device  *osp  = lu2osp_dev(lo->lo_dev);
+
+	return !osp->opd_connect_mdt;
+}
+
 static void osp_object_assign_fid(const struct lu_env *env,
 				 struct osp_device *d, struct osp_object *o)
 {
@@ -52,11 +59,153 @@ static void osp_object_assign_fid(const struct lu_env *env,
 
 	LASSERT(fid_is_zero(lu_object_fid(&o->opo_obj.do_lu)));
 	LASSERT(o->opo_reserved);
+
 	o->opo_reserved = 0;
-
 	osp_precreate_get_fid(env, d, &osi->osi_fid);
-
 	lu_object_assign_fid(env, &o->opo_obj.do_lu, &osi->osi_fid);
+}
+
+static int osp_get_attr_from_req(const struct lu_env *env,
+				 struct update_reply *reply,
+				 struct osp_object *obj, int index)
+{
+	struct obdo *lobdo = &osp_env_info(env)->osi_obdo;
+	struct obdo *wobdo;
+	int	     size;
+
+	size = update_get_reply_buf(reply, (void **)&wobdo, index);
+	if (size != sizeof(struct obdo))
+		return -EPROTO;
+
+	obdo_le_to_cpu(wobdo, wobdo);
+	lustre_get_wire_obdo(NULL, lobdo, wobdo);
+	spin_lock(&obj->opo_lock);
+	la_from_obdo(&obj->opo_attr, lobdo, lobdo->o_valid);
+	spin_unlock(&obj->opo_lock);
+	return 0;
+}
+
+static int osp_attr_get_interpterer(const struct lu_env *env,
+				    struct update_reply *reply,
+				    struct osp_object *obj,
+				    int index, int rc)
+{
+	struct lu_attr *attr = &obj->opo_attr;
+
+	if (rc == 0) {
+		osp2lu_obj(obj)->lo_header->loh_attr |= LOHA_EXISTS;
+		return osp_get_attr_from_req(env, reply, obj, index);
+	} else if (rc == -ENOENT) {
+		osp2lu_obj(obj)->lo_header->loh_attr &= ~LOHA_EXISTS;
+		spin_lock(&obj->opo_lock);
+		attr->la_valid = 0;
+		spin_unlock(&obj->opo_lock);
+	} else {
+		spin_lock(&obj->opo_lock);
+		attr->la_valid = 0;
+		spin_unlock(&obj->opo_lock);
+	}
+
+	return 0;
+}
+
+static int osp_declare_attr_get(const struct lu_env *env, struct dt_object *dt,
+				struct lustre_capa *capa)
+{
+	struct osp_object	*obj	= dt2osp_obj(dt);
+	struct osp_device	*osp	= lu2osp_dev(dt->do_lu.lo_dev);
+	struct update_request	*update;
+	int			 rc	= 0;
+
+	mutex_lock(&osp->opd_dummy_th_mutex);
+	update = osp_find_or_create_dummy_update_req(osp);
+	if (IS_ERR(update))
+		rc = PTR_ERR(update);
+	else
+		rc = osp_insert_dummy_update(env, update, OBJ_ATTR_GET, obj, 0,
+					     NULL, NULL, osp_attr_get_interpterer);
+	mutex_unlock(&osp->opd_dummy_th_mutex);
+	return rc;
+}
+
+int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
+		 struct lu_attr *attr, struct lustre_capa *capa)
+{
+	struct osp_device	*osp	= lu2osp_dev(dt->do_lu.lo_dev);
+	struct osp_object	*obj	= dt2osp_obj(dt);
+	struct dt_device	*dev	= &osp->opd_dt_dev;
+	struct update_request	*update;
+	struct update_reply	*reply;
+	struct ptlrpc_request	*req	= NULL;
+	int			 rc	= 0;
+	ENTRY;
+
+	if (is_ost_obj(&dt->do_lu)) {
+		/* XXX: For LFSCK purpose. The OST-object's attribute is
+		 *	pre-fetched without ldlm lock protection. So some
+		 *	attribute, such as size/blocks/mtime/ctime may be
+		 *	not valid. But it is NOT important for the LFSCK. */
+		spin_lock(&obj->opo_lock);
+		if (obj->opo_attr.la_valid != 0) {
+			memcpy(attr, &obj->opo_attr, sizeof(*attr));
+			spin_unlock(&obj->opo_lock);
+			RETURN(0);
+		}
+		spin_unlock(&obj->opo_lock);
+	}
+
+	update = out_create_update_req(dev);
+	if (IS_ERR(update))
+		RETURN(PTR_ERR(update));
+
+	rc = out_insert_update(env, update, OBJ_ATTR_GET,
+			       (struct lu_fid *)lu_object_fid(&dt->do_lu),
+			       0, NULL, NULL);
+	if (rc != 0) {
+		CERROR("%s: Insert update error: rc = %d\n",
+		       dev->dd_lu_dev.ld_obd->obd_name, rc);
+		GOTO(out, rc);
+	}
+
+	rc = out_remote_sync(env, osp->opd_obd->u.cli.cl_import, update, &req);
+	if (rc != 0) {
+		if (rc == -ENOENT)
+			osp2lu_obj(obj)->lo_header->loh_attr &= ~LOHA_EXISTS;
+		else
+			CERROR("%s:osp_attr_get update error: rc = %d\n",
+			       dev->dd_lu_dev.ld_obd->obd_name, rc);
+		GOTO(out, rc);
+	}
+
+	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
+					     UPDATE_BUFFER_SIZE);
+	if (reply == NULL || reply->ur_version != UPDATE_REPLY_V1)
+		GOTO(out, rc = -EPROTO);
+
+	osp2lu_obj(obj)->lo_header->loh_attr |= LOHA_EXISTS;
+	rc = osp_get_attr_from_req(env, reply, obj, 0);
+	if (rc == 0) {
+		osp2lu_obj(obj)->lo_header->loh_attr |= LOHA_EXISTS;
+		if (is_ost_obj(&dt->do_lu)) {
+			spin_lock(&obj->opo_lock);
+			memcpy(attr, &obj->opo_attr, sizeof(*attr));
+			spin_unlock(&obj->opo_lock);
+		} else {
+			if (attr->la_flags == 1)
+				obj->opo_empty = 0;
+			else
+				obj->opo_empty = 1;
+		}
+	}
+
+	GOTO(out, rc);
+
+out:
+	if (req != NULL)
+		ptlrpc_req_finished(req);
+
+	out_destroy_update_req(update);
+	return rc;
 }
 
 static int osp_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
@@ -125,6 +274,12 @@ static int osp_attr_set(const struct lu_env *env, struct dt_object *dt,
 
 	ENTRY;
 
+	spin_lock(&o->opo_lock);
+	/* NOT sure whether updating attr on the OST will fail or not.
+	 * Force to re-fetch attr from the OST next time. */
+	o->opo_attr.la_valid = 0;
+	spin_unlock(&o->opo_lock);
+
 	/* we're interested in uid/gid changes only */
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
 		RETURN(0);
@@ -147,6 +302,226 @@ static int osp_attr_set(const struct lu_env *env, struct dt_object *dt,
 	/* XXX: send new uid/gid to OST ASAP? */
 
 	RETURN(rc);
+}
+
+/* Only support xattr_get callback for XATTR_FID_NAME. */
+static int osp_xattr_get_interpterer(const struct lu_env *env,
+				     struct update_reply *reply,
+				     struct osp_object *obj,
+				     int index, int rc)
+{
+	if (rc == 0) {
+		void *ea_buf = NULL;
+		int   len;
+
+		len = update_get_reply_buf(reply, &ea_buf, index);
+		if (len < 0)
+			return len;
+
+		LASSERT(ea_buf != NULL);
+
+		if (len < sizeof(obj->opo_pfid))
+			return -EINVAL;
+
+		spin_lock(&obj->opo_lock);
+		memcpy(&obj->opo_pfid, ea_buf, sizeof(obj->opo_pfid));
+		obj->opo_pfid_ready = 1;
+		spin_unlock(&obj->opo_lock);
+	} else if (rc == -ENOENT || rc == -ENODATA) {
+		spin_lock(&obj->opo_lock);
+		memset(&obj->opo_pfid, 0, sizeof(obj->opo_pfid));
+		obj->opo_pfid_ready = 1;
+		spin_unlock(&obj->opo_lock);
+	} else {
+		spin_lock(&obj->opo_lock);
+		obj->opo_pfid_ready = 0;
+		spin_unlock(&obj->opo_lock);
+	}
+
+	return 0;
+}
+
+/* Only support xattr_get callback for XATTR_FID_NAME. */
+static int osp_declare_xattr_get(const struct lu_env *env, struct dt_object *dt,
+				 struct lu_buf *buf, const char *name,
+				 struct lustre_capa *capa)
+{
+	struct osp_object	*obj	= dt2osp_obj(dt);
+	struct osp_device	*osp	= lu2osp_dev(dt->do_lu.lo_dev);
+	struct update_request	*update;
+	int			 namelen;
+	int			 rc	= 0;
+
+	LASSERT(buf != NULL);
+	LASSERT(name != NULL);
+
+	if (strcmp(name, XATTR_NAME_FID) != 0)
+		return -EOPNOTSUPP;
+
+	namelen = strlen(name);
+	mutex_lock(&osp->opd_dummy_th_mutex);
+	update = osp_find_or_create_dummy_update_req(osp);
+	if (IS_ERR(update))
+		rc = PTR_ERR(update);
+	else
+		rc = osp_insert_dummy_update(env, update, OBJ_XATTR_GET, obj,
+					     1, &namelen, (char **)&name,
+					     osp_xattr_get_interpterer);
+	mutex_unlock(&osp->opd_dummy_th_mutex);
+	return rc;
+}
+
+int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
+		  struct lu_buf *buf, const char *name,
+		  struct lustre_capa *capa)
+{
+	struct osp_device	*osp	= lu2osp_dev(dt->do_lu.lo_dev);
+	struct osp_object	*obj	= dt2osp_obj(dt);
+	struct dt_device	*dev	= &osp->opd_dt_dev;
+	struct update_request	*update;
+	struct ptlrpc_request	*req	= NULL;
+	struct update_reply	*reply;
+	void			*ea_buf = NULL;
+	int			 namelen;
+	int			 rc	= 0;
+	ENTRY;
+
+	LASSERT(buf != NULL);
+	LASSERT(name != NULL);
+
+	if (strcmp(name, XATTR_NAME_FID) == 0) {
+		if (buf->lb_buf == NULL)
+			RETURN(sizeof(obj->opo_pfid));
+
+		if (buf->lb_len < sizeof(obj->opo_pfid))
+			RETURN(-ERANGE);
+
+		spin_lock(&obj->opo_lock);
+		if (obj->opo_pfid_ready) {
+			memcpy(buf->lb_buf, &obj->opo_pfid,
+			       sizeof(obj->opo_pfid));
+			spin_unlock(&obj->opo_lock);
+			RETURN(sizeof(obj->opo_pfid));
+		}
+		spin_unlock(&obj->opo_lock);
+	}
+
+	update = out_create_update_req(dev);
+	if (IS_ERR(update))
+		RETURN(PTR_ERR(update));
+
+	namelen = strlen(name);
+	rc = out_insert_update(env, update, OBJ_XATTR_GET,
+			       (struct lu_fid *)lu_object_fid(&dt->do_lu),
+			       1, &namelen, (char **)&name);
+	if (rc != 0) {
+		CERROR("%s: Insert update error: rc = %d\n",
+		       dev->dd_lu_dev.ld_obd->obd_name, rc);
+		GOTO(out, rc);
+	}
+
+	rc = out_remote_sync(env, osp->opd_obd->u.cli.cl_import, update, &req);
+	if (rc != 0) {
+		if (strcmp(name, XATTR_NAME_FID) == 0) {
+			if (rc == -ENOENT || rc == -ENODATA) {
+				spin_lock(&obj->opo_lock);
+				memset(&obj->opo_pfid, 0, sizeof(obj->opo_pfid));
+				obj->opo_pfid_ready = 1;
+				spin_unlock(&obj->opo_lock);
+			}
+		}
+
+		GOTO(out, rc);
+	}
+
+	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
+					    UPDATE_BUFFER_SIZE);
+	if (reply->ur_version != UPDATE_REPLY_V1) {
+		CERROR("%s: Wrong version %x expected %x: rc = %d\n",
+		       dev->dd_lu_dev.ld_obd->obd_name,
+		       reply->ur_version, UPDATE_REPLY_V1, -EPROTO);
+		GOTO(out, rc = -EPROTO);
+	}
+
+	rc = update_get_reply_buf(reply, &ea_buf, 0);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	LASSERT(rc > 0 && rc < PAGE_CACHE_SIZE);
+	LASSERT(ea_buf != NULL);
+
+	if (strcmp(name, XATTR_NAME_FID) == 0) {
+		if (rc < sizeof(obj->opo_pfid))
+			GOTO(out, rc = -EINVAL);
+
+		spin_lock(&obj->opo_lock);
+		memcpy(&obj->opo_pfid, ea_buf, sizeof(obj->opo_pfid));
+		obj->opo_pfid_ready = 1;
+		spin_unlock(&obj->opo_lock);
+	}
+
+	if (buf->lb_buf != NULL)
+		memcpy(buf->lb_buf, ea_buf, rc);
+
+	GOTO(out, rc);
+
+out:
+	if (req != NULL)
+		ptlrpc_req_finished(req);
+
+	out_destroy_update_req(update);
+	return rc;
+}
+
+int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			  const struct lu_buf *buf, const char *name,
+			  int flag, struct thandle *th)
+{
+	struct update_request	*update;
+	struct lu_fid		*fid;
+	int			sizes[3] = {strlen(name), buf->lb_len,
+					    sizeof(int)};
+	char			*bufs[3] = {(char *)name, (char *)buf->lb_buf };
+	int			rc;
+
+	LASSERT(buf->lb_len > 0 && buf->lb_buf != NULL);
+
+	update = out_find_create_update_loc(th, dt);
+	if (IS_ERR(update)) {
+		CERROR("%s: Get OSP update buf failed: rc = %d\n",
+		       dt->do_lu.lo_dev->ld_obd->obd_name,
+		       (int)PTR_ERR(update));
+		return PTR_ERR(update);
+	}
+
+	flag = cpu_to_le32(flag);
+	bufs[2] = (char *)&flag;
+
+	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
+	rc = out_insert_update(env, update, OBJ_XATTR_SET, fid,
+			       ARRAY_SIZE(sizes), sizes, bufs);
+
+	return rc;
+}
+
+int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
+		  const struct lu_buf *buf, const char *name, int fl,
+		  struct thandle *th, struct lustre_capa *capa)
+{
+	CDEBUG(D_INFO, "xattr %s set object "DFID"\n", name,
+	       PFID(&dt->do_lu.lo_header->loh_fid));
+
+	if (strcmp(name, XATTR_NAME_FID) == 0) {
+		struct osp_object *obj = dt2osp_obj(dt);
+
+		/* NOT sure whether updating xattr on the OST will fail or not.
+		 * Force to re-fetch the xattr from the OST next time. */
+		spin_lock(&obj->opo_lock);
+		obj->opo_pfid_ready = 0;
+		spin_unlock(&obj->opo_lock);
+	}
+
+	return 0;
 }
 
 static int osp_declare_object_create(const struct lu_env *env,
@@ -303,8 +678,8 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
-static int osp_declare_object_destroy(const struct lu_env *env,
-				      struct dt_object *dt, struct thandle *th)
+int osp_declare_object_destroy(const struct lu_env *env,
+			       struct dt_object *dt, struct thandle *th)
 {
 	struct osp_object	*o = dt2osp_obj(dt);
 	int			 rc = 0;
@@ -319,8 +694,8 @@ static int osp_declare_object_destroy(const struct lu_env *env,
 	RETURN(rc);
 }
 
-static int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
-			      struct thandle *th)
+int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
+		       struct thandle *th)
 {
 	struct osp_object	*o = dt2osp_obj(dt);
 	int			 rc = 0;
@@ -340,20 +715,19 @@ static int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 }
 
 struct dt_object_operations osp_obj_ops = {
+	.do_declare_attr_get	= osp_declare_attr_get,
+	.do_attr_get		= osp_attr_get,
 	.do_declare_attr_set	= osp_declare_attr_set,
 	.do_attr_set		= osp_attr_set,
+	.do_declare_xattr_get	= osp_declare_xattr_get,
+	.do_xattr_get		= osp_xattr_get,
+	.do_declare_xattr_set	= osp_declare_xattr_set,
+	.do_xattr_set		= osp_xattr_set,
 	.do_declare_create	= osp_declare_object_create,
 	.do_create		= osp_object_create,
 	.do_declare_destroy	= osp_declare_object_destroy,
 	.do_destroy		= osp_object_destroy,
 };
-
-static int is_ost_obj(struct lu_object *lo)
-{
-	struct osp_device  *osp  = lu2osp_dev(lo->lo_dev);
-
-	return !osp->opd_connect_mdt;
-}
 
 static int osp_object_init(const struct lu_env *env, struct lu_object *o,
 			   const struct lu_object_conf *conf)
@@ -362,13 +736,15 @@ static int osp_object_init(const struct lu_env *env, struct lu_object *o,
 	int			rc = 0;
 	ENTRY;
 
+	spin_lock_init(&po->opo_lock);
+	o->lo_header->loh_attr |= LOHA_REMOTE;
+
 	if (is_ost_obj(o)) {
 		po->opo_obj.do_ops = &osp_obj_ops;
 	} else {
 		struct lu_attr		*la = &osp_env_info(env)->osi_attr;
 
 		po->opo_obj.do_ops = &osp_md_obj_ops;
-		o->lo_header->loh_attr |= LOHA_REMOTE;
 		rc = po->opo_obj.do_ops->do_attr_get(env, lu2dt_obj(o),
 						     la, NULL);
 		if (rc == 0)

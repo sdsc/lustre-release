@@ -301,6 +301,9 @@ struct dt_object_operations {
          * lu_object_operations, but that would break existing symmetry.
          */
 
+	int   (*do_declare_attr_get)(const struct lu_env *env,
+				     struct dt_object *dt,
+				     struct lustre_capa *capa);
         /**
          * Return standard attributes.
          *
@@ -323,6 +326,13 @@ struct dt_object_operations {
                              const struct lu_attr *attr,
                              struct thandle *handle,
                              struct lustre_capa *capa);
+
+	int   (*do_declare_xattr_get)(const struct lu_env *env,
+				      struct dt_object *dt,
+				      struct lu_buf *buf,
+				      const char *name,
+				      struct lustre_capa *capa);
+
         /**
          * Return a value of an extended attribute.
          *
@@ -761,11 +771,10 @@ struct thandle {
 	 * this value is used in recovery */
 	__s32             th_result;
 
-	/** whether we need sync commit */
-	unsigned int		th_sync:1;
-
-	/* local transation, no need to inform other layers */
-	unsigned int		th_local:1;
+	unsigned int	  th_sync:1,  /* Whether we need sync commit. */
+			  th_local:1, /* local transation, no need to
+				       * inform other layers. */
+			  th_dummy:1; /* dummy handle for idempotent ops. */
 
 	/* In DNE, one transaction can be disassemblied into
 	 * updates on several different MDTs, and these updates
@@ -1094,6 +1103,16 @@ static inline int dt_write_locked(const struct lu_env *env,
         return dt->do_ops->do_write_locked(env, dt);
 }
 
+static inline int dt_declare_attr_get(const struct lu_env *env,
+				      struct dt_object *dt,
+				      struct lustre_capa *capa)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_ops);
+	LASSERT(dt->do_ops->do_declare_attr_get);
+	return dt->do_ops->do_declare_attr_get(env, dt, capa);
+}
+
 static inline int dt_attr_get(const struct lu_env *env, struct dt_object *dt,
                               struct lu_attr *la, void *arg)
 {
@@ -1375,6 +1394,18 @@ static inline int dt_xattr_set(const struct lu_env *env,
         LASSERT(dt->do_ops);
         LASSERT(dt->do_ops->do_xattr_set);
         return dt->do_ops->do_xattr_set(env, dt, buf, name, fl, th, capa);
+}
+
+static inline int dt_declare_xattr_get(const struct lu_env *env,
+				       struct dt_object *dt,
+				       struct lu_buf *buf,
+				       const char *name,
+				       struct lustre_capa *capa)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_ops);
+	LASSERT(dt->do_ops->do_declare_xattr_get);
+	return dt->do_ops->do_declare_xattr_get(env, dt, buf, name, capa);
 }
 
 static inline int dt_xattr_get(const struct lu_env *env,

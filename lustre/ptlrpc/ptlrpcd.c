@@ -431,8 +431,8 @@ static int ptlrpcd(void *arg)
          * the future, ptlrpcd thread (or a thread-set) has to given
          * an argument, describing its "scope".
          */
-        rc = lu_context_init(&env.le_ctx,
-                             LCT_CL_THREAD|LCT_REMEMBER|LCT_NOREF);
+	rc = lu_context_init(&env.le_ctx, LCT_MD_THREAD|LCT_DT_THREAD|
+					  LCT_CL_THREAD|LCT_REMEMBER|LCT_NOREF);
 	if (rc == 0) {
 		rc = lu_context_init(env.le_ses,
 				     LCT_SESSION|LCT_REMEMBER|LCT_NOREF);
