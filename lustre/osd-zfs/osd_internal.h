@@ -259,6 +259,7 @@ struct osd_device {
 	char			 od_svname[128];
 
 	int			 od_connects;
+	__u32			 od_index;
 	struct lu_site		 od_site;
 
 	/* object IDs of the inode accounting indexes */

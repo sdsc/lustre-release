@@ -821,6 +821,7 @@ static int osd_scrub_get_fid(struct osd_thread_info *info,
 			     struct lu_fid *fid, bool scrub)
 {
 	struct lustre_mdt_attrs *lma	 = &info->oti_mdt_attrs;
+	__u32			 idx	 = dev->od_index;
 	int			 rc;
 	bool			 has_lma = false;
 
@@ -834,6 +835,19 @@ static int osd_scrub_get_fid(struct osd_thread_info *info,
 		}
 
 		*fid = lma->lma_self_fid;
+		if (fid_is_idif(fid)) {
+			if (fid_idif_ost_idx(fid) != idx) {
+				struct ost_id *oi = &info->oti_ostid;
+
+				fid_to_ostid(fid, oi);
+				ostid_to_fid(fid, oi, idx);
+				if (!scrub)
+					return 0;
+				/* May be for old IDIF, or OST index changed. */
+				return SCRUB_NEXT_OSTOBJ_OLD;
+			}
+		}
+
 		if (fid_is_internal(&lma->lma_self_fid)) {
 			if (!scrub)
 				rc = SCRUB_NEXT_CONTINUE;
@@ -860,7 +874,7 @@ static int osd_scrub_get_fid(struct osd_thread_info *info,
 	}
 
 	if (rc == -ENODATA || rc == 0) {
-		rc = osd_get_idif(info, inode, &info->oti_obj_dentry, fid);
+		rc = osd_get_idif(info, inode, &info->oti_obj_dentry, fid, idx);
 		if (rc == 0) {
 			if (scrub)
 				/* It is old 2.x (x <= 3) or 1.8 OST-object. */

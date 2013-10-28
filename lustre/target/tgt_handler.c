@@ -37,6 +37,7 @@
 #include <obd.h>
 #include <obd_class.h>
 #include <obd_cksum.h>
+#include <md_object.h>
 
 #include "tgt_internal.h"
 
@@ -268,7 +269,8 @@ static int tgt_ost_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 		}
 	}
 
-	rc = ostid_to_fid(&tsi->tsi_fid, &body->oa.o_oi, 0);
+	rc = ostid_to_fid(&tsi->tsi_fid, &body->oa.o_oi,
+	tsi->tsi_exp->exp_obd->obd_lu_dev->ld_site->ld_seq_site->ss_node_id);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -1163,7 +1165,8 @@ int tgt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 		if (unlikely(rc != 0))
 			RETURN(rc);
 
-		ost_fid_from_resid(&fid, &lock->l_resource->lr_name);
+		ost_fid_from_resid(&fid, &lock->l_resource->lr_name,
+		tgt->lut_bottom->dd_lu_dev.ld_site->ld_seq_site->ss_node_id);
 		obj = dt_locate(&env, tgt->lut_bottom, &fid);
 		if (IS_ERR(obj))
 			GOTO(err_env, rc = PTR_ERR(obj));

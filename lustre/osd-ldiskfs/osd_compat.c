@@ -576,7 +576,7 @@ static int osd_obj_update_entry(struct osd_thread_info *info,
 
 	rc = osd_get_lma(info, inode, dentry, lma);
 	if (rc == -ENODATA) {
-		rc = osd_get_idif(info, inode, dentry, oi_fid);
+		rc = osd_get_idif(info, inode, dentry, oi_fid, osd->od_index);
 		if (rc > 0) {
 			oi_fid = NULL;
 			rc = 0;

@@ -258,6 +258,7 @@ struct osd_device {
 	spinlock_t		  od_osfs_lock;
 
 	int			  od_connects;
+	__u32			  od_index;
 	struct lu_site		  od_site;
 
 	struct osd_obj_map	*od_ost_map;
@@ -644,7 +645,7 @@ int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
 int osd_add_oi_cache(struct osd_thread_info *info, struct osd_device *osd,
 		     struct osd_inode_id *id, const struct lu_fid *fid);
 int osd_get_idif(struct osd_thread_info *info, struct inode *inode,
-		 struct dentry *dentry, struct lu_fid *fid);
+		 struct dentry *dentry, struct lu_fid *fid, __u32 idx);
 
 int osd_obj_map_init(const struct lu_env *env, struct osd_device *osd);
 void osd_obj_map_fini(struct osd_device *dev);
