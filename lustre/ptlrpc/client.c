@@ -2439,8 +2439,7 @@ void ptlrpc_free_committed(struct obd_import *imp)
             imp->imp_generation == imp->imp_last_generation_checked) {
                 CDEBUG(D_INFO, "%s: skip recheck: last_committed "LPU64"\n",
                        imp->imp_obd->obd_name, imp->imp_peer_committed_transno);
-                EXIT;
-                return;
+		RETURN_EXIT;
         }
         CDEBUG(D_RPCTRACE, "%s: committing for last_committed "LPU64" gen %d\n",
                imp->imp_obd->obd_name, imp->imp_peer_committed_transno,
@@ -2488,8 +2487,7 @@ free_req:
                 __ptlrpc_req_finished(req, 1);
         }
 
-        EXIT;
-        return;
+	RETURN_EXIT;
 }
 
 void ptlrpc_cleanup_client(struct obd_import *imp)
