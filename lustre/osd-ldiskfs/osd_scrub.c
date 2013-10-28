@@ -848,6 +848,19 @@ static int osd_scrub_get_fid(struct osd_thread_info *info,
 			}
 		}
 
+		if (unlikely(fid_is_last_id(fid))) {
+			if (scrub) {
+				if (lma->lma_compat & LMAC_FID_ON_OST)
+					rc = SCRUB_NEXT_OSTOBJ;
+				else
+					rc = osd_scrub_check_local_fldb(info,
+								dev, fid);
+			}
+			/* For up layer iteration, LAST_ID is a visible object
+			 * to be checked and repaired, so return it directly. */
+			return rc;
+		}
+
 		if (fid_is_internal(&lma->lma_self_fid)) {
 			if (!scrub)
 				rc = SCRUB_NEXT_CONTINUE;
@@ -863,7 +876,7 @@ static int osd_scrub_get_fid(struct osd_thread_info *info,
 		if (lma->lma_compat & LMAC_FID_ON_OST)
 			return SCRUB_NEXT_OSTOBJ;
 
-		if (fid_is_idif(fid) || fid_is_last_id(fid))
+		if (fid_is_idif(fid))
 			return SCRUB_NEXT_OSTOBJ_OLD;
 
 		if (lma->lma_incompat & LMAI_AGENT)

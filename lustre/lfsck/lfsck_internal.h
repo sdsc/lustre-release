@@ -36,8 +36,10 @@
 #include <lustre/lustre_lfsck_user.h>
 #include <lustre/lustre_user.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_lfsck.h>
 #include <obd.h>
 #include <lu_object.h>
+#include <md_object.h>
 #include <dt_object.h>
 #include <lustre_net.h>
 #include <lustre_dlm.h>
@@ -95,6 +97,9 @@ enum lfsck_flags {
 	/* The server ever restarted during the LFSCK, and may miss to process
 	 * some objects check/repair. */
 	LF_INCOMPLETE		= 0x00000008ULL,
+
+	/* The LAST_ID (file) crashed. */
+	LF_CRASHED_LASTID	= 0x00000010ULL,
 };
 
 struct lfsck_position {
@@ -316,6 +321,9 @@ struct lfsck_operations {
 
 	int (*lfsck_double_scan)(const struct lu_env *env,
 				 struct lfsck_component *com);
+
+	void (*lfsck_data_release)(const struct lu_env *env,
+				   struct lfsck_component *com);
 };
 
 struct lfsck_component {
@@ -333,6 +341,7 @@ struct lfsck_component {
 	struct lfsck_operations *lc_ops;
 	void			*lc_file_ram;
 	void			*lc_file_disk;
+	void			*lc_data;
 
 	/* The time for last checkpoint, jiffies */
 	cfs_time_t		 lc_time_last_checkpoint;
@@ -382,6 +391,8 @@ struct lfsck_instance {
 	/* The time for next checkpoint, jiffies */
 	cfs_time_t		  li_time_next_checkpoint;
 
+	lfsck_out_notify	  li_out_notify;
+	void			 *li_out_notify_data;
 	struct dt_device	 *li_next;
 	struct dt_device	 *li_bottom;
 	struct ldlm_namespace	 *li_namespace;
@@ -451,6 +462,8 @@ struct lfsck_thread_info {
 	struct lu_fid		lti_fid;
 	struct lu_fid		lti_fid2;
 	struct lu_attr		lti_la;
+	struct lustre_mdt_attrs lti_lma;
+	struct dt_object_format lti_dof;
 	/* lti_ent and lti_key must be conjoint,
 	 * then lti_ent::lde_name will be lti_key. */
 	struct lu_dirent	lti_ent;
@@ -648,6 +661,11 @@ static inline void lfsck_object_put(const struct lu_env *env,
 				    struct dt_object *obj)
 {
 	lu_object_put(env, &obj->do_lu);
+}
+
+static inline mdsno_t lfsck_dev_idx(struct dt_device *dev)
+{
+	return dev->dd_lu_dev.ld_site->ld_seq_site->ss_node_id;
 }
 
 #endif /* _LFSCK_INTERNAL_H */
