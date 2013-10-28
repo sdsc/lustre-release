@@ -91,6 +91,7 @@ const char *lfsck_param_names[] = {
 	NULL,
 	"failout",
 	"dryrun",
+	"all_targets",
 	NULL
 };
 
@@ -317,9 +318,6 @@ void lfsck_instance_cleanup(const struct lu_env *env,
 	LASSERT(list_empty(&lfsck->li_link));
 	LASSERT(thread_is_init(thread) || thread_is_stopped(thread));
 
-	lfsck_tgt_descs_fini(&lfsck->li_ost_descs);
-	lfsck_tgt_descs_fini(&lfsck->li_mdt_descs);
-
 	if (lfsck->li_obj_oit != NULL) {
 		lu_object_put_nocache(env, &lfsck->li_obj_oit->do_lu);
 		lfsck->li_obj_oit = NULL;
@@ -349,6 +347,9 @@ void lfsck_instance_cleanup(const struct lu_env *env,
 				     lc_link);
 		lfsck_component_cleanup(env, com);
 	}
+
+	lfsck_tgt_descs_fini(&lfsck->li_ost_descs);
+	lfsck_tgt_descs_fini(&lfsck->li_mdt_descs);
 
 	if (lfsck->li_bookmark_obj != NULL) {
 		lu_object_put_nocache(env, &lfsck->li_bookmark_obj->do_lu);
@@ -1060,17 +1061,26 @@ int lfsck_async_get_info(const struct lu_env *env, struct obd_export *exp,
 	char				  *key    = KEY_LFSCK_EVENT;
 	int				   keylen = strlen(key);
 	int				   rc;
+	bool				   to_ost;
 
 	if (!(exp_connect_flags(exp) & OBD_CONNECT_LFSCK))
 		return -EOPNOTSUPP;
 
-	req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_OST_GET_INFO);
+	if (ler->ler_flags & LEF_TO_OST)
+		to_ost = true;
+	else
+		to_ost = false;
+
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+				to_ost ? &RQF_OST_GET_INFO : &RQF_MDS_GET_INFO);
 	if (req == NULL)
 		return -ENOMEM;
 
 	req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_KEY,
 			     RCL_CLIENT, keylen);
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_GET_INFO);
+	rc = ptlrpc_request_pack(req,
+			to_ost ? LUSTRE_OST_VERSION : LUSTRE_MDS_VERSION,
+			to_ost ? OST_GET_INFO : MDS_GET_INFO);
 	if (rc != 0) {
 		ptlrpc_request_free(req);
 		return rc;
@@ -1078,12 +1088,21 @@ int lfsck_async_get_info(const struct lu_env *env, struct obd_export *exp,
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_KEY);
 	memcpy(tmp, key, keylen);
-	req_capsule_set_size(&req->rq_pill, &RMF_GENERIC_DATA, RCL_SERVER,
-			     sizeof(*ler));
+	if (!to_ost) {
+		int len = sizeof(*ler);
+
+		tmp = req_capsule_client_get(&req->rq_pill,
+					     &RMF_GETINFO_VALLEN);
+		memcpy(tmp, &len, sizeof(__u32));
+	}
+	req_capsule_set_size(&req->rq_pill,
+			     to_ost ? &RMF_GENERIC_DATA : &RMF_GETINFO_VAL,
+			     RCL_SERVER, sizeof(*ler));
 	ptlrpc_request_set_replen(req);
 
 	laia = ptlrpc_req_async_args(req);
 	*laia = *(struct lfsck_async_interpret_args *)args;
+	lfsck_component_get(laia->laia_com);
 	req->rq_interpret_reply = interpreter;
 	ptlrpc_set_add_req(set, req);
 	return 0;
@@ -1100,9 +1119,15 @@ int lfsck_async_set_info(const struct lu_env *env, struct obd_export *exp,
 	char				  *key    = KEY_LFSCK_EVENT;
 	int				   keylen = strlen(key);
 	int				   rc;
+	bool				   to_ost;
 
 	if (!(exp_connect_flags(exp) & OBD_CONNECT_LFSCK))
 		return -EOPNOTSUPP;
+
+	if (ler->ler_flags & LEF_TO_OST)
+		to_ost = true;
+	else
+		to_ost = false;
 
 	req = ptlrpc_request_alloc(class_exp2cliimp(exp),
 				   &RQF_OBD_SET_INFO);
@@ -1113,7 +1138,9 @@ int lfsck_async_set_info(const struct lu_env *env, struct obd_export *exp,
 			     RCL_CLIENT, keylen);
 	req_capsule_set_size(&req->rq_pill, &RMF_SETINFO_VAL,
 			     RCL_CLIENT, sizeof(*ler));
-	rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_SET_INFO);
+	rc = ptlrpc_request_pack(req,
+			to_ost ? LUSTRE_OST_VERSION : LUSTRE_MDS_VERSION,
+			to_ost ? OST_SET_INFO : MDS_SET_INFO);
 	if (rc != 0) {
 		ptlrpc_request_free(req);
 		return rc;
@@ -1127,6 +1154,7 @@ int lfsck_async_set_info(const struct lu_env *env, struct obd_export *exp,
 
 	laia = ptlrpc_req_async_args(req);
 	*laia = *(struct lfsck_async_interpret_args *)args;
+	lfsck_component_get(laia->laia_com);
 	req->rq_interpret_reply = interpreter;
 	ptlrpc_set_add_req(set, req);
 	return 0;
@@ -1302,6 +1330,12 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 					rc = -EBUSY;
 					break;
 				} else {
+					if (com->lc_ops->lfsck_join != NULL) {
+						rc = com->lc_ops->lfsck_join(
+								env, com, lsp);
+						if (rc != 0 && rc != -EALREADY)
+							break;
+					}
 					start->ls_active &= ~type;
 				}
 			}
@@ -1359,6 +1393,16 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 			lfsck->li_drop_dryrun = 1;
 			dirty = true;
 		}
+	}
+
+	if (bk->lb_param & LPF_ALL_TARGETS &&
+	    !(start->ls_flags & LPF_ALL_TARGETS)) {
+		bk->lb_param &= ~LPF_ALL_TARGETS;
+		dirty = true;
+	} else if (!(bk->lb_param & LPF_ALL_TARGETS) &&
+		   start->ls_flags & LPF_ALL_TARGETS) {
+		bk->lb_param |= LPF_ALL_TARGETS;
+		dirty = true;
 	}
 
 	if (dirty) {
@@ -1484,9 +1528,13 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key,
 		GOTO(out, rc = -EALREADY);
 	}
 
-	LASSERT(stop != NULL);
-
-	lfsck->li_status = stop->ls_status;
+	if (stop != NULL) {
+		lfsck->li_status = stop->ls_status;
+		lfsck->li_flags = stop->ls_flags;
+	} else {
+		lfsck->li_status = LS_STOPPED;
+		lfsck->li_flags = 0;
+	}
 	thread_set_flags(thread, SVC_STOPPING);
 	spin_unlock(&lfsck->li_lock);
 
@@ -1515,6 +1563,7 @@ int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
 
 	switch (ler->ler_event) {
 	case LNE_LAYOUT_STOP:
+	case LNE_LAYOUT_PHASE1_DONE:
 	case LNE_LAYOUT_PHASE2_DONE:
 		type = LT_LAYOUT;
 		break;
@@ -1763,6 +1812,7 @@ void lfsck_del_target(const struct lu_env *env, struct dt_device *key,
 	spin_lock(&ltds->ltd_lock);
 	ltd->ltd_dead = 1;
 	if (!list_empty(&ltd->ltd_layout_list)) {
+		list_del_init(&ltd->ltd_layout_phase_list);
 		list_del_init(&ltd->ltd_layout_list);
 		stop = true;
 	} else {

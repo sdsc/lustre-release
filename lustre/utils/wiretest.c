@@ -4546,7 +4546,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)sizeof(((struct update *)0)->u_bufs));
 
 	/* Checks for struct lfsck_event_request */
-	LASSERTF((int)sizeof(struct lfsck_event_request) == 24, "found %lld\n",
+	LASSERTF((int)sizeof(struct lfsck_event_request) == 32, "found %lld\n",
 		 (long long)(int)sizeof(struct lfsck_event_request));
 
 	/* Checks for struct lfsck_start */
@@ -4584,5 +4584,13 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct lfsck_event_request, ler_index));
 	LASSERTF((int)sizeof(((struct lfsck_event_request *)0)->ler_index) == 4, "found %lld\n",
 		 (long long)(int)sizeof(((struct lfsck_event_request *)0)->ler_index));
+	LASSERTF((int)offsetof(struct lfsck_event_request, ler_flags) == 24, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_event_request, ler_flags));
+	LASSERTF((int)sizeof(((struct lfsck_event_request *)0)->ler_flags) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_event_request *)0)->ler_flags));
+	LASSERTF((int)offsetof(struct lfsck_event_request, ler_padding) == 28, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_event_request, ler_padding));
+	LASSERTF((int)sizeof(((struct lfsck_event_request *)0)->ler_padding) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_event_request *)0)->ler_padding));
 }
 
