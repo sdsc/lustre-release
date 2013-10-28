@@ -52,6 +52,16 @@
 
 static const char lfsck_layout_name[] = "lfsck_layout";
 
+enum lfsck_layout_inconsistency {
+	LLI_NONE		= 0,
+	LLI_DANGLING		= 1,
+	LLI_UNMATCHED_PAIR	= 2,
+	LLI_MULTIPLE_REFERENCED = 3,
+	LLI_ORPHAN		= 4,
+	LLI_INCONSISTENT_OWNER	= 5,
+	LLI_OTHERS		= 6,
+};
+
 struct lfsck_layout_seq {
 	struct list_head	 lls_list;
 	__u64			 lls_seq;
@@ -1326,6 +1336,189 @@ static int lfsck_layout_scan_orphan(const struct lu_env *env,
 	return 0;
 }
 
+static int lfsck_layout_recreate_ostobj(const struct lu_env *env,
+					struct lfsck_component *com,
+					struct lfsck_layout_req *llr,
+					struct lu_attr *la)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct filter_fid		*pfid	= &info->lti_new_pfid;
+	struct dt_allocation_hint	*hint	= &info->lti_hint;
+	struct dt_device		*dev	= com->lc_lfsck->li_next;
+	struct dt_object		*parent = llr->llr_parent->llo_obj;
+	struct dt_object		*child  = llr->llr_child;
+	const struct lu_fid		*tfid	= lu_object_fid(&parent->do_lu);
+	struct thandle			*handle;
+	struct lu_buf			*buf;
+	int				 rc;
+	ENTRY;
+
+	handle = dt_trans_create(env, dev);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	hint->dah_parent = 0;
+	hint->dah_mode = 0;
+	hint->dah_flags = DAHF_RECREATE;
+
+	pfid->ff_parent.f_seq = cpu_to_le64(tfid->f_seq);
+	pfid->ff_parent.f_oid = cpu_to_le32(tfid->f_oid);
+	/* XXX: In fact, the ff_parent::f_ver is not the real parent
+	 *	FID::f_ver, instead, it is the OST-object index in
+	 *	its parent MDT-object layout EA. */
+	pfid->ff_parent.f_ver = cpu_to_le32(llr->llr_lov_idx);
+	buf = lfsck_buf_get(env, pfid, sizeof(struct filter_fid));
+
+	rc = dt_declare_create(env, child, la, hint, NULL, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_declare_xattr_set(env, child, buf, XATTR_NAME_FID,
+				  LU_XATTR_CREATE, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start(env, dev, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_create(env, child, la, hint, NULL, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_xattr_set(env, child, buf, XATTR_NAME_FID, LU_XATTR_CREATE,
+			  handle, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+		dt_destroy(env, child, handle);
+	else
+		rc = 1;
+
+	GOTO(stop, rc);
+
+stop:
+	dt_trans_stop(env, dev, handle);
+	return rc;
+}
+
+static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
+					     struct lfsck_component *com,
+					     struct lfsck_layout_req *llr)
+{
+	struct lfsck_layout		*lo	   = com->lc_file_ram;
+	struct lfsck_thread_info	*info	   = lfsck_env_info(env);
+	struct dt_object		*parent    = llr->llr_parent->llo_obj;
+	struct dt_object		*child	   = llr->llr_child;
+	struct lu_attr			*pla	   = &info->lti_la;
+	struct lu_attr			*cla	   = &info->lti_la2;
+	struct lfsck_instance		*lfsck	   = com->lc_lfsck;
+	struct lfsck_bookmark		*bk	   = &lfsck->li_bookmark_ram;
+	enum lfsck_layout_inconsistency  type	   = LLI_NONE;
+	int				 rc;
+	ENTRY;
+
+	rc = dt_attr_get(env, parent, pla, BYPASS_CAPA);
+	if (rc != 0) {
+		if (lu_object_is_dying(parent->do_lu.lo_header))
+			RETURN(0);
+
+		GOTO(out, rc);
+	}
+
+	rc = dt_attr_get(env, child, cla, BYPASS_CAPA);
+	if (rc == -ENOENT) {
+		if (lu_object_is_dying(parent->do_lu.lo_header))
+			RETURN(0);
+
+		type = LLI_DANGLING;
+		goto repair;
+	}
+
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* XXX: other inconsistency will be checked in other patches. */
+
+repair:
+	if (bk->lb_param & LPF_DRYRUN) {
+		if (type != LLI_NONE)
+			GOTO(out, rc = 1);
+		else
+			GOTO(out, rc = 0);
+	}
+
+	switch (type) {
+	case LLI_DANGLING:
+		memset(cla, 0, sizeof(*cla));
+		cla->la_uid = pla->la_uid;
+		cla->la_gid = pla->la_gid;
+		/* Normally, the OST-object is non-executable. We use a special
+		 * file mode: 0667, to indicate that it is created by the LSFCK
+		 * for repairing dangling reference case. The LFSCK maybe wrong
+		 * and it is possible that it will find out the real OST-object
+		 * which should be referenced by this MDT-object as processing.
+		 * Under such case, via checking the OST-object mode, the LFSCK
+		 * will know whether the current OST-object which is referenced
+		 * by the MDT-object was created for repairing dangling case or
+		 * not. It will indicate the LFSCK how to process next step. */
+		cla->la_mode = S_IFREG | S_IRUGO | S_IWUGO | S_IXOTH;
+		cla->la_valid = LA_TYPE | LA_MODE | LA_UID | LA_GID |
+				LA_ATIME | LA_MTIME | LA_CTIME;
+		rc = lfsck_layout_recreate_ostobj(env, com, llr, cla);
+		break;
+
+	/* XXX: other inconsistency will be fixed in other patches. */
+
+	case LLI_UNMATCHED_PAIR:
+		break;
+	case LLI_MULTIPLE_REFERENCED:
+		break;
+	case LLI_INCONSISTENT_OWNER:
+		break;
+	default:
+		rc = 0;
+		break;
+	}
+
+	GOTO(out, rc);
+
+out:
+	down_write(&com->lc_sem);
+	if (rc < 0) {
+		/* If cannot touch the target server,
+		 * mark the LFSCK as INCOMPLETE. */
+		if (rc == -ENOTCONN || rc == -ESHUTDOWN || rc == -ETIMEDOUT ||
+		    rc == -EHOSTDOWN || rc == -EHOSTUNREACH) {
+			lo->ll_flags |= LF_INCOMPLETE;
+			lo->ll_objs_skipped++;
+			rc = 0;
+		} else {
+			lo->ll_objs_failed_phase1++;
+		}
+	} else if (rc > 0) {
+		switch (type) {
+		case LLI_DANGLING:
+			lo->ll_objs_repaired_dangling++;
+			break;
+		case LLI_UNMATCHED_PAIR:
+			lo->ll_objs_repaired_unmatched_pair++;
+			break;
+		case LLI_MULTIPLE_REFERENCED:
+			lo->ll_objs_repaired_multiple_referenced++;
+			break;
+		case LLI_INCONSISTENT_OWNER:
+			lo->ll_objs_repaired_inconsistent_owner++;
+			break;
+		default:
+			LBUG();
+		}
+	}
+	up_write(&com->lc_sem);
+	return rc;
+}
+
 static int lfsck_layout_assistant(void *args)
 {
 	struct lfsck_thread_args	*lta	= args;
@@ -1376,19 +1569,17 @@ static int lfsck_layout_assistant(void *args)
 
 	while (1) {
 		while (!list_empty(&llmd->llmd_req_list)) {
-
-			/* XXX: To be extended in other patch.
-			 *
-			 * Compare the OST side attribute with local attribute,
-			 * and fix it if found inconsistency. */
-
-			spin_lock(&llmd->llmd_lock);
 			llr = list_entry(llmd->llmd_req_list.next,
 					 struct lfsck_layout_req,
 					 llr_list);
+			rc = lfsck_layout_assistant_handle_one(env, com, llr);
+			spin_lock(&llmd->llmd_lock);
 			list_del_init(&llr->llr_list);
 			spin_unlock(&llmd->llmd_lock);
 			lfsck_layout_req_fini(env, llr);
+
+			if (rc < 0 && bk->lb_param & LPF_FAILOUT)
+				GOTO(cleanup1, rc);
 
 			if (unlikely(llmd->llmd_exit))
 				GOTO(cleanup1, rc = 0);
@@ -1521,6 +1712,8 @@ cleanup1:
 	} else {
 		/* Cleanup the unfinished requests. */
 		spin_lock(&llmd->llmd_lock);
+		if (rc < 0)
+			llmd->llmd_assistant_status = rc;
 		while (!list_empty(&llmd->llmd_req_list)) {
 			llr = list_entry(llmd->llmd_req_list.next,
 					 struct lfsck_layout_req,
@@ -2083,7 +2276,7 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 	__u16				 gen;
 	ENTRY;
 
-	buf = lfsck_buf_get(env, &info->lti_pfid,
+	buf = lfsck_buf_get(env, &info->lti_old_pfid,
 			    sizeof(struct filter_fid_old));
 	count = le16_to_cpu(lmm->lmm_stripe_count);
 	gen = le16_to_cpu(lmm->lmm_layout_gen);
