@@ -1574,6 +1574,71 @@ stop:
 	return rc;
 }
 
+static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
+						   struct lfsck_component *com,
+						   struct lfsck_layout_req *llr,
+						   struct lu_attr *la)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct dt_allocation_hint	*hint	= &info->lti_hint;
+	struct dt_object_format 	*dof	= &info->lti_dof;
+	struct dt_device		*dev	= com->lc_lfsck->li_next;
+	struct dt_object		*parent = llr->llr_parent->llo_obj;
+	struct lustre_handle		*lh	= &info->lti_lh;
+	struct thandle			*handle;
+	int				 rc;
+	ENTRY;
+
+	rc = lfsck_layout_lock(env, com, parent, lh, MDS_INODELOCK_LAYOUT |
+						     MDS_INODELOCK_XATTR);
+	if (rc != 0)
+		RETURN(rc);
+
+	handle = dt_trans_create(env, dev);
+	if (IS_ERR(handle))
+		GOTO(out, rc = PTR_ERR(handle));
+
+	hint->dah_parent = parent;
+	hint->dah_child = NULL;
+	hint->dah_flags = DAHF_INDEX;
+	hint->dah_ost_index = llr->llr_ost_idx;
+	hint->dah_lov_offset = llr->llr_lov_idx;
+	hint->dah_gen = llr->llr_parent->llo_gen;
+	dof->dof_type = DFT_REGULAR;
+	dof->u.dof_reg.striped = 1;
+	rc = dt_declare_create(env, parent, la, hint, dof, handle);
+	if (rc != 0)
+		GOTO(stop, rc = (rc == -EAGAIN ? 0 : rc));
+
+	rc = dt_trans_start(env, dev, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	dt_write_lock(env, parent, 0);
+	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+		GOTO(unlock, rc = 0);
+
+	rc = dt_create(env, parent, la, hint, dof, handle);
+	if (rc == 0)
+		rc = 1;
+	else if (unlikely(rc == -EAGAIN))
+		rc = 0;
+
+	GOTO(unlock, rc);
+
+unlock:
+	dt_write_unlock(env, parent);
+stop:
+	if (unlikely(hint->dah_child != NULL)) {
+		lu_object_put_nocache(env, &hint->dah_child->do_lu);
+		hint->dah_child = NULL;
+	}
+	dt_trans_stop(env, dev, handle);
+out:
+	lfsck_layout_unlock(lh);
+	return rc;
+}
+
 static int lfsck_layout_repair_owner(const struct lu_env *env,
 				     struct lfsck_component *com,
 				     struct lfsck_layout_req *llr,
@@ -1759,9 +1824,8 @@ repair:
 		rc = lfsck_layout_repair_unmatched_pair(env, com, llr, pla);
 		break;
 	case LLI_MULTIPLE_REFERENCED:
-
-	/* XXX: other inconsistency will be fixed in other patches. */
-
+		rc = lfsck_layout_repair_multiple_references(env, com,
+							     llr, pla);
 		break;
 	case LLI_INCONSISTENT_OWNER:
 		rc = lfsck_layout_repair_owner(env, com, llr, pla);
