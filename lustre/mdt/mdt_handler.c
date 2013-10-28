@@ -1605,6 +1605,13 @@ int mdt_set_info(struct tgt_session_info *tsi)
 
 		rc = mdt_iocontrol(OBD_IOC_CHANGELOG_CLEAR, req->rq_export,
 				   vallen, val, NULL);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_event_request *ler = val;
+
+		if (ptlrpc_req_need_swab(req))
+			lustre_swab_lfsck_event_request(ler);
+		rc = lfsck_in_notify(tsi->tsi_env,
+				mdt_exp2dev(req->rq_export)->mdt_bottom, ler);
 	} else {
 		RETURN(-EINVAL);
 	}
@@ -5302,6 +5309,13 @@ int mdt_get_info(struct tgt_session_info *tsi)
 
 		rc = mdt_rpc_fid2path(info, key, valout, *vallen);
 		mdt_thread_info_fini(info);
+	} else if (KEY_IS(KEY_LFSCK_EVENT)) {
+		struct lfsck_event_request *ler = valout;
+
+		ler->ler_event = LNE_LAYOUT_QUERY;
+		ler->u.ler_status = lfsck_query(
+			mdt_exp2dev(tgt_ses_req(tsi)->rq_export)->mdt_bottom,
+			LT_LAYOUT);
 	} else {
 		rc = -EINVAL;
 	}
