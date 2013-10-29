@@ -1232,7 +1232,27 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 			try_layout = false;
 
 			lhc = &info->mti_lh[MDT_LH_LOCAL];
+		} else if (S_ISREG(ma->ma_attr.la_mode) &&
+			   (ma->ma_attr.la_mode & S_IXUGO) &&
+			   (open_flags & (FMODE_WRITE | MDS_FMODE_EXEC))) {
+			/* Executable file: Need to try and revoke open locks
+			 * even if client did not ask for it to avoid a
+			 * situation where a client has a conflicting open
+			 * handle cached due to nfsd operating there.
+			 * LU-146
+			 */
+			*ibits = MDS_INODELOCK_OPEN;
+
+			if (open_flags & FMODE_WRITE)
+				lm = LCK_CW;
+			else
+				lm = LCK_PR; /* we know it must be exec here */
+
+			try_layout = false;
+
+			lhc = &info->mti_lh[MDT_LH_LOCAL];
 		}
+
 		CDEBUG(D_INODE, "normal open:"DFID" lease count: %d, lm: %d\n",
 			PFID(mdt_object_fid(obj)),
 			atomic_read(&obj->mot_open_count), lm);
