@@ -223,8 +223,20 @@ static int do_bio_lustrebacked(struct lloop_device *lo, struct bio *head)
 
                 offset = (pgoff_t)(bio->bi_sector << 9) + lo->lo_offset;
                 bio_for_each_segment(bvec, bio, i) {
-                        BUG_ON(bvec->bv_offset != 0);
-			BUG_ON(bvec->bv_len != PAGE_CACHE_SIZE);
+			struct request_queue *q = bio->bi_bdev->bd_disk->queue;
+			unsigned long maxsize;
+
+			/*
+			 * For most systems, we can use page sized bios
+			 * for best performance. q->limits.logical_block_size
+			 * is an unsigned short so systems with
+			 * 64k pages can't do it.
+			 */
+			maxsize = 1 << sizeof(q->limits.logical_block_size);
+			if (PAGE_CACHE_SIZE < maxsize) {
+				BUG_ON(bvec->bv_offset != 0);
+				BUG_ON(bvec->bv_len != PAGE_CACHE_SIZE);
+			}
 
                         pages[page_count] = bvec->bv_page;
                         offsets[page_count] = offset;
@@ -540,6 +552,13 @@ static int loop_set_fd(struct lloop_device *lo, struct file *unused,
 #endif
 
 	/* queue parameters */
+
+	/*
+	 * logical_block_size is an unsigned short, so we can't use the full
+	 * page size on systems with 64k pages.
+	 */
+	blk_queue_logical_block_size(lo->lo_queue,
+			     (unsigned short)min(PAGE_CACHE_SIZE, 32768));
 	blk_queue_max_hw_sectors(lo->lo_queue,
 				 LLOOP_MAX_SEGMENTS << (PAGE_CACHE_SHIFT - 9));
 	blk_queue_max_segments(lo->lo_queue, LLOOP_MAX_SEGMENTS);
