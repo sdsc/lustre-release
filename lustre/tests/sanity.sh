@@ -9860,12 +9860,34 @@ cleanup_obdecho_osc () {
         return 0
 }
 
+#
+# Get the available size (KB) of a given obd target.
+#
+get_obd_size() {
+	local facet=$1
+	local obd=$2
+	local size
+
+	[[ $facet != client ]] || return 0
+
+	size=$(do_facet $facet $LCTL get_param -n *.$obd.kbytesavail | head -n1)
+	echo -n $size
+}
+
 obdecho_test() {
         local OBD=$1
         local node=$2
 	local pages=${3:-64}
         local rc=0
         local id
+
+	local count=10
+	local obd_size=$(get_obd_size $node $OBD)
+	if [[ -n "$obd_size" ]]; then
+		local new_count=$((obd_size / (pages * 4)))
+		[[ $new_count -ge $count ]] || count=$new_count
+	fi
+
         do_facet $node "$LCTL attach echo_client ec ec_uuid" || rc=1
         [ $rc -eq 0 ] && { do_facet $node "$LCTL --device ec setup $OBD" ||
                            rc=2; }
@@ -9877,7 +9899,7 @@ obdecho_test() {
 	[ $rc -eq 0 ] && { do_facet $node "$LCTL --device ec getattr $id" ||
 			   rc=4; }
 	[ $rc -eq 0 ] && { do_facet $node "$LCTL --device ec "		       \
-			   "test_brw 10 w v $pages $id" || rc=4; }
+			   "test_brw $count w v $pages $id" || rc=4; }
 	[ $rc -eq 0 ] && { do_facet $node "$LCTL --device ec destroy $id 1" ||
 			   rc=4; }
 	[ $rc -eq 0 -o $rc -gt 2 ] && { do_facet $node "$LCTL --device ec "    \
