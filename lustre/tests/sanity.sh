@@ -7860,11 +7860,15 @@ test_129() {
 	ENOSPC=28
 	EFBIG=27
 
+	rm -rf $DIR/$tdir
 	test_mkdir -p $DIR/$tdir
 
-	MAX=$(stat -c%s "$DIR/$tdir")
+	# minimal directory size
+	DIRMINSIZE=$(stat -c%s "$DIR/$tdir")
+	# size of indexed directory which has two leaf blocks
+	MAX=$((DIRMINSIZE * 3))
 	set_dir_limits $MAX
-	local I=0
+	local I=$DIRMINSIZE
 	local J=0
 	while [ ! $I -gt $MAX ]; do
 		$MULTIOP $DIR/$tdir/$J Oc
@@ -7872,18 +7876,21 @@ test_129() {
 		#check two errors ENOSPC for new version of ext4 max_dir_size patch
 		#mainline kernel commit df981d03eeff7971ac7e6ff37000bfa702327ef1
 		#and EFBIG for previous versions
-		if [ $rc -eq $EFBIG -o $rc -eq $ENOSPC ] && [ $I -gt 0 ]; then
+		if [ $rc -eq $EFBIG -o $rc -eq $ENOSPC ]; then
 			set_dir_limits 0
 			echo "return code $rc received as expected"
-			multiop $DIR/$tdir/$J Oc
-			rc=$?
+			multiop $DIR/$tdir/$J Oc ||
+				error_exit "multiop failed w/o dir size limit"
 			I=$(stat -c%s "$DIR/$tdir")
-			if [ $I -gt $MAX ] && [ $rc -eq 0 ]; then
-				return 0
+			if [ $(lustre_version_code $SINGLEMDS) -lt
+					$(version_code 2.4.51) ]
+			then
+				[ $I -eq $MAX ] && return 0
 			else
-				error_exit "return code $rc current dir size $I " \
-					   "previous limit $MAX"
+				[ $I -gt $MAX ] && return 0
 			fi
+			error_exit "current dir size $I " \
+					   "previous limit $MAX"
 		elif [ $rc -ne 0 ]; then
 			set_dir_limits 0
 			error_exit "return code $rc received instead of expected " \
