@@ -1165,6 +1165,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 	bool		 acq_lease = !!(open_flags & MDS_OPEN_LEASE);
 	bool		 try_layout = false;
 	bool		 create_layout = false;
+	bool		 no_layout = false;
 	int		 rc = 0;
 	ENTRY;
 
@@ -1175,9 +1176,10 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		RETURN(0);
 
 	if (S_ISREG(lu_object_attr(&obj->mot_obj))) {
-		if (ma->ma_need & MA_LOV && !(ma->ma_valid & MA_LOV) &&
-		    md_should_create(open_flags))
-			create_layout = true;
+		if (ma->ma_need & MA_LOV && !(ma->ma_valid & MA_LOV)) {
+			create_layout = md_should_create(open_flags);
+			no_layout = true;
+		}
 		if (exp_connect_layout(info->mti_exp) && !create_layout &&
 		    ma->ma_need & MA_LOV)
 			try_layout = true;
@@ -1238,6 +1240,19 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 			atomic_read(&obj->mot_open_count), lm);
 	}
 
+	/* If create_layout is true, the file does not have any layout (empty).
+	 * More importantly, we cannot enqueue two different locks on the same
+	 * resource from the same thread (LU-3601), so we just skip
+	 * the openlock here.
+	 * To avoid a bit of a race in a way that though the file is totally
+	 * empty, somebody might have tried to execute it (and failed) and
+	 * that would mean we can no longer open it for writing until the
+	 * openhandle is released - we just never grant open lock for files
+	 * with no layouts.
+	 */
+	if (no_layout)
+		*ibits = 0;
+
 	mdt_lock_reg_init(lhc, lm);
 
 	/* one problem to return layout lock on open is that it may result
@@ -1259,6 +1274,14 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 	} else if (*ibits != 0) {
 		rc = mdt_object_lock(info, obj, lhc, *ibits, MDT_CROSS_LOCK);
 	}
+
+	if ((open_flags & MDS_OPEN_LOCK) & *ibits) {
+		struct ldlm_reply *rep;
+
+		rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
+		mdt_set_disposition(info, rep, DISP_OPEN_LOCK);
+	}
+
 
 	CDEBUG(D_INODE, "Requested bits lock:"DFID ", ibits = "LPX64
 		", open_flags = "LPO64", try_layout = %d, rc = %d\n",
@@ -1465,8 +1488,6 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         rc = mdt_finish_open(info, parent, o, flags, 0, rep);
 	if (!rc) {
 		mdt_set_disposition(info, rep, DISP_LOOKUP_POS);
-		if (flags & MDS_OPEN_LOCK)
-			mdt_set_disposition(info, rep, DISP_OPEN_LOCK);
 		if (flags & MDS_OPEN_LEASE)
 			mdt_set_disposition(info, rep, DISP_OPEN_LEASE);
 	}
@@ -1822,8 +1843,6 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 		rc = mdt_object_open_lock(info, child, lhc, &ibits);
 		if (rc != 0)
 			GOTO(out_child_unlock, result = rc);
-		else if (create_flags & MDS_OPEN_LOCK)
-			mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
 	}
 
 	/* Try to open it now. */
