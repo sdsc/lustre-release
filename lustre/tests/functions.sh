@@ -283,7 +283,13 @@ run_compilebench() {
     [ -e $cbench_DIR/compilebench ] || \
         { skip_env "No compilebench build" && return; }
 
+	echo "lfs_df $DIR:"
+	lfs_df $DIR
+	echo "df -P $DIR:"
+	df -P $DIR
+
 	local space=$(lfs_df $DIR | awk '/^filesystem/{ print $4 }')
+set -x
 	if [[ $space -le $((1024 * 1024 * cbench_IDIRS)) ]]; then
 		cbench_IDIRS=$((space / 1024 / 1024))
 		[[ $cbench_IDIRS -eq 0 ]] &&
@@ -292,6 +298,7 @@ run_compilebench() {
 
 		echo "free space=$space, reducing initial dirs to $cbench_IDIRS"
 	fi
+set +x
 
     # FIXME:
     # t-f _base needs to be modifyed to set properly tdir
