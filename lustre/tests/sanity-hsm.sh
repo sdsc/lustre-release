@@ -373,6 +373,15 @@ check_hsm_flags_user() {
 	[[ $st == $fl ]] || error "hsm flags on $f are $st != $fl"
 }
 
+file_creation_failure() {
+	local cmd=$1
+	local f=$2
+	local err=$3
+
+	df $MOUNT $MOUNT2
+	error "cannot create $f with $cmd, status=$err"
+}
+
 copy_file() {
 	local f=
 
@@ -386,14 +395,16 @@ copy_file() {
 		f=${f/$DIR/$DIR2}
 	fi
 	rm -f $f
-	cp $1 $f || error "cannot copy $1 to $f"
+	cp $1 $f || file_creation_failure cp $f $?
+
 	path2fid $f || error "cannot get fid on $f"
 }
 
 make_small() {
         local file2=${1/$DIR/$DIR2}
         dd if=/dev/urandom of=$file2 count=2 bs=1M conv=fsync ||
-		error "cannot create $file2"
+		file_creation_failure dd $file2 $?
+
         path2fid $1 || error "cannot get fid on $1"
 }
 
@@ -409,7 +420,8 @@ make_large_for_striping() {
 	cleanup_large_files
 
 	dd if=/dev/urandom of=$file2 count=5 bs=$sz conv=fsync ||
-		error "cannot create $file2"
+		file_creation_failure dd $file2 $?
+
 	path2fid $1 || error "cannot get fid on $1"
 }
 
@@ -423,7 +435,8 @@ make_large_for_progress() {
 	# size is not a multiple of 1M to avoid stripe
 	# aligment
 	dd if=/dev/urandom of=$file2 count=39 bs=1000000 conv=fsync ||
-		error "cannot create $file2"
+		file_creation_failure dd $file2 $?
+
 	path2fid $1 || error "cannot get fid on $1"
 }
 
