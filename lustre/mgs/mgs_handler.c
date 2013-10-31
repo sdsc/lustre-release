@@ -679,6 +679,34 @@ static int mgs_iocontrol_nodemap(const struct lu_env *env,
 		rc = mgs_nodemap_cmd(env, mgs, LCFG_NODEMAP_DEL_RANGE,
 				nodemap_name, param);
 		break;
+	case LCFG_NODEMAP_ADD_UIDMAP:
+		param = lustre_cfg_string(lcfg, 2);
+		if (lcfg->lcfg_bufcount != 3)
+			GOTO(out_lcfg, rc = -EINVAL);
+		rc = mgs_nodemap_cmd(env, mgs, LCFG_NODEMAP_ADD_UIDMAP,
+				nodemap_name, param);
+		break;
+	case LCFG_NODEMAP_DEL_UIDMAP:
+		param = lustre_cfg_string(lcfg, 2);
+		if (lcfg->lcfg_bufcount != 3)
+			GOTO(out_lcfg, rc = -EINVAL);
+		rc = mgs_nodemap_cmd(env, mgs, LCFG_NODEMAP_DEL_UIDMAP,
+				nodemap_name, param);
+		break;
+	case LCFG_NODEMAP_ADD_GIDMAP:
+		param = lustre_cfg_string(lcfg, 2);
+		if (lcfg->lcfg_bufcount != 3)
+			GOTO(out_lcfg, rc = -EINVAL);
+		rc = mgs_nodemap_cmd(env, mgs, LCFG_NODEMAP_ADD_GIDMAP,
+				nodemap_name, param);
+		break;
+	case LCFG_NODEMAP_DEL_GIDMAP:
+		param = lustre_cfg_string(lcfg, 2);
+		if (lcfg->lcfg_bufcount != 3)
+			GOTO(out_lcfg, rc = -EINVAL);
+		rc = mgs_nodemap_cmd(env, mgs, LCFG_NODEMAP_DEL_GIDMAP,
+				nodemap_name, param);
+		break;
 	case LCFG_NODEMAP_ADMIN:
 		if (lcfg->lcfg_bufcount != 4)
 			GOTO(out_lcfg, rc = -EINVAL);

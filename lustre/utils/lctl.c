@@ -247,12 +247,30 @@ command_t cmdlist[] = {
 	{"nodemap_del_range", jt_nodemap_del_range, 0,
 	 "add a range to a nodemap\n"
 	 "usage: nodemap_del_range <NID range>"},
+	{"nodemap_add_uidmap", jt_nodemap_add_uidmap, 0,
+	 "add a uidmap to a nodemap\n"
+	 "usage: nodemap_add_uidmap <remote uid>:<local uid>"},
+	{"nodemap_del_uidmap", jt_nodemap_del_uidmap, 0,
+	 "delete a uidmap from a nodemap\n"
+	 "usage: nodemap_del_uidmap <remote uid>:<local uid>"},
+	{"nodemap_add_gidmap", jt_nodemap_add_gidmap, 0,
+	 "add a gidmap to a nodemap\n"
+	 "usage: nodemap_add_gidmap <remote gid>:<local gid>"},
+	{"nodemap_del_gidmap", jt_nodemap_del_gidmap, 0,
+	 "delete a gidmap from a nodemap\n"
+	 "usage: nodemap_del_gidmap <remote gid>:<local gid>"},
 	{"nodemap_modify", jt_nodemap_modify, 0,
 	 "modify a nodemap parameters"
 	 "usage: nodemap_modify nodemap_name param value"},
 	{"nodemap_test_nid", jt_nodemap_test_nid, 0,
 	 "check an NID for the containing nodemap"
-	 "usage: nodemap_test_nid <NID>"},
+	 "usage: nodemap_test_nid <nid>"},
+	{"nodemap_test_uid", jt_nodemap_test_uidmap, 0,
+	 "test a range and remote uid"
+	 "usage: nodemap_test_uid <nid> <uid>"},
+	{"nodemap_test_gid", jt_nodemap_test_gidmap, 0,
+	 "test a range and remote uid"
+	 "usage: nodemap_test_gid <nid> <gid>"},
 
         /* Changelog commands */
         {"===  Changelogs ==", jt_noop, 0, "changelog user management"},

@@ -45,8 +45,14 @@
 
 static int ranges_open(struct inode *inode, struct file *file);
 static int ranges_show(struct seq_file *file, void *data);
+static int uidmap_open(struct inode *inode, struct file *file);
+static int uidmap_show(struct seq_file *file, void *data);
+static int gidmap_open(struct inode *inode, struct file *file);
+static int gidmap_show(struct seq_file *file, void *data);
 
-static lnet_nid_t test_nid;
+static lnet_nid_t nodemap_test_nid;
+static __u32 nodemap_test_uid;
+static __u32 nodemap_test_gid;
 
 const struct file_operations proc_range_operations = {
 	.open		= ranges_open,
@@ -55,19 +61,33 @@ const struct file_operations proc_range_operations = {
 	.release	= single_release,
 };
 
+static struct file_operations proc_uidmap_operations = {
+	.open           = uidmap_open,
+	.read           = seq_read,
+	.llseek         = seq_lseek,
+	.release        = single_release,
+};
+
+static struct file_operations proc_gidmap_operations = {
+	.open           = gidmap_open,
+	.read           = seq_read,
+	.llseek         = seq_lseek,
+	.release        = single_release,
+};
+
 static struct lprocfs_vars lprocfs_nodemap_module_vars[] = {
 	{ "active", nodemap_rd_active, nodemap_wr_active, 0 },
-	{ "add_nodemap", 0, nodemap_proc_add_nodemap, 0 },
-	{ "remove_nodemap", 0, nodemap_proc_del_nodemap, 0 },
 	{ "test_nid", rd_nid_test, wr_nid_test, 0 },
+	{ "test_uid_map", rd_uidmap_test, wr_uidmap_test, 0 },
+	{ "test_gid_map", rd_gidmap_test, wr_gidmap_test, 0 },
 	{ 0 }
 };
 
 static struct lprocfs_vars lprocfs_nodemap_vars[] = {
 	{ "id", nodemap_rd_id, 0, 0 },
-	{ "add_range", 0, nodemap_proc_add_range, 0 },
-	{ "remove_range", 0, nodemap_proc_del_range, 0 },
 	{ "ranges", 0, 0, 0, &proc_range_operations },
+	{ "uidmap", 0, 0, 0, &proc_uidmap_operations },
+	{ "gidmap", 0, 0, 0, &proc_gidmap_operations },
 	{ "trusted_nodemap", nodemap_rd_trusted, nodemap_wr_trusted, 0 },
 	{ "admin_nodemap", nodemap_rd_admin, nodemap_wr_admin, 0 },
 	{ "squash_uid", nodemap_rd_squash_uid, nodemap_wr_squash_uid, 0},
@@ -84,6 +104,104 @@ static struct lprocfs_vars lprocfs_default_nodemap_vars[] = {
 	{ 0 }
 };
 
+int rd_gidmap_test(char *page, char **start, off_t off, int count,
+		int *eof, void *data)
+{
+	struct nodemap *nodemap;
+	__u32 local_gid;
+	int len;
+
+	nodemap = nodemap_classify_nid(nodemap_test_nid);
+
+	local_gid = nodemap_map_id(nodemap,
+				   NM_REMOTE_TO_LOCAL,
+				   NM_GID,
+				   nodemap_test_gid);
+
+	len = sprintf(page, "%s:%u %u\n", nodemap->nm_name, nodemap_test_gid,
+		      local_gid);
+
+	return len;
+}
+
+int wr_gidmap_test(struct file *file, const char __user *buffer,
+		unsigned long count, void *data)
+{
+	char string[count + 1];
+	char *bp;
+	char *nid_string = NULL;
+	char *gid_string = NULL;
+
+	if (copy_from_user(string, buffer, count))
+		return -EFAULT;
+
+	if (count > 0)
+		string[count - 1] = 0;
+	else
+		return count;
+
+	bp = string;
+	nid_string = strsep(&bp, " ");
+	gid_string = strsep(&bp, " ");
+
+	if ((gid_string == NULL) || (nid_string == NULL))
+		return -EINVAL;
+
+	nodemap_test_nid = libcfs_str2nid(nid_string);
+	nodemap_test_gid = simple_strtoul(gid_string, NULL, 10);
+
+	return count;
+}
+
+int rd_uidmap_test(char *page, char **start, off_t off, int count,
+		int *eof, void *data)
+{
+	struct nodemap *nodemap;
+	__u32 local_uid;
+	int len;
+
+	nodemap = nodemap_classify_nid(nodemap_test_nid);
+
+	local_uid = nodemap_map_id(nodemap,
+				   NM_REMOTE_TO_LOCAL,
+				   NM_UID,
+				   nodemap_test_uid);
+
+	len = sprintf(page, "%s:%u %u\n", nodemap->nm_name, nodemap_test_uid,
+		      local_uid);
+
+	return len;
+}
+
+int wr_uidmap_test(struct file *file, const char __user *buffer,
+		unsigned long count, void *data)
+{
+	char string[count + 1];
+	char *bp;
+	char *nid_string = NULL;
+	char *uid_string = NULL;
+
+	if (copy_from_user(string, buffer, count))
+		return -EFAULT;
+
+	if (count > 0)
+		string[count - 1] = 0;
+	else
+		return count;
+
+	bp = string;
+	nid_string = strsep(&bp, " ");
+	uid_string = strsep(&bp, " ");
+
+	if ((uid_string == NULL) || (nid_string == NULL))
+		return -EINVAL;
+
+	nodemap_test_nid = libcfs_str2nid(nid_string);
+	nodemap_test_uid = simple_strtoul(uid_string, NULL, 10);
+
+	return count;
+}
+
 int rd_nid_test(char *page, char **start, off_t off, int count,
 		int *eof, void *data)
 {
@@ -91,7 +209,7 @@ int rd_nid_test(char *page, char **start, off_t off, int count,
 	struct nodemap *nodemap;
 	struct range_node *range;
 
-	range = range_search(&test_nid);
+	range = range_search(&nodemap_test_nid);
 
 	if (range == NULL)
 		nodemap = default_nodemap;
@@ -124,14 +242,14 @@ int wr_nid_test(struct file *file, const char __user *buffer,
 	else
 		return count;
 
-	test_nid = libcfs_str2nid(string);
+	nodemap_test_nid = libcfs_str2nid(string);
 
 	return count;
 }
 
 static int ranges_open(struct inode *inode, struct file *file)
 {
-	cfs_proc_dir_entry_t *dir;
+	struct proc_dir_entry *dir;
 	struct nodemap *nodemap;
 
 	dir = PDE(inode);
@@ -156,65 +274,63 @@ static int ranges_show(struct seq_file *file, void *data)
 	return 0;
 }
 
-int nodemap_proc_add_range(struct file *file, const char __user *buffer,
-		      unsigned long count, void *data)
+static int uidmap_open(struct inode *inode, struct file *file)
 {
-	char range_str[count + 1];
+	struct proc_dir_entry *dir;
 	struct nodemap *nodemap;
-	int rc;
 
-	if (copy_from_user(range_str, buffer, count))
-		return -EFAULT;
+	dir = PDE(inode);
+	nodemap = (struct nodemap *) dir->data;
 
-	/* Check syntax for nodemap names here */
-
-	if (count > 2) {
-		range_str[count] = 0;
-		range_str[count - 1] = 0;
-	} else
-		return count;
-
-	nodemap = (struct nodemap *) data;
-
-	rc = nodemap_add_range(nodemap->nm_name, range_str);
-
-	if (rc != 0) {
-		CERROR("nodemap range insert failed for %s: rc = %d",
-		       nodemap->nm_name, rc);
-	}
-
-	return count;
+	return single_open(file, uidmap_show, nodemap);
 }
 
-int nodemap_proc_del_range(struct file *file, const char __user *buffer,
-			 unsigned long count, void *data)
+static int uidmap_show(struct seq_file *file, void *data)
 {
-	char range_str[count + 1];
 	struct nodemap *nodemap;
-	int rc;
+	struct idmap_node *idmap = NULL;
+	struct rb_node *node;
 
-	if (copy_from_user(range_str, buffer, count))
-		return -EFAULT;
+	nodemap = (struct nodemap *) file->private;
 
-	/* Check syntax for nodemap names here */
-
-	if (count > 2) {
-		range_str[count] = 0;
-		range_str[count - 1] = 0;
-	} else {
-		return count;
+	for (node = rb_first(&(nodemap->nm_local_to_remote_uidmap)); node;
+	     node = rb_next(node)) {
+		idmap = rb_entry(node, struct idmap_node, id_local_to_remote);
+		if (idmap != NULL)
+			seq_printf(file, "%u : %u\n", idmap->id_local,
+				   idmap->id_remote);
 	}
 
-	nodemap = (struct nodemap *) data;
+	return 0;
+}
 
-	rc = nodemap_del_range(nodemap->nm_name, range_str);
+static int gidmap_open(struct inode *inode, struct file *file)
+{
+	struct proc_dir_entry *dir;
+	struct nodemap *nodemap;
 
-	if (rc != 0) {
-		CERROR("nodemap range delete failed for %s: rc = %d",
-		       nodemap->nm_name, rc);
+	dir = PDE(inode);
+	nodemap = (struct nodemap *) dir->data;
+
+	return single_open(file, gidmap_show, nodemap);
+}
+
+static int gidmap_show(struct seq_file *file, void *data)
+{
+	struct nodemap *nodemap;
+	struct idmap_node *idmap = NULL;
+	struct rb_node *node;
+
+	nodemap = (struct nodemap *) file->private;
+
+	for (node = rb_first(&(nodemap->nm_local_to_remote_gidmap)); node;
+	     node = rb_next(node)) {
+		idmap = rb_entry(node, struct idmap_node, id_local_to_remote);
+		seq_printf(file, "%u : %u\n", idmap->id_local,
+			   idmap->id_remote);
 	}
 
-	return count;
+	return 0;
 }
 
 int nodemap_rd_active(char *page, char **start, off_t off, int count,
@@ -424,46 +540,4 @@ void lprocfs_nodemap_register(char *nodemap_name,
 						      nodemap);
 
 	nodemap->nm_proc_entry = nodemap_proc_entry;
-}
-
-int nodemap_proc_add_nodemap(struct file *file, const char __user *buffer,
-			     unsigned long count, void *data)
-{
-	char nodemap_name[count + 1];
-
-	if (copy_from_user(nodemap_name, buffer, count))
-		return -EFAULT;
-
-	/* Check syntax for nodemap names here */
-
-	if (count > 2) {
-		nodemap_name[count] = 0;
-		nodemap_name[count - 1] = 0;
-	} else {
-		return count;
-	}
-
-	nodemap_add(nodemap_name);
-
-	return count;
-}
-
-int nodemap_proc_del_nodemap(struct file *file, const char *buffer,
-			     unsigned long count, void *data)
-{
-	char nodemap_name[count + 1];
-
-	if (copy_from_user(nodemap_name, buffer, count))
-		return -EFAULT;
-
-	if (count > 2) {
-		nodemap_name[count] = 0;
-		nodemap_name[count - 1] = 0;
-	} else {
-		return count;
-	}
-
-	nodemap_del(nodemap_name);
-
-	return count;
 }

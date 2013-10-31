@@ -60,8 +60,7 @@ extern unsigned int nodemap_idmap_active;
 extern struct nodemap *default_nodemap;
 
 int nodemap_procfs_init(void);
-int nodemap_init_nodemap(char *nodemap_name, int def_nodemap,
-			 struct nodemap *nodemap);
+struct nodemap *nodemap_init_nodemap(char *nodemap_name, int def_nodemap);
 void lprocfs_nodemap_register(char *nodemap_name, int def_ndoemap,
 			      struct nodemap *nodemap);
 void lprocfs_nodemap_init_vars(struct lprocfs_static_vars *lvars);
@@ -88,19 +87,41 @@ int nodemap_rd_admin(char *page, char **start, off_t off, int count,
 		     int *eof, void *data);
 int nodemap_wr_admin(struct file *file, const char *buffer,
 		     unsigned long count, void *data);
-int nodemap_proc_add_nodemap(struct file *file, const char *buffer,
-			     unsigned long count, void *data);
-int nodemap_proc_del_nodemap(struct file *file, const char *buffer,
-			     unsigned long count, void *data);
-int nodemap_proc_add_range(struct file *file, const char *buffer,
-			   unsigned long count, void *data);
-int nodemap_proc_del_range(struct file *file, const char *buffer,
-			   unsigned long count, void *data);
 int rd_nid_test(char *page, char **start, off_t off, int count,
 		int *eof, void *data);
 int wr_nid_test(struct file *file, const char *buffer,
 		unsigned long count, void *data);
+int rd_uidmap_test(char *page, char **start, off_t off, int count,
+		int *eof, void *data);
+int wr_uidmap_test(struct file *file, const char *buffer,
+		unsigned long count, void *data);
+int rd_gidmap_test(char *page, char **start, off_t off, int count,
+		int *eof, void *data);
+int wr_gidmap_test(struct file *file, const char *buffer,
+		unsigned long count, void *data);
 int nodemap_cleanup_nodemaps(void);
 int range_insert(struct range_node *data);
 int range_delete(struct range_node *data);
-struct range_node *range_search(lnet_nid_t *);
+struct range_node *range_search(lnet_nid_t *nid);
+struct idmap_node *idmap_init(char *idmap_string);
+int idmap_insert(struct nodemap *nodemap, int node_type,
+		 struct idmap_node *idmap);
+int idmap_delete(struct nodemap *nodemap, int node_type,
+		 struct idmap_node *idmap);
+int idmap_delete_tree(struct nodemap *nodemap, int node_type);
+struct idmap_node *idmap_search(struct nodemap *nodemap, int tree_type,
+				int node_type, __u32 id);
+
+struct rb_node *nm_rb_next_postorder(const struct rb_node *);
+struct rb_node *nm_rb_first_postorder(const struct rb_root *);
+
+#define nm_rbtree_postorder_for_each_entry_safe(pos, n,			\
+						root, field)		\
+	for (pos = rb_entry(nm_rb_first_postorder(root), typeof(*pos),	\
+			    field),					\
+		n = rb_entry(nm_rb_next_postorder(&pos->field),		\
+			     typeof(*pos), field);			\
+		&pos->field;						\
+		pos = n,						\
+		n = rb_entry(nm_rb_next_postorder(&pos->field),		\
+			     typeof(*pos), field))

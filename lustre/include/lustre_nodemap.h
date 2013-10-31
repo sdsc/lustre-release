@@ -32,6 +32,11 @@
 
 #define LUSTRE_NODEMAP_DEFAULT_ID 0
 
+#define NM_UID 0
+#define NM_GID 1
+#define NM_LOCAL_TO_REMOTE 0
+#define NM_REMOTE_TO_LOCAL 1
+
 struct nodemap_flags {
 	unsigned int nmf_trusted:1;	/* If set, we trust the client IDs */
 	unsigned int nmf_admin:1;	/* If set, we allow UID/GID 0
@@ -70,19 +75,31 @@ struct nodemap {
 };
 
 struct range_node {
-	unsigned int rn_id;			     /* Unique ID set by MGS */
-	lnet_nid_t rn_start_nid;		     /* Inclusive starting
-						      * NID */
-	lnet_nid_t rn_end_nid;			     /* Inclusive ending NID */
-	struct nodemap *rn_nodemap;		     /* Member of nodemap */
-	struct list_head rn_list;		     /* List for nodemap */
-	struct rb_node rn_node;			     /* Global tree */
+	unsigned int rn_id;			      /* Unique ID set by MGS */
+	lnet_nid_t rn_start_nid;		      /* Inclusive starting
+						       * NID */
+	lnet_nid_t rn_end_nid;			      /* Inclusive ending NID */
+	struct nodemap *rn_nodemap;		      /* Member of nodemap */
+	struct list_head rn_list;		      /* List for nodemap */
+	struct rb_node rn_node;			      /* Global tree */
+};
+
+struct idmap_node {
+	__u32 id_remote;			      /* Client id */
+	__u32 id_local;				      /* Local filesystem id */
+	struct rb_node id_local_to_remote;
+	struct rb_node id_remote_to_local;
 };
 
 int nodemap_add(char *nodemap_name);
 int nodemap_del(char *nodemap_name);
+struct nodemap *nodemap_classify_nid(lnet_nid_t nid);
 int nodemap_add_range(char *nodemap_name, char *nodemap_range);
 int nodemap_del_range(char *nodemap_name, char *nodemap_range);
+int nodemap_map_id(struct nodemap *nodemap, int tree_type,
+		   int node_type, __u32 id);
+int nodemap_add_idmap(char *nodemap_name, int node_type, char *map);
+int nodemap_del_idmap(char *nodemap_name, int node_type, char *remote_id);
 int nodemap_admin(char *nodemap_name, char *admin_string);
 int nodemap_trusted(char *nodemap_name, char *trusted_string);
 int nodemap_squash_uid(char *nodemap_name, char *squash_string);

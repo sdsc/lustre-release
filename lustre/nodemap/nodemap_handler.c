@@ -161,6 +161,8 @@ static int nodemap_iter_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 		OBD_FREE(range, sizeof(struct range_node));
 	}
 
+	idmap_delete_tree(nodemap, NM_UID);
+	idmap_delete_tree(nodemap, NM_GID);
 	OBD_FREE(nodemap, sizeof(struct nodemap));
 
 	return 0;
@@ -186,6 +188,119 @@ int nodemap_init_hash(void)
 
 	return 0;
 }
+
+int nodemap_add_idmap(char *nodemap_name, int node_type, char *map)
+{
+	struct nodemap *nodemap;
+	struct idmap_node *idmap;
+	int rc;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, nodemap_name);
+
+	if ((nodemap == NULL) || (nodemap->nm_id == 0))
+		return -EINVAL;
+
+	idmap = idmap_init(map);
+
+	if (idmap == NULL)
+		return -EINVAL;
+
+	rc = idmap_insert(nodemap, node_type, idmap);
+
+	if (rc != 0) {
+		CERROR("Could not insert idmap into tree\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(nodemap_add_idmap);
+
+int nodemap_del_idmap(char *nodemap_name, int node_type, char *local_id_str)
+{
+	struct nodemap *nodemap;
+	struct idmap_node *idmap;
+	__u32 local_id;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, nodemap_name);
+
+	if ((nodemap == NULL) || (nodemap->nm_id == 0))
+		goto out;
+
+	if (local_id_str == NULL)
+		goto out;
+
+	local_id = simple_strtoul(local_id_str, NULL, 10);
+
+	idmap = idmap_search(nodemap, node_type, NM_LOCAL_TO_REMOTE,
+			     local_id);
+
+	if (idmap == NULL)
+		goto out;
+
+	idmap_delete(nodemap, node_type, idmap);
+
+	return 0;
+out:
+	return -EINVAL;
+}
+EXPORT_SYMBOL(nodemap_del_idmap);
+
+struct nodemap *nodemap_classify_nid(lnet_nid_t nid)
+{
+	struct range_node *range;
+
+	range = range_search(&nid);
+
+	if (range == NULL)
+		return default_nodemap;
+	else
+		return range->rn_nodemap;
+}
+EXPORT_SYMBOL(nodemap_classify_nid);
+
+int nodemap_map_id(struct nodemap *nodemap, int tree_type,
+		   int node_type, __u32 id)
+{
+	struct idmap_node *idmap = NULL;
+
+	if (nodemap_idmap_active == 0)
+		return id;
+
+	if (nodemap == NULL)
+		return -EFAULT;
+
+	/* Handle root */
+	if (id == 0) {
+		if ((node_type == NM_UID) &&
+		    (nodemap->nm_flags.nmf_admin == 0))
+			return nodemap->nm_squash_uid;
+
+		if ((node_type == NM_GID) &&
+		    (nodemap->nm_flags.nmf_admin == 0))
+			return nodemap->nm_squash_gid;
+
+		return id;
+	}
+
+	if (nodemap->nm_flags.nmf_trusted == 1)
+		return id;
+
+	idmap = idmap_search(nodemap, tree_type, node_type, id);
+
+	if (idmap == NULL) {
+		if (node_type == NM_UID)
+			return nodemap->nm_squash_uid;
+		else
+			return nodemap->nm_squash_gid;
+	}
+
+	if (tree_type == NM_LOCAL_TO_REMOTE)
+		return idmap->id_remote;
+	else
+		return idmap->id_local;
+}
+EXPORT_SYMBOL(nodemap_map_id);
 
 int nodemap_add_range(char *nodemap_name, char *range_str)
 {
@@ -295,9 +410,9 @@ int nodemap_del_range(char *nodemap_name, char *range_str)
 }
 EXPORT_SYMBOL(nodemap_del_range);
 
-int nodemap_init_nodemap(char *nodemap_name, int def_nodemap,
-			 struct nodemap *nodemap)
+struct nodemap *nodemap_init_nodemap(char *nodemap_name, int def_nodemap)
 {
+	struct nodemap *nodemap;
 	int rc;
 
 	OBD_ALLOC(nodemap, sizeof(struct nodemap));
@@ -306,7 +421,7 @@ int nodemap_init_nodemap(char *nodemap_name, int def_nodemap,
 		CERROR("Cannot allocate memory (%zu o)"
 		       "for nodemap %s", sizeof(struct nodemap),
 		       nodemap_name);
-		return -ENOMEM;
+		return NULL;
 	}
 
 	snprintf(nodemap->nm_name, LUSTRE_NODEMAP_NAME_LENGTH,
@@ -353,11 +468,11 @@ int nodemap_init_nodemap(char *nodemap_name, int def_nodemap,
 	if (rc)
 		GOTO(out_err, rc = -EEXIST);
 
-	return 0;
+	return nodemap;
 out_err:
 	CDEBUG(D_CONFIG, "%s existing nodemap", nodemap_name);
 	OBD_FREE(nodemap, sizeof(struct nodemap));
-	return rc;
+	return NULL;
 }
 
 int nodemap_admin(char *nodemap_name, char *admin_string)
@@ -437,12 +552,11 @@ EXPORT_SYMBOL(nodemap_squash_gid);
 int nodemap_add(char *nodemap_name)
 {
 	struct nodemap *nodemap = NULL;
-	int rc;
 
-	rc = nodemap_init_nodemap(nodemap_name, 0, nodemap);
+	nodemap = nodemap_init_nodemap(nodemap_name, 0);
 
-	if (rc != 0) {
-		CERROR("nodemap initialization failed: rc = %d\n", rc);
+	if (nodemap == NULL) {
+		CERROR("nodemap initialization failed\n");
 		return 1;
 	}
 
@@ -467,7 +581,11 @@ int nodemap_del(char *nodemap_name)
 				 rn_list) {
 		list_del(&(range->rn_list));
 		range_delete(range);
+		OBD_FREE(range, sizeof(struct range_node));
 	}
+
+	idmap_delete_tree(nodemap, NM_UID);
+	idmap_delete_tree(nodemap, NM_GID);
 
 	cfs_hash_del(nodemap_hash, nodemap_name, &(nodemap->nm_hash));
 
@@ -485,7 +603,10 @@ static int __init nodemap_mod_init(void)
 
 	rc = nodemap_init_hash();
 	nodemap_procfs_init();
-	rc = nodemap_init_nodemap("default", 1, default_nodemap);
+	default_nodemap = nodemap_init_nodemap("default", 1);
+
+	if (default_nodemap == NULL)
+		return -EINVAL;
 
 	return rc;
 }

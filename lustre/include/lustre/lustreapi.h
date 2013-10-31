@@ -62,6 +62,9 @@ enum llapi_message_level {
 #define LLAPI_MSG_MASK          0x00000007
 #define LLAPI_MSG_NO_ERRNO      0x00000010
 
+#define NM_UID 0
+#define NM_GID 1
+
 extern void llapi_msg_set_level(int level);
 
 void llapi_error(int level, int rc, const char *fmt, ...)
@@ -238,6 +241,8 @@ extern int llapi_nodemap_exists(char *name);
 extern int llapi_search_nodemap_nid(char *nid);
 extern int llapi_find_nodemap_nid(char *nid, char *nodemap);
 extern int llapi_search_nodemap_range(char *range);
+extern int llapi_nodemap_map_id(char *nid, char *id, int node_type,
+				char *map);
 
 struct mntent;
 #define HAVE_LLAPI_IS_LUSTRE_MNT
