@@ -3512,6 +3512,114 @@ int jt_nodemap_test_nid(int argc, char **argv)
 	return 0;
 }
 
+int jt_nodemap_add_uidmap(int argc, char **argv)
+{
+	enum lcfg_command_type cmd = 0;
+	int rc = 0;
+
+	cmd = LCFG_NODEMAP_ADD_UIDMAP;
+
+	rc = nodemap_cmd(cmd, 3, argv[0], argv[1], argv[2]);
+
+	if (rc != 0) {
+		errno = -rc;
+		perror(argv[0]);
+	}
+
+	return 0;
+}
+
+int jt_nodemap_del_uidmap(int argc, char **argv)
+{
+	enum lcfg_command_type cmd = 0;
+	int rc = 0;
+
+	cmd = LCFG_NODEMAP_DEL_UIDMAP;
+
+	rc = nodemap_cmd(cmd, 3, argv[0], argv[1], argv[2]);
+
+	if (rc != 0) {
+		errno = -rc;
+		perror(argv[0]);
+	}
+
+	return 0;
+}
+
+int jt_nodemap_add_gidmap(int argc, char **argv)
+{
+	enum lcfg_command_type cmd = 0;
+	int rc = 0;
+
+	cmd = LCFG_NODEMAP_ADD_GIDMAP;
+
+	rc = nodemap_cmd(cmd, 3, argv[0], argv[1], argv[2]);
+
+	if (rc != 0) {
+		errno = -rc;
+		perror(argv[0]);
+	}
+
+	return 0;
+}
+
+int jt_nodemap_del_gidmap(int argc, char **argv)
+{
+	enum lcfg_command_type cmd = 0;
+	int rc = 0;
+
+	cmd = LCFG_NODEMAP_DEL_GIDMAP;
+
+	rc = nodemap_cmd(cmd, 3, argv[0], argv[1], argv[2]);
+
+	if (rc != 0) {
+		errno = -rc;
+		perror(argv[0]);
+	}
+
+	return 0;
+}
+
+int jt_nodemap_test_uidmap(int argc, char **argv)
+{
+	int rc;
+	char result[PATH_MAX + 1];
+
+	rc = llapi_nodemap_map_id(argv[1], argv[2], NM_UID,
+				  result);
+
+	rc = 0;
+
+	if (rc != 0) {
+		fprintf(stderr, "lctl nodemap_test_uid failed\n");
+		return -1;
+	}
+
+	printf("%s", result);
+
+	return 0;
+}
+
+int jt_nodemap_test_gidmap(int argc, char **argv)
+{
+	int rc;
+	char result[PATH_MAX + 1];
+
+	rc = llapi_nodemap_map_id(argv[1], argv[2], NM_GID,
+				  result);
+
+	rc = 0;
+
+	if (rc != 0) {
+		fprintf(stderr, "lctl nodemap_test_uid failed\n");
+		return -1;
+	}
+
+	printf("%s", result);
+
+	return 0;
+}
+
 int jt_nodemap_modify(int argc, char **argv)
 {
 	enum lcfg_command_type cmd = 0;

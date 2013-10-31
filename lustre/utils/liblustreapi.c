@@ -934,6 +934,31 @@ int llapi_search_nodemap_nid(char *nid)
 	return atoi(range_id_str);
 }
 
+int llapi_nodemap_map_id(char *nid, char *id, int node_type,
+			 char *map)
+{
+
+	char buffer[PATH_MAX + 1], mapname[PATH_MAX + 1];
+	char args[PATH_MAX + 1];
+
+	if (node_type == NM_UID)
+		snprintf(mapname, sizeof(mapname) - 1, "nodemap/test_uid_map");
+	else
+		snprintf(mapname, sizeof(mapname) - 1, "nodemap/test_gid_map");
+
+	snprintf(args, PATH_MAX, "%s %s", nid, id);
+
+	set_param(mapname, args);
+	get_param(mapname, buffer, PATH_MAX);
+
+	if (buffer == NULL)
+		return -1;
+
+	strncpy(map, buffer, PATH_MAX);
+
+	return 0;
+}
+
 int llapi_direntry_remove(char *dname)
 {
 	char *dirpath = NULL;

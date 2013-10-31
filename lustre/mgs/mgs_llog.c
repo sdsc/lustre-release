@@ -3877,6 +3877,26 @@ int mgs_nodemap_cmd(const struct lu_env *env, struct mgs_device *mgs,
 		if (rc)
 			return rc;
 		break;
+	case LCFG_NODEMAP_ADD_UIDMAP:
+		rc = nodemap_add_idmap(nodemap_name, NM_UID, param);
+		if (rc)
+			return rc;
+		break;
+	case LCFG_NODEMAP_DEL_UIDMAP:
+		rc = nodemap_del_idmap(nodemap_name, NM_UID, param);
+		if (rc)
+			return rc;
+		break;
+	case LCFG_NODEMAP_ADD_GIDMAP:
+		rc = nodemap_add_idmap(nodemap_name, NM_GID, param);
+		if (rc)
+			return rc;
+		break;
+	case LCFG_NODEMAP_DEL_GIDMAP:
+		rc = nodemap_del_idmap(nodemap_name, NM_GID, param);
+		if (rc)
+			return rc;
+		break;
 	case LCFG_NODEMAP_ADMIN:
 		rc = nodemap_admin(nodemap_name, param);
 		if (rc)

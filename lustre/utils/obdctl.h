@@ -138,8 +138,14 @@ int jt_nodemap_add(int argc, char **argv);
 int jt_nodemap_del(int argc, char **argv);
 int jt_nodemap_modify(int argc, char **argv);
 int jt_nodemap_add_range(int argc, char **argv);
-int jt_nodemap_test_nid(int argc, char **argv);
 int jt_nodemap_del_range(int argc, char **argv);
+int jt_nodemap_test_nid(int argc, char **argv);
+int jt_nodemap_add_uidmap(int argc, char **argv);
+int jt_nodemap_del_uidmap(int argc, char **argv);
+int jt_nodemap_test_uidmap(int argc, char **argv);
+int jt_nodemap_add_gidmap(int argc, char **argv);
+int jt_nodemap_del_gidmap(int argc, char **argv);
+int jt_nodemap_test_gidmap(int argc, char **argv);
 int jt_changelog_register(int argc, char **argv);
 int jt_changelog_deregister(int argc, char **argv);
 
