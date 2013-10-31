@@ -30,7 +30,7 @@
  						ext4_lblk_t, int, int *);
 --- a/fs/ext4/ext4_extents.h
 +++ b/fs/ext4/ext4_extents.h
-@@ -58,6 +58,13 @@
+@@ -58,6 +58,14 @@
   */
  #define EXT_STATS_
 
@@ -41,6 +41,7 @@
 +#define EXT4_ALLOC_NEEDED 0
 +#define HAVE_EXT_PREPARE_CB_EXTENT
 +#define HAVE_EXT4_EXT_PBLOCK
++#define HAVE_EXT4_EXT_WALK_SPACE
 
  /*
   * ext4_inode has i_block array (60 bytes total).
