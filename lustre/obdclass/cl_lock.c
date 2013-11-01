@@ -266,7 +266,6 @@ static void cl_lock_free(const struct lu_env *env, struct cl_lock *lock)
 
         ENTRY;
         cl_lock_trace(D_DLMTRACE, env, "free lock", lock);
-        cfs_might_sleep();
         while (!cfs_list_empty(&lock->cll_layers)) {
                 struct cl_lock_slice *slice;
 
