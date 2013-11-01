@@ -299,6 +299,7 @@ typedef atomic_t cfs_atomic_t;
  */
 
 #define cfs_mb() mb()
+#define cfs_smp_rmb() smp_rmb()
 
 /*
  * interrupt
