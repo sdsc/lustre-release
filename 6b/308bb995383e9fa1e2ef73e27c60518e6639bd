@@ -1,0 +1,10 @@
+Verified+1: Jenkins
+Code-Review+2: Andreas Dilger <andreas.dilger@intel.com>
+Verified+1: Maloo <hpdd-maloo@intel.com>
+Code-Review+1: Nathaniel Clark <nathaniel.l.clark@intel.com>
+Code-Review+1: Andrew Korty <ajk@iu.edu>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Sat, 02 Nov 2013 00:56:49 +0000
+Reviewed-on: http://review.whamcloud.com/7770
+Project: fs/lustre-release
+Branch: refs/heads/master
