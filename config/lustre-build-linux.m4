@@ -311,34 +311,44 @@ AC_DEFUN([LB_LINUX_CROSS],
 CROSS_VARS=
 CROSS_PATH=
 AS_IF([test "x$cross_compiling" = xno], [AC_MSG_RESULT([no])],
-	[case $host_vendor in
+	[if test \( $host_vendor = k1om -o $host_vendor = mpss \) ; then
 		# The K1OM architecture is an extension of the x86 architecture
 		# and in MPSS 2.1 it's defined in $host_vendor. But in MPSS 3.x
 		# it's defined in $host_arch. So, try to support both case.
-		k1om | mpss)
-			AC_MSG_RESULT([Intel(R) Xeon Phi(TM)])
-			CC_TARGET_ARCH=`$CC -v 2>&1 | grep Target: | sed -e 's/Target: //'`
-			AC_SUBST(CC_TARGET_ARCH)
-			if test \( $CC_TARGET_ARCH != x86_64-k1om-linux \
-				-a $CC_TARGET_ARCH != k1om-mpss-linux \)
-			then
-				AC_MSG_ERROR([Cross compiler not found in PATH.])
-			fi
-			CROSS_VARS="ARCH=k1om CROSS_COMPILE=${CC_TARGET_ARCH}-"
-			CROSS_PATH="${CROSS_PATH:=/opt/lustre/${VERSION}/${CC_TARGET_ARCH}}"
-			CCAS=$CC
-			# need to produce special section for debuginfo extraction
-			LDFLAGS="${LDFLAGS} -Wl,--build-id"
-			EXTRA_KLDFLAGS="${EXTRA_KLDFLAGS} -Wl,--build-id"
-			if test x$enable_server != xno ; then
-				AC_MSG_WARN([Disabling server (not supported for k1om architecture).])
-				enable_server='no'
-			fi
-			;;
-		*)
-			AC_MSG_RESULT([yes, but no changes])
-			;;
-	esac
+		AC_MSG_RESULT([Intel(R) Xeon Phi(TM)])
+		CC_TARGET_ARCH=`$CC -v 2>&1 | grep Target: | sed -e 's/Target: //'`
+		AC_SUBST(CC_TARGET_ARCH)
+		if test \( $CC_TARGET_ARCH != x86_64-k1om-linux \
+			-a $CC_TARGET_ARCH != k1om-mpss-linux \)
+		then
+			AC_MSG_ERROR([Cross compiler not found in PATH.])
+		fi
+		CROSS_VARS="ARCH=k1om CROSS_COMPILE=${CC_TARGET_ARCH}-"
+		CROSS_PATH="${CROSS_PATH:=/opt/lustre/${VERSION}/${CC_TARGET_ARCH}}"
+		CCAS=$CC
+		# need to produce special section for debuginfo extraction
+		LDFLAGS="${LDFLAGS} -Wl,--build-id"
+		EXTRA_KLDFLAGS="${EXTRA_KLDFLAGS} -Wl,--build-id"
+		if test x$enable_server != xno ; then
+			AC_MSG_WARN([Disabling server (not supported for k1om architecture).])
+			enable_server='no'
+		fi
+	elif test \( $host_cpu = arm \) ; then
+		AC_MSG_RESULT([ARM])
+		CC_TARGET_ARCH=`$CC -v 2>&1 | grep Target: | sed -e 's/Target: //'`
+		AC_SUBST(CC_TARGET_ARCH)
+		if test \( "$(echo $CC_TARGET_ARCH | grep arm)" = "" \) ; then
+			AC_MSG_ERROR([Cross compiler not found in PATH.])
+		fi
+		CROSS_VARS="SRCARCH=arm ARCH=arm CROSS_COMPILE=${CC_TARGET_ARCH}-"
+		CCAS=$CC
+		if test x$enable_server != xno ; then
+			AC_MSG_WARN([Disabling server (not supported for arm architecture).])
+			enable_server='no'
+		fi
+	else
+		AC_MSG_RESULT([yes, but no changes])
+	fi
 	])
 AC_SUBST(CROSS_VARS)
 AC_SUBST(CROSS_PATH)

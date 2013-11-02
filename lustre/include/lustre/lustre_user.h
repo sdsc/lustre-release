@@ -359,7 +359,7 @@ struct lov_user_md_v3 {           /* LOV EA user data (host-endian) */
 					   * lmm_objects, use when writing */
 		__u16 lmm_layout_gen;     /* layout generation number
 					   * used when reading */
-	};
+	} __attribute__((packed));
 	char  lmm_pool_name[LOV_MAXPOOLNAME]; /* pool name */
 	struct lov_user_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 } __attribute__((packed));

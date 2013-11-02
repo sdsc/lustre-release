@@ -52,7 +52,6 @@
 #include <linux/version.h>
 
 #ifdef CONFIG_SMP
-
 #define HAVE_LIBCFS_CPT
 
 /** virtual processing unit */

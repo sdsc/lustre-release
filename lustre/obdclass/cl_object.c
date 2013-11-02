@@ -221,7 +221,9 @@ int cl_object_attr_get(const struct lu_env *env, struct cl_object *obj,
 	struct lu_object_header *top;
 	int result;
 
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(cl_object_attr_guard(obj)));
+#endif
 	ENTRY;
 
         top = obj->co_lu.lo_header;
@@ -253,7 +255,9 @@ int cl_object_attr_set(const struct lu_env *env, struct cl_object *obj,
 	struct lu_object_header *top;
 	int result;
 
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(cl_object_attr_guard(obj)));
+#endif
 	ENTRY;
 
         top = obj->co_lu.lo_header;
