@@ -17,6 +17,7 @@ First, set up a temporary directory and create a regular file with
 defined permissions.
 
 	$ mkdir d
+	$ chmod 777 d
 	$ cd d
 	$ umask 027
 	$ touch f

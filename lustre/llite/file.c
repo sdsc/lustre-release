@@ -3284,6 +3284,8 @@ struct posix_acl * ll_get_acl(struct inode *inode, int type)
 {
 	struct ll_inode_info *lli = ll_i2info(inode);
 	struct posix_acl *acl = NULL;
+struct dentry * de;
+const char * name = NULL;
 	ENTRY;
 
 	spin_lock(&lli->lli_lock);
@@ -3291,6 +3293,9 @@ struct posix_acl * ll_get_acl(struct inode *inode, int type)
 	acl = posix_acl_dup(lli->lli_posix_acl);
 	spin_unlock(&lli->lli_lock);
 
+de = d_find_alias(inode);
+if (de) name = de->d_name.name;
+printk(KERN_EMERG"getacl return inode-(%ld)%s acl %p \n", inode->i_ino, name, acl);
 	RETURN(acl);
 }
 

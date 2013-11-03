@@ -503,6 +503,9 @@ static int mdc_unpack_acl(struct ptlrpc_request *req, struct lustre_md *md)
                 RETURN(rc);
         }
 
+#if __KERNEL__
+printk(KERN_EMERG"md has valid acl %p\n", acl);
+#endif
         md->posix_acl = acl;
         RETURN(0);
 }
@@ -611,6 +614,9 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
                                 GOTO(out, rc);
 #ifdef CONFIG_FS_POSIX_ACL
                 } else {
+#if __KERNEL__
+printk(KERN_EMERG"md acl set to NULL???\n");
+#endif
                         md->posix_acl = NULL;
 #endif
                 }

@@ -1860,6 +1860,13 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 		if (body->t_state & MS_RESTORE)
 			lli->lli_flags |= LLIF_FILE_RESTORING;
 	}
+	if (body->valid & OBD_MD_FLACL) {
+struct dentry *de;
+const char *name = NULL;
+de = d_find_alias(inode);
+if (de) name = de->d_name.name;
+printk(KERN_EMERG"update inode (%ld)%s with acl %p\n", inode->i_ino, name, md->posix_acl);
+	}
 }
 
 void ll_read_inode2(struct inode *inode, void *opaque)
