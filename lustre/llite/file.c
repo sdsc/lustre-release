@@ -3291,6 +3291,7 @@ struct posix_acl * ll_get_acl(struct inode *inode, int type)
 	acl = posix_acl_dup(lli->lli_posix_acl);
 	spin_unlock(&lli->lli_lock);
 
+printk(KERN_EMERG"getacl return inode-%s acl %p \n", d_find_alias(inode)->d_name.name, acl);
 	RETURN(acl);
 }
 

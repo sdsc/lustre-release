@@ -1738,6 +1738,7 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 			posix_acl_release(lli->lli_posix_acl);
 		lli->lli_posix_acl = md->posix_acl;
 		spin_unlock(&lli->lli_lock);
+printk(KERN_EMERG"update inode %s with acl %p\n", d_find_alias(inode)->d_name.name, md->posix_acl);
 	}
 #endif
 	inode->i_ino = cl_fid_build_ino(&body->fid1,
