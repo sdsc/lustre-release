@@ -3894,7 +3894,7 @@ test_69() {
 
 	cleanup
 }
-run_test 68 "replace an OST with the same index"
+run_test 69 "replace an OST with the same index"
 
 test_70a() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
