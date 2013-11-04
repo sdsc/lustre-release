@@ -276,7 +276,7 @@ static void nrs_crrn_stop(struct ptlrpc_nrs_policy *policy)
 int nrs_crrn_ctl(struct ptlrpc_nrs_policy *policy, enum ptlrpc_nrs_ctl opc,
 		 void *arg)
 {
-	LASSERT(spin_is_locked(&policy->pol_nrs->nrs_lock));
+	assert_spin_locked(&policy->pol_nrs->nrs_lock);
 
 	switch((enum nrs_ctl_crr)opc) {
 	default:
