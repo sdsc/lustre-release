@@ -167,6 +167,37 @@ copytool_cleanup() {
 	do_nodesv $agents "pkill -INT -x $HSMTOOL_BASE" || return 0
 	sleep 1
 	echo "Copytool is stopped on $agents"
+
+	# clean all CDTs orphans requests from previous tests
+	# that would otherwise need to timeout to clear.
+	local mdtno
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		local oldstate=$(do_facet mds${mdtno} "$LCTL get_param -n " \
+				   "mdt.$FSNAME-MDT000${idx}.hsm_control")
+		# skip already stop[ed,ing] CDTs
+		echo $oldstate | grep stop
+		if [ $? = 1 ]
+		then
+			do_facet mds${mdtno} \
+			"$LCTL set_param " \
+			"mdt.$FSNAME-MDT000${idx}.hsm_control=shutdown"
+			wait_result mds${mdtno} \
+				"$LCTL get_param -n \
+				mdt.$FSNAME-MDT000${idx}.hsm_control" \
+				"stopped" 20 ||
+				error "mds${mdtno} cdt state is not stopped"
+			do_facet mds${mdtno} \
+			"$LCTL set_param " \
+			"mdt.$FSNAME-MDT000${idx}.hsm_control=$oldstate"
+			wait_result mds${mdtno} \
+				"$LCTL get_param -n \
+				mdt.$FSNAME-MDT000${idx}.hsm_control" \
+				"$oldstate" 20 ||
+				error "mds${mdtno} cdt state is not $oldstate"
+		fi
+	done
+
 }
 
 copytool_suspend() {
