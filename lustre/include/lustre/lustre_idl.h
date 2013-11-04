@@ -1557,7 +1557,7 @@ struct lov_ost_data_v1 {          /* per-stripe data structure (little-endian)*/
 	struct ost_id l_ost_oi;	  /* OST object ID */
 	__u32 l_ost_gen;          /* generation of this l_ost_idx */
 	__u32 l_ost_idx;          /* OST index in LOV (lov_tgt_desc->tgts) */
-};
+} __attribute__((packed));
 
 #define lov_mds_md lov_mds_md_v1
 struct lov_mds_md_v1 {            /* LOV EA mds/wire data (little-endian) */
@@ -1663,7 +1663,7 @@ struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
 	__u16 lmm_layout_gen;     /* layout generation number */
 	char  lmm_pool_name[LOV_MAXPOOLNAME]; /* must be 32bit aligned */
 	struct lov_ost_data_v1 lmm_objects[0]; /* per-stripe data */
-};
+} __attribute__((packed));
 
 static inline __u32 lov_mds_md_size(__u16 stripes, __u32 lmm_magic)
 {

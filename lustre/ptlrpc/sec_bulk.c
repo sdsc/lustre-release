@@ -449,7 +449,9 @@ out:
 
 static inline void enc_pools_wakeup(void)
 {
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&page_pools.epp_lock));
+#endif
 
 	if (unlikely(page_pools.epp_waitqlen)) {
 		LASSERT(waitqueue_active(&page_pools.epp_waitq));

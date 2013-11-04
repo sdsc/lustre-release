@@ -1334,7 +1334,9 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 static void osc_consume_write_grant(struct client_obd *cli,
 				    struct brw_page *pga)
 {
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&cli->cl_loi_list_lock.lock));
+#endif
 	LASSERT(!(pga->flag & OBD_BRW_FROM_GRANT));
 	cfs_atomic_inc(&obd_dirty_pages);
 	cli->cl_dirty += PAGE_CACHE_SIZE;
@@ -1351,7 +1353,9 @@ static void osc_release_write_grant(struct client_obd *cli,
 {
 	ENTRY;
 
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&cli->cl_loi_list_lock.lock));
+#endif
 	if (!(pga->flag & OBD_BRW_FROM_GRANT)) {
 		EXIT;
 		return;

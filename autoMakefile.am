@@ -112,12 +112,14 @@ rpms: @PACKAGE_TARNAME@.spec dist Makefile
 		fi; \
 	fi; \
 	if [ -n "@CROSS_PATH@" ]; then \
-		if [[ "X$(BUILD_SERVER)" = Xtrue ]]; then \
-			echo -e "\n" \
-			"*** Don't support cross compilation for the Intel(R) Xeon Phi(TM) card.\n"; \
-			exit 1; \
-		fi; \
-		CROSS_SUFFIX="-mic"; \
+                if test $$(echo $$CC_TARGET_ARCH | grep -q arm-linux) -ne 0 ; then \
+			if [[ "X$(BUILD_SERVER)" = Xtrue ]]; then \
+				echo -e "\n" \
+				"*** Don't support cross compilation for the Intel(R) Xeon Phi(TM) card.\n"; \
+				exit 1; \
+			fi; \
+			CROSS_SUFFIX="-mic"; \
+                fi; \
 		RPMARGS="$$RPMARGS --define \"post_script build/gen_filelist.sh\""; \
 		RPMARGS="$$RPMARGS --define \"cross_path @CROSS_PATH@\""; \
 		RPMARGS="$$RPMARGS --define \"rootdir %{cross_path}\""; \
@@ -127,7 +129,7 @@ rpms: @PACKAGE_TARNAME@.spec dist Makefile
 		RPMARGS="$$RPMARGS --define \"make_args @CROSS_VARS@\""; \
 		if [ "@CC_TARGET_ARCH@" = "k1om-mpss-linux" ]; then \
 			RPMARGS="$$RPMARGS --define \"cross_requires mpss-bootimage\""; \
-		else \
+                elif test $$(echo $$CC_TARGET_ARCH | grep -q arm-linux) -ne 0 ; then \
 			RPMARGS="$$RPMARGS --define \"cross_requires intel-mic-gpl\""; \
 		fi; \
 	fi; \
