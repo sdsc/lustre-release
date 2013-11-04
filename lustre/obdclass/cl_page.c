@@ -157,7 +157,9 @@ struct cl_page *cl_page_lookup(struct cl_object_header *hdr, pgoff_t index)
 {
 	struct cl_page *page;
 
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&hdr->coh_page_guard));
+#endif
 
 	page = radix_tree_lookup(&hdr->coh_tree, index);
 	if (page != NULL)

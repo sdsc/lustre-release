@@ -233,7 +233,9 @@ static obd_size ofd_grant_space_left(struct obd_export *exp)
 	obd_size		 unstable;
 
 	ENTRY;
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&ofd->ofd_grant_lock));
+#endif
 
 	spin_lock(&ofd->ofd_osfs_lock);
 	/* get available space from cached statfs data */
@@ -297,7 +299,9 @@ static void ofd_grant_incoming(const struct lu_env *env, struct obd_export *exp,
 	long				 dirty, dropped, grant_chunk;
 	ENTRY;
 
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&ofd->ofd_grant_lock));
+#endif
 
 	if ((oa->o_valid & (OBD_MD_FLBLOCKS|OBD_MD_FLGRANT)) !=
 					(OBD_MD_FLBLOCKS|OBD_MD_FLGRANT)) {
@@ -375,7 +379,9 @@ static void ofd_grant_shrink(struct obd_export *exp,
 	struct obd_device		*obd = exp->exp_obd;
 	long				 grant_shrink;
 
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&ofd->ofd_grant_lock));
+#endif
 	LASSERT(exp);
 	if (left_space >= ofd->ofd_tot_granted_clients *
 			  OFD_GRANT_SHRINK_LIMIT(exp))
@@ -456,7 +462,9 @@ static void ofd_grant_check(const struct lu_env *env, struct obd_export *exp,
 
 	ENTRY;
 
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&ofd->ofd_grant_lock));
+#endif
 
 	if ((oa->o_valid & OBD_MD_FLFLAGS) &&
 	    (oa->o_flags & OBD_FL_RECOV_RESEND)) {

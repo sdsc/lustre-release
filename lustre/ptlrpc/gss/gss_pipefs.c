@@ -141,7 +141,9 @@ void ctx_enhash_pf(struct ptlrpc_cli_ctx *ctx, cfs_hlist_head_t *hash)
 static
 void ctx_unhash_pf(struct ptlrpc_cli_ctx *ctx, cfs_hlist_head_t *freelist)
 {
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&ctx->cc_sec->ps_lock));
+#endif
 	LASSERT(cfs_atomic_read(&ctx->cc_refcount) > 0);
 	LASSERT(test_bit(PTLRPC_CTX_CACHED_BIT, &ctx->cc_flags));
 	LASSERT(!cfs_hlist_unhashed(&ctx->cc_cache));
@@ -734,7 +736,9 @@ void gss_unhash_msg_nolock(struct gss_upcall_msg *gmsg)
 	__u32 idx = gmsg->gum_mechidx;
 
 	LASSERT(idx < MECH_MAX);
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&upcall_locks[idx]));
+#endif
 
 	if (cfs_list_empty(&gmsg->gum_list))
 		return;
