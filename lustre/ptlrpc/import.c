@@ -198,7 +198,9 @@ int ptlrpc_set_import_discon(struct obd_import *imp, __u32 conn_cnt)
 static void ptlrpc_deactivate_and_unlock_import(struct obd_import *imp)
 {
 	ENTRY;
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&imp->imp_lock));
+#endif
 
 	CDEBUG(D_HA, "setting import %s INVALID\n", obd2cli_tgt(imp->imp_obd));
 	imp->imp_invalid = 1;

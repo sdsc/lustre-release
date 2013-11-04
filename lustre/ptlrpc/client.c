@@ -2282,7 +2282,9 @@ static int __ptlrpc_req_finished(struct ptlrpc_request *request, int locked);
  */
 void ptlrpc_req_finished_with_imp_lock(struct ptlrpc_request *request)
 {
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&request->rq_import->imp_lock));
+#endif
 	(void)__ptlrpc_req_finished(request, 1);
 }
 EXPORT_SYMBOL(ptlrpc_req_finished_with_imp_lock);
@@ -2432,8 +2434,9 @@ void ptlrpc_free_committed(struct obd_import *imp)
         ENTRY;
 
 	LASSERT(imp != NULL);
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&imp->imp_lock));
-
+#endif
 
         if (imp->imp_peer_committed_transno == imp->imp_last_transno_checked &&
             imp->imp_generation == imp->imp_last_generation_checked) {
@@ -2563,7 +2566,9 @@ void ptlrpc_retain_replayable_request(struct ptlrpc_request *req,
 {
 	cfs_list_t *tmp;
 
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&imp->imp_lock));
+#endif
 
         if (req->rq_transno == 0) {
                 DEBUG_REQ(D_EMERG, req, "saving request with zero transno");

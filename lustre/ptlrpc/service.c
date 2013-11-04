@@ -404,8 +404,10 @@ ptlrpc_schedule_difficult_reply(struct ptlrpc_reply_state *rs)
 {
 	ENTRY;
 
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 	LASSERT(spin_is_locked(&rs->rs_svcpt->scp_rep_lock));
 	LASSERT(spin_is_locked(&rs->rs_lock));
+#endif
 	LASSERT (rs->rs_difficult);
 	rs->rs_scheduled_ever = 1;  /* flag any notification attempt */
 
