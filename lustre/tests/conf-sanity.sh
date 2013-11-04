@@ -3876,7 +3876,7 @@ test_69() {
 	#define OST_MAX_PRECREATE=20000
 	local num_create=$((20000 * 3/2 - $last_id + 100))
 
-	mkdir $DIR/$tdir
+	mkdir -p $DIR/$tdir
 	$LFS setstripe -i 0 $DIR/$tdir
 	createmany $DIR/$tdir/$tfile- $num_create
 	# delete all of the files with objects on OST0 so the
@@ -3894,7 +3894,7 @@ test_69() {
 
 	cleanup
 }
-run_test 68 "replace an OST with the same index"
+run_test 69 "replace an OST with the same index"
 
 test_70a() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
