@@ -247,7 +247,7 @@ command_t cmdlist[] = {
 	 "      while many targets still have 1MB or 1K inodes of spare\n"
 	 "      quota space."},
         {"quota", lfs_quota, 0, "Display disk usage and limits.\n"
-         "usage: quota [-q] [-v] [-o <obd_uuid>|-i <mdt_idx>|-I <ost_idx>]\n"
+	 "usage: quota [-q] [-v] [-M|G|T] [-o <obd_uuid>|-i <mdt_idx>|-I <ost_idx>]\n"
          "             [<-u|-g> <uname>|<uid>|<gname>|<gid>] <filesystem>\n"
          "       quota [-o <obd_uuid>|-i <mdt_idx>|-I <ost_idx>] -t <-u|-g> <filesystem>"},
 #endif
@@ -2526,18 +2526,19 @@ static void diff2str(time_t seconds, char *buf, time_t now)
         __sec2str(seconds - now, buf);
 }
 
-static void print_quota_title(char *name, struct if_quotactl *qctl)
+static void print_quota_title(char *name, struct if_quotactl *qctl, char *unit)
 {
         printf("Disk quotas for %s %s (%cid %u):\n",
                type2name(qctl->qc_type), name,
                *type2name(qctl->qc_type), qctl->qc_id);
-        printf("%15s%8s %7s%8s%8s%8s %7s%8s%8s\n",
-               "Filesystem",
-               "kbytes", "quota", "limit", "grace",
-               "files", "quota", "limit", "grace");
+	printf("%15s%8s %7s%8s%8s%8s %7s%8s%8s\n",
+	       "Filesystem",
+	       unit, "quota", "limit", "grace",
+	       "files", "quota", "limit", "grace");
 }
 
-static void print_quota(char *mnt, struct if_quotactl *qctl, int type, int rc)
+static void print_quota(char *mnt, struct if_quotactl *qctl, int type,
+			int rc, int shift)
 {
         time_t now;
 
@@ -2583,22 +2584,25 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type, int rc)
 
                         if (bover)
                                 diff2str(dqb->dqb_btime, timebuf, now);
-                        if (rc == -EREMOTEIO)
-                                sprintf(numbuf[0], LPU64"*",
-                                        toqb(dqb->dqb_curspace));
-                        else
-                                sprintf(numbuf[0],
-                                        (dqb->dqb_valid & QIF_SPACE) ?
-                                        LPU64 : "["LPU64"]",
-                                        toqb(dqb->dqb_curspace));
-                        if (type == QC_GENERAL)
-                                sprintf(numbuf[1], (dqb->dqb_valid & QIF_BLIMITS)
-                                        ? LPU64 : "["LPU64"]",
-                                        dqb->dqb_bsoftlimit);
-                        else
-                                sprintf(numbuf[1], "%s", "-");
-                        sprintf(numbuf[2], (dqb->dqb_valid & QIF_BLIMITS)
-                                ? LPU64 : "["LPU64"]", dqb->dqb_bhardlimit);
+			if (rc == -EREMOTEIO)
+				sprintf(numbuf[0], LPU64"*",
+					toqb(dqb->dqb_curspace) >> shift);
+			else
+				sprintf(numbuf[0],
+					(dqb->dqb_valid & QIF_SPACE) ?
+					LPU64 : "["LPU64"]",
+					toqb(dqb->dqb_curspace) >> shift);
+
+			if (type == QC_GENERAL)
+				sprintf(numbuf[1], (dqb->dqb_valid & QIF_BLIMITS)
+					? LPU64 : "["LPU64"]",
+					dqb->dqb_bsoftlimit >> shift);
+			else
+				sprintf(numbuf[1], "%s", "-");
+
+			sprintf(numbuf[2], (dqb->dqb_valid & QIF_BLIMITS)
+				? LPU64 : "["LPU64"]",
+				dqb->dqb_bhardlimit >> shift);
                         printf(" %7s%c %6s %7s %7s",
                                numbuf[0], bover ? '*' : ' ', numbuf[1],
                                numbuf[2], bover > 1 ? timebuf : "-");
@@ -2636,7 +2640,8 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type, int rc)
         }
 }
 
-static int print_obd_quota(char *mnt, struct if_quotactl *qctl, int is_mdt)
+static int print_obd_quota(char *mnt, struct if_quotactl *qctl, int is_mdt,
+			   int shift, __u64 *total)
 {
         int rc = 0, rc1 = 0, count = 0;
         __u32 valid = qctl->qc_valid;
@@ -2665,7 +2670,10 @@ static int print_obd_quota(char *mnt, struct if_quotactl *qctl, int is_mdt)
                         continue;
                 }
 
-                print_quota(obd_uuid2str(&qctl->obd_uuid), qctl, qctl->qc_valid, 0);
+		print_quota(obd_uuid2str(&qctl->obd_uuid), qctl,
+			    qctl->qc_valid, 0, shift);
+		*total += is_mdt ? qctl->qc_dqblk.dqb_ihardlimit :
+				   qctl->qc_dqblk.dqb_bhardlimit;
         }
 
 out:
@@ -2675,19 +2683,21 @@ out:
 
 static int lfs_quota(int argc, char **argv)
 {
-        int c;
-        char *mnt, *name = NULL;
-        struct if_quotactl qctl = { .qc_cmd = LUSTRE_Q_GETQUOTA,
-                                    .qc_type = UGQUOTA };
-        char *obd_type = (char *)qctl.obd_type;
-        char *obd_uuid = (char *)qctl.obd_uuid.uuid;
-        int rc, rc1 = 0, rc2 = 0, rc3 = 0,
-            verbose = 0, pass = 0, quiet = 0, inacc;
-        char *endptr;
-        __u32 valid = QC_GENERAL, idx = 0;
+	int c, shift = 0;
+	char *mnt, *name = NULL;
+	struct if_quotactl qctl = { .qc_cmd = LUSTRE_Q_GETQUOTA,
+				    .qc_type = UGQUOTA };
+	char *obd_type = (char *)qctl.obd_type;
+	char *obd_uuid = (char *)qctl.obd_uuid.uuid;
+	int rc, rc1 = 0, rc2 = 0, rc3 = 0,
+	    verbose = 0, pass = 0, quiet = 0, inacc;
+	char *endptr;
+	__u32 valid = QC_GENERAL, idx = 0;
+	__u64 total_ialloc = 0, total_balloc = 0;
+	char unit[7] = "kbytes";
 
-        optind = 0;
-        while ((c = getopt(argc, argv, "gi:I:o:qtuv")) != -1) {
+	optind = 0;
+	while ((c = getopt(argc, argv, "gi:I:o:qtuvMGT")) != -1) {
                 switch (c) {
                 case 'u':
                         if (qctl.qc_type != UGQUOTA) {
@@ -2724,6 +2734,18 @@ static int lfs_quota(int argc, char **argv)
                 case 'q':
                         quiet = 1;
                         break;
+		case 'M':
+			shift = 10;
+			sprintf(unit, "%s", "MB");
+			break;
+		case 'G':
+			shift = 20;
+			sprintf(unit, "%s", "GB");
+			break;
+		case 'T':
+			shift = 30;
+			sprintf(unit, "%s", "TB");
+			break;
                 default:
                         fprintf(stderr, "error: %s: option '-%c' "
                                         "unrecognized\n", argv[0], c);
@@ -2794,8 +2816,8 @@ ug_output:
                 }
         }
 
-        if (qctl.qc_cmd == LUSTRE_Q_GETQUOTA && !quiet)
-                print_quota_title(name, &qctl);
+	if (qctl.qc_cmd == LUSTRE_Q_GETQUOTA && !quiet)
+		print_quota_title(name, &qctl, unit);
 
         if (rc1 && *obd_type)
                 fprintf(stderr, "%s %s ", obd_type, obd_uuid);
@@ -2806,12 +2828,15 @@ ug_output:
         inacc = (qctl.qc_cmd == LUSTRE_Q_GETQUOTA) &&
                 ((qctl.qc_dqblk.dqb_valid&(QIF_LIMITS|QIF_USAGE))!=(QIF_LIMITS|QIF_USAGE));
 
-        print_quota(mnt, &qctl, QC_GENERAL, rc1);
+	print_quota(mnt, &qctl, QC_GENERAL, rc1, shift);
 
-        if (qctl.qc_valid == QC_GENERAL && qctl.qc_cmd != LUSTRE_Q_GETINFO && verbose) {
-                rc2 = print_obd_quota(mnt, &qctl, 1);
-                rc3 = print_obd_quota(mnt, &qctl, 0);
-        }
+	if (qctl.qc_valid == QC_GENERAL && qctl.qc_cmd != LUSTRE_Q_GETINFO && verbose) {
+		rc2 = print_obd_quota(mnt, &qctl, 1, shift, &total_ialloc);
+		rc3 = print_obd_quota(mnt, &qctl, 0, shift, &total_balloc);
+		printf("Total allocated inode limit: "LPU64", total "
+		       "allocated block limit: "LPU64" %s\n", total_ialloc,
+		       total_balloc >> shift, unit);
+	}
 
         if (rc1 || rc2 || rc3 || inacc)
                 printf("Some errors happened when getting quota info. "
