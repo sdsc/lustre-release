@@ -504,8 +504,7 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 
 	if ((fid_is_idif(fid) && !fid_is_last_id(fid)) ||
 	     fid_is_llog(fid)) {
-		/* old OSD obj id */
-		/* FIXME: actually for all of the OST object */
+		/* lookup all of the OST objects in O/{seq} */
 		rc = osd_obj_map_lookup(info, osd, fid, id);
 	} else if (fid_is_igif(fid)) {
 		lu_igif_to_id(fid, id);
@@ -516,7 +515,7 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 		if (unlikely(fid_is_acct(fid)))
 			return osd_acct_obj_lookup(info, osd, fid, id);
 		else if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE) ||
-			 fid_is_last_id(fid))
+			 fid_is_last_id(fid) || fid_is_root(fid))
 			return osd_obj_spec_lookup(info, osd, fid, id);
 
 		rc = __osd_oi_lookup(info, osd, fid, id);

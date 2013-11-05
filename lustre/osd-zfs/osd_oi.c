@@ -178,9 +178,15 @@ uint64_t osd_get_name_n_idx(const struct lu_env *env, struct osd_device *osd,
 		zapid = osd_get_idx_for_ost_obj(env, osd, fid, buf);
 	} else if (fid_is_last_id(fid)) {
 		zapid = osd->od_ost_compat_grp0;
-	} else if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE)) {
+	} else if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE) ||
+		   fid_is_root(fid)) {
 		/* special objects with fixed known fids get their name */
-		char *name = oid2name(fid_oid(fid));
+		char *name;
+
+		if (fid_is_root(fid))
+			name = "ROOT";
+		else
+			name = oid2name(fid_oid(fid));
 
 		if (name) {
 			zapid = osd->od_root;
