@@ -424,11 +424,13 @@ enum fid_seq {
 	/* sequence is used for local named objects FIDs generated
 	 * by local_object_storage library */
 	FID_SEQ_LOCAL_NAME = 0x200000003ULL,
-        FID_SEQ_SPECIAL    = 0x200000004ULL,
-        FID_SEQ_QUOTA      = 0x200000005ULL,
+	FID_SEQ_SPECIAL	   = 0x200000004ULL,
+	FID_SEQ_QUOTA      = 0x200000005ULL,
         FID_SEQ_QUOTA_GLB  = 0x200000006ULL,
+	FID_SEQ_ROOT	   = 0x200000007ULL,
         FID_SEQ_NORMAL     = 0x200000400ULL,
-        FID_SEQ_LOV_DEFAULT= 0xffffffffffffffffULL
+	FID_SEQ_LOV_DEFAULT = 0xffffffffffffffffULL
+
 };
 
 #define OBIF_OID_MAX_BITS           32
@@ -485,9 +487,31 @@ static inline int fid_seq_is_rsvd(const __u64 seq)
         return (seq > FID_SEQ_OST_MDT0 && seq <= FID_SEQ_RSVD);
 };
 
+static inline int fid_seq_is_special(const __u64 seq)
+{
+	return seq == FID_SEQ_SPECIAL;
+};
+
+static inline int fid_seq_is_local_file(const __u64 seq)
+{
+	return seq == FID_SEQ_LOCAL_FILE;
+};
+
 static inline int fid_is_mdt0(const struct lu_fid *fid)
 {
         return fid_seq_is_mdt0(fid_seq(fid));
+}
+
+static inline int fid_is_root(const struct lu_fid *fid)
+{
+	return fid_seq(fid) == FID_SEQ_ROOT;
+}
+
+static inline void lu_root_fid(struct lu_fid *fid)
+{
+	fid->f_seq = FID_SEQ_SPECIAL;
+	fid->f_oid = 0;
+	fid->f_ver = 0;
 }
 
 /**
@@ -524,6 +548,11 @@ struct ost_id {
         obd_id                 oi_id;
         obd_seq                oi_seq;
 };
+
+static inline int fid_is_local_file(const struct lu_fid *fid)
+{
+	return fid_seq_is_local_file(fid_seq(fid));
+}
 
 static inline int fid_seq_is_norm(const __u64 seq)
 {
@@ -792,7 +821,8 @@ static inline int fid_is_sane(const struct lu_fid *fid)
 	return fid != NULL &&
 	       ((fid_seq(fid) >= FID_SEQ_START && fid_ver(fid) == 0) ||
 	       fid_is_igif(fid) || fid_is_idif(fid) ||
-	       fid_seq_is_rsvd(fid_seq(fid)));
+	       fid_seq_is_rsvd(fid_seq(fid)) ||
+	       fid_seq_is_special(fid_seq(fid)));
 }
 
 static inline int fid_is_zero(const struct lu_fid *fid)
