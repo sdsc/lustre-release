@@ -122,11 +122,11 @@ static void ll_invalidatepage(struct page *vmpage, unsigned long offset)
 #endif
 static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
 {
-        struct cl_env_nest nest;
         struct lu_env     *env;
         struct cl_object  *obj;
         struct cl_page    *page;
         struct address_space *mapping;
+	void *cookie;
         int result;
 
         LASSERT(PageLocked(vmpage));
@@ -145,14 +145,9 @@ static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
         if (page_count(vmpage) > 3)
                 return 0;
 
-        /* TODO: determine what gfp should be used by @gfp_mask. */
-        env = cl_env_nested_get(&nest);
-        if (IS_ERR(env))
-                /* If we can't allocate an env we won't call cl_page_put()
-                 * later on which further means it's impossible to drop
-                 * page refcount by cl_page, so ask kernel to not free
-                 * this page. */
-                return 0;
+	cookie = cl_env_reenter();
+        env = cl_env_percpu_get();
+        LASSERT(!IS_ERR(env));
 
         page = cl_vmpage_page(vmpage, obj);
         result = page == NULL;
@@ -161,10 +156,28 @@ static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
                         result = 1;
                         cl_page_delete(env, page);
                 }
-                cl_page_put(env, page);
-        }
-        cl_env_nested_put(&nest, env);
-        return result;
+
+		/* To use percpu env array, ll_releasepage() must not sleep
+		 * otherwise percpu array will be messed if ll_releaspage()
+		 * called again on the same CPU.
+		 *
+		 * If this page holds the last refc of cl_object, the following
+		 * call path may cause sleep:
+		 *   cl_page_put -> cl_page_free -> cl_object_put ->
+		 *     lu_object_put -> lu_object_free -> lov_delete_raid0 ->
+		 *     cl_locks_prune.
+		 *
+		 * However, inode should hold a reference of top cl_object and
+		 * kernel should purge all caching pages before releasing the
+		 * reference count, this means it's impossible for this page to
+		 * the last refc and lu_object_free will never be called here.
+		 */
+		LASSERT(cl_object_refc(obj) > 1);
+		cl_page_put(env, page);
+	}
+	cl_env_percpu_put(env);
+	cl_env_reexit(cookie);
+	return result;
 }
 
 static int ll_set_page_dirty(struct page *vmpage)
