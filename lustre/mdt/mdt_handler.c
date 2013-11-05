@@ -220,8 +220,9 @@ void mdt_lock_pdo_init(struct mdt_lock_handle *lh, ldlm_mode_t lm,
         lh->mlh_reg_mode = lm;
         lh->mlh_type = MDT_PDO_LOCK;
 
-        if (name != NULL) {
-                LASSERT(namelen > 0);
+        if (name != NULL && name[0] != '\0') {
+		LASSERTF(namelen > 0, "pdo lock init for %s[%d]\n",
+			 name, namelen);
                 lh->mlh_pdo_hash = full_name_hash(name, namelen);
         } else {
                 LASSERT(namelen == 0);
