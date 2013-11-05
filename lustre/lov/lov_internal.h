@@ -283,12 +283,7 @@ int lovea_destroy_object(struct lov_obd *lov, struct lov_stripe_md *lsm,
 /* lproc_lov.c */
 extern struct file_operations lov_proc_target_fops;
 #ifdef LPROCFS
-void lprocfs_lov_init_vars(struct lprocfs_static_vars *lvars);
-#else
-static inline void lprocfs_lov_init_vars(struct lprocfs_static_vars *lvars)
-{
-        memset(lvars, 0, sizeof(*lvars));
-}
+void lprocfs_lov_init_vars(struct obd_device *obd);
 #endif
 
 /* lov_cl.c */
