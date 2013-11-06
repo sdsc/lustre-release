@@ -2143,7 +2143,8 @@ struct cl_lock *cl_lock_request(const struct lu_env *env, struct cl_io *io,
 
                 rc = cl_enqueue_locked(env, lock, io, enqflags);
                 if (rc == 0) {
-                        if (cl_lock_fits_into(env, lock, need, io)) {
+                        if (enqflags & CEF_NEVER ||
+			    cl_lock_fits_into(env, lock, need, io)) {
                                 if (!(enqflags & CEF_AGL)) {
                                         cl_lock_mutex_put(env, lock);
                                         cl_lock_lockdep_acquire(env, lock,

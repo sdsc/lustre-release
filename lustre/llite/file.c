@@ -681,6 +681,10 @@ restart:
                         GOTO(out_och_free, rc);
         }
 	mutex_unlock(&lli->lli_och_mutex);
+
+	/* lockless for direct IO so that it can do IO in parallel */
+	if (file->f_flags & O_DIRECT)
+		fd->fd_flags |= LL_FILE_IGNORE_LOCK;
         fd = NULL;
 
         /* Must do this outside lli_och_mutex lock to prevent deadlock where
@@ -1101,23 +1105,21 @@ static bool file_is_noatime(const struct file *file)
 
 void ll_io_init(struct cl_io *io, const struct file *file, int write)
 {
-        struct inode *inode = file->f_dentry->d_inode;
+	struct inode *inode = file->f_dentry->d_inode;
 
-        io->u.ci_rw.crw_nonblock = file->f_flags & O_NONBLOCK;
+	io->u.ci_rw.crw_nonblock = file->f_flags & O_NONBLOCK;
 	if (write) {
 		io->u.ci_wr.wr_append = !!(file->f_flags & O_APPEND);
 		io->u.ci_wr.wr_sync = file->f_flags & O_SYNC ||
 				      file->f_flags & O_DIRECT ||
 				      IS_SYNC(inode);
 	}
-        io->ci_obj     = ll_i2info(inode)->lli_clob;
-        io->ci_lockreq = CILR_MAYBE;
-        if (ll_file_nolock(file)) {
-                io->ci_lockreq = CILR_NEVER;
-                io->ci_no_srvlock = 1;
-        } else if (file->f_flags & O_APPEND) {
-                io->ci_lockreq = CILR_MANDATORY;
-        }
+	io->ci_obj     = ll_i2info(inode)->lli_clob;
+	io->ci_lockreq = CILR_MAYBE;
+	if (ll_file_nolock(file))
+		io->ci_lockreq = CILR_NEVER;
+	else if (file->f_flags & O_APPEND)
+		io->ci_lockreq = CILR_MANDATORY;
 
 	io->ci_noatime = file_is_noatime(file);
 }
@@ -2290,7 +2292,7 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct inode		*inode = file->f_dentry->d_inode;
 	struct ll_file_data	*fd = LUSTRE_FPRIVATE(file);
-	int			 flags, rc;
+	int			 rc;
 	ENTRY;
 
 	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p), cmd=%x\n",
@@ -2302,31 +2304,6 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 RETURN(-ENOTTY);
 
         switch(cmd) {
-        case LL_IOC_GETFLAGS:
-                /* Get the current value of the file flags */
-                return put_user(fd->fd_flags, (int *)arg);
-        case LL_IOC_SETFLAGS:
-        case LL_IOC_CLRFLAGS:
-                /* Set or clear specific file flags */
-                /* XXX This probably needs checks to ensure the flags are
-                 *     not abused, and to handle any flag side effects.
-                 */
-                if (get_user(flags, (int *) arg))
-                        RETURN(-EFAULT);
-
-                if (cmd == LL_IOC_SETFLAGS) {
-                        if ((flags & LL_FILE_IGNORE_LOCK) &&
-                            !(file->f_flags & O_DIRECT)) {
-                                CERROR("%s: unable to disable locking on "
-                                       "non-O_DIRECT file\n", current->comm);
-                                RETURN(-EINVAL);
-                        }
-
-                        fd->fd_flags |= flags;
-                } else {
-                        fd->fd_flags &= ~flags;
-                }
-                RETURN(0);
         case LL_IOC_LOV_SETSTRIPE:
                 RETURN(ll_lov_setstripe(inode, file, arg));
         case LL_IOC_LOV_SETEA:

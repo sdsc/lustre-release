@@ -104,6 +104,19 @@ static bool can_populate_pages(const struct lu_env *env, struct cl_io *io,
  *
  */
 
+static int vvp_io_rw_iter_init(const struct lu_env *env,
+			       const struct cl_io_slice *ios)
+{
+	struct ll_file_data *fd = cl2ccc_io(env, ios)->cui_fd;
+
+	if (ll_file_nolock(fd->fd_file) ||
+	    (fd->fd_flags & LL_FILE_GROUP_LOCKED) ||
+	    cl_io_is_append(ios->cis_io))
+		ios->cis_io->ci_parallel_io = 1;
+
+	return 0;
+}
+
 static int vvp_io_fault_iter_init(const struct lu_env *env,
                                   const struct cl_io_slice *ios)
 {
@@ -301,6 +314,8 @@ static int vvp_io_rw_lock(const struct lu_env *env, struct cl_io *io,
 
         ccc_io_update_iov(env, cio, io);
 
+	if (ll_file_nolock(cio->cui_fd->fd_file))
+		ast_flags |= CEF_NEVER;
         if (io->u.ci_rw.crw_nonblock)
                 ast_flags |= CEF_NONBLOCK;
         result = vvp_mmap_locks(env, cio, io);
@@ -1121,12 +1136,14 @@ static const struct cl_io_operations vvp_io_ops = {
         .op = {
                 [CIT_READ] = {
                         .cio_fini      = vvp_io_read_fini,
+                        .cio_iter_init = vvp_io_rw_iter_init,
                         .cio_lock      = vvp_io_read_lock,
                         .cio_start     = vvp_io_read_start,
                         .cio_advance   = ccc_io_advance
                 },
                 [CIT_WRITE] = {
                         .cio_fini      = vvp_io_fini,
+                        .cio_iter_init = vvp_io_rw_iter_init,
                         .cio_lock      = vvp_io_write_lock,
                         .cio_start     = vvp_io_write_start,
                         .cio_advance   = ccc_io_advance
