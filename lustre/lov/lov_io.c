@@ -439,9 +439,8 @@ static int lov_io_rw_iter_init(const struct lu_env *env,
         LASSERT(io->ci_type == CIT_READ || io->ci_type == CIT_WRITE);
         ENTRY;
 
-        /* fast path for common case. */
-        if (lio->lis_nr_subios != 1 && !cl_io_is_append(io)) {
-
+        /* To determine whether to do IO in stripes */
+        if (lio->lis_nr_subios != 1 && !io->ci_parallel_io) {
 		lov_do_div64(start, ssize);
 		next = (start + 1) * ssize;
 		if (next <= start * ssize)
@@ -456,10 +455,7 @@ static int lov_io_rw_iter_init(const struct lu_env *env,
 		       LPU64"\n", (__u64)start, lio->lis_pos, lio->lis_endpos,
 		       (__u64)lio->lis_io_endpos);
 	}
-	/*
-	 * XXX The following call should be optimized: we know, that
-	 * [lio->lis_pos, lio->lis_endpos) intersects with exactly one stripe.
-	 */
+
 	RETURN(lov_io_iter_init(env, ios));
 }
 

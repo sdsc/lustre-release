@@ -498,6 +498,9 @@ static struct cl_lock *cl_lock_lookup(const struct lu_env *env,
 
         ENTRY;
 
+	if (need->cld_enq_flags & CEF_NEVER)
+		RETURN(NULL);
+
 	head = cl_object_header(obj);
 	LINVRNT(spin_is_locked(&head->coh_lock_guard));
 	CS_LOCK_INC(obj, lookup);
@@ -905,7 +908,8 @@ void cl_lock_hold_release(const struct lu_env *env, struct cl_lock *lock,
 		CL_LOCK_ASSERT(lock->cll_state != CLS_HELD, env, lock);
 		if (lock->cll_descr.cld_mode == CLM_PHANTOM ||
 		    lock->cll_descr.cld_mode == CLM_GROUP ||
-		    lock->cll_state != CLS_CACHED)
+		    lock->cll_state != CLS_CACHED ||
+		    lock->cll_descr.cld_enq_flags & CEF_NEVER)
                         /*
                          * If lock is still phantom or grouplock when user is
                          * done with it---destroy the lock.
@@ -2143,7 +2147,8 @@ struct cl_lock *cl_lock_request(const struct lu_env *env, struct cl_io *io,
 
                 rc = cl_enqueue_locked(env, lock, io, enqflags);
                 if (rc == 0) {
-                        if (cl_lock_fits_into(env, lock, need, io)) {
+                        if (enqflags & CEF_NEVER ||
+			    cl_lock_fits_into(env, lock, need, io)) {
                                 if (!(enqflags & CEF_AGL)) {
                                         cl_lock_mutex_put(env, lock);
                                         cl_lock_lockdep_acquire(env, lock,
