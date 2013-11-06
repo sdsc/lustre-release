@@ -1,0 +1,10 @@
+Verified+1: Jenkins
+Code-Review+2: Andreas Dilger <andreas.dilger@intel.com>
+Code-Review+1: jacques-Charles Lafoucriere <jacques-charles.lafoucriere@cea.fr>
+Verified+1: Maloo <hpdd-maloo@intel.com>
+Code-Review+1: James Nunez <james.a.nunez@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Wed, 06 Nov 2013 06:58:43 +0000
+Reviewed-on: http://review.whamcloud.com/7915
+Project: fs/lustre-release
+Branch: refs/heads/master
