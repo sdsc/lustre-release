@@ -559,9 +559,9 @@ download_ofed() {
 
     local location="http://www.openfabrics.org/downloads/OFED/ofed-${OFED_BASE_VERSION}/"
 
-    if [[ $OFED_VERSION = *-rc[0-9] ]]; then
+    if [[ $OFED_VERSION = *-[rR][cC][0-9] ]]; then
         local Mmv
-        Mmv=${OFED_VERSION%%-*}
+        Mmv=${OFED_VERSION%%-[rR][cC][0-9]}
         location="http://www.openfabrics.org/downloads/OFED/ofed-${Mmv}/"
     fi
 
@@ -1431,12 +1431,8 @@ build_ofed() {
     rm -rf ${kib_rpm}-devel
     mkdir ${kib_rpm}-devel
     cd ${kib_rpm}-devel
-    # the actual ofed RPMs don't have the -rc$n or -$date string appened that
-    # might be present on the file
-    local linuxrelease=$(find_linux_release "$linux")
-    ofed_version=$(echo $ofed_version |
-                   sed -re 's/-(20[0-9]{6,6}-[0-9]{4,4}|rc[0-9]*)$//')
-    local rpm=$(ls $TOPDIR/RPMS/*/${kib_rpm}-devel-${ofed_version}-${linuxrelease//-/_}.*.rpm)
+    # There should only be one ${kib_rpm}-devel
+    local rpm=$(ls $TOPDIR/RPMS/*/${kib_rpm}-devel-*.rpm)
     if ! rpm2cpio < $rpm | cpio -id; then
         fatal 1 "could not unpack the ${kib_rpm}-devel rpm."
     fi
