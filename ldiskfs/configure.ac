@@ -124,7 +124,7 @@ case $LINUXRELEASE in
 2.6.15*) LDISKFS_SERIES="2.6-fc5.series";;
 2.6.16*) LDISKFS_SERIES="2.6-sles10.series";;
 2.6.18*)
-	if test x$RHEL_KENEL = xyes; then
+	if test x$RHEL_KERNEL = xyes; then
                 if test x$enable_ext4 = xyes; then
 		        LDISKFS_SERIES="2.6-rhel5-ext4.series"
                 else
