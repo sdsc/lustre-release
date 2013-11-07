@@ -65,6 +65,9 @@ AC_DEFUN([LN_CONFIG_OFED_SPEC],
 		#if !HAVE_GFP_T
 		typedef int gfp_t;
 		#endif
+		#ifdef HAVE_COMPAT_RDMA
+		#include <linux/compat-2.6.h>
+		#endif
 		#include <rdma/rdma_cm.h>
 	],[
 		return (RDMA_CM_EVENT_ADDR_CHANGE == 0);
@@ -83,6 +86,9 @@ AC_DEFUN([LN_CONFIG_OFED_SPEC],
 		#if !HAVE_GFP_T
 		typedef int gfp_t;
 		#endif
+		#ifdef HAVE_COMPAT_RDMA
+		#include <linux/compat-2.6.h>
+		#endif
 		#include <rdma/rdma_cm.h>
 	],[
 		return (RDMA_CM_EVENT_TIMEWAIT_EXIT == 0);
@@ -100,6 +106,9 @@ AC_DEFUN([LN_CONFIG_OFED_SPEC],
 		#include <linux/pci.h>
 		#if !HAVE_GFP_T
 		typedef int gfp_t;
+		#endif
+		#ifdef HAVE_COMPAT_RDMA
+		#include <linux/compat-2.6.h>
 		#endif
 		#include <rdma/rdma_cm.h>
 	],[
