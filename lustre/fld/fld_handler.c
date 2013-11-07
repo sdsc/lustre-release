@@ -165,9 +165,19 @@ int fld_server_lookup(const struct lu_env *env, struct lu_server_fld *fld,
 	if (fld->lsf_obj) {
 		/* On server side, all entries should be in cache.
 		 * If we can not find it in cache, just return error */
-		CERROR("%s: Cannot find sequence "LPX64": rc = %d\n",
-		       fld->lsf_name, seq, -EIO);
-		RETURN(-EIO);
+		if (fld_range_is_ost(range)) {
+			CERROR("%s: Cannot find sequence "LPX64": rc = %d\n",
+			       fld->lsf_name, seq, -EIO);
+			RETURN(-EIO);
+		}
+		/* XXX if it can not locate the sequence in FLDB, make it
+		 * point to MDT0 to make FLDB lookup "working", and this should
+		 * be removed after the real problem is solved. LU-4266 */
+		CDEBUG(D_HA, "%s: Cannot find seq "DRANGE"\n", fld->lsf_name,
+		       PRANGE(range));
+		fld_range_set_mdt(range);
+		range->lsr_index = 0;
+		RETURN(0);
 	} else {
 		LASSERT(fld->lsf_control_exp);
 		/* send request to mdt0 i.e. super seq. controller.
