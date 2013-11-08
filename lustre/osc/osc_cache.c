@@ -1812,11 +1812,6 @@ void osc_dec_unstable_pages(struct ptlrpc_request *req)
 	cfs_atomic_sub(page_count, &obd_unstable_pages);
 	LASSERT(cfs_atomic_read(&obd_unstable_pages) >= 0);
 
-	spin_lock(&req->rq_lock);
-	req->rq_committed = 1;
-	req->rq_unstable  = 0;
-	spin_unlock(&req->rq_lock);
-
 	wake_up_all(&cli->cl_cache->ccc_unstable_waitq);
 }
 
@@ -1845,26 +1840,6 @@ void osc_inc_unstable_pages(struct ptlrpc_request *req)
 
 	LASSERT(cfs_atomic_read(&obd_unstable_pages) >= 0);
 	cfs_atomic_add(page_count, &obd_unstable_pages);
-
-	spin_lock(&req->rq_lock);
-
-	/* If the request has already been committed (i.e. brw_commit
-	 * called via rq_commit_cb), we need to undo the unstable page
-	 * increments we just performed because rq_commit_cb wont be
-	 * called again. Otherwise, just set the commit callback so the
-	 * unstable page accounting is properly updated when the request
-	 * is committed */
-	if (req->rq_committed) {
-		/* Drop lock before calling osc_dec_unstable_pages */
-		spin_unlock(&req->rq_lock);
-		osc_dec_unstable_pages(req);
-		spin_lock(&req->rq_lock);
-	} else {
-		req->rq_unstable  = 1;
-		req->rq_commit_cb = osc_dec_unstable_pages;
-	}
-
-	spin_unlock(&req->rq_lock);
 }
 
 /* this must be called holding the loi list lock to give coverage to exit_cache,
@@ -1872,17 +1847,23 @@ void osc_inc_unstable_pages(struct ptlrpc_request *req)
 static void osc_ap_completion(const struct lu_env *env, struct client_obd *cli,
 			      struct osc_async_page *oap, int sent, int rc)
 {
-	struct osc_object *osc = oap->oap_obj;
-	struct lov_oinfo  *loi = osc->oo_oinfo;
+	struct osc_object     *osc = oap->oap_obj;
+	struct lov_oinfo      *loi = osc->oo_oinfo;
+	struct ptlrpc_request *req = oap->oap_request;
 	__u64 xid = 0;
 
 	ENTRY;
-	if (oap->oap_request != NULL) {
-		if (rc == 0)
-			osc_inc_unstable_pages(oap->oap_request);
+	if (req != NULL) {
+		if (rc == 0) {
+			spin_lock(&req->rq_lock);
+			if (!req->rq_committed) {
+				osc_inc_unstable_pages(req);
+				req->rq_unstable = 1;
+			}
+			spin_unlock(&req->rq_lock);
 
-		xid = ptlrpc_req_xid(oap->oap_request);
-		ptlrpc_req_finished(oap->oap_request);
+		xid = ptlrpc_req_xid(req);
+		ptlrpc_req_finished(req);
 		oap->oap_request = NULL;
 	}
 
