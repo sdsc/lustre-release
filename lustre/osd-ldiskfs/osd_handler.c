@@ -4630,6 +4630,10 @@ static void osd_it_ea_put(const struct lu_env *env, struct dt_it *di)
 {
 }
 
+struct osd_filldir_cbs {
+	struct dir_context ctx;
+	struct osd_it_ea  *it;
+};
 /**
  * It is called internally by ->readdir(). It fills the
  * iterator's in-memory data structure with required
@@ -4641,11 +4645,15 @@ static void osd_it_ea_put(const struct lu_env *env, struct dt_it *di)
  * \retval 0 on success
  * \retval 1 on buffer full
  */
-static int osd_ldiskfs_filldir(char *buf, const char *name, int namelen,
+static int osd_ldiskfs_filldir(void *buf, const char *name, int namelen,
                                loff_t offset, __u64 ino,
                                unsigned d_type)
 {
+#ifdef HAVE_DIR_CONTEXT
+	struct osd_it_ea	*it   = ((struct osd_filldir_cbs *)buf)->it;
+#else
         struct osd_it_ea        *it   = (struct osd_it_ea *)buf;
+#endif
 	struct osd_object	*obj  = it->oie_obj;
         struct osd_it_ea_dirent *ent  = it->oie_dirent;
         struct lu_fid           *fid  = &ent->oied_fid;
@@ -4708,7 +4716,14 @@ static int osd_ldiskfs_it_fill(const struct lu_env *env,
         struct osd_object  *obj   = it->oie_obj;
         struct inode       *inode = obj->oo_inode;
         struct htree_lock  *hlock = NULL;
+	struct file	   *filp  = &it->oie_file;
         int                 result = 0;
+#ifdef HAVE_DIR_CONTEXT
+	struct osd_filldir_cbs buf = {
+		.ctx.actor = osd_ldiskfs_filldir,
+		.it = it
+	};
+#endif
 
         ENTRY;
         it->oie_dirent = it->oie_buf;
@@ -4722,8 +4737,14 @@ static int osd_ldiskfs_it_fill(const struct lu_env *env,
 		down_read(&obj->oo_ext_idx_sem);
         }
 
+#ifdef HAVE_DIR_CONTEXT
+	buf.ctx.pos = filp->f_pos;
+	result = inode->i_fop->iterate(filp, &buf.ctx);
+	filp->f_pos = buf.ctx.pos;
+#else
         result = inode->i_fop->readdir(&it->oie_file, it,
                                        (filldir_t) osd_ldiskfs_filldir);
+#endif
 
         if (hlock != NULL)
                 ldiskfs_htree_unlock(hlock);
