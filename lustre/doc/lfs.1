@@ -1,6 +1,6 @@
 .TH lfs 1 "2009 Jan 29" Lustre "user utilities"
 .SH NAME
-lfs \- Lustre utility to create a file with specific striping pattern, find the striping pattern of existing files
+lfs \- Lustre utility to create a file with specific striping pattern, find the striping pattern of existing files, do certain quota operations, and distributed directory management
 .SH SYNOPSIS
 .br
 .B lfs
@@ -83,6 +83,8 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
 .B lfs swap_layouts <filename1> <filename2>
 .br
 .B lfs data_version [-n] \fB<filename>\fR
+.br
+.B lfs mkdir <--index|-i mdt_index> <dir>
 .br
 .B lfs help
 .SH DESCRIPTION
@@ -265,6 +267,10 @@ Even without -n, race conditions are possible and data version should be
 checked before and after an operation to be confident the data did not change
 during it.
 .TP
+.B mkdir <--index|-i mdt_index> <dir>
+To create a remote directory on a specified MDT. And this can only
+be done on MDT0 by administrator.
+.TP
 .B help 
 Provides brief help on the various arguments
 .TP
@@ -328,6 +334,9 @@ Set quotas of user `bob': 1GB block quota hardlimit and 2 GB block quota softlim
 .TP
 .B $ lfs setquota -t -u --block-grace 1000 --inode-grace 1w4d /mnt/lustre
 Set grace times for user quotas: 1000 seconds for block quotas, 1 week and 4 days for inode quotas
+.TP
+.B $ lfs mkdir -i 1 new_directory
+Create directory 'new_directory' on the mdt with index 1.
 .SH BUGS
 The \fBlfs find\fR command isn't as comprehensive as \fBfind\fR(1).
 .SH AUTHOR
