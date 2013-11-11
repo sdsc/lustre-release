@@ -1787,6 +1787,37 @@ test_111 ()
 }
 run_test 111 "mdd setup fail should not cause umount oops"
 
+# LU-793
+test_112a() {
+	remote_ost_nodsh && skip "remote OST with nodsh" && return 0
+
+	[[ $(lustre_version_code ost1) -ge $(version_code 2.4.92) ]] ||
+		{ skip "Need OST version at least 2.4.92"; return 0; }
+
+	do_facet_random_file client $TMP/$tfile 100K ||
+		error_noexit "Create random file $TMP/$tfile"
+
+	# With adaptive timeouts, bulk_get won't expire
+	if at_is_enabled; then
+		at_max_saved=$(at_max_get ost1)
+		at_max_set 0 ost1 client
+	fi
+
+	pause_bulk "cp $TMP/$tfile $DIR/$tfile" $(($TIMEOUT*2000)) ||
+		error_noexit "Can't pause_bulk copy"
+
+	do_facet client "df $DIR"
+	# expect cmp to succeed, client resent bulk
+	do_facet client "cmp $TMP/$tfile $DIR/$tfile" ||
+		error_noexit "Wrong data has been written"
+	do_facet client "rm $DIR/$tfile" ||
+		error_noexit "Can't remove file"
+	do_facet client "rm $TMP/$tfile"
+
+	[ $at_max_saved -ne 0 ] && at_max_set $at_max_saved ost1
+}
+run_test 112a "bulk resend while orignal request is in progress"
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
