@@ -253,7 +253,8 @@ int ofd_preprw(const struct lu_env *env, int cmd, struct obd_export *exp,
 	LASSERT(objcount == 1);
 	LASSERT(obj->ioo_bufcnt > 0);
 
-	rc = ostid_to_fid(&info->fti_fid, &oa->o_oi, 0);
+	rc = ostid_to_fid(&info->fti_fid, &oa->o_oi,
+			  ofd->ofd_lut.lut_lsd.lsd_osd_index);
 	if (unlikely(rc != 0))
 		RETURN(rc);
 
@@ -584,7 +585,8 @@ int ofd_commitrw(const struct lu_env *env, int cmd, struct obd_export *exp,
 
 	LASSERT(npages > 0);
 
-	rc = ostid_to_fid(&info->fti_fid, &oa->o_oi, 0);
+	rc = ostid_to_fid(&info->fti_fid, &oa->o_oi,
+			  ofd->ofd_lut.lut_lsd.lsd_osd_index);
 	if (unlikely(rc != 0))
 		RETURN(rc);
 	if (cmd == OBD_BRW_WRITE) {

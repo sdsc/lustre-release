@@ -826,9 +826,11 @@ int ofd_get_info_hdl(struct tgt_session_info *tsi)
 		req_capsule_extend(tsi->tsi_pill, &RQF_OST_GET_INFO_FIEMAP);
 
 		fm_key = req_capsule_client_get(tsi->tsi_pill, &RMF_FIEMAP_KEY);
-		rc = tgt_validate_obdo(tsi, &fm_key->oa);
+		rc = tgt_validate_obdo(tsi, &fm_key->oa, fid);
 		if (rc)
 			RETURN(err_serious(rc));
+
+		CDEBUG(D_INODE, "get FIEMAP of object "DFID"\n", PFID(fid));
 
 		replylen = fiemap_count_to_size(fm_key->fiemap.fm_extent_count);
 		req_capsule_set_size(tsi->tsi_pill, &RMF_FIEMAP_VAL,
@@ -841,12 +843,6 @@ int ofd_get_info_hdl(struct tgt_session_info *tsi)
 		fiemap = req_capsule_server_get(tsi->tsi_pill, &RMF_FIEMAP_VAL);
 		if (fiemap == NULL)
 			RETURN(-ENOMEM);
-
-		rc = ostid_to_fid(fid, &fm_key->oa.o_oi, 0);
-		if (rc != 0)
-			RETURN(rc);
-
-		CDEBUG(D_INODE, "get FIEMAP of object "DFID"\n", PFID(fid));
 
 		*fiemap = fm_key->fiemap;
 		rc = ofd_fiemap_get(tsi->tsi_env, ofd, fid, fiemap);
@@ -1311,7 +1307,8 @@ static int ofd_destroy_hdl(struct tgt_session_info *tsi)
 	while (count > 0) {
 		int lrc;
 
-		lrc = ostid_to_fid(&fti->fti_fid, &repbody->oa.o_oi, 0);
+		lrc = ostid_to_fid(&fti->fti_fid, &repbody->oa.o_oi,
+				   ofd->ofd_lut.lut_lsd.lsd_osd_index);
 		if (lrc != 0) {
 			if (rc == 0)
 				rc = lrc;
