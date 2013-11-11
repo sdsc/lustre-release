@@ -237,93 +237,45 @@ out:
         RETURN(result);
 }
 
-int osd_procfs_init(struct osd_device *osd, const char *name)
+static int ldiskfs_osd_fstype_seq_show(struct seq_file *m, void *data)
 {
-        struct lprocfs_static_vars lvars;
-        struct obd_type     *type;
-        int                  rc;
-        ENTRY;
+	struct osd_device *osd = osd_dt_dev((struct dt_device *)m->private);
 
-	/* at the moment there is no linkage between lu_type
-	 * and obd_type, so we lookup obd_type this way */
-	type = class_search_type(LUSTRE_OSD_LDISKFS_NAME);
-
-        LASSERT(name != NULL);
-        LASSERT(type != NULL);
-
-        /* Find the type procroot and add the proc entry for this device */
-        lprocfs_osd_init_vars(&lvars);
-        osd->od_proc_entry = lprocfs_register(name, type->typ_procroot,
-                                              lvars.obd_vars, &osd->od_dt_dev);
-        if (IS_ERR(osd->od_proc_entry)) {
-                rc = PTR_ERR(osd->od_proc_entry);
-                CERROR("Error %d setting up lprocfs for %s\n",
-                       rc, name);
-                osd->od_proc_entry = NULL;
-                GOTO(out, rc);
-        }
-
-        rc = osd_stats_init(osd);
-
-        EXIT;
-out:
-        if (rc)
-               osd_procfs_fini(osd);
-	return rc;
+	LASSERT(osd != NULL);
+	return seq_printf(m, "ldiskfs\n");
 }
+LPROC_SEQ_FOPS_RO(ldiskfs_osd_fstype);
 
-int osd_procfs_fini(struct osd_device *osd)
+static int ldiskfs_osd_mntdev_seq_show(struct seq_file *m, void *data)
 {
-	if (osd->od_stats)
-		lprocfs_free_stats(&osd->od_stats);
-
-        if (osd->od_proc_entry) {
-                 lprocfs_remove(&osd->od_proc_entry);
-                 osd->od_proc_entry = NULL;
-        }
-        RETURN(0);
-}
-
-static int lprocfs_osd_rd_fstype(char *page, char **start, off_t off, int count,
-				 int *eof, void *data)
-{
-	struct osd_device *osd = osd_dt_dev(data);
-
-        LASSERT(osd != NULL);
-        return snprintf(page, count, "ldiskfs\n");
-}
-
-static int lprocfs_osd_rd_mntdev(char *page, char **start, off_t off, int count,
-                                 int *eof, void *data)
-{
-        struct osd_device *osd = osd_dt_dev(data);
-
-        LASSERT(osd != NULL);
-	if (unlikely(osd->od_mnt == NULL))
-                return -EINPROGRESS;
-
-	*eof = 1;
-
-	return snprintf(page, count, "%s\n", osd->od_mntdev);
-}
-
-static int lprocfs_osd_rd_cache(char *page, char **start, off_t off,
-				int count, int *eof, void *data)
-{
-	struct osd_device *osd = osd_dt_dev(data);
+	struct osd_device *osd = osd_dt_dev((struct dt_device *)m->private);
 
 	LASSERT(osd != NULL);
 	if (unlikely(osd->od_mnt == NULL))
 		return -EINPROGRESS;
 
-	return snprintf(page, count, "%u\n", osd->od_read_cache);
+	return seq_printf(m, "%s\n", osd->od_mntdev);
+}
+LPROC_SEQ_FOPS_RO(ldiskfs_osd_mntdev);
+
+static int ldiskfs_osd_cache_seq_show(struct seq_file *m, void *data)
+{
+	struct osd_device *osd = osd_dt_dev((struct dt_device *)m->private);
+
+	LASSERT(osd != NULL);
+	if (unlikely(osd->od_mnt == NULL))
+		return -EINPROGRESS;
+
+	return seq_printf(m, "%u\n", osd->od_read_cache);
 }
 
-static int lprocfs_osd_wr_cache(struct file *file, const char *buffer,
-				unsigned long count, void *data)
+static ssize_t
+ldiskfs_osd_cache_seq_write(struct file *file, const char *buffer,
+				size_t count, loff_t *off)
 {
-	struct osd_device	*osd = osd_dt_dev(data);
-	int			 val, rc;
+	struct dt_device  *dt = ((struct seq_file *)file->private_data)->private;
+	struct osd_device *osd = osd_dt_dev(dt);
+	int		   val, rc;
 
 	LASSERT(osd != NULL);
 	if (unlikely(osd->od_mnt == NULL))
@@ -336,24 +288,26 @@ static int lprocfs_osd_wr_cache(struct file *file, const char *buffer,
 	osd->od_read_cache = !!val;
 	return count;
 }
+LPROC_SEQ_FOPS(ldiskfs_osd_cache);
 
-static int lprocfs_osd_rd_wcache(char *page, char **start, off_t off,
-				 int count, int *eof, void *data)
+static int ldiskfs_osd_wcache_seq_show(struct seq_file *m, void *data)
 {
-	struct osd_device *osd = osd_dt_dev(data);
+	struct osd_device *osd = osd_dt_dev((struct dt_device *)m->private);
 
 	LASSERT(osd != NULL);
 	if (unlikely(osd->od_mnt == NULL))
 		return -EINPROGRESS;
 
-	return snprintf(page, count, "%u\n", osd->od_writethrough_cache);
+	return seq_printf(m, "%u\n", osd->od_writethrough_cache);
 }
 
-static int lprocfs_osd_wr_wcache(struct file *file, const char *buffer,
-				 unsigned long count, void *data)
+static ssize_t
+ldiskfs_osd_wcache_seq_write(struct file *file, const char *buffer,
+				size_t count, loff_t *off)
 {
-	struct osd_device	*osd = osd_dt_dev(data);
-	int			 val, rc;
+	struct dt_device  *dt = ((struct seq_file *)file->private_data)->private;
+	struct osd_device *osd = osd_dt_dev(dt);
+	int		   val, rc;
 
 	LASSERT(osd != NULL);
 	if (unlikely(osd->od_mnt == NULL))
@@ -366,14 +320,16 @@ static int lprocfs_osd_wr_wcache(struct file *file, const char *buffer,
 	osd->od_writethrough_cache = !!val;
 	return count;
 }
+LPROC_SEQ_FOPS(ldiskfs_osd_wcache);
 
-static int lprocfs_osd_wr_force_sync(struct file *file, const char *buffer,
-				     unsigned long count, void *data)
+static ssize_t
+lprocfs_osd_force_sync_seq_write(struct file *file, const char *buffer,
+					size_t count, loff_t *off)
 {
-	struct osd_device	*osd = osd_dt_dev(data);
-	struct dt_device	*dt = data;
-	struct lu_env		 env;
-	int			 rc;
+	struct dt_device  *dt = ((struct seq_file *)file->private_data)->private;
+	struct osd_device *osd = osd_dt_dev(dt);
+	struct lu_env	   env;
+	int		   rc;
 
 	LASSERT(osd != NULL);
 	if (unlikely(osd->od_mnt == NULL))
@@ -387,20 +343,18 @@ static int lprocfs_osd_wr_force_sync(struct file *file, const char *buffer,
 
 	return rc == 0 ? count : rc;
 }
+LPROC_SEQ_FOPS_WO_TYPE(ldiskfs, osd_force_sync);
 
-static int lprocfs_osd_rd_pdo(char *page, char **start, off_t off, int count,
-                              int *eof, void *data)
+static int ldiskfs_osd_pdo_seq_show(struct seq_file *m, void *data)
 {
-        *eof = 1;
-
-        return snprintf(page, count, "%s\n", ldiskfs_pdo ? "ON" : "OFF");
+	return seq_printf(m, "%s\n", ldiskfs_pdo ? "ON" : "OFF");
 }
 
-static int lprocfs_osd_wr_pdo(struct file *file, const char *buffer,
-                              unsigned long count, void *data)
+static ssize_t
+ldiskfs_osd_pdo_seq_write(struct file *file, const char *buffer,
+				size_t count, loff_t *off)
 {
-        int     pdo;
-        int     rc;
+	int pdo, rc;
 
         rc = lprocfs_write_helper(buffer, count, &pdo);
         if (rc != 0)
@@ -410,24 +364,25 @@ static int lprocfs_osd_wr_pdo(struct file *file, const char *buffer,
 
         return count;
 }
+LPROC_SEQ_FOPS(ldiskfs_osd_pdo);
 
-static int lprocfs_osd_rd_auto_scrub(char *page, char **start, off_t off,
-				     int count, int *eof, void *data)
+static int ldiskfs_osd_auto_scrub_seq_show(struct seq_file *m, void *data)
 {
-	struct osd_device *dev = osd_dt_dev(data);
+	struct osd_device *dev = osd_dt_dev((struct dt_device *)m->private);
 
 	LASSERT(dev != NULL);
 	if (unlikely(dev->od_mnt == NULL))
 		return -EINPROGRESS;
 
-	*eof = 1;
-	return snprintf(page, count, "%d\n", !dev->od_noscrub);
+	return seq_printf(m, "%d\n", !dev->od_noscrub);
 }
 
-static int lprocfs_osd_wr_auto_scrub(struct file *file, const char *buffer,
-				     unsigned long count, void *data)
+static ssize_t
+ldiskfs_osd_auto_scrub_seq_write(struct file *file, const char *buffer,
+					size_t count, loff_t *off)
 {
-	struct osd_device *dev = osd_dt_dev(data);
+	struct dt_device  *dt = ((struct seq_file *)file->private_data)->private;
+	struct osd_device *dev = osd_dt_dev(dt);
 	int val, rc;
 
 	LASSERT(dev != NULL);
@@ -441,19 +396,18 @@ static int lprocfs_osd_wr_auto_scrub(struct file *file, const char *buffer,
 	dev->od_noscrub = !val;
 	return count;
 }
+LPROC_SEQ_FOPS(ldiskfs_osd_auto_scrub);
 
-static int lprocfs_osd_rd_track_declares_assert(char *page, char **start,
-						off_t off, int count,
-						int *eof, void *data)
+static int
+ldiskfs_osd_track_declares_assert_seq_show(struct seq_file *m, void *data)
 {
-	*eof = 1;
-
-	return snprintf(page, count, "%d\n", ldiskfs_track_declares_assert);
+	return seq_printf(m, "%d\n", ldiskfs_track_declares_assert);
 }
 
-static int lprocfs_osd_wr_track_declares_assert(struct file *file,
+static ssize_t
+ldiskfs_osd_track_declares_assert_seq_write(struct file *file,
 						const char *buffer,
-						unsigned long count, void *data)
+						size_t count, loff_t *off)
 {
 	int     track_declares_assert;
 	int     rc;
@@ -466,38 +420,39 @@ static int lprocfs_osd_wr_track_declares_assert(struct file *file,
 
 	return count;
 }
+LPROC_SEQ_FOPS(ldiskfs_osd_track_declares_assert);
 
-static int lprocfs_osd_rd_oi_scrub(char *page, char **start, off_t off,
-				   int count, int *eof, void *data)
+extern int osd_scrub_dump(struct seq_file *m, struct osd_device *dev);
+
+static int ldiskfs_osd_oi_scrub_seq_show(struct seq_file *m, void *data)
 {
-	struct osd_device *dev = osd_dt_dev(data);
+	struct osd_device *dev = osd_dt_dev((struct dt_device *)m->private);
 
 	LASSERT(dev != NULL);
 	if (unlikely(dev->od_mnt == NULL))
 		return -EINPROGRESS;
 
-	*eof = 1;
-	return osd_scrub_dump(dev, page, count);
+	return osd_scrub_dump(m, dev);
 }
+LPROC_SEQ_FOPS_RO(ldiskfs_osd_oi_scrub);
 
-int lprocfs_osd_rd_readcache(char *page, char **start, off_t off, int count,
-			     int *eof, void *data)
+int ldiskfs_osd_readcache_seq_show(struct seq_file *m, void *data)
 {
-	struct osd_device	*osd = osd_dt_dev(data);
-	int			 rc;
+	struct osd_device *osd = osd_dt_dev((struct dt_device *)m->private);
 
 	LASSERT(osd != NULL);
 	if (unlikely(osd->od_mnt == NULL))
 		return -EINPROGRESS;
 
-	rc = snprintf(page, count, LPU64"\n", osd->od_readcache_max_filesize);
-	return rc;
+	return seq_printf(m, LPU64"\n", osd->od_readcache_max_filesize);
 }
 
-int lprocfs_osd_wr_readcache(struct file *file, const char *buffer,
-			     unsigned long count, void *data)
+ssize_t
+ldiskfs_osd_readcache_seq_write(struct file *file, const char *buffer,
+				size_t count, loff_t *off)
 {
-	struct osd_device	*osd = osd_dt_dev(data);
+	struct dt_device  *dt = ((struct seq_file *)file->private_data)->private;
+	struct osd_device	*osd = osd_dt_dev(dt);
 	__u64			 val;
 	int			 rc;
 
@@ -513,24 +468,25 @@ int lprocfs_osd_wr_readcache(struct file *file, const char *buffer,
 					 OSD_MAX_CACHE_SIZE : val;
 	return count;
 }
+LPROC_SEQ_FOPS(ldiskfs_osd_readcache);
 
-static int lprocfs_osd_rd_lma_self_repair(char *page, char **start, off_t off,
-					  int count, int *eof, void *data)
+static int ldiskfs_osd_lma_self_repair_seq_show(struct seq_file *m, void *data)
 {
-	struct osd_device *dev = osd_dt_dev(data);
+	struct osd_device *dev = osd_dt_dev((struct dt_device *)m->private);
 
 	LASSERT(dev != NULL);
 	if (unlikely(dev->od_mnt == NULL))
 		return -EINPROGRESS;
 
-	*eof = 1;
-	return snprintf(page, count, "%d\n", !!dev->od_lma_self_repair);
+	return seq_printf(m, "%d\n", !!dev->od_lma_self_repair);
 }
 
-static int lprocfs_osd_wr_lma_self_repair(struct file *file, const char *buffer,
-					  unsigned long count, void *data)
+static ssize_t
+ldiskfs_osd_lma_self_repair_seq_write(struct file *file, const char *buffer,
+					size_t count, loff_t *off)
 {
-	struct osd_device *dev = osd_dt_dev(data);
+	struct dt_device  *dt = ((struct seq_file *)file->private_data)->private;
+	struct osd_device *dev = osd_dt_dev(dt);
 	int		   val;
 	int		   rc;
 
@@ -545,43 +501,86 @@ static int lprocfs_osd_wr_lma_self_repair(struct file *file, const char *buffer,
 	dev->od_lma_self_repair = !!val;
 	return count;
 }
+LPROC_SEQ_FOPS(ldiskfs_osd_lma_self_repair);
 
-struct lprocfs_vars lprocfs_osd_obd_vars[] = {
-	{ "blocksize",		lprocfs_dt_rd_blksize,	0, 0 },
-	{ "kbytestotal",	lprocfs_dt_rd_kbytestotal,	0, 0 },
-	{ "kbytesfree",		lprocfs_dt_rd_kbytesfree,	0, 0 },
-	{ "kbytesavail",	lprocfs_dt_rd_kbytesavail,	0, 0 },
-	{ "filestotal",		lprocfs_dt_rd_filestotal,	0, 0 },
-	{ "filesfree",		lprocfs_dt_rd_filesfree,	0, 0 },
-        { "fstype",          lprocfs_osd_rd_fstype,      0, 0 },
-        { "mntdev",          lprocfs_osd_rd_mntdev,      0, 0 },
-	{ "force_sync",      0, lprocfs_osd_wr_force_sync     },
-        { "pdo",             lprocfs_osd_rd_pdo, lprocfs_osd_wr_pdo, 0 },
-	{ "auto_scrub",      lprocfs_osd_rd_auto_scrub,
-			     lprocfs_osd_wr_auto_scrub,  0 },
-	{ "oi_scrub",	     lprocfs_osd_rd_oi_scrub,    0, 0 },
-	{ "force_sync",		0, lprocfs_osd_wr_force_sync },
-	{ "read_cache_enable",	lprocfs_osd_rd_cache, lprocfs_osd_wr_cache, 0 },
-	{ "writethrough_cache_enable",	lprocfs_osd_rd_wcache,
-					lprocfs_osd_wr_wcache, 0 },
-	{ "readcache_max_filesize",	lprocfs_osd_rd_readcache,
-					lprocfs_osd_wr_readcache, 0 },
-	{ "lma_self_repair",	lprocfs_osd_rd_lma_self_repair,
-				lprocfs_osd_wr_lma_self_repair, 0, 0 },
+LPROC_SEQ_FOPS_RO_TYPE(ldiskfs, dt_blksize);
+LPROC_SEQ_FOPS_RO_TYPE(ldiskfs, dt_kbytestotal);
+LPROC_SEQ_FOPS_RO_TYPE(ldiskfs, dt_kbytesfree);
+LPROC_SEQ_FOPS_RO_TYPE(ldiskfs, dt_kbytesavail);
+LPROC_SEQ_FOPS_RO_TYPE(ldiskfs, dt_filestotal);
+LPROC_SEQ_FOPS_RO_TYPE(ldiskfs, dt_filesfree);
+
+static struct lprocfs_seq_vars lprocfs_osd_obd_vars[] = {
+	{ "blocksize",			&ldiskfs_dt_blksize_fops	},
+	{ "kbytestotal",		&ldiskfs_dt_kbytestotal_fops	},
+	{ "kbytesfree",			&ldiskfs_dt_kbytesfree_fops	},
+	{ "kbytesavail",		&ldiskfs_dt_kbytesavail_fops	},
+	{ "filestotal",			&ldiskfs_dt_filestotal_fops	},
+	{ "filesfree",			&ldiskfs_dt_filesfree_fops	},
+	{ "fstype",			&ldiskfs_osd_fstype_fops	},
+	{ "mntdev",			&ldiskfs_osd_mntdev_fops	},
+	{ "force_sync",			&ldiskfs_osd_force_sync_fops	},
+	{ "pdo",			&ldiskfs_osd_pdo_fops		},
+	{ "auto_scrub",			&ldiskfs_osd_auto_scrub_fops	},
+	{ "oi_scrub",			&ldiskfs_osd_oi_scrub_fops	},
+	{ "read_cache_enable",		&ldiskfs_osd_cache_fops		},
+	{ "writethrough_cache_enable",	&ldiskfs_osd_wcache_fops	},
+	{ "readcache_max_filesize",	&ldiskfs_osd_readcache_fops	},
+	{ "lma_self_repair",		&ldiskfs_osd_lma_self_repair_fops },
 	{ 0 }
 };
 
-struct lprocfs_vars lprocfs_osd_module_vars[] = {
-        { "num_refs",        lprocfs_rd_numrefs,     0, 0 },
-	{ "track_declares_assert",	lprocfs_osd_rd_track_declares_assert,
-					lprocfs_osd_wr_track_declares_assert,
-					0 },
-        { 0 }
+struct lprocfs_seq_vars lprocfs_osd_module_vars[] = {
+	{ "track_declares_assert", &ldiskfs_osd_track_declares_assert_fops },
+	{ 0 }
 };
 
-void lprocfs_osd_init_vars(struct lprocfs_static_vars *lvars)
+int osd_procfs_init(struct osd_device *osd, const char *name)
 {
-        lvars->module_vars = lprocfs_osd_module_vars;
-        lvars->obd_vars = lprocfs_osd_obd_vars;
+	struct obd_type	*type;
+	int		rc;
+	ENTRY;
+
+	if (osd->od_proc_entry)
+		RETURN(0);
+
+	/* at the moment there is no linkage between lu_type
+	 * and obd_type, so we lookup obd_type this way */
+	type = class_search_type(LUSTRE_OSD_LDISKFS_NAME);
+
+	LASSERT(name != NULL);
+	LASSERT(type != NULL);
+
+	/* Find the type procroot and add the proc entry for this device */
+	osd->od_proc_entry = lprocfs_seq_register(name, type->typ_procroot,
+						lprocfs_osd_obd_vars,
+						&osd->od_dt_dev);
+	if (IS_ERR(osd->od_proc_entry)) {
+		rc = PTR_ERR(osd->od_proc_entry);
+		CERROR("Error %d setting up lprocfs for %s\n",
+			rc, name);
+		osd->od_proc_entry = NULL;
+		GOTO(out, rc);
+	}
+
+	rc = osd_stats_init(osd);
+
+	EXIT;
+out:
+	if (rc)
+		osd_procfs_fini(osd);
+	return rc;
+}
+
+int osd_procfs_fini(struct osd_device *osd)
+{
+	if (osd->od_stats)
+		lprocfs_free_stats(&osd->od_stats);
+
+	if (osd->od_proc_entry) {
+		lprocfs_remove(&osd->od_proc_entry);
+		osd->od_proc_entry = NULL;
+	}
+	RETURN(0);
 }
 #endif

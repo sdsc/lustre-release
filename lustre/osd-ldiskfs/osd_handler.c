@@ -5855,19 +5855,18 @@ static struct obd_ops osd_obd_device_ops = {
 
 static int __init osd_mod_init(void)
 {
-        struct lprocfs_static_vars lvars;
 	int rc;
 
 	osd_oi_mod_init();
-	lprocfs_osd_init_vars(&lvars);
 
 	rc = lu_kmem_init(ldiskfs_caches);
 	if (rc)
 		return rc;
 
-	rc = class_register_type(&osd_obd_device_ops, NULL, NULL,
+	rc = class_register_type(&osd_obd_device_ops, NULL,
+				lprocfs_osd_module_vars,
 #ifndef HAVE_ONLY_PROCFS_SEQ
-				lvars.module_vars,
+				NULL,
 #endif
 				LUSTRE_OSD_LDISKFS_NAME, &osd_device_type);
 	if (rc)
