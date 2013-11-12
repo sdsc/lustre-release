@@ -750,12 +750,12 @@ static struct lu_device *lod_device_fini(const struct lu_env *env,
 
 	lod_procfs_fini(lod);
 
-	rc = lod_fini_tgt(lod, &lod->lod_ost_descs);
+	rc = lod_fini_tgt(env, lod, &lod->lod_ost_descs, true);
 	if (rc)
 		CERROR("%s:can not fini ost descs %d\n",
 			lod2obd(lod)->obd_name, rc);
 
-	rc = lod_fini_tgt(lod, &lod->lod_mdt_descs);
+	rc = lod_fini_tgt(env, lod, &lod->lod_mdt_descs, false);
 	if (rc)
 		CERROR("%s:can not fini mdt descs %d\n",
 			lod2obd(lod)->obd_name, rc);
