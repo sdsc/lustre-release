@@ -2690,6 +2690,14 @@ enum fld_op {
 	FLD_LOOKUP = 2,
 };
 
+/* LFSCK opcodes */
+typedef enum {
+	LFSCK_NOTIFY		= 1001,
+	LFSCK_QUERY		= 1002,
+	LFSCK_LAST_OPC,
+	LFSCK_FIRST_OPC 	= LFSCK_NOTIFY
+} lfsck_cmd_t;
+
 /*
  *  LOV data structures
  */

@@ -1866,6 +1866,20 @@ void ofd_hp_punch(struct tgt_session_info *tsi)
 	tgt_ses_req(tsi)->rq_ops = &ofd_hpreq_punch;
 }
 
+static int ofd_lfsck_notify_hdl(struct tgt_session_info *tsi)
+{
+	/* XXX: to be implemented. */
+
+	return 0;
+}
+
+static int ofd_lfsck_query_hdl(struct tgt_session_info *tsi)
+{
+	/* XXX: to be implemented. */
+
+	return 0;
+}
+
 #define OBD_FAIL_OST_READ_NET	OBD_FAIL_OST_BRW_NET
 #define OBD_FAIL_OST_WRITE_NET	OBD_FAIL_OST_BRW_NET
 #define OST_BRW_READ	OST_READ
@@ -1903,6 +1917,11 @@ TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_SYNC,	ofd_sync_hdl),
 TGT_OST_HDL(0		| HABEO_REFERO,	OST_QUOTACTL,	ofd_quotactl),
 };
 
+static struct tgt_handler ofd_lfsck_handlers[] = {
+TGT_LFSCK_HDL(HABEO_REFERO,	LFSCK_NOTIFY,	ofd_lfsck_notify_hdl),
+TGT_LFSCK_HDL(HABEO_REFERO,	LFSCK_QUERY,	ofd_lfsck_query_hdl),
+};
+
 static struct tgt_opc_slice ofd_common_slice[] = {
 	{
 		.tos_opc_start	= OST_FIRST_OPC,
@@ -1928,6 +1947,11 @@ static struct tgt_opc_slice ofd_common_slice[] = {
 		.tos_opc_start	= SEQ_FIRST_OPC,
 		.tos_opc_end	= SEQ_LAST_OPC,
 		.tos_hs		= seq_handlers
+	},
+	{
+		.tos_opc_start	= LFSCK_FIRST_OPC,
+		.tos_opc_end	= LFSCK_LAST_OPC,
+		.tos_hs		= ofd_lfsck_handlers
 	},
 	{
 		.tos_hs		= NULL
