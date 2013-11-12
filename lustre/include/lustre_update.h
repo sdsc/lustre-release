@@ -31,7 +31,11 @@
 #ifndef _LUSTRE_UPDATE_H
 #define _LUSTRE_UPDATE_H
 
+#include <lustre_net.h>
+#include <dt_object.h>
+
 #define UPDATE_BUFFER_SIZE	8192
+
 struct update_request {
 	struct dt_device	*ur_dt;
 	cfs_list_t		ur_list;    /* attached itself to thandle */
@@ -39,6 +43,7 @@ struct update_request {
 	int			ur_rc;	    /* request result */
 	int			ur_batchid; /* Current batch(trans) id */
 	struct update_buf	*ur_buf;   /* Holding the update req */
+	struct list_head	ur_callback_list; /* for async callback */
 };
 
 static inline unsigned long update_size(struct update *update)
@@ -187,6 +192,19 @@ static inline int update_get_reply_result(struct update_reply *reply,
 	return *(int *)ptr;
 }
 
+/* target/out_lib.c */
+void out_destroy_update_req(struct update_request *update);
+struct update_request *out_create_update_req(struct dt_device *dt);
+struct update_request *out_find_create_update_loc(struct thandle *th,
+						  struct dt_object *dt);
+int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
+			struct update_buf *ubuf, int ubuf_len,
+			struct ptlrpc_request **reqp);
+int out_remote_sync(const struct lu_env *env, struct obd_import *imp,
+		    struct update_request *update,
+		    struct ptlrpc_request **reqp);
+int out_insert_update(const struct lu_env *env, struct update_request *update,
+		      int op, const struct lu_fid *fid, int count,
+		      int *lens, const char **bufs);
+
 #endif
-
-

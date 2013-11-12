@@ -46,6 +46,7 @@
 #include <dt_object.h>
 #include <md_object.h>
 #include <lustre_fid.h>
+#include <lustre_update.h>
 
 /*
  * Infrastructure to support tracking of last committed llog record
@@ -180,9 +181,24 @@ struct osp_device {
 	int				 opd_statfs_maxage;
 
 	cfs_proc_dir_entry_t		*opd_symlink;
+
+	/* This handle is NOT used for local modification transaction, instead,
+	 * it is for idempotent OUT RPCs batching. It can be shared among any
+	 * thread on this server.
+	 *
+	 * This handle will be returned via trans_create(), and will NOT
+	 * be destroyed when trans_stop() is called. */
+	struct thandle			 opd_dummy_th;
+	/* Protect current operations on opd_dummy_th. */
+	struct mutex			 opd_dummy_th_mutex;
 };
 
 extern struct kmem_cache *osp_object_kmem;
+
+struct osp_object_attr {
+	struct lu_attr		ooa_attr;
+	struct filter_fid	ooa_pfid;
+};
 
 /* this is a top object */
 struct osp_object {
@@ -190,11 +206,15 @@ struct osp_object {
 	struct dt_object	opo_obj;
 	unsigned int		opo_reserved:1,
 				opo_new:1,
-				opo_empty:1;
+				opo_empty:1,
+				opo_pfid_ready:1;
 
 	/* read/write lock for md osp object */
 	struct rw_semaphore	opo_sem;
 	const struct lu_env	*opo_owner;
+	struct osp_object_attr *opo_ooa;
+	/* Protect opo_ooa. */
+	spinlock_t		opo_lock;
 };
 
 extern struct lu_object_operations osp_lu_obj_ops;
@@ -393,14 +413,51 @@ static inline int osp_is_fid_client(struct osp_device *osp)
 	return imp->imp_connect_data.ocd_connect_flags & OBD_CONNECT_FID;
 }
 
+static inline void osp_md_add_update_batchid(struct update_request *update)
+{
+	update->ur_batchid++;
+}
+
+typedef int (*osp_dummy_update_interpterer_t)(const struct lu_env *env,
+					      struct update_reply *reply,
+					      struct osp_object *obj,
+					      int index, int rc);
+
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
 extern struct llog_operations osp_mds_ost_orig_logops;
 
-/* osp_md_object.c */
+/* osp_trans.c */
+struct update_request *
+osp_find_or_create_dummy_update_req(struct osp_device *osp);
+int osp_insert_dummy_update(const struct lu_env *env,
+			    struct update_request *update, int op,
+			    struct osp_object *obj, int count,
+			    int *lens, const char **bufs,
+			    osp_dummy_update_interpterer_t interpterer);
+struct thandle *osp_dummy_trans_create(const struct lu_env *env,
+				       struct dt_device *dt);
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th);
 int osp_trans_stop(const struct lu_env *env, struct thandle *th);
+
+/* osp_object.c */
+int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
+		 struct lu_attr *attr, struct lustre_capa *capa);
+int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
+		  struct lu_buf *buf, const char *name,
+		  struct lustre_capa *capa);
+int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			  const struct lu_buf *buf, const char *name,
+			  int flag, struct thandle *th);
+int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
+		  const struct lu_buf *buf, const char *name, int fl,
+		  struct thandle *th, struct lustre_capa *capa);
+int osp_declare_object_destroy(const struct lu_env *env,
+			       struct dt_object *dt, struct thandle *th);
+int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
+		       struct thandle *th);
+
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);
