@@ -527,6 +527,7 @@ struct lfsck_thread_info {
 	struct lu_fid		lti_fid;
 	struct lu_fid		lti_fid2;
 	struct lu_attr		lti_la;
+	struct lu_attr		lti_la2;
 	struct ost_id		lti_oi;
 	union {
 		struct lustre_mdt_attrs lti_lma;
@@ -544,7 +545,11 @@ struct lfsck_thread_info {
 	ldlm_policy_data_t	lti_policy;
 	struct ldlm_res_id	lti_resid;
 	struct lustre_handle	lti_lh;
-	struct filter_fid_old	lti_pfid;
+	union {
+		struct filter_fid_old	lti_old_pfid;
+		struct filter_fid	lti_new_pfid;
+	};
+	struct dt_allocation_hint lti_hint;
 };
 
 /* lfsck_lib.c */
