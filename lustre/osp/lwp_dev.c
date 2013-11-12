@@ -56,38 +56,14 @@ static inline struct lu_device *lwp2lu_dev(struct lwp_device *d)
 	return &d->lpd_dev;
 }
 
-static int lwp_name2fsname(char *lwpname, char *fsname)
-{
-	char *ptr;
-
-	LASSERT(lwpname != NULL);
-	LASSERT(fsname != NULL);
-
-	sprintf(fsname, "-%s-", LUSTRE_LWP_NAME);
-
-	ptr = strstr(lwpname, fsname);
-	if (ptr == NULL)
-		return -EINVAL;
-
-	while (*(--ptr) != '-') {
-		if (ptr == lwpname)
-			return -EINVAL;
-	}
-
-	strncpy(fsname, lwpname, ptr - lwpname);
-	fsname[ptr - lwpname] = '\0';
-
-	return 0;
-}
-
 static int lwp_setup(const struct lu_env *env, struct lwp_device *lwp,
 		     char *nidstring)
 {
 	struct lustre_cfg_bufs	*bufs = NULL;
 	struct lustre_cfg	*lcfg = NULL;
 	char			*lwpname = lwp->lpd_obd->obd_name;
-	char			*fsname = NULL;
 	char			*server_uuid = NULL;
+	char			*ptr;
 	class_uuid_t		 uuid;
 	struct obd_import	*imp;
 	int			 rc;
@@ -97,22 +73,21 @@ static int lwp_setup(const struct lu_env *env, struct lwp_device *lwp,
 	if (bufs == NULL)
 		RETURN(-ENOMEM);
 
-	OBD_ALLOC(fsname, strlen(lwpname));
-	if (fsname == NULL)
-		GOTO(out, rc = -ENOMEM);
-
-	rc = lwp_name2fsname(lwpname, fsname);
-	if (rc) {
-		CERROR("%s: failed to get fsname from lwpname. %d\n",
-		       lwpname, rc);
-		GOTO(out, rc);
-	}
-
-	OBD_ALLOC(server_uuid, strlen(fsname) + 15);
+	OBD_ALLOC(server_uuid, strlen(lwpname));
 	if (server_uuid == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	sprintf(server_uuid, "%s-MDT0000_UUID", fsname);
+	sprintf(server_uuid, "-%s-", LUSTRE_LWP_NAME);
+	ptr = strstr(lwpname, server_uuid);
+	if (ptr == NULL) {
+		CERROR("%s: failed to get server_uuid from lwpname: rc = %d\n",
+		       lwpname, -EINVAL);
+		GOTO(out, rc = -EINVAL);
+	}
+
+	strncpy(server_uuid, lwpname, ptr - lwpname);
+	server_uuid[ptr - lwpname] = '\0';
+	strcat(server_uuid, "_UUID");
 	lustre_cfg_bufs_reset(bufs, lwpname);
 	lustre_cfg_bufs_set_string(bufs, 1, server_uuid);
 	lustre_cfg_bufs_set_string(bufs, 2, nidstring);
@@ -138,9 +113,7 @@ out:
 	if (bufs != NULL)
 		OBD_FREE_PTR(bufs);
 	if (server_uuid != NULL)
-		OBD_FREE(server_uuid, strlen(fsname) + 15);
-	if (fsname != NULL)
-		OBD_FREE(fsname, strlen(lwpname));
+		OBD_FREE(server_uuid, strlen(lwpname));
 	if (lcfg != NULL)
 		lustre_cfg_free(lcfg);
 	if (rc)
@@ -352,8 +325,9 @@ static int lwp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 			   struct obd_connect_data *data, void *localdata)
 {
 	struct lwp_device       *lwp = lu2lwp_dev(obd->obd_lu_dev);
+	struct client_obd	*cli = &lwp->lpd_obd->u.cli;
+	struct obd_import       *imp = cli->cl_import;
 	struct obd_connect_data *ocd;
-	struct obd_import       *imp;
 	struct lustre_handle     conn;
 	int                      rc;
 
@@ -361,9 +335,11 @@ static int lwp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 
 	CDEBUG(D_CONFIG, "connect #%d\n", lwp->lpd_connects);
 
+	*exp = NULL;
+	down_write(&cli->cl_sem);
 	rc = class_connect(&conn, obd, cluuid);
-	if (rc)
-		RETURN(rc);
+	if (rc != 0)
+		GOTO(out_sem, rc);
 
 	*exp = class_conn2export(&conn);
 	lwp->lpd_exp = *exp;
@@ -372,8 +348,10 @@ static int lwp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 	lwp->lpd_connects++;
 	LASSERT(lwp->lpd_connects == 1);
 
-	imp = lwp->lpd_obd->u.cli.cl_import;
 	imp->imp_dlm_handle = conn;
+	rc = ptlrpc_init_import(imp);
+	if (rc != 0)
+		GOTO(out_dis, rc);
 
 	LASSERT(data != NULL);
 	ocd = &imp->imp_connect_data;
@@ -385,15 +363,25 @@ static int lwp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 	imp->imp_connect_flags_orig = ocd->ocd_connect_flags;
 
 	rc = ptlrpc_connect_import(imp);
-	if (rc) {
+	if (rc != 0) {
 		CERROR("%s: can't connect obd: rc = %d\n", obd->obd_name, rc);
-		GOTO(out, rc);
+		GOTO(out_dis, rc);
 	}
 
 	ptlrpc_pinger_add_import(imp);
 
-out:
-	RETURN(rc);
+	GOTO(out_dis, rc = 0);
+
+out_dis:
+	if (rc != 0) {
+		class_disconnect(*exp);
+		*exp = NULL;
+		lwp->lpd_exp = NULL;
+	}
+
+out_sem:
+	up_write(&cli->cl_sem);
+	return rc;
 }
 
 static int lwp_obd_disconnect(struct obd_export *exp)
