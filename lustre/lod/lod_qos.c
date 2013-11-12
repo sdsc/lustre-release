@@ -551,10 +551,10 @@ static int lod_qos_calc_rr(struct lod_device *lod, struct ost_pool *src_pool,
  *            we can't block at execution (when create method is called).
  *            otherwise we'd block whole transaction batch
  */
-static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
-						   struct lod_device *d,
-						   int ost_idx,
-						   struct thandle *th)
+struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
+					    struct lod_device *d,
+					    int ost_idx,
+					    struct thandle *th)
 {
 	struct lod_tgt_desc *ost;
 	struct lu_object *o, *n;
