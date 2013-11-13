@@ -597,6 +597,19 @@ static int osp_declare_object_create(const struct lu_env *env,
 
 	ENTRY;
 
+	if (hint != NULL && unlikely(hint->dah_flags & DAHF_RECREATE)) {
+		LASSERT(fid_is_sane(lu_object_fid(&dt->do_lu)));
+
+		rc = osp_md_declare_object_create(env, dt, attr, hint, dof, th);
+		if (rc != 0)
+			RETURN(rc);
+
+		/* If the the MDT object is destroyed during recreate the
+		 * OST-object, then destroy the recreated OST-object via llog.*/
+		rc = osp_sync_declare_add(env, o, MDS_UNLINK64_REC, th);
+		RETURN(rc);
+	}
+
 	/* should happen to non-0 OSP only so that at least one object
 	 * has been already declared in the scenario and LOD should
 	 * cleanup that */
@@ -663,6 +676,11 @@ static int osp_object_create(const struct lu_env *env, struct dt_object *dt,
 	int			rc = 0;
 	struct lu_fid		*fid = &osi->osi_fid;
 	ENTRY;
+
+	if (hint != NULL && unlikely(hint->dah_flags & DAHF_RECREATE)) {
+		rc = osp_md_object_create(env, dt, attr, hint, dof, th);
+		RETURN(rc);
+	}
 
 	if (o->opo_reserved) {
 		/* regular case, fid is assigned holding trunsaction open */
