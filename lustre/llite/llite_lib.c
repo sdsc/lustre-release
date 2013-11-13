@@ -62,6 +62,7 @@
 #include "llite_internal.h"
 
 struct kmem_cache *ll_file_data_slab;
+bool ll_create_no_open_optimization = true;
 
 #ifndef log2
 #define log2(n) ffz(~(n))
