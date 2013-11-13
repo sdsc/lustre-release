@@ -693,7 +693,8 @@ static int lfsck_needs_scan_dir(const struct lu_env *env,
 }
 
 struct lfsck_thread_args *lfsck_thread_args_init(struct lfsck_instance *lfsck,
-						 struct lfsck_component *com)
+						 struct lfsck_component *com,
+						 struct lfsck_start_param *lsp)
 {
 	struct lfsck_thread_args *lta;
 	int			  rc;
@@ -714,6 +715,7 @@ struct lfsck_thread_args *lfsck_thread_args_init(struct lfsck_instance *lfsck,
 		lfsck_component_get(com);
 		lta->lta_com = com;
 	}
+	lta->lta_lsp = lsp;
 
 	return lta;
 }
@@ -762,7 +764,8 @@ int lfsck_checkpoint(const struct lu_env *env, struct lfsck_instance *lfsck)
 	return (rc1 != 0 ? rc1 : rc);
 }
 
-int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck)
+int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck,
+	       struct lfsck_start_param *lsp)
 {
 	struct dt_object       *obj	= NULL;
 	struct lfsck_component *com;
@@ -783,7 +786,7 @@ int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck)
 		if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
 			com->lc_journal = 0;
 
-		rc = com->lc_ops->lfsck_prep(env, com);
+		rc = com->lc_ops->lfsck_prep(env, com, lsp);
 		if (rc != 0)
 			GOTO(out, rc);
 
@@ -1430,7 +1433,7 @@ trigger:
 
 	lfsck->li_args_oit = (flags << DT_OTABLE_IT_FLAGS_SHIFT) | valid;
 	thread_set_flags(thread, 0);
-	lta = lfsck_thread_args_init(lfsck, NULL);
+	lta = lfsck_thread_args_init(lfsck, NULL, lsp);
 	if (IS_ERR(lta))
 		GOTO(out, rc = PTR_ERR(lta));
 
@@ -1508,6 +1511,7 @@ int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
 
 	switch (lr->lr_event) {
 	case LE_STOP:
+	case LE_PHASE1_DONE:
 	case LE_PHASE2_DONE:
 		break;
 	default:
@@ -1534,8 +1538,8 @@ put:
 EXPORT_SYMBOL(lfsck_in_notify);
 
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
-		   struct dt_device *next, lfsck_out_notify notify,
-		   void *data, bool master)
+		   struct dt_device *next, struct obd_device *obd,
+		   lfsck_out_notify notify, void *data, bool master)
 {
 	struct lfsck_instance	*lfsck;
 	struct dt_object	*root  = NULL;
@@ -1566,6 +1570,7 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 	lfsck->li_out_notify_data = data;
 	lfsck->li_next = next;
 	lfsck->li_bottom = key;
+	lfsck->li_obd = obd;
 
 	rc = lfsck_tgt_descs_init(&lfsck->li_ost_descs);
 	if (rc != 0)
