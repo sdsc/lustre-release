@@ -674,7 +674,7 @@ test_22c () {
 
 	do_node $CLIENT1 mkdir -p $MOUNT1/${tdir}
 
-	# OBD_FAIL_MDS_DROP_OBJ_UPDATE       0x188
+	# OBD_FAIL_MDS_OBJ_UPDATE_NET       0x188
 	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x188
 	do_node $CLIENT1 $LFS mkdir -i $MDTIDX $MOUNT1/$remote_dir &
 	CLIENT_PID=$!
