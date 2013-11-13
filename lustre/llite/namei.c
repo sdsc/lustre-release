@@ -475,7 +475,10 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
 		if (IS_ERR(alias))
 			RETURN(PTR_ERR(alias));
 		*de = alias;
-	}
+	} else if (!it_disposition(it, DISP_LOOKUP_NEG)  &&
+		   !it_disposition(it, DISP_OPEN_CREATE) &&
+		   (*de)->d_inode == NULL)
+		d_instantiate(*de, inode);
 
 	if (!it_disposition(it, DISP_LOOKUP_NEG)) {
 		/* we have lookup look - unhide dentry */
