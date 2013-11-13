@@ -1803,6 +1803,94 @@ test_19b() {
 }
 run_test 19b "Find out orphan OST-object and repair it (2)"
 
+test_19c() {
+	echo "#####"
+	echo "The target MDT-object layout EA slot is occpuied by some new"
+	echo "created OST-object when repair dangling reference case. Then"
+	echo "the LFSCK will exchange the two conflict OST-objects in such"
+	echo "MDT-object layout EA."
+	echo "#####"
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir/a1
+	$LFS setstripe -c 1 -i 0 -s 1M $DIR/$tdir/a1
+	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=1M count=1
+	dd if=/dev/zero of=$DIR/$tdir/a1/f2 bs=1M count=1
+	local SAVED_SIZE=$(ls -il $DIR/$tdir/a1/f2 | awk '{ print $6 }')
+	$LFS path2fid $DIR/$tdir/a1/f1
+	$LFS getstripe $DIR/$tdir/a1/f1
+	$LFS path2fid $DIR/$tdir/a1/f2
+	$LFS getstripe $DIR/$tdir/a1/f2
+	sync
+	cancel_lru_locks osc
+
+	echo "Inject failure, to make $DIR/$tdir/a1/f2 and $DIR/$tdir/a1/f1"
+	echo "to reference the same OST-object. Then drop $DIR/$tdir/a1/f1."
+	echo "So $DIR/$tdir/a1/f2 will dangling reference, although its old"
+	echo "OST-object still is there."
+	echo
+
+	#define OBD_FAIL_LFSCK_CHANGE_STRIPE	0x1618
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1618
+	chown 1.1 $DIR/$tdir/a1/f2
+	rm -f $DIR/$tdir/a1/f1
+	sync
+	sleep 2
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	echo "stopall to cleanup object cache"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	echo "The file size should be incorrect since dangling referenced"
+	local SIZE=$(ls -il $DIR/$tdir/a1/f2 | awk '{ print $6 }')
+	[ "$SIZE" != "$SAVED_SIZE" ] || error "(1) Expect incorrect file2 size"
+
+	echo "Trigger layout LFSCK on all devices to find out orphan OST-objects"
+	$START_LAYOUT -A || error "(2) Fail to start LFSCK for layout!"
+
+	for k in $(seq $MDSCOUNT); do
+		wait_update_facet mds${k} "$LCTL get_param -n \
+			mdd.$(facet_svc mds${k}).lfsck_layout |
+			awk '/^status/ { print \\\$2 }'" "completed" 3 ||
+			error "(3) MDS${k} is not the expected 'completed'"
+	done
+
+	for k in $(seq $OSTCOUNT); do
+		local STATUS=$(do_facet ost${k} $LCTL get_param -n \
+				obdfilter.$(facet_svc ost${k}).lfsck_layout |
+				awk '/^status/ { print $2 }')
+		[ "$STATUS" == "completed" ] ||
+		error "(4) OST${k} Expect 'completed', but got '$STATUS'"
+	done
+
+	local repaired=$(do_facet $SINGLEMDS $LCTL get_param -n \
+			 mdd.$(facet_svc $SINGLEMDS).lfsck_layout |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(5) Expect 1 orphan has been fixed, but got: $repaired"
+
+	echo "The file size should be correct after layout LFSCK scanning"
+	SIZE=$(ls -il $DIR/$tdir/a1/f2 | awk '{ print $6 }')
+	[ "$SIZE" == "$SAVED_SIZE" ] ||
+		error "(6) Expect correct file2 size $SAVED_SIZE, but got $SIZE"
+
+	$LFS path2fid $DIR/$tdir/a1/f2
+	$LFS getstripe $DIR/$tdir/a1/f2
+
+	echo "There should be some stub under .lustre/lost+found/MDT0000/"
+	ls -ail $MOUNT/.lustre/lost+found/MDT0000/E-* ||
+		error "(7) .lustre/lost+found/MDT0000/ should not be empty"
+}
+run_test 19c "Find out orphan OST-object and repair it (3)"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size
