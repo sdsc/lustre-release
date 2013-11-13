@@ -3552,6 +3552,13 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
 		put_cred(cred);
 	}
 
+	/*
+	 * LU-4185: Ignore permission check result if it's a mkdir, let the
+	 * MDT decide the permission later.
+	 */
+	if (rc != 0 && S_ISDIR(inode->i_mode))
+		rc = 0;
+
 	RETURN(rc);
 }
 
