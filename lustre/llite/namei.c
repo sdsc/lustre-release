@@ -594,10 +594,6 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
 	       dentry->d_name.len, dentry->d_name.name,
 	       PFID(ll_inode2fid(parent)), parent, flags);
 
-	/* Optimize away (CREATE && !OPEN). Let .create handle the race. */
-	if ((flags & LOOKUP_CREATE) && !(flags & LOOKUP_OPEN))
-		return NULL;
-
 	if (flags & (LOOKUP_PARENT|LOOKUP_OPEN|LOOKUP_CREATE))
 		itp = NULL;
 	else
@@ -729,10 +725,6 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
                         it = ll_d2d(dentry)->lld_it;
                         ll_d2d(dentry)->lld_it = NULL;
                 } else {
-			if ((nd->flags & LOOKUP_CREATE) &&
-			    !(nd->flags & LOOKUP_OPEN))
-                                RETURN(NULL);
-
                         it = ll_convert_intent(&nd->intent.open, nd->flags);
                         if (IS_ERR(it))
                                 RETURN((struct dentry *)it);
