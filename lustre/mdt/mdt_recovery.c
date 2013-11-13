@@ -93,15 +93,15 @@ static int mdt_clients_data_init(const struct lu_env *env,
         if (!lcd)
                 RETURN(-ENOMEM);
 
-        /* When we do a clean MDS shutdown, we save the last_transno into
-         * the header.  If we find clients with higher last_transno values
-         * then those clients may need recovery done. */
-        LASSERT(cfs_atomic_read(&obd->obd_req_replay_clients) == 0);
-        for (cl_idx = 0, off = lsd->lsd_client_start;
-             off < last_size; cl_idx++) {
-                __u64 last_transno;
-                struct obd_export *exp;
-                struct mdt_thread_info *mti;
+	/* When we do a clean MDS shutdown, we save the last_transno into
+	 * the header.  If we find clients with higher last_transno values
+	 * then those clients may need recovery done. */
+	LASSERT(atomic_read(&obd->obd_req_replay_clients) == 0);
+	for (cl_idx = 0, off = lsd->lsd_client_start;
+	     off < last_size; cl_idx++) {
+		__u64 last_transno;
+		struct obd_export *exp;
+		struct mdt_thread_info *mti;
 
                 off = lsd->lsd_client_start +
                         cl_idx * lsd->lsd_client_size;
