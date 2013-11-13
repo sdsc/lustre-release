@@ -3669,13 +3669,23 @@ ll_check_acl(struct inode *inode, int mask)
 
 #ifdef HAVE_GENERIC_PERMISSION_4ARGS
 int ll_inode_permission(struct inode *inode, int mask, unsigned int flags)
+{
+	return lustre_inode_permission(inode, mask);
+}
 #else
 # ifdef HAVE_INODE_PERMISION_2ARGS
 int ll_inode_permission(struct inode *inode, int mask)
+{
+	return lustre_inode_permission(inode, mask);
+}
 # else
 int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
+{
+	return lustre_inode_permission(inode, mask);
+}
 # endif
 #endif
+int lustre_inode_permission(struct inode *inode, int mask)
 {
 	int rc = 0;
 	struct ll_sb_info *sbi;

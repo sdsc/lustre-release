@@ -811,6 +811,7 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd);
 int ll_inode_permission(struct inode *inode, int mask);
 # endif
 #endif
+int lustre_inode_permission(struct inode *inode, int mask);
 
 int ll_lov_setstripe_ea_info(struct inode *inode, struct file *file,
 			     __u64  flags, struct lov_user_md *lum,
