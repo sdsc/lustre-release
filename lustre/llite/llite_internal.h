@@ -1498,4 +1498,6 @@ void cl_inode_fini(struct inode *inode);
 u64 cl_fid_build_ino(const struct lu_fid *fid, int api32);
 u32 cl_fid_build_gen(const struct lu_fid *fid);
 
+extern bool ll_create_no_open_optimization;
+
 #endif /* LLITE_INTERNAL_H */

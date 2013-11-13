@@ -969,6 +969,48 @@ static ssize_t ll_nosquash_nids_seq_write(struct file *file,
 }
 LPROC_SEQ_FOPS(ll_nosquash_nids);
 
+static int ll_create_no_open_opt_seq_show(struct seq_file *m, void *v)
+{
+	return seq_printf(m, "%s\n",
+			  ll_create_no_open_optimization ? "1" : "0");
+}
+
+static ssize_t ll_create_no_open_opt_seq_write(struct file *file,
+					       const char __user *buffer,
+					       size_t count, loff_t *off)
+{
+	char kernbuf[6];
+	int val, rc;
+
+	if (count > (sizeof(kernbuf) - 1))
+		return -EINVAL;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc == 0) {
+		if (val == 0)
+			ll_create_no_open_optimization = false;
+		else
+			ll_create_no_open_optimization = true;
+
+		return count;
+	}
+
+	if (copy_from_user(kernbuf, buffer, count))
+		return -EFAULT;
+
+	kernbuf[count] = '\0';
+
+	if (strncmp(kernbuf, "true", 4) == 0)
+		ll_create_no_open_optimization = true;
+	else if (strncmp(kernbuf, "false", 5) == 0)
+		ll_create_no_open_optimization = false;
+	else
+		return -EINVAL;
+
+	return count;
+}
+LPROC_SEQ_FOPS(ll_create_no_open_opt);
+
 struct lprocfs_vars lprocfs_llite_obd_vars[] = {
 	{ .name	=	"uuid",
 	  .fops	=	&ll_sb_uuid_fops			},
@@ -1028,6 +1070,8 @@ struct lprocfs_vars lprocfs_llite_obd_vars[] = {
 	  .fops	=	&ll_root_squash_fops			},
 	{ .name	=	"nosquash_nids",
 	  .fops	=	&ll_nosquash_nids_fops			},
+	{ .name =	"create_no_open_optimization",
+	  .fops =	&ll_create_no_open_opt_fops		},
 	{ NULL }
 };
 
