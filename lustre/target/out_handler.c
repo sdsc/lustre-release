@@ -36,6 +36,20 @@
 #include "tgt_internal.h"
 #include <lustre_update.h>
 
+static int (*out_record_fid_accessed)(const struct lu_env *env,
+				      struct dt_device *key,
+				      struct lfsck_request *lr,
+				      const struct lu_fid *fid) = NULL;
+
+void out_register_record_fid_accessed(int (*rfa)(const struct lu_env *,
+						 struct dt_device *,
+						 struct lfsck_request *,
+						 const struct lu_fid *))
+{
+	out_record_fid_accessed = rfa;
+}
+EXPORT_SYMBOL(out_register_record_fid_accessed);
+
 struct tx_arg *tx_add_exec(struct thandle_exec_args *ta, tx_exec_func_t func,
 			   tx_exec_func_t undo, char *file, int line)
 {
@@ -1319,6 +1333,13 @@ int out_handle(struct tgt_session_info *tsi)
 		dt_obj = dt_locate(env, dt, &update->u_fid);
 		if (IS_ERR(dt_obj))
 			GOTO(out, rc = PTR_ERR(dt_obj));
+
+		if (dt->dd_record_fid_accessed) {
+			LASSERT(out_record_fid_accessed != NULL);
+
+			out_record_fid_accessed(env, dt, &tti->tti_lr,
+						lu_object_fid(&dt_obj->do_lu));
+		}
 
 		tti->tti_u.update.tti_dt_object = dt_obj;
 		tti->tti_u.update.tti_update = update;
