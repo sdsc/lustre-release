@@ -397,9 +397,7 @@ enum {
 };
 
 /* osd_lproc.c */
-extern struct lprocfs_vars lprocfs_osd_obd_vars[];
-extern struct lprocfs_vars lprocfs_osd_module_vars[];
-
+void lprocfs_osd_init_vars(struct lprocfs_static_vars *lvars);
 int osd_procfs_init(struct osd_device *osd, const char *name);
 int osd_procfs_fini(struct osd_device *osd);
 

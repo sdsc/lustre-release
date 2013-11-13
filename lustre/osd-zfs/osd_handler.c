@@ -54,6 +54,7 @@
 #include <obd_class.h>
 #include <lustre_disk.h>
 #include <lustre_fid.h>
+#include <lustre_param.h>
 #include <md_object.h>
 
 #include "osd_internal.h"
@@ -741,8 +742,9 @@ static int osd_device_init(const struct lu_env *env, struct lu_device *d,
 static int osd_process_config(const struct lu_env *env,
 			      struct lu_device *d, struct lustre_cfg *cfg)
 {
-	struct osd_device	*o = osd_dev(d);
-	int			 err;
+	struct osd_device		*o = osd_dev(d);
+	struct lprocfs_static_vars	lvars;
+	int				err;
 	ENTRY;
 
 	switch(cfg->lcfg_command) {
@@ -752,6 +754,14 @@ static int osd_process_config(const struct lu_env *env,
 	case LCFG_CLEANUP:
 		err = osd_shutdown(env, o);
 		break;
+	case LCFG_PARAM: {
+		lprocfs_osd_init_vars(&lvars);
+
+		LASSERT(&o->od_dt_dev);
+		err = class_process_proc_param(PARAM_OST, lvars.obd_vars,
+					       cfg, &o->od_dt_dev);
+		break;
+	}
 	default:
 		err = -ENOTTY;
 	}
@@ -885,18 +895,19 @@ static struct obd_ops osd_obd_device_ops = {
 
 int __init osd_init(void)
 {
-	int rc;
+	struct lprocfs_static_vars	lvars;
+	int				rc;
 
 	rc = osd_options_init();
 	if (rc)
 		return rc;
+	lprocfs_osd_init_vars(&lvars);
 
 	rc = lu_kmem_init(osd_caches);
 	if (rc)
 		return rc;
 
-	rc = class_register_type(&osd_obd_device_ops, NULL,
-				 lprocfs_osd_module_vars,
+	rc = class_register_type(&osd_obd_device_ops, NULL, lvars.module_vars,
 				 LUSTRE_OSD_ZFS_NAME, &osd_device_type);
 	if (rc)
 		lu_kmem_fini(osd_caches);
