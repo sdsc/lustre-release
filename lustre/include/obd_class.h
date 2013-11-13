@@ -179,13 +179,14 @@ static inline void lprocfs_echo_init_vars(struct lprocfs_static_vars *lvars)
 
 /* Passed as data param to class_config_parse_llog */
 struct config_llog_instance {
-        char               *cfg_obdname;
-        void               *cfg_instance;
-        struct super_block *cfg_sb;
-        struct obd_uuid     cfg_uuid;
+	char		   *cfg_obdname;
+	void		   *cfg_instance;
+	struct super_block *cfg_sb;
+	struct obd_uuid     cfg_uuid;
 	llog_cb_t	    cfg_callback;
-        int                 cfg_last_idx; /* for partial llog processing */
-        int                 cfg_flags;
+	int		    cfg_last_idx; /* for partial llog processing */
+	int		    cfg_flags;
+	__u32		    cfg_lwp_idx;
 };
 int class_config_parse_llog(const struct lu_env *env, struct llog_ctxt *ctxt,
 			    char *name, struct config_llog_instance *cfg);
@@ -2270,7 +2271,8 @@ extern int (*ptlrpc_put_connection_superhack)(struct ptlrpc_connection *c);
 int lustre_register_lwp_item(const char *lwpname, struct obd_export **exp,
 			     register_lwp_cb cb_func, void *cb_data);
 void lustre_deregister_lwp_item(struct obd_export **exp);
-int tgt_name2lwpname(const char *tgt_name, char *lwp_name);
+struct obd_export *lustre_find_lwp_by_index(const char *dev, __u32 idx);
+int tgt_name2lwpname(const char *tgt_name, char *lwp_name, __u32 idx);
 #endif /* HAVE_SERVER_SUPPORT */
 
 /* sysctl.c */
@@ -2295,5 +2297,11 @@ int raw_name2idx(int hashtype, int count, const char *name, int namelen);
 
 /* prng.c */
 #define ll_generate_random_uuid(uuid_out) cfs_get_random_bytes(uuid_out, sizeof(class_uuid_t))
+
+#ifdef __KERNEL__
+int server_name2index(const char *svname, __u32 *idx, const char **endptr);
+#else
+# define server_name2index(name, idx, ptr)	do {} while (0)
+#endif
 
 #endif /* __LINUX_OBD_CLASS_H */
