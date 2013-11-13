@@ -307,6 +307,19 @@ static int lprocfs_rd_lfsck_namespace(char *page, char **start, off_t off,
 	return rc;
 }
 
+static int lprocfs_rd_lfsck_layout(char *page, char **start, off_t off,
+				   int count, int *eof, void *data)
+{
+	struct mdd_device *mdd = data;
+	int rc;
+
+	LASSERT(mdd != NULL);
+	*eof = 1;
+
+	rc = lfsck_dump(mdd->mdd_bottom, page, count, LT_LAYOUT);
+	return rc;
+}
+
 static struct lprocfs_vars lprocfs_mdd_obd_vars[] = {
         { "atime_diff",      lprocfs_rd_atime_diff, lprocfs_wr_atime_diff, 0 },
         { "changelog_mask",  lprocfs_rd_changelog_mask,
@@ -316,6 +329,7 @@ static struct lprocfs_vars lprocfs_mdd_obd_vars[] = {
 	{ "lfsck_speed_limit", lprocfs_rd_lfsck_speed_limit,
 			       lprocfs_wr_lfsck_speed_limit, 0 },
 	{ "lfsck_namespace", lprocfs_rd_lfsck_namespace, 0, 0 },
+	{ "lfsck_layout", lprocfs_rd_lfsck_layout, 0, 0 },
 	{ 0 }
 };
 
