@@ -4558,7 +4558,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)sizeof(((struct update *)0)->u_bufs));
 
 	/* Checks for struct lfsck_request */
-	LASSERTF((int)sizeof(struct lfsck_request) == 48, "found %lld\n",
+	LASSERTF((int)sizeof(struct lfsck_request) == 64, "found %lld\n",
 		 (long long)(int)sizeof(struct lfsck_request));
 	LASSERTF((int)offsetof(struct lfsck_request, lr_event) == 0, "found %lld\n",
 		 (long long)(int)offsetof(struct lfsck_request, lr_event));
@@ -4600,11 +4600,15 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct lfsck_request, lr_padding_2));
 	LASSERTF((int)sizeof(((struct lfsck_request *)0)->lr_padding_2) == 4, "found %lld\n",
 		 (long long)(int)sizeof(((struct lfsck_request *)0)->lr_padding_2));
-	LASSERTF((int)offsetof(struct lfsck_request, lr_padding_3) == 32, "found %lld\n",
+	LASSERTF((int)offsetof(struct lfsck_request, lr_fid) == 32, "found %lld\n",
+		 (long long)(int)offsetof(struct lfsck_request, lr_fid));
+	LASSERTF((int)sizeof(((struct lfsck_request *)0)->lr_fid) == 16, "found %lld\n",
+		 (long long)(int)sizeof(((struct lfsck_request *)0)->lr_fid));
+	LASSERTF((int)offsetof(struct lfsck_request, lr_padding_3) == 48, "found %lld\n",
 		 (long long)(int)offsetof(struct lfsck_request, lr_padding_3));
 	LASSERTF((int)sizeof(((struct lfsck_request *)0)->lr_padding_3) == 8, "found %lld\n",
 		 (long long)(int)sizeof(((struct lfsck_request *)0)->lr_padding_3));
-	LASSERTF((int)offsetof(struct lfsck_request, lr_padding_4) == 40, "found %lld\n",
+	LASSERTF((int)offsetof(struct lfsck_request, lr_padding_4) == 56, "found %lld\n",
 		 (long long)(int)offsetof(struct lfsck_request, lr_padding_4));
 	LASSERTF((int)sizeof(((struct lfsck_request *)0)->lr_padding_4) == 8, "found %lld\n",
 		 (long long)(int)sizeof(((struct lfsck_request *)0)->lr_padding_4));

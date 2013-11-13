@@ -463,6 +463,7 @@ enum fid_seq {
 	FID_SEQ_QUOTA		= 0x200000005ULL,
 	FID_SEQ_QUOTA_GLB	= 0x200000006ULL,
 	FID_SEQ_ROOT		= 0x200000007ULL,  /* Located on MDT0 */
+	FID_SEQ_LAYOUT_RBTREE	= 0x200000008ULL,
 	FID_SEQ_NORMAL		= 0x200000400ULL,
 	FID_SEQ_LOV_DEFAULT	= 0xffffffffffffffffULL
 };
@@ -3359,6 +3360,9 @@ struct lfsck_request {
 	__u16		lr_param;
 	__u16		lr_padding_1;
 	__u32		lr_padding_2;
+	/* lr_fid is used on server-side only, and can be
+	 * reused as others by client in the future. */
+	struct lu_fid	lr_fid;
 	__u64		lr_padding_3;
 	__u64		lr_padding_4;
 };
