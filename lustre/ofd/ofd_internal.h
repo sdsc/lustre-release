@@ -133,6 +133,8 @@ struct ofd_device {
 	struct dt_object	*ofd_health_check_file;
 
 	int			 ofd_subdir_count;
+	__u64			 ofd_inconsistency_self_detected;
+	__u64			 ofd_inconsistency_self_repaired;
 
 	cfs_list_t		ofd_seq_list;
 	rwlock_t		ofd_seq_list_lock;
@@ -185,12 +187,16 @@ struct ofd_device {
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
 				 ofd_grant_compat_disable:1,
 				 /* Protected by ofd_lastid_rwsem. */
-				 ofd_lastid_rebuilding:1;
+				 ofd_lastid_rebuilding:1,
+				 ofd_fail_on_inconsistency:1;
 	struct seq_server_site	 ofd_seq_site;
 	/* the limit of SOFT_SYNC RPCs that will trigger a soft sync */
 	unsigned int		 ofd_soft_sync_limit;
 	/* Protect ::ofd_lastid_rebuilding */
 	struct rw_semaphore	 ofd_lastid_rwsem;
+	struct ptlrpc_thread	 ofd_inconsistency_thread;
+	struct list_head	 ofd_inconsistency_list;
+	spinlock_t		 ofd_inconsistency_lock;
 };
 
 static inline struct ofd_device *ofd_dev(struct lu_device *d)
@@ -216,7 +222,9 @@ static inline char *ofd_name(struct ofd_device *ofd)
 struct ofd_object {
 	struct lu_object_header	ofo_header;
 	struct dt_object	ofo_obj;
-	int			ofo_ff_exists;
+	struct lu_fid		ofo_pfid;
+	spinlock_t		ofo_lock;
+	unsigned int		ofo_pfid_inconsistent:1;
 };
 
 static inline struct ofd_object *ofd_obj(struct lu_object *o)
@@ -303,7 +311,10 @@ struct ofd_thread_info {
 	struct lu_attr			 fti_attr;
 	struct lu_attr			 fti_attr2;
 	struct ldlm_res_id		 fti_resid;
-	struct filter_fid		 fti_mds_fid;
+	union {
+		struct filter_fid	 fti_mds_fid;
+		struct filter_fid_old	 fti_mds_fid_old;
+	};
 	struct ost_id			 fti_ostid;
 	struct ofd_object		*fti_obj;
 	union {
@@ -322,6 +333,7 @@ struct ofd_thread_info {
 	struct ost_lvb			 fti_lvb;
 	struct lfsck_start		 fti_lfsck_start;
 	struct lfsck_start_param	 fti_lsp;
+	struct lu_seq_range		 fti_range;
 };
 
 extern void target_recovery_fini(struct obd_device *obd);
@@ -368,6 +380,8 @@ void ofd_seqs_fini(const struct lu_env *env, struct ofd_device *ofd);
 void ofd_seqs_free(const struct lu_env *env, struct ofd_device *ofd);
 
 /* ofd_io.c */
+int ofd_start_inconsistency_self_repair_thread(struct ofd_device *ofd);
+int ofd_stop_inconsistency_self_repair_thread(struct ofd_device *ofd);
 int ofd_preprw(const struct lu_env *env,int cmd, struct obd_export *exp,
 	       struct obdo *oa, int objcount, struct obd_ioobj *obj,
 	       struct niobuf_remote *rnb, int *nr_local,
@@ -410,7 +424,8 @@ struct ofd_object *ofd_object_find_or_create(const struct lu_env *env,
 					     struct ofd_device *ofd,
 					     const struct lu_fid *fid,
 					     struct lu_attr *attr);
-int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo);
+int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo,
+			bool reload);
 int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 			  obd_id id, struct ofd_seq *oseq, int nr, int sync);
 
