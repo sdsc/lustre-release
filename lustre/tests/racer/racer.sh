@@ -12,12 +12,14 @@ NUM_THREADS=${NUM_THREADS:-3}
 
 mkdir -p $DIR
 
-RACER_PROGS="file_create dir_create file_rm file_rename file_link file_symlink \
-file_list file_concat file_exec"
+DEFAULT_RACER_PROGS="file_create dir_create file_rm file_rename file_link \
+file_symlink file_list file_concat file_exec"
 
 if [ $MDSCOUNT -gt 1 ]; then
-	RACER_PROGS="${RACER_PROGS} dir_remote"
+	DEFAULT_RACER_PROGS+=" dir_remote"
 fi
+
+RACER_PROGS=${RACER_PROGS:-$DEFAULT_RACER_PROGS}
 
 racer_cleanup()
 {
