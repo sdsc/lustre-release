@@ -841,6 +841,11 @@ struct dt_object *dt_locate_at(const struct lu_env *env,
 			       struct dt_device *dev,
 			       const struct lu_fid *fid,
 			       struct lu_device *top_dev);
+struct dt_object *dt_locate_at_conf(const struct lu_env *env,
+				    struct dt_device *dev,
+				    const struct lu_fid *fid,
+				    struct lu_device *top_dev,
+				    const struct lu_object_conf *conf);
 static inline struct dt_object *
 dt_locate(const struct lu_env *env, struct dt_device *dev,
 	  const struct lu_fid *fid)
@@ -1471,6 +1476,7 @@ struct dt_thread_info {
 	struct dt_object_format  dti_dof;
 	struct lustre_mdt_attrs  dti_lma;
 	struct lu_buf            dti_lb;
+	struct lu_object_conf	 dti_conf;
 	loff_t                   dti_off;
 };
 
