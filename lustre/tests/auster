@@ -202,12 +202,14 @@ run_suite() {
     doit bash $suite_script
     rc=$?
     duration=$(($(date +%s) - $start_ts))
-    if [ -f $TF_FAIL -o $rc -ne 0 ]; then
-        status="FAIL"
-    else
-        status="PASS"
-    fi
-    log_test_status $duration $status
+
+	local status="PASS"
+	if [[ $rc -ne 0 || -f $TF_FAIL || -f $LOGDIR/err ]]; then
+		status="FAIL"
+	elif [[ -f $LOGDIR/skip ]]; then
+		status="SKIP"
+	fi
+	log_test_status $duration $status
 
     reset_lustre
 }
