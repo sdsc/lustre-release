@@ -1,0 +1,9 @@
+Verified+1: Jenkins
+Code-Review+2: Johann Lombardi <johann.lombardi@intel.com>
+Code-Review+1: Niu Yawei <yawei.niu@intel.com>
+Verified+1: Maloo <hpdd-maloo@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Thu, 14 Nov 2013 23:24:40 +0000
+Reviewed-on: http://review.whamcloud.com/8152
+Project: fs/lustre-release
+Branch: refs/heads/master
