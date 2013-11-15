@@ -237,9 +237,12 @@ static int ofd_process_config(const struct lu_env *env, struct lu_device *d,
 		lprocfs_ofd_init_vars(&lvars);
 		rc = class_process_proc_param(PARAM_OST, lvars.obd_vars, cfg,
 					      d->ld_obd);
-		if (rc > 0 || rc == -ENOSYS)
+		if (rc > 0 || rc == -ENOSYS) {
+			CDEBUG(D_CONFIG, "pass param %s down the stack.\n",
+			       param);
 			/* we don't understand; pass it on */
 			rc = next->ld_ops->ldo_process_config(env, next, cfg);
+		}
 		break;
 	}
 	case LCFG_SPTLRPC_CONF: {

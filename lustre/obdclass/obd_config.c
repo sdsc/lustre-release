@@ -1301,7 +1301,10 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
         for (i = 1; i < lcfg->lcfg_bufcount; i++) {
                 key = lustre_cfg_buf(lcfg, i);
                 /* Strip off prefix */
-                class_match_param(key, prefix, &key);
+		if (class_match_param(key, prefix, &key))
+			/* If the prefix doesn't match, return error so we
+			 * can pass it down the stack */
+			RETURN(-ENOSYS);
                 sval = strchr(key, '=');
                 if (!sval || (*(sval + 1) == 0)) {
                         CERROR("Can't parse param %s (missing '=')\n", key);
@@ -1333,12 +1336,13 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
                         j++;
                 }
                 if (!matched) {
-                        /* If the prefix doesn't match, return error so we
-                           can pass it down the stack */
-                        if (strnchr(key, keylen, '.'))
-                            RETURN(-ENOSYS);
-                        CERROR("%s: unknown param %s\n",
-                               (char *)lustre_cfg_string(lcfg, 0), key);
+			if (strncmp(prefix, "ost", 3))
+				/* skip this error message for ost, since its
+				 * "unknown" symlink parameters will be passed
+				 * down and processed by osd */
+				CERROR("%s: unknown param %s in %.*s\n",
+				       (char *)lustre_cfg_string(lcfg, 0), key,
+				       (int)strlen(prefix) - 1, prefix);
                         /* rc = -EINVAL;        continue parsing other params */
                         skip++;
                 } else if (rc < 0) {
