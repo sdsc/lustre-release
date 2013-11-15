@@ -811,16 +811,16 @@ static int mdd_process_config(const struct lu_env *env,
         ENTRY;
 
         switch (cfg->lcfg_command) {
-        case LCFG_PARAM: {
-                struct lprocfs_static_vars lvars;
+	case LCFG_PARAM: {
+		struct obd_device *obd = mdd2obd_dev(m);
 
-                lprocfs_mdd_init_vars(&lvars);
-                rc = class_process_proc_param(PARAM_MDD, lvars.obd_vars, cfg,m);
-                if (rc > 0 || rc == -ENOSYS)
-                        /* we don't understand; pass it on */
-                        rc = next->ld_ops->ldo_process_config(env, next, cfg);
-                break;
-        }
+		rc = class_process_proc_seq_param(PARAM_MDD, obd->obd_vars,
+						  cfg, m);
+		if (rc > 0 || rc == -ENOSYS)
+			/* we don't understand; pass it on */
+			rc = next->ld_ops->ldo_process_config(env, next, cfg);
+		break;
+	}
         case LCFG_SETUP:
                 rc = next->ld_ops->ldo_process_config(env, next, cfg);
                 if (rc)
@@ -1480,10 +1480,7 @@ LU_CONTEXT_KEY_DEFINE(mdd, LCT_MD_THREAD);
 
 static int __init mdd_mod_init(void)
 {
-	struct lprocfs_static_vars lvars;
 	int rc;
-
-	lprocfs_mdd_init_vars(&lvars);
 
 	rc = lu_kmem_init(mdd_caches);
 	if (rc)
@@ -1500,7 +1497,7 @@ static int __init mdd_mod_init(void)
 
 	rc = class_register_type(&mdd_obd_device_ops, NULL, NULL,
 #ifndef HAVE_ONLY_PROCFS_SEQ
-				lvars.module_vars,
+				NULL,
 #endif
 				LUSTRE_MDD_NAME, &mdd_device_type);
 	if (rc)
