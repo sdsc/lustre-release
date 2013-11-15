@@ -507,24 +507,21 @@ static int osc_lock_upcall(void *cookie, int errcode)
         if (!IS_ERR(env)) {
                 int rc;
 
-                cl_lock_mutex_get(env, lock);
+		cl_lock_mutex_get(env, lock);
+		if (olck->ols_state == OLS_ENQUEUED) {
+			olck->ols_state = OLS_UPCALL_RECEIVED;
+			rc = ldlm_error2errno(errcode);
+		} else {
+			CDEBUG(D_DLMTRACE, "Lock %p canceled, state: %d/%d\n",
+			       lock, lock->cll_state, olck->ols_state);
+			rc = -EIO;
+		}
+		if (rc < 0) {
+			struct ldlm_lock *dlmlock;
 
-                LASSERT(lock->cll_state >= CLS_QUEUING);
-                if (olck->ols_state == OLS_ENQUEUED) {
-                        olck->ols_state = OLS_UPCALL_RECEIVED;
-                        rc = ldlm_error2errno(errcode);
-                } else if (olck->ols_state == OLS_CANCELLED) {
-                        rc = -EIO;
-                } else {
-                        CERROR("Impossible state: %d\n", olck->ols_state);
-                        LBUG();
-                }
-                if (rc) {
-                        struct ldlm_lock *dlmlock;
-
-                        dlmlock = ldlm_handle2lock(&olck->ols_handle);
-                        if (dlmlock != NULL) {
-                                lock_res_and_lock(dlmlock);
+			dlmlock = ldlm_handle2lock(&olck->ols_handle);
+			if (dlmlock != NULL) {
+				lock_res_and_lock(dlmlock);
 				spin_lock(&osc_ast_guard);
 				LASSERT(olck->ols_lock == NULL);
 				dlmlock->l_ast_data = NULL;
