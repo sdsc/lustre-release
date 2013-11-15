@@ -48,7 +48,7 @@
 #if defined __KERNEL__
 #include <linux/lustre_compat25.h>
 #include <linux/lustre_common.h>
-#include <linux/lvfs_linux.h>
+#include <linux/fs.h>
 #else
 #include <liblustre.h>
 #endif
@@ -57,29 +57,21 @@
 
 /* simple.c */
 
-struct lvfs_ucred {
-	__u32			luc_uid;
-	__u32			luc_gid;
-	__u32			luc_fsuid;
-	__u32			luc_fsgid;
-	kernel_cap_t		luc_cap;
-	__u32			luc_umask;
-	struct group_info	*luc_ginfo;
-	struct md_identity	*luc_identity;
-};
+#define OBD_RUN_CTXT_MAGIC	0xC0FFEEAA
+#define OBD_CTXT_DEBUG		/* development-only debugging */
 
-#define OBD_RUN_CTXT_MAGIC      0xC0FFEEAA
-#define OBD_CTXT_DEBUG          /* development-only debugging */
+struct dt_device;
+
 struct lvfs_run_ctxt {
-        struct vfsmount         *pwdmnt;
-        struct dentry           *pwd;
-        mm_segment_t             fs;
-        struct lvfs_ucred        luc;
-        int                      ngroups;
-        struct group_info       *group_info;
+	struct vfsmount		*pwdmnt;
+	struct dentry		*pwd;
+	mm_segment_t		 fs;
+	uint32_t		 umask;
+	int			 ngroups;
+	struct group_info	*group_info;
 	struct dt_device	*dt;
 #ifdef OBD_CTXT_DEBUG
-        __u32                    magic;
+	uint32_t		magic;
 #endif
 };
 

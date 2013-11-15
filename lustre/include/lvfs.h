@@ -54,13 +54,7 @@
 
 #include <libcfs/lucache.h>
 
-#ifdef LIBLUSTRE
-#include <lvfs_user_fs.h>
-#endif
-
-/* lvfs_linux.c */
-void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx,
-               struct lvfs_ucred *cred);
-void pop_ctxt(struct lvfs_run_ctxt *saved, struct lvfs_run_ctxt *new_ctx,
-              struct lvfs_ucred *cred);
+/* ptlrpc_sec_ctx.c */
+void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx);
+void pop_ctxt(struct lvfs_run_ctxt *saved, struct lvfs_run_ctxt *new_ctx);
 #endif
