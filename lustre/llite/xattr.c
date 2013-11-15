@@ -193,6 +193,16 @@ int ll_setxattr_common(struct inode *inode, const char *name,
                 lustre_posix_acl_xattr_free(new_value, size);
         if (acl != NULL)
                 lustre_ext_acl_xattr_free(acl);
+# ifdef HAVE_IOP_ATOMIC_OPEN
+	if (!rc) {
+		struct lustre_md md;
+		rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
+                              	      sbi->ll_md_exp, &md);
+		if (rc)
+                	RETURN(rc);
+        	ll_update_inode(inode, &md);
+	}
+# endif
 #endif
         if (rc) {
                 if (rc == -EOPNOTSUPP && xattr_type == XATTR_USER_T) {
