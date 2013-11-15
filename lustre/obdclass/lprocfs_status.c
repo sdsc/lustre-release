@@ -387,11 +387,10 @@ EXPORT_SYMBOL(lprocfs_evict_client_seq_write);
 #undef BUFLEN
 
 struct file_operations lprocfs_evict_client_fops = {
-        .owner = THIS_MODULE,
-        .read = lprocfs_fops_read,
-        .write = lprocfs_fops_write,
-        .open = lprocfs_evict_client_open,
-        .release = lprocfs_evict_client_release,
+	.owner		= THIS_MODULE,
+	.open		= lprocfs_evict_client_open,
+	.release	= lprocfs_evict_client_release,
+	.write		= lprocfs_evict_client_seq_write,
 };
 EXPORT_SYMBOL(lprocfs_evict_client_fops);
 #endif
