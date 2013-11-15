@@ -116,6 +116,7 @@ int ll_setxattr_common(struct inode *inode, const char *name,
         struct rmtacl_ctl_entry *rce = NULL;
         ext_acl_xattr_header *acl = NULL;
         const char *pv = value;
+	struct lustre_md md;
         ENTRY;
 
         xattr_type = get_xattr_type(name);
@@ -202,6 +203,14 @@ int ll_setxattr_common(struct inode *inode, const char *name,
                 }
                 RETURN(rc);
         }
+
+	rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
+                              sbi->ll_md_exp, &md);
+        if (rc) {
+                ptlrpc_req_finished(req);
+                RETURN(rc);
+        }
+        ll_update_inode(inode, &md);
 
         ptlrpc_req_finished(req);
         RETURN(0);
