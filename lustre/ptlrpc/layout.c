@@ -69,6 +69,7 @@
 #endif
 /* struct ptlrpc_request, lustre_msg* */
 #include <lustre_req_layout.h>
+#include <lustre_update.h>
 #include <lustre_acl.h>
 #include <lustre_debug.h>
 
@@ -480,6 +481,16 @@ static const struct req_msg_field *mds_setattr_server[] = {
         &RMF_CAPA2
 };
 
+static const struct req_msg_field *mds_update_client[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_UPDATE,
+};
+
+static const struct req_msg_field *mds_update_server[] = {
+	&RMF_PTLRPC_BODY,
+	&RMF_UPDATE_REPLY,
+};
+
 static const struct req_msg_field *llog_origin_handle_create_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_LLOGD_BODY,
@@ -625,6 +636,7 @@ static struct req_format *req_formats[] = {
         &RQF_MDS_REINT_SETXATTR,
         &RQF_MDS_QUOTACHECK,
         &RQF_MDS_QUOTACTL,
+	&RQF_UPDATE_OBJ,
         &RQF_QC_CALLBACK,
         &RQF_OST_CONNECT,
         &RQF_OST_DISCONNECT,
@@ -1004,6 +1016,15 @@ struct req_msg_field RMF_IDX_INFO =
 		    lustre_swab_idx_info, NULL);
 EXPORT_SYMBOL(RMF_IDX_INFO);
 
+struct req_msg_field RMF_UPDATE = DEFINE_MSGF("update", 0, -1,
+					      lustre_swab_update_buf, NULL);
+EXPORT_SYMBOL(RMF_UPDATE);
+
+struct req_msg_field RMF_UPDATE_REPLY = DEFINE_MSGF("update_reply", 0, -1,
+						lustre_swab_update_reply_buf,
+						    NULL);
+EXPORT_SYMBOL(RMF_UPDATE_REPLY);
+
 /*
  * Request formats.
  */
@@ -1202,6 +1223,11 @@ struct req_format RQF_MDS_GET_INFO =
         DEFINE_REQ_FMT0("MDS_GET_INFO", mds_getinfo_client,
                         mds_getinfo_server);
 EXPORT_SYMBOL(RQF_MDS_GET_INFO);
+
+struct req_format RQF_UPDATE_OBJ =
+	DEFINE_REQ_FMT0("OBJECT_UPDATE_OBJ", mds_update_client,
+			mds_update_server);
+EXPORT_SYMBOL(RQF_UPDATE_OBJ);
 
 struct req_format RQF_LDLM_ENQUEUE =
         DEFINE_REQ_FMT0("LDLM_ENQUEUE",
