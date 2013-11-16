@@ -447,6 +447,40 @@ struct lu_attr {
         __u64          la_valid;
 };
 
+static inline void lu_attr_to_obdo(struct obdo *obdo, struct lu_attr *attr)
+{
+	obdo->o_size = attr->la_size;
+	obdo->o_mtime = attr->la_mtime;
+	obdo->o_atime = attr->la_atime;
+	obdo->o_ctime = attr->la_ctime;
+	obdo->o_blocks = attr->la_blocks;
+	obdo->o_mode = attr->la_mode;
+	obdo->o_uid = attr->la_uid;
+	obdo->o_gid = attr->la_gid;
+	obdo->o_flags = attr->la_flags;
+	obdo->o_nlink = attr->la_nlink;
+	obdo->o_blksize = attr->la_blksize;
+	obdo->o_rdev = attr->la_rdev;
+	obdo->o_valid = attr->la_valid;
+}
+
+static inline void obdo_to_lu_attr(struct lu_attr *attr, struct obdo *obdo)
+{
+	attr->la_size = obdo->o_size;
+	attr->la_mtime = obdo->o_mtime;
+	attr->la_atime = obdo->o_atime;
+	attr->la_ctime = obdo->o_ctime;
+	attr->la_blocks = obdo->o_blocks;
+	attr->la_mode = obdo->o_mode;
+	attr->la_uid = obdo->o_uid;
+	attr->la_gid = obdo->o_gid;
+	attr->la_flags = obdo->o_flags;
+	attr->la_nlink = obdo->o_nlink;
+	attr->la_blksize = obdo->o_blksize;
+	attr->la_rdev = obdo->o_rdev;
+	attr->la_valid = obdo->o_valid;
+}
+
 /** Bit-mask of valid attributes */
 enum la_valid {
         LA_ATIME = 1 << 0,
@@ -866,7 +900,7 @@ static inline int lu_object_assert_not_exists(const struct lu_object *o)
  */
 static inline __u32 lu_object_attr(const struct lu_object *o)
 {
-        LASSERT(lu_object_exists(o) > 0);
+	LASSERT(lu_object_exists(o) != 0);
         return o->lo_header->loh_attr;
 }
 

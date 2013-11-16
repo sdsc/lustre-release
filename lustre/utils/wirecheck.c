@@ -1898,8 +1898,36 @@ static void check_layout_intent(void)
 	CHECK_VALUE(LAYOUT_INTENT_RESTORE);
 }
 
-static void
-system_string (char *cmdline, char *str, int len)
+static void check_update_buf(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(update_buf);
+	CHECK_MEMBER(update_buf, ub_magic);
+	CHECK_MEMBER(update_buf, ub_count);
+	CHECK_MEMBER(update_buf, ub_bufs);
+}
+
+static void check_update_reply(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(update_reply);
+	CHECK_MEMBER(update_reply, ur_version);
+	CHECK_MEMBER(update_reply, ur_count);
+	CHECK_MEMBER(update_reply, ur_lens);
+}
+
+static void check_update(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(update);
+	CHECK_MEMBER(update, u_type);
+	CHECK_MEMBER(update, u_padding);
+	CHECK_MEMBER(update, u_fid);
+	CHECK_MEMBER(update, u_lens);
+	CHECK_MEMBER(update, u_bufs);
+}
+
+static void system_string (char *cmdline, char *str, int len)
 {
         int   fds[2];
         int   rc;
@@ -2032,6 +2060,9 @@ main(int argc, char **argv)
         CHECK_VALUE(MDS_GET_INFO);
         CHECK_VALUE(MDS_LAST_OPC);
 
+	CHECK_VALUE(UPDATE_OBJ);
+	CHECK_VALUE(UPDATE_LAST_OPC);
+
         CHECK_VALUE(REINT_SETATTR);
         CHECK_VALUE(REINT_CREATE);
         CHECK_VALUE(REINT_LINK);
@@ -2158,6 +2189,19 @@ main(int argc, char **argv)
         CHECK_VALUE(SEC_CTX_FINI);
         CHECK_VALUE(SEC_LAST_OPC);
 
+	CHECK_VALUE(OBJ_CREATE);
+	CHECK_VALUE(OBJ_DESTROY);
+	CHECK_VALUE(OBJ_REF_ADD);
+	CHECK_VALUE(OBJ_REF_DEL);
+	CHECK_VALUE(OBJ_ATTR_SET);
+	CHECK_VALUE(OBJ_ATTR_GET);
+	CHECK_VALUE(OBJ_XATTR_SET);
+	CHECK_VALUE(OBJ_XATTR_GET);
+	CHECK_VALUE(OBJ_INDEX_LOOKUP);
+	CHECK_VALUE(OBJ_INDEX_LOOKUP);
+	CHECK_VALUE(OBJ_INDEX_INSERT);
+	CHECK_VALUE(OBJ_INDEX_DELETE);
+
         COMMENT("Sizes and Offsets");
         BLANK_LINE();
         CHECK_STRUCT(obd_uuid);
@@ -2253,6 +2297,10 @@ main(int argc, char **argv)
         check_hsm_user_request();
         check_hsm_user_state();
 	check_layout_intent();
+
+	check_update_buf();
+	check_update_reply();
+	check_update();
 
         printf("}\n\n");
 
