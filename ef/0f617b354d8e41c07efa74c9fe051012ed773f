@@ -1,0 +1,10 @@
+Verified+1: Jenkins
+Code-Review+2: Andreas Dilger <andreas.dilger@intel.com>
+Code-Review+1: Jian Yu <jian.yu@intel.com>
+Verified+1: Maloo <hpdd-maloo@intel.com>
+Code-Review+1: Bob Glossman <bob.glossman@intel.com>
+Submitted-by: Andreas Dilger <andreas.dilger@intel.com>
+Submitted-at: Mon, 18 Nov 2013 18:32:47 +0000
+Reviewed-on: http://review.whamcloud.com/8296
+Project: fs/lustre-release
+Branch: refs/heads/master
