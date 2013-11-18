@@ -693,14 +693,14 @@ restart:
         ll_capa_open(inode);
 
 	if (!lli->lli_has_smd) {
-                if (file->f_flags & O_LOV_DELAY_CREATE ||
-                    !(file->f_mode & FMODE_WRITE)) {
-                        CDEBUG(D_INODE, "object creation was delayed\n");
-                        GOTO(out_och_free, rc);
-                }
-        }
-        file->f_flags &= ~O_LOV_DELAY_CREATE;
-        GOTO(out_och_free, rc);
+		if ((file->f_flags & O_LOV_DELAY_CREATE) ==
+		    O_LOV_DELAY_CREATE || !(file->f_mode & FMODE_WRITE)) {
+			CDEBUG(D_INODE, "object creation was delayed\n");
+			GOTO(out_och_free, rc);
+		}
+	}
+	file->f_flags &= ~O_LOV_DELAY_CREATE;
+	GOTO(out_och_free, rc);
 
 out_och_free:
         if (rc) {

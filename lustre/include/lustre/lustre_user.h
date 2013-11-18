@@ -284,13 +284,26 @@ struct ost_id {
 
 #define MAX_OBD_NAME 128 /* If this changes, a NEW ioctl must be added */
 
-/* Hopefully O_LOV_DELAY_CREATE does not conflict with standard O_xxx flags.
- * Previously it was defined as 0100000000 and conflicts with FMODE_NONOTIFY
- * which was added since kernel 2.6.36, so we redefine it as 020000000.
- * To be compatible with old version's statically linked binary, finally we
- * define it as (020000000 | 0100000000).
- * */
-#define O_LOV_DELAY_CREATE      0120000000
+/* Unfortunately, O_LOV_DELAY_CREATE conflicts with standard O_xxx flags.
+ * Originally it was defined as 0100000000 but conflicts with FMODE_NONOTIFY
+ * which was added since kernel 2.6.36.  For Lustre 2.4/2.5 it is defined
+ * as 0120000000.  Now 020000000 conflicts with O_TMPFILE in 3.11 kernels,
+ * which has semantics specifically to block other users of this open flag.
+ * Instead of trying to avoid conflict, use the O_NOCTTY flag since it is
+ * only needed by tty character devices, and has no meaning for regular files
+ * where O_LOV_DELAY_CREATE is needed.
+ *
+ * To be compatible with old version's statically linked binary keep define
+ * it as (020000000 | 0100000000 | O_NOCTTY).  We should drop the use of
+ * 020000000 as soon as O_NOCTTY works with older releases, maybe around
+ * LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 7, 55, 0) or when the oldest
+ * client kernel is 3.11 or later (LU-4209). */
+#define O_LOV_DELAY_CREATE_2_4	  020000000
+#ifdef O_TMPFILE
+#define O_LOV_DELAY_CREATE	(0100000000 | O_NOCTTY)
+#else
+#define O_LOV_DELAY_CREATE	(0100000000 | O_NOCTTY | O_LOV_DELAY_CREATE_2_4)
+#endif
 
 #define LL_FILE_IGNORE_LOCK     0x00000001
 #define LL_FILE_GROUP_LOCKED    0x00000002

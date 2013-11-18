@@ -660,9 +660,9 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                          unsigned long long stripe_size, int stripe_offset,
                          int stripe_count, int stripe_pattern, char *pool_name)
 {
-        struct lov_user_md_v3 lum = { 0 };
-        int fd, rc = 0;
-        int isdir = 0;
+	static int lov_delay_create = O_LOV_DELAY_CREATE;
+	struct lov_user_md_v3 lum = { 0 };
+	int fd, rc = 0;
 
         /* Make sure we have a good pool */
         if (pool_name != NULL) {
@@ -701,11 +701,28 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                 }
         }
 
-        fd = open(name, flags | O_LOV_DELAY_CREATE, mode);
-        if (fd < 0 && errno == EISDIR) {
-                fd = open(name, O_DIRECTORY | O_RDONLY);
-                isdir++;
-        }
+retry_open:
+	fd = open(name, flags | lov_delay_create, mode);
+	if (fd < 0) {
+		if (errno == EISDIR && !(flags & O_DIRECTORY)) {
+			flags = O_DIRECTORY | O_RDONLY;
+			goto retry_open;
+		}
+#if (O_LOV_DELAY_CREATE & O_LOV_DELAY_CREATE_2_4)
+		/* Keep the 020000000 flag in O_LOV_DELAY_CREATE for maximum
+		 * compatibility with 2.5 and older. If an app statically links
+		 * liblustreapi built for an old kernel that uses the old flags
+		 * and later updated to a newer kernel it may fail with EINVAL.
+		 * Retry once and clear the flag for future creates - the new
+		 * Lustre module should handle the new flags.  This can be
+		 * removed when 3.11 is the oldest client kernel. LU-4209 */
+		else if (errno == EINVAL &&
+			 lov_delay_create & O_LOV_DELAY_CREATE_2_4) {
+			lov_delay_create &= ~O_LOV_DELAY_CREATE_2_4;
+			goto retry_open;
+		}
+#endif
+	}
 
         if (fd < 0) {
                 rc = -errno;

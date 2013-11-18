@@ -207,8 +207,8 @@ static __u64 mds_pack_open_flags(__u64 flags, __u32 mode)
         if (flags & FMODE_EXEC)
                 cr_flags |= MDS_FMODE_EXEC;
 #endif
-        if (flags & O_LOV_DELAY_CREATE)
-                cr_flags |= MDS_OPEN_DELAY_CREATE;
+	if ((flags & O_LOV_DELAY_CREATE) == O_LOV_DELAY_CREATE)
+		cr_flags |= MDS_OPEN_DELAY_CREATE;
 
         if ((flags & O_NOACCESS) || (flags & O_NONBLOCK))
                 cr_flags |= MDS_OPEN_NORESTORE;
