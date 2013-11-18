@@ -41,12 +41,6 @@
 #define DEBUG_SUBSYSTEM S_SEC
 
 #include <libcfs/libcfs.h>
-#ifndef __KERNEL__
-#include <liblustre.h>
-#include <libcfs/list.h>
-#else
-#include <linux/crypto.h>
-#endif
 
 #include <obd.h>
 #include <obd_cksum.h>
@@ -866,7 +860,6 @@ int sptlrpc_get_bulk_checksum(struct ptlrpc_bulk_desc *desc, __u8 alg,
 {
 	struct cfs_crypto_hash_desc	*hdesc;
 	int				hashsize;
-	char				hashbuf[64];
 	unsigned int			bufsize;
 	int				i, err;
 
@@ -893,18 +886,16 @@ int sptlrpc_get_bulk_checksum(struct ptlrpc_bulk_desc *desc, __u8 alg,
 #endif
 	}
 	if (hashsize > buflen) {
+		unsigned char hashbuf[64];
+
 		bufsize = sizeof(hashbuf);
-		err = cfs_crypto_hash_final(hdesc, (unsigned char *)hashbuf,
-					    &bufsize);
+		err = cfs_crypto_hash_final(hdesc, hashbuf, &bufsize);
 		memcpy(buf, hashbuf, buflen);
 	} else {
 		bufsize = buflen;
-		err = cfs_crypto_hash_final(hdesc, (unsigned char *)buf,
-					    &bufsize);
+		err = cfs_crypto_hash_final(hdesc, buf, &bufsize);
 	}
 
-	if (err)
-		cfs_crypto_hash_final(hdesc, NULL, NULL);
 	return err;
 }
 EXPORT_SYMBOL(sptlrpc_get_bulk_checksum);
