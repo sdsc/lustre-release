@@ -465,4 +465,17 @@ enum op_cli_flags {
 	CLI_READENT_END	= 1 << 4,
 };
 
+static inline bool cl_is_lov_delay_create(unsigned int flags)
+{
+	return  (flags & O_LOV_DELAY_CREATE_COMPAT) != 0 ||
+		(flags & O_LOV_DELAY_CREATE_MASK) == O_LOV_DELAY_CREATE_MASK;
+}
+
+static inline bool cl_lov_delay_create_clear(unsigned int *flags)
+{
+	if ((*flags & O_LOV_DELAY_CREATE_COMPAT) != 0)
+		*flags &= ~O_LOV_DELAY_CREATE_COMPAT;
+	if ((flags & O_LOV_DELAY_CREATE_MASK) == O_LOV_DELAY_CREATE_MASK)
+		*flags &= ~O_LOV_DELAY_CREATE_MASK;
+}
 #endif /*LCLIENT_H */
