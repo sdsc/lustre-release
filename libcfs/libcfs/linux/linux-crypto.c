@@ -56,7 +56,7 @@ static int cfs_crypto_hash_alloc(unsigned char alg_id,
 		return -EINVAL;
 
 	if (IS_ERR(desc->tfm)) {
-		CDEBUG(D_INFO, "Failed to alloc crypto hash %s\n",
+		CDEBUG(D_CONFIG, "Failed to alloc crypto hash %s\n",
 		       (*type)->cht_name);
 		return PTR_ERR(desc->tfm);
 	}
@@ -76,7 +76,7 @@ static int cfs_crypto_hash_alloc(unsigned char alg_id,
 		return err;
 	}
 
-	CDEBUG(D_INFO, "Using crypto hash: %s (%s) speed %d MB/s\n",
+	CDEBUG(D_CONFIG, "Using crypto hash: %s (%s) speed %d MB/s\n",
 	       (crypto_hash_tfm(desc->tfm))->__crt_alg->cra_name,
 	       (crypto_hash_tfm(desc->tfm))->__crt_alg->cra_driver_name,
 	       cfs_crypto_hash_speeds[alg_id]);
@@ -195,11 +195,11 @@ static void cfs_crypto_performance_test(unsigned char alg_id,
 					const unsigned char *buf,
 					unsigned int buf_len)
 {
-	unsigned long		   start, end;
-	int			     bcount, err = 0;
-	int			     sec = 1; /* do test only 1 sec */
-	unsigned char		   hash[64];
-	unsigned int		    hash_len = 64;
+	unsigned long		start, end;
+	int			bcount, err = 0;
+	int			sec = 1; /* do test only 1 sec */
+	unsigned char		hash[64];
+	unsigned int		hash_len = 64;
 
 	for (start = jiffies, end = start + sec * HZ, bcount = 0;
 	     time_before(jiffies, end); bcount++) {
@@ -213,7 +213,7 @@ static void cfs_crypto_performance_test(unsigned char alg_id,
 
 	if (err) {
 		cfs_crypto_hash_speeds[alg_id] =  -1;
-		CDEBUG(D_INFO, "Crypto hash algorithm %s, err = %d\n",
+		CDEBUG(D_CONFIG, "Crypto hash algorithm %s, err = %d\n",
 		       cfs_crypto_hash_name(alg_id), err);
 	} else {
 		unsigned long   tmp;
@@ -239,26 +239,23 @@ EXPORT_SYMBOL(cfs_crypto_hash_speed);
  */
 static int cfs_crypto_test_hashes(void)
 {
-	unsigned char	   i;
-	unsigned char	   *data;
-	unsigned int	    j;
-	/* Data block size for testing hash. Maximum
-	 * kmalloc size for 2.6.18 kernel is 128K */
-	unsigned int	    data_len = 1 * 128 * 1024;
+	unsigned char		 i;
+	unsigned char		*data;
+	/* Data block size for testing hash. Use bulk RPC size. */
+	unsigned int		 data_len = 1024 * 1024;
 
-	data = kmalloc(data_len, 0);
+	data = vmalloc(data_len);
 	if (data == NULL) {
-		CERROR("Failed to allocate mem\n");
+		CERROR("Failed to allocate buffer for hash speed test\n");
 		return -ENOMEM;
 	}
 
-	for (j = 0; j < data_len; j++)
-		data[j] = j & 0xff;
+	memset(data, 0xAD, data_len);
 
 	for (i = 0; i < CFS_HASH_ALG_MAX; i++)
 		cfs_crypto_performance_test(i, data, data_len);
 
-	kfree(data);
+	vfree(data);
 	return 0;
 }
 
