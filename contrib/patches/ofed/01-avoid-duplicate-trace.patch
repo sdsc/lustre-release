@@ -1,0 +1,20 @@
+diff -uNr /include/linux/tracepoint.h /include.new/linux/tracepoint.h
+--- include/linux/tracepoint.h	2013-09-15 14:18:28.000000000 -0700
++++ include.new/linux/tracepoint.h	2013-11-29 22:57:50.102112156 -0800
+@@ -3,7 +3,7 @@
+ 
+ #include <linux/version.h>
+ 
+-#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32))
++#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32) && !defined(CONFIG_COMPAT_RHEL_6_4))
+ /*
+  * Disable all tracing for older kernels
+  * < 2.6.27		had no tracing
+@@ -36,6 +36,6 @@
+ /* since 2.6.33, tracing hasn't changed, so just include the kernel's file */
+ #include_next <linux/tracepoint.h>
+ 
+-#endif /* (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32)) */
++#endif /* (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32) && !defined(CONFIG_COMPAT_RHEL_6_4)) */
+ 
+ #endif	/* _COMPAT_LINUX_TRACEPOINT_H */
