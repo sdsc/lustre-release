@@ -447,5 +447,4 @@ struct cl_client_cache {
 	cfs_atomic_t		ccc_unstable_nr;    /* # of pages pinned */
 	wait_queue_head_t	ccc_unstable_waitq; /* Signaled on BRW commit */
 };
-
 #endif /*LCLIENT_H */
