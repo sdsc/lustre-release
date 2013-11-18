@@ -87,8 +87,8 @@ static int mdt_create_pack_capa(struct mdt_thread_info *info, int rc,
  *
  * Return real version or ENOENT_VERSION if object doesn't exist
  */
-static void mdt_obj_version_get(struct mdt_thread_info *info,
-                                struct mdt_object *o, __u64 *version)
+void mdt_obj_version_get(struct mdt_thread_info *info, struct mdt_object *o,
+			 __u64 *version)
 {
         LASSERT(o);
 	if (mdt_object_exists(o) && !mdt_object_remote(o) &&
@@ -753,8 +753,6 @@ static int mdt_lock_slaves(struct mdt_thread_info *mti, struct mdt_object *obj,
 	memset(einfo, 0, sizeof(*einfo));
 	einfo->ei_type = LDLM_IBITS;
 	einfo->ei_mode = mode;
-	einfo->ei_cb_bl = mdt_md_blocking_ast;
-	einfo->ei_cb_cp = ldlm_completion_ast;
 	einfo->ei_cbdata = ma->ma_lmv;
 
 	memset(policy, 0, sizeof(*policy));

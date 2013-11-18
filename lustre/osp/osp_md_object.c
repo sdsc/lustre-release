@@ -1143,6 +1143,59 @@ static int osp_md_object_destroy(const struct lu_env *env,
 	RETURN(rc);
 }
 
+int osp_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
+			void *data, int flag)
+{
+	struct lustre_handle	lockh;
+	int			rc;
+
+	switch (flag) {
+	case LDLM_CB_BLOCKING:
+		ldlm_lock2handle(lock, &lockh);
+
+		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
+		if (rc < 0) {
+			CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
+			RETURN(rc);
+		}
+		break;
+	case LDLM_CB_CANCELING:
+		LDLM_DEBUG(lock, "Revoke remote lock\n");
+		break;
+	default:
+		LBUG();
+	}
+	RETURN(0);
+}
+
+static struct ptlrpc_request *osp_enqueue_pack(struct obd_export *exp)
+{
+	struct ptlrpc_request *req;
+	struct ldlm_intent    *lit;
+	int                    rc;
+	ENTRY;
+
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+				   &RQF_LDLM_INTENT_BASIC);
+	if (req == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
+
+	rc = ldlm_prep_enqueue_req(exp, req, NULL, 0);
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(ERR_PTR(rc));
+	}
+
+	/* pack the intent */
+	lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
+	lit->opc = IT_CROSS_MDT;
+
+	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER, 0);
+
+	ptlrpc_request_set_replen(req);
+	RETURN(req);
+}
+
 static int osp_md_object_lock(const struct lu_env *env,
 			      struct dt_object *dt,
 			      struct lustre_handle *lh,
@@ -1155,7 +1208,7 @@ static int osp_md_object_lock(const struct lu_env *env,
 	struct osp_device	*osp = dt2osp_dev(dt_dev);
 	struct ptlrpc_request	*req;
 	int			rc = 0;
-	__u64			flags = 0;	
+	__u64			flags = LDLM_FL_HAS_INTENT;
 	ldlm_mode_t		mode;
 
 	fid_build_reg_res_name(lu_object_fid(&dt->do_lu), res_id);
@@ -1168,7 +1221,10 @@ static int osp_md_object_lock(const struct lu_env *env,
 	if (mode > 0)
 		return ELDLM_OK;
 
-	req = ldlm_enqueue_pack(osp->opd_exp, 0);
+	einfo->ei_cb_bl = osp_md_blocking_ast;
+	einfo->ei_cb_cp = ldlm_completion_ast;
+
+	req = osp_enqueue_pack(osp->opd_exp);
 	if (IS_ERR(req))
 		RETURN(PTR_ERR(req));
 
