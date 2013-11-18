@@ -1055,6 +1055,7 @@ struct lu_context;
 #define IT_QUOTA_DQACQ (1 << 11)
 #define IT_QUOTA_CONN  (1 << 12)
 #define IT_SETXATTR (1 << 13)
+#define IT_CROSS_MDT (1 << 14)
 
 static inline int it_to_lock_mode(struct lookup_intent *it)
 {
