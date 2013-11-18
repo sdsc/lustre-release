@@ -777,6 +777,8 @@ int mdt_version_get_check(struct mdt_thread_info *, struct mdt_object *, int);
 void mdt_version_get_save(struct mdt_thread_info *, struct mdt_object *, int);
 int mdt_version_get_check_save(struct mdt_thread_info *, struct mdt_object *,
                                int);
+void mdt_obj_version_get(struct mdt_thread_info *info, struct mdt_object *o,
+			 __u64 *version);
 void mdt_thread_info_init(struct ptlrpc_request *req,
 			  struct mdt_thread_info *mti);
 void mdt_thread_info_fini(struct mdt_thread_info *mti);

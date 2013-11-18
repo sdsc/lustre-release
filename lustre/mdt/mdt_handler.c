@@ -2234,30 +2234,6 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
         RETURN(rc);
 }
 
-int mdt_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
-			void *data, int flag)
-{
-	struct lustre_handle lockh;
-	int		  rc;
-
-	switch (flag) {
-	case LDLM_CB_BLOCKING:
-		ldlm_lock2handle(lock, &lockh);
-		rc = ldlm_cli_cancel(&lockh, LCF_ASYNC);
-		if (rc < 0) {
-			CDEBUG(D_INODE, "ldlm_cli_cancel: %d\n", rc);
-			RETURN(rc);
-		}
-		break;
-	case LDLM_CB_CANCELING:
-		LDLM_DEBUG(lock, "Revoke remote lock\n");
-		break;
-	default:
-		LBUG();
-	}
-	RETURN(0);
-}
-
 int mdt_remote_object_lock(struct mdt_thread_info *mti,
 			   struct mdt_object *o, struct lustre_handle *lh,
 			   ldlm_mode_t mode, __u64 ibits)
@@ -2274,8 +2250,6 @@ int mdt_remote_object_lock(struct mdt_thread_info *mti,
 	memset(einfo, 0, sizeof(*einfo));
 	einfo->ei_type = LDLM_IBITS;
 	einfo->ei_mode = mode;
-	einfo->ei_cb_bl = mdt_md_blocking_ast;
-	einfo->ei_cb_cp = ldlm_completion_ast;
 
 	memset(policy, 0, sizeof(*policy));
 	policy->l_inodebits.bits = ibits;
@@ -2766,6 +2740,7 @@ enum mdt_it_code {
         MDT_IT_GETXATTR,
         MDT_IT_LAYOUT,
 	MDT_IT_QUOTA,
+	MDT_IT_CROSS,
         MDT_IT_NR
 };
 
@@ -3297,7 +3272,10 @@ static int mdt_intent_code(long itcode)
 	case IT_QUOTA_CONN:
 		rc = MDT_IT_QUOTA;
 		break;
-        default:
+	case IT_CROSS_MDT:
+		rc = MDT_IT_CROSS;
+		break;
+	default:
                 CERROR("Unknown intent opcode: %ld\n", itcode);
                 rc = -EINVAL;
                 break;
@@ -3331,6 +3309,41 @@ static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
 		rc = qmt_hdls.qmth_intent_policy(info->mti_env, qmt,
 						 mdt_info_req(info), lockp,
 						 flags);
+		RETURN(rc);
+	}
+
+	if (opc == MDT_IT_CROSS) {
+		struct mdt_lock_handle *lh = &info->mti_lh[MDT_LH_CHILD];
+		struct ldlm_reply *ldlm_rep;
+		struct mdt_object *obj;
+
+		req_capsule_set_size(info->mti_pill, &RMF_DLM_LVB, RCL_SERVER,
+				     0);
+		rc = req_capsule_server_pack(info->mti_pill);
+		if (rc != 0)
+			RETURN(rc);
+
+		ldlm_rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
+		mdt_set_disposition(info, ldlm_rep, DISP_IT_EXECD);
+
+		fid_extract_from_res_name(&info->mti_tmp_fid1,
+					  &(*lockp)->l_resource->lr_name);
+
+		mdt_lock_reg_init(lh, (*lockp)->l_req_mode);
+		obj = mdt_object_find_lock(info, &info->mti_tmp_fid1, lh,
+				   (*lockp)->l_policy_data.l_inodebits.bits);
+		if (IS_ERR(obj))
+			RETURN(PTR_ERR(obj));
+
+		/* Check version, if it is < last committed, Commit */
+		mdt_obj_version_get(info, obj, &info->mti_ver[0]);
+		if (info->mti_ver[0] >
+		    info->mti_mdt->mdt_lu_dev.ld_obd->obd_last_committed)
+			mdt_device_commit_async(info->mti_env, info->mti_mdt);
+
+		rc = mdt_intent_lock_replace(info, lockp, NULL, lh, flags);
+		mdt_object_put(info->mti_env, obj);
+		ldlm_rep->lock_policy_res2 = clear_serious(rc);
 		RETURN(rc);
 	}
 
