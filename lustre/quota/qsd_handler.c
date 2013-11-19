@@ -342,7 +342,7 @@ static void qsd_req_completion(const struct lu_env *env,
 	}
 
 	/* Set the lqe_lockh */
-	if (lustre_handle_is_used(lockh) &&
+	if (lvb && lustre_handle_is_used(lockh) &&
 	    !lustre_handle_equal(lockh, &lqe->lqe_lockh))
 		lustre_handle_copy(&lqe->lqe_lockh, lockh);
 
