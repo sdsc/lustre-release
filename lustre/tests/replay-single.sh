@@ -2044,11 +2044,11 @@ test_80a() {
 
 	mkdir -p $DIR/$tdir
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
-	fail mds$((MDTIDX + 1))
+	fail mds${MDTIDX}
 
 	wait $CLIENT_PID || error "remote creation failed"
 
@@ -2057,7 +2057,7 @@ test_80a() {
 
 	return 0
 }
-run_test 80a "DNE: create remote dir, drop update rep from MDT1, fail MDT1"
+run_test 80a "DNE: create remote dir, drop update rep from MDT0, fail MDT0"
 
 test_80b() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2071,11 +2071,11 @@ test_80b() {
 
 	mkdir -p $DIR/$tdir
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
-	fail mds${MDTIDX}
+	fail mds$((MDTIDX + 1))
 
 	wait $CLIENT_PID || error "remote creation failed"
 
@@ -2084,7 +2084,7 @@ test_80b() {
 
 	return 0
 }
-run_test 80b "DNE: create remote dir, drop update rep from MDT1, fail MDT0"
+run_test 80b "DNE: create remote dir, drop update rep from MDT0, fail MDT1"
 
 test_80c() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2098,7 +2098,7 @@ test_80c() {
 
 	mkdir -p $DIR/$tdir
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2121,7 +2121,7 @@ test_80d() {
 
 	mkdir -p $DIR/$tdir
 	#define OBD_FAIL_UPDATE_OBJ_NET_REP	0x1701
-	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x1701
+	do_facet mds${MDTIDX} lctl set_param fail_loc=0x1701
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2148,7 +2148,7 @@ test_80e() {
 
 	mkdir -p $DIR/$tdir
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2161,7 +2161,7 @@ test_80e() {
 
 	return 0
 }
-run_test 80e "DNE: create remote dir, drop MDT0 rep, fail MDT0"
+run_test 80e "DNE: create remote dir, drop MDT1 rep, fail MDT0"
 
 test_80f() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2174,7 +2174,7 @@ test_80f() {
 
 	mkdir -p $DIR/$tdir
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2187,7 +2187,7 @@ test_80f() {
 
 	return 0
 }
-run_test 80f "DNE: create remote dir, drop MDT0 rep, fail MDT1"
+run_test 80f "DNE: create remote dir, drop MDT1 rep, fail MDT1"
 
 test_80g() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2201,7 +2201,7 @@ test_80g() {
 
 	mkdir -p $DIR/$tdir
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2215,7 +2215,7 @@ test_80g() {
 
 	return 0
 }
-run_test 80g "DNE: create remote dir, drop MDT0 rep, fail MDT0, then MDT1"
+run_test 80g "DNE: create remote dir, drop MDT1 rep, fail MDT0, then MDT1"
 
 test_80h() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2224,7 +2224,7 @@ test_80h() {
 
 	mkdir -p $DIR/$tdir
 	# OBD_FAIL_MDS_REINT_NET_REP       0x119
-	do_facet mds${MDTIDX} lctl set_param fail_loc=0x119
+	do_facet mds$((MDTIDX + 1)) lctl set_param fail_loc=0x119
 	$LFS mkdir -i $MDTIDX $remote_dir &
 	local CLIENT_PID=$!
 
@@ -2237,7 +2237,7 @@ test_80h() {
 
 	return 0
 }
-run_test 80h "DNE: create remote dir, drop MDT0 rep, fail 2 MDTs"
+run_test 80h "DNE: create remote dir, drop MDT1 rep, fail 2 MDTs"
 
 test_81a() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
@@ -2805,6 +2805,113 @@ test_90() { # bug 19494
     cleanup_90 $ostfail
 }
 run_test 90 "lfs find identifies the missing striped file segments"
+
+test_100a() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	local MDTIDX=1
+	local remote_dir=$DIR/$tdir/remote_dir
+	local diridx
+
+	rm -rf $DIR/$tdir
+	#create objects on MDT0/MDT1 to create local FLDB first
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i $MDTIDX $DIR/$tdir/tmp_dir
+
+	replay_barrier mds2
+	$LFS mkdir -i $MDTIDX $remote_dir
+	mdt_evict_client mds2
+	fail mds2
+
+	diridx=$($GETSTRIPE -M $remote_dir)
+	[ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+	createmany -o $remote_dir/f-%d 20 || error "creation failed"
+	local fileidx=$($GETSTRIPE -M $remote_dir/f-1)
+	[ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 100a "create remote dir, fail Master MDT(MDT2) and evict client"
+
+test_100b() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	local MDTIDX=1
+	local remote_dir=$DIR/$tdir/remote_dir
+	local diridx
+
+	rm -rf $DIR/$tdir
+	#create objects on MDT0/MDT1 to create local FLDB first
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i $MDTIDX $DIR/$tdir/tmp_dir
+
+	replay_barrier mds1
+	$LFS mkdir -i $MDTIDX $remote_dir
+	mdt_evict_client mds2
+
+	fail mds1
+
+	$LCTL dk > /tmp/debug.out
+	diridx=$($GETSTRIPE -M $remote_dir)
+	[ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+	createmany -o $remote_dir/f-%d 20 || error "creation failed"
+	local fileidx=$($GETSTRIPE -M $remote_dir/f-1)
+	[ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 100b "create remote dir, fail slave MDT, evict client"
+
+test_100c() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	local MDTIDX=1
+	local remote_dir=$DIR/$tdir/remote_dir
+	local diridx
+
+	rm -rf $DIR/$tdir
+	#create objects on MDT0/MDT1 to create local FLDB first
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i $MDTIDX $DIR/$tdir/tmp_dir
+
+	replay_barrier mds1
+	$LFS mkdir -i $MDTIDX $remote_dir
+	mdt_evict_client mds2
+
+	sleep 2
+	fail mds1,mds2
+
+	diridx=$($GETSTRIPE -M $remote_dir)
+	[ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+	createmany -o $remote_dir/f-%d 20 || error "creation failed"
+	local fileidx=$($GETSTRIPE -M $remote_dir/f-1)
+	[ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 100c "create remote dir, fail master/slave MDT, evict client"
+
 
 complete $SECONDS
 check_and_cleanup_lustre

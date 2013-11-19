@@ -341,9 +341,6 @@ void md_from_obdo(struct md_op_data *op_data, struct obdo *oa, obd_flag valid);
 void obdo_from_md(struct obdo *oa, struct md_op_data *op_data,
                   unsigned int valid);
 
-void obdo_cpu_to_le(struct obdo *dobdo, struct obdo *sobdo);
-void obdo_le_to_cpu(struct obdo *dobdo, struct obdo *sobdo);
-
 #define OBT(dev)        (dev)->obd_type
 #define OBP(dev, op)    (dev)->obd_type->typ_dt_ops->o_ ## op
 #define MDP(dev, op)    (dev)->obd_type->typ_md_ops->m_ ## op
@@ -2004,17 +2001,31 @@ static inline int md_fsync(struct obd_export *exp, const struct lu_fid *fid,
 	rc = MDP(exp->exp_obd, fsync)(exp, fid, oc, request);
 	RETURN(rc);
 }
-
-static inline int md_readpage(struct obd_export *exp, struct md_op_data *opdata,
-                              struct page **pages,
-                              struct ptlrpc_request **request)
+static inline int md_readpage(struct obd_export *exp,
+			      struct md_op_data *op_data,
+			      struct md_callback *cb_op,
+			      struct ptlrpc_request **request,
+			      struct page **page)
 {
-        int rc;
-        ENTRY;
-        EXP_CHECK_MD_OP(exp, readpage);
-        EXP_MD_COUNTER_INCREMENT(exp, readpage);
-        rc = MDP(exp->exp_obd, readpage)(exp, opdata, pages, request);
-        RETURN(rc);
+	int rc;
+	ENTRY;
+	EXP_CHECK_MD_OP(exp, readpage);
+	EXP_MD_COUNTER_INCREMENT(exp, readpage);
+	rc = MDP(exp->exp_obd, readpage)(exp, op_data, cb_op, request, page);
+	RETURN(rc);
+}
+
+static inline int md_read_entry(struct obd_export *exp,
+				struct md_op_data *op_data,
+				struct md_callback *cb_op,
+				struct lu_dirent **ld)
+{
+	int rc;
+	ENTRY;
+	EXP_CHECK_MD_OP(exp, read_entry);
+	EXP_MD_COUNTER_INCREMENT(exp, read_entry);
+	rc = MDP(exp->exp_obd, read_entry)(exp, op_data, cb_op, ld);
+	RETURN(rc);
 }
 
 static inline int md_unlink(struct obd_export *exp, struct md_op_data *op_data,
@@ -2047,6 +2058,26 @@ static inline int md_free_lustre_md(struct obd_export *exp,
         EXP_CHECK_MD_OP(exp, free_lustre_md);
         EXP_MD_COUNTER_INCREMENT(exp, free_lustre_md);
         RETURN(MDP(exp->exp_obd, free_lustre_md)(exp, md));
+}
+
+static inline int md_update_lsm_md(struct obd_export *exp,
+				   struct lmv_stripe_md *lsm,
+				   struct mdt_body *body,
+				   ldlm_blocking_callback cb)
+{
+	ENTRY;
+	EXP_CHECK_MD_OP(exp, update_lsm_md);
+	EXP_MD_COUNTER_INCREMENT(exp, update_lsm_md);
+	RETURN(MDP(exp->exp_obd, update_lsm_md)(exp, lsm, body, cb));
+}
+
+static inline int md_merge_attr(struct obd_export *exp,
+				struct lmv_stripe_md *lsm, struct cl_attr *attr)
+{
+        ENTRY;
+        EXP_CHECK_MD_OP(exp, merge_attr);
+        EXP_MD_COUNTER_INCREMENT(exp, merge_attr);
+        RETURN(MDP(exp->exp_obd, merge_attr)(exp, lsm, attr));
 }
 
 static inline int md_setxattr(struct obd_export *exp,

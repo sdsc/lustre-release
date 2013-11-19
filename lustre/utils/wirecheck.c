@@ -1205,20 +1205,6 @@ check_lmv_desc(void)
 }
 
 static void
-check_lmv_stripe_md(void)
-{
-	BLANK_LINE();
-	CHECK_STRUCT(lmv_stripe_md);
-	CHECK_MEMBER(lmv_stripe_md, mea_magic);
-	CHECK_MEMBER(lmv_stripe_md, mea_count);
-	CHECK_MEMBER(lmv_stripe_md, mea_master);
-	CHECK_MEMBER(lmv_stripe_md, mea_padding);
-	CHECK_CVALUE(LOV_MAXPOOLNAME);
-	CHECK_MEMBER(lmv_stripe_md, mea_pool_name[LOV_MAXPOOLNAME]);
-	CHECK_MEMBER(lmv_stripe_md, mea_ids[0]);
-}
-
-static void
 check_lov_desc(void)
 {
 	BLANK_LINE();
@@ -2020,13 +2006,25 @@ static void check_update_buf(void)
 	CHECK_MEMBER(update_buf, ub_bufs);
 }
 
+static void check_update_reply_buf(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(update_reply_buf);
+	CHECK_MEMBER(update_reply_buf, urb_version);
+	CHECK_MEMBER(update_reply_buf, urb_count);
+	CHECK_MEMBER(update_reply_buf, urb_lens);
+}
+
 static void check_update_reply(void)
 {
 	BLANK_LINE();
 	CHECK_STRUCT(update_reply);
-	CHECK_MEMBER(update_reply, ur_version);
-	CHECK_MEMBER(update_reply, ur_count);
-	CHECK_MEMBER(update_reply, ur_lens);
+	CHECK_MEMBER(update_reply, ur_rc);
+	CHECK_MEMBER(update_reply, ur_transno);
+	CHECK_MEMBER(update_reply, ur_xid);
+	CHECK_MEMBER(update_reply, ur_transno_idx);
+	CHECK_MEMBER(update_reply, ur_datalen);
+	CHECK_MEMBER(update_reply, ur_data);
 }
 
 static void check_update(void)
@@ -2034,8 +2032,13 @@ static void check_update(void)
 	BLANK_LINE();
 	CHECK_STRUCT(update);
 	CHECK_MEMBER(update, u_type);
+	CHECK_MEMBER(update, u_master_index);
+	CHECK_MEMBER(update, u_index);
+	CHECK_MEMBER(update, u_flags);
 	CHECK_MEMBER(update, u_batchid);
+	CHECK_MEMBER(update, u_xid);
 	CHECK_MEMBER(update, u_fid);
+	CHECK_MEMBER(update, u_cookie);
 	CHECK_MEMBER(update, u_lens);
 	CHECK_MEMBER(update, u_bufs);
 }
@@ -2277,6 +2280,7 @@ main(int argc, char **argv)
 	/* CHECK_CVALUE(LUSTRE_RES_ID_WAS_VER_OFF); packed with OID */
 
 	CHECK_VALUE(UPDATE_OBJ);
+	CHECK_VALUE(UPDATE_LOG_CANCEL);
 	CHECK_VALUE(UPDATE_LAST_OPC);
 	CHECK_CVALUE(LUSTRE_RES_ID_QUOTA_SEQ_OFF);
 	CHECK_CVALUE(LUSTRE_RES_ID_QUOTA_VER_OID_OFF);
@@ -2329,6 +2333,7 @@ main(int argc, char **argv)
 	CHECK_VALUE(OBJ_INDEX_LOOKUP);
 	CHECK_VALUE(OBJ_INDEX_INSERT);
 	CHECK_VALUE(OBJ_INDEX_DELETE);
+	CHECK_VALUE(OBJ_LOG_CANCEL);
 
 	check_som_attrs();
 	check_hsm_attrs();
@@ -2362,7 +2367,6 @@ main(int argc, char **argv)
 	check_mdt_rec_setxattr();
 	check_mdt_rec_reint();
 	check_lmv_desc();
-	check_lmv_stripe_md();
 	check_lov_desc();
 	check_ldlm_res_id();
 	check_ldlm_extent();
@@ -2431,6 +2435,7 @@ main(int argc, char **argv)
 	check_hsm_user_import();
 
 	check_update_buf();
+	check_update_reply_buf();
 	check_update_reply();
 	check_update();
 

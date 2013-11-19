@@ -1361,6 +1361,9 @@ static const struct osd_lf_map osd_lf_maps[] = {
 	{ CATLIST, { FID_SEQ_LOCAL_FILE, LLOG_CATALOGS_OID, 0 }, OLF_SHOW_NAME,
 		NULL, NULL },
 
+	{ MDCATLIST, { FID_SEQ_LOCAL_FILE, SLAVE_LLOG_CATALOGS_OID, 0 },
+	  OLF_SHOW_NAME, NULL, NULL },
+
 	/* CONFIGS */
 	{ MOUNT_CONFIGS_DIR, { FID_SEQ_LOCAL_FILE, MGS_CONFIGS_OID, 0 },
 		OLF_SCAN_SUBITEMS, osd_ios_general_scan,
@@ -1436,6 +1439,12 @@ static const struct osd_lf_map osd_lf_maps[] = {
 
 	/* LAST_GROUP, upgrade from old device */
 	{ "LAST_GROUP", { FID_SEQ_LOCAL_FILE, OFD_LAST_GROUP_OID, 0 },
+		OLF_SHOW_NAME, NULL, NULL },
+
+	{ "SLAVE_LOG", { FID_SEQ_LOCAL_FILE, SLAVE_LLOG_CATALOGS_OID, 0 },
+		OLF_SHOW_NAME, NULL, NULL },
+
+	{ "UPDATE_LOG", { FID_SEQ_LOCAL_FILE, UPDATE_LLOG_CATALOGS_OID, 0 },
 		OLF_SHOW_NAME, NULL, NULL },
 
 	/* lost+found */
