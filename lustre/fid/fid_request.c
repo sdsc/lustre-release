@@ -495,8 +495,6 @@ int seq_client_init(struct lu_client_seq *seq,
 
 	if (exp != NULL)
 		seq->lcs_exp = class_export_get(exp);
-	else if (type == LUSTRE_SEQ_METADATA)
-		LASSERT(seq->lcs_srv != NULL);
 
 	snprintf(seq->lcs_name, sizeof(seq->lcs_name),
 		 "cli-%s", prefix);

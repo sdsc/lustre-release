@@ -70,7 +70,7 @@ int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 		RETURN(rc);
 	}
 
-	if (!lod->lod_initialized || (!fid_seq_in_fldb(fid_seq(fid)))) {
+	if (!fid_seq_in_fldb(fid_seq(fid))) {
 		LASSERT(lu_site2seq(lod2lu_dev(lod)->ld_site) != NULL);
 		*tgt = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_node_id;
 		RETURN(rc);
@@ -84,8 +84,8 @@ int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 
 	*tgt = range.lsr_index;
 
-	CDEBUG(D_INFO, "LOD: got tgt %x for sequence: "
-	       LPX64"\n", *tgt, fid_seq(fid));
+	CDEBUG(D_INFO, "LOD: got tgt %x for sequence: " LPX64"\n", *tgt,
+	       fid_seq(fid));
 
 	RETURN(rc);
 }
@@ -176,7 +176,7 @@ static int lod_cleanup_desc_tgts(const struct lu_env *env,
 	return rc;
 }
 
-static int lodname2mdt_index(char *lodname, long *index)
+static int lodname2mdt_index(char *lodname, int *mdt_index)
 {
 	char *ptr, *tmp;
 
@@ -202,8 +202,8 @@ static int lodname2mdt_index(char *lodname, long *index)
 		return -EINVAL;
 	}
 
-	*index = simple_strtol(ptr - 4, &tmp, 16);
-	if (*tmp != '-' || *index > INT_MAX || *index < 0) {
+	*mdt_index = (int)simple_strtol(ptr - 4, &tmp, 16);
+	if (*tmp != '-' || *mdt_index > INT_MAX || *mdt_index < 0) {
 		CERROR("invalid MDT index in '%s'\n", lodname);
 		return -EINVAL;
 	}
@@ -214,8 +214,7 @@ static int lodname2mdt_index(char *lodname, long *index)
  * Init client sequence manager which is used by local MDS to talk to sequence
  * controller on remote node.
  */
-static int lod_seq_init_cli(const struct lu_env *env,
-			    struct lod_device *lod,
+static int lod_seq_init_cli(const struct lu_env *env, struct lod_device *lod,
 			    char *tgtuuid, int index)
 {
 	struct seq_server_site	*ss;
@@ -230,7 +229,7 @@ static int lod_seq_init_cli(const struct lu_env *env,
 
 	/* check if this is adding the first MDC and controller is not yet
 	 * initialized. */
-	if (index != 0 || ss->ss_client_seq)
+	if (index == 0 || ss->ss_client_seq)
 		RETURN(0);
 
 	obd_str2uuid(&obd_uuid, tgtuuid);
@@ -360,18 +359,20 @@ static int lod_process_config(const struct lu_env *env,
 			if (mdt == NULL) {
 				mdt_index = 0;
 			} else {
-				long long_index;
 				rc = lodname2mdt_index(
 					lustre_cfg_string(lcfg, 0),
-					&long_index);
+					&mdt_index);
 				if (rc != 0)
 					GOTO(out, rc);
-				mdt_index = long_index;
 			}
 			rc = lod_add_device(env, lod, arg1, index, gen,
 					    mdt_index, LUSTRE_OSC_NAME, 1);
 		} else if (lcfg->lcfg_command == LCFG_ADD_MDC) {
-			mdt_index = index;
+			rc = lodname2mdt_index(lustre_cfg_string(lcfg, 0),
+					       &mdt_index);
+			if (rc != 0)
+				GOTO(out, rc);
+
 			rc = lod_add_device(env, lod, arg1, index, gen,
 					    mdt_index, LUSTRE_MDC_NAME, 1);
 			if (rc == 0)
@@ -516,14 +517,17 @@ static struct thandle *lod_trans_create(const struct lu_env *env,
 	if (IS_ERR(th))
 		return th;
 
-	CFS_INIT_LIST_HEAD(&th->th_remote_update_list);
+	/* Use the buffer in lod_thread_info first, if it is
+	 * not enough, osp_insert_update will re-allocate a
+	 * bigger buffer to store update */
 	return th;
 }
 
+#if 0
 static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
-	struct update_request *update;
+	struct thandle_update_dt *update;
 	int    rc = 0;
 	ENTRY;
 
@@ -531,56 +535,70 @@ static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
 		RETURN(0);
 
 	cfs_list_for_each_entry(update, &th->th_remote_update_list,
-				ur_list) {
+				tud_list) {
 		/* In DNE phase I, there should be only one OSP
 		 * here, so we will do send/receive one by one,
 		 * instead of sending them parallel, will fix this
 		 * in Phase II */
-		th->th_current_request = update;
-		rc = dt_trans_start(env, update->ur_dt, th);
+		rc = dt_trans_stop(env, update->tud_dt, th);
 		if (rc != 0) {
 			/* FIXME how to revert the partial results
 			 * once error happened? Resolved by 2 Phase commit */
-			update->ur_rc = rc;
+			update->tud_rc = rc;
 			break;
 		}
 	}
 
 	RETURN(rc);
 }
+#endif
 
 static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
 	struct lod_device *lod = dt2lod_dev((struct dt_device *) dev);
-	int rc;
-
-	rc = lod_remote_sync(env, dev, th);
-	if (rc)
-		return rc;
 
 	return dt_trans_start(env, lod->lod_child, th);
 }
 
-static int lod_trans_stop(const struct lu_env *env, struct thandle *th)
+static int lod_trans_stop(const struct lu_env *env, struct dt_device *dev,
+			  struct thandle *th)
 {
-	struct update_request *update;
-	struct update_request *tmp;
-	int rc = 0;
-	int rc2 = 0;
+	struct thandle_update_dt *update;
+	struct thandle_update_dt *tmp;
+	struct thandle_update	 *tu = th->th_update;
+	int			 rc = 0;
+	int			 rc2 = 0;
+	ENTRY;
 
-	cfs_list_for_each_entry_safe(update, tmp,
-				     &th->th_remote_update_list,
-				     ur_list) {
-		th->th_current_request = update;
-		rc2 = dt_trans_stop(env, update->ur_dt, th);
-		if (unlikely(rc2 != 0 && rc == 0))
-			rc = rc2;
+	/* Because th might be freed after trans stop, so we will set
+	 * tu_result before local trans stop */
+	if (tu != NULL)
+		tu->tu_result = th->th_result;
+
+	rc = dt_trans_stop(env, th->th_dev, th);
+	if (tu != NULL) {
+		cfs_list_for_each_entry_safe(update, tmp,
+					     &tu->tu_remote_update_list,
+					     tud_list) {
+			/* Each tud will be freed in trans_stop */
+			rc2 = dt_trans_stop(env, update->tud_dt,
+					    (struct thandle *)tu);
+			if (unlikely(rc2 != 0 && rc == 0))
+				rc = rc2;
+		}
+		LASSERT(cfs_list_empty(&tu->tu_remote_update_list));
 	}
 
-	rc2 = dt_trans_stop(env, th->th_dev, th);
+	/* Free update buf if necessary */
+	/* If the buf_size > LOD_UPDATE_BUFFER_SIZE, it means
+	 * osp re-allocate the buffer, it should be free here. */
+	if (tu != NULL) {
+		update_buf_free(tu->tu_update_buf);
+		OBD_FREE_PTR(tu);
+	}
 
-	return rc2 != 0 ? rc2 : rc;
+	RETURN(rc);
 }
 
 static void lod_conf_get(const struct lu_env *env,
