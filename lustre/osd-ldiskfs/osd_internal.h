@@ -81,6 +81,9 @@ struct inode;
 /* Do not add OI mapping for this inode. */
 #define LDISKFS_STATE_LUSTRE_NO_OI	30
 
+/* The object is dead. */
+#define LDISKFS_STATE_LUSTRE_DEAD	29
+
 /** Enable thandle usage statistics */
 #define OSD_THANDLE_STATS (0)
 
