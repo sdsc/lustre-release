@@ -32,14 +32,32 @@
 #define _LUSTRE_UPDATE_H
 
 #define UPDATE_BUFFER_SIZE	8192
-struct update_request {
-	struct dt_device	*ur_dt;
-	cfs_list_t		ur_list;    /* attached itself to thandle */
-	int			ur_flags;
-	int			ur_rc;	    /* request result */
-	int			ur_batchid; /* Current batch(trans) id */
-	struct update_buf	*ur_buf;   /* Holding the update req */
-};
+static inline void update_buf_init(struct update_buf *ubuf)
+{
+	ubuf->ub_magic = UPDATE_REQUEST_MAGIC;
+	ubuf->ub_count = 0;
+}
+
+static inline struct update_buf *update_buf_alloc(void)
+{
+	struct update_buf *buf;
+
+	OBD_ALLOC_LARGE(buf, UPDATE_BUFFER_SIZE);
+	if (buf == NULL)
+		return NULL;
+
+	update_buf_init(buf);
+	return buf;
+}
+
+static inline void update_buf_free(struct update_buf *ubuf)
+{
+	if (ubuf == NULL)
+		return;
+	LASSERT(ubuf->ub_magic == UPDATE_REQUEST_MAGIC);
+	OBD_FREE_LARGE(ubuf, UPDATE_BUFFER_SIZE);
+	return;
+}
 
 static inline unsigned long update_size(struct update *update)
 {
@@ -47,7 +65,7 @@ static inline unsigned long update_size(struct update *update)
 	int	   i;
 
 	size = cfs_size_round(offsetof(struct update, u_bufs[0]));
-	for (i = 0; i < UPDATE_BUF_COUNT; i++)
+	for (i = 0; i < UPDATE_PARAM_COUNT; i++)
 		size += cfs_size_round(update->u_lens[i]);
 
 	return size;
@@ -59,14 +77,16 @@ static inline void *update_param_buf(struct update *update, int index,
 	int	i;
 	void	*ptr;
 
-	if (index >= UPDATE_BUF_COUNT)
+	if (index >= UPDATE_PARAM_COUNT)
 		return NULL;
 
-	ptr = (char *)update + cfs_size_round(offsetof(struct update,
-						       u_bufs[0]));
-	for (i = 0; i < index; i++) {
-		LASSERT(update->u_lens[i] > 0);
-		ptr += cfs_size_round(update->u_lens[i]);
+	if (unlikely(update->u_lens[index] == 0)) {
+		ptr = NULL;
+	} else {
+		ptr = (char *)update +
+		      cfs_size_round(offsetof(struct update, u_bufs[0]));
+		for (i = 0; i < index; i++)
+			ptr += cfs_size_round(update->u_lens[i]);
 	}
 
 	if (size != NULL)
@@ -87,7 +107,8 @@ static inline unsigned long update_buf_size(struct update_buf *buf)
 		update = (struct update *)((char *)buf + size);
 		size += update_size(update);
 	}
-	LASSERT(size <= UPDATE_BUFFER_SIZE);
+	LASSERTF(size <= UPDATE_BUFFER_SIZE, "%lu > max %d ubuf %p count %d\n",
+		 size, UPDATE_BUFFER_SIZE, buf, buf->ub_count);
 	return size;
 }
 
@@ -111,82 +132,199 @@ static inline void *update_buf_get(struct update_buf *buf, int index, int *size)
 	return ptr;
 }
 
-static inline void update_init_reply_buf(struct update_reply *reply, int count)
+static inline int update_buf_master_idx(struct update_buf *ubuf)
 {
-	reply->ur_version = UPDATE_REPLY_V1;
-	reply->ur_count = count;
+	struct update	*update;
+	int		count = ubuf->ub_count;
+
+	LASSERT(count > 0);
+	/* XXX currently the master index of one update buf should
+	 * be same, so we only need return the master index of first
+	 * update */
+	update = update_buf_get(ubuf, 0, NULL);
+
+	return update->u_master_index;
 }
 
-static inline void *update_get_buf_internal(struct update_reply *reply,
-					    int index, int *size)
+static inline void update_init_reply_buf(struct update_reply_buf *reply_buf,
+					 int count)
+{
+	reply_buf->urb_version = UPDATE_REPLY_V2;
+	reply_buf->urb_count = count;
+}
+
+static inline struct update_reply
+*update_get_reply(struct update_reply_buf *reply_buf, int index, int *size)
 {
 	char *ptr;
-	int count = reply->ur_count;
+	int count = reply_buf->urb_count;
 	int i;
 
 	if (index >= count)
 		return NULL;
 
-	ptr = (char *)reply + cfs_size_round(offsetof(struct update_reply,
-					     ur_lens[count]));
+	ptr = (char *)reply_buf +
+	       cfs_size_round(offsetof(struct update_reply_buf,
+				       urb_lens[count]));
 	for (i = 0; i < index; i++) {
-		LASSERT(reply->ur_lens[i] > 0);
-		ptr += cfs_size_round(reply->ur_lens[i]);
+		LASSERT(reply_buf->urb_lens[i] >=
+			cfs_size_round(sizeof(struct update_reply)));
+		ptr += cfs_size_round(reply_buf->urb_lens[i]);
 	}
 
 	if (size != NULL)
-		*size = reply->ur_lens[index];
+		*size = reply_buf->urb_lens[index];
 
-	return ptr;
+	return (struct update_reply *)ptr;
 }
 
-static inline void update_insert_reply(struct update_reply *reply, void *data,
-				       int data_len, int index, int rc)
+static inline void update_insert_reply(struct update_reply_buf *reply_buf,
+				       void *data, int data_len, int index,
+				       int rc)
 {
+	struct update_reply *reply;
 	char *ptr;
 
-	ptr = update_get_buf_internal(reply, index, NULL);
-	LASSERT(ptr != NULL);
+	reply = update_get_reply(reply_buf, index, NULL);
+	LASSERT(reply != NULL);
 
-	*(int *)ptr = cpu_to_le32(rc);
-	ptr += sizeof(int);
+	reply->ur_rc = ptlrpc_status_hton(rc);
+	ptr = (char *)reply + cfs_size_round(sizeof(struct update_reply));
 	if (data_len > 0) {
 		LASSERT(data != NULL);
+		reply->ur_datalen = data_len;
 		memcpy(ptr, data, data_len);
 	}
-	reply->ur_lens[index] = data_len + sizeof(int);
+
+	reply_buf->urb_lens[index] = cfs_size_round(data_len) +
+				 cfs_size_round(sizeof(struct update_reply));
 }
 
-static inline int update_get_reply_buf(struct update_reply *reply, void **buf,
-				       int index)
+static inline int update_get_reply_data(struct ptlrpc_request *req,
+				        struct update_reply_buf *reply_buf,
+				        void **buf, int index)
 {
-	char *ptr;
+	struct update_reply *reply;
 	int  size = 0;
 	int  result;
 
-	ptr = update_get_buf_internal(reply, index, &size);
-	LASSERT(ptr != NULL);
-	result = *(int *)ptr;
-
+	reply = update_get_reply(reply_buf, index, &size);
+	LASSERT(reply != NULL);
+	if (ptlrpc_rep_need_swab(req))
+		lustre_swab_update_reply(reply);
+	result = ptlrpc_status_ntoh(reply->ur_rc);
 	if (result < 0)
 		return result;
 
-	LASSERT(size >= sizeof(int));
-	*buf = ptr + sizeof(int);
-	return size - sizeof(int);
+	LASSERT((reply != NULL &&
+		 size >= cfs_size_round(sizeof(struct update_reply))));
+	*buf = (char *)reply->ur_data;
+
+	return reply->ur_datalen;
 }
 
-static inline int update_get_reply_result(struct update_reply *reply,
-					  void **buf, int index)
+static inline void update_cpu_to_le(struct update *dst, struct update *src)
 {
-	void *ptr;
-	int  size;
+	int i;
 
-	ptr = update_get_buf_internal(reply, index, &size);
-	LASSERT(ptr != NULL && size > sizeof(int));
-	return *(int *)ptr;
+	dst->u_type = cpu_to_le16(src->u_type);
+	dst->u_master_index = cpu_to_le16(src->u_master_index);
+	dst->u_flags = cpu_to_le32(src->u_flags);
+	dst->u_batchid = cpu_to_le64(src->u_batchid);
+	dst->u_xid = cpu_to_le64(src->u_xid);
+	fid_cpu_to_le(&dst->u_fid, &src->u_fid);
+	llog_cookie_cpu_to_le(&dst->u_cookie, &src->u_cookie);
+	for (i = 0; i < UPDATE_PARAM_COUNT; i++)
+		dst->u_lens[i] = cpu_to_le32(src->u_lens[i]);
+	return;
 }
+
+static inline void update_le_to_cpu(struct update *dst, struct update *src)
+{
+	int i;
+
+	dst->u_type = le16_to_cpu(src->u_type);
+	dst->u_master_index = le16_to_cpu(src->u_master_index);
+	dst->u_flags = le32_to_cpu(src->u_flags);
+	dst->u_batchid = le64_to_cpu(src->u_batchid);
+	dst->u_xid = le64_to_cpu(src->u_xid);
+	fid_le_to_cpu(&dst->u_fid, &src->u_fid);
+	llog_cookie_le_to_cpu(&dst->u_cookie, &src->u_cookie);
+	for (i = 0; i < UPDATE_PARAM_COUNT; i++)
+		dst->u_lens[i] = le32_to_cpu(src->u_lens[i]);
+	return;
+}
+
+static inline void update_buf_cpu_to_le(struct update_buf *dst_ubuf,
+					struct update_buf *src_ubuf)
+{
+	int i;
+
+	dst_ubuf->ub_magic = cpu_to_le32(src_ubuf->ub_magic);
+	dst_ubuf->ub_count = cpu_to_le32(src_ubuf->ub_count);
+
+	for (i = 0; i < src_ubuf->ub_count; i++) {
+		struct update *src = update_buf_get(src_ubuf, i, NULL);
+		struct update *dst = update_buf_get(dst_ubuf, i, NULL);
+
+		update_cpu_to_le(dst, src);
+	}
+
+	return;
+}
+
+static inline void update_buf_le_to_cpu(struct update_buf *dst_ubuf,
+					struct update_buf *src_ubuf)
+{
+	int i;
+
+	dst_ubuf->ub_magic = le32_to_cpu(src_ubuf->ub_magic);
+	dst_ubuf->ub_count = le32_to_cpu(src_ubuf->ub_count);
+	for (i = 0; i < dst_ubuf->ub_count; i++) {
+		struct update *src = update_buf_get(src_ubuf, i, NULL);
+		struct update *dst = update_buf_get(dst_ubuf, i, NULL);
+
+		update_le_to_cpu(dst, src);
+	}
+
+	return;
+}
+
+
+const char *update_op_str(__u16 opcode);
+/* For debugging purpose */
+static inline void update_dump_buf(struct update_buf *ubuf, __u32 umask)
+{
+	int i;
+
+	CDEBUG(umask, "ubuf %p magic %x count %d\n", ubuf, ubuf->ub_magic,
+	       ubuf->ub_count);
+
+	for (i = 0; i < ubuf->ub_count; i++) {
+		struct update *update;
+		update = (struct update *)update_buf_get(ubuf, i, NULL);
+		CDEBUG(umask, "i: %d fid: "DFID" op: %s master: %d idx %d"
+		       "batchid: "LPU64" xid: "LPU64" cookie %u "DOSTID":%u\n",
+		       i, PFID(&update->u_fid), update_op_str(update->u_type),
+		       (int)update->u_master_index, update->u_index,
+		       update->u_batchid, update->u_xid,
+		       update->u_cookie.lgc_index,
+		       POSTID(&update->u_cookie.lgc_lgl.lgl_oi),
+		       update->u_cookie.lgc_lgl.lgl_ogen);
+	}
+}
+
+struct update *update_pack(const struct lu_env *env,
+			   struct update_buf *ubuf, int buf_len, int op,
+			   const struct lu_fid *fid, int count, int *lens,
+			   __u64 batchid, int index, int master_index);
+
+int update_insert(const struct lu_env *env, struct update_buf *ubuf,
+		  int buf_len, int op, const struct lu_fid *fid,
+		  int count, int *lens, char **bufs, __u64 batchid,
+		  int index, int master_index);
+void dt_update_xid(struct update_buf *ubuf, int index, __u64 xid);
+
+struct obd_llog_group *dt_update_find_olg(struct dt_device *dt, int index);
 
 #endif
-
-

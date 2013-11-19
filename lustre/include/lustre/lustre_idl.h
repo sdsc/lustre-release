@@ -141,6 +141,7 @@
 #define SEQ_DATA_PORTAL                31
 #define SEQ_CONTROLLER_PORTAL          32
 #define MGS_BULK_PORTAL                33
+#define OUT_MD_PORTAL			34
 
 /* Portal 63 is reserved for the Cray Inc DVS - nic@cray.com, roe@cray.com, n8851@cray.com */
 
@@ -194,6 +195,12 @@ struct lu_seq_range {
 	__u64 lsr_end;
 	__u32 lsr_index;
 	__u32 lsr_flags;
+};
+
+struct lu_seq_range_array {
+	__u32 lsra_count;
+	__u32 lsra_padding;
+	struct lu_seq_range lsra_lsr[0];
 };
 
 #define LU_SEQ_RANGE_MDT	0x0
@@ -1066,6 +1073,28 @@ static inline int lu_dirent_size(struct lu_dirent *ent)
                                            le32_to_cpu(ent->lde_attrs));
         }
         return le16_to_cpu(ent->lde_reclen);
+}
+
+/**
+ * return IF_* type for given lu_dirent entry.
+ * IF_* flag shld be converted to particular OS file type in
+ * platform llite module.
+ */
+static inline __u16 lu_dirent_type_get(const struct lu_dirent *ent)
+{
+        __u16 type = 0;
+        struct luda_type *lt;
+        int len = 0;
+
+        if (le32_to_cpu(ent->lde_attrs) & LUDA_TYPE) {
+                const unsigned align = sizeof(struct luda_type) - 1;
+
+                len = le16_to_cpu(ent->lde_namelen);
+                len = (len + align) & ~align;
+		lt = (struct luda_type *)((char *)ent->lde_name + len);
+		type = IFTODT(le16_to_cpu(lt->lt_type));
+	}
+	return type;
 }
 
 #define MDS_DIR_END_OFF 0xfffffffffffffffeULL
@@ -2079,10 +2108,10 @@ typedef enum {
 
 #define MDS_FIRST_OPC    MDS_GETATTR
 
-
 /* opcodes for object update */
 typedef enum {
 	UPDATE_OBJ	= 1000,
+	UPDATE_LOG_CANCEL = 1001,
 	UPDATE_LAST_OPC
 } update_cmd_t;
 
@@ -2432,6 +2461,7 @@ enum mds_op_bias {
 	MDS_CREATE_VOLATILE	= 1 << 10,
 	MDS_OWNEROVERRIDE	= 1 << 11,
 	MDS_HSM_RELEASE		= 1 << 12,
+	MDS_RENAME_MIGRATE	= 1 << 13,
 };
 
 /* instance of mdt_reint_rec */
@@ -2637,31 +2667,73 @@ struct lmv_desc {
 
 extern void lustre_swab_lmv_desc (struct lmv_desc *ld);
 
-/* TODO: lmv_stripe_md should contain mds capabilities for all slave fids */
-struct lmv_stripe_md {
-        __u32         mea_magic;
-        __u32         mea_count;
-        __u32         mea_master;
-        __u32         mea_padding;
-        char          mea_pool_name[LOV_MAXPOOLNAME];
-        struct lu_fid mea_ids[0];
+/* lmv structures */
+#define LMV_MAGIC_V1      0x0CD10CD0    /* normal stripe lmv magic */
+#define LMV_USER_MAGIC    0x0CD20CD0    /* default lmv magic*/
+
+#define LMV_MAGIC_MIGRATE 0x0CD30CD0    /* migrate stripe lmv magic */
+
+struct lmv_mds_md {
+	__u32 lmv_magic;		/* stripe format version */
+	__u32 lmv_count;		/* stripe count */
+	__u32 lmv_master;		/* master MDT index */
+	__u32 lmv_hash_type;		/* dir stripe policy, i.e. indicate
+					 * which hash function to be used */
+	__u32 lmv_layout_version;	/* Used for directory restriping */
+	__u32 lmv_padding1;
+	__u32 lmv_padding2;
+	__u32 lmv_padding3;
+	char lmv_pool_name[LOV_MAXPOOLNAME];	/* pool name */
+	struct lu_fid lmv_data[0];		/* FIDs for each stripe */
 };
 
-extern void lustre_swab_lmv_stripe_md(struct lmv_stripe_md *mea);
+extern void lustre_swab_lmv_mds_md(struct lmv_mds_md *lmm);
 
-/* lmv structures */
-#define MEA_MAGIC_LAST_CHAR      0xb2221ca1
-#define MEA_MAGIC_ALL_CHARS      0xb222a11c
-#define MEA_MAGIC_HASH_SEGMENT   0xb222a11b
+static inline int lmv_mds_md_size(int stripes, int lmm_magic)
+{
+	LASSERT(lmm_magic == LMV_MAGIC_V1 || lmm_magic == LMV_MAGIC_MIGRATE);
+	return sizeof(struct lmv_mds_md) +
+		stripes * sizeof(struct lu_fid);
+}
 
-#define MAX_HASH_SIZE_32         0x7fffffffUL
-#define MAX_HASH_SIZE            0x7fffffffffffffffULL
-#define MAX_HASH_HIGHEST_BIT     0x1000000000000000ULL
+static inline void lmv_cpu_to_le(struct lmv_mds_md *lmv_dst,
+				 struct lmv_mds_md *lmv_src)
+{
+	int i;
+
+	lmv_dst->lmv_magic = cpu_to_le32(lmv_src->lmv_magic);
+	lmv_dst->lmv_count = cpu_to_le32(lmv_src->lmv_count);
+	lmv_dst->lmv_master = cpu_to_le32(lmv_src->lmv_master);
+	lmv_dst->lmv_hash_type = cpu_to_le32(lmv_src->lmv_hash_type);
+	lmv_dst->lmv_layout_version = cpu_to_le32(lmv_src->lmv_layout_version);
+	lmv_dst->lmv_padding1 = cpu_to_le32(lmv_src->lmv_padding1);
+	lmv_dst->lmv_padding2 = cpu_to_le32(lmv_src->lmv_padding2);
+	lmv_dst->lmv_padding3 = cpu_to_le32(lmv_src->lmv_padding3);
+	for (i = 0; i < lmv_src->lmv_count; i++)
+		fid_cpu_to_le(&lmv_dst->lmv_data[i], &lmv_src->lmv_data[i]);
+}
+
+static inline void lmv_le_to_cpu(struct lmv_mds_md *lmv_dst,
+				 struct lmv_mds_md *lmv_src)
+{
+	int i;
+
+	lmv_dst->lmv_magic = le32_to_cpu(lmv_src->lmv_magic);
+	lmv_dst->lmv_count = le32_to_cpu(lmv_src->lmv_count);
+	lmv_dst->lmv_master = le32_to_cpu(lmv_src->lmv_master);
+	lmv_dst->lmv_hash_type = le32_to_cpu(lmv_src->lmv_hash_type);
+	lmv_dst->lmv_layout_version = le32_to_cpu(lmv_src->lmv_layout_version);
+	lmv_dst->lmv_padding1 = le32_to_cpu(lmv_src->lmv_padding1);
+	lmv_dst->lmv_padding2 = le32_to_cpu(lmv_src->lmv_padding2);
+	lmv_dst->lmv_padding3 = le32_to_cpu(lmv_src->lmv_padding3);
+	for (i = 0; i < lmv_src->lmv_count; i++)
+		fid_le_to_cpu(&lmv_dst->lmv_data[i], &lmv_src->lmv_data[i]);
+}
 
 enum fld_rpc_opc {
-        FLD_QUERY                       = 900,
-        FLD_LAST_OPC,
-        FLD_FIRST_OPC                   = FLD_QUERY
+	FLD_QUERY	= 900,
+	FLD_LAST_OPC,
+	FLD_FIRST_OPC   = FLD_QUERY
 };
 
 enum seq_rpc_opc {
@@ -2992,6 +3064,7 @@ struct llog_logid {
 
 /** Records written to the CATALOGS list */
 #define CATLIST "CATALOGS"
+#define MDCATLIST "MDCATALOGS"
 struct llog_catid {
         struct llog_logid       lci_logid;
         __u32                   lci_padding1;
@@ -3023,6 +3096,7 @@ typedef enum {
 	CHANGELOG_REC		= LLOG_OP_MAGIC | 0x60000,
 	CHANGELOG_USER_REC	= LLOG_OP_MAGIC | 0x70000,
 	HSM_AGENT_REC		= LLOG_OP_MAGIC | 0x80000,
+	UPDATE_REC		= LLOG_OP_MAGIC | 0xa0000,
 	LLOG_HDR_MAGIC		= LLOG_OP_MAGIC | 0x45539,
 	LLOG_LOGID_MAGIC	= LLOG_OP_MAGIC | 0x4553b,
 } llog_op_type;
@@ -3215,6 +3289,7 @@ enum llog_flag {
 	LLOG_F_ZAP_WHEN_EMPTY	= 0x1,
 	LLOG_F_IS_CAT		= 0x2,
 	LLOG_F_IS_PLAIN		= 0x4,
+	LLOG_F_IS_CATLIST	= 0x8,
 };
 
 struct llog_log_hdr {
@@ -3243,6 +3318,26 @@ struct llog_cookie {
         __u32                   lgc_index;
         __u32                   lgc_padding;
 } __attribute__((packed));
+
+static inline void llog_cookie_cpu_to_le(struct llog_cookie *dst,
+					 struct llog_cookie *src)
+{
+	ostid_cpu_to_le(&src->lgc_lgl.lgl_oi, &dst->lgc_lgl.lgl_oi);
+	dst->lgc_lgl.lgl_ogen = cpu_to_le32(src->lgc_lgl.lgl_ogen);
+	dst->lgc_subsys = cpu_to_le32(src->lgc_subsys);
+	dst->lgc_index = cpu_to_le32(src->lgc_index);
+	dst->lgc_padding = cpu_to_le32(src->lgc_padding);
+}
+
+static inline void llog_cookie_le_to_cpu(struct llog_cookie *dst,
+					 struct llog_cookie *src)
+{
+	ostid_le_to_cpu(&src->lgc_lgl.lgl_oi, &dst->lgc_lgl.lgl_oi);
+	dst->lgc_lgl.lgl_ogen = le32_to_cpu(src->lgc_lgl.lgl_ogen);
+	dst->lgc_subsys = le32_to_cpu(src->lgc_subsys);
+	dst->lgc_index = le32_to_cpu(src->lgc_index);
+	dst->lgc_padding = le32_to_cpu(src->lgc_padding);
+}
 
 /** llog protocol */
 enum llogd_rpc_ops {
@@ -3661,53 +3756,56 @@ extern void lustre_swab_hsm_user_item(struct hsm_user_item *hui);
 extern void lustre_swab_hsm_request(struct hsm_request *hr);
 
 /**
- * These are object update opcode under UPDATE_OBJ, which is currently
- * being used by cross-ref operations between MDT.
+ * UPDATE_OBJ RPC Format
  *
  * During the cross-ref operation, the Master MDT, which the client send the
  * request to, will disassembly the operation into object updates, then OSP
  * will send these updates to the remote MDT to be executed.
  *
- *   Update request format
- *   magic:  UPDATE_BUFFER_MAGIC_V1
- *   Count:  How many updates in the req.
- *   bufs[0] : following are packets of object.
- *   update[0]:
- *		type: object_update_op, the op code of update
- *		fid: The object fid of the update.
- *		lens/bufs: other parameters of the update.
- *   update[1]:
- *		type: object_update_op, the op code of update
- *		fid: The object fid of the update.
- *		lens/bufs: other parameters of the update.
- *   ..........
- *   update[7]:	type: object_update_op, the op code of update
- *		fid: The object fid of the update.
- *		lens/bufs: other parameters of the update.
- *   Current 8 maxim updates per object update request.
+ * An UPDATE_OBJ RPC does a list of updates.  Each update belongs to a metadata
+ * operation and does a type of modification to an object.
  *
- *******************************************************************
- *   update reply format:
+ * Request Format
  *
- *   ur_version: UPDATE_REPLY_V1
- *   ur_count:   The count of the reply, which is usually equal
- *		 to the number of updates in the request.
- *   ur_lens:    The reply lengths of each object update.
+ *   update_buf
+ *   update (1st)
+ *   update (2nd)
+ *   ...
+ *   update (ub_count-th)
  *
- *   replies:    1st update reply  [4bytes_ret: other body]
- *		 2nd update reply  [4bytes_ret: other body]
- *		 .....
- *		 nth update reply  [4bytes_ret: other body]
+ * ub_count must be less than or equal to UPDATE_PER_RPC_MAX.
  *
- *   For each reply of the update, the format would be
- *   	 result(4 bytes):Other stuff
+ * Reply Format
+ *
+ *   update_reply
+ *   rc [+ buffers] (1st)
+ *   rc [+ buffers] (2st)
+ *   ...
+ *   rc [+ buffers] (nr_count-th)
+ *
+ * ur_count must be less than or equal to UPDATE_PER_RPC_MAX and should usually
+ * be equal to ub_count.
  */
 
-#define UPDATE_MAX_OPS		10
-#define UPDATE_BUFFER_MAGIC_V1	0xBDDE0001
-#define UPDATE_BUFFER_MAGIC	UPDATE_BUFFER_MAGIC_V1
-#define UPDATE_BUF_COUNT	8
-enum object_update_op {
+#define	UPDATE_REQUEST_MAGIC_V1	0xBDDE0001
+#define	UPDATE_REQUEST_MAGIC_V2	0xBDDE0002
+#define	UPDATE_REQUEST_MAGIC	UPDATE_REQUEST_MAGIC_V2
+
+/**
+ * Maximum number of updates per UPDATE_OBJ RPC
+ */
+#define	UPDATE_PER_RPC_MAX	10
+
+/**
+ * Maximum number of buffers per update
+ */
+#define	UPDATE_PARAM_COUNT	8
+
+/**
+ * Type of each update
+ */
+enum update_type {
+	OBJ_START		= 0,
 	OBJ_CREATE		= 1,
 	OBJ_DESTROY		= 2,
 	OBJ_REF_ADD		= 3,
@@ -3719,17 +3817,36 @@ enum object_update_op {
 	OBJ_INDEX_LOOKUP	= 9,
 	OBJ_INDEX_INSERT	= 10,
 	OBJ_INDEX_DELETE	= 11,
+	OBJ_LOG_CANCEL		= 12,
 	OBJ_LAST
 };
 
-struct update {
-	__u32		u_type;
-	__u32		u_batchid;
-	struct lu_fid	u_fid;
-	__u32		u_lens[UPDATE_BUF_COUNT];
-	__u32		u_bufs[0];
+enum update_flag {
+	UPDATE_FL_OST		= 0x00000001,	/* op from OST (not MDT) */
+	UPDATE_FL_SYNC		= 0x00000002,	/* commit before replying */
+	UPDATE_FL_COMMITTED	= 0x00000004,	/* op committed globally */
+	UPDATE_FL_NOLOG		= 0x00000008	/* for idempotent updates */
 };
 
+struct update {
+	__u16		u_type;			/* enum update_type */
+	__u16		u_master_index;		/* master MDT/OST index */
+	__u32		u_index;		/* index of update */
+	__u32		u_flags;		/* enum update_flag */
+	__u64		u_batchid;		/* op transno on master */
+	__u64		u_xid;			/* req xid for update */
+	struct lu_fid	u_fid;			/* object to be updated */
+	struct llog_cookie u_cookie;		/* log cookie for this update */
+	__u32		u_lens[UPDATE_PARAM_COUNT];
+						/* lengths of per-update
+						   buffers (multiples of 8
+						   bytes) */
+	char		u_bufs[0];		/* per-update buffers */
+};
+
+/**
+ * FIXME: This really should be called update_request.
+ */
 struct update_buf {
 	__u32	ub_magic;
 	__u32	ub_count;
@@ -3737,14 +3854,27 @@ struct update_buf {
 };
 
 #define UPDATE_REPLY_V1		0x00BD0001
+#define UPDATE_REPLY_V2		0x00BD0002
+
+struct update_reply_buf {
+	__u32	urb_version;
+	__u32	urb_count;
+	__u32	urb_lens[0];
+};
+
 struct update_reply {
-	__u32	ur_version;
-	__u32	ur_count;
-	__u32	ur_lens[0];
+	__u32	ur_rc;
+	__u64	ur_transno;
+	__u64	ur_xid;
+	__u32	ur_transno_idx;
+	__u32	ur_datalen;
+	__u32	ur_data[0];
 };
 
 void lustre_swab_update_buf(struct update_buf *ub);
-void lustre_swab_update_reply_buf(struct update_reply *ur);
+void lustre_swab_update(struct update *u);
+void lustre_swab_update_reply_buf(struct update_reply_buf *urb);
+void lustre_swab_update_reply(struct update_reply *ur);
 
 /** layout swap request structure
  * fid1 and fid2 are in mdt_body

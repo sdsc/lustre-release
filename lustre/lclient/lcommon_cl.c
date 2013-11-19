@@ -1284,7 +1284,7 @@ void cl_inode_fini(struct inode *inode)
                 cl_env_reexit(cookie);
         }
 }
-
+ 
 /**
  * return IF_* type for given lu_dirent entry.
  * IF_* flag shld be converted to particular OS file type in
@@ -1292,15 +1292,15 @@ void cl_inode_fini(struct inode *inode)
  */
 __u16 ll_dirent_type_get(struct lu_dirent *ent)
 {
-        __u16 type = 0;
-        struct luda_type *lt;
-        int len = 0;
+	__u16 type = 0;
+	struct luda_type *lt;
+	int len = 0;
 
-        if (le32_to_cpu(ent->lde_attrs) & LUDA_TYPE) {
-                const unsigned align = sizeof(struct luda_type) - 1;
+	if (le32_to_cpu(ent->lde_attrs) & LUDA_TYPE) {
+		const unsigned align = sizeof(struct luda_type) - 1;
 
-                len = le16_to_cpu(ent->lde_namelen);
-                len = (len + align) & ~align;
+		len = le16_to_cpu(ent->lde_namelen);
+		len = (len + align) & ~align;
 		lt = (void *)ent->lde_name + len;
 		type = IFTODT(le16_to_cpu(lt->lt_type));
 	}
