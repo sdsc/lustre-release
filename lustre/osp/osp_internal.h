@@ -65,6 +65,34 @@ struct osp_id_tracker {
 	cfs_atomic_t		 otr_refcount;
 };
 
+struct osp_precreate {
+	/*
+	 * Precreation pool
+	 */
+	spinlock_t			 osp_pre_lock;
+
+	/* last fid to assign in creation */
+	struct lu_fid			 osp_pre_used_fid;
+	/* last created id OST reported, next-created - available id's */
+	struct lu_fid			 osp_pre_last_created_fid;
+	/* how many ids are reserved in declare, we shouldn't block in create */
+	__u64				 osp_pre_reserved;
+	/* thread waits for signals about pool going empty */
+	wait_queue_head_t		 osp_pre_waitq;
+	/* consumers (who needs new ids) wait here */
+	wait_queue_head_t		 osp_pre_user_waitq;
+	/* current precreation status: working, failed, stopping? */
+	int				 osp_pre_status;
+	/* how many to precreate next time */
+	int				 osp_pre_grow_count;
+	int				 osp_pre_min_grow_count;
+	int				 osp_pre_max_grow_count;
+	/* whether to grow precreation window next time or not */
+	int				 osp_pre_grow_slow;
+	/* cleaning up orphans or recreating missing objects */
+	int				 osp_pre_recovering;
+};
+
 struct osp_device {
 	struct dt_device		 opd_dt_dev;
 	/* corresponded OST index */
@@ -99,39 +127,17 @@ struct osp_device {
 	int				 opd_imp_connected;
 	int				 opd_imp_active;
 	unsigned int			 opd_imp_seen_connected:1,
-					 opd_connect_mdt:1;
-
+					 opd_connect_mdt:1,
+					 opd_new_committed:1,
+					 opd_update_recovery:1;
 	/* whether local recovery is completed:
 	 * reported via ->ldo_recovery_complete() */
 	int				 opd_recovery_completed;
 
-	/*
-	 * Precreation pool
-	 */
-	spinlock_t			 opd_pre_lock;
-
-	/* last fid to assign in creation */
-	struct lu_fid			 opd_pre_used_fid;
-	/* last created id OST reported, next-created - available id's */
-	struct lu_fid			 opd_pre_last_created_fid;
-	/* how many ids are reserved in declare, we shouldn't block in create */
-	__u64				 opd_pre_reserved;
+	/* precreate structure for OSP */
+	struct osp_precreate		*opd_pre;
 	/* dedicate precreate thread */
 	struct ptlrpc_thread		 opd_pre_thread;
-	/* thread waits for signals about pool going empty */
-	wait_queue_head_t		 opd_pre_waitq;
-	/* consumers (who needs new ids) wait here */
-	wait_queue_head_t		 opd_pre_user_waitq;
-	/* current precreation status: working, failed, stopping? */
-	int				 opd_pre_status;
-	/* how many to precreate next time */
-	int				 opd_pre_grow_count;
-	int				 opd_pre_min_grow_count;
-	int				 opd_pre_max_grow_count;
-	/* whether to grow precreation window next time or not */
-	int				 opd_pre_grow_slow;
-	/* cleaning up orphans or recreating missing objects */
-	int				 opd_pre_recovering;
 
 	/*
 	 * OST synchronization
@@ -178,10 +184,44 @@ struct osp_device {
 	/* how often to update statfs data */
 	int				 opd_statfs_maxage;
 
+	/* update threads */
+	struct ptlrpc_thread		opd_update_thread;
+	wait_queue_head_t		opd_update_waitq;
+	__u64				opd_last_committed_transno;
+
+
+	cfs_list_t			opd_update_log_cancel_list;
+	spinlock_t			opd_update_log_cancel_list_lock;
+
+	cfs_list_t			opd_update_replay_list;
+	spinlock_t			opd_update_replay_lock;
+
 	cfs_proc_dir_entry_t		*opd_symlink;
 };
 
+#define opd_pre_lock			opd_pre->osp_pre_lock
+#define opd_pre_used_fid		opd_pre->osp_pre_used_fid
+#define opd_pre_last_created_fid	opd_pre->osp_pre_last_created_fid
+#define opd_pre_reserved		opd_pre->osp_pre_reserved
+#define opd_pre_waitq			opd_pre->osp_pre_waitq
+#define opd_pre_user_waitq		opd_pre->osp_pre_user_waitq
+#define opd_pre_status			opd_pre->osp_pre_status
+#define opd_pre_grow_count		opd_pre->osp_pre_grow_count
+#define opd_pre_min_grow_count		opd_pre->osp_pre_min_grow_count
+#define opd_pre_max_grow_count		opd_pre->osp_pre_max_grow_count
+#define opd_pre_grow_slow		opd_pre->osp_pre_grow_slow
+#define opd_pre_recovering		opd_pre->osp_pre_recovering
+
+struct update_replay {
+	cfs_list_t		ur_list;
+	__u64			ur_transno;
+	int			ur_master_idx;
+	struct update_buf	*ur_ubuf;
+};
+
 extern struct kmem_cache *osp_object_kmem;
+
+#define OSP_JOB_MAGIC		0x26112005
 
 /* this is a top object */
 struct osp_object {
@@ -216,6 +256,7 @@ struct osp_thread_info {
 		struct llog_gen_rec		osi_gen;
 	};
 	struct llog_cookie	 osi_cookie;
+	struct llog_cookie	 osi_cookie1;
 	struct llog_catid	 osi_cid;
 	struct lu_seq_range	 osi_seq;
 	struct ldlm_res_id	 osi_resid;
@@ -325,6 +366,11 @@ static inline struct dt_object *osp_object_child(struct osp_object *o)
                              struct dt_object, do_lu);
 }
 
+static inline struct seq_server_site *osp_seq_site(struct osp_device *osp)
+{
+	return osp->opd_dt_dev.dd_lu_dev.ld_site->ld_seq_site;
+}
+
 #define osp_init_rpc_lock(lck) mdc_init_rpc_lock(lck)
 #define osp_get_rpc_lock(lck, it)  mdc_get_rpc_lock(lck, it)
 #define osp_put_rpc_lock(lck, it) mdc_put_rpc_lock(lck, it)
@@ -387,6 +433,13 @@ static inline int osp_is_fid_client(struct osp_device *osp)
 	return imp->imp_connect_data.ocd_connect_flags & OBD_CONNECT_FID;
 }
 
+static inline __u64 osp_last_local_committed(struct osp_device *osp)
+{
+	struct lu_site *site;
+	site = osp->opd_dt_dev.dd_lu_dev.ld_site;
+	return site->ls_top_dev->ld_obd->obd_last_committed;
+}
+
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
 extern struct llog_operations osp_mds_ost_orig_logops;
@@ -394,7 +447,18 @@ extern struct llog_operations osp_mds_ost_orig_logops;
 /* osp_md_object.c */
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th);
-int osp_trans_stop(const struct lu_env *env, struct thandle *th);
+int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
+		   struct thandle *th);
+int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
+			struct update_buf *ubuf, struct ptlrpc_request **reqp,
+			int op);
+struct update_buf *osp_alloc_update_buf(void);
+void osp_free_update_buf(struct update_buf *ubuf);
+
+int osp_update_init(const struct lu_env *env, struct osp_device *osp);
+int osp_update_fini(const struct lu_env *env, struct osp_device *osp);
+
+int osp_recovery(struct osp_device *osp);
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);
@@ -408,6 +472,7 @@ void osp_statfs_need_now(struct osp_device *d);
 int osp_reset_last_used(const struct lu_env *env, struct osp_device *osp);
 int osp_write_last_oid_seq_files(struct lu_env *env, struct osp_device *osp,
 				 struct lu_fid *fid, int sync);
+int osp_init_pre_fid(struct osp_device *osp);
 
 /* lproc_osp.c */
 void lprocfs_osp_init_vars(struct lprocfs_static_vars *lvars);

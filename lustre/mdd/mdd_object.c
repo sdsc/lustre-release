@@ -1191,9 +1191,8 @@ stop:
  * read lov EA of an object
  * return the lov EA in an allocated lu_buf
  */
-static int mdd_get_lov_ea(const struct lu_env *env,
-			  struct mdd_object *obj,
-			  struct lu_buf *lmm_buf)
+int mdd_get_lov_ea(const struct lu_env *env, struct mdd_object *obj,
+		   struct lu_buf *lmm_buf)
 {
 	struct lu_buf	*buf = &mdd_env_info(env)->mti_big_buf;
 	int		 rc, sz;
@@ -1214,10 +1213,10 @@ repeat:
 	}
 
 	if (rc < 0)
-		GOTO(out, rc);
+		RETURN(rc);
 
 	if (rc == 0)
-		GOTO(out, rc = -ENODATA);
+		RETURN(-ENODATA);
 
 	sz = rc;
 	if (memcmp(buf, &LU_BUF_NULL, sizeof(*buf)) == 0) {
@@ -1566,7 +1565,7 @@ void mdd_object_make_hint(const struct lu_env *env, struct mdd_object *parent,
 		struct mdd_object *child, struct lu_attr *attr)
 {
 	struct dt_allocation_hint *hint = &mdd_env_info(env)->mti_hint;
-	struct dt_object *np = parent ? mdd_object_child(parent) : NULL;
+	struct dt_object *np = parent ?  mdd_object_child(parent) : NULL;
 	struct dt_object *nc = mdd_object_child(child);
 
 	/* @hint will be initialized by underlying device. */
@@ -2030,6 +2029,15 @@ static int mdd_object_lock(const struct lu_env *env,
 			      einfo, policy);
 }
 
+static int mdd_object_unlock(const struct lu_env *env,
+			     struct md_object *obj,
+			     struct ldlm_enqueue_info *einfo,
+			     void *policy)
+{
+	struct mdd_object *mdd_obj = md2mdd_obj(obj);
+	return dt_object_unlock(env, mdd_object_child(mdd_obj), einfo, policy);
+}
+
 const struct md_object_operations mdd_obj_ops = {
 	.moo_permission		= mdd_permission,
 	.moo_attr_get		= mdd_attr_get,
@@ -2047,4 +2055,5 @@ const struct md_object_operations mdd_obj_ops = {
 	.moo_capa_get		= mdd_capa_get,
 	.moo_object_sync	= mdd_object_sync,
 	.moo_object_lock	= mdd_object_lock,
+	.moo_object_unlock	= mdd_object_unlock,
 };

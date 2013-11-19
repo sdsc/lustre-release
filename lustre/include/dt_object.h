@@ -134,7 +134,7 @@ struct dt_device_operations {
         /**
          * Finish previously started transaction.
          */
-        int   (*dt_trans_stop)(const struct lu_env *env,
+        int   (*dt_trans_stop)(const struct lu_env *env, struct dt_device *dev,
                                struct thandle *th);
         /**
          * Add commit callback to the transaction.
@@ -457,6 +457,9 @@ struct dt_object_operations {
 			      struct lustre_handle *lh,
 			      struct ldlm_enqueue_info *einfo,
 			      void *policy);
+
+	int (*do_object_unlock)(const struct lu_env *env, struct dt_object *dt,
+				struct ldlm_enqueue_info *einfo, void *policy);
 };
 
 /**
@@ -733,6 +736,33 @@ static inline struct dt_object *lu2dt_obj(struct lu_object *o)
 	return container_of0(o, struct dt_object, do_lu);
 }
 
+/* Used to track updates on one dt device */
+struct thandle_update_dt {
+	struct dt_device	*tud_dt;
+	cfs_list_t		tud_list;
+	int			tud_rc;
+	int			tud_count;
+	int			(*tud_txn_stop_cb)(const struct lu_env *env,
+						struct thandle *th, void *data);
+	void			*tud_cb_data;
+	__u64			tud_transno;
+	struct llog_cookie	tud_logcookie;
+	int			tud_commit;
+};
+
+struct thandle_update {
+	cfs_list_t		tu_remote_update_list;
+	struct update_buf	*tu_update_buf;	/* Holding the update buf */
+	int			tu_update_buf_size; /* size of update buf */
+	int			tu_result;
+	__u64			tu_batchid;	/* Current batch(trans) id */
+	int			tu_master_index; /* master index of the trans */
+	int			(*tu_txn_stop_cb)(const struct lu_env *env,
+						  struct thandle *th,
+						  void *data);
+	void			*tu_cb_data;
+};
+
 /**
  * This is the general purpose transaction handle.
  * 1. Transaction Life Cycle
@@ -762,20 +792,72 @@ struct thandle {
 	__s32             th_result;
 
 	/** whether we need sync commit */
-	unsigned int		th_sync:1;
-
+	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-	unsigned int		th_local:1;
+				th_local:1,
+	/* record update for each operation */
+				th_record_update:1;
 
 	/* In DNE, one transaction can be disassemblied into
 	 * updates on several different MDTs, and these updates
 	 * will be attached to th_remote_update_list per target.
 	 * Only single thread will access the list, no need lock
 	 */
-	cfs_list_t		th_remote_update_list;
-	struct update_request	*th_current_request;
+	struct thandle_update	*th_update;
 };
 
+struct llog_operations;
+
+int dt_trans_update_create(const struct lu_env *env, struct dt_object *dt,
+			   struct lu_attr *attr,
+			   struct dt_allocation_hint *hint,
+			   struct dt_object_format *dof, int index,
+			   struct thandle *th);
+int dt_trans_update_object_destroy(const struct lu_env *env,
+				   struct dt_object *dt, int index,
+				   struct thandle *th);
+int dt_trans_update_index_delete(const struct lu_env *env, struct dt_object *dt,
+				 const struct dt_key *key, int index,
+				 struct thandle *th);
+int dt_trans_update_index_insert(const struct lu_env *env, struct dt_object *dt,
+				 const struct dt_rec *rec,
+				 const struct dt_key *key, int index,
+				 struct thandle *th);
+int dt_trans_update_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			      const struct lu_buf *buf, const char *name,
+			      int flag, int index, struct thandle *th);
+int dt_trans_update_attr_set(const struct lu_env *env, struct dt_object *dt,
+			     const struct lu_attr *attr, int index,
+			     struct thandle *th);
+int dt_trans_update_ref_add(const struct lu_env *env, struct dt_object *dt,
+			    int index, struct thandle *th);
+int dt_trans_update_ref_del(const struct lu_env *env, struct dt_object *dt,
+			    int index, struct thandle *th);
+
+int dt_update_attr_get(const struct lu_env *env, struct update_buf *ubuf,
+		       int buffer_len, struct dt_object *dt, int index,
+		       int master_index);
+int dt_update_index_lookup(const struct lu_env *env, struct update_buf *ubuf,
+			   int buffer_len, struct dt_object *dt,
+			   struct dt_rec *rec, const struct dt_key *key,
+			   int index, int master_index);
+int dt_update_xattr_get(const struct lu_env *env, struct update_buf *ubuf,
+			int buffer_len, struct dt_object *dt, char *name,
+			int index, int master_index);
+int dt_trans_update_declare_llog_add(const struct lu_env *env,
+				     struct dt_device *dt, struct thandle *th,
+				     int index);
+int dt_trans_update_llog_add(const struct lu_env *env, struct dt_device *dt,
+			     struct update_buf *ubuf,
+			     struct llog_cookie *cookie, int index,
+			     struct thandle *th);
+int dt_update_llog_cancel(const struct lu_env *env, struct dt_device *dt,
+			  struct llog_cookie *cookies, int count, int index);
+int dt_trans_update_hook_stop(const struct lu_env *env, struct thandle *th);
+int dt_update_llog_init(const struct lu_env *env, struct dt_device *dt,
+		        int index, struct llog_operations *logops);
+void dt_update_llog_fini(const struct lu_env *env, struct dt_device *dt,
+			 int index);
 /**
  * Transaction call-backs.
  *
@@ -906,6 +988,17 @@ static inline int dt_object_lock(const struct lu_env *env,
 	return o->do_ops->do_object_lock(env, o, lh, einfo, policy);
 }
 
+static inline int dt_object_unlock(const struct lu_env *env,
+				   struct dt_object *o,
+				   struct ldlm_enqueue_info *einfo,
+				   void *policy)
+{
+	LASSERT(o);
+	LASSERT(o->do_ops);
+	LASSERT(o->do_ops->do_object_unlock);
+	return o->do_ops->do_object_unlock(env, o, einfo, policy);
+}
+
 int dt_lookup_dir(const struct lu_env *env, struct dt_object *dir,
 		  const char *name, struct lu_fid *fid);
 
@@ -967,8 +1060,8 @@ static inline int dt_trans_start_local(const struct lu_env *env,
 static inline int dt_trans_stop(const struct lu_env *env,
                                 struct dt_device *d, struct thandle *th)
 {
-        LASSERT(d->dd_ops->dt_trans_stop);
-        return d->dd_ops->dt_trans_stop(env, th);
+	LASSERT(d->dd_ops->dt_trans_stop);
+	return d->dd_ops->dt_trans_stop(env, d, th);
 }
 
 static inline int dt_trans_cb_add(struct thandle *th,
