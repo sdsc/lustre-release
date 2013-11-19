@@ -250,8 +250,8 @@ static inline void lu_local_name_obj_fid(struct lu_fid *fid, __u32 oid)
 
 static inline int fid_is_root(const struct lu_fid *fid)
 {
-	return unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
-			fid_oid(fid) == MDD_ROOT_INDEX_OID);
+	return unlikely(fid_seq(fid) == FID_SEQ_ROOT &&
+			fid_oid(fid) == 1);
 }
 
 static inline int fid_is_dot_lustre(const struct lu_fid *fid)

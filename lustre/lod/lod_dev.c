@@ -72,7 +72,8 @@ int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 		RETURN(rc);
 	}
 
-	if (!lod->lod_initialized || !fid_is_norm(fid)) {
+	if (!lod->lod_initialized ||
+	    (!fid_is_norm(fid) && !fid_is_root(fid))) {
 		LASSERT(lu_site2seq(lod2lu_dev(lod)->ld_site) != NULL);
 		*tgt = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_node_id;
 		RETURN(rc);
