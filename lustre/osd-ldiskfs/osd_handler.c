@@ -1363,7 +1363,8 @@ static void osd_inode_getattr(const struct lu_env *env,
 {
         attr->la_valid      |= LA_ATIME | LA_MTIME | LA_CTIME | LA_MODE |
                                LA_SIZE | LA_BLOCKS | LA_UID | LA_GID |
-                               LA_FLAGS | LA_NLINK | LA_RDEV | LA_BLKSIZE;
+                               LA_FLAGS | LA_NLINK | LA_RDEV | LA_BLKSIZE |
+			       LA_TYPE;
 
         attr->la_atime      = LTIME_S(inode->i_atime);
         attr->la_mtime      = LTIME_S(inode->i_mtime);
@@ -1985,7 +1986,7 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 		return 0;
 	}
 
-	if (!fid_is_norm(fid)) {
+	if (!fid_is_norm(fid) && !fid_is_root(fid)) {
 		range->lsr_flags = LU_SEQ_RANGE_MDT;
 		if (ss != NULL)
 			/* FIXME: If ss is NULL, it suppose not get lsr_index
@@ -3160,7 +3161,8 @@ static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
 	int			rc;
 	ENTRY;
 
-	if ((!fid_is_norm(fid) && !fid_is_igif(fid)) || ss == NULL)
+	if ((!fid_is_norm(fid) && !fid_is_igif(fid) && !fid_is_root(fid)) ||
+	    ss == NULL)
 		RETURN(0);
 
 	rc = osd_fld_lookup(env, osd, fid, range);
@@ -5050,6 +5052,10 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
 		 * special files */
 		result = llo_local_objects_setup(env, lu2md_dev(pdev),
 						 lu2dt_dev(dev));
+		if (result)
+			RETURN(result);
+
+		result = osd_convert_root_to_new_seq(env, osd);
 		if (result)
 			RETURN(result);
 	}

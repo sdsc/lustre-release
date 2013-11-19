@@ -515,9 +515,13 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 		return osd_obj_spec_lookup(info, osd, fid, id);
 
 	if ((check_fld && fid_is_on_ost(info, osd, fid)) || fid_is_llog(fid))
-		/* old OSD obj id */
-		/* FIXME: actually for all of the OST object */
 		return osd_obj_map_lookup(info, osd, fid, id);
+
+
+	if (fid_is_igif(fid)) {
+		osd_id_gen(id, lu_igif_ino(fid), lu_igif_gen(fid));
+		return 0;
+	}
 
 	if (fid_is_fs_root(fid)) {
 		osd_id_gen(id, osd_sb(osd)->s_root->d_inode->i_ino,
@@ -684,6 +688,76 @@ int osd_oi_delete(struct osd_thread_info *info,
 	fid_cpu_to_be(oi_fid, fid);
 	return osd_oi_iam_delete(info, osd_fid2oi(osd, fid),
 				 (const struct dt_key *)oi_fid, th);
+}
+
+/**
+ * Convert the root FID from IGIF sequence to the new
+ * FID_SEQ_ROOT sequence.
+ */
+int osd_convert_root_to_new_seq(const struct lu_env *env,
+				struct osd_device *osd)
+{
+	struct osd_thread_info	*info = osd_oti_get(env);
+	struct lu_fid		*fid = &info->oti_fid;
+	struct lu_fid		*igif = &info->oti_fid2;
+	struct osd_inode_id	*id = &info->oti_id;
+	struct thandle		*th;
+	struct osd_thandle	*oh;
+	struct dentry		*dentry;
+	int			rc;
+	ENTRY;
+
+	lu_root_fid(fid);
+	rc = __osd_oi_lookup(info, osd, fid, id);
+	if (rc == 0)
+		/* already added new seq in the oi */
+		RETURN(rc);
+
+	/* If /ROOT exists, stored it in OI */
+	dentry = ll_lookup_one_len("ROOT", osd_sb(osd)->s_root, 4);
+	if (IS_ERR(dentry))
+		RETURN(PTR_ERR(dentry));
+
+	/* return for new filesystem */
+	if (dentry->d_inode == NULL)
+		GOTO(out_put, rc = 0);
+
+	if (is_bad_inode(dentry->d_inode))
+		GOTO(out_put, rc = -EIO);
+
+	osd_id_gen(id, dentry->d_inode->i_ino, dentry->d_inode->i_generation);
+
+	th = dt_trans_create(env, &osd->od_dt_dev);
+	if (IS_ERR(th))
+		GOTO(out_put, rc = (PTR_ERR(th)));
+
+	oh = container_of0(th, struct osd_thandle, ot_super);
+	LASSERT(oh->ot_handle == NULL);
+
+	/* Sigh, oi does not exists as iam index object now,
+	 * has to call osd_trans_declare_op directly */
+	osd_trans_declare_op(env, oh, OSD_OT_INSERT,
+			     osd_dto_credits_noquota[DTO_INDEX_INSERT]);
+
+	rc = dt_trans_start_local(env, &osd->od_dt_dev, th);
+	if (rc)
+		GOTO(out, rc);
+
+	osd_trans_exec_op(env, th, OSD_OT_INSERT);
+	rc = osd_oi_insert(info, osd, fid, id, th);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	lu_igif_build(igif, dentry->d_inode->i_ino,
+		      dentry->d_inode->i_generation);
+	LCONSOLE_INFO("%s: Root FID from "DFID" to "DFID"\n",
+		      osd_name(osd), PFID(igif), PFID(fid));
+out:
+	dt_trans_stop(env, &osd->od_dt_dev, th);
+out_put:
+	d_invalidate(dentry);
+	dput(dentry);
+	RETURN(rc);
 }
 
 int osd_oi_mod_init(void)
