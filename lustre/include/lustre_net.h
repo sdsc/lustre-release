@@ -1916,6 +1916,7 @@ struct ptlrpc_request {
                                  rq_pack_bulk:1,
                                  /* doesn't expect reply FIXME */
                                  rq_no_reply:1,
+				 rq_session_init:1, /* rq_session initialized */
                                  rq_pill_init:1;     /* pill initialized */
 
         uid_t                    rq_auth_uid;        /* authed uid */

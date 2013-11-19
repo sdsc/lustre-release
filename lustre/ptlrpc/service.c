@@ -885,12 +885,20 @@ void ptlrpc_server_drop_request(struct ptlrpc_request *req)
 	struct ptlrpc_request_buffer_desc *rqbd = req->rq_rqbd;
 	struct ptlrpc_service_part	  *svcpt = rqbd->rqbd_svcpt;
 	struct ptlrpc_service		  *svc = svcpt->scp_service;
-        int                                refcount;
-        cfs_list_t                        *tmp;
-        cfs_list_t                        *nxt;
+	int				   refcount;
+	cfs_list_t			  *tmp;
+	cfs_list_t			  *nxt;
 
-        if (!cfs_atomic_dec_and_test(&req->rq_refcount))
-                return;
+	if (!cfs_atomic_dec_and_test(&req->rq_refcount))
+		return;
+
+	if (req->rq_session_init) {
+		lu_context_exit(&req->rq_session);
+		lu_context_fini(&req->rq_session);
+		req->rq_session_init = 0;
+		if (req->rq_session.lc_thread != NULL)
+			req->rq_svc_thread->t_env->le_ses = NULL;
+	}
 
 	if (req->rq_at_linked) {
 		spin_lock(&svcpt->scp_at_lock);
@@ -1021,11 +1029,6 @@ static void ptlrpc_server_finish_request(struct ptlrpc_service_part *svcpt,
 					 struct ptlrpc_request *req)
 {
 	ptlrpc_server_hpreq_fini(req);
-
-	if (req->rq_session.lc_thread != NULL) {
-		lu_context_exit(&req->rq_session);
-		lu_context_fini(&req->rq_session);
-	}
 
 	ptlrpc_server_drop_request(req);
 }
@@ -1674,6 +1677,13 @@ static int ptlrpc_server_request_add(struct ptlrpc_service_part *svcpt,
 	if (rc < 0)
 		RETURN(rc);
 
+	/* the current thread is not the processing thread for this request
+	 * since that, but request is in exp_hp_list and can be find there.
+	 * Remove all relations between request and old thread. */
+	req->rq_svc_thread->t_env->le_ses = NULL;
+	req->rq_svc_thread = NULL;
+	req->rq_session.lc_thread = NULL;
+
 	ptlrpc_nrs_req_add(svcpt, req, !!rc);
 
 	RETURN(0);
@@ -1968,6 +1978,7 @@ ptlrpc_server_handle_req_in(struct ptlrpc_service_part *svcpt,
 			       thread->t_name, rc);
 			goto err_req;
 		}
+		req->rq_session_init = 1;
 		req->rq_session.lc_thread = thread;
 		lu_context_enter(&req->rq_session);
 		req->rq_svc_thread->t_env->le_ses = &req->rq_session;
@@ -2075,9 +2086,8 @@ ptlrpc_server_handle_request(struct ptlrpc_service_part *svcpt,
 	/* re-assign request and sesson thread to the current one */
 	request->rq_svc_thread = thread;
 	if (thread != NULL) {
-		LASSERT(request->rq_session.lc_thread != NULL);
+		LASSERT(request->rq_session.lc_thread == NULL);
 		request->rq_session.lc_thread = thread;
-		request->rq_session.lc_cookie = 0x55;
 		thread->t_env->le_ses = &request->rq_session;
 	}
 	svc->srv_ops.so_req_handler(request);
