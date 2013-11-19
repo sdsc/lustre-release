@@ -535,10 +535,13 @@ int tgt_request_handle(struct ptlrpc_request *req)
 
 	tsi->tsi_tgt = tgt = class_exp2tgt(req->rq_export);
 	tsi->tsi_exp = req->rq_export;
+
 	if (exp_connect_flags(req->rq_export) & OBD_CONNECT_JOBSTATS)
 		tsi->tsi_jobid = lustre_msg_get_jobid(req->rq_reqmsg);
 	else
 		tsi->tsi_jobid = NULL;
+
+	tsi->tsi_tgt_name = tgt_name(tsi->tsi_tgt);
 
 	request_fail_id = tgt->lut_request_fail_id;
 	tsi->tsi_reply_fail_id = tgt->lut_reply_fail_id;

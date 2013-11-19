@@ -71,6 +71,7 @@ struct lod_tgt_desc_idx {
 	 TGT_PTRS_PER_BLOCK]->ldi_tgt[(index) % TGT_PTRS_PER_BLOCK])
 
 #define OST_TGT(lod, index)   LTD_TGT(&lod->lod_ost_descs, index)
+#define MDT_TGT(lod, index)   LTD_TGT(&lod->lod_mdt_descs, index)
 struct lod_tgt_descs {
 	/* list of known TGTs */
 	struct lod_tgt_desc_idx	*ltd_tgt_idx[TGT_PTRS];
@@ -140,6 +141,13 @@ struct lod_device {
 #define ltd_ost		ltd_tgt
 #define lod_ost_desc	lod_tgt_desc
 
+#define lod_mdts	lod_mdt_descs.ltd_tgts
+#define lod_mdt_bitmap	lod_mdt_descs.ltd_tgt_bitmap
+#define lod_mdtnr	lod_mdt_descs.ltd_tgtnr
+#define lod_mdts_size	lod_mdt_descs.ltd_tgts_size
+#define ltd_mdt		ltd_tgt
+#define lod_mdt_desc	lod_tgt_desc
+
 /*
  * XXX: shrink this structure, currently it's 72bytes on 32bit arch,
  *      so, slab will be allocating 128bytes
@@ -160,7 +168,8 @@ struct lod_object {
 	 * is cached in stripenr/stripe_size */
 	unsigned int	   ldo_stripes_allocated:16,
 			   ldo_striping_cached:1,
-			   ldo_def_striping_set:1;
+			   ldo_def_striping_set:1,
+			   ldo_dir_striped:1;
 	__u32		   ldo_def_stripe_size;
 	__u16		   ldo_def_stripenr;
 	__u16		   ldo_def_stripe_offset;
@@ -173,6 +182,7 @@ struct lod_it {
 	struct dt_it		*lit_it;  /* iterator from the layer below */
 };
 
+#define LOD_UPDATE_BUFFER_SIZE 1024
 struct lod_thread_info {
 	/* per-thread buffer for LOV EA */
 	void             *lti_ea_store;
@@ -293,6 +303,7 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf, int specific);
 int lod_generate_and_set_lovea(const struct lu_env *env,
 			       struct lod_object *mo, struct thandle *th);
+int lod_ea_store_resize(struct lod_thread_info *info, int size);
 
 /* lod_pool.c */
 int lod_ost_pool_add(struct ost_pool *op, __u32 idx, unsigned int min_count);

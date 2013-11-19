@@ -58,8 +58,8 @@ static int ll_create_it(struct inode *, struct dentry *,
  * Check if we have something mounted at the named dchild.
  * In such a case there would always be dentry present.
  */
-static int ll_d_mountpoint(struct dentry *dparent, struct dentry *dchild,
-                           struct qstr *name)
+int ll_d_mountpoint(struct dentry *dparent, struct dentry *dchild,
+		    struct qstr *name)
 {
         int mounted = 0;
 
@@ -88,7 +88,7 @@ int ll_unlock(__u32 mode, struct lustre_handle *lockh)
 /* called from iget5_locked->find_inode() under inode_lock spinlock */
 static int ll_test_inode(struct inode *inode, void *opaque)
 {
-        struct ll_inode_info *lli = ll_i2info(inode);
+	struct ll_inode_info *lli = ll_i2info(inode);
         struct lustre_md     *md = opaque;
 
         if (unlikely(!(md->body->valid & OBD_MD_FLID))) {
@@ -96,38 +96,42 @@ static int ll_test_inode(struct inode *inode, void *opaque)
                 return 0;
         }
 
-        if (!lu_fid_eq(&lli->lli_fid, &md->body->fid1))
-                return 0;
+	if (unlikely(md->lm_slave_fid != NULL)) {
+		if (!lu_fid_eq(&lli->lli_fid, md->lm_slave_fid))
+			return 0;
+	} else {
+		if (!lu_fid_eq(&lli->lli_fid, &md->body->fid1))
+			return 0;
+	}
 
-        return 1;
+	return 1;
 }
 
 static int ll_set_inode(struct inode *inode, void *opaque)
 {
         struct ll_inode_info *lli = ll_i2info(inode);
-        struct mdt_body *body = ((struct lustre_md *)opaque)->body;
+        struct lustre_md *md = (struct lustre_md *)opaque;
+        struct mdt_body *body = md->body;
 
         if (unlikely(!(body->valid & OBD_MD_FLID))) {
                 CERROR("MDS body missing FID\n");
                 return -EINVAL;
         }
 
-        lli->lli_fid = body->fid1;
-        if (unlikely(!(body->valid & OBD_MD_FLTYPE))) {
-                CERROR("Can not initialize inode "DFID" without object type: "
-                       "valid = "LPX64"\n", PFID(&lli->lli_fid), body->valid);
-                return -EINVAL;
-        }
+	if (unlikely(md->lm_slave_fid != NULL))
+		lli->lli_fid = *md->lm_slave_fid;
+	else
+		lli->lli_fid = body->fid1;
 
-        inode->i_mode = (inode->i_mode & ~S_IFMT) | (body->mode & S_IFMT);
-        if (unlikely(inode->i_mode == 0)) {
-                CERROR("Invalid inode "DFID" type\n", PFID(&lli->lli_fid));
-                return -EINVAL;
-        }
+	inode->i_mode = (inode->i_mode & ~S_IFMT) | (body->mode & S_IFMT);
+	if (unlikely(inode->i_mode == 0)) {
+		CERROR("Invalid inode "DFID" type\n", PFID(&lli->lli_fid));
+		return -EINVAL;
+	}
 
-        ll_lli_init(lli);
+	ll_lli_init(lli);
 
-        return 0;
+	return 0;
 }
 
 
@@ -193,6 +197,11 @@ static void ll_invalidate_negative_children(struct inode *dir)
 		spin_unlock(&dentry->d_lock);
 	}
 	ll_unlock_dcache(dir);
+}
+
+static void ll_dir_truncate_pages(struct ldlm_lock *lock, struct inode *dir)
+{
+	truncate_inode_pages(dir->i_mapping, 0);
 }
 
 int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
@@ -284,11 +293,11 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			spin_unlock(&lli->lli_lock);
 		}
 
-                if (S_ISDIR(inode->i_mode) &&
-                     (bits & MDS_INODELOCK_UPDATE)) {
+		if (S_ISDIR(inode->i_mode) &&
+		     (bits & MDS_INODELOCK_UPDATE)) {
 			CDEBUG(D_INODE, "invalidating inode "DFID"\n",
 			       PFID(ll_inode2fid(inode)));
-                        truncate_inode_pages(inode->i_mapping, 0);
+			ll_dir_truncate_pages(lock, inode);
 			ll_invalidate_negative_children(inode);
 		}
 
@@ -862,8 +871,7 @@ static int ll_create_it(struct inode *dir, struct dentry *dentry, int mode,
 	RETURN(0);
 }
 
-static void ll_update_times(struct ptlrpc_request *request,
-                            struct inode *inode)
+void ll_update_times(struct ptlrpc_request *request, struct inode *inode)
 {
         struct mdt_body *body = req_capsule_server_get(&request->rq_pill,
                                                        &RMF_MDT_BODY);

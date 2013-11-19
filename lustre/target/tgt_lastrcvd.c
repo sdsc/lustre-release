@@ -742,6 +742,9 @@ int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 	}
 	spin_unlock(&tgt->lut_translock);
 
+	if (th->th_update != NULL)
+		th->th_update->tu_batchid = tti->tti_transno;
+
 	/** VBR: set new versions */
 	if (th->th_result == 0 && obj != NULL)
 		dt_version_set(env, obj, tti->tti_transno, th);

@@ -68,6 +68,7 @@
 #include <lustre_fid.h>
 #include <lustre_fld.h>
 #include <lustre_capa.h>
+#include <cl_object.h>
 
 #define MAX_OBD_DEVICES 8192
 
@@ -282,6 +283,8 @@ enum llog_ctxt_id {
 	LLOG_CHANGELOG_REPL_CTXT,	/**< changelog access on clients */
 	LLOG_CHANGELOG_USER_ORIG_CTXT,	/**< for multiple changelog consumers */
 	LLOG_AGENT_ORIG_CTXT,		/**< agent requests generation on cdt */
+	LLOG_UPDATE_ORIG_CTXT,
+	LLOG_UPDATE_REPL_CTXT,
 	LLOG_MAX_CTXTS
 };
 
@@ -836,6 +839,7 @@ struct obd_llog_group {
 	wait_queue_head_t  olg_waitq;
 	spinlock_t	   olg_lock;
 	struct mutex	   olg_cat_processing;
+	cfs_list_t	   olg_list;
 };
 
 /* corresponds to one of the obd's */
@@ -902,6 +906,8 @@ struct obd_device {
 	__u64			obd_osfs_age;
 	struct lvfs_run_ctxt	obd_lvfs_ctxt;
 	struct obd_llog_group	obd_olg;	/* default llog group */
+	cfs_list_t		obd_olg_list; /* list for different llog grp */
+	struct rw_semaphore	obd_olg_list_sem;	
 	struct obd_device	*obd_observer;
 	struct rw_semaphore	obd_observer_link_sem;
         struct obd_notify_upcall obd_upcall;
@@ -1049,6 +1055,7 @@ struct lu_context;
 #define IT_QUOTA_DQACQ (1 << 11)
 #define IT_QUOTA_CONN  (1 << 12)
 #define IT_SETXATTR (1 << 13)
+#define IT_CROSS_MDT (1 << 14)
 
 static inline int it_to_lock_mode(struct lookup_intent *it)
 {
@@ -1066,6 +1073,38 @@ static inline int it_to_lock_mode(struct lookup_intent *it)
         LASSERTF(0, "Invalid it_op: %d\n", it->it_op);
         return -EINVAL;
 }
+
+/* lmv structures */
+struct lmv_oinfo {
+	struct lu_fid	lmo_fid;
+	mdsno_t		lmo_mds;
+	__u32		lmo_nlink;
+	__u64		lmo_size;
+	obd_time	lmo_mtime;
+	obd_time	lmo_ctime;
+	obd_time	lmo_atime;
+	struct inode	*lmo_root;
+};
+
+struct lmv_stripe_md {
+	__u32	lsm_md_magic;
+	__u32	lsm_count;
+	__u32	lsm_master;
+	__u32	lsm_hash_type;
+	__u32	lsm_layout_version;
+	__u32	lsm_default_count;
+	__u32	lsm_default_index;
+	char	lsm_md_pool_name[LOV_MAXPOOLNAME];
+	struct lmv_oinfo lsm_oinfo[0];
+};
+
+struct lmv_stripe_md;
+extern int lmv_pack_md(struct lmv_mds_md **lmmp, struct lmv_stripe_md *lsm,
+                       int stripes);
+extern int lmv_alloc_md(struct lmv_mds_md **lmmp, int stripes);
+extern void lmv_free_md(struct lmv_mds_md *lsm);
+extern int lmv_alloc_memmd(struct lmv_stripe_md **lsmp, int stripes);
+extern void lmv_free_memmd(struct lmv_stripe_md *lsm);
 
 struct md_op_data {
         struct lu_fid           op_fid1; /* operation fid1 (usualy parent) */
@@ -1123,9 +1162,21 @@ struct md_op_data {
 	struct lustre_handle	op_lease_handle;
 };
 
+#define op_stripe_offset       op_ioepoch
+#define op_max_pages           op_valid
+
+struct md_callback {
+	int (*md_blocking_ast)(struct ldlm_lock *lock,
+			       struct ldlm_lock_desc *desc,
+			       void *data, int flag);
+	void (*md_update_inode)(struct inode *inode, loff_t size);
+};
+
 enum op_cli_flags {
 	CLI_SET_MEA	= 1 << 0,
 	CLI_RM_ENTRY	= 1 << 1,
+	CLI_HASH64	= 1 << 2,
+	CLI_API32	= 1 << 3,
 };
 
 struct md_enqueue_info;
@@ -1323,7 +1374,8 @@ enum {
         LUSTRE_OPC_SYMLINK  = (1 << 1),
         LUSTRE_OPC_MKNOD    = (1 << 2),
         LUSTRE_OPC_CREATE   = (1 << 3),
-        LUSTRE_OPC_ANY      = (1 << 4)
+	LUSTRE_OPC_MIGRATE  = (1 << 4),
+	LUSTRE_OPC_ANY      = (1 << 5)
 };
 
 /* lmv structures */
@@ -1338,13 +1390,15 @@ enum {
 struct lustre_md {
         struct mdt_body         *body;
         struct lov_stripe_md    *lsm;
-        struct lmv_stripe_md    *mea;
+        struct lmv_stripe_md    *lsm_md;
 #ifdef CONFIG_FS_POSIX_ACL
         struct posix_acl        *posix_acl;
 #endif
         struct mdt_remote_perm  *remote_perm;
         struct obd_capa         *mds_capa;
         struct obd_capa         *oss_capa;
+	struct lu_fid		*lm_slave_fid;
+	__u64			lm_flags;
 };
 
 struct md_open_data {
@@ -1405,7 +1459,11 @@ struct md_ops {
 		       struct obd_capa *, struct ptlrpc_request **);
 
 	int (*m_readpage)(struct obd_export *, struct md_op_data *,
-			  struct page **, struct ptlrpc_request **);
+			  struct md_callback *cb_op,
+			  struct ptlrpc_request **, struct page **);
+
+	int (*m_read_entry)(struct obd_export *, struct md_op_data *,
+			    struct md_callback *cb_op, struct lu_dirent **ld);
 
 	int (*m_unlink)(struct obd_export *, struct md_op_data *,
 			struct ptlrpc_request **);
@@ -1453,6 +1511,12 @@ struct md_ops {
 			       struct lustre_md *);
 
 	int (*m_free_lustre_md)(struct obd_export *, struct lustre_md *);
+
+	int (*m_merge_attr)(struct obd_export *, struct lmv_stripe_md *lsm,
+			    struct cl_attr *attr);
+
+	int (*m_update_lsm_md)(struct obd_export *, struct lmv_stripe_md *lsm,
+			       struct mdt_body *, ldlm_blocking_callback);
 
 	int (*m_set_open_replay_data)(struct obd_export *,
 				      struct obd_client_handle *,

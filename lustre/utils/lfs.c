@@ -120,6 +120,7 @@ static int lfs_hsm_release(int argc, char **argv);
 static int lfs_hsm_remove(int argc, char **argv);
 static int lfs_hsm_cancel(int argc, char **argv);
 static int lfs_swap_layouts(int argc, char **argv);
+static int lfs_mv(int argc, char **argv);
 
 #define SETSTRIPE_USAGE(_cmd, _tgt) \
 	"usage: "_cmd" [--stripe-count|-c <stripe_count>]\n"\
@@ -322,10 +323,13 @@ command_t cmdlist[] = {
 	{"migrate", lfs_setstripe, 0, "migrate file from one layout to "
 	 "another (may be not safe with concurent writes).\n"
 	 SETSTRIPE_USAGE("migrate  ", "<filename>")},
-        {"help", Parser_help, 0, "help"},
-        {"exit", Parser_quit, 0, "quit"},
-        {"quit", Parser_quit, 0, "quit"},
-        { 0, 0, 0, NULL }
+	{"mv", lfs_mv, 0,
+	 "To move directories between MDTs.\n"
+	 "usage: mv <directory|filename> <-i index>\n"},
+	{"help", Parser_help, 0, "help"},
+	{"exit", Parser_quit, 0, "quit"},
+	{"quit", Parser_quit, 0, "quit"},
+	{ 0, 0, 0, NULL }
 };
 
 static int isnumber(const char *str)
@@ -1487,9 +1491,11 @@ static int lfs_setdirstripe(int argc, char **argv)
 	char *end;
 	int c;
 	char *stripe_off_arg = NULL;
+	char *stripe_count_arg = NULL;
 	int  flags = 0;
 
 	struct option long_opts[] = {
+		{"count",    required_argument, 0, 'c'},
 		{"index",    required_argument, 0, 'i'},
 		{0, 0, 0, 0}
 	};
@@ -1497,11 +1503,14 @@ static int lfs_setdirstripe(int argc, char **argv)
 	st_offset = -1;
 	st_count = 1;
 	optind = 0;
-	while ((c = getopt_long(argc, argv, "i:o",
-				long_opts, NULL)) >= 0) {
+
+	while ((c = getopt_long(argc, argv, "c:i:D", long_opts, NULL)) >= 0) {
 		switch (c) {
 		case 0:
 			/* Long options. */
+			break;
+		case 'c':
+			stripe_count_arg = optarg;
 			break;
 		case 'i':
 			stripe_off_arg = optarg;
@@ -1526,6 +1535,7 @@ static int lfs_setdirstripe(int argc, char **argv)
 			argv[0]);
 		return CMD_HELP;
 	}
+
 	/* get the stripe offset */
 	st_offset = strtoul(stripe_off_arg, &end, 0);
 	if (*end != '\0') {
@@ -1533,6 +1543,17 @@ static int lfs_setdirstripe(int argc, char **argv)
 			argv[0], stripe_off_arg);
 		return CMD_HELP;
 	}
+
+	/* get the stripe count */
+	if (stripe_count_arg != NULL) {
+		st_count = strtoul(stripe_count_arg, &end, 0);
+		if (*end != '\0') {
+			fprintf(stderr, "error: %s: bad stripe count '%s'\n",
+				argv[0], stripe_count_arg);
+			return CMD_HELP;
+		}
+	}
+
 	do {
 		result = llapi_dir_create_pool(dname, flags, st_offset,
 					       st_count, 0, NULL);
@@ -1572,6 +1593,53 @@ static int lfs_rmentry(int argc, char **argv)
 		dname = argv[++index];
 	}
 	return result;
+}
+
+static int lfs_mv(int argc, char **argv)
+{
+	struct  find_param param = { .maxdepth = -1, .mdtindex = -1};
+	char   *end;
+	int     c;
+	int     rc = 0;
+	struct option long_opts[] = {
+		{"index", required_argument, 0, 'i'},
+		{0, 0, 0, 0}
+	};
+
+	while ((c = getopt_long(argc, argv, "i:", long_opts, NULL)) != -1) {
+		switch (c) {
+		case 'i': {
+			param.mdtindex = strtoul(optarg, &end, 0);
+			if (*end != '\0') {
+				fprintf(stderr, "%s: invalid MDT index'%s'\n",
+					argv[0], optarg);
+				return CMD_HELP;
+			}
+			break;
+		}
+		default:
+			fprintf(stderr, "error: %s: unrecognized option '%s'\n",
+				argv[0], argv[optind - 1]);
+			return CMD_HELP;
+		}
+	}
+
+	if (param.mdtindex == -1) {
+		fprintf(stderr, "%s MDT index must be indicated\n", argv[0]);
+		return CMD_HELP;
+	}
+
+	if (optind >= argc) {
+		fprintf(stderr, "%s missing operand path\n", argv[0]);
+		return CMD_HELP;
+	}
+
+	param.migrate = 1;
+	rc = llapi_mv(argv[optind], &param);
+	if (rc != 0)
+		fprintf(stderr, "cannot migrate '%s' to MDT%04x: %s\n",
+			argv[optind], param.mdtindex, strerror(-rc));
+	return rc;
 }
 
 static int lfs_osts(int argc, char **argv)

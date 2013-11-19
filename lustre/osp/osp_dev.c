@@ -77,13 +77,11 @@ struct lu_object *osp_object_alloc(const struct lu_env *env,
 	if (o != NULL) {
 		l = &o->opo_obj.do_lu;
 
-		/* For data object, OSP obj would always be the top
-		 * object, i.e. hdr is always NULL, see lu_object_alloc.
-		 * But for metadata object, we always build the object
-		 * stack from MDT. i.e. mdt_object will be the top object
-		 * i.e.  hdr != NULL */
+		/* If hdr is NULL, it means the object is not built
+		 * from the top dev(MDT/OST), usually it happens when
+		 * building striped object, like data object on MDT or
+		 * striped object for directory */
 		if (hdr == NULL) {
-			/* object for OST */
 			h = &o->opo_header;
 			lu_object_header_init(h);
 			dt_object_init(&o->opo_obj, h, d);
@@ -356,11 +354,14 @@ static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 		osp_precreate_fini(d);
 
 		/* stop sync thread */
-		osp_sync_fini(d);
 
 		/* release last_used file */
 		osp_last_used_fini(env, d);
+	} else {
+		osp_update_fini(env, d);
 	}
+
+	osp_sync_fini(d);
 
 	obd_fid_fini(d->opd_obd);
 
@@ -421,7 +422,8 @@ static int osp_recovery_complete(const struct lu_env *env,
 
 	ENTRY;
 	osp->opd_recovery_completed = 1;
-	if (!osp->opd_connect_mdt)
+
+	if (!osp->opd_connect_mdt && osp->opd_pre != NULL)
 		wake_up(&osp->opd_pre_waitq);
 	RETURN(rc);
 }
@@ -446,6 +448,9 @@ static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 	if (unlikely(d->opd_imp_active == 0))
 		RETURN(-ENOTCONN);
 
+	if (d->opd_pre == NULL)
+		RETURN(0);
+
 	/* return recently updated data */
 	*sfs = d->opd_statfs;
 
@@ -453,7 +458,7 @@ static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 	 * layer above osp (usually lod) can use ffree to estimate
 	 * how many objects are available for immediate creation
 	 */
-
+	LASSERT(d->opd_pre != NULL);
 	spin_lock(&d->opd_pre_lock);
 	LASSERTF(fid_seq(&d->opd_pre_last_created_fid) ==
 		 fid_seq(&d->opd_pre_used_fid),
@@ -687,6 +692,14 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 
 	osp_lprocfs_init(m);
 
+	rc = obd_fid_init(m->opd_obd, NULL, m->opd_connect_mdt ?
+			  LUSTRE_SEQ_METADATA : LUSTRE_SEQ_DATA);
+	if (rc) {
+		CERROR("%s: fid init error: rc = %d\n",
+		       m->opd_obd->obd_name, rc);
+		GOTO(out_last_used, rc);
+	}
+
 	if (!m->opd_connect_mdt) {
 		/* Initialize last id from the storage - will be
 		 * used in orphan cleanup. */
@@ -694,28 +707,26 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		if (rc)
 			GOTO(out_proc, rc);
 
-		rc = obd_fid_init(m->opd_obd, NULL, LUSTRE_SEQ_DATA);
-		if (rc) {
-			CERROR("%s: fid init error: rc = %d\n",
-			       m->opd_obd->obd_name, rc);
-			GOTO(out_last_used, rc);
-		}
 
 		/* Initialize precreation thread, it handles new
 		 * connections as well. */
 		rc = osp_init_precreate(m);
 		if (rc)
 			GOTO(out_last_used, rc);
-		/*
-		 * Initialize synhronization mechanism taking
-		 * care of propogating changes to OST in near
-		 * transactional manner.
-		 */
-		rc = osp_sync_init(env, m);
-		if (rc)
-			GOTO(out_precreat, rc);
-
+	} else {
+		rc = osp_update_init(env, m);
+		if (rc != 0)
+			GOTO(out_proc, m);
 	}
+	/*
+	 * Initialize synhronization mechanism taking
+	 * care of propogating changes to OST in near
+	 * transactional manner.
+	 */
+	rc = osp_sync_init(env, m);
+	if (rc)
+		GOTO(out_update, rc);
+
 	/*
 	 * Initiate connect to OST
 	 */
@@ -730,12 +741,12 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	if (osdname)
 		OBD_FREE(osdname, MAX_OBD_NAME);
 	RETURN(0);
-
 out:
-	if (!m->opd_connect_mdt)
-		/* stop sync thread */
-		osp_sync_fini(m);
-out_precreat:
+	/* stop sync thread */
+	osp_sync_fini(m);
+out_update:
+	if (m->opd_connect_mdt)
+		osp_update_fini(env, m);
 	/* stop precreate thread */
 	if (!m->opd_connect_mdt)
 		osp_precreate_fini(m);
@@ -856,6 +867,32 @@ static int osp_reconnect(const struct lu_env *env,
 	return 0;
 }
 
+static int osp_prepare_fid_client(struct osp_device *osp)
+{
+	int rc;
+
+	LASSERT(osp->opd_obd->u.cli.cl_seq != NULL);
+	if (osp->opd_obd->u.cli.cl_seq->lcs_exp != NULL)
+		return 0;
+
+	LASSERT(osp->opd_exp != NULL);
+	osp->opd_obd->u.cli.cl_seq->lcs_exp =
+				class_export_get(osp->opd_exp);
+	if (osp->opd_pre == NULL)
+		return 0;
+
+	/* Init fid for osp_precreate if necessary */
+	rc = osp_init_pre_fid(osp);
+	if (rc != 0) {
+		class_export_put(osp->opd_exp);
+		osp->opd_obd->u.cli.cl_seq->lcs_exp = NULL;
+		CERROR("%s: init pre fid error: rc = %d\n",
+		       osp->opd_obd->obd_name, rc);
+		return rc;
+	}
+
+	return 0;
+}
 /*
  * we use exports to track all LOD users
  */
@@ -914,6 +951,7 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 		ss->ss_control_exp = class_export_get(*exp);
 		ss->ss_server_fld->lsf_control_exp = *exp;
 	}
+
 out:
 	RETURN(rc);
 }
@@ -1012,6 +1050,38 @@ out:
 	return rc;
 }
 
+/**
+ * It will retrieve its FLDB entries from MDT0, and it only happens
+ * when upgrading existent FS to 2.6.
+ **/
+static int osp_update_fldb_from_controller(struct osp_device *osp)
+{
+	struct lu_env		env;
+	struct lu_server_fld	*fld = osp_seq_site(osp)->ss_server_fld;
+	int			rc;
+	ENTRY;
+
+	if (!likely(fld->lsf_new) || osp->opd_index != 0)
+		RETURN(0);
+
+	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags);
+	if (rc) {
+		CERROR("%s: init env error: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
+		RETURN(rc);
+	}
+
+	rc = fld_update_from_controller(&env, fld);
+	if (rc != 0) {
+		CERROR("%s: update controller failed: rc = %d\n",
+		       osp->opd_obd->obd_name, rc);
+		GOTO(out, rc);
+	}
+out:
+	lu_env_fini(&env);
+	RETURN(rc);
+}
+
 static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			    enum obd_import_event event)
 {
@@ -1023,27 +1093,37 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		d->opd_imp_connected = 0;
 		if (d->opd_connect_mdt)
 			break;
-		osp_pre_update_status(d, -ENODEV);
-		wake_up(&d->opd_pre_waitq);
+		if (d->opd_pre != NULL) {
+			osp_pre_update_status(d, -ENODEV);
+			wake_up(&d->opd_pre_waitq);
+		}
 		CDEBUG(D_HA, "got disconnected\n");
 		break;
 	case IMP_EVENT_INACTIVE:
 		d->opd_imp_active = 0;
 		if (d->opd_connect_mdt)
 			break;
-		osp_pre_update_status(d, -ENODEV);
-		wake_up(&d->opd_pre_waitq);
+		if (d->opd_pre != NULL) {
+			osp_pre_update_status(d, -ENODEV);
+			wake_up(&d->opd_pre_waitq);
+		}
 		CDEBUG(D_HA, "got inactive\n");
 		break;
 	case IMP_EVENT_ACTIVE:
 		d->opd_imp_active = 1;
+		osp_prepare_fid_client(d);
 		if (d->opd_got_disconnected)
 			d->opd_new_connection = 1;
 		d->opd_imp_connected = 1;
 		d->opd_imp_seen_connected = 1;
-		if (d->opd_connect_mdt)
+		if (d->opd_connect_mdt && d->opd_update_recovery) {
+			d->opd_update_recovery = 0;
+			osp_update_fldb_from_controller(d);
+			osp_recovery(d);	
 			break;
-		wake_up(&d->opd_pre_waitq);
+		}
+		if (d->opd_pre != NULL)
+			wake_up(&d->opd_pre_waitq);
 		__osp_sync_check_for_work(d);
 		CDEBUG(D_HA, "got connected\n");
 		break;
@@ -1121,7 +1201,17 @@ static int osp_obd_health_check(const struct lu_env *env,
 	RETURN(!d->opd_imp_seen_connected);
 }
 
-/* context key constructor/destructor: mdt_key_init, mdt_key_fini */
+int osp_fid_alloc(struct obd_export *exp, struct lu_fid *fid,
+                  struct md_op_data *op_data)
+{
+	struct client_obd *cli = &exp->exp_obd->u.cli;
+	struct lu_client_seq *seq = cli->cl_seq;
+
+	ENTRY;
+	RETURN(seq_client_alloc_fid(NULL, seq, fid));
+}
+
+/* context key constructor/destructor: osp_key_init, osp_key_fini */
 LU_KEY_INIT_FINI(osp, struct osp_thread_info);
 static void osp_key_exit(const struct lu_context *ctx,
 			 struct lu_context_key *key, void *data)
@@ -1181,6 +1271,7 @@ static struct obd_ops osp_obd_device_ops = {
 	.o_statfs	= osp_obd_statfs,
 	.o_fid_init	= client_fid_init,
 	.o_fid_fini	= client_fid_fini,
+	.o_fid_alloc	= osp_fid_alloc,
 };
 
 struct llog_operations osp_mds_ost_orig_logops;

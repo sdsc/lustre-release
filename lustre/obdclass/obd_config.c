@@ -412,6 +412,8 @@ int class_attach(struct lustre_cfg *lcfg)
 	CFS_INIT_LIST_HEAD(&obd->obd_evict_list);
 
         llog_group_init(&obd->obd_olg, FID_SEQ_LLOG);
+	CFS_INIT_LIST_HEAD(&obd->obd_olg_list);
+	init_rwsem(&obd->obd_olg_list_sem);
 
 	obd->obd_conn_inprogress = 0;
 

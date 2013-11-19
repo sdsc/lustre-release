@@ -42,6 +42,8 @@
 
 #define DEBUG_SUBSYSTEM S_CLASS
 
+#include <lustre_log.h>
+#include <lustre_update.h>
 #include "osp_internal.h"
 
 #ifdef LPROCFS
@@ -201,7 +203,7 @@ static int osp_rd_create_count(char *page, char **start, off_t off, int count,
 	struct obd_device *obd = data;
 	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
 
-	if (osp == NULL)
+	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
 	return snprintf(page, count, "%d\n", osp->opd_pre_grow_count);
@@ -214,7 +216,7 @@ static int osp_wr_create_count(struct file *file, const char *buffer,
 	struct osp_device	*osp = lu2osp_dev(obd->obd_lu_dev);
 	int			 val, rc, i;
 
-	if (osp == NULL)
+	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
 	rc = lprocfs_write_helper(buffer, count, &val);
@@ -249,7 +251,7 @@ static int osp_rd_max_create_count(char *page, char **start, off_t off,
 	struct obd_device *obd = data;
 	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
 
-	if (osp == NULL)
+	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
 	return snprintf(page, count, "%d\n", osp->opd_pre_max_grow_count);
@@ -262,7 +264,7 @@ static int osp_wr_max_create_count(struct file *file, const char *buffer,
 	struct osp_device	*osp = lu2osp_dev(obd->obd_lu_dev);
 	int			 val, rc;
 
-	if (osp == NULL)
+	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
 	rc = lprocfs_write_helper(buffer, count, &val);
@@ -288,7 +290,7 @@ static int osp_rd_prealloc_next_id(char *page, char **start, off_t off,
 	struct obd_device *obd = data;
 	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
 
-	if (osp == NULL)
+	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
 	return snprintf(page, count, "%u\n",
@@ -301,7 +303,7 @@ static int osp_rd_prealloc_last_id(char *page, char **start, off_t off,
 	struct obd_device *obd = data;
 	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
 
-	if (osp == NULL)
+	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
 	return snprintf(page, count, "%u\n",
@@ -314,7 +316,7 @@ static int osp_rd_prealloc_next_seq(char *page, char **start, off_t off,
 	struct obd_device *obd = data;
 	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
 
-	if (osp == NULL)
+	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
 	return snprintf(page, count, LPX64"\n",
@@ -327,7 +329,7 @@ static int osp_rd_prealloc_last_seq(char *page, char **start, off_t off,
 	struct obd_device *obd = data;
 	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
 
-	if (osp == NULL)
+	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
 	return snprintf(page, count, LPX64"\n",
@@ -340,7 +342,7 @@ static int osp_rd_prealloc_reserved(char *page, char **start, off_t off,
 	struct obd_device *obd = data;
 	struct osp_device *osp = lu2osp_dev(obd->obd_lu_dev);
 
-	if (osp == NULL)
+	if (osp == NULL || osp->opd_pre == NULL)
 		return 0;
 
 	return snprintf(page, count, LPU64"\n", osp->opd_pre_reserved);
@@ -389,7 +391,7 @@ static int osp_rd_pre_status(char *page, char **start, off_t off,
 	struct osp_device	*osp = lu2osp_dev(dev->obd_lu_dev);
 	int			 rc;
 
-	if (osp == NULL)
+	if (osp == NULL || osp->opd_pre == NULL)
 		return -EINVAL;
 
 	rc = snprintf(page, count, "%d\n", osp->opd_pre_status);
@@ -429,6 +431,83 @@ static int osp_rd_old_sync_processed(char *page, char **start, off_t off,
 	return rc;
 }
 
+static int osp_update_show_rec(const struct lu_env *env,
+			       struct llog_handle *llh,
+			       struct llog_rec_hdr *rec,
+			       void *data)
+{
+	struct llog_updatelog_rec *urec = (struct llog_updatelog_rec *)rec;
+	struct update_buf	  *ubuf = &urec->urb;
+	struct update		  *update;
+	int			  i;
+
+	CDEBUG(D_ERROR, "logcookie %u "DOSTID":%u \n", rec->lrh_index,
+	       POSTID(&llh->lgh_id.lgl_oi), llh->lgh_id.lgl_ogen);
+	if (unlikely(rec->lrh_type == LLOG_GEN_REC)) {
+		CDEBUG(D_ERROR, "llog gen record.\n");
+		return 0;
+	}
+	for (i = 0; i < ubuf->ub_count; i++) {
+		update = (struct update *)update_buf_get(ubuf, i, NULL);
+		CDEBUG(D_ERROR, "i: %d fid: "DFID" op: %s master: %d batchid: "
+		       LPU64 " xid: "LPU64" cookie %u "DOSTID":%u\n", i,
+		       PFID(&update->u_fid), update_op_str(update->u_type),
+		       (int)update->u_master_index, update->u_batchid,
+		       update->u_xid, update->u_cookie.lgc_index,
+		       POSTID(&update->u_cookie.lgc_lgl.lgl_oi),
+		       update->u_cookie.lgc_lgl.lgl_ogen);
+	}
+	return 0;
+}
+
+static int osp_rd_update_log(char *page, char **start, off_t off,
+			     int count, int *eof, void *data)
+{
+	struct obd_device	*dev = data;
+	struct osp_device	*osp = lu2osp_dev(dev->obd_lu_dev);
+	struct obd_llog_group	*olg;
+	struct llog_ctxt	*ctxt;
+	struct llog_handle	*llh;
+	struct lu_env		env;
+	int			 rc;
+
+	if (osp == NULL)
+		return -EINVAL;
+
+	olg = dt_update_find_olg(osp->opd_storage, osp->opd_index);
+	if (olg == NULL) {
+		CERROR("%s: can't get appropriate context: rc = %d\n",
+		       osp->opd_obd->obd_name, -EINVAL);
+		return -EINVAL;
+	}
+
+	ctxt = llog_group_get_ctxt(olg, LLOG_UPDATE_ORIG_CTXT);
+	if (ctxt == NULL) {
+		CERROR("%s: can't get appropriate context: rc = %d\n",
+		       osp->opd_obd->obd_name, -EINVAL);
+		return -EINVAL;
+	}
+
+	llh = ctxt->loc_handle;
+	if (llh == NULL) {
+		llog_ctxt_put(ctxt);
+		return -EINVAL;
+	}
+
+	rc = lu_env_init(&env, osp->opd_dt_dev.dd_lu_dev.ld_type->ldt_ctx_tags);
+	if (rc) {
+		CERROR("%s: init env error: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
+		RETURN(rc);
+	}
+
+	CDEBUG(D_ERROR, "%s: update log is\n", osp->opd_obd->obd_name);
+	rc = llog_cat_process(&env, llh, osp_update_show_rec, osp, 0, 0);
+	llog_ctxt_put(ctxt);
+	lu_env_fini(&env);
+	return rc;
+}
+
 static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	{ "uuid",		lprocfs_rd_uuid, 0, 0 },
 	{ "ping",		0, lprocfs_wr_ping, 0, 0, 0222 },
@@ -458,6 +537,7 @@ static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	{ "sync_in_flight",	osp_rd_syn_in_flight, 0, 0 },
 	{ "sync_in_progress",	osp_rd_syn_in_prog, 0, 0 },
 	{ "old_sync_processed",	osp_rd_old_sync_processed, 0, 0 },
+	{ "update_log",		osp_rd_update_log, 0, 0 },
 
 	/* for compatibility reasons */
 	{ "destroys_in_flight",	osp_rd_destroys_in_flight, 0, 0 },

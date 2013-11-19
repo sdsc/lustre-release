@@ -555,6 +555,21 @@ void mdt_dump_lmm(int level, const struct lov_mds_md *lmm)
 	}
 }
 
+void mdt_dump_lmv(int level, const struct lmv_mds_md *lmv)
+{
+	int                           i;
+
+	CDEBUG(level, "magic 0x%08X, master %#X stripe_count %#x\n",
+	       le32_to_cpu(lmv->lmv_magic), le32_to_cpu(lmv->lmv_master),
+	       le32_to_cpu(lmv->lmv_count));
+	for (i = 0; i < le32_to_cpu(lmv->lmv_count); i++) {
+		struct lu_fid fid;
+
+		fid_le_to_cpu(&fid, &lmv->lmv_data[i]);
+		CDEBUG(level, "idx %u subobj "DFID"\n", i, PFID(&fid));
+	}
+}
+
 /* Shrink and/or grow reply buffers */
 int mdt_fix_reply(struct mdt_thread_info *info)
 {
@@ -648,13 +663,21 @@ int mdt_fix_reply(struct mdt_thread_info *info)
                         /* don't return transno along with error */
                         lustre_msg_set_transno(pill->rc_req->rq_repmsg, 0);
                 } else {
-                        /* now we need to pack right LOV EA */
+                        /* now we need to pack right LOV/LMV EA */
                         lmm = req_capsule_server_get(pill, &RMF_MDT_MD);
-                        LASSERT(req_capsule_get_size(pill, &RMF_MDT_MD,
-                                                     RCL_SERVER) ==
-                                info->mti_attr.ma_lmm_size);
-                        memcpy(lmm, info->mti_attr.ma_lmm,
-                               info->mti_attr.ma_lmm_size);
+			if (info->mti_attr.ma_valid & MA_LOV) {
+				LASSERT(req_capsule_get_size(pill, &RMF_MDT_MD,
+							     RCL_SERVER) ==
+						info->mti_attr.ma_lmm_size);
+				memcpy(lmm, info->mti_attr.ma_lmm,
+				       info->mti_attr.ma_lmm_size);
+			} else {
+				LASSERT(req_capsule_get_size(pill, &RMF_MDT_MD,
+							     RCL_SERVER) ==
+						info->mti_attr.ma_lmv_size);
+				memcpy(lmm, info->mti_attr.ma_lmv,
+				       info->mti_attr.ma_lmv_size);
+			}
                 }
                 /* update mdt_max_mdsize so clients will be aware about that */
                 if (info->mti_mdt->mdt_max_mdsize < info->mti_attr.ma_lmm_size)
@@ -1020,7 +1043,16 @@ static int mdt_create_unpack(struct mdt_thread_info *info)
                         RETURN(-EFAULT);
         } else {
                 req_capsule_extend(pill, &RQF_MDS_REINT_CREATE_RMT_ACL);
-        }
+		if (S_ISDIR(attr->la_mode) &&
+		    req_capsule_get_size(pill, &RMF_EADATA, RCL_CLIENT) > 0) {
+			sp->u.sp_ea.eadata =
+				req_capsule_client_get(pill, &RMF_EADATA);
+			sp->u.sp_ea.eadatalen =
+				req_capsule_get_size(pill, &RMF_EADATA,
+						     RCL_CLIENT);
+			sp->sp_stripe_create = 1;
+		}
+	}
 
         rc = mdt_dlmreq_unpack(info);
         RETURN(rc);
@@ -1187,8 +1219,12 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
 
         info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
 
-        rc = mdt_dlmreq_unpack(info);
-        RETURN(rc);
+	if (rec->rn_bias & MDS_RENAME_MIGRATE)
+		info->mti_spec.sp_migrate = 1;
+
+	rc = mdt_dlmreq_unpack(info);
+
+	RETURN(rc);
 }
 
 /*

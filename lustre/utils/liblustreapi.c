@@ -1381,7 +1381,7 @@ err:
         return rc;
 }
 
-typedef int (semantic_func_t)(char *path, DIR *parent, DIR *d,
+typedef int (semantic_func_t)(char *path, DIR *parent, DIR **d,
 			      void *data, struct dirent64 *de);
 
 #define OBD_NOT_FOUND           (-1)
@@ -1414,7 +1414,8 @@ static int common_param_init(struct find_param *param, char *path)
 	param->got_uuids = 0;
 	param->obdindexes = NULL;
 	param->obdindex = OBD_NOT_FOUND;
-	param->mdtindex = OBD_NOT_FOUND;
+	if (!param->migrate)
+		param->mdtindex = OBD_NOT_FOUND;
 	return 0;
 }
 
@@ -1430,7 +1431,7 @@ static void find_param_fini(struct find_param *param)
 		free(param->fp_lmv_md);
 }
 
-static int cb_common_fini(char *path, DIR *parent, DIR *d, void *data,
+static int cb_common_fini(char *path, DIR *parent, DIR **dirp, void *data,
 			  struct dirent64 *de)
 {
         struct find_param *param = (struct find_param *)data;
@@ -1547,8 +1548,8 @@ static int llapi_semantic_traverse(char *path, int size, DIR *parent,
 		}
         }
 
-        if (sem_init && (ret = sem_init(path, parent ?: p, d, data, de)))
-                goto err;
+	if (sem_init && (ret = sem_init(path, parent ?: p, &d, data, de)))
+		goto err;
 
 	if (!d || (param->get_lmv && !param->recursive)) {
 		ret = 0;
@@ -1616,7 +1617,7 @@ out:
         path[len] = 0;
 
         if (sem_fini)
-                sem_fini(path, parent, d, data, de);
+                sem_fini(path, parent, &d, data, de);
 err:
         if (d)
                 closedir(d);
@@ -2381,9 +2382,6 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 			verbose = VERBOSE_OBJID;
 	}
 
-	if (lum->lum_magic == LMV_USER_MAGIC)
-		verbose &= ~VERBOSE_OBJID;
-
 	if (depth && path && ((verbose != VERBOSE_OBJID)))
 		llapi_printf(LLAPI_MSG_NORMAL, "%s\n", path);
 
@@ -2404,13 +2402,13 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 	if (verbose & VERBOSE_OBJID) {
 		if ((obdstripe == 1))
 			llapi_printf(LLAPI_MSG_NORMAL,
-				     "\tmdtidx\t\t FID[seq:oid:ver]\n");
+				     "mdtidx\t\t FID[seq:oid:ver]\n");
 		for (i = 0; i < lum->lum_stripe_count; i++) {
 			int idx = objects[i].lum_mds;
 			struct lu_fid *fid = &objects[i].lum_fid;
 			if ((obdindex == OBD_NOT_FOUND) || (obdindex == idx))
 				llapi_printf(LLAPI_MSG_NORMAL,
-					     "\t%6u\t\t "DFID"\t\t%s\n",
+					     "%6u\t\t "DFID"\t\t%s\n",
 					    idx, PFID(fid),
 					    obdindex == idx ? " *" : "");
 		}
@@ -2741,10 +2739,11 @@ static int print_failed_tgt(struct find_param *param, char *path, int type)
         return ret;
 }
 
-static int cb_find_init(char *path, DIR *parent, DIR *dir,
+static int cb_find_init(char *path, DIR *parent, DIR **dirp,
 			void *data, struct dirent64 *de)
 {
         struct find_param *param = (struct find_param *)data;
+	DIR *dir = dirp == NULL ? NULL : *dirp;
         int decision = 1; /* 1 is accepted; -1 is rejected. */
         lstat_t *st = &param->lmd->lmd_st;
         int lustre_fs = 1;
@@ -3058,6 +3057,71 @@ decided:
         return 0;
 }
 
+static int cb_mv_init(char *path, DIR *parent, DIR **dirp,
+		      void *data, struct dirent64 *de)
+{
+	struct find_param *param = (struct find_param *)data;
+	DIR    *dir = dirp == NULL ? NULL : *dirp;
+	int    mdtidx;
+	int    ret;
+	int    fd;
+
+	LASSERT(parent != NULL || dir != NULL);
+	if (dir == NULL) {
+		fd = open(path, O_RDONLY);
+		if (fd < 0) {
+			ret = fd;
+			fprintf(stderr, "can not open %s ret %d\n",
+				path, ret);
+			return ret;
+		}
+	} else {
+		fd = dirfd(dir);
+	}
+
+	ret = llapi_file_fget_mdtidx(fd, &mdtidx);
+	if (ret != 0) {
+		fprintf(stderr, "path %s Get mdtidx error %d\n",
+			path, ret);
+		goto close;
+	}
+
+	if (param->mdtindex == mdtidx)
+		goto close;
+
+	ret = ioctl(fd, LL_IOC_MIGRATE, &param->mdtindex);
+	if (ret != 0) {
+		ret = -errno;
+		fprintf(stderr, "migrate failed %d\n", ret);
+		goto close;
+	}
+
+	if (dir != NULL) {
+		/* After migration, we need close the directory,
+		 * so the old directory cache will be cleanup
+		 * on the client side, and re-open to get the
+		 * new directory handle */
+		closedir(dir);
+		*dirp = opendir(path);
+		if (dirp == NULL) {
+			ret = -errno;
+			llapi_error(LLAPI_MSG_ERROR, ret,
+				    "%s: Failed to open '%s'", __func__, path);
+			return ret;
+		}
+	}
+close:
+	if (dir == NULL)
+		close(fd);
+
+	return ret;
+}
+
+int llapi_mv(char *path, struct find_param *param)
+{
+	return param_callback(path, cb_mv_init, cb_common_fini, param);
+}
+
 int llapi_find(char *path, struct find_param *param)
 {
         return param_callback(path, cb_find_init, cb_common_fini, param);
@@ -3075,10 +3139,11 @@ int llapi_file_fget_mdtidx(int fd, int *mdtidx)
         return 0;
 }
 
-static int cb_get_mdt_index(char *path, DIR *parent, DIR *d, void *data,
+static int cb_get_mdt_index(char *path, DIR *parent, DIR **dirp, void *data,
 			    struct dirent64 *de)
 {
         struct find_param *param = (struct find_param *)data;
+	DIR *d = dirp == NULL ? NULL : *dirp;
         int ret = 0;
         int mdtidx;
 
@@ -3142,10 +3207,11 @@ out:
         return 0;
 }
 
-static int cb_getstripe(char *path, DIR *parent, DIR *d, void *data,
+static int cb_getstripe(char *path, DIR *parent, DIR **dirp, void *data,
 			struct dirent64 *de)
 {
         struct find_param *param = (struct find_param *)data;
+	DIR *d = dirp == NULL ? NULL : *dirp;
         int ret = 0;
 
         LASSERT(parent != NULL || d != NULL);
@@ -3462,10 +3528,11 @@ int llapi_quotactl(char *mnt, struct if_quotactl *qctl)
         return rc;
 }
 
-static int cb_quotachown(char *path, DIR *parent, DIR *d, void *data,
+static int cb_quotachown(char *path, DIR *parent, DIR **dirp, void *data,
 			 struct dirent64 *de)
 {
         struct find_param *param = (struct find_param *)data;
+	DIR *d = dirp == NULL ? NULL : *dirp;
         lstat_t *st;
         int rc;
 
