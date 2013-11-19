@@ -183,6 +183,31 @@ static int qsd_intent_interpret(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static int qsd_lock_set_data(struct lustre_handle *lockh, void *data, int op)
+{
+	struct ldlm_lock	*lock = ldlm_handle2lock(lockh);
+	int			 rc = -ENOLCK;
+	ENTRY;
+
+	if (lock == NULL)
+		RETURN(rc);
+
+	LASSERT(op == IT_QUOTA_CONN || op == IT_QUOTA_DQACQ);
+	lock_res_and_lock(lock);
+	LASSERT(lock->l_ast_data == NULL);
+	if (!ldlm_is_failed(lock)) {
+		lock->l_ast_data = data;
+		if (op == IT_QUOTA_CONN)
+			qqi_getref((struct qsd_qtype_info *)data);
+		else
+			lqe_getref((struct lquota_entry *)data);
+		rc = 0;
+	}
+	unlock_res_and_lock(lock);
+	LDLM_LOCK_PUT(lock);
+	RETURN(rc);
+}
+
 /*
  * Get intent per-ID lock or global-index lock from master.
  *
@@ -249,7 +274,6 @@ int qsd_intent_lock(const struct lu_env *env, struct obd_export *exp,
 
 		/* copy einfo template and fill ei_cbdata with qqi pointer */
 		memcpy(&qti->qti_einfo, &qsd_glb_einfo, sizeof(qti->qti_einfo));
-		qti->qti_einfo.ei_cbdata = qqi;
 
 		/* don't cancel global lock on memory pressure */
 		flags |= LDLM_FL_NO_LRU;
@@ -261,7 +285,6 @@ int qsd_intent_lock(const struct lu_env *env, struct obd_export *exp,
 
 		/* copy einfo template and fill ei_cbdata with lqe pointer */
 		memcpy(&qti->qti_einfo, &qsd_id_einfo, sizeof(qti->qti_einfo));
-		qti->qti_einfo.ei_cbdata = arg;
 		break;
 	default:
 		LASSERTF(0, "invalid it_op %d", it_op);
@@ -293,17 +316,28 @@ int qsd_intent_lock(const struct lu_env *env, struct obd_export *exp,
 		LDLM_LOCK_PUT(lock);
 	}
 #endif
-		qqi_getref(qqi);
+		rc = qsd_lock_set_data(&qti->qti_lockh, (void *)qqi, it_op);
+		if (rc)
+			CWARN("%s: set global lock data failed!\n",
+			      qqi->qqi_qsd->qsd_svname);
 		break;
 	case IT_QUOTA_DQACQ:
 		/* grab reference on lqe for new lock */
-		lqe_getref((struct lquota_entry *)arg);
+		rc = qsd_lock_set_data(&qti->qti_lockh, arg, it_op);
+		if (rc)
+			LQUOTA_WARN((struct lquota_entry *)arg,
+				    "set id lock data failed!");
 		/* all acquire/release request are sent with no_resend and
 		 * no_delay flag */
 		req->rq_no_resend = req->rq_no_delay = 1;
 		break;
 	default:
 		break;
+	}
+
+	if (rc) {
+		ptlrpc_req_finished(req);
+		GOTO(out, rc);
 	}
 
 	CLASSERT(sizeof(*aa) <= sizeof(req->rq_async_args));
