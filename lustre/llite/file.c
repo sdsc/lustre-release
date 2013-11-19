@@ -381,7 +381,8 @@ int ll_file_release(struct inode *inode, struct file *file)
         }
 
         if (!S_ISDIR(inode->i_mode)) {
-		lov_read_and_clear_async_rc(lli->lli_clob);
+		if (lli->lli_clob != NULL)
+			lov_read_and_clear_async_rc(lli->lli_clob);
                 lli->lli_async_rc = 0;
         }
 
@@ -2589,6 +2590,14 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		OBD_FREE_PTR(hui);
 		RETURN(rc);
 	}
+	case LL_IOC_MIGRATE: {
+		int mdtidx;
+
+		if (copy_from_user(&mdtidx, (int *)arg, sizeof(mdtidx)))
+			RETURN(-EFAULT);
+
+		RETURN(ll_migrate(inode, file, mdtidx));
+	}
 	default: {
 		int err;
 
@@ -2707,9 +2716,11 @@ int ll_flush(struct file *file, fl_owner_t id)
 	 * failed for pages in this mapping. */
 	rc = lli->lli_async_rc;
 	lli->lli_async_rc = 0;
-	err = lov_read_and_clear_async_rc(lli->lli_clob);
-	if (rc == 0)
-		rc = err;
+	if (lli->lli_clob != NULL) {
+		err = lov_read_and_clear_async_rc(lli->lli_clob);
+		if (rc == 0)
+			rc = err;
+	}
 
 	/* The application has been told write failure already.
 	 * Do not report failure again. */
@@ -2981,6 +2992,48 @@ int ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
         RETURN(rc);
 }
 
+int ll_migrate(struct inode *inode, struct file *file, int mdtidx)
+{
+	struct dentry         *dentry = file->f_dentry;
+	struct inode          *parent = file->f_dentry->d_parent->d_inode;
+	struct qstr           *name = &dentry->d_name;
+	struct md_op_data     *op_data;
+	struct ptlrpc_request *request = NULL;
+	int                    rc;
+
+	ENTRY;
+
+	if (ll_d_mountpoint(NULL, dentry, NULL))
+		RETURN(-EBUSY);
+
+	op_data = ll_prep_md_op_data(NULL, parent, NULL, name->name, name->len,
+				     inode->i_mode, LUSTRE_OPC_MIGRATE, NULL);
+	if (IS_ERR(op_data))
+		RETURN(PTR_ERR(op_data));
+
+	op_data->op_mds = mdtidx;
+	op_data->op_fid3 = *ll_inode2fid(inode);
+	rc = md_rename(ll_i2sbi(inode)->ll_md_exp, op_data, name->name,
+		       name->len, name->name, name->len, &request);
+	ll_finish_md_op_data(op_data);
+	if (!rc)
+		ll_update_times(request, parent);
+
+	ptlrpc_req_finished(request);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (S_ISREG(inode->i_mode))
+		rc = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF,
+					CL_FSYNC_ALL, 0);
+
+	truncate_inode_pages(&inode->i_data, 0);
+
+	cl_inode_fini(inode);
+
+	RETURN(rc);
+}
+
 int ll_file_noflock(struct file *file, int cmd, struct file_lock *file_lock)
 {
         ENTRY;
@@ -3173,6 +3226,25 @@ out:
         return rc;
 }
 
+static int ll_merge_md_attr(struct inode *inode)
+{
+	struct cl_attr attr = { 0 };
+	int rc;
+
+	rc = md_merge_attr(ll_i2mdexp(inode), ll_i2info(inode)->lli_lsm_md,
+			   &attr);
+	if (rc != 0)
+		RETURN(rc);
+
+	i_size_write(inode, attr.cat_size);
+	set_nlink(inode, attr.cat_nlink);
+
+	ll_i2info(inode)->lli_lvb.lvb_atime = attr.cat_atime;
+	ll_i2info(inode)->lli_lvb.lvb_mtime = attr.cat_mtime;
+	ll_i2info(inode)->lli_lvb.lvb_ctime = attr.cat_ctime;
+	RETURN(0);
+}
+
 int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
 			   __u64 ibits)
 {
@@ -3186,6 +3258,13 @@ int ll_inode_revalidate_it(struct dentry *dentry, struct lookup_intent *it,
 
 	/* if object isn't regular file, don't validate size */
 	if (!S_ISREG(inode->i_mode)) {
+		if (S_ISDIR(inode->i_mode) &&
+		    ll_i2info(inode)->lli_lsm_md != NULL) {
+			rc = ll_merge_md_attr(inode);
+			if (rc != 0)
+				RETURN(rc);
+		}
+
 		LTIME_S(inode->i_atime) = ll_i2info(inode)->lli_lvb.lvb_atime;
 		LTIME_S(inode->i_mtime) = ll_i2info(inode)->lli_lvb.lvb_mtime;
 		LTIME_S(inode->i_ctime) = ll_i2info(inode)->lli_lvb.lvb_ctime;

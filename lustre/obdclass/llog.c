@@ -107,10 +107,59 @@ void llog_handle_put(struct llog_handle *loghandle)
 	if (cfs_atomic_dec_and_test(&loghandle->lgh_refcount))
 		llog_free_handle(loghandle);
 }
+/* returns negative on error; 0 if success; 1 if success & log destroyed */
+int llog_declare_cancel_rec(const struct lu_env *env,
+			    struct llog_handle *loghandle, int index,
+			    struct thandle *th)
+{
+        struct llog_log_hdr *llh = loghandle->lgh_hdr;
+        int rc = 0;
+        ENTRY;
+
+        CDEBUG(D_RPCTRACE, "Canceling %d in log "DOSTID"\n",
+               index, POSTID(&loghandle->lgh_id.lgl_oi));
+
+        if (index == 0) {
+                CERROR("Can't cancel index 0 which is header\n");
+                RETURN(-EINVAL);
+        }
+
+	spin_lock(&loghandle->lgh_hdr_lock);
+	if (!ext2_test_bit(index, llh->llh_bitmap)) {
+		spin_unlock(&loghandle->lgh_hdr_lock);
+		CDEBUG(D_RPCTRACE, "Catalog index %u already clear?\n", index);
+		RETURN(-ENOENT);
+	}
+	spin_unlock(&loghandle->lgh_hdr_lock);
+
+	rc = llog_declare_destroy(env, loghandle, th);
+	if (rc < 0) {
+		CERROR("%s: can't destroy empty llog #"DOSTID
+		       "#%08x: rc = %d\n",
+		       loghandle->lgh_ctxt->loc_obd->obd_name,
+		       POSTID(&loghandle->lgh_id.lgl_oi),
+		       loghandle->lgh_id.lgl_ogen, rc);
+		GOTO(out_err, rc);
+	}
+
+	rc = llog_declare_write_rec(env, loghandle, &llh->llh_hdr, 0, th);
+	if (rc < 0) {
+		CERROR("%s: fail to write header for llog #"DOSTID
+		       "#%08x: rc = %d\n",
+		       loghandle->lgh_ctxt->loc_obd->obd_name,
+		       POSTID(&loghandle->lgh_id.lgl_oi),
+		       loghandle->lgh_id.lgl_ogen, rc);
+		GOTO(out_err, rc);
+	}
+out_err:
+	RETURN(rc);
+}
+EXPORT_SYMBOL(llog_declare_cancel_rec);
+
 
 /* returns negative on error; 0 if success; 1 if success & log destroyed */
 int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
-		    int index)
+		    int index, struct thandle *th)
 {
         struct llog_log_hdr *llh = loghandle->lgh_hdr;
         int rc = 0;
@@ -137,7 +186,7 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
 	    (llh->llh_count == 1) &&
 	    (loghandle->lgh_last_idx == (LLOG_BITMAP_BYTES * 8) - 1)) {
 		spin_unlock(&loghandle->lgh_hdr_lock);
-		rc = llog_destroy(env, loghandle);
+		rc = llog_destroy(env, loghandle, th);
 		if (rc < 0) {
 			CERROR("%s: can't destroy empty llog #"DOSTID
 			       "#%08x: rc = %d\n",
@@ -150,7 +199,7 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
 	}
 	spin_unlock(&loghandle->lgh_hdr_lock);
 
-	rc = llog_write(env, loghandle, &llh->llh_hdr, NULL, 0, NULL, 0);
+	rc = llog_write(env, loghandle, &llh->llh_hdr, NULL, 0, NULL, 0, th);
 	if (rc < 0) {
 		CERROR("%s: fail to write header for llog #"DOSTID
 		       "#%08x: rc = %d\n",
@@ -380,7 +429,7 @@ repeat:
 				} else if (rc == LLOG_DEL_RECORD) {
 					llog_cancel_rec(lpi->lpi_env,
 							loghandle,
-							rec->lrh_index);
+							rec->lrh_index, NULL);
                                         rc = 0;
                                 }
                                 if (rc)
@@ -552,7 +601,7 @@ int llog_reverse_process(const struct lu_env *env,
 					GOTO(out, rc);
 				} else if (rc == LLOG_DEL_RECORD) {
 					llog_cancel_rec(env, loghandle,
-							tail->lrt_index);
+							tail->lrt_index, NULL);
 					rc = 0;
 				}
                                 if (rc)
@@ -821,7 +870,7 @@ int llog_erase(const struct lu_env *env, struct llog_ctxt *ctxt,
 
 	rc = llog_init_handle(env, handle, LLOG_F_IS_PLAIN, NULL);
 	if (rc == 0)
-		rc = llog_destroy(env, handle);
+		rc = llog_destroy(env, handle, NULL);
 
 	rc2 = llog_close(env, handle);
 	if (rc == 0)
@@ -837,10 +886,10 @@ EXPORT_SYMBOL(llog_erase);
  */
 int llog_write(const struct lu_env *env, struct llog_handle *loghandle,
 	       struct llog_rec_hdr *rec, struct llog_cookie *reccookie,
-	       int cookiecount, void *buf, int idx)
+	       int cookiecount, void *buf, int idx, struct thandle *handle)
 {
 	struct dt_device	*dt;
-	struct thandle		*th;
+	struct thandle		*th = handle;
 	int			 rc;
 
 	ENTRY;
@@ -851,24 +900,27 @@ int llog_write(const struct lu_env *env, struct llog_handle *loghandle,
 
 	dt = lu2dt_dev(loghandle->lgh_obj->do_lu.lo_dev);
 
-	th = dt_trans_create(env, dt);
-	if (IS_ERR(th))
-		RETURN(PTR_ERR(th));
+	if (th == NULL) {
+		th = dt_trans_create(env, dt);
+		if (IS_ERR(th))
+			RETURN(PTR_ERR(th));
 
-	rc = llog_declare_write_rec(env, loghandle, rec, idx, th);
-	if (rc)
-		GOTO(out_trans, rc);
+		rc = llog_declare_write_rec(env, loghandle, rec, idx, th);
+		if (rc)
+			GOTO(out_trans, rc);
 
-	rc = dt_trans_start_local(env, dt, th);
-	if (rc)
-		GOTO(out_trans, rc);
+		rc = dt_trans_start_local(env, dt, th);
+		if (rc)
+			GOTO(out_trans, rc);
+	}
 
 	down_write(&loghandle->lgh_lock);
 	rc = llog_write_rec(env, loghandle, rec, reccookie,
 			    cookiecount, buf, idx, th);
 	up_write(&loghandle->lgh_lock);
 out_trans:
-	dt_trans_stop(env, dt, th);
+	if (handle == NULL)
+		dt_trans_stop(env, dt, th);
 	RETURN(rc);
 }
 EXPORT_SYMBOL(llog_write);
@@ -961,7 +1013,7 @@ int llog_copy_handler(const struct lu_env *env, struct llog_handle *llh,
 	struct llog_handle	*copy_llh = data;
 
 	/* Append all records */
-	return llog_write(env, copy_llh, rec, NULL, 0, NULL, -1);
+	return llog_write(env, copy_llh, rec, NULL, 0, NULL, -1, NULL);
 }
 EXPORT_SYMBOL(llog_copy_handler);
 

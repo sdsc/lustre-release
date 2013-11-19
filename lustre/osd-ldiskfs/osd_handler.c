@@ -70,6 +70,8 @@
 #include <md_object.h>
 #include <lustre_quota.h>
 
+#include <lustre_update.h>
+#include <lustre_log.h>
 int ldiskfs_pdo = 1;
 CFS_MODULE_PARM(ldiskfs_pdo, "i", int, 0644,
                 "ldiskfs with parallel directory operations");
@@ -131,10 +133,6 @@ static int osd_object_invariant(const struct lu_object *l)
 /*
  * Concurrency: doesn't matter
  */
-static int osd_read_locked(const struct lu_env *env, struct osd_object *o)
-{
-        return osd_oti_get(env)->oti_r_locks > 0;
-}
 
 /*
  * Concurrency: doesn't matter
@@ -937,10 +935,73 @@ out:
         RETURN(rc);
 }
 
+static int osd_seq_exists(const struct lu_env *env,
+			      struct osd_device *osd, obd_seq seq)
+{
+	struct lu_seq_range	*range = &osd_oti_get(env)->oti_seq_range;
+	struct seq_server_site	*ss = osd_seq_site(osd);
+	int			rc;
+	ENTRY;
+
+	if (ss == NULL)
+		RETURN(1);
+
+	rc = osd_fld_lookup(env, osd, seq, range);
+	if (rc != 0) {
+		if (rc != -ENOENT)
+			CERROR("%s: Can not lookup FLD sequence "LPX64"\n",
+			       osd_name(osd), seq);
+		RETURN(0);
+	}
+
+	RETURN(ss->ss_node_id == range->lsr_index);
+}
+
+static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
+			  struct lu_fid *fid)
+{
+	ENTRY;
+
+	/* FID seqs not in FLDB, must be local seq */
+	if (unlikely(!fid_seq_in_fldb(fid_seq(fid))))
+		RETURN(0);
+
+	/* Currently only check this for FID on MDT */
+	if (osd_seq_exists(env, osd, fid_seq(fid)))
+		RETURN(0);
+
+	RETURN(1);
+}
+
+static int osd_update_transno(const struct lu_env *env, struct osd_device *osd,
+			      struct thandle_update *tu)
+{
+	struct update_buf *ubuf = tu->tu_update_buf;
+	int i;
+	ENTRY;
+
+	LASSERT(ubuf != NULL);
+	if (tu->tu_batchid == 0)
+		RETURN(0);
+
+	for (i = 0; i < ubuf->ub_count; i++) {
+		struct update *update;
+
+		update = update_buf_get(ubuf, i, NULL);
+		LASSERT(update != NULL);
+		if (!osd_remote_fid(env, osd, &update->u_fid))
+			update->u_batchid = tu->tu_batchid;
+	}
+
+	update_dump_buf(ubuf, D_INFO);
+	RETURN(0);
+}
+
 /*
  * Concurrency: shouldn't matter.
  */
-static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
+static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
+			  struct thandle *th)
 {
         int                     rc = 0;
         struct osd_thandle     *oh;
@@ -973,6 +1034,17 @@ static int osd_trans_stop(const struct lu_env *env, struct thandle *th)
                 rc = dt_txn_hook_stop(env, th);
                 if (rc != 0)
                         CERROR("Failure in transaction hook: %d\n", rc);
+
+		if (th->th_update != NULL) {
+			struct osd_device *osd = osd_dev(&dt->dd_lu_dev);
+
+			LASSERT(th->th_update->tu_update_buf != NULL);
+			rc = osd_update_transno(env, osd, th->th_update);
+			if (rc != 0)
+				CERROR("%s: update transno failed: rc = %d\n",
+				       osd_name(osd), rc);
+			rc = dt_trans_update_hook_stop(env, th);
+		}
 
 		/* hook functions might modify th_sync */
 		hdl->h_sync = th->th_sync;
@@ -1824,9 +1896,15 @@ static int osd_attr_set(const struct lu_env *env,
 	rc = osd_inode_setattr(env, inode, attr);
 	spin_unlock(&obj->oo_guard);
 
-        if (!rc)
+	if (!rc)
 		ll_dirty_inode(inode, I_DIRTY_DATASYNC);
-        return rc;
+
+	if (rc == 0 && handle->th_record_update)
+		rc = dt_trans_update_attr_set(env, dt, attr,
+					     handle->th_update->tu_master_index,
+					     handle);
+
+	return rc;
 }
 
 struct dentry *osd_child_dentry_get(const struct lu_env *env,
@@ -2138,7 +2216,6 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 		   obd_seq seq, struct lu_seq_range *range)
 {
 	struct seq_server_site	*ss = osd_seq_site(osd);
-	int			rc;
 
 	if (fid_seq_is_idif(seq)) {
 		fld_range_set_ost(range);
@@ -2157,12 +2234,8 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 
 	LASSERT(ss != NULL);
 	fld_range_set_any(range);
-	rc = fld_server_lookup(env, ss->ss_server_fld, seq, range);
-	if (rc != 0) {
-		CERROR("%s: cannot find FLD range for "LPX64": rc = %d\n",
-		       osd_name(osd), seq, rc);
-	}
-	return rc;
+	/* OSD will only do local fld lookup */
+	return fld_local_lookup(env, ss->ss_server_fld, seq, range);
 }
 
 /*
@@ -2175,7 +2248,6 @@ static int osd_declare_object_create(const struct lu_env *env,
 				     struct dt_object_format *dof,
 				     struct thandle *handle)
 {
-	struct lu_seq_range	*range = &osd_oti_get(env)->oti_seq_range;
 	struct osd_thandle	*oh;
 	int			 rc;
 	ENTRY;
@@ -2212,16 +2284,6 @@ static int osd_declare_object_create(const struct lu_env *env,
 				   false, false, NULL, false);
 	if (rc != 0)
 		RETURN(rc);
-
-	/* It does fld look up inside declare, and the result will be
-	 * added to fld cache, so the following fld lookup inside insert
-	 * does not need send RPC anymore, so avoid send rpc with holding
-	 * transaction */
-	if (fid_is_norm(lu_object_fid(&dt->do_lu)) &&
-		!fid_is_last_id(lu_object_fid(&dt->do_lu)))
-		osd_fld_lookup(env, osd_dt_dev(handle->th_dev),
-			       fid_seq(lu_object_fid(&dt->do_lu)), range);
-
 
 	RETURN(rc);
 }
@@ -2344,7 +2406,12 @@ static int osd_object_destroy(const struct lu_env *env,
         /* not needed in the cache anymore */
         set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
 
-        RETURN(0);
+	if (result == 0 && th->th_record_update)
+		result = dt_trans_update_object_destroy(env, dt,
+					     th->th_update->tu_master_index,
+					     th);
+
+	RETURN(0);
 }
 
 /**
@@ -2586,6 +2653,11 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 	if (result == 0)
 		result = __osd_oi_insert(env, obj, fid, th);
 
+	if (result == 0 && th->th_record_update)
+		result = dt_trans_update_create(env, dt, attr, hint, dof,
+					     th->th_update->tu_master_index,
+					     th);
+
 	LASSERT(ergo(result == 0,
 		     dt_object_exists(dt) && !dt_object_remote(dt)));
         LINVRNT(osd_invariant(obj));
@@ -2663,6 +2735,11 @@ static int osd_object_ref_add(const struct lu_env *env,
 	if (need_dirty)
 		ll_dirty_inode(inode, I_DIRTY_DATASYNC);
 
+	if (rc == 0 && th->th_record_update)
+		rc = dt_trans_update_ref_add(env, dt,
+					     th->th_update->tu_master_index,
+					     th);
+
 	LINVRNT(osd_invariant(obj));
 
 	return rc;
@@ -2733,6 +2810,11 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
 	} else {
 		spin_unlock(&obj->oo_guard);
 	}
+
+	if (th->th_record_update)
+		dt_trans_update_ref_del(env, dt,
+					th->th_update->tu_master_index,
+					th);
 
 	return 0;
 }
@@ -2831,6 +2913,7 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	struct inode	       *inode    = obj->oo_inode;
 	struct osd_thread_info *info     = osd_oti_get(env);
 	int			fs_flags = 0;
+	int			rc;
 	ENTRY;
 
         LASSERT(handle != NULL);
@@ -2851,11 +2934,18 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	if (fl & LU_XATTR_REPLACE)
 		fs_flags |= XATTR_REPLACE;
 
-	if (fl & LU_XATTR_CREATE)
+	if (fl & (LU_XATTR_CREATE | LU_XATTR_MIGRATE))
 		fs_flags |= XATTR_CREATE;
 
-	return __osd_xattr_set(info, inode, name, buf->lb_buf, buf->lb_len,
-			       fs_flags);
+	rc = __osd_xattr_set(info, inode, name, buf->lb_buf, buf->lb_len,
+			     fs_flags);
+
+	if (rc == 0 && handle->th_record_update)
+		dt_trans_update_xattr_set(env, dt, buf, name, fl,
+					handle->th_update->tu_master_index,
+					handle);
+
+	return rc;
 }
 
 /*
@@ -2871,7 +2961,6 @@ static int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
 
 	LASSERT(dt_object_exists(dt) && !dt_object_remote(dt));
         LASSERT(inode->i_op != NULL && inode->i_op->listxattr != NULL);
-        LASSERT(osd_read_locked(env, obj) || osd_write_locked(env, obj));
 
         if (osd_object_auth(env, dt, capa, CAPA_OPC_META_READ))
                 return -EACCES;
@@ -3373,47 +3462,6 @@ static inline int osd_get_fid_from_dentry(struct ldiskfs_dir_entry_2 *de,
 	return rc;
 }
 
-static int osd_mdt_seq_exists(const struct lu_env *env,
-			      struct osd_device *osd, obd_seq seq)
-{
-	struct lu_seq_range	*range = &osd_oti_get(env)->oti_seq_range;
-	struct seq_server_site	*ss = osd_seq_site(osd);
-	int			rc;
-	ENTRY;
-
-	if (ss == NULL)
-		RETURN(1);
-
-	/* XXX: currently, each MDT only store avaible sequence on disk, and no
-	 * allocated sequences information on disk, so we have to lookup FLDB,
-	 * but it probably makes more sense also store allocated sequence
-	 * locally, so we do not need do remote FLDB lookup in OSD */
-	rc = osd_fld_lookup(env, osd, seq, range);
-	if (rc != 0) {
-		CERROR("%s: Can not lookup fld for "LPX64"\n",
-		       osd_name(osd), seq);
-		RETURN(0);
-	}
-
-	RETURN(ss->ss_node_id == range->lsr_index);
-}
-
-static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
-			  struct lu_fid *fid)
-{
-	ENTRY;
-
-	/* FID seqs not in FLDB, must be local seq */
-	if (unlikely(!fid_seq_in_fldb(fid_seq(fid))))
-		RETURN(0);
-
-	/* Currently only check this for FID on MDT */
-	if (osd_mdt_seq_exists(env, osd, fid_seq(fid)))
-		RETURN(0);
-
-	RETURN(1);
-}
-
 /**
  * Index delete function for interoperability mode (b11826).
  * It will remove the directory entry added by osd_index_ea_insert().
@@ -3565,7 +3613,10 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 	}
 out:
-
+	if (rc == 0 && handle->th_record_update)
+		rc = dt_trans_update_index_delete(env, dt, key,
+					handle->th_update->tu_master_index,
+					handle);
         LASSERT(osd_invariant(obj));
         RETURN(rc);
 }
@@ -4069,15 +4120,17 @@ struct osd_object *osd_object_find(const struct lu_env *env,
 	 * in the cache, otherwise lu_object_alloc() crashes
 	 * -bzzz
 	 */
-	luch = lu_object_find_at(env, ludev, fid, NULL);
-        if (!IS_ERR(luch)) {
-                if (lu_object_exists(luch)) {
-                        lo = lu_object_locate(luch->lo_header, ludev->ld_type);
-                        if (lo != NULL)
-                                child = osd_obj(lo);
-                        else
-                                LU_OBJECT_DEBUG(D_ERROR, env, luch,
-                                                "lu_object can't be located"
+	luch = lu_object_find_at(env, ludev->ld_site->ls_top_dev == NULL ?
+				 ludev : ludev->ld_site->ls_top_dev,
+				 fid, NULL);
+	if (!IS_ERR(luch)) {
+		if (lu_object_exists(luch)) {
+			lo = lu_object_locate(luch->lo_header, ludev->ld_type);
+			if (lo != NULL)
+				child = osd_obj(lo);
+			else
+				LU_OBJECT_DEBUG(D_ERROR, env, luch,
+						"lu_object can't be located"
 						DFID"\n", PFID(fid));
 
                         if (child == NULL) {
@@ -4122,7 +4175,7 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 	int			rc;
 	ENTRY;
 
-	LASSERT(dt_object_exists(dt) && !dt_object_remote(dt));
+	LASSERT(!dt_object_remote(dt));
 	LASSERT(handle != NULL);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -4256,6 +4309,11 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 	iput(child_inode);
 	if (child != NULL)
 		osd_object_put(env, child);
+	
+	if (rc == 0 && th->th_record_update)
+		rc = dt_trans_update_index_insert(env, dt, rec, key,
+					th->th_update->tu_master_index,
+					th);
 	LASSERT(osd_invariant(obj));
 	RETURN(rc);
 }
@@ -5376,6 +5434,7 @@ static void osd_key_fini(const struct lu_context *ctx,
 	OBD_FREE(info->oti_it_ea_buf, OSD_IT_EA_BUFSIZE);
 	lu_buf_free(&info->oti_iobuf.dr_pg_buf);
 	lu_buf_free(&info->oti_iobuf.dr_bl_buf);
+	lu_buf_free(&info->oti_update_buf);
 	OBD_FREE_PTR(info);
 }
 
@@ -5399,7 +5458,6 @@ struct lu_context_key osd_key = {
         .lct_exit = osd_key_exit
 };
 
-
 static int osd_device_init(const struct lu_env *env, struct lu_device *d,
                            const char *name, struct lu_device *next)
 {
@@ -5411,10 +5469,26 @@ static int osd_device_init(const struct lu_env *env, struct lu_device *d,
 	return osd_procfs_init(osd, name);
 }
 
+static void osd_update_llog_fini(const struct lu_env *env,
+				 struct osd_device *osd)
+{
+	struct obd_device	*obd = osd->od_dt_dev.dd_lu_dev.ld_obd;
+	struct llog_ctxt	*ctxt;
+
+	ctxt = llog_get_context(obd, LLOG_UPDATE_ORIG_CTXT);
+	if (ctxt == NULL)
+		return;
+	llog_cat_close(env, ctxt->loc_handle);
+	llog_cleanup(env, ctxt);
+}
+
+
 static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 {
 	ENTRY;
 
+	if (!o->od_is_ost)
+		osd_update_llog_fini(env, o);
 	/* shutdown quota slave instance associated with the device */
 	if (o->od_quota_slave != NULL) {
 		qsd_fini(env, o->od_quota_slave);
@@ -5539,6 +5613,80 @@ out:
 		OBD_PAGE_FREE(__page);
 
 	return rc;
+}
+
+static int osd_update_llog_init(const struct lu_env *env,
+				struct osd_device *osd)
+{
+	struct osd_thread_info	*oti = osd_oti_get(env);
+	struct lu_fid		*fid = &oti->oti_fid;
+	struct llog_catid	*cid = &oti->oti_cid;
+	struct llog_handle	*lgh = NULL;
+	int			index;
+	struct obd_device	*obd = osd->od_dt_dev.dd_lu_dev.ld_obd;
+	struct llog_ctxt	*ctxt;
+	int			rc;
+
+	ENTRY;
+
+	LASSERT(obd != NULL);
+
+	rc = server_name2index(osd->od_svname, &index, NULL);
+	if (rc < 0)
+		RETURN(rc);
+	/*
+	 * open llog corresponding to our OST
+	 */
+	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
+	obd->obd_lvfs_ctxt.dt = &osd->od_dt_dev;
+
+	lu_local_obj_fid(fid, UPDATE_LLOG_CATALOGS_OID);
+	rc = llog_osd_get_cat_list(env, &osd->od_dt_dev, index, 1, cid, fid);
+	if (rc) {
+		CERROR("%s: can't get id from catalogs: rc = %d\n",
+		       obd->obd_name, rc);
+		RETURN(rc);
+	}
+
+	CDEBUG(D_INFO, "%s: Init llog for %d - catid "DOSTID":%x\n",
+	       obd->obd_name, index, POSTID(&cid->lci_logid.lgl_oi),
+	       cid->lci_logid.lgl_ogen);
+
+	rc = llog_setup(env, obd, &obd->obd_olg, LLOG_UPDATE_ORIG_CTXT, obd,
+			&osd_update_orig_logops);
+	if (rc)
+		RETURN(rc);
+
+	ctxt = llog_get_context(obd, LLOG_UPDATE_ORIG_CTXT);
+	LASSERT(ctxt);
+
+	if (likely(logid_id(&cid->lci_logid) != 0)) {
+		rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
+			       LLOG_OPEN_EXISTS);
+		/* re-create llog if it is missing */
+		if (rc == -ENOENT)
+			logid_set_id(&cid->lci_logid, 0);
+		else if (rc < 0)
+			GOTO(out_cleanup, rc);
+	}
+
+	if (unlikely(logid_id(&cid->lci_logid) == 0)) {
+		rc = llog_open_create(env, ctxt, &lgh, NULL, NULL);
+		if (rc < 0)
+			GOTO(out_cleanup, rc);
+		cid->lci_logid = lgh->lgh_id;
+	}
+
+	ctxt->loc_handle = lgh;
+	rc = llog_cat_init_and_process(env, ctxt->loc_handle);
+	if (rc)
+		GOTO(out_cleanup, rc);
+
+	llog_ctxt_put(ctxt);
+	RETURN(0);
+out_cleanup:
+	llog_cleanup(env, ctxt);
+	RETURN(rc);
 }
 
 static struct lu_device *osd_device_fini(const struct lu_env *env,
@@ -5803,6 +5951,12 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	int		   result = 0;
 	ENTRY;
 
+	if (!osd->od_is_ost) {
+		result = osd_update_llog_init(env, osd);
+		if (result != 0)
+			RETURN(result);
+	}
+
 	if (osd->od_quota_slave != NULL)
 		/* set up quota slave objects */
 		result = qsd_prepare(env, osd->od_quota_slave);
@@ -5856,6 +6010,8 @@ static struct obd_ops osd_obd_device_ops = {
 	.o_disconnect	= osd_obd_disconnect
 };
 
+struct llog_operations osd_update_orig_logops;
+
 static int __init osd_mod_init(void)
 {
         struct lprocfs_static_vars lvars;
@@ -5868,6 +6024,9 @@ static int __init osd_mod_init(void)
 	if (rc)
 		return rc;
 
+	osd_update_orig_logops = llog_osd_ops;
+	osd_update_orig_logops.lop_add = llog_cat_add_rec;
+	osd_update_orig_logops.lop_declare_add = llog_cat_declare_add_rec;
 	rc = class_register_type(&osd_obd_device_ops, NULL, lvars.module_vars,
 				 LUSTRE_OSD_LDISKFS_NAME, &osd_device_type);
 	if (rc)

@@ -79,6 +79,7 @@ struct mdt_export_data {
 	spinlock_t		med_open_lock; /* med_open_head, mfd_list */
 	struct mutex		med_idmap_mutex;
 	struct lustre_idmap_table *med_idmap;
+	int			med_index;
 };
 
 struct ec_export_data { /* echo client */
