@@ -248,10 +248,13 @@ static inline void lu_local_name_obj_fid(struct lu_fid *fid, __u32 oid)
         fid->f_ver = 0;
 }
 
+/* For new FS (>= 2.4), the root FID will be changed to
+ * [FID_SEQ_ROOT:1:0], for existing FS, (upgraded to 2.4),
+ * the root FID will still be IGIF */
 static inline int fid_is_root(const struct lu_fid *fid)
 {
-	return unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE &&
-			fid_oid(fid) == MDD_ROOT_INDEX_OID);
+	return unlikely((fid_seq(fid) == FID_SEQ_ROOT &&
+			 fid_oid(fid) == 1) || fid_is_igif(fid));
 }
 
 static inline int fid_is_dot_lustre(const struct lu_fid *fid)

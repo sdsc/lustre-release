@@ -663,6 +663,8 @@ int osd_delete_from_agent(const struct lu_env *env, struct osd_device *osd,
 int osd_add_to_agent(const struct lu_env *env, struct osd_device *osd,
 		     struct osd_object *obj, struct osd_thandle *oh);
 
+int osd_convert_root_to_new_seq(const struct lu_env *env,
+				struct osd_device *osd);
 /* osd_quota_fmt.c */
 int walk_tree_dqentry(const struct lu_env *env, struct osd_object *obj,
                       int type, uint blk, int depth, uint index,
