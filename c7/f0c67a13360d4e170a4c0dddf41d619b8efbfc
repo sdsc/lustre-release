@@ -1,0 +1,9 @@
+Verified+1: Jenkins
+Code-Review+1: Fan Yong <fan.yong@intel.com>
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Verified+1: Maloo <hpdd-maloo@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Wed, 20 Nov 2013 05:32:07 +0000
+Reviewed-on: http://review.whamcloud.com/7952
+Project: fs/lustre-release
+Branch: refs/heads/master
