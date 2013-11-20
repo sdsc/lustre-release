@@ -72,31 +72,6 @@
 #  define BITS_PER_LONG __WORDSIZE
 #endif
 
-
-/******************************************************************************/
-/* Light-weight trace
- * Support for temporary event tracing with minimal Heisenberg effect. */
-#define LWT_SUPPORT  0
-
-#define LWT_MEMORY   (16<<20)
-
-typedef struct {
-        long long   lwte_when;
-        char       *lwte_where;
-        void       *lwte_task;
-        long        lwte_p1;
-        long        lwte_p2;
-        long        lwte_p3;
-        long        lwte_p4;
-# if BITS_PER_LONG > 32
-        long        lwte_pad;
-# endif
-} lwt_event_t;
-
-#if LWT_SUPPORT
-#define LWT_EVENT(p1,p2,p3,p4)     /* no userland implementation yet */
-#endif /* LWT_SUPPORT */
-
 /* ------------------------------------------------------------------ */
 
 #define IOCTL_LIBCFS_TYPE long
