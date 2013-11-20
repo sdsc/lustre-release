@@ -312,6 +312,10 @@ struct lfsck_operations {
 
 	int (*lfsck_query)(const struct lu_env *env,
 			   struct lfsck_component *com);
+
+	int (*lfsck_join)(const struct lu_env *env,
+			  struct lfsck_component *com,
+			  struct lfsck_start_param *lsp);
 };
 
 #define TGT_PTRS		256     /* number of pointers at 1st level */
@@ -480,6 +484,9 @@ struct lfsck_instance {
 
 	/* The status when the LFSCK stopped or paused. */
 	__u32			  li_status;
+
+	/* The flags when the lFSCK stopped or paused. */
+	__u32			  li_flags;
 
 	unsigned int		  li_oit_over:1, /* oit is finished. */
 				  li_drop_dryrun:1, /* Ever dryrun, not now. */
