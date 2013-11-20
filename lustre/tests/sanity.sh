@@ -58,7 +58,7 @@ init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
 init_logging
 
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 27m 64b 68 71 77f 78 115 124b"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="24o 27m 64b 68 71 77f 78 115 124b 230e"
 
 [ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
 # bug number for skipped test:        LU-1593 LU-2610 LU-2833 LU-1957 LU-2805
@@ -634,6 +634,25 @@ test_17n() {
 	done
 
 	check_fs_consistency_17n || error "e2fsck report error"
+
+	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.50) ] &&
+		skip "lustre < 2.4.50 does not support migrate mv " && return
+
+	for ((i=0; i<10; i++)); do
+		mkdir -p $DIR/$tdir/remote_dir_${i}
+		createmany -o $DIR/$tdir/remote_dir_${i}/f 10 ||
+			error "create files under remote dir failed $i"
+		$LFS mv -i 1 $DIR/$tdir/remote_dir_${i} ||
+			error "migrate remote dir error $i"
+	done
+	check_fs_consistency_17n || error "e2fsck report error"
+
+	for ((i=0;i<10;i++)); do
+		rm -rf $DIR/$tdir/remote_dir_${i} ||
+			error "destroy remote dir error $i"
+	done
+
+	check_fs_consistency_17n || error "e2fsck report error"
 }
 run_test 17n "run e2fsck against master/slave MDT which contains remote dir"
 
@@ -1053,21 +1072,22 @@ test_24x() {
 	mkdir -p $remote_dir/tgt_dir
 	touch $remote_dir/tgt_file
 
-	mrename $remote_dir $DIR/ &&
-		error "rename dir cross MDT works!"
+	mrename $DIR/$tdir/src_dir $remote_dir/tgt_dir ||
+		error "rename dir cross MDT does not work!"
 
-	mrename $DIR/$tdir/src_dir $remote_dir/tgt_dir &&
-		error "rename dir cross MDT works!"
+	mrename $DIR/$tdir/src_file $remote_dir/tgt_file ||
+		error "rename file cross MDT does not work!"
 
-	mrename $DIR/$tdir/src_file $remote_dir/tgt_file &&
-		error "rename file cross MDT works!"
+	cp /etc/hosts $DIR/$tdir/src_file
+	ln $DIR/$tdir/src_file $remote_dir/tgt_file1 ||
+		error "ln file cross MDT does not work!"
 
-	ln $DIR/$tdir/src_file $remote_dir/tgt_file1 &&
-		error "ln file cross MDT should not work!"
+	diff $remote_dir/tgt_file1 /etc/hosts ||
+		error "read tgt file failed after remote link"
 
 	rm -rf $DIR/$tdir || error "Can not delete directories"
 }
-run_test 24x "cross rename/link should be failed"
+run_test 24x "remote rename/link "
 
 test_24y() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
@@ -11734,6 +11754,131 @@ test_230b() {
 }
 run_test 230b "nested remote directory should be failed"
 
+test_230c() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local MDTIDX=1
+	local mdt_index
+	local i
+	local file
+	local pid
+
+	mkdir -p $DIR/$tdir
+	mkdir -p $DIR/${tdir}_1
+	for ((i=0; i<10; i++)); do
+		mkdir -p $DIR/$tdir/dir_${i}
+		createmany -o $DIR/$tdir/dir_${i}/f 10 ||
+			error "create files under remote dir failed $i"
+	done
+
+	cp /etc/passwd $DIR/$tdir/$tfile
+
+	mkdir -p $DIR/${tdir}_1
+	ln $DIR/$tdir/$tfile $DIR/${tdir}_1/luna
+	ln $DIR/$tdir/$tfile $DIR/${tdir}/sofia
+	ln -s $DIR/$tdir/$tfile $DIR/${tdir}_1/zachary
+
+	$LFS mv -i $MDTIDX $DIR/$tdir ||
+			error "migrate remote dir error"
+
+	echo "Finish migration, then checking.."
+	for file in $(find $DIR/$tdir); do
+		mdt_index=$($LFS getstripe -M $file)
+		[ $mdt_index == $MDTIDX ] ||
+			error "$file is not on MDT${MDTIDX}"
+	done
+
+	diff /etc/passwd $DIR/$tdir/$tfile ||
+		error "file different after migration"
+
+	diff /etc/passwd $DIR/${tdir}_1/luna ||
+		error "file different after migration"
+
+	diff /etc/passwd $DIR/${tdir}/sofia ||
+		error "file different after migration"
+
+	diff /etc/passwd $DIR/${tdir}_1/zachary ||
+		error "file different after migration"
+
+	rm -rf $DIR/$tdir || error "rm dir failed after migration"
+}
+run_test 230c "migrate directory"
+
+test_230d() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local MDTIDX=1
+	local mdt_index
+	local file
+
+	#If migrating directory fails in the middle, all entries of
+	#the directory is still accessiable.
+	mkdir -p $DIR/$tdir
+	stat $DIR/$tdir
+	createmany -o $DIR/$tdir/f 10 ||
+		error "create files under ${tdir} failed"
+
+	#failed after migrating 5 entries
+	#OBD_FAIL_MIGRATE_ENTRIES	0x1705
+	$LCTL set_param fail_loc=0x20001705
+	$LCTL set_param fail_val=5
+
+	local t=`ls $DIR/$tdir | wc -l`
+	$LFS mv -i $MDTIDX $DIR/$tdir &&
+		error "migrate should failed after 5 entries"
+	local u=`ls $DIR/$tdir | wc -l`
+	[ "$u" == "$t" ] || error "$u != $t during migration"
+
+	for file in $(find $DIR/$tdir); do
+		stat $file || error "stat $file failed"
+	done
+
+	$LCTL set_param fail_loc=0
+	$LCTL set_param fail_val=0
+
+	$LFS mv -i $MDTIDX $DIR/$tdir ||
+		error "migrate open files should failed with open files"
+
+	echo "Finish migration, then checking.."
+	for file in $(find $DIR/$tdir); do
+		mdt_index=$($LFS getstripe -M $file)
+		[ $mdt_index == $MDTIDX ] ||
+			error "$file is not on MDT${MDTIDX}"
+	done
+
+	rm -rf $DIR/$tdir || error "rm dir failed after migration"
+}
+run_test 230d "check directory accessiblity if migration is failed"
+
+test_230e() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local MDTIDX=1
+	local mdt_index
+	local i
+	local j
+
+	mkdir -p $DIR/$tdir
+
+	for ((i=0; i<2000; i++)); do
+		mkdir -p $DIR/$tdir/dir_${i}
+		createmany -o $DIR/$tdir/dir_${i}/f 10 ||
+			error "create files under remote dir failed $i"
+	done
+
+	$LFS mv -i $MDTIDX $DIR/$tdir || error "migrate remote dir error"
+
+	echo "Finish migration, then checking.."
+	for file in $(find $DIR/$tdir); do
+		mdt_index=$($LFS getstripe -M $file)
+		[ $mdt_index == $MDTIDX ] ||
+			error "$file is not on MDT${MDTIDX}"
+	done
+
+	rm -rf $DIR/$tdir || error "rm dir failed after migration"
+}
+run_test 230e "check migrate big directory"
+
 test_231a()
 {
 	# For simplicity this test assumes that max_pages_per_rpc
@@ -11876,6 +12021,285 @@ test_236() {
 	rm -rf $DIR/$tdir
 }
 run_test 236 "Layout swap on open unlinked file"
+
+test_striped_dir() {
+	local MDTIDX=$1
+	local STRIPECNT=2
+	local stripe_count
+	local stripe_index
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i $MDTIDX -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	stripe_count=$($LFS getdirstripe -c $DIR/$tdir/striped_dir)
+	if [ "$stripe_count" != "$STRIPECNT" ]; then
+		error "stripe_count is $stripe_count, expect $STRIPECNT"
+	fi
+
+	stripe_index=$($LFS getdirstripe -i $DIR/$tdir/striped_dir)
+	if [ "$stripe_index" != "$MDTIDX" ]; then
+		error "stripe_index is $stripe_index, expect $MDTIDX"
+	fi
+
+	[ `stat -c%h $DIR/$tdir/striped_dir` == '2' ] ||
+		error "nlink error after create striped dir"
+
+	mkdir $DIR/$tdir/striped_dir/a	
+	mkdir $DIR/$tdir/striped_dir/b
+
+	stat $DIR/$tdir/striped_dir/a ||
+		error "create dir under striped dir failed"
+	stat $DIR/$tdir/striped_dir/b ||
+		error "create dir under striped dir failed"
+
+	[ `stat -c%h $DIR/$tdir/striped_dir` == '4' ] ||
+		error "nlink error after mkdir"
+
+	rmdir $DIR/$tdir/striped_dir/a 
+	[ `stat -c%h $DIR/$tdir/striped_dir` == '3' ] ||
+		error "nlink error after rmdir"
+	
+	rmdir $DIR/$tdir/striped_dir/b
+	[ `stat -c%h $DIR/$tdir/striped_dir` == '2' ] ||
+		error "nlink error after rmdir"
+
+	rm -rf $DIR/$tdir || error "rmdir striped dir error"
+	true
+}
+
+test_300a() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	test_striped_dir 0 || error "failed on striped dir on MDT0"
+	test_striped_dir 1 || error "failed on striped dir on MDT0"
+}
+run_test 300a "basic striped dir sanity test"
+
+test_300b() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	# rename local directory on different stripe
+	mkdir $DIR/$tdir/striped_dir/a
+	mkdir $DIR/$tdir/striped_dir/b
+
+	mrename $DIR/$tdir/striped_dir/a $DIR/$tdir/striped_dir/b ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/a && 
+		error "source does not exists after cross rename"
+
+	stat $DIR/$tdir/striped_dir/b ||
+		error "target exists after cross rename"
+
+	mkdir $DIR/$tdir/striped_dir/d
+
+	mrename $DIR/$tdir/striped_dir/d $DIR/$tdir/striped_dir/c ||
+		error "cross MDT rename under striped dir failed"
+
+	#rename remote directory on different stripe
+	mrename $DIR/$tdir/striped_dir/b $DIR/$tdir/striped_dir/c ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/b &&
+		error "source does not exists after cross rename"
+
+	stat $DIR/$tdir/striped_dir/c ||
+		error "target exists after cross rename"
+
+	rm -rf $DIR/$tdir
+}
+run_test 300b "rename directory under striped dir"
+
+test_300c() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	# rename local directory on different stripe
+	cp /etc/hosts $DIR/$tdir/striped_dir/a
+	touch $DIR/$tdir/striped_dir/b
+
+	mrename $DIR/$tdir/striped_dir/a $DIR/$tdir/striped_dir/b ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/a &&
+		error "source exists after cross rename"
+
+	diff $DIR/$tdir/striped_dir/b /etc/hosts ||
+		error "target different after cross rename"
+
+	cp /etc/hosts $DIR/$tdir/striped_dir/d
+
+	mv $DIR/$tdir/striped_dir/d $DIR/$tdir/striped_dir/c ||
+		error "cross MDT rename under striped dir failed"
+
+	diff $DIR/$tdir/striped_dir/c /etc/hosts ||
+		error "target different after cross rename"
+
+	#rename remote files on different stripe
+	mrename $DIR/$tdir/striped_dir/b $DIR/$tdir/striped_dir/c ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/b &&
+		error "source exists after cross rename"
+
+	stat $DIR/$tdir/striped_dir/c ||
+		error "target does not exist after cross rename"
+
+	diff $DIR/$tdir/striped_dir/c /etc/hosts ||
+		error "target different after cross rename"
+
+	rm -rf $DIR/$tfile
+	rm -rf $DIR/$tdir
+}
+run_test 300c "rename files under striped dir"
+
+test_300d() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	# rename local directory on different stripe
+	cp /etc/hosts $DIR/$tfile
+
+	mrename $DIR/$tfile $DIR/$tdir/striped_dir/b ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tfile &&
+		error "source exists after cross rename"
+
+	diff $DIR/$tdir/striped_dir/b /etc/hosts ||
+		error "target different after cross rename"
+
+	#rename remote files on different stripe
+	mrename $DIR/$tdir/striped_dir/b $DIR/$tfile ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/b &&
+		error "source does not exists after cross rename"
+
+	stat $DIR/$tfile ||
+		error "target exists after cross rename"
+
+	diff $DIR/$tfile /etc/hosts ||
+		error "target different after cross rename"
+	rm -rf $DIR/$tfile
+	rm -rf $DIR/$tdir
+}
+run_test 300d "rename dir/files to/from striped dir"
+
+test_300e() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+	local i
+	local mtime1
+	local mtime2
+	local mtime3
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+	for ((i=0;i<10;i++)); do
+		mtime1=`stat -c %Y $DIR/$tdir/striped_dir`
+		sleep 1
+		touch $DIR/$tdir/striped_dir/file_$i
+		mtime2=`stat -c %Y $DIR/$tdir/striped_dir`
+		[ $mtime1 -eq $mtime2 ] &&
+			error "mtime not change after create"
+		sleep 1
+		rm -rf $DIR/$tdir/striped_dir/file_$i
+		mtime3=`stat -c %Y $DIR/$tdir/striped_dir`
+		[ $mtime2 -eq $mtime3 ] &&
+			error "mtime did not change after unlink"
+	done
+	rm -rf $DIR/$tdir
+}
+run_test 300e "check ctime/mtime for striped dir"
+
+test_300f() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	# ln files on different stripe
+	cp /etc/hosts $DIR/$tdir/striped_dir/a
+
+	ln $DIR/$tdir/striped_dir/a $DIR/$tdir/striped_dir/b ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/b ||
+		error "target exists after cross rename"
+
+	diff $DIR/$tdir/striped_dir/b /etc/hosts ||
+		error "target different after cross rename"
+
+	#ln remote files on different stripe
+	cp /etc/hosts $DIR/$tdir/striped_dir/d
+	mv $DIR/$tdir/striped_dir/d $DIR/$tdir/striped_dir/c ||
+		error "cross MDT rename under striped dir failed"
+
+	ln $DIR/$tdir/striped_dir/c $DIR/$tdir/striped_dir/e ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/e ||
+		error "target does not exist after cross rename"
+
+	diff $DIR/$tdir/striped_dir/e /etc/hosts ||
+		error "target different after cross rename"
+
+
+	cp /etc/hosts $DIR/$tdir/striped_dir/f
+
+	ln $DIR/$tdir/striped_dir/f $DIR/$tdir/ln_file
+
+	diff $DIR/$tdir/ln_file /etc/hosts ||
+		error "target different after cross rename"
+
+	rm -rf $DIR/$tdir
+}
+run_test 300f "ln files under striped dir"
+
+test_300g() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+	local file_count
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	createmany -o $DIR/$tdir/striped_dir/f 5000 ||
+		error "create 10k files failed"
+
+	file_count=$(ls $DIR/$tdir/striped_dir | wc -l)
+
+	[ "$file_count" = "5000" ] || error "file count $file_count != 5000"
+
+	rm -rf $DIR/$tdir
+}
+run_test 300g "check ls understand striped directory"
 
 #
 # tests that do cleanup/setup should be run at the end

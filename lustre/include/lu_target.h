@@ -98,6 +98,7 @@ struct tgt_session_info {
 	struct obd_export	*tsi_exp;
 	const struct lu_env	*tsi_env;
 	struct lu_target	*tsi_tgt;
+	char			*tsi_tgt_name;
 
 	const struct mdt_body	*tsi_mdt_body;
 	struct ost_body		*tsi_ost_body;
@@ -105,6 +106,7 @@ struct tgt_session_info {
 
 	struct lu_fid		 tsi_fid;
 	struct ldlm_res_id	 tsi_resid;
+
 	/*
 	 * Additional fail id that can be set by handler.
 	 */
@@ -252,6 +254,7 @@ extern struct tgt_handler tgt_llog_handlers[];
 extern struct tgt_handler tgt_out_handlers[];
 extern struct tgt_handler fld_handlers[];
 extern struct tgt_handler seq_handlers[];
+extern struct tgt_handler tgt_out_llog_handlers[];
 
 typedef void (*tgt_cb_t)(struct lu_target *lut, __u64 transno,
 			 void *data, int err);
@@ -289,9 +292,13 @@ int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tg,
 int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 			 struct dt_object *obj, __u64 opdata,
 			 struct thandle *th, struct ptlrpc_request *req);
+
 int tgt_last_rcvd_update_echo(const struct lu_env *env, struct lu_target *tgt,
 			      struct dt_object *obj, struct thandle *th,
 			      struct obd_export *exp);
+
+int out_do_updates(const struct lu_env *env, struct dt_device *dt,
+		   struct update_buf *ubuf);
 
 enum {
 	ESERIOUS = 0x0001000
@@ -410,8 +417,8 @@ static inline void tgt_drop_id(struct obd_export *exp, struct obdo *oa)
 			LUSTRE_MDS_VERSION)
 
 /* FID Location Database handlers */
-#define TGT_FLD_HDL(flags, name, fn)					\
-	TGT_RPC_HANDLER(FLD_QUERY, flags, name, fn, &RQF_ ## name,	\
+#define TGT_FLD_HDL_VAR(flags, name, fn)				\
+	TGT_RPC_HANDLER(FLD_QUERY, flags, name, fn, NULL,		\
 			LUSTRE_MDS_VERSION)
 
 /* Request with a format known in advance */

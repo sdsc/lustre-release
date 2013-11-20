@@ -2119,12 +2119,20 @@ void lustre_swab_lmv_desc (struct lmv_desc *ld)
         /* uuid endian insensitive */
 }
 
-void lustre_swab_lmv_stripe_md (struct lmv_stripe_md *mea)
+void lustre_swab_lmv_mds_md(struct lmv_mds_md *lmm)
 {
-        __swab32s(&mea->mea_magic);
-        __swab32s(&mea->mea_count);
-        __swab32s(&mea->mea_master);
-        CLASSERT(offsetof(typeof(*mea), mea_padding) != 0);
+	int i;
+
+	__swab32s(&lmm->lmv_magic);
+	__swab32s(&lmm->lmv_count);
+	__swab32s(&lmm->lmv_master);
+	__swab32s(&lmm->lmv_hash_type);
+	__swab32s(&lmm->lmv_layout_version);
+	__swab32s(&lmm->lmv_padding1);
+	__swab32s(&lmm->lmv_padding2);
+	__swab32s(&lmm->lmv_padding3);
+	for (i = 0; i < lmm->lmv_count; i++)
+		lustre_swab_lu_fid(&lmm->lmv_data[i]);
 }
 
 void lustre_swab_lmv_user_md(struct lmv_user_md *lum)
@@ -2139,7 +2147,6 @@ void lustre_swab_lmv_user_md(struct lmv_user_md *lum)
 	CLASSERT(offsetof(typeof(*lum), lum_padding1) != 0);
 	CLASSERT(offsetof(typeof(*lum), lum_padding2) != 0);
 	CLASSERT(offsetof(typeof(*lum), lum_padding3) != 0);
-
 	for (i = 0; i < lum->lum_stripe_count; i++) {
 		__swab32s(&lum->lum_objects[i].lum_mds);
 		lustre_swab_lu_fid(&lum->lum_objects[i].lum_fid);
@@ -2564,16 +2571,40 @@ void lustre_swab_update_buf(struct update_buf *ub)
 }
 EXPORT_SYMBOL(lustre_swab_update_buf);
 
-void lustre_swab_update_reply_buf(struct update_reply *ur)
+void lustre_swab_update(struct update *u)
+{
+	int	i;
+
+	__swab16s(&u->u_type);
+	__swab16s(&u->u_master_index);
+	__swab32s(&u->u_flags);
+	__swab64s(&u->u_batchid);
+	__swab64s(&u->u_xid);
+	lustre_swab_lu_fid(&u->u_fid);
+	for (i = 0; i < ARRAY_SIZE(u->u_lens); i++)
+		__swab32s(&u->u_lens[i]);
+}
+EXPORT_SYMBOL(lustre_swab_update);
+
+void lustre_swab_update_reply_buf(struct update_reply_buf *urb)
 {
 	int i;
-
-	__swab32s(&ur->ur_version);
-	__swab32s(&ur->ur_count);
-	for (i = 0; i < ur->ur_count; i++)
-		__swab32s(&ur->ur_lens[i]);
+	__swab32s(&urb->urb_version);
+	__swab32s(&urb->urb_count);
+	for (i = 0; i < urb->urb_count; i++)
+		__swab32s(&urb->urb_lens[i]);
 }
 EXPORT_SYMBOL(lustre_swab_update_reply_buf);
+
+void lustre_swab_update_reply(struct update_reply *ur)
+{
+	__swab32s(&ur->ur_rc);
+	__swab64s(&ur->ur_transno);
+	__swab64s(&ur->ur_xid);
+	__swab32s(&ur->ur_transno_idx);
+	__swab32s(&ur->ur_datalen);
+}
+EXPORT_SYMBOL(lustre_swab_update_reply);
 
 void lustre_swab_swap_layouts(struct mdc_swap_layouts *msl)
 {

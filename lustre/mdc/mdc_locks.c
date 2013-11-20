@@ -58,24 +58,6 @@ struct mdc_getattr_args {
         struct ldlm_enqueue_info    *ga_einfo;
 };
 
-int it_disposition(struct lookup_intent *it, int flag)
-{
-        return it->d.lustre.it_disposition & flag;
-}
-EXPORT_SYMBOL(it_disposition);
-
-void it_set_disposition(struct lookup_intent *it, int flag)
-{
-        it->d.lustre.it_disposition |= flag;
-}
-EXPORT_SYMBOL(it_set_disposition);
-
-void it_clear_disposition(struct lookup_intent *it, int flag)
-{
-        it->d.lustre.it_disposition &= ~flag;
-}
-EXPORT_SYMBOL(it_clear_disposition);
-
 int it_open_error(int phase, struct lookup_intent *it)
 {
 	if (it_disposition(it, DISP_OPEN_LEASE)) {
@@ -363,6 +345,9 @@ static struct ptlrpc_request *mdc_intent_open_pack(struct obd_export *exp,
         /* pack the intended request */
         mdc_open_pack(req, op_data, it->it_create_mode, 0, it->it_flags, lmm,
                       lmmsize);
+
+	req_capsule_set_size(&req->rq_pill, &RMF_MDT_MD, RCL_SERVER,
+			     obddev->u.cli.cl_max_mds_easize);
 
         /* for remote client, fetch remote perm for current user */
         if (client_is_remote(exp))
@@ -970,6 +955,9 @@ static int mdc_finish_intent_lock(struct obd_export *exp,
         LASSERT(request != LP_POISON);
         LASSERT(request->rq_repmsg != LP_POISON);
 
+        if (it->it_op & IT_READDIR)
+		RETURN(0);
+
         if (!it_disposition(it, DISP_IT_EXECD)) {
                 /* The server failed before it even started executing the
                  * intent, i.e. because it couldn't unpack the request. */
@@ -1177,7 +1165,7 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
 
         lockh.cookie = 0;
         if (fid_is_sane(&op_data->op_fid2) &&
-            (it->it_op & (IT_LOOKUP | IT_GETATTR))) {
+            (it->it_op & (IT_LOOKUP | IT_GETATTR | IT_READDIR))) {
                 /* We could just return 1 immediately, but since we should only
                  * be called in revalidate_it if we already have a lock, let's
                  * verify that. */

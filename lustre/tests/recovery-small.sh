@@ -1716,7 +1716,7 @@ test_110c () {
 	local MDTIDX=1
 
 	mkdir -p $DIR/$tdir
-	drop_update_reply $((MDTIDX + 1)) "$LFS mkdir -i $MDTIDX $remote_dir" ||
+	drop_update_reply $MDTIDX "$LFS mkdir -i $MDTIDX $remote_dir" ||
 						error "lfs mkdir failed"
 
 	diridx=$($GETSTRIPE -M $remote_dir)
@@ -1770,6 +1770,30 @@ test_110f () {
 	rm -rf $DIR/$tdir || error "rmdir failed"
 }
 run_test 110f "remove remote directory: drop slave rep"
+
+test_110g () {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	local remote_dir=$DIR/$tdir/remote_dir
+	local MDTIDX=1
+
+	mkdir -p $remote_dir
+
+	createmany -o $remote_dir/f 5000
+
+	#define OBD_FAIL_MIGRATE_NET_REP	0x1702
+	do_facet mds$MDTIDX lctl set_param fail_loc=0x1702
+	$LFS mv -i $MDTIDX $remote_dir || error "migrate failed"
+	do_facet mds$MDTIDX lctl set_param fail_loc=0x0
+
+	for file in $(find $remote_dir); do
+		mdt_index=$($LFS getstripe -M $file)
+		[ $mdt_index == $MDTIDX ] ||
+			error "$file is not on MDT${MDTIDX}"
+	done
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+}
+run_test 110g "drop reply during migration"
 
 # LU-2844 mdt prepare fail should not cause umount oops
 test_111 ()

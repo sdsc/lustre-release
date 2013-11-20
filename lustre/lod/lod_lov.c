@@ -210,7 +210,7 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 	data->ocd_connect_flags = OBD_CONNECT_INDEX | OBD_CONNECT_VERSION;
 	data->ocd_version = LUSTRE_VERSION_CODE;
 	data->ocd_index = index;
-
+	data->ocd_group = tgt_index;
 	if (strcmp(LUSTRE_OSC_NAME, type) == 0) {
 		data->ocd_connect_flags |= OBD_CONNECT_AT |
 					   OBD_CONNECT_FULL20 |
@@ -227,7 +227,6 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 					   OBD_CONNECT_VERSION |
 					   OBD_CONNECT_PINGLESS;
 
-		data->ocd_group = tgt_index;
 		ltd = &lod->lod_ost_descs;
 	} else {
 		struct obd_import *imp = obd->u.cli.cl_import;
@@ -247,7 +246,7 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 		spin_lock(&imp->imp_lock);
 		imp->imp_server_timeout = 1;
 		spin_unlock(&imp->imp_lock);
-		imp->imp_client->cli_request_portal = OUT_PORTAL;
+		imp->imp_client->cli_request_portal = OUT_MD_PORTAL;
 		CDEBUG(D_OTHER, "%s: Set 'mds' portal and timeout\n",
 		      obd->obd_name);
 		ltd = &lod->lod_mdt_descs;

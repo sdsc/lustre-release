@@ -198,6 +198,8 @@ struct ll_inode_info {
 			/* "opendir_pid" is the token when lookup/revalid
 			 * -- I am the owner of dir statahead. */
 			pid_t                           d_opendir_pid;
+			/* directory stripe information */
+			struct lmv_stripe_md		*d_lsm_md;
 		} d;
 
 #define lli_readdir_mutex       u.d.d_readdir_mutex
@@ -206,6 +208,7 @@ struct ll_inode_info {
 #define lli_def_acl             u.d.d_def_acl
 #define lli_sa_lock             u.d.d_sa_lock
 #define lli_opendir_pid         u.d.d_opendir_pid
+#define lli_lsm_md		u.d.d_lsm_md
 
 		/* for non-directory */
 		struct {
@@ -648,6 +651,7 @@ struct ll_file_data {
 	struct obd_client_handle *fd_lease_och;
 	struct obd_client_handle *fd_och;
 	struct file *fd_file;
+	__u64 lfd_stripe_pos;
 	/* Indicate whether need to report failure when close.
 	 * true: failure is known, not report again.
 	 * false: unknown failure, should report. */
@@ -717,15 +721,18 @@ static void lprocfs_llite_init_vars(struct lprocfs_static_vars *lvars)
 
 
 /* llite/dir.c */
-void ll_release_page(struct page *page, int remove);
 extern struct file_operations ll_dir_operations;
 extern struct inode_operations ll_dir_inode_operations;
-struct page *ll_get_dir_page(struct inode *dir, __u64 hash,
-                             struct ll_dir_chain *chain);
-int ll_dir_read(struct inode *inode, __u64 *_pos, void *cookie,
-		filldir_t filldir);
-
+int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
+		void *cookie, filldir_t filldir);
 int ll_get_mdt_idx(struct inode *inode);
+
+struct lu_dirent *ll_dir_entry_start(struct inode *dir,
+				     struct md_op_data *op_data);
+
+struct lu_dirent *ll_dir_entry_next(struct inode *dir,
+				    struct md_op_data *op_data,
+				    struct lu_dirent *ent);
 /* llite/namei.c */
 int ll_objects_destroy(struct ptlrpc_request *request,
                        struct inode *dir);
@@ -739,6 +746,9 @@ struct lookup_intent *ll_convert_intent(struct open_intent *oit,
 #endif
 struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de);
 int ll_rmdir_entry(struct inode *dir, char *name, int namelen);
+int ll_d_mountpoint(struct dentry *dparent, struct dentry *dchild,
+		    struct qstr *name);
+void ll_update_times(struct ptlrpc_request *request, struct inode *inode);
 
 /* llite/rw.c */
 int ll_prepare_write(struct file *, struct page *, unsigned from, unsigned to);
@@ -805,7 +815,7 @@ int ll_getattr_it(struct vfsmount *mnt, struct dentry *de,
 int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat);
 struct ll_file_data *ll_file_data_get(void);
 struct posix_acl * ll_get_acl(struct inode *inode, int type);
-
+int ll_migrate(struct inode *inode, struct file *file, int mdtidx);
 #ifdef HAVE_GENERIC_PERMISSION_4ARGS
 int ll_inode_permission(struct inode *inode, int mask, unsigned int flags);
 #else
@@ -824,8 +834,9 @@ int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
                              struct ptlrpc_request **request);
 int ll_dir_setstripe(struct inode *inode, struct lov_user_md *lump,
                      int set_default);
-int ll_dir_getstripe(struct inode *inode, struct lov_mds_md **lmmp,
-                     int *lmm_size, struct ptlrpc_request **request);
+int ll_dir_getstripe(struct inode *inode, void **lmmp,
+		     int *lmm_size, struct ptlrpc_request **request,
+		     obd_valid valid);
 #ifdef HAVE_FILE_FSYNC_4ARGS
 int ll_fsync(struct file *file, loff_t start, loff_t end, int data);
 #elif defined(HAVE_FILE_FSYNC_2ARGS)

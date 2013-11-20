@@ -139,7 +139,7 @@ static int llog_cat_new_log(const struct lu_env *env,
 	loghandle->lgh_hdr->llh_cat_idx = index;
 	RETURN(0);
 out_destroy:
-	llog_destroy(env, loghandle);
+	llog_destroy(env, loghandle, NULL);
 	RETURN(rc);
 }
 
@@ -233,7 +233,7 @@ int llog_cat_close(const struct lu_env *env, struct llog_handle *cathandle)
 		if (loghandle->lgh_obj != NULL && llh != NULL &&
 		    (llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
 		    (llh->llh_count == 1)) {
-			rc = llog_destroy(env, loghandle);
+			rc = llog_destroy(env, loghandle, NULL);
 			if (rc)
 				CERROR("%s: failure destroying log during "
 				       "cleanup: rc = %d\n",
@@ -241,7 +241,7 @@ int llog_cat_close(const struct lu_env *env, struct llog_handle *cathandle)
 				       rc);
 
 			index = loghandle->u.phd.phd_cookie.lgc_index;
-			llog_cat_cleanup(env, cathandle, NULL, index);
+			llog_cat_cleanup(env, cathandle, NULL, index, NULL);
 		}
 		llog_close(env, loghandle);
 	}
@@ -478,6 +478,53 @@ out_trans:
 }
 EXPORT_SYMBOL(llog_cat_add);
 
+int llog_declare_cat_cancel_records(const struct lu_env *env,
+				    struct llog_handle *cathandle,
+				    struct llog_cookie *cookies, int count,
+				    struct thandle *th)
+{
+	int i, index, rc = 0, failed = 0;
+
+	ENTRY;
+
+	for (i = 0; i < count; i++, cookies++) {
+		struct llog_handle	*loghandle;
+		struct llog_logid	*lgl = &cookies->lgc_lgl;
+
+		rc = llog_cat_id2handle(env, cathandle, &loghandle, lgl);
+		if (rc) {
+			CERROR("%s: cannot find handle for llog "DOSTID": %d\n",
+			       cathandle->lgh_ctxt->loc_obd->obd_name,
+			       POSTID(&lgl->lgl_oi), rc);
+			failed++;
+			continue;
+		}
+
+		llog_declare_cancel_rec(env, loghandle, cookies->lgc_index,
+				        th);
+
+		/* in case the llog has been cancelled */
+		index = loghandle->u.phd.phd_cookie.lgc_index;
+
+		/* cancel record in the catalog entry */
+		rc = llog_declare_cancel_rec(env, cathandle, index, th);
+		if (rc == 0)
+			CDEBUG(D_HA, "cancel plain log at index"
+			       " %u of catalog "DOSTID"\n",
+			       index, POSTID(&cathandle->lgh_id.lgl_oi));
+
+		llog_handle_put(loghandle);
+	}
+
+	if (rc != 0)
+		CERROR("%s: fail to declare cancel %d of %d: rc = %d\n",
+		       cathandle->lgh_ctxt->loc_obd->obd_name, failed, count,
+		       rc);
+
+	RETURN(rc);
+}
+EXPORT_SYMBOL(llog_declare_cat_cancel_records);
+
 /* For each cookie in the cookie array, we clear the log in-use bit and either:
  * - the log is empty, so mark it free in the catalog header and delete it
  * - the log is not empty, just write out the log header
@@ -488,8 +535,9 @@ EXPORT_SYMBOL(llog_cat_add);
  * Assumes caller has already pushed us into the kernel context.
  */
 int llog_cat_cancel_records(const struct lu_env *env,
-			    struct llog_handle *cathandle, int count,
-			    struct llog_cookie *cookies)
+			    struct llog_handle *cathandle,
+			    struct llog_cookie *cookies, int count,
+			    struct thandle *th)
 {
 	int i, index, rc = 0, failed = 0;
 
@@ -509,11 +557,11 @@ int llog_cat_cancel_records(const struct lu_env *env,
 			continue;
 		}
 
-		lrc = llog_cancel_rec(env, loghandle, cookies->lgc_index);
+		lrc = llog_cancel_rec(env, loghandle, cookies->lgc_index, th);
 		if (lrc == 1) {          /* log has been destroyed */
 			index = loghandle->u.phd.phd_cookie.lgc_index;
 			rc = llog_cat_cleanup(env, cathandle, loghandle,
-					      index);
+					      index, th);
 		} else if (lrc == -ENOENT) {
 			if (rc == 0) /* ENOENT shouldn't rewrite any error */
 				rc = lrc;
@@ -523,8 +571,9 @@ int llog_cat_cancel_records(const struct lu_env *env,
 		}
 		llog_handle_put(loghandle);
 	}
+
 	if (rc)
-		CERROR("%s: fail to cancel %d of %d llog-records: rc = %d\n",
+		CDEBUG(D_HA, "%s: fail to cancel %d of %d llog-recs: rc = %d\n",
 		       cathandle->lgh_ctxt->loc_obd->obd_name, failed, count,
 		       rc);
 
@@ -734,7 +783,8 @@ out:
 
 /* Cleanup deleted plain llog traces from catalog */
 int llog_cat_cleanup(const struct lu_env *env, struct llog_handle *cathandle,
-		     struct llog_handle *loghandle, int index)
+		     struct llog_handle *loghandle, int index,
+		     struct thandle *th)
 {
 	int rc;
 
@@ -753,7 +803,7 @@ int llog_cat_cleanup(const struct lu_env *env, struct llog_handle *cathandle,
 	}
 	/* remove plain llog entry from catalog by index */
 	llog_cat_set_first_idx(cathandle, index);
-	rc = llog_cancel_rec(env, cathandle, index);
+	rc = llog_cancel_rec(env, cathandle, index, th);
 	if (rc == 0)
 		CDEBUG(D_HA, "cancel plain log at index"
 		       " %u of catalog "DOSTID"\n",
@@ -787,7 +837,8 @@ int cat_cancel_cb(const struct lu_env *env, struct llog_handle *cathandle,
 		       POSTID(&lir->lid_id.lgl_oi), rc);
 		if (rc == -ENOENT || rc == -ESTALE) {
 			/* remove index from catalog */
-			llog_cat_cleanup(env, cathandle, NULL, rec->lrh_index);
+			llog_cat_cleanup(env, cathandle, NULL, rec->lrh_index,
+					 NULL);
 		}
 		RETURN(rc);
 	}
@@ -795,13 +846,13 @@ int cat_cancel_cb(const struct lu_env *env, struct llog_handle *cathandle,
 	llh = loghandle->lgh_hdr;
 	if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
 	    (llh->llh_count == 1)) {
-		rc = llog_destroy(env, loghandle);
+		rc = llog_destroy(env, loghandle, NULL);
 		if (rc)
 			CERROR("%s: fail to destroy empty log: rc = %d\n",
 			       loghandle->lgh_ctxt->loc_obd->obd_name, rc);
 
 		llog_cat_cleanup(env, cathandle, loghandle,
-				 loghandle->u.phd.phd_cookie.lgc_index);
+				 loghandle->u.phd.phd_cookie.lgc_index, NULL);
 	}
 	llog_handle_put(loghandle);
 

@@ -1464,7 +1464,9 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 	/* osd_trans_exec_op(env, handle, OSD_OT_WRITE); */
 
         oh = container_of(handle, struct osd_thandle, ot_super);
-        LASSERT(oh->ot_handle->h_transaction != NULL);
+	LASSERT(oh != NULL && !IS_ERR(oh));
+	LASSERT(oh != NULL && oh->ot_handle != NULL);
+	LASSERT(oh->ot_handle->h_transaction != NULL);
 	/* Write small symlink to inode body as we need to maintain correct
 	 * on-disk symlinks for ldiskfs.
 	 * Note: the buf->lb_buf contains a NUL terminator while buf->lb_len

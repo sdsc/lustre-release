@@ -493,6 +493,8 @@ static int osd_oi_iam_lookup(struct osd_thread_info *oti,
 int fid_is_on_ost(struct osd_thread_info *info, struct osd_device *osd,
 		  const struct lu_fid *fid, enum oi_check_flags flags)
 {
+	struct lu_seq_range	*range = &info->oti_seq_range;
+	int			rc;
 	ENTRY;
 
 	if (flags & OI_KNOWN_ON_OST)
@@ -509,7 +511,14 @@ int fid_is_on_ost(struct osd_thread_info *info, struct osd_device *osd,
 	if (!(flags & OI_CHECK_FLD))
 		RETURN(0);
 
-	if (osd->od_is_ost)
+	rc = osd_fld_lookup(info->oti_env, osd, fid_seq(fid), range);
+	if (rc != 0) {
+		CERROR("%s: "DFID" lookup failed: rc = %d\n", osd_name(osd),
+		       PFID(fid), rc);
+		RETURN(rc);
+	}
+
+	if (fld_range_is_ost(range))
 		RETURN(1);
 
 	RETURN(0);
@@ -543,14 +552,18 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 	if (fid_is_on_ost(info, osd, fid, flags) || fid_is_llog(fid))
 		return osd_obj_map_lookup(info, osd, fid, id);
 
-	if (fid_is_fs_root(fid)) {
-		osd_id_gen(id, osd_sb(osd)->s_root->d_inode->i_ino,
-			   osd_sb(osd)->s_root->d_inode->i_generation);
-		return 0;
-	}
 
-	if (unlikely(fid_is_acct(fid)))
-		return osd_acct_obj_lookup(info, osd, fid, id);
+	if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE)) {
+		if (fid_is_fs_root(fid)) {
+			osd_id_gen(id, osd_sb(osd)->s_root->d_inode->i_ino,
+				   osd_sb(osd)->s_root->d_inode->i_generation);
+			return 0;
+		}
+		if (unlikely(fid_is_acct(fid)))
+			return osd_acct_obj_lookup(info, osd, fid, id);
+
+		return osd_obj_spec_lookup(info, osd, fid, id);
+	}
 
 	if (!osd->od_igif_inoi && fid_is_igif(fid)) {
 		osd_id_gen(id, lu_igif_ino(fid), lu_igif_gen(fid));

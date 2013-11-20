@@ -184,6 +184,12 @@ static const struct req_msg_field *fld_query_server[] = {
         &RMF_FLD_MDFLD
 };
 
+static const struct req_msg_field *fld_read_server[] = {
+	&RMF_PTLRPC_BODY,
+        &RMF_FLD_MDFLD,
+        &RMF_GENERIC_DATA
+};
+
 static const struct req_msg_field *mds_getattr_name_client[] = {
         &RMF_PTLRPC_BODY,
         &RMF_MDT_BODY,
@@ -694,6 +700,7 @@ static struct req_format *req_formats[] = {
         &RQF_MGS_CONFIG_READ,
         &RQF_SEQ_QUERY,
         &RQF_FLD_QUERY,
+        &RQF_FLD_READ,
         &RQF_MDS_CONNECT,
         &RQF_MDS_DISCONNECT,
         &RQF_MDS_GET_INFO,
@@ -733,6 +740,7 @@ static struct req_format *req_formats[] = {
 	&RQF_MDS_HSM_REQUEST,
 	&RQF_MDS_SWAP_LAYOUTS,
 	&RQF_UPDATE_OBJ,
+	&RQF_UPDATE_LOG_CANCEL,
 	&RQF_QC_CALLBACK,
         &RQF_OST_CONNECT,
         &RQF_OST_DISCONNECT,
@@ -1251,6 +1259,10 @@ struct req_format RQF_FLD_QUERY =
         DEFINE_REQ_FMT0("FLD_QUERY", fld_query_client, fld_query_server);
 EXPORT_SYMBOL(RQF_FLD_QUERY);
 
+struct req_format RQF_FLD_READ =
+        DEFINE_REQ_FMT0("FLD_READ", fld_query_client, fld_read_server);
+EXPORT_SYMBOL(RQF_FLD_READ);
+
 struct req_format RQF_LOG_CANCEL =
         DEFINE_REQ_FMT0("OBD_LOG_CANCEL", log_cancel_client, empty);
 EXPORT_SYMBOL(RQF_LOG_CANCEL);
@@ -1383,6 +1395,11 @@ struct req_format RQF_UPDATE_OBJ =
 	DEFINE_REQ_FMT0("OBJECT_UPDATE_OBJ", mds_update_client,
 			mds_update_server);
 EXPORT_SYMBOL(RQF_UPDATE_OBJ);
+
+struct req_format RQF_UPDATE_LOG_CANCEL =
+	DEFINE_REQ_FMT0("OBJECT_UPDATE_LOG_CANCEL", mds_update_client,
+			mds_update_server);
+EXPORT_SYMBOL(RQF_UPDATE_LOG_CANCEL);
 
 struct req_format RQF_LDLM_ENQUEUE =
         DEFINE_REQ_FMT0("LDLM_ENQUEUE",

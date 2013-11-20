@@ -58,6 +58,11 @@ struct llog_thread_info {
 	loff_t				 lgi_off;
 	struct llog_rec_hdr		 lgi_lrh;
 	struct llog_rec_tail		 lgi_tail;
+	struct llog_updatelog_rec	 lgi_update_lrec;
+	struct lu_buf			 lgi_update_lb;
+	struct llog_cookie		 lgi_cookie;
+	struct llog_catid		 lgi_cid;
+	struct llog_gen_rec		 lgi_gen;
 };
 
 extern struct lu_context_key llog_thread_key;
@@ -94,5 +99,6 @@ int llog_process_or_fork(const struct lu_env *env,
 			 struct llog_handle *loghandle,
 			 llog_cb_t cb, void *data, void *catdata, bool fork);
 int llog_cat_cleanup(const struct lu_env *env, struct llog_handle *cathandle,
-		     struct llog_handle *loghandle, int index);
+		     struct llog_handle *loghandle, int index,
+		     struct thandle *th);
 #endif
