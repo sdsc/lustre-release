@@ -61,7 +61,6 @@
 #include <dirent.h>
 
 /* (new) readdir implementation overview can be found in lustre/llite/dir.c */
-
 static int llu_dir_do_readpage(struct inode *inode, struct page *page)
 {
         struct llu_inode_info *lli = llu_i2info(inode);
