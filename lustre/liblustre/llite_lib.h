@@ -445,4 +445,10 @@ static inline void i_size_write(struct inode *inode, loff_t i_sz)
 {
         inode->i_stbuf.st_size = i_sz;
 }
+
+static inline unsigned long hash_x_index(__u64 hash, int hash64)
+{
+	return ~0UL - (hash + !hash);
+}
+
 #endif
