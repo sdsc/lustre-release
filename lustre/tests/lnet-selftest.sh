@@ -11,10 +11,10 @@ init_logging
 #
 ALWAYS_EXCEPT="$ALWAYS_EXCEPT $LNET_SELFTEST_EXCEPT"
 
-if [[ $MDSCOUNT -ge 2 ]]; then
+#if [[ $MDSCOUNT -ge 2 ]]; then
 	#LU-4181
-	skip "Only run with single MDT for now" && exit
-fi
+#	skip "Only run with single MDT for now" && exit
+#fi
 
 [ x$LST = x ] && { skip_env "lst not found LST=$LST" && exit 0; }
 
@@ -144,7 +144,10 @@ test_smoke () {
     local runlst=$TMP/smoke.sh
 
     local log=$TMP/$tfile.log
-    local rc=0
+    local rc=0 
+
+    echo "LU-4181 - DEBUG: servers: $servers"
+    echo "LU-4181 - DEBUG: clients: $clients"
 
     test_smoke_sub $servers $clients 2>&1 > $runlst 
 
