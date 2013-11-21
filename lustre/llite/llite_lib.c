@@ -1277,7 +1277,6 @@ void ll_clear_inode(struct inode *inode)
         ll_clear_inode_capas(inode);
         if (!S_ISDIR(inode->i_mode))
                 LASSERT(cfs_list_empty(&lli->lli_agl_list));
-
         /*
          * XXX This has to be done before lsm is freed below, because
          * cl_object still uses inode lsm.
@@ -1742,7 +1741,7 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 			lli->lli_maxbytes = MAX_LFS_FILESIZE;
 	}
 
-        if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
+	if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {
                 if (body->valid & OBD_MD_FLRMTPERM)
                         ll_update_remote_perm(inode, md->remote_perm);
         }
@@ -2156,15 +2155,15 @@ int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
 {
 	struct ll_sb_info *sbi = NULL;
 	struct lustre_md md;
-        int rc;
-        ENTRY;
+	int rc;
+	ENTRY;
 
-        LASSERT(*inode || sb);
-        sbi = sb ? ll_s2sbi(sb) : ll_i2sbi(*inode);
-        rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
-                              sbi->ll_md_exp, &md);
-        if (rc)
-                RETURN(rc);
+	LASSERT(*inode || sb);
+	sbi = sb ? ll_s2sbi(sb) : ll_i2sbi(*inode);
+	rc = md_get_lustre_md(sbi->ll_md_exp, req, sbi->ll_dt_exp,
+			      sbi->ll_md_exp, &md);
+	if (rc)
+		RETURN(rc);
 
         if (*inode) {
                 ll_update_inode(*inode, &md);
@@ -2321,17 +2320,25 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
         if (op_data == NULL)
                 return ERR_PTR(-ENOMEM);
 
-        ll_i2gids(op_data->op_suppgids, i1, i2);
-        op_data->op_fid1 = *ll_inode2fid(i1);
-        op_data->op_capa1 = ll_mdscapa_get(i1);
+	ll_i2gids(op_data->op_suppgids, i1, i2);
+	op_data->op_fid1 = *ll_inode2fid(i1);
+	op_data->op_capa1 = ll_mdscapa_get(i1);
+	if (S_ISDIR(i1->i_mode))
+		op_data->op_mea1  = ll_i2info(i1)->lli_lsm_md;
+	if (i2) {
+		op_data->op_fid2 = *ll_inode2fid(i2);
+		op_data->op_capa2 = ll_mdscapa_get(i2);
+		if (S_ISDIR(i2->i_mode))
+			op_data->op_mea2  = ll_i2info(i2)->lli_lsm_md;
+	} else {
+		fid_zero(&op_data->op_fid2);
+		op_data->op_capa2 = NULL;
+	}
 
-        if (i2) {
-                op_data->op_fid2 = *ll_inode2fid(i2);
-                op_data->op_capa2 = ll_mdscapa_get(i2);
-        } else {
-                fid_zero(&op_data->op_fid2);
-                op_data->op_capa2 = NULL;
-        }
+	if (ll_i2sbi(i1)->ll_flags & LL_SBI_64BIT_HASH)
+		op_data->op_cli_flags |= CLI_HASH64;
+	if (ll_need_32bit_api(ll_i2sbi(i1)))
+		op_data->op_cli_flags |= CLI_API32;
 
 	op_data->op_name = name;
 	op_data->op_namelen = namelen;
