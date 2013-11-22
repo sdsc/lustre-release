@@ -661,7 +661,7 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                          int stripe_count, int stripe_pattern, char *pool_name)
 {
         struct lov_user_md_v3 lum = { 0 };
-        int fd, rc = 0;
+	int fd = -1, rc = 0;
         int isdir = 0;
 
         /* Make sure we have a good pool */
@@ -701,6 +701,11 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                 }
         }
 
+	rc = llapi_stripe_limit_check(stripe_size, stripe_offset, stripe_count,
+				      stripe_pattern);
+	if (rc != 0)
+		goto out;
+
         fd = open(name, flags | O_LOV_DELAY_CREATE, mode);
         if (fd < 0 && errno == EISDIR) {
                 fd = open(name, O_DIRECTORY | O_RDONLY);
@@ -712,11 +717,6 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                 llapi_error(LLAPI_MSG_ERROR, rc, "unable to open '%s'", name);
                 return rc;
         }
-
-        rc = llapi_stripe_limit_check(stripe_size, stripe_offset, stripe_count,
-                                      stripe_pattern);
-        if (rc != 0)
-                goto out;
 
         /*  Initialize IOCTL striping pattern structure */
         lum.lmm_magic = LOV_USER_MAGIC_V3;
