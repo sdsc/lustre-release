@@ -1,0 +1,9 @@
+Verified+1: Jenkins
+Code-Review+2: Andreas Dilger <andreas.dilger@intel.com>
+Verified+1: Maloo <hpdd-maloo@intel.com>
+Code-Review+1: Sebastien Buisson <sebastien.buisson@bull.net>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Fri, 22 Nov 2013 06:32:56 +0000
+Reviewed-on: http://review.whamcloud.com/8159
+Project: fs/lustre-release
+Branch: refs/heads/b2_4
