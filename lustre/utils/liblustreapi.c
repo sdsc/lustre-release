@@ -660,21 +660,25 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                          unsigned long long stripe_size, int stripe_offset,
                          int stripe_count, int stripe_pattern, char *pool_name)
 {
-        struct lov_user_md_v3 lum = { 0 };
-        int fd, rc = 0;
-        int isdir = 0;
+	struct	lov_user_md_v3 lum = { 0 };
+	char	fsname[MAX_OBD_NAME + 1];
+	int	fd = -1;
+	int	rc = 0;
+	int	isdir = 0;
+	char	*path = NULL;
+	int	obdcount = -1;
+	char	data[16];
 
-        /* Make sure we have a good pool */
-        if (pool_name != NULL) {
-                char fsname[MAX_OBD_NAME + 1], *ptr;
+	rc = llapi_search_fsname(name, fsname);
+	if (rc) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "'%s' is not on a Lustre filesystem", name);
+		return rc;
+	}
 
-                rc = llapi_search_fsname(name, fsname);
-                if (rc) {
-                        llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "'%s' is not on a Lustre filesystem",
-                                    name);
-                        return rc;
-                }
+	/* Make sure we have a good pool */
+	if (pool_name != NULL) {
+		char *ptr;
 
                 /* in case user gives the full pool name <fsname>.<poolname>,
                  * strip the fsname */
@@ -701,6 +705,26 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                 }
         }
 
+	/* Check offset value against number of OSTs in the file system */
+	path = (char *) name;
+	rc = get_param_obdvar(fsname, path, "lov", "numobd",
+			      data, sizeof(data));
+	if (rc < 0)
+		goto out;
+
+	obdcount = atoi(data);
+	if (stripe_offset > (obdcount - 1)) {
+		rc = -EINVAL;
+		llapi_error(LLAPI_MSG_ERROR, rc, "error: bad stripe offset %d",
+			    stripe_offset);
+		return rc;
+	}
+
+	rc = llapi_stripe_limit_check(stripe_size, stripe_offset, stripe_count,
+				      stripe_pattern);
+	if (rc != 0)
+		goto out;
+
         fd = open(name, flags | O_LOV_DELAY_CREATE, mode);
         if (fd < 0 && errno == EISDIR) {
                 fd = open(name, O_DIRECTORY | O_RDONLY);
@@ -712,11 +736,6 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                 llapi_error(LLAPI_MSG_ERROR, rc, "unable to open '%s'", name);
                 return rc;
         }
-
-        rc = llapi_stripe_limit_check(stripe_size, stripe_offset, stripe_count,
-                                      stripe_pattern);
-        if (rc != 0)
-                goto out;
 
         /*  Initialize IOCTL striping pattern structure */
         lum.lmm_magic = LOV_USER_MAGIC_V3;
