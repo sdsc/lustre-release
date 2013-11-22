@@ -660,21 +660,24 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                          unsigned long long stripe_size, int stripe_offset,
                          int stripe_count, int stripe_pattern, char *pool_name)
 {
-        struct lov_user_md_v3 lum = { 0 };
-        int fd, rc = 0;
-        int isdir = 0;
+	struct lov_user_md_v3	lum = { 0 };
+	int			fd = -1;
+	int			rc = 0;
+	int			isdir = 0;
 
-        /* Make sure we have a good pool */
-        if (pool_name != NULL) {
-                char fsname[MAX_OBD_NAME + 1], *ptr;
+	/* Make sure we have a good pool */
+	if (pool_name != NULL) {
+		char	real_ostname[MAX_OBD_NAME + 1];
+		char	fsname[MAX_OBD_NAME + 1];
+		char	*ptr;
 
-                rc = llapi_search_fsname(name, fsname);
-                if (rc) {
-                        llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "'%s' is not on a Lustre filesystem",
-                                    name);
-                        return rc;
-                }
+		rc = llapi_search_fsname(name, fsname);
+		if (rc) {
+			llapi_error(LLAPI_MSG_ERROR, rc,
+				    "'%s' is not on a Lustre filesystem",
+				    name);
+			return rc;
+		}
 
                 /* in case user gives the full pool name <fsname>.<poolname>,
                  * strip the fsname */
@@ -691,15 +694,48 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                         pool_name = ptr + 1;
                 }
 
-                /* Make sure the pool exists and is non-empty */
-                rc = llapi_search_ost(fsname, pool_name, NULL);
-                if (rc < 1) {
-                        llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                          "pool '%s.%s' %s", fsname, pool_name,
-                                          rc == 0 ? "has no OSTs" : "does not exist");
-                        return -EINVAL;
-                }
-        }
+		/* If necessary, look for OST index in the list of OSTs
+		Make sure the pool exists and is non-empty */
+		if (stripe_offset > -1) {
+			sprintf(real_ostname, "%s-OST%04x_UUID", fsname,
+				stripe_offset);
+			rc = llapi_search_ost(fsname, pool_name, real_ostname);
+		} else {
+			rc = llapi_search_ost(fsname, pool_name, NULL);
+		}
+
+		if (rc < 1) {
+			llapi_err_noerrno(LLAPI_MSG_ERROR,
+					  "pool '%s.%s' %s", fsname, pool_name,
+					  rc == 0 ? "OST not in pool or pool empty" : "does not exist");
+			return -EINVAL;
+		}
+	} else if (stripe_offset > 1) {
+		char	*path = NULL;
+		int	obdcount = -1;
+		char	data[16];
+
+		/* Check offset value against number of OSTs */
+		path = (char *) name;
+		rc = get_param_obdvar(NULL, path, "lov", "numobd",
+				      data, sizeof(data));
+		if (rc < 0)
+			goto out;
+
+		obdcount = atoi(data);
+		if (stripe_offset > (obdcount - 1)) {
+			rc = -EINVAL;
+			llapi_error(LLAPI_MSG_ERROR, rc,
+				    "error: bad stripe offset %d",
+				    stripe_offset);
+			return rc;
+		}
+	}
+
+	rc = llapi_stripe_limit_check(stripe_size, stripe_offset, stripe_count,
+				      stripe_pattern);
+	if (rc != 0)
+		goto out;
 
         fd = open(name, flags | O_LOV_DELAY_CREATE, mode);
         if (fd < 0 && errno == EISDIR) {
@@ -712,11 +748,6 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
                 llapi_error(LLAPI_MSG_ERROR, rc, "unable to open '%s'", name);
                 return rc;
         }
-
-        rc = llapi_stripe_limit_check(stripe_size, stripe_offset, stripe_count,
-                                      stripe_pattern);
-        if (rc != 0)
-                goto out;
 
         /*  Initialize IOCTL striping pattern structure */
         lum.lmm_magic = LOV_USER_MAGIC_V3;
@@ -1026,8 +1057,27 @@ int llapi_search_mounts(const char *pathname, int index, char *mntdir,
 /* Given a path, find the corresponding Lustre fsname */
 int llapi_search_fsname(const char *pathname, char *fsname)
 {
-        char *path;
-        int rc;
+	char *path;
+	int rc;
+	static struct {
+		char path[PATH_MAX + 1];
+		char fsname[PATH_MAX + 1];
+	} cache = {
+		.path = {'\0'},
+		.fsname = {'\0'}
+	};
+
+	/* If we've cached the previous path, compare it to the input
+	 * pathname. If there's a match, skip processing and send the
+	 * cached fsname. */
+	if (strlen(cache.path) > 0) {
+		if (strncmp(pathname, cache.path, strlen(cache.path)) == 0) {
+
+			strcpy(fsname, cache.fsname);
+			rc = 0;
+			return rc;
+		}
+	}
 
         path = realpath(pathname, NULL);
         if (path == NULL) {
@@ -1060,9 +1110,11 @@ int llapi_search_fsname(const char *pathname, char *fsname)
                         }
                 }
         }
-        rc = get_root_path(WANT_FSNAME | WANT_ERROR, fsname, NULL, path, -1);
-        free(path);
-        return rc;
+	rc = get_root_path(WANT_FSNAME | WANT_ERROR, fsname, NULL, path, -1);
+	strcpy(cache.fsname, fsname);
+	strcpy(cache.path, path);
+	free(path);
+	return rc;
 }
 
 int llapi_search_rootpath(char *pathname, const char *fsname)
