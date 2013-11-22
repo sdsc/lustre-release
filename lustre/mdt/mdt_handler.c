@@ -766,7 +766,9 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 
         if (mdt_body_has_lov(la, reqbody)) {
                 if (ma->ma_valid & MA_LOV) {
-                        LASSERT(ma->ma_lmm_size);
+                        LASSERTF(ma->ma_lmm_size != 0 && ma->ma_lmm != NULL,
+				 "Invalid EA %d:%p "DFID"\n", ma->ma_lmm_size,
+				 ma->ma_lmm, PFID(mdt_object_fid(o)));
                         mdt_dump_lmm(D_INFO, ma->ma_lmm);
                         repbody->eadatasize = ma->ma_lmm_size;
                         if (S_ISDIR(la->la_mode))
