@@ -78,17 +78,24 @@ enum lfsck_status {
 	/* System crashed during the LFSCK,
 	 * will be restarted automatically after recovery. */
 	LS_CRASHED		= 7,
+
+	/* Some OST/MDT failed during the LFSCK, or not join the LFSCK. */
+	LS_PARTIAL		= 8,
 };
 
 enum lfsck_flags {
 	/* Finish the first cycle scanning. */
-	LF_SCANNED_ONCE	= 0x00000001ULL,
+	LF_SCANNED_ONCE		= 0x00000001ULL,
 
 	/* There is some namespace inconsistency. */
-	LF_INCONSISTENT	= 0x00000002ULL,
+	LF_INCONSISTENT		= 0x00000002ULL,
 
 	/* The device is upgraded from 1.8 format. */
-	LF_UPGRADE	= 0x00000004ULL,
+	LF_UPGRADE		= 0x00000004ULL,
+
+	/* The server ever restarted during the LFSCK, and may miss to process
+	 * some objects check/repair. */
+	LF_INCOMPLETE		= 0x00000008ULL,
 };
 
 struct lfsck_position {
@@ -196,6 +203,81 @@ struct lfsck_namespace {
 	__u64	ln_reserved[2];
 };
 
+struct lfsck_layout {
+	/* Magic number to detect that this struct contains valid data. */
+	__u32	ll_magic;
+
+	/* See 'enum lfsck_status'. */
+	__u32	ll_status;
+
+	/* See 'enum lfsck_flags'. */
+	__u32	ll_flags;
+
+	/* How many completed LFSCK runs on the device. */
+	__u32	ll_success_count;
+
+	/*  How long the LFSCK phase1 has run in seconds. */
+	__u32	ll_run_time_phase1;
+
+	/*  How long the LFSCK phase2 has run in seconds. */
+	__u32	ll_run_time_phase2;
+
+	/* Time for the last LFSCK completed in seconds since epoch. */
+	__u64	ll_time_last_complete;
+
+	/* Time for the latest LFSCK ran in seconds since epoch. */
+	__u64	ll_time_latest_start;
+
+	/* Time for the last LFSCK checkpoint in seconds since epoch. */
+	__u64	ll_time_last_checkpoint;
+
+	/* Position for the latest LFSCK started from. */
+	__u64	ll_pos_latest_start;
+
+	/* Position for the last LFSCK checkpoint. */
+	__u64	ll_pos_last_checkpoint;
+
+	/* Position for the first should be updated object. */
+	__u64	ll_pos_first_inconsistent;
+
+	/* How many objects have been checked. */
+	__u64	ll_objs_checked_phase1;
+
+	/* How many objects failed to be processed. */
+	__u64	ll_objs_failed_phase1;
+
+	/* How many objects have been double scanned. */
+	__u64	ll_objs_checked_phase2;
+
+	/* How many objects failed to be processed during double scan. */
+	__u64	ll_objs_failed_phase2;
+
+	/* How many objects have been repaired with dangling reference. */
+	__u64	ll_objs_repaired_dangling;
+
+	/* How many unmatched MDT-OST pairs have been repaired. */
+	__u64	ll_objs_repaired_unmatched_pair;
+
+	/* How many multiple-referenced OST-objects have been repaired. */
+	__u64	ll_objs_repaired_multiple_referenced;
+
+	/* How many orphan OST-objects have been repaired. */
+	__u64	ll_objs_repaired_orphan;
+
+	/* How many OST-objects have been repaired with inconsistent owners. */
+	__u64	ll_objs_repaired_inconsistent_owner;
+
+	/* How many other inconsistency have been repaired. */
+	__u64	ll_objs_repaired_others;
+
+	/* How many other have been skipped because of related MDT(s)/OST(s)
+	 * do not participate in the LFSCK */
+	__u64	ll_objs_skipped;
+
+	/* For further using. 256-bytes aligned now. */
+	__u64	ll_reserved[12];
+};
+
 struct lfsck_component;
 
 struct lfsck_operations {
@@ -244,7 +326,7 @@ struct lfsck_component {
 	/* into lfsck_instance::li_list_dir */
 	cfs_list_t		 lc_link_dir;
 	struct rw_semaphore	 lc_sem;
-	cfs_atomic_t		 lc_ref;
+	atomic_t		 lc_ref;
 
 	struct lfsck_position	 lc_pos_start;
 	struct lfsck_instance	*lc_lfsck;
@@ -252,10 +334,21 @@ struct lfsck_component {
 	struct lfsck_operations *lc_ops;
 	void			*lc_file_ram;
 	void			*lc_file_disk;
+
+	/* The time for last checkpoint, jiffies */
+	cfs_time_t		 lc_time_last_checkpoint;
+
+	/* The time for next checkpoint, jiffies */
+	cfs_time_t		 lc_time_next_checkpoint;
+
 	__u32			 lc_file_size;
 
 	/* How many objects have been checked since last checkpoint. */
 	__u32			 lc_new_checked;
+
+	/* How many objects have been scanned since last sleep. */
+	__u32			 lc_new_scanned;
+
 	unsigned int		 lc_journal:1;
 	__u16			 lc_type;
 };
@@ -281,7 +374,7 @@ struct lfsck_instance {
 	/* For the components those are not scanning now. */
 	cfs_list_t		  li_list_idle;
 
-	cfs_atomic_t		  li_ref;
+	atomic_t		  li_ref;
 	struct ptlrpc_thread	  li_thread;
 
 	/* The time for last checkpoint, jiffies */
@@ -346,6 +439,12 @@ enum lfsck_linkea_flags {
 	LLF_REPAIR_FAILED	= 0x02,
 };
 
+struct lfsck_thread_args {
+	struct lu_env		 lta_env;
+	struct lfsck_instance	*lta_lfsck;
+	struct lfsck_component	*lta_com;
+};
+
 struct lfsck_thread_info {
 	struct lu_name		lti_name;
 	struct lu_buf		lti_buf;
@@ -376,8 +475,12 @@ int lfsck_pos_dump(char **buf, int *len, struct lfsck_position *pos,
 void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,
 		    struct lfsck_position *pos, bool init);
 void lfsck_control_speed(struct lfsck_instance *lfsck);
+void lfsck_control_speed_by_self(struct lfsck_component *com);
 int lfsck_reset(const struct lu_env *env, struct lfsck_instance *lfsck,
 		bool init);
+struct lfsck_thread_args *lfsck_thread_args_init(struct lfsck_instance *lfsck,
+						 struct lfsck_component *com);
+void lfsck_thread_args_fini(struct lfsck_thread_args *lta);
 void lfsck_fail(const struct lu_env *env, struct lfsck_instance *lfsck,
 		bool new_checked);
 int lfsck_checkpoint(const struct lu_env *env, struct lfsck_instance *lfsck);
@@ -402,6 +505,9 @@ int lfsck_bookmark_setup(const struct lu_env *env,
 /* lfsck_namespace.c */
 int lfsck_namespace_setup(const struct lu_env *env,
 			  struct lfsck_instance *lfsck);
+
+/* lfsck_layout.c */
+int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck);
 
 extern const char *lfsck_status_names[];
 extern const char *lfsck_flags_names[];
