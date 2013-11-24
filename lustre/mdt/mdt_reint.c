@@ -1060,6 +1060,17 @@ static int mdt_rename_sanity(struct mdt_thread_info *info, struct lu_fid *fid)
  * 2 - src child; 3 - tgt child.
  * Update on disk version of src child.
  */
+/**
+ * For DNE phase I, only these renames are allowed
+ *	mv src_p/src_c tgt_p/tgt_c
+ * 1. src_p/src_c/tgt_p/tgt_c are in the same MDT.
+ * 2. src_p and tgt_p are same directory, and tgt_c does not
+ *    exists. In this case, all of modification will happen
+ *    in the MDT where ithesource parent is, only one remote
+ *    update is needed, i.e. set c_time/m_time on the child.
+ *    And tgt_c will be still in the same MDT as the original
+ *    src_c.
+ */
 static int mdt_reint_rename(struct mdt_thread_info *info,
                             struct mdt_lock_handle *lhc)
 {
@@ -1176,12 +1187,6 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
 	mold = mdt_object_find(info->mti_env, info->mti_mdt, old_fid);
 	if (IS_ERR(mold))
 		GOTO(out_unlock_target, rc = PTR_ERR(mold));
-	if (mdt_object_remote(mold)) {
-		mdt_object_put(info->mti_env, mold);
-		CDEBUG(D_INFO, "Source child "DFID" is on another MDT\n",
-		       PFID(old_fid));
-		GOTO(out_unlock_target, rc = -EXDEV);
-	}
 
 	if (mdt_object_obf(mold)) {
 		mdt_object_put(info->mti_env, mold);
@@ -1216,6 +1221,12 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
                 if (lu_fid_eq(new_fid, rr->rr_fid1) ||
                     lu_fid_eq(new_fid, rr->rr_fid2))
                         GOTO(out_unlock_old, rc = -EINVAL);
+
+		if (mdt_object_remote(mold)) {
+			CDEBUG(D_INFO, "Src child "DFID" is on another MDT\n",
+			       PFID(old_fid));
+			GOTO(out_unlock_old, rc = -EXDEV);
+		}
 
                 mdt_lock_reg_init(lh_newp, LCK_EX);
                 mnew = mdt_object_find(info->mti_env, info->mti_mdt, new_fid);

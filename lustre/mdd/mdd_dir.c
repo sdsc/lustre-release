@@ -2064,7 +2064,8 @@ static int mdd_declare_rename(const struct lu_env *env,
                               struct md_attr *ma,
                               struct thandle *handle)
 {
-        int rc;
+	struct lu_attr    *la = &mdd_env_info(env)->mti_la_for_fix;
+	int rc;
 
         LASSERT(mdd_spobj);
         LASSERT(mdd_tpobj);
@@ -2082,16 +2083,18 @@ static int mdd_declare_rename(const struct lu_env *env,
                 rc = mdo_declare_ref_del(env, mdd_spobj, handle);
                 if (rc)
                         return rc;
+		if (mdd_spobj != mdd_tpobj) {
+			rc = mdo_declare_index_delete(env, mdd_sobj, dotdot,
+						      handle);
+			if (rc)
+				return rc;
 
-                rc = mdo_declare_index_delete(env, mdd_sobj, dotdot, handle);
-                if (rc)
-                        return rc;
-
-                rc = mdo_declare_index_insert(env, mdd_sobj, mdo2fid(mdd_tpobj),
-                                              dotdot, handle);
-                if (rc)
-                        return rc;
-
+			rc = mdo_declare_index_insert(env, mdd_sobj,
+						      mdo2fid(mdd_tpobj),
+						      dotdot, handle);
+			if (rc)
+				return rc;
+		}
                 /* new target child can be directory,
                  * counted by target dir's nlink */
                 rc = mdo_declare_ref_add(env, mdd_tpobj, handle);
@@ -2104,12 +2107,19 @@ static int mdd_declare_rename(const struct lu_env *env,
         if (rc)
                 return rc;
 
-        rc = mdo_declare_attr_set(env, mdd_sobj, NULL, handle);
-        if (rc)
-                return rc;
-	mdd_declare_links_add(env, mdd_sobj, handle, NULL);
-        if (rc)
-                return rc;
+	LASSERT(ma->ma_attr.la_valid & LA_CTIME);
+	la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
+
+	rc = mdo_declare_attr_set(env, mdd_sobj, la, handle);
+	if (rc)
+		return rc;
+
+	if (mdd_spobj != mdd_tpobj) {
+		/* Do not need change linkEA if the parent keep same */
+		mdd_declare_links_add(env, mdd_sobj, handle, NULL);
+		if (rc)
+			return rc;
+	}
 
         rc = mdo_declare_attr_set(env, mdd_tpobj, NULL, handle);
         if (rc)
@@ -2391,20 +2401,20 @@ static int mdd_rename(const struct lu_env *env,
 						 handle, 0);
         }
 
-        if (rc == 0 && mdd_sobj) {
-                mdd_write_lock(env, mdd_sobj, MOR_SRC_CHILD);
+	if (rc == 0 && mdd_sobj && mdd_spobj != mdd_tpobj) {
+		mdd_write_lock(env, mdd_sobj, MOR_SRC_CHILD);
 		rc = mdd_links_rename(env, mdd_sobj, mdo2fid(mdd_spobj), lsname,
 				      mdo2fid(mdd_tpobj), ltname, handle, NULL,
 				      0, 0);
-                if (rc == -ENOENT)
-                        /* Old files might not have EA entry */
-                        mdd_links_add(env, mdd_sobj, mdo2fid(mdd_spobj),
+		if (rc == -ENOENT)
+			/* Old files might not have EA entry */
+			mdd_links_add(env, mdd_sobj, mdo2fid(mdd_spobj),
 				      lsname, handle, NULL, 0);
-                mdd_write_unlock(env, mdd_sobj);
-                /* We don't fail the transaction if the link ea can't be
-                   updated -- fid2path will use alternate lookup method. */
-                rc = 0;
-        }
+		mdd_write_unlock(env, mdd_sobj);
+		/* We don't fail the transaction if the link ea can't be
+		   updated -- fid2path will use alternate lookup method. */
+		rc = 0;
+	}
 
         EXIT;
 
@@ -2434,19 +2444,21 @@ fixup_tpobj:
         }
 
 fixup_spobj:
-        if (rc && is_dir && mdd_sobj) {
-                rc2 = __mdd_index_delete_only(env, mdd_sobj, dotdot, handle,
-                                              BYPASS_CAPA);
+	if (rc && is_dir && mdd_sobj && mdd_spobj != mdd_tpobj) {
+		rc2 = __mdd_index_delete_only(env, mdd_sobj, dotdot, handle,
+					      BYPASS_CAPA);
 
-                if (rc2)
-                        CWARN("sp obj dotdot delete error %d\n",rc2);
+		if (rc2)
+			CWARN("%s: sp obj dotdot delete error: rc = %d\n",
+			       mdd2obd_dev(mdd)->obd_name, rc2);
 
 
-                rc2 = __mdd_index_insert_only(env, mdd_sobj, spobj_fid,
-                                              dotdot, handle, BYPASS_CAPA);
-                if (rc2)
-                        CWARN("sp obj dotdot insert error %d\n",rc2);
-        }
+		rc2 = __mdd_index_insert_only(env, mdd_sobj, spobj_fid,
+					      dotdot, handle, BYPASS_CAPA);
+		if (rc2)
+			CWARN("%s: sp obj dotdot insert error: rc = %d\n",
+			      mdd2obd_dev(mdd)->obd_name, rc2);
+	}
 
 fixup_spobj2:
         if (rc) {
