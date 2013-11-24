@@ -36,8 +36,10 @@
 #include <lustre/lustre_lfsck_user.h>
 #include <lustre/lustre_user.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_lfsck.h>
 #include <obd.h>
 #include <lu_object.h>
+#include <md_object.h>
 #include <dt_object.h>
 #include <lustre_net.h>
 #include <lustre_dlm.h>
@@ -51,6 +53,34 @@
 #define LFSCK_NAMEENTRY_REMOVED 	2 /* The entry has been removed. */
 #define LFSCK_NAMEENTRY_RECREATED	3 /* The entry has been recreated. */
 
+/**
+ * status machine:
+ *
+ * 					LS_INIT
+ * 					   |
+ * 				     (lfsck|start)
+ * 					   |
+ *					   v
+ *				   LS_SCANNING_PHASE1
+ *					|	^
+ *					|	:
+ *					| (lfsck:restart)
+ *					|	:
+ *					v	:
+ *	-----------------------------------------------------------------
+ *	|		    |^		|^	   |^	      |^ 	|^
+ *	|		    |:		|:	   |:	      |:	|:
+ *	v		    v:		v:	   v:	      v: 	v:
+ * LS_SCANNING_PHASE2	LS_FAILED  LS_STOPPED  LS_PAUSED LS_CRASHED LS_PARTIAL
+ *	|	^	    ^:		^:	   ^:	      ^:	^:
+ *	|	:	    |:		|:	   |:	      |:	|:
+ *	| (lfsck:restart)   |:		|:	   |:	      |:	|:
+ *	v	:	    |v		|v	   |v	      |v	|v
+ *	-----------------------------------------------------------------
+ *	    |
+ *	    v
+ *    LS_COMPLETED
+ */
 enum lfsck_status {
 	/* The lfsck file is new created, for new MDT, upgrading from old disk,
 	 * or re-creating the lfsck file manually. */
@@ -96,6 +126,9 @@ enum lfsck_flags {
 	/* The server ever restarted during the LFSCK, and may miss to process
 	 * some objects check/repair. */
 	LF_INCOMPLETE		= 0x00000008ULL,
+
+	/* The LAST_ID (file) crashed. */
+	LF_CRASHED_LASTID	= 0x00000010ULL,
 };
 
 struct lfsck_position {
@@ -317,6 +350,9 @@ struct lfsck_operations {
 
 	int (*lfsck_double_scan)(const struct lu_env *env,
 				 struct lfsck_component *com);
+
+	void (*lfsck_data_release)(const struct lu_env *env,
+				   struct lfsck_component *com);
 };
 
 struct lfsck_component {
@@ -334,6 +370,7 @@ struct lfsck_component {
 	struct lfsck_operations *lc_ops;
 	void			*lc_file_ram;
 	void			*lc_file_disk;
+	void			*lc_data;
 
 	/* The time for last checkpoint, jiffies */
 	cfs_time_t		 lc_time_last_checkpoint;
@@ -383,6 +420,8 @@ struct lfsck_instance {
 	/* The time for next checkpoint, jiffies */
 	cfs_time_t		  li_time_next_checkpoint;
 
+	lfsck_out_notify	  li_out_notify;
+	void			 *li_out_notify_data;
 	struct dt_device	 *li_next;
 	struct dt_device	 *li_bottom;
 	struct ldlm_namespace	 *li_namespace;
@@ -458,6 +497,7 @@ struct lfsck_thread_info {
 		/* old LMA for compatibility */
 		char			lti_lma_old[LMA_OLD_SIZE];
 	};
+	struct dt_object_format lti_dof;
 	/* lti_ent and lti_key must be conjoint,
 	 * then lti_ent::lde_name will be lti_key. */
 	struct lu_dirent	lti_ent;
