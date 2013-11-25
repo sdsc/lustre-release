@@ -109,7 +109,16 @@ AC_MSG_CHECKING([for RedHat kernel version])
 		AC_MSG_RESULT([${RHEL_KERNEL_VERSION}])
 	], [
 		AC_MSG_RESULT([not found])
-		LB_LINUX_CONFIG([SUSE_KERNEL],[SUSE_KERNEL="yes"],[])
+		LB_LINUX_CONFIG([SUSE_KERNEL],[SUSE_KERNEL="yes"],[
+			AC_MSG_CHECKING([for Fedora 19 kernel])
+			AS_IF([test $(echo $LINUXRELEASE | grep fc19) == $LINUXRELEASE ],[
+				AC_MSG_RESULT([yes])
+				FEDORA_KERNEL="yes"
+			], [
+				FEDORA_KERNEL="no"
+				AC_MSG_RESULT([no])
+			])
+		])
 	])
 
 AC_MSG_CHECKING([for kernel module package directory])
@@ -118,6 +127,7 @@ AC_ARG_WITH([kmp-moddir],
 		       [set the kmod updates or extra directory]),
 	[KMP_MODDIR=$withval],[
 	AS_IF([test x$RHEL_KERNEL = xyes], [KMP_MODDIR="extra"],
+	      [test x$FEDORA_KERNEL = xyes], [KMP_MODDIR="extra"],
 	      [test x$SUSE_KERNEL = xyes], [KMP_MODDIR="updates"])])
 
 AC_MSG_RESULT($KMP_MODDIR)
