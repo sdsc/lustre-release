@@ -157,30 +157,38 @@ static void rsi_free(struct rsi *rsi)
         rawobj_free(&rsi->out_token);
 }
 
+#ifdef HAVE_SUNRPC_UPCALL_HAS_3ARGS
 static void rsi_request(struct cache_detail *cd,
                         struct cache_head *h,
                         char **bpp, int *blen)
 {
-        struct rsi *rsi = container_of(h, struct rsi, h);
-        __u64 index = 0;
+	struct rsi *rsi = container_of(h, struct rsi, h);
+	__u64 index = 0;
 
-        /* if in_handle is null, provide kernel suggestion */
-        if (rsi->in_handle.len == 0)
-                index = gss_get_next_ctx_index();
+	/* if in_handle is null, provide kernel suggestion */
+	if (rsi->in_handle.len == 0)
+		index = gss_get_next_ctx_index();
 
-        qword_addhex(bpp, blen, (char *) &rsi->lustre_svc,
-                     sizeof(rsi->lustre_svc));
-        qword_addhex(bpp, blen, (char *) &rsi->nid, sizeof(rsi->nid));
-        qword_addhex(bpp, blen, (char *) &index, sizeof(index));
-        qword_addhex(bpp, blen, rsi->in_handle.data, rsi->in_handle.len);
-        qword_addhex(bpp, blen, rsi->in_token.data, rsi->in_token.len);
-        (*bpp)[-1] = '\n';
+	qword_addhex(bpp, blen, (char *) &rsi->lustre_svc,
+			sizeof(rsi->lustre_svc));
+	qword_addhex(bpp, blen, (char *) &rsi->nid, sizeof(rsi->nid));
+	qword_addhex(bpp, blen, (char *) &index, sizeof(index));
+	qword_addhex(bpp, blen, rsi->in_handle.data, rsi->in_handle.len);
+	qword_addhex(bpp, blen, rsi->in_token.data, rsi->in_token.len);
+	(*bpp)[-1] = '\n';
 }
 
 static int rsi_upcall(struct cache_detail *cd, struct cache_head *h)
 {
-        return sunrpc_cache_pipe_upcall(cd, h, rsi_request);
+	return sunrpc_cache_pipe_upcall(cd, h, rsi_request);
 }
+#else
+
+static int rsi_upcall(struct cache_detail *cd, struct cache_head *h)
+{
+	return sunrpc_cache_pipe_upcall(cd, h);
+}
+#endif
 
 static inline void __rsi_init(struct rsi *new, struct rsi *item)
 {
