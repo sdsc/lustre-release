@@ -120,7 +120,7 @@ static int ost_validate_obdo(struct obd_export *exp, struct obdo *oa,
                 CERROR("%s: client %s sent invalid object "POSTID"\n",
                        exp->exp_obd->obd_name, obd_export_nid2str(exp),
                        oa ? oa->o_id : -1, oa ? oa->o_seq : -1);
-                return -EPROTO;
+		return -EPROTO;
         }
         obdo_from_ostid(oa, &oa->o_oi);
         if (ioobj)
