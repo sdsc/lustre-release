@@ -92,6 +92,9 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 	if (rc)
 		RETURN(rc);
 
+	req->rq_request_portal = OUT_PORTAL;
+	req->rq_reply_portal = OSC_REPLY_PORTAL;
+
 	/* Note: some dt index api might return non-zero result here, like
 	 * osd_index_ea_lookup, so we should only check rc < 0 here */
 	rc = ptlrpc_queue_wait(req);
