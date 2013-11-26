@@ -64,7 +64,10 @@ if MODULES
 sources: all-sources
 
 all-sources: module-symvers
-	$(MAKE) sources -C lustre || exit $$?
+	@echo "Preparing sources: @LDISKFS_SUBDIR@ lustre"
+	@for i in @LDISKFS_SUBDIR@ lustre ; do   \
+	    $(MAKE) sources -C $$i || exit $$? ; \
+	done
 
 if LINUX
 all-am: modules
