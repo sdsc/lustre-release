@@ -213,6 +213,7 @@ osd_oi_find_or_create(const struct lu_env *env, struct osd_device *o,
  * Lookup the target index/flags of the fid, so it will know where
  * the object is located (tgt index) and it is MDT or OST object.
  */
+
 int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 		   const struct lu_fid *fid, struct lu_seq_range *range)
 {
@@ -225,9 +226,11 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 		return 0;
 	}
 
-	if (!fid_is_norm(fid)) {
+	if (!fid_seq_in_fldb(fid_seq(fid))) {
 		range->lsr_flags = LU_SEQ_RANGE_MDT;
 		if (ss != NULL)
+			/* FIXME: If ss is NULL, it suppose not get lsr_index
+			 * at all */
 			range->lsr_index = ss->ss_node_id;
 		return 0;
 	}
@@ -237,7 +240,7 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 	rc = fld_server_lookup(env, ss->ss_server_fld, fid_seq(fid), range);
 	if (rc != 0) {
 		CERROR("%s can not find "DFID": rc = %d\n",
-		       osd2lu_dev(osd)->ld_obd->obd_name, PFID(fid), rc);
+		       osd_name(osd), PFID(fid), rc);
 	}
 	return rc;
 }
