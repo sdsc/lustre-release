@@ -366,7 +366,7 @@ static int clear_update_ondisk(char *source, struct lustre_disk_data *ldd)
 		fprintf(stderr, "failed to write local files: %s\n",
 			strerror(ret));
 	}
-	loop_cleanup(&mkop);
+	ret = loop_cleanup(&mkop);
 
 	return ret;
 }
