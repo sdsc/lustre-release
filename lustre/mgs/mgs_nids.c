@@ -414,21 +414,21 @@ static int mgs_nidtbl_init_fs(const struct lu_env *env, struct fs_db *fsdb)
 /* --------- Imperative Recovery relies on nidtbl stuff ------- */
 void mgs_ir_notify_complete(struct fs_db *fsdb)
 {
-        struct timeval tv;
-        cfs_duration_t delta;
+	struct timeval tv;
+	cfs_duration_t delta;
 
-        cfs_atomic_set(&fsdb->fsdb_notify_phase, 0);
+	atomic_set(&fsdb->fsdb_notify_phase, 0);
 
-        /* do statistic */
-        fsdb->fsdb_notify_count++;
-        delta = cfs_time_sub(cfs_time_current(), fsdb->fsdb_notify_start);
-        fsdb->fsdb_notify_total += delta;
-        if (delta > fsdb->fsdb_notify_max)
-                fsdb->fsdb_notify_max = delta;
+	/* do statistic */
+	fsdb->fsdb_notify_count++;
+	delta = cfs_time_sub(cfs_time_current(), fsdb->fsdb_notify_start);
+	fsdb->fsdb_notify_total += delta;
+	if (delta > fsdb->fsdb_notify_max)
+		fsdb->fsdb_notify_max = delta;
 
-        cfs_duration_usec(delta, &tv);
-        CDEBUG(D_MGS, "Revoke recover lock of %s completed after %ld.%06lds\n",
-               fsdb->fsdb_name, tv.tv_sec, tv.tv_usec);
+	cfs_duration_usec(delta, &tv);
+	CDEBUG(D_MGS, "Revoke recover lock of %s completed after %ld.%06lds\n",
+		fsdb->fsdb_name, tv.tv_sec, tv.tv_usec);
 }
 
 static int mgs_ir_notify(void *arg)
@@ -451,13 +451,13 @@ static int mgs_ir_notify(void *arg)
 
                 l_wait_event(fsdb->fsdb_notify_waitq,
                              fsdb->fsdb_notify_stop ||
-                             cfs_atomic_read(&fsdb->fsdb_notify_phase),
+			     atomic_read(&fsdb->fsdb_notify_phase),
                              &lwi);
                 if (fsdb->fsdb_notify_stop)
                         break;
 
                 CDEBUG(D_MGS, "%s woken up, phase is %d\n",
-                       name, cfs_atomic_read(&fsdb->fsdb_notify_phase));
+		       name, atomic_read(&fsdb->fsdb_notify_phase));
 
                 fsdb->fsdb_notify_start = cfs_time_current();
 		mgs_revoke_lock(fsdb->fsdb_mgs, fsdb, CONFIG_T_RECOVER);
@@ -484,7 +484,7 @@ int mgs_ir_init_fs(const struct lu_env *env, struct mgs_device *mgs,
 
 	/* start notify thread */
 	fsdb->fsdb_mgs = mgs;
-	cfs_atomic_set(&fsdb->fsdb_notify_phase, 0);
+	atomic_set(&fsdb->fsdb_notify_phase, 0);
 	init_waitqueue_head(&fsdb->fsdb_notify_waitq);
 	init_completion(&fsdb->fsdb_notify_comp);
 
@@ -567,7 +567,7 @@ int mgs_ir_update(const struct lu_env *env, struct mgs_device *mgs,
 	if (notify) {
 		CDEBUG(D_MGS, "Try to revoke recover lock of %s\n",
 		       fsdb->fsdb_name);
-		cfs_atomic_inc(&fsdb->fsdb_notify_phase);
+		atomic_inc(&fsdb->fsdb_notify_phase);
 		wake_up(&fsdb->fsdb_notify_waitq);
 	}
 	return 0;

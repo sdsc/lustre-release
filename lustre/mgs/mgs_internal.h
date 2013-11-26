@@ -144,17 +144,17 @@ struct fs_db {
         struct mgs_nidtbl    fsdb_nidtbl;
 
 	/* async thread to notify clients */
-	struct mgs_device    *fsdb_mgs;
-	wait_queue_head_t    fsdb_notify_waitq;
-	struct completion    fsdb_notify_comp;
-	cfs_time_t           fsdb_notify_start;
-	cfs_atomic_t         fsdb_notify_phase;
-	volatile unsigned int fsdb_notify_async:1,
-                             fsdb_notify_stop:1;
-        /* statistic data */
-        unsigned int         fsdb_notify_total;
-        unsigned int         fsdb_notify_max;
-        unsigned int         fsdb_notify_count;
+	struct mgs_device	*fsdb_mgs;
+	wait_queue_head_t	fsdb_notify_waitq;
+	struct completion	fsdb_notify_comp;
+	cfs_time_t		fsdb_notify_start;
+	atomic_t		fsdb_notify_phase;
+	volatile unsigned int	fsdb_notify_async:1,
+				fsdb_notify_stop:1;
+	/* statistic data */
+	unsigned int		fsdb_notify_total;
+	unsigned int		fsdb_notify_max;
+	unsigned int		fsdb_notify_count;
 };
 
 struct mgs_device {
