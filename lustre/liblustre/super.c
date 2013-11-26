@@ -1795,7 +1795,7 @@ static int llu_iop_datasync(struct inode *inode)
 
 struct filesys_ops llu_filesys_ops =
 {
-        fsop_gone: llu_fsop_gone,
+	.fsop_gone = llu_fsop_gone,
 };
 
 struct inode *llu_iget(struct filesys *fs, struct lustre_md *md)
@@ -2063,30 +2063,30 @@ struct fssw_ops llu_fssw_ops = {
 };
 
 static struct inode_ops llu_inode_ops = {
-        inop_lookup:    llu_iop_lookup,
-        inop_getattr:   llu_iop_getattr,
-        inop_setattr:   llu_iop_setattr,
-        inop_filldirentries:     llu_iop_filldirentries,
-        inop_mkdir:     llu_iop_mkdir_raw,
-        inop_rmdir:     llu_iop_rmdir_raw,
-        inop_symlink:   llu_iop_symlink_raw,
-        inop_readlink:  llu_iop_readlink,
-        inop_open:      llu_iop_open,
-        inop_close:     llu_iop_close,
-        inop_link:      llu_iop_link_raw,
-        inop_unlink:    llu_iop_unlink_raw,
-        inop_rename:    llu_iop_rename_raw,
-        inop_pos:       llu_iop_pos,
-        inop_read:      llu_iop_read,
-        inop_write:     llu_iop_write,
-        inop_iodone:    llu_iop_iodone,
-        inop_fcntl:     llu_iop_fcntl,
-        inop_sync:      llu_iop_sync,
-        inop_datasync:  llu_iop_datasync,
-        inop_ioctl:     llu_iop_ioctl,
-        inop_mknod:     llu_iop_mknod_raw,
+	.inop_lookup   = llu_iop_lookup,
+	.inop_getattr  = llu_iop_getattr,
+	.inop_setattr  = llu_iop_setattr,
+	.inop_filldirentries  = llu_iop_filldirentries,
+	.inop_mkdir    = llu_iop_mkdir_raw,
+	.inop_rmdir    = llu_iop_rmdir_raw,
+	.inop_symlink  = llu_iop_symlink_raw,
+	.inop_readlink = llu_iop_readlink,
+	.inop_open     = llu_iop_open,
+	.inop_close    = llu_iop_close,
+	.inop_link     = llu_iop_link_raw,
+	.inop_unlink   = llu_iop_unlink_raw,
+	.inop_rename   = llu_iop_rename_raw,
+	.inop_pos      = llu_iop_pos,
+	.inop_read     = llu_iop_read,
+	.inop_write    = llu_iop_write,
+	.inop_iodone   = llu_iop_iodone,
+	.inop_fcntl    = llu_iop_fcntl,
+	.inop_sync     = llu_iop_sync,
+	.inop_datasync = llu_iop_datasync,
+	.inop_ioctl    = llu_iop_ioctl,
+	.inop_mknod    = llu_iop_mknod_raw,
 #ifdef _HAVE_STATVFS
-        inop_statvfs:   llu_iop_statvfs,
+	.inop_statvfs  = llu_iop_statvfs,
 #endif
-        inop_gone:      llu_iop_gone,
+	.inop_gone      = llu_iop_gone,
 };

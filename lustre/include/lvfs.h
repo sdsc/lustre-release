@@ -58,7 +58,7 @@
 #include <lvfs_user_fs.h>
 #endif
 
-/* lvfs_linux.c */
+/* sec_ctx.c */
 void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx,
                struct lvfs_ucred *cred);
 void pop_ctxt(struct lvfs_run_ctxt *saved, struct lvfs_run_ctxt *new_ctx,
