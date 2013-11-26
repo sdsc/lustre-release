@@ -3157,7 +3157,8 @@ static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
 	int			rc;
 	ENTRY;
 
-	/* Those FID seqs, which are not in FLDB, must be local seq */
+	/* Those FID seqs, which are not in FLDB, should be local seq,
+	 * i.e. return 0 for remote_fid check */
 	if (unlikely(!fid_seq_in_fldb(fid_seq(fid)) || ss == NULL))
 		RETURN(0);
 
