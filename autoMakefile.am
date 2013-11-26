@@ -61,9 +61,18 @@ doxygen-%: build/doxyfile.%
 	doxygen $<
 
 if MODULES
+.PHONY: sources all-sources ldiskfs-sources lustre-sources
+
 sources: all-sources
 
-all-sources: module-symvers
+all-sources: ldiskfs-sources lustre-sources module-symvers
+
+ldiskfs-sources:
+if LDISKFS_ENABLED
+	$(MAKE) sources -C @LDISKFS_SUBDIR@ || exit $$?
+endif
+
+lustre-sources:
 	$(MAKE) sources -C lustre || exit $$?
 
 if LINUX
