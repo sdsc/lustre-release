@@ -1391,16 +1391,21 @@ t32_reload_modules() {
 t32_wait_til_devices_gone() {
 	local node=$1
 	local devices
+	local loops
 	local i=0
 
 	echo wait for devices to go
 	while ((i < 20)); do
 		devices=$(do_rpc_nodes $node $LCTL device_list | wc -l)
-		((devices == 0)) && return 0
+		loops=$(do_rpc_nodes $node losetup -a | grep t32 | \
+		       wc -l)
+		((devices == 0 && loops == 0)) && return 0
 		sleep 5
 		i=$((i + 1))
 	done
-	echo "waiting for devices on $node: Given up"
+	echo "waiting for dev on $node: dev $devices loop $loops given up"
+	do_rpc_nodes $node "losetup -a"
+	do_rpc_nodes $node "$LCTL devices_list"
 	return 1
 }
 
@@ -1535,6 +1540,7 @@ t32_test() {
 	$r $LCTL set_param debug="$PTLDEBUG"
 
 	$r $TUNEFS --dryrun $tmp/mdt || {
+		losetup -a
 		error_noexit "tunefs.lustre before mounting the MDT"
 		return 1
 	}
@@ -1542,6 +1548,7 @@ t32_test() {
 		mopts=loop,writeconf
 		if [ $fstype == "ldiskfs" ]; then
 			$r $TUNEFS --quota $tmp/mdt || {
+				losetup -a
 				error_noexit "Enable mdt quota feature"
 				return 1
 			}
@@ -1567,6 +1574,7 @@ t32_test() {
 	t32_wait_til_devices_gone $node
 
 	$r mount -t lustre -o $mopts $tmp/mdt $tmp/mnt/mdt || {
+		losetup -a
 		error_noexit "Mounting the MDT"
 		return 1
 	}
@@ -1618,6 +1626,7 @@ t32_test() {
 		mopts=loop,mgsnode=$nid,$writeconf
 		if [ $fstype == "ldiskfs" ]; then
 			$r $TUNEFS --quota $tmp/ost || {
+				losetup -a
 				error_noexit "Enable ost quota feature"
 				return 1
 			}
@@ -1866,6 +1875,7 @@ t32_test() {
 
 		# mount a second time to make sure we didnt leave upgrade flag on
 		$r $TUNEFS --dryrun $tmp/mdt || {
+			losetup -a
 			error_noexit "tunefs.lustre before remounting the MDT"
 			return 1
 		}
