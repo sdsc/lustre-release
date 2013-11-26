@@ -1217,7 +1217,7 @@ static int is_feature_enabled(const char *feature, const char *devpath)
 
 	ret = fread(enabled_features, 1, sizeof(enabled_features) - 1, fp);
 	enabled_features[ret] = '\0';
-	fclose(fp);
+	pclose(fp);
 
 	if (strstr(enabled_features, feature))
 		return 1;
