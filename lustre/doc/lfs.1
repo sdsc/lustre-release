@@ -31,8 +31,7 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
 .br
 .B lfs getstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v] 
         \fB[--stripe-count|-c ] [--stripe-index|-i] [--mdt-index|-M]
-        \fB[--stripe-size|-S] [--directory|-d]
-        \fB[--layout|-L]
+        \fB[--stripe-size|-S] [--directory|-d] [--layout|-L] [--fid|-F]
         \fB[--pool|-p] [--recursive|-r] [--raw|-R] <dirname|filename> ...\fR
 .br
 .B lfs setstripe [--stripe-size|-S stripe_size] [--stripe-count|-c stripe_count]
@@ -134,7 +133,7 @@ to that filesystem are displayed.
 .B getstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v] 
         \fB[--count | -c ] [--index | -i | --offset | -o  ]
         \fB[--pool | -p ] [--size | -s ] [--directory | -d ]
-        \fB[--layout | -L]
+        \fB[--layout | -L ] [--fid | -F ]
         \fB[--recursive | -r ] [--raw | -R ] <dirname|filename>\fR
 .br
 List the striping information for a given filename or directory tree.
@@ -145,6 +144,7 @@ only want specific striping information then the options of
 .BR --index ,
 .BR --offset ,
 .BR --layout ,
+.BR --fid ,
 or
 .B --pool  
 can be used to return only the specific fields.
@@ -173,6 +173,8 @@ can be used to limit the information, like
 .RB ' "ls -d" ').
 You can limit the returned files to those with objects on a specific OST with
 .BR --obd .
+To show only the FID use
+.BR --fid .
 .TP
 .B setstripe [--stripe-count|-c stripe_count] [--stripe-size|-S stripe_size]
         \fB[--stripe-index|-i start_ost_index] [--pool <poolname>]
