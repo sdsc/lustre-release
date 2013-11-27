@@ -2026,6 +2026,14 @@ test_27c() {
 	limit=$($LFS quota -u $TSTID -v -h $DIR | grep $DIR | awk '{print $4}')
 	[ $limit != "3T" ] && error "hardlimit isn't human-readable"
 
+	$LFS setquota -u $TSTID -b 1500M -B 1850G $DIR ||
+		error "lfs setquota for $TSTID failed"
+
+	limit=$($LFS quota -u $TSTID -v -h $DIR | grep $DIR | awk '{print $3}')
+	[ $limit != "1.4G" ] && error "wrong softlimit"
+	limit=$($LFS quota -u $TSTID -v -h $DIR | grep $DIR | awk '{print $4}')
+	[ $limit != "1.8T" ] && error "wrong hardlimit"
+
 	$LFS quota -u $TSTID -v -h $DIR | grep -q "Total allocated" ||
 		error "total allocated inode/block limit not printed"
 

@@ -2539,19 +2539,33 @@ static void print_quota_title(char *name, struct if_quotactl *qctl,
 	       "files", "quota", "limit", "grace");
 }
 
+static void conv_kbytes(__u64 num, char *buf, int shift1, int shift2,
+			char *unit)
+{
+	__u64 left;
+
+	left = num - ((num >> shift1) << shift1);
+	left = (left >> shift2) / 100;
+	left = left >= 9 ? 9 : left;
+	if (left)
+		sprintf(buf, LPU64"."LPU64"%s", num >> shift1, left, unit);
+	else
+		sprintf(buf, LPU64"%s", num >> shift1, unit);
+}
+
 static void kbytes2str(__u64 num, char *buf, bool h)
 {
 	if (!h) {
 		sprintf(buf, LPU64, num);
 	} else {
 		if (num >> 30)
-			sprintf(buf, LPU64"%s", num >> 30, "T");
+			conv_kbytes(num, buf, 30, 20, "T");
 		else if (num >> 20)
-			sprintf(buf, LPU64"%s", num >> 20, "G");
+			conv_kbytes(num, buf, 20, 10, "G");
 		else if (num >> 10)
-			sprintf(buf, LPU64"%s", num >> 10, "M");
+			conv_kbytes(num, buf, 10, 0, "M");
 		else
-			sprintf(buf, LPU64"%s", num, "K");
+			sprintf(buf, LPU64"%s", num, "k");
 	}
 }
 
@@ -2842,11 +2856,11 @@ ug_output:
 	    verbose) {
 		char strbuf[32];
 
-		kbytes2str(total_balloc, strbuf, human_readable);
 		rc2 = print_obd_quota(mnt, &qctl, 1, human_readable,
 				      &total_ialloc);
 		rc3 = print_obd_quota(mnt, &qctl, 0, human_readable,
 				      &total_balloc);
+		kbytes2str(total_balloc, strbuf, human_readable);
 		printf("Total allocated inode limit: "LPU64", total "
 		       "allocated block limit: %s\n", total_ialloc, strbuf);
 	}
