@@ -140,6 +140,7 @@ extern int llapi_file_lookup(int dirfd, const char *name);
 #define VERBOSE_GENERATION	0x40
 #define VERBOSE_MDTINDEX	0x80
 #define VERBOSE_LAYOUT		0x100
+#define VERBOSE_DFID		0x200
 #define VERBOSE_ALL		(VERBOSE_COUNT | VERBOSE_SIZE | \
 				 VERBOSE_OFFSET | VERBOSE_POOL | \
 				 VERBOSE_OBJID | VERBOSE_GENERATION |\
