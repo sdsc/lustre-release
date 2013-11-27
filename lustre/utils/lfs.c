@@ -1257,6 +1257,7 @@ static int lfs_getstripe_internal(int argc, char **argv,
 		{"stripe_count",	no_argument,		0, 'c'},
 		{"directory",		no_argument,		0, 'd'},
 		{"default",		no_argument,		0, 'D'},
+		{"fid",			no_argument,		0, 'F'},
 		{"generation",		no_argument,		0, 'g'},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "stripe-index", but was explicitly
