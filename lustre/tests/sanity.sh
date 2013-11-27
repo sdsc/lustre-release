@@ -4383,8 +4383,25 @@ test_56a() {	# was test_56
 		grep -c lmm_magic) -eq $NUMFILES ]] ||
 		error "$GETSTRIPE --verbose $DIR/$tdir: want $NUMFILES"
 	[[ $($GETSTRIPE $DIR/$tdir | grep -c lmm_magic) -eq 0 ]] ||
-		rror "$GETSTRIPE $DIR/$tdir: showed lmm_magic"
+		error "$GETSTRIPE $DIR/$tdir: showed lmm_magic"
+
+	#test lfs getstripe with -v prints lmm_fid
+	[[ $($GETSTRIPE -v $DIR/$tdir | grep -c lmm_fid) -eq $NUMFILES ]] ||
+		error "$GETSTRIPE -v $DIR/$tdir: want $NUMFILES lmm_fid: lines"
+	[[ $($GETSTRIPE $DIR/$tdir | grep -c lmm_fid) -eq 0 ]] ||
+		error "$GETSTRIPE $DIR/$tdir: showed lmm_fid"
 	echo "$GETSTRIPE --verbose passed."
+
+	#check for FID information
+	local check1=$($GETSTRIPE --fid $DIR/$tdir/file1)
+	local check2=$($GETSTRIPE --verbose $DIR/$tdir/file1 |
+		       awk '/lmm_fid: / { print $2 }')
+	local check3=$($LFS path2fid $DIR/$tdir/file1)
+	[ "$check1" != "$check2" ] &&
+		error "getstripe --fid $check1 != getstripe --verbose $check2"
+	[ "$check1" != "$check3" ] &&
+		error "getstripe --fid $check1 != lfs path2fid $check3"
+	echo "$GETSTRIPE --fid passed."
 
         #test lfs getstripe with --obd
         $GETSTRIPE --obd wrong_uuid $DIR/$tdir 2>&1 |
