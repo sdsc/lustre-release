@@ -229,7 +229,7 @@ diff -urp linux-3.0.61-0.orig/fs/quota/dquot.c linux-3.0.61-0/fs/quota/dquot.c
  
  	/*
  	 * First test before acquiring mutex - solves deadlocks when we
-@@ -1557,15 +1560,17 @@ int __dquot_alloc_space(struct inode *in
+@@ -1557,18 +1560,21 @@ int __dquot_alloc_space(struct inode *in
  		goto out;
  	}
  
@@ -250,6 +250,10 @@ diff -urp linux-3.0.61-0.orig/fs/quota/dquot.c linux-3.0.61-0/fs/quota/dquot.c
  				warntype+cnt);
  		if (ret && !nofail) {
  			spin_unlock(&dq_data_lock);
++			spin_unlock(&inode->i_lock);
+ 			goto out_flush_warn;
+ 		}
+ 	}
 @@ -1573,22 +1578,23 @@ int __dquot_alloc_space(struct inode *in
  		}
  	}
