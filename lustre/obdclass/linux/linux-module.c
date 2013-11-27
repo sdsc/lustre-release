@@ -273,7 +273,8 @@ static int obd_proc_read_health(char *page, char **start, off_t off,
 
 	read_lock(&obd_dev_lock);
 	for (i = 0; i < class_devno_max(); i++) {
-		struct obd_device *obd;
+		struct obd_device	*obd;
+		char			*obd_type;
 
 		obd = class_num2obd(i);
 		if (obd == NULL || !obd->obd_attached || !obd->obd_set_up)
@@ -281,6 +282,14 @@ static int obd_proc_read_health(char *page, char **start, off_t off,
 
 		LASSERT(obd->obd_magic == OBD_DEVICE_MAGIC);
 		if (obd->obd_stopping)
+			continue;
+
+		/* only check top service and bottom device health status */
+		obd_type = obd->obd_type->typ_name;
+		if (strcmp(obd_type, LUSTRE_MDS_NAME) != 0 &&
+		    strcmp(obd_type, LUSTRE_OSS_NAME) != 0 &&
+		    strcmp(obd_type, LUSTRE_OSD_LDISKFS_NAME) != 0 &&
+		    strcmp(obd_type, LUSTRE_OSD_ZFS_NAME) != 0)
 			continue;
 
 		class_incref(obd, __FUNCTION__, current);
