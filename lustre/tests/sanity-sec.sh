@@ -32,6 +32,12 @@ CONFDIR=/etc/lustre
 PERM_CONF=$CONFDIR/perm.conf
 FAIL_ON_ERROR=false
 
+HN=$(hostname | sum | awk '{ print $1 }')
+NODEMAP_COUNT=10
+NODEMAP_RANGE_COUNT=3
+NODEMAP_IPADDR_COUNT=30
+NODEMAP_ID_COUNT=200
+
 require_dsh_mds || exit 0
 require_dsh_ost || exit 0
 
@@ -556,6 +562,53 @@ test_6() {
 	rm -f $file
 }
 run_test 6 "capa expiry ========================="
+
+test_7() {
+	local i
+	for ((i = 0; i < NODEMAP_COUNT; i++)); do
+		if ! do_facet mgs $LCTL nodemap_add ${HN}_${i}; then
+			error "nodemap_add ${HN}_${i} failed with $rc"	\
+		       		&& return 1
+		fi
+		out=$(do_facet mgs $LCTL get_param nodemap.${HN}_${i}.id)
+		rc=$(echo $out | grep -c ${HN}_${i})
+		[[ $rc == 0 ]] && 					\
+		error "nodemap_add ${HN}_${i} check failed with $rc"	\
+		&& return 2
+	done
+	return 0
+}
+run_test 7 "nodemap create"
+
+test_8() {
+	local i
+	for ((i = 0; i < NODEMAP_COUNT; i++)); do
+		out=$(do_facet mgs $LCTL nodemap_add ${HN}_${i} 2>&1)
+		rc=$(echo $out | grep -c error)
+		[[ $rc == 0 ]] && 					\
+		error "nodemap_add ${HN}_${i} duplicate with $rc"	\
+		&& return 1
+	done
+	return 0
+}
+run_test 8 "nodemap reject duplicates"
+
+test_9() {
+	local i
+	for ((i = 0; i < NODEMAP_COUNT; i++)); do
+		if ! do_facet mgs $LCTL nodemap_del ${HN}_${i}; then
+			error "nodemap_del ${HN}_${i} failed with $rc"	\
+			&& return 1
+		fi
+		out=$(do_facet mgs $LCTL get_param nodemap.${HN}_${i}.id)
+		rc=$(echo $out | grep -c ${HN}_${i})
+		[[ $rc != 0 ]] &&
+		error "nodemap_del ${HN}_${i} check failed with $rc"	\
+		&& return 2
+	done
+	return 0
+}
+run_test 9 "nodemap delete"
 
 log "cleanup: ======================================================"
 
