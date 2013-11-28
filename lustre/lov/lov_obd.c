@@ -550,7 +550,21 @@ static int lov_set_osc_active(struct obd_device *obd, struct obd_uuid *uuid,
         obd_getref(obd);
         for (i = 0; i < lov->desc.ld_tgt_count; i++) {
                 tgt = lov->lov_tgts[i];
-                if (!tgt || !tgt->ltd_exp)
+                if (!tgt)
+                        continue;
+                /*
+                 * LU-642/LU-4302, initially inactive OSC could miss the
+                 * obd_connect, we make up for it here.
+                 */
+                if (ev == OBD_NOTIFY_ACTIVATE && tgt->ltd_exp == NULL &&
+                    obd_uuid_equals(uuid, &tgt->ltd_uuid)) {
+                        struct lustre_handle conn = {0, };
+                        struct obd_uuid lov_osc_uuid = {"LOV_OSC_UUID"};
+
+                        obd_connect(&conn, tgt->ltd_obd, &lov_osc_uuid,
+                                    &lov->lov_ocd, &tgt->ltd_exp);
+                }
+                if (!tgt->ltd_exp)
                         continue;
 
                 CDEBUG(D_INFO, "lov idx %d is %s conn "LPX64"\n",
