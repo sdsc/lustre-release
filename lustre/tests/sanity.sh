@@ -6142,8 +6142,12 @@ test_103 () {
     run_acl_subtest inheritance || error "inheritance test failed"
     rm -f make-tree
 
-    echo "LU-974 ignore umask when acl is enabled..."
-    run_acl_subtest 974 || error "LU-974 test failed"
+	echo "LU-974 ignore umask when acl is enabled..."
+	run_acl_subtest 974 || error "LU-974 test failed"
+	if [ $MDSCOUNT -ge 2 ]; then
+		run_acl_subtest 974_remote ||
+			error "LU-974 test failed under remote dir"
+	fi
 
     echo "LU-2561 newly created file is same size as directory..."
     run_acl_subtest 2561 || error "LU-2561 test failed"

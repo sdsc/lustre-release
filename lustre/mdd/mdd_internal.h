@@ -469,8 +469,8 @@ int __mdd_declare_acl_init(const struct lu_env *env, struct mdd_object *obj,
                            int is_dir, struct thandle *handle);
 int mdd_acl_set(const struct lu_env *env, struct mdd_object *obj,
 		const struct lu_buf *buf, int fl);
-int __mdd_acl_init(const struct lu_env *env, struct mdd_object *obj,
-                   struct lu_buf *buf, __u32 *mode, struct thandle *handle);
+int __mdd_fix_mode_acl(const struct lu_env *env, struct lu_buf *buf,
+		       __u32 *mode);
 int __mdd_permission_internal(const struct lu_env *env, struct mdd_object *obj,
                               struct lu_attr *la, int mask, int role);
 int mdd_permission(const struct lu_env *env,
@@ -865,22 +865,9 @@ int mdo_create_obj(const struct lu_env *env, struct mdd_object *o,
                    struct thandle *handle)
 {
         struct dt_object *next = mdd_object_child(o);
-	struct lu_ucred *uc = lu_ucred(env);
-	__u32 saved;
 	int rc;
 
-	/*
-	 *  LU-974 enforce client umask in creation.
-	 * TODO: CMD needs to handle this for remote object.
-	 */
-	if (likely(uc != NULL))
-		saved = xchg(&current->fs->umask, uc->uc_umask & S_IRWXUGO);
-
 	rc = next->do_ops->do_create(env, next, attr, hint, dof, handle);
-
-	/* restore previous umask value */
-	if (likely(uc != NULL))
-		current->fs->umask = saved;
 
 	return rc;
 }

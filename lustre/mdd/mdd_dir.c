@@ -1716,6 +1716,7 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 	const char		*name = lname->ln_name;
 	int			 rc, created = 0, initialized = 0, inserted = 0;
 	int			 got_def_acl = 0;
+	int			 reset_acl = 0;
 	ENTRY;
 
         /*
@@ -1766,20 +1767,32 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_DQACQ_NET))
 		GOTO(out_free, rc = -EINPROGRESS);
 
-        if (!S_ISLNK(attr->la_mode)) {
+	if (!S_ISLNK(attr->la_mode)) {
 		struct lu_buf *acl_buf;
 
 		acl_buf = mdd_buf_get(env, info->mti_xattr_buf,
 				sizeof(info->mti_xattr_buf));
-                mdd_read_lock(env, mdd_pobj, MOR_TGT_PARENT);
+		mdd_read_lock(env, mdd_pobj, MOR_TGT_PARENT);
 		rc = mdo_xattr_get(env, mdd_pobj, acl_buf,
 				XATTR_NAME_ACL_DEFAULT, BYPASS_CAPA);
-                mdd_read_unlock(env, mdd_pobj);
-		if (rc > 0)
+		mdd_read_unlock(env, mdd_pobj);
+		if (rc > 0) {
+			/* If there are default ACL, fix mode by default ACL */
 			got_def_acl = rc;
-		else if (rc < 0 && rc != -EOPNOTSUPP && rc != -ENODATA)
+			acl_buf = mdd_buf_get(env, info->mti_xattr_buf, rc);
+			rc = __mdd_fix_mode_acl(env, acl_buf, &attr->la_mode);
+			if (rc < 0)
+				GOTO(out_free, rc);
+			reset_acl = rc;
+		} else if (rc == -ENODATA || rc == -EOPNOTSUPP) {
+			/* If there are no default ACL, fix mode by mask */
+			struct lu_ucred *uc = lu_ucred(env);
+			attr->la_mode &= ~uc->uc_umask;
+			rc = 0;
+		} else if (rc < 0) {
 			GOTO(out_free, rc);
-        }
+		}
+	}
 
 	mdd_object_make_hint(env, mdd_pobj, son, attr);
 
@@ -1814,10 +1827,24 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 		struct lu_buf *acl_buf;
 
 		acl_buf = mdd_buf_get(env, info->mti_xattr_buf, got_def_acl);
-		rc = __mdd_acl_init(env, son, acl_buf, &attr->la_mode, handle);
-		if (rc) {
-			mdd_write_unlock(env, son);
-			GOTO(cleanup, rc);
+		if (S_ISDIR(attr->la_mode)) {
+			rc = mdo_xattr_set(env, son, acl_buf,
+					   XATTR_NAME_ACL_DEFAULT, 0,
+					   handle, BYPASS_CAPA);
+			if (rc) {
+				mdd_write_unlock(env, son);
+				GOTO(cleanup, rc);
+			}
+		}
+
+		if (reset_acl) {
+			rc = mdo_xattr_set(env, son, acl_buf,
+					   XATTR_NAME_ACL_ACCESS,
+					   0, handle, BYPASS_CAPA);
+			if (rc) {
+				mdd_write_unlock(env, son);
+				GOTO(cleanup, rc);
+			}
 		}
 	}
 #endif
