@@ -331,10 +331,12 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 {
 	struct osp_thread_info	*osi = osp_env_info(env);
 	struct update_request	*update;
+	struct lu_ucred		*uc = lu_ucred(env);
 	struct lu_fid		*fid1;
-	int			sizes[2] = {sizeof(struct obdo), 0};
-	char			*bufs[2] = {NULL, NULL};
-	int			buf_count;
+	int			sizes[3] = {sizeof(struct obdo),
+					    sizeof(__u32), 0};
+	char			*bufs[3] = {NULL, NULL, NULL};
+	int			buf_count = 2;
 	int			rc;
 
 	update = osp_find_create_update_loc(th, dt);
@@ -352,16 +354,17 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 	obdo_cpu_to_le(&osi->osi_obdo, &osi->osi_obdo);
 
 	bufs[0] = (char *)&osi->osi_obdo;
-	buf_count = 1;
 	fid1 = (struct lu_fid *)lu_object_fid(&dt->do_lu);
+	bufs[1] = (char *)&uc->uc_umask;
+
 	if (hint->dah_parent) {
 		struct lu_fid *fid2;
 		struct lu_fid *tmp_fid = &osi->osi_fid;
 
 		fid2 = (struct lu_fid *)lu_object_fid(&hint->dah_parent->do_lu);
 		fid_cpu_to_le(tmp_fid, fid2);
-		sizes[1] = sizeof(*tmp_fid);
-		bufs[1] = (char *)tmp_fid;
+		sizes[2] = sizeof(*tmp_fid);
+		bufs[2] = (char *)tmp_fid;
 		buf_count++;
 	}
 

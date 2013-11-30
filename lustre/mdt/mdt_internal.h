@@ -313,6 +313,7 @@ struct tx_arg {
 			struct dt_allocation_hint	hint;
 			struct dt_object_format		dof;
 			struct lu_fid			fid;
+			__u32				mask;
 		} create;
 		struct {
 			struct lu_buf	buf;
@@ -1093,8 +1094,8 @@ void mds_mod_exit(void);
 /* Update handlers */
 int out_handle(struct mdt_thread_info *info);
 
-#define out_tx_create(info, obj, attr, fid, dof, th, reply, idx) \
-	__out_tx_create(info, obj, attr, fid, dof, th, reply, idx, \
+#define out_tx_create(info, obj, attr, fid, dof, umask, th, reply, idx) \
+	__out_tx_create(info, obj, attr, fid, dof, umask, th, reply, idx, \
 			__FILE__, __LINE__)
 
 #define out_tx_attr_set(info, obj, attr, th, reply, idx) \

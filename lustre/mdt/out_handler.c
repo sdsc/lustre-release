@@ -219,8 +219,9 @@ int out_tx_create_undo(struct mdt_thread_info *info, struct thandle *th,
 int out_tx_create_exec(struct mdt_thread_info *info, struct thandle *th,
 		       struct tx_arg *arg)
 {
-	struct dt_object *dt_obj = arg->object;
-	int rc;
+	struct dt_object	*dt_obj = arg->object;
+	__u32			saved;
+	int			rc;
 
 	LASSERT(dt_obj != NULL && !IS_ERR(dt_obj));
 
@@ -229,13 +230,15 @@ int out_tx_create_exec(struct mdt_thread_info *info, struct thandle *th,
 	       arg->u.create.dof.dof_type,
 	       arg->u.create.attr.la_mode & S_IFMT);
 
+	saved = xchg(&current->fs->umask, arg->u.create.mask & S_IRWXUGO);
 	dt_write_lock(info->mti_env, dt_obj, MOR_TGT_CHILD);
 	rc = dt_create(info->mti_env, dt_obj, &arg->u.create.attr,
 		       &arg->u.create.hint, &arg->u.create.dof, th);
-
 	dt_write_unlock(info->mti_env, dt_obj);
-	CDEBUG(D_INFO, "insert create reply mode %o index %d\n",
-	       arg->u.create.attr.la_mode, arg->index);
+	current->fs->umask = saved;
+
+	CDEBUG(D_INFO, "insert create reply mode %o index %d umask %x\n",
+	       arg->u.create.attr.la_mode, arg->index, arg->u.create.mask);
 
 	update_insert_reply(arg->reply, NULL, 0, arg->index, rc);
 
@@ -244,7 +247,7 @@ int out_tx_create_exec(struct mdt_thread_info *info, struct thandle *th,
 
 static int __out_tx_create(struct mdt_thread_info *info, struct dt_object *obj,
 			   struct lu_attr *attr, struct lu_fid *parent_fid,
-			   struct dt_object_format *dof,
+			   struct dt_object_format *dof, __u32 mask,
 			   struct thandle_exec_args *th,
 			   struct update_reply *reply,
 			   int index, char *file, int line)
@@ -269,6 +272,7 @@ static int __out_tx_create(struct mdt_thread_info *info, struct dt_object *obj,
 		arg->u.create.fid = *parent_fid;
 	memset(&arg->u.create.hint, 0, sizeof(arg->u.create.hint));
 	arg->u.create.dof  = *dof;
+	arg->u.create.mask  = mask;
 	arg->reply = reply;
 	arg->index = index;
 
@@ -283,6 +287,7 @@ static int out_create(struct mdt_thread_info *info)
 	struct obdo		*lobdo = &info->mti_u.update.mti_obdo;
 	struct lu_attr		*attr = &info->mti_attr.ma_attr;
 	struct lu_fid		*fid = NULL;
+	__u32			umask;
 	struct obdo		*wobdo;
 	int			size;
 	int			rc;
@@ -301,10 +306,18 @@ static int out_create(struct mdt_thread_info *info)
 	la_from_obdo(attr, lobdo, lobdo->o_valid);
 
 	dof->dof_type = dt_mode_to_dft(attr->la_mode);
+	umask = *(__u32 *)update_param_buf(update, 1, &size);
+	if (size != sizeof(__u32)) {
+		CERROR("%s: invalid umask size %d: rc = %d\n",
+		       mdt_obd_name(info->mti_mdt), size, -EPROTO);
+		RETURN(err_serious(-EPROTO));
+	}
+
+	umask = le32_to_cpu(umask);
 	if (S_ISDIR(attr->la_mode)) {
 		int size;
 
-		fid = update_param_buf(update, 1, &size);
+		fid = update_param_buf(update, 2, &size);
 		if (fid == NULL || size != sizeof(*fid)) {
 			CERROR("%s: invalid fid: rc = %d\n",
 			       mdt_obd_name(info->mti_mdt), -EPROTO);
@@ -319,7 +332,7 @@ static int out_create(struct mdt_thread_info *info)
 		}
 	}
 
-	rc = out_tx_create(info, obj, attr, fid, dof, &info->mti_handle,
+	rc = out_tx_create(info, obj, attr, fid, dof, umask, &info->mti_handle,
 			   info->mti_u.update.mti_update_reply,
 			   info->mti_u.update.mti_update_reply_index);
 
