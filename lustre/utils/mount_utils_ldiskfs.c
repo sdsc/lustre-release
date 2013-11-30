@@ -348,7 +348,7 @@ static int is_e2fsprogs_feature_supp(const char *feature)
 		}
 		ret = fread(supp_features, 1, sizeof(supp_features) - 1, fp);
 		supp_features[ret] = '\0';
-		fclose(fp);
+		pclose(fp);
 	}
 	if (ret > 0 && strstr(supp_features,
 			      strncmp(feature, "-O ", 3) ? feature : feature+3))
@@ -1119,7 +1119,7 @@ static int is_feature_enabled(const char *feature, const char *devpath)
 
 	ret = fread(enabled_features, 1, sizeof(enabled_features) - 1, fp);
 	enabled_features[ret] = '\0';
-	fclose(fp);
+	pclose(fp);
 
 	if (strstr(enabled_features, feature))
 		return 1;
