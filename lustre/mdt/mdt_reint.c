@@ -746,6 +746,10 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 		       mdt2obd_dev(info->mti_mdt)->obd_name,
 		       (char *)rr->rr_name, PFID(mdt_object_fid(mc)));
 
+		if (!mdt_is_dne_client(req->rq_export))
+			/* Return -EIO for old client */
+			GOTO(unlock_parent, rc = -EIO);
+
 		if (info->mti_spec.sp_rm_entry) {
 			struct lu_ucred *uc  = mdt_ucred(info);
 
