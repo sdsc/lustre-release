@@ -1,5 +1,6 @@
 #!/bin/bash
 
+NAME=${NAME:-local}
 TMP=${TMP:-/tmp}
 
 TESTLOG_PREFIX=${TESTLOG_PREFIX:-$TMP/recovery-mds-scale}
@@ -15,7 +16,9 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
-. $(dirname $0)/functions.sh
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
+. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 
 assert_env MOUNT END_RUN_FILE LOAD_PID_FILE
 
@@ -38,6 +41,7 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
         echoerr "$(date +'%F %H:%M:%S'): iozone succeeded"
         cd $TMP
         rm -rf $TESTDIR
+	wait_delete_completed 1>&2
         if [ -d $TESTDIR ]; then
             echoerr "$(date +'%F %H:%M:%S'): failed to remove $TESTDIR"
             echo $(hostname) >> $END_RUN_FILE

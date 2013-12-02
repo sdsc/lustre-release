@@ -1708,6 +1708,8 @@ DBENCH_LIB=$DBENCH_LIB \
 DBENCH_SRC=$DBENCH_SRC \
 CLIENT_COUNT=$((CLIENTCOUNT - 1)) \
 LFS=$LFS \
+LCTL=$LCTL \
+NAME=$NAME \
 run_${load}.sh" &
     local ppid=$!
     log "Started client load: ${load} on $client"
