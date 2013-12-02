@@ -358,9 +358,8 @@ AC_SUBST(MXLND)
 #
 # LN_CONFIG_O2IB
 #
-AC_DEFUN([LN_CONFIG_O2IB],[
-
-AC_MSG_CHECKING([whether to enable OpenIB gen2 support])
+AC_DEFUN([LN_CONFIG_O2IB],
+[AC_MSG_CHECKING([whether to use Compat RDMA])
 # set default
 AC_ARG_WITH([o2ib],
 	AC_HELP_STRING([--with-o2ib=path],
@@ -381,7 +380,7 @@ AC_ARG_WITH([o2ib],
 		ENABLEO2IB=1
 	])
 if test $ENABLEO2IB -eq 0; then
-	AC_MSG_RESULT([disabled])
+	AC_MSG_RESULT([no])
 else
 	o2ib_found=false
 	for O2IBPATH in $O2IBPATHS; do
@@ -396,7 +395,7 @@ else
 			fi
 			o2ib_found=true
 			break
- 		fi
+		fi
 	done
 	if ! $o2ib_found; then
 		AC_MSG_RESULT([no])
@@ -407,6 +406,36 @@ else
 			*) AC_MSG_ERROR([internal error]);;
 		esac
 	else
+		compatrdma_found=false
+		if test -f ${O2IBPATH}/include/linux/compat-2.6.h; then
+			compatrdma_found=true
+			AC_MSG_RESULT([yes])
+			AC_DEFINE(HAVE_COMPAT_RDMA, 1, [compat rdma found])
+		else
+			AC_MSG_RESULT([no])
+		fi
+		if ! $compatrdma_found; then
+			if test -f $O2IBPATH/config.mk; then
+				. $O2IBPATH/config.mk
+			elif test -f $O2IBPATH/ofed_patch.mk; then
+				. $O2IBPATH/ofed_patch.mk
+			fi
+		else
+			case $RHEL_KERNEL_VERSION in
+				2.6.32-358*)
+					EXTRA_LNET_INCLUDE="$EXTRA_LNET_INCLUDE -DCONFIG_COMPAT_RHEL_6_4";;
+			esac
+		fi
+		AC_MSG_CHECKING([whether to use any OFED backport headers])
+		if test -n "$BACKPORT_INCLUDES"; then
+			OFED_BACKPORT_PATH="$O2IBPATH/${BACKPORT_INCLUDES/*\/kernel_addons/kernel_addons}/"
+			EXTRA_LNET_INCLUDE="-I$OFED_BACKPORT_PATH $EXTRA_LNET_INCLUDE"
+			AC_MSG_RESULT([yes])
+		else
+			AC_MSG_RESULT([no])
+		fi
+
+		AC_MSG_CHECKING([whether to enable OpenIB gen2 support])
 		O2IBPATH=$(readlink --canonicalize $O2IBPATH)
 		O2IBCPPFLAGS="-I$O2IBPATH/include"
 		EXTRA_KCFLAGS_save="$EXTRA_KCFLAGS"
