@@ -1708,6 +1708,8 @@ DBENCH_LIB=$DBENCH_LIB \
 DBENCH_SRC=$DBENCH_SRC \
 CLIENT_COUNT=$((CLIENTCOUNT - 1)) \
 LFS=$LFS \
+LCTL=$LCTL \
+NAME=$NAME \
 run_${load}.sh" &
     local ppid=$!
     log "Started client load: ${load} on $client"
@@ -1727,8 +1729,8 @@ start_client_loads () {
         testnum=$((nodenum % numloads))
         start_client_load ${clients[nodenum]} ${CLIENT_LOADS[testnum]}
     done
-    # bug 22169: wait the background threads to start
-    sleep 2
+	# bug 22169: wait the background threads to start
+	sleep 5
 }
 
 # only for remote client
