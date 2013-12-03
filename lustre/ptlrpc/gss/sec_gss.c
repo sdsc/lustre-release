@@ -2863,9 +2863,17 @@ int __init sptlrpc_gss_init(void)
         if (rc)
                 goto out_cli_upcall;
 
+	rc = init_null_module();
+	if (rc)
+		goto out_svc_upcall;
+
+	rc = init_kerberos_module();
+	if (rc)
+		goto out_null;
+
         rc = init_kerberos_module();
         if (rc)
-                goto out_svc_upcall;
+                goto out_null;
 
         /* register policy after all other stuff be intialized, because it
          * might be in used immediately after the registration. */
@@ -2886,6 +2894,8 @@ out_keyring:
         gss_exit_keyring();
 out_kerberos:
         cleanup_kerberos_module();
+out_null:
+	cleanup_null_module();
 out_svc_upcall:
         gss_exit_svc_upcall();
 out_cli_upcall:
