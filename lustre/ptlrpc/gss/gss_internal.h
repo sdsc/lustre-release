@@ -496,7 +496,7 @@ void gss_stat_oos_record_cli(int behind);
 void gss_stat_oos_record_svc(int phase, int replay);
 
 int  __init gss_init_lproc(void);
-void __exit gss_exit_lproc(void);
+void gss_exit_lproc(void);
 
 /* gss_krb5_mech.c */
 int __init init_kerberos_module(void);
