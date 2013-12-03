@@ -451,6 +451,8 @@ int gss_svc_wrap_bulk(struct ptlrpc_request *req,
                       struct ptlrpc_bulk_desc *desc);
 
 /* gss_mech_switch.c */
+int init_null_module(void);
+void cleanup_null_module(void);
 int init_kerberos_module(void);
 void cleanup_kerberos_module(void);
 
