@@ -1,0 +1,2 @@
+struct null_ctx {
+};
