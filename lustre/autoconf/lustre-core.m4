@@ -721,6 +721,18 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# 2.6.39 The open_by_handle_at() and name_to_handle_at() system calls were
+# added to Linux kernel 2.6.39.
+# Check if client supports these functions
+#
+AC_DEFUN([LC_HAVE_FHANDLE_SYSCALLS],
+[LB_LINUX_CONFIG_IM([FHANDLE],[
+	AC_DEFINE(HAVE_FHANDLE_SYSCALLS, 1,
+		[kernel supports fhandles and related syscalls])
+],[])
+])
+
+#
 # 3.0 dirty_inode() has a flag parameter
 # see kernel commit aa38572954ade525817fe88c54faebf85e5a61c0
 #
@@ -1332,8 +1344,9 @@ AC_DEFUN([LC_PROG_LINUX],
          LC_D_COMPARE_7ARGS
          LC_D_DELETE_CONST
 
-         # 2.6.39
-         LC_REQUEST_QUEUE_UNPLUG_FN
+	 # 2.6.39
+	 LC_REQUEST_QUEUE_UNPLUG_FN
+	 LC_HAVE_FHANDLE_SYSCALLS
 	 LC_HAVE_FSTYPE_MOUNT
 	 LC_IOP_TRUNCATE
 
