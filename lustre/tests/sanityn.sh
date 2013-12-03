@@ -2549,6 +2549,125 @@ test_74() {
 }
 run_test 74 "flock deadlock: different mounts =============="
 
+test_75() {
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.1) ]] &&
+		skip "Need MDS version at least 2.4.1" && return
+
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	#local fcount=2048
+	local fcount=2
+	local fd
+	local cmd
+	local mdt_idx
+	local mds_idx
+	declare -a fd_list
+	declare -a fid_list
+
+	if remote_mds; then
+		nid=$($LCTL list_nids | sed  "s/\./\\\./g")
+	else
+		nid="0@lo"
+	fi
+
+	rm -rf $DIR/$tdir
+	echo "test_mkdir -p ........................................."
+	test_mkdir -p $DIR/$tdir
+	#echo "lfs setdirstripe -i..................................."
+	#mkdir -p $DIR/d0.${TESTSUITE}
+	#$LFS setdirstripe -i 1 $DIR/$tdir
+
+	if [ $MDSCOUNT -gt 1 ]; then
+		mdt_idx=$($LFS getdirstripe -i $DIR/$tdir)
+	else
+		mdt_idx=0
+	fi
+	mds_idx=$((mdt_idx + 1))
+	proc_ofile="mdt.*$mdt_idx.exports.'$nid'.open_files"
+	do_facet mds$mds_idx $LCTL get_param $proc_ofile
+
+	echo "cancel lru locks and sleep 5 secs....................."
+	cancel_lru_locks mdc
+	#sleep 5
+
+	echo "before test check the system ........................."
+	do_facet mds$mds_idx $LCTL get_param $proc_ofile
+	fid_list=($(do_facet mds$mds_idx $LCTL get_param -n $proc_ofile))
+	if [ ${#fid_list[@]} -gt 0 ]; then
+		echo "${#fid_list[@]} open files found in this system:"
+		for (( i = 0; i < ${#fid_list[@]}; i++ )); do
+			filename=$($LFS fid2path $DIR ${fid_list[i]})
+			echo "${fid_list[i]}: $filename"
+		done
+		echo "cancel mdc lru locks before test"
+		cancel_lru_locks mdc
+		unset fid_list
+	fi
+
+	echo "before create files see if any open files are found..."
+	do_facet mds$mds_idx $LCTL get_param $proc_ofile
+	fid_list=($(do_facet mds$mds_idx $LCTL get_param -n $proc_ofile))
+	if [ ${#fid_list[@]} -gt 0 ]; then
+		echo "${#fid_list[@]} open files found in this system:"
+		for (( i = 0; i < ${#fid_list[@]}; i++ )); do
+			filename=$($LFS fid2path $DIR ${fid_list[i]})
+			echo "${fid_list[i]}: $filename"
+		done
+		unset fid_list
+	fi
+
+	echo "create files.........................................."
+	ulimit -n 8096
+	for (( i = 0; i < $fcount; i++ )) ; do
+		touch $DIR/$tdir/f_$i
+		fd=$(free_fd)
+		cmd="exec $fd<$DIR/$tdir/f_$i"
+		eval $cmd
+		fd_list[i]=$fd
+	done
+
+	echo "check files..........................................."
+	do_facet mds$mds_idx $LCTL get_param $proc_ofile
+	fid_list=($(do_facet mds$mds_idx $LCTL get_param -n $proc_ofile))
+	if [ ${#fid_list[@]} -gt 0 ]; then
+		echo "${#fid_list[@]} open files found in this system:"
+		for (( i = 0; i < ${#fid_list[@]}; i++ )); do
+			filename=$($LFS fid2path $DIR ${fid_list[i]})
+			echo "${fid_list[i]}: $filename"
+		done
+	fi
+	#echo "${fid_list[@]}"
+
+	# Possible errors in openfiles FID list.
+	# 1. Missing FIDs. Check 1
+	# 2. Extra FIDs. Check 1
+	# 3. Duplicated FID. Check 2
+	# 4. Invalid FIDs. Check 2
+	# 5. Valid FID, points to some other file. Check 3
+
+	# Check 1
+	[ ${#fid_list[@]} -ne $fcount ] &&
+		error "${#fid_list[@]} != $fcount open files"
+
+	for (( i = 0; i < $fcount; i++ )) ; do
+		cmd="exec ${fd_list[i]}</dev/null"
+		eval $cmd
+		filename=$($LFS fid2path $DIR2 ${fid_list[i]})
+
+		# Check 2
+		rm --interactive=no $filename
+		[ $? -ne 0 ] &&
+			error "Nonexisting fid ${fid_list[i]} listed."
+	done
+
+	# Check 3
+	ls_op=$(ls $DIR2/$tdir | wc -l)
+	[ $ls_op -ne 0 ] &&
+		error "Some openfiles are missing in lproc output"
+
+	rm -rf $DIR/$tdir
+}
+run_test 75 "Verify open file for 2048 files"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
