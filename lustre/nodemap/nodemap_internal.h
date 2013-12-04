@@ -46,6 +46,13 @@ int lprocfs_nodemap_register(const char *name, int is_default_nodemap,
 			     struct nodemap *nodemap);
 void lprocfs_nodemap_init_vars(struct lprocfs_static_vars *lvars);
 
+struct range_node *range_create(lnet_nid_t min, lnet_nid_t max,
+				struct nodemap *nodemap);
+void range_destroy(struct range_node *range);
+int range_insert(struct range_node *data);
+int range_delete(struct range_node *data);
+struct range_node *range_search(lnet_nid_t *nid);
+
 int nodemap_rd_active(char *page, char **start, off_t off, int count,
 		      int *eof, void *data);
 int nodemap_wr_active(struct file *file, const char *buffer,

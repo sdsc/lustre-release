@@ -33,6 +33,7 @@ PERM_CONF=$CONFDIR/perm.conf
 FAIL_ON_ERROR=false
 
 HN=$(hostname | sum | awk '{ print $1 }')
+SN=$(expr $HN % 250 + 1)
 NODEMAP_COUNT=10
 NODEMAP_RANGE_COUNT=3
 NODEMAP_IPADDR_COUNT=30
@@ -587,6 +588,141 @@ test_8() {
 	return 0
 }
 run_test 8 "nodemap reject duplicates"
+
+test_9() {
+        subnet=0
+        cmd="$LCTL nodemap_add_range"
+        for i in $(eval echo {0..$NODEMAP_COUNT}); do
+                for j in $(eval echo {0..$NODEMAP_RANGE_COUNT}); do
+                        range="$SN.${subnet}.${j}.0:$SN.${subnet}.$j.253"
+                        out=$(do_facet mgs ${cmd} --name ${HN}_${i}     \
+                              --range $range)
+                        rc=$?
+                        err="nodemap_add_range failed"
+                        [[ $rc != 0 ]] && error $err && return 1
+                done
+
+                subnet=$(($subnet + 1))
+        done
+        return 0
+}
+run_test 9 "nodemap range add"
+
+test_10() {
+        subnet=0
+        cmd="$LCTL nodemap_add_range"
+        for i in $(eval echo {0..$NODEMAP_COUNT}); do
+                for j in $(eval echo {0..$NODEMAP_RANGE_COUNT}); do
+                        range="$SN.${subnet}.${j}.0:$SN.${subnet}.${j}.253"
+                        out=$(do_facet mgs ${cmd} --name ${HN}_${i}     \
+                              --range $range > /dev/null 2>&1)
+                        rc=$?
+                        err="nodemap_add_range allows duplicate ranges"
+                        [[ $rc == 0 ]] && error $err && return 1
+                done
+
+                subnet=$(($subnet + 1))
+        done
+        return 0
+
+}
+run_test 10 "nodemap reject duplicate ranges"
+
+test_11() {
+        proc[0]="admin_nodemap"
+        proc[1]="trusted_nodemap"
+        option[0]="admin"
+        option[1]="trusted"
+        modify="do_facet mgs $LCTL nodemap_modify"
+        get_param="do_facet mgs $LCTL get_param"
+        for idx in `seq 0 1`; do
+                for i in $(eval echo {0..$NODEMAP_COUNT}); do
+                        h=$(echo ${HN}_${i})
+                        out=$($modify --name $h --param ${option[$idx]} \
+                              --value 1)
+                        val=$($get_param nodemap.$h.${proc[$idx]})
+                        err="error setting ${option[$idx]} to 1"
+                        [[ $val != "nodemap.$h.${proc[$idx]}=1" ]]      \
+                            && error $err && return 1
+                        out=$($modify --name $h --param ${option[$idx]} \
+                              --value 0)
+                        val=$($get_param nodemap.$h.${proc[$idx]})
+                        err="error setting ${option[$idx]} to 0"
+                        [[ $val != "nodemap.$h.${proc[$idx]}=0" ]]      \
+                           && error $err && return 2
+                done
+        done
+        return 0
+}
+run_test 11 "nodemap test flags"
+
+test_12() {
+        for i in $(eval echo {0..$NODEMAP_COUNT}); do
+                h=$(echo ${HN}_${i})
+                out=$(do_facet mgs $LCTL nodemap_modify --name $h       \
+                      --param squash_uid --value 88)
+                val=$(do_facet mgs $LCTL get_param nodemap.$h.squash_uid)
+                err="error setting squash_uid for ${HN}_${i}"
+                [[ $val != "nodemap.$h.squash_uid=88" ]] && error $err  \
+                   && return 1
+
+                out=$(do_facet mgs $LCTL nodemap_modify --name $h       \
+                      --param squash_uid --value 99)
+                val=$(do_facet mgs $LCTL get_param nodemap.$h.squash_uid)
+                err="error setting squash_uid for ${HN}_${i}"
+                [[ $val != "nodemap.$h.squash_uid=99" ]] && error $err  \
+                   && return 2
+
+                out=$(do_facet mgs $LCTL nodemap_modify --name $h       \
+                       --param squash_gid --value 88)
+                val=$(do_facet mgs $LCTL get_param nodemap.$h.squash_gid)
+                err="error setting squash_gid for ${HN}_${i}"
+                [[ $val != "nodemap.$h.squash_gid=88" ]] && error $err  \
+                   && return 3
+
+                out=$(do_facet mgs $LCTL nodemap_modify --name $h       \
+                      --param squash_gid --value 99)
+                val=$(do_facet mgs $LCTL get_param nodemap.$h.squash_gid)
+                err="error setting squash_gid for ${HN}_${i}"
+                [[ $val != "nodemap.$h.squash_gid=99" ]] && error $err  \
+                    && return 4
+        done
+        return 0
+}
+run_test 12 "nodemap squash ids"
+
+test_13() {
+        subnet=0
+        for i in $(eval echo {0..$NODEMAP_COUNT}); do
+                for j in $(eval echo {0..$NODEMAP_RANGE_COUNT}); do
+                        for k in $(eval echo {0..$NODEMAP_IPADDR_COUNT}); do
+                                nid="$SN.$subnet.$j.$k"
+                                nm=$(do_facet mgs $LCTL                 \
+                                     nodemap_test_nid $nid |            \
+                                     awk -F: '{ print $1 }')
+                                err="error looking up NID $nid"
+                                [[ $nm != ${HN}_${i} ]] && error $err   \
+                                    && return 1
+                        done
+                done
+                subnet=$(($subnet + 1))
+        done
+        return 0
+}
+run_test 13 "nodemap test nid lookups"
+
+test_14() {
+        for i in $(eval echo {0..$NODEMAP_IPADDR_COUNT}); do
+                nodemap=$(do_facet mgs $LCTL                            \
+                          nodemap_test_nid 253.0.0.${i} |               \
+                          awk -F: '{ print $1 }')
+                err="error testing nids for default nodemap"
+                [[ $nodemap != "default" ]] && error $err && return 1
+        done
+        return 0
+}
+run_test 14 "nodemap default nid lookups"
+
 
 log "cleanup: ======================================================"
 

@@ -628,6 +628,7 @@ static int mgs_iocontrol_nodemap(const struct lu_env *env,
 	struct lustre_cfg *lcfg = NULL;
 	char nodemap_name[LUSTRE_NODEMAP_NAME_LENGTH + 1];
 	char *param = NULL;
+	__u32 cmd;
 	ENTRY;
 
 	if (data->ioc_type != LUSTRE_CFG_TYPE) {
@@ -649,21 +650,37 @@ static int mgs_iocontrol_nodemap(const struct lu_env *env,
 	snprintf(nodemap_name, sizeof(nodemap_name), "%s",
 		 lustre_cfg_string(lcfg, 1));
 
-	switch (lcfg->lcfg_command) {
+	cmd = lcfg->lcfg_command;
+
+	switch (cmd) {
 	case LCFG_NODEMAP_ADD:
-		if (lcfg->lcfg_bufcount != 2)
-			GOTO(out_lcfg, rc = -EINVAL);
-		rc = mgs_nodemap_cmd(env, mgs, LCFG_NODEMAP_ADD,
-				     nodemap_name, param);
-		break;
 	case LCFG_NODEMAP_DEL:
 		if (lcfg->lcfg_bufcount != 2)
 			GOTO(out_lcfg, rc = -EINVAL);
-		rc = mgs_nodemap_cmd(env, mgs, LCFG_NODEMAP_DEL,
-				     nodemap_name, param);
+		rc = mgs_nodemap_cmd(env, mgs, cmd, nodemap_name,
+				     param);
+		break;
+	case LCFG_NODEMAP_ADD_RANGE:
+	case LCFG_NODEMAP_DEL_RANGE:
+		if (lcfg->lcfg_bufcount != 3)
+			GOTO(out_lcfg, rc = -EINVAL);
+		param = lustre_cfg_string(lcfg, 2);
+		rc = mgs_nodemap_cmd(env, mgs, cmd, nodemap_name,
+				     param);
+		break;
+	case LCFG_NODEMAP_ADMIN:
+	case LCFG_NODEMAP_TRUSTED:
+	case LCFG_NODEMAP_SQUASH_UID:
+	case LCFG_NODEMAP_SQUASH_GID:
+		if (lcfg->lcfg_bufcount != 4)
+			GOTO(out_lcfg, rc = -EINVAL);
+		param = lustre_cfg_string(lcfg, 3);
+		rc = mgs_nodemap_cmd(env, mgs, cmd, nodemap_name,
+				     param);
 		break;
 	default:
 		rc = -ENOTTY;
+		break;
 	}
 
 	if (rc != 0) {

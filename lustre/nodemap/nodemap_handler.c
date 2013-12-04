@@ -31,19 +31,30 @@
 #define HASH_NODEMAP_CUR_BITS 3
 #define HASH_NODEMAP_MAX_BITS 7
 
+#define NODEMAP_NETLINK_USER 31
+#define NODEMAP_NETLINK_BUFSIZE 128
+#define NODEMAP_NETLINK_NIDTEST 0
+
 struct proc_dir_entry *proc_lustre_nodemap_root;
 static unsigned int nodemap_highest_id;
 
-/* This will be replaced or set by a config variable when
- * integration is complete */
-
 unsigned int nodemap_idmap_active;
 static struct nodemap *default_nodemap;
+static struct sock *nodemap_nl_sock;
 
 static cfs_hash_t *nodemap_hash;
 
 static void nodemap_destroy(struct nodemap *nodemap)
 {
+	struct range_node *range, *temp;
+
+	list_for_each_entry_safe(range, temp, &(nodemap->nm_ranges),
+				 rn_list) {
+		list_del(&(range->rn_list));
+		range_delete(range);
+		range_destroy(range);
+	}
+
 	OBD_FREE_PTR(nodemap);
 }
 
@@ -167,6 +178,111 @@ static int nodemap_init_hash(void)
 	return 0;
 }
 
+int nodemap_add_range(const char *name, char *range_str)
+{
+	struct nodemap *nodemap;
+	struct range_node *range;
+	char *min_string, *max_string;
+	lnet_nid_t min, max;
+	int rc;
+
+	if ((strlen(name) > LUSTRE_NODEMAP_NAME_LENGTH) ||
+	    (strlen(name) == 0))
+		goto out;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, name);
+
+	if ((nodemap == NULL) || (nodemap->nm_id == 0))
+		goto out;
+
+	min_string = strsep(&range_str, ":");
+	max_string = strsep(&range_str, ":");
+
+	if ((min_string == NULL) || (max_string == NULL))
+		goto out;
+
+	min = libcfs_str2nid(min_string);
+	max = libcfs_str2nid(max_string);
+
+	if (LNET_NIDNET(min) != LNET_NIDNET(max))
+		goto out;
+
+	if (LNET_NIDADDR(min) > LNET_NIDADDR(max))
+		goto out;
+
+	range = range_create(min, max, nodemap);
+
+	if (range == NULL)
+		return -ENOMEM;
+
+	rc = range_insert(range);
+
+	if (rc != 0) {
+		CERROR("nodemap range insert failed for %s: rc = %d",
+		      nodemap->nm_name, rc);
+		range_destroy(range);
+		return -ENOMEM;
+	}
+
+	INIT_LIST_HEAD(&range->rn_list);
+	list_add(&(range->rn_list), &(nodemap->nm_ranges));
+
+	return rc;
+out:
+	return -EINVAL;
+}
+EXPORT_SYMBOL(nodemap_add_range);
+
+int nodemap_del_range(const char *name, char *range_str)
+{
+	struct nodemap *nodemap;
+	struct range_node *range;
+	char *min_string, *max_string;
+	lnet_nid_t min, max;
+
+	if ((strlen(name) > LUSTRE_NODEMAP_NAME_LENGTH) ||
+	    (strlen(name) == 0))
+		goto out;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, name);
+
+	if ((nodemap == NULL) || (nodemap->nm_id == 0))
+		goto out;
+
+	min_string = strsep(&range_str, ":");
+	max_string = strsep(&range_str, ":");
+
+	if ((min_string == NULL) || (max_string == NULL))
+		goto out;
+
+	min = libcfs_str2nid(min_string);
+	max = libcfs_str2nid(max_string);
+
+	/* Do some range and network test here */
+
+	if (LNET_NIDNET(min) != LNET_NIDNET(max))
+		goto out;
+
+	if (LNET_NIDADDR(min) > LNET_NIDADDR(max))
+		goto out;
+
+	range = range_search(&min);
+
+	if (range == NULL)
+		return -EINVAL;
+
+	if ((range->rn_start_nid == min) && (range->rn_end_nid == max)) {
+		range_delete(range);
+		list_del(&(range->rn_list));
+		range_destroy(range);
+	}
+
+	return 0;
+out:
+	return -EINVAL;
+}
+EXPORT_SYMBOL(nodemap_del_range);
+
 static int nodemap_create(const char *name, int is_default_nodemap)
 {
 	int rc;
@@ -234,6 +350,94 @@ out_err:
 	return rc;
 }
 
+int nodemap_admin(const char *name, const char *admin_string)
+{
+	struct nodemap *nodemap;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, name);
+
+	if (nodemap == NULL)
+		goto out;
+
+	if (strlen(admin_string) == 0)
+		goto out;
+
+	if (strncmp(admin_string, "0", 1) == 0)
+		nodemap->nm_flags.nmf_allow_root_access = 0;
+	else
+		nodemap->nm_flags.nmf_allow_root_access = 1;
+
+	return 0;
+out:
+	return -EINVAL;
+}
+EXPORT_SYMBOL(nodemap_admin);
+
+int nodemap_trusted(const char *name, const char *trust_string)
+{
+	struct nodemap *nodemap;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, name);
+
+	if (nodemap == NULL)
+		goto out;
+
+	if (strlen(trust_string) == 0)
+		goto out;
+
+	if (strncmp(trust_string, "0", 1) == 0)
+		nodemap->nm_flags.nmf_trust_client_ids = 0;
+	else
+		nodemap->nm_flags.nmf_trust_client_ids = 1;
+
+	return 0;
+out:
+	return -EINVAL;
+}
+EXPORT_SYMBOL(nodemap_trusted);
+
+int nodemap_squash_uid(const char *name, char *uid_string)
+{
+	struct nodemap *nodemap;
+	uid_t uid;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, name);
+
+	if (nodemap == NULL)
+		goto out;
+
+	if (sscanf(uid_string, "%u", &uid) != 1)
+		goto out;
+
+	nodemap->nm_squash_uid = uid;
+
+	return 0;
+out:
+	return -EINVAL;
+}
+EXPORT_SYMBOL(nodemap_squash_uid);
+
+int nodemap_squash_gid(const char *name, char *gid_string)
+{
+	struct nodemap *nodemap;
+	gid_t gid;
+
+	nodemap = cfs_hash_lookup(nodemap_hash, name);
+
+	if (nodemap == NULL)
+		goto out;
+
+	if (sscanf(gid_string, "%u", &gid) != 1)
+		goto out;
+
+	nodemap->nm_squash_gid = gid;
+
+	return 0;
+out:
+	return -EINVAL;
+}
+EXPORT_SYMBOL(nodemap_squash_gid);
+
 int nodemap_add(const char *name)
 {
 	int rc;
@@ -269,6 +473,70 @@ int nodemap_del(const char *name)
 }
 EXPORT_SYMBOL(nodemap_del);
 
+/* A netlink interface is added for testing the range tree
+ * and map of the nodemap on the server its running as opposed
+ * to only the MGS. Additionally, proper testing from multiple
+ * sources requries a full duplex interface.
+ */
+
+static void nodemap_nl_recv_msg(struct sk_buff *skb)
+{
+	__u32 op;
+	char *buffer;
+	struct nlmsghdr *nlh;
+	struct sk_buff *skb_out;
+	int msg_size, pid;
+	lnet_nid_t nid;
+	struct range_node *range;
+	struct nodemap *nodemap;
+	char buf[NODEMAP_NETLINK_BUFSIZE + 1];
+	char msg[NODEMAP_NETLINK_BUFSIZE + 1];
+
+	nlh = (struct nlmsghdr *)skb->data;
+
+	snprintf(buf, NODEMAP_NETLINK_BUFSIZE,
+		 "%s", (char *)nlmsg_data(nlh));
+	buf[NODEMAP_NETLINK_BUFSIZE] = '\0';
+	buffer = &buf[1];
+
+	op = simple_strtoul(strsep(&buffer, " "), NULL, 10);
+
+	switch (op) {
+	default:
+	case NODEMAP_NETLINK_NIDTEST:
+
+		nid = libcfs_str2nid(strsep(&buffer, " "));
+		pid = nlh->nlmsg_pid;
+		range = range_search(&nid);
+
+		if (range == NULL)
+			nodemap = default_nodemap;
+		else
+			nodemap = range->rn_nodemap;
+
+		snprintf(msg, LUSTRE_NODEMAP_NAME_LENGTH, "%s:%u",
+			 nodemap->nm_name, nodemap->nm_id);
+		msg[NODEMAP_NETLINK_BUFSIZE] = '\0';
+
+		break;
+	}
+
+	msg_size = strlen(msg);
+	skb_out = nlmsg_new(msg_size, 0);
+
+	if (skb_out == NULL) {
+		CERROR("Cannot allocate memory (%zu o)"
+		       "for sk_buff", (size_t)msg_size);
+		return;
+	}
+
+	nlh = nlmsg_put(skb_out, 0, 0, NLMSG_DONE, msg_size, 0);
+	NETLINK_CB(skb_out).dst_group = 0;
+	strncpy(nlmsg_data(nlh), msg, msg_size);
+
+	nlmsg_unicast(nodemap_nl_sock, skb_out, pid);
+}
+
 static int __init nodemap_mod_init(void)
 {
 	int rc;
@@ -276,7 +544,10 @@ static int __init nodemap_mod_init(void)
 	rc = nodemap_init_hash();
 	nodemap_procfs_init();
 	rc = nodemap_create("default", 1);
-
+	nodemap_nl_sock = netlink_kernel_create(&init_net,
+						NODEMAP_NETLINK_USER,
+						0, nodemap_nl_recv_msg,
+						NULL, THIS_MODULE);
 	return rc;
 }
 
@@ -284,6 +555,7 @@ static void __exit nodemap_mod_exit(void)
 {
 	nodemap_cleanup_all();
 	lprocfs_remove(&proc_lustre_nodemap_root);
+	netlink_kernel_release(nodemap_nl_sock);
 }
 
 
