@@ -800,6 +800,90 @@ static int ll_rd_unstable_stats(char *page, char **start, off_t off,
 	return rc;
 }
 
+static int ll_rd_root_squash(char *page, char **start, off_t off,
+			     int count, int *eof, void *data)
+{
+	struct super_block *sb = data;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	struct root_squash_info *squash = &sbi->ll_squash;
+
+	return snprintf(page, count, "%u:%u\n", squash->rsi_uid,
+			squash->rsi_gid);
+}
+
+static int ll_wr_root_squash(struct file *file, const char *buffer,
+			     unsigned long count, void *data)
+{
+	struct super_block *sb = data;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	struct root_squash_info *squash = &sbi->ll_squash;
+
+	return lprocfs_wr_root_squash(buffer, count, squash,
+				      ll_get_fsname(sb, NULL, 0));
+}
+
+static int ll_rd_nosquash_nids(char *page, char **start, off_t off,
+			       int count, int *eof, void *data)
+{
+	struct super_block *sb = data;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	struct root_squash_info *squash = &sbi->ll_squash;
+	int rc;
+
+	down_read(&squash->rsi_sem);
+	if (!cfs_list_empty(&squash->rsi_nosquash_nids)) {
+		rc = cfs_print_nidlist(page, count, &squash->rsi_nosquash_nids);
+		rc += snprintf(page + rc, count - rc, "\n");
+	} else
+		rc = snprintf(page, count, "NONE\n");
+	up_read(&squash->rsi_sem);
+
+	return rc;
+}
+
+static int ll_wr_nosquash_nids(struct file *file, const char *buffer,
+			       unsigned long count, void *data)
+{
+	struct super_block *sb = data;
+	struct ll_sb_info *sbi = ll_s2sbi(sb);
+	struct root_squash_info *squash = &sbi->ll_squash;
+	int rc;
+	int i;
+	bool matched;
+	lnet_process_id_t id;
+
+	rc = lprocfs_wr_nosquash_nids(buffer, count, squash,
+				      ll_get_fsname(sb, NULL, 0));
+	if (rc < 0)
+		return rc;
+
+	/* Update norootsquash flag */
+	down_write(&squash->rsi_sem);
+	if (cfs_list_empty(&squash->rsi_nosquash_nids))
+		sbi->ll_flags &= ~LL_SBI_NOROOTSQUASH;
+	else {
+		/* Do not apply root squash as soon as one of our NIDs is
+		 * in the nosquash_nids list */
+		matched = false;
+		i = 0;
+		while (LNetGetId(i++, &id) != -ENOENT) {
+			if (LNET_NETTYP(LNET_NIDNET(id.nid)) == LOLND)
+				continue;
+			if (cfs_match_nid(id.nid, &squash->rsi_nosquash_nids)) {
+				matched = true;
+				break;
+			}
+		}
+		if (matched)
+			sbi->ll_flags |= LL_SBI_NOROOTSQUASH;
+		else
+			sbi->ll_flags &= ~LL_SBI_NOROOTSQUASH;
+	}
+	up_write(&squash->rsi_sem);
+
+	return rc;
+}
+
 static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
         { "uuid",         ll_rd_sb_uuid,          0, 0 },
         //{ "mntpt_path",   ll_rd_path,             0, 0 },
@@ -833,7 +917,9 @@ static struct lprocfs_vars lprocfs_llite_obd_vars[] = {
 	{ "sbi_flags",        ll_rd_sbi_flags, 0, 0 },
 	{ "xattr_cache",      ll_rd_xattr_cache, ll_wr_xattr_cache, 0 },
 	{ "unstable_stats",   ll_rd_unstable_stats, 0, 0},
-        { 0 }
+	{ "root_squash", ll_rd_root_squash, ll_wr_root_squash, 0 },
+	{ "nosquash_nids", ll_rd_nosquash_nids, ll_wr_nosquash_nids, 0 },
+	{ 0 }
 };
 
 #define MAX_STRING_SIZE 128
