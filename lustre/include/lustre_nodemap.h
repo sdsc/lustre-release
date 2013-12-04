@@ -67,7 +67,23 @@ struct nodemap {
 						       * name */
 };
 
-int nodemap_add(const char *nodemap_name);
-int nodemap_del(const char *nodemap_name);
+struct range_node {
+	unsigned int rn_id;			     /* Unique ID set by MGS */
+	lnet_nid_t rn_start_nid;		     /* Inclusive starting
+						      * NID */
+	lnet_nid_t rn_end_nid;			     /* Inclusive ending NID */
+	struct nodemap *rn_nodemap;		     /* Member of nodemap */
+	struct list_head rn_list;		     /* List for nodemap */
+	struct rb_node rn_node;			     /* Global tree */
+};
+
+int nodemap_add(const char *name);
+int nodemap_del(const char *name);
+int nodemap_add_range(const char *name, char *nodemap_range);
+int nodemap_del_range(const char *name, char *nodemap_range);
+int nodemap_admin(const char *name, const char *admin_string);
+int nodemap_trusted(const char *name, const char *trust_string);
+int nodemap_squash_uid(const char *name, char *uid_string);
+int nodemap_squash_gid(const char *name, char *gid_string);
 
 #endif

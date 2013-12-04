@@ -243,6 +243,9 @@ extern void llapi_ping_target(char *obd_type, char *obd_name,
 
 extern int llapi_search_rootpath(char *pathname, const char *fsname);
 extern int llapi_nodemap_exists(const char *name);
+extern int llapi_find_nodemap_nid(char *nid, char *nodemap);
+extern int llapi_search_nodemap_range(char *range);
+extern int llapi_search_nodemap_nid(char *nid);
 
 struct mntent;
 #define HAVE_LLAPI_IS_LUSTRE_MNT
