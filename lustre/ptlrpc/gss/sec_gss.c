@@ -2867,49 +2867,53 @@ int __init sptlrpc_gss_init(void)
         if (rc)
                 goto out_svc_upcall;
 
-        /* register policy after all other stuff be intialized, because it
-         * might be in used immediately after the registration. */
-
-        rc = gss_init_keyring();
-        if (rc)
-                goto out_kerberos;
+	/* register policy after all other stuff be initialized, because it
+	 * might be in used immediately after the registration. */
+#ifdef HAVE_GSS_KEYRING
+	rc = gss_init_keyring();
+	if (rc)
+		goto out_kerberos;
+#endif
 
 #ifdef HAVE_GSS_PIPEFS
-        rc = gss_init_pipefs();
-        if (rc)
-                goto out_keyring;
+	rc = gss_init_pipefs();
+	if (rc) {
+#ifdef HAVE_GSS_KEYRING
+		gss_exit_keyring();
+#endif
+		goto out_keyring;
+	}
 #endif
 
         gss_init_at_reply_offset();
 
         return 0;
 
-#ifdef HAVE_GSS_PIPEFS
-out_keyring:
-        gss_exit_keyring();
-#endif
-
+#if defined(HAVE_GSS_KEYRING) || defined(HAVE_GSS_PIPEFS)
 out_kerberos:
-        cleanup_kerberos_module();
+	cleanup_kerberos_module();
+#endif
 out_svc_upcall:
-        gss_exit_svc_upcall();
+	gss_exit_svc_upcall();
 out_cli_upcall:
-        gss_exit_cli_upcall();
+	gss_exit_cli_upcall();
 out_lproc:
-        gss_exit_lproc();
-        return rc;
+	gss_exit_lproc();
+	return rc;
 }
 
 static void __exit sptlrpc_gss_exit(void)
 {
-        gss_exit_keyring();
-#ifdef HAVE_GSS_PIPEFS
-        gss_exit_pipefs();
+#ifdef HAVE_GSS_KEYRING
+	gss_exit_keyring();
 #endif
-        cleanup_kerberos_module();
-        gss_exit_svc_upcall();
-        gss_exit_cli_upcall();
-        gss_exit_lproc();
+#ifdef HAVE_GSS_PIPEFS
+	gss_exit_pipefs();
+#endif
+	cleanup_kerberos_module();
+	gss_exit_svc_upcall();
+	gss_exit_cli_upcall();
+	gss_exit_lproc();
 }
 
 MODULE_AUTHOR("Sun Microsystems, Inc. <http://www.lustre.org/>");
