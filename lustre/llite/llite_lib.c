@@ -76,14 +76,14 @@ static struct ll_sb_info *ll_init_sbi(void)
 	struct ll_sb_info *sbi = NULL;
 	unsigned long pages;
 	unsigned long lru_page_max;
-        struct sysinfo si;
-        class_uuid_t uuid;
-        int i;
-        ENTRY;
+	struct sysinfo si;
+	class_uuid_t uuid;
+	int i;
+	ENTRY;
 
-        OBD_ALLOC(sbi, sizeof(*sbi));
-        if (!sbi)
-                RETURN(NULL);
+	OBD_ALLOC_PTR(sbi);
+	if (sbi == NULL)
+		RETURN(NULL);
 
 	spin_lock_init(&sbi->ll_lock);
 	mutex_init(&sbi->ll_lco.lco_lock);
@@ -144,7 +144,13 @@ static struct ll_sb_info *ll_init_sbi(void)
         cfs_atomic_set(&sbi->ll_agl_total, 0);
         sbi->ll_flags |= LL_SBI_AGL_ENABLED;
 
-        RETURN(sbi);
+	/* root squash */
+	sbi->ll_squash.rsi_uid = 0;
+	sbi->ll_squash.rsi_gid = 0;
+	CFS_INIT_LIST_HEAD(&sbi->ll_squash.rsi_nosquash_nids);
+	init_rwsem(&sbi->ll_squash.rsi_sem);
+
+	RETURN(sbi);
 }
 
 void ll_free_sbi(struct super_block *sb)
@@ -156,6 +162,8 @@ void ll_free_sbi(struct super_block *sb)
 		spin_lock(&ll_sb_lock);
 		cfs_list_del(&sbi->ll_list);
 		spin_unlock(&ll_sb_lock);
+		if (!cfs_list_empty(&sbi->ll_squash.rsi_nosquash_nids))
+			cfs_free_nidlist(&sbi->ll_squash.rsi_nosquash_nids);
 		OBD_FREE(sbi, sizeof(*sbi));
 	}
 	EXIT;
