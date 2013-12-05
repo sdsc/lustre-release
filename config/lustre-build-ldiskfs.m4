@@ -9,7 +9,7 @@ AS_IF([test x$RHEL_KERNEL = xyes], [
 	AS_VERSION_COMPARE([$RHEL_KERNEL_VERSION],[2.6.32],[],
 	[SER="2.6-rhel6.series"],[SER="2.6-rhel6.series"])],
 	[SER="2.6-rhel6.4.series"],[SER="2.6-rhel6.4.series"])
-], [test x$SUSE_KERNEL = xyes], [
+], [ AS_IF([test x$SUSE_KERNEL = xyes], [
 	AS_VERSION_COMPARE([$LINUXRELEASE],[3.0.0],[
 	AS_VERSION_COMPARE([$LINUXRELEASE],[2.6.32],[],
 	[SER="2.6-sles11.series"],[SER="2.6-sles11.series"])],
@@ -22,6 +22,19 @@ AS_IF([test x$RHEL_KERNEL = xyes], [
 			;;
 		esac
 	])
+], [ AS_IF([test x$FEDORA_KERNEL = xyes], [
+	AS_VERSION_COMPARE([$LINUXRELEASE],[3.11],[],
+	[SER="3.x-fc19.series"],[SER="3.x-fc19.series"])
+])
+])
+])
+
+#
+# Handle the case were someone uses their own kernel
+#
+AS_IF([test -z "$SER"], [
+	AS_VERSION_COMPARE([$LINUXRELEASE],[3.11],[],
+	[SER="3.x-fc19.series"],[SER="3.x-fc19.series"])
 ])
 LDISKFS_SERIES=$SER
 
