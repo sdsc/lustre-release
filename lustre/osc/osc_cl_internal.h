@@ -170,8 +170,8 @@ struct osc_object {
 
 	cfs_list_t	   oo_reading_exts;
 
-	cfs_atomic_t	 oo_nr_reads;
-	cfs_atomic_t	 oo_nr_writes;
+	atomic_t	 oo_nr_reads;
+	atomic_t	 oo_nr_writes;
 
 	/** Protect extent tree. Will be used to protect
 	 * oo_{read|write}_pages soon. */
@@ -618,9 +618,9 @@ struct osc_extent {
 	/** osc_object of this extent */
 	struct osc_object *oe_obj;
 	/** refcount, removed from red-black tree if reaches zero. */
-	cfs_atomic_t       oe_refc;
+	atomic_t       oe_refc;
 	/** busy if non-zero */
-	cfs_atomic_t       oe_users;
+	atomic_t       oe_users;
 	/** link list of osc_object's oo_{hp|urgent|locking}_exts. */
 	cfs_list_t	 oe_link;
 	/** state of this extent */
