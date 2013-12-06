@@ -1160,6 +1160,95 @@ static int mdd_recovery_complete(const struct lu_env *env,
 
         RETURN(rc);
 }
+/**
+ * FIXME: Sending RPC in MDD layer is layer violation, but getting
+ * root FID is currently based on local storage(md_local_storage.c)
+ * right now, which needs to be fixed to based on OSP as well,
+ * then this sending RPC could be removed.
+ **/
+static int mdd_get_root_fid(const struct lu_env *env,
+			    struct mdd_device *mdd)
+{
+	struct ptlrpc_request	*req = NULL;
+	struct mdt_body		*body;
+	struct obd_device	*lwp;
+	char			*lwp_name = NULL;
+	char			*mdd_name;
+	char			*dash;
+	char			*endptr;
+	int			rc;
+	int			fsname_len;
+	int			index;
+	ENTRY;
+
+	/* Get lwp_name from mdd_name.
+	 * lwp_name: fsname-MDT0000-lwp-MDTXXXX
+	 * mdd_name: fsname-MDDxxxx */
+	mdd_name = mdd2obd_dev(mdd)->obd_name;
+	dash = strrchr(mdd_name, '-');
+	if (!dash)
+		GOTO(out, rc = -ENOMEM);
+
+	index = simple_strtoul(dash + 4, &endptr, 16);
+	if (endptr == NULL)
+		GOTO(out, rc = -EINVAL);
+
+	LASSERTF(index != 0, "invalid index for %s\n", mdd_name);
+
+	OBD_ALLOC(lwp_name, MAX_OBD_NAME);
+	if (lwp_name == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	fsname_len = dash - mdd_name;
+	memcpy(lwp_name, mdd_name, dash - mdd_name);
+
+	sprintf(lwp_name + fsname_len, "-MDT0000-lwp-MDT%04x", index);
+
+	/* Get lwp device and get root fid from MDT0 */
+	lwp = class_name2obd(lwp_name);
+	if (lwp == NULL)
+		GOTO(out, rc = -EINVAL);
+
+	req = ptlrpc_request_alloc_pack(lwp->u.cli.cl_import,
+				        &RQF_MDS_GETSTATUS,
+					LUSTRE_MDS_VERSION, MDS_GETSTATUS);
+	if (req == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+        body = req_capsule_client_get(&req->rq_pill, &RMF_MDT_BODY);
+	body->valid = 0;
+        body->eadatasize = 0;
+        body->flags = 0;
+        body->suppgid = -1;
+        body->uid = cfs_curproc_uid();
+        body->gid = cfs_curproc_gid();
+        body->fsuid = cfs_curproc_fsuid();
+        body->fsgid = cfs_curproc_fsgid();
+        body->capability = cfs_curproc_cap_pack();
+
+	lustre_msg_add_flags(req->rq_reqmsg, 0);
+	req->rq_send_state = LUSTRE_IMP_FULL;
+
+	ptlrpc_request_set_replen(req);
+
+	rc = ptlrpc_queue_wait(req);
+	if (rc)
+		GOTO(out, rc);
+
+	body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		GOTO(out, rc = -EPROTO);
+
+	mdd->mdd_root_fid = body->fid1;
+	CDEBUG(D_INFO, "%s: root fid="DFID"\n", mdd_name,
+	       PFID(&mdd->mdd_root_fid));
+out:
+	if (req != NULL)
+		ptlrpc_req_finished(req);
+	if(lwp_name != NULL)
+		OBD_FREE(lwp_name, MAX_OBD_NAME);
+	RETURN(rc);
+}
 
 static int mdd_find_or_create_root(const struct lu_env *env,
 				   struct mdd_device *mdd)
@@ -1229,8 +1318,15 @@ static int mdd_prepare(const struct lu_env *env,
 			       mdd2obd_dev(mdd)->obd_name, rc);
 			GOTO(out, rc);
 		}
+	} else {
+		/* Get root fid from MDT0 */
+		rc = mdd_get_root_fid(env, mdd);
+		if (rc != 0) {
+			CERROR("%s: Get root fid failed: rc = %d\n",
+			       mdd2obd_dev(mdd)->obd_name, rc);
+			GOTO(out, rc);
+		}
 	}
-
 	rc = orph_index_init(env, mdd);
 	if (rc != 0)
                 GOTO(out, rc);
@@ -1746,7 +1842,8 @@ static void mdd_key_fini(const struct lu_context *ctx,
                 OBD_FREE(info->mti_max_lmm, info->mti_max_lmm_size);
         if (info->mti_max_cookie != NULL)
                 OBD_FREE(info->mti_max_cookie, info->mti_max_cookie_size);
-        mdd_buf_put(&info->mti_big_buf);
+	mdd_buf_put(&info->mti_big_buf);
+	mdd_buf_put(&info->mti_link_buf);
 
         OBD_FREE_PTR(info);
 }
