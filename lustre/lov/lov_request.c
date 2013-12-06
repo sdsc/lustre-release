@@ -52,12 +52,12 @@
 static void lov_init_set(struct lov_request_set *set)
 {
 	set->set_count = 0;
-	cfs_atomic_set(&set->set_completes, 0);
-	cfs_atomic_set(&set->set_success, 0);
-	cfs_atomic_set(&set->set_finish_checked, 0);
+	atomic_set(&set->set_completes, 0);
+	atomic_set(&set->set_success, 0);
+	atomic_set(&set->set_finish_checked, 0);
 	set->set_cookies = 0;
 	CFS_INIT_LIST_HEAD(&set->set_list);
-	cfs_atomic_set(&set->set_refcount, 1);
+	atomic_set(&set->set_refcount, 1);
 	init_waitqueue_head(&set->set_waitq);
 	spin_lock_init(&set->set_lock);
 }
@@ -97,14 +97,14 @@ void lov_finish_set(struct lov_request_set *set)
 
 int lov_set_finished(struct lov_request_set *set, int idempotent)
 {
-	int completes = cfs_atomic_read(&set->set_completes);
+	int completes = atomic_read(&set->set_completes);
 
 	CDEBUG(D_INFO, "check set %d/%d\n", completes, set->set_count);
 
 	if (completes == set->set_count) {
 		if (idempotent)
 			return 1;
-		if (cfs_atomic_inc_return(&set->set_finish_checked) == 1)
+		if (atomic_inc_return(&set->set_finish_checked) == 1)
 			return 1;
 	}
 	return 0;
@@ -116,9 +116,9 @@ void lov_update_set(struct lov_request_set *set,
 	req->rq_complete = 1;
 	req->rq_rc = rc;
 
-	cfs_atomic_inc(&set->set_completes);
+	atomic_inc(&set->set_completes);
 	if (rc == 0)
-		cfs_atomic_inc(&set->set_success);
+		atomic_inc(&set->set_success);
 
 	wake_up(&set->set_waitq);
 }
@@ -272,19 +272,19 @@ static int cb_update_enqueue(void *cookie, int rc)
 
 static int enqueue_done(struct lov_request_set *set, __u32 mode)
 {
-        struct lov_request *req;
-        struct lov_obd *lov = &set->set_exp->exp_obd->u.lov;
-        int completes = cfs_atomic_read(&set->set_completes);
-        int rc = 0;
-        ENTRY;
+	struct lov_request *req;
+	struct lov_obd *lov = &set->set_exp->exp_obd->u.lov;
+	int completes = atomic_read(&set->set_completes);
+	int rc = 0;
+	ENTRY;
 
-        /* enqueue/match success, just return */
-        if (completes && completes == cfs_atomic_read(&set->set_success))
-                RETURN(0);
+	/* enqueue/match success, just return */
+	if (completes && completes == atomic_read(&set->set_success))
+		RETURN(0);
 
-        /* cancel enqueued/matched locks */
-        cfs_list_for_each_entry(req, &set->set_list, rq_link) {
-                struct lustre_handle *lov_lockhp;
+	/* cancel enqueued/matched locks */
+	cfs_list_for_each_entry(req, &set->set_list, rq_link) {
+		struct lustre_handle *lov_lockhp;
 
                 if (!req->rq_complete || req->rq_rc)
                         continue;
@@ -310,35 +310,35 @@ static int enqueue_done(struct lov_request_set *set, __u32 mode)
 }
 
 int lov_fini_enqueue_set(struct lov_request_set *set, __u32 mode, int rc,
-                         struct ptlrpc_request_set *rqset)
+			 struct ptlrpc_request_set *rqset)
 {
-        int ret = 0;
-        ENTRY;
+	int ret = 0;
+	ENTRY;
 
-        if (set == NULL)
-                RETURN(0);
-        LASSERT(set->set_exp);
-        /* Do enqueue_done only for sync requests and if any request
-         * succeeded. */
-        if (!rqset) {
-                if (rc)
-                        cfs_atomic_set(&set->set_completes, 0);
-                ret = enqueue_done(set, mode);
-        } else if (set->set_lockh)
-                lov_llh_put(set->set_lockh);
+	if (set == NULL)
+		RETURN(0);
+	LASSERT(set->set_exp);
+	/* Do enqueue_done only for sync requests and if any request
+	 * succeeded. */
+	if (!rqset) {
+		if (rc)
+			atomic_set(&set->set_completes, 0);
+		ret = enqueue_done(set, mode);
+	} else if (set->set_lockh)
+		lov_llh_put(set->set_lockh);
 
-        lov_put_reqset(set);
+	lov_put_reqset(set);
 
-        RETURN(rc ? rc : ret);
+	RETURN(rc ? rc : ret);
 }
 
 static void lov_llh_addref(void *llhp)
 {
 	struct lov_lock_handles *llh = llhp;
 
-	cfs_atomic_inc(&llh->llh_refcount);
+	atomic_inc(&llh->llh_refcount);
 	CDEBUG(D_INFO, "GETting llh %p : new refcount %d\n", llh,
-	       cfs_atomic_read(&llh->llh_refcount));
+	       atomic_read(&llh->llh_refcount));
 }
 
 static struct portals_handle_ops lov_handle_ops = {
@@ -355,7 +355,7 @@ static struct lov_lock_handles *lov_llh_new(struct lov_stripe_md *lsm)
 	if (llh == NULL)
 		return NULL;
 
-	cfs_atomic_set(&llh->llh_refcount, 2);
+	atomic_set(&llh->llh_refcount, 2);
 	llh->llh_stripe_count = lsm->lsm_stripe_count;
 	CFS_INIT_LIST_HEAD(&llh->llh_handle.h_link);
 	class_handle_hash(&llh->llh_handle, &lov_handle_ops);
@@ -454,20 +454,20 @@ out_set:
 
 int lov_fini_match_set(struct lov_request_set *set, __u32 mode, __u64 flags)
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
+	ENTRY;
 
-        if (set == NULL)
-                RETURN(0);
-        LASSERT(set->set_exp);
-        rc = enqueue_done(set, mode);
-        if ((set->set_count == cfs_atomic_read(&set->set_success)) &&
-            (flags & LDLM_FL_TEST_LOCK))
-                lov_llh_put(set->set_lockh);
+	if (set == NULL)
+		RETURN(0);
+	LASSERT(set->set_exp);
+	rc = enqueue_done(set, mode);
+	if ((set->set_count == atomic_read(&set->set_success)) &&
+	    (flags & LDLM_FL_TEST_LOCK))
+		lov_llh_put(set->set_lockh);
 
-        lov_put_reqset(set);
+	lov_put_reqset(set);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 int lov_prep_match_set(struct obd_export *exp, struct obd_info *oinfo,
@@ -631,17 +631,17 @@ static int common_attr_done(struct lov_request_set *set)
         int rc = 0, attrset = 0;
         ENTRY;
 
-        LASSERT(set->set_oi != NULL);
+	LASSERT(set->set_oi != NULL);
 
-        if (set->set_oi->oi_oa == NULL)
-                RETURN(0);
+	if (set->set_oi->oi_oa == NULL)
+		RETURN(0);
 
-        if (!cfs_atomic_read(&set->set_success))
-                RETURN(-EIO);
+	if (!atomic_read(&set->set_success))
+		RETURN(-EIO);
 
-        OBDO_ALLOC(tmp_oa);
-        if (tmp_oa == NULL)
-                GOTO(out, rc = -ENOMEM);
+	OBDO_ALLOC(tmp_oa);
+	if (tmp_oa == NULL)
+		GOTO(out, rc = -ENOMEM);
 
         cfs_list_for_each (pos, &set->set_list) {
                 req = cfs_list_entry(pos, struct lov_request, rq_link);
@@ -700,19 +700,19 @@ static int brw_done(struct lov_request_set *set)
 
 int lov_fini_brw_set(struct lov_request_set *set)
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
+	ENTRY;
 
-        if (set == NULL)
-                RETURN(0);
-        LASSERT(set->set_exp);
-        if (cfs_atomic_read(&set->set_completes)) {
-                rc = brw_done(set);
-                /* FIXME update qos data here */
-        }
-        lov_put_reqset(set);
+	if (set == NULL)
+		RETURN(0);
+	LASSERT(set->set_exp);
+	if (atomic_read(&set->set_completes)) {
+		rc = brw_done(set);
+		/* FIXME update qos data here */
+	}
+	lov_put_reqset(set);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 int lov_prep_brw_set(struct obd_export *exp, struct obd_info *oinfo,
@@ -838,18 +838,18 @@ out:
 
 int lov_fini_getattr_set(struct lov_request_set *set)
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
+	ENTRY;
 
-        if (set == NULL)
-                RETURN(0);
-        LASSERT(set->set_exp);
-        if (cfs_atomic_read(&set->set_completes))
-                rc = common_attr_done(set);
+	if (set == NULL)
+		RETURN(0);
+	LASSERT(set->set_exp);
+	if (atomic_read(&set->set_completes))
+		rc = common_attr_done(set);
 
-        lov_put_reqset(set);
+	lov_put_reqset(set);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /* The callback for osc_getattr_async that finilizes a request info when a
@@ -922,18 +922,18 @@ out_set:
 
 int lov_fini_destroy_set(struct lov_request_set *set)
 {
-        ENTRY;
+	ENTRY;
 
-        if (set == NULL)
-                RETURN(0);
-        LASSERT(set->set_exp);
-        if (cfs_atomic_read(&set->set_completes)) {
-                /* FIXME update qos data here */
-        }
+	if (set == NULL)
+		RETURN(0);
+	LASSERT(set->set_exp);
+	if (atomic_read(&set->set_completes)) {
+		/* FIXME update qos data here */
+	}
 
-        lov_put_reqset(set);
+	lov_put_reqset(set);
 
-        RETURN(0);
+	RETURN(0);
 }
 
 int lov_prep_destroy_set(struct obd_export *exp, struct obd_info *oinfo,
@@ -996,19 +996,19 @@ out_set:
 
 int lov_fini_setattr_set(struct lov_request_set *set)
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
+	ENTRY;
 
-        if (set == NULL)
-                RETURN(0);
-        LASSERT(set->set_exp);
-        if (cfs_atomic_read(&set->set_completes)) {
-                rc = common_attr_done(set);
-                /* FIXME update qos data here */
-        }
+	if (set == NULL)
+		RETURN(0);
+	LASSERT(set->set_exp);
+	if (atomic_read(&set->set_completes)) {
+		rc = common_attr_done(set);
+		/* FIXME update qos data here */
+	}
 
-        lov_put_reqset(set);
-        RETURN(rc);
+	lov_put_reqset(set);
+	RETURN(rc);
 }
 
 int lov_update_setattr_set(struct lov_request_set *set,
@@ -1122,22 +1122,22 @@ out_set:
 
 int lov_fini_punch_set(struct lov_request_set *set)
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
+	ENTRY;
 
-        if (set == NULL)
-                RETURN(0);
-        LASSERT(set->set_exp);
-        if (cfs_atomic_read(&set->set_completes)) {
-                rc = -EIO;
-                /* FIXME update qos data here */
-                if (cfs_atomic_read(&set->set_success))
-                        rc = common_attr_done(set);
-        }
+	if (set == NULL)
+		RETURN(0);
+	LASSERT(set->set_exp);
+	if (atomic_read(&set->set_completes)) {
+		rc = -EIO;
+		/* FIXME update qos data here */
+		if (atomic_read(&set->set_success))
+			rc = common_attr_done(set);
+	}
 
-        lov_put_reqset(set);
+	lov_put_reqset(set);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 int lov_update_punch_set(struct lov_request_set *set,
@@ -1247,21 +1247,21 @@ out_set:
 
 int lov_fini_sync_set(struct lov_request_set *set)
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
+	ENTRY;
 
-        if (set == NULL)
-                RETURN(0);
-        LASSERT(set->set_exp);
-        if (cfs_atomic_read(&set->set_completes)) {
-                if (!cfs_atomic_read(&set->set_success))
-                        rc = -EIO;
-                /* FIXME update qos data here */
-        }
+	if (set == NULL)
+		RETURN(0);
+	LASSERT(set->set_exp);
+	if (atomic_read(&set->set_completes)) {
+		if (!atomic_read(&set->set_success))
+			rc = -EIO;
+		/* FIXME update qos data here */
+	}
 
-        lov_put_reqset(set);
+	lov_put_reqset(set);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /* The callback for osc_sync that finilizes a request info when a
@@ -1370,18 +1370,18 @@ int lov_fini_statfs(struct obd_device *obd, struct obd_statfs *osfs,int success)
 
 int lov_fini_statfs_set(struct lov_request_set *set)
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
+	ENTRY;
 
-        if (set == NULL)
-                RETURN(0);
+	if (set == NULL)
+		RETURN(0);
 
-        if (cfs_atomic_read(&set->set_completes)) {
-                rc = lov_fini_statfs(set->set_obd, set->set_oi->oi_osfs,
-                                     cfs_atomic_read(&set->set_success));
-        }
-        lov_put_reqset(set);
-        RETURN(rc);
+	if (atomic_read(&set->set_completes)) {
+		rc = lov_fini_statfs(set->set_obd, set->set_oi->oi_osfs,
+				     atomic_read(&set->set_success));
+	}
+	lov_put_reqset(set);
+	RETURN(rc);
 }
 
 void lov_update_statfs(struct obd_statfs *osfs, struct obd_statfs *lov_sfs,
@@ -1466,18 +1466,18 @@ static int cb_statfs_update(void *cookie, int rc)
         int success;
         ENTRY;
 
-        lovreq = container_of(oinfo, struct lov_request, rq_oi);
-        set = lovreq->rq_rqset;
-        lovobd = set->set_obd;
-        lov = &lovobd->u.lov;
-        osfs = set->set_oi->oi_osfs;
-        lov_sfs = oinfo->oi_osfs;
-        success = cfs_atomic_read(&set->set_success);
-        /* XXX: the same is done in lov_update_common_set, however
-           lovset->set_exp is not initialized. */
-        lov_update_set(set, lovreq, rc);
-        if (rc)
-                GOTO(out, rc);
+	lovreq = container_of(oinfo, struct lov_request, rq_oi);
+	set = lovreq->rq_rqset;
+	lovobd = set->set_obd;
+	lov = &lovobd->u.lov;
+	osfs = set->set_oi->oi_osfs;
+	lov_sfs = oinfo->oi_osfs;
+	success = atomic_read(&set->set_success);
+	/* XXX: the same is done in lov_update_common_set, however
+	   lovset->set_exp is not initialized. */
+	lov_update_set(set, lovreq, rc);
+	if (rc)
+		GOTO(out, rc);
 
         obd_getref(lovobd);
         tgt = lov->lov_tgts[lovreq->rq_idx];
@@ -1499,7 +1499,7 @@ out:
 	if (set->set_oi->oi_flags & OBD_STATFS_PTLRPCD &&
 	    lov_set_finished(set, 0)) {
 		lov_statfs_interpret(NULL, set, set->set_count !=
-				     cfs_atomic_read(&set->set_success));
+				     atomic_read(&set->set_success));
 	}
 
 	RETURN(0);

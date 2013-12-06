@@ -182,50 +182,50 @@ static void ll_ra_stats_inc_sbi(struct ll_sb_info *sbi, enum ra_stat which);
  * get a zero ra window, although there is still ra space remaining. - Jay */
 
 static unsigned long ll_ra_count_get(struct ll_sb_info *sbi,
-                                     struct ra_io_arg *ria,
-                                     unsigned long pages)
+				     struct ra_io_arg *ria,
+				     unsigned long pages)
 {
-        struct ll_ra_info *ra = &sbi->ll_ra_info;
-        long ret;
-        ENTRY;
+	struct ll_ra_info *ra = &sbi->ll_ra_info;
+	long ret;
+	ENTRY;
 
-        /* If read-ahead pages left are less than 1M, do not do read-ahead,
-         * otherwise it will form small read RPC(< 1M), which hurt server
-         * performance a lot. */
-        ret = min(ra->ra_max_pages - cfs_atomic_read(&ra->ra_cur_pages), pages);
-        if (ret < 0 || ret < min_t(long, PTLRPC_MAX_BRW_PAGES, pages))
-                GOTO(out, ret = 0);
+	/* If read-ahead pages left are less than 1M, do not do read-ahead,
+	 * otherwise it will form small read RPC(< 1M), which hurt server
+	 * performance a lot. */
+	ret = min(ra->ra_max_pages - atomic_read(&ra->ra_cur_pages), pages);
+	if (ret < 0 || ret < min_t(long, PTLRPC_MAX_BRW_PAGES, pages))
+		GOTO(out, ret = 0);
 
-        /* If the non-strided (ria_pages == 0) readahead window
-         * (ria_start + ret) has grown across an RPC boundary, then trim
-         * readahead size by the amount beyond the RPC so it ends on an
-         * RPC boundary. If the readahead window is already ending on
-         * an RPC boundary (beyond_rpc == 0), or smaller than a full
-         * RPC (beyond_rpc < ret) the readahead size is unchanged.
-         * The (beyond_rpc != 0) check is skipped since the conditional
-         * branch is more expensive than subtracting zero from the result.
-         *
-         * Strided read is left unaligned to avoid small fragments beyond
-         * the RPC boundary from needing an extra read RPC. */
-        if (ria->ria_pages == 0) {
-                long beyond_rpc = (ria->ria_start + ret) % PTLRPC_MAX_BRW_PAGES;
-                if (/* beyond_rpc != 0 && */ beyond_rpc < ret)
-                        ret -= beyond_rpc;
-        }
+	/* If the non-strided (ria_pages == 0) readahead window
+	 * (ria_start + ret) has grown across an RPC boundary, then trim
+	 * readahead size by the amount beyond the RPC so it ends on an
+	 * RPC boundary. If the readahead window is already ending on
+	 * an RPC boundary (beyond_rpc == 0), or smaller than a full
+	 * RPC (beyond_rpc < ret) the readahead size is unchanged.
+	 * The (beyond_rpc != 0) check is skipped since the conditional
+	 * branch is more expensive than subtracting zero from the result.
+	 *
+	 * Strided read is left unaligned to avoid small fragments beyond
+	 * the RPC boundary from needing an extra read RPC. */
+	if (ria->ria_pages == 0) {
+		long beyond_rpc = (ria->ria_start + ret) % PTLRPC_MAX_BRW_PAGES;
+		if (/* beyond_rpc != 0 && */ beyond_rpc < ret)
+			ret -= beyond_rpc;
+	}
 
-        if (cfs_atomic_add_return(ret, &ra->ra_cur_pages) > ra->ra_max_pages) {
-                cfs_atomic_sub(ret, &ra->ra_cur_pages);
-                ret = 0;
-        }
+	if (atomic_add_return(ret, &ra->ra_cur_pages) > ra->ra_max_pages) {
+		atomic_sub(ret, &ra->ra_cur_pages);
+		ret = 0;
+	}
 
 out:
-        RETURN(ret);
+	RETURN(ret);
 }
 
 void ll_ra_count_put(struct ll_sb_info *sbi, unsigned long len)
 {
-        struct ll_ra_info *ra = &sbi->ll_ra_info;
-        cfs_atomic_sub(len, &ra->ra_cur_pages);
+	struct ll_ra_info *ra = &sbi->ll_ra_info;
+	atomic_sub(len, &ra->ra_cur_pages);
 }
 
 static void ll_ra_stats_inc_sbi(struct ll_sb_info *sbi, enum ra_stat which)
@@ -665,16 +665,16 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
         if (len == 0)
                 RETURN(0);
 
-        reserved = ll_ra_count_get(ll_i2sbi(inode), ria, len);
-        if (reserved < len)
-                ll_ra_stats_inc(mapping, RA_STAT_MAX_IN_FLIGHT);
+	reserved = ll_ra_count_get(ll_i2sbi(inode), ria, len);
+	if (reserved < len)
+		ll_ra_stats_inc(mapping, RA_STAT_MAX_IN_FLIGHT);
 
-        CDEBUG(D_READA, "reserved page %lu ra_cur %d ra_max %lu\n", reserved,
-               cfs_atomic_read(&ll_i2sbi(inode)->ll_ra_info.ra_cur_pages),
-               ll_i2sbi(inode)->ll_ra_info.ra_max_pages);
+	CDEBUG(D_READA, "reserved page %lu ra_cur %d ra_max %lu\n", reserved,
+	       atomic_read(&ll_i2sbi(inode)->ll_ra_info.ra_cur_pages),
+	       ll_i2sbi(inode)->ll_ra_info.ra_max_pages);
 
-        ret = ll_read_ahead_pages(env, io, queue,
-                                  ria, &reserved, mapping, &ra_end);
+	ret = ll_read_ahead_pages(env, io, queue,
+				  ria, &reserved, mapping, &ra_end);
 
         if (reserved != 0)
                 ll_ra_count_put(ll_i2sbi(inode), reserved);
