@@ -247,9 +247,9 @@ Index: linux-stage/fs/ext4/super.c
  
  	lock_kernel();
 @@ -3981,6 +4036,12 @@ static int ext4_commit_super(struct supe
- 					&EXT4_SB(sb)->s_freeblocks_counter));
- 	es->s_free_inodes_count = cpu_to_le32(percpu_counter_sum_positive(
- 					&EXT4_SB(sb)->s_freeinodes_counter));
+ 	es->s_free_inodes_count =
+ 		cpu_to_le32(percpu_counter_sum_positive(
+ 				&EXT4_SB(sb)->s_freeinodes_counter));
 +#ifdef CONFIG_QUOTA
 +	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_QUOTA)) {
 +		es->s_usr_quota_inum = EXT4_SB(sb)->s_qf_inums[USRQUOTA];

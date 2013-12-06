@@ -510,6 +510,8 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
         RETURN(0);
 }
 
+#ifndef HAVE_LDISKFS_GET_BLOCKS
+
 #ifdef HAVE_EXT_PBLOCK /* Name changed to ext4_ext_pblock for kernel 2.6.35 */
 #define ldiskfs_ext_pblock(ex) ext_pblock((ex))
 #endif
@@ -736,24 +738,47 @@ map:
 	return err;
 }
 
+#endif // HAVE_LDISKFS_GET_BLOCKS
+
 int osd_ldiskfs_map_nblocks(struct inode *inode, unsigned long block,
 			    unsigned long num, unsigned long *blocks,
 			    int create)
 {
+#ifdef HAVE_LDISKFS_GET_BLOCKS
+	struct buffer_head bh;
+	unsigned long tc;
+#else
 	struct bpointers bp;
-	int err;
+#endif
+	int err = 0;
 
 	CDEBUG(D_OTHER, "blocks %lu-%lu requested for inode %u\n",
 	       block, block + num - 1, (unsigned) inode->i_ino);
 
+#ifdef HAVE_LDISKFS_GET_BLOCKS
+	for (tc = 0; tc < num; ) {
+		memset(&bh, 0x00, sizeof(bh));
+		bh.b_size = (num - tc) << inode->i_blkbits;
+		err = ldiskfs_get_block(inode, block + tc, &bh, create);
+		if (err == 0) {
+			unsigned long i;
+			for (i = 0; i < bh.b_size >> inode->i_blkbits; i++) {
+				if (buffer_mapped(&bh))
+					blocks[tc ++] = bh.b_blocknr + i;
+				else	
+					blocks[tc ++] = 0;
+			}
+		}
+	}
+#else
 	bp.blocks = blocks;
 	bp.start = block;
 	bp.init_num = bp.num = num;
 	bp.create = create;
-
 	err = ldiskfs_ext_walk_space(inode, block, num,
 					 ldiskfs_ext_new_extent_cb, &bp);
 	ldiskfs_ext_invalidate_cache(inode);
+#endif
 
 	return err;
 }
