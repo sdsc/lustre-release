@@ -53,6 +53,45 @@
  *
  */
 
+static int lov_page_is_under_lock(const struct lu_env *env,
+				  const struct cl_page_slice *slice,
+				  struct cl_io *unused, pgoff_t *max_index)
+{
+	struct lov_object *loo = cl2lov(slice->cpl_obj);
+	struct lov_layout_raid0 *r0 = lov_r0(loo);
+	pgoff_t index;
+	unsigned int pps; /* pages per stripe */
+	ENTRY;
+
+	CDEBUG(D_READA, "*max_index = %lu, nr = %d\n", *max_index, r0->lo_nr);
+	if (*max_index == 0) /* the page is not covered by any lock */
+		RETURN(0);
+
+	if (r0->lo_nr == 1) /* single stripe file */
+		RETURN(0);
+
+	/* for multiple stripes file, we need to adjust max_index to the end
+	 * of current stripe */
+	pps = loo->lo_lsm->lsm_stripe_size >> PAGE_CACHE_SHIFT;
+
+	/* max_index is stripe level, convert it into file level */
+	index = *max_index;
+	if (index != CL_PAGE_EOF) {
+		int stripeno = lov_page_stripe(slice->cpl_page);
+
+		*max_index = (index / pps) * pps * r0->lo_nr;
+		*max_index += pps * stripeno;
+		*max_index += index % pps;
+	}
+
+	/* calculate the end of current stripe */
+	index = ((slice->cpl_index + pps) & ~(pps - 1)) - 1;
+
+	/* never exceed the end of the stripe */
+	*max_index = min_t(pgoff_t, *max_index, index);
+	RETURN(0);
+}
+
 static int lov_page_print(const struct lu_env *env,
                           const struct cl_page_slice *slice,
                           void *cookie, lu_printer_t printer)
@@ -63,6 +102,7 @@ static int lov_page_print(const struct lu_env *env,
 }
 
 static const struct cl_page_operations lov_page_ops = {
+	.cpo_is_under_lock = lov_page_is_under_lock,
 	.cpo_print = lov_page_print
 };
 
@@ -89,7 +129,7 @@ int lov_page_init_raid0(const struct lu_env *env, struct cl_object *obj,
 			       &suboff);
 	LASSERT(rc == 0);
 
-	cl_page_slice_add(page, &lpg->lps_cl, obj, &lov_page_ops);
+	cl_page_slice_add(page, &lpg->lps_cl, obj, index, &lov_page_ops);
 
 	sub = lov_sub_get(env, lio, stripe);
 	if (IS_ERR(sub))
@@ -129,7 +169,7 @@ int lov_page_init_empty(const struct lu_env *env, struct cl_object *obj,
 	void *addr;
 	ENTRY;
 
-	cl_page_slice_add(page, &lpg->lps_cl, obj, &lov_empty_page_ops);
+	cl_page_slice_add(page, &lpg->lps_cl, obj, index, &lov_empty_page_ops);
 	addr = kmap(page->cp_vmpage);
 	memset(addr, 0, cl_page_size(obj));
 	kunmap(page->cp_vmpage);

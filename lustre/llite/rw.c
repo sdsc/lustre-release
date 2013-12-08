@@ -234,10 +234,10 @@ static void ll_ra_stats_inc_sbi(struct ll_sb_info *sbi, enum ra_stat which)
         lprocfs_counter_incr(sbi->ll_ra_stats, which);
 }
 
-void ll_ra_stats_inc(struct address_space *mapping, enum ra_stat which)
+void ll_ra_stats_inc(struct inode *inode, enum ra_stat which)
 {
-        struct ll_sb_info *sbi = ll_i2sbi(mapping->host);
-        ll_ra_stats_inc_sbi(sbi, which);
+	struct ll_sb_info *sbi = ll_i2sbi(inode);
+	ll_ra_stats_inc_sbi(sbi, which);
 }
 
 #define RAS_CDEBUG(ras) \
@@ -325,7 +325,7 @@ struct ll_ra_read *ll_ra_read_get(struct file *f)
 
 static int cl_read_ahead_page(const struct lu_env *env, struct cl_io *io,
 			      struct cl_page_list *queue, struct cl_page *page,
-			      struct cl_object *clob)
+			      struct cl_object *clob, pgoff_t *max_index)
 {
 	struct page *vmpage = page->cp_vmpage;
 	struct ccc_page *cp;
@@ -338,8 +338,11 @@ static int cl_read_ahead_page(const struct lu_env *env, struct cl_io *io,
 	lu_ref_add(&page->cp_reference, "ra", current);
 	cp = cl2ccc_page(cl_object_page_slice(clob, page));
 	if (!cp->cpg_defer_uptodate && !PageUptodate(vmpage)) {
-		rc = cl_page_is_under_lock(env, io, page);
-		if (rc == -EBUSY) {
+		CDEBUG(D_READA, "page index %lu, max_index: %lu\n",
+		       ccc_index(cp), *max_index);
+		if (ccc_index(cp) > *max_index)
+			rc = cl_page_is_under_lock(env, io, page, max_index);
+		if (rc == 0) {
 			cp->cpg_defer_uptodate = 1;
 			cp->cpg_ra_used = 0;
 			cl_page_list_add(queue, page);
@@ -368,11 +371,12 @@ static int cl_read_ahead_page(const struct lu_env *env, struct cl_io *io,
  * \retval  -ve, 0: page wasn't added to \a queue for other reason.
  */
 static int ll_read_ahead_page(const struct lu_env *env, struct cl_io *io,
-                              struct cl_page_list *queue,
-                              pgoff_t index, struct address_space *mapping)
+			      struct cl_page_list *queue,
+			      pgoff_t index, pgoff_t *max_index)
 {
+        struct cl_object *clob  = io->ci_obj;
+	struct inode     *inode = ccc_object_inode(clob);
         struct page      *vmpage;
-        struct cl_object *clob  = ll_i2info(mapping->host)->lli_clob;
         struct cl_page   *page;
         enum ra_stat      which = _NR_RA_STAT; /* keep gcc happy */
         unsigned int      gfp_mask;
@@ -385,15 +389,15 @@ static int ll_read_ahead_page(const struct lu_env *env, struct cl_io *io,
 #ifdef __GFP_NOWARN
         gfp_mask |= __GFP_NOWARN;
 #endif
-        vmpage = grab_cache_page_nowait(mapping, index);
+        vmpage = grab_cache_page_nowait(inode->i_mapping, index);
         if (vmpage != NULL) {
                 /* Check if vmpage was truncated or reclaimed */
-                if (vmpage->mapping == mapping) {
+                if (vmpage->mapping == inode->i_mapping) {
                         page = cl_page_find(env, clob, vmpage->index,
                                             vmpage, CPT_CACHEABLE);
                         if (!IS_ERR(page)) {
                                 rc = cl_read_ahead_page(env, io, queue,
-							page, clob);
+							page, clob, max_index);
                                 if (rc == -ENOLCK) {
                                         which = RA_STAT_FAILED_MATCH;
                                         msg   = "lock match failed";
@@ -414,7 +418,7 @@ static int ll_read_ahead_page(const struct lu_env *env, struct cl_io *io,
                 msg   = "g_c_p_n failed";
         }
         if (msg != NULL) {
-                ll_ra_stats_inc(mapping, which);
+                ll_ra_stats_inc(inode, which);
                 CDEBUG(D_READA, "%s\n", msg);
         }
         RETURN(rc);
@@ -522,25 +526,26 @@ static int ll_read_ahead_pages(const struct lu_env *env,
                                struct cl_io *io, struct cl_page_list *queue,
                                struct ra_io_arg *ria,
                                unsigned long *reserved_pages,
-                               struct address_space *mapping,
                                unsigned long *ra_end)
 {
-        int rc, count = 0, stride_ria;
-        unsigned long page_idx;
+	int rc, count = 0;
+	bool stride_ria;
+	pgoff_t page_idx;
+	pgoff_t max_index = 0;
 
-        LASSERT(ria != NULL);
-        RIA_DEBUG(ria);
+	LASSERT(ria != NULL);
+	RIA_DEBUG(ria);
 
-        stride_ria = ria->ria_length > ria->ria_pages && ria->ria_pages > 0;
-        for (page_idx = ria->ria_start; page_idx <= ria->ria_end &&
-                        *reserved_pages > 0; page_idx++) {
-                if (ras_inside_ra_window(page_idx, ria)) {
-                        /* If the page is inside the read-ahead window*/
-                        rc = ll_read_ahead_page(env, io, queue,
-                                                page_idx, mapping);
+	stride_ria = ria->ria_length > ria->ria_pages && ria->ria_pages > 0;
+	for (page_idx = ria->ria_start;
+	     page_idx <= ria->ria_end && *reserved_pages > 0; page_idx++) {
+		if (ras_inside_ra_window(page_idx, ria)) {
+			/* If the page is inside the read-ahead window*/
+			rc = ll_read_ahead_page(env, io, queue,
+						page_idx, &max_index);
                         if (rc == 1) {
                                 (*reserved_pages)--;
-                                count ++;
+                                count++;
                         } else if (rc == -ENOLCK)
                                 break;
                 } else if (stride_ria) {
@@ -570,8 +575,8 @@ static int ll_read_ahead_pages(const struct lu_env *env,
 }
 
 int ll_readahead(const struct lu_env *env, struct cl_io *io,
-                 struct ll_readahead_state *ras, struct address_space *mapping,
-                 struct cl_page_list *queue, int flags)
+		 struct cl_page_list *queue, struct ll_readahead_state *ras,
+		 int flags)
 {
         struct vvp_io *vio = vvp_env_io(env);
         struct vvp_thread_info *vti = vvp_env_info(env);
@@ -581,15 +586,13 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
         struct inode *inode;
         struct ll_ra_read *bead;
         struct ra_io_arg *ria = &vti->vti_ria;
-        struct ll_inode_info *lli;
         struct cl_object *clob;
         int ret = 0;
         __u64 kms;
         ENTRY;
 
-        inode = mapping->host;
-        lli = ll_i2info(inode);
-        clob = lli->lli_clob;
+	clob = io->ci_obj;
+        inode = ccc_object_inode(clob);
 
         memset(ria, 0, sizeof *ria);
 
@@ -601,7 +604,7 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
                 RETURN(ret);
         kms = attr->cat_kms;
         if (kms == 0) {
-                ll_ra_stats_inc(mapping, RA_STAT_ZERO_LEN);
+                ll_ra_stats_inc(inode, RA_STAT_ZERO_LEN);
                 RETURN(0);
         }
 
@@ -658,30 +661,31 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
         }
 	spin_unlock(&ras->ras_lock);
 
-        if (end == 0) {
-                ll_ra_stats_inc(mapping, RA_STAT_ZERO_WINDOW);
-                RETURN(0);
-        }
-        len = ria_page_count(ria);
-        if (len == 0)
-                RETURN(0);
+	if (end == 0) {
+		ll_ra_stats_inc(inode, RA_STAT_ZERO_WINDOW);
+		RETURN(0);
+	}
+	len = ria_page_count(ria);
+	if (len == 0) {
+		ll_ra_stats_inc(inode, RA_STAT_ZERO_WINDOW);
+		RETURN(0);
+	}
 
         reserved = ll_ra_count_get(ll_i2sbi(inode), ria, len);
         if (reserved < len)
-                ll_ra_stats_inc(mapping, RA_STAT_MAX_IN_FLIGHT);
+                ll_ra_stats_inc(inode, RA_STAT_MAX_IN_FLIGHT);
 
         CDEBUG(D_READA, "reserved page %lu ra_cur %d ra_max %lu\n", reserved,
                cfs_atomic_read(&ll_i2sbi(inode)->ll_ra_info.ra_cur_pages),
                ll_i2sbi(inode)->ll_ra_info.ra_max_pages);
 
-        ret = ll_read_ahead_pages(env, io, queue,
-                                  ria, &reserved, mapping, &ra_end);
+        ret = ll_read_ahead_pages(env, io, queue, ria, &reserved, &ra_end);
 
         if (reserved != 0)
                 ll_ra_count_put(ll_i2sbi(inode), reserved);
 
 	if (ra_end == end + 1 && ra_end == (kms >> PAGE_CACHE_SHIFT))
-                ll_ra_stats_inc(mapping, RA_STAT_EOF);
+                ll_ra_stats_inc(inode, RA_STAT_EOF);
 
         /* if we didn't get to the end of the region we reserved from
          * the ras we need to go back and update the ras so that the
@@ -692,6 +696,7 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
                ra_end, end, ria->ria_end);
 
 	if (ra_end != end + 1) {
+		ll_ra_stats_inc(inode, RA_STAT_FAILED_REACH_END);
 		spin_lock(&ras->ras_lock);
 		if (ra_end < ras->ras_next_readahead &&
 		    index_in_window(ra_end, ras->ras_window_start, 0,
