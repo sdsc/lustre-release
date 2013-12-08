@@ -3,7 +3,7 @@
 trap 'print_summary && touch $TF_FAIL && \
     echo "test-framework exiting on error"' ERR
 set -e
-#set -x
+set -x
 
 export LANG=en_US
 export EJOURNAL=${EJOURNAL:-""}
@@ -3846,7 +3846,7 @@ cleanup_mount () {
     local clients=${CLIENTS:-$HOSTNAME}
     local mntpt=$1
 
-    zconf_umount_clients $clients $mntpt    
+    zconf_umount_clients $clients $mntpt
 }
 
 cleanup_and_setup_lustre() {
@@ -3870,8 +3870,7 @@ get_mnt_devs() {
 	if [ "$type" == ost ]; then
 		devs=$(get_osd_param $node "" mntdev)
 	else
-		devs=$(do_node $node \
-		       "lctl get_param -n osd-*.$FSNAME-M*.mntdev")
+		devs=$(do_node $node $LCTL get_param -n osd-*.$FSNAME-M*.mntdev)
 	fi
 	for dev in $devs; do
 		case $dev in
@@ -3899,18 +3898,32 @@ get_svr_devs() {
 
 # Run e2fsck on MDT or OST device.
 run_e2fsck() {
-    local node=$1
-    local target_dev=$2
-    local extra_opts=$3
+	local node=$1
+	local target_dev=$2
+	local extra_opts=$3
+	local cmd="$E2FSCK -d -v -t -t -f $extra_opts $target_dev"
+	local log=/tmp/e2fsck.log
+	local rc=0
 
-    df > /dev/null      # update statfs data on disk
-    local cmd="$E2FSCK -d -v -t -t -f $extra_opts $target_dev"
-    echo $cmd
-    local rc=0
-    do_node $node $cmd || rc=$?
-    [ $rc -le $FSCK_MAX_ERR ] || \
-        error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
-    return 0
+	echo $cmd
+	do_node $node $cmd 2>&1 | tee $log
+	rc=${PIPESTATUS[0]}
+	if [ -n "$(grep "DNE mode isn't supported" $log)" ]; then
+		if [ $MDSCOUNT -gt 1 ]; then
+			skip "DNE mode isn't supported!"
+			rm -f $log
+			check_and_cleanup_lustre
+			exit_status
+		else
+			error "It's not DNE mode."
+		fi
+	fi
+	rm -f $log
+
+	[ $rc -le $FSCK_MAX_ERR ] ||
+		error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
+
+	return 0
 }
 
 #
@@ -3939,22 +3952,26 @@ check_shared_dir() {
 
 # Run e2fsck on MDT and OST(s) to generate databases used for lfsck.
 generate_db() {
-    local i
-    local ostidx
-    local dev
+	local mdt_node=$(facet_active_host $SINGLEMDS)
+	do_node $mdt_node $LCTL get_param osd-*.$FSNAME-M*.*
+	local mdt_dev=$(echo $(get_mnt_devs $mdt_node mdt) | awk '{print $1}')
+	local i
+	local ostidx
+	local dev
+	local node
 
 	[[ $(lustre_version_code $SINGLEMDS) -ne $(version_code 2.2.0) ]] ||
 		{ skip "Lustre 2.2.0 lacks the patch for LU-1255"; exit 0; }
 
-    check_shared_dir $SHARED_DIRECTORY ||
-        error "$SHARED_DIRECTORY isn't a shared directory"
+	check_shared_dir $SHARED_DIRECTORY ||
+		error "$SHARED_DIRECTORY isn't a shared directory"
 
-    export MDSDB=$SHARED_DIRECTORY/mdsdb
-    export OSTDB=$SHARED_DIRECTORY/ostdb
+	export MDSDB=$SHARED_DIRECTORY/mdsdb
+	export OSTDB=$SHARED_DIRECTORY/ostdb
 
-    [ $MDSCOUNT -eq 1 ] || error "CMD is not supported"
-
-    run_e2fsck $(mdts_nodes) $MDTDEV "-n --mdsdb $MDSDB"
+	# DNE is not supported, so when running e2fsck on a DNE filesystem,
+	# we only pass master MDS parameters.
+	run_e2fsck $mdt_node $mdt_dev "-n --mdsdb $MDSDB"
 
     i=0
     ostidx=0
@@ -3984,7 +4001,7 @@ run_lfsck_remote() {
 	fi
 	#Run lfsck
 	echo $cmd
-	do_node $node $cmd || rc=$?
+	do_node $client $cmd || rc=$?
 	#Umount if necessary
 	if ! $mounted; then
 		zconf_umount $client $MOUNT ||
