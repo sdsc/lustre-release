@@ -838,8 +838,7 @@ static void osc_announce_cached(struct client_obd *cli, struct obdo *oa,
 		CERROR("dirty %lu - %lu > dirty_max %lu\n",
 		       cli->cl_dirty, cli->cl_dirty_transit, cli->cl_dirty_max);
 		oa->o_undirty = 0;
-	} else if (unlikely(cfs_atomic_read(&obd_unstable_pages) +
-			    cfs_atomic_read(&obd_dirty_pages) -
+	} else if (unlikely(osc_dirty_pages(cli) -
 			    cfs_atomic_read(&obd_dirty_transit_pages) >
 			    (long)(obd_max_dirty_pages + 1))) {
 		/* The cfs_atomic_read() allowing the cfs_atomic_inc() are

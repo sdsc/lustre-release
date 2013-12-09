@@ -521,6 +521,33 @@ static int osc_rd_unstable_stats(char *page, char **start, off_t off,
 			pages, mb);
 }
 
+static int osc_rd_unstable_check(char *page, char **start, off_t off,
+				 int count, int *eof, void *data)
+{
+	struct obd_device *dev = data;
+	struct client_obd *cli = &dev->u.cli;
+
+	return snprintf(page, count, "unstable_check: %d\n",
+			cli->cl_check_unstable);
+}
+
+static int osc_wr_unstable_check(struct file *file, const char *buffer,
+				 unsigned long count, void *data)
+{
+	struct obd_device *obd = data;
+	int val, rc;
+
+	if (obd == NULL)
+		return 0;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc)
+		return rc;
+
+	obd->u.cli.cl_check_unstable = !!val;
+	return count;
+}
+
 static struct lprocfs_vars lprocfs_osc_obd_vars[] = {
         { "uuid",            lprocfs_rd_uuid,        0, 0 },
         { "ping",            0, lprocfs_wr_ping,     0, 0, 0222 },
@@ -561,7 +588,8 @@ static struct lprocfs_vars lprocfs_osc_obd_vars[] = {
         { "state",           lprocfs_rd_state,         0, 0 },
         { "pinger_recov",    lprocfs_rd_pinger_recov,
                              lprocfs_wr_pinger_recov,  0, 0 },
-        { "unstable_stats",  osc_rd_unstable_stats, 0, 0},
+        { "unstable_stats",  osc_rd_unstable_stats, 0, 0 },
+        { "check_unstable",  osc_rd_unstable_check, osc_wr_unstable_check, 0 },
 
         { 0 }
 };

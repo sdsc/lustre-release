@@ -215,4 +215,14 @@ int osc_quota_poll_check(struct obd_export *exp, struct if_quotacheck *qchk);
 void osc_inc_unstable_pages(struct ptlrpc_request *req);
 void osc_dec_unstable_pages(struct ptlrpc_request *req);
 int  osc_over_unstable_soft_limit(struct client_obd *cli);
+
+static inline unsigned long osc_dirty_pages(struct client_obd *cli)
+{
+	unsigned long pgc = cfs_atomic_read(&obd_dirty_pages);
+
+	if (cli->cl_check_unstable)
+		pgc += cfs_atomic_read(&obd_unstable_pages);
+
+	return pgc;
+}
 #endif /* OSC_INTERNAL_H */
