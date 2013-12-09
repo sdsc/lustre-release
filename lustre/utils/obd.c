@@ -3525,6 +3525,190 @@ int jt_nodemap_del(int argc, char **argv)
 	return rc;
 }
 
+int jt_nodemap_add_range(int argc, char **argv)
+{
+	int c;
+	int rc = 0;
+	char *nodemap_name = NULL, *nodemap_range = NULL;
+
+	static struct option long_options[] = {
+		{
+			.name		= "name",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'n',
+		},
+		{
+			.name		= "range",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'r',
+		},
+		{
+			NULL
+		}
+	};
+
+	while ((c = getopt_long(argc, argv, "n:r:",
+				long_options, NULL)) != -1) {
+		switch (c) {
+		case 'n':
+			nodemap_name = optarg;
+			break;
+		case 'r':
+			nodemap_range = optarg;
+			break;
+		}
+	}
+
+	rc = llapi_search_nodemap_range(nodemap_range);
+
+	if (rc != 0) {
+		fprintf(stderr, "'%s %s' search failed: rc = %d\n",
+			nodemap_name, nodemap_range, rc);
+		return rc;
+	}
+
+	rc = nodemap_cmd(LCFG_NODEMAP_ADD_RANGE, 3, argv[0],
+			 nodemap_name, nodemap_range);
+
+	if (rc != 0) {
+		errno = -rc;
+		fprintf(stderr, "'%s %s' add failed: %s: rc = %d\n",
+			nodemap_name, nodemap_range, strerror(errno), rc);
+	}
+
+	return rc;
+}
+
+int jt_nodemap_del_range(int argc, char **argv)
+{
+	int c;
+	int rc = 0;
+	char *nodemap_name = NULL, *nodemap_range = NULL;
+	static struct option long_options[] = {
+		{
+			.name		= "name",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'n',
+		},
+		{
+			.name		= "range",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'r',
+		},
+		{
+			NULL
+		}
+	};
+
+	while ((c = getopt_long(argc, argv, "n:r:",
+				long_options, NULL)) != -1) {
+		switch (c) {
+		case 'n':
+			nodemap_name = optarg;
+			break;
+		case 'r':
+			nodemap_range = optarg;
+			break;
+		}
+	}
+
+	rc = llapi_search_nodemap_range(nodemap_range);
+
+	if (rc == 0) {
+		fprintf(stderr, "'%s %s' search failed: rc = %d\n",
+			nodemap_name, nodemap_range, rc);
+		return rc;
+	}
+
+	rc = nodemap_cmd(LCFG_NODEMAP_DEL_RANGE, 3, argv[0],
+			 nodemap_name, nodemap_range);
+
+	if (rc != 0) {
+		errno = -rc;
+		fprintf(stderr, "'%s %s' delete failed: %s: rc = %d\n",
+			nodemap_name, nodemap_range, strerror(errno), rc);
+	}
+
+	return rc;
+}
+
+int jt_nodemap_test_nid(int argc, char **argv)
+{
+	int rc;
+	char nodemap[PATH_MAX + 1];
+
+	rc = llapi_find_nodemap_nid(argv[1], nodemap);
+
+	if (rc != 0) {
+		fprintf(stderr, "lctl nodemap_test_nid %s failed\n", argv[1]);
+		return -1;
+	}
+
+	printf("%s\n", nodemap);
+
+	return 0;
+}
+
+int jt_nodemap_modify(int argc, char **argv)
+{
+	int c;
+	int rc = 0;
+	enum lcfg_command_type cmd = 0;
+	char *nodemap_name = NULL, *param = NULL, *value = NULL;
+	static struct option long_options[] = {
+		{"name", required_argument, 0, 'n'},
+		{"parameter", required_argument, 0, 'p'},
+		{"value", required_argument, 0, 'v'},
+		{0, 0, 0, 0}
+	};
+
+	while ((c = getopt_long(argc, argv, "n:p:",
+				long_options, NULL)) != -1) {
+		switch (c) {
+		case 'n':
+			nodemap_name = optarg;
+			break;
+		case 'p':
+			param = optarg;
+			break;
+		case 'v':
+			value = optarg;
+			break;
+		}
+	}
+
+	if (strcmp("admin", param) == 0)
+		cmd = LCFG_NODEMAP_ADMIN;
+	else if (strcmp("admin", param) == 0)
+		cmd = LCFG_NODEMAP_ADMIN;
+	else if (strcmp("trusted", param) == 0)
+		cmd = LCFG_NODEMAP_TRUSTED;
+	else if (strcmp("squash_uid", param) == 0)
+		cmd = LCFG_NODEMAP_SQUASH_UID;
+	else if (strcmp("squash_gid", param) == 0)
+		cmd = LCFG_NODEMAP_SQUASH_GID;
+	else {
+		fprintf(stderr, "nodemap_modify invalid subcommand: %s\n",
+			param);
+		return -1;
+	}
+
+	rc = nodemap_cmd(cmd, 4, argv[0], nodemap_name, param,
+			value);
+
+	if (rc != 0) {
+		errno = -rc;
+		fprintf(stderr, "'%s %s %s' modify failed: %s: rc = %d\n",
+			nodemap_name, param, value, strerror(errno), rc);
+	}
+
+	return rc;
+}
+
 /*
  * this function tranforms a rule [start-end/step] into an array
  * of matching numbers

@@ -71,7 +71,28 @@ struct nodemap {
 				nmf_encryption_required:1;
 };
 
-int nodemap_add(const char *nodemap_name);
-int nodemap_del(const char *nodemap_name);
+struct range_node {
+	/** Unique ID set by MGS */
+	unsigned int		rn_id;
+	/** Inclusive starting NID */
+	lnet_nid_t		rn_start_nid;
+	/** Inclusive ending NID */
+	lnet_nid_t		rn_end_nid;
+	/** Containing nodemap */
+	struct nodemap		*rn_nodemap;
+	/** List entry for nodemap */
+	struct list_head	rn_list;
+	/** Global NID tree */
+	struct rb_node		rn_node;
+};
+
+int nodemap_add(const char *name);
+int nodemap_del(const char *name);
+int nodemap_add_range(const char *name, char *nodemap_range);
+int nodemap_del_range(const char *name, char *nodemap_range);
+int nodemap_admin(const char *name, const char *admin_string);
+int nodemap_trusted(const char *name, const char *trust_string);
+int nodemap_squash_uid(const char *name, char *uid_string);
+int nodemap_squash_gid(const char *name, char *gid_string);
 
 #endif

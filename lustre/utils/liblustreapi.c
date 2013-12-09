@@ -404,8 +404,7 @@ int get_param(const char *param_path, char *result,
         FILE *fp = NULL;
         int rc = 0;
 
-        snprintf(pattern, PATH_MAX, "/proc/{fs,sys}/{lnet,lustre}/%s",
-                 param_path);
+	snprintf(pattern, PATH_MAX, PROCVAR_PATH, param_path);
         rc = first_match(pattern, file);
 	if (rc != 0 || result == NULL)
                 return rc;
@@ -419,6 +418,44 @@ int get_param(const char *param_path, char *result,
                 rc = -errno;
         }
         return rc;
+}
+
+/**
+  * set a parameter for a specific device type or mountpoint
+  *
+  * \param param_path the path to the file containing the param data
+  * \param param string containing the parameter
+  *
+  * The \param param_path is appended to /proc/{fs,sys}/{lnet,lustre} to
+  * complete the absolute path to the file containing the parameter data
+  * the user is requesting. If that file exist then the data is written
+  * to the file.
+  *
+  * Return 0 for success
+  * Return -ve value for error
+  */
+
+int set_param(const char *param_path, char *param)
+{
+	char file[PATH_MAX + 1], pattern[PATH_MAX + 1];
+	FILE *fp = NULL;
+	int rc = 0;
+
+	snprintf(pattern, PATH_MAX, PROCVAR_PATH,
+		 param_path);
+	rc = first_match(pattern, file);
+	if (rc)
+		return rc;
+
+	fp = fopen(file, "w");
+	if (fp != NULL) {
+		fprintf(fp, "%s\n", param);
+		fclose(fp);
+	} else {
+		rc = -errno;
+	}
+
+	return rc;
 }
 
 #define DEVICES_LIST "/proc/fs/lustre/devices"

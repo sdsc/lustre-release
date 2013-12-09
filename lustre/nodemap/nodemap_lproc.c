@@ -31,11 +31,28 @@
 #include <lustre_net.h>
 #include "nodemap_internal.h"
 
+static int nodemap_ranges_open(struct inode *inode, struct file *file);
+static int nodemap_ranges_show(struct seq_file *file, void *data);
+
+static lnet_nid_t nodemap_test_nid;
+
+const struct file_operations nodemap_range_operations = {
+	.open		= nodemap_ranges_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
 static struct lprocfs_vars lprocfs_nodemap_module_vars[] = {
 	{
 		.name		= "active",
 		.read_fptr	= nodemap_rd_active,
 		.write_fptr	= nodemap_wr_active,
+	},
+	{
+		.name		= "test_nid",
+		.read_fptr	= nodemap_rd_nid_test,
+		.write_fptr	= nodemap_wr_nid_test,
 	},
 #ifdef NODEMAP_PROC_DEBUG
 	{
@@ -52,12 +69,16 @@ static struct lprocfs_vars lprocfs_nodemap_module_vars[] = {
 	}
 };
 
+static struct lprocfs_vars lprocfs_nodemap_vars[] = {
+	{
+		.name		= "id",
+		.read_fptr	= nodemap_rd_id,
+	},
+	{
+		.name		= "ranges",
+		.fops		= &nodemap_range_operations,
+	},
 #ifdef NODEMAP_PROC_DEBUG
-static struct lprocfs_vars lprocfs_nodemap_vars[] = {
-	{
-		.name		= "id",
-		.read_fptr	= nodemap_rd_id,
-	},
 	{
 		.name		= "trusted_nodemap",
 		.read_fptr	= nodemap_rd_trusted,
@@ -78,46 +99,7 @@ static struct lprocfs_vars lprocfs_nodemap_vars[] = {
 		.read_fptr	= nodemap_rd_squash_gid,
 		.write_fptr	= nodemap_wr_squash_gid,
 	},
-	{
-		NULL
-	}
-};
-
-static struct lprocfs_vars lprocfs_default_nodemap_vars[] = {
-	{
-		.name		= "id",
-		.read_fptr	= nodemap_rd_id,
-	},
-	{
-		.name		= "trusted_nodemap",
-		.read_fptr	= nodemap_rd_trusted,
-		.write_fptr	= nodemap_wr_trusted,
-	},
-	{
-		.name		= "admin_nodemap",
-		.read_fptr	= nodemap_rd_admin,
-		.write_fptr	= nodemap_wr_admin,
-	},
-	{
-		.name		= "squash_uid",
-		.read_fptr	= nodemap_rd_squash_uid,
-		.write_fptr	= nodemap_wr_squash_uid,
-	},
-	{
-		.name		= "squash_gid",
-		.read_fptr	= nodemap_rd_squash_gid,
-		.write_fptr	= nodemap_wr_squash_gid,
-	},
-	{
-		NULL
-	}
-};
 #else
-static struct lprocfs_vars lprocfs_nodemap_vars[] = {
-	{
-		.name		= "id",
-		.read_fptr	= nodemap_rd_id,
-	},
 	{
 		.name		= "trusted_nodemap",
 		.read_fptr	= nodemap_rd_trusted,
@@ -134,6 +116,7 @@ static struct lprocfs_vars lprocfs_nodemap_vars[] = {
 		.name		= "squash_gid",
 		.read_fptr	= nodemap_rd_squash_gid,
 	},
+#endif /* NODEMAP_PROC_DEBUG */
 	{
 		NULL
 	}
@@ -144,6 +127,28 @@ static struct lprocfs_vars lprocfs_default_nodemap_vars[] = {
 		.name		= "id",
 		.read_fptr	= nodemap_rd_id,
 	},
+#ifdef NODEMAP_PROC_DEBUG
+	{
+		.name		= "trusted_nodemap",
+		.read_fptr	= nodemap_rd_trusted,
+		.write_fptr	= nodemap_wr_trusted,
+	},
+	{
+		.name		= "admin_nodemap",
+		.read_fptr	= nodemap_rd_admin,
+		.write_fptr	= nodemap_wr_admin,
+	},
+	{
+		.name		= "squash_uid",
+		.read_fptr	= nodemap_rd_squash_uid,
+		.write_fptr	= nodemap_wr_squash_uid,
+	},
+	{
+		.name		= "squash_gid",
+		.read_fptr	= nodemap_rd_squash_gid,
+		.write_fptr	= nodemap_wr_squash_gid,
+	},
+#else
 	{
 		.name		= "trusted_nodemap",
 		.read_fptr	= nodemap_rd_trusted,
@@ -160,11 +165,100 @@ static struct lprocfs_vars lprocfs_default_nodemap_vars[] = {
 		.name		= "squash_gid",
 		.read_fptr	= nodemap_rd_squash_gid,
 	},
+#endif /* NODEMAP_PROC_DEBUG */
 	{
 		NULL
 	}
 };
-#endif /* NODEMAP_PROC_DEBUG */
+
+int nodemap_rd_nid_test(char *page, char **start, off_t off, int count,
+			int *eof, void *data)
+{
+	int len;
+	struct nodemap *nodemap;
+	struct range_node *range;
+
+	range = range_search(&nodemap_test_nid);
+
+	if (range == NULL)
+		nodemap = default_nodemap;
+	else
+		nodemap = range->rn_nodemap;
+
+	if (nodemap == NULL)
+		return 0;
+
+	if (nodemap->nm_id == 0) {
+		len = snprintf(page, count, "%s:0\n", nodemap->nm_name);
+		return len;
+	}
+
+	len = snprintf(page, count, "%s:%u\n", nodemap->nm_name,
+		       range->rn_id);
+
+	return len;
+}
+
+int nodemap_wr_nid_test(struct file *file, const char __user *buffer,
+			unsigned long count, void *data)
+{
+	char string[NODEMAP_NIDSTRING_LENGTH];
+
+	if (count == 0)
+		return count;
+	if (count >= NODEMAP_NIDSTRING_LENGTH)
+		goto out;
+
+	if (copy_from_user(string, buffer, count))
+		goto out;
+
+	if (count > 0)
+		string[count - 1] = 0;
+	else
+		return count;
+
+	nodemap_test_nid = libcfs_str2nid(string);
+
+	return count;
+out:
+	return -EFAULT;
+}
+
+
+static int nodemap_ranges_open(struct inode *inode, struct file *file)
+{
+	struct proc_dir_entry *dir;
+	struct nodemap *nodemap;
+
+	dir = PDE(inode);
+	nodemap = (struct nodemap *) dir->data;
+
+	return single_open(file, nodemap_ranges_show, nodemap);
+}
+
+/* Prints list of NID ranegs in a nodemap in YAML format
+ *
+ * id: 1 { start_nid: 192.168.1.1@tcp0, end_nid: 192.168.1.100@tcp0 }
+ * id: 2 { start_nid: 192.168.2.1@tcp0, end_nid: 192.168.2.253@tcp0 }
+ * id: 3 { start_nid: 192.168.10.1@tcp0, end_nid: 192.168.10.100@tcp0 }
+ *
+ */
+
+static int nodemap_ranges_show(struct seq_file *file, void *data)
+{
+	struct nodemap *nodemap;
+	struct range_node *range;
+
+	nodemap = (struct nodemap *) file->private;
+
+	list_for_each_entry(range, &(nodemap->nm_ranges), rn_list) {
+		seq_printf(file, "id %u: { start_nid: %s, end_nid: %s }\n",
+			   range->rn_id, libcfs_nid2str(range->rn_start_nid),
+			   libcfs_nid2str(range->rn_end_nid));
+	}
+
+	return 0;
+}
 
 int nodemap_rd_active(char *page, char **start, off_t off, int count,
 		      int *eof, void *data)

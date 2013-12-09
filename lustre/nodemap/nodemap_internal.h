@@ -35,17 +35,30 @@
 
 #define NODEMAP_NOBODY_UID 99
 #define NODEMAP_NOBODY_GID 99
+#define NODEMAP_NIDSTRING_LENGTH 64
 
 struct lprocfs_static_vars;
 
 extern struct proc_dir_entry *proc_lustre_nodemap_root;
 extern unsigned int nodemap_idmap_active;
+extern struct nodemap *default_nodemap;
 
 int nodemap_procfs_init(void);
 int lprocfs_nodemap_register(const char *name, bool is_default_nodemap,
 			     struct nodemap *nodemap);
 void lprocfs_nodemap_init_vars(struct lprocfs_static_vars *lvars);
 
+struct range_node *range_create(lnet_nid_t min, lnet_nid_t max,
+				struct nodemap *nodemap);
+void range_destroy(struct range_node *range);
+int range_insert(struct range_node *data);
+int range_delete(struct range_node *data);
+struct range_node *range_search(lnet_nid_t *nid);
+
+int nodemap_rd_nid_test(char *page, char **start, off_t off, int count,
+			int *eof, void *data);
+int nodemap_wr_nid_test(struct file *file, const char *buffer,
+			unsigned long count, void *data);
 int nodemap_rd_active(char *page, char **start, off_t off, int count,
 		      int *eof, void *data);
 int nodemap_wr_active(struct file *file, const char *buffer,

@@ -40,10 +40,13 @@
 #define WANT_FD     0x4
 #define WANT_INDEX  0x8
 #define WANT_ERROR  0x10
+#define PROCVAR_PATH "/proc/{fs,sys}/{lnet,lustre}/%s"
+
 int get_root_path(int want, char *fsname, int *outfd, char *path, int index);
 int root_ioctl(const char *mdtname, int opc, void *data, int *mdtidxp,
 	       int want_error);
 int get_param(const char *param_path, char *result,
 	      unsigned int result_size);
+int set_param(const char *param_path, char *param);
 
 #endif /* _LUSTREAPI_INTERNAL_H_ */
