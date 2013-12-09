@@ -461,8 +461,9 @@ int osc_over_unstable_soft_limit(struct client_obd *cli)
 {
 	long obd_upages, obd_dpages, osc_upages;
 
-	/* Can't check cli->cl_unstable_count, therefore, no soft limit */
-	if (cli == NULL)
+	/* Can't check cli->cl_unstable_count or disabled, therefore,
+	 * no soft limit */
+	if (cli == NULL || !cli->cl_check_unstable)
 		return 0;
 
 	obd_upages = atomic_read(&obd_unstable_pages);

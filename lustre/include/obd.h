@@ -358,11 +358,12 @@ struct client_obd {
 	struct mutex		 cl_mgc_mutex;
 	struct local_oid_storage *cl_mgc_los;
 	struct dt_object	*cl_mgc_configs_dir;
-	atomic_t             cl_mgc_refcount;
+	atomic_t		 cl_mgc_refcount;
 	struct obd_export       *cl_mgc_mgsexp;
 
-        /* checksumming for data sent over the network */
-        unsigned int             cl_checksum:1; /* 0 = disabled, 1 = enabled */
+	/* checksumming for data sent over the network */
+	unsigned int             cl_checksum:1, /* 0 = disabled, 1 = enabled */
+				 cl_check_unstable:1;
         /* supported checksum types that are worked out at connect time */
         __u32                    cl_supp_cksum_types;
         /* checksum algorithm to be used */
