@@ -1478,8 +1478,7 @@ static int osc_enter_cache_try(struct client_obd *cli,
 		return 0;
 
 	if (cli->cl_dirty + PAGE_CACHE_SIZE <= cli->cl_dirty_max &&
-	    cfs_atomic_read(&obd_unstable_pages) + 1 +
-	    cfs_atomic_read(&obd_dirty_pages) <= obd_max_dirty_pages) {
+	    osc_dirty_pages(cli) + 1 <= obd_max_dirty_pages) {
 		osc_consume_write_grant(cli, &oap->oap_brw_page);
 		if (transient) {
 			cli->cl_dirty_transit += PAGE_CACHE_SIZE;
@@ -1612,8 +1611,7 @@ void osc_wake_cache_waiters(struct client_obd *cli)
 		ocw->ocw_rc = -EDQUOT;
 		/* we can't dirty more */
 		if ((cli->cl_dirty + PAGE_CACHE_SIZE > cli->cl_dirty_max) ||
-		    (cfs_atomic_read(&obd_unstable_pages) + 1 +
-		     cfs_atomic_read(&obd_dirty_pages) > obd_max_dirty_pages)) {
+		    (osc_dirty_pages(cli) + 1 > obd_max_dirty_pages)) {
 			CDEBUG(D_CACHE, "no dirty room: dirty: %ld "
 			       "osc max %ld, sys max %d\n", cli->cl_dirty,
 			       cli->cl_dirty_max, obd_max_dirty_pages);
@@ -1828,7 +1826,7 @@ void osc_inc_unstable_pages(struct ptlrpc_request *req)
 	int i;
 
 	/* No unstable page tracking */
-	if (cli->cl_cache == NULL)
+	if (cli->cl_cache == NULL || !cli->cl_check_unstable)
 		return;
 
 	LASSERT(page_count >= 0);
