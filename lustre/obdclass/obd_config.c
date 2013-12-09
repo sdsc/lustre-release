@@ -1301,7 +1301,10 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
         for (i = 1; i < lcfg->lcfg_bufcount; i++) {
                 key = lustre_cfg_buf(lcfg, i);
                 /* Strip off prefix */
-                class_match_param(key, prefix, &key);
+		if (class_match_param(key, prefix, &key))
+			/* If the prefix doesn't match, return error so we
+			 * can pass it down the stack */
+			RETURN(-ENOSYS);
                 sval = strchr(key, '=');
                 if (!sval || (*(sval + 1) == 0)) {
                         CERROR("Can't parse param %s (missing '=')\n", key);
@@ -1332,19 +1335,16 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
                         }
                         j++;
                 }
-                if (!matched) {
-                        /* If the prefix doesn't match, return error so we
-                           can pass it down the stack */
-                        if (strnchr(key, keylen, '.'))
-                            RETURN(-ENOSYS);
-                        CERROR("%s: unknown param %s\n",
-                               (char *)lustre_cfg_string(lcfg, 0), key);
-                        /* rc = -EINVAL;        continue parsing other params */
-                        skip++;
-                } else if (rc < 0) {
-                        CERROR("writing proc entry %s err %d\n",
-                               var->name, rc);
-                        rc = 0;
+		if (!matched) {
+			CERROR("%.*s: %s unknown param %s\n",
+			       (int)strlen(prefix) - 1, prefix,
+			       (char *)lustre_cfg_string(lcfg, 0), key);
+			/* rc = -EINVAL;        continue parsing other params */
+			skip++;
+		} else if (rc < 0) {
+			CERROR("%s: error writing proc entry '%s': rc = %d\n",
+			       prefix, var->name, rc);
+			rc = 0;
 		} else {
 			CDEBUG(D_CONFIG, "%s.%.*s: Set parameter %.*s=%s\n",
 					 lustre_cfg_string(lcfg, 0),
@@ -1365,6 +1365,101 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
 #endif
 }
 EXPORT_SYMBOL(class_process_proc_param);
+#endif
+
+int class_process_proc_seq_param(char *prefix, struct lprocfs_seq_vars *lvars,
+				 struct lustre_cfg *lcfg, void *data)
+{
+#ifdef __KERNEL__
+	struct lprocfs_seq_vars *var;
+	struct file fakefile;
+	struct seq_file fake_seqfile;
+	char *key, *sval;
+	int i, keylen, vallen;
+	int matched = 0, j = 0;
+	int rc = 0;
+	int skip = 0;
+	ENTRY;
+
+	if (lcfg->lcfg_command != LCFG_PARAM) {
+		CERROR("Unknown command: %d\n", lcfg->lcfg_command);
+		RETURN(-EINVAL);
+	}
+
+	/* fake a seq file so that var->fops->write can work... */
+	fakefile.private_data = &fake_seqfile;
+	fake_seqfile.private = data;
+	/* e.g. tunefs.lustre --param mdt.group_upcall=foo /r/tmp/lustre-mdt
+	   or   lctl conf_param lustre-MDT0000.mdt.group_upcall=bar
+	   or   lctl conf_param lustre-OST0000.osc.max_dirty_mb=36 */
+	for (i = 1; i < lcfg->lcfg_bufcount; i++) {
+		key = lustre_cfg_buf(lcfg, i);
+		/* Strip off prefix */
+		if (class_match_param(key, prefix, &key))
+			/* If the prefix doesn't match, return error so we
+			 * can pass it down the stack */
+			RETURN(-ENOSYS);
+		sval = strchr(key, '=');
+		if (!sval || (*(sval + 1) == 0)) {
+			CERROR("Can't parse param %s (missing '=')\n", key);
+			/* rc = -EINVAL;        continue parsing other params */
+			continue;
+		}
+		keylen = sval - key;
+		sval++;
+		vallen = strlen(sval);
+		matched = 0;
+		j = 0;
+		/* Search proc entries */
+		while (lvars[j].name) {
+			var = &lvars[j];
+			if (class_match_param(key, (char *)var->name, 0) == 0 &&
+			    keylen == strlen(var->name)) {
+				matched++;
+				rc = -EROFS;
+
+				if (var->fops && var->fops->write) {
+					mm_segment_t oldfs;
+					oldfs = get_fs();
+					set_fs(KERNEL_DS);
+					rc = (var->fops->write)(&fakefile, sval,
+								vallen, NULL);
+					set_fs(oldfs);
+				}
+				break;
+			}
+			j++;
+		}
+		if (!matched) {
+			CERROR("%.*s: %s unknown param %s\n",
+			       (int)strlen(prefix) - 1, prefix,
+			       (char *)lustre_cfg_string(lcfg, 0), key);
+			/* rc = -EINVAL;        continue parsing other params */
+			skip++;
+		} else if (rc < 0) {
+			CERROR("%s: error writing proc entry '%s': rc = %d\n",
+			       prefix, var->name, rc);
+			rc = 0;
+		} else {
+			CDEBUG(D_CONFIG, "%s.%.*s: Set parameter %.*s=%s\n",
+					 lustre_cfg_string(lcfg, 0),
+					 (int)strlen(prefix) - 1, prefix,
+					 (int)(sval - key - 1), key, sval);
+		}
+	}
+
+	if (rc > 0)
+		rc = 0;
+	if (!rc && skip)
+		rc = skip;
+	RETURN(rc);
+#else
+	CDEBUG(D_CONFIG, "liblustre can't process params.\n");
+	/* Don't throw config error */
+	RETURN(0);
+#endif
+}
+EXPORT_SYMBOL(class_process_proc_seq_param);
 
 #ifdef __KERNEL__
 extern int lustre_check_exclusion(struct super_block *sb, char *svname);
