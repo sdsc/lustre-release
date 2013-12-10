@@ -4696,6 +4696,7 @@ run_one() {
     cd $SAVE_PWD
     reset_fail_loc
     check_grant ${testnum} || error "check_grant $testnum failed with $?"
+	check_slab_corruption || error "slab corruption detected"
     check_catastrophe || error "LBUG/LASSERT detected"
 	if [ "$PARALLEL" != "yes" ]; then
 		ps auxww | grep -v grep | grep -q multiop &&
@@ -5384,6 +5385,21 @@ restore_lustre_params() {
 	while IFS=" =" read facet name val; do
 		do_facet $facet "$LCTL set_param -n $name $val"
 	done
+}
+
+check_slab_corruption() {
+	local rnodes=${1:-$(comma_list $(remote_nodes_list))}
+	local cmd="dmesg | tail -n 40 | grep -v 'DEBUG MARKER' | \
+		   grep 'Slab corruption'"
+
+	eval $cmd && return 1 || true
+
+	if [[ -n "$rnodes" ]]; then
+		do_nodesv $rnodes "$cmd
+rc=\\\${PIPESTATUS[3]}
+[[ \\\$rc -eq 0 ]] && rc=1 || rc=0
+exit \\\$rc"
+	fi
 }
 
 check_catastrophe() {
