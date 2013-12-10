@@ -1035,6 +1035,26 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
+# Prior to 2.6.37 cache_register_net/cache_unregister_net
+# does not exist. However, since 3.4 cache_register/cache_unregister
+# are removed see kernel commit 2c5f846747526e2b83c5f1b8e69016be0e2e87c0
+#
+AC_DEFUN([LC_HAVE_CACHE_REGISTER_NET],
+[AC_MSG_CHECKING([if have cache_register_net])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/sunrpc/cache.h>
+],[
+	cache_register_net(NULL, NULL);
+],[
+	AC_DEFINE(HAVE_CACHE_REGISTER_NET, 1,
+		  [have cache_register_net])
+	AC_MSG_RESULT([yes])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
+#
 # 3.5 renames end_writeback() back to clear_inode()...
 # see kernel commit dbd5768f87ff6fb0a4fe09c4d7b6c4a24de99430
 #
@@ -1320,6 +1340,7 @@ AC_DEFUN([LC_PROG_LINUX],
          # 2.6.36
          LC_FS_STRUCT_RWLOCK
          LC_SBOPS_EVICT_INODE
+	 LC_HAVE_CACHE_REGISTER_NET
 
          # 2.6.37
          LC_KERNEL_LOCKED

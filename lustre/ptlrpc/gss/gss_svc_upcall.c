@@ -112,6 +112,20 @@ static inline unsigned long hash_mem(char *buf, int length, int bits)
         return hash >> (BITS_PER_LONG - bits);
 }
 
+/* This compatibility can be removed once kernel > 2.6.36 is used,
+   since cache_register_net/cache_unregister_net is available.
+   Note that since kernel 3.4 cache_register and cache_unregister
+   are removed. */
+#ifndef HAVE_CACHE_REGISTER_NET
+static int cache_register_net(struct cache_detail *cd, struct net *net)
+{
+	return cache_register(cd);
+}
+static void cache_unregister_net(struct cache_detail *cd, struct net *net)
+{
+	cache_unregister(cd);
+}
+#endif
 /****************************************
  * rsi cache                            *
  ****************************************/
