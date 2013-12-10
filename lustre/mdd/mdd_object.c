@@ -1497,6 +1497,10 @@ static int mdd_swap_layouts(const struct lu_env *env, struct md_object *obj1,
 	else
 		rc = mdo_xattr_del(env, snd_o, XATTR_NAME_LOV, handle,
 				   mdd_object_capa(env, snd_o));
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_HSM_SWAP_LAYOUTS))
+		rc = -ENOENT;
+
 	if (rc != 0) {
 		int steps = 0;
 
