@@ -851,7 +851,7 @@ int cl_io_submit_sync(const struct lu_env *env, struct cl_io *io,
                 pg->cp_sync_io = anchor;
         }
 
-        cl_sync_io_init(anchor, queue->c2_qin.pl_nr);
+        cl_sync_io_init(anchor, queue->c2_qin.pl_nr, NULL);
 	rc = cl_io_submit_rw(env, io, iot, queue);
         if (rc == 0) {
                 /*
@@ -862,7 +862,7 @@ int cl_io_submit_sync(const struct lu_env *env, struct cl_io *io,
                  */
                  cl_page_list_for_each(pg, &queue->c2_qin) {
                         pg->cp_sync_io = NULL;
-                        cl_sync_io_note(anchor, +1);
+			cl_sync_io_note(env, anchor, +1);
                  }
 
                  /* wait for the IO to be finished. */
@@ -1577,16 +1577,29 @@ EXPORT_SYMBOL(cl_req_attr_set);
 # include <liblustre.h>
 #endif
 
+/* cl_sync_io_callback assumes the caller must call cl_sync_io_wait() to
+ * wait for the IO to finish. */
+void cl_sync_io_callback(const struct lu_env *env, struct cl_sync_io *anchor)
+{
+	wake_up_all(&anchor->csi_waitq);
+
+	/* it's safe to nuke or reuse anchor now */
+	cfs_atomic_set(&anchor->csi_barrier, 0);
+}
+EXPORT_SYMBOL(cl_sync_io_callback);
+
 /**
  * Initialize synchronous io wait anchor, for transfer of \a nrpages pages.
  */
-void cl_sync_io_init(struct cl_sync_io *anchor, int nrpages)
+void cl_sync_io_init(struct cl_sync_io *anchor, int nrpages,
+		     void (*cb)(const struct lu_env *, struct cl_sync_io *))
 {
 	ENTRY;
 	init_waitqueue_head(&anchor->csi_waitq);
 	cfs_atomic_set(&anchor->csi_sync_nr, nrpages);
 	cfs_atomic_set(&anchor->csi_barrier, nrpages > 0);
 	anchor->csi_sync_rc = 0;
+	anchor->csi_callback = cb != NULL ? cb : cl_sync_io_callback;
 	EXIT;
 }
 EXPORT_SYMBOL(cl_sync_io_init);
@@ -1641,7 +1654,8 @@ EXPORT_SYMBOL(cl_sync_io_wait);
 /**
  * Indicate that transfer of a single page completed.
  */
-void cl_sync_io_note(struct cl_sync_io *anchor, int ioret)
+void cl_sync_io_note(const struct lu_env *env, struct cl_sync_io *anchor,
+		     int ioret)
 {
         ENTRY;
         if (anchor->csi_sync_rc == 0 && ioret < 0)
@@ -1653,9 +1667,9 @@ void cl_sync_io_note(struct cl_sync_io *anchor, int ioret)
          */
         LASSERT(cfs_atomic_read(&anchor->csi_sync_nr) > 0);
 	if (cfs_atomic_dec_and_test(&anchor->csi_sync_nr)) {
-		wake_up_all(&anchor->csi_waitq);
-		/* it's safe to nuke or reuse anchor now */
-		cfs_atomic_set(&anchor->csi_barrier, 0);
+		LASSERT(anchor->csi_callback != NULL);
+		anchor->csi_callback(env, anchor);
+		/* Can't access anchor any more */
 	}
 	EXIT;
 }
