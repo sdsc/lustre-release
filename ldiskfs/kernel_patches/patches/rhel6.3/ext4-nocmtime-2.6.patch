@@ -1,14 +1,15 @@
 --- linux-2.6.18-194.3.1/fs/ext4/xattr.c	2010-11-23 21:13:35.000000000 -0800
 +++ linux-2.6.18-194.3.1-liang/fs/ext4/xattr.c	2010-11-25 20:15:27.000000000 -0800
-@@ -1050,7 +1050,7 @@ ext4_xattr_set_handle(handle_t *handle, 
+@@ -1050,7 +1050,8 @@ ext4_xattr_set_handle(handle_t *handle, 
 	}
  	if (!error) {
  		ext4_xattr_update_super_block(handle, inode->i_sb);
--		if (!(flags & XATTR_NO_CTIME))
-+		if (!IS_NOCMTIME(inode) && !(flags & XATTR_NO_CTIME))
- 			inode->i_ctime = ext4_current_time(inode);
+-		inode->i_ctime = ext4_current_time(inode);
++		if (!IS_NOCMTIME(inode))
++ 			inode->i_ctime = ext4_current_time(inode);
  		if (!value)
  			EXT4_I(inode)->i_state &= ~EXT4_STATE_NO_EXPAND;
+ 		error = ext4_mark_iloc_dirty(handle, inode, &is.iloc);
 --- linux-2.6.18-194.3.1/fs/ext4/namei.c	2010-11-23 21:13:35.000000000 -0800
 +++ linux-2.6.18-194.3.1-liang/fs/ext4/namei.c	2010-11-25 20:17:25.000000000 -0800
 @@ -1465,7 +1465,8 @@ static int add_dirent_to_buf(handle_t *h
