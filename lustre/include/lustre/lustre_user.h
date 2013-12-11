@@ -212,9 +212,9 @@ struct ost_id {
  * *INFO    - set/get lov_user_mds_data
  */
 /* see <lustre_lib.h> for ioctl numberss 101-150 */
-#define LL_IOC_GETFLAGS                 _IOR ('f', 151, long)
-#define LL_IOC_SETFLAGS                 _IOW ('f', 152, long)
-#define LL_IOC_CLRFLAGS                 _IOW ('f', 153, long)
+/* #define LL_IOC_GETFLAGS                 _IOR ('f', 151, long) */
+/* #define LL_IOC_SETFLAGS                 _IOW ('f', 152, long) */
+/* #define LL_IOC_CLRFLAGS                 _IOW ('f', 153, long) */
 /* LL_IOC_LOV_SETSTRIPE: See also OBD_IOC_LOV_SETSTRIPE */
 #define LL_IOC_LOV_SETSTRIPE            _IOW ('f', 154, long)
 /* LL_IOC_LOV_GETSTRIPE: See also OBD_IOC_LOV_GETSTRIPE */
