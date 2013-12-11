@@ -103,8 +103,8 @@ static int osd_scrub_refresh_mapping(struct osd_thread_info *info,
 
 	/* DTO_INDEX_INSERT is enough for other two ops:
 	 * delete/update, but save stack. */
-	th = ldiskfs_journal_start_sb(osd_sb(dev),
-				osd_dto_credits_noquota[DTO_INDEX_INSERT]);
+	th = osd_journal_start_sb(osd_sb(dev), LDISKFS_HT_MISC,
+				  osd_dto_credits_noquota[DTO_INDEX_INSERT]);
 	if (IS_ERR(th)) {
 		rc = PTR_ERR(th);
 		CERROR("%s: fail to start trans for scrub %d: rc = %d\n",
