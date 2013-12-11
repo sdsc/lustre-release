@@ -348,7 +348,7 @@ int lustre_pack_reply_v2(struct ptlrpc_request *req, int count,
                 RETURN(rc);
 
         rs = req->rq_reply_state;
-        cfs_atomic_set(&rs->rs_refcount, 1);    /* 1 ref for rq_reply_state */
+	atomic_set(&rs->rs_refcount, 1);    /* 1 ref for rq_reply_state */
         rs->rs_cb_id.cbid_fn = reply_out_callback;
         rs->rs_cb_id.cbid_arg = rs;
 	rs->rs_svcpt = req->rq_rqbd->rqbd_svcpt;
@@ -511,7 +511,7 @@ void lustre_free_reply_state(struct ptlrpc_reply_state *rs)
 {
         PTLRPC_RS_DEBUG_LRU_DEL(rs);
 
-        LASSERT (cfs_atomic_read(&rs->rs_refcount) == 0);
+	LASSERT (atomic_read(&rs->rs_refcount) == 0);
         LASSERT (!rs->rs_difficult || rs->rs_handled);
         LASSERT (!rs->rs_on_net);
         LASSERT (!rs->rs_scheduled);
@@ -2459,7 +2459,7 @@ void _debug_req(struct ptlrpc_request *req,
                            req->rq_reqlen, req->rq_replen,
                            req->rq_early_count, req->rq_timedout,
                            req->rq_deadline,
-                           cfs_atomic_read(&req->rq_refcount),
+			   atomic_read(&req->rq_refcount),
                            DEBUG_REQ_FLAGS(req),
                            req_ok ? lustre_msg_get_flags(req->rq_reqmsg) : -1,
                            rep_ok ? lustre_msg_get_flags(req->rq_repmsg) : -1,

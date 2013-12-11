@@ -265,7 +265,7 @@ struct gss_cli_ctx {
         __u32                   gc_flavor;
         __u32                   gc_proc;
         __u32                   gc_win;
-        cfs_atomic_t            gc_seq;
+	atomic_t            gc_seq;
         rawobj_t                gc_handle;
         struct gss_ctx         *gc_mechctx;
         /* handle for the buddy svc ctx */
