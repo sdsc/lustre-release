@@ -697,10 +697,17 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 	}
 
 	buffer->lb_len = reqbody->eadatasize;
-	if (buffer->lb_len > 0)
+	if (buffer->lb_len > 0) {
 		buffer->lb_buf = req_capsule_server_get(pill, &RMF_MDT_MD);
-	else
+		if (buffer->lb_buf == NULL) {
+			CERROR("%s: invalid RPC from %s: rc = %d.\n",
+			       mdt_obd_name(info->mti_mdt),
+			       req->rq_export->exp_client_uuid.uuid, -EFAULT);
+			GOTO(out, rc = -EFAULT);
+		}
+	} else {
 		buffer->lb_buf = NULL;
+	}
 
         /* If it is dir object and client require MEA, then we got MEA */
         if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
