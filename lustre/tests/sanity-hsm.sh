@@ -3223,7 +3223,7 @@ test_228() {
 	$LFS hsm_release $DIR/$tfile
 	check_hsm_flags $DIR/$tfile "0x0000000d"
 
-	mkdir $DIR/$tdir
+	mkdir -p $DIR/$tdir
 
 	tar cf - --sparse $DIR/$tfile | tar xvf - -C $DIR/$tdir ||
 		error "tar failed"
