@@ -54,7 +54,6 @@
 #include <lustre/lustre_idl.h>
 #include <lustre_dlm.h>
 #include <lustre_mds.h>
-#include <lustre_debug.h>
 #include <obd_class.h>
 #include <obd_lov.h>
 #include <obd_ost.h>

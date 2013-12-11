@@ -216,4 +216,6 @@ static inline struct lov_stripe_md *lsm_addref(struct lov_stripe_md *lsm)
 	return lsm;
 }
 
+void dump_lsm(int level, struct lov_stripe_md *lsm);
+
 #endif
