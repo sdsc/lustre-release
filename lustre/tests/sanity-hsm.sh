@@ -3223,13 +3223,14 @@ test_228() {
 	$LFS hsm_release $DIR/$tfile
 	check_hsm_flags $DIR/$tfile "0x0000000d"
 
-	mkdir $DIR/$tdir
+	mkdir -p $DIR/$tdir || error "mkdir $tdir failed"
 
 	tar cf - --sparse $DIR/$tfile | tar xvf - -C $DIR/$tdir ||
 		error "tar failed"
 	cmp $DIR/$tfile $DIR/$tdir/$DIR/$tfile ||
 		error "comparing untarred $DIR/$tfile"
 
+	rm -f $DIR/$tfile || error "rm $tfile failed"
 	copytool_cleanup
 }
 run_test 228 "On released file, return extend to FIEMAP. For [cp,tar] --sparse"
