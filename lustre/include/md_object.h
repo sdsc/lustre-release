@@ -78,7 +78,6 @@ enum ma_valid {
         MA_LMV       = (1 << 4),
         MA_ACL_DEF   = (1 << 5),
         MA_LOV_DEF   = (1 << 6),
-        MA_LAY_GEN   = (1 << 7),
         MA_HSM       = (1 << 8),
         MA_SOM       = (1 << 9),
         MA_PFID      = (1 << 10)
@@ -145,7 +144,6 @@ struct md_attr {
         int                     ma_lmv_size;
         int                     ma_acl_size;
         int                     ma_cookie_size;
-        __u16                   ma_layout_gen;
 };
 
 /** Additional parameters for create */
@@ -245,12 +243,6 @@ struct md_object_operations {
 
         int (*moo_object_sync)(const struct lu_env *, struct md_object *);
 
-	int (*moo_file_lock)(const struct lu_env *env, struct md_object *obj,
-			     struct lov_mds_md *lmm, struct ldlm_extent *extent,
-			     struct lustre_handle *lockh);
-	int (*moo_file_unlock)(const struct lu_env *env, struct md_object *obj,
-			       struct lov_mds_md *lmm,
-			       struct lustre_handle *lockh);
 	int (*moo_object_lock)(const struct lu_env *env, struct md_object *obj,
 			       struct lustre_handle *lh,
 			       struct ldlm_enqueue_info *einfo,
@@ -295,13 +287,6 @@ struct md_dir_operations {
 	int (*mdo_unlink)(const struct lu_env *env, struct md_object *pobj,
 			  struct md_object *cobj, const struct lu_name *lname,
 			  struct md_attr *ma, int no_name);
-
-        /** This method is used to compare a requested layout to an existing
-         * layout (struct lov_mds_md_v1/3 vs struct lov_mds_md_v1/3) */
-        int (*mdo_lum_lmm_cmp)(const struct lu_env *env,
-                               struct md_object *cobj,
-                               const struct md_op_spec *spec,
-                               struct md_attr *ma);
 
         /** partial ops for cross-ref case */
         int (*mdo_name_insert)(const struct lu_env *env,
@@ -648,23 +633,6 @@ static inline int mo_object_sync(const struct lu_env *env, struct md_object *m)
         return m->mo_ops->moo_object_sync(env, m);
 }
 
-static inline int mo_file_lock(const struct lu_env *env, struct md_object *m,
-                               struct lov_mds_md *lmm,
-                               struct ldlm_extent *extent,
-                               struct lustre_handle *lockh)
-{
-        LASSERT(m->mo_ops->moo_file_lock);
-        return m->mo_ops->moo_file_lock(env, m, lmm, extent, lockh);
-}
-
-static inline int mo_file_unlock(const struct lu_env *env, struct md_object *m,
-                                 struct lov_mds_md *lmm,
-                                 struct lustre_handle *lockh)
-{
-        LASSERT(m->mo_ops->moo_file_unlock);
-        return m->mo_ops->moo_file_unlock(env, m, lmm, lockh);
-}
-
 static inline int mo_object_lock(const struct lu_env *env,
 				 struct md_object *m,
 				 struct lustre_handle *lh,
@@ -756,15 +724,6 @@ static inline int mdo_unlink(const struct lu_env *env,
 {
 	LASSERT(p->mo_dir_ops->mdo_unlink);
 	return p->mo_dir_ops->mdo_unlink(env, p, c, lname, ma, no_name);
-}
-
-static inline int mdo_lum_lmm_cmp(const struct lu_env *env,
-                                  struct md_object *c,
-                                  const struct md_op_spec *spec,
-                                  struct md_attr *ma)
-{
-        LASSERT(c->mo_dir_ops->mdo_lum_lmm_cmp);
-        return c->mo_dir_ops->mdo_lum_lmm_cmp(env, c, spec, ma);
 }
 
 static inline int mdo_name_insert(const struct lu_env *env,

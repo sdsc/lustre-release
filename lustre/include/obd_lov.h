@@ -105,12 +105,6 @@ static inline __u32 lov_mds_md_stripecnt(int ea_size, __u32 lmm_magic)
   })
 #endif
 
-#define IOC_LOV_TYPE                   'g'
-#define IOC_LOV_MIN_NR                 50
-#define IOC_LOV_SET_OSC_ACTIVE         _IOWR('g', 50, long)
-#define IOC_LOV_MAX_NR                 50
-
-#define QOS_DEFAULT_THRESHOLD           10 /* MB */
 #define QOS_DEFAULT_MAXAGE              5  /* Seconds */
 
 #endif
