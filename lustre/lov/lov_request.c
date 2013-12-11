@@ -44,7 +44,6 @@
 
 #include <obd_class.h>
 #include <obd_lov.h>
-#include <obd_ost.h>
 #include <lustre/lustre_idl.h>
 
 #include "lov_internal.h"

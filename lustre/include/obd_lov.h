@@ -36,6 +36,7 @@
 
 #ifndef _OBD_LOV_H__
 #define _OBD_LOV_H__
+#include <obd.h>
 
 #define LOV_DEFAULT_STRIPE_SIZE (1 << LNET_MTU_BITS)
 
