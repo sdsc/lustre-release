@@ -56,7 +56,6 @@
 #include <lustre_mds.h>
 #include <obd_class.h>
 #include <obd_lov.h>
-#include <obd_ost.h>
 #include <lprocfs_status.h>
 #include <lustre_param.h>
 #include <cl_object.h>
