@@ -104,15 +104,25 @@ static bool can_populate_pages(const struct lu_env *env, struct cl_io *io,
  *
  */
 
-static int vvp_io_write_iter_init(const struct lu_env *env,
-				  const struct cl_io_slice *ios)
+static int vvp_io_rw_iter_init(const struct lu_env *env,
+			       const struct cl_io_slice *ios)
 {
-	struct ccc_io *cio = cl2ccc_io(env, ios);
+	struct ll_file_data *fd = cl2ccc_io(env, ios)->cui_fd;
 
-	cl_page_list_init(&cio->u.write.cui_queue);
-	cio->u.write.cui_written = 0;
-	cio->u.write.cui_from = 0;
-	cio->u.write.cui_to = PAGE_SIZE;
+	if (ll_file_nolock(fd->fd_file) ||
+	    (fd->fd_flags & LL_FILE_GROUP_LOCKED) ||
+	    cl_io_is_append(ios->cis_io))
+		ios->cis_io->ci_parallel_io = 1;
+
+
+	if (ios->cis_io->ci_type == CIT_WRITE) {
+		struct ccc_io *cio = cl2ccc_io(env, ios);
+
+		cl_page_list_init(&cio->u.write.cui_queue);
+		cio->u.write.cui_written = 0;
+		cio->u.write.cui_from = 0;
+		cio->u.write.cui_to = PAGE_SIZE;
+	}
 
 	return 0;
 }
@@ -325,9 +335,9 @@ static int vvp_io_rw_lock(const struct lu_env *env, struct cl_io *io,
         if (io->u.ci_rw.crw_nonblock)
                 ast_flags |= CEF_NONBLOCK;
         result = vvp_mmap_locks(env, cio, io);
-        if (result == 0)
-                result = ccc_io_one_lock(env, io, ast_flags, mode, start, end);
-        RETURN(result);
+	if (result == 0 && !ll_file_nolock(cio->cui_fd->fd_file))
+		result = ccc_io_one_lock(env, io, ast_flags, mode, start, end);
+	RETURN(result);
 }
 
 static int vvp_io_read_lock(const struct lu_env *env,
@@ -1096,16 +1106,17 @@ static int vvp_io_read_page(const struct lu_env *env,
 }
 
 static const struct cl_io_operations vvp_io_ops = {
-        .op = {
-                [CIT_READ] = {
-                        .cio_fini      = vvp_io_read_fini,
-                        .cio_lock      = vvp_io_read_lock,
-                        .cio_start     = vvp_io_read_start,
-                        .cio_advance   = ccc_io_advance
-                },
-                [CIT_WRITE] = {
+	.op = {
+		[CIT_READ] = {
+			.cio_fini      = vvp_io_read_fini,
+			.cio_iter_init = vvp_io_rw_iter_init,
+			.cio_lock      = vvp_io_read_lock,
+			.cio_start     = vvp_io_read_start,
+			.cio_advance   = ccc_io_advance
+		},
+		[CIT_WRITE] = {
 			.cio_fini      = vvp_io_fini,
-			.cio_iter_init = vvp_io_write_iter_init,
+			.cio_iter_init = vvp_io_rw_iter_init,
 			.cio_iter_fini = vvp_io_write_iter_fini,
 			.cio_lock      = vvp_io_write_lock,
 			.cio_start     = vvp_io_write_start,

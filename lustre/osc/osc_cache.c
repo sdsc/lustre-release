@@ -1916,19 +1916,18 @@ static int try_to_add_extent_for_io(struct client_obd *cli,
 
 	cfs_list_for_each_entry(tmp, rpclist, oe_link) {
 		EASSERT(tmp->oe_owner == current, tmp);
-#if 0
-		if (overlapped(tmp, ext)) {
-			OSC_EXTENT_DUMP(D_ERROR, tmp, "overlapped %p.\n", ext);
-			EASSERT(0, ext);
-		}
-#endif
 
 		if (tmp->oe_srvlock != ext->oe_srvlock ||
-		    !tmp->oe_grants != !ext->oe_grants)
+		    !tmp->oe_grants != !ext->oe_grants ||
+		    tmp->oe_dio != ext->oe_dio)
 			RETURN(0);
 
-		/* remove break for strict check */
-		break;
+		/* It's possible to have overlap on DIO */
+		if (tmp->oe_dio && overlapped(tmp, ext))
+			RETURN(0);
+
+		if (!ext->oe_dio) /* remove break for strict check */
+			break;
 	}
 
 	*pc += ext->oe_nr_pages;
@@ -2686,6 +2685,7 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 	ext->oe_end = ext->oe_max_end = end;
 	ext->oe_obj = obj;
 	ext->oe_srvlock = !!(brw_flags & OBD_BRW_SRVLOCK);
+	ext->oe_dio = !!(brw_flags & OBD_BRW_NOCACHE);
 	ext->oe_nr_pages = page_count;
 	ext->oe_mppr = mppr;
 	cfs_list_splice_init(list, &ext->oe_pages);
@@ -2702,7 +2702,7 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 	}
 	osc_object_unlock(obj);
 
-	osc_io_unplug(env, cli, obj, PDL_POLICY_ROUND);
+	osc_io_unplug_async(env, cli, obj);
 	RETURN(0);
 }
 
