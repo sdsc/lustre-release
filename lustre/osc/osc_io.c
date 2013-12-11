@@ -130,6 +130,10 @@ static int osc_io_submit(const struct lu_env *env,
 	cmd = crt == CRT_WRITE ? OBD_BRW_WRITE : OBD_BRW_READ;
 	brw_flags = osc_io_srvlock(cl2osc_io(env, ios)) ? OBD_BRW_SRVLOCK : 0;
 
+	page = cl_page_list_first(qin);
+	if (page->cp_type == CPT_TRANSIENT)
+		brw_flags |= OBD_BRW_NOCACHE;
+
         /*
          * NOTE: here @page is a top-level page. This is done to avoid
          *       creation of sub-page-list.
@@ -776,11 +780,6 @@ static void osc_req_attr_set(const struct lu_env *env,
 			     struct cl_req_attr *attr, obd_valid flags)
 {
 	struct lov_oinfo *oinfo;
-	struct cl_req    *clerq;
-	struct cl_page   *apage; /* _some_ page in @clerq */
-	struct cl_lock   *lock;  /* _some_ lock protecting @apage */
-	struct osc_lock  *olck;
-	struct osc_page  *opg;
 	struct obdo      *oa;
 	struct ost_lvb   *lvb;
 
@@ -809,40 +808,44 @@ static void osc_req_attr_set(const struct lu_env *env,
 		oa->o_valid |= OBD_MD_FLID;
 	}
 	if (flags & OBD_MD_FLHANDLE) {
-		struct cl_object *subobj;
+		struct cl_req    *clerq;
+		struct cl_page   *apage; /* _some_ page in @clerq */
+		struct osc_page  *opg;
 
 		clerq = slice->crs_req;
 		LASSERT(!cfs_list_empty(&clerq->crq_pages));
 		apage = container_of(clerq->crq_pages.next,
 				     struct cl_page, cp_flight);
 		opg = osc_cl_page_osc(apage, NULL);
-		subobj = opg->ops_cl.cpl_obj;
-		lock = cl_lock_at_pgoff(env, subobj, osc_index(opg),
-					NULL, 1, 1);
-		if (lock == NULL) {
-			struct cl_object_header *head;
-			struct cl_lock          *scan;
+		if (!opg->ops_srvlock) {
+			struct cl_object *subobj = opg->ops_cl.cpl_obj;
+			struct cl_lock   *lock = NULL;
+			struct osc_lock  *olck;
 
-			head = cl_object_header(subobj);
-                        cfs_list_for_each_entry(scan, &head->coh_locks,
-                                                cll_linkage)
-                                CL_LOCK_DEBUG(D_ERROR, env, scan,
-                                              "no cover page!\n");
-                        CL_PAGE_DEBUG(D_ERROR, env, apage,
-                                      "dump uncover page!\n");
-                        libcfs_debug_dumpstack(NULL);
-                        LBUG();
-                }
+			lock = cl_lock_at_pgoff(env, subobj, osc_index(opg),
+						NULL, 1, 1);
+			if (lock == NULL) {
+				struct cl_object_header *head;
+				struct cl_lock          *scan;
 
-                olck = osc_lock_at(lock);
-                LASSERT(olck != NULL);
-                LASSERT(ergo(opg->ops_srvlock, olck->ols_lock == NULL));
-                /* check for lockless io. */
-                if (olck->ols_lock != NULL) {
-                        oa->o_handle = olck->ols_lock->l_remote_handle;
-                        oa->o_valid |= OBD_MD_FLHANDLE;
-                }
-                cl_lock_put(env, lock);
+				head = cl_object_header(subobj);
+				list_for_each_entry(scan, &head->coh_locks,
+						    cll_linkage)
+					CL_LOCK_DEBUG(D_ERROR, env, scan,
+						      "no cover page!\n");
+				CL_PAGE_DEBUG(D_ERROR, env, apage,
+					      "dump uncover page!\n");
+				libcfs_debug_dumpstack(NULL);
+				LBUG();
+			}
+
+			olck = osc_lock_at(lock);
+			LASSERT(olck != NULL);
+			LASSERT(olck->ols_lock != NULL);
+			oa->o_handle = olck->ols_lock->l_remote_handle;
+			oa->o_valid |= OBD_MD_FLHANDLE;
+			cl_lock_put(env, lock);
+		}
         }
 }
 
@@ -860,6 +863,8 @@ int osc_io_init(const struct lu_env *env,
 
         CL_IO_SLICE_CLEAN(oio, oi_cl);
         cl_io_slice_add(io, &oio->oi_cl, obj, &osc_io_ops);
+	if (io->ci_lockreq == CILR_NEVER)
+		oio->oi_lockless = 1;
         return 0;
 }
 
