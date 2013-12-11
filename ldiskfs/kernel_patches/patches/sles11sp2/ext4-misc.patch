@@ -18,49 +18,30 @@
  /*
   * Codes for operating systems
   */
-@@ -1826,6 +1829,9 @@ extern void ext4_add_groupblocks(handle_
- 				ext4_fsblk_t block, unsigned long count);
- extern int ext4_trim_fs(struct super_block *, struct fstrim_range *);
-
-+extern void ext4_mb_discard_inode_preallocations(struct inode *);
-+
-+
- /* inode.c */
- struct buffer_head *ext4_getblk(handle_t *, struct inode *,
- 						ext4_lblk_t, int, int *);
---- a/fs/ext4/ext4_extents.h
-+++ b/fs/ext4/ext4_extents.h
-@@ -58,6 +58,13 @@
-  */
- #define EXT_STATS_
-
-+/*
-+ * define EXT4_ALLOC_NEEDED to 0 since block bitmap, group desc. and sb
-+ * are now accounted in ext4_ext_calc_credits_for_insert()
-+ */
-+#define EXT4_ALLOC_NEEDED 0
-+#define HAVE_EXT_PREPARE_CB_EXTENT
-+#define HAVE_EXT4_EXT_PBLOCK
-
- /*
-  * ext4_inode has i_block array (60 bytes total).
-@@ -241,6 +248,7 @@ static inline ext4_fsblk_t ext4_ext_pblo
- 	block |= ((ext4_fsblk_t) le16_to_cpu(ex->ee_start_hi) << 31) << 1;
- 	return block;
+@@ -1783,6 +1783,8 @@ extern struct inode * ext4_orphan_get(st
+ extern unsigned long ext4_count_free_inodes(struct super_block *);
+ extern unsigned long ext4_count_dirs(struct super_block *);
+ extern void ext4_check_inodes_bitmap(struct super_block *);
++extern struct buffer_head *ext4_read_inode_bitmap(struct super_block *sb,
++						  ext4_group_t block_group);
+ extern void ext4_mark_bitmap_end(int start_bit, int end_bit, char *bitmap);
+ extern int ext4_init_inode_table(struct super_block *sb,
+ 				 ext4_group_t group, int barrier);
+--- a/fs/ext4/ext4_jbd2.c
++++ b/fs/ext4/ext4_jbd2.c
+@@ -19,6 +19,7 @@ int __ext4_journal_get_write_access(cons
+ 	}
+ 	return err;
  }
-+#define ext_pblock(ex) ext4_ext_pblock(ex)
++EXPORT_SYMBOL(__ext4_journal_get_write_access);
 
  /*
-  * ext4_idx_pblock:
-@@ -287,6 +295,8 @@ extern int ext4_extent_tree_init(handle_
- extern int ext4_ext_calc_credits_for_single_extent(struct inode *inode,
- 						   int num,
- 						   struct ext4_ext_path *path);
-+extern int ext4_ext_calc_credits_for_insert(struct inode *,
-+					    struct ext4_ext_path *);
- extern int ext4_can_extents_be_merged(struct inode *inode,
- 				      struct ext4_extent *ex1,
- 				      struct ext4_extent *ex2);
+  * The ext4 forget function must perform a revoke if we are freeing data
+@@ -150,3 +151,4 @@ int __ext4_handle_dirty_super(const char
+ 		sb->s_dirt = 1;
+ 	return err;
+ }
++EXPORT_SYMBOL(__ext4_handle_dirty_metadata);
 --- a/fs/ext4/ext4_jbd2.h
 +++ b/fs/ext4/ext4_jbd2.h
 @@ -35,6 +35,8 @@
@@ -80,65 +61,29 @@
 
  int
  ext4_mark_iloc_dirty(handle_t *handle,
---- a/fs/ext4/extents.c
-+++ b/fs/ext4/extents.c
-@@ -2205,6 +2205,56 @@ int ext4_ext_calc_credits_for_single_ext
+Index: linux-stage/fs/ext4/extents.c
+===================================================================
+--- linux-stage.orig/fs/ext4/extents.c
++++ linux-stage/fs/ext4/extents.c
+@@ -4488,3 +4537,5 @@ int ext4_fiemap(struct inode *inode, str
+ 
+ 	return error;
  }
-
- /*
-+ * This routine returns max. credits extent tree can consume.
-+ * It should be OK for low-performance paths like ->writepage()
-+ * To allow many writing process to fit a single transaction,
-+ * caller should calculate credits under truncate_mutex and
-+ * pass actual path.
-+ */
-+int ext4_ext_calc_credits_for_insert(struct inode *inode,
-+				     struct ext4_ext_path *path)
-+{
-+	int depth, needed;
 +
-+	if (path) {
-+		/* probably there is space in leaf? */
-+		depth = ext_depth(inode);
-+		if (le16_to_cpu(path[depth].p_hdr->eh_entries)
-+				< le16_to_cpu(path[depth].p_hdr->eh_max))
-+			return 1;
-+	}
-+
-+	/*
-+	 * given 32bit logical block (4294967296 blocks), max. tree
-+	 * can be 4 levels in depth -- 4 * 340^4 == 53453440000.
-+	 * let's also add one more level for imbalance.
-+	 */
-+	depth = 5;
-+
-+	/* allocation of new data block(s) */
-+	needed = 2;
-+
-+	/*
-+	 * tree can be full, so it'd need to grow in depth:
-+	 * we need one credit to modify old root, credits for
-+	 * new root will be added in split accounting
-+	 */
-+	needed += 1;
-+	/*
-+	 * Index split can happen, we'd need:
-+	 *    allocate intermediate indexes (bitmap + group)
-+	 *  + change two blocks at each level, but root (already included)
-+	 */
-+	needed += (depth * 2) + (depth * 2);
-+
-+	/* any allocation modifies superblock */
-+	needed += 1;
-+
-+	return needed;
-+}
-+EXPORT_SYMBOL(ext4_ext_calc_credits_for_insert);
-+
-+/*
-  * How many index/leaf blocks need to change/allocate to modify nrblocks?
-  *
-  * if nrblocks are fit in a single extent (chunk flag is 1), then
++EXPORT_SYMBOL(ext4_mark_inode_dirty);
+Index: linux-stage/fs/ext4/inode.c
+===================================================================
+--- linux-stage.orig/fs/ext4/inode.c
++++ linux-stage/fs/ext4/inode.c
+@@ -5549,6 +5549,8 @@ bad_inode:
+ 	iget_failed(inode);
+ 	return ERR_PTR(ret);
+ }
++EXPORT_SYMBOL(ext4_iget);
++EXPORT_SYMBOL(ext4_get_block);
+ 
+ static int ext4_inode_blocks_set(handle_t *handle,
+ 				struct ext4_inode *raw_inode,
 --- a/fs/ext4/super.c
 +++ b/fs/ext4/super.c
 @@ -1332,12 +1332,14 @@ enum {
@@ -194,3 +139,34 @@
  		default:
  			ext4_msg(sb, KERN_ERR,
  			       "Unrecognized mount option \"%s\" "
+@@ -5208,6 +5211,11 @@ static void __exit ext4_exit_fs(void)
+ 	ext4_exit_pageio();
+ }
+
++EXPORT_SYMBOL(ext4_bread);
++EXPORT_SYMBOL(ext4_journal_start_sb);
++EXPORT_SYMBOL(__ext4_journal_stop);
++EXPORT_SYMBOL(ext4_force_commit);
++
+ MODULE_AUTHOR("Remy Card, Stephen Tweedie, Andrew Morton, Andreas Dilger, Theodore Ts'o and others");
+ MODULE_DESCRIPTION("Fourth Extended Filesystem");
+ MODULE_LICENSE("GPL");
+--- a/fs/ext4/ialloc.c
++++ b/fs/ext4/ialloc.c
+@@ -98,7 +98,7 @@ static unsigned ext4_init_inode_bitmap(s
+  *
+  * Return buffer_head of bitmap on success or NULL.
+  */
+-static struct buffer_head *
++struct buffer_head *
+ ext4_read_inode_bitmap(struct super_block *sb, ext4_group_t block_group)
+ {
+ 	struct ext4_group_desc *desc;
+@@ -163,6 +163,7 @@ ext4_read_inode_bitmap(struct super_bloc
+ 	}
+ 	return bh;
+ }
++EXPORT_SYMBOL(ext4_read_inode_bitmap);
+
+ /*
+  * NOTE! When we get the inode, we're the only people
