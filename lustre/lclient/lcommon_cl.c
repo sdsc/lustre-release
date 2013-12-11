@@ -653,8 +653,8 @@ int ccc_lock_fits_into(const struct lu_env *env,
         else if (need->cld_mode != descr->cld_mode)
                 result = lock->cll_state >= CLS_ENQUEUED;
         else
-                result = 1;
-        RETURN(result);
+		result = !(descr->cld_enq_flags & CEF_NEVER);
+	RETURN(result);
 }
 
 /**
