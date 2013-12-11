@@ -182,6 +182,7 @@ void lov_dump_lmm(int level, void *lmm);
 /* lov_ea.c */
 struct lov_stripe_md *lsm_alloc_plain(__u16 stripe_count, int *size);
 void lsm_free_plain(struct lov_stripe_md *lsm);
+void dump_lsm(unsigned int level, const struct lov_stripe_md *lsm);
 
 /* lproc_lov.c */
 extern struct file_operations lov_proc_target_fops;
