@@ -492,10 +492,14 @@ int mdt_attr_get_lov(struct mdt_thread_info *info,
 
 	buf->lb_buf = ma->ma_lmm;
 	buf->lb_len = ma->ma_lmm_size;
+	CDEBUG(D_INFO, DFID" retrieve lovEA with %p:%d\n",
+	       PFID(mdt_object_fid(o)), ma->ma_lmm, ma->ma_lmm_size);
 	rc = mo_xattr_get(info->mti_env, next, buf, XATTR_NAME_LOV);
 	if (rc > 0) {
 		ma->ma_lmm_size = rc;
 		ma->ma_valid |= MA_LOV;
+		CDEBUG(D_INFO, DFID" got lovEA with %p:%d\n",
+		       PFID(mdt_object_fid(o)), ma->ma_lmm, ma->ma_lmm_size);
 		rc = 0;
 	} else if (rc == -ENODATA) {
 		/* no LOV EA */
@@ -512,6 +516,9 @@ int mdt_attr_get_lov(struct mdt_thread_info *info,
 			if (info->mti_mdt->mdt_max_mdsize < rc)
 				info->mti_mdt->mdt_max_mdsize = rc;
 			rc = 0;
+			CDEBUG(D_INFO, DFID" got big lovEA with %p:%d\n",
+			       PFID(mdt_object_fid(o)), ma->ma_lmm,
+			       ma->ma_lmm_size);
 		}
 	}
 
@@ -697,23 +704,35 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 	}
 
 	buffer->lb_len = reqbody->eadatasize;
-	if (buffer->lb_len > 0)
+	if (buffer->lb_len > 0) {
 		buffer->lb_buf = req_capsule_server_get(pill, &RMF_MDT_MD);
-	else
+		if (buffer->lb_buf == NULL) {
+			CERROR("%s: invalid RPC from %s: rc = %d.\n",
+			       mdt_obd_name(info->mti_mdt),
+			       req->rq_export->exp_client_uuid.uuid, -EFAULT);
+			GOTO(out, rc = -EFAULT);
+		}
+	} else {
 		buffer->lb_buf = NULL;
+		CDEBUG(D_INFO, "%s: RPC from %s: does not need LOVEA.\n",
+		       mdt_obd_name(info->mti_mdt),
+		       req->rq_export->exp_client_uuid.uuid);
+	}
 
-        /* If it is dir object and client require MEA, then we got MEA */
-        if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
-            reqbody->valid & OBD_MD_MEA) {
-                /* Assumption: MDT_MD size is enough for lmv size. */
-                ma->ma_lmv = buffer->lb_buf;
-                ma->ma_lmv_size = buffer->lb_len;
-                ma->ma_need = MA_LMV | MA_INODE;
-        } else {
-                ma->ma_lmm = buffer->lb_buf;
-                ma->ma_lmm_size = buffer->lb_len;
-		ma->ma_need = MA_LOV | MA_INODE | MA_HSM;
-        }
+	/* If it is dir object and client require MEA, then we got MEA */
+	if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
+	    reqbody->valid & OBD_MD_MEA) {
+		/* Assumption: MDT_MD size is enough for lmv size. */
+		ma->ma_lmv = buffer->lb_buf;
+		ma->ma_lmv_size = buffer->lb_len;
+		ma->ma_need = MA_LMV | MA_INODE;
+	} else {
+		ma->ma_lmm = buffer->lb_buf;
+		ma->ma_lmm_size = buffer->lb_len;
+		ma->ma_need = MA_INODE | MA_HSM;
+		if (ma->ma_lmm_size > 0)
+			ma->ma_need |= MA_LOV;
+	}
 
         if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
             reqbody->valid & OBD_MD_FLDIREA  &&
