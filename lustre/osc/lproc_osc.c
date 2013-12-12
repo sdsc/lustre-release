@@ -490,9 +490,15 @@ static int lprocfs_osc_wr_max_pages_per_rpc(struct file *file,
 
 	LPROCFS_CLIMP_CHECK(dev);
 
-	chunk_mask = ~((1 << (cli->cl_chunkbits - PAGE_CACHE_SHIFT)) - 1);
-	/* max_pages_per_rpc must be chunk aligned */
-	val = (val + ~chunk_mask) & chunk_mask;
+	/* if connection is not established yet, cli->cl_chunkbits is
+	 * uninitilized so we cannot use it to check max_pages_per_rpc
+	 * alignment */
+	if (cli->cl_chunkbits >= PAGE_CACHE_SHIFT) {
+		chunk_mask = ~((1 << (cli->cl_chunkbits - PAGE_CACHE_SHIFT))
+			       - 1);
+		/* max_pages_per_rpc must be chunk aligned */
+		val = (val + ~chunk_mask) & chunk_mask;
+	}
 	if (val == 0 || val > ocd->ocd_brw_size >> PAGE_CACHE_SHIFT) {
 		LPROCFS_CLIMP_EXIT(dev);
 		return -ERANGE;
