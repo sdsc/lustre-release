@@ -3290,6 +3290,8 @@ mkfs_opts() {
 
 formatall() {
 	local quiet
+	local devname
+	local fstype
 
 	if ! $VERBOSE; then
 		quiet=yes
@@ -3308,17 +3310,75 @@ formatall() {
 	fi
 
 	for num in $(seq $MDSCOUNT); do
-		echo "Format mds$num: $(mdsdevname $num)"
-		add mds$num $(mkfs_opts mds$num $(mdsdevname ${num})) \
-			--reformat $(mdsdevname $num) $(mdsvdevname $num) \
+		devname=$(mdsdevname $num)
+		fstype=$(facet_fstype mds$num)
+		# mkfs.lustre won't create loopback files automatically, so
+		# check and create here if necessary (LU-3682).
+		echo "devname: $devname, fstype: $fstype"
+		#[ $fstype = "ldiskfs" -a ! -b $devname ] && touch $devname
+		if [ $fstype = "ldiskfs" ]; then
+			stat $devname
+			if [ -e $devname ]; then
+				echo "$devname exists"
+			else
+				echo "$devname does not exist, create it"
+				touch $devname || echo $?
+			fi
+		fi
+		echo "Format mds$num: $devname"
+		add mds$num $(mkfs_opts mds$num $devname) \
+			--reformat $devname $(mdsvdevname $num) \
 			${quiet:+>/dev/null} || exit 10
+		if [ -f $devname ]; then
+			echo "$devname is a regular file"
+		else
+			echo "$devname is not a regular file"
+		fi
+		if [ -b $devname ]; then
+			echo "$devname is a block special file"
+		else
+			echo "$devname is not a block file"
+		fi
+		if [ -L $devname ]; then
+			echo "$devname is a symbolic file"
+		else
+			echo "$devname is not a symbolic file"
+		fi
 	done
 
 	for num in $(seq $OSTCOUNT); do
-		echo "Format ost$num: $(ostdevname $num)"
-		add ost$num $(mkfs_opts ost$num $(ostdevname ${num})) \
-			--reformat $(ostdevname $num) $(ostvdevname ${num}) \
+		devname=$(ostdevname $num)
+		fstype=$(facet_fstype ost$num)
+		echo "devname: $devname, fstype: $fstype"
+		#[ $fstype = "ldiskfs" -a ! -b $devname ] && touch $devname
+		if [ $fstype = "ldiskfs" ]; then
+			stat $devname
+			if [ -e $devname ]; then
+				echo "$devname exists"
+			else
+				echo "$devname does not exist, create it"
+				touch $devname || echo $?
+			fi
+		fi
+		echo "Format ost$num: $devname"
+		add ost$num $(mkfs_opts ost$num $devname) \
+			--reformat $devname $(ostvdevname ${num}) \
 			${quiet:+>/dev/null} || exit 10
+		if [ -f $devname ]; then
+			echo "$devname is a regular file"
+		else
+			echo "$devname is not a regular file"
+		fi
+		if [ -b $devname ]; then
+			echo "$devname is a block special file"
+		else
+			echo "$devname is not a block file"
+		fi
+		if [ -L $devname ]; then
+			echo "$devname is a symbolic file"
+		else
+			echo "$devname is not a symbolic file"
+		fi
 	done
 }
 
