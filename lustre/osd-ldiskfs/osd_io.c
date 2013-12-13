@@ -584,15 +584,16 @@ static unsigned long new_blocks(handle_t *handle, struct inode *inode,
 	return pblock;
 }
 
-static int ldiskfs_ext_new_extent_cb(struct inode *inode,
-				     struct ldiskfs_ext_path *path,
-				     struct ldiskfs_ext_cache *cex,
-#ifdef HAVE_EXT_PREPARE_CB_EXTENT
-				     struct ldiskfs_extent *ex,
-#endif
-				     void *cbdata)
+#define OSD_EXT_CONTINUE 0
+#define OSD_EXT_BREAK 1
+#define OSD_EXT_REPEAT 2
+
+static int osd_ext_new_extent(struct inode *inode,
+			      struct ldiskfs_ext_path *path,
+			      struct ldiskfs_ext_cache *cex,
+			      struct ldiskfs_extent *ex,
+			      struct bpointers *bp)
 {
-	struct bpointers *bp = cbdata;
 	struct ldiskfs_extent nex;
 	unsigned long pblock;
 	unsigned long tgen;
@@ -600,12 +601,8 @@ static int ldiskfs_ext_new_extent_cb(struct inode *inode,
 	unsigned long count;
 	handle_t *handle;
 
-#ifdef LDISKFS_EXT_CACHE_EXTENT /* until kernel 2.6.37 */
-	if (cex->ec_type == LDISKFS_EXT_CACHE_EXTENT) {
-#else
 	if ((cex->ec_len != 0) && (cex->ec_start != 0)) {
-#endif
-		err = EXT_CONTINUE;
+		err = OSD_EXT_CONTINUE;
 		goto map;
 	}
 
@@ -622,8 +619,7 @@ static int ldiskfs_ext_new_extent_cb(struct inode *inode,
 			bp->num--;
 			bp->start++;
 		}
-
-		return EXT_CONTINUE;
+		return OSD_EXT_CONTINUE;
 	}
 
 	tgen = LDISKFS_I(inode)->i_ext_generation;
@@ -637,7 +633,7 @@ static int ldiskfs_ext_new_extent_cb(struct inode *inode,
 	if (tgen != LDISKFS_I(inode)->i_ext_generation) {
 		/* the tree has changed. so path can be invalid at moment */
 		ldiskfs_journal_stop(handle);
-		return EXT_REPEAT;
+		return OSD_EXT_REPEAT;
 	}
 
 	/* In 2.6.32 kernel, ldiskfs_ext_walk_space()'s callback func is not
@@ -650,7 +646,7 @@ static int ldiskfs_ext_new_extent_cb(struct inode *inode,
 		/* cex is invalid, try again */
 		up_write(&LDISKFS_I(inode)->i_data_sem);
 		ldiskfs_journal_stop(handle);
-		return EXT_REPEAT;
+		return OSD_EXT_REPEAT;
 	}
 
 	count = cex->ec_len;
@@ -699,16 +695,9 @@ map:
 			CERROR("hmm. why do we find this extent?\n");
 			CERROR("initial space: %lu:%u\n",
 				bp->start, bp->init_num);
-#ifdef LDISKFS_EXT_CACHE_EXTENT /* until kernel 2.6.37 */
-			CERROR("current extent: %u/%u/%llu %d\n",
-				cex->ec_block, cex->ec_len,
-				(unsigned long long)cex->ec_start,
-				cex->ec_type);
-#else
 			CERROR("current extent: %u/%u/%llu\n",
 				cex->ec_block, cex->ec_len,
 				(unsigned long long)cex->ec_start);
-#endif
 		}
 		i = 0;
 		if (cex->ec_block < bp->start)
@@ -718,11 +707,7 @@ map:
 					i, cex->ec_len);
 		for (; i < cex->ec_len && bp->num; i++) {
 			*(bp->blocks) = cex->ec_start + i;
-#ifdef LDISKFS_EXT_CACHE_EXTENT /* until kernel 2.6.37 */
-			if (cex->ec_type != LDISKFS_EXT_CACHE_EXTENT) {
-#else
 			if ((cex->ec_len == 0) || (cex->ec_start == 0)) {
-#endif
 				/* unmap any possible underlying metadata from
 				 * the block device mapping.  bug 6998. */
 				unmap_underlying_metadata(inode->i_sb->s_bdev,
@@ -733,6 +718,126 @@ map:
 			bp->start++;
 		}
 	}
+	return err;
+}
+
+int osd_ext_walk_space(struct inode *inode, unsigned long block,
+		       unsigned long num, struct bpointers *data)
+{
+	struct ldiskfs_ext_path *path = NULL;
+	struct ldiskfs_ext_cache cbex;
+	struct ldiskfs_extent _ex, *ex;
+	unsigned long next, start = 0, end = 0;
+	unsigned long last = block + num;
+	int depth, exists, err = 0;
+
+	BUG_ON(inode == NULL);
+
+	while (block < last && block != EXT_MAX_BLOCKS) {
+		num = last - block;
+		/* find extent for this block */
+		down_read(&LDISKFS_I(inode)->i_data_sem);
+		path = ldiskfs_ext_find_extent(inode, block, path);
+		if (IS_ERR(path)) {
+			up_read(&LDISKFS_I(inode)->i_data_sem);
+			err = PTR_ERR(path);
+			path = NULL;
+			break;
+		}
+		path[0].p_generation = LDISKFS_I(inode)->i_ext_generation;
+
+		depth = ext_depth(inode);
+		if (unlikely(path[depth].p_hdr == NULL)) {
+			up_read(&LDISKFS_I(inode)->i_data_sem);
+			LDISKFS_ERROR_INODE(inode, "path[%d].p_hdr == NULL", depth);
+			err = -EIO;
+			break;
+		}
+		ex = NULL;
+		if (path[depth].p_ext) {
+			_ex = *path[depth].p_ext;
+			ex = &_ex;
+		}
+		next = ldiskfs_ext_next_allocated_block(path);
+		up_read(&LDISKFS_I(inode)->i_data_sem);
+
+		exists = 0;
+		if (!ex) {
+			/* there is no extent yet, so try to allocate
+			 * all requested space */
+			start = block;
+			end = block + num;
+		} else if (le32_to_cpu(ex->ee_block) > block) {
+			/* need to allocate space before found extent */
+			start = block;
+			end = le32_to_cpu(ex->ee_block);
+			if (block + num < end)
+				end = block + num;
+		} else if (block >= le32_to_cpu(ex->ee_block)
+					+ ldiskfs_ext_get_actual_len(ex)) {
+			/* need to allocate space after found extent */
+			start = block;
+			end = block + num;
+			if (end >= next)
+				end = next;
+		} else if (block >= le32_to_cpu(ex->ee_block)) {
+			/*
+			 * some part of requested space is covered
+			 * by found extent
+			 */
+			start = block;
+			end = le32_to_cpu(ex->ee_block)
+				+ ldiskfs_ext_get_actual_len(ex);
+			if (block + num < end)
+				end = block + num;
+			exists = 1;
+		} else {
+			LBUG();
+		}
+		BUG_ON(end <= start);
+
+		if (!exists) {
+			cbex.ec_block = start;
+			cbex.ec_len = end - start;
+			cbex.ec_start = 0;
+		} else {
+			cbex.ec_block = le32_to_cpu(ex->ee_block);
+			cbex.ec_len = ldiskfs_ext_get_actual_len(ex);
+			cbex.ec_start = ldiskfs_ext_pblock(ex);
+		}
+
+		if (unlikely(cbex.ec_len == 0)) {
+			LDISKFS_ERROR_INODE(inode, "cbex.ec_len == 0");
+			err = -EIO;
+			break;
+		}
+		err = osd_ext_new_extent(inode, path, &cbex, ex, data);
+		ldiskfs_ext_drop_refs(path);
+
+		if (err < 0)
+			break;
+
+		if (err == OSD_EXT_REPEAT)
+			continue;
+		else if (err == OSD_EXT_BREAK) {
+			err = 0;
+			break;
+		}
+
+		if (ext_depth(inode) != depth) {
+			/* depth was changed. we have to realloc path */
+			kfree(path);
+			path = NULL;
+		}
+
+		block = cbex.ec_block + cbex.ec_len;
+	}
+
+	if (path) {
+		ldiskfs_ext_drop_refs(path);
+		kfree(path);
+	}
+
 	return err;
 }
 
@@ -751,8 +856,7 @@ int osd_ldiskfs_map_nblocks(struct inode *inode, unsigned long block,
 	bp.init_num = bp.num = num;
 	bp.create = create;
 
-	err = ldiskfs_ext_walk_space(inode, block, num,
-					 ldiskfs_ext_new_extent_cb, &bp);
+	err = osd_ext_walk_space(inode, block, num, &bp);
 	ldiskfs_ext_invalidate_cache(inode);
 
 	return err;
