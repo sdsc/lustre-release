@@ -371,6 +371,8 @@ static int ll_intent_file_open(struct file *file, void *lmm,
                         opc = LUSTRE_OPC_CREATE;
         }
 
+        itp->it_flags |= MDS_OPEN_BY_FID;
+
         op_data  = ll_prep_md_op_data(NULL, parent->d_inode,
                                       file->f_dentry->d_inode, name, len,
                                       O_RDWR, opc, NULL);
