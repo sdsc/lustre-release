@@ -1318,8 +1318,9 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                 }
                 CDEBUG(D_INFO, "Open replay did find object, continue as "
                        "regular open\n");
-        } else if (rr->rr_namelen == 0 && !info->mti_cross_ref &&
-                   create_flags & MDS_OPEN_LOCK) {
+        } else if ((rr->rr_namelen == 0 && !info->mti_cross_ref &&
+                    (create_flags & MDS_OPEN_LOCK)) ||
+                   (create_flags & MDS_OPEN_BY_FID)) {
                 result = mdt_open_anon_by_fid(info, ldlm_rep, lhc);
 		/* If result is 0 then open by FID has found the file
 		 * and there is nothing left for us to do here.  More
