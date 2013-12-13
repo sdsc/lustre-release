@@ -34,10 +34,6 @@ FAIL_ON_ERROR=false
 [ $MDSCOUNT -gt 9 ] &&
 	error "script cannot handle more than 9 MDTs, please fix" && exit
 
-[ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
-# bug number for skipped test:        LU-3700
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 51b"
-
 check_and_setup_lustre
 
 if [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.53) ]]; then
@@ -478,7 +474,7 @@ copy_file() {
 
 make_small() {
         local file2=${1/$DIR/$DIR2}
-        dd if=/dev/urandom of=$file2 count=2 bs=1M conv=fsync ||
+        dd if=/dev/urandom of=$file2 count=2 bs=1M oflag=sync ||
 		error "cannot create $file2"
         path2fid $1 || error "cannot get fid on $1"
 }
@@ -1346,6 +1342,10 @@ test_21() {
 	# Create a file and check its states
 	local fid=$(make_small $f)
 	check_hsm_flags $f "0x00000000"
+
+	# ZFS does not report full number of blocks used untill file
+	# is flushed to disk
+	[  $(facet_fstype ost1) == "zfs" ] && cancel_lru_locks osc
 
 	local orig_size=$(stat -c "%s" $f)
 	local orig_blocks=$(stat -c "%b" $f)
