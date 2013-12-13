@@ -739,9 +739,13 @@ int mgs_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                         GOTO(out_free, rc = -EINVAL);
 
 		rc = mgs_setparam(&env, mgs, lcfg, mgi->mgi_fsname);
-		if (rc)
+		if (rc < 0)
 			CERROR("%s: setparam err: rc = %d\n",
 			       exp->exp_obd->obd_name, rc);
+		else if (rc > 0)
+			CDEBUG(D_INFO, "%s: setparam return: rc = %d\n",
+				exp->exp_obd->obd_name, rc);
+
 out_free:
                 OBD_FREE(lcfg, data->ioc_plen1);
 		break;
