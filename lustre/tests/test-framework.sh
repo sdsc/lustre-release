@@ -3290,6 +3290,9 @@ mkfs_opts() {
 
 formatall() {
 	local quiet
+	local devname
+	local fstype
+	local rc
 
 	if ! $VERBOSE; then
 		quiet=yes
@@ -3308,16 +3311,28 @@ formatall() {
 	fi
 
 	for num in $(seq $MDSCOUNT); do
-		echo "Format mds$num: $(mdsdevname $num)"
-		add mds$num $(mkfs_opts mds$num $(mdsdevname ${num})) \
-			--reformat $(mdsdevname $num) $(mdsvdevname $num) \
+		devname=$(mdsdevname $num)
+		fstype=$(facet_fstype mds$num)
+		# mkfs.lustre won't create loopback files automatically, so
+		# check and create here if necessary (LU-3682).
+		echo "devname: $devname, fstype: $fstype"
+		[ $fstype = "ldiskfs" ] &&
+			do_facet mds$num "[ -e $devname ] || touch $devname"
+		echo "Format mds$num: $devname"
+		add mds$num $(mkfs_opts mds$num $devname) \
+			--reformat $devname $(mdsvdevname $num) \
 			${quiet:+>/dev/null} || exit 10
 	done
 
 	for num in $(seq $OSTCOUNT); do
-		echo "Format ost$num: $(ostdevname $num)"
-		add ost$num $(mkfs_opts ost$num $(ostdevname ${num})) \
-			--reformat $(ostdevname $num) $(ostvdevname ${num}) \
+		devname=$(ostdevname $num)
+		fstype=$(facet_fstype ost$num)
+		echo "devname: $devname, fstype: $fstype"
+		[ $fstype = "ldiskfs" ] &&
+			do_facet ost$num "[ -e $devname ] || touch $devname"
+		echo "Format ost$num: $devname"
+		add ost$num $(mkfs_opts ost$num $devname) \
+			--reformat $devname $(ostvdevname ${num}) \
 			${quiet:+>/dev/null} || exit 10
 	done
 }
