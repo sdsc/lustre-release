@@ -34,10 +34,6 @@ FAIL_ON_ERROR=false
 [ $MDSCOUNT -gt 9 ] &&
 	error "script cannot handle more than 9 MDTs, please fix" && exit
 
-[ $(facet_fstype $SINGLEMDS) = "zfs" ] &&
-# bug number for skipped test:        LU-3700
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 51b"
-
 check_and_setup_lustre
 
 if [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.53) ]]; then
@@ -1356,7 +1352,7 @@ test_21() {
 	wait_request_state $fid ARCHIVE SUCCEED
 
 	local blocks=$(stat -c "%b" $f)
-	[ $blocks -eq $orig_blocks ] ||
+	[ $(facet_fstype ost1) != "zfs" ] && [ $blocks -eq $orig_blocks ] ||
 		error "$f: wrong block number after archive: " \
 		      "$blocks != $orig_blocks"
 	local size=$(stat -c "%s" $f)
@@ -1368,7 +1364,7 @@ test_21() {
 	check_hsm_flags $f "0x0000000d"
 
 	blocks=$(stat -c "%b" $f)
-	[ $blocks -gt 5 ] &&
+	[ $(facet_fstype ost1) != "zfs" ] && [ $blocks -gt 5 ] &&
 		error "$f: too many blocks after release: $blocks > 5"
 	size=$(stat -c "%s" $f)
 	[ $size -ne $orig_size ] &&
