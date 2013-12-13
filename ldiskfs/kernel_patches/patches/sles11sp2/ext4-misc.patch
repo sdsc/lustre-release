@@ -52,12 +52,13 @@
 
  /*
   * ext4_idx_pblock:
-@@ -287,6 +295,8 @@ extern int ext4_extent_tree_init(handle_
+@@ -287,6 +295,9 @@ extern int ext4_extent_tree_init(handle_
  extern int ext4_ext_calc_credits_for_single_extent(struct inode *inode,
  						   int num,
  						   struct ext4_ext_path *path);
 +extern int ext4_ext_calc_credits_for_insert(struct inode *,
 +					    struct ext4_ext_path *);
++extern ext4_lblk_t ext4_ext_next_allocated_block(struct ext4_ext_path *path);
  extern int ext4_can_extents_be_merged(struct inode *inode,
  				      struct ext4_extent *ex1,
  				      struct ext4_extent *ex2);
@@ -82,6 +83,15 @@
  ext4_mark_iloc_dirty(handle_t *handle,
 --- a/fs/ext4/extents.c
 +++ b/fs/ext4/extents.c
+@@ -1200,7 +1200,7 @@
+  * allocated block. Thus, index entries have to be consistent
+  * with leaves.
+  */
+-static ext4_lblk_t
++ext4_lblk_t
+ ext4_ext_next_allocated_block(struct ext4_ext_path *path)
+ {
+ 	int depth;
 @@ -2205,6 +2205,56 @@ int ext4_ext_calc_credits_for_single_ext
  }
 
