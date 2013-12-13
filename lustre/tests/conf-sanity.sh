@@ -1534,7 +1534,7 @@ t32_test() {
 	echo "    Arch: $img_arch"
 
 	local version=$(version_code $img_commit)
-	[[ $version -gt $(version_code 2.4.0) ]] && ff_convert="no"
+	[[ $version -ge $(version_code 2.5.0) ]] && ff_convert="no"
 
 	$r $LCTL set_param debug="$PTLDEBUG"
 
