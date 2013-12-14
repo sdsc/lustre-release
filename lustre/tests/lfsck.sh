@@ -189,6 +189,11 @@ init_logging
 get_svr_devs
 
 TESTDIR=$DIR/d0.$TESTSUITE
+# DNE is not supported, so when running on a DNE filesystem,
+# we only pass master MDS parameters.
+MDTNODE=$(facet_active_host $SINGLEMDS)
+MDTDEV=$(echo $(get_mnt_devs $MDTNODE mdt) | awk '{print $1}')
+
 if is_empty_fs $MOUNT; then
 	# create test directory
 	mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
@@ -236,7 +241,7 @@ fi
 # Test 1a - check and repair the filesystem
 # lfsck will return 1 if the filesystem had errors fixed
 # run e2fsck to generate databases used for lfsck
-generate_db
+generate_db $MDTNODE $MDTDEV
 
 # remount filesystem
 ORIG_REFORMAT=$REFORMAT
@@ -256,7 +261,7 @@ else
 	sync; sync; sleep 3
 
 	# run e2fsck again to generate databases used for lfsck
-	generate_db
+	generate_db $MDTNODE $MDTDEV
 
 	# run lfsck again
 	rc=0
