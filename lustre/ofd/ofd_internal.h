@@ -420,7 +420,7 @@ int ofd_attr_handle_ugid(const struct lu_env *env, struct ofd_object *fo,
 static inline
 struct ofd_object *ofd_object_find_exists(const struct lu_env *env,
 					  struct ofd_device *ofd,
-					  struct lu_fid *fid)
+					  const struct lu_fid *fid)
 {
 	struct ofd_object *fo;
 

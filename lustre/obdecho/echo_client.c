@@ -2821,6 +2821,8 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 
 	tsi = tgt_ses_info(env);
 	tsi->tsi_exp = ec->ec_exp;
+	LASSERT((exp_connect_flags(ec->ec_exp) & OBD_CONNECT_JOBSTATS) == 0);
+	tsi->tsi_jobid = NULL;
 #endif
         switch (cmd) {
         case OBD_IOC_CREATE:                    /* may create echo object */
