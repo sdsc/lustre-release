@@ -1398,13 +1398,9 @@ int out_handle(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	object_update_reply_init(reply, count);
 	tti->tti_u.update.tti_update_reply = reply;
-
-	rc = out_tx_start(env, dt, ta, tsi->tsi_exp);
-	if (rc != 0)
-		RETURN(rc);
-
 	tti->tti_mult_trans = !req_is_replay(tgt_ses_req(tsi));
 
+	memset(ta, 0, sizeof(*ta));
 	/* Walk through updates in the request to execute them synchronously */
 	for (i = 0; i < count; i++) {
 		struct tgt_handler	*h;
@@ -1416,21 +1412,6 @@ int out_handle(struct tgt_session_info *tsi)
 
 		if (ptlrpc_req_need_swab(pill->rc_req))
 			lustre_swab_object_update(update);
-
-		if (old_batchid == -1) {
-			old_batchid = update->ou_batchid;
-		} else if (old_batchid != update->ou_batchid) {
-			/* Stop the current update transaction,
-			 * create a new one */
-			rc = out_tx_end(env, ta);
-			if (rc < 0)
-				RETURN(rc);
-
-			rc = out_tx_start(env, dt, ta, tsi->tsi_exp);
-			if (rc != 0)
-				RETURN(rc);
-			old_batchid = update->ou_batchid;
-		}
 
 		if (!fid_is_sane(&update->ou_fid)) {
 			CERROR("%s: invalid FID "DFID": rc = %d\n",
@@ -1448,33 +1429,54 @@ int out_handle(struct tgt_session_info *tsi)
 		tti->tti_u.update.tti_update_reply_index = i;
 
 		h = out_handler_find(update->ou_type);
-		if (likely(h != NULL)) {
-			/* For real modification RPC, check if the update
-			 * has been executed */
-			if (h->th_flags & MUTABOR) {
-				struct ptlrpc_request *req = tgt_ses_req(tsi);
-
-				if (out_check_resent(env, dt, dt_obj, req,
-						     out_reconstruct, reply, i))
-					GOTO(next, rc);
-			}
-
-			rc = h->th_act(tsi);
-		} else {
-			CERROR("%s: The unsupported opc: 0x%x\n",
+		if (unlikely(h == NULL)) {
+			CERROR("%s: unsupported opc: 0x%x\n",
 			       tgt_name(tsi->tsi_tgt), update->ou_type);
-			lu_object_put(env, &dt_obj->do_lu);
-			GOTO(out, rc = -ENOTSUPP);
+			GOTO(next, rc = -ENOTSUPP);
 		}
+
+		/* For real modification RPC, start transaction and check if
+		 * the update has been executed */
+		if (h->th_flags & MUTABOR) {
+			struct ptlrpc_request *req = tgt_ses_req(tsi);
+
+			if (old_batchid == -1) {
+				old_batchid = update->ou_batchid;
+				rc = out_tx_start(env, dt, ta, tsi->tsi_exp);
+				if (rc < 0)
+					GOTO(next, rc);
+			} else if (old_batchid != update->ou_batchid) {
+				/* Stop the current update transaction,
+				 * create a new one */
+				rc = out_tx_end(env, ta);
+				if (rc != 0)
+					GOTO(next, rc);
+
+				rc = out_tx_start(env, dt, ta, tsi->tsi_exp);
+				if (rc != 0)
+					GOTO(next, rc);
+
+				old_batchid = update->ou_batchid;
+			}
+			if (out_check_resent(env, dt, dt_obj, req,
+					     out_reconstruct, reply,
+					     i))
+				GOTO(next, rc);
+		}
+
+		rc = h->th_act(tsi);
 next:
 		lu_object_put(env, &dt_obj->do_lu);
 		if (rc < 0)
 			GOTO(out, rc);
 	}
 out:
-	rc1 = out_tx_end(env, ta);
-	if (rc == 0)
-		rc = rc1;
+	if (ta->ta_handle != NULL) {
+		rc1 = out_tx_end(env, ta);
+		if (rc == 0)
+			rc = rc1;
+	}
+
 	RETURN(rc);
 }
 
