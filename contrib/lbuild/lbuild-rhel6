@@ -46,7 +46,8 @@ ApplyOptionalPatch linux-%{version}-lustre.patch\
 
 unpack_linux_devel_rpm-rhel6() {
     local callers_rpm="$1"
-
+    #XXX temporary hacking
+    [[ $lnxrel = "431.1.2.el6" ]] && lnxrel="431.1.2.0.1.el6"
     unpack_linux_devel_rpm-rhel "$callers_rpm"
 
 
@@ -69,6 +70,9 @@ find_linux_rpm-rhel6() {
     local prefix="$1"
     local wanted_kernel="$2"
     local pathtorpms=${3:-"${KERNELRPMSBASE}/${lnxmaj}/${DISTRO}/${TARGET_ARCH}"}
+    #XXXX hacking
+    [[ $wanted_kernel = 2.6.32-431.1.2.el6 ]] && [[ $prefix = "-devel" ]] &&
+        wanted_kernel="2.6.32-431.1.2.0.1.el6"
 
     find_linux_rpm-rhel "$prefix" "$wanted_kernel" "$pathtorpms"
 
