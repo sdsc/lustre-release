@@ -1,0 +1,12 @@
+Verified+1: Jenkins
+Code-Review+2: Oleg Drokin <oleg.drokin@intel.com>
+Code-Review+1: Mike Pershin <mike.pershin@intel.com>
+Verified+1: Maloo <hpdd-maloo@intel.com>
+Code-Review+1: John L. Hammond <john.hammond@intel.com>
+Code-Review+1: Aurelien Degremont <aurelien.degremont@cea.fr>
+Code-Review+1: Faccini Bruno <bruno.faccini@intel.com>
+Submitted-by: Oleg Drokin <oleg.drokin@intel.com>
+Submitted-at: Wed, 18 Dec 2013 07:28:59 +0000
+Reviewed-on: http://review.whamcloud.com/7879
+Project: fs/lustre-release
+Branch: refs/heads/master
