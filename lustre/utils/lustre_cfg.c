@@ -582,7 +582,7 @@ int jt_lcfg_mgsparam(int argc, char **argv)
         struct lustre_cfg *lcfg;
         char *buf = NULL;
 
-#if LUSTRE_VERSION >= OBD_OCD_VERSION(2,7,53,0)
+#if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2, 7, 53, 0)
 	fprintf(stderr, "warning: 'lctl conf_param' is deprecated, "
 		"use 'lctl set_param -P' instead\n");
 #endif
@@ -732,24 +732,21 @@ static void clean_path(char *path)
  * Path support is deprecated.
  * If a path is supplied it must begin with /proc.  */
 static void lprocfs_param_pattern(const char *cmd, const char *path, char *buf,
-        size_t buf_size)
+				  size_t buf_size)
 {
-        /* test path to see if it begins with '/proc/' */
-        if (strncmp(path, "/proc/", strlen("/proc/")) == 0) {
-                static int warned;
-                if (!warned) {
-                        fprintf(stderr, "%s: specifying parameters via "
-                                "full paths is deprecated.\n", cmd);
-#if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2, 6, 50, 0)
-#warning "remove deprecated full path tunable access"
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 6, 53, 0)
+	/* test path to see if it begins with '/proc/' */
+	if (strncmp(path, "/proc/", strlen("/proc/")) == 0) {
+		static int warned;
+		if (!warned) {
+			fprintf(stderr, "%s: specifying parameters via "
+				"full paths is deprecated.\n", cmd);
+			warned = 1;
+		}
+		snprintf(buf, buf_size, "%s", path);
+	} else
 #endif
-                        warned = 1;
-                }
-                snprintf(buf, buf_size, "%s", path);
-        } else {
-                snprintf(buf, buf_size, "/proc/{fs,sys}/{lnet,lustre}/%s",
-                        path);
-        }
+	snprintf(buf, buf_size, "/proc/{fs,sys}/{lnet,lustre}/%s", path);
 }
 
 static int listparam_cmdline(int argc, char **argv, struct param_opts *popt)
