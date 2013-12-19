@@ -1500,7 +1500,8 @@ static int ofd_sync_hdl(struct tgt_session_info *tsi)
 	}
 
 	rc = tgt_sync(tsi->tsi_env, tsi->tsi_tgt,
-		      fo != NULL ? ofd_object_child(fo) : NULL);
+		      fo != NULL ? ofd_object_child(fo) : NULL,
+		      repbody->o_size, repbody->o_blocks);
 	if (rc)
 		GOTO(put, rc);
 
