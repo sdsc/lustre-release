@@ -60,17 +60,6 @@
 #define filp_poff(f)					\
 	(&(f)->f_pos)
 
-#ifdef HAVE_FILE_FSYNC_4ARGS
-# define do_fsync(fp, flag)				\
-	((fp)->f_op->fsync(fp, 0, LLONG_MAX, flag))
-#elif defined(HAVE_FILE_FSYNC_2ARGS)
-# define do_fsync(fp, flag)				\
-	((fp)->f_op->fsync(fp, flag))
-#else
-# define do_fsync(fp, flag)				\
-	((fp)->f_op->fsync(fp, (fp)->f_dentry, flag))
-#endif
-
 #define filp_read(fp, buf, size, pos)			\
 	((fp)->f_op->read((fp), (buf), (size), pos))
 
