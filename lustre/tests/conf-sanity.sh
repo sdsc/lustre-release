@@ -4087,7 +4087,7 @@ test_69() {
 		error "createmany: failed to create $num_create files: $?"
 	# delete all of the files with objects on OST0 so the
 	# filesystem is not inconsistent later on
-	$LFS find $MOUNT --ost 0 | xargs rm
+	$LFS find $MOUNT --ost 0 -print0 | xargs -0 rm
 
 	stop_ost || error "OST0 stop failure"
 	add ost1 $(mkfs_opts ost1 $(ostdevname 1)) --reformat --replace \
