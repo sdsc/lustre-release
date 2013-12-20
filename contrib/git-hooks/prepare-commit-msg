@@ -30,5 +30,9 @@ grep -qs "^$SIGNOFF" "$1" || echo "# $SIGNOFF" >> "$1"
 # yet, until there is more certainty that it is working correctly.
 echo "" >> "$1"
 echo "#" >> "$1"
-git diff --cached | $CHECKPATCH $CHECKPATCH_OPTS - | sed -e 's/^/# /' >> "$1"
-echo "# vim:textwidth=70:" >> "$1"
+[ -d ".git/rebase-apply" -o -d ".git/rebase-merge" ] &&
+	DIFFOPT="HEAD" || DIFFOPT="--cached"
+git diff $DIFFOPT | $CHECKPATCH $CHECKPATCH_OPTS - | sed -e 's/^/# /' >> "$1"
+
+# extra "" so Vim doesn't try to parse it when editing this script
+echo "# vim"":textwidth=70:" >> "$1"
