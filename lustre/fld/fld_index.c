@@ -68,14 +68,14 @@ static const struct lu_seq_range IGIF_FLD_RANGE = {
 	.lsr_start = FID_SEQ_IGIF,
 	.lsr_end   = FID_SEQ_IGIF_MAX + 1,
 	.lsr_index = 0,
-	.lsr_flags = LU_SEQ_RANGE_MDT
+	.lsr_flags = LU_SEQ_RANGE_MDT & LU_SEQ_RANGE_MASK
 };
 
 static const struct lu_seq_range ROOT_FLD_RANGE = {
 	.lsr_start = FID_SEQ_ROOT,
 	.lsr_end   = FID_SEQ_ROOT + 1,
 	.lsr_index = 0,
-	.lsr_flags = LU_SEQ_RANGE_MDT
+	.lsr_flags = LU_SEQ_RANGE_MDT & LU_SEQ_RANGE_MASK
 };
 
 const struct dt_index_features fld_index_features = {
