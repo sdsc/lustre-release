@@ -436,8 +436,16 @@ download_srpm() {
                [ ! -s "$KERNELDIR/$srpm" ]; then
                 rm -f $KERNELDIR/$srpm
                 # punt to a distro specific method if it exists
-                if ! type -p download_srpm-$DISTRO; then
-                    fatal 1 "Could not download target $target's kernel SRPM $srpm from $location."
+		if ! type -p download_srpm-$DISTRO; then
+		    if type -p alt_kernel_srpm_locaction; then
+			local alt_location=$(alt_kernel_srpm_location)
+			echo "Downloading $alt_location/$srpm..."
+	                if ! fetch_url "$alt_location/$srpm" "$KERNELDIR/$srpm" 2>&1; then
+			    fatal 1 "Could not download target $target's kernel SRPM from $location or $alt_location."
+			fi
+		    else
+			fatal 1 "Could not download target $target's kernel SRPM $srpm from $location."
+		    fi
                 else
                     if ! download_srpm-$DISTRO "$target" "$srpm" "$force"; then
                         fatal 1 "Could not download target $target's kernel SRPM $srpm using download_srpm-$DISTRO."
