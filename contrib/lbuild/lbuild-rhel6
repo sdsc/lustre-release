@@ -79,3 +79,9 @@ kernel_srpm_location() {
     echo "http://ftp.redhat.com/pub/redhat/linux/enterprise/6Server/en/os/SRPMS/"
 
 }
+
+alt_kernel_srpm_location() {
+
+    echo "http://vault.centos.org/6.5/updates/Source/SPackages/"
+
+}
