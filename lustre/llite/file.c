@@ -705,8 +705,7 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
 
         oinfo.oi_md = lsm;
         oinfo.oi_oa = obdo;
-        oinfo.oi_oa->o_id = lsm->lsm_object_id;
-        oinfo.oi_oa->o_seq = lsm->lsm_object_seq;
+	oinfo.oi_oa->o_oi = lsm->lsm_oi;
         oinfo.oi_oa->o_mode = S_IFREG;
         oinfo.oi_oa->o_ioepoch = ioepoch;
         oinfo.oi_oa->o_valid = OBD_MD_FLID | OBD_MD_FLTYPE |

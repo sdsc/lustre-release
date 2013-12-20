@@ -282,8 +282,7 @@ int llu_objects_destroy(struct ptlrpc_request *req, struct inode *dir)
         if (oa == NULL)
                 GOTO(out_free_memmd, rc = -ENOMEM);
 
-        oa->o_id = lsm->lsm_object_id;
-        oa->o_seq = lsm->lsm_object_seq;
+	oa->o_oi = lsm->lsm_oi;
         oa->o_mode = body->mode & S_IFMT;
         oa->o_valid = OBD_MD_FLID | OBD_MD_FLTYPE | OBD_MD_FLGROUP;
         obdo_set_parent_fid(oa, &llu_i2info(dir)->lli_fid);

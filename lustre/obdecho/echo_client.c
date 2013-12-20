@@ -2279,14 +2279,14 @@ static int echo_create_object(const struct lu_env *env, struct echo_device *ed,
 
                 idx = cfs_rand();
 
-                /* setup stripes: indices + default ids if required */
-                for (i = 0; i < lsm->lsm_stripe_count; i++) {
-                        if (lsm->lsm_oinfo[i]->loi_id == 0)
-                                lsm->lsm_oinfo[i]->loi_id = lsm->lsm_object_id;
+		/* setup stripes: indices + default ids if required */
+		for (i = 0; i < lsm->lsm_stripe_count; i++) {
+			if (lsm->lsm_oinfo[i]->loi_id == 0)
+				lsm->lsm_oinfo[i]->loi_oi = lsm->lsm_oi;
 
-                        lsm->lsm_oinfo[i]->loi_ost_idx =
-                                (idx + i) % ec->ec_nstripes;
-                }
+			lsm->lsm_oinfo[i]->loi_ost_idx =
+				(idx + i) % ec->ec_nstripes;
+		}
         }
 
         /* setup object ID here for !on_target and LOV hint */

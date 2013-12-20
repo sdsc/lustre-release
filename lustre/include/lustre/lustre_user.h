@@ -109,6 +109,20 @@ struct obd_statfs {
         __u32           os_spare9;
 };
 
+typedef __u64 obd_id;
+typedef __u64 obd_seq;
+
+/**
+ * OST object IDentifier.
+ */
+struct ost_id {
+	obd_id	oi_id;
+	obd_seq	oi_seq;
+};
+
+#define DOSTID LPU64":"LPX64
+#define POSTID(oi) (oi)->oi_id, (oi)->oi_seq
+
 /**
  * File IDentifier.
  *
@@ -272,45 +286,46 @@ typedef struct lu_fid lustre_fid;
 
 #define lov_user_ost_data lov_user_ost_data_v1
 struct lov_user_ost_data_v1 {     /* per-stripe data structure */
-        __u64 l_object_id;        /* OST object ID */
-        __u64 l_object_seq;       /* OST object seq number */
-        __u32 l_ost_gen;          /* generation of this OST index */
-        __u32 l_ost_idx;          /* OST index in LOV */
+	struct ost_id l_ost_oi;	  /* OST object ID */
+	__u32 l_ost_gen;          /* generation of this OST index */
+	__u32 l_ost_idx;          /* OST index in LOV */
 } __attribute__((packed));
+#define l_object_id	l_ost_oi.oi_id
+#define l_object_seq	l_ost_oi.oi_seq
 
 #define lov_user_md lov_user_md_v1
 #define lmm_stripe_offset u.lum_stripe_offset
 struct lov_user_md_v1 {           /* LOV EA user data (host-endian) */
-        __u32 lmm_magic;          /* magic number = LOV_USER_MAGIC_V1 */
-        __u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
-        __u64 lmm_object_id;      /* LOV object ID */
-        __u64 lmm_object_seq;     /* LOV object seq */
-        __u32 lmm_stripe_size;    /* size of stripe in bytes */
-        __u16 lmm_stripe_count;   /* num stripes in use for this object */
-        union {
-                __u16 lum_stripe_offset;  /* starting stripe offset in
-                                           * lmm_objects, use when writing */
-                __u16 lum_layout_gen;     /* layout generation number
-                                           * used when reading */
-        } u;
-        struct lov_user_ost_data_v1 lmm_objects[0]; /* per-stripe data */
+	__u32 lmm_magic;          /* magic number = LOV_USER_MAGIC_V1 */
+	__u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
+	struct ost_id lmm_oi;	  /* LOV object ID */
+	__u32 lmm_stripe_size;    /* size of stripe in bytes */
+	__u16 lmm_stripe_count;   /* num stripes in use for this object */
+	union {
+		__u16 lum_stripe_offset;  /* starting stripe offset in
+					   * lmm_objects, use when writing */
+		__u16 lum_layout_gen;     /* layout generation number
+					   * used when reading */
+	} u;
+	struct lov_user_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 } __attribute__((packed,  __may_alias__));
+#define lmm_object_id	lmm_oi.oi_id
+#define lmm_object_seq	lmm_oi.oi_seq
 
 struct lov_user_md_v3 {           /* LOV EA user data (host-endian) */
-        __u32 lmm_magic;          /* magic number = LOV_USER_MAGIC_V3 */
-        __u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
-        __u64 lmm_object_id;      /* LOV object ID */
-        __u64 lmm_object_seq;     /* LOV object seq */
-        __u32 lmm_stripe_size;    /* size of stripe in bytes */
-        __u16 lmm_stripe_count;   /* num stripes in use for this object */
-        union {
-                __u16 lum_stripe_offset;  /* starting stripe offset in
-                                           * lmm_objects, use when writing */
-                __u16 lum_layout_gen;     /* layout generation number
-                                           * used when reading */
-        } u;
-        char  lmm_pool_name[LOV_MAXPOOLNAME]; /* pool name */
-        struct lov_user_ost_data_v1 lmm_objects[0]; /* per-stripe data */
+	__u32 lmm_magic;          /* magic number = LOV_USER_MAGIC_V3 */
+	__u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
+	struct ost_id lmm_oi;	  /* LOV object ID */
+	__u32 lmm_stripe_size;    /* size of stripe in bytes */
+	__u16 lmm_stripe_count;   /* num stripes in use for this object */
+	union {
+		__u16 lum_stripe_offset;  /* starting stripe offset in
+					   * lmm_objects, use when writing */
+		__u16 lum_layout_gen;     /* layout generation number
+					   * used when reading */
+	} u;
+	char  lmm_pool_name[LOV_MAXPOOLNAME]; /* pool name */
+	struct lov_user_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 } __attribute__((packed));
 
 /* Compile with -D_LARGEFILE64_SOURCE or -D_GNU_SOURCE (or #define) to

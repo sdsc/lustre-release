@@ -168,8 +168,6 @@
 
 typedef __u32 mdsno_t;
 typedef __u64 seqno_t;
-typedef __u64 obd_id;
-typedef __u64 obd_seq;
 typedef __s64 obd_time;
 typedef __u64 obd_size;
 typedef __u64 obd_off;
@@ -353,11 +351,6 @@ struct hsm_attrs {
 	__u64	hsm_arch_ver;
 };
 extern void lustre_hsm_swab(struct hsm_attrs *attrs);
-
-struct ost_id {
-	obd_id	oi_id;
-	obd_seq	oi_seq;
-};
 
 static inline void ostid_cpu_to_le(struct ost_id *src_oi,
 				   struct ost_id *dst_oi)
@@ -1487,24 +1480,26 @@ enum obdo_flags {
 
 #define lov_ost_data lov_ost_data_v1
 struct lov_ost_data_v1 {          /* per-stripe data structure (little-endian)*/
-        __u64 l_object_id;        /* OST object ID */
-        __u64 l_object_seq;       /* OST object seq number */
-        __u32 l_ost_gen;          /* generation of this l_ost_idx */
-        __u32 l_ost_idx;          /* OST index in LOV (lov_tgt_desc->tgts) */
+	struct ost_id l_ost_oi;	  /* OST object ID */
+	__u32 l_ost_gen;          /* generation of this l_ost_idx */
+	__u32 l_ost_idx;          /* OST index in LOV (lov_tgt_desc->tgts) */
 };
+#define l_object_id l_ost_oi.oi_id
+#define l_object_seq l_ost_oi.oi_seq
 
 #define lov_mds_md lov_mds_md_v1
 struct lov_mds_md_v1 {            /* LOV EA mds/wire data (little-endian) */
-        __u32 lmm_magic;          /* magic number = LOV_MAGIC_V1 */
-        __u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
-        __u64 lmm_object_id;      /* LOV object ID */
-        __u64 lmm_object_seq;     /* LOV object seq number */
-        __u32 lmm_stripe_size;    /* size of stripe in bytes */
-        /* lmm_stripe_count used to be __u32 */
-        __u16 lmm_stripe_count;   /* num stripes in use for this object */
-        __u16 lmm_layout_gen;     /* layout generation number */
-        struct lov_ost_data_v1 lmm_objects[0]; /* per-stripe data */
+	__u32 lmm_magic;          /* magic number = LOV_MAGIC_V1 */
+	__u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
+	struct ost_id	lmm_oi;	  /* LOV object ID */
+	__u32 lmm_stripe_size;    /* size of stripe in bytes */
+	/* lmm_stripe_count used to be __u32 */
+	__u16 lmm_stripe_count;   /* num stripes in use for this object */
+	__u16 lmm_layout_gen;     /* layout generation number */
+	struct lov_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 };
+#define lmm_object_id	lmm_oi.oi_id
+#define lmm_object_seq  lmm_oi.oi_seq
 
 /* extern void lustre_swab_lov_mds_md(struct lov_mds_md *llm); */
 
@@ -1528,20 +1523,17 @@ struct lov_mds_md_v1 {            /* LOV EA mds/wire data (little-endian) */
 #define XATTR_NAME_HSM		"trusted.hsm"
 #define XATTR_NAME_LFSCK_NAMESPACE "trusted.lfsck_namespace"
 
-
 struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
-        __u32 lmm_magic;          /* magic number = LOV_MAGIC_V3 */
-        __u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
-        __u64 lmm_object_id;      /* LOV object ID */
-        __u64 lmm_object_seq;     /* LOV object seq number */
-        __u32 lmm_stripe_size;    /* size of stripe in bytes */
-        /* lmm_stripe_count used to be __u32 */
-        __u16 lmm_stripe_count;   /* num stripes in use for this object */
-        __u16 lmm_layout_gen;     /* layout generation number */
-        char  lmm_pool_name[LOV_MAXPOOLNAME]; /* must be 32bit aligned */
-        struct lov_ost_data_v1 lmm_objects[0]; /* per-stripe data */
+	__u32 lmm_magic;          /* magic number = LOV_MAGIC_V3 */
+	__u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
+	struct ost_id	lmm_oi;	  /* LOV object ID */
+	__u32 lmm_stripe_size;    /* size of stripe in bytes */
+	/* lmm_stripe_count used to be __u32 */
+	__u16 lmm_stripe_count;   /* num stripes in use for this object */
+	__u16 lmm_layout_gen;     /* layout generation number */
+	char  lmm_pool_name[LOV_MAXPOOLNAME]; /* must be 32bit aligned */
+	struct lov_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 };
-
 
 #define OBD_MD_FLID        (0x00000001ULL) /* object ID */
 #define OBD_MD_FLATIME     (0x00000002ULL) /* access time */

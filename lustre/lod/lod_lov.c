@@ -547,8 +547,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 		rc = fid_ostid_pack(fid, &info->lti_ostid);
 		LASSERT(rc == 0);
 
-		objs[i].l_object_id  = cpu_to_le64(info->lti_ostid.oi_id);
-		objs[i].l_object_seq = cpu_to_le64(info->lti_ostid.oi_seq);
+		ostid_cpu_to_le(&info->lti_ostid, &objs[i].l_ost_oi);
 		objs[i].l_ost_gen    = cpu_to_le32(0);
 		rc = lod_fld_lookup(env, lod, fid, &index, LU_SEQ_RANGE_OST);
 		if (rc < 0) {
@@ -693,8 +692,7 @@ int lod_initialize_objects(const struct lu_env *env, struct lod_object *lo,
 		RETURN(-ENOMEM);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		info->lti_ostid.oi_id = le64_to_cpu(objs[i].l_object_id);
-		info->lti_ostid.oi_seq = le64_to_cpu(objs[i].l_object_seq);
+		ostid_le_to_cpu(&objs[i].l_ost_oi, &info->lti_ostid);
 		idx = le64_to_cpu(objs[i].l_ost_idx);
 		fid_ostid_unpack(&info->lti_fid, &info->lti_ostid, idx);
 		LASSERTF(fid_is_sane(&info->lti_fid), ""DFID" insane!\n",

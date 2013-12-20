@@ -213,12 +213,13 @@ void lov_merge_attrs(struct obdo *tgt, struct obdo *src, obd_valid valid,
                         tgt->o_mtime = src->o_mtime;
                 if (valid & OBD_MD_FLDATAVERSION)
                         tgt->o_data_version += src->o_data_version;
-        } else {
-                memcpy(tgt, src, sizeof(*tgt));
-                tgt->o_id = lsm->lsm_object_id;
-                if (valid & OBD_MD_FLSIZE)
-                        tgt->o_size = lov_stripe_size(lsm,src->o_size,stripeno);
-        }
+	} else {
+		memcpy(tgt, src, sizeof(*tgt));
+		tgt->o_oi = lsm->lsm_oi;
+		if (valid & OBD_MD_FLSIZE)
+			tgt->o_size = lov_stripe_size(lsm, src->o_size,
+						      stripeno);
+	}
 
         /* data_version needs to be valid on all stripes to be correct! */
         if (!(valid & OBD_MD_FLDATAVERSION))

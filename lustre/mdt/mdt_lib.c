@@ -544,12 +544,13 @@ void mdt_dump_lmm(int level, const struct lov_mds_md *lmm)
                le32_to_cpu(lmm->lmm_stripe_size), count);
         if (count == LOV_ALL_STRIPES)
                 return;
-        LASSERT(count <= LOV_MAX_STRIPE_COUNT);
-        for (i = 0, lod = lmm->lmm_objects; i < count; i++, lod++)
-                CDEBUG(level, "stripe %u idx %u subobj "LPX64"/"LPX64"\n",
-                       i, le32_to_cpu(lod->l_ost_idx),
-                       le64_to_cpu(lod->l_object_seq),
-                       le64_to_cpu(lod->l_object_id));
+
+	LASSERT(count <= LOV_MAX_STRIPE_COUNT);
+	for (i = 0, lod = lmm->lmm_objects; i < count; i++, lod++)
+		CDEBUG(level, "stripe %u idx %u subobj "DOSTID"\n",
+		       i, le32_to_cpu(lod->l_ost_idx),
+		       le64_to_cpu(lod->l_object_id),
+		       le64_to_cpu(lod->l_object_seq));
 }
 
 /* Shrink and/or grow reply buffers */

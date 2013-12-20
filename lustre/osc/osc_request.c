@@ -90,12 +90,11 @@ static int osc_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
                         RETURN(-ENOMEM);
         }
 
-        if (lsm) {
-                LASSERT(lsm->lsm_object_id);
-                LASSERT_SEQ_IS_MDT(lsm->lsm_object_seq);
-                (*lmmp)->lmm_object_id = cpu_to_le64(lsm->lsm_object_id);
-                (*lmmp)->lmm_object_seq = cpu_to_le64(lsm->lsm_object_seq);
-        }
+	if (lsm) {
+		LASSERT(lsm->lsm_object_id);
+		LASSERT_SEQ_IS_MDT(lsm->lsm_object_seq);
+		ostid_cpu_to_le(&lsm->lsm_oi, &(*lmmp)->lmm_oi);
+	}
 
         RETURN(lmm_size);
 }
@@ -145,13 +144,12 @@ static int osc_unpackmd(struct obd_export *exp, struct lov_stripe_md **lsmp,
                 loi_init((*lsmp)->lsm_oinfo[0]);
         }
 
-        if (lmm != NULL) {
-                /* XXX zero *lsmp? */
-                (*lsmp)->lsm_object_id = le64_to_cpu (lmm->lmm_object_id);
-                (*lsmp)->lsm_object_seq = le64_to_cpu (lmm->lmm_object_seq);
-                LASSERT((*lsmp)->lsm_object_id);
-                LASSERT_SEQ_IS_MDT((*lsmp)->lsm_object_seq);
-        }
+	if (lmm != NULL) {
+		/* XXX zero *lsmp? */
+		ostid_le_to_cpu(&lmm->lmm_oi, &(*lsmp)->lsm_oi);
+		LASSERT((*lsmp)->lsm_object_id);
+		LASSERT_SEQ_IS_MDT((*lsmp)->lsm_object_seq);
+	}
 
         if (imp != NULL &&
             (imp->imp_connect_data.ocd_connect_flags & OBD_CONNECT_MAXBYTES))
@@ -480,13 +478,12 @@ int osc_real_create(struct obd_export *exp, struct obdo *oa,
 	oa->o_blksize = cli_brw_size(exp->exp_obd);
 	oa->o_valid |= OBD_MD_FLBLKSZ;
 
-        /* XXX LOV STACKING: the lsm that is passed to us from LOV does not
-         * have valid lsm_oinfo data structs, so don't go touching that.
-         * This needs to be fixed in a big way.
-         */
-        lsm->lsm_object_id = oa->o_id;
-        lsm->lsm_object_seq = oa->o_seq;
-        *ea = lsm;
+	/* XXX LOV STACKING: the lsm that is passed to us from LOV does not
+	 * have valid lsm_oinfo data structs, so don't go touching that.
+	 * This needs to be fixed in a big way.
+	 */
+	lsm->lsm_oi = oa->o_oi;
+	*ea = lsm;
 
         if (oti != NULL) {
                 oti->oti_transno = lustre_msg_get_transno(req->rq_repmsg);
@@ -2302,7 +2299,7 @@ static int osc_change_cbdata(struct obd_export *exp, struct lov_stripe_md *lsm,
         struct ldlm_res_id res_id;
         struct obd_device *obd = class_exp2obd(exp);
 
-	ostid_build_res_name(&lsm->lsm_object_oid, &res_id);
+	ostid_build_res_name(&lsm->lsm_oi, &res_id);
         ldlm_resource_iterate(obd->obd_namespace, &res_id, replace, data);
         return 0;
 }
@@ -2318,7 +2315,7 @@ static int osc_find_cbdata(struct obd_export *exp, struct lov_stripe_md *lsm,
         struct obd_device *obd = class_exp2obd(exp);
         int rc = 0;
 
-	ostid_build_res_name(&lsm->lsm_object_oid, &res_id);
+	ostid_build_res_name(&lsm->lsm_oi, &res_id);
         rc = ldlm_resource_iterate(obd->obd_namespace, &res_id, replace, data);
         if (rc == LDLM_ITER_STOP)
                 return(1);
@@ -2628,7 +2625,7 @@ static int osc_enqueue(struct obd_export *exp, struct obd_info *oinfo,
         int rc;
         ENTRY;
 
-	ostid_build_res_name(&oinfo->oi_md->lsm_object_oid, &res_id);
+	ostid_build_res_name(&oinfo->oi_md->lsm_oi, &res_id);
         rc = osc_enqueue_base(exp, &res_id, &oinfo->oi_flags, &oinfo->oi_policy,
                               &oinfo->oi_md->lsm_oinfo[0]->loi_lvb,
                               oinfo->oi_md->lsm_oinfo[0]->loi_kms_valid,
@@ -2709,7 +2706,7 @@ static int osc_cancel_unused(struct obd_export *exp,
         struct ldlm_res_id res_id, *resp = NULL;
 
 	if (lsm != NULL) {
-		ostid_build_res_name(&lsm->lsm_object_oid, &res_id);
+		ostid_build_res_name(&lsm->lsm_oi, &res_id);
 		resp = &res_id;
 	}
 
@@ -2897,18 +2894,18 @@ static int osc_getstripe(struct lov_stripe_md *lsm, struct lov_user_md *lump)
                 if (!lumk)
                         RETURN(-ENOMEM);
 
-                if (lum.lmm_magic == LOV_USER_MAGIC_V1)
-                        lmm_objects = &(((struct lov_user_md_v1 *)lumk)->lmm_objects[0]);
-                else
-                        lmm_objects = &(lumk->lmm_objects[0]);
-                lmm_objects->l_object_id = lsm->lsm_object_id;
-        } else {
-                lum_size = lov_mds_md_size(0, lum.lmm_magic);
-                lumk = &lum;
-        }
+		if (lum.lmm_magic == LOV_USER_MAGIC_V1)
+			lmm_objects =
+			    &(((struct lov_user_md_v1 *)lumk)->lmm_objects[0]);
+		else
+			lmm_objects = &(lumk->lmm_objects[0]);
+		lmm_objects->l_ost_oi = lsm->lsm_oi;
+	} else {
+		lum_size = lov_mds_md_size(0, lum.lmm_magic);
+		lumk = &lum;
+	}
 
-        lumk->lmm_object_id = lsm->lsm_object_id;
-        lumk->lmm_object_seq = lsm->lsm_object_seq;
+	lumk->lmm_oi = lsm->lsm_oi;
         lumk->lmm_stripe_count = 1;
 
         if (cfs_copy_to_user(lump, lumk, lum_size))
