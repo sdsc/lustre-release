@@ -188,16 +188,66 @@ typedef __u32 obd_count;
  * Same structure is used in fld module where lsr_index field holds mdt id
  * of the home mdt.
  */
-
-#define LU_SEQ_RANGE_MDT        0x0
-#define LU_SEQ_RANGE_OST        0x1
-
 struct lu_seq_range {
-        __u64 lsr_start;
-        __u64 lsr_end;
-        __u32 lsr_index;
-        __u32 lsr_flags;
+	__u64 lsr_start;
+	__u64 lsr_end;
+	__u32 lsr_index;
+	__u32 lsr_flags;
 };
+
+#define LU_SEQ_RANGE_MDT	0x0
+#define LU_SEQ_RANGE_OST	0x1
+#define LU_SEQ_RANGE_ALL	0x2
+
+#define LU_SEQ_RANGE_MASK	0x3
+
+static inline unsigned fld_range_type(const struct lu_seq_range *range)
+{
+	return range->lsr_flags & LU_SEQ_RANGE_MASK;
+}
+
+static inline int fld_is_ost_range(const struct lu_seq_range *range)
+{
+	return fld_range_type(range) == LU_SEQ_RANGE_OST;
+}
+
+static inline int fld_is_mdt_range(const struct lu_seq_range *range)
+{
+	return fld_range_type(range) == LU_SEQ_RANGE_MDT;
+}
+
+/**
+ * This all range is only being used when fld client sends fld query request,
+ * but it does not know whether the seq is MDT or OST, so it will send req
+ * with ALL type, which means either seq type gotten from lookup can be
+ * expected.
+ */
+static inline unsigned fld_is_all_range(const struct lu_seq_range *range)
+{
+	return fld_range_type(range) == LU_SEQ_RANGE_ALL;
+}
+
+static inline void fld_set_range_type(struct lu_seq_range *range,
+				      unsigned flags)
+{
+	LASSERT(!(flags & ~LU_SEQ_RANGE_MASK));
+	range->lsr_flags |= flags;
+}
+
+static inline void fld_set_mdt_range(struct lu_seq_range *range)
+{
+	fld_set_range_type(range, LU_SEQ_RANGE_MDT);
+}
+
+static inline void fld_set_ost_range(struct lu_seq_range *range)
+{
+	fld_set_range_type(range, LU_SEQ_RANGE_OST);
+}
+
+static inline void fld_set_all_range(struct lu_seq_range *range)
+{
+	fld_set_range_type(range, LU_SEQ_RANGE_ALL);
+}
 
 /**
  * returns  width of given range \a r
@@ -257,7 +307,7 @@ static inline int range_compare_loc(const struct lu_seq_range *r1,
 	(range)->lsr_start, \
 	(range)->lsr_end,    \
 	(range)->lsr_index,  \
-	(range)->lsr_flags == LU_SEQ_RANGE_MDT ? "mdt" : "ost"
+	fld_is_mdt_range(range) ? "mdt" : "ost"
 
 
 /** \defgroup lu_fid lu_fid

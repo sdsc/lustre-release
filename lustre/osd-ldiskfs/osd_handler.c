@@ -1994,13 +1994,13 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 	int			rc;
 
 	if (fid_is_idif(fid)) {
-		range->lsr_flags = LU_SEQ_RANGE_OST;
+		fld_set_ost_range(range);
 		range->lsr_index = fid_idif_ost_idx(fid);
 		return 0;
 	}
 
 	if (!fid_seq_in_fldb(fid_seq(fid))) {
-		range->lsr_flags = LU_SEQ_RANGE_MDT;
+		fld_set_mdt_range(range);
 		if (ss != NULL)
 			/* FIXME: If ss is NULL, it suppose not get lsr_index
 			 * at all */
@@ -2009,7 +2009,7 @@ int osd_fld_lookup(const struct lu_env *env, struct osd_device *osd,
 	}
 
 	LASSERT(ss != NULL);
-	range->lsr_flags = -1;
+	fld_set_all_range(range);
 	rc = fld_server_lookup(env, ss->ss_server_fld, fid_seq(fid), range);
 	if (rc != 0) {
 		CERROR("%s can not find "DFID": rc = %d\n",
