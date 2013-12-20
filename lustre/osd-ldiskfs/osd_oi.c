@@ -483,7 +483,7 @@ int fid_is_on_ost(struct osd_thread_info *info, struct osd_device *osd,
 	CDEBUG(D_INFO, "fid "DFID" range "DRANGE"\n", PFID(fid),
 	       PRANGE(range));
 
-	if (range->lsr_flags == LU_SEQ_RANGE_OST)
+	if (fld_is_ost_range(range))
 		RETURN(1);
 
 	RETURN(0);

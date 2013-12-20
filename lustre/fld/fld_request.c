@@ -500,7 +500,7 @@ int fld_client_lookup(struct lu_client_fld *fld, seqno_t seq, mdsno_t *mds,
                fld_target_name(target), target->ft_idx);
 
         res.lsr_start = seq;
-        res.lsr_flags = flags;
+	fld_set_range_type(&res, flags);
 #ifdef __KERNEL__
         if (target->ft_srv != NULL) {
 		LASSERT(env != NULL);
