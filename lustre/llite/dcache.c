@@ -576,12 +576,11 @@ out:
 		 * But if the client connects < 2.4 server, which will
 		 * only grant LOOKUP lock, so we can only Match LOOKUP
 		 * lock for old server */
-		if (exp_connect_flags(ll_i2mdexp(de->d_inode)) &&
-							OBD_CONNECT_LVB_TYPE)
+		if (exp_connect_perm(ll_i2mdexp(de->d_inode)))
 			matched_bits =
 				MDS_INODELOCK_LOOKUP | MDS_INODELOCK_PERM;
 		else
-			matched_bits = MDS_INODELOCK_LOOKUP;		
+			matched_bits = MDS_INODELOCK_LOOKUP;
 
 		if (((bits & matched_bits) == matched_bits) &&
 		    d_lustre_invalid(de))

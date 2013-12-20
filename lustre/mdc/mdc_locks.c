@@ -1027,8 +1027,9 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
 			 * so an extra RPC would be performed to fetch all
 			 * of those bits at once for now. */
 			policy.l_inodebits.bits = MDS_INODELOCK_UPDATE |
-						  MDS_INODELOCK_LOOKUP |
-						  MDS_INODELOCK_PERM;
+						  MDS_INODELOCK_LOOKUP;
+			if (exp_connect_perm(exp))
+				policy.l_inodebits.bits |= MDS_INODELOCK_PERM;
 			break;
                 case IT_LAYOUT:
                         policy.l_inodebits.bits = MDS_INODELOCK_LAYOUT;

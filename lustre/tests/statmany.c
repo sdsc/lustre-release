@@ -79,7 +79,7 @@ int main(int argc, char ** argv)
         long int start, length = LONG_MAX, last;
         char parent[4096], *t;
 	char *prog = argv[0], *base;
-	int seed = 0, rc;
+	int seed = -1, rc;
 	int fd = -1;
 
 	while ((rc = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1) {
@@ -130,7 +130,7 @@ int main(int argc, char ** argv)
                 exit(1);
         }
 
-	if (seed == 0) {
+	if (seed == -1) {
 		int f = open("/dev/urandom", O_RDONLY);
 
 		if (f < 0 || read(f, &seed, sizeof(seed)) < sizeof(seed))
@@ -140,7 +140,8 @@ int main(int argc, char ** argv)
 	}
 
 	printf("using seed %u\n", seed);
-	srand(seed);
+	if (seed)
+		srand(seed);
 
         count = strtoul(argv[optind + 1], NULL, 0);
 	if (length == LONG_MAX) {
@@ -173,7 +174,10 @@ int main(int argc, char ** argv)
                 char filename[4096];
                 int tmp;
 
-                tmp = random() % count;
+		if (seed)
+			tmp = random() % count;
+		else
+		    tmp = iter % count;
                 sprintf(filename, "%s%d", base, tmp);
 
                 if (mode == 'e') {
