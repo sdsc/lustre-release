@@ -163,6 +163,7 @@ ldlm_mode_t mdc_lock_match(struct obd_export *exp, __u64 flags,
         ENTRY;
 
         fid_build_reg_res_name(fid, &res_id);
+        policy->l_inodebits.bits &= exp_connect_ibits(exp);
         rc = ldlm_lock_match(class_exp2obd(exp)->obd_namespace, flags,
                              &res_id, type, policy, mode, lockh, 0);
         RETURN(rc);
@@ -1002,7 +1003,6 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
         /* We could just return 1 immediately, but since we should only
          * be called in revalidate_it if we already have a lock, let's
          * verify that. */
-        struct ldlm_res_id res_id;
         struct lustre_handle lockh;
         ldlm_policy_data_t policy;
         ldlm_mode_t mode;
@@ -1012,7 +1012,6 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
                 lockh.cookie = it->d.lustre.it_lock_handle;
                 mode = ldlm_revalidate_lock_handle(&lockh, bits);
         } else {
-                fid_build_reg_res_name(fid, &res_id);
                 switch (it->it_op) {
 		case IT_GETATTR:
 			/* File attributes are held under multiple bits:
@@ -1038,10 +1037,8 @@ int mdc_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
                         break;
                 }
 
-                mode = ldlm_lock_match(exp->exp_obd->obd_namespace,
-                                       LDLM_FL_BLOCK_GRANTED, &res_id,
-                                       LDLM_IBITS, &policy,
-                                       LCK_CR|LCK_CW|LCK_PR|LCK_PW, &lockh, 0);
+		mode = mdc_lock_match(exp, LDLM_FL_BLOCK_GRANTED, fid, LDLM_IBITS, 
+				      &policy, LCK_CR|LCK_CW|LCK_PR|LCK_PW, &lockh);
         }
 
         if (mode) {
