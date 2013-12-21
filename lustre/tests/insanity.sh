@@ -623,6 +623,9 @@ test_10() {
 	DFPID=$!
 	sleep 5
 
+	wait_for_facet mds1
+	start_mdt 1 || return $?
+
 	shutdown_facet ost1
 
 	echo "Reintegrating OST"
@@ -636,9 +639,6 @@ test_10() {
 	# prepare for MDS failover
 	change_active mds2
 	reboot_facet mds2
-
-	wait_for_facet mds1
-	start_mdt 1 || return $?
 
 	wait_for_facet mds2
 	start_mdt 2 || return $?
