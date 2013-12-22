@@ -2220,7 +2220,7 @@ static inline int __osd_xattr_set(struct osd_thread_info *info,
  * FIXME: It is good to have/use ldiskfs_xattr_set_handle() here
  */
 int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
-		   const struct lu_fid *fid)
+		   const struct lu_fid *fid, __u64 flags)
 {
 	struct lustre_mdt_attrs	*lma = &info->oti_mdt_attrs;
 	int			 rc;
@@ -2231,7 +2231,7 @@ int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
 	if (OBD_FAIL_CHECK(OBD_FAIL_FID_IGIF) && fid_is_client_visible(fid))
 		return 0;
 
-	lustre_lma_init(lma, fid);
+	lustre_lma_init(lma, fid, flags);
 	lustre_lma_swab(lma);
 
 	rc = __osd_xattr_set(info, inode, XATTR_NAME_LMA, lma, sizeof(*lma),
@@ -2334,6 +2334,14 @@ static struct inode *osd_create_remote_inode(const struct lu_env *env,
 		RETURN(local);
 	}
 
+	/* Set LMA for agent inode */
+	rc = osd_ea_fid_set(info, local, fid, LMA_REMOTE_ENTRY_LOCAL);
+	if (rc != 0) {
+		CERROR("%s: set LMA for "DFID" agent inode failed: rc = %d\n",
+		       osd_name(osd), PFID(fid), rc);
+		RETURN(ERR_PTR(rc));
+	}
+
 	rc = osd_add_dot_dotdot_internal(info, local, pobj->oo_inode,
 		(const struct dt_rec *)lu_object_fid(&pobj->oo_dt.do_lu),
 		(const struct dt_rec *)fid, oh);
@@ -2414,7 +2422,7 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 	if ((result == 0) &&
 	    (fid_is_last_id(fid) ||
 	     !fid_is_on_ost(info, osd_dt_dev(th->th_dev), fid)))
-		result = osd_ea_fid_set(info, obj->oo_inode, fid);
+		result = osd_ea_fid_set(info, obj->oo_inode, fid, 0);
 
         if (result == 0)
                 result = __osd_oi_insert(env, obj, fid, th);
@@ -4796,7 +4804,7 @@ again:
 		if (unlikely(fid_is_sane(fid))) {
 			/* FID-in-dirent exists, but FID-in-LMA is lost.
 			 * Trust the FID-in-dirent, and add FID-in-LMA. */
-			rc = osd_ea_fid_set(info, inode, fid);
+			rc = osd_ea_fid_set(info, inode, fid, 0);
 			if (rc == 0)
 				*attr |= LUDA_REPAIR;
 		} else {
@@ -5262,7 +5270,7 @@ static int osd_device_init0(const struct lu_env *env,
 		GOTO(out_mnt, rc);
 	}
 
-	rc = osd_obj_map_init(o);
+	rc = osd_obj_map_init(env, o);
 	if (rc != 0)
 		GOTO(out_scrub, rc);
 

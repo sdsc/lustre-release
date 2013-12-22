@@ -168,16 +168,17 @@ out:
  * AGENT_OBJ_DIR/ per mdt
  *
  */
-static const char remote_obj_dir[] = "REM_OBJ_DIR";
 static const char agent_obj_dir[] = "AGENT_OBJ_DIR";
-int osd_mdt_init(struct osd_device *dev)
+static int osd_mdt_init(const struct lu_env *env, struct osd_device *dev)
 {
-	struct lvfs_run_ctxt  new;
-	struct lvfs_run_ctxt  save;
-	struct dentry	*parent;
-	struct osd_mdobj_map *omm;
-	struct dentry	*d;
-	int		   rc = 0;
+	struct lvfs_run_ctxt	new;
+	struct lvfs_run_ctxt	save;
+	struct dentry		*parent;
+	struct osd_mdobj_map	*omm;
+	struct dentry		*d;
+	struct osd_thread_info	*info = osd_oti_get(env);
+	struct lu_fid		*fid = &info->oti_fid;
+	int			rc = 0;
 	ENTRY;
 
 	OBD_ALLOC_PTR(dev->od_mdt_map);
@@ -198,6 +199,11 @@ int osd_mdt_init(struct osd_device *dev)
 
 	omm->omm_agent_dentry = d;
 
+	/* Set LMA for agent inode */
+	lu_local_obj_fid(fid, AGENT_DIR_OID);
+	rc = osd_ea_fid_set(info, d->d_inode, fid, 0);
+	if (rc != 0)
+		GOTO(cleanup, rc);
 cleanup:
 	pop_ctxt(&save, &new, NULL);
 	if (rc) {
@@ -289,7 +295,7 @@ int osd_delete_from_agent(const struct lu_env *env, struct osd_device *osd,
  * CONFIGS
  *
  */
-int osd_ost_init(struct osd_device *dev)
+static int osd_ost_init(struct osd_device *dev)
 {
 	struct lvfs_run_ctxt  new;
 	struct lvfs_run_ctxt  save;
@@ -382,7 +388,7 @@ static void osd_ost_fini(struct osd_device *osd)
 	EXIT;
 }
 
-int osd_obj_map_init(struct osd_device *dev)
+int osd_obj_map_init(const struct lu_env *env, struct osd_device *dev)
 {
 	int rc;
 	ENTRY;
@@ -393,7 +399,7 @@ int osd_obj_map_init(struct osd_device *dev)
 		RETURN(rc);
 
 	/* prepare structures for MDS */
-	rc = osd_mdt_init(dev);
+	rc = osd_mdt_init(env, dev);
 
         RETURN(rc);
 }
