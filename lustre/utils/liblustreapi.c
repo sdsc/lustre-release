@@ -3935,24 +3935,49 @@ int llapi_fid2path(const char *device, const char *fidstr, char *buf,
         gf = malloc(sizeof(*gf) + buflen);
         if (gf == NULL)
                 return -ENOMEM;
-        gf->gf_fid = fid;
-        gf->gf_recno = *recno;
-        gf->gf_linkno = *linkno;
-        gf->gf_pathlen = buflen;
+repeat:
+	gf->gf_fid = fid;
+	gf->gf_recno = *recno;
+	gf->gf_linkno = *linkno;
+	gf->gf_pathlen = buflen;
 
-        /* Take path or fsname */
-        rc = root_ioctl(device, OBD_IOC_FID2PATH, gf, NULL, 0);
-        if (rc) {
-                if (rc != -ENOENT)
-                        llapi_error(LLAPI_MSG_ERROR, rc, "ioctl err %d", rc);
-        } else {
-                memcpy(buf, gf->gf_path, gf->gf_pathlen);
-                *recno = gf->gf_recno;
-                *linkno = gf->gf_linkno;
-        }
+	/* Take path or fsname */
+	rc = root_ioctl(device, OBD_IOC_FID2PATH, gf, NULL, 0);
+	if (rc) {
+		if (rc != -ENOENT)
+			llapi_error(LLAPI_MSG_ERROR, rc, "ioctl err %d", rc);
+	} else {
+		char path[PATH_MAX];
+		struct lu_fid got_fid;
+		char *ptr;
 
-        free(gf);
-        return rc;
+		strncpy(path, device, strlen(device));
+		ptr = path + strlen(device);
+
+		if (*(--ptr) != '/')
+			*(++ptr) = '/';
+
+		strncpy(++ptr, gf->gf_path, strlen(gf->gf_path));
+
+		rc = llapi_path2fid(path, &got_fid);
+		if (rc != 0) {
+			llapi_error(LLAPI_MSG_ERROR, rc,
+				    "got %s, but err %d during validation",
+				    path, rc);
+			goto out;
+		}
+
+		/* If the fid is not what we request, repeat again */
+		if (!lu_fid_eq(&fid, &got_fid))
+			goto repeat;
+
+		memcpy(buf, gf->gf_path, gf->gf_pathlen);
+		*recno = gf->gf_recno;
+		*linkno = gf->gf_linkno;
+	}
+out:
+	free(gf);
+	return rc;
 }
 
 static int fid_from_lma(const char *path, const int fd, lustre_fid *fid)
