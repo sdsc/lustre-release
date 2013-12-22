@@ -618,11 +618,11 @@ int osd_object_auth(const struct lu_env *env, struct dt_object *dt,
 struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
 		       struct osd_inode_id *id);
 int osd_ea_fid_set(struct osd_thread_info *info, struct inode *inode,
-		   const struct lu_fid *fid);
+		   const struct lu_fid *fid, __u64 flags);
 int osd_get_lma(struct osd_thread_info *info, struct inode *inode,
 		struct dentry *dentry, struct lustre_mdt_attrs *lma);
 
-int osd_obj_map_init(struct osd_device *osd);
+int osd_obj_map_init(const struct lu_env *env, struct osd_device *osd);
 void osd_obj_map_fini(struct osd_device *dev);
 int osd_obj_map_lookup(struct osd_thread_info *info, struct osd_device *osd,
 			const struct lu_fid *fid, struct osd_inode_id *id);

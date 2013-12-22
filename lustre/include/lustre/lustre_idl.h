@@ -283,6 +283,10 @@ enum lma_incompat {
 };
 #define LMA_INCOMPAT_SUPP 0x0
 
+enum lma_flags {
+	LMA_REMOTE_ENTRY_LOCAL = 1 << 0,
+};
+
 /**
  * Following struct for MDT attributes, that will be kept inode's EA.
  * Introduced in 2.0 release (please see b15993, for details)
@@ -313,7 +317,7 @@ struct lustre_mdt_attrs {
 
 extern void lustre_lma_swab(struct lustre_mdt_attrs *lma);
 extern void lustre_lma_init(struct lustre_mdt_attrs *lma,
-			    const struct lu_fid *fid);
+			    const struct lu_fid *fid, __u64 flags);
 /**
  * SOM on-disk attributes stored in a separate xattr.
  */
