@@ -93,8 +93,6 @@ ldlm_mode_t mdt_dlm_lock_modes[] = {
 
 static struct mdt_device *mdt_dev(struct lu_device *d);
 static int mdt_unpack_req_pack_rep(struct mdt_thread_info *info, __u32 flags);
-static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
-                        struct getinfo_fid2path *fp);
 
 static const struct lu_object_operations mdt_obj_ops;
 
@@ -238,12 +236,10 @@ static void mdt_lock_pdo_mode(struct mdt_thread_info *info, struct mdt_object *o
 
 int mdt_getstatus(struct mdt_thread_info *info)
 {
-        struct mdt_device *mdt  = info->mti_mdt;
-        struct md_device  *next = mdt->mdt_child;
-        struct mdt_body   *repbody;
-        int                rc;
-
-        ENTRY;
+	struct mdt_device	*mdt  = info->mti_mdt;
+	struct mdt_body		*repbody;
+	int			rc;
+	ENTRY;
 
         rc = mdt_check_ucred(info);
         if (rc)
@@ -252,11 +248,8 @@ int mdt_getstatus(struct mdt_thread_info *info)
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_GETSTATUS_PACK))
                 RETURN(err_serious(-ENOMEM));
 
-        repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
-        rc = next->md_ops->mdo_root_get(info->mti_env, next, &repbody->fid1);
-        if (rc != 0)
-                RETURN(rc);
-
+	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	repbody->fid1 = mdt->mdt_md_root_fid;
         repbody->valid |= OBD_MD_FLID;
 
         if (mdt->mdt_opts.mo_mds_capa &&
@@ -3074,7 +3067,8 @@ static void mdt_thread_info_init(struct ptlrpc_request *req,
         info->mti_mos = NULL;
 
         memset(&info->mti_attr, 0, sizeof(info->mti_attr));
-        info->mti_body = NULL;
+	info->mti_big_buf = LU_BUF_NULL;
+	info->mti_body = NULL;
         info->mti_object = NULL;
         info->mti_dlm_req = NULL;
         info->mti_has_trans = 0;
@@ -3089,16 +3083,20 @@ static void mdt_thread_info_init(struct ptlrpc_request *req,
 
 static void mdt_thread_info_fini(struct mdt_thread_info *info)
 {
-        int i;
+	int i;
 
-        req_capsule_fini(info->mti_pill);
-        if (info->mti_object != NULL) {
-                mdt_object_put(info->mti_env, info->mti_object);
-                info->mti_object = NULL;
-        }
-        for (i = 0; i < ARRAY_SIZE(info->mti_lh); i++)
-                mdt_lock_handle_fini(&info->mti_lh[i]);
-        info->mti_env = NULL;
+	req_capsule_fini(info->mti_pill);
+	if (info->mti_object != NULL) {
+		mdt_object_put(info->mti_env, info->mti_object);
+		info->mti_object = NULL;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(info->mti_lh); i++)
+		mdt_lock_handle_fini(&info->mti_lh[i]);
+	info->mti_env = NULL;
+
+	if (unlikely(info->mti_big_buf.lb_buf != NULL))
+		lu_large_buf_free(&info->mti_big_buf);
 }
 
 static int mdt_filter_recovery_request(struct ptlrpc_request *req,
@@ -5010,6 +5008,7 @@ static int mdt_prepare(const struct lu_env *env,
 	struct lu_device *next = &mdt->mdt_child->md_lu_dev;
 	struct obd_device *obd = cdev->ld_obd;
 	int rc;
+	__u32 size;
 
 	ENTRY;
 
@@ -5029,8 +5028,10 @@ static int mdt_prepare(const struct lu_env *env,
 	if (rc != 0)
 		CWARN("Fail to auto trigger paused LFSCK.\n");
 
-	rc = mdt->mdt_child->md_ops->mdo_root_get(env, mdt->mdt_child,
-						  &mdt->mdt_md_root_fid);
+	size = sizeof(mdt->mdt_md_root_fid);
+	rc = mdt->mdt_child->md_ops->mdo_get_info(env, mdt->mdt_child,
+						  sizeof(KEY_ROOT), KEY_ROOT,
+						  &size, &mdt->mdt_md_root_fid);
 	if (rc)
 		RETURN(rc);
 
@@ -5474,32 +5475,288 @@ static int mdt_destroy_export(struct obd_export *exp)
         RETURN(0);
 }
 
-static int mdt_rpc_fid2path(struct mdt_thread_info *info, void *key,
-                            void *val, int vallen)
+/**
+ * fid2path operation
+ **/
+static int mdt_path2fid(struct mdt_thread_info *info, struct mdt_device *mdt,
+			const char *path, struct lu_fid *fid)
 {
-        struct mdt_device *mdt = mdt_dev(info->mti_exp->exp_obd->obd_lu_dev);
-        struct getinfo_fid2path *fpout, *fpin;
-        int rc = 0;
+	struct lu_buf		*buf = &info->mti_big_buf;
+	struct lu_fid		*f = &info->mti_tmp_fid1;
+	struct mdt_object	*obj;
+	struct lu_name		*lname = &info->mti_name;
+	char			*name;
+	int			rc = 0;
+	ENTRY;
 
-        fpin = key + cfs_size_round(sizeof(KEY_FID2PATH));
-        fpout = val;
+	/* temp buffer for path element, the buffer will be finally freed
+	 * in mdt_thread_info_fini */
+	buf = lu_large_buf_alloc(buf, PATH_MAX);
+	if (buf->lb_buf == NULL)
+		RETURN(-ENOMEM);
 
-        if (ptlrpc_req_need_swab(info->mti_pill->rc_req))
-                lustre_swab_fid2path(fpin);
+	lname->ln_name = name = buf->lb_buf;
+	lname->ln_namelen = 0;
 
-        memcpy(fpout, fpin, sizeof(*fpin));
-        if (fpout->gf_pathlen != vallen - sizeof(*fpin))
-                RETURN(-EINVAL);
+	/* path2fid must start from MDT 0 */
+	LASSERT(mdt_seq_site(mdt)->ss_node_id == 0);
+	*f = mdt->mdt_md_root_fid;
+	LASSERT(fid_is_sane(f));
+	while (1) {
+		while (*path == '/')
+			path++;
+		if (*path == '\0')
+			break;
 
-        rc = mdt_fid2path(info->mti_env, mdt, fpout);
-        RETURN(rc);
+		while (*path != '/' && *path != '\0') {
+			*name = *path;
+			path++;
+			name++;
+			lname->ln_namelen++;
+		}
+
+		*name = '\0';
+		/* find obj corresponding to fid */
+		obj = mdt_object_find(info->mti_env, mdt, f);
+		if (IS_ERR(obj))
+			GOTO(out, rc = PTR_ERR(obj));
+		if (!mdt_object_exists(obj)) {
+			mdt_object_put(info->mti_env, obj);
+			GOTO(out, rc = -EIO);
+		}
+		/* get child fid from parent and name */
+		rc = mdo_lookup(info->mti_env, mdt_object_child(obj),
+				lname, f, NULL);
+		mdt_object_put(info->mti_env, obj);
+		if (rc)
+			break;
+
+		name = buf->lb_buf;
+		lname->ln_namelen = 0;
+	}
+
+	if (!rc)
+		*fid = *f;
+out:
+	RETURN(rc);
 }
 
-static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
-		struct getinfo_fid2path *fp)
+/** The maximum depth that fid2path() will search.
+ * This is limited only because we want to store the fids for
+ * historical path lookup purposes.
+ */
+#define MAX_PATH_DEPTH 100
+
+/** mdt_path() lookup structure. */
+struct path_lookup_info {
+	__u64			pli_recno;	/**< history point */
+	__u64			pli_currec;	/**< current record */
+	struct lu_fid		pli_fid;
+	struct lu_fid		pli_fids[MAX_PATH_DEPTH]; /**< path, in fids */
+	struct mdt_object	*pli_mdt_obj;
+	char			*pli_path;	/**< full path */
+	int			pli_pathlen;
+	int			pli_linkno;	/**< which hardlink to follow */
+	int			pli_fidcount;	/**< number of \a pli_fids */
+};
+
+static int mdt_path_current(struct mdt_thread_info *info,
+			    struct path_lookup_info *pli)
 {
-	struct mdt_object *obj;
+	struct mdt_device	*mdt = info->mti_mdt;
+	struct mdt_object	*mdt_obj;
+	struct link_ea_header	*leh;
+	struct link_ea_entry	*lee;
+	struct lu_name		*tmpname = &info->mti_name;
+	struct lu_fid		*tmpfid = &info->mti_tmp_fid1;
+	struct lu_buf		*buf = &info->mti_big_buf;
+	char			*ptr;
+	int			reclen;
+	struct linkea_data	ldata = { 0 };
+	int			rc;
+	__u32			size;
+	ENTRY;
+
+	/* temp buffer for path element, the buffer will be finally freed
+	 * in mdt_thread_info_fini */
+	buf = lu_large_buf_alloc(buf, PATH_MAX);
+	if (buf->lb_buf == NULL)
+		RETURN(-ENOMEM);
+
+	ldata.ld_buf = buf;
+	ptr = pli->pli_path + pli->pli_pathlen - 1;
+	*ptr = 0;
+	--ptr;
+	pli->pli_fidcount = 0;
+	pli->pli_fids[0] = *(struct lu_fid *)mdt_object_fid(pli->pli_mdt_obj);
+
+	/* root FID only exists on MDT0, and fid2path should also ends at MDT0,
+	 * so checking root_fid can only happen on MDT0. */
+	while (!lu_fid_eq(&mdt->mdt_md_root_fid,
+			  &pli->pli_fids[pli->pli_fidcount])) {
+		struct lu_object	*lo;
+		struct dt_object	*dto;
+
+		mdt_obj = mdt_object_find(info->mti_env, mdt,
+					  &pli->pli_fids[pli->pli_fidcount]);
+		if (IS_ERR(mdt_obj))
+			GOTO(out, rc = PTR_ERR(mdt_obj));
+		if (mdt_object_remote(mdt_obj)) {
+			mdt_object_put(info->mti_env, mdt_obj);
+			GOTO(remote_out, rc = -EREMOTE);
+		}
+		if (!mdt_object_exists(mdt_obj)) {
+			mdt_object_put(info->mti_env, mdt_obj);
+			GOTO(out, rc = -ENOENT);
+		}
+
+		lo = lu_object_locate(&mdt_obj->mot_header,
+				      mdt->mdt_bottom->dd_lu_dev.ld_type);
+		dto = lu2dt_obj(lo);
+
+		dt_read_lock(info->mti_env, dto, MOR_TGT_CHILD);
+		rc = linkea_read(info->mti_env, dto, &ldata);
+		dt_read_unlock(info->mti_env, dto);
+
+		mdt_object_put(info->mti_env, mdt_obj);
+		if (rc != 0)
+			GOTO(out, rc = PTR_ERR(buf));
+
+		leh = buf->lb_buf;
+		lee = (struct link_ea_entry *)(leh + 1); /* link #0 */
+		linkea_entry_unpack(lee, &reclen, tmpname, tmpfid);
+		/* If set, use link #linkno for path lookup, otherwise use
+		   link #0.  Only do this for the final path element. */
+		if ((pli->pli_fidcount == 0) &&
+		    (pli->pli_linkno < leh->leh_reccount)) {
+			int count;
+			for (count = 0; count < pli->pli_linkno; count++) {
+				lee = (struct link_ea_entry *)
+				     ((char *)lee + reclen);
+				linkea_entry_unpack(lee, &reclen, tmpname,
+						    tmpfid);
+			}
+			if (pli->pli_linkno < leh->leh_reccount - 1)
+				/* indicate to user there are more links */
+				pli->pli_linkno++;
+		}
+
+		/* Pack the name in the end of the buffer */
+		ptr -= tmpname->ln_namelen;
+		if (ptr - 1 <= pli->pli_path)
+			GOTO(out, rc = -EOVERFLOW);
+		strncpy(ptr, tmpname->ln_name, tmpname->ln_namelen);
+		*(--ptr) = '/';
+
+		/* Store the parent fid for historic lookup */
+		if (++pli->pli_fidcount >= MAX_PATH_DEPTH)
+			GOTO(out, rc = -EOVERFLOW);
+		pli->pli_fids[pli->pli_fidcount] = *tmpfid;
+	}
+
+	size = sizeof(pli->pli_currec);
+	rc = mdt->mdt_child->md_ops->mdo_get_info(info->mti_env,
+						  mdt->mdt_child,
+						  sizeof(KEY_CHANGELOG_INDEX),
+						  KEY_CHANGELOG_INDEX, &size,
+						  &pli->pli_currec);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* Verify that our path hasn't changed since we started the lookup.
+	   Record the current index, and verify the path resolves to the
+	   same fid. If it does, then the path is correct as of this index. */
+	rc = mdt_path2fid(info, mdt, ptr, &pli->pli_fid);
+	if (rc) {
+		CDEBUG(D_INFO, "mdt_path2fid(%s) failed %d\n", ptr, rc);
+		GOTO(out, rc = -EAGAIN);
+	}
+	if (!lu_fid_eq(&pli->pli_fids[0], &pli->pli_fid)) {
+		CDEBUG(D_INFO, "mdt_path2fid(%s) found another FID o="DFID
+		       " n="DFID"\n", ptr, PFID(&pli->pli_fids[0]),
+		       PFID(&pli->pli_fid));
+		GOTO(out, rc = -EAGAIN);
+	}
+
+remote_out:
+	ptr++; /* skip leading / */
+	memmove(pli->pli_path, ptr, pli->pli_path + pli->pli_pathlen - ptr);
+
+	EXIT;
+out:
+	return rc;
+}
+
+static int mdt_path_historic(struct mdt_thread_info  *info,
+			     struct path_lookup_info *pli)
+{
+	return 0;
+}
+
+/* Returns the full path to this fid, as of changelog record recno. */
+static int mdt_path(struct mdt_thread_info *info, struct mdt_object *obj,
+		    char *path, int pathlen, __u64 *recno, int *linkno,
+		    struct lu_fid *fid)
+{
+	struct mdt_device	*mdt = info->mti_mdt;
+	struct path_lookup_info	*pli;
+	int			tries = 3;
+	int			rc = -EAGAIN;
+	ENTRY;
+
+	if (pathlen < 3)
+		RETURN(-EOVERFLOW);
+
+	if (lu_fid_eq(&mdt->mdt_md_root_fid, mdt_object_fid(obj))) {
+		path[0] = '\0';
+		RETURN(0);
+	}
+
+	OBD_ALLOC_PTR(pli);
+	if (pli == NULL)
+		RETURN(-ENOMEM);
+
+	pli->pli_mdt_obj = obj;
+	pli->pli_recno = *recno;
+	pli->pli_path = path;
+	pli->pli_pathlen = pathlen;
+	pli->pli_linkno = *linkno;
+
+	/* Retry multiple times in case file is being moved */
+	while (tries-- && rc == -EAGAIN)
+		rc = mdt_path_current(info, pli);
+
+	/* return the last resolved fids to the client, so the client will
+	 * build the left path on another MDT for remote object */
+	*fid = pli->pli_fids[pli->pli_fidcount];
+
+	/* For historical path lookup, the current links may not have existed
+	 * at "recno" time.  We must switch over to earlier links/parents
+	 * by using the changelog records.  If the earlier parent doesn't
+	 * exist, we must search back through the changelog to reconstruct
+	 * its parents, then check if it exists, etc.
+	 * We may ignore this problem for the initial implementation and
+	 * state that an "original" hardlink must still exist for us to find
+	 * historic path name. */
+	if (pli->pli_recno != -1) {
+		rc = mdt_path_historic(info, pli);
+	} else {
+		*recno = pli->pli_currec;
+		/* Return next link index to caller */
+		*linkno = pli->pli_linkno;
+	}
+
+	OBD_FREE_PTR(pli);
+
+	RETURN(rc);
+}
+
+static int mdt_fid2path(struct mdt_thread_info *info,
+			struct getinfo_fid2path *fp)
+{
+	struct mdt_device *mdt = info->mti_mdt;
 	struct obd_device *obd = mdt2obd_dev(mdt);
+	struct mdt_object *obj;
 	int    rc;
 	ENTRY;
 
@@ -5516,7 +5773,7 @@ static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
 		RETURN(-EINVAL);
 	}
 
-	obj = mdt_object_find(env, mdt, &fp->gf_fid);
+	obj = mdt_object_find(info->mti_env, mdt, &fp->gf_fid);
 	if (obj == NULL || IS_ERR(obj)) {
 		CDEBUG(D_IOCTL, "no object "DFID": %ld\n", PFID(&fp->gf_fid),
 			PTR_ERR(obj));
@@ -5529,16 +5786,40 @@ static int mdt_fid2path(const struct lu_env *env, struct mdt_device *mdt,
 		rc = -ENOENT;
 
 	if (rc < 0) {
-		mdt_object_put(env, obj);
+		mdt_object_put(info->mti_env, obj);
 		CDEBUG(D_IOCTL, "nonlocal object "DFID": %d\n",
 			PFID(&fp->gf_fid), rc);
 		RETURN(rc);
 	}
 
-	rc = mo_path(env, md_object_next(&obj->mot_obj), fp->gf_path,
-			fp->gf_pathlen, &fp->gf_recno, &fp->gf_linkno);
-	mdt_object_put(env, obj);
+	rc = mdt_path(info, obj, fp->gf_path, fp->gf_pathlen, &fp->gf_recno,
+		      &fp->gf_linkno, &fp->gf_fid);
 
+	CDEBUG(D_INFO, "fid "DFID", path %s recno "LPX64" linkno %u\n",
+	       PFID(&fp->gf_fid), fp->gf_path, fp->gf_recno, fp->gf_linkno);
+
+	mdt_object_put(info->mti_env, obj);
+
+	RETURN(rc);
+}
+
+static int mdt_rpc_fid2path(struct mdt_thread_info *info, void *key,
+			    void *val, int vallen)
+{
+	struct getinfo_fid2path *fpout, *fpin;
+	int rc = 0;
+
+	fpin = key + cfs_size_round(sizeof(KEY_FID2PATH));
+	fpout = val;
+
+	if (ptlrpc_req_need_swab(info->mti_pill->rc_req))
+		lustre_swab_fid2path(fpin);
+
+	memcpy(fpout, fpin, sizeof(*fpin));
+	if (fpout->gf_pathlen != vallen - sizeof(*fpin))
+		RETURN(-EINVAL);
+
+	rc = mdt_fid2path(info, fpout);
 	RETURN(rc);
 }
 

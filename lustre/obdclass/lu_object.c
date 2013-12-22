@@ -2097,6 +2097,60 @@ struct lu_buf LU_BUF_NULL = {
 };
 EXPORT_SYMBOL(LU_BUF_NULL);
 
+struct lu_buf *lu_large_buf_alloc(struct lu_buf *buf, ssize_t len)
+{
+	if ((len > buf->lb_len) && (buf->lb_buf != NULL)) {
+		OBD_FREE_LARGE(buf->lb_buf, buf->lb_len);
+		*buf = LU_BUF_NULL;
+	}
+	if (memcmp(buf, &LU_BUF_NULL, sizeof(*buf)) == 0) {
+		buf->lb_len = len;
+		OBD_ALLOC_LARGE(buf->lb_buf, buf->lb_len);
+		if (buf->lb_buf == NULL)
+			*buf = LU_BUF_NULL;
+	}
+	return buf;
+}
+EXPORT_SYMBOL(lu_large_buf_alloc);
+
+/**
+ * Increase the size of the \a buf.
+ * preserves old data in buffer
+ * old buffer remains unchanged on error
+ * \retval 0 or -ENOMEM
+ */
+int lu_large_buf_grow(struct lu_buf *buf, ssize_t len)
+{
+	char *ptr;
+
+	if (len <= buf->lb_len)
+		return 0;
+
+	OBD_ALLOC_LARGE(ptr, len);
+	if (ptr == NULL)
+		return -ENOMEM;
+
+	/* Free the old buf */
+	if (buf->lb_buf != NULL) {
+		memcpy(ptr, buf->lb_buf, buf->lb_len);
+		OBD_FREE_LARGE(buf->lb_buf, buf->lb_len);
+	}
+
+	buf->lb_buf = ptr;
+	buf->lb_len = len;
+	return 0;
+}
+EXPORT_SYMBOL(lu_large_buf_grow);
+
+void lu_large_buf_free(struct lu_buf *buf)
+{
+	if (buf == NULL || buf->lb_buf == NULL)
+		return;
+	OBD_FREE_LARGE(buf->lb_buf, buf->lb_len);
+	*buf = LU_BUF_NULL;
+}
+EXPORT_SYMBOL(lu_large_buf_free);
+
 static __u32 ls_stats_read(struct lprocfs_stats *stats, int idx)
 {
 #ifdef LPROCFS

@@ -1324,6 +1324,10 @@ struct lu_buf {
 /** null buffer */
 extern struct lu_buf LU_BUF_NULL;
 
+int lu_large_buf_grow(struct lu_buf *buf, ssize_t len);
+void lu_large_buf_free(struct lu_buf *buf);
+struct lu_buf *lu_large_buf_alloc(struct lu_buf *buf, ssize_t len);
+
 #define DLUBUF "(%p %zu)"
 #define PLUBUF(buf) (buf)->lb_buf, (buf)->lb_len
 /**

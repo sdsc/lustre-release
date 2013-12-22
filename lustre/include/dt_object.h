@@ -799,6 +799,33 @@ void dt_txn_hook_commit(struct thandle *txn);
 int dt_try_as_dir(const struct lu_env *env, struct dt_object *obj);
 
 /**
+ * The data that link search is done on.
+ */
+struct linkea_data {
+	/**
+	 * Buffer to keep link EA body.
+	 */
+	struct lu_buf		*ld_buf;
+	/**
+	 * The matched header, entry and its lenght in the EA
+	 */
+	struct link_ea_header	*ld_leh;
+	struct link_ea_entry	*ld_lee;
+	int			ld_reclen;
+};
+
+
+int linkea_data_new(struct linkea_data *ldata, struct lu_buf *buf);
+int linkea_read(const struct lu_env *env, struct dt_object *dt_obj,
+		struct linkea_data *ldata);
+void linkea_entry_unpack(const struct link_ea_entry *lee, int *reclen,
+			 struct lu_name *lname, struct lu_fid *pfid);
+int linkea_add_buf(struct linkea_data *ldata, const struct lu_name *lname,
+		   const struct lu_fid *pfid);
+void linkea_del_buf(struct linkea_data *ldata, const struct lu_name *lname);
+int linkea_links_find(struct linkea_data *ldata, const struct lu_name *lname,
+		      const struct lu_fid  *pfid);
+/**
  * Callback function used for parsing path.
  * \see llo_store_resolve
  */
