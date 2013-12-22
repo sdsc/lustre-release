@@ -276,14 +276,13 @@ struct md_object_operations {
                             struct lustre_capa *, int renewal);
 
         int (*moo_object_sync)(const struct lu_env *, struct md_object *);
-        int (*moo_path)(const struct lu_env *env, struct md_object *obj,
-                        char *path, int pathlen, __u64 *recno, int *linkno);
-        int (*moo_file_lock)(const struct lu_env *env, struct md_object *obj,
-                             struct lov_mds_md *lmm, struct ldlm_extent *extent,
-                             struct lustre_handle *lockh);
-        int (*moo_file_unlock)(const struct lu_env *env, struct md_object *obj,
-                               struct lov_mds_md *lmm,
-                               struct lustre_handle *lockh);
+
+	int (*moo_file_lock)(const struct lu_env *env, struct md_object *obj,
+			     struct lov_mds_md *lmm, struct ldlm_extent *extent,
+			     struct lustre_handle *lockh);
+	int (*moo_file_unlock)(const struct lu_env *env, struct md_object *obj,
+			       struct lov_mds_md *lmm,
+			       struct lustre_handle *lockh);
 	int (*moo_object_lock)(const struct lu_env *env, struct md_object *obj,
 			       struct lustre_handle *lh,
 			       struct ldlm_enqueue_info *einfo,
@@ -355,9 +354,6 @@ struct md_dir_operations {
 
 struct md_device_operations {
         /** meta-data device related handlers. */
-        int (*mdo_root_get)(const struct lu_env *env, struct md_device *m,
-                            struct lu_fid *f);
-
         int (*mdo_maxsize_get)(const struct lu_env *env, struct md_device *m,
                                int *md_size, int *cookie_size);
 
@@ -377,6 +373,9 @@ struct md_device_operations {
 
         int (*mdo_iocontrol)(const struct lu_env *env, struct md_device *m,
                              unsigned int cmd, int len, void *data);
+
+	int (*mdo_get_info)(const struct lu_env *env, struct md_device *,
+			    __u32 keylen, void *key, __u32 *vallen, void *val);
 };
 
 enum md_upcall_event {
@@ -685,14 +684,6 @@ static inline int mo_capa_get(const struct lu_env *env,
         return m->mo_ops->moo_capa_get(env, m, c, renewal);
 }
 
-static inline int mo_path(const struct lu_env *env, struct md_object *m,
-                          char *path, int pathlen, __u64 *recno, int *linkno)
-{
-        if (m->mo_ops->moo_path == NULL)
-                return -ENOSYS;
-        return m->mo_ops->moo_path(env, m, path, pathlen, recno, linkno);
-}
-
 static inline int mo_object_sync(const struct lu_env *env, struct md_object *m)
 {
         LASSERT(m->mo_ops->moo_object_sync);
@@ -931,5 +922,31 @@ static inline int md_capable(struct lu_ucred *uc, cfs_cap_t cap)
 	return 0;
 }
 
+/**
+ * The data that link search is done on.
+ */
+struct linkea_data {
+	/**
+	 * Buffer to keep link EA body.
+	 */
+	struct lu_buf		*ld_buf;
+	/**
+	 * The matched header, entry and its lenght in the EA
+	 */
+	struct link_ea_header	*ld_leh;
+	struct link_ea_entry	*ld_lee;
+	int			ld_reclen;
+};
+
+int linkea_data_new(struct linkea_data *ldata, struct lu_buf *buf);
+int linkea_read(const struct lu_env *env, struct dt_object *dt_obj,
+		struct linkea_data *ldata);
+void linkea_entry_unpack(const struct link_ea_entry *lee, int *reclen,
+			 struct lu_name *lname, struct lu_fid *pfid);
+int linkea_add_buf(struct linkea_data *ldata, const struct lu_name *lname,
+		   const struct lu_fid *pfid);
+void linkea_del_buf(struct linkea_data *ldata, const struct lu_name *lname);
+int linkea_links_find(struct linkea_data *ldata, const struct lu_name *lname,
+		      const struct lu_fid  *pfid);
 /** @} md */
 #endif /* _LINUX_MD_OBJECT_H */
