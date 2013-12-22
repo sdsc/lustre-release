@@ -200,3 +200,4 @@ void lustre_hsm2buf(void *buf, struct md_hsm *mh)
 	lustre_hsm_swab(attrs);
 }
 EXPORT_SYMBOL(lustre_hsm2buf);
+

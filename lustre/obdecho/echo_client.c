@@ -2034,15 +2034,18 @@ static struct lu_object *echo_resolve_path(const struct lu_env *env,
         struct lu_name          *lname = &info->eti_lname;
         struct lu_object        *parent = NULL;
         struct lu_object        *child = NULL;
+	__u32			size;
         int rc = 0;
         ENTRY;
 
-        /*Only support MDD layer right now*/
-        rc = md->md_ops->mdo_root_get(env, md, fid);
-        if (rc) {
-                CERROR("get root error: rc = %d\n", rc);
-                RETURN(ERR_PTR(rc));
-        }
+	/*Only support MDD layer right now*/
+	size = sizeof(*fid);
+	rc = md->md_ops->mdo_lookup(env, md, "/ROOT", fid);
+	if (rc) {
+		CERROR("%s: get root error: rc = %d\n", ld->ld_obd->obd_name,
+		       rc);
+		RETURN(ERR_PTR(rc));
+	}
 
 	/* In the function below, .hs_keycmp resolves to
 	 * lu_obj_hop_keycmp() */
