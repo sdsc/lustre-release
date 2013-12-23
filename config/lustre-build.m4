@@ -522,6 +522,7 @@ AM_CONDITIONAL(DARWIN, test x$lb_target_os = "xdarwin")
 AM_CONDITIONAL(SUNOS, test x$lb_target_os = "xSunOS")
 AM_CONDITIONAL(USES_DPKG, test x$uses_dpkg = "xyes")
 AM_CONDITIONAL([USE_QUILT], [test x$use_quilt = xyes])
+AM_CONDITIONAL(CLIENT, test x$enable_server = xno)
 
 # Sanity check for PCLMULQDQ instruction availability
 # PCLMULQDQ instruction is a new instruction available beginning with
@@ -577,6 +578,9 @@ AC_DEFUN([LB_CONFIG_FILES],
 		lustre-iokit/ior-survey/Makefile
 		lustre-iokit/stats-collect/Makefile
 	)
+	AS_IF([test x$enable_server = xno],
+		[AC_CONFIG_FILES(
+			[dkms.conf:build/dkms/dkms.conf.in])])
 ])
 
 #

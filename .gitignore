@@ -66,6 +66,7 @@ TAGS
 /config.cache
 /config.h
 /config.h.in
+/dkms.conf
 /INSTALL
 /lustre.spec
 /lustre*.tar.gz
