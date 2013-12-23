@@ -169,6 +169,29 @@ Group: Development/Kernel
 %description source
 Lustre sources for further development
 
+%if %{without servers}
+%package modules-dkms
+Summary: DKMS package for the %{lustre_name} kernel module.
+Requires: dkms
+Requires: kernel-devel
+Requires: gcc, make
+# duplicates lustre[-client]-modules RPMs so try to not allow dual installs
+Conflicts: lustre-modules, lustre-client-modules
+Provides: %{name}-modules = %{version}
+Group: Development/Kernel
+# Current Suse versions (ie, <= SLES11) use RPM versions (ie, < 4.6.0)
+# which do not support multi-archs sub-packages.
+%if %{undefined suse_version}
+BuildArch: noarch
+%endif
+Version: %{version}
+Release: 1
+
+%description modules-dkms
+This package contains %{lustre_name} source code and necessary DKMS
+infrastructure needed to rebuild against installed kernels.
+%endif
+
 # Since the RPMs we ship are to be used on both SLES and RHEL, we
 # can't include any dependency information (since the package names
 # are different on the two platforms).
@@ -318,6 +341,11 @@ chmod -R go-w lustre-source/lustre-%{version}
 # fc18 needs 'x' permission for library files
 find $RPM_BUILD_ROOT -name '*.so' | xargs chmod +x
 
+%if %{without servers}
+# Create a link to the pristine source directory for DKMS rpm.
+ln -s lustre-%{version} lustre-source/%{lustre_name}-modules-%{version}
+%endif
+
 cat >lustre.files <<EOF
 %{?rootdir}/sbin/mount.lustre
 %{_sbindir}/*
@@ -456,6 +484,13 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/%{kmoddir} -name "*.ko" 
 %files source
 %defattr(-,root,root)
 %{_prefix}/src/lustre-%{version}
+
+%if %{without servers}
+%files modules-dkms
+%defattr(-,root,root)
+%{_prefix}/src/%{lustre_name}-modules-%{version}/
+%{_prefix}/src/lustre-%{version}
+%endif
 
 # uncomment these lines to enable deps packages
 # %files deps-sles
@@ -754,6 +789,15 @@ else
 	depmod -ae %{kversion} || exit 0
 fi
 %endif
+%endif
+
+%if %{without servers}
+%post modules-dkms
+dkms add --rpm_safe_upgrade -m %{lustre_name}-modules -v %{version}
+dkms build -m %{lustre_name}-modules -v %{version} && dkms install -m %{lustre_name}-modules -v %{version} || true
+
+%preun modules-dkms
+dkms remove --rpm_safe_upgrade -m %{lustre_name}-modules -v %{version} --all || true
 %endif
 
 %clean
