@@ -425,49 +425,11 @@ static const struct cl_page_operations vvp_page_ops = {
         }
 };
 
-static void vvp_transient_page_verify(const struct cl_page *page)
-{
-	struct inode *inode = ccc_object_inode(page->cp_obj);
-
-	LASSERT(!mutex_trylock(&inode->i_mutex));
-}
-
-static int vvp_transient_page_own(const struct lu_env *env,
-                                  const struct cl_page_slice *slice,
-                                  struct cl_io *unused, int nonblock)
-{
-        vvp_transient_page_verify(slice->cpl_page);
-        return 0;
-}
-
-static void vvp_transient_page_assume(const struct lu_env *env,
-                                      const struct cl_page_slice *slice,
-                                      struct cl_io *unused)
-{
-        vvp_transient_page_verify(slice->cpl_page);
-}
-
-static void vvp_transient_page_unassume(const struct lu_env *env,
-                                        const struct cl_page_slice *slice,
-                                        struct cl_io *unused)
-{
-        vvp_transient_page_verify(slice->cpl_page);
-}
-
-static void vvp_transient_page_disown(const struct lu_env *env,
-                                      const struct cl_page_slice *slice,
-                                      struct cl_io *unused)
-{
-        vvp_transient_page_verify(slice->cpl_page);
-}
-
 static void vvp_transient_page_discard(const struct lu_env *env,
                                        const struct cl_page_slice *slice,
                                        struct cl_io *unused)
 {
         struct cl_page *page = slice->cpl_page;
-
-        vvp_transient_page_verify(slice->cpl_page);
 
         /*
          * For transient pages, remove it from the radix tree.
@@ -478,55 +440,22 @@ static void vvp_transient_page_discard(const struct lu_env *env,
 static int vvp_transient_page_is_vmlocked(const struct lu_env *env,
 					  const struct cl_page_slice *slice)
 {
-	struct inode    *inode = ccc_object_inode(slice->cpl_obj);
-	int	locked;
-
-	locked = !mutex_trylock(&inode->i_mutex);
-	if (!locked)
-		mutex_unlock(&inode->i_mutex);
-	return locked ? -EBUSY : -ENODATA;
-}
-
-static void
-vvp_transient_page_completion(const struct lu_env *env,
-                              const struct cl_page_slice *slice,
-                              int ioret)
-{
-        vvp_transient_page_verify(slice->cpl_page);
+	return -EBUSY;
 }
 
 static void vvp_transient_page_fini(const struct lu_env *env,
 				    struct cl_page_slice *slice)
 {
 	struct ccc_page *cp = cl2ccc_page(slice);
-	struct cl_page *clp = slice->cpl_page;
-	struct ccc_object *clobj = cl2ccc(clp->cp_obj);
 
 	vvp_page_fini_common(cp);
-	LASSERT(!mutex_trylock(&clobj->cob_inode->i_mutex));
-	clobj->cob_transient_pages--;
 }
 
 static const struct cl_page_operations vvp_transient_page_ops = {
-	.cpo_own		= vvp_transient_page_own,
-	.cpo_assume		= vvp_transient_page_assume,
-	.cpo_unassume		= vvp_transient_page_unassume,
-	.cpo_disown		= vvp_transient_page_disown,
-	.cpo_discard		= vvp_transient_page_discard,
-	.cpo_fini		= vvp_transient_page_fini,
-	.cpo_is_vmlocked	= vvp_transient_page_is_vmlocked,
-	.cpo_print		= vvp_page_print,
-	.cpo_is_under_lock	= vvp_page_is_under_lock,
-	.io = {
-		[CRT_READ] = {
-			.cpo_prep	= ccc_transient_page_prep,
-			.cpo_completion	= vvp_transient_page_completion,
-		},
-		[CRT_WRITE] = {
-			.cpo_prep	= ccc_transient_page_prep,
-			.cpo_completion	= vvp_transient_page_completion,
-		}
-	}
+        .cpo_discard       = vvp_transient_page_discard,
+        .cpo_fini          = vvp_transient_page_fini,
+        .cpo_is_vmlocked   = vvp_transient_page_is_vmlocked,
+        .cpo_print         = vvp_page_print,
 };
 
 int vvp_page_init(const struct lu_env *env, struct cl_object *obj,
@@ -547,14 +476,10 @@ int vvp_page_init(const struct lu_env *env, struct cl_object *obj,
 		SetPagePrivate(vmpage);
 		vmpage->private = (unsigned long)page;
 		cl_page_slice_add(page, &cpg->cpg_cl, obj, index,
-				&vvp_page_ops);
+				  &vvp_page_ops);
 	} else {
-		struct ccc_object *clobj = cl2ccc(obj);
-
-		LASSERT(!mutex_trylock(&clobj->cob_inode->i_mutex));
 		cl_page_slice_add(page, &cpg->cpg_cl, obj, index,
-				&vvp_transient_page_ops);
-		clobj->cob_transient_pages++;
+				  &vvp_transient_page_ops);
 	}
 	return 0;
 }
