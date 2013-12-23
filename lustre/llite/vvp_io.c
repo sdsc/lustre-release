@@ -842,7 +842,7 @@ static int vvp_io_write_start(const struct lu_env *env,
 				io->ci_nob, result);
 		}
 	}
-	if (result > 0) {
+	if (result > 0 || result == -EIOCBQUEUED) {
 		struct ll_inode_info *lli = ll_i2info(inode);
 
 		spin_lock(&lli->lli_lock);
@@ -851,8 +851,9 @@ static int vvp_io_write_start(const struct lu_env *env,
 
 		if (result < cnt)
 			io->ci_continue = 0;
-		ll_rw_stats_tally(ll_i2sbi(inode), current->pid,
-				  cio->cui_fd, pos, result, WRITE);
+		if (result > 0)
+			ll_rw_stats_tally(ll_i2sbi(inode), current->pid,
+					  cio->cui_fd, pos, result, WRITE);
 		result = 0;
 	}
 
