@@ -1496,8 +1496,17 @@ struct obd_capa *cl_capa_lookup(struct inode *inode, enum cl_req_type crt);
 int cl_sync_file_range(struct inode *inode, loff_t start, loff_t end,
 		       enum cl_fsync_mode mode, int ignore_layout);
 
+/** To support Direct AIO */
+struct ll_dio_aio {
+	struct cl_sync_io	ldd_sync;
+	struct cl_page_list	ldd_pages;
+	struct kiocb		*ldd_iocb;
+	ssize_t			ldd_bytes;
+};
+
 /** direct write pages */
 struct ll_dio_pages {
+	struct ll_dio_aio *ldp_aio;
         /** page array to be written. we don't support
          * partial pages except the last one. */
         struct page **ldp_pages;
