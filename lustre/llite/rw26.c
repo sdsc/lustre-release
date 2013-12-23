@@ -178,36 +178,6 @@ static int ll_releasepage(struct page *vmpage, RELEASEPAGE_ARG_TYPE gfp_mask)
 
 #define MAX_DIRECTIO_SIZE 2*1024*1024*1024UL
 
-static inline int ll_get_user_pages(int rw, unsigned long user_addr,
-                                    size_t size, struct page ***pages,
-                                    int *max_pages)
-{
-        int result = -ENOMEM;
-
-        /* set an arbitrary limit to prevent arithmetic overflow */
-        if (size > MAX_DIRECTIO_SIZE) {
-                *pages = NULL;
-                return -EFBIG;
-        }
-
-	*max_pages = (user_addr + size + PAGE_CACHE_SIZE - 1) >>
-		     PAGE_CACHE_SHIFT;
-	*max_pages -= user_addr >> PAGE_CACHE_SHIFT;
-
-        OBD_ALLOC_LARGE(*pages, *max_pages * sizeof(**pages));
-        if (*pages) {
-                down_read(&current->mm->mmap_sem);
-                result = get_user_pages(current, current->mm, user_addr,
-                                        *max_pages, (rw == READ), 0, *pages,
-                                        NULL);
-                up_read(&current->mm->mmap_sem);
-                if (unlikely(result <= 0))
-                        OBD_FREE_LARGE(*pages, *max_pages * sizeof(**pages));
-        }
-
-        return result;
-}
-
 /*  ll_free_user_pages - tear down page struct array
  *  @pages: array of page struct pointers underlying target buffer */
 static void ll_free_user_pages(struct page **pages, int npages, int do_dirty)
@@ -225,126 +195,159 @@ static void ll_free_user_pages(struct page **pages, int npages, int do_dirty)
         OBD_FREE_LARGE(pages, npages * sizeof(*pages));
 }
 
+static inline int ll_get_user_pages(unsigned long user_addr, unsigned long size,
+				    struct page ***pages, int rw)
+{
+	long nrpages;
+	int result;
+
+	/* set an arbitrary limit to prevent arithmetic overflow */
+	if (size > MAX_DIRECTIO_SIZE)
+		return -EFBIG;
+
+	if (user_addr & ~PAGE_CACHE_MASK)
+		return -EINVAL;
+
+	nrpages = (size + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	OBD_ALLOC_LARGE(*pages, nrpages * sizeof(**pages));
+	if (*pages == NULL)
+		return -ENOMEM;
+
+	down_read(&current->mm->mmap_sem);
+	result = get_user_pages(current, current->mm, user_addr, nrpages,
+				rw == READ, 0, *pages, NULL);
+	up_read(&current->mm->mmap_sem);
+
+	if (unlikely(result != nrpages)) {
+		ll_free_user_pages(*pages, nrpages, 0);
+		*pages = NULL;
+
+		if (result >= 0)
+			result = -EFAULT;
+	}
+	return result;
+}
+
 ssize_t ll_direct_rw_pages(const struct lu_env *env, struct cl_io *io,
                            int rw, struct inode *inode,
                            struct ll_dio_pages *pv)
 {
-        struct cl_page    *clp;
-        struct cl_2queue  *queue;
-        struct cl_object  *obj = io->ci_obj;
-        int i;
-        ssize_t rc = 0;
-        loff_t file_offset  = pv->ldp_start_offset;
-        long size           = pv->ldp_size;
-        int page_count      = pv->ldp_nr;
-        struct page **pages = pv->ldp_pages;
-        long page_size      = cl_page_size(obj);
-        bool do_io;
-        int  io_pages       = 0;
-        ENTRY;
+	struct cl_page    *page;
+	struct cl_2queue  *queue;
+	struct cl_object  *obj = io->ci_obj;
+	struct cl_sync_io *anchor = &pv->ldp_aio->ldd_sync;
+	loff_t offset	= pv->ldp_start_offset;
+	long size	= pv->ldp_size;
+	int io_pages	= 0;
+	int i;
+	ssize_t rc = 0;
+	ENTRY;
 
-        queue = &io->ci_queue;
-        cl_2queue_init(queue);
-        for (i = 0; i < page_count; i++) {
-                if (pv->ldp_offsets)
-                    file_offset = pv->ldp_offsets[i];
+	queue = &io->ci_queue;
+	cl_2queue_init(queue);
+	for (i = 0; i < pv->ldp_nr; i++) {
+		if (pv->ldp_offsets != NULL)
+			offset = pv->ldp_offsets[i];
 
-                LASSERT(!(file_offset & (page_size - 1)));
-                clp = cl_page_find(env, obj, cl_index(obj, file_offset),
-                                   pv->ldp_pages[i], CPT_TRANSIENT);
-                if (IS_ERR(clp)) {
-                        rc = PTR_ERR(clp);
-                        break;
-                }
+		LASSERT(!(offset & (PAGE_CACHE_SIZE - 1)));
+		page = cl_page_find(env, obj, cl_index(obj, offset),
+				    pv->ldp_pages[i], CPT_TRANSIENT);
+		if (IS_ERR(page)) {
+			rc = PTR_ERR(page);
+			break;
+		}
 
-                rc = cl_page_own(env, io, clp);
-                if (rc) {
-                        LASSERT(clp->cp_state == CPS_FREEING);
-                        cl_page_put(env, clp);
-                        break;
-                }
+		LASSERT(page->cp_type == CPT_TRANSIENT);
+		rc = cl_page_own(env, io, page);
+		LASSERT(rc == 0);
 
-                do_io = true;
+		page->cp_sync_io = anchor;
+		cl_2queue_add(queue, page);
 
-                /* check the page type: if the page is a host page, then do
-                 * write directly */
-                if (clp->cp_type == CPT_CACHEABLE) {
-			struct page *vmpage = cl_page_vmpage(clp);
-			struct page *src_page;
-			struct page *dst_page;
-                        void       *src;
-                        void       *dst;
+		/*
+		 * Set page clip to tell transfer formation engine
+		 * that page has to be sent even if it is beyond KMS.
+		 */
+		cl_page_clip(env, page, 0, min_t(int, size, PAGE_CACHE_SIZE));
+		++io_pages;
 
-                        src_page = (rw == WRITE) ? pages[i] : vmpage;
-                        dst_page = (rw == WRITE) ? vmpage : pages[i];
+		/* drop the reference count for cl_page_find */
+		cl_page_put(env, page);
 
-                        src = ll_kmap_atomic(src_page, KM_USER0);
-                        dst = ll_kmap_atomic(dst_page, KM_USER1);
-                        memcpy(dst, src, min(page_size, size));
-                        ll_kunmap_atomic(dst, KM_USER1);
-                        ll_kunmap_atomic(src, KM_USER0);
+		size -= PAGE_CACHE_SIZE;
+		offset += PAGE_CACHE_SIZE;
+	}
+	if (rc == 0 && io_pages > 0) {
+		int iot = rw == READ ? CRT_READ : CRT_WRITE;
 
-                        /* make sure page will be added to the transfer by
-                         * cl_io_submit()->...->vvp_page_prep_write(). */
-                        if (rw == WRITE)
-                                set_page_dirty(vmpage);
+		atomic_add(io_pages, &anchor->csi_sync_nr);
+		rc = cl_io_submit_rw(env, io, iot, queue);
+		if (rc == 0) {
+			cl_page_list_splice(&queue->c2_qout,
+					    &pv->ldp_aio->ldd_pages);
+		}
 
-                        if (rw == READ) {
-                                /* do not issue the page for read, since it
-                                 * may reread a ra page which has NOT uptodate
-                                 * bit set. */
-                                cl_page_disown(env, io, clp);
-                                do_io = false;
-                        }
-                }
+		/* handle partially submitted reqs */
+		if (queue->c2_qin.pl_nr > 0) {
+			CERROR(DFID " failed to submit %d dio pages: %zd\n",
+			       PFID(lu_object_fid(&obj->co_lu)),
+			       queue->c2_qin.pl_nr, rc);
+			if (rc == 0)
+				rc = -EIO;
+		}
+	}
 
-                if (likely(do_io)) {
-                        cl_2queue_add(queue, clp);
-
-                        /*
-                         * Set page clip to tell transfer formation engine
-                         * that page has to be sent even if it is beyond KMS.
-                         */
-                        cl_page_clip(env, clp, 0, min(size, page_size));
-
-                        ++io_pages;
-                }
-
-                /* drop the reference count for cl_page_find */
-                cl_page_put(env, clp);
-                size -= page_size;
-                file_offset += page_size;
-        }
-
-        if (rc == 0 && io_pages) {
-                rc = cl_io_submit_sync(env, io,
-                                       rw == READ ? CRT_READ : CRT_WRITE,
-				       queue, 0);
-        }
-        if (rc == 0)
-                rc = pv->ldp_size;
-
-        cl_2queue_discard(env, io, queue);
-        cl_2queue_disown(env, io, queue);
-        cl_2queue_fini(env, queue);
-        RETURN(rc);
+	cl_2queue_discard(env, io, queue);
+	cl_2queue_disown(env, io, queue);
+	cl_2queue_fini(env, queue);
+	RETURN(rc);
 }
 EXPORT_SYMBOL(ll_direct_rw_pages);
 
-static ssize_t ll_direct_IO_26_seg(const struct lu_env *env, struct cl_io *io,
-                                   int rw, struct inode *inode,
-                                   struct address_space *mapping,
-                                   size_t size, loff_t file_offset,
-                                   struct page **pages, int page_count)
+static void ll_aio_end(const struct lu_env *env, struct cl_sync_io *anchor)
 {
-    struct ll_dio_pages pvec = { .ldp_pages        = pages,
-                                 .ldp_nr           = page_count,
-                                 .ldp_size         = size,
-                                 .ldp_offsets      = NULL,
-                                 .ldp_start_offset = file_offset
-                               };
+	struct ll_dio_aio *aio = container_of(anchor, typeof(*aio), ldd_sync);
+	struct cl_page *page;
+	ENTRY;
 
-    return ll_direct_rw_pages(env, io, rw, inode, &pvec);
+	/* release pages */
+	while (aio->ldd_pages.pl_nr > 0) {
+		page = cl_page_list_first(&aio->ldd_pages);
+
+		cl_page_get(page);
+		cl_page_list_del(env, &aio->ldd_pages, page);
+		cl_page_delete(env, page);
+		cl_page_put(env, page);
+	}
+
+	/* finish this io */
+	if (is_sync_kiocb(aio->ldd_iocb)) {
+		cl_sync_io_end(env, anchor);
+	} else {
+		ssize_t ret = anchor->csi_sync_rc;
+
+		if (ret == 0)
+			ret = aio->ldd_bytes;
+		aio_complete(aio->ldd_iocb, ret, 0);
+
+		OBD_FREE_PTR(aio);
+	}
+	EXIT;
+}
+
+static struct ll_dio_aio *ll_aio_alloc(struct kiocb *iocb)
+{
+	struct ll_dio_aio *aio;
+
+	OBD_ALLOC_PTR(aio);
+	if (aio != NULL) {
+		/* hold one ref so that it won't be released until every pages
+		 * is added. */
+		cl_sync_io_init(&aio->ldd_sync, 1, ll_aio_end);
+		cl_page_list_init(&aio->ldd_pages);
+		aio->ldd_iocb = iocb;
+	}
+	return aio;
 }
 
 #ifdef KMALLOC_MAX_SIZE
@@ -368,12 +371,12 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
         struct cl_io *io;
         struct file *file = iocb->ki_filp;
         struct inode *inode = file->f_mapping->host;
-        struct ccc_object *obj = cl_inode2ccc(inode);
-        long count = iov_length(iov, nr_segs);
-        long tot_bytes = 0, result = 0;
         struct ll_inode_info *lli = ll_i2info(inode);
+	struct ll_dio_aio *aio = NULL;
+        long count = iov_length(iov, nr_segs);
+        long tot_bytes = 0;
+	ssize_t result = 0;
         unsigned long seg = 0;
-        long size = MAX_DIO_SIZE;
         int refcheck;
         ENTRY;
 
@@ -397,19 +400,15 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
                         RETURN(-EINVAL);
         }
 
+	aio = ll_aio_alloc(iocb);
+	if (aio == NULL)
+		RETURN(-ENOMEM);
+
         env = cl_env_get(&refcheck);
         LASSERT(!IS_ERR(env));
         io = ccc_env_io(env)->cui_cl.cis_io;
         LASSERT(io != NULL);
 
-	/* 0. Need locking between buffered and direct access. and race with
-	 *    size changing by concurrent truncates and writes.
-	 * 1. Need inode mutex to operate transient pages.
-	 */
-	if (rw == READ)
-		mutex_lock(&inode->i_mutex);
-
-        LASSERT(obj->cob_transient_pages == 0);
         for (seg = 0; seg < nr_segs; seg++) {
                 long iov_left = iov[seg].iov_len;
                 unsigned long user_addr = (unsigned long)iov[seg].iov_base;
@@ -422,66 +421,67 @@ static ssize_t ll_direct_IO_26(int rw, struct kiocb *iocb,
                 }
 
                 while (iov_left > 0) {
-                        struct page **pages;
-                        int page_count, max_pages = 0;
-                        long bytes;
+			struct ll_dio_pages pvec = { .ldp_aio = aio };
+			int nrpages;
 
-                        bytes = min(size, iov_left);
-                        page_count = ll_get_user_pages(rw, user_addr, bytes,
-                                                       &pages, &max_pages);
-                        if (likely(page_count > 0)) {
-                                if (unlikely(page_count <  max_pages))
-					bytes = page_count << PAGE_CACHE_SHIFT;
-                                result = ll_direct_IO_26_seg(env, io, rw, inode,
-                                                             file->f_mapping,
-                                                             bytes, file_offset,
-                                                             pages, page_count);
-                                ll_free_user_pages(pages, max_pages, rw==READ);
-                        } else if (page_count == 0) {
-                                GOTO(out, result = -EFAULT);
-                        } else {
-                                result = page_count;
-                        }
-                        if (unlikely(result <= 0)) {
-                                /* If we can't allocate a large enough buffer
-                                 * for the request, shrink it to a smaller
-                                 * PAGE_SIZE multiple and try again.
-                                 * We should always be able to kmalloc for a
-                                 * page worth of page pointers = 4MB on i386. */
-                                if (result == -ENOMEM &&
-				    size > (PAGE_CACHE_SIZE / sizeof(*pages)) *
-					   PAGE_CACHE_SIZE) {
-                                        size = ((((size / 2) - 1) |
-                                                 ~CFS_PAGE_MASK) + 1) &
-                                                CFS_PAGE_MASK;
-                                        CDEBUG(D_VFSTRACE,"DIO size now %lu\n",
-                                               size);
-                                        continue;
-                                }
+			pvec.ldp_start_offset = file_offset;
+			pvec.ldp_size = min_t(long, MAX_DIO_SIZE, iov_left);
+			nrpages = ll_get_user_pages(user_addr, pvec.ldp_size,
+						    &pvec.ldp_pages, rw);
+			if (nrpages < 0)
+                                GOTO(out, result = nrpages);
 
+			pvec.ldp_nr = nrpages;
+			result = ll_direct_rw_pages(env, io, rw, inode, &pvec);
+			ll_free_user_pages(pvec.ldp_pages, nrpages, rw == READ);
+
+                        if (unlikely(result < 0))
                                 GOTO(out, result);
-                        }
 
-                        tot_bytes += result;
-                        file_offset += result;
-                        iov_left -= result;
-                        user_addr += result;
+                        tot_bytes += pvec.ldp_size;
+                        file_offset += pvec.ldp_size;
+                        iov_left -= pvec.ldp_size;
+                        user_addr += pvec.ldp_size;
                 }
         }
 out:
-	LASSERT(obj->cob_transient_pages == 0);
-	if (rw == READ)
-		mutex_unlock(&inode->i_mutex);
+	if (result < 0)
+		(void)cl_io_cancel(env, io, &aio->ldd_pages);
 
-        if (tot_bytes > 0) {
+	if (is_sync_kiocb(iocb)) {
 		struct ccc_io *cio = ccc_env_io(env);
+		int rc2;
 
-		/* no commit async for direct IO */
-		cio->u.write.cui_written += tot_bytes;
+		cl_sync_io_note(env, &aio->ldd_sync, 0);
+		rc2 = cl_sync_io_wait(env, &aio->ldd_sync, 0);
+		if (result == 0)
+			result = rc2;
+
+		if (result == 0) {
+			/* no commit async for direct IO */
+			cio->u.write.cui_written += tot_bytes;
+			result = tot_bytes;
+		}
+		OBD_FREE_PTR(aio);
+	} else {
+		if (result < 0) {
+			if (cfs_atomic_read(&aio->ldd_sync.csi_sync_nr) > 1) {
+				/* some pages are in transfer, set error code so
+				 * that it can be seen by aio_complete(). */
+				cl_sync_io_note(env, &aio->ldd_sync, result);
+				result = -EIOCBQUEUED;
+			} else {
+				cl_sync_io_note(env, &aio->ldd_sync, 0);
+			}
+		} else {
+			aio->ldd_bytes = tot_bytes;
+			cl_sync_io_note(env, &aio->ldd_sync, 0);
+			result = -EIOCBQUEUED;
+		}
 	}
 
 	cl_env_put(env, &refcheck);
-	RETURN(tot_bytes ? tot_bytes : result);
+	RETURN(result);
 }
 
 /**
