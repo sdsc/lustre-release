@@ -1350,6 +1350,8 @@ static ssize_t ll_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
         result = ll_file_io_generic(env, args, iocb->ki_filp, CIT_WRITE,
                                   &iocb->ki_pos, count);
         cl_env_put(env, &refcheck);
+	if (result == 0 && !is_sync_kiocb(iocb))
+		result = -EIOCBQUEUED;
         RETURN(result);
 }
 
