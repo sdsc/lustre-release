@@ -1801,18 +1801,26 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct idx_info, ii_recsize));
 	LASSERTF((int)sizeof(((struct idx_info *)0)->ii_recsize) == 2, "found %lld\n",
 		 (long long)(int)sizeof(((struct idx_info *)0)->ii_recsize));
-	LASSERTF((int)offsetof(struct idx_info, ii_pad1) == 60, "found %lld\n",
-		 (long long)(int)offsetof(struct idx_info, ii_pad1));
-	LASSERTF((int)sizeof(((struct idx_info *)0)->ii_pad1) == 4, "found %lld\n",
-		 (long long)(int)sizeof(((struct idx_info *)0)->ii_pad1));
-	LASSERTF((int)offsetof(struct idx_info, ii_pad2) == 64, "found %lld\n",
-		 (long long)(int)offsetof(struct idx_info, ii_pad2));
-	LASSERTF((int)sizeof(((struct idx_info *)0)->ii_pad2) == 8, "found %lld\n",
-		 (long long)(int)sizeof(((struct idx_info *)0)->ii_pad2));
-	LASSERTF((int)offsetof(struct idx_info, ii_pad3) == 72, "found %lld\n",
-		 (long long)(int)offsetof(struct idx_info, ii_pad3));
-	LASSERTF((int)sizeof(((struct idx_info *)0)->ii_pad3) == 8, "found %lld\n",
-		 (long long)(int)sizeof(((struct idx_info *)0)->ii_pad3));
+	LASSERTF((int)offsetof(struct idx_info, ii_oid_start) == 60, "found %lld\n",
+		 (long long)(int)offsetof(struct idx_info, ii_oid_start));
+	LASSERTF((int)sizeof(((struct idx_info *)0)->ii_oid_start) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct idx_info *)0)->ii_oid_start));
+	LASSERTF((int)offsetof(struct idx_info, ii_oid_end) == 64, "found %lld\n",
+		 (long long)(int)offsetof(struct idx_info, ii_oid_end));
+	LASSERTF((int)sizeof(((struct idx_info *)0)->ii_oid_end) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct idx_info *)0)->ii_oid_end));
+	LASSERTF((int)offsetof(struct idx_info, ii_ver_start) == 68, "found %lld\n",
+		 (long long)(int)offsetof(struct idx_info, ii_ver_start));
+	LASSERTF((int)sizeof(((struct idx_info *)0)->ii_ver_start) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct idx_info *)0)->ii_ver_start));
+	LASSERTF((int)offsetof(struct idx_info, ii_ver_end) == 72, "found %lld\n",
+		 (long long)(int)offsetof(struct idx_info, ii_ver_end));
+	LASSERTF((int)sizeof(((struct idx_info *)0)->ii_ver_end) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct idx_info *)0)->ii_ver_end));
+	LASSERTF((int)offsetof(struct idx_info, ii_index) == 76, "found %lld\n",
+		 (long long)(int)offsetof(struct idx_info, ii_index));
+	LASSERTF((int)sizeof(((struct idx_info *)0)->ii_index) == 4, "found %lld\n",
+		 (long long)(int)sizeof(((struct idx_info *)0)->ii_index));
 	CLASSERT(IDX_INFO_MAGIC == 0x3D37CC37);
 
 	/* Checks for struct lu_idxpage */
@@ -1845,6 +1853,10 @@ void lustre_assert_wire_constants(void)
 		 (long long)II_FL_VARREC);
 	LASSERTF(II_FL_NONUNQ == 8, "found %lld\n",
 		 (long long)II_FL_NONUNQ);
+	LASSERTF(IT_FL_VIRTUAL == 16, "found %lld\n",
+		 (long long)IT_FL_VIRTUAL);
+	LASSERTF(IT_FL_BIGKEY == 32, "found %lld\n",
+		 (long long)IT_FL_BIGKEY);
 
 	/* Checks for struct niobuf_remote */
 	LASSERTF((int)sizeof(struct niobuf_remote) == 16, "found %lld\n",
