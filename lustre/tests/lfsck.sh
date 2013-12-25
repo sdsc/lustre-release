@@ -189,6 +189,11 @@ init_logging
 get_svr_devs
 
 TESTDIR=$DIR/d0.$TESTSUITE
+# DNE is not supported, so when running on a DNE filesystem,
+# we only pass master MDS parameters.
+MDT_NODE=$(facet_active_host $SINGLEMDS)
+MDT_DEV=$(echo $(get_mnt_devs $MDT_NODE mdt) | awk '{print $1}')
+
 if is_empty_fs $MOUNT; then
 	# create test directory
 	mkdir -p $TESTDIR || error "mkdir $TESTDIR failed"
@@ -221,11 +226,11 @@ if is_empty_fs $MOUNT; then
 		error "removing objects failed"
 
 	# remove files from MDS
-	remove_files $SINGLEMDS $MDTDEV $MDS_REMOVE ||
+	remove_files $SINGLEMDS $MDT_DEV $MDS_REMOVE ||
 		error "removing files failed"
 
 	# create EAs on files so objects are referenced from different files
-	duplicate_files $SINGLEMDS $MDTDEV $MDS_DUPE ||
+	duplicate_files $SINGLEMDS $MDT_DEV $MDS_DUPE ||
 		error "duplicating files failed"
 	FSCK_MAX_ERR=1   # file system errors corrected
 else # is_empty_fs $MOUNT
@@ -236,7 +241,7 @@ fi
 # Test 1a - check and repair the filesystem
 # lfsck will return 1 if the filesystem had errors fixed
 # run e2fsck to generate databases used for lfsck
-generate_db
+generate_db $MDT_NODE $MDT_DEV
 
 # remount filesystem
 ORIG_REFORMAT=$REFORMAT
@@ -256,7 +261,7 @@ else
 	sync; sync; sleep 3
 
 	# run e2fsck again to generate databases used for lfsck
-	generate_db
+	generate_db $MDT_NODE $MDT_DEV
 
 	# run lfsck again
 	rc=0
