@@ -188,7 +188,8 @@ struct ofd_device {
 				 ofd_grant_compat_disable:1,
 				 /* Protected by ofd_lastid_rwsem. */
 				 ofd_lastid_rebuilding:1,
-				 ofd_fail_on_inconsistency:1;
+				 ofd_fail_on_inconsistency:1,
+				 ofd_record_fid_accessed:1;
 	struct seq_server_site	 ofd_seq_site;
 	/* the limit of SOFT_SYNC RPCs that will trigger a soft sync */
 	unsigned int		 ofd_soft_sync_limit;
@@ -334,6 +335,7 @@ struct ofd_thread_info {
 	struct lfsck_start		 fti_lfsck_start;
 	struct lfsck_start_param	 fti_lsp;
 	struct lu_seq_range		 fti_range;
+	struct lfsck_request		 fti_lr;
 };
 
 extern void target_recovery_fini(struct obd_device *obd);

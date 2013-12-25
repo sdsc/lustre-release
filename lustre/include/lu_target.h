@@ -327,6 +327,11 @@ int tgt_server_data_update(const struct lu_env *env, struct lu_target *tg,
 int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tg,
 			   loff_t off);
 
+/* out_handler.c */
+void out_register_record_fid_accessed(int (*rfa)(const struct lu_env *,
+						 struct dt_device *,
+						 struct lfsck_request *,
+						 const struct lu_fid *));
 enum {
 	ESERIOUS = 0x0001000
 };
