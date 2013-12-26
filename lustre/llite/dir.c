@@ -637,17 +637,20 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
                         filp->f_pos = pos;
         }
 	filp->f_version = inode->i_version;
+
+	if (!file_is_noatime(filp)) {
 #ifdef HAVE_TOUCH_ATIME_1ARG
 #ifdef HAVE_F_PATH_MNT
-	path.mnt = filp->f_path.mnt;
+		path.mnt = filp->f_path.mnt;
 #else
-	path.mnt = filp->f_vfsmnt;
+		path.mnt = filp->f_vfsmnt;
 #endif
-	path.dentry = filp->f_dentry;
-	touch_atime(&path);
+		path.dentry = filp->f_dentry;
+		touch_atime(&path);
 #else
-	touch_atime(filp->f_vfsmnt, filp->f_dentry);
+		touch_atime(filp->f_vfsmnt, filp->f_dentry);
 #endif
+	}
 
 out:
 	if (!rc)

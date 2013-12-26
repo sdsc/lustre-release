@@ -1668,4 +1668,6 @@ void ll_xattr_fini(void);
 int ll_page_sync_io(const struct lu_env *env, struct cl_io *io,
 		    struct cl_page *page, enum cl_req_type crt);
 
+bool file_is_noatime(const struct file *file);
+
 #endif /* LLITE_INTERNAL_H */

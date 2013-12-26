@@ -1070,7 +1070,7 @@ int ll_glimpse_ioctl(struct ll_sb_info *sbi, struct lov_stripe_md *lsm,
         return rc;
 }
 
-static bool file_is_noatime(const struct file *file)
+bool file_is_noatime(const struct file *file)
 {
 	const struct vfsmount *mnt = file->f_path.mnt;
 	const struct inode *inode = file->f_path.dentry->d_inode;
