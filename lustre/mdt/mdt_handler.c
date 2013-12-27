@@ -2082,6 +2082,21 @@ int mdt_quota_dqacq(struct tgt_session_info *tsi)
 	RETURN(rc);
 }
 
+/* LFSCK request handlers */
+int mdt_lfsck_notify(struct tgt_session_info *tsi)
+{
+	/* XXX: to be implemented. */
+
+	return 0;
+}
+
+int mdt_lfsck_query(struct tgt_session_info *tsi)
+{
+	/* XXX: to be implemented. */
+
+	return 0;
+}
+
 struct mdt_object *mdt_object_new(const struct lu_env *env,
 				  struct mdt_device *d,
 				  const struct lu_fid *f)
@@ -4119,6 +4134,11 @@ static struct tgt_handler mdt_quota_ops[] = {
 TGT_QUOTA_HDL(HABEO_REFERO,		QUOTA_DQACQ,	  mdt_quota_dqacq),
 };
 
+static struct tgt_handler mdt_lfsck_handlers[] = {
+TGT_LFSCK_HDL(HABEO_REFERO,	LFSCK_NOTIFY,	mdt_lfsck_notify),
+TGT_LFSCK_HDL(HABEO_REFERO,	LFSCK_QUERY,	mdt_lfsck_query),
+};
+
 static struct tgt_opc_slice mdt_common_slice[] = {
 	{
 		.tos_opc_start	= MDS_FIRST_OPC,
@@ -4164,6 +4184,11 @@ static struct tgt_opc_slice mdt_common_slice[] = {
 		.tos_opc_start	= LLOG_FIRST_OPC,
 		.tos_opc_end	= LLOG_LAST_OPC,
 		.tos_hs		= tgt_llog_handlers
+	},
+	{
+		.tos_opc_start	= LFSCK_FIRST_OPC,
+		.tos_opc_end	= LFSCK_LAST_OPC,
+		.tos_hs		= mdt_lfsck_handlers
 	},
 
 	{
