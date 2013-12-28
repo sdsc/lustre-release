@@ -133,6 +133,39 @@ struct lfsck_layout_slave_async_args {
 	struct lfsck_layout_slave_target *llsaa_llst;
 };
 
+static struct lfsck_layout_object *
+lfsck_layout_object_init(const struct lu_env *env, struct dt_object *obj,
+			 __u16 gen)
+{
+	struct lfsck_layout_object *llo;
+	int			    rc;
+
+	OBD_ALLOC_PTR(llo);
+	if (llo == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	dt_read_lock(env, obj, 0);
+	rc = dt_attr_get(env, obj, &llo->llo_attr, BYPASS_CAPA);
+	dt_read_unlock(env, obj);
+	if (rc != 0) {
+		OBD_FREE_PTR(llo);
+
+		return ERR_PTR(rc);
+	}
+
+	lu_object_get(&obj->do_lu);
+	llo->llo_obj = obj;
+	llo->llo_gen = gen;
+	atomic_set(&llo->llo_ref, 1);
+
+	return llo;
+}
+
+static inline void lfsck_layout_object_get(struct lfsck_layout_object *llo)
+{
+	atomic_inc(&llo->llo_ref);
+}
+
 static inline void
 lfsck_layout_llst_put(struct lfsck_layout_slave_target *llst)
 {
@@ -222,6 +255,26 @@ static inline void lfsck_layout_object_put(const struct lu_env *env,
 	}
 }
 
+static struct lfsck_layout_req *
+lfsck_layout_req_init(struct lfsck_layout_object *parent,
+		      struct dt_object *child, __u32 ost_idx, __u32 lov_idx)
+{
+	struct lfsck_layout_req *llr;
+
+	OBD_ALLOC_PTR(llr);
+	if (llr == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	INIT_LIST_HEAD(&llr->llr_list);
+	lfsck_layout_object_get(parent);
+	llr->llr_parent = parent;
+	llr->llr_child = child;
+	llr->llr_ost_idx = ost_idx;
+	llr->llr_lov_idx = lov_idx;
+
+	return llr;
+}
+
 static inline void lfsck_layout_req_fini(const struct lu_env *env,
 					 struct lfsck_layout_req *llr)
 {
@@ -240,6 +293,26 @@ static inline bool lfsck_layout_req_empty(struct lfsck_layout_master_data *llmd)
 	spin_unlock(&llmd->llmd_lock);
 
 	return empty;
+}
+
+static inline int lfsck_layout_verify_header(struct lov_mds_md_v1 *lmm)
+{
+	__u32 magic;
+	__u32 patten;
+
+	magic = le32_to_cpu(lmm->lmm_magic);
+	/* If magic crashed, keep it there. Sometime later, during OST-object
+	 * orphan handling, if some OST-object(s) back-point to it, it can be
+	 * verified and repaired. */
+	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)
+		return -EINVAL;
+
+	patten = le32_to_cpu(lmm->lmm_pattern);
+	/* XXX: currently, we only support LOV_PATTERN_RAID0. */
+	if (patten != LOV_PATTERN_RAID0)
+		return -EOPNOTSUPP;
+
+	return 0;
 }
 
 static void lfsck_layout_le_to_cpu(struct lfsck_layout *des,
@@ -1241,6 +1314,39 @@ static int lfsck_layout_double_scan_result(const struct lu_env *env,
 	return rc;
 }
 
+static int lfsck_layout_lock(const struct lu_env *env,
+			     struct lfsck_component *com,
+			     struct dt_object *obj,
+			     struct lustre_handle *lh, __u64 bits)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	ldlm_policy_data_t		*policy = &info->lti_policy;
+	struct ldlm_res_id		*resid	= &info->lti_resid;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	__u64				 flags	= LDLM_FL_ATOMIC_CB;
+	int				 rc;
+
+	LASSERT(lfsck->li_namespace != NULL);
+
+	memset(lh, 0, sizeof(*lh));
+	memset(policy, 0, sizeof(*policy));
+	policy->l_inodebits.bits = bits;
+	fid_build_reg_res_name(lfsck_dto2fid(obj), resid);
+	rc = ldlm_cli_enqueue_local(lfsck->li_namespace, resid, LDLM_IBITS,
+				    policy, LCK_EX, &flags, ldlm_blocking_ast,
+				    ldlm_completion_ast, NULL, NULL, 0,
+				    LVB_T_NONE, NULL, lh);
+	if (rc == ELDLM_OK)
+		return 0;
+
+	return -EIO;
+}
+
+static void lfsck_layout_unlock(struct lustre_handle *lh)
+{
+	ldlm_lock_decref(lh, LCK_EX);
+}
+
 static int lfsck_layout_scan_orphan(const struct lu_env *env,
 				    struct lfsck_component *com,
 				    struct lfsck_tgt_desc *ltd)
@@ -2016,23 +2122,290 @@ static int lfsck_layout_master_prep(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/* Pre-fetch the attribute for each stripe in the given layout EA. */
+static int lfsck_layout_scan_stripes(const struct lu_env *env,
+				     struct lfsck_component *com,
+				     struct dt_object *parent,
+				     struct lov_mds_md_v1 *lmm)
+{
+	struct lfsck_thread_info	*info 	= lfsck_env_info(env);
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct lfsck_bookmark		*bk	= &lfsck->li_bookmark_ram;
+	struct lfsck_layout		*lo	= com->lc_file_ram;
+	struct lfsck_layout_master_data *llmd	= com->lc_data;
+	struct lfsck_layout_object	*llo	= NULL;
+	struct lov_ost_data_v1		*objs;
+	struct lfsck_tgt_descs		*ltds	= &lfsck->li_ost_descs;
+	struct lu_buf			*buf;
+	int				 rc	= 0;
+	int				 i;
+	__u16				 count;
+	__u16				 gen;
+	ENTRY;
+
+	buf = lfsck_buf_get(env, &info->lti_pfid,
+			    sizeof(struct filter_fid_old));
+	count = le16_to_cpu(lmm->lmm_stripe_count);
+	gen = le16_to_cpu(lmm->lmm_layout_gen);
+	if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V1)
+		objs = &(lmm->lmm_objects[0]);
+	else
+		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
+
+	for (i = 0; i < count; i++, objs++) {
+		struct lu_fid		*fid	= &info->lti_fid;
+		struct ost_id		*oi	= &info->lti_oi;
+		struct lfsck_layout_req *llr;
+		struct lfsck_tgt_desc	*tgt	= NULL;
+		struct dt_object	*cobj	= NULL;
+		struct thandle		*th	= NULL;
+		__u32			 index	=
+					le32_to_cpu(objs->l_ost_idx);
+
+		ostid_le_to_cpu(&objs->l_ost_oi, oi);
+		ostid_to_fid(fid, oi, index);
+		tgt = lfsck_tgt_get(ltds, index);
+		if (unlikely(tgt == NULL)) {
+			lo->ll_flags |= LF_INCOMPLETE;
+			goto next;
+		}
+
+		cobj = lfsck_object_find_by_dev(env, tgt->ltd_tgt, fid);
+		if (IS_ERR(cobj)) {
+			rc = PTR_ERR(cobj);
+			goto next;
+		}
+
+		th = dt_trans_create(env, tgt->ltd_tgt);
+		if (IS_ERR(th)) {
+			rc = PTR_ERR(th);
+			goto next;
+		}
+
+		LASSERT(th->th_dummy);
+
+		rc = dt_declare_attr_get(env, cobj, BYPASS_CAPA);
+		if (rc != 0)
+			goto next;
+
+		rc = dt_declare_xattr_get(env, cobj, buf, XATTR_NAME_FID,
+					  BYPASS_CAPA);
+		if (rc != 0)
+			goto next;
+
+		rc = dt_trans_start(env, tgt->ltd_tgt, th);
+		if (rc != 0)
+			goto next;
+
+		if (llo == NULL) {
+			llo = lfsck_layout_object_init(env, parent, gen);
+			if (IS_ERR(llo)) {
+				rc = PTR_ERR(llo);
+				goto next;
+			}
+		}
+
+		llr = lfsck_layout_req_init(llo, cobj, index, i);
+		if (IS_ERR(llr)) {
+			rc = PTR_ERR(llr);
+			goto next;
+		}
+
+		cobj = NULL;
+		spin_lock(&llmd->llmd_lock);
+		if (llmd->llmd_assistant_status < 0) {
+			spin_unlock(&llmd->llmd_lock);
+			lfsck_layout_req_fini(env, llr);
+			dt_trans_stop(env, tgt->ltd_tgt, th);
+			lfsck_tgt_put(tgt);
+			RETURN(llmd->llmd_assistant_status);
+		}
+
+		list_add_tail(&llr->llr_list, &llmd->llmd_req_list);
+		spin_unlock(&llmd->llmd_lock);
+		wake_up_all(&llmd->llmd_thread.t_ctl_waitq);
+
+next:
+		down_write(&com->lc_sem);
+		com->lc_new_checked++;
+		if (rc < 0)
+			lo->ll_objs_failed_phase1++;
+		up_write(&com->lc_sem);
+
+		if (th != NULL && !IS_ERR(th))
+			dt_trans_stop(env, tgt->ltd_tgt, th);
+
+		if (cobj != NULL && !IS_ERR(cobj))
+			lu_object_put(env, &cobj->do_lu);
+
+		if (likely(tgt != NULL))
+			lfsck_tgt_put(tgt);
+
+		if (rc < 0 && bk->lb_param & LPF_FAILOUT)
+			break;
+
+		rc = 0;
+	}
+
+	if (llo != NULL && !IS_ERR(llo))
+		lfsck_layout_object_put(env, llo);
+
+	RETURN(rc);
+}
+
+/* For the given object, read its layout EA locally. For each stripe, pre-fetch
+ * the OST-object's attribute and generate an structure lfsck_layout_req on the
+ * list ::llmd_req_list.
+ *
+ * For each request on above list, the lfsck_layout_assistant thread compares
+ * the OST side attribute with local attribute, if inconsistent, then repair it.
+ *
+ * All above processing is async mode with pipeline. */
 static int lfsck_layout_master_exec_oit(const struct lu_env *env,
 					struct lfsck_component *com,
 					struct dt_object *obj)
 {
-	/* XXX: To be implemented in other patches.
-	 *
-	 * For the given object, read its layout EA locally. For each stripe,
-	 * pre-fetch the OST-object's attribute and generate an structure
-	 * lfsck_layout_req on the list ::llmd_req_list.
-	 *
-	 * For each request on the ::llmd_req_list, the lfsck_layout_assistant
-	 * thread will compare the OST side attribute with local attribute,
-	 * if inconsistent, then repair it.
-	 *
-	 * All above processing is async mode with pipeline. */
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct ost_id			*oi	= &info->lti_oi;
+	struct lustre_handle		*lh	= &info->lti_lh;
+	struct lfsck_layout		*lo	= com->lc_file_ram;
+	struct lfsck_layout_master_data *llmd	= com->lc_data;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct lfsck_bookmark		*bk	= &lfsck->li_bookmark_ram;
+	struct thandle			*handle = NULL;
+	struct lu_buf			*buf	= &info->lti_big_buf;
+	ssize_t				 buflen = buf->lb_len;
+	struct lov_mds_md_v1		*lmm	= NULL;
+	int				 rc	= 0;
+	bool				 to_fix	= false;
+	bool				 lock1	= false;
+	bool				 lock2	= false;
+	bool				 stripe = false;
+	ENTRY;
 
-	return 0;
+	if (!S_ISREG(lfsck_object_type(obj)))
+		GOTO(out, rc = 0);
+
+	if (llmd->llmd_assistant_status < 0)
+		GOTO(out, rc = -ESRCH);
+
+	fid_to_lmm_oi(lfsck_dto2fid(obj), oi);
+	lmm_oi_cpu_to_le(oi, oi);
+
+lock:
+	if (to_fix) {
+		rc = lfsck_layout_lock(env, com, obj, lh, MDS_INODELOCK_LAYOUT |
+							  MDS_INODELOCK_XATTR);
+		if (rc != 0)
+			GOTO(out, rc);
+
+		lock1 = true;
+		handle = dt_trans_create(env, lfsck->li_next);
+		if (IS_ERR(handle))
+			GOTO(out, rc = PTR_ERR(handle));
+
+		rc = dt_declare_xattr_set(env, obj, buf, XATTR_NAME_LOV,
+					  LU_XATTR_REPLACE, handle);
+		if (rc != 0)
+			GOTO(out, rc);
+
+		rc = dt_trans_start(env, lfsck->li_next, handle);
+		if (rc != 0)
+			GOTO(out, rc);
+
+		dt_write_lock(env, obj, 0);
+	} else {
+		dt_read_lock(env, obj, 0);
+	}
+
+	lock2 = true;
+
+again:
+	rc = dt_xattr_get(env, obj, buf, XATTR_NAME_LOV, BYPASS_CAPA);
+	if (rc == -ERANGE) {
+		rc = dt_xattr_get(env, obj, &LU_BUF_NULL, XATTR_NAME_LOV,
+				  BYPASS_CAPA);
+		if (rc <= 0)
+			GOTO(out, rc);
+
+		lu_buf_realloc(buf, rc);
+		buflen = buf->lb_len;
+		if (buf->lb_buf == NULL)
+			GOTO(out, rc = -ENOMEM);
+		goto again;
+	} else if (rc <= 0) {
+		if (rc == -ENODATA)
+			rc = 0;
+		GOTO(out, rc);
+	} else if (unlikely(buflen == 0)) {
+		lu_buf_alloc(buf, rc);
+		buflen = buf->lb_len;
+		if (buf->lb_buf == NULL)
+			GOTO(out, rc = -ENOMEM);
+		goto again;
+	}
+
+	buf->lb_len = rc;
+	lmm = buf->lb_buf;
+	rc = lfsck_layout_verify_header(lmm);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* Inconsistent lmm_oi, should be repaired. */
+	if (memcmp(oi, &lmm->lmm_oi, sizeof(*oi)) != 0) {
+		CDEBUG(D_LFSCK, "Repair bad lmm_oi for "DFID"\n",
+		       PFID(lfsck_dto2fid(obj)));
+
+		if (!(bk->lb_param & LPF_DRYRUN)) {
+			if (!to_fix) {
+				dt_read_unlock(env, obj);
+				lock2 = false;
+				to_fix = true;
+				buf->lb_len = buflen;
+				goto lock;
+			}
+
+			lmm->lmm_oi = *oi;
+			rc = dt_xattr_set(env, obj, buf, XATTR_NAME_LOV,
+					  LU_XATTR_REPLACE, handle,
+					  BYPASS_CAPA);
+			if (rc != 0)
+				GOTO(out, rc);
+		}
+
+		down_write(&com->lc_sem);
+		lo->ll_objs_repaired_others++;
+		up_write(&com->lc_sem);
+	}
+
+	GOTO(out, stripe = true);
+
+out:
+	if (lock2) {
+		if (to_fix)
+			dt_write_unlock(env, obj);
+		else
+			dt_read_unlock(env, obj);
+	}
+
+	if (handle != NULL && !IS_ERR(handle))
+		dt_trans_stop(env, lfsck->li_next, handle);
+
+	if (lock1)
+		lfsck_layout_unlock(lh);
+
+	if (stripe) {
+		rc = lfsck_layout_scan_stripes(env, com, obj, lmm);
+	} else {
+		down_write(&com->lc_sem);
+		com->lc_new_checked++;
+		if (rc < 0)
+			lo->ll_objs_failed_phase1++;
+		up_write(&com->lc_sem);
+	}
+	buf->lb_len = buflen;
+
+	return rc;
 }
 
 static int lfsck_layout_slave_exec_oit(const struct lu_env *env,
