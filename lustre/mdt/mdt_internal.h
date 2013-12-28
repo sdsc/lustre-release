@@ -63,6 +63,7 @@
 #include <lustre_idmap.h>
 #include <lustre_eacl.h>
 #include <lustre_quota.h>
+#include <lustre_lfsck.h>
 
 /* check if request's xid is equal to last one or not*/
 static inline int req_xid_is_last(struct ptlrpc_request *req)
@@ -467,6 +468,8 @@ struct mdt_thread_info {
 	/* should be enough to fit lustre_mdt_attrs */
 	char			   mti_xattr_buf[128];
 	struct ldlm_enqueue_info   mti_einfo;
+	struct lfsck_start	   mti_lfsck_start;
+	struct lfsck_start_param   mti_lsp;
 };
 
 extern struct lu_context_key mdt_thread_key;
