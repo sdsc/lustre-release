@@ -838,9 +838,13 @@ int mdt_finish_open(struct mdt_thread_info *info,
 	 * that looks like it was actually almost succesful and a failure at the
 	 * same time */
 	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_NEGATIVE_POSITIVE)) {
-		mdt_set_disposition(info, rep, DISP_OPEN_LOCK | \
-			            DISP_OPEN_OPEN | DISP_LOOKUP_NEG | \
-				    DISP_LOOKUP_POS);
+		mdt_set_disposition(info, rep, DISP_OPEN_OPEN |
+					       DISP_LOOKUP_NEG |
+					       DISP_LOOKUP_POS);
+
+		if (flags & MDS_OPEN_LOCK)
+			mdt_set_disposition(info, rep, DISP_OPEN_LOCK);
+
 		RETURN(-ENOENT);
 	}
 
@@ -1252,8 +1256,14 @@ static void mdt_object_open_unlock(struct mdt_thread_info *info,
 		 * if open or layout lock is granted. */
 		rc = 1;
 	}
-	if (rc != 0)
+
+	if (rc != 0) {
+		struct ldlm_reply       *ldlm_rep;
+
+		ldlm_rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
+		mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
 		mdt_object_unlock(info, obj, lhc, 1);
+	}
 }
 
 int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
@@ -1669,10 +1679,8 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 		rc = mdt_object_open_lock(info, child, lhc, &ibits);
 		if (rc != 0) {
 			GOTO(out_child, result = rc);
-		} else if (create_flags & MDS_OPEN_LOCK) {
-			result = -EREMOTE;
+		} else if (create_flags & MDS_OPEN_LOCK)
 			mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
-		}
 	}
 
         /* Try to open it now. */
@@ -1681,7 +1689,6 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         if (rc) {
                 result = rc;
 		/* openlock will be released if mdt_finish_open failed */
-		mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
                 if (created) {
                         ma->ma_need = 0;
                         ma->ma_valid = 0;
@@ -1703,9 +1710,9 @@ out_child:
 out_parent:
         mdt_object_unlock_put(info, parent, lh, result || !created);
 out:
-        if (result && result != -EREMOTE)
-                lustre_msg_set_transno(req->rq_repmsg, 0);
-        return result;
+	if (result)
+		lustre_msg_set_transno(req->rq_repmsg, 0);
+	return result;
 }
 
 #define MFD_CLOSED(mode) (((mode) & ~(MDS_FMODE_EPOCH | MDS_FMODE_SOM | \
