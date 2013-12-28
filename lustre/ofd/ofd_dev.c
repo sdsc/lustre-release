@@ -377,7 +377,7 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	struct ofd_device		*ofd = ofd_dev(dev);
 	struct obd_device		*obd = ofd_obd(ofd);
 	struct lu_device		*next = &ofd->ofd_osd->dd_lu_dev;
-	struct lfsck_start_param	 lsp;
+	struct lfsck_start_param	*lsp;
 	int				 rc;
 
 	ENTRY;
@@ -405,9 +405,11 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 		RETURN(rc);
 	}
 
-	lsp.lsp_start = NULL;
-	lsp.lsp_namespace = ofd->ofd_namespace;
-	rc = lfsck_start(env, ofd->ofd_osd, &lsp);
+	lsp = &info->fti_lsp;
+	lsp->lsp_namespace = ofd->ofd_namespace;
+	lsp->lsp_start = NULL;
+	lsp->lsp_index_valid = 0;
+	rc = lfsck_start(env, ofd->ofd_osd, lsp);
 	if (rc != 0) {
 		CWARN("%s: auto trigger paused LFSCK failed: rc = %d\n",
 		      obd->obd_name, rc);
@@ -1877,16 +1879,70 @@ void ofd_hp_punch(struct tgt_session_info *tsi)
 
 static int ofd_lfsck_notify_hdl(struct tgt_session_info *tsi)
 {
-	/* XXX: to be implemented. */
+	const struct lu_env	*env = tsi->tsi_env;
+	struct ofd_device	*ofd = ofd_exp(tsi->tsi_exp);
+	struct lfsck_request	*lr;
+	int			 rc;
+	ENTRY;
 
-	return 0;
+	lr = req_capsule_client_get(tsi->tsi_pill, &RMF_LFSCK_REQUEST);
+	if (lr == NULL)
+		RETURN(-EPROTO);
+
+	switch (lr->lr_event) {
+	case LE_START: {
+		struct ofd_thread_info		*info  = ofd_info(env);
+		struct lfsck_start		*start = &info->fti_lfsck_start;
+		struct lfsck_start_param	*lsp   = &info->fti_lsp;
+
+		start->ls_valid = lr->lr_valid;
+		start->ls_speed_limit = lr->lr_speed;
+		start->ls_version = lr->lr_version;
+		start->ls_active = lr->lr_active;
+		start->ls_flags = lr->lr_param;
+
+		lsp->lsp_namespace = ofd->ofd_namespace;
+		lsp->lsp_start = start;
+		lsp->lsp_index = lr->lr_index;
+		lsp->lsp_index_valid = 1;
+		rc = lfsck_start(env, ofd->ofd_osd, lsp);
+		break;
+	}
+	case LE_STOP:
+	case LE_PHASE2_DONE:
+		rc = lfsck_in_notify(env, ofd->ofd_osd, lr);
+		break;
+	default:
+		CERROR("%s: unsupported lfsck_event: rc = %d\n",
+		       ofd_name(ofd), lr->lr_event);
+		rc = -EOPNOTSUPP;
+		break;
+	}
+
+	RETURN(rc);
 }
 
 static int ofd_lfsck_query_hdl(struct tgt_session_info *tsi)
 {
-	/* XXX: to be implemented. */
+	struct ofd_device	*ofd	 = ofd_exp(tsi->tsi_exp);
+	struct lfsck_request	*request;
+	struct lfsck_reply	*reply;
+	int			 rc	 = 0;
+	ENTRY;
 
-	return 0;
+	request = req_capsule_client_get(tsi->tsi_pill, &RMF_LFSCK_REQUEST);
+	if (request == NULL)
+		RETURN(-EPROTO);
+
+	reply = req_capsule_server_get(tsi->tsi_pill, &RMF_LFSCK_REPLY);
+	if (reply == NULL)
+		RETURN(-ENOMEM);
+
+	reply->lr_status = lfsck_query(ofd->ofd_osd, request);
+	if (reply->lr_status < 0)
+		rc = reply->lr_status;
+
+	RETURN(rc);
 }
 
 #define OBD_FAIL_OST_READ_NET	OBD_FAIL_OST_BRW_NET
@@ -2132,10 +2188,12 @@ err_fini_proc:
 
 static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 {
-	struct obd_device *obd = ofd_obd(m);
-	struct lu_device  *d = &m->ofd_dt_dev.dd_lu_dev;
+	struct obd_device	*obd = ofd_obd(m);
+	struct lu_device	*d   = &m->ofd_dt_dev.dd_lu_dev;
+	struct lfsck_stop	 stop;
 
-	lfsck_stop(env, m->ofd_osd, true);
+	stop.ls_status = LS_PAUSED;
+	lfsck_stop(env, m->ofd_osd, &stop);
 	lfsck_degister(env, m->ofd_osd);
 	target_recovery_fini(obd);
 	obd_exports_barrier(obd);

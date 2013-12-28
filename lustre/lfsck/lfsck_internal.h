@@ -53,76 +53,6 @@
 #define LFSCK_NAMEENTRY_REMOVED 	2 /* The entry has been removed. */
 #define LFSCK_NAMEENTRY_RECREATED	3 /* The entry has been recreated. */
 
-/**
- * status machine:
- *
- * 					LS_INIT
- * 					   |
- * 				     (lfsck|start)
- * 					   |
- *					   v
- *				   LS_SCANNING_PHASE1
- *					|	^
- *					|	:
- *					| (lfsck:restart)
- *					|	:
- *					v	:
- *	-----------------------------------------------------------------
- *	|		    |^		|^	   |^	      |^ 	|^
- *	|		    |:		|:	   |:	      |:	|:
- *	v		    v:		v:	   v:	      v: 	v:
- * LS_SCANNING_PHASE2	LS_FAILED  LS_STOPPED  LS_PAUSED LS_CRASHED LS_PARTIAL
- *			  (CO_)       (CO_)	 (CO_)
- *	|	^	    ^:		^:	   ^:	      ^:	^:
- *	|	:	    |:		|:	   |:	      |:	|:
- *	| (lfsck:restart)   |:		|:	   |:	      |:	|:
- *	v	:	    |v		|v	   |v	      |v	|v
- *	-----------------------------------------------------------------
- *	    |
- *	    v
- *    LS_COMPLETED
- */
-enum lfsck_status {
-	/* The lfsck file is new created, for new MDT, upgrading from old disk,
-	 * or re-creating the lfsck file manually. */
-	LS_INIT			= 0,
-
-	/* The first-step system scanning. */
-	LS_SCANNING_PHASE1	= 1,
-
-	/* The second-step system scanning. */
-	LS_SCANNING_PHASE2	= 2,
-
-	/* The LFSCK processing has completed for all objects. */
-	LS_COMPLETED		= 3,
-
-	/* The LFSCK exited automatically for failure, will not auto restart. */
-	LS_FAILED		= 4,
-
-	/* The LFSCK is stopped manually, will not auto restart. */
-	LS_STOPPED		= 5,
-
-	/* LFSCK is paused automatically when umount,
-	 * will be restarted automatically when remount. */
-	LS_PAUSED		= 6,
-
-	/* System crashed during the LFSCK,
-	 * will be restarted automatically after recovery. */
-	LS_CRASHED		= 7,
-
-	/* Some OST/MDT failed during the LFSCK, or not join the LFSCK. */
-	LS_PARTIAL		= 8,
-
-	/* The LFSCK is failed because its controller is failed. */
-	LS_CO_FAILED		= 9,
-
-	/* The LFSCK is stopped because its controller is stopped. */
-	LS_CO_STOPPED		= 10,
-
-	/* The LFSCK is paused because its controller is paused. */
-	LS_CO_PAUSED		= 11,
-};
-
 enum lfsck_flags {
 	/* Finish the first cycle scanning. */
 	LF_SCANNED_ONCE		= 0x00000001ULL,
@@ -322,6 +252,8 @@ struct lfsck_layout {
 };
 
 struct lfsck_component;
+struct lfsck_tgt_descs;
+struct lfsck_tgt_desc;
 
 struct lfsck_operations {
 	int (*lfsck_reset)(const struct lu_env *env,
@@ -366,6 +298,19 @@ struct lfsck_operations {
 
 	void (*lfsck_quit)(const struct lu_env *env,
 			   struct lfsck_component *com);
+
+	int (*lfsck_in_notify)(const struct lu_env *env,
+			       struct lfsck_component *com,
+			       struct lfsck_request *lr);
+
+	int (*lfsck_stop_notify)(const struct lu_env *env,
+				 struct lfsck_component *com,
+				 struct lfsck_tgt_descs *ltds,
+				 struct lfsck_tgt_desc *ltd,
+				 struct ptlrpc_request_set *set);
+
+	int (*lfsck_query)(const struct lu_env *env,
+			   struct lfsck_component *com);
 };
 
 #define TGT_PTRS		256     /* number of pointers at 1st level */
@@ -376,8 +321,11 @@ struct lfsck_tgt_desc {
 	struct dt_device  *ltd_tgt;
 	struct obd_export *ltd_exp;
 	struct list_head   ltd_layout_list;
+	struct list_head   ltd_layout_phase_list;
 	atomic_t	   ltd_ref;
 	__u32              ltd_index;
+	__u32		   ltd_layout_gen;
+	unsigned int	   ltd_dead:1;
 };
 
 struct lfsck_tgt_desc_idx {
@@ -527,8 +475,10 @@ struct lfsck_instance {
 	/* How many objects have been scanned since last sleep. */
 	__u32			  li_new_scanned;
 
-	unsigned int		  li_paused:1, /* The lfsck is paused. */
-				  li_oit_over:1, /* oit is finished. */
+	/* The status when the LFSCK stopped or paused. */
+	__u32			  li_status;
+
+	unsigned int		  li_oit_over:1, /* oit is finished. */
 				  li_drop_dryrun:1, /* Ever dryrun, not now. */
 				  li_master:1, /* Master instance or not. */
 				  li_current_oit_processed:1;
@@ -540,6 +490,13 @@ enum lfsck_linkea_flags {
 
 	/* Fail to repair the multiple-linked objects during the double scan. */
 	LLF_REPAIR_FAILED	= 0x02,
+};
+
+struct lfsck_async_interpret_args {
+	struct lfsck_component		*laia_com;
+	struct lfsck_tgt_descs		*laia_ltds;
+	struct lfsck_tgt_desc		*laia_ltd;
+	struct lfsck_request		*laia_lr;
 };
 
 struct lfsck_thread_args {
@@ -567,6 +524,7 @@ struct lfsck_thread_info {
 	struct lu_dirent	lti_ent;
 	char			lti_key[NAME_MAX + 16];
 	struct lfsck_request	lti_lr;
+	struct lfsck_async_interpret_args lti_laia;
 };
 
 /* lfsck_lib.c */
@@ -603,6 +561,12 @@ int lfsck_post(const struct lu_env *env, struct lfsck_instance *lfsck,
 	       int result);
 int lfsck_double_scan(const struct lu_env *env, struct lfsck_instance *lfsck);
 void lfsck_quit(const struct lu_env *env, struct lfsck_instance *lfsck);
+int lfsck_async_query(const struct lu_env *env, struct obd_export *exp,
+		      struct lfsck_request *lr, struct ptlrpc_request_set *set,
+		      ptlrpc_interpterer_t interpterer, void *args);
+int lfsck_async_notify(const struct lu_env *env, struct obd_export *exp,
+		       struct lfsck_request *lr, struct ptlrpc_request_set *set,
+		       ptlrpc_interpterer_t interpterer, void *args);
 
 /* lfsck_engine.c */
 int lfsck_master_engine(void *args);
