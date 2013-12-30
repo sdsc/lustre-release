@@ -254,6 +254,19 @@ short_hostname() {
   echo $(sed 's/\..*//' <<< $1)
 }
 
+###
+# short_nodename
+#
+# Find remote nodename, stripped of any domain, etc.
+# 'hostname -s' is easy, but not implemented on all systems
+short_nodename() {
+	local rname=$(do_node $1 "uname -n" || echo -1)
+	if [[ "$rname" = "-1" ]]; then
+		rname=$1
+	fi
+	echo $(short_hostname $rname)
+}
+
 print_opts () {
     local var
 
@@ -267,10 +280,9 @@ print_opts () {
 }
 
 run_compilebench() {
-
-# Space estimation:
-#        compile dir kernel-1 680MB
-#        required space       680MB * cbench_IDIRS = ~1.4 Gb
+	# Space estimation:
+	# compile dir kernel-0	~1GB
+	# required space	~1GB * cbench_IDIRS
 
     cbench_DIR=${cbench_DIR:-""}
     cbench_IDIRS=${cbench_IDIRS:-2}
@@ -284,14 +296,16 @@ run_compilebench() {
     [ -e $cbench_DIR/compilebench ] || \
         { skip_env "No compilebench build" && return; }
 
-    local space=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
-    if [ $space -le $((680 * 1024 * cbench_IDIRS)) ]; then
-        cbench_IDIRS=$(( space / 680 / 1024))
-        [ $cbench_IDIRS = 0 ] && \
-            skip_env "Need free space atleast 680 Mb, have $space" && return
+	local space=$(df -P $DIR | tail -n 1 | awk '{ print $4 }')
+	if [[ $space -le $((1024 * 1024 * cbench_IDIRS)) ]]; then
+		cbench_IDIRS=$((space / 1024 / 1024))
+		[[ $cbench_IDIRS -eq 0 ]] &&
+			skip_env "Need free space at least 1GB, have $space" &&
+			return
 
-        log free space=$space, reducing initial dirs to $cbench_IDIRS
-    fi
+		echo "free space=$space, reducing initial dirs to $cbench_IDIRS"
+	fi
+
     # FIXME:
     # t-f _base needs to be modifyed to set properly tdir
     # for new "test_foo" functions names
@@ -348,8 +362,8 @@ run_metabench() {
 			-n $((num_clients * mbench_THREADS)) \
 			-p $SRUN_PARTITION -- $cmd
 	else
-		mpi_run -np $((num_clients * $mbench_THREADS)) \
-			${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
+		mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+			-np $((num_clients * $mbench_THREADS)) $cmd
 	fi
 
     local rc=$?
@@ -396,8 +410,8 @@ run_simul() {
 			-n $((num_clients * simul_THREADS)) -p $SRUN_PARTITION \
 			-- $cmd
 	else
-		mpi_run -np $((num_clients * simul_THREADS)) \
-			${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
+		mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+			-np $((num_clients * simul_THREADS)) $cmd
 	fi
 
     local rc=$?
@@ -452,8 +466,8 @@ run_mdtest() {
 			-n $((num_clients * mdtest_THREADS)) \
 			-p $SRUN_PARTITION -- $cmd
 	else
-		mpi_run -np $((num_clients * mdtest_THREADS)) \
-			${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
+		mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+			-np $((num_clients * mdtest_THREADS)) $cmd
 	fi
 
     local rc=$?
@@ -586,8 +600,8 @@ run_ior() {
 			-n $((num_clients * ior_THREADS)) -p $SRUN_PARTITION \
 			-- $cmd
 	else
-		mpi_run -np $((num_clients * $ior_THREADS)) \
-			${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
+		mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+			-np $((num_clients * $ior_THREADS)) $cmd
 	fi
 
     local rc=$?
@@ -640,8 +654,8 @@ run_mib() {
 			-n $((num_clients * mib_THREADS)) -p $SRUN_PARTITION \
 			-- $cmd
 	else
-		mpi_run -np $((num_clients * mib_THREADS)) \
-			${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
+		mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+			-np $((num_clients * mib_THREADS)) $cmd
 	fi
 
     local rc=$?
@@ -682,8 +696,8 @@ run_cascading_rw() {
     local cmd="$CASC_RW -g -d $testdir -n $casc_REP"
 
 	echo "+ $cmd"
-	mpi_run -np $((num_clients * $casc_THREADS)) ${MACHINEFILE_OPTION} \
-		${MACHINEFILE} $cmd
+	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+		-np $((num_clients * $casc_THREADS)) $cmd
 
     local rc=$?
     if [ $rc != 0 ] ; then
@@ -724,8 +738,8 @@ run_write_append_truncate() {
     local cmd="write_append_truncate -n $write_REP $file"
 
 	echo "+ $cmd"
-	mpi_run -np $((num_clients * $write_THREADS)) ${MACHINEFILE_OPTION} \
-		${MACHINEFILE} $cmd
+	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+		-np $((num_clients * $write_THREADS)) $cmd
 
     local rc=$?
     if [ $rc != 0 ] ; then
@@ -764,8 +778,8 @@ run_write_disjoint() {
     local cmd="$WRITE_DISJOINT -f $testdir/file -n $wdisjoint_REP"
 
 	echo "+ $cmd"
-	mpi_run -np $((num_clients * $wdisjoint_THREADS)) \
-		${MACHINEFILE_OPTION} ${MACHINEFILE} $cmd
+	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+		-np $((num_clients * $wdisjoint_THREADS)) $cmd
 
     local rc=$?
     if [ $rc != 0 ] ; then
@@ -806,8 +820,8 @@ run_parallel_grouplock() {
 		local cmd="$PARALLEL_GROUPLOCK -g -v -d $testdir $subtest"
 		echo "+ $cmd"
 
-		mpi_run -np $parallel_grouplock_MINTASKS ${MACHINEFILE_OPTION} \
-			${MACHINEFILE} $cmd
+		mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+			-np $parallel_grouplock_MINTASKS $cmd
 		local rc=$?
 		if [ $rc != 0 ] ; then
 			error_noexit "parallel_grouplock subtests $subtest " \
@@ -883,8 +897,8 @@ run_statahead () {
     local cmd="$cmd1 $cmd2"
     echo "+ $cmd"
 
-	mpi_run -np $((num_clients * 32)) ${MACHINEFILE_OPTION} ${MACHINEFILE} \
-		$cmd
+	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+		-np $((num_clients * 32)) $cmd
 
     local rc=$?
     if [ $rc != 0 ] ; then

@@ -1,6 +1,6 @@
  #!/bin/bash
 #
-# This test was used in a set of CMD3 tests (cmd3-3 test). 
+# This test was used in a set of CMD3 tests (cmd3-3 test).
 
 LUSTRE=${LUSTRE:-`dirname $0`/..}
 . $LUSTRE/tests/test-framework.sh
@@ -36,7 +36,7 @@ fi
 # Make sure we start with a clean slate
 rm -f ${LOG}
 
-log "===== $0 ====== " 
+log "===== $0 ====== "
 
 check_and_setup_lustre
 
@@ -49,7 +49,7 @@ IFree=$(mdsrate_inodes_available)
 if [ $IFree -lt $NUM_FILES ]; then
     NUM_FILES=$IFree
 fi
-  
+
 generate_machine_file $NODES_TO_USE $MACHINEFILE || error "can not generate machinefile"
 
 if [ -n "$NOSINGLE" ]; then
@@ -66,13 +66,16 @@ else
 	COMMAND="${MDSRATE} ${MDSRATE_DEBUG} --create --time ${TIME_PERIOD}
 		--nfiles $NUM_FILES --dir ${TESTDIR_SINGLE} --filefmt 'f%%d'"
 	echo "+ ${COMMAND}"
-	mpi_run -np 1 ${MACHINEFILE_OPTION} ${MACHINEFILE} ${COMMAND} |
+	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} -np 1 ${COMMAND} |
 		tee ${LOG}
 
-        if [ ${PIPESTATUS[0]} != 0 ]; then
-            [ -f $LOG ] && sed -e "s/^/log: /" $LOG
-            error "mdsrate create for a single client failed, aborting"
-        fi
+	if [ ${PIPESTATUS[0]} != 0 ]; then
+		[ -f $LOG ] && sed -e "s/^/log: /" $LOG
+		error_noexit "mdsrate create on single client failed, aborting"
+		mdsrate_cleanup $NUM_CLIENTS $MACHINEFILE $NUM_FILES \
+				$TESTDIR_SINGLE 'f%%d' --ignore
+		exit 1
+	fi
     fi
 
     if [ -n "$NOUNLINK" ]; then
@@ -83,7 +86,7 @@ else
         COMMAND="${MDSRATE} ${MDSRATE_DEBUG} --unlink
                      --nfiles ${NUM_FILES} --dir ${TESTDIR_SINGLE} --filefmt 'f%%d'"
         echo "+ ${COMMAND}"
-        mpi_run -np 1 ${MACHINEFILE_OPTION} ${MACHINEFILE} ${COMMAND} |
+        mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} -np 1 ${COMMAND} |
 		tee ${LOG}
 
         if [ ${PIPESTATUS[0]} != 0 ]; then
@@ -113,12 +116,18 @@ else
 	COMMAND="${MDSRATE} ${MDSRATE_DEBUG} --create --time ${TIME_PERIOD}
 		--nfiles $NUM_FILES --dir ${TESTDIR_MULTI} --filefmt 'f%%d'"
 	echo "+ ${COMMAND}"
-	mpi_run -np $((NUM_CLIENTS * THREADS_PER_CLIENT)) \
-		${MACHINEFILE_OPTION} ${MACHINEFILE} ${COMMAND} | tee ${LOG}
-        if [ ${PIPESTATUS[0]} != 0 ]; then
-            [ -f $LOG ] && sed -e "s/^/log: /" $LOG
-            error "mdsrate create on multiple nodes failed, aborting"
-        fi
+	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+		-np $((NUM_CLIENTS * THREADS_PER_CLIENT)) ${COMMAND} |
+		tee ${LOG}
+
+	if [ ${PIPESTATUS[0]} != 0 ]; then
+		[ -f $LOG ] && sed -e "s/^/log: /" $LOG
+		error_noexit "mdsrate create on multiple nodes failed, aborting"
+		mdsrate_cleanup $((NUM_CLIENTS * THREADS_PER_CLIENT)) \
+				$MACHINEFILE $NUM_FILES \
+				$TESTDIR_MULTI 'f%%d' --ignore
+		exit 1
+	fi
     fi
 
     if [ -n "$NOUNLINK" ]; then
@@ -129,8 +138,9 @@ else
         COMMAND="${MDSRATE} ${MDSRATE_DEBUG} --unlink
                       --nfiles ${NUM_FILES} --dir ${TESTDIR_MULTI} --filefmt 'f%%d'"
         echo "+ ${COMMAND}"
-        mpi_run -np $((NUM_CLIENTS * THREADS_PER_CLIENT)) \
-		${MACHINEFILE_OPTION} ${MACHINEFILE} ${COMMAND} | tee ${LOG}
+        mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+		-np $((NUM_CLIENTS * THREADS_PER_CLIENT)) ${COMMAND} |
+		tee ${LOG}
         if [ ${PIPESTATUS[0]} != 0 ]; then
             [ -f $LOG ] && sed -e "s/^/log: /" $LOG
             error "mdsrate unlinks multiple nodes failed, aborting"
@@ -142,7 +152,7 @@ fi
 
 complete $SECONDS
 rmdir $BASEDIR || true
-rm -f $MACHINEFILE 
+rm -f $MACHINEFILE
 check_and_cleanup_lustre
 #rm -f $LOG
 

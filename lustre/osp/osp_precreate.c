@@ -1012,8 +1012,16 @@ static int osp_precreate_ready_condition(const struct lu_env *env,
 		return 1;
 
 	/* Bail out I/O fails to OST */
-	if (d->opd_pre_status == -EIO)
+	if (d->opd_pre_status != 0 &&
+	    d->opd_pre_status != -EAGAIN &&
+	    d->opd_pre_status != -ENODEV &&
+	    d->opd_pre_status != -ENOSPC) {
+		/* DEBUG LU-3230 */
+		if (d->opd_pre_status != -EIO)
+			CERROR("%s: precreate failed opd_pre_status %d\n",
+			       d->opd_obd->obd_name, d->opd_pre_status);
 		return 1;
+	}
 
 	return 0;
 }
@@ -1060,7 +1068,7 @@ int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d)
 	 *  - OST can allocate fid sequence.
 	 */
 	while ((rc = d->opd_pre_status) == 0 || rc == -ENOSPC ||
-		rc == -ENODEV || rc == -EAGAIN) {
+		rc == -ENODEV || rc == -EAGAIN || rc == -ENOTCONN) {
 
 		/*
 		 * increase number of precreations

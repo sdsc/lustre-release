@@ -35,7 +35,7 @@ rm -f $LOG
 
 [ ! -x ${MDSRATE} ] && error "${MDSRATE} not built."
 
-log "===== $0 ====== " 
+log "===== $0 ====== "
 
 check_and_setup_lustre
 
@@ -68,11 +68,15 @@ else
         NUM_THREADS=$NUM_CLIENTS
     fi
 
-	mpi_run -np ${NUM_THREADS} ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} -np ${NUM_THREADS} \
 		${COMMAND} 2>&1
-	[ ${PIPESTATUS[0]} != 0 ] &&
-		error "mdsrate file creation failed, aborting"
 
+	if [ ${PIPESTATUS[0]} != 0 ]; then
+		error_noexit "mdsrate file creation failed, aborting"
+		mdsrate_cleanup $NUM_THREADS $MACHINEFILE $NUM_FILES \
+				$TESTDIR 'f%%d' --ignore
+		exit 1
+	fi
 fi
 
 COMMAND="${MDSRATE} ${MDSRATE_DEBUG} --stat --time ${TIME_PERIOD}
@@ -85,13 +89,16 @@ else
     log "===== $0 ### 1 NODE STAT ###"
     echo "+" ${COMMAND}
 
-	mpi_run -np 1 ${MACHINEFILE_OPTION} ${MACHINEFILE} ${COMMAND} |
+	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} -np 1 ${COMMAND} |
 		tee ${LOG}
 
-    if [ ${PIPESTATUS[0]} != 0 ]; then
-        [ -f $LOG ] && sed -e "s/^/log: /" $LOG
-        error "mdsrate on a single client failed, aborting"
-    fi
+	if [ ${PIPESTATUS[0]} != 0 ]; then
+		[ -f $LOG ] && sed -e "s/^/log: /" $LOG
+		error_noexit "mdsrate stat on single client failed, aborting"
+		mdsrate_cleanup $NUM_CLIENTS $MACHINEFILE $NUM_FILES \
+				$TESTDIR 'f%%d' --ignore
+		exit 1
+	fi
 fi
 
 # 2
@@ -102,13 +109,16 @@ else
     log "===== $0 ### ${NUM_CLIENTS} NODES STAT ###"
     echo "+" ${COMMAND}
 
-	mpi_run -np ${NUM_CLIENTS} ${MACHINEFILE_OPTION} ${MACHINEFILE} \
+	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} -np ${NUM_CLIENTS} \
 		${COMMAND} | tee ${LOG}
 
-    if [ ${PIPESTATUS[0]} != 0 ]; then
-        [ -f $LOG ] && sed -e "s/^/log: /" $LOG
-        error "mdsrate stats on multiple nodes failed, aborting"
-    fi
+	if [ ${PIPESTATUS[0]} != 0 ]; then
+		[ -f $LOG ] && sed -e "s/^/log: /" $LOG
+		error_noexit "mdsrate stat on multiple nodes failed, aborting"
+		mdsrate_cleanup $NUM_CLIENTS $MACHINEFILE $NUM_FILES \
+				$TESTDIR 'f%%d' --ignore
+		exit 1
+	fi
 fi
 
 complete $SECONDS

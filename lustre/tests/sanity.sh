@@ -2152,7 +2152,7 @@ run_test 31o "duplicate hard links with same filename"
 
 cleanup_test32_mount() {
 	trap 0
-	$UMOUNT $DIR/$tdir/ext2-mountpoint
+	$UMOUNT -d $DIR/$tdir/ext2-mountpoint
 }
 
 test_32a() {
@@ -2360,7 +2360,7 @@ run_test 32p "open d32p/symlink->tmp/symlink->lustre-root/$tfile"
 
 cleanup_testdir_mount() {
 	trap 0
-	$UMOUNT $DIR/$tdir
+	$UMOUNT -d $DIR/$tdir
 }
 
 test_32q() {
@@ -3952,7 +3952,7 @@ test_54c() {
 	dd if=/dev/zero of=$tdir/tmp bs=`page_size` count=30 || error "dd write"
 	df $tdir
 	dd if=$tdir/tmp of=/dev/zero bs=`page_size` count=30 || error "dd read"
-	$UMOUNT $tdir
+	$UMOUNT -d $tdir
 	losetup -d $loopdev
 	rm $loopdev
 }
@@ -10838,6 +10838,31 @@ test_208() {
 	rm -f $DIR/$tfile
 }
 run_test 208 "Exclusive open"
+
+test_209() {
+	[[ $($LCTL get_param -n mdc.*.connect_flags) == ~disp_stripe ]] &&
+		skip_env "must have disp_stripe" && return
+
+	touch $DIR/$tfile
+	sync; sleep 5; sync;
+
+	echo 3 > /proc/sys/vm/drop_caches
+	req_before=$(awk '/ptlrpc_cache / { print $2 }' /proc/slabinfo)
+
+	# open/close 500 times
+	for i in $(seq 500); do
+		cat $DIR/$tfile
+	done
+
+	echo 3 > /proc/sys/vm/drop_caches
+	req_after=$(awk '/ptlrpc_cache / { print $2 }' /proc/slabinfo)
+
+	echo "before: $req_before, after: $req_after"
+	[ $((req_after - req_before)) -ge 300 ] &&
+		error "open/close requests are not freed"
+	return 0
+}
+run_test 209 "read-only open/close requests should be freed promptly"
 
 test_212() {
 	size=`date +%s`

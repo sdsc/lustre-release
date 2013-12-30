@@ -895,6 +895,33 @@ zpool_name() {
 }
 
 #
+# Create ZFS storage pool.
+#
+create_zpool() {
+	local facet=$1
+	local poolname=$2
+	local vdev=$3
+	shift 3
+	local opts=${@:-"-o cachefile=none"}
+
+	do_facet $facet "$ZPOOL list -H $poolname >/dev/null 2>&1 ||
+		$ZPOOL create -f $opts $poolname $vdev"
+}
+
+#
+# Create ZFS file system.
+#
+create_zfs() {
+	local facet=$1
+	local dataset=$2
+	shift 2
+	local opts=${@:-"-o mountpoint=legacy"}
+
+	do_facet $facet "$ZFS list -H $dataset >/dev/null 2>&1 ||
+		$ZFS create $opts $dataset"
+}
+
+#
 # Export ZFS storage pool.
 # Before exporting the pool, all datasets within the pool should be unmounted.
 #
@@ -910,6 +937,22 @@ export_zpool() {
 		do_facet $facet "! $ZPOOL list -H $poolname >/dev/null 2>&1 ||
 			grep -q ^$poolname/ /proc/mounts ||
 			$ZPOOL export $opts $poolname"
+	fi
+}
+
+#
+# Destroy ZFS storage pool.
+# Destroy the given pool and free up any devices for other use. This command
+# tries to unmount any active datasets before destroying the pool.
+# -f    Force any active datasets contained within the pool to be unmounted.
+#
+destroy_zpool() {
+	local facet=$1
+	local poolname=${2:-$(zpool_name $facet)}
+
+	if [[ -n "$poolname" ]]; then
+		do_facet $facet "! $ZPOOL list -H $poolname >/dev/null 2>&1 ||
+			$ZPOOL destroy -f $poolname"
 	fi
 }
 
@@ -2068,6 +2111,7 @@ wait_mds_ost_sync () {
 	echo "Waiting for orphan cleanup..."
 	# MAX value includes time needed for MDS-OST reconnection
 	local MAX=$(( TIMEOUT * 2 ))
+	local WAIT_TIMEOUT=${1:-$MAX}
 	local WAIT=0
 	local new_wait=true
 	local list=$(comma_list $(mdts_nodes))
@@ -2080,7 +2124,9 @@ wait_mds_ost_sync () {
 		list=$(comma_list $(osts_nodes))
 		cmd="$LCTL get_param -n obdfilter.*.mds_sync"
 	fi
-	while [ $WAIT -lt $MAX ]; do
+
+	echo "wait $WAIT_TIMEOUT secs maximumly for $list mds-ost sync done."
+	while [ $WAIT -lt $WAIT_TIMEOUT ]; do
 		local -a sync=($(do_nodes $list "$cmd"))
 		local con=1
 		local i
@@ -2096,10 +2142,13 @@ wait_mds_ost_sync () {
 		done
 		sleep 2 # increase waiting time and cover statfs cache
 		[ ${con} -eq 1 ] && return 0
-		echo "Waiting $WAIT secs for $facet mds-ost sync done."
+		echo "Waiting $WAIT secs for $list $i mds-ost sync done."
 		WAIT=$((WAIT + 2))
 	done
-	echo "$facet recovery not done in $MAX sec. $STATUS"
+
+	# show which nodes are not finished.
+	do_nodes $list "$cmd"
+	echo "$facet recovery node $i not done in $WAIT_TIMEOUT sec. $STATUS"
 	return 1
 }
 
@@ -4275,7 +4324,11 @@ error_noexit() {
 	if [ -z "$*" ]; then
 		echo "error() without useful message, please fix" > $LOGDIR/err
 	else
-		echo "$@" > $LOGDIR/err
+		if [[ `echo $TYPE | grep ^IGNORE` ]]; then
+			echo "$@" > $LOGDIR/ignore
+		else
+			echo "$@" > $LOGDIR/err
+		fi
 	fi
 }
 
@@ -4554,6 +4607,7 @@ run_one_logged() {
 	local name=${TESTSUITE}.test_${1}.test_log.$(hostname -s).log
 	local test_log=$LOGDIR/$name
 	rm -rf $LOGDIR/err
+	rm -rf $LOGDIR/ignore
 	rm -rf $LOGDIR/skip
 	local SAVE_UMASK=`umask`
 	umask 0022
@@ -4563,7 +4617,7 @@ run_one_logged() {
 	(run_one $1 "$2") 2>&1 | tee -i $test_log
 	local RC=${PIPESTATUS[0]}
 
-	[ $RC -ne 0 ] && [ ! -f $LOGDIR/err ] && \
+	[ $RC -ne 0 ] && [ ! -f $LOGDIR/err ] &&
 		echo "test_$1 returned $RC" | tee $LOGDIR/err
 
 	duration=$((`date +%s` - $BEFORE))
@@ -4571,6 +4625,8 @@ run_one_logged() {
 
 	if [[ -f $LOGDIR/err ]]; then
 		TEST_ERROR=$(cat $LOGDIR/err)
+	elif [[ -f $LOGDIR/ignore ]]; then
+		TEST_ERROR=$(cat $LOGDIR/ignore)
 	elif [[ -f $LOGDIR/skip ]]; then
 		TEST_ERROR=$(cat $LOGDIR/skip)
 	fi
@@ -5267,7 +5323,7 @@ get_mds_dir () {
 
 mdsrate_cleanup () {
 	if [ -d $4 ]; then
-		mpi_run -np $1 ${MACHINEFILE_OPTION} $2 ${MDSRATE} --unlink \
+		mpi_run ${MACHINEFILE_OPTION} $2 -np $1 ${MDSRATE} --unlink \
 			--nfiles $3 --dir $4 --filefmt $5 $6
 		rmdir $4
 	fi
@@ -5280,7 +5336,7 @@ delayed_recovery_enabled () {
 
 ########################
 
-convert_facet2label() { 
+convert_facet2label() {
     local facet=$1
 
     if [ x$facet = xost ]; then
@@ -5291,7 +5347,7 @@ convert_facet2label() {
 
     if [ -n ${!varsvc} ]; then
         echo ${!varsvc}
-    else  
+    else
         error "No lablel for $facet!"
     fi
 }
@@ -6057,7 +6113,7 @@ check_write_access() {
 	local file
 
 	for node in ${list//,/ }; do
-		file=$dir/check_file.$(short_hostname $node)
+		file=$dir/check_file.$(short_nodename $node)
 		if [[ ! -f "$file" ]]; then
 			# Logdir not accessible/writable from this node.
 			return 1

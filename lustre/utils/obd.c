@@ -1365,10 +1365,11 @@ int jt_obd_md_common(int argc, char **argv, int cmd)
                         sprintf(dirname, "%s", "/");
                         name++;
                 } else {
-                        int namelen = (unsigned long)last_lash -
-                                      (unsigned long)name;
-                        snprintf(dirname, namelen, "%s", name);
-                }
+			int namelen = (unsigned long)last_lash -
+				      (unsigned long)name + 1;
+			snprintf(dirname, namelen, "%s", name);
+			name = last_lash + 1;
+		}
 
                 data.ioc_pbuf1 = dirname;
                 data.ioc_plen1 = strlen(dirname);
@@ -1379,13 +1380,12 @@ int jt_obd_md_common(int argc, char **argv, int cmd)
                 if (name != NULL) {
                         data.ioc_pbuf2 = name;
                         data.ioc_plen2 = strlen(name);
-                } else {
-                        if (parent_base_id > 0)
-                                sprintf(dirname, "%s%d", parent_basedir,
-                                        parent_base_id);
-                        else
-                                sprintf(dirname, "%s", parent_basedir);
                 }
+		if (parent_base_id > 0)
+			sprintf(dirname, "%s%d", parent_basedir,
+				parent_base_id);
+		else
+			sprintf(dirname, "%s", parent_basedir);
                 data.ioc_pbuf1 = dirname;
                 data.ioc_plen1 = strlen(dirname);
         }
@@ -1405,8 +1405,7 @@ int jt_obd_md_common(int argc, char **argv, int cmd)
                 struct lu_fid fid = { 0 };
 
 		if (child_base_id != -1)
-			ostid_set_id(&data.ioc_obdo2.o_oi, child_base_id);
-
+			data.ioc_obdo2.o_oi.oi.oi_id = child_base_id;
                 data.ioc_obdo2.o_mode = mode | create_mode;
                 data.ioc_obdo2.o_valid = OBD_MD_FLID | OBD_MD_FLTYPE |
                                          OBD_MD_FLMODE | OBD_MD_FLFLAGS |

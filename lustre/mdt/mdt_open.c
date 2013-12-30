@@ -664,7 +664,8 @@ void mdt_mfd_set_mode(struct mdt_file_data *mfd, __u64 mode)
 }
 
 static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
-                        struct mdt_object *o, __u64 flags, int created)
+			struct mdt_object *o, __u64 flags, int created,
+			struct ldlm_reply *rep)
 {
         struct ptlrpc_request   *req = mdt_info_req(info);
         struct mdt_export_data  *med = &req->rq_export->exp_mdt_data;
@@ -692,6 +693,9 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
                 rc = mdt_create_data(info, p, o);
                 if (rc)
                         RETURN(rc);
+
+		if (exp_connect_flags(req->rq_export) & OBD_CONNECT_DISP_STRIPE)
+			mdt_set_disposition(info, rep, DISP_OPEN_STRIPE);
         }
 
         CDEBUG(D_INODE, "after open, ma_valid bit = "LPX64" lmm_size = %d\n",
@@ -713,13 +717,7 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
                         repbody->ioepoch = o->mot_ioepoch;
                 }
         } else if (flags & MDS_FMODE_EXEC) {
-		/* if file is released, we can't deny write because we must
-		 * restore (write) it to access it.*/
-		if ((ma->ma_valid & MA_HSM) &&
-		    (ma->ma_hsm.mh_flags & HS_RELEASED))
-			rc = 0;
-		else
-			rc = mdt_write_deny(o);
+		rc = mdt_write_deny(o);
         }
         if (rc)
                 RETURN(rc);
@@ -986,15 +984,15 @@ int mdt_finish_open(struct mdt_thread_info *info,
                                         repbody->valid |= OBD_MD_FLEASIZE;
                         }
 			mdt_set_disposition(info, rep, DISP_OPEN_OPEN);
-                        RETURN(0);
-                }
-        }
+			RETURN(0);
+		}
+	}
 
-        rc = mdt_mfd_open(info, p, o, flags, created);
+	rc = mdt_mfd_open(info, p, o, flags, created, rep);
 	if (!rc)
 		mdt_set_disposition(info, rep, DISP_OPEN_OPEN);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 extern void mdt_req_from_lcd(struct ptlrpc_request *req,
@@ -1222,11 +1220,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		if (open_flags & MDS_OPEN_LOCK) {
 			if (open_flags & FMODE_WRITE)
 				lm = LCK_CW;
-			/* if file is released, we can't deny write because we must
-			 * restore (write) it to access it. */
-			else if ((open_flags & MDS_FMODE_EXEC) &&
-				 !((ma->ma_valid & MA_HSM) &&
-				   (ma->ma_hsm.mh_flags & HS_RELEASED)))
+			else if (open_flags & MDS_FMODE_EXEC)
 				lm = LCK_PR;
 			else
 				lm = LCK_CR;
@@ -1823,23 +1817,32 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 				ma->ma_need |= MA_HSM;
 				result = mdt_attr_get_complex(info, child, ma);
 			} else {
-				/*object non-exist!!!*/
-				LBUG();
+				/*object non-exist!!! Likely an fs corruption*/
+				CERROR("%s: name %s present, but fid " DFID
+				       " invalid\n",mdt_obd_name(info->mti_mdt),
+				       rr->rr_name, PFID(child_fid));
+				GOTO(out_child, result = -EIO);
 			}
 		}
         }
 
-        LASSERT(!lustre_handle_is_used(&lhc->mlh_reg_lh));
-
-	/* get openlock if this is not replay and if a client requested it */
-	if (!req_is_replay(req)) {
-		rc = mdt_object_open_lock(info, child, lhc, &ibits);
-		if (rc != 0)
-			GOTO(out_child_unlock, result = rc);
-		else if (create_flags & MDS_OPEN_LOCK)
+	if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
+		/* the open lock might already be gotten in
+		 * mdt_intent_fixup_resent */
+		LASSERT(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT);
+		if (create_flags & MDS_OPEN_LOCK)
 			mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
+	} else {
+		/* get openlock if this isn't replay and client requested it */
+		if (!req_is_replay(req)) {
+			rc = mdt_object_open_lock(info, child, lhc, &ibits);
+			if (rc != 0)
+				GOTO(out_child_unlock, result = rc);
+			else if (create_flags & MDS_OPEN_LOCK)
+				mdt_set_disposition(info, ldlm_rep,
+						    DISP_OPEN_LOCK);
+		}
 	}
-
 	/* Try to open it now. */
 	rc = mdt_finish_open(info, parent, child, create_flags,
 			     created, ldlm_rep);

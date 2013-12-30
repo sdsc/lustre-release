@@ -86,7 +86,7 @@ init_logging
 require_dsh_mds || exit 0
 require_dsh_ost || exit 0
 #
-[ "$SLOW" = "no" ] && EXCEPT_SLOW="30a 31 45"
+[ "$SLOW" = "no" ] && EXCEPT_SLOW="30a 31 45 69"
 
 
 assert_DIR
@@ -1560,7 +1560,7 @@ t32_test() {
 			$r mount -t lustre -o loop,nosvc $tmp/mdt $tmp/mnt/mdt
 			$r lctl replace_nids $fsname-OST0000 $ostnid
 			$r lctl replace_nids $fsname-MDT0000 $nid
-			$r umount $tmp/mnt/mdt
+			$r umount -d $tmp/mnt/mdt
 		fi
 
 		mopts=loop,exclude=$fsname-OST0000
@@ -3451,7 +3451,7 @@ test_58() { # bug 22658
 	# remove all files from the OBJECTS dir
 	do_facet $SINGLEMDS "mount -t ldiskfs $opts $devname $MNTDIR"
 	do_facet $SINGLEMDS "find $MNTDIR/O/1/d* -type f -delete"
-	do_facet $SINGLEMDS "umount $MNTDIR"
+	do_facet $SINGLEMDS "umount -d $MNTDIR"
 	# restart MDS with missing llog files
 	start_mds
 	do_facet mds "lctl set_param fail_loc=0"
@@ -3677,7 +3677,7 @@ test_65() { # LU-2237
 	do_facet $SINGLEMDS \
 		"mount -t $(facet_fstype $SINGLEMDS) $opts $devname $brpt"
 	do_facet $SINGLEMDS "rm -f ${brpt}/last_rcvd"
-	do_facet $SINGLEMDS "umount $brpt"
+	do_facet $SINGLEMDS "umount -d $brpt"
 
 	# restart MDS, the "last_rcvd" file should be recreated.
 	start_mds || error "fail to restart the MDS"
@@ -3863,6 +3863,15 @@ test_68() {
 run_test 68 "be able to reserve specific sequences in FLDB"
 
 test_69() {
+	local server_version=$(lustre_version_code $SINGLEMDS)
+
+	[[ $server_version -lt $(version_code 2.4.2) ]] &&
+		skip "Need MDS version at least 2.4.2" && return
+
+	[[ $server_version -ge $(version_code 2.4.50) ]] &&
+	[[ $server_version -lt $(version_code 2.5.0) ]] &&
+		skip "Need MDS version at least 2.5.0" && return
+
 	setup
 
 	# use OST0000 since it probably has the most creations
@@ -3876,27 +3885,29 @@ test_69() {
 	# not, then the OST will refuse to allow the MDS connect
 	# because the LAST_ID value is too different from the MDS
 	#define OST_MAX_PRECREATE=20000
-	local num_create=$((20000 * 3/2 - $last_id + 100))
+	local num_create=$((20000 * 5))
 
-	mkdir $DIR/$tdir
+	mkdir -p $DIR/$tdir
 	$LFS setstripe -i 0 $DIR/$tdir
-	createmany $DIR/$tdir/$tfile- $num_create
+	createmany -o $DIR/$tdir/$tfile- $num_create
 	# delete all of the files with objects on OST0 so the
 	# filesystem is not inconsistent later on
-	$LFS find $MOUNT --index 0 -print0 | xargs -0 unlink
+	$LFS find $MOUNT --ost 0 | xargs rm
 
 	stop_ost || error "OST0 stop failure"
-	add ost1 $(mkfs_opts ost1 $ostdev) --reformat --replace $ostdev ||
+	add ost1 $(mkfs_opts ost1 $(ostdevname 1)) --reformat --replace \
+		$(ostdevname 1) $(ostvdevname 1) ||
 		error "reformat and replace $ostdev failed"
 	start_ost || error "OST0 restart failure"
+	wait_osc_import_state mds ost FULL
 
 	touch $DIR/$tdir/$tfile-last || error "create file after reformat"
-	local idx=$($LFS getstripe -c $DIR/$tdir/$tfile-last)
+	local idx=$($LFS getstripe -i $DIR/$tdir/$tfile-last)
 	[ $idx -ne 0 ] && error "$DIR/$tdir/$tfile-last on $idx not 0" || true
 
 	cleanup
 }
-run_test 68 "replace an OST with the same index"
+run_test 69 "replace an OST with the same index"
 
 test_70a() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return

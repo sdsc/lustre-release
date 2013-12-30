@@ -1030,6 +1030,7 @@ enum obd_cleanup_stage {
 #define KEY_CACHE_SET		"cache_set"
 #define KEY_CACHE_LRU_SHRINK	"cache_lru_shrink"
 #define KEY_CHANGELOG_INDEX	"changelog_index"
+#define KEY_OSP_CONNECTED	"osp_connected"
 
 struct lu_context;
 
@@ -1347,10 +1348,11 @@ struct lustre_md {
 };
 
 struct md_open_data {
-        struct obd_client_handle *mod_och;
-        struct ptlrpc_request    *mod_open_req;
-        struct ptlrpc_request    *mod_close_req;
-        cfs_atomic_t              mod_refcount;
+	struct obd_client_handle	*mod_och;
+	struct ptlrpc_request		*mod_open_req;
+	struct ptlrpc_request		*mod_close_req;
+	cfs_atomic_t			 mod_refcount;
+	bool				 mod_is_create;
 };
 
 struct lookup_intent;
@@ -1454,7 +1456,7 @@ struct md_ops {
 
 	int (*m_set_open_replay_data)(struct obd_export *,
 				      struct obd_client_handle *,
-				      struct ptlrpc_request *);
+				      struct lookup_intent *);
 
 	int (*m_clear_open_replay_data)(struct obd_export *,
 					struct obd_client_handle *);

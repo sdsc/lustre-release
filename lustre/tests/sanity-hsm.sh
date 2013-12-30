@@ -164,10 +164,34 @@ copytool_setup() {
 copytool_cleanup() {
 	trap - EXIT
 	local agents=${1:-$(facet_active_host $SINGLEAGT)}
+	local mdtno
+	local idx
+	local oldstate
+	local mdt_hsmctrl
 
 	do_nodesv $agents "pkill -INT -x $HSMTOOL_BASE" || return 0
 	sleep 1
 	echo "Copytool is stopped on $agents"
+
+	# clean all CDTs orphans requests from previous tests
+	# that would otherwise need to timeout to clear.
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		idx=$(($mdtno - 1))
+		mdt_hsmctrl="mdt.$FSNAME-MDT000${idx}.hsm_control"
+		oldstate=$(do_facet mds${mdtno} "$LCTL get_param -n " \
+				   "$mdt_hsmctrl")
+		# skip already stop[ed,ing] CDTs
+		echo $oldstate | grep stop && continue
+
+		do_facet mds${mdtno} "$LCTL set_param $mdt_hsmctrl=shutdown"
+		wait_result mds${mdtno} "$LCTL get_param -n $mdt_hsmctrl" \
+			"stopped" 20 ||
+			error "mds${mdtno} cdt state is not stopped"
+		do_facet mds${mdtno} "$LCTL set_param $mdt_hsmctrl=$oldstate"
+		wait_result mds${mdtno} "$LCTL get_param -n $mdt_hsmctrl" \
+			"$oldstate" 20 ||
+			error "mds${mdtno} cdt state is not $oldstate"
+	done
 }
 
 copytool_suspend() {
@@ -1826,6 +1850,41 @@ test_30b() {
 	copytool_cleanup
 }
 run_test 30b "Restore at exec (release case)"
+
+test_30c() {
+	needclients 2 || return 0
+
+	# test needs a running copytool
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/SLEEP
+	local fid=$(copy_file /bin/sleep $f)
+	chmod 755 $f
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
+	wait_request_state $fid ARCHIVE SUCCEED
+	$LFS hsm_release $f
+	check_hsm_flags $f "0x0000000d"
+	# set no retry action mode
+	cdt_set_no_retry
+	do_node $CLIENT2 "$f 10" &
+	local pid=$!
+	sleep 3
+	echo 'Hi!' > $f
+	[[ $? == 0 ]] && error "Update during exec of released file must fail"
+	wait $pid
+	[[ $? == 0 ]] || error "Execution failed during run"
+	cmp /bin/sleep $f
+	[[ $? == 0 ]] || error "Binary overwritten during exec"
+
+	# cleanup
+	# remove no try action mode
+	cdt_clear_no_retry
+	check_hsm_flags $f "0x00000009"
+
+	copytool_cleanup
+}
+run_test 30c "Update during exec of released file must fail"
 
 restore_and_check_size() {
 	local f=$1

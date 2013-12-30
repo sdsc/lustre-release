@@ -1124,7 +1124,6 @@ static void osd_conf_get(const struct lu_env *env,
         /*
          * XXX should be taken from not-yet-existing fs abstraction layer.
          */
-	param->ddp_mnt = osd_dt_dev(dev)->od_mnt;
         param->ddp_max_name_len = LDISKFS_NAME_LEN;
         param->ddp_max_nlink    = LDISKFS_LINK_MAX;
 	param->ddp_block_shift  = sb->s_blocksize_bits;
@@ -4062,10 +4061,11 @@ struct osd_object *osd_object_find(const struct lu_env *env,
 			lu_object_put(env, luch);
                         child = ERR_PTR(-ENOENT);
                 }
-        } else
-                child = (void *)luch;
+	} else {
+		child = ERR_CAST(luch);
+	}
 
-        return child;
+	return child;
 }
 
 /**
@@ -4214,8 +4214,8 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 			CERROR("%s: Can not find object "DFID"%u:%u: rc = %d\n",
 			       osd_name(osd), PFID(fid),
 			       id->oii_ino, id->oii_gen,
-			       (int)PTR_ERR(child_inode));
-			RETURN(PTR_ERR(child_inode));
+			       (int)PTR_ERR(child));
+			RETURN(PTR_ERR(child));
 		}
 		child_inode = igrab(child->oo_inode);
 	}
