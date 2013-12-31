@@ -46,6 +46,10 @@ struct lfsck_start_param {
 enum lfsck_events {
 	LE_LASTID_REBUILDING	= 1,
 	LE_LASTID_REBUILT	= 2,
+	LE_PHASE1_DONE		= 3,
+	LE_PHASE2_DONE		= 4,
+	LE_START		= 5,
+	LE_STOP 		= 6,
 };
 
 typedef int (*lfsck_out_notify)(const struct lu_env *env, void *data,
