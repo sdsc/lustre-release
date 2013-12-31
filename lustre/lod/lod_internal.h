@@ -274,7 +274,8 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 int lod_del_device(const struct lu_env *env, struct lod_device *lod,
 		   struct lod_tgt_descs *ltd, char *osp, unsigned idx,
 		   unsigned gen);
-int lod_fini_tgt(struct lod_device *lod, struct lod_tgt_descs *ltd);
+int lod_fini_tgt(const struct lu_env *env, struct lod_device *lod,
+		 struct lod_tgt_descs *ltd, bool is_osc);
 int lod_load_striping(const struct lu_env *env, struct lod_object *mo);
 int lod_get_lov_ea(const struct lu_env *env, struct lod_object *mo);
 void lod_fix_desc(struct lov_desc *desc);
