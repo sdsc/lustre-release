@@ -272,6 +272,62 @@ static int enc_pools_shrink(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask))
 		(IDLE_IDX_MAX - page_pools.epp_idle_idx) / IDLE_IDX_MAX;
 }
 
+/*
+ * we try to keep at least PTLRPC_MAX_BRW_PAGES pages in the pool.
+ */
+static unsigned long enc_pools_shrink_count(struct shrinker *s,
+					    struct shrink_control *sc)
+{
+	/*
+	 * if no pool access for a long time, we consider it's fully idle.
+	 * a little race here is fine.
+	 */
+	if (unlikely(cfs_time_current_sec() - page_pools.epp_last_access >
+		     CACHE_QUIESCENT_PERIOD)) {
+		spin_lock(&page_pools.epp_lock);
+		page_pools.epp_idle_idx = IDLE_IDX_MAX;
+		spin_unlock(&page_pools.epp_lock);
+	}
+ 
+	LASSERT(page_pools.epp_idle_idx <= IDLE_IDX_MAX);
+	return max((int)page_pools.epp_free_pages - PTLRPC_MAX_BRW_PAGES, 0) *
+		(IDLE_IDX_MAX - page_pools.epp_idle_idx) / IDLE_IDX_MAX;
+}
+
+/*
+ * we try to keep at least PTLRPC_MAX_BRW_PAGES pages in the pool.
+ */
+static unsigned long enc_pools_shrink_scan(struct shrinker *s,
+					   struct shrink_control *sc)
+{
+	spin_lock(&page_pools.epp_lock);
+	sc->nr_to_scan = min_t(unsigned long, sc->nr_to_scan,
+			      page_pools.epp_free_pages - PTLRPC_MAX_BRW_PAGES);
+	if (sc->nr_to_scan > 0) {
+		enc_pools_release_free_pages(sc->nr_to_scan);
+		CDEBUG(D_SEC, "released %ld pages, %ld left\n",
+		       (long)sc->nr_to_scan, page_pools.epp_free_pages);
+
+		page_pools.epp_st_shrinks++;
+		page_pools.epp_last_shrink = cfs_time_current_sec();
+	}
+	spin_unlock(&page_pools.epp_lock);
+
+	/*
+	 * if no pool access for a long time, we consider it's fully idle.
+	 * a little race here is fine.
+	 */
+	if (unlikely(cfs_time_current_sec() - page_pools.epp_last_access >
+		     CACHE_QUIESCENT_PERIOD)) {
+		spin_lock(&page_pools.epp_lock);
+		page_pools.epp_idle_idx = IDLE_IDX_MAX;
+		spin_unlock(&page_pools.epp_lock);
+	}
+ 
+	LASSERT(page_pools.epp_idle_idx <= IDLE_IDX_MAX);
+	return sc->nr_to_scan;
+}
+
 static inline
 int npages_to_npools(unsigned long npages)
 {
@@ -706,6 +762,11 @@ static inline void enc_pools_free(void)
 
 int sptlrpc_enc_pool_init(void)
 {
+	struct shrinker_var shvar = {
+		.count = enc_pools_shrink_count,
+		.scan = enc_pools_shrink_scan,
+		.shrink = enc_pools_shrink
+	};
 	/*
 	 * maximum capacity is 1/8 of total physical memory.
 	 * is the 1/8 a good number?
@@ -741,8 +802,7 @@ int sptlrpc_enc_pool_init(void)
         if (page_pools.epp_pools == NULL)
                 return -ENOMEM;
 
-	pools_shrinker = set_shrinker(pools_shrinker_seeks,
-                                          enc_pools_shrink);
+	pools_shrinker = set_shrinker(pools_shrinker_seeks, &shvar);
         if (pools_shrinker == NULL) {
                 enc_pools_free();
                 return -ENOMEM;
