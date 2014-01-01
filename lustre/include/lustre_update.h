@@ -39,6 +39,7 @@ struct update_request {
 	int			ur_rc;	    /* request result */
 	int			ur_batchid; /* Current batch(trans) id */
 	struct update_buf	*ur_buf;   /* Holding the update req */
+	struct list_head	ur_callback_list; /* for async callback */
 };
 
 static inline unsigned long update_size(struct update *update)
@@ -157,8 +158,8 @@ static inline void update_insert_reply(struct update_reply *reply, void *data,
 	reply->ur_lens[index] = data_len + sizeof(int);
 }
 
-static inline int update_get_reply_buf(struct update_reply *reply, void **buf,
-				       int index)
+static inline int update_get_reply_buf(struct update_reply *reply,
+				       struct lu_buf *lbuf, int index)
 {
 	char *ptr;
 	int  size = 0;
@@ -172,8 +173,10 @@ static inline int update_get_reply_buf(struct update_reply *reply, void **buf,
 		return result;
 
 	LASSERT(size >= sizeof(int));
-	*buf = ptr + sizeof(int);
-	return size - sizeof(int);
+	lbuf->lb_buf = ptr + sizeof(int);
+	lbuf->lb_len = size - sizeof(int);
+
+	return 0;
 }
 
 static inline int update_get_reply_result(struct update_reply *reply,
@@ -188,5 +191,3 @@ static inline int update_get_reply_result(struct update_reply *reply,
 }
 
 #endif
-
-
