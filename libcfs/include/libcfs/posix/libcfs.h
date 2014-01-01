@@ -278,12 +278,24 @@ struct shrinker {
 #endif
 };
 
+struct shrink_control {
+#ifndef __INTEL_COMPILER
+	;
+#endif
+};
+
+struct shrinker_var {
+        unsigned long (*count)(struct shrinker *,
+                               struct shrink_control *sc);
+        unsigned long (*scan)(struct shrinker *,
+                              struct shrink_control *sc);
+        int (*shrink)(int, unsigned int);
+};
+
 #define DEFAULT_SEEKS (0)
 
-typedef int (*shrinker_t)(int, unsigned int);
-
 static inline
-struct shrinker *set_shrinker(int seeks, shrinker_t shrink)
+struct shrinker *set_shrinker(int seeks, struct shrinker_var *var)
 {
 	return (struct shrinker *)0xdeadbea1; /* Cannot return NULL here */
 }
