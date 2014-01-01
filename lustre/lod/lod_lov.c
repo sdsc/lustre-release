@@ -245,7 +245,8 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 					   OBD_CONNECT_MDS_MDS |
 					   OBD_CONNECT_FID |
 					   OBD_CONNECT_AT |
-					   OBD_CONNECT_FULL20;
+					   OBD_CONNECT_FULL20 |
+					   OBD_CONNECT_LFSCK;
 		/* XXX set MDS-MDS flags, remove this when running this
 		 * on client*/
 		data->ocd_connect_flags |= OBD_CONNECT_MDS_MDS;
