@@ -293,6 +293,9 @@ struct lfsck_operations {
 
 	void (*lfsck_data_release)(const struct lu_env *env,
 				   struct lfsck_component *com);
+
+	void (*lfsck_quit)(const struct lu_env *env,
+			   struct lfsck_component *com);
 };
 
 #define TGT_PTRS		256     /* number of pointers at 1st level */
@@ -396,6 +399,7 @@ struct lfsck_instance {
 	cfs_list_t		  li_list_idle;
 
 	atomic_t		  li_ref;
+	atomic_t		  li_double_scan_count;
 	struct ptlrpc_thread	  li_thread;
 
 	/* The time for last checkpoint, jiffies */
@@ -492,11 +496,18 @@ struct lfsck_thread_info {
 	 * then lti_ent::lde_name will be lti_key. */
 	struct lu_dirent	lti_ent;
 	char			lti_key[NAME_MAX + 16];
+	struct lfsck_request	lti_lr;
 };
 
 /* lfsck_lib.c */
+const char *lfsck_status2names(enum lfsck_status status);
+struct lfsck_component *lfsck_component_get(struct lfsck_component *com);
+void lfsck_component_put(const struct lu_env *env,
+			 struct lfsck_component *com);
 void lfsck_component_cleanup(const struct lu_env *env,
 			     struct lfsck_component *com);
+void lfsck_instance_cleanup(const struct lu_env *env,
+			    struct lfsck_instance *lfsck);
 int lfsck_bits_dump(char **buf, int *len, int bits, const char *names[],
 		    const char *prefix);
 int lfsck_time_dump(char **buf, int *len, __u64 time, const char *prefix);
@@ -522,6 +533,7 @@ int lfsck_exec_dir(const struct lu_env *env, struct lfsck_instance *lfsck,
 int lfsck_post(const struct lu_env *env, struct lfsck_instance *lfsck,
 	       int result);
 int lfsck_double_scan(const struct lu_env *env, struct lfsck_instance *lfsck);
+void lfsck_quit(const struct lu_env *env, struct lfsck_instance *lfsck);
 
 /* lfsck_engine.c */
 int lfsck_master_engine(void *args);
@@ -539,7 +551,6 @@ int lfsck_namespace_setup(const struct lu_env *env,
 /* lfsck_layout.c */
 int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck);
 
-extern const char *lfsck_status_names[];
 extern const char *lfsck_flags_names[];
 extern const char *lfsck_param_names[];
 extern struct lu_context_key lfsck_thread_key;
@@ -703,6 +714,21 @@ static inline void lfsck_tgt_put(struct lfsck_tgt_desc *ltd)
 {
 	if (atomic_dec_and_test(&ltd->ltd_ref))
 		OBD_FREE_PTR(ltd);
+}
+
+static inline struct lfsck_instance *
+lfsck_instance_get(struct lfsck_instance *lfsck)
+{
+	atomic_inc(&lfsck->li_ref);
+
+	return lfsck;
+}
+
+static inline void lfsck_instance_put(const struct lu_env *env,
+				      struct lfsck_instance *lfsck)
+{
+	if (atomic_dec_and_test(&lfsck->li_ref))
+		lfsck_instance_cleanup(env, lfsck);
 }
 
 static inline mdsno_t lfsck_dev_idx(struct dt_device *dev)

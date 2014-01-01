@@ -27,7 +27,7 @@
  *
  * Lustre LFSCK userspace interfaces.
  *
- * Author: Fan Yong <yong.fan@whamcloud.com>
+ * Author: Fan, Yong <fan.yong@intel.com>
  */
 
 #ifndef _LUSTRE_LFSCK_USER_H
@@ -90,6 +90,13 @@ struct lfsck_start {
 
 	/* For 64-bits aligned. */
 	__u16   ls_padding;
+};
+
+struct lfsck_stop {
+	__u32	ls_status;
+	__u16	ls_flags;
+	__u16	ls_padding_1; /* For 64-bits aligned. */
+	__u64	ls_padding_2;
 };
 
 #endif /* _LUSTRE_LFSCK_USER_H */
