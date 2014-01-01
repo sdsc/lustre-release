@@ -531,7 +531,7 @@ static int ldlm_cli_pool_shrink(struct ldlm_pool *pl,
                                 int nr, unsigned int gfp_mask)
 {
         struct ldlm_namespace *ns;
-        int canceled = 0, unused;
+        int unused;
 
         ns = ldlm_pl2ns(pl);
 
@@ -550,17 +550,14 @@ static int ldlm_cli_pool_shrink(struct ldlm_pool *pl,
 	unused = ns->ns_nr_unused;
 	spin_unlock(&ns->ns_lock);
 
-        if (nr) {
-		canceled = ldlm_cancel_lru(ns, nr, LCF_ASYNC,
-					   LDLM_CANCEL_SHRINK);
-        }
 #ifdef __KERNEL__
-        /*
-         * Return the number of potentially reclaimable locks.
-         */
-        return ((unused - canceled) / 100) * sysctl_vfs_cache_pressure;
+	if (nr == 0)
+		return (unused / 100) * sysctl_vfs_cache_pressure;
+	else
+		return ldlm_cancel_lru(ns, nr, LCF_ASYNC, LDLM_CANCEL_SHRINK);
 #else
-        return unused - canceled;
+	return unused - (nr ? ldlm_cancel_lru(ns, nr, LCF_ASYNC,
+					      LDLM_CANCEL_SHRINK) : 0);
 #endif
 }
 
@@ -1162,6 +1159,135 @@ static int ldlm_pools_cli_shrink(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask))
                                  shrink_param(sc, gfp_mask));
 }
 
+/*
+* count locks from all namespaces (if possible). Returns number of
+* cached locks.
+*/
+static unsigned long ldlm_pools_count(ldlm_side_t client, unsigned int gfp_mask)
+{
+	int total = 0, nr_ns;
+	struct ldlm_namespace *ns;
+	struct ldlm_namespace *ns_old = NULL; /* loop detection */
+	void *cookie;
+
+	if (client == LDLM_NAMESPACE_CLIENT && !(gfp_mask & __GFP_FS))
+		return 0;
+
+	CDEBUG(D_DLMTRACE, "Request to count %s locks from all pools\n",
+	       client == LDLM_NAMESPACE_CLIENT ? "client" : "server");
+
+	cookie = cl_env_reenter();
+
+	/*
+	 * Find out how many resources we may release.
+	 */
+	for (nr_ns = ldlm_namespace_nr_read(client);
+	     nr_ns > 0; nr_ns--) {
+		mutex_lock(ldlm_namespace_lock(client));
+		if (list_empty(ldlm_namespace_list(client))) {
+			mutex_unlock(ldlm_namespace_lock(client));
+			cl_env_reexit(cookie);
+			return 0;
+		}
+		ns = ldlm_namespace_first_locked(client);
+
+		if (ns == ns_old) {
+			mutex_unlock(ldlm_namespace_lock(client));
+			break;
+		}
+
+		if (ldlm_ns_empty(ns)) {
+			ldlm_namespace_move_to_inactive_locked(ns, client);
+			mutex_unlock(ldlm_namespace_lock(client));
+			continue;
+		}
+
+		if (ns_old == NULL)
+			ns_old = ns;
+
+		ldlm_namespace_get(ns);
+		ldlm_namespace_move_to_active_locked(ns, client);
+		mutex_unlock(ldlm_namespace_lock(client));
+		total += ldlm_pool_shrink(&ns->ns_pool, 0, gfp_mask);
+		ldlm_namespace_put(ns);
+	}
+
+	cl_env_reexit(cookie);
+	return total;
+}
+
+static unsigned long ldlm_pools_scan(ldlm_side_t client, int nr, unsigned int gfp_mask)
+{
+	unsigned long freed = 0;
+	int tmp, nr_ns;
+	struct ldlm_namespace *ns;
+	void *cookie;
+
+	if (client == LDLM_NAMESPACE_CLIENT && !(gfp_mask & __GFP_FS))
+		return -1;
+
+	cookie = cl_env_reenter();
+
+	/*
+	 * Shrink at least ldlm_namespace_nr_read(client) namespaces.
+	 */
+	for (tmp = nr_ns = ldlm_namespace_nr_read(client);
+	     tmp > 0; tmp--) {
+		int cancel, nr_locks;
+
+		/*
+		 * Do not call shrink under ldlm_namespace_lock(client)
+		*/
+		mutex_lock(ldlm_namespace_lock(client));
+		if (list_empty(ldlm_namespace_list(client))) {
+			mutex_unlock(ldlm_namespace_lock(client));
+			break;
+		}
+		ns = ldlm_namespace_first_locked(client);
+		ldlm_namespace_get(ns);
+		ldlm_namespace_move_to_active_locked(ns, client);
+		mutex_unlock(ldlm_namespace_lock(client));
+
+		nr_locks = ldlm_pool_granted(&ns->ns_pool);
+		/*
+		 * We use to shrink propotionally but with new shrinker API,
+		 * we lost the total number of freeable locks.
+		 */
+		cancel = 1 + min_t(int, nr_locks, nr / nr_ns);
+		freed += ldlm_pool_shrink(&ns->ns_pool, cancel, gfp_mask);
+		ldlm_namespace_put(ns);
+	}
+	cl_env_reexit(cookie);
+	/*
+	 * we only decrease the SLV in server pools shrinker, return
+	 * SHRINK_STOP to kernel to avoid needless loop. LU-1128
+	 */
+	return (client == LDLM_NAMESPACE_SERVER) ? SHRINK_STOP : freed;
+}
+
+static unsigned long ldlm_pools_srv_count(struct shrinker *s, struct shrink_control *sc)
+{
+	return ldlm_pools_count(LDLM_NAMESPACE_SERVER, sc->gfp_mask);
+}
+
+static unsigned long ldlm_pools_srv_scan(struct shrinker *s, struct shrink_control *sc)
+{
+	return ldlm_pools_scan(LDLM_NAMESPACE_SERVER, sc->nr_to_scan,
+			       sc->gfp_mask);
+}
+
+static unsigned long ldlm_pools_cli_count(struct shrinker *s, struct shrink_control *sc)
+{
+	return ldlm_pools_count(LDLM_NAMESPACE_CLIENT, sc->gfp_mask);
+}
+
+static unsigned long ldlm_pools_cli_scan(struct shrinker *s, struct shrink_control *sc)
+{
+	return ldlm_pools_scan(LDLM_NAMESPACE_CLIENT, sc->nr_to_scan,
+			       sc->gfp_mask);
+}
+
+
 int ldlm_pools_recalc(ldlm_side_t client)
 {
         __u32 nr_l = 0, nr_p = 0, l;
@@ -1418,16 +1544,24 @@ static void ldlm_pools_thread_stop(void)
 int ldlm_pools_init(void)
 {
 	int rc;
+	struct shrinker_var shsvar = {
+		.count = ldlm_pools_srv_count,
+		.scan  = ldlm_pools_srv_scan,
+		.shrink= ldlm_pools_srv_shrink
+	};
+	struct shrinker_var shcvar = {
+		.count = ldlm_pools_cli_count,
+		.scan  = ldlm_pools_cli_scan,
+		.shrink= ldlm_pools_cli_shrink
+	};
 	ENTRY;
 
 	rc = ldlm_pools_thread_start();
 	if (rc == 0) {
 		ldlm_pools_srv_shrinker =
-			set_shrinker(DEFAULT_SEEKS,
-					 ldlm_pools_srv_shrink);
+			set_shrinker(DEFAULT_SEEKS, &shsvar);
 		ldlm_pools_cli_shrinker =
-			set_shrinker(DEFAULT_SEEKS,
-					 ldlm_pools_cli_shrink);
+			set_shrinker(DEFAULT_SEEKS, &shcvar);
 	}
 	RETURN(rc);
 }
