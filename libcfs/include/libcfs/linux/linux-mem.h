@@ -121,10 +121,25 @@ extern void *cfs_mem_cache_cpt_alloc(struct kmem_cache *cachep,
 # define shrink_param(sc, var) (var)
 #endif
 
-typedef int (*shrinker_t)(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask));
+#ifdef HAVE_SHRINKER_COUNT
+struct shrinker_var {
+	unsigned long (*count)(struct shrinker *,
+			       struct shrink_control *sc);
+	unsigned long (*scan)(struct shrinker *,
+			      struct shrink_control *sc);
+};
+# define DEF_SHRINKER_VAR(name, shrink, count_obj, scan_obj) \
+	    struct shrinker_var name = { .count = count_obj, .scan = scan_obj }
+#else
+struct shrinker_var {
+	int (*shrink)(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask));
+};
+# define DEF_SHRINKER_VAR(name, shrink, count, scan) \
+	    struct shrinker_var name = { .shrink = shrink }
+#endif
 
 static inline
-struct shrinker *set_shrinker(int seek, shrinker_t func)
+struct shrinker *set_shrinker(int seek, struct shrinker_var *var)
 {
         struct shrinker *s;
 
@@ -132,7 +147,12 @@ struct shrinker *set_shrinker(int seek, shrinker_t func)
         if (s == NULL)
                 return (NULL);
 
-        s->shrink = func;
+#ifdef HAVE_SHRINKER_COUNT
+	s->count_objects = var->count;
+	s->scan_objects = var->scan;
+#else
+        s->shrink = var->shrink;;
+#endif
         s->seeks = seek;
 
         register_shrinker(s);
