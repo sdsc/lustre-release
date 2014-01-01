@@ -44,6 +44,7 @@
 #include <lustre_fid.h>
 #include <obd_ost.h>
 #include <lustre_capa.h>
+#include <lustre_lfsck.h>
 
 #define OFD_INIT_OBJID	0
 #define OFD_ROCOMPAT_SUPP (0)
@@ -319,6 +320,8 @@ struct ofd_thread_info {
 	/* Space used by the I/O, used by grant code */
 	unsigned long			 fti_used;
 	struct ost_lvb			 fti_lvb;
+	struct lfsck_start		 fti_lfsck_start;
+	struct lfsck_start_param	 fti_lsp;
 };
 
 extern void target_recovery_fini(struct obd_device *obd);
