@@ -486,10 +486,11 @@ static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 }
 
 const struct dt_device_operations osp_dt_ops = {
-	.dt_statfs	= osp_statfs,
-	.dt_sync	= osp_sync,
-	.dt_trans_start = osp_trans_start,
-	.dt_trans_stop  = osp_trans_stop,
+	.dt_statfs	 = osp_statfs,
+	.dt_sync	 = osp_sync,
+	.dt_trans_create = osp_dummy_trans_create,
+	.dt_trans_start  = osp_trans_start,
+	.dt_trans_stop   = osp_trans_stop,
 };
 
 static int osp_connect_to_osd(const struct lu_env *env, struct osp_device *m,
@@ -539,10 +540,16 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	struct obd_import	*imp;
 	class_uuid_t		uuid;
 	char			*src, *tgt, *mdt, *osdname = NULL;
+	struct thandle		*th = &m->opd_dummy_th;
 	int			rc;
 	long                    idx;
 
 	ENTRY;
+
+	th->th_dev = &m->opd_dt_dev;
+	th->th_dummy = 1;
+	INIT_LIST_HEAD(&th->th_remote_update_list);
+	mutex_init(&m->opd_dummy_th_mutex);
 
 	obd = class_name2obd(lustre_cfg_string(cfg, 0));
 	if (obd == NULL) {
@@ -808,11 +815,19 @@ static struct lu_device *osp_device_alloc(const struct lu_env *env,
 static struct lu_device *osp_device_fini(const struct lu_env *env,
 					 struct lu_device *d)
 {
-	struct osp_device *m = lu2osp_dev(d);
+	struct osp_device *m	= lu2osp_dev(d);
+	struct thandle	  *th	= &m->opd_dummy_th;
 	struct obd_import *imp;
 	int                rc;
 
 	ENTRY;
+
+	LASSERT(list_empty(&th->th_remote_update_list));
+
+	if (th->th_current_request != NULL) {
+		out_destroy_update_req(th->th_current_request);
+		th->th_current_request = NULL;
+	}
 
 	if (m->opd_storage_exp)
 		obd_disconnect(m->opd_storage_exp);
@@ -1166,7 +1181,7 @@ static struct lu_device_type osp_device_type = {
 	.ldt_tags     = LU_DEVICE_DT,
 	.ldt_name     = LUSTRE_OSP_NAME,
 	.ldt_ops      = &osp_device_type_ops,
-	.ldt_ctx_tags = LCT_MD_THREAD
+	.ldt_ctx_tags = LCT_MD_THREAD | LCT_DT_THREAD,
 };
 
 static struct obd_ops osp_obd_device_ops = {
