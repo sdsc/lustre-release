@@ -745,6 +745,7 @@ static int osd_device_init(const struct lu_env *env, struct lu_device *d,
 static int osd_process_config(const struct lu_env *env,
 			      struct lu_device *d, struct lustre_cfg *cfg)
 {
+	struct obd_device	*obd = d->ld_obd;
 	struct osd_device	*o = osd_dev(d);
 	int			rc;
 	ENTRY;
@@ -758,12 +759,12 @@ static int osd_process_config(const struct lu_env *env,
 		break;
 	case LCFG_PARAM: {
 		LASSERT(&o->od_dt_dev);
-		rc = class_process_proc_param(PARAM_OSD, lprocfs_osd_obd_vars,
-					      cfg, &o->od_dt_dev);
+		rc = class_process_proc_seq_param(PARAM_OSD, obd->obd_vars,
+						  cfg, &o->od_dt_dev);
 		if (rc > 0 || rc == -ENOSYS)
-			rc = class_process_proc_param(PARAM_OST,
-						      lprocfs_osd_obd_vars,
-						      cfg, &o->od_dt_dev);
+			rc = class_process_proc_seq_param(PARAM_OST,
+							  obd->obd_vars, cfg,
+							  &o->od_dt_dev);
 		break;
 	}
 	default:
@@ -911,7 +912,7 @@ int __init osd_init(void)
 
 	rc = class_register_type(&osd_obd_device_ops, NULL, NULL,
 #ifndef HAVE_ONLY_PROCFS_SEQ
-				lprocfs_osd_module_vars,
+				NULL,
 #endif
 				LUSTRE_OSD_ZFS_NAME, &osd_device_type);
 	if (rc)
