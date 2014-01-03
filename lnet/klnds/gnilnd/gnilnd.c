@@ -24,7 +24,11 @@
 
 /* Primary entry points from LNET.  There are no guarantees against reentrance. */
 lnd_t the_kgnilnd = {
+#ifdef CONFIG_CRAY_XT
 	.lnd_type       = GNILND,
+#else
+	.lnd_type       = GNIIPLND,
+#endif
 	.lnd_startup    = kgnilnd_startup,
 	.lnd_shutdown   = kgnilnd_shutdown,
 	.lnd_ctl        = kgnilnd_ctl,
@@ -190,13 +194,13 @@ kgnilnd_create_conn(kgn_conn_t **connp, kgn_device_t *dev)
 		return -E2BIG;
 	}
 
-	LIBCFS_ALLOC(conn, sizeof(*conn));
+        LIBCFS_ALLOC(conn, sizeof(*conn));
 	if (conn == NULL) {
 		atomic_dec(&kgnilnd_data.kgn_nconns);
 		return -ENOMEM;
 	}
 
-	LIBCFS_ALLOC(conn->gnc_tx_ref_table, GNILND_MAX_MSG_ID * sizeof(void *));
+        LIBCFS_ALLOC(conn->gnc_tx_ref_table, GNILND_MAX_MSG_ID * sizeof(void *));
 	if (conn->gnc_tx_ref_table == NULL) {
 		CERROR("Can't allocate conn tx_ref_table\n");
 		GOTO(failed, rc = -ENOMEM);
@@ -464,7 +468,7 @@ kgnilnd_peer_notify(kgn_peer_t *peer, int error)
 	kgn_net_t             **nets;
 	kgn_net_t              *net;
 
-
+        
 	if (CFS_FAIL_CHECK(CFS_FAIL_GNI_DONT_NOTIFY))
 		return;
 
@@ -520,8 +524,8 @@ kgnilnd_peer_notify(kgn_peer_t *peer, int error)
 			return;
 		}
 
-		LIBCFS_ALLOC(nets, nnets * sizeof(*nets));
-
+                LIBCFS_ALLOC(nets, nnets * sizeof(*nets));
+               
 		if (nets == NULL) {
 			up_read(&kgnilnd_data.kgn_net_rw_sem);
 			CERROR("Failed to allocate nets[%d]\n", nnets);
@@ -883,7 +887,7 @@ kgnilnd_set_conn_params(kgn_dgram_t *dgram)
 
 	conn->gnc_peerstamp = connreq->gncr_peerstamp;
 	conn->gnc_peer_connstamp = connreq->gncr_connstamp;
-	conn->remote_mbox_addr = (void *)((char *)remote->msg_buffer + remote->mbox_offset);
+        conn->remote_mbox_addr = (void *)((char *)remote->msg_buffer + remote->mbox_offset);
 
 	/* We update the reaper timeout once we have a valid conn and timeout */
 	kgnilnd_update_reaper_timeout(GNILND_TO2KA(conn->gnc_timeout));
@@ -910,7 +914,10 @@ return_out:
  * kgn_peer_conn_lock is held, we guarantee that nobody calls
  * kgnilnd_add_peer_locked without checking gnn_shutdown */
 int
-kgnilnd_create_peer_safe(kgn_peer_t **peerp, lnet_nid_t nid, kgn_net_t *net)
+kgnilnd_create_peer_safe(kgn_peer_t **peerp,
+			 lnet_nid_t nid,
+			 kgn_net_t *net,
+			 int node_state)
 {
 	kgn_peer_t	*peer;
 	int		rc;
@@ -936,13 +943,13 @@ kgnilnd_create_peer_safe(kgn_peer_t **peerp, lnet_nid_t nid, kgn_net_t *net)
 		kgnilnd_net_addref(net);
 	}
 
-	LIBCFS_ALLOC(peer, sizeof(*peer));
+        LIBCFS_ALLOC(peer, sizeof(*peer));
 	if (peer == NULL) {
 		kgnilnd_net_decref(net);
 		return -ENOMEM;
 	}
 	peer->gnp_nid = nid;
-	peer->gnp_down = GNILND_RCA_NODE_UP;
+	peer->gnp_down = node_state;
 
 	/* translate from nid to nic addr & store */
 	rc = kgnilnd_nid_to_nicaddrs(LNET_NIDADDR(nid), 1, &peer->gnp_host_id);
@@ -1049,6 +1056,8 @@ kgnilnd_add_purgatory_locked(kgn_conn_t *conn, kgn_peer_t *peer)
 	CDEBUG(D_NET, "conn %p peer %p dev %p\n", conn, peer,
 		conn->gnc_device);
 
+	LASSERTF(conn->gnc_in_purgatory == 0,
+		"Conn already in purgatory\n");
 	conn->gnc_in_purgatory = 1;
 
 	mbox = &conn->gnc_fma_blk->gnm_mbox_info[conn->gnc_mbox_id];
@@ -1330,10 +1339,13 @@ kgnilnd_add_peer(kgn_net_t *net, lnet_nid_t nid, kgn_peer_t **peerp)
 {
 	kgn_peer_t        *peer;
 	int                rc;
+	int                node_state;
 	ENTRY;
 
 	if (nid == LNET_NID_ANY)
 		return -EINVAL;
+
+	node_state = kgnilnd_get_node_state(LNET_NIDADDR(nid));
 
 	/* NB - this will not block during normal operations -
 	 * the only writer of this is in the startup/shutdown path. */
@@ -1342,7 +1354,7 @@ kgnilnd_add_peer(kgn_net_t *net, lnet_nid_t nid, kgn_peer_t **peerp)
 		rc = -ESHUTDOWN;
 		RETURN(rc);
 	}
-	rc = kgnilnd_create_peer_safe(&peer, nid, net);
+	rc = kgnilnd_create_peer_safe(&peer, nid, net, node_state);
 	if (rc != 0) {
 		up_read(&kgnilnd_data.kgn_net_rw_sem);
 		RETURN(rc);
@@ -1508,9 +1520,6 @@ kgnilnd_del_conn_or_peer(kgn_net_t *net, lnet_nid_t nid, int command,
 	}
 
 	write_unlock(&kgnilnd_data.kgn_peer_conn_lock);
-
-	/* release all of the souls found held in purgatory */
-	kgnilnd_release_purgatory_list(&souls);
 
 	/* nuke peer TX */
 	kgnilnd_txlist_done(&zombies, error);
@@ -1956,8 +1965,8 @@ kgnilnd_dev_init(kgn_device_t *dev)
 		GOTO(failed, rc = -ENODEV);
 	}
 
-	/* a bit gross, but not much we can do - Aries Sim doesn't have
-	 * hardcoded NIC/NID that we can use */
+        /* a bit gross, but not much we can do - Aries Sim doesn't have 
+         * hardcoded NIC/NID that we can use */
 	rc = kgnilnd_setup_nic_translation(dev->gnd_host_id);
 	if (rc != 0)
 		GOTO(failed, rc = -ENODEV);
@@ -1984,6 +1993,12 @@ kgnilnd_dev_init(kgn_device_t *dev)
 				dev->gnd_id, rrc);
 			GOTO(failed, rc = -ENODEV);
 		}
+	}
+
+	rrc = sock_create_kern(PF_INET, SOCK_DGRAM, IPPROTO_IP, &kgnilnd_data.kgn_sock);
+	if (rrc < 0) {
+		CERROR("sock_create returned %d\n", rrc);
+		GOTO(failed, rrc);
 	}
 
 	rc = kgnilnd_nicaddr_to_nid(dev->gnd_host_id, &dev->gnd_nid);
@@ -2112,6 +2127,8 @@ kgnilnd_dev_fini(kgn_device_t *dev)
 		dev->gnd_domain = NULL;
 	}
 
+	sock_release(kgnilnd_data.kgn_sock);
+
 	EXIT;
 }
 
@@ -2188,9 +2205,9 @@ int kgnilnd_base_startup(void)
 		setup_timer(&dev->gnd_rdmaq_timer, kgnilnd_schedule_device_timer,
 			    (unsigned long)dev);
 
-		/* setup timer for mapping processing */
-		setup_timer(&dev->gnd_map_timer, kgnilnd_schedule_device_timer,
-			    (unsigned long)dev);
+                /* setup timer for mapping processing */
+                setup_timer(&dev->gnd_map_timer, kgnilnd_schedule_device_timer,
+                            (unsigned long)dev);
 
 	}
 
@@ -2285,8 +2302,8 @@ int kgnilnd_base_startup(void)
 	}
 
 	/* allocate a MAX_IOV array of page pointers for each cpu */
-	kgnilnd_data.kgn_cksum_map_pages = kmalloc(num_possible_cpus() * sizeof (struct page *),
-						   GFP_KERNEL);
+        kgnilnd_data.kgn_cksum_map_pages = kmalloc(num_possible_cpus() * sizeof (struct page *),
+                                                   GFP_KERNEL);
 	if (kgnilnd_data.kgn_cksum_map_pages == NULL) {
 		CERROR("Can't allocate vmap cksum pages\n");
 		GOTO(failed, rc = -ENOMEM);
@@ -2351,46 +2368,46 @@ int kgnilnd_base_startup(void)
 		GOTO(failed, rc);
 	}
 
-	/* threads will load balance across devs as they are available */
-	for (i = 0; i < *kgnilnd_tunables.kgn_sched_threads; i++) {
-		rc = kgnilnd_thread_start(kgnilnd_scheduler, (void *)((long)i),
-					  "kgnilnd_sd", i);
-		if (rc != 0) {
-			CERROR("Can't spawn gnilnd scheduler[%d]: %d\n",
-			       i, rc);
-			GOTO(failed, rc);
-		}
-	}
+        /* threads will load balance across devs as they are available */
+        for (i = 0; i < *kgnilnd_tunables.kgn_sched_threads; i++) {
+                rc = kgnilnd_thread_start(kgnilnd_scheduler, (void *)((long)i), 
+                                          "kgnilnd_sd", i);
+                if (rc != 0) {
+                        CERROR("Can't spawn gnilnd scheduler[%d]: %d\n",
+                               i, rc);
+                        GOTO(failed, rc);
+                }
+        }
+        
+        for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
+                dev = &kgnilnd_data.kgn_devices[i];
+                rc = kgnilnd_thread_start(kgnilnd_dgram_mover, dev, 
+                                          "kgnilnd_dg", dev->gnd_id);
+                if (rc != 0) {
+                        CERROR("Can't spawn gnilnd dgram_mover[%d]: %d\n",
+                               dev->gnd_id, rc);
+                        GOTO(failed, rc);
+                }
 
-	for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
-		dev = &kgnilnd_data.kgn_devices[i];
-		rc = kgnilnd_thread_start(kgnilnd_dgram_mover, dev,
-					  "kgnilnd_dg", dev->gnd_id);
-		if (rc != 0) {
-			CERROR("Can't spawn gnilnd dgram_mover[%d]: %d\n",
-			       dev->gnd_id, rc);
-			GOTO(failed, rc);
-		}
+                rc = kgnilnd_thread_start(kgnilnd_dgram_waitq, dev,
+                                          "kgnilnd_dgn", dev->gnd_id);
+                if (rc != 0) {
+                        CERROR("Can't spawn gnilnd dgram_waitq[%d]: %d\n",
+                                dev->gnd_id, rc);
+                        GOTO(failed, rc);
+                }
 
-		rc = kgnilnd_thread_start(kgnilnd_dgram_waitq, dev,
-					  "kgnilnd_dgn", dev->gnd_id);
-		if (rc != 0) {
-			CERROR("Can't spawn gnilnd dgram_waitq[%d]: %d\n",
-				dev->gnd_id, rc);
-			GOTO(failed, rc);
-		}
+                rc = kgnilnd_setup_wildcard_dgram(dev);
 
-		rc = kgnilnd_setup_wildcard_dgram(dev);
+                if (rc != 0) {
+                        CERROR("Can't create wildcard dgrams[%d]: %d\n",
+                                dev->gnd_id, rc);
+                        GOTO(failed, rc);
+                }
+        }
 
-		if (rc != 0) {
-			CERROR("Can't create wildcard dgrams[%d]: %d\n",
-				dev->gnd_id, rc);
-			GOTO(failed, rc);
-		}
-	}
-
-
-
+        
+        
 	/* flag everything initialised */
 	kgnilnd_data.kgn_init = GNILND_INIT_ALL;
 	/*****************************************************/
@@ -2407,7 +2424,7 @@ failed:
 void
 kgnilnd_base_shutdown(void)
 {
-	int			i;
+	int			i, j;
 	ENTRY;
 
 	while (CFS_FAIL_TIMEOUT(CFS_FAIL_GNI_PAUSE_SHUTDOWN, 1)) {};
@@ -2417,10 +2434,29 @@ kgnilnd_base_shutdown(void)
 	for (i = 0; i < kgnilnd_data.kgn_ndevs; i++) {
 		kgn_device_t *dev = &kgnilnd_data.kgn_devices[i];
 		kgnilnd_cancel_wc_dgrams(dev);
+		kgnilnd_cancel_dgrams(dev);
 		kgnilnd_del_conn_or_peer(NULL, LNET_NID_ANY, GNILND_DEL_PEER, -ESHUTDOWN);
 		kgnilnd_wait_for_canceled_dgrams(dev);
 	}
+	
+	/* We need to verify there are no conns left before we let the threads
+	 * shut down otherwise we could clean up the peers but still have
+	 * some outstanding conns due to orphaned datagram conns that are
+	 * being cleaned up.
+	 */
+	i = 2;
+	while (atomic_read(&kgnilnd_data.kgn_nconns) != 0) {
+		i++;
+		
+		for(j = 0; j < kgnilnd_data.kgn_ndevs; ++j) {
+			kgn_device_t *dev = &kgnilnd_data.kgn_devices[j];
+			kgnilnd_schedule_device(dev);
+		}
 
+		CDEBUG(((i & (-i)) == i) ? D_WARNING : D_NET,
+			"Waiting for conns to be cleaned up %d\n",atomic_read(&kgnilnd_data.kgn_nconns));
+		cfs_pause(cfs_time_seconds(1));
+	}
 	/* Peer state all cleaned up BEFORE setting shutdown, so threads don't
 	 * have to worry about shutdown races.  NB connections may be created
 	 * while there are still active connds, but these will be temporary
@@ -2547,7 +2583,7 @@ kgnilnd_base_shutdown(void)
 				kfree(kgnilnd_data.kgn_cksum_map_pages[i]);
 			}
 		}
-		kfree(kgnilnd_data.kgn_cksum_map_pages);
+                kfree(kgnilnd_data.kgn_cksum_map_pages);
 	}
 
 	CDEBUG(D_MALLOC, "after NAL cleanup: kmem %d\n",
@@ -2562,7 +2598,7 @@ kgnilnd_base_shutdown(void)
 int
 kgnilnd_startup(lnet_ni_t *ni)
 {
-	int               rc, devno;
+        int               rc, devno;
 	kgn_net_t        *net;
 	ENTRY;
 
@@ -2630,7 +2666,7 @@ kgnilnd_startup(lnet_ni_t *ni)
 
 	/* the instance id for the cdm is the NETNUM offset by MAXDEVS -
 	 * ensuring we'll have a unique id */
-
+        
 
 	ni->ni_nid = LNET_MKNID(LNET_NIDNET(ni->ni_nid), net->gnn_dev->gnd_nid);
 	CDEBUG(D_NET, "adding net %p nid=%s on dev %d \n",
