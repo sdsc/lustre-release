@@ -497,8 +497,6 @@ void ofd_fs_cleanup(const struct lu_env *env, struct ofd_device *ofd)
 
 	ENTRY;
 
-	ofd_info_init(env, NULL);
-
 	ofd_seqs_fini(env, ofd);
 
 	i = dt_sync(env, ofd->ofd_osd);
