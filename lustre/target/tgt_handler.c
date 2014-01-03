@@ -1068,6 +1068,11 @@ int tgt_obd_idx_read(struct tgt_session_info *tsi)
 	/* copy flags */
 	rep_ii->ii_flags = req_ii->ii_flags;
 
+	rep_ii->ii_seq_start = req_ii->ii_seq_start;
+	rep_ii->ii_oid_start = req_ii->ii_oid_start;
+	rep_ii->ii_ver_start = req_ii->ii_ver_start;
+	rep_ii->ii_index = req_ii->ii_index;
+
 	/* compute number of pages to allocate, ii_count is the number of 4KB
 	 * containers */
 	if (req_ii->ii_count <= 0)
