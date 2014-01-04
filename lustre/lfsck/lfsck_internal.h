@@ -293,6 +293,9 @@ struct lfsck_operations {
 
 	void (*lfsck_data_release)(const struct lu_env *env,
 				   struct lfsck_component *com);
+
+	void (*lfsck_quit)(const struct lu_env *env,
+			   struct lfsck_component *com);
 };
 
 #define TGT_PTRS		256     /* number of pointers at 1st level */
@@ -396,6 +399,7 @@ struct lfsck_instance {
 	cfs_list_t		  li_list_idle;
 
 	atomic_t		  li_ref;
+	atomic_t		  li_double_scan_count;
 	struct ptlrpc_thread	  li_thread;
 
 	/* The time for last checkpoint, jiffies */
@@ -492,6 +496,7 @@ struct lfsck_thread_info {
 	 * then lti_ent::lde_name will be lti_key. */
 	struct lu_dirent	lti_ent;
 	char			lti_key[NAME_MAX + 16];
+	struct lfsck_request	lti_lr;
 };
 
 /* lfsck_lib.c */
@@ -525,6 +530,7 @@ int lfsck_exec_dir(const struct lu_env *env, struct lfsck_instance *lfsck,
 int lfsck_post(const struct lu_env *env, struct lfsck_instance *lfsck,
 	       int result);
 int lfsck_double_scan(const struct lu_env *env, struct lfsck_instance *lfsck);
+void lfsck_quit(const struct lu_env *env, struct lfsck_instance *lfsck);
 
 /* lfsck_engine.c */
 int lfsck_master_engine(void *args);
