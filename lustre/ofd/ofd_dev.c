@@ -306,6 +306,7 @@ static int ofd_object_init(const struct lu_env *env, struct lu_object *o,
 			   const struct lu_object_conf *conf)
 {
 	struct ofd_device	*d = ofd_dev(o->lo_dev);
+	struct ofd_object	*fo = ofd_obj(o);
 	struct lu_device	*under;
 	struct lu_object	*below;
 	int			 rc = 0;
@@ -315,6 +316,7 @@ static int ofd_object_init(const struct lu_env *env, struct lu_object *o,
 	CDEBUG(D_INFO, "object init, fid = "DFID"\n",
 	       PFID(lu_object_fid(o)));
 
+	spin_lock_init(&fo->ofo_lock);
 	under = &d->ofd_osd->dd_lu_dev;
 	below = under->ld_ops->ldo_object_alloc(env, o->lo_header, under);
 	if (below != NULL)
@@ -2117,6 +2119,16 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	sptlrpc_rule_set_init(&obd->u.filter.fo_sptlrpc_rset);
 	init_rwsem(&m->ofd_lastid_rwsem);
 
+	m->ofd_inconsistency_wq = create_workqueue("inconsistency_self_cure");
+	if (unlikely(m->ofd_inconsistency_wq == NULL)) {
+		CERROR("%s: Can't initialize inconsistency_self_cure wq.\n",
+			obd->obd_name);
+		RETURN(-ENOMEM);
+	}
+
+	atomic_set(&m->ofd_inconsistency_self_detected, 0);
+	atomic_set(&m->ofd_inconsistency_self_repaired, 0);
+
 	obd->u.filter.fo_fl_oss_capa = 0;
 	CFS_INIT_LIST_HEAD(&obd->u.filter.fo_capa_keys);
 	obd->u.filter.fo_capa_hash = init_capa_hash();
@@ -2216,6 +2228,7 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 		GOTO(err_fini_lut, rc);
 
 	RETURN(0);
+
 err_fini_lut:
 	tgt_fini(env, &m->ofd_lut);
 err_free_ns:
@@ -2225,6 +2238,8 @@ err_fini_stack:
 	ofd_stack_fini(env, m, &m->ofd_osd->dd_lu_dev);
 err_fini_proc:
 	ofd_procfs_fini(m);
+	destroy_workqueue(m->ofd_inconsistency_wq);
+
 	return rc;
 }
 
@@ -2241,6 +2256,9 @@ static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 	target_recovery_fini(obd);
 	obd_exports_barrier(obd);
 	obd_zombie_barrier();
+
+	flush_workqueue(m->ofd_inconsistency_wq);
+	destroy_workqueue(m->ofd_inconsistency_wq);
 
 	tgt_fini(env, &m->ofd_lut);
 	ofd_fs_cleanup(env, m);
