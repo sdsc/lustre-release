@@ -2178,14 +2178,6 @@ static int osd_object_destroy(const struct lu_env *env,
 	mutex_lock(&inode->i_mutex);
 	if (S_ISDIR(inode->i_mode)) {
 		LASSERT(osd_inode_unlinked(inode) || inode->i_nlink == 1);
-		/* it will check/delete the agent inode for every dir
-		 * destory, how to optimize it? unlink performance
-		 * impaction XXX */
-		result = osd_delete_from_agent(env, osd, obj, oh);
-		if (result != 0 && result != -ENOENT) {
-			CERROR("%s: delete agent inode "DFID": rc = %d\n",
-			       osd_name(osd), PFID(fid), result);
-		}
 		spin_lock(&obj->oo_guard);
 		clear_nlink(inode);
 		spin_unlock(&obj->oo_guard);
@@ -3269,10 +3261,24 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 
 	/* For inode on the remote MDT, .. will point to
-	 * /Agent directory. So do not try to lookup/delete
-	 * remote inode for .. */
-	if (strcmp((char *)key, dotdot) == 0)
-		GOTO(out, rc = 0);
+	 * /Agent directory. So
+	 * 1. do not need to lookup/delete remote inode for ..
+	 * 2. Check whether it needs to delete from agent directory */
+	if (strcmp((char *)key, dotdot) == 0) {
+		/* it will check/delete the agent inode for every dir
+		 * destory, how to optimize it? unlink performance
+		 * impaction XXX */
+		rc = osd_delete_from_agent(env, osd_obj2dev(obj), obj, oh);
+		if (rc != 0 && rc != -ENOENT) {
+			CERROR("%s: delete agent inode "DFID": rc = %d\n",
+			       osd_name(osd), PFID(fid), rc);
+		}
+
+		if (rc == -ENOENT)
+			rc = 0; 
+
+		GOTO(out, rc);
+	}
 
 	LASSERT(de != NULL);
 	rc = osd_get_fid_from_dentry(de, (struct dt_rec *)fid);

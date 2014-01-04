@@ -235,6 +235,8 @@ int osd_add_to_agent(const struct lu_env *env, struct osd_device *osd,
 
 	parent = omm->omm_agent_dentry;
 	sprintf(name, DFID_NOBRACE, PFID(lu_object_fid(&obj->oo_dt.do_lu)));
+	CDEBUG(D_INODE, "%s: add %s:%lu to remote parent %lu.\n", osd_name(osd),
+	       name, obj->oo_inode->i_ino, parent->d_inode->i_ino);
 	agent = osd_child_dentry_by_inode(env, parent->d_inode,
 					  name, strlen(name));
 	mutex_lock(&parent->d_inode->i_mutex);
@@ -269,6 +271,8 @@ int osd_delete_from_agent(const struct lu_env *env, struct osd_device *osd,
 		mutex_unlock(&parent->d_inode->i_mutex);
 		RETURN(-ENOENT);
 	}
+	CDEBUG(D_INODE, "%s: el %s:%lu to remote parent %lu.\n", osd_name(osd),
+	       name, obj->oo_inode->i_ino, parent->d_inode->i_ino);
 	rc = ldiskfs_delete_entry(oh->ot_handle, parent->d_inode, de, bh);
 	LASSERTF(parent->d_inode->i_nlink > 1, "%s: agent inode nlink %d",
 		 osd_name(osd), parent->d_inode->i_nlink);
