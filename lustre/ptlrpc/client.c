@@ -602,7 +602,6 @@ static int __ptlrpc_request_bufs_pack(struct ptlrpc_request *request,
         lustre_msg_add_version(request->rq_reqmsg, version);
         request->rq_send_state = LUSTRE_IMP_FULL;
         request->rq_type = PTL_RPC_MSG_REQUEST;
-        request->rq_export = NULL;
 
         request->rq_req_cbid.cbid_fn  = request_out_callback;
         request->rq_req_cbid.cbid_arg = request;
@@ -619,19 +618,7 @@ static int __ptlrpc_request_bufs_pack(struct ptlrpc_request *request,
 
         ptlrpc_at_set_req_timeout(request);
 
-	spin_lock_init(&request->rq_lock);
-	CFS_INIT_LIST_HEAD(&request->rq_list);
-	CFS_INIT_LIST_HEAD(&request->rq_timed_list);
-	CFS_INIT_LIST_HEAD(&request->rq_replay_list);
-	CFS_INIT_LIST_HEAD(&request->rq_ctx_chain);
-	CFS_INIT_LIST_HEAD(&request->rq_set_chain);
-	CFS_INIT_LIST_HEAD(&request->rq_history_list);
-	CFS_INIT_LIST_HEAD(&request->rq_exp_list);
-	init_waitqueue_head(&request->rq_reply_waitq);
-	init_waitqueue_head(&request->rq_set_waitq);
 	request->rq_xid = ptlrpc_next_xid();
-	cfs_atomic_set(&request->rq_refcount, 1);
-
 	lustre_msg_set_opc(request->rq_reqmsg, opcode);
 
 	RETURN(0);
@@ -707,6 +694,7 @@ struct ptlrpc_request *__ptlrpc_request_alloc(struct obd_import *imp,
 	if (!request)
 		request = ptlrpc_request_cache_alloc(__GFP_IO);
 
+	ptlrpc_cli_req_init(request);
         if (request) {
                 LASSERTF((unsigned long)imp > 0x1000, "%p", imp);
                 LASSERT(imp != LP_POISON);
@@ -1296,7 +1284,7 @@ static int after_reply(struct ptlrpc_request *req)
 	}
 
 	do_gettimeofday(&work_start);
-	timediff = cfs_timeval_sub(&work_start, &req->rq_arrival_time, NULL);
+	timediff = cfs_timeval_sub(&work_start, &req->rq_sent_tv, NULL);
 	if (obd->obd_svc_stats != NULL) {
 		lprocfs_counter_add(obd->obd_svc_stats, PTLRPC_REQWAIT_CNTR,
 				    timediff);
@@ -2233,11 +2221,10 @@ static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
                 return;
         }
 
+	LASSERT(!request->rq_srv_req);
         LASSERTF(!request->rq_receiving_reply, "req %p\n", request);
-        LASSERTF(request->rq_rqbd == NULL, "req %p\n",request);/* client-side */
         LASSERTF(cfs_list_empty(&request->rq_list), "req %p\n", request);
         LASSERTF(cfs_list_empty(&request->rq_set_chain), "req %p\n", request);
-        LASSERTF(cfs_list_empty(&request->rq_exp_list), "req %p\n", request);
         LASSERTF(!request->rq_replay, "req %p\n", request);
 
         req_capsule_fini(&request->rq_pill);
@@ -2261,10 +2248,7 @@ static void __ptlrpc_free_req(struct ptlrpc_request *request, int locked)
 
         if (request->rq_repbuf != NULL)
                 sptlrpc_cli_free_repbuf(request);
-        if (request->rq_export != NULL) {
-                class_export_put(request->rq_export);
-                request->rq_export = NULL;
-        }
+
         if (request->rq_import != NULL) {
                 class_import_put(request->rq_import);
                 request->rq_import = NULL;
@@ -2693,11 +2677,6 @@ int ptlrpc_queue_wait(struct ptlrpc_request *req)
 }
 EXPORT_SYMBOL(ptlrpc_queue_wait);
 
-struct ptlrpc_replay_async_args {
-        int praa_old_state;
-        int praa_old_status;
-};
-
 /**
  * Callback used for replayed requests reply processing.
  * In case of succesful reply calls registeresd request replay callback.
@@ -3064,25 +3043,16 @@ void *ptlrpcd_alloc_work(struct obd_import *imp,
                 RETURN(ERR_PTR(-ENOMEM));
         }
 
+	ptlrpc_cli_req_init(req);
+
         req->rq_send_state = LUSTRE_IMP_FULL;
         req->rq_type = PTL_RPC_MSG_REQUEST;
         req->rq_import = class_import_get(imp);
-        req->rq_export = NULL;
         req->rq_interpret_reply = work_interpreter;
         /* don't want reply */
         req->rq_receiving_reply = 0;
         req->rq_must_unlink = 0;
         req->rq_no_delay = req->rq_no_resend = 1;
-
-	spin_lock_init(&req->rq_lock);
-	CFS_INIT_LIST_HEAD(&req->rq_list);
-	CFS_INIT_LIST_HEAD(&req->rq_replay_list);
-	CFS_INIT_LIST_HEAD(&req->rq_set_chain);
-	CFS_INIT_LIST_HEAD(&req->rq_history_list);
-	CFS_INIT_LIST_HEAD(&req->rq_exp_list);
-	init_waitqueue_head(&req->rq_reply_waitq);
-	init_waitqueue_head(&req->rq_set_waitq);
-	cfs_atomic_set(&req->rq_refcount, 1);
 
 	CLASSERT (sizeof(*args) <= sizeof(req->rq_async_args));
 	args = ptlrpc_req_async_args(req);
