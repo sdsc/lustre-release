@@ -329,27 +329,24 @@ void request_in_callback(lnet_event_t *ev)
                 }
         }
 
-        /* NB we ABSOLUTELY RELY on req being zeroed, so pointers are NULL,
-         * flags are reset and scalars are zero.  We only set the message
-         * size to non-zero if this was a successful receive. */
-        req->rq_xid = ev->match_bits;
-        req->rq_reqbuf = ev->md.start + ev->offset;
+	ptlrpc_srv_req_init(req);
+	/* NB we ABSOLUTELY RELY on req being zeroed, so pointers are NULL,
+	 * flags are reset and scalars are zero.  We only set the message
+	 * size to non-zero if this was a successful receive. */
+	req->rq_xid = ev->match_bits;
+	req->rq_reqbuf = ev->md.start + ev->offset;
 	if (ev->type == LNET_EVENT_PUT && ev->status == 0)
 		req->rq_reqdata_len = ev->mlength;
 	do_gettimeofday(&req->rq_arrival_time);
 	req->rq_peer = ev->initiator;
 	req->rq_self = ev->target.nid;
 	req->rq_rqbd = rqbd;
-        req->rq_phase = RQ_PHASE_NEW;
-	spin_lock_init(&req->rq_lock);
-        CFS_INIT_LIST_HEAD(&req->rq_timed_list);
-	CFS_INIT_LIST_HEAD(&req->rq_exp_list);
-        cfs_atomic_set(&req->rq_refcount, 1);
-        if (ev->type == LNET_EVENT_PUT)
-                CDEBUG(D_INFO, "incoming req@%p x"LPU64" msgsize %u\n",
-                       req, req->rq_xid, ev->mlength);
+	req->rq_phase = RQ_PHASE_NEW;
+	if (ev->type == LNET_EVENT_PUT)
+		CDEBUG(D_INFO, "incoming req@%p x"LPU64" msgsize %u\n",
+		       req, req->rq_xid, ev->mlength);
 
-        CDEBUG(D_RPCTRACE, "peer: %s\n", libcfs_id2str(req->rq_peer));
+	CDEBUG(D_RPCTRACE, "peer: %s\n", libcfs_id2str(req->rq_peer));
 
 	spin_lock(&svcpt->scp_lock);
 
