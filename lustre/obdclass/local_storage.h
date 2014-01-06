@@ -72,6 +72,14 @@ static inline struct dt_object *ls_locate(const struct lu_env *env,
 	return dt_locate_at(env, ls->ls_osd, fid, &ls->ls_top_dev.dd_lu_dev);
 }
 
+static inline struct dt_object *
+ls_locate_conf(const struct lu_env *env, struct ls_device *ls,
+	       const struct lu_fid *fid, const struct lu_object_conf *conf)
+{
+	return dt_locate_at_conf(env, ls->ls_osd, fid,
+				 &ls->ls_top_dev.dd_lu_dev, conf);
+}
+
 struct ls_device *ls_device_get(struct dt_device *dev);
 void ls_device_put(const struct lu_env *env, struct ls_device *ls);
 struct local_oid_storage *dt_los_find(struct ls_device *ls, __u64 seq);
