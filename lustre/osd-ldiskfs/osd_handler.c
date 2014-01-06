@@ -231,8 +231,8 @@ struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
 		       id->oii_ino, PTR_ERR(inode));
 	} else if (id->oii_gen != OSD_OII_NOGEN &&
 		   inode->i_generation != id->oii_gen) {
-		CDEBUG(D_INODE, "unmatched inode: ino = %u, gen0 = %u, "
-		       "gen1 = %u\n",
+		CDEBUG(D_INODE, "unmatched inode: ino = %u, oii_gen = %u, "
+		       "i_generation = %u\n",
 		       id->oii_ino, id->oii_gen, inode->i_generation);
 		iput(inode);
 		inode = ERR_PTR(-ESTALE);
@@ -240,7 +240,6 @@ struct inode *osd_iget(struct osd_thread_info *info, struct osd_device *dev,
 		/* due to parallel readdir and unlink,
 		* we can have dead inode here. */
 		CDEBUG(D_INODE, "stale inode: ino = %u\n", id->oii_ino);
-		make_bad_inode(inode);
 		iput(inode);
 		inode = ERR_PTR(-ESTALE);
 	} else if (is_bad_inode(inode)) {
@@ -290,6 +289,119 @@ osd_iget_fid(struct osd_thread_info *info, struct osd_device *dev,
 	return inode;
 }
 
+static struct inode *osd_iget_check(struct osd_thread_info *info,
+				    struct osd_device *dev,
+				    const struct lu_fid *fid,
+				    struct osd_inode_id *id,
+				    bool in_oi)
+{
+	struct inode	*inode;
+	int		 rc	= 0;
+	ENTRY;
+
+	inode = ldiskfs_iget(osd_sb(dev), id->oii_ino);
+	if (IS_ERR(inode)) {
+		rc = PTR_ERR(inode);
+		if (!in_oi || (rc != -ENOENT && rc != -ESTALE)) {
+			CDEBUG(D_INODE, "no inode: ino = %u, rc = %d\n",
+			       id->oii_ino, rc);
+
+			GOTO(put, rc);
+		}
+
+		goto check_oi;
+	}
+
+	if (is_bad_inode(inode)) {
+		rc = -ENOENT;
+		if (!in_oi) {
+			CDEBUG(D_INODE, "bad inode: ino = %u\n", id->oii_ino);
+
+			GOTO(put, rc);
+		}
+
+		goto check_oi;
+	}
+
+	if (id->oii_gen != OSD_OII_NOGEN &&
+	    inode->i_generation != id->oii_gen) {
+		rc = -ESTALE;
+		if (!in_oi) {
+			CDEBUG(D_INODE, "unmatched inode: ino = %u, "
+			       "oii_gen = %u, i_generation = %u\n",
+			       id->oii_ino, id->oii_gen, inode->i_generation);
+
+			GOTO(put, rc);
+		}
+
+		goto check_oi;
+	}
+
+	if (inode->i_nlink == 0) {
+		rc = -ENOENT;
+		if (!in_oi) {
+			CDEBUG(D_INODE, "stale inode: ino = %u\n", id->oii_ino);
+
+			GOTO(put, rc);
+		}
+
+		goto check_oi;
+	}
+
+check_oi:
+	if (rc != 0) {
+		LASSERTF(rc == -ESTALE || rc == -ENOENT, "rc = %d\n", rc);
+
+		rc = osd_oi_lookup(info, dev, fid, id, OI_CHECK_FLD);
+		/* XXX: There are three possible cases:
+		 *	1. rc = 0.
+		 *	   Backup/restore caused the OI invalid.
+		 *	2. rc = 0.
+		 *	   Someone unlinked the object but NOT removed
+		 *	   the OI mapping, such as mount target device
+		 *	   as ldiskfs, and modify something directly.
+		 *	3. rc = -ENOENT.
+		 *	   Someone just removed the object between the
+		 *	   former oi_lookup and the iget. It is normal.
+		 *	4. Other failure cases.
+		 *
+		 *	Generally, when the device is mounted, it will
+		 *	auto check whether the system is restored from
+		 *	file-level backup or not. We trust such detect
+		 *	to distinguish the 1st case from the 2nd case. */
+		if (rc == 0) {
+			if (!IS_ERR(inode) &&
+			    inode->i_generation == id->oii_gen)
+				rc = -ENOENT;
+			else
+				rc = -EREMCHG;
+		}
+	} else {
+		if (id->oii_gen == OSD_OII_NOGEN)
+			osd_id_gen(id, inode->i_ino, inode->i_generation);
+
+		/* Do not update file c/mtime in ldiskfs.
+		 * NB: we don't have any lock to protect this because we don't
+		 * have reference on osd_object now, but contention with
+		 * another lookup + attr_set can't happen in the tiny window
+		 * between if (...) and set S_NOCMTIME. */
+		if (!(inode->i_flags & S_NOCMTIME))
+			inode->i_flags |= S_NOCMTIME;
+	}
+
+	GOTO(put, rc);
+
+put:
+	if (rc != 0) {
+		if (!IS_ERR(inode))
+			iput(inode);
+
+		inode = ERR_PTR(rc);
+	}
+
+	return inode;
+}
+
 /**
  * \retval +v: new filter_fid, does not contain self-fid
  * \retval 0:  filter_fid_old, contains self-fid
@@ -318,6 +430,32 @@ int osd_get_idif(struct osd_thread_info *info, struct inode *inode,
 	return rc;
 }
 
+static int osd_lma_self_repair(struct osd_thread_info *info,
+			       struct osd_device *osd, struct inode *inode,
+			       const struct lu_fid *fid, __u32 compat)
+{
+	handle_t *jh;
+	int	  rc;
+
+	LASSERT(current->journal_info == NULL);
+
+	jh = osd_journal_start_sb(osd_sb(osd), LDISKFS_HT_MISC,
+				  osd_dto_credits_noquota[DTO_XATTR_SET]);
+	if (IS_ERR(jh)) {
+		rc = PTR_ERR(jh);
+		CWARN("%s: cannot start journal for lma_self_repair: rc = %d\n",
+		      osd_name(osd), rc);
+		return rc;
+	}
+
+	rc = osd_ea_fid_set(info, inode, fid, compat, 0);
+	if (rc != 0)
+		CWARN("%s: cannot self repair the LMA: rc = %d\n",
+		      osd_name(osd), rc);
+	ldiskfs_journal_stop(jh);
+	return rc;
+}
+
 static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 {
 	struct osd_thread_info	*info	= osd_oti_get(env);
@@ -326,6 +464,7 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	struct inode		*inode	= obj->oo_inode;
 	struct dentry		*dentry = &info->oti_obj_dentry;
 	struct lu_fid		*fid	= NULL;
+	const struct lu_fid	*rfid	= lu_object_fid(&obj->oo_dt.do_lu);
 	int			 rc;
 	ENTRY;
 
@@ -335,40 +474,18 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 	CLASSERT(LMA_OLD_SIZE >= sizeof(*lma));
 	rc = __osd_xattr_get(inode, dentry, XATTR_NAME_LMA,
 			     info->oti_mdt_attrs_old, LMA_OLD_SIZE);
-	if (rc == -ENODATA && !fid_is_igif(lu_object_fid(&obj->oo_dt.do_lu)) &&
-	    osd->od_check_ff) {
+	if (rc == -ENODATA && !fid_is_igif(rfid) && osd->od_check_ff) {
 		fid = &lma->lma_self_fid;
 		rc = osd_get_idif(info, inode, dentry, fid);
 		if ((rc > 0) || (rc == -ENODATA && osd->od_lma_self_repair)) {
-			handle_t *jh;
-
 			/* For the given OST-object, if it has neither LMA nor
 			 * FID in XATTR_NAME_FID, then the given FID (which is
 			 * contained in the @obj, from client RPC for locating
 			 * the OST-object) is trusted. We use it to generate
 			 * the LMA. */
-
-			LASSERT(current->journal_info == NULL);
-
-			jh = osd_journal_start_sb(osd_sb(osd), LDISKFS_HT_MISC,
-					osd_dto_credits_noquota[DTO_XATTR_SET]);
-			if (IS_ERR(jh)) {
-				CWARN("%s: cannot start journal for "
-				      "lma_self_repair: rc = %ld\n",
-				      osd_name(osd), PTR_ERR(jh));
-				RETURN(0);
-			}
-
-			rc = osd_ea_fid_set(info, inode,
-				lu_object_fid(&obj->oo_dt.do_lu),
-				fid_is_on_ost(info, osd,
-					      lu_object_fid(&obj->oo_dt.do_lu),
-					      OI_CHECK_FLD) ?
-				LMAC_FID_ON_OST : 0, 0);
-			if (rc != 0)
-				CWARN("%s: cannot self repair the LMA: "
-				      "rc = %d\n", osd_name(osd), rc);
-			ldiskfs_journal_stop(jh);
+			osd_lma_self_repair(info, osd, inode, rfid,
+				fid_is_on_ost(info, osd, fid, OI_CHECK_FLD) ?
+				LMAC_FID_ON_OST : 0);
 			RETURN(0);
 		}
 	}
@@ -387,19 +504,39 @@ static int osd_check_lma(const struct lu_env *env, struct osd_object *obj)
 			CWARN("%s: unsupported incompat LMA feature(s) %#x for "
 			      "fid = "DFID", ino = %lu\n", osd_name(osd),
 			      lma->lma_incompat & ~LMA_INCOMPAT_SUPP,
-			      PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-			      inode->i_ino);
+			      PFID(rfid), inode->i_ino);
 			rc = -EOPNOTSUPP;
 		} else if (!(lma->lma_compat & LMAC_NOT_IN_OI)) {
 			fid = &lma->lma_self_fid;
 		}
 	}
 
-	if (fid != NULL &&
-	    unlikely(!lu_fid_eq(lu_object_fid(&obj->oo_dt.do_lu), fid))) {
+	if (fid != NULL && unlikely(!lu_fid_eq(rfid, fid))) {
+		if (fid_is_idif(rfid) && fid_is_idif(fid)) {
+			struct ost_id	*oi   = &info->oti_ostid;
+			struct lu_fid	*fid1 = &info->oti_fid3;
+			__u32		 idx  = fid_idif_ost_idx(rfid);
+
+			/* For old IDIF, the OST index is not part of the IDIF,
+			 * Means that different OSTs may have the same IDIFs.
+			 * Under such case, we need to make some compatible
+			 * check to make sure to trigger OI scrub properly. */
+			if (idx != 0 && fid_idif_ost_idx(fid) == 0) {
+				/* Given @rfid is new, LMA is old. */
+				fid_to_ostid(fid, oi);
+				ostid_to_fid(fid1, oi, idx);
+				if (lu_fid_eq(fid1, rfid)) {
+					if (osd->od_lma_self_repair)
+						osd_lma_self_repair(info, osd,
+							inode, rfid,
+							LMAC_FID_ON_OST);
+					RETURN(0);
+				}
+			}
+		}
+
 		CDEBUG(D_INODE, "%s: FID "DFID" != self_fid "DFID"\n",
-		       osd_name(osd), PFID(lu_object_fid(&obj->oo_dt.do_lu)),
-		       PFID(&lma->lma_self_fid));
+		       osd_name(osd), PFID(rfid), PFID(fid));
 		rc = -EREMCHG;
 	}
 
@@ -479,33 +616,21 @@ static int osd_fid_lookup(const struct lu_env *env, struct osd_object *obj,
 	in_oi = true;
 
 iget:
-	inode = osd_iget(info, dev, id);
+	inode = osd_iget_check(info, dev, fid, id, in_oi);
 	if (IS_ERR(inode)) {
 		result = PTR_ERR(inode);
 		if (result == -ENOENT || result == -ESTALE) {
-			if (!in_oi) {
+			if (!in_oi)
 				fid_zero(&oic->oic_fid);
-				GOTO(out, result = -ENOENT);
-			}
-
-			/* XXX: There are three possible cases:
-			 *	1. Backup/restore caused the OI invalid.
-			 *	2. Someone unlinked the object but NOT removed
-			 *	   the OI mapping, such as mount target device
-			 *	   as ldiskfs, and modify something directly.
-			 *	3. Someone just removed the object between the
-			 *	   former oi_lookup and the iget. It is normal.
-			 *
-			 *	It is diffcult to distinguish the 2nd from the
-			 *	1st case. Relatively speaking, the 1st case is
-			 *	common than the 2nd case, trigger OI scrub. */
-			result = osd_oi_lookup(info, dev, fid, id, true);
-			if (result == 0)
-				/* It is the case 1 or 2. */
-				goto trigger;
+			if (id->oii_gen == OSD_OII_NOGEN)
+				result = osd_lookup_in_remote_parent(info, dev,
+								     fid, id);
+			GOTO(out, result = -ENOENT);
 		} else if (result == -EREMCHG) {
 
 trigger:
+			if (!in_oi)
+				fid_zero(&oic->oic_fid);
 			if (unlikely(triggered))
 				GOTO(out, result = saved);
 
@@ -514,10 +639,9 @@ trigger:
 				result = -EINPROGRESS;
 			} else if (!dev->od_noscrub) {
 				result = osd_scrub_start(dev);
-				LCONSOLE_ERROR("%.16s: trigger OI scrub by RPC "
-					       "for "DFID", rc = %d [1]\n",
-					       LDISKFS_SB(osd_sb(dev))->s_es->\
-					       s_volume_name,PFID(fid), result);
+				LCONSOLE_WARN("%.16s: trigger OI scrub by RPC "
+					      "for "DFID", rc = %d [1]\n",
+					      osd_name(dev), PFID(fid),result);
 				if (result == 0 || result == -EALREADY)
 					result = -EINPROGRESS;
 				else
@@ -560,8 +684,18 @@ trigger:
 	if (result != 0) {
 		iput(inode);
 		obj->oo_inode = NULL;
-		if (result == -EREMCHG)
+		if (result == -EREMCHG) {
+			if (!in_oi) {
+				result = osd_oi_lookup(info, dev, fid, id,
+						       OI_CHECK_FLD);
+				if (result != 0) {
+					fid_zero(&oic->oic_fid);
+					GOTO(out, result);
+				}
+			}
+
 			goto trigger;
+		}
 
 		GOTO(out, result);
 	}
@@ -1898,6 +2032,7 @@ static int osd_mkfile(struct osd_thread_info *info, struct osd_object *obj,
 		/* For new created object, it must be consistent,
 		 * and it is unnecessary to scrub against it. */
 		ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NOSCRUB);
+		ldiskfs_clear_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
                 obj->oo_inode = inode;
                 result = 0;
         } else {
@@ -2505,6 +2640,7 @@ static struct inode *osd_create_local_agent_inode(const struct lu_env *env,
 		RETURN(local);
 	}
 
+	ldiskfs_set_inode_state(local, LDISKFS_STATE_LUSTRE_NO_OI);
 	/* Set special LMA flag for local agent inode */
 	rc = osd_ea_fid_set(info, local, fid, 0, LMAI_AGENT);
 	if (rc != 0) {
@@ -3368,6 +3504,19 @@ static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
 {
 	ENTRY;
 
+	/* FID_SEQ_DOT_LUSTRE only can be used on MDT0. */
+	if (fid_seq(fid) == FID_SEQ_DOT_LUSTRE) {
+		struct seq_server_site *ss = osd_seq_site(osd);
+
+		if (unlikely(osd->od_is_ost))
+			RETURN(1);
+
+		if (ss == NULL)
+			RETURN(0);
+
+		RETURN(ss->ss_node_id != 0);
+	}
+
 	/* FID seqs not in FLDB, must be local seq */
 	if (unlikely(!fid_seq_in_fldb(fid_seq(fid))))
 		RETURN(0);
@@ -3868,13 +4017,11 @@ again:
 	}
 
 	if (!dev->od_noscrub && ++once == 1) {
-		CDEBUG(D_LFSCK, "Trigger OI scrub by RPC for "DFID"\n",
-		       PFID(fid));
 		rc = osd_scrub_start(dev);
-		LCONSOLE_ERROR("%.16s: trigger OI scrub by RPC for "DFID
-			       ", rc = %d [2]\n",
-			       LDISKFS_SB(osd_sb(dev))->s_es->s_volume_name,
-			       PFID(fid), rc);
+		LCONSOLE_WARN("%.16s: trigger OI scrub by RPC for "DFID
+			      ", rc = %d [2]\n",
+			      LDISKFS_SB(osd_sb(dev))->s_es->s_volume_name,
+			      PFID(fid), rc);
 		if (rc == 0)
 			goto again;
 	}
@@ -3981,6 +4128,9 @@ static int osd_ea_lookup_rec(const struct lu_env *env, struct osd_object *obj,
 			fid_zero(&oic->oic_fid);
 			GOTO(out, rc);
 		}
+
+		if (osd_remote_fid(env, dev, fid))
+			GOTO(out, rc = 0);
 
 		rc = osd_add_oi_cache(osd_oti_get(env), osd_obj2dev(obj), id,
 				      fid);

@@ -27,7 +27,7 @@
  *
  * Lustre LFSCK userspace interfaces.
  *
- * Author: Fan Yong <yong.fan@whamcloud.com>
+ * Author: Fan, Yong <fan.yong@intel.com>
  */
 
 #ifndef _LUSTRE_LFSCK_USER_H
@@ -42,6 +42,12 @@ enum lfsck_param_flags {
 
 	/* Dryrun mode, only check without modification */
 	LPF_DRYRUN      = 0x0004,
+
+	/* Start/stop LFSCK on all MDT devices. */
+	LPF_ALL_MDT	= 0x0008,
+
+	/* Broadcast the command to other MDTs. */
+	LPF_BROADCAST	= 0x0010,
 };
 
 enum lfsck_type {
@@ -60,7 +66,7 @@ enum lfsck_type {
 
 #define LFSCK_TYPES_ALL 	((__u16)(~0))
 #define LFSCK_TYPES_DEF 	((__u16)0)
-#define LFSCK_TYPES_SUPPORTED	LT_NAMESPACE
+#define LFSCK_TYPES_SUPPORTED	(LT_LAYOUT | LT_NAMESPACE)
 
 #define LFSCK_SPEED_NO_LIMIT	0
 #define LFSCK_SPEED_LIMIT_DEF	LFSCK_SPEED_NO_LIMIT
@@ -90,6 +96,13 @@ struct lfsck_start {
 
 	/* For 64-bits aligned. */
 	__u16   ls_padding;
+};
+
+struct lfsck_stop {
+	__u32	ls_status;
+	__u16	ls_flags;
+	__u16	ls_padding_1; /* For 64-bits aligned. */
+	__u64	ls_padding_2;
 };
 
 #endif /* _LUSTRE_LFSCK_USER_H */
