@@ -136,4 +136,30 @@ void cfs_ip_addr_free(struct list_head *list);
 #define	strtoul(str, endp, base)	simple_strtoul(str, endp, base)
 #endif
 
+static inline char *strrstr(const char *haystack, const char *needle)
+{
+	char *ptr;
+
+	if (unlikely(haystack == NULL || needle == NULL))
+		return NULL;
+
+	if (strlen(needle) == 1)
+		return strrchr(haystack, needle[0]);
+
+	ptr = strstr(haystack, needle);
+	if (ptr != NULL) {
+		while (1) {
+			char *tmp;
+
+			tmp = strstr(&ptr[1], needle);
+			if (tmp == NULL)
+				return ptr;
+
+			ptr = tmp;
+		}
+	}
+
+	return NULL;
+}
+
 #endif

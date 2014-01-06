@@ -91,8 +91,8 @@ struct tx_arg {
 struct thandle_exec_args {
 	struct thandle		*ta_handle;
 	struct dt_device	*ta_dev;
-	int			 ta_err;
 	struct tx_arg		 ta_args[TX_MAX_OPS];
+	int			 ta_err;
 	int			 ta_argno;   /* used args */
 };
 
@@ -133,6 +133,7 @@ struct tgt_thread_info {
 			struct dt_object	*tti_dt_object;
 		} update;
 	} tti_u;
+	struct lfsck_request tti_lr;
 };
 
 extern struct lu_context_key tgt_thread_key;

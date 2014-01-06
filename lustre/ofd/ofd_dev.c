@@ -306,6 +306,7 @@ static int ofd_object_init(const struct lu_env *env, struct lu_object *o,
 			   const struct lu_object_conf *conf)
 {
 	struct ofd_device	*d = ofd_dev(o->lo_dev);
+	struct ofd_object	*fo = ofd_obj(o);
 	struct lu_device	*under;
 	struct lu_object	*below;
 	int			 rc = 0;
@@ -315,6 +316,7 @@ static int ofd_object_init(const struct lu_env *env, struct lu_object *o,
 	CDEBUG(D_INFO, "object init, fid = "DFID"\n",
 	       PFID(lu_object_fid(o)));
 
+	spin_lock_init(&fo->ofo_lock);
 	under = &d->ofd_osd->dd_lu_dev;
 	below = under->ld_ops->ldo_object_alloc(env, o->lo_header, under);
 	if (below != NULL)
@@ -381,6 +383,37 @@ static struct lu_object *ofd_object_alloc(const struct lu_env *env,
 
 extern int ost_handle(struct ptlrpc_request *req);
 
+static int ofd_lfsck_out_notify(const struct lu_env *env, void *data,
+				enum lfsck_events event)
+{
+	struct ofd_device *ofd = data;
+	struct obd_device *obd = ofd_obd(ofd);
+
+	switch (event) {
+	case LE_LASTID_REBUILDING:
+		CWARN("%s: Found crashed LAST_ID, deny creating new OST-object "
+		      "on the device until the LAST_ID rebuilt successfully.\n",
+		      obd->obd_name);
+		down_write(&ofd->ofd_lastid_rwsem);
+		ofd->ofd_lastid_rebuilding = 1;
+		up_write(&ofd->ofd_lastid_rwsem);
+		break;
+	case LE_LASTID_REBUILT: {
+		down_write(&ofd->ofd_lastid_rwsem);
+		ofd_seqs_free(env, ofd);
+		ofd->ofd_lastid_rebuilding = 0;
+		up_write(&ofd->ofd_lastid_rwsem);
+		break;
+	}
+	default:
+		CERROR("%s: unknown lfsck event: rc = %d\n",
+		       ofd_obd(ofd)->obd_name, event);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 		       struct lu_device *dev)
 {
@@ -388,7 +421,7 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	struct ofd_device		*ofd = ofd_dev(dev);
 	struct obd_device		*obd = ofd_obd(ofd);
 	struct lu_device		*next = &ofd->ofd_osd->dd_lu_dev;
-	struct lfsck_start_param	 lsp;
+	struct lfsck_start_param	*lsp;
 	int				 rc;
 
 	ENTRY;
@@ -408,16 +441,19 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	if (rc != 0)
 		RETURN(rc);
 
-	rc = lfsck_register(env, ofd->ofd_osd, &ofd->ofd_dt_dev, false);
+	rc = lfsck_register(env, ofd->ofd_osd, ofd->ofd_osd, obd,
+			    ofd_lfsck_out_notify, ofd, false);
 	if (rc != 0) {
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
 		       obd->obd_name, rc);
 		RETURN(rc);
 	}
 
-	lsp.lsp_start = NULL;
-	lsp.lsp_namespace = ofd->ofd_namespace;
-	rc = lfsck_start(env, ofd->ofd_osd, &lsp);
+	lsp = &info->fti_lsp;
+	lsp->lsp_namespace = ofd->ofd_namespace;
+	lsp->lsp_start = NULL;
+	lsp->lsp_index_valid = 0;
+	rc = lfsck_start(env, ofd->ofd_osd, lsp);
 	if (rc != 0) {
 		CWARN("%s: auto trigger paused LFSCK failed: rc = %d\n",
 		      obd->obd_name, rc);
@@ -872,6 +908,10 @@ int ofd_get_info_hdl(struct tgt_session_info *tsi)
 		if (rc)
 			RETURN(err_serious(rc));
 
+		*fid = fm_key->oa.o_oi.oi_fid;
+
+		CDEBUG(D_INODE, "get FIEMAP of object "DFID"\n", PFID(fid));
+
 		replylen = fiemap_count_to_size(fm_key->fiemap.fm_extent_count);
 		req_capsule_set_size(tsi->tsi_pill, &RMF_FIEMAP_VAL,
 				     RCL_SERVER, replylen);
@@ -883,12 +923,6 @@ int ofd_get_info_hdl(struct tgt_session_info *tsi)
 		fiemap = req_capsule_server_get(tsi->tsi_pill, &RMF_FIEMAP_VAL);
 		if (fiemap == NULL)
 			RETURN(-ENOMEM);
-
-		rc = ostid_to_fid(fid, &fm_key->oa.o_oi, 0);
-		if (rc != 0)
-			RETURN(rc);
-
-		CDEBUG(D_INODE, "get FIEMAP of object "DFID"\n", PFID(fid));
 
 		*fiemap = fm_key->fiemap;
 		rc = ofd_fiemap_get(tsi->tsi_env, ofd, fid, fiemap);
@@ -1319,6 +1353,8 @@ static int ofd_destroy_hdl(struct tgt_session_info *tsi)
 	struct ost_body		*repbody;
 	struct ofd_device	*ofd = ofd_exp(tsi->tsi_exp);
 	struct ofd_thread_info	*fti = tsi2ofd_info(tsi);
+	struct lu_fid		*fid = &fti->fti_fid;
+	obd_id			 oid;
 	obd_count		 count;
 	int			 rc = 0;
 
@@ -1339,8 +1375,11 @@ static int ofd_destroy_hdl(struct tgt_session_info *tsi)
 		ldlm_request_cancel(tgt_ses_req(tsi), dlm, 0);
 	}
 
+	*fid = body->oa.o_oi.oi_fid;
+	oid = ostid_id(&body->oa.o_oi);
+	LASSERT(oid != 0);
+
 	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
-	repbody->oa.o_oi = body->oa.o_oi;
 
 	/* check that o_misc makes sense */
 	if (body->oa.o_valid & OBD_MD_FLOBJCOUNT)
@@ -1350,37 +1389,39 @@ static int ofd_destroy_hdl(struct tgt_session_info *tsi)
 
 	CDEBUG(D_HA, "%s: Destroy object "DOSTID" count %d\n", ofd_name(ofd),
 	       POSTID(&body->oa.o_oi), count);
+
 	while (count > 0) {
 		int lrc;
 
-		lrc = ostid_to_fid(&fti->fti_fid, &repbody->oa.o_oi, 0);
-		if (lrc != 0) {
-			if (rc == 0)
-				rc = lrc;
-			GOTO(out, rc);
-		}
-		lrc = ofd_destroy_by_fid(tsi->tsi_env, ofd, &fti->fti_fid, 0);
+		lrc = ofd_destroy_by_fid(tsi->tsi_env, ofd, fid, 0);
 		if (lrc == -ENOENT) {
 			CDEBUG(D_INODE,
 			       "%s: destroying non-existent object "DFID"\n",
-			       ofd_name(ofd), PFID(&fti->fti_fid));
+			       ofd_name(ofd), PFID(fid));
 			/* rewrite rc with -ENOENT only if it is 0 */
 			if (rc == 0)
 				rc = lrc;
 		} else if (lrc != 0) {
 			CERROR("%s: error destroying object "DFID": %d\n",
-			       ofd_name(ofd), PFID(&fti->fti_fid),
-			       rc);
+			       ofd_name(ofd), PFID(fid), lrc);
 			rc = lrc;
 		}
+
 		count--;
-		ostid_inc_id(&repbody->oa.o_oi);
+		oid++;
+		lrc = fid_set_id(fid, oid);
+		if (unlikely(lrc != 0 && count > 0))
+			GOTO(out, rc = lrc);
 	}
 
 	ofd_counter_incr(tsi->tsi_exp, LPROC_OFD_STATS_DESTROY,
 			 tsi->tsi_jobid, 1);
+
+	GOTO(out, rc);
+
 out:
-	RETURN(rc);
+	fid_to_ostid(fid, &repbody->oa.o_oi);
+	return rc;
 }
 
 static int ofd_statfs_hdl(struct tgt_session_info *tsi)
@@ -1555,7 +1596,6 @@ out:
 	return rc;
 }
 
-
 static int ofd_quotactl(struct tgt_session_info *tsi)
 {
 	struct obd_quotactl	*oqctl, *repoqc;
@@ -1585,6 +1625,370 @@ static int ofd_quotactl(struct tgt_session_info *tsi)
 	RETURN(rc);
 }
 
+/* High priority request handlers for OFD */
+
+/* prolong locks for the current service time of the corresponding
+ * portal (= OST_IO_PORTAL)
+ */
+static inline int prolong_timeout(struct ptlrpc_request *req)
+{
+	struct ptlrpc_service_part *svcpt = req->rq_rqbd->rqbd_svcpt;
+
+	if (AT_OFF)
+		return obd_timeout / 2;
+
+	return max(at_est2timeout(at_get(&svcpt->scp_at_estimate)),
+		   ldlm_timeout);
+}
+
+static int ofd_prolong_one_lock(struct tgt_session_info *tsi,
+				struct ldlm_lock *lock,
+				struct ldlm_extent *extent, int timeout)
+{
+
+	if (lock->l_flags & LDLM_FL_DESTROYED) /* lock already cancelled */
+		return 0;
+
+	/* XXX: never try to grab resource lock here because we're inside
+	 * exp_bl_list_lock; in ldlm_lockd.c to handle waiting list we take
+	 * res lock and then exp_bl_list_lock. */
+
+	if (!(lock->l_flags & LDLM_FL_AST_SENT))
+		/* ignore locks not being cancelled */
+		return 0;
+
+	LDLM_DEBUG(lock, "refreshed for req x"LPU64" ext("LPU64"->"LPU64") "
+			 "to %ds.\n", tgt_ses_req(tsi)->rq_xid, extent->start,
+			 extent->end, timeout);
+
+	/* OK. this is a possible lock the user holds doing I/O
+	 * let's refresh eviction timer for it */
+	ldlm_refresh_waiting_lock(lock, timeout);
+	return 1;
+}
+
+static int ofd_prolong_extent_locks(struct tgt_session_info *tsi,
+				    __u64 start, __u64 end)
+{
+	struct obd_export	*exp = tsi->tsi_exp;
+	struct obdo		*oa  = &tsi->tsi_ost_body->oa;
+	struct ldlm_extent	 extent = {
+		.start = start,
+		.end = end
+	};
+	struct ldlm_lock	*lock;
+	int			 timeout = prolong_timeout(tgt_ses_req(tsi));
+	int			 lock_count = 0;
+
+	ENTRY;
+
+	if (oa->o_valid & OBD_MD_FLHANDLE) {
+		/* mostly a request should be covered by only one lock, try
+		 * fast path. */
+		lock = ldlm_handle2lock(&oa->o_handle);
+		if (lock != NULL) {
+			/* Fast path to check if the lock covers the whole IO
+			 * region exclusively. */
+			if (lock->l_granted_mode == LCK_PW &&
+			    ldlm_extent_contain(&lock->l_policy_data.l_extent,
+						&extent)) {
+				/* bingo */
+				LASSERT(lock->l_export == exp);
+				lock_count = ofd_prolong_one_lock(tsi, lock,
+							     &extent, timeout);
+				LDLM_LOCK_PUT(lock);
+				RETURN(lock_count);
+			}
+			LDLM_LOCK_PUT(lock);
+		}
+	}
+
+	spin_lock_bh(&exp->exp_bl_list_lock);
+	list_for_each_entry(lock, &exp->exp_bl_list, l_exp_list) {
+		LASSERT(lock->l_flags & LDLM_FL_AST_SENT);
+		LASSERT(lock->l_resource->lr_type == LDLM_EXTENT);
+
+		if (!ldlm_res_eq(&tsi->tsi_resid, &lock->l_resource->lr_name))
+			continue;
+
+		if (!ldlm_extent_overlap(&lock->l_policy_data.l_extent,
+					 &extent))
+			continue;
+
+		lock_count += ofd_prolong_one_lock(tsi, lock, &extent, timeout);
+	}
+	spin_unlock_bh(&exp->exp_bl_list_lock);
+
+	RETURN(lock_count);
+}
+
+/**
+ * Returns 1 if the given PTLRPC matches the given LDLM lock, or 0 if it does
+ * not.
+ */
+static int ofd_rw_hpreq_lock_match(struct ptlrpc_request *req,
+				   struct ldlm_lock *lock)
+{
+	struct niobuf_remote	*rnb;
+	struct obd_ioobj	*ioo;
+	ldlm_mode_t		 mode;
+	struct ldlm_extent	 ext;
+	__u32			 opc = lustre_msg_get_opc(req->rq_reqmsg);
+
+	ENTRY;
+
+	ioo = req_capsule_client_get(&req->rq_pill, &RMF_OBD_IOOBJ);
+	LASSERT(ioo != NULL);
+
+	rnb = req_capsule_client_get(&req->rq_pill, &RMF_NIOBUF_REMOTE);
+	LASSERT(rnb != NULL);
+
+	ext.start = rnb->offset;
+	rnb += ioo->ioo_bufcnt - 1;
+	ext.end = rnb->offset + rnb->len - 1;
+
+	LASSERT(lock->l_resource != NULL);
+	if (!ostid_res_name_eq(&ioo->ioo_oid, &lock->l_resource->lr_name))
+		RETURN(0);
+
+	mode = LCK_PW;
+	if (opc == OST_READ)
+		mode |= LCK_PR;
+
+	if (!(lock->l_granted_mode & mode))
+		RETURN(0);
+
+	RETURN(ldlm_extent_overlap(&lock->l_policy_data.l_extent, &ext));
+}
+
+/**
+ * High-priority queue request check for whether the given PTLRPC request
+ * (\a req) is blocking an LDLM lock cancel.
+ *
+ * Returns 1 if the given given PTLRPC request (\a req) is blocking an LDLM lock
+ * cancel, 0 if it is not, and -EFAULT if the request is malformed.
+ *
+ * Only OST_READs, OST_WRITEs and OST_PUNCHes go on the h-p RPC queue.  This
+ * function looks only at OST_READs and OST_WRITEs.
+ */
+static int ofd_rw_hpreq_check(struct ptlrpc_request *req)
+{
+	struct tgt_session_info	*tsi;
+	struct obd_ioobj	*ioo;
+	struct niobuf_remote	*rnb;
+	__u64			 start, end;
+	int			 lock_count;
+
+	ENTRY;
+
+	/* Don't use tgt_ses_info() to get session info, because lock_match()
+	 * can be called while request has no processing thread yet. */
+	tsi = lu_context_key_get(&req->rq_session, &tgt_session_key);
+	LASSERT(tsi != NULL);
+
+	/*
+	 * Use LASSERT below because malformed RPCs should have
+	 * been filtered out in tgt_hpreq_handler().
+	 */
+	ioo = req_capsule_client_get(&req->rq_pill, &RMF_OBD_IOOBJ);
+	LASSERT(ioo != NULL);
+
+	rnb = req_capsule_client_get(&req->rq_pill, &RMF_NIOBUF_REMOTE);
+	LASSERT(rnb != NULL);
+	LASSERT(!(rnb->flags & OBD_BRW_SRVLOCK));
+
+	start = rnb->offset;
+	rnb += ioo->ioo_bufcnt - 1;
+	end = rnb->offset + rnb->len - 1;
+
+	DEBUG_REQ(D_RPCTRACE, req, "%s %s: refresh rw locks: "DFID
+				   " ("LPU64"->"LPU64")\n",
+		  tgt_name(tsi->tsi_tgt), current->comm,
+		  PFID(&tsi->tsi_fid), start, end);
+
+	lock_count = ofd_prolong_extent_locks(tsi, start, end);
+
+	CDEBUG(D_DLMTRACE, "%s: refreshed %u locks timeout for req %p.\n",
+	       tgt_name(tsi->tsi_tgt), lock_count, req);
+
+	RETURN(lock_count > 0);
+}
+
+static void ofd_rw_hpreq_fini(struct ptlrpc_request *req)
+{
+	ofd_rw_hpreq_check(req);
+}
+
+/**
+ * Like tgt_rw_hpreq_lock_match(), but for OST_PUNCH RPCs.
+ */
+static int ofd_punch_hpreq_lock_match(struct ptlrpc_request *req,
+				      struct ldlm_lock *lock)
+{
+	struct tgt_session_info	*tsi;
+
+	/* Don't use tgt_ses_info() to get session info, because lock_match()
+	 * can be called while request has no processing thread yet. */
+	tsi = lu_context_key_get(&req->rq_session, &tgt_session_key);
+	LASSERT(tsi != NULL);
+
+	LASSERT(tsi->tsi_ost_body != NULL);
+	if (tsi->tsi_ost_body->oa.o_valid & OBD_MD_FLHANDLE &&
+	    tsi->tsi_ost_body->oa.o_handle.cookie == lock->l_handle.h_cookie)
+		return 1;
+
+	return 0;
+}
+
+/**
+ * Like ost_rw_hpreq_check(), but for OST_PUNCH RPCs.
+ */
+static int ofd_punch_hpreq_check(struct ptlrpc_request *req)
+{
+	struct tgt_session_info	*tsi;
+	struct obdo		*oa;
+	int			 lock_count;
+
+	ENTRY;
+
+	/* Don't use tgt_ses_info() to get session info, because lock_match()
+	 * can be called while request has no processing thread yet. */
+	tsi = lu_context_key_get(&req->rq_session, &tgt_session_key);
+	LASSERT(tsi != NULL);
+	oa = &tsi->tsi_ost_body->oa;
+
+	LASSERT(!(oa->o_valid & OBD_MD_FLFLAGS &&
+		  oa->o_flags & OBD_FL_SRVLOCK));
+
+	CDEBUG(D_DLMTRACE,
+	       "%s: refresh locks: "LPU64"/"LPU64" ("LPU64"->"LPU64")\n",
+	       tgt_name(tsi->tsi_tgt), tsi->tsi_resid.name[0],
+	       tsi->tsi_resid.name[1], oa->o_size, oa->o_blocks);
+
+	lock_count = ofd_prolong_extent_locks(tsi, oa->o_size, oa->o_blocks);
+
+	CDEBUG(D_DLMTRACE, "%s: refreshed %u locks timeout for req %p.\n",
+	       tgt_name(tsi->tsi_tgt), lock_count, req);
+
+	RETURN(lock_count > 0);
+}
+
+static void ofd_punch_hpreq_fini(struct ptlrpc_request *req)
+{
+	ofd_punch_hpreq_check(req);
+}
+
+struct ptlrpc_hpreq_ops ofd_hpreq_rw = {
+	.hpreq_lock_match	= ofd_rw_hpreq_lock_match,
+	.hpreq_check		= ofd_rw_hpreq_check,
+	.hpreq_fini		= ofd_rw_hpreq_fini
+};
+
+struct ptlrpc_hpreq_ops ofd_hpreq_punch = {
+	.hpreq_lock_match	= ofd_punch_hpreq_lock_match,
+	.hpreq_check		= ofd_punch_hpreq_check,
+	.hpreq_fini		= ofd_punch_hpreq_fini
+};
+
+/** Assign high priority operations to the IO requests */
+static void ofd_hp_brw(struct tgt_session_info *tsi)
+{
+	struct niobuf_remote	*rnb;
+	struct obd_ioobj	*ioo;
+
+	ENTRY;
+
+	ioo = req_capsule_client_get(tsi->tsi_pill, &RMF_OBD_IOOBJ);
+	LASSERT(ioo != NULL); /* must exist after request preprocessing */
+	if (ioo->ioo_bufcnt > 0) {
+		rnb = req_capsule_client_get(tsi->tsi_pill, &RMF_NIOBUF_REMOTE);
+		LASSERT(rnb != NULL); /* must exist after request preprocessing */
+
+		/* no high priority if server lock is needed */
+		if (rnb->flags & OBD_BRW_SRVLOCK)
+			return;
+	}
+	tgt_ses_req(tsi)->rq_ops = &ofd_hpreq_rw;
+}
+
+static void ofd_hp_punch(struct tgt_session_info *tsi)
+{
+	LASSERT(tsi->tsi_ost_body != NULL); /* must exists if we are here */
+	/* no high-priority if server lock is needed */
+	if (tsi->tsi_ost_body->oa.o_valid & OBD_MD_FLFLAGS &&
+	    tsi->tsi_ost_body->oa.o_flags & OBD_FL_SRVLOCK)
+		return;
+	tgt_ses_req(tsi)->rq_ops = &ofd_hpreq_punch;
+}
+
+static int ofd_lfsck_notify_hdl(struct tgt_session_info *tsi)
+{
+	const struct lu_env	*env = tsi->tsi_env;
+	struct ofd_device	*ofd = ofd_exp(tsi->tsi_exp);
+	struct lfsck_request	*lr;
+	int			 rc;
+	ENTRY;
+
+	lr = req_capsule_client_get(tsi->tsi_pill, &RMF_LFSCK_REQUEST);
+	if (lr == NULL)
+		RETURN(-EPROTO);
+
+	switch (lr->lr_event) {
+	case LE_START: {
+		struct ofd_thread_info		*info  = ofd_info(env);
+		struct lfsck_start		*start = &info->fti_lfsck_start;
+		struct lfsck_start_param	*lsp   = &info->fti_lsp;
+
+		start->ls_valid = lr->lr_valid;
+		start->ls_speed_limit = lr->lr_speed;
+		start->ls_version = lr->lr_version;
+		start->ls_active = lr->lr_active;
+		start->ls_flags = lr->lr_param;
+
+		lsp->lsp_namespace = ofd->ofd_namespace;
+		lsp->lsp_start = start;
+		lsp->lsp_index = lr->lr_index;
+		lsp->lsp_index_valid = 1;
+		rc = lfsck_start(env, ofd->ofd_osd, lsp);
+		break;
+	}
+	case LE_STOP:
+	case LE_PHASE2_DONE:
+		rc = lfsck_in_notify(env, ofd->ofd_osd, lr);
+		break;
+	default:
+		CERROR("%s: unsupported lfsck_event: rc = %d\n",
+		       ofd_name(ofd), lr->lr_event);
+		rc = -EOPNOTSUPP;
+		break;
+	}
+
+	RETURN(rc);
+}
+
+static int ofd_lfsck_query_hdl(struct tgt_session_info *tsi)
+{
+	struct ofd_device	*ofd	 = ofd_exp(tsi->tsi_exp);
+	struct lfsck_request	*request;
+	struct lfsck_reply	*reply;
+	int			 rc	 = 0;
+	ENTRY;
+
+	request = req_capsule_client_get(tsi->tsi_pill, &RMF_LFSCK_REQUEST);
+	if (request == NULL)
+		RETURN(-EPROTO);
+
+	reply = req_capsule_server_get(tsi->tsi_pill, &RMF_LFSCK_REPLY);
+	if (reply == NULL)
+		RETURN(-ENOMEM);
+
+	reply->lr_status = lfsck_query(ofd->ofd_osd, request);
+	if (reply->lr_status < 0)
+		rc = reply->lr_status;
+
+	RETURN(rc);
+}
+
 #define OBD_FAIL_OST_READ_NET	OBD_FAIL_OST_BRW_NET
 #define OBD_FAIL_OST_WRITE_NET	OBD_FAIL_OST_BRW_NET
 #define OST_BRW_READ	OST_READ
@@ -1609,13 +2013,22 @@ TGT_OST_HDL(0		| HABEO_REFERO | MUTABOR,
 TGT_OST_HDL(0		| HABEO_REFERO | MUTABOR,
 					OST_DESTROY,	ofd_destroy_hdl),
 TGT_OST_HDL(0		| HABEO_REFERO,	OST_STATFS,	ofd_statfs_hdl),
-TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_BRW_READ,	tgt_brw_read),
+TGT_OST_HDL_HP(HABEO_CORPUS| HABEO_REFERO,
+					OST_BRW_READ,	tgt_brw_read,
+							ofd_hp_brw),
 /* don't set CORPUS flag for brw_write because -ENOENT may be valid case */
-TGT_OST_HDL(MUTABOR,			OST_BRW_WRITE,	tgt_brw_write),
-TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
-					OST_PUNCH,	ofd_punch_hdl),
+TGT_OST_HDL_HP(HABEO_CORPUS| MUTABOR,	OST_BRW_WRITE,	tgt_brw_write,
+							ofd_hp_brw),
+TGT_OST_HDL_HP(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
+					OST_PUNCH,	ofd_punch_hdl,
+							ofd_hp_punch),
 TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_SYNC,	ofd_sync_hdl),
 TGT_OST_HDL(0		| HABEO_REFERO,	OST_QUOTACTL,	ofd_quotactl),
+};
+
+static struct tgt_handler ofd_lfsck_handlers[] = {
+TGT_LFSCK_HDL(HABEO_REFERO,	LFSCK_NOTIFY,	ofd_lfsck_notify_hdl),
+TGT_LFSCK_HDL(HABEO_REFERO,	LFSCK_QUERY,	ofd_lfsck_query_hdl),
 };
 
 static struct tgt_opc_slice ofd_common_slice[] = {
@@ -1643,6 +2056,11 @@ static struct tgt_opc_slice ofd_common_slice[] = {
 		.tos_opc_start	= SEQ_FIRST_OPC,
 		.tos_opc_end	= SEQ_LAST_OPC,
 		.tos_hs		= seq_handlers
+	},
+	{
+		.tos_opc_start	= LFSCK_FIRST_OPC,
+		.tos_opc_end	= LFSCK_LAST_OPC,
+		.tos_hs		= ofd_lfsck_handlers
 	},
 	{
 		.tos_hs		= NULL
@@ -1699,6 +2117,17 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	spin_lock_init(&m->ofd_batch_lock);
 	rwlock_init(&obd->u.filter.fo_sptlrpc_lock);
 	sptlrpc_rule_set_init(&obd->u.filter.fo_sptlrpc_rset);
+	init_rwsem(&m->ofd_lastid_rwsem);
+
+	m->ofd_inconsistency_wq = create_workqueue("inconsistency_self_cure");
+	if (unlikely(m->ofd_inconsistency_wq == NULL)) {
+		CERROR("%s: Can't initialize inconsistency_self_cure wq.\n",
+			obd->obd_name);
+		RETURN(-ENOMEM);
+	}
+
+	atomic_set(&m->ofd_inconsistency_self_detected, 0);
+	atomic_set(&m->ofd_inconsistency_self_repaired, 0);
 
 	obd->u.filter.fo_fl_oss_capa = 0;
 	CFS_INIT_LIST_HEAD(&obd->u.filter.fo_capa_keys);
@@ -1799,6 +2228,7 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 		GOTO(err_fini_lut, rc);
 
 	RETURN(0);
+
 err_fini_lut:
 	tgt_fini(env, &m->ofd_lut);
 err_free_ns:
@@ -1808,19 +2238,27 @@ err_fini_stack:
 	ofd_stack_fini(env, m, &m->ofd_osd->dd_lu_dev);
 err_fini_proc:
 	ofd_procfs_fini(m);
+	destroy_workqueue(m->ofd_inconsistency_wq);
+
 	return rc;
 }
 
 static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 {
-	struct obd_device *obd = ofd_obd(m);
-	struct lu_device  *d = &m->ofd_dt_dev.dd_lu_dev;
+	struct obd_device	*obd = ofd_obd(m);
+	struct lu_device	*d   = &m->ofd_dt_dev.dd_lu_dev;
+	struct lfsck_stop	 stop;
 
-	lfsck_stop(env, m->ofd_osd, true);
+	stop.ls_status = LS_PAUSED;
+	stop.ls_flags = 0;
+	lfsck_stop(env, m->ofd_osd, &stop);
 	lfsck_degister(env, m->ofd_osd);
 	target_recovery_fini(obd);
 	obd_exports_barrier(obd);
 	obd_zombie_barrier();
+
+	flush_workqueue(m->ofd_inconsistency_wq);
+	destroy_workqueue(m->ofd_inconsistency_wq);
 
 	tgt_fini(env, &m->ofd_lut);
 	ofd_fs_cleanup(env, m);

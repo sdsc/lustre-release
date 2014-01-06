@@ -488,7 +488,9 @@ void tgt_cb_new_client(struct lu_env *env, struct thandle *th,
 	       ccb->lncc_exp->exp_client_uuid.uuid);
 
 	spin_lock(&ccb->lncc_exp->exp_lock);
-	ccb->lncc_exp->exp_need_sync = 0;
+	if (!ccb->lncc_exp->exp_keep_sync)
+		ccb->lncc_exp->exp_need_sync = 0;
+
 	spin_unlock(&ccb->lncc_exp->exp_lock);
 	class_export_cb_put(ccb->lncc_exp);
 
@@ -1205,14 +1207,15 @@ int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 	struct dt_object	*obj = NULL;
 	int			 rc;
 	bool			 echo_client;
+	ENTRY;
 
 	if (env->le_ses == NULL)
-		return 0;
+		RETURN(0);
 
 	tsi = tgt_ses_info(env);
 	/* OFD may start transaction without export assigned */
 	if (tsi->tsi_exp == NULL)
-		return 0;
+		RETURN(0);
 
 	echo_client = (tgt_ses_req(tsi) == NULL);
 
@@ -1239,5 +1242,6 @@ int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 	else
 		rc = tgt_last_rcvd_update(env, tgt, obj, tsi->tsi_opdata, th,
 					  tgt_ses_req(tsi));
-	return rc;
+
+	RETURN(rc);
 }

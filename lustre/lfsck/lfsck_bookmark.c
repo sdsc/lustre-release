@@ -48,15 +48,19 @@ static void lfsck_bookmark_le_to_cpu(struct lfsck_bookmark *des,
 	des->lb_version = le16_to_cpu(src->lb_version);
 	des->lb_param = le16_to_cpu(src->lb_param);
 	des->lb_speed_limit = le32_to_cpu(src->lb_speed_limit);
+	fid_le_to_cpu(&des->lb_lf_fid, &src->lb_lf_fid);
+	fid_le_to_cpu(&des->lb_last_fid, &src->lb_last_fid);
 }
 
-static void lfsck_bookmark_cpu_to_le(struct lfsck_bookmark *des,
-				     struct lfsck_bookmark *src)
+void lfsck_bookmark_cpu_to_le(struct lfsck_bookmark *des,
+			      struct lfsck_bookmark *src)
 {
 	des->lb_magic = cpu_to_le32(src->lb_magic);
 	des->lb_version = cpu_to_le16(src->lb_version);
 	des->lb_param = cpu_to_le16(src->lb_param);
 	des->lb_speed_limit = cpu_to_le32(src->lb_speed_limit);
+	fid_cpu_to_le(&des->lb_lf_fid, &src->lb_lf_fid);
+	fid_cpu_to_le(&des->lb_last_fid, &src->lb_last_fid);
 }
 
 static int lfsck_bookmark_load(const struct lu_env *env,
@@ -74,9 +78,9 @@ static int lfsck_bookmark_load(const struct lu_env *env,
 
 		lfsck_bookmark_le_to_cpu(bm, &lfsck->li_bookmark_disk);
 		if (bm->lb_magic != LFSCK_BOOKMARK_MAGIC) {
-			CWARN("%.16s: invalid lfsck_bookmark magic "
-			      "0x%x != 0x%x\n", lfsck_lfsck2name(lfsck),
-			      bm->lb_magic, LFSCK_BOOKMARK_MAGIC);
+			CWARN("%s: invalid lfsck_bookmark magic %#x != %#x\n",
+			      lfsck_lfsck2name(lfsck), bm->lb_magic,
+			      LFSCK_BOOKMARK_MAGIC);
 			/* Process it as new lfsck_bookmark. */
 			rc = -ENODATA;
 		}
@@ -85,7 +89,7 @@ static int lfsck_bookmark_load(const struct lu_env *env,
 			/* return -ENODATA for empty lfsck_bookmark. */
 			rc = -ENODATA;
 		else
-			CERROR("%.16s: fail to load lfsck_bookmark, "
+			CERROR("%s: fail to load lfsck_bookmark: "
 			       "expected = %d, rc = %d\n",
 			       lfsck_lfsck2name(lfsck), len, rc);
 	}
@@ -106,22 +110,22 @@ int lfsck_bookmark_store(const struct lu_env *env, struct lfsck_instance *lfsck)
 	handle = dt_trans_create(env, lfsck->li_bottom);
 	if (IS_ERR(handle)) {
 		rc = PTR_ERR(handle);
-		CERROR("%.16s: fail to create trans for storing "
-		       "lfsck_bookmark: %d\n,", lfsck_lfsck2name(lfsck), rc);
+		CERROR("%s: fail to create trans for storing lfsck_bookmark: "
+		       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
 		RETURN(rc);
 	}
 
 	rc = dt_declare_record_write(env, obj, len, 0, handle);
 	if (rc != 0) {
-		CERROR("%.16s: fail to declare trans for storing "
-		       "lfsck_bookmark: %d\n,", lfsck_lfsck2name(lfsck), rc);
+		CERROR("%s: fail to declare trans for storing lfsck_bookmark: "
+		       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
 		GOTO(out, rc);
 	}
 
 	rc = dt_trans_start_local(env, lfsck->li_bottom, handle);
 	if (rc != 0) {
-		CERROR("%.16s: fail to start trans for storing "
-		       "lfsck_bookmark: %d\n,", lfsck_lfsck2name(lfsck), rc);
+		CERROR("%s: fail to start trans for storing lfsck_bookmark: "
+		       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
 		GOTO(out, rc);
 	}
 
@@ -129,7 +133,7 @@ int lfsck_bookmark_store(const struct lu_env *env, struct lfsck_instance *lfsck)
 			     lfsck_buf_get(env, &lfsck->li_bookmark_disk, len),
 			     &pos, handle);
 	if (rc != 0)
-		CERROR("%.16s: fail to store lfsck_bookmark, expected = %d, "
+		CERROR("%s: fail to store lfsck_bookmark: expected = %d, "
 		       "rc = %d\n", lfsck_lfsck2name(lfsck), len, rc);
 
 	GOTO(out, rc);
@@ -166,7 +170,12 @@ int lfsck_bookmark_setup(const struct lu_env *env,
 	if (IS_ERR(root))
 		RETURN(PTR_ERR(root));
 
-	dt_try_as_dir(env, root);
+	if (unlikely(!dt_try_as_dir(env, root))) {
+		lu_object_put(env, &root->do_lu);
+
+		RETURN(-ENOTDIR);
+	}
+
 	obj = local_file_find_or_create(env, lfsck->li_los, root,
 					lfsck_bookmark_name,
 					S_IFREG | S_IRUGO | S_IWUSR);
