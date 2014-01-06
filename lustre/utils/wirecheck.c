@@ -524,6 +524,7 @@ check_obd_connect_data(void)
 	CHECK_DEFINE_64X(OBD_CONNECT_PINGLESS);
 	CHECK_DEFINE_64X(OBD_CONNECT_FLOCK_DEAD);
 	CHECK_DEFINE_64X(OBD_CONNECT_OPEN_BY_FID);
+	CHECK_DEFINE_64X(OBD_CONNECT_LFSCK);
 
 	CHECK_VALUE_X(OBD_CKSUM_CRC32);
 	CHECK_VALUE_X(OBD_CKSUM_ADLER);
@@ -802,9 +803,11 @@ check_obd_idx_read(void)
 	CHECK_MEMBER(idx_info, ii_hash_end);
 	CHECK_MEMBER(idx_info, ii_keysize);
 	CHECK_MEMBER(idx_info, ii_recsize);
-	CHECK_MEMBER(idx_info, ii_pad1);
-	CHECK_MEMBER(idx_info, ii_pad2);
-	CHECK_MEMBER(idx_info, ii_pad3);
+	CHECK_MEMBER(idx_info, ii_oid_start);
+	CHECK_MEMBER(idx_info, ii_oid_end);
+	CHECK_MEMBER(idx_info, ii_ver_start);
+	CHECK_MEMBER(idx_info, ii_ver_end);
+	CHECK_MEMBER(idx_info, ii_index);
 	CHECK_CDEFINE(IDX_INFO_MAGIC);
 
 	BLANK_LINE();
@@ -821,6 +824,8 @@ check_obd_idx_read(void)
 	CHECK_VALUE(II_FL_VARKEY);
 	CHECK_VALUE(II_FL_VARREC);
 	CHECK_VALUE(II_FL_NONUNQ);
+	CHECK_VALUE(IT_FL_VIRTUAL);
+	CHECK_VALUE(IT_FL_BIGKEY);
 }
 
 static void
@@ -2042,6 +2047,34 @@ static void check_update(void)
 	CHECK_MEMBER(update, u_bufs);
 }
 
+static void check_lfsck_request(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(lfsck_request);
+	CHECK_MEMBER(lfsck_request, lr_event);
+	CHECK_MEMBER(lfsck_request, lr_index);
+	CHECK_MEMBER(lfsck_request, lr_flags);
+	CHECK_MEMBER(lfsck_request, lr_valid);
+	CHECK_MEMBER(lfsck_request, lr_speed);
+	CHECK_MEMBER(lfsck_request, lr_version);
+	CHECK_MEMBER(lfsck_request, lr_active);
+	CHECK_MEMBER(lfsck_request, lr_param);
+	CHECK_MEMBER(lfsck_request, lr_padding_1);
+	CHECK_MEMBER(lfsck_request, lr_padding_2);
+	CHECK_MEMBER(lfsck_request, lr_fid);
+	CHECK_MEMBER(lfsck_request, lr_padding_3);
+	CHECK_MEMBER(lfsck_request, lr_padding_4);
+}
+
+static void check_lfsck_reply(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(lfsck_reply);
+	CHECK_MEMBER(lfsck_reply, lr_status);
+	CHECK_MEMBER(lfsck_reply, lr_padding_1);
+	CHECK_MEMBER(lfsck_reply, lr_padding_2);
+}
+
 static void system_string(char *cmdline, char *str, int len)
 {
 	int   fds[2];
@@ -2245,6 +2278,11 @@ main(int argc, char **argv)
 	CHECK_VALUE(SEQ_FIRST_OPC);
 	CHECK_VALUE(SEQ_LAST_OPC);
 
+	CHECK_VALUE(LFSCK_NOTIFY);
+	CHECK_VALUE(LFSCK_QUERY);
+	CHECK_VALUE(LFSCK_FIRST_OPC);
+	CHECK_VALUE(LFSCK_LAST_OPC);
+
 	CHECK_VALUE(SEQ_ALLOC_SUPER);
 	CHECK_VALUE(SEQ_ALLOC_META);
 
@@ -2436,6 +2474,9 @@ main(int argc, char **argv)
 	check_update_buf();
 	check_update_reply();
 	check_update();
+
+	check_lfsck_request();
+	check_lfsck_reply();
 
 	printf("}\n\n");
 

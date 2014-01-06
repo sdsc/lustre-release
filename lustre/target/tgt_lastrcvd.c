@@ -488,7 +488,9 @@ void tgt_cb_new_client(struct lu_env *env, struct thandle *th,
 	       ccb->lncc_exp->exp_client_uuid.uuid);
 
 	spin_lock(&ccb->lncc_exp->exp_lock);
-	ccb->lncc_exp->exp_need_sync = 0;
+	if (!ccb->lncc_exp->exp_keep_sync)
+		ccb->lncc_exp->exp_need_sync = 0;
+
 	spin_unlock(&ccb->lncc_exp->exp_lock);
 	class_export_cb_put(ccb->lncc_exp);
 
