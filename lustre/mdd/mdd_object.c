@@ -1269,7 +1269,8 @@ static int mdd_layout_swap_allowed(const struct lu_env *env,
 	fid1 = mdo2fid(o1);
 	fid2 = mdo2fid(o2);
 
-	if (!fid_is_norm(fid1) || !fid_is_norm(fid2) ||
+	if (!(fid_is_norm(fid1) || fid_is_igif(fid1)) ||
+	    !(fid_is_norm(fid2) || fid_is_igif(fid2)) ||
 	    (mdd_object_type(o1) != mdd_object_type(o2)))
 		RETURN(-EPERM);
 
