@@ -4568,6 +4568,11 @@ test_56x() {
 run_test 56x "lfs migration support"
 
 test_56y() {
+	local server_version=$(lustre_version_code $SINGLEMDS)
+	[[ $server_version -lt $(version_code 2.4.53) ]] &&
+		skip "No HSM support on $server_version MDS," \
+			"need 2.4.53 at least" && return
+
 	local res=""
 
 	local dir0=$DIR/$tdir/$testnum
@@ -11552,6 +11557,10 @@ test_228c() {
 run_test 228c "NOT shrink the last entry in OI index node to recycle idle leaf"
 
 test_229() { # LU-2482, LU-3448
+	local server_version=$(lustre_version_code $SINGLEMDS)
+	[[ $server_version -lt $(version_code 2.4.53) ]] &&
+		skip "No HSM support on $server_version MDS," \
+			"need 2.4.53 at least" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[ $OSTCOUNT -lt 2 ] && skip "needs >= 2 OSTs" && return
 
