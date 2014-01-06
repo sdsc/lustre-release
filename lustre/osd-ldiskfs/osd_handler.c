@@ -5480,6 +5480,14 @@ static int osd_mount(const struct lu_env *env,
 		GOTO(out_mnt, rc = -EINVAL);
 	}
 
+#ifdef LDISKFS_MOUNT_DIRDATA
+	if (LDISKFS_HAS_INCOMPAT_FEATURE(o->od_mnt->mnt_sb,
+	    LDISKFS_FEATURE_INCOMPAT_DIRDATA)) {
+		struct ldiskfs_sb_info *sbi = LDISKFS_SB(o->od_mnt->mnt_sb);
+
+		set_opt(sbi->s_mount_opt, DIRDATA);
+	}
+#endif
 	inode = osd_sb(o)->s_root->d_inode;
 	ldiskfs_set_inode_state(inode, LDISKFS_STATE_LUSTRE_NO_OI);
 	lu_local_obj_fid(fid, OSD_FS_ROOT_OID);
