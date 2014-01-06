@@ -364,6 +364,7 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 	__u64			 rpos, wpos, bufoff;
 	int			 gid = 0, sz;
 	int			 have_gl = 0;
+	struct stat		 st;
 
 	/* find the right size for the IO and allocate the buffer */
 	lumsz = lov_user_md_size(LOV_MAX_STRIPE_COUNT, LOV_USER_MAGIC_V3);
@@ -520,6 +521,26 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 				name, strerror(-rc));
 		}
 		have_gl = 0;
+	}
+
+	/* Root special case
+	 * Need to set owner/group of volatile file like original.
+	 * This will allow to pass related check during layout_swap.
+	 */
+	if (geteuid() == 0) {
+		rc = fstat(fd, &st);
+		if (rc != 0) {
+			rc = -errno;
+			fprintf(stderr, "cannot stat %s (%s)\n", name,
+				strerror(errno));
+			goto error;
+		}
+		rc = fchown(fdv, st.st_uid, st.st_gid);
+		if (rc != 0) {
+			fprintf(stderr, "cannot chown %s (%s)\n", name,
+				strerror(errno));
+			goto error;
+		}
 	}
 
 	/* swap layouts
