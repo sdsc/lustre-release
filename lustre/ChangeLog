@@ -7,7 +7,7 @@
          2.6.18-348.3.1.el5  (RHEL5)
          2.6.32-358.23.2.el6 (RHEL6.4)
          2.6.32-279.19.1.el6 (RHEL6.3)
-         3.0.74-0.6.6        (SLES11 SP2)
+         3.0.101-0.7.15      (SLES11 SP2)
          3.6.10-2.fc17       (FC17)
        * Recommended e2fsprogs version: 1.42.7.wc1 or newer
        * NFS export disabled when stack size < 8192 (32-bit Lustre clients),
