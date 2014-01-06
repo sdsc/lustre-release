@@ -297,12 +297,15 @@ struct dt_object *__local_file_create(const struct lu_env *env,
 				      const char *name, struct lu_attr *attr,
 				      struct dt_object_format *dof)
 {
-	struct dt_thread_info	*dti = dt_info(env);
+	struct dt_thread_info	*dti  = dt_info(env);
+	struct lu_object_conf	*conf = &dti->dti_conf;
 	struct dt_object	*dto;
 	struct thandle		*th;
 	int			 rc;
 
-	dto = ls_locate(env, ls, fid);
+	memset(conf, 0, sizeof(*conf));
+	conf->loc_flags = LOC_F_NEW;
+	dto = ls_locate_conf(env, ls, fid, conf);
 	if (unlikely(IS_ERR(dto)))
 		RETURN(dto);
 

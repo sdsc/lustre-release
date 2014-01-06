@@ -103,6 +103,7 @@ struct tgt_session_info {
 	struct lu_object	*tsi_corpus;
 
 	struct lu_fid		 tsi_fid;
+	struct lu_fid		 tsi_fid2;
 	struct ldlm_res_id	 tsi_resid;
 
 	/* object affected by VBR, for last_rcvd_update */
@@ -117,6 +118,7 @@ struct tgt_session_info {
 	 * Additional fail id that can be set by handler.
 	 */
 	int			 tsi_reply_fail_id;
+	bool			 tsi_preprocessed;
 	/* request JobID */
 	char                    *tsi_jobid;
 };
@@ -207,9 +209,9 @@ struct tgt_handler {
 	/* Request version for this opcode */
 	int			 th_version;
 	/* Handler function */
-	int			(*th_act)(struct tgt_session_info *tti);
+	int			(*th_act)(struct tgt_session_info *tsi);
 	/* Handler function for high priority requests */
-	int			(*th_hp)(struct tgt_session_info *tti);
+	void			(*th_hp)(struct tgt_session_info *tsi);
 	/* Request format for this request */
 	const struct req_format	*th_fmt;
 };
@@ -296,6 +298,8 @@ struct tgt_commit_cb {
 	void     *tgt_cb_data;
 };
 
+int tgt_hpreq_handler(struct ptlrpc_request *req);
+
 /* target/tgt_main.c */
 void tgt_boot_epoch_update(struct lu_target *lut);
 int tgt_last_commit_cb_add(struct thandle *th, struct lu_target *lut,
@@ -322,6 +326,27 @@ int tgt_server_data_update(const struct lu_env *env, struct lu_target *tg,
 			   int sync);
 int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tg,
 			   loff_t off);
+
+/* target/out_lib.c */
+void out_destroy_update_req(struct update_request *update);
+struct update_request *out_create_update_req(struct dt_device *dt);
+struct update_request *out_find_create_update_loc(struct thandle *th,
+						  struct dt_object *dt);
+int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
+			const struct update_buf *ubuf, int ubuf_len,
+			struct ptlrpc_request **reqp);
+int out_remote_sync(const struct lu_env *env, struct obd_import *imp,
+		    struct update_request *update,
+		    struct ptlrpc_request **reqp);
+int out_insert_update(const struct lu_env *env, struct update_request *update,
+		      int op, const struct lu_fid *fid, int count,
+		      int *lens, const char **bufs);
+
+/* out_handler.c */
+void out_register_record_fid_accessed(int (*rfa)(const struct lu_env *,
+						 struct dt_device *,
+						 struct lfsck_request *,
+						 const struct lu_fid *));
 
 enum {
 	ESERIOUS = 0x0001000
@@ -360,7 +385,7 @@ static inline void tgt_drop_id(struct obd_export *exp, struct obdo *oa)
 /*
  * Unified target generic handers macros and generic functions.
  */
-#define TGT_RPC_HANDLER(base, flags, opc, fn, fmt, version)		\
+#define TGT_RPC_HANDLER_HP(base, flags, opc, fn, hp, fmt, version)	\
 [opc - base] = {							\
 	.th_name	= #opc,						\
 	.th_fail_id	= OBD_FAIL_ ## opc ## _NET,			\
@@ -368,8 +393,11 @@ static inline void tgt_drop_id(struct obd_export *exp, struct obdo *oa)
 	.th_flags	= flags,					\
 	.th_act		= fn,						\
 	.th_fmt		= fmt,						\
-	.th_version	= version					\
+	.th_version	= version,					\
+	.th_hp		= hp,						\
 }
+#define TGT_RPC_HANDLER(base, flags, opc, fn, fmt, version)		\
+	TGT_RPC_HANDLER_HP(base, flags, opc, fn, NULL, fmt, version)
 
 /* MDT Request with a format known in advance */
 #define TGT_MDT_HDL(flags, name, fn)					\
@@ -380,10 +408,13 @@ static inline void tgt_drop_id(struct obd_export *exp, struct obdo *oa)
 	TGT_RPC_HANDLER(MDS_FIRST_OPC, flags, name, fn, NULL,		\
 			LUSTRE_MDS_VERSION)
 
-/* MDT Request with a format known in advance */
+/* OST Request with a format known in advance */
 #define TGT_OST_HDL(flags, name, fn)					\
 	TGT_RPC_HANDLER(OST_FIRST_OPC, flags, name, fn, &RQF_ ## name,	\
 			LUSTRE_OST_VERSION)
+#define TGT_OST_HDL_HP(flags, name, fn, hp)				\
+	TGT_RPC_HANDLER_HP(OST_FIRST_OPC, flags, name, fn, hp,		\
+			   &RQF_ ## name, LUSTRE_OST_VERSION)
 
 /* MGS request with a format known in advance */
 #define TGT_MGS_HDL(flags, name, fn)					\
@@ -443,6 +474,11 @@ static inline void tgt_drop_id(struct obd_export *exp, struct obdo *oa)
 #define TGT_FLD_HDL_VAR(flags, name, fn)				\
 	TGT_RPC_HANDLER(FLD_QUERY, flags, name, fn, NULL,		\
 			LUSTRE_MDS_VERSION)
+
+/* LFSCK handlers */
+#define TGT_LFSCK_HDL(flags, name, fn)					\
+	TGT_RPC_HANDLER(LFSCK_FIRST_OPC, flags, name, fn,		\
+			&RQF_ ## name, LUSTRE_OBD_VERSION)
 
 /* Request with a format known in advance */
 #define TGT_UPDATE_HDL(flags, name, fn)					\
