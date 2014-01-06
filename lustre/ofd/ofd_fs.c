@@ -220,22 +220,11 @@ static int ofd_fld_fini(const struct lu_env *env,
 	RETURN(0);
 }
 
-void ofd_seqs_fini(const struct lu_env *env, struct ofd_device *ofd)
+void ofd_seqs_free(const struct lu_env *env, struct ofd_device *ofd)
 {
 	struct ofd_seq  *oseq;
 	struct ofd_seq  *tmp;
 	cfs_list_t       dispose;
-	int		rc;
-
-	ofd_deregister_seq_exp(ofd);
-
-	rc = ofd_fid_fini(env, ofd);
-	if (rc != 0)
-		CERROR("%s: fid fini error: rc = %d\n", ofd_name(ofd), rc);
-
-	rc = ofd_fld_fini(env, ofd);
-	if (rc != 0)
-		CERROR("%s: fld fini error: rc = %d\n", ofd_name(ofd), rc);
 
 	CFS_INIT_LIST_HEAD(&dispose);
 	write_lock(&ofd->ofd_seq_list_lock);
@@ -248,9 +237,25 @@ void ofd_seqs_fini(const struct lu_env *env, struct ofd_device *ofd)
 		oseq = container_of0(dispose.next, struct ofd_seq, os_list);
 		ofd_seq_delete(env, oseq);
 	}
+}
+
+void ofd_seqs_fini(const struct lu_env *env, struct ofd_device *ofd)
+{
+	int rc;
+
+	ofd_deregister_seq_exp(ofd);
+
+	rc = ofd_fid_fini(env, ofd);
+	if (rc != 0)
+		CERROR("%s: fid fini error: rc = %d\n", ofd_name(ofd), rc);
+
+	rc = ofd_fld_fini(env, ofd);
+	if (rc != 0)
+		CERROR("%s: fld fini error: rc = %d\n", ofd_name(ofd), rc);
+
+	ofd_seqs_free(env, ofd);
 
 	LASSERT(cfs_list_empty(&ofd->ofd_seq_list));
-	return;
 }
 
 /**
@@ -277,7 +282,7 @@ struct ofd_seq *ofd_seq_load(const struct lu_env *env, struct ofd_device *ofd,
 	if (oseq == NULL)
 		RETURN(ERR_PTR(-ENOMEM));
 
-	lu_last_id_fid(&info->fti_fid, seq);
+	lu_last_id_fid(&info->fti_fid, seq, ofd->ofd_lut.lut_lsd.lsd_osd_index);
 	memset(&info->fti_attr, 0, sizeof(info->fti_attr));
 	info->fti_attr.la_valid = LA_MODE;
 	info->fti_attr.la_mode = S_IFREG |  S_IRUGO | S_IWUSR;
@@ -397,7 +402,7 @@ static int ofd_register_seq_exp(struct ofd_device *ofd)
 	if (lwp_name == NULL)
 		GOTO(out_free, rc = -ENOMEM);
 
-	rc = tgt_name2lwpname(ofd_name(ofd), lwp_name);
+	rc = tgt_name2lwp_name(ofd_name(ofd), lwp_name, MAX_OBD_NAME, 0);
 	if (rc != 0)
 		GOTO(out_free, rc);
 
@@ -491,8 +496,6 @@ void ofd_fs_cleanup(const struct lu_env *env, struct ofd_device *ofd)
 	int i;
 
 	ENTRY;
-
-	ofd_info_init(env, NULL);
 
 	ofd_seqs_fini(env, ofd);
 
