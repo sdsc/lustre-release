@@ -11,12 +11,9 @@ SRCDIR=$(dirname $0)
 export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/utils:$PATH:/sbin:/usr/sbin
 
 ONLY=${ONLY:-"$*"}
-# bug number for skipped test:
+# bug number for skipped test:    3815     3939
+ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 34 35 36 40"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
-# skip test cases failed before landing - Jinshan
-
-ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 31a 34 35 36"
-ALWAYS_EXCEPT="$ALWAYS_EXCEPT 200 201 221 223a 223b 225"
 
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
 
@@ -31,9 +28,9 @@ MCREATE=${MCREATE:-mcreate}
 MOUNT_2=${MOUNT_2:-"yes"}
 FAIL_ON_ERROR=false
 
-if [[ $MDSCOUNT -ge 2 ]]; then
-	skip_env "Only run with single MDT for now" && exit
-fi
+# script only handles up to 10 MDTs (because of MDT_PREFIX)
+[ $MDSCOUNT -gt 9 ] &&
+	error "script cannot handle more than 9 MDTs, please fix" && exit
 
 check_and_setup_lustre
 
@@ -95,8 +92,9 @@ init_agt_vars() {
 	HSM_ARCHIVE=$(copytool_device $SINGLEAGT)
 	HSM_ARCHIVE_NUMBER=2
 
-	MDT_PARAM="mdt.$FSNAME-MDT0000"
-	HSM_PARAM="$MDT_PARAM.hsm"
+	# The test only support up to 10 MDTs
+	MDT_PREFIX="mdt.$FSNAME-MDT000"
+	HSM_PARAM="${MDT_PREFIX}0.hsm"
 
 	# archive is purged at copytool setup
 	HSM_ARCHIVE_PURGE=true
@@ -115,6 +113,22 @@ cleanup() {
 	copytool_cleanup
 	changelog_cleanup
 	cdt_set_sanity_policy
+}
+
+get_mdt_devices() {
+	local mdtno
+	# get MDT device for each mdc
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		MDT[$idx]=$($LCTL get_param -n \
+			mdc.$FSNAME-MDT000${idx}-mdc-*.mds_server_uuid |
+			awk '{gsub(/_UUID/,""); print $1}' | head -1)
+	done
+}
+
+search_copytools() {
+	local agents=${1:-$(facet_active_host $SINGLEAGT)}
+	do_nodesv $agents "pgrep -x $HSMTOOL_BASE"
 }
 
 search_and_kill_copytool() {
@@ -203,7 +217,7 @@ copytool_suspend() {
 
 copytool_remove_backend() {
 	local fid=$1
-	local be=$(find $HSM_ARCHIVE -name $fid)
+	local be=$(do_facet $SINGLEAGT find $HSM_ARCHIVE -name $fid)
 	echo "Remove from backend: $fid = $be"
 	do_facet $SINGLEAGT rm -f $be
 }
@@ -228,20 +242,66 @@ copy2archive() {
 	do_facet $SINGLEAGT cp -p $1 $file || error "cannot copy $1 to $file"
 }
 
+mdts_set_param() {
+	local arg=$1
+	local key=$2
+	local value=$3
+	local mdtno
+	local rc=0
+	if [[ "$value" != "" ]]; then
+		value="=$value"
+	fi
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		local facet=mds${mdtno}
+		# if $arg include -P option, run 1 set_param per MDT on the MGS
+		# else, run set_param on each MDT
+		[[ $arg = *"-P"* ]] && facet=mgs
+		do_facet $facet $LCTL set_param $arg mdt.${MDT[$idx]}.$key$value
+		[[ $? != 0 ]] && rc=1
+	done
+	return $rc
+}
+
+mdts_check_param() {
+	local key="$1"
+	local target="$2"
+	local timeout="$3"
+	local mdtno
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		wait_result mds${mdtno} \
+			"$LCTL get_param -n $MDT_PREFIX${idx}.$key" "$target" \
+			$timeout ||
+			error "$key state is not '$target' on mds${mdtno}"
+	done
+}
+
 changelog_setup() {
-	CL_USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0\
-		  changelog_register -n)
-	do_facet $SINGLEMDS lctl set_param mdd.$MDT0.changelog_mask="+hsm"
-	$LFS changelog_clear $MDT0 $CL_USER 0
+	CL_USERS=()
+	local mdtno
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		local cl_user=$(do_facet mds${mdtno} $LCTL \
+			     --device ${MDT[$idx]} \
+			     changelog_register -n)
+		CL_USERS+=($cl_user)
+		do_facet mds${mdtno} lctl set_param \
+			mdd.${MDT[$idx]}.changelog_mask="+hsm"
+		$LFS changelog_clear ${MDT[$idx]} $cl_user 0
+	done
 }
 
 changelog_cleanup() {
-#	$LFS changelog $MDT0
-	[[ -n "$CL_USER" ]] || return 0
-
-	$LFS changelog_clear $MDT0 $CL_USER 0
-	do_facet $SINGLEMDS lctl --device $MDT0 changelog_deregister $CL_USER
-	CL_USER=
+	local mdtno
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		local idx=$(($mdtno - 1))
+		[[ -z  ${CL_USERS[$idx]} ]] && continue
+		$LFS changelog_clear ${MDT[$idx]} ${CL_USERS[$idx]} 0
+		do_facet mds${mdtno} lctl --device ${MDT[$idx]} \
+			changelog_deregister ${CL_USERS[$idx]}
+	done
+	CL_USERS=()
 }
 
 changelog_get_flags() {
@@ -262,64 +322,57 @@ set_hsm_param() {
 	local param=$1
 	local value=$2
 	local opt=$3
-	if [[ "$value" != "" ]]; then
-		value="=$value"
-	fi
-	do_facet $SINGLEMDS $LCTL set_param $opt -n $HSM_PARAM.$param$value
+	mdts_set_param "$opt -n" "hsm.$param" "$value"
 	return $?
 }
 
 set_test_state() {
 	local cmd=$1
 	local target=$2
-	do_facet $SINGLEMDS $LCTL set_param $MDT_PARAM.hsm_control=$cmd
-	wait_result $SINGLEMDS "$LCTL get_param -n $MDT_PARAM.hsm_control"\
-		$target 10 || error "cdt state is not $target"
+	mdts_set_param "" hsm_control "$cmd"
+	mdts_check_param hsm_control "$target" 10
 }
 
 cdt_set_sanity_policy() {
 	if [[ "$CDT_POLICY_HAD_CHANGED" ]]
 	then
 		# clear all
-		do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=+NRA
-		do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=-NBR
+		mdts_set_param "" hsm.policy "+NRA"
+		mdts_set_param "" hsm.policy "-NBR"
 		CDT_POLICY_HAD_CHANGED=
 	fi
 }
 
 cdt_set_no_retry() {
-	do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=+NRA
+	mdts_set_param "" hsm.policy "+NRA"
 	CDT_POLICY_HAD_CHANGED=true
 }
 
 cdt_clear_no_retry() {
-	do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=-NRA
+	mdts_set_param "" hsm.policy "-NRA"
 	CDT_POLICY_HAD_CHANGED=true
 }
 
 cdt_set_non_blocking_restore() {
-	do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=+NBR
+	mdts_set_param "" hsm.policy "+NBR"
 	CDT_POLICY_HAD_CHANGED=true
 }
 
 cdt_clear_non_blocking_restore() {
-	do_facet $SINGLEMDS $LCTL set_param $HSM_PARAM.policy=-NBR
+	mdts_set_param "" hsm.policy "-NBR"
 	CDT_POLICY_HAD_CHANGED=true
 }
 
 cdt_clear_mount_state() {
-	do_facet $SINGLEMDS $LCTL set_param -d -P $MDT_PARAM.hsm_control
+	mdts_set_param "-P -d" hsm_control ""
 }
 
 cdt_set_mount_state() {
-	do_facet $SINGLEMDS $LCTL set_param -P $MDT_PARAM.hsm_control=$1
+	mdts_set_param "-P" hsm_control "$1"
 }
 
 cdt_check_state() {
-	local target=$1
-	wait_result $SINGLEMDS\
-		"$LCTL get_param -n $MDT_PARAM.hsm_control" "$target" 20 ||
-			error "cdt state is not $target"
+	mdts_check_param hsm_control "$1" 20
 }
 
 cdt_disable() {
@@ -425,7 +478,8 @@ make_small() {
 }
 
 cleanup_large_files() {
-	local ratio=$(df $MOUNT |awk '{print $5}' |sed 's/%//g' |grep -v Use)
+	local ratio=$(df -P $MOUNT | tail -1 | awk '{print $5}' |
+		      sed 's/%//g')
 	[ $ratio -gt 50 ] && find $MOUNT -size +10M -exec rm -f {} \;
 }
 
@@ -489,12 +543,15 @@ wait_request_state() {
 	local fid=$1
 	local request=$2
 	local state=$3
+	# 4th arg (mdt index) is optional
+	local mdtidx=${4:-0}
+	local mds=mds$(($mdtidx + 1))
 
-	local cmd="$LCTL get_param -n $HSM_PARAM.actions"
+	local cmd="$LCTL get_param -n ${MDT_PREFIX}${mdtidx}.hsm.actions"
 	cmd+=" | awk '/'$fid'.*action='$request'/ {print \\\$13}' | cut -f2 -d="
 
-	wait_result $SINGLEMDS "$cmd" $state 100 ||
-		error "request on $fid is not $state"
+	wait_result $mds "$cmd" $state 100 ||
+		error "request on $fid is not $state on $mds"
 }
 
 get_request_state() {
@@ -528,8 +585,8 @@ wait_for_grace_delay() {
 	sleep $val
 }
 
-MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid |
-	awk '{gsub(/_UUID/,""); print $1}' | head -1)
+# populate MDT device array
+get_mdt_devices
 
 # initiate variables
 init_agt_vars
@@ -1106,8 +1163,8 @@ test_13() {
 			CURR_FILE="$CURR_DIR/$tfile.$f"
 			# write file-specific data
 			do_facet $SINGLEAGT \
-				echo "d=$d, f=$f, dir=$CURR_DIR, "\
-				     "file=$CURR_FILE" > $CURR_FILE
+				"echo d=$d, f=$f, dir=$CURR_DIR, "\
+					"file=$CURR_FILE > $CURR_FILE"
 		done
 	done
 	# import to Lustre
@@ -2529,28 +2586,70 @@ test_105() {
 }
 run_test 105 "Restart of coordinator"
 
-test_106() {
-	# test needs a running copytool
-	copytool_setup
+get_agent_by_uuid_mdt() {
+	local uuid=$1
+	local mdtidx=$2
+	local mds=mds$(($mdtidx + 1))
+	do_facet $mds "$LCTL get_param -n ${MDT_PREFIX}${mdtidx}.hsm.agents |\
+		 grep $uuid"
+}
 
+check_agent_registered_by_mdt() {
+	local uuid=$1
+	local mdtidx=$2
+	local mds=mds$(($mdtidx + 1))
+	local agent=$(get_agent_by_uuid_mdt $uuid $mdtidx)
+	if [[ ! -z "$agent" ]]; then
+		echo "found agent $agent on $mds"
+	else
+		error "uuid $uuid not found in agent list on $mds"
+	fi
+}
+
+check_agent_unregistered_by_mdt() {
+	local uuid=$1
+	local mdtidx=$2
+	local mds=mds$(($mdtidx + 1))
+	local agent=$(get_agent_by_uuid_mdt $uuid $mdtidx)
+	if [[ -z "$agent" ]]; then
+		echo "uuid not found in agent list on $mds"
+	else
+		error "uuid found in agent list on $mds: $agent"
+	fi
+}
+
+check_agent_registered() {
+	local uuid=$1
+	local mdsno
+	for mdsno in $(seq 1 $MDSCOUNT); do
+		check_agent_registered_by_mdt $uuid $((mdsno - 1))
+	done
+}
+
+check_agent_unregistered() {
+	local uuid=$1
+	local mdsno
+	for mdsno in $(seq 1 $MDSCOUNT); do
+		check_agent_unregistered_by_mdt $uuid $((mdsno - 1))
+	done
+}
+
+test_106() {
 	local uuid=$(do_rpc_nodes $(facet_active_host $SINGLEAGT) \
 		get_client_uuid $MOUNT | cut -d' ' -f2)
-	local agent=$(do_facet $SINGLEMDS $LCTL get_param -n $HSM_PARAM.agents |
-		grep $uuid)
-	copytool_cleanup
-	[[ ! -z "$agent" ]] || error "My uuid $uuid not found in agent list"
-	local agent=$(do_facet $SINGLEMDS $LCTL get_param -n $HSM_PARAM.agents |
-		grep $uuid)
-	[[ -z "$agent" ]] ||
-		error "My uuid $uuid still found in agent list,"\
-		      " after copytool shutdown"
+
 	copytool_setup
-	local agent=$(do_facet $SINGLEMDS $LCTL get_param -n $HSM_PARAM.agents |
-		grep $uuid)
+	check_agent_registered $uuid
+
+	search_copytools || error "No copytool found"
+
 	copytool_cleanup
-	[[ ! -z "$agent" ]] ||
-		error "My uuid $uuid not found in agent list after"\
-		      " copytool restart"
+	check_agent_unregistered $uuid
+
+	copytool_setup
+	check_agent_registered $uuid
+
+	copytool_cleanup
 }
 run_test 106 "Copytool register/unregister"
 
@@ -2826,7 +2925,7 @@ test_220() {
 	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 	changelog_cleanup
 
 	local target=0x0
@@ -2853,7 +2952,7 @@ test_221() {
 	wait_request_state $fid ARCHIVE CANCELED
 	wait_request_state $fid CANCEL SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 
 	local target=0x7d
 	[[ $flags == $target ]] || error "Changelog flag is $flags not $target"
@@ -2878,7 +2977,7 @@ test_222a() {
 	$LFS hsm_restore $f
 	wait_request_state $fid RESTORE SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 
 	local target=0x80
 	[[ $flags == $target ]] || error "Changelog flag is $flags not $target"
@@ -2904,7 +3003,7 @@ test_222b() {
 
 	wait_request_state $fid RESTORE SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 
 	local target=0x80
 	[[ $flags == $target ]] || error "Changelog flag is $flags not $target"
@@ -2933,7 +3032,7 @@ test_223a() {
 	wait_request_state $fid RESTORE CANCELED
 	wait_request_state $fid CANCEL SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 
 	local target=0xfd
 	[[ $flags == $target ]] ||
@@ -2962,7 +3061,7 @@ test_223b() {
 	wait_request_state $fid RESTORE CANCELED
 	wait_request_state $fid CANCEL SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -1)
 
 	local target=0xfd
 	[[ $flags == $target ]] ||
@@ -2988,7 +3087,7 @@ test_224() {
 	$LFS hsm_remove $f
 	wait_request_state $fid REMOVE SUCCEED
 
-	local flags=$(changelog_get_flags $MDT0 HSM $fid | tail -1)
+	local flags=$(changelog_get_flags ${MDT[0]} HSM $fid | tail -n 1)
 
 	local target=0x200
 	[[ $flags == $target ]] ||
@@ -3024,9 +3123,9 @@ test_225() {
 	wait_request_state $fid REMOVE CANCELED
 	wait_request_state $fid CANCEL SUCCEED
 
-	flags=$(changelog_get_flags $MDT0 RENME $fid2)
-	local flags=$($LFS changelog $MDT0 | grep HSM | grep $fid | tail -1 |
-		awk '{print $5}')
+	flags=$(changelog_get_flags ${MDT[0]} RENME $fid2)
+	local flags=$($LFS changelog ${MDT[0]} | grep HSM | grep $fid |
+		tail -n 1 | awk '{print $5}')
 
 	local target=0x27d
 	[[ $flags == $target ]] ||
@@ -3058,7 +3157,7 @@ test_226() {
 
 	rm $f1 || error "rm $f1 failed"
 
-	local flags=$(changelog_get_flags $MDT0 UNLNK $fid1)
+	local flags=$(changelog_get_flags ${MDT[0]} UNLNK $fid1)
 
 	local target=0x3
 	[[ $flags == $target ]] ||
@@ -3066,7 +3165,7 @@ test_226() {
 
 	mv $f3 $f2 || error "mv $f3 $f2 failed"
 
-	flags=$(changelog_get_flags $MDT0 RENME $fid2)
+	flags=$(changelog_get_flags ${MDT[0]} RENME $fid2)
 
 	target=0x3
 	[[ $flags == $target ]] ||
@@ -3086,7 +3185,7 @@ check_flags_changes() {
 	local target=0x280
 	$LFS hsm_set --$hsm_flag $f ||
 		error "Cannot set $hsm_flag on $f"
-	local flags=($(changelog_get_flags $MDT0 HSM $fid))
+	local flags=($(changelog_get_flags ${MDT[0]} HSM $fid))
 	local seen=${#flags[*]}
 	cnt=$((fst + cnt))
 	[[ $seen == $cnt ]] ||
@@ -3097,7 +3196,7 @@ check_flags_changes() {
 
 	$LFS hsm_clear --$hsm_flag $f ||
 		error "Cannot clear $hsm_flag on $f"
-	flags=($(changelog_get_flags $MDT0 HSM $fid))
+	flags=($(changelog_get_flags ${MDT[0]} HSM $fid))
 	seen=${#flags[*]}
 	cnt=$(($cnt + 1))
 	[[ $cnt == $seen ]] ||
@@ -3286,7 +3385,11 @@ test_302() {
 	cdt_shutdown
 
 	set_hsm_param default_archive_id $new -P
-	fail $SINGLEMDS
+
+	local mdtno
+	for mdtno in $(seq 1 $MDSCOUNT); do
+		fail mds${mdtno}
+	done
 
 	# check cdt is on
 	cdt_check_state enabled
@@ -3299,6 +3402,168 @@ test_302() {
 	[[ $new == $res ]] || error "Value after MDS restart is $res != $new"
 }
 run_test 302 "HSM tunnable are persistent when CDT is off"
+
+test_400() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+
+	local dir_mdt0=$DIR/$tdir/mdt0
+	local dir_mdt1=$DIR/$tdir/mdt1
+
+	# create 1 dir per MDT
+	$LFS mkdir -i 0 $dir_mdt0 || error "lfs mkdir"
+	$LFS mkdir -i 1 $dir_mdt1 || error "lfs mkdir"
+
+	# create 1 file in each MDT
+	local fid1=$(make_small $dir_mdt0/$tfile)
+	local fid2=$(make_small $dir_mdt1/$tfile)
+
+	# check that hsm request on mdt0 is sent to the right MDS
+	$LFS hsm_archive $dir_mdt0/$tfile || error "lfs hsm_archive"
+	wait_request_state $fid1 ARCHIVE SUCCEED 0 &&
+		echo "archive successful on mdt0"
+
+	# check that hsm request on mdt1 is sent to the right MDS
+	$LFS hsm_archive $dir_mdt1/$tfile || error "lfs hsm_archive"
+	wait_request_state $fid2 ARCHIVE SUCCEED 1 &&
+		echo "archive successful on mdt1"
+
+	copytool_cleanup
+	# clean test files and directories
+	rm -rf $dir_mdt0 $dir_mdt1
+}
+run_test 400 "Single request is sent to the right MDT"
+
+test_401() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+
+	local dir_mdt0=$DIR/$tdir/mdt0
+	local dir_mdt1=$DIR/$tdir/mdt1
+
+	# create 1 dir per MDT
+	$LFS mkdir -i 0 $dir_mdt0 || error "lfs mkdir"
+	$LFS mkdir -i 1 $dir_mdt1 || error "lfs mkdir"
+
+	# create 1 file in each MDT
+	local fid1=$(make_small $dir_mdt0/$tfile)
+	local fid2=$(make_small $dir_mdt1/$tfile)
+
+	# check that compound requests are shunt to the rights MDTs
+	$LFS hsm_archive $dir_mdt0/$tfile $dir_mdt1/$tfile ||
+		error "lfs hsm_archive"
+	wait_request_state $fid1 ARCHIVE SUCCEED 0 &&
+		echo "archive successful on mdt0"
+	wait_request_state $fid2 ARCHIVE SUCCEED 1 &&
+		echo "archive successful on mdt1"
+
+	copytool_cleanup
+	# clean test files and directories
+	rm -rf $dir_mdt0 $dir_mdt1
+}
+run_test 401 "Compound requests split and sent to their respective MDTs"
+
+mdc_change_state() # facet, MDT_pattern, activate|deactivate
+{
+	local facet=$1
+	local pattern="$2"
+	local state=$3
+	local node=$(facet_active_host $facet)
+	local mdc
+	for mdc in $(do_facet $facet "$LCTL dl | grep -E ${pattern}-mdc" |
+			awk '{print $4}'); do
+		echo "$3 $mdc on $node"
+		do_facet $facet "$LCTL --device $mdc $state" || return 1
+	done
+}
+
+test_402() {
+	# make sure there is no running copytool
+	copytool_cleanup
+
+	# deactivate all mdc on agent1
+	mdc_change_state $SINGLEAGT "MDT000." "deactivate"
+
+	copytool_setup $SINGLEAGT
+
+	check_agent_unregistered "uuid" # match any agent
+
+	# no expected running copytool
+	search_copytools $agent && error "Copytool start should have failed"
+
+	# reactivate MDCs
+	mdc_change_state $SINGLEAGT "MDT000." "activate"
+}
+run_test 402 "Copytool start fails if all MDTs are inactive"
+
+test_403() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	# make sure there is no running copytool
+	copytool_cleanup
+
+        local agent=$(facet_active_host $SINGLEAGT)
+	local uuid=$(do_rpc_nodes $agent get_client_uuid | cut -d' ' -f2)
+
+	# deactivate all mdc for MDT0001
+	mdc_change_state $SINGLEAGT "MDT0001" "deactivate"
+
+	copytool_setup
+	# check the agent is registered on MDT0000, and not on MDT0001
+	check_agent_registered_by_mdt $uuid 0
+	check_agent_unregistered_by_mdt $uuid 1
+
+	# check running copytool process
+	search_copytools $agent || error "No running copytools on $agent"
+
+	# reactivate all mdc for MDT0001
+	mdc_change_state $SINGLEAGT "MDT0001" "activate"
+
+	# make sure the copytool is now registered to all MDTs
+	check_agent_registered $uuid
+
+	copytool_cleanup
+}
+run_test 403 "Copytool starts with inactive MDT and register on reconnect"
+
+test_404() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	copytool_setup
+
+	# create files on both MDT0000 and MDT0001
+	mkdir -p $DIR/$tdir
+
+	local dir_mdt0=$DIR/$tdir/mdt0
+	$LFS mkdir -i 0 $dir_mdt0 || error "lfs mkdir"
+
+	# create 1 file on mdt0
+	local fid1=$(make_small $dir_mdt0/$tfile)
+
+	# deactivate all mdc for MDT0001
+	mdc_change_state $SINGLEAGT "MDT0001" "deactivate"
+
+	# send an HSM request for files in MDT0000
+	$LFS hsm_archive $dir_mdt0/$tfile || error "lfs hsm_archive"
+
+	# check for completion of files in MDT0000
+	wait_request_state $fid1 ARCHIVE SUCCEED 0 &&
+		echo "archive successful on mdt0"
+
+	# reactivate all mdc for MDT0001
+	mdc_change_state $SINGLEAGT "MDT0001" "activate"
+
+	copytool_cleanup
+	# clean test files and directories
+	rm -rf $dir_mdt0
+}
+run_test 404 "Inactive MDT does not block requests for active MDTs"
 
 copytool_cleanup
 
