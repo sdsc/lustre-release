@@ -410,7 +410,7 @@ int ofd_postrecov(const struct lu_env *env, struct ofd_device *ofd)
 {
 	struct lu_device *ldev = &ofd->ofd_dt_dev.dd_lu_dev;
 
-	CDEBUG(D_HA, "%s: recovery is over\n", ofd_obd(ofd)->obd_name);
+	CDEBUG(D_HA, "%s: recovery is over\n", ofd_name(ofd));
 	return ldev->ld_ops->ldo_recovery_complete(env, ldev);
 }
 
@@ -1057,13 +1057,13 @@ int ofd_destroy(const struct lu_env *env, struct obd_export *exp,
 		if (lrc == -ENOENT) {
 			CDEBUG(D_INODE,
 			       "%s: destroying non-existent object "DFID"\n",
-			       ofd_obd(ofd)->obd_name, PFID(&info->fti_fid));
+			       ofd_name(ofd), PFID(&info->fti_fid));
 			/* rewrite rc with -ENOENT only if it is 0 */
 			if (rc == 0)
 				rc = lrc;
 		} else if (lrc != 0) {
 			CERROR("%s: error destroying object "DFID": %d\n",
-			       ofd_obd(ofd)->obd_name, PFID(&info->fti_fid),
+			       ofd_name(ofd), PFID(&info->fti_fid),
 			       rc);
 			rc = lrc;
 		}
@@ -1123,7 +1123,7 @@ int ofd_orphans_destroy(const struct lu_env *env, struct obd_export *exp,
 		}
 	}
 	CDEBUG(D_HA, "%s: after destroy: set last_id to "DOSTID"\n",
-	       ofd_obd(ofd)->obd_name, POSTID(&oa->o_oi));
+	       ofd_name(ofd), POSTID(&oa->o_oi));
 	if (!skip_orphan) {
 		rc = ofd_seq_last_oid_write(env, ofd, oseq);
 	} else {
@@ -1211,7 +1211,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 		mutex_lock(&oseq->os_create_lock);
 		if (oti->oti_conn_cnt < exp->exp_conn_cnt) {
 			CERROR("%s: dropping old precreate request\n",
-				ofd_obd(ofd)->obd_name);
+			       ofd_name(ofd));
 			GOTO(out, rc = 0);
 		}
 		/* only precreate if seq is 0, IDIF or normal and also o_id
@@ -1280,13 +1280,13 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			count = ofd_precreate_batch(ofd, diff);
 
 			CDEBUG(D_HA, "%s: reserve %d objects in group "LPX64
-			       " at "LPU64"\n", ofd_obd(ofd)->obd_name,
+			       " at "LPU64"\n", ofd_name(ofd),
 			       count, ostid_seq(&oa->o_oi), next_id);
 
 			if (cfs_time_after(jiffies, enough_time)) {
 				LCONSOLE_WARN("%s: Slow creates, %d/%d objects"
 					      " created at a rate of %d/s\n",
-					      ofd_obd(ofd)->obd_name,
+					      ofd_name(ofd),
 					      created, diff + created,
 					      created / DISK_TIMEOUT);
 				break;
