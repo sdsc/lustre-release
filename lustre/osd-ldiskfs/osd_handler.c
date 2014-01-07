@@ -813,7 +813,9 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 
         ENTRY;
 
-        LASSERT(current->journal_info == NULL);
+	LASSERTF(current->journal_info == NULL,
+		 "pid(%u) existing journal_info %p\n",
+		 current->pid, current->journal_info);
 
         oh = container_of0(th, struct osd_thandle, ot_super);
         LASSERT(oh != NULL);
@@ -893,6 +895,8 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
                                              "osd-tx", th);
                 oti->oti_txns++;
                 rc = 0;
+		CDEBUG(D_INFO, "%s: Setting pid(%u) journal_info %p\n",
+		       osd_name(dev), current->pid, current->journal_info);
         } else {
                 rc = PTR_ERR(jh);
         }
