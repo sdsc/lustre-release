@@ -815,6 +815,20 @@ static int osd_scrub_get_fid(struct osd_thread_info *info,
 		}
 
 		*fid = lma->lma_self_fid;
+		if (unlikely(fid_is_last_id(fid))) {
+			if (scrub) {
+				if (lma->lma_compat & LMAC_FID_ON_OST)
+					rc = SCRUB_NEXT_OSTOBJ;
+				else
+					rc = osd_scrub_check_local_fldb(info,
+								dev, fid);
+			}
+
+			/* For up layer iteration, LAST_ID is a visible object
+			 * to be checked and repaired, so return it directly. */
+			return rc;
+		}
+
 		if (fid_is_internal(&lma->lma_self_fid)) {
 			if (!scrub)
 				rc = SCRUB_NEXT_CONTINUE;
@@ -830,7 +844,7 @@ static int osd_scrub_get_fid(struct osd_thread_info *info,
 		if (lma->lma_compat & LMAC_FID_ON_OST)
 			return SCRUB_NEXT_OSTOBJ;
 
-		if (fid_is_idif(fid) || fid_is_last_id(fid))
+		if (fid_is_idif(fid))
 			return SCRUB_NEXT_OSTOBJ_OLD;
 
 		if (lma->lma_incompat & LMAI_AGENT)
@@ -1309,6 +1323,8 @@ static int osd_ios_varfid_fill(void *buf, const char *name, int namelen,
 			       loff_t offset, __u64 ino, unsigned d_type);
 static int osd_ios_lf_fill(void *buf, const char *name, int namelen,
 			   loff_t offset, __u64 ino, unsigned d_type);
+static int osd_ios_dl_fill(void *buf, const char *name, int namelen,
+			   loff_t offset, __u64 ino, unsigned d_type);
 
 static int
 osd_ios_general_scan(struct osd_thread_info *info, struct osd_device *dev,
@@ -1422,6 +1438,19 @@ static const struct osd_lf_map osd_lf_maps[] = {
 	/* lost+found */
 	{ "lost+found", { 0, 0, 0 }, OLF_SCAN_SUBITEMS | OLF_NO_OI,
 		osd_ios_general_scan, osd_ios_lf_fill },
+
+	{ NULL, { 0, 0, 0 }, 0, NULL, NULL }
+};
+
+/* Add the new introduced files undre .lustre/ in the list in the future. */
+static const struct osd_lf_map osd_dl_maps[] = {
+	/* .lustre/fid */
+	{ "fid", { FID_SEQ_DOT_LUSTRE, FID_OID_DOT_LUSTRE_OBF, 0 }, 0,
+		NULL, NULL },
+
+	/* .lustre/lost+found */
+	{ "lost+found", { FID_SEQ_DOT_LUSTRE, FID_OID_DOT_LUSTRE_LF, 0 }, 0,
+		NULL, NULL },
 
 	{ NULL, { 0, 0, 0 }, 0, NULL, NULL }
 };
@@ -1649,6 +1678,42 @@ static int osd_ios_varfid_fill(void *buf, const char *name, int namelen,
 	RETURN(rc);
 }
 
+static int osd_ios_dl_fill(void *buf, const char *name, int namelen,
+			   loff_t offset, __u64 ino, unsigned d_type)
+{
+	struct osd_ios_filldir_buf *fill_buf = buf;
+	struct osd_device	   *dev      = fill_buf->oifb_dev;
+	const struct osd_lf_map    *map;
+	struct dentry		   *child;
+	int			    rc       = 0;
+	ENTRY;
+
+	/* skip any '.' started names */
+	if (name[0] == '.')
+		RETURN(0);
+
+	for (map = osd_dl_maps; map->olm_name != NULL; map++) {
+		if (strlen(map->olm_name) != namelen)
+			continue;
+
+		if (strncmp(map->olm_name, name, namelen) == 0)
+			break;
+	}
+
+	if (map->olm_name == NULL)
+		RETURN(0);
+
+	child = osd_ios_lookup_one_len(name, fill_buf->oifb_dentry, namelen);
+	if (IS_ERR(child))
+		RETURN(PTR_ERR(child));
+
+	rc = osd_ios_scan_one(fill_buf->oifb_info, dev, child->d_inode,
+			      &map->olm_fid, map->olm_flags);
+	dput(child);
+
+	RETURN(rc);
+}
+
 static int osd_ios_root_fill(void *buf, const char *name, int namelen,
 			     loff_t offset, __u64 ino, unsigned d_type)
 {
@@ -1782,6 +1847,9 @@ osd_ios_ROOT_scan(struct osd_thread_info *info, struct osd_device *dev,
 		 * to the solution 2). */
 		rc = osd_ios_scan_one(info, dev, child->d_inode,
 				      &LU_DOT_LUSTRE_FID, 0);
+		if (rc == 0)
+			rc = osd_ios_new_item(dev, child, osd_ios_general_scan,
+					      osd_ios_dl_fill);
 		dput(child);
 	}
 

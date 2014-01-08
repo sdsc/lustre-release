@@ -498,6 +498,19 @@ static int osd_remote_fid(const struct lu_env *env, struct osd_device *osd,
 {
 	ENTRY;
 
+	/* FID_SEQ_DOT_LUSTRE only can be used MDT0. */
+	if (fid_seq(fid) == FID_SEQ_DOT_LUSTRE) {
+		struct seq_server_site *ss = osd_seq_site(osd);
+
+		if (unlikely(osd->od_is_ost))
+			RETURN(1);
+
+		if (ss == NULL)
+			RETURN(0);
+
+		RETURN(ss->ss_node_id != 0);
+	}
+
 	if (!fid_is_norm(fid) && !fid_is_root(fid))
 		RETURN(0);
 
