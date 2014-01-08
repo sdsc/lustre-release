@@ -78,6 +78,14 @@ static inline struct llog_thread_info *llog_info(const struct lu_env *env)
 	return lgi;
 }
 
+static inline void
+lustre_build_llog_lvfs_oid(struct llog_logid *logid, __u64 ino, __u32 gen)
+{
+	logid->lgl_oi.oi_id = ino;
+	logid->lgl_oi.oi_seq = FID_SEQ_LLOG;
+	logid->lgl_ogen = gen;
+}
+
 int llog_info_init(void);
 void llog_info_fini(void);
 

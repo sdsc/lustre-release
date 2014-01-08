@@ -535,34 +535,6 @@ static inline struct ofd_thread_info * ofd_info_init(const struct lu_env *env,
 	return info;
 }
 
-/* The same as osc_build_res_name() */
-static inline void ofd_build_resid(const struct lu_fid *fid,
-				   struct ldlm_res_id *resname)
-{
-	struct ost_id oid;
-
-	if (fid_is_idif(fid)) {
-		oid.oi_id = fid_idif_id(fid_seq(fid), fid_oid(fid),
-					fid_ver(fid));
-		oid.oi_seq = FID_SEQ_OST_MDT0;
-	} else {
-		oid.oi_id = fid_oid(fid);
-		oid.oi_seq = fid_seq(fid);
-	}
-	ostid_build_res_name(&oid, resname);
-}
-
-static inline void ofd_fid_from_resid(struct lu_fid *fid,
-				      const struct ldlm_res_id *name)
-{
-	/* To keep compatiblity, res[0] = oi_id, res[1] = oi_seq. */
-	struct ost_id ostid;
-
-	ostid.oi_id = name->name[LUSTRE_RES_ID_SEQ_OFF];
-	ostid.oi_seq = name->name[LUSTRE_RES_ID_VER_OID_OFF];
-	fid_ostid_unpack(fid, &ostid, 0);
-}
-
 static inline void ofd_oti2info(struct ofd_thread_info *info,
 				struct obd_trans_info *oti)
 {
@@ -597,7 +569,7 @@ static inline void ofd_slc_set(struct ofd_device *ofd)
 static inline void ofd_prepare_fidea(struct filter_fid *ff, struct obdo *oa)
 {
 	if (!(oa->o_valid & OBD_MD_FLGROUP))
-		oa->o_seq = 0;
+		ostid_set_seq_mdt0(&oa->o_oi);
 	/* packing fid and converting it to LE for storing into EA.
 	 * Here ->o_stripe_idx should be filled by LOV and rest of
 	 * fields - by client. */
@@ -606,8 +578,8 @@ static inline void ofd_prepare_fidea(struct filter_fid *ff, struct obdo *oa)
 	/* XXX: we are ignoring o_parent_ver here, since this should
 	 *      be the same for all objects in this fileset. */
 	ff->ff_parent.f_ver = cpu_to_le32(oa->o_stripe_idx);
-	ff->ff_objid = cpu_to_le64(oa->o_id);
-	ff->ff_seq = cpu_to_le64(oa->o_seq);
+	ff->ff_objid = cpu_to_le64(ostid_id(&oa->o_oi));
+	ff->ff_seq = cpu_to_le64(ostid_seq(&oa->o_oi));
 }
 
 /* niobuf_remote has no rnb_ prefix in master */

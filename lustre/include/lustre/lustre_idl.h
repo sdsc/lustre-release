@@ -595,6 +595,41 @@ static inline __u32 fid_idif_ost_idx(const struct lu_fid *fid)
 	return (fid_seq(fid) >> 16) & 0xffff;
 }
 
+static inline void ostid_set_seq(struct ost_id *oi, __u64 seq)
+{
+	oi->oi_seq = seq;
+}
+
+static inline void ostid_set_seq_mdt0(struct ost_id *oi)
+{
+	ostid_set_seq(oi, FID_SEQ_OST_MDT0);
+}
+
+static inline void ostid_set_seq_echo(struct ost_id *oi)
+{
+	ostid_set_seq(oi, FID_SEQ_ECHO);
+}
+
+static inline void ostid_set_seq_llog(struct ost_id *oi)
+{
+	ostid_set_seq(oi, FID_SEQ_LLOG);
+}
+
+static inline void ostid_set_id(struct ost_id *oi, __u64 oid)
+{
+	oi->oi_id = oid;
+}
+
+static inline void ostid_inc_id(struct ost_id *oi)
+{
+	oi->oi_id++;
+}
+
+static inline void ostid_dec_id(struct ost_id *oi)
+{
+	oi->oi_id--;
+}
+
 /* unpack an ostid (id/seq) from a wire/disk structure into an IDIF FID */
 static inline void ostid_idif_unpack(struct ost_id *ostid,
                                      struct lu_fid *fid, __u32 ost_idx)
@@ -677,8 +712,8 @@ static inline int fid_ostid_unpack(struct lu_fid *fid, struct ost_id *ostid,
 static inline void ostid_idif_pack(const struct lu_fid *fid,
                                    struct ost_id *ostid)
 {
-        ostid->oi_seq = FID_SEQ_OST_MDT0;
-        ostid->oi_id  = fid_idif_id(fid->f_seq, fid->f_oid, fid->f_ver);
+	ostid_set_seq_mdt0(ostid);
+	ostid->oi_id  = fid_idif_id(fid->f_seq, fid->f_oid, fid->f_ver);
 }
 
 /* pack a non-IDIF FID into an ostid (id/seq) for the wire/disk */
@@ -707,7 +742,7 @@ static inline int fid_ostid_pack(const struct lu_fid *fid,
 }
 
 /* extract OST sequence (group) from a wire ost_id (id/seq) pair */
-static inline obd_seq ostid_seq(struct ost_id *ostid)
+static inline obd_seq ostid_seq(const struct ost_id *ostid)
 {
         if (unlikely(fid_seq_is_igif(ostid->oi_seq)))
                 CWARN("bad IGIF, oi_seq: "LPU64" oi_id: "LPX64"\n",
@@ -720,9 +755,9 @@ static inline obd_seq ostid_seq(struct ost_id *ostid)
 }
 
 /* extract OST objid from a wire ost_id (id/seq) pair */
-static inline obd_id ostid_id(struct ost_id *ostid)
+static inline obd_id ostid_id(const struct ost_id *ostid)
 {
-        if (ostid->oi_seq == FID_SEQ_OST_MDT0)
+        if (ostid_seq(ostid) == FID_SEQ_OST_MDT0)
                 return ostid->oi_id & IDIF_OID_MASK;
 
         if (fid_seq_is_rsvd(ostid->oi_seq))
@@ -1658,9 +1693,6 @@ struct obd_ioobj {
 #define ioobj_max_brw_get(ioo)	(((ioo)->ioo_max_brw >> IOOBJ_MAX_BRW_BITS) + 1)
 #define ioobj_max_brw_set(ioo, num)					\
 do { (ioo)->ioo_max_brw = ((num) - 1) << IOOBJ_MAX_BRW_BITS; } while (0)
-
-#define ioo_id	ioo_oid.oi_id
-#define ioo_seq	ioo_oid.oi_seq
 
 extern void lustre_swab_obd_ioobj (struct obd_ioobj *ioo);
 
@@ -2803,8 +2835,7 @@ typedef enum {
 
 /** Identifier for a single log object */
 struct llog_logid {
-        __u64                   lgl_oid;
-        __u64                   lgl_oseq;
+	struct ost_id		lgl_oi;
         __u32                   lgl_ogen;
 } __attribute__((packed));
 
@@ -2900,8 +2931,7 @@ struct llog_unlink64_rec {
 
 struct llog_setattr64_rec {
 	struct llog_rec_hdr	lsr_hdr;
-	obd_id			lsr_oid;
-	obd_seq			lsr_oseq;
+	struct ost_id		lsr_oi;
 	__u32			lsr_uid;
 	__u32			lsr_uid_h;
 	__u32			lsr_gid;
@@ -3050,7 +3080,10 @@ struct llogd_conn_body {
 /* Note: 64-bit types are 64-bit aligned in structure */
 struct obdo {
         obd_valid               o_valid;        /* hot fields in this obdo */
-        struct ost_id           o_oi;
+	union {
+		struct ost_id           o_oi;
+		struct lu_fid		o_fid;
+	};
         obd_id                  o_parent_seq;
         obd_size                o_size;         /* o_size-o_blocks == ost_lvb */
         obd_time                o_mtime;
@@ -3088,8 +3121,6 @@ struct obdo {
 	__u64			o_padding_6;
 };
 
-#define o_id     o_oi.oi_id
-#define o_seq    o_oi.oi_seq
 #define o_dirty   o_blocks
 #define o_undirty o_mode
 #define o_dropped o_misc

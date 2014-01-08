@@ -51,8 +51,8 @@
 static void print_llogd_body(struct llogd_body *d)
 {
         CDEBUG(D_OTHER, "llogd body: %p\n", d);
-        CDEBUG(D_OTHER, "\tlgd_logid.lgl_oid: "LPX64"\n", d->lgd_logid.lgl_oid);
-        CDEBUG(D_OTHER, "\tlgd_logid.lgl_oseq: "LPX64"\n", d->lgd_logid.lgl_oseq);
+        CDEBUG(D_OTHER, "\tlgd_logid.lgl_oi: "DOSTID"\n",
+	       POSTID(&d->lgd_logid.lgl_oi));
         CDEBUG(D_OTHER, "\tlgd_logid.lgl_ogen: %#x\n", d->lgd_logid.lgl_ogen);
         CDEBUG(D_OTHER, "\tlgd_ctxt_idx: %#x\n", d->lgd_ctxt_idx);
         CDEBUG(D_OTHER, "\tlgd_llh_flags: %#x\n", d->lgd_llh_flags);
@@ -62,12 +62,18 @@ static void print_llogd_body(struct llogd_body *d)
         CDEBUG(D_OTHER, "\tlgd_cur_offset: "LPX64"\n", d->lgd_cur_offset);
 }
 
+void lustre_swab_ost_id(struct ost_id *oid)
+{
+	__swab64s(&oid->oi_id);
+	__swab64s(&oid->oi_seq);
+}
+EXPORT_SYMBOL(lustre_swab_ost_id);
+
 void lustre_swab_llogd_body (struct llogd_body *d)
 {
         ENTRY;
         print_llogd_body(d);
-        __swab64s (&d->lgd_logid.lgl_oid);
-        __swab64s (&d->lgd_logid.lgl_oseq);
+	lustre_swab_ost_id(&d->lgd_logid.lgl_oi);
         __swab32s (&d->lgd_logid.lgl_ogen);
         __swab32s (&d->lgd_ctxt_idx);
         __swab32s (&d->lgd_llh_flags);
@@ -84,8 +90,7 @@ void lustre_swab_llogd_conn_body (struct llogd_conn_body *d)
 {
         __swab64s (&d->lgdc_gen.mnt_cnt);
         __swab64s (&d->lgdc_gen.conn_cnt);
-        __swab64s (&d->lgdc_logid.lgl_oid);
-        __swab64s (&d->lgdc_logid.lgl_oseq);
+	lustre_swab_ost_id(&d->lgdc_logid.lgl_oi);
         __swab32s (&d->lgdc_logid.lgl_ogen);
         __swab32s (&d->lgdc_ctxt_idx);
 }
@@ -196,8 +201,7 @@ void lustre_swab_llog_rec(struct llog_rec_hdr *rec)
 		struct llog_setattr64_rec *lsr =
 			(struct llog_setattr64_rec *)rec;
 
-		__swab64s(&lsr->lsr_oid);
-		__swab64s(&lsr->lsr_oseq);
+		lustre_swab_ost_id(&lsr->lsr_oi);
 		__swab32s(&lsr->lsr_uid);
 		__swab32s(&lsr->lsr_uid_h);
 		__swab32s(&lsr->lsr_gid);
@@ -223,14 +227,13 @@ void lustre_swab_llog_rec(struct llog_rec_hdr *rec)
         }
 	case LLOG_LOGID_MAGIC:
 	{
-                struct llog_logid_rec *lid = (struct llog_logid_rec *)rec;
+		struct llog_logid_rec *lid = (struct llog_logid_rec *)rec;
 
-                __swab64s(&lid->lid_id.lgl_oid);
-                __swab64s(&lid->lid_id.lgl_oseq);
-                __swab32s(&lid->lid_id.lgl_ogen);
+		lustre_swab_ost_id(&lid->lid_id.lgl_oi);
+		__swab32s(&lid->lid_id.lgl_ogen);
 		tail = &lid->lid_tail;
-                break;
-        }
+		break;
+	}
 	case LLOG_GEN_REC:
 	{
 		struct llog_gen_rec *lgr = (struct llog_gen_rec *)rec;
