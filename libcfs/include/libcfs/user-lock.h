@@ -102,6 +102,7 @@ void spin_unlock_bh(spinlock_t *lock);
 static inline int spin_is_locked(spinlock_t *l) { return 1; }
 static inline void spin_lock_irqsave(spinlock_t *l, unsigned long f) {}
 static inline void spin_unlock_irqrestore(spinlock_t *l, unsigned long f) {}
+#define assert_spin_locked(lock) do { (void)(lock); } while (0)
 
 /*
  * Semaphore

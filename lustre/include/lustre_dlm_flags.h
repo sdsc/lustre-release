@@ -373,10 +373,18 @@
 #define LDLM_HAVE_MASK(_l, _m)    (((_l)->l_flags & LDLM_FL_##_m##_MASK) != 0)
 
 /** set a ldlm_lock flag bit */
-#define LDLM_SET_FLAG(_l, _b)     ((_l)->l_flags |= (_b))
+#define LDLM_SET_FLAG(_l, _b)                       \
+do {                                                \
+    assert_spin_locked(&(_l)->l_resource->lr_lock); \
+    ((_l)->l_flags |= (_b));                        \
+} while (0)
 
 /** clear a ldlm_lock flag bit */
-#define LDLM_CLEAR_FLAG(_l, _b)   ((_l)->l_flags &= ~(_b))
+#define LDLM_CLEAR_FLAG(_l, _b)                     \
+do {                                                \
+    assert_spin_locked(&(_l)->l_resource->lr_lock); \
+    ((_l)->l_flags &= ~(_b));                       \
+} while (0)
 
 /** @} subgroup */
 /** @} group */
