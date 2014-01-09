@@ -115,7 +115,8 @@ struct ofd_seq {
 	struct mutex		os_create_lock;
 	cfs_atomic_t		os_refc;
 	struct dt_object	*os_lastid_obj;
-	unsigned long		os_destroys_in_progress:1;
+	unsigned long		os_destroys_in_progress:1,
+				os_lastid_rebuilt:1;
 };
 
 struct ofd_device {
@@ -181,10 +182,14 @@ struct ofd_device {
 				 ofd_syncjournal:1,
 				 /* shall we grant space to clients not
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
-				 ofd_grant_compat_disable:1;
+				 ofd_grant_compat_disable:1,
+				 /* Protected by ofd_lastid_rwsem. */
+				 ofd_lastid_rebuilding:1;
 	struct seq_server_site	 ofd_seq_site;
 	/* the limit of SOFT_SYNC RPCs that will trigger a soft sync */
 	unsigned int		 ofd_soft_sync_limit;
+	/* Protect ::ofd_lastid_rebuilding */
+	struct rw_semaphore	 ofd_lastid_rwsem;
 };
 
 static inline struct ofd_device *ofd_dev(struct lu_device *d)
@@ -357,6 +362,7 @@ int ofd_precreate_batch(struct ofd_device *ofd, int batch);
 struct ofd_seq *ofd_seq_load(const struct lu_env *env, struct ofd_device *ofd,
 			     obd_seq seq);
 void ofd_seqs_fini(const struct lu_env *env, struct ofd_device *ofd);
+void ofd_seqs_free(const struct lu_env *env, struct ofd_device *ofd);
 
 /* ofd_io.c */
 int ofd_preprw(const struct lu_env *env,int cmd, struct obd_export *exp,
