@@ -141,6 +141,7 @@
 #define SEQ_DATA_PORTAL                31
 #define SEQ_CONTROLLER_PORTAL          32
 #define MGS_BULK_PORTAL                33
+#define OST_IDX_PORTAL		       34
 
 /* Portal 63 is reserved for the Cray Inc DVS - nic@cray.com, roe@cray.com, n8851@cray.com */
 
@@ -463,6 +464,7 @@ enum fid_seq {
 	FID_SEQ_QUOTA		= 0x200000005ULL,
 	FID_SEQ_QUOTA_GLB	= 0x200000006ULL,
 	FID_SEQ_ROOT		= 0x200000007ULL,  /* Located on MDT0 */
+	FID_SEQ_LAYOUT_RBTREE	= 0x200000008ULL,
 	FID_SEQ_NORMAL		= 0x200000400ULL,
 	FID_SEQ_LOV_DEFAULT	= 0xffffffffffffffffULL
 };
@@ -482,8 +484,9 @@ enum special_oid {
 
 /** OID for FID_SEQ_DOT_LUSTRE */
 enum dot_lustre_oid {
-        FID_OID_DOT_LUSTRE  = 1UL,
-        FID_OID_DOT_LUSTRE_OBF = 2UL,
+	FID_OID_DOT_LUSTRE	= 1UL,
+	FID_OID_DOT_LUSTRE_OBF	= 2UL,
+	FID_OID_DOT_LUSTRE_LF	= 3UL,
 };
 
 static inline int fid_seq_is_mdt0(obd_seq seq)
@@ -603,6 +606,11 @@ static inline int fid_seq_is_norm(const __u64 seq)
 static inline int fid_is_norm(const struct lu_fid *fid)
 {
         return fid_seq_is_norm(fid_seq(fid));
+}
+
+static inline int fid_is_layout_rbtree(const struct lu_fid *fid)
+{
+	return fid_seq(fid) == FID_SEQ_LAYOUT_RBTREE;
 }
 
 /* convert an OST objid into an IDIF FID SEQ number */
@@ -951,6 +959,20 @@ static inline void ostid_le_to_cpu(const struct ost_id *src_oi,
 		fid_le_to_cpu(&dst_oi->oi_fid, &src_oi->oi_fid);
 	}
 }
+
+struct lu_orphan_rec {
+	/* The MDT-object's FID referenced by the orphan OST-object */
+	struct lu_fid	lor_fid;
+	__u32		lor_uid;
+	__u32		lor_gid;
+};
+
+struct lu_orphan_ent {
+	/* The orphan OST-object's FID */
+	struct lu_fid		loe_key;
+	struct lu_orphan_rec	loe_rec;
+};
+void lustre_swab_orphan_ent(struct lu_orphan_ent *ent);
 
 /** @} lu_fid */
 
@@ -1331,6 +1353,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_DISP_STRIPE 0x10000000000000ULL/* create stripe disposition*/
 #define OBD_CONNECT_OPEN_BY_FID	0x20000000000000ULL /* open by fid won't pack
 						       name in request */
+#define OBD_CONNECT_LFSCK      0x40000000000000ULL/* support online LFSCK */
 
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
@@ -1375,7 +1398,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_LVB_TYPE | OBD_CONNECT_LAYOUTLOCK |\
 				OBD_CONNECT_PINGLESS | OBD_CONNECT_MAX_EASIZE |\
 				OBD_CONNECT_FLOCK_DEAD | \
-				OBD_CONNECT_DISP_STRIPE)
+				OBD_CONNECT_DISP_STRIPE | OBD_CONNECT_LFSCK)
 
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
@@ -1393,7 +1416,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_JOBSTATS | \
 				OBD_CONNECT_LIGHTWEIGHT | OBD_CONNECT_LVB_TYPE|\
 				OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_FID | \
-				OBD_CONNECT_PINGLESS)
+				OBD_CONNECT_PINGLESS | OBD_CONNECT_LFSCK)
 #define ECHO_CONNECT_SUPPORTED (0)
 #define MGS_CONNECT_SUPPORTED  (OBD_CONNECT_VERSION | OBD_CONNECT_AT | \
 				OBD_CONNECT_FULL20 | OBD_CONNECT_IMP_RECOV | \
@@ -2762,6 +2785,14 @@ enum fld_op {
 	FLD_LOOKUP = 2,
 };
 
+/* LFSCK opcodes */
+typedef enum {
+	LFSCK_NOTIFY		= 1101,
+	LFSCK_QUERY		= 1102,
+	LFSCK_LAST_OPC,
+	LFSCK_FIRST_OPC 	= LFSCK_NOTIFY
+} lfsck_cmd_t;
+
 /*
  *  LOV data structures
  */
@@ -3409,6 +3440,37 @@ struct obdo {
 #define o_cksum   o_nlink
 #define o_grant_used o_data_version
 
+struct lfsck_request {
+	__u32		lr_event;
+	__u32		lr_index;
+	__u32		lr_flags;
+	__u32		lr_valid;
+	union {
+		__u32	lr_speed;
+		__u32	lr_status;
+	};
+	__u16		lr_version;
+	__u16		lr_active;
+	__u16		lr_param;
+	__u16		lr_padding_1;
+	__u32		lr_padding_2;
+	/* lr_fid is used on server-side only, and can be
+	 * reused as others by client in the future. */
+	struct lu_fid	lr_fid;
+	__u64		lr_padding_3;
+	__u64		lr_padding_4;
+};
+
+void lustre_swab_lfsck_request(struct lfsck_request *lr);
+
+struct lfsck_reply {
+	__u32		lr_status;
+	__u32		lr_padding_1;
+	__u64		lr_padding_2;
+};
+
+void lustre_swab_lfsck_reply(struct lfsck_reply *lr);
+
 static inline void lustre_set_wire_obdo(struct obd_connect_data *ocd,
 					struct obdo *wobdo,
 					const struct obdo *lobdo)
@@ -3523,8 +3585,14 @@ struct idx_info {
 	/* request: hash to start with:
 	 * reply: hash of the first entry of the first lu_idxpage and hash
 	 *        of the entry to read next if any */
-	__u64		ii_hash_start;
-	__u64		ii_hash_end;
+	union {
+		__u64	ii_hash_start;
+		__u64	ii_seq_start;
+	};
+	union {
+		__u64	ii_hash_end;
+		__u64	ii_seq_end;
+	};
 
 	/* reply: size of keys in lu_idxpages, minimal one if II_FL_VARKEY is
 	 * set */
@@ -3534,9 +3602,11 @@ struct idx_info {
 	 * is set */
 	__u16		ii_recsize;
 
-	__u32		ii_pad1;
-	__u64		ii_pad2;
-	__u64		ii_pad3;
+	__u32		ii_oid_start;
+	__u32		ii_oid_end;
+	__u32		ii_ver_start;
+	__u32		ii_ver_end;
+	__u32		ii_index;
 };
 extern void lustre_swab_idx_info(struct idx_info *ii);
 
@@ -3548,6 +3618,8 @@ enum idx_info_flags {
 	II_FL_VARKEY	= 1 << 1, /* keys can be of variable size */
 	II_FL_VARREC	= 1 << 2, /* records can be of variable size */
 	II_FL_NONUNQ	= 1 << 3, /* index supports non-unique keys */
+	IT_FL_VIRTUAL	= 1 << 4, /* virtual object in-RAM only */
+	IT_FL_BIGKEY	= 1 << 5, /* use large key to locate the it position */
 };
 
 #define LIP_MAGIC 0x8A6D6B6C

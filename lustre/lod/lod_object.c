@@ -43,6 +43,7 @@
 #include <lustre_param.h>
 #include <lustre_fid.h>
 #include <obd_lov.h>
+#include <md_object.h>
 
 #include "lod_internal.h"
 
@@ -298,6 +299,9 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
 		RETURN(rc);
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_OWNER))
+		RETURN(0);
+
 	/*
 	 * load striping information, notice we don't do this when object
 	 * is being initialized as we don't need this information till
@@ -318,6 +322,23 @@ static int lod_declare_attr_set(const struct lu_env *env,
 			CERROR("failed declaration: %d\n", rc);
 			break;
 		}
+	}
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
+	    dt_object_exists(next) != 0 &&
+	    dt_object_remote(next) == 0)
+		dt_declare_xattr_del(env, next, XATTR_NAME_LOV, handle);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CHANGE_STRIPE) &&
+	    dt_object_exists(next) &&
+	    dt_object_remote(next) == 0 && S_ISREG(attr->la_mode)) {
+		struct lod_thread_info *info = lod_env_info(env);
+		struct lu_buf *buf = &info->lti_buf;
+
+		buf->lb_buf = info->lti_ea_store;
+		buf->lb_len = info->lti_ea_store_size;
+		dt_declare_xattr_set(env, next, buf, XATTR_NAME_LOV,
+				     LU_XATTR_REPLACE, handle);
 	}
 
 	RETURN(rc);
@@ -344,6 +365,9 @@ static int lod_attr_set(const struct lu_env *env,
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
 		RETURN(rc);
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_OWNER))
+		RETURN(0);
+
 	/*
 	 * if object is striped, apply changes to all the stripes
 	 */
@@ -355,6 +379,44 @@ static int lod_attr_set(const struct lu_env *env,
 			CERROR("failed declaration: %d\n", rc);
 			break;
 		}
+	}
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
+	    dt_object_exists(next) != 0 &&
+	    dt_object_remote(next) == 0)
+		dt_xattr_del(env, next, XATTR_NAME_LOV, handle, BYPASS_CAPA);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CHANGE_STRIPE) &&
+	    dt_object_exists(next) &&
+	    dt_object_remote(next) == 0 && S_ISREG(attr->la_mode)) {
+		struct lod_thread_info *info = lod_env_info(env);
+		struct lu_buf *buf = &info->lti_buf;
+		struct ost_id *oi = &info->lti_ostid;
+		struct lu_fid *fid = &info->lti_fid;
+		struct lov_mds_md_v1 *lmm;
+		struct lov_ost_data_v1 *objs;
+		__u32 magic;
+		int rc1;
+
+		rc1 = lod_get_lov_ea(env, lo);
+		if (rc1  <= 0)
+			RETURN(rc);
+
+		buf->lb_buf = info->lti_ea_store;
+		buf->lb_len = info->lti_ea_store_size;
+		lmm = info->lti_ea_store;
+		magic = le32_to_cpu(lmm->lmm_magic);
+		if (magic == LOV_MAGIC_V1)
+			objs = &(lmm->lmm_objects[0]);
+		else
+			objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
+		ostid_le_to_cpu(&objs->l_ost_oi, oi);
+		ostid_to_fid(fid, oi, le32_to_cpu(objs->l_ost_idx));
+		fid->f_oid--;
+		fid_to_ostid(fid, oi);
+		ostid_cpu_to_le(oi, &objs->l_ost_oi);
+		dt_xattr_set(env, next, buf, XATTR_NAME_LOV,
+			     LU_XATTR_REPLACE, handle, BYPASS_CAPA);
 	}
 
 	RETURN(rc);
@@ -879,6 +941,62 @@ out:
 	RETURN(rc);
 }
 
+static int lod_declare_create_specified_object(const struct lu_env *env,
+					       struct dt_object *dt,
+					       struct lu_attr *attr,
+					       struct dt_allocation_hint *hint,
+					       struct dt_object_format *dof,
+					       struct thandle *th)
+{
+	struct lod_thread_info	*info	= lod_env_info(env);
+	struct lu_buf		*buf	= &info->lti_buf;
+	struct lod_object	*lo	= lod_dt_obj(dt);
+	struct lod_device	*lod	= lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
+	struct dt_object	*child;
+	struct lov_mds_md_v1	*lmm;
+	__u32			 magic;
+	int			 rc;
+	ENTRY;
+
+	LASSERT(hint != NULL);
+	LASSERT(hint->dah_child == NULL);
+	LASSERT(dof->dof_type == DFT_REGULAR);
+
+	rc = lod_get_lov_ea(env, lo);
+	if (rc <= 0)
+		RETURN(rc = (rc == 0 ? -EAGAIN : rc));
+
+	lmm = (struct lov_mds_md_v1 *)info->lti_ea_store;
+	magic = le32_to_cpu(lmm->lmm_magic);
+	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)
+		RETURN(-EINVAL);
+
+	buf->lb_buf = info->lti_ea_store;
+	buf->lb_len = lov_mds_md_size(le16_to_cpu(lmm->lmm_stripe_count),
+				      magic);
+	rc = dt_declare_xattr_set(env, dt_object_child(dt), buf, XATTR_NAME_LOV,
+				  LU_XATTR_REPLACE, th);
+	if (rc != 0)
+		RETURN(rc);
+
+	/* XXX: Currently, we only allocate the object on the OST with
+	 *	the specified index. */
+	child = lod_qos_declare_object_on(env, lod, hint->dah_ost_index, th);
+	if (IS_ERR(child))
+		RETURN(PTR_ERR(child));
+
+	/* For the create error handling. */
+	rc = dt_declare_destroy(env, child, th);
+	if (rc != 0) {
+		lu_object_put_nocache(env, &child->do_lu);
+		RETURN(rc);
+	}
+
+	hint->dah_child = child;
+
+	RETURN(0);
+}
+
 static int lod_declare_object_create(const struct lu_env *env,
 				     struct dt_object *dt,
 				     struct lu_attr *attr,
@@ -894,6 +1012,13 @@ static int lod_declare_object_create(const struct lu_env *env,
 	LASSERT(dof);
 	LASSERT(attr);
 	LASSERT(th);
+
+	if (hint != NULL && unlikely(hint->dah_flags & DAHF_INDEX)) {
+		rc = lod_declare_create_specified_object(env, dt, attr, hint,
+							 dof, th);
+
+		RETURN(rc);
+	}
 
 	/*
 	 * first of all, we declare creation of local object
@@ -980,6 +1105,87 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+static int lod_create_specified_object(const struct lu_env *env,
+				       struct dt_object *dt,
+				       struct lu_attr *attr,
+				       struct dt_allocation_hint *hint,
+				       struct dt_object_format *dof,
+				       struct thandle *th)
+{
+	struct lod_thread_info	*info		= lod_env_info(env);
+	struct ost_id		*oi		= &info->lti_ostid;
+	struct lu_buf		*buf		= &info->lti_buf;
+	struct lod_object	*lo		= lod_dt_obj(dt);
+	struct lov_mds_md_v1	*lmm;
+	struct lov_ost_data_v1	*objs;
+	__u32			 magic;
+	int			 rc;
+	bool			 created	= false;
+	ENTRY;
+
+	LASSERT(hint != NULL);
+	LASSERT(hint->dah_child != NULL);
+
+	/* XXX: Currently, we only allocate the object on the OST with
+	 *	the specified index. */
+	rc = dt_create(env, hint->dah_child, attr, hint, dof, th);
+	if (rc != 0)
+		RETURN(rc);
+
+	created = true;
+	rc = lod_get_lov_ea(env, lo);
+	if (rc <= 0)
+		GOTO(out, rc = (rc == 0 ? -EAGAIN : rc));
+
+	lmm = (struct lov_mds_md_v1 *)info->lti_ea_store;
+	magic = le32_to_cpu(lmm->lmm_magic);
+	if (magic == LOV_MAGIC_V1)
+		objs = &(lmm->lmm_objects[0]);
+	else if (magic == LOV_MAGIC_V3)
+		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
+	else
+		GOTO(out, rc = -EINVAL);
+
+	/* layout has been changed */
+	if (le16_to_cpu(lmm->lmm_layout_gen) != hint->dah_gen)
+		GOTO(out, rc = -EAGAIN);
+
+	lmm->lmm_layout_gen = cpu_to_le16(hint->dah_gen + 1);
+	fid_to_ostid(lu_object_fid(&hint->dah_child->do_lu), oi);
+	ostid_cpu_to_le(oi, &objs[hint->dah_lov_offset].l_ost_oi);
+	objs[hint->dah_lov_offset].l_ost_gen = cpu_to_le32(0);
+	objs[hint->dah_lov_offset].l_ost_idx = cpu_to_le32(hint->dah_ost_index);
+
+	buf->lb_buf = info->lti_ea_store;
+	buf->lb_len = lov_mds_md_size(le16_to_cpu(lmm->lmm_stripe_count),
+				      magic);
+	rc = dt_xattr_set(env, dt_object_child(dt), buf, XATTR_NAME_LOV,
+			  LU_XATTR_REPLACE, th, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	lo->ldo_layout_gen = hint->dah_gen + 1;
+	if (lo->ldo_stripe != NULL &&
+	    lo->ldo_stripe[hint->dah_lov_offset] != NULL) {
+		lu_object_put(env, &lo->ldo_stripe[hint->dah_lov_offset]->do_lu);
+		lo->ldo_stripe[hint->dah_lov_offset] = hint->dah_child;
+		hint->dah_child = NULL;
+	}
+
+	GOTO(out, rc = 0);
+
+out:
+	if (rc != 0 && created)
+		dt_destroy(env, hint->dah_child, th);
+
+	if (hint->dah_child != NULL) {
+		lu_object_put(env, &hint->dah_child->do_lu);
+		hint->dah_child = NULL;
+	}
+
+	return rc;
+}
+
 static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 			     struct lu_attr *attr,
 			     struct dt_allocation_hint *hint,
@@ -989,6 +1195,12 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	struct lod_object  *lo = lod_dt_obj(dt);
 	int		    rc;
 	ENTRY;
+
+	if (hint != NULL && unlikely(hint->dah_flags & DAHF_INDEX)) {
+		rc = lod_create_specified_object(env, dt, attr, hint, dof, th);
+
+		RETURN(rc);
+	}
 
 	/* create local object */
 	rc = dt_create(env, next, attr, hint, dof, th);
@@ -1018,6 +1230,9 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	rc = dt_declare_destroy(env, next, th);
 	if (rc)
 		RETURN(rc);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ))
+		RETURN(0);
 
 	/*
 	 * load striping information, notice we don't do this when object
@@ -1052,6 +1267,9 @@ static int lod_object_destroy(const struct lu_env *env,
 	rc = dt_destroy(env, next, th);
 	if (rc)
 		RETURN(rc);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ))
+		RETURN(0);
 
 	/* destroy all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
@@ -1196,23 +1414,57 @@ static const struct dt_body_operations lod_body_lnk_ops = {
 	.dbo_write		= lod_write
 };
 
-static int lod_object_init(const struct lu_env *env, struct lu_object *o,
+static int lod_object_init(const struct lu_env *env, struct lu_object *lo,
 			   const struct lu_object_conf *conf)
 {
-	struct lod_device *d = lu2lod_dev(o->lo_dev);
-	struct lu_object  *below;
-	struct lu_device  *under;
+	struct lod_device	*lod	= lu2lod_dev(lo->lo_dev);
+	struct lu_device	*cdev	= NULL;
+	struct lu_object	*cobj;
+	struct lod_tgt_descs	*ltd	= NULL;
+	struct lod_tgt_desc	*tgt;
+	mdsno_t			 idx	= 0;
+	int			 type	= LU_SEQ_RANGE_ANY;
+	int			 rc;
 	ENTRY;
 
-	/*
-	 * create local object
-	 */
-	under = &d->lod_child->dd_lu_dev;
-	below = under->ld_ops->ldo_object_alloc(env, o->lo_header, under);
-	if (below == NULL)
+	rc = lod_fld_lookup(env, lod, lu_object_fid(lo), &idx, &type);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (type == LU_SEQ_RANGE_MDT &&
+	    idx == lu_site2seq(lo->lo_dev->ld_site)->ss_node_id) {
+		cdev = &lod->lod_child->dd_lu_dev;
+	} else if (type == LU_SEQ_RANGE_MDT) {
+		ltd = &lod->lod_mdt_descs;
+		lod_getref(ltd);
+	} else if (type == LU_SEQ_RANGE_OST) {
+		ltd = &lod->lod_ost_descs;
+		lod_getref(ltd);
+	} else {
+		LBUG();
+	}
+
+	if (ltd != NULL) {
+		if (ltd->ltd_tgts_size > idx &&
+		    cfs_bitmap_check(ltd->ltd_tgt_bitmap, idx)) {
+			tgt = LTD_TGT(ltd, idx);
+
+			LASSERT(tgt != NULL);
+			LASSERT(tgt->ltd_tgt != NULL);
+
+			cdev = &(tgt->ltd_tgt->dd_lu_dev);
+		}
+		lod_putref(lod, ltd);
+	}
+
+	if (unlikely(cdev == NULL))
+		RETURN(-ENOENT);
+
+	cobj = cdev->ld_ops->ldo_object_alloc(env, lo->lo_header, cdev);
+	if (unlikely(cobj == NULL))
 		RETURN(-ENOMEM);
 
-	lu_object_add(o, below);
+	lu_object_add(lo, cobj);
 
 	RETURN(0);
 }
@@ -1285,52 +1537,4 @@ struct lu_object_operations lod_lu_obj_ops = {
 	.loo_object_free	= lod_object_free,
 	.loo_object_release	= lod_object_release,
 	.loo_object_print	= lod_object_print,
-};
-
-/**
- * Init remote lod object
- */
-static int lod_robject_init(const struct lu_env *env, struct lu_object *lo,
-			    const struct lu_object_conf *conf)
-{
-	struct lod_device *lod = lu2lod_dev(lo->lo_dev);
-	struct lod_tgt_descs *ltd = &lod->lod_mdt_descs;
-	struct lu_device  *c_dev = NULL;
-	struct lu_object  *c_obj;
-	int i;
-	ENTRY;
-
-	lod_getref(ltd);
-	if (ltd->ltd_tgts_size > 0) {
-		cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
-			struct lod_tgt_desc *tgt;
-			tgt = LTD_TGT(ltd, i);
-			LASSERT(tgt && tgt->ltd_tgt);
-			if (tgt->ltd_index ==
-			    lu2lod_obj(lo)->ldo_mds_num) {
-				c_dev = &(tgt->ltd_tgt->dd_lu_dev);
-				break;
-			}
-		}
-	}
-	lod_putref(lod, ltd);
-
-	if (unlikely(c_dev == NULL))
-		RETURN(-ENOENT);
-
-	c_obj = c_dev->ld_ops->ldo_object_alloc(env, lo->lo_header, c_dev);
-	if (unlikely(c_obj == NULL))
-		RETURN(-ENOMEM);
-
-	lu_object_add(lo, c_obj);
-
-	RETURN(0);
-}
-
-struct lu_object_operations lod_lu_robj_ops = {
-	.loo_object_init      = lod_robject_init,
-	.loo_object_start     = lod_object_start,
-	.loo_object_free      = lod_object_free,
-	.loo_object_release   = lod_object_release,
-	.loo_object_print     = lod_object_print,
 };

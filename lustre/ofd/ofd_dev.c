@@ -306,6 +306,7 @@ static int ofd_object_init(const struct lu_env *env, struct lu_object *o,
 			   const struct lu_object_conf *conf)
 {
 	struct ofd_device	*d = ofd_dev(o->lo_dev);
+	struct ofd_object	*fo = ofd_obj(o);
 	struct lu_device	*under;
 	struct lu_object	*below;
 	int			 rc = 0;
@@ -315,6 +316,7 @@ static int ofd_object_init(const struct lu_env *env, struct lu_object *o,
 	CDEBUG(D_INFO, "object init, fid = "DFID"\n",
 	       PFID(lu_object_fid(o)));
 
+	spin_lock_init(&fo->ofo_lock);
 	under = &d->ofd_osd->dd_lu_dev;
 	below = under->ld_ops->ldo_object_alloc(env, o->lo_header, under);
 	if (below != NULL)
@@ -381,6 +383,37 @@ static struct lu_object *ofd_object_alloc(const struct lu_env *env,
 
 extern int ost_handle(struct ptlrpc_request *req);
 
+static int ofd_lfsck_out_notify(const struct lu_env *env, void *data,
+				enum lfsck_events event)
+{
+	struct ofd_device *ofd = data;
+	struct obd_device *obd = ofd_obd(ofd);
+
+	switch (event) {
+	case LE_LASTID_REBUILDING:
+		CWARN("%s: Found crashed LAST_ID, deny creating new OST-object "
+		      "on the device until the LAST_ID rebuilt successfully.\n",
+		      obd->obd_name);
+		down_write(&ofd->ofd_lastid_rwsem);
+		ofd->ofd_lastid_rebuilding = 1;
+		up_write(&ofd->ofd_lastid_rwsem);
+		break;
+	case LE_LASTID_REBUILT: {
+		down_write(&ofd->ofd_lastid_rwsem);
+		ofd_seqs_free(env, ofd);
+		ofd->ofd_lastid_rebuilding = 0;
+		up_write(&ofd->ofd_lastid_rwsem);
+		break;
+	}
+	default:
+		CERROR("%s: unknown lfsck event: rc = %d\n",
+		       ofd_obd(ofd)->obd_name, event);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 		       struct lu_device *dev)
 {
@@ -388,7 +421,7 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	struct ofd_device		*ofd = ofd_dev(dev);
 	struct obd_device		*obd = ofd_obd(ofd);
 	struct lu_device		*next = &ofd->ofd_osd->dd_lu_dev;
-	struct lfsck_start_param	 lsp;
+	struct lfsck_start_param	*lsp;
 	int				 rc;
 
 	ENTRY;
@@ -408,16 +441,19 @@ static int ofd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	if (rc != 0)
 		RETURN(rc);
 
-	rc = lfsck_register(env, ofd->ofd_osd, &ofd->ofd_dt_dev, false);
+	rc = lfsck_register(env, ofd->ofd_osd, ofd->ofd_osd, obd,
+			    ofd_lfsck_out_notify, ofd, false);
 	if (rc != 0) {
 		CERROR("%s: failed to initialize lfsck: rc = %d\n",
 		       obd->obd_name, rc);
 		RETURN(rc);
 	}
 
-	lsp.lsp_start = NULL;
-	lsp.lsp_namespace = ofd->ofd_namespace;
-	rc = lfsck_start(env, ofd->ofd_osd, &lsp);
+	lsp = &info->fti_lsp;
+	lsp->lsp_namespace = ofd->ofd_namespace;
+	lsp->lsp_start = NULL;
+	lsp->lsp_index_valid = 0;
+	rc = lfsck_start(env, ofd->ofd_osd, lsp);
 	if (rc != 0) {
 		CWARN("%s: auto trigger paused LFSCK failed: rc = %d\n",
 		      obd->obd_name, rc);
@@ -1885,6 +1921,74 @@ static void ofd_hp_punch(struct tgt_session_info *tsi)
 	tgt_ses_req(tsi)->rq_ops = &ofd_hpreq_punch;
 }
 
+static int ofd_lfsck_notify_hdl(struct tgt_session_info *tsi)
+{
+	const struct lu_env	*env = tsi->tsi_env;
+	struct ofd_device	*ofd = ofd_exp(tsi->tsi_exp);
+	struct lfsck_request	*lr;
+	int			 rc;
+	ENTRY;
+
+	lr = req_capsule_client_get(tsi->tsi_pill, &RMF_LFSCK_REQUEST);
+	if (lr == NULL)
+		RETURN(-EPROTO);
+
+	switch (lr->lr_event) {
+	case LE_START: {
+		struct ofd_thread_info		*info  = ofd_info(env);
+		struct lfsck_start		*start = &info->fti_lfsck_start;
+		struct lfsck_start_param	*lsp   = &info->fti_lsp;
+
+		start->ls_valid = lr->lr_valid;
+		start->ls_speed_limit = lr->lr_speed;
+		start->ls_version = lr->lr_version;
+		start->ls_active = lr->lr_active;
+		start->ls_flags = lr->lr_param;
+
+		lsp->lsp_namespace = ofd->ofd_namespace;
+		lsp->lsp_start = start;
+		lsp->lsp_index = lr->lr_index;
+		lsp->lsp_index_valid = 1;
+		rc = lfsck_start(env, ofd->ofd_osd, lsp);
+		break;
+	}
+	case LE_STOP:
+	case LE_PHASE2_DONE:
+		rc = lfsck_in_notify(env, ofd->ofd_osd, lr);
+		break;
+	default:
+		CERROR("%s: unsupported lfsck_event: rc = %d\n",
+		       ofd_name(ofd), lr->lr_event);
+		rc = -EOPNOTSUPP;
+		break;
+	}
+
+	RETURN(rc);
+}
+
+static int ofd_lfsck_query_hdl(struct tgt_session_info *tsi)
+{
+	struct ofd_device	*ofd	 = ofd_exp(tsi->tsi_exp);
+	struct lfsck_request	*request;
+	struct lfsck_reply	*reply;
+	int			 rc	 = 0;
+	ENTRY;
+
+	request = req_capsule_client_get(tsi->tsi_pill, &RMF_LFSCK_REQUEST);
+	if (request == NULL)
+		RETURN(-EPROTO);
+
+	reply = req_capsule_server_get(tsi->tsi_pill, &RMF_LFSCK_REPLY);
+	if (reply == NULL)
+		RETURN(-ENOMEM);
+
+	reply->lr_status = lfsck_query(ofd->ofd_osd, request);
+	if (reply->lr_status < 0)
+		rc = reply->lr_status;
+
+	RETURN(rc);
+}
+
 #define OBD_FAIL_OST_READ_NET	OBD_FAIL_OST_BRW_NET
 #define OBD_FAIL_OST_WRITE_NET	OBD_FAIL_OST_BRW_NET
 #define OST_BRW_READ	OST_READ
@@ -1922,6 +2026,11 @@ TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_SYNC,	ofd_sync_hdl),
 TGT_OST_HDL(0		| HABEO_REFERO,	OST_QUOTACTL,	ofd_quotactl),
 };
 
+static struct tgt_handler ofd_lfsck_handlers[] = {
+TGT_LFSCK_HDL(HABEO_REFERO,	LFSCK_NOTIFY,	ofd_lfsck_notify_hdl),
+TGT_LFSCK_HDL(HABEO_REFERO,	LFSCK_QUERY,	ofd_lfsck_query_hdl),
+};
+
 static struct tgt_opc_slice ofd_common_slice[] = {
 	{
 		.tos_opc_start	= OST_FIRST_OPC,
@@ -1947,6 +2056,11 @@ static struct tgt_opc_slice ofd_common_slice[] = {
 		.tos_opc_start	= SEQ_FIRST_OPC,
 		.tos_opc_end	= SEQ_LAST_OPC,
 		.tos_hs		= seq_handlers
+	},
+	{
+		.tos_opc_start	= LFSCK_FIRST_OPC,
+		.tos_opc_end	= LFSCK_LAST_OPC,
+		.tos_hs		= ofd_lfsck_handlers
 	},
 	{
 		.tos_hs		= NULL
@@ -1999,10 +2113,14 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	m->ofd_tot_granted = 0;
 	m->ofd_tot_pending = 0;
 	m->ofd_seq_count = 0;
+	init_waitqueue_head(&m->ofd_inconsistency_thread.t_ctl_waitq);
+	INIT_LIST_HEAD(&m->ofd_inconsistency_list);
+	spin_lock_init(&m->ofd_inconsistency_lock);
 
 	spin_lock_init(&m->ofd_batch_lock);
 	rwlock_init(&obd->u.filter.fo_sptlrpc_lock);
 	sptlrpc_rule_set_init(&obd->u.filter.fo_sptlrpc_rset);
+	init_rwsem(&m->ofd_lastid_rwsem);
 
 	obd->u.filter.fo_fl_oss_capa = 0;
 	CFS_INIT_LIST_HEAD(&obd->u.filter.fo_capa_keys);
@@ -2102,7 +2220,14 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 	if (rc)
 		GOTO(err_fini_lut, rc);
 
+	rc = ofd_start_inconsistency_self_repair_thread(m);
+	if (rc != 0)
+		GOTO(err_fini_fs, rc);
+
 	RETURN(0);
+
+err_fini_fs:
+	ofd_fs_cleanup(env, m);
 err_fini_lut:
 	tgt_fini(env, &m->ofd_lut);
 err_free_ns:
@@ -2117,16 +2242,20 @@ err_fini_proc:
 
 static void ofd_fini(const struct lu_env *env, struct ofd_device *m)
 {
-	struct obd_device *obd = ofd_obd(m);
-	struct lu_device  *d = &m->ofd_dt_dev.dd_lu_dev;
+	struct obd_device	*obd = ofd_obd(m);
+	struct lu_device	*d   = &m->ofd_dt_dev.dd_lu_dev;
+	struct lfsck_stop	 stop;
 
-	lfsck_stop(env, m->ofd_osd, true);
+	stop.ls_status = LS_PAUSED;
+	stop.ls_flags = 0;
+	lfsck_stop(env, m->ofd_osd, &stop);
 	lfsck_degister(env, m->ofd_osd);
 	target_recovery_fini(obd);
 	obd_exports_barrier(obd);
 	obd_zombie_barrier();
 
 	tgt_fini(env, &m->ofd_lut);
+	ofd_stop_inconsistency_self_repair_thread(m);
 	ofd_fs_cleanup(env, m);
 
 	ofd_free_capa_keys(m);
