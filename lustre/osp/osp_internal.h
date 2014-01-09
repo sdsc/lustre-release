@@ -83,6 +83,7 @@ struct osp_device {
 	 * and required le64_to_cpu() conversion before use.
 	 * Protected by opd_pre_lock */
 	struct lu_fid			opd_last_used_fid;
+	struct lu_fid			opd_last_fid_ost;
 	struct lu_fid			opd_gap_start_fid;
 	int				 opd_gap_count;
 	/* connection to OST */
