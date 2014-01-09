@@ -105,10 +105,11 @@ typedef void (*dt_cb_t)(struct lu_env *env, struct thandle *th,
 #define MAX_COMMIT_CB_STR_LEN	32
 
 struct dt_txn_commit_cb {
-	cfs_list_t	dcb_linkage;
-	dt_cb_t		dcb_func;
-	__u32		dcb_magic;
-	char		dcb_name[MAX_COMMIT_CB_STR_LEN];
+	cfs_list_t		 dcb_linkage;
+	struct dt_device	*dcb_dev;
+	dt_cb_t 		 dcb_func;
+	__u32			 dcb_magic;
+	char			 dcb_name[MAX_COMMIT_CB_STR_LEN];
 };
 
 /**
@@ -212,6 +213,7 @@ enum dt_index_flags {
  */
 extern const struct dt_index_features dt_directory_features;
 extern const struct dt_index_features dt_otable_features;
+extern const struct dt_index_features dt_lfsck_orphan_features;
 extern const struct dt_index_features dt_lfsck_features;
 
 /* index features supported by the accounting objects */
@@ -223,14 +225,24 @@ extern const struct dt_index_features dt_quota_glb_features;
 /* index features supported by the quota slave indexes */
 extern const struct dt_index_features dt_quota_slv_features;
 
+enum dt_allocation_hint_flags {
+	DAHF_RECREATE	= 0x00000001,
+	DAHF_INDEX	= 0x00000002,
+};
+
 /**
  * This is a general purpose dt allocation hint.
  * It now contains the parent object.
  * It can contain any allocation hint in the future.
  */
 struct dt_allocation_hint {
-        struct dt_object           *dah_parent;
-        __u32                       dah_mode;
+	struct dt_object	*dah_parent;
+	struct dt_object	*dah_child;
+	__u32			 dah_mode;
+	__u32			 dah_flags;
+	__u32			 dah_ost_index;
+	__u32			 dah_lov_offset;
+	__u16			 dah_gen;
 };
 
 /**
@@ -300,6 +312,9 @@ struct dt_object_operations {
          * lu_object_operations, but that would break existing symmetry.
          */
 
+	int   (*do_declare_attr_get)(const struct lu_env *env,
+				     struct dt_object *dt,
+				     struct lustre_capa *capa);
         /**
          * Return standard attributes.
          *
@@ -322,6 +337,13 @@ struct dt_object_operations {
                              const struct lu_attr *attr,
                              struct thandle *handle,
                              struct lustre_capa *capa);
+
+	int   (*do_declare_xattr_get)(const struct lu_env *env,
+				      struct dt_object *dt,
+				      struct lu_buf *buf,
+				      const char *name,
+				      struct lustre_capa *capa);
+
         /**
          * Return a value of an extended attribute.
          *
@@ -659,6 +681,7 @@ struct dt_device {
          * single-threaded start-up shut-down procedures.
          */
         cfs_list_t                         dd_txn_callbacks;
+	unsigned int			   dd_record_fid_accessed:1;
 };
 
 int  dt_device_init(struct dt_device *dev, struct lu_device_type *t);
@@ -760,11 +783,10 @@ struct thandle {
 	 * this value is used in recovery */
 	__s32             th_result;
 
-	/** whether we need sync commit */
-	unsigned int		th_sync:1;
-
-	/* local transation, no need to inform other layers */
-	unsigned int		th_local:1;
+	unsigned int	  th_sync:1,  /* Whether we need sync commit. */
+			  th_local:1, /* local transation, no need to
+				       * inform other layers. */
+			  th_dummy:1; /* dummy handle for idempotent ops. */
 
 	/* In DNE, one transaction can be disassemblied into
 	 * updates on several different MDTs, and these updates
@@ -841,6 +863,11 @@ struct dt_object *dt_locate_at(const struct lu_env *env,
 			       struct dt_device *dev,
 			       const struct lu_fid *fid,
 			       struct lu_device *top_dev);
+struct dt_object *dt_locate_at_conf(const struct lu_env *env,
+				    struct dt_device *dev,
+				    const struct lu_fid *fid,
+				    struct lu_device *top_dev,
+				    const struct lu_object_conf *conf);
 static inline struct dt_object *
 dt_locate(const struct lu_env *env, struct dt_device *dev,
 	  const struct lu_fid *fid)
@@ -1086,6 +1113,16 @@ static inline int dt_write_locked(const struct lu_env *env,
         LASSERT(dt->do_ops);
         LASSERT(dt->do_ops->do_write_locked);
         return dt->do_ops->do_write_locked(env, dt);
+}
+
+static inline int dt_declare_attr_get(const struct lu_env *env,
+				      struct dt_object *dt,
+				      struct lustre_capa *capa)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_ops);
+	LASSERT(dt->do_ops->do_declare_attr_get);
+	return dt->do_ops->do_declare_attr_get(env, dt, capa);
 }
 
 static inline int dt_attr_get(const struct lu_env *env, struct dt_object *dt,
@@ -1371,6 +1408,18 @@ static inline int dt_xattr_set(const struct lu_env *env,
         return dt->do_ops->do_xattr_set(env, dt, buf, name, fl, th, capa);
 }
 
+static inline int dt_declare_xattr_get(const struct lu_env *env,
+				       struct dt_object *dt,
+				       struct lu_buf *buf,
+				       const char *name,
+				       struct lustre_capa *capa)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_ops);
+	LASSERT(dt->do_ops->do_declare_xattr_get);
+	return dt->do_ops->do_declare_xattr_get(env, dt, buf, name, capa);
+}
+
 static inline int dt_xattr_get(const struct lu_env *env,
                               struct dt_object *dt, struct lu_buf *buf,
                               const char *name, struct lustre_capa *capa)
@@ -1471,6 +1520,7 @@ struct dt_thread_info {
 	struct dt_object_format  dti_dof;
 	struct lustre_mdt_attrs  dti_lma;
 	struct lu_buf            dti_lb;
+	struct lu_object_conf	 dti_conf;
 	loff_t                   dti_off;
 };
 

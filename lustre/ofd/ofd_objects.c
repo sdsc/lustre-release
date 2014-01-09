@@ -43,6 +43,7 @@
 
 #include <dt_object.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_lfsck.h>
 
 #include "ofd_internal.h"
 
@@ -52,7 +53,9 @@ int ofd_version_get_check(struct ofd_thread_info *info,
 	dt_obj_version_t curr_version;
 
 	LASSERT(ofd_object_exists(fo));
-	LASSERT(info->fti_exp);
+
+	if (info->fti_exp)
+		RETURN(0);
 
 	curr_version = dt_version_get(info->fti_env, ofd_object_child(fo));
 	if ((__s64)curr_version == -EOPNOTSUPP)
@@ -111,32 +114,43 @@ struct ofd_object *ofd_object_find_or_create(const struct lu_env *env,
 	RETURN(ofd_obj(fo_obj));
 }
 
-int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo)
+int ofd_object_ff_check(const struct lu_env *env, struct ofd_object *fo,
+			bool reload)
 {
-	int rc = 0;
+	struct ofd_thread_info	*info = ofd_info(env);
+	struct filter_fid_old	*ff   = &info->fti_mds_fid_old;
+	struct lu_buf		*buf  = &info->fti_buf;
+	struct lu_fid		*pfid = &fo->ofo_pfid;
+	int			 rc   = 0;
 
-	ENTRY;
+	if (fid_is_sane(pfid) && !reload)
+		return 0;
 
-	if (!fo->ofo_ff_exists) {
-		/*
-		 * This actually means that we don't know whether the object
-		 * has the "fid" EA or not.
-		 */
-		rc = dt_xattr_get(env, ofd_object_child(fo), &LU_BUF_NULL,
-				  XATTR_NAME_FID, BYPASS_CAPA);
-		if (rc >= 0 || rc == -ENODATA) {
-			/*
-			 * Here we assume that, if the object doesn't have the
-			 * "fid" EA, the caller will add one, unless a fatal
-			 * error (e.g., a memory or disk failure) prevents it
-			 * from doing so.
-			 */
-			fo->ofo_ff_exists = 1;
-		}
-		if (rc > 0)
-			rc = 0;
+	buf->lb_buf = ff;
+	buf->lb_len = sizeof(*ff);
+	rc = dt_xattr_get(env, ofd_object_child(fo), buf, XATTR_NAME_FID,
+			  BYPASS_CAPA);
+	if (rc < 0)
+		return rc;
+
+	if (rc < sizeof(struct lu_fid)) {
+		fid_zero(pfid);
+
+		return -ENODATA;
 	}
-	RETURN(rc);
+
+	spin_lock(&fo->ofo_lock);
+	if (!fo->ofo_pfid_inconsistent) {
+		pfid->f_seq = le64_to_cpu(ff->ff_parent.f_seq);
+		pfid->f_oid = le32_to_cpu(ff->ff_parent.f_oid);
+		/* XXX: In fact, the ff_parent::f_ver is not the real parent
+		 *	FID::f_ver, instead, it is the OST-object index in
+		 *	its parent MDT-object layout EA. */
+		pfid->f_ver = le32_to_cpu(ff->ff_parent.f_ver);
+	}
+	spin_unlock(&fo->ofo_lock);
+
+	return 0;
 }
 
 void ofd_object_put(const struct lu_env *env, struct ofd_object *fo)
@@ -266,11 +280,43 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 	CDEBUG(D_OTHER, "%s: create new object "DFID" nr %d\n",
 	       ofd_name(ofd), PFID(fid), nr);
 
+	LASSERT(nr > 0);
+
+	 /* When the LFSCK scanning the whole device to verify the LAST_ID file
+	  * consistency, it will load the last_id into RAM firstly, and compare
+	  * the last_id with echo OST-object's ID. If the later one is larger,
+	  * then it will regard the LAST_ID file crashed. But during the LFSCK
+	  * scanning, the OFD may continue to create new OST-objects. Those new
+	  * created OST-objects will have larger IDs than the LFSCK known ones.
+	  * So from the LFSCK view, it needs to re-load the last_id from disk
+	  * file, and if the latest last_id is still smaller than the object's
+	  * ID, then the LAST_ID file is real crashed.
+	  *
+	  * To make above mechanism to work, before OFD pre-create OST-objects,
+	  * it needs to update the LAST_ID file firstly, otherwise, the LFSCK
+	  * may cannot get latest last_id although new OST-object created. */
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_SKIP_LASTID)) {
+		tmp = cpu_to_le64(id + nr - 1);
+		dt_write_lock(env, oseq->os_lastid_obj, 0);
+		rc = dt_record_write(env, oseq->os_lastid_obj,
+				     &info->fti_buf, &info->fti_off, th);
+		dt_write_unlock(env, oseq->os_lastid_obj);
+		if (rc != 0)
+			GOTO(trans_stop, rc);
+	}
+
 	for (i = 0; i < nr; i++) {
 		fo = batch[i];
 		LASSERT(fo);
 
-		if (likely(!ofd_object_exists(fo))) {
+		/* Only the new created objects need to be recorded. */
+		if (ofd->ofd_osd->dd_record_fid_accessed)
+			lfsck_record_fid_accessed(env, ofd->ofd_osd,
+					&ofd_info(env)->fti_lr,
+					lu_object_fid(&fo->ofo_obj.do_lu));
+
+		if (likely(!ofd_object_exists(fo) &&
+			   !OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DANGLING))) {
 			next = ofd_object_child(fo);
 			LASSERT(next != NULL);
 
@@ -284,11 +330,24 @@ int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 	}
 
 	objects = i;
-	if (objects > 0) {
+	/* NOT all the wanted objects have been created,
+	 * set the LAST_ID as the real created. */
+	if (unlikely(objects < nr)) {
+		int rc1;
+
+		info->fti_off = 0;
 		tmp = cpu_to_le64(ofd_seq_last_oid(oseq));
-		rc = dt_record_write(env, oseq->os_lastid_obj,
-				     &info->fti_buf, &info->fti_off, th);
+		dt_write_lock(env, oseq->os_lastid_obj, 0);
+		rc1 = dt_record_write(env, oseq->os_lastid_obj,
+				      &info->fti_buf, &info->fti_off, th);
+		dt_write_unlock(env, oseq->os_lastid_obj);
+		if (rc1 != 0)
+			CERROR("%s: fail to reset the LAST_ID for seq ("LPX64
+			       ") from "LPU64" to "LPU64"\n", ofd_name(ofd),
+			       ostid_seq(&oseq->os_oi), id + nr - 1,
+			       ofd_seq_last_oid(oseq));
 	}
+
 trans_stop:
 	ofd_trans_stop(env, ofd, th, rc);
 out:
@@ -387,7 +446,7 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 		GOTO(unlock, rc);
 
 	if (ff != NULL) {
-		rc = ofd_object_ff_check(env, fo);
+		rc = ofd_object_ff_check(env, fo, false);
 		if (rc == -ENODATA)
 			ff_needed = 1;
 		else if (rc < 0)
@@ -421,15 +480,24 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 	if (rc)
 		GOTO(stop, rc);
 
-	if (ff_needed)
+	if (ff_needed) {
 		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
 				  XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+		if (rc == 0) {
+			fo->ofo_pfid.f_seq = le64_to_cpu(ff->ff_parent.f_seq);
+			fo->ofo_pfid.f_oid = le32_to_cpu(ff->ff_parent.f_oid);
+			fo->ofo_pfid.f_ver = le32_to_cpu(ff->ff_parent.f_ver);
+		}
+	}
+
+	GOTO(stop, rc);
 
 stop:
 	ofd_trans_stop(env, ofd, th, rc);
 unlock:
 	ofd_write_unlock(env, fo);
-	RETURN(rc);
+
+	return rc;
 }
 
 int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
@@ -468,7 +536,7 @@ int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 		GOTO(unlock, rc);
 
 	if (ff != NULL) {
-		rc = ofd_object_ff_check(env, fo);
+		rc = ofd_object_ff_check(env, fo, false);
 		if (rc == -ENODATA)
 			ff_needed = 1;
 		else if (rc < 0)
@@ -510,15 +578,24 @@ int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 	if (rc)
 		GOTO(stop, rc);
 
-	if (ff_needed)
+	if (ff_needed) {
 		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
 				  XATTR_NAME_FID, 0, th, BYPASS_CAPA);
+		if (rc == 0) {
+			fo->ofo_pfid.f_seq = le64_to_cpu(ff->ff_parent.f_seq);
+			fo->ofo_pfid.f_oid = le32_to_cpu(ff->ff_parent.f_oid);
+			fo->ofo_pfid.f_ver = le32_to_cpu(ff->ff_parent.f_ver);
+		}
+	}
+
+	GOTO(stop, rc);
 
 stop:
 	ofd_trans_stop(env, ofd, th, rc);
 unlock:
 	ofd_write_unlock(env, fo);
-	RETURN(rc);
+
+	return rc;
 }
 
 int ofd_object_destroy(const struct lu_env *env, struct ofd_object *fo,

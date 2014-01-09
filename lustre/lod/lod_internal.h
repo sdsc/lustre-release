@@ -222,7 +222,6 @@ struct lod_object {
 	__u32		   ldo_def_stripe_size;
 	__u16		   ldo_def_stripenr;
 	__u16		   ldo_def_stripe_offset;
-	mdsno_t		   ldo_mds_num;
 };
 
 
@@ -322,7 +321,7 @@ static inline struct lod_thread_info *lod_env_info(const struct lu_env *env)
 
 /* lod_dev.c */
 int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
-		   const struct lu_fid *fid, mdsno_t *tgt, int flags);
+		   const struct lu_fid *fid, __u32 *tgt, int *flags);
 /* lod_lov.c */
 void lod_getref(struct lod_tgt_descs *ltd);
 void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd);
@@ -332,7 +331,8 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 int lod_del_device(const struct lu_env *env, struct lod_device *lod,
 		   struct lod_tgt_descs *ltd, char *osp, unsigned idx,
 		   unsigned gen);
-int lod_fini_tgt(struct lod_device *lod, struct lod_tgt_descs *ltd);
+int lod_fini_tgt(const struct lu_env *env, struct lod_device *lod,
+		 struct lod_tgt_descs *ltd, bool for_ost);
 int lod_load_striping(const struct lu_env *env, struct lod_object *mo);
 int lod_get_lov_ea(const struct lu_env *env, struct lod_object *mo);
 void lod_fix_desc(struct lov_desc *desc);
@@ -368,6 +368,10 @@ int lod_pool_add(struct obd_device *obd, char *poolname, char *ostname);
 int lod_pool_remove(struct obd_device *obd, char *poolname, char *ostname);
 
 /* lod_qos.c */
+struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
+					    struct lod_device *d,
+					    int ost_idx,
+					    struct thandle *th);
 int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 			struct lu_attr *attr, const struct lu_buf *buf,
 			struct thandle *th);
