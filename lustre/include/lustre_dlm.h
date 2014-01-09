@@ -1057,6 +1057,8 @@ struct ldlm_enqueue_info {
 	void *ei_cbdata; /** Data to be passed into callbacks. */
 };
 
+#define ei_res_id	ei_cb_gl
+
 extern struct obd_ops ldlm_obd_ops;
 
 extern char *ldlm_lockname[];
