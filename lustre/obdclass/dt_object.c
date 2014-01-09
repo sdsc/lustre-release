@@ -235,6 +235,30 @@ struct dt_object *dt_locate_at(const struct lu_env *env,
 }
 EXPORT_SYMBOL(dt_locate_at);
 
+struct dt_object *dt_locate_at_conf(const struct lu_env *env,
+				    struct dt_device *dev,
+				    const struct lu_fid *fid,
+				    struct lu_device *top_dev,
+				    const struct lu_object_conf *conf)
+{
+	struct lu_object *lo;
+	struct lu_object *n;
+
+	lo = lu_object_find_at(env, top_dev, fid, conf);
+	if (IS_ERR(lo))
+		return ERR_PTR(PTR_ERR(lo));
+
+	LASSERT(lo != NULL);
+
+	list_for_each_entry(n, &lo->lo_header->loh_layers, lo_linkage) {
+		if (n->lo_dev == &dev->dd_lu_dev)
+			return container_of0(n, struct dt_object, do_lu);
+	}
+
+	return ERR_PTR(-ENOENT);
+}
+EXPORT_SYMBOL(dt_locate_at_conf);
+
 /**
  * find a object named \a entry in given \a dfh->dfh_o directory.
  */
