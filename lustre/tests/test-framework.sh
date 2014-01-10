@@ -5633,35 +5633,43 @@ add_user() {
 }
 
 check_runas_id_ret() {
-    local myRC=0
-    local myRUNAS_UID=$1
-    local myRUNAS_GID=$2
-    shift 2
-    local myRUNAS=$@
-    if [ -z "$myRUNAS" ]; then
-        error_exit "myRUNAS command must be specified for check_runas_id"
-    fi
-    if $GSS_KRB5; then
-        $myRUNAS krb5_login.sh || \
-            error "Failed to refresh Kerberos V5 TGT for UID $myRUNAS_ID."
-    fi
-    mkdir $DIR/d0_runas_test
-    chmod 0755 $DIR
-    chown $myRUNAS_UID:$myRUNAS_GID $DIR/d0_runas_test
-    $myRUNAS touch $DIR/d0_runas_test/f$$ || myRC=$?
-    rm -rf $DIR/d0_runas_test
-    return $myRC
+	local myRC=0
+	local myRUNAS_UID=$1
+	local myRUNAS_GID=$2
+	shift 2
+	local myRUNAS=$@
+
+	if [ -z "$myRUNAS" ]; then
+		error_exit "command must be specified for check_runas_id"
+	fi
+	if $GSS_KRB5 && ! $myRUNAS krb5_login.sh; then
+		error "Failed to refresh Kerberos V5 TGT for UID $myRUNAS_ID."
+	fi
+
+	mkdir $DIR/d0_runas_test
+	chmod 0755 $DIR
+	chown $myRUNAS_UID:$myRUNAS_GID $DIR/d0_runas_test
+	$myRUNAS touch $DIR/d0_runas_test/f$$ || myRC=$?
+	rm -rf $DIR/d0_runas_test
+
+	return $myRC
 }
 
 check_runas_id() {
-    local myRUNAS_UID=$1
-    local myRUNAS_GID=$2
-    shift 2
-    local myRUNAS=$@
-    check_runas_id_ret $myRUNAS_UID $myRUNAS_GID $myRUNAS || \
-        error "unable to write to $DIR/d0_runas_test as UID $myRUNAS_UID.
-        Please set RUNAS_ID to some UID which exists on MDS and client or
-        add user $myRUNAS_UID:$myRUNAS_GID on these nodes."
+	local myRUNAS_UID=$1
+	local myRUNAS_GID=$2
+	shift 2
+	local myRUNAS=$@
+
+	# $RUNAS_ID may get set incorrectly somewhere else
+	[ $UID -eq 0 -a $myRUNAS_UID -eq 0 ] &&
+		error "\$RUNAS_ID set to 0, but \$UID is also 0!"
+
+	check_runas_id_ret $myRUNAS_UID $myRUNAS_GID $myRUNAS ||
+		error "unable to write to $DIR/d0_runas_test as UID " \
+		      "$myRUNAS_UID.  Please set RUNAS_ID to some UID " \
+		      "which exists on MDS and client or add user " \
+		      "$myRUNAS_UID:$myRUNAS_GID on these nodes."
 }
 
 # obtain the UID/GID for MPI_USER

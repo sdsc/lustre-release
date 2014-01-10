@@ -55,18 +55,17 @@ clients=${CLIENTS//,/ }
 num_clients=$(get_node_count ${clients})
 clients_arr=($clients)
 
-ID0=${ID0:-500}
-ID1=${ID1:-501}
-USER0=$(getent passwd | grep :$ID0:$ID0: | cut -d: -f1)
-USER1=$(getent passwd | grep :$ID1:$ID1: | cut -d: -f1)
+RUNAS_ID2=${RUNAS_ID2:-$((RUNAS_ID + 1))}
+RUNAS_GID2=${RUNAS_GID2:-$((RUNAS_GID2 + 1))}
+USER0=$(getent passwd $RUNAS_ID | cut -d: -f1)
+USER2=$(getent passwd $RUNAS_ID2 | cut -d: -f1)
 
-[ -z "$USER0" ] &&
-	skip "need to add user0 ($ID0:$ID0)" && exit 0
+[ -z "$USER0" ] && U=runas &&
+	skip "missing '$U:x:$RUNAS_ID:$RUNAS_GID:$U:/home/$U:/bin/bash' in /etc/passwd" && exit 0
+[ -z "$USER2" ] && U=runas2 &&
+	skip "missing '$U:x:$RUNAS_ID2:$RUNAS_GID2:$U:/home/$U:/bin/bash' in /etc/passwd" && exit 0
 
-[ -z "$USER1" ] &&
-	skip "need to add user1 ($ID1:$ID1)" && exit 0
-
-IDBASE=${IDBASE:-60000}
+IDBASE=${IDBASE:-$(id -u quota_usr)}
 
 # changes to mappings must be reflected in test 23
 FOPS_IDMAPS=(
@@ -136,12 +135,12 @@ sec_setup() {
 		switch_identity $num true || identity_old[$num]=$?
 	done
 
-	if ! $RUNAS_CMD -u $ID0 ls $DIR > /dev/null 2>&1; then
+	if ! $RUNAS_CMD -u $RUNAS_ID ls $DIR > /dev/null 2>&1; then
 		sec_login $USER0 $USER0
 	fi
 
-	if ! $RUNAS_CMD -u $ID1 ls $DIR > /dev/null 2>&1; then
-		sec_login $USER1 $USER1
+	if ! $RUNAS_CMD -u $RUNAS_ID2 ls $DIR > /dev/null 2>&1; then
+		sec_login $USER2 $USER2
 	fi
 }
 sec_setup
@@ -153,48 +152,53 @@ test_0() {
 	chmod 0755 $DIR || error "chmod (1)"
 	rm -rf $DIR/$tdir || error "rm (1)"
 	mkdir -p $DIR/$tdir || error "mkdir (1)"
+
 	chown $USER0 $DIR/$tdir || error "chown (2)"
-	$RUNAS_CMD -u $ID0 ls $DIR || error "ls (1)"
+	$RUNAS_CMD -u $RUNAS_ID ls $DIR || error "ls (1)"
 	rm -f $DIR/f0 || error "rm (2)"
-	$RUNAS_CMD -u $ID0 touch $DIR/f0 && error "touch (1)"
-	$RUNAS_CMD -u $ID0 touch $DIR/$tdir/f1 || error "touch (2)"
-	$RUNAS_CMD -u $ID1 touch $DIR/$tdir/f2 && error "touch (3)"
+	$RUNAS_CMD -u $RUNAS_ID touch $DIR/f0 && error "touch (1)"
+	$RUNAS_CMD -u $RUNAS_ID touch $DIR/$tdir/f1 || error "touch (2)"
+	$RUNAS_CMD -u $RUNAS_ID2 touch $DIR/$tdir/f2 && error "touch (3)"
 	touch $DIR/$tdir/f3 || error "touch (4)"
 	chown root $DIR/$tdir || error "chown (3)"
 	chgrp $USER0 $DIR/$tdir || error "chgrp (1)"
 	chmod 0775 $DIR/$tdir || error "chmod (2)"
-	$RUNAS_CMD -u $ID0 touch $DIR/$tdir/f4 || error "touch (5)"
-	$RUNAS_CMD -u $ID1 touch $DIR/$tdir/f5 && error "touch (6)"
+	$RUNAS_CMD -u $RUNAS_ID touch $DIR/$tdir/f4 || error "touch (5)"
+	$RUNAS_CMD -u $RUNAS_ID2 touch $DIR/$tdir/f5 && error "touch (6)"
 	touch $DIR/$tdir/f6 || error "touch (7)"
 	rm -rf $DIR/$tdir || error "rm (3)"
 }
-run_test 0 "uid permission ============================="
+run_test 0 "uid permission"
 
 # setuid/gid
 test_1() {
-	[ $GSS_SUP = 0 ] && skip "without GSS support." && return
+	[ $GSS_SUP = 0 ] && skip "without GSS support" && return
 
 	rm -rf $DIR/$tdir
 	mkdir -p $DIR/$tdir
 
 	chown $USER0 $DIR/$tdir || error "chown (1)"
-	$RUNAS_CMD -u $ID1 -v $ID0 touch $DIR/$tdir/f0 && error "touch (2)"
-	echo "enable uid $ID1 setuid"
-	do_facet $SINGLEMDS "echo '* $ID1 setuid' >> $PERM_CONF"
+	$RUNAS_CMD -u $RUNAS_ID2 -v $RUNAS_ID touch $DIR/$tdir/f0 &&
+		error "touch (2)"
+	echo "enable uid $RUNAS_ID2 setuid"
+	do_facet $SINGLEMDS "echo '* $RUNAS_ID2 setuid' >> $PERM_CONF"
 	do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
-	$RUNAS_CMD -u $ID1 -v $ID0 touch $DIR/$tdir/f1 || error "touch (3)"
+	$RUNAS_CMD -u$RUNAS_ID2 -v $RUNAS_ID touch $DIR/$tdir/f1 ||
+		error "touch (3)"
 
 	chown root $DIR/$tdir || error "chown (4)"
 	chgrp $USER0 $DIR/$tdir || error "chgrp (5)"
 	chmod 0770 $DIR/$tdir || error "chmod (6)"
-	$RUNAS_CMD -u $ID1 -g $ID1 touch $DIR/$tdir/f2 && error "touch (7)"
-	$RUNAS_CMD -u$ID1 -g$ID1 -j$ID0 touch $DIR/$tdir/f3 && error "touch (8)"
-	echo "enable uid $ID1 setuid,setgid"
-	do_facet $SINGLEMDS "echo '* $ID1 setuid,setgid' > $PERM_CONF"
+	$RUNAS_CMD -u$RUNAS_ID2 -g$RUNAS_GID2 touch $DIR/$tdir/f2 &&
+		error "touch (7)"
+	$RUNAS_CMD -u$RUNAS_ID2 -g$RUNAS_GID2 -j$RUNAS_ID touch $DIR/$tdir/f3 &&
+		error "touch (8)"
+	echo "enable uid $RUNAS_ID2 setuid,setgid"
+	do_facet $SINGLEMDS "echo '* $RUNAS_ID2 setuid,setgid' > $PERM_CONF"
 	do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
-	$RUNAS_CMD -u $ID1 -g $ID1 -j $ID0 touch $DIR/$tdir/f4 ||
+	$RUNAS_CMD -u$RUNAS_ID2 -g$RUNAS_GID2 -j$RUNAS_ID touch $DIR/$tdir/f4 ||
 		error "touch (9)"
-	$RUNAS_CMD -u $ID1 -v $ID0 -g $ID1 -j $ID0 touch $DIR/$tdir/f5 ||
+	$RUNAS_CMD -u$RUNAS_ID2 -v$RUNAS_ID -g$RUNAS_GID2 -j$RUNAS_ID touch $DIR/$tdir/f5 ||
 		error "touch (10)"
 
 	rm -rf $DIR/$tdir
@@ -202,7 +206,7 @@ test_1() {
 	do_facet $SINGLEMDS "rm -f $PERM_CONF"
 	do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
 }
-run_test 1 "setuid/gid ============================="
+run_test 1 "setuid/gid"
 
 # bug 3285 - supplementary group should always succeed.
 # NB: the supplementary groups are set for local client only,
@@ -219,19 +223,19 @@ test_4() {
 	rm -rf $DIR/$tdir
 	mkdir -p $DIR/$tdir
 	chmod 0771 $DIR/$tdir
-	chgrp $ID0 $DIR/$tdir
-	$RUNAS_CMD -u $ID0 ls $DIR/$tdir || error "setgroups (1)"
-	do_facet $SINGLEMDS "echo '* $ID1 setgrp' > $PERM_CONF"
+	chgrp $RUNAS_ID $DIR/$tdir
+	$RUNAS_CMD -u $RUNAS_ID ls $DIR/$tdir || error "setgroups (1)"
+	do_facet $SINGLEMDS "echo '* $RUNAS_ID2 setgrp' > $PERM_CONF"
 	do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
-	$RUNAS_CMD -u $ID1 -G1,2,$ID0 ls $DIR/$tdir ||
+	$RUNAS_CMD -u $RUNAS_ID2 -G1,2,$RUNAS_GID ls $DIR/$tdir ||
 		error "setgroups (2)"
-	$RUNAS_CMD -u $ID1 -G1,2 ls $DIR/$tdir && error "setgroups (3)"
+	$RUNAS_CMD -u $RUNAS_ID2 -G1,2 ls $DIR/$tdir && error "setgroups (3)"
 	rm -rf $DIR/$tdir
 
 	do_facet $SINGLEMDS "rm -f $PERM_CONF"
 	do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
 }
-run_test 4 "set supplementary group ==============="
+run_test 4 "set supplementary group"
 
 create_nodemaps() {
 	local i
@@ -1723,8 +1727,8 @@ sec_unsetup() {
 		fi
 	done
 
-	$RUNAS_CMD -u $ID0 ls $DIR
-	$RUNAS_CMD -u $ID1 ls $DIR
+	$RUNAS_CMD -u $RUNAS_ID ls $DIR
+	$RUNAS_CMD -u $RUNAS_ID2 ls $DIR
 }
 sec_unsetup
 
