@@ -183,7 +183,7 @@ static inline unsigned long hash_x_index(__u64 hash, int hash64)
 	 * page index end (~0UL) and it causes truncate_inode_pages_range()
 	 * to loop forever.
 	 */
-	return ~0UL - (hash + !hash);
+	return ~0UL - (hash - !hash);
 }
 
 #endif
