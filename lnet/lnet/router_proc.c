@@ -678,8 +678,15 @@ int LL_PROC_PROTO(proc_lnet_nis)
 
 			lnet_ni_lock(ni);
 			LASSERT(ni->ni_status != NULL);
-			stat = (ni->ni_status->ns_status ==
-				LNET_NI_STATUS_UP) ? "up" : "down";
+			if (ni->ni_status->ns_status == LNET_NI_STATUS_UP)
+				stat = "up";
+			else if (ni->ni_status->ns_status == LNET_NI_STATUS_DOWN)
+				stat = "down";
+			else if (ni->ni_status->ns_status == LNET_NI_STATUS_ADMINDOWN)
+				stat = "admindown";
+			else
+				stat = "invalid";
+
 			lnet_ni_unlock(ni);
 
 			/* we actually output credits information for

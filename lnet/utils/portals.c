@@ -523,6 +523,52 @@ jt_ptl_add_interface (int argc, char **argv)
 }
 
 int
+jt_ptl_down_interfaces(int argc, char **argv)
+{
+	struct libcfs_ioctl_data data;
+	int                      rc;
+
+	if (argc != 1) {
+		fprintf(stderr, "usage: %s\n", argv[0]);
+		return 0;
+	}
+
+	LIBCFS_IOC_INIT(data);
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DOWN_INTERFACES, &data);
+	if (rc != 0) {
+		fprintf (stderr, "failed to down interfaces: %s\n",
+			 strerror (errno));
+		return -1;
+	}
+
+	return 0;
+}
+
+int
+jt_ptl_up_interfaces(int argc, char **argv)
+{
+	struct libcfs_ioctl_data data;
+	int                      rc;
+
+	if (argc != 1) {
+		fprintf(stderr, "usage: %s\n", argv[0]);
+		return 0;
+	}
+
+	LIBCFS_IOC_INIT(data);
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_UP_INTERFACES, &data);
+	if (rc != 0) {
+		fprintf (stderr, "failed to up interface: %s\n",
+			 strerror (errno));
+		return -1;
+	}
+
+	return 0;
+}
+
+int
 jt_ptl_del_interface (int argc, char **argv)
 {
         struct libcfs_ioctl_data data;

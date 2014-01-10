@@ -43,6 +43,8 @@ int jt_ptl_which_nid(int argc, char **argv);
 int jt_ptl_print_interfaces(int argc, char **argv);
 int jt_ptl_add_interface(int argc, char **argv);
 int jt_ptl_del_interface(int argc, char **argv);
+int jt_ptl_up_interfaces(int argc, char **argv);
+int jt_ptl_down_interfaces(int argc, char **argv);
 int jt_ptl_print_peers (int argc, char **argv);
 int jt_ptl_add_peer (int argc, char **argv);
 int jt_ptl_del_peer (int argc, char **argv);

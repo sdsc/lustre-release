@@ -393,9 +393,10 @@ typedef struct lnet_lnd
 #endif
 } lnd_t;
 
-#define LNET_NI_STATUS_UP      0x15aac0de
-#define LNET_NI_STATUS_DOWN    0xdeadface
-#define LNET_NI_STATUS_INVALID 0x00000000
+#define LNET_NI_STATUS_UP		0x15aac0de
+#define LNET_NI_STATUS_DOWN		0xdeadface
+#define LNET_NI_STATUS_ADMINDOWN	0xcefaadde
+#define LNET_NI_STATUS_INVALID		0x00000000
 typedef struct {
         lnet_nid_t ns_nid;
         __u32      ns_status;

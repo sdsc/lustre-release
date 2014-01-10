@@ -665,7 +665,8 @@ lnet_parse_rc_info(lnet_rc_data_t *rcd)
 			if (LNET_NETTYP(LNET_NIDNET(nid)) == LOLND)
 				continue;
 
-			if (stat->ns_status == LNET_NI_STATUS_DOWN) {
+			if (stat->ns_status == LNET_NI_STATUS_DOWN ||
+			    stat->ns_status == LNET_NI_STATUS_ADMINDOWN) {
 				if (LNET_NETTYP(LNET_NIDNET(nid)) != PTLLND)
 					down++;
 				else if (ptl_status != LNET_NI_STATUS_UP)
@@ -815,7 +816,8 @@ lnet_update_ni_status_locked(void)
 
 		LASSERT(ni->ni_status != NULL);
 
-		if (ni->ni_status->ns_status != LNET_NI_STATUS_DOWN) {
+		if (ni->ni_status->ns_status != LNET_NI_STATUS_DOWN &&
+		    ni->ni_status->ns_status != LNET_NI_STATUS_ADMINDOWN) {
 			CDEBUG(D_NET, "NI(%s:%d) status changed to down\n",
 			       libcfs_nid2str(ni->ni_nid), timeout);
 			/* NB: so far, this is the only place to set
@@ -824,6 +826,50 @@ lnet_update_ni_status_locked(void)
 		}
 		lnet_ni_unlock(ni);
 	}
+}
+
+void
+lnet_down_ni_status_locked(void)
+{
+	lnet_ni_t	*ni;
+
+	cfs_list_for_each_entry(ni, &the_lnet.ln_nis, ni_list) {
+		if (ni->ni_lnd->lnd_type == LOLND)
+			continue;
+
+		lnet_ni_lock(ni);
+
+		LASSERT(ni->ni_status != NULL);
+
+		if (ni->ni_status->ns_status != LNET_NI_STATUS_ADMINDOWN) {
+			CDEBUG(D_NET, "NI(%s) force status admindown\n",
+			       libcfs_nid2str(ni->ni_nid));
+			ni->ni_status->ns_status = LNET_NI_STATUS_ADMINDOWN;
+		}
+		lnet_ni_unlock(ni);
+	}
+}
+
+void
+lnet_up_ni_status_locked(void)
+{
+        lnet_ni_t       *ni;
+
+        cfs_list_for_each_entry(ni, &the_lnet.ln_nis, ni_list) {
+                if (ni->ni_lnd->lnd_type == LOLND)
+                        continue;
+
+                lnet_ni_lock(ni);
+
+                LASSERT(ni->ni_status != NULL);
+
+                if (ni->ni_status->ns_status != LNET_NI_STATUS_UP) {
+                        CDEBUG(D_NET, "NI(%s) force status up\n",
+                               libcfs_nid2str(ni->ni_nid));
+                        ni->ni_status->ns_status = LNET_NI_STATUS_UP;
+                }
+                lnet_ni_unlock(ni);
+        }
 }
 
 void

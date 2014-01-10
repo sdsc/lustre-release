@@ -32,6 +32,8 @@ command_t list[] = {
         {"print_interfaces", jt_ptl_print_interfaces, 0, "print interface entries (no args)"},
         {"add_interface", jt_ptl_add_interface, 0, "add interface entry (args: ip [netmask])"},
         {"del_interface", jt_ptl_del_interface, 0, "delete interface entries (args: [ip])"},
+        {"down_interfaces", jt_ptl_down_interfaces, 0, "set all interface statuses down (routers only) (args: none)"},
+        {"up_interfaces", jt_ptl_up_interfaces, 0, "set all interface statuses up (routers only) (args: none)"},
         {"print_peers", jt_ptl_print_peers, 0, "print peer entries (no args)"},
         {"add_peer", jt_ptl_add_peer, 0, "add peer entry (args: nid host port)"},
         {"del_peer", jt_ptl_del_peer, 0, "delete peer entry (args: [nid] [host])"},

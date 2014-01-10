@@ -1668,6 +1668,18 @@ LNetCtl(unsigned int cmd, void *arg)
                 return 0;
         }
 
+	case IOC_LIBCFS_DOWN_INTERFACES: {
+		if (the_lnet.ln_routing)
+			lnet_down_ni_status_locked();
+		return 0;
+	}
+
+	case IOC_LIBCFS_UP_INTERFACES: {
+		if (the_lnet.ln_routing)
+			lnet_up_ni_status_locked();
+		return 0;
+	}
+
         default:
                 ni = lnet_net2ni(data->ioc_net);
                 if (ni == NULL)

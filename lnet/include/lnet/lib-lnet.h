@@ -964,6 +964,9 @@ void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);
 void lnet_debug_peer(lnet_nid_t nid);
 
+void lnet_down_ni_status_locked(void);
+void lnet_up_ni_status_locked(void);
+
 #ifndef __KERNEL__
 static inline int
 lnet_parse_int_tunable(int *value, char *name)

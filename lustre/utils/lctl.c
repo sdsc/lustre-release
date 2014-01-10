@@ -408,6 +408,10 @@ command_t cmdlist[] = {
 	 "usage: add_interface ip [netmask]"},
 	{"del_interface", jt_ptl_del_interface, 0, "del interface entry\n"
 	 "usage: del_interface [ip]"},
+	{"down_interfaces", jt_ptl_down_interfaces, 0, "set all interface statuses down (routers only)\n"
+	 "usage: down_interfaces"},
+	{"up_interfaces", jt_ptl_up_interfaces, 0, "set all interface statuses up (routers only)\n"
+	 "usage: up_interfaces"},
 	{"add_route", jt_ptl_add_route, 0,
 	 "add an entry to the portals routing table\n"
 	 "usage: add_route <gateway> [<hops> [<priority>]]"},

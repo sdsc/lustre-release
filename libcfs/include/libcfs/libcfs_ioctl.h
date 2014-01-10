@@ -134,6 +134,8 @@ struct libcfs_ioctl_handler {
 #define IOC_LIBCFS_PING                    _IOWR('e', 61, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_DEBUG_PEER              _IOWR('e', 62, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_LNETST                  _IOWR('e', 63, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DOWN_INTERFACES         _IOWR('e', 64, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_UP_INTERFACES           _IOWR('e', 65, IOCTL_LIBCFS_TYPE)
 /* lnd ioctls */
 #define IOC_LIBCFS_REGISTER_MYNID          _IOWR('e', 70, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_CLOSE_CONNECTION        _IOWR('e', 71, IOCTL_LIBCFS_TYPE)
