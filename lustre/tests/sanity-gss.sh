@@ -25,9 +25,6 @@ require_dsh_mds || exit 0
 
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="100 101"
 
-# $RUNAS_ID may get set incorrectly somewhere else
-[ $UID -eq 0 -a $RUNAS_ID -eq 0 ] && error "\$RUNAS_ID set to 0, but \$UID is also 0!"
-
 # remove $SEC, we'd like to control everything by ourselves
 unset SEC
 
@@ -45,7 +42,7 @@ check_and_setup_lustre
 
 rm -rf $DIR/[df][0-9]*
 
-check_runas_id $RUNAS_ID $RUNAS_ID $RUNAS
+check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS
 
 build_test_filter
 

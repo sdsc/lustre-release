@@ -55,16 +55,15 @@ clients=${CLIENTS//,/ }
 num_clients=$(get_node_count ${clients})
 clients_arr=($clients)
 
-ID0=${ID0:-500}
-ID1=${ID1:-501}
-USER0=$(getent passwd | grep :$ID0:$ID0: | cut -d: -f1)
-USER1=$(getent passwd | grep :$ID1:$ID1: | cut -d: -f1)
+TSTUSR=${TSTUSR:-"sanityusr"}
+TSTUSR2=${TSTUSR:-"sanityusr1"}
+TSTID=${TSTID:-$(id -u $TSTUSR)}
+TSTID2=${TSTID2:-$(id -u $TSTUSR2)}
 
-[ -z "$USER0" ] &&
-	skip "need to add user0 ($ID0:$ID0)" && exit 0
-
-[ -z "$USER1" ] &&
-	skip "need to add user1 ($ID1:$ID1)" && exit 0
+[ -z "$TSTID" ] &&
+	skip "Please add '$TSTUSR' to /etc/passwd! Skip sanity-sec" && exit 0
+[ -z "$TSTID2" ] &&
+	skip "Please add '$TSTUSR2' to /etc/passwd! Skip sanity-sec" && exit 0
 
 IDBASE=${IDBASE:-60000}
 
@@ -136,12 +135,12 @@ sec_setup() {
 		switch_identity $num true || identity_old[$num]=$?
 	done
 
-	if ! $RUNAS_CMD -u $ID0 ls $DIR > /dev/null 2>&1; then
-		sec_login $USER0 $USER0
+	if ! $RUNAS_CMD -u $TSTID ls $DIR > /dev/null 2>&1; then
+		sec_login $TSTUSR $TSTUSR
 	fi
 
-	if ! $RUNAS_CMD -u $ID1 ls $DIR > /dev/null 2>&1; then
-		sec_login $USER1 $USER1
+	if ! $RUNAS_CMD -u $TSTID2 ls $DIR > /dev/null 2>&1; then
+		sec_login $TSTUSR2 $TSTUSR2
 	fi
 }
 sec_setup
@@ -153,18 +152,19 @@ test_0() {
 	chmod 0755 $DIR || error "chmod (1)"
 	rm -rf $DIR/$tdir || error "rm (1)"
 	mkdir -p $DIR/$tdir || error "mkdir (1)"
-	chown $USER0 $DIR/$tdir || error "chown (2)"
-	$RUNAS_CMD -u $ID0 ls $DIR || error "ls (1)"
+
+	chown $TSTUSR $DIR/$tdir || error "chown (2)"
+	$RUNAS_CMD -u $TSTID ls $DIR || error "ls (1)"
 	rm -f $DIR/f0 || error "rm (2)"
-	$RUNAS_CMD -u $ID0 touch $DIR/f0 && error "touch (1)"
-	$RUNAS_CMD -u $ID0 touch $DIR/$tdir/f1 || error "touch (2)"
-	$RUNAS_CMD -u $ID1 touch $DIR/$tdir/f2 && error "touch (3)"
+	$RUNAS_CMD -u $TSTID touch $DIR/f0 && error "touch (1)"
+	$RUNAS_CMD -u $TSTID touch $DIR/$tdir/f1 || error "touch (2)"
+	$RUNAS_CMD -u $TSTID2 touch $DIR/$tdir/f2 && error "touch (3)"
 	touch $DIR/$tdir/f3 || error "touch (4)"
 	chown root $DIR/$tdir || error "chown (3)"
-	chgrp $USER0 $DIR/$tdir || error "chgrp (1)"
+	chgrp $TSTUSR $DIR/$tdir || error "chgrp (1)"
 	chmod 0775 $DIR/$tdir || error "chmod (2)"
-	$RUNAS_CMD -u $ID0 touch $DIR/$tdir/f4 || error "touch (5)"
-	$RUNAS_CMD -u $ID1 touch $DIR/$tdir/f5 && error "touch (6)"
+	$RUNAS_CMD -u $TSTID touch $DIR/$tdir/f4 || error "touch (5)"
+	$RUNAS_CMD -u $TSTID2 touch $DIR/$tdir/f5 && error "touch (6)"
 	touch $DIR/$tdir/f6 || error "touch (7)"
 	rm -rf $DIR/$tdir || error "rm (3)"
 }
@@ -177,24 +177,26 @@ test_1() {
 	rm -rf $DIR/$tdir
 	mkdir -p $DIR/$tdir
 
-	chown $USER0 $DIR/$tdir || error "chown (1)"
-	$RUNAS_CMD -u $ID1 -v $ID0 touch $DIR/$tdir/f0 && error "touch (2)"
-	echo "enable uid $ID1 setuid"
-	do_facet $SINGLEMDS "echo '* $ID1 setuid' >> $PERM_CONF"
+	chown $TSTUSR $DIR/$tdir || error "chown (1)"
+	$RUNAS_CMD -u $TSTID2 -v $TSTID touch $DIR/$tdir/f0 && error "touch (2)"
+	echo "enable uid $TSTID2 setuid"
+	do_facet $SINGLEMDS "echo '* $TSTID2 setuid' >> $PERM_CONF"
 	do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
-	$RUNAS_CMD -u $ID1 -v $ID0 touch $DIR/$tdir/f1 || error "touch (3)"
+	$RUNAS_CMD -u $TSTID2 -v $TSTID touch $DIR/$tdir/f1 || error "touch (3)"
 
 	chown root $DIR/$tdir || error "chown (4)"
-	chgrp $USER0 $DIR/$tdir || error "chgrp (5)"
+	chgrp $TSTUSR $DIR/$tdir || error "chgrp (5)"
 	chmod 0770 $DIR/$tdir || error "chmod (6)"
-	$RUNAS_CMD -u $ID1 -g $ID1 touch $DIR/$tdir/f2 && error "touch (7)"
-	$RUNAS_CMD -u$ID1 -g$ID1 -j$ID0 touch $DIR/$tdir/f3 && error "touch (8)"
-	echo "enable uid $ID1 setuid,setgid"
-	do_facet $SINGLEMDS "echo '* $ID1 setuid,setgid' > $PERM_CONF"
+	$RUNAS_CMD -u $TSTID2 -g $TSTID2 touch $DIR/$tdir/f2 &&
+		error "touch (7)"
+	$RUNAS_CMD -u$TSTID2 -g$TSTID2 -j$TSTID touch $DIR/$tdir/f3 &&
+		error "touch (8)"
+	echo "enable uid $TSTID2 setuid,setgid"
+	do_facet $SINGLEMDS "echo '* $TSTID2 setuid,setgid' > $PERM_CONF"
 	do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
-	$RUNAS_CMD -u $ID1 -g $ID1 -j $ID0 touch $DIR/$tdir/f4 ||
+	$RUNAS_CMD -u $TSTID2 -g $TSTID2 -j $TSTID touch $DIR/$tdir/f4 ||
 		error "touch (9)"
-	$RUNAS_CMD -u $ID1 -v $ID0 -g $ID1 -j $ID0 touch $DIR/$tdir/f5 ||
+	$RUNAS_CMD -u$TSTID2 -v$TSTID -g$TSTID2 -j$TSTID touch $DIR/$tdir/f5 ||
 		error "touch (10)"
 
 	rm -rf $DIR/$tdir
@@ -219,13 +221,13 @@ test_4() {
 	rm -rf $DIR/$tdir
 	mkdir -p $DIR/$tdir
 	chmod 0771 $DIR/$tdir
-	chgrp $ID0 $DIR/$tdir
-	$RUNAS_CMD -u $ID0 ls $DIR/$tdir || error "setgroups (1)"
-	do_facet $SINGLEMDS "echo '* $ID1 setgrp' > $PERM_CONF"
+	chgrp $TSTID $DIR/$tdir
+	$RUNAS_CMD -u $TSTID ls $DIR/$tdir || error "setgroups (1)"
+	do_facet $SINGLEMDS "echo '* $TSTID2 setgrp' > $PERM_CONF"
 	do_facet $SINGLEMDS "lctl set_param -n $IDENTITY_FLUSH=-1"
-	$RUNAS_CMD -u $ID1 -G1,2,$ID0 ls $DIR/$tdir ||
+	$RUNAS_CMD -u $TSTID2 -G1,2,$TSTID ls $DIR/$tdir ||
 		error "setgroups (2)"
-	$RUNAS_CMD -u $ID1 -G1,2 ls $DIR/$tdir && error "setgroups (3)"
+	$RUNAS_CMD -u $TSTID2 -G1,2 ls $DIR/$tdir && error "setgroups (3)"
 	rm -rf $DIR/$tdir
 
 	do_facet $SINGLEMDS "rm -f $PERM_CONF"
@@ -1708,8 +1710,8 @@ sec_unsetup() {
 		fi
 	done
 
-	$RUNAS_CMD -u $ID0 ls $DIR
-	$RUNAS_CMD -u $ID1 ls $DIR
+	$RUNAS_CMD -u $TSTID ls $DIR
+	$RUNAS_CMD -u $TSTID2 ls $DIR
 }
 sec_unsetup
 
