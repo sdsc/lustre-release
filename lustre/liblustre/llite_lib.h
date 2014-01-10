@@ -445,6 +445,7 @@ static inline __u64 hash_x_index(__u64 hash, int hash64)
 	/* save hash 0 as index 0 because otherwise we'll save it at
 	 * page index end (~0UL) and it causes truncate_inode_pages_range()
 	 * to loop forever. */
-	return ~0ULL - (hash + !hash);
+	return ~0ULL - (hash - !hash);
 }
+
 #endif
