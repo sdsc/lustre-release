@@ -119,9 +119,6 @@ MAXFREE=${MAXFREE:-$((200000 * $OSTCOUNT))}
 [ -f $DIR/d52b/foo ] && chattr -i $DIR/d52b/foo
 rm -rf $DIR/[Rdfs][0-9]*
 
-# $RUNAS_ID may get set incorrectly somewhere else
-[ $UID -eq 0 -a $RUNAS_ID -eq 0 ] && error "\$RUNAS_ID set to 0, but \$UID is also 0!"
-
 check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS
 
 build_test_filter
@@ -5195,11 +5192,6 @@ test_72a() { # bug 5695 - Test that on 2.6 remove_suid works properly
 	[ "$RUNAS_ID" = "$UID" ] &&
 		skip_env "RUNAS_ID = UID = $UID -- skipping" && return
 
-	# Check that testing environment is properly set up. Skip if not
-	FAIL_ON_ERROR=false check_runas_id_ret $RUNAS_ID $RUNAS_GID $RUNAS || {
-		skip_env "User $RUNAS_ID does not exist - skipping"
-		return 0
-	}
 	# We had better clear the $DIR to get enough space for dd
 	rm -rf $DIR/*
 	touch $DIR/$tfile
@@ -5227,11 +5219,6 @@ test_72b() { # bug 24226 -- keep mode setting when size is not changing
 		skip_env "RUNAS_ID = 0 -- skipping" && return
 
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	# Check that testing environment is properly set up. Skip if not
-	FAIL_ON_ERROR=false check_runas_id_ret $RUNAS_ID $RUNAS_ID $RUNAS || {
-		skip_env "User $RUNAS_ID does not exist - skipping"
-		return 0
-	}
 	touch $DIR/${tfile}-f{g,u}
 	test_mkdir $DIR/${tfile}-dg
 	test_mkdir $DIR/${tfile}-du
