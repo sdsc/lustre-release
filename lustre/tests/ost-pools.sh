@@ -1263,29 +1263,28 @@ test_22() {
 run_test 22 "Simultaneous manipulation of a pool"
 
 test_23a() {
-    set_cleanup_trap
-    local POOL_ROOT=${POOL_ROOT:-$DIR/$tdir}
-    [[ $OSTCOUNT -le 1 ]] && skip_env "Need at least 2 OSTs" && return
+	set_cleanup_trap
+	local POOL_ROOT=${POOL_ROOT:-$DIR/$tdir}
+	[[ $OSTCOUNT -le 1 ]] && skip_env "Need at least 2 OSTs" && return
 
-    mkdir -p $POOL_ROOT
-    check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS || {
-        skip_env "User $RUNAS_ID does not exist - skipping"
-        return 0
-    }
+	mkdir -p $POOL_ROOT
+	check_runas_id || {
+		skip_env "User $RUNAS_ID does not exist - skipping"
+		return 0
+	}
 
-    local i=0
-    local TGT
-    local BUNIT_SZ=1024  # min block quota unit(kB)
-    local LIMIT=$((BUNIT_SZ * (OSTCOUNT + 1)))
-    local dir=$POOL_ROOT/dir
-    local file="$dir/$tfile-quota"
+	local i=0
+	local BUNIT_SZ=1024  # min block quota unit(kB)
+	local LIMIT=$((BUNIT_SZ * (OSTCOUNT + 1)))
+	local dir=$POOL_ROOT/dir
+	local file="$dir/$tfile-quota"
 
-    create_pool_nofail $POOL
+	create_pool_nofail $POOL
 
-    local TGT=$(for i in $(seq 0x$TGT_FIRST 3 0x$TGT_MAX); do \
-                printf "$FSNAME-OST%04x_UUID " $i; done)
-    add_pool $POOL "$FSNAME-OST[$TGT_FIRST-$TGT_MAX/3]" "$TGT"
-    create_dir $dir $POOL
+	local TGT=$(for i in $(seq 0x$TGT_FIRST 3 0x$TGT_MAX); do \
+		    printf "$FSNAME-OST%04x_UUID " $i; done)
+	add_pool $POOL "$FSNAME-OST[$TGT_FIRST-$TGT_MAX/3]" "$TGT"
+	create_dir $dir $POOL
 
 	# XXX remove the interoperability code once we drop the old server
 	#     ( < 2.3.50) support.
@@ -1334,7 +1333,7 @@ test_23b() {
     [[ $OSTCOUNT -le 1 ]] && skip_env "Need at least 2 OSTs" && return 0
 
     mkdir -p $POOL_ROOT
-    check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS || {
+    check_runas_id || {
         skip_env "User $RUNAS_ID does not exist - skipping"
         return 0
     }

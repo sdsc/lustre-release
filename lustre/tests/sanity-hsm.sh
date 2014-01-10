@@ -38,11 +38,7 @@ if [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.53) ]]; then
 	skip_env "Need MDS version at least 2.4.53" && exit
 fi
 
-# $RUNAS_ID may get set incorrectly somewhere else
-if [[ $UID -eq 0 && $RUNAS_ID -eq 0 ]]; then
-	skip_env "\$RUNAS_ID set to 0, but \$UID is also 0!" && exit
-fi
-check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS
+check_runas_id
 
 build_test_filter
 

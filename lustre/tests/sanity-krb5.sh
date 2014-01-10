@@ -63,7 +63,7 @@ check_and_setup_lustre
 
 rm -rf $DIR/[df][0-9]*
 
-check_runas_id $RUNAS_ID $RUNAS_ID $RUNAS
+check_runas_id
 
 build_test_filter
 

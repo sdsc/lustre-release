@@ -54,10 +54,7 @@ rm -rf $DIR1/[df][0-9]* $DIR1/lnk $DIR/[df].${TESTSUITE}*
 SAMPLE_FILE=$TMP/$(basename $0 .sh).junk
 dd if=/dev/urandom of=$SAMPLE_FILE bs=1M count=1
 
-# $RUNAS_ID may get set incorrectly somewhere else
-[ $UID -eq 0 -a $RUNAS_ID -eq 0 ] && error "\$RUNAS_ID set to 0, but \$UID is also 0!"
-
-check_runas_id $RUNAS_ID $RUNAS_GID $RUNAS
+check_runas_id
 
 build_test_filter
 
