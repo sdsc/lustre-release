@@ -35,16 +35,16 @@ FAIL_ON_ERROR=false
 require_dsh_mds || exit 0
 require_dsh_ost || exit 0
 
-ID0=${ID0:-500}
-ID1=${ID1:-501}
-USER0=`cat /etc/passwd|grep :$ID0:$ID0:|cut -d: -f1`
-USER1=`cat /etc/passwd|grep :$ID1:$ID1:|cut -d: -f1`
+TSTUSR=${TSTUSR:-"sanityusr"}
+TSTUSR2=${TSTUSR:-"sanityusr1"}
+TSTID=${TSTID:-$(id -u TSTUSR)}
+TSTID2=${TSTID2:-$(id -u $TSTUSR2)}
 
-[ -z "$USER0" ] && \
-	echo "Please add user0 (uid=$ID0 gid=$ID0)! Skip sanity-sec" && exit 0
+[ -z "$TSTID" ] &&
+	skip "Please add '$TSTUSR' to /etc/passwd! Skip sanity-sec" && exit 0
 
-[ -z "$USER1" ] && \
-	echo "Please add user1 (uid=$ID1 gid=$ID1)! Skip sanity-sec" && exit 0
+[ -z "$TSTID2" ] &&
+	skip "Please add '$TSTUSR2' to /etc/passwd! Skip sanity-sec" && exit 0
 
 check_and_setup_lustre
 
