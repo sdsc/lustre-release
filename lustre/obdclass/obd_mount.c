@@ -588,8 +588,10 @@ struct lustre_sb_info *lustre_init_lsi(struct super_block *sb)
 
         /* Default umount style */
         lsi->lsi_flags = LSI_UMOUNT_FAILOVER;
+	INIT_LIST_HEAD(&lsi->lsi_lwp_list);
+	spin_lock_init(&lsi->lsi_lwp_lock);
 
-        RETURN(lsi);
+	RETURN(lsi);
 }
 
 static int lustre_free_lsi(struct super_block *sb)
@@ -832,8 +834,8 @@ int lustre_common_put_super(struct super_block *sb)
         }
         /* Drop a ref to the mounted disk */
         lustre_put_lsi(sb);
-        lu_types_stop();
-        RETURN(rc);
+
+	RETURN(rc);
 }
 EXPORT_SYMBOL(lustre_common_put_super);
 

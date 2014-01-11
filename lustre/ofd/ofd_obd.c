@@ -654,7 +654,14 @@ out:
 int ofd_statfs_internal(const struct lu_env *env, struct ofd_device *ofd,
                         struct obd_statfs *osfs, __u64 max_age, int *from_cache)
 {
-	int rc;
+	int rc = 0;
+
+	down_read(&ofd->ofd_lastid_rwsem);
+	/* Currently, for safe, we do not distinguish which LAST_ID is broken,
+	 * we may do that in the future.
+	 * Return -ENOSPC until the LAST_ID rebuilt. */
+	if (unlikely(ofd->ofd_lastid_rebuilding))
+		return -ENOSPC;
 
 	spin_lock(&ofd->ofd_osfs_lock);
 	if (cfs_time_before_64(ofd->ofd_osfs_age, max_age) || max_age == 0) {
@@ -681,7 +688,7 @@ int ofd_statfs_internal(const struct lu_env *env, struct ofd_device *ofd,
 		 * call it fairly often as space fills up */
 		rc = dt_statfs(env, ofd->ofd_osd, osfs);
 		if (unlikely(rc))
-			return rc;
+			goto out;
 
 		spin_lock(&ofd->ofd_grant_lock);
 		spin_lock(&ofd->ofd_osfs_lock);
@@ -728,7 +735,10 @@ int ofd_statfs_internal(const struct lu_env *env, struct ofd_device *ofd,
 		if (from_cache)
 			*from_cache = 1;
 	}
-	return 0;
+out:
+	up_read(&ofd->ofd_lastid_rwsem);
+
+	return rc;
 }
 
 int ofd_statfs(const struct lu_env *env,  struct obd_export *exp,
@@ -1173,11 +1183,18 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 
 	CDEBUG(D_INFO, "ofd_create("DOSTID")\n", POSTID(&oa->o_oi));
 
+	down_read(&ofd->ofd_lastid_rwsem);
+	/* Currently, for safe, we do not distinguish which LAST_ID is broken,
+	 * we may do that in the future.
+	 * Return -ENOSPC until the LAST_ID rebuilt. */
+	if (unlikely(ofd->ofd_lastid_rebuilding))
+		GOTO(out_sem, rc = -ENOSPC);
+
 	oseq = ofd_seq_load(env, ofd, seq);
 	if (IS_ERR(oseq)) {
 		CERROR("%s: Can't find FID Sequence "LPX64": rc = %ld\n",
 		       ofd_name(ofd), seq, PTR_ERR(oseq));
-		RETURN(-EINVAL);
+		GOTO(out_sem, rc = -EINVAL);
 	}
 
 	if ((oa->o_valid & OBD_MD_FLFLAGS) &&
@@ -1223,7 +1240,22 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			/* XXX: Used by MDS for the first time! */
 			oseq->os_destroys_in_progress = 0;
 		}
+		/* Clear the os_lastid_rebuilt if the MDT (re)sync. */
+		oseq->os_lastid_rebuilt = 0;
 	} else {
+		if (unlikely(oseq->os_lastid_rebuilt)) {
+			/* For the MDT which supports LFSCK, return -ERANGE
+			 * to ask resync last_id; otherwise, disconnect the
+			 * MDT directly by force. */
+			if (exp_connect_flags(exp) & OBD_CONNECT_LFSCK) {
+				oa->o_oi = oseq->os_oi;
+				GOTO(out_nolock, rc = -ERANGE);
+			} else {
+				ofd_obd_disconnect(exp);
+				GOTO(out_nolock, rc = -ENOTCONN);
+			}
+		}
+
 		mutex_lock(&oseq->os_create_lock);
 		if (oti->oti_conn_cnt < exp->exp_conn_cnt) {
 			CERROR("%s: dropping old precreate request\n",
@@ -1338,12 +1370,14 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 out:
 	mutex_unlock(&oseq->os_create_lock);
 out_nolock:
-	if (rc == 0 && ea != NULL) {
+	if ((rc == 0 || rc == -ERANGE) && ea != NULL) {
 		struct lov_stripe_md *lsm = *ea;
 
 		lsm->lsm_oi = oa->o_oi;
 	}
 	ofd_seq_put(env, oseq);
+out_sem:
+	up_read(&ofd->ofd_lastid_rwsem);
 	RETURN(rc);
 }
 
@@ -1537,20 +1571,24 @@ int ofd_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 		break;
 	case OBD_IOC_START_LFSCK: {
 		struct obd_ioctl_data *data = karg;
-		struct lfsck_start_param lsp;
+		struct lfsck_start_param *lsp = &ofd_info(&env)->fti_lsp;
 
 		if (unlikely(data == NULL)) {
 			rc = -EINVAL;
 			break;
 		}
 
-		lsp.lsp_start = (struct lfsck_start *)(data->ioc_inlbuf1);
-		lsp.lsp_namespace = ofd->ofd_namespace;
-		rc = lfsck_start(&env, ofd->ofd_osd, &lsp);
+		lsp->lsp_namespace = ofd->ofd_namespace;
+		lsp->lsp_start = (struct lfsck_start *)(data->ioc_inlbuf1);
+		lsp->lsp_index_valid = 0;
+		rc = lfsck_start(&env, ofd->ofd_osd, lsp);
 		break;
 	}
 	case OBD_IOC_STOP_LFSCK: {
-		rc = lfsck_stop(&env, ofd->ofd_osd, false);
+		struct obd_ioctl_data *data = karg;
+
+		rc = lfsck_stop(&env, ofd->ofd_osd,
+				(struct lfsck_stop *)(data->ioc_inlbuf1));
 		break;
 	}
 	case OBD_IOC_GET_OBJ_VERSION:

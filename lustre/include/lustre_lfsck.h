@@ -38,23 +38,142 @@
 #include <lu_object.h>
 #include <dt_object.h>
 
-struct lfsck_start_param {
-	struct lfsck_start	*lsp_start;
-	struct ldlm_namespace	*lsp_namespace;
+/**
+ * status machine:
+ *
+ * 					LS_INIT
+ * 					   |
+ * 				     (lfsck|start)
+ * 					   |
+ *					   v
+ *				   LS_SCANNING_PHASE1
+ *					|	^
+ *					|	:
+ *					| (lfsck:restart)
+ *					|	:
+ *					v	:
+ *	-----------------------------------------------------------------
+ *	|		    |^		|^	   |^	      |^ 	|^
+ *	|		    |:		|:	   |:	      |:	|:
+ *	v		    v:		v:	   v:	      v: 	v:
+ * LS_SCANNING_PHASE2	LS_FAILED  LS_STOPPED  LS_PAUSED LS_CRASHED LS_PARTIAL
+ *			  (CO_)       (CO_)	 (CO_)
+ *	|	^	    ^:		^:	   ^:	      ^:	^:
+ *	|	:	    |:		|:	   |:	      |:	|:
+ *	| (lfsck:restart)   |:		|:	   |:	      |:	|:
+ *	v	:	    |v		|v	   |v	      |v	|v
+ *	-----------------------------------------------------------------
+ *	    |
+ *	    v
+ *    LS_COMPLETED
+ */
+enum lfsck_status {
+	/* The lfsck file is new created, for new MDT, upgrading from old disk,
+	 * or re-creating the lfsck file manually. */
+	LS_INIT			= 0,
+
+	/* The first-step system scanning. */
+	LS_SCANNING_PHASE1	= 1,
+
+	/* The second-step system scanning. */
+	LS_SCANNING_PHASE2	= 2,
+
+	/* The LFSCK processing has completed for all objects. */
+	LS_COMPLETED		= 3,
+
+	/* The LFSCK exited automatically for failure, will not auto restart. */
+	LS_FAILED		= 4,
+
+	/* The LFSCK is stopped manually, will not auto restart. */
+	LS_STOPPED		= 5,
+
+	/* LFSCK is paused automatically when umount,
+	 * will be restarted automatically when remount. */
+	LS_PAUSED		= 6,
+
+	/* System crashed during the LFSCK,
+	 * will be restarted automatically after recovery. */
+	LS_CRASHED		= 7,
+
+	/* Some OST/MDT failed during the LFSCK, or not join the LFSCK. */
+	LS_PARTIAL		= 8,
+
+	/* The LFSCK is failed because its controller is failed. */
+	LS_CO_FAILED		= 9,
+
+	/* The LFSCK is stopped because its controller is stopped. */
+	LS_CO_STOPPED		= 10,
+
+	/* The LFSCK is paused because its controller is paused. */
+	LS_CO_PAUSED		= 11,
+
+	LS_MAX
 };
 
+struct lfsck_start_param {
+	struct ldlm_namespace	*lsp_namespace;
+	struct lfsck_start	*lsp_start;
+	__u32			 lsp_index;
+	unsigned int		 lsp_index_valid:1;
+};
+
+enum lfsck_events {
+	LE_LASTID_REBUILDING	= 1,
+	LE_LASTID_REBUILT	= 2,
+	LE_PHASE1_DONE		= 3,
+	LE_PHASE2_DONE		= 4,
+	LE_START		= 5,
+	LE_STOP 		= 6,
+	LE_QUERY 		= 7,
+	LE_FID_ACCESSED 	= 8,
+};
+
+enum lfsck_event_flags {
+	LEF_TO_OST		= 0x00000001,
+	LEF_FROM_OST		= 0x00000002,
+	LEF_FORCE_STOP		= 0x00000004,
+};
+
+typedef int (*lfsck_out_notify)(const struct lu_env *env, void *data,
+				enum lfsck_events event);
+
 int lfsck_register(const struct lu_env *env, struct dt_device *key,
-		   struct dt_device *next, bool master);
+		   struct dt_device *next, struct obd_device *obd,
+		   lfsck_out_notify notify, void *notify_data, bool master);
 void lfsck_degister(const struct lu_env *env, struct dt_device *key);
+
+int lfsck_add_target(const struct lu_env *env, struct dt_device *key,
+		     struct dt_device *tgt, struct obd_export *exp,
+		     __u32 index, bool for_ost);
+void lfsck_del_target(const struct lu_env *env, struct dt_device *key,
+		      struct dt_device *tgt, __u32 index, bool for_ost);
 
 int lfsck_start(const struct lu_env *env, struct dt_device *key,
 		struct lfsck_start_param *lsp);
 int lfsck_stop(const struct lu_env *env, struct dt_device *key,
-	       bool pause);
+	       struct lfsck_stop *stop);
+int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
+		    struct lfsck_request *lr);
 
 int lfsck_get_speed(struct dt_device *key, void *buf, int len);
 int lfsck_set_speed(struct dt_device *key, int val);
+int lfsck_get_windows(struct dt_device *key, void *buf, int len);
+int lfsck_set_windows(struct dt_device *key, int val);
 
-int lfsck_dump(struct dt_device *key, void *buf, int len, __u16 type);
+int lfsck_dump(struct dt_device *key, void *buf, int len, enum lfsck_type type);
+int lfsck_query(struct dt_device *key, struct lfsck_request *lr);
+
+static inline int lfsck_record_fid_accessed(const struct lu_env *env,
+					    struct dt_device *key,
+					    struct lfsck_request *lr,
+					    const struct lu_fid *fid)
+{
+	memset(lr, 0, sizeof(*lr));
+	lr->lr_event = LE_FID_ACCESSED;
+	lr->lr_active = LT_LAYOUT;
+	lr->lr_fid = *fid;
+
+	return lfsck_in_notify(env, key, lr);
+}
 
 #endif /* _LUSTRE_LFSCK_H */
