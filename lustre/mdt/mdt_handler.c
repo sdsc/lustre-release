@@ -2090,6 +2090,76 @@ int mdt_quota_dqacq(struct tgt_session_info *tsi)
 	RETURN(rc);
 }
 
+/* LFSCK request handlers */
+int mdt_lfsck_notify(struct tgt_session_info *tsi)
+{
+	const struct lu_env	*env = tsi->tsi_env;
+	struct mdt_device	*mdt = mdt_exp2dev(tsi->tsi_exp);
+	struct lfsck_request	*lr;
+	int			 rc;
+	ENTRY;
+
+	lr = req_capsule_client_get(tsi->tsi_pill, &RMF_LFSCK_REQUEST);
+	if (lr == NULL)
+		RETURN(-EPROTO);
+
+	switch (lr->lr_event) {
+	case LE_START: {
+		struct mdt_thread_info		*info  = mdt_th_info(env);
+		struct lfsck_start		*start = &info->mti_lfsck_start;
+		struct lfsck_start_param	*lsp   = &info->mti_lsp;
+
+		start->ls_valid = lr->lr_valid;
+		start->ls_speed_limit = lr->lr_speed;
+		start->ls_version = lr->lr_version;
+		start->ls_active = lr->lr_active;
+		start->ls_flags = lr->lr_param;
+		start->ls_async_windows = lr->lr_async_windows;
+
+		lsp->lsp_namespace = mdt->mdt_namespace;
+		lsp->lsp_start = start;
+		lsp->lsp_index_valid = 0;
+		rc = lfsck_start(env, mdt->mdt_bottom, lsp);
+		break;
+	}
+	case LE_STOP:
+	case LE_PHASE1_DONE:
+	case LE_PHASE2_DONE:
+		rc = lfsck_in_notify(env, mdt->mdt_bottom, lr);
+		break;
+	default:
+		CERROR("%s: unsupported lfsck_event: rc = %d\n",
+		       mdt_obd_name(mdt), lr->lr_event);
+		rc = -EOPNOTSUPP;
+		break;
+	}
+
+	RETURN(rc);
+}
+
+int mdt_lfsck_query(struct tgt_session_info *tsi)
+{
+	struct mdt_device	*mdt	 = mdt_exp2dev(tsi->tsi_exp);
+	struct lfsck_request	*request;
+	struct lfsck_reply	*reply;
+	int			 rc	 = 0;
+	ENTRY;
+
+	request = req_capsule_client_get(tsi->tsi_pill, &RMF_LFSCK_REQUEST);
+	if (request == NULL)
+		RETURN(-EPROTO);
+
+	reply = req_capsule_server_get(tsi->tsi_pill, &RMF_LFSCK_REPLY);
+	if (reply == NULL)
+		RETURN(-ENOMEM);
+
+	reply->lr_status = lfsck_query(mdt->mdt_bottom, request);
+	if (reply->lr_status < 0)
+		rc = reply->lr_status;
+
+	RETURN(rc);
+}
+
 struct mdt_object *mdt_object_new(const struct lu_env *env,
 				  struct mdt_device *d,
 				  const struct lu_fid *f)
@@ -3496,7 +3566,7 @@ static int mdt_register_seq_exp(struct mdt_device *mdt)
 	if (lwp_name == NULL)
 		GOTO(out_free, rc = -ENOMEM);
 
-	rc = tgt_name2lwpname(mdt_obd_name(mdt), lwp_name);
+	rc = tgt_name2lwp_name(mdt_obd_name(mdt), lwp_name, MAX_OBD_NAME, 0);
 	if (rc != 0)
 		GOTO(out_free, rc);
 
@@ -4127,6 +4197,11 @@ static struct tgt_handler mdt_quota_ops[] = {
 TGT_QUOTA_HDL(HABEO_REFERO,		QUOTA_DQACQ,	  mdt_quota_dqacq),
 };
 
+static struct tgt_handler mdt_lfsck_handlers[] = {
+TGT_LFSCK_HDL(HABEO_REFERO,	LFSCK_NOTIFY,	mdt_lfsck_notify),
+TGT_LFSCK_HDL(HABEO_REFERO,	LFSCK_QUERY,	mdt_lfsck_query),
+};
+
 static struct tgt_opc_slice mdt_common_slice[] = {
 	{
 		.tos_opc_start	= MDS_FIRST_OPC,
@@ -4173,6 +4248,11 @@ static struct tgt_opc_slice mdt_common_slice[] = {
 		.tos_opc_end	= LLOG_LAST_OPC,
 		.tos_hs		= tgt_llog_handlers
 	},
+	{
+		.tos_opc_start	= LFSCK_FIRST_OPC,
+		.tos_opc_end	= LFSCK_LAST_OPC,
+		.tos_hs		= mdt_lfsck_handlers
+	},
 
 	{
 		.tos_hs		= NULL
@@ -4181,15 +4261,14 @@ static struct tgt_opc_slice mdt_common_slice[] = {
 
 static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 {
-	struct md_device  *next = m->mdt_child;
-	struct lu_device  *d    = &m->mdt_lu_dev;
-        struct obd_device *obd = mdt2obd_dev(m);
-        ENTRY;
+	struct md_device	*next = m->mdt_child;
+	struct lu_device	*d    = &m->mdt_lu_dev;
+	struct obd_device	*obd  = mdt2obd_dev(m);
+	struct lfsck_stop	 stop;
+	ENTRY;
 
-        target_recovery_fini(obd);
-
-        ping_evictor_stop();
-
+	target_recovery_fini(obd);
+	ping_evictor_stop();
 	mdt_stack_pre_fini(env, m, md2lu_dev(m->mdt_child));
 
 	if (m->mdt_opts.mo_coordinator)
@@ -4224,7 +4303,9 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
                 m->mdt_nosquash_strlen = 0;
         }
 
-	next->md_ops->mdo_iocontrol(env, next, OBD_IOC_PAUSE_LFSCK, 0, NULL);
+	stop.ls_status = LS_PAUSED;
+	stop.ls_flags = 0;
+	next->md_ops->mdo_iocontrol(env, next, OBD_IOC_STOP_LFSCK, 0, &stop);
 
         mdt_seq_fini(env, m);
         mdt_fld_fini(env, m);
@@ -4672,7 +4753,7 @@ static int mdt_prepare(const struct lu_env *env,
 	struct mdt_device *mdt = mdt_dev(cdev);
 	struct lu_device *next = &mdt->mdt_child->md_lu_dev;
 	struct obd_device *obd = cdev->ld_obd;
-	struct lfsck_start_param lsp;
+	struct lfsck_start_param *lsp;
 	int rc;
 
 	ENTRY;
@@ -4691,11 +4772,13 @@ static int mdt_prepare(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
-	lsp.lsp_start = NULL;
-	lsp.lsp_namespace = mdt->mdt_namespace;
+	lsp = &mdt_th_info(env)->mti_lsp;
+	lsp->lsp_namespace = mdt->mdt_namespace;
+	lsp->lsp_start = NULL;
+	lsp->lsp_index_valid = 0;
 	rc = mdt->mdt_child->md_ops->mdo_iocontrol(env, mdt->mdt_child,
 						   OBD_IOC_START_LFSCK,
-						   0, &lsp);
+						   0, lsp);
 	if (rc != 0) {
 		CWARN("%s: auto trigger paused LFSCK failed: rc = %d\n",
 		      mdt_obd_name(mdt), rc);
@@ -4910,6 +4993,9 @@ static int mdt_obd_connect(const struct lu_env *env,
 		rc = tgt_client_new(env, lexp);
                 if (rc == 0)
                         mdt_export_stats_init(obd, lexp, localdata);
+
+		/*For phase I, sync for cross-ref operation*/
+		lexp->exp_keep_sync = 1;
         }
 
         if (rc != 0) {
@@ -5539,22 +5625,27 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 	case OBD_IOC_START_LFSCK: {
 		struct md_device *next = mdt->mdt_child;
 		struct obd_ioctl_data *data = karg;
-		struct lfsck_start_param lsp;
+		struct lfsck_start_param *lsp = &mdt_th_info(&env)->mti_lsp;
 
 		if (unlikely(data == NULL)) {
 			rc = -EINVAL;
 			break;
 		}
 
-		lsp.lsp_start = (struct lfsck_start *)(data->ioc_inlbuf1);
-		lsp.lsp_namespace = mdt->mdt_namespace;
-		rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0, &lsp);
+		lsp->lsp_namespace = mdt->mdt_namespace;
+		lsp->lsp_start = (struct lfsck_start *)(data->ioc_inlbuf1);
+		lsp->lsp_index_valid = 0;
+		rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0, lsp);
 		break;
 	}
 	case OBD_IOC_STOP_LFSCK: {
-		struct md_device *next = mdt->mdt_child;
+		struct md_device	*next = mdt->mdt_child;
+		struct obd_ioctl_data	*data = karg;
+		struct lfsck_stop	*stop =
+				(struct lfsck_stop *)(data->ioc_inlbuf1);
 
-		rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0, NULL);
+		stop->ls_status = LS_STOPPED;
+		rc = next->md_ops->mdo_iocontrol(&env, next, cmd, 0, stop);
 		break;
 	}
         case OBD_IOC_GET_OBJ_VERSION: {
