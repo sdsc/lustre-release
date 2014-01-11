@@ -71,7 +71,10 @@ static const char *lfsck_status_names[] = {
 	[LS_STOPPED]		= "stopped",
 	[LS_PAUSED]		= "paused",
 	[LS_CRASHED]		= "crashed",
-	[LS_PARTIAL]		= "partial"
+	[LS_PARTIAL]		= "partial",
+	[LS_CO_FAILED]		= "co-failed",
+	[LS_CO_STOPPED] 	= "co-stopped",
+	[LS_CO_PAUSED]		= "co-paused"
 };
 
 const char *lfsck_flags_names[] = {
@@ -958,7 +961,9 @@ int lfsck_double_scan(const struct lu_env *env, struct lfsck_instance *lfsck)
 {
 	struct lfsck_component *com;
 	struct lfsck_component *next;
-	int			rc;
+	struct l_wait_info	lwi = { 0 };
+	int			rc  = 0;
+	int			rc1 = 0;
 
 	cfs_list_for_each_entry_safe(com, next, &lfsck->li_list_double_scan,
 				     lc_link) {
@@ -967,9 +972,32 @@ int lfsck_double_scan(const struct lu_env *env, struct lfsck_instance *lfsck)
 
 		rc = com->lc_ops->lfsck_double_scan(env, com);
 		if (rc != 0)
-			return rc;
+			rc1 = rc;
 	}
-	return 0;
+
+	l_wait_event(lfsck->li_thread.t_ctl_waitq,
+		     atomic_read(&lfsck->li_double_scan_count) == 0,
+		     &lwi);
+
+	return (rc1 != 0 ? rc1 : rc);
+}
+
+void lfsck_quit(const struct lu_env *env, struct lfsck_instance *lfsck)
+{
+	struct lfsck_component *com;
+	struct lfsck_component *next;
+
+	list_for_each_entry_safe(com, next, &lfsck->li_list_scan,
+				 lc_link) {
+		if (com->lc_ops->lfsck_quit != NULL)
+			com->lc_ops->lfsck_quit(env, com);
+	}
+
+	list_for_each_entry_safe(com, next, &lfsck->li_list_double_scan,
+				 lc_link) {
+		if (com->lc_ops->lfsck_quit != NULL)
+			com->lc_ops->lfsck_quit(env, com);
+	}
 }
 
 /* external interfaces */
@@ -1027,6 +1055,63 @@ int lfsck_set_speed(struct dt_device *key, int val)
 	RETURN(rc);
 }
 EXPORT_SYMBOL(lfsck_set_speed);
+
+int lfsck_get_windows(struct dt_device *key, void *buf, int len)
+{
+	struct lu_env		env;
+	struct lfsck_instance  *lfsck;
+	int			rc;
+	ENTRY;
+
+	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD);
+	if (rc != 0)
+		RETURN(rc);
+
+	lfsck = lfsck_instance_find(key, true, false);
+	if (likely(lfsck != NULL)) {
+		rc = snprintf(buf, len, "%u K-objects\n",
+			      lfsck->li_bookmark_ram.lb_async_windows);
+		lfsck_instance_put(&env, lfsck);
+	} else {
+		rc = -ENODEV;
+	}
+
+	lu_env_fini(&env);
+
+	RETURN(rc);
+}
+EXPORT_SYMBOL(lfsck_get_windows);
+
+int lfsck_set_windows(struct dt_device *key, int val)
+{
+	struct lu_env		env;
+	struct lfsck_instance  *lfsck;
+	int			rc;
+	ENTRY;
+
+	rc = lu_env_init(&env, LCT_MD_THREAD | LCT_DT_THREAD);
+	if (rc != 0)
+		RETURN(rc);
+
+	lfsck = lfsck_instance_find(key, true, false);
+	if (likely(lfsck != NULL)) {
+		if (lfsck->li_bookmark_ram.lb_async_windows != val) {
+			mutex_lock(&lfsck->li_mutex);
+			lfsck->li_bookmark_ram.lb_async_windows = val;
+			lfsck->li_async_windows = val << 10;
+			rc = lfsck_bookmark_store(&env, lfsck);
+			mutex_unlock(&lfsck->li_mutex);
+		}
+		lfsck_instance_put(&env, lfsck);
+	} else {
+		rc = -ENODEV;
+	}
+
+	lu_env_fini(&env);
+
+	RETURN(rc);
+}
+EXPORT_SYMBOL(lfsck_set_windows);
 
 int lfsck_dump(struct dt_device *key, void *buf, int len, enum lfsck_type type)
 {
@@ -1132,6 +1217,12 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 		dirty = true;
 	}
 
+	if (start->ls_valid & LSV_ASYNC_WINDOWS &&
+	    bk->lb_async_windows != start->ls_async_windows) {
+		bk->lb_async_windows = start->ls_async_windows;
+		dirty = true;
+	}
+
 	if (start->ls_valid & LSV_ERROR_HANDLE) {
 		valid |= DOIV_ERROR_HANDLE;
 		if (start->ls_flags & LPF_FAILOUT)
@@ -1223,6 +1314,7 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 	}
 
 trigger:
+	lfsck->li_async_windows = bk->lb_async_windows << 10;
 	lfsck->li_args_dir = LUDA_64BITHASH | LUDA_VERIFY;
 	if (bk->lb_param & LPF_DRYRUN) {
 		lfsck->li_args_dir |= LUDA_VERIFY_DRYRUN;
@@ -1331,6 +1423,7 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 	CFS_INIT_LIST_HEAD(&lfsck->li_list_double_scan);
 	CFS_INIT_LIST_HEAD(&lfsck->li_list_idle);
 	atomic_set(&lfsck->li_ref, 1);
+	atomic_set(&lfsck->li_double_scan_count, 0);
 	init_waitqueue_head(&lfsck->li_thread.t_ctl_waitq);
 	lfsck->li_out_notify = notify;
 	lfsck->li_out_notify_data = notify_data;
