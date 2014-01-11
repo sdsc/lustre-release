@@ -425,15 +425,16 @@ static struct thandle *lod_trans_create(const struct lu_env *env,
 static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
-	struct update_request *update;
-	int    rc = 0;
+	struct update_request	*update;
+	struct update_request	*tmp;
+	int			 rc = 0;
 	ENTRY;
 
 	if (cfs_list_empty(&th->th_remote_update_list))
 		RETURN(0);
 
-	cfs_list_for_each_entry(update, &th->th_remote_update_list,
-				ur_list) {
+	cfs_list_for_each_entry_safe(update, tmp, &th->th_remote_update_list,
+				     ur_list) {
 		/* In DNE phase I, there should be only one OSP
 		 * here, so we will do send/receive one by one,
 		 * instead of sending them parallel, will fix this
