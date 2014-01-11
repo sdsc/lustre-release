@@ -1121,6 +1121,35 @@ int lfsck_async_notify(const struct lu_env *env, struct obd_export *exp,
 	return 0;
 }
 
+struct lfsck_trans_callback *
+lfsck_trans_callback_init(struct lfsck_component *com, dt_cb_t func, int type)
+{
+	struct lfsck_trans_callback	*ltc;
+	struct dt_txn_commit_cb 	*cb;
+
+	OBD_ALLOC_PTR(ltc);
+	if (unlikely(ltc == NULL))
+		return ERR_PTR(-ENOMEM);
+
+	cb = &ltc->ltc_cb;
+	INIT_LIST_HEAD(&cb->dcb_linkage);
+	cb->dcb_func = func;
+	cb->dcb_magic = TRANS_COMMIT_CB_MAGIC;
+	strncpy(cb->dcb_name, "lfsck_trans_callback", MAX_COMMIT_CB_STR_LEN);
+
+	ltc->ltc_com = lfsck_component_get(com);
+	ltc->ltc_type = type;
+
+	return ltc;
+}
+
+void lfsck_trans_callback_fini(const struct lu_env *env,
+			       struct lfsck_trans_callback *ltc)
+{
+	lfsck_component_put(env, ltc->ltc_com);
+	OBD_FREE_PTR(ltc);
+}
+
 /* external interfaces */
 
 int lfsck_get_speed(struct dt_device *key, void *buf, int len)

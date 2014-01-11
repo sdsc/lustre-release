@@ -49,8 +49,17 @@
 #include "lfsck_internal.h"
 
 #define LFSCK_LAYOUT_MAGIC		0xB173AE14
+#define LLC_BITS			3
+#define LLC_SIZE			(1 << LLC_BITS)
+#define LLC_MASK			(~(LLC_SIZE - 1))
 
 static const char lfsck_layout_name[] = "lfsck_layout";
+
+struct lfsck_layout_callback {
+	__u64		llc_repaired[LLIT_MAX];
+	__u64		llc_failed;
+	spinlock_t	llc_lock;
+};
 
 struct lfsck_layout_seq {
 	struct list_head	 lls_list;
@@ -117,6 +126,7 @@ struct lfsck_layout_master_data {
 	struct list_head	llmd_mdt_phase2_list;
 
 	struct ptlrpc_thread	llmd_thread;
+	struct lfsck_layout_callback llmd_llc[LLC_SIZE];
 	atomic_t		llmd_rpcs_in_flight;
 	__u32			llmd_touch_gen;
 	int			llmd_prefetched;
@@ -415,13 +425,31 @@ static int lfsck_layout_store(const struct lu_env *env,
 	struct dt_object	 *obj		= com->lc_obj;
 	struct lfsck_instance	 *lfsck		= com->lc_lfsck;
 	struct lfsck_layout	 *lo		= com->lc_file_disk;
+	struct lfsck_layout	 *ram		= com->lc_file_ram;
 	struct thandle		 *handle;
 	ssize_t			  size		= com->lc_file_size;
 	loff_t			  pos		= 0;
 	int			  rc;
 	ENTRY;
 
-	lfsck_layout_cpu_to_le(lo, com->lc_file_ram);
+	if (lfsck->li_master) {
+		struct lfsck_layout_master_data *llmd = com->lc_data;
+		int				 i;
+		int				 j;
+
+		for (i = 0; i < LLC_SIZE; i++) {
+			for (j = 0; j < LLIT_MAX; j++) {
+				ram->ll_objs_repaired[j] +=
+					llmd->llmd_llc[i].llc_repaired[j];
+				llmd->llmd_llc[i].llc_repaired[j] = 0;
+			}
+			ram->ll_objs_failed_phase1 +=
+				llmd->llmd_llc[i].llc_failed;
+			llmd->llmd_llc[i].llc_failed = 0;
+		}
+	}
+
+	lfsck_layout_cpu_to_le(lo, ram);
 	handle = dt_trans_create(env, lfsck->li_bottom);
 	if (IS_ERR(handle)) {
 		rc = PTR_ERR(handle);
@@ -1321,6 +1349,35 @@ static void lfsck_layout_unlock(struct lustre_handle *lh)
 	ldlm_lock_decref(lh, LCK_EX);
 }
 
+static void
+lfsck_layout_trans_callback(const struct lu_env *env, struct thandle *th,
+			    struct dt_txn_commit_cb *cb, int rc)
+{
+	struct lfsck_layout_callback		*llc;
+	struct lfsck_trans_callback		*ltc;
+	struct lfsck_layout_master_data 	*llmd;
+	enum lfsck_layout_inconsistency_type	 type;
+
+	ltc = container_of0(cb, struct lfsck_trans_callback, ltc_cb);
+	llmd = ltc->ltc_com->lc_data;
+	type = ltc->ltc_type;
+
+	llc = &llmd->llmd_llc[task_cpu(current) & ~LLC_MASK];
+	spin_lock(&llc->llc_lock);
+	if (rc < 0)
+		llc->llc_failed++;
+	else if (likely(type > LLIT_NONE && type <= LLIT_MAX))
+		llc->llc_repaired[type - 1]++;
+	spin_unlock(&llc->llc_lock);
+
+	if (atomic_dec_and_test(&llmd->llmd_rpcs_in_flight)) {
+		wake_up_all(&llmd->llmd_thread.t_ctl_waitq);
+		wake_up_all(&ltc->ltc_com->lc_lfsck->li_thread.t_ctl_waitq);
+	}
+
+	lfsck_trans_callback_fini(env, ltc);
+}
+
 static int lfsck_layout_scan_orphan(const struct lu_env *env,
 				    struct lfsck_component *com,
 				    struct lfsck_tgt_desc *ltd)
@@ -1328,6 +1385,221 @@ static int lfsck_layout_scan_orphan(const struct lu_env *env,
 	/* XXX: To be extended in other patch. */
 
 	return 0;
+}
+
+/* For the MDT-object with dangling reference, we need to re-create
+ * the missed OST-object with the known FID/owner information. */
+static int lfsck_layout_recreate_ostobj(const struct lu_env *env,
+					struct lfsck_component *com,
+					struct lfsck_layout_req *llr,
+					struct lu_attr *la)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct filter_fid		*pfid	= &info->lti_new_pfid;
+	struct dt_allocation_hint	*hint	= &info->lti_hint;
+	struct lustre_handle		*lh	= &info->lti_lh;
+	struct dt_device		*dev	= com->lc_lfsck->li_next;
+	struct dt_object		*parent = llr->llr_parent->llo_obj;
+	struct dt_object		*child  = llr->llr_child;
+	const struct lu_fid		*tfid	= lu_object_fid(&parent->do_lu);
+	struct lfsck_layout_master_data *llmd	= com->lc_data;
+	struct lfsck_trans_callback	*ltc	= NULL;
+	struct thandle			*handle;
+	struct lu_buf			*buf;
+	int				 rc;
+	ENTRY;
+
+	CDEBUG(D_LFSCK, "Repair dangling reference for: parent "DFID
+	       ", child "DFID", OST-index %u, EA-offset %u, owner %u/%u\n",
+	       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
+	       llr->llr_ost_idx, llr->llr_lov_idx, la->la_uid, la->la_gid);
+
+	ltc = lfsck_trans_callback_init(com, lfsck_layout_trans_callback,
+					LLIT_DANGLING);
+	if (unlikely(IS_ERR(ltc)))
+		RETURN(PTR_ERR(ltc));
+
+	rc = lfsck_layout_lock(env, com, parent, lh,
+			       MDS_INODELOCK_LAYOUT | MDS_INODELOCK_XATTR);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	handle = dt_trans_create(env, dev);
+	if (IS_ERR(handle))
+		GOTO(unlock1, rc = PTR_ERR(handle));
+
+	hint->dah_parent = 0;
+	hint->dah_mode = 0;
+	hint->dah_flags = DAHF_RECREATE;
+
+	pfid->ff_parent.f_seq = cpu_to_le64(tfid->f_seq);
+	pfid->ff_parent.f_oid = cpu_to_le32(tfid->f_oid);
+	/* XXX: In fact, the ff_parent::f_ver is not the real parent
+	 *	FID::f_ver, instead, it is the OST-object index in
+	 *	its parent MDT-object layout EA. */
+	pfid->ff_parent.f_ver = cpu_to_le32(llr->llr_lov_idx);
+	buf = lfsck_buf_get(env, pfid, sizeof(struct filter_fid));
+
+	rc = dt_declare_create(env, child, la, hint, NULL, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_declare_xattr_set(env, child, buf, XATTR_NAME_FID,
+				  LU_XATTR_CREATE, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = lfsck_trans_cb_add(lfsck_obj2dt_dev(child), handle, &ltc->ltc_cb);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	/* XXX: The trans_start will trigger low layer async RPC,
+	 *	increasing the llmd_rpcs_in_flight before that to
+	 *	avoid the race with lfsck_layout_trans_callback(). */
+	atomic_inc(&llmd->llmd_rpcs_in_flight);
+	rc = dt_trans_start(env, dev, handle);
+	if (rc != 0) {
+		atomic_dec(&llmd->llmd_rpcs_in_flight);
+
+		GOTO(stop, rc);
+	}
+
+	ltc = NULL;
+	dt_read_lock(env, parent, 0);
+	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+		/* The new created OST-object may become orphan, which can be
+		 * destroyed when the LFSCK scan orphan OST-objects next time.*/
+		GOTO(unlock2, rc = 0);
+
+	rc = dt_create(env, child, la, hint, NULL, handle);
+	if (rc != 0)
+		GOTO(unlock2, rc);
+
+	rc = dt_xattr_set(env, child, buf, XATTR_NAME_FID, LU_XATTR_CREATE,
+			  handle, BYPASS_CAPA);
+
+	GOTO(unlock2, rc);
+
+unlock2:
+	dt_read_unlock(env, parent);
+
+stop:
+	dt_trans_stop(env, dev, handle);
+
+unlock1:
+	lfsck_layout_unlock(lh);
+
+out:
+	if (ltc != NULL)
+		lfsck_trans_callback_fini(env, ltc);
+
+	return rc;
+}
+
+static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
+					     struct lfsck_component *com,
+					     struct lfsck_layout_req *llr)
+{
+	struct lfsck_layout		     *lo     = com->lc_file_ram;
+	struct lfsck_thread_info	     *info   = lfsck_env_info(env);
+	struct dt_object		     *parent = llr->llr_parent->llo_obj;
+	struct dt_object		     *child  = llr->llr_child;
+	struct lu_attr			     *pla    = &info->lti_la;
+	struct lu_attr			     *cla    = &info->lti_la2;
+	struct lfsck_instance		     *lfsck  = com->lc_lfsck;
+	struct lfsck_bookmark		     *bk     = &lfsck->li_bookmark_ram;
+	enum lfsck_layout_inconsistency_type  type   = LLIT_NONE;
+	int				      rc;
+	ENTRY;
+
+	rc = dt_attr_get(env, parent, pla, BYPASS_CAPA);
+	if (rc != 0) {
+		if (lu_object_is_dying(parent->do_lu.lo_header))
+			RETURN(0);
+
+		GOTO(out, rc);
+	}
+
+	rc = dt_attr_get(env, child, cla, BYPASS_CAPA);
+	if (rc == -ENOENT) {
+		if (lu_object_is_dying(parent->do_lu.lo_header))
+			RETURN(0);
+
+		type = LLIT_DANGLING;
+		goto repair;
+	}
+
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* XXX: other inconsistency will be checked in other patches. */
+
+repair:
+	if (bk->lb_param & LPF_DRYRUN) {
+		if (type != LLIT_NONE)
+			GOTO(out, rc = 1);
+		else
+			GOTO(out, rc = 0);
+	}
+
+	switch (type) {
+	case LLIT_DANGLING:
+		memset(cla, 0, sizeof(*cla));
+		cla->la_uid = pla->la_uid;
+		cla->la_gid = pla->la_gid;
+		/* Normally, the OST-object is non-executable. We use a special
+		 * file mode: S_IRUGO | S_IWUGO | S_IXOTH, to indicate that it
+		 * is created by the LSFCK for repairing dangling reference
+		 * case. The LFSCK maybe wrong and it is possible that it will
+		 * find out the real OST-object which should be referenced by
+		 * this MDT-object as processing. Under such case, via checking
+		 * the OST-object mode, the LFSCK will know whether the current
+		 * OST-object which is referenced by the MDT-object was created
+		 * for repairing dangling case or not. It will indicate the
+		 * LFSCK how to process next step. */
+		cla->la_mode = S_IFREG | S_IRUGO | S_IWUGO | S_IXOTH;
+		cla->la_valid = LA_TYPE | LA_MODE | LA_UID | LA_GID |
+				LA_ATIME | LA_MTIME | LA_CTIME;
+		rc = lfsck_layout_recreate_ostobj(env, com, llr, cla);
+		break;
+
+	/* XXX: other inconsistency will be fixed in other patches. */
+
+	case LLIT_UNMATCHED_PAIR:
+		break;
+	case LLIT_MULTIPLE_REFERENCED:
+		break;
+	case LLIT_INCONSISTENT_OWNER:
+		break;
+	default:
+		rc = 0;
+		break;
+	}
+
+	GOTO(out, rc);
+
+out:
+	down_write(&com->lc_sem);
+	if (rc < 0) {
+		/* If cannot touch the target server,
+		 * mark the LFSCK as INCOMPLETE. */
+		if (rc == -ENOTCONN || rc == -ESHUTDOWN || rc == -ETIMEDOUT ||
+		    rc == -EHOSTDOWN || rc == -EHOSTUNREACH) {
+			lo->ll_flags |= LF_INCOMPLETE;
+			lo->ll_objs_skipped++;
+			rc = 0;
+		} else {
+			lo->ll_objs_failed_phase1++;
+		}
+	} else if (rc > 0) {
+		LASSERTF(type > LLIT_NONE && type <= LLIT_MAX,
+			 "unknown type = %d\n", type);
+
+		lo->ll_objs_repaired[type - 1]++;
+	}
+	up_write(&com->lc_sem);
+
+	return rc;
 }
 
 static int lfsck_layout_assistant(void *args)
@@ -1392,15 +1664,11 @@ static int lfsck_layout_assistant(void *args)
 			if (unlikely(llmd->llmd_exit))
 				GOTO(cleanup1, rc = llmd->llmd_post_result);
 
-			/* XXX: To be extended in other patch.
-			 *
-			 * Compare the OST side attribute with local attribute,
-			 * and fix it if found inconsistency. */
-
-			spin_lock(&llmd->llmd_lock);
 			llr = list_entry(llmd->llmd_req_list.next,
 					 struct lfsck_layout_req,
 					 llr_list);
+			rc = lfsck_layout_assistant_handle_one(env, com, llr);
+			spin_lock(&llmd->llmd_lock);
 			list_del_init(&llr->llr_list);
 			if (lfsck->li_async_windows != 0 &&
 			    llmd->llmd_prefetched >= lfsck->li_async_windows)
@@ -1412,6 +1680,8 @@ static int lfsck_layout_assistant(void *args)
 				wake_up_all(&mthread->t_ctl_waitq);
 
 			lfsck_layout_req_fini(env, llr);
+			if (rc < 0 && bk->lb_param & LPF_FAILOUT)
+				GOTO(cleanup1, rc);
 		}
 
 		/* Wakeup the master engine if it is waiting in checkpoint. */
@@ -1525,6 +1795,9 @@ orphan:
 cleanup1:
 	/* Cleanup the unfinished requests. */
 	spin_lock(&llmd->llmd_lock);
+	if (rc < 0)
+		llmd->llmd_assistant_status = rc;
+
 	while (!list_empty(&llmd->llmd_req_list)) {
 		llr = list_entry(llmd->llmd_req_list.next,
 				 struct lfsck_layout_req,
@@ -1864,6 +2137,17 @@ static int lfsck_layout_reset(const struct lu_env *env,
 	lo->ll_magic = LFSCK_LAYOUT_MAGIC;
 	lo->ll_status = LS_INIT;
 
+	if (com->lc_lfsck->li_master) {
+		struct lfsck_layout_master_data *llmd = com->lc_data;
+		int				 i;
+
+		for (i = 0; i < LLC_SIZE; i++) {
+			memset(&llmd->llmd_llc[i].llc_repaired, 0,
+			       sizeof(llmd->llmd_llc[i].llc_repaired));
+			llmd->llmd_llc[i].llc_failed = 0;
+		}
+	}
+
 	rc = lfsck_layout_store(env, com);
 	up_write(&com->lc_sem);
 
@@ -2055,6 +2339,7 @@ static int lfsck_layout_master_prep(const struct lu_env *env,
 	struct ptlrpc_thread		*athread = &llmd->llmd_thread;
 	struct lfsck_thread_args	*lta;
 	long				 rc;
+	int				 i;
 	ENTRY;
 
 	rc = lfsck_layout_prep(env, com);
@@ -2068,6 +2353,12 @@ static int lfsck_layout_master_prep(const struct lu_env *env,
 	llmd->llmd_in_double_scan = 0;
 	llmd->llmd_exit = 0;
 	thread_set_flags(athread, 0);
+
+	for (i = 0; i < LLC_SIZE; i++) {
+		memset(&llmd->llmd_llc[i].llc_repaired, 0,
+		       sizeof(llmd->llmd_llc[i].llc_repaired));
+		llmd->llmd_llc[i].llc_failed = 0;
+	}
 
 	lta = lfsck_thread_args_init(lfsck, com, lsp);
 	if (IS_ERR(lta))
@@ -2118,7 +2409,7 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 	__u16				 gen;
 	ENTRY;
 
-	buf = lfsck_buf_get(env, &info->lti_pfid,
+	buf = lfsck_buf_get(env, &info->lti_old_pfid,
 			    sizeof(struct filter_fid_old));
 	count = le16_to_cpu(lmm->lmm_stripe_count);
 	gen = le16_to_cpu(lmm->lmm_layout_gen);
@@ -2636,9 +2927,12 @@ static int lfsck_layout_dump(const struct lu_env *env,
 	struct lfsck_instance	*lfsck = com->lc_lfsck;
 	struct lfsck_bookmark	*bk    = &lfsck->li_bookmark_ram;
 	struct lfsck_layout	*lo    = com->lc_file_ram;
+	__u64			 repaired[LLIT_MAX];
+	__u64			 failed;
 	int			 save  = len;
 	int			 ret   = -ENOSPC;
 	int			 rc;
+	int			 i;
 
 	down_read(&com->lc_sem);
 	rc = snprintf(buf, len,
@@ -2692,6 +2986,21 @@ static int lfsck_layout_dump(const struct lu_env *env,
 	buf += rc;
 	len -= rc;
 
+	for (i = 0; i < LLIT_MAX; i++)
+		repaired[i] = lo->ll_objs_repaired[i];
+	failed = lo->ll_objs_failed_phase1;
+	if (lfsck->li_master) {
+		struct lfsck_layout_master_data *llmd = com->lc_data;
+		int				 j;
+
+		for (i = 0; i < LLC_SIZE; i++) {
+			for (j = 0; j < LLIT_MAX; j++)
+				repaired[j] +=
+					llmd->llmd_llc[i].llc_repaired[j];
+			failed += llmd->llmd_llc[i].llc_failed;
+		}
+	}
+
 	rc = snprintf(buf, len,
 		      "success_count: %u\n"
 		      "repaired_dangling: "LPU64"\n"
@@ -2704,14 +3013,14 @@ static int lfsck_layout_dump(const struct lu_env *env,
 		      "failed_phase1: "LPU64"\n"
 		      "failed_phase2: "LPU64"\n",
 		      lo->ll_success_count,
-		      lo->ll_objs_repaired[LLIT_DANGLING - 1],
-		      lo->ll_objs_repaired[LLIT_UNMATCHED_PAIR - 1],
-		      lo->ll_objs_repaired[LLIT_MULTIPLE_REFERENCED - 1],
-		      lo->ll_objs_repaired[LLIT_ORPHAN - 1],
-		      lo->ll_objs_repaired[LLIT_INCONSISTENT_OWNER - 1],
-		      lo->ll_objs_repaired[LLIT_OTHERS - 1],
+		      repaired[LLIT_DANGLING - 1],
+		      repaired[LLIT_UNMATCHED_PAIR - 1],
+		      repaired[LLIT_MULTIPLE_REFERENCED - 1],
+		      repaired[LLIT_ORPHAN - 1],
+		      repaired[LLIT_INCONSISTENT_OWNER - 1],
+		      repaired[LLIT_OTHERS - 1],
 		      lo->ll_objs_skipped,
-		      lo->ll_objs_failed_phase1,
+		      failed,
 		      lo->ll_objs_failed_phase2);
 	if (rc <= 0)
 		goto out;
@@ -3247,6 +3556,7 @@ int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck)
 	com->lc_type = LT_LAYOUT;
 	if (lfsck->li_master) {
 		struct lfsck_layout_master_data *llmd;
+		int				 i;
 
 		com->lc_ops = &lfsck_layout_master_ops;
 		OBD_ALLOC_PTR(llmd);
@@ -3263,6 +3573,8 @@ int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck)
 		INIT_LIST_HEAD(&llmd->llmd_mdt_phase2_list);
 		init_waitqueue_head(&llmd->llmd_thread.t_ctl_waitq);
 		atomic_set(&llmd->llmd_rpcs_in_flight, 0);
+		for (i = 0; i < LLC_SIZE; i++)
+			spin_lock_init(&llmd->llmd_llc[i].llc_lock);
 		com->lc_data = llmd;
 	} else {
 		struct lfsck_layout_slave_data *llsd;
