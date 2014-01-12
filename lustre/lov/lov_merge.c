@@ -63,7 +63,7 @@ int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
 	obd_time current_ctime = lvb->lvb_ctime;
 	int i;
 	int rc = 0;
-	struct lu_fid fid;
+	struct lu_fid fid = {0};
 
 	LASSERT_SPIN_LOCKED(&lsm->lsm_lock);
 #ifdef __KERNEL__
@@ -131,7 +131,7 @@ int lov_merge_lvb_kms(struct lov_stripe_md *lsm,
 int lov_merge_lvb(struct obd_export *exp,
                   struct lov_stripe_md *lsm, struct ost_lvb *lvb, int kms_only)
 {
-	struct lu_fid fid;
+	struct lu_fid fid = {0};
 	int   rc;
 	__u64 kms;
 

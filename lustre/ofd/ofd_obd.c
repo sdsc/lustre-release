@@ -640,7 +640,7 @@ static int ofd_get_info(const struct lu_env *env, struct obd_export *exp,
 
 		ostid_le_to_cpu(oid, oid);
 
-		oseq = ofd_seq_load(&env, ofd, oid->oi_seq);
+		oseq = ofd_seq_load(&env, ofd, ostid_seq(oid));
 		if (IS_ERR(oseq))
 			GOTO(out_fini, rc = PTR_ERR(oseq));
 
@@ -830,9 +830,9 @@ int ofd_setattr(const struct lu_env *env, struct obd_export *exp,
 	ofd_oti2info(info, oti);
 
 	fid_ostid_unpack(&info->fti_fid, &oinfo->oi_oa->o_oi, 0);
-	ofd_build_resid(&info->fti_fid, &info->fti_resid);
+	ost_fid_build_resid(&info->fti_fid, &info->fti_resid);
 
-	rc = ofd_auth_capa(exp, &info->fti_fid, oa->o_seq,
+	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oa->o_oi),
 			   oinfo_capa(oinfo), CAPA_OPC_META_WRITE);
 	if (rc)
 		GOTO(out, rc);
@@ -916,14 +916,14 @@ static int ofd_punch(const struct lu_env *env, struct obd_export *exp,
 	ofd_oti2info(info, oti);
 
 	fid_ostid_unpack(&info->fti_fid, &oinfo->oi_oa->o_oi, 0);
-	ofd_build_resid(&info->fti_fid, &info->fti_resid);
+	ost_fid_build_resid(&info->fti_fid, &info->fti_resid);
 
 	CDEBUG(D_INODE, "calling punch for object "DFID", valid = "LPX64
 	       ", start = "LPD64", end = "LPD64"\n", PFID(&info->fti_fid),
 	       oinfo->oi_oa->o_valid, oinfo->oi_policy.l_extent.start,
 	       oinfo->oi_policy.l_extent.end);
 
-	rc = ofd_auth_capa(exp, &info->fti_fid, oinfo->oi_oa->o_seq,
+	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oinfo->oi_oa->o_oi),
 			   oinfo_capa(oinfo), CAPA_OPC_OSS_TRUNC);
 	if (rc)
 		GOTO(out_env, rc);
@@ -1002,7 +1002,7 @@ static int ofd_destroy_by_fid(const struct lu_env *env,
 
 	/* Tell the clients that the object is gone now and that they should
 	 * throw away any cached pages. */
-	ofd_build_resid(fid, &info->fti_resid);
+	ost_fid_build_resid(fid, &info->fti_resid);
 	rc = ldlm_cli_enqueue_local(ofd->ofd_namespace, &info->fti_resid,
 				    LDLM_EXTENT, &policy, LCK_PW, &flags,
 				    ldlm_blocking_ast, ldlm_completion_ast,
@@ -1036,7 +1036,7 @@ int ofd_destroy(const struct lu_env *env, struct obd_export *exp,
 	ofd_oti2info(info, oti);
 
 	if (!(oa->o_valid & OBD_MD_FLGROUP))
-		oa->o_seq = 0;
+		ostid_set_seq_mdt0(&oa->o_oi);
 
 	/* check that o_misc makes sense */
 	if (oa->o_valid & OBD_MD_FLOBJCOUNT)
@@ -1071,7 +1071,7 @@ int ofd_destroy(const struct lu_env *env, struct obd_export *exp,
 			rc = lrc;
 		}
 		count--;
-		oa->o_id++;
+		ostid_inc_id(&oa->o_oi);
 	}
 
 	/* if we have transaction then there were some deletions, we don't
@@ -1103,14 +1103,15 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 	int			 skip_orphan;
 	int			 rc = 0;
 	struct ost_id		 oi = oa->o_oi;
+	__u64			 end_id = ostid_id(&oa->o_oi);
 	struct ofd_seq		*oseq;
 
 	ENTRY;
 
-	oseq = ofd_seq_get(ofd, oa->o_seq);
+	oseq = ofd_seq_get(ofd, ostid_seq(&oa->o_oi));
 	if (oseq == NULL) {
-		CERROR("%s: Can not find seq for "LPU64":"LPU64"\n",
-		       ofd_name(ofd), oa->o_seq, oa->o_id);
+		CERROR("%s: Can not find seq for "DOSTID"\n",
+		       ofd_name(ofd), POSTID(&oa->o_oi));
 		RETURN(-EINVAL);
 	}
 
@@ -1119,31 +1120,32 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 
 	last = ofd_seq_last_oid(oseq);
 	LCONSOLE_INFO("%s: deleting orphan objects from "LPX64":"LPU64
-		      " to "LPU64"\n", ofd_name(ofd), oa->o_seq,
-		      oa->o_id + 1, last);
+		      " to "LPU64"\n", ofd_name(ofd), ostid_seq(&oa->o_oi),
+		      end_id + 1, last);
 
-	for (oi.oi_id = last; oi.oi_id > oa->o_id; oi.oi_id--) {
+	for (ostid_set_id(&oi, last); ostid_id(&oi) > end_id;
+			  ostid_dec_id(&oi)) {
 		fid_ostid_unpack(&info->fti_fid, &oi, 0);
 		rc = ofd_destroy_by_fid(env, ofd, &info->fti_fid, 1);
 		if (rc && rc != -ENOENT) /* this is pretty fatal... */
-			CEMERG("error destroying precreated id "LPU64": %d\n",
-			       oi.oi_id, rc);
+			CEMERG("error destroying precreated id "DOSTID": %d\n",
+			       POSTID(&oi), rc);
 		if (!skip_orphan) {
-			ofd_seq_last_oid_set(oseq, oi.oi_id - 1);
+			ofd_seq_last_oid_set(oseq, ostid_id(&oi) - 1);
 			/* update last_id on disk periodically so that if we
 			 * restart * we don't need to re-scan all of the just
 			 * deleted objects. */
-			if ((oi.oi_id & 511) == 0)
+			if ((ostid_id(&oi) & 511) == 0)
 				ofd_seq_last_oid_write(env, ofd, oseq);
 		}
 	}
-	CDEBUG(D_HA, "%s: after destroy: set last_objids["LPU64"] = "LPU64"\n",
-	       ofd_obd(ofd)->obd_name, oa->o_seq, oa->o_id);
+	CDEBUG(D_HA, "%s: after destroy: set last_objids"DOSTID"\n",
+	       ofd_obd(ofd)->obd_name, POSTID(&oa->o_oi));
 	if (!skip_orphan) {
 		rc = ofd_seq_last_oid_write(env, ofd, oseq);
 	} else {
 		/* don't reuse orphan object, return last used objid */
-		oa->o_id = last;
+		ostid_set_id(&oa->o_oi, last);
 		rc = 0;
 	}
 	ofd_seq_put(env, oseq);
@@ -1156,7 +1158,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 {
 	struct ofd_device	*ofd = ofd_exp(exp);
 	struct ofd_thread_info	*info;
-	obd_seq			seq = oa->o_seq;
+	obd_seq			seq = ostid_seq(&oa->o_oi);
 	struct ofd_seq		*oseq;
 	int			rc = 0, diff;
 	int			sync_trans = 0;
@@ -1166,11 +1168,10 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 	info = ofd_info_init(env, exp);
 	ofd_oti2info(info, oti);
 
-	LASSERT(oa->o_seq >= FID_SEQ_OST_MDT0);
+	LASSERT(ostid_seq(&oa->o_oi) >= FID_SEQ_OST_MDT0);
 	LASSERT(oa->o_valid & OBD_MD_FLGROUP);
 
-	CDEBUG(D_INFO, "ofd_create(oa->o_seq="LPU64",oa->o_id="LPU64")\n",
-	       seq, oa->o_id);
+	CDEBUG(D_INFO, "ofd_create("DOSTID")\n", POSTID(&oa->o_oi));
 
 	oseq = ofd_seq_load(env, ofd, seq);
 	if (IS_ERR(oseq)) {
@@ -1182,9 +1183,9 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 	if ((oa->o_valid & OBD_MD_FLFLAGS) &&
 	    (oa->o_flags & OBD_FL_RECREATE_OBJS)) {
 		if (!ofd_obd(ofd)->obd_recovering ||
-		    oa->o_id > ofd_seq_last_oid(oseq)) {
-			CERROR("recreate objid "LPU64" > last id "LPU64"\n",
-					oa->o_id, ofd_seq_last_oid(oseq));
+		    ostid_id(&oa->o_oi) > ofd_seq_last_oid(oseq)) {
+			CERROR("recreate objid "DOSTID" > last id "LPU64"\n",
+			       POSTID(&oa->o_oi), ofd_seq_last_oid(oseq));
 			GOTO(out_nolock, rc = -EINVAL);
 		}
 		/* do nothing because we create objects during first write */
@@ -1203,11 +1204,12 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 		oseq->os_destroys_in_progress = 1;
 		mutex_lock(&oseq->os_create_lock);
 		if (!oseq->os_destroys_in_progress) {
-			CERROR("%s:["LPU64"] destroys_in_progress already cleared\n",
-			       exp->exp_obd->obd_name, oa->o_seq);
+			CERROR("%s:["LPU64"] destroys_in_progress already"
+			       " cleared\n", exp->exp_obd->obd_name,
+			       ostid_seq(&oa->o_oi));
 			GOTO(out, rc = 0);
 		}
-		diff = oa->o_id - ofd_seq_last_oid(oseq);
+		diff = ostid_id(&oa->o_oi) - ofd_seq_last_oid(oseq);
 		CDEBUG(D_HA, "ofd_last_id() = "LPU64" -> diff = %d\n",
 			ofd_seq_last_oid(oseq), diff);
 		if (-diff > OST_MAX_PRECREATE) {
@@ -1229,24 +1231,25 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 		}
 		/* only precreate if seq is 0, IDIF or normal and also o_id
 		 * must be specfied */
-		if ((!fid_seq_is_mdt(oa->o_seq) &&
-		     !fid_seq_is_norm(oa->o_seq) &&
-		     !fid_seq_is_idif(oa->o_seq)) || oa->o_id == 0) {
+		if ((!fid_seq_is_mdt(ostid_seq(&oa->o_oi)) &&
+		     !fid_seq_is_norm(ostid_seq(&oa->o_oi)) &&
+		     !fid_seq_is_idif(ostid_seq(&oa->o_oi))) ||
+				ostid_id(&oa->o_oi) == 0) {
 			diff = 1; /* shouldn't we create this right now? */
 		} else {
-			diff = oa->o_id - ofd_seq_last_oid(oseq);
+			diff = ostid_id(&oa->o_oi) - ofd_seq_last_oid(oseq);
 			/* Do sync create if the seq is about to used up */
-			if (fid_seq_is_idif(oa->o_seq) ||
-			    fid_seq_is_mdt0(oa->o_seq)) {
-				if (unlikely(oa->o_id >= IDIF_MAX_OID - 1))
+			if (fid_seq_is_idif(ostid_seq(&oa->o_oi)) ||
+			    fid_seq_is_mdt0(ostid_seq(&oa->o_oi))) {
+				if (unlikely(ostid_id(&oa->o_oi) >= IDIF_MAX_OID - 1))
 					sync_trans = 1;
-			} else if (fid_seq_is_norm(oa->o_seq)) {
-				if (unlikely(oa->o_id >=
+			} else if (fid_seq_is_norm(ostid_seq(&oa->o_oi))) {
+				if (unlikely(ostid_id(&oa->o_oi) >=
 					     LUSTRE_DATA_SEQ_MAX_WIDTH - 1))
 					sync_trans = 1;
 			} else {
-				CERROR("%s : invalid o_seq "LPX64": rc = %d\n",
-				       ofd_name(ofd), oa->o_seq, -EINVAL);
+				CERROR("%s : invalid o_seq "DOSTID": rc = %d\n",
+				       ofd_name(ofd), POSTID(&oa->o_oi), -EINVAL);
 				GOTO(out, rc = -EINVAL);
 			}
 		}
@@ -1277,7 +1280,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 
 			CDEBUG(D_HA, "%s: reserve %d objects in group "LPU64
 			       " at "LPU64"\n", ofd_obd(ofd)->obd_name,
-			       count, oa->o_seq, next_id);
+			       count, ostid_seq(&oa->o_oi), next_id);
 
 			if (cfs_time_after(jiffies, enough_time)) {
 				LCONSOLE_WARN("%s: Slow creates, %d/%d objects"
@@ -1305,7 +1308,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			CERROR("%s: unable to precreate: rc = %d\n",
 			       ofd_name(ofd), rc);
 
-		oa->o_id = ofd_seq_last_oid(oseq);
+		ostid_set_id(&oa->o_oi, ofd_seq_last_oid(oseq));
 		oa->o_valid |= OBD_MD_FLID | OBD_MD_FLGROUP;
 
 		if (!(oa->o_valid & OBD_MD_FLFLAGS) ||
@@ -1341,7 +1344,7 @@ int ofd_getattr(const struct lu_env *env, struct obd_export *exp,
 	info = ofd_info_init(env, exp);
 
 	fid_ostid_unpack(&info->fti_fid, &oinfo->oi_oa->o_oi, 0);
-	rc = ofd_auth_capa(exp, &info->fti_fid, oinfo->oi_oa->o_seq,
+	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oinfo->oi_oa->o_oi),
 			   oinfo_capa(oinfo), CAPA_OPC_META_READ);
 	if (rc)
 		GOTO(out, rc);
@@ -1387,7 +1390,7 @@ static int ofd_sync(const struct lu_env *env, struct obd_export *exp,
 	info = ofd_info_init(env, exp);
 	fid_ostid_unpack(&info->fti_fid, &oinfo->oi_oa->o_oi, 0);
 
-	rc = ofd_auth_capa(exp, &info->fti_fid, oinfo->oi_oa->o_seq,
+	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oinfo->oi_oa->o_oi),
 			   oinfo_capa(oinfo), CAPA_OPC_OSS_TRUNC);
 	if (rc)
 		GOTO(out, rc);
@@ -1444,8 +1447,8 @@ static int ofd_ioc_get_obj_version(const struct lu_env *env,
 		   data->ioc_inllen4 == sizeof(__u64)) {
 		struct ost_id ostid;
 
-		ostid.oi_id = *(__u64 *)data->ioc_inlbuf3;
-		ostid.oi_seq = *(__u64 *)data->ioc_inlbuf4;
+		ostid_set_seq(&ostid, *(__u64 *)data->ioc_inlbuf4);
+		ostid_set_id(&ostid, *(__u64 *)data->ioc_inlbuf3);
 		rc = fid_ostid_unpack(&fid, &ostid, 0);
 		if (rc != 0)
 			GOTO(out, rc);

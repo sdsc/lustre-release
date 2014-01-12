@@ -79,14 +79,13 @@ static void lprocfs_ost_init_vars(struct lprocfs_static_vars *lvars)
  * "oa->o_seq". */
 static inline void obdo_from_ostid(struct obdo *oa, struct ost_id *ostid)
 {
-        oa->o_id  = ostid_id(ostid);
-        oa->o_seq = ostid_seq(ostid);
+	ostid_set_id(&oa->o_oi, ostid_id(ostid));
+	ostid_set_seq(&oa->o_oi, ostid_seq(ostid));
 }
 
 static inline void ioobj_from_obdo(struct obd_ioobj *ioobj, struct obdo *oa)
 {
-        ioobj->ioo_id  = oa->o_id;
-        ioobj->ioo_seq = oa->o_seq;
+	ioobj->ioo_oid = oa->o_oi;
 }
 
 #endif /* OST_INTERNAL_H */
