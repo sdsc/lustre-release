@@ -214,9 +214,9 @@ static inline int osp_objs_precreated(const struct lu_env *env,
 		LASSERT(fid_is_idif(fid1) && fid_is_idif(fid2));
 		ostid_idif_pack(fid1, oi1);
 		ostid_idif_pack(fid2, oi2);
-		LASSERT(oi1->oi_id >= oi2->oi_id);
+		LASSERT(ostid_id(oi1) >= ostid_id(oi2));
 
-		return oi1->oi_id - oi2->oi_id;
+		return ostid_id(oi1) - ostid_id(oi2);
 	}
 
 	return fid_oid(fid1) - fid_oid(fid2);
@@ -382,9 +382,9 @@ static int osp_precreate_fids(const struct lu_env *env, struct osp_device *osp,
 		spin_lock(&osp->opd_pre_lock);
 		last_fid = &osp->opd_pre_last_created_fid;
 		ostid_idif_pack(last_fid, oi);
-		end = min(oi->oi_id + *grow, IDIF_MAX_OID);
-		*grow = end - oi->oi_id;
-		oi->oi_id += *grow;
+		end = min(ostid_id(oi) + *grow, IDIF_MAX_OID);
+		*grow = end - ostid_id(oi);
+		ostid_set_id(oi, ostid_id(oi) + *grow);
 		spin_unlock(&osp->opd_pre_lock);
 
 		if (*grow == 0)

@@ -566,21 +566,50 @@ fid_build_pdo_res_name(const struct lu_fid *f,
  * Build DLM resource name from object id & seq, which will be removed
  * finally, when we replace ost_id with FID in data stack.
  *
- * To keep the compatibility, res[0] = oid, res[1] = seq
+ * Currently, resid from the old client, whose res[0] = object_id,
+ * res[1] = object_seq, is just oposite with Metatdata
+ * resid, where, res[0] = fid->f_seq, res[1] = fid->f_oid.
+ * To unifiy the resid identification, we will reverse the data
+ * resid to keep it same with Metadata resid, i.e.
+ *
+ * For resid from the old client,
+ *    res[0] = objid,  res[1] = 0, still keep the original order,
+ *    for compatiblity.
+ *
+ * For new resid
+ *    res[0] = object seq, res[1] = object id
  */
 static inline void ostid_build_res_name(struct ost_id *oid,
 					struct ldlm_res_id *name)
 {
 	memset(name, 0, sizeof *name);
-	name->name[LUSTRE_RES_ID_SEQ_OFF] = oid->oi_id;
-	name->name[LUSTRE_RES_ID_VER_OID_OFF] = oid->oi_seq;
+	if (fid_seq_is_norm(ostid_seq(oid))) {
+		struct lu_fid fid;
+
+		fid_zero(&fid);
+		fid.f_seq = ostid_seq(oid);
+		fid.f_oid = ostid_id(oid);
+		fid_build_reg_res_name(&fid, name);
+	} else {
+		name->name[LUSTRE_RES_ID_SEQ_OFF] = ostid_id(oid);
+		name->name[LUSTRE_RES_ID_VER_OID_OFF] = ostid_seq(oid);
+	}
 }
 
 static inline void ostid_res_name_to_id(struct ost_id *oid,
 					struct ldlm_res_id *name)
 {
-	oid->oi_id = name->name[LUSTRE_RES_ID_SEQ_OFF];
-	oid->oi_seq = name->name[LUSTRE_RES_ID_VER_OID_OFF];
+	if (fid_seq_is_norm(name->name[LUSTRE_RES_ID_SEQ_OFF]) &&
+		!fid_seq_is_mdt0(name->name[LUSTRE_RES_ID_SEQ_OFF])) {
+		/* new resid */
+		struct lu_fid fid;
+		fid_build_from_res_name(&fid, name);
+		fid_ostid_pack(&fid, oid);
+	} else {
+		/* old resid */
+		ostid_set_id(oid, name->name[LUSTRE_RES_ID_SEQ_OFF]);
+		ostid_set_seq(oid, name->name[LUSTRE_RES_ID_VER_OID_OFF]);
+	}
 }
 
 /**
@@ -589,8 +618,45 @@ static inline void ostid_res_name_to_id(struct ost_id *oid,
 static inline int ostid_res_name_eq(struct ost_id *oid,
 				    struct ldlm_res_id *name)
 {
-	return name->name[LUSTRE_RES_ID_SEQ_OFF] == oid->oi_id &&
-	       name->name[LUSTRE_RES_ID_VER_OID_OFF] == oid->oi_seq;
+	/* Note: it is just a trick here to save some effort, probably the
+	 * correct way would be turn them into the FID and compare */
+	if (fid_seq_is_norm(ostid_seq(oid))) {
+		return name->name[LUSTRE_RES_ID_SEQ_OFF] == ostid_seq(oid) &&
+		       name->name[LUSTRE_RES_ID_VER_OID_OFF] == ostid_id(oid);
+	} else {
+		return name->name[LUSTRE_RES_ID_SEQ_OFF] == ostid_id(oid) &&
+		       name->name[LUSTRE_RES_ID_VER_OID_OFF] == ostid_seq(oid);
+	}
+}
+
+/* The same as osc_build_res_name() */
+static inline void ost_fid_build_resid(const struct lu_fid *fid,
+				   struct ldlm_res_id *resname)
+{
+	if (fid_is_norm(fid)) {
+		fid_build_reg_res_name(fid, resname);
+	} else {
+		struct ost_id oid;
+		if (fid_ostid_pack(fid, &oid) != 0)
+			return;
+		ostid_build_res_name(&oid, resname);
+	}
+}
+
+static inline void ost_fid_from_resid(struct lu_fid *fid,
+				      const struct ldlm_res_id *name)
+{
+	if (fid_seq_is_norm(name->name[LUSTRE_RES_ID_SEQ_OFF]) &&
+		!fid_seq_is_mdt0(name->name[LUSTRE_RES_ID_SEQ_OFF])) {
+		/* new resid */
+		fid_build_from_res_name(fid, name);
+	} else {
+		/* old resid */
+		struct ost_id ostid;
+		ostid_set_id(&ostid, name->name[LUSTRE_RES_ID_SEQ_OFF]);
+		ostid_set_seq(&ostid, name->name[LUSTRE_RES_ID_VER_OID_OFF]);
+		fid_ostid_unpack(fid, &ostid, 0);
+	}
 }
 
 /**

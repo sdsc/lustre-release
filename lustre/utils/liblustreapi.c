@@ -2154,8 +2154,8 @@ void lov_dump_user_lmm_v1v3(struct lov_user_md *lum, char *pool_name,
 
                 for (i = 0; i < lum->lmm_stripe_count; i++) {
                         int idx = objects[i].l_ost_idx;
-                        long long oid = objects[i].l_object_id;
-                        long long gr = objects[i].l_object_seq;
+                        long long oid = ostid_id(&objects[i].l_ost_oi);
+                        long long gr = ostid_seq(&objects[i].l_ost_oi);
 			if ((obdindex == OBD_NOT_FOUND) || (obdindex == idx)) {
 				char fmt[48];
 				sprintf(fmt, "%s%s%s\n",

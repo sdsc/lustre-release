@@ -97,20 +97,23 @@ static inline void logid_to_fid(struct llog_logid *id, struct lu_fid *fid)
 	/* For compatibility purposes we identify pre-OSD (~< 2.3.51 MDS)
 	 * logid's by non-zero ogen (inode generation) and convert them
 	 * into IGIF */
-	if (id->lgl_ogen == 0) {
-		fid->f_seq = id->lgl_oseq;
-		fid->f_oid = id->lgl_oid;
-		fid->f_ver = 0;
-	} else {
-		lu_igif_build(fid, id->lgl_oid, id->lgl_ogen);
-	}
+	if (id->lgl_ogen == 0)
+		ostid_fid_unpack(&id->lgl_oi, fid);
+	else
+		lu_igif_build(fid, ostid_id(&id->lgl_oi), id->lgl_ogen);
 }
 
 static inline void fid_to_logid(struct lu_fid *fid, struct llog_logid *id)
 {
-	id->lgl_oseq = fid->f_seq;
-	id->lgl_oid = fid->f_oid;
-	id->lgl_ogen = 0;
+	if (fid_is_igif(fid)) {
+		/* See above lu_igif_build */
+		ostid_set_id(&id->lgl_oi, fid->f_seq);
+		ostid_set_seq(&id->lgl_oi, fid->f_seq);
+		id->lgl_ogen = fid->f_oid;
+	} else {
+		fid_ostid_pack(fid, &id->lgl_oi);
+		id->lgl_ogen = 0;
+	}
 }
 
 struct llog_handle;

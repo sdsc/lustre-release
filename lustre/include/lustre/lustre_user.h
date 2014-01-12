@@ -118,7 +118,7 @@ struct ost_id {
 };
 
 #define DOSTID LPX64":"LPU64
-#define POSTID(oi) (oi)->oi_seq, (oi)->oi_id
+#define POSTID(oi) ostid_seq(oi), ostid_id(oi)
 
 /**
  * File IDentifier.
@@ -287,14 +287,15 @@ struct lov_user_ost_data_v1 {     /* per-stripe data structure */
 	__u32 l_ost_gen;          /* generation of this OST index */
 	__u32 l_ost_idx;          /* OST index in LOV */
 } __attribute__((packed));
-#define l_object_id	l_ost_oi.oi_id
-#define l_object_seq	l_ost_oi.oi_seq
 
 #define lov_user_md lov_user_md_v1
 struct lov_user_md_v1 {           /* LOV EA user data (host-endian) */
 	__u32 lmm_magic;          /* magic number = LOV_USER_MAGIC_V1 */
 	__u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
-	struct ost_id lmm_oi;	  /* LOV object ID */
+	union {
+		struct ost_id lmm_oi;	  /* LOV object ID */
+		struct lu_fid lmm_fid;
+	};
 	__u32 lmm_stripe_size;    /* size of stripe in bytes */
 	__u16 lmm_stripe_count;   /* num stripes in use for this object */
 	union {
@@ -309,7 +310,10 @@ struct lov_user_md_v1 {           /* LOV EA user data (host-endian) */
 struct lov_user_md_v3 {           /* LOV EA user data (host-endian) */
 	__u32 lmm_magic;          /* magic number = LOV_USER_MAGIC_V3 */
 	__u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
-	struct ost_id lmm_oi;	  /* LOV object ID */
+	union {
+		struct ost_id lmm_oi;	  /* LOV object ID */
+		struct lu_fid lmm_fid;
+	};
 	__u32 lmm_stripe_size;    /* size of stripe in bytes */
 	__u16 lmm_stripe_count;   /* num stripes in use for this object */
 	union {

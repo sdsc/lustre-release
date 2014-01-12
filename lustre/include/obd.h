@@ -78,17 +78,19 @@ struct osc_async_rc {
 };
 
 struct lov_oinfo {                 /* per-stripe data structure */
-        struct ost_id   loi_oi;    /* object ID/Sequence on the target OST */
-        int loi_ost_idx;           /* OST stripe index in lov_tgt_desc->tgts */
-        int loi_ost_gen;           /* generation of this loi_ost_idx */
+	union {
+		struct ost_id   loi_oi;    /* object ID/Sequence on
+					      the target OST */
+		struct lu_fid	loi_fid;
+	};
+	int loi_ost_idx;           /* OST stripe index in lov_tgt_desc->tgts */
+	int loi_ost_gen;           /* generation of this loi_ost_idx */
 
-        unsigned long loi_kms_valid:1;
-        __u64 loi_kms;             /* known minimum size */
-        struct ost_lvb loi_lvb;
-        struct osc_async_rc     loi_ar;
+	unsigned long loi_kms_valid:1;
+	__u64 loi_kms;             /* known minimum size */
+	struct ost_lvb loi_lvb;
+	struct osc_async_rc     loi_ar;
 };
-#define loi_id  loi_oi.oi_id
-#define loi_seq loi_oi.oi_seq
 
 static inline void loi_kms_set(struct lov_oinfo *oinfo, __u64 kms)
 {
@@ -110,7 +112,10 @@ struct lov_stripe_md {
         __u64            lsm_maxbytes;
         struct {
                 /* Public members. */
-		struct ost_id lw_object_oi; /* lov object id/seq */
+		union {
+			struct ost_id lw_object_oi; /* lov object id/seq */
+			struct lu_fid lw_object_fid;
+		};
 
                 /* LOV-private members start here -- only for use in lov/. */
                 __u32 lw_magic;
