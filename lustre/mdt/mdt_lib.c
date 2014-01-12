@@ -161,7 +161,8 @@ static int new_init_ucred(struct mdt_thread_info *info, ucred_init_type_t type,
 
         /* sanity check: we expect the uid which client claimed is true */
         if (remote) {
-                if (req->rq_auth_mapped_uid == INVALID_UID) {
+		if (!uid_valid(make_kuid(&init_user_ns, req->rq_auth_mapped_uid))) {
+			CDEBUG(D_SEC, "remote user not mapped, deny access!\n");
                         CDEBUG(D_SEC, "remote user not mapped, deny access!\n");
                         RETURN(-EACCES);
                 }
@@ -331,7 +332,7 @@ int mdt_check_ucred(struct mdt_thread_info *info)
         /* sanity check: if we use strong authentication, we expect the
          * uid which client claimed is true */
         if (remote) {
-                if (req->rq_auth_mapped_uid == INVALID_UID) {
+		if (!uid_valid(make_kuid(&init_user_ns, req->rq_auth_mapped_uid))) {
                         CDEBUG(D_SEC, "remote user not mapped, deny access!\n");
                         RETURN(-EACCES);
                 }

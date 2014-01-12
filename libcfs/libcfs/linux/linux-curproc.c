@@ -181,6 +181,11 @@ static int cfs_access_process_vm(struct task_struct *tsk, unsigned long addr,
 	return buf - old_buf;
 }
 
+#ifndef HAVE_UIDGID_HEADER
+struct user_namespace init_user_ns __read_mostly;
+EXPORT_SYMBOL(init_user_ns);
+#endif
+
 /* Read the environment variable of current process specified by @key. */
 int cfs_get_environ(const char *key, char *value, int *val_len)
 {
