@@ -1509,10 +1509,6 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	if (rc)
 		GOTO(stop, rc);
 
-	rc = mdd_trans_start(env, mdd, handle);
-	if (rc)
-		GOTO(stop, rc);
-
 	if (likely(mdd_cobj != NULL)) {
 		mdd_write_lock(env, mdd_cobj, MOR_TGT_CHILD);
 
@@ -1527,6 +1523,10 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	rc = mdd_unlink_sanity_check(env, mdd_pobj, pattr, mdd_cobj, cattr);
 	if (rc)
 		GOTO(cleanup, rc);
+
+	rc = mdd_trans_start(env, mdd, handle);
+        if (rc)
+                GOTO(cleanup, rc);
 
 	if (likely(no_name == 0)) {
 		rc = __mdd_index_delete(env, mdd_pobj, name, is_dir, handle,
