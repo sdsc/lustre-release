@@ -1391,7 +1391,7 @@ t32_reload_modules() {
 			all_removed=true
 		do_rpc_nodes $node check_mem_leak || return 1
 		if $all_removed; then
-			load_modules
+			do_rpc_nodes $node load_modules
 			return 0
 		fi
 		sleep 5
@@ -1409,8 +1409,7 @@ t32_wait_til_devices_gone() {
 	echo wait for devices to go
 	while ((i < 20)); do
 		devices=$(do_rpc_nodes $node $LCTL device_list | wc -l)
-		echo $device
-		((devices == 0)) && return 1
+		((devices == 0)) && return 0
 		sleep 5
 		i=$((i + 1))
 	done
@@ -2386,6 +2385,7 @@ test_42() { #bug 14693
 
 	do_facet mgs $LCTL conf_param $FSNAME.sys.some_wrong_param=20
 	cleanup || error "stopping $FSNAME failed with invalid sys param"
+	load_modules
 	setup
 	check_mount || "client was not mounted with invalid sys param"
 	cleanup || error "stopping $FSNAME failed with invalid sys param"
