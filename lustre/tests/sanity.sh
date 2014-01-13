@@ -1494,22 +1494,27 @@ test_27t() { # bug 10864
 run_test 27t "check that utils parse path correctly"
 
 test_27u() { # bug 4900
-        [ "$OSTCOUNT" -lt "2" ] && skip_env "too few OSTs" && return
-        remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	[ "$OSTCOUNT" -lt "2" ] && skip_env "too few OSTs" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	local index
 
 #define OBD_FAIL_MDS_OSC_PRECREATE      0x139
-        do_facet $SINGLEMDS lctl set_param fail_loc=0x139
-        test_mkdir -p $DIR/$tdir
+	for index in $(seq 1 $MDSCOUNT); do
+		do_facet mds${index} lctl set_param fail_loc=0x139
+	done
+	test_mkdir -p $DIR/$tdir
 	rm -rf $DIR/$tdir/*
-        createmany -o $DIR/$tdir/t- 1000
-        do_facet $SINGLEMDS lctl set_param fail_loc=0
+	createmany -o $DIR/$tdir/t- 1000
+	for index in $(seq 1 $MDSCOUNT); do
+		do_facet mds${index} lctl set_param fail_loc=0
+	done
 
-        TLOG=$DIR/$tfile.getstripe
-        $GETSTRIPE $DIR/$tdir > $TLOG
-        OBJS=`awk -vobj=0 '($1 == 0) { obj += 1 } END { print obj;}' $TLOG`
-        unlinkmany $DIR/$tdir/t- 1000
-        [ $OBJS -gt 0 ] && \
-                error "$OBJS objects created on OST-0.  See $TLOG" || pass
+	TLOG=$DIR/$tfile.getstripe
+	$GETSTRIPE $DIR/$tdir > $TLOG
+	OBJS=`awk -vobj=0 '($1 == 0) { obj += 1 } END { print obj;}' $TLOG`
+	unlinkmany $DIR/$tdir/t- 1000
+	[ $OBJS -gt 0 ] && \
+		error "$OBJS objects created on OST-0.  See $TLOG" || pass
 }
 run_test 27u "skip object creation on OSC w/o objects =========="
 
