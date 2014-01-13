@@ -58,6 +58,11 @@
 
 extern lnet_t  the_lnet;                        /* THE network */
 
+#ifndef LNET_USE_LIB_FREELIST
+extern cfs_mem_cache_t *lnet_MEs_cachep;	/* MEs kmem_cache */
+extern cfs_mem_cache_t *lnet_small_MDs_cachep;	/* <=128bytes MDs kmem_cache */
+#endif
+
 static inline int lnet_is_wire_handle_none (lnet_handle_wire_t *wh)
 {
         return (wh->wh_interface_cookie == LNET_WIRE_HANDLE_COOKIE_NONE &&
@@ -286,7 +291,10 @@ lnet_md_alloc (lnet_md_t *umd)
                 size = offsetof(lnet_libmd_t, md_iov.iov[niov]);
         }
 
-        LIBCFS_ALLOC(md, size);
+	if (size <= 128)
+		md = cfs_mem_cache_alloc(lnet_small_MDs_cachep, CFS_ALLOC_IO);
+	else
+        	LIBCFS_ALLOC(md, size);
 
         if (md != NULL) {
                 /* Set here in case of early free */
@@ -309,24 +317,25 @@ lnet_md_free (lnet_libmd_t *md)
         else
                 size = offsetof(lnet_libmd_t, md_iov.iov[md->md_niov]);
 
-        LIBCFS_FREE(md, size);
+	if (size <= 128)
+		cfs_mem_cache_free(lnet_small_MDs_cachep, md);
+	else
+        	LIBCFS_FREE(md, size);
 }
 
 static inline lnet_me_t *
 lnet_me_alloc (void)
 {
         /* NEVER called with liblock held */
-        lnet_me_t *me;
 
-        LIBCFS_ALLOC(me, sizeof(*me));
-        return (me);
+        return (cfs_mem_cache_alloc(lnet_MEs_cachep, CFS_ALLOC_IO));
 }
 
 static inline void
 lnet_me_free(lnet_me_t *me)
 {
         /* ALWAYS called with liblock held */
-        LIBCFS_FREE(me, sizeof(*me));
+	cfs_mem_cache_free(lnet_MEs_cachep, me);
 }
 
 static inline lnet_msg_t *

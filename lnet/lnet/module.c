@@ -113,6 +113,11 @@ lnet_ioctl(unsigned int cmd, struct libcfs_ioctl_data *data)
 
 DECLARE_IOCTL_HANDLER(lnet_ioctl_handler, lnet_ioctl);
 
+#ifndef LNET_USE_LIB_FREELIST
+cfs_mem_cache_t *lnet_MEs_cachep;        /* MEs kmem_cache */
+cfs_mem_cache_t *lnet_small_MDs_cachep;  /* <=128bytes MDs kmem_cache */
+#endif
+
 int
 init_lnet(void)
 {
@@ -120,6 +125,23 @@ init_lnet(void)
         ENTRY;
 
         cfs_init_mutex(&lnet_config_mutex);
+
+#ifndef LNET_USE_LIB_FREELIST
+	/* create specific kmem_cache for MEs and small MDs (ie, originaly
+	 * allocated in <size-128> kmem_cache).
+	 */
+	lnet_MEs_cachep = cfs_mem_cache_create("lnet_MEs", sizeof(lnet_me_t),
+					       0, 0);
+	if (lnet_MEs_cachep == NULL)
+		return -ENOMEM;
+
+	lnet_small_MDs_cachep = cfs_mem_cache_create("lnet_small_MDs",
+						     128, 0, 0);
+	if (lnet_small_MDs_cachep == NULL) {
+		cfs_mem_cache_destroy(lnet_MEs_cachep);
+		return -ENOMEM;
+	}
+#endif
 
         rc = LNetInit();
         if (rc != 0) {
