@@ -177,7 +177,7 @@ test_1b() {
 run_test 1b "rmdir .../d1/d2; rmdir .../d1 ====================="
 
 test_2a() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	$CHECKSTAT -t file $DIR/$tdir/$tfile || error
 }
@@ -197,7 +197,7 @@ run_test 3a "mkdir .../d3 ======================================"
 
 test_3b() {
 	if [ ! -d $DIR/$tdir ]; then
-		mkdir $DIR/$tdir
+		test_mkdir -p $DIR/$tdir
 	fi
 	touch $DIR/$tdir/$tfile
 	$CHECKSTAT -t file $DIR/$tdir/$tfile || error
@@ -218,7 +218,7 @@ run_test 4a "mkdir .../d4 ======================================"
 
 test_4b() {
 	if [ ! -d $DIR/$tdir ]; then
-		test_mkdir $DIR/$tdir
+		test_mkdir -p $DIR/$tdir
 	fi
 	test_mkdir $DIR/$tdir/d2
 	mkdir $DIR/$tdir/d2
@@ -227,7 +227,7 @@ test_4b() {
 run_test 4b "mkdir .../d4/d2 ==================================="
 
 test_5() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	test_mkdir $DIR/$tdir/d2
 	chmod 0707 $DIR/$tdir/d2
 	$CHECKSTAT -t dir -p 0707 $DIR/$tdir/d2 || error
@@ -292,7 +292,7 @@ run_test 6f "$RUNAS chgrp .../f6e (should return error) =="
 
 test_6g() {
 	[ $RUNAS_ID -eq $UID ] && skip_env "RUNAS_ID = UID = $UID" && return
-	test_mkdir $DIR/$tdir || error
+	test_mkdir -p $DIR/$tdir || error
         chmod 777 $DIR/$tdir || error
         $RUNAS mkdir $DIR/$tdir/d || error
         chmod g+s $DIR/$tdir/d || error
@@ -312,7 +312,7 @@ test_6h() { # bug 7331
 run_test 6h "$RUNAS chown RUNAS_ID.0 .../f6h (should return error)"
 
 test_7a() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	$MCREATE $DIR/$tdir/$tfile
 	chmod 0666 $DIR/$tdir/$tfile
 	$CHECKSTAT -t file -p 0666 $DIR/$tdir/$tfile || error
@@ -331,7 +331,7 @@ test_7b() {
 run_test 7b "mkdir .../d7; mcreate d7/f2; echo foo > d7/f2 ====="
 
 test_8() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	chmod 0666 $DIR/$tdir/$tfile
 	$CHECKSTAT -t file -p 0666 $DIR/$tdir/$tfile || error
@@ -339,7 +339,7 @@ test_8() {
 run_test 8 "mkdir .../d8; touch .../d8/f; chmod .../d8/f ======="
 
 test_9() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	test_mkdir $DIR/$tdir/d2
 	test_mkdir $DIR/$tdir/d2/d3
 	$CHECKSTAT -t dir $DIR/$tdir/d2/d3 || error
@@ -347,7 +347,7 @@ test_9() {
 run_test 9 "mkdir .../d9 .../d9/d2 .../d9/d2/d3 ================"
 
 test_10() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	test_mkdir $DIR/$tdir/d2
 	touch $DIR/$tdir/d2/$tfile
 	$CHECKSTAT -t file $DIR/$tdir/d2/$tfile || error
@@ -355,7 +355,7 @@ test_10() {
 run_test 10 "mkdir .../d10 .../d10/d2; touch .../d10/d2/f ======"
 
 test_11() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	test_mkdir $DIR/$tdir/d2
 	chmod 0666 $DIR/$tdir/d2
 	chmod 0705 $DIR/$tdir/d2
@@ -364,7 +364,7 @@ test_11() {
 run_test 11 "mkdir .../d11 d11/d2; chmod .../d11/d2 ============"
 
 test_12() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	chmod 0666 $DIR/$tdir/$tfile
 	chmod 0654 $DIR/$tdir/$tfile
@@ -373,7 +373,7 @@ test_12() {
 run_test 12 "touch .../d12/f; chmod .../d12/f .../d12/f ========"
 
 test_13() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	dd if=/dev/zero of=$DIR/$tdir/$tfile count=10
 	>  $DIR/$tdir/$tfile
 	$CHECKSTAT -t file -s 0 $DIR/$tdir/$tfile || error
@@ -381,7 +381,7 @@ test_13() {
 run_test 13 "creat .../d13/f; dd .../d13/f; > .../d13/f ========"
 
 test_14() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	rm $DIR/$tdir/$tfile
 	$CHECKSTAT -a $DIR/$tdir/$tfile || error
@@ -389,7 +389,7 @@ test_14() {
 run_test 14 "touch .../d14/f; rm .../d14/f; rm .../d14/f ======="
 
 test_15() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	mv $DIR/$tdir/$tfile $DIR/$tdir/${tfile}_2
 	$CHECKSTAT -t file $DIR/$tdir/${tfile}_2 || error
@@ -397,7 +397,7 @@ test_15() {
 run_test 15 "touch .../d15/f; mv .../d15/f .../d15/f2 =========="
 
 test_16() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	rm -rf $DIR/$tdir/$tfile
 	$CHECKSTAT -a $DIR/$tdir/$tfile || error
@@ -1494,22 +1494,27 @@ test_27t() { # bug 10864
 run_test 27t "check that utils parse path correctly"
 
 test_27u() { # bug 4900
-        [ "$OSTCOUNT" -lt "2" ] && skip_env "too few OSTs" && return
-        remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	[ "$OSTCOUNT" -lt "2" ] && skip_env "too few OSTs" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	local index
 
 #define OBD_FAIL_MDS_OSC_PRECREATE      0x139
-        do_facet $SINGLEMDS lctl set_param fail_loc=0x139
-        test_mkdir -p $DIR/$tdir
+	for index in $(seq 1 $MDSCOUNT); do
+		do_facet mds${index} lctl set_param fail_loc=0x139
+	done
+	test_mkdir -p $DIR/$tdir
 	rm -rf $DIR/$tdir/*
-        createmany -o $DIR/$tdir/t- 1000
-        do_facet $SINGLEMDS lctl set_param fail_loc=0
+	createmany -o $DIR/$tdir/t- 1000
+	for index in $(seq 1 $MDSCOUNT); do
+		do_facet mds${index} lctl set_param fail_loc=0
+	done
 
-        TLOG=$DIR/$tfile.getstripe
-        $GETSTRIPE $DIR/$tdir > $TLOG
-        OBJS=`awk -vobj=0 '($1 == 0) { obj += 1 } END { print obj;}' $TLOG`
-        unlinkmany $DIR/$tdir/t- 1000
-        [ $OBJS -gt 0 ] && \
-                error "$OBJS objects created on OST-0.  See $TLOG" || pass
+	TLOG=$DIR/$tfile.getstripe
+	$GETSTRIPE $DIR/$tdir > $TLOG
+	OBJS=`awk -vobj=0 '($1 == 0) { obj += 1 } END { print obj;}' $TLOG`
+	unlinkmany $DIR/$tdir/t- 1000
+	[ $OBJS -gt 0 ] && \
+		error "$OBJS objects created on OST-0.  See $TLOG" || pass
 }
 run_test 27u "skip object creation on OSC w/o objects =========="
 
@@ -3572,7 +3577,7 @@ run_test 49 "Change max_pages_per_rpc won't break osc extent"
 
 test_50() {
 	# bug 1485
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	cd $DIR/$tdir
 	ls /proc/$$/cwd || error
 }
@@ -3848,7 +3853,7 @@ run_test 54e "console/tty device works in lustre ======================"
 test_56a() {	# was test_56
         rm -rf $DIR/$tdir
         $SETSTRIPE -d $DIR
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
         test_mkdir $DIR/$tdir/dir
         NUMFILES=3
         NUMFILESx2=$(($NUMFILES * 2))
@@ -8272,20 +8277,20 @@ get_rename_size() {
 
 test_133d() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-    remote_ost_nodsh && skip "remote OST with nodsh" && return
-    remote_mds_nodsh && skip "remote MDS with nodsh" && return
-    do_facet $SINGLEMDS $LCTL list_param mdt.*.rename_stats ||
-        { skip "MDS doesn't support rename stats"; return; }
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	do_facet $SINGLEMDS $LCTL list_param mdt.*.rename_stats ||
+	{ skip "MDS doesn't support rename stats"; return; }
 
-    local testdir1=$DIR/${tdir}/stats_testdir1
-    local testdir2=$DIR/${tdir}/stats_testdir2
+	local testdir1=$DIR/${tdir}/stats_testdir1
+	local testdir2=$DIR/${tdir}/stats_testdir2
 
-    do_facet $SINGLEMDS $LCTL set_param mdt.*.rename_stats=clear
+	do_facet $SINGLEMDS $LCTL set_param mdt.*.rename_stats=clear
 
-    test_mkdir -p ${testdir1} || error "mkdir failed"
-    test_mkdir -p ${testdir2} || error "mkdir failed"
+	mkdir -p ${testdir1} || error "mkdir failed"
+	mkdir -p ${testdir2} || error "mkdir failed"
 
-    createmany -o $testdir1/test 512 || error "createmany failed"
+	createmany -o $testdir1/test 512 || error "createmany failed"
 
 	# check samedir rename size
 	mv ${testdir1}/test0 ${testdir1}/test_0
@@ -8304,18 +8309,18 @@ test_133d() {
 	echo "source rename dir size: ${testdir1_size}"
 	echo "target rename dir size: ${testdir2_size}"
 
-    local cmd="do_facet $SINGLEMDS $LCTL get_param mdt.*.rename_stats"
-    eval $cmd || error "$cmd failed"
-    local samedir=$($cmd | grep 'same_dir')
-    local same_sample=$(get_rename_size $testdir1_size)
-    [ -z "$samedir" ] && error "samedir_rename_size count error"
-    [ "$same_sample" -eq 1 ] || error "samedir_rename_size error $same_sample"
-    echo "Check same dir rename stats success"
+	local cmd="do_facet $SINGLEMDS $LCTL get_param mdt.*.rename_stats"
+	eval $cmd || error "$cmd failed"
+	local samedir=$($cmd | grep 'same_dir')
+	local same_sample=$(get_rename_size $testdir1_size)
+	[ -z "$samedir" ] && error "samedir_rename_size count error"
+	[ "$same_sample" -eq 1 ] || error "samedir_rename_size error $same_sample"
+	echo "Check same dir rename stats success"
 
-    do_facet $SINGLEMDS $LCTL set_param mdt.*.rename_stats=clear
+	do_facet $SINGLEMDS $LCTL set_param mdt.*.rename_stats=clear
 
-    # check crossdir rename size
-    mv ${testdir1}/test_0 ${testdir2}/test_0
+	# check crossdir rename size
+	mv ${testdir1}/test_0 ${testdir2}/test_0
 
 	testdir1_size=$(ls -l $DIR/${tdir} |
 		awk '/stats_testdir1/ {print $5}')
@@ -8331,15 +8336,15 @@ test_133d() {
 	echo "source rename dir size: ${testdir1_size}"
 	echo "target rename dir size: ${testdir2_size}"
 
-    eval $cmd || error "$cmd failed"
-    local crossdir=$($cmd | grep 'crossdir')
-    local src_sample=$(get_rename_size $testdir1_size crossdir_src)
-    local tgt_sample=$(get_rename_size $testdir2_size crossdir_tgt)
-    [ -z "$crossdir" ] && error "crossdir_rename_size count error"
-    [ "$src_sample" -eq 1 ] || error "crossdir_rename_size error $src_sample"
-    [ "$tgt_sample" -eq 1 ] || error "crossdir_rename_size error $tgt_sample"
-    echo "Check cross dir rename stats success"
-    rm -rf $DIR/${tdir}
+	eval $cmd || error "$cmd failed"
+	local crossdir=$($cmd | grep 'crossdir')
+	local src_sample=$(get_rename_size $testdir1_size crossdir_src)
+	local tgt_sample=$(get_rename_size $testdir2_size crossdir_tgt)
+	[ -z "$crossdir" ] && error "crossdir_rename_size count error"
+	[ "$src_sample" -eq 1 ] || error "crossdir_rename_size error $src_sample"
+	[ "$tgt_sample" -eq 1 ] || error "crossdir_rename_size error $tgt_sample"
+	echo "Check cross dir rename stats success"
+	rm -rf $DIR/${tdir}
 }
 run_test 133d "Verifying rename_stats ========================================"
 
