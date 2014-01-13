@@ -1494,22 +1494,27 @@ test_27t() { # bug 10864
 run_test 27t "check that utils parse path correctly"
 
 test_27u() { # bug 4900
-        [ "$OSTCOUNT" -lt "2" ] && skip_env "too few OSTs" && return
-        remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	[ "$OSTCOUNT" -lt "2" ] && skip_env "too few OSTs" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	local index
 
 #define OBD_FAIL_MDS_OSC_PRECREATE      0x139
-        do_facet $SINGLEMDS lctl set_param fail_loc=0x139
-        test_mkdir -p $DIR/$tdir
+	for index in $(seq 1 $MDSCOUNT); do
+		do_facet mds${index} lctl set_param fail_loc=0x139
+	done
+	test_mkdir -p $DIR/$tdir
 	rm -rf $DIR/$tdir/*
-        createmany -o $DIR/$tdir/t- 1000
-        do_facet $SINGLEMDS lctl set_param fail_loc=0
+	createmany -o $DIR/$tdir/t- 1000
+	for index in $(seq 1 $MDSCOUNT); do
+		do_facet mds${index} lctl set_param fail_loc=0
+	done
 
-        TLOG=$DIR/$tfile.getstripe
-        $GETSTRIPE $DIR/$tdir > $TLOG
-        OBJS=`awk -vobj=0 '($1 == 0) { obj += 1 } END { print obj;}' $TLOG`
-        unlinkmany $DIR/$tdir/t- 1000
-        [ $OBJS -gt 0 ] && \
-                error "$OBJS objects created on OST-0.  See $TLOG" || pass
+	TLOG=$DIR/$tfile.getstripe
+	$GETSTRIPE $DIR/$tdir > $TLOG
+	OBJS=`awk -vobj=0 '($1 == 0) { obj += 1 } END { print obj;}' $TLOG`
+	unlinkmany $DIR/$tdir/t- 1000
+	[ $OBJS -gt 0 ] && \
+		error "$OBJS objects created on OST-0.  See $TLOG" || pass
 }
 run_test 27u "skip object creation on OSC w/o objects =========="
 
@@ -8272,20 +8277,20 @@ get_rename_size() {
 
 test_133d() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-    remote_ost_nodsh && skip "remote OST with nodsh" && return
-    remote_mds_nodsh && skip "remote MDS with nodsh" && return
-    do_facet $SINGLEMDS $LCTL list_param mdt.*.rename_stats ||
-        { skip "MDS doesn't support rename stats"; return; }
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	do_facet $SINGLEMDS $LCTL list_param mdt.*.rename_stats ||
+	{ skip "MDS doesn't support rename stats"; return; }
 
-    local testdir1=$DIR/${tdir}/stats_testdir1
-    local testdir2=$DIR/${tdir}/stats_testdir2
+	local testdir1=$DIR/${tdir}/stats_testdir1
+	local testdir2=$DIR/${tdir}/stats_testdir2
 
-    do_facet $SINGLEMDS $LCTL set_param mdt.*.rename_stats=clear
+	do_facet $SINGLEMDS $LCTL set_param mdt.*.rename_stats=clear
 
-    test_mkdir -p ${testdir1} || error "mkdir failed"
-    test_mkdir -p ${testdir2} || error "mkdir failed"
+	mkdir -p ${testdir1} || error "mkdir failed"
+	mkdir -p ${testdir2} || error "mkdir failed"
 
-    createmany -o $testdir1/test 512 || error "createmany failed"
+	createmany -o $testdir1/test 512 || error "createmany failed"
 
 	# check samedir rename size
 	mv ${testdir1}/test0 ${testdir1}/test_0
@@ -8304,18 +8309,18 @@ test_133d() {
 	echo "source rename dir size: ${testdir1_size}"
 	echo "target rename dir size: ${testdir2_size}"
 
-    local cmd="do_facet $SINGLEMDS $LCTL get_param mdt.*.rename_stats"
-    eval $cmd || error "$cmd failed"
-    local samedir=$($cmd | grep 'same_dir')
-    local same_sample=$(get_rename_size $testdir1_size)
-    [ -z "$samedir" ] && error "samedir_rename_size count error"
-    [ "$same_sample" -eq 1 ] || error "samedir_rename_size error $same_sample"
-    echo "Check same dir rename stats success"
+	local cmd="do_facet $SINGLEMDS $LCTL get_param mdt.*.rename_stats"
+	eval $cmd || error "$cmd failed"
+	local samedir=$($cmd | grep 'same_dir')
+	local same_sample=$(get_rename_size $testdir1_size)
+	[ -z "$samedir" ] && error "samedir_rename_size count error"
+	[ "$same_sample" -eq 1 ] || error "samedir_rename_size error $same_sample"
+	echo "Check same dir rename stats success"
 
-    do_facet $SINGLEMDS $LCTL set_param mdt.*.rename_stats=clear
+	do_facet $SINGLEMDS $LCTL set_param mdt.*.rename_stats=clear
 
-    # check crossdir rename size
-    mv ${testdir1}/test_0 ${testdir2}/test_0
+	# check crossdir rename size
+	mv ${testdir1}/test_0 ${testdir2}/test_0
 
 	testdir1_size=$(ls -l $DIR/${tdir} |
 		awk '/stats_testdir1/ {print $5}')
@@ -8331,15 +8336,15 @@ test_133d() {
 	echo "source rename dir size: ${testdir1_size}"
 	echo "target rename dir size: ${testdir2_size}"
 
-    eval $cmd || error "$cmd failed"
-    local crossdir=$($cmd | grep 'crossdir')
-    local src_sample=$(get_rename_size $testdir1_size crossdir_src)
-    local tgt_sample=$(get_rename_size $testdir2_size crossdir_tgt)
-    [ -z "$crossdir" ] && error "crossdir_rename_size count error"
-    [ "$src_sample" -eq 1 ] || error "crossdir_rename_size error $src_sample"
-    [ "$tgt_sample" -eq 1 ] || error "crossdir_rename_size error $tgt_sample"
-    echo "Check cross dir rename stats success"
-    rm -rf $DIR/${tdir}
+	eval $cmd || error "$cmd failed"
+	local crossdir=$($cmd | grep 'crossdir')
+	local src_sample=$(get_rename_size $testdir1_size crossdir_src)
+	local tgt_sample=$(get_rename_size $testdir2_size crossdir_tgt)
+	[ -z "$crossdir" ] && error "crossdir_rename_size count error"
+	[ "$src_sample" -eq 1 ] || error "crossdir_rename_size error $src_sample"
+	[ "$tgt_sample" -eq 1 ] || error "crossdir_rename_size error $tgt_sample"
+	echo "Check cross dir rename stats success"
+	rm -rf $DIR/${tdir}
 }
 run_test 133d "Verifying rename_stats ========================================"
 
