@@ -31,7 +31,7 @@ Index: linux-stage/fs/ext4/super.c
  	.quota_sync	= vfs_quota_sync,
  	.get_info	= vfs_get_dqinfo,
  	.set_info	= vfs_set_dqinfo,
-@@ -4578,6 +4579,28 @@ static int ext4_quota_on(struct super_bl
+@@ -4578,6 +4579,25 @@ static int ext4_quota_on(struct super_bl
  	return err;
  }
  
@@ -48,11 +48,8 @@ Index: linux-stage/fs/ext4/super.c
 +	mutex_unlock(&dqopt->dqonoff_mutex);
 +
 +	/* Force all delayed allocation blocks to be allocated. */
-+	if (test_opt(sb, DELALLOC)) {
-+		down_read(&sb->s_umount);
++	if (test_opt(sb, DELALLOC))
 +		sync_filesystem(sb);
-+		up_read(&sb->s_umount);
-+	}
 +
 +	return vfs_quota_off(sb, type, remount);
 +}
