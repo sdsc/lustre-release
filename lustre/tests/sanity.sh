@@ -2516,23 +2516,62 @@ test_53() {
 	remote_ost_nodsh && skip "remote OST with nodsh" && return
 
 	local param
+	local param_seq
 	local ostname
 	local mds_last
+	local mds_last_seq
 	local ost_last
+	local ost_last_seq
+	local ost_last_id
 	local ostnum
+	local node
+	local found=false
+	local support_last_seq=true
+
+	[[ $(lustre_version_code mds) -ge $(version_code 2.3.60) ]] ||
+		support_last_seq=false
 
 	local mdtosc=$(get_mdtosc_proc_path '*')
-	for VALUE in $(do_facet mds lctl get_param osc.$mdtosc.prealloc_last_id); do
-		param=`echo ${VALUE[0]} | cut -d "=" -f1`;
-		ostname=`echo $param | cut -d "." -f2 | cut -d - -f 1-2`
-		mds_last=$(do_facet mds lctl get_param -n $param)
-		ostnum=$(echo $ostname | sed "s/${FSNAME}-OST//g" | awk '{print ($1+1)}' )
-		ost_last=$(do_facet ost$ostnum lctl get_param -n obdfilter.$ostname.last_id)
-		echo "$ostname.last_id=$ost_last ; MDS.last_id=$mds_last"
-		if [ $ost_last != $mds_last ]; then
-			error "$ostname.last_id=$ost_last ; MDS.last_id=$mds_last"
+	local value
+	for value in $(do_facet mds \
+		       $LCTL get_param osc.$mdtosc.prealloc_last_id) ; do
+		param=$(echo ${value[0]} | cut -d "=" -f1)
+		ostname=$(echo $param | cut -d "." -f2 | cut -d - -f 1-2)
+
+		if $support_last_seq; then
+			param_seq=$(echo $param |
+				sed -e s/prealloc_last_id/prealloc_last_seq/g)
+			mds_last_seq=$(do_facet mds \
+				       $LCTL get_param -n $param_seq)
 		fi
+		mds_last=$(do_facet mds $LCTL get_param -n $param)
+
+		ostnum=$(index_from_ostuuid ${ostname}_UUID)
+		node=$(facet_active_host ost$((ostnum+1)))
+		param="obdfilter.$ostname.last_id"
+		for ost_last in $(do_node $node $LCTL get_param -n $param) ; do
+			echo "$ostname.last_id=$ost_last; MDS.last_id=$mds_last"
+			ost_last_id=$ost_last
+
+			if $support_last_seq; then
+				ost_last_id=$(echo $ost_last |
+					      awk -F':' '{print $2}' |
+					      sed -e "s/^0x//g")
+				ost_last_seq=$(echo $ost_last |
+					       awk -F':' '{print $1}')
+				[[ $ost_last_seq = $mds_last_seq ]] || continue
+			fi
+
+			if [[ $ost_last_id != $mds_last ]]; then
+				error "$ost_last_id != $mds_last"
+			else
+				found=true
+				break
+			fi
+		done
 	done
+	$found || error "can not match last_seq/last_id for $mdtosc"
+	return 0
 }
 run_test 53 "verify that MDS and OSTs agree on pre-creation ===="
 
