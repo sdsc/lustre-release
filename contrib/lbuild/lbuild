@@ -108,6 +108,9 @@ DATE=$(date)
 
 RPMBUILD=
 
+WGET_OPTS="-nv"
+CURL_OPTS="-L -s"
+
 export CC=${CC:-gcc}
 
 # Readlink is not present on some older distributions: emulate it.
@@ -404,11 +407,11 @@ fetch_url() {
 
     local rc=0
     if which wget >/dev/null 2>&1; then
-        if ! wget -nv "$url" -O "$target"; then
+        if ! wget $WGET_OPTS "$url" -O "$target"; then
             rc=${PIPESTATUS[0]}
         fi
     elif which curl >/dev/null 2>&1; then
-        if ! curl -L -s -o "$target" "$url"; then
+        if ! curl $CURL_OPTS -o "$target" "$url"; then
             rc=${PIPESTATUS[0]}
         fi
     else
@@ -708,8 +711,16 @@ download_mpss() {
     local url
     local i=0
     for url in $urls; do
+        local WGET_OPTS_SAVE=$WGET_OPTS
+        local CURL_OPTS_SAVE=$CURL_OPTS
+        if [[ $url =~ ".pdx.intel.com" ]]; then
+            WGET_OPTS="$WGET_OPTS_SAVE --no-proxy"
+            CURL_OPTS="$CURL_OPTS_SAVE --noproxy *"
+        fi
         file="$KERNELTREE/mpss_src-${MPSS_VERSION}-${MPSS_DISTRO}-part$i.tar"
         download_file "$url" "$file" "$force"
+        WGET_OPTS=$WGET_OPTS_SAVE
+        CURL_OPTS=$CURL_OPTS_SAVE
         i=$((i+1))
     done
 }
