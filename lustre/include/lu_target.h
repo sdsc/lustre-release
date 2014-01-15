@@ -344,6 +344,12 @@ int out_insert_update(const struct lu_env *env, struct update_request *update,
 		      int op, const struct lu_fid *fid, int count,
 		      int *lens, const char **bufs);
 
+/* out_handler.c */
+void out_register_record_fid_accessed(int (*rfa)(const struct lu_env *,
+						 struct dt_device *,
+						 struct lfsck_request *,
+						 const struct lu_fid *));
+
 enum {
 	ESERIOUS = 0x0001000
 };
