@@ -2093,16 +2093,70 @@ int mdt_quota_dqacq(struct tgt_session_info *tsi)
 /* LFSCK request handlers */
 int mdt_lfsck_notify(struct tgt_session_info *tsi)
 {
-	/* XXX: to be implemented. */
+	const struct lu_env	*env = tsi->tsi_env;
+	struct mdt_device	*mdt = mdt_exp2dev(tsi->tsi_exp);
+	struct lfsck_request	*lr;
+	int			 rc;
+	ENTRY;
 
-	return 0;
+	lr = req_capsule_client_get(tsi->tsi_pill, &RMF_LFSCK_REQUEST);
+	if (lr == NULL)
+		RETURN(-EPROTO);
+
+	switch (lr->lr_event) {
+	case LE_START: {
+		struct lfsck_start		start;
+		struct lfsck_start_param	lsp;
+
+		start.ls_valid = lr->lr_valid;
+		start.ls_speed_limit = lr->lr_speed;
+		start.ls_version = lr->lr_version;
+		start.ls_active = lr->lr_active;
+		start.ls_flags = lr->lr_param;
+		start.ls_async_windows = lr->lr_async_windows;
+
+		lsp.lsp_namespace = mdt->mdt_namespace;
+		lsp.lsp_start = &start;
+		lsp.lsp_index_valid = 0;
+		rc = lfsck_start(env, mdt->mdt_bottom, &lsp);
+		break;
+	}
+	case LE_STOP:
+	case LE_PHASE1_DONE:
+	case LE_PHASE2_DONE:
+		rc = lfsck_in_notify(env, mdt->mdt_bottom, lr);
+		break;
+	default:
+		CERROR("%s: unsupported lfsck_event: rc = %d\n",
+		       mdt_obd_name(mdt), lr->lr_event);
+		rc = -EOPNOTSUPP;
+		break;
+	}
+
+	RETURN(rc);
 }
 
 int mdt_lfsck_query(struct tgt_session_info *tsi)
 {
-	/* XXX: to be implemented. */
+	struct mdt_device	*mdt	 = mdt_exp2dev(tsi->tsi_exp);
+	struct lfsck_request	*request;
+	struct lfsck_reply	*reply;
+	int			 rc	 = 0;
+	ENTRY;
 
-	return 0;
+	request = req_capsule_client_get(tsi->tsi_pill, &RMF_LFSCK_REQUEST);
+	if (request == NULL)
+		RETURN(-EPROTO);
+
+	reply = req_capsule_server_get(tsi->tsi_pill, &RMF_LFSCK_REPLY);
+	if (reply == NULL)
+		RETURN(-ENOMEM);
+
+	reply->lr_status = lfsck_query(mdt->mdt_bottom, request);
+	if (reply->lr_status < 0)
+		rc = reply->lr_status;
+
+	RETURN(rc);
 }
 
 struct mdt_object *mdt_object_new(const struct lu_env *env,
