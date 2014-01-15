@@ -1452,7 +1452,7 @@ static int check_cb(const struct lu_env *env, struct cl_io *io,
 }
 
 /**
- * Returns true iff there are pages under \a olck not protected by other
+ * Returns true if there are pages under \a olck not protected by other
  * locks.
  */
 static int osc_lock_has_pages(struct osc_lock *olck)
@@ -1465,6 +1465,7 @@ static int osc_lock_has_pages(struct osc_lock *olck)
         struct cl_io         *io;
         struct lu_env        *env;
         int                   result;
+	int			 res;
 
         env = cl_env_nested_get(&nest);
         if (IS_ERR(env))
@@ -1477,24 +1478,26 @@ static int osc_lock_has_pages(struct osc_lock *olck)
         descr = &lock->cll_descr;
 
 	mutex_lock(&oob->oo_debug_mutex);
-
-        io->ci_obj = cl_object_top(obj);
+	io->ci_obj = cl_object_top(obj);
 	io->ci_ignore_layout = 1;
-        cl_io_init(env, io, CIT_MISC, io->ci_obj);
+	res = cl_io_init(env, io, CIT_MISC, io->ci_obj);
+	if (res != 0)
+		GOTO(out, result = 0);
 	do {
-		result = osc_page_gang_lookup(env, oob, io,
-					      descr->cld_start, descr->cld_end,
-					      check_cb, (void *)lock);
-		if (result == CLP_GANG_ABORT)
+		res = osc_page_gang_lookup(env, io, cl2osc(obj),
+					   descr->cld_start, descr->cld_end,
+					   check_cb, (void *)lock);
+		if (res == CLP_GANG_ABORT)
 			break;
-		if (result == CLP_GANG_RESCHED)
+		if (res == CLP_GANG_RESCHED)
 			cond_resched();
-	} while (result != CLP_GANG_OKAY);
+	} while (res != CLP_GANG_OKAY);
+	result = (res == CLP_GANG_ABORT);
+out:
 	cl_io_fini(env, io);
 	mutex_unlock(&oob->oo_debug_mutex);
 	cl_env_nested_put(&nest, env);
-
-	return (result == CLP_GANG_ABORT);
+	return result;
 }
 #else
 static int osc_lock_has_pages(struct osc_lock *olck)
