@@ -956,9 +956,9 @@ EXPORT_SYMBOL(lprocfs_stats_collect);
 /**
  * Append a space separated list of current set flags to str.
  */
-#define flag2seqstr(flag)						\
+#define flag2seqstr(port, flag)						\
 	do {								\
-		if (imp->imp_##flag)					\
+		if ((port)->port##_##flag)				\
 			seq_printf(m, "%s" #flag, first ? "" : ", ");	\
 	} while (0)
 static int obd_import_flags2seqstr(struct obd_import *imp, struct seq_file *m)
@@ -970,12 +970,26 @@ static int obd_import_flags2seqstr(struct obd_import *imp, struct seq_file *m)
 		first = false;
 	}
 
-	flag2seqstr(invalid);
-	flag2seqstr(deactive);
-	flag2seqstr(replayable);
-	flag2seqstr(pingable);
+	flag2seqstr(imp, invalid);
+	flag2seqstr(imp, deactive);
+	flag2seqstr(imp, replayable);
+	flag2seqstr(imp, pingable);
 	return 0;
 }
+
+#ifdef HAVE_SERVER_SUPPORT
+static int obd_export_flags2seqstr(struct obd_export *exp, struct seq_file *m)
+{
+	bool first = true;
+
+	flag2seqstr(exp, failed);
+	flag2seqstr(exp, in_recovery);
+	flag2seqstr(exp, disconnected);
+	flag2seqstr(exp, connecting);
+
+	return 0;
+}
+#endif
 #undef flags2seqstr
 
 static const char *obd_connect_names[] = {
@@ -2582,14 +2596,6 @@ void lprocfs_init_ldlm_stats(struct lprocfs_stats *ldlm_stats)
 EXPORT_SYMBOL(lprocfs_init_ldlm_stats);
 
 #ifdef HAVE_SERVER_SUPPORT
-/* No one appears to be using this ?? */
-int lprocfs_exp_nid_seq_show(struct seq_file *m, void *data)
-{
-	struct obd_export *exp = m->private;
-	LASSERT(exp != NULL);
-	return seq_printf(m, "%s\n", obd_export_nid2str(exp));
-}
-
 int lprocfs_exp_print_uuid_seq(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 				cfs_hlist_node_t *hnode, void *cb_data)
 
@@ -2637,6 +2643,35 @@ int lprocfs_exp_hash_seq_show(struct seq_file *m, void *data)
 	return 0;
 }
 LPROC_SEQ_FOPS_RO(lprocfs_exp_hash);
+
+int lprocfs_exp_export_seq_show(struct seq_file *m,  void *data)
+{
+	struct obd_export		*exp = data;
+	struct obd_device		*obd;
+	struct obd_connect_data		*ocd;
+	struct nid_stat			*stats;
+
+	LASSERT(exp != NULL);
+	obd = exp->exp_obd;
+	ocd = &exp->exp_connect_data;
+	stats = exp->exp_nid_stats;
+
+	seq_printf(m, "export:\n"
+		      "    name: %s\n"
+		      "    client: %s\n"
+		      "    connect_flags: [",
+		      obd->obd_name,
+		      stats->nid_proc->name);
+	obd_connect_seq_flags2str(m, ocd->ocd_connect_flags, ", ");
+	seq_printf(m, "]\n");
+	obd_connect_data_seqprint(m, ocd);
+	seq_printf(m, "    export_flags: [");
+	obd_export_flags2seqstr(exp, m);
+	seq_printf(m, "]\n");
+
+	return 0;
+}
+LPROC_SEQ_FOPS_RO(lprocfs_exp_export);
 
 int lprocfs_nid_stats_clear_seq_show(struct seq_file *m, void *data)
 {
@@ -2687,15 +2722,6 @@ lprocfs_nid_stats_clear_seq_write(struct file *file, const char *buffer,
 EXPORT_SYMBOL(lprocfs_nid_stats_clear_seq_write);
 
 #ifndef HAVE_ONLY_PROCFS_SEQ
-int lprocfs_exp_rd_nid(char *page, char **start, off_t off, int count,
-                         int *eof,  void *data)
-{
-        struct obd_export *exp = data;
-        LASSERT(exp != NULL);
-        *eof = 1;
-        return snprintf(page, count, "%s\n", obd_export_nid2str(exp));
-}
-
 struct exp_uuid_cb_data {
 	char                   *page;
 	int                     count;
@@ -2914,6 +2940,16 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
                 rc = PTR_ERR(entry);
                 GOTO(destroy_new_ns, rc);
         }
+
+#ifdef HAVE_ONLY_PROCFS_SEQ
+	entry = lprocfs_add_simple(new_stat->nid_proc, "export",
+				   new_stat, &lprocfs_exp_export_fops);
+	if (IS_ERR(entry)) {
+		CWARN("Error adding the export file\n");
+		rc = PTR_ERR(entry);
+		GOTO(destroy_new_ns, rc);
+	}
+#endif
 
 	spin_lock(&exp->exp_lock);
 	exp->exp_nid_stats = new_stat;
