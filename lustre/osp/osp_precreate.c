@@ -70,7 +70,8 @@ static void osp_statfs_timer_cb(unsigned long _d)
 	struct osp_device *d = (struct osp_device *) _d;
 
 	LASSERT(d);
-	wake_up(&d->opd_pre_waitq);
+	if (d->opd_pre != NULL)
+		wake_up(&d->opd_pre_waitq);
 }
 
 static int osp_statfs_interpret(const struct lu_env *env,
@@ -108,7 +109,9 @@ static int osp_statfs_interpret(const struct lu_env *env,
 	RETURN(0);
 out:
 	/* couldn't update statfs, try again as soon as possible */
-	wake_up(&d->opd_pre_waitq);
+	if (d->opd_pre != NULL)
+		wake_up(&d->opd_pre_waitq);
+
 	if (req->rq_import_generation == imp->imp_generation)
 		CDEBUG(D_CACHE, "%s: couldn't update statfs: rc = %d\n",
 		       d->opd_obd->obd_name, rc);
