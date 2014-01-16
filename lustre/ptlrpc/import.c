@@ -1276,6 +1276,10 @@ static int ptlrpc_invalidate_import_thread(void *data)
         ptlrpc_invalidate_import(imp);
 
         if (obd_dump_on_eviction) {
+		if (obd_dump_on_eviction == -1) {
+			CERROR("LBUG upon eviction\n");
+			LBUG();
+		}
                 CERROR("dump the log upon eviction\n");
                 libcfs_debug_dumplog();
         }

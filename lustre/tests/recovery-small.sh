@@ -1783,6 +1783,22 @@ test_111 ()
 }
 run_test 111 "mdd setup fail should not cause umount oops"
 
+test_1000() {
+    remote_ost_nodsh && skip "remote OST with nodsh" && return 0
+
+    rm -rf /tmp/lustre-log.*
+    echo 1000 > /proc/sys/lustre/dump_on_eviction
+    ost_evict_client
+    # allow recovery to complete
+    sleep $((TIMEOUT + 2))
+    # Did we dump lustre-log ?
+    ls /tmp/lustre-log.* || error "no debug log dumped!"
+    echo -1 > /proc/sys/lustre/dump_on_eviction
+    ost_evict_client
+    check_catastrophe && error "LBUG/LASSERT not detected"
+}
+run_test 1000 "check debug-log & crash-dump upon evict patch (LU-3946)"
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
