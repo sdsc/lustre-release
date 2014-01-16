@@ -1631,7 +1631,7 @@ int mdt_set_info(struct tgt_session_info *tsi)
 int mdt_readpage(struct tgt_session_info *tsi)
 {
 	struct mdt_thread_info	*info = mdt_th_info(tsi->tsi_env);
-	struct mdt_object	*object = mdt_obj(tsi->tsi_corpus);
+	struct mdt_object	*object = mdt_obj(tsi->tsi_object);
 	struct lu_rdpg		*rdpg = &info->mti_u.rdpg.mti_rdpg;
 	const struct mdt_body	*reqbody = tsi->tsi_mdt_body;
 	struct mdt_body		*repbody;
@@ -2486,24 +2486,32 @@ void mdt_object_unlock(struct mdt_thread_info *info, struct mdt_object *o,
         EXIT;
 }
 
-struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *info,
-                                        const struct lu_fid *f,
-                                        struct mdt_lock_handle *lh,
-                                        __u64 ibits)
+struct mdt_object *
+mdt_object_find_lock(struct mdt_thread_info *info,
+		     const struct lu_fid *fid,
+		     struct mdt_lock_handle *lh,
+		     __u64 ibits)
 {
-        struct mdt_object *o;
+	struct mdt_object *o;
+	int rc;
 
-        o = mdt_object_find(info->mti_env, info->mti_mdt, f);
-        if (!IS_ERR(o)) {
-                int rc;
+	o = mdt_object_find(info->mti_env, info->mti_mdt, fid);
+	if (IS_ERR(o))
+		return o;
 
-                rc = mdt_object_lock(info, o, lh, ibits,
-                                     MDT_LOCAL_LOCK);
-                if (rc != 0) {
-                        mdt_object_put(info->mti_env, o);
-                        o = ERR_PTR(rc);
-                }
-        }
+	if (mdt_object_remote(o)) {
+		mdt_object_put(info->mti_env, o);
+
+		return ERR_PTR(-EPROTO);
+	}
+
+	rc = mdt_object_lock(info, o, lh, ibits, MDT_LOCAL_LOCK);
+	if (rc != 0) {
+		mdt_object_put(info->mti_env, o);
+
+		return ERR_PTR(rc);
+	}
+
         return o;
 }
 
@@ -2585,27 +2593,45 @@ static int mdt_body_unpack(struct mdt_thread_info *info, __u32 flags)
 
 static int mdt_unpack_req_pack_rep(struct mdt_thread_info *info, __u32 flags)
 {
-        struct req_capsule *pill = info->mti_pill;
-        int rc;
-        ENTRY;
+	struct req_capsule *pill = info->mti_pill;
+	int rc;
+	ENTRY;
 
-        if (req_capsule_has_field(pill, &RMF_MDT_BODY, RCL_CLIENT))
-                rc = mdt_body_unpack(info, flags);
-        else
-                rc = 0;
+	if (req_capsule_has_field(pill, &RMF_MDT_BODY, RCL_CLIENT)) {
+		rc = mdt_body_unpack(info, flags);
+		if (rc < 0)
+			RETURN(rc);
+	}
 
-        if (rc == 0 && (flags & HABEO_REFERO)) {
-                /* Pack reply. */
-                if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER))
-                        req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
-                                             info->mti_body->eadatasize);
-                if (req_capsule_has_field(pill, &RMF_LOGCOOKIES, RCL_SERVER))
+	if ((flags & HABEO_INODE) == HABEO_INODE) {
+		/* XXX MDT object? */
+		if (info->mti_object == NULL ||
+		    !mdt_object_exists(info->mti_object) ||
+		    mdt_object_remote(info->mti_object)) {
+			DEBUG_REQ(D_ERROR, pill->rc_req, "XXX\n");
+			if (OBD_FAIL_CHECK(0x7000))
+				LBUG();
+			else
+				RETURN(-EPROTO);
+		}
+	}
+
+	if (flags & HABEO_REFERO) {
+		/* Pack reply. */
+		if (req_capsule_has_field(pill, &RMF_MDT_MD, RCL_SERVER))
+			req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
+					     info->mti_body->eadatasize);
+
+		if (req_capsule_has_field(pill, &RMF_LOGCOOKIES, RCL_SERVER))
 			req_capsule_set_size(pill, &RMF_LOGCOOKIES,
 					     RCL_SERVER, 0);
 
-                rc = req_capsule_server_pack(pill);
-        }
-        RETURN(rc);
+		rc = req_capsule_server_pack(pill);
+		if (rc < 0)
+			RETURN(rc);
+	}
+
+	RETURN(0);
 }
 
 static int mdt_init_capa_ctxt(const struct lu_env *env, struct mdt_device *m)
@@ -2704,11 +2730,11 @@ struct mdt_thread_info *tsi2mdt_info(struct tgt_session_info *tsi)
 	LASSERT(mti != NULL);
 
 	mdt_thread_info_init(tgt_ses_req(tsi), mti);
-	if (tsi->tsi_corpus != NULL) {
+	if (tsi->tsi_object != NULL) {
 		struct req_capsule *pill = tsi->tsi_pill;
 
-		mti->mti_object = mdt_obj(tsi->tsi_corpus);
-		lu_object_get(tsi->tsi_corpus);
+		mti->mti_object = mdt_obj(tsi->tsi_object);
+		lu_object_get(tsi->tsi_object);
 
 		/*
 		 * XXX: must be part of tgt_mdt_body_unpack but moved here
@@ -2815,21 +2841,21 @@ static struct mdt_it_flavor {
                 .it_act   = mdt_intent_reint,
                 .it_reint = REINT_CREATE
         },
-        [MDT_IT_GETATTR]  = {
-                .it_fmt   = &RQF_LDLM_INTENT_GETATTR,
-                .it_flags = HABEO_REFERO,
-                .it_act   = mdt_intent_getattr
-        },
+	[MDT_IT_GETATTR]  = {
+		.it_fmt   = &RQF_LDLM_INTENT_GETATTR,
+		.it_flags = HABEO_INODE | HABEO_REFERO,
+		.it_act   = mdt_intent_getattr
+	},
         [MDT_IT_READDIR]  = {
                 .it_fmt   = NULL,
                 .it_flags = 0,
                 .it_act   = NULL
         },
-        [MDT_IT_LOOKUP]   = {
-                .it_fmt   = &RQF_LDLM_INTENT_GETATTR,
-                .it_flags = HABEO_REFERO,
-                .it_act   = mdt_intent_getattr
-        },
+	[MDT_IT_LOOKUP]   = {
+		.it_fmt   = &RQF_LDLM_INTENT_GETATTR,
+		.it_flags = HABEO_INODE | HABEO_REFERO,
+		.it_act   = mdt_intent_getattr
+	},
         [MDT_IT_UNLINK]   = {
                 .it_fmt   = &RQF_LDLM_INTENT_UNLINK,
                 .it_flags = MUTABOR,
@@ -2843,7 +2869,7 @@ static struct mdt_it_flavor {
         },
         [MDT_IT_GETXATTR] = {
 		.it_fmt   = &RQF_LDLM_INTENT_GETXATTR,
-		.it_flags = HABEO_CORPUS,
+		.it_flags = HABEO_INODE,
 		.it_act   = mdt_intent_getxattr
         },
 	[MDT_IT_LAYOUT] = {
@@ -4096,33 +4122,33 @@ TGT_RPC_HANDLER(MDS_FIRST_OPC,
 		&RQF_OBD_SET_INFO, LUSTRE_MDS_VERSION),
 TGT_MDT_HDL(0,				MDS_GET_INFO,	mdt_get_info),
 TGT_MDT_HDL(0		| HABEO_REFERO,	MDS_GETSTATUS,	mdt_getstatus),
-TGT_MDT_HDL(HABEO_CORPUS,		MDS_GETATTR,	mdt_getattr),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO,	MDS_GETATTR_NAME,
+TGT_MDT_HDL(HABEO_INODE,		MDS_GETATTR,	mdt_getattr),
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO,	MDS_GETATTR_NAME,
 							mdt_getattr_name),
-TGT_MDT_HDL(HABEO_CORPUS,		MDS_GETXATTR,	mdt_tgt_getxattr),
+TGT_MDT_HDL(HABEO_INODE,		MDS_GETXATTR,	mdt_tgt_getxattr),
 TGT_MDT_HDL(0		| HABEO_REFERO,	MDS_STATFS,	mdt_statfs),
 TGT_MDT_HDL(0		| MUTABOR,	MDS_REINT,	mdt_reint),
-TGT_MDT_HDL(HABEO_CORPUS,		MDS_CLOSE,	mdt_close),
-TGT_MDT_HDL(HABEO_CORPUS,		MDS_DONE_WRITING,
+TGT_MDT_HDL(0,				MDS_CLOSE,	mdt_close),
+TGT_MDT_HDL(0,				MDS_DONE_WRITING,
 							mdt_done_writing),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO,	MDS_READPAGE,	mdt_readpage),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO,	MDS_SYNC,	mdt_sync),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO,	MDS_IS_SUBDIR,	mdt_is_subdir),
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO,	MDS_READPAGE,	mdt_readpage),
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO,	MDS_SYNC,	mdt_sync),
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO,	MDS_IS_SUBDIR,	mdt_is_subdir),
 TGT_MDT_HDL(0,				MDS_QUOTACTL,	mdt_quotactl),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO | MUTABOR, MDS_HSM_PROGRESS,
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO | MUTABOR, MDS_HSM_PROGRESS,
 							mdt_hsm_progress),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO | MUTABOR, MDS_HSM_CT_REGISTER,
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO | MUTABOR, MDS_HSM_CT_REGISTER,
 							mdt_hsm_ct_register),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO | MUTABOR, MDS_HSM_CT_UNREGISTER,
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO | MUTABOR, MDS_HSM_CT_UNREGISTER,
 							mdt_hsm_ct_unregister),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO, MDS_HSM_STATE_GET,
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO, MDS_HSM_STATE_GET,
 							mdt_hsm_state_get),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO | MUTABOR, MDS_HSM_STATE_SET,
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO | MUTABOR, MDS_HSM_STATE_SET,
 							mdt_hsm_state_set),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO, MDS_HSM_ACTION,	mdt_hsm_action),
-TGT_MDT_HDL(HABEO_CORPUS| HABEO_REFERO, MDS_HSM_REQUEST,
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO, MDS_HSM_ACTION,	mdt_hsm_action),
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO, MDS_HSM_REQUEST,
 							mdt_hsm_request),
-TGT_MDT_HDL(HABEO_CORPUS|HABEO_REFERO | MUTABOR, MDS_SWAP_LAYOUTS,
+TGT_MDT_HDL(HABEO_INODE	| HABEO_REFERO | MUTABOR, MDS_SWAP_LAYOUTS,
 							mdt_swap_layouts)
 };
 

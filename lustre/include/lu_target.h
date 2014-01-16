@@ -100,7 +100,7 @@ struct tgt_session_info {
 
 	const struct mdt_body	*tsi_mdt_body;
 	struct ost_body		*tsi_ost_body;
-	struct lu_object	*tsi_corpus;
+	struct lu_object	*tsi_object;
 
 	struct lu_fid		 tsi_fid;
 	struct ldlm_res_id	 tsi_resid;
@@ -193,7 +193,14 @@ enum tgt_handler_flags {
 	 *
 	 * "mutabor" == "I shall modify"
 	 */
-	MUTABOR      = (1 << 3)
+	MUTABOR      = (1 << 3),
+	/*
+	 * this request has an MDT body, the object identified by it
+	 * exists and is local.
+	 *
+	 * "habeo inode" == "I have an inode"
+	 */
+	HABEO_INODE = (1 << 0) | (1 << 4),
 };
 
 struct tgt_handler {

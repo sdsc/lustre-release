@@ -102,7 +102,7 @@ static int tgt_mdt_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 			else
 				rc = -ENOENT;
 		} else {
-			tsi->tsi_corpus = obj;
+			tsi->tsi_object = obj;
 			rc = 0;
 		}
 	} else {
@@ -288,7 +288,7 @@ static int tgt_ost_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 	 * OST doesn't get object in advance for further use to prevent
 	 * situations with nested object_find which is potential deadlock.
 	 */
-	tsi->tsi_corpus = NULL;
+	tsi->tsi_object = NULL;
 	RETURN(rc);
 }
 
@@ -325,6 +325,31 @@ static int tgt_request_preprocess(struct tgt_session_info *tsi,
 			rc = tgt_ost_body_unpack(tsi, flags);
 			if (rc < 0)
 				RETURN(rc);
+		}
+	}
+
+	if ((flags & HABEO_INODE) == HABEO_INODE) {
+#if 0
+		if (tsi->tsi_object == NULL) {
+			LBUG();
+			RETURN(-EPROTO);
+		} else if (!lu_object_exists(tsi->tsi_object)) {
+			LBUG();
+			RETURN(-EPROTO);
+		} else if (lu_object_remote(tsi->tsi_object)) {
+			LBUG();
+			RETURN(-EPROTO);
+		}
+#endif
+		/* XXX MDT object? */
+		if (tsi->tsi_object == NULL ||
+		    !lu_object_exists(tsi->tsi_object) ||
+		    lu_object_remote(tsi->tsi_object)) {
+			DEBUG_REQ(D_ERROR, req, "XXX\n");
+			if (OBD_FAIL_CHECK(0x7000))
+				LBUG();
+			else
+				RETURN(-EPROTO);
 		}
 	}
 
@@ -659,10 +684,11 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	EXIT;
 out:
 	req_capsule_fini(tsi->tsi_pill);
-	if (tsi->tsi_corpus != NULL) {
-		lu_object_put(tsi->tsi_env, tsi->tsi_corpus);
-		tsi->tsi_corpus = NULL;
+	if (tsi->tsi_object != NULL) {
+		lu_object_put(tsi->tsi_env, tsi->tsi_object);
+		tsi->tsi_object = NULL;
 	}
+
 	return rc;
 }
 EXPORT_SYMBOL(tgt_request_handle);

@@ -98,16 +98,20 @@ lmv_get_target(struct lmv_obd *lmv, mdsno_t mds)
 static inline struct lmv_tgt_desc *
 lmv_find_target(struct lmv_obd *lmv, const struct lu_fid *fid)
 {
-        mdsno_t mds = 0;
-        int rc;
+	mdsno_t mds = 0;
+	int rc;
 
-        if (lmv->desc.ld_tgt_count > 1) {
-                rc = lmv_fld_lookup(lmv, fid, &mds);
-                if (rc)
-                        return ERR_PTR(rc);
-        }
+	if (OBD_FAIL_CHECK(OBD_FAIL_LMV_USE_MDT0)) {
+		mds = 0;
+	} else if (OBD_FAIL_CHECK(OBD_FAIL_LMV_USE_MDT1)) {
+		mds = 1;
+	} else if (lmv->desc.ld_tgt_count > 1) {
+		rc = lmv_fld_lookup(lmv, fid, &mds);
+		if (rc != 0)
+			return ERR_PTR(rc);
+	}
 
-        return lmv_get_target(lmv, mds);
+	return lmv_get_target(lmv, mds);
 }
 
 static inline unsigned int
