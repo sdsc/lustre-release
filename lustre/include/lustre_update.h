@@ -157,7 +157,8 @@ static inline void update_insert_reply(struct update_reply *reply, void *data,
 	reply->ur_lens[index] = data_len + sizeof(int);
 }
 
-static inline int update_get_reply_buf(struct update_reply *reply, void **buf,
+static inline int update_get_reply_buf(struct ptlrpc_request *req,
+				       struct update_reply *reply, void **buf,
 				       int index)
 {
 	char *ptr;
@@ -166,8 +167,7 @@ static inline int update_get_reply_buf(struct update_reply *reply, void **buf,
 
 	ptr = update_get_buf_internal(reply, index, &size);
 	LASSERT(ptr != NULL);
-	result = *(int *)ptr;
-
+	result = le32_to_cpu(*(int *)ptr);
 	if (result < 0)
 		return result;
 
@@ -176,17 +176,4 @@ static inline int update_get_reply_buf(struct update_reply *reply, void **buf,
 	return size - sizeof(int);
 }
 
-static inline int update_get_reply_result(struct update_reply *reply,
-					  void **buf, int index)
-{
-	void *ptr;
-	int  size;
-
-	ptr = update_get_buf_internal(reply, index, &size);
-	LASSERT(ptr != NULL && size > sizeof(int));
-	return *(int *)ptr;
-}
-
 #endif
-
-
