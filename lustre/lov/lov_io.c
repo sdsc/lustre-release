@@ -688,7 +688,7 @@ static int lov_io_commit_async(const struct lu_env *env,
 		}
 
 		if (queue->pl_nr > 0) /* still has more pages */
-			stripe_to = PAGE_SIZE;
+			stripe_to = cfs_getpagesize();
 
 		sub = lov_sub_get(env, lio, stripe);
 		if (!IS_ERR(sub)) {

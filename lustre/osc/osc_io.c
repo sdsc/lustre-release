@@ -259,8 +259,8 @@ static int osc_io_commit_async(const struct lu_env *env,
 			cl_page_clip(env, page, from, to);
 		} else {
 			if (from != 0)
-				cl_page_clip(env, page, from, PAGE_SIZE);
-			if (to != PAGE_SIZE)
+				cl_page_clip(env, page, from, cfs_getpagesize());
+			if (to != cfs_getpagesize())
 				cl_page_clip(env, last_page, 0, to);
 		}
 	}
@@ -287,7 +287,7 @@ static int osc_io_commit_async(const struct lu_env *env,
 		}
 
 		osc_page_touch_at(env, osc2cl(osc), osc_index(opg),
-				  page == last_page ? to : PAGE_SIZE);
+				  page == last_page ? to : cfs_getpagesize());
 
 		cl_page_list_del(env, qin, page);
 
