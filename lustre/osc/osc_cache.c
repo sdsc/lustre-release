@@ -800,7 +800,7 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 	struct client_obd *cli = osc_cli(ext->oe_obj);
 	struct osc_async_page *oap;
 	struct osc_async_page *tmp;
-	int nr_pages = ext->oe_nr_pages;
+	int nr_pages = ext->oe_sync ? ext->oe_nr_granted : ext->oe_nr_pages;
 	int lost_grant = 0;
 	int blocksize = cli->cl_import->imp_obd->obd_osfs.os_bsize ? : 4096;
 	__u64 last_off = 0;
@@ -817,10 +817,12 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 				     oap_pending_item) {
 		cfs_list_del_init(&oap->oap_rpc_item);
 		cfs_list_del_init(&oap->oap_pending_item);
-		if (last_off <= oap->oap_obj_off) {
+		if (last_off <= oap->oap_obj_off &&
+		    oap->oap_brw_page.flag & OBD_BRW_FROM_GRANT) {
 			last_off = oap->oap_obj_off;
 			last_count = oap->oap_count;
 		}
+		oap->oap_brw_page.flag &= ~ OBD_BRW_FROM_GRANT;
 
 		--ext->oe_nr_pages;
 		osc_ap_completion(env, cli, oap, sent, rc);
@@ -2670,17 +2672,8 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 	int     mppr       = cli->cl_max_pages_per_rpc;
 	pgoff_t start      = CL_PAGE_EOF;
 	pgoff_t end        = 0;
+	unsigned int grant = 0, granted = 0;
 	ENTRY;
-
-	cfs_list_for_each_entry(oap, list, oap_pending_item) {
-		pgoff_t index = osc_index(oap2osc(oap));
-		if (index > end)
-			end = index;
-		if (index < start)
-			start = index;
-		++page_count;
-		mppr <<= (page_count > mppr);
-	}
 
 	ext = osc_extent_alloc(obj);
 	if (ext == NULL) {
@@ -2691,6 +2684,36 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 		RETURN(-ENOMEM);
 	}
 
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+
+	cfs_list_for_each_entry(oap, list, oap_pending_item) {
+		pgoff_t index = osc_index(oap2osc(oap));
+		if (index > end)
+			end = index;
+		if (index < start)
+			start = index;
+		++page_count;
+		mppr <<= (page_count > mppr);
+
+		/* sync write should consume grant as well, otherwise,
+		 * OST space could be used up by sync write but clients
+		 * are still holding lots of grant */
+		if (cmd == OBD_BRW_WRITE &&
+		    !(oap->oap_brw_page.flag & OBD_BRW_FROM_GRANT)) {
+			if (cli->cl_avail_grant >= PAGE_CACHE_SIZE) {
+				cli->cl_avail_grant -= PAGE_CACHE_SIZE;
+				grant += PAGE_CACHE_SIZE;
+				granted++;
+				oap->oap_brw_page.flag |= OBD_BRW_FROM_GRANT;
+				cfs_atomic_inc(&obd_dirty_pages);
+				cli->cl_dirty += PAGE_CACHE_SIZE;
+			}
+		}
+	}
+	osc_update_next_shrink(cli);
+
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
+
 	ext->oe_rw = !!(cmd & OBD_BRW_READ);
 	ext->oe_urgent = 1;
 	ext->oe_start = start;
@@ -2699,6 +2722,9 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 	ext->oe_srvlock = !!(brw_flags & OBD_BRW_SRVLOCK);
 	ext->oe_nr_pages = page_count;
 	ext->oe_mppr = mppr;
+	ext->oe_grants = grant;
+	ext->oe_nr_granted = granted;
+	ext->oe_sync = 1;
 	cfs_list_splice_init(list, &ext->oe_pages);
 
 	osc_object_lock(obj);
