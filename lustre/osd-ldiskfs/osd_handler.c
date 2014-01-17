@@ -1158,19 +1158,13 @@ int osd_statfs(const struct lu_env *env, struct dt_device *d,
         }
 
 	spin_lock(&osd->od_osfs_lock);
-	/* cache 1 second */
-	if (cfs_time_before_64(osd->od_osfs_age, cfs_time_shift_64(-1))) {
-		result = sb->s_op->statfs(sb->s_root, ksfs);
-		if (likely(result == 0)) { /* N.B. statfs can't really fail */
-			osd->od_osfs_age = cfs_time_current_64();
-			statfs_pack(&osd->od_statfs, ksfs);
-			if (sb->s_flags & MS_RDONLY)
-				sfs->os_state = OS_STATE_READONLY;
-		}
+	result = sb->s_op->statfs(sb->s_root, ksfs);
+	if (likely(result == 0)) { /* N.B. statfs can't really fail */
+		statfs_pack(sfs, ksfs);
+		if (sb->s_flags & MS_RDONLY)
+			sfs->os_state = OS_STATE_READONLY;
 	}
 
-	if (likely(result == 0))
-		*sfs = osd->od_statfs;
 	spin_unlock(&osd->od_osfs_lock);
 
         if (unlikely(env == NULL))
@@ -5566,7 +5560,6 @@ static int osd_device_init0(const struct lu_env *env,
 
 	spin_lock_init(&o->od_osfs_lock);
 	mutex_init(&o->od_otable_mutex);
-	o->od_osfs_age = cfs_time_shift_64(-1000);
 
 	o->od_capa_hash = init_capa_hash();
 	if (o->od_capa_hash == NULL)
