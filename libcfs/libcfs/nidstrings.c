@@ -1078,6 +1078,7 @@ static bool cfs_num_is_contiguous(struct list_head *nidlist)
 			}
 		}
 	}
+
 	return true;
 }
 
@@ -1134,7 +1135,6 @@ static bool cfs_ip_is_contiguous(struct list_head *nidlist)
 
 	return true;
 }
-EXPORT_SYMBOL(cfs_ip_is_contiguous);
 
 /**
  * Takes a linked list of nidrange expressions, determines the minimum

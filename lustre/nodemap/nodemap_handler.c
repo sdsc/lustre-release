@@ -40,7 +40,7 @@ struct proc_dir_entry *proc_lustre_nodemap_root;
 static atomic_t nodemap_highest_id;
 
 /* Simple flag to determine if nodemaps are active */
-bool nodemap_idmap_active;
+bool nodemap_active;
 
 /**
  * pointer to default nodemap kept to keep from
@@ -69,6 +69,8 @@ static void nodemap_destroy(struct lu_nodemap *nodemap)
 				 rn_list) {
 		range_delete(range);
 	}
+
+	idmap_delete_tree(nodemap);
 
 	lprocfs_remove(&nodemap->nm_proc_entry);
 	OBD_FREE_PTR(nodemap);
@@ -266,7 +268,7 @@ struct lu_nodemap *nodemap_classify_nid(const lnet_nid_t nid)
 }
 EXPORT_SYMBOL(nodemap_classify_nid);
 
-/*
+/**
  * simple check for default nodemap
  */
 static bool is_default_nodemap(const struct lu_nodemap *nodemap)
@@ -277,7 +279,7 @@ static bool is_default_nodemap(const struct lu_nodemap *nodemap)
 	return 0;
 }
 
-/*
+/**
  * parse a nodemap range string into two nids
  *
  * \param	range_str		string to parse
@@ -309,6 +311,176 @@ out:
 }
 EXPORT_SYMBOL(nodemap_parse_range);
 
+/**
+ * parse a string containing an id map of form "client_id:filesystem_id"
+ * into an array of __u32 * for use in mapping functions
+ *
+ * \param	idmap_str		map string
+ * \param	idmap			array[2] of __u32
+ *
+ * \retval	0 on success
+ */
+int nodemap_parse_idmap(const char *idmap_str, __u32 idmap[2])
+{
+	char	*end;
+
+	if (idmap_str == NULL)
+		return -EINVAL;
+
+	idmap[0] = simple_strtoul(idmap_str, &end, 10);
+	if (end == idmap_str || *end != ':')
+		return -EINVAL;
+
+	idmap_str = end + 1;
+	idmap[1] = simple_strtoul(idmap_str, &end, 10);
+
+	return 0;
+}
+EXPORT_SYMBOL(nodemap_parse_idmap);
+
+/**
+ * add an idmap to the proper nodemap trees
+ *
+ * \param	name		name of nodemap
+ * \param	node_type	0 of UID, 1 for GID
+ * \param	tree_type	0 for filesystem id to client id
+ *				1 for client id to filesstem id
+ * \param	map		array[2] __u32 containing the mapA values
+ *				map[0] is client id
+ *				map[1] is the filesystem id
+ *
+ * \retval	0 on success
+ */
+int nodemap_add_idmap(const char *name, const int node_type,
+		      const __u32 map[2])
+{
+	struct lu_nodemap	*nodemap = NULL;
+	struct lu_idmap		*idmap;
+	int			rc = 0;
+
+	rc = nodemap_lookup(name, &nodemap);
+	if (nodemap == NULL || is_default_nodemap(nodemap))
+		GOTO(out, rc = -EINVAL);
+
+	idmap = idmap_create(map[0], map[1]);
+	if (idmap == NULL)
+		GOTO(out_putref, rc = -ENOMEM);
+
+	rc = idmap_insert(node_type, idmap, nodemap);
+	if (rc != 0) {
+		CERROR("cannot insert idmap into '%s': rc = %d\n",
+			nodemap->nm_name, rc);
+	}
+
+out_putref:
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_add_idmap);
+
+/**
+ * delete idmap from proper nodemap tree
+ *
+ * \param	name		name of nodemap
+ * \param	node_type	0 of UID, 1 for GID
+ * \param	tree_type	0 for filesystem id to client id
+ *				1 for client id to filesystem id
+ * \param	map		array[2] __u32 containing the mapA values
+ *				map[0] is client id
+ *				map[1] is the filesystem id
+ *
+ * \retval	0 on success
+ */
+int nodemap_del_idmap(const char *name, const int node_type,
+		      const __u32 map[2])
+{
+	struct lu_nodemap	*nodemap = NULL;
+	struct lu_idmap		*idmap = NULL;
+	int			rc = 0;
+
+	rc = nodemap_lookup(name, &nodemap);
+	if (nodemap == NULL || is_default_nodemap(nodemap))
+		GOTO(out, rc = -EINVAL);
+
+	idmap = idmap_search(nodemap, NODEMAP_CL2FS, node_type, map[0]);
+	if (idmap == NULL)
+		GOTO(out_putref, rc = -EINVAL);
+
+	idmap_delete(node_type, idmap, nodemap);
+
+out_putref:
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_del_idmap);
+
+/**
+ * mapping function for nodemap idmaps
+ *
+ * \param	nodemap		lu_nodemap structure defining nodemap
+ * \param	node_type	0 for UID, 1 for GID
+ * \param	tree_type	0 for filesystem id to client id
+ *				1 for client to filesystem id
+ * \param	id		id to map
+ *
+ * \retval	mapped id according to the rules below.
+ *
+ * if the nodemap_active is false, just return the passed id without mapping
+ *
+ * if the id to be looked up in 0, check that root access is allowed and if it
+ * is, return 0. Otherwise, return the squash uid or gid.
+ *
+ * if the nodemap is configured to trusted the ids from the client system, just
+ * return the passwd id without mapping.
+ *
+ * if by this point, we haven't returned and the nodemap in question is the
+ * default nodemap, return the dquash uid or gid.
+ *
+ * after these checks, search the proper tree for the mapping, and if found
+ * return the mapped value, otherwise return the squash uid or gid.
+ */
+__u32 nodemap_map_id(struct lu_nodemap *nodemap, const int node_type,
+		     const int tree_type, const __u32 id)
+{
+	struct lu_idmap		*idmap = NULL;
+
+	if (!nodemap_active)
+		goto out;
+
+	if (id == 0) {
+		if (nodemap->nmf_allow_root_access)
+			goto out;
+		else
+			goto squash;
+	}
+
+	if (nodemap->nmf_trust_client_ids)
+		goto out;
+
+	if (is_default_nodemap(nodemap))
+		goto squash;
+
+	idmap = idmap_search(nodemap, tree_type, node_type, id);
+	if (idmap == NULL)
+		goto squash;
+
+	if (tree_type == NODEMAP_FS2CL)
+		return idmap->id_client;
+
+	return idmap->id_fs;
+
+squash:
+	if (node_type == NODEMAP_UID)
+		return nodemap->nm_squash_uid;
+	else
+		return nodemap->nm_squash_gid;
+out:
+	return id;
+}
+EXPORT_SYMBOL(nodemap_map_id);
+
 /*
  * add nid range to nodemap
  * \param	name		nodemap name
@@ -322,7 +494,7 @@ int nodemap_add_range(const char *name, const lnet_nid_t nid[2])
 {
 	struct lu_nodemap	*nodemap = NULL;
 	struct lu_nid_range	*range;
-	int rc = 0;
+	int			rc = 0;
 
 	rc = nodemap_lookup(name, &nodemap);
 	if (nodemap == NULL || is_default_nodemap(nodemap))
@@ -423,10 +595,10 @@ static int nodemap_create(const char *name, const bool is_default)
 	snprintf(nodemap->nm_name, sizeof(nodemap->nm_name), "%s", name);
 
 	INIT_LIST_HEAD(&(nodemap->nm_ranges));
-	nodemap->nm_local_to_remote_uidmap = RB_ROOT;
-	nodemap->nm_remote_to_local_uidmap = RB_ROOT;
-	nodemap->nm_local_to_remote_gidmap = RB_ROOT;
-	nodemap->nm_remote_to_local_gidmap = RB_ROOT;
+	nodemap->nm_fs_to_client_uidmap = RB_ROOT;
+	nodemap->nm_client_to_fs_uidmap = RB_ROOT;
+	nodemap->nm_fs_to_client_gidmap = RB_ROOT;
+	nodemap->nm_client_to_fs_gidmap = RB_ROOT;
 
 	if (is_default) {
 		nodemap->nm_id = LUSTRE_NODEMAP_DEFAULT_ID;
@@ -468,7 +640,7 @@ out:
 	return rc;
 }
 
-/*
+/**
  * update flag to turn on or off nodemap functions
  * \param	name		nodemap name
  * \param	admin_string	string containing updated value
@@ -613,6 +785,17 @@ out:
 	return rc;
 }
 EXPORT_SYMBOL(nodemap_del);
+
+/**
+ * activate nodemap functions
+ *
+ * \param	value		1 for on, 0 for off
+ */
+void nodemap_activate(const bool value)
+{
+	nodemap_active = value;
+}
+EXPORT_SYMBOL(nodemap_activate);
 
 /**
  * Cleanup nodemap module on exit
