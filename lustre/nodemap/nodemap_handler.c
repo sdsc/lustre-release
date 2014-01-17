@@ -62,7 +62,15 @@ static cfs_hash_t *nodemap_hash;
  */
 static void nodemap_destroy(struct lu_nodemap *nodemap)
 {
-	lprocfs_remove(&(nodemap->nm_proc_entry));
+	struct lu_nid_range *range;
+	struct lu_nid_range *temp;
+
+	list_for_each_entry_safe(range, temp, &nodemap->nm_ranges,
+				 rn_list) {
+		range_delete(range);
+	}
+
+	lprocfs_remove(&nodemap->nm_proc_entry);
 	OBD_FREE_PTR(nodemap);
 }
 
@@ -98,6 +106,7 @@ static void *nodemap_hs_key(cfs_hlist_node_t *hnode)
 	struct lu_nodemap *nodemap;
 
 	nodemap = cfs_hlist_entry(hnode, struct lu_nodemap, nm_hash);
+
 	return nodemap->nm_name;
 }
 
@@ -107,6 +116,7 @@ static int nodemap_hs_keycmp(const void *key,
 	struct lu_nodemap *nodemap;
 
 	nodemap = nodemap_hs_key(compared_hnode);
+
 	return !strcmp(key, nodemap->nm_name);
 }
 
@@ -217,7 +227,7 @@ static bool nodemap_name_is_valid(const char *name)
  * Look nodemap up in the nodemap hash
  *
  * \param	name		name of nodemap
- * \paramA	nodemap		found nodemap or NULL
+ * \param	nodemap		found nodemap or NULL
  * \retval	lu_nodemap	named nodemap
  * \retval	NULL		nodemap doesn't exist
  */
@@ -225,14 +235,152 @@ static int nodemap_lookup(const char *name, struct lu_nodemap **nodemap)
 {
 	int rc = 0;
 
+	if ((strlen(name) > LUSTRE_NODEMAP_NAME_LENGTH) ||
+	    (strlen(name) == 0))
+		GOTO(out, rc = -EINVAL);
+
 	if (!nodemap_name_is_valid(name))
 		GOTO(out, rc = -EINVAL);
 
 	*nodemap = cfs_hash_lookup(nodemap_hash, name);
-
 out:
 	return rc;
 }
+
+/**
+ * classify the nid into the proper nodemap
+ *
+ * \param	nid			nid to classify
+ * \retval	nodemap			nodemap containing the nid
+ * \retval	default_nodemap		default nodemap
+ */
+struct lu_nodemap *nodemap_classify_nid(const lnet_nid_t nid)
+{
+	struct lu_nid_range	*range;
+
+	range = range_search(nid);
+	if (range != NULL)
+		return range->rn_nodemap;
+
+	return default_nodemap;
+}
+EXPORT_SYMBOL(nodemap_classify_nid);
+
+/*
+ * simple check for default nodemap
+ */
+static bool is_default_nodemap(const struct lu_nodemap *nodemap)
+{
+	if (nodemap->nm_id == 0)
+		return 1;
+
+	return 0;
+}
+
+/*
+ * parse a nodemap range string into two nids
+ *
+ * \param	range_str		string to parse
+ * \param	range[2]		array of two nids
+ * \reyval	0 on success
+ */
+int nodemap_parse_range(const char *range_str, lnet_nid_t range[2])
+{
+	char	buf[(LNET_NIDSTR_SIZE * 2) + 2];
+	char	*ptr = NULL;
+	char    *start_nidstr;
+	char    *end_nidstr;
+	int     rc = 0;
+
+	snprintf(buf, sizeof(buf), "%s", range_str);
+	ptr = buf;
+	start_nidstr = strsep(&ptr, ":");
+	end_nidstr = strsep(&ptr, ":");
+
+	if ((start_nidstr == NULL) || (end_nidstr == NULL))
+		GOTO(out, rc = -EINVAL);
+
+	range[0] = libcfs_str2nid(start_nidstr);
+	range[1] = libcfs_str2nid(end_nidstr);
+
+out:
+	return rc;
+
+}
+EXPORT_SYMBOL(nodemap_parse_range);
+
+/*
+ * add nid range to nodemap
+ * \param	name		nodemap name
+ * \param	range_st	string containing nid range
+ * \retval	0 on success
+ *
+ * add an range to the global range tree and attached the
+ * range to the named nodemap.
+ */
+int nodemap_add_range(const char *name, const lnet_nid_t nid[2])
+{
+	struct lu_nodemap	*nodemap = NULL;
+	struct lu_nid_range	*range;
+	int rc = 0;
+
+	rc = nodemap_lookup(name, &nodemap);
+	if (nodemap == NULL || is_default_nodemap(nodemap))
+		GOTO(out, rc = -EINVAL);
+
+	range = range_create(nid[0], nid[1], nodemap);
+	if (range == NULL)
+		GOTO(out_putref, rc = -ENOMEM);
+
+	rc = range_insert(range);
+	if (rc != 0) {
+		CERROR("cannot insert nodemap range into '%s': rc = %d\n",
+		      nodemap->nm_name, rc);
+		list_del(&range->rn_list);
+		range_destroy(range);
+		GOTO(out_putref, rc = -ENOMEM);
+	}
+
+	list_add(&range->rn_list, &nodemap->nm_ranges);
+
+out_putref:
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_add_range);
+
+/**
+ * delete a range
+ * \param	name		nodemap name
+ * \param	range_str	string containing range
+ * \retval	0 on success
+ *
+ * Delete range from global range tree, and remove it
+ * from the list in the associated nodemap.
+ */
+int nodemap_del_range(const char *name, const lnet_nid_t nid[2])
+{
+	struct lu_nodemap	*nodemap;
+	struct lu_nid_range	*range;
+	int			rc = 0;
+
+	rc = nodemap_lookup(name, &nodemap);
+	if (nodemap == NULL || is_default_nodemap(nodemap))
+		GOTO(out, rc = -EINVAL);
+
+	range = range_find(nid[0], nid[1]);
+	if (range == NULL)
+		GOTO(out_putref, rc = -EINVAL);
+
+	range_delete(range);
+
+out_putref:
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_del_range);
 
 /**
  * Nodemap constructor
@@ -250,7 +398,7 @@ out:
  * \retval	-EEXIST		nodemap already exists
  * \retval	-ENOMEM		cannot allocate memory for nodemap
  */
-static int nodemap_create(const char *name, bool is_default)
+static int nodemap_create(const char *name, const bool is_default)
 {
 	struct	lu_nodemap *nodemap = NULL;
 	int	rc = 0;
@@ -263,7 +411,6 @@ static int nodemap_create(const char *name, bool is_default)
 		nodemap_putref(nodemap);
 		GOTO(out, rc = -EEXIST);
 	}
-
 	OBD_ALLOC_PTR(nodemap);
 
 	if (nodemap == NULL) {
@@ -320,6 +467,111 @@ static int nodemap_create(const char *name, bool is_default)
 out:
 	return rc;
 }
+
+/*
+ * update flag to turn on or off nodemap functions
+ * \param	name		nodemap name
+ * \param	admin_string	string containing updated value
+ * \retval	0 on success
+ *
+ * Update admin flag to turn on or off nodemap functions.
+ */
+int nodemap_admin(const char *name, const bool allow_root)
+{
+	struct lu_nodemap	*nodemap = NULL;
+	int			rc = 0;
+
+	rc = nodemap_lookup(name, &nodemap);
+	if (nodemap == NULL)
+		GOTO(out, rc = -ENOENT);
+
+	nodemap->nmf_allow_root_access = allow_root;
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_admin);
+
+/**
+ * updated trust_client_ids flag for nodemap
+ *
+ * \param	name		nodemap name
+ * \param	trust_string	new value for trust flag
+ * \retval	0 on success
+ *
+ * Update the trust_client_ids flag for a nodemap.
+ */
+int nodemap_trusted(const char *name, const bool trust_client_ids)
+{
+	struct lu_nodemap	*nodemap = NULL;
+	int			rc = 0;
+
+	rc = nodemap_lookup(name, &nodemap);
+	if (nodemap == NULL)
+		GOTO(out, rc = -ENOENT);
+
+	nodemap->nmf_trust_client_ids = trust_client_ids;
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_trusted);
+
+/**
+ * update the squash_uid for a nodemap
+ *
+ * \param	name		nodemap name
+ * \param	uid_string	string containing new squash_uid value
+ * \retval	0 on success
+ *
+ * Update the squash_uid for a nodemap. The squash_uid is the uid
+ * that the all client uids are mapped to if nodemap is active,
+ * the trust_client_ids flag is not set, and the uid is not in
+ * the idmap tree.
+ */
+int nodemap_squash_uid(const char *name, const uid_t uid)
+{
+	struct lu_nodemap	*nodemap = NULL;
+	int			rc = 0;
+
+	rc = nodemap_lookup(name, &nodemap);
+	if (nodemap == NULL)
+		GOTO(out, rc = -ENOENT);
+
+	nodemap->nm_squash_uid = uid;
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_squash_uid);
+
+/**
+ * update the squash_gid for a nodemap
+ *
+ * \param	name		nodemap name
+ * \param	gid_string	string containing new squash_gid value
+ * \retval	0 on success
+ *
+ * Update the squash_gid for a nodemap. The squash_uid is the gid
+ * that the all client gids are mapped to if nodemap is active,
+ * the trust_client_ids flag is not set, and the gid is not in
+ * the idmap tree.
+ */
+int nodemap_squash_gid(const char *name, const gid_t gid)
+{
+	struct lu_nodemap	*nodemap = NULL;
+	int			rc = 0;
+
+	rc = nodemap_lookup(name, &nodemap);
+	if (nodemap == NULL)
+		GOTO(out, rc = -ENOENT);
+
+	nodemap->nm_squash_gid = gid;
+	nodemap_putref(nodemap);
+out:
+	return rc;
+}
+EXPORT_SYMBOL(nodemap_squash_gid);
 
 /**
  * Add a nodemap
