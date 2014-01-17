@@ -15,9 +15,12 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
-. $(dirname $0)/functions.sh
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
 
-assert_env MOUNT END_RUN_FILE LOAD_PID_FILE
+assert_env MOUNT END_RUN_FILE LOAD_PID_FILE NODENUM MDSCOUNT LFS
+
+MDT_IDX=$((NODENUM % MDSCOUNT))
 
 trap signaled TERM
 
@@ -25,6 +28,7 @@ trap signaled TERM
 echo $$ >$LOAD_PID_FILE
 
 TESTDIR=$MOUNT/d0.tar-$(hostname)
+rm -rf $TESTDIR
 
 do_tar() {
     tar cf - /etc | tar xf - >$LOG 2>&1
@@ -33,8 +37,13 @@ do_tar() {
 
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
-    echoerr "$(date +'%F %H:%M:%S'): tar run starting"
-    mkdir -p $TESTDIR
+	echoerr "$(date +'%F %H:%M:%S'): tar run starting"
+	if [ $MDSCOUNT -gt 1 ]; then
+		$LFS mkdir -i $MDT_IDX $TESTDIR
+	else
+		mkdir -p $TESTDIR
+	fi
+
     cd $TESTDIR
     do_tar &
     wait $!
