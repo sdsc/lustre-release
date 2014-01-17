@@ -110,17 +110,6 @@ struct obd_statfs {
 };
 
 /**
- * OST object IDentifier.
- */
-struct ost_id {
-	__u64	oi_id;
-	__u64	oi_seq;
-};
-
-#define DOSTID LPX64":"LPU64
-#define POSTID(oi) (oi)->oi_seq, (oi)->oi_id
-
-/**
  * File IDentifier.
  *
  * FID is a cluster-wide unique identifier of a file or an object (stripe).
@@ -154,6 +143,22 @@ struct filter_fid {
  * to print or parse them.  Other functions (e.g. compare, swab) could be moved
  * here from lustre_idl.h if needed. */
 typedef struct lu_fid lustre_fid;
+
+/**
+ * OST object IDentifier.
+ */
+struct ost_id {
+	union {
+		struct ostid {
+			__u64	oi_id;
+			__u64	oi_seq;
+		} oi;
+		struct lu_fid oi_fid;
+	};
+};
+
+#define DOSTID LPX64":"LPU64
+#define POSTID(oi) ostid_seq(oi), ostid_id(oi)
 
 /*
  * The ioctl naming rules:
@@ -287,8 +292,6 @@ struct lov_user_ost_data_v1 {     /* per-stripe data structure */
 	__u32 l_ost_gen;          /* generation of this OST index */
 	__u32 l_ost_idx;          /* OST index in LOV */
 } __attribute__((packed));
-#define l_object_id	l_ost_oi.oi_id
-#define l_object_seq	l_ost_oi.oi_seq
 
 #define lov_user_md lov_user_md_v1
 struct lov_user_md_v1 {           /* LOV EA user data (host-endian) */
