@@ -81,6 +81,7 @@
 
 #define MAX_THREADS 4096
 #define MAX_BASE_ID 0xffffffff
+#define NIDSTRING_LENGTH 64
 struct shared_data {
         l_mutex_t mutex;
         l_cond_t  cond;
@@ -3408,17 +3409,31 @@ out:
         return rc;
 }
 
-static int nodemap_cmd(enum lcfg_command_type cmd, int num_args, ...)
+/**
+ * Format and send the ioctl to the mgs.
+ *
+ * \param	cmd		IOCTL to send
+ * \param	ret_data	void pointer to return anything from
+ *				ioctl
+ * \param	num_args	number of arguments to pack into the
+ *				ioctl buffer
+ * \param	argv[]		variable number of string arguments
+ *
+ * \retval			0 on success
+ */
+static int nodemap_cmd(enum lcfg_command_type cmd, void *ret_data,
+		       int num_args, ...)
 {
-	va_list arguments;
-	int i;
-	const char *args;
-	char *arg;
-	struct lustre_cfg_bufs bufs;
-	struct obd_ioctl_data data;
-	struct lustre_cfg *lcfg;
-	char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
-	int rc = 0;
+	va_list			arguments;
+	int			i;
+	const char		*args;
+	char			*arg;
+	struct lustre_cfg_bufs	bufs;
+	struct obd_ioctl_data	data;
+	struct lustre_cfg	*lcfg;
+	char			rawbuf[MAX_IOC_BUFLEN];
+	char			*buf = rawbuf;
+	int			rc = 0;
 
 	lustre_cfg_bufs_reset(&bufs, NULL);
 
@@ -3434,7 +3449,7 @@ static int nodemap_cmd(enum lcfg_command_type cmd, int num_args, ...)
 
 	lcfg = lustre_cfg_new(cmd, &bufs);
 
-	if (IS_ERR(lcfg)) {
+	if (IS_ERR(lcfg) != 0) {
 		rc = PTR_ERR(lcfg);
 		return rc;
 	}
@@ -3451,26 +3466,46 @@ static int nodemap_cmd(enum lcfg_command_type cmd, int num_args, ...)
 
 	memset(buf, 0, sizeof(rawbuf));
 	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
-	if (rc) {
+	if (rc != 0) {
 		fprintf(stderr, "error: invalid ioctl\n");
 		return rc;
 	}
+
 	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_NODEMAP, buf);
+	if (rc != 0) {
+		fprintf(stderr, "error: ioctl failed\n");
+		return rc;
+	}
+
+	if (ret_data != NULL) {
+		rc = obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
+		memcpy(ret_data, data.ioc_pbuf1, sizeof(data.ioc_pbuf1));
+		if (rc != 0)
+			return rc;
+	}
 out:
-	if (rc)
+	if (rc != 0)
 		rc = -errno;
 
 	lustre_cfg_free(lcfg);
 	return rc;
 }
 
+/**
+ * activate nodemap functions
+ *
+ * \param	argc		number of args
+ * \param	argv[]		variable string arguments
+ *
+ * argv[0]			1 for activate or 0 for deactivate
+ *
+ * \retval			0 on success
+ */
 int jt_nodemap_activate(int argc, char **argv)
 {
-	enum lcfg_command_type cmd;
-	int rc = 0;
+	int rc;
 
-	cmd = LCFG_NODEMAP_ACTIVATE;
-	rc = nodemap_cmd(cmd, 1, argv[0]);
+	rc = nodemap_cmd(LCFG_NODEMAP_ACTIVATE, NULL, 1, argv[0]);
 
 	if (rc != 0) {
 		errno = -rc;
@@ -3480,19 +3515,27 @@ int jt_nodemap_activate(int argc, char **argv)
 	return rc;
 }
 
+/**
+ * add a nodemap
+ *
+ * \param	argc		number of args
+ * \param	argv[]		variable string arguments
+ *
+ * argv[0]			nodemap name
+ *
+ * \retval			0 on success
+ */
 int jt_nodemap_add(int argc, char **argv)
 {
-	enum lcfg_command_type cmd;
-	int rc = 0;
+	int rc;
 
-	cmd = LCFG_NODEMAP_ADD;
 	rc = llapi_nodemap_exists(argv[1]);
 	if (rc == 0) {
 		fprintf(stderr, "error: %s existing nodemap name\n", argv[1]);
 		return 1;
 	}
 
-	rc = nodemap_cmd(cmd, 2, argv[0], argv[1]);
+	rc = nodemap_cmd(LCFG_NODEMAP_ADD, NULL, 2, argv[0], argv[1]);
 
 	if (rc != 0) {
 		errno = -rc;
@@ -3502,24 +3545,321 @@ int jt_nodemap_add(int argc, char **argv)
 	return rc;
 }
 
+/**
+ * delete a nodemap
+ *
+ * \param	argc		number of args
+ * \param	argv[]		variable string arguments
+ *
+ * argv[0]			nodemap name
+ *
+ * \retval			0 on success
+ */
 int jt_nodemap_del(int argc, char **argv)
 {
-	enum lcfg_command_type cmd;
-	int rc = 0;
+	int rc;
 
-	cmd = LCFG_NODEMAP_DEL;
 	rc = llapi_nodemap_exists(argv[1]);
-
 	if (rc != 0) {
 		fprintf(stderr, "error: %s not existing nodemap name\n",
 			argv[1]);
 		return rc;
 	}
-	rc = nodemap_cmd(cmd, 2, argv[0], argv[1]);
+	rc = nodemap_cmd(LCFG_NODEMAP_DEL, NULL, 2, argv[0], argv[1]);
 
 	if (rc != 0) {
 		errno = -rc;
 		perror(argv[0]);
+	}
+
+	return rc;
+}
+
+/**
+ * test a nid for nodemap membership
+ *
+ * \param	argc		number of args
+ * \param	argv[]		variable string arguments
+ *
+ * argv[0]			properly formatted nid
+ *
+ * \retval			0 on success
+ */
+int jt_nodemap_test_nid(int argc, char **argv)
+{
+
+	void	*rawbuf;
+	int	rc;
+
+	rawbuf = malloc(sizeof(MAX_IOC_BUFLEN));
+
+	rc = nodemap_cmd(LCFG_NODEMAP_TEST_NID, rawbuf, 2, argv[0], argv[1]);
+	if (rc == 0)
+		printf("%s\n", (char *)rawbuf);
+
+	return rc;
+}
+
+/**
+ * add an nid range to a nodemap
+ *
+ * \param	argc		number of args
+ * \param	argv[]		variable string arguments
+ *
+ * --name			nodemap name
+ * --range			properly formatted nid range
+ *
+ * \retval			0 on success
+ */
+int jt_nodemap_add_range(int argc, char **argv)
+{
+	char			*nodemap_name = NULL;
+	char			*nodemap_range = NULL;
+	struct list_head	nidlist;
+	char			min_nid[NIDSTRING_LENGTH];
+	char			max_nid[NIDSTRING_LENGTH];
+	char			nid_range[(NIDSTRING_LENGTH*2) + 2];
+	int			rc = 0;
+	int			c;
+
+	static struct option long_options[] = {
+		{
+			.name		= "name",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'n',
+		},
+		{
+			.name		= "range",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'r',
+		},
+		{
+			NULL
+		}
+	};
+
+	while ((c = getopt_long(argc, argv, "n:r:",
+				long_options, NULL)) != -1) {
+		switch (c) {
+		case 'n':
+			nodemap_name = optarg;
+			break;
+		case 'r':
+			nodemap_range = optarg;
+			break;
+		}
+	}
+
+	if (nodemap_name == NULL || nodemap_range == NULL) {
+		fprintf(stderr, "usage: nodemap_add_range --name <name> "
+				"--range <range>\n");
+		return -1;
+	}
+
+	INIT_LIST_HEAD(&nidlist);
+
+	if (cfs_parse_nidlist(nodemap_range, strlen(nodemap_range),
+			      &nidlist) <= 0) {
+		fprintf(stderr, "error: can't parse nid range: %s\n",
+			nodemap_range);
+		return -1;
+	}
+
+	if (!cfs_nidrange_is_contiguous(&nidlist)) {
+		fprintf(stderr, "nodemap ranges must be contiguous\n");
+		return -1;
+	}
+
+	cfs_nidrange_min_max(&nidlist, &min_nid[0], &max_nid[0]);
+	snprintf(nid_range, 64, "%s:%s", min_nid, max_nid);
+
+	rc = nodemap_cmd(LCFG_NODEMAP_ADD_RANGE, NULL, 3, argv[0],
+			 nodemap_name, nid_range);
+	if (rc != 0) {
+		errno = -rc;
+		fprintf(stderr, "cannot add range '%s' to nodemap "
+				"'%s': rc = %d\n",
+			nodemap_range, nodemap_name, rc);
+	}
+
+	return rc;
+}
+
+/**
+ * delete an nid range to a nodemap
+ *
+ * \param	argc		number of args
+ * \param	argv[]		variable string arguments
+ *
+ * --name			nodemap name
+ * --range			properly formatted nid range
+ *
+ * \retval			0 on success
+ */
+int jt_nodemap_del_range(int argc, char **argv)
+{
+	char			*nodemap_name = NULL;
+	char			*nodemap_range = NULL;
+	struct list_head	nidlist;
+	char			min_nid[NIDSTRING_LENGTH];
+	char			max_nid[NIDSTRING_LENGTH];
+	char			nid_range[NIDSTRING_LENGTH * 2];
+	int			rc = 0;
+	int			c;
+
+	static struct option long_options[] = {
+		{
+			.name		= "name",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'n',
+		},
+		{
+			.name		= "range",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'r',
+		},
+		{
+			NULL
+		}
+	};
+
+	while ((c = getopt_long(argc, argv, "n:r:",
+				long_options, NULL)) != -1) {
+		switch (c) {
+		case 'n':
+			nodemap_name = optarg;
+			break;
+		case 'r':
+			nodemap_range = optarg;
+			break;
+		}
+	}
+
+	if (nodemap_name == NULL || nodemap_range == NULL) {
+		fprintf(stderr, "usage: nodemap_del_range --name <name> "
+				"--range <range>\n");
+		return -1;
+	}
+
+	INIT_LIST_HEAD(&nidlist);
+
+	if (cfs_parse_nidlist(nodemap_range, strlen(nodemap_range),
+			      &nidlist) <= 0) {
+		fprintf(stderr, "error: can't parse nid range: %s\n",
+			nodemap_range);
+		return -1;
+	}
+
+	if (!cfs_nidrange_is_contiguous(&nidlist)) {
+		fprintf(stderr, "nodemap ranges must be contiguous");
+		return -1;
+	}
+
+	cfs_nidrange_min_max(&nidlist, &min_nid[0], &max_nid[0]);
+	snprintf(nid_range, 64, "%s:%s", min_nid, max_nid);
+
+	rc = nodemap_cmd(LCFG_NODEMAP_DEL_RANGE, NULL, 3, argv[0],
+			 nodemap_name, nid_range);
+	if (rc != 0) {
+		errno = -rc;
+		fprintf(stderr, "cannot delete range '%s' to nodemap '%s': "
+			       "rc = %d\n",
+			nodemap_range, nodemap_name, rc);
+	}
+
+	return rc;
+}
+
+/**
+ * modify a nodemap's behavior
+ *
+ * \param	argc		number of args
+ * \param	argv[]		variable string arguments
+ *
+ * --name			nodemap name
+ * --parameter			nodemap property to change
+ *				admin, trusted, squash_uid, squash_gid)
+ * --value			value to set property
+ *
+ * \retval			0 on success
+ */
+int jt_nodemap_modify(int argc, char **argv)
+{
+	int c;
+	int rc = 0;
+	enum lcfg_command_type cmd = 0;
+	char *nodemap_name = NULL, *param = NULL, *value = NULL;
+
+	static struct option long_options[] = {
+		{
+			.name		= "name",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'n',
+		},
+		{
+			.name		= "parameter",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'p',
+		},
+		{
+			.name		= "value",
+			.has_arg	= required_argument,
+			.flag		= 0,
+			.val		= 'v',
+		},
+		{
+			NULL
+		}
+	};
+
+	while ((c = getopt_long(argc, argv, "n:p:v:",
+				long_options, NULL)) != -1) {
+		switch (c) {
+		case 'n':
+			nodemap_name = optarg;
+			break;
+		case 'p':
+			param = optarg;
+			break;
+		case 'v':
+			value = optarg;
+			break;
+		}
+	}
+
+	if (nodemap_name == NULL || param == NULL || value == NULL) {
+		fprintf(stderr, "usage: nodemap_modify --name <name> "
+				"--parameter <range> --value <value>\n");
+		return -1;
+	}
+
+	if (strcmp("admin", param) == 0) {
+		cmd = LCFG_NODEMAP_ADMIN;
+	} else if (strcmp("trusted", param) == 0) {
+		cmd = LCFG_NODEMAP_TRUSTED;
+	} else if (strcmp("squash_uid", param) == 0) {
+		cmd = LCFG_NODEMAP_SQUASH_UID;
+	} else if (strcmp("squash_gid", param) == 0) {
+		cmd = LCFG_NODEMAP_SQUASH_GID;
+	} else {
+		fprintf(stderr, "nodemap_modify invalid subcommand: %s\n",
+			param);
+		return -1;
+	}
+
+	rc = nodemap_cmd(cmd, NULL, 4, argv[0], nodemap_name, param,
+			 value);
+	if (rc != 0) {
+		errno = -rc;
+		fprintf(stderr, "cannot modify nodemap '%s' to param '%s' "
+			       "value '%s': rc = %d\n",
+			nodemap_name, param, value, rc);
 	}
 
 	return rc;
