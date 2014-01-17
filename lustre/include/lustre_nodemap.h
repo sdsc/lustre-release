@@ -74,5 +74,13 @@ struct lu_nodemap {
 
 int nodemap_add(const char *nodemap_name);
 int nodemap_del(const char *nodemap_name);
+struct lu_nodemap *nodemap_classify_nid(const lnet_nid_t nid);
+int nodemap_parse_range(const char *range_string, lnet_nid_t range[2]);
+int nodemap_add_range(const char *name, const lnet_nid_t nid[2]);
+int nodemap_del_range(const char *name, const lnet_nid_t nid[2]);
+int nodemap_admin(const char *name, const bool allow_root);
+int nodemap_trusted(const char *name, const bool trust_client_ids);
+int nodemap_squash_uid(const char *name, const uid_t uid);
+int nodemap_squash_gid(const char *name, const gid_t gid);
 
 #endif
