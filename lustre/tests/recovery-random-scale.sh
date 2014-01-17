@@ -213,7 +213,7 @@ test_fail_client_mds() {
                 rm -f $END_RUN_FILE || exit 13
         fi
 
-        restart_client_loads $fail_client $ERRORS_OK || exit $?
+	restart_client_loads $fail_client $NODES_TO_USE $ERRORS_OK || exit $?
 
         # Check that not failed clients loads are still running.
         # No application failures should occur on clients that were not failed.
