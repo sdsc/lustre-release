@@ -312,7 +312,7 @@ test_6h() { # bug 7331
 run_test 6h "$RUNAS chown RUNAS_ID.0 .../f6h (should return error)"
 
 test_7a() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -p $DIR/$tdir
 	$MCREATE $DIR/$tdir/$tfile
 	chmod 0666 $DIR/$tdir/$tfile
 	$CHECKSTAT -t file -p 0666 $DIR/$tdir/$tfile || error
@@ -321,9 +321,10 @@ run_test 7a "mkdir .../d7; mcreate .../d7/f; chmod .../d7/f ===="
 
 test_7b() {
 	if [ ! -d $DIR/$tdir ]; then
-		mkdir $DIR/$tdir
+		test_mkdir -p $DIR/$tdir
 	fi
 	$MCREATE $DIR/$tdir/$tfile
+	$LFS getstripe $DIR/$tdir/$tfile
 	echo -n foo > $DIR/$tdir/$tfile
 	[ "`cat $DIR/$tdir/$tfile`" = "foo" ] || error
 	$CHECKSTAT -t file -s 3 $DIR/$tdir/$tfile || error
@@ -2475,7 +2476,8 @@ test_34b() {
 run_test 34b "O_RDONLY opening file doesn't create objects ====="
 
 test_34c() {
-	[ ! -f $DIR/f34 ] && test_34a
+	$MCREATE $DIR/f34 || error
+	$TRUNCATE $DIR/f34 $TEST_34_SIZE || error
 	$CHECKSTAT -s $TEST_34_SIZE $DIR/f34 || error
 	$OPENFILE -f O_RDWR $DIR/f34
 	$GETSTRIPE $DIR/f34 2>&1 | grep -q "no stripe info" && error
