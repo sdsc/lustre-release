@@ -15,9 +15,12 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
-. $(dirname $0)/functions.sh
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
 
-assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT
+assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT MDSCOUNT NODENUM
+
+MDT_IDX=$((NODENUM % MDSCOUNT))
 
 trap signaled TERM
 
@@ -29,7 +32,11 @@ TESTDIR=$MOUNT/d0.dd-$(hostname)
 CONTINUE=true
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	echoerr "$(date +'%F %H:%M:%S'): dd run starting"
-	mkdir -p $TESTDIR
+	if [ $MDSCOUNT -gt 1 ]; then
+		$LFS mkdir -i $MDT_IDX $TESTDIR
+	else
+		mkdir -p $TESTDIR
+	fi
 	$LFS setstripe -c -1 $TESTDIR
 	cd $TESTDIR
 	# suppress dd xfer stat to workaround buggy coreutils/gettext

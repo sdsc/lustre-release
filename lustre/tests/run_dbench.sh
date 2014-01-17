@@ -15,23 +15,30 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
-. $(dirname $0)/functions.sh
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
 
-assert_env MOUNT END_RUN_FILE LOAD_PID_FILE
+assert_env MOUNT END_RUN_FILE LOAD_PID_FILE NODENUM MDSCOUNT LFS
 
+MDT_IDX=$((NODENUM % MDSCOUNT))
 trap signaled TERM
 
 # recovery-*-scale scripts use this to signal the client loads to die
 echo $$ >$LOAD_PID_FILE
 
 TESTDIR=$MOUNT/d0.dbench-$(hostname)
+rm -rf $TESTDIR
 
 CONTINUE=true
 
 while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
     echoerr "$(date +'%F %H:%M:%S'): dbench run starting"
+	if [ $MDSCOUNT -gt 1 ]; then
+		$LFS mkdir -i $MDT_IDX $TESTDIR
+	else
+		mkdir -p $TESTDIR
+	fi
 
-    mkdir -p $TESTDIR
     rundbench -D $TESTDIR 2 1>$LOG &
     load_pid=$!
 
