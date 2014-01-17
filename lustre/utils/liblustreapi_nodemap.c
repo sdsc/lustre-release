@@ -27,6 +27,7 @@
 #include <liblustre.h>
 #include <lustre/lustreapi.h>
 #include "lustreapi_internal.h"
+#include "obdctl.h"
 
 int llapi_nodemap_exists(const char *nodemap)
 {
