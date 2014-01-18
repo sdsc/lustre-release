@@ -150,11 +150,6 @@ extern int echo_client_init(void);
 
 #define simple_strtol strtol
 
-/* registering symbols */
-#ifndef ERESTARTSYS
-#define ERESTARTSYS ERESTART
-#endif
-
 #ifdef HZ
 #undef HZ
 #endif
