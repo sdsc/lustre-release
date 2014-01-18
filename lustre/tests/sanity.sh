@@ -10651,9 +10651,13 @@ run_test 224b "Don't panic on bulk IO failure"
 MDSSURVEY=${MDSSURVEY:-$(which mds-survey 2>/dev/null || true)}
 test_225a () {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-       if [ -z ${MDSSURVEY} ]; then
-              skip_env "mds-survey not found" && return
-       fi
+	if [ -z ${MDSSURVEY} ]; then
+	      skip_env "mds-survey not found" && return
+	fi
+
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "skipping now for more than one MDT" && return
+
        [ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.51) ] ||
             { skip "Need MDS version at least 2.2.51"; return; }
 
@@ -10676,9 +10680,12 @@ run_test 225a "Metadata survey sanity with zero-stripe"
 
 test_225b () {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-       if [ -z ${MDSSURVEY} ]; then
-              skip_env "mds-survey not found" && return
-       fi
+
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "skipping now for more than one MDT" && return
+	if [ -z ${MDSSURVEY} ]; then
+	      skip_env "mds-survey not found" && return
+	fi
        [ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.51) ] ||
             { skip "Need MDS version at least 2.2.51"; return; }
 
