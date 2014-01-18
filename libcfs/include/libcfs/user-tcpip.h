@@ -97,13 +97,13 @@ int libcfs_sock_create(cfs_socket_t **sockp, int *fatal,
         ((unsigned char *)&addr)[2], \
         ((unsigned char *)&addr)[3]
 
-#if defined(__LITTLE_ENDIAN) || defined(_LITTLE_ENDIAN)
+#if __BYTE_ORDER == __LITTLE_ENDIAN
 #define HIPQUAD(addr)                \
         ((unsigned char *)&addr)[3], \
         ((unsigned char *)&addr)[2], \
         ((unsigned char *)&addr)[1], \
         ((unsigned char *)&addr)[0]
-#elif defined(__BIG_ENDIAN) || defined(_BIG_ENDIAN)
+#elif __BYTE_ORDER == __BIG_ENDIAN
 #define HIPQUAD NIPQUAD
 #else
 #error "Undefined byteorder??"
