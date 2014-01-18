@@ -303,7 +303,7 @@ static int lfsck_layout_slave_post(const struct lu_env *env,
 }
 
 static int lfsck_layout_dump(const struct lu_env *env,
-			     struct lfsck_component *com, char *buf, int len)
+			     struct lfsck_component *com, struct seq_file *m)
 {
 	return 0;
 }
