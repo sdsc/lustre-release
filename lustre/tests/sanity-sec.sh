@@ -37,7 +37,7 @@ SN=$(expr $HN % 250 + 1)
 NODEMAP_COUNT=10
 NODEMAP_RANGE_COUNT=3
 NODEMAP_IPADDR_COUNT=30
-NODEMAP_ID_COUNT=200
+NODEMAP_MAX_ID=600
 
 require_dsh_mds || exit 0
 require_dsh_ost || exit 0
@@ -599,7 +599,6 @@ delete_nodemaps() {
 }
 
 add_range() {
-	local i
 	local j
 	local cmd="$LCTL nodemap_add_range"
 	local range
@@ -615,8 +614,7 @@ add_range() {
 	return $rc
 }
 
-del_range() {
-	local i
+delete_range() {
 	local j
 	local cmd="$LCTL nodemap_del_range"
 	local range
@@ -629,6 +627,59 @@ del_range() {
 			rc=$(($rc + 1))
 		fi
 	done
+
+	return $rc
+}
+
+add_idmaps() {
+	local i
+	local j
+	local client_id
+	local fs_id
+	local cmd="$LCTL nodemap_add_idmap"
+	local rc=0
+
+	for ((i = 0; i < NODEMAP_COUNT; i++)); do
+		for ((j = 500; j < NODEMAP_MAX_ID; j++)); do
+			client_id=$j
+			fs_id=$(($j + 1))
+			if ! do_facet mgs $cmd --name ${HN}_${i}	\
+		       	--idtype uid --idmap $client_id:$fs_id; then
+				rc=$(($rc + 1))
+			fi
+			if ! do_facet mgs $cmd --name ${HN}_${i}	\
+		       	--idtype gid --idmap $client_id:$fs_id; then
+				rc=$(($rc + 1))
+			fi
+		done
+	done
+
+	return $rc
+}
+
+delete_idmaps() {
+	local i
+	local j
+	local client_id
+	local fs_id
+	local cmd="$LCTL nodemap_del_idmap"
+	local rc=0
+
+	for ((i = 0; i < NODEMAP_COUNT; i++)); do
+		for ((j = 500; j < NODEMAP_MAX_ID; j++)); do
+			client_id=$j
+			fs_id=$(($j + 1))
+			if ! do_facet mgs $cmd --name ${HN}_${i}	\
+		       	--idtype uid --idmap $client_id:$fs_id; then
+				rc=$(($rc + 1))
+			fi
+			if ! do_facet mgs $cmd --name ${HN}_${i}	\
+		       	--idtype gid --idmap $client_id:$fs_id; then
+				rc=$(($rc + 1))
+			fi
+		done
+	done
+
 	return $rc
 }
 
@@ -684,6 +735,118 @@ test_nid() {
 	fi
 
 	return 1
+}
+
+test_idmap() {
+	local i
+	local j
+	local fs_id
+	local cmd="$LCTL nodemap_test_id"
+	local rc=0
+
+	## nodemap deactivated
+	if ! do_facet mgs lctl nodemap_activate 0; then
+		return 1
+	fi
+	for ((id = 500; id < NODEMAP_MAX_ID; id++)); do
+		for ((j = 0; j < NODEMAP_RANGE_COUNT; j++)); do
+			nid="$SN.0.${j}.100@tcp"
+			fs_id=$(do_facet mgs $cmd --nid $nid	\
+				--idtype uid --id $id)
+			if [ $fs_id != $id ]; then
+				rc=$((rc + 1))
+			fi
+		done
+	done
+
+	## nodemap activated
+	if ! do_facet mgs lctl nodemap_activate 1; then
+		return 2
+	fi
+
+	for ((id = 500; id < NODEMAP_MAX_ID; id++)); do
+		for ((j = 0; j < NODEMAP_RANGE_COUNT; j++)); do
+			nid="$SN.0.${j}.100@tcp"
+			fs_id=$(do_facet mgs $cmd --nid $nid	\
+				--idtype uid --id $id)
+			expected_id=$((id + 1))
+			if [ $fs_id != $expected_id ]; then
+				rc=$((rc + 1))
+			fi
+		done
+	done
+
+	## trust client ids
+	for ((i = 0; i < NODEMAP_COUNT; i++)); do
+		if ! do_facet mgs $LCTL nodemap_modify		\
+				--name ${HN}_${i}		\
+				--parameter trusted --value 1; then
+			error "nodemap_modify ${HN}_${i} failed with $rc"
+			return 3
+		fi
+	done
+
+	for ((id = 500; id < NODEMAP_MAX_ID; id++)); do
+		for ((j = 0; j < NODEMAP_RANGE_COUNT; j++)); do
+			nid="$SN.0.${j}.100@tcp"
+			fs_id=$(do_facet mgs $cmd --nid $nid	\
+				--idtype uid --id $id)
+			expected_id=$((id + 1))
+			if [ $fs_id != $id ]; then
+				rc=$((rc + 1))
+			fi
+		done
+	done
+
+	## ensure allow_root_access is enabled
+	for ((i = 0; i < NODEMAP_COUNT; i++)); do
+		if ! do_facet mgs $LCTL nodemap_modify		\
+			--name ${HN}_${i} --parameter admin --value 1; then
+			error "nodemap_modify ${HN}_${i} failed with $rc"
+			return 3
+		fi
+	done
+
+	## check that root is mapped to 99
+	for ((j = 0; j < NODEMAP_RANGE_COUNT; j++)); do
+		nid="$SN.0.${j}.100@tcp"
+		fs_id=$(do_facet mgs $cmd --nid $nid --idtype uid --id 0)
+		expected_id=$((id + 1))
+		if [ $fs_id != 0 ]; then
+			rc=$((rc + 1))
+		fi
+	done
+
+	## ensure allow_root_access is disabled
+	for ((i = 0; i < NODEMAP_COUNT; i++)); do
+		if ! do_facet mgs $LCTL nodemap_modify		\
+				--name ${HN}_${i}		\
+				--parameter admin --value 0; then
+			error "nodemap_modify ${HN}_${i} failed with $rc"
+			return 3
+		fi
+	done
+
+	## check that root allowed
+	for ((j = 0; j < NODEMAP_RANGE_COUNT; j++)); do
+		nid="$SN.0.${j}.100@tcp"
+		fs_id=$(do_facet mgs $cmd --nid $nid --idtype uid --id 0)
+		expected_id=$((id + 1))
+		if [ $fs_id != 99 ]; then
+			rc=$((rc + 1))
+		fi
+	done
+
+	## reset client trust to 0
+	for ((i = 0; i < NODEMAP_COUNT; i++)); do
+		if ! do_facet mgs $LCTL nodemap_modify		\
+			--name ${HN}_${i} --parameter trusted --value 0; then
+			error "nodemap_modify ${HN}_${i} failed with $rc"
+			return 3
+		fi
+	done
+
+	return $rc
 }
 
 test_7() {
@@ -745,7 +908,7 @@ test_9() {
 
 	rc=0
 	for ((i = 0; i < NODEMAP_COUNT; i++)); do
-		if ! del_range ${HN}_${i} $i; then
+		if ! delete_range ${HN}_${i} $i; then
 			rc=$((rc + 1))
 		fi
 	done
@@ -788,7 +951,7 @@ test_10() {
 
 	rc=0
 	for ((i = 0; i < NODEMAP_COUNT; i++)); do
-		if ! del_range ${HN}_${i} $i; then
+		if ! delete_range ${HN}_${i} $i; then
 			rc=$((rc + 1))
 		fi
 	done
@@ -926,6 +1089,45 @@ test_14() {
 }
 run_test 14 "test default nodemap nid lookup"
 
+test_15() {
+	local rc
+
+	rc=0
+	create_nodemaps
+	rc=$?
+	[[ $rc != 0 ]] && error "nodemap_add failed with $rc" && return 1
+
+	rc=0
+	for ((i = 0; i < NODEMAP_COUNT; i++)); do
+		if ! add_range ${HN}_${i} $i; then
+			rc=$((rc + 1))
+		fi
+	done
+	[[ $rc != 0 ]] && error "nodemap_add_range failed with $rc" && return 2
+
+	rc=0
+	add_idmaps
+	rc=$?
+	[[ $rc != 0 ]] && error "nodemap_add_idmap failed with $rc" && return 2
+
+	rc=0
+	test_idmap
+	rc=$?
+	[[ $rc != 0 ]] && error "nodemap_test_id failed with $rc" && return 2
+
+	rc=0
+	delete_idmaps
+	rc=$?
+	[[ $rc != 0 ]] && error "nodemap_del_idmap failed with $rc" && return 3
+
+	rc=0
+	delete_nodemaps
+	rc=$?
+	[[ $rc != 0 ]] && error "nodemap_delete failed with $rc" && return 4
+
+	return 0
+}
+run_test 15 "test id mapping"
 
 log "cleanup: ======================================================"
 
