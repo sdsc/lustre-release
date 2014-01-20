@@ -88,6 +88,7 @@ init_agt_vars() {
 
 	export HSMTOOL=${HSMTOOL:-"lhsmtool_posix"}
 	export HSMTOOL_VERBOSE=${HSMTOOL_VERBOSE:-""}
+	export HSMTOOL_UPDATE_INTERVAL=${HSMTOOL_UPDATE_INTERVAL:=""}
 	export HSMTOOL_BASE=$(basename "$HSMTOOL" | cut -f1 -d" ")
 	HSM_ARCHIVE=$(copytool_device $SINGLEAGT)
 	HSM_ARCHIVE_NUMBER=2
@@ -139,10 +140,11 @@ search_and_kill_copytool() {
 }
 
 copytool_setup() {
-	local facet=${1:-$SINGLEAGT}
-	local lustre_mntpnt=${2:-$MOUNT}
-	local arc_id=$3
-	local hsm_root=${4:-$(copytool_device $facet)}
+	local update_interval=${1:-$HSMTOOL_UPDATE_INTERVAL}
+	local facet=${2:-$SINGLEAGT}
+	local lustre_mntpnt=${3:-$MOUNT}
+	local arc_id=${4:-""}
+	local hsm_root=${5:-$(copytool_device $facet)}
 	local agent=$(facet_active_host $facet)
 
 	if [[ -z "$arc_id" ]] &&
@@ -162,6 +164,7 @@ copytool_setup() {
 	# independent of hardware
 	local cmd="$HSMTOOL $HSMTOOL_VERBOSE --daemon --hsm-root $hsm_root"
 	[[ -z "$arc_id" ]] || cmd+=" --archive $arc_id"
+	[[ -z "$update_interval" ]] || cmd+=" --update-interval $update_interval"
 	cmd+=" --bandwidth 1 $lustre_mntpnt"
 
 	# Redirect the standard output and error to a log file which
@@ -554,6 +557,21 @@ wait_request_state() {
 		error "request on $fid is not $state on $mds"
 }
 
+wait_request_progress() {
+	local fid=$1
+	local request=$2
+	local progress=$3
+	# 4th arg (mdt index) is optional
+	local mdtidx=${4:-0}
+	local mds=mds$(($mdtidx + 1))
+
+	local cmd="$LCTL get_param -n ${MDT_PREFIX}${mdtidx}.hsm.active_requests"
+	cmd+=" | awk '/'$fid'.*action='$request'/ {print \\\$12}' | cut -f2 -d="
+
+	wait_result $mds "$cmd" $progress 100 ||
+		error "request on $fid has not made progress $progress on $mds"
+}
+
 get_request_state() {
 	local fid=$1
 	local request=$2
@@ -762,7 +780,7 @@ test_9() {
 	# we do not use the default one to be sure
 	local new_an=$((HSM_ARCHIVE_NUMBER + 1))
 	copytool_cleanup
-	copytool_setup $SINGLEAGT $MOUNT $new_an
+	copytool_setup $HSMTOOL_UPDATE_INTERVAL $SINGLEAGT $MOUNT $new_an
 	$LFS hsm_archive --archive $new_an $f
 	wait_request_state $fid ARCHIVE SUCCEED
 
@@ -783,7 +801,7 @@ test_9a() {
 
 	# start all of the copytools
 	for n in $(seq $AGTCOUNT); do
-		copytool_setup agt$n
+		copytool_setup $HSMTOOL_UPDATE_INTERVAL agt$n
 	done
 
 	trap "copytool_cleanup $(comma_list $(agts_nodes))" EXIT
@@ -2207,7 +2225,7 @@ test_40() {
 	if df --local $HSM_ARCHIVE >/dev/null 2>&1 ; then
 		copytool_setup
 	else
-		copytool_setup $SINGLEAGT $MOUNT $HSM_ARCHIVE_NUMBER $TMP/$tdir
+		copytool_setup $HSMTOOL_UPDATE_INTERVAL $SINGLEAGT $MOUNT $HSM_ARCHIVE_NUMBER $TMP/$tdir
 	fi
 	# to be sure wait_all_done will not be mislead by previous tests
 	cdt_purge
@@ -2451,6 +2469,36 @@ test_58() {
 	copytool_cleanup
 }
 run_test 58 "Truncate a released file will trigger restore"
+
+test_60() {
+	local interval=5
+	local progress_timeout=$((interval * 2))
+
+	# test needs a new running copytool
+	copytool_cleanup
+	copytool_setup $interval
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid=$(make_large_for_progress $f)
+
+	local start_at=$(date +%s)
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f ||
+		error "could not archive file"
+	wait_request_progress $fid ARCHIVE 5242880
+	local finish_at=$(date +%s)
+	local elapsed=$((finish_at - $start_at))
+
+	if [ $elapsed -gt $progress_timeout ]; then
+		error "Expected progress update within $progress_timeout seconds"
+	elif [ $elapsed -lt $interval ]; then
+		error "Expected progress update after at least $interval seconds"
+	fi
+
+	cdt_clear_no_retry
+	copytool_cleanup
+}
+run_test 60 "Changing progress update interval from default"
 
 test_90() {
 	file_count=57
@@ -3496,7 +3544,7 @@ test_402() {
 	# deactivate all mdc on agent1
 	mdc_change_state $SINGLEAGT "MDT000." "deactivate"
 
-	copytool_setup $SINGLEAGT
+	copytool_setup $HSMTOOL_UPDATE_INTERVAL $SINGLEAGT
 
 	check_agent_unregistered "uuid" # match any agent
 
