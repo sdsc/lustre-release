@@ -4834,7 +4834,9 @@ static int osd_ldiskfs_it_fill(const struct lu_env *env,
 		up_read(&obj->oo_ext_idx_sem);
 
         if (it->oie_rd_dirent == 0) {
-                result = -EIO;
+		/*If it does not get any dirent, it means it has been reached
+		 *to the end of the dir */
+		it->oie_file.f_pos = ldiskfs_get_htree_eof(&it->oie_file);
         } else {
                 it->oie_dirent = it->oie_buf;
                 it->oie_it_dirent = 1;

@@ -1637,16 +1637,20 @@ fail:
  * Read one directory entry from the cache.
  */
 int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
-		   struct md_callback *cb_op, struct lu_dirent **entp)
+		   struct md_callback *cb_op, struct lu_dirent **entp,
+		   struct page **ppage)
 {
 	struct page		*page = NULL;
 	struct lu_dirpage	*dp;
 	struct lu_dirent	*ent;
 	int			rc = 0;
-	int			index = 0;
 	ENTRY;
 
+	CDEBUG(D_INFO, DFID "read entry "LPU64" cli %x\n",
+	       PFID(&op_data->op_fid1), op_data->op_hash_offset,
+	       op_data->op_cli_flags);
 	if (op_data->op_hash_offset == MDS_DIR_END_OFF) {
+		*ppage = NULL;
 		*entp = NULL;
 		RETURN(0);
 	}
@@ -1655,15 +1659,13 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 	if (rc != 0)
 		RETURN(rc);
 
-	if (op_data->op_cli_flags & CLI_READENT_END) {
-		mdc_release_page(page, 0);
-		RETURN(0);
-	}
-
 	dp = kmap(page);
 	for (ent = lu_dirent_start(dp); ent != NULL;
 	     ent = lu_dirent_next(ent)) {
-		index++;
+		/* Skip dummy entry */
+		if (le16_to_cpu(ent->lde_namelen) == 0)
+			continue;
+
 		if (ent->lde_hash > op_data->op_hash_offset)
 			break;
 	}
@@ -1674,6 +1676,8 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 		__u64 orig_offset = op_data->op_hash_offset;
 
 		if (dp->ldp_hash_end == MDS_DIR_END_OFF) {
+			*entp = NULL;
+			*ppage = NULL;
 			mdc_release_page(page, 0);
 			RETURN(0);
 		}
@@ -1694,6 +1698,7 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 		op_data->op_hash_offset = orig_offset;
 	}
 
+	*ppage = page;
 	*entp = ent;
 
 	RETURN(rc);
@@ -1746,7 +1751,8 @@ static int mdc_read_page(struct obd_export *exp, struct md_op_data *op_data,
 }
 
 int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
-		   struct md_callback *cb_op, struct lu_dirent **entp)
+		   struct md_callback *cb_op, struct lu_dirent **entp,
+		   struct page **ppage)
 {
 	struct page		*page = NULL;
 	struct lu_dirpage	*dp;
