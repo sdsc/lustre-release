@@ -1509,6 +1509,10 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	if (rc)
 		GOTO(stop, rc);
 
+	rc = mdd_unlink_sanity_check(env, mdd_pobj, pattr, mdd_cobj, cattr);
+	if (rc)
+		GOTO(stop, rc);
+
 	rc = mdd_trans_start(env, mdd, handle);
 	if (rc)
 		GOTO(stop, rc);
@@ -1523,10 +1527,6 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 
 		is_dir = S_ISDIR(cattr->la_mode);
 	}
-
-	rc = mdd_unlink_sanity_check(env, mdd_pobj, pattr, mdd_cobj, cattr);
-	if (rc)
-		GOTO(cleanup, rc);
 
 	if (likely(no_name == 0)) {
 		rc = __mdd_index_delete(env, mdd_pobj, name, is_dir, handle,
