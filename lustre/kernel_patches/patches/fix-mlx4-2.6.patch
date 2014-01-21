@@ -1,0 +1,11 @@
+--- linux-2.6.18-371.el5.x86_64/drivers/infiniband/hw/mlx4/main.c	2014-01-07 09:52:49.748330013 -0800
++++ linux-2.6.18-371.el5.x86_64/drivers/infiniband/hw/mlx4/main.c	2014-01-07 12:54:28.452582501 -0800
+@@ -272,7 +272,7 @@ static int ib_link_query_port(struct ib_
+ 		}
+ 	}
+ 
+-	return 0;
++	err = 0;
+ out:
+ 	kfree(in_mad);
+ 	kfree(out_mad);
