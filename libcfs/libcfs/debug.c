@@ -229,11 +229,14 @@ libcfs_debug_str2mask(int *mask, const char *str, int is_subsys)
  */
 void libcfs_debug_dumplog_internal(void *arg)
 {
+	static time_t last_dump_time;
 	DECL_JOURNAL_DATA;
 
 	PUSH_JOURNAL;
 
-	if (strncmp(libcfs_debug_file_path_arr, "NONE", 4) != 0) {
+	if (strncmp(libcfs_debug_file_path_arr, "NONE", 4) != 0 &&
+	    last_dump_time != cfs_time_current_sec()) {
+		last_dump_time = cfs_time_current_sec();
 		snprintf(debug_file_name, sizeof(debug_file_name) - 1,
 			 "%s.%ld." LPLD, libcfs_debug_file_path_arr,
 			 cfs_time_current_sec(), (long_ptr_t)arg);
