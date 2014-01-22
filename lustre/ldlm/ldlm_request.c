@@ -435,8 +435,8 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
 
 	lock = ldlm_lock_create(ns, res_id, type, mode, &cbs, data, lvb_len,
 				lvb_type);
-        if (unlikely(!lock))
-                GOTO(out_nolock, err = -ENOMEM);
+	if (unlikely(IS_ERR(lock)))
+		GOTO(out_nolock, err = PTR_ERR(lock));
 
         ldlm_lock2handle(lock, lockh);
 
@@ -894,8 +894,8 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 		lock = ldlm_lock_create(ns, res_id, einfo->ei_type,
 					einfo->ei_mode, &cbs, einfo->ei_cbdata,
 					lvb_len, lvb_type);
-		if (lock == NULL)
-			RETURN(-ENOMEM);
+		if (IS_ERR(lock))
+			RETURN(PTR_ERR(lock));
                 /* for the local lock, add the reference */
                 ldlm_lock_addref_internal(lock, einfo->ei_mode);
                 ldlm_lock2handle(lock, lockh);
