@@ -302,10 +302,10 @@ static int lov_lock_sub_init(const struct lu_env *env,
         obd_off end;
         obd_off file_start;
         obd_off file_end;
-
         struct lov_object       *loo    = cl2lov(lck->lls_cl.cls_obj);
         struct lov_layout_raid0 *r0     = lov_r0(loo);
         struct cl_lock          *parent = lck->lls_cl.cls_lock;
+	 enum cl_lock_state     minstate;
 
         ENTRY;
 
@@ -356,6 +356,7 @@ static int lov_lock_sub_init(const struct lu_env *env,
                 }
         }
         LASSERT(nr == lck->lls_nr);
+
         /*
          * Then, create sub-locks. Once at least one sub-lock was created,
          * top-lock can be reached by other threads.
@@ -363,6 +364,7 @@ static int lov_lock_sub_init(const struct lu_env *env,
         for (i = 0; i < lck->lls_nr; ++i) {
                 struct cl_lock       *sublock;
                 struct lov_lock_link *link;
+		bool need_exit = false;
 
                 if (lck->lls_sub[i].sub_lock == NULL) {
                         sublock = lov_sublock_alloc(env, io, lck, i, &link);
@@ -377,20 +379,28 @@ static int lov_lock_sub_init(const struct lu_env *env,
                          * recheck under mutex that sub-lock wasn't created
                          * concurrently, and that top-lock is still alive.
                          */
-                        if (lck->lls_sub[i].sub_lock == NULL &&
-                            parent->cll_state < CLS_FREEING) {
-                                lov_sublock_adopt(env, lck, sublock, i, link);
-                                cl_lock_mutex_put(env, parent);
-                        } else {
-                                OBD_SLAB_FREE_PTR(link, lov_lock_link_kmem);
-                                cl_lock_mutex_put(env, parent);
-                                cl_lock_unhold(env, sublock,
-                                               "lov-parent", parent);
-                        }
-                        cl_lock_mutex_put(env, sublock);
-                        cl_lock_put(env, sublock);
+			if ((i == 0 || sublock->cll_state == minstate) &&
+			    (lck->lls_sub[i].sub_lock == NULL &&
+			     parent->cll_state < CLS_FREEING)) {
+				minstate = sublock->cll_state;
+				lov_sublock_adopt(env, lck, sublock, i, link);
+				cl_lock_mutex_put(env, parent);
+			} else {
+				OBD_SLAB_FREE_PTR(link, lov_lock_link_kmem);
+				cl_lock_mutex_put(env, parent);
+				cl_lock_unhold(env, sublock,
+					       "lov-parent", parent);
+				/* parallel enqueue filled a sublocks,
+				   or we have a state flip-flop */
+				need_exit = true;
+			}
+			cl_lock_mutex_put(env, sublock);
+			cl_lock_put(env, sublock);
+			if (need_exit)
+				break;
                 }
         }
+
         /*
          * Some sub-locks can be missing at this point. This is not a problem,
          * because enqueue will create them anyway. Main duty of this function
