@@ -955,6 +955,11 @@ static int mdt_reint_link(struct mdt_thread_info *info,
         if (IS_ERR(ms))
                 GOTO(out_unlock_parent, rc = PTR_ERR(ms));
 
+	/* check version of the child */
+	rc = mdt_version_get_check(info, ms, 1);
+	if (rc)
+		GOTO(out_unlock_child, rc);
+
 	if (!mdt_object_exists(ms)) {
 		mdt_object_put(info->mti_env, ms);
 		CDEBUG(D_INFO, "%s: "DFID" does not exist.\n",
