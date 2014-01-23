@@ -392,7 +392,7 @@ static int osd_zfs_commit_item(cfs_hash_t *hs, cfs_hash_bd_t *bd,
  * we go over all the changes cached in per-txg structure
  * and apply them to actual ZAPs
  */
-static void osd_zfs_acct_update(void *arg, void *arg2, dmu_tx_t *tx)
+static void osd_zfs_acct_update(void *arg, dmu_tx_t *tx)
 {
 	struct osd_zfs_acct_txg	*zat = arg;
 	struct osd_device	*osd = zat->zat_osd;
@@ -415,12 +415,6 @@ static void osd_zfs_acct_update(void *arg, void *arg2, dmu_tx_t *tx)
 	cfs_hash_putref(zat->zat_grp);
 
 	OBD_FREE_PTR(zat);
-}
-
-static int osd_zfs_acct_check(void *arg1, void *arg2, dmu_tx_t *tx)
-{
-	/* check function isn't used currently */
-	return 0;
 }
 
 /*
@@ -476,12 +470,11 @@ int osd_zfs_acct_trans_start(const struct lu_env *env, struct osd_thandle *oh)
 		spa_t *spa = dmu_objset_spa(osd->od_objset.os);
 		LASSERT(ac->zat_osd == NULL);
 		ac->zat_osd = osd;
-		dsl_sync_task_do_nowait(spa_get_dsl(spa),
-					osd_zfs_acct_check,
-					osd_zfs_acct_update,
-					ac, NULL, 128, oh->ot_tx);
+		dsl_sync_task_nowait(spa_get_dsl(spa),
+				     osd_zfs_acct_update,
+				     ac, 128, oh->ot_tx);
 
-		/* no to be freed now */
+		/* not to be freed now */
 		ac = NULL;
 	}
 
