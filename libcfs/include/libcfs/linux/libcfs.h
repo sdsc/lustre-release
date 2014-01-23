@@ -134,7 +134,4 @@ typedef long long_ptr_t;
 #define current_umask()           (current->fs->umask)
 #define current_comm()            (current->comm)
 
-/* check if task is running in compat mode.*/
-int current_is_32bit(void);
-
 #endif /* _LINUX_LIBCFS_H */
