@@ -139,6 +139,20 @@ do_fsck() {
 		check_fsfacet ost${num}
 	done
 }
+
+# Run e2fsck on MDS and OST
+do_fsck() {
+	$RUN_FSCK || return
+	local dev
+	run_e2fsck $(facet_host $SINGLEMDS) $(mdsdevname ${SINGLEMDS//mds/}) \
+		"-y" || error "run e2fsck error"
+	for num in $(seq $OSTCOUNT); do
+		dev=$(ostdevname $num)
+		run_e2fsck $(facet_host ost${num}) $dev "-y" ||
+			error "run e2fsck error"
+	done
+}
+
 ################################## Main Flow ###################################
 trap cleanupall EXIT
 
@@ -244,7 +258,7 @@ test_3 () {
 
 	sync; sleep 5; sync
 	stopall
-	do_fsck
+	run_fsck_all
 }
 run_test 3 "use up free inodes on the OST with mdsrate"
 
@@ -267,7 +281,7 @@ test_4 () {
 
 	sync; sleep 5; sync
 	stopall
-	do_fsck
+	run_fsck_all
 
 	if $FULL_MODE; then
 		# Setup the Lustre filesystem again.
@@ -290,7 +304,7 @@ test_4 () {
 
 		sync; sleep 5; sync
 		stopall
-		do_fsck
+		run_fsck_all
 	fi
 }
 run_test 4 "run llverfs on lustre filesystem"
