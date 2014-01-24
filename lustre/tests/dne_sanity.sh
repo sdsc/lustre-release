@@ -39,7 +39,7 @@ prepare_running_directories()
 			mdtidx=$((i % MDSCOUNT))
 			$LFS mkdir -i $mdtidx $ORIGIN_DIR/dir$i || rc=$?
 		else
-			mkdir -p $ORIGIN_DIR/dir$i
+			mkdir $ORIGIN_DIR/dir$i
 		fi
 
 		if [ $rc != 0 ]; then

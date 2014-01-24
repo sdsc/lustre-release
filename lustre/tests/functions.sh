@@ -306,12 +306,12 @@ run_compilebench() {
 		echo "free space=$space, reducing initial dirs to $cbench_IDIRS"
 	fi
 
-    # FIXME:
-    # t-f _base needs to be modifyed to set properly tdir
-    # for new "test_foo" functions names
-    # local testdir=$DIR/$tdir
-    local testdir=$DIR/d0.compilebench
-    mkdir -p $testdir
+	# FIXME:
+	# t-f _base needs to be modifyed to set properly tdir
+	# for new "test_foo" functions names
+	# local testdir=$DIR/$tdir
+	local testdir=$DIR/d0.compilebench
+	mkdir $testdir || error "mkdir $testdir failed."
 
     local savePWD=$PWD
     cd $cbench_DIR
@@ -344,10 +344,10 @@ run_metabench() {
 
     print_opts METABENCH clients mbench_NFILES mbench_THREADS
 
-    local testdir=$DIR/d0.metabench
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+	local testdir=$DIR/d0.metabench
+	mkdir $testdir || error "mkdir $testdir failed."
+	# mpi_run uses mpiuser
+	chmod 0777 $testdir
 
     # -C             Run the file creation tests.
     # -S             Run the file stat tests.
@@ -393,15 +393,15 @@ run_simul() {
 
     print_opts SIMUL clients simul_REP simul_THREADS
 
-    local testdir=$DIR/d0.simul
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+	local testdir=$DIR/d0.simul
+	mkdir $testdir || error "mkdir $testdir failed."
+	# mpi_run uses mpiuser
+	chmod 0777 $testdir
 
-    # -n # : repeat each test # times
-    # -N # : repeat the entire set of tests # times
+	# -n # : repeat each test # times
+	# -N # : repeat the entire set of tests # times
 
-    local cmd="$SIMUL -d $testdir -n $simul_REP -N $simul_REP"
+	local cmd="$SIMUL -d $testdir -n $simul_REP -N $simul_REP"
 
 	echo "+ $cmd"
 	# find out if we need to use srun by checking $SRUN_PARTITION
@@ -446,10 +446,10 @@ run_mdtest() {
 
     print_opts MDTEST mdtest_iteration mdtest_THREADS mdtest_nFiles
 
-    local testdir=$DIR/d0.mdtest
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+	local testdir=$DIR/d0.mdtest
+	mkdir $testdir || error "mkdir $testdir failed."
+	# mpi_run uses mpiuser
+	chmod 0777 $testdir
 
     # -i # : repeat each test # times
     # -d   : test dir
@@ -490,8 +490,8 @@ run_connectathon() {
     [ -e $cnt_DIR/runtests ] || \
         { skip_env "No connectathon runtests found" && return; }
 
-    local testdir=$DIR/d0.connectathon
-    mkdir -p $testdir
+	local testdir=$DIR/d0.connectathon
+	mkdir $testdir || error "mkdir $testdir failed."
 
     local savePWD=$PWD
     cd $cnt_DIR
@@ -568,10 +568,10 @@ run_ior() {
 
     print_opts IOR ior_THREADS ior_DURATION MACHINEFILE
 
-    local testdir=$DIR/d0.ior.$type
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+	local testdir=$DIR/d0.ior.$type
+	mkdir $testdir || error "mkdir $testdir failed."
+	# mpi_run uses mpiuser
+	chmod 0777 $testdir
     if [ "$NFSCLIENT" ]; then
         setstripe_nfsserver $testdir -c -1 ||
             { error "setstripe on nfsserver failed" && return 1; }
@@ -631,10 +631,10 @@ run_mib() {
     print_opts MIB mib_THREADS mib_xferSize mib_xferLimit mib_timeLimit \
         MACHINEFILE
 
-    local testdir=$DIR/d0.mib
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+	local testdir=$DIR/d0.mib
+	mkdir $testdir || error "mkdir $testdir failed."
+	# mpi_run uses mpiuser
+	chmod 0777 $testdir
     $LFS setstripe $testdir -c -1 ||
         { error "setstripe failed" && return 2; }
     #
@@ -685,15 +685,15 @@ run_cascading_rw() {
 
     print_opts CASC_RW clients casc_THREADS casc_REP MACHINEFILE
 
-    local testdir=$DIR/d0.cascading_rw
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+	local testdir=$DIR/d0.cascading_rw
+	mkdir $testdir || error "mkdir $testdir failed."
+	# mpi_run uses mpiuser
+	chmod 0777 $testdir
 
-    # -g: debug mode
-    # -n: repeat test # times
+	# -g: debug mode
+	# -n: repeat test # times
 
-    local cmd="$CASC_RW -g -d $testdir -n $casc_REP"
+	local cmd="$CASC_RW -g -d $testdir -n $casc_REP"
 
 	echo "+ $cmd"
 	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
@@ -729,13 +729,13 @@ run_write_append_truncate() {
     local testdir=$DIR/d0.write_append_truncate
     local file=$testdir/f0.wat
 
-    print_opts clients write_REP write_THREADS MACHINEFILE
+	print_opts clients write_REP write_THREADS MACHINEFILE
 
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+	mkdir $testdir || error "mkdir $testdir failed."
+	# mpi_run uses mpiuser
+	chmod 0777 $testdir
 
-    local cmd="write_append_truncate -n $write_REP $file"
+	local cmd="write_append_truncate -n $write_REP $file"
 
 	echo "+ $cmd"
 	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
@@ -768,14 +768,14 @@ run_write_disjoint() {
     # FIXME
     # Need space estimation here.
 
-    print_opts WRITE_DISJOINT clients wdisjoint_THREADS wdisjoint_REP \
-        MACHINEFILE
-    local testdir=$DIR/d0.write_disjoint
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+	print_opts WRITE_DISJOINT clients wdisjoint_THREADS wdisjoint_REP \
+		MACHINEFILE
+	local testdir=$DIR/d0.write_disjoint
+	mkdir $testdir || error "mkdir $testdir failed."
+	# mpi_run uses mpiuser
+	chmod 0777 $testdir
 
-    local cmd="$WRITE_DISJOINT -f $testdir/file -n $wdisjoint_REP"
+	local cmd="$WRITE_DISJOINT -f $testdir/file -n $wdisjoint_REP"
 
 	echo "+ $cmd"
 	mpi_run ${MACHINEFILE_OPTION} ${MACHINEFILE} \
@@ -804,17 +804,17 @@ run_parallel_grouplock() {
 
     print_opts clients parallel_grouplock_MINTASKS MACHINEFILE
 
-    local testdir=$DIR/d0.parallel_grouplock
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+	local testdir=$DIR/d0.parallel_grouplock
+	mkdir $testdir || error "mkdir $testdir failed."
+	# mpi_run uses mpiuser
+	chmod 0777 $testdir
 
-    do_nodes $clients "lctl set_param llite.*.max_rw_chunk=0" ||
-        error "set_param max_rw_chunk=0 failed "
+	do_nodes $clients "lctl set_param llite.*.max_rw_chunk=0" ||
+		error "set_param max_rw_chunk=0 failed "
 
-    local cmd
-    local status=0
-    local subtest
+	local cmd
+	local status=0
+	local subtest
 	for i in $(seq 12); do
 		subtest="-t $i"
 		local cmd="$PARALLEL_GROUPLOCK -g -v -d $testdir $subtest"
@@ -824,8 +824,7 @@ run_parallel_grouplock() {
 			-np $parallel_grouplock_MINTASKS $cmd
 		local rc=$?
 		if [ $rc != 0 ] ; then
-			error_noexit "parallel_grouplock subtests $subtest " \
-				     "failed! $rc"
+			error_noexit "parallel_grouplock $subtest failed: $rc"
 		else
 			echo "parallel_grouplock subtests $subtest PASS"
 		fi
@@ -879,9 +878,9 @@ run_statahead () {
         mdsrate_cleanup $((num_clients * 32)) $MACHINEFILE \
             $statahead_NUMFILES $testdir 'f%%d' --ignore
 
-    mkdir -p $testdir
-    # mpi_run uses mpiuser
-    chmod 0777 $testdir
+	mkdir $testdir || error "mkdir $testdir failed."
+	# mpi_run uses mpiuser
+	chmod 0777 $testdir
 
     local num_files=$statahead_NUMFILES
 

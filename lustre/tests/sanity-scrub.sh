@@ -105,15 +105,11 @@ scrub_prep() {
 	setupall > /dev/null
 
 	echo "preparing..."
+	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed."
 	for n in $(seq $MDSCOUNT); do
 		echo "creating $nfiles files on mds$n"
-		if [ $n -eq 1 ]; then
-			mkdir -p $DIR/$tdir/mds$n ||
-				error "Failed to create directory mds$n"
-		else
-			$LFS mkdir -i $((n - 1)) $DIR/$tdir/mds$n ||
-				error "Failed to create remote directory mds$n"
-		fi
+		$LFS mkdir -i $((n - 1)) $DIR/$tdir/mds$n ||
+			error "Failed to create remote directory mds$n"
 		cp $LUSTRE/tests/*.sh $DIR/$tdir/mds$n ||
 			error "Failed to copy files to mds$n"
 		if [[ $nfiles -gt 0 ]]; then
@@ -683,7 +679,7 @@ test_9() {
 		(RUN_TIME1 + TIME_DIFF)) / RUN_TIME1 * 12 / 10))
 	local n
 	for n in $(seq $MDSCOUNT); do
-		local SPEED=$(scrub_status $n | \
+		local SPEED=$(scrub_status $n |
 			awk '/^average_speed/ { print $2 }')
 		[ $SPEED -lt $MAX_SPEED ] ||
 			error "(10) Got speed $SPEED, expected less than" \
@@ -834,15 +830,15 @@ test_11() {
 	setupall > /dev/null
 
 	local CREATED=100
-	local tname=`date +%s`
+	local tname=$tdir.$(date +%s)
 	rm -rf $MOUNT/$tname > /dev/null
-	mkdir -p $MOUNT/$tname || error "(0) Failed to create $MOUNT/$tname"
+	mkdir $MOUNT/$tname || error "(0) Failed to create $MOUNT/$tname"
 	local n
 	for n in $(seq $MDSCOUNT); do
 		$LFS mkdir -i $((n - 1)) $MOUNT/$tname/mds$n ||
 			error "(1) Fail to mkdir $MOUNT/$tname/mds$n"
 
-		createmany -o $MOUNT/$tname/mds$n/f $CREATED ||
+		createmany -o $MOUNT/$tname/mds$n/$tfile $CREATED ||
 			error "(2) Fail to create in $tname/mds$n"
 	done
 
@@ -894,12 +890,13 @@ test_12() {
 	echo "setupall"
 	setupall > /dev/null
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed."
 	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
 
 	#define OBD_FAIL_OSD_COMPAT_INVALID_ENTRY		0x195
 	do_facet ost1 $LCTL set_param fail_loc=0x195
-	createmany -o $DIR/$tdir/f 1000
+	createmany -o $DIR/$tdir/$tfile 1000 ||
+		error "createmany $DIR/$tdir/$tfile failed."
 
 	echo "stopall"
 	stopall > /dev/null
@@ -930,12 +927,13 @@ test_13() {
 	echo "setupall"
 	setupall > /dev/null
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed."
 	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
 
 	#define OBD_FAIL_OSD_COMPAT_NO_ENTRY		0x196
 	do_facet ost1 $LCTL set_param fail_loc=0x196
-	createmany -o $DIR/$tdir/f 1000
+	createmany -o $DIR/$tdir/$tfile 1000 ||
+		error "createmany $DIR/$tdir/$tfile failed."
 	do_facet ost1 $LCTL set_param fail_loc=0
 
 	echo "stopall"
@@ -967,12 +965,13 @@ test_14() {
 	echo "setupall"
 	setupall > /dev/null
 
-	mkdir -p $DIR/$tdir
+	mkdir $DIR/$tdir || error "mkdir $DIR/$tdir failed."
 	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
 
 	#define OBD_FAIL_OSD_COMPAT_NO_ENTRY		0x196
 	do_facet ost1 $LCTL set_param fail_loc=0x196
-	createmany -o $DIR/$tdir/f 64
+	createmany -o $DIR/$tdir/$tfile 64 ||
+		error "createmany on $DIR/$tdir/$tfile failed."
 	do_facet ost1 $LCTL set_param fail_loc=0
 
 	echo "stopall"
