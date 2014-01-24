@@ -194,9 +194,8 @@ init_test_env() {
 		fi
 	fi
 
-    export LFSCK_BIN=${LFSCK_BIN:-lfsck}
-    export LFSCK_ALWAYS=${LFSCK_ALWAYS:-"no"} # check fs after each test suite
-    export FSCK_MAX_ERR=4   # File system errors left uncorrected
+	export FSCK_ALWAYS=${FSCK_ALWAYS:-"yes"} # check fs after each test
+	export LFSCK_ALWAYS=${LFSCK_ALWAYS:-"no"} # full check after each test
 
 	export ZFS=${ZFS:-zfs}
 	export ZPOOL=${ZPOOL:-zpool}
@@ -3515,7 +3514,6 @@ init_facet_vars () {
 	local facet=$1
 	shift
 	local device=$1
-
 	shift
 
 	eval export ${facet}_dev=${device}
@@ -3946,7 +3944,6 @@ get_svr_devs() {
 	done
 }
 
-# Run e2fsck on MDT or OST device.
 run_e2fsck() {
 	local node=$1
 	local target_dev=$2
@@ -3970,8 +3967,8 @@ run_e2fsck() {
 	fi
 	rm -f $log
 
-	[ $rc -le $FSCK_MAX_ERR ] ||
-		error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
+	[ $rc -ne 0 ] &&
+		error "$cmd returned $rc"
 
 	return 0
 }
@@ -4000,43 +3997,81 @@ check_shared_dir() {
 	return 0
 }
 
-# Run e2fsck on MDT and OST(s) to generate databases used for lfsck.
-generate_db() {
-	local i
-	local ostidx
-	local dev
-	local node
+# Run e2fsck on MDT or OST device.
+facet_fsck_ldiskfs() {
+	local facet=$1
+	local facet_dev=$2
+	shift 2
+	local extra_opts="$@"
+	local cmd="$E2FSCK -d -v -t -t -f -n $extra_opts $facet_dev"
+	local rc=0
 
-	[[ $(lustre_version_code $SINGLEMDS) -ne $(version_code 2.2.0) ]] ||
-		{ skip "Lustre 2.2.0 lacks the patch for LU-1255"; exit 0; }
+	[[ $(lustre_version_code $facet) -ne $(version_code 2.2.0) ]] ||
+ 		{ skip "Lustre 2.2.0 lacks the patch for LU-1255"; exit 0; }
 
-	check_shared_dir $SHARED_DIRECTORY ||
-		error "$SHARED_DIRECTORY isn't a shared directory"
+	echo "Running e2fsck on the device $facet_dev on $facet:"
+	echo $cmd
+	do_facet $facet $cmd
+}
 
-	export MDSDB=$SHARED_DIRECTORY/mdsdb
-	export OSTDB=$SHARED_DIRECTORY/ostdb
+# Run ZFS scrub on MDT or OST device.
+facet_fsck_zfs() {
+	local facet=$1
+	local facet_dev=$2
+	shift 2
+	local extra_opts="$@"
+	local cmd="$ZPOOL scrub $extra_opts $facet_dev"
+	local rc=0
 
-	# DNE is not supported, so when running e2fsck on a DNE filesystem,
-	# we only pass master MDS parameters.
-	run_e2fsck $MDTNODE $MDTDEV "-n --mdsdb $MDSDB"
+	echo "Running ZFS Scrub on the device $facet_dev on $facet:"
+	echo $cmd
+	do_facet $facet $cmd
+}
 
-    i=0
-    ostidx=0
-    OSTDB_LIST=""
-    for node in $(osts_nodes); do
-        for dev in ${OSTDEVS[i]}; do
-            run_e2fsck $node $dev "-n --mdsdb $MDSDB --ostdb $OSTDB-$ostidx"
-            OSTDB_LIST="$OSTDB_LIST $OSTDB-$ostidx"
-            ostidx=$((ostidx + 1))
-        done
-        i=$((i + 1))
-    done
+facet_fsck() {
+	local facet=$1
+	shift
+	local lfsck_opts="$@"
+	local fstype=$(facet_fstype $facet)
+	local facet_dev=${facet}_dev; facet_dev=${!facet_dev}
+
+	case $fstype in
+	ldiskfs)
+		facet_fsck_ldiskfs $facet $facet_dev $lfsck_opts
+		rc=$?
+		;;
+	zfs)
+		facet_fsck_zfs $facet $facet_dev
+		rc=$?
+		;;
+	*)	error "unkown fstype '$fstype'"
+		rc=97
+	esac
+
+	return $rc
+}
+
+# Run fsck on MDT and OST(s), optionally generate databases used for lfsck.
+run_fsck_all() {
+	local LFSCK_MDT_OPTS=
+	local LFSCK_OST_OPTS=#
+	local rc=0
+
+	for facet in $(get_facets MDS); do
+		facet_fsck $facet $LFSCK_MDT_OPTS
+		rc=$((rc | $?))
+	done
+
+	for facet in $(get_facets OST); do
+		facet_fsck $facet $LFSCK_MDT_OPTS $LFSCK_OST_OPTS-$facet
+		rc=$((rc | $?))
+		OSTDB_LIST="$OSTDB_LIST $OSTDB-$facet"
+	done
 }
 
 # Run lfsck on server node if lfsck can't be found on client (LU-2571)
 run_lfsck_remote() {
-	local cmd="$LFSCK_BIN -c -l --mdsdb $MDSDB --ostdb $OSTDB_LIST $MOUNT"
-	local client=$1
+	local cmd="$LCTL lfsck_start -M ${FSNAME}-MDT0000 -A"
 	local mounted=true
 	local rc=0
 
@@ -4048,48 +4083,32 @@ run_lfsck_remote() {
 	fi
 	#Run lfsck
 	echo $cmd
-	do_node $client $cmd || rc=$?
+	do_node $SINGLEMDS $cmd || rc=$?
 	#Umount if necessary
 	if ! $mounted; then
 		zconf_umount $client $MOUNT ||
 			error "failed to unmount Lustre on $client"
 	fi
 
-	[ $rc -le $FSCK_MAX_ERR ] ||
-		error "$cmd returned $rc, should be <= $FSCK_MAX_ERR"
 	echo "lfsck finished with rc=$rc"
-
 	return $rc
 }
 
 run_lfsck() {
-	local facets="client $SINGLEMDS"
-	local found=false
-	local facet
-	local node
 	local rc=0
 
-	for facet in $facets; do
-		node=$(facet_active_host $facet)
-		if check_progs_installed $node $LFSCK_BIN; then
-			found=true
-			break
-		fi
-	done
-	! $found && error "None of \"$facets\" supports lfsck"
+	[ $(facet_fstype $SINGLEMDS) != "ldiskfs" ] && return 0
+	[ $(facet_fstype ost1) != "ldiskfs" ] && return 0
 
-	run_lfsck_remote $node || rc=$?
-
-	rm -rvf $MDSDB* $OSTDB* || true
+	# does this need run on client too?
+	run_lfsck_remote || rc=$?
 	return $rc
 }
 
 check_and_cleanup_lustre() {
-    if [ "$LFSCK_ALWAYS" = "yes" -a "$TESTSUITE" != "lfsck" ]; then
-        get_svr_devs
-        generate_db
-        run_lfsck
-    fi
+	if [ "$LFSCK_ALWAYS" = "yes" -a "$TESTSUITE" != "lfsck" ]; then
+		run_lfsck || error "lfsck run failed: $?"
+	fi
 
 	if is_mounted $MOUNT; then
 		[ -n "$DIR" ] && rm -rf $DIR/[Rdfs][0-9]* ||
@@ -4108,6 +4127,9 @@ check_and_cleanup_lustre() {
 	if [ "$I_MOUNTED" = "yes" ]; then
 		cleanupall -f || error "cleanup failed"
 		unset I_MOUNTED
+		if [ "$FSCK_ALWAYS" = "yes" ]; then
+			run_fsck_all || error "fsck run failed: $rc"
+		fi
 	fi
 
 	if grep -qe "/sbin/mount\.lustre " /proc/mounts; then
