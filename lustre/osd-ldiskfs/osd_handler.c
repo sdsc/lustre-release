@@ -3269,6 +3269,14 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
 		if (strcmp((char *)key, dotdot) != 0) {
 			LASSERT(de != NULL);
 			rc = osd_get_fid_from_dentry(de, (struct dt_rec *)fid);
+			/* If Fid is not in dentry, try to get it from LMA */
+			if (rc == -ENODATA) {
+				struct osd_inode_id *id;
+
+				id = &osd_oti_get(env)->oti_id;
+				rc = osd_ea_fid_get(env, obj, de->inode, fid,
+						    id);
+			}
 			if (rc == 0 &&
 			    unlikely(osd_remote_fid(env, osd, fid)))
 				/* Need to delete agent inode */
