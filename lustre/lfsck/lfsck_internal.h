@@ -517,6 +517,12 @@ struct lfsck_thread_args {
 	struct lfsck_start_param	*lta_lsp;
 };
 
+struct lfsck_trans_callback {
+	struct dt_txn_commit_cb 	 ltc_cb;
+	struct lfsck_component		*ltc_com;
+	int				 ltc_type;
+};
+
 struct lfsck_thread_info {
 	struct lu_name		lti_name;
 	struct lu_buf		lti_buf;
@@ -525,6 +531,7 @@ struct lfsck_thread_info {
 	struct lu_fid		lti_fid;
 	struct lu_fid		lti_fid2;
 	struct lu_attr		lti_la;
+	struct lu_attr		lti_la2;
 	struct ost_id		lti_oi;
 	union {
 		struct lustre_mdt_attrs lti_lma;
@@ -541,7 +548,11 @@ struct lfsck_thread_info {
 	struct lfsck_stop	lti_stop;
 	ldlm_policy_data_t	lti_policy;
 	struct ldlm_res_id	lti_resid;
-	struct filter_fid_old	lti_pfid;
+	union {
+		struct filter_fid_old	lti_old_pfid;
+		struct filter_fid	lti_new_pfid;
+	};
+	struct dt_allocation_hint lti_hint;
 };
 
 /* lfsck_lib.c */
@@ -583,6 +594,10 @@ int lfsck_async_request(const struct lu_env *env, struct obd_export *exp,
 			struct ptlrpc_request_set *set,
 			ptlrpc_interpterer_t interpterer,
 			void *args, int request);
+struct lfsck_trans_callback *
+lfsck_trans_callback_init(struct lfsck_component *com, dt_cb_t func, int type);
+void lfsck_trans_callback_fini(const struct lu_env *env,
+			       struct lfsck_trans_callback *ltc);
 
 /* lfsck_engine.c */
 int lfsck_master_engine(void *args);
@@ -603,6 +618,11 @@ int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck);
 extern const char *lfsck_flags_names[];
 extern const char *lfsck_param_names[];
 extern struct lu_context_key lfsck_thread_key;
+
+static inline struct dt_device *lfsck_obj2dt_dev(struct dt_object *obj)
+{
+	return container_of0(obj->do_lu.lo_dev, struct dt_device, dd_lu_dev);
+}
 
 static inline struct lfsck_thread_info *
 lfsck_env_info(const struct lu_env *env)
