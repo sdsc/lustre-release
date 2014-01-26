@@ -397,7 +397,7 @@ struct ofd_soft_sync_callback {
 	struct obd_export	*ossc_exp;
 };
 
-static void ofd_cb_soft_sync(struct lu_env *env, struct thandle *th,
+static void ofd_cb_soft_sync(const struct lu_env *env, struct thandle *th,
 			     struct dt_txn_commit_cb *cb, int err)
 {
 	struct ofd_soft_sync_callback	*ossc;
