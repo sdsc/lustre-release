@@ -405,7 +405,7 @@ struct tgt_last_committed_callback {
 	__u64			 llcc_transno;
 };
 
-void tgt_cb_last_committed(struct lu_env *env, struct thandle *th,
+void tgt_cb_last_committed(const struct lu_env *env, struct thandle *th,
 			   struct dt_txn_commit_cb *cb, int err)
 {
 	struct tgt_last_committed_callback *ccb;
@@ -474,7 +474,7 @@ struct tgt_new_client_callback {
 	struct obd_export	*lncc_exp;
 };
 
-void tgt_cb_new_client(struct lu_env *env, struct thandle *th,
+void tgt_cb_new_client(const struct lu_env *env, struct thandle *th,
 		       struct dt_txn_commit_cb *cb, int err)
 {
 	struct tgt_new_client_callback *ccb;
@@ -488,7 +488,12 @@ void tgt_cb_new_client(struct lu_env *env, struct thandle *th,
 	       ccb->lncc_exp->exp_client_uuid.uuid);
 
 	spin_lock(&ccb->lncc_exp->exp_lock);
-	ccb->lncc_exp->exp_need_sync = 0;
+	/* XXX: Currently, we use per-export based sync/async policy for
+	 *	the update via OUT RPC, it is coarse-grained policy, and
+	 *	will be changed as per-request based by DNE II patches. */
+	if (!ccb->lncc_exp->exp_keep_sync)
+		ccb->lncc_exp->exp_need_sync = 0;
+
 	spin_unlock(&ccb->lncc_exp->exp_lock);
 	class_export_cb_put(ccb->lncc_exp);
 
