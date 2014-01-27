@@ -2714,8 +2714,14 @@ static int mgs_wlp_lcfg(const struct lu_env *env,
 
         LCONSOLE_INFO("%sing parameter %s.%s in log %s\n", del ? "Disabl" : rc ?
                       "Sett" : "Modify", tgtname, comment, logname);
-        if (del)
-                return rc;
+	if (del) {
+		/* mgs_modify() will return 1 if nothing had to be done */
+		if (rc == 1) {
+			LCONSOLE_INFO("Already disabled!\n");
+			rc = 0;
+		}
+		return rc;
+	}
 
         lustre_cfg_bufs_reset(bufs, tgtname);
 	lustre_cfg_bufs_set_string(bufs, 1, ptr);
