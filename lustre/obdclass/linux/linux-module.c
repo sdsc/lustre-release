@@ -71,12 +71,14 @@
 #endif
 
 #include <libcfs/libcfs.h>
+#include <libcfs/lucache.h>
 #include <obd_support.h>
 #include <obd_class.h>
 #include <lnet/lnetctl.h>
 #include <lprocfs_status.h>
 #include <lustre_ver.h>
 #include <lustre/lustre_build_version.h>
+#include "../jobid_internal.h"
 #ifdef __KERNEL__
 
 int proc_version;
@@ -313,6 +315,107 @@ obd_proc_jobid_var_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(obd_proc_jobid_var);
 
+static int obd_proc_jobid_upcall_seq_show(struct seq_file *m, void *v)
+{
+
+	return seq_printf(m, "%s\n",
+			  obd_jobid_upcall?obd_jobid_upcall->uc_upcall:"NONE");
+}
+
+static ssize_t
+obd_proc_jobid_upcall_seq_write(struct file *file, const char *buffer,
+				size_t count, loff_t *off)
+{
+	char *kernbuf;
+	int rc = 0;
+
+	if (!count || count >= UC_CACHE_UPCALL_MAXPATH)
+		return -EINVAL;
+
+	OBD_ALLOC(kernbuf, count + 1);
+	if (copy_from_user(kernbuf, buffer, count)) {
+		 rc = -EFAULT;
+		goto out;
+	}
+
+	if (count > 10 && strcmp(kernbuf, "downcall: ") == 0) {
+		__u64 pid;
+		char *end;
+
+		if (obd_jobid_upcall == NULL) {
+			rc = -EINVAL;
+			goto out;
+		}
+
+		kernbuf += 10;
+
+		pid = simple_strtoul(kernbuf, &end, 10);
+
+		if (kernbuf == end) {
+			rc = -EINVAL;
+		} else {
+			end++;
+			if (strcmp(end, "NONE") == 0)
+				rc = -ENOENT;
+			rc = upcall_cache_downcall(obd_jobid_upcall, rc, pid,
+						   end);
+		}
+		goto out;
+
+	} else if (count >= 5 && strcmp(kernbuf, "flush") == 0) {
+		jobid_flush_cache(-1);
+		goto out;
+	}
+
+	/* Somebody must be trying to setup an upcall */
+	if (kernbuf[0] != '/') {
+		/* Not an absolute pathname? Ignore. */
+		rc = -EINVAL;
+		goto out;
+	}
+
+	/* If there's no cache yet, need to create it */
+	if (obd_jobid_upcall == NULL) {
+		obd_jobid_upcall = upcall_cache_init("jobid", "",
+						 &jobid_cache_upcall_cache_ops);
+		if (IS_ERR(obd_jobid_upcall)) {
+			rc = PTR_ERR(obd_jobid_upcall);
+			obd_jobid_upcall = NULL;
+
+			goto out;
+		}
+	}
+
+	/* Remove any extraneous bits from the upcall (e.g. linefeeds) */
+	write_lock(&obd_jobid_upcall->uc_upcall_rwlock);
+	sscanf(kernbuf, "%s", obd_jobid_upcall->uc_upcall);
+	write_unlock(&obd_jobid_upcall->uc_upcall_rwlock);
+
+out:
+	OBD_FREE(kernbuf, count + 1);
+	return rc?rc:count;
+}
+LPROC_SEQ_FOPS(obd_proc_jobid_upcall);
+
+static int obd_proc_jobid_name_seq_show(struct seq_file *m, void *v)
+{
+	return seq_printf(m, "%s\n", obd_jobid_var);
+}
+
+static ssize_t
+obd_proc_jobid_name_seq_write(struct file *file, const char *buffer,
+				size_t count, loff_t *off)
+{
+	if (!count || count > JOBSTATS_JOBID_SIZE)
+		return -EINVAL;
+
+	memset(obd_jobid_node, 0, JOBSTATS_JOBID_SIZE + 1);
+	/* Trim the trailing '\n' if any */
+	memcpy(obd_jobid_node, buffer, count - (buffer[count - 1] == '\n'));
+	return count;
+}
+LPROC_SEQ_FOPS(obd_proc_jobid_name);
+
 /* Root for /proc/fs/lustre */
 struct proc_dir_entry *proc_lustre_root = NULL;
 EXPORT_SYMBOL(proc_lustre_root);
@@ -326,6 +429,10 @@ struct lprocfs_seq_vars lprocfs_base[] = {
 	  .fops	=	&obd_proc_health_fops	},
 	{ .name =	"jobid_var",
 	  .fops	=	&obd_proc_jobid_var_fops},
+	{ .name =	"jobid_upcall",
+	  .fops	=	&obd_proc_jobid_upcall_fops},
+	{ .name =	"jobid_name",
+	  .fops	=	&obd_proc_jobid_name_fops},
 	{ 0 }
 };
 #else

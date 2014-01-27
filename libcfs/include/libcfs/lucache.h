@@ -82,6 +82,11 @@ struct md_identity {
 	struct md_perm            *mi_perms;
 };
 
+struct jobid_cache_entry {
+	struct upcall_cache_entry *jce_uc_entry;
+	char			  *jce_jobid;
+};
+
 struct upcall_cache_entry {
 	struct list_head	ue_hash;
 	__u64			ue_key;
@@ -92,6 +97,7 @@ struct upcall_cache_entry {
 	cfs_time_t		ue_expire;
 	union {
 		struct md_identity	identity;
+		struct jobid_cache_entry jobid;
 	} u;
 };
 

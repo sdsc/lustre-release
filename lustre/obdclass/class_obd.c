@@ -49,11 +49,13 @@
 #include <lustre/lustre_build_version.h>
 #include <libcfs/list.h>
 #include <cl_object.h>
+#include <libcfs/lucache.h>
 #ifdef HAVE_SERVER_SUPPORT
 # include <dt_object.h>
 # include <md_object.h>
 #endif /* HAVE_SERVER_SUPPORT */
 #include "llog_internal.h"
+#include "jobid_internal.h"
 
 #ifndef __KERNEL__
 /* liblustre workaround */
@@ -113,23 +115,19 @@ EXPORT_SYMBOL(obd_dirty_transit_pages);
 
 char obd_jobid_var[JOBSTATS_JOBID_VAR_MAX_LEN + 1] = JOBSTATS_DISABLE;
 EXPORT_SYMBOL(obd_jobid_var);
+char obd_jobid_node[JOBSTATS_JOBID_SIZE + 1];
 
 #ifdef LPROCFS
 struct lprocfs_stats *obd_memory = NULL;
 EXPORT_SYMBOL(obd_memory);
 #endif
 
-/* Get jobid of current process by reading the environment variable
+/* Get jobid of current process from stored variable or from upcall.
+ * jobid obtained from upcall would be cached in upcall cache.
+ *
+ * Historically this was also done by reading the environment variable
  * stored in between the "env_start" & "env_end" of task struct.
- *
- * TODO:
- * It's better to cache the jobid for later use if there is any
- * efficient way, the cl_env code probably could be reused for this
- * purpose.
- *
- * If some job scheduler doesn't store jobid in the "env_start/end",
- * then an upcall could be issued here to get the jobid by utilizing
- * the userspace tools/api. Then, the jobid must be cached.
+ * This is now deprecated and slated for removal at a later date, though.
  */
 int lustre_get_jobid(char *jobid)
 {
@@ -148,6 +146,28 @@ int lustre_get_jobid(char *jobid)
 			 current_comm(), current_fsuid());
 		RETURN(0);
 	}
+
+	/* Whole node dedicated to single job */
+	if (strcmp(obd_jobid_var, JOBSTATS_NODELOCAL) == 0) {
+		strcpy(jobid, obd_jobid_node);
+		RETURN(0);
+	}
+
+#ifdef __KERNEL__
+	/* If there's an upcall defined, let's try that */
+	if (obd_jobid_upcall != NULL) {
+		struct jobid_cache_entry *entry;
+
+		entry = jobid_cache_get(current_pid());
+
+		if (IS_ERR(entry))
+			return PTR_ERR(entry);
+
+		strncpy(jobid, entry->jce_jobid, JOBSTATS_JOBID_SIZE);
+		jobid_cache_put(entry);
+		RETURN(0);
+	}
+#endif
 
 	rc = cfs_get_environ(obd_jobid_var, jobid, &jobid_len);
 	if (rc) {
@@ -720,6 +740,9 @@ static void cleanup_obdclass(void)
         obd_sysctl_clean();
 
         class_procfs_clean();
+
+	if (obd_jobid_upcall)
+		upcall_cache_cleanup(obd_jobid_upcall);
 
         class_handle_cleanup();
         class_exit_uuidlist();
