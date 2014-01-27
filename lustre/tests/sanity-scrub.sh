@@ -542,7 +542,7 @@ test_6() {
 
 	local -a position1
 	for n in $(seq $MDSCOUNT); do
-		positions1[$n]=$(scrub_status $n |
+		position1[$n]=$(scrub_status $n |
 			awk '/^latest_start_position/ {print $2}')
 		if [ ${position0[$n]} -ne ${position1[$n]} ]; then
 			error "(14) Expected position ${position0[$n]}, but" \
