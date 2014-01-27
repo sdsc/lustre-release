@@ -1519,6 +1519,55 @@ struct lov_mds_md_v1 {            /* LOV EA mds/wire data (little-endian) */
 	struct lov_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 };
 
+/**
+ * Sigh, because pre-2.4 uses
+ * struct lov_mds_md_v1 {
+ *	........
+ *	__u64 lmm_object_id;
+ *	__u64 lmm_object_seq;
+ *      ......
+ *      }
+ * to identify the LOV(MDT) object, and lmm_object_seq will
+ * be normal_fid, so we can not know if it is ostid or FID
+ * by checking object_seq only, because it will conflict with real
+ * FID, so we still keep using id/seq to identify the LOV object
+ */
+static inline void fid_to_lmm_oi(const struct lu_fid *fid,
+				 struct ost_id *oi)
+{
+	oi->oi.oi_id = fid_oid(fid);
+	oi->oi.oi_seq = fid_seq(fid);
+}
+
+static inline void lmm_oi_set_seq(struct ost_id *oi, __u64 seq)
+{
+	oi->oi.oi_seq = seq;
+}
+
+static inline __u64 lmm_oi_id(struct ost_id *oi)
+{
+	return oi->oi.oi_id;
+}
+
+static inline __u64 lmm_oi_seq(struct ost_id *oi)
+{
+	return oi->oi.oi_seq;
+}
+
+static inline void lmm_oi_le_to_cpu(struct ost_id *dst_oi,
+				    struct ost_id *src_oi)
+{
+	dst_oi->oi.oi_id = le64_to_cpu(src_oi->oi.oi_id);
+	dst_oi->oi.oi_seq = le64_to_cpu(src_oi->oi.oi_seq);
+}
+
+static inline void lmm_oi_cpu_to_le(struct ost_id *dst_oi,
+				    struct ost_id *src_oi)
+{
+	dst_oi->oi.oi_id = cpu_to_le64(src_oi->oi.oi_id);
+	dst_oi->oi.oi_seq = cpu_to_le64(src_oi->oi.oi_seq);
+}
+
 /* extern void lustre_swab_lov_mds_md(struct lov_mds_md *llm); */
 
 #define MAX_MD_SIZE (sizeof(struct lov_mds_md) + 4 * sizeof(struct lov_ost_data))
