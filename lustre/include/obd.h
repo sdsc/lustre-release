@@ -183,13 +183,15 @@ struct obd_info {
 };
 
 struct obd_type {
-        cfs_list_t typ_chain;
-        struct obd_ops *typ_dt_ops;
-        struct md_ops *typ_md_ops;
-        cfs_proc_dir_entry_t *typ_procroot;
-        char *typ_name;
-        int  typ_refcnt;
-        struct lu_device_type *typ_lu;
+	cfs_list_t typ_chain;
+	struct obd_ops *typ_dt_ops;
+	struct md_ops *typ_md_ops;
+	cfs_proc_dir_entry_t *typ_procroot;
+	cfs_proc_dir_entry_t *typ_procsym;
+	__u32 typ_sym_filter;
+	char *typ_name;
+	int  typ_refcnt;
+	struct lu_device_type *typ_lu;
 	spinlock_t obd_type_lock;
 };
 
@@ -823,7 +825,6 @@ struct obd_device {
 
 	struct proc_dir_entry	*obd_proc_entry;
 	struct proc_dir_entry	*obd_proc_exports_entry;
-	void			*obd_proc_private;	/* type private PDEs */
 	struct proc_dir_entry	*obd_svc_procroot;
 	struct lprocfs_stats	*obd_svc_stats;
 	struct lprocfs_seq_vars	*obd_vars;
