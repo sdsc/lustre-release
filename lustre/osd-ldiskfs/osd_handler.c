@@ -5576,6 +5576,24 @@ static int osd_mount(const struct lu_env *env,
 	page = (unsigned long)page_address(__page);
 	options = (char *)page;
 	*options = '\0';
+
+	/* Pre-mount ldiskfs */
+	type = get_fs_type("ldiskfs");
+	if (!type) {
+		CERROR("%s premount: cannot find ldiskfs module\n", name);
+		GOTO(out, rc = -ENODEV);
+	}
+	o->od_mnt = vfs_kern_mount(type, s_flags, dev, (void *)options);
+	module_put(type->owner);
+	if (IS_ERR(o->od_mnt)) {
+		rc = PTR_ERR(o->od_mnt);
+		CERROR("premount %s:%#lx ldiskfs failed: %d "
+		       "Is the ldiskfs module available?\n",
+		       dev, s_flags, rc);
+		GOTO(out, rc);
+	}
+	mntput(o->od_mnt);
+
 	if (opts == NULL)
 		strcat(options, "user_xattr,acl");
 	else
