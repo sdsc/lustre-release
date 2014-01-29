@@ -350,6 +350,48 @@ lnet_unregister_lnd (lnd_t *lnd)
 
 #ifndef LNET_USE_LIB_FREELIST
 
+# ifdef __KERNEL__
+cfs_mem_cache_t *lnet_mes_cachep;        /* MEs kmem_cache */
+cfs_mem_cache_t *lnet_small_mds_cachep;  /* <=128bytes MDs kmem_cache */
+
+int
+lnet_descriptor_setup (void)
+{
+	/* create specific kmem_cache for MEs and small MDs (ie, originaly
+	 * allocated in <size-128> kmem_cache).
+	 */
+	lnet_mes_cachep = cfs_mem_cache_create("lnet_MEs", sizeof(lnet_me_t),
+					       0, 0);
+	if (lnet_mes_cachep == NULL)
+		return -ENOMEM;
+
+	lnet_small_mds_cachep = cfs_mem_cache_create("lnet_small_MDs",
+						     128, 0, 0);
+	if (lnet_small_mds_cachep == NULL) {
+		cfs_mem_cache_destroy(lnet_mes_cachep);
+		return -ENOMEM;
+	}
+	return 0;
+}
+
+void
+lnet_descriptor_cleanup (void)
+{
+	int rc;
+
+	if (lnet_small_mds_cachep != NULL) {
+		rc = cfs_mem_cache_destroy(lnet_small_mds_cachep);
+		LASSERTF(rc == 0, "couldn't destroy lnet_small_mds_cachep\n");
+		lnet_small_mds_cachep = NULL;
+	}
+
+	if (lnet_mes_cachep != NULL) {
+		rc = cfs_mem_cache_destroy(lnet_mes_cachep);
+		LASSERTF(rc == 0, "couldn't destroy lnet_mes_cachep\n");
+		lnet_mes_cachep = NULL;
+	}
+}
+# else
 int
 lnet_descriptor_setup (void)
 {
@@ -360,7 +402,7 @@ void
 lnet_descriptor_cleanup (void)
 {
 }
-
+# endif
 #else
 
 int
