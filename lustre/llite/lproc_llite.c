@@ -1163,24 +1163,31 @@ static int ll_rw_extents_stats_pp_seq_show(struct seq_file *seq, void *v)
 }
 
 static ssize_t ll_rw_extents_stats_pp_seq_write(struct file *file,
-                                                const char *buf, size_t len,
-                                                loff_t *off)
+						const char *buf, size_t len,
+						loff_t *off)
 {
-        struct seq_file *seq = file->private_data;
-        struct ll_sb_info *sbi = seq->private;
-        struct ll_rw_extents_info *io_extents = &sbi->ll_rw_extents_info;
-        int i;
-        int value = 1, rc = 0;
+	struct seq_file *seq = file->private_data;
+	struct ll_sb_info *sbi = seq->private;
+	struct ll_rw_extents_info *io_extents = &sbi->ll_rw_extents_info;
+	int i;
+	int value = 1, rc = 0;
 
-        rc = lprocfs_write_helper(buf, len, &value);
-        if (rc < 0 && (strcmp(buf, "disabled") == 0 ||
-                       strcmp(buf, "Disabled") == 0))
-                value = 0;
+	rc = lprocfs_write_helper(buf, len, &value);
+	if (rc < 0 && len < 10) {
+		char kernbuf[10];
 
-        if (value == 0)
-                sbi->ll_rw_stats_on = 0;
-        else
-                sbi->ll_rw_stats_on = 1;
+		if (copy_from_user(kernbuf, buf, len))
+			return -EFAULT;
+
+		if (strcmp(kernbuf, "disabled") == 0 ||
+		    strcmp(kernbuf, "Disabled") == 0)
+			value = 0;
+	}
+
+	if (value == 0)
+		sbi->ll_rw_stats_on = 0;
+	else
+		sbi->ll_rw_stats_on = 1;
 
 	spin_lock(&sbi->ll_pp_extent_lock);
 	for (i = 0; i < LL_PROCESS_HIST_MAX; i++) {
@@ -1223,23 +1230,31 @@ static int ll_rw_extents_stats_seq_show(struct seq_file *seq, void *v)
 }
 
 static ssize_t ll_rw_extents_stats_seq_write(struct file *file, const char *buf,
-                                        size_t len, loff_t *off)
+					     size_t len, loff_t *off)
 {
-        struct seq_file *seq = file->private_data;
-        struct ll_sb_info *sbi = seq->private;
-        struct ll_rw_extents_info *io_extents = &sbi->ll_rw_extents_info;
-        int i;
-        int value = 1, rc = 0;
+	struct seq_file *seq = file->private_data;
+	struct ll_sb_info *sbi = seq->private;
+	struct ll_rw_extents_info *io_extents = &sbi->ll_rw_extents_info;
+	int i;
+	int value = 1, rc = 0;
 
-        rc = lprocfs_write_helper(buf, len, &value);
-        if (rc < 0 && (strcmp(buf, "disabled") == 0 ||
-                       strcmp(buf, "Disabled") == 0))
-                value = 0;
+	rc = lprocfs_write_helper(buf, len, &value);
+	if (rc < 0 && len < 10) {
+		char kernbuf[10];
 
-        if (value == 0)
-                sbi->ll_rw_stats_on = 0;
-        else
-                sbi->ll_rw_stats_on = 1;
+		if (copy_from_user(kernbuf, buf, len))
+			return -EFAULT;
+
+		if (strcmp(kernbuf, "disabled") == 0 ||
+		    strcmp(kernbuf, "Disabled") == 0)
+			value = 0;
+	}
+
+	if (value == 0)
+		sbi->ll_rw_stats_on = 0;
+	else
+		sbi->ll_rw_stats_on = 1;
+
 	spin_lock(&sbi->ll_pp_extent_lock);
 	for (i = 0; i <= LL_PROCESS_HIST_MAX; i++) {
 		io_extents->pp_extents[i].pid = 0;
@@ -1250,7 +1265,6 @@ static ssize_t ll_rw_extents_stats_seq_write(struct file *file, const char *buf,
 
 	return len;
 }
-
 LPROC_SEQ_FOPS(ll_rw_extents_stats);
 
 void ll_rw_stats_tally(struct ll_sb_info *sbi, pid_t pid,
@@ -1413,24 +1427,31 @@ static int ll_rw_offset_stats_seq_show(struct seq_file *seq, void *v)
 }
 
 static ssize_t ll_rw_offset_stats_seq_write(struct file *file, const char *buf,
-                                       size_t len, loff_t *off)
+					    size_t len, loff_t *off)
 {
-        struct seq_file *seq = file->private_data;
-        struct ll_sb_info *sbi = seq->private;
-        struct ll_rw_process_info *process_info = sbi->ll_rw_process_info;
-        struct ll_rw_process_info *offset_info = sbi->ll_rw_offset_info;
-        int value = 1, rc = 0;
+	struct seq_file *seq = file->private_data;
+	struct ll_sb_info *sbi = seq->private;
+	struct ll_rw_process_info *process_info = sbi->ll_rw_process_info;
+	struct ll_rw_process_info *offset_info = sbi->ll_rw_offset_info;
+	int value = 1, rc = 0;
 
-        rc = lprocfs_write_helper(buf, len, &value);
+	rc = lprocfs_write_helper(buf, len, &value);
 
-        if (rc < 0 && (strcmp(buf, "disabled") == 0 ||
-                           strcmp(buf, "Disabled") == 0))
-                value = 0;
+	if (rc < 0 && len < 10) {
+		char kernbuf[10];
 
-        if (value == 0)
-                sbi->ll_rw_stats_on = 0;
-        else
-                sbi->ll_rw_stats_on = 1;
+		if (copy_from_user(kernbuf, buf, len))
+			return -EFAULT;
+
+		if (strcmp(kernbuf, "disabled") == 0 ||
+		    strcmp(kernbuf, "Disabled") == 0)
+			value = 0;
+	}
+
+	if (value == 0)
+		sbi->ll_rw_stats_on = 0;
+	else
+		sbi->ll_rw_stats_on = 1;
 
 	spin_lock(&sbi->ll_process_lock);
 	sbi->ll_offset_process_count = 0;

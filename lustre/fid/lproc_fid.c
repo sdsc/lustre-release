@@ -53,6 +53,8 @@
 #include <md_object.h>
 
 #ifdef LPROCFS
+
+#define MAX_FID_RANGE_STRLEN 100
 /**
  * Reduce the SEQ range allocated to a node to a strict subset of the range
  * currently-allocated SEQ range.  If the specified range is "clear", then
@@ -67,17 +69,26 @@ lprocfs_fid_write_common(const char *buffer, unsigned long count,
 {
 	struct lu_seq_range tmp = { 0, };
 	int rc;
+	char kernbuf[MAX_FID_RANGE_STRLEN];
 	ENTRY;
 
 	LASSERT(range != NULL);
 
-	if (count == 5 && strcmp(buffer, "clear") == 0) {
+	if (count >= MAX_FID_RANGE_STRLEN)
+		RETURN(-EINVAL);
+
+	memset (kernbuf, 0, count + 1);
+
+	if (copy_from_user(kernbuf, buffer, count))
+		RETURN(-EFAULT);
+
+	if (count == 5 && strcmp(kernbuf, "clear") == 0) {
 		memset(range, 0, sizeof(*range));
 		RETURN(0);
 	}
 
 	/* of the form "[0x0000000240000400 - 0x000000028000400]" */
-	rc = sscanf(buffer, "[%llx - %llx]\n",
+	rc = sscanf(kernbuf, "[%llx - %llx]\n",
 		    (long long unsigned *)&tmp.lsr_start,
 		    (long long unsigned *)&tmp.lsr_end);
 	if (!range_is_sane(&tmp) || range_is_zero(&tmp) ||
@@ -435,9 +446,10 @@ static ssize_t fldb_seq_write(struct file *file, const char *buf,
 	OBD_ALLOC(buffer, len + 1);
 	if (buffer == NULL)
 		RETURN(-ENOMEM);
-	memcpy(buffer, buf, len);
-	buffer[len] = 0;
 	_buffer = buffer;
+	if (copy_from_user(buffer, buf, len))
+		GOTO(out, rc = -EFAULT);
+	buffer[len] = 0;
 
 	/*
 	 * format - [0x0000000200000007-0x0000000200000008):0:mdt

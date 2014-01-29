@@ -439,17 +439,19 @@ static ssize_t lprocfs_jobstats_seq_write(struct file *file, const char *buf,
 	int all = 0;
 	struct job_stat *job;
 
-	if (!memcmp(buf, "clear", strlen("clear"))) {
-		all = 1;
-	} else if (len < JOBSTATS_JOBID_SIZE) {
-		memset(jobid, 0, JOBSTATS_JOBID_SIZE);
-		/* Trim '\n' if any */
-		if (buf[len - 1] == '\n')
-			memcpy(jobid, buf, len - 1);
-		else
-			memcpy(jobid, buf, len);
-	} else {
+	if (len >= JOBSTATS_JOBID_SIZE)
 		return -EINVAL;
+
+	memset(jobid, 0, JOBSTATS_JOBID_SIZE);
+	if (copy_from_user(jobid, buf, len))
+		return -EFAULT;
+
+	if (!memcmp(jobid, "clear", strlen("clear"))) {
+		all = 1;
+	} else {
+		/* Trim '\n' if any */
+		if (jobid[len - 1] == '\n')
+			jobid[len - 1] = 0;
 	}
 
 	LASSERT(stats->ojs_hash);

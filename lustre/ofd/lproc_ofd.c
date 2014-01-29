@@ -389,6 +389,8 @@ int lprocfs_ofd_wr_syncjournal(struct file *file, const char *buffer,
 	return count;
 }
 
+/* This must be longer than the longest string below */
+#define SYNC_STATES_MAXLEN 10
 static char *sync_on_cancel_states[] = {"never",
 					"blocking",
 					"always" };
@@ -410,19 +412,30 @@ int lprocfs_ofd_wr_sync_lock_cancel(struct file *file, const char *buffer,
 {
 	struct obd_device	*obd = data;
 	struct lu_target	*tgt = obd->u.obt.obt_lut;
+	char			 kernbuf[SYNC_STATES_MAXLEN];
 	int			 val = -1;
 	int			 i;
 
+	if (count >= SYNC_STATES_MAXLEN)
+		return -EINVAL;
+
+	if (copy_from_user(kernbuf, buffer, count))
+		return -EFAULT;
+
 	for (i = 0 ; i < NUM_SYNC_ON_CANCEL_STATES; i++) {
-		if (memcmp(buffer, sync_on_cancel_states[i],
+		if (memcmp(kernbuf, sync_on_cancel_states[i],
 			   strlen(sync_on_cancel_states[i])) == 0) {
 			val = i;
 			break;
 		}
 	}
+
+	/* Legacy numeric codes */
 	if (val == -1) {
 		int rc;
 
+		/* Safe to use userspace buffer as lprocfs_write_helper will
+		 * use copy from user for parsing */
 		rc = lprocfs_write_helper(buffer, count, &val);
 		if (rc)
 			return rc;

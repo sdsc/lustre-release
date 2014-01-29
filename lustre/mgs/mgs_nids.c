@@ -764,7 +764,7 @@ int lprocfs_wr_ir_state(struct file *file, const char *buffer,
                 return -ENOMEM;
 
         if (copy_from_user(kbuf, buffer, count)) {
-                OBD_FREE(kbuf, count);
+                OBD_FREE(kbuf, count + 1);
                 return -EFAULT;
         }
 
