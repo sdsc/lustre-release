@@ -1983,6 +1983,7 @@ GENERATE_PROC_METHOD(cdt_default_archive_id)
 #define CDT_DISABLE_CMD  "disabled"
 #define CDT_PURGE_CMD    "purge"
 #define CDT_HELP_CMD     "help"
+#define CDT_MAX_CMD_LEN  10
 
 int lprocfs_wr_hsm_cdt_control(struct file *file, const char *buffer,
 			       unsigned long count, void *data)
@@ -1991,17 +1992,24 @@ int lprocfs_wr_hsm_cdt_control(struct file *file, const char *buffer,
 	struct mdt_device	*mdt = mdt_dev(obd->obd_lu_dev);
 	struct coordinator	*cdt = &(mdt->mdt_coordinator);
 	int			 rc, usage = 0;
+	char			 kernbuf[CDT_MAX_CMD_LEN];
 	ENTRY;
 
+	if (count > CDT_MAX_CMD_LEN)
+		RETURN(-EINVAL);
+
+	if (copy_from_user(kernbuf, buffer, count))
+		RETURN(-EFAULT);
+
 	rc = 0;
-	if (strncmp(buffer, CDT_ENABLE_CMD, strlen(CDT_ENABLE_CMD)) == 0) {
+	if (strncmp(kernbuf, CDT_ENABLE_CMD, strlen(CDT_ENABLE_CMD)) == 0) {
 		if (cdt->cdt_state == CDT_DISABLE) {
 			cdt->cdt_state = CDT_RUNNING;
 			mdt_hsm_cdt_wakeup(mdt);
 		} else {
 			rc = mdt_hsm_cdt_start(mdt);
 		}
-	} else if (strncmp(buffer, CDT_STOP_CMD, strlen(CDT_STOP_CMD)) == 0) {
+	} else if (strncmp(kernbuf, CDT_STOP_CMD, strlen(CDT_STOP_CMD)) == 0) {
 		if ((cdt->cdt_state == CDT_STOPPING) ||
 		    (cdt->cdt_state == CDT_STOPPED)) {
 			CERROR("%s: Coordinator already stopped\n",
@@ -2010,7 +2018,7 @@ int lprocfs_wr_hsm_cdt_control(struct file *file, const char *buffer,
 		} else {
 			cdt->cdt_state = CDT_STOPPING;
 		}
-	} else if (strncmp(buffer, CDT_DISABLE_CMD,
+	} else if (strncmp(kernbuf, CDT_DISABLE_CMD,
 			   strlen(CDT_DISABLE_CMD)) == 0) {
 		if ((cdt->cdt_state == CDT_STOPPING) ||
 		    (cdt->cdt_state == CDT_STOPPED)) {
@@ -2020,9 +2028,9 @@ int lprocfs_wr_hsm_cdt_control(struct file *file, const char *buffer,
 		} else {
 			cdt->cdt_state = CDT_DISABLE;
 		}
-	} else if (strncmp(buffer, CDT_PURGE_CMD, strlen(CDT_PURGE_CMD)) == 0) {
+	} else if (strncmp(kernbuf, CDT_PURGE_CMD, strlen(CDT_PURGE_CMD)) == 0) {
 		rc = hsm_cancel_all_actions(mdt);
-	} else if (strncmp(buffer, CDT_HELP_CMD, strlen(CDT_HELP_CMD)) == 0) {
+	} else if (strncmp(kernbuf, CDT_HELP_CMD, strlen(CDT_HELP_CMD)) == 0) {
 		usage = 1;
 	} else {
 		usage = 1;
