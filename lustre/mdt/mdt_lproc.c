@@ -721,16 +721,16 @@ static int lprocfs_wr_root_squash(struct file *file, const char *buffer,
 
 	if (count >= sizeof(kernbuf)) {
 		errmsg = "string too long";
-		GOTO(failed, rc = -EINVAL);
+		GOTO(failed_noprint, rc = -EINVAL);
 	}
 	if (copy_from_user(kernbuf, buffer, count)) {
 		errmsg = "bad address";
-		GOTO(failed, rc = -EFAULT);
+		GOTO(failed_noprint, rc = -EFAULT);
 	}
 	kernbuf[count] = '\0';
 
 	nouid = nogid = 0;
-	if (safe_strtoul(buffer, &tmp, &uid)) {
+	if (safe_strtoul(kernbuf, &tmp, &uid)) {
 		uid = mdt->mdt_squash_uid;
 		nouid = 1;
 	}
@@ -762,7 +762,11 @@ static int lprocfs_wr_root_squash(struct file *file, const char *buffer,
 
 failed:
 	CWARN("%s: failed to set root_squash to \"%s\", %s: rc %d\n",
-	      mdt_obd_name(mdt), buffer, errmsg, rc);
+	      mdt_obd_name(mdt), kernbuf, errmsg, rc);
+	RETURN(rc);
+failed_noprint:
+	CWARN("%s: failed to set root_squash due to %s: rc %d\n",
+	      mdt_obd_name(mdt), errmsg, rc);
 	RETURN(rc);
 }
 
