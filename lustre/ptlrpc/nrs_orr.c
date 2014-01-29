@@ -875,6 +875,7 @@ int nrs_orr_res_get(struct ptlrpc_nrs_policy *policy,
 
 	orro->oo_key = key;
 	orro->oo_ref = 1;
+	CFS_INIT_HLIST_NODE(&orro->oo_hnode);
 
 	tmp = cfs_hash_findadd_unique(orrd->od_obj_hash, &orro->oo_key,
 				      &orro->oo_hnode);
