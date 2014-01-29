@@ -252,6 +252,11 @@ lnet_msg_free (lnet_msg_t *msg)
 
 #else
 
+#define LNET_SMALL_MD_SIZE   offsetof(lnet_libmd_t, md_iov.iov[1])
+extern cfs_mem_cache_t *lnet_mes_cachep;	/* MEs kmem_cache */
+extern cfs_mem_cache_t *lnet_small_mds_cachep;	/* <= LNET_SMALL_MD_SIZE bytes
+						 * MDs kmem_cache */
+
 static inline lnet_eq_t *
 lnet_eq_alloc (void)
 {
@@ -286,7 +291,10 @@ lnet_md_alloc (lnet_md_t *umd)
                 size = offsetof(lnet_libmd_t, md_iov.iov[niov]);
         }
 
-        LIBCFS_ALLOC(md, size);
+	if (size <= LNET_SMALL_MD_SIZE)
+		md = cfs_mem_cache_alloc(lnet_small_mds_cachep, CFS_ALLOC_IO);
+	else
+        	LIBCFS_ALLOC(md, size);
 
         if (md != NULL) {
                 /* Set here in case of early free */
@@ -309,24 +317,25 @@ lnet_md_free (lnet_libmd_t *md)
         else
                 size = offsetof(lnet_libmd_t, md_iov.iov[md->md_niov]);
 
-        LIBCFS_FREE(md, size);
+	if (size <= LNET_SMALL_MD_SIZE)
+		cfs_mem_cache_free(lnet_small_mds_cachep, md);
+	else
+        	LIBCFS_FREE(md, size);
 }
 
 static inline lnet_me_t *
 lnet_me_alloc (void)
 {
         /* NEVER called with liblock held */
-        lnet_me_t *me;
 
-        LIBCFS_ALLOC(me, sizeof(*me));
-        return (me);
+        return cfs_mem_cache_alloc(lnet_mes_cachep, CFS_ALLOC_IO);
 }
 
 static inline void
 lnet_me_free(lnet_me_t *me)
 {
         /* ALWAYS called with liblock held */
-        LIBCFS_FREE(me, sizeof(*me));
+	cfs_mem_cache_free(lnet_mes_cachep, me);
 }
 
 static inline lnet_msg_t *
