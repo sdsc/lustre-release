@@ -247,13 +247,14 @@ struct mdt_lock_handle {
 };
 
 enum {
-        MDT_LH_PARENT, /* parent lockh */
-        MDT_LH_CHILD,  /* child lockh */
-        MDT_LH_OLD,    /* old lockh for rename */
+	MDT_LH_PARENT, /* parent lockh */
+	MDT_LH_CHILD,  /* child lockh */
+	MDT_LH_OLD,    /* old lockh for rename */
 	MDT_LH_LAYOUT = MDT_LH_OLD, /* layout lock */
-        MDT_LH_NEW,    /* new lockh for rename */
-        MDT_LH_RMT,    /* used for return lh to caller */
-        MDT_LH_NR
+	MDT_LH_NEW,    /* new lockh for rename */
+	MDT_LH_RMT,    /* used for return lh to caller */
+	MDT_LH_LOCAL,  /* local lock never return to client */
+	MDT_LH_NR
 };
 
 enum {

@@ -1171,20 +1171,7 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 	ENTRY;
 
 	*ibits = 0;
-	if (open_flags & MDS_OPEN_LOCK) {
-		if (open_flags & FMODE_WRITE)
-			lm = LCK_CW;
-		/* if file is released, we can't deny write because we must
-		 * restore (write) it to access it. */
-		else if ((open_flags & MDS_FMODE_EXEC) &&
-			 !((ma->ma_valid & MA_HSM) &&
-			   (ma->ma_hsm.mh_flags & HS_RELEASED)))
-			lm = LCK_PR;
-		else
-			lm = LCK_CR;
-
-		*ibits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN;
-	}
+	mdt_lock_handle_init(lhc);
 
 	if (S_ISREG(lu_object_attr(&obj->mot_obj.mo_lu))) {
 		if (ma->ma_need & MA_LOV && !(ma->ma_valid & MA_LOV) &&
@@ -1195,7 +1182,27 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 			try_layout = true;
 	}
 
-	mdt_lock_handle_init(lhc);
+	if (open_flags & FMODE_WRITE)
+		lm = LCK_CW;
+	else if (open_flags & MDS_FMODE_EXEC)
+		lm = LCK_PR;
+	else
+		lm = LCK_CR;
+
+	if (open_flags & MDS_OPEN_LOCK) {
+		*ibits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN;
+	} else if (open_flags & (FMODE_WRITE | MDS_FMODE_EXEC)) {
+		/* We need to flush conflicting locks.
+		 * There is no need to acquire a layout
+		 * lock since it won't be returned to the client. */
+		try_layout = false;
+		*ibits = MDS_INODELOCK_OPEN;
+		lhc = &info->mti_lh[MDT_LH_LOCAL];
+	}
+
+	CDEBUG(D_INODE, "normal open FID = "DFID", lm = %d\n",
+	       PFID(mdt_object_fid(obj)), lm);
+
 	mdt_lock_reg_init(lhc, lm);
 
 	/* one problem to return layout lock on open is that it may result
@@ -1248,8 +1255,14 @@ static void mdt_object_open_unlock(struct mdt_thread_info *info,
 				   __u64 ibits, int rc)
 {
 	__u64 open_flags = info->mti_spec.sp_cr_flags;
-	struct mdt_lock_handle *ll = &info->mti_lh[MDT_LH_LAYOUT];
+	struct mdt_lock_handle *ll = &info->mti_lh[MDT_LH_LOCAL];
 
+	/* Release local lock - the lock put in MDT_LH_LOCAL will never
+	 * return to client side. */
+	if (lustre_handle_is_used(&ll->mlh_reg_lh))
+		mdt_object_unlock(info, obj, ll, 1);
+
+	ll = &info->mti_lh[MDT_LH_LAYOUT];
 	/* Release local layout lock - the layout lock put in MDT_LH_LAYOUT
 	 * will never return to client side. */
 	if (lustre_handle_is_used(&ll->mlh_reg_lh)) {
