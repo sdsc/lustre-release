@@ -50,8 +50,8 @@ if [ $(facet_fstype $SINGLEMDS) == ldiskfs ] &&
 	skip "e2fsprogs doesn't support quota" && exit 0
 fi
 
-# bug number for skipped test: LU-4515
-ALWAYS_EXCEPT="$ALWAYS_EXCEPT	34"
+# bug number for skipped test: LU-4515 LU-4422
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT	34	6"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
 # bug number for skipped test:        LU-2872 LU-2836 LU-2836 LU-2059
