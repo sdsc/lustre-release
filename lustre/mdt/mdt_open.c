@@ -1217,7 +1217,8 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		/* normal open holds read mode of open sem */
 		down_read(&obj->mot_open_sem);
 
-		if (open_flags & MDS_OPEN_LOCK) {
+		if (open_flags &
+		    (FMODE_WRITE | MDS_FMODE_EXEC | MDS_OPEN_LOCK)) {
 			if (open_flags & FMODE_WRITE)
 				lm = LCK_CW;
 			else if (open_flags & MDS_FMODE_EXEC)
