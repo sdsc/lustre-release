@@ -216,6 +216,7 @@ struct lquota_site {
 static inline void lqe_getref(struct lquota_entry *lqe)
 {
 	LASSERT(lqe != NULL);
+	LASSERT(atomic_read(&lqe->lqe_ref) > 0);
 	cfs_atomic_inc(&lqe->lqe_ref);
 }
 
@@ -223,8 +224,10 @@ static inline void lqe_putref(struct lquota_entry *lqe)
 {
 	LASSERT(lqe != NULL);
 	LASSERT(atomic_read(&lqe->lqe_ref) > 0);
-	if (atomic_dec_and_test(&lqe->lqe_ref))
+	if (atomic_dec_and_test(&lqe->lqe_ref)) {
+		LASSERT(hlist_unhashed(&lqe->lqe_hash));
 		OBD_FREE_PTR(lqe);
+	}
 }
 
 static inline int lqe_is_master(struct lquota_entry *lqe)
