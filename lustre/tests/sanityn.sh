@@ -2647,6 +2647,114 @@ test_76() { #LU-946
 }
 run_test 76 "Verify open file for 2048 files"
 
+nrs_write_read() {
+	local n=16
+	local dir=$DIR/$tdir
+
+	mkdir -p $dir || error "mkdir $dir failed"
+	$LFS setstripe -c $OSTCOUNT $dir || error "setstripe to $dir failed"
+
+	do_nodes $CLIENTS dd if=/dev/zero of="$dir/nrs_r_`hostname`"\
+		bs=1M count=$n
+
+	for ((i = 0; i < $n; i++)); do
+		do_nodes $CLIENTS dd if=/dev/zero of="$dir/nrs_w_`hostname`"\
+			bs=1M seek=$i count=1&
+		local PIDS_W[$i]=$!
+		do_nodes $CLIENTS dd if="$dir/nrs_w_`hostname`" of=/dev/zero\
+			bs=1M seek=$i count=1&
+		local PIDS_R[$i]=$!
+		do_nodes $CLIENTS sync;
+		cancel_lru_locks osc
+	done
+	for ((i = 0; i < $n; i++)); do
+		wait ${PIDS_W[$i]}
+		wait ${PIDS_R[$i]}
+	done
+	rm -rf dir || error "rm -rf $dir failed"
+}
+
+test_77a() { #LU-3266
+	do_facet $SINGLEMDS lctl set_param ost.OSS.*.nrs_policies="fifo"
+	nrs_write_read
+
+	return 0
+}
+run_test 77a "check FIFO nrs policy"
+
+
+test_77b() { #LU-3266
+	do_facet $SINGLEMDS lctl set_param ost.OSS.*.nrs_policies="crrn"
+	do_facet $SINGLEMDS lctl set_param ost.OSS.*.nrs_crrn_quantum=1
+
+	echo "policy: crr-n, crrn_quantum 1"
+	nrs_write_read
+
+	do_facet $SINGLEMDS lctl set_param ost.OSS.*.nrs_crrn_quantum=64
+
+	echo "policy: crr-n, crrn_quantum 64"
+	nrs_write_read
+
+	return 0
+}
+run_test 77b "check CRR-N nrs policy"
+
+orr_trr() {
+	local policy=$1
+
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies=$policy
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.*.nrs_"$policy"_quantum=1
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.*.nrs_"$policy"_offset_type="physical"
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.*.nrs_"$policy"_supported="reads"
+	done
+
+	echo "policy: orr, orr_quantum 1, orr_offset_type \
+				physical, orr_supported reads"
+	nrs_write_read
+
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.*.nrs_"$policy"_supported="writes"
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.*.nrs_"$policy"_quantum=64
+	done
+	echo "policy: orr, orr_quantum 64, \
+		orr_offset_type physical, orr_supported writes"
+	nrs_write_read
+
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.*.nrs_"$policy"_supported="reads_and_writes"
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.*.nrs_"$policy"_offset_type="logical"
+	done
+	echo "policy: orr, orr_quantum 64, \
+		orr_offset_type logical, orr_supported reads_and_writes"
+	nrs_write_read
+
+	return 0
+}
+
+test_77c() { #LU-3266
+	orr_trr "orr"
+	return 0
+}
+run_test 77c "check ORR nrs policy"
+
+test_77d() { #LU-3266
+	orr_trr "trr"
+	return 0
+}
+run_test 77d "check TRR nrs policy"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
