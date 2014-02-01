@@ -32,7 +32,13 @@
 #define _LUSTRE_UPDATE_H
 
 #define OUT_UPDATE_INIT_BUFFER_SIZE	8192
-#define OUT_UPDATE_REPLY_SIZE	8192
+#define OUT_UPDATE_REPLY_SIZE		8192
+
+struct update_buffer {
+	struct object_update_request	*ub_req;
+	int				ub_req_len;
+};
+
 struct dt_update_request {
 	struct dt_device		*dur_dt;
 	/* attached itself to thandle */
@@ -43,7 +49,7 @@ struct dt_update_request {
 	/* Current batch(transaction) id */
 	__u64				dur_batchid;
 	/* Holding the update req */
-	struct object_update_request	*dur_req;
+	struct update_buffer		dur_buf;
 	int				dur_req_len;
 	struct list_head		dur_cb_items;
 };
@@ -216,5 +222,61 @@ static inline void update_inc_batchid(struct dt_update_request *update)
 {
 	update->dur_batchid++;
 }
+
+/* target/out_lib.c */
+struct dt_update_request *
+out_find_update(struct thandle_update *tu, struct dt_device *dt_dev);
+void out_destroy_update_req(struct dt_update_request *update);
+struct dt_update_request *out_create_update_req(struct dt_device *dt);
+struct dt_update_request *out_find_create_update_loc(struct thandle *th,
+						  struct dt_object *dt);
+int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
+			const struct object_update_request *ureq,
+			struct ptlrpc_request **reqp);
+int out_remote_sync(const struct lu_env *env, struct obd_import *imp,
+		    struct dt_update_request *update,
+		    struct ptlrpc_request **reqp);
+int out_insert_update(const struct lu_env *env,
+		      struct update_buffer *ubuf, int op,
+		      const struct lu_fid *fid, int count,
+		      int *lens, const char **bufs, __u64 batchid);
+int out_create_insert(const struct lu_env *env, const struct lu_fid *fid,
+		      struct lu_attr *attr, struct dt_allocation_hint *hint,
+		      struct dt_object_format *dof, struct update_buffer *ubuf,
+		      __u64 batchid);
+int out_object_destroy_insert(const struct lu_env *env,
+			      const struct lu_fid *fid,
+			      struct update_buffer *ubuf, __u64 batchid);
+int out_index_delete_insert(const struct lu_env *env, const struct lu_fid *fid,
+			    const struct dt_key *key, struct update_buffer *ubuf,
+			    __u64 batchid);
+int out_index_insert_insert(const struct lu_env *env, const struct lu_fid *fid,
+			    const struct dt_rec *rec, const struct dt_key *key,
+			    struct update_buffer *ubuf, __u64 batchid);
+int out_xattr_set_insert(const struct lu_env *env, const struct lu_fid *fid,
+			 const struct lu_buf *buf, const char *name,
+			 int flag, struct update_buffer *ubuf,
+			 __u64 batchid);
+int out_attr_set_insert(const struct lu_env *env, const struct lu_fid *fid,
+			const struct lu_attr *attr, struct update_buffer *ubuf,
+			__u64 batchid);
+int out_ref_add_insert(const struct lu_env *env, const struct lu_fid *fid,
+		       struct update_buffer *ubuf, __u64 batchid);
+int out_ref_del_insert(const struct lu_env *env, const struct lu_fid *fid,
+		       struct update_buffer *ubuf, __u64 batchid);
+int out_write_insert(const struct lu_env *env, const struct lu_fid *fid,
+		     const struct lu_buf *buf, loff_t pos,
+		     struct update_buffer *ubuf, __u64 batchid);
+int out_attr_get_insert(const struct lu_env *env, const struct lu_fid *fid,
+			struct update_buffer *ubuf);
+int out_index_lookup_insert(const struct lu_env *env, const struct lu_fid *fid,
+			    struct dt_rec *rec, const struct dt_key *key,
+			    struct update_buffer *ubuf);
+int out_xattr_get_insert(const struct lu_env *env, const struct lu_fid *fid,
+			 const char *name, struct update_buffer *ubuf);
+
+int update_buf_alloc(struct update_buffer *ubuf, int size);
+void update_buf_init(struct update_buffer *ubuf);
+void update_buf_free(struct update_buffer *ubuf);
 
 #endif
