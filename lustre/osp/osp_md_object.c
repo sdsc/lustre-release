@@ -45,12 +45,7 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 					struct dt_object_format *dof,
 					struct thandle *th)
 {
-	struct osp_thread_info		*osi = osp_env_info(env);
 	struct dt_update_request	*update;
-	struct lu_fid			*fid1;
-	int				sizes[2] = {sizeof(struct obdo), 0};
-	char				*bufs[2] = {NULL, NULL};
-	int				buf_count;
 	int				rc;
 
 	update = out_find_create_update_loc(th, dt);
@@ -59,22 +54,6 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
 		       (int)PTR_ERR(update));
 		return PTR_ERR(update);
-	}
-
-	osi->osi_obdo.o_valid = 0;
-	obdo_from_la(&osi->osi_obdo, attr, attr->la_valid);
-	lustre_set_wire_obdo(NULL, &osi->osi_obdo, &osi->osi_obdo);
-
-	bufs[0] = (char *)&osi->osi_obdo;
-	buf_count = 1;
-	fid1 = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-	if (hint != NULL && hint->dah_parent) {
-		struct lu_fid *fid2;
-
-		fid2 = (struct lu_fid *)lu_object_fid(&hint->dah_parent->do_lu);
-		sizes[1] = sizeof(*fid2);
-		bufs[1] = (char *)fid2;
-		buf_count++;
 	}
 
 	if (lu_object_exists(&dt->do_lu)) {
@@ -92,23 +71,26 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 		 *    but find the object already exists
 		 */
 		CDEBUG(D_HA, "%s: object "DFID" exists, destroy this orphan\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name, PFID(fid1));
+		       dt->do_lu.lo_dev->ld_obd->obd_name,
+		       PFID(lu_object_fid(&dt->do_lu)));
 
-		rc = out_insert_update(env, update, OUT_REF_DEL, fid1, 0,
-				       NULL, NULL);
+		rc = out_ref_del_insert(env, lu_object_fid(&dt->do_lu),
+					&update->dur_buf, update->dur_batchid);
 		if (rc != 0)
 			GOTO(out, rc);
 
 		if (S_ISDIR(lu_object_attr(&dt->do_lu))) {
 			/* decrease for ".." */
-			rc = out_insert_update(env, update, OUT_REF_DEL, fid1,
-					       0, NULL, NULL);
+			rc = out_ref_del_insert(env, lu_object_fid(&dt->do_lu),
+						&update->dur_buf,
+						update->dur_batchid);
 			if (rc != 0)
 				GOTO(out, rc);
 		}
 
-		rc = out_insert_update(env, update, OUT_DESTROY, fid1, 0, NULL,
-				       NULL);
+		rc = out_object_destroy_insert(env, lu_object_fid(&dt->do_lu),
+					       &update->dur_buf,
+					       update->dur_batchid);
 		if (rc != 0)
 			GOTO(out, rc);
 
@@ -118,8 +100,10 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 		update_inc_batchid(update);
 	}
 
-	rc = out_insert_update(env, update, OUT_CREATE, fid1, buf_count, sizes,
-			       (const char **)bufs);
+	rc = out_create_insert(env, lu_object_fid(&dt->do_lu), attr, hint, dof,
+			       &update->dur_buf, update->dur_batchid);
+	if (rc != 0)
+		GOTO(out, rc);
 out:
 	if (rc)
 		CERROR("%s: Insert update error: rc = %d\n",
@@ -166,8 +150,8 @@ static int osp_md_declare_object_ref_del(const struct lu_env *env,
 
 	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
 
-	rc = out_insert_update(env, update, OUT_REF_DEL, fid, 0, NULL, NULL);
-
+	rc = out_ref_del_insert(env, lu_object_fid(&dt->do_lu),
+				&update->dur_buf, update->dur_batchid);
 	return rc;
 }
 
@@ -185,7 +169,6 @@ static int osp_md_declare_ref_add(const struct lu_env *env,
 				  struct dt_object *dt, struct thandle *th)
 {
 	struct dt_update_request	*update;
-	struct lu_fid			*fid;
 	int				rc;
 
 	update = out_find_create_update_loc(th, dt);
@@ -196,9 +179,8 @@ static int osp_md_declare_ref_add(const struct lu_env *env,
 		return PTR_ERR(update);
 	}
 
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-
-	rc = out_insert_update(env, update, OUT_REF_ADD, fid, 0, NULL, NULL);
+	rc = out_ref_add_insert(env, lu_object_fid(&dt->do_lu),
+				&update->dur_buf, update->dur_batchid);
 
 	return rc;
 }
@@ -230,11 +212,7 @@ static int osp_md_declare_attr_set(const struct lu_env *env,
 				   const struct lu_attr *attr,
 				   struct thandle *th)
 {
-	struct osp_thread_info		*osi = osp_env_info(env);
 	struct dt_update_request	*update;
-	struct lu_fid			*fid;
-	int				size = sizeof(struct obdo);
-	char				*buf;
 	int				rc;
 
 	update = out_find_create_update_loc(th, dt);
@@ -245,16 +223,8 @@ static int osp_md_declare_attr_set(const struct lu_env *env,
 		return PTR_ERR(update);
 	}
 
-	osi->osi_obdo.o_valid = 0;
-	obdo_from_la(&osi->osi_obdo, (struct lu_attr *)attr,
-		     attr->la_valid);
-	lustre_set_wire_obdo(NULL, &osi->osi_obdo, &osi->osi_obdo);
-
-	buf = (char *)&osi->osi_obdo;
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-
-	rc = out_insert_update(env, update, OUT_ATTR_SET, fid, 1, &size,
-			       (const char **)&buf);
+	rc = out_attr_set_insert(env, lu_object_fid(&dt->do_lu), attr,
+				 &update->dur_buf, update->dur_batchid);
 
 	return rc;
 }
@@ -327,7 +297,6 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	struct dt_update_request   *update;
 	struct object_update_reply *reply;
 	struct ptlrpc_request	   *req = NULL;
-	int			   size = strlen((char *)key) + 1;
 	struct lu_fid		   *fid;
 	int			   rc;
 	ENTRY;
@@ -340,10 +309,9 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
-	rc = out_insert_update(env, update, OUT_INDEX_LOOKUP,
-			       lu_object_fid(&dt->do_lu),
-			       1, &size, (const char **)&key);
-	if (rc) {
+	rc = out_index_lookup_insert(env, lu_object_fid(&dt->do_lu), rec, key,
+				     &update->dur_buf);
+	if (rc != 0) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
 		GOTO(out, rc);
@@ -365,7 +333,7 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 
 	rc = object_update_result_data_get(reply, lbuf, 0);
 	if (rc < 0)
-		GOTO(out, rc = size);
+		GOTO(out, rc);
 
 	if (lbuf->lb_len != sizeof(*fid)) {
 		CERROR("%s: lookup "DFID" %s wrong size %d\n",
@@ -405,11 +373,6 @@ static int osp_md_declare_insert(const struct lu_env *env,
 				 struct thandle *th)
 {
 	struct dt_update_request *update;
-	struct lu_fid		 *fid;
-	struct lu_fid		 *rec_fid = (struct lu_fid *)rec;
-	int			 size[2] = {strlen((char *)key) + 1,
-						  sizeof(*rec_fid)};
-	const char		 *bufs[2] = {(char *)key, (char *)rec_fid};
 	int			 rc;
 
 	update = out_find_create_update_loc(th, dt);
@@ -420,16 +383,8 @@ static int osp_md_declare_insert(const struct lu_env *env,
 		return PTR_ERR(update);
 	}
 
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-
-	CDEBUG(D_INFO, "%s: insert index of "DFID" %s: "DFID"\n",
-	       dt->do_lu.lo_dev->ld_obd->obd_name,
-	       PFID(fid), (char *)key, PFID(rec_fid));
-
-	fid_cpu_to_le(rec_fid, rec_fid);
-
-	rc = out_insert_update(env, update, OUT_INDEX_INSERT, fid,
-			       ARRAY_SIZE(size), size, bufs);
+	rc = out_index_insert_insert(env, lu_object_fid(&dt->do_lu), rec, key,
+				     &update->dur_buf, update->dur_batchid);
 	return rc;
 }
 
@@ -450,9 +405,7 @@ static int osp_md_declare_delete(const struct lu_env *env,
 				 struct thandle *th)
 {
 	struct dt_update_request *update;
-	struct lu_fid *fid;
-	int size = strlen((char *)key) + 1;
-	int rc;
+	int			 rc;
 
 	update = out_find_create_update_loc(th, dt);
 	if (IS_ERR(update)) {
@@ -462,11 +415,8 @@ static int osp_md_declare_delete(const struct lu_env *env,
 		return PTR_ERR(update);
 	}
 
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-
-	rc = out_insert_update(env, update, OUT_INDEX_DELETE, fid, 1, &size,
-			       (const char **)&key);
-
+	rc = out_index_delete_insert(env, lu_object_fid(&dt->do_lu), key,
+				     &update->dur_buf, update->dur_batchid);
 	return rc;
 }
 
@@ -680,10 +630,6 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 				    loff_t pos, struct thandle *th)
 {
 	struct dt_update_request  *update;
-	struct lu_fid		  *fid;
-	int			  sizes[2] = {buf->lb_len, sizeof(pos)};
-	const char		  *bufs[2] = {(char *)buf->lb_buf,
-					      (char *)&pos};
 	ssize_t			  rc;
 
 	update = out_find_create_update_loc(th, dt);
@@ -694,11 +640,8 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 		return PTR_ERR(update);
 	}
 
-	pos = cpu_to_le64(pos);
-	bufs[1] = (char *)&pos;
-	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-	rc = out_insert_update(env, update, OUT_WRITE, fid,
-			       ARRAY_SIZE(sizes), sizes, bufs);
+	rc = out_write_insert(env, lu_object_fid(&dt->do_lu), buf, pos,
+			      &update->dur_buf, update->dur_batchid);
 
 	return rc;
 
@@ -709,6 +652,7 @@ static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
 			    struct thandle *handle,
 			    struct lustre_capa *capa, int ignore_quota)
 {
+	*pos += buf->lb_len;
 	return buf->lb_len;
 }
 
