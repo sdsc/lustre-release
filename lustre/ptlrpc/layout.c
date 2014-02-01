@@ -69,6 +69,7 @@
 #endif
 /* struct ptlrpc_request, lustre_msg* */
 #include <lustre_req_layout.h>
+#include <dt_object.h>
 #include <lustre_update.h>
 #include <lustre_acl.h>
 #include <lustre_debug.h>

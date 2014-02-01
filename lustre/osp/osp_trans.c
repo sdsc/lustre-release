@@ -134,7 +134,7 @@ int osp_unplug_async_update(const struct lu_env *env,
 	int				 rc;
 
 	rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-				 update->dur_req, &req);
+				 update->dur_buf.ub_req, &req);
 	if (rc != 0) {
 		struct osp_async_update_item *oaui;
 		struct osp_async_update_item *next;
@@ -192,8 +192,9 @@ int osp_insert_async_update(const struct lu_env *env,
 		RETURN(-ENOMEM);
 
 again:
-	rc = out_insert_update(env, update, op, lu_object_fid(osp2lu_obj(obj)),
-			       count, lens, bufs);
+	rc = out_insert_update(env, &update->dur_buf, op,
+			       lu_object_fid(osp2lu_obj(obj)),
+			       count, lens, bufs, 0);
 	if (rc == -E2BIG) {
 		osp->opd_async_requests = NULL;
 		mutex_unlock(&osp->opd_async_requests_mutex);
@@ -279,7 +280,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 
 		list_del_init(&dt_update->dur_list);
 		rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-					 dt_update->dur_req, &req);
+					 dt_update->dur_buf.ub_req, &req);
 		if (rc == 0) {
 			args = ptlrpc_req_async_args(req);
 			args->oaua_update = dt_update;
@@ -351,7 +352,8 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		goto put;
 	}
 
-	if (dt_update->dur_req->ourq_count == 0) {
+	if (dt_update->dur_buf.ub_req == NULL ||
+	    dt_update->dur_buf.ub_req->ourq_count == 0) {
 		out_destroy_update_req(dt_update);
 		goto put;
 	}
