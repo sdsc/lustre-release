@@ -1058,9 +1058,25 @@ dont_check_exports:
                         rc = obd_connect(req->rq_svc_thread->t_env,
                                          &export, target, &cluuid, data,
                                          client_nid);
+
+			/* Because LIGHT WEIGHT connection does not write
+			 * anything into disk, so any reconnection after
+			 * restart will create a new export, which will
+			 * evict the old import, then cause some unnecessary
+			 * falures to the inflight RPC, so we will mark
+			 * this connection as RECONNECT and RECOVERING to
+			 * avoid this. */
+			if (lw_client &&
+			    !(lustre_msg_get_op_flags(req->rq_reqmsg) &
+			      MSG_CONNECT_INITIAL))
+				lustre_msg_add_op_flags(req->rq_repmsg,
+							MSG_CONNECT_RECONNECT |
+							MSG_CONNECT_RECOVERING);
+
 			if (mds_conn && OBD_FAIL_CHECK(OBD_FAIL_TGT_RCVG_FLAG))
 				lustre_msg_add_op_flags(req->rq_repmsg,
 						MSG_CONNECT_RECOVERING);
+
                         if (rc == 0)
                                 conn.cookie = export->exp_handle.h_cookie;
                 }
