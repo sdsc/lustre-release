@@ -1347,7 +1347,7 @@ static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
 			RETURN(-ETIMEDOUT);
 		}
 	}
-	newdl = cfs_time_current_sec() + at_get(&svcpt->scp_at_estimate);
+	newdl = req->rq_arrival_time.tv_sec + at_get(&svcpt->scp_at_estimate);
 
 	reqcopy = ptlrpc_request_cache_alloc(__GFP_IO);
 	if (reqcopy == NULL)
