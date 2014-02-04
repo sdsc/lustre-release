@@ -1365,7 +1365,7 @@ static int cl_echo_object_brw(struct echo_object *eco, int rw, obd_off offset,
                 async = async && (typ == CRT_WRITE);
                 if (async)
 			rc = cl_io_commit_async(env, io, &queue->c2_qin,
-						0, PAGE_SIZE,
+						0, cfs_getpagesize(),
 						echo_commit_callback);
 		else
 			rc = cl_io_submit_sync(env, io, typ, queue, 0);
