@@ -1560,6 +1560,129 @@ unlock1:
 	return rc;
 }
 
+/* If there are more than one MDT-objects claim as the OST-object's parent,
+ * and the OST-object only recognizes one of them, then we need to generate
+ * new OST-object(s) with new fid(s) for the non-recognized MDT-object(s). */
+static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
+						   struct lfsck_component *com,
+						   struct lfsck_layout_req *llr,
+						   struct lu_attr *la,
+						   struct lu_buf *buf)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct dt_allocation_hint	*hint	= &info->lti_hint;
+	struct dt_object_format 	*dof	= &info->lti_dof;
+	struct dt_device		*pdev	= com->lc_lfsck->li_next;
+	struct ost_id			*oi	= &info->lti_oi;
+	struct dt_object		*parent = llr->llr_parent->llo_obj;
+	struct dt_device		*cdev	= lfsck_obj2dt_dev(llr->llr_child);
+	struct dt_object		*child	= NULL;
+	struct lu_device		*d	= &cdev->dd_lu_dev;
+	struct lu_object		*o	= NULL;
+	struct thandle			*handle;
+	struct lov_mds_md_v1		*lmm;
+	struct lov_ost_data_v1		*objs;
+	struct lustre_handle		 lh	= { 0 };
+	__u32				 magic;
+	int				 rc;
+	ENTRY;
+
+	CDEBUG(D_LFSCK, "Repair multiple references for: parent "DFID
+	       ", OST-index %u, stripe-index %u, owner %u:%u\n",
+	       PFID(lfsck_dto2fid(parent)), llr->llr_ost_idx,
+	       llr->llr_lov_idx, la->la_uid, la->la_gid);
+
+	rc = lfsck_layout_lock(env, com, parent, &lh,
+			       MDS_INODELOCK_LAYOUT | MDS_INODELOCK_XATTR);
+	if (rc != 0)
+		RETURN(rc);
+
+	handle = dt_trans_create(env, pdev);
+	if (IS_ERR(handle))
+		GOTO(unlock1, rc = PTR_ERR(handle));
+
+	o = lu_object_anon(env, d, NULL);
+	if (IS_ERR(o))
+		GOTO(stop, rc = PTR_ERR(o));
+
+	child = container_of(o, struct dt_object, do_lu);
+	o = lu_object_locate(o->lo_header, d->ld_type);
+	if (unlikely(o == NULL))
+		GOTO(stop, rc = -EINVAL);
+
+	child = container_of(o, struct dt_object, do_lu);
+	la->la_valid = LA_UID | LA_GID;
+	hint->dah_parent = parent;
+	hint->dah_mode = 0;
+	dof->dof_type = DFT_REGULAR;
+	dof->u.dof_reg.striped = 1;
+	rc = dt_declare_create(env, child, la, NULL, NULL, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_declare_xattr_set(env, parent, buf, XATTR_NAME_LOV,
+				  LU_XATTR_REPLACE, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start(env, pdev, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	dt_write_lock(env, parent, 0);
+	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+		GOTO(unlock2, rc = 0);
+
+	rc = dt_xattr_get(env, parent, buf, XATTR_NAME_LOV, BYPASS_CAPA);
+	if (unlikely(rc == 0 || rc == -ENODATA || rc == -ERANGE))
+		GOTO(unlock2, rc = 0);
+
+	lmm = buf->lb_buf;
+	rc = lfsck_layout_verify_header(lmm);
+	if (rc != 0)
+		GOTO(unlock2, rc);
+
+	/* Someone change layout during the LFSCK, no need to repair then. */
+	if (le16_to_cpu(lmm->lmm_layout_gen) != llr->llr_parent->llo_gen)
+		GOTO(unlock2, rc = 0);
+
+	rc = dt_create(env, child, la, hint, dof, handle);
+	if (rc != 0)
+		GOTO(unlock2, rc);
+
+	magic = le32_to_cpu(lmm->lmm_magic);
+	if (magic == LOV_MAGIC_V1)
+		objs = &(lmm->lmm_objects[0]);
+	else if (magic == LOV_MAGIC_V3)
+		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
+	else
+		LBUG();
+
+	lmm->lmm_layout_gen = cpu_to_le16(llr->llr_parent->llo_gen + 1);
+	fid_to_ostid(lu_object_fid(&child->do_lu), oi);
+	ostid_cpu_to_le(oi, &objs[llr->llr_lov_idx].l_ost_oi);
+	objs[llr->llr_lov_idx].l_ost_gen = cpu_to_le32(0);
+	objs[llr->llr_lov_idx].l_ost_idx = cpu_to_le32(llr->llr_ost_idx);
+	rc = dt_xattr_set(env, parent, buf, XATTR_NAME_LOV,
+			  LU_XATTR_REPLACE, handle, BYPASS_CAPA);
+
+	GOTO(unlock2, rc = (rc == 0 ? 1 : rc));
+
+unlock2:
+	dt_write_unlock(env, parent);
+
+stop:
+	if (child != NULL)
+		lu_object_put(env, &child->do_lu);
+
+	dt_trans_stop(env, pdev, handle);
+
+unlock1:
+	lfsck_layout_unlock(&lh);
+
+	return rc;
+}
+
 /* If the MDT-object and the OST-object have different owner information,
  * then trust the MDT-object, because the normal chown/chgrp handle order
  * is from MDT to OST, and it is possible that some chown/chgrp operation
@@ -1738,7 +1861,7 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 	struct lfsck_thread_info	     *info   = lfsck_env_info(env);
 	struct filter_fid_old		     *pea    = &info->lti_old_pfid;
 	struct lu_fid			     *pfid   = &info->lti_fid;
-	struct lu_buf			     *buf;
+	struct lu_buf			     *buf    = NULL;
 	struct dt_object		     *parent = llr->llr_parent->llo_obj;
 	struct dt_object		     *child  = llr->llr_child;
 	struct lu_attr			     *pla    = &info->lti_la;
@@ -1831,9 +1954,8 @@ repair:
 		rc = lfsck_layout_repair_unmatched_pair(env, com, llr, pla);
 		break;
 	case LLIT_MULTIPLE_REFERENCED:
-
-	/* XXX: other inconsistency will be fixed in other patches. */
-
+		rc = lfsck_layout_repair_multiple_references(env, com, llr,
+							     pla, buf);
 		break;
 	case LLIT_INCONSISTENT_OWNER:
 		rc = lfsck_layout_repair_owner(env, com, llr, pla);
