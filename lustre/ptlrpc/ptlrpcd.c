@@ -78,6 +78,7 @@ struct ptlrpcd {
         int                pd_index;
         int                pd_nthreads;
         struct ptlrpcd_ctl pd_thread_rcv;
+	struct ptlrpcd_ctl pd_thread_brw;
         struct ptlrpcd_ctl pd_threads[0];
 };
 
@@ -112,6 +113,9 @@ ptlrpcd_select_pc(struct ptlrpc_request *req, pdl_policy_t policy, int index)
 
         if (req != NULL && req->rq_send_state != LUSTRE_IMP_FULL)
                 return &ptlrpcds->pd_thread_rcv;
+
+	if (req != NULL && req->rq_bulk != NULL)
+		return &ptlrpcds->pd_thread_brw;
 
 #ifdef __KERNEL__
 	switch (policy) {
@@ -826,6 +830,10 @@ static void ptlrpcd_fini(void)
 			ptlrpcd_stop(&ptlrpcds->pd_threads[i], 0);
 		for (i = 0; i < ptlrpcds->pd_nthreads; i++)
 			ptlrpcd_free(&ptlrpcds->pd_threads[i]);
+
+		ptlrpcd_stop(&ptlrpcds->pd_thread_brw, 0);
+		ptlrpcd_free(&ptlrpcds->pd_thread_brw);
+
 		ptlrpcd_stop(&ptlrpcds->pd_thread_rcv, 0);
 		ptlrpcd_free(&ptlrpcds->pd_thread_rcv);
 		OBD_FREE(ptlrpcds, ptlrpcds->pd_size);
@@ -866,6 +874,12 @@ static int ptlrpcd_init(void)
         if (rc < 0)
                 GOTO(out, rc);
 
+	snprintf(name, sizeof(name) - 1, "ptlrpcd_brw");
+	rc = ptlrpcd_start(-1, nthreads, name, &ptlrpcds->pd_thread_brw);
+	if (rc < 0)
+		GOTO(out, rc);
+
+
         /* XXX: We start nthreads ptlrpc daemons. Each of them can process any
          *      non-recovery async RPC to improve overall async RPC efficiency.
          *
@@ -895,6 +909,10 @@ out:
                         ptlrpcd_stop(&ptlrpcds->pd_threads[j], 0);
 		for (j = 0; j <= i; j++)
 			ptlrpcd_free(&ptlrpcds->pd_threads[j]);
+
+		ptlrpcd_stop(&ptlrpcds->pd_thread_brw, 0);
+		ptlrpcd_free(&ptlrpcds->pd_thread_brw);
+
 		ptlrpcd_stop(&ptlrpcds->pd_thread_rcv, 0);
 		ptlrpcd_free(&ptlrpcds->pd_thread_rcv);
                 OBD_FREE(ptlrpcds, size);
