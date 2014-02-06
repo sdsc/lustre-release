@@ -2862,6 +2862,9 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
 	 * entry already has been created */
 	if (old_stat != new_stat) {
 		nidstat_putref(old_stat);
+		spin_lock(&exp->exp_lock);
+		exp->exp_nid_stats = old_stat;
+		spin_unlock(&exp->exp_lock);
 		GOTO(destroy_new, rc = -EALREADY);
 	}
         /* not found - create */
