@@ -3778,11 +3778,22 @@ test_65() { # LU-2237
 }
 run_test 65 "re-create the lost last_rcvd file when server mount"
 
+cleanup_66() {
+    trap 0
+
+    # Debug LU-4200
+    do_facet mgs $LCTL dl
+    do_facet mgs \
+	$LCTL get_param mgs.MGS.num_exports mgs.MGS.exports.*.ldlm_stats
+}
+
 test_66() {
 	[[ $(lustre_version_code mgs) -ge $(version_code 2.3.59) ]] ||
 		{ skip "Need MGS version at least 2.3.59"; return 0; }
 
 	setup
+	trap cleanup_66 EXIT ERR
+
 	local OST1_NID=$(do_facet ost1 $LCTL list_nids | head -1)
 	local MDS_NID=$(do_facet $SINGLEMDS $LCTL list_nids | head -1)
 
@@ -3835,6 +3846,7 @@ test_66() {
 	do_facet mgs $LCTL replace_nids $FSNAME-MDT0000 $MDS_NID ||
 		error "replace nids failed"
 
+	trap 0
 	if ! combined_mgs_mds ; then
 		stop_mgs
 	else

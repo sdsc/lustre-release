@@ -1221,7 +1221,9 @@ int mgs_replace_nids(const struct lu_env *env,
 
 	/* We can not change nids if not only MGS is started */
 	if (!only_mgs_is_running(mgs_obd)) {
-		CERROR("Only MGS is allowed to be started\n");
+		CERROR("Only MGS is allowed to be started "
+		       "(dev_count=%d exports=%d)\n",
+		       get_devices_count(), mgs_obd->obd_num_exports);
 		GOTO(out, rc = -EINPROGRESS);
 	}
 
