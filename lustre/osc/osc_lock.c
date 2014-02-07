@@ -906,12 +906,15 @@ static int osc_ldlm_glimpse_ast(struct ldlm_lock *dlmlock, void *data)
 static int weigh_cb(const struct lu_env *env, struct cl_io *io,
 		    struct osc_page *ops, void *cbdata)
 {
+#if defined(__KERNEL__)
 	struct cl_page *page = ops->ops_cl.cpl_page;
+	struct page *vmpage = page->cp_vmpage;
 
-	if (cl_page_is_vmlocked(env, page)) {
+	if (PageLocked(vmpage) || PageDirty(vmpage) || PageWriteback(vmpage)) {
 		(*(unsigned long *)cbdata)++;
 		return CLP_GANG_ABORT;
 	}
+#endif
 
 	return CLP_GANG_OKAY;
 }
