@@ -35,6 +35,7 @@
 
 struct osp_async_update_args {
 	struct update_request	*oaua_update;
+	unsigned int		 oaua_fc:1;
 };
 
 struct osp_async_update_item {
@@ -81,9 +82,13 @@ static int osp_async_update_interpret(const struct lu_env *env,
 	struct update_request		*update = oaua->oaua_update;
 	struct osp_async_update_item	*oaui;
 	struct osp_async_update_item	*next;
+	struct osp_device		*osp	= dt2osp_dev(update->ur_dt);
 	int				 count	= 0;
 	int				 index  = 0;
 	int				 rc1	= 0;
+
+	if (oaua->oaua_fc)
+		up(&osp->opd_async_fc_sem);
 
 	if (rc == 0 || req->rq_repmsg != NULL) {
 		reply = req_capsule_server_sized_get(&req->rq_pill,
@@ -236,7 +241,7 @@ struct thandle *osp_trans_create(const struct lu_env *env,
 }
 
 static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
-			     struct thandle *th)
+			     struct thandle *th, bool fc)
 {
 	struct update_request	*update = th->th_current_request;
 	int			 rc	= 0;
@@ -257,6 +262,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 		if (rc == 0) {
 			args = ptlrpc_req_async_args(req);
 			args->oaua_update = update;
+			args->oaua_fc = !!fc;
 			req->rq_interpret_reply =
 				osp_async_update_interpret;
 			ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
@@ -278,7 +284,7 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 	int rc = 0;
 
 	if (!is_remote_trans(th))
-		rc = osp_trans_trigger(env, dt2osp_dev(dt), th);
+		rc = osp_trans_trigger(env, dt2osp_dev(dt), th, false);
 
 	return rc;
 }
@@ -287,28 +293,50 @@ int osp_trans_stop(const struct lu_env *env, struct thandle *th)
 {
 	struct update_request	*update = th->th_current_request;
 	int			 rc	= 0;
+	ENTRY;
 
 	if (is_remote_trans(th)) {
 		LASSERT(update == NULL);
 
 		update = out_find_update(th, th->th_dev);
 		th->th_current_request = update;
-		if (th->th_result == 0)
-			rc = osp_trans_trigger(env, dt2osp_dev(th->th_dev), th);
-		else
-			rc = th->th_result;
+		if (th->th_result == 0 && update != NULL) {
+			struct osp_device *osp = dt2osp_dev(th->th_dev);
 
+			do {
+				if (!osp->opd_imp_active ||
+				    osp->opd_got_disconnected)
+					GOTO(destroy, rc = -ENOTCONN);
+
+				/* Get the semaphore to guarantee it has
+				 * free slot, which will be released via
+				 * osp_async_update_interpret(). */
+				rc = down_timeout(&osp->opd_async_fc_sem, HZ);
+			} while (rc != 0);
+
+			rc = osp_trans_trigger(env, dt2osp_dev(th->th_dev), th,
+					       true);
+			if (rc != 0)
+				up(&osp->opd_async_fc_sem);
+		} else {
+			rc = th->th_result;
+		}
+
+		GOTO(destroy, rc);
+
+destroy:
 		if (th->th_current_request != NULL)
 			out_destroy_update_req(update);
 
 		OBD_FREE_PTR(th);
-	} else {
-		LASSERT(update != NULL);
-
-		rc = update->ur_rc;
-		out_destroy_update_req(update);
-		th->th_current_request = NULL;
+		return rc;
 	}
 
-	return rc;
+	LASSERT(update != NULL);
+
+	rc = update->ur_rc;
+	out_destroy_update_req(update);
+	th->th_current_request = NULL;
+
+	RETURN(rc);
 }
