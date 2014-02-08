@@ -1036,6 +1036,9 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ))
+		RETURN(0);
+
 	/*
 	 * load striping information, notice we don't do this when object
 	 * is being initialized as we don't need this information till
@@ -1069,6 +1072,9 @@ static int lod_object_destroy(const struct lu_env *env,
 	rc = dt_destroy(env, next, th);
 	if (rc)
 		RETURN(rc);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ))
+		RETURN(0);
 
 	/* destroy all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
