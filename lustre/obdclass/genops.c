@@ -181,14 +181,15 @@ int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
                 RETURN(-EEXIST);
         }
 
-        rc = -ENOMEM;
-        OBD_ALLOC(type, sizeof(*type));
-        if (type == NULL)
-                RETURN(rc);
+	rc = -ENOMEM;
+	OBD_ALLOC(type, sizeof(*type));
+	if (type == NULL)
+		RETURN(rc);
+	memset(type, 0, sizeof(*type));
 
-        OBD_ALLOC_PTR(type->typ_dt_ops);
-        OBD_ALLOC_PTR(type->typ_md_ops);
-        OBD_ALLOC(type->typ_name, strlen(name) + 1);
+	OBD_ALLOC_PTR(type->typ_dt_ops);
+	OBD_ALLOC_PTR(type->typ_md_ops);
+	OBD_ALLOC(type->typ_name, strlen(name) + 1);
 
         if (type->typ_dt_ops == NULL ||
             type->typ_md_ops == NULL ||
@@ -242,6 +243,8 @@ int class_register_type(struct obd_ops *dt_ops, struct md_ops *md_ops,
         if (type->typ_dt_ops != NULL)
                 OBD_FREE_PTR(type->typ_dt_ops);
 #ifdef LPROCFS
+	if (type->typ_procsym != NULL)
+		lprocfs_remove(&type->typ_procsym);
 #ifndef HAVE_ONLY_PROCFS_SEQ
 	lprocfs_try_remove_proc_entry(type->typ_name, proc_lustre_root);
 #else
