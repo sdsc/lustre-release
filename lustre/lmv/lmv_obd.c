@@ -2432,6 +2432,8 @@ int lmv_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 	struct lmv_stripe_md	*lsm = op_data->op_mea1;
 	struct lu_dirent	*tmp_ents[NORMAL_MAX_STRIPES];
 	struct lu_dirent	**ents = NULL;
+	struct lu_dirent	*last_ent = op_data->op_ent;
+	__u64			last_idx = op_data->op_stripe_offset;
 	int			stripe_count;
 	__u64			min_hash;
 	int			min_idx = 0;
@@ -2472,9 +2474,18 @@ int lmv_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 			tgt = lmv_get_target(lmv, lsm->lsm_md_oinfo[i].lmo_mds);
 			if (IS_ERR(tgt))
 				GOTO(out, rc = PTR_ERR(tgt));
+			/* Note: last_ent is being used to resolve hash conflict
+			 * dirx entry page, so if continuous entries have same
+			 * hash value, only using op_hash_offset can not tell in
+			 * this case */
+			if (last_idx != i)
+				op_data->op_ent = NULL;
+			else
+				op_data->op_ent = last_ent;
+
+			op_data->op_stripe_offset = i;
 			op_data->op_fid1 = lsm->lsm_md_oinfo[i].lmo_fid;
 			op_data->op_fid2 = lsm->lsm_md_oinfo[i].lmo_fid;
-			op_data->op_stripe_offset = i;
 		}
 
 		rc = md_read_entry(tgt->ltd_exp, op_data, cb_op, &ents[i],
@@ -2484,18 +2495,22 @@ int lmv_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 
 		if (ents[i] != NULL &&
 		    le64_to_cpu(ents[i]->lde_hash) <= min_hash) {
-			if (min_page != NULL)
+			if (min_page != NULL) {
+				kunmap(min_page);
 				page_cache_release(min_page);
+			}
 			min_page = page;
 			min_hash = le64_to_cpu(ents[i]->lde_hash);
 			min_idx = i;
 		}
 	}
 
-	if (min_hash != MDS_DIR_END_OFF)
+	if (min_hash != MDS_DIR_END_OFF) {
 		*ldp = ents[min_idx];
-	else
+		op_data->op_stripe_offset = min_idx;
+	} else {
 		*ldp = NULL;
+	}
 out:
 	if (stripe_count > NORMAL_MAX_STRIPES && ents != NULL)
 		OBD_FREE(ents, sizeof(ents[0]) * stripe_count);
@@ -2504,6 +2519,11 @@ out:
 		kunmap(min_page);
 		page_cache_release(min_page);
 	} else {
+		if (*ppage != NULL) {
+			kunmap(*ppage);
+			page_cache_release(*ppage);
+			*ppage = NULL;
+		}
 		*ppage = min_page;
 	}
 

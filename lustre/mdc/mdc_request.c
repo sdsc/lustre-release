@@ -1648,6 +1648,7 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 	struct page		*page = NULL;
 	struct lu_dirpage	*dp;
 	struct lu_dirent	*ent;
+	struct lu_dirent	*off_ent = op_data->op_ent;
 	int			rc = 0;
 	ENTRY;
 
@@ -1665,14 +1666,24 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 		RETURN(rc);
 
 	dp = page_address(page);
-	for (ent = lu_dirent_start(dp); ent != NULL;
-	     ent = lu_dirent_next(ent)) {
-		/* Skip dummy entry */
-		if (le16_to_cpu(ent->lde_namelen) == 0)
-			continue;
 
-		if (le64_to_cpu(ent->lde_hash) > op_data->op_hash_offset)
-			break;
+	/* if off_ent != NULL(see ll_dir_entry_next), try to get next ent
+	 * directly */
+	if (likely(off_ent != NULL)) {
+		ent = lu_dirent_next(off_ent);
+		if (likely(ent != NULL))
+			GOTO(out, rc);
+	} else {
+		for (ent = lu_dirent_start(dp); ent != NULL;
+		     ent = lu_dirent_next(ent)) {
+			/* Skip dummy entry */
+			if (le16_to_cpu(ent->lde_namelen) == 0)
+				continue;
+
+			if (le64_to_cpu(ent->lde_hash) >
+					op_data->op_hash_offset)
+				break;
+		}
 	}
 
 	/* If it can not find entry in current page, try next page. */
@@ -1688,6 +1699,7 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 		mdc_release_page(page,
 				 le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
 		rc = mdc_read_page(exp, op_data, cb_op, &page);
+		op_data->op_hash_offset = orig_offset;
 		if (rc != 0)
 			RETURN(rc);
 
@@ -1695,10 +1707,9 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 			dp = page_address(page);
 			ent = lu_dirent_start(dp);
 		}
-
-		op_data->op_hash_offset = orig_offset;
 	}
 
+out:
 	*ppage = page;
 	*entp = ent;
 
