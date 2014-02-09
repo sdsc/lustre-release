@@ -181,15 +181,17 @@ struct lu_dirent *ll_dir_entry_next(struct inode *dir,
 {
 	struct lu_dirent *entry;
 	struct md_callback cb_op;
+	__u64 orig_offset = op_data->op_hash_offset;
 	int rc;
 
 	LASSERT(*ppage != NULL);
 	cb_op.md_blocking_ast = ll_md_blocking_ast;
-	op_data->op_hash_offset = le64_to_cpu(ent->lde_hash);
+	op_data->op_hash_offset = le64_to_cpu(ent->lde_hash) + 1;
 	kunmap(*ppage);
 	page_cache_release(*ppage);
 	*ppage = NULL;
 	rc = md_read_entry(ll_i2mdexp(dir), op_data, &cb_op, &entry, ppage);
+	op_data->op_hash_offset = orig_offset;
 	if (rc != 0)
 		entry = ERR_PTR(rc);
 	return entry;
@@ -206,7 +208,6 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 	int			done = 0;
 	int			rc = 0;
 	__u64			hash = MDS_DIR_END_OFF;
-	__u64			last_hash = MDS_DIR_END_OFF;
 	struct page		*page = NULL;
 	ENTRY;
 
@@ -249,15 +250,15 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 			       ino, type);
 		if (done) {
 			if (op_data->op_hash_offset != MDS_DIR_END_OFF)
-				op_data->op_hash_offset = last_hash;
+				op_data->op_hash_offset = hash;
 			break;
-		} else {
-			last_hash = hash;
 		}
 	}
 
 	if (IS_ERR(ent))
 		rc = PTR_ERR(ent);
+	else if (ent == NULL && !done)
+		op_data->op_hash_offset = MDS_DIR_END_OFF;
 
 	if (page != NULL) {
 		kunmap(page);
