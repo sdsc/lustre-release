@@ -185,7 +185,7 @@ struct lu_dirent *ll_dir_entry_next(struct inode *dir,
 
 	LASSERT(*ppage != NULL);
 	cb_op.md_blocking_ast = ll_md_blocking_ast;
-	op_data->op_hash_offset = le64_to_cpu(ent->lde_hash);
+	op_data->op_hash_offset = le64_to_cpu(ent->lde_hash) + 1;
 	kunmap(*ppage);
 	page_cache_release(*ppage);
 	*ppage = NULL;
@@ -258,6 +258,8 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 
 	if (IS_ERR(ent))
 		rc = PTR_ERR(ent);
+	else if (ent == NULL)
+		op_data->op_hash_offset = MDS_DIR_END_OFF;
 
 	if (page != NULL) {
 		kunmap(page);
@@ -306,6 +308,7 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 	op_data->op_hash_offset = pos;
 	op_data->op_max_pages = sbi->ll_md_brw_size >> PAGE_CACHE_SHIFT;
 	rc = ll_dir_read(inode, op_data, cookie, filldir);
+	pos = op_data->op_hash_offset;
 	if (lfd != NULL)
 		lfd->lfd_pos = op_data->op_hash_offset;
 
