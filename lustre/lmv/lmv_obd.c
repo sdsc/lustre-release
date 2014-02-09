@@ -2504,6 +2504,11 @@ out:
 		kunmap(min_page);
 		page_cache_release(min_page);
 	} else {
+		if (*ppage != NULL) {
+			kunmap(*ppage);
+			page_cache_release(*ppage);
+			*ppage = NULL;
+		}
 		*ppage = min_page;
 	}
 

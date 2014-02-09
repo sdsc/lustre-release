@@ -186,12 +186,16 @@ struct lu_dirent *ll_dir_entry_next(struct inode *dir,
 	LASSERT(*ppage != NULL);
 	cb_op.md_blocking_ast = ll_md_blocking_ast;
 	op_data->op_hash_offset = le64_to_cpu(ent->lde_hash);
-	kunmap(*ppage);
-	page_cache_release(*ppage);
-	*ppage = NULL;
+	op_data->op_ent = ent;
 	rc = md_read_entry(ll_i2mdexp(dir), op_data, &cb_op, &entry, ppage);
-	if (rc != 0)
+	if (rc != 0) {
+		if (*ppage != NULL) {
+			kunmap(*ppage);
+			page_cache_release(*ppage);
+			*ppage = NULL;
+		}
 		entry = ERR_PTR(rc);
+	}
 	return entry;
 }
 
@@ -269,6 +273,8 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 
 	if (IS_ERR(ent))
 		rc = PTR_ERR(ent);
+	else if (ent == NULL)
+		op_data->op_hash_offset = MDS_DIR_END_OFF;
 
 	if (page != NULL) {
 		kunmap(page);
