@@ -1560,6 +1560,79 @@ unlock1:
 	return rc;
 }
 
+/* If the MDT-object and the OST-object have different owner information,
+ * then trust the MDT-object, because the normal chown/chgrp handle order
+ * is from MDT to OST, and it is possible that some chown/chgrp operation
+ * is partly done. */
+static int lfsck_layout_repair_owner(const struct lu_env *env,
+				     struct lfsck_component *com,
+				     struct lfsck_layout_req *llr,
+				     struct lu_attr *pla)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct lu_attr			*tla	= &info->lti_la3;
+	struct dt_object		*parent = llr->llr_parent->llo_obj;
+	struct dt_object		*child  = llr->llr_child;
+	struct dt_device		*dev	= lfsck_obj2dt_dev(child);
+	struct thandle			*handle;
+	int				 rc;
+	ENTRY;
+
+	CDEBUG(D_LFSCK, "Repair inconsistent file owner for: parent "DFID
+	       ", child "DFID", OST-index %u, stripe-index %u, owner %u:%u\n",
+	       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
+	       llr->llr_ost_idx, llr->llr_lov_idx, pla->la_uid, pla->la_gid);
+
+	handle = dt_trans_create(env, dev);
+	if (IS_ERR(handle))
+		RETURN(PTR_ERR(handle));
+
+	tla->la_uid = pla->la_uid;
+	tla->la_gid = pla->la_gid;
+	tla->la_valid = LA_UID | LA_GID;
+	rc = dt_declare_attr_set(env, child, tla, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start(env, dev, handle);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	/* Use the dt_object lock to serialize with destroy and attr_set. */
+	dt_read_lock(env, parent, 0);
+	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+		GOTO(unlock, rc = 1);
+
+	/* Get the latest parent's owner. */
+	rc = dt_attr_get(env, parent, tla, BYPASS_CAPA);
+	if (rc != 0) {
+		CWARN("%s: fail to get the latest parent's ("DFID") owner, "
+		      "not sure whether some others chown/chgrp during the "
+		      "LFSCK: rc = %d\n", lfsck_lfsck2name(com->lc_lfsck),
+		      PFID(lfsck_dto2fid(parent)), rc);
+
+		GOTO(unlock, rc);
+	}
+
+	/* Some others chown/chgrp during the LFSCK, needs to do nothing. */
+	if (unlikely(tla->la_uid != pla->la_uid ||
+		     tla->la_gid != pla->la_gid))
+		GOTO(unlock, rc = 1);
+
+	tla->la_valid = LA_UID | LA_GID;
+	rc = dt_attr_set(env, child, tla, handle, BYPASS_CAPA);
+
+	GOTO(unlock, rc);
+
+unlock:
+	dt_read_unlock(env, parent);
+
+stop:
+	rc = lfsck_layout_trans_stop(env, dev, handle, rc);
+
+	return rc;
+}
+
 /* Check whether the OST-object correctly back points to the
  * MDT-object (@parent) via the XATTR_NAME_FID xattr (@pfid). */
 static int lfsck_layout_check_parent(const struct lu_env *env,
@@ -1585,8 +1658,13 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 
 	if (fid_is_zero(pfid)) {
 		/* client never wrote. */
-		if (cla->la_size == 0 && cla->la_blocks == 0)
+		if (cla->la_size == 0 && cla->la_blocks == 0) {
+			if (unlikely(cla->la_uid != pla->la_uid ||
+				     cla->la_gid != pla->la_gid))
+				RETURN (LLIT_INCONSISTENT_OWNER);
+
 			RETURN(0);
+		}
 
 		RETURN(LLIT_UNMATCHED_PAIR);
 	}
@@ -1734,7 +1812,11 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 	if (rc < 0)
 		GOTO(out, rc);
 
-	/* XXX: other inconsistency will be checked in other patches. */
+	if (unlikely(cla->la_uid != pla->la_uid ||
+		     cla->la_gid != pla->la_gid)) {
+		type = LLIT_INCONSISTENT_OWNER;
+		goto repair;
+	}
 
 repair:
 	if (bk->lb_param & LPF_DRYRUN) {
@@ -1757,12 +1839,13 @@ repair:
 	case LLIT_UNMATCHED_PAIR:
 		rc = lfsck_layout_repair_unmatched_pair(env, com, llr, pla);
 		break;
+	case LLIT_MULTIPLE_REFERENCED:
 
 	/* XXX: other inconsistency will be fixed in other patches. */
 
-	case LLIT_MULTIPLE_REFERENCED:
 		break;
 	case LLIT_INCONSISTENT_OWNER:
+		rc = lfsck_layout_repair_owner(env, com, llr, pla);
 		break;
 	default:
 		rc = 0;
