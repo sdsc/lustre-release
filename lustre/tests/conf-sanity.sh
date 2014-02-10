@@ -4585,6 +4585,33 @@ test_78() {
 }
 run_test 78 "run resize2fs on MDT and OST filesystems"
 
+test_80() { # MRP-1620
+	start_mgsmds || error "start mds failed"
+	start_ost || error "start ost failed"
+	mount_client $MOUNT || error "mount client failed"
+	local BEFORE=`date +%s`
+
+	if $(single_local_node $(comma_list $(nodes_list))); then
+		local nid=`do_facet client $LCTL list_nids all | head -1`
+	else
+		local nid=`do_facet client $LCTL list_nids | head -1`
+	fi
+
+	do_facet ost1 "lctl set_param obdfilter.*.evict_client=\"nid:$nid\""
+
+	local oscs=`do_facet client lctl dl | grep "\-osc\-" | awk '{print $4}'`
+	for osc in $oscs
+	do
+		cmd="$LCTL get_param osc.$osc.state |awk -F'[ [,]' '"'/EVICTED]$/ {if (mx<\$4) {mx=\$4;}}'" END {if (mx>$BEFORE) {print 1}}'"
+		wait_update_facet client "$cmd" "1" 60
+		[ $? -eq 0 ] || error "$osc is not evicted"
+	done
+
+	stopall
+	return 0
+}
+run_test 80 "evict client by NID"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
