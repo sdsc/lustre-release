@@ -2013,7 +2013,9 @@ test_74() {
     stop ost1
     facet_failover $SINGLEMDS
     zconf_mount_clients $clients $MOUNT
+    echo "Mounting OST1"
     mount_facet ost1
+    echo "Finished Mounting OST1"
     touch $DIR/$tfile || return 1
     rm $DIR/$tfile || return 2
     clients_up || error "client evicted: $?"

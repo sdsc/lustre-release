@@ -1130,7 +1130,9 @@ mount_facet() {
 
 	if [[ $(facet_fstype $facet) == zfs ]]; then
 		# import ZFS storage pool
+		echo "Importing Zpool"
 		import_zpool $facet || return ${PIPESTATUS[0]}
+		echo "Finished Zpool import"
 	fi
 
 	echo "Starting ${facet}: $opts ${!dev} $mntpt"
