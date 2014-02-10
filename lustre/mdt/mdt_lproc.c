@@ -613,13 +613,7 @@ static int lprocfs_mdt_wr_evict_client(struct file *file, const char *buffer,
         }
         tmpbuf = cfs_firststr(kbuf, min_t(unsigned long, BUFLEN - 1, count));
 
-        if (strncmp(tmpbuf, "nid:", 4) != 0) {
-                count = lprocfs_wr_evict_client(file, buffer, count, data);
-                goto out;
-        }
-
-        CERROR("NOT implement evict client by nid %s\n", tmpbuf);
-
+	count = lprocfs_wr_evict_client(file, buffer, count, data);
 out:
         OBD_FREE(kbuf, BUFLEN);
         return count;

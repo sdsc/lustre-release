@@ -2269,6 +2269,28 @@ client_evicted() {
     ! client_up $1
 }
 
+# check that clients oscs was evicted after BEFORE
+check_clients_evicted() {
+	local BEFORE=$1
+	shift
+	local oscs=${@}
+	local rc=0
+
+	for osc in $oscs
+	do
+		((rc++))
+		echo "Check state for $osc"
+		evicted=`do_facet client $LCTL get_param osc.$osc.state |\
+			tail -n 3 | awk -F"[ [,]" '/EVICTED]$/ { if (mx<$4) {mx=$4;} } END { print mx }'`
+		if [ $? -eq 0 ] && [[ $evicted -gt $BEFORE ]]; then
+			echo "$osc is evicted at $evicted"
+			((rc--))
+		fi
+	done
+
+	[ $rc -eq 0 ] || error "$rc client not evicted from OST"
+}
+
 client_reconnect() {
     uname -n >> $MOUNT/recon
     if [ -z "$CLIENTS" ]; then
