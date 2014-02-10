@@ -1178,7 +1178,9 @@ test_59() { # bug 10589
 	[ $? = 0 ] || error "dd write failed"
 	writes=$(echo $writes | awk  -F '+' '/out/ {print $1}')
 	lctl set_param fail_loc=0
+	echo "zfs 1"
 	sync
+	echo "zfs2"
 	zconf_umount `hostname` $MOUNT2 -f
 	reads=$(LANG=C dd if=$DIR/$tfile of=/dev/null 2>&1)
 	[ $? = 0 ] || error "dd read failed"
