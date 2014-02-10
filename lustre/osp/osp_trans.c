@@ -228,7 +228,7 @@ struct thandle *osp_trans_create(const struct lu_env *env, struct dt_device *d)
 {
 	struct thandle *th = NULL;
 	struct thandle_update *tu = NULL;
-	int rc;
+	int rc = 0;
 
 	OBD_ALLOC_PTR(th);
 	if (unlikely(th == NULL))
