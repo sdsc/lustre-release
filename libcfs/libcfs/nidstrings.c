@@ -1042,6 +1042,7 @@ bool cfs_nidrange_is_contiguous(struct list_head *nidlist)
 
 	return true;
 }
+EXPORT_SYMBOL(cfs_nidrange_is_contiguous);
 
 /**
  * Determines whether an expression list in an num nidrange contains exactly
@@ -1085,6 +1086,7 @@ static bool cfs_num_is_contiguous(struct list_head *nidlist)
 			}
 		}
 	}
+
 	return true;
 }
 
@@ -1141,7 +1143,6 @@ static bool cfs_ip_is_contiguous(struct list_head *nidlist)
 
 	return true;
 }
-EXPORT_SYMBOL(cfs_ip_is_contiguous);
 
 /**
  * Takes a linked list of nidrange expressions, determines the minimum
@@ -1179,6 +1180,7 @@ void cfs_nidrange_find_min_max(struct list_head *nidlist, char *min_nid,
 	snprintf(max_nid, nidstr_length, "%s@%s%d", max_addr_str, lndname,
 		 netnum);
 }
+EXPORT_SYMBOL(cfs_nidrange_find_min_max);
 
 /**
  * Determines the min and max NID values for num LNDs
@@ -1242,7 +1244,6 @@ static void cfs_ip_min_max(struct list_head *nidlist, __u32 *min_nid,
 	*max_nid = max_ip_addr;
 	*min_nid = min_ip_addr;
 }
-EXPORT_SYMBOL(cfs_ip_min_max);
 
 #ifdef __KERNEL__
 
