@@ -147,7 +147,7 @@ struct lu_object *mdd_object_alloc(const struct lu_env *env,
 {
         struct mdd_object *mdd_obj;
 
-	OBD_SLAB_ALLOC_PTR_GFP(mdd_obj, mdd_object_kmem, __GFP_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(mdd_obj, mdd_object_kmem, GFP_NOFS);
         if (mdd_obj != NULL) {
                 struct lu_object *o;
 

@@ -378,7 +378,7 @@ static struct cl_lock *cl_lock_alloc(const struct lu_env *env,
         struct lu_object_header *head;
 
         ENTRY;
-	OBD_SLAB_ALLOC_PTR_GFP(lock, cl_lock_kmem, __GFP_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(lock, cl_lock_kmem, GFP_NOFS);
         if (lock != NULL) {
 		atomic_set(&lock->cll_ref, 1);
                 lock->cll_descr = *descr;

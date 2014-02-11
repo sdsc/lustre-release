@@ -4609,7 +4609,7 @@ static struct lu_object *mdt_object_alloc(const struct lu_env *env,
 
         ENTRY;
 
-	OBD_SLAB_ALLOC_PTR_GFP(mo, mdt_object_kmem, __GFP_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(mo, mdt_object_kmem, GFP_NOFS);
         if (mo != NULL) {
                 struct lu_object *o;
                 struct lu_object_header *h;
