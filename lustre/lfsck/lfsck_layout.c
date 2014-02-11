@@ -391,7 +391,7 @@ static inline int lfsck_rbtree_cmp(struct lfsck_rbtree_node *lrn,
 	return 0;
 }
 
-/* The caller should hold lock. */
+/* The caller should hold llsd->llsd_rb_lock. */
 static struct lfsck_rbtree_node *
 lfsck_rbtree_search(struct lfsck_layout_slave_data *llsd,
 		    const struct lu_fid *fid)
@@ -498,12 +498,12 @@ static int lfsck_rbtree_setup(const struct lu_env *env,
 	if (IS_ERR(obj))
 		RETURN(PTR_ERR(obj));
 
-	/* XXX: Generate an in-RAM object to stand for the layout rbtree.
-	 *	Scanning the layout rbtree will be via the iteration over
-	 *	the object. In the future, the rbtree may be written onto
-	 *	disk with the object.
+	/* Generate an in-RAM object to stand for the layout rbtree.
+	 * Scanning the layout rbtree will be via the iteration over
+	 * the object. In the future, the rbtree may be written onto
+	 * disk with the object.
 	 *
-	 *	Mark the object to be as exist. */
+	 * Mark the object to be as exist. */
 	obj->do_lu.lo_header->loh_attr |= LOHA_EXISTS;
 	llsd->llsd_rb_obj = obj;
 	llsd->llsd_rbtree_valid = 1;
@@ -593,10 +593,8 @@ static void lfsck_rbtree_update_bitmap(const struct lu_env *env,
 	/* Any accessed object must be a known object. */
 	if (!test_and_set_bit(idx, lrn->lrn_known_bitmap))
 		atomic_inc(&lrn->lrn_known_count);
-	if (accessed) {
-		if (!test_and_set_bit(idx, lrn->lrn_accessed_bitmap))
-			atomic_inc(&lrn->lrn_accessed_count);
-	}
+	if (accessed && !test_and_set_bit(idx, lrn->lrn_accessed_bitmap))
+		atomic_inc(&lrn->lrn_accessed_count);
 
 	GOTO(unlock, rc = 0);
 
@@ -2223,7 +2221,7 @@ out:
 		 * mark the LFSCK as INCOMPLETE. */
 		if (rc == -ENOTCONN || rc == -ESHUTDOWN || rc == -ETIMEDOUT ||
 		    rc == -EHOSTDOWN || rc == -EHOSTUNREACH) {
-			CERROR("%s: Fail to take with OST %x: rc = %d.\n",
+			CERROR("%s: Fail to talk with OST %x: rc = %d.\n",
 			       lfsck_lfsck2name(lfsck), llr->llr_ost_idx, rc);
 			lo->ll_flags |= LF_INCOMPLETE;
 			lo->ll_objs_skipped++;
@@ -3062,7 +3060,7 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 		ostid_to_fid(fid, oi, index);
 		tgt = lfsck_tgt_get(ltds, index);
 		if (unlikely(tgt == NULL)) {
-			CERROR("%s: Cannot talk with OST %x which is not join "
+			CERROR("%s: Cannot talk with OST %x which did not join "
 			       "the layout LFSCK.\n",
 			       lfsck_lfsck2name(lfsck), index);
 			lo->ll_flags |= LF_INCOMPLETE;
