@@ -1642,31 +1642,22 @@ static int ll_lov_setea(struct inode *inode, struct file *file,
 static int ll_lov_setstripe(struct inode *inode, struct file *file,
 			    unsigned long arg)
 {
-	struct lov_user_md_v3	 lumv3;
-	struct lov_user_md_v1	*lumv1 = (struct lov_user_md_v1 *)&lumv3;
-	struct lov_user_md_v1	*lumv1p = (struct lov_user_md_v1 *)arg;
-	struct lov_user_md_v3	*lumv3p = (struct lov_user_md_v3 *)arg;
+	struct lov_user_md	*lum;
 	int			 lum_size, rc;
 	__u64			 flags = FMODE_WRITE;
 	ENTRY;
 
-	/* first try with v1 which is smaller than v3 */
-	lum_size = sizeof(struct lov_user_md_v1);
-	if (copy_from_user(lumv1, lumv1p, lum_size))
-		RETURN(-EFAULT);
+	rc = ll_copy_user_md((struct lov_user_md *)arg, &lum);
+	if (rc < 0)
+		RETURN(rc);
 
-	if (lumv1->lmm_magic == LOV_USER_MAGIC_V3) {
-		lum_size = sizeof(struct lov_user_md_v3);
-		if (copy_from_user(&lumv3, lumv3p, lum_size))
-			RETURN(-EFAULT);
-	}
-
-	rc = ll_lov_setstripe_ea_info(inode, file, flags, lumv1, lum_size);
+	lum_size = rc;
+	rc = ll_lov_setstripe_ea_info(inode, file, flags, lum, lum_size);
 	if (rc == 0) {
 		struct lov_stripe_md *lsm;
 		__u32 gen;
 
-		put_user(0, &lumv1p->lmm_stripe_count);
+		put_user(0, &lum->lmm_stripe_count);
 
 		ll_layout_refresh(inode, &gen);
 		lsm = ccc_inode_lsm_get(inode);
@@ -1674,6 +1665,8 @@ static int ll_lov_setstripe(struct inode *inode, struct file *file,
 				   0, lsm, (void *)arg);
 		ccc_inode_lsm_put(inode, lsm);
 	}
+
+	OBD_FREE(lum, lum_size);
 	RETURN(rc);
 }
 

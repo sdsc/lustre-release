@@ -373,13 +373,18 @@ int lod_ost_pool_add(struct ost_pool *op, __u32 idx, unsigned int min_count)
 	if (rc)
 		GOTO(out, rc);
 
-	/* search ost in pool array */
+	/* search and sort ost in pool array */
 	for (i = 0; i < op->op_count; i++) {
 		if (op->op_array[i] == idx)
 			GOTO(out, rc = -EEXIST);
+
+		if (op->op_array[i] > idx)
+			break;
 	}
 	/* ost not found we add it */
-	op->op_array[op->op_count] = idx;
+	memmove(&op->op_array[i + 1], &op->op_array[i],
+		sizeof(op->op_array[0]) * (op->op_count - i));
+	op->op_array[i] = idx;
 	op->op_count++;
 	EXIT;
 out:

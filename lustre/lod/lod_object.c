@@ -752,7 +752,7 @@ static void lod_ah_init(const struct lu_env *env,
 			lod_cache_parent_striping(env, lp);
 		}
 
-		lc->ldo_def_stripe_offset = (__u16) -1;
+		LOV_OFFSET_SET_QOS(lc->ldo_def_stripe_offset);
 
 		if (lp->ldo_def_striping_set) {
 			if (lp->ldo_pool)
