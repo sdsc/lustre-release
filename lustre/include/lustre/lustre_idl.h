@@ -141,6 +141,7 @@
 #define SEQ_DATA_PORTAL                31
 #define SEQ_CONTROLLER_PORTAL          32
 #define MGS_BULK_PORTAL                33
+#define OST_IDX_PORTAL		       34
 
 /* Portal 63 is reserved for the Cray Inc DVS - nic@cray.com, roe@cray.com, n8851@cray.com */
 
@@ -483,8 +484,9 @@ enum special_oid {
 
 /** OID for FID_SEQ_DOT_LUSTRE */
 enum dot_lustre_oid {
-        FID_OID_DOT_LUSTRE  = 1UL,
-        FID_OID_DOT_LUSTRE_OBF = 2UL,
+	FID_OID_DOT_LUSTRE	= 1UL,
+	FID_OID_DOT_LUSTRE_OBF	= 2UL,
+	FID_OID_DOT_LUSTRE_LF	= 3UL,
 };
 
 static inline int fid_seq_is_mdt0(obd_seq seq)
@@ -604,6 +606,11 @@ static inline int fid_seq_is_norm(const __u64 seq)
 static inline int fid_is_norm(const struct lu_fid *fid)
 {
         return fid_seq_is_norm(fid_seq(fid));
+}
+
+static inline int fid_is_layout_rbtree(const struct lu_fid *fid)
+{
+	return fid_seq(fid) == FID_SEQ_LAYOUT_RBTREE;
 }
 
 /* convert an OST objid into an IDIF FID SEQ number */
@@ -952,6 +959,20 @@ static inline void ostid_le_to_cpu(const struct ost_id *src_oi,
 		fid_le_to_cpu(&dst_oi->oi_fid, &src_oi->oi_fid);
 	}
 }
+
+struct lu_orphan_rec {
+	/* The MDT-object's FID referenced by the orphan OST-object */
+	struct lu_fid	lor_fid;
+	__u32		lor_uid;
+	__u32		lor_gid;
+};
+
+struct lu_orphan_ent {
+	/* The orphan OST-object's FID */
+	struct lu_fid		loe_key;
+	struct lu_orphan_rec	loe_rec;
+};
+void lustre_swab_orphan_ent(struct lu_orphan_ent *ent);
 
 /** @} lu_fid */
 
@@ -3475,8 +3496,6 @@ struct lfsck_request {
 	__u16		lr_param;
 	__u16		lr_async_windows;
 	__u32		lr_padding_1;
-	/* lr_fid is used on server-side only, and can be
-	 * reused as others by client in the future. */
 	struct lu_fid	lr_fid;
 	__u64		lr_padding_2;
 	__u64		lr_padding_3;
@@ -3631,6 +3650,7 @@ enum idx_info_flags {
 	II_FL_VARKEY	= 1 << 1, /* keys can be of variable size */
 	II_FL_VARREC	= 1 << 2, /* records can be of variable size */
 	II_FL_NONUNQ	= 1 << 3, /* index supports non-unique keys */
+	IT_FL_VIRTUAL	= 1 << 4, /* virtual object in-RAM only */
 };
 
 #define LIP_MAGIC 0x8A6D6B6C
