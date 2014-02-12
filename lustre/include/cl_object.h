@@ -97,10 +97,12 @@
 /*
  * super-class definitions.
  */
+#include <libcfs/libcfs.h>
 #include <lu_object.h>
+
 #ifdef __KERNEL__
-#        include <linux/mutex.h>
-#        include <linux/radix-tree.h>
+#include <linux/mutex.h>
+#include <linux/radix-tree.h>
 #endif
 
 struct inode;
@@ -801,7 +803,8 @@ enum cl_lock_mode {
         CLM_PHANTOM,
         CLM_READ,
         CLM_WRITE,
-        CLM_GROUP
+	CLM_GROUP,
+	CLM_MAX,
 };
 
 /**

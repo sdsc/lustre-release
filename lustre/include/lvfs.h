@@ -40,6 +40,7 @@
 #define __LVFS_H__
 
 #include <libcfs/libcfs.h>
+
 #if defined(__linux__)
 #include <linux/lvfs.h>
 #elif defined(__APPLE__)

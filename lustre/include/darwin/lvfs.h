@@ -43,4 +43,9 @@ struct lvfs_run_ctxt {
 	int	pid;
 };
 
+struct lvfs_callback_ops {
+	struct dentry *(*l_fid2dentry)(__u64 id_ino, __u32 gen, __u64 gr,
+				       void *data);
+};
+
 #endif
