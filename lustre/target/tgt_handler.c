@@ -939,6 +939,8 @@ int tgt_connect(struct tgt_session_info *tsi)
 	 * connection handling has completed successfully, atomically update
 	 * the connect flags in the shared export data structure. LU-1623 */
 	reply = req_capsule_server_get(tsi->tsi_pill, &RMF_CONNECT_DATA);
+	if (reply == NULL)
+		GOTO(out, rc = err_serious(-EPROTO));
 	spin_lock(&tsi->tsi_exp->exp_lock);
 	*exp_connect_flags_ptr(tsi->tsi_exp) = reply->ocd_connect_flags;
 	tsi->tsi_exp->exp_connect_data.ocd_brw_size = reply->ocd_brw_size;
@@ -1718,6 +1720,8 @@ int tgt_brw_read(struct tgt_session_info *tsi)
 	}
 
 	repbody = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+	if (repbody == NULL)
+		GOTO(out_lock, rc = -EPROTO);
 	repbody->oa = body->oa;
 
 	npages = PTLRPC_MAX_BRW_PAGES;
@@ -1951,6 +1955,8 @@ int tgt_brw_write(struct tgt_session_info *tsi)
 
 	CFS_FAIL_TIMEOUT(OBD_FAIL_OST_BRW_PAUSE_PACK, cfs_fail_val);
 	rcs = req_capsule_server_get(&req->rq_pill, &RMF_RCS);
+	if (rcs == NULL)
+		GOTO(out, rc = err_serious(-EPROTO));
 
 	local_nb = tbc->local;
 
