@@ -1095,6 +1095,8 @@ dont_check_exports:
                                                RCL_SERVER);
                 tmpdata = req_capsule_server_get(&req->rq_pill,
                                                  &RMF_CONNECT_DATA);
+		if (tmpdata == NULL)
+			GOTO(out, rc = -EPROTO);
                 /* Don't use struct assignment here, because the client reply
                  * buffer may be smaller/larger than the local struct
                  * obd_connect_data. */
@@ -1204,6 +1206,8 @@ dont_check_exports:
                 lustre_msg_add_op_flags(req->rq_repmsg, MSG_CONNECT_RECOVERING);
 
         tmp = req_capsule_client_get(&req->rq_pill, &RMF_CONN);
+	if (tmp == NULL)
+		GOTO(out, rc = -EPROTO);
         conn = *tmp;
 
 	/* Return -ENOTCONN in case of errors to let client reconnect. */

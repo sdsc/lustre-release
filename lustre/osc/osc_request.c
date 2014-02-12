@@ -3096,6 +3096,10 @@ static int osc_get_info(const struct lu_env *env, struct obd_export *exp,
                 }
 
                 tmp = req_capsule_client_get(&req->rq_pill, &RMF_SETINFO_KEY);
+		if (tmp == NULL) {
+			ptlrpc_request_free(req);
+			RETURN(-EPROTO);
+		}
                 memcpy(tmp, key, keylen);
 
                 req->rq_no_delay = req->rq_no_resend = 1;
@@ -3174,8 +3178,16 @@ skip_locking:
                 }
 
                 tmp = req_capsule_client_get(&req->rq_pill, &RMF_FIEMAP_KEY);
+		if (tmp == NULL) {
+			ptlrpc_request_free(req);
+			GOTO(drop_lock, rc = -EPROTO);
+		}
                 memcpy(tmp, key, keylen);
                 tmp = req_capsule_client_get(&req->rq_pill, &RMF_FIEMAP_VAL);
+		if (tmp == NULL) {
+			ptlrpc_request_free(req);
+			GOTO(drop_lock, rc = -EPROTO);
+		}
                 memcpy(tmp, val, *vallen);
 
                 ptlrpc_request_set_replen(req);
@@ -3284,10 +3296,18 @@ static int osc_set_info_async(const struct lu_env *env, struct obd_export *exp,
 	}
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_SETINFO_KEY);
+	if (tmp == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(-EPROTO);
+	}
 	memcpy(tmp, key, keylen);
 	tmp = req_capsule_client_get(&req->rq_pill, KEY_IS(KEY_GRANT_SHRINK) ?
 							&RMF_OST_BODY :
 							&RMF_SETINFO_VAL);
+	if (tmp == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(-EPROTO);
+	}
         memcpy(tmp, val, vallen);
 
 	if (KEY_IS(KEY_GRANT_SHRINK)) {

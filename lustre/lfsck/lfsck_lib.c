@@ -1085,11 +1085,14 @@ int lfsck_async_request(const struct lu_env *env, struct obd_export *exp,
 	rc = ptlrpc_request_pack(req, LUSTRE_OBD_VERSION, request);
 	if (rc != 0) {
 		ptlrpc_request_free(req);
-
 		return rc;
 	}
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_LFSCK_REQUEST);
+	if (tmp == NULL) {
+		ptlrpc_request_free(req);
+		return -EPROTO;
+	}
 	*tmp = *lr;
 	ptlrpc_request_set_replen(req);
 
