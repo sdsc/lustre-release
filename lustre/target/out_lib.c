@@ -155,6 +155,7 @@ int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			     UPDATE_BUFFER_SIZE);
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_UPDATE);
+	LASSERT(tmp != NULL);
 	memcpy(tmp, ubuf, ubuf_len);
 	ptlrpc_request_set_replen(req);
 	req->rq_request_portal = OUT_PORTAL;

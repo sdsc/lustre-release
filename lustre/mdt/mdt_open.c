@@ -419,6 +419,8 @@ static inline int mdt_ioepoch_close_reg(struct mdt_thread_info *info,
         if (ret == MDT_IOEPOCH_GETATTR && recovery) {
                 struct mdt_body *rep;
                 rep = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+		if (rep == NULL)
+			RETURN(-EPROTO);
                 rep->valid |= OBD_MD_FLGETATTRLOCK;
         }
 
@@ -704,6 +706,8 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
         ENTRY;
 
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	if (repbody == NULL)
+		RETURN(-EPROTO);
 
         isreg = S_ISREG(la->la_mode);
         isdir = S_ISDIR(la->la_mode);
@@ -874,6 +878,8 @@ int mdt_finish_open(struct mdt_thread_info *info,
         LASSERT(ma->ma_valid & MA_INODE);
 
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	if (repbody == NULL)
+		RETURN(-EPROTO);
 
         isreg = S_ISREG(la->la_mode);
         isdir = S_ISDIR(la->la_mode);
@@ -898,6 +904,8 @@ int mdt_finish_open(struct mdt_thread_info *info,
         if (exp_connect_rmtclient(exp)) {
                 void *buf = req_capsule_server_get(info->mti_pill, &RMF_ACL);
 
+		if (buf == NULL)
+			RETURN(-EPROTO);
                 rc = mdt_pack_remote_perm(info, o, buf);
                 if (rc) {
                         repbody->valid &= ~OBD_MD_FLRMTPERM;
@@ -914,6 +922,8 @@ int mdt_finish_open(struct mdt_thread_info *info,
                 struct lu_buf *buf = &info->mti_buf;
 
                 buf->lb_buf = req_capsule_server_get(info->mti_pill, &RMF_ACL);
+		if (buf->lb_buf == NULL)
+			RETURN(-EPROTO);
                 buf->lb_len = req_capsule_get_size(info->mti_pill, &RMF_ACL,
                                                    RCL_SERVER);
                 if (buf->lb_len > 0) {
@@ -1052,8 +1062,12 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
         ENTRY;
 
         LASSERT(pill->rc_fmt == &RQF_LDLM_INTENT_OPEN);
-        ldlm_rep = req_capsule_server_get(pill, &RMF_DLM_REP);
-        repbody = req_capsule_server_get(pill, &RMF_MDT_BODY);
+	ldlm_rep = req_capsule_server_get(pill, &RMF_DLM_REP);
+	if (ldlm_rep == NULL)
+		GOTO(out, rc = -EPROTO);
+	repbody = req_capsule_server_get(pill, &RMF_MDT_BODY);
+	if (repbody == NULL)
+		GOTO(out, rc = -EPROTO);
 
 	ma->ma_need = MA_INODE | MA_HSM;
         ma->ma_valid = 0;
@@ -1164,10 +1178,14 @@ int mdt_open_by_fid(struct mdt_thread_info *info, struct ldlm_reply *rep)
 		mdt_set_disposition(info, rep, (DISP_IT_EXECD |
 						DISP_LOOKUP_EXECD |
 						DISP_LOOKUP_POS));
-                repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
-                repbody->fid1 = *rr->rr_fid2;
-                repbody->valid |= (OBD_MD_FLID | OBD_MD_MDS);
-                rc = 0;
+		repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+		if (repbody != NULL) {
+			repbody->fid1 = *rr->rr_fid2;
+			repbody->valid |= (OBD_MD_FLID | OBD_MD_MDS);
+			rc = 0;
+		} else {
+			rc = -EPROTO;
+		}
 	} else {
 		if (mdt_object_exists(o)) {
 			mdt_set_disposition(info, rep, (DISP_IT_EXECD |
@@ -1610,13 +1628,17 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                                (obd_timeout + 1) / 4);
 
 	mdt_counter_incr(req, LPROC_MDT_OPEN);
-        repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	if (repbody == NULL)
+		GOTO(out, result = err_serious(-EPROTO));
 
         ma->ma_need = MA_INODE;
         ma->ma_valid = 0;
 
         LASSERT(info->mti_pill->rc_fmt == &RQF_LDLM_INTENT_OPEN);
         ldlm_rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
+	if (ldlm_rep == NULL)
+		GOTO(out, result = err_serious(-EPROTO));
 
         if (unlikely(create_flags & MDS_OPEN_JOIN_FILE)) {
                 CERROR("file join is not supported anymore.\n");
@@ -2325,8 +2347,12 @@ int mdt_close(struct tgt_session_info *tsi)
                                                           &RMF_LOGCOOKIES,
                                                           RCL_SERVER);
                 ma->ma_need = MA_INODE | MA_LOV | MA_COOKIE;
-                repbody->eadatasize = 0;
-                repbody->aclsize = 0;
+		if (repbody != NULL) {
+			repbody->eadatasize = 0;
+			repbody->aclsize = 0;
+		} else {
+			rc = -EPROTO;
+		}
         } else {
                 rc = err_serious(rc);
         }
@@ -2396,6 +2422,8 @@ int mdt_done_writing(struct tgt_session_info *tsi)
 		GOTO(out, rc = err_serious(rc));
 
 	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_MDT_BODY);
+	if (repbody == NULL)
+		GOTO(out, rc = err_serious(-EPROTO));
 	repbody->eadatasize = 0;
 	repbody->aclsize = 0;
 

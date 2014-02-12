@@ -668,6 +668,7 @@ int mdt_fix_reply(struct mdt_thread_info *info)
                 } else {
 			/* now we need to pack right LOV/LMV EA */
 			lmm = req_capsule_server_get(pill, &RMF_MDT_MD);
+			LASSERT(lmm != NULL);
 			if (info->mti_attr.ma_valid & MA_LOV) {
 				LASSERT(req_capsule_get_size(pill, &RMF_MDT_MD,
 							     RCL_SERVER) ==

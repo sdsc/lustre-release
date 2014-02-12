@@ -77,10 +77,12 @@ static int seq_client_rpc(struct lu_client_seq *seq,
 
 	/* Init operation code */
 	op = req_capsule_client_get(&req->rq_pill, &RMF_SEQ_OPC);
+	LASSERT(op != NULL);
 	*op = opc;
 
 	/* Zero out input range, this is not recovery yet. */
 	in = req_capsule_client_get(&req->rq_pill, &RMF_SEQ_RANGE);
+	LASSERT(in != NULL);
 	range_init(in);
 
 	ptlrpc_request_set_replen(req);
@@ -128,6 +130,8 @@ static int seq_client_rpc(struct lu_client_seq *seq,
 		GOTO(out_req, rc);
 
 	out = req_capsule_server_get(&req->rq_pill, &RMF_SEQ_RANGE);
+	if (out == NULL)
+		GOTO(out_req, rc = -EPROTO);
 	*output = *out;
 
 	if (!range_is_sane(output)) {

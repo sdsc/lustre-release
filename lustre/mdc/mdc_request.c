@@ -295,8 +295,9 @@ int mdc_getattr_name(struct obd_export *exp, struct md_op_data *op_data,
 
         if (op_data->op_name) {
                 char *name = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
-                LASSERT(strnlen(op_data->op_name, op_data->op_namelen) ==
-                                op_data->op_namelen);
+		LASSERT(name != NULL && strnlen(op_data->op_name,
+						op_data->op_namelen) ==
+						op_data->op_namelen);
                 memcpy(name, op_data->op_name, op_data->op_namelen);
         }
 
@@ -404,6 +405,10 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
                 CLASSERT(sizeof(struct mdt_rec_setxattr) ==
                          sizeof(struct mdt_rec_reint));
 		rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
+		if (rec == NULL) {
+			ptlrpc_request_free(req);
+			RETURN(-EPROTO);
+		}
 		rec->sx_opcode = REINT_SETXATTR;
 		rec->sx_fsuid  = current_fsuid();
 		rec->sx_fsgid  = current_fsgid();
@@ -423,10 +428,18 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
 
         if (xattr_name) {
                 tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
+		if (tmp == NULL) {
+			ptlrpc_request_free(req);
+			RETURN(-EPROTO);
+		}
                 memcpy(tmp, xattr_name, xattr_namelen);
         }
         if (input_size) {
                 tmp = req_capsule_client_get(&req->rq_pill, &RMF_EADATA);
+		if (tmp == NULL) {
+			ptlrpc_request_free(req);
+			RETURN(-EPROTO);
+		}
                 memcpy(tmp, input, input_size);
         }
 
@@ -856,10 +869,10 @@ static void mdc_close_handle_reply(struct ptlrpc_request *req,
         if (req && rc == -EAGAIN) {
                 repbody = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
                 epoch = req_capsule_client_get(&req->rq_pill, &RMF_MDT_EPOCH);
-
-                epoch->flags |= MF_SOM_AU;
-                if (repbody->valid & OBD_MD_FLGETATTRLOCK)
-                        op_data->op_flags |= MF_GETATTR_LOCK;
+		if (epoch != NULL)
+			epoch->flags |= MF_SOM_AU;
+		if (repbody != NULL && repbody->valid & OBD_MD_FLGETATTRLOCK)
+			op_data->op_flags |= MF_GETATTR_LOCK;
         }
 }
 
@@ -2330,6 +2343,7 @@ static int mdc_quotacheck(struct obd_device *unused, struct obd_export *exp,
                 RETURN(-ENOMEM);
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_OBD_QUOTACTL);
+	LASSERT(body != NULL);
         *body = *oqctl;
 
         ptlrpc_request_set_replen(req);
@@ -2376,6 +2390,7 @@ static int mdc_quotactl(struct obd_device *unused, struct obd_export *exp,
                 RETURN(-ENOMEM);
 
         oqc = req_capsule_client_get(&req->rq_pill, &RMF_OBD_QUOTACTL);
+	LASSERT(oqc != NULL);
         *oqc = *oqctl;
 
         ptlrpc_request_set_replen(req);
@@ -2608,32 +2623,37 @@ int mdc_get_info_rpc(struct obd_export *exp,
         req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_VALLEN,
                              RCL_CLIENT, sizeof(__u32));
 
-        rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_GET_INFO);
-        if (rc) {
-                ptlrpc_request_free(req);
-                RETURN(rc);
-        }
+	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_GET_INFO);
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
 
-        tmp = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_KEY);
-        memcpy(tmp, key, keylen);
-        tmp = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_VALLEN);
-        memcpy(tmp, &vallen, sizeof(__u32));
+	tmp = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_KEY);
+	LASSERT(tmp != NULL);
+	memcpy(tmp, key, keylen);
+	tmp = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_VALLEN);
+	LASSERT(tmp != NULL);
+	memcpy(tmp, &vallen, sizeof(__u32));
 
-        req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_VAL,
-                             RCL_SERVER, vallen);
-        ptlrpc_request_set_replen(req);
+	req_capsule_set_size(&req->rq_pill, &RMF_GETINFO_VAL,
+			     RCL_SERVER, vallen);
+	ptlrpc_request_set_replen(req);
 
 	rc = ptlrpc_queue_wait(req);
 	/* -EREMOTE means the get_info result is partial, and it needs to
 	 * continue on another MDT, see fid2path part in lmv_iocontrol */
 	if (rc == 0 || rc == -EREMOTE) {
 		tmp = req_capsule_server_get(&req->rq_pill, &RMF_GETINFO_VAL);
+		if (tmp == NULL)
+			GOTO(out, rc = -EPROTO);
 		memcpy(val, tmp, vallen);
 		if (ptlrpc_rep_need_swab(req)) {
 			if (KEY_IS(KEY_FID2PATH))
 				lustre_swab_fid2path(val);
 		}
 	}
+out:
 	ptlrpc_req_finished(req);
 
 	RETURN(rc);
@@ -2875,10 +2895,10 @@ static int mdc_pin(struct obd_export *exp, const struct lu_fid *fid,
         mdc_set_capa_size(req, &RMF_CAPA1, oc);
 
         rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, MDS_PIN);
-        if (rc) {
-                ptlrpc_request_free(req);
-                RETURN(rc);
-        }
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
 
         mdc_pack_body(req, fid, oc, 0, 0, -1, flags);
 
@@ -2927,6 +2947,7 @@ static int mdc_unpin(struct obd_export *exp, struct obd_client_handle *handle,
                 RETURN(-ENOMEM);
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_MDT_BODY);
+	LASSERT(body != NULL);
         body->handle = handle->och_fh;
         body->flags = flag;
 

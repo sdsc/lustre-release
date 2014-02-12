@@ -115,6 +115,7 @@ static int llog_client_open(const struct lu_env *env,
         ptlrpc_request_set_replen(req);
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_LLOGD_BODY);
+	LASSERT(body != NULL);
         if (logid)
                 body->lgd_logid = *logid;
         body->lgd_ctxt_idx = ctxt->loc_idx - 1;
@@ -161,6 +162,7 @@ static int llog_client_destroy(const struct lu_env *env,
                 GOTO(err_exit, rc =-ENOMEM);
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_LLOGD_BODY);
+	LASSERT(body != NULL);
         body->lgd_logid = loghandle->lgh_id;
         body->lgd_llh_flags = loghandle->lgh_hdr->llh_flags;
 
@@ -198,6 +200,7 @@ static int llog_client_next_block(const struct lu_env *env,
                 GOTO(err_exit, rc =-ENOMEM);
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_LLOGD_BODY);
+	LASSERT(body != NULL);
         body->lgd_logid = loghandle->lgh_id;
         body->lgd_ctxt_idx = loghandle->lgh_ctxt->loc_idx - 1;
         body->lgd_llh_flags = loghandle->lgh_hdr->llh_flags;
@@ -252,6 +255,7 @@ static int llog_client_prev_block(const struct lu_env *env,
                 GOTO(err_exit, rc = -ENOMEM);
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_LLOGD_BODY);
+	LASSERT(body != NULL);
         body->lgd_logid = loghandle->lgh_id;
         body->lgd_ctxt_idx = loghandle->lgh_ctxt->loc_idx - 1;
         body->lgd_llh_flags = loghandle->lgh_hdr->llh_flags;
@@ -301,6 +305,7 @@ static int llog_client_read_header(const struct lu_env *env,
                 GOTO(err_exit, rc = -ENOMEM);
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_LLOGD_BODY);
+	LASSERT(body != NULL);
         body->lgd_logid = handle->lgh_id;
         body->lgd_ctxt_idx = handle->lgh_ctxt->loc_idx - 1;
         body->lgd_llh_flags = handle->lgh_hdr->llh_flags;
