@@ -1511,7 +1511,8 @@ lfsck_layout_slave_async_interpret(const struct lu_env *env,
 		struct lfsck_reply *lr;
 
 		lr = req_capsule_server_get(&req->rq_pill, &RMF_LFSCK_REPLY);
-		if (lr->lr_status != LS_SCANNING_PHASE1 &&
+		if (lr != NULL &&
+		    lr->lr_status != LS_SCANNING_PHASE1 &&
 		    lr->lr_status != LS_SCANNING_PHASE2)
 			done = true;
 	}
@@ -1548,6 +1549,10 @@ static int lfsck_layout_async_query(const struct lu_env *env,
 	}
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_LFSCK_REQUEST);
+	if (tmp == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(-EPROTO);
+	}
 	*tmp = *lr;
 	ptlrpc_request_set_replen(req);
 
@@ -1582,6 +1587,10 @@ static int lfsck_layout_async_notify(const struct lu_env *env,
 	}
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_LFSCK_REQUEST);
+	if (tmp == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(-EPROTO);
+	}
 	*tmp = *lr;
 	ptlrpc_request_set_replen(req);
 	ptlrpc_set_add_req(set, req);
