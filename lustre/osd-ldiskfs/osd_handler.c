@@ -947,7 +947,7 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
 	LASSERT(atomic_read(&iobuf->dr_numreqs) == 0);
 
         th = ERR_PTR(-ENOMEM);
-	OBD_ALLOC_GFP(oh, sizeof *oh, __GFP_IO);
+	OBD_ALLOC_GFP(oh, sizeof *oh, GFP_NOFS);
         if (oh != NULL) {
 		oh->ot_quota_trans = &oti->oti_quota_trans;
 		memset(oh->ot_quota_trans, 0, sizeof(*oh->ot_quota_trans));

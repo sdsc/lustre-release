@@ -929,7 +929,7 @@ struct lu_object *lov_object_alloc(const struct lu_env *env,
         struct lu_object  *obj;
 
         ENTRY;
-	OBD_SLAB_ALLOC_PTR_GFP(lov, lov_object_kmem, __GFP_IO);
+	OBD_SLAB_ALLOC_PTR_GFP(lov, lov_object_kmem, GFP_NOFS);
         if (lov != NULL) {
                 obj = lov2lu(lov);
                 lu_object_init(obj, NULL, dev);
