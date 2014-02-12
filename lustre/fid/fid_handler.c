@@ -379,22 +379,18 @@ static int seq_handler(struct tgt_session_info *tsi)
 	opc = req_capsule_client_get(tsi->tsi_pill, &RMF_SEQ_OPC);
 	if (opc != NULL) {
 		out = req_capsule_server_get(tsi->tsi_pill, &RMF_SEQ_RANGE);
-		if (out == NULL)
-			RETURN(err_serious(-EPROTO));
-
 		tmp = req_capsule_client_get(tsi->tsi_pill, &RMF_SEQ_RANGE);
-
-		/* seq client passed mdt id, we need to pass that using out
-		 * range parameter */
-
-		out->lsr_index = tmp->lsr_index;
-		out->lsr_flags = tmp->lsr_flags;
-		rc = seq_server_handle(site, tsi->tsi_env, *opc, out);
-	} else {
-		rc = err_serious(-EPROTO);
+		if (out != NULL && tmp != NULL) {
+			/* seq client passed mdt id, we need to pass that
+			 * using out range parameter */
+			out->lsr_index = tmp->lsr_index;
+			out->lsr_flags = tmp->lsr_flags;
+			rc = seq_server_handle(site, tsi->tsi_env, *opc, out);
+			RETURN(rc);
+		}
 	}
+	RETURN(err_serious(-EPROTO));
 
-	RETURN(rc);
 }
 
 struct tgt_handler seq_handlers[] = {

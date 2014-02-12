@@ -841,6 +841,7 @@ int ldlm_server_blocking_ast(struct ldlm_lock *lock,
                 instant_cancel = 1;
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	LASSERT(body != NULL);
         body->lock_handle[0] = lock->l_remote_handle;
         body->lock_desc = *desc;
 	body->lock_flags |= ldlm_flags_to_wire(lock->l_flags & LDLM_FL_AST_MASK);
@@ -927,12 +928,13 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
         req->rq_interpret_reply = ldlm_cb_interpret;
         req->rq_no_resend = 1;
         body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
-
+	LASSERT(body != NULL);
         body->lock_handle[0] = lock->l_remote_handle;
 	body->lock_flags = ldlm_flags_to_wire(flags);
         ldlm_lock2desc(lock, &body->lock_desc);
 	if (lvb_len > 0) {
 		void *lvb = req_capsule_client_get(&req->rq_pill, &RMF_DLM_LVB);
+		LASSERT(lvb != NULL);
 
 		lvb_len = ldlm_lvbo_fill(lock, lvb, lvb_len);
 		if (lvb_len < 0) {
@@ -1048,10 +1050,14 @@ int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data)
 		/* copy the GL descriptor */
 		union ldlm_gl_desc	*desc;
 		desc = req_capsule_client_get(&req->rq_pill, &RMF_DLM_GL_DESC);
+		if (desc == NULL)
+			RETURN(-EPROTO);
 		*desc = *arg->gl_desc;
 	}
 
-        body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	if (body == NULL)
+		RETURN(-EPROTO);
         body->lock_handle[0] = lock->l_remote_handle;
         ldlm_lock2desc(lock, &body->lock_desc);
 
@@ -1304,7 +1310,9 @@ existing_lock:
 		GOTO(out, err);
 	}
 
-        dlm_rep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
+	dlm_rep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
+	if (dlm_rep == NULL)
+		GOTO(out, rc = -EPROTO);
 	dlm_rep->lock_flags = ldlm_flags_to_wire(flags);
 
         ldlm_lock2desc(lock, &dlm_rep->lock_desc);
@@ -1482,6 +1490,8 @@ int ldlm_handle_convert0(struct ptlrpc_request *req,
                 RETURN(rc);
 
         dlm_rep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
+	if (dlm_rep == NULL)
+		RETURN(-EPROTO);
         dlm_rep->lock_flags = dlm_req->lock_flags;
 
         lock = ldlm_handle2lock(&dlm_req->lock_handle[0]);

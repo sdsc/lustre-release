@@ -1020,10 +1020,8 @@ static int mgc_set_mgs_param(struct obd_export *exp,
                 RETURN(-ENOMEM);
 
         req_msp = req_capsule_client_get(&req->rq_pill, &RMF_MGS_SEND_PARAM);
-        if (!req_msp) {
-                ptlrpc_req_finished(req);
-                RETURN(-ENOMEM);
-        }
+	if (req_msp == NULL)
+		GOTO(out, rc = -EPROTO);
 
         memcpy(req_msp, msp, sizeof(*req_msp));
         ptlrpc_request_set_replen(req);
@@ -1032,12 +1030,14 @@ static int mgc_set_mgs_param(struct obd_export *exp,
         req->rq_delay_limit = MGC_SEND_PARAM_LIMIT;
         rc = ptlrpc_queue_wait(req);
         if (!rc) {
-                rep_msp = req_capsule_server_get(&req->rq_pill, &RMF_MGS_SEND_PARAM);
-                memcpy(msp, rep_msp, sizeof(*rep_msp));
+		rep_msp = req_capsule_server_get(&req->rq_pill,
+						 &RMF_MGS_SEND_PARAM);
+		if (rep_msp == NULL)
+			GOTO(out, rc = -EPROTO);
+		memcpy(msp, rep_msp, sizeof(*rep_msp));
         }
-
+out:
         ptlrpc_req_finished(req);
-
         RETURN(rc);
 }
 
@@ -1127,10 +1127,8 @@ static int mgc_target_register(struct obd_export *exp,
                 RETURN(-ENOMEM);
 
         req_mti = req_capsule_client_get(&req->rq_pill, &RMF_MGS_TARGET_INFO);
-        if (!req_mti) {
-                ptlrpc_req_finished(req);
-                RETURN(-ENOMEM);
-        }
+	if (req_mti == NULL)
+		GOTO(out, rc = -EPROTO);
 
         memcpy(req_mti, mti, sizeof(*req_mti));
         ptlrpc_request_set_replen(req);
@@ -1142,12 +1140,14 @@ static int mgc_target_register(struct obd_export *exp,
         if (!rc) {
                 rep_mti = req_capsule_server_get(&req->rq_pill,
                                                  &RMF_MGS_TARGET_INFO);
+		if (req_mti == NULL)
+			GOTO(out, rc = -EPROTO);
                 memcpy(mti, rep_mti, sizeof(*rep_mti));
                 CDEBUG(D_MGC, "register %s got index = %d\n",
                        mti->mti_svname, mti->mti_stripe_index);
         }
+out:
         ptlrpc_req_finished(req);
-
         RETURN(rc);
 }
 
@@ -1601,7 +1601,7 @@ again:
                 GOTO(out, rc);
 
         res = req_capsule_server_get(&req->rq_pill, &RMF_MGS_CONFIG_RES);
-        if (res->mcr_size < res->mcr_offset)
+	if (res == NULL || res->mcr_size < res->mcr_offset)
                 GOTO(out, rc = -EINVAL);
 
         /* always update the index even though it might have errors with

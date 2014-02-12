@@ -88,6 +88,7 @@ void mdc_is_subdir_pack(struct ptlrpc_request *req, const struct lu_fid *pfid,
         struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
                                                     &RMF_MDT_BODY);
 
+	LASSERT(b != NULL);
         if (pfid) {
                 b->fid1 = *pfid;
                 b->valid = OBD_MD_FLID;
@@ -103,6 +104,7 @@ void mdc_swap_layouts_pack(struct ptlrpc_request *req,
 	struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
 						    &RMF_MDT_BODY);
 
+	LASSERT(b != NULL);
 	__mdc_pack_body(b, op_data->op_suppgids[0]);
 	b->fid1 = op_data->op_fid1;
 	b->fid2 = op_data->op_fid2;
@@ -135,6 +137,8 @@ void mdc_readdir_pack(struct ptlrpc_request *req, __u64 pgoff,
 {
         struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
                                                     &RMF_MDT_BODY);
+
+	LASSERT(b != NULL);
         b->fid1 = *fid;
         b->valid |= OBD_MD_FLID;
         b->size = pgoff;                       /* !! */
@@ -158,6 +162,7 @@ void mdc_create_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 	rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
 
 
+	LASSERT(rec != NULL);
 	rec->cr_opcode   = REINT_CREATE;
 	rec->cr_fsuid    = uid;
 	rec->cr_fsgid    = gid;
@@ -179,10 +184,12 @@ void mdc_create_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 	mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
+	LASSERT(tmp != NULL);
 	LOGL0(op_data->op_name, op_data->op_namelen, tmp);
 
 	if (data) {
 		tmp = req_capsule_client_get(&req->rq_pill, &RMF_EADATA);
+		LASSERT(tmp != NULL);
 		memcpy(tmp, data, datalen);
 	}
 }
@@ -230,6 +237,7 @@ void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 
 	CLASSERT(sizeof(struct mdt_rec_reint) == sizeof(struct mdt_rec_create));
 	rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
+	LASSERT(rec != NULL);
 
 	/* XXX do something about time, uid, gid */
 	rec->cr_opcode = REINT_OPEN;
@@ -255,6 +263,7 @@ void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 
 		if (op_data->op_name) {
 			tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
+			LASSERT(tmp != NULL);
 			LOGL0(op_data->op_name, op_data->op_namelen, tmp);
 			if (op_data->op_bias & MDS_CREATE_VOLATILE)
 				cr_flags |= MDS_OPEN_VOLATILE;
@@ -268,6 +277,7 @@ void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 	if (lmm) {
 		cr_flags |= MDS_OPEN_HAS_EA;
 		tmp = req_capsule_client_get(&req->rq_pill, &RMF_EADATA);
+		LASSERT(tmp != NULL);
 		memcpy(tmp, lmm, lmmlen);
 	}
 	set_mrc_cr_flags(rec, cr_flags);
@@ -354,18 +364,21 @@ static void mdc_ioepoch_pack(struct mdt_ioepoch *epoch,
 void mdc_setattr_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
                       void *ea, int ealen, void *ea2, int ea2len)
 {
+	void *pea;
         struct mdt_rec_setattr *rec;
         struct mdt_ioepoch *epoch;
         struct lov_user_md *lum = NULL;
 
         CLASSERT(sizeof(struct mdt_rec_reint) ==sizeof(struct mdt_rec_setattr));
         rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
+	LASSERT(rec != NULL);
         mdc_setattr_pack_rec(rec, op_data);
 
         mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
 
         if (op_data->op_flags & (MF_SOM_CHANGE | MF_EPOCH_OPEN)) {
                 epoch = req_capsule_client_get(&req->rq_pill, &RMF_MDT_EPOCH);
+		LASSERT(epoch != NULL);
                 mdc_ioepoch_pack(epoch, op_data);
         }
 
@@ -373,6 +386,8 @@ void mdc_setattr_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
                 return;
 
         lum = req_capsule_client_get(&req->rq_pill, &RMF_EADATA);
+	if (lum == NULL)
+		return;
         if (ea == NULL) { /* Remove LOV EA */
                 lum->lmm_magic = LOV_USER_MAGIC_V1;
                 lum->lmm_stripe_size = 0;
@@ -385,8 +400,9 @@ void mdc_setattr_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
         if (ea2len == 0)
                 return;
 
-        memcpy(req_capsule_client_get(&req->rq_pill, &RMF_LOGCOOKIES), ea2,
-               ea2len);
+	pea = req_capsule_client_get(&req->rq_pill, &RMF_LOGCOOKIES);
+	if (pea != NULL)
+		memcpy(pea, ea2, ea2len);
 }
 
 void mdc_unlink_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
@@ -442,6 +458,7 @@ void mdc_link_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
         mdc_pack_capa(req, &RMF_CAPA2, op_data->op_capa2);
 
         tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
+	LASSERT(tmp != NULL);
         LOGL0(op_data->op_name, op_data->op_namelen, tmp);
 }
 
@@ -453,6 +470,7 @@ void mdc_rename_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 
         CLASSERT(sizeof(struct mdt_rec_reint) == sizeof(struct mdt_rec_rename));
         rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
+	LASSERT(rec != NULL);
 
         /* XXX do something about time, uid, gid */
         rec->rn_opcode   = REINT_RENAME;
@@ -471,10 +489,12 @@ void mdc_rename_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
         mdc_pack_capa(req, &RMF_CAPA2, op_data->op_capa2);
 
         tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
+	LASSERT(tmp != NULL);
         LOGL0(old, oldlen, tmp);
 
         if (new) {
                 tmp = req_capsule_client_get(&req->rq_pill, &RMF_SYMTGT);
+		LASSERT(tmp != NULL);
                 LOGL0(new, newlen, tmp);
         }
 }
@@ -485,6 +505,7 @@ void mdc_getattr_pack(struct ptlrpc_request *req, __u64 valid, int flags,
         struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
                                                     &RMF_MDT_BODY);
 
+	LASSERT(b != NULL);
         b->valid = valid;
         if (op_data->op_bias & MDS_CHECK_SPLIT)
                 b->valid |= OBD_MD_FLCKSPLIT;
@@ -502,6 +523,7 @@ void mdc_getattr_pack(struct ptlrpc_request *req, __u64 valid, int flags,
 
         if (op_data->op_name) {
                 char *tmp = req_capsule_client_get(&req->rq_pill, &RMF_NAME);
+		LASSERT(tmp != NULL);
                 LOGL0(op_data->op_name, op_data->op_namelen, tmp);
 
         }
@@ -536,6 +558,7 @@ void mdc_close_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
 
         epoch = req_capsule_client_get(&req->rq_pill, &RMF_MDT_EPOCH);
         rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
+	LASSERT(epoch != NULL && rec != NULL);
 
         mdc_setattr_pack_rec(rec, op_data);
         mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
