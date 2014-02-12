@@ -2377,7 +2377,7 @@ int lfsck_query(const struct lu_env *env, struct dt_device *key,
 
 	com = lfsck_component_find(lfsck, lr->lr_active);
 	if (likely(com != NULL)) {
-		rc = com->lc_ops->lfsck_query(env, com);
+		rc = com->lc_ops->lfsck_query(env, com, lr);
 		lfsck_component_put(env, com);
 	} else {
 		rc = -ENOTSUPP;

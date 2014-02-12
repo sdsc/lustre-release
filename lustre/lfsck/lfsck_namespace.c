@@ -1562,11 +1562,15 @@ static int lfsck_namespace_in_notify(const struct lu_env *env,
 }
 
 static int lfsck_namespace_query(const struct lu_env *env,
-				 struct lfsck_component *com)
+				 struct lfsck_component *com,
+				 struct lfsck_request *lr)
 {
 	struct lfsck_namespace *ns = com->lc_file_ram;
 
-	return ns->ln_status;
+	if (lr->lr_event == LE_QUERY)
+		return ns->ln_status;
+
+	return -EINVAL;
 }
 
 static struct lfsck_operations lfsck_namespace_ops = {

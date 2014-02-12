@@ -3828,6 +3828,131 @@ lfsck_layout_slave_notify_master(const struct lu_env *env,
 	RETURN_EXIT;
 }
 
+/*
+ * \ret > 0: unrecognized stripe
+ * \ret = 0: recognized stripe
+ * \ret < 0: other failures
+ */
+static int lfsck_layout_slave_pairs_verify(const struct lu_env *env,
+					   struct lfsck_component *com,
+					   struct lfsck_request *lr)
+
+{
+	struct lfsck_thread_info *info	 = lfsck_env_info(env);
+	struct lu_fid		 *fid	 = &info->lti_fid;
+	struct lu_buf		 *lbuf	 = &info->lti_buf;
+	struct ost_id		 *oi	 = &info->lti_oi;
+	struct lfsck_instance	 *lfsck	 = com->lc_lfsck;
+	struct obd_device	 *obd	 = lfsck->li_obd;
+	struct seq_server_site	 *ss	 =
+			lu_site2seq(lfsck->li_bottom->dd_lu_dev.ld_site);
+	struct dt_device	 *dev	 =
+		container_of0(obd->obd_lu_dev, struct dt_device, dd_lu_dev);
+	struct obd_export	 *exp	 = NULL;
+	struct update_request	 *update = NULL;
+	struct update_reply	 *reply;
+	struct ptlrpc_request	 *req	 = NULL;
+	const char		 *name	 = XATTR_NAME_LOV;
+	struct lov_mds_md_v1	 *lmm	 = NULL;
+	struct lov_ost_data_v1	 *objs;
+	struct lu_seq_range	 range	 = { 0 };
+	__u64			 seq	 = lr->lr_seq;
+	__u32			 magic;
+	int			 size	 = strlen(name);
+	int			 rc	 = 0;
+	int			 i;
+	__u16			 count;
+	ENTRY;
+
+	if (unlikely(fid_seq_is_idif(seq)))
+		RETURN(1);
+
+	if (fid_seq_is_igif(seq)) {
+		fld_range_set_mdt(&range);
+		range.lsr_index = 0;
+	} else {
+		fld_range_set_any(&range);
+		rc = fld_server_lookup(env, ss->ss_server_fld, seq, &range);
+		if (rc != 0)
+			RETURN(rc == -EIO ? 1 : rc);
+	}
+
+	if (unlikely(!fld_range_is_mdt(&range)))
+		RETURN(1);
+
+	exp = lustre_find_lwp_by_index(obd->obd_name, range.lsr_index);
+	if (unlikely(exp == NULL))
+		RETURN(1);
+
+	update = out_create_update_req(dev);
+	if (IS_ERR(update))
+		GOTO(out, rc = PTR_ERR(update));
+
+	fid->f_seq = seq;
+	fid->f_oid = lr->lr_oid;
+	fid->f_ver = lr->lr_ver;
+	rc = out_insert_update(env, update, OBJ_XATTR_GET, fid, 1,
+			       &size, &name);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = out_remote_sync(env, class_exp2cliimp(exp), update, &req);
+	if (rc != 0)
+		GOTO(out, rc = ((rc == -ENOENT || rc == -ENODATA) ? 1 : rc));
+
+	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
+					     UPDATE_BUFFER_SIZE);
+	if (reply == NULL || reply->ur_version != UPDATE_REPLY_V1)
+		GOTO(out, rc = -EPROTO);
+
+	rc = update_get_reply_buf(reply, lbuf, 0);
+	if (rc < 0)
+		GOTO(out, rc = ((rc == -ENOENT || rc == -ENODATA) ? 1 : rc));
+
+	lmm = lbuf->lb_buf;
+	if (lmm == NULL)
+		GOTO(out, rc = -EFAULT);
+
+	rc = lfsck_layout_verify_header(lmm);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* Currently, we only support LOV_MAGIC_V1/LOV_MAGIC_V3 which has
+	 * been verified in lfsck_layout_verify_header() already. If some
+	 * new magic introduced in the future, then layout LFSCK needs to
+	 * be updated also. */
+	magic = le32_to_cpu(lmm->lmm_magic);
+	if (magic == LOV_MAGIC_V1) {
+		objs = &(lmm->lmm_objects[0]);
+	} else {
+		LASSERT(magic == LOV_MAGIC_V3);
+		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
+	}
+
+	count = le16_to_cpu(lmm->lmm_stripe_count);
+	fid_to_ostid(&lr->lr_fid, oi);
+	for (i = 0; i < count; i++, objs++) {
+		struct ost_id *oi2 = &info->lti_oi2;
+
+		ostid_le_to_cpu(&objs->l_ost_oi, oi2);
+		if (memcmp(oi, oi2, sizeof(*oi)) == 0) {
+			if (i == lr->lr_index)
+				GOTO(out, rc = 0);
+			else
+				GOTO(out, rc = 1);
+		}
+	}
+
+	GOTO(out, rc = 1);
+
+out:
+	ptlrpc_req_finished(req);
+	out_destroy_update_req(update);
+	class_export_put(exp);
+
+	return rc;
+}
+
 /* layout APIs */
 
 static int lfsck_layout_reset(const struct lu_env *env,
@@ -5143,11 +5268,19 @@ static int lfsck_layout_slave_in_notify(const struct lu_env *env,
 }
 
 static int lfsck_layout_query(const struct lu_env *env,
-			      struct lfsck_component *com)
+			      struct lfsck_component *com,
+			      struct lfsck_request *lr)
 {
 	struct lfsck_layout *lo = com->lc_file_ram;
+	int		     rc = -EINVAL;
 
-	return lo->ll_status;
+	if (lr->lr_event == LE_QUERY)
+		return lo->ll_status;
+
+	if (lr->lr_event == LE_PAIRS_VERIFY && !com->lc_lfsck->li_master)
+		rc = lfsck_layout_slave_pairs_verify(env, com, lr);
+
+	return rc;
 }
 
 static int lfsck_layout_master_stop_notify(const struct lu_env *env,

@@ -2614,8 +2614,10 @@ void lustre_swab_lfsck_request(struct lfsck_request *lr)
 	__swab16s(&lr->lr_active);
 	__swab16s(&lr->lr_param);
 	__swab16s(&lr->lr_async_windows);
-	CLASSERT(offsetof(typeof(*lr), lr_padding_1) != 0);
+	__swab32s(&lr->lr_oid);
 	lustre_swab_lu_fid(&lr->lr_fid);
+	__swab64s(&lr->lr_seq);
+	CLASSERT(offsetof(typeof(*lr), lr_padding_1) != 0);
 	CLASSERT(offsetof(typeof(*lr), lr_padding_2) != 0);
 	CLASSERT(offsetof(typeof(*lr), lr_padding_3) != 0);
 }

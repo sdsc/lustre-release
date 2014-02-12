@@ -2043,8 +2043,10 @@ static void check_lfsck_request(void)
 	CHECK_MEMBER(lfsck_request, lr_active);
 	CHECK_MEMBER(lfsck_request, lr_param);
 	CHECK_MEMBER(lfsck_request, lr_async_windows);
-	CHECK_MEMBER(lfsck_request, lr_padding_1);
+	CHECK_MEMBER(lfsck_request, lr_oid);
 	CHECK_MEMBER(lfsck_request, lr_fid);
+	CHECK_MEMBER(lfsck_request, lr_seq);
+	CHECK_MEMBER(lfsck_request, lr_padding_1);
 	CHECK_MEMBER(lfsck_request, lr_padding_2);
 	CHECK_MEMBER(lfsck_request, lr_padding_3);
 }

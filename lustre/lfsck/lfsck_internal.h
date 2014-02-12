@@ -316,7 +316,8 @@ struct lfsck_operations {
 			       struct lfsck_request *lr);
 
 	int (*lfsck_query)(const struct lu_env *env,
-			   struct lfsck_component *com);
+			   struct lfsck_component *com,
+			   struct lfsck_request *lr);
 
 	int (*lfsck_stop_notify)(const struct lu_env *env,
 				 struct lfsck_component *com,
@@ -546,6 +547,7 @@ struct lfsck_thread_info {
 	struct lu_attr		lti_la2;
 	struct lu_attr		lti_la3;
 	struct ost_id		lti_oi;
+	struct ost_id		lti_oi2;
 	union {
 		struct lustre_mdt_attrs lti_lma;
 		/* old LMA for compatibility */
