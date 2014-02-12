@@ -1637,8 +1637,16 @@ int do_set_info_async(struct obd_import *imp,
         }
 
         tmp = req_capsule_client_get(&req->rq_pill, &RMF_SETINFO_KEY);
+	if (tmp == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(-EPROTO);
+	}
         memcpy(tmp, key, keylen);
         tmp = req_capsule_client_get(&req->rq_pill, &RMF_SETINFO_VAL);
+	if (tmp == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(-EPROTO);
+	}
         memcpy(tmp, val, vallen);
 
         ptlrpc_request_set_replen(req);
