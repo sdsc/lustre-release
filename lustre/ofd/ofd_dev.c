@@ -725,13 +725,16 @@ int ofd_set_info_hdl(struct tgt_session_info *tsi)
 
 	if (is_grant_shrink) {
 		body = req_capsule_client_get(tsi->tsi_pill, &RMF_OST_BODY);
-
 		repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
-		*repbody = *body;
+		if (repbody == NULL || body == NULL) {
+			rc = -EPROTO;
+		} else {
+			*repbody = *body;
 
-		/** handle grant shrink, similar to a read request */
-		ofd_grant_prepare_read(tsi->tsi_env, tsi->tsi_exp,
-				       &repbody->oa);
+			/** handle grant shrink, similar to a read request */
+			ofd_grant_prepare_read(tsi->tsi_env, tsi->tsi_exp,
+					       &repbody->oa);
+		}
 	} else if (KEY_IS(KEY_EVICT_BY_NID)) {
 		if (vallen > 0)
 			obd_export_evict_by_nid(tsi->tsi_exp->exp_obd, val);
@@ -885,7 +888,7 @@ int ofd_get_info_hdl(struct tgt_session_info *tsi)
 
 		oseq = ofd_seq_load(tsi->tsi_env, ofd,
 				    (obd_seq)exp->exp_filter_data.fed_group);
-		if (IS_ERR(oseq))
+		if (last_id == NULL || IS_ERR(oseq))
 			rc = -EFAULT;
 		else
 			*last_id = ofd_seq_last_oid(oseq);
@@ -898,6 +901,8 @@ int ofd_get_info_hdl(struct tgt_session_info *tsi)
 		req_capsule_extend(tsi->tsi_pill, &RQF_OST_GET_INFO_FIEMAP);
 
 		fm_key = req_capsule_client_get(tsi->tsi_pill, &RMF_FIEMAP_KEY);
+		if (fm_key == NULL)
+			RETURN(err_serious(-EPROTO));
 		rc = tgt_validate_obdo(tsi, &fm_key->oa);
 		if (rc)
 			RETURN(err_serious(rc));
@@ -1466,6 +1471,8 @@ static int ofd_destroy_hdl(struct tgt_session_info *tsi)
 	LASSERT(oid != 0);
 
 	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
+	if (repbody == NULL)
+		RETURN(-EPROTO);
 
 	/* check that o_misc makes sense */
 	if (body->oa.o_valid & OBD_MD_FLOBJCOUNT)
@@ -1518,6 +1525,8 @@ static int ofd_statfs_hdl(struct tgt_session_info *tsi)
 	ENTRY;
 
 	osfs = req_capsule_server_get(tsi->tsi_pill, &RMF_OBD_STATFS);
+	if (osfs == NULL)
+		RETURN(-EPROTO);
 
 	rc = ofd_statfs(tsi->tsi_env, tsi->tsi_exp, osfs,
 			cfs_time_shift_64(-OBD_STATFS_CACHE_SECONDS), 0);
@@ -1546,6 +1555,8 @@ static int ofd_sync_hdl(struct tgt_session_info *tsi)
 	ENTRY;
 
 	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
+	if (repbody == NULL)
+		RETURN(-EPROTO);
 
 	/* if no objid is specified, it means "sync whole filesystem" */
 	if (!fid_is_zero(&tsi->tsi_fid)) {

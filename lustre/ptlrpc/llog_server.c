@@ -105,10 +105,13 @@ int llog_origin_handle_open(struct ptlrpc_request *req)
 		GOTO(out_ctxt, rc);
 
 	body = req_capsule_server_get(&req->rq_pill, &RMF_LLOGD_BODY);
+	if (body == NULL)
+		GOTO(out_close, rc = -EPROTO);
 	body->lgd_logid = loghandle->lgh_id;
-
-	llog_origin_close(req->rq_svc_thread->t_env, loghandle);
 	EXIT;
+
+out_close:
+	llog_origin_close(req->rq_svc_thread->t_env, loghandle);
 out_ctxt:
 	llog_ctxt_put(ctxt);
 	return rc;
@@ -187,9 +190,13 @@ int llog_origin_handle_next_block(struct ptlrpc_request *req)
 		GOTO(out_close, rc);
 
 	repbody = req_capsule_server_get(&req->rq_pill, &RMF_LLOGD_BODY);
+	if (repbody == NULL)
+		GOTO(out_close, rc = -EPROTO);
 	*repbody = *body;
 
 	ptr = req_capsule_server_get(&req->rq_pill, &RMF_EADATA);
+	if (ptr == NULL)
+		GOTO(out_close, rc = -EPROTO);
 	rc = llog_next_block(req->rq_svc_thread->t_env, loghandle,
 			     &repbody->lgd_saved_index, repbody->lgd_index,
 			     &repbody->lgd_cur_offset, ptr, LLOG_CHUNK_SIZE);
@@ -242,14 +249,17 @@ int llog_origin_handle_prev_block(struct ptlrpc_request *req)
 		GOTO(out_close, rc);
 
 	repbody = req_capsule_server_get(&req->rq_pill, &RMF_LLOGD_BODY);
+	if (repbody == NULL)
+		GOTO(out_close, rc = -EPROTO);
 	*repbody = *body;
 
 	ptr = req_capsule_server_get(&req->rq_pill, &RMF_EADATA);
+	if (ptr == NULL)
+		GOTO(out_close, rc = -EPROTO);
 	rc = llog_prev_block(req->rq_svc_thread->t_env, loghandle,
 			     body->lgd_index, ptr, LLOG_CHUNK_SIZE);
 	if (rc)
 		GOTO(out_close, rc);
-
 	EXIT;
 out_close:
 	llog_origin_close(req->rq_svc_thread->t_env, loghandle);
@@ -298,6 +308,8 @@ int llog_origin_handle_read_header(struct ptlrpc_request *req)
 	flags = loghandle->lgh_hdr->llh_flags;
 
 	hdr = req_capsule_server_get(&req->rq_pill, &RMF_LLOG_LOG_HDR);
+	if (hdr == NULL)
+		GOTO(out_close, rc = -EPROTO);
 	*hdr = *loghandle->lgh_hdr;
 	EXIT;
 out_close:

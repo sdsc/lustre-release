@@ -377,23 +377,16 @@ static int seq_handler(struct tgt_session_info *tsi)
 	LASSERT(site != NULL);
 
 	opc = req_capsule_client_get(tsi->tsi_pill, &RMF_SEQ_OPC);
-	if (opc != NULL) {
-		out = req_capsule_server_get(tsi->tsi_pill, &RMF_SEQ_RANGE);
-		if (out == NULL)
-			RETURN(err_serious(-EPROTO));
+	out = req_capsule_server_get(tsi->tsi_pill, &RMF_SEQ_RANGE);
+	tmp = req_capsule_client_get(tsi->tsi_pill, &RMF_SEQ_RANGE);
+	if (opc == NULL || out == NULL || tmp == NULL)
+		RETURN(err_serious(-EPROTO));
 
-		tmp = req_capsule_client_get(tsi->tsi_pill, &RMF_SEQ_RANGE);
-
-		/* seq client passed mdt id, we need to pass that using out
-		 * range parameter */
-
-		out->lsr_index = tmp->lsr_index;
-		out->lsr_flags = tmp->lsr_flags;
-		rc = seq_server_handle(site, tsi->tsi_env, *opc, out);
-	} else {
-		rc = err_serious(-EPROTO);
-	}
-
+	/* seq client passed mdt id,
+	 * we need to pass that using out range parameter */
+	out->lsr_index = tmp->lsr_index;
+	out->lsr_flags = tmp->lsr_flags;
+	rc = seq_server_handle(site, tsi->tsi_env, *opc, out);
 	RETURN(rc);
 }
 
