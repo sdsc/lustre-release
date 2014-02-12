@@ -279,6 +279,8 @@ int mdt_getxattr(struct mdt_thread_info *info)
 	if (valid == OBD_MD_FLXATTR) {
 		char *xattr_name = req_capsule_client_get(info->mti_pill,
 							  &RMF_NAME);
+		if (xattr_name == NULL)
+			GOTO(out, rc = err_serious(-EPROTO));
 		rc = mdt_getxattr_one(info, xattr_name, next, buf, med, uc);
 	} else if (valid == OBD_MD_FLXATTRLS) {
 		CDEBUG(D_INODE, "listxattr\n");

@@ -342,7 +342,11 @@ static struct ptlrpc_request *mdc_intent_open_pack(struct obd_export *exp,
 
         /* pack the intent */
         lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
-        lit->opc = (__u64)it->it_op;
+	if (lit == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(ERR_PTR(-EPROTO));
+	}
+	lit->opc = (__u64)it->it_op;
 
         /* pack the intended request */
         mdc_open_pack(req, op_data, it->it_create_mode, 0, it->it_flags, lmm,
@@ -386,6 +390,10 @@ mdc_intent_getxattr_pack(struct obd_export *exp,
 
 	/* pack the intent */
 	lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
+	if (lit == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(ERR_PTR(-EPROTO));
+	}
 	lit->opc = IT_GETXATTR;
 
 	maxdata = class_exp2cliimp(exp)->imp_connect_data.ocd_max_easize;
@@ -435,6 +443,10 @@ static struct ptlrpc_request *mdc_intent_unlink_pack(struct obd_export *exp,
 
         /* pack the intent */
         lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
+	if (lit == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(ERR_PTR(-EPROTO));
+	}
         lit->opc = (__u64)it->it_op;
 
         /* pack the intended request */
@@ -481,6 +493,10 @@ static struct ptlrpc_request *mdc_intent_getattr_pack(struct obd_export *exp,
 
         /* pack the intent */
         lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
+	if (lit == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(ERR_PTR(-EPROTO));
+	}
         lit->opc = (__u64)it->it_op;
 
 	if (obddev->u.cli.cl_default_mds_easize > 0)
@@ -524,10 +540,18 @@ static struct ptlrpc_request *mdc_intent_layout_pack(struct obd_export *exp,
 
 	/* pack the intent */
 	lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
+	if (lit == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(ERR_PTR(-EPROTO));
+	}
 	lit->opc = (__u64)it->it_op;
 
 	/* pack the layout intent request */
 	layout = req_capsule_client_get(&req->rq_pill, &RMF_LAYOUT_INTENT);
+	if (layout == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(ERR_PTR(-EPROTO));
+	}
 	/* LAYOUT_INTENT_ACCESS is generic, specific operation will be
 	 * set for replication */
 	layout->li_opc = LAYOUT_INTENT_ACCESS;

@@ -1635,7 +1635,6 @@ int lfsck_async_request(const struct lu_env *env, struct obd_export *exp,
 	rc = ptlrpc_request_pack(req, LUSTRE_OBD_VERSION, request);
 	if (rc != 0) {
 		ptlrpc_request_free(req);
-
 		return rc;
 	}
 

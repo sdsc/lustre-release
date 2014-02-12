@@ -927,12 +927,12 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
         req->rq_interpret_reply = ldlm_cb_interpret;
         req->rq_no_resend = 1;
         body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
-
         body->lock_handle[0] = lock->l_remote_handle;
 	body->lock_flags = ldlm_flags_to_wire(flags);
         ldlm_lock2desc(lock, &body->lock_desc);
 	if (lvb_len > 0) {
 		void *lvb = req_capsule_client_get(&req->rq_pill, &RMF_DLM_LVB);
+		LASSERT(lvb != NULL);
 
 		lvb_len = ldlm_lvbo_fill(lock, lvb, lvb_len);
 		if (lvb_len < 0) {
@@ -1051,9 +1051,9 @@ int ldlm_server_glimpse_ast(struct ldlm_lock *lock, void *data)
 		*desc = *arg->gl_desc;
 	}
 
-        body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
-        body->lock_handle[0] = lock->l_remote_handle;
-        ldlm_lock2desc(lock, &body->lock_desc);
+	body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	body->lock_handle[0] = lock->l_remote_handle;
+	ldlm_lock2desc(lock, &body->lock_desc);
 
 	CLASSERT(sizeof(*ca) <= sizeof(req->rq_async_args));
 	ca = ptlrpc_req_async_args(req);
@@ -1304,7 +1304,9 @@ existing_lock:
 		GOTO(out, err);
 	}
 
-        dlm_rep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
+	dlm_rep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
+	if (dlm_rep == NULL)
+		GOTO(out, rc = -EPROTO);
 	dlm_rep->lock_flags = ldlm_flags_to_wire(flags);
 
         ldlm_lock2desc(lock, &dlm_rep->lock_desc);

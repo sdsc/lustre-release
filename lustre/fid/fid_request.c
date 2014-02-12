@@ -128,6 +128,8 @@ static int seq_client_rpc(struct lu_client_seq *seq,
 		GOTO(out_req, rc);
 
 	out = req_capsule_server_get(&req->rq_pill, &RMF_SEQ_RANGE);
+	if (out == NULL)
+		GOTO(out_req, rc = -EPROTO);
 	*output = *out;
 
 	if (!range_is_sane(output)) {

@@ -1069,6 +1069,8 @@ int ldlm_cli_convert(struct lustre_handle *lockh, int new_mode, __u32 *flags)
         }
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	if (body == NULL)
+		GOTO(out, rc = -EPROTO);
         body->lock_handle[0] = lock->l_remote_handle;
 
         body->lock_desc.l_req_mode = new_mode;

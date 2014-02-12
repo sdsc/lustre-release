@@ -119,7 +119,6 @@ void mdc_pack_body(struct ptlrpc_request *req,
 {
         struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
                                                     &RMF_MDT_BODY);
-        LASSERT(b != NULL);
         b->valid = valid;
         b->eadatasize = ea_size;
         b->flags = flags;
@@ -136,6 +135,7 @@ void mdc_readdir_pack(struct ptlrpc_request *req, __u64 pgoff,
 {
         struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
                                                     &RMF_MDT_BODY);
+
         b->fid1 = *fid;
         b->valid |= OBD_MD_FLID;
         b->size = pgoff;                       /* !! */
@@ -157,7 +157,6 @@ void mdc_create_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 
 	CLASSERT(sizeof(struct mdt_rec_reint) == sizeof(struct mdt_rec_create));
 	rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
-
 
 	rec->cr_opcode   = REINT_CREATE;
 	rec->cr_fsuid    = uid;
@@ -357,25 +356,31 @@ static void mdc_ioepoch_pack(struct mdt_ioepoch *epoch,
 void mdc_setattr_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
                       void *ea, int ealen, void *ea2, int ea2len)
 {
+	void *pea;
         struct mdt_rec_setattr *rec;
         struct mdt_ioepoch *epoch;
         struct lov_user_md *lum = NULL;
 
         CLASSERT(sizeof(struct mdt_rec_reint) ==sizeof(struct mdt_rec_setattr));
         rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
+	if (rec == NULL)
+		return;
         mdc_setattr_pack_rec(rec, op_data);
 
         mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
 
         if (op_data->op_flags & (MF_SOM_CHANGE | MF_EPOCH_OPEN)) {
                 epoch = req_capsule_client_get(&req->rq_pill, &RMF_MDT_EPOCH);
-                mdc_ioepoch_pack(epoch, op_data);
+		if (epoch != NULL)
+			mdc_ioepoch_pack(epoch, op_data);
         }
 
         if (ealen == 0)
                 return;
 
         lum = req_capsule_client_get(&req->rq_pill, &RMF_EADATA);
+	if (lum == NULL)
+		return;
         if (ea == NULL) { /* Remove LOV EA */
                 lum->lmm_magic = LOV_USER_MAGIC_V1;
                 lum->lmm_stripe_size = 0;
@@ -388,8 +393,9 @@ void mdc_setattr_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
         if (ea2len == 0)
                 return;
 
-        memcpy(req_capsule_client_get(&req->rq_pill, &RMF_LOGCOOKIES), ea2,
-               ea2len);
+	pea = req_capsule_client_get(&req->rq_pill, &RMF_LOGCOOKIES);
+	if (pea != NULL)
+		memcpy(pea, ea2, ea2len);
 }
 
 void mdc_unlink_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
@@ -540,6 +546,7 @@ void mdc_close_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
 
         epoch = req_capsule_client_get(&req->rq_pill, &RMF_MDT_EPOCH);
         rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
+	LASSERT(epoch != NULL && rec != NULL);
 
         mdc_setattr_pack_rec(rec, op_data);
         mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);

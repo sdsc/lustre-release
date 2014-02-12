@@ -3611,7 +3611,8 @@ lfsck_layout_slave_async_interpret(const struct lu_env *env,
 		struct lfsck_reply *lr;
 
 		lr = req_capsule_server_get(&req->rq_pill, &RMF_LFSCK_REPLY);
-		if (lr->lr_status != LS_SCANNING_PHASE1 &&
+		if (lr != NULL &&
+		    lr->lr_status != LS_SCANNING_PHASE1 &&
 		    lr->lr_status != LS_SCANNING_PHASE2)
 			done = true;
 	}

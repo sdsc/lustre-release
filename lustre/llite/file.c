@@ -206,7 +206,7 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 	if (rc == 0 && op_data->op_bias & MDS_HSM_RELEASE) {
 		struct mdt_body *body;
 		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
-		if (!(body->valid & OBD_MD_FLRELEASED))
+		if (body != NULL && !(body->valid & OBD_MD_FLRELEASED))
 			rc = -EBUSY;
 	}
 
@@ -501,6 +501,9 @@ static int ll_och_fill(struct obd_export *md_exp, struct lookup_intent *it,
 	struct mdt_body *body;
 
 	body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		return -EPROTO;
+
 	och->och_fh = body->handle;
 	och->och_fid = body->fid1;
 	och->och_lease_handle.cookie = it->d.lustre.it_lock_handle;
@@ -531,6 +534,8 @@ static int ll_local_open(struct file *file, struct lookup_intent *it,
 			RETURN(rc);
 
 		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+		if (body == NULL)
+			RETURN(-EPROTO);
 		ll_ioepoch_open(lli, body->ioepoch);
 	}
 

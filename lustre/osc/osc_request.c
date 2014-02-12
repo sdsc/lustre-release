@@ -2888,7 +2888,7 @@ static int osc_set_info_async(const struct lu_env *env, struct obd_export *exp,
 	tmp = req_capsule_client_get(&req->rq_pill, KEY_IS(KEY_GRANT_SHRINK) ?
 							&RMF_OST_BODY :
 							&RMF_SETINFO_VAL);
-        memcpy(tmp, val, vallen);
+	memcpy(tmp, val, vallen);
 
 	if (KEY_IS(KEY_GRANT_SHRINK)) {
                 struct osc_grant_args *aa;

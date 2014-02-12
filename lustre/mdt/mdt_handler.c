@@ -279,6 +279,9 @@ static int mdt_getstatus(struct tgt_session_info *tsi)
 		GOTO(out, rc = err_serious(-ENOMEM));
 
 	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	if (repbody == NULL)
+		GOTO(out, rc = err_serious(-EPROTO));
+
 	repbody->fid1 = mdt->mdt_md_root_fid;
 	repbody->valid |= OBD_MD_FLID;
 
@@ -376,7 +379,7 @@ static void mdt_pack_size2body(struct mdt_thread_info *info,
         /* Check if Size-on-MDS is supported, if this is a regular file,
          * if SOM is enabled on the object and if SOM cache exists and valid.
          * Otherwise do not pack Size-on-MDS attributes to the reply. */
-        if (!(mdt_conn_flags(info) & OBD_CONNECT_SOM) ||
+	if (b == NULL || !(mdt_conn_flags(info) & OBD_CONNECT_SOM) ||
             !S_ISREG(ma->ma_attr.la_mode) ||
             !mdt_object_is_som_enabled(mo) ||
             !(ma->ma_valid & MA_SOM))
@@ -469,10 +472,10 @@ void mdt_client_compatibility(struct mdt_thread_info *info)
 		/* the client can deal with 16-bit lmm_stripe_count */
 		RETURN_EXIT;
 
-        body = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	body = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
 
-        if (!mdt_body_has_lov(la, body))
-                RETURN_EXIT;
+	if (body == NULL || !mdt_body_has_lov(la, body))
+		RETURN_EXIT;
 
         /* now we have a reply with a lov for a client not compatible with the
          * layout lock so we have to clean the layout generation number */
@@ -779,6 +782,8 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                 RETURN(err_serious(-ENOMEM));
 
         repbody = req_capsule_server_get(pill, &RMF_MDT_BODY);
+	if (repbody == NULL)
+		GOTO(out, rc = -EPROTO);
 
         ma->ma_valid = 0;
 
@@ -958,6 +963,8 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         if (exp_connect_rmtclient(info->mti_exp) &&
             reqbody->valid & OBD_MD_FLRMTPERM) {
                 void *buf = req_capsule_server_get(pill, &RMF_ACL);
+		if (buf == NULL)
+			GOTO(out, rc = -EPROTO);
 
                 /* mdt_getattr_lock only */
                 rc = mdt_pack_remote_perm(info, o, buf);
@@ -973,7 +980,9 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 #ifdef CONFIG_FS_POSIX_ACL
 	else if ((exp_connect_flags(req->rq_export) & OBD_CONNECT_ACL) &&
 		 (reqbody->valid & OBD_MD_FLACL)) {
-                buffer->lb_buf = req_capsule_server_get(pill, &RMF_ACL);
+		buffer->lb_buf = req_capsule_server_get(pill, &RMF_ACL);
+		if (buffer->lb_buf == NULL)
+			GOTO(out, rc = -EPROTO);
                 buffer->lb_len = req_capsule_get_size(pill,
                                                       &RMF_ACL, RCL_SERVER);
                 if (buffer->lb_len > 0) {
@@ -1157,6 +1166,7 @@ static int mdt_is_subdir(struct tgt_session_info *tsi)
         LASSERT(o != NULL);
 
         repbody = req_capsule_server_get(pill, &RMF_MDT_BODY);
+	LASSERT(repbody != NULL);
 
 	/*
 	 * We save last checked parent fid to @repbody->fid1 for remote
@@ -1291,19 +1301,11 @@ static int mdt_raw_lookup(struct mdt_thread_info *info,
         fid_zero(child_fid);
         rc = mdo_lookup(info->mti_env, next, lname, child_fid,
                         &info->mti_spec);
-#if 0
-        /* XXX is raw_lookup possible as intent operation? */
-        if (rc != 0) {
-                if (rc == -ENOENT)
-                        mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_NEG);
-                RETURN(rc);
-        } else
-                mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
-
-        repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
-#endif
         if (rc == 0) {
                 repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+		if (repbody == NULL)
+			RETURN(-EPROTO);
+
                 repbody->fid1 = *child_fid;
                 repbody->valid = OBD_MD_FLID;
         }
@@ -1974,8 +1976,10 @@ static int mdt_sync(struct tgt_session_info *tsi)
 			if (rc == 0) {
 				body = req_capsule_server_get(pill,
 							      &RMF_MDT_BODY);
-				fid = mdt_object_fid(info->mti_object);
-				mdt_pack_attr2body(info, body, la, fid);
+				if (body != NULL) {
+					fid = mdt_object_fid(info->mti_object);
+					mdt_pack_attr2body(info, body, la, fid);
+				}
 			}
 		}
 		mdt_thread_info_fini(info);
@@ -3095,6 +3099,8 @@ static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
                 return;
 
         dlmreq = req_capsule_client_get(info->mti_pill, &RMF_DLM_REQ);
+	if (dlmreq == NULL)
+		return;
         remote_hdl = dlmreq->lock_handle[0];
 	/* If the client does not require open lock, it does not need to
 	 * search lock in exp_lock_hash, since the server thread will
@@ -3225,6 +3231,7 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
                 GOTO(out_shrink, rc);
 
         ldlm_rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
+	LASSERT(ldlm_rep != NULL);
         mdt_set_disposition(info, ldlm_rep, DISP_IT_EXECD);
 
 	/* Get lock from request for possible resent case. */
@@ -3478,7 +3485,7 @@ static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
         rc = mdt_unpack_req_pack_rep(info, flv->it_flags);
         if (rc == 0) {
                 struct ptlrpc_request *req = mdt_info_req(info);
-		if (flv->it_flags & MUTABOR &&
+		if (req != NULL && flv->it_flags & MUTABOR &&
 		    exp_connect_flags(req->rq_export) & OBD_CONNECT_RDONLY)
 			RETURN(-EROFS);
         }
@@ -3492,8 +3499,11 @@ static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
 		if (mdt_info_req(info)->rq_repmsg != NULL) {
 			rep = req_capsule_server_get(info->mti_pill,
 						     &RMF_DLM_REP);
-			rep->lock_policy_res2 =
-				ptlrpc_status_hton(rep->lock_policy_res2);
+			if (rep == NULL)
+				rc = -EPROTO;
+			else
+				rep->lock_policy_res2 =
+				     ptlrpc_status_hton(rep->lock_policy_res2);
 		}
 	} else {
 		rc = -EPROTO;
