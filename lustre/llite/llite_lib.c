@@ -2201,6 +2201,8 @@ int ll_iocontrol(struct inode *inode, struct file *file,
                 }
 
                 body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+		if (body == NULL)
+			RETURN(-EPROTO);
 
                 flags = body->flags;
 

@@ -157,6 +157,7 @@ int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			     RCL_SERVER, OUT_UPDATE_REPLY_SIZE);
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_OUT_UPDATE);
+	LASSERT(tmp != NULL);
 	memcpy(tmp, ureq, ureq_len);
 
 	ptlrpc_request_set_replen(req);

@@ -273,6 +273,8 @@ static int mdt_md_create(struct mdt_thread_info *info)
 		RETURN(-EPERM);
 
 	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	if (repbody == NULL)
+		RETURN(-EPROTO);
 
 	parent = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1);
 	if (IS_ERR(parent))
@@ -580,6 +582,8 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
                 ldlm_request_cancel(req, info->mti_dlm_req, 0);
 
 	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	if (repbody == NULL)
+		GOTO(out, rc = -EPROTO);
         mo = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1);
         if (IS_ERR(mo))
                 GOTO(out, rc = PTR_ERR(mo));

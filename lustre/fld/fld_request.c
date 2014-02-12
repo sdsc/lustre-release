@@ -442,6 +442,7 @@ again:
 		/* XXX: only needed when talking to old server(< 2.6), it should
 		 * be removed when < 2.6 server is not supported */
 		op = req_capsule_client_get(&req->rq_pill, &RMF_FLD_OPC);
+		LASSERT(op != NULL);
 		*op = FLD_LOOKUP;
 
 		/* For MDS_MDS seq lookup, it will always use LWP connection,
@@ -471,6 +472,7 @@ again:
 		RETURN(rc);
 
 	prange = req_capsule_client_get(&req->rq_pill, &RMF_FLD_MDFLD);
+	LASSERT(prange != NULL);
 	*prange = *range;
 	ptlrpc_request_set_replen(req);
         req->rq_request_portal = FLD_REQUEST_PORTAL;

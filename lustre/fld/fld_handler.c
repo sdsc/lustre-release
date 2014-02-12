@@ -339,6 +339,7 @@ static int fld_handle_read(struct tgt_session_info *tsi)
 		RETURN(err_serious(rc));
 
 	data = req_capsule_server_get(tsi->tsi_pill, &RMF_GENERIC_DATA);
+	LASSERT(data != NULL);
 
 	rc = fld_server_read(tsi->tsi_env, lu_site2seq(site)->ss_server_fld,
 			     in, data, PAGE_CACHE_SIZE);

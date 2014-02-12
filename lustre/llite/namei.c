@@ -1219,6 +1219,9 @@ int ll_objects_destroy(struct ptlrpc_request *request, struct inode *dir)
 
         /* req is swabbed so this is safe */
         body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		GOTO(out, rc = -EPROTO);
+
         if (!(body->valid & OBD_MD_FLEASIZE))
                 RETURN(0);
 

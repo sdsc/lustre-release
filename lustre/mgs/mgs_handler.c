@@ -125,6 +125,8 @@ static int mgs_set_info(struct tgt_session_info *tsi)
 
 	/* send back the whole msp in the reply */
 	rep_msp = req_capsule_server_get(tsi->tsi_pill, &RMF_MGS_SEND_PARAM);
+	if (rep_msp == NULL)
+		GOTO(out_cfg, rc = err_serious(-EPROTO));
 	*rep_msp = *msp;
 	EXIT;
 out_cfg:
@@ -455,7 +457,10 @@ out_nolock:
 
 	/* send back the whole mti in the reply */
 	rep_mti = req_capsule_server_get(tsi->tsi_pill, &RMF_MGS_TARGET_INFO);
-	*rep_mti = *mti;
+	if (rep_mti == NULL)
+		rc = -EPROTO;
+	else
+		*rep_mti = *mti;
 
 	/* Flush logs to disk */
 	dt_sync(tsi->tsi_env, mgs->mgs_bottom);

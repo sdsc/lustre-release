@@ -263,6 +263,7 @@ int osc_quotactl(struct obd_device *unused, struct obd_export *exp,
                 RETURN(-ENOMEM);
 
         oqc = req_capsule_client_get(&req->rq_pill, &RMF_OBD_QUOTACTL);
+	LASSERT(oqc != NULL);
         *oqc = *oqctl;
 
         ptlrpc_request_set_replen(req);
@@ -301,6 +302,7 @@ int osc_quotacheck(struct obd_device *unused, struct obd_export *exp,
                 RETURN(-ENOMEM);
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_OBD_QUOTACTL);
+	LASSERT(body != NULL);
         *body = *oqctl;
 
         ptlrpc_request_set_replen(req);

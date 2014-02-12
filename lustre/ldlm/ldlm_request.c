@@ -958,6 +958,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
         /* Dump lock data into the request buffer */
         body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	LASSERT(body != NULL);
         ldlm_lock2desc(lock, &body->lock_desc);
 	body->lock_flags = ldlm_flags_to_wire(*flags);
         body->lock_handle[0] = *lockh;
@@ -1069,6 +1070,8 @@ int ldlm_cli_convert(struct lustre_handle *lockh, int new_mode, __u32 *flags)
         }
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	if (body == NULL)
+		GOTO(out, rc = -EPROTO);
         body->lock_handle[0] = lock->l_remote_handle;
 
         body->lock_desc.l_req_mode = new_mode;
@@ -2248,6 +2251,7 @@ static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
         req->rq_send_state = LUSTRE_IMP_REPLAY_LOCKS;
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_DLM_REQ);
+	LASSERT(body != NULL);
         ldlm_lock2desc(lock, &body->lock_desc);
 	body->lock_flags = ldlm_flags_to_wire(flags);
 

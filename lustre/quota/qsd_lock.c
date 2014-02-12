@@ -159,6 +159,7 @@ static int qsd_common_glimpse_ast(struct ptlrpc_request *req,
 
 	/* extract lvb */
 	*lvb = req_capsule_server_get(&req->rq_pill, &RMF_DLM_LVB);
+	LASSERT(*lvb != NULL);
 
 	RETURN(0);
 }
