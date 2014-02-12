@@ -428,22 +428,17 @@ static int ldlm_add_waiting_lock(struct ldlm_lock *lock)
 
 	spin_lock_bh(&waiting_locks_spinlock);
 	if (ldlm_is_destroyed(lock)) {
-		static cfs_time_t next;
 		spin_unlock_bh(&waiting_locks_spinlock);
-                LDLM_ERROR(lock, "not waiting on destroyed lock (bug 5653)");
-                if (cfs_time_after(cfs_time_current(), next)) {
-                        next = cfs_time_shift(14400);
-                        libcfs_debug_dumpstack(NULL);
-                }
-                return 0;
-        }
+		LDLM_ERROR(lock, "not waiting on destroyed lock (bug 5653)");
+		return 0;
+	}
 
-        ret = __ldlm_add_waiting_lock(lock, timeout);
-        if (ret) {
-                /* grab ref on the lock if it has been added to the
-                 * waiting list */
-                LDLM_LOCK_GET(lock);
-        }
+	ret = __ldlm_add_waiting_lock(lock, timeout);
+	if (ret) {
+		/* grab ref on the lock if it has been added to the
+		 * waiting list */
+		LDLM_LOCK_GET(lock);
+	}
 	spin_unlock_bh(&waiting_locks_spinlock);
 
 	if (ret) {
