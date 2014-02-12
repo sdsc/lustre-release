@@ -551,10 +551,12 @@ static int osp_get_lastfid_from_ost(const struct lu_env *env,
 	}
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_GETINFO_KEY);
+	LASSERT(tmp != NULL);
 	memcpy(tmp, KEY_LAST_FID, sizeof(KEY_LAST_FID));
 
 	req->rq_no_delay = req->rq_no_resend = 1;
 	last_fid = req_capsule_client_get(&req->rq_pill, &RMF_FID);
+	LASSERT(last_fid != NULL);
 	fid_cpu_to_le(last_fid, &d->opd_last_used_fid);
 
 	ptlrpc_request_set_replen(req);
@@ -667,9 +669,7 @@ static int osp_precreate_cleanup_orphans(struct lu_env *env,
 	}
 
 	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
-	if (body == NULL)
-		GOTO(out, rc = -EPROTO);
-
+	LASSERT(body != NULL);
 	body->oa.o_flags = OBD_FL_DELORPHAN;
 	body->oa.o_valid = OBD_MD_FLFLAGS | OBD_MD_FLGROUP;
 

@@ -259,11 +259,14 @@ static void mdt_reconstruct_create(struct mdt_thread_info *mti,
                               obd_uuid2str(&exp->exp_client_uuid),
                               obd_export_nid2str(exp));
                 mdt_export_evict(exp);
-                EXIT;
-                return;
+		RETURN_EXIT;
         }
 
         body = req_capsule_server_get(mti->mti_pill, &RMF_MDT_BODY);
+	if (body == NULL) {
+		mdt_object_put(mti->mti_env, child);
+		RETURN_EXIT;
+	}
         mti->mti_attr.ma_need = MA_INODE;
         mti->mti_attr.ma_valid = 0;
 	rc = mdt_attr_get_complex(mti, child, &mti->mti_attr);
@@ -296,6 +299,8 @@ static void mdt_reconstruct_setattr(struct mdt_thread_info *mti,
                 return;
 
         body = req_capsule_server_get(mti->mti_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		RETURN_EXIT;
         obj = mdt_object_find(mti->mti_env, mdt, mti->mti_rr.rr_fid1);
         if (IS_ERR(obj)) {
                 int rc = PTR_ERR(obj);
@@ -305,8 +310,7 @@ static void mdt_reconstruct_setattr(struct mdt_thread_info *mti,
                               obd_uuid2str(&exp->exp_client_uuid),
                               obd_export_nid2str(exp));
                 mdt_export_evict(exp);
-                EXIT;
-                return;
+		RETURN_EXIT;
         }
         mti->mti_attr.ma_need = MA_INODE;
         mti->mti_attr.ma_valid = 0;
@@ -318,15 +322,18 @@ static void mdt_reconstruct_setattr(struct mdt_thread_info *mti,
                 struct mdt_body *repbody;
 
                 repbody = req_capsule_server_get(mti->mti_pill, &RMF_MDT_BODY);
-                repbody->ioepoch = obj->mot_ioepoch;
-		spin_lock(&med->med_open_lock);
-		cfs_list_for_each_entry(mfd, &med->med_open_head, mfd_list) {
-			if (mfd->mfd_xid == req->rq_xid)
-				break;
+		if (repbody != NULL) {
+			repbody->ioepoch = obj->mot_ioepoch;
+			spin_lock(&med->med_open_lock);
+			cfs_list_for_each_entry(mfd, &med->med_open_head,
+					        mfd_list) {
+				if (mfd->mfd_xid == req->rq_xid)
+					break;
+			}
+			LASSERT(&mfd->mfd_list != &med->med_open_head);
+			spin_unlock(&med->med_open_lock);
+			repbody->handle.cookie = mfd->mfd_handle.h_cookie;
 		}
-		LASSERT(&mfd->mfd_list != &med->med_open_head);
-		spin_unlock(&med->med_open_lock);
-		repbody->handle.cookie = mfd->mfd_handle.h_cookie;
 	}
 
 	mdt_object_put(mti->mti_env, obj);

@@ -114,6 +114,7 @@ int qsd_send_dqacq(const struct lu_env *env, struct obd_export *exp,
 	}
 
 	req_qbody = req_capsule_client_get(&req->rq_pill, &RMF_QUOTA_BODY);
+	LASSERT(req_qbody != NULL);
 	*req_qbody = *qbody;
 
 	ptlrpc_request_set_replen(req);
@@ -157,7 +158,6 @@ static int qsd_intent_interpret(const struct lu_env *env,
 {
 	struct lustre_handle	 *lockh;
 	struct quota_body	 *rep_qbody = NULL, *req_qbody;
-	struct ldlm_intent	 *lit;
 	struct qsd_async_args	 *aa = (struct qsd_async_args *)arg;
 	__u64			  flags = LDLM_FL_HAS_INTENT;
 	ENTRY;
@@ -165,7 +165,6 @@ static int qsd_intent_interpret(const struct lu_env *env,
 	LASSERT(aa->aa_exp);
 	lockh = &aa->aa_lockh;
 	req_qbody = req_capsule_client_get(&req->rq_pill, &RMF_QUOTA_BODY);
-	lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
 
 	rc = ldlm_cli_enqueue_fini(aa->aa_exp, req, LDLM_PLAIN, 0, LCK_CR,
 				   &flags, (void *)aa->aa_lvb,
@@ -233,9 +232,17 @@ int qsd_intent_lock(const struct lu_env *env, struct obd_export *exp,
 	}
 
 	lit = req_capsule_client_get(&req->rq_pill, &RMF_LDLM_INTENT);
+	if (lit == NULL) {
+		ptlrpc_request_free(req);
+		GOTO(out, rc = -EPROTO);
+	}
 	lit->opc = (__u64)it_op;
 
 	req_qbody = req_capsule_client_get(&req->rq_pill, &RMF_QUOTA_BODY);
+	if (req_qbody == NULL) {
+		ptlrpc_request_free(req);
+		GOTO(out, rc = -EPROTO);
+	}
 	*req_qbody = *qbody;
 
 	req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER,
@@ -385,6 +392,10 @@ int qsd_fetch_index(const struct lu_env *env, struct obd_export *exp,
 
 	/* pack index information in request */
 	req_ii = req_capsule_client_get(&req->rq_pill, &RMF_IDX_INFO);
+	if (req_ii == NULL) {
+		ptlrpc_request_free(req);
+		RETURN(-EPROTO);
+	}
 	*req_ii = *ii;
 
 	ptlrpc_request_set_replen(req);
@@ -404,6 +415,8 @@ int qsd_fetch_index(const struct lu_env *env, struct obd_export *exp,
 		rc = 0;
 
 	req_ii = req_capsule_server_get(&req->rq_pill, &RMF_IDX_INFO);
+	if (req_ii == NULL)
+		GOTO(out, rc = -EPROTO);
 	*ii = *req_ii;
 
 	*need_swab = ptlrpc_rep_need_swab(req);
