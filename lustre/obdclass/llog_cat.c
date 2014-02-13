@@ -437,7 +437,11 @@ int llog_cat_declare_add_rec(const struct lu_env *env,
 			rc = llog_declare_create(env, next, th);
 			llog_declare_write_rec(env, cathandle, NULL, -1, th);
 		}
-		llog_declare_write_rec(env, next, rec, -1, th);
+		/* XXX: we hope for declarations made for existing llog
+		 *	this might be not correct with some backends
+		 *	where declarations are expected against specific
+		 *	object like ZFS with full debugging enabled */
+		//llog_declare_write_rec(env, next, rec, -1, th);
 	}
 out:
 	RETURN(rc);
