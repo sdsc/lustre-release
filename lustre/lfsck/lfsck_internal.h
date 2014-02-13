@@ -534,6 +534,8 @@ struct lfsck_thread_args {
 	struct lfsck_start_param	*lta_lsp;
 };
 
+#define LFSCK_TMPBUF_LEN	64
+
 struct lfsck_thread_info {
 	struct lu_name		lti_name;
 	struct lu_buf		lti_buf;
@@ -546,6 +548,7 @@ struct lfsck_thread_info {
 	struct lu_attr		lti_la2;
 	struct lu_attr		lti_la3;
 	struct ost_id		lti_oi;
+	struct ost_id		lti_oi2;
 	union {
 		struct lustre_mdt_attrs lti_lma;
 		/* old LMA for compatibility */
@@ -556,6 +559,7 @@ struct lfsck_thread_info {
 	 * then lti_ent::lde_name will be lti_key. */
 	struct lu_dirent	lti_ent;
 	char			lti_key[NAME_MAX + 16];
+	char			lti_tmpbuf[LFSCK_TMPBUF_LEN];
 	struct lfsck_request	lti_lr;
 	struct lfsck_async_interpret_args lti_laia;
 	struct lfsck_start	lti_start;
