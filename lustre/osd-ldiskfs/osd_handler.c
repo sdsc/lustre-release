@@ -1438,16 +1438,13 @@ const int osd_dto_credits_noquota[DTO_NR] = {
          */
         [DTO_INDEX_UPDATE]  = 16,
         /**
-         * Create a object. The same as create object in EXT3.
-         * DATA_TRANS_BLOCKS(14) +
-         * INDEX_EXTRA_BLOCKS(8) +
-         * 3(inode bits, groups, GDT)
+	 * 3(inode, inode bits, groups, GDT)
          */
-        [DTO_OBJECT_CREATE] = 25,
+	[DTO_OBJECT_CREATE] = 4,
         /**
-         * XXX: real credits to be fixed
+	 * 3(inode, inode bits, groups, GDT)
          */
-        [DTO_OBJECT_DELETE] = 25,
+	[DTO_OBJECT_DELETE] = 4,
         /**
          * Attr set credits (inode)
          */
@@ -1459,7 +1456,6 @@ const int osd_dto_credits_noquota[DTO_NR] = {
          * are also counted in. Do not know why?
          */
         [DTO_XATTR_SET]     = 14,
-        [DTO_LOG_REC]       = 14,
         /**
          * credits for inode change during write.
          */
@@ -2341,12 +2337,10 @@ static int osd_declare_object_create(const struct lu_env *env,
 
 	osd_trans_declare_op(env, oh, OSD_OT_CREATE,
 			     osd_dto_credits_noquota[DTO_OBJECT_CREATE]);
-	if (!fid_is_on_ost(osd_oti_get(env), osd_dt_dev(handle->th_dev),
-			   lu_object_fid(&dt->do_lu), OI_CHECK_FLD))
-		/* Reuse idle OI block may cause additional one OI block
-		 * to be changed. */
-		osd_trans_declare_op(env, oh, OSD_OT_INSERT,
-				osd_dto_credits_noquota[DTO_INDEX_INSERT] + 1);
+	/* Reuse idle OI block may cause additional one OI block
+	 * to be changed. */
+	osd_trans_declare_op(env, oh, OSD_OT_INSERT,
+			     osd_dto_credits_noquota[DTO_INDEX_INSERT] + 1);
 
 	/* If this is directory, then we expect . and .. to be inserted as
 	 * well. The one directory block always needs to be created for the
@@ -2911,16 +2905,26 @@ static int osd_declare_xattr_set(const struct lu_env *env,
                                  int fl, struct thandle *handle)
 {
 	struct osd_thandle *oh;
+	int credits;
 
 	LASSERT(handle != NULL);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_handle == NULL);
 
-	osd_trans_declare_op(env, oh, OSD_OT_XATTR_SET,
-			     strcmp(name, XATTR_NAME_VERSION) == 0 ?
-			     osd_dto_credits_noquota[DTO_ATTR_SET_BASE] :
-			     osd_dto_credits_noquota[DTO_XATTR_SET]);
+	/* optimistic optimization: LMA is set first and usually fit inode */
+	if (strcmp(name, XATTR_NAME_LMA) == 0) {
+		if (dt_object_exists(dt))
+			credits = 0;
+		else
+			credits = 1;
+	} else if (strcmp(name, XATTR_NAME_VERSION) == 0) {
+		credits = 1;
+	} else {
+		credits = osd_dto_credits_noquota[DTO_XATTR_SET];
+	}
+
+	osd_trans_declare_op(env, oh, OSD_OT_XATTR_SET, credits);
 
 	return 0;
 }

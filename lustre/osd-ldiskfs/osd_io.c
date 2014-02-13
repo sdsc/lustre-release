@@ -1318,9 +1318,10 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
                                  const loff_t size, loff_t pos,
                                  struct thandle *handle)
 {
+	struct inode	   *inode = osd_dt_obj(dt)->oo_inode;
         struct osd_thandle *oh;
-        int                 credits;
-	struct inode	   *inode;
+	unsigned long	    blocks, allocated;
+	unsigned short	    credits;
 	int		    rc;
 	ENTRY;
 
@@ -1331,13 +1332,23 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
 
 	credits = osd_dto_credits_noquota[DTO_WRITE_BLOCK];
 
-	osd_trans_declare_op(env, oh, OSD_OT_WRITE, credits);
-
-	inode = osd_dt_obj(dt)->oo_inode;
-
 	/* we may declare write to non-exist llog */
-	if (inode == NULL)
+	if (inode == NULL) {
+		osd_trans_declare_op(env, oh, OSD_OT_WRITE, credits);
 		RETURN(0);
+	}
+
+	blocks = i_size_read(inode) >> inode->i_sb->s_blocksize_bits;
+	blocks += !!(i_size_read(inode) & (inode->i_sb->s_blocksize - 1));
+	allocated = inode->i_blocks >> (inode->i_blkbits - 9);
+	if (pos + size <= i_size_read(inode) && blocks <= allocated) {
+		/* looks like an overwrite */
+		credits = (size + inode->i_sb->s_blocksize - 1) >>
+			inode->i_sb->s_blocksize_bits;
+		credits += !!(pos & (inode->i_sb->s_blocksize - 1));
+	}
+
+	osd_trans_declare_op(env, oh, OSD_OT_WRITE, credits);
 
 	/* dt_declare_write() is usually called for system objects, such
 	 * as llog or last_rcvd files. We needn't enforce quota on those
