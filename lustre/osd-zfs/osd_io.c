@@ -137,6 +137,10 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
 		dmu_tx_hold_sa_create(oh->ot_tx, ZFS_SA_BASE_ATTR_SIZE);
 	}
 
+	/* XXX: we still miss for append declaration support in ZFS */
+	/*	with 128b records, llog can grow upto 8MB .. */
+	if (pos == -1)
+		pos = 256 * 8 * 8192;
 	dmu_tx_hold_write(oh->ot_tx, oid, pos, size);
 
 	/* dt_declare_write() is usually called for system objects, such
