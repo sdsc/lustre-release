@@ -1314,14 +1314,27 @@ static ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
         return rc;
 }
 
-static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
-                                 const loff_t size, loff_t pos,
-                                 struct thandle *handle)
+static inline int osd_extents_enabled(struct super_block *sb)
 {
-        struct osd_thandle *oh;
-        int                 credits;
-	struct inode	   *inode;
-	int		    rc;
+	int rc;
+
+	rc = (LDISKFS_HAS_INCOMPAT_FEATURE(sb, LDISKFS_FEATURE_INCOMPAT_EXTENTS)
+			|| test_opt(sb, EXTENTS));
+	return rc;
+}
+
+static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
+				 const loff_t size, loff_t _pos,
+				 struct thandle *handle)
+{
+	struct osd_object  *obj  = osd_dt_obj(dt);
+	struct inode	   *inode = obj->oo_inode;
+	struct super_block *sb = osd_sb(osd_obj2dev(obj));
+	struct osd_thandle *oh;
+	int		    rc = 0, est = 0, credits, blocks, allocated = 0;
+	int		    bits, bs;
+	int		    depth;
+	loff_t		    pos;
 	ENTRY;
 
         LASSERT(handle != NULL);
@@ -1329,21 +1342,92 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
         oh = container_of0(handle, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle == NULL);
 
-	credits = osd_dto_credits_noquota[DTO_WRITE_BLOCK];
+	bits = sb->s_blocksize_bits;
+	bs = 1 << bits;
+
+	if (_pos != -1) {
+		pos = _pos;
+	} else {
+		/* if this is an append, then we
+		 * should expect cross-block record */
+		pos = 0;
+	}
+
+	/* blocks to modify */
+	blocks = ((pos + size + bs - 1) >> bits) - (pos >> bits);
+	LASSERT(blocks > 0);
+
+	if (inode != NULL && _pos != -1) {
+		/* object size in blocks */
+		est = (i_size_read(inode) + bs - 1) >> bits;
+		allocated = inode->i_blocks >> (bits - 9);
+		if (pos + size <= i_size_read(inode) && est <= allocated) {
+			/* looks like an overwrite, no need to modify tree */
+			credits = blocks;
+			/* no need to modify i_size */
+			goto out;
+		}
+	}
+
+	if (osd_extents_enabled(sb)) {
+		/*
+		 * many concurrent threads may grow tree by the time
+		 * our transaction starts. so, consider 2 is a min depth
+		 * for every level we may need to allocate a new block
+		 * and take some entries from the old one. so, 3 blocks
+		 * to allocate (bitmap, gd, itself) + old block - 4 per
+		 * level.
+		 */
+		depth = inode != NULL ? ext_depth(inode) : 0;
+		depth = max(depth, 1) + 1;
+		credits = depth;
+		/* if not append, then split may need to modify
+		 * existing blocks moving entries into the new ones */
+		if (_pos == -1)
+			credits += depth;
+		/* blocks to store data: bitmap,gd,itself */
+		credits += blocks * 3;
+	} else {
+		/* legacy blockmap: 3 levels * 3 (bitmap,gd,itself)
+		 * we do not expect blockmaps on the large files,
+		 * so let's shrink it to 2 levels (4GB files) */
+
+		/* this is default reservation: 2 levels */
+		credits = (blocks + 2) * 3;
+
+		/* now check for few specific cases to optimize */
+		if (_pos != -1) {
+			if (_pos + size <= 10 * bs) {
+				/* no indirects */
+				credits = blocks * 3;
+			} else if (_pos + size <= 1034 * bs) {
+				/* single indirect */
+				credits = (blocks + 1) * 3;
+			}
+		}
+	}
+	/* if inode is created as part of the transaction,
+	 * then it's counted already by the creation method */
+	if (inode != NULL)
+		credits++;
+
+out:
+#if 0
+	printk("@@@ %u@%Ld(%ublk) -> %u credits (fsize %Lu(%ublk),%u allocated%s%s)\n",
+		(unsigned)size, _pos, (unsigned)blocks, (unsigned)credits,
+		inode != NULL ? i_size_read(inode) : 0, est, allocated,
+		osd_extents_enabled(sb) ? ",ext" : "",
+		inode == NULL ? ",NEW" : "");
+#endif
 
 	osd_trans_declare_op(env, oh, OSD_OT_WRITE, credits);
-
-	inode = osd_dt_obj(dt)->oo_inode;
-
-	/* we may declare write to non-exist llog */
-	if (inode == NULL)
-		RETURN(0);
 
 	/* dt_declare_write() is usually called for system objects, such
 	 * as llog or last_rcvd files. We needn't enforce quota on those
 	 * objects, so always set the lqi_space as 0. */
-	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, 0, oh,
-				   true, true, NULL, false);
+	if (inode != NULL)
+		rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid,
+					   0, oh, true, true, NULL, false);
 	RETURN(rc);
 }
 

@@ -283,6 +283,8 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	LASSERT(env);
 	LASSERT(th);
 	LASSERT(loghandle);
+	LASSERT(rec);
+	LASSERT(rec->lrh_len <= LLOG_CHUNK_SIZE);
 
 	o = loghandle->lgh_obj;
 	LASSERT(o);
@@ -308,7 +310,7 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	}
 
 	/* XXX: implement declared window or multi-chunks approach */
-	rc = dt_declare_record_write(env, o, 32 * 1024, lgi->lgi_off, th);
+	rc = dt_declare_record_write(env, o, rec->lrh_len, -1, th);
 
 	RETURN(rc);
 }
