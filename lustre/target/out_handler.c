@@ -505,6 +505,9 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 
 	ENTRY;
 
+	if (!lu_object_exists(&obj->do_lu))
+		RETURN(-ENOENT);
+
 	name = (char *)update_param_buf(update, 0, NULL);
 	if (name == NULL) {
 		CERROR("%s: empty name for xattr get: rc = %d\n",
