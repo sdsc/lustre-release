@@ -811,13 +811,14 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
         RETURN(rc);
 
 err_out:
-        if (flags & FMODE_WRITE)
-                        /* XXX We also need to close io epoch here.
-                         * See LU-1220 - green */
-                mdt_write_put(o);
-        else if (flags & FMODE_EXEC)
-                mdt_write_allow(o);
-        return rc;
+	if (flags & FMODE_WRITE)
+		/* XXX We also need to close io epoch here.
+		 * See LU-1220 - green */
+		mdt_write_put(o);
+	else if (flags & MDS_FMODE_EXEC)
+		mdt_write_allow(o);
+
+	return rc;
 }
 
 int mdt_finish_open(struct mdt_thread_info *info,
@@ -1277,6 +1278,15 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 			", open_flags = "LPO64"\n",
 			PFID(mdt_object_fid(obj)), open_flags);
 
+		/* We cannot enqueue another lock for the same resource we
+		 * already have a lock for, due to mechanics of waiting list
+		 * iterating in ldlm, see LU-3601.
+		 * As such we'll drop the open lock we just got above here,
+		 * it's ok not to have this open lock as it's main purpose is to
+		 * flush unused cached client open handles. */
+		if (lustre_handle_is_used(&lhc->mlh_reg_lh))
+			mdt_object_unlock(info, obj, lhc, 1);
+
 		LASSERT(!try_layout);
 		mdt_lock_handle_init(ll);
 		mdt_lock_reg_init(ll, LCK_EX);
@@ -1366,12 +1376,13 @@ static void mdt_object_open_unlock(struct mdt_thread_info *info,
 		rc = 1;
 	}
 
-	if (rc != 0) {
+	if (rc != 0 || !lustre_handle_is_used(&lhc->mlh_reg_lh)) {
 		struct ldlm_reply       *ldlm_rep;
 
 		ldlm_rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
 		mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
-		mdt_object_unlock(info, obj, lhc, 1);
+		if (lustre_handle_is_used(&lhc->mlh_reg_lh))
+			mdt_object_unlock(info, obj, lhc, 1);
 	}
 	RETURN_EXIT;
 }
