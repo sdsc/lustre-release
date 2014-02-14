@@ -78,7 +78,12 @@ struct osc_io {
 	struct osc_extent *oi_active;
 	/** partially truncated extent, we need to hold this extent to prevent
 	 * page writeback from happening. */
-	struct osc_extent *oi_trunc;
+	struct osc_extent *oi_trunc_start_ext;
+	/*
+	 * partially truncated end extent, as a result of punch in the middle
+	 * of the file. We need to hold this extent too for the same reason.
+	 */
+	struct osc_extent *oi_trunc_end_ext;
 
 	int oi_lru_reserved;
 
@@ -444,9 +449,10 @@ int osc_flush_async_page(const struct lu_env *env, struct cl_io *io,
 int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 			 cfs_list_t *list, int cmd, int brw_flags);
 int osc_cache_truncate_start(const struct lu_env *env, struct osc_io *oio,
-			     struct osc_object *obj, __u64 size);
+			     struct osc_object *obj, loff_t trunc_start,
+			     loff_t trunc_end);
 void osc_cache_truncate_end(const struct lu_env *env, struct osc_io *oio,
-			    struct osc_object *obj);
+			    struct osc_object *obj, bool start_ext);
 int osc_cache_writeback_range(const struct lu_env *env, struct osc_object *obj,
 			      pgoff_t start, pgoff_t end, int hp, int discard);
 int osc_cache_wait_range(const struct lu_env *env, struct osc_object *obj,
@@ -678,6 +684,11 @@ struct osc_extent {
 	int			oe_rc;
 	/** max pages per rpc when this extent was created */
 	unsigned int		oe_mppr;
+};
+
+struct osc_punch_range {
+	__u64	start;
+	__u64	end;
 };
 
 int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
