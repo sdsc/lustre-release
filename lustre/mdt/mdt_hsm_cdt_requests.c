@@ -151,7 +151,7 @@ out:
  * update data moved information during a request
  */
 static int hsm_update_work(struct cdt_req_progress *crp,
-			   const struct hsm_extent *extent)
+			   const struct lu_extent *extent)
 {
 	int			  rc, osz, nsz;
 	struct interval_node	**new_vv;

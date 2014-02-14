@@ -779,7 +779,7 @@ static int __osd_object_punch(objset_t *os, dmu_buf_t *db, dmu_tx_t *tx,
 }
 
 static int osd_punch(const struct lu_env *env, struct dt_object *dt,
-			__u64 start, __u64 end, struct thandle *th,
+			__u64 start, __u64 end, int mode, struct thandle *th,
 			struct lustre_capa *capa)
 {
 	struct osd_object  *obj = osd_dt_obj(dt);
@@ -850,6 +850,24 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
 				 false));
 }
 
+static int osd_prealloc(const struct lu_env *env, struct dt_object *dt,
+			__u64 start, __u64 end, int mode, struct thandle *th,
+			struct lustre_capa *capa)
+{
+	/**
+	 * space preallocation is not supported for ZFS
+	 */
+	RETURN(-EOPNOTSUPP);
+}
+
+static int osd_declare_prealloc(const struct lu_env *env, struct dt_object *dt,
+				struct thandle *th)
+{
+	/**
+	 * space preallocation is not supported for ZFS
+	 */
+	RETURN(-EOPNOTSUPP);
+}
 
 struct dt_body_operations osd_body_ops = {
 	.dbo_read			= osd_read,
@@ -863,5 +881,7 @@ struct dt_body_operations osd_body_ops = {
 	.dbo_read_prep			= osd_read_prep,
 	.dbo_declare_punch		= osd_declare_punch,
 	.dbo_punch			= osd_punch,
+	.dbo_declare_prealloc		= osd_declare_prealloc,
+	.dbo_prealloc			= osd_prealloc,
 };
 

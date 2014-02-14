@@ -930,7 +930,7 @@ static inline const char *hsm_progress_state2name(enum hsm_progress_states s)
 	}
 }
 
-struct hsm_extent {
+struct lu_extent {
 	__u64 offset;
 	__u64 length;
 } __attribute__((packed));
@@ -948,7 +948,7 @@ struct hsm_user_state {
 	/**  The current undergoing action, if there is one */
 	__u32			hus_in_progress_state;
 	__u32			hus_in_progress_action;
-	struct hsm_extent	hus_in_progress_location;
+	struct lu_extent	hus_in_progress_location;
 	char			hus_extended_info[];
 };
 
@@ -968,7 +968,7 @@ struct hsm_current_action {
 	__u32			hca_state;
 	/* action is one of hsm_user_action */
 	__u32			hca_action;
-	struct hsm_extent	hca_location;
+	struct lu_extent	hca_location;
 };
 
 /***** HSM user requests ******/
@@ -1015,8 +1015,8 @@ struct hsm_request {
 };
 
 struct hsm_user_item {
-       lustre_fid        hui_fid;
-       struct hsm_extent hui_extent;
+	lustre_fid		hui_fid;
+	struct lu_extent	hui_extent;
 } __attribute__((packed));
 
 struct hsm_user_request {
@@ -1074,7 +1074,7 @@ struct hsm_action_item {
 	__u32      hai_action;  /* hsm_copytool_action, but use known size */
 	lustre_fid hai_fid;     /* Lustre FID to operated on */
 	lustre_fid hai_dfid;    /* fid used for data access */
-	struct hsm_extent hai_extent;  /* byte range to operate on */
+	struct lu_extent hai_extent;  /* byte range to operate on */
 	__u64      hai_cookie;  /* action cookie from coordinator */
 	__u64      hai_gid;     /* grouplock id */
 	char       hai_data[0]; /* variable length */
@@ -1184,7 +1184,7 @@ struct hsm_user_import {
 struct hsm_progress {
 	lustre_fid		hp_fid;
 	__u64			hp_cookie;
-	struct hsm_extent	hp_extent;
+	struct lu_extent	hp_extent;
 	__u16			hp_flags;
 	__u16			hp_errval; /* positive val */
 	__u32			padding;

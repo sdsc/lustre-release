@@ -515,7 +515,7 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 			const char *dst, int src_fd, int dst_fd,
 			const struct hsm_action_item *hai, long hal_flags)
 {
-	struct hsm_extent	 he;
+	struct lu_extent	 he;
 	__u64			 offset = hai->hai_extent.offset;
 	struct stat		 src_st;
 	struct stat		 dst_st;

@@ -91,3 +91,15 @@ Index: linux-stage/fs/ext4/inode.c
  
  /*
   * ext4_get_inode_loc returns with an extra refcount against the inode's
+Index: linux-stage/fs/ext4/extents.c
+===================================================================
+--- linux-stage.orig/fs/ext4/extents.c
++++ linux-stage/fs/ext4/extents.c
+@@ -4114,6 +4114,7 @@ retry:
+ 	mutex_unlock(&inode->i_mutex);
+ 	return ret > 0 ? ret2 : ret;
+ }
++EXPORT_SYMBOL(ext4_fallocate);
+ 
+ /*
+  * This function convert a range of blocks to written extents

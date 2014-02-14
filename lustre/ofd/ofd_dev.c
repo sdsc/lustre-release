@@ -51,6 +51,7 @@
 #include <lustre_quota.h>
 
 #include "ofd_internal.h"
+#include "linux/falloc.h"
 
 /* Slab for OFD object allocation */
 static struct kmem_cache *ofd_object_kmem;
@@ -1579,7 +1580,7 @@ put:
 	return rc;
 }
 
-static int ofd_punch_hdl(struct tgt_session_info *tsi)
+static int ofd_prealloc_hdl(struct tgt_session_info *tsi)
 {
 	const struct obdo	*oa = &tsi->tsi_ost_body->oa;
 	struct ost_body		*repbody;
@@ -1590,7 +1591,90 @@ static int ofd_punch_hdl(struct tgt_session_info *tsi)
 	struct filter_fid	*ff = NULL;
 	__u64			 flags = 0;
 	struct lustre_handle	 lh = { 0, };
-	int			 rc;
+	int			 rc, mode;
+	__u64			 start, end;
+	bool			 srvlock;
+
+	repbody = req_capsule_server_get(tsi->tsi_pill, &RMF_OST_BODY);
+	if (repbody == NULL)
+		RETURN(err_serious(-ENOMEM));
+
+	/*
+	 * prealloc start and end are passed in o_size, o_blocks
+	 * on the wire.
+	 */
+	start = oa->o_size;
+	end = oa->o_blocks;
+	mode = oa->o_falloc_mode;
+
+	repbody->oa.o_oi = oa->o_oi;
+	repbody->oa.o_valid = OBD_MD_FLID;
+
+	srvlock = oa->o_valid & OBD_MD_FLFLAGS &&
+		  oa->o_flags & OBD_FL_SRVLOCK;
+
+	if (srvlock) {
+		rc = tgt_extent_lock(ns, &tsi->tsi_resid, start, end, &lh,
+				     LCK_PW, &flags);
+		if (rc != 0)
+			RETURN(rc);
+	}
+
+	fo = ofd_object_find_exists(tsi->tsi_env, ofd_exp(tsi->tsi_exp),
+				    &tsi->tsi_fid);
+	if (IS_ERR(fo))
+		GOTO(out, rc = PTR_ERR(fo));
+
+	if (oa->o_valid & OBD_MD_FLFID) {
+		ff = &info->fti_mds_fid;
+		ofd_prepare_fidea(ff, oa);
+	}
+
+	rc = ofd_object_prealloc(tsi->tsi_env, fo, start, end, mode,
+				 &info->fti_attr, ff);
+	if (rc)
+		GOTO(out_put, rc);
+
+	rc = ofd_attr_get(tsi->tsi_env, fo, &info->fti_attr);
+	if (rc == 0)
+		obdo_from_la(&repbody->oa, &info->fti_attr,
+			     OFD_VALID_FLAGS);
+	else
+		rc = 0;
+
+	ofd_counter_incr(tsi->tsi_exp, LPROC_OFD_STATS_PREALLOC,
+			 tsi->tsi_jobid, 1);
+
+	EXIT;
+out_put:
+	ofd_object_put(tsi->tsi_env, fo);
+out:
+	if (srvlock)
+		tgt_extent_unlock(&lh, LCK_PW);
+	if (rc == 0) {
+		res = ldlm_resource_get(ns, NULL, &tsi->tsi_resid,
+					LDLM_EXTENT, 0);
+		if (res != NULL) {
+			ldlm_res_lvbo_update(res, NULL, 0);
+			ldlm_resource_putref(res);
+		}
+	}
+
+	RETURN(rc);
+}
+
+static int ofd_punch_hdl(struct tgt_session_info *tsi)
+{
+	const struct obdo	*oa = &tsi->tsi_ost_body->oa;
+	struct ost_body		*repbody;
+	struct ofd_thread_info	*info = tsi2ofd_info(tsi);
+	struct ldlm_namespace	*ns = tsi->tsi_tgt->lut_obd->obd_namespace;
+	struct ldlm_resource    *res;
+	struct ofd_object	*fo;
+	struct filter_fid	*ff = NULL;
+	__u64			 flags = 0;
+	struct lustre_handle	 lh = { 0, };
+	int			 rc, mode;
 	__u64			 start, end;
 	bool			 srvlock;
 
@@ -1607,16 +1691,14 @@ static int ofd_punch_hdl(struct tgt_session_info *tsi)
 	if (repbody == NULL)
 		RETURN(err_serious(-ENOMEM));
 
-	/* punch start,end are passed in o_size,o_blocks throught wire */
+	/* punch start,end are passed in o_size, o_blocks through wire */
 	start = oa->o_size;
 	end = oa->o_blocks;
-
-	if (end != OBD_OBJECT_EOF) /* Only truncate is supported */
-		RETURN(-EPROTO);
+	mode = oa->o_falloc_mode;
 
 	/* standard truncate optimization: if file body is completely
 	 * destroyed, don't send data back to the server. */
-	if (start == 0)
+	if (start == 0 && end == OBD_OBJECT_EOF)
 		flags |= LDLM_FL_AST_DISCARD_DATA;
 
 	repbody->oa.o_oi = oa->o_oi;
@@ -1643,16 +1725,18 @@ static int ofd_punch_hdl(struct tgt_session_info *tsi)
 
 	la_from_obdo(&info->fti_attr, oa,
 		     OBD_MD_FLMTIME | OBD_MD_FLATIME | OBD_MD_FLCTIME);
-	info->fti_attr.la_size = start;
-	info->fti_attr.la_valid |= LA_SIZE;
+	if (!(mode & FALLOC_FL_PUNCH_HOLE)) {
+		info->fti_attr.la_size = start;
+		info->fti_attr.la_valid |= LA_SIZE;
+	}
 
 	if (oa->o_valid & OBD_MD_FLFID) {
 		ff = &info->fti_mds_fid;
 		ofd_prepare_fidea(ff, oa);
 	}
 
-	rc = ofd_object_punch(tsi->tsi_env, fo, start, end, &info->fti_attr,
-			      ff);
+	rc = ofd_object_punch(tsi->tsi_env, fo, start, end, mode,
+			      &info->fti_attr, ff);
 	if (rc)
 		GOTO(out_put, rc);
 
@@ -2040,6 +2124,8 @@ TGT_OST_HDL_HP(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
 							ofd_hp_punch),
 TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_SYNC,	ofd_sync_hdl),
 TGT_OST_HDL(0		| HABEO_REFERO,	OST_QUOTACTL,	ofd_quotactl),
+TGT_OST_HDL(HABEO_CORPUS | HABEO_REFERO | MUTABOR, OST_PREALLOC,
+	    ofd_prealloc_hdl),
 };
 
 static struct tgt_opc_slice ofd_common_slice[] = {

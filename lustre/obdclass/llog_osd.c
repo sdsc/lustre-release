@@ -194,7 +194,7 @@ out_unlock:
 out:
 	/* cleanup the content written above */
 	if (rc) {
-		dt_punch(env, o, lgi->lgi_attr.la_size, OBD_OBJECT_EOF, th,
+		dt_punch(env, o, lgi->lgi_attr.la_size, OBD_OBJECT_EOF, 0, th,
 			 BYPASS_CAPA);
 		dt_attr_set(env, o, &lgi->lgi_attr, th, BYPASS_CAPA);
 	}

@@ -103,6 +103,14 @@
 #        include <linux/radix-tree.h>
 #endif
 
+#ifndef FALLOC_FL_KEEP_SIZE
+# define FALLOC_FL_KEEP_SIZE     0x01 /* default is extend size */
+#endif
+
+#ifndef FALLOC_FL_PUNCH_HOLE
+# define FALLOC_FL_PUNCH_HOLE    0x02 /* de-allocates range */
+#endif
+
 struct inode;
 
 struct cl_device;
@@ -2283,6 +2291,10 @@ struct cl_io {
                         struct ost_lvb   sa_attr;
                         unsigned int     sa_valid;
                         struct obd_capa *sa_capa;
+			int		 sa_falloc_mode;
+			loff_t		 sa_falloc_offset;
+			loff_t		 sa_falloc_len;
+			int		 sa_prealloc;
                 } ci_setattr;
                 struct cl_fault_io {
                         /** page index within file. */
@@ -3028,6 +3040,26 @@ static inline int cl_io_is_trunc(const struct cl_io *io)
 {
         return io->ci_type == CIT_SETATTR &&
                 (io->u.ci_setattr.sa_valid & ATTR_SIZE);
+}
+
+static inline int cl_io_is_falloc(const struct cl_io *io)
+{
+	return io->ci_type == CIT_SETATTR &&
+		(io->u.ci_setattr.sa_prealloc == 1 ||
+		 io->u.ci_setattr.sa_falloc_mode & FALLOC_FL_PUNCH_HOLE);
+}
+
+static inline int cl_io_is_punch(const struct cl_io *io)
+{
+	return (io->ci_type == CIT_SETATTR &&
+		io->u.ci_setattr.sa_falloc_mode ==
+		(FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE));
+}
+
+static inline int cl_io_is_prealloc(const struct cl_io *io)
+{
+	return io->ci_type == CIT_SETATTR &&
+	       (io->u.ci_setattr.sa_prealloc == 1);
 }
 
 struct cl_io *cl_io_top(struct cl_io *io);

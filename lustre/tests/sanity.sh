@@ -11976,6 +11976,16 @@ test_237() {
 }
 run_test 237 "Verify name_to_handle_at/open_by_handle_at syscalls"
 
+# test to verify fallocate functionality
+# This test tests the prealloc and punch operations
+
+test_238() {
+	touch $DIR/$tfile
+	check_fallocate $DIR/$tfile ||
+		error "fallocate failed"
+}
+run_test 238 "Verify fallocate (prealloc/punch) functionality"
+
 #
 # tests that do cleanup/setup should be run at the end
 #

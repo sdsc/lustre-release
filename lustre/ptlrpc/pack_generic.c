@@ -2499,7 +2499,7 @@ void lustre_swab_hsm_state_set(struct hsm_state_set *hss)
 }
 EXPORT_SYMBOL(lustre_swab_hsm_state_set);
 
-void lustre_swab_hsm_extent(struct hsm_extent *extent)
+void lustre_swab_lu_extent(struct lu_extent *extent)
 {
 	__swab64s(&extent->offset);
 	__swab64s(&extent->length);
@@ -2509,14 +2509,14 @@ void lustre_swab_hsm_current_action(struct hsm_current_action *action)
 {
 	__swab32s(&action->hca_state);
 	__swab32s(&action->hca_action);
-	lustre_swab_hsm_extent(&action->hca_location);
+	lustre_swab_lu_extent(&action->hca_location);
 }
 EXPORT_SYMBOL(lustre_swab_hsm_current_action);
 
 void lustre_swab_hsm_user_item(struct hsm_user_item *hui)
 {
 	lustre_swab_lu_fid(&hui->hui_fid);
-	lustre_swab_hsm_extent(&hui->hui_extent);
+	lustre_swab_lu_extent(&hui->hui_extent);
 }
 EXPORT_SYMBOL(lustre_swab_hsm_user_item);
 
