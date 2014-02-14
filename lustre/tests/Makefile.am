@@ -77,6 +77,7 @@ noinst_PROGRAMS += write_time_limit rwv lgetxattr_size_check checkfiemap
 noinst_PROGRAMS += listxattr_size_check check_fhandle_syscalls badarea_io
 noinst_PROGRAMS += llapi_layout_test orphan_linkea_check llapi_hsm_test
 noinst_PROGRAMS += group_lock_test llapi_fid_test sendfile_grouplock
+noinst_PROGRAMS += check_fallocate
 
 bin_PROGRAMS = mcreate munlink
 testdir = $(libdir)/lustre/tests

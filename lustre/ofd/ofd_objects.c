@@ -512,7 +512,7 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 
 	/* VBR: version recovery check */
 	rc = ofd_version_get_check(info, fo);
-	if (rc)
+	if (rc != 0)
 		GOTO(unlock, rc);
 
 	rc = ofd_attr_handle_ugid(env, fo, la, 1 /* is_setattr */);
@@ -579,6 +579,98 @@ unlock:
 }
 
 /**
+ * Preallocate OFD object.
+ *
+ * This function allocates space for the object from the \a start
+ * offset to the \a end offset.
+ *
+ * \param[in] env	execution environment
+ * \param[in] fo	OFD object
+ * \param[in] start	start offset to allocate from
+ * \param[in] end	end of allocate
+ * \param[in] mode	fallocate mode
+ * \param[in] la	object attributes
+ * \param[in] ff	filter_fid structure
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
+ */
+int ofd_object_prealloc(const struct lu_env *env, struct ofd_object *fo,
+			__u64 start, __u64 end, int mode, struct lu_attr *la,
+			struct filter_fid *ff)
+{
+	struct ofd_thread_info	*info = ofd_info(env);
+	struct ofd_device	*ofd = ofd_obj2dev(fo);
+	struct dt_object	*dob = ofd_object_child(fo);
+	struct thandle		*th;
+	bool			ff_needed = false;
+	int			rc;
+	ENTRY;
+
+	ofd_write_lock(env, fo);
+	if (!ofd_object_exists(fo))
+		GOTO(unlock, rc = -ENOENT);
+
+	/* VBR: version recovery check */
+	rc = ofd_version_get_check(info, fo);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	if (ff != NULL) {
+		rc = ofd_object_ff_load(env, fo);
+		if (rc == -ENODATA)
+			ff_needed = true;
+		else if (rc < 0)
+			GOTO(unlock, rc);
+	}
+
+	th = ofd_trans_create(env, ofd);
+	if (IS_ERR(th))
+		GOTO(unlock, rc = PTR_ERR(th));
+
+	rc = dt_declare_attr_set(env, dob, la, th);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = dt_declare_prealloc(env, dob, th);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = ofd_trans_start(env, ofd, fo, th);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = dt_prealloc(env, dob, start, end, mode, th);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = dt_attr_set(env, dob, la, th);
+	if (rc)
+		GOTO(stop, rc);
+
+	if (ff_needed) {
+		rc = dt_xattr_set(env, ofd_object_child(fo), &info->fti_buf,
+				  XATTR_NAME_FID, 0, th);
+		if (rc == 0) {
+			fo->ofo_pfid.f_seq = le64_to_cpu(ff->ff_parent.f_seq);
+			fo->ofo_pfid.f_oid = le32_to_cpu(ff->ff_parent.f_oid);
+			/* Currently, the filter_fid::ff_parent::f_ver is not
+			 * the real parent MDT-object's FID::f_ver, instead it
+			 * is the OST-object index in its parent MDT-object's
+			 * layout EA. */
+			fo->ofo_pfid.f_stripe_idx =
+					le32_to_cpu(ff->ff_parent.f_stripe_idx);
+		}
+	}
+
+stop:
+	ofd_trans_stop(env, ofd, th, rc);
+unlock:
+	ofd_write_unlock(env, fo);
+	RETURN(rc);
+}
+
+/**
  * Truncate/punch OFD object.
  *
  * This function frees all of the allocated object's space from the \a start
@@ -631,7 +723,7 @@ int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 
 	/* VBR: version recovery check */
 	rc = ofd_version_get_check(info, fo);
-	if (rc)
+	if (rc != 0)
 		GOTO(unlock, rc);
 
 	rc = ofd_attr_handle_ugid(env, fo, la, 0 /* !is_setattr */);
@@ -651,11 +743,11 @@ int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 		GOTO(unlock, rc = PTR_ERR(th));
 
 	rc = dt_declare_attr_set(env, dob, la, th);
-	if (rc)
+	if (rc != 0)
 		GOTO(stop, rc);
 
 	rc = dt_declare_punch(env, dob, start, OBD_OBJECT_EOF, th);
-	if (rc)
+	if (rc != 0)
 		GOTO(stop, rc);
 
 	if (ff_needed) {
@@ -664,20 +756,20 @@ int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 		rc = dt_declare_xattr_set(env, ofd_object_child(fo),
 					  &info->fti_buf, XATTR_NAME_FID, 0,
 					  th);
-		if (rc)
+		if (rc != 0)
 			GOTO(stop, rc);
 	}
 
 	rc = ofd_trans_start(env, ofd, fo, th);
-	if (rc)
+	if (rc != 0)
 		GOTO(stop, rc);
 
 	rc = dt_punch(env, dob, start, OBD_OBJECT_EOF, th);
-	if (rc)
+	if (rc != 0)
 		GOTO(stop, rc);
 
 	rc = dt_attr_set(env, dob, la, th);
-	if (rc)
+	if (rc != 0)
 		GOTO(stop, rc);
 
 	if (ff_needed) {

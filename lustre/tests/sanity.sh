@@ -13008,6 +13008,17 @@ test_251() {
 	rm -f $DIR/$tfile
 }
 run_test 251 "Handling short read and write correctly"
+# test to verify fallocate functionality
+# This test tests the prealloc operations
+
+test_252() {
+	[ "$(facet_fstype $SINGLEMDS)" != "ldiskfs" ] &&
+		skip "non-ldiskfs backend" && return
+	touch $DIR/$tfile
+	check_fallocate $DIR/$tfile ||
+		error "fallocate failed"
+}
+run_test 252 "Verify fallocate (prealloc) functionality"
 
 cleanup_test_300() {
 	trap 0
