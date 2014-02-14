@@ -1499,26 +1499,27 @@ typedef enum {
 
 /* opcodes */
 typedef enum {
-        OST_REPLY      =  0,       /* reply ? */
-        OST_GETATTR    =  1,
-        OST_SETATTR    =  2,
-        OST_READ       =  3,
-        OST_WRITE      =  4,
-        OST_CREATE     =  5,
-        OST_DESTROY    =  6,
-        OST_GET_INFO   =  7,
-        OST_CONNECT    =  8,
-        OST_DISCONNECT =  9,
-        OST_PUNCH      = 10,
-        OST_OPEN       = 11,
-        OST_CLOSE      = 12,
-        OST_STATFS     = 13,
-        OST_SYNC       = 16,
-        OST_SET_INFO   = 17,
-        OST_QUOTACHECK = 18,
-        OST_QUOTACTL   = 19,
-	OST_QUOTA_ADJUST_QUNIT = 20, /* not used since 2.4 */
-        OST_LAST_OPC
+	OST_REPLY		=  0,       /* reply ? */
+	OST_GETATTR		=  1,
+	OST_SETATTR		=  2,
+	OST_READ		=  3,
+	OST_WRITE		=  4,
+	OST_CREATE		=  5,
+	OST_DESTROY		=  6,
+	OST_GET_INFO		=  7,
+	OST_CONNECT		=  8,
+	OST_DISCONNECT		=  9,
+	OST_PUNCH		= 10,
+	OST_OPEN		= 11,
+	OST_CLOSE		= 12,
+	OST_STATFS		= 13,
+	OST_SYNC		= 16,
+	OST_SET_INFO		= 17,
+	OST_QUOTACHECK		= 18,
+	OST_QUOTACTL		= 19,
+	OST_QUOTA_ADJUST_QUNIT	= 20, /* not used since 2.4 */
+	OST_PREALLOC		= 21,
+	OST_LAST_OPC
 } ost_cmd_t;
 #define OST_FIRST_OPC  OST_REPLY
 
@@ -3544,6 +3545,7 @@ struct obdo {
 #define o_dropped o_misc
 #define o_cksum   o_nlink
 #define o_grant_used o_data_version
+#define o_falloc_mode o_nlink
 
 struct lfsck_request {
 	__u32		lr_event;

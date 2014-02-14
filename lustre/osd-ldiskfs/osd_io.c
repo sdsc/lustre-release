@@ -48,6 +48,7 @@
 #include <linux/types.h>
 /* prerequisite for linux/xattr.h */
 #include <linux/fs.h>
+#include <linux/falloc.h>
 
 /*
  * struct OBD_{ALLOC,FREE}*()
@@ -59,6 +60,7 @@
 
 /* ext_depth() */
 #include <ldiskfs/ldiskfs_extents.h>
+#include <ldiskfs/ldiskfs.h>
 
 static int __osd_init_iobuf(struct osd_device *d, struct osd_iobuf *iobuf,
 			    int rw, int line, int pages)
@@ -1715,6 +1717,68 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
         return result;
 }
 
+static int osd_declare_prealloc(const struct lu_env *env, struct dt_object *dt,
+				struct thandle *th)
+{
+	struct osd_thandle	*oh;
+	struct inode		*inode;
+	int			 rc;
+	ENTRY;
+
+	LASSERT(th);
+	oh = container_of(th, struct osd_thandle, ot_super);
+
+	osd_trans_declare_op(env, oh, OSD_OT_PREALLOC,
+			     osd_dto_credits_noquota[DTO_WRITE_BLOCK]);
+	inode = osd_dt_obj(dt)->oo_inode;
+	LASSERT(inode);
+
+	rc = osd_declare_inode_qid(env, i_uid_read(inode), i_gid_read(inode),
+				   0, oh, osd_dt_obj(dt), true, NULL, false);
+	RETURN(rc);
+}
+
+static int osd_prealloc(const struct lu_env *env, struct dt_object *dt,
+			__u64 start, __u64 end, int mode, struct thandle *th,
+			struct lustre_capa *capa)
+{
+	struct osd_object  *obj = osd_dt_obj(dt);
+	struct inode       *inode = obj->oo_inode;
+	int		   rc = 0;
+#ifdef HAVE_FOPS_FALLOCATE
+	struct osd_thread_info	*info	= osd_oti_get(env);
+	struct dentry		*dentry	= &info->oti_obj_dentry;
+	struct file		*file	= &info->oti_file;
+#endif
+	ENTRY;
+
+	LASSERT(dt_object_exists(dt));
+	LASSERT(osd_invariant(obj));
+	LASSERT(inode != NULL);
+	ll_vfs_dq_init(inode);
+
+	LASSERT(th);
+
+	osd_trans_exec_op(env, th, OSD_OT_PREALLOC);
+
+#ifdef HAVE_IOPS_FALLOCATE
+	rc = ldiskfs_fallocate(inode, mode, start, end - start);
+#elif defined(HAVE_FOPS_FALLOCATE)
+	/*
+	 * Because f_op->fallocate() does not have an inode arg
+	 */
+	dentry->d_inode	= inode;
+	dentry->d_sb	= inode->i_sb;
+	file->f_dentry	= dentry;
+	file->f_mapping	= inode->i_mapping;
+	file->f_op	= inode->i_fop;
+	set_file_inode(file, inode);
+	rc = ldiskfs_fallocate(file, mode, start, end - start);
+#endif
+
+	RETURN(rc);
+}
+
 static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
                              __u64 start, __u64 end, struct thandle *th)
 {
@@ -1757,7 +1821,6 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 	int		   rc = 0, rc2 = 0;
 	ENTRY;
 
-	LASSERT(end == OBD_OBJECT_EOF);
 	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(obj));
 	LASSERT(inode != NULL);
@@ -1785,25 +1848,25 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 	 * avoid data corruption during direct disk write.  b=17397
 	 */
 	if ((start & ~CFS_PAGE_MASK) != 0)
-                rc = filemap_fdatawrite_range(inode->i_mapping, start, start+1);
+		rc = filemap_fdatawrite_range(inode->i_mapping, start, start+1);
 
-        h = journal_current_handle();
-        LASSERT(h != NULL);
-        LASSERT(h == oh->ot_handle);
+	h = journal_current_handle();
+	LASSERT(h != NULL);
+	LASSERT(h == oh->ot_handle);
 
-        if (tid != h->h_transaction->t_tid) {
-                int credits = oh->ot_credits;
-                /*
-                 * transaction has changed during truncate
-                 * we need to restart the handle with our credits
-                 */
-                if (h->h_buffer_credits < credits) {
-                        if (ldiskfs_journal_extend(h, credits))
-                                rc2 = ldiskfs_journal_restart(h, credits);
-                }
-        }
+	if (tid != h->h_transaction->t_tid) {
+		int credits = oh->ot_credits;
+		/*
+		 * transaction has changed during truncate
+		 * we need to restart the handle with our credits
+		 */
+		if (h->h_buffer_credits < credits) {
+			if (ldiskfs_journal_extend(h, credits))
+				rc2 = ldiskfs_journal_restart(h, credits);
+		}
+	}
 
-        RETURN(rc == 0 ? rc2 : rc);
+	RETURN(rc == 0 ? rc2 : rc);
 }
 
 static int osd_fiemap_get(const struct lu_env *env, struct dt_object *dt,
@@ -1845,17 +1908,19 @@ const struct dt_body_operations osd_body_ops_new = {
 };
 
 const struct dt_body_operations osd_body_ops = {
-        .dbo_read                 = osd_read,
-        .dbo_declare_write        = osd_declare_write,
-        .dbo_write                = osd_write,
-        .dbo_bufs_get             = osd_bufs_get,
-        .dbo_bufs_put             = osd_bufs_put,
-        .dbo_write_prep           = osd_write_prep,
-        .dbo_declare_write_commit = osd_declare_write_commit,
-        .dbo_write_commit         = osd_write_commit,
-        .dbo_read_prep            = osd_read_prep,
-        .dbo_declare_punch         = osd_declare_punch,
-        .dbo_punch                 = osd_punch,
-        .dbo_fiemap_get           = osd_fiemap_get,
+	.dbo_read			= osd_read,
+	.dbo_declare_write		= osd_declare_write,
+	.dbo_write			= osd_write,
+	.dbo_bufs_get			= osd_bufs_get,
+	.dbo_bufs_put			= osd_bufs_put,
+	.dbo_write_prep			= osd_write_prep,
+	.dbo_declare_write_commit	= osd_declare_write_commit,
+	.dbo_write_commit		= osd_write_commit,
+	.dbo_read_prep			= osd_read_prep,
+	.dbo_declare_punch		= osd_declare_punch,
+	.dbo_punch			= osd_punch,
+	.dbo_declare_prealloc		= osd_declare_prealloc,
+	.dbo_prealloc			= osd_prealloc,
+	.dbo_fiemap_get			= osd_fiemap_get,
 };
 

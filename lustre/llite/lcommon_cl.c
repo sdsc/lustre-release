@@ -666,6 +666,8 @@ int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
         io->u.ci_setattr.sa_attr.lvb_size = attr->ia_size;
         io->u.ci_setattr.sa_valid = attr->ia_valid;
         io->u.ci_setattr.sa_capa = capa;
+	if (attr->ia_valid & ATTR_SIZE)
+		io->u.ci_setattr.sa_subtype = CL_SETATTR_TRUNC;
 
 again:
         if (cl_io_init(env, io, CIT_SETATTR, io->ci_obj) == 0) {

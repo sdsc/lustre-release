@@ -483,6 +483,7 @@ static int tgt_filter_recovery_request(struct ptlrpc_request *req,
 	case OST_SETATTR:
 	case OST_SYNC:
 	case OST_WRITE:
+	case OST_PREALLOC:
 		*process = target_queue_recovery_request(req, obd);
 		RETURN(0);
 

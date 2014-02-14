@@ -1148,8 +1148,8 @@ struct hsm_request {
 };
 
 struct hsm_user_item {
-       lustre_fid        hui_fid;
-       struct hsm_extent hui_extent;
+	lustre_fid		hui_fid;
+	struct hsm_extent	hui_extent;
 } __attribute__((packed));
 
 struct hsm_user_request {

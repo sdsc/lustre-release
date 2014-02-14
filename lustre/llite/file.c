@@ -3362,6 +3362,101 @@ int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat)
         return 0;
 }
 
+#if defined(HAVE_IOPS_FALLOCATE) || defined(HAVE_FOPS_FALLOCATE)
+int cl_falloc(struct inode *inode, int mode, loff_t offset, loff_t len,
+	      struct obd_capa *capa)
+{
+	struct lu_env	*env;
+	struct cl_io	*io;
+	int		 result, refcheck;
+	loff_t		 size = i_size_read(inode);
+	ENTRY;
+
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+
+	io = ccc_env_thread_io(env);
+	io->ci_obj = ll_i2info(inode)->lli_clob;
+	io->u.ci_setattr.sa_capa = capa;
+	io->u.ci_setattr.sa_falloc_mode = mode;
+	io->u.ci_setattr.sa_falloc_offset = offset;
+	io->u.ci_setattr.sa_falloc_len = len;
+	io->u.ci_setattr.sa_attr.lvb_ctime = LTIME_S(CFS_CURRENT_TIME);
+	io->u.ci_setattr.sa_valid = ATTR_CTIME_SET;
+	io->u.ci_setattr.sa_subtype = CL_SETATTR_PREALLOC;
+	if (offset + len > size) {
+		/* Check new size */
+		result = inode_newsize_ok(inode, offset + len);
+		if (result)
+			goto out;
+		if (offset + len > ll_file_maxbytes(inode)) {
+			CDEBUG(D_INODE, "file size too large %llu > "
+			       ""LPU64"\n",
+			       (unsigned long long)(offset + len),
+			       ll_file_maxbytes(inode));
+			result = -EFBIG;
+			goto out;
+		}
+		io->u.ci_setattr.sa_attr.lvb_size = offset + len;
+		if (!(mode & FALLOC_FL_KEEP_SIZE))
+			io->u.ci_setattr.sa_valid |= ATTR_SIZE;
+	} else {
+		io->u.ci_setattr.sa_attr.lvb_size = size;
+	}
+
+again:
+	if (cl_io_init(env, io, CIT_SETATTR, io->ci_obj) == 0)
+		result = cl_io_loop(env, io);
+	else
+		result = io->ci_result;
+
+	cl_io_fini(env, io);
+	if (unlikely(io->ci_need_restart))
+		goto again;
+
+out:
+	cl_env_put(env, &refcheck);
+	RETURN(result);
+}
+
+static int ll_falloc_prealloc(struct inode *inode, int mode, loff_t offset,
+			      loff_t len)
+{
+	struct obd_capa *capa;
+	int rc;
+
+	capa = ll_osscapa_get(inode, CAPA_OPC_OSS_WRITE);
+	rc = cl_falloc(inode, mode, offset, len, capa);
+	capa_put(capa);
+
+	RETURN(rc);
+}
+
+#ifdef HAVE_FOPS_FALLOCATE
+long ll_fallocate(struct file *filp, int mode, loff_t offset, loff_t len)
+{
+	struct inode	*inode = filp->f_dentry->d_inode;
+#else
+long ll_fallocate(struct inode *inode, int mode, loff_t offset, loff_t len)
+{
+#endif
+	int rc;
+
+	/*
+	 * Return error if mode is not supported
+	 */
+	if (mode & ~FALLOC_FL_KEEP_SIZE)
+		RETURN(-EOPNOTSUPP);
+
+	ll_stats_ops_tally(ll_i2sbi(inode), LPROC_LL_FALLOCATE, 1);
+
+	rc = ll_falloc_prealloc(inode, mode, offset, len);
+
+	RETURN(rc);
+}
+#endif
+
 static int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		     __u64 start, __u64 len)
 {
@@ -3563,20 +3658,23 @@ struct file_operations ll_file_operations_flock = {
 
 /* These are for -o noflock - to return ENOSYS on flock calls */
 struct file_operations ll_file_operations_noflock = {
-        .read           = ll_file_read,
-	.aio_read    = ll_file_aio_read,
-        .write          = ll_file_write,
-	.aio_write   = ll_file_aio_write,
-        .unlocked_ioctl = ll_file_ioctl,
-        .open           = ll_file_open,
-        .release        = ll_file_release,
-        .mmap           = ll_file_mmap,
-        .llseek         = ll_file_seek,
-        .splice_read    = ll_file_splice_read,
-        .fsync          = ll_fsync,
-        .flush          = ll_flush,
-        .flock          = ll_file_noflock,
-        .lock           = ll_file_noflock
+	.read		= ll_file_read,
+	.aio_read	= ll_file_aio_read,
+	.write		= ll_file_write,
+	.aio_write	= ll_file_aio_write,
+	.unlocked_ioctl	= ll_file_ioctl,
+	.open		= ll_file_open,
+	.release	= ll_file_release,
+	.mmap		= ll_file_mmap,
+	.llseek		= ll_file_seek,
+	.splice_read	= ll_file_splice_read,
+	.fsync		= ll_fsync,
+	.flush		= ll_flush,
+	.flock		= ll_file_noflock,
+	.lock		= ll_file_noflock,
+#ifdef HAVE_FOPS_FALLOCATE
+	.fallocate	= ll_fallocate,
+#endif
 };
 
 struct inode_operations ll_file_inode_operations = {
@@ -3588,6 +3686,9 @@ struct inode_operations ll_file_inode_operations = {
 	.listxattr	= ll_listxattr,
 	.removexattr	= ll_removexattr,
 	.fiemap		= ll_fiemap,
+#ifdef HAVE_IOPS_FALLOCATE
+	.fallocate	= ll_fallocate,
+#endif
 #ifdef HAVE_IOP_GET_ACL
 	.get_acl	= ll_get_acl,
 #endif

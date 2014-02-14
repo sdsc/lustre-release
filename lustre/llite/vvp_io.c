@@ -387,24 +387,27 @@ static int vvp_io_setattr_lock(const struct lu_env *env,
 {
 	struct ccc_io *cio = ccc_env_io(env);
 	struct cl_io  *io  = ios->cis_io;
-	__u64 new_size;
+	__u64 lock_start, lock_end = OBD_OBJECT_EOF;
 	__u32 enqflags = 0;
 
-        if (cl_io_is_trunc(io)) {
-                new_size = io->u.ci_setattr.sa_attr.lvb_size;
-                if (new_size == 0)
-                        enqflags = CEF_DISCARD_DATA;
-        } else {
-                if ((io->u.ci_setattr.sa_attr.lvb_mtime >=
-                     io->u.ci_setattr.sa_attr.lvb_ctime) ||
-                    (io->u.ci_setattr.sa_attr.lvb_atime >=
-                     io->u.ci_setattr.sa_attr.lvb_ctime))
-                        return 0;
-                new_size = 0;
-        }
-        cio->u.setattr.cui_local_lock = SETATTR_EXTENT_LOCK;
-        return ccc_io_one_lock(env, io, enqflags, CLM_WRITE,
-                               new_size, OBD_OBJECT_EOF);
+	if (cl_io_is_trunc(io)) {
+		lock_start = io->u.ci_setattr.sa_attr.lvb_size;
+		if (lock_start == 0)
+			enqflags = CEF_DISCARD_DATA;
+	} else if (cl_io_is_prealloc(io)) {
+		return 0;
+	} else {
+		if ((io->u.ci_setattr.sa_attr.lvb_mtime >=
+		     io->u.ci_setattr.sa_attr.lvb_ctime) ||
+		    (io->u.ci_setattr.sa_attr.lvb_atime >=
+		     io->u.ci_setattr.sa_attr.lvb_ctime))
+			return 0;
+		lock_start = 0;
+	}
+
+	cio->u.setattr.cui_local_lock = SETATTR_EXTENT_LOCK;
+	return ccc_io_one_lock(env, io, enqflags, CLM_WRITE,
+			       lock_start, lock_end);
 }
 
 static int vvp_do_vmtruncate(struct inode *inode, size_t size)
@@ -468,11 +471,13 @@ static int vvp_io_setattr_start(const struct lu_env *env,
 	int result = 0;
 
 	mutex_lock(&inode->i_mutex);
-	if (cl_io_is_trunc(io))
+	if (cl_io_is_trunc(io) || cl_io_is_prealloc(io))
 		result = vvp_io_setattr_trunc(env, ios, inode,
 					io->u.ci_setattr.sa_attr.lvb_size);
+
 	if (result == 0)
 		result = vvp_io_setattr_time(env, ios);
+
 	return result;
 }
 
@@ -486,6 +491,8 @@ static void vvp_io_setattr_end(const struct lu_env *env,
 		/* Truncate in memory pages - they must be clean pages
 		 * because osc has already notified to destroy osc_extents. */
 		vvp_do_vmtruncate(inode, io->u.ci_setattr.sa_attr.lvb_size);
+		inode_dio_write_done(inode);
+	} else if (cl_io_is_prealloc(io)) {
 		inode_dio_write_done(inode);
 	}
 	mutex_unlock(&inode->i_mutex);
@@ -1152,39 +1159,39 @@ static const struct cl_io_operations vvp_io_ops = {
 };
 
 int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
-                struct cl_io *io)
+		struct cl_io *io)
 {
 	struct vvp_io      *vio   = vvp_env_io(env);
 	struct ccc_io      *cio   = ccc_env_io(env);
 	struct inode       *inode = vvp_object_inode(obj);
-        int                 result;
+	int                 result;
 
 	CLOBINVRNT(env, obj, vvp_object_invariant(obj));
-        ENTRY;
+	ENTRY;
 
 	CDEBUG(D_VFSTRACE, DFID" ignore/verify layout %d/%d, layout version %d "
-			   "restore needed %d\n",
+	       "restore needed %d\n",
 	       PFID(lu_object_fid(&obj->co_lu)),
 	       io->ci_ignore_layout, io->ci_verify_layout,
 	       cio->cui_layout_gen, io->ci_restore_needed);
 
-        CL_IO_SLICE_CLEAN(cio, cui_cl);
-        cl_io_slice_add(io, &cio->cui_cl, obj, &vvp_io_ops);
-        vio->cui_ra_window_set = 0;
+	CL_IO_SLICE_CLEAN(cio, cui_cl);
+	cl_io_slice_add(io, &cio->cui_cl, obj, &vvp_io_ops);
+	vio->cui_ra_window_set = 0;
 	result = 0;
 	if (io->ci_type == CIT_READ || io->ci_type == CIT_WRITE) {
 		size_t count;
 		struct ll_inode_info *lli = ll_i2info(inode);
 
-                count = io->u.ci_rw.crw_count;
-                /* "If nbyte is 0, read() will return 0 and have no other
-                 *  results."  -- Single Unix Spec */
-                if (count == 0)
-                        result = 1;
-                else {
-                        cio->cui_tot_count = count;
-                        cio->cui_tot_nrsegs = 0;
-                }
+		count = io->u.ci_rw.crw_count;
+		/* "If nbyte is 0, read() will return 0 and have no other
+		 *  results."  -- Single Unix Spec */
+		if (count == 0)
+			result = 1;
+		else {
+			cio->cui_tot_count = count;
+			cio->cui_tot_nrsegs = 0;
+		}
 
 		/* for read/write, we store the jobid in the inode, and
 		 * it'll be fetched by osc when building RPC.
@@ -1217,8 +1224,8 @@ int vvp_io_init(const struct lu_env *env, struct cl_object *obj,
 			result = 0;
 		if (result < 0)
 			CERROR("%s: refresh file layout " DFID " error %d.\n",
-				ll_get_fsname(inode->i_sb, NULL, 0),
-				PFID(lu_object_fid(&obj->co_lu)), result);
+			       ll_get_fsname(inode->i_sb, NULL, 0),
+			       PFID(lu_object_fid(&obj->co_lu)), result);
 	}
 
 	RETURN(result);

@@ -151,32 +151,32 @@ void cl_io_fini(const struct lu_env *env, struct cl_io *io)
 EXPORT_SYMBOL(cl_io_fini);
 
 static int cl_io_init0(const struct lu_env *env, struct cl_io *io,
-                       enum cl_io_type iot, struct cl_object *obj)
+		       enum cl_io_type iot, struct cl_object *obj)
 {
-        struct cl_object *scan;
-        int result;
+	struct cl_object *scan;
+	int result;
 
-        LINVRNT(io->ci_state == CIS_ZERO || io->ci_state == CIS_FINI);
-        LINVRNT(cl_io_type_is_valid(iot));
-        LINVRNT(cl_io_invariant(io));
-        ENTRY;
+	LINVRNT(io->ci_state == CIS_ZERO || io->ci_state == CIS_FINI);
+	LINVRNT(cl_io_type_is_valid(iot));
+	LINVRNT(cl_io_invariant(io));
+	ENTRY;
 
-        io->ci_type = iot;
+	io->ci_type = iot;
 	INIT_LIST_HEAD(&io->ci_lockset.cls_todo);
 	INIT_LIST_HEAD(&io->ci_lockset.cls_done);
 	INIT_LIST_HEAD(&io->ci_layers);
 
-        result = 0;
-        cl_object_for_each(scan, obj) {
-                if (scan->co_ops->coo_io_init != NULL) {
-                        result = scan->co_ops->coo_io_init(env, scan, io);
-                        if (result != 0)
-                                break;
-                }
-        }
-        if (result == 0)
-                io->ci_state = CIS_INIT;
-        RETURN(result);
+	result = 0;
+	cl_object_for_each(scan, obj) {
+		if (scan->co_ops->coo_io_init != NULL) {
+			result = scan->co_ops->coo_io_init(env, scan, io);
+			if (result != 0)
+				break;
+		}
+	}
+	if (result == 0)
+		io->ci_state = CIS_INIT;
+	RETURN(result);
 }
 
 /**
@@ -207,15 +207,15 @@ EXPORT_SYMBOL(cl_io_sub_init);
  * \post cl_io_type_is_valid(io->ci_type) && io->ci_type == iot
  */
 int cl_io_init(const struct lu_env *env, struct cl_io *io,
-               enum cl_io_type iot, struct cl_object *obj)
+		enum cl_io_type iot, struct cl_object *obj)
 {
-        struct cl_thread_info *info = cl_env_info(env);
+	struct cl_thread_info *info = cl_env_info(env);
 
-        LASSERT(obj == cl_object_top(obj));
-        LASSERT(info->clt_current_io == NULL);
+	LASSERT(obj == cl_object_top(obj));
+	LASSERT(info->clt_current_io == NULL);
 
-        info->clt_current_io = io;
-        return cl_io_init0(env, io, iot, obj);
+	info->clt_current_io = io;
+	return cl_io_init0(env, io, iot, obj);
 }
 EXPORT_SYMBOL(cl_io_init);
 
@@ -360,30 +360,30 @@ static int cl_lockset_lock(const struct lu_env *env, struct cl_io *io,
  */
 int cl_io_lock(const struct lu_env *env, struct cl_io *io)
 {
-        const struct cl_io_slice *scan;
-        int result = 0;
+	const struct cl_io_slice *scan;
+	int result = 0;
 
-        LINVRNT(cl_io_is_loopable(io));
-        LINVRNT(io->ci_state == CIS_IT_STARTED);
-        LINVRNT(cl_io_invariant(io));
+	LINVRNT(cl_io_is_loopable(io));
+	LINVRNT(io->ci_state == CIS_IT_STARTED);
+	LINVRNT(cl_io_invariant(io));
 
-        ENTRY;
-        cl_io_for_each(scan, io) {
-                if (scan->cis_iop->op[io->ci_type].cio_lock == NULL)
-                        continue;
-                result = scan->cis_iop->op[io->ci_type].cio_lock(env, scan);
-                if (result != 0)
-                        break;
-        }
-        if (result == 0) {
-                cl_io_locks_sort(io);
-                result = cl_lockset_lock(env, io, &io->ci_lockset);
-        }
-        if (result != 0)
-                cl_io_unlock(env, io);
-        else
-                io->ci_state = CIS_LOCKED;
-        RETURN(result);
+	ENTRY;
+	cl_io_for_each(scan, io) {
+		if (scan->cis_iop->op[io->ci_type].cio_lock == NULL)
+			continue;
+		result = scan->cis_iop->op[io->ci_type].cio_lock(env, scan);
+		if (result != 0)
+			break;
+	}
+	if (result == 0) {
+		cl_io_locks_sort(io);
+		result = cl_lockset_lock(env, io, &io->ci_lockset);
+	}
+	if (result != 0)
+		cl_io_unlock(env, io);
+	else
+		io->ci_state = CIS_LOCKED;
+	RETURN(result);
 }
 EXPORT_SYMBOL(cl_io_lock);
 
@@ -436,26 +436,26 @@ EXPORT_SYMBOL(cl_io_unlock);
  */
 int cl_io_iter_init(const struct lu_env *env, struct cl_io *io)
 {
-        const struct cl_io_slice *scan;
-        int result;
+	const struct cl_io_slice *scan;
+	int result;
 
-        LINVRNT(cl_io_is_loopable(io));
-        LINVRNT(io->ci_state == CIS_INIT || io->ci_state == CIS_IT_ENDED);
-        LINVRNT(cl_io_invariant(io));
+	LINVRNT(cl_io_is_loopable(io));
+	LINVRNT(io->ci_state == CIS_INIT || io->ci_state == CIS_IT_ENDED);
+	LINVRNT(cl_io_invariant(io));
 
-        ENTRY;
-        result = 0;
-        cl_io_for_each(scan, io) {
-                if (scan->cis_iop->op[io->ci_type].cio_iter_init == NULL)
-                        continue;
-                result = scan->cis_iop->op[io->ci_type].cio_iter_init(env,
-                                                                      scan);
-                if (result != 0)
-                        break;
-        }
-        if (result == 0)
-                io->ci_state = CIS_IT_STARTED;
-        RETURN(result);
+	ENTRY;
+	result = 0;
+	cl_io_for_each(scan, io) {
+		if (scan->cis_iop->op[io->ci_type].cio_iter_init == NULL)
+			continue;
+		result = scan->cis_iop->op[io->ci_type].cio_iter_init(env,
+								      scan);
+		if (result != 0)
+			break;
+	}
+	if (result == 0)
+		io->ci_state = CIS_IT_STARTED;
+	RETURN(result);
 }
 EXPORT_SYMBOL(cl_io_iter_init);
 
@@ -563,25 +563,25 @@ EXPORT_SYMBOL(cl_io_lock_alloc_add);
  */
 int cl_io_start(const struct lu_env *env, struct cl_io *io)
 {
-        const struct cl_io_slice *scan;
-        int result = 0;
+	const struct cl_io_slice *scan;
+	int result = 0;
 
-        LINVRNT(cl_io_is_loopable(io));
-        LINVRNT(io->ci_state == CIS_LOCKED);
-        LINVRNT(cl_io_invariant(io));
-        ENTRY;
+	LINVRNT(cl_io_is_loopable(io));
+	LINVRNT(io->ci_state == CIS_LOCKED);
+	LINVRNT(cl_io_invariant(io));
+	ENTRY;
 
-        io->ci_state = CIS_IO_GOING;
-        cl_io_for_each(scan, io) {
-                if (scan->cis_iop->op[io->ci_type].cio_start == NULL)
-                        continue;
-                result = scan->cis_iop->op[io->ci_type].cio_start(env, scan);
-                if (result != 0)
-                        break;
-        }
-        if (result >= 0)
-                result = 0;
-        RETURN(result);
+	io->ci_state = CIS_IO_GOING;
+	cl_io_for_each(scan, io) {
+		if (scan->cis_iop->op[io->ci_type].cio_start == NULL)
+			continue;
+		result = scan->cis_iop->op[io->ci_type].cio_start(env, scan);
+		if (result != 0)
+			break;
+	}
+	if (result >= 0)
+		result = 0;
+	RETURN(result);
 }
 EXPORT_SYMBOL(cl_io_start);
 
@@ -813,41 +813,41 @@ EXPORT_SYMBOL(cl_io_cancel);
  */
 int cl_io_loop(const struct lu_env *env, struct cl_io *io)
 {
-        int result   = 0;
+	int result   = 0;
 
-        LINVRNT(cl_io_is_loopable(io));
-        ENTRY;
+	LINVRNT(cl_io_is_loopable(io));
+	ENTRY;
 
-        do {
-                size_t nob;
+	do {
+		size_t nob;
 
-                io->ci_continue = 0;
-                result = cl_io_iter_init(env, io);
-                if (result == 0) {
-                        nob    = io->ci_nob;
-                        result = cl_io_lock(env, io);
-                        if (result == 0) {
-                                /*
-                                 * Notify layers that locks has been taken,
-                                 * and do actual i/o.
-                                 *
-                                 *   - llite: kms, short read;
-                                 *   - llite: generic_file_read();
-                                 */
-                                result = cl_io_start(env, io);
-                                /*
-                                 * Send any remaining pending
-                                 * io, etc.
-                                 *
-                                 *   - llite: ll_rw_stats_tally.
-                                 */
-                                cl_io_end(env, io);
-                                cl_io_unlock(env, io);
-                                cl_io_rw_advance(env, io, io->ci_nob - nob);
-                        }
-                }
-                cl_io_iter_fini(env, io);
-        } while (result == 0 && io->ci_continue);
+		io->ci_continue = 0;
+		result = cl_io_iter_init(env, io);
+		if (result == 0) {
+			nob    = io->ci_nob;
+			result = cl_io_lock(env, io);
+			if (result == 0) {
+				/*
+				 * Notify layers that locks has been taken,
+				 * and do actual i/o.
+				 *
+				 *   - llite: kms, short read;
+				 *   - llite: generic_file_read();
+				 */
+				result = cl_io_start(env, io);
+				/*
+				 * Send any remaining pending
+				 * io, etc.
+				 *
+				 *   - llite: ll_rw_stats_tally.
+				 */
+				cl_io_end(env, io);
+				cl_io_unlock(env, io);
+				cl_io_rw_advance(env, io, io->ci_nob - nob);
+			}
+		}
+		cl_io_iter_fini(env, io);
+	} while (result == 0 && io->ci_continue);
 	if (result == 0)
 		result = io->ci_result;
 	RETURN(result < 0 ? result : 0);

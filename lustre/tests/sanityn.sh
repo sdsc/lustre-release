@@ -392,7 +392,7 @@ test_16() {
 	rm -f $file1
 
 	lfs setstripe -c -1 $file1 # b=10919
-	fsx -c 50 -p $FSXP -N $FSXNUM -l $((SIZE * 256)) -S 0 $file1 $file2
+	fsx -c 50 -p $FSXP -N $FSXNUM -l $((SIZE * 256)) -S 0 -F $file1 $file2
 }
 run_test 16 "$FSXNUM iterations of dual-mount fsx"
 

@@ -435,28 +435,41 @@ out:
 	RETURN(rc);
 }
 
-int osc_punch_base(struct obd_export *exp, struct obd_info *oinfo,
-                   obd_enqueue_update_f upcall, void *cookie,
-                   struct ptlrpc_request_set *rqset)
+/**
+ * osc_fallocate_base: Handles truncate, punch and preallocate requests
+ */
+int osc_fallocate_base(struct obd_export *exp, struct obd_info *oinfo,
+		obd_enqueue_update_f upcall, void *cookie,
+		struct ptlrpc_request_set *rqset, int mode)
 {
-        struct ptlrpc_request   *req;
-        struct osc_setattr_args *sa;
-        struct ost_body         *body;
-        int                      rc;
-        ENTRY;
+	struct ptlrpc_request	*req;
+	struct osc_setattr_args	*sa;
+	struct ost_body		*body;
+	int			 rc;
+	ENTRY;
 
-        req = ptlrpc_request_alloc(class_exp2cliimp(exp), &RQF_OST_PUNCH);
-        if (req == NULL)
-                RETURN(-ENOMEM);
+	if (mode & FALLOC_FL_PUNCH_HOLE)
+		req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+					   &RQF_OST_PUNCH);
+	else
+		req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+					   &RQF_OST_PREALLOC);
+	if (req == NULL)
+		RETURN(-ENOMEM);
 
-        osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
-        rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_PUNCH);
-        if (rc) {
-                ptlrpc_request_free(req);
-                RETURN(rc);
-        }
-        req->rq_request_portal = OST_IO_PORTAL; /* bug 7198 */
-        ptlrpc_at_set_req_timeout(req);
+	osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
+
+	if (mode & FALLOC_FL_PUNCH_HOLE)
+		rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_PUNCH);
+	else
+		rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_PREALLOC);
+
+	if (rc) {
+		ptlrpc_request_free(req);
+		RETURN(rc);
+	}
+	req->rq_request_portal = OST_IO_PORTAL; /* bug 7198 */
+	ptlrpc_at_set_req_timeout(req);
 
 	body = req_capsule_client_get(&req->rq_pill, &RMF_OST_BODY);
 	LASSERT(body);
@@ -464,20 +477,20 @@ int osc_punch_base(struct obd_export *exp, struct obd_info *oinfo,
 			     oinfo->oi_oa);
 	osc_pack_capa(req, body, oinfo->oi_capa);
 
-        ptlrpc_request_set_replen(req);
+	ptlrpc_request_set_replen(req);
 
-        req->rq_interpret_reply = (ptlrpc_interpterer_t)osc_setattr_interpret;
-        CLASSERT (sizeof(*sa) <= sizeof(req->rq_async_args));
-        sa = ptlrpc_req_async_args(req);
-        sa->sa_oa     = oinfo->oi_oa;
-        sa->sa_upcall = upcall;
-        sa->sa_cookie = cookie;
-        if (rqset == PTLRPCD_SET)
-                ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
-        else
-                ptlrpc_set_add_req(rqset, req);
+	req->rq_interpret_reply = (ptlrpc_interpterer_t)osc_setattr_interpret;
+	CLASSERT(sizeof(*sa) <= sizeof(req->rq_async_args));
+	sa		= ptlrpc_req_async_args(req);
+	sa->sa_oa	= oinfo->oi_oa;
+	sa->sa_upcall	= upcall;
+	sa->sa_cookie	= cookie;
+	if (rqset == PTLRPCD_SET)
+		ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+	else
+		ptlrpc_set_add_req(rqset, req);
 
-        RETURN(0);
+	RETURN(0);
 }
 
 static int osc_sync_interpret(const struct lu_env *env,

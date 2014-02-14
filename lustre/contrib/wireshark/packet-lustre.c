@@ -181,6 +181,7 @@ typedef enum {
   OST_QUOTACHECK = 18,
   OST_QUOTACTL   = 19,
   OST_QUOTA_ADJUST_QUNIT = 20,
+  OST_PREALLOC	 = 21,
   OST_LAST_OPC
 } ost_cmd_t ;
 
@@ -1142,7 +1143,9 @@ const value_string lustre_op_codes[] = {
   {17 , "OST_SET_INFO"},
   {18 , "OST_QUOTACHECK"},
   {19 , "OST_QUOTACTL"},
-  {20 , "OST_LAST_OPC"},
+  {20 , "OST_QUOTA_ADJUST_QUNIT"},
+  {21 , "OST_PREALLOC"},
+  {22 , "OST_LAST_OPC"},
   /*MDS Opcodes*/
   {33 , "MDS_GETATTR"},
   {34 , "MDS_GETATTR_NAME"},
@@ -8449,6 +8452,14 @@ lustre_ost_opcode_process(tvbuff_t *tvb _U_, int offset _U_, packet_info *pinfo 
       offset=lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree, hf_lustre_ost_body) ;
       if (pb_type == PTL_RPC_MSG_REQUEST)
 	  offset=lustre_dissect_struct_capa(tvb,offset,pinfo,tree, hf_lustre_capa, LUSTRE_REQ_REC_OFF+1);
+      break;
+    case OST_PREALLOC: /* [ost_body] */
+	offset = lustre_dissect_struct_ost_body(tvb, offset, pinfo, tree,
+						hf_lustre_ost_body);
+	if (pb_type == PTL_RPC_MSG_REQUEST)
+		offset = lustre_dissect_struct_capa(tvb, offset, pinfo, tree,
+						    hf_lustre_capa,
+						    LUSTRE_REQ_REC_OFF + 1);
       break;
     case OST_OPEN: /* [nothing] in the code maybee obsolete */
       break;

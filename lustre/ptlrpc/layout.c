@@ -754,6 +754,7 @@ static struct req_format *req_formats[] = {
         &RQF_OST_SETATTR,
         &RQF_OST_CREATE,
         &RQF_OST_PUNCH,
+	&RQF_OST_PREALLOC,
         &RQF_OST_SYNC,
         &RQF_OST_DESTROY,
         &RQF_OST_BRW_READ,
@@ -1606,6 +1607,10 @@ EXPORT_SYMBOL(RQF_OST_CREATE);
 struct req_format RQF_OST_PUNCH =
         DEFINE_REQ_FMT0("OST_PUNCH", ost_body_capa, ost_body_only);
 EXPORT_SYMBOL(RQF_OST_PUNCH);
+
+struct req_format RQF_OST_PREALLOC =
+	DEFINE_REQ_FMT0("OST_PREALLOC", ost_body_capa, ost_body_only);
+EXPORT_SYMBOL(RQF_OST_PREALLOC);
 
 struct req_format RQF_OST_SYNC =
         DEFINE_REQ_FMT0("OST_SYNC", ost_body_capa, ost_body_only);

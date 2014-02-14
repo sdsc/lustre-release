@@ -12816,6 +12816,18 @@ test_242() {
 }
 run_test 242 "mdt_readpage failure should not cause directory unreadable"
 
+# test to verify fallocate functionality
+# This test tests the prealloc operations
+
+test_243() {
+	[ "$(facet_fstype $SINGLEMDS)" != "ldiskfs" ] &&
+		skip "non-ldiskfs backend" && return
+	touch $DIR/$tfile
+	check_fallocate $DIR/$tfile ||
+		error "fallocate failed"
+}
+run_test 243 "Verify fallocate (prealloc) functionality"
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
