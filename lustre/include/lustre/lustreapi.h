@@ -349,10 +349,10 @@ extern int llapi_hsm_action_begin(struct hsm_copyaction_private **phcp,
 				  int restore_mdt_index, int restore_open_flags,
 				  bool is_error);
 extern int llapi_hsm_action_end(struct hsm_copyaction_private **phcp,
-				const struct hsm_extent *he,
+				const struct lu_extent *he,
 				int hp_flags, int errval);
 extern int llapi_hsm_action_progress(struct hsm_copyaction_private *hcp,
-				     const struct hsm_extent *he, __u64 total,
+				     const struct lu_extent *he, __u64 total,
 				     int hp_flags);
 extern int llapi_hsm_action_get_dfid(const struct hsm_copyaction_private *hcp,
 				     lustre_fid *fid);

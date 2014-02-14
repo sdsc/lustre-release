@@ -698,6 +698,42 @@ LB_CHECK_EXPORT([simple_setattr], [fs/libfs.c],
 ]) # LC_EXPORT_SIMPLE_SETATTR
 
 #
+# fallocate callback removed from inode_operations since 2.6.38
+#
+AC_DEFUN([LC_IOP_FALLOCATE],
+[AC_MSG_CHECKING([inode_operations has .fallocate member function])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        ((struct inode_operations *)0)->fallocate(NULL, 0, 0, 0);
+],[
+        AC_DEFINE(HAVE_IOPS_FALLOCATE, 1,
+                  [inode_operations has .fallocate member function])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
+# fallocate callback added to file_operations since 2.6.38
+#
+AC_DEFUN([LC_FOP_FALLOCATE],
+[AC_MSG_CHECKING([file_operations has .fallocate member function])
+LB_LINUX_TRY_COMPILE([
+        #include <linux/fs.h>
+],[
+        ((struct file_operations *)0)->fallocate(NULL, 0, 0, 0);
+],[
+        AC_DEFINE(HAVE_FOPS_FALLOCATE, 1,
+                  [file_operations has .fallocate member function])
+        AC_MSG_RESULT([yes])
+],[
+        AC_MSG_RESULT([no])
+])
+])
+
+#
 # LC_IOP_TRUNCATE
 #
 # truncate callback removed since 2.6.39
@@ -1497,6 +1533,8 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_INODE_I_RCU
 	LC_D_COMPARE_7ARGS
 	LC_D_DELETE_CONST
+	LC_IOP_FALLOCATE
+	LC_FOP_FALLOCATE
 
 	# 2.6.39
 	LC_REQUEST_QUEUE_UNPLUG_FN

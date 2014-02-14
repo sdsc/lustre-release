@@ -126,8 +126,8 @@ int osc_setattr_async_base(struct obd_export *exp, struct obd_info *oinfo,
                            obd_enqueue_update_f upcall, void *cookie,
                            struct ptlrpc_request_set *rqset);
 int osc_punch_base(struct obd_export *exp, struct obd_info *oinfo,
-                   obd_enqueue_update_f upcall, void *cookie,
-                   struct ptlrpc_request_set *rqset);
+		   obd_enqueue_update_f upcall, void *cookie,
+		   struct ptlrpc_request_set *rqset, bool punch);
 int osc_sync_base(struct obd_export *exp, struct obd_info *oinfo,
 		  obd_enqueue_update_f upcall, void *cookie,
 		  struct ptlrpc_request_set *rqset);

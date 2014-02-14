@@ -79,6 +79,7 @@ enum {
          LPROC_LL_TRUNC,
          LPROC_LL_FLOCK,
          LPROC_LL_GETATTR,
+	 LPROC_LL_FALLOCATE,
          LPROC_LL_CREATE,
          LPROC_LL_LINK,
          LPROC_LL_UNLINK,

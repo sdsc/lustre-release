@@ -3495,7 +3495,7 @@ static int lfs_hsm_action(int argc, char **argv)
 	int				 i = 1;
 	char				*path;
 	struct hsm_current_action	 hca;
-	struct hsm_extent		 he;
+	struct lu_extent		 he;
 	enum hsm_user_action		 hua;
 	enum hsm_progress_states	 hps;
 

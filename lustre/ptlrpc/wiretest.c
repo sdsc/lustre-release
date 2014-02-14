@@ -107,7 +107,9 @@ void lustre_assert_wire_constants(void)
 		 (long long)OST_QUOTACTL);
 	LASSERTF(OST_QUOTA_ADJUST_QUNIT == 20, "found %lld\n",
 		 (long long)OST_QUOTA_ADJUST_QUNIT);
-	LASSERTF(OST_LAST_OPC == 21, "found %lld\n",
+	LASSERTF(OST_PREALLOC == 21, "found %lld\n",
+		 (long long)OST_PREALLOC);
+	LASSERTF(OST_LAST_OPC == 22, "found %lld\n",
 		 (long long)OST_LAST_OPC);
 	LASSERTF(OBD_OBJECT_EOF == 0xffffffffffffffffULL, "found 0x%.16llxULL\n",
 		 OBD_OBJECT_EOF);
