@@ -283,11 +283,6 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 #endif
 	ENTRY;
 
-	if (lfd != NULL)
-		pos = lfd->lfd_pos;
-	else
-		pos = 0;
-
 	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p) pos/size"
 	       "%lu/%llu 32bit_api %d\n", PFID(ll_inode2fid(inode)),
 	       inode, (unsigned long)pos, i_size_read(inode), api32);
@@ -306,10 +301,9 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 	op_data->op_hash_offset = pos;
 	op_data->op_max_pages = sbi->ll_md_brw_size >> PAGE_CACHE_SHIFT;
 	rc = ll_dir_read(inode, op_data, cookie, filldir);
-	if (lfd != NULL)
-		lfd->lfd_pos = op_data->op_hash_offset;
+	lfd->lfd_pos = op_data->op_hash_offset;
 
-	if (pos == MDS_DIR_END_OFF) {
+	if (lfd->lfd_pos == MDS_DIR_END_OFF) {
 		if (api32)
 			filp->f_pos = LL_DIR_END_OFF_32BIT;
 		else
