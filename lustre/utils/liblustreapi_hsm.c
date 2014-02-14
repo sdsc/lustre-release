@@ -1087,7 +1087,7 @@ err_out:
  * \return 0 on success.
  */
 int llapi_hsm_action_end(struct hsm_copyaction_private **phcp,
-			 const struct hsm_extent *he, int hp_flags, int errval)
+			 const struct lu_extent *he, int hp_flags, int errval)
 {
 	struct hsm_copyaction_private	*hcp;
 	struct hsm_action_item		*hai;
@@ -1162,7 +1162,7 @@ err_cleanup:
  * \return 0 on success.
  */
 int llapi_hsm_action_progress(struct hsm_copyaction_private *hcp,
-			      const struct hsm_extent *he, __u64 total,
+			      const struct lu_extent *he, __u64 total,
 			      int hp_flags)
 {
 	int			 rc;

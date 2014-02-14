@@ -12737,6 +12737,18 @@ test_240() {
 }
 run_test 240 "race between ldlm enqueue and the connection RPC (no ASSERT)"
 
+# test to verify fallocate functionality
+# This test tests the prealloc and punch operations
+
+test_241() {
+	[ "$(facet_fstype $SINGLEMDS)" != "ldiskfs" ] &&
+		skip "non-ldiskfs backend" && return
+	touch $DIR/$tfile
+	check_fallocate $DIR/$tfile ||
+		error "fallocate failed"
+}
+run_test 241 "Verify fallocate (prealloc) functionality"
+
 cleanup_test_300() {
 	trap 0
 	umask $SAVE_UMASK
