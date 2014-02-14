@@ -1315,6 +1315,40 @@ struct dt_body_operations {
 			   __u64 start,
 			   __u64 end,
 			   struct thandle *th);
+
+	/**
+	 * Declare intention to preallocate space for an object
+	 *
+	 * \param[in] env	execution environment for this thread
+	 * \param[in] dt	object
+	 * \param[in] th	transaction handle
+	 *
+	 * \retval 0		on success
+	 * \retval negative	negated errno on error
+	 */
+	int (*dbo_declare_prealloc)(const struct lu_env *env,
+				    struct dt_object *dt,
+				    struct thandle *th);
+	/**
+	 * Allocate specified region for an object
+	 *
+	 * \param[in] env	execution environment for this thread
+	 * \param[in] dt	object
+	 * \param[in] start	the start of the region to allocate
+	 * \param[in] end	the end of the region to allocate
+	 * \param[in] mode	fallocate mode
+	 * \param[in] th	transaction handle
+	 * \param[in] capa	unused
+	 *
+	 * \retval 0		on success
+	 * \retval negative	negated errno on error
+	 */
+	int (*dbo_prealloc)(const struct lu_env *env,
+			    struct dt_object *dt,
+			    __u64 start,
+			    __u64 end,
+			    int mode,
+			    struct thandle *th);
 };
 
 /**
@@ -2382,10 +2416,29 @@ static inline int dt_declare_punch(const struct lu_env *env,
 static inline int dt_punch(const struct lu_env *env, struct dt_object *dt,
 			   __u64 start, __u64 end, struct thandle *th)
 {
-        LASSERT(dt);
-        LASSERT(dt->do_body_ops);
-        LASSERT(dt->do_body_ops->dbo_punch);
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_punch);
 	return dt->do_body_ops->dbo_punch(env, dt, start, end, th);
+}
+
+static inline int dt_declare_prealloc(const struct lu_env *env,
+				      struct dt_object *dt, struct thandle *th)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_declare_prealloc);
+	return dt->do_body_ops->dbo_declare_prealloc(env, dt, th);
+}
+
+static inline int dt_prealloc(const struct lu_env *env, struct dt_object *dt,
+			      __u64 start, __u64 end, int mode,
+			      struct thandle *th)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_prealloc);
+	return dt->do_body_ops->dbo_prealloc(env, dt, start, end, mode, th);
 }
 
 static inline int dt_fiemap_get(const struct lu_env *env, struct dt_object *d,
