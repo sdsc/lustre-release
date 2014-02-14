@@ -316,7 +316,7 @@ int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tgt,
 	if (rc)
 		GOTO(cleanup, rc);
 
-	rc = dt_punch(env, dt, size, OBD_OBJECT_EOF, th, BYPASS_CAPA);
+	rc = dt_punch(env, dt, size, OBD_OBJECT_EOF, 0, th, BYPASS_CAPA);
 	if (rc == 0)
 		rc = dt_attr_set(env, dt, &attr, th, BYPASS_CAPA);
 
