@@ -195,7 +195,9 @@ struct osp_device {
 	struct dt_update_request	*opd_async_requests;
 	/* Protect current operations on opd_async_requests. */
 	struct mutex			 opd_async_requests_mutex;
-	struct semaphore		 opd_async_fc_sem;
+	/* semaphore holds number of concurrent OUT RPCs in flight for
+	 * remote transaction. */
+	struct semaphore		 opd_async_flow_control_sem;
 };
 
 #define opd_pre_lock			opd_pre->osp_pre_lock

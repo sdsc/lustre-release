@@ -35,7 +35,8 @@
 
 struct osp_async_update_args {
 	struct dt_update_request *oaua_update;
-	unsigned int		 oaua_fc:1;
+	/* Whether it takes the opd_async_flow_control_sem or not. */
+	bool			  oaua_flow_control:1;
 };
 
 struct osp_async_update_item {
@@ -82,13 +83,12 @@ static int osp_async_update_interpret(const struct lu_env *env,
 	struct dt_update_request	*dt_update = oaua->oaua_update;
 	struct osp_async_update_item	*oaui;
 	struct osp_async_update_item	*next;
-	struct osp_device		*osp	= dt2osp_dev(dt_update->dur_dt);
 	int				 count	= 0;
 	int				 index  = 0;
 	int				 rc1	= 0;
 
-	if (oaua->oaua_fc)
-		up(&osp->opd_async_fc_sem);
+	if (oaua->oaua_flow_control)
+		up(&dt2osp_dev(dt_update->dur_dt)->opd_async_flow_control_sem);
 
 	if (rc == 0 || req->rq_repmsg != NULL) {
 		reply = req_capsule_server_sized_get(&req->rq_pill,
@@ -269,7 +269,7 @@ out:
 
 static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 			     struct dt_update_request *dt_update,
-			     struct thandle *th, bool fc)
+			     struct thandle *th, bool flow_control)
 {
 	struct thandle_update	*tu = th->th_update;
 	int			rc = 0;
@@ -288,7 +288,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 		if (rc == 0) {
 			args = ptlrpc_req_async_args(req);
 			args->oaua_update = dt_update;
-			args->oaua_fc = !!fc;
+			args->oaua_flow_control = flow_control;
 			req->rq_interpret_reply =
 				osp_async_update_interpret;
 			ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
@@ -376,13 +376,14 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 				/* Get the semaphore to guarantee it has
 				 * free slot, which will be released via
 				 * osp_async_update_interpret(). */
-				rc = down_timeout(&osp->opd_async_fc_sem, HZ);
+				rc = down_timeout(
+					&osp->opd_async_flow_control_sem, HZ);
 			} while (rc != 0);
 
 			rc = osp_trans_trigger(env, dt2osp_dev(dt),
 					       dt_update, th, true);
 			if (rc != 0)
-				up(&osp->opd_async_fc_sem);
+				up(&osp->opd_async_flow_control_sem);
 		} else {
 			rc = th->th_result;
 			out_destroy_update_req(dt_update);

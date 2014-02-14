@@ -127,11 +127,19 @@ enum lfsck_events {
 	LE_FID_ACCESSED 	= 8,
 	LE_PEER_EXIT		= 9,
 	LE_CONDITIONAL_DESTROY	= 10,
+	LE_PAIRS_VERIFY 	= 11,
 };
 
 enum lfsck_event_flags {
 	LEF_TO_OST		= 0x00000001,
 	LEF_FROM_OST		= 0x00000002,
+};
+
+/* For LE_PAIRS_VERIFY returned status */
+enum lfsck_pv_status {
+	LPVS_INIT		= 0,
+	LPVS_INCONSISTENT	= 1,
+	LPVS_INCONSISTENT_TOFIX = 2,
 };
 
 typedef int (*lfsck_out_notify)(const struct lu_env *env, void *data,

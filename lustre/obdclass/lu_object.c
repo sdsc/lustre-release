@@ -60,8 +60,6 @@
 #include <lu_ref.h>
 #include <libcfs/list.h>
 
-extern spinlock_t obd_types_lock;
-
 static void lu_object_free(const struct lu_env *env, struct lu_object *o);
 
 /**
@@ -798,7 +796,8 @@ EXPORT_SYMBOL(lu_object_find_slice);
 /**
  * Global list of all device types.
  */
-static CFS_LIST_HEAD(lu_device_types);
+static struct list_head lu_device_types = LIST_HEAD_INIT(lu_device_types);
+static DEFINE_SPINLOCK(lu_device_types_lock);
 
 int lu_device_type_init(struct lu_device_type *ldt)
 {
@@ -810,9 +809,9 @@ int lu_device_type_init(struct lu_device_type *ldt)
 		result = ldt->ldt_ops->ldto_init(ldt);
 
 	if (result == 0) {
-		spin_lock(&obd_types_lock);
+		spin_lock(&lu_device_types_lock);
 		list_add(&ldt->ldt_linkage, &lu_device_types);
-		spin_unlock(&obd_types_lock);
+		spin_unlock(&lu_device_types_lock);
 	}
 
 	return result;
@@ -821,9 +820,9 @@ EXPORT_SYMBOL(lu_device_type_init);
 
 void lu_device_type_fini(struct lu_device_type *ldt)
 {
-	spin_lock(&obd_types_lock);
+	spin_lock(&lu_device_types_lock);
 	list_del_init(&ldt->ldt_linkage);
-	spin_unlock(&obd_types_lock);
+	spin_unlock(&lu_device_types_lock);
 	if (ldt->ldt_ops->ldto_fini)
 		ldt->ldt_ops->ldto_fini(ldt);
 }

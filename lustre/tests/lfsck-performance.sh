@@ -47,8 +47,6 @@ SHOW_NAMESPACE="${RLCTL} get_param -n mdd.${MDT_DEV}.lfsck_namespace"
 MNTOPTS_NOSCRUB="-o user_xattr,noscrub"
 remote_mds && ECHOCMD=${RCMD} || ECHOCMD="eval"
 
-LFSCKDIR="$MOUNT/lfsck/"
-
 if [ ${NTHREADS} -eq 0 ]; then
 	CPUCORE=$(${RCMD} cat /proc/cpuinfo | grep "processor.*:" | wc -l)
 	NTHREADS=$((CPUCORE * 2))
@@ -78,7 +76,7 @@ lfsck_create() {
 		test_mkdir ${tdir}
 	EOF"
 
-	for ((j=1; j<${threads}; j++)); do
+	for ((j = 1; j < ${threads}; j++)); do
 		${ECHOCMD} "${LCTL} <<-EOF
 			cfg_device ${echodev}
 			test_mkdir ${tdir}${j}
@@ -146,7 +144,7 @@ test_0() {
 		ldiskfs --reformat ${MDT_DEVNAME} $(mdsvdevname 1) > /dev/null ||
 		error "Fail to reformat the MDS!"
 
-	for ((i=$MINCOUNT; i<=$MAXCOUNT; i=$((i * FACTOR)))); do
+	for ((i = $MINCOUNT; i <= $MAXCOUNT; i = $((i * FACTOR)))); do
 		local nfiles=$((i - BCOUNT))
 
 		echo "+++ start to create for ${i} files set at: $(date) +++"
@@ -188,7 +186,8 @@ test_1() {
 		ldiskfs --reformat ${MDT_DEVNAME} $(mdsvdevname 1) > /dev/null ||
 		error "Fail to reformat the MDS!"
 
-	for ((i=$MINCOUNT_REPAIR; i<=$MAXCOUNT_REPAIR; i=$((i * FACTOR)))); do
+	for ((i = $MINCOUNT_REPAIR; i <= $MAXCOUNT_REPAIR;
+	      i = $((i * FACTOR)))); do
 		local nfiles=$((i - BCOUNT))
 
 		echo "+++ start to create for ${i} files set at: $(date) +++"
@@ -232,7 +231,8 @@ run_test 1 "lfsck namespace performance (backup/restore) without load"
 test_2() {
 	local i
 
-	for ((i=$MINCOUNT_REPAIR; i<=$MAXCOUNT_REPAIR; i=$((i * FACTOR)))); do
+	for ((i = $MINCOUNT_REPAIR; i <= $MAXCOUNT_REPAIR;
+	      i = $((i * FACTOR)))); do
 		stopall
 		do_rpc_nodes $(facet_active_host $SINGLEMDS) load_modules_local
 		reformat_external_journal
@@ -282,7 +282,7 @@ test_3() {
 		ldiskfs --reformat ${MDT_DEVNAME} $(mdsvdevname 1) > /dev/null ||
 		error "Fail to reformat the MDS!"
 
-	for ((i=$inc_count; i<=$BASE_COUNT; i=$((i + inc_count)))); do
+	for ((i = $inc_count; i <= $BASE_COUNT; i = $((i + inc_count)))); do
 		local nfiles=$((i - BCOUNT))
 
 		echo "+++ start to create for ${i} files set at: $(date) +++"
@@ -313,7 +313,7 @@ test_3() {
 	local inc_speed=$((FULL_SPEED * INCFACTOR / 100))
 	local j
 
-	for ((j=$inc_speed; j<$FULL_SPEED; j=$((j + inc_speed)))); do
+	for ((j = $inc_speed; j < $FULL_SPEED; j = $((j + inc_speed)))); do
 		start ${SINGLEMDS} $MDT_DEVNAME $MNTOPTS_NOSCRUB > /dev/null ||
 			error "Fail to start MDS!"
 
@@ -388,7 +388,7 @@ layout_gen_one()
 	local idx1=$1
 	local idx2=$2
 	local mntpt="/mnt/lustre_lfsck_${idx1}_${idx2}"
-	local basedir="$mntpt/lfsck/$idx1/$idx2"
+	local basedir="$mntpt/$tdir/$idx1/$idx2"
 
 	mkdir -p $mntpt || {
 		error_noexit "(11) Fail to mkdir $mntpt"
@@ -422,7 +422,7 @@ layout_gen_set()
 	local cnt=$1
 
 	echo "##### Start generate test set for subdirs=$cnt at: $(date) #####"
-	for ((k=0; k<$MDSCOUNT; k++)); do
+	for ((k = 0; k < $MDSCOUNT; k++)); do
 		$LFS mkdir -i ${k} $LFSCKDIR/${k} || return 10
 
 		for ((l=1; l<=$cnt; l++)); do
@@ -442,14 +442,15 @@ t4_test()
 	echo "stopall"
 	stopall > /dev/null || error "(1) Fail to stopall"
 
+	LFSCKDIR="$DIR/$tdir"
 	MDSCOUNT=1
-	for ((i=1; i<=$saved_ostcount; i=$((i * 2)))); do
+	for ((i = 1; i <= $saved_ostcount; i = $((i * 2)))); do
 		OSTCOUNT=${i}
 
 		echo "+++++ Start cycle ostcount=$OSTCOUNT at: $(date) +++++"
 		echo
 
-		for ((j=$MINSUBDIR; j<=$MAXSUBDIR; j=$((j * FACTOR)))); do
+		for ((j = $MINSUBDIR; j <= $MAXSUBDIR; j = $((j * FACTOR)))); do
 			echo "formatall"
 			formatall > /dev/null ||
 				error "(2) Fail to formatall, subdirs=${j}"
@@ -458,16 +459,16 @@ t4_test()
 			setupall > /dev/null ||
 				error "(3) Fail to setupall, subdirs=${j}"
 
-			mkdir $LFSCKDIR ||
-			error "(4) Fail to mkdir $LFSCKDIR, subdirs=${j}"
+			mkdir -p $LFSCKDIR ||
+				error "(4) mkdir $LFSCKDIR, subdirs=${j}"
 
 			$LFS setstripe -c ${OSTCOUNT} -i 0 $LFSCKDIR ||
-			error "(5) Fail to setstripe on $LFSCKDIR, subdirs=${j}"
+				error "(5) setstripe on $LFSCKDIR, subdirs=${j}"
 
 			local RC=0
 			layout_gen_set ${j} || RC=$?
 			[ $RC -eq 0 ] ||
-			error "(6) Fail to generate set $RC, subdirs=${j}"
+				error "(6) generate set $RC, subdirs=${j}"
 
 			RC=0
 			layout_test_one || RC=$?
@@ -516,13 +517,14 @@ t5_test()
 	echo "stopall"
 	stopall > /dev/null || error "(1) Fail to stopall"
 
-	for ((i=1; i<=$saved_mdscount; i++)); do
+	LFSCKDIR="$DIR/$tdir"
+	for ((i = 1; i <= $saved_mdscount; i++)); do
 		MDSCOUNT=${i}
 
 		echo "+++++ Start cycle mdscount=$MDSCOUNT at: $(date) +++++"
 		echo
 
-		for ((j=$MINSUBDIR; j<=$MAXSUBDIR; j=$((j * FACTOR)))); do
+		for ((j = $MINSUBDIR; j <= $MAXSUBDIR; j = $((j * FACTOR)))); do
 			echo "formatall"
 			formatall > /dev/null ||
 				error "(2) Fail to formatall, subdirs=${j}"
@@ -531,16 +533,16 @@ t5_test()
 			setupall > /dev/null ||
 				error "(3) Fail to setupall, subdirs=${j}"
 
-			mkdir $LFSCKDIR ||
-			error "(4) Fail to mkdir $LFSCKDIR, subdirs=${j}"
+			mkdir -p $LFSCKDIR ||
+				error "(4) mkdir $LFSCKDIR, subdirs=${j}"
 
 			$LFS setstripe -c ${OSTCOUNT} -i 0 $LFSCKDIR ||
-			error "(5) Fail to setstripe on $LFSCKDIR, subdirs=${j}"
+				error "(5) setstripe on $LFSCKDIR, subdirs=${j}"
 
 			local RC=0
 			layout_gen_set ${j} || RC=$?
 			[ $RC -eq 0 ] ||
-			error "(6) Fail to generate set $RC, subdirs=${j}"
+				error "(6) generate set $RC, subdirs=${j}"
 
 			RC=0
 			layout_test_one || RC=$?
@@ -621,6 +623,7 @@ test_6() {
 
 	local saved_mdscount=$MDSCOUNT
 
+	LFSCKDIR="$DIR/$tdir"
 	MDSCOUNT=1
 	echo "formatall"
 	formatall > /dev/null || error "(2) Fail to formatall"
@@ -628,7 +631,7 @@ test_6() {
 	echo "setupall"
 	setupall > /dev/null || error "(3) Fail to setupall"
 
-	mkdir $LFSCKDIR || error "(4) Fail to mkdir $LFSCKDIR"
+	mkdir -p $LFSCKDIR || error "(4) Fail to mkdir $LFSCKDIR"
 
 	$LFS setstripe -c ${OSTCOUNT} -i 0 $LFSCKDIR ||
 		error "(5) Fail to setstripe on $LFSCKDIR"
@@ -659,8 +662,8 @@ test_6() {
 	local nfiles=$((inc_count / 2))
 
 	lfsck_attach
-	for ((m=0, n=$INCFACTOR; n<100;
-	      m=$((m + inc_count)), n=$((n + INCFACTOR)))); do
+	for ((m = 0, n = $INCFACTOR; n < 100;
+	      m = $((m + inc_count)), n = $((n + INCFACTOR)))); do
 		local sl=$((SPEED * n / 100))
 
 		$STOP_LFSCK > /dev/null 2>&1
