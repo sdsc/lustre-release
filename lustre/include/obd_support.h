@@ -506,14 +506,22 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_LFSCK_UNMATCHED_PAIR2	0x1612
 #define OBD_FAIL_LFSCK_BAD_OWNER	0x1613
 #define OBD_FAIL_LFSCK_MULTIPLE_REF	0x1614
+#define OBD_FAIL_LFSCK_LOST_STRIPE	0x1615
+#define OBD_FAIL_LFSCK_LOST_MDTOBJ	0x1616
+#define OBD_FAIL_LFSCK_NOPFID		0x1617
+#define OBD_FAIL_LFSCK_CHANGE_STRIPE	0x1618
 
 #define OBD_FAIL_LFSCK_NOTIFY_NET	0x16f0
 #define OBD_FAIL_LFSCK_QUERY_NET	0x16f1
 
 /* UPDATE */
-#define OBD_FAIL_UPDATE_OBJ_NET			0x1700
-#define OBD_FAIL_UPDATE_OBJ_NET_REP		0x1701
+#define OBD_FAIL_OUT_UPDATE_NET		0x1700
+#define OBD_FAIL_OUT_UPDATE_NET_REP	0x1701
 
+/* MIGRATE */
+#define OBD_FAIL_MIGRATE_NET_REP		0x1800
+#define OBD_FAIL_MIGRATE_ENTRIES		0x1801
+#define OBD_FAIL_MIGRATE_LINKEA			0x1802
 
 /* Assign references to moved code to reduce code changes */
 #define OBD_FAIL_PRECHECK(id)                   CFS_FAIL_PRECHECK(id)

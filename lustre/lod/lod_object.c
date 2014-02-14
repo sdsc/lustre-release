@@ -359,6 +359,23 @@ static int lod_declare_attr_set(const struct lu_env *env,
 		}
 	}
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
+	    dt_object_exists(next) != 0 &&
+	    dt_object_remote(next) == 0)
+		dt_declare_xattr_del(env, next, XATTR_NAME_LOV, handle);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CHANGE_STRIPE) &&
+	    dt_object_exists(next) &&
+	    dt_object_remote(next) == 0 && S_ISREG(attr->la_mode)) {
+		struct lod_thread_info *info = lod_env_info(env);
+		struct lu_buf *buf = &info->lti_buf;
+
+		buf->lb_buf = info->lti_ea_store;
+		buf->lb_len = info->lti_ea_store_size;
+		dt_declare_xattr_set(env, next, buf, XATTR_NAME_LOV,
+				     LU_XATTR_REPLACE, handle);
+	}
+
 	RETURN(rc);
 }
 
@@ -429,6 +446,44 @@ static int lod_attr_set(const struct lu_env *env,
 			CERROR("failed declaration: %d\n", rc);
 			break;
 		}
+	}
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
+	    dt_object_exists(next) != 0 &&
+	    dt_object_remote(next) == 0)
+		dt_xattr_del(env, next, XATTR_NAME_LOV, handle, BYPASS_CAPA);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CHANGE_STRIPE) &&
+	    dt_object_exists(next) &&
+	    dt_object_remote(next) == 0 && S_ISREG(attr->la_mode)) {
+		struct lod_thread_info *info = lod_env_info(env);
+		struct lu_buf *buf = &info->lti_buf;
+		struct ost_id *oi = &info->lti_ostid;
+		struct lu_fid *fid = &info->lti_fid;
+		struct lov_mds_md_v1 *lmm;
+		struct lov_ost_data_v1 *objs;
+		__u32 magic;
+		int rc1;
+
+		rc1 = lod_get_lov_ea(env, lo);
+		if (rc1  <= 0)
+			RETURN(rc);
+
+		buf->lb_buf = info->lti_ea_store;
+		buf->lb_len = info->lti_ea_store_size;
+		lmm = info->lti_ea_store;
+		magic = le32_to_cpu(lmm->lmm_magic);
+		if (magic == LOV_MAGIC_V1)
+			objs = &(lmm->lmm_objects[0]);
+		else
+			objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
+		ostid_le_to_cpu(&objs->l_ost_oi, oi);
+		ostid_to_fid(fid, oi, le32_to_cpu(objs->l_ost_idx));
+		fid->f_oid--;
+		fid_to_ostid(fid, oi);
+		ostid_cpu_to_le(oi, &objs->l_ost_oi);
+		dt_xattr_set(env, next, buf, XATTR_NAME_LOV,
+			     LU_XATTR_REPLACE, handle, BYPASS_CAPA);
 	}
 
 	RETURN(rc);
@@ -573,6 +628,9 @@ int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
 	int			i;
 	int			rc = 0;
 	ENTRY;
+
+	if (le32_to_cpu(lmv1->lmv_magic) == LMV_MAGIC_MIGRATE)
+		RETURN(0);
 
 	if (le32_to_cpu(lmv1->lmv_magic) != LMV_MAGIC_V1)
 		RETURN(-EINVAL);
@@ -806,7 +864,8 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 			GOTO(out_put, rc);
 	}
 
-	rc = dt_declare_xattr_set(env, dt, &lmv_buf, XATTR_NAME_LMV, 0, th);
+	rc = dt_declare_xattr_set(env, dt_object_child(dt), &lmv_buf,
+				  XATTR_NAME_LMV, 0, th);
 	if (rc != 0)
 		GOTO(out_put, rc);
 
@@ -1148,7 +1207,8 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 				  capa);
 	}
 
-	rc = dt_xattr_set(env, dt, &lmv_buf, XATTR_NAME_LMV, fl, th, capa);
+	rc = dt_xattr_set(env, dt_object_child(dt), &lmv_buf, XATTR_NAME_LMV,
+			  fl, th, capa);
 
 	RETURN(rc);
 }
@@ -1296,6 +1356,11 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 
 	if (v1->lmm_pattern != LOV_PATTERN_RAID0 && v1->lmm_pattern != 0)
 		GOTO(unlock, rc = 0);
+
+	CDEBUG(D_INFO, DFID" stripe_count=%d stripe_size=%d stripe_offset=%d\n",
+	       PFID(lu_object_fid(&lp->ldo_obj.do_lu)),
+	       (int)v1->lmm_stripe_count,
+	       (int)v1->lmm_stripe_size, (int)v1->lmm_stripe_offset);
 
 	lp->ldo_def_stripenr = v1->lmm_stripe_count;
 	lp->ldo_def_stripe_size = v1->lmm_stripe_size;
@@ -1626,22 +1691,33 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc = -ENOMEM);
 	}
 
-	/* choose OST and generate appropriate objects */
-	rc = lod_qos_prep_create(env, lo, attr, lovea, th);
-	if (rc) {
-		/* failed to create striping, let's reset
-		 * config so that others don't get confused */
-		lod_object_free_striping(env, lo);
-		GOTO(out, rc);
+	if (!dt_object_remote(next)) {
+		/* choose OST and generate appropriate objects */
+		rc = lod_qos_prep_create(env, lo, attr, lovea, th);
+		if (rc) {
+			/* failed to create striping, let's reset
+			 * config so that others don't get confused */
+			lod_object_free_striping(env, lo);
+			GOTO(out, rc);
+		}
+
+		/*
+		 * declare storage for striping data
+		 */
+		info->lti_buf.lb_len = lov_mds_md_size(lo->ldo_stripenr,
+				lo->ldo_pool ?  LOV_MAGIC_V3 : LOV_MAGIC_V1);
+	} else {
+		/* LOD can not choose OST objects for remote objects, i.e.
+		 * stripes must be ready before that. Right now, it can only
+		 * happen during migrate, i.e. migrate process needs to create
+		 * remote regular file (mdd_migrate_create), then the migrate
+		 * process will provide stripeEA. */
+		LASSERT(lovea != NULL);
+		info->lti_buf = *lovea;
 	}
 
-	/*
-	 * declare storage for striping data
-	 */
-	info->lti_buf.lb_len = lov_mds_md_size(lo->ldo_stripenr,
-				lo->ldo_pool ?  LOV_MAGIC_V3 : LOV_MAGIC_V1);
-	rc = dt_declare_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV,
-				  0, th);
+	rc = dt_declare_xattr_set(env, next, &info->lti_buf,
+				  XATTR_NAME_LOV, 0, th);
 	if (rc)
 		GOTO(out, rc);
 
@@ -1837,7 +1913,11 @@ static int lod_declare_object_create(const struct lu_env *env,
 			rc = lod_declare_striped_object(env, dt, attr,
 							NULL, th);
 	} else if (dof->dof_type == DFT_DIR) {
-		rc = lod_declare_dir_striping_create(env, dt, attr, dof, th);
+		/* Orphan object (like migrating object) does not have
+		 * lod_dir_stripe, see lod_ah_init */
+		if (lo->ldo_dir_stripe != NULL)
+			rc = lod_declare_dir_striping_create(env, dt, attr,
+							     dof, th);
 	}
 out:
 	RETURN(rc);
@@ -1881,7 +1961,8 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	rc = dt_create(env, next, attr, hint, dof, th);
 
 	if (rc == 0) {
-		if (S_ISDIR(dt->do_lu.lo_header->loh_attr))
+		if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
+		    lo->ldo_dir_stripe != NULL)
 			rc = lod_dir_striping_create(env, dt, attr, dof, th);
 		else if (lo->ldo_stripe && dof->u.dof_reg.striped != 0)
 			rc = lod_striping_create(env, dt, attr, dof, th);
@@ -1905,6 +1986,9 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	rc = dt_declare_destroy(env, next, th);
 	if (rc)
 		RETURN(rc);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ))
+		RETURN(0);
 
 	/*
 	 * load striping information, notice we don't do this when object
@@ -1939,6 +2023,9 @@ static int lod_object_destroy(const struct lu_env *env,
 	rc = dt_destroy(env, next, th);
 	if (rc)
 		RETURN(rc);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MDTOBJ))
+		RETURN(0);
 
 	/* destroy all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
@@ -2183,11 +2270,11 @@ static ssize_t lod_read(const struct lu_env *env, struct dt_object *dt,
 
 static ssize_t lod_declare_write(const struct lu_env *env,
 				 struct dt_object *dt,
-				 const loff_t size, loff_t pos,
+				 const struct lu_buf *buf, loff_t pos,
 				 struct thandle *th)
 {
 	return dt_declare_record_write(env, dt_object_child(dt),
-				       size, pos, th);
+				       buf, pos, th);
 }
 
 static ssize_t lod_write(const struct lu_env *env, struct dt_object *dt,

@@ -122,11 +122,11 @@ struct osp_device {
 	cfs_proc_dir_entry_t		*opd_proc_entry;
 	struct lprocfs_stats		*opd_stats;
 	/* connection status. */
-	int				 opd_new_connection;
-	int				 opd_got_disconnected;
-	int				 opd_imp_connected;
-	int				 opd_imp_active;
-	unsigned int			 opd_imp_seen_connected:1,
+	unsigned int			 opd_new_connection:1,
+					 opd_got_disconnected:1,
+					 opd_imp_connected:1,
+					 opd_imp_active:1,
+					 opd_imp_seen_connected:1,
 					 opd_connect_mdt:1;
 
 	/* whether local recovery is completed:
@@ -192,9 +192,10 @@ struct osp_device {
 	 * osp_device::opd_async_requests via declare() functions, these
 	 * requests can be packed together and sent to the remote server
 	 * via single OUT RPC later. */
-	struct update_request		*opd_async_requests;
+	struct dt_update_request	*opd_async_requests;
 	/* Protect current operations on opd_async_requests. */
 	struct mutex			 opd_async_requests_mutex;
+	struct semaphore		 opd_async_fc_sem;
 };
 
 #define opd_pre_lock			opd_pre->osp_pre_lock
@@ -250,6 +251,7 @@ struct osp_object {
 extern struct lu_object_operations osp_lu_obj_ops;
 extern const struct dt_device_operations osp_dt_ops;
 extern struct dt_object_operations osp_md_obj_ops;
+extern struct dt_body_operations osp_md_body_ops;
 
 struct osp_thread_info {
 	struct lu_buf		 osi_lb;
@@ -451,7 +453,7 @@ static inline int osp_is_fid_client(struct osp_device *osp)
 }
 
 typedef int (*osp_async_update_interpterer_t)(const struct lu_env *env,
-					      struct update_reply *reply,
+					      struct object_update_reply *reply,
 					      struct osp_object *obj,
 					      void *data, int index, int rc);
 
@@ -460,16 +462,16 @@ void osp_update_last_id(struct osp_device *d, obd_id objid);
 extern struct llog_operations osp_mds_ost_orig_logops;
 
 /* osp_trans.c */
-struct update_request *
+struct dt_update_request *
 osp_find_or_create_async_update_request(struct osp_device *osp);
 int osp_insert_async_update(const struct lu_env *env,
-			    struct update_request *update, int op,
+			    struct dt_update_request *update, int op,
 			    struct osp_object *obj, int count,
 			    int *lens, const char **bufs, void *data,
 			    osp_async_update_interpterer_t interpterer);
 int osp_unplug_async_update(const struct lu_env *env,
 			    struct osp_device *osp,
-			    struct update_request *update);
+			    struct dt_update_request *update);
 struct thandle *osp_trans_create(const struct lu_env *env,
 				 struct dt_device *d);
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
@@ -510,6 +512,7 @@ int osp_md_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 		    const struct lu_attr *attr, struct thandle *th,
 		    struct lustre_capa *capa);
+
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);

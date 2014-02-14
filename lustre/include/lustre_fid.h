@@ -166,6 +166,7 @@ extern const struct lu_seq_range LUSTRE_SEQ_SPACE_RANGE;
 extern const struct lu_seq_range LUSTRE_SEQ_ZERO_RANGE;
 extern const struct lu_fid LUSTRE_BFL_FID;
 extern const struct lu_fid LU_OBF_FID;
+extern const struct lu_fid LU_LPF_FID;
 extern const struct lu_fid LU_DOT_LUSTRE_FID;
 
 enum {
@@ -323,6 +324,12 @@ static inline void lu_last_id_fid(struct lu_fid *fid, __u64 seq, __u32 ost_idx)
 	}
 	fid->f_oid = 0;
 	fid->f_ver = 0;
+}
+
+static inline bool fid_is_md_operative(const struct lu_fid *fid)
+{
+	return fid_is_mdt0(fid) || fid_is_igif(fid) ||
+	       fid_is_norm(fid) || fid_is_root(fid);
 }
 
 /* seq client type */
