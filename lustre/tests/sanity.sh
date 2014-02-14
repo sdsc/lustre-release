@@ -12408,6 +12408,18 @@ test_238() {
 }
 run_test 238 "Verify linkea consistency"
 
+# test to verify fallocate functionality
+# This test tests the prealloc and punch operations
+
+test_239() {
+	[ "$(facet_fstype $SINGLEMDS)" != "ldiskfs" ] &&
+		skip "non-ldiskfs backend" && return
+	touch $DIR/$tfile
+	check_fallocate $DIR/$tfile ||
+		error "fallocate failed"
+}
+run_test 239 "Verify fallocate (prealloc) functionality"
+
 test_striped_dir() {
 	local mdt_index=$1
 	local stripe_count

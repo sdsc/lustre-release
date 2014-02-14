@@ -1520,26 +1520,27 @@ typedef enum {
 
 /* opcodes */
 typedef enum {
-        OST_REPLY      =  0,       /* reply ? */
-        OST_GETATTR    =  1,
-        OST_SETATTR    =  2,
-        OST_READ       =  3,
-        OST_WRITE      =  4,
-        OST_CREATE     =  5,
-        OST_DESTROY    =  6,
-        OST_GET_INFO   =  7,
-        OST_CONNECT    =  8,
-        OST_DISCONNECT =  9,
-        OST_PUNCH      = 10,
-        OST_OPEN       = 11,
-        OST_CLOSE      = 12,
-        OST_STATFS     = 13,
-        OST_SYNC       = 16,
-        OST_SET_INFO   = 17,
-        OST_QUOTACHECK = 18,
-        OST_QUOTACTL   = 19,
-	OST_QUOTA_ADJUST_QUNIT = 20, /* not used since 2.4 */
-        OST_LAST_OPC
+	OST_REPLY		=  0,       /* reply ? */
+	OST_GETATTR		=  1,
+	OST_SETATTR		=  2,
+	OST_READ		=  3,
+	OST_WRITE		=  4,
+	OST_CREATE		=  5,
+	OST_DESTROY		=  6,
+	OST_GET_INFO		=  7,
+	OST_CONNECT		=  8,
+	OST_DISCONNECT		=  9,
+	OST_PUNCH		= 10,
+	OST_OPEN		= 11,
+	OST_CLOSE		= 12,
+	OST_STATFS		= 13,
+	OST_SYNC		= 16,
+	OST_SET_INFO		= 17,
+	OST_QUOTACHECK		= 18,
+	OST_QUOTACTL		= 19,
+	OST_QUOTA_ADJUST_QUNIT	= 20, /* not used since 2.4 */
+	OST_PREALLOC		= 21,
+	OST_LAST_OPC
 } ost_cmd_t;
 #define OST_FIRST_OPC  OST_REPLY
 
@@ -3475,33 +3476,34 @@ struct llogd_conn_body {
 
 /* Note: 64-bit types are 64-bit aligned in structure */
 struct obdo {
-        obd_valid               o_valid;        /* hot fields in this obdo */
-	struct ost_id           o_oi;
-        obd_id                  o_parent_seq;
-        obd_size                o_size;         /* o_size-o_blocks == ost_lvb */
-        obd_time                o_mtime;
-        obd_time                o_atime;
-        obd_time                o_ctime;
-        obd_blocks              o_blocks;       /* brw: cli sent cached bytes */
-        obd_size                o_grant;
+	obd_valid		o_valid;        /* hot fields in this obdo */
+	struct ost_id		o_oi;
+	obd_id			o_parent_seq;
+	obd_size		o_size;         /* o_size-o_blocks == ost_lvb */
+	obd_time		o_mtime;
+	obd_time		o_atime;
+	obd_time		o_ctime;
+	obd_blocks		o_blocks;       /* brw: cli sent cached bytes */
+	obd_size		o_grant;
 
-        /* 32-bit fields start here: keep an even number of them via padding */
-        obd_blksize             o_blksize;      /* optimal IO blocksize */
-        obd_mode                o_mode;         /* brw: cli sent cache remain */
-        obd_uid                 o_uid;
-        obd_gid                 o_gid;
-        obd_flag                o_flags;
-        obd_count               o_nlink;        /* brw: checksum */
-        obd_count               o_parent_oid;
+	/* 32-bit fields start here: keep an even number of them via padding */
+	obd_blksize		o_blksize;      /* optimal IO blocksize */
+	obd_mode		o_mode;         /* brw: cli sent cache remain */
+	obd_uid			o_uid;
+	obd_gid			o_gid;
+	obd_flag		o_flags;
+	obd_count		o_nlink;        /* brw: checksum,
+						 * fallocate: allocation mode */
+	obd_count		o_parent_oid;
 	obd_count		o_misc;		/* brw: o_dropped */
 
-        __u64                   o_ioepoch;      /* epoch in ost writes */
-        __u32                   o_stripe_idx;   /* holds stripe idx */
-        __u32                   o_parent_ver;
-        struct lustre_handle    o_handle;       /* brw: lock handle to prolong
-                                                 * locks */
-        struct llog_cookie      o_lcookie;      /* destroy: unlink cookie from
-                                                 * MDS */
+	__u64			o_ioepoch;      /* epoch in ost writes */
+	__u32			o_stripe_idx;   /* holds stripe idx */
+	__u32			o_parent_ver;
+	struct lustre_handle	o_handle;       /* brw: lock handle to prolong
+						 * locks */
+	struct llog_cookie	o_lcookie;      /* destroy: unlink cookie from
+						 * MDS */
 	__u32			o_uid_h;
 	__u32			o_gid_h;
 
@@ -3519,6 +3521,7 @@ struct obdo {
 #define o_dropped o_misc
 #define o_cksum   o_nlink
 #define o_grant_used o_data_version
+#define o_falloc_mode o_nlink
 
 struct lfsck_request {
 	__u32		lr_event;
@@ -3892,7 +3895,7 @@ struct hsm_progress_kernel {
 	/* Field taken from struct hsm_progress */
 	lustre_fid		hpk_fid;
 	__u64			hpk_cookie;
-	struct hsm_extent	hpk_extent;
+	struct lu_extent	hpk_extent;
 	__u16			hpk_flags;
 	__u16			hpk_errval; /* positive val */
 	__u32			hpk_padding1;
