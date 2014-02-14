@@ -906,7 +906,7 @@ static int truncate_quota_index(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 
 	dt_write_lock(env, dt, 0);
-	rc = dt_punch(env, dt, 0, OBD_OBJECT_EOF, th, BYPASS_CAPA);
+	rc = dt_punch(env, dt, 0, OBD_OBJECT_EOF, 0, th, BYPASS_CAPA);
 	if (rc)
 		GOTO(out_lock, rc);
 

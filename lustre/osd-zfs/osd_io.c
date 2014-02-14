@@ -779,8 +779,8 @@ static int __osd_object_punch(objset_t *os, dmu_buf_t *db, dmu_tx_t *tx,
 }
 
 static int osd_punch(const struct lu_env *env, struct dt_object *dt,
-			__u64 start, __u64 end, struct thandle *th,
-			struct lustre_capa *capa)
+		     __u64 start, __u64 end, int mode, struct thandle *th,
+		     struct lustre_capa *capa)
 {
 	struct osd_object  *obj = osd_dt_obj(dt);
 	struct osd_device  *osd = osd_obj2dev(obj);
