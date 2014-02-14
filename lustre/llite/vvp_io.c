@@ -395,24 +395,30 @@ static int vvp_io_setattr_lock(const struct lu_env *env,
 {
 	struct ccc_io *cio = ccc_env_io(env);
 	struct cl_io  *io  = ios->cis_io;
-	__u64 new_size;
+	__u64 lock_start, lock_end = OBD_OBJECT_EOF;
 	__u32 enqflags = 0;
 
-        if (cl_io_is_trunc(io)) {
-                new_size = io->u.ci_setattr.sa_attr.lvb_size;
-                if (new_size == 0)
-                        enqflags = CEF_DISCARD_DATA;
-        } else {
-                if ((io->u.ci_setattr.sa_attr.lvb_mtime >=
-                     io->u.ci_setattr.sa_attr.lvb_ctime) ||
-                    (io->u.ci_setattr.sa_attr.lvb_atime >=
-                     io->u.ci_setattr.sa_attr.lvb_ctime))
-                        return 0;
-                new_size = 0;
-        }
-        cio->u.setattr.cui_local_lock = SETATTR_EXTENT_LOCK;
-        return ccc_io_one_lock(env, io, enqflags, CLM_WRITE,
-                               new_size, OBD_OBJECT_EOF);
+	if (cl_io_is_punch(io)) {
+		lock_start = io->u.ci_setattr.sa_falloc_offset;
+		lock_end = lock_start + io->u.ci_setattr.sa_falloc_len;
+	} else if (cl_io_is_prealloc(io)) {
+		return 0;
+	} else if (cl_io_is_trunc(io)) {
+		lock_start = io->u.ci_setattr.sa_attr.lvb_size;
+		if (lock_start == 0)
+			enqflags = CEF_DISCARD_DATA;
+	} else {
+		if ((io->u.ci_setattr.sa_attr.lvb_mtime >=
+		     io->u.ci_setattr.sa_attr.lvb_ctime) ||
+		    (io->u.ci_setattr.sa_attr.lvb_atime >=
+		     io->u.ci_setattr.sa_attr.lvb_ctime))
+			return 0;
+		lock_start = 0;
+	}
+
+	cio->u.setattr.cui_local_lock = SETATTR_EXTENT_LOCK;
+	return ccc_io_one_lock(env, io, enqflags, CLM_WRITE,
+			lock_start, lock_end);
 }
 
 static int vvp_do_vmtruncate(struct inode *inode, size_t size)
@@ -476,11 +482,13 @@ static int vvp_io_setattr_start(const struct lu_env *env,
 	int result = 0;
 
 	mutex_lock(&inode->i_mutex);
-	if (cl_io_is_trunc(io))
+	if (cl_io_is_punch(io) || cl_io_is_prealloc(io) || cl_io_is_trunc(io))
 		result = vvp_io_setattr_trunc(env, ios, inode,
 					io->u.ci_setattr.sa_attr.lvb_size);
+
 	if (result == 0)
 		result = vvp_io_setattr_time(env, ios);
+
 	return result;
 }
 
@@ -494,6 +502,8 @@ static void vvp_io_setattr_end(const struct lu_env *env,
 		/* Truncate in memory pages - they must be clean pages
 		 * because osc has already notified to destroy osc_extents. */
 		vvp_do_vmtruncate(inode, io->u.ci_setattr.sa_attr.lvb_size);
+		inode_dio_write_done(inode);
+	} else if (cl_io_is_punch(io) || cl_io_is_prealloc(io)) {
 		inode_dio_write_done(inode);
 	}
 	mutex_unlock(&inode->i_mutex);
