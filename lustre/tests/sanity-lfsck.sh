@@ -43,7 +43,7 @@ check_and_setup_lustre
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2c"
 
 [[ $(lustre_version_code ost1) -lt $(version_code 2.5.55) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18 19"
 
 build_test_filter
 
@@ -1569,12 +1569,6 @@ test_17() {
 run_test 17 "LFSCK can repair multiple references"
 
 test_18a() {
-	[ $MDSCOUNT -lt 2 ] &&
-		skip "We need at least 2 MDSes for test_18a" && exit 0
-
-	[ $OSTCOUNT -lt 2 ] &&
-		skip "We need at least 2 OSTs for test_18a" && exit 0
-
 	echo "#####"
 	echo "The target MDT-object is there, but related stripe information"
 	echo "is lost or partly lost. The LFSCK should regenerate the missed"
@@ -1590,18 +1584,22 @@ test_18a() {
 
 	mkdir -p $DIR/$tdir
 	$LFS mkdir -i 0 $DIR/$tdir/a1
-	$LFS mkdir -i 1 $DIR/$tdir/a2
 	$LFS setstripe -c 1 -i 0 -s 1M $DIR/$tdir/a1
-	$LFS setstripe -c 2 -i 1 -s 1M $DIR/$tdir/a2
 	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=1M count=2
-	dd if=/dev/zero of=$DIR/$tdir/a2/f2 bs=1M count=2
 
 	local saved_size=$(ls -il $DIR/$tdir/a1/f1 | awk '{ print $6 }')
 
 	$LFS path2fid $DIR/$tdir/a1/f1
 	$LFS getstripe $DIR/$tdir/a1/f1
-	$LFS path2fid $DIR/$tdir/a2/f2
-	$LFS getstripe $DIR/$tdir/a2/f2
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		$LFS mkdir -i 1 $DIR/$tdir/a2
+		$LFS setstripe -c 2 -i 1 -s 1M $DIR/$tdir/a2
+		dd if=/dev/zero of=$DIR/$tdir/a2/f2 bs=1M count=2
+		$LFS path2fid $DIR/$tdir/a2/f2
+		$LFS getstripe $DIR/$tdir/a2/f2
+	fi
+
 	sync
 	cancel_lru_locks osc
 
@@ -1609,12 +1607,19 @@ test_18a() {
 	#define OBD_FAIL_LFSCK_LOST_STRIPE 0x1615
 	do_facet mds1 $LCTL set_param fail_loc=0x1615
 	chown 1.1 $DIR/$tdir/a1/f1
-	do_facet mds2 $LCTL set_param fail_loc=0x1615
-	chown 1.1 $DIR/$tdir/a2/f2
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		do_facet mds2 $LCTL set_param fail_loc=0x1615
+		chown 1.1 $DIR/$tdir/a2/f2
+	fi
+
 	sync
 	sleep 2
+
 	do_facet mds1 $LCTL set_param fail_loc=0
-	do_facet mds2 $LCTL set_param fail_loc=0
+	if [ $MDSCOUNT -ge 2 ]; then
+		do_facet mds2 $LCTL set_param fail_loc=0
+	fi
 
 	echo "stopall to cleanup object cache"
 	stopall > /dev/null
@@ -1626,9 +1631,11 @@ test_18a() {
 	[ "$cur_size" != "$saved_size" ] ||
 		error "(1) Expect incorrect file1 size"
 
-	cur_size=$(ls -il $DIR/$tdir/a2/f2 | awk '{ print $6 }')
-	[ "$cur_size" != "$saved_size" ] ||
-		error "(2) Expect incorrect file2 size"
+	if [ $MDSCOUNT -ge 2 ]; then
+		cur_size=$(ls -il $DIR/$tdir/a2/f2 | awk '{ print $6 }')
+		[ "$cur_size" != "$saved_size" ] ||
+			error "(2) Expect incorrect file2 size"
+	fi
 
 	echo "Trigger layout LFSCK on all devices to find out orphan OST-object"
 	$START_LAYOUT -o || error "(3) Fail to start LFSCK for layout!"
@@ -1651,37 +1658,42 @@ test_18a() {
 		error "(5) OST${k} Expect 'completed', but got '$cur_status'"
 	done
 
-	for k in 1 2; do
-		local repaired=$(do_facet mds${k} $LCTL get_param -n \
-				 mdd.$(facet_svc mds${k}).lfsck_layout |
+	local repaired=$(do_facet mds1 $LCTL get_param -n \
+			 mdd.$(facet_svc mds1).lfsck_layout |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+	error "(6.1) Expect 1 fixed on mds1, but got: $repaired"
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		repaired=$(do_facet mds2 $LCTL get_param -n \
+			 mdd.$(facet_svc mds2).lfsck_layout |
 				 awk '/^repaired_orphan/ { print $2 }')
-		[ $repaired -eq ${k} ] ||
-		error "(6) Expect ${k} fixed on mds${k}, but got: $repaired"
-	done
+		[ $repaired -eq 2 ] ||
+		error "(6.2) Expect 2 fixed on mds2, but got: $repaired"
+	fi
 
 	$LFS path2fid $DIR/$tdir/a1/f1
 	$LFS getstripe $DIR/$tdir/a1/f1
-	$LFS path2fid $DIR/$tdir/a2/f2
-	$LFS getstripe $DIR/$tdir/a2/f2
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		$LFS path2fid $DIR/$tdir/a2/f2
+		$LFS getstripe $DIR/$tdir/a2/f2
+	fi
 
 	echo "The file size should be correct after layout LFSCK scanning"
 	cur_size=$(ls -il $DIR/$tdir/a1/f1 | awk '{ print $6 }')
 	[ "$cur_size" == "$saved_size" ] ||
 		error "(7) Expect file1 size $saved_size, but got $cur_size"
 
-	cur_size=$(ls -il $DIR/$tdir/a2/f2 | awk '{ print $6 }')
-	[ "$cur_size" == "$saved_size" ] ||
+	if [ $MDSCOUNT -ge 2 ]; then
+		cur_size=$(ls -il $DIR/$tdir/a2/f2 | awk '{ print $6 }')
+		[ "$cur_size" == "$saved_size" ] ||
 		error "(8) Expect file2 size $saved_size, but got $cur_size"
+	fi
 }
 run_test 18a "Find out orphan OST-object and repair it (1)"
 
 test_18b() {
-	[ $MDSCOUNT -lt 2 ] &&
-		skip "We need at least 2 MDSes for test_18b" && exit 0
-
-	[ $OSTCOUNT -lt 2 ] &&
-		skip "We need at least 2 OSTs for test_18b" && exit 0
-
 	echo "#####"
 	echo "The target MDT-object is lost. The LFSCK should re-create the"
 	echo "MDT-object under .lustre/lost+found/MDTxxxx. The admin should"
@@ -1697,18 +1709,22 @@ test_18b() {
 
 	mkdir -p $DIR/$tdir
 	$LFS mkdir -i 0 $DIR/$tdir/a1
-	$LFS mkdir -i 1 $DIR/$tdir/a2
 	$LFS setstripe -c 1 -i 0 -s 1M $DIR/$tdir/a1
-	$LFS setstripe -c 2 -i 1 -s 1M $DIR/$tdir/a2
 	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=1M count=2
-	dd if=/dev/zero of=$DIR/$tdir/a2/f2 bs=1M count=2
 	local saved_size=$(ls -il $DIR/$tdir/a1/f1 | awk '{ print $6 }')
 	local fid1=$($LFS path2fid $DIR/$tdir/a1/f1)
 	echo ${fid1}
 	$LFS getstripe $DIR/$tdir/a1/f1
-	local fid2=$($LFS path2fid $DIR/$tdir/a2/f2)
-	echo ${fid2}
-	$LFS getstripe $DIR/$tdir/a2/f2
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		$LFS mkdir -i 1 $DIR/$tdir/a2
+		$LFS setstripe -c 2 -i 1 -s 1M $DIR/$tdir/a2
+		dd if=/dev/zero of=$DIR/$tdir/a2/f2 bs=1M count=2
+		fid2=$($LFS path2fid $DIR/$tdir/a2/f2)
+		echo ${fid2}
+		$LFS getstripe $DIR/$tdir/a2/f2
+	fi
+
 	sync
 	cancel_lru_locks osc
 
@@ -1716,118 +1732,19 @@ test_18b() {
 	#define OBD_FAIL_LFSCK_LOST_MDTOBJ	0x1616
 	do_facet mds1 $LCTL set_param fail_loc=0x1616
 	rm -f $DIR/$tdir/a1/f1
-	do_facet mds2 $LCTL set_param fail_loc=0x1616
-	rm -f $DIR/$tdir/a2/f2
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		do_facet mds2 $LCTL set_param fail_loc=0x1616
+		rm -f $DIR/$tdir/a2/f2
+	fi
+
 	sync
 	sleep 2
+
 	do_facet mds1 $LCTL set_param fail_loc=0
-	do_facet mds2 $LCTL set_param fail_loc=0
-
-	echo "stopall to cleanup object cache"
-	stopall > /dev/null
-	echo "setupall"
-	setupall > /dev/null
-
-	echo "Trigger layout LFSCK on all devices to find out orphan OST-object"
-	$START_LAYOUT -o || error "(1) Fail to start LFSCK for layout!"
-
-	for k in $(seq $MDSCOUNT); do
-		# The LFSCK status query internal is 30 seconds. For the case
-		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
-		# time to guarantee the status sync up.
-		wait_update_facet mds${k} "$LCTL get_param -n \
-			mdd.$(facet_svc mds${k}).lfsck_layout |
-			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
-			error "(2) MDS${k} is not the expected 'completed'"
-	done
-
-	for k in $(seq $OSTCOUNT); do
-		local cur_status=$(do_facet ost${k} $LCTL get_param -n \
-				obdfilter.$(facet_svc ost${k}).lfsck_layout |
-				awk '/^status/ { print $2 }')
-		[ "$cur_status" == "completed" ] ||
-		error "(3) OST${k} Expect 'completed', but got '$cur_status'"
-	done
-
-	for k in 1 2; do
-		local repaired=$(do_facet mds${k} $LCTL get_param -n \
-				 mdd.$(facet_svc mds${k}).lfsck_layout |
-				 awk '/^repaired_orphan/ { print $2 }')
-		[ $repaired -eq ${k} ] ||
-		error "(4) Expect ${k} fixed on mds${k}, but got: $repaired"
-	done
-
-	echo "Move the files from ./lustre/lost+found/MDTxxxx to namespace"
-	mv $MOUNT/.lustre/lost+found/MDT0000/R-${fid1} $DIR/$tdir/a1/f1 ||
-	error "(5) Fail to move $MOUNT/.lustre/lost+found/MDT0000/R-${fid1}"
-
-	mv $MOUNT/.lustre/lost+found/MDT0001/R-${fid2} $DIR/$tdir/a2/f2 ||
-	error "(6) Fail to move $MOUNT/.lustre/lost+found/MDT0001/R-${fid2}"
-
-	$LFS path2fid $DIR/$tdir/a1/f1
-	$LFS getstripe $DIR/$tdir/a1/f1
-	$LFS path2fid $DIR/$tdir/a2/f2
-	$LFS getstripe $DIR/$tdir/a2/f2
-
-	echo "The file size should be correct after layout LFSCK scanning"
-	local cur_size=$(ls -il $DIR/$tdir/a1/f1 | awk '{ print $6 }')
-	[ "$cur_size" == "$saved_size" ] ||
-		error "(7) Expect file1 size $saved_size, but got $cur_size"
-
-	cur_size=$(ls -il $DIR/$tdir/a2/f2 | awk '{ print $6 }')
-	[ "$cur_size" == "$saved_size" ] ||
-		error "(8) Expect file2 size $saved_size, but got $cur_size"
-}
-run_test 18b "Find out orphan OST-object and repair it (2)"
-
-test_18c() {
-	[ $MDSCOUNT -lt 2 ] &&
-		skip "We need at least 2 MDSes for test_18c" && exit 0
-
-	[ $OSTCOUNT -lt 2 ] &&
-		skip "We need at least 2 OSTs for test_18c" && exit 0
-
-	echo "#####"
-	echo "The target MDT-object is lost, and the OST-object FID is missing."
-	echo "The LFSCK should re-create the MDT-object with new FID under the "
-	echo "directory .lustre/lost+found/MDTxxxx."
-	echo "#####"
-
-	echo "stopall"
-	stopall > /dev/null
-	echo "formatall"
-	formatall > /dev/null
-	echo "setupall"
-	setupall > /dev/null
-
-	mkdir -p $DIR/$tdir
-	$LFS mkdir -i 0 $DIR/$tdir/a1
-	$LFS mkdir -i 1 $DIR/$tdir/a2
-	$LFS setstripe -c 1 -i 0 -s 1M $DIR/$tdir/a1
-	$LFS setstripe -c 2 -i 1 -s 1M $DIR/$tdir/a2
-
-	echo "Inject failure, to simulate the case of missing parent FID"
-	#define OBD_FAIL_LFSCK_NOPFID		0x1617
-	do_facet ost1 $LCTL set_param fail_loc=0x1617
-	do_facet ost2 $LCTL set_param fail_loc=0x1617
-
-	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=1M count=2
-	dd if=/dev/zero of=$DIR/$tdir/a2/f2 bs=1M count=2
-	$LFS getstripe $DIR/$tdir/a1/f1
-	$LFS getstripe $DIR/$tdir/a2/f2
-	sync
-	cancel_lru_locks osc
-
-	echo "Inject failure, to simulate the case of missing the MDT-object"
-	#define OBD_FAIL_LFSCK_LOST_MDTOBJ	0x1616
-	do_facet mds1 $LCTL set_param fail_loc=0x1616
-	rm -f $DIR/$tdir/a1/f1
-	do_facet mds2 $LCTL set_param fail_loc=0x1616
-	rm -f $DIR/$tdir/a2/f2
-	sync
-	sleep 2
-	do_facet mds1 $LCTL set_param fail_loc=0
-	do_facet mds2 $LCTL set_param fail_loc=0
+	if [ $MDSCOUNT -ge 2 ]; then
+		do_facet mds2 $LCTL set_param fail_loc=0
+	fi
 
 	echo "stopall to cleanup object cache"
 	stopall > /dev/null
@@ -1858,14 +1775,146 @@ test_18c() {
 	local repaired=$(do_facet mds1 $LCTL get_param -n \
 			 mdd.$(facet_svc mds1).lfsck_layout |
 			 awk '/^repaired_orphan/ { print $2 }')
-	[ $repaired -eq 3 ] ||
-		error "(4) Expect 3 fixed on mds1, but got: $repaired"
+	[ $repaired -eq 1 ] ||
+	error "(4.1) Expect 1 fixed on mds1, but got: $repaired"
 
-	repaired=$(do_facet mds2 $LCTL get_param -n \
-		   mdd.$(facet_svc mds2).lfsck_layout |
-		   awk '/^repaired_orphan/ { print $2 }')
-	[ $repaired -eq 0 ] ||
-		error "(5) Expect 0 fixed on mds2, but got: $repaired"
+	if [ $MDSCOUNT -ge 2 ]; then
+		repaired=$(do_facet mds2 $LCTL get_param -n \
+			 mdd.$(facet_svc mds2).lfsck_layout |
+			 awk '/^repaired_orphan/ { print $2 }')
+		[ $repaired -eq 2 ] ||
+		error "(4.2) Expect 2 fixed on mds2, but got: $repaired"
+	fi
+
+	echo "Move the files from ./lustre/lost+found/MDTxxxx to namespace"
+	mv $MOUNT/.lustre/lost+found/MDT0000/R-${fid1} $DIR/$tdir/a1/f1 ||
+	error "(5) Fail to move $MOUNT/.lustre/lost+found/MDT0000/R-${fid1}"
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		local name=$MOUNT/.lustre/lost+found/MDT0001/R-${fid2}
+		mv $name $DIR/$tdir/a2/f2 || error "(6) Fail to move $name"
+	fi
+
+	$LFS path2fid $DIR/$tdir/a1/f1
+	$LFS getstripe $DIR/$tdir/a1/f1
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		$LFS path2fid $DIR/$tdir/a2/f2
+		$LFS getstripe $DIR/$tdir/a2/f2
+	fi
+
+	echo "The file size should be correct after layout LFSCK scanning"
+	local cur_size=$(ls -il $DIR/$tdir/a1/f1 | awk '{ print $6 }')
+	[ "$cur_size" == "$saved_size" ] ||
+		error "(7) Expect file1 size $saved_size, but got $cur_size"
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		cur_size=$(ls -il $DIR/$tdir/a2/f2 | awk '{ print $6 }')
+		[ "$cur_size" == "$saved_size" ] ||
+		error "(8) Expect file2 size $saved_size, but got $cur_size"
+	fi
+}
+run_test 18b "Find out orphan OST-object and repair it (2)"
+
+test_18c() {
+	echo "#####"
+	echo "The target MDT-object is lost, and the OST-object FID is missing."
+	echo "The LFSCK should re-create the MDT-object with new FID under the "
+	echo "directory .lustre/lost+found/MDTxxxx."
+	echo "#####"
+
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i 0 $DIR/$tdir/a1
+	$LFS setstripe -c 1 -i 0 -s 1M $DIR/$tdir/a1
+
+	echo "Inject failure, to simulate the case of missing parent FID"
+	#define OBD_FAIL_LFSCK_NOPFID		0x1617
+	do_facet ost1 $LCTL set_param fail_loc=0x1617
+
+	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=1M count=2
+	$LFS getstripe $DIR/$tdir/a1/f1
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		$LFS mkdir -i 1 $DIR/$tdir/a2
+		$LFS setstripe -c 2 -i 1 -s 1M $DIR/$tdir/a2
+		do_facet ost2 $LCTL set_param fail_loc=0x1617
+		dd if=/dev/zero of=$DIR/$tdir/a2/f2 bs=1M count=2
+		$LFS getstripe $DIR/$tdir/a2/f2
+	fi
+
+	sync
+	cancel_lru_locks osc
+
+	echo "Inject failure, to simulate the case of missing the MDT-object"
+	#define OBD_FAIL_LFSCK_LOST_MDTOBJ	0x1616
+	do_facet mds1 $LCTL set_param fail_loc=0x1616
+	rm -f $DIR/$tdir/a1/f1
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		do_facet mds2 $LCTL set_param fail_loc=0x1616
+		rm -f $DIR/$tdir/a2/f2
+	fi
+
+	sync
+	sleep 2
+
+	do_facet mds1 $LCTL set_param fail_loc=0
+	if [ $MDSCOUNT -ge 2 ]; then
+		do_facet mds2 $LCTL set_param fail_loc=0
+	fi
+
+	echo "stopall to cleanup object cache"
+	stopall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	echo "Trigger layout LFSCK on all devices to find out orphan OST-object"
+	$START_LAYOUT -o || error "(1) Fail to start LFSCK for layout!"
+
+	for k in $(seq $MDSCOUNT); do
+		# The LFSCK status query internal is 30 seconds. For the case
+		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
+		# time to guarantee the status sync up.
+		wait_update_facet mds${k} "$LCTL get_param -n \
+			mdd.$(facet_svc mds${k}).lfsck_layout |
+			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
+			error "(2) MDS${k} is not the expected 'completed'"
+	done
+
+	for k in $(seq $OSTCOUNT); do
+		local cur_status=$(do_facet ost${k} $LCTL get_param -n \
+				obdfilter.$(facet_svc ost${k}).lfsck_layout |
+				awk '/^status/ { print $2 }')
+		[ "$cur_status" == "completed" ] ||
+		error "(3) OST${k} Expect 'completed', but got '$cur_status'"
+	done
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		expected=3
+	else
+		expected=1
+	fi
+
+	local repaired=$(do_facet mds1 $LCTL get_param -n \
+			 mdd.$(facet_svc mds1).lfsck_layout |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq $expected ] ||
+		error "(4) Expect $expected fixed on mds1, but got: $repaired"
+
+	if [ $MDSCOUNT -ge 2 ]; then
+		repaired=$(do_facet mds2 $LCTL get_param -n \
+			   mdd.$(facet_svc mds2).lfsck_layout |
+			   awk '/^repaired_orphan/ { print $2 }')
+		[ $repaired -eq 0 ] ||
+			error "(5) Expect 0 fixed on mds2, but got: $repaired"
+	fi
 
 	echo "There should be some stub under .lustre/lost+found/MDT0001/"
 	ls -ail $MOUNT/.lustre/lost+found/MDT0001/N-* &&
@@ -2086,6 +2135,80 @@ test_18e() {
 	$LFS getstripe $DIR/$tdir/a1/f2
 }
 run_test 18e "Find out orphan OST-object and repair it (5)"
+
+test_19a() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+
+	echo "foo" > $DIR/$tdir/a0
+	echo "guard" > $DIR/$tdir/a1
+
+	cancel_lru_locks osc
+	umount_client $MOUNT || error "(1) Fail to stop client!"
+	mount_client $MOUNT || error "(2) Fail to start client!"
+
+	echo "Inject failure, then client will offer wrong parent FID when read"
+	do_facet ost1 $LCTL set_param -n \
+		obdfilter.${FSNAME}-OST0000.fail_on_inconsistency 1
+	#define OBD_FAIL_LFSCK_INVALID_PFID	0x1619
+	$LCTL set_param fail_loc=0x1619
+
+	echo "Read RPC with wrong parent FID should be denied"
+	cat $DIR/$tdir/a0 && error "(3) Read should be denied!"
+	$LCTL set_param fail_loc=0
+}
+run_test 19a "OST-object inconsistency self detect"
+
+test_19b() {
+	echo "stopall"
+	stopall > /dev/null
+	echo "formatall"
+	formatall > /dev/null
+	echo "setupall"
+	setupall > /dev/null
+
+	mkdir -p $DIR/$tdir
+	$LFS setstripe -c 1 -i 0 $DIR/$tdir
+
+	echo "Inject failure stub to make the OST-object to back point to"
+	echo "non-exist MDT-object"
+
+	#define OBD_FAIL_LFSCK_UNMATCHED_PAIR1	0x1611
+	do_facet ost1 $LCTL set_param fail_loc=0x1611
+	echo "foo" > $DIR/$tdir/f0
+	cancel_lru_locks osc
+	sync
+	sleep 2
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	echo "Nothing should be fixed since self detect and repair is disabled"
+	local repaired=$(do_facet ost1 $LCTL get_param -n \
+			obdfilter.${FSNAME}-OST0000.inconsistency_self_cure |
+			awk '/^repaired/ { print $2 }')
+	[ $repaired -eq 0 ] ||
+		error "(1) Expected 0 repaired, but got $repaired"
+
+	echo "Read RPC with right parent FID should be accepted,"
+	echo "and cause parent FID on OST to be fixed"
+
+	do_facet ost1 $LCTL set_param -n \
+		obdfilter.${FSNAME}-OST0000.fail_on_inconsistency 1
+	cat $DIR/$tdir/f0 || error "(2) Read should not be denied!"
+
+	repaired=$(do_facet ost1 $LCTL get_param -n \
+		obdfilter.${FSNAME}-OST0000.inconsistency_self_cure |
+		awk '/^repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(3) Expected 1 repaired, but got $repaired"
+}
+run_test 19b "OST-object inconsistency self repair"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 
