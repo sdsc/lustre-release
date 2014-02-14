@@ -435,7 +435,7 @@ int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 
 	/* VBR: version recovery check */
 	rc = ofd_version_get_check(info, fo);
-	if (rc)
+	if (rc != 0)
 		GOTO(unlock, rc);
 
 	rc = ofd_attr_handle_ugid(env, fo, la, 1 /* is_setattr */);
@@ -502,6 +502,50 @@ unlock:
 	return rc;
 }
 
+int ofd_object_prealloc(const struct lu_env *env, struct ofd_object *fo,
+			__u64 start, __u64 end, int mode, struct lu_attr *la,
+			struct filter_fid *ff)
+{
+	struct ofd_thread_info	*info = ofd_info(env);
+	struct ofd_device	*ofd = ofd_obj2dev(fo);
+	struct dt_object	*dob = ofd_object_child(fo);
+	struct thandle		*th;
+	int			 rc;
+	ENTRY;
+
+	ofd_write_lock(env, fo);
+	if (!ofd_object_exists(fo))
+		GOTO(unlock, rc = -ENOENT);
+
+	/* VBR: version recovery check */
+	rc = ofd_version_get_check(info, fo);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	th = ofd_trans_create(env, ofd);
+	if (IS_ERR(th))
+		GOTO(unlock, rc = PTR_ERR(th));
+
+	rc = dt_declare_prealloc(env, dob, th);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = ofd_trans_start(env, ofd, fo, th);
+	if (rc)
+		GOTO(stop, rc);
+
+	rc = dt_prealloc(env, dob, start, end, mode, th,
+			 ofd_object_capa(env, fo));
+	if (rc)
+		GOTO(stop, rc);
+
+stop:
+	ofd_trans_stop(env, ofd, th, rc);
+unlock:
+	ofd_write_unlock(env, fo);
+	RETURN(rc);
+}
+
 int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 		     __u64 start, __u64 end, struct lu_attr *la,
 		     struct filter_fid *ff, struct obdo *oa)
@@ -536,7 +580,7 @@ int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 
 	/* VBR: version recovery check */
 	rc = ofd_version_get_check(info, fo);
-	if (rc)
+	if (rc != 0)
 		GOTO(unlock, rc);
 
 	rc = ofd_attr_handle_ugid(env, fo, la, 0 /* !is_setattr */);
