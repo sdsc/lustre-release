@@ -12246,6 +12246,18 @@ test_237() {
 }
 run_test 237 "Verify name_to_handle_at/open_by_handle_at syscalls"
 
+# test to verify fallocate functionality
+# This test tests the prealloc and punch operations
+
+test_238() {
+	[ "$(facet_fstype $SINGLEMDS)" != "ldiskfs" ] &&
+		skip "non-ldiskfs backend" && return
+	touch $DIR/$tfile
+	check_fallocate $DIR/$tfile ||
+		error "fallocate failed"
+}
+run_test 238 "Verify fallocate (prealloc) functionality"
+
 test_striped_dir() {
 	local mdt_index=$1
 	local stripe_count
