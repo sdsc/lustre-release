@@ -911,28 +911,36 @@ static int osc_extent_wait(const struct lu_env *env, struct osc_extent *ext,
  * Discard pages with index greater than @size. If @ext is overlapped with
  * @size, then partial truncate happens.
  */
-static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index,
-				bool partial)
+static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_start_idx,
+			       bool start_partial, pgoff_t trunc_end_idx,
+			       bool end_partial, bool truncate)
 {
-	struct cl_env_nest     nest;
-	struct lu_env         *env;
-	struct cl_io          *io;
-	struct osc_object     *obj = ext->oe_obj;
-	struct client_obd     *cli = osc_cli(obj);
-	struct osc_async_page *oap;
-	struct osc_async_page *tmp;
-	int                    pages_in_chunk = 0;
-	int                    ppc_bits    = cli->cl_chunkbits -
-					     PAGE_CACHE_SHIFT;
-	__u64                  trunc_chunk = trunc_index >> ppc_bits;
-	int                    grants   = 0;
-	int                    nr_pages = 0;
-	int                    rc       = 0;
+	struct cl_env_nest	 nest;
+	struct lu_env		*env;
+	struct cl_io		*io;
+	struct osc_object	*obj = ext->oe_obj;
+	struct client_obd	*cli = osc_cli(obj);
+	struct osc_async_page	*oap;
+	struct osc_async_page	*tmp;
+	int			 pages_in_start_chunk = 0;
+	int			 pages_in_end_chunk = 0;
+	int			 ppc_bits = cli->cl_chunkbits -
+					    PAGE_CACHE_SHIFT;
+	__u64			 trunc_start_chunk, trunc_end_chunk;
+	int			 grants   = 0;
+	int			 nr_pages = 0;
+	int			 rc       = 0;
 	ENTRY;
 
 	LASSERT(sanity_check(ext) == 0);
 	LASSERT(ext->oe_state == OES_TRUNC);
 	LASSERT(!ext->oe_urgent);
+
+	trunc_start_chunk = trunc_start_idx >> ppc_bits;
+	if (truncate)
+		trunc_end_chunk = ext->oe_end >> ppc_bits;
+	else
+		trunc_end_chunk = trunc_end_idx >> ppc_bits;
 
 	/* Request new lu_env.
 	 * We can't use that env from osc_cache_truncate_start() because
@@ -944,7 +952,10 @@ static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index,
 	if (rc < 0)
 		GOTO(out, rc);
 
-	/* discard all pages with index greater then trunc_index */
+	/*
+	 * discard all pages with index greater than trunc_start_idx and
+	 * lesser than trunc_end_idx
+	 */
 	cfs_list_for_each_entry_safe(oap, tmp, &ext->oe_pages,
 				     oap_pending_item) {
 		pgoff_t index = osc_index(oap2osc(oap));
@@ -953,13 +964,20 @@ static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index,
 		LASSERT(cfs_list_empty(&oap->oap_rpc_item));
 
 		/* only discard the pages with their index greater than
-		 * trunc_index, and ... */
-		if (index < trunc_index ||
-		    (index == trunc_index && partial)) {
-			/* accounting how many pages remaining in the chunk
+		 * trunc_start_idx, and lesser than trunc_end_idx */
+		if (index < trunc_start_idx ||
+		    (index == trunc_start_idx && start_partial)) {
+			/* accounting how many pages remaining in the start
+			 * chunk so that we can calculate grants correctly. */
+			if (index >> ppc_bits == trunc_start_chunk)
+				pages_in_start_chunk++;
+			continue;
+		} else if (index > trunc_end_idx ||
+			   (index == trunc_end_idx && end_partial)) {
+			/* accounting how many pages remaining in the end chunk
 			 * so that we can calculate grants correctly. */
-			if (index >> ppc_bits == trunc_chunk)
-				++pages_in_chunk;
+			if (index >> ppc_bits == trunc_end_chunk)
+				pages_in_end_chunk++;
 			continue;
 		}
 
@@ -982,36 +1000,56 @@ static int osc_extent_truncate(struct osc_extent *ext, pgoff_t trunc_index,
 		--ext->oe_nr_pages;
 		++nr_pages;
 	}
-	EASSERTF(ergo(ext->oe_start >= trunc_index + !!partial,
-		      ext->oe_nr_pages == 0),
-		ext, "trunc_index %lu, partial %d\n", trunc_index, partial);
 
 	osc_object_lock(obj);
 	if (ext->oe_nr_pages == 0) {
-		LASSERT(pages_in_chunk == 0);
+		LASSERT(pages_in_start_chunk == 0 && pages_in_end_chunk == 0);
 		grants = ext->oe_grants;
 		ext->oe_grants = 0;
 	} else { /* calculate how many grants we can free */
-		int     chunks = (ext->oe_end >> ppc_bits) - trunc_chunk;
-		pgoff_t last_index;
+		int     chunks;
+		pgoff_t	last_index;
 
+		if (truncate)
+			chunks = (ext->oe_end >> ppc_bits) - trunc_start_chunk;
+		else
+			/* excluding start and end chunks */
+			chunks = trunc_end_chunk - trunc_start_chunk - 1;
 
-		/* if there is no pages in this chunk, we can also free grants
-		 * for the last chunk */
-		if (pages_in_chunk == 0) {
-			/* if this is the 1st chunk and no pages in this chunk,
-			 * ext->oe_nr_pages must be zero, so we should be in
-			 * the other if-clause. */
-			LASSERT(trunc_chunk > 0);
-			--trunc_chunk;
-			++chunks;
+		if (chunks < 0)
+			chunks = 0;
+
+		/* if pages in start & end chunks are 0 we can free grants for
+		 * them as well */
+		if (truncate) {
+			if (pages_in_start_chunk == 0) {
+				/* If this is the only chunk and there are no
+				 * pages in this chunk then oe_nr_pages
+				 * should have been null */
+				LASSERT(trunc_start_chunk > 0);
+				--trunc_start_chunk;
+				++chunks;
+			}
+		} else {
+			if (trunc_start_chunk == trunc_end_chunk) {
+				if (pages_in_start_chunk == 0 &&
+				    pages_in_end_chunk == 0)
+					++chunks;
+			} else {
+				if (pages_in_start_chunk == 0)
+					++chunks;
+				if (pages_in_end_chunk == 0)
+					++chunks;
+			}
 		}
 
 		/* this is what we can free from this extent */
 		grants          = chunks << cli->cl_chunkbits;
 		ext->oe_grants -= grants;
-		last_index      = ((trunc_chunk + 1) << ppc_bits) - 1;
-		ext->oe_end     = min(last_index, ext->oe_max_end);
+		if (truncate) {
+			last_index	= ((trunc_start_chunk + 1) << ppc_bits) - 1;
+			ext->oe_end	= min(last_index, ext->oe_max_end);
+		}
 		LASSERT(ext->oe_end >= ext->oe_start);
 		LASSERT(ext->oe_grants > 0);
 	}
@@ -2721,29 +2759,37 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
  * Called by osc_io_setattr_start() to freeze and destroy covering extents.
  */
 int osc_cache_truncate_start(const struct lu_env *env, struct osc_io *oio,
-			     struct osc_object *obj, __u64 size)
+			     struct osc_object *obj, loff_t trunc_start,
+			     loff_t trunc_end, bool truncate)
 {
 	struct client_obd *cli = osc_cli(obj);
 	struct osc_extent *ext;
 	struct osc_extent *waiting = NULL;
-	pgoff_t index;
+	pgoff_t start_idx, end_idx, start, end;
 	CFS_LIST_HEAD(list);
 	int result = 0;
-	bool partial;
+	bool start_partial, end_partial, tmp_end_partial, last_ext = false;
 	ENTRY;
 
-	/* pages with index greater or equal to index will be truncated. */
-	index = cl_index(osc2cl(obj), size);
-	partial = size > cl_offset(osc2cl(obj), index);
+	/*
+	 * pages with index >= start_idx and index <= end_idx will be truncated
+	 */
+	start_idx = cl_index(osc2cl(obj), trunc_start);
+	end_idx = cl_index(osc2cl(obj), trunc_end);
+	start_partial = trunc_start > cl_offset(osc2cl(obj), start_idx);
+	if (truncate)
+		end_partial = false;
+	else
+		end_partial = trunc_end > cl_offset(osc2cl(obj), end_idx);
 
 again:
 	osc_object_lock(obj);
-	ext = osc_extent_search(obj, index);
+	ext = osc_extent_search(obj, start_idx);
 	if (ext == NULL)
 		ext = first_extent(obj);
-	else if (ext->oe_end < index)
+	else if (ext->oe_end < start_idx)
 		ext = next_extent(ext);
-	while (ext != NULL) {
+	while (ext != NULL && ext->oe_start <= end_idx) {
 		EASSERT(ext->oe_state != OES_TRUNC, ext);
 
 		if (ext->oe_state > OES_CACHE || ext->oe_urgent) {
@@ -2758,7 +2804,9 @@ again:
 			break;
 		}
 
-		OSC_EXTENT_DUMP(D_CACHE, ext, "try to trunc:"LPU64".\n", size);
+		OSC_EXTENT_DUMP(D_CACHE, ext, "try to trunc:%llu-%llu.\n",
+				(unsigned long long)trunc_start,
+				(unsigned long long)trunc_end);
 
 		osc_extent_get(ext);
 		if (ext->oe_state == OES_ACTIVE) {
@@ -2783,18 +2831,33 @@ again:
 
 	osc_list_maint(cli, obj);
 
+	start = start_idx;
+	tmp_end_partial = end_partial;
+	end_partial = false;
 	while (!cfs_list_empty(&list)) {
 		int rc;
 
 		ext = cfs_list_entry(list.next, struct osc_extent, oe_link);
 		cfs_list_del_init(&ext->oe_link);
 
+		/*
+		 * Check if this is the last extent in the list
+		 */
+		if (cfs_list_empty(&list)) {
+			end = end_idx;
+			end_partial = tmp_end_partial;
+			last_ext = true;
+		} else {
+			end = ext->oe_end;
+		}
+
 		/* extent may be in OES_ACTIVE state because inode mutex
 		 * is released before osc_io_end() in file write case */
 		if (ext->oe_state != OES_TRUNC)
 			osc_extent_wait(env, ext, OES_TRUNC);
 
-		rc = osc_extent_truncate(ext, index, partial);
+		rc = osc_extent_truncate(ext, start, start_partial, end,
+					 end_partial, truncate);
 		if (rc < 0) {
 			if (result == 0)
 				result = rc;
@@ -2807,19 +2870,27 @@ again:
 			/* this must be an overlapped extent which means only
 			 * part of pages in this extent have been truncated.
 			 */
-			EASSERTF(ext->oe_start <= index, ext,
-				 "trunc index = %lu/%d.\n", index, partial);
+			EASSERTF(ext->oe_start <= start, ext,
+				 "trunc start index = %lu, trunc end "
+				 "index = %lu.\n", start, end);
 			/* fix index to skip this partially truncated extent */
-			index = ext->oe_end + 1;
-			partial = false;
+			start = ext->oe_end + 1;
+			start_partial = false;
 
 			/* we need to hold this extent in OES_TRUNC state so
 			 * that no writeback will happen. This is to avoid
 			 * BUG 17397. */
-			LASSERT(oio->oi_trunc == NULL);
-			oio->oi_trunc = osc_extent_get(ext);
+			if (last_ext) {
+				LASSERT(oio->oi_trunc_end_ext == NULL);
+				oio->oi_trunc_end_ext = osc_extent_get(ext);
+			} else {
+				LASSERT(oio->oi_trunc_start_ext == NULL);
+				oio->oi_trunc_start_ext = osc_extent_get(ext);
+			}
 			OSC_EXTENT_DUMP(D_CACHE, ext,
-					"trunc at "LPU64"\n", size);
+					"trunc at %llu-%llu\n",
+					(unsigned long long)trunc_start,
+					(unsigned long long)trunc_end);
 		}
 		osc_extent_put(env, ext);
 	}
@@ -2840,14 +2911,20 @@ again:
 }
 
 /**
- * Called after osc_io_setattr_end to add oio->oi_trunc back to cache.
+ * Called after osc_io_setattr_end to add
+ * oio->oi_trunc_start_ext/oi_trunc_end_ext back to cache.
  */
 void osc_cache_truncate_end(const struct lu_env *env, struct osc_io *oio,
-			    struct osc_object *obj)
+			    struct osc_object *obj, bool start_ext)
 {
-	struct osc_extent *ext = oio->oi_trunc;
+	struct osc_extent *ext;
 
-	oio->oi_trunc = NULL;
+	if (start_ext)
+		ext = oio->oi_trunc_start_ext;
+	else
+		ext = oio->oi_trunc_end_ext;
+
+	oio->oi_trunc_start_ext = oio->oi_trunc_end_ext = NULL;
 	if (ext != NULL) {
 		bool unplug = false;
 
