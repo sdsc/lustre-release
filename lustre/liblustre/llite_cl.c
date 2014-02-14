@@ -235,29 +235,29 @@ static int slp_page_init(const struct lu_env *env, struct cl_object *obj,
 }
 
 static int slp_io_init(const struct lu_env *env, struct cl_object *obj,
-                       struct cl_io *io)
+		       struct cl_io *io)
 {
-        struct ccc_io      *vio   = ccc_env_io(env);
-        int result = 0;
+	struct ccc_io      *vio   = ccc_env_io(env);
+	int result = 0;
 
-        CLOBINVRNT(env, obj, ccc_object_invariant(obj));
+	CLOBINVRNT(env, obj, ccc_object_invariant(obj));
 
-        cl_io_slice_add(io, &vio->cui_cl, obj, &ccc_io_ops);
-        if (io->ci_type == CIT_READ || io->ci_type == CIT_WRITE) {
-                size_t count;
+	cl_io_slice_add(io, &vio->cui_cl, obj, &ccc_io_ops);
+	if (io->ci_type == CIT_READ || io->ci_type == CIT_WRITE) {
+		size_t count;
 
-                count = io->u.ci_rw.crw_count;
-                /* "If nbyte is 0, read() will return 0 and have no other
-                 *  results."  -- Single Unix Spec */
-                if (count == 0)
-                        result = 1;
-                else {
-                        vio->cui_tot_count = count;
-                        vio->cui_tot_nrsegs = 0;
-                }
+		count = io->u.ci_rw.crw_count;
+		/* "If nbyte is 0, read() will return 0 and have no other
+		 *  results."  -- Single Unix Spec */
+		if (count == 0)
+			result = 1;
+		else {
+			vio->cui_tot_count = count;
+			vio->cui_tot_nrsegs = 0;
+		}
 
-        }
-        return result;
+	}
+	return result;
 }
 
 static int slp_attr_get(const struct lu_env *env, struct cl_object *obj,
@@ -422,15 +422,15 @@ static int slp_io_rw_lock(const struct lu_env *env,
 }
 
 static int slp_io_setattr_iter_init(const struct lu_env *env,
-                                    const struct cl_io_slice *ios)
+				    const struct cl_io_slice *ios)
 {
-        return 0;
+	return 0;
 }
 
 static int slp_io_setattr_start(const struct lu_env *env,
-                                const struct cl_io_slice *ios)
+				const struct cl_io_slice *ios)
 {
-        return 0;
+	return 0;
 }
 
 static struct page *llu_get_user_page(int index, void *addr, int offset,
