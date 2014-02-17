@@ -13,9 +13,11 @@ ALWAYS_EXCEPT="                42a  42b  42c  42d  45   51d   68b   $SANITY_EXCE
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 # with LOD/OSP landing
-# bug number for skipped tests: LU-2036
-ALWAYS_EXCEPT="                 76     $ALWAYS_EXCEPT"
+# bug number for skipped tests: LU-2036 LU-4407 LU-4150
+ALWAYS_EXCEPT="                 76	17g	133e	$ALWAYS_EXCEPT"
 
+# bug number for skipped tests: LU-782
+ALWAYS_EXCEPT="                 220	$ALWAYS_EXCEPT"
 
 SRCDIR=$(cd $(dirname $0); echo $PWD)
 export PATH=$PATH:/sbin
@@ -6933,6 +6935,7 @@ test_116b() { # LU-2093
 	do_facet $SINGLEMDS lctl set_param fail_loc=0
 	rm -rf $DIR/$tdir
 	do_facet $SINGLEMDS lctl set_param lov.*mdtlov*.qos_threshold_rr $old_rr
+	true
 }
 run_test 116b "QoS shouldn't LBUG if not enough OSTs found on the 2nd pass"
 

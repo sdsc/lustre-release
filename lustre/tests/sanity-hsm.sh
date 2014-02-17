@@ -13,8 +13,8 @@ export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/utils:$PATH:/sbin:/usr/sbin
 ONLY=${ONLY:-"$*"}
 # bug number for skipped test:    3815
 ALWAYS_EXCEPT="$SANITY_HSM_EXCEPT 34 35 36"
-# bug number for skipped test:4178         4176
-ALWAYS_EXCEPT="$ALWAYS_EXCEPT 200 221 223b 31a"
+# bug number for skipped test:4178         4176 4643
+ALWAYS_EXCEPT="$ALWAYS_EXCEPT 200 221 223b 31a	60"
 # UPDATE THE COMMENT ABOVE WITH BUG NUMBERS WHEN CHANGING ALWAYS_EXCEPT!
 
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
