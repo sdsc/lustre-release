@@ -127,19 +127,16 @@ static int lov_notify(struct obd_device *obd, struct obd_device *watched,
 int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
                     struct obd_connect_data *data)
 {
-        struct lov_obd *lov = &obd->u.lov;
-        struct obd_uuid *tgt_uuid;
-        struct obd_device *tgt_obd;
-        static struct obd_uuid lov_osc_uuid = { "LOV_OSC_UUID" };
-        struct obd_import *imp;
-#ifdef __KERNEL__
-	struct proc_dir_entry *lov_proc_dir;
-#endif
-        int rc;
-        ENTRY;
+	struct lov_obd *lov = &obd->u.lov;
+	struct obd_uuid *tgt_uuid;
+	struct obd_device *tgt_obd;
+	static struct obd_uuid lov_osc_uuid = { "LOV_OSC_UUID" };
+	struct obd_import *imp;
+	int rc;
+	ENTRY;
 
-        if (!lov->lov_tgts[index])
-                RETURN(-EINVAL);
+	if (lov->lov_tgts[index] == NULL)
+		RETURN(-EINVAL);
 
         tgt_uuid = &lov->lov_tgts[index]->ltd_uuid;
         tgt_obd = lov->lov_tgts[index]->ltd_obd;
@@ -195,27 +192,25 @@ int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
                obd_uuid2str(tgt_uuid), tgt_obd->obd_name, activate ? "":"in");
 
 #ifdef __KERNEL__
-	lov_proc_dir = obd->obd_proc_private;
-        if (lov_proc_dir) {
-                struct obd_device *osc_obd = lov->lov_tgts[index]->ltd_exp->exp_obd;
+	if (obd->obd_type->typ_procsym != NULL) {
+		struct obd_device *osc_obd = lov->lov_tgts[index]->ltd_exp->exp_obd;
 		struct proc_dir_entry *osc_symlink;
 
-                LASSERT(osc_obd != NULL);
-                LASSERT(osc_obd->obd_magic == OBD_DEVICE_MAGIC);
-                LASSERT(osc_obd->obd_type->typ_name != NULL);
+		LASSERT(osc_obd != NULL);
+		LASSERT(osc_obd->obd_magic == OBD_DEVICE_MAGIC);
+		LASSERT(osc_obd->obd_type->typ_name != NULL);
 
-                osc_symlink = lprocfs_add_symlink(osc_obd->obd_name,
-                                                  lov_proc_dir,
-                                                  "../../../%s/%s",
-                                                  osc_obd->obd_type->typ_name,
-                                                  osc_obd->obd_name);
-                if (osc_symlink == NULL) {
-                        CERROR("could not register LOV target "
-                                "/proc/fs/lustre/%s/%s/target_obds/%s.",
-                                obd->obd_type->typ_name, obd->obd_name,
-                                osc_obd->obd_name);
-                        lprocfs_remove(&lov_proc_dir);
-			obd->obd_proc_private = NULL;
+		osc_symlink = lprocfs_add_symlink(osc_obd->obd_name,
+						  obd->obd_type->typ_procsym,
+						  "../../../%s/%s",
+						  osc_obd->obd_type->typ_name,
+						  osc_obd->obd_name);
+		if (osc_symlink == NULL) {
+			CERROR("could not register LOV target "
+			       "/proc/fs/lustre/%s/%s/target_obds/%s.",
+			       obd->obd_type->typ_name, obd->obd_name,
+			       osc_obd->obd_name);
+			lprocfs_remove(&obd->obd_type->typ_procsym);
                 }
         }
 #endif
@@ -250,6 +245,17 @@ static int lov_connect(const struct lu_env *env,
         if (data)
                 lov->lov_ocd = *data;
 
+#ifdef __KERNEL__
+	obd->obd_type->typ_procsym = lprocfs_seq_register("target_obds",
+						 obd->obd_proc_entry,
+						 NULL, NULL);
+	if (IS_ERR(obd->obd_type->typ_procsym)) {
+		CERROR("could not register /proc/fs/lustre/%s/%s/target_obds.",
+		       obd->obd_type->typ_name, obd->obd_name);
+		obd->obd_type->typ_procsym = NULL;
+	}
+#endif
+
         obd_getref(obd);
         for (i = 0; i < lov->desc.ld_tgt_count; i++) {
                 tgt = lov->lov_tgts[i];
@@ -280,7 +286,6 @@ static int lov_connect(const struct lu_env *env,
 
 static int lov_disconnect_obd(struct obd_device *obd, struct lov_tgt_desc *tgt)
 {
-	struct proc_dir_entry *lov_proc_dir;
         struct lov_obd *lov = &obd->u.lov;
         struct obd_device *osc_obd;
         int rc;
@@ -296,18 +301,18 @@ static int lov_disconnect_obd(struct obd_device *obd, struct lov_tgt_desc *tgt)
                 tgt->ltd_exp->exp_obd->obd_inactive = 1;
         }
 
-	lov_proc_dir = obd->obd_proc_private;
-	if (lov_proc_dir)
-		lprocfs_remove_proc_entry(osc_obd->obd_name, lov_proc_dir);
+	if (obd->obd_type->typ_procsym)
+		lprocfs_remove_proc_entry(osc_obd->obd_name,
+					  obd->obd_type->typ_procsym);
 
-        if (osc_obd) {
-                /* Pass it on to our clients.
-                 * XXX This should be an argument to disconnect,
-                 * XXX not a back-door flag on the OBD.  Ah well.
-                 */
-                osc_obd->obd_force = obd->obd_force;
-                osc_obd->obd_fail = obd->obd_fail;
-                osc_obd->obd_no_recov = obd->obd_no_recov;
+	if (osc_obd) {
+		/* Pass it on to our clients.
+		 * XXX This should be an argument to disconnect,
+		 * XXX not a back-door flag on the OBD.  Ah well.
+		 */
+		osc_obd->obd_force = obd->obd_force;
+		osc_obd->obd_fail = obd->obd_fail;
+		osc_obd->obd_no_recov = obd->obd_no_recov;
         }
 
         obd_register_observer(osc_obd, NULL);
@@ -352,6 +357,14 @@ static int lov_disconnect(struct obd_export *exp)
                 }
         }
         obd_putref(obd);
+
+#ifdef __KERNEL__
+	if (obd->obd_type->typ_procsym)
+		lprocfs_remove(&obd->obd_type->typ_procsym);
+	else
+		CERROR("/proc/fs/lustre/%s/%s/target_obds missing\n",
+		       obd->obd_type->typ_name, obd->obd_name);
+#endif
 
 out:
         rc = class_disconnect(exp); /* bz 9811 */
@@ -783,6 +796,9 @@ int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
 	struct lov_desc *desc;
 	struct lov_obd *lov = &obd->u.lov;
+#ifdef LPROCFS
+	struct obd_type *type;
+#endif
 	int rc;
 	ENTRY;
 
@@ -838,7 +854,15 @@ int lov_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 
 #ifdef LPROCFS
 	obd->obd_vars = lprocfs_lov_obd_vars;
-	lprocfs_seq_obd_setup(obd);
+	/* If this is true then both client (lov) and server
+	 * (lod) are on the same node. The lod layer if loaded
+	 * first will register the lov proc directory. */
+	type = class_search_type(LUSTRE_LOD_NAME);
+	if (type != NULL && type->typ_procsym != NULL)
+		lprocfs_seq_add_vars(type->typ_procsym, obd->obd_vars, obd);
+	else
+		lprocfs_seq_obd_setup(obd);
+
 	rc = lprocfs_seq_create(obd->obd_proc_entry, "target_obd", 0444,
 				&lov_proc_target_fops, obd);
 	if (rc)
@@ -2370,8 +2394,10 @@ extern struct lu_kmem_descr lov_caches[];
 
 int __init lov_init(void)
 {
+	bool enable_proc = true;
+	struct obd_type *type;
 	int rc;
-        ENTRY;
+	ENTRY;
 
         /* print an address of _any_ initialized kernel symbol from this
          * module, to allow debugging with gdb that doesn't support data
@@ -2390,11 +2416,15 @@ int __init lov_init(void)
                 return -ENOMEM;
         }
 
-	rc = class_register_type(&lov_obd_ops, NULL, NULL,
+	type = class_search_type(LUSTRE_LOD_NAME);
+	if (type != NULL && type->typ_procsym != NULL)
+		enable_proc = false;
+
+	rc = class_register_type(&lov_obd_ops, NULL, enable_proc, NULL,
 #ifndef HAVE_ONLY_PROCFS_SEQ
-				NULL,
+				 NULL,
 #endif
-				LUSTRE_LOV_NAME, &lov_device_type);
+				 LUSTRE_LOV_NAME, &lov_device_type);
 
         if (rc) {
 		kmem_cache_destroy(lov_oinfo_slab);
