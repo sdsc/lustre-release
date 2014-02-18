@@ -69,6 +69,7 @@
 #include <lustre_quota.h>
 #include <lustre_linkea.h>
 #include <lustre_lfsck.h>
+#include <lustre_nodemap.h>
 
 mdl_mode_t mdt_mdl_lock_modes[] = {
         [LCK_MINMODE] = MDL_MINMODE,
@@ -392,6 +393,7 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
                         const struct lu_attr *attr, const struct lu_fid *fid)
 {
         struct md_attr *ma = &info->mti_attr;
+	struct lu_nodemap *nodemap = info->mti_exp->exp_nodemap;
 
         LASSERT(ma->ma_valid & MA_INODE);
 
@@ -401,8 +403,14 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
         b->mode       = attr->la_mode;
         b->size       = attr->la_size;
         b->blocks     = attr->la_blocks;
-        b->uid        = attr->la_uid;
-        b->gid        = attr->la_gid;
+	b->uid        = attr->la_uid;
+	b->gid        = attr->la_gid;
+	b->uid        = nodemap_map_id(nodemap, NODEMAP_UID,
+				       NODEMAP_FS_TO_CLIENT,
+				       attr->la_uid);
+	b->gid        = nodemap_map_id(nodemap, NODEMAP_GID,
+				       NODEMAP_FS_TO_CLIENT,
+				       attr->la_gid);
         b->flags      = attr->la_flags;
         b->nlink      = attr->la_nlink;
         b->rdev       = attr->la_rdev;
@@ -4299,6 +4307,8 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
         obd = class_name2obd(dev);
         LASSERT(obd != NULL);
 
+	nodemap_set_mdt(obd);
+
         m->mdt_max_mdsize = MAX_MD_SIZE; /* 4 stripes */
 
         m->mdt_som_conf = 0;
@@ -4887,6 +4897,7 @@ static int mdt_obd_connect(const struct lu_env *env,
         struct lustre_handle    conn = { 0 };
         struct mdt_device      *mdt;
         int                     rc;
+	lnet_nid_t	       *client_nid = localdata;
         ENTRY;
 
         LASSERT(env != NULL);
@@ -4924,8 +4935,10 @@ static int mdt_obd_connect(const struct lu_env *env,
                 LASSERT(lcd);
 		memcpy(lcd->lcd_uuid, cluuid, sizeof lcd->lcd_uuid);
 		rc = tgt_client_new(env, lexp);
-                if (rc == 0)
+		if (rc == 0) {
                         mdt_export_stats_init(obd, lexp, localdata);
+			nodemap_add_member(*client_nid, lexp);
+		}
 
 		/* For phase I, sync for cross-ref operation. */
 		lexp->exp_keep_sync = 1;
@@ -4947,6 +4960,7 @@ static int mdt_obd_reconnect(const struct lu_env *env,
                              struct obd_connect_data *data,
                              void *localdata)
 {
+	lnet_nid_t	       *client_nid = localdata;
         int                     rc;
         ENTRY;
 
@@ -4954,8 +4968,10 @@ static int mdt_obd_reconnect(const struct lu_env *env,
                 RETURN(-EINVAL);
 
         rc = mdt_connect_internal(exp, mdt_dev(obd->obd_lu_dev), data);
-        if (rc == 0)
+	if (rc == 0) {
                 mdt_export_stats_init(obd, exp, localdata);
+		nodemap_add_member(*client_nid, exp);
+	}
 
         RETURN(rc);
 }
@@ -5077,6 +5093,7 @@ static int mdt_obd_disconnect(struct obd_export *exp)
         if (rc != 0)
                 CDEBUG(D_IOCTL, "server disconnect error: %d\n", rc);
 
+	nodemap_del_member(exp);
         rc = mdt_export_cleanup(exp);
         class_export_put(exp);
         RETURN(rc);

@@ -66,6 +66,14 @@ struct lu_idmap {
 	struct rb_node	id_fs_to_client;
 };
 
+struct lu_nodemap_member {
+	lnet_nid_t		mem_nid;
+	struct obd_export	*mem_exp;
+	atomic_t		mem_refcount;
+	cfs_hlist_node_t	mem_hash;
+	char			mem_id[17];
+};
+
 int nodemap_procfs_init(void);
 int lprocfs_nodemap_register(const char *name, bool is_default_nodemap,
 			     struct lu_nodemap *nodemap);
@@ -90,6 +98,13 @@ struct lu_idmap *idmap_search(struct lu_nodemap *nodemap,
 			      enum nodemap_id_type id_type,
 			      __u32 id);
 int nodemap_cleanup_nodemaps(void);
+int member_init_hash(struct lu_nodemap *nodemap);
+void member_add(struct lu_nodemap *nodemap, lnet_nid_t nid,
+		struct obd_export *exp);
+int member_del(struct lu_nodemap *nodemap, struct obd_export *exp);
+void member_delete_hash(struct lu_nodemap *nodemap);
+void member_reclassify_nodemap(struct lu_nodemap *nodemap);
+void member_revoke_locks(struct lu_nodemap *nodemap);
 
 struct rb_node *nm_rb_next_postorder(const struct rb_node *node);
 struct rb_node *nm_rb_first_postorder(const struct rb_root *root);
