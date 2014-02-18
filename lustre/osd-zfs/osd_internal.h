@@ -194,7 +194,7 @@ struct osd_thandle {
 	struct thandle		 ot_super;
 	cfs_list_t		 ot_dcb_list;
 	cfs_list_t		 ot_sa_list;
-	struct semaphore	 ot_sa_lock;
+	struct mutex		 ot_sa_lock;
 	dmu_tx_t		*ot_tx;
 	struct lquota_trans	 ot_quota_trans;
 	__u32			 ot_write_commit:1,
@@ -219,9 +219,9 @@ struct osd_seq {
 };
 
 struct osd_seq_list {
-	rwlock_t	 osl_seq_list_lock;     /* lock for seq_list */
+	rwlock_t	 osl_seq_list_lock; /* lock for seq_list */
 	cfs_list_t	 osl_seq_list;      /* list head for seq */
-	struct semaphore osl_seq_init_sem;
+	struct mutex	 osl_seq_init_mutex;
 };
 
 #define OSD_OST_MAP_SIZE	32
@@ -302,7 +302,7 @@ struct osd_object {
 	struct lu_attr		 oo_attr;
 
 	/* protects extended attributes */
-	struct semaphore	 oo_guard;
+	struct mutex		 oo_guard;
 	uint64_t		 oo_xattr;
 
 	/* record size for index file */

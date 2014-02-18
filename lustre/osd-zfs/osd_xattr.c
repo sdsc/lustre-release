@@ -245,9 +245,9 @@ int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(osd_invariant(obj));
 	LASSERT(dt_object_exists(dt));
 
-	down(&obj->oo_guard);
+	mutex_lock(&obj->oo_guard);
 	rc = __osd_xattr_get(env, obj, buf, name, &size);
-	up(&obj->oo_guard);
+	mutex_unlock(&obj->oo_guard);
 
 	if (rc == -ENOENT)
 		rc = -ENODATA;
@@ -332,9 +332,9 @@ int osd_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(handle != NULL);
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 
-	down(&obj->oo_guard);
+	mutex_lock(&obj->oo_guard);
 	__osd_xattr_declare_set(env, obj, buf->lb_len, name, oh);
-	up(&obj->oo_guard);
+	mutex_unlock(&obj->oo_guard);
 
 	RETURN(0);
 }
@@ -591,11 +591,11 @@ int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 
-	down(&obj->oo_guard);
+	mutex_lock(&obj->oo_guard);
 	CDEBUG(D_INODE, "Setting xattr %s with size %d\n",
 		name, (int)buf->lb_len);
 	rc = osd_xattr_set_internal(env, obj, buf, name, fl, oh, capa);
-	up(&obj->oo_guard);
+	mutex_unlock(&obj->oo_guard);
 
 	RETURN(rc);
 }
@@ -652,9 +652,9 @@ int osd_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(oh->ot_tx != NULL);
 	LASSERT(obj->oo_db != NULL);
 
-	down(&obj->oo_guard);
+	mutex_lock(&obj->oo_guard);
 	__osd_xattr_declare_del(env, obj, name, oh);
-	up(&obj->oo_guard);
+	mutex_unlock(&obj->oo_guard);
 
 	RETURN(0);
 }
@@ -727,9 +727,9 @@ int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_tx != NULL);
 
-	down(&obj->oo_guard);
+	mutex_lock(&obj->oo_guard);
 	rc = __osd_xattr_del(env, obj, name, oh);
-	up(&obj->oo_guard);
+	mutex_unlock(&obj->oo_guard);
 
 	RETURN(rc);
 }
@@ -782,7 +782,7 @@ int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(osd_invariant(obj));
 	LASSERT(dt_object_exists(dt));
 
-	down(&obj->oo_guard);
+	mutex_lock(&obj->oo_guard);
 
 	rc = osd_sa_xattr_list(env, obj, lb);
 	if (rc < 0)
@@ -824,7 +824,7 @@ int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
 out_fini:
 	udmu_zap_cursor_fini(zc);
 out:
-	up(&obj->oo_guard);
+	mutex_unlock(&obj->oo_guard);
 	RETURN(rc);
 
 }

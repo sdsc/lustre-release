@@ -302,7 +302,7 @@ static struct osd_seq *osd_find_or_add_seq(const struct lu_env *env,
 	if (osd_seq != NULL)
 		RETURN(osd_seq);
 
-	down(&seq_list->osl_seq_init_sem);
+	mutex_lock(&seq_list->osl_seq_init_mutex);
 	/* Check again, in case some one else already add it
 	 * to the list */
 	osd_seq = osd_seq_find(seq_list, seq);
@@ -348,7 +348,7 @@ static struct osd_seq *osd_find_or_add_seq(const struct lu_env *env,
 	cfs_list_add(&osd_seq->os_seq_list, &seq_list->osl_seq_list);
 	write_unlock(&seq_list->osl_seq_list_lock);
 out:
-	up(&seq_list->osl_seq_init_sem);
+	mutex_unlock(&seq_list->osl_seq_init_mutex);
 	if (rc != 0) {
 		if (osd_seq != NULL && osd_seq->os_compat_dirs != NULL)
 			OBD_FREE(osd_seq->os_compat_dirs,
@@ -620,7 +620,7 @@ static void osd_ost_seq_init(const struct lu_env *env, struct osd_device *osd)
 
 	CFS_INIT_LIST_HEAD(&osl->osl_seq_list);
 	rwlock_init(&osl->osl_seq_list_lock);
-	sema_init(&osl->osl_seq_init_sem, 1);
+	mutex_init(&osl->osl_seq_init_mutex);
 }
 
 static void osd_ost_seq_fini(const struct lu_env *env, struct osd_device *osd)
