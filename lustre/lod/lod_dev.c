@@ -297,12 +297,10 @@ static int lod_process_config(const struct lu_env *env,
 	}
 
 	case LCFG_PARAM: {
-		struct lprocfs_static_vars  v = { 0 };
-		struct obd_device	  *obd = lod2obd(lod);
+		struct obd_device *obd = lod2obd(lod);
 
-		lprocfs_lod_init_vars(&v);
-
-		rc = class_process_proc_param(PARAM_LOV, v.obd_vars, lcfg, obd);
+		rc = class_process_proc_seq_param(PARAM_LOV, obd->obd_vars,
+						  lcfg, obd);
 		if (rc > 0)
 			rc = 0;
 		GOTO(out, rc);
@@ -916,7 +914,6 @@ static struct obd_ops lod_obd_device_ops = {
 
 static int __init lod_mod_init(void)
 {
-	struct lprocfs_static_vars  lvars = { 0 };
 	struct obd_type	*type;
 	int rc;
 
@@ -924,11 +921,9 @@ static int __init lod_mod_init(void)
 	if (rc)
 		return rc;
 
-	lprocfs_lod_init_vars(&lvars);
-
 	rc = class_register_type(&lod_obd_device_ops, NULL, true, NULL,
 #ifndef HAVE_ONLY_PROCFS_SEQ
-				 lvars.module_vars,
+				 NULL,
 #endif
 				 LUSTRE_LOD_NAME, &lod_device_type);
 	if (rc) {
@@ -938,23 +933,21 @@ static int __init lod_mod_init(void)
 
 	/* create "lov" entry in procfs for compatibility purposes */
 	type = class_search_type(LUSTRE_LOV_NAME);
-	if (type == NULL || type->typ_procroot == NULL) {
-		type = class_search_type(LUSTRE_LOD_NAME);
+	if (type != NULL && type->typ_procroot != NULL)
+		return rc;
 
-		type->typ_procsym = lprocfs_register("lov", proc_lustre_root,
-						     NULL, NULL);
-		if (IS_ERR(type->typ_procsym))
-			CERROR("lod: can't create compat entry \"lov\": %d\n",
-			       (int)PTR_ERR(type->typ_procsym));
-	}
+	type = class_search_type(LUSTRE_LOD_NAME);
+
+	type->typ_procsym = lprocfs_register("lov", proc_lustre_root,
+					     NULL, NULL);
+	if (IS_ERR(type->typ_procsym))
+		CERROR("lod: can't create compat entry \"lov\": %d\n",
+		       (int)PTR_ERR(type->typ_procsym));
 	return rc;
 }
 
 static void __exit lod_mod_exit(void)
 {
-
-	lprocfs_try_remove_proc_entry("lov", proc_lustre_root);
-
 	class_unregister_type(LUSTRE_LOD_NAME);
 	lu_kmem_fini(lod_caches);
 }
