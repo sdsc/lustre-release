@@ -47,6 +47,7 @@
 #include <obd_cksum.h>
 #include <lustre_quota.h>
 #include <lustre_lfsck.h>
+#include <lustre_nodemap.h>
 
 static int ofd_export_stats_init(struct ofd_device *ofd,
 				 struct obd_export *exp, void *client_nid)
@@ -243,6 +244,7 @@ static int ofd_obd_reconnect(const struct lu_env *env, struct obd_export *exp,
 			     struct obd_connect_data *data, void *localdata)
 {
 	struct ofd_device	*ofd;
+	lnet_nid_t		*client_nid = localdata;
 	int			 rc;
 
 	ENTRY;
@@ -256,6 +258,8 @@ static int ofd_obd_reconnect(const struct lu_env *env, struct obd_export *exp,
 	if (rc == 0)
 		ofd_export_stats_init(ofd, exp, localdata);
 
+	nodemap_add_member(*client_nid, exp);
+
 	RETURN(rc);
 }
 
@@ -267,6 +271,7 @@ static int ofd_obd_connect(const struct lu_env *env, struct obd_export **_exp,
 	struct ofd_device	*ofd;
 	struct lustre_handle	 conn = { 0 };
 	int			 rc;
+	lnet_nid_t		*client_nid = localdata;
 	ENTRY;
 
 	if (_exp == NULL || obd == NULL || cluuid == NULL)
@@ -284,6 +289,8 @@ static int ofd_obd_connect(const struct lu_env *env, struct obd_export **_exp,
 	rc = ofd_parse_connect_data(env, exp, data, true);
 	if (rc)
 		GOTO(out, rc);
+
+	nodemap_add_member(*client_nid, exp);
 
 	if (obd->obd_replayable) {
 		struct tg_export_data *ted = &exp->exp_target_data;
@@ -338,6 +345,7 @@ int ofd_obd_disconnect(struct obd_export *exp)
 		lu_env_fini(&env);
 	}
 out:
+	nodemap_del_member(exp);
 	class_export_put(exp);
 	RETURN(rc);
 }
