@@ -25,6 +25,9 @@
  */
 #include <linux/module.h>
 #include <lustre_net.h>
+#include <lustre_export.h>
+#include <obd.h>
+#include <obd_class.h>
 #include "nodemap_internal.h"
 
 #define HASH_NODEMAP_BKT_BITS 3
@@ -55,6 +58,38 @@ static struct lu_nodemap *default_nodemap;
  */
 static cfs_hash_t *nodemap_hash;
 
+void nodemap_member_destroy(struct lu_nodemap_member *member)
+{
+	LASSERT(list_empty(&member->mem_list) == 0);
+
+	OBD_FREE_PTR(member);
+}
+
+void nodemap_member_delete(struct lu_nodemap_member *member)
+{
+	if (member == NULL)
+		return;
+	list_del(&member->mem_list);
+	nodemap_member_destroy(member);
+}
+
+struct lu_nodemap_member *nodemap_member_create(lnet_nid_t nid)
+{
+	struct lu_nodemap_member	*member;
+
+	OBD_ALLOC_PTR(member);
+	if (member == NULL) {
+		CERROR("cannot allocate lu_nodemap_member of size %zu bytes",
+		       sizeof(member));
+		return NULL;
+	}
+
+	member->mem_nid = nid;
+	INIT_LIST_HEAD(&member->mem_list);
+
+	return member;
+}
+
 /**
  * Nodemap destructor
  *
@@ -63,11 +98,18 @@ static cfs_hash_t *nodemap_hash;
 static void nodemap_destroy(struct lu_nodemap *nodemap)
 {
 	struct lu_nid_range *range;
-	struct lu_nid_range *temp;
+	struct lu_nid_range *range_temp;
+	struct lu_nodemap_member *member;
+	struct lu_nodemap_member *member_temp;
 
-	list_for_each_entry_safe(range, temp, &nodemap->nm_ranges,
+	list_for_each_entry_safe(range, range_temp, &nodemap->nm_ranges,
 				 rn_list) {
 		range_delete(range);
+	}
+
+	list_for_each_entry_safe(member, member_temp, &nodemap->nm_members,
+				 mem_list) {
+		nodemap_member_delete(member);
 	}
 
 	idmap_delete_tree(nodemap);
@@ -255,6 +297,58 @@ out:
 }
 
 /**
+ * walk the exports for an obd and cancel locks
+ *
+ * \param	nodemap		nodemap
+ * \param	member		nodemap member
+ * \param	obd		obd to walk the exports for
+ */
+void nodemap_walk_locks_per_obd(struct lu_nodemap *nodemap,
+				struct lu_nodemap_member *member,
+				struct obd_device *obd)
+{
+	struct obd_export	*exp;
+	lnet_nid_t		member_nid = member->mem_nid;
+	lnet_nid_t		exp_nid;
+
+	cfs_list_for_each_entry(exp, &obd->obd_exports, exp_obd_chain) {
+		if (exp->exp_connection != NULL) {
+			exp_nid = exp->exp_connection->c_peer.nid;
+			if ((exp_nid == member_nid) &&
+			    (exp->exp_nodemap != NULL))
+				ldlm_revoke_export_locks(exp);
+		}
+	}
+}
+
+/**
+ * Walk the nodemap members and pass mdt obs to a callback to walk the
+ * locks
+ *
+ * \param	nodemap		nodemap with members to walk
+ */
+void nodemap_walk_locks(struct lu_nodemap *nodemap)
+{
+	struct lu_nodemap_member	*member;
+	struct lu_nodemap_member	*temp;
+	int				index;
+	int				max_index = class_devno_max();
+
+	list_for_each_entry_safe(member, temp, &nodemap->nm_members,
+				 mem_list) {
+		for (index = 0; index <= max_index; index++) {
+			struct obd_device *obd = class_num2obd(index);
+			/* Only cancel the mdt locks */
+			if ((obd != NULL) && strcmp(obd->obd_type->typ_name,
+						    "mdt") == 0) {
+				nodemap_walk_locks_per_obd(nodemap, member,
+							   obd);
+			}
+		}
+	}
+}
+
+/**
  * classify the nid into the proper nodemap
  *
  * \param	nid			nid to classify
@@ -272,6 +366,59 @@ struct lu_nodemap *nodemap_classify_nid(lnet_nid_t nid)
 	return default_nodemap;
 }
 EXPORT_SYMBOL(nodemap_classify_nid);
+
+/**
+ * walk the exports of an obd_device to reclassify a nodemap member
+ *
+ * \param	nodemap		nodemap to reclassify from
+ * \param	member		target member
+ * \para,	obd		device containing exports to walk
+ */
+void nodemap_classify_nid_per_dev(struct lu_nodemap *nodemap,
+				  struct lu_nodemap_member *member,
+				  struct obd_device *obd)
+{
+	struct obd_export	*exp;
+	lnet_nid_t		member_nid = member->mem_nid;
+	lnet_nid_t		exp_nid;
+
+	cfs_list_for_each_entry(exp, &obd->obd_exports, exp_obd_chain) {
+		if (exp->exp_connection != NULL) {
+			exp_nid = exp->exp_connection->c_peer.nid;
+			if ((exp_nid == member_nid) &&
+			    (exp->exp_nodemap != NULL)) {
+				exp->exp_nodemap =
+					nodemap_classify_nid(member_nid);
+				list_del(&member->mem_list);
+				list_add(&member->mem_list,
+					 &exp->exp_nodemap->nm_members);
+			}
+		}
+	}
+}
+
+/**
+ * reclassify all members of a nodemap -- used in case of range changes
+ *
+ * \param	nodemap		nodemap containing members to reclassify
+ */
+void nodemap_reclassify_nodemap_members(struct lu_nodemap *nodemap)
+{
+	struct lu_nodemap_member	*member;
+	struct lu_nodemap_member	*temp;
+	int				index;
+	int				max_index = class_devno_max();
+
+	list_for_each_entry_safe(member, temp, &nodemap->nm_members,
+				 mem_list) {
+		for (index = 0; index <= max_index; index++) {
+			struct obd_device *obd = class_num2obd(index);
+			if (obd != NULL)
+				nodemap_classify_nid_per_dev(nodemap, member,
+							     obd);
+		}
+	}
+}
 
 /**
  * simple check for default nodemap
@@ -369,6 +516,7 @@ int nodemap_add_idmap(const char *name, enum nodemap_id_type id_type,
 		GOTO(out_putref, rc = -ENOMEM);
 
 	idmap_insert(id_type, idmap, nodemap);
+	nodemap_walk_locks(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -405,6 +553,7 @@ int nodemap_del_idmap(const char *name, enum nodemap_id_type id_type,
 		GOTO(out_putref, rc = -EINVAL);
 
 	idmap_delete(id_type, idmap, nodemap);
+	nodemap_walk_locks(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -512,6 +661,7 @@ int nodemap_add_range(const char *name, const lnet_nid_t nid[2])
 	}
 
 	list_add(&range->rn_list, &nodemap->nm_ranges);
+	nodemap_reclassify_nodemap_members(default_nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -544,6 +694,7 @@ int nodemap_del_range(const char *name, const lnet_nid_t nid[2])
 		GOTO(out_putref, rc = -EINVAL);
 
 	range_delete(range);
+	nodemap_reclassify_nodemap_members(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -551,6 +702,29 @@ out:
 	return rc;
 }
 EXPORT_SYMBOL(nodemap_del_range);
+
+/**
+ * add a member export to a nodemap
+ *
+ * \param	nodemap		nodemap to search
+ * \param	exp		obd_export to search
+ */
+void nodemap_add_member(struct lu_nodemap *nodemap,
+			lnet_nid_t nid)
+{
+	struct lu_nodemap_member	*member;
+	struct lu_nodemap_member	*temp;
+
+	list_for_each_entry(temp, &nodemap->nm_members,
+			    mem_list) {
+		if (temp->mem_nid == nid)
+			return;
+	}
+
+	member = nodemap_member_create(nid);
+	list_add(&member->mem_list, &nodemap->nm_members);
+}
+EXPORT_SYMBOL(nodemap_add_member);
 
 /**
  * Nodemap constructor
@@ -570,8 +744,8 @@ EXPORT_SYMBOL(nodemap_del_range);
  */
 static int nodemap_create(const char *name, bool is_default)
 {
-	struct	lu_nodemap *nodemap = NULL;
-	int	rc = 0;
+	struct lu_nodemap	*nodemap = NULL;
+	int			rc = 0;
 
 	rc = nodemap_lookup(name, &nodemap);
 	if (rc == -EINVAL)
@@ -581,8 +755,8 @@ static int nodemap_create(const char *name, bool is_default)
 		nodemap_putref(nodemap);
 		GOTO(out, rc = -EEXIST);
 	}
-	OBD_ALLOC_PTR(nodemap);
 
+	OBD_ALLOC_PTR(nodemap);
 	if (nodemap == NULL) {
 		CERROR("cannot allocate memory (%zu bytes)"
 		       "for nodemap '%s'\n", sizeof(*nodemap),
@@ -592,7 +766,8 @@ static int nodemap_create(const char *name, bool is_default)
 
 	snprintf(nodemap->nm_name, sizeof(nodemap->nm_name), "%s", name);
 
-	INIT_LIST_HEAD(&(nodemap->nm_ranges));
+	INIT_LIST_HEAD(&nodemap->nm_members);
+	INIT_LIST_HEAD(&nodemap->nm_ranges);
 	nodemap->nm_fs_to_client_uidmap = RB_ROOT;
 	nodemap->nm_client_to_fs_uidmap = RB_ROOT;
 	nodemap->nm_fs_to_client_gidmap = RB_ROOT;
