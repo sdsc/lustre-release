@@ -1194,6 +1194,10 @@ run_test 15 "test id mapping"
 log "cleanup: ======================================================"
 
 sec_unsetup() {
+
+	## nodemap deactivated
+	do_facet mgs lctl nodemap_activate 0
+
        	for num in `seq $MDSCOUNT`; do
 		if [ "${identity_old[$num]}" = 1 ]; then
        			switch_identity $num false || identity_old[$num]=$?

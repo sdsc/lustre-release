@@ -1,5 +1,5 @@
 MODULES = nodemap
 nodemap-objs = nodemap_handler.o nodemap_lproc.o nodemap_range.o
-nodemap-objs += nodemap_idmap.o nodemap_rbtree.o
+nodemap-objs += nodemap_idmap.o nodemap_rbtree.o nodemap_member.o
 
 @INCLUDE_RULES@
