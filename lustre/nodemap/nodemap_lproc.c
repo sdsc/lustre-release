@@ -29,6 +29,8 @@
 
 #include <lprocfs_status.h>
 #include <lustre_net.h>
+#include <lustre_export.h>
+#include <obd_class.h>
 #include <interval_tree.h>
 #include "nodemap_internal.h"
 
@@ -79,7 +81,7 @@ static int nodemap_ranges_show(struct seq_file *m, void *data)
 	struct lu_nodemap		*nodemap = m->private;
 	struct lu_nid_range		*range;
 	struct interval_node_extent	ext;
-	bool				cont = 0;
+	bool				cont = false;
 
 	seq_printf(m, "[\n");
 	list_for_each_entry(range, &nodemap->nm_ranges, rn_list) {
@@ -103,6 +105,45 @@ static int nodemap_ranges_open(struct inode *inode, struct file *file)
 	struct lu_nodemap *nodemap = PDE_DATA(inode);
 
 	return single_open(file, nodemap_ranges_show, nodemap);
+}
+
+static int nodemap_exports_show_db(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+				   struct hlist_node *hnode, void *data)
+{
+	struct seq_file			*m = data;
+	struct lu_nodemap_member	*member;
+	__u64				*exp;
+
+	member = hlist_entry(hnode, struct lu_nodemap_member, mem_hash);
+	exp = cfs_hash_key(hs, hnode);
+	seq_printf(m, " { nid: %s, },", libcfs_nid2str(member->mem_nid));
+
+	return 0;
+}
+
+static int nodemap_exports_show(struct seq_file *m, void *data)
+{
+	struct lu_nodemap		*nodemap = m->private;
+
+	seq_printf(m, "[\n");
+
+	cfs_hash_for_each(nodemap->nm_member_hash, nodemap_exports_show_db, m);
+
+	seq_printf(m, "\n");
+	seq_printf(m, "]\n");
+
+	return 0;
+}
+
+static int nodemap_exports_open(struct inode *inode, struct file *file)
+{
+	struct proc_dir_entry	*dir;
+	struct lu_nodemap	*nodemap;
+
+	dir = PDE(inode);
+	nodemap = dir->data;
+
+	return single_open(file, nodemap_exports_show, nodemap);
 }
 
 static int nodemap_active_seq_show(struct seq_file *m, void *data)
@@ -399,6 +440,13 @@ const struct file_operations nodemap_idmap_fops = {
 	.release		= single_release
 };
 
+const struct file_operations nodemap_exports_fops = {
+	.open			= nodemap_exports_open,
+	.read			= seq_read,
+	.llseek			= seq_lseek,
+	.release		= single_release
+};
+
 static struct lprocfs_seq_vars lprocfs_nodemap_vars[] = {
 	{
 		.name		= "id",
@@ -423,6 +471,10 @@ static struct lprocfs_seq_vars lprocfs_nodemap_vars[] = {
 	{
 		.name		= "ranges",
 		.fops		= &nodemap_ranges_fops,
+	},
+	{
+		.name		= "exports",
+		.fops		= &nodemap_exports_fops,
 	},
 	{
 		.name		= "idmap",
@@ -453,6 +505,10 @@ static struct lprocfs_seq_vars lprocfs_default_nodemap_vars[] = {
 	{
 		.name		= "squash_gid",
 		.fops		= &nodemap_squash_gid_fops,
+	},
+	{
+		.name		= "exports",
+		.fops		= &nodemap_exports_fops,
 	},
 	{
 		NULL

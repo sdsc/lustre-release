@@ -50,6 +50,7 @@
 
 #include "mdt_internal.h"
 #include <lnet/lib-lnet.h>
+#include <lustre_nodemap.h>
 
 
 typedef enum ucred_init_type {
@@ -416,8 +417,17 @@ static int old_init_ucred(struct mdt_thread_info *info,
 	struct lu_ucred *uc = mdt_ucred(info);
 	struct mdt_device  *mdt = info->mti_mdt;
 	struct md_identity *identity = NULL;
-
+	struct lu_nodemap  *nodemap = info->mti_exp->exp_nodemap;
 	ENTRY;
+
+	body->uid = nodemap_map_id(nodemap, NODEMAP_UID,
+				   NODEMAP_CLIENT_TO_FS, body->uid);
+	body->gid = nodemap_map_id(nodemap, NODEMAP_GID,
+				   NODEMAP_CLIENT_TO_FS, body->gid);
+	body->fsuid = nodemap_map_id(nodemap, NODEMAP_UID,
+				     NODEMAP_CLIENT_TO_FS, body->fsuid);
+	body->fsgid = nodemap_map_id(nodemap, NODEMAP_GID,
+				     NODEMAP_CLIENT_TO_FS, body->fsgid);
 
 	LASSERT(uc != NULL);
 	uc->uc_valid = UCRED_INVALID;
@@ -461,14 +471,20 @@ static int old_init_ucred_reint(struct mdt_thread_info *info)
 	struct lu_ucred *uc = mdt_ucred(info);
 	struct mdt_device  *mdt = info->mti_mdt;
 	struct md_identity *identity = NULL;
-
+	struct lu_nodemap  *nodemap = info->mti_exp->exp_nodemap;
 	ENTRY;
+
+	uc->uc_fsuid = nodemap_map_id(nodemap, NODEMAP_UID,
+				      NODEMAP_CLIENT_TO_FS, uc->uc_fsuid);
+	uc->uc_fsgid = nodemap_map_id(nodemap, NODEMAP_GID,
+				      NODEMAP_CLIENT_TO_FS, uc->uc_fsgid);
 
 	LASSERT(uc != NULL);
 	uc->uc_valid = UCRED_INVALID;
 	uc->uc_o_uid = uc->uc_o_fsuid = uc->uc_uid = uc->uc_fsuid;
 	uc->uc_o_gid = uc->uc_o_fsgid = uc->uc_gid = uc->uc_fsgid;
 	uc->uc_ginfo = NULL;
+
 	if (!is_identity_get_disabled(mdt->mdt_identity_cache)) {
 		identity = mdt_identity_get(mdt->mdt_identity_cache,
 					    uc->uc_fsuid);
@@ -868,11 +884,12 @@ int mdt_name_unpack(struct req_capsule *pill,
 static int mdt_setattr_unpack_rec(struct mdt_thread_info *info)
 {
 	struct lu_ucred         *uc  = mdt_ucred(info);
-        struct md_attr          *ma = &info->mti_attr;
-        struct lu_attr          *la = &ma->ma_attr;
-        struct req_capsule      *pill = info->mti_pill;
-        struct mdt_reint_record *rr = &info->mti_rr;
-        struct mdt_rec_setattr  *rec;
+	struct md_attr          *ma = &info->mti_attr;
+	struct lu_attr          *la = &ma->ma_attr;
+	struct req_capsule      *pill = info->mti_pill;
+	struct mdt_reint_record *rr = &info->mti_rr;
+	struct mdt_rec_setattr  *rec;
+	struct lu_nodemap	*nodemap = info->mti_exp->exp_nodemap;
         ENTRY;
 
         CLASSERT(sizeof(struct mdt_rec_setattr)== sizeof(struct mdt_rec_reint));
@@ -892,6 +909,7 @@ static int mdt_setattr_unpack_rec(struct mdt_thread_info *info)
 	/*  If MDS_ATTR_xTIME is set without MDS_ATTR_xTIME_SET and
 	 *  the client does not have OBD_CONNECT_FULL20, convert it
 	 *  to LA_xTIME. LU-3036 */
+
 	if (!(exp_connect_flags(info->mti_exp) & OBD_CONNECT_FULL20)) {
 		if (!(rec->sa_valid & MDS_ATTR_ATIME_SET) &&
 		     (rec->sa_valid & MDS_ATTR_ATIME))
@@ -903,16 +921,18 @@ static int mdt_setattr_unpack_rec(struct mdt_thread_info *info)
 		     (rec->sa_valid & MDS_ATTR_CTIME))
 			la->la_valid |= LA_CTIME;
 	}
-        la->la_mode  = rec->sa_mode;
-        la->la_flags = rec->sa_attr_flags;
-        la->la_uid   = rec->sa_uid;
-        la->la_gid   = rec->sa_gid;
-        la->la_size  = rec->sa_size;
-        la->la_blocks = rec->sa_blocks;
-        la->la_ctime = rec->sa_ctime;
-        la->la_atime = rec->sa_atime;
-        la->la_mtime = rec->sa_mtime;
-        ma->ma_valid = MA_INODE;
+	la->la_mode  = rec->sa_mode;
+	la->la_flags = rec->sa_attr_flags;
+	la->la_uid   = nodemap_map_id(nodemap, NODEMAP_UID,
+				      NODEMAP_CLIENT_TO_FS, rec->sa_uid);
+	la->la_gid   = nodemap_map_id(nodemap, NODEMAP_GID,
+				      NODEMAP_CLIENT_TO_FS, rec->sa_gid);
+	la->la_size  = rec->sa_size;
+	la->la_blocks = rec->sa_blocks;
+	la->la_ctime = rec->sa_ctime;
+	la->la_atime = rec->sa_atime;
+	la->la_mtime = rec->sa_mtime;
+	ma->ma_valid = MA_INODE;
 
 	if (rec->sa_bias & MDS_DATA_MODIFIED)
 		ma->ma_attr_flags |= MDS_DATA_MODIFIED;
