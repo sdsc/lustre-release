@@ -264,7 +264,8 @@ struct obd_export {
                 struct mgs_export_data    eu_mgs_data;
         } u;
 
-	struct nodemap		  *exp_nodemap;
+	/** nodemap this export is a member of */
+	struct lu_nodemap		*exp_nodemap;
 };
 
 #define exp_target_data u.eu_target_data
