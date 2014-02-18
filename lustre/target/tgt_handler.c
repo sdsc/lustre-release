@@ -39,6 +39,7 @@
 #include <obd_cksum.h>
 #include <md_object.h>
 #include <lustre_lfsck.h>
+#include <lustre_nodemap.h>
 
 #include "tgt_internal.h"
 
@@ -63,9 +64,10 @@ EXPORT_SYMBOL(tgt_name);
  */
 static int tgt_mdt_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 {
-	const struct mdt_body	*body;
+	struct mdt_body		*body;
 	struct lu_object	*obj;
 	struct req_capsule	*pill = tsi->tsi_pill;
+	struct lu_nodemap	*nodemap;
 	int			 rc;
 
 	ENTRY;
@@ -78,6 +80,21 @@ static int tgt_mdt_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 
 	if (!(body->valid & OBD_MD_FLID))
 		RETURN(0);
+
+	nodemap = tsi->tsi_exp->exp_nodemap;
+
+	body->uid = nodemap_map_id(nodemap, NODEMAP_UID,
+				   NODEMAP_CLIENT_TO_FS,
+				   body->uid);
+	body->gid = nodemap_map_id(nodemap, NODEMAP_GID,
+				   NODEMAP_CLIENT_TO_FS,
+				   body->gid);
+	body->fsuid = nodemap_map_id(nodemap, NODEMAP_UID,
+				     NODEMAP_CLIENT_TO_FS,
+				     body->fsuid);
+	body->fsgid = nodemap_map_id(nodemap, NODEMAP_GID,
+				     NODEMAP_CLIENT_TO_FS,
+				     body->fsgid);
 
 	/* mdc_pack_body() doesn't check if fid is zero and set OBD_ML_FID
 	 * in any case in pre-2.5 clients. Fix that here if needed */
@@ -242,6 +259,7 @@ static int tgt_ost_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 	struct ost_body		*body;
 	struct req_capsule	*pill = tsi->tsi_pill;
 	struct lustre_capa	*capa;
+	struct lu_nodemap	*nodemap;
 	int			 rc;
 
 	ENTRY;
@@ -253,6 +271,15 @@ static int tgt_ost_body_unpack(struct tgt_session_info *tsi, __u32 flags)
 	rc = tgt_validate_obdo(tsi, &body->oa);
 	if (rc)
 		RETURN(rc);
+
+	nodemap = tsi->tsi_exp->exp_nodemap;
+
+	body->oa.o_uid = nodemap_map_id(nodemap, NODEMAP_UID,
+					NODEMAP_CLIENT_TO_FS,
+					body->oa.o_uid);
+	body->oa.o_gid = nodemap_map_id(nodemap, NODEMAP_GID,
+					NODEMAP_CLIENT_TO_FS,
+					body->oa.o_gid);
 
 	if (body->oa.o_valid & OBD_MD_FLOSSCAPA) {
 		capa = req_capsule_client_get(pill, &RMF_CAPA1);

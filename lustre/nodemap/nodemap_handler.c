@@ -25,6 +25,7 @@
  */
 #include <linux/module.h>
 #include <lustre_net.h>
+#include <obd_class.h>
 #include "nodemap_internal.h"
 
 #define HASH_NODEMAP_BKT_BITS 3
@@ -63,14 +64,15 @@ static cfs_hash_t *nodemap_hash;
 static void nodemap_destroy(struct lu_nodemap *nodemap)
 {
 	struct lu_nid_range *range;
-	struct lu_nid_range *temp;
+	struct lu_nid_range *range_temp;
 
-	list_for_each_entry_safe(range, temp, &nodemap->nm_ranges,
+	list_for_each_entry_safe(range, range_temp, &nodemap->nm_ranges,
 				 rn_list) {
 		range_delete(range);
 	}
 
 	idmap_delete_tree(nodemap);
+	member_delete_hash(nodemap);
 
 	lprocfs_remove(&nodemap->nm_proc_entry);
 	OBD_FREE_PTR(nodemap);
@@ -224,6 +226,7 @@ static bool nodemap_name_is_valid(const char *name)
 		if (!isalnum(*name) && *name != '_')
 			return false;
 	}
+
 	return true;
 }
 
@@ -343,11 +346,43 @@ int nodemap_parse_idmap(const char *idmap_str, __u32 idmap[2])
 EXPORT_SYMBOL(nodemap_parse_idmap);
 
 /**
+ * add a member to a nodemap
+ *
+ * \param	nid		nid to add to the members
+ * \param	exp		obd_export structure for the connection
+ *				that is being added
+ */
+void nodemap_add_member(lnet_nid_t nid, struct obd_export *exp)
+{
+	struct lu_nodemap	*nodemap;
+
+	nodemap = nodemap_classify_nid(nid);
+	member_add(nodemap, nid, exp);
+	exp->exp_nodemap = nodemap;
+}
+EXPORT_SYMBOL(nodemap_add_member);
+
+/**
+ * delete a member from a nodemap
+ *
+ * \param	exp		export to remove from a nodemap
+ */
+void nodemap_del_member(struct obd_export *exp)
+{
+	struct lu_nodemap	*nodemap = exp->exp_nodemap;
+
+	if (nodemap != NULL)
+		member_del(nodemap, exp);
+		exp->exp_nodemap = default_nodemap;
+}
+EXPORT_SYMBOL(nodemap_del_member);
+
+/**
  * add an idmap to the proper nodemap trees
  *
  * \param	name		name of nodemap
  * \param	id_type		NODEMAP_UID or NODEMAP_GID
- * \param	map		array[2] __u32 containing the mapA values
+ * \param	map		array[2] __u32 containing the map values
  *				map[0] is client id
  *				map[1] is the filesystem id
  *
@@ -369,6 +404,7 @@ int nodemap_add_idmap(const char *name, enum nodemap_id_type id_type,
 		GOTO(out_putref, rc = -ENOMEM);
 
 	idmap_insert(id_type, idmap, nodemap);
+	member_revoke_locks(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -405,6 +441,7 @@ int nodemap_del_idmap(const char *name, enum nodemap_id_type id_type,
 		GOTO(out_putref, rc = -EINVAL);
 
 	idmap_delete(id_type, idmap, nodemap);
+	member_revoke_locks(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -446,6 +483,10 @@ __u32 nodemap_map_id(struct lu_nodemap *nodemap,
 
 	if (!nodemap_active)
 		goto out;
+
+	if (unlikely(nodemap == NULL)) {
+		goto out;
+	}
 
 	if (id == 0) {
 		if (nodemap->nmf_allow_root_access)
@@ -512,6 +553,9 @@ int nodemap_add_range(const char *name, const lnet_nid_t nid[2])
 	}
 
 	list_add(&range->rn_list, &nodemap->nm_ranges);
+	member_reclassify_nodemap(default_nodemap);
+	member_revoke_locks(default_nodemap);
+	member_revoke_locks(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -544,6 +588,9 @@ int nodemap_del_range(const char *name, const lnet_nid_t nid[2])
 		GOTO(out_putref, rc = -EINVAL);
 
 	range_delete(range);
+	member_reclassify_nodemap(nodemap);
+	member_revoke_locks(default_nodemap);
+	member_revoke_locks(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -570,8 +617,8 @@ EXPORT_SYMBOL(nodemap_del_range);
  */
 static int nodemap_create(const char *name, bool is_default)
 {
-	struct	lu_nodemap *nodemap = NULL;
-	int	rc = 0;
+	struct lu_nodemap	*nodemap = NULL;
+	int			rc = 0;
 
 	rc = nodemap_lookup(name, &nodemap);
 	if (rc == -EINVAL)
@@ -581,8 +628,8 @@ static int nodemap_create(const char *name, bool is_default)
 		nodemap_putref(nodemap);
 		GOTO(out, rc = -EEXIST);
 	}
-	OBD_ALLOC_PTR(nodemap);
 
+	OBD_ALLOC_PTR(nodemap);
 	if (nodemap == NULL) {
 		CERROR("cannot allocate memory (%zu bytes)"
 		       "for nodemap '%s'\n", sizeof(*nodemap),
@@ -592,7 +639,12 @@ static int nodemap_create(const char *name, bool is_default)
 
 	snprintf(nodemap->nm_name, sizeof(nodemap->nm_name), "%s", name);
 
-	INIT_LIST_HEAD(&(nodemap->nm_ranges));
+	rc = member_init_hash(nodemap);
+	if (rc != 0)
+		goto out;
+
+	INIT_LIST_HEAD(&nodemap->nm_ranges);
+
 	nodemap->nm_fs_to_client_uidmap = RB_ROOT;
 	nodemap->nm_client_to_fs_uidmap = RB_ROOT;
 	nodemap->nm_fs_to_client_gidmap = RB_ROOT;
