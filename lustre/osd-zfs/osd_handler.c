@@ -298,7 +298,7 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
 	oh->ot_tx = tx;
 	CFS_INIT_LIST_HEAD(&oh->ot_dcb_list);
 	CFS_INIT_LIST_HEAD(&oh->ot_sa_list);
-	sema_init(&oh->ot_sa_lock, 1);
+	mutex_init(&oh->ot_sa_lock);
 	memset(&oh->ot_quota_trans, 0, sizeof(oh->ot_quota_trans));
 	th = &oh->ot_super;
 	th->th_dev = dt;

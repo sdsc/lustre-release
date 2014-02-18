@@ -120,12 +120,12 @@ osd_object_sa_dirty_add(struct osd_object *obj, struct osd_thandle *oh)
 	if (!cfs_list_empty(&obj->oo_sa_linkage))
 		return;
 
-	down(&oh->ot_sa_lock);
+	mutex_lock(&oh->ot_sa_lock);
 	write_lock(&obj->oo_attr_lock);
 	if (likely(cfs_list_empty(&obj->oo_sa_linkage)))
 		cfs_list_add(&obj->oo_sa_linkage, &oh->ot_sa_list);
 	write_unlock(&obj->oo_attr_lock);
-	up(&oh->ot_sa_lock);
+	mutex_unlock(&oh->ot_sa_lock);
 }
 
 /*
@@ -135,7 +135,7 @@ void osd_object_sa_dirty_rele(struct osd_thandle *oh)
 {
 	struct osd_object *obj;
 
-	down(&oh->ot_sa_lock);
+	mutex_lock(&oh->ot_sa_lock);
 	while (!cfs_list_empty(&oh->ot_sa_list)) {
 		obj = cfs_list_entry(oh->ot_sa_list.next,
 				     struct osd_object, oo_sa_linkage);
@@ -144,7 +144,7 @@ void osd_object_sa_dirty_rele(struct osd_thandle *oh)
 		cfs_list_del_init(&obj->oo_sa_linkage);
 		write_unlock(&obj->oo_attr_lock);
 	}
-	up(&oh->ot_sa_lock);
+	mutex_unlock(&oh->ot_sa_lock);
 }
 
 /*
@@ -296,7 +296,7 @@ struct lu_object *osd_object_alloc(const struct lu_env *env,
 		l->lo_ops = &osd_lu_obj_ops;
 		CFS_INIT_LIST_HEAD(&mo->oo_sa_linkage);
 		init_rwsem(&mo->oo_sem);
-		sema_init(&mo->oo_guard, 1);
+		mutex_init(&mo->oo_guard);
 		rwlock_init(&mo->oo_attr_lock);
 		return l;
 	} else {
@@ -1468,7 +1468,7 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	/* concurrent create declarations should not see
 	 * the object inconsistent (db, attr, etc).
 	 * in regular cases acquisition should be cheap */
-	down(&obj->oo_guard);
+	mutex_lock(&obj->oo_guard);
 
 	LASSERT(osd_invariant(obj));
 	LASSERT(!dt_object_exists(dt));
@@ -1533,7 +1533,7 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	}
 
 out:
-	up(&obj->oo_guard);
+	mutex_unlock(&obj->oo_guard);
 	RETURN(rc);
 }
 
