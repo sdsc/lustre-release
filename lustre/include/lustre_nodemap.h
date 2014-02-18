@@ -82,7 +82,7 @@ struct lu_nodemap {
 	/* proc directory entry */
 	struct proc_dir_entry	*nm_proc_entry;
 	/* attached client members of this nodemap */
-	struct list_head	nm_exports;
+	struct list_head	nm_members;
 	/* access by nodemap name */
 	cfs_hlist_node_t	nm_hash;
 };
@@ -91,6 +91,8 @@ void nodemap_activate(const bool value);
 int nodemap_add(const char *nodemap_name);
 int nodemap_del(const char *nodemap_name);
 struct lu_nodemap *nodemap_classify_nid(lnet_nid_t nid);
+void nodemap_add_member(struct lu_nodemap *nodemap,
+			lnet_nid_t nid);
 int nodemap_parse_range(const char *range_string, lnet_nid_t range[2]);
 int nodemap_parse_idmap(const char *idmap_string, __u32 idmap[2]);
 int nodemap_add_range(const char *name, const lnet_nid_t nid[2]);

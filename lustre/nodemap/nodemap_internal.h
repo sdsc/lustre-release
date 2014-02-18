@@ -66,6 +66,11 @@ struct lu_idmap {
 	struct rb_node	id_fs_to_client;
 };
 
+struct lu_nodemap_member {
+	lnet_nid_t		mem_nid;
+	struct list_head	mem_list;
+};
+
 int nodemap_procfs_init(void);
 int lprocfs_nodemap_register(const char *name, bool is_default_nodemap,
 			     struct lu_nodemap *nodemap);
