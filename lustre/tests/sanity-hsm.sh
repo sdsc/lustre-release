@@ -2551,7 +2551,7 @@ run_test 58 "Truncate a released file will trigger restore"
 
 test_60() {
 	local interval=5
-	local progress_timeout=$((interval * 2))
+	local progress_timeout=$((interval * 3))
 
 	# test needs a new running copytool
 	copytool_cleanup
