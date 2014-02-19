@@ -1326,7 +1326,7 @@ __u32 lustre_msg_get_cksum(struct lustre_msg *msg)
         }
 }
 
-#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 50, 0)
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 53, 0)
 /*
  * In 1.6 and 1.8 the checksum was computed only on struct ptlrpc_body as
  * it was in 1.6 (88 bytes, smaller than the full size in 1.8).  It makes
@@ -1337,14 +1337,13 @@ __u32 lustre_msg_get_cksum(struct lustre_msg *msg)
 
 __u32 lustre_msg_calc_cksum(struct lustre_msg *msg, int compat18)
 #else
-# warning "remove checksum compatibility support for b1_8"
 __u32 lustre_msg_calc_cksum(struct lustre_msg *msg)
 #endif
 {
 	switch (msg->lm_magic) {
 	case LUSTRE_MSG_MAGIC_V2: {
 		struct ptlrpc_body *pb = lustre_msg_ptlrpc_body(msg);
-#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 50, 0)
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 53, 0)
 		__u32 crc;
 		unsigned int hsize = 4;
 		__u32 len = compat18 ? ptlrpc_body_cksum_size_compat18 :
@@ -1355,7 +1354,6 @@ __u32 lustre_msg_calc_cksum(struct lustre_msg *msg)
 				       &hsize);
 		return crc;
 #else
-# warning "remove checksum compatibility support for b1_8"
 		__u32 crc;
 		unsigned int hsize = 4;
 		cfs_crypto_hash_digest(CFS_HASH_ALG_CRC32, (unsigned char *)pb,

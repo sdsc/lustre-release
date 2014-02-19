@@ -40,12 +40,9 @@
 # include <liblustre.h>
 #endif
 
-#include <obd_support.h>
-#include <lustre_import.h>
 #include <lustre_net.h>
 #include <obd.h>
 #include <lustre_lib.h>
-#include <lustre/lustre_idl.h>
 #include <lprocfs_status.h>
 
 #if defined(__linux__)

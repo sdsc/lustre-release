@@ -267,7 +267,7 @@ int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
                 }
         }
 #ifdef MS_STRICTATIME
-#if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 10, 51, 0)
+#if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(3, 0, 53, 0)
 /*
  * LU-1783
  * In the future when upstream fixes land in all supported kernels

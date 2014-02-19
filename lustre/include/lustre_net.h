@@ -71,13 +71,13 @@
 #include <lustre/lustre_idl.h>
 #include <lustre_ha.h>
 #include <lustre_sec.h>
+#include <lustre_ver.h>
 #include <lustre_import.h>
 #include <lprocfs_status.h>
 #include <lu_object.h>
 #include <lustre_req_layout.h>
 
 #include <obd_support.h>
-#include <lustre_ver.h>
 
 /* MD flags we _always_ use */
 #define PTLRPC_MD_OPTIONS  0
@@ -3209,10 +3209,9 @@ __u32 lustre_msg_get_timeout(struct lustre_msg *msg);
 __u32 lustre_msg_get_service_time(struct lustre_msg *msg);
 char *lustre_msg_get_jobid(struct lustre_msg *msg);
 __u32 lustre_msg_get_cksum(struct lustre_msg *msg);
-#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 50, 0)
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 7, 53, 0)
 __u32 lustre_msg_calc_cksum(struct lustre_msg *msg, int compat18);
 #else
-# warning "remove checksum compatibility support for b1_8"
 __u32 lustre_msg_calc_cksum(struct lustre_msg *msg);
 #endif
 void lustre_msg_set_handle(struct lustre_msg *msg,struct lustre_handle *handle);
