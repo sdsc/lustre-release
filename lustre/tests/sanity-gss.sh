@@ -734,18 +734,18 @@ test_150() {
     zconf_umount_clients $clients $MOUNT || return 1
 
     # mount client with conflict flavor - should fail
-    save_opts=$MOUNTOPT
-    MOUNTOPT="$MOUNTOPT,mgssec=krb5p"
+    save_opts=$MOUNT_OPTS
+    MOUNT_OPTS="${MOUNT_OPTS:+$MOUNT_OPTS,}mgssec=krb5p"
     zconf_mount_clients $clients $MOUNT && \
         error "mount with conflict flavor should have failed"
-    MOUNTOPT=$save_opts
+    MOUNT_OPTS=$save_opts
 
     # mount client with same flavor - should succeed
-    save_opts=$MOUNTOPT
-    MOUNTOPT="$MOUNTOPT,mgssec=null"
+    save_opts=$MOUNT_OPTS
+    MOUNT_OPTS="${MOUNT_OPTS:+$MOUNT_OPTS,}mgssec=null"
     zconf_mount_clients $clients $MOUNT || \
         error "mount with same flavor should have succeeded"
-    MOUNTOPT=$save_opts
+    MOUNT_OPTS=$save_opts
     zconf_umount_clients $clients $MOUNT || return 2
 
     # mount client with default flavor - should succeed

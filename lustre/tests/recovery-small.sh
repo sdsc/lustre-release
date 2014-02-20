@@ -1565,8 +1565,8 @@ test_105()
         # get one of the clients from client list
         local rcli=$(echo $RCLIENTS |cut -d' ' -f 1)
 
-        local old_MOUNTOPT=$MOUNTOPT
-        MOUNTOPT=${MOUNTOPT},noir
+        local old_MOUNT_OPTS=$MOUNT_OPTS
+        MOUNT_OPTS=${MOUNT_OPTS:+$MOUNT_OPTS,}noir
         zconf_umount $rcli $MOUNT || error "umount failed"
         zconf_mount $rcli $MOUNT || error "mount failed"
 
@@ -1591,7 +1591,7 @@ test_105()
 		error "IR status on ost1 should be DISABLED"
 
         # restore it
-        MOUNTOPT=$old_MOUNTOPT
+        MOUNT_OPTS=$old_MOUNT_OPTS
         zconf_umount $rcli $MOUNT || error "umount failed"
         zconf_mount $rcli $MOUNT || error "mount failed"
 
