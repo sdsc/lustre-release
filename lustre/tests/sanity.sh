@@ -8411,7 +8411,7 @@ test_132() { #1028, SOM
         dd if=/dev/zero of=$DIR/$tfile count=1 2>/dev/null
         cancel_lru_locks osc
 
-        som1=$(do_facet $mymds "$LCTL get_param mdt.*.som" |  awk -F= ' {print $2}' | head -n 1)
+        som1=$(do_facet $mymds "$LCTL get_param -n mdt.*.som" | head -n 1)
 
         gl1=$(get_ost_param "ldlm_glimpse_enqueue")
         stat $DIR/$tfile >/dev/null
@@ -8423,7 +8423,7 @@ test_132() { #1028, SOM
         dd if=/dev/zero of=$DIR/$tfile count=1 2>/dev/null
         cancel_lru_locks osc
 
-        som2=$(do_facet $mymds "$LCTL get_param mdt.*.som" |  awk -F= ' {print $2}' | head -n 1)
+        som2=$(do_facet $mymds "$LCTL get_param -n mdt.*.som" | head -n 1)
         if [ $som1 == $som2 ]; then
             error "som is still "$som2
             if [ x$som2 = x"enabled" ]; then
