@@ -714,11 +714,6 @@ int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
         }
 	repbody->eadatasize = 0;
 
-        if (ma->ma_cookie_size && (ma->ma_valid & MA_COOKIE)) {
-                repbody->aclsize = ma->ma_cookie_size;
-                repbody->valid |= OBD_MD_FLCOOKIE;
-        }
-
 	if (info->mti_mdt->mdt_lut.lut_oss_capa &&
 	    exp_connect_flags(info->mti_exp) & OBD_CONNECT_OSS_CAPA &&
 	    repbody->valid & OBD_MD_FLEASIZE) {
@@ -1189,7 +1184,7 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
         else
                 ma->ma_attr_flags &= ~MDS_VTX_BYPASS;
 
-	info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
+	info->mti_spec.no_create = 1;
 
         rc = mdt_dlmreq_unpack(info);
         RETURN(rc);
@@ -1254,7 +1249,7 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
         else
                 ma->ma_attr_flags &= ~MDS_VTX_BYPASS;
 
-        info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
+        info->mti_spec.no_create = 1;
 
         rc = mdt_dlmreq_unpack(info);
         RETURN(rc);
