@@ -35,25 +35,6 @@ AC_SUBST(LDISKFS_SERIES)
 ])
 
 #
-# 2.6.32-rc7 ext4_free_blocks requires struct buffer_head
-#
-AC_DEFUN([LB_EXT_FREE_BLOCKS_WITH_BUFFER_HEAD],
-[AC_MSG_CHECKING([if ext4_free_blocks needs struct buffer_head])
- LB_LINUX_TRY_COMPILE([
-	#include <linux/fs.h>
-	#include "$EXT4_SRC_DIR/ext4.h"
-],[
-	ext4_free_blocks(NULL, NULL, NULL, 0, 0, 0);
-],[
-	AC_MSG_RESULT([yes])
-	AC_DEFINE(HAVE_EXT_FREE_BLOCK_WITH_BUFFER_HEAD, 1,
-		  [ext4_free_blocks do not require struct buffer_head])
-],[
-	AC_MSG_RESULT([no])
-])
-])
-
-#
 # 2.6.35 renamed ext_pblock to ext4_ext_pblock(ex)
 #
 AC_DEFUN([LB_EXT_PBLOCK],
@@ -148,7 +129,6 @@ AS_IF([test x$enable_ldiskfs != xno],[
 
 	LDISKFS_LINUX_SERIES
 	LDISKFS_AC_PATCH_PROGRAM
-	LB_EXT_FREE_BLOCKS_WITH_BUFFER_HEAD
 	LB_EXT_PBLOCK
 	AC_DEFINE(CONFIG_LDISKFS_FS_POSIX_ACL, 1, [posix acls for ldiskfs])
 	AC_DEFINE(CONFIG_LDISKFS_FS_SECURITY, 1, [fs security for ldiskfs])

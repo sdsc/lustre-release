@@ -669,13 +669,9 @@ static int ldiskfs_ext_new_extent_cb(struct inode *inode,
 		/* not a good idea to call discard here directly,
 		 * but otherwise we'd need to call it every free() */
 		ldiskfs_discard_preallocations(inode);
-#ifdef HAVE_EXT_FREE_BLOCK_WITH_BUFFER_HEAD /* Introduced in 2.6.32-rc7 */
-		ldiskfs_free_blocks(handle, inode, NULL, ldiskfs_ext_pblock(&nex),
-				    cpu_to_le16(nex.ee_len), 0);
-#else
-		ldiskfs_free_blocks(handle, inode, ldiskfs_ext_pblock(&nex),
-				    cpu_to_le16(nex.ee_len), 0);
-#endif
+		ldiskfs_free_blocks(handle, inode, NULL,
+				    ldiskfs_ext_pblock(&nex),
+				    le16_to_cpu(nex.ee_len), 0);
 		goto out;
 	}
 
