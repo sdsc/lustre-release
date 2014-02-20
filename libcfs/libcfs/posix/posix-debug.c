@@ -204,16 +204,16 @@ libcfs_debug_vmsg2(struct libcfs_debug_msg_data *msgdata,
                 va_end(ap);
         }
 
-        if (debug_file_fd == NULL)
-                return 0;
+	if (debug_file_fd == NULL)
+		return 0;
 
-        gettimeofday(&tv, NULL);
+	gettimeofday(&tv, NULL);
 
-        fprintf(debug_file_fd, CFS_TIME_T".%06lu:%u:%s:(%s:%d:%s()): %s",
-                tv.tv_sec, tv.tv_usec, source_pid, source_nid,
-                msgdata->msg_file, msgdata->msg_line, msgdata->msg_fn, buf);
+	fprintf(debug_file_fd, CFS_TIME_T".%06lu:%u:%s:(%s:%d:%s()): %s",
+		tv.tv_sec, (unsigned long)tv.tv_usec, source_pid, source_nid,
+		msgdata->msg_file, msgdata->msg_line, msgdata->msg_fn, buf);
 
-        return 0;
+	return 0;
 }
 
 /*
