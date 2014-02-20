@@ -1195,6 +1195,8 @@ static int after_reply(struct ptlrpc_request *req)
         LASSERT(!req->rq_receiving_reply && !req->rq_must_unlink);
 
         if (req->rq_reply_truncate) {
+		struct mdt_rec_create *rec;
+
                 if (ptlrpc_no_resend(req)) {
                         DEBUG_REQ(D_ERROR, req, "reply buffer overflow,"
                                   " expected: %d, actual size: %d",
@@ -1210,6 +1212,9 @@ static int after_reply(struct ptlrpc_request *req)
                 req->rq_replen       = req->rq_nob_received;
                 req->rq_nob_received = 0;
                 req->rq_resend       = 1;
+		rec = req_capsule_client_get(&req->rq_pill, &RMF_REC_REINT);
+		if (rec->cr_opcode == REINT_OPEN)
+			req->rq_replay = 1;
                 RETURN(0);
         }
 
