@@ -482,6 +482,25 @@ void mdt_client_compatibility(struct mdt_thread_info *info)
         EXIT;
 }
 
+int mdt_attr_get_eabuf_size(struct mdt_thread_info *info, struct mdt_object *o)
+{
+	const struct lu_env *env = info->mti_env;
+	int rc, rc2;
+
+	rc = mo_xattr_get(env, mdt_object_child(o), &LU_BUF_NULL,
+			  XATTR_NAME_LOV);
+
+	if (rc == -ENODATA)
+		rc = 0;
+
+	/* Sadly, we don'd yet know if it's a directory or a file
+	 * or possibly even a symlink, so need to do all of it together */
+	rc2 = mo_xattr_get(env, mdt_object_child(o), &LU_BUF_NULL,
+			   XATTR_NAME_LMV);
+
+	return max(rc, rc2);
+}
+
 static int mdt_big_xattr_get(struct mdt_thread_info *info, struct mdt_object *o,
 			     char *name)
 {
@@ -1054,11 +1073,36 @@ int mdt_getattr(struct tgt_session_info *tsi)
 
 	mode = lu_object_attr(&obj->mot_obj);
 
+	/* Readlink */
+	if (reqbody->valid & OBD_MD_LINKNAME) {
+		/* No easy way to know how long is the symlink, but it cannot
+		 * be more than 4096, so we allocate +1 */
+		rc = 4097;
+
+	/*A special case for fs ROOT: getattr there might fetch
+	 * default EA for entire fs, not just for this dir!
+	 */
+	} else if (lu_fid_eq(mdt_object_fid(obj),
+			     &info->mti_mdt->mdt_md_root_fid) &&
+		   (reqbody->valid & OBD_MD_FLDIREA) &&
+		   (lustre_msg_get_opc(mdt_info_req(info)->rq_reqmsg) ==
+								 MDS_GETATTR)) {
+		/* While one might hope nobody would designate super wide
+		 * striping to be default one for entire fs, but you never
+		 * know */
+		rc = reqbody->eadatasize == 0 ? info->mti_mdt->mdt_max_mdsize :
+						reqbody->eadatasize;
+	} else {
+		/* Hopefully no race in EA change for either file or directory?
+		 */
+		rc = mdt_attr_get_eabuf_size(info, obj);
+	}
+
+	if ( rc < 0)
+		GOTO(out_shrink, rc);
+
 	/* old clients may not report needed easize, use max value then */
-	req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER,
-			     reqbody->eadatasize == 0 ?
-			     info->mti_mdt->mdt_max_mdsize :
-			     reqbody->eadatasize);
+	req_capsule_set_size(pill, &RMF_MDT_MD, RCL_SERVER, rc);
 
 	rc = req_capsule_server_pack(pill);
 	if (unlikely(rc != 0))
