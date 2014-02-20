@@ -1419,17 +1419,19 @@ setup_quota(){
 zconf_mount() {
     local client=$1
     local mnt=$2
-    local OPTIONS=${3:-$MOUNTOPT}
+    local OPTS=${3:-$MOUNT_OPTS}
+    OPTS=${OPTS:+-o $OPTS}
+    local FLAGS=${4:-$MOUNT_FLAGS}
 
     local device=$MGSNID:/$FSNAME
     if [ -z "$mnt" -o -z "$FSNAME" ]; then
-        echo Bad zconf mount command: opt=$OPTIONS dev=$device mnt=$mnt
+        echo Bad zconf mount command: opt=$FLAGS $OPTS dev=$device mnt=$mnt
         exit 1
     fi
 
-    echo "Starting client: $client: $OPTIONS $device $mnt"
+    echo "Starting client: $client: $FLAGS $OPTS $device $mnt"
     do_node $client mkdir -p $mnt
-    do_node $client mount -t lustre $OPTIONS $device $mnt || return 1
+    do_node $client mount -t lustre $FLAGS $OPTS $device $mnt || return 1
 
     set_default_debug_nodes $client
 
@@ -1525,22 +1527,24 @@ sanity_mount_check () {
 zconf_mount_clients() {
     local clients=$1
     local mnt=$2
-    local OPTIONS=${3:-$MOUNTOPT}
+    local OPTS=${3:-$MOUNT_OPTS}
+    OPTS=${OPTS:+-o $OPTS}
+    local FLAGS=${4:-$MOUNT_FLAGS}
 
     local device=$MGSNID:/$FSNAME
     if [ -z "$mnt" -o -z "$FSNAME" ]; then
-        echo Bad zconf mount command: opt=$OPTIONS dev=$device mnt=$mnt
+        echo Bad zconf mount command: opt=$FLAGS $OPTS dev=$device mnt=$mnt
         exit 1
     fi
 
-    echo "Starting client $clients: $OPTIONS $device $mnt"
+    echo "Starting client $clients: $FLAGS $OPTS $device $mnt"
 
     do_nodes $clients "
 running=\\\$(mount | grep -c $mnt' ');
 rc=0;
 if [ \\\$running -eq 0 ] ; then
     mkdir -p $mnt;
-    mount -t lustre $OPTIONS $device $mnt;
+    mount -t lustre $FLAGS $OPTS $device $mnt; 
     rc=\\\$?;
 fi;
 exit \\\$rc" || return ${PIPESTATUS[0]}
