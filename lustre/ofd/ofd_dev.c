@@ -1456,7 +1456,7 @@ static int ofd_destroy_hdl(struct tgt_session_info *tsi)
 		dlm = req_capsule_client_get(tsi->tsi_pill, &RMF_DLM_REQ);
 		if (dlm == NULL)
 			RETURN(-EFAULT);
-		ldlm_request_cancel(tgt_ses_req(tsi), dlm, 0);
+		ldlm_request_cancel(tgt_ses_req(tsi), dlm, 0, 0);
 	}
 
 	*fid = body->oa.o_oi.oi_fid;
@@ -1714,21 +1714,25 @@ static int ofd_quotactl(struct tgt_session_info *tsi)
 /* prolong locks for the current service time of the corresponding
  * portal (= OST_IO_PORTAL)
  */
-static inline int prolong_timeout(struct ptlrpc_request *req)
+static inline int prolong_timeout(struct ptlrpc_request *req,
+				  struct ldlm_lock *lock)
 {
 	struct ptlrpc_service_part *svcpt = req->rq_rqbd->rqbd_svcpt;
 
 	if (AT_OFF)
 		return obd_timeout / 2;
 
-	return max(at_est2timeout(at_get(&svcpt->scp_at_estimate)),
-		   ldlm_timeout);
+	/* We are in the middle of the process - BL AST is sent, CANCEL
+	  is ahead. Take half of AT + IO process time. */
+	return at_est2timeout(at_get(&svcpt->scp_at_estimate)) +
+		(ldlm_bl_timeout(lock) >> 1);
 }
 
 static int ofd_prolong_one_lock(struct tgt_session_info *tsi,
 				struct ldlm_lock *lock,
-				struct ldlm_extent *extent, int timeout)
+				struct ldlm_extent *extent)
 {
+	int timeout = prolong_timeout(tgt_ses_req(tsi), lock);
 
 	if (lock->l_flags & LDLM_FL_DESTROYED) /* lock already cancelled */
 		return 0;
@@ -1761,7 +1765,6 @@ static int ofd_prolong_extent_locks(struct tgt_session_info *tsi,
 		.end = end
 	};
 	struct ldlm_lock	*lock;
-	int			 timeout = prolong_timeout(tgt_ses_req(tsi));
 	int			 lock_count = 0;
 
 	ENTRY;
@@ -1779,7 +1782,7 @@ static int ofd_prolong_extent_locks(struct tgt_session_info *tsi,
 				/* bingo */
 				LASSERT(lock->l_export == exp);
 				lock_count = ofd_prolong_one_lock(tsi, lock,
-							     &extent, timeout);
+								  &extent);
 				LDLM_LOCK_PUT(lock);
 				RETURN(lock_count);
 			}
@@ -1799,7 +1802,7 @@ static int ofd_prolong_extent_locks(struct tgt_session_info *tsi,
 					 &extent))
 			continue;
 
-		lock_count += ofd_prolong_one_lock(tsi, lock, &extent, timeout);
+		lock_count += ofd_prolong_one_lock(tsi, lock, &extent);
 	}
 	spin_unlock_bh(&exp->exp_bl_list_lock);
 
