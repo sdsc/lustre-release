@@ -1288,6 +1288,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         struct mdt_object       *o;
         int                      rc;
 	__u64			 ibits = 0;
+	struct ptlrpc_request	*req = mdt_info_req(info);
         ENTRY;
 
 	if (md_should_create(flags) && !(flags & MDS_OPEN_HAS_EA)) {
@@ -1328,9 +1329,18 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         if (rc)
                 GOTO(out, rc);
 
-	rc = mdt_object_open_lock(info, o, lhc, &ibits);
-        if (rc)
-                GOTO(out, rc);
+	if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
+		/* the open lock might already be gotten in
+		 * mdt_intent_fixup_resent or we are in trouble */
+		LASSERT(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT);
+	} else {
+		/* get openlock if this isn't replay and client requested it */
+		if (!req_is_replay(req) && (flags & MDS_OPEN_LOCK)) {
+			rc = mdt_object_open_lock(info, o, lhc, &ibits);
+			if (rc)
+				GOTO(out, rc);
+		}
+	}
 
         if (ma->ma_valid & MA_PFID) {
                 parent = mdt_object_find(env, mdt, &ma->ma_pfid);
