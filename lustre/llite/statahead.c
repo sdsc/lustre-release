@@ -714,6 +714,7 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
         struct ll_statahead_info *sai = NULL;
         struct ll_sa_entry       *entry;
         int                       wakeup;
+	int                       took_sai_reference = 0;
         ENTRY;
 
         if (it_disposition(it, DISP_LOOKUP_NEG))
@@ -727,6 +728,7 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 		GOTO(out, rc = -ESTALE);
 	} else {
 		sai = ll_sai_get(lli->lli_sai);
+		took_sai_reference = 1;
 		if (unlikely(!thread_is_running(&sai->sai_thread))) {
 			sai->sai_replied++;
 			spin_unlock(&lli->lli_sa_lock);
@@ -772,7 +774,7 @@ out:
                 iput(dir);
                 OBD_FREE_PTR(minfo);
         }
-        if (sai != NULL)
+        if (took_sai_reference)
                 ll_sai_put(sai);
         return rc;
 }
@@ -985,7 +987,11 @@ static int ll_agl_thread(void *arg)
 	atomic_inc(&sbi->ll_agl_total);
 	spin_lock(&plli->lli_agl_lock);
 	sai->sai_agl_valid = 1;
-	thread_set_flags(thread, SVC_RUNNING);
+	if (thread_is_init(thread))
+		/* If someone else has changed the thread state
+		 * (e.g. already changed to SVC_STOPPING), we can't just
+		 * blindly overwrite that setting. */
+		thread_set_flags(thread, SVC_RUNNING);
 	spin_unlock(&plli->lli_agl_lock);
 	wake_up(&thread->t_ctl_waitq);
 
@@ -1092,7 +1098,11 @@ static int ll_statahead_thread(void *arg)
 
 	atomic_inc(&sbi->ll_sa_total);
 	spin_lock(&plli->lli_sa_lock);
-	thread_set_flags(thread, SVC_RUNNING);
+	if (thread_is_init(thread))
+		/* If someone else has changed the thread state
+		 * (e.g. already changed to SVC_STOPPING), we can't just
+		 * blindly overwrite that setting. */
+		thread_set_flags(thread, SVC_RUNNING);
 	spin_unlock(&plli->lli_sa_lock);
 	wake_up(&thread->t_ctl_waitq);
 
@@ -1641,6 +1651,12 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
 	CDEBUG(D_READA, "start statahead thread: [pid %d] [parent %.*s]\n",
 	       current_pid(), parent->d_name.len, parent->d_name.name);
 
+	/* The sai buffer already has one reference taken at allocation time,
+	 * but as soon as we expose the sai by attaching it to the lli that default
+	 * reference can be dropped by another thread calling ll_stop_statahead.
+	 * We need to take a local reference to protect the sai buffer while we intend
+	 * to access it. */
+        ll_sai_get(sai);
         lli->lli_sai = sai;
 
 	plli = ll_i2info(parent->d_inode);
@@ -1653,7 +1669,10 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
                 lli->lli_opendir_key = NULL;
                 thread_set_flags(thread, SVC_STOPPED);
                 thread_set_flags(&sai->sai_agl_thread, SVC_STOPPED);
+		/* Drop both our own local reference and the default
+		 * reference from allocation time. */
                 ll_sai_put(sai);
+		ll_sai_put(sai);
                 LASSERT(lli->lli_sai == NULL);
                 RETURN(-EAGAIN);
         }
@@ -1661,6 +1680,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
         l_wait_event(thread->t_ctl_waitq,
                      thread_is_running(thread) || thread_is_stopped(thread),
                      &lwi);
+	ll_sai_put(sai);
 
         /*
          * We don't stat-ahead for the first dirent since we are already in
