@@ -518,12 +518,6 @@ handle_nullreq(FILE *f) {
 	printerr(3, "in_tok: \n");
 	print_hexl(3, in_tok.value, in_tok.length);
 
-	if (in_tok.length < 0) {
-		printerr(0, "WARNING: handle_nullreq: "
-			    "failed parsing request\n");
-		goto out_err;
-	}
-
 	if (in_handle.length != 0) { /* CONTINUE_INIT case */
 		if (in_handle.length != sizeof(ctx)) {
 			printerr(0, "WARNING: handle_nullreq: "
