@@ -80,8 +80,10 @@ obdflter_survey_run () {
 	local cmd="NETTYPE=$NETTYPE thrlo=$thrlo nobjhi=$nobjhi thrhi=$thrhi size=$size case=$case rslt_loc=${TMP} targets=\"$targets\" $OBDSURVEY"
 	echo + $cmd
 	eval $cmd
+	local rc=$?
 
 	cat ${TMP}/obdfilter_survey*
+	[ $rc = 0 ] || error "$OBDSURVEY failed: $rc"
 }
 test_1a () {
 	obdflter_survey_run disk
@@ -207,6 +209,9 @@ test_3a () {
 	# The Network survey test needs:
 	# Start lctl and check for the device list. The device list must be empty.
 	cleanupall
+
+	# Restart LNET
+	load_modules
 
 	obdflter_survey_run network
 
