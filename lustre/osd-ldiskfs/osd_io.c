@@ -481,8 +481,16 @@ int osd_bufs_get(const struct lu_env *env, struct dt_object *d, loff_t pos,
                 lu_object_get(&d->do_lu);
         }
         rc = i;
-
+	RETURN(rc);
 cleanup:
+	for (--i, --lnb; i >= 0; --i, --lnb) {
+		LASSERT(PageLocked(lnb->page));
+		unlock_page(lnb->page);
+		page_cache_release(lnb->page);
+		lu_object_put(env, &d->do_lu);
+		lnb->page = NULL;
+	}
+
         RETURN(rc);
 }
 
