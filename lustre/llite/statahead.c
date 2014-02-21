@@ -985,7 +985,11 @@ static int ll_agl_thread(void *arg)
 	atomic_inc(&sbi->ll_agl_total);
 	spin_lock(&plli->lli_agl_lock);
 	sai->sai_agl_valid = 1;
-	thread_set_flags(thread, SVC_RUNNING);
+	if (thread_is_init(thread))
+		/* If someone else has changed the thread state
+		 * (e.g. already changed to SVC_STOPPING), we can't just
+		 * blindly overwrite that setting. */
+		thread_set_flags(thread, SVC_RUNNING);
 	spin_unlock(&plli->lli_agl_lock);
 	wake_up(&thread->t_ctl_waitq);
 
@@ -1092,7 +1096,11 @@ static int ll_statahead_thread(void *arg)
 
 	atomic_inc(&sbi->ll_sa_total);
 	spin_lock(&plli->lli_sa_lock);
-	thread_set_flags(thread, SVC_RUNNING);
+	if (thread_is_init(thread))
+		/* If someone else has changed the thread state
+		 * (e.g. already changed to SVC_STOPPING), we can't just
+		 * blindly overwrite that setting. */
+		thread_set_flags(thread, SVC_RUNNING);
 	spin_unlock(&plli->lli_sa_lock);
 	wake_up(&thread->t_ctl_waitq);
 
