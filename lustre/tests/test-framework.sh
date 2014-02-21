@@ -3211,8 +3211,8 @@ cleanup_echo_devs () {
 cleanupall() {
     nfs_client_mode && return
 
-    stopall $*
     cleanup_echo_devs
+    stopall $*
 
     unload_modules
     cleanup_gss

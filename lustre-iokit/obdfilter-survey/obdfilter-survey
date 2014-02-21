@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 ######################################################################
 # customize per survey
 
@@ -423,7 +422,8 @@ for ((i=0; i < $ndevs; i++)); do
     host=${host_names[$i]}
     devno=(`get_ec_devno $host "${client_names[$i]}" "${ost_names[$i]}"`)
     if ((${#devno[@]} != 3)); then
-        exit 1
+	echo "Missing devno $devno"
+        cleanup 2
     fi
     devnos[$i]=${devno[0]}
     client_names[$i]=${devno[1]}
@@ -483,7 +483,7 @@ for ((rsz = $rszlo; rsz <= $rszhi; rsz*=2)); do
 		rm $tmpf
 		if [ $first_obj = "ERROR" ]; then
 		    print_summary "created object #s on $client_name not contiguous"
-		    exit 1
+		    cleanup 3
 		fi
 		first_objs[$idx]=$first_obj
 	    done
