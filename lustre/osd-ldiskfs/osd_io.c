@@ -448,6 +448,8 @@ struct page *osd_get_page(struct dt_object *dt, loff_t offset, int rw)
     * i_data_sem
 
 */
+static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
+			struct niobuf_local *lnb, int npages);
 int osd_bufs_get(const struct lu_env *env, struct dt_object *d, loff_t pos,
                  ssize_t len, struct niobuf_local *lnb, int rw,
                  struct lustre_capa *capa)
@@ -478,8 +480,10 @@ int osd_bufs_get(const struct lu_env *env, struct dt_object *d, loff_t pos,
                 lu_object_get(&d->do_lu);
         }
         rc = i;
-
+	RETURN(rc);
 cleanup:
+	osd_bufs_put(env, d, lnb, i + 1);
+
         RETURN(rc);
 }
 
