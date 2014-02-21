@@ -451,6 +451,8 @@ int osd_bufs_get(const struct lu_env *env, struct dt_object *d, loff_t pos,
 {
         struct osd_object   *obj    = osd_dt_obj(d);
         int npages, i, rc = 0;
+	int j;
+	struct niobuf_local *lnb_start = lnb;
 
         LASSERT(obj->oo_inode);
 
@@ -481,8 +483,17 @@ int osd_bufs_get(const struct lu_env *env, struct dt_object *d, loff_t pos,
                 lu_object_get(&d->do_lu);
         }
         rc = i;
-
+	RETURN(rc);
 cleanup:
+	lnb = lnb_start;
+	for (j = 0; j < i; j++, lnb++) {
+		LASSERT(PageLocked(lnb[j].page));
+		unlock_page(lnb[j].page);
+		page_cache_release(lnb[j].page);
+		lu_object_put(env, &d->do_lu);
+		lnb[j].page = NULL;
+	}
+
         RETURN(rc);
 }
 
