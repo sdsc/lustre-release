@@ -113,17 +113,36 @@ static int ost_validate_obdo(struct obd_export *exp, struct obdo *oa,
 		ostid_set_seq_mdt0(&oa->o_oi);
 		if (ioobj)
 			ostid_set_seq_mdt0(&ioobj->ioo_oid);
+	} else if (unlikely(!(exp_connect_flags(exp) & OBD_CONNECT_FID) &&
+			    fid_seq_is_echo(oa->o_oi.oi.oi_seq))) {
+		/* Unfortunately, old echo client still use oi_id/oi_seq
+		 * to pack ost_id. Because ECHO_SEQ is 1, and any non-zero
+		 * oi_seq will make it diffcult to tell whether this is
+		 * oi_fid or real ostid. So it will check OBD_CONNECT_FID
+		 * to tell if it is old echo client, and convert the ostid
+		 * to FID for old client */
+		if (oa == NULL || oa->o_oi.oi.oi_id == 0) {
+			CERROR("%s: client %s should create obj "DOSTID
+			       "with id >=1: rc = %d\n",
+			       exp->exp_obd->obd_name, obd_export_nid2str(exp),
+			       oa ? ostid_seq(&oa->o_oi) : -1,
+			       oa ? ostid_id(&oa->o_oi) : -1, -EPROTO);
+			return -EPROTO;
+		}
+		oa->o_oi.oi_fid.f_oid = oa->o_oi.oi.oi_id;
+		oa->o_oi.oi_fid.f_seq = FID_SEQ_ECHO;
+		oa->o_oi.oi_fid.f_ver = 0;
 	} else if (unlikely(oa == NULL ||
 			    !(fid_seq_is_idif(ostid_seq(&oa->o_oi)) ||
 			      fid_seq_is_mdt(ostid_seq(&oa->o_oi)) ||
 			      fid_seq_is_echo(ostid_seq(&oa->o_oi))))) {
-		CERROR("%s: client %s sent bad object "DOSTID": rc = -EPROTO\n",
-		       exp->exp_obd->obd_name, obd_export_nid2str(exp),
+		CERROR("%s: client %s sent bad object "DOSTID
+		       ": rc = -EPROTO\n", exp->exp_obd->obd_name,
+		       obd_export_nid2str(exp),
 		       oa ? ostid_seq(&oa->o_oi) : -1,
 		       oa ? ostid_id(&oa->o_oi) : -1);
 		return -EPROTO;
 	}
-
 	if (ioobj != NULL) {
 		unsigned max_brw = ioobj_max_brw_get(ioobj);
 
