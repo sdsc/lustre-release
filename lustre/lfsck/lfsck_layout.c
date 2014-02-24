@@ -126,6 +126,7 @@ struct lfsck_layout_master_data {
 	struct list_head	llmd_mdt_phase2_list;
 
 	struct ptlrpc_thread	llmd_thread;
+	struct task_struct	*llmd_task;
 	__u32			llmd_touch_gen;
 	int			llmd_prefetched;
 	int			llmd_assistant_status;
@@ -3301,6 +3302,21 @@ out:
 			lo->ll_flags |= LF_INCOMPLETE;
 			lo->ll_objs_skipped++;
 			rc = 0;
+		} else if (rc == -EINTR && type != LLIT_NONE) {
+			struct lfsck_layout_master_data *llmd = com->lc_data;
+
+			if (unlikely(!llmd->llmd_exit)) {
+				unsigned long flags;
+
+				spin_lock_irqsave(
+					&current->sighand->siglock, flags);
+				clear_tsk_thread_flag(current, TIF_SIGPENDING);
+				spin_unlock_irqrestore(
+					&current->sighand->siglock, flags);
+				GOTO(repair, rc = 0);
+			}
+
+			rc = 0;
 		} else {
 			lo->ll_objs_failed_phase1++;
 		}
@@ -3354,6 +3370,7 @@ static int lfsck_layout_assistant(void *args)
 	}
 
 	spin_lock(&llmd->llmd_lock);
+	llmd->llmd_task = current;
 	thread_set_flags(athread, SVC_RUNNING);
 	spin_unlock(&llmd->llmd_lock);
 	wake_up_all(&mthread->t_ctl_waitq);
@@ -3362,7 +3379,8 @@ static int lfsck_layout_assistant(void *args)
 		while (!list_empty(&llmd->llmd_req_list)) {
 			bool wakeup = false;
 
-			if (unlikely(llmd->llmd_exit))
+			if (unlikely(llmd->llmd_exit ||
+				     !thread_is_running(mthread)))
 				GOTO(cleanup1, rc = llmd->llmd_post_result);
 
 			llr = list_entry(llmd->llmd_req_list.next,
@@ -3584,6 +3602,7 @@ fini:
 
 	spin_lock(&llmd->llmd_lock);
 	llmd->llmd_assistant_status = (rc1 != 0 ? rc1 : rc);
+	llmd->llmd_task = NULL;
 	thread_set_flags(athread, SVC_STOPPED);
 	wake_up_all(&mthread->t_ctl_waitq);
 	spin_unlock(&llmd->llmd_lock);
@@ -4673,8 +4692,21 @@ static int lfsck_layout_master_post(const struct lu_env *env,
 
 	llmd->llmd_post_result = result;
 	llmd->llmd_to_post = 1;
-	if (llmd->llmd_post_result <= 0)
+	if (llmd->llmd_post_result <= 0) {
 		llmd->llmd_exit = 1;
+		spin_lock(&llmd->llmd_lock);
+		if (likely(llmd->llmd_task != NULL)) {
+			struct task_struct	*t = llmd->llmd_task;
+			unsigned long		 flags;
+
+			/* The assistant thread may be blocked in low layer,
+			 * send single to it for wakeup. */
+			spin_lock_irqsave(&t->sighand->siglock, flags);
+			set_tsk_thread_flag(t, TIF_SIGPENDING);
+			spin_unlock_irqrestore(&t->sighand->siglock, flags);
+		}
+		spin_unlock(&llmd->llmd_lock);
+	}
 
 	wake_up_all(&athread->t_ctl_waitq);
 	l_wait_event(mthread->t_ctl_waitq,
@@ -5188,6 +5220,18 @@ static void lfsck_layout_master_quit(const struct lu_env *env,
 	struct l_wait_info		 lwi     = { 0 };
 
 	llmd->llmd_exit = 1;
+	spin_lock(&llmd->llmd_lock);
+	if (likely(llmd->llmd_task != NULL)) {
+		struct task_struct	*t = llmd->llmd_task;
+		unsigned long		 flags;
+
+		/* The assistant thread may be blocked in low layer,
+		 * send single to it for wakeup. */
+		spin_lock_irqsave(&t->sighand->siglock, flags);
+		set_tsk_thread_flag(t, TIF_SIGPENDING);
+		spin_unlock_irqrestore(&t->sighand->siglock, flags);
+	}
+	spin_unlock(&llmd->llmd_lock);
 	wake_up_all(&athread->t_ctl_waitq);
 	l_wait_event(mthread->t_ctl_waitq,
 		     thread_is_init(athread) ||

@@ -33,9 +33,100 @@
 
 #include "osp_internal.h"
 
+#define OSP_MAX_AUIF_MAX	512
+
+struct osp_semaphore_waiter {
+	struct list_head	 osw_list;
+	struct task_struct	*osw_task;
+};
+
+void osp_sema_init(struct osp_semaphore *os)
+{
+	spin_lock_init(&os->os_lock);
+	INIT_LIST_HEAD(&os->os_list);
+	/* We allow OSP_MAX_AUIF_MAX async updates in flight at most. */
+	os->os_max = OSP_MAX_AUIF_MAX;
+	os->os_count = 0;
+}
+
+int osp_sema_set(struct osp_semaphore *os, __u32 max)
+{
+	unsigned long flags;
+
+	if (max > OSP_MAX_AUIF_MAX || max == 0)
+		return -EINVAL;
+
+	spin_lock_irqsave(&os->os_lock, flags);
+	os->os_max = max;
+	spin_unlock_irqrestore(&os->os_lock, flags);
+
+	return 0;
+}
+
+static void osp_sema_up(struct osp_semaphore *os)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&os->os_lock, flags);
+	os->os_count--;
+
+	if (!list_empty(&os->os_list) && likely(os->os_count < os->os_max)) {
+		struct osp_semaphore_waiter *osw;
+
+		osw = list_first_entry(&os->os_list,
+				       struct osp_semaphore_waiter,
+				       osw_list);
+		list_del(&osw->osw_list);
+		wake_up_process(osw->osw_task);
+	}
+	spin_unlock_irqrestore(&os->os_lock, flags);
+}
+
+static int osp_sema_down_timeout(struct osp_semaphore *os, long timeout)
+{
+	struct task_struct		*task	= current;
+	struct osp_semaphore_waiter	 osw;
+	unsigned long			 flags;
+	int				 rc	= 0;
+	ENTRY;
+
+	spin_lock_irqsave(&os->os_lock, flags);
+	if (likely(os->os_count < os->os_max)) {
+		os->os_count++;
+		spin_unlock_irqrestore(&os->os_lock, flags);
+		RETURN(0);
+	}
+
+	INIT_LIST_HEAD(&osw.osw_list);
+	osw.osw_task = task;
+	list_add_tail(&osw.osw_list, &os->os_list);
+
+	while (1) {
+		if (signal_pending_state(TASK_INTERRUPTIBLE, task))
+			GOTO(out, rc = -EINTR);
+
+		if (timeout <= 0)
+			GOTO(out, rc = -ETIME);
+
+		__set_task_state(task, TASK_INTERRUPTIBLE);
+		spin_unlock_irq(&os->os_lock);
+		timeout = schedule_timeout(timeout);
+		spin_lock_irq(&os->os_lock);
+		if (likely(os->os_count < os->os_max)) {
+			os->os_count++;
+			GOTO(out, rc = 0);
+		}
+	}
+
+out:
+	list_del(&osw.osw_list);
+	spin_unlock_irqrestore(&os->os_lock, flags);
+	return rc;
+}
+
 struct osp_async_update_args {
 	struct dt_update_request *oaua_update;
-	unsigned int		 oaua_fc:1;
+	bool			  oaua_flow_control;
 };
 
 struct osp_async_update_item {
@@ -87,8 +178,8 @@ static int osp_async_update_interpret(const struct lu_env *env,
 	int				 index  = 0;
 	int				 rc1	= 0;
 
-	if (oaua->oaua_fc)
-		up(&osp->opd_async_fc_sem);
+	if (oaua->oaua_flow_control)
+		osp_sema_up(&osp->opd_async_flow_control_sem);
 
 	if (rc == 0 || req->rq_repmsg != NULL) {
 		reply = req_capsule_server_sized_get(&req->rq_pill,
@@ -269,7 +360,7 @@ out:
 
 static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 			     struct dt_update_request *dt_update,
-			     struct thandle *th, bool fc)
+			     struct thandle *th, bool flow_control)
 {
 	struct thandle_update	*tu = th->th_update;
 	int			rc = 0;
@@ -288,7 +379,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 		if (rc == 0) {
 			args = ptlrpc_req_async_args(req);
 			args->oaua_update = dt_update;
-			args->oaua_fc = !!fc;
+			args->oaua_flow_control = flow_control;
 			req->rq_interpret_reply =
 				osp_async_update_interpret;
 			ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
@@ -368,22 +459,29 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			struct osp_device *osp = dt2osp_dev(th->th_dev);
 
 			do {
-				if (!osp->opd_imp_active ||
-				    osp->opd_got_disconnected) {
-					out_destroy_update_req(dt_update);
-					GOTO(put, rc = -ENOTCONN);
-				}
-
 				/* Get the semaphore to guarantee it has
 				 * free slot, which will be released via
 				 * osp_async_update_interpret(). */
-				rc = down_timeout(&osp->opd_async_fc_sem, HZ);
+				rc = osp_sema_down_timeout(
+					&osp->opd_async_flow_control_sem, HZ);
+				if (unlikely(rc == -EINTR)) {
+					out_destroy_update_req(dt_update);
+					GOTO(put, rc);
+				}
+
+				if (!osp->opd_imp_active ||
+				    osp->opd_got_disconnected) {
+					if (rc == 0)
+						osp_sema_up(&osp->opd_async_flow_control_sem);
+					out_destroy_update_req(dt_update);
+					GOTO(put, rc = -ENOTCONN);
+				}
 			} while (rc != 0);
 
 			rc = osp_trans_trigger(env, dt2osp_dev(dt),
 					       dt_update, th, true);
 			if (rc != 0)
-				up(&osp->opd_async_fc_sem);
+				osp_sema_up(&osp->opd_async_flow_control_sem);
 		} else {
 			rc = th->th_result;
 			out_destroy_update_req(dt_update);
