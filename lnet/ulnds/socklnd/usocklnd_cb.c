@@ -51,17 +51,17 @@ usocklnd_send_tx_immediately(usock_conn_t *conn, usock_tx_t *tx)
         /* usocklnd_enqueue_tx() turned it on for us */
         LASSERT(conn->uc_sending);
 
-        //counter_imm_start++;
-        rc = usocklnd_send_tx(conn, tx);
-        if (rc == 0) { /* partial send or connection closed */
-                pthread_mutex_lock(&conn->uc_lock);
-                cfs_list_add(&tx->tx_list, &conn->uc_tx_list);
-                conn->uc_sending = 0;
-                pthread_mutex_unlock(&conn->uc_lock);
-                partial_send = 1;
-        } else {
-                usocklnd_destroy_tx(peer->up_ni, tx);
-                /* NB: lnetmsg was finalized, so we *must* return 0 */
+	//counter_imm_start++;
+	rc = usocklnd_send_tx(conn, tx);
+	if (rc == 0) { /* partial send or connection closed */
+		pthread_mutex_lock(&conn->uc_lock);
+		list_add(&tx->tx_list, &conn->uc_tx_list);
+		conn->uc_sending = 0;
+		pthread_mutex_unlock(&conn->uc_lock);
+		partial_send = 1;
+	} else {
+		usocklnd_destroy_tx(peer->up_ni, tx);
+		/* NB: lnetmsg was finalized, so we *must* return 0 */
 
                 if (rc < 0) { /* real error */
                         usocklnd_conn_kill(conn);
@@ -76,20 +76,20 @@ usocklnd_send_tx_immediately(usock_conn_t *conn, usock_tx_t *tx)
         pthread_mutex_lock(&conn->uc_lock);
         conn->uc_sending = 0;
 
-        /* schedule write handler */
-        if (partial_send ||
-            (conn->uc_state == UC_READY &&
-             (!cfs_list_empty(&conn->uc_tx_list) ||
-              !cfs_list_empty(&conn->uc_zcack_list)))) {
-                conn->uc_tx_deadline =
-                        cfs_time_shift(usock_tuns.ut_timeout);
-                conn->uc_tx_flag = 1;
-                rc2 = usocklnd_add_pollrequest(conn, POLL_TX_SET_REQUEST, POLLOUT);
-                if (rc2 != 0)
-                        usocklnd_conn_kill_locked(conn);
-                else
-                        usocklnd_wakeup_pollthread(conn->uc_pt_idx);
-        }
+	/* schedule write handler */
+	if (partial_send ||
+	    (conn->uc_state == UC_READY &&
+	    (!list_empty(&conn->uc_tx_list) ||
+	     !list_empty(&conn->uc_zcack_list)))) {
+		conn->uc_tx_deadline =
+			cfs_time_shift(usock_tuns.ut_timeout);
+		conn->uc_tx_flag = 1;
+		rc2 = usocklnd_add_pollrequest(conn, POLL_TX_SET_REQUEST, POLLOUT);
+		if (rc2 != 0)
+			usocklnd_conn_kill_locked(conn);
+		else
+			usocklnd_wakeup_pollthread(conn->uc_pt_idx);
+	}
 
         pthread_mutex_unlock(&conn->uc_lock);
 

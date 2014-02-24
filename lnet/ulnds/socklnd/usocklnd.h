@@ -46,15 +46,15 @@
 #include <lnet/socklnd.h>
 
 typedef struct {
-        cfs_list_t       tx_list;    /* neccessary to form tx list */
-        lnet_msg_t      *tx_lnetmsg; /* lnet message for lnet_finalize() */
-        ksock_msg_t      tx_msg;     /* buffer for wire header of ksock msg */
-        int              tx_resid;   /* # of residual bytes */
-        int              tx_nob;     /* # of packet bytes */
-        int              tx_size;    /* size of this descriptor */
-        struct iovec    *tx_iov;     /* points to tx_iova[i] */
-        int              tx_niov;    /* # of packet iovec frags */
-        struct iovec     tx_iova[1]; /* iov for header */
+	struct list_head tx_list;	/* neccessary to form tx list */
+	lnet_msg_t	*tx_lnetmsg;	/* lnet message for lnet_finalize() */
+	ksock_msg_t	 tx_msg;	/* buffer for wire header of ksock msg */
+	int		 tx_resid;	/* # of residual bytes */
+	int		 tx_nob;	/* # of packet bytes */
+	int		 tx_size;	/* size of this descriptor */
+	struct iovec	*tx_iov;	/* points to tx_iova[i] */
+	int		 tx_niov;	/* # of packet iovec frags */
+	struct iovec	 tx_iova[1];	/* iov for header */
 } usock_tx_t;
 
 struct usock_peer_s;
@@ -69,11 +69,11 @@ typedef struct {
         lnet_process_id_t    uc_peerid;      /* id of remote peer */
         int                  uc_pt_idx;      /* index in ud_pollthreads[] of
                                               * owning poll thread */
-        lnet_ni_t            *uc_ni;         /* parent NI while accepting */
-        struct usock_preq_s  *uc_preq;       /* preallocated request */
-        __u32                 uc_peer_ip;    /* IP address of the peer */
-        __u16                 uc_peer_port;  /* port of the peer */
-        cfs_list_t            uc_stale_list; /* orphaned connections */
+	lnet_ni_t		*uc_ni;		/* parent NI while accepting */
+	struct usock_preq_s	*uc_preq;	/* preallocated request */
+	__u32			 uc_peer_ip;	/* IP address of the peer */
+	__u16			 uc_peer_port;	/* port of the peer */
+	struct list_head	 uc_stale_list;	/* orphaned connections */
 
         /* Receive state */
         int                uc_rx_state;      /* message or hello state */
@@ -88,17 +88,17 @@ typedef struct {
         int                uc_rx_flag;       /* deadline valid? */
         ksock_msg_t        uc_rx_msg;        /* message buffer */
 
-        /* Send state */
-        cfs_list_t         uc_tx_list;       /* pending txs */
-        cfs_list_t         uc_zcack_list;    /* pending zc_acks */
-        cfs_time_t         uc_tx_deadline;   /* when to time out */
-        int                uc_tx_flag;       /* deadline valid? */
-        int                uc_sending;       /* send op is in progress */
-        usock_tx_t        *uc_tx_hello;      /* fake tx with hello */
+	/* Send state */
+	struct list_head	 uc_tx_list;	/* pending txs */
+	struct list_head	 uc_zcack_list;	/* pending zc_acks */
+	cfs_time_t		 uc_tx_deadline;/* when to time out */
+	int			 uc_tx_flag;	/* deadline valid? */
+	int			 uc_sending;	/* send op is in progress */
+	usock_tx_t		*uc_tx_hello;	/* fake tx with hello */
 
-	mt_atomic_t    uc_refcount;      /* # of users */
-        pthread_mutex_t    uc_lock;          /* serialize */
-        int                uc_errored;       /* a flag for lnet_notify() */
+	mt_atomic_t		 uc_refcount;	/* # of users */
+	pthread_mutex_t		 uc_lock;	/* serialize */
+	int			 uc_errored;	/* a flag for lnet_notify() */
 } usock_conn_t;
 
 /* Allowable conn states are: */
@@ -123,7 +123,7 @@ typedef struct {
 #define N_CONN_TYPES 3 /* CONTROL, BULK_IN and BULK_OUT */
 
 typedef struct usock_peer_s {
-        cfs_list_t        up_list;        /* neccessary to form peer list */
+	struct list_head  up_list;        /* neccessary to form peer list */
         lnet_process_id_t up_peerid;      /* id of remote peer */
         usock_conn_t     *up_conns[N_CONN_TYPES]; /* conns that connect us
                                                        * us with the peer */
@@ -150,12 +150,12 @@ typedef struct {
                                                  * by fd */
         int                 upt_nfd2idx;        /* # of allocated elements
                                                  * of upt_fd2idx[] */
-        cfs_list_t          upt_stale_list;     /* list of orphaned conns */
-        cfs_list_t          upt_pollrequests;   /* list of poll requests */
-        pthread_mutex_t     upt_pollrequests_lock; /* serialize */
-        int                 upt_errno;         /* non-zero if errored */
-	struct completion	upt_completion;	/* wait/signal facility for
-						 * syncronizing shutdown */
+	struct list_head	upt_stale_list;		/* list of orphaned conns */
+	struct list_head	upt_pollrequests;	/* list of poll requests */
+	pthread_mutex_t		upt_pollrequests_lock;	/* serialize */
+	int			upt_errno;		/* non-zero if errored */
+	struct completion	upt_completion;		/* wait/signal facility for
+							 * syncronizing shutdown */
 } usock_pollthread_t;
 
 /* Number of elements in upt_pollfd[], upt_idx2conn[] and upt_fd2idx[]
@@ -166,13 +166,13 @@ typedef struct {
 #define UD_PEER_HASH_SIZE  101
 
 typedef struct {
-        int                 ud_state;          /* initialization state */
-        int                 ud_npollthreads;   /* # of poll threads */
-        usock_pollthread_t *ud_pollthreads;    /* their state */
-        int                 ud_shutdown;       /* shutdown flag */
-        int                 ud_nets_count;     /* # of instances */
-        cfs_list_t          ud_peers[UD_PEER_HASH_SIZE]; /* peer hash table */
-        pthread_rwlock_t    ud_peers_lock;     /* serialize */
+	int		    ud_state;		/* initialization state */
+	int		    ud_npollthreads;	/* # of poll threads */
+	usock_pollthread_t *ud_pollthreads;	/* their state */
+	int		    ud_shutdown;	/* shutdown flag */
+	int		    ud_nets_count;	/* # of instances */
+	struct list_head    ud_peers[UD_PEER_HASH_SIZE];	/* peer hash table */
+	pthread_rwlock_t    ud_peers_lock;	/* serialize */
 } usock_data_t;
 
 extern usock_data_t usock_data;
@@ -205,11 +205,11 @@ typedef struct {
 extern usock_tunables_t usock_tuns;
 
 typedef struct usock_preq_s {
-        int              upr_type;   /* type of requested action */
-        short            upr_value; /* bitmask of POLLIN and POLLOUT bits */
-        usock_conn_t *   upr_conn;  /* a conn for the sake of which
-                                     * action will be performed */
-        cfs_list_t       upr_list;  /* neccessary to form list */
+	int		 upr_type;	/* type of requested action */
+	short		 upr_value;	/* bitmask of POLLIN and POLLOUT bits */
+	usock_conn_t	*upr_conn;	/* a conn for the sake of which
+					 * action will be performed */
+	struct list_head upr_list;	/* neccessary to form list */
 } usock_pollrequest_t;
 
 /* Allowable poll request types are: */
@@ -220,8 +220,8 @@ typedef struct usock_preq_s {
 #define POLL_SET_REQUEST 5
 
 typedef struct {
-        cfs_list_t       zc_list;   /* neccessary to form zc_ack list */
-        __u64            zc_cookie; /* zero-copy cookie */
+	struct list_head zc_list;	/* neccessary to form zc_ack list */
+	__u64		 zc_cookiel;	/* zero-copy cookie */
 } usock_zc_ack_t;
 
 static inline void
@@ -263,7 +263,7 @@ usocklnd_ip2pt_idx(__u32 ip) {
         return ip % usock_data.ud_npollthreads;
 }
 
-static inline cfs_list_t *
+static inline struct list_head *
 usocklnd_nid2peerlist(lnet_nid_t nid)
 {
         unsigned int hash = ((unsigned int)nid) % UD_PEER_HASH_SIZE;
@@ -297,8 +297,8 @@ int usocklnd_read_hello(usock_conn_t *conn, int *cont_flag);
 int usocklnd_activeconn_hellorecv(usock_conn_t *conn);
 int usocklnd_passiveconn_hellorecv(usock_conn_t *conn);
 int usocklnd_write_handler(usock_conn_t *conn);
-usock_tx_t * usocklnd_try_piggyback(cfs_list_t *tx_list_p,
-                                    cfs_list_t *zcack_list_p);
+usock_tx_t * usocklnd_try_piggyback(struct list_head *tx_list_p,
+				    struct list_head *zcack_list_p);
 int usocklnd_activeconn_hellosent(usock_conn_t *conn);
 int usocklnd_passiveconn_hellosent(usock_conn_t *conn);
 int usocklnd_send_tx(usock_conn_t *conn, usock_tx_t *tx);
@@ -337,8 +337,8 @@ usock_tx_t *usocklnd_create_hello_tx(lnet_ni_t *ni,
 usock_tx_t *usocklnd_create_cr_hello_tx(lnet_ni_t *ni,
                                         int type, lnet_nid_t peer_nid);
 void usocklnd_destroy_tx(lnet_ni_t *ni, usock_tx_t *tx);
-void usocklnd_destroy_txlist(lnet_ni_t *ni, cfs_list_t *txlist);
-void usocklnd_destroy_zcack_list(cfs_list_t *zcack_list);
+void usocklnd_destroy_txlist(lnet_ni_t *ni, struct list_head *txlist);
+void usocklnd_destroy_zcack_list(struct list_head *zcack_list);
 void usocklnd_destroy_peer (usock_peer_t *peer);
 int usocklnd_get_conn_type(lnet_msg_t *lntmsg);
 int usocklnd_type2idx(int type);
