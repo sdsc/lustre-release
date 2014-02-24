@@ -93,6 +93,13 @@ struct osp_precreate {
 	int				 osp_pre_recovering;
 };
 
+struct osp_semaphore {
+	spinlock_t		os_lock;
+	struct list_head	os_list;
+	__u32			os_max;
+	__u32			os_count;
+};
+
 struct osp_device {
 	struct dt_device		 opd_dt_dev;
 	/* corresponded OST index */
@@ -195,7 +202,7 @@ struct osp_device {
 	struct dt_update_request	*opd_async_requests;
 	/* Protect current operations on opd_async_requests. */
 	struct mutex			 opd_async_requests_mutex;
-	struct semaphore		 opd_async_fc_sem;
+	struct osp_semaphore		 opd_async_flow_control_sem;
 };
 
 #define opd_pre_lock			opd_pre->osp_pre_lock
@@ -476,6 +483,8 @@ struct thandle *osp_trans_create(const struct lu_env *env,
 				 struct dt_device *d);
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th);
+void osp_sema_init(struct osp_semaphore *os);
+int osp_sema_set(struct osp_semaphore *os, __u32 max);
 
 /* osp_object.c */
 int osp_attr_get(const struct lu_env *env, struct dt_object *dt,

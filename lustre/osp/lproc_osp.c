@@ -429,6 +429,47 @@ static int osp_rd_old_sync_processed(char *page, char **start, off_t off,
 	return rc;
 }
 
+static int osp_rd_async_flow_control(char *page, char **start, off_t off,
+				     int count, int *eof, void *data)
+{
+	struct obd_device	*dev = data;
+	struct osp_device	*osp = lu2osp_dev(dev->obd_lu_dev);
+	int			 rc;
+
+	if (osp == NULL)
+		return -EINVAL;
+
+	*eof = 1;
+	rc = snprintf(page, count,
+		      "max_count: %u\n"
+		      "in_flight: %u\n",
+		      osp->opd_async_flow_control_sem.os_max,
+		      osp->opd_async_flow_control_sem.os_count);
+
+	return rc;
+}
+
+static int osp_wr_async_flow_control(struct file *file, const char *buffer,
+				     unsigned long count, void *data)
+{
+	struct obd_device	*dev = data;
+	struct osp_device	*osp = lu2osp_dev(dev->obd_lu_dev);
+	int			 val;
+	int			 rc;
+
+	if (osp == NULL)
+		return -EINVAL;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc == 0)
+		rc = osp_sema_set(&osp->opd_async_flow_control_sem, val);
+
+	if (rc != 0)
+		count = rc;
+
+	return count;
+}
+
 static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	{ "uuid",		lprocfs_rd_uuid, 0, 0 },
 	{ "ping",		0, lprocfs_wr_ping, 0, 0, 0222 },
@@ -458,6 +499,8 @@ static struct lprocfs_vars lprocfs_osp_obd_vars[] = {
 	{ "sync_in_flight",	osp_rd_syn_in_flight, 0, 0 },
 	{ "sync_in_progress",	osp_rd_syn_in_prog, 0, 0 },
 	{ "old_sync_processed",	osp_rd_old_sync_processed, 0, 0 },
+	{ "async_flow_control", osp_rd_async_flow_control,
+				osp_wr_async_flow_control, 0 },
 
 	/* for compatibility reasons */
 	{ "destroys_in_flight",	osp_rd_destroys_in_flight, 0, 0 },
