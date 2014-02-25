@@ -83,6 +83,50 @@ EXTRA_KCFLAGS="$tmp_flags"
 ])
 
 #
+# LIBCFS_FUNC_DUMP_TRACE
+#
+# 2.6.23 exports dump_trace() so we can dump_stack() on any task
+# 2.6.24 has stacktrace_ops.address with "reliable" parameter
+#
+AC_DEFUN([LIBCFS_FUNC_DUMP_TRACE],
+[LB_CHECK_SYMBOL_EXPORT([dump_trace],
+[kernel/ksyms.c arch/${LINUX_ARCH%_64}/kernel/traps_64.c arch/x86/kernel/dumpstack_32.c arch/x86/kernel/dumpstack_64.c],[
+	tmp_flags="$EXTRA_KCFLAGS"
+	EXTRA_KCFLAGS="-Werror"
+	AC_MSG_CHECKING([whether we can really use dump_trace])
+	LB_LINUX_TRY_COMPILE([
+		struct task_struct;
+		struct pt_regs;
+		#include <asm/stacktrace.h>
+	],[
+	],[
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_DUMP_TRACE, 1, [dump_trace is exported])
+	],[
+		AC_MSG_RESULT(no)
+	],[
+	])
+	AC_MSG_CHECKING([whether print_trace_address has reliable argument])
+	LB_LINUX_TRY_COMPILE([
+		struct task_struct;
+		struct pt_regs;
+		#include <asm/stacktrace.h>
+	],[
+		((struct stacktrace_ops *)0)->address(NULL, 0, 0);
+	],[
+		AC_MSG_RESULT(yes)
+		AC_DEFINE(HAVE_TRACE_ADDRESS_RELIABLE, 1,
+			  [print_trace_address has reliable argument])
+	],[
+		AC_MSG_RESULT(no)
+	],[
+	])
+
+EXTRA_KCFLAGS="$tmp_flags"
+])
+])
+
+#
 # LIBCFS_STACKTRACE_OPS_HAVE_WALK_STACK
 #
 # 2.6.32-30.el6 adds a new 'walk_stack' field in 'struct stacktrace_ops'
@@ -300,6 +344,8 @@ AC_DEFUN([LIBCFS_PROG_LINUX],
 LIBCFS_CONFIG_PANIC_DUMPLOG
 
 LIBCFS_U64_LONG_LONG_LINUX
+# 2.6.24
+LIBCFS_FUNC_DUMP_TRACE
 # 2.6.32
 LIBCFS_STACKTRACE_OPS_HAVE_WALK_STACK
 LC_SHRINKER_WANT_SHRINK_PTR
