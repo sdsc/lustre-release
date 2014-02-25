@@ -1169,8 +1169,8 @@ static int lmd_parse(char *options, struct lustre_mount_data *lmd)
 				length = param_str - s1 - supplementary;
 			}
 			length -= 6;
-			strncat(lmd->lmd_params, s1 + 6, length);
-			strcat(lmd->lmd_params, " ");
+			strlcat(lmd->lmd_params, s1 + 6, length);
+			strlcat(lmd->lmd_params, " ", length);
 			s3 = s1 + 6 + length;
 			clear++;
 		} else if (strncmp(s1, "osd=", 4) == 0) {

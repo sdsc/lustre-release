@@ -533,8 +533,7 @@ int create_auth_rpc_client(struct clnt_info *clp,
 			"is too long!", clp->servicename);
 		goto out_fail;
 	}
-	strncpy(service, clp->servicename, at_sign - clp->servicename);
-	service[at_sign - clp->servicename] = '\0';
+	strlcpy(service, clp->servicename, at_sign - clp->servicename);
 
 	errcode = getaddrinfo(clp->servername, service, &ai_hints, &a);
 	if (errcode) {
