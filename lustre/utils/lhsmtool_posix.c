@@ -353,6 +353,11 @@ static int ct_mkdir_p(const char *path)
 	int	 rc;
 
 	ptr = strdup(path);
+	if (ptr == NULL) {
+		rc = -errno;
+		CT_ERROR(rc, "Not enough memory");
+		return rc;
+	}
 	saved = ptr;
 	while (*ptr == '/')
 		ptr++;
@@ -1658,12 +1663,15 @@ out:
 
 static int ct_max_sequence(void)
 {
-	int   rc, i;
-	char  path[PATH_MAX];
-	__u64 seq = 0;
-	__u16 subseq;
+	int	rc, i;
+	char	path[PATH_MAX];
+	size_t	path_size = sizeof(path) - 1;
+	size_t	path_len;
+	__u64	seq = 0;
+	__u16	subseq;
 
-	strncpy(path, opt.o_hsm_root, sizeof(path));
+	strncpy(path, opt.o_hsm_root, path_size);
+	path[path_size] = '\0';
 	/* FID sequence is stored in top-level directory names:
 	 * hsm_root/16bits (high weight)/16 bits/16 bits/16 bits (low weight).
 	 */
@@ -1672,7 +1680,12 @@ static int ct_max_sequence(void)
 		if (rc != 0)
 			return rc;
 		seq |= ((__u64)subseq << ((3 - i) * 16));
-		sprintf(path + strlen(path), "/%04x", subseq);
+		path_len = strlen(path);
+		rc = snprintf(path + path_len, path_size - path_len,
+			      "/%04x", subseq);
+		if (rc >= (path_size - path_len))
+			return -E2BIG;
+		path[path_size] = '\0';
 	}
 
 	printf("max_sequence: %016Lx\n", seq);

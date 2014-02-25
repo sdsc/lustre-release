@@ -1122,6 +1122,7 @@ int lr_parse_line(void *priv, struct lr_info *info)
         sprintf(info->tfid, DFID, PFID(&rec->cr_tfid));
         sprintf(info->pfid, DFID, PFID(&rec->cr_pfid));
         strncpy(info->name, rec->cr_name, rec->cr_namelen);
+	info->name[rec->cr_namelen] = '\0';
 
 	if (fid_is_sane(&rec->cr_sfid)) {
 		sprintf(info->sfid, DFID, PFID(&rec->cr_sfid));
@@ -1134,8 +1135,6 @@ int lr_parse_line(void *priv, struct lr_info *info)
 			printf("Rec %lld: %d %s %s\n", info->recno, info->type,
 				info->name, info->sname);
 	} else {
-		info->name[rec->cr_namelen] = '\0';
-
 		if (verbose > 1)
 			printf("Rec %lld: %d %s\n", info->recno, info->type,
 				info->name);
@@ -1308,9 +1307,9 @@ int lr_read_log()
    processing. */
 int lr_clear_cl(struct lr_info *info, int force)
 {
-        char    mdt_device[LR_NAME_MAXLEN + 1];
-        long long rec;
-        int rc = 0;
+	char		mdt_device[LR_NAME_MAXLEN + 1];
+	long long	rec;
+	int		rc = 0;
 
         if (force || info->recno > status->ls_last_recno + CLEAR_INTERVAL) {
                 if (info->type == CL_RENAME)
@@ -1322,8 +1321,9 @@ int lr_clear_cl(struct lr_info *info, int force)
                          * device name so make a copy of it until this
                          * is fixed.
                         */
-                        strncpy(mdt_device, status->ls_mdt_device,
-                                LR_NAME_MAXLEN);
+			strncpy(mdt_device, status->ls_mdt_device,
+				sizeof(mdt_device));
+			mdt_device[sizeof(mdt_device) - 1] = '\0';
                         rc = llapi_changelog_clear(mdt_device,
                                                    status->ls_registration,
                                                    rec);

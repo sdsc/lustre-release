@@ -450,63 +450,73 @@ static int get_param_obdvar(const char *fsname, const char *file_path,
                             const char *obd_type, const char *param_name,
                             char *value, unsigned int val_len)
 {
-        char devices[PATH_MAX + 1], dev[PATH_MAX + 1] = "*", fs[PATH_MAX + 1];
-        FILE *fp = fopen(DEVICES_LIST, "r");
-        int rc = 0;
+	char devices[PATH_MAX], dev[PATH_MAX] = "*", fs[PATH_MAX];
+	size_t buff_size;
+	FILE *fp = fopen(DEVICES_LIST, "r");
+	int rc = 0;
 
-        if (!fsname && file_path) {
-                rc = llapi_search_fsname(file_path, fs);
-                if (rc) {
-                        llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "'%s' is not on a Lustre filesystem",
-                                    file_path);
-			if (fp != NULL)
-				fclose(fp);
-                        return rc;
-                }
-        } else if (fsname) {
-		if (strlen(fsname) > sizeof(fs)-1) {
-			if (fp != NULL)
-				fclose(fp);
+	if (fp == NULL) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "error: opening "DEVICES_LIST);
+		return rc;
+	}
+
+	if (fsname == NULL && file_path != NULL) {
+		rc = llapi_search_fsname(file_path, fs);
+		if (rc) {
+			llapi_error(LLAPI_MSG_ERROR, rc,
+				    "'%s' is not on a Lustre filesystem",
+				    file_path);
+			fclose(fp);
+			return rc;
+		}
+	} else if (fsname != NULL) {
+		if (strlen(fsname) > sizeof(fs) - 1) {
+			fclose(fp);
 			return -E2BIG;
 		}
 		strncpy(fs, fsname, sizeof(fs));
-        }
+	}
 
-        if (fp == NULL) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "error: opening "DEVICES_LIST);
-                return rc;
-        }
+	buff_size = sizeof(devices) - 1;
+	while (fgets(devices, buff_size, fp) != NULL) {
+		char *bufp = devices, *tmp;
 
-        while (fgets(devices, sizeof(devices), fp) != NULL) {
-                char *bufp = devices, *tmp;
+		devices[buff_size] = '\0';
+		while (bufp[0] == ' ')
+			++bufp;
 
-                while (bufp[0] == ' ')
-                        ++bufp;
-
-                tmp = strstr(bufp, obd_type);
-                if (tmp) {
-                        tmp += strlen(obd_type) + 1;
-                        if (strcmp(tmp, fs))
-                                continue;
+		tmp = strstr(bufp, obd_type);
+		if (tmp != NULL) {
+			tmp += strlen(obd_type) + 1;
+			if (strcmp(tmp, fs))
+				continue;
 			if (strlen(tmp) > sizeof(dev)-1) {
 				fclose(fp);
 				return -E2BIG;
 			}
 			strncpy(dev, tmp, sizeof(dev));
-                        tmp = strchr(dev, ' ');
+			tmp = strchr(dev, ' ');
 			if (tmp != NULL)
 				*tmp = '\0';
-                        break;
-                }
-        }
+			break;
+		}
+	}
+	fclose(fp);
 
-        if (dev[0] == '*' && strlen(fs))
-                snprintf(dev, PATH_MAX, "%s-*", fs);
-        snprintf(devices, PATH_MAX, "%s/%s/%s", obd_type, dev, param_name);
-        fclose(fp);
-        return get_param(devices, value, val_len);
+	if (dev[0] == '*' && strlen(fs)) {
+		buff_size = sizeof(dev) - 1;
+		rc = snprintf(dev, buff_size, "%s-*", fs);
+		if (rc >= buff_size)
+			return -E2BIG;
+		dev[buff_size] = '\0';
+	}
+	buff_size = sizeof(devices) - 1;
+	rc = snprintf(devices, buff_size, "%s/%s/%s", obd_type, dev, param_name);
+	if (rc >= buff_size)
+		return -E2BIG;
+	devices[buff_size] = '\0';
+	return get_param(devices, value, val_len);
 }
 
 /*
@@ -1073,19 +1083,20 @@ int llapi_search_fsname(const char *pathname, char *fsname)
 
         path = realpath(pathname, NULL);
         if (path == NULL) {
-                char buf[PATH_MAX + 1], *ptr;
+		char buf[PATH_MAX], *ptr;
 
-                buf[0] = 0;
-                if (pathname[0] != '/') {
-                        /* Need an absolute path, but realpath() only works for
-                         * pathnames that actually exist.  We go through the
-                         * extra hurdle of dirname(getcwd() + pathname) in
-                         * case the relative pathname contains ".." in it. */
-                        if (getcwd(buf, sizeof(buf) - 1) == NULL)
-                                return -errno;
-                        strcat(buf, "/");
-                }
-                strncat(buf, pathname, sizeof(buf) - strlen(buf));
+		buf[0] = '\0';
+		if (pathname[0] != '/') {
+			/* Need an absolute path, but realpath() only works for
+			 * pathnames that actually exist.  We go through the
+			 * extra hurdle of dirname(getcwd() + pathname) in
+			 * case the relative pathname contains ".." in it. */
+			if (getcwd(buf, sizeof(buf) - 2) == NULL)
+				return -errno;
+			strcat(buf, "/");
+		}
+		strncat(buf, pathname, sizeof(buf) - strlen(buf));
+		buf[sizeof(buf) - 1] = '\0';
                 path = realpath(buf, NULL);
                 if (path == NULL) {
                         ptr = strrchr(buf, '/');
@@ -1181,18 +1192,18 @@ static int poolpath(char *fsname, char *pathname, char *pool_pathname)
 int llapi_get_poolmembers(const char *poolname, char **members,
                           int list_size, char *buffer, int buffer_size)
 {
-        char fsname[PATH_MAX + 1];
-        char *pool, *tmp;
-        char pathname[PATH_MAX + 1];
-        char path[PATH_MAX + 1];
-        char buf[1024];
+	char fsname[PATH_MAX];
+	char *pool, *tmp;
+	char pathname[PATH_MAX];
+	char path[PATH_MAX];
+	char buf[1024];
         FILE *fd;
         int rc = 0;
         int nb_entries = 0;
         int used = 0;
 
         /* name is FSNAME.POOLNAME */
-        if (strlen(poolname) > PATH_MAX)
+	if (strlen(poolname) > sizeof(fsname) - 1)
                 return -EOVERFLOW;
         strcpy(fsname, poolname);
         pool = strchr(fsname, '.');
@@ -1211,7 +1222,10 @@ int llapi_get_poolmembers(const char *poolname, char **members,
         }
 
         llapi_printf(LLAPI_MSG_NORMAL, "Pool: %s.%s\n", fsname, pool);
-        sprintf(path, "%s/%s", pathname, pool);
+	rc = snprintf(path, sizeof(path), "%s/%s", pathname, pool);
+	if (rc >= sizeof(path))
+		return -EOVERFLOW;
+	path[sizeof(path) - 1] = '\0';
         fd = fopen(path, "r");
         if (fd == NULL) {
                 rc = -errno;
@@ -1225,6 +1239,7 @@ int llapi_get_poolmembers(const char *poolname, char **members,
                         rc = -EOVERFLOW;
                         break;
                 }
+		buf[sizeof(buf) - 1] = '\0';
                 /* remove '\n' */
                 tmp = strchr(buf, '\n');
                 if (tmp != NULL)
@@ -1369,8 +1384,14 @@ int llapi_poollist(const char *name)
         int obdcount, bufsize, rc, nb, i;
         char *poolname = NULL, *tmp = NULL, data[16];
 
-        if (name[0] != '/') {
-                fsname = strdup(name);
+	if (name == NULL)
+		return -EINVAL;
+
+	if (name[0] != '/') {
+		fsname = strdup(name);
+		if (fsname == NULL)
+			return -ENOMEM;
+
                 poolname = strchr(fsname, '.');
                 if (poolname)
                         *poolname = '\0';
