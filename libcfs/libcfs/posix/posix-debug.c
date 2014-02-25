@@ -103,6 +103,7 @@ int libcfs_debug_init(unsigned long bufsize)
         if (debug_filename)
                 strncpy(libcfs_debug_file_path, debug_filename,
                         sizeof(libcfs_debug_file_path));
+	libcfs_debug_file_path[sizeof(libcfs_debug_file_path) - 1] = '\0';
 
         debug_filename = getenv("LIBLUSTRE_DEBUG_FILE");
         if (debug_filename)
@@ -112,6 +113,7 @@ int libcfs_debug_init(unsigned long bufsize)
                 snprintf(debug_file_name, sizeof(debug_file_name) - 1,
                          "%s-%s-"CFS_TIME_T".log", libcfs_debug_file_path,
                          source_nid, time(0));
+	debug_file_name[sizeof(debug_file_name) - 1] = '\0';
 
         if (strcmp(debug_file_name, "stdout") == 0 ||
             strcmp(debug_file_name, "-") == 0) {

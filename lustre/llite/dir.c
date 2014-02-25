@@ -351,7 +351,8 @@ int ll_send_mgc_param(struct obd_export *mgc, char *string)
         if (!msp)
                 return -ENOMEM;
 
-        strncpy(msp->mgs_param, string, MGS_PARAM_MAXLEN);
+	strncpy(msp->mgs_param, string, sizeof(msp->mgs_param));
+	msp->mgs_param[sizeof(msp->mgs_param) - 1] = '\0';
         rc = obd_set_info_async(NULL, mgc, sizeof(KEY_SET_INFO), KEY_SET_INFO,
                                 sizeof(struct mgs_send_param), msp, NULL);
         if (rc)

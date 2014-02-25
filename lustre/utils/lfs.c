@@ -343,6 +343,7 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 	int			 fd, fdv;
 	char			 volatile_file[PATH_MAX];
 	char			 parent[PATH_MAX];
+	size_t			 buff_size;
 	char			*ptr;
 	int			 rc;
 	__u64			 dv1;
@@ -417,7 +418,14 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 		else
 			*ptr = '\0';
 	}
-	sprintf(volatile_file, "%s/%s::", parent, LUSTRE_VOLATILE_HDR);
+	buff_size = sizeof(volatile_file) - 1;
+	rc = snprintf(volatile_file, buff_size, "%s/%s::", parent,
+		      LUSTRE_VOLATILE_HDR);
+	if (rc >= buff_size) {
+		rc = -E2BIG;
+		goto free;
+	}
+	volatile_file[buff_size] = '\0';
 
 	/* create, open a volatile file, use caching (ie no directio) */
 	/* exclusive create is not needed because volatile files cannot
@@ -1630,7 +1638,7 @@ static int showdf(char *mntdir, struct obd_statfs *stat,
         double ratio = 0;
         char *suffix = "KMGTPEZY";
         /* Note if we have >2^64 bytes/fs these buffers will need to be grown */
-        char tbuf[20], ubuf[20], abuf[20], rbuf[20];
+	char tbuf[32], ubuf[32], abuf[32], rbuf[32];
 
         if (!uuid || !stat)
                 return -EINVAL;
@@ -3177,6 +3185,10 @@ static int lfs_fid2path(int argc, char **argv)
 
 	device = argv[optind++];
 	path = calloc(1, PATH_MAX);
+	if (path == NULL) {
+		fprintf(stderr, "error: Not enough memory\n");
+		return -errno;
+	}
 
 	rc = 0;
 	while (optind < argc) {
