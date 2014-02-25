@@ -166,8 +166,8 @@ l_getidentity_DEPENDENCIES := $(LIBPTLCTL)
 ltrack_stats_SOURCES = ltrack_stats.c
 
 lhsmtool_posix_SOURCES = lhsmtool_posix.c
-lhsmtool_posix_LDADD := liblustreapi.a $(PTHREAD_LIBS)
-lhsmtool_posix_DEPENDENCIES := liblustreapi.a
+lhsmtool_posix_LDADD := liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS)
+lhsmtool_posix_DEPENDENCIES := liblustreapi.a $(LIBPTLCTL)
 
 wirecheck_SOURCES = wirecheck.c
 wirecheck_CPPFLAGS = -DCC="\"$(CC)\""
@@ -182,4 +182,3 @@ newwiretest: wirehdr.c wirecheck
 	LANG=C ./wirecheck >> wiretest.c
 	cp ../ptlrpc/wirehdr.c ../ptlrpc/wiretest.c
 	LANG=C ./wirecheck >> ../ptlrpc/wiretest.c
-

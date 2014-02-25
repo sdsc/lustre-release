@@ -467,63 +467,70 @@ static int get_param_obdvar(const char *fsname, const char *file_path,
                             const char *obd_type, const char *param_name,
                             char *value, unsigned int val_len)
 {
-        char devices[PATH_MAX + 1], dev[PATH_MAX + 1] = "*", fs[PATH_MAX + 1];
-        FILE *fp = fopen(DEVICES_LIST, "r");
-        int rc = 0;
+	char devices[PATH_MAX];
+	char dev[PATH_MAX] = "*";
+	char fs[PATH_MAX];
+	FILE *fp = fopen(DEVICES_LIST, "r");
+	int rc = 0;
 
-        if (!fsname && file_path) {
-                rc = llapi_search_fsname(file_path, fs);
-                if (rc) {
-                        llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "'%s' is not on a Lustre filesystem",
-                                    file_path);
-			if (fp != NULL)
-				fclose(fp);
-                        return rc;
-                }
-        } else if (fsname) {
-		if (strlen(fsname) > sizeof(fs)-1) {
-			if (fp != NULL)
-				fclose(fp);
+	if (fp == NULL) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "error: opening "DEVICES_LIST);
+		return rc;
+	}
+
+	if (fsname == NULL && file_path != NULL) {
+		rc = llapi_search_fsname(file_path, fs);
+		if (rc) {
+			llapi_error(LLAPI_MSG_ERROR, rc,
+				    "'%s' is not on a Lustre filesystem",
+				    file_path);
+			fclose(fp);
+			return rc;
+		}
+	} else if (fsname != NULL) {
+		rc = strlcpy(fs, fsname, sizeof(fs));
+		if (rc >= sizeof(fs)) {
+			fclose(fp);
 			return -E2BIG;
 		}
-		strncpy(fs, fsname, sizeof(fs));
-        }
+	}
 
-        if (fp == NULL) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "error: opening "DEVICES_LIST);
-                return rc;
-        }
+	while (fgets(devices, sizeof(devices) - 1, fp) != NULL) {
+		char *bufp = devices, *tmp;
 
-        while (fgets(devices, sizeof(devices), fp) != NULL) {
-                char *bufp = devices, *tmp;
+		devices[sizeof(devices) - 1] = '\0';
+		while (bufp[0] == ' ')
+			++bufp;
 
-                while (bufp[0] == ' ')
-                        ++bufp;
-
-                tmp = strstr(bufp, obd_type);
-                if (tmp) {
-                        tmp += strlen(obd_type) + 1;
-                        if (strcmp(tmp, fs))
-                                continue;
+		tmp = strstr(bufp, obd_type);
+		if (tmp != NULL) {
+			tmp += strlen(obd_type) + 1;
+			if (strcmp(tmp, fs))
+				continue;
 			if (strlen(tmp) > sizeof(dev)-1) {
 				fclose(fp);
 				return -E2BIG;
 			}
 			strncpy(dev, tmp, sizeof(dev));
-                        tmp = strchr(dev, ' ');
+			tmp = strchr(dev, ' ');
 			if (tmp != NULL)
 				*tmp = '\0';
-                        break;
-                }
-        }
+			break;
+		}
+	}
+	fclose(fp);
 
-        if (dev[0] == '*' && strlen(fs))
-                snprintf(dev, PATH_MAX, "%s-*", fs);
-        snprintf(devices, PATH_MAX, "%s/%s/%s", obd_type, dev, param_name);
-        fclose(fp);
-        return get_param(devices, value, val_len);
+	if (dev[0] == '*' && strlen(fs)) {
+		rc = snprintf(dev, sizeof(dev), "%s-*", fs);
+		if (rc >= sizeof(dev))
+			return -E2BIG;
+	}
+	rc = snprintf(devices, sizeof(devices), "%s/%s/%s", obd_type, dev,
+		      param_name);
+	if (rc >= sizeof(devices))
+		return -E2BIG;
+	return get_param(devices, value, val_len);
 }
 
 /*
@@ -749,7 +756,8 @@ retry_open:
         lum.lmm_stripe_count = stripe_count;
         lum.lmm_stripe_offset = stripe_offset;
         if (pool_name != NULL) {
-                strncpy(lum.lmm_pool_name, pool_name, LOV_MAXPOOLNAME);
+		strlcpy(lum.lmm_pool_name, pool_name,
+			sizeof(lum.lmm_pool_name));
         } else {
                 /* If no pool is specified at all, use V1 request */
                 lum.lmm_magic = LOV_USER_MAGIC_V1;
@@ -833,7 +841,8 @@ int llapi_dir_set_default_lmv_stripe(const char *name, int stripe_offset,
 				  ": too large pool name: %s", name, pool_name);
 			return -E2BIG;
 		}
-		strncpy(lum.lum_pool_name, pool_name, strlen(pool_name));
+		strncpy(lum.lum_pool_name, pool_name,
+			sizeof(lum.lum_pool_name));
 	}
 
 	fd = open(name, O_DIRECTORY | O_RDONLY);
@@ -1095,19 +1104,20 @@ int llapi_search_fsname(const char *pathname, char *fsname)
 
         path = realpath(pathname, NULL);
         if (path == NULL) {
-                char buf[PATH_MAX + 1], *ptr;
+		char buf[PATH_MAX], *ptr;
 
-                buf[0] = 0;
-                if (pathname[0] != '/') {
-                        /* Need an absolute path, but realpath() only works for
-                         * pathnames that actually exist.  We go through the
-                         * extra hurdle of dirname(getcwd() + pathname) in
-                         * case the relative pathname contains ".." in it. */
-                        if (getcwd(buf, sizeof(buf) - 1) == NULL)
-                                return -errno;
-                        strcat(buf, "/");
-                }
-                strncat(buf, pathname, sizeof(buf) - strlen(buf));
+		buf[0] = '\0';
+		if (pathname[0] != '/') {
+			/* Need an absolute path, but realpath() only works for
+			 * pathnames that actually exist.  We go through the
+			 * extra hurdle of dirname(getcwd() + pathname) in
+			 * case the relative pathname contains ".." in it. */
+			if (getcwd(buf, sizeof(buf) - 2) == NULL)
+				return -errno;
+			strncat(buf, "/", sizeof(buf) - strlen(buf));
+		}
+		strncat(buf, pathname, sizeof(buf) - strlen(buf));
+		buf[sizeof(buf) - 1] = '\0';
                 path = realpath(buf, NULL);
                 if (path == NULL) {
                         ptr = strrchr(buf, '/');
@@ -1203,18 +1213,18 @@ static int poolpath(char *fsname, char *pathname, char *pool_pathname)
 int llapi_get_poolmembers(const char *poolname, char **members,
                           int list_size, char *buffer, int buffer_size)
 {
-        char fsname[PATH_MAX + 1];
-        char *pool, *tmp;
-        char pathname[PATH_MAX + 1];
-        char path[PATH_MAX + 1];
-        char buf[1024];
+	char fsname[PATH_MAX];
+	char *pool, *tmp;
+	char pathname[PATH_MAX];
+	char path[PATH_MAX];
+	char buf[1024];
         FILE *fd;
         int rc = 0;
         int nb_entries = 0;
         int used = 0;
 
         /* name is FSNAME.POOLNAME */
-        if (strlen(poolname) > PATH_MAX)
+	if (strlen(poolname) > sizeof(fsname) - 1)
                 return -EOVERFLOW;
         strcpy(fsname, poolname);
         pool = strchr(fsname, '.');
@@ -1233,7 +1243,10 @@ int llapi_get_poolmembers(const char *poolname, char **members,
         }
 
         llapi_printf(LLAPI_MSG_NORMAL, "Pool: %s.%s\n", fsname, pool);
-        sprintf(path, "%s/%s", pathname, pool);
+	rc = snprintf(path, sizeof(path), "%s/%s", pathname, pool);
+	if (rc >= sizeof(path))
+		return -EOVERFLOW;
+	path[sizeof(path) - 1] = '\0';
         fd = fopen(path, "r");
         if (fd == NULL) {
                 rc = -errno;
@@ -1247,6 +1260,7 @@ int llapi_get_poolmembers(const char *poolname, char **members,
                         rc = -EOVERFLOW;
                         break;
                 }
+		buf[sizeof(buf) - 1] = '\0';
                 /* remove '\n' */
                 tmp = strchr(buf, '\n');
                 if (tmp != NULL)
@@ -1391,8 +1405,14 @@ int llapi_poollist(const char *name)
         int obdcount, bufsize, rc, nb, i;
         char *poolname = NULL, *tmp = NULL, data[16];
 
-        if (name[0] != '/') {
-                fsname = strdup(name);
+	if (name == NULL)
+		return -EINVAL;
+
+	if (name[0] != '/') {
+		fsname = strdup(name);
+		if (fsname == NULL)
+			return -ENOMEM;
+
                 poolname = strchr(fsname, '.');
                 if (poolname)
                         *poolname = '\0';
@@ -1552,7 +1572,7 @@ static int get_lmd_info(char *path, DIR *parent, DIR *dir,
 
                 fname = (fname == NULL ? path : fname + 1);
                 /* retrieve needed file info */
-                strncpy((char *)lmd, fname, lumlen);
+		strlcpy((char *)lmd, fname, lumlen);
                 ret = ioctl(dirfd(parent), IOC_MDC_GETFILEINFO, (void *)lmd);
         }
 
@@ -2219,10 +2239,10 @@ static int sattr_cache_get_defaults(const char *const fsname,
                 if (rc)
                         return rc;
         } else {
-                strncpy(fsname_buf, fsname, PATH_MAX);
+		strlcpy(fsname_buf, fsname, sizeof(fsname_buf));
         }
 
-        if (strncmp(fsname_buf, cache.fsname, PATH_MAX) != 0) {
+	if (strncmp(fsname_buf, cache.fsname, sizeof(fsname_buf)) != 0) {
                 /*
                  * Ensure all 3 sattrs (count, size, and offset) are
                  * successfully retrieved and stored in tmp before writing to
@@ -2236,7 +2256,7 @@ static int sattr_cache_get_defaults(const char *const fsname,
                 cache.stripecount = tmp[0];
                 cache.stripesize = tmp[1];
                 cache.stripeoffset = tmp[2];
-                strncpy(cache.fsname, fsname_buf, PATH_MAX);
+		strlcpy(cache.fsname, fsname_buf, sizeof(cache.fsname));
         }
 
         if (scount)
@@ -2514,8 +2534,7 @@ void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
                 struct lov_user_ost_data_v1 *objects;
                 struct lov_user_md_v3 *lmmv3 = (void *)&param->lmd->lmd_lmm;
 
-                strncpy(pool_name, lmmv3->lmm_pool_name, LOV_MAXPOOLNAME);
-                pool_name[LOV_MAXPOOLNAME] = '\0';
+		strlcpy(pool_name, lmmv3->lmm_pool_name, sizeof(pool_name));
                 objects = lmmv3->lmm_objects;
                 lov_dump_user_lmm_v1v3(&param->lmd->lmd_lmm, pool_name,
                                        objects, path, is_dir,
@@ -2529,7 +2548,7 @@ void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
 		struct lmv_user_md *lum;
 
 		lum = (struct lmv_user_md *)param->fp_lmv_md;
-		strncpy(pool_name, lum->lum_pool_name, LOV_MAXPOOLNAME);
+		strlcpy(pool_name, lum->lum_pool_name, sizeof(pool_name));
 		lmv_dump_user_lmm(lum, pool_name, path,
 				  param->obdindex, param->maxdepth,
 				  param->verbose);
@@ -3321,7 +3340,7 @@ static int cb_getstripe(char *path, DIR *parent, DIR **dirp, void *data,
 			goto out;
 		}
 
-		strncpy((char *)&param->lmd->lmd_lmm, fname, param->lumlen);
+		strlcpy((char *)&param->lmd->lmd_lmm, fname, param->lumlen);
 
 		ret = ioctl(dirfd(parent), IOC_MDC_GETFILESTRIPE,
 			    (void *)&param->lmd->lmd_lmm);

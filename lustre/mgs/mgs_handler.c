@@ -546,8 +546,7 @@ static int mgs_llog_open(struct tgt_session_info *tsi)
 				      tgt_name(tsi->tsi_tgt), logname);
 			/* not error, this can be llog test name */
 		} else {
-			strncpy(mgi->mgi_fsname, logname, len);
-			mgi->mgi_fsname[len] = 0;
+			strlcpy(mgi->mgi_fsname, logname, len);
 
 			rc = mgs_fsc_attach(tsi->tsi_env, tsi->tsi_exp,
 					    mgi->mgi_fsname);
