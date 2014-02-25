@@ -462,7 +462,7 @@ int Parser_help(int argc, char **argv)
         for ( i = 1 ;  i < argc ; i++ ) {
 		if (strlen(argv[i]) > sizeof(line)-strlen(line)-1)
 			return -E2BIG;
-		strncat(line, argv[i], sizeof(line)-strlen(line)-1);
+		strncat(line, argv[i], sizeof(line)-strlen(line));
         }
 
         switch ( process(line, &next, top_level, &result, &prev) ) {
@@ -544,6 +544,7 @@ char *Parser_getstr(const char *prompt, const char *deft, char *res,
         } else {
                 strncpy(res, line, len);
         }
+	res[len - 1] = '\0';
 
         if ( line ) {
                 free(line);

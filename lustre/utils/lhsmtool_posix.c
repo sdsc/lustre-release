@@ -366,6 +366,9 @@ static int ct_mkdir_p(const char *path)
 	int	 rc;
 
 	ptr = strdup(path);
+	if (ptr == NULL)
+		return -errno;
+
 	saved = ptr;
 	while (*ptr == '/')
 		ptr++;
@@ -1680,21 +1683,28 @@ out:
 
 static int ct_max_sequence(void)
 {
-	int   rc, i;
-	char  path[PATH_MAX];
-	__u64 seq = 0;
-	__u16 subseq;
+	int	rc, i;
+	char	path[PATH_MAX];
+	__u64	seq = 0;
+	__u16	subseq;
 
-	strncpy(path, opt.o_hsm_root, sizeof(path));
+	strlcpy(path, opt.o_hsm_root, sizeof(path));
 	/* FID sequence is stored in top-level directory names:
 	 * hsm_root/16bits (high weight)/16 bits/16 bits/16 bits (low weight).
 	 */
 	for (i = 0; i < 4; i++) {
+		size_t path_len;
+
 		rc = ct_dir_level_max(path, &subseq);
 		if (rc != 0)
 			return rc;
 		seq |= ((__u64)subseq << ((3 - i) * 16));
-		sprintf(path + strlen(path), "/%04x", subseq);
+		path_len = strlen(path);
+		rc = snprintf(path + path_len, sizeof(path) - path_len,
+			      "/%04x", subseq);
+		if (rc >= (sizeof(path) - path_len))
+			return -E2BIG;
+		path[sizeof(path) - 1] = '\0';
 	}
 
 	printf("max_sequence: "LPX64"\n", seq);
@@ -1861,7 +1871,7 @@ int main(int argc, char **argv)
 {
 	int	rc;
 
-	strncpy(cmd_name, basename(argv[0]), sizeof(cmd_name));
+	strlcpy(cmd_name, basename(argv[0]), sizeof(cmd_name));
 	rc = ct_parseopts(argc, argv);
 	if (rc < 0) {
 		CT_WARN("try '%s --help' for more information", cmd_name);
