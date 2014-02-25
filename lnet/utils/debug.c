@@ -562,8 +562,9 @@ print:
 
 int jt_dbg_debug_kernel(int argc, char **argv)
 {
-        char filename[4096];
-        struct stat st;
+	struct stat st;
+	char filename[PATH_MAX];
+	size_t filename_size = sizeof(filename) - 1;
         int raw = 0;
         int save_errno;
         int fdin;
@@ -586,20 +587,21 @@ int jt_dbg_debug_kernel(int argc, char **argv)
          * then dump directly to any supplied filename, otherwise this is
          * just a temp file and we dump to the real file at convert time. */
 	if (argc > 1 && raw) {
-		if (strlen(argv[1]) > sizeof(filename)-1) {
+		if (strlen(argv[1]) > filename_size) {
 			fprintf(stderr, "File name too long: %s\n", argv[1]);
 			return 1;
 		}
-		strncpy(filename, argv[1], sizeof(filename));
+		strncpy(filename, argv[1], filename_size);
 	} else {
-		if (snprintf(filename, sizeof(filename), "%s"CFS_TIME_T".%u",
+		if (snprintf(filename, filename_size, "%s"CFS_TIME_T".%u",
 			     LIBCFS_DEBUG_FILE_PATH_DEFAULT, time(NULL),
 			     getpid()) >=
-		    sizeof(filename)) {
+		    filename_size) {
 			fprintf(stderr, "File name too long\n");
 			return 1;
 		}
 	}
+	filename[filename_size] = '\0';
 
         if (stat(filename, &st) == 0 && S_ISREG(st.st_mode))
                 unlink(filename);
@@ -806,29 +808,28 @@ int jt_dbg_clear_debug_buf(int argc, char **argv)
 
 int jt_dbg_mark_debug_buf(int argc, char **argv)
 {
-        static char scratch[MAX_MARK_SIZE] = { '\0' };
-        int rc, max_size = MAX_MARK_SIZE-1;
-        struct libcfs_ioctl_data data = { 0 };
-        char *text;
-        time_t now = time(NULL);
+	static char scratch[MAX_MARK_SIZE] = { '\0' };
+	int rc, max_size = sizeof(scratch) - 1;
+	struct libcfs_ioctl_data data = { 0 };
+	time_t now = time(NULL);
 
-        if (argc > 1) {
-                int count;
-                text = scratch;
-                strncpy(text, argv[1], max_size);
-                max_size-=strlen(argv[1]);
-                for (count = 2; (count < argc) && (max_size > 0); count++){
-                        strncat(text, " ", max_size);
-                        max_size -= 1;
-                        strncat(text, argv[count], max_size);
-                        max_size -= strlen(argv[count]);
-                }
-        } else {
-                text = ctime(&now);
-        }
+	if (argc > 1) {
+		int count;
+		strncpy(scratch, argv[1], max_size);
+		max_size -= strlen(argv[1]);
+		for (count = 2; (count < argc) && (max_size > 1); count++) {
+			strncat(scratch, " ", max_size);
+			max_size -= 1;
+			strncat(scratch, argv[count], max_size);
+			max_size -= strlen(argv[count]);
+		}
+		scratch[sizeof(scratch) - 1] = '\0';
+	} else {
+		scratch = ctime(&now);
+	}
 
-        data.ioc_inllen1 = strlen(text) + 1;
-        data.ioc_inlbuf1 = text;
+	data.ioc_inllen1 = strlen(scratch) + 1;
+	data.ioc_inlbuf1 = scratch;
         if (libcfs_ioctl_pack(&data, &buf, max) != 0) {
                 fprintf(stderr, "libcfs_ioctl_pack failed.\n");
                 return -1;
@@ -894,7 +895,7 @@ int jt_dbg_modules(int argc, char **argv)
         char *path = "";
         const char *proc = "/proc/modules";
         char modname[128], buf[4096];
-        long modaddr;
+	unsigned long modaddr;
         FILE *file;
 
         if (argc >= 2)
