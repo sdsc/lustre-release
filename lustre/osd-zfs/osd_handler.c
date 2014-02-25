@@ -516,7 +516,8 @@ static int osd_mount(const struct lu_env *env,
 		     struct osd_device *o, struct lustre_cfg *cfg)
 {
 	struct dsl_dataset	*ds;
-	char			*dev  = lustre_cfg_string(cfg, 1);
+	char			*mntdev = lustre_cfg_string(cfg, 1);
+	char			*svname = lustre_cfg_string(cfg, 4);
 	dmu_buf_t		*rootdb;
 	dsl_pool_t		*dp;
 	int			 rc;
@@ -525,12 +526,17 @@ static int osd_mount(const struct lu_env *env,
 	if (o->od_objset.os != NULL)
 		RETURN(0);
 
-	if (strlen(dev) >= sizeof(o->od_mntdev))
+	if (mntdev == NULL || svname == NULL)
+		RETURN(-EINVAL);
+
+	if (strlen(mntdev) >= sizeof(o->od_mntdev))
 		RETURN(-E2BIG);
 
-	strcpy(o->od_mntdev, dev);
-	strncpy(o->od_svname, lustre_cfg_string(cfg, 4),
-		sizeof(o->od_svname) - 1);
+	if (strlen(svname) >= sizeof(o->od_svname))
+		RETURN(-E2BIG);
+
+	strlcpy(o->od_mntdev, mntdev, sizeof(o->od_mntdev));
+	strlcpy(o->od_svname, svname, sizeof(o->od_svname));
 
 	rc = osd_zfs_acct_init(env, o);
 	if (rc)

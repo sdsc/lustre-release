@@ -672,8 +672,8 @@ lnet_parse_route (char *str, int *im_a_router)
 	CFS_INIT_LIST_HEAD(&nets);
 
 	/* save a copy of the string for error messages */
-	strncpy(cmd, str, sizeof(cmd) - 1);
-	cmd[sizeof(cmd) - 1] = 0;
+	strncpy(cmd, str, sizeof(cmd));
+	cmd[sizeof(cmd) - 1] = '\0';
 
 	sep = str;
 	for (;;) {
@@ -694,7 +694,7 @@ lnet_parse_route (char *str, int *im_a_router)
 			sep++;
 		if (*sep != 0)
 			*sep++ = 0;
-		
+
 		if (ntokens == 1) {
 			tmp2 = &nets;		/* expanding nets */
                 } else if (ntokens == 2 &&
@@ -1042,8 +1042,8 @@ lnet_match_networks (char **networksp, char *ip2nets, __u32 *ipaddrs, int nip)
                 tb = cfs_list_entry(raw_entries.next, lnet_text_buf_t,
                                     ltb_list);
 
-                strncpy(source, tb->ltb_text, sizeof(source)-1);
-                source[sizeof(source)-1] = 0;
+		strncpy(source, tb->ltb_text, sizeof(source));
+		source[sizeof(source) - 1] = 0;
 
                 /* replace ltb_text with the network(s) add on match */
                 rc = lnet_match_network_tokens(tb->ltb_text, ipaddrs, nip);
