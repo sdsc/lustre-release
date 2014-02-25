@@ -201,8 +201,7 @@ static struct ctl_table kmxlnd_top_ctl_table[] = {
 void
 kmxlnd_initstrtunable(char *space, char *str, int size)
 {
-        strncpy(space, str, size);
-        space[size-1] = 0;
+	strlcpy(space, str, size);
 }
 
 void

@@ -303,8 +303,7 @@ dt_store_resolve(const struct lu_env *env, struct dt_device *dt,
         dfh->dfh_dt = dt;
         dfh->dfh_fid = fid;
 
-        strncpy(local, path, DT_MAX_PATH);
-        local[DT_MAX_PATH - 1] = '\0';
+	strlcpy(local, path, DT_MAX_PATH);
 
         result = dt->dd_ops->dt_root_get(env, dt, fid);
         if (result == 0) {

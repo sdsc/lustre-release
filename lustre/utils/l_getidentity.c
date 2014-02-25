@@ -128,8 +128,7 @@ int get_groups_local(struct identity_downcall_data *data,
 		return -1;
 	}
 
-	memset(pw_name, 0, namelen);
-	strncpy(pw_name, pw->pw_name, namelen - 1);
+	strlcpy(pw_name, pw->pw_name, namelen);
 	groups = data->idd_groups;
 
 	/* Allocate array of size maxgroups instead of handling two

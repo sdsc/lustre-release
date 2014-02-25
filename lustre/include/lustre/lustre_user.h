@@ -469,8 +469,7 @@ static inline int obd_uuid_empty(struct obd_uuid *uuid)
 
 static inline void obd_str2uuid(struct obd_uuid *uuid, const char *tmp)
 {
-        strncpy((char *)uuid->uuid, tmp, sizeof(*uuid));
-        uuid->uuid[sizeof(*uuid) - 1] = '\0';
+	strlcpy((char *)uuid->uuid, tmp, sizeof(*uuid));
 }
 
 /* For printf's only, make sure uuid is terminated */
@@ -495,13 +494,12 @@ static inline char *obd_uuid2str(const struct obd_uuid *uuid)
    see also deuuidify. */
 static inline void obd_uuid2fsname(char *buf, char *uuid, int buflen)
 {
-        char *p;
+	char *p;
 
-        strncpy(buf, uuid, buflen - 1);
-        buf[buflen - 1] = '\0';
-        p = strrchr(buf, '-');
-        if (p)
-           *p = '\0';
+	strlcpy(buf, uuid, buflen);
+	p = strrchr(buf, '-');
+	if (p != NULL)
+		*p = '\0';
 }
 
 /* printf display format
