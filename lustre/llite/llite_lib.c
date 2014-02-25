@@ -2706,8 +2706,7 @@ char *ll_get_fsname(struct super_block *sb, char *buf, int buflen)
 
 	if (unlikely(len >= buflen))
 		len = buflen - 1;
-	strncpy(buf, lsi->lsi_lmd->lmd_profile, len);
-	buf[len] = '\0';
+	strlcpy(buf, lsi->lsi_lmd->lmd_profile, len);
 
 	return buf;
 }

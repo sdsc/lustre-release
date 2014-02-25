@@ -4022,10 +4022,10 @@ static int extract_fsname_poolname(char *arg, char *fsname, char *poolname)
                 rc = -EINVAL;
                 goto err;
         }
-        if (len > LOV_MAXPOOLNAME) {
-                fprintf(stderr,
-                        "poolname %s is too long (length is %d max is %d)\n",
-                        ptr + 1, len, LOV_MAXPOOLNAME);
+	if (len >= LOV_MAXPOOLNAME) {
+		fprintf(stderr,
+			"poolname %s is too long (length is %d max is %d)\n",
+			ptr + 1, len, LOV_MAXPOOLNAME - 1);
                 rc = -ENAMETOOLONG;
                 goto err;
         }
