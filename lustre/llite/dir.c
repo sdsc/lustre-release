@@ -1838,7 +1838,7 @@ out_rmdir:
 		OBD_FREE_PTR(hur);
 
 		/* Make sure the size is reasonable */
-		if (totalsize >= MDS_MAXREQSIZE)
+		if (totalsize >= MDS_MAXREQSIZE / 4)
 			RETURN(-E2BIG);
 
 		OBD_ALLOC_LARGE(hur, totalsize);
