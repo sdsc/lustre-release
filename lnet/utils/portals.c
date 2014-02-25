@@ -1049,7 +1049,7 @@ jt_ptl_fail_nid (int argc, char **argv)
 {
         int                      rc;
         lnet_nid_t               nid;
-        unsigned int             threshold;
+	int			 threshold;
         struct libcfs_ioctl_data data;
 
         if (argc < 2 || argc > 3)
@@ -1066,14 +1066,14 @@ jt_ptl_fail_nid (int argc, char **argv)
 
         if (argc < 3) {
                 threshold = LNET_MD_THRESH_INF;
-        } else if (sscanf (argv[2], "%i", &threshold) != 1) {
+	} else if (sscanf(argv[2], "%i", &threshold) != 1) {
                 fprintf (stderr, "Can't parse count \"%s\"\n", argv[2]);
                 return (-1);
         }
 
         LIBCFS_IOC_INIT (data);
         data.ioc_nid = nid;
-        data.ioc_count = threshold;
+	data.ioc_count = (__u32)threshold;
 
         rc = l_ioctl (LNET_DEV_ID, IOC_LIBCFS_FAIL_NID, &data);
         if (rc < 0)
