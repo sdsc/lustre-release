@@ -1765,9 +1765,8 @@ static int mgc_process_cfg_log(struct obd_device *mgc,
 						 cld->cld_logname);
 		if (local_only || rc) {
 			if (llog_is_empty(env, lctxt, cld->cld_logname)) {
-				LCONSOLE_ERROR_MSG(0x13a, "Failed to get MGS "
-						   "log %s and no local copy."
-						   "\n", cld->cld_logname);
+				CDEBUG(D_MGC, "Failed to get MGS log %s and "
+				       "no local copy.\n", cld->cld_logname);
 				GOTO(out_pop, rc = -ENOENT);
 			}
 			CDEBUG(D_MGC, "Failed to get MGS log %s, using local "
