@@ -5398,7 +5398,7 @@ static int mdt_path_current(struct mdt_thread_info *info,
 		ptr -= tmpname->ln_namelen;
 		if (ptr - 1 <= pli->pli_path)
 			GOTO(out, rc = -EOVERFLOW);
-		strncpy(ptr, tmpname->ln_name, tmpname->ln_namelen);
+		strlcpy(ptr, tmpname->ln_name, tmpname->ln_namelen);
 		*(--ptr) = '/';
 
 		/* Store the parent fid for historic lookup */
