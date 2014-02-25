@@ -269,14 +269,16 @@ gid_t current_fsgid(void)
 }
 
 #ifndef HAVE_STRLCPY /* not in glibc for RHEL 5.x, remove when obsolete */
-size_t strlcpy(char *tgt, const char *src, size_t tgt_len)
+size_t strlcpy(char *dst, const char *src, size_t size)
 {
-	int src_len = strlen(src);
+	size_t ret = strlen(src);
 
-	strncpy(tgt, src, tgt_len - 1);
-	tgt[tgt_len - 1] = '\0';
-
-	return src_len + 1;
+	if (size) {
+		size_t len = (ret >= size) ? size - 1 : ret;
+		memcpy(dst, src, len);
+		dst[len] = '\0';
+	}
+	return ret;
 }
 #endif
 

@@ -569,8 +569,7 @@ int lr_get_symlink(struct lr_info *info)
         } else {
                 link = info->linktmp;
         }
-        strncpy(info->link, link, PATH_MAX);
-        info->link[PATH_MAX] = '\0';
+	strlcpy(info->link, link, sizeof(info->link));
 
         return rc;
 }
@@ -1121,21 +1120,18 @@ int lr_parse_line(void *priv, struct lr_info *info)
         info->type = rec->cr_type;
         sprintf(info->tfid, DFID, PFID(&rec->cr_tfid));
         sprintf(info->pfid, DFID, PFID(&rec->cr_pfid));
-        strncpy(info->name, rec->cr_name, rec->cr_namelen);
+	strlcpy(info->name, rec->cr_name, rec->cr_namelen);
 
 	if (fid_is_sane(&rec->cr_sfid)) {
 		sprintf(info->sfid, DFID, PFID(&rec->cr_sfid));
 		sprintf(info->spfid, DFID, PFID(&rec->cr_spfid));
-		strncpy(info->sname, changelog_rec_sname(rec),
+		strlcpy(info->sname, changelog_rec_sname(rec),
 			changelog_rec_snamelen(rec));
-		info->sname[changelog_rec_snamelen(rec)] = '\0';
 
 		if (verbose > 1)
 			printf("Rec %lld: %d %s %s\n", info->recno, info->type,
 				info->name, info->sname);
 	} else {
-		info->name[rec->cr_namelen] = '\0';
-
 		if (verbose > 1)
 			printf("Rec %lld: %d %s\n", info->recno, info->type,
 				info->name);
@@ -1281,20 +1277,21 @@ int lr_read_log()
         if (status->ls_last_recno == -1)
                 status->ls_last_recno = s->ls_last_recno;
 
-        if (status->ls_registration[0] == '\0')
-                strncpy(status->ls_registration, s->ls_registration,
-                        LR_NAME_MAXLEN);
+	if (status->ls_registration[0] == '\0')
+		strlcpy(status->ls_registration, s->ls_registration,
+			sizeof(status->ls_registration));
 
-        if (status->ls_mdt_device[0] == '\0')
-                strncpy(status->ls_mdt_device, s->ls_mdt_device,
-                        LR_NAME_MAXLEN);
+	if (status->ls_mdt_device[0] == '\0')
+		strlcpy(status->ls_mdt_device, s->ls_mdt_device,
+			sizeof(status->ls_mdt_device));
 
-        if (status->ls_source_fs[0] == '\0')
-                strncpy(status->ls_source_fs, s->ls_source_fs,
-                        LR_NAME_MAXLEN);
+	if (status->ls_source_fs[0] == '\0')
+		strlcpy(status->ls_source_fs, s->ls_source_fs,
+			sizeof(status->ls_source_fs));
 
-        if (status->ls_source[0] == '\0')
-                strncpy(status->ls_source, s->ls_source, PATH_MAX);
+	if (status->ls_source[0] == '\0')
+		strlcpy(status->ls_source, s->ls_source,
+			sizeof(status->ls_source));
 
  out:
         if (fd != -1)
@@ -1308,9 +1305,9 @@ int lr_read_log()
    processing. */
 int lr_clear_cl(struct lr_info *info, int force)
 {
-        char    mdt_device[LR_NAME_MAXLEN + 1];
-        long long rec;
-        int rc = 0;
+	char		mdt_device[LR_NAME_MAXLEN + 1];
+	long long	rec;
+	int		rc = 0;
 
         if (force || info->recno > status->ls_last_recno + CLEAR_INTERVAL) {
                 if (info->type == CL_RENAME)
@@ -1322,8 +1319,8 @@ int lr_clear_cl(struct lr_info *info, int force)
                          * device name so make a copy of it until this
                          * is fixed.
                         */
-                        strncpy(mdt_device, status->ls_mdt_device,
-                                LR_NAME_MAXLEN);
+			strlcpy(mdt_device, status->ls_mdt_device,
+				sizeof(mdt_device));
                         rc = llapi_changelog_clear(mdt_device,
                                                    status->ls_registration,
                                                    rec);
@@ -1495,8 +1492,8 @@ int lr_replicate()
 			memcpy(info->spfid, info->pfid, sizeof(info->spfid));
 			memcpy(info->tfid, ext->tfid, sizeof(info->tfid));
 			memcpy(info->pfid, ext->pfid, sizeof(info->pfid));
-			strncpy(info->sname, info->name, sizeof(info->sname));
-			strncpy(info->name, ext->name, sizeof(info->name));
+			strlcpy(info->sname, info->name, sizeof(info->sname));
+			strlcpy(info->name, ext->name, sizeof(info->name));
 			info->is_extended = 1;
 		}
 
@@ -1603,7 +1600,8 @@ int main(int argc, char *argv[])
                         break;
                 case 's':
                         /* Assume absolute paths */
-                        strncpy(status->ls_source, optarg, PATH_MAX);
+			strlcpy(status->ls_source, optarg,
+				sizeof(status->ls_source));
                         break;
                 case 't':
                         status->ls_num_targets++;
@@ -1624,16 +1622,16 @@ int main(int argc, char *argv[])
                                 if (status == NULL)
                                         return -ENOMEM;
                         }
-                        strncpy(status->ls_targets[status->ls_num_targets - 1],
-                                optarg,
-                                PATH_MAX);
+			strlcpy(status->ls_targets[status->ls_num_targets - 1],
+				optarg, sizeof(status->ls_targets[0]));
                         break;
                 case 'm':
-                        strncpy(status->ls_mdt_device, optarg, LR_NAME_MAXLEN);
+			strlcpy(status->ls_mdt_device, optarg,
+				sizeof(status->ls_mdt_device));
                         break;
                 case 'u':
-                        strncpy(status->ls_registration, optarg,
-                                LR_NAME_MAXLEN);
+			strlcpy(status->ls_registration, optarg,
+				sizeof(status->ls_registration));
                         break;
                 case 'l':
                         statuslog = optarg;
