@@ -1066,7 +1066,7 @@ jt_ptl_fail_nid (int argc, char **argv)
 
         if (argc < 3) {
                 threshold = LNET_MD_THRESH_INF;
-        } else if (sscanf (argv[2], "%i", &threshold) != 1) {
+	} else if (sscanf(argv[2], "%u", &threshold) != 1) {
                 fprintf (stderr, "Can't parse count \"%s\"\n", argv[2]);
                 return (-1);
         }
