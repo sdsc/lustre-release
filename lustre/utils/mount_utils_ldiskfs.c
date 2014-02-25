@@ -652,8 +652,7 @@ static char *moveopts_to_end(char *start)
 		++end;
 
 	/* save options */
-	strncpy(save, start, end - start);
-	save[end - start] = '\0';
+	strlcpy(save, start, end - start);
 
 	/* move remaining options up front */
 	if (*end)

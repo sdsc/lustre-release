@@ -274,7 +274,7 @@ int llapi_json_add_item(struct llapi_json_item_list **json_items,
 	if (new_item->lji_key == NULL)
 		return -ENOMEM;
 
-	strncpy(new_item->lji_key, key, strlen(key));
+	strlcpy(new_item->lji_key, key, strlen(key));
 	new_item->lji_type = type;
 	new_item->lji_next = NULL;
 
@@ -292,7 +292,7 @@ int llapi_json_add_item(struct llapi_json_item_list **json_items,
 		new_item->lji_string = calloc(1, strlen((char *)val) + 1);
 		if (new_item->lji_string == NULL)
 			return -ENOMEM;
-		strncpy(new_item->lji_string,
+		strlcpy(new_item->lji_string,
 			(char *)val, strlen((char *)val));
 		break;
 	default:

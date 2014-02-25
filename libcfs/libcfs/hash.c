@@ -1056,7 +1056,7 @@ cfs_hash_create(char *name, unsigned cur_bits, unsigned max_bits,
         if (hs == NULL)
                 RETURN(NULL);
 
-	strncpy(hs->hs_name, name, len);
+	strlcpy(hs->hs_name, name, len);
 	hs->hs_name[len - 1] = '\0';
 	hs->hs_flags = flags;
 
