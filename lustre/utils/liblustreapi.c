@@ -119,6 +119,17 @@ static const int S_IFMAX = DT_SOCK;
 /* liblustreapi message level */
 static int llapi_msg_level = LLAPI_MSG_MAX;
 
+const char *llapi_msg_level2str(enum llapi_message_level level)
+{
+	static const char *levels[LLAPI_MSG_MAX] = {"OFF", "FATAL", "ERROR",
+					"WARNING", "NORMAL", "INFO", "DEBUG"};
+
+	if (level >= LLAPI_MSG_MAX)
+		return NULL;
+
+	return levels[level];
+}
+
 void llapi_msg_set_level(int level)
 {
         /* ensure level is in the good range */
@@ -598,6 +609,12 @@ static int get_mds_md_size(const char *path)
 
 out:
 	return md_size;
+}
+
+int llapi_get_agent_uuid(char *path, char *buf, size_t bufsize)
+{
+
+	return get_param_lmv(path, "uuid", buf, bufsize);
 }
 
 /*
