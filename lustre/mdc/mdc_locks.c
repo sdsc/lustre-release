@@ -1167,7 +1167,7 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
 	LASSERT(it);
 
 	CDEBUG(D_DLMTRACE, "(name: %.*s,"DFID") in obj "DFID
-		", intent: %s flags %#Lo\n", op_data->op_namelen,
+		", intent: %s flags "LPO64"\n", op_data->op_namelen,
 		op_data->op_name, PFID(&op_data->op_fid2),
 		PFID(&op_data->op_fid1), ldlm_it2str(it->it_op),
 		it->it_flags);
@@ -1276,9 +1276,9 @@ int mdc_intent_getattr_async(struct obd_export *exp,
 	__u64                    flags = LDLM_FL_HAS_INTENT;
 	ENTRY;
 
-	CDEBUG(D_DLMTRACE,"name: %.*s in inode "DFID", intent: %s flags %#Lo\n",
-		op_data->op_namelen, op_data->op_name, PFID(&op_data->op_fid1),
-		ldlm_it2str(it->it_op), it->it_flags);
+	CDEBUG(D_DLMTRACE, "name: %.*s in inode "DFID", intent: %s ",
+	       "flags "LPO64"\n", op_data->op_namelen, op_data->op_name,
+	       PFID(&op_data->op_fid1), ldlm_it2str(it->it_op), it->it_flags);
 
 	fid_build_reg_res_name(&op_data->op_fid1, &res_id);
 	req = mdc_intent_getattr_pack(exp, it, op_data);
