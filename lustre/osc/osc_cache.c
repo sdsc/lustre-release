@@ -223,9 +223,6 @@ static int osc_extent_sanity_check0(struct osc_extent *ext,
 	if (ext->oe_max_end < ext->oe_end || ext->oe_end < ext->oe_start)
 		GOTO(out, rc = 80);
 
-	if (ext->oe_sync && ext->oe_grants > 0)
-		GOTO(out, rc = 90);
-
 	if (ext->oe_dlmlock != NULL) {
 		struct ldlm_extent *extent;
 
@@ -820,7 +817,8 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 	struct client_obd *cli = osc_cli(ext->oe_obj);
 	struct osc_async_page *oap;
 	struct osc_async_page *tmp;
-	int nr_pages = ext->oe_nr_pages;
+	int nr_pages = ext->oe_sync ? (ext->oe_grants >> PAGE_CACHE_SHIFT) :
+				ext->oe_nr_pages;
 	int lost_grant = 0;
 	int blocksize = cli->cl_import->imp_obd->obd_osfs.os_bsize ? : 4096;
 	__u64 last_off = 0;
@@ -837,10 +835,12 @@ int osc_extent_finish(const struct lu_env *env, struct osc_extent *ext,
 				     oap_pending_item) {
 		list_del_init(&oap->oap_rpc_item);
 		list_del_init(&oap->oap_pending_item);
-		if (last_off <= oap->oap_obj_off) {
+		if (last_off <= oap->oap_obj_off &&
+		    oap->oap_brw_page.flag & OBD_BRW_FROM_GRANT) {
 			last_off = oap->oap_obj_off;
 			last_count = oap->oap_count;
 		}
+		oap->oap_brw_page.flag &= ~OBD_BRW_FROM_GRANT;
 
 		--ext->oe_nr_pages;
 		osc_ap_completion(env, cli, oap, sent, rc);
@@ -1880,7 +1880,7 @@ static int try_to_add_extent_for_io(struct client_obd *cli,
 		}
 
 		if (tmp->oe_srvlock != ext->oe_srvlock ||
-		    !tmp->oe_grants != !ext->oe_grants)
+		    tmp->oe_sync != ext->oe_sync)
 			RETURN(0);
 
 		/* remove break for strict check */
@@ -2617,7 +2617,10 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 	int     mppr       = cli->cl_max_pages_per_rpc;
 	pgoff_t start      = CL_PAGE_EOF;
 	pgoff_t end        = 0;
+	unsigned int grant = 0;
 	ENTRY;
+
+	client_obd_list_lock(&cli->cl_loi_list_lock);
 
 	list_for_each_entry(oap, list, oap_pending_item) {
 		pgoff_t index = osc_index(oap2osc(oap));
@@ -2627,7 +2630,19 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 			start = index;
 		++page_count;
 		mppr <<= (page_count > mppr);
+
+		/* sync write should consume grant if it's available,
+		 * otherwise, it could fail for ENOSPC when there is
+		 * still available space reserved by grant. */
+		if (cmd == OBD_BRW_WRITE &&
+		    !(oap->oap_brw_page.flag & OBD_BRW_FROM_GRANT) &&
+		    cli->cl_avail_grant >= PAGE_CACHE_SIZE) {
+			cli->cl_avail_grant -= PAGE_CACHE_SIZE;
+			osc_consume_write_grant(cli, &oap->oap_brw_page);
+			grant += PAGE_CACHE_SIZE;
+		}
 	}
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
 
 	ext = osc_extent_alloc(obj);
 	if (ext == NULL) {
@@ -2648,6 +2663,7 @@ int osc_queue_sync_pages(const struct lu_env *env, struct osc_object *obj,
 	ext->oe_nr_pages = page_count;
 	ext->oe_mppr = mppr;
 	list_splice_init(list, &ext->oe_pages);
+	ext->oe_grants = grant;
 
 	osc_object_lock(obj);
 	/* Reuse the initial refcount for RPC, don't drop it */
