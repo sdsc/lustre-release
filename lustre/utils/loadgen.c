@@ -670,7 +670,7 @@ static void report_perf()
 static void *run_one_child(void *threadvp)
 {
         struct kid_t *kid;
-        char oname[10], ename[10];
+	char oname[16], ename[16];
         int thread = (long)threadvp, dev = 0;
         int rc = 0, err;
 

@@ -69,7 +69,7 @@ static int line2args(char *line, char **argv, int maxargs)
         } else
                 return 0;
 
-        while( (arg = strtok(NULL, " \t")) && (i <= maxargs)) {
+	while ((arg = strtok(NULL, " \t")) && (i < maxargs)) {
                 argv[i] = arg;
                 i++;
         }

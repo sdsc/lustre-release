@@ -2336,12 +2336,13 @@ int jt_obd_ldlm_regress_start(int argc, char **argv)
                 return CMD_HELP;
 
         argstring[0] = '\0';
-        for (i = 1; i < argc; i++) {
+	for (i = 1; (i < argc) && (count > 1); i++) {
                 strncat(argstring, " ", count);
                 count--;
                 strncat(argstring, argv[i], count);
                 count -= strlen(argv[i]);
         }
+	argstring[sizeof(argstring) - 1] = '\0';
 
         if (strlen(argstring)) {
                 data.ioc_inlbuf1 = argstring;
