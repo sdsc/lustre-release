@@ -644,13 +644,19 @@ struct osc_extent {
 				oe_hp:1,
 	/** this extent should be written back asap. set if one of pages is
 	 * called by page WB daemon, or sync write or reading requests. */
-				oe_urgent:1;
+				oe_urgent:1,
+	/** this extent is for sync/direct write */
+				oe_sync:1;
+
 	/** how many grants allocated for this extent.
 	 *  Grant allocated for this extent. There is no grant allocated
 	 *  for reading extents and sync write extents. */
 	unsigned int		oe_grants;
 	/** # of dirty pages in this extent */
 	unsigned int		oe_nr_pages;
+	/** # of granted pages, only for sync write */
+	unsigned int		oe_nr_granted;
+
 	/** list of pending oap pages. Pages in this list are NOT sorted. */
 	cfs_list_t		oe_pages;
 	/** Since an extent has to be written out in atomic, this is used to
