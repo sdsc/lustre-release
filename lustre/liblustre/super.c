@@ -1326,10 +1326,10 @@ static int llu_file_flock(struct inode *ino,
                 LBUG();
         }
 
-	CDEBUG(D_DLMTRACE, "inode=%llu, pid=%u, cmd=%d, flags=%#llx, mode=%u, "
-               "start="LPX64", end="LPX64"\n", (unsigned long long)st->st_ino,
-               flock.l_flock.pid, cmd, flags, einfo.ei_mode, flock.l_flock.start,
-               flock.l_flock.end);
+	CDEBUG(D_DLMTRACE, "inode="LPU64", pid=%u, cmd=%d, flags="LPX64", "
+	       "mode=%u, start="LPX64", end="LPX64"\n", st->st_ino,
+	       flock.l_flock.pid, cmd, flags, einfo.ei_mode,
+	       flock.l_flock.start, flock.l_flock.end);
 
         {
                 struct lmv_obd *lmv;
