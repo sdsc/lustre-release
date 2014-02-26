@@ -91,6 +91,7 @@ init_agt_vars() {
 	export HSMTOOL=${HSMTOOL:-"lhsmtool_posix"}
 	export HSMTOOL_VERBOSE=${HSMTOOL_VERBOSE:-""}
 	export HSMTOOL_UPDATE_INTERVAL=${HSMTOOL_UPDATE_INTERVAL:=""}
+	export HSMTOOL_EVENT_FIFO=${HSMTOOL_EVENT_FIFO:=""}
 	export HSMTOOL_BASE=$(basename "$HSMTOOL" | cut -f1 -d" ")
 	HSM_ARCHIVE=$(copytool_device $SINGLEAGT)
 	HSM_ARCHIVE_NUMBER=2
@@ -167,6 +168,8 @@ copytool_setup() {
 	[[ -z "$arc_id" ]] || cmd+=" --archive $arc_id"
 	[[ -z "$HSMTOOL_UPDATE_INTERVAL" ]] ||
 		cmd+=" --update-interval $HSMTOOL_UPDATE_INTERVAL"
+	[[ -z "$HSMTOOL_EVENT_FIFO" ]] ||
+		cmd+=" --event-fifo $HSMTOOL_EVENT_FIFO"
 	cmd+=" --bandwidth 1 $lustre_mntpnt"
 
 	# Redirect the standard output and error to a log file which
@@ -609,6 +612,18 @@ wait_all_done() {
 wait_for_grace_delay() {
 	local val=$(get_hsm_param grace_delay)
 	sleep $val
+}
+
+parse_json_event() {
+	local raw_event=$1
+
+	# python2.6 in EL6 includes an internal json module
+	local json_parser='import json; import fileinput;'
+	json_parser+=' print "\n".join(["local %s=\"%s\"" % tuple for tuple in '
+	json_parser+='json.loads([line for line in '
+	json_parser+='fileinput.input()][0]).items()])'
+
+	echo $raw_event | python -c "$json_parser"
 }
 
 # populate MDT device array
@@ -2582,6 +2597,245 @@ test_60() {
 	copytool_cleanup
 }
 run_test 60 "Changing progress update interval from default"
+
+test_70() {
+	local test_dir=$(mktemp --tmpdir=/tmp -d ${TESTSUITE}.${TESTNAME}.XXXX)
+	local test_fifo=$test_dir/fifo
+	local event_log=$test_dir/events
+
+	# Create the fifo and a reader (cat dies when copytool dies)
+	mkfifo -m 0644 $test_fifo
+	(cat $test_fifo > $event_log) &
+
+	# test needs a new running copytool
+	copytool_cleanup
+	HSMTOOL_EVENT_FIFO=$test_fifo copytool_setup
+
+	# Just start and stop the copytool to generate events.
+	cdt_clear_no_retry
+	copytool_cleanup
+
+	local REGISTER_EVENT
+	local UNREGISTER_EVENT
+	while read event; do
+		local parsed=$(parse_json_event "$event")
+		if [ -z "$parsed" ]; then
+			error "Copytool sent malformed event: $event"
+		fi
+		eval $parsed
+
+		if [ $event_type == "REGISTER" ]; then
+			REGISTER_EVENT=$event
+		elif [ $event_type == "UNREGISTER" ]; then
+			UNREGISTER_EVENT=$event
+		fi
+	done < $event_log
+
+	if [ -z "$REGISTER_EVENT" ]; then
+		error "Copytool failed to send register event to FIFO"
+	fi
+
+	if [ -z "$UNREGISTER_EVENT" ]; then
+		error "Copytool failed to send unregister event to FIFO"
+	fi
+
+	echo "Register/Unregister events look OK."
+
+	rm -rf $test_dir
+}
+run_test 70 "Copytool logs JSON register/unregister events to FIFO"
+
+test_71() {
+	# Bump progress interval for livelier events.
+	local interval=5
+	local test_dir=$(mktemp --tmpdir=/tmp -d ${TESTSUITE}.${TESTNAME}.XXXX)
+	local test_fifo=$test_dir/fifo
+	local event_log=$test_dir/events
+
+	# Create the fifo and a reader (cat dies when copytool dies)
+	mkfifo -m 0644 $test_fifo
+	(cat $test_fifo > $event_log) &
+
+	# test needs a new running copytool
+	copytool_cleanup
+	HSMTOOL_UPDATE_INTERVAL=$interval HSMTOOL_EVENT_FIFO=$test_fifo \
+		copytool_setup
+
+	mkdir -p $DIR/$tdir
+	local f=$DIR/$tdir/$tfile
+	local fid=$(make_large_for_progress $f)
+
+	$LFS hsm_archive --archive $HSM_ARCHIVE_NUMBER $f ||
+		error "could not archive file"
+	wait_request_state $fid ARCHIVE SUCCEED
+
+	local expected_fields="event_time data_fid source_fid"
+	expected_fields+=" total_bytes current_bytes"
+
+	local START_EVENT
+	local FINISH_EVENT
+	while read event; do
+		# Make sure we're not getting anything from previous events.
+		for field in $expected_fields; do
+			unset $field
+		done
+
+		local parsed=$(parse_json_event "$event")
+		if [ -z "$parsed" ]; then
+			error "Copytool sent malformed event: $event"
+		fi
+		eval $parsed
+
+		if [ $event_type == "ARCHIVE_START" ]; then
+			START_EVENT=$event
+			continue
+		elif [ $event_type == "ARCHIVE_FINISH" ]; then
+			FINISH_EVENT=$event
+			continue
+		elif [ $event_type != "ARCHIVE_RUNNING" ]; then
+			continue
+		fi
+
+		# Do some simple checking of the progress update events.
+		for expected_field in $expected_fields; do
+			if [ -z ${!expected_field+x} ]; then
+				error "Missing $expected_field field in event"
+			fi
+		done
+
+		if [ $total_bytes -eq 0 ]; then
+			error "Expected total_bytes to be > 0"
+		fi
+
+		# These should be identical throughout an archive
+		# operation.
+		if [ $source_fid != $data_fid ]; then
+			error "Expected source_fid to equal data_fid"
+		fi
+	done < $event_log
+
+	if [ -z "$START_EVENT" ]; then
+		error "Copytool failed to send archive start event to FIFO"
+	fi
+
+	if [ -z "$FINISH_EVENT" ]; then
+		error "Copytool failed to send archive finish event to FIFO"
+	fi
+
+	echo "Archive events look OK."
+
+	cdt_clear_no_retry
+	copytool_cleanup
+
+	rm -rf $test_dir
+}
+run_test 71 "Copytool logs JSON archive events to FIFO"
+
+test_72() {
+	# Bump progress interval for livelier events.
+	local interval=5
+	local test_dir=$(mktemp --tmpdir=/tmp -d ${TESTSUITE}.${TESTNAME}.XXXX)
+	local test_fifo=$test_dir/fifo
+	local event_log=$test_dir/events
+	local test_file=$test_dir/file
+
+	# Create the fifo and a reader (cat dies when copytool dies)
+	mkfifo -m 0644 $test_fifo
+	(cat $test_fifo > $event_log) &
+
+	# test needs a new running copytool
+	copytool_cleanup
+	HSMTOOL_UPDATE_INTERVAL=$interval HSMTOOL_EVENT_FIFO=$test_fifo \
+		copytool_setup
+
+	mkdir -p $DIR/$tdir
+	dd if=/dev/urandom of=$test_file count=16 bs=1000000 conv=fsync ||
+		error "cannot create $f"
+	copy2archive $test_file $tdir/$tfile
+
+	local f=$DIR/$tdir/$tfile
+	import_file $tdir/$tfile $f
+	f=$DIR2/$tdir/$tfile
+	echo "Verifying released state: "
+	check_hsm_flags $f "0x0000000d"
+
+	local fid=$(path2fid $f)
+	$LFS hsm_restore $f
+	wait_request_state $fid RESTORE SUCCEED
+
+	local expected_fields="event_time data_fid source_fid"
+	expected_fields+=" total_bytes current_bytes"
+
+	local START_EVENT
+	local FINISH_EVENT
+	while read event; do
+		# Make sure we're not getting anything from previous events.
+		for field in $expected_fields; do
+			unset $field
+		done
+
+		local parsed=$(parse_json_event "$event")
+		if [ -z "$parsed" ]; then
+			error "Copytool sent malformed event: $event"
+		fi
+		eval $parsed
+
+		if [ $event_type == "RESTORE_START" ]; then
+			START_EVENT=$event
+			if [ $source_fid != $data_fid ]; then
+				error "source_fid should == data_fid at start"
+			fi
+			continue
+		elif [ $event_type == "RESTORE_FINISH" ]; then
+			FINISH_EVENT=$event
+			if [ $source_fid != $data_fid ]; then
+				error "source_fid should == data_fid at finish"
+			fi
+			continue
+		elif [ $event_type != "RESTORE_RUNNING" ]; then
+			continue
+		fi
+
+		# Do some simple checking of the progress update events.
+		for expected_field in $expected_fields; do
+			if [ -z ${!expected_field+x} ]; then
+				error "Missing $expected_field field in event"
+			fi
+		done
+
+		if [ $total_bytes -eq 0 ]; then
+			error "Expected total_bytes to be > 0"
+		fi
+
+		# When a restore starts out, the data fid is the same as the
+		# source fid. After the restore has gotten going, we learn
+		# the new data fid. Once the restore has finished, the source
+		# fid is set to the new data fid.
+		#
+		# We test this because some monitoring software may depend on
+		# this behavior. If it changes, then the consumers of these
+		# events may need to be modified.
+		if [ $source_fid == $data_fid ]; then
+			error "source_fid should != data_fid during restore"
+		fi
+	done < $event_log
+
+	if [ -z "$START_EVENT" ]; then
+		error "Copytool failed to send restore start event to FIFO"
+	fi
+
+	if [ -z "$FINISH_EVENT" ]; then
+		error "Copytool failed to send restore finish event to FIFO"
+	fi
+
+	echo "Restore events look OK."
+
+	cdt_clear_no_retry
+	copytool_cleanup
+
+	rm -rf $test_dir
+}
+run_test 72 "Copytool logs JSON restore events to FIFO"
 
 test_90() {
 	file_count=57
