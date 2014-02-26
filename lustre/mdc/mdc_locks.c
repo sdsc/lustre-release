@@ -1185,7 +1185,7 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
 		", intent: %s flags %#Lo\n", op_data->op_namelen,
 		op_data->op_name, PFID(&op_data->op_fid2),
 		PFID(&op_data->op_fid1), ldlm_it2str(it->it_op),
-		it->it_flags);
+		(long long unsigned int)it->it_flags);
 
 	lockh.cookie = 0;
 	if (fid_is_sane(&op_data->op_fid2) &&
@@ -1293,7 +1293,7 @@ int mdc_intent_getattr_async(struct obd_export *exp,
 
 	CDEBUG(D_DLMTRACE,"name: %.*s in inode "DFID", intent: %s flags %#Lo\n",
 		op_data->op_namelen, op_data->op_name, PFID(&op_data->op_fid1),
-		ldlm_it2str(it->it_op), it->it_flags);
+		ldlm_it2str(it->it_op), (long long unsigned int)it->it_flags);
 
 	fid_build_reg_res_name(&op_data->op_fid1, &res_id);
 	req = mdc_intent_getattr_pack(exp, it, op_data);

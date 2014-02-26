@@ -135,8 +135,7 @@
  * page is empty (contains no dir entry) or hash collide with next page.
  * After client receives reply, several pages will be integrated into dir page
  * in PAGE_CACHE_SIZE (if PAGE_CACHE_SIZE greater than LU_PAGE_SIZE), and the
- * lu_dirpage for this integrated page will be adjusted. See
- * lmv_adjust_dirpages().
+ * lu_dirpage for this integrated page will be adjusted.
  *
  */
 /**

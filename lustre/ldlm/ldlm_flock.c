@@ -139,7 +139,7 @@ ldlm_flock_destroy(struct ldlm_lock *lock, ldlm_mode_t mode, __u64 flags)
 {
 	ENTRY;
 
-	LDLM_DEBUG(lock, "ldlm_flock_destroy(mode: %d, flags: 0x%llx)",
+	LDLM_DEBUG(lock, "ldlm_flock_destroy(mode: %d, flags: 0x"LPX64i")",
 		   mode, flags);
 
 	/* Safe to not lock here, since it should be empty anyway */
@@ -309,7 +309,7 @@ ldlm_process_flock_lock(struct ldlm_lock *req, __u64 *flags, int first_enq,
         const struct ldlm_callback_suite null_cbs = { NULL };
         ENTRY;
 
-	CDEBUG(D_DLMTRACE, "flags %#llx owner "LPU64" pid %u mode %u start "
+	CDEBUG(D_DLMTRACE, "flags "LPX64" owner "LPU64" pid %u mode %u start "
 	       LPU64" end "LPU64"\n", *flags,
 	       new->l_policy_data.l_flock.owner,
                new->l_policy_data.l_flock.pid, mode,
@@ -673,7 +673,7 @@ ldlm_flock_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
         int                             rc = 0;
         ENTRY;
 
-	CDEBUG(D_DLMTRACE, "flags: 0x%llx data: %p getlk: %p\n",
+	CDEBUG(D_DLMTRACE, "flags: 0x"LPX64i" data: %p getlk: %p\n",
                flags, data, getlk);
 
         /* Import invalidation. We need to actually release the lock

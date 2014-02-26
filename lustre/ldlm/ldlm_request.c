@@ -611,7 +611,7 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
 					      LDLM_FL_NO_TIMEOUT);
         unlock_res_and_lock(lock);
 
-	CDEBUG(D_INFO, "local: %p, remote cookie: "LPX64", flags: 0x%llx\n",
+	CDEBUG(D_INFO, "local: %p, remote cookie: "LPX64", flags: 0x"LPX64i"\n",
                lock, reply->lock_handle.cookie, *flags);
 
         /* If enqueue returned a blocked lock but the completion handler has
@@ -922,7 +922,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
 			lock->l_req_extent = policy->l_extent;
 		}
-                LDLM_DEBUG(lock, "client-side enqueue START, flags %llx\n",
+                LDLM_DEBUG(lock, "client-side enqueue START, flags "LPX64i"\n",
 			   *flags);
         }
 
