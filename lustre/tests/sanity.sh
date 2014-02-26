@@ -5204,6 +5204,43 @@ test_64c() {
 }
 run_test 64c "verify grant shrink ========================------"
 
+test_64d() {
+	local proc_grants="osc.${FSNAME}-OST0000-osc-[^MDT]*.cur_grant_bytes"
+	local write_bytes=1048576 # 1M
+
+	[ $(lustre_version_code ost1) -lt $(version_code 2.5.56) ] &&
+		skip "Need OSS version at least 2.5.56" && return
+
+	sync; sleep 2; sync  # quiesce system
+	local before_grants=$($LCTL get_param -n $proc_grants)
+
+	[ $before_grants -lt $write_bytes ] &&
+		skip "not enough grant" && return
+
+	$SETSTRIPE -c 1 -i 0 $DIR/$tfile
+	# force sync write by NO_GRANT fail_Loc
+	# define OBD_FAIL_OSC_NO_GRANT 0x411
+	$LCTL set_param fail_loc=0x411
+
+	# make the server not grant more back
+	#define OBD_FAIL_OST_NO_GRANT 0x234
+	do_facet ost1 $LCTL set_param  fail_loc=0x234
+
+	dd if=/dev/zero of=$DIR/$tfile bs=1M count=1 conv=notrunc oflag=sync
+
+	$LCTL set_param fail_loc=0
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	local after_grants=$($LCTL get_param -n $proc_grants)
+	local consumed=$(($before_grants - $after_grants))
+
+	[ $consumed -ne $write_bytes ] &&
+		error "sync write didn't consume grant correctly, " \
+			"before:$before_grants, after:$after_grants"
+	return 0
+}
+run_test 64d "sync write should consume grant"
+
 # bug 1414 - set/get directories' stripe info
 test_65a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
