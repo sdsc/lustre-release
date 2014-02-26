@@ -173,6 +173,7 @@ int liblustre_init_current(char *comm)
         }
 
         strncpy(current->comm, comm, sizeof(current->comm));
+	current->comm[sizeof(current->comm) - 1] = '\0';
         current->pid = getpid();
         current->gid = getgid();
         current->fsuid = geteuid();
