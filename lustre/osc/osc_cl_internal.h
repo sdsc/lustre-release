@@ -625,7 +625,7 @@ struct osc_extent {
 				oe_urgent:1;
 	/** how many grants allocated for this extent.
 	 *  Grant allocated for this extent. There is no grant allocated
-	 *  for reading extents and sync write extents. */
+	 *  for reading extents. */
 	unsigned int		oe_grants;
 	/** # of dirty pages in this extent */
 	unsigned int		oe_nr_pages;
