@@ -39,6 +39,38 @@ build_test_filter
 
 MDT_DEV="${FSNAME}-MDT0000"
 MDT_DEVNAME=$(mdsdevname ${SINGLEMDS//mds/})
+
+start_scrub()
+{
+	local index=$1
+	local mdtname=$(printf "$FSNAME-MDT%.4x" $((index - 1)))
+	local rc=0
+
+	do_facet mds$index $LCTL lfsck_start -M $mdtname || rc=1
+	return $rc
+}
+
+stop_scrub()
+{
+	local index=$1
+	local mdtname=$(printf "$FSNAME-MDT%.4x" $((index - 1)))
+	local rc=0
+
+	do_facet mds$index $LCTL lfsck_stop -M $mdtname || rc=1
+	return $rc
+}
+
+show_scrub()
+{
+	local index=$1
+	local mdtname=$(printf "$FSNAME-MDT%.4x" $((index - 1)))
+	local rc=0
+
+	do_facet mds$index \
+		$LCTL get_param -n osd-ldiskfs.${mdtname}.oi_scrub || rc=1
+	return $rc
+}
+
 START_SCRUB="do_facet $SINGLEMDS $LCTL lfsck_start -M ${MDT_DEV}"
 STOP_SCRUB="do_facet $SINGLEMDS $LCTL lfsck_stop -M ${MDT_DEV}"
 SHOW_SCRUB="do_facet $SINGLEMDS \
@@ -48,6 +80,7 @@ MOUNT_OPTS_NOSCRUB="-o user_xattr,noscrub"
 
 scrub_prep() {
 	local nfiles=$1
+	local num
 
 	echo "formatall"
 	formatall > /dev/null
@@ -59,26 +92,39 @@ scrub_prep() {
 	cp $LUSTRE/tests/*.sh $DIR/$tdir/
 	[[ $nfiles -gt 0 ]] && { createmany -o $DIR/$tdir/$tfile $nfiles ||
 				error "createmany failed"; }
-
+	if [ $MDSCOUNT -ge 2 ]; then
+		$LFS mkdir -i 1 $DIR/$tdir/remote_dir ||
+			error "create remote_directory error"
+		cp $LUSTRE/tests/*.sh $DIR/$tdir/remote_dir
+		[[ $nfiles -gt 0 ]] &&
+			{ createmany -o $DIR/$tdir/remote_dir/$tfile $nfiles ||
+			  error "createmany failed"; }
+	fi
 	echo "prepared."
 	cleanup_mount $MOUNT > /dev/null || error "Fail to stop client!"
-	echo "stop $SINGLEMDS"
-	stop $SINGLEMDS > /dev/null || error "Fail to stop MDS!"
+	for num in $(seq $MDSCOUNT); do
+		echo "stop mds$num"
+		stop mds$num > /dev/null || error "Fail to stop MDS$num!"
+	done
 }
 
 test_0() {
+	local num
+
 	scrub_prep 0
 	echo "start $SINGLEMDS without disabling OI scrub"
-	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
-		error "(1) Fail to start MDS!"
 
-	local STATUS=$($SHOW_SCRUB | awk '/^status/ { print $2 }')
-	[ "$STATUS" == "init" ] ||
-		error "(2) Expect 'init', but got '$STATUS'"
+	for num in $(seq $MDSCOUNT); do
+		start mds$num $(mdsdevname $num) $MOUNT_OPTS_SCRUB > /dev/null ||
+			error "(1) Fail to start MDS!"
 
-	local FLAGS=$($SHOW_SCRUB | awk '/^flags/ { print $2 }')
-	[ -z "$FLAGS" ] || error "(3) Expect empty flags, but got '$FLAGS'"
+		local STATUS=$(show_scrub $num | awk '/^status/ { print $2 }')
+		[ "$STATUS" == "init" ] ||
+			error "(2) Expect 'init', but got '$STATUS'"
 
+		local FLAGS=$(show_scrub $num | awk '/^flags/ { print $2 }')
+		[ -z "$FLAGS" ] || error "(3) Expect empty flags, but got '$FLAGS'"
+	done
 	mount_client $MOUNT || error "(4) Fail to start client!"
 
 	diff -q $LUSTRE/tests/test-framework.sh $DIR/$tdir/test-framework.sh ||
@@ -88,41 +134,52 @@ run_test 0 "Do not auto trigger OI scrub for non-backup/restore case"
 
 test_1a() {
 	scrub_prep 0
-	echo "start $SINGLEMDS without disabling OI scrub"
-	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
-		error "(1) Fail to start MDS!"
+	
+	for num in $(seq $MDSCOUNT); do
+		echo "start mds$num without disabling OI scrub"
+		start mds$num $(mdsdevname $num) $MOUNT_OPTS_SCRUB > /dev/null ||
+			error "(1) Fail to start MDS!"
 
-	local STATUS=$($SHOW_SCRUB | awk '/^status/ { print $2 }')
-	[ "$STATUS" == "init" ] ||
-		error "(2) Expect 'init', but got '$STATUS'"
+		local STATUS=$(show_scrub $num | awk '/^status/ { print $2 }')
+		[ "$STATUS" == "init" ] ||
+			error "(2) Expect 'init', but got '$STATUS'"
 
-	local FLAGS=$($SHOW_SCRUB | awk '/^flags/ { print $2 }')
-	[ -z "$FLAGS" ] || error "(3) Expect empty flags, but got '$FLAGS'"
+		local FLAGS=$(show_scrub $num | awk '/^flags/ { print $2 }')
+		[ -z "$FLAGS" ] || error "(3) Expect empty flags, but got '$FLAGS'"
+	done
 
 	mount_client $MOUNT || error "(4) Fail to start client!"
 
-	#define OBD_FAIL_OSD_FID_MAPPING			0x193
-	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x193
-	# update .lustre OI mapping
-	touch $MOUNT/.lustre
-	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+	#define OBD_FAIL_OSD_FID_MAPPING 0x193
+
+	for num in $(seq $MDSCOUNT); do
+		do_facet mds$num $LCTL set_param fail_loc=0x193
+		# update .lustre OI mapping
+		touch $MOUNT/.lustre
+		do_facet mds$num $LCTL set_param fail_loc=0
+	done
 
 	umount_client $MOUNT || error "(5) Fail to stop client!"
 
-	echo "stop $SINGLEMDS"
-	stop $SINGLEMDS > /dev/null || error "(6) Fail to stop MDS!"
+	for num in $(seq $MDSCOUNT); do
+		echo "stop mds$num"
+		stop mds$num > /dev/null || error "(6) Fail to stop MDS!"
+	done
 
-	echo "start $SINGLEMDS with disabling OI scrub"
-	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
-		error "(7) Fail to start MDS!"
+	for num in $(seq $MDSCOUNT); do
+		echo "start mds$num with disabling OI scrub"
+		start mds$num $(mdsdevname $num) $MOUNT_OPTS_NOSCRUB > /dev/null ||
+			error "(7) Fail to start MDS!"
+	done
 
-	local STATUS=$($SHOW_SCRUB | awk '/^status/ { print $2 }')
+	local STATUS=$(show_scrub $num | awk '/^status/ { print $2 }')
 	[ "$STATUS" == "init" ] ||
 		error "(8) Expect 'init', but got '$STATUS'"
 
-	local FLAGS=$($SHOW_SCRUB | awk '/^flags/ { print $2 }')
+	local FLAGS=$(show_scrub $num | awk '/^flags/ { print $2 }')
 	[ "$FLAGS" == "inconsistent" ] ||
 		error "(9) Expect 'inconsistent', but got '$FLAGS'"
+	done
 }
 run_test 1a "Auto trigger initial OI scrub when server mounts"
 
