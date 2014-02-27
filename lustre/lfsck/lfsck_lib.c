@@ -658,7 +658,7 @@ int lfsck_create_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 
 		ltd = lfsck_tgt_get(&lfsck->li_mdt_descs, 0);
 		if (unlikely(ltd == NULL))
-			RETURN(-ENODEV);
+			RETURN(-ENXIO);
 
 		parent = lfsck_object_find_by_dev(env, ltd->ltd_tgt,
 						  &LU_LPF_FID);
@@ -748,7 +748,7 @@ static int lfsck_fid_init(struct lfsck_instance *lfsck)
 
 	ss = lu_site2seq(lfsck->li_bottom->dd_lu_dev.ld_site);
 	if (unlikely(ss == NULL))
-		RETURN(-ENODEV);
+		RETURN(-ENXIO);
 
 	OBD_ALLOC_PTR(lfsck->li_seq);
 	if (lfsck->li_seq == NULL)
@@ -1637,7 +1637,7 @@ int lfsck_get_speed(struct dt_device *key, void *buf, int len)
 			      lfsck->li_bookmark_ram.lb_speed_limit);
 		lfsck_instance_put(&env, lfsck);
 	} else {
-		rc = -ENODEV;
+		rc = -ENXIO;
 	}
 
 	lu_env_fini(&env);
@@ -1665,7 +1665,7 @@ int lfsck_set_speed(struct dt_device *key, int val)
 		mutex_unlock(&lfsck->li_mutex);
 		lfsck_instance_put(&env, lfsck);
 	} else {
-		rc = -ENODEV;
+		rc = -ENXIO;
 	}
 
 	lu_env_fini(&env);
@@ -1691,7 +1691,7 @@ int lfsck_get_windows(struct dt_device *key, void *buf, int len)
 			      lfsck->li_bookmark_ram.lb_async_windows);
 		lfsck_instance_put(&env, lfsck);
 	} else {
-		rc = -ENODEV;
+		rc = -ENXIO;
 	}
 
 	lu_env_fini(&env);
@@ -1729,7 +1729,7 @@ int lfsck_set_windows(struct dt_device *key, int val)
 		}
 		lfsck_instance_put(&env, lfsck);
 	} else {
-		rc = -ENODEV;
+		rc = -ENXIO;
 	}
 
 	lu_env_fini(&env);
@@ -1762,7 +1762,7 @@ int lfsck_dump(struct dt_device *key, void *buf, int len, enum lfsck_type type)
 
 		lfsck_instance_put(&env, lfsck);
 	} else {
-		rc = -ENODEV;
+		rc = -ENXIO;
 	}
 
 	lu_env_fini(&env);
@@ -1979,7 +1979,7 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 
 	lfsck = lfsck_instance_find(key, true, false);
 	if (unlikely(lfsck == NULL))
-		RETURN(-ENODEV);
+		RETURN(-ENXIO);
 
 	/* System is not ready, try again later. */
 	if (unlikely(lfsck->li_namespace == NULL))
@@ -2255,7 +2255,7 @@ int lfsck_stop(const struct lu_env *env, struct dt_device *key,
 
 	lfsck = lfsck_instance_find(key, true, false);
 	if (unlikely(lfsck == NULL))
-		RETURN(-ENODEV);
+		RETURN(-ENXIO);
 
 	thread = &lfsck->li_thread;
 	/* release lfsck::li_mutex to avoid deadlock. */
@@ -2348,7 +2348,7 @@ int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
 
 		lfsck = lfsck_instance_find(key, true, false);
 		if (unlikely(lfsck == NULL))
-			RETURN(-ENODEV);
+			RETURN(-ENXIO);
 
 		com = lfsck_component_find(lfsck, lr->lr_active);
 		if (likely(com != NULL)) {
@@ -2377,7 +2377,7 @@ int lfsck_query(const struct lu_env *env, struct dt_device *key,
 
 	lfsck = lfsck_instance_find(key, true, false);
 	if (unlikely(lfsck == NULL))
-		RETURN(-ENODEV);
+		RETURN(-ENXIO);
 
 	com = lfsck_component_find(lfsck, lr->lr_active);
 	if (likely(com != NULL)) {
@@ -2397,7 +2397,7 @@ int lfsck_register_namespace(const struct lu_env *env, struct dt_device *key,
 			     struct ldlm_namespace *ns)
 {
 	struct lfsck_instance  *lfsck;
-	int			rc	= -ENODEV;
+	int			rc	= -ENXIO;
 
 	lfsck = lfsck_instance_find(key, true, false);
 	if (likely(lfsck != NULL)) {
