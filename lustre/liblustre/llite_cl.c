@@ -22,31 +22,21 @@
 
 #define DEBUG_SUBSYSTEM S_LLITE
 
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <time.h>
-#include <sys/types.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <stddef.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <sys/queue.h>
-#ifndef __CYGWIN__
-# include <sys/statvfs.h>
-#else
-# include <sys/statfs.h>
-#endif
-
+#include <sys/types.h>
+#include <sys/uio.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
 #include <liblustre.h>
-
+#include <lclient.h>
+#include <cl_object.h>
+#include <lustre_export.h>
+#include <lustre_lite.h>
 #include <obd.h>
 #include <obd_support.h>
-#include <lustre_fid.h>
-#include <lustre_lite.h>
-#include <lustre_dlm.h>
-#include <lustre_ver.h>
-#include <lustre_mdc.h>
-#include <cl_object.h>
-
 #include "llite_lib.h"
 
 /*
@@ -80,7 +70,6 @@ static const struct cl_device_operations      slp_cl_ops;
 static const struct cl_io_operations          ccc_io_ops;
 static const struct lu_device_type_operations slp_device_type_ops;
              //struct lu_device_type            slp_device_type;
-static const struct cl_page_operations        slp_page_ops;
 static const struct cl_page_operations        slp_transient_page_ops;
 static const struct cl_lock_operations        slp_lock_ops;
 
@@ -564,16 +553,13 @@ static int llu_queue_pio(const struct lu_env *env, struct cl_io *io,
 }
 
 static
-struct llu_io_group * get_io_group(struct inode *inode, int maxpages,
-                                   struct lustre_rw_params *params)
+struct llu_io_group *get_io_group(struct inode *inode, int maxpages)
 {
         struct llu_io_group *group;
 
         OBD_ALLOC_PTR(group);
         if (!group)
                 return ERR_PTR(-ENOMEM);
-
-        group->lig_params = params;
 
         return group;
 }
@@ -631,7 +617,7 @@ static int slp_io_start(const struct lu_env *env, const struct cl_io_slice *ios)
                 p.lrp_lock_mode = LCK_NL;
         }
 
-        iogroup = get_io_group(inode, max_io_pages(cnt, cio->cui_nrsegs), &p);
+	iogroup = get_io_group(inode, max_io_pages(cnt, cio->cui_nrsegs));
         if (IS_ERR(iogroup))
                 RETURN(PTR_ERR(iogroup));
 

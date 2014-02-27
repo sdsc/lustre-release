@@ -40,23 +40,22 @@
 
 #define DEBUG_SUBSYSTEM S_LLITE
 
-#include <unistd.h>
-#include <stdlib.h>
+#include <errno.h>
+#include <stddef.h>
 #include <string.h>
-#include <assert.h>
-#include <time.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <sys/queue.h>
-
-#ifdef HAVE_LINUX_UNISTD_H
-#include <linux/unistd.h>
-#elif defined(HAVE_UNISTD_H)
-#include <unistd.h>
-#endif
-
-
+#include <sys/types.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <liblustre.h>
+#include <lclient.h>
+#include <lustre_dlm.h>
+#include <lustre_lite.h>
+#include <lustre_net.h>
+#include <lustre_req_layout.h>
+#include <obd.h>
+#include <obd_class.h>
+#include <obd_support.h>
 #include "llite_lib.h"
 #include <dirent.h>
 

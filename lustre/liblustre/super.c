@@ -40,20 +40,34 @@
 
 #define DEBUG_SUBSYSTEM S_LLITE
 
-#include <stdlib.h>
-#include <string.h>
 #include <assert.h>
-#include <time.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <errno.h>
 #include <fcntl.h>
-#include <sys/queue.h>
-#ifndef __CYGWIN__
-# include <sys/statvfs.h>
-#else
-# include <sys/statfs.h>
-#endif
-
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <liblustre.h>
+#include <lclient.h>
+#include <lustre_dlm.h>
+#include <lustre_export.h>
+#include <lustre_lite.h>
+#include <lustre_mdc.h>
+#include <lustre_net.h>
+#include <lustre_req_layout.h>
+#include <lustre_ver.h>
+#include <obd.h>
+#include <obd_class.h>
+#include <obd_support.h>
 #include "llite_lib.h"
 
 #ifndef MAY_EXEC
@@ -211,48 +225,6 @@ void llu_update_inode(struct inode *inode, struct lustre_md *md)
                 if (body->valid & OBD_MD_FLBLOCKS)
                         st->st_blocks = body->blocks;
         }
-}
-
-void obdo_to_inode(struct inode *dst, struct obdo *src, obd_flag valid)
-{
-        struct llu_inode_info *lli = llu_i2info(dst);
-        struct intnl_stat *st = llu_i2stat(dst);
-
-        valid &= src->o_valid;
-
-	LASSERTF(!(valid & (OBD_MD_FLTYPE | OBD_MD_FLGENER | OBD_MD_FLFID |
-			    OBD_MD_FLID | OBD_MD_FLGROUP)),
-		 "object "DOSTID", valid %x\n", POSTID(&src->o_oi), valid);
-
-        if (valid & (OBD_MD_FLCTIME | OBD_MD_FLMTIME))
-                CDEBUG(D_INODE,"valid "LPX64", cur time "CFS_TIME_T"/"CFS_TIME_T
-                       ", new %lu/%lu\n",
-                       src->o_valid,
-                       LTIME_S(st->st_mtime), LTIME_S(st->st_ctime),
-                       (long)src->o_mtime, (long)src->o_ctime);
-
-        if (valid & OBD_MD_FLATIME)
-                LTIME_S(st->st_atime) = src->o_atime;
-        if (valid & OBD_MD_FLMTIME)
-                LTIME_S(st->st_mtime) = src->o_mtime;
-        if (valid & OBD_MD_FLCTIME && src->o_ctime > LTIME_S(st->st_ctime))
-                LTIME_S(st->st_ctime) = src->o_ctime;
-        if (valid & OBD_MD_FLSIZE)
-                st->st_size = src->o_size;
-        if (valid & OBD_MD_FLBLOCKS) /* allocation of space */
-                st->st_blocks = src->o_blocks;
-        if (valid & OBD_MD_FLBLKSZ)
-                st->st_blksize = src->o_blksize;
-        if (valid & OBD_MD_FLTYPE)
-                st->st_mode = (st->st_mode & ~S_IFMT) | (src->o_mode & S_IFMT);
-        if (valid & OBD_MD_FLMODE)
-                st->st_mode = (st->st_mode & S_IFMT) | (src->o_mode & ~S_IFMT);
-        if (valid & OBD_MD_FLUID)
-                st->st_uid = src->o_uid;
-        if (valid & OBD_MD_FLGID)
-                st->st_gid = src->o_gid;
-        if (valid & OBD_MD_FLFLAGS)
-                lli->lli_st_flags = src->o_flags;
 }
 
 /**
