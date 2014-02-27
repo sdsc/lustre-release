@@ -386,8 +386,16 @@ int ldlm_lock_destroy_internal(struct ldlm_lock *lock)
 		/* In the function below, .hs_keycmp resolves to
 		 * ldlm_export_lock_keycmp() */
 		/* coverity[overrun-buffer-val] */
+		DEBUG_REQ(D_DLMTRACE, req, "delete lock "LPX64" in hash with "
+			  "rhandle "LPX64" unhashed %d", lock,
+			  lock->l_remote_handle.cookie,
+			  cfs_hlist_unhashed(&lock->l_exp_hash));
 		cfs_hash_del(lock->l_export->exp_lock_hash,
 			     &lock->l_remote_handle, &lock->l_exp_hash);
+		DEBUG_REQ(D_DLMTRACE, req, "deleted lock "LPX64" in hash with "
+			  "rhandle "LPX64" unhashed %d", lock,
+			  lock->l_remote_handle.cookie,
+			  cfs_hlist_unhashed(&lock->l_exp_hash));
 	}
 
         ldlm_lock_remove_from_lru(lock);

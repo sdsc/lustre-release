@@ -3598,6 +3598,10 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
         cfs_hash_add(new_lock->l_export->exp_lock_hash,
                      &new_lock->l_remote_handle,
                      &new_lock->l_exp_hash);
+	DEBUG_REQ(D_DLMTRACE, req, "added lock "LPX64" in hash with rhandle "
+		  LPX64" unhashed %d", new_lock,
+		  new_lock->l_remote_handle.cookie,
+		  cfs_hlist_unhashed(&new_lock->l_exp_hash));
 
         LDLM_LOCK_RELEASE(new_lock);
         lh->mlh_reg_lh.cookie = 0;
@@ -3615,6 +3619,7 @@ static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
         struct lustre_handle    remote_hdl;
         struct ldlm_request    *dlmreq;
         struct ldlm_lock       *lock;
+	ENTRY;
 
         if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT))
                 return;
@@ -3626,6 +3631,8 @@ static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
 	 * ldlm_export_lock_keycmp() */
 	/* coverity[overrun-buffer-val] */
         lock = cfs_hash_lookup(exp->exp_lock_hash, &remote_hdl);
+	DEBUG_REQ(D_DLMTRACE, req, "lock "LPX64" found in hash "
+		  "with rhandle "LPX64, lock, remote_hdl.cookie);
         if (lock) {
                 if (lock != new_lock) {
                         lh->mlh_reg_lh.cookie = lock->l_handle.h_cookie;
