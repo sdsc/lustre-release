@@ -103,28 +103,43 @@ extern void *cfs_mem_cache_cpt_alloc(struct kmem_cache *cachep,
 /*
  * Shrinker
  */
-
 #ifdef HAVE_SHRINK_CONTROL
 # define SHRINKER_ARGS(sc, nr_to_scan, gfp_mask)  \
                        struct shrinker *shrinker, \
                        struct shrink_control *sc
 # define shrink_param(sc, var) ((sc)->var)
 #else
-# ifdef HAVE_SHRINKER_WANT_SHRINK_PTR
-#  define SHRINKER_ARGS(sc, nr_to_scan, gfp_mask)  \
-                        struct shrinker *shrinker, \
-                        int nr_to_scan, gfp_t gfp_mask
-# else
-#  define SHRINKER_ARGS(sc, nr_to_scan, gfp_mask)  \
-                        int nr_to_scan, gfp_t gfp_mask
-# endif
+struct shrink_control {
+	gfp_t gfp_mask;
+	unsigned long nr_to_scan;
+};
+# define SHRINKER_ARGS(sc, nr_to_scan, gfp_mask)  \
+		       struct shrinker *shrinker, \
+		       int nr_to_scan, gfp_t gfp_mask
+	/* avoid conflict with spl mm_compat.h */
+# define HAVE_SHRINK_CONTROL_STRUCT 1
 # define shrink_param(sc, var) (var)
 #endif
 
-typedef int (*shrinker_t)(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask));
+#ifdef HAVE_SHRINKER_COUNT
+struct shrinker_var {
+	unsigned long (*count)(struct shrinker *,
+			       struct shrink_control *sc);
+	unsigned long (*scan)(struct shrinker *,
+			      struct shrink_control *sc);
+};
+# define DEF_SHRINKER_VAR(name, shrink, count_obj, scan_obj) \
+	    struct shrinker_var name = { .count = count_obj, .scan = scan_obj }
+#else
+struct shrinker_var {
+	int (*shrink)(SHRINKER_ARGS(sc, nr_to_scan, gfp_mask));
+};
+# define DEF_SHRINKER_VAR(name, shrinker, count, scan) \
+	    struct shrinker_var name = { .shrink = shrinker }
+#endif
 
 static inline
-struct shrinker *set_shrinker(int seek, shrinker_t func)
+struct shrinker *set_shrinker(int seek, struct shrinker_var *var)
 {
         struct shrinker *s;
 
@@ -132,7 +147,12 @@ struct shrinker *set_shrinker(int seek, shrinker_t func)
         if (s == NULL)
                 return (NULL);
 
-        s->shrink = func;
+#ifdef HAVE_SHRINKER_COUNT
+	s->count_objects = var->count;
+	s->scan_objects = var->scan;
+#else
+	s->shrink = var->shrink;
+#endif
         s->seeks = seek;
 
         register_shrinker(s);
