@@ -1281,6 +1281,9 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
 		/* coverity[overrun-buffer-val] */
                 lock = cfs_hash_lookup(req->rq_export->exp_lock_hash,
                                        (void *)&dlm_req->lock_handle[0]);
+		DEBUG_REQ(D_DLMTRACE, req, "lock %p found in hash with "
+			  "rhandle "LPX64, lock,
+			  dlm_req->lock_handle[0].cookie);
                 if (lock != NULL) {
                         DEBUG_REQ(D_DLMTRACE, req, "found existing lock cookie "
                                   LPX64, lock->l_handle.h_cookie);
@@ -1311,10 +1314,15 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
         }
 
         lock->l_export = class_export_lock_get(req->rq_export, lock);
-        if (lock->l_export->exp_lock_hash)
+	if (lock->l_export->exp_lock_hash) {
                 cfs_hash_add(lock->l_export->exp_lock_hash,
                              &lock->l_remote_handle,
                              &lock->l_exp_hash);
+		DEBUG_REQ(D_DLMTRACE, req, "added lock %p in hash with "
+			  "rhandle "LPX64" unhashed %d", lock,
+			  lock->l_remote_handle.cookie,
+			  cfs_hlist_unhashed(&lock->l_exp_hash));
+	}
 
 existing_lock:
 
@@ -2512,8 +2520,16 @@ int ldlm_revoke_lock_cb(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 		/* In the function below, .hs_keycmp resolves to
 		 * ldlm_export_lock_keycmp() */
 		/* coverity[overrun-buffer-val] */
+		DEBUG_REQ(D_DLMTRACE, req, "delete lock %p in hash with "
+			  "rhandle "LPX64" unhashed %d", lock,
+			  lock->l_remote_handle.cookie,
+			  cfs_hlist_unhashed(&lock->l_exp_hash));
 		cfs_hash_del(lock->l_export->exp_lock_hash,
 			     &lock->l_remote_handle, &lock->l_exp_hash);
+		DEBUG_REQ(D_DLMTRACE, req, "deleted lock %p in hash with "
+			  "rhandle "LPX64" unhashed %d", lock,
+			  lock->l_remote_handle.cookie,
+			  cfs_hlist_unhashed(&lock->l_exp_hash));
 	}
 
         cfs_list_add_tail(&lock->l_rk_ast, rpc_list);
