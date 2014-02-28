@@ -2728,3 +2728,45 @@ void ll_dirty_page_discard_warn(struct page *page, int ioret)
 	if (buf != NULL)
 		free_page((unsigned long)buf);
 }
+
+int ll_copy_user_md(const struct lov_user_md __user *md,
+		    struct lov_user_md **kbuf)
+{
+	struct lov_user_md	lum;
+	int			lum_size;
+	ENTRY;
+
+	lum_size = sizeof(lum);
+	if (copy_from_user(&lum, md, lum_size))
+		RETURN(-EFAULT);
+
+	/* decide the layout type */
+	switch (lum.lmm_magic) {
+	case LOV_USER_MAGIC_V1:
+		lum_size = sizeof(struct lov_user_md_v1);
+		break;
+	case LOV_USER_MAGIC_V3:
+		lum_size = sizeof(struct lov_user_md_v3);
+		break;
+	case LOV_USER_MAGIC_V4:
+		if (lum.lmm_stripe_count > LOV_MAX_STRIPE_COUNT)
+			RETURN(-EINVAL);
+
+		lum_size = lov_user_md_size(lum.lmm_stripe_count,
+					    LOV_USER_MAGIC_V4);
+		break;
+	default:
+		RETURN(-EINVAL);
+	}
+
+	OBD_ALLOC(*kbuf, lum_size);
+	if (*kbuf == NULL)
+		RETURN(-ENOMEM);
+
+	if (copy_from_user(*kbuf, md, lum_size)) {
+		OBD_FREE(*kbuf, lum_size);
+		RETURN(-EFAULT);
+	}
+
+	RETURN(lum_size);
+}

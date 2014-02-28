@@ -340,10 +340,8 @@ command_t cmdlist[] = {
 
 #define MIGRATION_BLOCKS 1
 
-static int lfs_migrate(char *name, unsigned long long stripe_size,
-		       int stripe_offset, int stripe_count,
-		       int stripe_pattern, char *pool_name,
-		       __u64 migration_flags)
+static int lfs_migrate(char *name, __u64 migration_flags,
+		       struct llapi_stripe_param *param)
 {
 	int			 fd, fdv;
 	char			 volatile_file[PATH_MAX];
@@ -427,9 +425,7 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 	/* create, open a volatile file, use caching (ie no directio) */
 	/* exclusive create is not needed because volatile files cannot
 	 * conflict on name by construction */
-	fdv = llapi_file_open_pool(volatile_file, O_CREAT | O_WRONLY,
-				   0644, stripe_size, stripe_offset,
-				   stripe_count, stripe_pattern, pool_name);
+	fdv = llapi_file_open2(volatile_file, O_CREAT | O_WRONLY, 0644, param);
 	if (fdv < 0) {
 		rc = fdv;
 		fprintf(stderr, "cannot create volatile file in %s (%s)\n",
@@ -584,6 +580,90 @@ free:
 	return rc;
 }
 
+/* parse parameters to target list, optarg has a format of "1,2-4,7" which will
+ * be parsed to 1,2,3,4,7. */
+static int parse_targets(__u32 *osts, int slots, char *arg)
+{
+	int rc = 0;
+	int nr = 0;
+	char *ptr;
+	bool end_of_loop;
+
+	if (arg == NULL)
+		return -EINVAL;
+
+	end_of_loop = false;
+	do {
+		int start_index;
+		int end_index;
+		int i;
+		char *endptr = NULL;
+
+		rc = -EINVAL;
+
+		ptr = strchrnul(arg, ',');
+
+		end_of_loop = *ptr == 0;
+		*ptr = 0;
+
+		start_index = strtol(arg, &endptr, 10);
+		if (*endptr != '-' && *endptr != 0) /* has invalid data */
+			break;
+		if (start_index < 0)
+			break;
+
+		end_index = start_index;
+		if (*endptr == '-') {
+			end_index = strtol(endptr + 1, &endptr, 10);
+			if (*endptr != 0)
+				break;
+			if (end_index < start_index)
+				break;
+		}
+
+		for (i = start_index; i <= end_index && slots > 0; i++) {
+			osts[nr++] = i;
+			--slots;
+		}
+		if (slots == 0 && i < end_index) {
+			rc = -ENOSPC;
+			break;
+		}
+
+		rc = 0;
+		arg = ++ptr;
+	} while (!end_of_loop);
+
+	return rc < 0 ? rc : nr;
+}
+
+static int compare_u32(const void *a, const void *b)
+{
+	return *(__u32 *)a - *(__u32 *)b;
+}
+
+static int sort_targets(__u32 *osts, int slots)
+{
+	int j = 0;
+	int i;
+
+	if (slots == 0)
+		return 0;
+
+	qsort(osts, slots, sizeof(*osts), compare_u32);
+
+	/* remove duplicate */
+	for (i = 1; i < slots; i++) {
+		if (osts[i] == osts[j])
+			continue;
+
+		++j;
+		if (j != i)
+			osts[j] = osts[i];
+	}
+	return j + 1;
+}
+
 /* functions */
 static int lfs_setstripe(int argc, char **argv)
 {
@@ -599,8 +679,11 @@ static int lfs_setstripe(int argc, char **argv)
 	char			*stripe_count_arg = NULL;
 	char			*pool_name_arg = NULL;
 	unsigned long long	 size_units = 1;
-	int			 migrate_mode = 0;
+	struct llapi_stripe_param *param;
 	__u64			 migration_flags = 0;
+	int			 migrate_mode = 0;
+	__u32			 osts[1024] = { 0 };
+	int			 nr_osts = 0;
 
 	struct option		 long_opts[] = {
 		/* valid only in migrate mode */
@@ -637,6 +720,7 @@ static int lfs_setstripe(int argc, char **argv)
 #endif
 		{"stripe-size",  required_argument, 0, 'S'},
 		{"stripe_size",  required_argument, 0, 'S'},
+		{"ost",		 required_argument, 0, 't'},
 		{0, 0, 0, 0}
 	};
 
@@ -648,7 +732,7 @@ static int lfs_setstripe(int argc, char **argv)
 		migrate_mode = 1;
 
 	optind = 0;
-	while ((c = getopt_long(argc, argv, "c:di:o:p:s:S:",
+	while ((c = getopt_long(argc, argv, "c:di:o:p:s:S:t:",
 				long_opts, NULL)) >= 0) {
 		switch (c) {
 		case 0:
@@ -699,6 +783,18 @@ static int lfs_setstripe(int argc, char **argv)
 			break;
 		case 'p':
 			pool_name_arg = optarg;
+			break;
+		case 't':
+			result = parse_targets(osts + nr_osts,
+					       ARRAY_SIZE(osts) - nr_osts,
+					       optarg);
+			if (result < 0)
+				return CMD_HELP;
+
+			if (st_offset == -1) /* first in the command line */
+				st_offset = osts[0];
+
+			nr_osts = sort_targets(osts, nr_osts + result);
 			break;
 		default:
 			return CMD_HELP;
@@ -751,15 +847,26 @@ static int lfs_setstripe(int argc, char **argv)
                 }
         }
 
+	/* initialize stripe parameters */
+	param = calloc(1, offsetof(typeof(*param), lsp_osts[nr_osts]));
+	if (param == NULL) {
+		fprintf(stderr, "error: %s: run out of memory\n", argv[0]);
+		return CMD_HELP;
+	}
+
+	param->lsp_stripe_size = st_size;
+	param->lsp_stripe_offset = st_offset;
+	param->lsp_stripe_count = st_count;
+	param->lsp_stripe_pattern = 0;
+	param->lsp_pool = pool_name_arg;
+	param->lsp_nr_osts = nr_osts;
+	memcpy(param->lsp_osts, osts, sizeof(*osts) * nr_osts);
+
 	do {
 		if (migrate_mode)
-			result = lfs_migrate(fname, st_size, st_offset,
-					     st_count, 0, pool_name_arg,
-					     migration_flags);
+			result = lfs_migrate(fname, migration_flags, param);
 		else
-			result = llapi_file_create_pool(fname, st_size,
-							st_offset, st_count,
-							0, pool_name_arg);
+			result = llapi_file_create2(fname, param);
 		if (result) {
 			fprintf(stderr,
 				"error: %s: %s stripe file '%s' failed\n",
@@ -770,6 +877,7 @@ static int lfs_setstripe(int argc, char **argv)
 		fname = argv[++optind];
 	} while (fname != NULL);
 
+	free(param);
 	return result;
 }
 
