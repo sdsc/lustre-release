@@ -1793,7 +1793,7 @@ lmv_locate_target_for_name(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
 
 	oinfo = lsm_name_to_stripe_info(lsm, name, namelen);
 	if (IS_ERR(oinfo))
-		RETURN((void *)oinfo);
+		RETURN(ERR_CAST(oinfo));
 	*fid = oinfo->lmo_fid;
 	*mds = oinfo->lmo_mds;
 	tgt = lmv_get_target(lmv, *mds);

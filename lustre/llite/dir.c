@@ -1035,39 +1035,29 @@ static long ll_dir_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 return 0;
         }
         case IOC_MDC_LOOKUP: {
-                struct ptlrpc_request *request = NULL;
                 int namelen, len = 0;
                 char *buf = NULL;
                 char *filename;
-                struct md_op_data *op_data;
 
                 rc = obd_ioctl_getdata(&buf, &len, (void *)arg);
-                if (rc)
+                if (rc != 0)
                         RETURN(rc);
                 data = (void *)buf;
 
                 filename = data->ioc_inlbuf1;
                 namelen = strlen(filename);
-
                 if (namelen < 1) {
                         CDEBUG(D_INFO, "IOC_MDC_LOOKUP missing filename\n");
                         GOTO(out_free, rc = -EINVAL);
                 }
 
-                op_data = ll_prep_md_op_data(NULL, inode, NULL, filename, namelen,
-                                             0, LUSTRE_OPC_ANY, NULL);
-                if (IS_ERR(op_data))
-                        GOTO(out_free, rc = PTR_ERR(op_data));
-
-                op_data->op_valid = OBD_MD_FLID;
-                rc = md_getattr_name(sbi->ll_md_exp, op_data, &request);
-                ll_finish_md_op_data(op_data);
+		rc = ll_get_fid_by_name(inode, filename, namelen, NULL);
                 if (rc < 0) {
-                        CDEBUG(D_INFO, "md_getattr_name: %d\n", rc);
-                        GOTO(out_free, rc);
-                }
-                ptlrpc_req_finished(request);
-                EXIT;
+			CERROR("%s: lookup %.*s failed: rc = %d\n",
+			       ll_get_fsname(inode->i_sb, NULL, 0), namelen,
+			       filename, rc);
+			GOTO(out_free, rc);
+		}
 out_free:
                 obd_ioctl_freedata(buf, len);
                 return rc;

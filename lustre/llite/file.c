@@ -3000,41 +3000,41 @@ int ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
         RETURN(rc);
 }
 
-static int ll_get_fid_by_name(struct inode *parent, const char *name,
-			      int namelen, struct lu_fid *fid)
+int ll_get_fid_by_name(struct inode *parent, const char *name,
+		       int namelen, struct lu_fid *fid)
 {
 	struct md_op_data	*op_data = NULL;
 	struct mdt_body		*body;
 	struct ptlrpc_request	*req;
 	int			rc;
+	ENTRY;
 
 	op_data = ll_prep_md_op_data(NULL, parent, NULL, name, namelen, 0,
 				     LUSTRE_OPC_ANY, NULL);
 	if (IS_ERR(op_data))
-		return PTR_ERR(op_data);
+		RETURN(PTR_ERR(op_data));
 
 	op_data->op_valid = OBD_MD_FLID;
 	rc = md_getattr_name(ll_i2sbi(parent)->ll_md_exp, op_data, &req);
+	ll_finish_md_op_data(op_data);
 	if (rc < 0)
-		GOTO(out_free, rc);
+		RETURN(rc);
 
 	body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
 	if (body == NULL)
 		GOTO(out_req, rc = -EFAULT);
-
-	*fid = body->fid1;
+	if (fid != NULL)
+		*fid = body->fid1;
 out_req:
 	ptlrpc_req_finished(req);
-out_free:
-	if (op_data != NULL)
-		ll_finish_md_op_data(op_data);
-	return rc;
+	RETURN(rc);
 }
 
 int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 	       const char *name, int namelen)
 {
 	struct dentry         *dchild = NULL;
+	struct inode          *child_inode = NULL;
 	struct md_op_data     *op_data;
 	struct ptlrpc_request *request = NULL;
 	struct qstr           qstr;
@@ -3050,12 +3050,17 @@ int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 		RETURN(PTR_ERR(op_data));
 
 	/* Get child FID first */
-	qstr.hash = full_name_hash(name, namelen);
+	qstr.hash = full_name_hash(name, strlen(name));
 	qstr.name = name;
-	qstr.len = namelen;
+	qstr.len = strlen(name);
 	dchild = d_lookup(file->f_dentry, &qstr);
 	if (dchild != NULL && dchild->d_inode != NULL) {
 		op_data->op_fid3 = *ll_inode2fid(dchild->d_inode);
+		if (dchild->d_inode != NULL) {
+			child_inode = igrab(dchild->d_inode);
+			ll_invalidate_aliases(child_inode);
+		}
+		dput(dchild);
 	} else {
 		rc = ll_get_fid_by_name(parent, name, strnlen(name, namelen),
 					&op_data->op_fid3);
@@ -3093,10 +3098,9 @@ int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
 		GOTO(out_free, rc);
 
 out_free:
-	if (dchild != NULL) {
-		if (dchild->d_inode != NULL)
-			ll_delete_inode(dchild->d_inode);
-		dput(dchild);
+	if (child_inode != NULL) {
+		clear_nlink(child_inode);
+		iput(child_inode);
 	}
 
 	ll_finish_md_op_data(op_data);
