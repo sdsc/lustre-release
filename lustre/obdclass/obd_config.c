@@ -1486,6 +1486,8 @@ int class_config_llog_handler(const struct lu_env *env,
         int rc = 0;
         ENTRY;
 
+	LASSERT(clli->cfg_sb != NULL);
+
         //class_config_dump_handler(handle, rec, data);
 
         switch (rec->lrh_type) {
@@ -1538,7 +1540,9 @@ int class_config_llog_handler(const struct lu_env *env,
                    illegal (post 146) */
                 if (!(clli->cfg_flags & CFG_F_COMPAT146) &&
                     !(clli->cfg_flags & CFG_F_MARKER) &&
-                    (lcfg->lcfg_command != LCFG_MARKER)) {
+                    (lcfg->lcfg_command != LCFG_MARKER) &&
+		    (clli->cfg_instance != NULL) &&
+		    (clli->cfg_uuid.uuid != NULL)) {
                         CWARN("Config not inside markers, ignoring! "
                               "(inst: %p, uuid: %s, flags: %#x)\n",
                               clli->cfg_instance,
@@ -1612,7 +1616,7 @@ int class_config_llog_handler(const struct lu_env *env,
 
                 lustre_cfg_bufs_init(&bufs, lcfg);
 
-                if (clli && clli->cfg_instance &&
+                if (clli && clli->cfg_instance != NULL &&
                     LUSTRE_CFG_BUFLEN(lcfg, 0) > 0){
                         inst = 1;
                         inst_len = LUSTRE_CFG_BUFLEN(lcfg, 0) +
