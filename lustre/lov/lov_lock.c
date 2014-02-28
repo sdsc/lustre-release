@@ -719,6 +719,7 @@ static int lov_lock_unuse(const struct lu_env *env,
 
 			switch(sublock->cll_state) {
 			case CLS_HELD:
+			case CLS_ENQUEUED:
 				rc = cl_unuse_try(subenv->lse_env, sublock);
 				lov_sublock_release(env, lck, i, 0, 0);
 				break;

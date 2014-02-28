@@ -504,12 +504,16 @@ static int osc_lock_upcall(void *cookie, int errcode)
 
                 cl_lock_mutex_get(env, lock);
 
-                LASSERT(lock->cll_state >= CLS_QUEUING);
                 if (olck->ols_state == OLS_ENQUEUED) {
                         olck->ols_state = OLS_UPCALL_RECEIVED;
                         rc = ldlm_error2errno(errcode);
-                } else if (olck->ols_state == OLS_CANCELLED) {
-                        rc = -EIO;
+		} else if (olck->ols_state == OLS_CANCELLED ||
+			   olck->ols_state == OLS_NEW) {
+			/*
+			 * this lock has been cancelled before it gets reply
+			 * from server
+			 */
+			rc = -EIO;
                 } else {
                         CERROR("Impossible state: %d\n", olck->ols_state);
                         LBUG();
