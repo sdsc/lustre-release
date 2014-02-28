@@ -292,6 +292,26 @@ fi
 ])
 
 #
+# FC19 3.12 kernel struct shrinker change
+#
+AC_DEFUN([LIBCFS_SHRINKER_COUNT],
+[AC_MSG_CHECKING([shrinker has count_objects])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/mmzone.h>
+	#include <linux/shrinker.h>
+],[
+	((struct shrinker*)0)->count_objects(NULL, NULL);
+],[
+	AC_MSG_RESULT(yes)
+	AC_DEFINE(HAVE_SHRINKER_COUNT, 1,
+		[shrinker has count_objects memeber])
+],[
+	AC_MSG_RESULT(no)
+],[
+])
+])
+
+#
 # LIBCFS_PROG_LINUX
 #
 # LNet linux kernel checks
@@ -323,6 +343,8 @@ LIBCFS_HAVE_CRC32
 LIBCFS_ENABLE_CRC32_ACCEL
 # 3.10
 LIBCFS_ENABLE_CRC32C_ACCEL
+# 3.12
+LIBCFS_SHRINKER_COUNT
 ])
 
 #
