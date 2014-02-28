@@ -797,7 +797,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 		ma->ma_lmm = buffer->lb_buf;
 		ma->ma_lmm_size = buffer->lb_len;
 		ma->ma_need = MA_INODE | MA_HSM;
-		if (ma->ma_lmm_size > 0)
+		if (ma->ma_lmm_size > 0 && ma_need & MA_LOV)
 			ma->ma_need |= MA_LOV;
 	}
 
