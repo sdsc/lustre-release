@@ -102,25 +102,6 @@ LB_LINUX_TRY_COMPILE([
 ])
 
 #
-# RHEL6/2.6.32 want to have pointer to shrinker self pointer in handler function
-#
-AC_DEFUN([LC_SHRINKER_WANT_SHRINK_PTR],
-[AC_MSG_CHECKING([shrinker want self pointer in handler])
-LB_LINUX_TRY_COMPILE([
-        #include <linux/mm.h>
-],[
-        struct shrinker *tmp = NULL;
-        tmp->shrink(tmp, 0, 0);
-],[
-        AC_MSG_RESULT(yes)
-        AC_DEFINE(HAVE_SHRINKER_WANT_SHRINK_PTR, 1,
-                  [shrinker want self pointer in handler])
-],[
-        AC_MSG_RESULT(no)
-])
-])
-
-#
 # 2.6.33 no longer has ctl_name & strategy field in struct ctl_table.
 #
 AC_DEFUN([LIBCFS_SYSCTL_CTLNAME],
@@ -291,6 +272,26 @@ fi
 ])
 
 #
+# FC19 3.12 kernel struct shrinker change
+#
+AC_DEFUN([LIBCFS_SHRINKER_COUNT],
+[AC_MSG_CHECKING([shrinker has count_objects])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/mmzone.h>
+	#include <linux/shrinker.h>
+],[
+	((struct shrinker*)0)->count_objects(NULL, NULL);
+],[
+	AC_MSG_RESULT(yes)
+	AC_DEFINE(HAVE_SHRINKER_COUNT, 1,
+		[shrinker has count_objects memeber])
+],[
+	AC_MSG_RESULT(no)
+],[
+])
+])
+
+#
 # LIBCFS_PROG_LINUX
 #
 # LNet linux kernel checks
@@ -302,7 +303,6 @@ LIBCFS_CONFIG_PANIC_DUMPLOG
 LIBCFS_U64_LONG_LONG_LINUX
 # 2.6.32
 LIBCFS_STACKTRACE_OPS_HAVE_WALK_STACK
-LC_SHRINKER_WANT_SHRINK_PTR
 # 2.6.33
 LIBCFS_SYSCTL_CTLNAME
 # 2.6.34
@@ -322,6 +322,8 @@ LIBCFS_HAVE_CRC32
 LIBCFS_ENABLE_CRC32_ACCEL
 # 3.10
 LIBCFS_ENABLE_CRC32C_ACCEL
+# 3.12
+LIBCFS_SHRINKER_COUNT
 ])
 
 #
