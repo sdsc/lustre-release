@@ -795,6 +795,7 @@ int mdc_enqueue(struct obd_export *exp, struct ldlm_enqueue_info *einfo,
         int                    generation, resends = 0;
         struct ldlm_reply     *lockrep;
 	enum lvb_type	       lvb_type = 0;
+	bool			read;
         ENTRY;
 
         LASSERTF(!it || einfo->ei_type == LDLM_IBITS, "lock type %d\n",
@@ -863,12 +864,18 @@ resend:
                 req->rq_sent = cfs_time_current_sec() + resends;
         }
 
+	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
+			   it->it_op == IT_LAYOUT))
+		read = true;
+	else
+		read = false;
+
         /* It is important to obtain rpc_lock first (if applicable), so that
          * threads that are serialised with rpc_lock are not polluting our
          * rpcs in flight counter. We do not do flock request limiting, though*/
         if (it) {
                 mdc_get_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
-                rc = mdc_enter_request(&obddev->u.cli);
+		rc = obd_get_request_slot(&obddev->u.cli, read);
                 if (rc != 0) {
                         mdc_put_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
                         mdc_clear_replay_flag(req, 0);
@@ -895,7 +902,7 @@ resend:
 		RETURN(rc);
 	}
 
-	mdc_exit_request(&obddev->u.cli);
+	obd_put_request_slot(&obddev->u.cli, read);
 	mdc_put_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
 
 	if (rc < 0) {
@@ -1224,7 +1231,7 @@ static int mdc_intent_getattr_async_interpret(const struct lu_env *env,
 
         obddev = class_exp2obd(exp);
 
-        mdc_exit_request(&obddev->u.cli);
+	obd_put_request_slot(&obddev->u.cli, true);
         if (OBD_FAIL_CHECK(OBD_FAIL_MDC_GETATTR_ENQUEUE))
                 rc = -ETIMEDOUT;
 
@@ -1285,7 +1292,7 @@ int mdc_intent_getattr_async(struct obd_export *exp,
 	if (IS_ERR(req))
 		RETURN(PTR_ERR(req));
 
-        rc = mdc_enter_request(&obddev->u.cli);
+	rc = obd_get_request_slot(&obddev->u.cli, true);
         if (rc != 0) {
                 ptlrpc_req_finished(req);
                 RETURN(rc);
@@ -1294,7 +1301,7 @@ int mdc_intent_getattr_async(struct obd_export *exp,
         rc = ldlm_cli_enqueue(exp, &req, einfo, &res_id, &policy, &flags, NULL,
 			      0, LVB_T_NONE, &minfo->mi_lockh, 1);
         if (rc < 0) {
-                mdc_exit_request(&obddev->u.cli);
+		obd_put_request_slot(&obddev->u.cli, true);
                 ptlrpc_req_finished(req);
                 RETURN(rc);
         }
