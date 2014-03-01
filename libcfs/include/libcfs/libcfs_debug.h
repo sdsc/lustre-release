@@ -156,13 +156,15 @@ struct ptldebug_header {
 #define D_SEC		0x08000000
 #define D_LFSCK		0x10000000 /* For both OI scrub and LFSCK */
 #define D_HSM		0x20000000
+#define D_CLLOCK	0x40000000 /* cl_lock specific debug */
+#define D_CLFREE	0x80000000 /* cl_lock_free debug only */
 
 #define LIBCFS_DEBUG_MASKS_NAMES {					\
 	"trace", "inode", "super", "ext2", "malloc", "cache", "info",	\
 	"ioctl", "neterror", "net", "warning", "buffs", "other",	\
 	"dentry", "nettrace", "page", "dlmtrace", "error", "emerg",	\
 	"ha", "rpctrace", "vfstrace", "reada", "mmap", "config",	\
-	"console", "quota", "sec", "lfsck", "hsm", NULL }
+	"console", "quota", "sec", "lfsck", "hsm", "cllock", "clfree", NULL }
 
 #define D_CANTMASK   (D_ERROR | D_EMERG | D_WARNING | D_CONSOLE)
 
