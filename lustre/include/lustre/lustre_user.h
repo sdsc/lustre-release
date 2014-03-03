@@ -313,6 +313,8 @@ struct ost_id {
 #define LOV_USER_MAGIC    LOV_USER_MAGIC_V1
 #define LOV_USER_MAGIC_JOIN_V1 0x0BD20BD0
 #define LOV_USER_MAGIC_V3 0x0BD30BD0
+/* 0x0BD40BD0 is occupied by LOV_MAGIC_MIGRATE */
+#define LOV_USER_MAGIC_V4 0x0BD50BD0	/* for specific OSTs */
 
 #define LMV_MAGIC_V1      0x0CD10CD0    /*normal stripe lmv magic */
 #define LMV_USER_MAGIC    0x0CD20CD0    /*default lmv magic*/
@@ -438,6 +440,8 @@ static inline int lmv_user_md_size(int stripes, int lmm_magic)
 }
 
 extern void lustre_swab_lmv_user_md(struct lmv_user_md *lum);
+extern void lustre_print_user_md(unsigned int level, struct lov_user_md *lum,
+				 const char *msg);
 
 struct ll_recreate_obj {
         __u64 lrc_id;
