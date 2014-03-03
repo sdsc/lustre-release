@@ -1254,7 +1254,7 @@ out_trans:
 	lgi->lgi_buf.lb_buf = idarray;
 	lgi->lgi_buf.lb_len = size;
 	rc = dt_record_read(env, o, &lgi->lgi_buf, &lgi->lgi_off);
-	if (rc) {
+	if (rc < 0 && rc != -EFAULT) {
 		CERROR("%s: error reading CATALOGS: rc = %d\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name,  rc);
 		GOTO(out, rc);

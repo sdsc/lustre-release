@@ -79,6 +79,22 @@ void llapi_error(enum llapi_message_level level, int err, const char *fmt, ...)
 void llapi_printf(enum llapi_message_level level, const char *fmt, ...)
 	__attribute__((__format__(__printf__, 2, 3)));
 
+struct llapi_stripe_param {
+	unsigned long long	lsp_stripe_size;
+	char			*lsp_pool;
+	int			lsp_stripe_offset;
+	int			lsp_stripe_count;
+	int			lsp_stripe_pattern;
+	/* if lsp_nr_osts is greater than zero, then lsp_osts[] contains
+	 * the OST indices stripes will be stored to */
+	int			lsp_nr_osts;
+	__u32			lsp_osts[0];
+};
+
+extern int llapi_file_open_param(const char *name, int flags, mode_t mode,
+				 struct llapi_stripe_param *param);
+extern int llapi_file_create_param(const char *name,
+				   struct llapi_stripe_param *param);
 extern int llapi_file_create(const char *name, unsigned long long stripe_size,
                              int stripe_offset, int stripe_count,
                              int stripe_pattern);
@@ -93,6 +109,7 @@ extern int llapi_file_open_pool(const char *name, int flags, int mode,
                                 unsigned long long stripe_size,
                                 int stripe_offset, int stripe_count,
                                 int stripe_pattern, char *pool_name);
+
 extern int llapi_poollist(const char *name);
 extern int llapi_get_poollist(const char *name, char **poollist, int list_size,
                               char *buffer, int buffer_size);
@@ -219,9 +236,11 @@ extern int llapi_file_fget_mdtidx(int fd, int *mdtidx);
 extern int llapi_dir_set_default_lmv_stripe(const char *name, int stripe_offset,
 					   int stripe_count, int stripe_pattern,
 					    const char *pool_name);
+extern int llapi_dir_create_param(const char *name,
+				  struct llapi_stripe_param *param);
 extern int llapi_dir_create_pool(const char *name, int flags, int stripe_offset,
 				 int stripe_count, int stripe_pattern,
-				 const char *poolname);
+				 char *poolname);
 int llapi_direntry_remove(char *dname);
 extern int llapi_obd_statfs(char *path, __u32 type, __u32 index,
                      struct obd_statfs *stat_buf,
