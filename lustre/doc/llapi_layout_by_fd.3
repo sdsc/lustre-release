@@ -1,0 +1,69 @@
+.TH llapi_layout_by_fd 3 "2013 Oct 31" "Lustre User API"
+.SH NAME
+llapi_layout_by_fd, llapi_layout_by_fid, llapi_layout_by_path \- obtain
+the layout of a Lustre file
+.SH SYNOPSIS
+.nf
+.B #include <lustre/lustreapi.h>
+.PP
+.BI "llapi_layout_t *llapi_layout_by_fd(int "fd );
+.PP
+.BI "llapi_layout_t *llapi_layout_by_fid(const char *"lustre_dir ,
+.BI "                                    lustre_fid *"fid );
+.PP
+.BI "llapi_layout_t *llapi_layout_by_path(const char *"path );
+.fi
+.SH DESCRIPTION
+.PP
+.BR llapi_layout_by_fd() ,
+.BR llapi_layout_by_fid() ,
+and
+.B llapi_layout_by_path()
+return a pointer to a newly-allocated
+.B llapi_layout_t
+containing the layout information for the file referenced by
+.IR fd ,
+.IR fid ,
+or
+.IR path .
+The
+.B llapi_layout_t
+is an opaque entity containing the layout information for a file in a
+Lustre filesystem.  Its internal structure should not be directly
+accessed by an application.  See
+.BR llapi_layout (7).
+The pointer should be freed with
+.B llapi_layout_free()
+when it is no longer needed.
+.PP
+The path named by
+.I lustre_dir
+must reside within the Lustre filesystem containing the file
+represented by
+.IR fid .
+.SH RETURN VALUES
+.LP
+.BR llapi_layout_by_fd() ,
+.BR llapi_layout_by_fid() ,
+and
+.BR llapi_layout_by_path() ,
+return a valid pointer on success or
+.B NULL
+on failure with
+.B errno
+set to an approporiate error code.
+.SH ERRORS
+.TP 15
+.SM ENOMEM
+Insufficient storage space is available.
+.TP
+.SM ENOTTY
+.I path
+does not reside on a Lustre filesystem.
+.TP
+.SM EINVAL
+An invalid argument was specified.
+.SH "SEE ALSO"
+.BR llapi_layout_file_open (3),
+.BR llapi_layout (7),
+.BR liblustreapi (7)

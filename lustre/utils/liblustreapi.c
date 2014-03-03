@@ -56,6 +56,7 @@
 #include <dirent.h>
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <sys/types.h>
 #include <sys/syscall.h>
 #include <sys/xattr.h>
@@ -71,7 +72,6 @@
 
 #include <liblustre.h>
 #include <lnet/lnetctl.h>
-#include <obd.h>
 #include <lustre/lustreapi.h>
 #include "lustreapi_internal.h"
 
@@ -289,14 +289,14 @@ int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
 				"larger than expected (%u)", page_size,
 				LOV_MIN_STRIPE_SIZE);
 	}
-	if ((stripe_size & (LOV_MIN_STRIPE_SIZE - 1))) {
+	if (!llapi_stripe_size_is_valid(stripe_size)) {
 		rc = -EINVAL;
 		llapi_error(LLAPI_MSG_ERROR, rc, "error: bad stripe_size %llu, "
 				"must be an even multiple of %d bytes",
 				stripe_size, page_size);
 		return rc;
 	}
-	if (stripe_offset < -1 || stripe_offset > MAX_OBD_DEVICES) {
+	if (!llapi_stripe_offset_is_valid(stripe_offset)) {
 		rc = -EINVAL;
 		llapi_error(LLAPI_MSG_ERROR, rc, "error: bad stripe offset %d",
 				stripe_offset);
@@ -308,7 +308,7 @@ int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
 				stripe_count);
 		return rc;
 	}
-	if (stripe_size >= (1ULL << 32)) {
+	if (llapi_stripe_size_is_too_big(stripe_size)) {
 		rc = -EINVAL;
 		llapi_error(LLAPI_MSG_ERROR, rc,
 				"warning: stripe size 4G or larger "
@@ -4531,4 +4531,22 @@ out_close:
 	close(fd1);
 out:
 	return rc;
+}
+
+/**
+ * Attempt to open a file with  Lustre file identifier \a fid
+ * and return an open file descriptor.
+ */
+int llapi_open_by_fid(const char *lustre_dir, lustre_fid *fid, int flags)
+{
+	char mntdir[PATH_MAX];
+	char path[PATH_MAX];
+	int rc;
+
+	rc = llapi_search_mounts(lustre_dir, 0, mntdir, NULL);
+	if (rc != 0)
+		return -1;
+
+	snprintf(path, sizeof(path), "%s/.lustre/fid/"DFID, mntdir, PFID(fid));
+	return open(path, flags);
 }

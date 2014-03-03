@@ -35,6 +35,8 @@
 #ifndef _LUSTREAPI_INTERNAL_H_
 #define _LUSTREAPI_INTERNAL_H_
 
+#include <obd.h>
+
 #define WANT_PATH   0x1
 #define WANT_FSNAME 0x2
 #define WANT_FD     0x4
@@ -45,5 +47,28 @@ int root_ioctl(const char *mdtname, int opc, void *data, int *mdtidxp,
 	       int want_error);
 int get_param(const char *param_path, char *result,
 	      unsigned int result_size);
+
+/* Helper functions for testing validity of stripe attributes. */
+
+static inline int llapi_stripe_size_is_valid(int64_t stripe_size)
+{
+	return stripe_size >= 0 &&
+		(stripe_size & (LOV_MIN_STRIPE_SIZE - 1)) == 0;
+}
+
+static inline int llapi_stripe_size_is_too_big(int64_t stripe_size)
+{
+	return stripe_size >= (1ULL << 32);
+}
+
+static inline int llapi_stripe_count_is_valid(int64_t stripe_count)
+{
+	return stripe_count >= -1 && stripe_count <= LOV_MAX_STRIPE_COUNT;
+}
+
+static inline int llapi_stripe_offset_is_valid(int64_t stripe_offset)
+{
+	return stripe_offset >= -1 && stripe_offset <= MAX_OBD_DEVICES;
+}
 
 #endif /* _LUSTREAPI_INTERNAL_H_ */
