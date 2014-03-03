@@ -38,6 +38,7 @@
 #include <obd_class.h>
 #include <lprocfs_status.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_nodemap.h>
 
 #if defined(LPROCFS)
 
@@ -171,6 +172,13 @@ int lprocfs_exp_print_uuid_seq(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 		seq_printf(m, "%s\n", obd_uuid2str(&exp->exp_client_uuid));
 	return 0;
 }
+
+int lprocfs_exp_nodemap_seq_show(struct seq_file *m, void *data)
+{
+	struct obd_export       *exp = data;
+	return seq_printf(m, "%s\n", exp->exp_target_data.ted_nodemap->nm_name);
+}
+LPROC_SEQ_FOPS_RO(lprocfs_exp_nodemap);
 
 int lprocfs_exp_uuid_seq_show(struct seq_file *m, void *data)
 {
@@ -339,6 +347,14 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
 		new_stat->nid_proc = NULL;
 		CERROR("%s: cannot create proc entry for export %s: rc = %d\n",
 		       obd->obd_name, libcfs_nid2str(*nid), rc);
+		GOTO(destroy_new_ns, rc);
+	}
+
+	entry = lprocfs_add_simple(new_stat->nid_proc, "nodemap",
+				   exp, &lprocfs_exp_nodemap_fops);
+	if (IS_ERR(entry)) {
+		CWARN("Error adding the nodemap file\n");
+		rc = PTR_ERR(entry);
 		GOTO(destroy_new_ns, rc);
 	}
 
