@@ -24,8 +24,12 @@
  * Author: Joshua Walgenbach <jjw@iu.edu>
  */
 #include <linux/module.h>
+#include <linux/sort.h>
 #include <lnet/nidstr.h>
 #include <lustre_net.h>
+#include <lustre_acl.h>
+#include <lustre_eacl.h>
+#include <obd_class.h>
 #include "nodemap_internal.h"
 
 #define HASH_NODEMAP_BKT_BITS 3
@@ -64,14 +68,18 @@ static cfs_hash_t *nodemap_hash;
 static void nodemap_destroy(struct lu_nodemap *nodemap)
 {
 	struct lu_nid_range *range;
-	struct lu_nid_range *temp;
+	struct lu_nid_range *range_temp;
 
-	list_for_each_entry_safe(range, temp, &nodemap->nm_ranges,
+	list_for_each_entry_safe(range, range_temp, &nodemap->nm_ranges,
 				 rn_list) {
 		range_delete(range);
 	}
 
 	idmap_delete_tree(nodemap);
+	nm_member_reclassify_nodemap(nodemap);
+	if (!cfs_hash_is_empty(nodemap->nm_member_hash))
+		CWARN("nodemap_destroy failed to reclassify all members\n");
+	nm_member_delete_hash(nodemap);
 
 	lprocfs_remove(&nodemap->nm_proc_entry);
 	OBD_FREE_PTR(nodemap);
@@ -225,6 +233,7 @@ static bool nodemap_name_is_valid(const char *name)
 		if (!isalnum(*name) && *name != '_')
 			return false;
 	}
+
 	return true;
 }
 
@@ -322,33 +331,73 @@ EXPORT_SYMBOL(nodemap_parse_range);
  * \param	idmap			array[2] of __u32
  *
  * \retval	0 on success
+ * \retval	-EINVAL if idmap cannot be parsed
  */
-int nodemap_parse_idmap(const char *idmap_str, __u32 idmap[2])
+int nodemap_parse_idmap(char *idmap_str, __u32 idmap[2])
 {
-	char	*end;
+	char			*sep;
+	long unsigned int	 idmap_buf;
+	int			 rc;
 
 	if (idmap_str == NULL)
 		return -EINVAL;
 
-	idmap[0] = simple_strtoul(idmap_str, &end, 10);
-	if (end == idmap_str || *end != ':')
+	sep = strchr(idmap_str, ':');
+	if (sep == NULL)
 		return -EINVAL;
+	*sep = '\0';
+	sep++;
 
-	idmap_str = end + 1;
-	idmap[1] = simple_strtoul(idmap_str, &end, 10);
-	if (end == idmap_str)
+	rc = kstrtoul(idmap_str, 10, &idmap_buf);
+	if (rc != 0)
 		return -EINVAL;
+	idmap[0] = idmap_buf;
+
+	rc = kstrtoul(sep, 10, &idmap_buf);
+	if (rc != 0)
+		return -EINVAL;
+	idmap[1] = idmap_buf;
 
 	return 0;
 }
 EXPORT_SYMBOL(nodemap_parse_idmap);
 
 /**
+ * add a member to a nodemap
+ *
+ * \param	nid		nid to add to the members
+ * \param	exp		obd_export structure for the connection
+ *				that is being added
+ */
+int nodemap_add_member(lnet_nid_t nid, struct obd_export *exp)
+{
+	struct lu_nodemap	*nodemap;
+
+	nodemap = nodemap_classify_nid(nid);
+	return nm_member_add(nodemap, exp);
+}
+EXPORT_SYMBOL(nodemap_add_member);
+
+/**
+ * delete a member from a nodemap
+ *
+ * \param	exp		export to remove from a nodemap
+ */
+void nodemap_del_member(struct obd_export *exp)
+{
+	struct lu_nodemap	*nodemap = exp->exp_target_data.ted_nodemap;
+
+	if (nodemap != NULL)
+		nm_member_del(nodemap, exp);
+}
+EXPORT_SYMBOL(nodemap_del_member);
+
+/**
  * add an idmap to the proper nodemap trees
  *
  * \param	name		name of nodemap
  * \param	id_type		NODEMAP_UID or NODEMAP_GID
- * \param	map		array[2] __u32 containing the mapA values
+ * \param	map		array[2] __u32 containing the map values
  *				map[0] is client id
  *				map[1] is the filesystem id
  *
@@ -370,6 +419,7 @@ int nodemap_add_idmap(const char *name, enum nodemap_id_type id_type,
 		GOTO(out_putref, rc = -ENOMEM);
 
 	idmap_insert(id_type, idmap, nodemap);
+	nm_member_revoke_locks(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -406,6 +456,7 @@ int nodemap_del_idmap(const char *name, enum nodemap_id_type id_type,
 		GOTO(out_putref, rc = -EINVAL);
 
 	idmap_delete(id_type, idmap, nodemap);
+	nm_member_revoke_locks(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -427,7 +478,7 @@ EXPORT_SYMBOL(nodemap_del_idmap);
  *
  * if the nodemap_active is false, just return the passed id without mapping
  *
- * if the id to be looked up in 0, check that root access is allowed and if it
+ * if the id to be looked up is 0, check that root access is allowed and if it
  * is, return 0. Otherwise, return the squash uid or gid.
  *
  * if the nodemap is configured to trusted the ids from the client system, just
@@ -446,6 +497,9 @@ __u32 nodemap_map_id(struct lu_nodemap *nodemap,
 	struct lu_idmap		*idmap = NULL;
 
 	if (!nodemap_active)
+		goto out;
+
+	if (unlikely(nodemap == NULL))
 		goto out;
 
 	if (id == 0) {
@@ -480,6 +534,70 @@ out:
 }
 EXPORT_SYMBOL(nodemap_map_id);
 
+/**
+ * Map posix ACL entries according to the nodemap membership. Removes any
+ * squashed ACLs.
+ *
+ * \param	lu_nodemap	nodemap
+ * \param	buf		buffer containing xattr encoded ACLs
+ * \param	size		size of ACLs in bytes
+ * \param	tree_type	direction of mapping
+ * \retval	new size of ACLs in bytes
+ * \retval	-EINVAL on a bad \a size parameter, see posix_acl_xattr_count()
+ */
+ssize_t nodemap_map_acl(struct lu_nodemap *nodemap, void *buf, size_t size,
+			enum nodemap_tree_type tree_type)
+{
+	posix_acl_xattr_header	*header = buf;
+	posix_acl_xattr_entry	*entry = &header->a_entries[0];
+	posix_acl_xattr_entry	*new_entry = entry;
+	posix_acl_xattr_entry	*end;
+	int			 count;
+
+	if (!nodemap_active)
+		return size;
+
+	if (unlikely(nodemap == NULL))
+		return size;
+
+	count = posix_acl_xattr_count(size);
+	if (count < 0)
+		return -EINVAL;
+	if (count == 0)
+		return 0;
+
+	for (end = entry + count; entry != end; entry++) {
+		__u16 tag = le16_to_cpu(entry->e_tag);
+		__u32 id = le32_to_cpu(entry->e_id);
+
+		switch (tag) {
+		case ACL_USER:
+			id = nodemap_map_id(nodemap, NODEMAP_UID,
+					    tree_type, id);
+			if (id == nodemap->nm_squash_uid)
+				continue;
+			entry->e_id = cpu_to_le32(id);
+			break;
+		case ACL_GROUP:
+			id = nodemap_map_id(nodemap, NODEMAP_GID,
+					    tree_type, id);
+			if (id == nodemap->nm_squash_gid)
+				continue;
+			entry->e_id = cpu_to_le32(id);
+			break;
+		}
+
+		/* if we skip an ACL, copy the following ones over it */
+		if (new_entry != entry)
+			*new_entry = *entry;
+
+		new_entry++;
+	}
+
+	return (void *)new_entry - (void *)header;
+}
+EXPORT_SYMBOL(nodemap_map_acl);
+
 /*
  * add nid range to nodemap
  * \param	name		nodemap name
@@ -513,6 +631,9 @@ int nodemap_add_range(const char *name, const lnet_nid_t nid[2])
 	}
 
 	list_add(&range->rn_list, &nodemap->nm_ranges);
+	nm_member_reclassify_nodemap(default_nodemap);
+	nm_member_revoke_locks(default_nodemap);
+	nm_member_revoke_locks(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -545,6 +666,9 @@ int nodemap_del_range(const char *name, const lnet_nid_t nid[2])
 		GOTO(out_putref, rc = -EINVAL);
 
 	range_delete(range);
+	nm_member_reclassify_nodemap(nodemap);
+	nm_member_revoke_locks(default_nodemap);
+	nm_member_revoke_locks(nodemap);
 
 out_putref:
 	nodemap_putref(nodemap);
@@ -571,8 +695,8 @@ EXPORT_SYMBOL(nodemap_del_range);
  */
 static int nodemap_create(const char *name, bool is_default)
 {
-	struct	lu_nodemap *nodemap = NULL;
-	int	rc = 0;
+	struct lu_nodemap	*nodemap = NULL;
+	int			rc = 0;
 
 	rc = nodemap_lookup(name, &nodemap);
 	if (rc == -EINVAL)
@@ -582,8 +706,8 @@ static int nodemap_create(const char *name, bool is_default)
 		nodemap_putref(nodemap);
 		GOTO(out, rc = -EEXIST);
 	}
-	OBD_ALLOC_PTR(nodemap);
 
+	OBD_ALLOC_PTR(nodemap);
 	if (nodemap == NULL) {
 		CERROR("cannot allocate memory (%zu bytes)"
 		       "for nodemap '%s'\n", sizeof(*nodemap),
@@ -593,7 +717,12 @@ static int nodemap_create(const char *name, bool is_default)
 
 	snprintf(nodemap->nm_name, sizeof(nodemap->nm_name), "%s", name);
 
-	INIT_LIST_HEAD(&(nodemap->nm_ranges));
+	rc = nm_member_init_hash(nodemap);
+	if (rc != 0)
+		goto out;
+
+	INIT_LIST_HEAD(&nodemap->nm_ranges);
+
 	nodemap->nm_fs_to_client_uidmap = RB_ROOT;
 	nodemap->nm_client_to_fs_uidmap = RB_ROOT;
 	nodemap->nm_fs_to_client_gidmap = RB_ROOT;
@@ -717,7 +846,7 @@ out:
 EXPORT_SYMBOL(nodemap_set_squash_uid);
 
 /**
- * update the squash_gid for a nodemap
+ * Update the squash_gid for a nodemap.
  *
  * \param	name		nodemap name
  * \param	gid_string	string containing new squash_gid value
@@ -745,6 +874,18 @@ out:
 EXPORT_SYMBOL(nodemap_set_squash_gid);
 
 /**
+ * Returns true if this nodemap has root user access. Always returns true if
+ * nodemaps are not active.
+ *
+ * \param	nodemap		nodemap to check access for
+ */
+bool nodemap_can_setquota(const struct lu_nodemap *nodemap)
+{
+	return !nodemap_active || nodemap->nmf_allow_root_access;
+}
+EXPORT_SYMBOL(nodemap_can_setquota);
+
+/**
  * Add a nodemap
  *
  * \param	name		name of nodemap
@@ -753,9 +894,9 @@ EXPORT_SYMBOL(nodemap_set_squash_gid);
  * \retval	-EEXIST		nodemap already exists
  * \retval	-ENOMEM		cannot allocate memory for nodemap
  */
-int nodemap_add(const char *name)
+int nodemap_add(const char *nodemap_name)
 {
-	return nodemap_create(name, 0);
+	return nodemap_create(nodemap_name, 0);
 }
 EXPORT_SYMBOL(nodemap_add);
 
@@ -767,15 +908,15 @@ EXPORT_SYMBOL(nodemap_add);
  * \retval	-EINVAL		invalid input
  * \retval	-ENOENT		no existing nodemap
  */
-int nodemap_del(const char *name)
+int nodemap_del(const char *nodemap_name)
 {
 	struct	lu_nodemap *nodemap;
 	int	rc = 0;
 
-	if (strcmp(name, DEFAULT_NODEMAP) == 0)
+	if (strcmp(nodemap_name, DEFAULT_NODEMAP) == 0)
 		GOTO(out, rc = -EINVAL);
 
-	nodemap = cfs_hash_del_key(nodemap_hash, name);
+	nodemap = cfs_hash_del_key(nodemap_hash, nodemap_name);
 	if (nodemap == NULL)
 		GOTO(out, rc = -ENOENT);
 
@@ -799,7 +940,7 @@ EXPORT_SYMBOL(nodemap_activate);
 /**
  * Cleanup nodemap module on exit
  */
-static void nodemap_mod_exit(void)
+void nodemap_mod_exit(void)
 {
 	nodemap_cleanup_all();
 	lprocfs_remove(&proc_lustre_nodemap_root);
@@ -808,7 +949,7 @@ static void nodemap_mod_exit(void)
 /**
  * Initialize the nodemap module
  */
-static int __init nodemap_mod_init(void)
+int nodemap_mod_init(void)
 {
 	int rc = 0;
 
@@ -825,10 +966,3 @@ cleanup:
 
 	return rc;
 }
-
-MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Lustre Client Nodemap Management Module");
-MODULE_AUTHOR("Joshua Walgenbach <jjw@iu.edu>");
-
-module_init(nodemap_mod_init);
-module_exit(nodemap_mod_exit);
