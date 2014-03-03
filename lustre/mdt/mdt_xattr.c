@@ -46,6 +46,8 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <linux/xattr.h>
+#include <obd_class.h>
+#include <lustre_nodemap.h>
 #include <lustre_acl.h>
 #include "mdt_internal.h"
 
@@ -356,23 +358,25 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 {
 	struct ptlrpc_request   *req = mdt_info_req(info);
 	struct lu_ucred         *uc  = lu_ucred(info->mti_env);
-        struct mdt_lock_handle  *lh;
-        const struct lu_env     *env  = info->mti_env;
-        struct lu_buf           *buf  = &info->mti_buf;
-        struct mdt_reint_record *rr   = &info->mti_rr;
-        struct md_attr          *ma = &info->mti_attr;
-        struct lu_attr          *attr = &info->mti_attr.ma_attr;
-        struct mdt_object       *obj;
-        struct md_object        *child;
-        __u64                    valid = attr->la_valid;
+	struct mdt_lock_handle  *lh;
+	const struct lu_env     *env  = info->mti_env;
+	struct lu_buf           *buf  = &info->mti_buf;
+	struct mdt_reint_record *rr   = &info->mti_rr;
+	struct md_attr          *ma = &info->mti_attr;
+	struct lu_attr          *attr = &info->mti_attr.ma_attr;
+	struct mdt_object       *obj;
+	struct md_object        *child;
+	struct obd_export	*exp = info->mti_exp;
+	struct lu_nodemap	*nodemap = exp->exp_target_data.ted_nodemap;
+	__u64                    valid = attr->la_valid;
 	const char		*xattr_name = rr->rr_name.ln_name;
-        int                      xattr_len = rr->rr_eadatalen;
-        __u64                    lockpart;
-        int                      rc;
-        posix_acl_xattr_header  *new_xattr = NULL;
-        __u32                    remote = exp_connect_rmtclient(info->mti_exp);
-        __u32                    perm;
-        ENTRY;
+	int                      xattr_len = rr->rr_eadatalen;
+	__u64                    lockpart;
+	int                      rc;
+	posix_acl_xattr_header  *new_xattr = NULL;
+	__u32                    remote = exp_connect_rmtclient(info->mti_exp);
+	__u32                    perm;
+	ENTRY;
 
         CDEBUG(D_INODE, "setxattr for "DFID"\n", PFID(rr->rr_fid1));
 
@@ -422,9 +426,20 @@ int mdt_reint_setxattr(struct mdt_thread_info *info,
 	} else if ((valid & OBD_MD_FLXATTR) &&
 		   (strcmp(xattr_name, XATTR_NAME_ACL_ACCESS) == 0 ||
 		    strcmp(xattr_name, XATTR_NAME_ACL_DEFAULT) == 0)) {
+		char *xattr = (void *)rr->rr_eadata;
+
 		/* currently lustre limit acl access size */
 		if (xattr_len > LUSTRE_POSIX_ACL_MAX_SIZE)
 			GOTO(out, rc = -ERANGE);
+
+		rc = nodemap_map_acl(nodemap, xattr, NODEMAP_CLIENT_TO_FS,
+				     xattr_len);
+		if (rc < 0)
+			GOTO(out, rc);
+
+		/* ACLs were mapped out, return an error so the user knows */
+		if (rc != xattr_len)
+			GOTO(out, rc = -EPERM);
 	}
 
         lockpart = MDS_INODELOCK_UPDATE;
