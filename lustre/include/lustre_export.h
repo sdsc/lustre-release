@@ -67,6 +67,11 @@ struct tg_export_data {
 	loff_t			ted_lr_off;
 	/** Client index in last_rcvd file */
 	int			ted_lr_idx;
+
+	/** nodemap this export is a member of */
+	struct lu_nodemap	*ted_nodemap;
+	struct list_head	ted_nodemap_iterator;
+	struct hlist_node	ted_nodemap_member;
 };
 
 /**
@@ -263,8 +268,6 @@ struct obd_export {
                 struct ec_export_data     eu_ec_data;
                 struct mgs_export_data    eu_mgs_data;
         } u;
-
-	struct nodemap		  *exp_nodemap;
 };
 
 #define exp_target_data u.eu_target_data
