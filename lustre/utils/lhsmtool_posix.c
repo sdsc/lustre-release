@@ -446,13 +446,13 @@ static int ct_load_stripe(const char *src, void *lovea, size_t *lovea_size)
 
 	fd = open(lov_file, O_RDONLY);
 	if (fd < 0) {
-		CT_ERROR(errno, "cannot open '%s'", lov_file);
+		CT_ERROR(-errno, "cannot open '%s'", lov_file);
 		return -ENODATA;
 	}
 
 	rc = read(fd, lovea, *lovea_size);
 	if (rc < 0) {
-		CT_ERROR(errno, "cannot read %zu bytes from '%s'",
+		CT_ERROR(-errno, "cannot read %zu bytes from '%s'",
 			 *lovea_size, lov_file);
 		close(fd);
 		return -ENODATA;
@@ -472,7 +472,7 @@ static int ct_restore_stripe(const char *src, const char *dst, int dst_fd,
 	rc = fsetxattr(dst_fd, XATTR_LUSTRE_LOV, lovea, lovea_size,
 		       XATTR_CREATE);
 	if (rc < 0) {
-		CT_ERROR(errno, "cannot set lov EA on '%s'", dst);
+		CT_ERROR(-errno, "cannot set lov EA on '%s'", dst);
 		rc = -errno;
 	}
 
@@ -851,7 +851,7 @@ static int ct_archive(const struct hsm_action_item *hai, const long hal_flags)
 
 	src_fd = llapi_hsm_action_get_fd(hcp);
 	if (src_fd < 0) {
-		rc = -errno;
+		rc = src_fd;
 		CT_ERROR(rc, "cannot open '%s' for read", src);
 		goto fini_major;
 	}
@@ -932,7 +932,7 @@ static int ct_archive(const struct hsm_action_item *hai, const long hal_flags)
 		snprintf(tmp_dst, sizeof(tmp_dst), "%s.lov", dst);
 		rc = rename(tmp_dst, tmp_src);
 		if (rc < 0)
-			CT_ERROR(errno, "cannot rename '%s' to '%s'",
+			CT_ERROR(-errno, "cannot rename '%s' to '%s'",
 				 tmp_dst, tmp_src);
 	}
 
@@ -976,7 +976,7 @@ static int ct_archive(const struct hsm_action_item *hai, const long hal_flags)
 		ct_path_archive(dst, sizeof(dst), buf, &hai->hai_fid);
 
 		if (ct_mkdir_p(src)) {
-			CT_ERROR(errno, "mkdir_p '%s' failed", src);
+			CT_ERROR(-errno, "mkdir_p '%s' failed", src);
 			rcf = rcf ? rcf : -errno;
 			goto fini_minor;
 		}
@@ -992,7 +992,7 @@ static int ct_archive(const struct hsm_action_item *hai, const long hal_flags)
 			buf[sz] = '\0';
 			if (sz == 0 || strncmp(buf, dst, sz) != 0) {
 				if (unlink(src) && errno != ENOENT) {
-					CT_ERROR(errno,
+					CT_ERROR(-errno,
 						 "cannot unlink symlink '%s'",
 						 src);
 					rcf = rcf ? rcf : -errno;
@@ -1010,7 +1010,7 @@ static int ct_archive(const struct hsm_action_item *hai, const long hal_flags)
 			}
 		}
 		if (symlink(dst, src)) {
-			CT_ERROR(errno, "cannot symlink '%s' to '%s'",
+			CT_ERROR(-errno, "cannot symlink '%s' to '%s'",
 				 src, dst);
 			rcf = rcf ? rcf : -errno;
 			goto fini_minor;
@@ -1111,6 +1111,11 @@ static int ct_restore(const struct hsm_action_item *hai, const long hal_flags)
 	}
 
 	dst_fd = llapi_hsm_action_get_fd(hcp);
+	if (dst_fd < 0) {
+		rc = dst_fd;
+		CT_ERROR(rc, "cannot open '%s' for write", dst);
+		goto fini;
+	}
 
 	if (set_lovea) {
 		/* the layout cannot be allocated through .fid so we have to
@@ -1500,7 +1505,7 @@ static int ct_rebind_one(const lustre_fid *old_fid, const lustre_fid *new_fid)
 		strncat(src, ".lov", sizeof(src) - strlen(src) - 1);
 		strncat(dst, ".lov", sizeof(dst) - strlen(dst) - 1);
 		if (rename(src, dst))
-			CT_ERROR(errno, "cannot '%s' rename to '%s'", src, dst);
+			CT_ERROR(-errno, "cannot '%s' rename to '%s'", src, dst);
 
 	}
 	return 0;
