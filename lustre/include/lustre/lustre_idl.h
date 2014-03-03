@@ -1585,6 +1585,7 @@ enum obdo_flags {
 #define LOV_MAGIC_JOIN_V1 0x0BD20BD0
 #define LOV_MAGIC_V3      0x0BD30BD0
 #define LOV_MAGIC_MIGRATE 0x0BD40BD0
+#define LOV_MAGIC_V5	  0x0BD50BD0	/* reserved for specifying OSTs */
 
 /*
  * magic for fully defined striping

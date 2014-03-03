@@ -828,6 +828,83 @@ out:
 	RETURN(rc);
 }
 
+/* alloc objects on osts with specified OSTs */
+static int lod_alloc_ost_list(const struct lu_env *env, struct lod_object *lo,
+			      struct dt_object **stripe, int flags,
+			      struct lov_user_md *lum,
+			      struct thandle *th)
+{
+	struct lod_device *m = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
+	struct obd_statfs *sfs = &lod_env_info(env)->lti_osfs;
+	struct dt_object  *o;
+	unsigned int	   array_idx = 0;
+	int		   stripe_num = 0;
+	int		   i;
+	int		   rc;
+	ENTRY;
+
+	/* for specific OSTs layout */
+	LASSERT(lum != NULL && lum->lmm_magic == LOV_USER_MAGIC_V5);
+	lustre_print_user_md(D_OTHER, lum, __func__);
+
+	rc = lod_qos_ost_in_use_clear(env, lo->ldo_stripenr);
+	if (rc < 0)
+		RETURN(rc);
+
+	for (i = 0; i < lo->ldo_stripenr; i++) {
+		if (lum->lmm_objects[i].l_ost_idx ==
+		    lo->ldo_def_stripe_offset) {
+			array_idx = i;
+			break;
+		}
+	}
+	if (i == lo->ldo_stripenr) {
+		CERROR("%s: start index %d not found\n",
+		       lod2obd(m)->obd_name, lo->ldo_def_stripe_offset);
+		RETURN(-EINVAL);
+	}
+
+	for (i = 0; i < lo->ldo_stripenr;
+	     i++, array_idx = (array_idx + 1) % lo->ldo_stripenr) {
+		__u32 ost_idx = lum->lmm_objects[array_idx].l_ost_idx;
+
+		if (!cfs_bitmap_check(m->lod_ost_bitmap, ost_idx)) {
+			rc = -ENODEV;
+			break;
+		}
+
+		/*
+		 * do not put >1 objects on a single OST
+		 */
+		if (lod_qos_is_ost_used(env, ost_idx, stripe_num)) {
+			rc = -EINVAL;
+			break;
+		}
+
+		rc = lod_statfs_and_check(env, m, ost_idx, sfs);
+		if (rc < 0) /* this OSP doesn't feel well */
+			break;
+
+		o = lod_qos_declare_object_on(env, m, ost_idx, th);
+		if (IS_ERR(o)) {
+			rc = PTR_ERR(o);
+			CDEBUG(D_OTHER,
+			       "%s: can't declare new object on #%u: %d\n",
+			       lod2obd(m)->obd_name, ost_idx, rc);
+			break;
+		}
+
+		/*
+		 * We've successfuly declared (reserved) an object
+		 */
+		lod_qos_ost_in_use(env, stripe_num, ost_idx);
+		stripe[stripe_num] = o;
+		stripe_num++;
+	}
+
+	RETURN(rc);
+}
+
 /* alloc objects on osts with specific stripe offset */
 static int lod_alloc_specific(const struct lu_env *env, struct lod_object *lo,
 			      struct dt_object **stripe, int flags,
@@ -1262,6 +1339,7 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	struct pool_desc      *pool;
 	__u32		       magic;
 	int		       rc;
+	unsigned int	       size = UINT_MAX;
 	ENTRY;
 
 	if (buf == NULL || buf->lb_buf == NULL || buf->lb_len == 0)
@@ -1270,60 +1348,77 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	v1 = buf->lb_buf;
 	magic = v1->lmm_magic;
 
-	if (magic == __swab32(LOV_USER_MAGIC_V1)) {
-		lustre_swab_lov_user_md_v1(v1);
-		magic = v1->lmm_magic;
-	} else if (magic == __swab32(LOV_USER_MAGIC_V3)) {
-		v3 = buf->lb_buf;
-		lustre_swab_lov_user_md_v3(v3);
-		magic = v3->lmm_magic;
-	}
-
-	if (unlikely(magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)) {
+	if (unlikely(magic == LOV_MAGIC_V1_DEF || magic == LOV_MAGIC_V3_DEF)) {
 		/* try to use as fully defined striping */
 		rc = lod_use_defined_striping(env, lo, buf);
 		RETURN(rc);
 	}
 
-	if (unlikely(buf->lb_len < sizeof(*v1))) {
-		CERROR("wrong size: %u\n", (unsigned) buf->lb_len);
+	switch (magic) {
+	case __swab32(LOV_USER_MAGIC_V1):
+		lustre_swab_lov_user_md_v1(v1);
+		magic = v1->lmm_magic;
+	case LOV_USER_MAGIC_V1:
+		size = sizeof(*v1);
+		break;
+
+	case __swab32(LOV_USER_MAGIC_V3):
+		v3 = buf->lb_buf;
+		lustre_swab_lov_user_md_v3(v3);
+		magic = v3->lmm_magic;
+	case LOV_USER_MAGIC_V3:
+		size = sizeof(*v3);
+		break;
+
+	case __swab32(LOV_USER_MAGIC_V5):
+		lustre_swab_lov_user_md_v1(v1);
+		lustre_swab_lov_user_md_objects(v1->lmm_objects,
+						v1->lmm_stripe_count);
+		magic = v1->lmm_magic;
+	case LOV_USER_MAGIC_V5:
+		if (v1->lmm_stripe_offset == LOV_OFFSET_DEFAULT)
+			v1->lmm_stripe_offset = v1->lmm_objects[0].l_ost_idx;
+		size = lov_user_md_size(v1->lmm_stripe_count,
+					LOV_USER_MAGIC_V5);
+		break;
+
+	default:
+		CERROR("%s: don't recognize magic %X\n",
+		       lod2obd(d)->obd_name, magic);
 		RETURN(-EINVAL);
 	}
+
+	if (unlikely(buf->lb_len < size)) {
+		CERROR("%s: wrong size: %zd, expect: %u\n",
+		       lod2obd(d)->obd_name, buf->lb_len, size);
+		RETURN(-EINVAL);
+	}
+
+	lustre_print_user_md(D_OTHER, v1, "parse config");
 
 	v1->lmm_magic = magic;
 	if (v1->lmm_pattern == 0)
 		v1->lmm_pattern = LOV_PATTERN_RAID0;
 	if (lov_pattern(v1->lmm_pattern) != LOV_PATTERN_RAID0) {
-		CERROR("invalid pattern: %x\n", v1->lmm_pattern);
+		CERROR("%s: invalid pattern: %x\n",
+		       lod2obd(d)->obd_name, v1->lmm_pattern);
 		RETURN(-EINVAL);
 	}
 	lo->ldo_pattern = v1->lmm_pattern;
 
-	if (v1->lmm_stripe_size)
+	if (v1->lmm_stripe_size > 0)
 		lo->ldo_stripe_size = v1->lmm_stripe_size;
+
 	if (lo->ldo_stripe_size & (LOV_MIN_STRIPE_SIZE - 1))
 		lo->ldo_stripe_size = LOV_MIN_STRIPE_SIZE;
 
-	if (v1->lmm_stripe_count)
+	if (v1->lmm_stripe_count > 0)
 		lo->ldo_stripenr = v1->lmm_stripe_count;
 
-	if ((v1->lmm_stripe_offset >= d->lod_desc.ld_tgt_count) &&
-	    (v1->lmm_stripe_offset != (typeof(v1->lmm_stripe_offset))(-1))) {
-		CERROR("invalid offset: %x\n", v1->lmm_stripe_offset);
-		RETURN(-EINVAL);
-	}
 	lo->ldo_def_stripe_offset = v1->lmm_stripe_offset;
 
-	CDEBUG(D_OTHER, "lsm: %u size, %u stripes, %u offset\n",
-	       v1->lmm_stripe_size, v1->lmm_stripe_count,
-	       v1->lmm_stripe_offset);
-
+	lod_object_set_pool(lo, NULL);
 	if (v1->lmm_magic == LOV_MAGIC_V3) {
-		if (buf->lb_len < sizeof(*v3)) {
-			CERROR("wrong size: %u\n", (unsigned) buf->lb_len);
-			RETURN(-EINVAL);
-		}
-
 		v3 = buf->lb_buf;
 		lod_object_set_pool(lo, v3->lmm_pool_name);
 
@@ -1332,24 +1427,25 @@ static int lod_qos_parse_config(const struct lu_env *env,
 		/* coverity[overrun-buffer-val] */
 		pool = lod_find_pool(d, v3->lmm_pool_name);
 		if (pool != NULL) {
-			if (lo->ldo_def_stripe_offset !=
-			    (typeof(v1->lmm_stripe_offset))(-1)) {
-				rc = lo->ldo_def_stripe_offset;
+			rc = lo->ldo_def_stripe_offset;
+			if (rc != LOV_OFFSET_DEFAULT) {
 				rc = lod_check_index_in_pool(rc, pool);
 				if (rc < 0) {
 					lod_pool_putref(pool);
-					CERROR("invalid offset\n");
+					CERROR("%s: invalid offset, %u\n",
+					       lod2obd(d)->obd_name,
+					       lo->ldo_def_stripe_offset);
 					RETURN(-EINVAL);
 				}
 			}
+			rc = 0;
 
 			if (lo->ldo_stripenr > pool_tgt_count(pool))
 				lo->ldo_stripenr= pool_tgt_count(pool);
 
 			lod_pool_putref(pool);
 		}
-	} else
-		lod_object_set_pool(lo, NULL);
+	}
 
 	/* fixup for released file */
 	if (lo->ldo_pattern & LOV_PATTERN_F_RELEASED) {
@@ -1399,6 +1495,8 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 		GOTO(out, rc = 0);
 
 	if (likely(lo->ldo_stripe == NULL)) {
+		struct lov_user_md *lum = NULL;
+
 		/*
 		 * no striping has been created so far
 		 */
@@ -1409,7 +1507,7 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 		 */
 		lod_qos_statfs_update(env, d);
 		lo->ldo_stripenr = lod_get_stripecnt(d, LOV_MAGIC,
-				lo->ldo_stripenr);
+						     lo->ldo_stripenr);
 
 		stripe_len = lo->ldo_stripenr;
 		OBD_ALLOC(stripe, sizeof(stripe[0]) * stripe_len);
@@ -1420,7 +1518,13 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 		/* XXX: support for non-0 files w/o objects */
 		CDEBUG(D_OTHER, "tgt_count %d stripenr %d\n",
 				d->lod_desc.ld_tgt_count, stripe_len);
-		if (lo->ldo_def_stripe_offset >= d->lod_desc.ld_tgt_count) {
+
+		if (buf != NULL && buf->lb_buf != NULL)
+			lum = buf->lb_buf;
+
+		if (lum != NULL && lum->lmm_magic == LOV_USER_MAGIC_V5) {
+			rc = lod_alloc_ost_list(env, lo, stripe, flag, lum, th);
+		} else if (lo->ldo_def_stripe_offset == LOV_OFFSET_DEFAULT) {
 			rc = lod_alloc_qos(env, lo, stripe, flag, th);
 			if (rc == -EAGAIN)
 				rc = lod_alloc_rr(env, lo, stripe, flag, th);
