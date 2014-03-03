@@ -109,7 +109,13 @@ __init int ptlrpc_init(void)
 	if (rc)
 		GOTO(err_sptlrpc, rc);
 
+	rc = nodemap_mod_init();
+	if (rc)
+		GOTO(err_nodemap, rc);
+
 	RETURN(0);
+err_nodemap:
+	nodemap_mod_exit();
 err_sptlrpc:
 	sptlrpc_fini();
 err_ldlm:
@@ -133,6 +139,7 @@ err_layout:
 
 static void __exit ptlrpc_exit(void)
 {
+	nodemap_mod_exit();
 	ptlrpc_nrs_fini();
 	sptlrpc_fini();
 	ldlm_exit();
