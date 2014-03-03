@@ -47,6 +47,7 @@
 #include <obd_class.h>
 #include <lprocfs_status.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_nodemap.h>
 
 #if defined(LPROCFS)
 

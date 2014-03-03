@@ -105,6 +105,7 @@ void idmap_insert(enum nodemap_id_type id_type, struct lu_idmap *idmap,
 	 * replacing to precent split brain idmaps
 	 */
 	while (*fwd_node) {
+		fwd_parent = *fwd_node;
 		cur = rb_entry(*fwd_node, struct lu_idmap,
 			       id_client_to_fs);
 
@@ -116,12 +117,11 @@ void idmap_insert(enum nodemap_id_type id_type, struct lu_idmap *idmap,
 			replace = true;
 			break;
 		}
-
-		fwd_parent = *fwd_node;
 	}
 
 	if (!replace) {
 		while (*bck_node) {
+			bck_parent = *bck_node;
 			cur = rb_entry(*bck_node, struct lu_idmap,
 				       id_fs_to_client);
 
@@ -133,8 +133,6 @@ void idmap_insert(enum nodemap_id_type id_type, struct lu_idmap *idmap,
 				replace = true;
 				break;
 			}
-
-			bck_parent = *bck_node;
 		}
 	}
 
@@ -184,7 +182,7 @@ void idmap_delete(enum nodemap_id_type id_type, struct lu_idmap *idmap,
 }
 
 /**
- * search for an existing id in the nodemap trees
+ * search for an existing id in the nodemap trees.
  *
  * \param	nodemap		nodemap trees to search
  * \param	tree_type	0 for filesystem to client maps
