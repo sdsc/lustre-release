@@ -3517,9 +3517,10 @@ static int brw_queue_work(const struct lu_env *env, void *data)
 
 int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 {
-	struct client_obd          *cli = &obd->u.cli;
-	void                       *handler;
-	int                        rc;
+	struct client_obd *cli = &obd->u.cli;
+	struct obd_type	  *type;
+	void		  *handler;
+	int		   rc;
 	ENTRY;
 
 	rc = ptlrpcd_addref();
@@ -3548,10 +3549,23 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 #ifdef LPROCFS
 	obd->obd_vars = lprocfs_osc_obd_vars;
 #endif
-	if (lprocfs_seq_obd_setup(obd) == 0) {
-		lproc_osc_attach_seqstat(obd);
-		sptlrpc_lprocfs_cliobd_attach(obd);
-		ptlrpc_lprocfs_register_obd(obd);
+	/* If this is true then both client (osc) and server
+	 * (osp) are on the same node. The osp layer if loaded
+	 * first will register the osc proc directory. */
+	type = class_search_type(LUSTRE_OSP_NAME);
+	if (type && type->typ_procsym) {
+		if (lprocfs_seq_add_vars(type->typ_procsym, obd->obd_vars,
+					 obd) == 0) {
+			lproc_osc_attach_seqstat(obd);
+			sptlrpc_lprocfs_cliobd_attach(obd);
+			ptlrpc_lprocfs_register_obd(obd);
+		}
+	} else {
+		if (lprocfs_seq_obd_setup(obd) == 0) {
+			lproc_osc_attach_seqstat(obd);
+			sptlrpc_lprocfs_cliobd_attach(obd);
+			ptlrpc_lprocfs_register_obd(obd);
+		}
 	}
 
 	/* We need to allocate a few requests more, because
@@ -3717,8 +3731,10 @@ extern struct lock_class_key osc_ast_guard_class;
 
 int __init osc_init(void)
 {
-        int rc;
-        ENTRY;
+	bool enable_proc = true;
+	struct obd_type *type;
+	int rc;
+	ENTRY;
 
         /* print an address of _any_ initialized kernel symbol from this
          * module, to allow debugging with gdb that doesn't support data
@@ -3729,11 +3745,15 @@ int __init osc_init(void)
 	if (rc)
 		RETURN(rc);
 
-	rc = class_register_type(&osc_obd_ops, NULL, NULL,
+	type = class_search_type(LUSTRE_OSP_NAME);
+	if (type != NULL && type->typ_procsym != NULL)
+		enable_proc = false;
+
+	rc = class_register_type(&osc_obd_ops, NULL, enable_proc, NULL,
 #ifndef HAVE_ONLY_PROCFS_SEQ
-				NULL,
+				 NULL,
 #endif
-				LUSTRE_OSC_NAME, &osc_device_type);
+				 LUSTRE_OSC_NAME, &osc_device_type);
         if (rc) {
                 lu_kmem_fini(osc_caches);
                 RETURN(rc);
