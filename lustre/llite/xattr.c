@@ -235,20 +235,25 @@ int ll_setxattr(struct dentry *dentry, const char *name,
             (strncmp(name, XATTR_LUSTRE_PREFIX,
                      sizeof(XATTR_LUSTRE_PREFIX) - 1) == 0 &&
              strcmp(name + sizeof(XATTR_LUSTRE_PREFIX) - 1, "lov") == 0)) {
-                struct lov_user_md *lump = (struct lov_user_md *)value;
-                int rc = 0;
+		struct lov_user_md *lump = (struct lov_user_md *)value;
+		int		    lum_size = sizeof(struct lov_user_md_v1);
+		int		    rc = 0;
 
-                /* Attributes that are saved via getxattr will always have
-                 * the stripe_offset as 0.  Instead, the MDS should be
-                 * allowed to pick the starting OST index.   b=17846 */
-                if (lump != NULL && lump->lmm_stripe_offset == 0)
-                        lump->lmm_stripe_offset = -1;
+		if (lump != NULL) {
+			lum_size = ll_lov_user_md_size(lump);
+			if (lum_size < 0 || size < lum_size)
+				return 0;
+		}
+
+		/* Attributes that are saved via getxattr will always have
+		 * the stripe_offset as 0.  Instead, the MDS should be
+		 * allowed to pick the starting OST index.   b=17846 */
+		if (lump != NULL && lump->lmm_stripe_offset == 0)
+			lump->lmm_stripe_offset = -1;
 
 		if (lump != NULL && S_ISREG(inode->i_mode)) {
 			struct file	f;
 			__u64		it_flags = FMODE_WRITE;
-			int lum_size = (lump->lmm_magic == LOV_USER_MAGIC_V1) ?
-				sizeof(*lump) : sizeof(struct lov_user_md_v3);
 
 			f.f_dentry = dentry;
 			rc = ll_lov_setstripe_ea_info(inode, &f, it_flags, lump,

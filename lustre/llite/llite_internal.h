@@ -936,6 +936,33 @@ struct md_op_data *ll_prep_md_op_data(struct md_op_data *op_data,
 void ll_finish_md_op_data(struct md_op_data *op_data);
 int ll_get_obd_name(struct inode *inode, unsigned int cmd, unsigned long arg);
 char *ll_get_fsname(struct super_block *sb, char *buf, int buflen);
+int ll_copy_user_md(const struct lov_user_md __user *md,
+		    struct lov_user_md **kbuf);
+
+/* Decide expected user md size when passing in a md from user space */
+static inline int ll_lov_user_md_size(const struct lov_user_md *lum)
+{
+	int lum_size = -EINVAL;
+
+	switch (lum->lmm_magic) {
+	case LOV_USER_MAGIC_V1:
+		lum_size = sizeof(struct lov_user_md_v1);
+		break;
+	case LOV_USER_MAGIC_V3:
+		lum_size = sizeof(struct lov_user_md_v3);
+		break;
+	case LOV_USER_MAGIC_SPECIFIC:
+		if (lum->lmm_stripe_count > LOV_MAX_STRIPE_COUNT)
+			break;
+
+		lum_size = lov_user_md_size(lum->lmm_stripe_count,
+					    LOV_USER_MAGIC_SPECIFIC);
+	default:
+		break;
+	}
+
+	return lum_size;
+}
 
 /* llite/llite_nfs.c */
 extern struct export_operations lustre_export_operations;

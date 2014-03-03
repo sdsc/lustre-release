@@ -1579,11 +1579,12 @@ enum obdo_flags {
         OBD_FL_LOCAL_MASK   = 0xF0000000,
 };
 
-#define LOV_MAGIC_V1      0x0BD10BD0
-#define LOV_MAGIC         LOV_MAGIC_V1
-#define LOV_MAGIC_JOIN_V1 0x0BD20BD0
-#define LOV_MAGIC_V3      0x0BD30BD0
-#define LOV_MAGIC_MIGRATE 0x0BD40BD0
+#define LOV_MAGIC_V1		0x0BD10BD0
+#define LOV_MAGIC		LOV_MAGIC_V1
+#define LOV_MAGIC_JOIN_V1	0x0BD20BD0
+#define LOV_MAGIC_V3		0x0BD30BD0
+#define LOV_MAGIC_MIGRATE	0x0BD40BD0
+#define LOV_MAGIC_SPECIFIC	0x0BD50BD0 /* reserved for specifying OSTs */
 
 /*
  * magic for fully defined striping

@@ -2769,3 +2769,30 @@ void ll_dirty_page_discard_warn(struct page *page, int ioret)
 	if (buf != NULL)
 		free_page((unsigned long)buf);
 }
+
+int ll_copy_user_md(const struct lov_user_md __user *md,
+		    struct lov_user_md **kbuf)
+{
+	struct lov_user_md	lum;
+	int			lum_size;
+	ENTRY;
+
+	if (copy_from_user(&lum, md, sizeof(lum)))
+		RETURN(-EFAULT);
+
+	/* decide the layout size */
+	lum_size = ll_lov_user_md_size(&lum);
+	if (lum_size < 0)
+		RETURN(lum_size);
+
+	OBD_ALLOC(*kbuf, lum_size);
+	if (*kbuf == NULL)
+		RETURN(-ENOMEM);
+
+	if (copy_from_user(*kbuf, md, lum_size)) {
+		OBD_FREE(*kbuf, lum_size);
+		RETURN(-EFAULT);
+	}
+
+	RETURN(lum_size);
+}
