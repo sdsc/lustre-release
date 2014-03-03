@@ -938,7 +938,7 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 
 	/* an offset of -1 is treated as a "special" valid offset */
 	stripe_offset = le16_to_cpu(lum->lmm_stripe_offset);
-	if (stripe_offset != (typeof(stripe_offset))-1) {
+	if (stripe_offset != LOV_OFFSET_DEFAULT) {
 		/* if offset is not within valid range [0, osts_size) */
 		if (stripe_offset >= d->lod_osts_size) {
 			CDEBUG(D_IOCTL, "stripe offset %u >= bitmap size %u\n",
@@ -988,7 +988,7 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	if (pool == NULL)
 		goto out;
 
-	if (stripe_offset != (typeof(stripe_offset))-1) {
+	if (stripe_offset != LOV_OFFSET_DEFAULT) {
 		rc = lod_check_index_in_pool(stripe_offset, pool);
 		if (rc < 0)
 			GOTO(out, rc = -EINVAL);
