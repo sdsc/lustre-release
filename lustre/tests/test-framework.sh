@@ -6768,3 +6768,11 @@ free_fd()
         [ $fd -lt $max_fd ] || error "finding free file descriptor failed"
         echo $fd
 }
+
+check_mount_and_prep()
+{
+	is_mounted $MOUNT || setupall
+
+	rm -rf $DIR/*
+	mkdir $DIR/$tdir
+}
