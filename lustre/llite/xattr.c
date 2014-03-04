@@ -123,6 +123,11 @@ int ll_setxattr_common(struct inode *inode, const char *name,
         if (rc)
                 RETURN(rc);
 
+	if ((xattr_type == XATTR_ACL_ACCESS_T ||
+	    xattr_type == XATTR_ACL_DEFAULT_T) &&
+	    !is_owner_or_cap(inode))
+		return -EPERM;
+
         /* b10667: ignore lustre special xattr for now */
         if ((xattr_type == XATTR_TRUSTED_T && strcmp(name, "trusted.lov") == 0) ||
             (xattr_type == XATTR_LUSTRE_T && strcmp(name, "lustre.lov") == 0))
