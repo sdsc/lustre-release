@@ -1089,33 +1089,33 @@ ldlm_resource_get(struct ldlm_namespace *ns, struct ldlm_resource *parent,
 
 		if (unlikely(res->lr_lvb_len < 0)) {
 			ldlm_resource_putref(res);
-			res = NULL;
+			res = ERR_PTR(-EINVAL);
 		}
-                return res;
-        }
+		return res;
+	}
 
-        version = cfs_hash_bd_version_get(&bd);
-        cfs_hash_bd_unlock(ns->ns_rs_hash, &bd, 0);
+	version = cfs_hash_bd_version_get(&bd);
+	cfs_hash_bd_unlock(ns->ns_rs_hash, &bd, 0);
 
-        if (create == 0)
-                return NULL;
+	if (create == 0)
+		return ERR_PTR(-ENOENT);
 
-        LASSERTF(type >= LDLM_MIN_TYPE && type < LDLM_MAX_TYPE,
-                 "type: %d\n", type);
-        res = ldlm_resource_new();
-        if (!res)
-                return NULL;
+	LASSERTF(type >= LDLM_MIN_TYPE && type < LDLM_MAX_TYPE,
+		 "type: %d\n", type);
+	res = ldlm_resource_new();
+	if (!res)
+		return ERR_PTR(-ENOMEM);
 
-        res->lr_ns_bucket  = cfs_hash_bd_extra_get(ns->ns_rs_hash, &bd);
-        res->lr_name       = *name;
-        res->lr_type       = type;
-        res->lr_most_restr = LCK_NL;
+	res->lr_ns_bucket  = cfs_hash_bd_extra_get(ns->ns_rs_hash, &bd);
+	res->lr_name       = *name;
+	res->lr_type       = type;
+	res->lr_most_restr = LCK_NL;
 
-        cfs_hash_bd_lock(ns->ns_rs_hash, &bd, 1);
-        hnode = (version == cfs_hash_bd_version_get(&bd)) ?  NULL :
-                cfs_hash_bd_lookup_locked(ns->ns_rs_hash, &bd, (void *)name);
+	cfs_hash_bd_lock(ns->ns_rs_hash, &bd, 1);
+	hnode = (version == cfs_hash_bd_version_get(&bd)) ?  NULL :
+		cfs_hash_bd_lookup_locked(ns->ns_rs_hash, &bd, (void *)name);
 
-        if (hnode != NULL) {
+	if (hnode != NULL) {
 		/* Someone won the race and already added the resource. */
 		cfs_hash_bd_unlock(ns->ns_rs_hash, &bd, 1);
 		/* Clean lu_ref for failed resource. */
@@ -1133,7 +1133,7 @@ ldlm_resource_get(struct ldlm_namespace *ns, struct ldlm_resource *parent,
 
 		if (unlikely(res->lr_lvb_len < 0)) {
 			ldlm_resource_putref(res);
-			res = NULL;
+			res = ERR_PTR(-EINVAL);
 		}
 		return res;
 	}
@@ -1159,7 +1159,7 @@ ldlm_resource_get(struct ldlm_namespace *ns, struct ldlm_resource *parent,
 			res->lr_lvb_len = rc;
 			mutex_unlock(&res->lr_lvb_mutex);
 			ldlm_resource_putref(res);
-			return NULL;
+			return ERR_PTR(rc);
 		}
 	}
 

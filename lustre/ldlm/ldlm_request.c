@@ -435,8 +435,8 @@ int ldlm_cli_enqueue_local(struct ldlm_namespace *ns,
 
 	lock = ldlm_lock_create(ns, res_id, type, mode, &cbs, data, lvb_len,
 				lvb_type);
-        if (unlikely(!lock))
-                GOTO(out_nolock, err = -ENOMEM);
+	if (unlikely(IS_ERR(lock)))
+		GOTO(out_nolock, err = PTR_ERR(lock));
 
         ldlm_lock2handle(lock, lockh);
 
@@ -894,8 +894,8 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 		lock = ldlm_lock_create(ns, res_id, einfo->ei_type,
 					einfo->ei_mode, &cbs, einfo->ei_cbdata,
 					lvb_len, lvb_type);
-		if (lock == NULL)
-			RETURN(-ENOMEM);
+		if (IS_ERR(lock))
+			RETURN(PTR_ERR(lock));
                 /* for the local lock, add the reference */
                 ldlm_lock_addref_internal(lock, einfo->ei_mode);
                 ldlm_lock2handle(lock, lockh);
@@ -1932,36 +1932,36 @@ EXPORT_SYMBOL(ldlm_cli_cancel_list);
  * If flags & LDLM_FL_LOCAL_ONLY, throw the locks away without trying
  * to notify the server. */
 int ldlm_cli_cancel_unused_resource(struct ldlm_namespace *ns,
-                                    const struct ldlm_res_id *res_id,
-                                    ldlm_policy_data_t *policy,
-                                    ldlm_mode_t mode,
-                                    ldlm_cancel_flags_t flags,
-                                    void *opaque)
+				    const struct ldlm_res_id *res_id,
+				    ldlm_policy_data_t *policy,
+				    ldlm_mode_t mode,
+				    ldlm_cancel_flags_t flags,
+				    void *opaque)
 {
-        struct ldlm_resource *res;
-        CFS_LIST_HEAD(cancels);
-        int count;
-        int rc;
-        ENTRY;
+	struct ldlm_resource *res;
+	CFS_LIST_HEAD(cancels);
+	int count;
+	int rc;
+	ENTRY;
 
-        res = ldlm_resource_get(ns, NULL, res_id, 0, 0);
-        if (res == NULL) {
-                /* This is not a problem. */
-                CDEBUG(D_INFO, "No resource "LPU64"\n", res_id->name[0]);
-                RETURN(0);
-        }
+	res = ldlm_resource_get(ns, NULL, res_id, 0, 0);
+	if (IS_ERR(res)) {
+		/* This is not a problem. */
+		CDEBUG(D_INFO, "No resource "LPU64"\n", res_id->name[0]);
+		RETURN(0);
+	}
 
-        LDLM_RESOURCE_ADDREF(res);
-        count = ldlm_cancel_resource_local(res, &cancels, policy, mode,
-                                           0, flags | LCF_BL_AST, opaque);
-        rc = ldlm_cli_cancel_list(&cancels, count, NULL, flags);
-        if (rc != ELDLM_OK)
+	LDLM_RESOURCE_ADDREF(res);
+	count = ldlm_cancel_resource_local(res, &cancels, policy, mode,
+					   0, flags | LCF_BL_AST, opaque);
+	rc = ldlm_cli_cancel_list(&cancels, count, NULL, flags);
+	if (rc != ELDLM_OK)
 		CERROR("canceling unused lock "DLDLMRES": rc = %d\n",
 		       PLDLMRES(res), rc);
 
-        LDLM_RESOURCE_DELREF(res);
-        ldlm_resource_putref(res);
-        RETURN(0);
+	LDLM_RESOURCE_DELREF(res);
+	ldlm_resource_putref(res);
+	RETURN(0);
 }
 EXPORT_SYMBOL(ldlm_cli_cancel_unused_resource);
 
@@ -2095,27 +2095,27 @@ EXPORT_SYMBOL(ldlm_namespace_foreach);
  *       < 0:  errors
  */
 int ldlm_resource_iterate(struct ldlm_namespace *ns,
-                          const struct ldlm_res_id *res_id,
-                          ldlm_iterator_t iter, void *data)
+			  const struct ldlm_res_id *res_id,
+			  ldlm_iterator_t iter, void *data)
 {
-        struct ldlm_resource *res;
-        int rc;
-        ENTRY;
+	struct ldlm_resource *res;
+	int rc;
+	ENTRY;
 
-        if (ns == NULL) {
-                CERROR("must pass in namespace\n");
-                LBUG();
-        }
+	if (ns == NULL) {
+		CERROR("must pass in namespace\n");
+		LBUG();
+	}
 
-        res = ldlm_resource_get(ns, NULL, res_id, 0, 0);
-        if (res == NULL)
-                RETURN(0);
+	res = ldlm_resource_get(ns, NULL, res_id, 0, 0);
+	if (IS_ERR(res))
+		RETURN(0);
 
-        LDLM_RESOURCE_ADDREF(res);
-        rc = ldlm_resource_foreach(res, iter, data);
-        LDLM_RESOURCE_DELREF(res);
-        ldlm_resource_putref(res);
-        RETURN(rc);
+	LDLM_RESOURCE_ADDREF(res);
+	rc = ldlm_resource_foreach(res, iter, data);
+	LDLM_RESOURCE_DELREF(res);
+	ldlm_resource_putref(res);
+	RETURN(rc);
 }
 EXPORT_SYMBOL(ldlm_resource_iterate);
 
