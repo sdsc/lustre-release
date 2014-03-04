@@ -1698,9 +1698,21 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         }
 
 	if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
+		struct ldlm_lock *lock;
+
 		/* the open lock might already be gotten in
 		 * mdt_intent_fixup_resent */
 		LASSERT(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT);
+
+		/* take again a ref on old lock found to be resent */
+		lock = ldlm_handle2lock(&lhc->mlh_reg_lh);
+		if (!lock) {
+			CERROR("Invalid lock handle "LPX64"\n",
+			       lhc->mlh_reg_lh.cookie);
+			LBUG();
+		}
+		ldlm_lock_addref_internal_nolock(lock, lhc->mlh_reg_mode);
+
 		if (create_flags & MDS_OPEN_LOCK)
 			mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
 	} else {
