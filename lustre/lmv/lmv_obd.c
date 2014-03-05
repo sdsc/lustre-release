@@ -1395,14 +1395,14 @@ int __lmv_fid_alloc(struct lmv_obd *lmv, struct lu_fid *fid,
 	if (tgt->ltd_active == 0 || tgt->ltd_exp == NULL)
 		GOTO(out, rc = -ENODEV);
 
-        /*
-         * Asking underlaying tgt layer to allocate new fid.
-         */
-        rc = obd_fid_alloc(tgt->ltd_exp, fid, NULL);
-        if (rc > 0) {
-                LASSERT(fid_is_sane(fid));
-                rc = 0;
-        }
+	/*
+	 * Asking underlaying tgt layer to allocate new fid.
+	 */
+	rc = obd_fid_alloc(NULL, tgt->ltd_exp, fid, NULL);
+	if (rc > 0) {
+		LASSERT(fid_is_sane(fid));
+		rc = 0;
+	}
 
         EXIT;
 out:
@@ -1410,8 +1410,8 @@ out:
         return rc;
 }
 
-int lmv_fid_alloc(struct obd_export *exp, struct lu_fid *fid,
-                  struct md_op_data *op_data)
+int lmv_fid_alloc(const struct lu_env *env, struct obd_export *exp,
+		  struct lu_fid *fid, struct md_op_data *op_data)
 {
         struct obd_device     *obd = class_exp2obd(exp);
         struct lmv_obd        *lmv = &obd->u.lmv;
@@ -1854,7 +1854,7 @@ int lmv_create(struct obd_export *exp, struct md_op_data *op_data,
 	       op_data->op_namelen, op_data->op_name, PFID(&op_data->op_fid1),
 	       op_data->op_mds);
 
-	rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
+	rc = lmv_fid_alloc(NULL, exp, &op_data->op_fid2, op_data);
 	if (rc)
 		RETURN(rc);
 
@@ -2179,7 +2179,7 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	if (op_data->op_cli_flags & CLI_MIGRATE) {
 		LASSERTF(fid_is_sane(&op_data->op_fid3), "invalid FID "DFID"\n",
 			 PFID(&op_data->op_fid3));
-		rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
+		rc = lmv_fid_alloc(NULL, exp, &op_data->op_fid2, op_data);
 		if (rc)
 			RETURN(rc);
 		src_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid3);
@@ -2897,7 +2897,7 @@ int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
 	if (lsm != NULL && lmm == NULL) {
 #ifdef __KERNEL__
 		int i;
-		for (i = 1; i < lsm->lsm_md_stripe_count; i++) {
+		for (i = 0; i < lsm->lsm_md_stripe_count; i++) {
 			if (lsm->lsm_md_oinfo[i].lmo_root != NULL)
 				iput(lsm->lsm_md_oinfo[i].lmo_root);
 		}
