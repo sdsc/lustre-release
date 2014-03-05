@@ -6549,6 +6549,20 @@ test_102n() { # LU-4101 mdt: protect internal xattrs
 }
 run_test 102n "silently ignore setxattr on internal trusted xattrs"
 
+test_102p() { # LU-4703 setxattr did not check ownership
+	local testfile=/tmp/$tfile
+
+	touch $testfile
+
+	echo "setxattr as user..."
+	$RUNAS setfattr -m "u:$RUNAS_ID:rwx" $testfile 2> /dev/null
+	local rc=$?
+	
+	[ $rc -eq 0 ] || error "setxattrs by $RUNAS_ID was allowed on $testfile"
+}
+run_test 102p "check setxattr(2) correctly fails without permission"
+
+
 run_acl_subtest()
 {
     $LUSTRE/tests/acl/run $LUSTRE/tests/acl/$1.test
