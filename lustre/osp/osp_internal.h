@@ -275,6 +275,22 @@ struct osp_thread_info {
 	struct obdo		 osi_obdo;
 };
 
+/* Iterator for OSP */
+struct osp_it {
+	int			  ooi_pos_page;
+	int			  ooi_pos_lu_page;
+	int			  ooi_pos_ent;
+	int			  ooi_total_npages;
+	int			  ooi_valid_npages;
+	unsigned int		  ooi_swab:1;
+	__u64			  ooi_next;
+	struct dt_object	 *ooi_obj;
+	void			 *ooi_ent;
+	struct page		 *ooi_cur_page;
+	struct lu_idxpage	 *ooi_cur_idxpage;
+	struct page		 **ooi_pages;
+};
+
 /* The transaction only include the updates on the remote node, and
  * no local updates at all */
 static inline bool is_only_remote_trans(struct thandle *th)
@@ -490,6 +506,12 @@ int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
 int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
 		  const struct lu_buf *buf, const char *name, int fl,
 		  struct thandle *th, struct lustre_capa *capa);
+int osp_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
+			  const char *name, struct thandle *th);
+int osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
+		  const char *name, struct thandle *th,
+		  struct lustre_capa *capa);
+
 int osp_declare_object_destroy(const struct lu_env *env,
 			       struct dt_object *dt, struct thandle *th);
 int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
@@ -498,6 +520,16 @@ int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		   struct thandle *th);
 
+struct dt_it *osp_it_init(const struct lu_env *env, struct dt_object *dt,
+			  __u32 attr, struct lustre_capa *capa);
+void osp_it_fini(const struct lu_env *env, struct dt_it *di);
+int osp_it_get(const struct lu_env *env, struct dt_it *di,
+	       const struct dt_key *key);
+void osp_it_put(const struct lu_env *env, struct dt_it *di);
+__u64 osp_it_store(const struct lu_env *env, const struct dt_it *di);
+int osp_it_key_rec(const struct lu_env *env, const struct dt_it *di,
+		   void *key_rec);
+int osp_it_next_page(const struct lu_env *env, struct dt_it *di);
 /* osp_md_object.c */
 int osp_md_declare_object_create(const struct lu_env *env,
 				 struct dt_object *dt,
@@ -513,6 +545,7 @@ int osp_md_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 		    const struct lu_attr *attr, struct thandle *th,
 		    struct lustre_capa *capa);
+extern const struct dt_index_operations osp_md_index_ops;
 
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);
