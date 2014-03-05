@@ -198,7 +198,6 @@ test_4() {
 	local MDTIDX=1
 	local remote_dir=remote_dir
 
-	[ $MDSCOUNT -ge 2 ] && skip "skip now for LU-4690" && return #LU-4690
 	test_mkdir $DIR/$remote_dir ||
 		error "Create remote directory failed"
 
@@ -209,6 +208,8 @@ test_4() {
 		error "Expect error removing in-use dir $DIR/$remote_dir"
 
 	test -d $DIR/$remote_dir || error "Remote directory disappeared"
+
+	rm -rf $DIR/$remote_dir || error "remove remote dir error"
 }
 run_test 4 "mkdir; touch dir/file; rmdir; checkdir (expect error)"
 
