@@ -2734,8 +2734,9 @@ extern void lustre_swab_lmv_desc (struct lmv_desc *ld);
 /* lmv structures */
 #define LMV_MAGIC_V1	0x0CD10CD0    /* normal stripe lmv magic */
 #define LMV_USER_MAGIC	0x0CD20CD0    /* default lmv magic*/
-#define LMV_MAGIC_MIGRATE	0x0CD30CD0    /* migrate stripe lmv magic */
 #define LMV_MAGIC	LMV_MAGIC_V1
+
+#define LMV_DIRECTORY_STRIPE_SHARD 0x0CD30CD0 /* magic for dir sub_stripe */
 
 enum lmv_hash_type {
 	LMV_HASH_TYPE_ALL_CHARS = 1,
@@ -2782,6 +2783,7 @@ struct lmv_mds_md_v1 {
 					 * which hash function to be used */
 	__u32 lmv_layout_version;	/* Used for directory restriping */
 	__u32 lmv_padding;
+	struct lu_fid	lmv_master_fid; /* lmv master FID */
 	char lmv_pool_name[LOV_MAXPOOLNAME];	/* pool name */
 	struct lu_fid lmv_stripe_fids[0];	/* FIDs for each stripe */
 };
@@ -2797,8 +2799,7 @@ extern void lustre_swab_lmv_mds_md(union lmv_mds_md *lmm);
 static inline int lmv_mds_md_size(int stripe_count, unsigned int lmm_magic)
 {
 	switch (lmm_magic) {
-	case LMV_MAGIC_V1:
-	case LMV_MAGIC_MIGRATE: {
+	case LMV_MAGIC_V1:{
 		struct lmv_mds_md_v1 *lmm1;
 
 		return sizeof(*lmm1) + stripe_count *
@@ -2813,7 +2814,6 @@ static inline int lmv_mds_md_stripe_count_get(const union lmv_mds_md *lmm)
 {
 	switch (le32_to_cpu(lmm->lmv_magic)) {
 	case LMV_MAGIC_V1:
-	case LMV_MAGIC_MIGRATE:
 		return le32_to_cpu(lmm->lmv_md_v1.lmv_stripe_count);
 	case LMV_USER_MAGIC:
 		return le32_to_cpu(lmm->lmv_user_md.lum_stripe_count);
@@ -2827,7 +2827,6 @@ static inline int lmv_mds_md_stripe_count_set(union lmv_mds_md *lmm,
 {
 	switch (le32_to_cpu(lmm->lmv_magic)) {
 	case LMV_MAGIC_V1:
-	case LMV_MAGIC_MIGRATE:
 		lmm->lmv_md_v1.lmv_stripe_count = cpu_to_le32(stripe_count);
 		break;
 	case LMV_USER_MAGIC:
@@ -3709,6 +3708,7 @@ enum idx_info_flags {
 	II_FL_VARKEY	= 1 << 1, /* keys can be of variable size */
 	II_FL_VARREC	= 1 << 2, /* records can be of variable size */
 	II_FL_NONUNQ	= 1 << 3, /* index supports non-unique keys */
+	II_FL_NOKEY	= 1 << 4, /* client doesn't care about key */
 };
 
 #define LIP_MAGIC 0x8A6D6B6C
@@ -3956,6 +3956,7 @@ enum update_type {
 	OUT_INDEX_INSERT	= 10,
 	OUT_INDEX_DELETE	= 11,
 	OUT_WRITE		= 12,
+	OUT_XATTR_DEL		= 13,
 	OUT_LAST
 };
 
