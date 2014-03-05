@@ -253,39 +253,39 @@ int mdd_is_subdir(const struct lu_env *env, struct md_object *mo,
 static int mdd_dir_is_empty(const struct lu_env *env,
                             struct mdd_object *dir)
 {
-        struct dt_it     *it;
-        struct dt_object *obj;
-        const struct dt_it_ops *iops;
-        int result;
-        ENTRY;
+	struct dt_it     *it;
+	struct dt_object *obj;
+	const struct dt_it_ops *iops;
+	int result;
+	ENTRY;
 
-        obj = mdd_object_child(dir);
-        if (!dt_try_as_dir(env, obj))
-                RETURN(-ENOTDIR);
+	obj = mdd_object_child(dir);
+	if (!dt_try_as_dir(env, obj))
+		RETURN(-ENOTDIR);
 
-        iops = &obj->do_index_ops->dio_it;
-        it = iops->init(env, obj, LUDA_64BITHASH, BYPASS_CAPA);
-        if (!IS_ERR(it)) {
-                result = iops->get(env, it, (const void *)"");
-                if (result > 0) {
-                        int i;
-                        for (result = 0, i = 0; result == 0 && i < 3; ++i)
-                                result = iops->next(env, it);
-                        if (result == 0)
-                                result = -ENOTEMPTY;
-                        else if (result == +1)
-                                result = 0;
-                } else if (result == 0)
-                        /*
-                         * Huh? Index contains no zero key?
-                         */
-                        result = -EIO;
+	iops = &obj->do_index_ops->dio_it;
+	it = iops->init(env, obj, LUDA_64BITHASH, BYPASS_CAPA);
+	if (!IS_ERR(it)) {
+		result = iops->get(env, it, (const struct dt_key *)"");
+		if (result > 0) {
+			int i;
+			for (result = 0, i = 0; result == 0 && i < 3; ++i)
+				result = iops->next(env, it);
+			if (result == 0)
+				result = -ENOTEMPTY;
+			else if (result == 1)
+				result = 0;
+		} else if (result == 0)
+			/*
+			 * Huh? Index contains no zero key?
+			 */
+			result = -EIO;
 
-                iops->put(env, it);
-                iops->fini(env, it);
-        } else
-                result = PTR_ERR(it);
-        RETURN(result);
+		iops->put(env, it);
+		iops->fini(env, it);
+	} else
+		result = PTR_ERR(it);
+	RETURN(result);
 }
 
 static int __mdd_may_link(const struct lu_env *env, struct mdd_object *obj,
@@ -2054,6 +2054,36 @@ static int mdd_object_create(const struct lu_env *env, struct mdd_object *pobj,
 	if (rc)
 		GOTO(unlock, rc);
 
+	/* Note: In DNE phase I, for striped dir, though sub-stripes will be
+	 * created in declare phase, they also needs to be added to master
+	 * object as sub-directory entry. So it has to initialize the master
+	 * object, then set dir striped EA.(in mdo_xattr_set) */
+	rc = mdd_object_initialize(env, mdo2fid(pobj), son, attr, handle,
+				   spec);
+	if (rc != 0)
+		GOTO(err_destroy, rc);
+
+	/*
+	 * in case of replay we just set LOVEA provided by the client
+	 * XXX: I think it would be interesting to try "old" way where
+	 *      MDT calls this xattr_set(LOV) in a different transaction.
+	 *      probably this way we code can be made better.
+	 */
+	if (spec->no_create ||
+	    (S_ISREG(attr->la_mode) && spec->sp_cr_flags & MDS_OPEN_HAS_EA) ||
+	    (S_ISDIR(attr->la_mode))) {
+		const struct lu_buf *buf;
+
+		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
+					spec->u.sp_ea.eadatalen);
+		rc = mdo_xattr_set(env, son, buf,
+				   S_ISDIR(attr->la_mode) ? XATTR_NAME_LMV :
+							    XATTR_NAME_LOV, 0,
+				   handle, BYPASS_CAPA);
+		if (rc != 0)
+			GOTO(err_destroy, rc);
+	}
+
 #ifdef CONFIG_FS_POSIX_ACL
 	if (def_acl_buf != NULL && def_acl_buf->lb_len > 0 &&
 	    S_ISDIR(attr->la_mode)) {
@@ -2073,29 +2103,6 @@ static int mdd_object_create(const struct lu_env *env, struct mdd_object *pobj,
 			GOTO(err_destroy, rc);
 	}
 #endif
-
-	rc = mdd_object_initialize(env, mdo2fid(pobj), son, attr, handle,
-				   spec);
-	if (rc != 0)
-		GOTO(err_destroy, rc);
-
-	/*
-	 * in case of replay we just set LOVEA provided by the client
-	 * XXX: I think it would be interesting to try "old" way where
-	 *      MDT calls this xattr_set(LOV) in a different transaction.
-	 *      probably this way we code can be made better.
-	 */
-	if (spec->no_create || (spec->sp_cr_flags & MDS_OPEN_HAS_EA &&
-				S_ISREG(attr->la_mode))) {
-		const struct lu_buf *buf;
-
-		buf = mdd_buf_get_const(env, spec->u.sp_ea.eadata,
-				spec->u.sp_ea.eadatalen);
-		rc = mdo_xattr_set(env, son, buf, XATTR_NAME_LOV, 0, handle,
-				   BYPASS_CAPA);
-		if (rc != 0)
-			GOTO(err_destroy, rc);
-	}
 
 	if (S_ISLNK(attr->la_mode)) {
 		struct lu_ucred  *uc = lu_ucred_assert(env);
@@ -3245,7 +3252,7 @@ static int mdd_migrate_create(const struct lu_env *env,
 			RETURN(rc);
 		}
 		spec->u.sp_symname = link_buf.lb_buf;
-	} else{
+	} else if S_ISREG(la->la_mode) {
 		/* retrieve lov of the old object */
 		rc = mdd_get_lov_ea(env, mdd_sobj, &lmm_buf);
 		if (rc != 0 && rc != -ENODATA)
@@ -3289,14 +3296,6 @@ static int mdd_migrate_create(const struct lu_env *env,
 			       NULL, handle);
 	if (rc != 0)
 		GOTO(stop_trans, rc);
-
-	if (lmm_buf.lb_buf != NULL && lmm_buf.lb_len != 0) {
-		buf = mdd_buf_get_const(env, lmm_buf.lb_buf, lmm_buf.lb_len);
-		rc = mdo_xattr_set(env, mdd_tobj, buf, XATTR_NAME_LOV,
-				   0, handle, mdd_object_capa(env, mdd_sobj));
-		if (rc != 0)
-			GOTO(stop_trans, rc);
-	}
 
 	/* Set MIGRATE EA on the source inode, so once the migration needs
 	 * to be re-done during failover, the re-do process can locate the
