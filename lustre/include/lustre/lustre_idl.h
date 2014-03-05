@@ -1003,6 +1003,9 @@ enum lu_dirent_attrs {
 	LUDA_UPGRADE		= 0x1000,
 	/* Ignore this record, go to next directly. */
 	LUDA_IGNORE		= 0x0800,
+
+	/* whether iterate the striped dir */
+	LUDA_STRIPED_DIR	= 0x0400,
 };
 
 #define LU_DIRENT_ATTRS_MASK	0xf800
@@ -3704,6 +3707,7 @@ enum idx_info_flags {
 	II_FL_VARKEY	= 1 << 1, /* keys can be of variable size */
 	II_FL_VARREC	= 1 << 2, /* records can be of variable size */
 	II_FL_NONUNQ	= 1 << 3, /* index supports non-unique keys */
+	II_FL_NOKEY	= 1 << 4, /* client doesn't care about key */
 };
 
 #define LIP_MAGIC 0x8A6D6B6C
