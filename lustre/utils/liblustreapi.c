@@ -2428,6 +2428,7 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 	struct lmv_user_mds_data *objects = lum->lum_objects;
 	char *prefix = lum->lum_magic == LMV_USER_MAGIC ? "(Default)" : "";
 	int i, obdstripe = 0;
+	char *seperator = "";
 
 	if (obdindex != OBD_NOT_FOUND) {
 		for (i = 0; i < lum->lum_stripe_count; i++) {
@@ -2454,20 +2455,25 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 		llapi_printf(LLAPI_MSG_NORMAL, "%s%s\n", prefix, path);
 
 	if (verbose & VERBOSE_COUNT) {
+		llapi_printf(LLAPI_MSG_NORMAL, "%s", seperator);
 		if (verbose & ~VERBOSE_COUNT)
 			llapi_printf(LLAPI_MSG_NORMAL, "lmv_stripe_count: ");
-		llapi_printf(LLAPI_MSG_NORMAL, "%u\n",
+		llapi_printf(LLAPI_MSG_NORMAL, "%u",
 			     (int)lum->lum_stripe_count);
+		seperator = "\n";
 	}
 
 	if (verbose & VERBOSE_OFFSET) {
+		llapi_printf(LLAPI_MSG_NORMAL, "%s", seperator);
 		if (verbose & ~VERBOSE_OFFSET)
 			llapi_printf(LLAPI_MSG_NORMAL, "lmv_stripe_offset: ");
-		llapi_printf(LLAPI_MSG_NORMAL, "%d\n",
+		llapi_printf(LLAPI_MSG_NORMAL, "%d",
 			     (int)lum->lum_stripe_offset);
+		seperator = "\n";
 	}
 
 	if (verbose & VERBOSE_OBJID && lum->lum_magic != LMV_USER_MAGIC) {
+		llapi_printf(LLAPI_MSG_NORMAL, "%s", seperator);
 		if ((obdstripe == 1))
 			llapi_printf(LLAPI_MSG_NORMAL,
 				     "mdtidx\t\t FID[seq:oid:ver]\n");
@@ -2484,12 +2490,16 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 	}
 
 	if ((verbose & VERBOSE_POOL) && (pool_name[0] != '\0')) {
+		llapi_printf(LLAPI_MSG_NORMAL, "%s", seperator);
 		if (verbose & ~VERBOSE_POOL)
 			llapi_printf(LLAPI_MSG_NORMAL, "%slmv_pool:           ",
 				     prefix);
 		llapi_printf(LLAPI_MSG_NORMAL, "%s%c ", pool_name, ' ');
+		seperator = "\n";
 	}
-	llapi_printf(LLAPI_MSG_NORMAL, "\n");
+
+	if (!(verbose & VERBOSE_OBJID))
+		llapi_printf(LLAPI_MSG_NORMAL, "\n");
 }
 
 void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)

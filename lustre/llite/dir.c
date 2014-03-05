@@ -1165,6 +1165,7 @@ lmv_out_free:
 		int			stripe_count;
 		int			i;
 		int			rc;
+		bool			non_striped = false;
 
 		if (copy_from_user(&lum, ulmv, sizeof(*ulmv)))
 			RETURN(-EFAULT);
@@ -1201,6 +1202,7 @@ lmv_out_free:
 		/* Get normal LMV EA */
 		if (rc == -ENODATA) {
 			stripe_count = 1;
+			non_striped = true;
 		} else {
 			LASSERT(lmm != NULL);
 			stripe_count = lmv_mds_md_stripe_count_get(lmm);
@@ -1211,25 +1213,27 @@ lmv_out_free:
 		if (tmp == NULL)
 			GOTO(finish_req, rc = -ENOMEM);
 
-		tmp->lum_magic = LMV_MAGIC_V1;
-		tmp->lum_stripe_count = 1;
 		mdt_index = ll_get_mdt_idx(inode);
 		if (mdt_index < 0)
 			GOTO(out_tmp, rc = -ENOMEM);
-		tmp->lum_stripe_offset = mdt_index;
-		tmp->lum_objects[0].lum_mds = mdt_index;
-		tmp->lum_objects[0].lum_fid = *ll_inode2fid(inode);
-		for (i = 1; i < stripe_count; i++) {
-			struct lmv_mds_md_v1 *lmm1;
 
-			lmm1 = &lmm->lmv_md_v1;
-			mdt_index = ll_get_mdt_idx_by_fid(sbi,
-						     &lmm1->lmv_stripe_fids[i]);
+		tmp->lum_magic = LMV_MAGIC_V1;
+		tmp->lum_stripe_count = 0;
+		tmp->lum_stripe_offset = mdt_index;
+		for (i = 0; i < stripe_count; i++) {
+			struct lu_fid	*fid;
+
+			if (i == 0 && non_striped)
+				fid = ll_inode2fid(inode);
+			else
+				fid = &lmm->lmv_md_v1.lmv_stripe_fids[i];
+
+			mdt_index = ll_get_mdt_idx_by_fid(sbi, fid);
 			if (mdt_index < 0)
 				GOTO(out_tmp, rc = mdt_index);
 
 			tmp->lum_objects[i].lum_mds = mdt_index;
-			tmp->lum_objects[i].lum_fid = lmm1->lmv_stripe_fids[i];
+			tmp->lum_objects[i].lum_fid = *fid;
 			tmp->lum_stripe_count++;
 		}
 
