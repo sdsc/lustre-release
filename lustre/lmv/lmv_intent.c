@@ -205,14 +205,6 @@ int lmv_revalidate_slaves(struct obd_export *exp, struct mdt_body *mbody,
 
 		fid = lsm->lsm_md_oinfo[i].lmo_fid;
 		inode = lsm->lsm_md_oinfo[i].lmo_root;
-		if (i == 0) {
-			if (mbody != NULL) {
-				body = mbody;
-				goto update;
-			} else {
-				goto release_lock;
-			}
-		}
 
 		/*
 		 * Prepare op_data for revalidating. Note that @fid2 shluld be
@@ -246,7 +238,6 @@ int lmv_revalidate_slaves(struct obd_export *exp, struct mdt_body *mbody,
 			body = req_capsule_server_get(&req->rq_pill,
 						      &RMF_MDT_BODY);
 			LASSERT(body != NULL);
-update:
 			if (unlikely(body->nlink < 2)) {
 				CERROR("%s: nlink %d < 2 corrupt stripe %d "DFID
 				       ":" DFID"\n", obd->obd_name, body->nlink,
@@ -278,7 +269,7 @@ update:
 			if (req != NULL)
 				ptlrpc_req_finished(req);
 		}
-release_lock:
+
 		size += i_size_read(inode);
 
 		if (i != 0)
