@@ -4258,15 +4258,7 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 	osd_trans_declare_op(env, oh, OSD_OT_INSERT,
 			     osd_dto_credits_noquota[DTO_INDEX_INSERT]);
 
-	if (osd_dt_obj(dt)->oo_inode == NULL) {
-		const char *name  = (const char *)key;
-		/* Object is not being created yet. Only happens when
-		 *     1. declare directory create
-		 *     2. declare insert .
-		 *     3. declare insert ..
-		 */
-		LASSERT(strcmp(name, dotdot) == 0 || strcmp(name, dot) == 0);
-	} else {
+	if (osd_dt_obj(dt)->oo_inode != NULL) {
 		struct inode *inode = osd_dt_obj(dt)->oo_inode;
 
 		/* We ignore block quota on meta pool (MDTs), so needn't
@@ -4379,6 +4371,9 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 	}
 
 	rc = osd_ea_add_rec(env, obj, child_inode, name, rec, th);
+
+	CDEBUG(D_INODE, "parent %lu insert %s:%lu rc = %d\n",
+	       obj->oo_inode->i_ino, name, child_inode->i_ino, rc);
 
 	iput(child_inode);
 	if (child != NULL)
@@ -4836,6 +4831,7 @@ static int osd_ldiskfs_filldir(void *buf, const char *name, int namelen,
  *
  * \retval   0 on success
  * \retval -ve on error
+ * \retval +1 reach the end of entry
  */
 static int osd_ldiskfs_it_fill(const struct lu_env *env,
                                const struct dt_it *di)
@@ -4882,6 +4878,8 @@ static int osd_ldiskfs_it_fill(const struct lu_env *env,
 		/*If it does not get any dirent, it means it has been reached
 		 *to the end of the dir */
 		it->oie_file.f_pos = ldiskfs_get_htree_eof(&it->oie_file);
+		if (rc == 0)
+			rc = 1;
 	} else {
 		it->oie_dirent = it->oie_buf;
 		it->oie_it_dirent = 1;
@@ -5395,6 +5393,21 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 }
 
 /**
+ * Returns the rec's size at current position.
+ *
+ * \param di iterator's in memory structure
+ *
+ * \retval rec_size i.e. struct dt_rec on success
+ */
+static int osd_it_ea_rec_size(const struct lu_env *env, const struct dt_it *di,
+			      __u32 attr)
+{
+	struct osd_it_ea *it = (struct osd_it_ea *)di;
+
+	return lu_dirent_calc_size(it->oie_dirent->oied_namelen, attr);
+}
+
+/**
  * Returns a cookie for current position of the iterator head, so that
  * user can use this cookie to load/start the iterator next time.
  *
@@ -5429,6 +5442,9 @@ static int osd_it_ea_load(const struct lu_env *env,
         it->oie_file.f_pos = hash;
 
         rc =  osd_ldiskfs_it_fill(env, di);
+	if (rc > 0)
+		rc = -ENODATA;
+
         if (rc == 0)
                 rc = +1;
 
@@ -5469,23 +5485,24 @@ static int osd_index_ea_lookup(const struct lu_env *env, struct dt_object *dt,
  * mode (i.e. to run 2.0 mds on 1.8 disk) (b11826)
  */
 static const struct dt_index_operations osd_index_ea_ops = {
-        .dio_lookup         = osd_index_ea_lookup,
-        .dio_declare_insert = osd_index_declare_ea_insert,
-        .dio_insert         = osd_index_ea_insert,
-        .dio_declare_delete = osd_index_declare_ea_delete,
-        .dio_delete         = osd_index_ea_delete,
-        .dio_it     = {
-                .init     = osd_it_ea_init,
-                .fini     = osd_it_ea_fini,
-                .get      = osd_it_ea_get,
-                .put      = osd_it_ea_put,
-                .next     = osd_it_ea_next,
-                .key      = osd_it_ea_key,
-                .key_size = osd_it_ea_key_size,
-                .rec      = osd_it_ea_rec,
-                .store    = osd_it_ea_store,
-                .load     = osd_it_ea_load
-        }
+	.dio_lookup         = osd_index_ea_lookup,
+	.dio_declare_insert = osd_index_declare_ea_insert,
+	.dio_insert         = osd_index_ea_insert,
+	.dio_declare_delete = osd_index_declare_ea_delete,
+	.dio_delete         = osd_index_ea_delete,
+	.dio_it     = {
+		.init     = osd_it_ea_init,
+		.fini     = osd_it_ea_fini,
+		.get      = osd_it_ea_get,
+		.put      = osd_it_ea_put,
+		.next     = osd_it_ea_next,
+		.key      = osd_it_ea_key,
+		.key_size = osd_it_ea_key_size,
+		.rec      = osd_it_ea_rec,
+		.rec_size = osd_it_ea_rec_size,
+		.store    = osd_it_ea_store,
+		.load     = osd_it_ea_load
+	}
 };
 
 static void *osd_key_init(const struct lu_context *ctx,
@@ -5561,6 +5578,45 @@ static int osd_device_init(const struct lu_env *env, struct lu_device *d,
 	return osd_procfs_init(osd, name);
 }
 
+static int osd_fid_init(const struct lu_env *env, struct osd_device *osd)
+{
+	struct seq_server_site	*ss = osd_seq_site(osd);
+	int			rc;
+	ENTRY;
+
+	if (osd->od_is_ost || osd->od_cl_seq != NULL)
+		RETURN(0);
+
+	if (unlikely(ss == NULL))
+		RETURN(-ENODEV);
+
+	OBD_ALLOC_PTR(osd->od_cl_seq);
+	if (osd->od_cl_seq == NULL)
+		RETURN(-ENOMEM);
+
+	rc = seq_client_init(osd->od_cl_seq, NULL, LUSTRE_SEQ_METADATA,
+			     osd->od_svname, ss->ss_server_seq);
+
+	if (rc != 0) {
+		OBD_FREE_PTR(osd->od_cl_seq);
+		osd->od_cl_seq = NULL;
+	}
+
+	RETURN(rc);
+}
+
+static void osd_fid_fini(const struct lu_env *env, struct osd_device *osd)
+{
+	if (osd->od_cl_seq == NULL)
+		return;
+
+	seq_client_fini(osd->od_cl_seq);
+	OBD_FREE_PTR(osd->od_cl_seq);
+	osd->od_cl_seq = NULL;
+
+	return;
+}
+
 static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 {
 	ENTRY;
@@ -5570,6 +5626,8 @@ static int osd_shutdown(const struct lu_env *env, struct osd_device *o)
 		qsd_fini(env, o->od_quota_slave);
 		o->od_quota_slave = NULL;
 	}
+
+	osd_fid_fini(env, o);
 
 	RETURN(0);
 }
@@ -5965,11 +6023,24 @@ static int osd_prepare(const struct lu_env *env, struct lu_device *pdev,
 	int		   result = 0;
 	ENTRY;
 
-	if (osd->od_quota_slave != NULL)
+	if (osd->od_quota_slave != NULL) {
 		/* set up quota slave objects */
 		result = qsd_prepare(env, osd->od_quota_slave);
+		if (result != 0)
+			RETURN(result);
+	}
+
+	result = osd_fid_init(env, osd);
 
 	RETURN(result);
+}
+
+int osd_fid_alloc(const struct lu_env *env, struct obd_export *exp,
+		  struct lu_fid *fid, struct md_op_data *op_data)
+{
+	struct osd_device *osd = osd_dev(exp->exp_obd->obd_lu_dev);
+
+	return seq_client_alloc_fid(env, osd->od_cl_seq, fid);
 }
 
 static const struct lu_object_operations osd_lu_obj_ops = {
@@ -6015,7 +6086,8 @@ struct lu_device_type osd_device_type = {
 static struct obd_ops osd_obd_device_ops = {
 	.o_owner = THIS_MODULE,
 	.o_connect	= osd_obd_connect,
-	.o_disconnect	= osd_obd_disconnect
+	.o_disconnect	= osd_obd_disconnect,
+	.o_fid_alloc	= osd_fid_alloc,
 };
 
 static int __init osd_mod_init(void)
