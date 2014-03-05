@@ -183,6 +183,10 @@ int out_handle(struct tgt_session_info *tsi);
 	__out_tx_xattr_set(info, obj, buf, name, fl, th, reply, idx,	\
 			   __FILE__, __LINE__)
 
+#define out_tx_xattr_del(info, obj, name, th, reply, idx)	\
+	__out_tx_xattr_del(info, obj, name, th, reply, idx,	\
+			   __FILE__, __LINE__)
+
 #define out_tx_ref_add(info, obj, th, reply, idx) \
 	__out_tx_ref_add(info, obj, th, reply, idx, __FILE__, __LINE__)
 
