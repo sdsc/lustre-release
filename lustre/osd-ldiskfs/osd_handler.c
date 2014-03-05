@@ -5354,6 +5354,21 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 }
 
 /**
+ * Returns the rec's size at current position.
+ *
+ * \param di iterator's in memory structure
+ *
+ * \retval rec_size i.e. struct dt_rec on success
+ */
+static int osd_it_ea_rec_size(const struct lu_env *env, const struct dt_it *di,
+			      __u32 attr)
+{
+	struct osd_it_ea *it = (struct osd_it_ea *)di;
+
+	return lu_dirent_calc_size(it->oie_dirent->oied_namelen, attr);
+}
+
+/**
  * Returns a cookie for current position of the iterator head, so that
  * user can use this cookie to load/start the iterator next time.
  *
@@ -5428,23 +5443,24 @@ static int osd_index_ea_lookup(const struct lu_env *env, struct dt_object *dt,
  * mode (i.e. to run 2.0 mds on 1.8 disk) (b11826)
  */
 static const struct dt_index_operations osd_index_ea_ops = {
-        .dio_lookup         = osd_index_ea_lookup,
-        .dio_declare_insert = osd_index_declare_ea_insert,
-        .dio_insert         = osd_index_ea_insert,
-        .dio_declare_delete = osd_index_declare_ea_delete,
-        .dio_delete         = osd_index_ea_delete,
-        .dio_it     = {
-                .init     = osd_it_ea_init,
-                .fini     = osd_it_ea_fini,
-                .get      = osd_it_ea_get,
-                .put      = osd_it_ea_put,
-                .next     = osd_it_ea_next,
-                .key      = osd_it_ea_key,
-                .key_size = osd_it_ea_key_size,
-                .rec      = osd_it_ea_rec,
-                .store    = osd_it_ea_store,
-                .load     = osd_it_ea_load
-        }
+	.dio_lookup         = osd_index_ea_lookup,
+	.dio_declare_insert = osd_index_declare_ea_insert,
+	.dio_insert         = osd_index_ea_insert,
+	.dio_declare_delete = osd_index_declare_ea_delete,
+	.dio_delete         = osd_index_ea_delete,
+	.dio_it     = {
+		.init     = osd_it_ea_init,
+		.fini     = osd_it_ea_fini,
+		.get      = osd_it_ea_get,
+		.put      = osd_it_ea_put,
+		.next     = osd_it_ea_next,
+		.key      = osd_it_ea_key,
+		.key_size = osd_it_ea_key_size,
+		.rec      = osd_it_ea_rec,
+		.rec_size = osd_it_ea_rec_size,
+		.store    = osd_it_ea_store,
+		.load     = osd_it_ea_load
+	}
 };
 
 static void *osd_key_init(const struct lu_context *ctx,

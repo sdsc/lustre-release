@@ -253,39 +253,40 @@ int mdd_is_subdir(const struct lu_env *env, struct md_object *mo,
 static int mdd_dir_is_empty(const struct lu_env *env,
                             struct mdd_object *dir)
 {
-        struct dt_it     *it;
-        struct dt_object *obj;
-        const struct dt_it_ops *iops;
-        int result;
-        ENTRY;
+	struct dt_it     *it;
+	struct dt_object *obj;
+	const struct dt_it_ops *iops;
+	int result;
+	ENTRY;
 
-        obj = mdd_object_child(dir);
-        if (!dt_try_as_dir(env, obj))
-                RETURN(-ENOTDIR);
+	obj = mdd_object_child(dir);
+	if (!dt_try_as_dir(env, obj))
+		RETURN(-ENOTDIR);
 
-        iops = &obj->do_index_ops->dio_it;
-        it = iops->init(env, obj, LUDA_64BITHASH, BYPASS_CAPA);
-        if (!IS_ERR(it)) {
-                result = iops->get(env, it, (const void *)"");
-                if (result > 0) {
-                        int i;
-                        for (result = 0, i = 0; result == 0 && i < 3; ++i)
-                                result = iops->next(env, it);
-                        if (result == 0)
-                                result = -ENOTEMPTY;
-                        else if (result == +1)
-                                result = 0;
-                } else if (result == 0)
-                        /*
-                         * Huh? Index contains no zero key?
-                         */
-                        result = -EIO;
+	iops = &obj->do_index_ops->dio_it;
+	it = iops->init(env, obj, LUDA_64BITHASH | LUDA_STRIPED_DIR,
+			BYPASS_CAPA);
+	if (!IS_ERR(it)) {
+		result = iops->get(env, it, (const struct dt_key *)"");
+		if (result > 0) {
+			int i;
+			for (result = 0, i = 0; result == 0 && i < 3; ++i)
+				result = iops->next(env, it);
+			if (result == 0)
+				result = -ENOTEMPTY;
+			else if (result == 1)
+				result = 0;
+		} else if (result == 0)
+			/*
+			 * Huh? Index contains no zero key?
+			 */
+			result = -EIO;
 
-                iops->put(env, it);
-                iops->fini(env, it);
-        } else
-                result = PTR_ERR(it);
-        RETURN(result);
+		iops->put(env, it);
+		iops->fini(env, it);
+	} else
+		result = PTR_ERR(it);
+	RETURN(result);
 }
 
 static int __mdd_may_link(const struct lu_env *env, struct mdd_object *obj,

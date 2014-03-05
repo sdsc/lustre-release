@@ -105,7 +105,18 @@ static struct dt_it *lod_it_init(const struct lu_env *env,
 	struct dt_object	*next = dt_object_child(dt);
 	struct lod_it		*it = &lod_env_info(env)->lti_it;
 	struct dt_it		*it_next;
+	int			rc;
+	ENTRY;
 
+	/* XXX, this is a bit hacky for now, right now, some of the operations
+	 * need to iterate slaves on the client side, like readdir, but other
+	 * operations need to iterate slaves on the server side, like unlink,
+	 * so we will use attr to tell if it needs to iterate striped dir */
+	if (attr & LUDA_STRIPED_DIR) {
+		rc = lod_load_striping_locked(env, lod_dt_obj(dt));
+		if (rc != 0)
+			RETURN(ERR_PTR(rc));
+	}
 
 	it_next = next->do_index_ops->dio_it.init(env, next, attr, capa);
 	if (IS_ERR(it_next))
@@ -117,8 +128,10 @@ static struct dt_it *lod_it_init(const struct lu_env *env,
 	 * additional ones */
 	LASSERT(it->lit_obj == NULL);
 
+	it->lit_stripe_offset = -1;
+	it->lit_attr = attr;
 	it->lit_it = it_next;
-	it->lit_obj = next;
+	it->lit_obj = dt;
 
 	return (struct dt_it *)it;
 }
@@ -131,89 +144,273 @@ static struct dt_it *lod_it_init(const struct lu_env *env,
 
 void lod_it_fini(const struct lu_env *env, struct dt_it *di)
 {
-	struct lod_it *it = (struct lod_it *)di;
+	struct lod_it		*it = (struct lod_it *)di;
+	struct lod_object	*lo;
+	struct dt_object	*next;
 
 	LOD_CHECK_IT(env, it);
-	it->lit_obj->do_index_ops->dio_it.fini(env, it->lit_it);
+
+	if (it->lit_stripe_offset != -1) {
+		lo = lod_dt_obj(it->lit_obj);
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+	next->do_index_ops->dio_it.fini(env, it->lit_it);
 
 	/* the iterator not in use any more */
 	it->lit_obj = NULL;
 	it->lit_it = NULL;
+	it->lit_stripe_offset = -1;
 }
 
 int lod_it_get(const struct lu_env *env, struct dt_it *di,
 	       const struct dt_key *key)
 {
-	const struct lod_it *it = (const struct lod_it *)di;
+	const struct lod_it	*it = (const struct lod_it *)di;
+	struct lod_object	*lo;
+	struct dt_object	*next;
+	ENTRY;
 
 	LOD_CHECK_IT(env, it);
-	return it->lit_obj->do_index_ops->dio_it.get(env, it->lit_it, key);
+
+	if (it->lit_stripe_offset != -1) {
+		lo = lod_dt_obj(it->lit_obj);
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+
+	LASSERT(next != NULL);
+
+	return next->do_index_ops->dio_it.get(env, it->lit_it, key);
 }
 
 void lod_it_put(const struct lu_env *env, struct dt_it *di)
 {
-	struct lod_it *it = (struct lod_it *)di;
+	struct lod_it		*it = (struct lod_it *)di;
+	struct lod_object	*lo;
+	struct dt_object	*next;
 
 	LOD_CHECK_IT(env, it);
-	return it->lit_obj->do_index_ops->dio_it.put(env, it->lit_it);
+
+	if (it->lit_stripe_offset != -1) {
+		lo = lod_dt_obj(it->lit_obj);
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+
+	LASSERT(next != NULL);
+
+	return next->do_index_ops->dio_it.put(env, it->lit_it);
 }
 
 int lod_it_next(const struct lu_env *env, struct dt_it *di)
 {
-	struct lod_it *it = (struct lod_it *)di;
+	struct lod_it		*it = (struct lod_it *)di;
+	struct lod_object	*lo = lod_dt_obj(it->lit_obj);
+	struct dt_object	*next;
+	struct dt_it		*it_next;
+	int			rc;
+	ENTRY;
 
 	LOD_CHECK_IT(env, it);
-	return it->lit_obj->do_index_ops->dio_it.next(env, it->lit_it);
+
+	if (it->lit_stripe_offset != -1) {
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+
+again:
+	LASSERT(next != NULL);
+
+	rc = next->do_index_ops->dio_it.next(env, it->lit_it);
+	if (lo->ldo_stripenr == 0 || !(it->lit_attr & LUDA_STRIPED_DIR))
+		RETURN(rc);
+
+	if (rc == 1 && it->lit_stripe_offset <
+			((int)lo->ldo_stripenr - 1))
+		it->lit_stripe_offset++;
+	else
+		RETURN(rc);
+
+	/* end current iterator */
+	next->do_index_ops->dio_it.put(env, it->lit_it);
+	next->do_index_ops->dio_it.fini(env, it->lit_it);
+
+	/* go to next stripe */
+	next = lo->ldo_stripe[it->lit_stripe_offset];
+	LASSERT(next != NULL);
+
+	rc = next->do_ops->do_index_try(env, next, NULL);
+	if (rc != 0)
+		RETURN(rc);
+
+	it_next = next->do_index_ops->dio_it.init(env, next, it->lit_attr,
+						  BYPASS_CAPA);
+	if (!IS_ERR(it_next)) {
+		it->lit_it = it_next;
+		goto again;
+	} else {
+		rc = PTR_ERR(it_next);
+	}
+
+	RETURN(rc);
 }
 
 struct dt_key *lod_it_key(const struct lu_env *env, const struct dt_it *di)
 {
-	const struct lod_it *it = (const struct lod_it *)di;
+	const struct lod_it	*it = (const struct lod_it *)di;
+	struct lod_object	*lo;
+	struct dt_object	*next;
 
 	LOD_CHECK_IT(env, it);
-	return it->lit_obj->do_index_ops->dio_it.key(env, it->lit_it);
+
+	if (it->lit_stripe_offset != -1) {
+		lo = lod_dt_obj(it->lit_obj);
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+
+	LASSERT(next != NULL);
+
+	return next->do_index_ops->dio_it.key(env, it->lit_it);
 }
 
 int lod_it_key_size(const struct lu_env *env, const struct dt_it *di)
 {
-	struct lod_it *it = (struct lod_it *)di;
+	struct lod_it		*it = (struct lod_it *)di;
+	struct lod_object	*lo;
+	struct dt_object	*next;
 
 	LOD_CHECK_IT(env, it);
-	return it->lit_obj->do_index_ops->dio_it.key_size(env, it->lit_it);
+
+	if (it->lit_stripe_offset != -1) {
+		lo = lod_dt_obj(it->lit_obj);
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+
+	LASSERT(next != NULL);
+
+	return next->do_index_ops->dio_it.key_size(env, it->lit_it);
 }
 
 int lod_it_rec(const struct lu_env *env, const struct dt_it *di,
 	       struct dt_rec *rec, __u32 attr)
 {
-	const struct lod_it *it = (const struct lod_it *)di;
+	const struct lod_it	*it = (const struct lod_it *)di;
+	struct lod_object	*lo;
+	struct dt_object	*next;
 
 	LOD_CHECK_IT(env, it);
-	return it->lit_obj->do_index_ops->dio_it.rec(env, it->lit_it, rec, attr);
+
+	if (it->lit_stripe_offset != -1) {
+		lo = lod_dt_obj(it->lit_obj);
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+
+	LASSERT(next != NULL);
+
+	return next->do_index_ops->dio_it.rec(env, it->lit_it, rec, attr);
+}
+
+int lod_it_rec_size(const struct lu_env *env, const struct dt_it *di,
+		    __u32 attr)
+{
+	struct lod_it		*it = (struct lod_it *)di;
+	struct lod_object	*lo;
+	struct dt_object	*next;
+
+	LOD_CHECK_IT(env, it);
+	if (it->lit_stripe_offset != -1) {
+		lo = lod_dt_obj(it->lit_obj);
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+
+	LASSERT(next != NULL);
+
+	return next->do_index_ops->dio_it.rec_size(env, it->lit_it, attr);
 }
 
 __u64 lod_it_store(const struct lu_env *env, const struct dt_it *di)
 {
-	const struct lod_it *it = (const struct lod_it *)di;
+	const struct lod_it	*it = (const struct lod_it *)di;
+	struct lod_object	*lo;
+	struct dt_object	*next;
 
 	LOD_CHECK_IT(env, it);
-	return it->lit_obj->do_index_ops->dio_it.store(env, it->lit_it);
+
+	if (it->lit_stripe_offset != -1) {
+		lo = lod_dt_obj(it->lit_obj);
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+
+	LASSERT(next != NULL);
+
+	return next->do_index_ops->dio_it.store(env, it->lit_it);
 }
 
 int lod_it_load(const struct lu_env *env, const struct dt_it *di, __u64 hash)
 {
-	const struct lod_it *it = (const struct lod_it *)di;
+	const struct lod_it	*it = (const struct lod_it *)di;
+	struct lod_object	*lo;
+	struct dt_object	*next;
 
 	LOD_CHECK_IT(env, it);
-	return it->lit_obj->do_index_ops->dio_it.load(env, it->lit_it, hash);
+
+	if (it->lit_stripe_offset != -1) {
+		lo = lod_dt_obj(it->lit_obj);
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+
+	LASSERT(next != NULL);
+
+	return next->do_index_ops->dio_it.load(env, it->lit_it, hash);
 }
 
 int lod_it_key_rec(const struct lu_env *env, const struct dt_it *di,
 		   void* key_rec)
 {
-	const struct lod_it *it = (const struct lod_it *)di;
+	const struct lod_it	*it = (const struct lod_it *)di;
+	struct lod_object	*lo;
+	struct dt_object	*next;
 
 	LOD_CHECK_IT(env, it);
-	return it->lit_obj->do_index_ops->dio_it.key_rec(env, it->lit_it, key_rec);
+
+	if (it->lit_stripe_offset != -1) {
+		lo = lod_dt_obj(it->lit_obj);
+		LASSERT(it->lit_stripe_offset < (int)lo->ldo_stripenr);
+		next = lo->ldo_stripe[it->lit_stripe_offset];
+	} else {
+		next = dt_object_child(it->lit_obj);
+	}
+
+	LASSERT(next != NULL);
+
+	return next->do_index_ops->dio_it.key_rec(env, it->lit_it, key_rec);
 }
 
 static struct dt_index_operations lod_index_ops = {
@@ -231,6 +428,7 @@ static struct dt_index_operations lod_index_ops = {
 		.key		= lod_it_key,
 		.key_size	= lod_it_key_size,
 		.rec		= lod_it_rec,
+		.rec_size	= lod_it_rec_size,
 		.store		= lod_it_store,
 		.load		= lod_it_load,
 		.key_rec	= lod_it_key_rec,
