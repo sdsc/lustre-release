@@ -1395,14 +1395,14 @@ int __lmv_fid_alloc(struct lmv_obd *lmv, struct lu_fid *fid,
 	if (tgt->ltd_active == 0 || tgt->ltd_exp == NULL)
 		GOTO(out, rc = -ENODEV);
 
-        /*
-         * Asking underlaying tgt layer to allocate new fid.
-         */
-        rc = obd_fid_alloc(tgt->ltd_exp, fid, NULL);
-        if (rc > 0) {
-                LASSERT(fid_is_sane(fid));
-                rc = 0;
-        }
+	/*
+	 * Asking underlaying tgt layer to allocate new fid.
+	 */
+	rc = obd_fid_alloc(NULL, tgt->ltd_exp, fid, NULL);
+	if (rc > 0) {
+		LASSERT(fid_is_sane(fid));
+		rc = 0;
+	}
 
         EXIT;
 out:
@@ -1410,8 +1410,8 @@ out:
         return rc;
 }
 
-int lmv_fid_alloc(struct obd_export *exp, struct lu_fid *fid,
-                  struct md_op_data *op_data)
+int lmv_fid_alloc(const struct lu_env *env, struct obd_export *exp,
+		  struct lu_fid *fid, struct md_op_data *op_data)
 {
         struct obd_device     *obd = class_exp2obd(exp);
         struct lmv_obd        *lmv = &obd->u.lmv;
@@ -1812,8 +1812,7 @@ struct lmv_tgt_desc
 	struct lmv_stripe_md	*lsm = op_data->op_mea1;
 	struct lmv_tgt_desc	*tgt;
 
-	if (lsm == NULL || lsm->lsm_md_stripe_count <= 1 ||
-	    op_data->op_namelen == 0 ||
+	if (lsm == NULL || op_data->op_namelen == 0 ||
 	    lsm->lsm_md_magic == LMV_MAGIC_MIGRATE) {
 		tgt = lmv_find_target(lmv, fid);
 		if (IS_ERR(tgt))
@@ -1854,7 +1853,7 @@ int lmv_create(struct obd_export *exp, struct md_op_data *op_data,
 	       op_data->op_namelen, op_data->op_name, PFID(&op_data->op_fid1),
 	       op_data->op_mds);
 
-	rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
+	rc = lmv_fid_alloc(NULL, exp, &op_data->op_fid2, op_data);
 	if (rc)
 		RETURN(rc);
 
@@ -2179,7 +2178,7 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	if (op_data->op_cli_flags & CLI_MIGRATE) {
 		LASSERTF(fid_is_sane(&op_data->op_fid3), "invalid FID "DFID"\n",
 			 PFID(&op_data->op_fid3));
-		rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
+		rc = lmv_fid_alloc(NULL, exp, &op_data->op_fid2, op_data);
 		if (rc)
 			RETURN(rc);
 		src_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid3);
@@ -2535,8 +2534,7 @@ retry:
 			RETURN(PTR_ERR(tgt));
 
 		/* For striped dir, we need to locate the parent as well */
-		if (op_data->op_mea1 != NULL &&
-		    op_data->op_mea1->lsm_md_stripe_count > 1) {
+		if (op_data->op_mea1 != NULL) {
 			struct lmv_tgt_desc *tmp;
 
 			LASSERT(op_data->op_name != NULL &&
@@ -2897,8 +2895,12 @@ int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
 	if (lsm != NULL && lmm == NULL) {
 #ifdef __KERNEL__
 		int i;
-		for (i = 1; i < lsm->lsm_md_stripe_count; i++) {
-			if (lsm->lsm_md_oinfo[i].lmo_root != NULL)
+		for (i = 0; i < lsm->lsm_md_stripe_count; i++) {
+			/* For migrating inode, the master stripe and master
+			 * object will be the same, so do not need iput, see
+			 * ll_update_lsm_md */
+			if (!(lsm->lsm_md_magic == LMV_MAGIC_MIGRATE &&
+			      i == 0) && lsm->lsm_md_oinfo[i].lmo_root != NULL)
 				iput(lsm->lsm_md_oinfo[i].lmo_root);
 		}
 #endif
@@ -3323,9 +3325,6 @@ int lmv_quotacheck(struct obd_device *unused, struct obd_export *exp,
 int lmv_update_lsm_md(struct obd_export *exp, struct lmv_stripe_md *lsm,
 		      struct mdt_body *body, ldlm_blocking_callback cb_blocking)
 {
-	if (lsm->lsm_md_stripe_count <= 1)
-		return 0;
-
 	return lmv_revalidate_slaves(exp, body, lsm, cb_blocking, 0);
 }
 
