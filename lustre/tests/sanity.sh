@@ -198,7 +198,6 @@ test_4() {
 	local MDTIDX=1
 	local remote_dir=remote_dir
 
-	[ $MDSCOUNT -ge 2 ] && skip "skip now for LU-4690" && return #LU-4690
 	test_mkdir $DIR/$remote_dir ||
 		error "Create remote directory failed"
 
@@ -209,6 +208,8 @@ test_4() {
 		error "Expect error removing in-use dir $DIR/$remote_dir"
 
 	test -d $DIR/$remote_dir || error "Remote directory disappeared"
+
+	rm -rf $DIR/$remote_dir || error "remove remote dir error"
 }
 run_test 4 "mkdir; touch dir/file; rmdir; checkdir (expect error)"
 
@@ -498,7 +499,7 @@ run_test 17h "create objects: lov_free_memmd() doesn't lbug"
 test_17i() { #bug 20018
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
-	test_mkdir -p $DIR/$tdir
+	test_mkdir -p -c1 $DIR/$tdir
 	local foo=$DIR/$tdir/$tfile
 	local mdt_idx
 	if [ $MDSCOUNT -gt 1 ]; then
@@ -3771,7 +3772,7 @@ run_test 50 "special situations: /proc symlinks  ==============="
 
 test_51a() {	# was test_51
 	# bug 1516 - create an empty entry right after ".." then split dir
-	test_mkdir -p $DIR/$tdir
+	test_mkdir -p -c1 $DIR/$tdir
 	touch $DIR/$tdir/foo
 	$MCREATE $DIR/$tdir/bar
 	rm $DIR/$tdir/foo
@@ -3795,7 +3796,7 @@ test_51b() {
 	# cleanup the directory
 	rm -fr $BASE
 
-	test_mkdir -p $BASE
+	test_mkdir -p -c1 $BASE
 
 	local mdtidx=$(printf "%04x" $($LFS getstripe -M $BASE))
 	local numfree=$(lctl get_param -n mdc.$FSNAME-MDT$mdtidx*.filesfree)
