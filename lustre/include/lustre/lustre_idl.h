@@ -2734,7 +2734,8 @@ extern void lustre_swab_lmv_desc (struct lmv_desc *ld);
 /* lmv structures */
 #define LMV_MAGIC_V1	0x0CD10CD0    /* normal stripe lmv magic */
 #define LMV_USER_MAGIC	0x0CD20CD0    /* default lmv magic*/
-#define LMV_MAGIC_MIGRATE	0x0CD30CD0    /* migrate stripe lmv magic */
+#define LMV_MAGIC_MIGRATE 0x0CD30CD0    /* migrate stripe lmv magic */
+#define LMV_SLAVE_MAGIC	0x0CD40CD0    /* normal stripe lmv magic */
 #define LMV_MAGIC	LMV_MAGIC_V1
 
 enum lmv_hash_type {
@@ -2782,6 +2783,7 @@ struct lmv_mds_md_v1 {
 					 * which hash function to be used */
 	__u32 lmv_layout_version;	/* Used for directory restriping */
 	__u32 lmv_padding;
+	struct lu_fid	lmv_master_fid; /* lmv master FID */
 	char lmv_pool_name[LOV_MAXPOOLNAME];	/* pool name */
 	struct lu_fid lmv_stripe_fids[0];	/* FIDs for each stripe */
 };
@@ -3709,6 +3711,7 @@ enum idx_info_flags {
 	II_FL_VARKEY	= 1 << 1, /* keys can be of variable size */
 	II_FL_VARREC	= 1 << 2, /* records can be of variable size */
 	II_FL_NONUNQ	= 1 << 3, /* index supports non-unique keys */
+	II_FL_NOKEY	= 1 << 4, /* client doesn't care about key */
 };
 
 #define LIP_MAGIC 0x8A6D6B6C
@@ -3956,6 +3959,7 @@ enum update_type {
 	OUT_INDEX_INSERT	= 10,
 	OUT_INDEX_DELETE	= 11,
 	OUT_WRITE		= 12,
+	OUT_XATTR_DEL		= 13,
 	OUT_LAST
 };
 

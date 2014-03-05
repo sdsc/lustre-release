@@ -699,6 +699,79 @@ static int out_xattr_set(struct tgt_session_info *tsi)
 	RETURN(rc);
 }
 
+static int out_tx_xattr_del_exec(const struct lu_env *env, struct thandle *th,
+				 struct tx_arg *arg)
+{
+	struct dt_object *dt_obj = arg->object;
+	int rc;
+
+	CDEBUG(D_INFO, "%s: del xattr name %s\n",
+	       dt_obd_name(th->th_dev), arg->u.xattr_set.name);
+
+	if (!lu_object_exists(&dt_obj->do_lu))
+		GOTO(out, rc = -ENOENT);
+
+	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
+	rc = dt_xattr_del(env, dt_obj, arg->u.xattr_set.name,
+			  th, NULL);
+	dt_write_unlock(env, dt_obj);
+out:
+	CDEBUG(D_INFO, "%s: insert xattr del reply %p index %d: rc = %d\n",
+	       dt_obd_name(th->th_dev), arg->reply, arg->index, rc);
+
+	object_update_result_insert(arg->reply, NULL, 0, arg->index, rc);
+
+	return rc;
+}
+
+static int __out_tx_xattr_del(const struct lu_env *env,
+			      struct dt_object *dt_obj, const char *name,
+			      struct thandle_exec_args *ta,
+			      struct object_update_reply *reply,
+			      int index, char *file, int line)
+{
+	struct tx_arg	*arg;
+	int		rc;
+
+	LASSERT(ta->ta_handle != NULL);
+	rc = dt_declare_xattr_del(env, dt_obj, name, ta->ta_handle);
+	if (rc != 0)
+		return rc;
+
+	arg = tx_add_exec(ta, out_tx_xattr_del_exec, NULL, file, line);
+	if (IS_ERR(arg))
+		return PTR_ERR(arg);
+
+	lu_object_get(&dt_obj->do_lu);
+	arg->object = dt_obj;
+	arg->u.xattr_set.name = name;
+	arg->reply = reply;
+	arg->index = index;
+	return 0;
+}
+
+static int out_xattr_del(struct tgt_session_info *tsi)
+{
+	struct tgt_thread_info	*tti = tgt_th_info(tsi->tsi_env);
+	struct object_update	*update = tti->tti_u.update.tti_update;
+	struct dt_object	*obj = tti->tti_u.update.tti_dt_object;
+	char			*name;
+	int			 rc;
+	ENTRY;
+
+	name = object_update_param_get(update, 0, NULL);
+	if (name == NULL) {
+		CERROR("%s: empty name for xattr set: rc = %d\n",
+		       tgt_name(tsi->tsi_tgt), -EPROTO);
+		RETURN(err_serious(-EPROTO));
+	}
+
+	rc = out_tx_xattr_del(tsi->tsi_env, obj, name, &tti->tti_tea,
+			      tti->tti_u.update.tti_update_reply,
+			      tti->tti_u.update.tti_update_reply_index);
+	RETURN(rc);
+}
+
 static int out_obj_ref_add(const struct lu_env *env,
 			   struct dt_object *dt_obj,
 			   struct thandle *th)
@@ -1270,6 +1343,8 @@ static struct tgt_handler out_update_ops[] = {
 		     out_attr_get),
 	DEF_OUT_HNDL(OUT_XATTR_SET, "out_xattr_set", MUTABOR | HABEO_REFERO,
 		     out_xattr_set),
+	DEF_OUT_HNDL(OUT_XATTR_DEL, "out_xattr_del", MUTABOR | HABEO_REFERO,
+		     out_xattr_del),
 	DEF_OUT_HNDL(OUT_XATTR_GET, "out_xattr_get", HABEO_REFERO,
 		     out_xattr_get),
 	DEF_OUT_HNDL(OUT_INDEX_LOOKUP, "out_index_lookup", HABEO_REFERO,
