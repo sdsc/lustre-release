@@ -279,6 +279,9 @@ struct osd_device {
 	atomic_t		 od_zerocopy_pin;
 
 	arc_prune_t		*arc_prune_cb;
+
+	/* osd seq instance */
+	struct lu_client_seq	*od_cl_seq;
 };
 
 struct osd_object {
