@@ -1077,21 +1077,6 @@ int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
-struct osp_orphan_it {
-	int			  ooi_pos0;
-	int			  ooi_pos1;
-	int			  ooi_pos2;
-	int			  ooi_total_npages;
-	int			  ooi_valid_npages;
-	unsigned int		  ooi_swab:1;
-	__u64			  ooi_next;
-	struct dt_object	 *ooi_obj;
-	struct lu_orphan_ent	 *ooi_ent;
-	struct page		 *ooi_cur_page;
-	struct lu_idxpage	 *ooi_cur_idxpage;
-	struct page		**ooi_pages;
-};
-
 static int osp_orphan_index_lookup(const struct lu_env *env,
 				   struct dt_object *dt,
 				   struct dt_rec *rec,
@@ -1138,12 +1123,10 @@ static int osp_orphan_index_delete(const struct lu_env *env,
 	return -EOPNOTSUPP;
 }
 
-static struct dt_it *osp_orphan_it_init(const struct lu_env *env,
-					struct dt_object *dt,
-					__u32 attr,
-					struct lustre_capa *capa)
+struct dt_it *osp_it_init(const struct lu_env *env, struct dt_object *dt,
+			  __u32 attr, struct lustre_capa *capa)
 {
-	struct osp_orphan_it *it;
+	struct osp_it *it;
 
 	OBD_ALLOC_PTR(it);
 	if (it == NULL)
@@ -1155,13 +1138,12 @@ static struct dt_it *osp_orphan_it_init(const struct lu_env *env,
 	return (struct dt_it *)it;
 }
 
-static void osp_orphan_it_fini(const struct lu_env *env,
-			       struct dt_it *di)
+void osp_it_fini(const struct lu_env *env, struct dt_it *di)
 {
-	struct osp_orphan_it	 *it		= (struct osp_orphan_it *)di;
-	struct page		**pages 	= it->ooi_pages;
-	int			  npages	= it->ooi_total_npages;
-	int			  i;
+	struct osp_it	*it = (struct osp_it *)di;
+	struct page	**pages	= it->ooi_pages;
+	int		npages = it->ooi_total_npages;
+	int		i;
 
 	if (pages != NULL) {
 		for (i = 0; i < npages; i++) {
@@ -1178,8 +1160,7 @@ static void osp_orphan_it_fini(const struct lu_env *env,
 	OBD_FREE_PTR(it);
 }
 
-static int osp_orphan_it_fetch(const struct lu_env *env,
-			       struct osp_orphan_it *it)
+static int osp_it_fetch(const struct lu_env *env, struct osp_it *it)
 {
 	struct lu_device	 *dev	= it->ooi_obj->do_lu.lo_dev;
 	struct osp_device	 *osp	= lu2osp_dev(dev);
@@ -1205,18 +1186,18 @@ static int osp_orphan_it_fetch(const struct lu_env *env,
 	for (i = 0; i < npages; i++) {
 		pages[i] = alloc_page(GFP_IOFS);
 		if (pages[i] == NULL)
-			RETURN(-ENOMEM);
+			GOTO(free_pages, rc = -ENOMEM);
 	}
 
 	req = ptlrpc_request_alloc(osp->opd_obd->u.cli.cl_import,
 				   &RQF_OBD_IDX_READ);
 	if (req == NULL)
-		RETURN(-ENOMEM);
+		GOTO(free_pages, rc = -ENOMEM);
 
 	rc = ptlrpc_request_pack(req, LUSTRE_OBD_VERSION, OBD_IDX_READ);
 	if (rc != 0) {
 		ptlrpc_request_free(req);
-		RETURN(rc);
+		GOTO(free_pages, rc);
 	}
 
 	req->rq_request_portal = OST_IDX_PORTAL;
@@ -1226,7 +1207,7 @@ static int osp_orphan_it_fetch(const struct lu_env *env,
 				    MDS_BULK_PORTAL);
 	if (desc == NULL) {
 		ptlrpc_request_free(req);
-		RETURN(-ENOMEM);
+		GOTO(free_pages, rc = -ENOMEM);
 	}
 
 	for (i = 0; i < npages; i++)
@@ -1234,11 +1215,21 @@ static int osp_orphan_it_fetch(const struct lu_env *env,
 
 	ii = req_capsule_client_get(&req->rq_pill, &RMF_IDX_INFO);
 	memset(ii, 0, sizeof(*ii));
-	ii->ii_fid.f_seq = FID_SEQ_LAYOUT_RBTREE;
-	ii->ii_fid.f_oid = osp->opd_index;
-	ii->ii_fid.f_ver = 0;
+
+	if (fid_is_last_id(lu_object_fid(&it->ooi_obj->do_lu))) {
+		/* LFSCK will iterate orphan object[FID_SEQ_LAYOUT_BTREE,
+		 * ost_index, 0] with LAST_ID FID, so it needs to the FID
+		 * the FID as orphan FID here */
+		ii->ii_fid.f_seq = FID_SEQ_LAYOUT_RBTREE;
+		ii->ii_fid.f_oid = osp->opd_index;
+		ii->ii_fid.f_ver = 0;
+		ii->ii_flags = II_FL_NOHASH;
+	} else {
+		ii->ii_fid = *lu_object_fid(&it->ooi_obj->do_lu);
+		ii->ii_flags = II_FL_NOHASH | II_FL_NOKEY | II_FL_VARKEY |
+			       II_FL_VARREC;
+	}
 	ii->ii_magic = IDX_INFO_MAGIC;
-	ii->ii_flags = II_FL_NOHASH;
 	ii->ii_count = npages * LU_PAGE_COUNT;
 	ii->ii_hash_start = it->ooi_next;
 	ii->ii_attrs =
@@ -1253,6 +1244,7 @@ static int osp_orphan_it_fetch(const struct lu_env *env,
 					  req->rq_bulk->bd_nob_transferred);
 	if (rc < 0)
 		GOTO(out, rc);
+	rc = 0;
 
 	ii = req_capsule_server_get(&req->rq_pill, &RMF_IDX_INFO);
 	if (ii->ii_magic != IDX_INFO_MAGIC)
@@ -1272,22 +1264,29 @@ static int osp_orphan_it_fetch(const struct lu_env *env,
 
 	it->ooi_next = ii->ii_hash_end;
 
-	GOTO(out, rc = 0);
-
 out:
 	ptlrpc_req_finished(req);
 
+free_pages:
+	if (rc != 0) {
+		for (i = 0; i < it->ooi_total_npages; i++) {
+			if (it->ooi_pages[i] != NULL)
+				__free_page(it->ooi_pages[i]);
+		}
+		OBD_FREE(it->ooi_pages, it->ooi_total_npages * sizeof(*pages));
+		it->ooi_pages = NULL;
+		it->ooi_total_npages = 0;
+	}
 	return rc;
 }
 
-static int osp_orphan_it_next(const struct lu_env *env,
-			      struct dt_it *di)
+int osp_it_next_page(const struct lu_env *env, struct dt_it *di)
 {
-	struct osp_orphan_it	 *it		= (struct osp_orphan_it *)di;
-	struct lu_idxpage	 *idxpage;
+	struct osp_it		*it = (struct osp_it *)di;
+	struct lu_idxpage	*idxpage;
 	struct page		**pages;
-	int			  rc;
-	int			  i;
+	int			rc;
+	int			i;
 	ENTRY;
 
 again2:
@@ -1296,19 +1295,13 @@ again2:
 		if (idxpage->lip_nr == 0)
 			RETURN(1);
 
-		it->ooi_pos2++;
 		if (it->ooi_pos2 < idxpage->lip_nr) {
-			it->ooi_ent =
-				(struct lu_orphan_ent *)idxpage->lip_entries +
-				it->ooi_pos2;
-			if (it->ooi_swab)
-				lustre_swab_orphan_ent(it->ooi_ent);
+			CDEBUG(D_INFO, "ooi_pos %d nr %d\n", (int)it->ooi_pos2,
+			       (int)idxpage->lip_nr);
 			RETURN(0);
 		}
-
 		it->ooi_cur_idxpage = NULL;
 		it->ooi_pos1++;
-
 again1:
 		if (it->ooi_pos1 < LU_PAGE_COUNT) {
 			it->ooi_cur_idxpage = (void *)it->ooi_cur_page +
@@ -1363,30 +1356,59 @@ again0:
 	if (it->ooi_next == II_END_OFF)
 		RETURN(1);
 
-	rc = osp_orphan_it_fetch(env, it);
+	rc = osp_it_fetch(env, it);
 	if (rc == 0)
 		goto again0;
 
 	RETURN(rc);
 }
 
-static int osp_orphan_it_get(const struct lu_env *env,
-			     struct dt_it *di,
-			     const struct dt_key *key)
+int osp_orphan_it_next(const struct lu_env *env, struct dt_it *di)
 {
-	return -ENOSYS;
+	struct osp_it		*it = (struct osp_it *)di;
+	struct lu_idxpage	*idxpage;
+	int			rc;
+	ENTRY;
+
+again:
+	idxpage = it->ooi_cur_idxpage;
+	if (idxpage != NULL) {
+		if (idxpage->lip_nr == 0)
+			RETURN(1);
+
+		it->ooi_pos2++;
+		if (it->ooi_pos2 < idxpage->lip_nr) {
+			it->ooi_ent =
+				(struct lu_orphan_ent *)idxpage->lip_entries +
+				it->ooi_pos2;
+			if (it->ooi_swab)
+				lustre_swab_orphan_ent(it->ooi_ent);
+			RETURN(0);
+		}
+	}
+
+	rc = osp_it_next_page(env, di);
+	if (rc == 0)
+		goto again;
+
+	RETURN(rc);
 }
 
-static void osp_orphan_it_put(const struct lu_env *env,
-			      struct dt_it *di)
+int osp_it_get(const struct lu_env *env, struct dt_it *di,
+	       const struct dt_key *key)
+{
+	return 1;
+}
+
+void osp_it_put(const struct lu_env *env, struct dt_it *di)
 {
 }
 
-static struct dt_key *osp_orphan_it_key(const struct lu_env *env,
-					const struct dt_it *di)
+struct dt_key *osp_orphan_it_key(const struct lu_env *env,
+				 const struct dt_it *di)
 {
-	struct osp_orphan_it	*it  = (struct osp_orphan_it *)di;
-	struct lu_orphan_ent	*ent = it->ooi_ent;
+	struct osp_it	*it  = (struct osp_it *)di;
+	struct lu_orphan_ent	*ent = (struct lu_orphan_ent *)it->ooi_ent;
 
 	if (likely(ent != NULL))
 		return (struct dt_key *)(&ent->loe_key);
@@ -1394,19 +1416,16 @@ static struct dt_key *osp_orphan_it_key(const struct lu_env *env,
 	return NULL;
 }
 
-static int osp_orphan_it_key_size(const struct lu_env *env,
-				  const struct dt_it *di)
+int osp_orphan_it_key_size(const struct lu_env *env, const struct dt_it *di)
 {
 	return sizeof(struct lu_fid);
 }
 
-static int osp_orphan_it_rec(const struct lu_env *env,
-			     const struct dt_it *di,
-			     struct dt_rec *rec,
-			     __u32 attr)
+int osp_orphan_it_rec(const struct lu_env *env, const struct dt_it *di,
+		      struct dt_rec *rec, __u32 attr)
 {
-	struct osp_orphan_it	*it  = (struct osp_orphan_it *)di;
-	struct lu_orphan_ent	*ent = it->ooi_ent;
+	struct osp_it	*it  = (struct osp_it *)di;
+	struct lu_orphan_ent	*ent = (struct lu_orphan_ent *)it->ooi_ent;
 
 	if (likely(ent != NULL)) {
 		*(struct lu_orphan_rec *)rec = ent->loe_rec;
@@ -1416,10 +1435,9 @@ static int osp_orphan_it_rec(const struct lu_env *env,
 	return -EINVAL;
 }
 
-static __u64 osp_orphan_it_store(const struct lu_env *env,
-				 const struct dt_it *di)
+__u64 osp_it_store(const struct lu_env *env, const struct dt_it *di)
 {
-	struct osp_orphan_it	*it	= (struct osp_orphan_it *)di;
+	struct osp_it	*it = (struct osp_it *)di;
 
 	return it->ooi_next;
 }
@@ -1430,11 +1448,10 @@ static __u64 osp_orphan_it_store(const struct lu_env *env,
  *		     call next() to move to a valid position.
  * \retval	-ve: on error
  */
-static int osp_orphan_it_load(const struct lu_env *env,
-			      const struct dt_it *di,
-			      __u64 hash)
+int osp_orphan_it_load(const struct lu_env *env, const struct dt_it *di,
+		__u64 hash)
 {
-	struct osp_orphan_it	*it	= (struct osp_orphan_it *)di;
+	struct osp_it	*it	= (struct osp_it *)di;
 	int			 rc;
 
 	it->ooi_next = hash;
@@ -1448,9 +1465,8 @@ static int osp_orphan_it_load(const struct lu_env *env,
 	return rc;
 }
 
-static int osp_orphan_it_key_rec(const struct lu_env *env,
-				const struct dt_it *di,
-				void *key_rec)
+int osp_it_key_rec(const struct lu_env *env, const struct dt_it *di,
+		   void *key_rec)
 {
 	return 0;
 }
@@ -1462,17 +1478,17 @@ static const struct dt_index_operations osp_orphan_index_ops = {
 	.dio_declare_delete	= osp_orphan_index_declare_delete,
 	.dio_delete		= osp_orphan_index_delete,
 	.dio_it = {
-		.init		= osp_orphan_it_init,
-		.fini		= osp_orphan_it_fini,
+		.init		= osp_it_init,
+		.fini		= osp_it_fini,
 		.next		= osp_orphan_it_next,
-		.get		= osp_orphan_it_get,
-		.put		= osp_orphan_it_put,
+		.get		= osp_it_get,
+		.put		= osp_it_put,
 		.key		= osp_orphan_it_key,
 		.key_size	= osp_orphan_it_key_size,
 		.rec		= osp_orphan_it_rec,
-		.store		= osp_orphan_it_store,
+		.store		= osp_it_store,
 		.load		= osp_orphan_it_load,
-		.key_rec	= osp_orphan_it_key_rec,
+		.key_rec	= osp_it_key_rec,
 	}
 };
 
@@ -1482,13 +1498,11 @@ static int osp_index_try(const struct lu_env *env,
 {
 	const struct lu_fid *fid = lu_object_fid(&dt->do_lu);
 
-	if (fid_is_last_id(fid) && fid_is_idif(fid)) {
+	if (fid_is_last_id(fid) && fid_is_idif(fid))
 		dt->do_index_ops = &osp_orphan_index_ops;
-
-		return 0;
-	}
-
-	return -EINVAL;
+	else
+		dt->do_index_ops = &osp_md_index_ops;
+	return 0;
 }
 
 struct dt_object_operations osp_obj_ops = {

@@ -260,6 +260,9 @@ struct lod_object {
 
 struct lod_it {
 	struct dt_object	*lit_obj; /* object from the layer below */
+	/* stripe offset of iteration */
+	int			lit_stripe_offset;
+	__u32			lit_attr;
 	struct dt_it		*lit_it;  /* iterator from the layer below */
 };
 
@@ -368,7 +371,9 @@ int lod_del_device(const struct lu_env *env, struct lod_device *lod,
 		   unsigned gen, bool for_ost);
 int lod_fini_tgt(const struct lu_env *env, struct lod_device *lod,
 		 struct lod_tgt_descs *ltd, bool for_ost);
-int lod_load_striping(const struct lu_env *env, struct lod_object *mo);
+int lod_load_striping_locked(const struct lu_env *env, struct lod_object *lo);
+int lod_load_striping(const struct lu_env *env, struct lod_object *lo);
+int osp_it_next_page(const struct lu_env *env, struct dt_it *di);
 
 int lod_get_ea(const struct lu_env *env, struct lod_object *lo,
 	       const char *name);
