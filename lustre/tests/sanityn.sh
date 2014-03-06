@@ -2413,6 +2413,74 @@ test_70b() { # LU-2781
 }
 run_test 70b "remove files after calling rm_entry"
 
+test_54_part1()
+{
+	echo "==> rename vs getattr vs setxattr should not deadlock"
+	do_facet client mkdir -p $DIR/d1/d2/d3 || error 1
+
+	do_facet mds $LCTL set_param fail_loc=$1
+
+	do_facet client mv -T $DIR/d1/d2/d3 $DIR/d1/d3 &
+	PID1=$!
+	sleep 1
+
+	do_facet client stat $DIR/d1/d2 &
+	PID2=$!
+	sleep 1
+
+	do_facet client setfattr -n user.attr1 -v value1 $DIR2/d1 || error 2
+	wait $PID1 || error 3
+	wait $PID2 || error 4
+	echo
+
+	do_facet client rm -rf $DIR/d1
+}
+
+test_54_part2() {
+	echo "==> rename vs getattr vs open vs getattr should not deadlock"
+	do_facet client mkdir -p $DIR/d1/d2/d3 || error 1
+
+	do_facet mds $LCTL set_param fail_loc=$1
+
+	do_facet client mv -T $DIR/d1/d2/d3 $DIR/d1/d3 &
+	PID1=$!
+	sleep 1
+
+	do_facet client stat $DIR/d1/d2 &
+	PID2=$!
+	sleep 1
+
+	do_facet client $MULTIOP $DIR2/d1/d2 Oc &
+	PID3=$!
+	sleep 1
+
+	do_facet client stat $DIR/d1 || error 2
+
+	wait $PID1 || error 3
+	wait $PID2 || error 4
+	wait $PID3 && error 5
+	echo
+	do_facet client rm -rf $DIR/d1
+}
+
+test_54() {
+	local p="$TMP/$TESTSUITE-$TESTNAME.parameters"
+        save_lustre_params client "llite.*.xattr_cache" > $p
+        lctl set_param llite.*.xattr_cache 1 ||
+		{ skip "xattr cache is not supported"; return 0; }
+
+#define OBD_FAIL_MDS_RENAME              0x153
+#define OBD_FAIL_MDS_RENAME2             0x154
+	test_54_part1 0x80000153 || error 10
+	test_54_part1 0x80000154 || error 11
+	test_54_part2 0x80000153 || error 12
+	test_54_part2 0x80000154 || error 13
+
+	restore_lustre_params < $p
+        rm -f $p
+}
+run_test 54 "rename locking"
+
 test_71() {
 	local server_version=$(lustre_version_code $SINGLEMDS)
 
