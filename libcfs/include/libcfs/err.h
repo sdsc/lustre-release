@@ -24,21 +24,50 @@
  * GPL HEADER END
  */
 /*
- * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Use is subject to license terms.
+ * Copyright (c) 2014, Intel Corporation.
  */
-/*
- * This file is part of Lustre, http://www.lustre.org/
- * Lustre is a trademark of Sun Microsystems, Inc.
+#ifndef LIBCFS_ERR_H_
+#define LIBCFS_ERR_H_
+
+#if defined(__linux__) && defined(__KERNEL__)
+# include <linux/err.h>
+#else /* __KERNEL__ */
+
+# define IS_ERR_VALUE(x) ((x) >= (unsigned long)-4095)
+
+static inline void *ERR_PTR(long error)
+{
+	return (void *)error;
+}
+
+static inline long PTR_ERR(const void *ptr)
+{
+	return (long)ptr;
+}
+
+static inline long IS_ERR(const void *ptr)
+{
+	return IS_ERR_VALUE((unsigned long)ptr);
+}
+
+static inline long IS_ERR_OR_NULL(const void *ptr)
+{
+	return IS_ERR_VALUE((unsigned long)ptr) || ptr == NULL;
+}
+
+/**
+ * ERR_CAST - Explicitly cast an error-valued pointer to another pointer type
+ * @ptr: The pointer to cast.
+ *
+ * Explicitly cast an error-valued pointer to another pointer type in such a
+ * way as to make it clear that's what's going on.
  */
+static inline void *ERR_CAST(const void *ptr)
+{
+	/* Cast away the const. */
+	return (void *)ptr;
+}
 
-#ifndef _DARWIN_OBD_SUPPORT
-#define _DARWIN_OBD_SUPPORT
+# endif /* !__KERNEL__ */
 
-#ifndef _OBD_SUPPORT
-#error Do not #include this file directly. #include <obd_support.h> instead
-#endif
-
-#include <darwin/lustre_compat.h>
-
-#endif
+#endif /* LIBCFS_ERR_H_ */
