@@ -312,10 +312,12 @@ make install DESTDIR=$RPM_BUILD_ROOT
 # hack to avoid changing the libsysio code for "make install"
 rm -f $RPM_BUILD_ROOT%{_libdir}/libsysio.a
 
+%if %{with servers}
 # The .ha_v2 extension identifies the heartbeat resource agent as using
 # legacy syntax. Install a compatibility symlink to avoid conflicts when
 # newer-style agents are added.
 ln -s Lustre.ha_v2 $RPM_BUILD_ROOT%{_sysconfdir}/ha.d/resource.d/Lustre
+%endif
 
 # Create the pristine source directory.
 cd $RPM_BUILD_DIR/lustre-%{version}
@@ -402,14 +404,9 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/%{kmoddir} -name "*.ko" 
 %{_includedir}/libcfs
 %{_includedir}/linux/lustre_user.h
 %{_libexecdir}/lustre/lc_common
-%{_sysconfdir}/udev/rules.d/99-lustre.rules
-%{_sysconfdir}/init.d/lnet
-%{_sysconfdir}/init.d/lustre
-%config(noreplace) %{_sysconfdir}/ldev.conf
-%{_sysconfdir}/sysconfig/lustre
 %{_libexecdir}/lustre/haconfig
-%{_sysconfdir}/ha.d/resource.d/Lustre.ha_v2
-%{_sysconfdir}/ha.d/resource.d/Lustre
+%{_sysconfdir}/*
+%config(noreplace) %{_sysconfdir}/ldev.conf
 
 %if %{with lustre_modules}
 %files modules
