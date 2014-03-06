@@ -1345,6 +1345,22 @@ LB_LINUX_TRY_COMPILE([
 ])
 ])
 
+# 3.10 has vfs_renane with 5 args
+AC_DEFUN([LC_VFS_RENAME_5ARGS],
+[AC_MSG_CHECKING([if kernel has vfs_rename with 5 args])
+LB_LINUX_TRY_COMPILE([
+	#include <linux/fs.h>
+],[
+	vfs_rename(NULL, NULL, NULL, NULL, NULL);
+], [
+	AC_MSG_RESULT([yes])
+	AC_DEFINE(HAVE_VFS_RENAME_5ARGS, 1,
+		[kernel has vfs_rename with 5 args])
+],[
+	AC_MSG_RESULT([no])
+])
+])
+
 #
 # 3.11 invalidatepage requires the length of the range to invalidate
 #
@@ -1555,6 +1571,7 @@ AC_DEFUN([LC_PROG_LINUX],
 	 # 3.10
 	 LC_HAVE_ONLY_PROCFS_SEQ
 	 LC_BLKDEV_RELEASE_RETURN_INT
+	 LC_VFS_RENAME_5ARGS
 
 	 # 3.11
 	 LC_INVALIDATE_RANGE
