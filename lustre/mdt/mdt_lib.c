@@ -529,7 +529,7 @@ int mdt_init_ucred_reint(struct mdt_thread_info *info)
 }
 
 /* copied from lov/lov_ea.c, just for debugging, will be removed later */
-void mdt_dump_lmm(int level, const struct lov_mds_md *lmm)
+void mdt_dump_lmm(int level, const struct lov_mds_md *lmm, __u64 valid)
 {
         const struct lov_ost_data_v1 *lod;
         int                           i;
@@ -542,7 +542,10 @@ void mdt_dump_lmm(int level, const struct lov_mds_md *lmm)
 	       le32_to_cpu(lmm->lmm_pattern));
         CDEBUG(level,"stripe_size=0x%x, stripe_count=0x%x\n",
                le32_to_cpu(lmm->lmm_stripe_size), count);
-        if (count == LOV_ALL_STRIPES ||
+
+	/* If it's a directory or a released file, then there are
+	 * no actual objects to print, so bail out. */
+        if (valid & OBD_MD_FLDIREA ||
 	    le32_to_cpu(lmm->lmm_pattern) & LOV_PATTERN_F_RELEASED)
                 return;
 
