@@ -795,18 +795,20 @@ load_target() {
 tarflags() {
     local file="$1"
 
+    # Set this option for SUSE. It's default for RHEL only.
+    echo -n '--wildcards '
     case "$file" in
         '')
             fatal 1 "tarflags(): File name argument missing."
             ;;
         *.tar.gz | *.tgz)
-            echo 'zxf'
+            echo '-zxf'
             ;;
         *.tar.bz2)
-            echo 'jxf'
+            echo '-jxf'
             ;;
         *.tar)
-            echo 'xf'
+            echo '-xf'
             ;;
         *)
             fatal 1 "tarflags(): Unrecognized tar extension in file: $1"
@@ -2127,7 +2129,6 @@ unpack_lustre
 # XXX - should we _always_ get the buildid from the META file?  what are the
 # other (i.e. non-lustre-tarball use cases of lbuild)?
 BUILDID=$(sed -ne '/^BUILDID =/s/.*= *//p' lustre/META)
-VERSION=$(sed -ne '/^VERSION =/s/.*= *//p' lustre/META)
 
 load_target
 
@@ -2138,6 +2139,12 @@ fi
 
 if [ -n "$MPSS_VERSION" ]; then
     [ -z "$MPSS_DISTRO" ] && MPSS_DISTRO=$(autodetect_distro)
+
+    # add patchlevel .2 or .3 for SuSE SLES11 distributive
+    if [ "$MPSS_DISTRO" = "sles-11" ]; then
+        PATCHLEVEL=$(grep PATCHLEVEL /etc/SuSE-release | sed -e 's/.*= *//')
+        MPSS_DISTRO="${MPSS_DISTRO}.$PATCHLEVEL"
+    fi
 
     MPSS_INFO=$(mktemp -u mpss-info-XXXXXXXXXX.html)
     download_mpss_info "$MPSS_INFO"
@@ -2180,10 +2187,11 @@ if [ -n "$MPSS_VERSION" ]; then
         LINUX="$TOPDIR/mpss/card/kernel"
         RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"cross_requires intel-mic-gpl = ${MPSS_VERSION%%-*}\""
     fi
+    LUSTRE_VERSION=$(sed -ne '/^VERSION =/s/.*= *//p' lustre/META)
     CONFIGURE_FLAGS="$CONFIGURE_FLAGS $MPSS_OFED --host=$CC_TARGET_ARCH --build=x86_64-pc-linux"
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"post_script build/gen_filelist.sh\""
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"make_args ARCH=k1om CROSS_COMPILE=${CC_TARGET_ARCH}-\""
-    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"cross_path ${CROSS_PATH:=/opt/lustre/${VERSION}/${CC_TARGET_ARCH}}\""
+    RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"cross_path ${CROSS_PATH:=/opt/lustre/${LUSTRE_VERSION}/${CC_TARGET_ARCH}}\""
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"rootdir %{cross_path}\""
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_prefix %{cross_path}/usr\""
     RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"_mandir %{_prefix}/share/man\""

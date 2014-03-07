@@ -149,7 +149,6 @@ autodetect_distro() {
                 ;;
         esac
     else
-        echo "You really ought to install lsb_release for accurate distro identification"
         # try some heuristics
         if [ -f /etc/SuSE-release ]; then
             name=sles
