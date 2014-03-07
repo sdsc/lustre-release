@@ -663,17 +663,17 @@ int jt_lcfg_mgsparam(int argc, char **argv)
 /* Display the path in the same format as sysctl
  * For eg. obdfilter.lustre-OST0000.stats */
 static char *
-display_name(char *filename, size_t filename_size, bool po_show_type)
+display_name(char *filename, size_t filename_max, bool po_show_type)
 {
 	struct stat st;
+	char *filename_orig = filename;
 	char *tmp;
 	char *suffix = NULL;
 
 	if (po_show_type) {
-		if (lstat(filename, &st) == -1)
-			return NULL;
-
-		if (S_ISDIR(st.st_mode))
+		if (lstat(filename, &st) != 0)
+			suffix = "?";
+		else if (S_ISDIR(st.st_mode))
 			suffix = "/";
 		else if (S_ISLNK(st.st_mode))
 			suffix = "@";
@@ -681,7 +681,8 @@ display_name(char *filename, size_t filename_size, bool po_show_type)
 			suffix = "=";
 	}
 
-	filename += strlen("/proc/");
+	if (strncmp(filename, "/proc/", strlen("/proc/")) == 0)
+		filename += strlen("/proc/");
 	if (strncmp(filename, "fs/", strlen("fs/")) == 0)
 		filename += strlen("fs/");
 	else
@@ -697,10 +698,16 @@ display_name(char *filename, size_t filename_size, bool po_show_type)
 	while ((tmp = strchr(tmp, '/')) != NULL)
 		*tmp = '.';
 
-	/* Append the indicator to entries.  We know there is enough space
-	 * for the suffix, since the path prefix was deleted. */
-	if (po_show_type && suffix != NULL)
-		strncat(filename, suffix, filename_size);
+	/* Append the indicator to entries.  Move the parameter name to
+	 * the start of the string so there is always enough space for
+	 * the suffix, since the path prefix "/proc/" was deleted. */
+	if (po_show_type && suffix != NULL) {
+		if (filename - filename_orig != 0) {
+			memmove(filename_orig, filename, strlen(filename));
+			filename = filename_orig;
+		}
+		strncat(filename, suffix, filename_max);
+	}
 
 	return filename;
 }
@@ -766,6 +773,17 @@ static int lprocfs_param_pattern(const char *pattern, char *buf, size_t bufsize)
 {
 	int rc;
 
+	if (strncmp(pattern, "/proc/", strlen("/proc/")) == 0) {
+		fprintf(stderr, "error: parameter '%s' with full path "
+			"is not allowed\n", pattern);
+		return -EINVAL;
+	}
+	if (strstr(pattern, "./") != NULL) {
+		fprintf(stderr, "error: parameter '%s' with embedded paths "
+			"is not allowed\n", pattern);
+		return -EINVAL;
+	}
+
 	rc = snprintf(buf, bufsize, "/proc/{fs,sys}/{lnet,lustre}/%s", pattern);
 	if (rc < 0) {
 		rc = -errno;
@@ -779,27 +797,27 @@ static int lprocfs_param_pattern(const char *pattern, char *buf, size_t bufsize)
 
 static int listparam_cmdline(int argc, char **argv, struct param_opts *popt)
 {
-        int ch;
+	int ch;
 
-        popt->po_show_path = 1;
-        popt->po_only_path = 1;
-        popt->po_show_type = 0;
-        popt->po_recursive = 0;
+	popt->po_show_path = 1;
+	popt->po_only_path = 1;
+	popt->po_show_type = 0;
+	popt->po_recursive = 0;
 
-        while ((ch = getopt(argc, argv, "FR")) != -1) {
-                switch (ch) {
-                case 'F':
-                        popt->po_show_type = 1;
-                        break;
-                case 'R':
-                        popt->po_recursive = 1;
-                        break;
-                default:
-                        return -1;
-                }
-        }
+	while ((ch = getopt(argc, argv, "FR")) != -1) {
+		switch (ch) {
+		case 'F':
+			popt->po_show_type = 1;
+			break;
+		case 'R':
+			popt->po_recursive = 1;
+			break;
+		default:
+			return -1;
+		}
+	}
 
-        return optind;
+	return optind;
 }
 
 static int listparam_display(struct param_opts *popt, char *pattern)
@@ -822,8 +840,8 @@ static int listparam_display(struct param_opts *popt, char *pattern)
 	}
 
 	for (i = 0; i  < glob_info.gl_pathc; i++) {
-		int len = sizeof(filename), last;
 		char *valuename = NULL;
+		int last;
 
 		/* Trailing '/' will indicate recursion into directory */
 		last = strlen(glob_info.gl_pathv[i]) - 1;
@@ -833,13 +851,15 @@ static int listparam_display(struct param_opts *popt, char *pattern)
 			glob_info.gl_pathv[i][last] = '\0';
 		else
 			last = 0;
-		strlcpy(filename, glob_info.gl_pathv[i], len);
-		valuename = display_name(filename, len, popt->po_show_type);
-		if (valuename)
+		strlcpy(filename, glob_info.gl_pathv[i], sizeof(filename));
+		valuename = display_name(filename, sizeof(filename),
+					 popt->po_show_type);
+		if (valuename != NULL)
 			printf("%s\n", valuename);
-		if (last) {
-			strlcpy(filename, glob_info.gl_pathv[i], len);
-			strlcat(filename, "/*", len);
+		if (last != 0) {
+			strlcpy(filename, glob_info.gl_pathv[i],
+				sizeof(filename));
+			strlcat(filename, "/*", sizeof(filename));
 			listparam_display(popt, filename);
 		}
 	}
