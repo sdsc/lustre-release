@@ -57,6 +57,7 @@
 #include <lnet/lnetctl.h>
 #include <obd.h>
 #include <lustre/lustreapi.h>
+#include <libcfs/libcfsutil.h>
 #include "lustreapi_internal.h"
 
 #define OPEN_BY_FID_PATH dot_lustre_name"/fid"
@@ -114,6 +115,9 @@ enum ct_event {
 
 /* initialized in llapi_hsm_register_event_fifo() */
 FILE *llapi_hsm_event_fp;
+
+/* used to synchronize event logging between copytool threads */
+static l_mutex_t hsm_event_write_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static inline const char *llapi_hsm_ct_ev2str(int type)
 {
@@ -203,22 +207,39 @@ int llapi_hsm_write_json_event(struct llapi_json_item_list **event)
 		return rc;
 	}
 
+	/* Guard the event fp from concurrent writes. */
+	rc = l_mutex_lock(&hsm_event_write_lock);
+	if (rc != 0) {
+		rc = -rc;
+		goto fatal;
+	}
+
 	rc = llapi_json_write_list(event, llapi_hsm_event_fp);
 	if (rc < 0) {
 		/* Ignore write failures due to missing reader. */
-		if (rc == -EPIPE)
-			return 0;
-
-		/* Skip llapi_error() here because there's no point
-		 * in creating a JSON-formatted error message about
-		 * failing to write a JSON-formatted message.
-		 */
-		fprintf(stderr,
-			"\nFATAL ERROR IN llapi_hsm_write_list(): rc %d", rc);
-		return rc;
+		if (rc == -EPIPE) {
+			rc = 0;
+			goto out;
+		}
+	} else {
+		goto fatal;
 	}
 
-	return 0;
+	rc = 0;
+	goto out;
+
+fatal:
+	/* Skip llapi_error() here because there's no point
+	 * in creating a JSON-formatted error message about
+	 * failing to write a JSON-formatted message. */
+	fprintf(stderr,
+		"\nFATAL ERROR IN llapi_hsm_write_list(): rc %d", rc);
+
+out:
+	/* Unlock is idempotent. Use LASSERT as a sanity check. */
+	LASSERT(l_mutex_unlock(&hsm_event_write_lock) == 0);
+
+	return rc;
 }
 
 /**
