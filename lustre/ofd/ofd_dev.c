@@ -1180,10 +1180,14 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 		if (unlikely(rc != 0))
 			GOTO(out_put, rc);
 
-		rc = ofd_destroy_by_fid(env, ofd, fid, 1);
-		if (rc != 0 && rc != -ENOENT) /* this is pretty fatal... */
-			CEMERG("%s: error destroying precreated id "DFID
-			       ": rc = %d\n", ofd_name(ofd), PFID(fid), rc);
+		if (!OBD_FAIL_CHECK(OBD_FAIL_OST_COMPAT_INVALID_ENTRY)) {
+			rc = ofd_destroy_by_fid(env, ofd, fid, 1);
+			if (rc != 0 && rc != -ENOENT && rc != -EREMCHG &&
+			    rc != EINPROGRESS) /* this is pretty fatal... */
+				CEMERG("%s: error destroying precreated id "
+				       DFID": rc = %d\n",
+				       ofd_name(ofd), PFID(fid), rc);
+		}
 
 		oid--;
 		if (!skip_orphan) {

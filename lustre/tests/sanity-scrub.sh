@@ -897,7 +897,7 @@ test_12() {
 	mkdir -p $DIR/$tdir
 	$SETSTRIPE -c 1 -i 0 $DIR/$tdir
 
-	#define OBD_FAIL_OSD_COMPAT_INVALID_ENTRY		0x195
+	#define OBD_FAIL_OST_COMPAT_INVALID_ENTRY		0x195
 	do_facet ost1 $LCTL set_param fail_loc=0x195
 	createmany -o $DIR/$tdir/f 1000
 

@@ -675,7 +675,7 @@ int osd_obj_add_entry(struct osd_thread_info *info,
 	child->d_parent = dir;
 	child->d_inode = inode;
 
-	if (OBD_FAIL_CHECK(OBD_FAIL_OSD_COMPAT_INVALID_ENTRY))
+	if (OBD_FAIL_CHECK(OBD_FAIL_OST_COMPAT_INVALID_ENTRY))
 		inode->i_ino++;
 
 	ll_vfs_dq_init(dir->d_inode);
