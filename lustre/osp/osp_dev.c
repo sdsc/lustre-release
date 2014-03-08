@@ -531,8 +531,6 @@ out:
 	RETURN(rc);
 }
 
-#define OSP_MAX_AUIF_MAX	512
-
 static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		     struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
@@ -546,8 +544,6 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	ENTRY;
 
 	mutex_init(&m->opd_async_requests_mutex);
-	/* We allow OSP_MAX_AUIF_MAX async updates in flight at most. */
-	sema_init(&m->opd_async_fc_sem, OSP_MAX_AUIF_MAX);
 
 	obd = class_name2obd(lustre_cfg_string(cfg, 0));
 	if (obd == NULL) {
@@ -1036,6 +1032,9 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 	case IMP_EVENT_DISCON:
 		d->opd_got_disconnected = 1;
 		d->opd_imp_connected = 0;
+
+		obd_signal_request_slot(&d->opd_obd->u.cli);
+
 		if (d->opd_connect_mdt)
 			break;
 
@@ -1048,6 +1047,9 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 		break;
 	case IMP_EVENT_INACTIVE:
 		d->opd_imp_active = 0;
+
+		obd_signal_request_slot(&d->opd_obd->u.cli);
+
 		if (d->opd_connect_mdt)
 			break;
 
