@@ -897,77 +897,52 @@ static inline int lfsck_instance_add(struct lfsck_instance *lfsck)
 	return 0;
 }
 
-int lfsck_bits_dump(char **buf, int *len, int bits, const char *names[],
+int lfsck_bits_dump(struct seq_file *m, int bits, const char *names[],
 		    const char *prefix)
 {
-	int save = *len;
 	int flag;
-	int rc;
 	int i;
 
-	rc = snprintf(*buf, *len, "%s:%c", prefix, bits != 0 ? ' ' : '\n');
-	if (rc <= 0)
-		return -ENOSPC;
+	seq_printf(m, "%s:%c", prefix, bits != 0 ? ' ' : '\n');
 
-	*buf += rc;
-	*len -= rc;
 	for (i = 0, flag = 1; bits != 0; i++, flag = 1 << i) {
 		if (flag & bits) {
 			bits &= ~flag;
 			if (names[i] != NULL) {
-				rc = snprintf(*buf, *len, "%s%c", names[i],
-					      bits != 0 ? ',' : '\n');
-				if (rc <= 0)
-					return -ENOSPC;
-
-				*buf += rc;
-				*len -= rc;
+				seq_printf(m, "%s%c", names[i],
+					   bits != 0 ? ',' : '\n');
 			}
 		}
 	}
-	return save - *len;
+	return 0;
 }
 
-int lfsck_time_dump(char **buf, int *len, __u64 time, const char *prefix)
+int lfsck_time_dump(struct seq_file *m, __u64 time, const char *prefix)
 {
-	int rc;
-
 	if (time != 0)
-		rc = snprintf(*buf, *len, "%s: "LPU64" seconds\n", prefix,
-			      cfs_time_current_sec() - time);
+		seq_printf(m, "%s: "LPU64" seconds\n", prefix,
+			   cfs_time_current_sec() - time);
 	else
-		rc = snprintf(*buf, *len, "%s: N/A\n", prefix);
-	if (rc <= 0)
-		return -ENOSPC;
-
-	*buf += rc;
-	*len -= rc;
-	return rc;
+		seq_printf(m, "%s: N/A\n", prefix);
+	return 0;
 }
 
-int lfsck_pos_dump(char **buf, int *len, struct lfsck_position *pos,
+int lfsck_pos_dump(struct seq_file *m, struct lfsck_position *pos,
 		   const char *prefix)
 {
-	int rc;
-
 	if (fid_is_zero(&pos->lp_dir_parent)) {
 		if (pos->lp_oit_cookie == 0)
-			rc = snprintf(*buf, *len, "%s: N/A, N/A, N/A\n",
-				      prefix);
+			seq_printf(m, "%s: N/A, N/A, N/A\n",
+				   prefix);
 		else
-			rc = snprintf(*buf, *len, "%s: "LPU64", N/A, N/A\n",
-				      prefix, pos->lp_oit_cookie);
+			seq_printf(m, "%s: "LPU64", N/A, N/A\n",
+				   prefix, pos->lp_oit_cookie);
 	} else {
-		rc = snprintf(*buf, *len, "%s: "LPU64", "DFID", "LPU64"\n",
-			      prefix, pos->lp_oit_cookie,
-			      PFID(&pos->lp_dir_parent), pos->lp_dir_cookie);
+		seq_printf(m, "%s: "LPU64", "DFID", "LPU64"\n",
+			   prefix, pos->lp_oit_cookie,
+			   PFID(&pos->lp_dir_parent), pos->lp_dir_cookie);
 	}
-	if (rc <= 0)
-		return -ENOSPC;
-
-	*buf += rc;
-	*len -= rc;
-	return rc;
+	return 0;
 }
 
 void lfsck_pos_fill(const struct lu_env *env, struct lfsck_instance *lfsck,
@@ -1620,7 +1595,7 @@ int lfsck_async_request(const struct lu_env *env, struct obd_export *exp,
 
 /* external interfaces */
 
-int lfsck_get_speed(struct dt_device *key, void *buf, int len)
+int lfsck_get_speed(struct seq_file *m, struct dt_device *key)
 {
 	struct lu_env		env;
 	struct lfsck_instance  *lfsck;
@@ -1633,8 +1608,7 @@ int lfsck_get_speed(struct dt_device *key, void *buf, int len)
 
 	lfsck = lfsck_instance_find(key, true, false);
 	if (likely(lfsck != NULL)) {
-		rc = snprintf(buf, len, "%u\n",
-			      lfsck->li_bookmark_ram.lb_speed_limit);
+		seq_printf(m, "%u\n", lfsck->li_bookmark_ram.lb_speed_limit);
 		lfsck_instance_put(&env, lfsck);
 	} else {
 		rc = -ENODEV;
@@ -1674,7 +1648,7 @@ int lfsck_set_speed(struct dt_device *key, int val)
 }
 EXPORT_SYMBOL(lfsck_set_speed);
 
-int lfsck_get_windows(struct dt_device *key, void *buf, int len)
+int lfsck_get_windows(struct seq_file *m, struct dt_device *key)
 {
 	struct lu_env		env;
 	struct lfsck_instance  *lfsck;
@@ -1687,8 +1661,7 @@ int lfsck_get_windows(struct dt_device *key, void *buf, int len)
 
 	lfsck = lfsck_instance_find(key, true, false);
 	if (likely(lfsck != NULL)) {
-		rc = snprintf(buf, len, "%u\n",
-			      lfsck->li_bookmark_ram.lb_async_windows);
+		seq_printf(m, "%u\n", lfsck->li_bookmark_ram.lb_async_windows);
 		lfsck_instance_put(&env, lfsck);
 	} else {
 		rc = -ENODEV;
@@ -1738,7 +1711,7 @@ int lfsck_set_windows(struct dt_device *key, int val)
 }
 EXPORT_SYMBOL(lfsck_set_windows);
 
-int lfsck_dump(struct dt_device *key, void *buf, int len, enum lfsck_type type)
+int lfsck_dump(struct seq_file *m, struct dt_device *key, enum lfsck_type type)
 {
 	struct lu_env		env;
 	struct lfsck_instance  *lfsck;
@@ -1754,7 +1727,7 @@ int lfsck_dump(struct dt_device *key, void *buf, int len, enum lfsck_type type)
 	if (likely(lfsck != NULL)) {
 		com = lfsck_component_find(lfsck, type);
 		if (likely(com != NULL)) {
-			rc = com->lc_ops->lfsck_dump(&env, com, buf, len);
+			rc = com->lc_ops->lfsck_dump(&env, com, m);
 			lfsck_component_put(&env, com);
 		} else {
 			rc = -ENOTSUPP;
