@@ -1134,10 +1134,14 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 		RETURN(-EINVAL);
 	}
 
+	last = ofd_seq_last_oid(oseq);
+
 	LASSERT(exp != NULL);
 	skip_orphan = !!(exp_connect_flags(exp) & OBD_CONNECT_SKIP_ORPHAN);
 
-	last = ofd_seq_last_oid(oseq);
+	if (OBD_FAIL_CHECK(OBD_FAIL_OST_NODESTROY))
+		goto done;
+
 	LCONSOLE(D_INFO, "%s: deleting orphan objects from "DOSTID
 		 " to "DOSTID"\n", ofd_name(ofd), ostid_seq(&oa->o_oi),
 		 end_id + 1, ostid_seq(&oa->o_oi), last);
@@ -1148,7 +1152,9 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 		if (rc != 0)
 			GOTO(out_put, rc);
 		rc = ofd_destroy_by_fid(env, ofd, &info->fti_fid, 1);
-		if (rc && rc != -ENOENT) /* this is pretty fatal... */
+		if (rc && rc != -ENOENT && rc != -ESTALE &&
+		    likely(rc != -EREMCHG && rc != -EINPROGRESS))
+			/* this is pretty fatal... */
 			CEMERG("%s: error destroying precreated id "DOSTID
 			       ": rc = %d\n", ofd_name(ofd), POSTID(&oi), rc);
 		if (!skip_orphan) {
@@ -1162,7 +1168,10 @@ static int ofd_orphans_destroy(const struct lu_env *env,
 	}
 	CDEBUG(D_HA, "%s: after destroy: set last_id to "DOSTID"\n",
 	       ofd_obd(ofd)->obd_name, POSTID(&oa->o_oi));
+
+done:
 	if (!skip_orphan) {
+		ofd_seq_last_oid_set(oseq, ostid_id(&oi));
 		rc = ofd_seq_last_oid_write(env, ofd, oseq);
 	} else {
 		/* don't reuse orphan object, return last used objid */
