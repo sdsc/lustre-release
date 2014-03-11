@@ -678,8 +678,8 @@ static int osp_sync_process_record(const struct lu_env *env,
 		break;
 	default:
 		CERROR("unknown record type: %x\n", rec->lrh_type);
-		       rc = -EINVAL;
-		       break;
+		/* we should continue processing */
+		return 0;
 	}
 
 	if (likely(rc == 0)) {
