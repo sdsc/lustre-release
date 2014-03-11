@@ -391,7 +391,7 @@ static int qsd_qtype_init(const struct lu_env *env, struct qsd_instance *qsd,
 	qqi->qqi_acct_obj = acct_obj_lookup(env, qsd->qsd_dev, qtype);
 	if (IS_ERR(qqi->qqi_acct_obj)) {
 		CDEBUG(D_QUOTA, "%s: no %s space accounting support rc:%ld\n",
-		       qsd->qsd_svname, QTYPE_NAME(qtype),
+		       qsd->qsd_svname, qtype_name(qtype),
 		       PTR_ERR(qqi->qqi_acct_obj));
 		qqi->qqi_acct_obj = NULL;
 		qsd->qsd_acct_failed = true;
@@ -717,7 +717,7 @@ int qsd_prepare(const struct lu_env *env, struct qsd_instance *qsd)
 		rc = qsd_start_reint_thread(qqi);
 		if (rc) {
 			CERROR("%s: failed to start reint thread for type %s "
-			       "(%d)\n", qsd->qsd_svname, QTYPE_NAME(qtype),
+			       "(%d)\n", qsd->qsd_svname, qtype_name(qtype),
 			       rc);
 			RETURN(rc);
 		}
