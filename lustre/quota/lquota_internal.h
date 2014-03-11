@@ -31,7 +31,22 @@
 #ifndef _LQUOTA_INTERNAL_H
 #define _LQUOTA_INTERNAL_H
 
-#define QTYPE_NAME(qtype) ((qtype) == USRQUOTA ? "usr" : "grp")
+static inline char *QTYPE_NAME(int qtype)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		return "usr";
+		break;
+	case GRPQUOTA:
+		return "grp";
+		break;
+	default:
+		CERROR("unsupported type: %#x\n", qtype);
+		return NULL;
+	}
+	return NULL;
+}
+
 #define RES_NAME(res) ((res) == LQUOTA_RES_MD ? "md" : "dt")
 
 #define QIF_IFLAGS (QIF_INODES | QIF_ITIME | QIF_ILIMITS)
@@ -49,6 +64,24 @@ enum lquota_local_oid {
 	/* all OIDs after this are allocated dynamically by the QMT */
 	LQUOTA_GENERATED_OID	= 4096UL,
 };
+
+static inline __u32 qtype2oid(int qtype)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		return LQUOTA_USR_OID;
+		break;
+	case GRPQUOTA:
+		return LQUOTA_GRP_OID;
+		break;
+	default:
+		CERROR("unsupported type: %#x\n", qtype);
+		LBUG();
+		return -ENOTSUPP;
+	}
+	LBUG();
+	return -ENOTSUPP;
+}
 
 /*
  * lquota_entry support
@@ -277,8 +310,23 @@ static inline void lqe_read_unlock(struct lquota_entry *lqe)
 #define LQUOTA_LEAST_QUNIT(type) \
 	(type == LQUOTA_RES_MD ? (1 << 10) : toqb(OFD_MAX_BRW_SIZE))
 
-#define LQUOTA_OVER_FL(type) \
-	(type == USRQUOTA ? QUOTA_FL_OVER_USRQUOTA : QUOTA_FL_OVER_GRPQUOTA)
+static inline int LQUOTA_OVER_FL(int qtype)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		return QUOTA_FL_OVER_USRQUOTA;
+		break;
+	case GRPQUOTA:
+		return QUOTA_FL_OVER_GRPQUOTA;
+		break;
+	default:
+		CERROR("unsupported type: %#x\n", qtype);
+		LBUG();
+		return 0;
+	}
+	LBUG();
+	return 0;
+}
 
 /* Common data shared by quota-level handlers. This is allocated per-thread to
  * reduce stack consumption */

@@ -1045,7 +1045,7 @@ static int osd_declare_write_commit(const struct lu_env *env,
                 oh->ot_credits += newblocks;
 
 	/* make sure the over quota flags were not set */
-	lnb[0].flags &= ~(OBD_BRW_OVER_USRQUOTA | OBD_BRW_OVER_GRPQUOTA);
+	lnb[0].flags &= ~OBD_BRW_OVER_ALLQUOTA;
 
 	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid,
 				   quota_space, oh, true, true, &flags,
