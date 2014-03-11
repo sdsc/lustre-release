@@ -198,7 +198,7 @@ static int lprocfs_quota_seq_show(struct seq_file *p, void *v)
 				return rc;
 
 			seq_printf(p, "global_pool%d_%s_%s\n", poolid,
-				   RES_NAME(rtype), QTYPE_NAME(qtype));
+				   RES_NAME(rtype), qtype_name(qtype));
 		} else if (fid_seq(fid) == FID_SEQ_LOCAL_NAME) {
 			/* global index copy object */
 			seq_printf(p, "global_index_copy:\n");

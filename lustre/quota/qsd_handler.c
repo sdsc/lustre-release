@@ -690,6 +690,7 @@ static int qsd_op_begin0(const struct lu_env *env, struct qsd_qtype_info *qqi,
 	struct lquota_entry	*lqe;
 	int			 rc, ret = -EINPROGRESS;
 	struct l_wait_info	 lwi;
+	int			 qtype_flag;
 	ENTRY;
 
 	if (qid->lqi_qentry != NULL) {
@@ -772,7 +773,10 @@ static int qsd_op_begin0(const struct lu_env *env, struct qsd_qtype_info *qqi,
 out_flags:
 		LASSERT(qid->lqi_is_blk);
 		if (rc != 0) {
-			*flags |= LQUOTA_OVER_FL(qqi->qqi_qtype);
+			ret = lquota_over_fl(qqi->qqi_qtype, &qtype_flag);
+			if (ret)
+				RETURN(ret);
+			*flags |= qtype_flag;
 		} else {
 			__u64	usage;
 
@@ -782,11 +786,14 @@ out_flags:
 			usage += lqe->lqe_waiting_write;
 			usage += qqi->qqi_qsd->qsd_sync_threshold;
 
+			ret = lquota_over_fl(qqi->qqi_qtype, &qtype_flag);
+			if (ret)
+				RETURN(ret);
 			/* if we should notify client to start sync write */
 			if (usage >= lqe->lqe_granted - lqe->lqe_pending_rel)
-				*flags |= LQUOTA_OVER_FL(qqi->qqi_qtype);
+				*flags |= qtype_flag;
 			else
-				*flags &= ~LQUOTA_OVER_FL(qqi->qqi_qtype);
+				*flags &= ~qtype_flag;
 			lqe_read_unlock(lqe);
 		}
 	}
