@@ -69,30 +69,67 @@ int osc_quota_chkdq(struct client_obd *cli, const unsigned int qid[])
 	RETURN(QUOTA_OK);
 }
 
-#define MD_QUOTA_FLAG(type) ((type == USRQUOTA) ? OBD_MD_FLUSRQUOTA \
-						: OBD_MD_FLGRPQUOTA)
-#define FL_QUOTA_FLAG(type) ((type == USRQUOTA) ? OBD_FL_NO_USRQUOTA \
-						: OBD_FL_NO_GRPQUOTA)
+static int md_quota_flag(int qtype, obd_flag *flag)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		*flag = OBD_MD_FLUSRQUOTA;
+		break;
+	case GRPQUOTA:
+		*flag = OBD_MD_FLGRPQUOTA;
+		break;
+	default:
+		CERROR("unsupported quota type: %#x\n", qtype);
+		return -ENOTSUPP;
+	}
+	return 0;
+}
+
+static int fl_quota_flag(int qtype, obd_flag *flag)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		*flag = OBD_FL_NO_USRQUOTA;
+		break;
+	case GRPQUOTA:
+		*flag = OBD_FL_NO_GRPQUOTA;
+		break;
+	default:
+		CERROR("unsupported quota type: %#x\n", qtype);
+		return -ENOTSUPP;
+	}
+	return 0;
+}
 
 int osc_quota_setdq(struct client_obd *cli, const unsigned int qid[],
                     obd_flag valid, obd_flag flags)
 {
 	int type;
 	int rc = 0;
+	obd_flag qtype_flag;
         ENTRY;
 
-	if ((valid & (OBD_MD_FLUSRQUOTA | OBD_MD_FLGRPQUOTA)) == 0)
+	if ((valid & OBD_MD_FLALLQUOTA) == 0)
 		RETURN(0);
 
 	for (type = 0; type < MAXQUOTAS; type++) {
 		struct osc_quota_info *oqi;
 
-		if ((valid & MD_QUOTA_FLAG(type)) == 0)
+		rc = md_quota_flag(type, &qtype_flag);
+		if (rc) {
+			break;
+		}
+
+		if ((valid & qtype_flag) == 0)
 			continue;
 
 		/* lookup the ID in the per-type hash table */
 		oqi = cfs_hash_lookup(cli->cl_quota_hash[type], &qid[type]);
-		if ((flags & FL_QUOTA_FLAG(type)) != 0) {
+		rc = fl_quota_flag(type, &qtype_flag);
+		if (rc) {
+			break;
+		}
+		if ((flags & qtype_flag) != 0) {
 			/* This ID is getting close to its quota limit, let's
 			 * switch to sync I/O */
 			if (oqi != NULL)
@@ -114,8 +151,7 @@ int osc_quota_setdq(struct client_obd *cli, const unsigned int qid[],
 
 			CDEBUG(D_QUOTA, "%s: setdq to insert for %s %d (%d)\n",
 			       cli->cl_import->imp_obd->obd_name,
-			       type == USRQUOTA ? "user" : "group",
-			       qid[type], rc);
+			       qtype2name(type), qid[type], rc);
 		} else {
 			/* This ID is now off the hook, let's remove it from
 			 * the hash table */
@@ -129,8 +165,7 @@ int osc_quota_setdq(struct client_obd *cli, const unsigned int qid[],
 
 			CDEBUG(D_QUOTA, "%s: setdq to remove for %s %d (%p)\n",
 			       cli->cl_import->imp_obd->obd_name,
-			       type == USRQUOTA ? "user" : "group",
-			       qid[type], oqi);
+			       qtype2name(type), qid[type], oqi);
 		}
 	}
 
