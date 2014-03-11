@@ -141,7 +141,7 @@ static void qsd_lqe_debug(struct lquota_entry *lqe, void *arg,
 			   "qsd:%s qtype:%s id:"LPU64" enforced:%d granted:"
 			   LPU64" pending:"LPU64" waiting:"LPU64" req:%d usage:"
 			   LPU64" qunit:"LPU64" qtune:"LPU64" edquot:%d\n",
-			   qqi->qqi_qsd->qsd_svname, QTYPE_NAME(qqi->qqi_qtype),
+			   qqi->qqi_qsd->qsd_svname, qtype_name(qqi->qqi_qtype),
 			   lqe->lqe_id.qid_uid, lqe->lqe_enforced,
 			   lqe->lqe_granted, lqe->lqe_pending_write,
 			   lqe->lqe_waiting_write, lqe->lqe_pending_req,

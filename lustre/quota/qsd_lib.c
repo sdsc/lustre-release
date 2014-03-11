@@ -341,6 +341,36 @@ static void qsd_qtype_fini(const struct lu_env *env, struct qsd_instance *qsd,
 	EXIT;
 }
 
+static const char *qtype2acct_name(int qtype)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		return "acct_user";
+		break;
+	case GRPQUOTA:
+		return "acct_group";
+		break;
+	default:
+		CERROR("unsupported quota type: %#x\n", qtype);
+		return NULL;
+	}
+}
+
+static const char *qtype2glb_name(int qtype)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		return "limit_user";
+		break;
+	case GRPQUOTA:
+		return "limit_user";
+		break;
+	default:
+		CERROR("unsupported quota type: %#x\n", qtype);
+		return NULL;
+	}
+}
+
 /*
  * Allocate and initialize a qsd_qtype_info structure for quota type \qtype.
  * This opens the accounting object and initializes the proc file.
@@ -391,7 +421,7 @@ static int qsd_qtype_init(const struct lu_env *env, struct qsd_instance *qsd,
 	qqi->qqi_acct_obj = acct_obj_lookup(env, qsd->qsd_dev, qtype);
 	if (IS_ERR(qqi->qqi_acct_obj)) {
 		CDEBUG(D_QUOTA, "%s: no %s space accounting support rc:%ld\n",
-		       qsd->qsd_svname, QTYPE_NAME(qtype),
+		       qsd->qsd_svname, qtype_name(qtype),
 		       PTR_ERR(qqi->qqi_acct_obj));
 		qqi->qqi_acct_obj = NULL;
 		qsd->qsd_acct_failed = true;
@@ -434,8 +464,7 @@ static int qsd_qtype_init(const struct lu_env *env, struct qsd_instance *qsd,
 	}
 
 	/* register proc entry for accounting & global index copy objects */
-	rc = lprocfs_seq_create(qsd->qsd_proc,
-				qtype == USRQUOTA ? "acct_user" : "acct_group",
+	rc = lprocfs_seq_create(qsd->qsd_proc, qtype2acct_name(qtype),
 				0444, &lprocfs_quota_seq_fops,
 				qqi->qqi_acct_obj);
 	if (rc) {
@@ -444,8 +473,7 @@ static int qsd_qtype_init(const struct lu_env *env, struct qsd_instance *qsd,
 		GOTO(out, rc);
 	}
 
-	rc = lprocfs_seq_create(qsd->qsd_proc,
-				qtype == USRQUOTA ? "limit_user" : "limit_group",
+	rc = lprocfs_seq_create(qsd->qsd_proc, qtype2glb_name(qtype),
 				0444, &lprocfs_quota_seq_fops,
 				qqi->qqi_glb_obj);
 	if (rc) {
@@ -717,7 +745,7 @@ int qsd_prepare(const struct lu_env *env, struct qsd_instance *qsd)
 		rc = qsd_start_reint_thread(qqi);
 		if (rc) {
 			CERROR("%s: failed to start reint thread for type %s "
-			       "(%d)\n", qsd->qsd_svname, QTYPE_NAME(qtype),
+			       "(%d)\n", qsd->qsd_svname, qtype_name(qtype),
 			       rc);
 			RETURN(rc);
 		}
