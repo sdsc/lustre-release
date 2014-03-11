@@ -3936,11 +3936,6 @@ extern void lustre_swab_hsm_request(struct hsm_request *hr);
  */
 
 /**
- * Maximum number of updates per UPDATE_OBJ RPC
- */
-#define	OUT_UPDATE_PER_TRANS_MAX	10
-
-/**
  * Type of each update
  */
 enum update_type {

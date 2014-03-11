@@ -2309,7 +2309,7 @@ err_created:
 			S_ISLNK(attr->la_mode) ? CL_SOFTLINK : CL_MKNOD,
 			0, son, mdd_pobj, lname, handle);
 out_stop:
-        mdd_trans_stop(env, mdd, rc, handle);
+	rc = mdd_trans_stop(env, mdd, rc, handle);
 out_free:
 	if (ldata->ld_buf && ldata->ld_buf->lb_len > OBD_ALLOC_BIG)
 		/* if we vmalloced a large buffer drop it */
