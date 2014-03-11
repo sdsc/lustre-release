@@ -3223,7 +3223,7 @@ static int mdt_intent_layout(enum mdt_it_code opcode,
 	struct lu_fid *fid;
 	struct mdt_object *obj = NULL;
 	struct md_object *child = NULL;
-	int rc;
+	int rc = 0;
 	ENTRY;
 
 	if (opcode != MDT_IT_LAYOUT) {
@@ -3253,8 +3253,7 @@ static int mdt_intent_layout(enum mdt_it_code opcode,
 	mdt_object_put(info->mti_env, obj);
 
 	(*lockp)->l_lvb_type = LVB_T_LAYOUT;
-	req_capsule_set_size(info->mti_pill, &RMF_DLM_LVB, RCL_SERVER,
-			ldlm_lvbo_size(*lockp));
+	req_capsule_set_size(info->mti_pill, &RMF_DLM_LVB, RCL_SERVER, rc);
 	rc = req_capsule_server_pack(info->mti_pill);
 	if (rc != 0)
 		RETURN(-EINVAL);
