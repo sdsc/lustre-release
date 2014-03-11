@@ -608,8 +608,8 @@ static int osp_sync_process_record(const struct lu_env *env,
 		rc = osp_sync_new_setattr_job(d, llh, rec);
 		break;
 	default:
-		CERROR("unknown record type: %x\n", rec->lrh_type);
-		       rc = -EINVAL;
+		CERROR("unknown record type: 0x%x\n", rec->lrh_type);
+		       rc = -ENOMSG;
 		       break;
 	}
 
@@ -772,11 +772,19 @@ static int osp_sync_process_queues(const struct lu_env *env,
 			do {
 				rc = osp_sync_process_record(env, d, llh, rec);
 				/*
+				 * be tolerable to unknown record, could be
+				 * obsolete record type through upgrade.
+				 */
+				if (rc == -ENOMSG) {
+					CWARN("unknown record type, skip it\n");
+					break;
+				}
+				/*
 				 * XXX: probably different handling is needed
 				 * for some bugs, like immediate exit or if
 				 * OSP gets inactive
 				 */
-				if (rc) {
+				if (rc != 0) {
 					CERROR("can't send: %d\n", rc);
 					l_wait_event(d->opd_syn_waitq,
 						     !osp_sync_running(d) ||
