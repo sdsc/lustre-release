@@ -69,10 +69,41 @@ int osc_quota_chkdq(struct client_obd *cli, const unsigned int qid[])
 	RETURN(QUOTA_OK);
 }
 
-#define MD_QUOTA_FLAG(type) ((type == USRQUOTA) ? OBD_MD_FLUSRQUOTA \
-						: OBD_MD_FLGRPQUOTA)
-#define FL_QUOTA_FLAG(type) ((type == USRQUOTA) ? OBD_FL_NO_USRQUOTA \
-						: OBD_FL_NO_GRPQUOTA)
+static inline obd_flag MD_QUOTA_FLAG(int qtype)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		return OBD_MD_FLUSRQUOTA;
+		break;
+	case GRPQUOTA:
+		return OBD_MD_FLGRPQUOTA;
+		break;
+	default:
+		CERROR("unsupported type: %#x\n", qtype);
+		LBUG();
+		return -ENOTSUPP;
+	}
+	LBUG();
+	return -ENOTSUPP;
+}
+
+static inline obd_flag FL_QUOTA_FLAG(int qtype)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		return OBD_FL_NO_USRQUOTA;
+		break;
+	case GRPQUOTA:
+		return OBD_FL_NO_GRPQUOTA;
+		break;
+	default:
+		CERROR("unsupported type: %#x\n", qtype);
+		LBUG();
+		return -ENOTSUPP;
+	}
+	LBUG();
+	return -ENOTSUPP;
+}
 
 int osc_quota_setdq(struct client_obd *cli, const unsigned int qid[],
                     obd_flag valid, obd_flag flags)
@@ -81,7 +112,7 @@ int osc_quota_setdq(struct client_obd *cli, const unsigned int qid[],
 	int rc = 0;
         ENTRY;
 
-	if ((valid & (OBD_MD_FLUSRQUOTA | OBD_MD_FLGRPQUOTA)) == 0)
+	if ((valid & OBD_MD_FLALLQUOTA) == 0)
 		RETURN(0);
 
 	for (type = 0; type < MAXQUOTAS; type++) {
@@ -114,8 +145,7 @@ int osc_quota_setdq(struct client_obd *cli, const unsigned int qid[],
 
 			CDEBUG(D_QUOTA, "%s: setdq to insert for %s %d (%d)\n",
 			       cli->cl_import->imp_obd->obd_name,
-			       type == USRQUOTA ? "user" : "group",
-			       qid[type], rc);
+			       qtype2name(type), qid[type], rc);
 		} else {
 			/* This ID is now off the hook, let's remove it from
 			 * the hash table */
@@ -129,8 +159,7 @@ int osc_quota_setdq(struct client_obd *cli, const unsigned int qid[],
 
 			CDEBUG(D_QUOTA, "%s: setdq to remove for %s %d (%p)\n",
 			       cli->cl_import->imp_obd->obd_name,
-			       type == USRQUOTA ? "user" : "group",
-			       qid[type], oqi);
+			       qtype2name(type), qid[type], oqi);
 		}
 	}
 
