@@ -54,6 +54,24 @@ LU_KEY_INIT_FINI(lquota, struct lquota_thread_info);
 LU_CONTEXT_KEY_DEFINE(lquota, LCT_MD_THREAD | LCT_DT_THREAD | LCT_LOCAL);
 LU_KEY_INIT_GENERIC(lquota);
 
+static inline __u32 qtype2local_oid(int qtype)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		return ACCT_USER_OID;
+		break;
+	case GRPQUOTA:
+		return ACCT_GROUP_OID;
+		break;
+	default:
+		CERROR("unsupported type: %#x\n", qtype);
+		LBUG();
+		return 0;
+	}
+	LBUG();
+	return 0;
+}
+
 /**
  * Look-up accounting object to collect space usage information for user
  * or group.
@@ -69,8 +87,7 @@ struct dt_object *acct_obj_lookup(const struct lu_env *env,
 	struct dt_object		*obj = NULL;
 	ENTRY;
 
-	lu_local_obj_fid(&qti->qti_fid,
-			 type == USRQUOTA ? ACCT_USER_OID : ACCT_GROUP_OID);
+	lu_local_obj_fid(&qti->qti_fid, qtype2local_oid(type));
 
 	/* lookup the accounting object */
 	obj = dt_locate(env, dev, &qti->qti_fid);
@@ -114,7 +131,7 @@ static struct dt_object *quota_obj_lookup(const struct lu_env *env,
 	ENTRY;
 
 	qti->qti_fid.f_seq = FID_SEQ_QUOTA;
-	qti->qti_fid.f_oid = type == USRQUOTA ? LQUOTA_USR_OID : LQUOTA_GRP_OID;
+	qti->qti_fid.f_oid = qtype2oid(type);
 	qti->qti_fid.f_ver = 0;
 
 	/* lookup the quota object */
@@ -173,7 +190,7 @@ int lquotactl_slv(const struct lu_env *env, struct dt_device *dev,
 		RETURN(-EOPNOTSUPP);
 	}
 
-	if (oqctl->qc_type != USRQUOTA && oqctl->qc_type != GRPQUOTA)
+	if (oqctl->qc_type < 0 || oqctl->qc_type >= MAXQUOTAS)
 		/* no support for directory quota yet */
 		RETURN(-EOPNOTSUPP);
 
@@ -232,6 +249,42 @@ out:
 }
 EXPORT_SYMBOL(lquotactl_slv);
 
+static inline int qtype2lqtype(int qtype)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		return LQUOTA_TYPE_USR;
+		break;
+	case GRPQUOTA:
+		return LQUOTA_TYPE_GRP;
+		break;
+	default:
+		CERROR("unsupported type: %#x\n", qtype);
+		LBUG();
+		return -ENOTSUPP;
+	}
+	LBUG();
+	return -ENOTSUPP;
+}
+
+static inline int lqtype2qtype(int lqtype)
+{
+	switch (lqtype) {
+		case LQUOTA_TYPE_USR:
+			return USRQUOTA;
+			break;
+		case LQUOTA_TYPE_GRP:
+			return GRPQUOTA;
+			break;
+		default:
+			CERROR("unsupported type: %#x\n", lqtype);
+			LBUG();
+			return -ENOTSUPP;
+	}
+	LBUG();
+	return -ENOTSUPP;
+}
+
 /**
  * Helper routine returning the FID associated with the global index storing
  * quota settings for the storage pool \pool_id, resource type \pool_type and
@@ -242,7 +295,7 @@ void lquota_generate_fid(struct lu_fid *fid, int pool_id, int pool_type,
 {
 	__u8	 qtype;
 
-	qtype = (quota_type == USRQUOTA) ? LQUOTA_TYPE_USR : LQUOTA_TYPE_GRP;
+	qtype = qtype2lqtype(quota_type);
 
 	fid->f_seq = FID_SEQ_QUOTA_GLB;
 	fid->f_oid = (qtype << 24) | (pool_type << 16) | (__u16)pool_id;
@@ -283,7 +336,7 @@ int lquota_extract_fid(const struct lu_fid *fid, int *pool_id, int *pool_type,
 		if (tmp >= LQUOTA_TYPE_MAX)
 			RETURN(-ENOTSUPP);
 
-		*quota_type = (tmp == LQUOTA_TYPE_USR) ? USRQUOTA : GRPQUOTA;
+		*quota_type = lqtype2qtype(tmp);
 	}
 
 	RETURN(0);
@@ -316,17 +369,26 @@ const struct dt_index_features *glb_idx_feature(struct lu_fid *fid)
 	if (rc)
 		return ERR_PTR(rc);
 
-	if (quota_type == USRQUOTA) {
+	switch (quota_type) {
+	case USRQUOTA:
 		if (res_type == LQUOTA_RES_MD)
 			return &dt_quota_iusr_features;
 		else
 			return &dt_quota_busr_features;
-	} else {
+		break;
+	case GRPQUOTA:
 		if (res_type == LQUOTA_RES_MD)
 			return &dt_quota_igrp_features;
 		else
 			return &dt_quota_bgrp_features;
+		break;
+	default:
+		CERROR("unsupported type: %#x\n", quota_type);
+		LBUG();
+		return ERR_PTR(-ENOTSUPP);
 	}
+	LBUG();
+	return ERR_PTR(-ENOTSUPP);
 }
 #else
 #warning "remove old quota compatibility code"

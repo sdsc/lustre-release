@@ -38,9 +38,20 @@
 static inline int fid2type(const struct lu_fid *fid)
 {
 	LASSERT(fid_is_acct(fid));
-	if (fid_oid(fid) == ACCT_GROUP_OID)
+	switch (fid_oid(fid)) {
+	case ACCT_USER_OID:
+		return USRQUOTA;
+		break;
+	case ACCT_GROUP_OID:
 		return GRPQUOTA;
-	return USRQUOTA;
+		break;
+	default:
+		CERROR("unsupported type: %#x\n", fid_oid(fid));
+		LBUG();
+		return -ENOTSUPP;
+	}
+	LBUG();
+	return -ENOTSUPP;
 }
 
 static inline int obj2type(struct dt_object *obj)
@@ -65,7 +76,7 @@ int osd_acct_obj_lookup(struct osd_thread_info *info, struct osd_device *osd,
 			const struct lu_fid *fid, struct osd_inode_id *id)
 {
 	struct super_block *sb = osd_sb(osd);
-        unsigned long qf_inums[2] = {
+        unsigned long qf_inums[MAXQUOTAS] = {
 		le32_to_cpu(LDISKFS_SB(sb)->s_es->s_usr_quota_inum),
 		le32_to_cpu(LDISKFS_SB(sb)->s_es->s_grp_quota_inum)
 	};
@@ -481,12 +492,12 @@ void osd_quota_unpack(struct osd_object *obj, const struct dt_rec *rec)
 
 static inline int osd_qid_type(struct osd_thandle *oh, int i)
 {
-	return (oh->ot_id_type & (1 << i)) ? GRPQUOTA : USRQUOTA;
+	return oh->ot_id_types[i];
 }
 
 static inline void osd_qid_set_type(struct osd_thandle *oh, int i, int type)
 {
-	oh->ot_id_type |= ((type == GRPQUOTA) ? (1 << i) : 0);
+	oh->ot_id_types[i] = type;
 }
 
 /**

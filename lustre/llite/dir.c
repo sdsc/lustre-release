@@ -833,6 +833,23 @@ out:
 	return rc;
 }
 
+/* Return 1 if is the owner, otherwise return 0 */
+static int is_owner(int type, int id)
+{
+	switch (type) {
+		case USRQUOTA:
+			return current_euid() == id;
+			break;
+		case GRPQUOTA:
+			return in_egroup_p(id);
+			break;
+		default:
+			CERROR("unsupported type: %#x\n", type);
+			return 0;
+	}
+	return 0;
+}
+
 static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
 {
         int cmd = qctl->qc_cmd;
@@ -854,8 +871,7 @@ static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
                         RETURN(-EPERM);
                 break;
 	case Q_GETQUOTA:
-		if (((type == USRQUOTA && current_euid() != id) ||
-		     (type == GRPQUOTA && !in_egroup_p(id))) &&
+		if ((!is_owner(type, id)) &&
 		    (!cfs_capable(CFS_CAP_SYS_ADMIN) ||
 		     sbi->ll_flags & LL_SBI_RMT_CLIENT))
 			RETURN(-EPERM);

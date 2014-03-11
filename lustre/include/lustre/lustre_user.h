@@ -541,7 +541,17 @@ liblustreapi.c:2893: warning: format '%lx' expects type 'long unsigned int *', b
 #define LUSTRE_Q_INVALIDATE  0x80000b     /* invalidate quota data */
 #define LUSTRE_Q_FINVALIDATE 0x80000c     /* invalidate filter quota data */
 
-#define UGQUOTA 2       /* set both USRQUOTA and GRPQUOTA */
+#define ALLQUOTA 255       /* set all quota */
+
+static inline char *qtype2name(int check_type)
+{
+        if (check_type == USRQUOTA)
+                return "user";
+        else if (check_type == GRPQUOTA)
+                return "group";
+        else
+                return "unknown";
+}
 
 struct if_quotacheck {
         char                    obd_type[16];
