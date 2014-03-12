@@ -1280,18 +1280,19 @@ struct ll_statahead_info {
         unsigned int            sai_miss_hidden;/* "ls -al", but first dentry
                                                  * is not a hidden one */
         unsigned int            sai_skip_hidden;/* skipped hidden dentry count */
-        unsigned int            sai_ls_all:1,   /* "ls -al", do stat-ahead for
-                                                 * hidden entries */
-                                sai_in_readpage:1,/* statahead is in readdir()*/
-                                sai_agl_valid:1;/* AGL is valid for the dir */
-        cfs_waitq_t             sai_waitq;      /* stat-ahead wait queue */
-        struct ptlrpc_thread    sai_thread;     /* stat-ahead thread */
-        struct ptlrpc_thread    sai_agl_thread; /* AGL thread */
-	cfs_list_t              sai_entries;    /* entry list */
-        cfs_list_t              sai_entries_received; /* entries returned */
-        cfs_list_t              sai_entries_stated;   /* entries stated */
-        cfs_list_t              sai_entries_agl; /* AGL entries to be sent */
-        cfs_list_t              sai_cache[LL_SA_CACHE_SIZE];
+	unsigned int		sai_ls_all:1,   /* "ls -al", do stat-ahead for
+						 * hidden entries */
+				sai_agl_valid:1,/* AGL is valid for the dir */
+				sai_in_readpage:1;/* statahead is in readdir()*/
+	wait_queue_head_t	sai_waitq;	/* stat-ahead wait queue */
+	struct ptlrpc_thread	sai_thread;	/* stat-ahead thread */
+	struct ptlrpc_thread	sai_agl_thread;	/* AGL thread */
+	struct list_head	sai_interim_entries; /* entries which got async
+						      * stat reply, but not
+						      * instantiated */
+	struct list_head	sai_entries;    /* completed entries */
+	struct list_head	sai_agls;	/* AGLs to be sent */
+	struct list_head	sai_cache[LL_SA_CACHE_SIZE];
 	spinlock_t		sai_cache_lock[LL_SA_CACHE_SIZE];
 	cfs_atomic_t		sai_cache_count; /* entry count in cache */
 };
