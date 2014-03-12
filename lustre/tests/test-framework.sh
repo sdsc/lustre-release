@@ -24,6 +24,7 @@ export JOBID_VAR=${JOBID_VAR:-"procname_uid"}  # or "existing" or "disable"
 export LOAD_LLOOP=${LOAD_LLOOP:-false}
 
 #export PDSH="pdsh -S -Rssh -w"
+export MOUNT_CMD=${MOUNT_CMD:-"mount -t lustre"}
 
 # function used by scripts run on remote nodes
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
@@ -91,7 +92,7 @@ print_summary () {
         local status=Unfinished
         if [ -f $log ]; then
             skipped=$(grep excluded $log | awk '{ printf " %s", $3 }' | sed 's/test_//g')
-            slow=$(egrep "^PASS|^FAIL" $log | tr -d "("| sed s/s\)$//g | sort -nr -k 3  | head -5 |  awk '{ print $2":"$3"s" }')
+            slow=$(egrep "^PASS|^FAIL" $log | tr -d "("| sed s/s\)$//g | sort -nr -k 3  | head -n5 |  awk '{ print $2":"$3"s" }')
             total=$(grep duration $log | awk '{ print $2}')
             if [ "${!O}" = "done" ]; then
                 status=Done
@@ -355,7 +356,7 @@ version_code() {
     echo -n "$((($1 << 16) | ($2 << 8) | $3))"
 }
 
-export LINUX_VERSION=$(uname -r | sed -e "s/[-.]/ /3" -e "s/ .*//")
+export LINUX_VERSION=$(uname -r | sed -e "s/\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/")
 export LINUX_VERSION_CODE=$(version_code ${LINUX_VERSION//\./ })
 
 module_loaded () {
@@ -1139,7 +1140,7 @@ mount_facet() {
 	if [ -f $TMP/test-lu482-trigger ]; then
 		RC=2
 	else
-		do_facet ${facet} "mkdir -p $mntpt; mount -t lustre $opts \
+		do_facet ${facet} "mkdir -p $mntpt; $MOUNT_CMD $opts \
 		                   ${!dev} $mntpt"
 		RC=${PIPESTATUS[0]}
 	fi
@@ -1430,7 +1431,7 @@ zconf_mount() {
 
     echo "Starting client: $client: $OPTIONS $device $mnt"
     do_node $client mkdir -p $mnt
-    do_node $client mount -t lustre $OPTIONS $device $mnt || return 1
+    do_node $client $MOUNT_CMD $OPTIONS $device $mnt || return 1
 
     set_default_debug_nodes $client
 
@@ -1541,7 +1542,7 @@ running=\\\$(mount | grep -c $mnt' ');
 rc=0;
 if [ \\\$running -eq 0 ] ; then
     mkdir -p $mnt;
-    mount -t lustre $OPTIONS $device $mnt;
+    $MOUNT_CMD $OPTIONS $device $mnt;
     rc=\\\$?;
 fi;
 exit \\\$rc" || return ${PIPESTATUS[0]}
@@ -5194,7 +5195,7 @@ setstripe_nfsserver () {
     local dir=$1
 
     local nfsserver=$(awk '"'$dir'" ~ $2 && $3 ~ "nfs" && $2 != "/" \
-                { print $1 }' /proc/mounts | cut -f 1 -d : | head -1)
+                { print $1 }' /proc/mounts | cut -f 1 -d : | head -n1)
 
     [ -z $nfsserver ] && echo "$dir is not nfs mounted" && return 1
 
@@ -5362,7 +5363,7 @@ do_and_time () {
 }
 
 inodes_available () {
-    local IFree=$($LFS df -i $MOUNT | grep ^$FSNAME | awk '{print $4}' | sort -un | head -1) || return 1
+    local IFree=$($LFS df -i $MOUNT | grep ^$FSNAME | awk '{print $4}' | sort -un | head -n1) || return 1
     echo $IFree
 }
 

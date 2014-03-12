@@ -110,7 +110,7 @@ check_jbd_values () {
 	# $8: hndls >= thrhi * 2
 	# display history of rtime/4 before, in case obd cleanup consumes time
 	local tlines=$((rtime / 5 / 4 + 1))
-	local hist=("$(print_jbd history $facet | tail -$tlines | head -1)")
+	local hist=("$(print_jbd history $facet | tail -$tlines | head -n1)")
 	echo "$hist"
 	local run=($(echo "${hist[*]}" | awk '{print $4}'))
 	local hndls=($(echo "${hist[*]}" | awk '{print $8}'))

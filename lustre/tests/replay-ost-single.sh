@@ -146,7 +146,7 @@ test_5() {
     [ -z "`which iozone 2> /dev/null`" ] && skip_env "iozone missing" && return 0
 
     # striping is -c 1, get min of available
-    local minavail=$(lctl get_param -n osc.*[oO][sS][cC][-_]*.kbytesavail | sort -n | head -1)
+    local minavail=$(lctl get_param -n osc.*[oO][sS][cC][-_]*.kbytesavail | sort -n | head -n1)
     local size=$(( minavail * 3/4 ))
     local GB=1048576  # 1048576KB == 1GB
 

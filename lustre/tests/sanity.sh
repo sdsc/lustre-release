@@ -107,7 +107,7 @@ DIR=${DIR:-$MOUNT}
 assert_DIR
 
 MDT0=$($LCTL get_param -n mdc.*.mds_server_uuid | \
-    awk '{gsub(/_UUID/,""); print $1}' | head -1)
+    awk '{gsub(/_UUID/,""); print $1}' | head -n1)
 LOVNAME=$($LCTL get_param -n llite.*.lov.common_name | tail -n 1)
 OSTCOUNT=$($LCTL get_param -n lov.$LOVNAME.numobd)
 STRIPECOUNT=$($LCTL get_param -n lov.$LOVNAME.stripecount)
@@ -516,7 +516,7 @@ run_test 17i "don't panic on short symlink"
 
 test_17k() { #bug 22301
         rsync --help | grep -q xattr ||
-                skip_env "$(rsync --version| head -1) does not support xattrs"
+                skip_env "$(rsync --version| head -n1) does not support xattrs"
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	test_mkdir -p $DIR/$tdir
 	test_mkdir -p $DIR/$tdir.new
@@ -1031,7 +1031,7 @@ simple_cleanup_common() {
 }
 
 max_pages_per_rpc() {
-	$LCTL get_param -n mdc.*.max_pages_per_rpc | head -1
+	$LCTL get_param -n mdc.*.max_pages_per_rpc | head -n1
 }
 
 test_24v() {
@@ -5625,7 +5625,7 @@ test_78() { # bug 10901
 	[ $F78SIZE -gt $MEMTOTAL ] && F78SIZE=$MEMTOTAL
 	[ $F78SIZE -gt 512 ] && F78SIZE=512
 	[ $F78SIZE -gt $((MAXFREE / 1024)) ] && F78SIZE=$((MAXFREE / 1024))
-	SMALLESTOST=`lfs df $DIR |grep OST | awk '{print $4}' |sort -n |head -1`
+	SMALLESTOST=`lfs df $DIR |grep OST | awk '{print $4}' |sort -n |head -n1`
 	echo "Smallest OST: $SMALLESTOST"
 	[ $SMALLESTOST -lt 10240 ] && \
 		skip "too small OSTSIZE, useless to run large O_DIRECT test" && return 0
@@ -6811,7 +6811,7 @@ test_116a() { # was previously test_116()
 
 	echo -n "Free space priority "
 	do_facet $SINGLEMDS lctl get_param -n lo*.*-mdtlov.qos_prio_free |
-		head -1
+		head -n1
 	declare -a AVAIL
 	free_min_max
 
@@ -6825,7 +6825,7 @@ test_116a() { # was previously test_116()
 	local DIFF2=$(($DIFF * 100 / $MINV))
 
 	local threshold=$(do_facet $SINGLEMDS \
-		lctl get_param -n *.*MDT0000-mdtlov.qos_threshold_rr | head -1)
+		lctl get_param -n *.*MDT0000-mdtlov.qos_threshold_rr | head -n1)
 	threshold=${threshold%%%}
 	echo -n "Check for uneven OSTs: "
 	echo -n "diff=${DIFF}KB (${DIFF2}%) must be > ${threshold}% ..."
@@ -6953,7 +6953,7 @@ NO_SLOW_RESENDCOUNT=4
 export OLD_RESENDCOUNT=""
 set_resend_count () {
 	local PROC_RESENDCOUNT="osc.${FSNAME}-OST*-osc-*.resend_count"
-	OLD_RESENDCOUNT=$(lctl get_param -n $PROC_RESENDCOUNT | head -1)
+	OLD_RESENDCOUNT=$(lctl get_param -n $PROC_RESENDCOUNT | head -n1)
 	lctl set_param -n $PROC_RESENDCOUNT $1
 	echo resend_count is set to $(lctl get_param -n $PROC_RESENDCOUNT)
 }
@@ -9660,18 +9660,18 @@ test_160a() {
 
 	MIN_REC=$($GET_CL_USERS |
 		awk 'min == "" || $2 < min {min = $2}; END {print min}')
-	FIRST_REC=$($LFS changelog $MDT0 | head -1 | awk '{print $1}')
+	FIRST_REC=$($LFS changelog $MDT0 | head -n1 | awk '{print $1}')
 	echo "verifying min purge: $(( $MIN_REC + 1 )) == $FIRST_REC"
 	[ $FIRST_REC == $(($MIN_REC + 1)) ] ||
 		err17935 "first index should be $(($MIN_REC + 1)) is $FIRST_REC"
 
 	# LU-3446 changelog index reset on MDT restart
 	local MDT_DEV=$(mdsdevname ${SINGLEMDS//mds/})
-	CUR_REC1=$($GET_CL_USERS | head -1 | cut -f3 -d' ')
+	CUR_REC1=$($GET_CL_USERS | head -n1 | cut -f3 -d' ')
 	$LFS changelog_clear $MDT0 $USER 0
 	stop $SINGLEMDS || error "Fail to stop MDT."
 	start $SINGLEMDS $MDT_DEV $MDS_MOUNT_OPTS || error "Fail to start MDT."
-	CUR_REC2=$($GET_CL_USERS | head -1 | cut -f3 -d' ')
+	CUR_REC2=$($GET_CL_USERS | head -n1 | cut -f3 -d' ')
 	echo "verifying index survives MDT restart: $CUR_REC1 == $CUR_REC2"
 	[ $CUR_REC1 == $CUR_REC2 ] ||
 		err17935 "current index should be $CUR_REC1 is $CUR_REC2"
@@ -9683,9 +9683,9 @@ test_160a() {
 
 	USERS=$(( $($GET_CL_USERS | wc -l) - 2 ))
 	if [ $USERS -eq 0 ]; then
-		LAST_REC1=$($GET_CL_USERS | head -1 | cut -f3 -d' ')
+		LAST_REC1=$($GET_CL_USERS | head -n1 | cut -f3 -d' ')
 		touch $DIR/$tdir/chloe
-		LAST_REC2=$($GET_CL_USERS | head -1 | cut -f3 -d' ')
+		LAST_REC2=$($GET_CL_USERS | head -n1 | cut -f3 -d' ')
 		echo "verify changelogs are off: $LAST_REC1 == $LAST_REC2"
 		[ $LAST_REC1 == $LAST_REC2 ] || error "changelogs not off"
 	else
@@ -10173,7 +10173,7 @@ test_180c() { # LU-2598
 	do_rpc_nodes $(facet_active_host ost1) load_module obdecho/obdecho &&
 		rmmod_remote=true || error "failed to load module obdecho"
 
-	target=$(do_facet ost1 $LCTL dl | awk '/obdfilter/ {print $4}'|head -1)
+	target=$(do_facet ost1 $LCTL dl | awk '/obdfilter/ {print $4}'|head -n1)
 	if [[ -n $target ]]; then
 		obdecho_test "$target" ost1 "$pages" ||
 			rc=${PIPESTATUS[0]}
@@ -10636,7 +10636,7 @@ pool_remove_first_target() {
 	local pool=$1
 
 	local pname="lov.$FSNAME-*.pools.$pool"
-	local t=$($LCTL get_param -n $pname | head -1)
+	local t=$($LCTL get_param -n $pname | head -n1)
 	do_facet mgs $LCTL pool_remove $FSNAME.$pool $t
 	wait_update $HOSTNAME "lctl get_param -n $pname | grep $t" "" || {
 		error_noexit "$t not removed from $FSNAME.$pool"
@@ -12027,7 +12027,7 @@ test_231a()
 {
 	# For simplicity this test assumes that max_pages_per_rpc
 	# is the same across all OSCs
-	local max_pages=$($LCTL get_param -n osc.*.max_pages_per_rpc | head -1)
+	local max_pages=$($LCTL get_param -n osc.*.max_pages_per_rpc | head -n1)
 	local bulk_size=$((max_pages * 4096))
 
 	mkdir -p $DIR/$tdir

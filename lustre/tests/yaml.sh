@@ -74,12 +74,12 @@ yml_code_review() {
 
 release() {
    if [ -r /etc/lsb-release ]; then
-      dist=$(grep 'DISTRIB_ID' /etc/lsb-release | sed 's/DISTRIB_ID=//' | head -1)
+      dist=$(grep 'DISTRIB_ID' /etc/lsb-release | sed 's/DISTRIB_ID=//' | head -n1)
    elif [ -r /etc/redhat-release ]; then
        dist=$(awk '/release/ { printf("%s %s %s", $1, $2, $3)}' /etc/redhat-release)
    elif [ -r /etc/*-release ]; then
        dist=$(find /etc/ -maxdepth 1 -name '*release' 2> /dev/null | \
-           sed -e 's/\/etc\///' -e 's/-release//' | head -1)
+           sed -e 's/\/etc\///' -e 's/-release//' | head -n1)
    else
        dist="UNKNOWN"
    fi

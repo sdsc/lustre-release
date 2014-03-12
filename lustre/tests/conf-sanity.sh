@@ -952,7 +952,8 @@ test_24a() {
 	umount_client $MOUNT
 	# the MDS must remain up until last MDT
 	stop_mds
-	MDS=$(do_facet $SINGLEMDS "lctl get_param -n devices" | awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -1)
+	MDS=$(do_facet $SINGLEMDS "lctl get_param -n devices" | \
+		awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -n1)
 	[ -z "$MDS" ] && error "No MDT" && return 8
 	cleanup_fs2
 	cleanup_nocli || return 6
@@ -1586,7 +1587,7 @@ t32_test() {
 	local img_bspace
 	local img_ispace
 	local fsname=t32fs
-	local nid=$($r $LCTL list_nids | head -1)
+	local nid=$($r $LCTL list_nids | head -n1)
 	local mopts
 	local uuid
 	local nrpcs_orig
@@ -1654,7 +1655,7 @@ t32_test() {
 				"(Need MGS version at least 2.3.59)"; return 0; }
 
 			local osthost=$(facet_active_host ost1)
-			local ostnid=$(do_node $osthost $LCTL list_nids | head -1)
+			local ostnid=$(do_node $osthost $LCTL list_nids | head -n1)
 
 			mopts=nosvc
 			if [ $fstype == "ldiskfs" ]; then
@@ -2167,7 +2168,7 @@ test_35a() { # bug 12459
 	log "Set up a fake failnode for the MDS"
 	FAKENID="127.0.0.2"
 	local device=$(do_facet $SINGLEMDS "lctl get_param -n devices" |
-		awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -1)
+		awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -n1)
 	do_facet mgs "$LCTL conf_param \
 		${device}.failover.node=$(h2$NETTYPE $FAKENID)" || return 4
 
@@ -2222,7 +2223,7 @@ test_35b() { # bug 18674
 	log "Set up a fake failnode for the MDS"
 	FAKENID="127.0.0.2"
 	local device=$(do_facet $SINGLEMDS "$LCTL get_param -n devices" |
-		awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -1)
+		awk '($3 ~ "mdt" && $4 ~ "MDT") { print $4 }' | head -n1)
 	do_facet mgs "$LCTL conf_param \
 		${device}.failover.node=$(h2$NETTYPE $FAKENID)" || return 1
 
@@ -3363,7 +3364,7 @@ thread_sanity() {
 
         # We need to expand $parampat, but it may match multiple parameters, so
         # we'll pick the first one
-        if ! paramp=$(do_facet $facet "lctl get_param -N ${parampat}.threads_min"|head -1); then
+        if ! paramp=$(do_facet $facet "lctl get_param -N ${parampat}.threads_min" | head -n1); then
                 error "Couldn't expand ${parampat}.threads_min parameter name"
                 return 22
         fi
@@ -3838,8 +3839,8 @@ test_66() {
 		{ skip "Need MGS version at least 2.3.59"; return 0; }
 
 	setup
-	local OST1_NID=$(do_facet ost1 $LCTL list_nids | head -1)
-	local MDS_NID=$(do_facet $SINGLEMDS $LCTL list_nids | head -1)
+	local OST1_NID=$(do_facet ost1 $LCTL list_nids | head -n1)
+	local MDS_NID=$(do_facet $SINGLEMDS $LCTL list_nids | head -n1)
 
 	echo "replace_nids should fail if MDS, OSTs and clients are UP"
 	do_facet mgs $LCTL replace_nids $FSNAME-OST0000 $OST1_NID &&
@@ -4405,14 +4406,14 @@ test_76() {
 	local MDMB_PARAM="osc.*.max_dirty_mb"
 	echo "Change MGS params"
 	local MAX_DIRTY_MB=$($LCTL get_param -n $MDMB_PARAM |
-		head -1)
+		head -n1)
 	echo "max_dirty_mb: $MAX_DIRTY_MB"
 	local NEW_MAX_DIRTY_MB=$((MAX_DIRTY_MB + MAX_DIRTY_MB))
 	echo "new_max_dirty_mb: $NEW_MAX_DIRTY_MB"
 	do_facet mgs $LCTL set_param -P $MDMB_PARAM=$NEW_MAX_DIRTY_MB
 	wait_update $HOSTNAME "lctl get_param -n $MDMB_PARAM |
-		head -1" $NEW_MAX_DIRTY_MB
-	MAX_DIRTY_MB=$($LCTL get_param -n $MDMB_PARAM | head -1)
+		head -n1" $NEW_MAX_DIRTY_MB
+	MAX_DIRTY_MB=$($LCTL get_param -n $MDMB_PARAM | head -n1)
 	echo "$MAX_DIRTY_MB"
 	[ $MAX_DIRTY_MB = $NEW_MAX_DIRTY_MB ] ||
 		error "error while apply max_dirty_mb"
@@ -4421,8 +4422,8 @@ test_76() {
 	stopall
 	setupall
 	wait_update $HOSTNAME "lctl get_param -n $MDMB_PARAM |
-		head -1" $NEW_MAX_DIRTY_MB
-	MAX_DIRTY_MB=$($LCTL get_param -n $MDMB_PARAM | head -1)
+		head -n1" $NEW_MAX_DIRTY_MB
+	MAX_DIRTY_MB=$($LCTL get_param -n $MDMB_PARAM | head -n1)
 	[ $MAX_DIRTY_MB = $NEW_MAX_DIRTY_MB ] ||
 		error "max_dirty_mb is not saved after remount"
 
@@ -4430,15 +4431,15 @@ test_76() {
 	CLIENT_PARAM="obdfilter.*.client_cache_count"
 	local CLIENT_CACHE_COUNT
 	CLIENT_CACHE_COUNT=$(do_facet ost1 $LCTL get_param -n $CLIENT_PARAM |
-		head -1)
+		head -n1)
 	echo "client_cache_count: $CLIENT_CACHE_COUNT"
 	NEW_CLIENT_CACHE_COUNT=$((CLIENT_CACHE_COUNT+CLIENT_CACHE_COUNT))
 	echo "new_client_cache_count: $NEW_CLIENT_CACHE_COUNT"
 	do_facet mgs $LCTL set_param -P $CLIENT_PARAM=$NEW_CLIENT_CACHE_COUNT
 	wait_update $(facet_host ost1) "lctl get_param -n $CLIENT_PARAM |
-		head -1" $NEW_CLIENT_CACHE_COUNT
+		head -n1" $NEW_CLIENT_CACHE_COUNT
 	CLIENT_CACHE_COUNT=$(do_facet ost1 $LCTL get_param -n $CLIENT_PARAM |
-		head -1)
+		head -n1)
 	echo "$CLIENT_CACHE_COUNT"
 	[ $CLIENT_CACHE_COUNT = $NEW_CLIENT_CACHE_COUNT ] ||
 		error "error while apply client_cache_count"
@@ -4447,9 +4448,9 @@ test_76() {
 	stopall
 	setupall
 	wait_update $(facet_host ost1) "lctl get_param -n $CLIENT_PARAM |
-		head -1" $NEW_CLIENT_CACHE_COUNT
+		head -n1" $NEW_CLIENT_CACHE_COUNT
 	CLIENT_CACHE_COUNT=$(do_facet ost1 $LCTL get_param -n $CLIENT_PARAM |
-		head -1)
+		head -n1)
 	echo "$CLIENT_CACHE_COUNT"
 	[ $CLIENT_CACHE_COUNT = $NEW_CLIENT_CACHE_COUNT ] ||
 		error "client_cache_count is not saved after remount"
