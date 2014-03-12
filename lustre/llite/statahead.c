@@ -50,72 +50,72 @@
 #define SA_OMITTED_ENTRY_MAX 8ULL
 
 typedef enum {
-        /** negative values are for error cases */
-        SA_ENTRY_INIT = 0,      /** init entry */
-        SA_ENTRY_SUCC = 1,      /** stat succeed */
-        SA_ENTRY_INVA = 2,      /** invalid entry */
-        SA_ENTRY_DEST = 3,      /** entry to be destroyed */
-} se_stat_t;
+	/** negative values are for error cases */
+	SA_ENTRY_INIT = 0,      /** init entry */
+	SA_ENTRY_SUCC = 1,      /** stat succeed */
+	SA_ENTRY_INVA = 2,      /** invalid entry */
+} se_state_t;
 
-struct ll_sa_entry {
-	/* link into sai->sai_entries */
-	cfs_list_t              se_link;
-	/* link into sai->sai_entries_{received,stated} */
-	cfs_list_t              se_list;
+/* sa_entry is not refcounted: statahead thread allocates it and do async stat,
+ * and in async stat callback ll_statahead_interpret() will add it into
+ * sai_cb_entries, later statahead thread will call sa_handle_callback() to
+ * instantiate entry and move it into sai_entries, and then only scanner process
+ * can access and free it. */
+struct sa_entry {
+	/* link into sai_cb_entries or sai_entries */
+	struct list_head	se_list;
 	/* link into sai hash table locally */
-	cfs_list_t              se_hash;
-	/* entry reference count */
-	cfs_atomic_t            se_refcount;
+	struct list_head	se_hash;
 	/* entry index in the sai */
-	__u64                   se_index;
+	__u64			se_index;
 	/* low layer ldlm lock handle */
-	__u64                   se_handle;
+	__u64			se_handle;
 	/* entry status */
-	se_stat_t               se_stat;
+	se_state_t		se_state;
 	/* entry size, contains name */
-	int                     se_size;
+	int			se_size;
 	/* pointer to async getattr enqueue info */
 	struct md_enqueue_info *se_minfo;
 	/* pointer to the async getattr request */
 	struct ptlrpc_request  *se_req;
 	/* pointer to the target inode */
-	struct inode           *se_inode;
+	struct inode	       *se_inode;
 	/* entry name */
-	struct qstr             se_qstr;
+	struct qstr		se_qstr;
 };
 
 static unsigned int sai_generation = 0;
 static DEFINE_SPINLOCK(sai_generation_lock);
 
-static inline int ll_sa_entry_unhashed(struct ll_sa_entry *entry)
+static inline int sa_unhashed(struct sa_entry *entry)
 {
-        return cfs_list_empty(&entry->se_hash);
+	return list_empty(&entry->se_hash);
 }
 
 /*
  * The entry only can be released by the caller, it is necessary to hold lock.
  */
-static inline int ll_sa_entry_stated(struct ll_sa_entry *entry)
+static inline int sa_completed(struct sa_entry *entry)
 {
-        smp_rmb();
-        return (entry->se_stat != SA_ENTRY_INIT);
+	smp_rmb();
+	return (entry->se_state != SA_ENTRY_INIT);
 }
 
-static inline int ll_sa_entry_hash(int val)
+static inline int sa_hash(int val)
 {
-        return val & LL_SA_CACHE_MASK;
+	return val & LL_SA_CACHE_MASK;
 }
 
 /*
  * Insert entry to hash SA table.
  */
 static inline void
-ll_sa_entry_enhash(struct ll_statahead_info *sai, struct ll_sa_entry *entry)
+sa_rehash(struct ll_statahead_info *sai, struct sa_entry *entry)
 {
-	int i = ll_sa_entry_hash(entry->se_qstr.hash);
+	int i = sa_hash(entry->se_qstr.hash);
 
 	spin_lock(&sai->sai_cache_lock[i]);
-	cfs_list_add_tail(&entry->se_hash, &sai->sai_cache[i]);
+	list_add_tail(&entry->se_hash, &sai->sai_cache[i]);
 	spin_unlock(&sai->sai_cache_lock[i]);
 }
 
@@ -123,12 +123,12 @@ ll_sa_entry_enhash(struct ll_statahead_info *sai, struct ll_sa_entry *entry)
  * Remove entry from SA table.
  */
 static inline void
-ll_sa_entry_unhash(struct ll_statahead_info *sai, struct ll_sa_entry *entry)
+sa_unhash(struct ll_statahead_info *sai, struct sa_entry *entry)
 {
-	int i = ll_sa_entry_hash(entry->se_qstr.hash);
+	int i = sa_hash(entry->se_qstr.hash);
 
 	spin_lock(&sai->sai_cache_lock[i]);
-	cfs_list_del_init(&entry->se_hash);
+	list_del_init(&entry->se_hash);
 	spin_unlock(&sai->sai_cache_lock[i]);
 }
 
@@ -138,33 +138,26 @@ static inline int agl_should_run(struct ll_statahead_info *sai,
 	return (inode != NULL && S_ISREG(inode->i_mode) && sai->sai_agl_valid);
 }
 
-static inline struct ll_sa_entry *
-sa_first_received_entry(struct ll_statahead_info *sai)
-{
-        return cfs_list_entry(sai->sai_entries_received.next,
-                              struct ll_sa_entry, se_list);
-}
-
 static inline struct ll_inode_info *
 agl_first_entry(struct ll_statahead_info *sai)
 {
-        return cfs_list_entry(sai->sai_entries_agl.next,
-                              struct ll_inode_info, lli_agl_list);
+	return list_entry(sai->sai_agls.next, struct ll_inode_info,
+			  lli_agl_list);
 }
 
 static inline int sa_sent_full(struct ll_statahead_info *sai)
 {
-        return cfs_atomic_read(&sai->sai_cache_count) >= sai->sai_max;
+	return atomic_read(&sai->sai_cache_count) >= sai->sai_max;
 }
 
-static inline int sa_received_empty(struct ll_statahead_info *sai)
+static inline int sa_has_callback(struct ll_statahead_info *sai)
 {
-        return cfs_list_empty(&sai->sai_entries_received);
+	return !list_empty(&sai->sai_interim_entries);
 }
 
 static inline int agl_list_empty(struct ll_statahead_info *sai)
 {
-        return cfs_list_empty(&sai->sai_entries_agl);
+	return list_empty(&sai->sai_agls);
 }
 
 /**
@@ -189,220 +182,163 @@ static inline int is_omitted_entry(struct ll_statahead_info *sai, __u64 index)
                  sai->sai_index);
 }
 
-/*
- * Insert it into sai_entries tail when init.
- */
-static struct ll_sa_entry *
-ll_sa_entry_alloc(struct ll_statahead_info *sai, __u64 index,
-                  const char *name, int len)
+/* allocate sa_entry and add it into hash to let scanner process to find it */
+static struct sa_entry *
+sa_alloc(struct ll_statahead_info *sai, __u64 index, const char *name, int len)
 {
-        struct ll_inode_info *lli;
-        struct ll_sa_entry   *entry;
-        int                   entry_size;
-        char                 *dname;
-        ENTRY;
+	struct ll_inode_info *lli;
+	struct sa_entry *entry;
+	int entry_size;
+	char *dname;
+	ENTRY;
 
-        entry_size = sizeof(struct ll_sa_entry) + (len & ~3) + 4;
-        OBD_ALLOC(entry, entry_size);
-        if (unlikely(entry == NULL))
-                RETURN(ERR_PTR(-ENOMEM));
+	entry_size = sizeof(struct sa_entry) + (len & ~3) + 4;
+	OBD_ALLOC(entry, entry_size);
+	if (unlikely(entry == NULL))
+		RETURN(ERR_PTR(-ENOMEM));
 
 	CDEBUG(D_READA, "alloc sa entry %.*s(%p) index "LPU64"\n",
 	       len, name, entry, index);
 
-        entry->se_index = index;
+	entry->se_index = index;
 
-        /*
-         * Statahead entry reference rules:
-         *
-         * 1) When statahead entry is initialized, its reference is set as 2.
-         *    One reference is used by the directory scanner. When the scanner
-         *    searches the statahead cache for the given name, it can perform
-         *    lockless hash lookup (only the scanner can remove entry from hash
-         *    list), and once found, it needn't to call "atomic_inc()" for the
-         *    entry reference. So the performance is improved. After using the
-         *    statahead entry, the scanner will call "atomic_dec()" to drop the
-         *    reference held when initialization. If it is the last reference,
-         *    the statahead entry will be freed.
-         *
-         * 2) All other threads, including statahead thread and ptlrpcd thread,
-         *    when they process the statahead entry, the reference for target
-         *    should be held to guarantee the entry will not be released by the
-         *    directory scanner. After processing the entry, these threads will
-         *    drop the entry reference. If it is the last reference, the entry
-         *    will be freed.
-         *
-         *    The second reference when initializes the statahead entry is used
-         *    by the statahead thread, following the rule 2).
-         */
-        cfs_atomic_set(&entry->se_refcount, 2);
-        entry->se_stat = SA_ENTRY_INIT;
-        entry->se_size = entry_size;
-        dname = (char *)entry + sizeof(struct ll_sa_entry);
-        memcpy(dname, name, len);
-        dname[len] = 0;
-        entry->se_qstr.hash = full_name_hash(name, len);
-        entry->se_qstr.len = len;
-        entry->se_qstr.name = dname;
+	entry->se_state = SA_ENTRY_INIT;
+	entry->se_size = entry_size;
+	dname = (char *)entry + sizeof(struct sa_entry);
+	memcpy(dname, name, len);
+	dname[len] = 0;
+	entry->se_qstr.hash = full_name_hash(name, len);
+	entry->se_qstr.len = len;
+	entry->se_qstr.name = dname;
 
-        lli = ll_i2info(sai->sai_inode);
+	lli = ll_i2info(sai->sai_inode);
 	spin_lock(&lli->lli_sa_lock);
-	cfs_list_add_tail(&entry->se_link, &sai->sai_entries);
-	CFS_INIT_LIST_HEAD(&entry->se_list);
-	ll_sa_entry_enhash(sai, entry);
+	INIT_LIST_HEAD(&entry->se_list);
+	sa_rehash(sai, entry);
 	spin_unlock(&lli->lli_sa_lock);
 
-	cfs_atomic_inc(&sai->sai_cache_count);
+	atomic_inc(&sai->sai_cache_count);
 
 	RETURN(entry);
 }
 
-/*
- * Used by the directory scanner to search entry with name.
- *
- * Only the caller can remove the entry from hash, so it is unnecessary to hold
- * hash lock. It is caller's duty to release the init refcount on the entry, so
- * it is also unnecessary to increase refcount on the entry.
- */
-static struct ll_sa_entry *
-ll_sa_entry_get_byname(struct ll_statahead_info *sai, const struct qstr *qstr)
+/* free sa_entry which should have been unhashed and not in any list */
+static void sa_free(struct ll_statahead_info *sai, struct sa_entry *entry)
 {
-        struct ll_sa_entry *entry;
-        int i = ll_sa_entry_hash(qstr->hash);
+	CDEBUG(D_READA, "free sa entry %.*s(%p) index "LPU64"\n",
+	       entry->se_qstr.len, entry->se_qstr.name, entry,
+	       entry->se_index);
 
-        cfs_list_for_each_entry(entry, &sai->sai_cache[i], se_hash) {
-                if (entry->se_qstr.hash == qstr->hash &&
-                    entry->se_qstr.len == qstr->len &&
-                    memcmp(entry->se_qstr.name, qstr->name, qstr->len) == 0)
-                        return entry;
-        }
-        return NULL;
+	LASSERT(list_empty(&entry->se_list));
+	LASSERT(sa_unhashed(entry));
+
+	OBD_FREE(entry, entry->se_size);
+	atomic_dec(&sai->sai_cache_count);
 }
 
-/*
- * Used by the async getattr request callback to find entry with index.
- *
- * Inside lli_sa_lock to prevent others to change the list during the search.
- * It needs to increase entry refcount before returning to guarantee that the
- * entry cannot be freed by others.
+/* find sa_entry by name, used by directory scanner, lock is not needed because
+ * only scanner can remove the entry from hash.
  */
-static struct ll_sa_entry *
-ll_sa_entry_get_byindex(struct ll_statahead_info *sai, __u64 index)
+static struct sa_entry *
+sa_get(struct ll_statahead_info *sai, const struct qstr *qstr)
 {
-	struct ll_sa_entry *entry;
+	struct sa_entry *entry;
+	int i = sa_hash(qstr->hash);
 
-	cfs_list_for_each_entry(entry, &sai->sai_entries, se_link) {
-		if (entry->se_index == index) {
-			LASSERT(atomic_read(&entry->se_refcount) > 0);
-			cfs_atomic_inc(&entry->se_refcount);
+	list_for_each_entry(entry, &sai->sai_cache[i], se_hash) {
+		if (entry->se_qstr.hash == qstr->hash &&
+		    entry->se_qstr.len == qstr->len &&
+		    memcmp(entry->se_qstr.name, qstr->name, qstr->len) == 0)
 			return entry;
-                }
-		if (entry->se_index > index)
-			break;
 	}
 	return NULL;
 }
 
-static void ll_sa_entry_put(struct ll_statahead_info *sai,
-                             struct ll_sa_entry *entry)
-{
-	if (cfs_atomic_dec_and_test(&entry->se_refcount)) {
-		CDEBUG(D_READA, "free sa entry %.*s(%p) index "LPU64"\n",
-		       entry->se_qstr.len, entry->se_qstr.name, entry,
-		       entry->se_index);
-
-		LASSERT(cfs_list_empty(&entry->se_link));
-		LASSERT(cfs_list_empty(&entry->se_list));
-		LASSERT(ll_sa_entry_unhashed(entry));
-
-		if (entry->se_inode)
-			iput(entry->se_inode);
-
-		OBD_FREE(entry, entry->se_size);
-		cfs_atomic_dec(&sai->sai_cache_count);
-	}
-}
-
+/* unhash, unlink and free sa_entry */
 static inline void
-do_sa_entry_fini(struct ll_statahead_info *sai, struct ll_sa_entry *entry)
+sa_kill(struct ll_statahead_info *sai, struct sa_entry *entry)
 {
 	struct ll_inode_info *lli = ll_i2info(sai->sai_inode);
 
-	LASSERT(!ll_sa_entry_unhashed(entry));
-	LASSERT(!cfs_list_empty(&entry->se_link));
+	LASSERT(!sa_unhashed(entry));
+	LASSERT(!list_empty(&entry->se_list));
+	LASSERT(sa_completed(entry));
 
-	ll_sa_entry_unhash(sai, entry);
+	sa_unhash(sai, entry);
 
 	spin_lock(&lli->lli_sa_lock);
-	entry->se_stat = SA_ENTRY_DEST;
-	cfs_list_del_init(&entry->se_link);
-	if (likely(!cfs_list_empty(&entry->se_list)))
-		cfs_list_del_init(&entry->se_list);
+	list_del_init(&entry->se_list);
 	spin_unlock(&lli->lli_sa_lock);
 
-	ll_sa_entry_put(sai, entry);
+	if (entry->se_inode != NULL)
+		iput(entry->se_inode);
+
+	sa_free(sai, entry);
 }
 
-/*
- * Delete it from sai_entries_stated list when fini.
- */
+/* called by scanner after use, sa_entry will be killed */
 static void
-ll_sa_entry_fini(struct ll_statahead_info *sai, struct ll_sa_entry *entry)
+sa_put(struct ll_statahead_info *sai, struct sa_entry *entry)
 {
-	struct ll_sa_entry *pos, *next;
+	struct sa_entry *tmp, *next;
 
-	if (entry)
-		do_sa_entry_fini(sai, entry);
+	if (entry != NULL && entry->se_state == SA_ENTRY_SUCC) {
+		struct ll_sb_info *sbi = ll_i2sbi(sai->sai_inode);
 
-	/* drop old entry, only 'scanner' process does this, no need to lock */
-	cfs_list_for_each_entry_safe(pos, next, &sai->sai_entries, se_link) {
-		if (!is_omitted_entry(sai, pos->se_index))
-			break;
-		/* keep those whose statahead RPC not finished */
-		if (pos->se_stat == SA_ENTRY_SUCC ||
-		    pos->se_stat == SA_ENTRY_INVA)
-			do_sa_entry_fini(sai, pos);
+		sai->sai_hit++;
+		sai->sai_consecutive_miss = 0;
+		sai->sai_max = min(2 * sai->sai_max, sbi->ll_sa_max);
+	} else {
+		sai->sai_miss++;
+		sai->sai_consecutive_miss++;
 	}
+
+	if (entry != NULL)
+		sa_kill(sai, entry);
+
+	/* kill old completed entries, only scanner process does this, no need
+	 * to lock */
+	list_for_each_entry_safe(tmp, next, &sai->sai_entries, se_list) {
+		if (!is_omitted_entry(sai, tmp->se_index))
+			break;
+		sa_kill(sai, tmp);
+	}
+
+	wake_up(&sai->sai_thread.t_ctl_waitq);
 }
 
-/*
- * Inside lli_sa_lock.
- */
+/* update state and sort add entry to sai_entries with index */
 static void
-__sa_entry_post_stat(struct ll_statahead_info *sai, struct ll_sa_entry *entry,
-		     se_stat_t stat)
+__sa_complete(struct ll_statahead_info *sai, struct sa_entry *entry,
+		    int ret)
 {
-	struct ll_sa_entry *se;
-	struct list_head *pos = &sai->sai_entries_stated;
+	struct sa_entry *se;
+	struct list_head *pos = &sai->sai_entries;
 
-	LASSERT(entry->se_stat == SA_ENTRY_INIT);
+	LASSERT(!sa_completed(entry));
+	LASSERT(list_empty(&entry->se_list));
 
-	if (!list_empty(&entry->se_list))
-		list_del_init(&entry->se_list);
+	entry->se_state = ret < 0 ? SA_ENTRY_INVA : SA_ENTRY_SUCC;
 
-	list_for_each_entry_reverse(se, &sai->sai_entries_stated, se_list) {
+	list_for_each_entry_reverse(se, &sai->sai_entries, se_list) {
 		if (se->se_index < entry->se_index) {
 			pos = &se->se_list;
 			break;
 		}
 	}
-
 	list_add(&entry->se_list, pos);
-	entry->se_stat = stat;
 }
 
-/*
- * Move entry to sai_entries_stated and sort with the index.
- * \retval 1    -- entry to be destroyed.
- * \retval 0    -- entry is inserted into stated list.
- */
+/* release resources used in async stat RPC, complete entry information and
+ * wakeup if necessary */
 static void
-sa_entry_post_stat(struct ll_statahead_info *sai, struct ll_sa_entry *entry,
-		   se_stat_t stat)
+sa_complete(struct ll_statahead_info *sai, struct sa_entry *entry,
+		  int ret)
 {
 	struct ll_inode_info *lli = ll_i2info(sai->sai_inode);
 	struct md_enqueue_info *minfo = entry->se_minfo;
 	struct ptlrpc_request *req = entry->se_req;
+	bool wakeup = (entry->se_index == sai->sai_index_wait);
 
 	/* release resources used in RPC */
 	if (minfo) {
@@ -418,12 +354,15 @@ sa_entry_post_stat(struct ll_statahead_info *sai, struct ll_sa_entry *entry,
 	}
 
 	spin_lock(&lli->lli_sa_lock);
-	__sa_entry_post_stat(sai, entry, stat);
+	__sa_complete(sai, entry, ret);
 	spin_unlock(&lli->lli_sa_lock);
+
+	if (wakeup)
+		wake_up(&sai->sai_waitq);
 }
 
 /*
- * Insert inode into the list of sai_entries_agl.
+ * Insert inode into the list of sai_agls.
  */
 static void ll_agl_add(struct ll_statahead_info *sai,
                        struct inode *inode, int index)
@@ -437,13 +376,13 @@ static void ll_agl_add(struct ll_statahead_info *sai,
 		child->lli_agl_index = index;
 		spin_unlock(&child->lli_agl_lock);
 
-		LASSERT(cfs_list_empty(&child->lli_agl_list));
+		LASSERT(list_empty(&child->lli_agl_list));
 
 		igrab(inode);
 		spin_lock(&parent->lli_agl_lock);
 		if (agl_list_empty(sai))
 			added = 1;
-		cfs_list_add_tail(&child->lli_agl_list, &sai->sai_entries_agl);
+		list_add_tail(&child->lli_agl_list, &sai->sai_agls);
 		spin_unlock(&parent->lli_agl_lock);
 	} else {
 		spin_unlock(&child->lli_agl_lock);
@@ -477,10 +416,9 @@ static struct ll_statahead_info *ll_sai_alloc(void)
 	init_waitqueue_head(&sai->sai_thread.t_ctl_waitq);
 	init_waitqueue_head(&sai->sai_agl_thread.t_ctl_waitq);
 
-	CFS_INIT_LIST_HEAD(&sai->sai_entries);
-	CFS_INIT_LIST_HEAD(&sai->sai_entries_received);
-	CFS_INIT_LIST_HEAD(&sai->sai_entries_stated);
-	CFS_INIT_LIST_HEAD(&sai->sai_entries_agl);
+	INIT_LIST_HEAD(&sai->sai_interim_entries);
+	INIT_LIST_HEAD(&sai->sai_entries);
+	INIT_LIST_HEAD(&sai->sai_agls);
 
 	for (i = 0; i < LL_SA_CACHE_SIZE; i++) {
 		CFS_INIT_LIST_HEAD(&sai->sai_cache[i]);
@@ -510,7 +448,7 @@ static void ll_sai_put(struct ll_statahead_info *sai)
 	struct ll_inode_info *lli = ll_i2info(sai->sai_inode);
 
 	if (atomic_dec_and_lock(&sai->sai_refcount, &lli->lli_sa_lock)) {
-		struct ll_sa_entry *entry, *next;
+		struct sa_entry *entry, *next;
 		struct ll_sb_info *sbi = ll_i2sbi(sai->sai_inode);
 
 		lli->lli_sai = NULL;
@@ -519,14 +457,14 @@ static void ll_sai_put(struct ll_statahead_info *sai)
 		LASSERT(thread_is_stopped(&sai->sai_thread));
 		LASSERT(thread_is_stopped(&sai->sai_agl_thread));
 		LASSERT(sai->sai_sent == sai->sai_replied);
+		LASSERT(!sa_has_callback(sai));
 
 		list_for_each_entry_safe(entry, next, &sai->sai_entries,
-					 se_link)
-			do_sa_entry_fini(sai, entry);
+					 se_list)
+			sa_kill(sai, entry);
 
 		LASSERT(atomic_read(&sai->sai_cache_count) == 0);
 		LASSERT(agl_list_empty(sai));
-		LASSERT(atomic_read(&sai->sai_refcount) == 0);
 
 		iput(sai->sai_inode);
 		OBD_FREE_PTR(sai);
@@ -534,15 +472,15 @@ static void ll_sai_put(struct ll_statahead_info *sai)
 	}
 }
 
-/* Do NOT forget to drop inode refcount when into sai_entries_agl. */
+/* Do NOT forget to drop inode refcount when into sai_agls. */
 static void ll_agl_trigger(struct inode *inode, struct ll_statahead_info *sai)
 {
-        struct ll_inode_info *lli   = ll_i2info(inode);
-        __u64                 index = lli->lli_agl_index;
-        int                   rc;
-        ENTRY;
+	struct ll_inode_info *lli = ll_i2info(inode);
+	__u64 index = lli->lli_agl_index;
+	int rc;
+	ENTRY;
 
-        LASSERT(cfs_list_empty(&lli->lli_agl_list));
+	LASSERT(list_empty(&lli->lli_agl_list));
 
         /* AGL maybe fall behind statahead with one entry */
         if (is_omitted_entry(sai, index + 1)) {
@@ -597,18 +535,19 @@ static void ll_agl_trigger(struct inode *inode, struct ll_statahead_info *sai)
         EXIT;
 }
 
-/* prepare inode for received statahead entry, and add it into agl list */
-static void sa_post_one(struct ll_statahead_info *sai,
-			struct ll_sa_entry *entry)
+/* prepare inode for sa entry, and add it into agl list, now sa_entry is ready
+ * to be used by scanner process. */
+static void sa_instantiate(struct ll_statahead_info *sai,
+				 struct sa_entry *entry)
 {
-        struct inode           *dir   = sai->sai_inode;
-        struct inode           *child;
-        struct md_enqueue_info *minfo;
-        struct lookup_intent   *it;
-        struct ptlrpc_request  *req;
-        struct mdt_body        *body;
-        int                     rc    = 0;
-        ENTRY;
+	struct inode *dir = sai->sai_inode;
+	struct inode *child;
+	struct md_enqueue_info *minfo;
+	struct lookup_intent *it;
+	struct ptlrpc_request *req;
+	struct mdt_body *body;
+	int rc = 0;
+	ENTRY;
 
         LASSERT(entry->se_handle != 0);
 
@@ -664,60 +603,59 @@ static void sa_post_one(struct ll_statahead_info *sai,
         EXIT;
 
 out:
-	/* The "sa_entry_post_stat()" will drop related ldlm ibits lock
-	 * reference count by calling "ll_intent_drop_lock()" in spite of the
-	 * above operations failed or not. Do not worry about calling
-	 * "ll_intent_drop_lock()" more than once. */
-	sa_entry_post_stat(sai, entry, rc < 0 ? SA_ENTRY_INVA : SA_ENTRY_SUCC);
-	if (entry->se_index == sai->sai_index_wait)
-		wake_up(&sai->sai_waitq);
-	ll_sa_entry_put(sai, entry);
+	/* sa_complete() will drop ldlm ibits lock refcount by calling
+	 * ll_intent_drop_lock() in spite of failures. Do not worry about
+	 * calling ll_intent_drop_lock() more than once. */
+	sa_complete(sai, entry, rc);
 }
 
-static void ll_post_statahead(struct ll_statahead_info *sai)
+/* once there are async stat replies, instantiate sa_entry */
+static void sa_handle_callback(struct ll_statahead_info *sai)
 {
-	while (!sa_received_empty(sai)) {
+	while (sa_has_callback(sai)) {
 		struct ll_inode_info *lli = ll_i2info(sai->sai_inode);
-		struct ll_sa_entry *entry;
+		struct sa_entry *entry;
 
 		spin_lock(&lli->lli_sa_lock);
-		if (unlikely(sa_received_empty(sai))) {
+		if (unlikely(!sa_has_callback(sai))) {
 			spin_unlock(&lli->lli_sa_lock);
 			break;
 		}
-		entry = sa_first_received_entry(sai);
-		atomic_inc(&entry->se_refcount);
+		entry = list_entry(sai->sai_interim_entries.next,
+				   struct sa_entry, se_list);
 		list_del_init(&entry->se_list);
 		spin_unlock(&lli->lli_sa_lock);
 
-		sa_post_one(sai, entry);
+		sa_instantiate(sai, entry);
 	}
 }
 
+/* callback for async stat, because this is called in ptlrpcd context, we only
+ * put sa_entry in sai_cb_entries list, and let sa_handle_callback() to really
+ * prepare inode and instantiate sa_entry later. */
 static int ll_statahead_interpret(struct ptlrpc_request *req,
 				  struct md_enqueue_info *minfo, int rc)
 {
 	struct lookup_intent *it = &minfo->mi_it;
 	struct inode *dir = minfo->mi_dir;
 	struct ll_inode_info *lli = ll_i2info(dir);
-	struct ll_statahead_info *sai;
-	struct ll_sa_entry *entry;
-	int wakeup;
+	struct ll_statahead_info *sai = lli->lli_sai;
+	struct sa_entry *entry = (struct sa_entry *)minfo->mi_cbdata;
+	bool wakeup;
 	ENTRY;
 
 	if (it_disposition(it, DISP_LOOKUP_NEG))
 		rc = -ENOENT;
 
-	sai = ll_sai_get(dir);
+	/* because statahead thread will wait for all inflight RPC to finish,
+	 * sai should be always valid, no need to refcount */
 	LASSERT(sai != NULL);
 	LASSERT(!thread_is_stopped(&sai->sai_thread));
+	LASSERT(entry != NULL);
 
 	spin_lock(&lli->lli_sa_lock);
-	/* stale entry */
-	entry = ll_sa_entry_get_byindex(sai, minfo->mi_cbdata);
-	LASSERT(entry != NULL);
 	if (rc != 0) {
-		__sa_entry_post_stat(sai, entry, SA_ENTRY_INVA);
+		__sa_complete(sai, entry, rc);
 		wakeup = (entry->se_index == sai->sai_index_wait);
 	} else {
 		entry->se_minfo = minfo;
@@ -728,26 +666,23 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 		 * with parent's lock held, for example: unlink. */
 		entry->se_handle = it->d.lustre.it_lock_handle;
 		ll_intent_drop_lock(it);
-		wakeup = sa_received_empty(sai);
-		list_add_tail(&entry->se_list, &sai->sai_entries_received);
+		wakeup = !sa_has_callback(sai);
+		list_add_tail(&entry->se_list, &sai->sai_interim_entries);
 	}
 	sai->sai_replied++;
-	spin_unlock(&lli->lli_sa_lock);
-
-	ll_sa_entry_put(sai, entry);
 	if (wakeup)
 		wake_up(&sai->sai_thread.t_ctl_waitq);
+	spin_unlock(&lli->lli_sa_lock);
 
 	if (rc != 0) {
 		ll_intent_release(it);
 		iput(dir);
 		OBD_FREE_PTR(minfo);
 	}
-	ll_sai_put(sai);
 	RETURN(rc);
 }
 
-static void sa_args_fini(struct md_enqueue_info *minfo,
+static void sa_fini_data(struct md_enqueue_info *minfo,
                          struct ldlm_enqueue_info *einfo)
 {
         LASSERT(minfo && einfo);
@@ -767,10 +702,10 @@ static void sa_args_fini(struct md_enqueue_info *minfo,
  * "ocapa". So here reserve "op_data.op_capa[1,2]" in "pcapa" before calling
  * "md_intent_getattr_async".
  */
-static int sa_args_init(struct inode *dir, struct inode *child,
-                        struct ll_sa_entry *entry, struct md_enqueue_info **pmi,
-                        struct ldlm_enqueue_info **pei,
-                        struct obd_capa **pcapa)
+static int sa_prep_data(struct inode *dir, struct inode *child,
+			struct sa_entry *entry, struct md_enqueue_info **pmi,
+			struct ldlm_enqueue_info **pei,
+			struct obd_capa **pcapa)
 {
         struct qstr              *qstr = &entry->se_qstr;
         struct md_enqueue_info   *minfo;
@@ -798,7 +733,7 @@ static int sa_args_init(struct inode *dir, struct inode *child,
 	minfo->mi_it.it_op = IT_GETATTR;
 	minfo->mi_dir = igrab(dir);
 	minfo->mi_cb = ll_statahead_interpret;
-	minfo->mi_cbdata = entry->se_index;
+	minfo->mi_cbdata = entry;
 
         einfo->ei_type   = LDLM_IBITS;
         einfo->ei_mode   = it_to_lock_mode(&minfo->mi_it);
@@ -815,27 +750,27 @@ static int sa_args_init(struct inode *dir, struct inode *child,
         return 0;
 }
 
-static int do_sa_lookup(struct inode *dir, struct ll_sa_entry *entry)
+static int sa_lookup(struct inode *dir, struct sa_entry *entry)
 {
-        struct md_enqueue_info   *minfo;
-        struct ldlm_enqueue_info *einfo;
-        struct obd_capa          *capas[2];
-        int                       rc;
-        ENTRY;
+	struct md_enqueue_info   *minfo;
+	struct ldlm_enqueue_info *einfo;
+	struct obd_capa          *capas[2];
+	int                       rc;
+	ENTRY;
 
-        rc = sa_args_init(dir, NULL, entry, &minfo, &einfo, capas);
-        if (rc)
-                RETURN(rc);
+	rc = sa_prep_data(dir, NULL, entry, &minfo, &einfo, capas);
+	if (rc)
+		RETURN(rc);
 
-        rc = md_intent_getattr_async(ll_i2mdexp(dir), minfo, einfo);
-        if (!rc) {
-                capa_put(capas[0]);
-                capa_put(capas[1]);
-        } else {
-                sa_args_fini(minfo, einfo);
-        }
+	rc = md_intent_getattr_async(ll_i2mdexp(dir), minfo, einfo);
+	if (!rc) {
+		capa_put(capas[0]);
+		capa_put(capas[1]);
+	} else {
+		sa_fini_data(minfo, einfo);
+	}
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /**
@@ -844,94 +779,87 @@ static int do_sa_lookup(struct inode *dir, struct ll_sa_entry *entry)
  * \retval      0 -- will send stat-ahead request
  * \retval others -- prepare stat-ahead request failed
  */
-static int do_sa_revalidate(struct inode *dir, struct ll_sa_entry *entry,
-                            struct dentry *dentry)
+static int sa_revalidate(struct inode *dir, struct sa_entry *entry,
+			 struct dentry *dentry)
 {
-        struct inode             *inode = dentry->d_inode;
-        struct lookup_intent      it = { .it_op = IT_GETATTR,
-                                         .d.lustre.it_lock_handle = 0 };
-        struct md_enqueue_info   *minfo;
-        struct ldlm_enqueue_info *einfo;
-        struct obd_capa          *capas[2];
-        int rc;
-        ENTRY;
+	struct inode *inode = dentry->d_inode;
+	struct lookup_intent it = { .it_op = IT_GETATTR,
+				    .d.lustre.it_lock_handle = 0 };
+	struct md_enqueue_info *minfo;
+	struct ldlm_enqueue_info *einfo;
+	struct obd_capa *capas[2];
+	int rc;
+	ENTRY;
 
-        if (unlikely(inode == NULL))
-                RETURN(1);
+	if (unlikely(inode == NULL))
+		RETURN(1);
 
-        if (d_mountpoint(dentry))
-                RETURN(1);
+	if (d_mountpoint(dentry))
+		RETURN(1);
 
-        entry->se_inode = igrab(inode);
-        rc = md_revalidate_lock(ll_i2mdexp(dir), &it, ll_inode2fid(inode),NULL);
-        if (rc == 1) {
-                entry->se_handle = it.d.lustre.it_lock_handle;
-                ll_intent_release(&it);
-                RETURN(1);
-        }
-
-        rc = sa_args_init(dir, inode, entry, &minfo, &einfo, capas);
-        if (rc) {
-                entry->se_inode = NULL;
-                iput(inode);
-                RETURN(rc);
-        }
-
-        rc = md_intent_getattr_async(ll_i2mdexp(dir), minfo, einfo);
-        if (!rc) {
-                capa_put(capas[0]);
-                capa_put(capas[1]);
-        } else {
-                entry->se_inode = NULL;
-                iput(inode);
-                sa_args_fini(minfo, einfo);
-        }
-
-        RETURN(rc);
-}
-
-static void ll_statahead_one(struct dentry *parent, const char* entry_name,
-                             int entry_name_len)
-{
-        struct inode             *dir    = parent->d_inode;
-        struct ll_inode_info     *lli    = ll_i2info(dir);
-        struct ll_statahead_info *sai    = lli->lli_sai;
-        struct dentry            *dentry = NULL;
-        struct ll_sa_entry       *entry;
-        int                       rc;
-        ENTRY;
-
-        entry = ll_sa_entry_alloc(sai, sai->sai_index, entry_name,
-                                  entry_name_len);
-        if (IS_ERR(entry))
-                RETURN_EXIT;
-
-        dentry = d_lookup(parent, &entry->se_qstr);
-        if (!dentry) {
-                rc = do_sa_lookup(dir, entry);
-        } else {
-                rc = do_sa_revalidate(dir, entry, dentry);
-                if (rc == 1 && agl_should_run(sai, dentry->d_inode))
-                        ll_agl_add(sai, dentry->d_inode, entry->se_index);
-        }
-
-        if (dentry != NULL)
-                dput(dentry);
-
-	if (rc) {
-		sa_entry_post_stat(sai, entry,
-				   rc < 0 ? SA_ENTRY_INVA : SA_ENTRY_SUCC);
-		if (entry->se_index == sai->sai_index_wait)
-			wake_up(&sai->sai_waitq);
-	} else {
-		sai->sai_sent++;
+	entry->se_inode = igrab(inode);
+	rc = md_revalidate_lock(ll_i2mdexp(dir), &it, ll_inode2fid(inode),
+				NULL);
+	if (rc == 1) {
+		entry->se_handle = it.d.lustre.it_lock_handle;
+		ll_intent_release(&it);
+		RETURN(1);
 	}
 
-        sai->sai_index++;
-        /* drop one refcount on entry by ll_sa_entry_alloc */
-        ll_sa_entry_put(sai, entry);
+	rc = sa_prep_data(dir, inode, entry, &minfo, &einfo, capas);
+	if (rc) {
+		entry->se_inode = NULL;
+		iput(inode);
+		RETURN(rc);
+	}
 
-        EXIT;
+	rc = md_intent_getattr_async(ll_i2mdexp(dir), minfo, einfo);
+	if (!rc) {
+		capa_put(capas[0]);
+		capa_put(capas[1]);
+	} else {
+		entry->se_inode = NULL;
+		iput(inode);
+		sa_fini_data(minfo, einfo);
+	}
+
+	RETURN(rc);
+}
+
+static void sa_statahead(struct dentry *parent, const char *name, int len)
+{
+	struct inode *dir = parent->d_inode;
+	struct ll_inode_info *lli = ll_i2info(dir);
+	struct ll_statahead_info *sai = lli->lli_sai;
+	struct dentry *dentry = NULL;
+	struct sa_entry *entry;
+	int rc;
+	ENTRY;
+
+	entry = sa_alloc(sai, sai->sai_index, name, len);
+	if (IS_ERR(entry))
+		RETURN_EXIT;
+
+	dentry = d_lookup(parent, &entry->se_qstr);
+	if (!dentry) {
+		rc = sa_lookup(dir, entry);
+	} else {
+		rc = sa_revalidate(dir, entry, dentry);
+		if (rc == 1 && agl_should_run(sai, dentry->d_inode))
+			ll_agl_add(sai, dentry->d_inode, entry->se_index);
+	}
+
+	if (dentry != NULL)
+		dput(dentry);
+
+	if (rc)
+		sa_complete(sai, entry, rc);
+	else
+		sai->sai_sent++;
+
+	sai->sai_index++;
+
+	EXIT;
 }
 
 static int ll_agl_thread(void *arg)
@@ -978,7 +906,7 @@ static int ll_agl_thread(void *arg)
 		 * so check whether list empty again. */
 		if (!agl_list_empty(sai)) {
 			clli = agl_first_entry(sai);
-			cfs_list_del_init(&clli->lli_agl_list);
+			list_del_init(&clli->lli_agl_list);
 			spin_unlock(&plli->lli_agl_lock);
 			ll_agl_trigger(&clli->lli_vfs_inode, sai);
 		} else {
@@ -990,7 +918,7 @@ static int ll_agl_thread(void *arg)
 	sai->sai_agl_valid = 0;
 	while (!agl_list_empty(sai)) {
 		clli = agl_first_entry(sai);
-		cfs_list_del_init(&clli->lli_agl_list);
+		list_del_init(&clli->lli_agl_list);
 		spin_unlock(&plli->lli_agl_lock);
 		clli->lli_agl_index = 0;
 		iput(&clli->lli_vfs_inode);
@@ -1130,14 +1058,14 @@ static int ll_statahead_thread(void *arg)
 
 keep_it:
 		l_wait_event(thread->t_ctl_waitq,
-			     !sa_sent_full(sai) ||
-			     !sa_received_empty(sai) ||
+			     !sa_sent_full(sai)   ||
+			     sa_has_callback(sai) ||
 			     !agl_list_empty(sai) ||
 			     !thread_is_running(thread),
 			     &lwi);
 
 interpret_it:
-		ll_post_statahead(sai);
+		sa_handle_callback(sai);
 
 		if (sa_low_hit(sai) && thread_is_running(thread)) {
 			spin_lock(&plli->lli_sa_lock);
@@ -1153,7 +1081,9 @@ interpret_it:
 			       PFID(&plli->lli_fid), sai->sai_hit,
 			       sai->sai_miss, sai->sai_sent,
 			       sai->sai_replied, current_pid());
-		} else if (unlikely(!thread_is_running(thread)))
+		}
+
+		if (unlikely(!thread_is_running(thread)))
 			GOTO(out, rc = 0);
 
 		/* If no window for metadata statahead, but there are
@@ -1163,12 +1093,12 @@ interpret_it:
 			spin_lock(&plli->lli_agl_lock);
 			while (!agl_list_empty(sai)) {
 				clli = agl_first_entry(sai);
-				cfs_list_del_init(&clli->lli_agl_list);
+				list_del_init(&clli->lli_agl_list);
 				spin_unlock(&plli->lli_agl_lock);
 				ll_agl_trigger(&clli->lli_vfs_inode,
 					       sai);
 
-				if (!sa_received_empty(sai))
+				if (sa_has_callback(sai))
 					goto interpret_it;
 
 				if (unlikely(!thread_is_running(thread)))
@@ -1185,7 +1115,7 @@ interpret_it:
 		}
 
 do_it:
-		ll_statahead_one(parent, name, namelen);
+		sa_statahead(parent, name, namelen);
 	}
 
 	if (page != NULL) {
@@ -1200,17 +1130,16 @@ do_it:
 	while (thread_is_running(thread)) {
 		lwi = LWI_TIMEOUT(HZ, NULL, NULL);
 		l_wait_event(thread->t_ctl_waitq,
-			     !sa_received_empty(sai) ||
-			     !thread_is_running(thread),
+			     sa_has_callback(sai) || !thread_is_running(thread),
 			     &lwi);
 
-		ll_post_statahead(sai);
+		sa_handle_callback(sai);
 	}
 
 	spin_lock(&plli->lli_agl_lock);
 	while (!agl_list_empty(sai) && thread_is_running(thread)) {
 		clli = agl_first_entry(sai);
-		cfs_list_del_init(&clli->lli_agl_list);
+		list_del_init(&clli->lli_agl_list);
 		spin_unlock(&plli->lli_agl_lock);
 		ll_agl_trigger(&clli->lli_vfs_inode, sai);
 		spin_lock(&plli->lli_agl_lock);
@@ -1253,8 +1182,8 @@ out:
 			sai->sai_sent == sai->sai_replied, &lwi);
 	}
 
-	/* release resources held by received entries. */
-	ll_post_statahead(sai);
+	/* release resources held by statahead RPCs */
+	sa_handle_callback(sai);
 
 	spin_lock(&plli->lli_sa_lock);
 	thread_set_flags(thread, SVC_STOPPED);
@@ -1309,7 +1238,7 @@ void ll_deauthorize_statahead(struct inode *dir, void *key)
 	if (sai != NULL && thread_is_running(&sai->sai_thread)) {
 		/*
 		 * statahead thread may not quit yet because it needs to cache
-		 * stated entries, now it's time to tell it to quit.
+		 * entries, now it's time to tell it to quit.
 		 */
 		thread_set_flags(&sai->sai_thread, SVC_STOPPING);
 		wake_up(&sai->sai_thread.t_ctl_waitq);
@@ -1424,29 +1353,12 @@ out:
 	return rc;
 }
 
-static void
-ll_sai_unplug(struct ll_statahead_info *sai, struct ll_sa_entry *entry)
-{
-	if (entry != NULL && entry->se_stat == SA_ENTRY_SUCC) {
-		struct ll_sb_info *sbi = ll_i2sbi(sai->sai_inode);
-
-		sai->sai_hit++;
-		sai->sai_consecutive_miss = 0;
-		sai->sai_max = min(2 * sai->sai_max, sbi->ll_sa_max);
-	} else {
-		sai->sai_miss++;
-		sai->sai_consecutive_miss++;
-	}
-	ll_sa_entry_fini(sai, entry);
-	wake_up(&sai->sai_thread.t_ctl_waitq);
-}
-
 static int revalidate_statahead_dentry(struct inode *dir,
 					struct ll_statahead_info *sai,
 					struct dentry **dentryp,
 					int only_unplug)
 {
-	struct ll_sa_entry *entry = NULL;
+	struct sa_entry *entry = NULL;
 	struct l_wait_info lwi = { 0 };
 	int rc = 0;
 	ENTRY;
@@ -1478,31 +1390,31 @@ static int revalidate_statahead_dentry(struct inode *dir,
 		}
 	}
 
-	entry = ll_sa_entry_get_byname(sai, &(*dentryp)->d_name);
+	entry = sa_get(sai, &(*dentryp)->d_name);
 	if (entry == NULL || only_unplug) {
-		ll_sai_unplug(sai, entry);
+		sa_put(sai, entry);
 		RETURN(entry ? 1 : -EAGAIN);
 	}
 
 	/* if statahead is busy in readdir, help it do post-work */
-	if (!ll_sa_entry_stated(entry) && sai->sai_in_readpage)
-		ll_post_statahead(sai);
+	if (!sa_completed(entry) && sai->sai_in_readpage)
+		sa_handle_callback(sai);
 
-	if (!ll_sa_entry_stated(entry)) {
+	if (!sa_completed(entry)) {
 		sai->sai_index_wait = entry->se_index;
 		lwi = LWI_TIMEOUT_INTR(cfs_time_seconds(30), NULL,
 					LWI_ON_SIGNAL_NOOP, NULL);
 		rc = l_wait_event(sai->sai_waitq,
-				ll_sa_entry_stated(entry) ||
+				sa_completed(entry) ||
 				thread_is_stopped(&sai->sai_thread),
 				&lwi);
 		if (rc < 0) {
-			ll_sai_unplug(sai, entry);
+			sa_put(sai, entry);
 			RETURN(-EAGAIN);
 		}
 	}
 
-	if (entry->se_stat == SA_ENTRY_SUCC && entry->se_inode != NULL) {
+	if (entry->se_state == SA_ENTRY_SUCC && entry->se_inode != NULL) {
 		struct inode *inode = entry->se_inode;
 		struct lookup_intent it = { .it_op = IT_GETATTR,
 					    .d.lustre.it_lock_handle =
@@ -1517,7 +1429,7 @@ static int revalidate_statahead_dentry(struct inode *dir,
 
 				alias = ll_splice_alias(inode, *dentryp);
 				if (IS_ERR(alias)) {
-					ll_sai_unplug(sai, entry);
+					sa_put(sai, entry);
 					RETURN(PTR_ERR(alias));
 				}
 				*dentryp = alias;
@@ -1533,7 +1445,7 @@ static int revalidate_statahead_dentry(struct inode *dir,
 					(*dentryp)->d_name.name,
 					PFID(ll_inode2fid((*dentryp)->d_inode)),
 					PFID(ll_inode2fid(inode)));
-				ll_sai_unplug(sai, entry);
+				sa_put(sai, entry);
 				RETURN(-ESTALE);
 			} else {
 				iput(inode);
@@ -1547,7 +1459,7 @@ static int revalidate_statahead_dentry(struct inode *dir,
 		}
 	}
 
-	ll_sai_unplug(sai, entry);
+	sa_put(sai, entry);
 	RETURN(rc);
 }
 
