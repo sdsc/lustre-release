@@ -641,6 +641,7 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 	struct ll_inode_info *lli = ll_i2info(dir);
 	struct ll_statahead_info *sai = lli->lli_sai;
 	struct sa_entry *entry = (struct sa_entry *)minfo->mi_cbdata;
+	__u64 handle = 0;
 	bool wakeup;
 	ENTRY;
 
@@ -653,6 +654,19 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 	LASSERT(!thread_is_stopped(&sai->sai_thread));
 	LASSERT(entry != NULL);
 
+	if (rc != 0) {
+		ll_intent_release(it);
+		iput(dir);
+		OBD_FREE_PTR(minfo);
+	} else {
+		/* release ibits lock ASAP to avoid deadlock when statahead
+		 * thread enqueues lock on parent in readdir and another
+		 * process enqueues lock on child with parent lock held, eg.
+		 * unlink. */
+		handle = it->d.lustre.it_lock_handle;
+		ll_intent_drop_lock(it);
+	}
+
 	spin_lock(&lli->lli_sa_lock);
 	if (rc != 0) {
 		__sa_complete(sai, entry, rc);
@@ -664,8 +678,7 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 		 * when statahead thread tries to enqueue lock on parent
 		 * for readpage and other tries to enqueue lock on child
 		 * with parent's lock held, for example: unlink. */
-		entry->se_handle = it->d.lustre.it_lock_handle;
-		ll_intent_drop_lock(it);
+		entry->se_handle = handle;
 		wakeup = !sa_has_callback(sai);
 		list_add_tail(&entry->se_list, &sai->sai_cb_entries);
 	}
@@ -674,11 +687,6 @@ static int ll_statahead_interpret(struct ptlrpc_request *req,
 		wake_up(&sai->sai_thread.t_ctl_waitq);
 	spin_unlock(&lli->lli_sa_lock);
 
-	if (rc != 0) {
-		ll_intent_release(it);
-		iput(dir);
-		OBD_FREE_PTR(minfo);
-	}
 	RETURN(rc);
 }
 
