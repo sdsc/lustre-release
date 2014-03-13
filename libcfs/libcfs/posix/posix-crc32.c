@@ -34,7 +34,7 @@ unsigned int crc32_le(unsigned int crc, unsigned char const *p, size_t len)
 	const unsigned int      *b = (unsigned int *)p;
 	const unsigned int      *tab = crc32table_le;
 
-# ifdef __LITTLE_ENDIAN
+# if __BYTE_ORDER == __LITTLE_ENDIAN
 #  define DO_CRC(x) crc = tab[(crc ^ (x)) & 255] ^ (crc>>8)
 # else
 #  define DO_CRC(x) crc = tab[((crc >> 24) ^ (x)) & 255] ^ (crc<<8)
