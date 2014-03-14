@@ -123,9 +123,10 @@ struct ll_cl_context *ll_cl_init(struct file *file, struct page *vmpage)
 	if (io == NULL) {
 		struct inode *inode = file->f_dentry->d_inode;
 
-		CERROR("%s: " DFID " no active IO, please file a ticket.\n",
-		       ll_get_fsname(inode->i_sb, NULL, 0),
-		       PFID(ll_inode2fid(inode)));
+		CWARN("%s: " DFID " no active IO, current Lustre does not "
+		      "support fadvise.\n",
+		      ll_get_fsname(inode->i_sb, NULL, 0),
+		      PFID(ll_inode2fid(inode)));
 		libcfs_debug_dumpstack(NULL);
 		result = -EIO;
 	}
