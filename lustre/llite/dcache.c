@@ -492,12 +492,10 @@ int ll_revalidate_it(struct dentry *de, int lookup_flags,
                 }
         }
 
-	if (it->it_op == IT_GETATTR && dentry_need_statahead(parent, de)) {
-		rc = do_statahead_enter(parent, &de, 0);
+	if (it->it_op == IT_GETATTR && dentry_may_statahead(parent, de)) {
+		rc = ll_statahead(parent, &de, de->d_inode == NULL);
 		if (rc == 1)
-			goto mark;
-		else if (rc != -EAGAIN && rc != 0)
-			GOTO(out, rc = 0);
+			RETURN(rc);
 	}
 
 do_lock:
@@ -589,9 +587,6 @@ out:
 		ll_lookup_finish_locks(it, de);
 	}
 
-mark:
-        if (it != NULL && it->it_op == IT_GETATTR && rc > 0)
-                ll_statahead_mark(parent, de);
         RETURN(rc);
 
         /*
@@ -653,9 +648,9 @@ out_sa:
 	 * statahead windows; for rc == 0 case, the "lookup" will be done later.
 	 */
 	if (it != NULL && it->it_op == IT_GETATTR && rc == 1 &&
-	    dentry_need_statahead(parent, de))
-		do_statahead_enter(parent, &de, 1);
-	goto mark;
+	    dentry_may_statahead(parent, de))
+		ll_statahead(parent, &de, true);
+	RETURN(rc);
 }
 
 #ifdef HAVE_IOP_ATOMIC_OPEN
