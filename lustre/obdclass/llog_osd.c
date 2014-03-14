@@ -623,7 +623,7 @@ static int llog_osd_next_block(const struct lu_env *env,
 						sizeof(struct llog_rec_tail));
 		/* get the last record in block */
 		last_rec = (struct llog_rec_hdr *)((char *)buf + rc -
-						   le32_to_cpu(tail->lrt_len));
+						   tail->lrt_len);
 
 		if (LLOG_REC_HDR_NEEDS_SWABBING(last_rec))
 			lustre_swab_llog_rec(last_rec);
@@ -731,7 +731,7 @@ static int llog_osd_prev_block(const struct lu_env *env,
 						sizeof(struct llog_rec_tail));
 		/* get the last record in block */
 		last_rec = (struct llog_rec_hdr *)((char *)buf + rc -
-						   le32_to_cpu(tail->lrt_len));
+						   tail->lrt_len);
 
 		if (LLOG_REC_HDR_NEEDS_SWABBING(last_rec))
 			lustre_swab_llog_rec(last_rec);
