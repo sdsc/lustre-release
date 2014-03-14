@@ -80,13 +80,11 @@ void ll_cl_fini(struct ll_cl_context *lcc)
                 cl_page_put(env, page);
         }
 
-        if (io && lcc->lcc_created) {
-                cl_io_end(env, io);
-                cl_io_unlock(env, io);
-                cl_io_iter_fini(env, io);
-                cl_io_fini(env, io);
-        }
-        cl_env_put(env, &lcc->lcc_refcheck);
+	if (io && lcc->lcc_created) {
+		cl_io_unlock(env, io);
+		cl_io_fini(env, io);
+	}
+	cl_env_put(env, &lcc->lcc_refcheck);
 }
 
 /**
@@ -117,9 +115,28 @@ struct ll_cl_context *ll_cl_init(struct file *file, struct page *vmpage)
         lcc->lcc_refcheck = refcheck;
         lcc->lcc_cookie = current;
 
-        cio = ccc_env_io(env);
-        io = cio->cui_cl.cis_io;
-        lcc->lcc_io = io;
+	cio = ccc_env_io(env);
+	io = cio->cui_cl.cis_io;
+	if (io == NULL) {
+		/*
+		 * fadvise will call ll_readpage w/o an active IO, so cl_io
+		 * has to be created here and enqueue lock.
+		 */
+		io = ccc_env_thread_io(env);
+		ll_io_init(io, file, 0);
+		result = cl_io_rw_init(env, io, CIT_READ,
+				       vmpage->index << PAGE_CACHE_SHIFT,
+				       PAGE_CACHE_SIZE);
+		if (result == 0) {
+			cio->cui_fd = LUSTRE_FPRIVATE(file);
+			result = cl_io_lock(env, io);
+		} else {
+			result = io->ci_result;
+		}
+		lcc->lcc_created = 1;
+	}
+	lcc->lcc_io = io;
+
 	if (io == NULL) {
 		struct inode *inode = file->f_dentry->d_inode;
 
@@ -130,26 +147,25 @@ struct ll_cl_context *ll_cl_init(struct file *file, struct page *vmpage)
 		result = -EIO;
 	}
 	if (result == 0 && vmpage != NULL) {
-                struct cl_page   *page;
+		struct cl_page   *page;
 
-                LASSERT(io != NULL);
-                LASSERT(io->ci_state == CIS_IO_GOING);
-                LASSERT(cio->cui_fd == LUSTRE_FPRIVATE(file));
-                page = cl_page_find(env, clob, vmpage->index, vmpage,
-                                    CPT_CACHEABLE);
-                if (!IS_ERR(page)) {
-                        lcc->lcc_page = page;
-                        lu_ref_add(&page->cp_reference, "cl_io", io);
-                        result = 0;
-                } else
-                        result = PTR_ERR(page);
-        }
-        if (result) {
-                ll_cl_fini(lcc);
-                lcc = ERR_PTR(result);
-        }
+		LASSERT(io != NULL);
+		LASSERT(cio->cui_fd == LUSTRE_FPRIVATE(file));
+		page = cl_page_find(env, clob, vmpage->index, vmpage,
+				    CPT_CACHEABLE);
+		if (!IS_ERR(page)) {
+			lcc->lcc_page = page;
+			lu_ref_add(&page->cp_reference, "cl_io", io);
+			result = 0;
+		} else
+			result = PTR_ERR(page);
+	}
+	if (result) {
+		ll_cl_fini(lcc);
+		lcc = ERR_PTR(result);
+	}
 
-        return lcc;
+	return lcc;
 }
 
 struct obd_capa *cl_capa_lookup(struct inode *inode, enum cl_req_type crt)
