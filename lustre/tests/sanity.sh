@@ -716,6 +716,13 @@ test_18() {
 }
 run_test 18 "touch .../f ; ls ... =============================="
 
+test_18a() {
+	dd if=/dev/zero of=$DIR/$tfile bs=1M count=5
+	cancel_lru_locks osc
+	fadvise $DIR/$tfile
+}
+run_test 18a "posix_fadvise() file ============================="
+
 test_19a() {
 	touch $DIR/$tfile
 	ls -l $DIR
