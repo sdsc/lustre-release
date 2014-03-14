@@ -139,10 +139,10 @@ static struct ll_sb_info *ll_init_sbi(void)
 
 	/* metadata statahead is enabled by default */
 	sbi->ll_sa_max = LL_SA_RPC_DEF;
-	cfs_atomic_set(&sbi->ll_sa_total, 0);
-	cfs_atomic_set(&sbi->ll_sa_wrong, 0);
+	atomic_set(&sbi->ll_sa_total, 0);
+	atomic_set(&sbi->ll_sa_wrong, 0);
 	atomic_set(&sbi->ll_sa_running, 0);
-	cfs_atomic_set(&sbi->ll_agl_total, 0);
+	atomic_set(&sbi->ll_agl_total, 0);
 	sbi->ll_flags |= LL_SBI_AGL_ENABLED;
 
 	RETURN(sbi);
