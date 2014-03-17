@@ -6784,3 +6784,26 @@ free_fd()
         [ $fd -lt $max_fd ] || error "finding free file descriptor failed"
         echo $fd
 }
+
+check_mount_and_prep()
+{
+	is_mounted $MOUNT || setupall
+
+	rm -rf $DIR/[df][0-9]* || error "Fail to cleanup the env!"
+	mkdir $DIR/$tdir || error "Fail to mkdir $DIR/$tdir."
+}
+
+get_precreated()
+{
+	local mdt_idx=$1
+	local ost_idx=$2
+	local mdt_name="MDT$(printf '%04x' $((mdt_idx - 1)))"
+	local ost_name="OST$(printf '%04x' $((ost_idx - 1)))"
+	local proc_path="${FSNAME}-${ost_name}-osc-${mdt_name}"
+	local last_id=$(do_facet mds${mdt_idx} lctl get_param -n \
+			osp.$proc_path.prealloc_last_id)
+	local next_id=$(do_facet mds${mdt_idx} lctl get_param -n \
+			osp.$proc_path.prealloc_next_id)
+
+	echo $((last_id - next_id + 1))
+}
