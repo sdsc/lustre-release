@@ -2437,6 +2437,7 @@ int lmv_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 	struct lu_dirent	**ents = NULL;
 	struct lu_dirent	*last_ent = op_data->op_ent;
 	__u64			last_idx = op_data->op_stripe_offset;
+	__u64			hash = op_data->op_hash_offset;
 	int			stripe_count;
 	__u64			min_hash;
 	int			min_idx = 0;
@@ -2477,6 +2478,7 @@ int lmv_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 			tgt = lmv_get_target(lmv, lsm->lsm_md_oinfo[i].lmo_mds);
 			if (IS_ERR(tgt))
 				GOTO(out, rc = PTR_ERR(tgt));
+
 			/* Note: last_ent is being used to resolve hash conflict
 			 * dirx entry page, so if continuous entries have same
 			 * hash value, only using op_hash_offset can not tell in
@@ -2486,15 +2488,31 @@ int lmv_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 			else
 				op_data->op_ent = last_ent;
 
+			/* op_data will be shared by each stripe, so we need
+			 * reset these value for each stripe */
 			op_data->op_stripe_offset = i;
+			op_data->op_hash_offset = hash;
 			op_data->op_fid1 = lsm->lsm_md_oinfo[i].lmo_fid;
 			op_data->op_fid2 = lsm->lsm_md_oinfo[i].lmo_fid;
 		}
 
+next:
 		rc = md_read_entry(tgt->ltd_exp, op_data, cb_op, &ents[i],
 				   &page);
 		if (rc != 0)
 			GOTO(out, rc);
+
+		/* only return . and .. of 0 stripe */
+		if (i != 0 && ents[i] != NULL &&
+		    (strncmp(ents[i]->lde_name, ".",
+			     ents[i]->lde_namelen) == 0 ||
+		    strncmp(ents[i]->lde_name, "..",
+			    ents[i]->lde_namelen) == 0)) {
+			op_data->op_ent = ents[i];
+			op_data->op_hash_offset =
+					le64_to_cpu(ents[i]->lde_hash);
+			goto next;
+		}
 
 		if (ents[i] != NULL &&
 		    le64_to_cpu(ents[i]->lde_hash) <= min_hash) {

@@ -1684,7 +1684,7 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 			if (le16_to_cpu(ent->lde_namelen) == 0)
 				continue;
 
-			if (le64_to_cpu(ent->lde_hash) >
+			if (le64_to_cpu(ent->lde_hash) >=
 					op_data->op_hash_offset)
 				break;
 		}
@@ -1692,8 +1692,6 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 
 	/* If it can not find entry in current page, try next page. */
 	if (ent == NULL) {
-		__u64 orig_offset = op_data->op_hash_offset;
-
 		if (le64_to_cpu(dp->ldp_hash_end) == MDS_DIR_END_OFF) {
 			mdc_release_page(page,
 				 le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
@@ -1704,7 +1702,6 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 		mdc_release_page(page,
 				 le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
 		rc = mdc_read_page(exp, op_data, cb_op, &page);
-		op_data->op_hash_offset = orig_offset;
 		if (rc != 0)
 			RETURN(rc);
 

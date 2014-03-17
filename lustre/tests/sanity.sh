@@ -1177,8 +1177,9 @@ test_24A() { # LU-3182
 	createmany -m $DIR/$tdir/$tfile $NFILES
 	local t=`ls $DIR/$tdir | wc -l`
 	local u=`ls $DIR/$tdir | sort -u | wc -l`
-	if [ $t -ne $NFILES -o $u -ne $NFILES ] ; then
-		error "Expected $NFILES files, got $t ($u unique)"
+	local v=`ls -ai $DIR/$tdir | sort -u | wc -l`
+	if [ $t -ne $NFILES -o $u -ne $NFILES -o $v -ne $((NFILES + 2)) ] ; then
+		error "Expected $NFILES files, got $t ($u unique $v .&..)"
 	fi
 
 	rm -rf $DIR/$tdir || error "Can not delete directories"
