@@ -1637,6 +1637,10 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 	       inode, i_size_read(inode), attr->ia_size, attr->ia_valid,
 	       hsm_import);
 
+	/* it's safe to skip truncate from open(O_TRUNC) to save one RPC */
+	if (attr->ia_valid & ATTR_OPEN)
+		RETURN(0);
+
 	if (attr->ia_valid & ATTR_SIZE) {
                 /* Check new size against VFS/VM file size limit and rlimit */
                 rc = inode_newsize_ok(inode, attr->ia_size);

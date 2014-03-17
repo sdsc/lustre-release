@@ -489,7 +489,8 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
 	 * when I return */
 	CDEBUG(D_DENTRY, "it %p it_disposition %x\n", it,
 	       it->d.lustre.it_disposition);
-	if (!it_disposition(it, DISP_LOOKUP_NEG)) {
+	if (!it_disposition(it, DISP_LOOKUP_NEG) ||
+	    it_disposition(it, DISP_OPEN_CREATE)) {
                 rc = ll_prep_inode(&inode, request, (*de)->d_sb, it);
                 if (rc)
                         RETURN(rc);
@@ -516,7 +517,7 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
 		if (IS_ERR(alias))
 			RETURN(PTR_ERR(alias));
 		*de = alias;
-	} else if (!it_disposition(it, DISP_LOOKUP_NEG)  &&
+	} else if (!it_disposition(it, DISP_LOOKUP_NEG) &&
 		   !it_disposition(it, DISP_OPEN_CREATE)) {
 		/* With DISP_OPEN_CREATE dentry will
 		   instantiated in ll_create_it. */
@@ -524,7 +525,8 @@ int ll_lookup_it_finish(struct ptlrpc_request *request,
 		d_instantiate(*de, inode);
 	}
 
-	if (!it_disposition(it, DISP_LOOKUP_NEG)) {
+	if (!it_disposition(it, DISP_LOOKUP_NEG) ||
+	    it_disposition(it, DISP_OPEN_CREATE)) {
 		/* we have lookup look - unhide dentry */
 		if (bits & MDS_INODELOCK_LOOKUP)
 			d_lustre_revalidate(*de);
