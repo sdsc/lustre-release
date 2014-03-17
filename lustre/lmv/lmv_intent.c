@@ -235,7 +235,8 @@ int lmv_revalidate_slaves(struct obd_export *exp, struct mdt_body *mbody,
 			body = req_capsule_server_get(&req->rq_pill,
 						      &RMF_MDT_BODY);
 			LASSERT(body != NULL);
-			if (unlikely(body->nlink < 2)) {
+
+			if (unlikely(body->nlink < 2) && i > 0) {
 				CERROR("%s: nlink %d < 2 corrupt stripe %d "DFID
 				       ":" DFID"\n", obd->obd_name, body->nlink,
 				       i, PFID(&lsm->lsm_md_oinfo[i].lmo_fid),
