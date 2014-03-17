@@ -134,6 +134,12 @@ struct llog_handle;
 struct llog_rec_hdr;
 typedef int (*llog_cb_t)(const struct lu_env *, struct llog_handle *,
 			 struct llog_rec_hdr *, void *);
+#ifdef __KERNEL__
+struct obd_export *obd_stale_export_get(void);
+void obd_stale_export_put(struct obd_export *exp);
+void obd_stale_export_adjust(struct obd_export *exp);
+#endif
+
 /* obd_config.c */
 struct lustre_cfg *lustre_cfg_rename(struct lustre_cfg *cfg,
 				     const char *new_name);
