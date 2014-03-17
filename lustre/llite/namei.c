@@ -444,6 +444,9 @@ struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de)
         return de;
 }
 
+
+/* DISP_OPEN_CREATE dentry will be instantiated and revalidated in
+ * ll_create_it(), because do_filp_open() will complain if we do it here. */
 static int ll_lookup_it_finish(struct ptlrpc_request *request,
 			       struct lookup_intent *it,
 			       struct inode *parent, struct dentry **de)
@@ -484,10 +487,7 @@ static int ll_lookup_it_finish(struct ptlrpc_request *request,
 		if (IS_ERR(alias))
 			RETURN(PTR_ERR(alias));
 		*de = alias;
-	} else if (!it_disposition(it, DISP_LOOKUP_NEG)  &&
-		   !it_disposition(it, DISP_OPEN_CREATE)) {
-		/* With DISP_OPEN_CREATE dentry will
-		   instantiated in ll_create_it. */
+	} else if (!it_disposition(it, DISP_LOOKUP_NEG)) {
 		LASSERT((*de)->d_inode == NULL);
 		d_instantiate(*de, inode);
 	}
@@ -798,41 +798,10 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
 }
 #endif /* HAVE_IOP_ATOMIC_OPEN */
 
-/* We depend on "mode" being set with the proper file type/umask by now */
-static struct inode *ll_create_node(struct inode *dir, struct lookup_intent *it)
-{
-        struct inode *inode = NULL;
-        struct ptlrpc_request *request = NULL;
-        struct ll_sb_info *sbi = ll_i2sbi(dir);
-        int rc;
-        ENTRY;
-
-        LASSERT(it && it->d.lustre.it_disposition);
-
-        LASSERT(it_disposition(it, DISP_ENQ_CREATE_REF));
-        request = it->d.lustre.it_data;
-        it_clear_disposition(it, DISP_ENQ_CREATE_REF);
-        rc = ll_prep_inode(&inode, request, dir->i_sb, it);
-        if (rc)
-                GOTO(out, inode = ERR_PTR(rc));
-
-	LASSERT(ll_d_hlist_empty(&inode->i_dentry));
-
-        /* We asked for a lock on the directory, but were granted a
-         * lock on the inode.  Since we finally have an inode pointer,
-         * stuff it in the lock. */
-	CDEBUG(D_DLMTRACE, "setting l_ast_data to inode "DFID"(%p)\n",
-	       PFID(ll_inode2fid(inode)), inode);
-        ll_set_lock_data(sbi->ll_md_exp, inode, it, NULL);
-        EXIT;
- out:
-        ptlrpc_req_finished(request);
-        return inode;
-}
-
 /*
- * By the time this is called, we already have created the directory cache
- * entry for the new file, but it is so far negative - it has no inode.
+ * By the time this is called, we have created new file in .lookup, but left
+ * dentry uninstantiated to make kernel happy, now finish the post work as
+ * ll_lookup_it_finish().
  *
  * We defer creating the OBD object(s) until open, to keep the intent and
  * non-intent code paths similar, and also because we do not have the MDS
@@ -840,14 +809,13 @@ static struct inode *ll_create_node(struct inode *dir, struct lookup_intent *it)
  * so we would need to do yet another RPC to the MDS to store the LOV EA
  * data on the MDS.  If needed, we would pass the PACKED lmm as data and
  * lmm_size in datalen (the MDS still has code which will handle that).
- *
- * If the create succeeds, we fill in the inode information
- * with d_instantiate().
  */
 static int ll_create_it(struct inode *dir, struct dentry *dentry, int mode,
 			struct lookup_intent *it)
 {
-	struct inode *inode;
+	struct ptlrpc_request *request;
+	struct inode *inode = NULL;
+	__u64 bits;
 	int rc = 0;
 	ENTRY;
 
@@ -859,11 +827,26 @@ static int ll_create_it(struct inode *dir, struct dentry *dentry, int mode,
 	if (rc)
 		RETURN(rc);
 
-	inode = ll_create_node(dir, it);
-	if (IS_ERR(inode))
-		RETURN(PTR_ERR(inode));
+	LASSERT(it != NULL);
+	LASSERT(it_disposition(it, DISP_ENQ_CREATE_REF));
+
+	request = it->d.lustre.it_data;
+
+	/* we depend on "mode" being set with the proper file type/umask by now
+	 */
+	rc = ll_prep_inode(&inode, request, dir->i_sb, it);
+	if (rc)
+		RETURN(rc);
+
+	/* We asked for a lock on the directory, but were granted a
+	 * lock on the inode.  Since we finally have an inode pointer,
+	 * stuff it in the lock. */
+	ll_set_lock_data(ll_i2mdexp(inode), inode, it, &bits);
 
 	d_instantiate(dentry, inode);
+	if (bits & MDS_INODELOCK_LOOKUP)
+		d_lustre_revalidate(dentry);
+
 	RETURN(0);
 }
 
