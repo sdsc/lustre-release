@@ -1769,6 +1769,8 @@ static int mgs_steal_llog_for_mdt_from_client(const struct lu_env *env,
 
 	rc = llog_process_or_fork(env, loghandle, mgs_steal_client_llog_handler,
 				  (void *)comp, NULL, false);
+	if (rc > 0)
+		rc = 0;
 	CDEBUG(D_MGS, "steal llog re = %d\n", rc);
 out_close:
 	llog_close(env, loghandle);

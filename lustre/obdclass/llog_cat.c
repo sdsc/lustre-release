@@ -574,6 +574,10 @@ int llog_cat_process_cb(const struct lu_env *env, struct llog_handle *cat_llh,
 					  NULL, false);
 	}
 
+	/* The empty plain log was destroyed while processing */
+	if (rc > 0)
+		rc = llog_cat_cleanup(env, cat_llh, llh,
+				      llh->u.phd.phd_cookie.lgc_index);
 	llog_handle_put(llh);
 
 	RETURN(rc);
@@ -605,7 +609,7 @@ int llog_cat_process_or_fork(const struct lu_env *env,
                 cd.lpcd_last_idx = 0;
 		rc = llog_process_or_fork(env, cat_llh, llog_cat_process_cb,
 					  &d, &cd, fork);
-                if (rc != 0)
+                if (rc < 0)
                         RETURN(rc);
 
                 cd.lpcd_first_idx = 0;
@@ -616,6 +620,8 @@ int llog_cat_process_or_fork(const struct lu_env *env,
 		rc = llog_process_or_fork(env, cat_llh, llog_cat_process_cb,
 					  &d, NULL, fork);
         }
+	if (rc > 0)
+		rc = 0;
 
         RETURN(rc);
 }
@@ -655,6 +661,12 @@ static int llog_cat_reverse_process_cb(const struct lu_env *env,
 	}
 
 	rc = llog_reverse_process(env, llh, d->lpd_cb, d->lpd_data, NULL);
+
+	/* The empty plain was destroyed while processing */
+	if (rc > 0)
+		rc = llog_cat_cleanup(env, cat_llh, llh,
+				      llh->u.phd.phd_cookie.lgc_index);
+
 	llog_handle_put(llh);
 	RETURN(rc);
 }
@@ -682,7 +694,7 @@ int llog_cat_reverse_process(const struct lu_env *env,
 		rc = llog_reverse_process(env, cat_llh,
 					  llog_cat_reverse_process_cb,
 					  &d, &cd);
-                if (rc != 0)
+                if (rc < 0)
                         RETURN(rc);
 
                 cd.lpcd_first_idx = le32_to_cpu(llh->llh_cat_idx);
@@ -695,6 +707,8 @@ int llog_cat_reverse_process(const struct lu_env *env,
 					  llog_cat_reverse_process_cb,
 					  &d, NULL);
         }
+	if (rc > 0)
+		rc = 0;
 
         RETURN(rc);
 }
@@ -820,7 +834,7 @@ int llog_cat_init_and_process(const struct lu_env *env,
 		RETURN(rc);
 
 	rc = llog_process_or_fork(env, llh, cat_cancel_cb, NULL, NULL, false);
-	if (rc)
+	if (rc < 0)
 		CERROR("%s: llog_process() with cat_cancel_cb failed: rc = "
 		       "%d\n", llh->lgh_ctxt->loc_obd->obd_name, rc);
 	RETURN(0);
