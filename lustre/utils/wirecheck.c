@@ -821,7 +821,6 @@ check_obd_idx_read(void)
 	CHECK_VALUE(II_FL_NOHASH);
 	CHECK_VALUE(II_FL_VARKEY);
 	CHECK_VALUE(II_FL_VARREC);
-	CHECK_VALUE(II_FL_NONUNQ);
 }
 
 static void

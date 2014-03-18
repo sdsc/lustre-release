@@ -3703,7 +3703,6 @@ enum idx_info_flags {
 	II_FL_NOHASH	= 1 << 0, /* client doesn't care about hash value */
 	II_FL_VARKEY	= 1 << 1, /* keys can be of variable size */
 	II_FL_VARREC	= 1 << 2, /* records can be of variable size */
-	II_FL_NONUNQ	= 1 << 3, /* index supports non-unique keys */
 };
 
 #define LIP_MAGIC 0x8A6D6B6C

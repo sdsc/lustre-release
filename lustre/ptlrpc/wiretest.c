@@ -1844,8 +1844,6 @@ void lustre_assert_wire_constants(void)
 		 (long long)II_FL_VARKEY);
 	LASSERTF(II_FL_VARREC == 4, "found %lld\n",
 		 (long long)II_FL_VARREC);
-	LASSERTF(II_FL_NONUNQ == 8, "found %lld\n",
-		 (long long)II_FL_NONUNQ);
 
 	/* Checks for struct niobuf_remote */
 	LASSERTF((int)sizeof(struct niobuf_remote) == 16, "found %lld\n",

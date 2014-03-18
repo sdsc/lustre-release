@@ -1346,13 +1346,6 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 
 	LASSERT(dt_object_exists(dt));
 
-	/*
-	 * XXX: implement support for fixed-size keys sorted with natural
-	 *      numerical way (not using internal hash value)
-	 */
-	if (feat->dif_flags & DT_IND_RANGE)
-		RETURN(-ERANGE);
-
 	if (unlikely(feat == &dt_otable_features))
 		/* do not support oi scrub yet. */
 		RETURN(-ENOTSUPP);

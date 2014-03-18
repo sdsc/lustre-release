@@ -927,10 +927,6 @@ int dt_index_read(const struct lu_env *env, struct dt_device *dev,
 		GOTO(out, rc = -EOPNOTSUPP);
 	}
 
-	if ((feat->dif_flags & DT_IND_NONUNQ) != 0)
-		/* key isn't necessarily unique */
-		ii->ii_flags |= II_FL_NONUNQ;
-
 	if (!fid_is_layout_rbtree(&ii->ii_fid)) {
 		dt_read_lock(env, obj, 0);
 		/* fetch object version before walking the index */

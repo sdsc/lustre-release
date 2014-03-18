@@ -3202,16 +3202,15 @@ static int osd_iam_index_probe(const struct lu_env *env, struct osd_object *o,
                 else
                         return 0;
         } else {
-                return
-                        feat->dif_keysize_min <= descr->id_key_size &&
-                        descr->id_key_size <= feat->dif_keysize_max &&
-                        feat->dif_recsize_min <= descr->id_rec_size &&
-                        descr->id_rec_size <= feat->dif_recsize_max &&
-                        !(feat->dif_flags & (DT_IND_VARKEY |
-                                             DT_IND_VARREC | DT_IND_NONUNQ)) &&
-                        ergo(feat->dif_flags & DT_IND_UPDATE,
-                             1 /* XXX check that object (and file system) is
-                                * writable */);
+		return
+			feat->dif_keysize_min <= descr->id_key_size &&
+			descr->id_key_size <= feat->dif_keysize_max &&
+			feat->dif_recsize_min <= descr->id_rec_size &&
+			descr->id_rec_size <= feat->dif_recsize_max &&
+			!(feat->dif_flags & (DT_IND_VARKEY | DT_IND_VARREC)) &&
+			ergo(feat->dif_flags & DT_IND_UPDATE,
+				1 /* XXX check that object (and file system) is
+				   * writable */);
         }
 }
 

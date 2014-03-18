@@ -232,9 +232,6 @@ repeat:
 	if ((ii->ii_flags & II_FL_VARKEY) != 0)
 		CWARN("%s: II_FL_VARKEY is set on index transfer for fid "DFID
 		      ", it shouldn't be\n", qsd->qsd_svname, PFID(fid));
-	if ((ii->ii_flags & II_FL_NONUNQ) != 0)
-		CWARN("%s: II_FL_NONUNQ is set on index transfer for fid "DFID
-		      ", it shouldn't be\n", qsd->qsd_svname, PFID(fid));
 	if (ii->ii_keysize != sizeof(__u64)) {
 		CERROR("%s: invalid key size reported on index transfer for "
 		       "fid "DFID", %u != %u\n", qsd->qsd_svname, PFID(fid),
