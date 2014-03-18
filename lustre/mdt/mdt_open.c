@@ -1280,8 +1280,11 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		 * this is pretty important otherwise mdt will return layout
 		 * lock for each open.
 		 * However this is a double-edged sword because changing
-		 * permission will revoke huge # of LOOKUP locks. */
-		*ibits |= MDS_INODELOCK_LAYOUT | MDS_INODELOCK_LOOKUP;
+		 * permission will revoke huge # of LOOKUP locks.
+		 * Fetch update|perm lock for performance, because stat often
+		 * follows open. */
+		*ibits |= MDS_INODELOCK_LAYOUT | MDS_INODELOCK_LOOKUP |
+			  MDS_INODELOCK_UPDATE | MDS_INODELOCK_PERM;
 		if (!mdt_object_lock_try(info, obj, lhc, *ibits,
 					 MDT_CROSS_LOCK)) {
 			*ibits &= ~(MDS_INODELOCK_LAYOUT|MDS_INODELOCK_LOOKUP);
