@@ -216,7 +216,6 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 	int			done = 0;
 	int			rc = 0;
 	__u64			hash = MDS_DIR_END_OFF;
-	__u64			last_hash = MDS_DIR_END_OFF;
 	struct page		*page = NULL;
 	ENTRY;
 
@@ -264,10 +263,8 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 #endif
 		if (done) {
 			if (op_data->op_hash_offset != MDS_DIR_END_OFF)
-				op_data->op_hash_offset = last_hash;
+				op_data->op_hash_offset = hash;
 			break;
-		} else {
-			last_hash = hash;
 		}
 	}
 
