@@ -667,6 +667,8 @@ static int llog_test_6(const struct lu_env *env, struct obd_device *obd,
 	plain_counter = 1; /* llog header is first record */
 	CWARN("6c: process log %s reversely using client API\n", name);
 	rc = llog_reverse_process(env, llh, plain_print_cb, NULL, NULL);
+	if (rc > 0)
+		rc = 0;
 	if (rc)
 		CERROR("6c: llog_reverse_process failed %d\n", rc);
 	CWARN("6c: processed %d records\n", plain_counter);
@@ -784,6 +786,8 @@ static int llog_test_7_sub(const struct lu_env *env, struct llog_ctxt *ctxt)
 
 	plain_counter = 0;
 	rc = llog_reverse_process(env, llh, test_7_cancel_cb, "test 7", NULL);
+	if (rc > 0)
+		rc = 0;
 	if (rc) {
 		CERROR("7_sub: reverse llog process failed: %d\n", rc);
 		GOTO(out_close, rc);
