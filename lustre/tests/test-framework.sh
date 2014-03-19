@@ -791,6 +791,25 @@ node_fstypes() {
 	echo -n $fstypes
 }
 
+facet_index() {
+	local facet=$1
+	local num=$(facet_number $facet)
+	local index
+
+	if [[ $(facet_type $facet) = OST ]]; then
+		index=OSTINDEX${num}
+		if [[ -n "${!index}" ]]; then
+			echo -n ${!index}
+			return
+		fi
+
+		index=${OST_INDICES[num - 1]}
+	fi
+
+	[[ -n "$index" ]] || index=$((num - 1))
+	echo -n $index
+}
+
 devicelabel() {
 	local facet=$1
 	local dev=$2
@@ -3210,7 +3229,7 @@ mkfs_opts() {
 	local dev=$2
 	local fsname=${3:-"$FSNAME"}
 	local type=$(facet_type $facet)
-	local index=$(($(facet_number $facet) - 1))
+	local index=$(facet_index $facet)
 	local fstype=$(facet_fstype $facet)
 	local host=$(facet_host $facet)
 	local opts
@@ -3307,6 +3326,8 @@ formatall() {
 	# We need ldiskfs here, may as well load them all
 	load_modules
 	[ "$CLIENTONLY" ] && return
+
+	export OST_INDICES=($(hostlist_expand "$OST_INDEX_LIST"))
 	echo Formatting mgs, mds, osts
 	if ! combined_mgs_mds ; then
 		echo "Format mgs: $(mgsdevname)"
