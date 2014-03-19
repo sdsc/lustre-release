@@ -457,13 +457,6 @@ struct dt_object_operations {
 					__u64 opc);
 	int (*do_object_sync)(const struct lu_env *env, struct dt_object *obj,
 			      __u64 start, __u64 end);
-	/**
-	 * Get object info of next level. Currently, only get inode from osd.
-	 * This is only used by quota b=16542
-	 * precondition: dt_object_exists(dt);
-	 */
-	int (*do_data_get)(const struct lu_env *env, struct dt_object *dt,
-			   void **data);
 
 	/**
 	 * Lock object.
