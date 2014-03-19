@@ -1003,13 +1003,6 @@ struct dt_object_operations {
 			      __u64 end);
 
 	/**
-	 * Not used, subject to removal.
-	 */
-	int (*do_data_get)(const struct lu_env *env,
-			   struct dt_object *dt,
-			   void **data);
-
-	/**
 	 * Lock object.
 	 *
 	 * Lock object(s) using Distributed Lock Manager (LDLM).
