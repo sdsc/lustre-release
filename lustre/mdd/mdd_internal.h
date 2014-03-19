@@ -210,11 +210,6 @@ int mdd_file_unlock(const struct lu_env *env, struct md_object *obj,
                     struct lov_mds_md *lmm, struct lustre_handle *lockh);
 int mdd_lum_lmm_cmp(const struct lu_env *env, struct md_object *cobj,
                     const struct md_op_spec *spec, struct md_attr *ma);
-int mdd_get_md(const struct lu_env *env, struct mdd_object *obj,
-               void *md, int *md_size, const char *name);
-int mdd_get_md_locked(const struct lu_env *env, struct mdd_object *obj,
-                      void *md, int *md_size, const char *name);
-int mdd_data_get(const struct lu_env *env, struct mdd_object *obj, void **data);
 int mdd_la_get(const struct lu_env *env, struct mdd_object *obj,
                struct lu_attr *la, struct lustre_capa *capa);
 void mdd_flags_xlate(struct mdd_object *obj, __u32 flags);
@@ -621,15 +616,6 @@ static inline int mdd_permission_internal_locked(const struct lu_env *env,
 						enum mdd_object_role role)
 {
 	return __mdd_permission_internal(env, obj, la, mask, role);
-}
-
-static inline int mdo_data_get(const struct lu_env *env,
-                               struct mdd_object *obj,
-                               void **data)
-{
-        struct dt_object *next = mdd_object_child(obj);
-        next->do_ops->do_data_get(env, next, data);
-        return 0;
 }
 
 /* mdd inline func for calling osd_dt_object ops */
