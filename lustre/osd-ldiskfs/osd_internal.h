@@ -474,8 +474,15 @@ struct osd_thread_info {
         struct dentry          oti_obj_dentry;
         struct dentry          oti_child_dentry;
 
-        /** dentry for Iterator context. */
-        struct dentry          oti_it_dentry;
+	union {
+		/** dentry for Iterator context. */
+		struct dentry		oti_it_dentry;
+		/* fake struct file for osd_object_sync */
+		struct file		oti_file;
+		/* osd_statfs() */
+		struct kstatfs		oti_ksfs;
+	};
+
         struct htree_lock     *oti_hlock;
 
         struct lu_fid          oti_fid;
@@ -490,10 +497,6 @@ struct osd_thread_info {
          * XXX temporary: for ->i_op calls.
          */
         struct timespec        oti_time;
-        /*
-         * XXX temporary: fake struct file for osd_object_sync
-         */
-        struct file            oti_file;
         /*
          * XXX temporary: for capa operations.
          */
@@ -523,7 +526,6 @@ struct osd_thread_info {
 	/** pre-allocated buffer used by oti_it_ea, size OSD_IT_EA_BUFSIZE */
 	void			*oti_it_ea_buf;
 
-	struct kstatfs		oti_ksfs;
 
         /** IAM iterator for index operation. */
         struct iam_iterator    oti_idx_it;
