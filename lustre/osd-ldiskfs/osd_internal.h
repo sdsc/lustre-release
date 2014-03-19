@@ -327,9 +327,8 @@ enum {
 	OSD_OT_WRITE		= 7,
 	OSD_OT_INSERT		= 8,
 	OSD_OT_DELETE		= 9,
-	OSD_OT_UPDATE		= 10,
-	OSD_OT_QUOTA		= 11,
-	OSD_OT_MAX		= 12
+	OSD_OT_QUOTA		= 10,
+	OSD_OT_MAX		= 11
 };
 
 struct osd_thandle {
@@ -494,50 +493,56 @@ struct osd_iobuf {
 };
 
 struct osd_thread_info {
-        const struct lu_env   *oti_env;
-        /**
-         * used for index operations.
-         */
-        struct dentry          oti_obj_dentry;
-        struct dentry          oti_child_dentry;
+	const struct lu_env   *oti_env;
+	/**
+	 * used for index operations.
+	 */
+	struct dentry          oti_obj_dentry;
+	struct dentry          oti_child_dentry;
 
-        /** dentry for Iterator context. */
-        struct dentry          oti_it_dentry;
-        struct htree_lock     *oti_hlock;
+	union {
+		/** dentry for Iterator context. */
+		struct dentry		oti_it_dentry;
+		/* fake struct file for osd_object_sync */
+		struct file		oti_file;
+		/* osd_statfs() */
+		struct kstatfs		oti_ksfs;
+		/* IAM iterator for index operation. */
+		struct iam_iterator    oti_idx_it;
 
-        struct lu_fid          oti_fid;
+	};
+
+	struct htree_lock     *oti_hlock;
+
+	struct lu_fid          oti_fid;
 	struct lu_fid	       oti_fid2;
 	struct lu_fid	       oti_fid3;
 	struct osd_inode_id    oti_id;
 	struct osd_inode_id    oti_id2;
 	struct osd_inode_id    oti_id3;
-        struct ost_id          oti_ostid;
+	struct ost_id          oti_ostid;
 
-        /*
-         * XXX temporary: for ->i_op calls.
-         */
-        struct timespec        oti_time;
-        /*
-         * XXX temporary: fake struct file for osd_object_sync
-         */
-        struct file            oti_file;
-        /*
-         * XXX temporary: for capa operations.
-         */
-        struct lustre_capa_key oti_capa_key;
-        struct lustre_capa     oti_capa;
+	/*
+	 * XXX temporary: for ->i_op calls.
+	 */
+	struct timespec        oti_time;
+	/*
+	 * XXX temporary: for capa operations.
+	 */
+	struct lustre_capa_key oti_capa_key;
+	struct lustre_capa     oti_capa;
 
-        /** osd_device reference, initialized in osd_trans_start() and
-            used in osd_trans_stop() */
-        struct osd_device     *oti_dev;
+	/** osd_device reference, initialized in osd_trans_start() and
+	  used in osd_trans_stop() */
+	struct osd_device     *oti_dev;
 
-        /**
-         * following ipd and it structures are used for osd_index_iam_lookup()
-         * these are defined separately as we might do index operation
-         * in open iterator session.
-         */
+	/**
+	 * following ipd and it structures are used for osd_index_iam_lookup()
+	 * these are defined separately as we might do index operation
+	 * in open iterator session.
+	 */
 
-        /** osd iterator context used for iterator session */
+	/** osd iterator context used for iterator session */
 
 	union {
 		struct osd_it_iam	oti_it;
@@ -550,10 +555,6 @@ struct osd_thread_info {
 	/** pre-allocated buffer used by oti_it_ea, size OSD_IT_EA_BUFSIZE */
 	void			*oti_it_ea_buf;
 
-	struct kstatfs		oti_ksfs;
-
-        /** IAM iterator for index operation. */
-        struct iam_iterator    oti_idx_it;
 
         /** union to guarantee that ->oti_ipd[] has proper alignment. */
         union {

@@ -119,7 +119,6 @@ int osd_trans_declare_op2rb[] = {
 	[OSD_OT_WRITE]		= OSD_OT_WRITE,
 	[OSD_OT_INSERT]		= OSD_OT_DELETE,
 	[OSD_OT_DELETE]		= OSD_OT_INSERT,
-	[OSD_OT_UPDATE]		= OSD_OT_MAX,
 	[OSD_OT_QUOTA]		= OSD_OT_MAX,
 };
 
@@ -6370,6 +6369,9 @@ static struct obd_ops osd_obd_device_ops = {
 static int __init osd_mod_init(void)
 {
 	int rc;
+
+	/* please, try to keep osd_thread_info smaller than a page */
+	CLASSERT(sizeof(struct osd_thread_info) <= PAGE_SIZE);
 
 	osd_oi_mod_init();
 
