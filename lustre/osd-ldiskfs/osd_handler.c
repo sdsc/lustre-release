@@ -6282,6 +6282,9 @@ static int __init osd_mod_init(void)
 {
 	int rc;
 
+	/* please, try to keep osd_thread_info smaller than a page */
+	CLASSERT(sizeof(struct osd_thread_info) <= PAGE_SIZE);
+
 	osd_oi_mod_init();
 
 	rc = lu_kmem_init(ldiskfs_caches);
