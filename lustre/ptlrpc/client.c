@@ -1493,8 +1493,8 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                         cfs_list_entry(tmp, struct ptlrpc_request,
                                        rq_set_chain);
                 struct obd_import *imp = req->rq_import;
-                int unregistered = 0;
-                int rc = 0;
+		int unregistered = 0;
+		int rc = 0;
 
                 if (req->rq_phase == RQ_PHASE_NEW &&
                     ptlrpc_send_new_req(req)) {
@@ -1547,12 +1547,13 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                                                      OBD_FAIL_ONCE);
                         }
 
-                        /*
-                         * Move to next phase if reply was successfully
-                         * unlinked.
-                         */
-                        ptlrpc_rqphase_move(req, req->rq_next_phase);
-                }
+			/*
+			 * Move to next phase if reply was successfully
+			 * unlinked.
+			 */
+			unregistered = 1;
+			ptlrpc_rqphase_move(req, req->rq_next_phase);
+		}
 
                 if (req->rq_phase == RQ_PHASE_COMPLETE)
                         continue;
