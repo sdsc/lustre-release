@@ -1483,6 +1483,9 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 {
         cfs_list_t *tmp, *next;
         int force_timer_recalc = 0;
+	int handled = 0;
+	cfs_time_t then;
+	cfs_time_t now = cfs_time_current_sec();
         ENTRY;
 
         if (cfs_atomic_read(&set->set_remaining) == 0)
@@ -1493,9 +1496,23 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                         cfs_list_entry(tmp, struct ptlrpc_request,
                                        rq_set_chain);
                 struct obd_import *imp = req->rq_import;
-                int unregistered = 0;
-                int rc = 0;
+		int unregistered = 0;
+		int rc = 0;
 
+		if (handled++ == 1000) {
+			struct ptlrpc_request *rq;
+
+			then = now;
+			now = cfs_time_current_sec();
+			CDEBUG(D_ERROR,
+			       "Handled 1000 reqs in the set %p during "
+			       CFS_DURATION_T" seconds.\n", set,
+			       cfs_time_sub(now, then));
+			cfs_list_for_each_entry(rq, &set->set_requests,
+						rq_set_chain)
+				DEBUG_REQ(D_ERROR, rq, "in request set");
+			handled = 0;
+		}
                 if (req->rq_phase == RQ_PHASE_NEW &&
                     ptlrpc_send_new_req(req)) {
                         force_timer_recalc = 1;
@@ -1547,12 +1564,13 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                                                      OBD_FAIL_ONCE);
                         }
 
-                        /*
-                         * Move to next phase if reply was successfully
-                         * unlinked.
-                         */
-                        ptlrpc_rqphase_move(req, req->rq_next_phase);
-                }
+			/*
+			 * Move to next phase if reply was successfully
+			 * unlinked.
+			 */
+			unregistered = 1;
+			ptlrpc_rqphase_move(req, req->rq_next_phase);
+		}
 
                 if (req->rq_phase == RQ_PHASE_COMPLETE)
                         continue;
