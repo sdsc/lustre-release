@@ -3309,9 +3309,11 @@ test_52() {
 	[ $? -eq 0 ] || { error "Unable to move objects"; return 14; }
 
 	# recover objects dry-run
-	echo "ll_recover_lost_found_objs dry_run"
-	do_node $ost1node "ll_recover_lost_found_objs -n -d $ost1mnt/O"
-	[ $? -eq 0 ] || { error "ll_recover_lost_found_objs failed"; return 15; }
+	if [ $(lustre_version_code ost1) -lt $(version_code 2.5.56) ]; then
+		echo "ll_recover_lost_found_objs dry_run"
+		do_node $ost1node "ll_recover_lost_found_objs -n -d $ost1mnt/O"
+		[ $? -eq 0 ] || { error "ll_recover_lost_found_objs failed"; return 15; }
+	fi
 
 	# recover objects
 	echo "ll_recover_lost_found_objs fix run"
