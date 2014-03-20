@@ -348,6 +348,11 @@ void ptlrpc_invalidate_import(struct obd_import *imp)
                                                              rq_list);
                                         DEBUG_REQ(D_ERROR, req,
                                                   "still on sending list");
+					CDEBUG(D_ERROR,
+					       "req->rq_receiving_reply=%d, "
+					       "req->rq_must_unlink=%d\n",
+					       req->rq_receiving_reply,
+					       req->rq_must_unlink);
                                 }
                                 cfs_list_for_each_safe(tmp, n,
                                                        &imp->imp_delayed_list) {
