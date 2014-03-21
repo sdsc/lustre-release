@@ -602,6 +602,7 @@ int main(int argc, char *const argv[])
 	struct mount_opts mop;
 	char *options;
 	int i, rc, flags;
+	int after_modprobe = 0;
 
 	progname = strrchr(argv[0], '/');
 	progname = progname ? progname + 1 : argv[0];
@@ -686,7 +687,7 @@ int main(int argc, char *const argv[])
 					" (may cause reduced IO performance)\n",
 					argv[0], mop.mo_source);
 	}
-
+retry:
 	if (!mop.mo_fake) {
                 /* flags and target get to lustre_get_sb, but not
                    lustre_fill_super.  Lustre ignores the flags, but mount
@@ -736,15 +737,41 @@ int main(int argc, char *const argv[])
                 else
                         cli = NULL;
 
-                fprintf(stderr, "%s: mount %s at %s failed: %s\n", progname,
-			mop.mo_usource, mop.mo_target, strerror(errno));
+		if (errno != ENODEV)
+			fprintf(stderr, "%s: mount %s at %s failed: %s\n",
+				progname, mop.mo_usource, mop.mo_target,
+				strerror(errno));
 		if (errno == EBUSY)
 			fprintf(stderr, "Is the backend filesystem mounted?\n"
 					"Check /etc/mtab and /proc/mounts\n");
-                if (errno == ENODEV)
+		if (errno == ENODEV) {
+			if (cli && (after_modprobe == 0)) {
+				/*
+				 * LU-4800
+				 * On client mounts do a modprobe,
+				 * then retry.
+				 * This will take care of cases where
+				 * inkernel module autoloads don't happen
+				 * properly.
+				 */
+				int ret = system("/sbin/modprobe lustre");
+				if (ret == 0) {
+					rc = 0;
+					after_modprobe++;
+					goto retry;
+				}
+				if (ret < 0)
+					rc = errno;
+				else
+					rc = WEXITSTATUS(ret);
+			}
+			fprintf(stderr, "%s: mount %s at %s failed: %s\n",
+				progname, mop.mo_usource, mop.mo_target,
+				strerror(ENODEV));
                         fprintf(stderr, "Are the lustre modules loaded?\n"
                                 "Check /etc/modprobe.conf and "
                                 "/proc/filesystems\n");
+		}
                 if (errno == ENOTBLK)
                         fprintf(stderr, "Do you need -o loop?\n");
                 if (errno == ENOMEDIUM)
