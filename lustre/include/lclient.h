@@ -43,6 +43,11 @@
 #ifndef LCLIENT_H
 #define LCLIENT_H
 
+#include <cl_object.h>
+
+enum obd_notify_event;
+struct obd_export;
+
 blkcnt_t dirty_cnt(struct inode *inode);
 
 int cl_glimpse_size0(struct inode *inode, int agl);

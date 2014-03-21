@@ -36,15 +36,11 @@
  *   Author: Nikita Danilov <nikita.danilov@sun.com>
  */
 
-#define DEBUG_SUBSYSTEM S_LLITE
-
-#ifndef __KERNEL__
-# error This file is kernel only.
-#endif
-
-#include <obd.h>
-#include <lustre_lite.h>
-
+#include <asm/atomic.h>
+#include <linux/kernel.h>
+#include <libcfs/libcfs.h>
+#include <cl_object.h>
+#include <lclient.h>
 #include "vvp_internal.h"
 
 /*****************************************************************************

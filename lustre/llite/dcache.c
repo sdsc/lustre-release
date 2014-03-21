@@ -34,18 +34,28 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+#include <linux/dcache.h>
 #include <linux/fs.h>
-#include <linux/sched.h>
-#include <linux/quotaops.h>
+#include <linux/gfp.h>
 #include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/namei.h>
+#include <linux/rcupdate.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
 
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#include <obd_support.h>
-#include <lustre_lite.h>
+#include <linux/lustre_compat25.h>
+#include <linux/lustre_intent.h>
+#include <linux/lustre_patchless_compat.h>
+#include <libcfs/libcfs.h>
 #include <lustre/lustre_idl.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
 #include <lustre_dlm.h>
-
+#include <lustre_net.h>
+#include <obd_class.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 static void free_dentry_data(struct rcu_head *head)
@@ -85,15 +95,19 @@ static void ll_release(struct dentry *de)
  * an AST before calling d_revalidate_it().  The dentry still exists (marked
  * INVALID) so d_lookup() matches it, but we have no lock on it (so
  * lock_match() fails) and we spin around real_lookup(). */
+
 #ifdef HAVE_D_COMPARE_7ARGS
-int ll_dcompare(const struct dentry *parent, const struct inode *pinode,
-		const struct dentry *dentry, const struct inode *inode,
-		unsigned int len, const char *str, const struct qstr *name)
+static int ll_dcompare(const struct dentry *parent, const struct inode *pinode,
+		       const struct dentry *dentry, const struct inode *inode,
+		       unsigned int len, const char *str,
+		       const struct qstr *name)
 #elif defined(HAVE_D_COMPARE_5ARGS)
-int ll_dcompare(const struct dentry *parent, const struct dentry *dentry,
-		unsigned int len, const char *str, const struct qstr *name)
+static int ll_dcompare(const struct dentry *parent, const struct dentry *dentry,
+		       unsigned int len, const char *str,
+		       const struct qstr *name)
 #else
-int ll_dcompare(struct dentry *parent, struct qstr *d_name, struct qstr *name)
+static int ll_dcompare(struct dentry *parent, struct qstr *d_name,
+		       struct qstr *name)
 #endif
 {
 #if !defined(HAVE_D_COMPARE_7ARGS) && !defined(HAVE_D_COMPARE_5ARGS)
@@ -425,7 +439,7 @@ int ll_revalidate_nd(struct dentry *dentry, struct nameidata *nd)
 }
 #endif
 
-void ll_d_iput(struct dentry *de, struct inode *inode)
+static void ll_d_iput(struct dentry *de, struct inode *inode)
 {
 	LASSERT(inode);
 	if (!find_cbdata(inode))
@@ -433,7 +447,7 @@ void ll_d_iput(struct dentry *de, struct inode *inode)
 	iput(inode);
 }
 
-struct dentry_operations ll_d_ops = {
+const struct dentry_operations ll_d_ops = {
         .d_revalidate = ll_revalidate_nd,
         .d_release = ll_release,
         .d_delete  = ll_ddelete,

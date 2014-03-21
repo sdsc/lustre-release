@@ -34,19 +34,32 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+#include <linux/capability.h>
+#include <linux/cred.h>
+#include <linux/dcache.h>
+#include <linux/err.h>
+#include <linux/errno.h>
 #include <linux/fs.h>
+#include <linux/kernel.h>
+#include <linux/path.h>
+#include <linux/posix_acl.h>
+#include <linux/posix_acl_xattr.h>
 #include <linux/sched.h>
-#include <linux/mm.h>
 #include <linux/selinux.h>
+#include <linux/spinlock.h>
+#include <linux/stat.h>
+#include <linux/string.h>
 
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#include <obd_support.h>
-#include <lustre_lite.h>
-#include <lustre_dlm.h>
-#include <lustre_ver.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <lclient.h>
+#include <lustre_capa.h>
 #include <lustre_eacl.h>
-
+#include <lustre_lite.h>
+#include <lustre_net.h>
+#include <lustre_req_layout.h>
+#include <obd_class.h>
 #include "llite_internal.h"
 
 #define XATTR_USER_T            (1)

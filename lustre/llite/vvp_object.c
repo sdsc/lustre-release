@@ -38,17 +38,22 @@
  *   Author: Nikita Danilov <nikita.danilov@sun.com>
  */
 
+#include <asm/atomic.h>
+#include <linux/fs.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/mm.h>
+#include <linux/time.h>
+
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#ifndef __KERNEL__
-# error This file is kernel only.
-#endif
-
+#include <linux/lustre_compat25.h>
 #include <libcfs/libcfs.h>
-
+#include <lustre/lustre_idl.h>
+#include <cl_object.h>
+#include <lclient.h>
+#include <lu_object.h>
 #include <obd.h>
-#include <lustre_lite.h>
-
+#include "llite_internal.h"
 #include "vvp_internal.h"
 
 /*****************************************************************************
@@ -123,8 +128,8 @@ static int vvp_attr_set(const struct lu_env *env, struct cl_object *obj,
         return 0;
 }
 
-int vvp_conf_set(const struct lu_env *env, struct cl_object *obj,
-		const struct cl_object_conf *conf)
+static int vvp_conf_set(const struct lu_env *env, struct cl_object *obj,
+			const struct cl_object_conf *conf)
 {
 	struct ll_inode_info *lli = ll_i2info(conf->coc_inode);
 

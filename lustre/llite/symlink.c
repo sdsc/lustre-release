@@ -34,13 +34,28 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+#include <linux/dcache.h>
+#include <linux/err.h>
 #include <linux/fs.h>
-#include <linux/mm.h>
-#include <linux/stat.h>
-#include <linux/version.h>
-#define DEBUG_SUBSYSTEM S_LLITE
+#include <linux/gfp.h>
+#include <linux/kernel.h>
+#include <linux/namei.h>
+#include <linux/rcupdate.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/string.h>
+#include <linux/errno.h>
 
-#include <lustre_lite.h>
+#define DEBUG_SUBSYSTEM S_LLITE
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lustre_net.h>
+#include <lustre_req_layout.h>
+#include <obd_class.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 static int ll_readlink_internal(struct inode *inode,
@@ -122,7 +137,7 @@ failed:
         RETURN (rc);
 }
 
-static int ll_readlink(struct dentry *dentry, char *buffer, int buflen)
+static int ll_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 {
         struct inode *inode = dentry->d_inode;
         struct ptlrpc_request *request;

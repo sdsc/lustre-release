@@ -40,12 +40,23 @@
  * Author: Fan Yong <fanyong@clusterfs.com>
  */
 
-#define DEBUG_SUBSYSTEM S_LLITE
-
 #ifdef CONFIG_FS_POSIX_ACL
 
-#include <lustre_lite.h>
+#include <linux/errno.h>
+#include <linux/gfp.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/rcupdate.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/string.h>
+
+#define DEBUG_SUBSYSTEM S_LLITE
+#include <lustre/lustre_idl.h>
+#include <libcfs/libcfs.h>
+#include <lprocfs_status.h>
 #include <lustre_eacl.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 static inline __u32 rce_hashfunc(uid_t id)

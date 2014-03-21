@@ -40,15 +40,58 @@
  * Author: Andreas Dilger <adilger@clusterfs.com>
  */
 
-#define DEBUG_SUBSYSTEM S_LLITE
-#include <lustre_dlm.h>
-#include <lustre_lite.h>
-#include <linux/pagemap.h>
+#include <asm/atomic.h>
+#include <asm/byteorder.h>
+#include <linux/aio.h>
+#include <linux/err.h>
+#include <linux/errno.h>
+#include <linux/fiemap.h>
 #include <linux/file.h>
-#include "llite_internal.h"
-#include <lustre/ll_fiemap.h>
+#include <linux/fs.h>
+#include <linux/gfp.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/module.h>
+#include <linux/mount.h>
+#include <linux/mutex.h>
+#include <linux/pagemap.h>
+#include <linux/path.h>
+#include <linux/posix_acl.h>
+#include <linux/rwsem.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/stat.h>
+#include <linux/time.h>
+#include <linux/uio.h>
+#include <linux/uaccess.h>
+#include <linux/vmalloc.h>
+#include <linux/wait.h>
 
-#include "cl_object.h"
+#define DEBUG_SUBSYSTEM S_LLITE
+#include <linux/lustre_common.h>
+#include <linux/lustre_compat25.h>
+#include <linux/lustre_intent.h>
+#include <linux/lustre_patchless_compat.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <lustre/ll_fiemap.h>
+#include <cl_object.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lustre_capa.h>
+#include <lustre_dlm.h>
+#include <lustre_export.h>
+#include <lustre_handles.h>
+#include <lustre_lib.h>
+#include <lustre_lite.h>
+#include <lustre_mdc.h>
+#include <lustre_mds.h>
+#include <lustre_net.h>
+#include <lustre_req_layout.h>
+#include <obd_class.h>
+#include <obd_support.h>
+#include "llite_internal.h"
 
 struct ll_file_data *ll_file_data_get(void)
 {
@@ -1462,7 +1505,7 @@ static int ll_lov_recreate_obj(struct inode *inode, unsigned long arg)
 	if (!cfs_capable(CFS_CAP_SYS_ADMIN))
 		RETURN(-EPERM);
 
-	if (copy_from_user(&ucreat, (struct ll_recreate_obj *)arg,
+	if (copy_from_user(&ucreat, (struct ll_recreate_obj __user *)arg,
 			   sizeof(ucreat)))
 		RETURN(-EFAULT);
 
@@ -1481,7 +1524,7 @@ static int ll_lov_recreate_fid(struct inode *inode, unsigned long arg)
 	if (!cfs_capable(CFS_CAP_SYS_ADMIN))
 		RETURN(-EPERM);
 
-	if (copy_from_user(&fid, (struct lu_fid *)arg, sizeof(fid)))
+	if (copy_from_user(&fid, (struct lu_fid __user *)arg, sizeof(fid)))
 		RETURN(-EFAULT);
 
 	fid_to_ostid(&fid, &oi);
@@ -1629,7 +1672,7 @@ static int ll_lov_setea(struct inode *inode, struct file *file,
 	if (lump == NULL)
                 RETURN(-ENOMEM);
 
-	if (copy_from_user(lump, (struct lov_user_md  *)arg, lum_size)) {
+	if (copy_from_user(lump, (struct lov_user_md __user *)arg, lum_size)) {
 		OBD_FREE_LARGE(lump, lum_size);
 		RETURN(-EFAULT);
 	}
@@ -1645,11 +1688,14 @@ static int ll_lov_setstripe(struct inode *inode, struct file *file,
 {
 	struct lov_user_md_v3	 lumv3;
 	struct lov_user_md_v1	*lumv1 = (struct lov_user_md_v1 *)&lumv3;
-	struct lov_user_md_v1	*lumv1p = (struct lov_user_md_v1 *)arg;
-	struct lov_user_md_v3	*lumv3p = (struct lov_user_md_v3 *)arg;
+	struct lov_user_md_v1 __user *lumv1p;
+	struct lov_user_md_v3 __user *lumv3p;
 	int			 lum_size, rc;
 	__u64			 flags = FMODE_WRITE;
 	ENTRY;
+
+	lumv1p = (struct lov_user_md_v1 __user *)arg;
+	lumv3p = (struct lov_user_md_v3 __user *)arg;
 
 	/* first try with v1 which is smaller than v3 */
 	lum_size = sizeof(struct lov_user_md_v1);
@@ -1672,7 +1718,7 @@ static int ll_lov_setstripe(struct inode *inode, struct file *file,
 		ll_layout_refresh(inode, &gen);
 		lsm = ccc_inode_lsm_get(inode);
 		rc = obd_iocontrol(LL_IOC_LOV_GETSTRIPE, ll_i2dtexp(inode),
-				   0, lsm, (void *)arg);
+				   0, lsm, (void __user *)arg);
 		ccc_inode_lsm_put(inode, lsm);
 	}
 	RETURN(rc);
@@ -1872,7 +1918,7 @@ out:
 	RETURN(rc);
 }
 
-int ll_fid2path(struct inode *inode, void *arg)
+int ll_fid2path(struct inode *inode, void __user *arg)
 {
 	struct obd_export	*exp = ll_i2mdexp(inode);
 	struct getinfo_fid2path	*gfout, *gfin;
@@ -1958,7 +2004,7 @@ static int ll_ioctl_fiemap(struct inode *inode, unsigned long arg)
                 ret_bytes += (fiemap_s->fm_mapped_extents *
                                  sizeof(struct ll_fiemap_extent));
 
-	if (copy_to_user((void *)arg, fiemap_s, ret_bytes))
+	if (copy_to_user((void __user *)arg, fiemap_s, ret_bytes))
 		rc = -EFAULT;
 
 error:
@@ -2300,7 +2346,8 @@ out:
 	RETURN(rc);
 }
 
-long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+static long
+ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct inode		*inode = file->f_dentry->d_inode;
 	struct ll_file_data	*fd = LUSTRE_FPRIVATE(file);
@@ -2318,14 +2365,14 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         switch(cmd) {
         case LL_IOC_GETFLAGS:
                 /* Get the current value of the file flags */
-                return put_user(fd->fd_flags, (int *)arg);
+		return put_user(fd->fd_flags, (int __user *)arg);
         case LL_IOC_SETFLAGS:
         case LL_IOC_CLRFLAGS:
                 /* Set or clear specific file flags */
                 /* XXX This probably needs checks to ensure the flags are
                  *     not abused, and to handle any flag side effects.
                  */
-                if (get_user(flags, (int *) arg))
+		if (get_user(flags, (int __user *)arg))
                         RETURN(-EFAULT);
 
                 if (cmd == LL_IOC_SETFLAGS) {
@@ -2349,8 +2396,8 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		struct file *file2;
 		struct lustre_swap_layouts lsl;
 
-		if (copy_from_user(&lsl, (char *)arg,
-				       sizeof(struct lustre_swap_layouts)))
+		if (copy_from_user(&lsl, (void __user *)arg,
+				   sizeof(struct lustre_swap_layouts)))
 			RETURN(-EFAULT);
 
 		if ((file->f_flags & O_ACCMODE) == 0) /* O_RDONLY */
@@ -2379,13 +2426,13 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 RETURN(ll_iocontrol(inode, file, cmd, arg));
         case FSFILT_IOC_GETVERSION_OLD:
         case FSFILT_IOC_GETVERSION:
-                RETURN(put_user(inode->i_generation, (int *)arg));
+		RETURN(put_user(inode->i_generation, (int __user *)arg));
         case LL_IOC_GROUP_LOCK:
                 RETURN(ll_get_grouplock(inode, file, arg));
         case LL_IOC_GROUP_UNLOCK:
                 RETURN(ll_put_grouplock(inode, file, arg));
         case IOC_OBD_STATFS:
-                RETURN(ll_obd_statfs(inode, (void *)arg));
+		RETURN(ll_obd_statfs(inode, (void __user *)arg));
 
         /* We need to special case any other ioctls we want to handle,
          * to send them to the MDS/OST as appropriate and to properly
@@ -2396,25 +2443,27 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case LL_IOC_FLUSHCTX:
 		RETURN(ll_flush_ctx(inode));
 	case LL_IOC_PATH2FID: {
-		if (copy_to_user((void *)arg, ll_inode2fid(inode),
+		if (copy_to_user((void __user *)arg, ll_inode2fid(inode),
 				 sizeof(struct lu_fid)))
 			RETURN(-EFAULT);
 
 		RETURN(0);
 	}
 	case OBD_IOC_FID2PATH:
-		RETURN(ll_fid2path(inode, (void *)arg));
+		RETURN(ll_fid2path(inode, (void __user *)arg));
 	case LL_IOC_DATA_VERSION: {
 		struct ioc_data_version	idv;
 		int rc;
 
-		if (copy_from_user(&idv, (char *)arg, sizeof(idv)))
+		if (copy_from_user(&idv, (void __user *)arg, sizeof(idv)))
 			RETURN(-EFAULT);
 
 		idv.idv_flags &= LL_DV_RD_FLUSH | LL_DV_WR_FLUSH;
 		rc = ll_data_version(inode, &idv.idv_version, idv.idv_flags);
+		if (rc != 0)
+			RETURN(rc);
 
-		if (rc == 0 && copy_to_user((char *) arg, &idv, sizeof(idv)))
+		if (copy_to_user((void __user *)arg, &idv, sizeof(idv)))
 			RETURN(-EFAULT);
 
 		RETURN(rc);
@@ -2427,8 +2476,8 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 if (mdtidx < 0)
                         RETURN(mdtidx);
 
-                if (put_user((int)mdtidx, (int*)arg))
-                        RETURN(-EFAULT);
+		if (put_user(mdtidx, (int __user *)arg))
+			RETURN(-EFAULT);
 
                 RETURN(0);
         }
@@ -2454,7 +2503,7 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		rc = obd_iocontrol(cmd, ll_i2mdexp(inode), sizeof(*op_data),
 				   op_data, NULL);
 
-		if (copy_to_user((void *)arg, hus, sizeof(*hus)))
+		if (copy_to_user((void __user *)arg, hus, sizeof(*hus)))
 			rc = -EFAULT;
 
 		ll_finish_md_op_data(op_data);
@@ -2469,7 +2518,7 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (hss == NULL)
 			RETURN(-ENOMEM);
 
-		if (copy_from_user(hss, (char *)arg, sizeof(*hss))) {
+		if (copy_from_user(hss, (void __user *)arg, sizeof(*hss))) {
 			OBD_FREE_PTR(hss);
 			RETURN(-EFAULT);
 		}
@@ -2498,7 +2547,7 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		rc = obd_iocontrol(cmd, ll_i2mdexp(inode), sizeof(*op_data),
 				   op_data, NULL);
 
-		if (copy_to_user((char *)arg, hca, sizeof(*hca)))
+		if (copy_to_user((void __user *)arg, hca, sizeof(*hca)))
 			rc = -EFAULT;
 
 		ll_finish_md_op_data(op_data);
@@ -2595,7 +2644,7 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (hui == NULL)
 			RETURN(-ENOMEM);
 
-		if (copy_from_user(hui, (void *)arg, sizeof(*hui))) {
+		if (copy_from_user(hui, (void __user *)arg, sizeof(*hui))) {
 			OBD_FREE_PTR(hui);
 			RETURN(-EFAULT);
 		}
@@ -2614,7 +2663,7 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			RETURN(err);
 
 		RETURN(obd_iocontrol(cmd, ll_i2dtexp(inode), 0, NULL,
-				     (void *)arg));
+				     (void __user *)arg));
 	}
 	}
 }
@@ -2686,7 +2735,7 @@ generic_file_llseek_size(struct file *file, loff_t offset, int origin,
 }
 #endif
 
-loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
+static loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
 {
 	struct inode *inode = file->f_dentry->d_inode;
 	loff_t retval, eof = 0;
@@ -2711,7 +2760,7 @@ loff_t ll_file_seek(struct file *file, loff_t offset, int origin)
 	RETURN(retval);
 }
 
-int ll_flush(struct file *file, fl_owner_t id)
+static int ll_flush(struct file *file, fl_owner_t id)
 {
 	struct inode *inode = file->f_dentry->d_inode;
 	struct ll_inode_info *lli = ll_i2info(inode);
@@ -2869,7 +2918,8 @@ int ll_fsync(struct file *file, struct dentry *dentry, int datasync)
 	RETURN(rc);
 }
 
-int ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
+static int
+ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 {
 	struct inode *inode = file->f_dentry->d_inode;
 	struct ll_sb_info *sbi = ll_i2sbi(inode);
@@ -3106,7 +3156,8 @@ out_free:
 	RETURN(rc);
 }
 
-int ll_file_noflock(struct file *file, int cmd, struct file_lock *file_lock)
+static int
+ll_file_noflock(struct file *file, int cmd, struct file_lock *file_lock)
 {
         ENTRY;
 
@@ -3405,8 +3456,9 @@ int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat)
         return ll_getattr_it(mnt, de, &it, stat);
 }
 
-int ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
-                __u64 start, __u64 len)
+static int
+ll_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
+	  __u64 start, __u64 len)
 {
         int rc;
         size_t num_bytes;

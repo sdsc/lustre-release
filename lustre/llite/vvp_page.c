@@ -39,15 +39,23 @@
  *   Author: Jinshan Xiong <jinshan.xiong@whamcloud.com>
  */
 
+#include <asm/atomic.h>
+#include <linux/errno.h>
+#include <linux/fs.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/mm.h>
+#include <linux/mutex.h>
+#include <linux/pagemap.h>
+
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#ifndef __KERNEL__
-# error This file is kernel only.
-#endif
-
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <cl_object.h>
+#include <lclient.h>
+#include <lu_object.h>
 #include <obd.h>
-#include <lustre_lite.h>
-
+#include "llite_internal.h"
 #include "vvp_internal.h"
 
 /*****************************************************************************

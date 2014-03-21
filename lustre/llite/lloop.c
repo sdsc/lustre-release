@@ -79,33 +79,45 @@
  *
  */
 
-#include <linux/module.h>
-
-#include <linux/sched.h>
-#include <linux/fs.h>
-#include <linux/file.h>
-#include <linux/stat.h>
-#include <linux/errno.h>
-#include <linux/major.h>
-#include <linux/wait.h>
+#include <asm/atomic.h>
+#include <linux/bio.h>
+#include <linux/blk_types.h>
 #include <linux/blkdev.h>
-#include <linux/blkpg.h>
-#include <linux/init.h>
-#include <linux/swap.h>
-#include <linux/slab.h>
-#include <linux/suspend.h>
-#include <linux/writeback.h>
-#include <linux/buffer_head.h>                /* for invalidate_bdev() */
-#include <linux/completion.h>
-#include <linux/highmem.h>
+#include <linux/dcache.h>
+#include <linux/err.h>
+#include <linux/file.h>
+#include <linux/fs.h>
+#include <linux/genhd.h>
 #include <linux/gfp.h>
-#include <linux/swap.h>
-#include <linux/pagevec.h>
+#include <linux/init.h>
+#include <linux/kdev_t.h>
+#include <linux/kernel.h>
+#include <linux/kthread.h>
+#include <linux/list.h>
+#include <linux/mm.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
+#include <linux/pagemap.h>
+#include <linux/path.h>
+#include <linux/rcupdate.h>
+#include <linux/sched.h>
+#include <linux/semaphore.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/stat.h>
+#include <linux/string.h>
+#include <linux/uaccess.h>
+#include <linux/wait.h>
 
-#include <asm/uaccess.h>
-
-#include <lustre_lib.h>
+#define DEBUG_SUBSYSTEM S_LLITE
+#include <linux/lustre_compat25.h>
+#include <libcfs/libcfs.h>
+#include <lnet/types.h>
+#include <lustre/lustre_idl.h>
+#include <cl_object.h>
+#include <lprocfs_status.h>
 #include <lustre_lite.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 #define LLOOP_MAX_SEGMENTS        LNET_MAX_IOV

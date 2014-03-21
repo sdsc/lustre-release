@@ -34,21 +34,47 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+#include <asm/atomic.h>
+#include <linux/cred.h>
+#include <linux/dcache.h>
+#include <linux/err.h>
+#include <linux/errno.h>
 #include <linux/fs.h>
-#include <linux/sched.h>
+#include <linux/fs_struct.h>
+#include <linux/gfp.h>
+#include <linux/kdev_t.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
 #include <linux/mm.h>
-#include <linux/quotaops.h>
-#include <linux/highmem.h>
-#include <linux/pagemap.h>
-#include <linux/security.h>
+#include <linux/namei.h>
+#include <linux/preempt.h>
+#include <linux/rcupdate.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/stat.h>
+#include <linux/time.h>
 
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#include <obd_support.h>
+#include <linux/lustre_compat25.h>
+#include <linux/lustre_intent.h>
+#include <linux/lustre_patchless_compat.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <cl_object.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lustre_capa.h>
+#include <lustre_dlm.h>
+#include <lustre_dlm_flags.h>
+#include <lustre_export.h>
 #include <lustre_fid.h>
 #include <lustre_lite.h>
-#include <lustre_dlm.h>
-#include <lustre_ver.h>
+#include <lustre_mdc.h>
+#include <lustre_net.h>
+#include <lustre_req_layout.h>
+#include <obd_class.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 static int ll_create_it(struct inode *, struct dentry *,
@@ -74,16 +100,6 @@ int ll_d_mountpoint(struct dentry *dparent, struct dentry *dchild,
         }
         return mounted;
 }
-
-int ll_unlock(__u32 mode, struct lustre_handle *lockh)
-{
-        ENTRY;
-
-        ldlm_lock_decref(lockh, mode);
-
-        RETURN(0);
-}
-
 
 /* called from iget5_locked->find_inode() under inode_lock spinlock */
 static int ll_test_inode(struct inode *inode, void *opaque)
@@ -474,8 +490,8 @@ struct dentry *ll_splice_alias(struct inode *inode, struct dentry *de)
         return de;
 }
 
-int ll_lookup_it_finish(struct ptlrpc_request *request,
-                        struct lookup_intent *it, void *data)
+static int ll_lookup_it_finish(struct ptlrpc_request *request,
+			       struct lookup_intent *it, void *data)
 {
 	struct it_cb_data	 *icbd = data;
 	struct dentry		**de = icbd->icbd_childp;
@@ -1420,7 +1436,7 @@ static int ll_rename(struct inode *old_dir, struct dentry *old_dentry,
         return err;
 }
 
-struct inode_operations ll_dir_inode_operations = {
+const struct inode_operations ll_dir_inode_operations = {
 	.mknod              = ll_mknod,
 #ifdef HAVE_IOP_ATOMIC_OPEN
 	.atomic_open	    = ll_atomic_open,
@@ -1446,7 +1462,7 @@ struct inode_operations ll_dir_inode_operations = {
 #endif
 };
 
-struct inode_operations ll_special_inode_operations = {
+const struct inode_operations ll_special_inode_operations = {
 	.setattr        = ll_setattr,
 	.getattr        = ll_getattr,
 	.permission     = ll_inode_permission,

@@ -38,11 +38,32 @@
  * Lustre Lite routines to issue a secondary close after writeback
  */
 
-#include <linux/module.h>
+#include <asm/atomic.h>
+#include <linux/completion.h>
+#include <linux/errno.h>
+#include <linux/err.h>
+#include <linux/fs.h>
+#include <linux/gfp.h>
+#include <linux/kernel.h>
+#include <linux/kthread.h>
+#include <linux/list.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/wait.h>
 
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#include <lustre_lite.h>
+#include <linux/lustre_compat25.h>
+#include <linux/lustre_patchless_compat.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lustre_export.h>
+#include <lustre_lib.h>
+#include <lustre_net.h>
+#include <obd_class.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 /** records that a write is in flight */

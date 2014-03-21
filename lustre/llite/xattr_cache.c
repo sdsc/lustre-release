@@ -28,15 +28,29 @@
  *
  */
 
-#define DEBUG_SUBSYSTEM S_LLITE
+#include <linux/err.h>
+#include <linux/errno.h>
+#include <linux/gfp.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/mutex.h>
+#include <linux/rwsem.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 
-#include <linux/fs.h>
-#include <linux/sched.h>
-#include <linux/mm.h>
-#include <obd_support.h>
-#include <lustre_lite.h>
+#define DEBUG_SUBSYSTEM S_LLITE
+#include <linux/lustre_intent.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lu_object.h>
 #include <lustre_dlm.h>
-#include <lustre_ver.h>
+#include <lustre_lite.h>
+#include <lustre_net.h>
+#include <lustre_req_layout.h>
+#include <obd_class.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 /* If we ever have hundreds of extended attributes, we might want to consider
@@ -255,7 +269,7 @@ static int ll_xattr_cache_list(struct list_head *cache,
  * \retval 0 @cache is not initialized
  * \retval 1 @cache is initialized
  */
-int ll_xattr_cache_valid(struct ll_inode_info *lli)
+static int ll_xattr_cache_valid(struct ll_inode_info *lli)
 {
 	return !!(lli->lli_flags & LLIF_XATTR_CACHE);
 }

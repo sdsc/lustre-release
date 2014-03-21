@@ -33,21 +33,39 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
+
+#include <asm/atomic.h>
+#include <linux/cred.h>
+#include <linux/err.h>
+#include <linux/errno.h>
+#include <linux/fs.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/module.h>
+#include <linux/pagemap.h>
+#include <linux/proc_fs.h>
+#include <linux/sched.h>
+#include <linux/seq_file.h>
+#include <linux/spinlock.h>
+#include <linux/string.h>
+#include <linux/time.h>
+
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#include <linux/version.h>
-#include <lustre_lite.h>
-#include <lustre_param.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <cl_object.h>
+#include <lclient.h>
 #include <lprocfs_status.h>
-#include <obd_support.h>
-
+#include <lustre_disk.h>
+#include <lustre_lite.h>
+#include <obd_class.h>
 #include "llite_internal.h"
+#include "vvp_internal.h"
 
 struct proc_dir_entry *proc_lustre_fs_root;
 
 #ifdef LPROCFS
 /* /proc/lustre/llite mount point registration */
-extern struct file_operations vvp_dump_pgcache_file_ops;
 struct file_operations ll_rw_extents_stats_fops;
 struct file_operations ll_rw_extents_stats_pp_fops;
 struct file_operations ll_rw_offset_stats_fops;
@@ -892,7 +910,10 @@ struct llite_file_opcode {
         __u32       opcode;
         __u32       type;
         const char *opname;
-} llite_opcode_table[LPROC_LL_FILE_OPCODES] = {
+};
+
+static const struct llite_file_opcode
+llite_opcode_table[LPROC_LL_FILE_OPCODES] = {
         /* file operation */
         { LPROC_LL_DIRTY_HITS,     LPROCFS_TYPE_REGS, "dirty_pages_hits" },
         { LPROC_LL_DIRTY_MISSES,   LPROCFS_TYPE_REGS, "dirty_pages_misses" },
