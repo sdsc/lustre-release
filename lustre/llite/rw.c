@@ -38,29 +38,32 @@
  * Lustre Lite I/O page cache routines shared by different kernel revs
  */
 
-#include <linux/kernel.h>
-#include <linux/mm.h>
-#include <linux/string.h>
-#include <linux/stat.h>
+#include <asm/atomic.h>
+#include <asm/div64.h>
+#include <linux/dcache.h>
+#include <linux/err.h>
 #include <linux/errno.h>
-#include <linux/unistd.h>
-#include <linux/writeback.h>
-#include <asm/uaccess.h>
-
 #include <linux/fs.h>
-#include <linux/stat.h>
-#include <asm/uaccess.h>
+#include <linux/gfp.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
 #include <linux/mm.h>
 #include <linux/pagemap.h>
-/* current_is_kswapd() */
-#include <linux/swap.h>
+#include <linux/path.h>
+#include <linux/spinlock.h>
+#include <linux/string.h>
+#include <linux/writeback.h>
 
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#include <lustre_lite.h>
-#include <obd_cksum.h>
+#include <libcfs/libcfs.h>
+#include <lnet/types.h>
+#include <lustre/lustre_idl.h>
+#include <cl_object.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lu_object.h>
+#include <lustre_net.h>
 #include "llite_internal.h"
-#include <linux/lustre_compat25.h>
 
 /**
  * Finalizes cl-data before exiting typical address_space operation. Dual to

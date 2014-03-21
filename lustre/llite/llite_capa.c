@@ -38,15 +38,27 @@
  * Author: Lai Siyao <lsy@clusterfs.com>
  */
 
-#define DEBUG_SUBSYSTEM S_LLITE
-
+#include <linux/errno.h>
 #include <linux/fs.h>
-#include <linux/version.h>
-#include <asm/uaccess.h>
-#include <linux/file.h>
-#include <linux/kmod.h>
+#include <linux/kernel.h>
+#include <linux/kthread.h>
+#include <linux/list.h>
+#include <linux/module.h>
+#include <linux/sched.h>
+#include <linux/signal.h>
+#include <linux/spinlock.h>
+#include <linux/stat.h>
+#include <linux/timer.h>
+#include <linux/uaccess.h>
+#include <linux/wait.h>
 
-#include <lustre_lite.h>
+#define DEBUG_SUBSYSTEM S_LLITE
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <lustre_capa.h>
+#include <lustre_lib.h>
+#include <lustre_net.h>
+#include <obd_class.h>
 #include "llite_internal.h"
 
 /* for obd_capa.c_list, client capa might stay in three places:

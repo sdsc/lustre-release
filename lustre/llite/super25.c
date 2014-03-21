@@ -34,17 +34,27 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
-#define DEBUG_SUBSYSTEM S_LLITE
-
-#include <linux/module.h>
-#include <linux/types.h>
-#include <linux/version.h>
-#include <lustre_lite.h>
-#include <lustre_ha.h>
-#include <lustre_dlm.h>
-#include <linux/init.h>
+#include <linux/errno.h>
 #include <linux/fs.h>
+#include <linux/gfp.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/time.h>
+#include <linux/timer.h>
+
+#define DEBUG_SUBSYSTEM S_LLITE
+#include <libcfs/libcfs.h>
+#include <lnet/api.h>
+#include <lnet/types.h>
+#include <lustre/lustre_idl.h>
 #include <lprocfs_status.h>
+#include <lustre_capa.h>
+#include <lustre_disk.h>
+#include <lustre_lite.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 static struct kmem_cache *ll_inode_cachep;
@@ -81,7 +91,7 @@ static void ll_destroy_inode(struct inode *inode)
 }
 #endif
 
-int ll_init_inodecache(void)
+static int ll_init_inodecache(void)
 {
 	ll_inode_cachep = kmem_cache_create("lustre_inode_cache",
 					    sizeof(struct ll_inode_info),
@@ -91,7 +101,7 @@ int ll_init_inodecache(void)
 	return 0;
 }
 
-void ll_destroy_inodecache(void)
+static void ll_destroy_inodecache(void)
 {
 	kmem_cache_destroy(ll_inode_cachep);
 }

@@ -38,33 +38,46 @@
  * Lustre Lite I/O page cache routines for the 2.5/2.6 kernel version
  */
 
-#include <linux/kernel.h>
-#include <linux/mm.h>
-#include <linux/string.h>
-#include <linux/stat.h>
+#include <asm/atomic.h>
+#include <linux/aio.h>
+#include <linux/dcache.h>
+#include <linux/err.h>
 #include <linux/errno.h>
-#include <linux/unistd.h>
-#include <asm/uaccess.h>
-
-#ifdef HAVE_MIGRATE_H
-#include <linux/migrate.h>
-#elif defined(HAVE_MIGRATE_MODE_H)
-#include <linux/migrate_mode.h>
-#endif
+#include <linux/fcntl.h>
 #include <linux/fs.h>
-#include <linux/buffer_head.h>
-#include <linux/mpage.h>
-#include <linux/writeback.h>
-#include <linux/stat.h>
-#include <asm/uaccess.h>
+#include <linux/gfp.h>
+#include <linux/highmem.h>
+#include <linux/kernel.h>
+#ifdef HAVE_MIGRATE_H
+# include <linux/migrate.h>
+#elif defined(HAVE_MIGRATE_MODE_H)
+# include <linux/migrate_mode.h>
+#endif
 #include <linux/mm.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/pagemap.h>
+#include <linux/path.h>
+#include <linux/rwsem.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/uaccess.h>
+#include <linux/uio.h>
+#include <linux/vmalloc.h>
 
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#include <lustre_lite.h>
-#include "llite_internal.h"
 #include <linux/lustre_compat25.h>
+#include <libcfs/libcfs.h>
+#include <lnet/types.h>
+#include <lustre/lustre_idl.h>
+#include <cl_object.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lu_object.h>
+#include <lustre_net.h>
+#include <obd_support.h>
+#include "llite_internal.h"
 
 /**
  * Implements Linux VM address_space::invalidatepage() method. This method is
@@ -686,12 +699,12 @@ static int ll_write_end(struct file *file, struct address_space *mapping,
 }
 
 #ifdef CONFIG_MIGRATION
-int ll_migratepage(struct address_space *mapping,
-		struct page *newpage, struct page *page
+static int ll_migratepage(struct address_space *mapping,
+			  struct page *newpage, struct page *page
 #ifdef HAVE_MIGRATEPAGE_4ARGS
-		, enum migrate_mode mode
+			  , enum migrate_mode mode
 #endif
-		)
+	)
 {
         /* Always fail page migration until we have a proper implementation */
         return -EIO;
@@ -699,7 +712,7 @@ int ll_migratepage(struct address_space *mapping,
 #endif
 
 #ifndef MS_HAS_NEW_AOPS
-struct address_space_operations ll_aops = {
+const struct address_space_operations ll_aops = {
         .readpage       = ll_readpage,
 //        .readpages      = ll_readpages,
         .direct_IO      = ll_direct_IO_26,
@@ -716,7 +729,7 @@ struct address_space_operations ll_aops = {
         .bmap           = NULL
 };
 #else
-struct address_space_operations_ext ll_aops = {
+const struct address_space_operations_ext ll_aops = {
 	.orig_aops.readpage		= ll_readpage,
 	.orig_aops.direct_IO		= ll_direct_IO_26,
 	.orig_aops.writepage		= ll_writepage,

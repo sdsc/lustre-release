@@ -41,18 +41,27 @@
  * Author: Fan Yong <fanyong@clusterfs.com>
  */
 
+#include <linux/cred.h>
+#include <linux/errno.h>
+#include <linux/gfp.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/mutex.h>
+#include <linux/preempt.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/string.h>
+
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#include <linux/module.h>
-#include <linux/types.h>
-#include <linux/version.h>
-
-#include <lustre_lite.h>
-#include <lustre_ha.h>
-#include <lustre_dlm.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
 #include <lprocfs_status.h>
-#include <lustre_disk.h>
-#include <lustre_param.h>
+#include <lustre_capa.h>
+#include <lustre_net.h>
+#include <lustre_req_layout.h>
+#include <obd_class.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 struct kmem_cache *ll_remote_perm_cachep;

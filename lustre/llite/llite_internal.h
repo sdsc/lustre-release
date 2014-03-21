@@ -36,18 +36,43 @@
 
 #ifndef LLITE_INTERNAL_H
 #define LLITE_INTERNAL_H
-#include <lustre_debug.h>
-#include <lustre_ver.h>
-#include <lustre_disk.h>  /* for s2sbi */
-#include <lustre_eacl.h>
 
-/* for struct cl_lock_descr and struct cl_io */
+#include <asm/atomic.h>
+#include <linux/aio.h>
+#include <linux/compat.h>
+#include <linux/dcache.h>
+#include <linux/errno.h>
+#include <linux/fs.h>
+#include <linux/kernel.h>
+#include <linux/mm_types.h>
+#include <linux/mutex.h>
+#include <linux/pagemap.h>
+#include <linux/path.h>
+#include <linux/rbtree.h>
+#include <linux/rcupdate.h>
+#include <linux/rwsem.h>
+#include <linux/sched.h>
+#include <linux/semaphore.h>
+#include <linux/spinlock.h>
+#include <linux/uio.h>
+#include <linux/wait.h>
+
+#include <linux/lustre_intent.h>
+#include <linux/lustre_patchless_compat.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <lustre/ll_fiemap.h>
 #include <cl_object.h>
 #include <lclient.h>
-#include <lustre_lmv.h>
-#include <lustre_mdc.h>
-#include <linux/lustre_intent.h>
-#include <linux/compat.h>
+#include <lprocfs_status.h>
+#include <lu_object.h>
+#include <lustre_disk.h>
+#include <lustre_eacl.h>
+#include <lustre_export.h>
+#include <lustre_lib.h>
+#include <lustre_lite.h>
+#include <lustre_ver.h>
+#include <obd_class.h>
 
 #ifndef FMODE_EXEC
 #define FMODE_EXEC 0
@@ -691,14 +716,11 @@ void ll_i2gids(__u32 *suppgids, struct inode *i1,struct inode *i2);
 static inline int ll_need_32bit_api(struct ll_sb_info *sbi)
 {
 #if BITS_PER_LONG == 32
-        return 1;
+	return 1;
+#elif defined(CONFIG_COMPAT)
+	return unlikely(is_compat_task() || (sbi->ll_flags & LL_SBI_32BIT_API));
 #else
-	return unlikely(
-#ifdef CONFIG_COMPAT
-		is_compat_task() ||
-#endif
-		(sbi->ll_flags & LL_SBI_32BIT_API)
-	);
+	return unlikely(sbi->ll_flags & LL_SBI_32BIT_API);
 #endif
 }
 
@@ -727,8 +749,8 @@ static void ll_stats_ops_tally(struct ll_sb_info *sbi, int op, int count) {}
 
 
 /* llite/dir.c */
-extern struct file_operations ll_dir_operations;
-extern struct inode_operations ll_dir_inode_operations;
+extern const struct file_operations ll_dir_operations;
+extern const struct inode_operations ll_dir_inode_operations;
 #ifdef HAVE_DIR_CONTEXT
 int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 		struct dir_context *ctx);
@@ -765,6 +787,8 @@ int ll_d_mountpoint(struct dentry *dparent, struct dentry *dchild,
 		    struct qstr *name);
 void ll_update_times(struct ptlrpc_request *request, struct inode *inode);
 
+extern const struct inode_operations ll_special_inode_operations;
+
 /* llite/rw.c */
 int ll_writepage(struct page *page, struct writeback_control *wbc);
 int ll_writepages(struct address_space *, struct writeback_control *wbc);
@@ -781,6 +805,12 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
 int vvp_io_write_commit(const struct lu_env *env, struct cl_io *io);
 struct ll_cl_context *ll_cl_init(struct file *file, struct page *vmpage);
 void ll_cl_fini(struct ll_cl_context *lcc);
+
+#ifndef MS_HAS_NEW_AOPS
+extern const struct address_space_operations ll_aops;
+#else
+extern const struct address_space_operations_ext ll_aops;
+#endif
 
 /* llite/file.c */
 extern struct file_operations ll_file_operations;
@@ -868,7 +898,7 @@ int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
 int ll_merge_lvb(const struct lu_env *env, struct inode *inode);
 int ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg);
 int ll_put_grouplock(struct inode *inode, struct file *file, unsigned long arg);
-int ll_fid2path(struct inode *inode, void *arg);
+int ll_fid2path(struct inode *inode, void __user *arg);
 int ll_data_version(struct inode *inode, __u64 *data_version, int flags);
 int ll_hsm_release(struct inode *inode);
 
@@ -880,7 +910,7 @@ int ll_lease_close(struct obd_client_handle *och, struct inode *inode,
 /* llite/dcache.c */
 
 int ll_d_init(struct dentry *de);
-extern struct dentry_operations ll_d_ops;
+extern const struct dentry_operations ll_d_ops;
 void ll_intent_drop_lock(struct lookup_intent *);
 void ll_intent_release(struct lookup_intent *);
 void ll_invalidate_aliases(struct inode *);
@@ -923,7 +953,7 @@ int ll_prep_inode(struct inode **inode, struct ptlrpc_request *req,
 		  struct super_block *, struct lookup_intent *);
 void lustre_dump_dentry(struct dentry *, int recur);
 void lustre_dump_inode(struct inode *);
-int ll_obd_statfs(struct inode *inode, void *arg);
+int ll_obd_statfs(struct inode *inode, void __user *arg);
 int ll_get_max_mdsize(struct ll_sb_info *sbi, int *max_mdsize);
 int ll_get_default_mdsize(struct ll_sb_info *sbi, int *default_mdsize);
 int ll_get_max_cookiesize(struct ll_sb_info *sbi, int *max_cookiesize);
@@ -942,15 +972,6 @@ extern struct export_operations lustre_export_operations;
 __u32 get_uuid2int(const char *name, int len);
 struct inode *search_inode_for_lustre(struct super_block *sb,
 				      const struct lu_fid *fid);
-
-/* llite/special.c */
-extern struct inode_operations ll_special_inode_operations;
-extern struct file_operations ll_special_chr_inode_fops;
-extern struct file_operations ll_special_chr_file_fops;
-extern struct file_operations ll_special_blk_inode_fops;
-extern struct file_operations ll_special_fifo_inode_fops;
-extern struct file_operations ll_special_fifo_file_fops;
-extern struct file_operations ll_special_sock_inode_fops;
 
 /* llite/symlink.c */
 extern struct inode_operations ll_fast_symlink_inode_operations;

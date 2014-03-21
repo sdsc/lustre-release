@@ -38,6 +38,7 @@
 #define LUSTRE_PATCHLESS_COMPAT_H
 
 #include <linux/fs.h>
+#include <linux/pagemap.h>
 
 #ifndef HAVE_TRUNCATE_COMPLETE_PAGE
 #include <linux/list.h>

@@ -34,17 +34,41 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+#include <asm/atomic.h>
+#include <linux/dcache.h>
+#include <linux/err.h>
+#include <linux/errno.h>
 #include <linux/fs.h>
-#include <linux/sched.h>
-#include <linux/mm.h>
+#include <linux/gfp.h>
 #include <linux/highmem.h>
+#include <linux/kernel.h>
+#include <linux/kthread.h>
+#include <linux/list.h>
+#include <linux/mm.h>
 #include <linux/pagemap.h>
+#include <linux/rcupdate.h>
+#include <linux/rwsem.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/stat.h>
+#include <linux/string.h>
+#include <linux/wait.h>
 
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#include <obd_support.h>
-#include <lustre_lite.h>
+#include <linux/lustre_intent.h>
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lustre_capa.h>
 #include <lustre_dlm.h>
+#include <lustre_lib.h>
+#include <lustre_lite.h>
+#include <lustre_net.h>
+#include <lustre_req_layout.h>
+#include <obd_class.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 #define SA_OMITTED_ENTRY_MAX 8ULL

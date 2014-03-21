@@ -34,29 +34,28 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
+#include <asm/atomic.h>
+#include <linux/dcache.h>
+#include <linux/err.h>
+#include <linux/errno.h>
+#include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
-#include <linux/string.h>
-#include <linux/stat.h>
-#include <linux/errno.h>
-#include <linux/unistd.h>
-#include <linux/version.h>
-#include <asm/uaccess.h>
-
-#include <linux/fs.h>
-#include <linux/stat.h>
-#include <asm/uaccess.h>
-#include <linux/mm.h>
 #include <linux/pagemap.h>
+#include <linux/path.h>
+#include <linux/rwsem.h>
+#include <linux/sched.h>
+#include <linux/signal.h>
+#include <linux/spinlock.h>
 
 #define DEBUG_SUBSYSTEM S_LLITE
-
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <cl_object.h>
+#include <lclient.h>
+#include <lustre_dlm.h>
 #include <lustre_lite.h>
 #include "llite_internal.h"
-#include <linux/lustre_compat25.h>
-
-struct page *ll_nopage(struct vm_area_struct *vma, unsigned long address,
-                       int *type);
 
 static struct vm_operations_struct ll_file_vm_ops;
 
@@ -102,10 +101,10 @@ struct vm_area_struct *our_vma(struct mm_struct *mm, unsigned long addr,
  * \retval EINVAL if env can't allocated
  * \return other error codes from cl_io_init.
  */
-struct cl_io *ll_fault_io_init(struct vm_area_struct *vma,
-			       struct lu_env **env_ret,
-			       struct cl_env_nest *nest,
-			       pgoff_t index, unsigned long *ra_flags)
+static struct cl_io *
+ll_fault_io_init(struct vm_area_struct *vma, struct lu_env **env_ret,
+		 struct cl_env_nest *nest, pgoff_t index,
+		 unsigned long *ra_flags)
 {
 	struct file	       *file = vma->vm_file;
 	struct inode	       *inode = file->f_dentry->d_inode;

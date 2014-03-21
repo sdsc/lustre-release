@@ -41,10 +41,32 @@
  * Author: Huang Hua <huanghua@clusterfs.com>
  */
 
-#define DEBUG_SUBSYSTEM S_LLITE
-#include <lustre_lite.h>
-#include "llite_internal.h"
+#include <linux/dcache.h>
+#include <linux/err.h>
+#include <linux/errno.h>
 #include <linux/exportfs.h>
+#include <linux/fs.h>
+#include <linux/gfp.h>
+#include <linux/kernel.h>
+#include <linux/mutex.h>
+#include <linux/pagemap.h>
+#include <linux/rcupdate.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/stat.h>
+#include <linux/string.h>
+
+#define DEBUG_SUBSYSTEM S_LLITE
+#include <libcfs/libcfs.h>
+#include <lustre/lustre_idl.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lustre_disk.h>
+#include <lustre_net.h>
+#include <lustre_req_layout.h>
+#include <obd_class.h>
+#include <obd_support.h>
+#include "llite_internal.h"
 
 __u32 get_uuid2int(const char *name, int len)
 {

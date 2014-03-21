@@ -39,15 +39,32 @@
  *   Author: Jinshan Xiong <jinshan.xiong@intel.com>
  */
 
+#include <linux/err.h>
+#include <linux/errno.h>
+#include <linux/fs.h>
+#include <linux/gfp.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
+#include <linux/module.h>
+#include <linux/pagemap.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+
 #define DEBUG_SUBSYSTEM S_LLITE
-
-#ifndef __KERNEL__
-# error This file is kernel only.
-#endif
-
+#include <libcfs/libcfs.h>
+#include <libcfs/libcfs_hash.h>
+#include <lustre/lustre_idl.h>
+#include <cl_object.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lu_object.h>
+#include <lustre_disk.h>
+#include <lustre_export.h>
 #include <obd.h>
-#include <lustre_lite.h>
-
+#include <obd_support.h>
+#include "llite_internal.h"
 #include "vvp_internal.h"
 
 /*****************************************************************************
@@ -537,7 +554,7 @@ static int vvp_dump_pgcache_seq_open(struct inode *inode, struct file *filp)
 	return result;
 }
 
-struct file_operations vvp_dump_pgcache_file_ops = {
+const struct file_operations vvp_dump_pgcache_file_ops = {
         .owner   = THIS_MODULE,
         .open    = vvp_dump_pgcache_seq_open,
         .read    = seq_read,

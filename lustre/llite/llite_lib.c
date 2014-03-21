@@ -38,34 +38,75 @@
  * Lustre Light Super operations
  */
 
-#define DEBUG_SUBSYSTEM S_LLITE
-
-#include <linux/module.h>
-#include <linux/types.h>
-#include <linux/version.h>
+#include <asm/atomic.h>
+#include <linux/backing-dev.h>
+#include <linux/cred.h>
+#include <linux/dcache.h>
+#include <linux/err.h>
+#include <linux/errno.h>
+#include <linux/fs.h>
+#include <linux/fs_struct.h>
+#include <linux/gfp.h>
+#include <linux/jiffies.h>
+#include <linux/kdev_t.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
 #include <linux/mm.h>
+#include <linux/module.h>
+#include <linux/mount.h>
+#include <linux/mutex.h>
+#include <linux/pagemap.h>
+#include <linux/path.h>
+#include <linux/posix_acl.h>
+#include <linux/rcupdate.h>
+#include <linux/rwsem.h>
+#include <linux/sched.h>
+#include <linux/semaphore.h>
+#include <linux/seq_file.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/stat.h>
+#include <linux/statfs.h>
+#include <linux/string.h>
+#include <linux/time.h>
+#include <linux/uaccess.h>
+#include <linux/wait.h>
 
-#include <lustre_lite.h>
-#include <lustre_ha.h>
-#include <lustre_dlm.h>
-#include <lprocfs_status.h>
-#include <lustre_disk.h>
-#include <lustre_param.h>
-#include <lustre_log.h>
+#define DEBUG_SUBSYSTEM S_LLITE
+#include <linux/lustre_compat25.h>
+#include <linux/lustre_intent.h>
+#include <linux/lustre_patchless_compat.h>
+#include <libcfs/libcfs.h>
+#include <lnet/types.h>
+#include <lustre/lustre_idl.h>
 #include <cl_object.h>
+#include <lclient.h>
+#include <lprocfs_status.h>
+#include <lu_object.h>
+#include <lustre_capa.h>
+#include <lustre_cfg.h>
+#include <lustre_disk.h>
+#include <lustre_dlm.h>
+#include <lustre_export.h>
+#include <lustre_fid.h>
+#include <lustre_handles.h>
+#include <lustre_lib.h>
+#include <lustre_lite.h>
+#include <lustre_lmv.h>
+#include <lustre_log.h>
+#include <lustre_net.h>
+#include <lustre_param.h>
+#include <lustre_req_layout.h>
+#include <lustre_ver.h>
 #include <obd_cksum.h>
+#include <obd_class.h>
+#include <obd_support.h>
 #include "llite_internal.h"
 
 struct kmem_cache *ll_file_data_slab;
 
-CFS_LIST_HEAD(ll_super_blocks);
-DEFINE_SPINLOCK(ll_sb_lock);
-
-#ifndef MS_HAS_NEW_AOPS
-extern struct address_space_operations ll_aops;
-#else
-extern struct address_space_operations_ext ll_aops;
-#endif
+static LIST_HEAD(ll_super_blocks);
+static DEFINE_SPINLOCK(ll_sb_lock);
 
 #ifndef log2
 #define log2(n) ffz(~(n))
@@ -147,7 +188,7 @@ static struct ll_sb_info *ll_init_sbi(void)
         RETURN(sbi);
 }
 
-void ll_free_sbi(struct super_block *sb)
+static void ll_free_sbi(struct super_block *sb)
 {
 	struct ll_sb_info *sbi = ll_s2sbi(sb);
 	ENTRY;
@@ -683,7 +724,7 @@ int ll_get_default_cookiesize(struct ll_sb_info *sbi, int *lmmsize)
 	RETURN(rc);
 }
 
-void ll_dump_inode(struct inode *inode)
+static void ll_dump_inode(struct inode *inode)
 {
 	struct ll_d_hlist_node *tmp;
 	int dentry_count = 0;
@@ -728,7 +769,7 @@ void lustre_dump_dentry(struct dentry *dentry, int recur)
 	}
 }
 
-void client_common_put_super(struct super_block *sb)
+static void client_common_put_super(struct super_block *sb)
 {
         struct ll_sb_info *sbi = ll_s2sbi(sb);
         ENTRY;
@@ -2245,15 +2286,15 @@ int ll_iocontrol(struct inode *inode, struct file *file,
 
                 ptlrpc_req_finished(req);
 
-                RETURN(put_user(flags, (int *)arg));
+		RETURN(put_user(flags, (int __user *)arg));
         }
         case FSFILT_IOC_SETFLAGS: {
 		struct lov_stripe_md *lsm;
                 struct obd_info oinfo = { { { 0 } } };
                 struct md_op_data *op_data;
 
-                if (get_user(flags, (int *)arg))
-                        RETURN(-EFAULT);
+		if (get_user(flags, (int __user *)arg))
+			RETURN(-EFAULT);
 
                 op_data = ll_prep_md_op_data(NULL, inode, NULL, NULL, 0, 0,
                                              LUSTRE_OPC_ANY, NULL);
@@ -2479,7 +2520,7 @@ out:
 	RETURN(rc);
 }
 
-int ll_obd_statfs(struct inode *inode, void *arg)
+int ll_obd_statfs(struct inode *inode, void __user *arg)
 {
         struct ll_sb_info *sbi = NULL;
         struct obd_export *exp;
@@ -2689,7 +2730,7 @@ int ll_get_obd_name(struct inode *inode, unsigned int cmd, unsigned long arg)
         if (!obd)
                 RETURN(-ENOENT);
 
-	if (copy_to_user((void *)arg, obd->obd_name,
+	if (copy_to_user((void __user *)arg, obd->obd_name,
 			 strlen(obd->obd_name) + 1))
 		RETURN(-EFAULT);
 
