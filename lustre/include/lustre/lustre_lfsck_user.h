@@ -51,6 +51,9 @@ enum lfsck_param_flags {
 
 	/* Handle orphan objects. */
 	LPF_ORPHAN	= 0x0020,
+
+	/* Create object for dangling reference. */
+	LPF_CREATE	= 0x0040,
 };
 
 enum lfsck_type {
@@ -81,6 +84,7 @@ enum lfsck_start_valid {
 	LSV_ERROR_HANDLE	= 0x00000002,
 	LSV_DRYRUN		= 0x00000004,
 	LSV_ASYNC_WINDOWS	= 0x00000008,
+	LSV_CREATE		= 0x00000010,
 };
 
 /* Arguments for starting lfsck. */
