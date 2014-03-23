@@ -2704,11 +2704,12 @@ put:
 static int lfsck_layout_recreate_ostobj(const struct lu_env *env,
 					struct lfsck_component *com,
 					struct lfsck_layout_req *llr,
-					struct lu_attr *la)
+					const struct lu_attr *pla)
 {
 	struct lfsck_thread_info	*info	= lfsck_env_info(env);
 	struct filter_fid		*pfid	= &info->lti_new_pfid;
 	struct dt_allocation_hint	*hint	= &info->lti_hint;
+	struct lu_attr			*cla    = &info->lti_la2;
 	struct dt_object		*parent = llr->llr_parent->llo_obj;
 	struct dt_object		*child  = llr->llr_child;
 	struct dt_device		*dev	= lfsck_obj2dt_dev(child);
@@ -2719,10 +2720,18 @@ static int lfsck_layout_recreate_ostobj(const struct lu_env *env,
 	int				 rc;
 	ENTRY;
 
-	CDEBUG(D_LFSCK, "Repair dangling reference for: parent "DFID
-	       ", child "DFID", OST-index %u, stripe-index %u, owner %u:%u\n",
+	CDEBUG(D_LFSCK, "Found dangling reference for: parent "DFID
+	       ", child "DFID", OST-index %u, stripe-index %u, owner %u:%u. "
+	       "Create the lost OST-object as required.\n",
 	       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
-	       llr->llr_ost_idx, llr->llr_lov_idx, la->la_uid, la->la_gid);
+	       llr->llr_ost_idx, llr->llr_lov_idx, pla->la_uid, pla->la_gid);
+
+	memset(cla, 0, sizeof(*cla));
+	cla->la_uid = pla->la_uid;
+	cla->la_gid = pla->la_gid;
+	cla->la_mode = S_IFREG | 0666;
+	cla->la_valid = LA_TYPE | LA_MODE | LA_UID | LA_GID |
+			LA_ATIME | LA_MTIME | LA_CTIME;
 
 	rc = lfsck_layout_lock(env, com, parent, &lh,
 			       MDS_INODELOCK_LAYOUT | MDS_INODELOCK_XATTR);
@@ -2743,7 +2752,7 @@ static int lfsck_layout_recreate_ostobj(const struct lu_env *env,
 	pfid->ff_parent.f_stripe_idx = cpu_to_le32(llr->llr_lov_idx);
 	buf = lfsck_buf_get(env, pfid, sizeof(struct filter_fid));
 
-	rc = dt_declare_create(env, child, la, hint, NULL, handle);
+	rc = dt_declare_create(env, child, cla, hint, NULL, handle);
 	if (rc != 0)
 		GOTO(stop, rc);
 
@@ -2760,7 +2769,7 @@ static int lfsck_layout_recreate_ostobj(const struct lu_env *env,
 	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
 		GOTO(unlock2, rc = 1);
 
-	rc = dt_create(env, child, la, hint, NULL, handle);
+	rc = dt_create(env, child, cla, hint, NULL, handle);
 	if (rc != 0)
 		GOTO(unlock2, rc);
 
@@ -2777,6 +2786,27 @@ stop:
 
 unlock1:
 	lfsck_layout_unlock(&lh);
+
+	return rc;
+}
+
+static int lfsck_layout_repair_dangling(const struct lu_env *env,
+					struct lfsck_component *com,
+					struct lfsck_layout_req *llr,
+					const struct lu_attr *pla)
+{
+	int rc = 1;
+
+	if (com->lc_lfsck->li_bookmark_ram.lb_param & LPF_CREATE)
+		rc = lfsck_layout_recreate_ostobj(env, com, llr, pla);
+	else
+		CDEBUG(D_LFSCK, "Found dangling reference for: parent "DFID
+		       ", child "DFID", OST-index %u, stripe-index %u, "
+		       "owner %u:%u. Keep the MDT-object there by default.\n",
+		       PFID(lfsck_dto2fid(llr->llr_parent->llo_obj)),
+		       PFID(lfsck_dto2fid(llr->llr_child)),
+		       llr->llr_ost_idx, llr->llr_lov_idx,
+		       pla->la_uid, pla->la_gid);
 
 	return rc;
 }
@@ -3267,13 +3297,7 @@ repair:
 
 	switch (type) {
 	case LLIT_DANGLING:
-		memset(cla, 0, sizeof(*cla));
-		cla->la_uid = pla->la_uid;
-		cla->la_gid = pla->la_gid;
-		cla->la_mode = S_IFREG | 0666;
-		cla->la_valid = LA_TYPE | LA_MODE | LA_UID | LA_GID |
-				LA_ATIME | LA_MTIME | LA_CTIME;
-		rc = lfsck_layout_recreate_ostobj(env, com, llr, cla);
+		rc = lfsck_layout_repair_dangling(env, com, llr, pla);
 		break;
 	case LLIT_UNMATCHED_PAIR:
 		rc = lfsck_layout_repair_unmatched_pair(env, com, llr, pla);
