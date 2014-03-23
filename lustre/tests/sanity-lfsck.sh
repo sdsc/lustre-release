@@ -1352,7 +1352,7 @@ test_14() {
 	echo "'ls' should fail because of dangling referenced MDT-object"
 	ls -ail $DIR/$tdir > /dev/null 2>&1 && error "(1) ls should fail."
 
-	echo "Trigger layout LFSCK to find out dangling reference and fix them"
+	echo "Trigger layout LFSCK to find out dangling reference"
 	$START_LAYOUT || error "(2) Fail to start LFSCK for layout!"
 
 	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
@@ -1364,8 +1364,23 @@ test_14() {
 	[ $repaired -eq 32 ] ||
 		error "(4) Fail to repair dangling reference: $repaired"
 
+	echo "'ls' should fail because it will not repair dangling by default"
+	ls -ail $DIR/$tdir > /dev/null 2>&1 && error "(5) ls should fail."
+
+	echo "Trigger layout LFSCK to repair dangling reference"
+	$START_LAYOUT -r -c on || error "(6) Fail to start LFSCK for layout!"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_layout |
+		awk '/^status/ { print \\\$2 }'" "completed" 6 || return 3
+
+	local repaired=$($SHOW_LAYOUT |
+			 awk '/^repaired_dangling/ { print $2 }')
+	[ $repaired -eq 32 ] ||
+		error "(7) Fail to repair dangling reference: $repaired"
+
 	echo "'ls' should success after layout LFSCK repairing"
-	ls -ail $DIR/$tdir > /dev/null || error "(5) ls should success."
+	ls -ail $DIR/$tdir > /dev/null || error "(8) ls should success."
 }
 run_test 14 "LFSCK can repair MDT-object with dangling reference"
 
