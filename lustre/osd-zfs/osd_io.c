@@ -249,8 +249,8 @@ out:
  * XXX: for the moment I don't want to use lnb_flags for osd-internal
  *      purposes as it's not very well defined ...
  *      instead I use the lowest bit of the address so that:
- *        arc buffer:  .lnb_obj = abuf          (arc we loan for write)
- *        dbuf buffer: .lnb_obj = dbuf | 1      (dbuf we get for read)
+ *        arc buffer:  .lnb_data = abuf          (arc we loan for write)
+ *        dbuf buffer: .lnb_data = dbuf | 1      (dbuf we get for read)
  *        copy buffer: .lnb_page->mapping = obj (page we allocate for write)
  *
  *      bzzz, to blame
@@ -782,11 +782,10 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 {
 	struct osd_object *obj  = osd_dt_obj(dt);
 	struct osd_device  *osd = osd_obj2dev(obj);
-	struct lu_buf      buf;
-	loff_t             offset;
 	int                i;
 	unsigned long	   start;
 	unsigned long	   size = 0;
+	loff_t		   eof;
 
 	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_db);
@@ -795,20 +794,22 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 
 	record_start_io(osd, READ, npages, 0);
 
+	read_lock(&obj->oo_attr_lock);
+	eof = obj->oo_attr.la_size;
+	read_unlock(&obj->oo_attr_lock);
+
 	for (i = 0; i < npages; i++) {
-		buf.lb_buf = kmap(lnb[i].lnb_page);
-		buf.lb_len = lnb[i].lnb_len;
-		offset = lnb[i].lnb_file_offset;
+		if (unlikely(lnb[i].lnb_rc < 0))
+			continue;
 
-		CDEBUG(D_OTHER, "read %u bytes at %u\n",
-			(unsigned) lnb[i].lnb_len,
-			(unsigned) lnb[i].lnb_file_offset);
-		lnb[i].lnb_rc = osd_read(env, dt, &buf, &offset, NULL);
-		kunmap(lnb[i].lnb_page);
-
+		lnb[i].lnb_rc = lnb[i].lnb_len;
 		size += lnb[i].lnb_rc;
 
-		if (lnb[i].lnb_rc < buf.lb_len) {
+		if (lnb[i].lnb_file_offset + lnb[i].lnb_len > eof) {
+			lnb[i].lnb_rc = eof - lnb[i].lnb_file_offset;
+			if (lnb[i].lnb_rc < 0)
+				lnb[i].lnb_rc = 0;
+
 			/* all subsequent rc should be 0 */
 			while (++i < npages)
 				lnb[i].lnb_rc = 0;
