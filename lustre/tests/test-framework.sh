@@ -691,7 +691,7 @@ start_gss_daemons() {
 
 stop_gss_daemons() {
     local list=$(comma_list $(mdts_nodes))
-    
+
     send_sigint $list lsvcgssd lgssd
 
     list=$(comma_list $(osts_nodes))
@@ -1247,7 +1247,7 @@ quota_type() {
 		rc=$?
 	do_nodes $(comma_list $(osts_nodes)) \
 		lctl get_param obdfilter.${fsname}-OST*.quota_type || rc=$?
-	return $rc 
+	return $rc
 }
 
 # XXX This function is kept for interoperability with old server (< 2.3.50),
@@ -1637,7 +1637,7 @@ facet_up() {
 	local host=${2:-$(facet_host $facet)}
 
 	local label=$(convert_facet2label $facet)
-	do_node $host $LCTL dl | awk '{print $4}' | grep -q -x $label
+	do_node $host $LCTL dl | awk '{ print $4 }' | grep -q "$label"
 }
 
 facets_up_on_host () {
@@ -1930,18 +1930,18 @@ stop_client_loads() {
 
 # verify that lustre actually cleaned up properly
 cleanup_check() {
-    [ -f $CATASTROPHE ] && [ `cat $CATASTROPHE` -ne 0 ] && \
-        error "LBUG/LASSERT detected"
-    BUSY=`dmesg | grep -i destruct || true`
-    if [ "$BUSY" ]; then
-        echo "$BUSY" 1>&2
-        [ -e $TMP/debug ] && mv $TMP/debug $TMP/debug-busy.`date +%s`
-        exit 205
-    fi
+	[ -f "$CATASTROPHE" ] && [ 0$(cat $CATASTROPHE) -ne 0 ] &&
+		error "LBUG/LASSERT detected"
+	BUSY=$(dmesg | grep -i destruct || true)
+	if [ -n "$BUSY" ]; then
+		echo "$BUSY" 1>&2
+		[ -e $TMP/debug ] && mv $TMP/debug $TMP/debug-busy.$(date +%s)
+		exit 205
+	fi
 
-    check_mem_leak || exit 204
+	check_mem_leak || exit 204
 
-	[ "`lctl dl 2> /dev/null | wc -l`" -gt 0 ] && lctl dl &&
+	[ 0$($LCTL dl 2>/dev/null | wc -l) -gt 0 ] && $LCTL dl &&
 		echo "$TESTSUITE: lustre didn't clean up..." 1>&2 &&
 		return 202 || true
 
@@ -2011,39 +2011,39 @@ sync_all_data() {
 wait_delete_completed_mds() {
 	local MAX_WAIT=${1:-20}
 	local mds2sync=""
-	local stime=`date +%s`
+	local stime=$(date +%s)
 	local etime
 	local node
 	local changes
 
 	# find MDS with pending deletions
 	for node in $(mdts_nodes); do
-		changes=$(do_node $node "lctl get_param -n osc.*MDT*.sync_*" \
+		changes=0$(do_node $node "$LCTL get_param -n osc.*MDT*.sync_*" \
 			2>/dev/null | calc_sum)
-		if [ -z "$changes" ] || [ $changes -eq 0 ]; then
+		if [ $changes -eq 0 ]; then
 			continue
 		fi
 		mds2sync="$mds2sync $node"
 	done
-	if [ "$mds2sync" == "" ]; then
+	if [ -z "$mds2sync" ]; then
 		return
 	fi
 	mds2sync=$(comma_list $mds2sync)
 
 	# sync MDS transactions
-	do_nodes $mds2sync "lctl set_param -n osd*.*MD*.force_sync 1"
+	do_nodes $mds2sync "$LCTL set_param -n osd*.*MD*.force_sync 1"
 
 	# wait till all changes are sent and commmitted by OSTs
 	# for ldiskfs space is released upon execution, but DMU
 	# do this upon commit
 
 	local WAIT=0
-	while [ "$WAIT" -ne "$MAX_WAIT" ]; do
-		changes=$(do_nodes $mds2sync "lctl get_param -n osc.*MDT*.sync_*" \
-			| calc_sum)
+	while [ $WAIT -ne $MAX_WAIT ]; do
+		changes=0$(do_nodes $mds2sync \
+			"$LCTL get_param -n osc.*MDT*.sync_*" | calc_sum)
 		#echo "$node: $changes changes on all"
-		if [ "$changes" -eq "0" ]; then
-			etime=`date +%s`
+		if [ $changes -eq 0 ]; then
+			etime=$(date +%s)
 			#echo "delete took $((etime - stime)) seconds"
 			return
 		fi
@@ -2051,9 +2051,9 @@ wait_delete_completed_mds() {
 		WAIT=$(( WAIT + 1))
 	done
 
-	etime=`date +%s`
+	etime=$(date +%s)
 	echo "Delete is not completed in $((etime - stime)) seconds"
-	do_nodes $mds2sync "lctl get_param osc.*MDT*.sync_*"
+	do_nodes $mds2sync "$LCTL get_param osc.*MDT*.sync_*"
 }
 
 wait_for_host() {
@@ -4588,64 +4588,64 @@ export ALWAYS_SKIPPED=
 # run or not run.  These need to be documented...
 #
 run_test() {
-    assert_DIR
+	assert_DIR
 
-    export base=`basetest $1`
-    if [ ! -z "$ONLY" ]; then
-        testname=ONLY_$1
-        if [ ${!testname}x != x ]; then
-            [ "$LAST_SKIPPED" ] && echo "" && LAST_SKIPPED=
-            run_one_logged $1 "$2"
-            return $?
-        fi
-        testname=ONLY_$base
-        if [ ${!testname}x != x ]; then
-            [ "$LAST_SKIPPED" ] && echo "" && LAST_SKIPPED=
-            run_one_logged $1 "$2"
-            return $?
-        fi
-        LAST_SKIPPED="y"
-        return 0
-    fi
+	export base=$(basetest $1)
+	if [ -n "$ONLY" ]; then
+		testname=ONLY_$1
+		if [ ${!testname}x != x ]; then
+			[ -n "$LAST_SKIPPED" ] && echo "" && LAST_SKIPPED=
+			run_one_logged $1 "$2"
+			return $?
+		fi
+		testname=ONLY_$base
+		if [ ${!testname}x != x ]; then
+			[ -n "$LAST_SKIPPED" ] && echo "" && LAST_SKIPPED=
+			run_one_logged $1 "$2"
+			return $?
+		fi
+		LAST_SKIPPED="y"
+		return 0
+	fi
 
 	LAST_SKIPPED="y"
 	ALWAYS_SKIPPED="y"
-    testname=EXCEPT_$1
-    if [ ${!testname}x != x ]; then
-        TESTNAME=test_$1 skip "skipping excluded test $1"
-        return 0
-    fi
-    testname=EXCEPT_$base
-    if [ ${!testname}x != x ]; then
-        TESTNAME=test_$1 skip "skipping excluded test $1 (base $base)"
-        return 0
-    fi
-    testname=EXCEPT_ALWAYS_$1
-    if [ ${!testname}x != x ]; then
-        TESTNAME=test_$1 skip "skipping ALWAYS excluded test $1"
-        return 0
-    fi
-    testname=EXCEPT_ALWAYS_$base
-    if [ ${!testname}x != x ]; then
-        TESTNAME=test_$1 skip "skipping ALWAYS excluded test $1 (base $base)"
-        return 0
-    fi
-    testname=EXCEPT_SLOW_$1
-    if [ ${!testname}x != x ]; then
-        TESTNAME=test_$1 skip "skipping SLOW test $1"
-        return 0
-    fi
-    testname=EXCEPT_SLOW_$base
-    if [ ${!testname}x != x ]; then
-        TESTNAME=test_$1 skip "skipping SLOW test $1 (base $base)"
-        return 0
-    fi
+	testname=EXCEPT_$1
+	if [ ${!testname}x != x ]; then
+		TESTNAME=test_$1 skip "skipping excluded test $1"
+		return 0
+	fi
+	testname=EXCEPT_$base
+	if [ ${!testname}x != x ]; then
+		TESTNAME=test_$1 skip "skipping excluded test $1 (base $base)"
+		return 0
+	fi
+	testname=EXCEPT_ALWAYS_$1
+	if [ ${!testname}x != x ]; then
+		TESTNAME=test_$1 skip "skipping ALWAYS excluded test $1"
+		return 0
+	fi
+	testname=EXCEPT_ALWAYS_$base
+	if [ ${!testname}x != x ]; then
+		TESTNAME=test_$1 skip "skipping ALWAYS excluded test $1 (base $base)"
+		return 0
+	fi
+	testname=EXCEPT_SLOW_$1
+	if [ ${!testname}x != x ]; then
+		TESTNAME=test_$1 skip "skipping SLOW test $1"
+		return 0
+	fi
+	testname=EXCEPT_SLOW_$base
+	if [ ${!testname}x != x ]; then
+		TESTNAME=test_$1 skip "skipping SLOW test $1 (base $base)"
+		return 0
+	fi
 
-    LAST_SKIPPED=
-    ALWAYS_SKIPPED=
-    run_one_logged $1 "$2"
+	LAST_SKIPPED=
+	ALWAYS_SKIPPED=
+	run_one_logged $1 "$2"
 
-    return $?
+	return $?
 }
 
 log() {
@@ -4763,14 +4763,14 @@ run_one() {
 #  - test result is saved to data file
 #
 run_one_logged() {
-	local BEFORE=`date +%s`
+	local BEFORE=$(date +%s)
 	local TEST_ERROR
 	local name=${TESTSUITE}.test_${1}.test_log.$(hostname -s).log
 	local test_log=$LOGDIR/$name
 	rm -rf $LOGDIR/err
 	rm -rf $LOGDIR/ignore
 	rm -rf $LOGDIR/skip
-	local SAVE_UMASK=`umask`
+	local SAVE_UMASK=$(umask)
 	umask 0022
 
 	echo
@@ -4781,7 +4781,7 @@ run_one_logged() {
 	[ $RC -ne 0 ] && [ ! -f $LOGDIR/err ] &&
 		echo "test_$1 returned $RC" | tee $LOGDIR/err
 
-	duration=$((`date +%s` - $BEFORE))
+	duration=$(($(date +%s) - $BEFORE))
 	pass "$1" "(${duration}s)"
 
 	if [[ -f $LOGDIR/err ]]; then
@@ -4816,7 +4816,7 @@ skip_logged(){
 }
 
 canonical_path() {
-    (cd `dirname $1`; echo $PWD/`basename $1`)
+	(cd $(dirname $1); echo $PWD/$(basename $1))
 }
 
 
