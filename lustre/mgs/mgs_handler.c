@@ -1082,6 +1082,7 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 	struct obd_device		*obd;
 	struct lustre_mount_info	*lmi;
 	struct llog_ctxt		*ctxt;
+	struct fs_db			*fsdb = NULL;
 	int				 rc;
 
 	ENTRY;
@@ -1153,6 +1154,15 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 		GOTO(err_llog, rc);
 	}
 
+	/* Setup params fsdb and llogs, so that other servers can make a local
+	 * copy successfully when they are mounted. See LU-4783 */
+	rc = mgs_params_fsdb_setup(env, mgs, fsdb);
+	if (rc) {
+		CERROR("%s: %s fsdb setup failed: rc = %d\n",
+		       obd->obd_name, PARAMS_FILENAME, rc);
+		GOTO(err_lproc, rc);
+	}
+
 	ptlrpc_init_client(LDLM_CB_REQUEST_PORTAL, LDLM_CB_REPLY_PORTAL,
 			   "mgs_ldlm_client", &obd->obd_ldlm_client);
 
@@ -1185,7 +1195,7 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 		rc = PTR_ERR(mgs->mgs_service);
 		CERROR("failed to start mgs service: %d\n", rc);
 		mgs->mgs_service = NULL;
-		GOTO(err_lproc, rc);
+		GOTO(err_fsdb, rc);
 	}
 
 	ping_evictor_start();
@@ -1195,6 +1205,8 @@ static int mgs_init0(const struct lu_env *env, struct mgs_device *mgs,
 	/* device stack is not yet fully setup to keep no objects behind */
 	lu_site_purge(env, mgs2lu_dev(mgs)->ld_site, ~0);
 	RETURN(0);
+err_fsdb:
+	mgs_params_fsdb_cleanup(env, mgs);
 err_lproc:
 	lproc_mgs_cleanup(mgs);
 err_llog:
@@ -1369,6 +1381,7 @@ static struct lu_device *mgs_device_fini(const struct lu_env *env,
 	obd_zombie_barrier();
 
 	tgt_fini(env, &mgs->mgs_lut);
+	mgs_params_fsdb_cleanup(env, mgs);
 	mgs_cleanup_fsdb_list(mgs);
 	lproc_mgs_cleanup(mgs);
 
