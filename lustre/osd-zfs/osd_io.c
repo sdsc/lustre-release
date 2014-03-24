@@ -715,25 +715,26 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 			struct niobuf_local *lnb, int npages)
 {
 	struct osd_object *obj  = osd_dt_obj(dt);
-	struct lu_buf      buf;
-	loff_t             offset;
-	int                i;
+	loff_t		    size;
+	int                 i;
 
 	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_db);
 
+	read_lock(&obj->oo_attr_lock);
+	size = obj->oo_attr.la_size;
+	read_unlock(&obj->oo_attr_lock);
+
 	for (i = 0; i < npages; i++) {
-		buf.lb_buf = kmap(lnb[i].page);
-		buf.lb_len = lnb[i].len;
-		offset = lnb[i].lnb_file_offset;
 
-		CDEBUG(D_OTHER, "read %u bytes at %u\n",
-			(unsigned) lnb[i].len,
-			(unsigned) lnb[i].lnb_file_offset);
-		lnb[i].rc = osd_read(env, dt, &buf, &offset, NULL);
-		kunmap(lnb[i].page);
+		if (unlikely(lnb[i].rc < 0))
+			continue;
 
-		if (lnb[i].rc < buf.lb_len) {
+		lnb[i].rc = lnb[i].len;
+
+		if (lnb[i].lnb_file_offset + lnb[i].len > size) {
+			lnb[i].rc = size - lnb[i].lnb_file_offset;
+
 			/* all subsequent rc should be 0 */
 			while (++i < npages)
 				lnb[i].rc = 0;
