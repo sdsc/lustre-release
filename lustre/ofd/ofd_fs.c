@@ -436,6 +436,9 @@ int ofd_clients_data_init(const struct lu_env *env, struct ofd_device *ofd,
 	if (lcd == NULL)
 		RETURN(-ENOMEM);
 
+	CDEBUG(D_HA, "last rcvd: start %u, length "LPU64,
+	       lsd->lsd_client_start, fsize);
+
 	for (cl_idx = 0; off < fsize; cl_idx++) {
 		struct obd_export	*exp;
 		__u64			 last_rcvd;
@@ -454,7 +457,7 @@ int ofd_clients_data_init(const struct lu_env *env, struct ofd_device *ofd,
 		}
 
 		if (lcd->lcd_uuid[0] == '\0') {
-			CDEBUG(D_INFO, "skipping zeroed client at offset %d\n",
+			CDEBUG(D_HA, "skipping zeroed client at offset %d\n",
 			       cl_idx);
 			continue;
 		}
@@ -495,7 +498,7 @@ int ofd_clients_data_init(const struct lu_env *env, struct ofd_device *ofd,
 		class_export_put(exp);
 
 		/* Need to check last_rcvd even for duplicated exports. */
-		CDEBUG(D_OTHER, "client at idx %d has last_rcvd = "LPU64"\n",
+		CDEBUG(D_HA, "client at idx %d has last_rcvd = "LPU64"\n",
 		       cl_idx, last_rcvd);
 
 		spin_lock(&ofd->ofd_lut.lut_translock);
