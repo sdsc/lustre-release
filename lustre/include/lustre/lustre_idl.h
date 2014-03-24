@@ -1002,9 +1002,6 @@ enum lu_dirent_attrs {
 	LUDA_UPGRADE		= 0x1000,
 	/* Ignore this record, go to next directly. */
 	LUDA_IGNORE		= 0x0800,
-
-	/* whether iterate the striped dir */
-	LUDA_STRIPED_DIR	= 0x0400,
 };
 
 #define LU_DIRENT_ATTRS_MASK	0xf800

@@ -419,16 +419,17 @@ struct lmv_user_mds_data {
 #define LMV_MAX_STRIPE_COUNT 2000  /* ((12 * 4096 - 256) / 24) */
 #define lmv_user_md lmv_user_md_v1
 struct lmv_user_md_v1 {
-	__u32	lum_magic;	 /* must be the first field */
-	__u32	lum_stripe_count;  /* dirstripe count */
-	__u32	lum_stripe_offset; /* MDT idx for default dirstripe */
-	__u32	lum_hash_type;     /* Dir stripe policy */
-	__u32	lum_type;	  /* LMV type: default or normal */
-	__u32	lum_padding1;
-	__u32	lum_padding2;
-	__u32	lum_padding3;
-	char	lum_pool_name[LOV_MAXPOOLNAME];
-	struct	lmv_user_mds_data  lum_objects[0];
+	__u32		lum_magic;	 /* must be the first field */
+	__u32		lum_stripe_count;  /* dirstripe count */
+	__u32		lum_stripe_offset; /* MDT idx for default dirstripe */
+	__u32		lum_hash_type;     /* Dir stripe policy */
+	__u32		lum_type;	  /* LMV type: default or normal */
+	__u32		lum_padding1;
+	struct lu_fid	lum_fid;	/* Master object FID */
+	__u32		lum_padding2;
+	__u32		lum_padding3;
+	char		lum_pool_name[LOV_MAXPOOLNAME];
+	struct		lmv_user_mds_data  lum_objects[0];
 } __attribute__((packed));
 
 static inline int lmv_user_md_size(int stripes, int lmm_magic)

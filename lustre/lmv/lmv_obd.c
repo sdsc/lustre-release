@@ -2897,7 +2897,7 @@ int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
 	if (lsm != NULL && lmm == NULL) {
 #ifdef __KERNEL__
 		int i;
-		for (i = 1; i < lsm->lsm_md_stripe_count; i++) {
+		for (i = 0; i < lsm->lsm_md_stripe_count; i++) {
 			if (lsm->lsm_md_oinfo[i].lmo_root != NULL)
 				iput(lsm->lsm_md_oinfo[i].lmo_root);
 		}

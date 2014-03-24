@@ -278,6 +278,8 @@ struct lod_thread_info {
 	struct lu_attr    lti_attr;
 	struct lod_it	  lti_it;
 	struct ldlm_res_id lti_res_id;
+	char		  lti_key[NAME_MAX];
+	struct dt_object_format lti_format;
 };
 
 extern const struct lu_device_operations lod_lu_ops;

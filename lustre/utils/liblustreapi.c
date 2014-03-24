@@ -2468,6 +2468,8 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 	}
 
 	if (verbose & VERBOSE_OBJID && lum->lum_magic != LMV_USER_MAGIC) {
+		llapi_printf(LLAPI_MSG_NORMAL, "lmv_master_fid:\t"DFID"\n",
+			     PFID(&lum->lum_fid));
 		if ((obdstripe == 1))
 			llapi_printf(LLAPI_MSG_NORMAL,
 				     "mdtidx\t\t FID[seq:oid:ver]\n");

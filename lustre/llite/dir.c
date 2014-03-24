@@ -1200,7 +1200,7 @@ lmv_out_free:
 
 		/* Get normal LMV EA */
 		if (rc == -ENODATA) {
-			stripe_count = 1;
+			stripe_count = 0;
 		} else {
 			LASSERT(lmm != NULL);
 			stripe_count = lmv_mds_md_stripe_count_get(lmm);
@@ -1212,14 +1212,13 @@ lmv_out_free:
 			GOTO(finish_req, rc = -ENOMEM);
 
 		tmp->lum_magic = LMV_MAGIC_V1;
-		tmp->lum_stripe_count = 1;
+		tmp->lum_stripe_count = 0;
 		mdt_index = ll_get_mdt_idx(inode);
 		if (mdt_index < 0)
 			GOTO(out_tmp, rc = -ENOMEM);
 		tmp->lum_stripe_offset = mdt_index;
-		tmp->lum_objects[0].lum_mds = mdt_index;
-		tmp->lum_objects[0].lum_fid = *ll_inode2fid(inode);
-		for (i = 1; i < stripe_count; i++) {
+		tmp->lum_fid = *ll_inode2fid(inode);
+		for (i = 0; i < stripe_count; i++) {
 			struct lmv_mds_md_v1 *lmm1;
 
 			lmm1 = &lmm->lmv_md_v1;
