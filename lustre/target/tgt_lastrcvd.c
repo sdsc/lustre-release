@@ -66,6 +66,9 @@ int tgt_client_alloc(struct obd_export *exp)
 	ENTRY;
 	LASSERT(exp != exp->exp_obd->obd_self_export);
 
+	CDEBUG(D_HA, "%s: add client %s\n", exp->exp_obd->obd_name,
+	       exp->exp_client_uuid.uuid);
+
 	OBD_ALLOC_PTR(exp->exp_target_data.ted_lcd);
 	if (exp->exp_target_data.ted_lcd == NULL)
 		RETURN(-ENOMEM);
@@ -87,6 +90,9 @@ void tgt_client_free(struct obd_export *exp)
 
 	OBD_FREE_PTR(ted->ted_lcd);
 	ted->ted_lcd = NULL;
+
+	CDEBUG(D_HA, "%s: free client %s\n", exp->exp_obd->obd_name,
+	       exp->exp_client_uuid.uuid);
 
 	/* Slot may be not yet assigned */
 	if (ted->ted_lr_idx < 0)
@@ -114,7 +120,7 @@ int tgt_client_data_read(const struct lu_env *env, struct lu_target *tgt,
 		lcd_le_to_cpu(&tti->tti_lcd, lcd);
 	}
 
-	CDEBUG(D_INFO, "%s: read lcd @%lld uuid = %s, last_transno = "LPU64
+	CDEBUG(D_HA, "%s: read lcd @%lld uuid = %s, last_transno = "LPU64
 	       ", last_xid = "LPU64", last_result = %u, last_data = %u, "
 	       "last_close_transno = "LPU64", last_close_xid = "LPU64", "
 	       "last_close_result = %u, rc = %d\n", tgt->lut_obd->obd_name,
@@ -186,7 +192,7 @@ int tgt_client_data_update(const struct lu_env *env, struct obd_export *exp)
 	EXIT;
 out:
 	dt_trans_stop(env, tgt->lut_bottom, th);
-	CDEBUG(D_INFO, "%s: update last_rcvd client data for UUID = %s, "
+	CDEBUG(D_HA, "%s: update last_rcvd client data for UUID = %s, "
 	       "last_transno = "LPU64": rc = %d\n", tgt->lut_obd->obd_name,
 	       tgt->lut_lsd.lsd_uuid, tgt->lut_lsd.lsd_last_transno, rc);
 
