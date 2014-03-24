@@ -3044,53 +3044,78 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
         RETURN(ELDLM_LOCK_REPLACED);
 }
 
+/* Callback params
+   input (lock not wanted)
+   ouput (1st other lock found in hash for key)
+*/
+struct cfs_hash_cb_params {
+	struct ldlm_lock *input;
+	struct ldlm_lock *output;
+};
+
+/* Callback to test if lock found in hash is the one
+   we don't want or not
+*/
+static int but_not_me(cfs_hash_t *hs, cfs_hash_bd_t *bd,
+	       struct hlist_node *hnode, void *cb_data)
+{
+	struct cfs_hash_cb_params *data = cb_data;
+	struct ldlm_lock *lock = cfs_hash_object(hs, hnode);
+
+	if (lock != data->input) {
+		/* don't allow to leak an old ref */
+		LASSERT(data->output == NULL);
+		/* got it! take a reference. */
+		cfs_hash_get(hs, hnode);
+		data->output = lock;
+		return 1;
+	}
+	return 0;
+
+}
+
 static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
 				    struct ldlm_lock *new_lock,
 				    struct ldlm_lock **old_lock,
-				    struct mdt_lock_handle *lh,
-				    enum mdt_it_code opcode)
+				    struct mdt_lock_handle *lh)
 {
         struct ptlrpc_request  *req = mdt_info_req(info);
         struct obd_export      *exp = req->rq_export;
         struct lustre_handle    remote_hdl;
         struct ldlm_request    *dlmreq;
         struct ldlm_lock       *lock;
+	struct cfs_hash_cb_params data = {NULL, NULL};
 
         if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT))
                 return;
 
         dlmreq = req_capsule_client_get(info->mti_pill, &RMF_DLM_REQ);
         remote_hdl = dlmreq->lock_handle[0];
-	/* If the client does not require open lock, it does not need to
-	 * search lock in exp_lock_hash, since the server thread will
-	 * make sure the lock will be released, and the resend request
-	 * can always re-enqueue the lock */
-	if ((opcode != MDT_IT_OPEN) || (opcode == MDT_IT_OPEN &&
-	    info->mti_spec.sp_cr_flags & MDS_OPEN_LOCK)) {
-		/* In the function below, .hs_keycmp resolves to
-		 * ldlm_export_lock_keycmp() */
-		/* coverity[overrun-buffer-val] */
-		lock = cfs_hash_lookup(exp->exp_lock_hash, &remote_hdl);
-		if (lock) {
-			lock_res_and_lock(lock);
-			if (lock != new_lock) {
-				lh->mlh_reg_lh.cookie = lock->l_handle.h_cookie;
-				lh->mlh_reg_mode = lock->l_granted_mode;
+	/* In the function below, .hs_keycmp resolves to
+	 * ldlm_export_lock_keycmp() */
+	/* coverity[overrun-buffer-val] */
+	/* Look for 1st lock found in hash for key but that's not new_lock.
+	   There should only be 2 upon resent, new_lock and the 1st/orig
+	   one ...
+	*/
+	data.input = new_lock;
+	cfs_hash_for_each_key(exp->exp_lock_hash, &remote_hdl,
+				     but_not_me, &data);
+	lock = data.output;
+	if (lock != NULL) {
+		lock_res_and_lock(lock);
+		lh->mlh_reg_lh.cookie = lock->l_handle.h_cookie;
+		lh->mlh_reg_mode = lock->l_granted_mode;
 
-				LDLM_DEBUG(lock, "Restoring lock cookie");
-				DEBUG_REQ(D_DLMTRACE, req,
-					  "restoring lock cookie "LPX64,
-					  lh->mlh_reg_lh.cookie);
-				if (old_lock)
-					*old_lock = LDLM_LOCK_GET(lock);
-				cfs_hash_put(exp->exp_lock_hash,
-					     &lock->l_exp_hash);
-				unlock_res_and_lock(lock);
-				return;
-			}
-			cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
-			unlock_res_and_lock(lock);
-		}
+		LDLM_DEBUG(lock, "Restoring lock cookie");
+		DEBUG_REQ(D_DLMTRACE, req,
+			  "restoring lock cookie "LPX64,
+			  lh->mlh_reg_lh.cookie);
+		if (old_lock)
+			*old_lock = LDLM_LOCK_GET(lock);
+		cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
+		unlock_res_and_lock(lock);
+		return;
 	}
         /*
          * If the xid matches, then we know this is a resent request, and allow
@@ -3124,7 +3149,7 @@ static int mdt_intent_getxattr(enum mdt_it_code opcode,
 	 * (for the resend case) or a new lock. Below we will use it to
 	 * replace the original lock.
 	 */
-	mdt_intent_fixup_resent(info, *lockp, NULL, lhc, opcode);
+	mdt_intent_fixup_resent(info, *lockp, NULL, lhc);
 	if (!lustre_handle_is_used(&lhc->mlh_reg_lh)) {
 		mdt_lock_reg_init(lhc, (*lockp)->l_req_mode);
 		rc = mdt_object_lock(info, info->mti_object, lhc,
@@ -3195,7 +3220,7 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         mdt_set_disposition(info, ldlm_rep, DISP_IT_EXECD);
 
 	/* Get lock from request for possible resent case. */
-	mdt_intent_fixup_resent(info, *lockp, &new_lock, lhc, opcode);
+	mdt_intent_fixup_resent(info, *lockp, &new_lock, lhc);
 
 	rc = mdt_getattr_name_lock(info, lhc, child_bits, ldlm_rep);
 	ldlm_rep->lock_policy_res2 = clear_serious(rc);
@@ -3304,7 +3329,7 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
         }
 
 	/* Get lock from request for possible resent case. */
-	mdt_intent_fixup_resent(info, *lockp, NULL, lhc, opcode);
+	mdt_intent_fixup_resent(info, *lockp, NULL, lhc);
 
         rc = mdt_reint_internal(info, lhc, opc);
 
