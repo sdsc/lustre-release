@@ -1089,6 +1089,11 @@ build_spl_zfs() {
             speclist="$pkg.spec $pkg-kmod.spec $pkg-dkms.spec"
         fi
 
+        if [ "$pkg" == "zfs" ]; then
+            patch -p1 < \
+                ${TOPDIR}/lustre/contrib/patches/zil-export.patch
+        fi
+
         sh autogen.sh || return 255
 
         if  ! ./configure --with-linux=${LINUX} --with-linux-obj=${LINUXOBJ:-$LINUX} \

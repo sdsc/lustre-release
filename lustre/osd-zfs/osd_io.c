@@ -249,8 +249,8 @@ out:
  * XXX: for the moment I don't want to use lnb_flags for osd-internal
  *      purposes as it's not very well defined ...
  *      instead I use the lowest bit of the address so that:
- *        arc buffer:  .lnb_obj = abuf          (arc we loan for write)
- *        dbuf buffer: .lnb_obj = dbuf | 1      (dbuf we get for read)
+ *        arc buffer:  .lnb_data = abuf          (arc we loan for write)
+ *        dbuf buffer: .lnb_data = dbuf | 1      (dbuf we get for read)
  *        copy buffer: .lnb_page->mapping = obj (page we allocate for write)
  *
  *      bzzz, to blame
@@ -267,9 +267,7 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(obj->oo_db);
 
 	for (i = 0; i < npages; i++) {
-		if (lnb[i].lnb_page == NULL)
-			continue;
-		if (lnb[i].lnb_page->mapping == (void *)obj) {
+		if (lnb[i].lnb_page && lnb[i].lnb_page->mapping == (void *)obj) {
 			/* this is anonymous page allocated for copy-write */
 			lnb[i].lnb_page->mapping = NULL;
 			__free_page(lnb[i].lnb_page);
@@ -301,12 +299,32 @@ static inline struct page *kmem_to_page(void *addr)
 		return virt_to_page(addr);
 }
 
+/**
+ * Prepare buffers for read.
+ *
+ * The function maps the range described by \a off and \a len to \a lnb array.
+ * dmu_buf_hold_array_by_bonus() finds/creates appropriate ARC buffers, then
+ * we fill \a lnb array with the pages storing ARC buffers. Notice the current
+ * implementationt passes TRUE to dmu_buf_hold_array_by_bonus() to fill ARC
+ * buffers with actual data, i.e. I/O is done in the conext of osd_bufs_get_read().
+ * A better implementation would just return the buffers (potentially unfilled)
+ * and subsequent osd_read_prep() would do I/O for many ranges concurrently.
+ *
+ * \param[in] env	environment
+ * \param[in] obj	object
+ * \param[in] off	offset in bytes
+ * \param[in] len	the number of bytes to access
+ * \param[out] lnb	array of local niobufs pointing to the buffers with data
+ *
+ * \retval		0 for success
+ * \retval		negative error number of failure
+ */
 static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 				loff_t off, ssize_t len, struct niobuf_local *lnb)
 {
 	struct osd_device *osd = osd_obj2dev(obj);
-	dmu_buf_t        **dbp;
 	int                rc, i, numbufs, npages = 0;
+	dmu_buf_t	 **dbp;
 	ENTRY;
 
 	/* grab buffers for read:
@@ -317,7 +335,7 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 	 * can get own replacement for dmu_buf_hold_array_by_bonus().
 	 */
 	while (len > 0) {
-		rc = -dmu_buf_hold_array_by_bonus(obj->oo_db, off, len, TRUE,
+		rc = -dmu_buf_hold_array_by_bonus(obj->oo_db, off, len, FALSE,
 						  osd_zerocopy_tag, &numbufs,
 						  &dbp);
 		if (unlikely(rc))
@@ -345,10 +363,13 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 
 				lnb->lnb_rc = 0;
 				lnb->lnb_file_offset = off;
-				lnb->lnb_page_offset = bufoff & ~CFS_PAGE_MASK;
+				lnb->lnb_page_offset = bufoff;
 				lnb->lnb_len = thispage;
-				lnb->lnb_page = kmem_to_page(dbp[i]->db_data +
-							     bufoff);
+
+				/* db_data might be NULL here if dbuf was just
+				 * created, we have to issue an I/O (dbuf_read())
+				 * against the buffer to fill db_data */
+
 				/* mark just a single slot: we need this
 				 * reference to dbuf to be release once */
 				lnb->lnb_data = dbf;
@@ -781,34 +802,83 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 			struct niobuf_local *lnb, int npages)
 {
 	struct osd_object *obj  = osd_dt_obj(dt);
-	struct osd_device  *osd = osd_obj2dev(obj);
-	struct lu_buf      buf;
-	loff_t             offset;
-	int                i;
-	unsigned long	   start;
-	unsigned long	   size = 0;
+	struct osd_device *osd = osd_obj2dev(obj);
+	unsigned long	   start, ptr, flags, size = 0;
+	zio_t		  *zio = NULL;
+	dmu_buf_t	  *dbp = NULL;
+	loff_t		   eof;
+	int                i, rc;
 
 	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_db);
 
 	start = cfs_time_current();
 
+	read_lock(&obj->oo_attr_lock);
+	eof = obj->oo_attr.la_size;
+	read_unlock(&obj->oo_attr_lock);
+
+	flags = DB_RF_CANFAIL | DB_RF_NEVERWAIT |
+		DB_RF_HAVESTRUCT | DB_RF_NOPREFETCH;
+	zio = zio_root(osd->od_os->os_spa, NULL, NULL, ZIO_FLAG_CANFAIL);
+	if (unlikely(zio == NULL))
+		return -ENOMEM;
+
 	record_start_io(osd, READ, npages, 0);
 
 	for (i = 0; i < npages; i++) {
-		buf.lb_buf = kmap(lnb[i].lnb_page);
-		buf.lb_len = lnb[i].lnb_len;
-		offset = lnb[i].lnb_file_offset;
+		if (unlikely(lnb[i].lnb_rc < 0))
+			continue;
 
-		CDEBUG(D_OTHER, "read %u bytes at %u\n",
-			(unsigned) lnb[i].lnb_len,
-			(unsigned) lnb[i].lnb_file_offset);
-		lnb[i].lnb_rc = osd_read(env, dt, &buf, &offset, NULL);
-		kunmap(lnb[i].lnb_page);
+		/* add dbufs to zio */
+		ptr = ((unsigned long)lnb[i].lnb_data) & ~1UL;
+		if (ptr == 0)
+			continue;
 
+		dbuf_read((void *)ptr, zio, flags);
+	}
+
+	rc = -zio_wait(zio);
+	if (unlikely(rc < 0))
+		return rc;
+
+	for (i = 0; i < npages; i++) {
+		if (unlikely(lnb[i].lnb_rc < 0))
+			continue;
+
+		/* wait until I/O on dbuf is done */
+		ptr = ((unsigned long)lnb[i].lnb_data) & ~1UL;
+		if (ptr != 0) {
+			dmu_buf_impl_t *db = (dmu_buf_impl_t *)ptr;
+			mutex_enter(&db->db_mtx);
+			while (db->db_state == DB_READ ||
+			    db->db_state == DB_FILL)
+				cv_wait(&db->db_changed, &db->db_mtx);
+			if (unlikely(db->db_state == DB_UNCACHED))
+				rc = -EIO;
+			mutex_exit(&db->db_mtx);
+			dbp = (dmu_buf_t *)db;
+		}
+		if (unlikely(rc < 0)) {
+			/* fail all the remaning pages */
+			lnb[i].lnb_rc = rc;
+			continue;
+		};
+
+		LASSERT(dbp->db_data != NULL);
+		LASSERT(dbp->db_offset <= lnb[i].lnb_file_offset);
+		lnb[i].lnb_page = kmem_to_page(dbp->db_data +
+					       lnb[i].lnb_page_offset);
+		lnb[i].lnb_page_offset = lnb[i].lnb_page_offset & ~PAGE_MASK;
+
+		lnb[i].lnb_rc = lnb[i].lnb_len;
 		size += lnb[i].lnb_rc;
 
-		if (lnb[i].lnb_rc < buf.lb_len) {
+		if (lnb[i].lnb_file_offset + lnb[i].lnb_len > eof) {
+			lnb[i].lnb_rc = eof - lnb[i].lnb_file_offset;
+			if (lnb[i].lnb_rc < 0)
+				lnb[i].lnb_rc = 0;
+
 			/* all subsequent rc should be 0 */
 			while (++i < npages)
 				lnb[i].lnb_rc = 0;
@@ -816,7 +886,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 		}
 	}
 
-	record_end_io(osd, READ, cfs_time_current() - start, size);
+	record_end_io(osd, READ, cfs_time_current()-start, npages*PAGE_SIZE);
 
 	return 0;
 }
