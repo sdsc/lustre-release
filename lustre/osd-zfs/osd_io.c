@@ -249,8 +249,8 @@ out:
  * XXX: for the moment I don't want to use lnb_flags for osd-internal
  *      purposes as it's not very well defined ...
  *      instead I use the lowest bit of the address so that:
- *        arc buffer:  .lnb_obj = abuf          (arc we loan for write)
- *        dbuf buffer: .lnb_obj = dbuf | 1      (dbuf we get for read)
+ *        arc buffer:  .lnb_data = abuf          (arc we loan for write)
+ *        dbuf buffer: .lnb_data = dbuf | 1      (dbuf we get for read)
  *        copy buffer: .lnb_page->mapping = obj (page we allocate for write)
  *
  *      bzzz, to blame
@@ -301,13 +301,36 @@ static inline struct page *kmem_to_page(void *addr)
 		return virt_to_page(addr);
 }
 
+/**
+ * Prepare buffers for read.
+ *
+ * The function maps the range described by \a off and \a len to \a lnb array.
+ * dmu_buf_hold_array_by_bonus() finds/creates appropriate ARC buffers, then
+ * we fill \a lnb array with the pages storing ARC buffers. Notice the current
+ * implementationt passes TRUE to dmu_buf_hold_array_by_bonus() to fill ARC
+ * buffers with actual data, i.e. I/O is done in the conext of osd_bufs_get_read().
+ * A better implementation would just return the buffers (potentially unfilled)
+ * and subsequent osd_read_prep() would do I/O for many ranges concurrently.
+ *
+ * \param[in] env	environment
+ * \param[in] obj	object
+ * \param[in] off	offset in bytes
+ * \param[in] len	the number of bytes to access
+ * \param[out] lnb	array of local niobufs pointing to the buffers with data
+ *
+ * \retval		0 for success
+ * \retval		negative error number of failure
+ */
 static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 				loff_t off, ssize_t len, struct niobuf_local *lnb)
 {
 	struct osd_device *osd = osd_obj2dev(obj);
-	dmu_buf_t        **dbp;
 	int                rc, i, numbufs, npages = 0;
+	dmu_buf_t	 **dbp;
+	unsigned long	   start;
 	ENTRY;
+
+	start = cfs_time_current();
 
 	/* grab buffers for read:
 	 * OSD API let us to grab buffers first, then initiate IO(s)
@@ -369,6 +392,9 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 
 		dmu_buf_rele_array(dbp, numbufs, osd_zerocopy_tag);
 	}
+
+	record_start_io(osd, READ, npages, 0);
+	record_end_io(osd, READ, cfs_time_current() - start, npages * PAGE_SIZE);
 
 	RETURN(npages);
 
@@ -781,42 +807,35 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 			struct niobuf_local *lnb, int npages)
 {
 	struct osd_object *obj  = osd_dt_obj(dt);
-	struct osd_device  *osd = osd_obj2dev(obj);
-	struct lu_buf      buf;
-	loff_t             offset;
 	int                i;
-	unsigned long	   start;
 	unsigned long	   size = 0;
+	loff_t		   eof;
 
 	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_db);
 
-	start = cfs_time_current();
-
-	record_start_io(osd, READ, npages, 0);
+	read_lock(&obj->oo_attr_lock);
+	eof = obj->oo_attr.la_size;
+	read_unlock(&obj->oo_attr_lock);
 
 	for (i = 0; i < npages; i++) {
-		buf.lb_buf = kmap(lnb[i].lnb_page);
-		buf.lb_len = lnb[i].lnb_len;
-		offset = lnb[i].lnb_file_offset;
+		if (unlikely(lnb[i].lnb_rc < 0))
+			continue;
 
-		CDEBUG(D_OTHER, "read %u bytes at %u\n",
-			(unsigned) lnb[i].lnb_len,
-			(unsigned) lnb[i].lnb_file_offset);
-		lnb[i].lnb_rc = osd_read(env, dt, &buf, &offset, NULL);
-		kunmap(lnb[i].lnb_page);
-
+		lnb[i].lnb_rc = lnb[i].lnb_len;
 		size += lnb[i].lnb_rc;
 
-		if (lnb[i].lnb_rc < buf.lb_len) {
+		if (lnb[i].lnb_file_offset + lnb[i].lnb_len > eof) {
+			lnb[i].lnb_rc = eof - lnb[i].lnb_file_offset;
+			if (lnb[i].lnb_rc < 0)
+				lnb[i].lnb_rc = 0;
+
 			/* all subsequent rc should be 0 */
 			while (++i < npages)
 				lnb[i].lnb_rc = 0;
 			break;
 		}
 	}
-
-	record_end_io(osd, READ, cfs_time_current() - start, size);
 
 	return 0;
 }
