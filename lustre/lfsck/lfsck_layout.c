@@ -4250,8 +4250,22 @@ static int lfsck_layout_slave_prep(const struct lu_env *env,
 	int				 rc;
 
 	rc = lfsck_layout_prep(env, com, start);
-	if (rc != 0 || !lsp->lsp_index_valid)
+	if (rc != 0)
 		return rc;
+
+	if (!lsp->lsp_index_valid) {
+		struct lfsck_instance	*lfsck	= com->lc_lfsck;
+		struct lfsck_layout	*lo	= com->lc_file_ram;
+
+		if (lo->ll_flags & LF_CRASHED_LASTID) {
+			LASSERT(lfsck->li_out_notify != NULL);
+
+			lfsck->li_out_notify(env, lfsck->li_out_notify_data,
+					     LE_LASTID_REBUILDING);
+		}
+
+		return 0;
+	}
 
 	rc = lfsck_layout_llst_add(llsd, lsp->lsp_index);
 	if (rc == 0 && start != NULL && start->ls_flags & LPF_ORPHAN) {
