@@ -425,13 +425,6 @@ int class_attach(struct lustre_cfg *lcfg)
         }
         memcpy(obd->obd_uuid.uuid, uuid, len);
 
-        /* do the attach */
-        if (OBP(obd, attach)) {
-                rc = OBP(obd,attach)(obd, sizeof *lcfg, lcfg);
-                if (rc)
-                        GOTO(out, rc = -EINVAL);
-        }
-
         /* Detach drops this */
 	spin_lock(&obd->obd_dev_lock);
 	atomic_set(&obd->obd_refcount, 1);
@@ -758,11 +751,7 @@ void class_decref(struct obd_device *obd, const char *scope, const void *source)
                                 CERROR("Cleanup %s returned %d\n",
                                        obd->obd_name, err);
                 }
-                if (OBP(obd, detach)) {
-                        err = OBP(obd, detach)(obd);
-                        if (err)
-                                CERROR("Detach returned %d\n", err);
-                }
+
                 class_release_dev(obd);
         }
 }

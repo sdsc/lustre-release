@@ -217,42 +217,6 @@ void obdo_to_ioobj(struct obdo *oa, struct obd_ioobj *ioobj)
 }
 EXPORT_SYMBOL(obdo_to_ioobj);
 
-void obdo_from_iattr(struct obdo *oa, struct iattr *attr, unsigned int ia_valid)
-{
-        if (ia_valid & ATTR_ATIME) {
-                oa->o_atime = LTIME_S(attr->ia_atime);
-                oa->o_valid |= OBD_MD_FLATIME;
-        }
-        if (ia_valid & ATTR_MTIME) {
-                oa->o_mtime = LTIME_S(attr->ia_mtime);
-                oa->o_valid |= OBD_MD_FLMTIME;
-        }
-        if (ia_valid & ATTR_CTIME) {
-                oa->o_ctime = LTIME_S(attr->ia_ctime);
-                oa->o_valid |= OBD_MD_FLCTIME;
-        }
-        if (ia_valid & ATTR_SIZE) {
-                oa->o_size = attr->ia_size;
-                oa->o_valid |= OBD_MD_FLSIZE;
-        }
-	if (ia_valid & ATTR_MODE) {
-		oa->o_mode = attr->ia_mode;
-		oa->o_valid |= OBD_MD_FLTYPE | OBD_MD_FLMODE;
-		if (!in_group_p(oa->o_gid) &&
-		    !cfs_capable(CFS_CAP_FSETID))
-			oa->o_mode &= ~S_ISGID;
-	}
-        if (ia_valid & ATTR_UID) {
-                oa->o_uid = attr->ia_uid;
-                oa->o_valid |= OBD_MD_FLUID;
-        }
-        if (ia_valid & ATTR_GID) {
-                oa->o_gid = attr->ia_gid;
-                oa->o_valid |= OBD_MD_FLGID;
-        }
-}
-EXPORT_SYMBOL(obdo_from_iattr);
-
 void iattr_from_obdo(struct iattr *attr, struct obdo *oa, obd_flag valid)
 {
         valid &= oa->o_valid;
@@ -316,19 +280,3 @@ void md_from_obdo(struct md_op_data *op_data, struct obdo *oa, obd_flag valid)
         }
 }
 EXPORT_SYMBOL(md_from_obdo);
-
-void obdo_from_md(struct obdo *oa, struct md_op_data *op_data,
-                  unsigned int valid)
-{
-        obdo_from_iattr(oa, &op_data->op_attr, valid);
-        if (valid & ATTR_BLOCKS) {
-                oa->o_blocks = op_data->op_attr_blocks;
-                oa->o_valid |= OBD_MD_FLBLOCKS;
-        }
-        if (valid & ATTR_ATTR_FLAG) {
-                oa->o_flags = 
-                        ((struct ll_iattr *)&op_data->op_attr)->ia_attr_flags;
-                oa->o_valid |= OBD_MD_FLFLAGS;
-        }
-}
-EXPORT_SYMBOL(obdo_from_md);
