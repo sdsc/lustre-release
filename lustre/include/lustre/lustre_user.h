@@ -278,6 +278,9 @@ struct ost_id {
 #define LL_STATFS_LOV		2
 #define LL_STATFS_NODELAY	4
 
+#define IOC_OSC_TYPE		'h'
+#define IOC_OSC_SET_ACTIVE	_IOWR(IOC_OSC_TYPE, 21, struct obd_device *)
+
 #define IOC_MDC_TYPE            'i'
 #define IOC_MDC_LOOKUP          _IOWR(IOC_MDC_TYPE, 20, struct obd_device *)
 #define IOC_MDC_GETFILESTRIPE   _IOWR(IOC_MDC_TYPE, 21, struct lov_user_md *)
