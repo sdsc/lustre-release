@@ -1,3 +1,9 @@
+lustre (2.4.0-1) UNRELEASED; urgency=low
+
+  * Fixed warnings in dpkg-buildpackage
+
+ -- Thomas Stibor <thomas@stibor.net>  Thu, 23 May 2013 13:32:52 +0200
+
 lustre (1.8.1.50-1) unstable; urgency=low
 
   * Update for an on-the-road-to-1.8.2 release
