@@ -947,19 +947,19 @@ int lnet_router_checker_start(void);
 void lnet_router_checker_stop(void);
 void lnet_swap_pinginfo(lnet_ping_info_t *info);
 
-int lnet_ping_target_init(void);
-void lnet_ping_target_fini(void);
 int lnet_ping(lnet_process_id_t id, int timeout_ms,
               lnet_process_id_t *ids, int n_ids);
 
 int lnet_parse_ip2nets (char **networksp, char *ip2nets);
 int lnet_parse_routes (char *route_str, int *im_a_router);
-int lnet_parse_networks (cfs_list_t *nilist, char *networks);
+int lnet_parse_networks (struct list_head *nilist, char *networks,
+			 int *ni_count);
+int lnet_net_unique(__u32 net, struct list_head *nilist);
 
 int lnet_nid2peer_locked(lnet_peer_t **lpp, lnet_nid_t nid, int cpt);
 lnet_peer_t *lnet_find_peer_locked(struct lnet_peer_table *ptable,
 				   lnet_nid_t nid);
-void lnet_peer_tables_cleanup(void);
+void lnet_peer_tables_cleanup(lnet_ni_t *ni);
 void lnet_peer_tables_destroy(void);
 int lnet_peer_tables_create(void);
 void lnet_debug_peer(lnet_nid_t nid);

@@ -450,6 +450,7 @@ typedef struct lnet_ni {
 #define LNET_PING_FEAT_INVAL		(0)		/* no feature */
 #define LNET_PING_FEAT_BASE		(1 << 0)	/* just a ping */
 #define LNET_PING_FEAT_NI_STATUS	(1 << 1)	/* return NI status */
+#define LNET_PING_FEAT_RTE_DISABLED	(1 << 2)        /* Routing disabled */
 
 #define LNET_PING_FEAT_MASK		(LNET_PING_FEAT_BASE | \
 					 LNET_PING_FEAT_NI_STATUS)
@@ -514,6 +515,8 @@ typedef struct lnet_peer {
 struct lnet_peer_table {
 	int			pt_version;	/* /proc validity stamp */
 	int			pt_number;	/* # peers extant */
+	int			pt_zombies;	/* # zombies to go to deathrow
+						 * (and not there yet) */
 	cfs_list_t		pt_deathrow;	/* zombie peers */
 	cfs_list_t		*pt_hash;	/* NID->peer hash */
 };
@@ -809,9 +812,6 @@ typedef struct
 	/* registered LNDs */
 	cfs_list_t			ln_lnds;
 
-	/* space for network names */
-	char				*ln_network_tokens;
-	int				ln_network_tokens_nob;
 	/* test protocol compatibility flags */
 	int				ln_testprotocompat;
 
