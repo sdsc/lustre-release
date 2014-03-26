@@ -578,7 +578,12 @@ typedef struct {
 
 #define LNET_PEER_HASHSIZE   503                /* prime! */
 
-#define LNET_NRBPOOLS         3                 /* # different router buffer pools */
+#define LNET_TINY_BUF_IDX	0
+#define LNET_SMALL_BUF_IDX	1
+#define LNET_LARGE_BUF_IDX	2
+
+/* # different router buffer pools */
+#define LNET_NRBPOOLS		(LNET_LARGE_BUF_IDX + 1)
 
 enum {
 	/* Didn't match anything */
