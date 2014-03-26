@@ -4893,6 +4893,16 @@ test_56y() {
 }
 run_test 56y "lfs find -L raid0|released"
 
+test_56z() { # LU-4824
+	test_mkdir $DIR/$tdir
+	touch $DIR/$tdir/$tfile
+	$LFS find -type f $DIR/non_existent_dir $DIR/$tdir &&
+		error "$LFS find did not return an error"
+	local count=$($LFS find -type f $DIR/non_existent $DIR/$tdir | wc -l)
+	[ $count == 2 ] || error "$LFS find did not continue after error"
+}
+run_test 56z "lfs find should continue after an error"
+
 test_57a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	# note test will not do anything if MDS is not local
