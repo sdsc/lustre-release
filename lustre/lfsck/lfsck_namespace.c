@@ -78,6 +78,8 @@ static void lfsck_namespace_le_to_cpu(struct lfsck_namespace *des,
 	des->ln_objs_lost_found = le64_to_cpu(src->ln_objs_lost_found);
 	fid_le_to_cpu(&des->ln_fid_latest_scanned_phase2,
 		      &src->ln_fid_latest_scanned_phase2);
+	des->ln_dirent_repaired = le64_to_cpu(src->ln_dirent_repaired);
+	des->ln_linkea_repaired = le64_to_cpu(src->ln_linkea_repaired);
 }
 
 static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *des,
@@ -112,6 +114,8 @@ static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *des,
 	des->ln_objs_lost_found = cpu_to_le64(src->ln_objs_lost_found);
 	fid_cpu_to_le(&des->ln_fid_latest_scanned_phase2,
 		      &src->ln_fid_latest_scanned_phase2);
+	des->ln_dirent_repaired = cpu_to_le64(src->ln_dirent_repaired);
+	des->ln_linkea_repaired = cpu_to_le64(src->ln_linkea_repaired);
 }
 
 /**
@@ -862,9 +866,11 @@ static int lfsck_namespace_exec_dir(const struct lu_env *env,
 
 	if (ent->lde_attrs & LUDA_UPGRADE) {
 		ns->ln_flags |= LF_UPGRADE;
+		ns->ln_dirent_repaired++;
 		repaired = true;
 	} else if (ent->lde_attrs & LUDA_REPAIR) {
 		ns->ln_flags |= LF_INCONSISTENT;
+		ns->ln_dirent_repaired++;
 		repaired = true;
 	}
 
@@ -937,6 +943,7 @@ again:
 
 nodata:
 		if (bk->lb_param & LPF_DRYRUN) {
+			ns->ln_linkea_repaired++;
 			repaired = true;
 			goto record;
 		}
@@ -969,6 +976,7 @@ nodata:
 			GOTO(stop, rc);
 
 		count = ldata.ld_leh->leh_reccount;
+		ns->ln_linkea_repaired++;
 		repaired = true;
 	} else {
 		GOTO(stop, rc);
@@ -1175,6 +1183,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "failed_phase2: "LPU64"\n"
 			      "dirs: "LPU64"\n"
 			      "M-linked: "LPU64"\n"
+			      "dirent_repaired: "LPU64"\n"
+			      "linkea_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1192,6 +1202,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_objs_failed_phase2,
 			      ns->ln_dirs_checked,
 			      ns->ln_mlinked_checked,
+			      ns->ln_dirent_repaired,
+			      ns->ln_linkea_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
@@ -1261,6 +1273,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "failed_phase2: "LPU64"\n"
 			      "dirs: "LPU64"\n"
 			      "M-linked: "LPU64"\n"
+			      "dirent_repaired: "LPU64"\n"
+			      "linkea_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1279,6 +1293,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_objs_failed_phase2,
 			      ns->ln_dirs_checked,
 			      ns->ln_mlinked_checked,
+			      ns->ln_dirent_repaired,
+			      ns->ln_linkea_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
@@ -1310,6 +1326,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "failed_phase2: "LPU64"\n"
 			      "dirs: "LPU64"\n"
 			      "M-linked: "LPU64"\n"
+			      "dirent_repaired: "LPU64"\n"
+			      "linkea_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1328,6 +1346,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_objs_failed_phase2,
 			      ns->ln_dirs_checked,
 			      ns->ln_mlinked_checked,
+			      ns->ln_dirent_repaired,
+			      ns->ln_linkea_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
