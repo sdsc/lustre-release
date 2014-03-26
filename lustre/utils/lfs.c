@@ -882,7 +882,8 @@ static int name2layout(__u32 *layout, char *name)
 #define FIND_POOL_OPT 3
 static int lfs_find(int argc, char **argv)
 {
-        int c, ret;
+	int c, rc;
+	int ret = 0;
         time_t t;
 	struct find_param param = {
 		.fp_max_depth = -1,
@@ -1228,9 +1229,11 @@ err_free:
                 pathend = argc;
         }
 
-        do {
-                ret = llapi_find(argv[pathstart], &param);
-        } while (++pathstart < pathend && !ret);
+	do {
+		rc = llapi_find(argv[pathstart], &param);
+		if (rc != 0 && ret == 0)
+			ret = rc;
+	} while (++pathstart < pathend);
 
         if (ret)
                 fprintf(stderr, "error: %s failed for %s.\n",
