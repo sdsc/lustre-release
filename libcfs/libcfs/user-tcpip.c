@@ -518,24 +518,18 @@ libcfs_fcntl_nonblock(cfs_socket_t *sock)
 int
 libcfs_sock_set_nagle(cfs_socket_t *sock, int nagle)
 {
-        int rc;
-        int option = nagle ? 0 : 1;
+	int rc;
+	int option = nagle ? 0 : 1;
 
-#if defined(__sun__) || defined(__sun)
-        rc = setsockopt(sock->s_fd,
-                        IPPROTO_TCP, TCP_NODELAY, &option, sizeof(option));
-#else
-        rc = setsockopt(sock->s_fd,
-                        SOL_TCP, TCP_NODELAY, &option, sizeof(option));
-#endif
+	rc = setsockopt(sock->s_fd,
+			IPPROTO_TCP, TCP_NODELAY, &option, sizeof(option));
+	if (rc != 0) {
+		rc = -errno;
+		CERROR("Cannot set NODELAY socket option\n");
+		return rc;
+	}
 
-        if (rc != 0) {
-                rc = -errno;
-                CERROR ("Cannot set NODELAY socket option\n");
-                return rc;
-        }
-
-        return 0;
+	return 0;
 }
 
 int

@@ -39,14 +39,15 @@
 
 #include <libcfs/libcfs.h>
 
-#if defined(__linux__)
+#ifndef __KERNEL__
+#include "posix/posix-tracefile.h"
+#elif defined(__linux__)
 #include "linux/linux-tracefile.h"
 #elif defined(__WINNT__)
 #include "winnt/winnt-tracefile.h"
 #else
 #error Unsupported operating system.
 #endif
-
 /* trace file lock routines */
 
 #define TRACEFILE_NAME_SIZE 1024
@@ -269,7 +270,7 @@ extern void cfs_trace_unlock_tcd(struct cfs_trace_cpu_data *tcd, int walking);
  */
 
 extern char *cfs_trace_console_buffers[NR_CPUS][CFS_TCD_TYPE_MAX];
-extern cfs_trace_buf_type_t cfs_trace_buf_idx_get(void);
+extern enum cfs_trace_buf_type cfs_trace_buf_idx_get(void);
 
 static inline char *cfs_trace_get_console_buffer(void)
 {

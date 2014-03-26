@@ -1,2 +1,1 @@
-EXTRA_DIST = posix-debug.c
-
+EXTRA_DIST = posix-debug.c posix-tracefile.h
