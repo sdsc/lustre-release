@@ -1230,7 +1230,7 @@ err_free:
 
         do {
                 ret = llapi_find(argv[pathstart], &param);
-        } while (++pathstart < pathend && !ret);
+        } while (++pathstart < pathend);
 
         if (ret)
                 fprintf(stderr, "error: %s failed for %s.\n",
