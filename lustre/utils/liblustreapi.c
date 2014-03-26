@@ -1595,11 +1595,12 @@ static int llapi_semantic_traverse(char *path, int size, DIR *parent,
 {
 	struct find_param *param = (struct find_param *)data;
 	struct dirent64 *dent;
-	int len, ret;
+	int len, ret, save_ret;
 	DIR *d, *p = NULL;
 
-        ret = 0;
-        len = strlen(path);
+	ret = 0;
+	save_ret = 0;
+	len = strlen(path);
 
         d = opendir(path);
         if (!d && errno != ENOTDIR) {
@@ -1663,21 +1664,21 @@ static int llapi_semantic_traverse(char *path, int size, DIR *parent,
                                           "error: %s: '%s' is UNKNOWN type %d",
                                           __func__, dent->d_name, dent->d_type);
                         break;
-                case DT_DIR:
-                        ret = llapi_semantic_traverse(path, size, d, sem_init,
-                                                      sem_fini, data, dent);
-                        if (ret < 0)
-                                goto out;
-                        break;
-                default:
-                        ret = 0;
-                        if (sem_init) {
-                                ret = sem_init(path, d, NULL, data, dent);
-                                if (ret < 0)
-                                        goto out;
-                        }
-                        if (sem_fini && ret == 0)
-                                sem_fini(path, d, NULL, data, dent);
+		case DT_DIR:
+			ret = llapi_semantic_traverse(path, size, d, sem_init,
+						      sem_fini, data, dent);
+			if (ret < 0)
+				save_ret = -1;
+			break;
+		default:
+			ret = 0;
+			if (sem_init) {
+				ret = sem_init(path, d, NULL, data, dent);
+				if (ret < 0)
+					save_ret = -1;
+			}
+			if (sem_fini && ret == 0)
+				sem_fini(path, d, NULL, data, dent);
                 }
         }
 
@@ -1691,7 +1692,7 @@ err:
                 closedir(d);
         if (p)
                 closedir(p);
-        return ret;
+	return ret ? ret : save_ret;
 }
 
 static int param_callback(char *path, semantic_func_t sem_init,
