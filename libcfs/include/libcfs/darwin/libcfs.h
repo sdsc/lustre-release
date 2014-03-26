@@ -221,9 +221,6 @@ int    in_group_p(gid_t group);
 mode_t current_umask(void);
 char  *current_comm(void);
 
-/* check if task is running in compat mode.*/
-int current_is_32bit(void);
-
 #endif /* __KERNEL__ */
 
 #endif /* _XNU_LIBCFS_H */

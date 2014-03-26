@@ -434,7 +434,6 @@ s/\bcfs_curproc_pid\b/current_pid/g
 s/\bcfs_curproc_is_in_groups\b/in_group_p/g
 s/\bcfs_curproc_umask\b/current_umask/g
 s/\bcfs_curproc_comm\b/current_comm/g
-s/\bcfs_curproc_is_32bit\b/current_is_32bit/g
 
 ################################################################################
 # linux primitives (linux-prim.h)

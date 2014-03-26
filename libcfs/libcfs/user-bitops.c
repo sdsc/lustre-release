@@ -51,27 +51,28 @@ unsigned long find_next_bit(unsigned long *addr,
         first_bit = offset % BITS_PER_LONG;
         base = offset - first_bit;
 
-        if (offset >= size)
-                return size;
-        if (first_bit != 0) {
-                int tmp = (*word++) & (~0UL << first_bit);
-                bit = __cfs_ffs(tmp);
-                if (bit < BITS_PER_LONG)
-                        goto found;
-                word++;
-                base += BITS_PER_LONG;
-        }
-        while (word <= last) {
-                if (*word != 0UL) {
-                        bit = __cfs_ffs(*word);
-                        goto found;
-                }
-                word++;
-                base += BITS_PER_LONG;
-        }
-        return size;
+	if (offset >= size)
+		return size;
+	if (first_bit != 0) {
+		int tmp = (*word++) & (~0UL << first_bit);
+
+		bit = __ffs(tmp);
+		if (bit < BITS_PER_LONG)
+			goto found;
+		word++;
+		base += BITS_PER_LONG;
+	}
+	while (word <= last) {
+		if (*word != 0UL) {
+			bit = __ffs(*word);
+			goto found;
+		}
+		word++;
+		base += BITS_PER_LONG;
+	}
+	return size;
 found:
-        return base + bit;
+	return base + bit;
 }
 
 unsigned long find_next_zero_bit(unsigned long *addr,
@@ -85,27 +86,28 @@ unsigned long find_next_zero_bit(unsigned long *addr,
         first_bit = offset % BITS_PER_LONG;
         base = offset - first_bit;
 
-        if (offset >= size)
-                return size;
-        if (first_bit != 0) {
-                int tmp = (*word++) & (~0UL << first_bit);
-                bit = ffz(tmp);
-                if (bit < BITS_PER_LONG)
-                        goto found;
-                word++;
-                base += BITS_PER_LONG;
-        }
-        while (word <= last) {
-                if (*word != ~0UL) {
-                        bit = ffz(*word);
-                        goto found;
-                }
-                word++;
-                base += BITS_PER_LONG;
-        }
-        return size;
+	if (offset >= size)
+		return size;
+	if (first_bit != 0) {
+		int tmp = (*word++) & (~0UL << first_bit);
+
+		bit = __ffz(tmp);
+		if (bit < BITS_PER_LONG)
+			goto found;
+		word++;
+		base += BITS_PER_LONG;
+	}
+	while (word <= last) {
+		if (*word != ~0UL) {
+			bit = __ffz(*word);
+			goto found;
+		}
+		word++;
+		base += BITS_PER_LONG;
+	}
+	return size;
 found:
-        return base + bit;
+	return base + bit;
 }
 
 #endif
