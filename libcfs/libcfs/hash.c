@@ -2122,18 +2122,18 @@ int cfs_hash_debug_str(cfs_hash_t *hs, char *str, int size)
         for (i = 0; i < cfs_hash_full_nbkt(hs); i++) {
                 cfs_hash_bd_t  bd;
 
-                bd.bd_bucket = cfs_hash_full_bkts(hs)[i];
-                cfs_hash_bd_lock(hs, &bd, 0);
-                if (maxdep < bd.bd_bucket->hsb_depmax) {
-                        maxdep  = bd.bd_bucket->hsb_depmax;
+		bd.bd_bucket = cfs_hash_full_bkts(hs)[i];
+		cfs_hash_bd_lock(hs, &bd, 0);
+		if (maxdep < bd.bd_bucket->hsb_depmax) {
+			maxdep  = bd.bd_bucket->hsb_depmax;
 #ifdef __KERNEL__
 			maxdepb = ffz(~maxdep);
 #endif
-                }
-                total += bd.bd_bucket->hsb_count;
-                dist[min(fls(bd.bd_bucket->hsb_count/max(theta,1)),7)]++;
-                cfs_hash_bd_unlock(hs, &bd, 0);
-        }
+		}
+		total += bd.bd_bucket->hsb_count;
+		dist[min(__fls(bd.bd_bucket->hsb_count / max(theta,1)), 7UL)]++;
+		cfs_hash_bd_unlock(hs, &bd, 0);
+	}
 
         c += snprintf(str + c, size - c, "%7d ", total);
         c += snprintf(str + c, size - c, "%7d ", maxdep);
@@ -2200,7 +2200,7 @@ int cfs_hash_debug_str_seq(cfs_hash_t *hs, struct seq_file *m)
 #endif
 		}
 		total += bd.bd_bucket->hsb_count;
-		dist[min(fls(bd.bd_bucket->hsb_count/max(theta,1)),7)]++;
+		dist[min(__fls(bd.bd_bucket->hsb_count / max(theta,1)), 7UL)]++;
 		cfs_hash_bd_unlock(hs, &bd, 0);
 	}
 
