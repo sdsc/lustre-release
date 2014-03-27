@@ -2715,7 +2715,7 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	if (fl & LU_XATTR_REPLACE)
 		fs_flags |= XATTR_REPLACE;
 
-	if (fl & LU_XATTR_CREATE)
+	if (fl & (LU_XATTR_CREATE | LU_XATTR_MIGRATE))
 		fs_flags |= XATTR_CREATE;
 
 	return __osd_xattr_set(info, inode, name, buf->lb_buf, buf->lb_len,

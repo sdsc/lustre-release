@@ -2248,6 +2248,8 @@ long ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		OBD_FREE_PTR(hca);
 		RETURN(rc);
 	}
+	case LL_IOC_MIGRATE:
+		RETURN(ll_migrate(inode, file, (void *)arg));
 	default: {
 		int err;
 
@@ -2638,6 +2640,52 @@ int ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
 
         RETURN(rc);
 }
+
+int ll_migrate(struct inode *inode, struct file *file, void *arg)
+{
+	int                    mdtidx;
+	struct dentry         *dentry = file->f_dentry;
+	struct inode          *parent = file->f_dentry->d_parent->d_inode;
+	struct qstr           *name = &dentry->d_name;
+	struct md_op_data     *op_data;
+	struct ptlrpc_request *request = NULL;
+	int                    rc;
+
+	ENTRY;
+
+	if (cfs_copy_from_user(&mdtidx, (int *)arg, sizeof(mdtidx)))
+		RETURN(-EFAULT);
+
+	if (ll_d_mountpoint(NULL, dentry, NULL))
+		RETURN(-EBUSY);
+
+	op_data = ll_prep_md_op_data(NULL, parent, NULL, name->name, name->len,
+				     inode->i_mode, LUSTRE_OPC_MIGRATE, NULL);
+	if (IS_ERR(op_data))
+		RETURN(PTR_ERR(op_data));
+
+	op_data->op_mds = mdtidx;
+	memcpy(&op_data->op_fid3, ll_inode2fid(inode),sizeof(op_data->op_fid3));
+	rc = md_rename(ll_i2sbi(inode)->ll_md_exp, op_data, name->name,
+		       name->len, name->name, name->len, &request);
+	ll_finish_md_op_data(op_data);
+	if (!rc)
+		ll_update_times(request, parent);
+
+	ptlrpc_req_finished(request);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (S_ISREG(inode->i_mode))
+		rc = cl_sync_file_range(inode, 0, OBD_OBJECT_EOF,
+					CL_FSYNC_ALL, 0);
+	/* Set nlink to 0, so the final iput will clear the cache
+	 * on the client side */
+	inode->i_nlink = 0;
+
+	RETURN(rc);
+}
+
 
 int ll_file_noflock(struct file *file, int cmd, struct file_lock *file_lock)
 {
