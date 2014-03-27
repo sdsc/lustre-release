@@ -1662,7 +1662,7 @@ static int ct_max_sequence(void)
 {
 	int   rc, i;
 	char  path[PATH_MAX];
-	__u64 seq = 0;
+	unsigned long long seq = 0;
 	__u16 subseq;
 
 	strncpy(path, opt.o_hsm_root, sizeof(path));
@@ -1673,11 +1673,11 @@ static int ct_max_sequence(void)
 		rc = ct_dir_level_max(path, &subseq);
 		if (rc != 0)
 			return rc;
-		seq |= ((__u64)subseq << ((3 - i) * 16));
+		seq |= ((unsigned long long)subseq << ((3 - i) * 16));
 		sprintf(path + strlen(path), "/%04x", subseq);
 	}
 
-	printf("max_sequence: %016Lx\n", seq);
+	printf("max_sequence: %016llx\n", seq);
 
 	return 0;
 }
