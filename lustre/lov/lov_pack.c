@@ -110,6 +110,7 @@ void lov_dump_lmm(int level, void *lmm)
 	magic = le32_to_cpu(((struct lov_mds_md *)lmm)->lmm_magic);
 	switch (magic) {
 	case LOV_MAGIC_V1:
+	case LOV_MAGIC_PARTIAL:
 		lov_dump_lmm_v1(level, (struct lov_mds_md_v1 *)lmm);
 		break;
 	case LOV_MAGIC_V3:
@@ -155,13 +156,14 @@ int lov_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
                         lmm_magic = LOV_MAGIC;
         }
 
-        if ((lmm_magic != LOV_MAGIC_V1) &&
-            (lmm_magic != LOV_MAGIC_V3)) {
-                CERROR("bad mem LOV MAGIC: 0x%08X != 0x%08X nor 0x%08X\n",
-                        lmm_magic, LOV_MAGIC_V1, LOV_MAGIC_V3);
-                RETURN(-EINVAL);
-
-        }
+	if (lmm_magic != LOV_MAGIC_V1 &&
+	    lmm_magic != LOV_MAGIC_V3 &&
+	    lmm_magic != LOV_MAGIC_PARTIAL) {
+		CERROR("bad mem LOV MAGIC: 0x%08X != 0x%08X nor 0x%08X "
+		       "nor 0x%08X\n", lmm_magic, LOV_MAGIC_V1,
+		       LOV_MAGIC_V3, LOV_MAGIC_PARTIAL);
+		RETURN(-EINVAL);
+	}
 
         if (lsm) {
                 /* If we are just sizing the EA, limit the stripe count
@@ -215,7 +217,7 @@ int lov_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,
         if (lmm_magic == LOV_MAGIC_V3)
                 lmmv3->lmm_magic = cpu_to_le32(LOV_MAGIC_V3);
         else
-                lmmv1->lmm_magic = cpu_to_le32(LOV_MAGIC_V1);
+		lmmv1->lmm_magic = cpu_to_le32(lmm_magic);
 
         if (!lsm)
                 RETURN(lmm_size);
@@ -436,8 +438,9 @@ int lov_getstripe(struct obd_export *exp, struct lov_stripe_md *lsm,
         lum_size = sizeof(struct lov_user_md_v1);
 	if (copy_from_user(&lum, lump, lum_size))
                 GOTO(out_set, rc = -EFAULT);
-        else if ((lum.lmm_magic != LOV_USER_MAGIC) &&
-                 (lum.lmm_magic != LOV_USER_MAGIC_V3))
+	else if (lum.lmm_magic != LOV_USER_MAGIC &&
+		 lum.lmm_magic != LOV_USER_MAGIC_V3 &&
+		 lum.lmm_magic != LOV_USER_MAGIC_PARTIAL)
                 GOTO(out_set, rc = -EINVAL);
 
         if (lum.lmm_stripe_count &&
@@ -458,15 +461,18 @@ int lov_getstripe(struct obd_export *exp, struct lov_stripe_md *lsm,
         CLASSERT(sizeof(lum) == sizeof(struct lov_mds_md_v3));
         CLASSERT(sizeof lum.lmm_objects[0] == sizeof lmmk->lmm_objects[0]);
 
-        if ((cpu_to_le32(LOV_MAGIC) != LOV_MAGIC) &&
-            ((lmmk->lmm_magic == cpu_to_le32(LOV_MAGIC_V1)) ||
-            (lmmk->lmm_magic == cpu_to_le32(LOV_MAGIC_V3)))) {
+	if ((cpu_to_le32(LOV_MAGIC) != LOV_MAGIC) &&
+	    (lmmk->lmm_magic == cpu_to_le32(LOV_MAGIC_V1) ||
+	     lmmk->lmm_magic == cpu_to_le32(LOV_MAGIC_V3) ||
+	     lmmk->lmm_magic == cpu_to_le32(LOV_MAGIC_PARTIAL))) {
                 lustre_swab_lov_mds_md(lmmk);
                 lustre_swab_lov_user_md_objects(
                                 (struct lov_user_ost_data*)lmmk->lmm_objects,
                                 lmmk->lmm_stripe_count);
         }
-        if (lum.lmm_magic == LOV_USER_MAGIC) {
+
+	if (lum.lmm_magic == LOV_USER_MAGIC ||
+	    unlikely(lum.lmm_magic == LOV_USER_MAGIC_PARTIAL)) {
                 /* User request for v1, we need skip lmm_pool_name */
                 if (lmmk->lmm_magic == LOV_MAGIC_V3) {
 			memmove(((struct lov_mds_md_v1 *)lmmk)->lmm_objects,

@@ -1228,6 +1228,9 @@ static int lod_use_defined_striping(const struct lu_env *env,
 		magic = LOV_MAGIC_V3;
 		objs = &v3->lmm_objects[0];
 		lod_object_set_pool(mo, v3->lmm_pool_name);
+	} else if (magic == LOV_MAGIC_PARTIAL_DEF) {
+		magic = LOV_MAGIC_PARTIAL;
+		objs = &v1->lmm_objects[0];
 	} else {
 		GOTO(out, rc = -EINVAL);
 	}
@@ -1270,7 +1273,8 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	v1 = buf->lb_buf;
 	magic = v1->lmm_magic;
 
-	if (magic == __swab32(LOV_USER_MAGIC_V1)) {
+	if (magic == __swab32(LOV_USER_MAGIC_V1) ||
+	    unlikely(magic == __swab32(LOV_USER_MAGIC_PARTIAL))) {
 		lustre_swab_lov_user_md_v1(v1);
 		magic = v1->lmm_magic;
 	} else if (magic == __swab32(LOV_USER_MAGIC_V3)) {
@@ -1279,7 +1283,8 @@ static int lod_qos_parse_config(const struct lu_env *env,
 		magic = v3->lmm_magic;
 	}
 
-	if (unlikely(magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)) {
+	if (unlikely(magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3 &&
+		     magic != LOV_MAGIC_PARTIAL)) {
 		/* try to use as fully defined striping */
 		rc = lod_use_defined_striping(env, lo, buf);
 		RETURN(rc);

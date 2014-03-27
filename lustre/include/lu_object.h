@@ -491,6 +491,9 @@ enum lu_object_header_flags {
 	 * Mark this object has already been taken out of cache.
 	 */
 	LU_OBJECT_UNHASHED = 1,
+	/**
+	 * The object has some incomplete information. */
+	LU_OBJECT_PARTIAL = 2,
 };
 
 enum lu_object_header_attr {
@@ -707,6 +710,11 @@ static inline void lu_object_get(struct lu_object *o)
 static inline int lu_object_is_dying(const struct lu_object_header *h)
 {
 	return test_bit(LU_OBJECT_HEARD_BANSHEE, &h->loh_flags);
+}
+
+static inline int lu_object_is_partial(const struct lu_object_header *h)
+{
+	return unlikely(test_bit(LU_OBJECT_PARTIAL, &h->loh_flags));
 }
 
 void lu_object_put(const struct lu_env *env, struct lu_object *o);

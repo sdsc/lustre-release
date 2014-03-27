@@ -2060,6 +2060,240 @@ test_19b() {
 }
 run_test 19b "OST-object inconsistency self repair"
 
+test_20() {
+	[ $OSTCOUNT -lt 3 ] &&
+		skip "The test needs at least 3 OSTs" && return
+
+	echo "#####"
+	echo "The target MDT-object and some of its OST-object are lost."
+	echo "The LFSCK should find out the left OST-objects and re-create"
+	echo "the MDT-object under the direcotry .lustre/lost+found/MDTxxxx/"
+	echo "with the partial OST-objects. The admin can access it via some"
+	echo "system tools without crash the system."
+	echo "For old client, even if it cannot access the file with partial"
+	echo "OST-objects, it should not cause the system crash."
+	echo "#####"
+
+	check_mount_and_prep
+	$LFS mkdir -i 0 $DIR/$tdir/a1
+	$LFS setstripe -c 3 -i 0 -s 1M $DIR/$tdir/a1
+
+	dd if=/dev/zero of=$DIR/$tdir/a1/f0 bs=1024 count=2049
+	dd if=/dev/zero of=$DIR/$tdir/a1/f1 bs=1024 count=2049
+	dd if=/dev/zero of=$DIR/$tdir/a1/f2 bs=1024 count=2049
+	dd if=/dev/zero of=$DIR/$tdir/a1/f3 bs=1024 count=2049
+
+	local fid0=$($LFS path2fid $DIR/$tdir/a1/f0)
+	local fid1=$($LFS path2fid $DIR/$tdir/a1/f1)
+	local fid2=$($LFS path2fid $DIR/$tdir/a1/f2)
+	local fid3=$($LFS path2fid $DIR/$tdir/a1/f3)
+
+	echo ${fid0}
+	$LFS getstripe $DIR/$tdir/a1/f0
+	echo ${fid1}
+	$LFS getstripe $DIR/$tdir/a1/f1
+	echo ${fid2}
+	$LFS getstripe $DIR/$tdir/a1/f2
+	echo ${fid3}
+	$LFS getstripe $DIR/$tdir/a1/f3
+
+	cancel_lru_locks osc
+
+	echo "Inject failure, to simulate f0 lost MDT-object"
+	#define OBD_FAIL_LFSCK_LOST_MDTOBJ	0x1616
+	do_facet mds1 $LCTL set_param fail_loc=0x1616
+	rm -f $DIR/$tdir/a1/f0
+
+	echo "Inject failure, to simulate f1 lost MDT-object and OST-object0"
+	#define OBD_FAIL_LFSCK_LOST_SPEOBJ	0x161a
+	do_facet mds1 $LCTL set_param fail_loc=0x161a
+	rm -f $DIR/$tdir/a1/f1
+
+	echo "Inject failure, to simulate f2 lost MDT-object and OST-object1"
+	do_facet mds1 $LCTL set_param fail_val=1
+	rm -f $DIR/$tdir/a1/f2
+
+	echo "Inject failure, to simulate f3 lost MDT-object and OST-object2"
+	do_facet mds1 $LCTL set_param fail_val=2
+	rm -f $DIR/$tdir/a1/f3
+
+	cancel_lru_locks mdc
+	cancel_lru_locks osc
+	sync
+	sleep 2
+	do_facet mds1 $LCTL set_param fail_loc=0 fail_val=0
+
+	echo "Inject failure to slow down the LFSCK on OST0"
+	#define OBD_FAIL_LFSCK_DELAY5		0x161b
+	do_facet ost1 $LCTL set_param fail_loc=0x161b
+
+	echo "Trigger layout LFSCK on all devices to find out orphan OST-object"
+	$START_LAYOUT -r -o || error "(1) Fail to start LFSCK for layout!"
+
+	sleep 3
+	do_facet ost1 $LCTL set_param fail_loc=0
+
+	for k in $(seq $MDSCOUNT); do
+		# The LFSCK status query internal is 30 seconds. For the case
+		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
+		# time to guarantee the status sync up.
+		wait_update_facet mds${k} "$LCTL get_param -n \
+			mdd.$(facet_svc mds${k}).lfsck_layout |
+			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
+			error "(2) MDS${k} is not the expected 'completed'"
+	done
+
+	for k in $(seq $OSTCOUNT); do
+		local cur_status=$(do_facet ost${k} $LCTL get_param -n \
+				obdfilter.$(facet_svc ost${k}).lfsck_layout |
+				awk '/^status/ { print $2 }')
+		[ "$cur_status" == "completed" ] ||
+		error "(3) OST${k} Expect 'completed', but got '$cur_status'"
+	done
+
+	local repaired=$(do_facet mds1 $LCTL get_param -n \
+			 mdd.$(facet_svc mds1).lfsck_layout |
+			 awk '/^repaired_orphan/ { print $2 }')
+	[ $repaired -eq 9 ] ||
+		error "(4) Expect 9 fixed on mds1, but got: $repaired"
+
+	#
+	# R-${fid0} should be the old f0
+	#
+	local name="$MOUNT/.lustre/lost+found/MDT0000/R-${fid0}"
+	echo "Check $name, which is the old f0"
+
+	$LFS getstripe -v $name || error "(5.1) cannot getstripe on $name"
+
+	local magic=$($LFS getstripe -v $name | awk '/lmm_magic:/ { print $2 }')
+	#define LOV_MAGIC_V1      0x0BD10BD0
+	[ "$magic" == "0x0BD10BD0" ] ||
+		error "(5.2) expect the magic 0x0BD10BD0, but got $magic"
+
+	local stripes=$($LFS getstripe -v $name |
+			awk '/lmm_stripe_count:/ { print $2 }')
+	[ $stripes -eq 3 ] ||
+		error "(5.3) expect the stripe count is 3, but got $stripes"
+
+	local size=$(stat $name | awk '/Size:/ { print $2 }')
+	# 1024 * 2049
+	[ $size -eq 2098176 ] ||
+		error "(5.4) expect the size 2098176, but got $size"
+
+	cat $name > /dev/null || error "(5.5) cannot read $name"
+
+	echo "dummy" >> $name || error "(5.6) cannot write $name"
+
+	chown 1.1 $name || error "(5.7) cannot chown on $name"
+
+	touch $name || error "(5.8) cannot touch $name"
+
+	rm -f $name || error "(5.9) cannot unlink $name"
+
+	#
+	# R-${fid1} should contains the old f1's stripe1 and stripe2
+	#
+	name="$MOUNT/.lustre/lost+found/MDT0000/R-${fid1}"
+	echo "Check $name, which contains the old f1's stripe1 and stripe2"
+
+	$LFS getstripe -v $name || error "(6.1) cannot getstripe on $name"
+
+	magic=$($LFS getstripe -v $name | awk '/lmm_magic:/ { print $2 }')
+	#define LOV_MAGIC_PARTIAL 0x0BD50BD0
+	[ "$magic" == "0x0BD50BD0" ] ||
+		error "(6.2) expect the magic 0x0BD50BD0, but got $magic"
+
+	stripes=$($LFS getstripe -v $name |
+		  awk '/lmm_stripe_count:/ { print $2 }')
+	[ $stripes -eq 3 ] ||
+		error "(6.3) expect the stripe count is 3, but got $stripes"
+
+	size=$(stat $name | awk '/Size:/ { print $2 }')
+	# stripe0 is dummy, the size is 1024 * (0 + 1024 + 1)
+	[ $size -eq 1049600 ] ||
+		error "(6.4) expect the size 1049600, but got $size"
+
+	cat $name > /dev/null || error "(6.5) cannot read $name"
+
+	echo "dummy" >> $name && error "(6.6) write $name should fail"
+
+	chown 1.1 $name && error "(6.7) chown on $name should fail"
+
+	touch $name && error "(6.8) touch $name should fail"
+
+	rm -f $name || error "(6.9) cannot unlink $name"
+
+	#
+	# R-${fid2} should contains the old f1's stripe0 and stripe2
+	#
+	name="$MOUNT/.lustre/lost+found/MDT0000/R-${fid2}"
+	echo "Check $name, which contains the old f2's stripe0 and stripe2"
+
+	$LFS getstripe -v $name || error "(7.1) cannot getstripe on $name"
+
+	magic=$($LFS getstripe -v $name | awk '/lmm_magic:/ { print $2 }')
+	#define LOV_MAGIC_PARTIAL 0x0BD50BD0
+	[ "$magic" == "0x0BD50BD0" ] ||
+		error "(7.2) expect the magic 0x0BD50BD0, but got $magic"
+
+	stripes=$($LFS getstripe -v $name |
+		  awk '/lmm_stripe_count:/ { print $2 }')
+	[ $stripes -eq 3 ] ||
+		error "(7.3) expect the stripe count is 3, but got $stripes"
+
+	size=$(stat $name | awk '/Size:/ { print $2 }')
+	# stripe1 is dummy, the size is 1024 * (1024 + 0 + 1)
+	[ $size -eq 1049600 ] ||
+		error "(7.4) expect the size 1049600, but got $size"
+
+	cat $name > /dev/null || error "(7.5) cannot read $name"
+
+	echo "dummy" >> $name && error "(7.6) write $name should fail"
+
+	chown 1.1 $name && error "(7.7) chown on $name should fail"
+
+	touch $name && error "(7.8) touch $name should fail"
+
+	rm -f $name || error "(7.9) cannot unlink $name"
+
+	#
+	# R-${fid3} should contains the old f3's stripe0 and stripe1
+	#
+	name="$MOUNT/.lustre/lost+found/MDT0000/R-${fid3}"
+	echo "Check $name, which contains the old f3's stripe0 and stripe1"
+
+	$LFS getstripe -v $name || error "(8.1) cannot getstripe on $name"
+
+	magic=$($LFS getstripe -v $name | awk '/lmm_magic:/ { print $2 }')
+	#define LOV_MAGIC_V1      0x0BD10BD0
+	[ "$magic" == "0x0BD10BD0" ] ||
+		error "(8.2) expect the magic 0x0BD10BD0, but got $magic"
+
+	stripes=$($LFS getstripe -v $name |
+		  awk '/lmm_stripe_count:/ { print $2 }')
+	# LFSCK does not know the old f3 had 3 stripes.
+	# It only tries to find as much as possible.
+	# The stripe count depends on the last stripe's offset.
+	[ $stripes -eq 2 ] ||
+		error "(8.3) expect the stripe count is 2, but got $stripes"
+
+	local size=$(stat $name | awk '/Size:/ { print $2 }')
+	# stripe2 is lost, the size is 1024 * (1024 + 1024)
+	[ $size -eq 2097152 ] ||
+		error "(8.4) expect the size 2097152, but got $size"
+
+	cat $name > /dev/null || error "(8.5) cannot read $name"
+
+	echo "dummy" >> $name || error "(8.6) cannot write $name"
+
+	chown 1.1 $name || error "(8.7) cannot chown on $name"
+
+	touch $name || error "(8.8) cannot touch $name"
+
+	rm -f $name || error "(8.9) cannot unlink $name"
+}
+run_test 20 "Handle the orphan with dummy LOV EA slot properly"
+
 $LCTL set_param debug=-lfsck > /dev/null || true
 
 # restore MDS/OST size

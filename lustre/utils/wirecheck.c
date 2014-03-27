@@ -663,6 +663,7 @@ check_lov_mds_md_v1(void)
 	CHECK_MEMBER(lov_mds_md_v1, lmm_objects[0]);
 
 	CHECK_CDEFINE(LOV_MAGIC_V1);
+	CHECK_CDEFINE(LOV_MAGIC_PARTIAL);
 }
 
 static void

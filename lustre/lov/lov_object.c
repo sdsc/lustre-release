@@ -222,9 +222,15 @@ static int lov_init_raid0(const struct lu_env *env,
         ENTRY;
 
 	if (lsm->lsm_magic != LOV_MAGIC_V1 && lsm->lsm_magic != LOV_MAGIC_V3) {
-		dump_lsm(D_ERROR, lsm);
-		LASSERTF(0, "magic mismatch, expected %d/%d, actual %d.\n",
-			 LOV_MAGIC_V1, LOV_MAGIC_V3, lsm->lsm_magic);
+		if (lsm->lsm_magic == LOV_MAGIC_PARTIAL) {
+			set_bit(LU_OBJECT_PARTIAL,
+				&lov2lu(lov)->lo_header->loh_flags);
+		} else {
+			dump_lsm(D_ERROR, lsm);
+			LASSERTF(0, "magic mismatch, expected %d/%d/%d, "
+				 "actual %d.\n", LOV_MAGIC_V1, LOV_MAGIC_V3,
+				 LOV_MAGIC_PARTIAL, lsm->lsm_magic);
+		}
 	}
 
 	LASSERT(lov->lo_lsm == NULL);

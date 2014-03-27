@@ -355,7 +355,8 @@ static int lfsck_layout_verify_header(struct lov_mds_md_v1 *lmm)
 	/* If magic crashed, keep it there. Sometime later, during OST-object
 	 * orphan handling, if some OST-object(s) back-point to it, it can be
 	 * verified and repaired. */
-	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)
+	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3 &&
+	    magic != LOV_MAGIC_PARTIAL)
 		return -EINVAL;
 
 	patten = le32_to_cpu(lmm->lmm_pattern);
@@ -650,15 +651,6 @@ out:
 		lo->ll_flags |= LF_INCOMPLETE;
 		lfsck_rbtree_cleanup(env, com);
 	}
-}
-
-static inline bool is_dummy_lov_ost_data(struct lov_ost_data_v1 *obj)
-{
-	if (fid_is_zero(&obj->l_ost_oi.oi_fid) &&
-	    obj->l_ost_gen == 0 && obj->l_ost_idx == 0)
-		return true;
-
-	return false;
 }
 
 static void lfsck_layout_le_to_cpu(struct lfsck_layout *des,
@@ -1685,17 +1677,41 @@ static int lfsck_layout_refill_lovea(const struct lu_env *env,
 				     struct lov_ost_data_v1 *slot,
 				     int fl, __u32 ost_idx)
 {
-	struct ost_id	*oi	= &lfsck_env_info(env)->lti_oi;
-	int		 rc;
+	struct ost_id		*oi	= &lfsck_env_info(env)->lti_oi;
+	struct lov_mds_md_v1	*lmm	= buf->lb_buf;
+	int			 rc;
 
 	fid_to_ostid(cfid, oi);
 	ostid_cpu_to_le(oi, &slot->l_ost_oi);
 	slot->l_ost_gen = cpu_to_le32(0);
 	slot->l_ost_idx = cpu_to_le32(ost_idx);
+
+	if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_PARTIAL) {
+		struct lov_ost_data_v1 *objs;
+		int			i;
+		__u16			count;
+
+		count = le16_to_cpu(lmm->lmm_stripe_count);
+		for (i = 0, objs = &(lmm->lmm_objects[0]); i < count;
+		     i++, objs++) {
+			if (is_dummy_lov_slot(&objs->l_ost_oi, objs->l_ost_idx,
+					      objs->l_ost_gen) && objs != slot)
+				break;
+		}
+
+		/* If the @slot is the last dummy slot to be refilled,
+		 * then change the lmm::lmm_magic as LOV_MAGIC_V1. */
+		if (i == count)
+			lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V1);
+	}
+
 	rc = dt_xattr_set(env, parent, buf, XATTR_NAME_LOV, fl, handle,
 			  BYPASS_CAPA);
-	if (rc == 0)
+	if (rc == 0) {
+		clear_bit(LU_OBJECT_PARTIAL,
+			  &parent->do_lu.lo_header->loh_flags);
 		rc = 1;
+	}
 
 	return rc;
 }
@@ -1714,15 +1730,24 @@ static int lfsck_layout_extend_lovea(const struct lu_env *env,
 {
 	struct lov_mds_md_v1	*lmm	= buf->lb_buf;
 	struct lov_ost_data_v1	*objs;
+	__u32			 magic;
 	int			 rc;
+	__u16			 count;
 	ENTRY;
 
 	if (fl == LU_XATTR_CREATE) {
-		LASSERT(buf->lb_len == lov_mds_md_size(ea_off + 1,
-						       LOV_MAGIC_V1));
+		count = ea_off + 1;
+		if (ea_off == 0) {
+			magic = LOV_MAGIC_V1;
+		} else {
+			magic = LOV_MAGIC_PARTIAL;
+			set_bit(LU_OBJECT_PARTIAL,
+				&parent->do_lu.lo_header->loh_flags);
+		}
+		LASSERT(buf->lb_len == lov_mds_md_size(count, magic));
 
 		memset(lmm, 0, buf->lb_len);
-		lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V1);
+		lmm->lmm_magic = cpu_to_le32(magic);
 		/* XXX: currently, we only support LOV_PATTERN_RAID0. */
 		lmm->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0);
 		fid_to_lmm_oi(lfsck_dto2fid(parent), &lmm->lmm_oi);
@@ -1733,32 +1758,38 @@ static int lfsck_layout_extend_lovea(const struct lu_env *env,
 			cpu_to_le32(LOV_DESC_STRIPE_SIZE_DEFAULT);
 		objs = &(lmm->lmm_objects[ea_off]);
 	} else {
-		__u16	count = le16_to_cpu(lmm->lmm_stripe_count);
-		int	gap   = ea_off - count;
-		__u32	magic = le32_to_cpu(lmm->lmm_magic);
+		int gap;
 
-		/* Currently, we only support LOV_MAGIC_V1/LOV_MAGIC_V3
-		 * which has been verified in lfsck_layout_verify_header()
-		 * already. If some new magic introduced in the future,
-		 * then layout LFSCK needs to be updated also. */
-		if (magic == LOV_MAGIC_V1) {
-			objs = &(lmm->lmm_objects[count]);
-		} else {
-			LASSERT(magic == LOV_MAGIC_V3);
+		count = le16_to_cpu(lmm->lmm_stripe_count);
+		magic = le32_to_cpu(lmm->lmm_magic);
+		if (magic == LOV_MAGIC_V3)
 			objs = &((struct lov_mds_md_v3 *)lmm)->
 							lmm_objects[count];
+		else
+			objs = &(lmm->lmm_objects[count]);
+
+		gap = ea_off - count;
+		if (gap > 0) {
+			LASSERTF(magic == LOV_MAGIC_V1 ||
+				 magic == LOV_MAGIC_PARTIAL,
+				 "invalid magic: %u\n", magic);
+
+			memset(objs, 0, gap * sizeof(*objs));
+			lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_PARTIAL);
+			set_bit(LU_OBJECT_PARTIAL,
+				&parent->do_lu.lo_header->loh_flags);
 		}
 
-		if (gap > 0)
-			memset(objs, 0, gap * sizeof(*objs));
 		lmm->lmm_layout_gen =
 			    cpu_to_le16(le16_to_cpu(lmm->lmm_layout_gen) + 1);
 		objs += gap;
+		if (gap >= 0)
+			count = ea_off + 1;
 
-		LASSERT(buf->lb_len == lov_mds_md_size(ea_off + 1, magic));
+		LASSERT(buf->lb_len == lov_mds_md_size(count, magic));
 	}
 
-	lmm->lmm_stripe_count = cpu_to_le16(ea_off + 1);
+	lmm->lmm_stripe_count = cpu_to_le16(count);
 	rc = lfsck_layout_refill_lovea(env, handle, parent, cfid, buf, objs,
 				       fl, ost_idx);
 
@@ -2416,17 +2447,11 @@ again:
 	if (rc1 != 0)
 		GOTO(unlock_parent, rc = rc1);
 
-	/* Currently, we only support LOV_MAGIC_V1/LOV_MAGIC_V3 which has
-	 * been verified in lfsck_layout_verify_header() already. If some
-	 * new magic introduced in the future, then layout LFSCK needs to
-	 * be updated also. */
 	magic = le32_to_cpu(lmm->lmm_magic);
-	if (magic == LOV_MAGIC_V1) {
-		objs = &(lmm->lmm_objects[0]);
-	} else {
-		LASSERT(magic == LOV_MAGIC_V3);
+	if (magic == LOV_MAGIC_V3)
 		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
-	}
+	else
+		objs = &(lmm->lmm_objects[0]);
 
 	count = le16_to_cpu(lmm->lmm_stripe_count);
 	if (count == 0)
@@ -2455,7 +2480,8 @@ again:
 	for (i = 0; i < count; i++, objs++) {
 		/* The MDT-object was created via lfsck_layout_recover_create()
 		 * by others before, and we fill the dummy layout EA. */
-		if (is_dummy_lov_ost_data(objs)) {
+		if (is_dummy_lov_slot(&objs->l_ost_oi, objs->l_ost_idx,
+				      objs->l_ost_gen)) {
 			if (i != ea_off)
 				continue;
 
@@ -2506,10 +2532,10 @@ again:
 	if (handle != NULL)
 		dt_trans_stop(env, dt, handle);
 	lfsck_layout_unlock(&lh);
-	if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V1)
-		objs = &(lmm->lmm_objects[ea_off]);
-	else
+	if (le32_to_cpu(lmm->lmm_magic) == LOV_MAGIC_V3)
 		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[ea_off];
+	else
+		objs = &(lmm->lmm_objects[ea_off]);
 	rc = lfsck_layout_conflict_create(env, com, ltd, rec, parent, cfid,
 					  buf, objs, ea_off, buflen);
 
@@ -2978,17 +3004,11 @@ static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(unlock2, rc);
 
-	/* Currently, we only support LOV_MAGIC_V1/LOV_MAGIC_V3 which has
-	 * been verified in lfsck_layout_verify_header() already. If some
-	 * new magic introduced in the future, then layout LFSCK needs to
-	 * be updated also. */
 	magic = le32_to_cpu(lmm->lmm_magic);
-	if (magic == LOV_MAGIC_V1) {
-		objs = &(lmm->lmm_objects[0]);
-	} else {
-		LASSERT(magic == LOV_MAGIC_V3);
+	if (magic == LOV_MAGIC_V3)
 		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
-	}
+	else
+		objs = &(lmm->lmm_objects[0]);
 
 	lmm->lmm_layout_gen = cpu_to_le16(llr->llr_parent->llo_gen + 1);
 	fid_to_ostid(lu_object_fid(&child->do_lu), oi);
@@ -3160,24 +3180,19 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out, rc);
 
-	/* Currently, we only support LOV_MAGIC_V1/LOV_MAGIC_V3 which has
-	 * been verified in lfsck_layout_verify_header() already. If some
-	 * new magic introduced in the future, then layout LFSCK needs to
-	 * be updated also. */
 	magic = le32_to_cpu(lmm->lmm_magic);
-	if (magic == LOV_MAGIC_V1) {
-		objs = &(lmm->lmm_objects[0]);
-	} else {
-		LASSERT(magic == LOV_MAGIC_V3);
+	if (magic == LOV_MAGIC_V3)
 		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
-	}
+	else
+		objs = &(lmm->lmm_objects[0]);
 
 	count = le16_to_cpu(lmm->lmm_stripe_count);
 	for (i = 0; i < count; i++, objs++) {
 		struct lu_fid		*tfid	= &info->lti_fid2;
 		struct ost_id		*oi	= &info->lti_oi;
 
-		if (is_dummy_lov_ost_data(objs))
+		if (is_dummy_lov_slot(&objs->l_ost_oi, objs->l_ost_idx,
+				      objs->l_ost_gen))
 			continue;
 
 		ostid_le_to_cpu(&objs->l_ost_oi, oi);
@@ -3895,17 +3910,11 @@ static int lfsck_layout_master_check_pairs(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(unlock, rc);
 
-	/* Currently, we only support LOV_MAGIC_V1/LOV_MAGIC_V3 which has
-	 * been verified in lfsck_layout_verify_header() already. If some
-	 * new magic introduced in the future, then layout LFSCK needs to
-	 * be updated also. */
 	magic = le32_to_cpu(lmm->lmm_magic);
-	if (magic == LOV_MAGIC_V1) {
-		objs = &(lmm->lmm_objects[0]);
-	} else {
-		LASSERT(magic == LOV_MAGIC_V3);
+	if (magic == LOV_MAGIC_V3)
 		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
-	}
+	else
+		objs = &(lmm->lmm_objects[0]);
 
 	fid_to_ostid(cfid, oi);
 	count = le16_to_cpu(lmm->lmm_stripe_count);
@@ -4345,17 +4354,11 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 			    sizeof(struct filter_fid_old));
 	count = le16_to_cpu(lmm->lmm_stripe_count);
 	gen = le16_to_cpu(lmm->lmm_layout_gen);
-	/* Currently, we only support LOV_MAGIC_V1/LOV_MAGIC_V3 which has
-	 * been verified in lfsck_layout_verify_header() already. If some
-	 * new magic introduced in the future, then layout LFSCK needs to
-	 * be updated also. */
 	magic = le32_to_cpu(lmm->lmm_magic);
-	if (magic == LOV_MAGIC_V1) {
-		objs = &(lmm->lmm_objects[0]);
-	} else {
-		LASSERT(magic == LOV_MAGIC_V3);
+	if (magic == LOV_MAGIC_V3)
 		objs = &((struct lov_mds_md_v3 *)lmm)->lmm_objects[0];
-	}
+	else
+		objs = &(lmm->lmm_objects[0]);
 
 	for (i = 0; i < count; i++, objs++) {
 		struct lu_fid		*fid	= &info->lti_fid;
@@ -4367,7 +4370,8 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 					le32_to_cpu(objs->l_ost_idx);
 		bool			 wakeup = false;
 
-		if (is_dummy_lov_ost_data(objs))
+		if (is_dummy_lov_slot(&objs->l_ost_oi, objs->l_ost_idx,
+				      objs->l_ost_gen))
 			continue;
 
 		l_wait_event(mthread->t_ctl_waitq,
@@ -4613,6 +4617,17 @@ static int lfsck_layout_slave_exec_oit(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(llsd != NULL);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DELAY5) &&
+	    cfs_fail_val == lfsck_dev_idx(lfsck->li_bottom)) {
+		struct l_wait_info	 lwi = LWI_TIMEOUT(cfs_time_seconds(1),
+							   NULL, NULL);
+		struct ptlrpc_thread	*thread = &lfsck->li_thread;
+
+		l_wait_event(thread->t_ctl_waitq,
+			     !thread_is_running(thread),
+			     &lwi);
+	}
 
 	lfsck_rbtree_update_bitmap(env, com, fid, false);
 

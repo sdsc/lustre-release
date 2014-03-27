@@ -582,6 +582,7 @@ int ll_dir_getstripe(struct inode *inode, void **plmm, int *plmm_size,
 	/* We don't swab objects for directories */
 	switch (le32_to_cpu(lmm->lmm_magic)) {
 	case LOV_MAGIC_V1:
+	case LOV_MAGIC_PARTIAL:
 		if (LOV_MAGIC != cpu_to_le32(LOV_MAGIC))
 			lustre_swab_lov_user_md_v1((struct lov_user_md_v1 *)lmm);
 		break;
@@ -1381,6 +1382,7 @@ out_rmdir:
 
                 switch (lmm->lmm_magic) {
                 case LOV_USER_MAGIC_V1:
+		case LOV_USER_MAGIC_PARTIAL:
                         if (LOV_USER_MAGIC_V1 == cpu_to_le32(LOV_USER_MAGIC_V1))
                                 break;
                         /* swab objects first so that stripes num will be sane */

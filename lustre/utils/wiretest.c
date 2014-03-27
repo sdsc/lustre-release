@@ -1474,6 +1474,7 @@ void lustre_assert_wire_constants(void)
 	LASSERTF((int)sizeof(((struct lov_mds_md_v1 *)0)->lmm_objects[0]) == 24, "found %lld\n",
 		 (long long)(int)sizeof(((struct lov_mds_md_v1 *)0)->lmm_objects[0]));
 	CLASSERT(LOV_MAGIC_V1 == 0x0BD10BD0);
+	CLASSERT(LOV_MAGIC_PARTIAL == 0x0BD50BD0);
 
 	/* Checks for struct lov_mds_md_v3 */
 	LASSERTF((int)sizeof(struct lov_mds_md_v3) == 48, "found %lld\n",

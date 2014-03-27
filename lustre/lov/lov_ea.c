@@ -208,8 +208,8 @@ static int lsm_lmm_verify_v1(struct lov_mds_md_v1 *lmm, int lmm_bytes,
 	return lsm_lmm_verify_common(lmm, lmm_bytes, *stripe_count);
 }
 
-int lsm_unpackmd_v1(struct lov_obd *lov, struct lov_stripe_md *lsm,
-                    struct lov_mds_md_v1 *lmm)
+static int lsm_unpackmd_v1(struct lov_obd *lov, struct lov_stripe_md *lsm,
+			   struct lov_mds_md_v1 *lmm)
 {
         struct lov_oinfo *loi;
         int i;
@@ -256,6 +256,105 @@ const struct lsm_operations lsm_v1_ops = {
         .lsm_stripe_by_offset   = lsm_stripe_by_offset_plain,
         .lsm_lmm_verify         = lsm_lmm_verify_v1,
         .lsm_unpackmd           = lsm_unpackmd_v1,
+};
+
+static int lsm_lmm_verify_partial(struct lov_mds_md_v1 *lmm, int lmm_bytes,
+				  __u16 *stripe_count)
+{
+	struct ost_id	oi;
+	int		i;
+	__u16		count;
+	__u16		slots;
+
+	if (lmm_bytes < sizeof(*lmm)) {
+		CERROR("lov_mds_md_v1 too small: %d, need at least %d\n",
+		       lmm_bytes, (int)sizeof(*lmm));
+		return -EINVAL;
+	}
+
+	if (le32_to_cpu(lmm->lmm_pattern) & LOV_PATTERN_F_RELEASED) {
+		*stripe_count = 0;
+	} else {
+		count = le16_to_cpu(lmm->lmm_stripe_count);
+		for (i = 0, slots = 0; i < count; i++) {
+			ostid_le_to_cpu(&lmm->lmm_objects[i].l_ost_oi, &oi);
+			/* Skip dummy slot. */
+			if (is_dummy_lov_slot(&oi,
+				le32_to_cpu(lmm->lmm_objects[i].l_ost_idx),
+				le32_to_cpu(lmm->lmm_objects[i].l_ost_gen)))
+				continue;
+
+			slots++;
+		}
+
+		*stripe_count = slots;
+	}
+
+	if (lmm_bytes < lov_mds_md_size(*stripe_count, LOV_MAGIC_PARTIAL)) {
+		CERROR("LOV EA PARTIAL too small: %d, need %d\n", lmm_bytes,
+		       lov_mds_md_size(*stripe_count, LOV_MAGIC_PARTIAL));
+		lov_dump_lmm_common(D_WARNING, lmm);
+		return -EINVAL;
+	}
+
+	return lsm_lmm_verify_common(lmm, lmm_bytes, *stripe_count);
+}
+
+static int lsm_unpackmd_partial(struct lov_obd *lov, struct lov_stripe_md *lsm,
+				struct lov_mds_md_v1 *lmm)
+{
+	struct lov_oinfo *loi;
+	__u64		  stripe_maxbytes = OBD_OBJECT_EOF;
+	int		  stripe_count;
+	int		  i;
+	int		  j;
+
+	lsm_unpackmd_common(lsm, lmm);
+	stripe_count = lsm_is_released(lsm) ? 0 : lsm->lsm_stripe_count;
+	for (i = 0, j = 0; i < stripe_count; i++, j++) {
+		loi = lsm->lsm_oinfo[i];
+		ostid_le_to_cpu(&lmm->lmm_objects[j].l_ost_oi, &loi->loi_oi);
+		loi->loi_ost_idx = le32_to_cpu(lmm->lmm_objects[j].l_ost_idx);
+		loi->loi_ost_gen = le32_to_cpu(lmm->lmm_objects[j].l_ost_gen);
+		/* Skip dummy slot. */
+		if (is_dummy_lov_slot(&loi->loi_oi, loi->loi_ost_idx,
+				      loi->loi_ost_gen)) {
+			i--;
+			continue;
+		}
+
+		if (loi->loi_ost_idx >= lov->desc.ld_tgt_count) {
+			CERROR("OST index %d more than OST count %d\n",
+			       loi->loi_ost_idx, lov->desc.ld_tgt_count);
+			lov_dump_lmm_v1(D_WARNING, lmm);
+			return -EINVAL;
+		}
+
+		if (lov->lov_tgts[loi->loi_ost_idx] == NULL) {
+			CERROR("OST index %d missing\n", loi->loi_ost_idx);
+			lov_dump_lmm_v1(D_WARNING, lmm);
+			return -EINVAL;
+		}
+
+		/* calculate the minimum stripe max bytes */
+		lov_tgt_maxbytes(lov->lov_tgts[loi->loi_ost_idx],
+				 &stripe_maxbytes);
+	}
+
+	lsm->lsm_maxbytes = stripe_maxbytes * lsm->lsm_stripe_count;
+	if (lsm->lsm_stripe_count == 0)
+		lsm->lsm_maxbytes = stripe_maxbytes * lov->desc.ld_tgt_count;
+
+	return 0;
+}
+
+const struct lsm_operations lsm_partial_ops = {
+	.lsm_free		= lsm_free_plain,
+	.lsm_destroy		= lsm_destroy_plain,
+	.lsm_stripe_by_index	= lsm_stripe_by_index_plain,
+	.lsm_stripe_by_offset	= lsm_stripe_by_offset_plain,
+	.lsm_lmm_verify		= lsm_lmm_verify_partial,
+	.lsm_unpackmd		= lsm_unpackmd_partial,
 };
 
 static int lsm_lmm_verify_v3(struct lov_mds_md *lmmv1, int lmm_bytes,

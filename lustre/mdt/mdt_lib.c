@@ -1292,6 +1292,10 @@ static void mdt_fix_lov_magic(struct mdt_thread_info *info)
 			v1->lmm_magic = LOV_MAGIC_V3_DEF;
 		} else if (v1->lmm_magic == __swab32(LOV_USER_MAGIC_V3)) {
 			v1->lmm_magic = __swab32(LOV_MAGIC_V3_DEF);
+		} else if (v1->lmm_magic == LOV_USER_MAGIC_PARTIAL) {
+			v1->lmm_magic = LOV_MAGIC_PARTIAL_DEF;
+		} else if (v1->lmm_magic == __swab32(LOV_USER_MAGIC_PARTIAL)) {
+			v1->lmm_magic = __swab32(LOV_MAGIC_PARTIAL_DEF);
 		}
 	}
 }

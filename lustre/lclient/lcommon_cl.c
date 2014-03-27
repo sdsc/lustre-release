@@ -969,19 +969,24 @@ const struct cl_req_operations ccc_req_ops = {
 int cl_setattr_ost(struct inode *inode, const struct iattr *attr,
                    struct obd_capa *capa)
 {
-        struct lu_env *env;
-        struct cl_io  *io;
-        int            result;
-        int            refcheck;
+	struct lu_env		*env;
+	struct cl_io		*io;
+	struct cl_object	*clob	= cl_i2info(inode)->lli_clob;
+	int			 result;
+	int			 refcheck;
+	ENTRY;
 
-        ENTRY;
+	LASSERT(clob != NULL);
 
-        env = cl_env_get(&refcheck);
-        if (IS_ERR(env))
-                RETURN(PTR_ERR(env));
+	if (lu_object_is_partial(clob->co_lu.lo_header))
+		RETURN(-EPERM);
 
-        io = ccc_env_thread_io(env);
-        io->ci_obj = cl_i2info(inode)->lli_clob;
+	env = cl_env_get(&refcheck);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+
+	io = ccc_env_thread_io(env);
+	io->ci_obj = clob;
 
         io->u.ci_setattr.sa_attr.lvb_atime = LTIME_S(attr->ia_atime);
         io->u.ci_setattr.sa_attr.lvb_mtime = LTIME_S(attr->ia_mtime);
