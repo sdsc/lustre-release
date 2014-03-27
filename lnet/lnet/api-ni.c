@@ -1089,7 +1089,7 @@ lnet_shutdown_lndnis (void)
 
         /* Clear the peer table and wait for all peers to go (they hold refs on
          * their NIs) */
-	lnet_peer_tables_cleanup();
+	lnet_peer_tables_cleanup(NULL);
 
 	lnet_net_lock(LNET_LOCK_EX);
 	/* Now wait for the NI's I just nuked to show up on ln_zombie_nis
@@ -1144,12 +1144,6 @@ lnet_shutdown_lndnis (void)
 
 	the_lnet.ln_shutdown = 0;
 	lnet_net_unlock(LNET_LOCK_EX);
-
-	if (the_lnet.ln_network_tokens != NULL) {
-		LIBCFS_FREE(the_lnet.ln_network_tokens,
-			    the_lnet.ln_network_tokens_nob);
-		the_lnet.ln_network_tokens = NULL;
-	}
 }
 
 int
@@ -1160,17 +1154,18 @@ lnet_startup_lndnis (void)
 	struct lnet_tx_queue	*tq;
 	cfs_list_t		nilist;
 	int			i;
-        int                rc = 0;
-        int                lnd_type;
-        int                nicount = 0;
-        char              *nets = lnet_get_networks();
+	int			new_ni_count = 0;
+	int			rc = 0;
+	int			lnd_type;
+	int			nicount = 0;
+	char			*nets = lnet_get_networks();
 
         CFS_INIT_LIST_HEAD(&nilist);
 
         if (nets == NULL)
                 goto failed;
 
-        rc = lnet_parse_networks(&nilist, nets);
+        rc = lnet_parse_networks(&nilist, nets, &new_ni_count);
         if (rc != 0)
                 goto failed;
 
