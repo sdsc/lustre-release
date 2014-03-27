@@ -427,7 +427,7 @@ int lod_ost_pool_free(struct ost_pool *op)
 	RETURN(0);
 }
 
-int lod_pool_new(struct obd_device *obd, char *poolname)
+int lod_pool_new(struct obd_device *obd, char *poolname, __u32 pool_id)
 {
 	struct lod_device *lod = lu2lod_dev(obd->obd_lu_dev);
 	struct pool_desc  *new_pool;
