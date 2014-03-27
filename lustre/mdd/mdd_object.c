@@ -1084,11 +1084,9 @@ stop:
 	RETURN(rc);
 }
 
-static int mdd_declare_xattr_del(const struct lu_env *env,
-                                 struct mdd_device *mdd,
-                                 struct mdd_object *obj,
-                                 const char *name,
-                                 struct thandle *handle)
+int mdd_declare_xattr_del(const struct lu_env *env, struct mdd_device *mdd,
+			  struct mdd_object *obj, const char *name,
+			  struct thandle *handle)
 {
         int rc;
 
