@@ -178,14 +178,14 @@ static void *pool_proc_next(struct seq_file *s, void *v, loff_t *pos)
 	LASSERTF(iter->magic == POOL_IT_MAGIC, "%08X", iter->magic);
 
 	/* test if end of file */
-	if (*pos >= pool_tgt_count(iter->pool))
+	if (*pos >= pool_tgt_count(iter->pool) + 1)
 		return NULL;
 
 	/* iterate to find a non empty entry */
 	prev_idx = iter->idx;
 	down_read(&pool_tgt_rw_sem(iter->pool));
 	iter->idx++;
-	if (iter->idx == pool_tgt_count(iter->pool)) {
+	if (iter->idx == pool_tgt_count(iter->pool) + 1) {
 		iter->idx = prev_idx; /* we stay on the last entry */
 		up_read(&pool_tgt_rw_sem(iter->pool));
 		return NULL;
@@ -202,8 +202,7 @@ static void *pool_proc_start(struct seq_file *s, loff_t *pos)
 	struct pool_iterator *iter;
 
 	lod_pool_getref(pool);
-	if ((pool_tgt_count(pool) == 0) ||
-	    (*pos >= pool_tgt_count(pool))) {
+	if (*pos >= pool_tgt_count(pool) + 1) {
 		/* iter is not created, so stop() has no way to
 		 * find pool to dec ref */
 		lod_pool_putref(pool);
@@ -258,10 +257,15 @@ static int pool_proc_show(struct seq_file *s, void *v)
 
 	LASSERTF(iter->magic == POOL_IT_MAGIC, "%08X", iter->magic);
 	LASSERT(iter->pool != NULL);
-	LASSERT(iter->idx <= pool_tgt_count(iter->pool));
+	LASSERT(iter->idx <= pool_tgt_count(iter->pool) + 1);
+
+	if (iter->idx == 0) {
+		seq_printf(s, "pool_id: %d\n", iter->pool->pool_id);
+		return 0;
+	}
 
 	down_read(&pool_tgt_rw_sem(iter->pool));
-	osc_desc = pool_tgt(iter->pool, iter->idx);
+	osc_desc = pool_tgt(iter->pool, iter->idx - 1);
 	up_read(&pool_tgt_rw_sem(iter->pool));
 	if (osc_desc)
 		seq_printf(s, "%s\n", obd_uuid2str(&(osc_desc->ltd_uuid)));
@@ -443,6 +447,7 @@ int lod_pool_new(struct obd_device *obd, char *poolname, __u32 pool_id)
 
 	strncpy(new_pool->pool_name, poolname, LOV_MAXPOOLNAME);
 	new_pool->pool_name[LOV_MAXPOOLNAME] = '\0';
+	new_pool->pool_id = pool_id;
 	new_pool->pool_lobd = obd;
 	/* ref count init to 1 because when created a pool is always used
 	 * up to deletion
