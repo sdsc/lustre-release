@@ -2713,9 +2713,23 @@ static int osd_declare_xattr_set(const struct lu_env *env,
                                  const struct lu_buf *buf, const char *name,
                                  int fl, struct thandle *handle)
 {
-	struct osd_thandle *oh;
+	struct osd_device  *osd = osd_dev(dt->do_lu.lo_dev);
+	struct super_block *sb = osd_sb(osd);
+ 	struct osd_thandle *oh;
+	int max_ea_size;
 
 	LASSERT(handle != NULL);
+
+#if defined(LDISKFS_FEATURE_INCOMPAT_EA_INODE)
+	if (LDISKFS_HAS_INCOMPAT_FEATURE(sb, LDISKFS_FEATURE_INCOMPAT_EA_INODE))
+		max_ea_size = LDISKFS_XATTR_MAX_LARGE_EA_SIZE;
+	else
+		max_ea_size = sb->s_blocksize;
+#else
+		max_ea_size = sb->s_blocksize;
+#endif
+	if (buf->lb_len > max_ea_size)
+		return -E2BIG;
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_handle == NULL);
