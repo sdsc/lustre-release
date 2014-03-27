@@ -398,7 +398,9 @@ int mdd_declare_object_create_internal(const struct lu_env *env,
 				       struct lu_attr *attr,
 				       struct thandle *handle,
 				       const struct md_op_spec *spec);
-
+int mdd_declare_xattr_del(const struct lu_env *env, struct mdd_device *mdd,
+			  struct mdd_object *obj, const char *name,
+			  struct thandle *handle);
 /* mdd_trans.c */
 int mdd_lov_destroy(const struct lu_env *env, struct mdd_device *mdd,
                     struct mdd_object *obj, struct lu_attr *la);
