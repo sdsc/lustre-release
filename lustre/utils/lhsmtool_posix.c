@@ -405,7 +405,8 @@ static int ct_save_stripe(int src_fd, const char *src, const char *dst)
 	lum = (struct lov_user_md *)lov_buf;
 
 	if (lum->lmm_magic == LOV_USER_MAGIC_V1 ||
-	    lum->lmm_magic == LOV_USER_MAGIC_V3) {
+	    lum->lmm_magic == LOV_USER_MAGIC_V3 ||
+	    lum->lmm_magic == LOV_USER_MAGIC_PARTIAL) {
 		/* Set stripe_offset to -1 so that it is not interpreted as a
 		 * hint on restore. */
 		lum->lmm_stripe_offset = -1;

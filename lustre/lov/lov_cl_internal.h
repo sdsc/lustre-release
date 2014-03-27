@@ -829,7 +829,8 @@ static inline struct lov_layout_raid0 *lov_r0(struct lov_object *lov)
 {
 	LASSERT(lov->lo_type == LLT_RAID0);
 	LASSERT(lov->lo_lsm->lsm_wire.lw_magic == LOV_MAGIC ||
-		lov->lo_lsm->lsm_wire.lw_magic == LOV_MAGIC_V3);
+		lov->lo_lsm->lsm_wire.lw_magic == LOV_MAGIC_V3 ||
+		lov->lo_lsm->lsm_wire.lw_magic == LOV_MAGIC_PARTIAL);
 	return &lov->u.raid0;
 }
 

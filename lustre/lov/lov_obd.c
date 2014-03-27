@@ -1060,12 +1060,13 @@ static int lov_create(const struct lu_env *env, struct obd_export *exp,
         RETURN(rc);
 }
 
-#define ASSERT_LSM_MAGIC(lsmp)                                                  \
-do {                                                                            \
-        LASSERT((lsmp) != NULL);                                                \
-        LASSERTF(((lsmp)->lsm_magic == LOV_MAGIC_V1 ||                          \
-                 (lsmp)->lsm_magic == LOV_MAGIC_V3),                            \
-                 "%p->lsm_magic=%x\n", (lsmp), (lsmp)->lsm_magic);              \
+#define ASSERT_LSM_MAGIC(lsmp)							\
+do {										\
+	LASSERT((lsmp) != NULL);						\
+	LASSERTF(((lsmp)->lsm_magic == LOV_MAGIC_V1 ||				\
+		  (lsmp)->lsm_magic == LOV_MAGIC_V3 ||				\
+		  (lsmp)->lsm_magic == LOV_MAGIC_PARTIAL),			\
+		 "%p->lsm_magic=%x\n", (lsmp), (lsmp)->lsm_magic);		\
 } while (0)
 
 static int lov_destroy(const struct lu_env *env, struct obd_export *exp,

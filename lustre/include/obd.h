@@ -1341,17 +1341,20 @@ struct lsm_operations {
 
 extern const struct lsm_operations lsm_v1_ops;
 extern const struct lsm_operations lsm_v3_ops;
+extern const struct lsm_operations lsm_partial_ops;
 static inline const struct lsm_operations *lsm_op_find(int magic)
 {
-        switch(magic) {
-        case LOV_MAGIC_V1:
-               return &lsm_v1_ops;
-        case LOV_MAGIC_V3:
-               return &lsm_v3_ops;
-        default:
-               CERROR("Cannot recognize lsm_magic %08x\n", magic);
-               return NULL;
-        }
+	switch(magic) {
+	case LOV_MAGIC_V1:
+		return &lsm_v1_ops;
+	case LOV_MAGIC_V3:
+		return &lsm_v3_ops;
+	case LOV_MAGIC_PARTIAL:
+		return &lsm_partial_ops;
+	default:
+	       CERROR("Cannot recognize lsm_magic %08x\n", magic);
+	       return NULL;
+	}
 }
 
 /* Requests for obd_extent_calc() */

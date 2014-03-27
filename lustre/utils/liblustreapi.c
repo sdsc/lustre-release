@@ -2503,6 +2503,7 @@ void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
 
 	switch (magic) {
         case LOV_USER_MAGIC_V1:
+	case LOV_USER_MAGIC_PARTIAL:
                 lov_dump_user_lmm_v1v3(&param->lmd->lmd_lmm, NULL,
                                        param->lmd->lmd_lmm.lmm_objects,
                                        path, is_dir,
@@ -2537,9 +2538,10 @@ void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
 	}
 	default:
 		llapi_printf(LLAPI_MSG_NORMAL, "unknown lmm_magic:  %#x "
-			     "(expecting one of %#x %#x %#x %#x)\n",
+			     "(expecting one of %#x %#x %#x %#x %#x)\n",
 			     *(__u32 *)&param->lmd->lmd_lmm,
 			     LOV_USER_MAGIC_V1, LOV_USER_MAGIC_V3,
+			     LOV_USER_MAGIC_PARTIAL,
 			     LMV_USER_MAGIC, LMV_MAGIC_V1);
 		return;
 	}
@@ -2738,7 +2740,8 @@ static int check_obd_match(struct find_param *param)
                 struct lov_user_md_v3 *lmmv3 = (void *)&param->lmd->lmd_lmm;
 
                 lmm_objects = lmmv3->lmm_objects;
-        } else if (param->lmd->lmd_lmm.lmm_magic ==  LOV_USER_MAGIC_V1) {
+	} else if (param->lmd->lmd_lmm.lmm_magic == LOV_USER_MAGIC_V1 ||
+		   param->lmd->lmd_lmm.lmm_magic == LOV_USER_MAGIC_PARTIAL) {
                 lmm_objects = param->lmd->lmd_lmm.lmm_objects;
         } else {
                 llapi_err_noerrno(LLAPI_MSG_ERROR, "%s:Unknown magic: 0x%08X\n",
@@ -3023,7 +3026,9 @@ obd_matches:
                 struct lov_user_md_v3 *lmmv3 = (void *)&param->lmd->lmd_lmm;
 
                 /* empty requested pool is taken as no pool search => V1 */
-                if (((param->lmd->lmd_lmm.lmm_magic == LOV_USER_MAGIC_V1) &&
+		if (((param->lmd->lmd_lmm.lmm_magic == LOV_USER_MAGIC_V1 ||
+		      param->lmd->lmd_lmm.lmm_magic ==
+		      LOV_USER_MAGIC_PARTIAL) &&
                      (param->poolname[0] == '\0')) ||
                     ((param->lmd->lmd_lmm.lmm_magic == LOV_USER_MAGIC_V3) &&
                      (strncmp(lmmv3->lmm_pool_name,

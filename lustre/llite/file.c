@@ -1567,8 +1567,9 @@ int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
         lmm = req_capsule_server_sized_get(&req->rq_pill, &RMF_MDT_MD, lmmsize);
         LASSERT(lmm != NULL);
 
-        if ((lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_V1)) &&
-            (lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_V3))) {
+	if (lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_V1) &&
+	    lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_V3) &&
+	    lmm->lmm_magic != cpu_to_le32(LOV_MAGIC_PARTIAL)) {
                 GOTO(out, rc = -EPROTO);
         }
 
@@ -1586,8 +1587,11 @@ int ll_lov_getstripe_ea_info(struct inode *inode, const char *filename,
 
                 /* if function called for directory - we should
                  * avoid swab not existent lsm objects */
-                if (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1)) {
-                        lustre_swab_lov_user_md_v1((struct lov_user_md_v1 *)lmm);
+		if (lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V1) ||
+		    unlikely(lmm->lmm_magic ==
+			     cpu_to_le32(LOV_MAGIC_PARTIAL))) {
+			lustre_swab_lov_user_md_v1(
+						(struct lov_user_md_v1 *)lmm);
                         if (S_ISREG(body->mode))
                                 lustre_swab_lov_user_md_objects(
                                  ((struct lov_user_md_v1 *)lmm)->lmm_objects,
