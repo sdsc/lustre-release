@@ -514,6 +514,8 @@ typedef struct lnet_peer {
 struct lnet_peer_table {
 	int			pt_version;	/* /proc validity stamp */
 	int			pt_number;	/* # peers extant */
+	int			pt_zombies;	/* # zombies to go to deathrow
+						 * (and not there yet) */
 	cfs_list_t		pt_deathrow;	/* zombie peers */
 	cfs_list_t		*pt_hash;	/* NID->peer hash */
 };
@@ -809,9 +811,6 @@ typedef struct
 	/* registered LNDs */
 	cfs_list_t			ln_lnds;
 
-	/* space for network names */
-	char				*ln_network_tokens;
-	int				ln_network_tokens_nob;
 	/* test protocol compatibility flags */
 	int				ln_testprotocompat;
 
