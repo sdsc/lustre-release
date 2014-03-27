@@ -1585,6 +1585,17 @@ enum obdo_flags {
 #define LOV_MAGIC_MIGRATE 0x0BD40BD0
 #define LOV_MAGIC_PARTIAL 0x0BD50BD0
 
+
+/*
+ * All LOV EA magics should have the same postfix, if some new version
+ * Lustre instroduces new LOV EA magic, then when down-grade to an old
+ * Lustre, even though the old version system does not recognizes such
+ * new magic, it still can distinguish the corrupted cases by checking
+ * the magic's postfix.
+ */
+#define LOV_MAGIC_POSTFIX	0x00000BD0
+#define LOV_MAGIC_MASK		0xFFFF0000
+
 /*
  * magic for fully defined striping
  * the idea is that we should have different magics for striping "hints"
