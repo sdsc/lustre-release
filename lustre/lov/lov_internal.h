@@ -78,6 +78,7 @@
 
 struct pool_desc {
 	char			 pool_name[LOV_MAXPOOLNAME + 1];
+	__u32			 pool_id;
 	struct ost_pool		 pool_obds;
 	atomic_t		 pool_refcount;
 	cfs_hlist_node_t	 pool_hash;	/* access by poolname */

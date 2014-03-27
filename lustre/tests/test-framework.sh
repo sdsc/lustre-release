@@ -5803,22 +5803,22 @@ pool_list () {
 }
 
 create_pool() {
-    local fsname=${1%%.*}
-    local poolname=${1##$fsname.}
+	local fsname=${1%%.*}
+	local poolname=${1##$fsname.}
 
-    do_facet mgs lctl pool_new $1
-    local RC=$?
-    # get param should return err unless pool is created
-    [[ $RC -ne 0 ]] && return $RC
+	do_facet mgs lctl pool_new $1
+	local RC=$?
+	# get param should return err unless pool is created
+	[[ $RC -ne 0 ]] && return $RC
 
-    wait_update $HOSTNAME "lctl get_param -n lov.$fsname-*.pools.$poolname \
-        2>/dev/null || echo foo" "" || RC=1
-    if [[ $RC -eq 0 ]]; then
-        add_pool_to_list $1
-    else
-        error "pool_new failed $1"
-    fi
-    return $RC
+	wait_update $HOSTNAME "lctl pool_list $FSNAME.$poolname \
+		>/dev/null 2>/dev/null || echo foo" "" || RC=1
+	if [[ $RC -eq 0 ]]; then
+		add_pool_to_list $1
+	else
+		error "pool_new failed $1"
+	fi
+	return $RC
 }
 
 add_pool_to_list () {
@@ -5849,28 +5849,28 @@ destroy_pool_int() {
 
 # <fsname>.<poolname> or <poolname>
 destroy_pool() {
-    local fsname=${1%%.*}
-    local poolname=${1##$fsname.}
+	local fsname=${1%%.*}
+	local poolname=${1##$fsname.}
 
-    [[ x$fsname = x$poolname ]] && fsname=$FSNAME
+	[[ x$fsname = x$poolname ]] && fsname=$FSNAME
 
-    local RC
+	local RC
 
-    pool_list $fsname.$poolname || return $?
+	pool_list $fsname.$poolname || return $?
 
-    destroy_pool_int $fsname.$poolname
-    RC=$?
-    [[ $RC -ne 0 ]] && return $RC
+	destroy_pool_int $fsname.$poolname
+	RC=$?
+	[[ $RC -ne 0 ]] && return $RC
 
-    wait_update $HOSTNAME "lctl get_param -n lov.$fsname-*.pools.$poolname \
-      2>/dev/null || echo foo" "foo" || RC=1
+	wait_update $HOSTNAME "lctl pool_list $FSNAME.$poolname \
+		>/dev/null 2>/dev/null || echo foo" "foo" || RC=1
 
-    if [[ $RC -eq 0 ]]; then
-        remove_pool_from_list $fsname.$poolname
-    else
-        error "destroy pool failed $1"
-    fi
-    return $RC
+	if [[ $RC -eq 0 ]]; then
+		remove_pool_from_list $fsname.$poolname
+	else
+		error "destroy pool failed $1"
+	fi
+	return $RC
 }
 
 destroy_pools () {
