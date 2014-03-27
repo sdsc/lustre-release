@@ -552,6 +552,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 		if (rc < 0) {
 			CERROR("%s: Can not locate "DFID": rc = %d\n",
 			       lod2obd(lod)->obd_name, PFID(fid), rc);
+			lod_object_free_striping(env, lo);
 			RETURN(rc);
 		}
 		objs[i].l_ost_idx = cpu_to_le32(index);
@@ -561,6 +562,8 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	info->lti_buf.lb_len = lmm_size;
 	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0,
 			  th, BYPASS_CAPA);
+	if (rc < 0)
+		lod_object_free_striping(env, lo);
 
 	RETURN(rc);
 }
