@@ -744,6 +744,14 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
 	}
 
         if (flags & FMODE_WRITE) {
+		if (!created && ma->ma_valid & MA_LOV) {
+			struct lov_mds_md_v1 *lmm = ma->ma_lmm;
+
+			if (unlikely(le32_to_cpu(lmm->lmm_magic) ==
+				     LOV_MAGIC_PARTIAL))
+				RETURN(-EPERM);
+		}
+
                 rc = mdt_write_get(o);
                 if (rc == 0) {
                         mdt_ioepoch_open(info, o, created);
@@ -2092,6 +2100,10 @@ static int mdt_hsm_release(struct mdt_thread_info *info, struct mdt_object *o,
 			ma->ma_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V1_DEF);
 		else if (le32_to_cpu(ma->ma_lmm->lmm_magic) == LOV_MAGIC_V3)
 			ma->ma_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V3_DEF);
+		else if (le32_to_cpu(ma->ma_lmm->lmm_magic) ==
+			 LOV_MAGIC_PARTIAL)
+			ma->ma_lmm->lmm_magic =
+				cpu_to_le32(LOV_MAGIC_PARTIAL_DEF);
 		else
 			GOTO(out_unlock, rc = -EINVAL);
 	}

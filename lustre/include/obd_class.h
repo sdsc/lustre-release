@@ -741,8 +741,9 @@ static inline int obd_free_diskmd(struct obd_export *exp,
 	 * needs to be freed.
 	 */
 	if ((cpu_to_le32(LOV_MAGIC) != LOV_MAGIC) &&
-	    (((*disk_tgt)->lmm_magic == LOV_MAGIC_V1) ||
-	     ((*disk_tgt)->lmm_magic == LOV_MAGIC_V3)))
+	    ((*disk_tgt)->lmm_magic == LOV_MAGIC_V1 ||
+	     (*disk_tgt)->lmm_magic == LOV_MAGIC_V3 ||
+	     (*disk_tgt)->lmm_magic == LOV_MAGIC_PARTIAL))
 		lustre_swab_lov_mds_md(*disk_tgt);
 	return obd_packmd(exp, disk_tgt, NULL);
 }

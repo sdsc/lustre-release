@@ -1583,6 +1583,7 @@ enum obdo_flags {
 #define LOV_MAGIC_JOIN_V1 0x0BD20BD0
 #define LOV_MAGIC_V3      0x0BD30BD0
 #define LOV_MAGIC_MIGRATE 0x0BD40BD0
+#define LOV_MAGIC_PARTIAL 0x0BD50BD0
 
 /*
  * magic for fully defined striping
@@ -1598,6 +1599,7 @@ enum obdo_flags {
  */
 #define LOV_MAGIC_V1_DEF  0x0CD10BD0
 #define LOV_MAGIC_V3_DEF  0x0CD30BD0
+#define LOV_MAGIC_PARTIAL_DEF 0x0CD50BD0
 
 #define LOV_PATTERN_RAID0	0x001   /* stripes are used round-robin */
 #define LOV_PATTERN_RAID1	0x002   /* stripes are mirrors of each other */
@@ -1743,7 +1745,8 @@ static inline __u32
 lov_mds_md_max_stripe_count(size_t buf_size, __u32 lmm_magic)
 {
 	switch (lmm_magic) {
-	case LOV_MAGIC_V1: {
+	case LOV_MAGIC_V1:
+	case LOV_MAGIC_PARTIAL: {
 		struct lov_mds_md_v1 lmm;
 
 		if (buf_size < sizeof(lmm))
@@ -3804,6 +3807,15 @@ static inline int capa_for_mds(struct lustre_capa *c)
 static inline int capa_for_oss(struct lustre_capa *c)
 {
         return (c->lc_opc & CAPA_OPC_INDEX_LOOKUP) == 0;
+}
+
+static inline bool is_dummy_lov_slot(const struct ost_id *oi,
+				     __u32 ost_idx, __u32 ost_gen)
+{
+	if (fid_is_zero(&oi->oi_fid) && ost_idx == 0 && ost_gen == 0)
+		return true;
+
+	return false;
 }
 
 /* lustre_capa::lc_hmac_alg */

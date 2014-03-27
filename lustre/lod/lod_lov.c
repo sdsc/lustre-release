@@ -739,6 +739,11 @@ int lod_initialize_objects(const struct lu_env *env, struct lod_object *lo,
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		ostid_le_to_cpu(&objs[i].l_ost_oi, &info->lti_ostid);
 		idx = le32_to_cpu(objs[i].l_ost_idx);
+
+		if (unlikely(is_dummy_lov_slot(&info->lti_ostid, idx,
+					       le32_to_cpu(objs[i].l_ost_gen))))
+			continue;
+
 		rc = ostid_to_fid(&info->lti_fid, &info->lti_ostid, idx);
 		if (rc != 0)
 			GOTO(out, rc);
@@ -804,7 +809,8 @@ int lod_parse_striping(const struct lu_env *env, struct lod_object *lo,
 	magic = le32_to_cpu(lmm->lmm_magic);
 	pattern = le32_to_cpu(lmm->lmm_pattern);
 
-	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)
+	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3 &&
+	    magic != LOV_MAGIC_PARTIAL)
 		GOTO(out, rc = -EINVAL);
 	if (lov_pattern(pattern) != LOV_PATTERN_RAID0)
 		GOTO(out, rc = -EINVAL);
@@ -825,6 +831,9 @@ int lod_parse_striping(const struct lu_env *env, struct lod_object *lo,
 		lod_object_set_pool(lo, v3->lmm_pool_name);
 	} else {
 		objs = &lmm->lmm_objects[0];
+		if (unlikely(magic == LOV_MAGIC_PARTIAL))
+			set_bit(LU_OBJECT_PARTIAL,
+				&lod2lu_obj(lo)->lo_header->loh_flags);
 	}
 
 	if (lo->ldo_stripenr > 0)
@@ -915,7 +924,9 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	if (magic != LOV_USER_MAGIC_V1 &&
 	    magic != LOV_USER_MAGIC_V3 &&
 	    magic != LOV_MAGIC_V1_DEF &&
-	    magic != LOV_MAGIC_V3_DEF) {
+	    magic != LOV_MAGIC_V3_DEF &&
+	    magic != LOV_USER_MAGIC_PARTIAL &&
+	    magic != LOV_MAGIC_PARTIAL_DEF) {
 		CDEBUG(D_IOCTL, "bad userland LOV MAGIC: %#x\n", magic);
 		GOTO(out, rc = -EINVAL);
 	}
@@ -955,7 +966,9 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	}
 
 	stripe_count = le16_to_cpu(lum->lmm_stripe_count);
-	if (magic == LOV_USER_MAGIC_V1 || magic == LOV_MAGIC_V1_DEF)
+	if (magic == LOV_USER_MAGIC_V1 || magic == LOV_MAGIC_V1_DEF ||
+	    unlikely(magic == LOV_USER_MAGIC_PARTIAL ||
+		     magic == LOV_MAGIC_PARTIAL_DEF))
 		lum_size = offsetof(struct lov_user_md_v1,
 				    lmm_objects[stripe_count]);
 	else if (magic == LOV_USER_MAGIC_V3 || magic == LOV_MAGIC_V3_DEF)

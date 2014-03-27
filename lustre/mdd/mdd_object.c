@@ -1406,6 +1406,8 @@ static int mdd_swap_layouts(const struct lu_env *env, struct md_object *obj1,
 			snd_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V1_DEF);
 		else if (snd_lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_V3))
 			snd_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V3_DEF);
+		else if (snd_lmm->lmm_magic == cpu_to_le32(LOV_MAGIC_PARTIAL))
+			snd_lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_PARTIAL_DEF);
 		else
 			GOTO(stop, rc = -EPROTO);
 	}
