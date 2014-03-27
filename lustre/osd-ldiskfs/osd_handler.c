@@ -2913,13 +2913,27 @@ static int osd_declare_xattr_set(const struct lu_env *env,
                                  const struct lu_buf *buf, const char *name,
                                  int fl, struct thandle *handle)
 {
+	struct osd_device  *osd = osd_dev(dt->do_lu.lo_dev);
+	struct super_block *sb = osd_sb(osd);
 	struct osd_thandle *oh;
 	int credits;
+	int max_ea_size;
 
 	LASSERT(handle != NULL);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_handle == NULL);
+
+#if defined(LDISKFS_FEATURE_INCOMPAT_EA_INODE)
+	if (LDISKFS_HAS_INCOMPAT_FEATURE(sb, LDISKFS_FEATURE_INCOMPAT_EA_INODE))
+		max_ea_size = LDISKFS_XATTR_MAX_LARGE_EA_SIZE;
+	else
+		max_ea_size = sb->s_blocksize;
+#else
+		max_ea_size = sb->s_blocksize;
+#endif
+	if (buf->lb_len > max_ea_size)
+		return -E2BIG;
 
 	/* optimistic optimization: LMA is set first and usually fit inode */
 	if (strcmp(name, XATTR_NAME_LMA) == 0) {
@@ -2930,8 +2944,6 @@ static int osd_declare_xattr_set(const struct lu_env *env,
 	} else if (strcmp(name, XATTR_NAME_VERSION) == 0) {
 		credits = 1;
 	} else {
-		struct osd_device  *osd = osd_dev(dt->do_lu.lo_dev);
-		struct super_block *sb = osd_sb(osd);
 		credits = osd_dto_credits_noquota[DTO_XATTR_SET];
 		if (buf && buf->lb_len > sb->s_blocksize) {
 			credits *= (buf->lb_len + sb->s_blocksize - 1) >>
