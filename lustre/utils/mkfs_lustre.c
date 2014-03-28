@@ -248,8 +248,10 @@ static char *convert_hostnames(char *s1)
 		*s2 = sep;
 
                 if (nid == LNET_NID_ANY) {
-                        fprintf(stderr, "%s: Can't parse NID '%s'\n",
-                                progname, s1);
+			fprintf(stderr, "%s: Unable to use Hostname '%s' "
+				"for local NID, please fix /etc/hosts. "
+				"'%s' is the nid found.\n", progname, s1,
+				libcfs_nid2str(nid));
                         free(converted);
                         return NULL;
                 }
