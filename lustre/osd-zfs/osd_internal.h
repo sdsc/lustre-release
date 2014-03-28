@@ -428,7 +428,7 @@ int __osd_zap_create(const struct lu_env *env, udmu_objset_t *uos,
 		     uint64_t parent, void *tag, zap_flags_t flags);
 int __osd_object_create(const struct lu_env *env, udmu_objset_t *uos,
 			dmu_buf_t **dbp, dmu_tx_t *tx, struct lu_attr *la,
-			uint64_t parent, void *tag);
+			int blocksize, uint64_t parent, void *tag);
 int __osd_object_free(udmu_objset_t *uos, uint64_t oid, dmu_tx_t *tx);
 
 /* osd_oi.c */

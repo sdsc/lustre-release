@@ -539,7 +539,7 @@ __osd_xattr_set(const struct lu_env *env, struct osd_object *obj,
 		la->la_valid = LA_MODE;
 		la->la_mode = S_IFREG | S_IRUGO | S_IWUSR;
 		rc = __osd_object_create(env, uos, &xa_data_db, tx, la,
-					 obj->oo_xattr, FTAG);
+					 0, obj->oo_xattr, FTAG);
 		if (rc)
 			goto out;
 		xa_data_obj = xa_data_db->db_object;

@@ -1142,8 +1142,9 @@ static int osd_declare_object_create(const struct lu_env *env,
 	RETURN(rc);
 }
 
-int __osd_attr_init(const struct lu_env *env, udmu_objset_t *uos, uint64_t oid,
-		    dmu_tx_t *tx, struct lu_attr *la, uint64_t parent)
+static int __osd_attr_init(const struct lu_env *env, udmu_objset_t *uos,
+			   uint64_t oid, dmu_tx_t *tx, struct lu_attr *la,
+			   uint64_t parent)
 {
 	sa_bulk_attr_t	*bulk;
 	sa_handle_t	*sa_hdl;
@@ -1220,7 +1221,7 @@ out:
  */
 int __osd_object_create(const struct lu_env *env, udmu_objset_t *uos,
 			dmu_buf_t **dbp, dmu_tx_t *tx, struct lu_attr *la,
-			uint64_t parent, void *tag)
+			int blocksize, uint64_t parent, void *tag)
 {
 	uint64_t oid;
 	int	 rc;
@@ -1231,12 +1232,11 @@ int __osd_object_create(const struct lu_env *env, udmu_objset_t *uos,
 	spin_unlock(&uos->lock);
 
 	/* Assert that the transaction has been assigned to a
-	   transaction group. */
+	 * transaction group. */
 	LASSERT(tx->tx_txg != 0);
 
-	/* Create a new DMU object. */
-	oid = dmu_object_alloc(uos->os, DMU_OT_PLAIN_FILE_CONTENTS, 0,
-			       DMU_OT_SA, DN_MAX_BONUSLEN, tx);
+	oid = dmu_object_alloc(uos->os, DMU_OT_PLAIN_FILE_CONTENTS,
+			       blocksize, DMU_OT_SA, DN_MAX_BONUSLEN, tx);
 	rc = -sa_buf_hold(uos->os, oid, tag, dbp);
 	if (rc)
 		return rc;
@@ -1330,29 +1330,19 @@ static dmu_buf_t* osd_mkreg(const struct lu_env *env, struct osd_device *osd,
 			    struct osd_thandle *oh)
 {
 	dmu_buf_t *db;
-	int	    rc;
+	int	   blocksz, rc;
 
 	LASSERT(S_ISREG(la->la_mode));
-	rc = __osd_object_create(env, &osd->od_objset, &db, oh->ot_tx, la,
-				 parent, osd_obj_tag);
-	if (rc)
-		return ERR_PTR(rc);
 
 	/*
 	 * XXX: a hack, OST to use bigger blocksize. we need
 	 * a method in OSD API to control this from OFD/MDD
 	 */
-	if (!lu_device_is_md(osd2lu_dev(osd))) {
-		rc = -dmu_object_set_blocksize(osd->od_objset.os,
-					       db->db_object,
-				128 << 10, 0, oh->ot_tx);
-		if (unlikely(rc)) {
-			CERROR("%s: can't change blocksize: %d\n",
-			       osd->od_svname, rc);
-			return ERR_PTR(rc);
-		}
-	}
-
+	blocksz = lu_device_is_md(osd2lu_dev(osd)) ? 0 : ZFS_MAX_BLOCKSIZE;
+	rc = __osd_object_create(env, &osd->od_objset, &db, oh->ot_tx, la,
+				 blocksz, parent, osd_obj_tag);
+	if (rc)
+		return ERR_PTR(rc);
 	return db;
 }
 
@@ -1365,7 +1355,7 @@ static dmu_buf_t *osd_mksym(const struct lu_env *env, struct osd_device *osd,
 
 	LASSERT(S_ISLNK(la->la_mode));
 	rc = __osd_object_create(env, &osd->od_objset, &db, oh->ot_tx, la,
-				 parent, osd_obj_tag);
+				 0, parent, osd_obj_tag);
 	if (rc)
 		return ERR_PTR(rc);
 	return db;
@@ -1383,7 +1373,7 @@ static dmu_buf_t *osd_mknod(const struct lu_env *env, struct osd_device *osd,
 		la->la_valid |= LA_RDEV;
 
 	rc = __osd_object_create(env, &osd->od_objset, &db, oh->ot_tx, la,
-				 parent, osd_obj_tag);
+				 0, parent, osd_obj_tag);
 	if (rc)
 		return ERR_PTR(rc);
 	return db;
