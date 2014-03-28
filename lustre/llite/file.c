@@ -1816,12 +1816,12 @@ out:
  * Make the FIEMAP get_info call and returns the result.
  */
 int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
-              int num_bytes)
+		 size_t num_bytes)
 {
 	struct obd_export *exp = ll_i2dtexp(inode);
 	struct lov_stripe_md *lsm = NULL;
         struct ll_fiemap_info_key fm_key = { .name = KEY_FIEMAP, };
-        int vallen = num_bytes;
+	__u32 vallen = num_bytes;
         int rc;
         ENTRY;
 
