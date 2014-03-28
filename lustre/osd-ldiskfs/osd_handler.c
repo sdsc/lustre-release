@@ -4828,6 +4828,7 @@ static int osd_ldiskfs_filldir(void *buf, const char *name, int namelen,
  *
  * \param di iterator's in memory structure
  *
+ * \retval +ve reach to end
  * \retval   0 on success
  * \retval -ve on error
  */
@@ -4876,6 +4877,9 @@ static int osd_ldiskfs_it_fill(const struct lu_env *env,
 		/*If it does not get any dirent, it means it has been reached
 		 *to the end of the dir */
 		it->oie_file.f_pos = ldiskfs_get_htree_eof(&it->oie_file);
+
+		if (rc == 0)
+			rc = +1;
 	} else {
 		it->oie_dirent = it->oie_buf;
 		it->oie_it_dirent = 1;
@@ -5411,19 +5415,22 @@ static __u64 osd_it_ea_store(const struct lu_env *env, const struct dt_it *di)
  * \retval -ve on error
  */
 static int osd_it_ea_load(const struct lu_env *env,
-                          const struct dt_it *di, __u64 hash)
+			  const struct dt_it *di, __u64 hash)
 {
-        struct osd_it_ea *it = (struct osd_it_ea *)di;
-        int rc;
+	struct osd_it_ea *it = (struct osd_it_ea *)di;
+	int rc;
 
-        ENTRY;
-        it->oie_file.f_pos = hash;
+	ENTRY;
+	it->oie_file.f_pos = hash;
 
-        rc =  osd_ldiskfs_it_fill(env, di);
-        if (rc == 0)
-                rc = +1;
+	rc =  osd_ldiskfs_it_fill(env, di);
+	/* reach the end */
+	if (rc > 0)
+		rc = -ENODATA;
+	else if (rc == 0)
+		rc = +1;
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 /**
