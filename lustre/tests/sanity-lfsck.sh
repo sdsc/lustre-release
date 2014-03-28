@@ -1433,7 +1433,8 @@ test_15b() {
 
 	mkdir -p $DIR/$tdir
 	$LFS setstripe -c 1 -i 0 $DIR/$tdir
-	touch $DIR/$tdir/guard
+	dd if=/dev/zero of=$DIR/$tdir/guard bs=1K count=1
+	cancel_lru_locks osc
 
 	echo "Inject failure stub to make the OST-object to back point to"
 	echo "other MDT-object"
