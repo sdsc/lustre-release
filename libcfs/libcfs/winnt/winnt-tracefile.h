@@ -38,10 +38,10 @@
 /**
  * only define one trace_data type for windows
  */
-typedef enum {
+enum cfs_trace_buf_type {
         CFS_TCD_TYPE_PASSIVE = 0,
         CFS_TCD_TYPE_DISPATCH,
         CFS_TCD_TYPE_MAX
-} cfs_trace_buf_type_t;
+};
 
 #endif

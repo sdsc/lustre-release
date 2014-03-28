@@ -54,7 +54,6 @@
 #include <libcfs/linux/linux-lock.h>
 #include <libcfs/linux/linux-fs.h>
 #include <libcfs/linux/linux-tcpip.h>
-#include <libcfs/linux/linux-bitops.h>
 #include <libcfs/linux/kp30.h>
 
 #ifdef HAVE_ASM_TYPES_H
@@ -64,6 +63,7 @@
 #include <asm/timex.h>
 #include <linux/sched.h> /* THREAD_SIZE */
 #include <linux/rbtree.h>
+#include <linux/bitops.h>
 
 #if !defined(__x86_64__)
 # ifdef  __ia64__
@@ -133,8 +133,5 @@ typedef long long_ptr_t;
 #define current_pid()             (current->pid)
 #define current_umask()           (current->fs->umask)
 #define current_comm()            (current->comm)
-
-/* check if task is running in compat mode.*/
-int current_is_32bit(void);
 
 #endif /* _LINUX_LIBCFS_H */

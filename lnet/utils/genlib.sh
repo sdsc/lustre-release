@@ -14,10 +14,10 @@ rm -f liblst.so
 ALL_OBJS=
 
 build_obj_list() {
-  _objs=`$AR -t $1/$2`
-  for _lib in $_objs; do
-    ALL_OBJS=$ALL_OBJS"$1/$_lib ";
-  done;
+	_objs=$($AR -t $1/$2 | grep -v SYMDEF | grep -v SORTED)
+	for _lib in $_objs; do
+		ALL_OBJS=$ALL_OBJS"$1/$_lib ";
+	done;
 }
 
 # lnet components libs

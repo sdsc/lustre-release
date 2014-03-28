@@ -38,11 +38,11 @@
 /**
  * three types of trace_data in linux
  */
-typedef enum {
+enum cfs_trace_buf_type {
 	CFS_TCD_TYPE_PROC = 0,
 	CFS_TCD_TYPE_SOFTIRQ,
 	CFS_TCD_TYPE_IRQ,
 	CFS_TCD_TYPE_MAX
-} cfs_trace_buf_type_t;
+};
 
 #endif

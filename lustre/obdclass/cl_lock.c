@@ -2122,16 +2122,14 @@ EXPORT_SYMBOL(cl_lock_user_del);
 
 const char *cl_lock_mode_name(const enum cl_lock_mode mode)
 {
-        static const char *names[] = {
-                [CLM_PHANTOM] = "P",
-                [CLM_READ]    = "R",
-                [CLM_WRITE]   = "W",
-                [CLM_GROUP]   = "G"
-        };
-        if (0 <= mode && mode < ARRAY_SIZE(names))
-                return names[mode];
-        else
-                return "U";
+	static const char * const names[] = {
+		[CLM_PHANTOM] = "P",
+		[CLM_READ]    = "R",
+		[CLM_WRITE]   = "W",
+		[CLM_GROUP]   = "G"
+	};
+	CLASSERT(CLM_MAX == ARRAY_SIZE(names));
+	return names[mode];
 }
 EXPORT_SYMBOL(cl_lock_mode_name);
 
