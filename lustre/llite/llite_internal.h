@@ -881,7 +881,7 @@ int ll_fsync(struct file *file, int data);
 int ll_fsync(struct file *file, struct dentry *dentry, int data);
 #endif
 int ll_do_fiemap(struct inode *inode, struct ll_user_fiemap *fiemap,
-              int num_bytes);
+		 size_t num_bytes);
 int ll_merge_lvb(const struct lu_env *env, struct inode *inode);
 int ll_get_grouplock(struct inode *inode, struct file *file, unsigned long arg);
 int ll_put_grouplock(struct inode *inode, struct file *file, unsigned long arg);
