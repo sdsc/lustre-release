@@ -193,7 +193,7 @@ lnet_ni_alloc(__u32 net, struct cfs_expr_list *el, cfs_list_t *nilist)
 }
 
 int
-lnet_parse_networks(struct list_head *nilist, char *networks, int *ni_count)
+lnet_parse_networks(struct list_head *nilist, char *networks)
 {
 	struct cfs_expr_list *el = NULL;
 	int		tokensize = strlen(networks) + 1;
@@ -374,8 +374,6 @@ lnet_parse_networks(struct list_head *nilist, char *networks, int *ni_count)
 	}
 
 	LASSERT(!cfs_list_empty(nilist));
-
-	*ni_count = nnets;
 
 	LIBCFS_FREE(tokens, tokensize);
 	return 0;
