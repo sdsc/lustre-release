@@ -97,9 +97,9 @@ static void usage_start(void)
 	fprintf(stderr, "Start LFSCK.\n"
 		"SYNOPSIS:\n"
 		"lfsck_start <-M | --device [MDT,OST]_device>\n"
-		"	     [-A | --all] [-c | --create_ostobj [swtich]]\n"
-		"	     [-e | --error error_handle] [-h | --help]\n"
-		"	     [-n | --dryrun [switch]] [-o | --orphan]\n"
+		"	     [-A | --all] [-c | --create_ostobj [on | off]]\n"
+		"	     [-e | --error <continue | abort>] [-h | --help]\n"
+		"	     [-n | --dryrun [on | off]] [-o | --orphan]\n"
 		"	     [-r | --reset] [-s | --speed speed_limit]\n"
 		"	     [-t | --type lfsck_type[,lfsck_type...]]\n"
 		"	     [-w | --windows win_size]\n"
@@ -113,6 +113,7 @@ static void usage_start(void)
 		"-n: Check without modification. 'off'(default) or 'on'.\n"
 		"-o: handle orphan objects.\n"
 		"-r: Reset scanning start position to the device beginning.\n"
+		"    The non-specified parameters will be reset as default.\n"
 		"-s: How many items can be scanned at most per second. "
 		    "'%d' means no limit (default).\n"
 		"-t: The LFSCK type(s) to be started.\n"
@@ -155,7 +156,7 @@ int jt_lfsck_start(int argc, char **argv)
 	char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
 	char device[MAX_OBD_NAME];
 	struct lfsck_start start;
-	char *optstring = "M:Ac::e:hn::ors:t:w:";
+	char *optstring = "Ac::e:hM:n::ors:t:w:";
 	int opt, index, rc, val, i, type;
 
 	memset(&data, 0, sizeof(data));
@@ -170,11 +171,6 @@ int jt_lfsck_start(int argc, char **argv)
 	while ((opt = getopt_long(argc, argv, optstring, long_opt_start,
 				  &index)) != EOF) {
 		switch (opt) {
-		case 'M':
-			rc = lfsck_pack_dev(&data, device, optarg);
-			if (rc != 0)
-				return rc;
-			break;
 		case 'A':
 			start.ls_flags |= LPF_ALL_TGT | LPF_BROADCAST;
 			break;
@@ -205,6 +201,11 @@ int jt_lfsck_start(int argc, char **argv)
 		case 'h':
 			usage_start();
 			return 0;
+		case 'M':
+			rc = lfsck_pack_dev(&data, device, optarg);
+			if (rc != 0)
+				return rc;
+			break;
 		case 'n':
 			if (optarg == NULL || strcmp(optarg, "on") == 0) {
 				start.ls_flags |= LPF_DRYRUN;
@@ -346,7 +347,7 @@ int jt_lfsck_stop(int argc, char **argv)
 	char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
 	char device[MAX_OBD_NAME];
 	struct lfsck_stop stop;
-	char *optstring = "M:Ah";
+	char *optstring = "AhM:";
 	int opt, index, rc;
 
 	memset(&data, 0, sizeof(data));
@@ -359,17 +360,17 @@ int jt_lfsck_stop(int argc, char **argv)
 	while ((opt = getopt_long(argc, argv, optstring, long_opt_stop,
 				  &index)) != EOF) {
 		switch (opt) {
-		case 'M':
-			rc = lfsck_pack_dev(&data, device, optarg);
-			if (rc != 0)
-				return rc;
-			break;
 		case 'A':
 			stop.ls_flags |= LPF_ALL_TGT | LPF_BROADCAST;
 			break;
 		case 'h':
 			usage_stop();
 			return 0;
+		case 'M':
+			rc = lfsck_pack_dev(&data, device, optarg);
+			if (rc != 0)
+				return rc;
+			break;
 		default:
 			fprintf(stderr, "Invalid option, '-h' for help.\n");
 			return -EINVAL;

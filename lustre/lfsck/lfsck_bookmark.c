@@ -196,3 +196,96 @@ int lfsck_bookmark_setup(const struct lu_env *env,
 
 	RETURN(rc);
 }
+
+int lfsck_reset_param(const struct lu_env *env, struct lfsck_instance *lfsck,
+		      struct lfsck_start *start)
+{
+	struct lfsck_bookmark	*bk	= &lfsck->li_bookmark_ram;
+	int			 rc	= 0;
+	bool			 dirty	= false;
+
+	if (start == NULL) {
+		if (bk->lb_param & LPF_ALL_TGT) {
+			bk->lb_param &= ~LPF_ALL_TGT;
+			dirty = true;
+		}
+
+		if (bk->lb_param & LPF_CREATE_OSTOBJ) {
+			bk->lb_param &= ~LPF_CREATE_OSTOBJ;
+			dirty = true;
+		}
+
+		if (bk->lb_param & LPF_FAILOUT) {
+			bk->lb_param &= ~LPF_FAILOUT;
+			dirty = true;
+		}
+
+		if (bk->lb_param & LPF_DRYRUN) {
+			bk->lb_param &= ~LPF_DRYRUN;
+			dirty = true;
+		}
+
+		if (bk->lb_param & LPF_ORPHAN) {
+			bk->lb_param &= ~LPF_ORPHAN;
+			dirty = true;
+		}
+
+		if (bk->lb_speed_limit != 0) {
+			bk->lb_speed_limit = 0;
+			dirty = true;
+		}
+
+		if (bk->lb_async_windows != LFSCK_ASYNC_WIN_DEFAULT) {
+			bk->lb_async_windows = LFSCK_ASYNC_WIN_DEFAULT;
+			dirty = true;
+		}
+	} else {
+		if ((bk->lb_param & LPF_ALL_TGT) &&
+		    !(start->ls_flags & LPF_ALL_TGT)) {
+			bk->lb_param &= ~LPF_ALL_TGT;
+			dirty = true;
+		}
+
+		if ((bk->lb_param & LPF_CREATE_OSTOBJ) &&
+		    !(start->ls_valid & LSV_CREATE_OSTOBJ)) {
+			bk->lb_param &= ~LPF_CREATE_OSTOBJ;
+			dirty = true;
+		}
+
+		if ((bk->lb_param & LPF_FAILOUT) &&
+		    !(start->ls_valid & LSV_ERROR_HANDLE)) {
+			bk->lb_param &= ~LPF_FAILOUT;
+			dirty = true;
+		}
+
+		if ((bk->lb_param & LPF_DRYRUN) &&
+		   !(start->ls_valid & LSV_DRYRUN)) {
+			bk->lb_param &= ~LPF_DRYRUN;
+			dirty = true;
+		}
+
+		if ((bk->lb_param & LPF_ORPHAN) &&
+		    !(start->ls_flags & LPF_ORPHAN)) {
+			bk->lb_param &= ~LPF_ORPHAN;
+			dirty = true;
+		}
+
+		if ((bk->lb_speed_limit != 0) &&
+		    !(start->ls_valid & LSV_SPEED_LIMIT)) {
+			bk->lb_speed_limit = 0;
+			dirty = true;
+		}
+
+		if ((bk->lb_async_windows != LFSCK_ASYNC_WIN_DEFAULT) &&
+		    !(start->ls_valid & LSV_ASYNC_WINDOWS)) {
+			bk->lb_async_windows = LFSCK_ASYNC_WIN_DEFAULT;
+			dirty = true;
+		}
+	}
+
+	if (dirty)
+		rc = lfsck_bookmark_store(env, lfsck);
+
+	return 0;
+}
+
