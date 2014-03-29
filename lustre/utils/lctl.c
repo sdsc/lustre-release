@@ -382,9 +382,9 @@ command_t cmdlist[] = {
 	{"==== LFSCK ====", jt_noop, 0, "LFSCK"},
 	{"lfsck_start", jt_lfsck_start, 0, "start LFSCK\n"
 	 "usage: lfsck_start <-M | --device [MDT,OST]_device>\n"
-	 "		     [-A | --all] [-c | --create_ostobj [swtich]]\n"
-	 "		     [-e | --error error_handle] [-h | --help]\n"
-	 "		     [-n | --dryrun [switch]] [-o | --orphan]\n"
+	 "		     [-A | --all] [-c | --create_ostobj [on | off]]\n"
+	 "		     [-e | --error <continue | abort>] [-h | --help]\n"
+	 "		     [-n | --dryrun [on | off]] [-o | --orphan]\n"
 	 "		     [-r | --reset] [-s | --speed speed_limit]\n"
 	 "		     [-t | --type lfsck_type[,lfsck_type...]]\n"
 	 "		     [-w | --windows win_size]"},
