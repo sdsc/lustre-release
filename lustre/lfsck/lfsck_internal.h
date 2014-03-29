@@ -634,6 +634,8 @@ int lfsck_bookmark_store(const struct lu_env *env,
 			 struct lfsck_instance *lfsck);
 int lfsck_bookmark_setup(const struct lu_env *env,
 			 struct lfsck_instance *lfsck);
+int lfsck_reset_param(const struct lu_env *env, struct lfsck_instance *lfsck,
+		      struct lfsck_start *start);
 
 /* lfsck_namespace.c */
 int lfsck_namespace_setup(const struct lu_env *env,
