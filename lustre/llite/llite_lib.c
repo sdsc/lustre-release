@@ -1307,9 +1307,9 @@ static struct inode *ll_iget_anon_dir(struct super_block *sb,
 		ll_lli_init(lli);
 
 		LASSERT(lsm != NULL);
-		/* master stripe FID */
-		lli->lli_pfid = lsm->lsm_md_oinfo[0].lmo_fid;
-		CDEBUG(D_INODE, "lli %p master "DFID" slave "DFID"\n",
+		/* master object FID */
+		lli->lli_pfid = body->fid1;
+		CDEBUG(D_INODE, "lli %p slave "DFID" master "DFID"\n",
 		       lli, PFID(fid), PFID(&lli->lli_pfid));
 		unlock_new_inode(inode);
 	}
@@ -1330,21 +1330,22 @@ static int ll_init_lsm_md(struct inode *inode, struct lustre_md *md)
 	for (i = 0; i < lsm->lsm_md_stripe_count; i++) {
 		fid = &lsm->lsm_md_oinfo[i].lmo_fid;
 		LASSERT(lsm->lsm_md_oinfo[i].lmo_root == NULL);
-		if (i == 0) {
+		/* Unfortunately ll_iget will call ll_update_inode,
+		 * where the initialization of slave inode is slightly
+		 * different, so it reset lsm_md to NULL to avoid
+		 * initializing lsm for slave inode. */
+		/* For migrating inode, lsm->lsm_md_oinfo[0] and master
+		 * inode will be the same */
+		if (lu_fid_eq(fid, ll_inode2fid(inode)))
 			lsm->lsm_md_oinfo[i].lmo_root = inode;
-		} else {
-			/* Unfortunately ll_iget will call ll_update_inode,
-			 * where the initialization of slave inode is slightly
-			 * different, so it reset lsm_md to NULL to avoid
-			 * initializing lsm for slave inode. */
+		else
 			lsm->lsm_md_oinfo[i].lmo_root =
-					ll_iget_anon_dir(inode->i_sb, fid, md);
-			if (IS_ERR(lsm->lsm_md_oinfo[i].lmo_root)) {
-				int rc = PTR_ERR(lsm->lsm_md_oinfo[i].lmo_root);
+				ll_iget_anon_dir(inode->i_sb, fid, md);
+		if (IS_ERR(lsm->lsm_md_oinfo[i].lmo_root)) {
+			int rc = PTR_ERR(lsm->lsm_md_oinfo[i].lmo_root);
 
-				lsm->lsm_md_oinfo[i].lmo_root = NULL;
-				return rc;
-			}
+			lsm->lsm_md_oinfo[i].lmo_root = NULL;
+			return rc;
 		}
 	}
 

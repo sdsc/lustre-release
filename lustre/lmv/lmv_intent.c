@@ -205,14 +205,6 @@ int lmv_revalidate_slaves(struct obd_export *exp, struct mdt_body *mbody,
 
 		fid = lsm->lsm_md_oinfo[i].lmo_fid;
 		inode = lsm->lsm_md_oinfo[i].lmo_root;
-		if (i == 0) {
-			if (mbody != NULL) {
-				body = mbody;
-				goto update;
-			} else {
-				goto release_lock;
-			}
-		}
 
 		/*
 		 * Prepare op_data for revalidating. Note that @fid2 shluld be
@@ -246,7 +238,6 @@ int lmv_revalidate_slaves(struct obd_export *exp, struct mdt_body *mbody,
 			body = req_capsule_server_get(&req->rq_pill,
 						      &RMF_MDT_BODY);
 			LASSERT(body != NULL);
-update:
 			if (unlikely(body->nlink < 2)) {
 				CERROR("%s: nlink %d < 2 corrupt stripe %d "DFID
 				       ":" DFID"\n", obd->obd_name, body->nlink,
@@ -265,9 +256,6 @@ update:
 				GOTO(cleanup, rc = -EIO);
 			}
 
-			if (i != 0)
-				md_set_lock_data(tgt->ltd_exp, &lockh->cookie,
-						 inode, NULL);
 
 			i_size_write(inode, body->size);
 			set_nlink(inode, body->nlink);
@@ -278,7 +266,9 @@ update:
 			if (req != NULL)
 				ptlrpc_req_finished(req);
 		}
-release_lock:
+
+		md_set_lock_data(tgt->ltd_exp, &lockh->cookie, inode, NULL);
+
 		size += i_size_read(inode);
 
 		if (i != 0)
@@ -492,6 +482,8 @@ int lmv_intent_lookup(struct obd_export *exp, struct md_op_data *op_data,
 		it->d.lustre.it_disposition &= ~DISP_ENQ_COMPLETE;
 		rc = md_intent_lock(tgt->ltd_exp, op_data, lmm, lmmsize, it,
 				    flags, reqp, cb_blocking, extra_lock_flags);
+		if (rc < 0)
+			RETURN(rc);
 	}
 	/*
 	 * MDS has returned success. Probably name has been resolved in

@@ -2897,7 +2897,19 @@ int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
 	if (lsm != NULL && lmm == NULL) {
 #ifdef __KERNEL__
 		int i;
-		for (i = 1; i < lsm->lsm_md_stripe_count; i++) {
+		int start_index;
+
+		/* Sigh, for migrating inode (i.e. migration is interrupted,
+		 * and some one else is acessing the file at the same time),
+		 * the master stripe and master inode are same, which will
+		 * be put in the normal clear inode process, i.e. in this
+		 * case, we only deal with other inode */
+		if (lsm->lsm_md_magic == LMV_MAGIC_MIGRATE)
+			start_index = 1;
+		else
+			start_index = 0;
+
+		for (i = start_index; i < lsm->lsm_md_stripe_count; i++) {
 			if (lsm->lsm_md_oinfo[i].lmo_root != NULL)
 				iput(lsm->lsm_md_oinfo[i].lmo_root);
 		}
