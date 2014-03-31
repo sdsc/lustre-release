@@ -1197,15 +1197,40 @@ test_24A() { # LU-3182
 	rm -rf $DIR/$tdir
 	mkdir -p $DIR/$tdir
 	createmany -m $DIR/$tdir/$tfile $NFILES
-	local t=`ls $DIR/$tdir | wc -l`
-	local u=`ls $DIR/$tdir | sort -u | wc -l`
-	if [ $t -ne $NFILES -o $u -ne $NFILES ] ; then
-		error "Expected $NFILES files, got $t ($u unique)"
+	local t=$(ls $DIR/$tdir | wc -l)
+	local u=$(ls $DIR/$tdir | sort -u | wc -l)
+	local v=$(ls -ai $DIR/$tdir | sort -u | wc -l)
+	if [ $t -ne $NFILES -o $u -ne $NFILES -o $v -ne $((NFILES + 2)) ] ; then
+		error "Expected $NFILES files, got $t ($u unique $v .&..)"
 	fi
 
 	rm -rf $DIR/$tdir || error "Can not delete directories"
 }
 run_test 24A "readdir() returns correct number of entries."
+
+test_24B() { # LU-4805
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local count
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i0 -c$MDSCOUNT $DIR/$tdir/striped_dir
+
+	count=$(ls -ai $DIR/$tdir/striped_dir | wc -l)
+	[ $count -eq 2 ] || error "Expected 2, got $count"
+
+	touch $DIR/$tdir/striped_dir/a
+
+	count=$(ls -ai $DIR/$tdir/striped_dir | wc -l)
+	[ $count -eq 3 ] || error "Expected 3, got $count"
+
+	touch $DIR/$tdir/striped_dir/.f
+
+	count=$(ls -ai $DIR/$tdir/striped_dir | wc -l)
+	[ $count -eq 4 ] || error "Expected 4, got $count"
+
+	rm -rf $DIR/$tdir || error "Can not delete directories"
+}
+run_test 24B "readdir for striped dir return correct number of entries"
 
 test_25a() {
 	echo '== symlink sanity ============================================='
