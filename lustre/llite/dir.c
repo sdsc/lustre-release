@@ -162,7 +162,7 @@ struct lu_dirent *ll_dir_entry_start(struct inode *dir,
 				     struct md_op_data *op_data,
 				     struct page **ppage)
 {
-	struct lu_dirent *entry;
+	struct lu_dirent *entry = NULL;
 	struct md_callback cb_op;
 	int rc;
 
@@ -179,19 +179,26 @@ struct lu_dirent *ll_dir_entry_next(struct inode *dir,
 				    struct lu_dirent *ent,
 				    struct page **ppage)
 {
-	struct lu_dirent *entry;
+	struct lu_dirent *entry = NULL;
 	struct md_callback cb_op;
+	struct page	*last_page;
 	int rc;
 
 	LASSERT(*ppage != NULL);
+
+	/* It needs to input the entry with the related page
+	 * to MDC layer (see mdc_read_entry), so last_page
+	 * will be hold after md_read_entry */
+	last_page = *ppage;
 	cb_op.md_blocking_ast = ll_md_blocking_ast;
 	op_data->op_hash_offset = le64_to_cpu(ent->lde_hash);
-	kunmap(*ppage);
-	page_cache_release(*ppage);
-	*ppage = NULL;
+	op_data->op_ent = ent;
 	rc = md_read_entry(ll_i2mdexp(dir), op_data, &cb_op, &entry, ppage);
+	kunmap(last_page);
+	page_cache_release(last_page);
 	if (rc != 0)
 		entry = ERR_PTR(rc);
+
 	return entry;
 }
 
@@ -269,6 +276,8 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 
 	if (IS_ERR(ent))
 		rc = PTR_ERR(ent);
+	else if (ent == NULL)
+		op_data->op_hash_offset = MDS_DIR_END_OFF;
 
 	if (page != NULL) {
 		kunmap(page);
