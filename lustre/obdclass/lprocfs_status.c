@@ -2004,7 +2004,7 @@ void lprocfs_free_per_client_stats(struct obd_device *obd)
                 stat = cfs_list_entry(obd->obd_nid_stats.next,
                                       struct nid_stat, nid_list);
                 cfs_list_del_init(&stat->nid_list);
-                cfs_hash_del(hash, &stat->nid, &stat->nid_hash);
+                cfs_hash_del(hash, &stat->uuid, &stat->nid_hash);
                 lprocfs_free_client_stats(stat);
         }
         EXIT;
@@ -2572,10 +2572,11 @@ EXPORT_SYMBOL(lprocfs_init_ldlm_stats);
 #ifdef HAVE_SERVER_SUPPORT
 int lprocfs_exp_nid_seq_show(struct seq_file *m, void *data)
 {
-	struct obd_export *exp = m->private;
-	LASSERT(exp != NULL);
-	return seq_printf(m, "%s\n", obd_export_nid2str(exp));
+	struct nid_stat *stats = m->private;
+	LASSERT(stats != NULL);
+	return seq_printf(m, "%s\n", libcfs_nid2str(stats->nid));
 }
+LPROC_SEQ_FOPS_RO(lprocfs_exp_nid);
 
 int lprocfs_exp_print_uuid_seq(cfs_hash_t *hs, cfs_hash_bd_t *bd,
 				cfs_hlist_node_t *hnode, void *cb_data)
@@ -2677,10 +2678,10 @@ EXPORT_SYMBOL(lprocfs_nid_stats_clear_seq_write);
 int lprocfs_exp_rd_nid(char *page, char **start, off_t off, int count,
                          int *eof,  void *data)
 {
-        struct obd_export *exp = data;
-        LASSERT(exp != NULL);
+        struct nid_stat *stats = data;
+        LASSERT(stats != NULL);
         *eof = 1;
-        return snprintf(page, count, "%s\n", obd_export_nid2str(exp));
+        return snprintf(page, count, "%s\n", libcfs_nid2str(stats->nid));
 }
 
 struct exp_uuid_cb_data {
@@ -2835,14 +2836,15 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
                 RETURN(-ENOMEM);
 
         new_stat->nid               = *nid;
+        new_stat->uuid              = exp->exp_client_uuid;
         new_stat->nid_obd           = exp->exp_obd;
         /* we need set default refcount to 1 to balance obd_disconnect */
 	atomic_set(&new_stat->nid_exp_ref_count, 1);
 
         old_stat = cfs_hash_findadd_unique(obd->obd_nid_stats_hash,
-                                           nid, &new_stat->nid_hash);
-        CDEBUG(D_INFO, "Found stats %p for nid %s - ref %d\n",
-               old_stat, libcfs_nid2str(*nid),
+                                           &new_stat->uuid, &new_stat->nid_hash);
+	CDEBUG(D_INFO, "Found stats %p for uuid %s - ref %d\n",
+	       old_stat, obd_uuid2str(&new_stat->uuid),
 	       atomic_read(&new_stat->nid_exp_ref_count));
 
 	/* Return -EALREADY here so that we know that the /proc
@@ -2858,21 +2860,19 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
 		GOTO(destroy_new, rc = -EALREADY);
 	}
         /* not found - create */
-        OBD_ALLOC(buffer, LNET_NIDSTR_SIZE);
+        OBD_ALLOC(buffer, sizeof(new_stat->uuid.uuid));
         if (buffer == NULL)
-                GOTO(destroy_new, rc = -ENOMEM);
+                GOTO(destroy_new_ns, rc = -ENOMEM);
 
-	memcpy(buffer, libcfs_nid2str(*nid), LNET_NIDSTR_SIZE);
+	memcpy(buffer, new_stat->uuid.uuid, sizeof(new_stat->uuid.uuid));
 #ifndef HAVE_ONLY_PROCFS_SEQ
         new_stat->nid_proc = lprocfs_register(buffer,
-						obd->obd_proc_exports_entry,
-						NULL, NULL);
 #else
 	new_stat->nid_proc = lprocfs_seq_register(buffer,
-						obd->obd_proc_exports_entry,
-						NULL, NULL);
 #endif
-	OBD_FREE(buffer, LNET_NIDSTR_SIZE);
+					obd->obd_proc_exports_entry,
+					NULL, NULL);
+	OBD_FREE(buffer, sizeof(new_stat->uuid.uuid));
 
 	if (IS_ERR(new_stat->nid_proc)) {
 		rc = PTR_ERR(new_stat->nid_proc);
@@ -2881,6 +2881,19 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
 		       obd->obd_name, libcfs_nid2str(*nid), rc);
 		GOTO(destroy_new_ns, rc);
 	}
+
+#ifndef HAVE_ONLY_PROCFS_SEQ
+        entry = lprocfs_add_simple(new_stat->nid_proc, "nid",
+                                   lprocfs_exp_rd_nid, NULL, new_stat, NULL);
+#else
+	entry = lprocfs_add_simple(new_stat->nid_proc, "nid",
+				   new_stat, &lprocfs_exp_nid_fops);
+#endif
+        if (IS_ERR(entry)) {
+                CWARN("Error adding the NID stats file\n");
+                rc = PTR_ERR(entry);
+                GOTO(destroy_new_ns, rc);
+        }
 
 #ifndef HAVE_ONLY_PROCFS_SEQ
         entry = lprocfs_add_simple(new_stat->nid_proc, "uuid",
@@ -2922,7 +2935,8 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
 destroy_new_ns:
         if (new_stat->nid_proc != NULL)
                 lprocfs_remove(&new_stat->nid_proc);
-        cfs_hash_del(obd->obd_nid_stats_hash, nid, &new_stat->nid_hash);
+        cfs_hash_del(obd->obd_nid_stats_hash, &new_stat->uuid,
+		     &new_stat->nid_hash);
 
 destroy_new:
         nidstat_putref(new_stat);

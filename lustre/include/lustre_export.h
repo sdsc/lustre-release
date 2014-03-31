@@ -114,6 +114,7 @@ struct mgs_export_data {
  */
 struct nid_stat {
 	lnet_nid_t              nid;
+	struct obd_uuid		uuid;
 	cfs_hlist_node_t        nid_hash;
 	cfs_list_t              nid_list;
 	struct obd_device       *nid_obd;
