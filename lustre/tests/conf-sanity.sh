@@ -4455,6 +4455,14 @@ test_76() {
 }
 run_test 76 "set permanent params set_param -P"
 
+test_76a() { # LU-4783
+	stopall
+	setupall
+	do_facet mgs $LCTL get_param mgs.MGS.live.* | grep "params" ||
+		error "start params log failed"
+}
+run_test 76a "verify params log setup correctly"
+
 test_77() { # LU-3445
 	local server_version=$(lustre_version_code $SINGLEMDS)
 
