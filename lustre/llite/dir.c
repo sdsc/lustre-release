@@ -219,7 +219,6 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 	int			done = 0;
 	int			rc = 0;
 	__u64			hash = MDS_DIR_END_OFF;
-	__u64			last_hash = MDS_DIR_END_OFF;
 	struct page		*page = NULL;
 	ENTRY;
 
@@ -267,10 +266,8 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 #endif
 		if (done) {
 			if (op_data->op_hash_offset != MDS_DIR_END_OFF)
-				op_data->op_hash_offset = last_hash;
+				op_data->op_hash_offset = hash;
 			break;
-		} else {
-			last_hash = hash;
 		}
 	}
 
@@ -323,6 +320,11 @@ static int ll_readdir(struct file *filp, void *cookie, filldir_t filldir)
 				     LUSTRE_OPC_ANY, inode);
 	if (IS_ERR(op_data))
 		GOTO(out, rc = PTR_ERR(op_data));
+
+	if (filp->f_dentry->d_parent != NULL &&
+	    filp->f_dentry->d_parent->d_inode != NULL)
+		op_data->op_fid3 =
+			*ll_inode2fid(filp->f_dentry->d_parent->d_inode);
 
 	op_data->op_hash_offset = pos;
 	op_data->op_max_pages = sbi->ll_md_brw_size >> PAGE_CACHE_SHIFT;
