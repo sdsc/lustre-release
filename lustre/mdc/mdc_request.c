@@ -1239,7 +1239,7 @@ static struct page *mdc_page_locate(struct address_space *mapping, __u64 *hash,
 				LASSERTF(*start <= *hash, "start = "LPX64
 					 ",end = "LPX64",hash = "LPX64"\n",
 					 *start, *end, *hash);
-			CDEBUG(D_VFSTRACE, "page%lu [%llu %llu], hash"LPU64"\n",
+			CDEBUG(D_VFSTRACE, "page%lx [%llx %llx], hash"LPX64"\n",
 			       offset, *start, *end, *hash);
 			if (*hash > *end) {
 				kunmap(page);
@@ -1529,8 +1529,14 @@ static int mdc_read_page(struct obd_export *exp, struct md_op_data *op_data,
 
 	rc = mdc_intent_lock(exp, op_data, NULL, 0, &it, 0, &enq_req,
 			     cb_op->md_blocking_ast, 0);
-	if (enq_req != NULL)
+	if (enq_req != NULL) {
+		/* If enqueued the lock from server side, it means
+		 * the current dir entry page is not valid anymore,
+		 * i.e. we can not use op_ent to retrieve next_entry
+		 * directly (see mdc_read_entry) */
+		op_data->op_ent = NULL;
 		ptlrpc_req_finished(enq_req);
+	}
 
 	if (rc < 0) {
 		CERROR("%s: "DFID" lock enqueue fails: rc = %d\n",
@@ -1665,14 +1671,23 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 		RETURN(rc);
 
 	dp = page_address(page);
-	for (ent = lu_dirent_start(dp); ent != NULL;
-	     ent = lu_dirent_next(ent)) {
-		/* Skip dummy entry */
-		if (le16_to_cpu(ent->lde_namelen) == 0)
-			continue;
+	/* If op_data->op_ent != NULL(see ll_dir_entry_next), try to get
+	 * next ent directly */
+	if (likely(op_data->op_ent != NULL)) {
+		ent = lu_dirent_next(op_data->op_ent);
+		if (likely(ent != NULL))
+			GOTO(out, rc);
+	} else {
+		for (ent = lu_dirent_start(dp); ent != NULL;
+		     ent = lu_dirent_next(ent)) {
+			/* Skip dummy entry */
+			if (le16_to_cpu(ent->lde_namelen) == 0)
+				continue;
 
-		if (le64_to_cpu(ent->lde_hash) > op_data->op_hash_offset)
-			break;
+			if (le64_to_cpu(ent->lde_hash) >
+					op_data->op_hash_offset)
+				break;
+		}
 	}
 
 	/* If it can not find entry in current page, try next page. */
@@ -1680,7 +1695,8 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 		__u64 orig_offset = op_data->op_hash_offset;
 
 		if (le64_to_cpu(dp->ldp_hash_end) == MDS_DIR_END_OFF) {
-			mdc_release_page(page, 0);
+			mdc_release_page(page,
+				 le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
 			RETURN(0);
 		}
 
@@ -1688,6 +1704,7 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 		mdc_release_page(page,
 				 le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
 		rc = mdc_read_page(exp, op_data, cb_op, &page);
+		op_data->op_hash_offset = orig_offset;
 		if (rc != 0)
 			RETURN(rc);
 
@@ -1695,13 +1712,11 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 			dp = page_address(page);
 			ent = lu_dirent_start(dp);
 		}
-
-		op_data->op_hash_offset = orig_offset;
 	}
 
+out:
 	*ppage = page;
 	*entp = ent;
-
 	RETURN(rc);
 }
 
