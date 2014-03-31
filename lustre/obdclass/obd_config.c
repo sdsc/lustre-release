@@ -2149,13 +2149,13 @@ nidstats_key(cfs_hlist_node_t *hnode)
 
         ns = cfs_hlist_entry(hnode, struct nid_stat, nid_hash);
 
-        return &ns->nid;
+        return &ns->uuid;
 }
 
 static int
 nidstats_keycmp(const void *key, cfs_hlist_node_t *hnode)
 {
-        return *(lnet_nid_t *)nidstats_key(hnode) == *(lnet_nid_t *)key;
+        return obd_uuid_equals(nidstats_key(hnode), key);
 }
 
 static void *
