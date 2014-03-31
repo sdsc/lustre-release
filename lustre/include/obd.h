@@ -987,6 +987,7 @@ struct md_op_data {
 
 	/* Used by readdir */
 	__u64                   op_hash_offset;
+	struct lu_dirent	*op_ent;
 
 	/* Used by readdir */
 	__u32                   op_npages;
