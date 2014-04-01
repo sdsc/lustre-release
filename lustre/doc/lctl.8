@@ -293,23 +293,32 @@ will not be purged beyond any registered users' set point. (See lfs changelog_cl
 .BI changelog_deregister " <id>"
 Unregister an existing changelog user.  If the user's "clear" record number
 is the minimum for the device, changelog records will be purged until the
-next minimum.  
+next minimum.
 .PP
 .SS LFSCK
 An on-line Lustre consistency check and repair tool.
 .TP
 .B lfsck_start \fR<-M | --device MDT_device>
-     \fR[-e | --error <error_handle>]
-     \fR[-h | --help]
-     \fR[-n | --dryrun <switch>]
-     \fR[-r | --reset]
-     \fR[-s | --speed <speed_limit>]
-     \fR[-t | --type <lfsck_type[,lfsck_type...]>]
+     \fR[-A | --all] [-c | --create_ostobj [on | off]]
+     \fR[-e | --error <continue | abort>] [-h | --help]
+     \fR[-n | --dryrun [on | off]] [-o | --orphan]
+     \fR[-r | --reset] [-s | --speed speed_limit]
+     \fR[-t | --type lfsck_type[,lfsck_type...]]
+     \fR[-w | --window_size size]
 .br
 Start LFSCK on the specified MDT device with specified parameters.
 .TP
   -M, --device <MDT_device>
-The MDT device to check.
+The device to start LFSCK/scrub on.
+.TP
+  -A, --all
+Start LFSCK on all MDT devices.
+.TP
+  -c, --create_ostobj [on | off]
+Create the lost OST-object for dangling LOV EA: 'off'(default) or 'on'. Under
+default mode, when the LFSCK find some MDT-object with dangling reference, it
+will report the inconsistency but without repairing. Otherwise the LFSCK will
+re-create the missed OST-object.
 .TP
   -e, --error <error_handle>
 With error_handle as 'abort' LFSCK will stop if a repair is impossible. If no
@@ -319,12 +328,15 @@ Otherwise the default behavior is to 'continue' if a rapair is impossible.
   -h, --help
 Show this help.
 .TP
-  -n, --dryrun <on|off>
+  -n, --dryrun [on | off]
 Perform a trial run with no changes made.
+.TP
+  -o, --orphan
+Handle orphan objects.
 .TP
   -r, --reset
 Set the current position of LFSCK progress to the beginning of the specified
-MDT.
+MDT. The non-specified parameters will also be reset as default.
 .TP
   -s, --speed <speed_limit>
 Set the upper limit of LFSCK processing in objects per second. If no value is
@@ -335,11 +347,17 @@ the default value of 0 is used. 0 means run as fast as possible.
 Specify the type of LFSCK to execute. By default, OI Scrub is executed.
 Alternative types include FID-in-dirent and linkEA (namespace).
 .TP
-.B lfsck_stop  \fR<-M | --device MDT_device> [-h | --help]
+  -w, --window_size <size>
+The window size for async requests pipeline.
+.TP
+.B lfsck_stop  \fR<-M | --device MDT_device> <-A | --all> [-h | --help]
 Stop LFSCK on the specified MDT device.
 .TP
   -M, --device <MDT_device>
-The MDT device.
+The device to stop LFSCK/scrub on.
+.TP
+  -A, --all
+Stop LFSCK on all MDT devices.
 .TP
   -h, --help
 Show this help.
