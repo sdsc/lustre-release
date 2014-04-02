@@ -227,6 +227,9 @@ static int lov_init_raid0(const struct lu_env *env,
 			 LOV_MAGIC_V1, LOV_MAGIC_V3, lsm->lsm_magic);
 	}
 
+	if (unlikely(lsm->lsm_pattern & LOV_PATTERN_F_HOLE))
+		set_bit(LU_OBJECT_PARTIAL, &lov2lu(lov)->lo_header->loh_flags);
+
 	LASSERT(lov->lo_lsm == NULL);
 	lov->lo_lsm = lsm_addref(lsm);
 	r0->lo_nr  = lsm->lsm_stripe_count;

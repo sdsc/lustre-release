@@ -482,7 +482,11 @@ int ll_file_mmap(struct file *file, struct vm_area_struct * vma)
 {
         struct inode *inode = file->f_dentry->d_inode;
         int rc;
-        ENTRY;
+	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
+	ENTRY;
+
+	if (unlikely(fd->fd_flags & LL_FILE_NOIO))
+		RETURN(-EPERM);
 
         if (ll_file_nolock(file))
                 RETURN(-EOPNOTSUPP);

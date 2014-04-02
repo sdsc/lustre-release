@@ -52,6 +52,23 @@
 
 #include "lov_internal.h"
 
+static __u16 lsm_lmm_stripe_count_without_hole(struct lov_ost_data_v1 *obj,
+					       int count)
+{
+	int	i;
+	__u16	slots = 0;
+
+	for (i = 0; i < count; i++, obj++) {
+		/* Skip dummy slot. */
+		if (lovea_slot_is_dummy(obj))
+			continue;
+
+		slots++;
+	}
+
+	return slots;
+}
+
 static int lsm_lmm_verify_common(struct lov_mds_md *lmm, int lmm_bytes,
                                  __u16 stripe_count)
 {
@@ -188,15 +205,23 @@ static void lov_tgt_maxbytes(struct lov_tgt_desc *tgt, __u64 *stripe_maxbytes)
 static int lsm_lmm_verify_v1(struct lov_mds_md_v1 *lmm, int lmm_bytes,
                              __u16 *stripe_count)
 {
+	__u32 pattern;
+
 	if (lmm_bytes < sizeof(*lmm)) {
 		CERROR("lov_mds_md_v1 too small: %d, need at least %d\n",
 		       lmm_bytes, (int)sizeof(*lmm));
 		return -EINVAL;
 	}
 
-	*stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
-	if (le32_to_cpu(lmm->lmm_pattern) & LOV_PATTERN_F_RELEASED)
+	pattern = le32_to_cpu(lmm->lmm_pattern);
+	if (pattern & LOV_PATTERN_F_RELEASED)
 		*stripe_count = 0;
+	else if (likely(!(pattern & LOV_PATTERN_F_HOLE)))
+		*stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
+	else
+		*stripe_count =
+			lsm_lmm_stripe_count_without_hole(&lmm->lmm_objects[0],
+					le16_to_cpu(lmm->lmm_stripe_count));
 
 	if (lmm_bytes < lov_mds_md_size(*stripe_count, LOV_MAGIC_V1)) {
 		CERROR("LOV EA V1 too small: %d, need %d\n",
@@ -208,24 +233,29 @@ static int lsm_lmm_verify_v1(struct lov_mds_md_v1 *lmm, int lmm_bytes,
 	return lsm_lmm_verify_common(lmm, lmm_bytes, *stripe_count);
 }
 
-int lsm_unpackmd_v1(struct lov_obd *lov, struct lov_stripe_md *lsm,
-                    struct lov_mds_md_v1 *lmm)
+static int lsm_unpackmd_v1(struct lov_obd *lov, struct lov_stripe_md *lsm,
+			   struct lov_mds_md_v1 *lmm)
 {
-        struct lov_oinfo *loi;
-        int i;
+	struct lov_oinfo *loi;
+	int i;
+	int j;
 	int stripe_count;
-        __u64 stripe_maxbytes = OBD_OBJECT_EOF;
+	__u64 stripe_maxbytes = OBD_OBJECT_EOF;
 
-        lsm_unpackmd_common(lsm, lmm);
-
+	lsm_unpackmd_common(lsm, lmm);
 	stripe_count = lsm_is_released(lsm) ? 0 : lsm->lsm_stripe_count;
+	for (i = 0, j = 0; i < stripe_count; i++, j++) {
+		/* Skip dummy slot. */
+		if (unlikely(lovea_slot_is_dummy(&lmm->lmm_objects[j]))) {
+			i--;
+			continue;
+		}
 
-	for (i = 0; i < stripe_count; i++) {
 		/* XXX LOV STACKING call down to osc_unpackmd() */
 		loi = lsm->lsm_oinfo[i];
-		ostid_le_to_cpu(&lmm->lmm_objects[i].l_ost_oi, &loi->loi_oi);
-		loi->loi_ost_idx = le32_to_cpu(lmm->lmm_objects[i].l_ost_idx);
-		loi->loi_ost_gen = le32_to_cpu(lmm->lmm_objects[i].l_ost_gen);
+		ostid_le_to_cpu(&lmm->lmm_objects[j].l_ost_oi, &loi->loi_oi);
+		loi->loi_ost_idx = le32_to_cpu(lmm->lmm_objects[j].l_ost_idx);
+		loi->loi_ost_gen = le32_to_cpu(lmm->lmm_objects[j].l_ost_gen);
 		if (loi->loi_ost_idx >= lov->desc.ld_tgt_count) {
                         CERROR("OST index %d more than OST count %d\n",
                                loi->loi_ost_idx, lov->desc.ld_tgt_count);
@@ -259,11 +289,10 @@ const struct lsm_operations lsm_v1_ops = {
 };
 
 static int lsm_lmm_verify_v3(struct lov_mds_md *lmmv1, int lmm_bytes,
-                             __u16 *stripe_count)
+			     __u16 *stripe_count)
 {
-	struct lov_mds_md_v3 *lmm;
-
-	lmm = (struct lov_mds_md_v3 *)lmmv1;
+	struct lov_mds_md_v3	*lmm	 = (struct lov_mds_md_v3 *)lmmv1;
+	__u32			 pattern;
 
 	if (lmm_bytes < sizeof(*lmm)) {
 		CERROR("lov_mds_md_v3 too small: %d, need at least %d\n",
@@ -271,9 +300,15 @@ static int lsm_lmm_verify_v3(struct lov_mds_md *lmmv1, int lmm_bytes,
 		return -EINVAL;
 	}
 
-	*stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
-	if (le32_to_cpu(lmm->lmm_pattern) & LOV_PATTERN_F_RELEASED)
+	pattern = le32_to_cpu(lmm->lmm_pattern);
+	if (pattern & LOV_PATTERN_F_RELEASED)
 		*stripe_count = 0;
+	else if (likely(!(pattern & LOV_PATTERN_F_HOLE)))
+		*stripe_count = le16_to_cpu(lmm->lmm_stripe_count);
+	else
+		*stripe_count =
+			lsm_lmm_stripe_count_without_hole(&lmm->lmm_objects[0],
+					le16_to_cpu(lmm->lmm_stripe_count));
 
 	if (lmm_bytes < lov_mds_md_size(*stripe_count, LOV_MAGIC_V3)) {
 		CERROR("LOV EA V3 too small: %d, need %d\n",
@@ -287,32 +322,36 @@ static int lsm_lmm_verify_v3(struct lov_mds_md *lmmv1, int lmm_bytes,
 }
 
 int lsm_unpackmd_v3(struct lov_obd *lov, struct lov_stripe_md *lsm,
-                    struct lov_mds_md *lmmv1)
+		    struct lov_mds_md *lmmv1)
 {
-        struct lov_mds_md_v3 *lmm;
-        struct lov_oinfo *loi;
-        int i;
+	struct lov_mds_md_v3 *lmm;
+	struct lov_oinfo *loi;
+	__u64 stripe_maxbytes = OBD_OBJECT_EOF;
+	int i;
+	int j;
 	int stripe_count;
-        __u64 stripe_maxbytes = OBD_OBJECT_EOF;
 	int cplen = 0;
 
-        lmm = (struct lov_mds_md_v3 *)lmmv1;
-
-        lsm_unpackmd_common(lsm, (struct lov_mds_md_v1 *)lmm);
-
+	lmm = (struct lov_mds_md_v3 *)lmmv1;
+	lsm_unpackmd_common(lsm, (struct lov_mds_md_v1 *)lmm);
 	stripe_count = lsm_is_released(lsm) ? 0 : lsm->lsm_stripe_count;
-
 	cplen = strlcpy(lsm->lsm_pool_name, lmm->lmm_pool_name,
 			sizeof(lsm->lsm_pool_name));
 	if (cplen >= sizeof(lsm->lsm_pool_name))
 		return -E2BIG;
 
-        for (i = 0; i < stripe_count; i++) {
-                /* XXX LOV STACKING call down to osc_unpackmd() */
-                loi = lsm->lsm_oinfo[i];
-		ostid_le_to_cpu(&lmm->lmm_objects[i].l_ost_oi, &loi->loi_oi);
-                loi->loi_ost_idx = le32_to_cpu(lmm->lmm_objects[i].l_ost_idx);
-                loi->loi_ost_gen = le32_to_cpu(lmm->lmm_objects[i].l_ost_gen);
+	for (i = 0, j = 0; i < stripe_count; i++, j++) {
+		/* Skip dummy slot. */
+		if (unlikely(lovea_slot_is_dummy(&lmm->lmm_objects[j]))) {
+			i--;
+			continue;
+		}
+
+		/* XXX LOV STACKING call down to osc_unpackmd() */
+		loi = lsm->lsm_oinfo[i];
+		ostid_le_to_cpu(&lmm->lmm_objects[j].l_ost_oi, &loi->loi_oi);
+		loi->loi_ost_idx = le32_to_cpu(lmm->lmm_objects[j].l_ost_idx);
+		loi->loi_ost_gen = le32_to_cpu(lmm->lmm_objects[j].l_ost_gen);
                 if (loi->loi_ost_idx >= lov->desc.ld_tgt_count) {
                         CERROR("OST index %d more than OST count %d\n",
                                loi->loi_ost_idx, lov->desc.ld_tgt_count);

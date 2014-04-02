@@ -572,8 +572,16 @@ int mdt_stripe_get(struct mdt_thread_info *info, struct mdt_object *o,
 	rc = mo_xattr_get(info->mti_env, next, buf, name);
 	if (rc > 0) {
 		if (strcmp(name, XATTR_NAME_LOV) == 0) {
-			ma->ma_lmm_size = rc;
-			ma->ma_valid |= MA_LOV;
+			/* NOT return LOV EA with hole to old client. */
+			if (unlikely(le32_to_cpu(ma->ma_lmm->lmm_pattern) &
+				     LOV_PATTERN_F_HOLE) &&
+			    !(exp_connect_flags(info->mti_exp) &
+			      OBD_CONNECT_LFSCK)) {
+				return -EINVAL;
+			} else {
+				ma->ma_lmm_size = rc;
+				ma->ma_valid |= MA_LOV;
+			}
 		} else if (strcmp(name, XATTR_NAME_LMV) == 0) {
 			ma->ma_lmv_size = rc;
 			ma->ma_valid |= MA_LMV;
@@ -595,9 +603,18 @@ int mdt_stripe_get(struct mdt_thread_info *info, struct mdt_object *o,
 		if (rc > 0) {
 			info->mti_big_lmm_used = 1;
 			if (!strcmp(name, XATTR_NAME_LOV)) {
-				ma->ma_valid |= MA_LOV;
 				ma->ma_lmm = info->mti_big_lmm;
-				ma->ma_lmm_size = rc;
+				/* NOT return LOV EA with hole to old client. */
+				if (unlikely(
+					le32_to_cpu(ma->ma_lmm->lmm_pattern) &
+					LOV_PATTERN_F_HOLE) &&
+				    !(exp_connect_flags(info->mti_exp) &
+				      OBD_CONNECT_LFSCK)) {
+					return -EINVAL;
+				} else {
+					ma->ma_valid |= MA_LOV;
+					ma->ma_lmm_size = rc;
+				}
 			} else if (!strcmp(name, XATTR_NAME_LMV)) {
 				ma->ma_valid |= MA_LMV;
 				ma->ma_lmv = info->mti_big_lmm;

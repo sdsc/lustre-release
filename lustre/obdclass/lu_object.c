@@ -128,7 +128,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
                         o->lo_ops->loo_object_release(env, o);
         }
 
-        if (!lu_object_is_dying(top)) {
+	if (!lu_object_is_dying(top) && !lu_object_is_partial(top)) {
                 LASSERT(cfs_list_empty(&top->loh_lru));
                 cfs_list_add_tail(&top->loh_lru, &bkt->lsb_lru);
                 cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);

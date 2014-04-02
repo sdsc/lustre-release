@@ -743,6 +743,12 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
 		repbody->valid |= OBD_MD_FLDIREA | OBD_MD_MEA;
 	}
 
+	if ((ma->ma_valid & MA_LOV) &&
+	    unlikely(le32_to_cpu(ma->ma_lmm->lmm_pattern) &
+		     LOV_PATTERN_F_HOLE) &&
+	    (flags & (FMODE_WRITE | MDS_FMODE_EXEC)))
+		RETURN(-EPERM);
+
         if (flags & FMODE_WRITE) {
                 rc = mdt_write_get(o);
                 if (rc == 0) {
