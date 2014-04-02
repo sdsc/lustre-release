@@ -1187,7 +1187,8 @@ struct ptlrpc_body_v3 {
 	__u32 pb_version;
 	__u32 pb_opc;
 	__u32 pb_status;
-	__u64 pb_last_xid;
+	__u32 pb_tag;
+	__u32 pb_padding0;
 	__u64 pb_last_seen;
 	__u64 pb_last_committed;
 	__u64 pb_transno;
@@ -1212,7 +1213,8 @@ struct ptlrpc_body_v2 {
         __u32 pb_version;
         __u32 pb_opc;
         __u32 pb_status;
-        __u64 pb_last_xid;
+	__u32 pb_tag;
+	__u32 pb_padding0;
         __u64 pb_last_seen;
         __u64 pb_last_committed;
         __u64 pb_transno;
@@ -1352,6 +1354,7 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 #define OBD_CONNECT_OPEN_BY_FID	0x20000000000000ULL /* open by fid won't pack
 						       name in request */
 #define OBD_CONNECT_LFSCK      0x40000000000000ULL/* support online LFSCK */
+#define OBD_CONNECT_MAX_IN_FLIGHT 0x84000000000000ULL/* max reqs in flight */
 
 /* XXX README XXX:
  * Please DO NOT add flag values here before first ensuring that this same
@@ -1396,7 +1399,8 @@ extern void lustre_swab_ptlrpc_body(struct ptlrpc_body *pb);
 				OBD_CONNECT_LVB_TYPE | OBD_CONNECT_LAYOUTLOCK |\
 				OBD_CONNECT_PINGLESS | OBD_CONNECT_MAX_EASIZE |\
 				OBD_CONNECT_FLOCK_DEAD | \
-				OBD_CONNECT_DISP_STRIPE | OBD_CONNECT_LFSCK)
+				OBD_CONNECT_DISP_STRIPE | OBD_CONNECT_LFSCK |\
+				OBD_CONNECT_MAX_IN_FLIGHT )
 
 #define OST_CONNECT_SUPPORTED  (OBD_CONNECT_SRVLOCK | OBD_CONNECT_GRANT | \
                                 OBD_CONNECT_REQPORTAL | OBD_CONNECT_VERSION | \
@@ -1475,7 +1479,7 @@ struct obd_connect_data {
          * if the corresponding flag in ocd_connect_flags is set. Accessing
          * any field after ocd_maxbytes on the receiver without a valid flag
          * may result in out-of-bound memory access and kernel oops. */
-        __u64 padding1;          /* added 2.1.0. also fix lustre_swab_connect */
+	__u64 ocd_maxinflight;   /* added 2.X.0 */
         __u64 padding2;          /* added 2.1.0. also fix lustre_swab_connect */
         __u64 padding3;          /* added 2.1.0. also fix lustre_swab_connect */
         __u64 padding4;          /* added 2.1.0. also fix lustre_swab_connect */
