@@ -903,7 +903,8 @@ static inline int obd_ping(const struct lu_env *env, struct obd_export *exp)
         RETURN(rc);
 }
 
-static inline int obd_pool_new(struct obd_device *obd, char *poolname)
+static inline int obd_pool_new(struct obd_device *obd, char *poolname,
+			       __u32 pool_id)
 {
         int rc;
         ENTRY;
@@ -911,7 +912,7 @@ static inline int obd_pool_new(struct obd_device *obd, char *poolname)
         OBD_CHECK_DT_OP(obd, pool_new, -EOPNOTSUPP);
         OBD_COUNTER_INCREMENT(obd, pool_new);
 
-        rc = OBP(obd, pool_new)(obd, poolname);
+	rc = OBP(obd, pool_new)(obd, poolname, pool_id);
         RETURN(rc);
 }
 
