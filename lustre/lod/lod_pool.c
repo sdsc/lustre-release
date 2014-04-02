@@ -257,14 +257,14 @@ static void *pool_proc_next(struct seq_file *seq, void *v, loff_t *pos)
 	LASSERTF(iter->lpi_magic == POOL_IT_MAGIC, "%08X\n", iter->lpi_magic);
 
 	/* test if end of file */
-	if (*pos >= pool_tgt_count(iter->lpi_pool))
+	if (*pos >= pool_tgt_count(iter->lpi_pool) + 1)
 		return NULL;
 
 	/* iterate to find a non empty entry */
 	prev_idx = iter->lpi_idx;
 	down_read(&pool_tgt_rw_sem(iter->lpi_pool));
 	iter->lpi_idx++;
-	if (iter->lpi_idx == pool_tgt_count(iter->lpi_pool)) {
+	if (iter->lpi_idx == pool_tgt_count(iter->lpi_pool) + 1) {
 		iter->lpi_idx = prev_idx; /* we stay on the last entry */
 		up_read(&pool_tgt_rw_sem(iter->lpi_pool));
 		return NULL;
@@ -296,8 +296,7 @@ static void *pool_proc_start(struct seq_file *seq, loff_t *pos)
 	struct lod_pool_iterator *iter;
 
 	pool_getref(pool);
-	if ((pool_tgt_count(pool) == 0) ||
-	    (*pos >= pool_tgt_count(pool))) {
+	if (*pos >= pool_tgt_count(pool) + 1) {
 		/* iter is not created, so stop() has no way to
 		 * find pool to dec ref */
 		lod_pool_putref(pool);
@@ -367,10 +366,14 @@ static int pool_proc_show(struct seq_file *seq, void *v)
 
 	LASSERTF(iter->lpi_magic == POOL_IT_MAGIC, "%08X\n", iter->lpi_magic);
 	LASSERT(iter->lpi_pool != NULL);
-	LASSERT(iter->lpi_idx <= pool_tgt_count(iter->lpi_pool));
+	LASSERT(iter->lpi_idx <= pool_tgt_count(iter->lpi_pool) + 1);
 
+	if (iter->lpi_idx == 0) {
+		seq_printf(seq, "pool_id: %d\n", iter->lpi_pool->pool_id);
+		return 0;
+	}
 	down_read(&pool_tgt_rw_sem(iter->lpi_pool));
-	tgt = pool_tgt(iter->lpi_pool, iter->lpi_idx);
+	tgt = pool_tgt(iter->lpi_pool, iter->lpi_idx - 1);
 	up_read(&pool_tgt_rw_sem(iter->lpi_pool));
 	if (tgt != NULL)
 		seq_printf(seq, "%s\n", obd_uuid2str(&(tgt->ltd_uuid)));
@@ -656,6 +659,7 @@ int lod_pool_new(struct obd_device *obd, char *poolname, __u32 pool_id)
 
 	strlcpy(new_pool->pool_name, poolname, sizeof(new_pool->pool_name));
 	new_pool->pool_lobd = obd;
+	new_pool->pool_id = pool_id;
 	atomic_set(&new_pool->pool_refcount, 1);
 	rc = lod_ost_pool_init(&new_pool->pool_obds, 0);
 	if (rc)
