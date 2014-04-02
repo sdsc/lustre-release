@@ -34,12 +34,18 @@
 /**
  * Helper function to retrieve DMU object id from fid for accounting object
  */
-uint64_t osd_quota_fid2dmu(const struct lu_fid *fid)
+inline int osd_quota_fid2dmu(const struct lu_fid *fid, uint64_t *oid)
 {
 	LASSERT(fid_is_acct(fid));
-	if (fid_oid(fid) == ACCT_GROUP_OID)
-		return DMU_GROUPUSED_OBJECT;
-	return DMU_USERUSED_OBJECT;
+	switch (fid_oid(fid)) {
+	case ACCT_GROUP_OID:
+		*oid = DMU_GROUPUSED_OBJECT;
+		break;
+	case ACCT_USER_OID:
+		*oid = DMU_USERUSED_OBJECT;
+		break;
+	}
+	return 0;
 }
 
 /**
@@ -96,7 +102,7 @@ static int osd_acct_index_lookup(const struct lu_env *env,
 	struct osd_object	*obj = osd_dt_obj(dtobj);
 	struct osd_device	*osd = osd_obj2dev(obj);
 	int			 rc;
-	uint64_t		 oid;
+	uint64_t		 oid = 0;
 	ENTRY;
 
 	rec->bspace = rec->ispace = 0;
@@ -105,7 +111,9 @@ static int osd_acct_index_lookup(const struct lu_env *env,
 	sprintf(buf, "%llx", *((__u64 *)dtkey));
 	/* fetch DMU object ID (DMU_USERUSED_OBJECT/DMU_GROUPUSED_OBJECT) to be
 	 * used */
-	oid = osd_quota_fid2dmu(lu_object_fid(&dtobj->do_lu));
+	rc = osd_quota_fid2dmu(lu_object_fid(&dtobj->do_lu), &oid);
+	if (rc)
+		RETURN(rc);
 
 	/* disk usage (in bytes) is maintained by DMU.
 	 * DMU_USERUSED_OBJECT/DMU_GROUPUSED_OBJECT are special objects which
@@ -169,7 +177,9 @@ static struct dt_it *osd_it_acct_init(const struct lu_env *env,
 		RETURN(ERR_PTR(-ENOMEM));
 
 	memset(it, 0, sizeof(*it));
-	it->oiq_oid = osd_quota_fid2dmu(lu_object_fid(lo));
+	rc = osd_quota_fid2dmu(lu_object_fid(lo), &it->oiq_oid);
+	if (rc)
+		RETURN(ERR_PTR(rc));
 
 	/* initialize zap cursor */
 	rc = osd_zap_cursor_init(&it->oiq_zc, osd->od_os, it->oiq_oid, 0);
