@@ -545,8 +545,12 @@ void qmt_glb_lock_notify(const struct lu_env *env, struct lquota_entry *lqe,
 	int			 rc;
 	ENTRY;
 
-	lquota_generate_fid(&qti->qti_fid, pool->qpi_key & 0x0000ffff,
-			    pool->qpi_key >> 16, lqe->lqe_site->lqs_qtype);
+	rc = lquota_generate_fid(&qti->qti_fid, pool->qpi_key & 0x0000ffff,
+				 pool->qpi_key >> 16, lqe->lqe_site->lqs_qtype);
+	if (rc) {
+		LQUOTA_DEBUG(lqe, "failed to generate fid");
+		RETURN_EXIT;
+	}
 
 	/* send glimpse callback to notify slaves of new quota settings */
 	qti->qti_gl_desc.lquota_desc.gl_id        = lqe->lqe_id;
@@ -608,8 +612,13 @@ static void qmt_id_lock_glimpse(const struct lu_env *env,
 	if (!lqe->lqe_enforced)
 		RETURN_EXIT;
 
-	lquota_generate_fid(&qti->qti_fid, pool->qpi_key & 0x0000ffff,
-			    pool->qpi_key >> 16, lqe->lqe_site->lqs_qtype);
+	rc = lquota_generate_fid(&qti->qti_fid, pool->qpi_key & 0x0000ffff,
+				 pool->qpi_key >> 16, lqe->lqe_site->lqs_qtype);
+	if (rc) {
+		LQUOTA_DEBUG(lqe, "failed to generate fid");
+		RETURN_EXIT;
+	}
+
 	fid_build_quota_res_name(&qti->qti_fid, &lqe->lqe_id, &qti->qti_resid);
 	res = ldlm_resource_get(qmt->qmt_ns, NULL, &qti->qti_resid, LDLM_PLAIN,
 				0);
