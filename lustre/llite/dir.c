@@ -936,6 +936,24 @@ out:
 	return rc;
 }
 
+static int check_owner(int type, int id)
+{
+	switch (type) {
+	case USRQUOTA:
+		if (!uid_eq(current_euid(), make_kuid(&init_user_ns, id)))
+			return -EPERM;
+		break;
+	case GRPQUOTA:
+		if (!in_egroup_p(make_kgid(&init_user_ns, id)))
+			return -EPERM;
+		break;
+	default:
+		CERROR("unsupported quota type: %#x\n", type);
+		return -ENOTSUPP;
+	}
+	return 0;
+}
+
 static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
 {
         int cmd = qctl->qc_cmd;
@@ -953,10 +971,7 @@ static int quotactl_ioctl(struct ll_sb_info *sbi, struct if_quotactl *qctl)
                         RETURN(-EPERM);
                 break;
 	case Q_GETQUOTA:
-		if (((type == USRQUOTA &&
-		      !uid_eq(current_euid(), make_kuid(&init_user_ns, id))) ||
-		     (type == GRPQUOTA &&
-		      !in_egroup_p(make_kgid(&init_user_ns, id)))) &&
+		if (check_owner(type, id) != 0 &&
 		    (!cfs_capable(CFS_CAP_SYS_ADMIN) ||
 		     sbi->ll_flags & LL_SBI_RMT_CLIENT))
 			RETURN(-EPERM);

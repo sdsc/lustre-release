@@ -163,7 +163,7 @@ static int qpi_state_seq_show(struct seq_file *m, void *data)
 		seq_printf(m, "    %s:\n"
 			   "        #slv: %d\n"
 			   "        #lqe: %d\n",
-			   QTYPE_NAME(type),
+			   qtype_name(type),
 			   pool->qpi_slv_nr[type],
 		    atomic_read(&pool->qpi_site[type]->lqs_hash->hs_count));
 
@@ -484,8 +484,14 @@ int qmt_pool_prepare(const struct lu_env *env, struct qmt_device *qmt,
 		for (qtype = 0; qtype < MAXQUOTAS; qtype++) {
 			/* Generating FID of global index in charge of storing
 			 * settings for this quota type */
-			lquota_generate_fid(&qti->qti_fid, pool_id, pool_type,
-					    qtype);
+			rc = lquota_generate_fid(&qti->qti_fid, pool_id,
+						 pool_type, qtype);
+			if (rc) {
+				CERROR("%s: failed to generate fid for"
+				       " %s type (%d)\n", qmt->qmt_svname,
+				       qtype_name(qtype), rc);
+				RETURN(rc);
+			}
 
 			/* open/create the global index file for this quota
 			 * type */
@@ -496,7 +502,7 @@ int qmt_pool_prepare(const struct lu_env *env, struct qmt_device *qmt,
 				rc = PTR_ERR(obj);
 				CERROR("%s: failed to create glb index copy for"
 				       " %s type (%d)\n", qmt->qmt_svname,
-				       QTYPE_NAME(qtype), rc);
+				       qtype_name(qtype), rc);
 				RETURN(rc);
 			}
 
@@ -516,7 +522,7 @@ int qmt_pool_prepare(const struct lu_env *env, struct qmt_device *qmt,
 					CERROR("%s: failed to set default "
 					       "grace time for %s type (%d)\n",
 					       qmt->qmt_svname,
-					       QTYPE_NAME(qtype), rc);
+					       qtype_name(qtype), rc);
 					RETURN(rc);
 				}
 
@@ -525,7 +531,7 @@ int qmt_pool_prepare(const struct lu_env *env, struct qmt_device *qmt,
 					CERROR("%s: failed to set initial "
 					       "version for %s type (%d)\n",
 					       qmt->qmt_svname,
-					       QTYPE_NAME(qtype), rc);
+					       qtype_name(qtype), rc);
 					RETURN(rc);
 				}
 			}
@@ -538,7 +544,7 @@ int qmt_pool_prepare(const struct lu_env *env, struct qmt_device *qmt,
 				rc = PTR_ERR(pool->qpi_site[qtype]);
 				CERROR("%s: failed to create site for %s type "
 				       "(%d)\n", qmt->qmt_svname,
-				       QTYPE_NAME(qtype), rc);
+				       qtype_name(qtype), rc);
 				RETURN(rc);
 			}
 
@@ -552,7 +558,7 @@ int qmt_pool_prepare(const struct lu_env *env, struct qmt_device *qmt,
 			if (rc) {
 				CERROR("%s: failed to scan & count slave "
 				       "indexes for %s type (%d)\n",
-				       qmt->qmt_svname, QTYPE_NAME(qtype), rc);
+				       qmt->qmt_svname, qtype_name(qtype), rc);
 				RETURN(rc);
 			}
 
@@ -569,7 +575,8 @@ int qmt_pool_prepare(const struct lu_env *env, struct qmt_device *qmt,
 #ifdef CONFIG_PROC_FS
 			/* add procfs file to dump the global index, mostly for
 			 * debugging purpose */
-			sprintf(qti->qti_buf, "glb-%s", QTYPE_NAME(qtype));
+			snprintf(qti->qti_buf, MTI_NAME_MAXLEN,
+				 "glb-%s", qtype_name(qtype));
 			rc = lprocfs_seq_create(pool->qpi_proc, qti->qti_buf,
 						0444, &lprocfs_quota_seq_fops,
 						obj);
