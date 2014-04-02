@@ -140,8 +140,7 @@ static inline int out_check_resent(const struct lu_env *env,
 		reconstruct(env, dt, obj, reply, index);
 		return 1;
 	}
-	DEBUG_REQ(D_HA, req, "no reply for RESENT req (have "LPD64")",
-		 req->rq_export->exp_target_data.ted_lcd->lcd_last_xid);
+	DEBUG_REQ(D_HA, req, "no reply for RESENT req");
 	return 0;
 }
 

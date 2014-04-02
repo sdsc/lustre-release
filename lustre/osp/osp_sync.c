@@ -424,6 +424,7 @@ static void osp_sync_send_new_rpc(struct osp_device *d,
 	LASSERT(d->opd_syn_rpc_in_flight <= d->opd_syn_max_rpc_in_flight);
 	LASSERT(req->rq_svc_thread == (void *) OSP_JOB_MAGIC);
 
+	req->rq_assign_tag = 1;
 	ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
 }
 
