@@ -1005,7 +1005,8 @@ EXPORT_SYMBOL(RMF_CONN);
 struct req_msg_field RMF_CONNECT_DATA =
 	DEFINE_MSGF("cdata",
 		    RMF_F_NO_SIZE_CHECK /* we allow extra space for interop */,
-#if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 7, 53, 0)
+/* XXX: changed to be able to return ocd_maxslots */
+#if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 6, 50, 0)
 		    sizeof(struct obd_connect_data),
 #else
 /* For interoperability with 1.8 and 2.0 clients/servers.

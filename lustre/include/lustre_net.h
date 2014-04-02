@@ -666,6 +666,7 @@ struct ptlrpc_reply_state {
         unsigned long          rs_committed:1;/* the transaction was committed
                                                  and the rs was dispatched
                                                  by ptlrpc_commit_replies */
+	unsigned long          rs_sent:1;     /* accepted by LNet */
         /** Size of the state */
         int                    rs_size;
         /** opcode */
@@ -1990,7 +1991,9 @@ struct ptlrpc_request {
 		 * status */
 		rq_allow_replay:1,
 		/* bulk request, sent to server, but uncommitted */
-		rq_unstable:1;
+		rq_unstable:1,
+		/* assign a tag (for multislot support) */
+		rq_assign_tag:1;
 
 	/** one of RQ_PHASE_* */
 	enum rq_phase			 rq_phase;
@@ -2107,6 +2110,9 @@ struct ptlrpc_request {
 	struct req_capsule		 rq_pill;
 };
 
+void cli_multislot_assign_tag(struct ptlrpc_request *req);
+void cli_multislot_release_tag(struct ptlrpc_request *req);
+
 /**
  * Call completion handler for rpc if any, return it's status or original
  * rc if there was no handler defined for this request.
@@ -2114,6 +2120,9 @@ struct ptlrpc_request {
 static inline int ptlrpc_req_interpret(const struct lu_env *env,
                                        struct ptlrpc_request *req, int rc)
 {
+	if (req->rq_assign_tag)
+		cli_multislot_release_tag(req);
+
         if (req->rq_interpret_reply != NULL) {
                 req->rq_status = req->rq_interpret_reply(env, req,
                                                          &req->rq_async_args,
@@ -3222,6 +3231,7 @@ __u32 lustre_msg_get_version(struct lustre_msg *msg);
 void lustre_msg_add_version(struct lustre_msg *msg, int version);
 __u32 lustre_msg_get_opc(struct lustre_msg *msg);
 __u64 lustre_msg_get_last_xid(struct lustre_msg *msg);
+__u32 lustre_msg_get_tag(struct lustre_msg *msg);
 __u64 lustre_msg_get_last_committed(struct lustre_msg *msg);
 __u64 *lustre_msg_get_versions(struct lustre_msg *msg);
 __u64 lustre_msg_get_transno(struct lustre_msg *msg);
@@ -3246,6 +3256,7 @@ void lustre_msg_set_handle(struct lustre_msg *msg,struct lustre_handle *handle);
 void lustre_msg_set_type(struct lustre_msg *msg, __u32 type);
 void lustre_msg_set_opc(struct lustre_msg *msg, __u32 opc);
 void lustre_msg_set_last_xid(struct lustre_msg *msg, __u64 last_xid);
+void lustre_msg_set_tag(struct lustre_msg *msg, __u32 tag);
 void lustre_msg_set_last_committed(struct lustre_msg *msg,__u64 last_committed);
 void lustre_msg_set_versions(struct lustre_msg *msg, __u64 *versions);
 void lustre_msg_set_transno(struct lustre_msg *msg, __u64 transno);

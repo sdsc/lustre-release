@@ -1121,6 +1121,10 @@ out_stop:
 		cb_registered = true;
 	}
 
+	/* do not generate transno if no write was made */
+	if (rc == -ENOSPC)
+		th->th_local = 1;
+
 	ofd_trans_stop(env, ofd, th, rc);
 	if (rc == -ENOSPC && retries++ < 3) {
 		CDEBUG(D_INODE, "retry after force commit, retries:%d\n",
