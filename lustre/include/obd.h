@@ -332,6 +332,14 @@ struct client_obd {
 	atomic_t		 cl_destroy_in_flight;
 	wait_queue_head_t	 cl_destroy_waitq;
 
+	/* number of in flight modify rpcs is limited to ocd_maxinfligh */
+	atomic_t		 cl_modify_in_flight;
+	wait_queue_head_t        cl_modify_waitq;
+	/* free/used tags for multi-slot last_rcvd - bit/tag
+	 * currently static, upto 8*4*8=256 tags, but usually
+	 * much less being limited by the target */
+	unsigned long		 cl_modify_bitmap[8];
+
         struct mdc_rpc_lock     *cl_rpc_lock;
         struct mdc_rpc_lock     *cl_close_lock;
 

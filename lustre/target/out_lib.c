@@ -222,6 +222,7 @@ int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 	ptlrpc_request_set_replen(req);
 	req->rq_request_portal = OUT_PORTAL;
 	req->rq_reply_portal = OSC_REPLY_PORTAL;
+	req->rq_assign_tag = 1;
 	*reqp = req;
 
 	RETURN(rc);

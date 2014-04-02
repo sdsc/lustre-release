@@ -1305,6 +1305,7 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 	ocd->ocd_version = LUSTRE_VERSION_CODE;
 	ocd->ocd_index = data->ocd_index;
 	imp->imp_connect_flags_orig = ocd->ocd_connect_flags;
+	imp->imp_connect_flags_orig |= OBD_CONNECT_MULTISLOT;
 
 	rc = ptlrpc_connect_import(imp);
 	if (rc) {

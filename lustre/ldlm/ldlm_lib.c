@@ -375,6 +375,9 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 	spin_lock_init(&cli->cl_lru_list_lock);
 	atomic_long_set(&cli->cl_unstable_count, 0);
 
+	init_waitqueue_head(&cli->cl_modify_waitq);
+	atomic_set(&cli->cl_modify_in_flight, 0);
+
 	init_waitqueue_head(&cli->cl_destroy_waitq);
 	atomic_set(&cli->cl_destroy_in_flight, 0);
 #ifdef ENABLE_CHECKSUM
@@ -2470,6 +2473,7 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
         /* disable reply scheduling while I'm setting up */
         rs->rs_scheduled = 1;
         rs->rs_on_net    = 1;
+	rs->rs_sent	 = 1;
         rs->rs_xid       = req->rq_xid;
         rs->rs_transno   = req->rq_transno;
         rs->rs_export    = exp;
@@ -2495,13 +2499,15 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
 
 	atomic_inc(&svcpt->scp_nreps_difficult);
 
-	if (netrc != 0) {
+	if (unlikely(netrc != 0)) {
 		/* error sending: reply is off the net.  Also we need +1
 		 * reply ref until ptlrpc_handle_rs() is done
 		 * with the reply state (if the send was successful, there
 		 * would have been +1 ref for the net, which
 		 * reply_out_callback leaves alone) */
 		rs->rs_on_net = 0;
+		/* signal ptlrpc_handle_rs() there will be no ACK */
+		rs->rs_sent = 0;
 		ptlrpc_rs_addref(rs);
 	}
 
