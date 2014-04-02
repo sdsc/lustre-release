@@ -350,6 +350,8 @@ static const char *qtype2acct_name(int qtype)
 		return "acct_user";
 	case GRPQUOTA:
 		return "acct_group";
+	case PRJQUOTA:
+		return "acct_project";
 	}
 	return NULL;
 }
@@ -361,6 +363,8 @@ static const char *qtype2glb_name(int qtype)
 		return "limit_user";
 	case GRPQUOTA:
 		return "limit_group";
+	case PRJQUOTA:
+		return "limit_project";
 	}
 	return NULL;
 }
