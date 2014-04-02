@@ -106,6 +106,13 @@ struct mgs_tgt_srpc_conf {
         struct sptlrpc_rule_set    mtsc_rset;
 };
 
+struct mgs_pool {
+	char		 mp_poolname[LOV_MAXPOOLNAME + 1];
+	u32		 mp_pool_id;
+	/* linkage to fsdb_pools */
+	struct list_head mp_fsdb_list;
+};
+
 #define INDEX_MAP_SIZE  8192     /* covers indicies to FFFF */
 
 #define FSDB_LOG_EMPTY          (0)  /* missing client log */
@@ -127,6 +134,9 @@ struct fs_db {
 	char		 *fsdb_clilmv;
 	unsigned long	  fsdb_flags;
 	__u32		  fsdb_gen;
+
+	/* list of fs pools */
+	struct list_head  fsdb_pools;
 
         /* in-memory copy of the srpc rules, guarded by fsdb_lock */
         struct sptlrpc_rule_set   fsdb_srpc_gen;
