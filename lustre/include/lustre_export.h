@@ -61,12 +61,22 @@ struct mdt_idmap_table;
 struct tg_export_data {
 	/** Protects led_lcd below */
 	struct mutex		ted_lcd_lock;
+	__u8			ted_uuid[40];
+	__u64			ted_transno;
 	/** Per-client data for each export */
-	struct lsd_client_data	*ted_lcd;
+	//struct lsd_client_data	*ted_lcd;
 	/** Offset of record in last_rcvd file */
 	loff_t			ted_lr_off;
 	/** Client index in last_rcvd file */
 	int			ted_lr_idx;
+	/** how many slots in reply log the client has used */
+	int			ted_slots;
+	__u32			ted_last_epoch;
+	struct list_head	ted_reply_list;
+	int			ted_transactions;
+	int			ted_noack;
+	int			ted_empty;
+	int			ted_difficult;
 };
 
 /**

@@ -81,6 +81,9 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	OBD_ALLOC(lut->lut_client_bitmap, LR_MAX_CLIENTS >> 3);
 	if (lut->lut_client_bitmap == NULL)
 		RETURN(-ENOMEM);
+	OBD_ALLOC(lut->lut_reply_bitmap, LR_MAX_CLIENTS >> 3);
+	if (lut->lut_reply_bitmap == NULL)
+		RETURN(-ENOMEM);
 
 	memset(&attr, 0, sizeof(attr));
 	attr.la_valid = LA_MODE;
@@ -102,6 +105,27 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 	if (rc < 0)
 		GOTO(out_obj, rc);
 
+	memset(&attr, 0, sizeof(attr));
+	attr.la_valid = LA_MODE;
+	attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
+	dof.dof_type = dt_mode_to_dft(S_IFREG);
+
+	lu_local_obj_fid(&fid, REPLY_LOG_OID);
+
+	o = dt_find_or_create(env, lut->lut_bottom, &fid, &dof, &attr);
+	if (IS_ERR(o)) {
+		rc = PTR_ERR(o);
+		CERROR("%s: cannot open LAST_RCVD: rc = %d\n", tgt_name(lut),
+		       rc);
+		GOTO(out_bitmap, rc);
+	}
+
+	lut->lut_reply_log = o;
+
+	rc = tgt_reply_log_init(env, lut);
+	if (rc < 0)
+		GOTO(out_obj, rc);
+
 	/* prepare transactions callbacks */
 	lut->lut_txn_cb.dtc_txn_start = tgt_txn_start_cb;
 	lut->lut_txn_cb.dtc_txn_stop = tgt_txn_stop_cb;
@@ -114,11 +138,19 @@ int tgt_init(const struct lu_env *env, struct lu_target *lut,
 
 	RETURN(0);
 out_obj:
-	lu_object_put(env, &lut->lut_last_rcvd->do_lu);
+	if (lut->lut_last_rcvd != NULL)
+		lu_object_put(env, &lut->lut_last_rcvd->do_lu);
 	lut->lut_last_rcvd = NULL;
+	if (lut->lut_reply_log != NULL)
+		lu_object_put(env, &lut->lut_reply_log->do_lu);
+	lut->lut_reply_log = NULL;
 out_bitmap:
-	OBD_FREE(lut->lut_client_bitmap, LR_MAX_CLIENTS >> 3);
+	if (lut->lut_client_bitmap)
+		OBD_FREE(lut->lut_client_bitmap, LR_MAX_CLIENTS >> 3);
 	lut->lut_client_bitmap = NULL;
+	if (lut->lut_reply_bitmap)
+		OBD_FREE(lut->lut_reply_bitmap, LR_MAX_CLIENTS >> 3);
+	lut->lut_reply_bitmap = NULL;
 	return rc;
 }
 EXPORT_SYMBOL(tgt_init);
@@ -133,10 +165,18 @@ void tgt_fini(const struct lu_env *env, struct lu_target *lut)
 		OBD_FREE(lut->lut_client_bitmap, LR_MAX_CLIENTS >> 3);
 		lut->lut_client_bitmap = NULL;
 	}
+	if (lut->lut_reply_bitmap) {
+		OBD_FREE(lut->lut_reply_bitmap, LR_MAX_CLIENTS >> 3);
+		lut->lut_reply_bitmap = NULL;
+	}
 	if (lut->lut_last_rcvd) {
 		dt_txn_callback_del(lut->lut_bottom, &lut->lut_txn_cb);
 		lu_object_put(env, &lut->lut_last_rcvd->do_lu);
 		lut->lut_last_rcvd = NULL;
+	}
+	if (lut->lut_reply_log) {
+		lu_object_put(env, &lut->lut_reply_log->do_lu);
+		lut->lut_reply_log = NULL;
 	}
 	EXIT;
 }
