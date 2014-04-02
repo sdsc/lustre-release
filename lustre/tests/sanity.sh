@@ -16,6 +16,11 @@ ALWAYS_EXCEPT="                42a  42b  42c  42d  45   51d   68b   $SANITY_EXCE
 # bug number for skipped tests: LU-2036
 ALWAYS_EXCEPT="                 76     $ALWAYS_EXCEPT"
 
+# missing tgt_last_rcvd_update_echo()
+ALWAYS_EXCEPT="180 $ALWAYS_EXCEPT"
+# need to decide on the protocol changes, so disabled for a while
+ALWAYS_EXCEPT="58 $ALWAYS_EXCEPT"
+
 SRCDIR=$(cd $(dirname $0); echo $PWD)
 export PATH=$PATH:/sbin
 
@@ -5591,7 +5596,7 @@ run_test 69 "verify oa2dentry return -ENOENT doesn't LBUG ======"
 
 test_71() {
     test_mkdir -p $DIR/$tdir
-    sh rundbench -C -D $DIR/$tdir 2 || error "dbench failed!"
+    sh rundbench -C -D $DIR/$tdir 8 || error "dbench failed!"
 }
 run_test 71 "Running dbench on lustre (don't segment fault) ===="
 

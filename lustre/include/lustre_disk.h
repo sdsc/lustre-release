@@ -59,6 +59,7 @@
 /** Persistent mount data are stored on the disk in this file. */
 #define MOUNT_DATA_FILE		MOUNT_CONFIGS_DIR"/"CONFIGS_FILE
 #define LAST_RCVD		"last_rcvd"
+#define REPLY_LOG		"reply_log"
 #define LOV_OBJID		"lov_objid"
 #define LOV_OBJSEQ		"lov_objseq"
 #define HEALTH_CHECK		"health_check"
@@ -364,6 +365,28 @@ struct lsd_client_data {
         /** orphans handling for delayed export rely on that */
         __u32 lcd_first_epoch;
         __u8  lcd_padding[LR_CLIENT_SIZE - 128];
+};
+
+struct lsd_reply_header {
+	__u32	lrh_magic;
+	__u32	lrh_header_size;
+	__u32	lrh_reply_size;
+
+};
+
+/* The structure holds data required to maintain execute-once semantics:
+ * every time a modifying request is processed we generate such a structure
+ * which essentially maps incoming XID to transno/result. this way every
+ * time we get resent/replay with matching XID, we find such a structure
+ * and reconstruct the reply */
+struct lsd_reply_data {
+	__u64 lrd_pre_versions[4];
+	__u64 lrd_transno; /* last completed transaction ID */
+	__u64 lrd_xid;     /* xid for the last transaction */
+	__u32 lrd_data;    /* per-op data (disposition for open) */
+	__u32 lrd_result;  /* result from last RPC */
+	__u32 lrd_client_idx;	/* #client in last_rcvd */
+	__u32 lrd_tag;	   /* tag the client used */
 };
 
 /* bug20354: the lcd_uuid for export of clients may be wrong */

@@ -153,9 +153,11 @@ static int osp_async_update_interpret(const struct lu_env *env,
 	int				 index  = 0;
 	int				 rc1	= 0;
 
-	if (oaua->oaua_flow_control)
+	if (oaua->oaua_flow_control) {
 		obd_put_request_slot(
 				&dt2osp_dev(dt_update->dur_dt)->opd_obd->u.cli);
+		cli_multislot_release_tag(req);
+	}
 
 	/* Unpack the results from the reply message. */
 	if (req->rq_repmsg != NULL) {
@@ -474,6 +476,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 			atomic_inc(args->oaua_count);
 			up_read(&osp->opd_async_updates_rwsem);
 
+			cli_multislot_assign_tag(req);
 			ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 		} else {
 			dt_update_request_destroy(dt_update);

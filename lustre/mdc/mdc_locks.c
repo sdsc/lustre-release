@@ -860,10 +860,10 @@ resend:
          * threads that are serialised with rpc_lock are not polluting our
          * rpcs in flight counter. We do not do flock request limiting, though*/
         if (it) {
-                mdc_get_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
+		mdc_get_in_flight(req, it);
 		rc = obd_get_request_slot(&obddev->u.cli);
                 if (rc != 0) {
-                        mdc_put_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
+			mdc_put_in_flight(req, it);
                         mdc_clear_replay_flag(req, 0);
                         ptlrpc_req_finished(req);
                         RETURN(rc);
@@ -889,7 +889,7 @@ resend:
 	}
 
 	obd_put_request_slot(&obddev->u.cli);
-	mdc_put_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
+	mdc_put_in_flight(req, it);
 
 	if (rc < 0) {
 		CDEBUG(D_INFO, "%s: ldlm_cli_enqueue failed: rc = %d\n",
