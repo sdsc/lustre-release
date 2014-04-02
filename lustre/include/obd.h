@@ -951,7 +951,8 @@ struct obd_ops {
 	int (*o_ping)(const struct lu_env *, struct obd_export *exp);
 
 	/* pools methods */
-	int (*o_pool_new)(struct obd_device *obd, char *poolname);
+	int (*o_pool_new)(struct obd_device *obd, char *poolname,
+			  __u32 pool_id);
 	int (*o_pool_del)(struct obd_device *obd, char *poolname);
 	int (*o_pool_add)(struct obd_device *obd, char *poolname,
 			  char *ostname);
