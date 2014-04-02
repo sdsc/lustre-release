@@ -1505,7 +1505,9 @@ int osp_object_truncate(const struct lu_env *env, struct dt_object *dt,
 
 	ptlrpc_request_set_replen(req);
 
+	cli_multislot_assign_tag(req);
 	rc = ptlrpc_queue_wait(req);
+	cli_multislot_release_tag(req);
 	if (rc)
 		CERROR("can't punch object: %d\n", rc);
 out:

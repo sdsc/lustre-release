@@ -61,8 +61,9 @@ struct mdt_idmap_table;
 struct tg_export_data {
 	/** Protects led_lcd below */
 	struct mutex		ted_lcd_lock;
-	/** Per-client data for each export */
-	struct lsd_client_data	*ted_lcd;
+	__u64			ted_transno;
+	__u32			ted_last_epoch;
+	__u8			ted_uuid[40];
 	/** Offset of record in last_rcvd file */
 	loff_t			ted_lr_off;
 	/** Client index in last_rcvd file */
@@ -71,6 +72,15 @@ struct tg_export_data {
 	/** nodemap this export is a member of */
 	struct lu_nodemap	*ted_nodemap;
 	struct hlist_node	ted_nodemap_member;
+
+	/** how many slots in reply log the client has used */
+	struct list_head	ted_reply_list;
+	/** the slot we retain to preserve the client's last_committed */
+	struct tg_reply_data   *ted_last_reply;
+	/** debugging info */
+	int			ted_slots;
+	int			ted_slots_acked;
+	int			ted_slots_reused;
 };
 
 /**
@@ -401,6 +411,13 @@ static inline __u64 exp_connect_ibits(struct obd_export *exp)
 
 	ocd = &exp->exp_connect_data;
 	return ocd->ocd_ibits_known;
+}
+
+static inline int exp_connect_multislot(struct obd_export *exp)
+{
+	LASSERT(exp != NULL);
+	LASSERT(exp->exp_connection);
+	return !!(exp_connect_flags(exp) & OBD_CONNECT_MULTISLOT);
 }
 
 extern struct obd_export *class_conn2export(struct lustre_handle *conn);

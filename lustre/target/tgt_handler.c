@@ -418,6 +418,10 @@ static int tgt_handle_request0(struct tgt_session_info *tsi,
 		rc = req_capsule_server_pack(tsi->tsi_pill);
 	}
 
+	/* try to re-use the slot reported by the request */
+	if (rc == 0 && req->rq_export && exp_connect_multislot(req->rq_export))
+		rc = tgt_handle_tag(req);
+
 	if (likely(rc == 0)) {
 		/*
 		 * Process request, there can be two types of rc:
@@ -518,6 +522,7 @@ static int tgt_handle_recovery(struct ptlrpc_request *req, int reply_fail_id)
 
 	/* sanity check: if the xid matches, the request must be marked as a
 	 * resent or replayed */
+#if 0
 	if (req_xid_is_last(req)) {
 		if (!(lustre_msg_get_flags(req->rq_reqmsg) &
 		      (MSG_RESENT | MSG_REPLAY))) {
@@ -529,6 +534,7 @@ static int tgt_handle_recovery(struct ptlrpc_request *req, int reply_fail_id)
 			RETURN(-ENOTCONN);
 		}
 	}
+#endif
 	/* else: note the opposite is not always true; a RESENT req after a
 	 * failover will usually not match the last_xid, since it was likely
 	 * never committed. A REPLAYed request will almost never match the

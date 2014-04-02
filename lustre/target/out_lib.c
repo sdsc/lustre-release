@@ -255,7 +255,9 @@ int out_remote_sync(const struct lu_env *env, struct obd_import *imp,
 
 	/* Note: some dt index api might return non-zero result here, like
 	 * osd_index_ea_lookup, so we should only check rc < 0 here */
+	cli_multislot_assign_tag(req);
 	rc = ptlrpc_queue_wait(req);
+	cli_multislot_release_tag(req);
 	if (rc < 0) {
 		ptlrpc_req_finished(req);
 		dt_update->dur_rc = rc;

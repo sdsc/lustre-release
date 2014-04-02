@@ -5076,6 +5076,15 @@ static int mdt_connect_internal(struct obd_export *exp,
 		}
 	}
 
+	if (data->ocd_connect_flags & OBD_CONNECT_MULTISLOT) {
+		spin_lock(&exp->exp_lock);
+		*exp_connect_flags_ptr(exp) |= OBD_CONNECT_MULTISLOT;
+		spin_unlock(&exp->exp_lock);
+		/* XXX: how do we really control this in the runtime? */
+		data->ocd_maxslots = 8;
+		exp->exp_connect_data.ocd_maxslots = data->ocd_maxslots;
+	}
+
 	data->ocd_max_easize = mdt->mdt_max_ea_size;
 
 	return 0;
@@ -5250,10 +5259,8 @@ static int mdt_obd_connect(const struct lu_env *env,
 
 	rc = mdt_connect_internal(lexp, mdt, data);
 	if (rc == 0) {
-		struct lsd_client_data *lcd = lexp->exp_target_data.ted_lcd;
-
-		LASSERT(lcd);
-		memcpy(lcd->lcd_uuid, cluuid, sizeof lcd->lcd_uuid);
+		memcpy(lexp->exp_target_data.ted_uuid, cluuid,
+		       sizeof lexp->exp_target_data.ted_uuid);
 		rc = tgt_client_new(env, lexp);
 		if (rc == 0) {
 			rc = nodemap_add_member(*client_nid, lexp);

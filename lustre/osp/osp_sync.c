@@ -468,6 +468,8 @@ static int osp_sync_interpret(const struct lu_env *env,
 	       rc, (unsigned) req->rq_transno);
 	LASSERT(rc || req->rq_transno);
 
+	cli_multislot_release_tag(req);
+
 	if (rc == -ENOENT) {
 		/*
 		 * we tried to destroy object or update attributes,
@@ -548,6 +550,7 @@ static void osp_sync_send_new_rpc(struct osp_device *d,
 	jra->jra_magic = OSP_JOB_MAGIC;
 	INIT_LIST_HEAD(&jra->jra_link);
 
+	cli_multislot_assign_tag(req);
 	ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
 }
 

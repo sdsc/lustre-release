@@ -1018,7 +1018,7 @@ __u32 lustre_msg_get_opc(struct lustre_msg *msg)
 }
 EXPORT_SYMBOL(lustre_msg_get_opc);
 
-__u64 lustre_msg_get_last_xid(struct lustre_msg *msg)
+__u32 lustre_msg_get_tag(struct lustre_msg *msg)
 {
         switch (msg->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2: {
@@ -1027,7 +1027,7 @@ __u64 lustre_msg_get_last_xid(struct lustre_msg *msg)
                         CERROR("invalid msg %p: no ptlrpc body!\n", msg);
                         return 0;
                 }
-                return pb->pb_last_xid;
+		return pb->pb_tag;
         }
         default:
                 CERROR("incorrect message magic: %08x\n", msg->lm_magic);
@@ -1377,13 +1377,13 @@ void lustre_msg_set_opc(struct lustre_msg *msg, __u32 opc)
         }
 }
 
-void lustre_msg_set_last_xid(struct lustre_msg *msg, __u64 last_xid)
+void lustre_msg_set_tag(struct lustre_msg *msg, __u32 tag)
 {
         switch (msg->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2: {
                 struct ptlrpc_body *pb = lustre_msg_ptlrpc_body(msg);
                 LASSERTF(pb, "invalid msg %p: no ptlrpc body!\n", msg);
-                pb->pb_last_xid = last_xid;
+		pb->pb_tag = tag;
                 return;
         }
         default:
@@ -1622,7 +1622,7 @@ void lustre_swab_ptlrpc_body(struct ptlrpc_body *b)
         __swab32s (&b->pb_version);
         __swab32s (&b->pb_opc);
         __swab32s (&b->pb_status);
-        __swab64s (&b->pb_last_xid);
+	__swab32s(&b->pb_tag);
         __swab64s (&b->pb_last_seen);
         __swab64s (&b->pb_last_committed);
         __swab64s (&b->pb_transno);
@@ -1670,7 +1670,8 @@ void lustre_swab_connect(struct obd_connect_data *ocd)
                 __swab32s(&ocd->ocd_max_easize);
         if (ocd->ocd_connect_flags & OBD_CONNECT_MAXBYTES)
                 __swab64s(&ocd->ocd_maxbytes);
-        CLASSERT(offsetof(typeof(*ocd), padding1) != 0);
+	if (ocd->ocd_connect_flags & OBD_CONNECT_MULTISLOT)
+		__swab16s(&ocd->ocd_maxslots);
         CLASSERT(offsetof(typeof(*ocd), padding2) != 0);
         CLASSERT(offsetof(typeof(*ocd), padding3) != 0);
         CLASSERT(offsetof(typeof(*ocd), padding4) != 0);

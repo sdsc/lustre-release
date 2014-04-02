@@ -270,7 +270,9 @@ static int osc_setattr(const struct lu_env *env, struct obd_export *exp,
 
         ptlrpc_request_set_replen(req);
 
+	cli_multislot_assign_tag(req);
         rc = ptlrpc_queue_wait(req);
+	cli_multislot_release_tag(req);
         if (rc)
                 GOTO(out, rc);
 
@@ -305,6 +307,7 @@ static int osc_setattr_interpret(const struct lu_env *env,
 			     &body->oa);
 out:
         rc = sa->sa_upcall(sa->sa_cookie, rc);
+	cli_multislot_release_tag(req);
         RETURN(rc);
 }
 
@@ -335,11 +338,13 @@ int osc_setattr_async_base(struct obd_export *exp, struct obd_info *oinfo,
         osc_pack_req_body(req, oinfo);
 
         ptlrpc_request_set_replen(req);
+	cli_multislot_assign_tag(req);
 
         /* do mds to ost setattr asynchronously */
         if (!rqset) {
                 /* Do not wait for response. */
                 ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+		LBUG();
         } else {
                 req->rq_interpret_reply =
                         (ptlrpc_interpterer_t)osc_setattr_interpret;
@@ -465,6 +470,8 @@ int osc_punch_base(struct obd_export *exp, struct obd_info *oinfo,
 	osc_pack_capa(req, body, oinfo->oi_capa);
 
         ptlrpc_request_set_replen(req);
+
+	cli_multislot_assign_tag(req);
 
         req->rq_interpret_reply = (ptlrpc_interpterer_t)osc_setattr_interpret;
         CLASSERT (sizeof(*sa) <= sizeof(req->rq_async_args));
@@ -1740,9 +1747,10 @@ static int brw_interpret(const struct lu_env *env,
 	/* We need to decrement before osc_ap_completion->osc_wake_cache_waiters
 	 * is called so we know whether to go to sync BRWs or wait for more
 	 * RPCs to complete */
-	if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE)
+	if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE) {
 		cli->cl_w_in_flight--;
-	else
+		cli_multislot_release_tag(req);
+	} else
 		cli->cl_r_in_flight--;
 	osc_wake_cache_waiters(cli);
 	spin_unlock(&cli->cl_loi_list_lock);
@@ -1929,6 +1937,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 		lprocfs_oh_tally_log2(&cli->cl_read_offset_hist,
 				      starting_offset + 1);
 	} else {
+		cli_multislot_assign_tag(req);
 		cli->cl_w_in_flight++;
 		lprocfs_oh_tally_log2(&cli->cl_write_page_hist, page_count);
 		lprocfs_oh_tally(&cli->cl_write_rpc_hist, cli->cl_w_in_flight);
@@ -2824,9 +2833,14 @@ static int osc_import_event(struct obd_device *obd,
         }
         case IMP_EVENT_OCD: {
                 struct obd_connect_data *ocd = &imp->imp_connect_data;
+		cli = &obd->u.cli;
 
                 if (ocd->ocd_connect_flags & OBD_CONNECT_GRANT)
                         osc_init_grant(&obd->u.cli, ocd);
+
+		/* reserve 1 for HP RPC */
+		if (ocd->ocd_connect_flags & OBD_CONNECT_MULTISLOT)
+			cli->cl_max_rpcs_in_flight = ocd->ocd_maxslots - 1;
 
                 /* See bug 7198 */
                 if (ocd->ocd_connect_flags & OBD_CONNECT_REQPORTAL)
