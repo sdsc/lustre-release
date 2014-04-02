@@ -576,6 +576,10 @@ int ll_file_open(struct inode *inode, struct file *file)
 		GOTO(out_openerr, rc = -ENOMEM);
 
 	fd->fd_file = file;
+	if (S_ISREG(inode->i_mode) &&
+	    lu_object_is_partial(ll_i2info(inode)->lli_clob->co_lu.lo_header))
+		fd->fd_flags |= LL_FILE_NOIO;
+
 	if (S_ISDIR(inode->i_mode)) {
 		spin_lock(&lli->lli_sa_lock);
 		if (lli->lli_opendir_key == NULL && lli->lli_sai == NULL &&
@@ -1295,7 +1299,11 @@ static ssize_t ll_file_read(struct file *file, char *buf, size_t count,
         struct kiocb  *kiocb;
         ssize_t        result;
         int            refcheck;
-        ENTRY;
+	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
+	ENTRY;
+
+	if (unlikely(fd->fd_flags & LL_FILE_NOIO))
+		RETURN(-EPERM);
 
         env = cl_env_get(&refcheck);
         if (IS_ERR(env))
@@ -1361,7 +1369,11 @@ static ssize_t ll_file_write(struct file *file, const char *buf, size_t count,
         struct kiocb  *kiocb;
         ssize_t        result;
         int            refcheck;
-        ENTRY;
+	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
+	ENTRY;
+
+	if (unlikely(fd->fd_flags & LL_FILE_NOIO))
+		RETURN(-EPERM);
 
         env = cl_env_get(&refcheck);
         if (IS_ERR(env))
@@ -2611,6 +2623,11 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		OBD_FREE_PTR(hui);
 		RETURN(rc);
+	}
+	case LL_IOC_DUMP: {
+		if (fd != NULL)
+			fd->fd_flags &= ~LL_FILE_NOIO;
+		RETURN(0);
 	}
 
 	default: {

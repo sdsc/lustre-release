@@ -120,6 +120,7 @@ static int lfs_hsm_remove(int argc, char **argv);
 static int lfs_hsm_cancel(int argc, char **argv);
 static int lfs_swap_layouts(int argc, char **argv);
 static int lfs_mv(int argc, char **argv);
+static int lfs_dump(int argc, char **argv);
 
 #define SETSTRIPE_USAGE(_cmd, _tgt) \
 	"usage: "_cmd" [--stripe-count|-c <stripe_count>]\n"\
@@ -331,6 +332,9 @@ command_t cmdlist[] = {
 	 "To move directories between MDTs.\n"
 	 "usage: mv <directory|filename> [--mdt-index|-M] <mdt_index> "
 	 "[--verbose|-v]\n"},
+	{"dump", lfs_dump, 0,
+	 "Dump the file which may contains LOV EA hole.\n"
+	 "usage: dump <--if input> [--of output] [--help]\n"},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
 	{"quit", Parser_quit, 0, "quit"},
@@ -1649,6 +1653,113 @@ static int lfs_mv(int argc, char **argv)
 	if (rc != 0)
 		fprintf(stderr, "cannot migrate '%s' to MDT%04x: %s\n",
 			argv[optind], param.mdtindex, strerror(-rc));
+	return rc;
+}
+
+static int lfs_dump(int argc, char **argv)
+{
+	struct option long_opts[] = {
+		{"if",		required_argument,	0, 'i'},
+		{"of",		required_argument,	0, 'o'},
+		{"help",	no_argument,		0, 'h'},
+		{0, 0, 0, 0}
+	};
+	char *in = NULL;
+	char *out = NULL;
+	char *buf = NULL;
+	int size = 1024 * 1024;
+	int ifd;
+	int ofd;
+	int c;
+	int rc;
+
+	while ((c = getopt_long(argc, argv, "i:o:h", long_opts, NULL)) != -1) {
+		switch (c) {
+		case 'i':
+			in = optarg;
+			break;
+		case 'o':
+			out = optarg;
+			break;
+		case 'h':
+			fprintf(stderr, "usage: %s <--if input> [--of output] "
+				"[--help]\n", argv[0]);
+			return 0;
+		default:
+			fprintf(stderr, "error: %s: unrecognized option '%s'\n",
+				argv[0], argv[optind - 1]);
+			return CMD_HELP;
+		}
+	}
+
+	if (in == NULL)
+		return CMD_HELP;
+
+	ifd = open(in, O_RDONLY);
+	if (ifd < 0) {
+		fprintf(stderr, "dump: error open %s for read: %s\n",
+			in, strerror(errno));
+		return -1;
+	}
+
+	rc = ioctl(ifd, LL_IOC_DUMP);
+	if (rc < 0) {
+		fprintf(stderr, "dump: error ioctl %s: %s\n",
+			in, strerror(errno));
+		close(ifd);
+		return -1;
+	}
+
+	if (out != NULL) {
+		ofd = open(out, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+		if (ofd < 0) {
+			fprintf(stderr, "dump: error open %s for write: %s\n",
+				out, strerror(errno));
+			close(ifd);
+			return -1;
+		}
+	} else {
+		ofd = dup(1);
+		if (ofd < 0) {
+			fprintf(stderr, "dump: error dup for write: %s\n",
+				strerror(errno));
+			close(ifd);
+			return -1;
+		}
+	}
+
+	buf = malloc(size);
+	if (buf == NULL) {
+		fprintf(stderr, "dump: error malloc: %s\n", strerror(errno));
+		close(ifd);
+		close(ofd);
+		return -1;
+	}
+
+	do {
+		rc = read(ifd, buf, size);
+		if (rc > 0) {
+			int written = 0;
+
+			do {
+				written += write(ofd, buf + written,
+						 rc - written);
+				if (written < 0) {
+					fprintf(stderr,
+						"dump: error write: %s\n",
+						strerror(errno));
+					rc = written;
+				}
+			} while (written != rc);
+		} else if (rc < 0) {
+			fprintf(stderr, "dump: error read: %s\n",
+				strerror(errno));
+		}
+	} while (rc > 0);
+
+	free(buf);
+	close(ofd);
+	close(ifd);
 	return rc;
 }
 
