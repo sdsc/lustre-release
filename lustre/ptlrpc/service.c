@@ -2154,6 +2154,15 @@ put_conn:
 	RETURN(1);
 }
 
+#ifdef __KERNEL__
+extern int tgt_handle_repack(struct obd_export *exp, __u64 xid);
+#else
+int tgt_handle_repack(struct obd_export *exp, __u64 xid)
+{
+	return 0;
+}
+#endif
+
 /**
  * An internal function to process a single reply state object.
  */
@@ -2236,6 +2245,12 @@ ptlrpc_handle_rs(struct ptlrpc_reply_state *rs)
 			ldlm_lock_decref(&rs->rs_locks[nlocks],
 					 rs->rs_modes[nlocks]);
 
+		tgt_handle_repack(exp, rs->rs_xid);
+
+		spin_lock(&rs->rs_lock);
+	} else {
+		spin_unlock(&rs->rs_lock);
+		tgt_handle_repack(exp, rs->rs_xid);
 		spin_lock(&rs->rs_lock);
 	}
 

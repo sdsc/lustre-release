@@ -2459,6 +2459,7 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
         rs->rs_export    = exp;
         rs->rs_opc       = lustre_msg_get_opc(req->rq_reqmsg);
 
+#if 0
 	spin_lock(&exp->exp_uncommitted_replies_lock);
 	CDEBUG(D_NET, "rs transno = "LPU64", last committed = "LPU64"\n",
 	       rs->rs_transno, exp->exp_last_committed);
@@ -2468,6 +2469,7 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
 				  &exp->exp_uncommitted_replies);
 	}
 	spin_unlock(&exp->exp_uncommitted_replies_lock);
+#endif
 
 	spin_lock(&exp->exp_lock);
 	cfs_list_add_tail(&rs->rs_exp_list, &exp->exp_outstanding_replies);
@@ -2490,10 +2492,10 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
 	}
 
 	spin_lock(&rs->rs_lock);
-	if (rs->rs_transno <= exp->exp_last_committed ||
-	    (!rs->rs_on_net && !rs->rs_no_ack) ||
+	if (/*rs->rs_transno <= exp->exp_last_committed ||*/
+	    (!rs->rs_on_net && !rs->rs_no_ack && netrc == 0) ||
 	    cfs_list_empty(&rs->rs_exp_list) ||     /* completed already */
-	    cfs_list_empty(&rs->rs_obd_list)) {
+	    (0 && cfs_list_empty(&rs->rs_obd_list))) {
 		CDEBUG(D_HA, "Schedule reply immediately\n");
 		ptlrpc_dispatch_difficult_reply(rs);
 	} else {

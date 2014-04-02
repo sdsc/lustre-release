@@ -417,9 +417,9 @@ void reply_out_callback(lnet_event_t *ev)
 		spin_lock(&rs->rs_lock);
 
 		rs->rs_on_net = 0;
-		if (!rs->rs_no_ack ||
+		if (!rs->rs_no_ack /*||
 		    rs->rs_transno <=
-		    rs->rs_export->exp_obd->obd_last_committed)
+		    rs->rs_export->exp_obd->obd_last_committed*/)
 			ptlrpc_schedule_difficult_reply(rs);
 
 		spin_unlock(&rs->rs_lock);

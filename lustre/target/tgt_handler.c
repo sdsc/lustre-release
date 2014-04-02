@@ -371,6 +371,7 @@ static int tgt_handle_request0(struct tgt_session_info *tsi,
 			       struct tgt_handler *h,
 			       struct ptlrpc_request *req)
 {
+	struct lu_target *tgt;
 	int	 serious = 0;
 	int	 rc;
 
@@ -443,6 +444,22 @@ static int tgt_handle_request0(struct tgt_session_info *tsi,
 	if (likely(rc == 0 && req->rq_export))
 		target_committed_to_req(req);
 
+	tgt = class_exp2tgt(req->rq_export);
+	LASSERT(tgt);
+	LASSERT(req->rq_reply_state || req->rq_transno == 0);
+	/* to gather stats: how many extra rep-acks we need */
+	if (tgt->lut_no_reconstruct == 0 && req->rq_transno) {
+		struct tg_export_data	*ted;
+		ted = &req->rq_export->exp_target_data;
+		mutex_lock(&ted->ted_lcd_lock);
+		if (req->rq_reply_state->rs_difficult == 0) {
+			req->rq_reply_state->rs_difficult = 1;
+			ted->ted_noack++;
+		}
+		if (req->rq_reply_state->rs_difficult)
+			ted->ted_difficult++;
+		mutex_unlock(&ted->ted_lcd_lock);
+	}
 	target_send_reply(req, rc, tsi->tsi_reply_fail_id);
 	RETURN(0);
 }
@@ -506,6 +523,7 @@ int tgt_handle_recovery(struct ptlrpc_request *req, int reply_fail_id)
 
 	/* sanity check: if the xid matches, the request must be marked as a
 	 * resent or replayed */
+#if 0
 	if (req_xid_is_last(req)) {
 		if (!(lustre_msg_get_flags(req->rq_reqmsg) &
 		      (MSG_RESENT | MSG_REPLAY))) {
@@ -517,6 +535,7 @@ int tgt_handle_recovery(struct ptlrpc_request *req, int reply_fail_id)
 			RETURN(-ENOTCONN);
 		}
 	}
+#endif
 	/* else: note the opposite is not always true; a RESENT req after a
 	 * failover will usually not match the last_xid, since it was likely
 	 * never committed. A REPLAYed request will almost never match the
