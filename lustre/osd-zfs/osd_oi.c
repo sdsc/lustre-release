@@ -90,6 +90,7 @@ static const struct named_oid oids[] = {
 	{ OFD_HEALTH_CHECK_OID,		HEALTH_CHECK },
 	{ ACCT_USER_OID,		"acct_usr_inode" },
 	{ ACCT_GROUP_OID,		"acct_grp_inode" },
+	{ ACCT_PROJECT_OID,		"acct_prj_inode" },
 	{ REPLY_DATA_OID,		REPLY_DATA },
 	{ 0,				NULL }
 };
@@ -478,6 +479,10 @@ static inline uint64_t osd_oid(struct osd_device *dev, __u32 local_oid)
 		return dev->od_iusr_oid;
 	case ACCT_GROUP_OID:
 		return dev->od_igrp_oid;
+	case ACCT_PROJECT_OID:
+		/* TODO: real oid */
+		CERROR("unsupported quota oid: %#x\n", local_oid);
+		return -ENOTSUPP;
 	}
 }
 
