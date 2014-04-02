@@ -54,6 +54,19 @@ LU_KEY_INIT_FINI(lquota, struct lquota_thread_info);
 LU_CONTEXT_KEY_DEFINE(lquota, LCT_MD_THREAD | LCT_DT_THREAD | LCT_LOCAL);
 LU_KEY_INIT_GENERIC(lquota);
 
+static inline int qtype2acct_oid(int qtype, __u32 *oid)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		*oid = ACCT_USER_OID;
+		break;
+	case GRPQUOTA:
+		*oid = ACCT_GROUP_OID;
+		break;
+	}
+	return 0;
+}
+
 /**
  * Look-up accounting object to collect space usage information for user
  * or group.
@@ -67,10 +80,15 @@ struct dt_object *acct_obj_lookup(const struct lu_env *env,
 {
 	struct lquota_thread_info	*qti = lquota_info(env);
 	struct dt_object		*obj = NULL;
+	__u32				 oid = 0;
+	int				 rc;
 	ENTRY;
 
-	lu_local_obj_fid(&qti->qti_fid,
-			 type == USRQUOTA ? ACCT_USER_OID : ACCT_GROUP_OID);
+	rc = qtype2acct_oid(type, &oid);
+	if (rc)
+		RETURN(ERR_PTR(rc));
+
+	lu_local_obj_fid(&qti->qti_fid, oid);
 
 	/* lookup the accounting object */
 	obj = dt_locate(env, dev, &qti->qti_fid);
@@ -91,7 +109,7 @@ struct dt_object *acct_obj_lookup(const struct lu_env *env,
 			CERROR("%s: failed to set up indexing operations for %s"
 			       " acct object rc:%d\n",
 			       dev->dd_lu_dev.ld_obd->obd_name,
-			       QTYPE_NAME(type), rc);
+			       qtype_name(type), rc);
 			lu_object_put(env, &obj->do_lu);
 			RETURN(ERR_PTR(rc));
 		}
@@ -111,10 +129,12 @@ static struct dt_object *quota_obj_lookup(const struct lu_env *env,
 {
 	struct lquota_thread_info	*qti = lquota_info(env);
 	struct dt_object		*obj = NULL;
+	__u32				 oid = 0;
 	ENTRY;
 
+	qtype2slv_oid(type, &oid);
 	qti->qti_fid.f_seq = FID_SEQ_QUOTA;
-	qti->qti_fid.f_oid = type == USRQUOTA ? LQUOTA_USR_OID : LQUOTA_GRP_OID;
+	qti->qti_fid.f_oid = oid;
 	qti->qti_fid.f_ver = 0;
 
 	/* lookup the quota object */
@@ -137,7 +157,7 @@ static struct dt_object *quota_obj_lookup(const struct lu_env *env,
 			CERROR("%s: failed to set up indexing operations for %s"
 			       " slave index object rc:%d\n",
 			       dev->dd_lu_dev.ld_obd->obd_name,
-			       QTYPE_NAME(type), rc);
+			       qtype_name(type), rc);
 			lu_object_put(env, &obj->do_lu);
 			RETURN(ERR_PTR(rc));
 		}
@@ -173,7 +193,7 @@ int lquotactl_slv(const struct lu_env *env, struct dt_device *dev,
 		RETURN(-EOPNOTSUPP);
 	}
 
-	if (oqctl->qc_type != USRQUOTA && oqctl->qc_type != GRPQUOTA)
+	if (oqctl->qc_type < 0 || oqctl->qc_type >= MAXQUOTAS)
 		/* no support for directory quota yet */
 		RETURN(-EOPNOTSUPP);
 
@@ -232,21 +252,52 @@ out:
 }
 EXPORT_SYMBOL(lquotactl_slv);
 
+static int qtype2lqtype(int qtype, __u8 *lqtype)
+{
+	switch (qtype) {
+	case USRQUOTA:
+		*lqtype = LQUOTA_TYPE_USR;
+		break;
+	case GRPQUOTA:
+		*lqtype = LQUOTA_TYPE_GRP;
+		break;
+	}
+	return 0;
+}
+
+static int lqtype2qtype(int lqtype, int *qtype)
+{
+	switch (lqtype) {
+	case LQUOTA_TYPE_USR:
+		*qtype = USRQUOTA;
+		break;
+	case LQUOTA_TYPE_GRP:
+		*qtype = GRPQUOTA;
+		break;
+	}
+	return 0;
+}
+
 /**
  * Helper routine returning the FID associated with the global index storing
  * quota settings for the storage pool \pool_id, resource type \pool_type and
  * the quota type \quota_type.
  */
-void lquota_generate_fid(struct lu_fid *fid, int pool_id, int pool_type,
-                         int quota_type)
+int lquota_generate_fid(struct lu_fid *fid, int pool_id, int pool_type,
+			int quota_type)
 {
-	__u8	 qtype;
+	__u8	 qtype = 0;
+	int	 rc;
 
-	qtype = (quota_type == USRQUOTA) ? LQUOTA_TYPE_USR : LQUOTA_TYPE_GRP;
+	rc = qtype2lqtype(quota_type, &qtype);
+	if (rc)
+		return rc;
 
 	fid->f_seq = FID_SEQ_QUOTA_GLB;
 	fid->f_oid = (qtype << 24) | (pool_type << 16) | (__u16)pool_id;
 	fid->f_ver = 0;
+
+	return 0;
 }
 
 /**
@@ -257,6 +308,7 @@ int lquota_extract_fid(const struct lu_fid *fid, int *pool_id, int *pool_type,
 		       int *quota_type)
 {
 	unsigned int	 tmp;
+	int		 rc;
 	ENTRY;
 
 	if (fid->f_seq != FID_SEQ_QUOTA_GLB)
@@ -283,7 +335,9 @@ int lquota_extract_fid(const struct lu_fid *fid, int *pool_id, int *pool_type,
 		if (tmp >= LQUOTA_TYPE_MAX)
 			RETURN(-ENOTSUPP);
 
-		*quota_type = (tmp == LQUOTA_TYPE_USR) ? USRQUOTA : GRPQUOTA;
+		rc = lqtype2qtype(tmp, quota_type);
+		if (rc)
+			RETURN(rc);
 	}
 
 	RETURN(0);
