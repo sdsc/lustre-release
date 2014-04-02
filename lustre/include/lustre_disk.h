@@ -341,22 +341,32 @@ struct lr_server_data {
 
 /* Data stored per client in the last_rcvd file.  In le32 order. */
 struct lsd_client_data {
-        __u8  lcd_uuid[40];      /* client UUID */
-        __u64 lcd_last_transno; /* last completed transaction ID */
-        __u64 lcd_last_xid;     /* xid for the last transaction */
-        __u32 lcd_last_result;  /* result from last RPC */
-        __u32 lcd_last_data;    /* per-op data (disposition for open &c.) */
-        /* for MDS_CLOSE requests */
-        __u64 lcd_last_close_transno; /* last completed transaction ID */
-        __u64 lcd_last_close_xid;     /* xid for the last transaction */
-        __u32 lcd_last_close_result;  /* result from last RPC */
-        __u32 lcd_last_close_data;    /* per-op data */
-        /* VBR: last versions */
-        __u64 lcd_pre_versions[4];
-        __u32 lcd_last_epoch;
-        /** orphans handling for delayed export rely on that */
-        __u32 lcd_first_epoch;
-        __u8  lcd_padding[LR_CLIENT_SIZE - 128];
+	__u8  lcd_uuid[40];      /* client UUID */
+	__u64 lcd_last_transno; /* last completed transaction ID */
+	__u64 lcd_last_xid;     /* xid for the last transaction */
+	__u32 lcd_last_result;  /* result from last RPC */
+	__u32 lcd_last_data;    /* per-op data (disposition for open &c.) */
+	/* for MDS_CLOSE requests */
+	__u64 lcd_last_close_transno; /* last completed transaction ID */
+	__u64 lcd_last_close_xid;     /* xid for the last transaction */
+	__u32 lcd_last_close_result;  /* result from last RPC */
+	__u32 lcd_last_close_data;    /* per-op data */
+	/* VBR: last versions */
+	__u64 lcd_pre_versions[4];
+	__u32 lcd_last_epoch;
+	/** orphans handling for delayed export rely on that */
+	__u32 lcd_first_epoch;
+	__u8  lcd_padding[LR_CLIENT_SIZE - 128];
+};
+
+struct lsd_reply_data {
+	__u64 lrd_pre_versions[4];
+	__u64 lrd_transno; /* last completed transaction ID */
+	__u64 lrd_xid;     /* xid for the last transaction */
+	__u32 lrd_result;  /* result from last RPC */
+	__u32 lrd_data;    /* per-op data (disposition for open &c.) */
+	__u32 lrd_client_idx;	/* #client in last_rcvd */
+	__u32 lrd_padding;
 };
 
 /* bug20354: the lcd_uuid for export of clients may be wrong */

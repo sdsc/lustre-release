@@ -2491,7 +2491,7 @@ void target_send_reply(struct ptlrpc_request *req, int rc, int fail_id)
 
 	spin_lock(&rs->rs_lock);
 	if (rs->rs_transno <= exp->exp_last_committed ||
-	    (!rs->rs_on_net && !rs->rs_no_ack) ||
+	    (!rs->rs_on_net && !rs->rs_no_ack && netrc == 0) ||
 	    cfs_list_empty(&rs->rs_exp_list) ||     /* completed already */
 	    cfs_list_empty(&rs->rs_obd_list)) {
 		CDEBUG(D_HA, "Schedule reply immediately\n");

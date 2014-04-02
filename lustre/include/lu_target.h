@@ -65,6 +65,8 @@ struct lu_target {
 				 lut_no_reconstruct:1;
 	/** last_rcvd file */
 	struct dt_object	*lut_last_rcvd;
+	/** reply log file */
+	struct dt_object	*lut_reply_log;
 	/* transaction callbacks */
 	struct dt_txn_callback	 lut_txn_cb;
 	/** server data in last_rcvd file */
@@ -77,6 +79,8 @@ struct lu_target {
 	spinlock_t		 lut_client_bitmap_lock;
 	/** Bitmap of known clients */
 	unsigned long		*lut_client_bitmap;
+	/** Bitmap of used slots in the reply log */
+	unsigned long		*lut_reply_bitmap;
 };
 
 extern struct lu_context_key tgt_session_key;
@@ -324,8 +328,6 @@ int tgt_client_add(const struct lu_env *env, struct obd_export *exp, int);
 int tgt_client_new(const struct lu_env *env, struct obd_export *exp);
 int tgt_client_data_read(const struct lu_env *env, struct lu_target *tg,
 			 struct lsd_client_data *lcd, loff_t *off, int index);
-int tgt_client_data_write(const struct lu_env *env, struct lu_target *tg,
-			  struct lsd_client_data *lcd, loff_t *off, struct thandle *th);
 int tgt_server_data_read(const struct lu_env *env, struct lu_target *tg);
 int tgt_server_data_write(const struct lu_env *env, struct lu_target *tg,
 			  struct thandle *th);
@@ -333,6 +335,7 @@ int tgt_server_data_update(const struct lu_env *env, struct lu_target *tg,
 			   int sync);
 int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tg,
 			   loff_t off);
+int tgt_reply_log_init(const struct lu_env *env, struct lu_target *tgt);
 
 /* target/out_lib.c */
 struct dt_update_request *
