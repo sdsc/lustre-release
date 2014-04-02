@@ -223,6 +223,7 @@ enum local_oid {
 	ACCT_GROUP_OID		= 16UL,
 	LFSCK_BOOKMARK_OID	= 17UL,
 	OTABLE_IT_OID		= 18UL,
+	REPLY_LOG_OID		= 19UL,
 	/* These two definitions are obsolete
 	 * OFD_GROUP0_LAST_OID     = 20UL,
 	 * OFD_GROUP4K_LAST_OID    = 20UL+4096,
