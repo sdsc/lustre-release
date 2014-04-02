@@ -1900,6 +1900,9 @@ static void osd_object_delete(const struct lu_env *env, struct lu_object *l)
 		struct qsd_instance	*qsd = osd_obj2dev(obj)->od_quota_slave;
 		qid_t			 uid = i_uid_read(inode);
 		qid_t			 gid = i_gid_read(inode);
+#ifdef  HAVE_PROJECT_QUOTA
+		__u32 pool_id = __kprojid_val(LDISKFS_I(inode)->i_projid);
+#endif
 
                 iput(inode);
                 obj->oo_inode = NULL;
@@ -1914,6 +1917,11 @@ static void osd_object_delete(const struct lu_env *env, struct lu_object *l)
 
 			qi->lqi_id.qid_uid = gid;
 			qsd_op_adjust(env, qsd, &qi->lqi_id, GRPQUOTA);
+
+#ifdef		HAVE_PROJECT_QUOTA
+			qi->lqi_id.qid_uid = pool_id;
+			qsd_op_adjust(env, qsd, &qi->lqi_id, PRJQUOTA);
+#endif
 		}
         }
 }
@@ -2372,6 +2380,10 @@ static int osd_declare_attr_set(const struct lu_env *env,
 	long long               bspace;
 	int			rc = 0;
 	bool			enforce;
+#ifdef  HAVE_PROJECT_QUOTA
+	u32 projid;
+#endif
+
 	ENTRY;
 
 	LASSERT(dt != NULL);
@@ -2501,6 +2513,55 @@ static int osd_declare_attr_set(const struct lu_env *env,
 		if (rc)
 			RETURN(rc);
 	}
+
+#ifdef  HAVE_PROJECT_QUOTA
+	projid = __kprojid_val(LDISKFS_I(obj->oo_inode)->i_projid);
+	if(attr->la_pool_id != projid) {
+		qi->lqi_type = PRJQUOTA;
+
+		/* inode accounting */
+		qi->lqi_is_blk = false;
+
+		/* one more inode for the new project owner ... */
+		qi->lqi_id.qid_gid = attr->la_pool_id;
+		qi->lqi_space      = 1;
+		rc = osd_declare_qid(env, oh, qi, obj, false, NULL);
+		if (rc == -EDQUOT || rc == -EINPROGRESS)
+			rc = 0;
+		if (rc)
+			RETURN(rc);
+
+		/* and one less inode for the current project */
+		qi->lqi_id.qid_gid = projid;
+		qi->lqi_space      = -1;
+		rc = osd_declare_qid(env, oh, qi, obj, true, NULL);
+		if (rc == -EDQUOT || rc == -EINPROGRESS)
+			rc = 0;
+		if (rc)
+			RETURN(rc);
+
+		/* block accounting */
+		qi->lqi_is_blk = true;
+
+		/* more blocks for the new owner ... */
+		qi->lqi_id.qid_gid = attr->la_pool_id;
+		qi->lqi_space      = bspace;
+		rc = osd_declare_qid(env, oh, qi, obj, false, NULL);
+		if (rc == -EDQUOT || rc == -EINPROGRESS)
+			rc = 0;
+		if (rc)
+			RETURN(rc);
+
+		/* and finally less blocks for the current owner */
+		qi->lqi_id.qid_gid = projid;
+		qi->lqi_space      = -bspace;
+		rc = osd_declare_qid(env, oh, qi, obj, true, NULL);
+		if (rc == -EDQUOT || rc == -EINPROGRESS)
+			rc = 0;
+		if (rc)
+			RETURN(rc);
+	}
+#endif
 
 	RETURN(rc);
 }
@@ -3048,9 +3109,15 @@ static int osd_declare_object_create(const struct lu_env *env,
 {
 	struct osd_thandle	*oh;
 	int			 rc;
+	__u32			 pool_id;
 	ENTRY;
 
 	LASSERT(handle != NULL);
+
+	if (attr->la_valid & LA_POOLID)
+		pool_id = attr->la_pool_id;
+	else
+		pool_id = 0;
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_handle == NULL);
@@ -3070,8 +3137,9 @@ static int osd_declare_object_create(const struct lu_env *env,
 	if (!attr)
 		RETURN(0);
 
-	rc = osd_declare_inode_qid(env, attr->la_uid, attr->la_gid, 1, oh,
-				   osd_dt_obj(dt), false, NULL, false);
+	rc = osd_declare_inode_qid(env, attr->la_uid, attr->la_gid,
+				   pool_id, 1, oh, osd_dt_obj(dt),
+				   false, NULL, false);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -3132,6 +3200,12 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 	struct inode       *inode = obj->oo_inode;
 	struct osd_thandle *oh;
 	int		    rc;
+#ifdef  HAVE_PROJECT_QUOTA
+	u32 projid = __kprojid_val(LDISKFS_I(inode)->i_projid);
+#else
+	u32 projid = 0;
+#endif
+
 	ENTRY;
 
 	if (inode == NULL)
@@ -3149,12 +3223,12 @@ static int osd_declare_object_destroy(const struct lu_env *env,
 			     osd_dto_credits_noquota[DTO_INDEX_DELETE] + 3);
 	/* one less inode */
 	rc = osd_declare_inode_qid(env, i_uid_read(inode), i_gid_read(inode),
-				   -1, oh, obj, false, NULL, false);
+				   projid, -1, oh, obj, false, NULL, false);
 	if (rc)
 		RETURN(rc);
 	/* data to be truncated */
 	rc = osd_declare_inode_qid(env, i_uid_read(inode), i_gid_read(inode),
-				   0, oh, obj, true, NULL, false);
+				   projid, 0, oh, obj, true, NULL, false);
 	if (rc)
 		RETURN(rc);
 
@@ -4337,6 +4411,8 @@ static int osd_index_declare_ea_delete(const struct lu_env *env,
 	struct osd_thandle *oh;
 	struct inode	   *inode;
 	int		    rc, credits;
+	u32 projid = 0;
+
 	ENTRY;
 
 	LASSERT(!dt_object_remote(dt));
@@ -4358,8 +4434,12 @@ static int osd_index_declare_ea_delete(const struct lu_env *env,
 	if (inode == NULL)
 		RETURN(-ENOENT);
 
+#ifdef  HAVE_PROJECT_QUOTA
+	projid = __kprojid_val(LDISKFS_I(inode)->i_projid);
+#endif
 	rc = osd_declare_inode_qid(env, i_uid_read(inode), i_gid_read(inode),
-				   0, oh, osd_dt_obj(dt), true, NULL, false);
+				   projid, 0, oh, osd_dt_obj(dt), true,
+				   NULL, false);
 	RETURN(rc);
 }
 
@@ -5248,12 +5328,17 @@ static int osd_index_declare_ea_insert(const struct lu_env *env,
 
 	if (osd_dt_obj(dt)->oo_inode != NULL) {
 		struct inode *inode = osd_dt_obj(dt)->oo_inode;
+#ifdef  HAVE_PROJECT_QUOTA
+		u32 projid = __kprojid_val(LDISKFS_I(inode)->i_projid);
+#else
+		u32 projid = 0;
+#endif
 
 		/* We ignore block quota on meta pool (MDTs), so needn't
 		 * calculate how many blocks will be consumed by this index
 		 * insert */
 		rc = osd_declare_inode_qid(env, i_uid_read(inode),
-					   i_gid_read(inode), 0, oh,
+					   i_gid_read(inode), projid, 0, oh,
 					   osd_dt_obj(dt), true, NULL, false);
 	}
 

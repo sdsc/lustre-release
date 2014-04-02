@@ -614,13 +614,13 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
  * \retval -ve    - failure
  */
 int osd_declare_inode_qid(const struct lu_env *env, qid_t uid, qid_t gid,
-			  long long space, struct osd_thandle *oh,
+			  __u32 pool_id, long long space, struct osd_thandle *oh,
 			  struct osd_object *obj, bool is_blk, int *flags,
 			  bool force)
 {
 	struct osd_thread_info  *info = osd_oti_get(env);
 	struct lquota_id_info   *qi = &info->oti_qi;
-	int                      rcu, rcg; /* user & group rc */
+	int                      rcu, rcg, rcp; /* user & group & project rc */
 	ENTRY;
 
 	/* let's start with user quota */
@@ -650,7 +650,29 @@ int osd_declare_inode_qid(const struct lu_env *env, qid_t uid, qid_t gid,
 		/* as before, ignore EDQUOT & EINPROGRESS for root */
 		rcg = 0;
 
-	RETURN(rcu ? rcu : rcg);
+	if (rcg && (rcg != -EDQUOT || flags == NULL))
+		RETURN(rcg);
+
+	/* and now project quota */
+	rcp = 0;
+	if (pool_id == 0)
+		goto out;
+	qi->lqi_id.qid_gid = pool_id;
+	qi->lqi_type       = PRJQUOTA; /* true ? */
+	rcp = osd_declare_qid(env, oh, qi, obj, true, flags);
+
+	if (force && (rcp == -EDQUOT || rcp == -EINPROGRESS))
+		/* as before, ignore EDQUOT & EINPROGRESS for root */
+		rcg = 0;
+
+out:
+	if (rcu)
+		RETURN(rcu);
+	if (rcg)
+		RETURN(rcg);
+	if (rcp)
+		RETURN(rcp);
+	RETURN(0);
 }
 
 int osd_quota_migration(const struct lu_env *env, struct dt_object *dt)
