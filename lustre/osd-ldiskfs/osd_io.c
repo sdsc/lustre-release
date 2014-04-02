@@ -1106,6 +1106,12 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	bool			 ignore_quota = false;
 	long long		 quota_space = 0;
 	struct osd_fextent	 extent = { 0 };
+#ifdef  HAVE_PROJECT_QUOTA
+	u32 projid = __kprojid_val(LDISKFS_I(inode)->i_projid);
+#else
+	u32 projid = 0;
+#endif
+
 	ENTRY;
 
         LASSERT(handle != NULL);
@@ -1186,8 +1192,8 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	lnb[0].lnb_flags &= ~OBD_BRW_OVER_ALLQUOTA;
 
 	rc = osd_declare_inode_qid(env, i_uid_read(inode), i_gid_read(inode),
-				   quota_space, oh, osd_dt_obj(dt), true,
-				   &flags, ignore_quota);
+				   projid, quota_space, oh, osd_dt_obj(dt),
+				   true, &flags, ignore_quota);
 
 	/* we need only to store the overquota flags in the first lnb for
 	 * now, once we support multiple objects BRW, this code needs be
@@ -1548,6 +1554,8 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
 	int		    bits, bs;
 	int		    depth, size;
 	loff_t		    pos;
+	u32 projid = 0;
+
 	ENTRY;
 
 	LASSERT(buf != NULL);
@@ -1607,8 +1615,11 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
 	}
 	/* if inode is created as part of the transaction,
 	 * then it's counted already by the creation method */
-	if (inode != NULL)
+	if (inode != NULL) {
 		credits++;
+		/* one more for project quota ?*/
+		credits++;
+	}
 
 out:
 
@@ -1617,10 +1628,14 @@ out:
 	/* dt_declare_write() is usually called for system objects, such
 	 * as llog or last_rcvd files. We needn't enforce quota on those
 	 * objects, so always set the lqi_space as 0. */
-	if (inode != NULL)
+	if (inode != NULL) {
+#ifdef  HAVE_PROJECT_QUOTA
+		projid = __kprojid_val(LDISKFS_I(inode)->i_projid);
+#endif
 		rc = osd_declare_inode_qid(env, i_uid_read(inode),
-					   i_gid_read(inode), 0, oh, obj, true,
-					   NULL, false);
+					   i_gid_read(inode), projid,
+					   0, oh, obj, true, NULL, false);
+	}
 	RETURN(rc);
 }
 
@@ -1774,6 +1789,8 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
         struct osd_thandle *oh;
 	struct inode	   *inode;
 	int		    rc;
+	u32 projid = 0;
+
         ENTRY;
 
         LASSERT(th);
@@ -1793,8 +1810,12 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
 	inode = osd_dt_obj(dt)->oo_inode;
 	LASSERT(inode);
 
+#ifdef	HAVE_PROJECT_QUOTA
+	projid = __kprojid_val(LDISKFS_I(inode)->i_projid);
+#endif
 	rc = osd_declare_inode_qid(env, i_uid_read(inode), i_gid_read(inode),
-				   0, oh, osd_dt_obj(dt), true, NULL, false);
+				   projid, 0, oh, osd_dt_obj(dt), true, NULL,
+				   false);
 	RETURN(rc);
 }
 

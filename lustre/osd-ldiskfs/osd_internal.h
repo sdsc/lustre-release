@@ -739,7 +739,7 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
 		    struct lquota_id_info *qi, struct osd_object *obj,
 		    bool enforce, int *flags);
 int osd_declare_inode_qid(const struct lu_env *env, qid_t uid, qid_t gid,
-			  long long space, struct osd_thandle *oh,
+			  __u32 pool_id, long long space, struct osd_thandle *oh,
 			  struct osd_object *obj, bool is_blk, int *flags,
 			  bool force);
 const struct dt_rec *osd_quota_pack(struct osd_object *obj,

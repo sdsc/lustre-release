@@ -3309,6 +3309,8 @@ static int lod_declare_object_create(const struct lu_env *env,
 	LASSERT(attr);
 	LASSERT(th);
 
+	attr->la_pool_id = lo->ldo_pool_id;
+	attr->la_valid |= LA_POOLID;
 	/*
 	 * first of all, we declare creation of local object
 	 */
