@@ -299,6 +299,7 @@ static inline int ll_rpc_recoverable_error(int rc)
 #if defined HAVE_SERVER_SUPPORT && defined(__KERNEL__)
 int tgt_mod_init(void);
 void tgt_mod_exit(void);
+int tgt_handle_repack(struct obd_export *exp, __u64 xid);
 #else
 static inline int tgt_mod_init(void)
 {
@@ -308,6 +309,11 @@ static inline int tgt_mod_init(void)
 static inline void tgt_mod_exit(void)
 {
 	return;
+}
+
+static inline int tgt_handle_repack(struct obd_export *exp, __u64 xid)
+{
+	return 0;
 }
 #endif
 
