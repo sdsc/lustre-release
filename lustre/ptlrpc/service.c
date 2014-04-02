@@ -2227,6 +2227,8 @@ ptlrpc_handle_rs(struct ptlrpc_reply_state *rs)
 
 	if (!rs->rs_on_net) {
 		/* Off the net */
+		if (rs->rs_sent != 0)
+			tgt_handle_repack(exp, rs->rs_xid);
 		spin_unlock(&rs->rs_lock);
 
 		class_export_put (exp);

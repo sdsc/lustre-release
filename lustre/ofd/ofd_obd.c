@@ -277,6 +277,15 @@ static int ofd_parse_connect_data(const struct lu_env *env,
 		}
 	}
 
+	if (OCD_HAS_FLAG(data, MULTISLOT)) {
+		CWARN("%s: multislot support\n", exp->exp_obd->obd_name);
+		spin_lock(&exp->exp_lock);
+		*exp_connect_flags_ptr(exp) |= OBD_CONNECT_MULTISLOT;
+		spin_unlock(&exp->exp_lock);
+		data->ocd_maxslots = 8;
+		exp->exp_connect_data.ocd_maxslots = data->ocd_maxslots;
+	}
+
 	RETURN(0);
 }
 
@@ -372,8 +381,7 @@ static int ofd_obd_connect(const struct lu_env *env, struct obd_export **_exp,
 	if (obd->obd_replayable) {
 		struct tg_export_data *ted = &exp->exp_target_data;
 
-		memcpy(ted->ted_lcd->lcd_uuid, cluuid,
-		       sizeof(ted->ted_lcd->lcd_uuid));
+		memcpy(ted->ted_uuid, cluuid, sizeof(ted->ted_uuid));
 		rc = tgt_client_new(env, exp);
 		if (rc != 0)
 			GOTO(out, rc);

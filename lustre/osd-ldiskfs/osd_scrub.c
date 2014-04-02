@@ -1378,6 +1378,10 @@ static const struct osd_lf_map osd_lf_maps[] = {
 	{ LAST_RCVD, { FID_SEQ_LOCAL_FILE, LAST_RECV_OID, 0 }, OLF_SHOW_NAME,
 		NULL, NULL },
 
+	/* reply log */
+	{ "reply_log", { FID_SEQ_LOCAL_FILE, REPLY_LOG_OID, 0 }, OLF_SHOW_NAME,
+		NULL, NULL },
+
 	/* lfsck_bookmark */
 	{ "lfsck_bookmark", { 0, 0, 0 }, 0, NULL, NULL },
 

@@ -332,6 +332,7 @@ static int osc_setattr(const struct lu_env *env, struct obd_export *exp,
 
         ptlrpc_request_set_replen(req);
 
+	req->rq_assign_tag = 1;
         rc = ptlrpc_queue_wait(req);
         if (rc)
                 GOTO(out, rc);
@@ -397,6 +398,7 @@ int osc_setattr_async_base(struct obd_export *exp, struct obd_info *oinfo,
         osc_pack_req_body(req, oinfo);
 
         ptlrpc_request_set_replen(req);
+	req->rq_assign_tag = 1;
 
         /* do mds to ost setattr asynchronously */
         if (!rqset) {
@@ -527,6 +529,7 @@ int osc_punch_base(struct obd_export *exp, struct obd_info *oinfo,
         if (req == NULL)
                 RETURN(-ENOMEM);
 
+	req->rq_assign_tag = 1;
         osc_set_capa_size(req, &RMF_CAPA1, oinfo->oi_capa);
         rc = ptlrpc_request_pack(req, LUSTRE_OST_VERSION, OST_PUNCH);
         if (rc) {
@@ -543,6 +546,8 @@ int osc_punch_base(struct obd_export *exp, struct obd_info *oinfo,
 	osc_pack_capa(req, body, oinfo->oi_capa);
 
         ptlrpc_request_set_replen(req);
+
+	req->rq_assign_tag = 1;
 
         req->rq_interpret_reply = (ptlrpc_interpterer_t)osc_setattr_interpret;
         CLASSERT (sizeof(*sa) <= sizeof(req->rq_async_args));
@@ -1241,6 +1246,7 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                 req = ptlrpc_request_alloc_pool(cli->cl_import,
                                                 cli->cl_import->imp_rq_pool,
                                                 &RQF_OST_BRW_WRITE);
+		req->rq_assign_tag = 1;
         } else {
                 opc = OST_READ;
                 req = ptlrpc_request_alloc(cli->cl_import, &RQF_OST_BRW_READ);
@@ -2954,9 +2960,14 @@ static int osc_import_event(struct obd_device *obd,
         }
         case IMP_EVENT_OCD: {
                 struct obd_connect_data *ocd = &imp->imp_connect_data;
+		cli = &obd->u.cli;
 
                 if (ocd->ocd_connect_flags & OBD_CONNECT_GRANT)
                         osc_init_grant(&obd->u.cli, ocd);
+
+		/* reserve 1 for HP RPC */
+		if (ocd->ocd_connect_flags & OBD_CONNECT_MULTISLOT)
+			cli->cl_max_rpcs_in_flight = ocd->ocd_maxslots - 1;
 
                 /* See bug 7198 */
                 if (ocd->ocd_connect_flags & OBD_CONNECT_REQPORTAL)

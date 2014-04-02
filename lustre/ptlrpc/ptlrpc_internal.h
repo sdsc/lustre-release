@@ -300,6 +300,8 @@ int tgt_mod_init(void);
 void tgt_mod_exit(void);
 int nodemap_mod_init(void);
 void nodemap_mod_exit(void);
+int tgt_handle_repack(struct obd_export *exp, __u64 xid);
+int tgt_handle_repack(struct obd_export *exp, __u64 xid);
 #else /* HAVE_SERVER_SUPPORT */
 static inline int tgt_mod_init(void)
 {
@@ -319,6 +321,11 @@ static inline int nodemap_mod_init(void)
 static inline void nodemap_mod_exit(void)
 {
 	return;
+}
+
+static inline int tgt_handle_repack(struct obd_export *exp, __u64 xid)
+{
+	return 0;
 }
 #endif /* !HAVE_SERVER_SUPPORT */
 

@@ -1503,6 +1503,7 @@ int osp_object_truncate(const struct lu_env *env, struct dt_object *dt,
 	/* osc_pack_capa(req, body, capa); */
 
 	ptlrpc_request_set_replen(req);
+	req->rq_assign_tag = 1;
 
 	rc = ptlrpc_queue_wait(req);
 	if (rc)

@@ -742,6 +742,8 @@ ptlrpc_request_alloc_internal(struct obd_import *imp,
 
         req_capsule_init(&request->rq_pill, request, RCL_CLIENT);
         req_capsule_set(&request->rq_pill, format);
+	request->rq_assign_tag = 0;
+
         return request;
 }
 
@@ -1421,6 +1423,9 @@ static int ptlrpc_send_new_req(struct ptlrpc_request *req)
             (!req->rq_generation_set ||
              req->rq_import_generation == imp->imp_generation))
                 RETURN (0);
+
+	if (req->rq_assign_tag != 0)
+		cli_multislot_assign_tag(req);
 
         ptlrpc_rqphase_move(req, RQ_PHASE_RPC);
 
@@ -3166,3 +3171,77 @@ int ptlrpcd_queue_work(void *handler)
 	return 0;
 }
 EXPORT_SYMBOL(ptlrpcd_queue_work);
+
+static inline unsigned int rpcs_in_flight(struct client_obd *cli)
+{
+	return cli->cl_r_in_flight + cli->cl_w_in_flight;
+}
+void cli_multislot_assign_tag(struct ptlrpc_request *req)
+{
+	struct obd_connect_data	*ocd = &req->rq_import->imp_connect_data;
+	struct client_obd	*cli = &req->rq_import->imp_obd->u.cli;
+	int			 m, i, rc;
+
+	if (req->rq_send_state != LUSTRE_IMP_FULL)
+		return;
+
+	LASSERTF(lustre_msg_get_tag(req->rq_reqmsg) == 0, "req %p\n", req);
+
+	if ((ocd->ocd_connect_flags & OBD_CONNECT_MULTISLOT) == 0)
+		return;
+
+	m = sizeof(cli->cl_modify_bitmap) * 8;
+	m = min_t(int, m, (int)ocd->ocd_maxslots);
+
+	do {
+		i = find_first_zero_bit(cli->cl_modify_bitmap, m);
+		if (i >= m * 2) {
+			CERROR("can't find tag for opc %u (%d)\n",
+				lustre_msg_get_opc(req->rq_reqmsg), m);
+			CERROR("%u in flight, max %d\n", rpcs_in_flight(cli),
+				cli->cl_max_rpcs_in_flight);
+			CERROR("%s\n", req->rq_import->imp_obd->obd_name);
+			CERROR("%lx\n", cli->cl_modify_bitmap[0]);
+		}
+		LASSERT(i < m * 2);
+		rc = test_and_set_bit(i, cli->cl_modify_bitmap);
+	} while (rc != 0);
+
+	/* put in the request: 0 is reserved for non-modifying reqs */
+	LASSERT(lustre_msg_get_tag(req->rq_reqmsg) == 0);
+	lustre_msg_set_tag(req->rq_reqmsg, i + 1);
+
+	CDEBUG(D_MMAP, "@@@@ %s: assign %u for %p/%u\n",
+		req->rq_import->imp_obd->obd_name,
+		i, req, lustre_msg_get_opc(req->rq_reqmsg));
+}
+
+void cli_multislot_release_tag(struct ptlrpc_request *req)
+{
+	struct obd_connect_data	*ocd = &req->rq_import->imp_connect_data;
+	struct client_obd	*cli = &req->rq_import->imp_obd->u.cli;
+	int			 i;
+
+	if (req->rq_send_state != LUSTRE_IMP_FULL)
+		return;
+
+	i = lustre_msg_get_tag(req->rq_reqmsg);
+
+	if ((ocd->ocd_connect_flags & OBD_CONNECT_MULTISLOT) == 0) {
+		LASSERT(i == 0);
+		return;
+	}
+
+	LASSERT(i != 0);
+
+	/* tag #0 has special meaning */
+	i--;
+	LASSERTF(i < ocd->ocd_maxslots * 2, "tag %d\n", i);
+	if (!test_and_clear_bit(i, &cli->cl_modify_bitmap[0]))
+		LBUG();
+	CDEBUG(D_MMAP, "@@@@ %s: release %u for %u\n",
+		req->rq_import->imp_obd->obd_name,
+		i, lustre_msg_get_opc(req->rq_reqmsg));
+	/* sometimes the same RPC is re-used, reset tag */
+	//lustre_msg_set_tag(req->rq_reqmsg, 0);
+}

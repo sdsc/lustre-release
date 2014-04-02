@@ -566,87 +566,24 @@ static void mdt_write_allow(struct mdt_object *o)
 /* there can be no real transaction so prepare the fake one */
 static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
 {
-        struct mdt_device      *mdt = info->mti_mdt;
-        struct ptlrpc_request  *req = mdt_info_req(info);
-        struct tg_export_data  *ted;
-        struct lsd_client_data *lcd;
+	struct mdt_device      *mdt = info->mti_mdt;
+	struct ptlrpc_request  *req = mdt_info_req(info);
+	struct thandle	       *th;
+	ENTRY;
 
-        ENTRY;
-        /* transaction has occurred already */
-        if (lustre_msg_get_transno(req->rq_repmsg) != 0)
-                RETURN_EXIT;
-
-	spin_lock(&mdt->mdt_lut.lut_translock);
-	if (rc != 0) {
-		if (info->mti_transno != 0) {
-			struct obd_export *exp = req->rq_export;
-
-			CERROR("%s: replay trans "LPU64" NID %s: rc = %d\n",
-			       mdt_obd_name(mdt), info->mti_transno,
-			       libcfs_nid2str(exp->exp_connection->c_peer.nid),
-			       rc);
-			spin_unlock(&mdt->mdt_lut.lut_translock);
-			RETURN_EXIT;
-		}
-	} else if (info->mti_transno == 0) {
-		info->mti_transno = ++mdt->mdt_lut.lut_last_transno;
-	} else {
-		/* should be replay */
-		if (info->mti_transno > mdt->mdt_lut.lut_last_transno)
-			mdt->mdt_lut.lut_last_transno = info->mti_transno;
-	}
-	spin_unlock(&mdt->mdt_lut.lut_translock);
-
-	CDEBUG(D_INODE, "transno = "LPU64", last_committed = "LPU64"\n",
-	       info->mti_transno,
-	       req->rq_export->exp_obd->obd_last_committed);
-
-	req->rq_transno = info->mti_transno;
-	lustre_msg_set_transno(req->rq_repmsg, info->mti_transno);
-
-	/* update lcd in memory only for resent cases */
-	ted = &req->rq_export->exp_target_data;
-	LASSERT(ted);
-	mutex_lock(&ted->ted_lcd_lock);
-	lcd = ted->ted_lcd;
-	if (info->mti_transno < lcd->lcd_last_transno &&
-	    info->mti_transno != 0) {
-		/* This should happen during replay. Do not update
-		 * last rcvd info if replay req transno < last transno,
-		 * otherwise the following resend(after replay) can not
-		 * be checked correctly by xid */
-		mutex_unlock(&ted->ted_lcd_lock);
-		CDEBUG(D_HA, "%s: transno = "LPU64" < last_transno = "LPU64"\n",
-		       mdt_obd_name(mdt), info->mti_transno,
-		       lcd->lcd_last_transno);
+	/* transaction has occurred already */
+	if (lustre_msg_get_transno(req->rq_repmsg) != 0)
 		RETURN_EXIT;
+
+	/* generate an empty transaction to get a transno and reply data */
+	th = dt_trans_create(info->mti_env, mdt->mdt_bottom);
+	if (!IS_ERR(th)) {
+		rc = dt_trans_start(info->mti_env, mdt->mdt_bottom, th);
+		if (rc == 0)
+			dt_trans_stop(info->mti_env, mdt->mdt_bottom, th);
 	}
 
-        if (lustre_msg_get_opc(req->rq_reqmsg) == MDS_CLOSE ||
-            lustre_msg_get_opc(req->rq_reqmsg) == MDS_DONE_WRITING) {
-		if (info->mti_transno != 0)
-			lcd->lcd_last_close_transno = info->mti_transno;
-                lcd->lcd_last_close_xid = req->rq_xid;
-                lcd->lcd_last_close_result = rc;
-        } else {
-                /* VBR: save versions in last_rcvd for reconstruct. */
-                __u64 *pre_versions = lustre_msg_get_versions(req->rq_repmsg);
-                if (pre_versions) {
-                        lcd->lcd_pre_versions[0] = pre_versions[0];
-                        lcd->lcd_pre_versions[1] = pre_versions[1];
-                        lcd->lcd_pre_versions[2] = pre_versions[2];
-                        lcd->lcd_pre_versions[3] = pre_versions[3];
-                }
-		if (info->mti_transno != 0)
-			lcd->lcd_last_transno = info->mti_transno;
-
-		lcd->lcd_last_xid = req->rq_xid;
-                lcd->lcd_last_result = rc;
-                lcd->lcd_last_data = info->mti_opdata;
-        }
-	mutex_unlock(&ted->ted_lcd_lock);
-
-        EXIT;
+	EXIT;
 }
 
 void mdt_mfd_set_mode(struct mdt_file_data *mfd, __u64 mode)
@@ -1025,9 +962,6 @@ int mdt_finish_open(struct mdt_thread_info *info,
 	RETURN(rc);
 }
 
-extern void mdt_req_from_lcd(struct ptlrpc_request *req,
-                             struct lsd_client_data *lcd);
-
 void mdt_reconstruct_open(struct mdt_thread_info *info,
                           struct mdt_lock_handle *lhc)
 {
@@ -1035,8 +969,6 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
         struct mdt_device       *mdt  = info->mti_mdt;
         struct req_capsule      *pill = info->mti_pill;
         struct ptlrpc_request   *req  = mdt_info_req(info);
-        struct tg_export_data   *ted  = &req->rq_export->exp_target_data;
-        struct lsd_client_data  *lcd  = ted->ted_lcd;
         struct md_attr          *ma   = &info->mti_attr;
         struct mdt_reint_record *rr   = &info->mti_rr;
 	__u64                   flags = info->mti_spec.sp_cr_flags;
@@ -1054,8 +986,8 @@ void mdt_reconstruct_open(struct mdt_thread_info *info,
 	ma->ma_need = MA_INODE | MA_HSM;
         ma->ma_valid = 0;
 
-        mdt_req_from_lcd(req, lcd);
-        mdt_set_disposition(info, ldlm_rep, lcd->lcd_last_data);
+	rc = mdt_req_from_lcd(req);
+	mdt_set_disposition(info, ldlm_rep, rc);
 
         CDEBUG(D_INODE, "This is reconstruct open: disp="LPX64", result=%d\n",
                ldlm_rep->lock_policy_res1, req->rq_status);

@@ -68,9 +68,7 @@
 /* check if request's xid is equal to last one or not*/
 static inline int req_xid_is_last(struct ptlrpc_request *req)
 {
-        struct lsd_client_data *lcd = req->rq_export->exp_target_data.ted_lcd;
-        return (req->rq_xid == lcd->lcd_last_xid ||
-                req->rq_xid == lcd->lcd_last_close_xid);
+	return tgt_lookup_reply(req) != NULL;
 }
 
 struct mdt_object;
@@ -718,6 +716,7 @@ int mdt_reint_open(struct mdt_thread_info *info,
 struct mdt_file_data *mdt_handle2mfd(struct mdt_export_data *med,
 				     const struct lustre_handle *handle,
 				     bool is_replay);
+extern __u32 mdt_req_from_lcd(struct ptlrpc_request *req);
 
 enum {
         MDT_IOEPOCH_CLOSED  = 0,
@@ -967,13 +966,12 @@ static inline int mdt_check_resent(struct mdt_thread_info *info,
         struct ptlrpc_request *req = mdt_info_req(info);
         ENTRY;
 
-        if (lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT) {
+	if (lustre_msg_get_flags(req->rq_reqmsg) & (MSG_RESENT | MSG_REPLAY)) {
                 if (req_xid_is_last(req)) {
                         reconstruct(info, lhc);
                         RETURN(1);
                 }
-                DEBUG_REQ(D_HA, req, "no reply for RESENT req (have "LPD64")",
-                          req->rq_export->exp_target_data.ted_lcd->lcd_last_xid);
+		DEBUG_REQ(D_HA, req, "no reply for RESENT req");
         }
         RETURN(0);
 }
