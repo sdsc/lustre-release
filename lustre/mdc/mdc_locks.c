@@ -871,10 +871,10 @@ resend:
          * threads that are serialised with rpc_lock are not polluting our
          * rpcs in flight counter. We do not do flock request limiting, though*/
         if (it) {
-                mdc_get_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
+		mdc_get_in_flight(req, it);
                 rc = mdc_enter_request(&obddev->u.cli);
                 if (rc != 0) {
-                        mdc_put_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
+			mdc_put_in_flight(req, it);
                         mdc_clear_replay_flag(req, 0);
                         ptlrpc_req_finished(req);
                         RETURN(rc);
@@ -900,7 +900,7 @@ resend:
 	}
 
 	mdc_exit_request(&obddev->u.cli);
-	mdc_put_rpc_lock(obddev->u.cli.cl_rpc_lock, it);
+	mdc_put_in_flight(req, it);
 
 	if (rc < 0) {
 		CDEBUG_LIMIT((rc == -EACCES || rc == -EIDRM) ? D_INFO : D_ERROR,
