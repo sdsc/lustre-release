@@ -6181,22 +6181,22 @@ pool_list () {
 }
 
 create_pool() {
-    local fsname=${1%%.*}
-    local poolname=${1##$fsname.}
+	local fsname=${1%%.*}
+	local poolname=${1##$fsname.}
 
-    do_facet mgs lctl pool_new $1
-    local RC=$?
-    # get param should return err unless pool is created
-    [[ $RC -ne 0 ]] && return $RC
+	do_facet mgs lctl pool_new $1
+	local RC=$?
+	# get param should return err unless pool is created
+	[[ $RC -ne 0 ]] && return $RC
 
-    wait_update $HOSTNAME "lctl get_param -n lov.$fsname-*.pools.$poolname \
-        2>/dev/null || echo foo" "" || RC=1
-    if [[ $RC -eq 0 ]]; then
-        add_pool_to_list $1
-    else
-        error "pool_new failed $1"
-    fi
-    return $RC
+	wait_update $HOSTNAME "lctl pool_list $FSNAME.$poolname \
+		>/dev/null 2>/dev/null || echo foo" "" || RC=1
+	if [[ $RC -eq 0 ]]; then
+		add_pool_to_list $1
+	else
+		error "pool_new failed $1"
+	fi
+	return $RC
 }
 
 add_pool_to_list () {
@@ -6229,28 +6229,28 @@ destroy_pool_int() {
 
 # <fsname>.<poolname> or <poolname>
 destroy_pool() {
-    local fsname=${1%%.*}
-    local poolname=${1##$fsname.}
+	local fsname=${1%%.*}
+	local poolname=${1##$fsname.}
 
-    [[ x$fsname = x$poolname ]] && fsname=$FSNAME
+	[[ x$fsname = x$poolname ]] && fsname=$FSNAME
 
-    local RC
+	local RC
 
-    pool_list $fsname.$poolname || return $?
+	pool_list $fsname.$poolname || return $?
 
-    destroy_pool_int $fsname.$poolname
-    RC=$?
-    [[ $RC -ne 0 ]] && return $RC
+	destroy_pool_int $fsname.$poolname
+	RC=$?
+	[[ $RC -ne 0 ]] && return $RC
 
-    wait_update $HOSTNAME "lctl get_param -n lov.$fsname-*.pools.$poolname \
-      2>/dev/null || echo foo" "foo" || RC=1
+	wait_update $HOSTNAME "lctl pool_list $FSNAME.$poolname \
+		>/dev/null 2>/dev/null || echo foo" "foo" || RC=1
 
-    if [[ $RC -eq 0 ]]; then
-        remove_pool_from_list $fsname.$poolname
-    else
-        error "destroy pool failed $1"
-    fi
-    return $RC
+	if [[ $RC -eq 0 ]]; then
+		remove_pool_from_list $fsname.$poolname
+	else
+		error "destroy pool failed $1"
+	fi
+	return $RC
 }
 
 destroy_pools () {
@@ -7248,7 +7248,8 @@ pool_add_targets() {
 	local t=$(for i in $list; do printf "$FSNAME-OST%04x_UUID " $i; done)
 	do_facet mgs $LCTL pool_add \
 			$FSNAME.$pool $FSNAME-OST[$first-$last/$step]
-	wait_update $HOSTNAME "lctl get_param -n lov.$FSNAME-*.pools.$pool \
+	wait_update $HOSTNAME "lctl pool_list $FSNAME.$pool \
+			| grep -v Pool: \
 			| sort -u | tr '\n' ' ' " "$t" || {
 		error_noexit "Add to pool failed"
 		return 1
@@ -7347,7 +7348,8 @@ pool_lfs_df() {
 	echo "Checking 'lfs df' output"
 	local pool=$1
 
-	local t=$($LCTL get_param -n lov.$FSNAME-clilov-*.pools.$pool |
+	local t=$($LCTL pool_list $FSNAME.$pool |
+			grep -v Pool: |
 			tr '\n' ' ')
 	local res=$($LFS df --pool $FSNAME.$pool |
 			awk '{print $1}' |
@@ -7382,9 +7384,9 @@ pool_remove_first_target() {
 	local pool=$1
 
 	local pname="lov.$FSNAME-*.pools.$pool"
-	local t=$($LCTL get_param -n $pname | head -1)
+	local t=$($LCTL pool_list $FSNAME.$pool | grep -v Pool: | head -n1)
 	do_facet mgs $LCTL pool_remove $FSNAME.$pool $t
-	wait_update $HOSTNAME "lctl get_param -n $pname | grep $t" "" || {
+	wait_update $HOSTNAME "lctl pool_list $FSNAME.$pool | grep $t" "" || {
 		error_noexit "$t not removed from $FSNAME.$pool"
 		return 1
 	}
@@ -7394,12 +7396,12 @@ pool_remove_all_targets() {
 	echo "Removing all targets from pool"
 	local pool=$1
 	local file=$2
-	local pname="lov.$FSNAME-*.pools.$pool"
-	for t in $($LCTL get_param -n $pname | sort -u)
+	for t in $($LCTL pool_list $FSNAME.$pool | grep -v Pool: | sort -u)
 	do
 		do_facet mgs $LCTL pool_remove $FSNAME.$pool $t
 	done
-	wait_update $HOSTNAME "lctl get_param -n $pname" "" || {
+	wait_update $HOSTNAME "lctl pool_list $FSNAME.$pool | \
+		grep -v Pool" "" || {
 		error_noexit "Pool $FSNAME.$pool cannot be drained"
 		return 1
 	}
@@ -7440,8 +7442,9 @@ pool_remove() {
 	}
 
 	# get param should return err once pool is gone
-	if wait_update $HOSTNAME "lctl get_param -n \
-		lov.$FSNAME-*.pools.$pool 2>/dev/null || echo foo" "foo"
+	if wait_update $HOSTNAME "lctl pool_list $FSNAME.$pool \
+		| grep -v Pool: \
+		2>/dev/null || echo foo" "foo"
 	then
 		remove_pool_from_list $FSNAME.$pool
 		return 0
