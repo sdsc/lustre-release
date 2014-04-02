@@ -1139,6 +1139,7 @@ int class_process_config(struct lustre_cfg *lcfg)
 {
         struct obd_device *obd;
         int err;
+	__u32 pool_id;
 
         LASSERT(lcfg && !IS_ERR(lcfg));
         CDEBUG(D_IOCTL, "processing cmd: %x\n", lcfg->lcfg_command);
@@ -1282,7 +1283,21 @@ int class_process_config(struct lustre_cfg *lcfg)
                 GOTO(out, err = 0);
         }
         case LCFG_POOL_NEW: {
-                err = obd_pool_new(obd, lustre_cfg_string(lcfg, 2));
+#ifdef __KERNEL__
+		err = kstrtouint(lustre_cfg_string(lcfg, 4), 10,
+				 &pool_id);
+#else
+		char *end;
+		err = strtoul(lustre_cfg_string(lcfg, 4), &end, 0);
+		pool_id = (__u32)err;
+		if (*end != '\0')
+			err = -errno;
+		else
+			err = 0;
+#endif
+		if (err)
+			GOTO(out, err);
+		err = obd_pool_new(obd, lustre_cfg_string(lcfg, 2), pool_id);
                 GOTO(out, err = 0);
         }
         case LCFG_POOL_ADD: {

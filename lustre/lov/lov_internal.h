@@ -246,7 +246,7 @@ int lov_ost_pool_remove(struct ost_pool *op, __u32 idx);
 int lov_ost_pool_free(struct ost_pool *op);
 
 /* high level pool methods */
-int lov_pool_new(struct obd_device *obd, char *poolname);
+int lov_pool_new(struct obd_device *obd, char *poolname, __u32 pool_id);
 int lov_pool_del(struct obd_device *obd, char *poolname);
 int lov_pool_add(struct obd_device *obd, char *poolname, char *ostname);
 int lov_pool_remove(struct obd_device *obd, char *poolname, char *ostname);

@@ -494,7 +494,7 @@ int lod_pool_del(struct obd_device *obd, char *poolname);
 int lod_ost_pool_init(struct ost_pool *op, unsigned int count);
 extern struct cfs_hash_ops pool_hash_operations;
 int lod_check_index_in_pool(__u32 idx, struct pool_desc *pool);
-int lod_pool_new(struct obd_device *obd, char *poolname);
+int lod_pool_new(struct obd_device *obd, char *poolname, __u32 pool_id);
 int lod_pool_add(struct obd_device *obd, char *poolname, char *ostname);
 int lod_pool_remove(struct obd_device *obd, char *poolname, char *ostname);
 
