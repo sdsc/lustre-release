@@ -106,10 +106,6 @@ static inline void mdc_get_rpc_lock(struct mdc_rpc_lock *lck,
 {
 	ENTRY;
 
-	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
-			   it->it_op == IT_LAYOUT))
-		return;
-
 	/* This would normally block until the existing request finishes.
 	 * If fail_loc is set it will block until the regular request is
 	 * done, then set rpcl_it to MDC_FAKE_RPCL_IT.  Once that is set
@@ -144,10 +140,6 @@ static inline void mdc_get_rpc_lock(struct mdc_rpc_lock *lck,
 static inline void mdc_put_rpc_lock(struct mdc_rpc_lock *lck,
 				    struct lookup_intent *it)
 {
-	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
-			   it->it_op == IT_LAYOUT))
-		goto out;
-
 	if (lck->rpcl_it == MDC_FAKE_RPCL_IT) { /* OBD_FAIL_MDC_RPCS_SEM */
 		mutex_lock(&lck->rpcl_mutex);
 
@@ -163,8 +155,103 @@ static inline void mdc_put_rpc_lock(struct mdc_rpc_lock *lck,
 	}
 
 	mutex_unlock(&lck->rpcl_mutex);
- out:
+
 	EXIT;
+}
+
+static inline void mdc_get_in_flight(struct ptlrpc_request *req,
+				     struct lookup_intent *it)
+{
+	struct obd_connect_data *ocd = &req->rq_import->imp_connect_data;
+	struct client_obd	*cli = &req->rq_import->imp_obd->u.cli;
+	struct l_wait_info	 lwi = LWI_INTR(NULL, NULL);
+	__u32			 opc;
+	int			 m, i, rc;
+
+	LASSERT(req->rq_reqmsg);
+
+	/* read-only access doesn't need a slot for reply reconstruction */
+	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
+			   it->it_op == IT_LAYOUT || it->it_op == IT_READDIR))
+		return;
+
+	/* wether the target supports multi-slots .. */
+	if ((ocd->ocd_connect_flags & OBD_CONNECT_MULTISLOT) == 0) {
+		/* .. no */
+		struct mdc_rpc_lock	*lck;
+
+		opc = lustre_msg_get_opc(req->rq_reqmsg);
+		lck = cli->cl_rpc_lock;
+		if (opc == MDS_CLOSE || opc == MDS_DONE_WRITING)
+			lck = cli->cl_close_lock;
+		mdc_get_rpc_lock(lck, it);
+		return;
+	}
+
+	m = sizeof(cli->cl_modify_bitmap) * 8;
+	m = min(m, (int)ocd->ocd_maxslots);
+	do {
+		l_wait_event(cli->cl_modify_waitq,
+			     atomic_read(&cli->cl_modify_in_flight) < m, &lwi);
+
+		if (atomic_inc_return(&cli->cl_modify_in_flight) <= m)
+			break;
+
+		if (atomic_dec_return(&cli->cl_modify_in_flight) < m) {
+			/*
+			 * The counter has been modified between the two atomic
+			 * operations.
+			 */
+			wake_up(&cli->cl_modify_waitq);
+		}
+	} while (1);
+
+	/* XXX: try to re-use all possible slots - to release after recovery */
+
+	/* find a free tag */
+	do {
+		i = find_first_zero_bit(cli->cl_modify_bitmap, m);
+		LASSERT(i <= m);
+		rc = test_and_set_bit(i, cli->cl_modify_bitmap);
+	} while (rc != 0);
+
+	/* put in the request: 0 is reserved for non-modifying reqs */
+	lustre_msg_set_tag(req->rq_reqmsg, i + 1);
+}
+
+static inline void mdc_put_in_flight(struct ptlrpc_request *req,
+				     struct lookup_intent *it)
+{
+	struct obd_connect_data *ocd = &req->rq_import->imp_connect_data;
+	struct client_obd	*cli = &req->rq_import->imp_obd->u.cli;
+	__u32			opc;
+	int			i;
+
+	if (it != NULL && (it->it_op == IT_GETATTR || it->it_op == IT_LOOKUP ||
+			   it->it_op == IT_LAYOUT || it->it_op == IT_READDIR))
+		return;
+
+	/* XXX: what if the flag flips after reconnect? */
+	/* wether the target supports multi-slots .. */
+	if ((ocd->ocd_connect_flags & OBD_CONNECT_MULTISLOT) == 0) {
+		struct mdc_rpc_lock	*lck;
+		/* .. no */
+		opc = lustre_msg_get_opc(req->rq_reqmsg);
+		lck = cli->cl_rpc_lock;
+		if (opc == MDS_CLOSE || opc == MDS_DONE_WRITING)
+			lck = cli->cl_close_lock;
+		mdc_put_rpc_lock(lck, it);
+		return;
+	}
+
+	/* release the tag in the bitmap */
+	i = lustre_msg_get_tag(req->rq_reqmsg) - 1;
+	LASSERT(i < ocd->ocd_maxslots);
+	if (!test_and_clear_bit(i, &cli->cl_modify_bitmap[0]))
+		LBUG();
+
+	atomic_dec(&cli->cl_modify_in_flight);
+	wake_up(&cli->cl_modify_waitq);
 }
 
 /* Update the maximum observed easize and cookiesize.  The default easize

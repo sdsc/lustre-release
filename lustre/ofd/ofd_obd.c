@@ -288,8 +288,7 @@ static int ofd_obd_connect(const struct lu_env *env, struct obd_export **_exp,
 	if (obd->obd_replayable) {
 		struct tg_export_data *ted = &exp->exp_target_data;
 
-		memcpy(ted->ted_lcd->lcd_uuid, cluuid,
-		       sizeof(ted->ted_lcd->lcd_uuid));
+		memcpy(ted->ted_uuid, cluuid, sizeof(ted->ted_uuid));
 		rc = tgt_client_new(env, exp);
 		if (rc != 0)
 			GOTO(out, rc);
