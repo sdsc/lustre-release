@@ -1966,14 +1966,18 @@ static int mdt_quotactl(struct tgt_session_info *tsi)
 			     oqctl->qc_cmd != Q_GETINFO))
 			RETURN(-EPERM);
 
-		if (oqctl->qc_type == USRQUOTA)
+		switch (oqctl->qc_type) {
+		case USRQUOTA:
 			id = lustre_idmap_lookup_uid(NULL, idmap, 0,
 						     oqctl->qc_id);
-		else if (oqctl->qc_type == GRPQUOTA)
+			break;
+		case GRPQUOTA:
 			id = lustre_idmap_lookup_gid(NULL, idmap, 0,
 						     oqctl->qc_id);
-		else
+			break;
+		default:
 			RETURN(-EINVAL);
+		}
 
 		if (id == CFS_IDMAP_NOTFOUND) {
 			CDEBUG(D_QUOTA, "no mapping for id %u\n", oqctl->qc_id);

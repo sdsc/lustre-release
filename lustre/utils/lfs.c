@@ -1258,61 +1258,54 @@ static int set_time(time_t *time, time_t *set, char *str)
         return res;
 }
 
-#define USER 0
-#define GROUP 1
-
 static int name2id(unsigned int *id, char *name, int type)
 {
-        if (type == USER) {
-                struct passwd *entry;
+	struct passwd *passwd;
+	struct group *group;
 
-                if (!(entry = getpwnam(name))) {
-                        if (!errno)
-                                errno = ENOENT;
-                        return -1;
-                }
-
-                *id = entry->pw_uid;
-        } else {
-                struct group *entry;
-
-                if (!(entry = getgrnam(name))) {
-                        if (!errno)
-                                errno = ENOENT;
-                        return -1;
-                }
-
-                *id = entry->gr_gid;
-        }
-
-        return 0;
+	switch (type) {
+	case USRQUOTA:
+		passwd = getpwnam(name);
+		if (passwd == NULL)
+			return -ENOENT;
+		*id = passwd->pw_uid;
+		break;
+	case GRPQUOTA:
+		group = getgrnam(name);
+		if (group == NULL)
+			return -ENOENT;
+		*id = group->gr_gid;
+		break;
+	default:
+		CERROR("unsupported quota type: %#x\n", type);
+		return -ENOTSUP;
+	}
+	return 0;
 }
 
 static int id2name(char **name, unsigned int id, int type)
 {
-        if (type == USER) {
-                struct passwd *entry;
+	struct passwd *passwd;
+	struct group *group;
 
-                if (!(entry = getpwuid(id))) {
-                        if (!errno)
-                                errno = ENOENT;
-                        return -1;
-                }
-
-                *name = entry->pw_name;
-        } else {
-                struct group *entry;
-
-                if (!(entry = getgrgid(id))) {
-                        if (!errno)
-                                errno = ENOENT;
-                        return -1;
-                }
-
-                *name = entry->gr_name;
-        }
-
-        return 0;
+	switch (type) {
+	case USRQUOTA:
+		passwd = getpwuid(id);
+		if (passwd == NULL)
+			return -ENOENT;
+		*name = passwd->pw_name;
+		break;
+	case GRPQUOTA:
+		group = getgrgid(id);
+		if (group == NULL)
+			return -ENOENT;
+		*name = group->gr_name;
+		break;
+	default:
+		CERROR("unsupported quota type: %#x\n", type);
+		return -ENOTSUP;
+	}
+	return 0;
 }
 
 static int name2layout(__u32 *layout, char *name)
@@ -1471,7 +1464,7 @@ static int lfs_find(int argc, char **argv)
 			break;
 		case 'g':
 		case 'G':
-			rc = name2id(&param.fp_gid, optarg, GROUP);
+			rc = name2id(&param.fp_gid, optarg, GRPQUOTA);
 			if (rc) {
 				param.fp_gid = strtoul(optarg, &endptr, 10);
                                 if (*endptr != '\0') {
@@ -1493,7 +1486,7 @@ static int lfs_find(int argc, char **argv)
 			break;
                 case 'u':
                 case 'U':
-			rc = name2id(&param.fp_uid, optarg, USER);
+			rc = name2id(&param.fp_uid, optarg, USRQUOTA);
 			if (rc) {
 				param.fp_uid = strtoul(optarg, &endptr, 10);
                                 if (*endptr != '\0') {
@@ -2637,21 +2630,26 @@ int lfs_setquota_times(int argc, char **argv)
                 {"user",            no_argument,       0, 'u'},
                 {0, 0, 0, 0}
         };
+	int qtype;
 
-        memset(&qctl, 0, sizeof(qctl));
-        qctl.qc_cmd  = LUSTRE_Q_SETINFO;
-        qctl.qc_type = UGQUOTA;
+	memset(&qctl, 0, sizeof(qctl));
+	qctl.qc_cmd  = LUSTRE_Q_SETINFO;
+        qctl.qc_type = ALLQUOTA;
 
         while ((c = getopt_long(argc, argv, "b:gi:tu", long_opts, NULL)) != -1) {
                 switch (c) {
                 case 'u':
+			qtype = USRQUOTA;
+			goto quota_type;
                 case 'g':
-                        if (qctl.qc_type != UGQUOTA) {
+			qtype = GRPQUOTA;
+quota_type:
+			if (qctl.qc_type != ALLQUOTA) {
                                 fprintf(stderr, "error: -u and -g can't be used "
                                                 "more than once\n");
                                 return CMD_HELP;
                         }
-                        qctl.qc_type = (c == 'u') ? USRQUOTA : GRPQUOTA;
+			qctl.qc_type = qtype;
                         break;
                 case 'b':
                         if ((dqi->dqi_bgrace = str2sec(optarg)) == ULONG_MAX) {
@@ -2676,7 +2674,7 @@ int lfs_setquota_times(int argc, char **argv)
                 }
         }
 
-        if (qctl.qc_type == UGQUOTA) {
+	if (qctl.qc_type == ALLQUOTA) {
                 fprintf(stderr, "error: neither -u nor -g specified\n");
                 return CMD_HELP;
         }
@@ -2721,28 +2719,32 @@ int lfs_setquota(int argc, char **argv)
         };
         unsigned limit_mask = 0;
         char *endptr;
+	int qtype;
 
         if (has_times_option(argc, argv))
                 return lfs_setquota_times(argc, argv);
 
-        memset(&qctl, 0, sizeof(qctl));
-        qctl.qc_cmd  = LUSTRE_Q_SETQUOTA;
-        qctl.qc_type = UGQUOTA; /* UGQUOTA makes no sense for setquota,
+	memset(&qctl, 0, sizeof(qctl));
+	qctl.qc_cmd  = LUSTRE_Q_SETQUOTA;
+        qctl.qc_type = ALLQUOTA; /* ALLQUOTA makes no sense for setquota,
                                  * so it can be used as a marker that qc_type
                                  * isn't reinitialized from command line */
 
         while ((c = getopt_long(argc, argv, "b:B:g:i:I:u:", long_opts, NULL)) != -1) {
                 switch (c) {
                 case 'u':
+			qtype = USRQUOTA;
+			goto quota_type;
                 case 'g':
-                        if (qctl.qc_type != UGQUOTA) {
+			qtype = GRPQUOTA;
+quota_type:
+			if (qctl.qc_type != ALLQUOTA) {
                                 fprintf(stderr, "error: -u and -g can't be used"
                                                 " more than once\n");
                                 return CMD_HELP;
                         }
-                        qctl.qc_type = (c == 'u') ? USRQUOTA : GRPQUOTA;
-                        rc = name2id(&qctl.qc_id, optarg,
-                                     (qctl.qc_type == USRQUOTA) ? USER : GROUP);
+			qctl.qc_type = qtype;
+			rc = name2id(&qctl.qc_id, optarg, qtype);
                         if (rc) {
                                 qctl.qc_id = strtoul(optarg, &endptr, 10);
                                 if (*endptr != '\0') {
@@ -2799,7 +2801,7 @@ int lfs_setquota(int argc, char **argv)
                 }
         }
 
-        if (qctl.qc_type == UGQUOTA) {
+	if (qctl.qc_type == ALLQUOTA) {
                 fprintf(stderr, "error: neither -u nor -g was specified\n");
                 return CMD_HELP;
         }
@@ -2867,16 +2869,6 @@ int lfs_setquota(int argc, char **argv)
         return 0;
 }
 
-static inline char *type2name(int check_type)
-{
-        if (check_type == USRQUOTA)
-                return "user";
-        else if (check_type == GRPQUOTA)
-                return "group";
-        else
-                return "unknown";
-}
-
 /* Converts seconds value into format string
  * result is returned in buf
  * Notes:
@@ -2936,8 +2928,8 @@ static void print_quota_title(char *name, struct if_quotactl *qctl,
 			      bool human_readable)
 {
 	printf("Disk quotas for %s %s (%cid %u):\n",
-	       type2name(qctl->qc_type), name,
-	       *type2name(qctl->qc_type), qctl->qc_id);
+	       qtype2name(qctl->qc_type), name,
+	       *qtype2name(qctl->qc_type), qctl->qc_id);
 	printf("%15s%8s %7s%8s%8s%8s %7s%8s%8s\n",
 	       "Filesystem", human_readable ? "used" : "kbytes",
 	       "quota", "limit", "grace",
@@ -3111,12 +3103,28 @@ out:
 	return rc ? : rc1;
 }
 
+static int get_id(__u32 *id, int type)
+{
+	switch (type) {
+	case USRQUOTA:
+		*id = geteuid();
+		break;
+	case GRPQUOTA:
+		*id = getegid();
+		break;
+	default:
+		CERROR("unsupported quota type: %#x\n", type);
+		return -ENOTSUP;
+	}
+	return 0;
+}
+
 static int lfs_quota(int argc, char **argv)
 {
 	int c;
 	char *mnt, *name = NULL;
 	struct if_quotactl qctl = { .qc_cmd = LUSTRE_Q_GETQUOTA,
-				    .qc_type = UGQUOTA };
+				    .qc_type = ALLQUOTA };
 	char *obd_type = (char *)qctl.obd_type;
 	char *obd_uuid = (char *)qctl.obd_uuid.uuid;
 	int rc, rc1 = 0, rc2 = 0, rc3 = 0,
@@ -3125,22 +3133,21 @@ static int lfs_quota(int argc, char **argv)
 	__u32 valid = QC_GENERAL, idx = 0;
 	__u64 total_ialloc = 0, total_balloc = 0;
 	bool human_readable = false;
+	int qtype;
 
 	while ((c = getopt(argc, argv, "gi:I:o:qtuvh")) != -1) {
                 switch (c) {
                 case 'u':
-                        if (qctl.qc_type != UGQUOTA) {
-                                fprintf(stderr, "error: use either -u or -g\n");
-                                return CMD_HELP;
-                        }
-                        qctl.qc_type = USRQUOTA;
-                        break;
+			qtype = USRQUOTA;
+			goto quota_type;
                 case 'g':
-                        if (qctl.qc_type != UGQUOTA) {
+			qtype = GRPQUOTA;
+quota_type:
+			if (qctl.qc_type != ALLQUOTA) {
                                 fprintf(stderr, "error: use either -u or -g\n");
                                 return CMD_HELP;
                         }
-                        qctl.qc_type = GRPQUOTA;
+                        qctl.qc_type = qtype;
                         break;
                 case 't':
                         qctl.qc_cmd = LUSTRE_Q_GETINFO;
@@ -3174,35 +3181,30 @@ static int lfs_quota(int argc, char **argv)
         }
 
         /* current uid/gid info for "lfs quota /path/to/lustre/mount" */
-        if (qctl.qc_cmd == LUSTRE_Q_GETQUOTA && qctl.qc_type == UGQUOTA &&
+	if (qctl.qc_cmd == LUSTRE_Q_GETQUOTA && qctl.qc_type == ALLQUOTA &&
             optind == argc - 1) {
-ug_output:
-                memset(&qctl, 0, sizeof(qctl)); /* spoiled by print_*_quota */
-                qctl.qc_cmd = LUSTRE_Q_GETQUOTA;
-                qctl.qc_valid = valid;
-                qctl.qc_idx = idx;
-                if (pass++ == 0) {
-                        qctl.qc_type = USRQUOTA;
-                        qctl.qc_id = geteuid();
-                } else {
-                        qctl.qc_type = GRPQUOTA;
-                        qctl.qc_id = getegid();
-                }
-                rc = id2name(&name, qctl.qc_id,
-                             (qctl.qc_type == USRQUOTA) ? USER : GROUP);
-                if (rc)
-                        name = "<unknown>";
+all_output:
+		memset(&qctl, 0, sizeof(qctl)); /* spoiled by print_*_quota */
+		qctl.qc_cmd = LUSTRE_Q_GETQUOTA;
+		qctl.qc_valid = valid;
+		qctl.qc_idx = idx;
+		qctl.qc_type = pass;
+		rc = get_id(&qctl.qc_id, qctl.qc_type);
+		LASSERT(rc == 0);
+		rc = id2name(&name, qctl.qc_id, qctl.qc_type);
+		if (rc)
+			name = "<unknown>";
+		pass++;
         /* lfs quota -u username /path/to/lustre/mount */
         } else if (qctl.qc_cmd == LUSTRE_Q_GETQUOTA) {
                 /* options should be followed by u/g-name and mntpoint */
-                if (optind + 2 != argc || qctl.qc_type == UGQUOTA) {
+		if (optind + 2 != argc || qctl.qc_type == ALLQUOTA) {
                         fprintf(stderr, "error: missing quota argument(s)\n");
                         return CMD_HELP;
                 }
 
                 name = argv[optind++];
-                rc = name2id(&qctl.qc_id, name,
-                             (qctl.qc_type == USRQUOTA) ? USER : GROUP);
+		rc = name2id(&qctl.qc_id, name, qctl.qc_type);
                 if (rc) {
                         qctl.qc_id = strtoul(name, &endptr, 10);
                         if (*endptr != '\0') {
@@ -3211,7 +3213,7 @@ ug_output:
                                 return CMD_HELP;
                         }
                 }
-        } else if (optind + 1 != argc || qctl.qc_type == UGQUOTA) {
+	} else if (optind + 1 != argc || qctl.qc_type == ALLQUOTA) {
                 fprintf(stderr, "error: missing quota info argument(s)\n");
                 return CMD_HELP;
         }
@@ -3223,7 +3225,7 @@ ug_output:
                 switch (rc1) {
                 case -ESRCH:
                         fprintf(stderr, "%s quotas are not enabled.\n",
-                                qctl.qc_type == USRQUOTA ? "user" : "group");
+				qtype2name(qctl.qc_type));
                         goto out;
                 case -EPERM:
                         fprintf(stderr, "Permission denied.\n");
@@ -3272,8 +3274,8 @@ ug_output:
                        "The data in \"[]\" is inaccurate.\n");
 
 out:
-        if (pass == 1)
-                goto ug_output;
+	if (pass > 0 && pass < MAXQUOTAS)
+		goto all_output;
 
         return rc1;
 }

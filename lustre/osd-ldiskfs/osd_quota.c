@@ -35,17 +35,26 @@
  * Helpers function to find out the quota type (USRQUOTA/GRPQUOTA) of a
  * given object
  */
-static inline int fid2type(const struct lu_fid *fid)
+static inline int fid2type(const struct lu_fid *fid, int *qtype)
 {
 	LASSERT(fid_is_acct(fid));
-	if (fid_oid(fid) == ACCT_GROUP_OID)
-		return GRPQUOTA;
-	return USRQUOTA;
+	switch (fid_oid(fid)) {
+	case ACCT_USER_OID:
+		*qtype = USRQUOTA;
+		break;
+	case ACCT_GROUP_OID:
+		*qtype = GRPQUOTA;
+		break;
+	default:
+		CERROR("unsupported quota type: %#x\n", fid_oid(fid));
+		return -ENOTSUPP;
+	}
+	return 0;
 }
 
-static inline int obj2type(struct dt_object *obj)
+static inline int obj2type(struct dt_object *obj, int *qtype)
 {
-	return fid2type(lu_object_fid(&obj->do_lu));
+	return fid2type(lu_object_fid(&obj->do_lu), qtype);
 }
 
 /**
@@ -65,10 +74,12 @@ int osd_acct_obj_lookup(struct osd_thread_info *info, struct osd_device *osd,
 			const struct lu_fid *fid, struct osd_inode_id *id)
 {
 	struct super_block *sb = osd_sb(osd);
-        unsigned long qf_inums[2] = {
+        unsigned long qf_inums[MAXQUOTAS] = {
 		le32_to_cpu(LDISKFS_SB(sb)->s_es->s_usr_quota_inum),
 		le32_to_cpu(LDISKFS_SB(sb)->s_es->s_grp_quota_inum)
 	};
+	int rc;
+	int qtype;
 
 	ENTRY;
 	LASSERT(fid_is_acct(fid));
@@ -78,7 +89,10 @@ int osd_acct_obj_lookup(struct osd_thread_info *info, struct osd_device *osd,
 		RETURN(-ENOENT);
 
 	id->oii_gen = OSD_OII_NOGEN;
-	id->oii_ino = qf_inums[fid2type(fid)];
+	rc = fid2type(fid, &qtype);
+	if (rc)
+		RETURN(rc);
+	id->oii_ino = qf_inums[qtype];
 	if (!ldiskfs_valid_inum(sb, id->oii_ino))
 		RETURN(-ENOENT);
 	RETURN(0);
@@ -114,15 +128,20 @@ static int osd_acct_index_lookup(const struct lu_env *env,
 #ifdef HAVE_DQUOT_KQID
 	struct kqid		 qid;
 #endif
+	int			type;
 
 	ENTRY;
 
+	rc = obj2type(dtobj, &type);
+	if (rc)
+		RETURN(rc);
+
 	memset(dqblk, 0, sizeof(*dqblk));
 #ifdef HAVE_DQUOT_KQID
-	qid = make_kqid(&init_user_ns, obj2type(dtobj), id);
+	qid = make_kqid(&init_user_ns, type, id);
 	rc = sb->s_qcop->get_dqblk(sb, qid, dqblk);
 #else
-	rc = sb->s_qcop->get_dqblk(sb, obj2type(dtobj), (qid_t)id, dqblk);
+	rc = sb->s_qcop->get_dqblk(sb, type, (qid_t) id, dqblk);
 #endif
 	if (rc)
 		RETURN(rc);
@@ -216,12 +235,15 @@ static int osd_it_acct_get(const struct lu_env *env, struct dt_it *di,
 	struct osd_it_quota	*it = (struct osd_it_quota *)di;
 	const struct lu_fid	*fid =
 				lu_object_fid(&it->oiq_obj->oo_dt.do_lu);
-	int			 type = fid2type(fid);
+	int			 type;
 	qid_t			 dqid = *(qid_t *)key;
 	loff_t			 offset;
 	int			 rc;
 
 	ENTRY;
+	rc = fid2type(fid, &type);
+	if (rc)
+		RETURN(rc);
 
 	offset = find_tree_dqentry(env, it->oiq_obj, type, dqid,
 				   LUSTRE_DQTREEOFF, 0, it);
@@ -280,11 +302,15 @@ static int osd_it_acct_next(const struct lu_env *env, struct dt_it *di)
 	struct osd_it_quota	*it = (struct osd_it_quota *)di;
 	const struct lu_fid	*fid =
 				lu_object_fid(&it->oiq_obj->oo_dt.do_lu);
-	int			 type = fid2type(fid);
+	int			 type;
 	int			 depth, rc;
 	uint			 index;
 
 	ENTRY;
+
+	rc = fid2type(fid, &type);
+	if (rc)
+		RETURN(rc);
 
 	/* Let's first check if there are any remaining valid entry in the
 	 * current leaf block. Start with the next entry after the current one.
@@ -478,12 +504,12 @@ void osd_quota_unpack(struct osd_object *obj, const struct dt_rec *rec)
 
 static inline int osd_qid_type(struct osd_thandle *oh, int i)
 {
-	return (oh->ot_id_type & (1 << i)) ? GRPQUOTA : USRQUOTA;
+	return oh->ot_id_types[i];
 }
 
 static inline void osd_qid_set_type(struct osd_thandle *oh, int i, int type)
 {
-	oh->ot_id_type |= ((type == GRPQUOTA) ? (1 << i) : 0);
+	oh->ot_id_types[i] = type;
 }
 
 /**

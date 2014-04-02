@@ -382,6 +382,7 @@ struct dt_object *lquota_disk_slv_find_create(const struct lu_env *env,
 	struct lquota_thread_info	*qti = lquota_info(env);
 	struct dt_object		*slv_idx;
 	int				 rc;
+	__u32				 oid;
 	ENTRY;
 
 	LASSERT(uuid != NULL);
@@ -405,9 +406,11 @@ struct dt_object *lquota_disk_slv_find_create(const struct lu_env *env,
 		if (rc)
 			RETURN(ERR_PTR(rc));
 
+		rc = qtype2slv_oid(type, &oid);
+		if (rc)
+			RETURN(ERR_PTR(rc));
 		/* use predefined fid in the reserved oid list */
-		qti->qti_fid.f_oid = (type == USRQUOTA) ? LQUOTA_USR_OID
-							: LQUOTA_GRP_OID;
+		qti->qti_fid.f_oid = oid;
 
 		slv_idx = local_index_find_or_create_with_fid(env, dev,
 							      &qti->qti_fid,
