@@ -359,6 +359,23 @@ struct lsd_client_data {
         __u8  lcd_padding[LR_CLIENT_SIZE - 128];
 };
 
+struct lsd_reply_header {
+	__u32	lrh_magic;
+	__u32	lrh_header_size;
+	__u32	lrh_reply_size;
+
+};
+
+struct lsd_reply_data {
+	__u64 lrd_pre_versions[4];
+	__u64 lrd_transno; /* last completed transaction ID */
+	__u64 lrd_xid;     /* xid for the last transaction */
+	__u32 lrd_data;    /* per-op data (disposition for open &c.) */
+	__u32 lrd_result;  /* result from last RPC */
+	__u32 lrd_client_idx;	/* #client in last_rcvd */
+	__u32 lrd_padding;	/* #client in last_rcvd */
+};
+
 /* bug20354: the lcd_uuid for export of clients may be wrong */
 static inline void check_lcd(char *obd_name, int index,
                              struct lsd_client_data *lcd)
