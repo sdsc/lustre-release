@@ -1242,6 +1242,7 @@ static int osd_ldiskfs_readlink(struct inode *inode, char *buffer, int buflen)
 
 int osd_ldiskfs_read(struct inode *inode, void *buf, int size, loff_t *offs)
 {
+	struct super_block *sb = inode->i_sb;
         struct buffer_head *bh;
         unsigned long block;
         int osize;
@@ -1275,15 +1276,20 @@ int osd_ldiskfs_read(struct inode *inode, void *buf, int size, loff_t *offs)
                 boffs = *offs & (blocksize - 1);
                 csize = min(blocksize - boffs, size);
                 bh = ldiskfs_bread(NULL, inode, block, 0, &err);
-                if (!bh) {
-                        CERROR("%s: can't read %u@%llu on ino %lu: rc = %d\n",
-                               LDISKFS_SB(inode->i_sb)->s_es->s_volume_name,
-                               csize, *offs, inode->i_ino, err);
-                        return err;
-                }
-
-                memcpy(buf, bh->b_data + boffs, csize);
-                brelse(bh);
+		if (unlikely(bh == NULL)) {
+			if (err != 0) {
+				CERROR("%s: can't read %u@%llu on ino %lu: "
+				       "rc = %d\n",
+				       LDISKFS_SB(sb)->s_es->s_volume_name,
+				       csize, *offs, inode->i_ino, err);
+				return err;
+			}
+			/* a hole in the file */
+			memset(buf, 0, csize);
+		} else {
+			memcpy(buf, bh->b_data + boffs, csize);
+			brelse(bh);
+		}
 
                 *offs += csize;
                 buf += csize;

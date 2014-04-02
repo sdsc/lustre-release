@@ -438,12 +438,12 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
 
         /* make rpc */
         if (opcode == MDS_REINT)
-                mdc_get_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+		mdc_get_in_flight(req, NULL);
 
         rc = ptlrpc_queue_wait(req);
 
         if (opcode == MDS_REINT)
-                mdc_put_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+		mdc_put_in_flight(req, NULL);
 
         if (rc)
                 ptlrpc_req_finished(req);
@@ -934,9 +934,15 @@ int mdc_close(struct obd_export *exp, struct md_op_data *op_data,
 
         ptlrpc_request_set_replen(req);
 
-        mdc_get_rpc_lock(obd->u.cli.cl_close_lock, NULL);
+	/* XXX: we should be able to exceed the limit for close to be able
+	 *	to make progress if all the slots are occupied by the opens
+	 *	in practice it's very unlikely all the opens got stuck
+	 *	awaiting for the specific close from the same client, but
+	 *	in general closes should have some priority over others
+	 *	probably the list of awaiting threads should be sorted... */
+	mdc_get_in_flight(req, NULL);
         rc = ptlrpc_queue_wait(req);
-        mdc_put_rpc_lock(obd->u.cli.cl_close_lock, NULL);
+	mdc_put_in_flight(req, NULL);
 
         if (req->rq_repmsg == NULL) {
                 CDEBUG(D_RPCTRACE, "request failed to send: %p, %d\n", req,
@@ -985,7 +991,6 @@ int mdc_close(struct obd_export *exp, struct md_op_data *op_data,
 int mdc_done_writing(struct obd_export *exp, struct md_op_data *op_data,
                      struct md_open_data *mod)
 {
-        struct obd_device     *obd = class_exp2obd(exp);
         struct ptlrpc_request *req;
         int                    rc;
         ENTRY;
@@ -1019,9 +1024,9 @@ int mdc_done_writing(struct obd_export *exp, struct md_op_data *op_data,
         mdc_close_pack(req, op_data);
         ptlrpc_request_set_replen(req);
 
-        mdc_get_rpc_lock(obd->u.cli.cl_close_lock, NULL);
+	mdc_get_in_flight(req, NULL);
         rc = ptlrpc_queue_wait(req);
-        mdc_put_rpc_lock(obd->u.cli.cl_close_lock, NULL);
+	mdc_put_in_flight(req, NULL);
 
         if (rc == -ESTALE) {
                 /**
@@ -2920,9 +2925,9 @@ static int mdc_pin(struct obd_export *exp, const struct lu_fid *fid,
 
         ptlrpc_request_set_replen(req);
 
-        mdc_get_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+	mdc_get_in_flight(req, NULL);
         rc = ptlrpc_queue_wait(req);
-        mdc_put_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+	mdc_put_in_flight(req, NULL);
         if (rc) {
                 CERROR("Pin failed: %d\n", rc);
                 GOTO(err_out, rc);
@@ -2968,9 +2973,9 @@ static int mdc_unpin(struct obd_export *exp, struct obd_client_handle *handle,
 
         ptlrpc_request_set_replen(req);
 
-        mdc_get_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+	mdc_get_in_flight(req, NULL);
         rc = ptlrpc_queue_wait(req);
-        mdc_put_rpc_lock(exp->exp_obd->u.cli.cl_rpc_lock, NULL);
+	mdc_put_in_flight(req, NULL);
 
         if (rc != 0)
                 CERROR("Unpin failed: %d\n", rc);
