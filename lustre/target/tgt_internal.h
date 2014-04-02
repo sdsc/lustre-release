@@ -107,6 +107,7 @@ struct tgt_thread_info {
 	struct lr_server_data	 tti_lsd;
 	struct lsd_client_data	 tti_lcd;
 	struct lu_buf		 tti_buf;
+	struct lsd_reply_data	 tti_lrd;
 	loff_t			 tti_off;
 
 	struct lu_attr		 tti_attr;
@@ -156,11 +157,16 @@ int tgt_request_handle(struct ptlrpc_request *req);
 /* check if request's xid is equal to last one or not*/
 static inline int req_xid_is_last(struct ptlrpc_request *req)
 {
+#if 1
+	//LBUG();
+	return 0;
+#else
 	struct lsd_client_data *lcd = req->rq_export->exp_target_data.ted_lcd;
 
 	LASSERT(lcd != NULL);
 	return (req->rq_xid == lcd->lcd_last_xid ||
 		req->rq_xid == lcd->lcd_last_close_xid);
+#endif
 }
 
 static inline char *dt_obd_name(struct dt_device *dt)
