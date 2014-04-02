@@ -144,6 +144,7 @@ static inline const struct lsm_operations *lsm_op_find(int magic)
 
 struct pool_desc {
 	char			 pool_name[LOV_MAXPOOLNAME + 1];
+	__u32			 pool_id;
 	struct ost_pool		 pool_obds;
 	atomic_t		 pool_refcount;
 	struct hlist_node	 pool_hash;	/* access by poolname */
