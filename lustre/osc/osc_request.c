@@ -1295,14 +1295,14 @@ static int osc_brw_fini_request(struct ptlrpc_request *req, int rc)
         }
 
         /* set/clear over quota flag for a uid/gid */
-        if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE &&
-            body->oa.o_valid & (OBD_MD_FLUSRQUOTA | OBD_MD_FLGRPQUOTA)) {
-                unsigned int qid[MAXQUOTAS] = { body->oa.o_uid, body->oa.o_gid };
+	if (lustre_msg_get_opc(req->rq_reqmsg) == OST_WRITE &&
+	    body->oa.o_valid & OBD_MD_FLALLQUOTA) {
+		unsigned int qid[MAXQUOTAS] = { body->oa.o_uid, body->oa.o_gid };
 
-                CDEBUG(D_QUOTA, "setdq for [%u %u] with valid "LPX64", flags %x\n",
-                       body->oa.o_uid, body->oa.o_gid, body->oa.o_valid,
-                       body->oa.o_flags);
-                osc_quota_setdq(cli, qid, body->oa.o_valid, body->oa.o_flags);
+		CDEBUG(D_QUOTA, "setdq for [%u %u] with valid "LPX64", flags %x\n",
+		       body->oa.o_uid, body->oa.o_gid, body->oa.o_valid,
+		       body->oa.o_flags);
+		osc_quota_setdq(cli, qid, body->oa.o_valid, body->oa.o_flags);
         }
 
         osc_update_grant(cli, body);
