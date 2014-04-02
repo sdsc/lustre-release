@@ -424,6 +424,9 @@ int llapi_search_ost(char *fsname, char *poolname, char *ostname)
                 return -errno;
 
         while (fgets(buffer, sizeof(buffer), fd) != NULL) {
+		/* Skip pool ID line */
+		if (strncmp(buffer, "pool_id:", strlen("pool_id:")) == 0)
+			continue;
                 if (poolname == NULL) {
                         char *ptr;
                         /* Search for an ostname in the list of OSTs
@@ -1104,6 +1107,11 @@ int llapi_get_poolmembers(const char *poolname, char **members,
                 tmp = strchr(buf, '\n');
                 if (tmp != NULL)
                         *tmp='\0';
+
+		/* Skip pool ID line */
+		if (strncmp(buf, "pool_id:", strlen("pool_id:")) == 0)
+			continue;
+
                 if (used + strlen(buf) + 1 > buffer_size) {
                         rc = -EOVERFLOW;
                         break;
