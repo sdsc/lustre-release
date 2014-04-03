@@ -1434,6 +1434,7 @@ static bool mdt_hsm_release_allow(const struct md_attr *ma)
 int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 			 struct mdt_lock_handle *lhc)
 {
+	struct ptlrpc_request   *req = mdt_info_req(info);
         const struct lu_env     *env   = info->mti_env;
         struct mdt_device       *mdt   = info->mti_mdt;
         __u64                    flags = info->mti_spec.sp_cr_flags;
@@ -1491,9 +1492,28 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 	if (flags & MDS_OPEN_RELEASE && !mdt_hsm_release_allow(ma))
 		GOTO(out, rc = -EPERM);
 
-	rc = mdt_object_open_lock(info, o, lhc, &ibits);
-        if (rc)
-                GOTO(out_unlock, rc);
+
+	if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
+		/* the open lock might already be gotten in
+		 * ldlm_handle_enqueue() */
+		struct ldlm_lock *lock;
+
+		lock = ldlm_handle2lock(&lhc->mlh_reg_lh);
+		if (!lock) {
+			CERROR("Invalid lock handle "LPX64"\n",
+			       lhc->mlh_reg_lh.cookie);
+			GOTO(out, rc = -EPROTO);
+		}
+		LASSERT(fid_res_name_eq(mdt_object_fid(o),
+					&lock->l_resource->lr_name));
+		LDLM_LOCK_PUT(lock);
+
+		LASSERT(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT);
+	} else {
+		rc = mdt_object_open_lock(info, o, lhc, &ibits);
+		if (rc)
+			GOTO(out_unlock, rc);
+	}
 
         if (ma->ma_valid & MA_PFID) {
                 parent = mdt_object_find(env, mdt, &ma->ma_pfid);
@@ -1858,7 +1878,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 
 	if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
 		/* the open lock might already be gotten in
-		 * mdt_intent_fixup_resent */
+		 * ldlm_handle_enqueue() */
 		LASSERT(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT);
 		if (create_flags & MDS_OPEN_LOCK)
 			mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
