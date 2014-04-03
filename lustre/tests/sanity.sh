@@ -12414,6 +12414,10 @@ test_striped_dir() {
 	local stripe_count
 	local stripe_index
 
+	# restart the system to see how setdistripe works just after setup FS.
+	cleanup || error "cleanup failed"
+	setup || error "setup failed"
+
 	mkdir -p $DIR/$tdir
 	$LFS setdirstripe -i $mdt_index -c 2 -t all_char $DIR/$tdir/striped_dir ||
 		error "set striped dir error"

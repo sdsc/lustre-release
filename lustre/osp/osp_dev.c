@@ -443,6 +443,11 @@ static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 	if (unlikely(d->opd_imp_active == 0))
 		RETURN(-ENOTCONN);
 
+	LASSERT(d->opd_obd->u.cli.cl_seq != NULL);
+	/* Sigh, fid client is not ready yet */
+	if (d->opd_obd->u.cli.cl_seq->lcs_exp == NULL)
+		RETURN(-ENOTCONN);
+
 	if (d->opd_pre == NULL)
 		RETURN(0);
 

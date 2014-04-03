@@ -548,10 +548,6 @@ static int lod_verify_md_striping(struct lod_device *lod,
 
 	if (unlikely(le32_to_cpu(lum->lum_stripe_count) == 0))
 		GOTO(out, rc = -EINVAL);
-
-	if (unlikely(le32_to_cpu(lum->lum_stripe_count) >
-				lod->lod_remote_mdt_count + 1))
-		GOTO(out, rc = -EINVAL);
 out:
 	if (rc != 0)
 		CERROR("%s: invalid lmv_user_md: magic = %x, "
@@ -706,8 +702,12 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 	LASSERT(le32_to_cpu(lum->lum_magic) == LMV_USER_MAGIC);
 	LASSERT(le32_to_cpu(lum->lum_stripe_count) > 0);
 
-	/* Do not need allocated master stripe */
 	stripe_count = le32_to_cpu(lum->lum_stripe_count);
+
+	/* shrink the stripe_count to the avaible MDT count */
+	if (stripe_count > lod->lod_remote_mdt_count + 1)
+		stripe_count = lod->lod_remote_mdt_count + 1;
+
 	OBD_ALLOC(stripe, sizeof(stripe[0]) * (stripe_count - 1));
 	if (stripe == NULL)
 		RETURN(-ENOMEM);
@@ -730,14 +730,25 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 		     j++, idx = (idx + 1) % (lod->lod_remote_mdt_count + 1)) {
 			bool already_allocated = false;
 			int k;
+			struct lod_tgt_desc	*tgt;
 
 			CDEBUG(D_INFO, "try idx %d, mdt cnt %d,"
 			       " allocated %d, last allocated %d\n", idx,
 			       lod->lod_remote_mdt_count, i, idx_array[i - 1]);
 
-			/* Find next avaible target */
+			/* Find next available target */
 			if (!cfs_bitmap_check(ltd->ltd_tgt_bitmap, idx))
 				continue;
+
+			tgt = LTD_TGT(ltd, idx);
+			if (tgt == NULL)
+				continue;
+
+			rc = dt_statfs(env, tgt->ltd_tgt, NULL);
+			if (rc) {
+				/* this OSP doesn't feel well */
+				continue;
+			}
 
 			/* check whether the idx already exists
 			 * in current allocated array */
