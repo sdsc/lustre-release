@@ -569,9 +569,9 @@ int nodemap_map_acl(struct lu_nodemap *nodemap, struct lu_buf *buffer,
 	int			new_count = 0;
 	int			new_size = 0;
 	__u32			id;
-	__u64			acl_end;
-	__u64			remainder_size;
-	__u64			buf_end;
+	ptrdiff_t		acl_end;
+	ptrdiff_t		remainder_size;
+	ptrdiff_t		buf_end;
 
 	header = buffer->lb_buf;
 	buf_end = (__u64) buffer->lb_buf + buffer->lb_len;
@@ -661,9 +661,7 @@ int nodemap_map_acl(struct lu_nodemap *nodemap, struct lu_buf *buffer,
 	}
 
 	new_size = new_count * 8 + 4;
-
 	memcpy(header, new_header, acl_count);
-
 	OBD_FREE(new_buffer, sizeof(long unsigned int) * buffer->lb_len);
 
 	return new_size;
