@@ -2780,6 +2780,8 @@ static int osd_object_ref_add(const struct lu_env *env,
 
 	osd_trans_exec_op(env, th, OSD_OT_REF_ADD);
 
+	CDEBUG(D_INODE, DFID "increase nlink %d\n",
+	       PFID(lu_object_fid(&dt->do_lu)), inode->i_nlink);
 	/*
 	 * The DIR_NLINK feature allows directories to exceed LDISKFS_LINK_MAX
 	 * (65000) subdirectories by storing "1" in i_nlink if the link count
@@ -2853,6 +2855,9 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
 		spin_unlock(&obj->oo_guard);
 		return 0;
 	}
+
+	CDEBUG(D_INODE, DFID "decrease nlink %d\n",
+	       PFID(lu_object_fid(&dt->do_lu)), inode->i_nlink);
 
 	ldiskfs_dec_count(oh->ot_handle, inode);
 	spin_unlock(&obj->oo_guard);
