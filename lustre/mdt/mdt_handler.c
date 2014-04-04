@@ -751,6 +751,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         const struct lu_env     *env = info->mti_env;
         struct mdt_body         *repbody;
         struct lu_buf           *buffer = &info->mti_buf;
+	struct lu_nodemap	*nodemap = info->mti_exp->exp_nodemap;
         int                     rc;
 	int			is_root;
         ENTRY;
@@ -951,12 +952,14 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 #ifdef CONFIG_FS_POSIX_ACL
 	else if ((exp_connect_flags(req->rq_export) & OBD_CONNECT_ACL) &&
 		 (reqbody->valid & OBD_MD_FLACL)) {
+
                 buffer->lb_buf = req_capsule_server_get(pill, &RMF_ACL);
                 buffer->lb_len = req_capsule_get_size(pill,
                                                       &RMF_ACL, RCL_SERVER);
                 if (buffer->lb_len > 0) {
                         rc = mo_xattr_get(env, next, buffer,
                                           XATTR_NAME_ACL_ACCESS);
+
                         if (rc < 0) {
                                 if (rc == -ENODATA) {
                                         repbody->aclsize = 0;
@@ -971,6 +974,8 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 					       PFID(mdt_object_fid(o)), rc);
 				}
                         } else {
+				rc = nodemap_map_acl(nodemap, buffer,
+						     NODEMAP_CLIENT_TO_FS, rc);
                                 repbody->aclsize = rc;
                                 repbody->valid |= OBD_MD_FLACL;
                                 rc = 0;

@@ -24,7 +24,10 @@
  * Author: Joshua Walgenbach <jjw@iu.edu>
  */
 #include <linux/module.h>
+#include <linux/sort.h>
 #include <lustre_net.h>
+#include <lustre_acl.h>
+#include <lustre_eacl.h>
 #include <obd_class.h>
 #include "nodemap_internal.h"
 
@@ -516,6 +519,156 @@ out:
 	return id;
 }
 EXPORT_SYMBOL(nodemap_map_id);
+
+int cmp_acl(const void *a, const void *b)
+{
+	const posix_acl_xattr_entry	*lhs = a;
+	const posix_acl_xattr_entry	*rhs = b;
+
+	if (le32_to_cpu(lhs->e_id) >
+	    le32_to_cpu(rhs->e_id))
+		return 1;
+
+	return -1;
+}
+
+void swap_acl(void *a, void *b, int size)
+{
+	posix_acl_xattr_entry	t;
+
+	memcpy(&t, a, size);
+	memcpy(a, b, size);
+	memcpy(b, &t, size);
+}
+
+/**
+ * map posix acl entries according to the nodemap membership.
+ *
+ * \param	lu_nodemap	nodemap
+ * \param	tree_type	direction of mapping
+ * \param	header		posix acl headers for the object
+ * \param	size		size of acls
+ *
+ * This function calls the kernel heapsort to sort the acls after
+ * mapping in place so that clients don't complain about validity.
+ */
+int nodemap_map_acl(struct lu_nodemap *nodemap, struct lu_buf *buffer,
+		    enum nodemap_tree_type tree_type, int acl_count)
+{
+	posix_acl_xattr_header	*header;
+	posix_acl_xattr_header	*new_header;
+	posix_acl_xattr_entry	*acl;
+	void			*new_buffer;
+	int			i;
+	int			j;
+	int			user_start = 0;
+	int			user_size = 0;
+	int			group_start = 0;
+	int			group_size = 0;
+	int			squash_size;
+	int			new_count = 0;
+	int			new_size = 0;
+	__u32			id;
+	__u64			acl_end;
+	__u64			remainder_size;
+	__u64			buf_end;
+
+	header = buffer->lb_buf;
+	buf_end = (__u64) buffer->lb_buf + buffer->lb_len;
+	acl_end = (__u64) (header + 32 + (acl_count *
+					  sizeof(posix_acl_xattr_entry)));
+	remainder_size = buf_end - acl_end;
+
+	OBD_ALLOC(new_buffer, sizeof(long unsigned int) * buffer->lb_len);
+	if (new_buffer == NULL) {
+		CERROR("cannot allocate memory (%zu bytes) for xattr buffer\n",
+		       sizeof(long unsigned int) * buffer->lb_len);
+		return -ENOMEM;
+	}
+
+	memset(new_buffer, 0, buffer->lb_len * 2);
+	new_header = new_buffer;
+
+	for (i = 0; i < acl_count; i++) {
+		id = le32_to_cpu(header->a_entries[i].e_id);
+		switch (le16_to_cpu(header->a_entries[i].e_tag)) {
+		case ACL_USER:
+			if (user_start == 0)
+				user_start = i;
+			user_size++;
+			id = nodemap_map_id(nodemap, NODEMAP_UID,
+					    tree_type, id);
+			header->a_entries[i].e_id = cpu_to_le32(id);
+			if (id == nodemap->nm_squash_uid)
+				squash_size++;
+			break;
+		case ACL_GROUP:
+			if (group_start == 0)
+				group_start = i;
+			group_size++;
+			id = nodemap_map_id(nodemap, NODEMAP_GID,
+					    tree_type, id);
+			header->a_entries[i].e_id = cpu_to_le32(id);
+			if (id == nodemap->nm_squash_uid)
+				squash_size++;
+			break;
+		}
+	}
+
+	/* Sort mapped acls by type */
+
+	acl = &header->a_entries[user_start];
+	sort(acl, user_size, sizeof(posix_acl_xattr_entry), cmp_acl,
+	     swap_acl);
+	acl = &header->a_entries[group_start];
+	sort(acl, group_size, sizeof(posix_acl_xattr_entry), cmp_acl,
+	     swap_acl);
+
+	new_header->a_version = header->a_version;
+
+	/* Copy mapped acls into a new structure, editing out those
+	 * with squashed ids
+	 */
+	for (i = 0, j = 0; i < acl_count; i++) {
+		id = le32_to_cpu(header->a_entries[i].e_id);
+		switch (le16_to_cpu(header->a_entries[i].e_tag)) {
+		case ACL_USER_OBJ:
+		case ACL_GROUP_OBJ:
+		case ACL_MASK:
+		case ACL_OTHER:
+			memcpy(&new_header->a_entries[j++],
+			       &header->a_entries[i],
+			       sizeof(posix_acl_xattr_entry));
+			new_count++;
+			break;
+		case ACL_USER:
+			if (id != nodemap->nm_squash_uid) {
+				memcpy(&new_header->a_entries[j++],
+				       &header->a_entries[i],
+				       sizeof(posix_acl_xattr_entry));
+				new_count++;
+			}
+			break;
+		case ACL_GROUP:
+			if (id != nodemap->nm_squash_gid) {
+				memcpy(&new_header->a_entries[j++],
+				       &header->a_entries[i],
+				       sizeof(posix_acl_xattr_entry));
+				new_count++;
+			}
+			break;
+		}
+	}
+
+	new_size = new_count * 8 + 4;
+
+	memcpy(header, new_header, acl_count);
+
+	OBD_FREE(new_buffer, sizeof(long unsigned int) * buffer->lb_len);
+
+	return new_size;
+}
+EXPORT_SYMBOL(nodemap_map_acl);
 
 /*
  * add nid range to nodemap

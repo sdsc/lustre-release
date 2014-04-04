@@ -114,4 +114,7 @@ int nodemap_del_idmap(const char *name, enum nodemap_id_type id_type,
 __u32 nodemap_map_id(struct lu_nodemap *nodemap,
 		     enum nodemap_id_type id_type,
 		     enum nodemap_tree_type tree_type, __u32 id);
+int nodemap_map_acl(struct lu_nodemap *nodemap,
+		    struct lu_buf *buffer,
+		    enum nodemap_tree_type tree_type, int acl_count);
 #endif	/* _LUSTRE_NODEMAP_H */
