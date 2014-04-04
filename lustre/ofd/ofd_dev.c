@@ -184,6 +184,9 @@ static void ofd_stack_fini(const struct lu_env *env, struct ofd_device *m,
 	obd_disconnect(m->ofd_osd_exp);
 	m->ofd_osd = NULL;
 
+	/* LU-4858 Allow a pause here to expose races during umount */
+	OBD_FAIL_TIMEOUT(OBD_FAIL_OFD_STACK_FINI_PAUSE, 60);
+
 	EXIT;
 }
 

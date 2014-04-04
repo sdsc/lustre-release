@@ -1326,6 +1326,7 @@ static inline int dt_fiemap_get(const struct lu_env *env, struct dt_object *d,
 static inline int dt_statfs(const struct lu_env *env, struct dt_device *dev,
                             struct obd_statfs *osfs)
 {
+	/* XXX Plan to change the below assert to instead return -ENODEV */
         LASSERT(dev);
         LASSERT(dev->dd_ops);
         LASSERT(dev->dd_ops->dt_statfs);
