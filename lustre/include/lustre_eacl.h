@@ -103,6 +103,10 @@ lustre_posix_acl_xattr_2ext(posix_acl_xattr_header *header, int size);
 extern int
 lustre_posix_acl_xattr_filter(posix_acl_xattr_header *header, int size,
 			      posix_acl_xattr_header **out);
+extern int
+lustre_posix_acl_xattr_filter_ids(posix_acl_xattr_header *header, int size,
+			      posix_acl_xattr_header **out, __u32 uid,
+			      __u32 gid);
 extern void
 lustre_posix_acl_xattr_free(posix_acl_xattr_header *header, int size);
 extern void
