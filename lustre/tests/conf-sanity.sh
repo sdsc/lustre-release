@@ -4638,6 +4638,25 @@ test_78() {
 }
 run_test 78 "run resize2fs on MDT and OST filesystems"
 
+test_79() { # LU-4858
+	local umountpid
+	start_mds
+	start_ost
+	wait_osc_import_state mds ost FULL
+	#define OBD_FAIL_OFD_STACK_FINI_PAUSE        0x233
+	do_facet ost "lctl set_param fail_loc=0x80000233"
+	stop_ost &
+	umountpid=$!
+	for i in $(seq 1 10);do
+		do_facet ost1 lctl get_param obdfilter.$FSNAME-OST0000.filesfree
+		sleep 2
+	done
+	wait $umountpid
+	cleanup
+}
+run_test 79 "Umount should not race with reading files in proc"
+
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
