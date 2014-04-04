@@ -527,12 +527,17 @@ int mdt_init_ucred_reint(struct mdt_thread_info *info)
 }
 
 /* copied from lov/lov_ea.c, just for debugging, will be removed later */
-void mdt_dump_lmm(int level, const struct lov_mds_md *lmm)
+void mdt_dump_lmm(int level, const struct lov_mds_md *lmm, __u64 valid)
 {
-        const struct lov_ost_data_v1 *lod;
-        int i;
-        __s16 stripe_count =
-                le16_to_cpu(((struct lov_user_md*)lmm)->lmm_stripe_count);
+	const struct lov_ost_data_v1	*lod;
+	int				 i;
+	__s16				 stripe_count;
+
+	if (likely(!cfs_cdebug_show(level, DEBUG_SUBSYSTEM)))
+		return;
+
+	stripe_count =
+		le16_to_cpu(((struct lov_user_md *)lmm)->lmm_stripe_count);
 
         CDEBUG(level, "objid "LPX64", magic 0x%08X, pattern %#X\n",
                le64_to_cpu(lmm->lmm_object_id), le32_to_cpu(lmm->lmm_magic),
@@ -540,6 +545,12 @@ void mdt_dump_lmm(int level, const struct lov_mds_md *lmm)
         CDEBUG(level,"stripe_size=0x%x, stripe_count=0x%x\n",
                le32_to_cpu(lmm->lmm_stripe_size),
                le32_to_cpu(lmm->lmm_stripe_count));
+
+	/* If it's a directory, then there are
+	 * no actual objects to print, so bail out. */
+	if (valid & OBD_MD_FLDIREA)
+		return;
+
         LASSERT(stripe_count <= (__s16)LOV_MAX_STRIPE_COUNT);
         for (i = 0, lod = lmm->lmm_objects; i < stripe_count; i++, lod++) {
                 CDEBUG(level, "stripe %u idx %u subobj "LPX64"/"LPX64"\n",
@@ -639,7 +650,7 @@ int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
                         mode = lu_object_attr(&mo->mot_obj.mo_lu);
 
                 LASSERT(ma->ma_lmm_size);
-                mdt_dump_lmm(D_INFO, ma->ma_lmm);
+		mdt_dump_lmm(D_INFO, ma->ma_lmm, repbody->valid);
                 repbody->eadatasize = ma->ma_lmm_size;
                 if (S_ISREG(mode))
                         repbody->valid |= OBD_MD_FLEASIZE;
