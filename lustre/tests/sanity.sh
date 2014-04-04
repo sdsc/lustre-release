@@ -2226,6 +2226,26 @@ test_31o() { # LU-2901
 }
 run_test 31o "duplicate hard links with same filename"
 
+test_31p() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	rm -rf $DIR/$tdir
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i0 -c2 $DIR/$tdir/striped_dir
+	$LFS setdirstripe -D -c2 -t all_char $DIR/$tdir/striped_dir
+
+	opendirunlink $DIR/$tdir/striped_dir/test1 ||
+		error "open unlink test1 failed"
+	opendirunlink $DIR/$tdir/striped_dir/test2 ||
+		error "open unlink test2 failed"
+
+	$CHECKSTAT -a $DIR/$tdir/striped_dir/test1 ||
+		error "test1 still exists"
+	$CHECKSTAT -a $DIR/$tdir/striped_dir/test2 ||
+		error "test2 still exists"
+}
+run_test 31p "remove of open striped directory"
+
 cleanup_test32_mount() {
 	trap 0
 	$UMOUNT -d $DIR/$tdir/ext2-mountpoint
