@@ -622,6 +622,11 @@ int ll_file_open(struct inode *inode, struct file *file)
                 it = &oit;
         }
 
+	/* Do NOT allow to write/exec on the file with LOV EA hole. */
+	if (S_ISREG(inode->i_mode) && unlikely(lli->lli_smd_hole) &&
+	    (it->it_flags & (FMODE_WRITE | FMODE_EXEC)))
+		GOTO(out_openerr, rc = -EPERM);
+
 restart:
         /* Let's see if we have file open on MDS already. */
         if (it->it_flags & FMODE_WRITE) {
@@ -1291,12 +1296,19 @@ static ssize_t ll_file_aio_read(struct kiocb *iocb, const struct iovec *iov,
 static ssize_t ll_file_read(struct file *file, char *buf, size_t count,
                             loff_t *ppos)
 {
-        struct lu_env *env;
-        struct iovec  *local_iov;
-        struct kiocb  *kiocb;
-        ssize_t        result;
-        int            refcheck;
-        ENTRY;
+	struct lu_env		*env;
+	struct iovec		*local_iov;
+	struct kiocb		*kiocb;
+	struct inode		*inode	= file->f_dentry->d_inode;
+	struct ll_file_data	*fd	= LUSTRE_FPRIVATE(file);
+	ssize_t 		 result;
+	int			 refcheck;
+	ENTRY;
+
+	if (S_ISREG(inode->i_mode) &&
+	    unlikely(ll_i2info(inode)->lli_smd_hole) &&
+	    !(fd->fd_flags & LL_FILE_DUMP))
+		RETURN(-EPERM);
 
         env = cl_env_get(&refcheck);
         if (IS_ERR(env))
@@ -2612,6 +2624,11 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		OBD_FREE_PTR(hui);
 		RETURN(rc);
+	}
+	case LL_IOC_DUMP: {
+		if (fd != NULL)
+			fd->fd_flags |= LL_FILE_DUMP;
+		RETURN(0);
 	}
 
 	default: {
