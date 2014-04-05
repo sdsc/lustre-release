@@ -319,6 +319,9 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	if (unlikely(lo->ldo_lovea_hole))
+		RETURN(-EPERM);
+
 	if (lo->ldo_stripenr == 0)
 		RETURN(0);
 
@@ -1345,10 +1348,12 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 
 	rc = 0;
 	v1 = info->lti_ea_store;
-	if (v1->lmm_magic == __swab32(LOV_USER_MAGIC_V1))
+	if (v1->lmm_magic == __swab32(LOV_USER_MAGIC_V1)) {
 		lustre_swab_lov_user_md_v1(v1);
-	else if (v1->lmm_magic == __swab32(LOV_USER_MAGIC_V3))
+	} else if (v1->lmm_magic == __swab32(LOV_USER_MAGIC_V3)) {
+		v3 = (struct lov_user_md_v3 *)v1;
 		lustre_swab_lov_user_md_v3(v3);
+	}
 
 	if (v1->lmm_magic != LOV_MAGIC_V3 && v1->lmm_magic != LOV_MAGIC_V1)
 		GOTO(unlock, rc = 0);
@@ -2000,11 +2005,11 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 
 	/* declare destroy for all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_declare_destroy(env, lo->ldo_stripe[i], th);
-
-		if (rc)
-			break;
+		if (likely(lo->ldo_stripe[i] != NULL)) {
+			rc = dt_declare_destroy(env, lo->ldo_stripe[i], th);
+			if (rc != 0)
+				break;
+		}
 	}
 
 	RETURN(rc);
@@ -2028,12 +2033,14 @@ static int lod_object_destroy(const struct lu_env *env,
 
 	/* destroy all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
 		/* for striped directory, next == ldo_stripe[0] */
-		if (next != lo->ldo_stripe[i]) {
-			rc = dt_destroy(env, lo->ldo_stripe[i], th);
-			if (rc)
-				break;
+		if (likely(lo->ldo_stripe[i] != NULL) &&
+		    next != lo->ldo_stripe[i]) {
+			if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_SPEOBJ) ||
+			    i == cfs_fail_val)
+				rc = dt_destroy(env, lo->ldo_stripe[i], th);
+				if (rc != 0)
+					break;
 		}
 	}
 

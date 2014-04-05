@@ -264,6 +264,7 @@ struct ost_id {
 #define LL_IOC_HSM_IMPORT		_IOWR('f', 245, struct hsm_user_import)
 #define LL_IOC_LMV_SET_DEFAULT_STRIPE	_IOWR('f', 246, struct lmv_user_md)
 #define LL_IOC_MIGRATE			_IOR('f', 247, int)
+#define LL_IOC_DUMP			_IOR('f', 248, int)
 
 #define LL_STATFS_LMV		1
 #define LL_STATFS_LOV		2
@@ -294,6 +295,7 @@ struct ost_id {
 #define LL_FILE_LOCKED_DIRECTIO 0x00000008 /* client-side locks with dio */
 #define LL_FILE_LOCKLESS_IO     0x00000010 /* server-side locks with cio */
 #define LL_FILE_RMTACL          0x00000020
+#define LL_FILE_DUMP		0x00000040
 
 #define LOV_USER_MAGIC_V1 0x0BD10BD0
 #define LOV_USER_MAGIC    LOV_USER_MAGIC_V1
