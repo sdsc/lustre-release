@@ -117,8 +117,9 @@ static int lprocfs_ofd_rd_grant_ratio(char *page, char **start, off_t off,
 			(int) ofd_grant_reserved(ofd, 100));
 }
 
-static int lprocfs_ofd_wr_grant_ratio(struct file *file, const char *buffer,
-				      unsigned long count, void *data)
+static int lprocfs_ofd_wr_grant_ratio(struct file *file,
+				      const char __user *buffer,
+				      size_t count, void *data)
 {
 	struct obd_device	*obd = (struct obd_device *)data;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
@@ -157,8 +158,9 @@ static int lprocfs_ofd_rd_precreate_batch(char *page, char **start, off_t off,
 	return snprintf(page, count, "%d\n", ofd->ofd_precreate_batch);
 }
 
-static int lprocfs_ofd_wr_precreate_batch(struct file *file, const char *buffer,
-					  unsigned long count, void *data)
+static int lprocfs_ofd_wr_precreate_batch(struct file *file,
+					  const char __user *buffer,
+					  size_t count, void *data)
 {
 	struct obd_device *obd = (struct obd_device *)data;
 	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
@@ -224,8 +226,8 @@ int lprocfs_ofd_rd_fmd_max_num(char *page, char **start, off_t off,
 	return rc;
 }
 
-int lprocfs_ofd_wr_fmd_max_num(struct file *file, const char *buffer,
-			       unsigned long count, void *data)
+int lprocfs_ofd_wr_fmd_max_num(struct file *file, const char __user *buffer,
+			       size_t count, void *data)
 {
 	struct obd_device	*obd = data;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
@@ -254,8 +256,8 @@ int lprocfs_ofd_rd_fmd_max_age(char *page, char **start, off_t off,
 	return rc;
 }
 
-int lprocfs_ofd_wr_fmd_max_age(struct file *file, const char *buffer,
-			       unsigned long count, void *data)
+int lprocfs_ofd_wr_fmd_max_age(struct file *file, const char __user *buffer,
+			       size_t count, void *data)
 {
 	struct obd_device	*obd = data;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
@@ -284,8 +286,8 @@ static int lprocfs_ofd_rd_capa(char *page, char **start, off_t off,
 	return rc;
 }
 
-static int lprocfs_ofd_wr_capa(struct file *file, const char *buffer,
-			       unsigned long count, void *data)
+static int lprocfs_ofd_wr_capa(struct file *file, const char __user *buffer,
+			       size_t count, void *data)
 {
 	struct obd_device	*obd = data;
 	int			 val, rc;
@@ -324,8 +326,8 @@ int lprocfs_ofd_rd_degraded(char *page, char **start, off_t off,
 	return snprintf(page, count, "%u\n", ofd->ofd_raid_degraded);
 }
 
-int lprocfs_ofd_wr_degraded(struct file *file, const char *buffer,
-			    unsigned long count, void *data)
+int lprocfs_ofd_wr_degraded(struct file *file, const char __user *buffer,
+			    size_t count, void *data)
 {
 	struct obd_device	*obd = data;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
@@ -366,8 +368,8 @@ int lprocfs_ofd_rd_syncjournal(char *page, char **start, off_t off,
 	return rc;
 }
 
-int lprocfs_ofd_wr_syncjournal(struct file *file, const char *buffer,
-			       unsigned long count, void *data)
+int lprocfs_ofd_wr_syncjournal(struct file *file, const char __user *buffer,
+			       size_t count, void *data)
 {
 	struct obd_device	*obd = data;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
@@ -389,6 +391,8 @@ int lprocfs_ofd_wr_syncjournal(struct file *file, const char *buffer,
 	return count;
 }
 
+/* This must be longer than the longest string below */
+#define SYNC_STATES_MAXLEN 16
 static char *sync_on_cancel_states[] = {"never",
 					"blocking",
 					"always" };
@@ -405,24 +409,39 @@ int lprocfs_ofd_rd_sync_lock_cancel(char *page, char **start, off_t off,
 	return rc;
 }
 
-int lprocfs_ofd_wr_sync_lock_cancel(struct file *file, const char *buffer,
-				    unsigned long count, void *data)
+int lprocfs_ofd_wr_sync_lock_cancel(struct file *file,
+				    const char __user *buffer,
+				    size_t count, void *data)
 {
 	struct obd_device	*obd = data;
 	struct lu_target	*tgt = obd->u.obt.obt_lut;
+	char			 kernbuf[SYNC_STATES_MAXLEN];
 	int			 val = -1;
 	int			 i;
 
+	if (count == 0 || count >= sizeof(kernbuf))
+		return -EINVAL;
+
+	if (copy_from_user(kernbuf, buffer, count))
+		return -EFAULT;
+	kernbuf[count] = 0;
+
+	if (kernbuf[count - 1] == '\n')
+		kernbuf[count - 1] = 0;
+
 	for (i = 0 ; i < NUM_SYNC_ON_CANCEL_STATES; i++) {
-		if (memcmp(buffer, sync_on_cancel_states[i],
-			   strlen(sync_on_cancel_states[i])) == 0) {
+		if (strcmp(kernbuf, sync_on_cancel_states[i]) == 0) {
 			val = i;
 			break;
 		}
 	}
+
+	/* Legacy numeric codes */
 	if (val == -1) {
 		int rc;
 
+		/* Safe to use userspace buffer as lprocfs_write_helper will
+		 * use copy from user for parsing */
 		rc = lprocfs_write_helper(buffer, count, &val);
 		if (rc)
 			return rc;
@@ -448,8 +467,9 @@ int lprocfs_ofd_rd_grant_compat_disable(char *page, char **start, off_t off,
 	return rc;
 }
 
-int lprocfs_ofd_wr_grant_compat_disable(struct file *file, const char *buffer,
-					unsigned long count, void *data)
+int lprocfs_ofd_wr_grant_compat_disable(struct file *file,
+					const char __user *buffer,
+					size_t count, void *data)
 {
 	struct obd_device	*obd = data;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
@@ -480,8 +500,8 @@ int lprocfs_ofd_rd_soft_sync_limit(char *page, char **start, off_t off,
 			       &ofd->ofd_soft_sync_limit);
 }
 
-int lprocfs_ofd_wr_soft_sync_limit(struct file *file, const char *buffer,
-				   unsigned long count, void *data)
+int lprocfs_ofd_wr_soft_sync_limit(struct file *file, const char __user *buffer,
+				   size_t count, void *data)
 {
 	struct obd_device	*obd = data;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
@@ -500,8 +520,9 @@ static int lprocfs_rd_lfsck_speed_limit(char *page, char **start, off_t off,
 	return lfsck_get_speed(ofd->ofd_osd, page, count);
 }
 
-static int lprocfs_wr_lfsck_speed_limit(struct file *file, const char *buffer,
-					unsigned long count, void *data)
+static int lprocfs_wr_lfsck_speed_limit(struct file *file,
+					const char __user *buffer,
+					size_t count, void *data)
 {
 	struct obd_device	*obd = data;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
@@ -543,8 +564,9 @@ static int lprocfs_rd_lfsck_verify_pfid(char *page, char **start, off_t off,
 			ofd->ofd_inconsistency_self_repaired);
 }
 
-static int lprocfs_wr_lfsck_verify_pfid(struct file *file, const char *buffer,
-					unsigned long count, void *data)
+static int lprocfs_wr_lfsck_verify_pfid(struct file *file,
+					const char __user *buffer,
+					size_t count, void *data)
 {
 	struct obd_device	*obd = data;
 	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
