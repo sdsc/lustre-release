@@ -514,8 +514,18 @@ int osd_oi_lookup(struct osd_thread_info *info, struct osd_device *osd,
 		if (unlikely(fid_is_acct(fid)))
 			return osd_acct_obj_lookup(info, osd, fid, id);
 
-		if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE))
-			return osd_compat_spec_lookup(info, osd, fid, id);
+		if (unlikely(fid_seq(fid) == FID_SEQ_LOCAL_FILE)) {
+			/* For the case of upgrading to Lustre-2.x (x>=4),
+			 * there will be local FID in LMA and OI mapping
+			 * for the local object, and then when downgrade
+			 * back to Lustre-2.y (y<=3), the osd_fid_lookup
+			 * will use local FID to (NOT the original IGIF)
+			 * call osd_oi_lookup, then we need to check the
+			 * real OI files to avoid to return -ENOENT. */
+			rc = osd_compat_spec_lookup(info, osd, fid, id);
+			if (rc != -ENOENT)
+				return rc;
+		}
 
 		rc = __osd_oi_lookup(info, osd, fid, id);
         }
