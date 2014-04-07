@@ -56,8 +56,8 @@ struct osc_async_page {
         unsigned short          oap_cmd;
         unsigned short          oap_interrupted:1;
 
-        cfs_list_t              oap_pending_item;
-        cfs_list_t              oap_rpc_item;
+	struct list_head	oap_pending_item;
+	struct list_head	oap_rpc_item;
 
         obd_off                 oap_obj_off;
         unsigned                oap_page_off;
@@ -84,8 +84,8 @@ static inline struct osc_async_page *brw_page2oap(struct brw_page *pga)
 }
 
 struct osc_cache_waiter {
-	cfs_list_t              ocw_entry;
-	wait_queue_head_t             ocw_waitq;
+	struct list_head	ocw_entry;
+	wait_queue_head_t	ocw_waitq;
 	struct osc_async_page  *ocw_oap;
 	int                     ocw_grant;
 	int                     ocw_rc;
@@ -134,7 +134,7 @@ int osc_sync_base(struct obd_export *exp, struct obd_info *oinfo,
 
 int osc_process_config_base(struct obd_device *obd, struct lustre_cfg *cfg);
 int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
-		  cfs_list_t *ext_list, int cmd, pdl_policy_t p);
+		  struct list_head *ext_list, int cmd, pdl_policy_t p);
 int osc_lru_shrink(const struct lu_env *env, struct client_obd *cli,
 		   int target, bool force);
 int osc_lru_reclaim(struct client_obd *cli);
