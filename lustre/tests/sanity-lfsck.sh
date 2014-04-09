@@ -1152,6 +1152,8 @@ test_12() {
 			error "(7) MDS${k} is not the expected 'completed'"
 	done
 
+	start_full_debug_logging
+
 	echo "Start layout LFSCK on all targets by single command (-s 1)."
 	do_facet mds1 $LCTL lfsck_start -M ${FSNAME}-MDT0000 -t layout -A \
 		-s 1 -r || error "(8) Fail to start LFSCK on all devices!"
@@ -1200,6 +1202,8 @@ test_12() {
 			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
 			error "(14) MDS${k} is not the expected 'completed'"
 	done
+
+	stop_full_debug_logging
 }
 run_test 12 "single command to trigger LFSCK on all devices"
 
