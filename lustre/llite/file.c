@@ -622,6 +622,11 @@ int ll_file_open(struct inode *inode, struct file *file)
                 it = &oit;
         }
 
+	/* Do NOT allow to write/exec on the file with LOV EA hole. */
+	if (S_ISREG(inode->i_mode) && unlikely(lli->lli_smd_hole) &&
+	    (it->it_flags & (FMODE_WRITE | FMODE_EXEC)))
+		GOTO(out_openerr, rc = -EIO);
+
 restart:
         /* Let's see if we have file open on MDS already. */
         if (it->it_flags & FMODE_WRITE) {
