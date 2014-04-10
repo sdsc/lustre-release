@@ -575,6 +575,7 @@ struct lfsck_thread_info {
 	};
 	struct dt_allocation_hint lti_hint;
 	struct lu_orphan_rec	lti_rec;
+	struct dt_device_param	lti_param;
 };
 
 /* lfsck_lib.c */

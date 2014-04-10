@@ -151,6 +151,9 @@ static int lov_io_sub_init(const struct lu_env *env, struct lov_io *lio,
         LASSERT(sub->sub_stripe < lio->lis_stripe_count);
         ENTRY;
 
+	if (unlikely(lov_r0(lov)->lo_sub[stripe] == NULL))
+		RETURN(-EIO);
+
         result = 0;
         sub->sub_io_initialized = 0;
         sub->sub_borrowed = 0;
