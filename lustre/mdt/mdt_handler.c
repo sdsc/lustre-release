@@ -68,6 +68,7 @@
 #include <lustre_param.h>
 #include <lustre_quota.h>
 #include <lustre_lfsck.h>
+#include <lustre_nodemap.h>
 
 mdl_mode_t mdt_mdl_lock_modes[] = {
         [LCK_MINMODE] = MDL_MINMODE,
@@ -390,27 +391,32 @@ static void mdt_pack_size2body(struct mdt_thread_info *info,
 void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
                         const struct lu_attr *attr, const struct lu_fid *fid)
 {
-        struct md_attr *ma = &info->mti_attr;
+	struct md_attr *ma = &info->mti_attr;
+	struct lu_nodemap *nodemap = info->mti_exp->exp_nodemap;
 
-        LASSERT(ma->ma_valid & MA_INODE);
+	LASSERT(ma->ma_valid & MA_INODE);
 
-        b->atime      = attr->la_atime;
-        b->mtime      = attr->la_mtime;
-        b->ctime      = attr->la_ctime;
-        b->mode       = attr->la_mode;
-        b->size       = attr->la_size;
-        b->blocks     = attr->la_blocks;
-        b->uid        = attr->la_uid;
-        b->gid        = attr->la_gid;
-        b->flags      = attr->la_flags;
-        b->nlink      = attr->la_nlink;
-        b->rdev       = attr->la_rdev;
+	b->atime      = attr->la_atime;
+	b->mtime      = attr->la_mtime;
+	b->ctime      = attr->la_ctime;
+	b->mode       = attr->la_mode;
+	b->size       = attr->la_size;
+	b->blocks     = attr->la_blocks;
+	b->uid        = nodemap_map_id(nodemap, NODEMAP_UID,
+				       NODEMAP_FS_TO_CLIENT,
+				       attr->la_uid);
+	b->gid        = nodemap_map_id(nodemap, NODEMAP_GID,
+				       NODEMAP_FS_TO_CLIENT,
+				       attr->la_gid);
+	b->flags      = attr->la_flags;
+	b->nlink      = attr->la_nlink;
+	b->rdev       = attr->la_rdev;
 
-        /*XXX should pack the reply body according to lu_valid*/
-        b->valid |= OBD_MD_FLCTIME | OBD_MD_FLUID   |
-                    OBD_MD_FLGID   | OBD_MD_FLTYPE  |
-                    OBD_MD_FLMODE  | OBD_MD_FLNLINK | OBD_MD_FLFLAGS |
-                    OBD_MD_FLATIME | OBD_MD_FLMTIME ;
+	/*XXX should pack the reply body according to lu_valid*/
+	b->valid |= OBD_MD_FLCTIME | OBD_MD_FLUID   |
+		    OBD_MD_FLGID   | OBD_MD_FLTYPE  |
+		    OBD_MD_FLMODE  | OBD_MD_FLNLINK | OBD_MD_FLFLAGS |
+		    OBD_MD_FLATIME | OBD_MD_FLMTIME ;
 
         if (!S_ISREG(attr->la_mode)) {
                 b->valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS | OBD_MD_FLRDEV;
@@ -2014,6 +2020,7 @@ int mdt_quotactl(struct tgt_session_info *tsi)
 	int			 id, rc;
 	struct mdt_device	*mdt = mdt_exp2dev(exp);
 	struct lu_device	*qmt = mdt->mdt_qmt_dev;
+	struct lu_nodemap	*nodemap = exp->exp_nodemap;
 	ENTRY;
 
 	oqctl = req_capsule_client_get(pill, &RMF_OBD_QUOTACTL);
@@ -2034,9 +2041,11 @@ int mdt_quotactl(struct tgt_session_info *tsi)
 		/* deprecated, not used any more */
 		RETURN(-EOPNOTSUPP);
 		/* master quotactl */
-	case Q_GETINFO:
 	case Q_SETINFO:
 	case Q_SETQUOTA:
+		if (!nodemap->nmf_allow_root_access)
+			RETURN(-EPERM);
+	case Q_GETINFO:
 	case Q_GETQUOTA:
 		if (qmt == NULL)
 			RETURN(-EOPNOTSUPP);
@@ -2074,6 +2083,13 @@ int mdt_quotactl(struct tgt_session_info *tsi)
 			RETURN(-EACCES);
 		}
 	}
+
+	if (oqctl->qc_type == USRQUOTA)
+		id = nodemap_map_id(nodemap, NODEMAP_UID,
+				    NODEMAP_CLIENT_TO_FS, id);
+	else if (oqctl->qc_type == GRPQUOTA)
+		id = nodemap_map_id(nodemap, NODEMAP_UID,
+				    NODEMAP_CLIENT_TO_FS, id);
 
 	repoqc = req_capsule_server_get(pill, &RMF_OBD_QUOTACTL);
 	if (repoqc == NULL)
@@ -5035,15 +5051,16 @@ static int mdt_connect_internal(struct obd_export *exp,
 
 /* mds_connect copy */
 static int mdt_obd_connect(const struct lu_env *env,
-                           struct obd_export **exp, struct obd_device *obd,
-                           struct obd_uuid *cluuid,
-                           struct obd_connect_data *data,
-                           void *localdata)
+			   struct obd_export **exp, struct obd_device *obd,
+			   struct obd_uuid *cluuid,
+			   struct obd_connect_data *data,
+			   void *localdata)
 {
-        struct obd_export      *lexp;
-        struct lustre_handle    conn = { 0 };
-        struct mdt_device      *mdt;
+	struct obd_export	*lexp;
+	struct lustre_handle	conn = { 0 };
+	struct mdt_device	*mdt;
         int                     rc;
+	lnet_nid_t		*client_nid = localdata;
         ENTRY;
 
         LASSERT(env != NULL);
@@ -5081,8 +5098,10 @@ static int mdt_obd_connect(const struct lu_env *env,
                 LASSERT(lcd);
 		memcpy(lcd->lcd_uuid, cluuid, sizeof lcd->lcd_uuid);
 		rc = tgt_client_new(env, lexp);
-                if (rc == 0)
-                        mdt_export_stats_init(obd, lexp, localdata);
+		if (rc == 0) {
+			mdt_export_stats_init(obd, lexp, localdata);
+			nodemap_add_member(*client_nid, lexp);
+		}
 
 		/* For phase I, sync for cross-ref operation. */
 		lexp->exp_keep_sync = 1;
@@ -5104,17 +5123,20 @@ static int mdt_obd_reconnect(const struct lu_env *env,
                              struct obd_connect_data *data,
                              void *localdata)
 {
-        int                     rc;
-        ENTRY;
+	lnet_nid_t	       *client_nid = localdata;
+	int                     rc;
+	ENTRY;
 
-        if (exp == NULL || obd == NULL || cluuid == NULL)
-                RETURN(-EINVAL);
+	if (exp == NULL || obd == NULL || cluuid == NULL)
+		RETURN(-EINVAL);
 
-        rc = mdt_connect_internal(exp, mdt_dev(obd->obd_lu_dev), data);
-        if (rc == 0)
-                mdt_export_stats_init(obd, exp, localdata);
+	rc = mdt_connect_internal(exp, mdt_dev(obd->obd_lu_dev), data);
+	if (rc == 0) {
+		mdt_export_stats_init(obd, exp, localdata);
+		nodemap_add_member(*client_nid, exp);
+	}
 
-        RETURN(rc);
+	RETURN(rc);
 }
 
 static int mdt_ctxt_add_dirty_flag(struct lu_env *env,
@@ -5234,9 +5256,10 @@ static int mdt_obd_disconnect(struct obd_export *exp)
         if (rc != 0)
                 CDEBUG(D_IOCTL, "server disconnect error: %d\n", rc);
 
-        rc = mdt_export_cleanup(exp);
-        class_export_put(exp);
-        RETURN(rc);
+	nodemap_del_member(exp);
+	rc = mdt_export_cleanup(exp);
+	class_export_put(exp);
+	RETURN(rc);
 }
 
 /* FIXME: Can we avoid using these two interfaces? */
