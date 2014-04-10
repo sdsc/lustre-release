@@ -211,7 +211,7 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
 				  OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_PINGLESS |
 				  OBD_CONNECT_MAX_EASIZE |
 				  OBD_CONNECT_FLOCK_DEAD |
-				  OBD_CONNECT_DISP_STRIPE;
+				  OBD_CONNECT_DISP_STRIPE | OBD_CONNECT_LFSCK;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -411,7 +411,8 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
                                   OBD_CONNECT_MAXBYTES |
 				  OBD_CONNECT_EINPROGRESS |
 				  OBD_CONNECT_JOBSTATS | OBD_CONNECT_LVB_TYPE |
-				  OBD_CONNECT_LAYOUTLOCK | OBD_CONNECT_PINGLESS;
+				  OBD_CONNECT_LAYOUTLOCK |
+				  OBD_CONNECT_PINGLESS | OBD_CONNECT_LFSCK;
 
         if (sbi->ll_flags & LL_SBI_SOM_PREVIEW)
                 data->ocd_connect_flags |= OBD_CONNECT_SOM;
@@ -964,6 +965,7 @@ void ll_lli_init(struct ll_inode_info *lli)
 	mutex_init(&lli->lli_och_mutex);
 	spin_lock_init(&lli->lli_agl_lock);
 	lli->lli_has_smd = false;
+	lli->lli_smd_hole = false;
 	spin_lock_init(&lli->lli_layout_lock);
 	ll_layout_version_set(lli, LL_LAYOUT_GEN_NONE);
 	lli->lli_clob = NULL;
@@ -1480,6 +1482,7 @@ void ll_clear_inode(struct inode *inode)
 	 */
 	cl_inode_fini(inode);
 	lli->lli_has_smd = false;
+	lli->lli_smd_hole = false;
 
 	EXIT;
 }
@@ -1581,6 +1584,9 @@ static int ll_setattr_ost(struct inode *inode, struct iattr *attr)
 {
         struct obd_capa *capa;
         int rc;
+
+	if (unlikely(ll_i2info(inode)->lli_smd_hole))
+		return -EIO;
 
         if (attr->ia_valid & ATTR_SIZE)
                 capa = ll_osscapa_get(inode, CAPA_OPC_OSS_TRUNC);
@@ -1933,6 +1939,11 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
 		lli->lli_maxbytes = lsm->lsm_maxbytes;
 		if (lli->lli_maxbytes > MAX_LFS_FILESIZE)
 			lli->lli_maxbytes = MAX_LFS_FILESIZE;
+
+		if (unlikely(lsm->lsm_pattern & LOV_PATTERN_F_HOLE))
+			lli->lli_smd_hole = true;
+		else
+			lli->lli_smd_hole = false;
 	}
 
 	if (S_ISDIR(inode->i_mode)) {

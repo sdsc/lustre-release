@@ -133,6 +133,10 @@ int lov_page_init_raid0(const struct lu_env *env, struct cl_object *obj,
 	offset = cl_offset(obj, index);
 	stripe = lov_stripe_number(loo->lo_lsm, offset);
 	LASSERT(stripe < r0->lo_nr);
+
+	if (unlikely(r0->lo_sub[stripe] == NULL))
+		RETURN(-EIO);
+
 	rc = lov_stripe_offset(loo->lo_lsm, offset, stripe,
 			       &suboff);
 	LASSERT(rc == 0);

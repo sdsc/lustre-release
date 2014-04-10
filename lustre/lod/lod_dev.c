@@ -464,7 +464,10 @@ static void lod_conf_get(const struct lu_env *env,
 			 const struct dt_device *dev,
 			 struct dt_device_param *param)
 {
-	dt_conf_get(env, dt2lod_dev((struct dt_device *)dev)->lod_child, param);
+	struct lod_device *lod = dt2lod_dev((struct dt_device *)dev);
+
+	dt_conf_get(env, lod->lod_child, param);
+	param->ddp_default_stripe_size = lod->lod_desc.ld_default_stripe_size;
 }
 
 static int lod_sync(const struct lu_env *env, struct dt_device *dev)
