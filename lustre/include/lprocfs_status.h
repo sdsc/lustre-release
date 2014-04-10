@@ -85,7 +85,7 @@ struct lprocfs_seq_vars {
 };
 
 /* if we find more consumers this could be generalized */
-#define OBD_HIST_MAX 32
+#define OBD_HIST_MAX 256
 struct obd_histogram {
 	spinlock_t	oh_lock;
 	unsigned long	oh_buckets[OBD_HIST_MAX];
