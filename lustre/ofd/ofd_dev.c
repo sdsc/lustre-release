@@ -1733,7 +1733,6 @@ static int ofd_prolong_one_lock(struct tgt_session_info *tsi,
 				struct ldlm_lock *lock,
 				struct ldlm_extent *extent, int timeout)
 {
-
 	if (lock->l_flags & LDLM_FL_DESTROYED) /* lock already cancelled */
 		return 0;
 
@@ -1777,7 +1776,12 @@ static int ofd_prolong_extent_locks(struct tgt_session_info *tsi,
 		if (lock != NULL) {
 			/* Fast path to check if the lock covers the whole IO
 			 * region exclusively. */
-			if (lock->l_granted_mode == LCK_PW &&
+			if (lock->l_export != exp) {
+				/* LU-2232 */
+				LDLM_DEBUG(lock, "lock export %p != req export "
+					"%p, this lock is obsolete!\n",
+					lock->l_export, exp);
+			} else if (lock->l_granted_mode == LCK_PW &&
 			    ldlm_extent_contain(&lock->l_policy_data.l_extent,
 						&extent)) {
 				/* bingo */
