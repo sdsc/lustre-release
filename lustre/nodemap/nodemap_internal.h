@@ -90,6 +90,12 @@ struct lu_idmap *idmap_search(struct lu_nodemap *nodemap,
 			      enum nodemap_id_type id_type,
 			      __u32 id);
 int nodemap_cleanup_nodemaps(void);
+int member_init_hash(struct lu_nodemap *nodemap);
+void member_add(struct lu_nodemap *nodemap, struct obd_export *exp);
+int member_del(struct lu_nodemap *nodemap, struct obd_export *exp);
+void member_delete_hash(struct lu_nodemap *nodemap);
+void member_reclassify_nodemap(struct lu_nodemap *nodemap);
+void member_revoke_locks(struct lu_nodemap *nodemap);
 
 struct rb_node *nm_rb_next_postorder(const struct rb_node *node);
 struct rb_node *nm_rb_first_postorder(const struct rb_root *root);
