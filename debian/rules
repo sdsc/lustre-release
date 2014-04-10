@@ -203,7 +203,7 @@ binary-$(UTILS_PKG): build-stamp
 	dh_installman -p $(UTILS_PKG)
 	dh_install -p $(UTILS_PKG)
 	dh_makeshlibs -p $(UTILS_PKG)
-	dh_shlibdeps -L $(LIB_PKG) -l debian/$(LIB_PKG)/usr/lib
+	dh_shlibdeps -L $(LIB_PKG) -l debian/$(LIB_PKG)/usr/lib:$(CURDIR)/lustre/utils
 	dh_installexamples -p $(UTILS_PKG)
 	dh_installchangelogs -p $(UTILS_PKG) lustre/ChangeLog
 	dh_compress -p $(UTILS_PKG)
@@ -222,7 +222,7 @@ binary-$(TESTS_PKG): build-stamp
 	dh_installman -p $(TESTS_PKG)
 	dh_install -p $(TESTS_PKG)
 	dh_makeshlibs -p $(TESTS_PKG)
-	dh_shlibdeps -L $(LIB_PKG) -l debian/$(LIB_PKG)/usr/lib
+	dh_shlibdeps -L $(LIB_PKG) -l debian/$(LIB_PKG)/usr/lib:$(CURDIR)/lustre/utils
 	dh_installexamples -p $(TESTS_PKG)
 	dh_installchangelogs -p $(TESTS_PKG) lustre/ChangeLog
 	dh_compress -p $(TESTS_PKG)
@@ -254,7 +254,7 @@ binary-$(LIB_PKG): build-stamp
 	dh_installdocs -p $(LIB_PKG)
 	dh_install -p $(LIB_PKG)
 	dh_makeshlibs -p $(LIB_PKG)
-	dh_shlibdeps -L $(LIB_PKG) -l debian/$(LIB_PKG)/usr/lib
+	dh_shlibdeps -L $(LIB_PKG) -l debian/$(LIB_PKG)/usr/lib:$(CURDIR)/lustre/utils
 	dh_installchangelogs -p $(LIB_PKG) lustre/ChangeLog
 	dh_compress -p $(LIB_PKG)
 	dh_installdeb -p $(LIB_PKG)
@@ -311,7 +311,7 @@ binary-$(MODS_PKG): build-stamp
 		dh_installdocs -p $(MODS_PKG)-$(KVER); \
 		dh_install -p $(MODS_PKG)-$(KVER); \
 		dh_makeshlibs -p $(MODS_PKG)-$(KVER); \
-		dh_shlibdeps -L $(LIB_PKG) -l debian/$(LIB_PKG)/usr/lib; \
+		dh_shlibdeps -L $(LIB_PKG) -l debian/$(LIB_PKG)/usr/lib:$(CURDIR)/lustre/utils; \
 		dh_installchangelogs -p $(MODS_PKG)-$(KVER) lustre/ChangeLog; \
 		dh_compress -p $(MODS_PKG)-$(KVER); \
 		dh_installdeb -p $(MODS_PKG)-$(KVER); \
