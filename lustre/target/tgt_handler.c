@@ -553,6 +553,11 @@ static struct tgt_handler *tgt_handler_find_check(struct ptlrpc_request *req)
 	ENTRY;
 
 	tgt = class_exp2tgt(req->rq_export);
+	if (unlikely(tgt == NULL)) {
+		DEBUG_REQ(D_ERROR, req, "%s: No target for connected export\n",
+			  class_exp2obd(req->rq_export)->obd_name);
+		RETURN(ERR_PTR(-EINVAL));
+	}
 
 	for (s = tgt->lut_slice; s->tos_hs != NULL; s++)
 		if (s->tos_opc_start <= opc && opc < s->tos_opc_end)
@@ -625,6 +630,14 @@ int tgt_request_handle(struct ptlrpc_request *req)
 		tsi->tsi_jobid = lustre_msg_get_jobid(req->rq_reqmsg);
 	else
 		tsi->tsi_jobid = NULL;
+
+	if (tgt == NULL) {
+		DEBUG_REQ(D_ERROR, req, "%s: No target for connected export\n",
+			  class_exp2obd(req->rq_export)->obd_name);
+		req->rq_status = -EINVAL;
+		rc = ptlrpc_error(req);
+		GOTO(out, rc);
+	}
 
 	request_fail_id = tgt->lut_request_fail_id;
 	tsi->tsi_reply_fail_id = tgt->lut_reply_fail_id;
@@ -744,6 +757,12 @@ static int tgt_init_sec_level(struct ptlrpc_request *req)
 	if (req->rq_auth_usr_mdt) {
 		tgt_init_sec_none(reply);
 		RETURN(0);
+	}
+
+	if (unlikely(tgt == NULL)) {
+		DEBUG_REQ(D_ERROR, req, "%s: No target for connected export\n",
+			  class_exp2obd(req->rq_export)->obd_name);
+		RETURN(-EINVAL);
 	}
 
 	/* no GSS support case */
@@ -894,6 +913,11 @@ int tgt_adapt_sptlrpc_conf(struct lu_target *tgt, int initial)
 {
 	struct sptlrpc_rule_set	 tmp_rset;
 	int			 rc;
+
+	if (unlikely(tgt == NULL)) {
+		CERROR("No target passed");
+		return -EINVAL;
+	}
 
 	sptlrpc_rule_set_init(&tmp_rset);
 	rc = sptlrpc_conf_target_get_rules(tgt->lut_obd, &tmp_rset, initial);
@@ -1161,6 +1185,8 @@ int tgt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 	ENTRY;
 
 	tgt = class_exp2tgt(lock->l_export);
+
+	LASSERT(tgt);
 
 	if (flag == LDLM_CB_CANCELING &&
 	    (lock->l_granted_mode & (LCK_PW | LCK_GROUP)) &&
