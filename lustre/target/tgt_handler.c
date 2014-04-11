@@ -626,6 +626,14 @@ int tgt_request_handle(struct ptlrpc_request *req)
 	else
 		tsi->tsi_jobid = NULL;
 
+	if (tgt == NULL) {
+		DEBUG_REQ(D_ERROR, req, "%s: Invalid target\n",
+			  class_exp2obd(req->rq_export)->obd_name);
+		req->rq_status = -EINVAL;
+		rc = ptlrpc_error(req);
+		GOTO(out, rc);		
+	}
+
 	request_fail_id = tgt->lut_request_fail_id;
 	tsi->tsi_reply_fail_id = tgt->lut_reply_fail_id;
 
