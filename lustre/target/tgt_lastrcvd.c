@@ -92,7 +92,7 @@ void tgt_client_free(struct obd_export *exp)
 	if (ted->ted_lr_idx < 0)
 		return;
 	/* Clear bit when lcd is freed */
-	LASSERT(lut->lut_client_bitmap);
+	LASSERT(lut && lut->lut_client_bitmap);
 	if (!test_and_clear_bit(ted->ted_lr_idx, lut->lut_client_bitmap)) {
 		CERROR("%s: client %u bit already clear in bitmap\n",
 		       exp->exp_obd->obd_name, ted->ted_lr_idx);
@@ -157,6 +157,8 @@ int tgt_client_data_update(const struct lu_env *env, struct obd_export *exp)
 	int			 rc = 0;
 
 	ENTRY;
+
+	LASSERT(tgt != NULL);
 
 	th = dt_trans_create(env, tgt->lut_bottom);
 	if (IS_ERR(th))
@@ -333,7 +335,7 @@ void tgt_client_epoch_update(const struct lu_env *env, struct obd_export *exp)
 	struct lsd_client_data	*lcd = exp->exp_target_data.ted_lcd;
 	struct lu_target	*tgt = class_exp2tgt(exp);
 
-	LASSERT(tgt->lut_bottom);
+	LASSERT(tgt != NULL && tgt->lut_bottom != NULL);
 	/** VBR: set client last_epoch to current epoch */
 	if (lcd->lcd_last_epoch >= tgt->lut_lsd.lsd_start_epoch)
 		return;
@@ -539,7 +541,8 @@ int tgt_client_new(const struct lu_env *env, struct obd_export *exp)
 
 	ENTRY;
 
-	LASSERT(tgt->lut_client_bitmap != NULL);
+	LASSERT(tgt != NULL && tgt->lut_client_bitmap != NULL);
+
 	if (!strcmp(ted->ted_lcd->lcd_uuid, tgt->lut_obd->obd_uuid.uuid))
 		RETURN(0);
 
@@ -605,7 +608,7 @@ int tgt_client_add(const struct lu_env *env,  struct obd_export *exp, int idx)
 
 	ENTRY;
 
-	LASSERT(tgt->lut_client_bitmap != NULL);
+	LASSERT(tgt != NULL && tgt->lut_client_bitmap != NULL);
 	LASSERTF(idx >= 0, "%d\n", idx);
 
 	if (!strcmp(ted->ted_lcd->lcd_uuid, tgt->lut_obd->obd_uuid.uuid) ||
@@ -641,7 +644,8 @@ int tgt_client_del(const struct lu_env *env, struct obd_export *exp)
 
 	ENTRY;
 
-	LASSERT(ted->ted_lcd);
+	LASSERT(ted->ted_lcd != NULL);
+	LASSERT(tgt != NULL);
 
 	/* XXX if lcd_uuid were a real obd_uuid, I could use obd_uuid_equals */
 	if (!strcmp((char *)ted->ted_lcd->lcd_uuid,
