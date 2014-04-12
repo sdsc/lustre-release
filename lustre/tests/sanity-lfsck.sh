@@ -1066,9 +1066,16 @@ test_11b() {
 	echo "set fail_loc=0x160d to skip the updating LAST_ID on-disk"
 	#define OBD_FAIL_LFSCK_SKIP_LASTID	0x160d
 	do_facet ost1 $LCTL set_param fail_loc=0x160d
-	createmany -o $DIR/$tdir/f 64
+
+	local count=$(precreated_ost_obj_count 0 0)
+
+	createmany -o $DIR/$tdir/f $((count + 32))
+
+	local proc_path="${FSNAME}-OST0000-osc-MDT0000"
+	local seq=$(do_facet mds1 $LCTL get_param -n \
+		    osp.${proc_path}.prealloc_last_seq)
 	local lastid1=$(do_facet ost1 "lctl get_param -n \
-		obdfilter.${ost1_svc}.last_id" | grep 0x100000000 |
+		obdfilter.${ost1_svc}.last_id" | grep $seq |
 		awk -F: '{ print $2 }')
 
 	umount_client $MOUNT
@@ -1082,7 +1089,7 @@ test_11b() {
 
 	for ((i = 0; i < 60; i++)); do
 		lastid2=$(do_facet ost1 "lctl get_param -n \
-			obdfilter.${ost1_svc}.last_id" | grep 0x100000000 |
+			obdfilter.${ost1_svc}.last_id" | grep $seq |
 			awk -F: '{ print $2 }')
 		[ ! -z $lastid2 ] && break;
 		sleep 1
@@ -1109,10 +1116,11 @@ test_11b() {
 
 	echo "the on-disk LAST_ID should have been rebuilt"
 	wait_update_facet ost1 "$LCTL get_param -n \
-		obdfilter.${ost1_svc}.last_id | grep 0x100000000 |
+		obdfilter.${ost1_svc}.last_id | grep $seq |
 		awk -F: '{ print \\\$2 }'" "$lastid1" 60 || {
-		$LCTL get_param -n obdfilter.${ost1_svc}.last_id
-		error "(9) expect lastid1 0x100000000:$lastid1"
+		do_facet ost1 $LCTL get_param -n \
+		obdfilter.${ost1_svc}.last_id
+		error "(9) expect lastid1 $seq:$lastid1"
 	}
 
 	do_facet ost1 $LCTL set_param fail_loc=0
@@ -1169,6 +1177,8 @@ test_12() {
 			error "(7) MDS${k} is not the expected 'completed'"
 	done
 
+	start_full_debug_logging
+
 	echo "Start layout LFSCK on all targets by single command (-s 1)."
 	do_facet mds1 $LCTL lfsck_start -M ${FSNAME}-MDT0000 -t layout -A \
 		-s 1 -r || error "(8) Fail to start LFSCK on all devices!"
@@ -1217,6 +1227,8 @@ test_12() {
 			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
 			error "(14) MDS${k} is not the expected 'completed'"
 	done
+
+	stop_full_debug_logging
 }
 run_test 12 "single command to trigger LFSCK on all devices"
 
