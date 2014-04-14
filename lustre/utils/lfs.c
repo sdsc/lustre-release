@@ -160,7 +160,10 @@ command_t cmdlist[] = {
 	 "[--default_stripe|-D ] <dir>\n"
 	 "\tstripe_count: stripe count of the striped directory\n"
 	 "\tmdt_index:	MDT index of first stripe\n"
-	 "\thash_type:	hash type of the striped directory\n"
+	 "\thash_type:	hash type of the striped directory. And only two types\n"
+	 "are avaible right now,\n"
+	 "	-t fnv_1a_64 FNV-1a hash algorithm(default one)\n"
+	 "	-t all_char  sum of characters % MDT_COUNT. (not recommended)\n"
 	 "\tdefault_stripe: set default dirstripe of the directory\n"},
 	{"getdirstripe", lfs_getdirstripe, 0,
 	 "To list the striping info for a given directory\n"
