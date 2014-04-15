@@ -89,6 +89,7 @@ struct dt_device_param {
         /* per-fragment grant overhead to be used by client for grant
          * calculation */
         int                ddp_grant_frag;
+	__u64		   ddp_default_stripe_size; /* in bytes */
 };
 
 /**

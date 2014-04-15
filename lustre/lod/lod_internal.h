@@ -242,7 +242,8 @@ struct lod_object {
 			   ldo_def_striping_set:1,
 	/* ldo_dir_slave_stripe indicate this is a slave stripe of
 	 * a striped dir */
-			   ldo_dir_slave_stripe:1;
+			   ldo_dir_slave_stripe:1,
+			   ldo_lovea_hole:1;
 	__u32		   ldo_def_stripe_size;
 	__u16		   ldo_def_stripenr;
 	__u16		   ldo_def_stripe_offset;

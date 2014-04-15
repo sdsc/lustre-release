@@ -151,6 +151,9 @@ static int lov_io_sub_init(const struct lu_env *env, struct lov_io *lio,
         LASSERT(sub->sub_stripe < lio->lis_stripe_count);
         ENTRY;
 
+	if (unlikely(lov_r0(lov)->lo_sub[stripe] == NULL))
+		RETURN(-EIO);
+
         result = 0;
         sub->sub_io_initialized = 0;
         sub->sub_borrowed = 0;
@@ -304,8 +307,8 @@ static int lov_io_subio_init(const struct lu_env *env, struct lov_io *lio,
         RETURN(result);
 }
 
-static void lov_io_slice_init(struct lov_io *lio,
-                              struct lov_object *obj, struct cl_io *io)
+static int lov_io_slice_init(struct lov_io *lio,
+                             struct lov_object *obj, struct cl_io *io)
 {
 	ENTRY;
 
@@ -329,6 +332,9 @@ static void lov_io_slice_init(struct lov_io *lio,
                 break;
 
         case CIT_SETATTR:
+		if (unlikely(obj->lo_lsm->lsm_pattern & LOV_PATTERN_F_HOLE))
+			RETURN(-EIO);
+
                 if (cl_io_is_trunc(io))
                         lio->lis_pos = io->u.ci_setattr.sa_attr.lvb_size;
                 else
@@ -358,7 +364,7 @@ static void lov_io_slice_init(struct lov_io *lio,
                 LBUG();
         }
 
-        EXIT;
+	RETURN(0);
 }
 
 static void lov_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
@@ -407,6 +413,14 @@ static int lov_io_iter_init(const struct lu_env *env,
                 if (!lov_stripe_intersects(lsm, stripe, lio->lis_pos,
                                            endpos, &start, &end))
                         continue;
+
+		if (unlikely(lov_r0(lio->lis_object)->lo_sub[stripe] == NULL)) {
+			if (ios->cis_io->ci_type == CIT_READ ||
+			    ios->cis_io->ci_type == CIT_WRITE)
+				RETURN(-EIO);
+
+			continue;
+		}
 
                 end = lov_offset_mod(end, +1);
                 sub = lov_sub_get(env, lio, stripe);
@@ -889,7 +903,10 @@ int lov_io_init_raid0(const struct lu_env *env, struct cl_object *obj,
 
 	ENTRY;
 	INIT_LIST_HEAD(&lio->lis_active);
-	lov_io_slice_init(lio, lov, io);
+	io->ci_result = lov_io_slice_init(lio, lov, io);
+	if (io->ci_result != 0)
+		RETURN(io->ci_result);
+
 	if (io->ci_result == 0) {
 		io->ci_result = lov_io_subio_init(env, lio, io);
 		if (io->ci_result == 0) {
