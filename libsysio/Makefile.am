@@ -82,8 +82,8 @@ really-clean: testsclean maintainer-clean
 	cd $(TESTDIR); rm -rf Makefile Makefile.in .deps
 
 tests: $(lib_LIBRARIES) FORCE
-	cd $(TESTDIR); ${MAKE}
+	cd $(TESTDIR); make
 testsclean: FORCE
-	cd $(TESTDIR); ${MAKE} clean
+	cd $(TESTDIR); make clean
 clean: testsclean clean-am
 FORCE:

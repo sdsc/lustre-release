@@ -39,7 +39,6 @@
 
 #include <libcfs/libcfs.h>
 
-#ifdef __KERNEL__
 #if defined(__linux__)
 #include "linux/linux-tracefile.h"
 #elif defined(__WINNT__)
@@ -47,9 +46,7 @@
 #else
 #error Unsupported operating system.
 #endif
-#else
-#include "posix/posix-tracefile.h"
-#endif
+
 /* trace file lock routines */
 
 #define TRACEFILE_NAME_SIZE 1024
