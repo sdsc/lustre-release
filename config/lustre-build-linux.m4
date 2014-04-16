@@ -131,6 +131,23 @@ AC_SUBST(SYMVERFILE)
 ])
 
 #
+# LB_LINUX_EXTRA_SYMBOLS
+#
+# Check for user-specified Module.symvers
+#
+AC_DEFUN([LB_LINUX_EXTRA_SYMBOLS], [
+AC_CACHE_CHECK([for extra Module.symvers], [lb_cv_extra_symbols], [
+lb_cv_extra_symbols=""
+AC_ARG_WITH([extra-symbols],
+	[AS_HELP_STRING([--with-extra-symbols=PATH],
+		[Append KBUILD_EXTRA_SYMBOLS with the specified Module.symvers])],
+	[lb_cv_extra_symbols=$withval], [])
+EXTRA_SYMBOLS="$EXTRA_SYMBOLS $lb_cv_extra_symbols"
+])
+AC_SUBST(EXTRA_SYMBOLS)
+])
+
+#
 # LB_ARG_REPLACE_PATH(PACKAGE, PATH)
 #
 AC_DEFUN([LB_ARG_REPLACE_PATH], [
@@ -353,6 +370,7 @@ Kernel module loading support is highly recommended.
 AC_DEFUN([LB_PROG_LINUX], [
 LB_LINUX_PATH
 LB_LINUX_SYMVERFILE
+LB_LINUX_EXTRA_SYMBOLS
 
 LB_CHECK_CONFIG([MODULES], [], [
 	AC_MSG_ERROR([
