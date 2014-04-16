@@ -7784,6 +7784,8 @@ test_162() {
 run_test 162 "path lookup sanity"
 
 test_163() {
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.4.52) ]] &&
+		skip "Need MDS version less than 2.4.52" && return
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	copytool --test $FSNAME || { skip "copytool not runnable: $?" && return; }
 	copytool $FSNAME &
