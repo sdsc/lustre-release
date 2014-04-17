@@ -953,9 +953,13 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 
 	/* We used to acquire MDS_INODELOCK_FULL here but we can't do
 	 * this now because a running HSM restore on the child (unlink
-	 * victim) will hold the layout lock. See LU-4002. */
+	 * victim) will hold the layout lock. See LU-4002. Though for
+	 * directory, it still needs acquire LAYOUT lock. */
 	rc = mdt_object_lock(info, mc, child_lh,
-			     MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE,
+			     S_ISDIR(mc->mot_header.loh_attr) ?
+			      MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE |
+			      MDS_INODELOCK_LAYOUT :
+			      MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE,
 			     MDT_CROSS_LOCK);
 	if (rc != 0)
 		GOTO(put_child, rc);
@@ -1838,13 +1842,17 @@ static int mdt_reint_rename_internal(struct mdt_thread_info *info,
 		/* We used to acquire MDS_INODELOCK_FULL here but we
 		 * can't do this now because a running HSM restore on
 		 * the rename onto victim will hold the layout
-		 * lock. See LU-4002. */
-
+		 * lock. See LU-4002. Though for directory, we still need
+		 * LAYOUT lock. */
 		lh_newp = &info->mti_lh[MDT_LH_NEW];
 		mdt_lock_reg_init(lh_newp, LCK_EX);
 		rc = mdt_object_lock(info, mnew, lh_newp,
-				     MDS_INODELOCK_LOOKUP |
-				     MDS_INODELOCK_UPDATE,
+				     S_ISDIR(mnew->mot_header.loh_attr) ?
+				      MDS_INODELOCK_LOOKUP |
+				      MDS_INODELOCK_UPDATE |
+				      MDS_INODELOCK_LAYOUT :
+				      MDS_INODELOCK_LOOKUP |
+				      MDS_INODELOCK_UPDATE,
 				     MDT_LOCAL_LOCK);
 		if (rc != 0)
 			GOTO(out_unlock_old, rc);
