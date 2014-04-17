@@ -341,7 +341,19 @@ void ll_lookup_finish_locks(struct lookup_intent *it, struct dentry *dentry)
 
 		CDEBUG(D_DLMTRACE, "setting l_data to inode "DFID"(%p)\n",
 		       PFID(ll_inode2fid(inode)), inode);
-                ll_set_lock_data(sbi->ll_md_exp, inode, it, NULL);
+
+		/* If the layout lock has been granted, mark the layout
+		 * as valid */
+		if (S_ISDIR(inode->i_mode) &&
+		    ll_i2info(inode)->lli_lsm_md != NULL) {
+			__u64 bits = MDS_INODELOCK_LAYOUT;
+			struct ll_inode_info *lli = ll_i2info(inode);
+
+			if (ll_have_md_lock(inode, &bits, LCK_MINMODE))
+				lli->lli_lsm_md->lsm_md_is_invalid = 0;
+		}
+
+		ll_set_lock_data(sbi->ll_md_exp, inode, it, NULL);
         }
 
         /* drop lookup or getattr locks immediately */

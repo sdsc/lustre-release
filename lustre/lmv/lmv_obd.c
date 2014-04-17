@@ -90,8 +90,9 @@ lmv_hash_fnv1a(unsigned int count, const char *name, int namelen)
 	return hash;
 }
 
-int lmv_name_to_stripe_index(__u32 lmv_hash_type, unsigned int stripe_count,
-			     const char *name, int namelen)
+static int lmv_name_to_stripe_index(__u32 lmv_hash_type,
+				    unsigned int stripe_count,
+				    const char *name, int namelen)
 {
 	int	idx;
 	__u32	hash_type = lmv_hash_type & LMV_HASH_TYPE_MASK;
@@ -1752,27 +1753,193 @@ static int lmv_close(struct obd_export *exp, struct md_op_data *op_data,
 }
 
 /**
+ * Retrieve layout lock and layout from remote MDT. Since we already
+ * know the layout is invalidate, so it does not need to do local lock
+ * match here.
+ */
+static int lmv_get_layout(struct lmv_obd *lmv, const struct lu_fid *fid,
+			  struct ptlrpc_request **reqp,
+			  struct lookup_intent *it,
+			  ldlm_blocking_callback cb_blocking)
+{
+	struct md_op_data	*op_data = NULL;
+	struct lmv_tgt_desc	*tgt;
+	int			rc;
+	ENTRY;
+
+	tgt = lmv_find_target(lmv, fid);
+	if (IS_ERR(tgt))
+		RETURN(PTR_ERR(tgt));
+
+	OBD_ALLOC_PTR(op_data);
+	if (op_data == NULL)
+		RETURN(-ENOMEM);
+	op_data->op_fid1 = *fid;
+	op_data->op_fid2 = *fid;
+
+	rc = md_intent_lock(tgt->ltd_exp, op_data, NULL, 0, it, 0, reqp,
+			    cb_blocking, 0);
+
+	CDEBUG(D_INODE, "Get layout fid="DFID" -> mds #%d: rc = %d\n",
+	       PFID(fid), tgt->ltd_idx, rc);
+
+	if (op_data != NULL)
+		OBD_FREE_PTR(op_data);
+
+	RETURN(rc);
+}
+
+/**
+ * Refresh the layout. But we do not support re-stripe directory yet, it
+ * will only compare the layout gotten from server with the its current
+ * layout.
+ */
+static int lmv_update_layout(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
+			     struct ptlrpc_request *req,
+			     struct lookup_intent *it)
+{
+	struct lustre_handle	handle;
+	struct ldlm_lock	*lock;
+	union lmv_mds_md	*lmm;
+	int			lmm_len;
+	struct lmv_stripe_md	*new_lsm = NULL;
+	int			rc;
+
+	handle.cookie = it->d.lustre.it_lock_handle;
+	lock = ldlm_handle2lock(&handle);
+	if (lock == NULL)
+		return -ESTALE;
+
+	/* If it can not get layout from server side, probably the object
+	 * has been deleted */
+	if (!ldlm_has_layout(lock) || lock->l_lvb_data == NULL ||
+	    lock->l_lvb_len == 0) {
+		LDLM_LOCK_PUT(lock);
+		return -ESTALE;
+	}
+
+	lmm = lock->l_lvb_data;
+	lmm_len = lock->l_lvb_len;
+
+	LDLM_LOCK_PUT(lock);
+	rc = lmv_unpack_md(lmv->exp, &new_lsm, lmm, lmm_len);
+	if (rc < 0)
+		return rc;
+
+	rc = 0;
+	/* XXX we do not support re-stripe yet, so only compare the layout and
+	 * they should be the same */
+	if (!lsm_md_eq(lsm, new_lsm))
+		GOTO(out, rc = -ESTALE);
+
+	lsm->lsm_md_is_invalid = 0;
+out:
+	lmv_free_memmd(new_lsm);
+	return rc;
+}
+
+/**
+ * Check whether the layout is invalid, and refresh the layout if needed.
+ * @lsm : the current layout.
+ */
+static int lmv_refresh_lsm(struct lmv_obd *lmv,
+			   struct lmv_stripe_md *lsm,
+			   ldlm_blocking_callback cb_blocking)
+{
+	struct ptlrpc_request	*req = NULL;
+	struct lookup_intent	*it = NULL;
+	int rc;
+	ENTRY;
+
+	if (likely(!lsm->lsm_md_is_invalid))
+		RETURN(0);
+
+	OBD_ALLOC_PTR(it);
+	if (it == NULL)
+		GOTO(out, rc = -ENOMEM);
+	it->it_op = IT_LAYOUT;
+
+	rc = lmv_get_layout(lmv, &lsm->lsm_md_master_fid, &req, it,
+			    cb_blocking);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	rc = lmv_update_layout(lmv, lsm, req, it);
+	if (rc != 0)
+		GOTO(out, rc);
+out:
+	if (it != NULL) {
+		struct lustre_handle	lock;
+		ldlm_mode_t		lock_mode;
+
+		lock_mode = it->d.lustre.it_lock_mode;
+		lock.cookie = it->d.lustre.it_lock_handle;
+		if (lock_mode != 0) {
+			/* If sth wrong, cancel the lock immediately */
+			if (rc != 0)
+				ldlm_lock_decref_and_cancel(&lock, lock_mode);
+			else
+				ldlm_lock_decref(&lock, lock_mode);
+		}
+		OBD_FREE_PTR(it);
+	}
+
+	if (req != NULL)
+		ptlrpc_req_finished(req);
+
+	RETURN(rc);
+}
+
+/**
+ * Locate the oinfo in lmv_stripe_md by name, and it will also
+ * whether the layout is valid, if not, it needs to update the
+ * layout.
+ **/
+struct lmv_oinfo *
+lsm_name_to_stripe_info(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
+			const char *name, int namelen,
+			ldlm_blocking_callback callback)
+{
+	int rc;
+
+	rc = lmv_refresh_lsm(lmv, lsm, callback);
+	if (rc != 0)
+		return ERR_PTR(rc);
+
+	rc = lmv_name_to_stripe_index(lsm->lsm_md_hash_type,
+				      lsm->lsm_md_stripe_count, name, namelen);
+	if (rc < 0)
+		return ERR_PTR(rc);
+
+	return &lsm->lsm_md_oinfo[rc];
+}
+
+/**
  * Choosing the MDT by name or FID in @op_data.
  * For non-striped directory, it will locate MDT by fid.
  * For striped-directory, it will locate MDT by name. And also
  * it will reset op_fid1 with the FID of the choosen stripe.
  **/
-struct lmv_tgt_desc *
+static struct lmv_tgt_desc *
 lmv_locate_target_for_name(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
 			   const char *name, int namelen, struct lu_fid *fid,
-			   mdsno_t *mds)
+			   struct md_op_data *op_data)
 {
 	struct lmv_tgt_desc	*tgt;
 	const struct lmv_oinfo	*oinfo;
 
-	oinfo = lsm_name_to_stripe_info(lsm, name, namelen);
+	oinfo = lsm_name_to_stripe_info(lmv, lsm, name, namelen,
+					op_data->op_md_blocking_cb);
 	if (IS_ERR(oinfo))
-		RETURN((void *)oinfo);
-	*fid = oinfo->lmo_fid;
-	*mds = oinfo->lmo_mds;
-	tgt = lmv_get_target(lmv, *mds);
+		RETURN(ERR_CAST(oinfo));
 
-	CDEBUG(D_INFO, "locate on mds %u "DFID"\n", *mds, PFID(fid));
+	*fid = oinfo->lmo_fid;
+	op_data->op_mds = oinfo->lmo_mds;
+
+	tgt = lmv_get_target(lmv, op_data->op_mds);
+
+	CDEBUG(D_INFO, "locate on mds %u "DFID"\n", op_data->op_mds,
+	       PFID(fid));
 	return tgt;
 }
 
@@ -1793,8 +1960,7 @@ struct lmv_tgt_desc
 	}
 
 	return lmv_locate_target_for_name(lmv, lsm, op_data->op_name,
-					  op_data->op_namelen, fid,
-					  &op_data->op_mds);
+					  op_data->op_namelen, fid, op_data);
 }
 
 int lmv_create(struct obd_export *exp, struct md_op_data *op_data,
@@ -2094,8 +2260,9 @@ static int lmv_link(struct obd_export *exp, struct md_op_data *op_data,
 		struct lmv_stripe_md	*lsm = op_data->op_mea2;
 		const struct lmv_oinfo	*oinfo;
 
-		oinfo = lsm_name_to_stripe_info(lsm, op_data->op_name,
-						op_data->op_namelen);
+		oinfo = lsm_name_to_stripe_info(lmv, lsm, op_data->op_name,
+						op_data->op_namelen,
+						op_data->op_md_blocking_cb);
 		if (IS_ERR(oinfo))
 			RETURN(PTR_ERR(oinfo));
 
@@ -2159,7 +2326,7 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 			src_tgt = lmv_locate_target_for_name(lmv, lsm, old,
 							     oldlen,
 							     &op_data->op_fid1,
-							     &op_data->op_mds);
+							     op_data);
 			if (IS_ERR(src_tgt))
 				RETURN(PTR_ERR(src_tgt));
 		} else {
@@ -2174,7 +2341,8 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 			struct lmv_stripe_md	*lsm = op_data->op_mea2;
 			const struct lmv_oinfo	*oinfo;
 
-			oinfo = lsm_name_to_stripe_info(lsm, new, newlen);
+			oinfo = lsm_name_to_stripe_info(lmv, lsm, new, newlen,
+						   op_data->op_md_blocking_cb);
 			if (IS_ERR(oinfo))
 				RETURN(PTR_ERR(oinfo));
 
@@ -2635,7 +2803,7 @@ retry:
 						   op_data->op_name,
 						   op_data->op_namelen,
 						   &op_data->op_fid1,
-						   &op_data->op_mds);
+						   op_data);
 			if (IS_ERR(tmp))
 				RETURN(PTR_ERR(tmp));
 		}
@@ -3041,6 +3209,7 @@ int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
 			RETURN(-ENOMEM);
 		allocated = true;
 		*lsmp = lsm;
+		lsm->lsm_md_is_invalid = 1;
 	}
 
 	switch (le32_to_cpu(lmm->lmv_magic)) {
@@ -3336,13 +3505,15 @@ int lmv_revalidate_lock(struct obd_export *exp, struct lookup_intent *it,
 }
 
 int lmv_get_fid_from_lsm(struct obd_export *exp,
-			 const struct lmv_stripe_md *lsm,
-			 const char *name, int namelen, struct lu_fid *fid)
+			 struct lmv_stripe_md *lsm,
+			 const char *name, int namelen,
+			 struct lu_fid *fid, ldlm_blocking_callback callback)
 {
+	struct obd_device       *obd = exp->exp_obd;
+	struct lmv_obd          *lmv = &obd->u.lmv;
 	const struct lmv_oinfo *oinfo;
 
-	LASSERT(lsm != NULL);
-	oinfo = lsm_name_to_stripe_info(lsm, name, namelen);
+	oinfo = lsm_name_to_stripe_info(lmv, lsm, name, namelen, callback);
 	if (IS_ERR(oinfo))
 		return PTR_ERR(oinfo);
 

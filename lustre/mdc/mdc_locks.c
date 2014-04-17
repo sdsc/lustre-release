@@ -747,7 +747,7 @@ static int mdc_finish_enqueue(struct obd_export *exp,
 	if (lock != NULL && ldlm_has_layout(lock) && lvb_data != NULL) {
 		void *lmm;
 
-		LDLM_DEBUG(lock, "layout lock returned by: %s, lvb_len: %d\n",
+		LDLM_DEBUG(lock, "layout lock returned by: %s, lvb_len: %d",
 			ldlm_it2str(it->it_op), lvb_len);
 
 		OBD_ALLOC_LARGE(lmm, lvb_len);
@@ -978,7 +978,12 @@ static int mdc_finish_intent_lock(struct obd_export *exp,
         if (rc)
                 RETURN(rc);
 
-        mdt_body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
+	/* Only retrieve layout in the intent handling, besides mdt_body is
+	 * not included in the reply, so no further checking here */
+	if (it->it_op & IT_LAYOUT)
+		RETURN(0);
+
+	mdt_body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
         LASSERT(mdt_body != NULL);      /* mdc_enqueue checked */
 
         /* If we were revalidating a fid/name pair, mark the intent in
@@ -1178,7 +1183,7 @@ int mdc_intent_lock(struct obd_export *exp, struct md_op_data *op_data,
 
 	lockh.cookie = 0;
 	if (fid_is_sane(&op_data->op_fid2) &&
-	    (it->it_op & (IT_LOOKUP | IT_GETATTR | IT_READDIR))) {
+	    (it->it_op & (IT_LOOKUP | IT_GETATTR | IT_READDIR | IT_LAYOUT))) {
 		/* We could just return 1 immediately, but since we should only
 		 * be called in revalidate_it if we already have a lock, let's
 		 * verify that. */

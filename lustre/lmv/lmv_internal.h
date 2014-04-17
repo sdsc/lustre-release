@@ -125,34 +125,14 @@ static inline int lmv_stripe_md_size(int stripe_count)
 	return sizeof(*lsm) + stripe_count * sizeof(lsm->lsm_md_oinfo[0]);
 }
 
-int lmv_name_to_stripe_index(enum lmv_hash_type hashtype,
-			     unsigned int max_mdt_index,
-			     const char *name, int namelen);
-
-static inline const struct lmv_oinfo *
-lsm_name_to_stripe_info(const struct lmv_stripe_md *lsm, const char *name,
-			int namelen)
-{
-	int stripe_index;
-
-	stripe_index = lmv_name_to_stripe_index(lsm->lsm_md_hash_type,
-						lsm->lsm_md_stripe_count,
-						name, namelen);
-	if (stripe_index < 0)
-		return ERR_PTR(stripe_index);
-
-	LASSERTF(stripe_index < lsm->lsm_md_stripe_count,
-		 "stripe_index = %d, stripe_count = %d hash_type = %x"
-		 "name = %.*s\n", stripe_index, lsm->lsm_md_stripe_count,
-		 lsm->lsm_md_hash_type, namelen, name);
-
-	return &lsm->lsm_md_oinfo[stripe_index];
-}
-
-
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
 		struct lu_fid *fid);
+
+struct lmv_oinfo *lsm_name_to_stripe_info(struct lmv_obd *lmv,
+					  struct lmv_stripe_md *lsm,
+					  const char *name, int namelen,
+					  ldlm_blocking_callback callback);
 /* lproc_lmv.c */
 #ifdef LPROCFS
 extern struct lprocfs_seq_vars lprocfs_lmv_obd_vars[];

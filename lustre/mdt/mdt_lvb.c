@@ -100,6 +100,7 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 	struct lu_fid *fid;
 	struct mdt_object *obj = NULL;
 	struct md_object *child = NULL;
+	const char	*xattr_name;
 	int rc;
 	ENTRY;
 
@@ -149,8 +150,13 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 
 	child = mdt_object_child(obj);
 
+	if (S_ISREG(lu_object_attr(&obj->mot_obj)))
+		xattr_name = XATTR_NAME_LOV;
+	else
+		xattr_name = XATTR_NAME_LMV;
+
 	/* get the length of lsm */
-	rc = mo_xattr_get(&env, child, &LU_BUF_NULL, XATTR_NAME_LOV);
+	rc = mo_xattr_get(&env, child, &LU_BUF_NULL, xattr_name);
 	if (rc < 0)
 		GOTO(out, rc);
 
@@ -167,7 +173,7 @@ static int mdt_lvbo_fill(struct ldlm_lock *lock, void *lvb, int lvblen)
 		lmm->lb_buf = lvb;
 		lmm->lb_len = rc;
 
-		rc = mo_xattr_get(&env, child, lmm, XATTR_NAME_LOV);
+		rc = mo_xattr_get(&env, child, lmm, xattr_name);
 		if (rc < 0)
 			GOTO(out, rc);
 	}

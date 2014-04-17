@@ -997,6 +997,9 @@ struct md_op_data {
 	/* File object data version for HSM release, on client */
 	__u64			op_data_version;
 	struct lustre_handle	op_lease_handle;
+
+	/* blocking callback operation for md locks */
+	ldlm_blocking_callback  op_md_blocking_cb;
 };
 
 #define op_stripe_offset	op_ioepoch
@@ -1325,10 +1328,10 @@ struct md_ops {
 				 struct obd_capa *, __u32,
 				 struct ptlrpc_request **);
 
-	int (*m_get_fid_from_lsm)(struct obd_export *,
-				  const struct lmv_stripe_md *,
+	int (*m_get_fid_from_lsm)(struct obd_export *, struct lmv_stripe_md *,
 				  const char *name, int namelen,
-				  struct lu_fid *fid);
+				  struct lu_fid *fid,
+				  ldlm_blocking_callback callback);
 };
 
 struct lsm_operations {

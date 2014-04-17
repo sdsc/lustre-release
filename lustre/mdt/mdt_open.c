@@ -1215,6 +1215,9 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 		if (exp_connect_layout(info->mti_exp) && !create_layout &&
 		    ma->ma_need & MA_LOV)
 			try_layout = true;
+	} else if (S_ISDIR(lu_object_attr(&obj->mot_obj))) {
+		if (exp_connect_layout(info->mti_exp) && ma->ma_need & MA_LMV)
+			try_layout = true;
 	}
 
 	if (acq_lease) {

@@ -2577,6 +2577,7 @@ struct md_op_data * ll_prep_md_op_data(struct md_op_data *op_data,
 		op_data->op_bias |= MDS_CREATE_VOLATILE;
 	op_data->op_mds = 0;
 	op_data->op_data = data;
+	op_data->op_md_blocking_cb = ll_md_blocking_ast;
 
         /* If the file is being opened after mknod() (normally due to NFS)
          * try to use the default stripe data from parent directory for

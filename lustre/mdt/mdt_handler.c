@@ -1550,7 +1550,8 @@ relock:
 		LASSERT(!(child_bits & MDS_INODELOCK_LAYOUT));
 		if (!OBD_FAIL_CHECK(OBD_FAIL_MDS_NO_LL_GETATTR) &&
 		    exp_connect_layout(info->mti_exp) &&
-		    S_ISREG(lu_object_attr(&child->mot_obj)) &&
+		    (S_ISREG(lu_object_attr(&child->mot_obj)) ||
+		     S_ISDIR(lu_object_attr(&child->mot_obj))) &&
 		    !mdt_object_remote(child) && ldlm_rep != NULL) {
 			/* try to grant layout lock for regular file. */
 			try_layout = true;
@@ -1568,7 +1569,10 @@ relock:
 				rc = mdt_object_lock(info, child, lhc,
 						child_bits, MDT_CROSS_LOCK);
 			} else {
-				ma_need |= MA_LOV;
+				if (S_ISREG(lu_object_attr(&child->mot_obj)))
+					ma_need |= MA_LOV;
+				else
+					ma_need |= MA_LMV;
 			}
 		} else {
 			/* Do not enqueue the UPDATE lock from MDT(cross-MDT),
@@ -3263,6 +3267,7 @@ static int mdt_intent_layout(enum mdt_it_code opcode,
 {
 	struct layout_intent *layout;
 	struct lu_fid *fid;
+	struct ldlm_reply	*ldlm_rep;
 	struct mdt_object *obj = NULL;
 	int rc = 0;
 	ENTRY;
@@ -3297,6 +3302,9 @@ static int mdt_intent_layout(enum mdt_it_code opcode,
 	rc = req_capsule_server_pack(info->mti_pill);
 	if (rc != 0)
 		RETURN(-EINVAL);
+
+	ldlm_rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
+	mdt_set_disposition(info, ldlm_rep, DISP_IT_EXECD);
 
 	layout = req_capsule_client_get(info->mti_pill, &RMF_LAYOUT_INTENT);
 	LASSERT(layout != NULL);

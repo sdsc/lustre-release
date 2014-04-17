@@ -2473,8 +2473,9 @@ static int osd_object_destroy(const struct lu_env *env,
 		RETURN(-EPERM);
 
 	if (S_ISDIR(inode->i_mode)) {
-		LASSERT(osd_inode_unlinked(inode) || inode->i_nlink == 1 ||
-			inode->i_nlink == 2);
+		LASSERTF(osd_inode_unlinked(inode) || inode->i_nlink == 1 ||
+			 inode->i_nlink == 2, DFID" nlink: %u\n", PFID(fid),
+			 inode->i_nlink);
 		/* it will check/delete the inode from remote parent,
 		 * how to optimize it? unlink performance impaction XXX */
 		result = osd_delete_from_remote_parent(env, osd, obj, oh);
