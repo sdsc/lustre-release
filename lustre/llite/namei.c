@@ -272,16 +272,24 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			ll_have_md_lock(inode, &bits, LCK_MINMODE);
 
 		if (bits & MDS_INODELOCK_LAYOUT) {
-			struct cl_object_conf conf = {
-				.coc_opc = OBJECT_CONF_INVALIDATE,
-				.coc_inode = inode,
-			};
+			if (S_ISDIR(inode->i_mode)) {
+				struct ll_inode_info *lli = ll_i2info(inode);
 
-			rc = ll_layout_conf(inode, &conf);
-			if (rc < 0)
-				CDEBUG(D_INODE, "cannot invalidate layout of "
-				       DFID": rc = %d\n",
-				       PFID(ll_inode2fid(inode)), rc);
+				if (lli->lli_lsm_md != NULL)
+					/* invalidate the layout */
+					lli->lli_lsm_md->lsm_md_is_invalid = 1;
+			} else {
+				struct cl_object_conf conf = {
+					.coc_opc = OBJECT_CONF_INVALIDATE,
+					.coc_inode = inode,
+				};
+
+				rc = ll_layout_conf(inode, &conf);
+				if (rc < 0)
+					CDEBUG(D_INODE, "cannot invalidate "
+					       "layout of "DFID": rc = %d\n",
+					       PFID(ll_inode2fid(inode)), rc);
+			}
 		}
 
 		if (bits & MDS_INODELOCK_UPDATE) {
@@ -519,7 +527,8 @@ static int ll_lookup_it_finish(struct ptlrpc_request *request,
 			rc = md_get_fid_from_lsm(ll_i2mdexp(parent),
 						 ll_i2info(parent)->lli_lsm_md,
 						 (*de)->d_name.name,
-						 (*de)->d_name.len, &fid);
+						 (*de)->d_name.len, &fid,
+						 ll_md_blocking_ast);
 			if (rc != 0)
 				RETURN(rc);
 		}
