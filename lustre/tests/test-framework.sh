@@ -1965,51 +1965,85 @@ cleanup_check() {
 	return 0
 }
 
-wait_update () {
+##
+# Wait for some state to be present on a node, checking periodically for
+# the state instead of simply sleeping for the maximum possible time.
+#
+# usage: wait_update [--verbose] [--max_wait N] {node} {check} {expect} {max_wait}
+# verbose:	print check results verbosely
+# max_wait:	maximum wait in seconds before returning error (default: 90s)
+#		positional max_wait parameter deprecated, use --max_wait
+# node:		node name on which to run check
+# check:	operation to perform to get status on stdout
+# expect:	expected output value of "$operation" to terminate wait
+#
+# return 0	if {expect} was found
+# non-zero	if {expect} was not found before maximum wait time
+wait_update() {
 	local verbose=false
+	local max_wait=90
+
 	if [[ "$1" == "--verbose" ]]; then
-		shift
 		verbose=true
+		shift
+	fi
+	if [[ "$1" == "--max_wait" ]]; then
+		max_wait=$2
+		shift 2
 	fi
 
-	local node=$1
-	local TEST=$2
-	local FINAL=$3
-	local MAX=${4:-90}
-	local RESULT
-	local PREV_RESULT
-	local WAIT=0
-	local sleep=1
-	local print=10
+	local node="$1"
+	local check="$2"
+	local expect="$3"
+	max_wait=${4:-$max_wait} # positional usage is deprecated
 
-	PREV_RESULT=$(do_node $node "$TEST")
+	local result
+	local prev_result
+	local waited=0
+	local interval=1
+	local printerval=10
+
 	while [ true ]; do
-		RESULT=$(do_node $node "$TEST")
-		if [[ "$RESULT" == "$FINAL" ]]; then
-			[[ -z "$RESULT" || $WAIT -le $sleep ]] ||
-				echo "Updated after ${WAIT}s: wanted '$FINAL'"\
-				     "got '$RESULT'"
+		result=$(do_node $node "$check")
+		if [[ "$result" == "$expect" ]]; then
+			[[ -z "$result" || $waited -le $printerval ]] ||
+				echo "Updated after ${waited}s: "\
+				     "wanted '$expect' got '$result'"
 			return 0
 		fi
-		if [[ $verbose && "$RESULT" != "$PREV_RESULT" ]]; then
-			echo "Changed after ${WAIT}s: from '$PREV_RESULT'"\
-			     "to '$RESULT'"
-			PREV_RESULT=$RESULT
+		if $verbose && [[ "$result" != "$prev_result" ]]; then
+			[[ -n "$prev_result" ]] &&
+				echo "Changed after ${waited}s: "\
+				     "from '$prev_result' to '$result'"
+			prev_result=$result
 		fi
-		[[ $WAIT -ge $MAX ]] && break
-		[[ $((WAIT % print)) -eq 0 ]] &&
-			echo "Waiting $((MAX - WAIT)) secs for update"
-		WAIT=$((WAIT + sleep))
-		sleep $sleep
+		[[ $waited -ge $max_wait ]] && break
+		[[ $((waited % printerval)) -eq 5 ]] &&
+			echo "Waiting $((max_wait - waited))s more for update"
+		waited=$((waited + interval))
+		sleep $interval
 	done
-	echo "Update not seen after ${MAX}s: wanted '$FINAL' got '$RESULT'"
+	echo "Update not seen for ${max_wait}s: wanted '$expect' got '$result'"
 	return 3
 }
 
+##
+# Wait for some state to be present on a node, checking periodically for
+# the state instead of simply sleeping for the maximum possible time.
+#
+# usage: wait_update_facet [--verbose] [--max_wait N] {facet} {check} {expect}
+# see wait_update() for description of arguments and return values
 wait_update_facet() {
-	local facet=$1
+	local node
+	local verbose=""
+	local max_wait=""
+
+	[ "$1" == "--verbose" ] && verbose="$1" && shift
+	[ "$1" == "--max_wait" ] && max_wait="$1 $2" && shift 2
+	node=$(facet_active_host $1)
 	shift
-	wait_update $(facet_active_host $facet) "$@"
+
+	wait_update $verbose $max_wait $node "$@"
 }
 
 sync_all_data() {
@@ -5571,17 +5605,18 @@ convert_facet2label() {
 }
 
 get_clientosc_proc_path() {
-    echo "${1}-osc-*"
+	echo "${1}-osc-*"
 }
 
 get_lustre_version () {
-    local facet=${1:-"$SINGLEMDS"}    
-    do_facet $facet $LCTL get_param -n version | awk '/^lustre:/ {print $2}'
+	local facet=${1:-"$SINGLEMDS"}    
+	do_facet $facet $LCTL get_param -n version 2> /dev/null |
+		awk '/^lustre:/ { print $2 }'
 }
 
 lustre_version_code() {
-    local facet=${1:-"$SINGLEMDS"}
-    version_code $(get_lustre_version $1)
+	local facet=${1:-"$SINGLEMDS"}
+	version_code $(get_lustre_version $1)
 }
 
 # If the 2.0 MDS was mounted on 1.8 device, then the OSC and LOV names
