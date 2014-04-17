@@ -1791,16 +1791,12 @@ void osc_dec_unstable_pages(struct ptlrpc_request *req)
 	struct ptlrpc_bulk_desc *desc       = req->rq_bulk;
 	struct client_obd       *cli        = &req->rq_import->imp_obd->u.cli;
 	obd_count                page_count = desc->bd_iov_count;
-	int i;
 
 	/* No unstable page tracking */
 	if (cli->cl_cache == NULL)
 		return;
 
 	LASSERT(page_count >= 0);
-
-	for (i = 0; i < page_count; i++)
-		dec_zone_page_state(desc->bd_iov[i].kiov_page, NR_UNSTABLE_NFS);
 
 	atomic_sub(page_count, &cli->cl_cache->ccc_unstable_nr);
 	LASSERT(atomic_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
@@ -1811,7 +1807,8 @@ void osc_dec_unstable_pages(struct ptlrpc_request *req)
 	atomic_sub(page_count, &obd_unstable_pages);
 	LASSERT(atomic_read(&obd_unstable_pages) >= 0);
 
-	wake_up_all(&cli->cl_cache->ccc_unstable_waitq);
+	if (atomic_read(&cli->cl_cache->ccc_unstable_nr) == 0)
+		wake_up_all(&cli->cl_cache->ccc_unstable_waitq);
 }
 
 /* "unstable" page accounting. See: osc_dec_unstable_pages. */
@@ -1820,16 +1817,12 @@ void osc_inc_unstable_pages(struct ptlrpc_request *req)
 	struct ptlrpc_bulk_desc *desc = req->rq_bulk;
 	struct client_obd       *cli  = &req->rq_import->imp_obd->u.cli;
 	obd_count                page_count = desc->bd_iov_count;
-	int i;
 
 	/* No unstable page tracking */
 	if (cli->cl_cache == NULL)
 		return;
 
 	LASSERT(page_count >= 0);
-
-	for (i = 0; i < page_count; i++)
-		inc_zone_page_state(desc->bd_iov[i].kiov_page, NR_UNSTABLE_NFS);
 
 	LASSERT(atomic_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
 	atomic_add(page_count, &cli->cl_cache->ccc_unstable_nr);
