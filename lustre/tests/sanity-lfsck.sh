@@ -60,12 +60,15 @@ START_LAYOUT="do_facet $SINGLEMDS \
 		$LCTL lfsck_start -M ${MDT_DEV} -t layout"
 START_LAYOUT_ON_OST="do_facet ost1 $LCTL lfsck_start -M ${OST_DEV} -t layout"
 STOP_LFSCK="do_facet $SINGLEMDS $LCTL lfsck_stop -M ${MDT_DEV}"
-SHOW_NAMESPACE="do_facet $SINGLEMDS \
-		$LCTL get_param -n mdd.${MDT_DEV}.lfsck_namespace"
-SHOW_LAYOUT="do_facet $SINGLEMDS \
-		$LCTL get_param -n mdd.${MDT_DEV}.lfsck_layout"
-SHOW_LAYOUT_ON_OST="do_facet ost1 \
-		$LCTL get_param -n obdfilter.${OST_DEV}.lfsck_layout"
+CMD_NAMESPACE="$LCTL get_param -n mdd.${MDT_DEV}.lfsck_namespace"
+STAT_NAMESPACE="$CMD_NAMESPACE | awk '/^status/ { print \\\$2 }'"
+SHOW_NAMESPACE="do_facet $SINGLEMDS $CMD_NAMESPACE"
+CMD_LAYOUT="$LCTL get_param -n mdd.${MDT_DEV}.lfsck_layout"
+STAT_LAYOUT="$CMD_LAYOUT | awk '/^status/ { print \\\$2 }'"
+SHOW_LAYOUT="do_facet $SINGLEMDS $CMD_LAYOUT"
+CMD_LAYOUT_ON_OST="$LCTL get_param -n obdfilter.${OST_DEV}.lfsck_layout"
+STAT_LAYOUT_ON_OST="$CMD_LAYOUT_ON_OST | awk '/^status/ { print \\\$2 }'"
+SHOW_LAYOUT_ON_OST="do_facet ost1 $CMD_LAYOUT_ON_OST"
 MOUNT_OPTS_SCRUB="-o user_xattr"
 MOUNT_OPTS_NOSCRUB="-o user_xattr,noscrub"
 
@@ -118,9 +121,8 @@ test_0() {
 
 	$STOP_LFSCK || error "(5) Fail to stop LFSCK!"
 
-	STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
-	[ "$STATUS" == "stopped" ] ||
-		error "(6) Expect 'stopped', but got '$STATUS'"
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_NAMESPACE" "stopped" ||
+		error "(6) Expect 'stopped'"
 
 	$START_NAMESPACE || error "(7) Fail to start LFSCK for namespace!"
 
@@ -129,25 +131,21 @@ test_0() {
 		error "(8) Expect 'scanning-phase1', but got '$STATUS'"
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0 fail_val=0
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
-		$SHOW_NAMESPACE
-		error "(9) unexpected status"
-	}
+	wait_update_facet --max_wait 20 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+		error "(9) Expect 'completed'"
 
-	local repaired=$($SHOW_NAMESPACE |
-			 awk '/^updated_phase1/ { print $2 }')
+	local repaired=$($SHOW_NAMESPACE | awk '/^updated_phase1/ { print $2 }')
 	[ $repaired -eq 0 ] ||
 		error "(10) Expect nothing to be repaired, but got: $repaired"
 
 	local scanned1=$($SHOW_NAMESPACE | awk '/^success_count/ { print $2 }')
 	$START_NAMESPACE -r || error "(11) Fail to reset LFSCK!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 20 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(12) unexpected status"
+		error "(12) Expect 'completed'"
 	}
 
 	local scanned2=$($SHOW_NAMESPACE | awk '/^success_count/ { print $2 }')
@@ -172,11 +170,11 @@ test_1a() {
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 	umount_client $MOUNT
 	$START_NAMESPACE -r || error "(3) Fail to start LFSCK for namespace!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(4) unexpected status"
+		error "(4) Expect 'completed'"
 	}
 
 	local repaired=$($SHOW_NAMESPACE |
@@ -194,8 +192,6 @@ test_1a() {
 	#define OBD_FAIL_FID_LOOKUP	0x1505
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1505
 	ls $DIR/$tdir/ > /dev/null || error "(7) no FID-in-dirent."
-
-	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 }
 run_test 1a "LFSCK can find out and repair crashed FID-in-dirent"
 
@@ -215,11 +211,12 @@ test_1b()
 	#define OBD_FAIL_FID_NOLMA	0x1506
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1506
 	$START_NAMESPACE -r || error "(3) Fail to start LFSCK for namespace!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+
+	wait_update_facet --max_wait 6 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(4) unexpected status"
+		error "(4) Expect 'completed'"
 	}
 
 	local repaired=$($SHOW_NAMESPACE |
@@ -238,8 +235,6 @@ test_1b()
 	#define OBD_FAIL_FID_LOOKUP	0x1505
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1505
 	stat $DIR/$tdir/dummy > /dev/null || error "(7) no FID-in-LMA."
-
-	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 }
 run_test 1b "LFSCK can find out and repair missed FID-in-LMA"
 
@@ -253,11 +248,11 @@ test_2a() {
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 	umount_client $MOUNT
 	$START_NAMESPACE -r || error "(3) Fail to start LFSCK for namespace!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(4) unexpected status"
+		error "(4) Expect 'completed'"
 	}
 
 	local repaired=$($SHOW_NAMESPACE |
@@ -293,11 +288,11 @@ test_2b()
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 	umount_client $MOUNT
 	$START_NAMESPACE -r || error "(3) Fail to start LFSCK for namespace!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(4) unexpected status"
+		error "(4) Expect 'completed'"
 	}
 
 	local repaired=$($SHOW_NAMESPACE |
@@ -328,11 +323,12 @@ test_2c()
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 	umount_client $MOUNT
 	$START_NAMESPACE -r || error "(3) Fail to start LFSCK for namespace!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+
+	wait_update_facet --max_wait 6 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(4) unexpected status"
+		error "(4) Expect 'completed'"
 	}
 
 	local repaired=$($SHOW_NAMESPACE |
@@ -369,11 +365,12 @@ test_4()
 	#define OBD_FAIL_LFSCK_DELAY2		0x1601
 	do_facet $SINGLEMDS $LCTL set_param fail_val=1 fail_loc=0x1601
 	$START_NAMESPACE -r || error "(4) Fail to start LFSCK for namespace!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^flags/ { print \\\$2 }'" "inconsistent" 6 || {
+
+	wait_update_facet --max_wait 6 $SINGLEMDS "$CMD_NAMESPACE |
+		awk '/^flags/ { print \\\$2 }'" "inconsistent" ||
+	{
 		$SHOW_NAMESPACE
-		error "(5) unexpected status"
+		error "(5) Expect 'inconsistent'"
 	}
 
 	local STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
@@ -381,15 +378,16 @@ test_4()
 		error "(6) Expect 'scanning-phase1', but got '$STATUS'"
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0 fail_val=0
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(7) unexpected status"
+		error "(7) Expect 'completed'"
 	}
 
-	FLAGS=$($SHOW_NAMESPACE | awk '/^flags/ { print $2 }')
-	[ -z "$FLAGS" ] || error "(8) Expect empty flags, but got '$FLAGS'"
+	wait_update_facet --max_wait 6 $SINGLEMDS \
+		"$CMD_NAMESPACE | awk '/^flags/ { print \\\$2 }'" "" ||
+		error "(8) Expect empty flags"
 
 	local repaired=$($SHOW_NAMESPACE |
 			 awk '/^dirent_repaired/ { print $2 }')
@@ -406,7 +404,6 @@ test_4()
 	#define OBD_FAIL_FID_LOOKUP	0x1505
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1505
 	ls $DIR/$tdir/ > /dev/null || error "(11) no FID-in-dirent."
-	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
 }
 run_test 4 "FID-in-dirent can be rebuilt after MDT file-level backup/restore"
 
@@ -427,11 +424,12 @@ test_5()
 	#define OBD_FAIL_LFSCK_DELAY2		0x1601
 	do_facet $SINGLEMDS $LCTL set_param fail_val=1 fail_loc=0x1601
 	$START_NAMESPACE -r || error "(4) Fail to start LFSCK for namespace!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^flags/ { print \\\$2 }'" "inconsistent,upgrade" 6 || {
+
+	wait_update_facet --max_wait 6 $SINGLEMDS "$CMD_NAMESPACE |
+		awk '/^flags/ { print \\\$2 }'" "inconsistent,upgrade" ||
+	{
 		$SHOW_NAMESPACE
-		error "(5) unexpected status"
+		error "(5) Expect 'inconsistent,upgrade'"
 	}
 
 	local STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
@@ -439,15 +437,15 @@ test_5()
 		error "(6) Expect 'scanning-phase1', but got '$STATUS'"
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0 fail_val=0
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 20 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(7) unexpected status"
+		error "(7) Expect 'completed'"
 	}
 
-	FLAGS=$($SHOW_NAMESPACE | awk '/^flags/ { print $2 }')
-	[ -z "$FLAGS" ] || error "(8) Expect empty flags, but got '$FLAGS'"
+	local flags=$($SHOW_NAMESPACE | awk '/^flags/ { print $2 }')
+	[ -z "$flags" ] || error "(8) Expect empty flags, but got '$flags'"
 
 	local repaired=$($SHOW_NAMESPACE |
 			 awk '/^dirent_repaired/ { print $2 }')
@@ -491,11 +489,10 @@ test_6a() {
 	# Fail the LFSCK to guarantee there is at least one checkpoint
 	#define OBD_FAIL_LFSCK_FATAL1		0x1608
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x80001608
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "failed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_NAMESPACE" "failed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(4) unexpected status"
+		error "(4) Expect 'failed'"
 	}
 
 	local POS0=$($SHOW_NAMESPACE |
@@ -517,11 +514,11 @@ test_6a() {
 		error "(7) Expect larger than: $POS0, but got $POS1"
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0 fail_val=0
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 20 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(8) unexpected status"
+		error "(8) Expect 'completed'"
 	}
 }
 run_test 6a "LFSCK resumes from last checkpoint (1)"
@@ -542,11 +539,10 @@ test_6b() {
 	# Fail the LFSCK to guarantee there is at least one checkpoint
 	#define OBD_FAIL_LFSCK_FATAL2		0x1609
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x80001609
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "failed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_NAMESPACE" "failed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(4) unexpected status"
+		error "(4) Expect 'failed'"
 	}
 
 	local O_POS0=$($SHOW_NAMESPACE |
@@ -579,11 +575,11 @@ test_6b() {
 	fi
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0 fail_val=0
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 20 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(8) unexpected status"
+		error "(8) Expect 'completed'"
 	}
 }
 run_test 6b "LFSCK resumes from last checkpoint (2)"
@@ -611,11 +607,11 @@ test_7a()
 		error "(5) Fail to start MDS!"
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0 fail_val=0
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 30 || {
+	wait_update_facet --max_wait 30 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(6) unexpected status"
+		error "(6) Expect 'completed'"
 	}
 }
 run_test 7a "non-stopped LFSCK should auto restarts after MDS remount (1)"
@@ -633,11 +629,11 @@ test_7b()
 	#define OBD_FAIL_LFSCK_DELAY3		0x1602
 	do_facet $SINGLEMDS $LCTL set_param fail_val=1 fail_loc=0x1602
 	$START_NAMESPACE -r || error "(3) Fail to start LFSCK for namespace!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "scanning-phase2" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS \
+		"$STAT_NAMESPACE" "scanning-phase2" ||
+	{
 		$SHOW_NAMESPACE
-		error "(4) unexpected status"
+		error "(4) Expect 'scanning-phase2'"
 	}
 
 	echo "stop $SINGLEMDS"
@@ -648,11 +644,11 @@ test_7b()
 		error "(6) Fail to start MDS!"
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0 fail_val=0
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 30 || {
+	wait_update_facet --max_wait 30 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(7) unexpected status"
+		error "(8) Expect 'completed'"
 	}
 }
 run_test 7b "non-stopped LFSCK should auto restarts after MDS remount (2)"
@@ -692,9 +688,11 @@ test_8()
 
 	$STOP_LFSCK || error "(6) Fail to stop LFSCK!"
 
-	STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
-	[ "$STATUS" == "stopped" ] ||
-		error "(7) Expect 'stopped', but got '$STATUS'"
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_NAMESPACE" "stopped" ||
+	{
+		$SHOW_NAMESPACE
+		error "(7) Expect 'stopped'"
+	}
 
 	$START_NAMESPACE || error "(8) Fail to start LFSCK for namespace!"
 
@@ -704,11 +702,10 @@ test_8()
 
 	#define OBD_FAIL_LFSCK_FATAL2		0x1609
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x80001609
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "failed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_NAMESPACE" "failed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(10) unexpected status"
+		error "(10) Expect 'failed'"
 	}
 
 	#define OBD_FAIL_LFSCK_DELAY1		0x1600
@@ -733,9 +730,11 @@ test_8()
 	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
 		error "(14) Fail to start MDS!"
 
-	STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
-	[ "$STATUS" == "crashed" ] ||
-		error "(15) Expect 'crashed', but got '$STATUS'"
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_NAMESPACE" "crashed" ||
+	{
+		$SHOW_NAMESPACE
+		error "(15) Expect 'crashed'"
+	}
 
 	#define OBD_FAIL_LFSCK_DELAY2		0x1601
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1601
@@ -755,35 +754,34 @@ test_8()
 	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
 		error "(19) Fail to start MDS!"
 
-	STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
-	[ "$STATUS" == "paused" ] ||
-		error "(20) Expect 'paused', but got '$STATUS'"
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_NAMESPACE" "paused" ||
+		error "(20) Expect 'paused'"
 
 	#define OBD_FAIL_LFSCK_DELAY3		0x1602
 	do_facet $SINGLEMDS $LCTL set_param fail_val=2 fail_loc=0x1602
 
 	$START_NAMESPACE || error "(21) Fail to start LFSCK for namespace!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "scanning-phase2" 6 || {
+	wait_update_facet --max_wait 9 $SINGLEMDS \
+		"$STAT_NAMESPACE" "scanning-phase2" ||
+	{
 		$SHOW_NAMESPACE
-		error "(22) unexpected status"
+		error "(22) Expect 'scanning-phase2'"
 	}
 
-	local FLAGS=$($SHOW_NAMESPACE | awk '/^flags/ { print $2 }')
-	[ "$FLAGS" == "scanned-once,inconsistent" ] ||
-		error "(23) Expect 'scanned-once,inconsistent',but got '$FLAGS'"
+	wait_update_facet --max_wait 6 $SINGLEMDS "$CMD_NAMESPACE |
+		awk '/^flags/ { print \\\$2 }'" "scanned-once,inconsistent" ||
+		error "(23) Expect 'scanned-once,inconsistent'"
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0 fail_val=0
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 20 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(24) unexpected status"
+		error "(24) Expect 'completed'"
 	}
 
-	FLAGS=$($SHOW_NAMESPACE | awk '/^flags/ { print $2 }')
-	[ -z "$FLAGS" ] || error "(25) Expect empty flags, but got '$FLAGS'"
+	local flags=$($SHOW_NAMESPACE | awk '/^flags/ { print $2 }')
+	[ -z "$flags" ] || error "(25) Expect empty flags, but got '$flags'"
 }
 run_test 8 "LFSCK state machine"
 
@@ -800,7 +798,7 @@ test_9a() {
 	$START_NAMESPACE -r -s $BASE_SPEED1 || error "(3) Fail to start LFSCK!"
 
 	sleep $RUN_TIME1
-	STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
+	local STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
 	[ "$STATUS" == "scanning-phase1" ] ||
 		error "(3) Expect 'scanning-phase1', but got '$STATUS'"
 
@@ -820,7 +818,7 @@ test_9a() {
 	local BASE_SPEED2=300
 	local RUN_TIME2=10
 	do_facet $SINGLEMDS \
-		$LCTL set_param -n mdd.${MDT_DEV}.lfsck_speed_limit $BASE_SPEED2
+		$LCTL set_param -n mdd.*.lfsck_speed_limit $BASE_SPEED2
 	sleep $RUN_TIME2
 
 	SPEED=$($SHOW_NAMESPACE | awk '/^average_speed_phase1/ { print $2 }')
@@ -841,11 +839,9 @@ test_9a() {
 
 	do_facet $SINGLEMDS \
 		$LCTL set_param -n mdd.${MDT_DEV}.lfsck_speed_limit 0
-
-	wait_update_facet $SINGLEMDS \
-	    "$LCTL get_param -n mdd.${MDT_DEV}.lfsck_namespace|\
-	    awk '/^status/ { print \\\$2 }'" "completed" 30 ||
-		error "(7) Failed to get expected 'completed'"
+	wait_update_facet --max_wait 30 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+		error "(7) Expect 'completed'"
 }
 run_test 9a "LFSCK speed control (1)"
 
@@ -869,11 +865,10 @@ test_9b() {
 	#define OBD_FAIL_LFSCK_NO_DOUBLESCAN	0x160c
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x160c
 	$START_NAMESPACE -r || error "(4) Fail to start LFSCK!"
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "stopped" 10 || {
+	wait_update_facet --max_wait 9 $SINGLEMDS "$STAT_NAMESPACE" "stopped" ||
+	{
 		$SHOW_NAMESPACE
-		error "(5) unexpected status"
+		error "(5) Expect 'stopped'"
 	}
 
 	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
@@ -923,11 +918,11 @@ test_9b() {
 
 	do_facet $SINGLEMDS \
 		$LCTL set_param -n mdd.${MDT_DEV}.lfsck_speed_limit 0
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 20 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(11) unexpected status"
+		error "(11) Expect 'completed'"
 	}
 }
 run_test 9b "LFSCK speed control (2)"
@@ -968,7 +963,6 @@ test_10()
 
 	$START_NAMESPACE -r -s 100 || error "(5) Fail to start LFSCK!"
 
-	sleep 10
 	STATUS=$($SHOW_NAMESPACE | awk '/^status/ { print $2 }')
 	[ "$STATUS" == "scanning-phase1" ] ||
 		error "(6) Expect 'scanning-phase1', but got '$STATUS'"
@@ -996,11 +990,11 @@ test_10()
 
 	do_facet $SINGLEMDS \
 		$LCTL set_param -n mdd.${MDT_DEV}.lfsck_speed_limit 0
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 20 $SINGLEMDS \
+		"$STAT_NAMESPACE" "completed" ||
+	{
 		$SHOW_NAMESPACE
-		error "(16) unexpected status"
+		error "(16) Expect 'completed'"
 	}
 }
 run_test 10 "System is available during LFSCK scanning"
@@ -1040,25 +1034,25 @@ test_11a() {
 	echo "trigger LFSCK for layout on ost1 to rebuild the LAST_ID(s)"
 	$START_LAYOUT_ON_OST -r || error "(4) Fail to start LFSCK on OST!"
 
-	wait_update_facet ost1 "$LCTL get_param -n \
-		obdfilter.${OST_DEV}.lfsck_layout |
-		awk '/^flags/ { print \\\$2 }'" "crashed_lastid" 60 || {
+	wait_update_facet --max_wait 60 ost1 "$CMD_LAYOUT_ON_OST |
+		awk '/^flags/ { print \\\$2 }'" "crashed_lastid" ||
+	{
 		$SHOW_LAYOUT_ON_OST
-		error "(5) unexpected status"
+		error "(5) Expect 'crashed_lastid'"
 	}
 
 	do_facet ost1 $LCTL set_param fail_val=0 fail_loc=0
 
-	wait_update_facet ost1 "$LCTL get_param -n \
-		obdfilter.${OST_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 ost1 \
+		"$STAT_LAYOUT_ON_OST" "completed" ||
+	{
 		$SHOW_LAYOUT_ON_OST
-		error "(6) unexpected status"
+		error "(6) Expect 'completed'"
 	}
 
 	echo "the LAST_ID(s) should have been rebuilt"
-	FLAGS=$($SHOW_LAYOUT_ON_OST | awk '/^flags/ { print $2 }')
-	[ -z "$FLAGS" ] || error "(7) Expect empty flags, but got '$FLAGS'"
+	local flags=$($SHOW_NAMESPACE | awk '/^flags/ { print $2 }')
+	[ -z "$flags" ] || error "(7) Expect empty flags, but got '$flags'"
 }
 run_test 11a "LFSCK can rebuild lost last_id"
 
@@ -1070,9 +1064,9 @@ test_11b() {
 	#define OBD_FAIL_LFSCK_SKIP_LASTID	0x160d
 	do_facet ost1 $LCTL set_param fail_loc=0x160d
 	createmany -o $DIR/$tdir/f 64
-	local lastid1=$(do_facet ost1 "lctl get_param -n \
-		obdfilter.${ost1_svc}.last_id" | grep 0x100000000 |
-		awk -F: '{ print $2 }')
+	local lastid1=$(do_facet ost1 \
+			"$LCTL get_param -n obdfilter.${ost1_svc}.last_id" |
+			awk -F: '/0x100000000/ { print $2 }')
 
 	umount_client $MOUNT
 	stop ost1 || error "(1) Fail to stop ost1"
@@ -1084,9 +1078,9 @@ test_11b() {
 		error "(2) Fail to start ost1"
 
 	for ((i = 0; i < 60; i++)); do
-		lastid2=$(do_facet ost1 "lctl get_param -n \
-			obdfilter.${ost1_svc}.last_id" | grep 0x100000000 |
-			awk -F: '{ print $2 }')
+		lastid2=$(do_facet ost1 \
+			  "$LCTL get_param -n obdfilter.${ost1_svc}.last_id" |
+			  awk -F: '/0x100000000/ { print $2 }')
 		[ ! -z $lastid2 ] && break;
 		sleep 1
 	done
@@ -1098,11 +1092,11 @@ test_11b() {
 	echo "trigger LFSCK for layout on ost1 to rebuild the on-disk LAST_ID"
 	$START_LAYOUT_ON_OST -r || error "(5) Fail to start LFSCK on OST!"
 
-	wait_update_facet ost1 "$LCTL get_param -n \
-		obdfilter.${OST_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 20 ost1 \
+		"$STAT_LAYOUT_ON_OST" "completed" ||
+	{
 		$SHOW_LAYOUT_ON_OST
-		error "(6) unexpected status"
+		error "(6) Expect 'completed'"
 	}
 
 	stop ost1 || error "(7) Fail to stop ost1"
@@ -1111,9 +1105,10 @@ test_11b() {
 		error "(8) Fail to start ost1"
 
 	echo "the on-disk LAST_ID should have been rebuilt"
-	wait_update_facet ost1 "$LCTL get_param -n \
-		obdfilter.${ost1_svc}.last_id | grep 0x100000000 |
-		awk -F: '{ print \\\$2 }'" "$lastid1" 60 || {
+	wait_update_facet --max_wait 60 ost1 \
+		"$LCTL get_param -n obdfilter.${ost1_svc}.last_id |
+		 awk -F: '/0x100000000/ { print \\\$2 }'" "$lastid1" ||
+	{
 		$LCTL get_param -n obdfilter.${ost1_svc}.last_id
 		error "(9) expect lastid1 0x100000000:$lastid1"
 	}
@@ -1153,11 +1148,10 @@ test_12() {
 
 	echo "All the LFSCK targets should be in 'stopped' status."
 	for k in $(seq $MDSCOUNT); do
-		local STATUS=$(do_facet mds${k} $LCTL get_param -n \
-				mdd.$(facet_svc mds${k}).lfsck_namespace |
-				awk '/^status/ { print $2 }')
-		[ "$STATUS" == "stopped" ] ||
-			error "(5) MDS${k} Expect 'stopped', but got '$STATUS'"
+		wait_update_facet --max_wait 6 mds${k} "$LCTL get_param -n \
+			mdd.$(facet_svc mds${k}).lfsck_namespace |
+			awk '/^status/ { print \\\$2 }'" "stopped" ||
+			error "(5) MDS${k} Expect 'stopped'"
 	done
 
 	echo "Re-start namespace LFSCK on all targets by single command (-s 0)."
@@ -1166,15 +1160,15 @@ test_12() {
 
 	echo "All the LFSCK targets should be in 'completed' status."
 	for k in $(seq $MDSCOUNT); do
-		wait_update_facet mds${k} "$LCTL get_param -n \
+		wait_update_facet --max_wait 20 mds${k} "$LCTL get_param -n \
 			mdd.$(facet_svc mds${k}).lfsck_namespace |
-			awk '/^status/ { print \\\$2 }'" "completed" 8 ||
-			error "(7) MDS${k} is not the expected 'completed'"
+			awk '/^status/ { print \\\$2 }'" "completed" ||
+			error "(7) MDS${k} Expect 'completed'"
 	done
 
 	echo "Start layout LFSCK on all targets by single command (-s 1)."
-	do_facet mds1 $LCTL lfsck_start -M ${FSNAME}-MDT0000 -t layout -A \
-		-s 1 -r || error "(8) Fail to start LFSCK on all devices!"
+	do_facet mds1 $LCTL lfsck_start -M $FSNAME-MDT0000 -t layout -Ar -s 1 ||
+		error "(8) Fail to start LFSCK on all devices!"
 
 	echo "All the LFSCK targets should be in 'scanning-phase1' status."
 	for k in $(seq $MDSCOUNT); do
@@ -1191,19 +1185,17 @@ test_12() {
 
 	echo "All the LFSCK targets should be in 'stopped' status."
 	for k in $(seq $MDSCOUNT); do
-		local STATUS=$(do_facet mds${k} $LCTL get_param -n \
-				mdd.$(facet_svc mds${k}).lfsck_layout |
-				awk '/^status/ { print $2 }')
-		[ "$STATUS" == "stopped" ] ||
-			error "(11) MDS${k} Expect 'stopped', but got '$STATUS'"
+		wait_update_facet --max_wait 6 mds${k} "$LCTL get_param -n \
+			mdd.$(facet_svc mds${k}).lfsck_layout |
+			awk '/^status/ { print \\\$2 }'" "stopped" ||
+			error "(11) MDS${k} Expect 'stopped'"
 	done
 
 	for k in $(seq $OSTCOUNT); do
-		local STATUS=$(do_facet ost${k} $LCTL get_param -n \
-				obdfilter.$(facet_svc ost${k}).lfsck_layout |
-				awk '/^status/ { print $2 }')
-		[ "$STATUS" == "stopped" ] ||
-			error "(12) OST${k} Expect 'stopped', but got '$STATUS'"
+		wait_update_facet --max_wait 6 ost${k} "$LCTL get_param -n \
+			obdfilter.$(facet_svc ost${k}).lfsck_layout |
+			awk '/^status/ { print \\\$2 }'" "stopped" ||
+			error "(12) OST${k} Expect 'stopped'"
 	done
 
 	echo "Re-start layout LFSCK on all targets by single command (-s 0)."
@@ -1215,10 +1207,10 @@ test_12() {
 		# The LFSCK status query internal is 30 seconds. For the case
 		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
 		# time to guarantee the status sync up.
-		wait_update_facet mds${k} "$LCTL get_param -n \
-			mdd.$(facet_svc mds${k}).lfsck_layout |
-			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
-			error "(14) MDS${k} is not the expected 'completed'"
+		wait_update_facet --max_wait 32 mds$k "$LCTL get_param -n \
+			mdd.$(facet_svc mds$k).lfsck_layout |
+			awk '/^status/ { print \\\$2 }'" "completed" ||
+			error "(14) MDS$k Expect 'completed'"
 	done
 }
 run_test 12 "single command to trigger LFSCK on all devices"
@@ -1241,15 +1233,13 @@ test_13() {
 	echo "Trigger layout LFSCK to find out the bad lmm_oi and fix them"
 	$START_LAYOUT -r || error "(1) Fail to start LFSCK for layout!"
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_LAYOUT" "completed" ||
+	{
 		$SHOW_LAYOUT
-		error "(2) unexpected status"
+		error "(2) Expect 'completed'"
 	}
 
-	local repaired=$($SHOW_LAYOUT |
-			 awk '/^repaired_others/ { print $2 }')
+	local repaired=$($SHOW_LAYOUT | awk '/^repaired_others/ { print $2 }')
 	[ $repaired -eq 32 ] ||
 		error "(3) Fail to repair crashed lmm_oi: $repaired"
 }
@@ -1280,16 +1270,16 @@ test_14() {
 		error "(0) Fail to create $count files."
 
 	echo "'ls' should fail because of dangling referenced MDT-object"
-	ls -ail $DIR/$tdir > /dev/null 2>&1 && error "(1) ls should fail."
+	ls -ail $DIR/$tdir > /dev/null &&
+		error "(1) ls $DIR/$tdir should fail."
 
 	echo "Trigger layout LFSCK to find out dangling reference"
 	$START_LAYOUT -r || error "(2) Fail to start LFSCK for layout!"
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_LAYOUT" "completed" ||
+	{
 		$SHOW_LAYOUT
-		error "(3) unexpected status"
+		error "(3) Expect 'completed'"
 	}
 
 	local repaired=$($SHOW_LAYOUT |
@@ -1303,15 +1293,13 @@ test_14() {
 	echo "Trigger layout LFSCK to repair dangling reference"
 	$START_LAYOUT -r -c || error "(6) Fail to start LFSCK for layout!"
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_LAYOUT" "completed" ||
+	{
 		$SHOW_LAYOUT
-		error "(7) unexpected status"
+		error "(7) Expect 'completed'"
 	}
 
-	repaired=$($SHOW_LAYOUT |
-			 awk '/^repaired_dangling/ { print $2 }')
+	repaired=$($SHOW_LAYOUT | awk '/^repaired_dangling/ { print $2 }')
 	[ $repaired -ge 32 ] ||
 		error "(8) Fail to repair dangling reference: $repaired"
 
@@ -1343,11 +1331,10 @@ test_15a() {
 	echo "Trigger layout LFSCK to find out unmatched pairs and fix them"
 	$START_LAYOUT -r || error "(1) Fail to start LFSCK for layout!"
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_LAYOUT" "completed" ||
+	{
 		$SHOW_LAYOUT
-		error "(2) unexpected status"
+		error "(2) Expect 'completed'"
 	}
 
 	local repaired=$($SHOW_LAYOUT |
@@ -1382,11 +1369,10 @@ test_15b() {
 	echo "Trigger layout LFSCK to find out unmatched pairs and fix them"
 	$START_LAYOUT -r || error "(1) Fail to start LFSCK for layout!"
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_LAYOUT" "completed" ||
+	{
 		$SHOW_LAYOUT
-		error "(2) unexpected status"
+		error "(2) Expect 'completed'"
 	}
 
 	local repaired=$($SHOW_LAYOUT |
@@ -1419,11 +1405,10 @@ test_16() {
 
 	$START_LAYOUT -r || error "(1) Fail to start LFSCK for layout!"
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 6 $SINGLEMDS "$STAT_LAYOUT" "completed" ||
+	{
 		$SHOW_LAYOUT
-		error "(2) unexpected status"
+		error "(2) Expect 'completed'"
 	}
 
 	local repaired=$($SHOW_LAYOUT |
@@ -1470,11 +1455,10 @@ test_17() {
 
 	$START_LAYOUT -r || error "(2) Fail to start LFSCK for layout!"
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+	wait_update_facet --max_wait 20 $SINGLEMDS "$STAT_LAYOUT" "completed" ||
+	{
 		$SHOW_LAYOUT
-		error "(3) unexpected status"
+		error "(3) Expect 'completed'"
 	}
 
 	local repaired=$($SHOW_LAYOUT |
@@ -1557,16 +1541,16 @@ test_18a() {
 		# The LFSCK status query internal is 30 seconds. For the case
 		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
 		# time to guarantee the status sync up.
-		wait_update_facet mds${k} "$LCTL get_param -n \
+		wait_update_facet --max_wait 32 mds${k} "$LCTL get_param -n \
 			mdd.$(facet_svc mds${k}).lfsck_layout |
-			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
+			awk '/^status/ { print \\\$2 }'" "completed" ||
 			error "(4) MDS${k} is not the expected 'completed'"
 	done
 
 	for k in $(seq $OSTCOUNT); do
 		local cur_status=$(do_facet ost${k} $LCTL get_param -n \
-				obdfilter.$(facet_svc ost${k}).lfsck_layout |
-				awk '/^status/ { print $2 }')
+				   obdfilter.$(facet_svc ost${k}).lfsck_layout |
+				   awk '/^status/ { print $2 }')
 		[ "$cur_status" == "completed" ] ||
 		error "(5) OST${k} Expect 'completed', but got '$cur_status'"
 	done
@@ -1661,16 +1645,16 @@ test_18b() {
 		# The LFSCK status query internal is 30 seconds. For the case
 		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
 		# time to guarantee the status sync up.
-		wait_update_facet mds${k} "$LCTL get_param -n \
+		wait_update_facet --max_wait 32 mds${k} "$LCTL get_param -n \
 			mdd.$(facet_svc mds${k}).lfsck_layout |
-			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
+			awk '/^status/ { print \\\$2 }'" "completed" ||
 			error "(2) MDS${k} is not the expected 'completed'"
 	done
 
 	for k in $(seq $OSTCOUNT); do
 		local cur_status=$(do_facet ost${k} $LCTL get_param -n \
-				obdfilter.$(facet_svc ost${k}).lfsck_layout |
-				awk '/^status/ { print $2 }')
+				   obdfilter.$(facet_svc ost${k}).lfsck_layout |
+				   awk '/^status/ { print $2 }')
 		[ "$cur_status" == "completed" ] ||
 		error "(3) OST${k} Expect 'completed', but got '$cur_status'"
 	done
@@ -1775,16 +1759,16 @@ test_18c() {
 		# The LFSCK status query internal is 30 seconds. For the case
 		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
 		# time to guarantee the status sync up.
-		wait_update_facet mds${k} "$LCTL get_param -n \
+		wait_update_facet --max_wait 32 mds${k} "$LCTL get_param -n \
 			mdd.$(facet_svc mds${k}).lfsck_layout |
-			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
+			awk '/^status/ { print \\\$2 }'" "completed" ||
 			error "(2) MDS${k} is not the expected 'completed'"
 	done
 
 	for k in $(seq $OSTCOUNT); do
 		local cur_status=$(do_facet ost${k} $LCTL get_param -n \
-				obdfilter.$(facet_svc ost${k}).lfsck_layout |
-				awk '/^status/ { print $2 }')
+				   obdfilter.$(facet_svc ost${k}).lfsck_layout |
+				   awk '/^status/ { print $2 }')
 		[ "$cur_status" == "completed" ] ||
 		error "(3) OST${k} Expect 'completed', but got '$cur_status'"
 	done
@@ -1870,10 +1854,9 @@ test_18d() {
 	echo "Trigger layout LFSCK on all devices to find out orphan OST-object"
 	$START_LAYOUT -r -o -c || error "(2) Fail to start LFSCK for layout!"
 
-	wait_update_facet mds1 "$LCTL get_param -n \
-		mdd.$(facet_svc mds1).lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "scanning-phase2" 6 ||
-		error "(3.0) MDS1 is not the expected 'scanning-phase2'"
+	wait_update_facet --max_wait 6 $SINGLEMDS \
+		"$STAT_LAYOUT" "scanning-phase2" ||
+		error "(3.0) Expect 'scanning-phase2'"
 
 	do_facet $SINGLEMDS $LCTL set_param fail_val=0 fail_loc=0
 
@@ -1881,22 +1864,21 @@ test_18d() {
 		# The LFSCK status query internal is 30 seconds. For the case
 		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
 		# time to guarantee the status sync up.
-		wait_update_facet mds${k} "$LCTL get_param -n \
+		wait_update_facet --max_wait 32 mds${k} "$LCTL get_param -n \
 			mdd.$(facet_svc mds${k}).lfsck_layout |
-			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
+			awk '/^status/ { print \\\$2 }'" "completed" ||
 			error "(3) MDS${k} is not the expected 'completed'"
 	done
 
 	for k in $(seq $OSTCOUNT); do
 		local cur_status=$(do_facet ost${k} $LCTL get_param -n \
-				obdfilter.$(facet_svc ost${k}).lfsck_layout |
-				awk '/^status/ { print $2 }')
+				   obdfilter.$(facet_svc ost${k}).lfsck_layout |
+				   awk '/^status/ { print $2 }')
 		[ "$cur_status" == "completed" ] ||
 		error "(4) OST${k} Expect 'completed', but got '$cur_status'"
 	done
 
-	local repaired=$(do_facet $SINGLEMDS $LCTL get_param -n \
-			 mdd.$(facet_svc $SINGLEMDS).lfsck_layout |
+	local repaired=$(do_facet $SINGLEMDS $CMD_LAYOUT |
 			 awk '/^repaired_orphan/ { print $2 }')
 	[ $repaired -eq 1 ] ||
 		error "(5) Expect 1 orphan has been fixed, but got: $repaired"
@@ -1964,10 +1946,12 @@ test_18e() {
 	echo "Trigger layout LFSCK on all devices to find out orphan OST-object"
 	$START_LAYOUT -r -o -c || error "(2) Fail to start LFSCK for layout!"
 
-	wait_update_facet mds1 "$LCTL get_param -n \
-		mdd.$(facet_svc mds1).lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "scanning-phase2" 6 ||
-		error "(3) MDS1 is not the expected 'scanning-phase2'"
+	wait_update_facet --max_wait 6 $SINGLEMDS \
+		"$STAT_LAYOUT" "scanning-phase2" ||
+	{
+		$SHOW_LAYOUT
+		error "(3) Expect 'scanning-phase2'"
+	}
 
 	# to guarantee all updates are synced.
 	sync
@@ -1982,22 +1966,21 @@ test_18e() {
 		# The LFSCK status query internal is 30 seconds. For the case
 		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
 		# time to guarantee the status sync up.
-		wait_update_facet mds${k} "$LCTL get_param -n \
+		wait_update_facet --max_wait 32 mds${k} "$LCTL get_param -n \
 			mdd.$(facet_svc mds${k}).lfsck_layout |
-			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
+			awk '/^status/ { print \\\$2 }'" "completed" ||
 			error "(4) MDS${k} is not the expected 'completed'"
 	done
 
 	for k in $(seq $OSTCOUNT); do
 		local cur_status=$(do_facet ost${k} $LCTL get_param -n \
-				obdfilter.$(facet_svc ost${k}).lfsck_layout |
-				awk '/^status/ { print $2 }')
+				   obdfilter.$(facet_svc ost${k}).lfsck_layout |
+				   awk '/^status/ { print $2 }')
 		[ "$cur_status" == "completed" ] ||
 		error "(5) OST${k} Expect 'completed', but got '$cur_status'"
 	done
 
-	local repaired=$(do_facet $SINGLEMDS $LCTL get_param -n \
-			 mdd.$(facet_svc $SINGLEMDS).lfsck_layout |
+	local repaired=$(do_facet $SINGLEMDS $CMD_LAYOUT |
 			 awk '/^repaired_orphan/ { print $2 }')
 	[ $repaired -eq 1 ] ||
 		error "(6) Expect 1 orphan has been fixed, but got: $repaired"

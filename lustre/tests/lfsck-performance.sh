@@ -39,7 +39,10 @@ MDT_DEV="${FSNAME}-MDT0000"
 MDT_DEVNAME=$(mdsdevname ${SINGLEMDS//mds/})
 START_NAMESPACE="${RLCTL} lfsck_start -M ${MDT_DEV} -t namespace"
 STOP_LFSCK="${RLCTL} lfsck_stop -M ${MDT_DEV}"
-SHOW_NAMESPACE="${RLCTL} get_param -n mdd.${MDT_DEV}.lfsck_namespace"
+CMD_NAMESPACE="$LCTL get_param -n mdd.${MDT_DEV}.lfsck_namespace"
+SHOW_NAMESPACE="$RCMD $CMD_NAMESPACE"
+CMD_LAYOUT="$LCTL get_param -n mdd.${MDT_DEV}.lfsck_layout"
+SHOW_LAYOUT="$RCMD $CMD_LAYOUT"
 MNTOPTS_NOSCRUB="-o user_xattr,noscrub"
 remote_mds && ECHOCMD=${RCMD} || ECHOCMD="eval"
 
@@ -363,9 +366,9 @@ layout_test_one()
 	echo "***** Start layout LFSCK on all devices at: $(date) *****"
 	$RLCTL lfsck_start -M ${MDT_DEV} -t layout -A -r || return 21
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" $WTIME || {
+	wait_update_facet --max_wait $WTIME $SINGLEMDS "$CMD_LAYOUT |
+		awk '/^status/ { print \\\$2 }'" "completed" ||
+	{
 		show_layout 1
 		return 22
 	}
@@ -627,9 +630,9 @@ test_6() {
 	$RLCTL lfsck_start -M ${MDT_DEV} -t layout -r ||
 		error "(7) Fail to start layout LFSCK"
 
-	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
-		mdd.${MDT_DEV}.lfsck_layout |
-		awk '/^status/ { print \\\$2 }'" "completed" $WTIME || {
+	wait_update_facet --max_wait $WTIME $SINGLEMDS "$CMD_LAYOUT |
+		awk '/^status/ { print \\\$2 }'" "completed" ||
+	{
 		show_layout 1
 		error "(8) layout LFSCK cannot finished in time"
 	}
