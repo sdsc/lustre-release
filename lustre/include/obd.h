@@ -1002,6 +1002,9 @@ struct md_op_data {
 	/* File object data version for HSM release, on client */
 	__u64			op_data_version;
 	struct lustre_handle	op_lease_handle;
+
+	/* blocking callback operation for md locks */
+	ldlm_blocking_callback  op_md_blocking_cb;
 };
 
 #define op_stripe_offset	op_ioepoch

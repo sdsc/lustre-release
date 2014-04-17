@@ -2708,6 +2708,26 @@ test_80() {
 }
 run_test 80 "migrate directory when some children is being opened"
 
+test_81() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	rm -rf $DIR1/$tdir
+	mkdir -p $DIR1/$tdir
+	$LFS setdirstripe -i0 -c$MDSCOUNT $DIR1/$tdir/striped_dir
+
+	exec 3<$DIR1/$tdir/striped_dir
+
+	cd $DIR1/$tdir/striped_dir
+
+	rmdir $DIR2/$tdir/striped_dir || error "unlink $TESTDIR fails"
+
+	mkdir d{0..4} && error "create dirs under unlinked striped dir"
+	cd ..
+	exec 3<&-
+	return 0
+}
+run_test 81 "Open unlink then close striped directory"
+
 log "cleanup: ======================================================"
 
 [ "$(mount | grep $MOUNT2)" ] && umount $MOUNT2
