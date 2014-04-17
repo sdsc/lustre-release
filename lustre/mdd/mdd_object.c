@@ -244,10 +244,17 @@ static int mdd_xattr_get(const struct lu_env *env,
         }
 
 	/* If the object has been delete from the namespace, then
-	 * get linkEA should return -ENOENT as well */
+	 * get linkEA should return -ENOENT */
 	if (unlikely((mdd_obj->mod_flags & (DEAD_OBJ | ORPHAN_OBJ)) &&
-		      strcmp(name, XATTR_NAME_LINK) == 0))
+		     strcmp(name, XATTR_NAME_LINK) == 0))
 		RETURN(-ENOENT);
+
+	/* Get MD layout should return -ENODATA, so client can not retrieve
+	 * layout from an unlinked open directory, so to avoid creating
+	 * new objects under the directory */
+	if (unlikely((mdd_obj->mod_flags & (DEAD_OBJ | ORPHAN_OBJ)) &&
+		      strcmp(name, XATTR_NAME_LMV) == 0))
+		RETURN(-ENODATA);
 
         mdd_read_lock(env, mdd_obj, MOR_TGT_CHILD);
         rc = mdo_xattr_get(env, mdd_obj, buf, name,
