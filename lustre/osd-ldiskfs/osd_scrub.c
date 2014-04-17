@@ -291,7 +291,7 @@ static int osd_scrub_file_load(struct osd_scrub *scrub)
 
 		osd_scrub_file_to_cpu(sf, &scrub->os_file_disk);
 		if (sf->sf_magic != SCRUB_MAGIC_V1) {
-			CWARN("%.16s: invalid scrub magic 0x%x != 0x%x\n,",
+			CWARN("%.16s: invalid scrub magic 0x%x != 0x%x\n",
 			      name, sf->sf_magic, SCRUB_MAGIC_V1);
 			/* Process it as new scrub file. */
 			rc = -ENOENT;

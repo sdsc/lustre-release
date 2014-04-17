@@ -332,10 +332,11 @@ static int ll_md_close(struct obd_export *md_exp, struct inode *inode,
                         rc = ll_md_real_close(file->f_dentry->d_inode,
                                               fd->fd_omode);
                 }
-        } else {
-                CERROR("Releasing a file %p with negative dentry %p. Name %s",
-                       file, file->f_dentry, file->f_dentry->d_name.name);
-        }
+	} else {
+		CERROR("released file has negative dentry: file = %p, "
+		       "dentry = %p, name = %s\n",
+		       file, file->f_dentry, file->f_dentry->d_name.name);
+	}
 
 out:
 	LUSTRE_FPRIVATE(file) = NULL;
@@ -1204,7 +1205,7 @@ out:
 		CDEBUG(D_VFSTRACE, "Restart %s on %s from %lld, count:%zd\n",
 		       iot == CIT_READ ? "read" : "write",
 		       file->f_dentry->d_name.name, *ppos, count);
-		LASSERTF(io->ci_nob == 0, "%zd", io->ci_nob);
+		LASSERTF(io->ci_nob == 0, "%zd\n", io->ci_nob);
 		goto restart;
 	}
 
@@ -3838,7 +3839,7 @@ static int ll_layout_lock_set(struct lustre_handle *lockh, ldlm_mode_t mode,
 	LASSERT(lock != NULL);
 	LASSERT(ldlm_has_layout(lock));
 
-	LDLM_DEBUG(lock, "file "DFID"(%p) being reconfigured: %d\n",
+	LDLM_DEBUG(lock, "file "DFID"(%p) being reconfigured: %d",
 		   PFID(&lli->lli_fid), inode, reconf);
 
 	/* in case this is a caching lock and reinstate with new inode */
