@@ -2712,7 +2712,6 @@ test_81() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
 
 	rm -rf $DIR1/$tdir
-
 	mkdir -p $DIR1/$tdir
 
 	$LFS setdirstripe -i0 -c$MDSCOUNT  $DIR1/$tdir/d0
@@ -2735,6 +2734,27 @@ test_81() {
 	return 0
 }
 run_test 81 "rename and stat under striped directory"
+
+test_82() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	rm -rf $DIR1/$tdir
+	mkdir -p $DIR1/$tdir
+
+	$LFS setdirstripe -i0 -c$MDSCOUNT $DIR1/$tdir/striped_dir
+
+	exec 3<$DIR1/$tdir/striped_dir
+
+	cd $DIR1/$tdir/striped_dir
+
+	rmdir $DIR2/$tdir/striped_dir || error "unlink $TESTDIR fails"
+
+	mkdir d{0..4} && error "create dirs under unlinked striped dir"
+	cd ..
+	exec 3<&-
+	return 0
+}
+run_test 82 "Open unlink then close striped directory"
 
 log "cleanup: ======================================================"
 
