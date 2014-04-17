@@ -7881,31 +7881,52 @@ test_129() {
 	fi
 	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
+	ENOSPC=28
 	EFBIG=27
-	MAX=16384
 
-	set_dir_limits $MAX
+	rm -rf $DIR/$tdir
 	test_mkdir -p $DIR/$tdir
 
-	local I=0
+	# block size of mds1
+	local MDT_DEV=$(mdsdevname ${SINGLEMDS//mds/})
+	local MDSBLOCKSIZE=$($LCTL get_param -n mdc.*MDT0000*.blocksize)
+	local MAX=$((MDSBLOCKSIZE * 3))
+	set_dir_limits $MAX
+	local I=$(stat -c%s "$DIR/$tdir")
 	local J=0
-	while [ ! $I -gt $((MAX * MDSCOUNT)) ]; do
+	while [ ! $I -gt $MAX ]; do
 		$MULTIOP $DIR/$tdir/$J Oc
 		rc=$?
-		if [ $rc -eq $EFBIG ]; then
+		#check two errors ENOSPC for new version of ext4 max_dir_size patch
+		#mainline kernel commit df981d03eeff7971ac7e6ff37000bfa702327ef1
+		#and EFBIG for previous versions
+		if [ $rc -eq $EFBIG -o $rc -eq $ENOSPC ]; then
 			set_dir_limits 0
 			echo "return code $rc received as expected"
-			return 0
+			multiop $DIR/$tdir/$J Oc ||
+				error "multiop failed w/o dir size limit"
+
+			I=$(stat -c%s "$DIR/$tdir")
+
+			if [ $(lustre_version_code $SINGLEMDS) -lt \
+					$(version_code 2.4.51) ]
+			then
+				[ $I -eq $MAX ] && return 0
+			else
+				[ $I -gt $MAX ] && return 0
+			fi
+			error "current dir size $I, previous limit $MAX"
 		elif [ $rc -ne 0 ]; then
 			set_dir_limits 0
-			error_exit "return code $rc received instead of expected $EFBIG"
+			error "return code $rc received instead of expected " \
+			      "$EFBIG or $ENOSPC, files in dir $I"
 		fi
 		J=$((J+1))
 		I=$(stat -c%s "$DIR/$tdir")
 	done
 
 	set_dir_limits 0
-	error "exceeded dir size limit $MAX x $MDSCOUNT $((MAX * MDSCOUNT)) : $I bytes"
+	error "exceeded dir size limit $MAX x $MDSCOUNT $MAX : $I bytes"
 }
 run_test 129 "test directory size limit ========================"
 
