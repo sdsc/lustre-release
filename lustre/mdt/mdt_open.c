@@ -1217,6 +1217,11 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 			try_layout = true;
 	}
 
+	if (S_ISDIR(lu_object_attr(&obj->mot_obj))) {
+		if (exp_connect_layout(info->mti_exp) && ma->ma_need & MA_LMV)
+			try_layout = true;
+	}
+
 	if (acq_lease) {
 		/* lease open, acquire write mode of open sem */
 		down_write(&obj->mot_open_sem);
