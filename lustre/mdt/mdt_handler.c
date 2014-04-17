@@ -1510,7 +1510,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 				 "Lock res_id: "DLDLMRES", fid: "DFID"\n",
 				 PLDLMRES(lock->l_resource),
 				 PFID(mdt_object_fid(parent)));
-			CWARN("Although resent, but still not get child lock"
+			CWARN("Although resent, but still not get child lock "
 			      "parent:"DFID" child:"DFID"\n",
 			      PFID(mdt_object_fid(parent)),
 			      PFID(mdt_object_fid(child)));
@@ -1950,9 +1950,9 @@ static int mdt_object_sync(struct mdt_thread_info *info)
         ENTRY;
 
         if (!mdt_object_exists(info->mti_object)) {
-                CWARN("Non existing object  "DFID"!\n",
-                      PFID(mdt_object_fid(info->mti_object)));
-                RETURN(-ESTALE);
+		CWARN("Non existing object "DFID"!\n",
+		      PFID(mdt_object_fid(info->mti_object)));
+		RETURN(-ESTALE);
         }
         next = mdt_object_child(info->mti_object);
         rc = mo_object_sync(info->mti_env, next);
@@ -2244,9 +2244,9 @@ static void mdt_device_commit_async(const struct lu_env *env,
         struct dt_device *dt = mdt->mdt_bottom;
         int rc;
 
-        rc = dt->dd_ops->dt_commit_async(env, dt);
-        if (unlikely(rc != 0))
-                CWARN("async commit start failed with rc = %d", rc);
+	rc = dt->dd_ops->dt_commit_async(env, dt);
+	if (unlikely(rc != 0))
+		CWARN("async commit start failed with rc = %d\n", rc);
 }
 
 /**
@@ -2323,8 +2323,8 @@ int mdt_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 
                 rc = lu_env_init(&env, LCT_LOCAL);
                 if (unlikely(rc != 0))
-                        CWARN("lu_env initialization failed with rc = %d,"
-                              "cannot start asynchronous commit\n", rc);
+			CWARN("lu_env initialization failed with rc = %d, "
+			      "cannot start asynchronous commit\n", rc);
                 else
                         mdt_device_commit_async(&env, mdt);
                 lu_env_fini(&env);
@@ -5573,7 +5573,7 @@ int mdt_get_info(struct tgt_session_info *tsi)
 
 	key = req_capsule_client_get(tsi->tsi_pill, &RMF_GETINFO_KEY);
 	if (key == NULL) {
-		CDEBUG(D_IOCTL, "No GETINFO key");
+		CDEBUG(D_IOCTL, "No GETINFO key\n");
 		RETURN(err_serious(-EFAULT));
 	}
 	keylen = req_capsule_get_size(tsi->tsi_pill, &RMF_GETINFO_KEY,
@@ -5581,7 +5581,7 @@ int mdt_get_info(struct tgt_session_info *tsi)
 
 	vallen = req_capsule_client_get(tsi->tsi_pill, &RMF_GETINFO_VALLEN);
 	if (vallen == NULL) {
-		CDEBUG(D_IOCTL, "Unable to get RMF_GETINFO_VALLEN buffer");
+		CDEBUG(D_IOCTL, "Unable to get RMF_GETINFO_VALLEN buffer\n");
 		RETURN(err_serious(-EFAULT));
 	}
 
@@ -5593,7 +5593,7 @@ int mdt_get_info(struct tgt_session_info *tsi)
 
 	valout = req_capsule_server_get(tsi->tsi_pill, &RMF_GETINFO_VAL);
 	if (valout == NULL) {
-		CDEBUG(D_IOCTL, "Unable to get get-info RPC out buffer");
+		CDEBUG(D_IOCTL, "Unable to get get-info RPC out buffer\n");
 		RETURN(err_serious(-EFAULT));
 	}
 
@@ -5898,9 +5898,9 @@ void mdt_enable_cos(struct mdt_device *mdt, int val)
         mdt->mdt_opts.mo_cos = !!val;
         rc = lu_env_init(&env, LCT_LOCAL);
         if (unlikely(rc != 0)) {
-                CWARN("lu_env initialization failed with rc = %d,"
-                      "cannot sync\n", rc);
-                return;
+		CWARN("lu_env initialization failed with rc = %d, "
+		      "cannot sync\n", rc);
+		return;
         }
         mdt_device_sync(&env, mdt);
         lu_env_fini(&env);

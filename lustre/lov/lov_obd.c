@@ -207,9 +207,9 @@ int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
                                                   "../../../%s/%s",
                                                   osc_obd->obd_type->typ_name,
                                                   osc_obd->obd_name);
-                if (osc_symlink == NULL) {
-                        CERROR("could not register LOV target "
-                                "/proc/fs/lustre/%s/%s/target_obds/%s.",
+		if (osc_symlink == NULL) {
+			CERROR("could not register LOV target "
+			       "/proc/fs/lustre/%s/%s/target_obds/%s.\n",
                                 obd->obd_type->typ_name, obd->obd_name,
                                 osc_obd->obd_name);
                         lprocfs_remove(&lov_proc_dir);
@@ -435,9 +435,9 @@ static int lov_set_osc_active(struct obd_device *obd, struct obd_uuid *uuid,
                         lov->desc.ld_active_tgt_count--;
                         lov->lov_tgts[index]->ltd_exp->exp_obd->obd_inactive = 1;
                 }
-        } else {
-                CERROR("Unknown event(%d) for uuid %s", ev, uuid->uuid);
-        }
+	} else {
+		CERROR("Unknown event(%d) for uuid %s\n", ev, uuid->uuid);
+	}
 
  out:
         obd_putref(obd);
@@ -2239,9 +2239,9 @@ static int lov_quotactl(struct obd_device *obd, struct obd_export *exp,
             oqctl->qc_cmd != Q_INITQUOTA &&
             oqctl->qc_cmd != LUSTRE_Q_SETQUOTA &&
             oqctl->qc_cmd != Q_FINVALIDATE) {
-                CERROR("bad quota opc %x for lov obd", oqctl->qc_cmd);
-                RETURN(-EFAULT);
-        }
+		CERROR("bad quota opc %x for lov obd\n", oqctl->qc_cmd);
+		RETURN(-EFAULT);
+	}
 
         /* for lov tgt */
         obd_getref(obd);

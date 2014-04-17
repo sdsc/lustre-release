@@ -2633,7 +2633,7 @@ static int osc_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
         ENTRY;
 
 	if (!try_module_get(THIS_MODULE)) {
-		CERROR("Can't get module. Is it alive?");
+		CERROR("Can't get module. Is it alive?\n");
 		return -EINVAL;
 	}
         switch (cmd) {

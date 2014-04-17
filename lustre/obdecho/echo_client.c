@@ -2361,8 +2361,8 @@ static int echo_get_object(struct echo_object **ecop, struct echo_device *ed,
 
 static void echo_put_object(struct echo_object *eco)
 {
-        if (cl_echo_object_put(eco))
-                CERROR("echo client: drop an object failed");
+	if (cl_echo_object_put(eco))
+		CERROR("echo client: drop an object failed\n");
 }
 
 static void

@@ -312,7 +312,8 @@ static int lmv_connect(const struct lu_env *env,
 						    obd->obd_proc_entry,
 						    NULL, NULL);
 		if (IS_ERR(lmv_proc_dir)) {
-			CERROR("could not register /proc/fs/lustre/%s/%s/target_obds.",
+			CERROR("could not register /proc/fs/lustre/%s/%s/"
+			       "target_obds.\n",
 			       obd->obd_type->typ_name, obd->obd_name);
 			lmv_proc_dir = NULL;
 		}
@@ -511,7 +512,7 @@ int lmv_connect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
 						  mdc_obd->obd_name);
 		if (mdc_symlink == NULL) {
 			CERROR("Could not register LMV target "
-			       "/proc/fs/lustre/%s/%s/target_obds/%s.",
+			       "/proc/fs/lustre/%s/%s/target_obds/%s.\n",
 			       obd->obd_type->typ_name, obd->obd_name,
 			       mdc_obd->obd_name);
 			lprocfs_remove(&lmv_proc_dir);

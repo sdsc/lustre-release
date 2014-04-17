@@ -237,7 +237,7 @@ int jt_obd_cleanup(int argc, char **argv)
                 } else if (strcmp(argv[n], "failover") == 0) {
                         flags[flag_cnt++] = failover;
                 } else {
-                        fprintf(stderr, "unknown option: %s", argv[n]);
+                        fprintf(stderr, "unknown option: %s\n", argv[n]);
                         return CMD_HELP;
                 }
         }

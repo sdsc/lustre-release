@@ -175,7 +175,7 @@ static void *pool_proc_next(struct seq_file *s, void *v, loff_t *pos)
 	struct pool_iterator *iter = (struct pool_iterator *)s->private;
 	int prev_idx;
 
-	LASSERTF(iter->magic == POOL_IT_MAGIC, "%08X", iter->magic);
+	LASSERTF(iter->magic == POOL_IT_MAGIC, "%08X\n", iter->magic);
 
 	/* test if end of file */
 	if (*pos >= pool_tgt_count(iter->pool))
@@ -256,7 +256,7 @@ static int pool_proc_show(struct seq_file *s, void *v)
 	struct pool_iterator *iter = (struct pool_iterator *)v;
 	struct lod_tgt_desc  *osc_desc;
 
-	LASSERTF(iter->magic == POOL_IT_MAGIC, "%08X", iter->magic);
+	LASSERTF(iter->magic == POOL_IT_MAGIC, "%08X\n", iter->magic);
 	LASSERT(iter->pool != NULL);
 	LASSERT(iter->idx <= pool_tgt_count(iter->pool));
 

@@ -155,7 +155,8 @@ cfs_proc_dir_entry_t *lprocfs_add_simple(struct proc_dir_entry *root,
 		LPROCFS_WRITE_ENTRY();
 		proc = create_proc_entry(name, mode, root);
 		if (!proc) {
-			CERROR("LprocFS: No memory to create /proc entry %s", name);
+			CERROR("LprocFS: No memory to create /proc entry %s\n",
+			       name);
 			LPROCFS_WRITE_EXIT();
 			return ERR_PTR(-ENOMEM);
 		}
@@ -173,7 +174,7 @@ cfs_proc_dir_entry_t *lprocfs_add_simple(struct proc_dir_entry *root,
 			mode |= 0200;
 		proc = proc_create_data(name, mode, root, fops, data);
 		if (!proc) {
-			CERROR("LprocFS: No memory to create /proc entry %s",
+			CERROR("LprocFS: No memory to create /proc entry %s\n",
 			       name);
 			return ERR_PTR(-ENOMEM);
 		}
@@ -201,9 +202,9 @@ struct proc_dir_entry *lprocfs_add_symlink(const char *name,
         va_end(ap);
 
         entry = proc_symlink(name, parent, dest);
-        if (entry == NULL)
-                CERROR("LprocFS: Could not create symbolic link from %s to %s",
-                        name, dest);
+	if (entry == NULL)
+		CERROR("LprocFS: Could not create symbolic link from "
+		       "%s to %s\n", name, dest);
 
         OBD_FREE(dest, MAX_STRING_SIZE + 1);
         return entry;
@@ -456,9 +457,9 @@ static int __lprocfs_add_vars(struct proc_dir_entry *root,
                         OBD_FREE(pathcopy, pathsize);
 
                 if (cur_root == NULL || proc == NULL) {
-                        CERROR("LprocFS: No memory to create /proc entry %s",
-                               list->name);
-                        GOTO(out, rc = -ENOMEM);
+			CERROR("LprocFS: No memory to create /proc entry %s\n",
+			       list->name);
+			GOTO(out, rc = -ENOMEM);
                 }
 
                 if (list->fops)

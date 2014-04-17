@@ -1355,7 +1355,7 @@ int ldlm_cli_cancel(struct lustre_handle *lockh,
         /* concurrent cancels on the same handle can happen */
         lock = ldlm_handle2lock_long(lockh, LDLM_FL_CANCELING);
         if (lock == NULL) {
-                LDLM_DEBUG_NOLOCK("lock is already being destroyed\n");
+                LDLM_DEBUG_NOLOCK("lock is already being destroyed");
                 RETURN(0);
         }
 

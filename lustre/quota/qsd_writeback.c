@@ -56,7 +56,7 @@ static struct qsd_upd_rec *qsd_upd_alloc(struct qsd_qtype_info *qqi,
 
 	OBD_SLAB_ALLOC_PTR_GFP(upd, upd_kmem, GFP_NOFS);
 	if (upd == NULL) {
-		CERROR("Failed to allocate upd");
+		CERROR("Failed to allocate upd\n");
 		return NULL;
 	}
 
@@ -427,7 +427,7 @@ static int qsd_upd_thread(void *arg)
 
 	rc = lu_env_init(env, LCT_DT_THREAD);
 	if (rc) {
-		CERROR("%s: Fail to init env.", qsd->qsd_svname);
+		CERROR("%s: Fail to init env.\n", qsd->qsd_svname);
 		OBD_FREE_PTR(env);
 		RETURN(rc);
 	}
