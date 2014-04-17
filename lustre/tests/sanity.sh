@@ -2271,6 +2271,45 @@ test_31p() {
 }
 run_test 31p "remove of open striped directory"
 
+test_31q() {
+	local TESTDIR=$DIR/$tdir/$tfile
+
+	rm -rf $TESTDIR
+	mkdir -p $TESTDIR
+
+	cd $TESTDIR
+	exec 3<.
+
+	rmdir $TESTDIR || error "unlink $TESTDIR failes"
+
+	mkdir d{0..4} && error "create dirs under unlinked dir"
+	touch f{0..4} && error "create files under unlinked dir"
+
+	return 0
+}
+run_test 31q "create files/directories under unlinked directory"
+
+test_31r() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local TESTDIR=$DIR/$tdir/$tfile
+
+	rm -rf $TESTDIR
+	mkdir -p $TESTDIR
+
+	$LFS setdirstripe -i0 -c2 -t all_char $TESTDIR/striped_dir
+
+	cd $TESTDIR/striped_dir
+	exec 3<.
+
+	rmdir $TESTDIR/striped_dir || error "unlink $TESTDIR failes"
+
+	mkdir d{0..4} && error "create dirs under unlinked striped dir"
+	touch f{0..4} && error "create files under unlinked striped dir"
+
+	return 0
+}
+run_test 31r "create files/directories under unlinked striped directory"
+
 cleanup_test32_mount() {
 	trap 0
 	$UMOUNT -d $DIR/$tdir/ext2-mountpoint
@@ -3311,7 +3350,6 @@ test_39p() {
 	return 0
 }
 run_test 39p "remote directory cached attributes updated after create ========"
-
 
 test_40() {
 	dd if=/dev/zero of=$DIR/$tfile bs=4096 count=1
