@@ -640,11 +640,11 @@ test_9() {
 	done
 	sleep $RUN_TIME2
 
-	# MIN_MARGIN = 0.8 = 8 / 10
+	# MIN_MARGIN = 0.7 = 7 / 10
 	local MIN_SPEED=$(((PRE_FETCHED + \
 			    BASE_SPEED1 * (RUN_TIME1 - TIME_DIFF) + \
 			    BASE_SPEED2 * (RUN_TIME2 - TIME_DIFF)) / \
-			   (RUN_TIME1 + RUN_TIME2) * 8 / 10))
+			   (RUN_TIME1 + RUN_TIME2) * 7 / 10))
 	# MAX_MARGIN = 1.2 = 12 / 10
 	MAX_SPEED=$(((PRE_FETCHED + \
 		      BASE_SPEED1 * (RUN_TIME1 + TIME_DIFF) + \
