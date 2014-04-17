@@ -345,8 +345,10 @@ int lmv_intent_open(struct obd_export *exp, struct md_op_data *op_data,
 			struct lmv_stripe_md	*lsm = op_data->op_mea1;
 			const struct lmv_oinfo	*oinfo;
 
-			oinfo = lsm_name_to_stripe_info(lsm, op_data->op_name,
-							op_data->op_namelen);
+			oinfo = lsm_name_to_stripe_info(lmv, lsm,
+							op_data->op_name,
+							op_data->op_namelen,
+						  op_data->op_md_blocking_cb);
 			if (IS_ERR(oinfo))
 				RETURN(PTR_ERR(oinfo));
 			op_data->op_fid1 = oinfo->lmo_fid;
