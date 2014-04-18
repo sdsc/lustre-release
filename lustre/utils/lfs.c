@@ -1469,19 +1469,23 @@ static int lfs_setdirstripe(int argc, char **argv)
 	char			*stripe_offset_opt = NULL;
 	char			*stripe_count_opt = NULL;
 	char			*stripe_hash_opt = NULL;
+	char			*mode_opt = NULL;
 	int			default_stripe = 0;
+	mode_t			mode = S_IRWXUGO;
 
 	struct option long_opts[] = {
 		{"count",	required_argument, 0, 'c'},
 		{"index",	required_argument, 0, 'i'},
+		{"mode",	required_argument, 0, 'm'},
 		{"hash-type",	required_argument, 0, 't'},
-		{"default_stripe", required_argument, 0, 'D'},
+		{"default_stripe", no_argument, 0, 'D'},
 		{0, 0, 0, 0}
 	};
 
 	optind = 0;
 
-	while ((c = getopt_long(argc, argv, "c:Di:t:", long_opts, NULL)) >= 0) {
+	while ((c = getopt_long(argc, argv, "c:Di:m:t:", long_opts,
+				NULL)) >= 0) {
 		switch (c) {
 		case 0:
 			/* Long options. */
@@ -1494,6 +1498,9 @@ static int lfs_setdirstripe(int argc, char **argv)
 			break;
 		case 'i':
 			stripe_offset_opt = optarg;
+			break;
+		case 'm':
+			mode_opt = optarg;
 			break;
 		case 't':
 			stripe_hash_opt = optarg;
@@ -1528,6 +1535,15 @@ static int lfs_setdirstripe(int argc, char **argv)
 		}
 	}
 
+	if (mode_opt != NULL) {
+		mode = strtoul(mode_opt, &end, 8);
+		if (*end != '\0') {
+			fprintf(stderr, "error: %s: bad mode '%s'\n",
+				argv[0], mode_opt);
+			return CMD_HELP;
+		}
+	}
+
 	if (stripe_hash_opt == NULL ||
 	    strcmp(stripe_hash_opt, LMV_HASH_NAME_FNV_1A_64) == 0) {
 		hash_type = LMV_HASH_TYPE_FNV_1A_64;
@@ -1556,7 +1572,8 @@ static int lfs_setdirstripe(int argc, char **argv)
 						    stripe_offset, stripe_count,
 						    hash_type, NULL);
 		} else {
-			result = llapi_dir_create_pool(dname, 0, stripe_offset,
+			result = llapi_dir_create_pool(dname, mode,
+						       stripe_offset,
 						       stripe_count, hash_type,
 						       NULL);
 		}
