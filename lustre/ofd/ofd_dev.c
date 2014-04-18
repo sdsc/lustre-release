@@ -590,6 +590,10 @@ out_free:
 	return rc;
 }
 
+static struct ldlm_it_policy_ops ofd_it_policy_ops = {
+	.ipo_handle	= ofd_intent_policy,
+};
+
 static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 		     struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
@@ -711,7 +715,7 @@ static int ofd_init0(const struct lu_env *env, struct ofd_device *m,
 		GOTO(err_fini_stack, rc = -ENOMEM);
 	/* set obd_namespace for compatibility with old code */
 	obd->obd_namespace = m->ofd_namespace;
-	ldlm_register_intent(m->ofd_namespace, ofd_intent_policy);
+	ldlm_register_intent(m->ofd_namespace, &ofd_it_policy_ops);
 	m->ofd_namespace->ns_lvbo = &ofd_lvbo;
 	m->ofd_namespace->ns_lvbp = m;
 

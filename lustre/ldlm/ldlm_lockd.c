@@ -1195,29 +1195,214 @@ static void ldlm_svc_get_eopc(const struct ldlm_request *dlm_req,
         return;
 }
 
+static void
+ldlm_enq_fail(struct ldlm_lock *lock)
+{
+	bool cancel;
+
+	lock_res_and_lock(lock);
+	cancel = lock->l_granted_mode != LCK_MINMODE;
+	if (!cancel) {
+		ldlm_resource_unlink_lock(lock);
+		ldlm_lock_destroy_nolock(lock);
+	}
+	unlock_res_and_lock(lock);
+
+	if (cancel) {
+		ldlm_lock_cancel(lock);
+		ldlm_reprocess_all(lock->l_resource);
+	}
+}
+
+static int
+ldlm_enq_prepare(struct ldlm_namespace *ns, struct ptlrpc_request *req,
+		 const struct ldlm_request *dlm_req,
+		 const struct ldlm_callback_suite *cbs,
+		 enum ldlm_enq_bits bits, struct ldlm_lock **lock_pp)
+{
+	const struct ldlm_lock_desc	*desc = &dlm_req->lock_desc;
+	struct ldlm_lock		*lock = NULL;
+	int				 rc = 0;
+	ENTRY;
+
+	*lock_pp = NULL;
+	if (unlikely(ldlm_flags_from_wire(dlm_req->lock_flags) &
+		     LDLM_FL_REPLAY)) {
+		/* try to find an existing lock in the per-export lock hash */
+		/* In the function below, .hs_keycmp resolves to
+		 * ldlm_export_lock_keycmp() */
+		/* coverity[overrun-buffer-val] */
+		lock = cfs_hash_lookup(req->rq_export->exp_lock_hash,
+				       (void *)&dlm_req->lock_handle[0]);
+		if (lock != NULL) {
+			DEBUG_REQ(D_DLMTRACE, req, "found existing lock cookie "
+				  LPX64, lock->l_handle.h_cookie);
+		}
+	}
+
+	if (lock == NULL) {
+		/* NB: The lock's callback data might be overwritten later
+		 * by the policy function */
+		lock = ldlm_lock_create(ns, &desc->l_resource.lr_name,
+					desc->l_resource.lr_type,
+					desc->l_req_mode, cbs,
+					NULL, 0, LVB_T_NONE);
+		if (lock == NULL)
+			RETURN(-ENOMEM);
+
+		lock->l_remote_handle = dlm_req->lock_handle[0];
+		LDLM_DEBUG(lock,
+			   "server-side enqueue handler, new lock created");
+		OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_ENQUEUE_BLOCKED,
+				 obd_timeout * 2);
+		/* Don't enqueue a lock onto the export if it is been
+		 * disonnected due to eviction (bug 3822) or server umount
+		 * (bug 24324). Cancel it now instead. */
+		if (req->rq_export->exp_disconnected) {
+			LDLM_ERROR(lock, "lock on disconnected export %p",
+				   req->rq_export);
+			GOTO(failed, rc = -ENOTCONN);
+		}
+
+		lock->l_export = class_export_lock_get(req->rq_export, lock);
+		if (lock->l_export->exp_lock_hash != NULL) {
+			cfs_hash_add(lock->l_export->exp_lock_hash,
+				     &lock->l_remote_handle, &lock->l_exp_hash);
+		}
+	}
+
+	lock->l_last_activity = cfs_time_current_sec();
+	if (!(bits & LDLM_ENQ_INTEND)) {
+		req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB,
+				     RCL_SERVER, ldlm_lvbo_size(lock));
+		if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_ENQUEUE_EXTENT_ERR))
+			GOTO(failed, rc = -ENOMEM);
+
+		rc = req_capsule_server_pack(&req->rq_pill);
+		if (rc != 0)
+			GOTO(failed, rc);
+	} /* otherwise the reply buffer is allocated deep in policy function */
+
+	if (desc->l_resource.lr_type != LDLM_PLAIN) {
+		ldlm_convert_policy_to_local(req->rq_export,
+					     desc->l_resource.lr_type,
+					     &desc->l_policy_data,
+					     &lock->l_policy_data);
+	}
+
+	if (desc->l_resource.lr_type == LDLM_EXTENT)
+		lock->l_req_extent = lock->l_policy_data.l_extent;
+
+	*lock_pp = lock;
+	RETURN(0);
+ failed:
+	if (lock != NULL) {
+		ldlm_enq_fail(lock);
+		LDLM_LOCK_RELEASE(lock);
+	}
+	return rc;
+}
+
+static int
+ldlm_enq_finish(struct ptlrpc_request *req, const struct ldlm_request *dlm_req,
+		struct ldlm_lock *lock, __u64 flags)
+{
+	struct ldlm_reply *dlm_rep;
+	bool		   cancel;
+	int		   rc;
+	ENTRY;
+
+	dlm_rep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
+	dlm_rep->lock_flags = ldlm_flags_to_wire(flags);
+
+	ldlm_lock2desc(lock, &dlm_rep->lock_desc);
+	ldlm_lock2handle(lock, &dlm_rep->lock_handle);
+
+	if (req_capsule_has_field(&req->rq_pill, &RMF_DLM_LVB, RCL_SERVER) &&
+	    ldlm_lvbo_size(lock) > 0) {
+		void	*buf;
+
+		buf = req_capsule_server_get(&req->rq_pill, &RMF_DLM_LVB);
+		LASSERTF(buf != NULL, "req %p, lock %p\n", req, lock);
+		rc = req_capsule_get_size(&req->rq_pill, &RMF_DLM_LVB,
+					  RCL_SERVER);
+		rc = ldlm_lvbo_fill(lock, buf, rc);
+		if (rc < 0)
+			GOTO(failed, rc);
+
+		req_capsule_shrink(&req->rq_pill, &RMF_DLM_LVB, rc, RCL_SERVER);
+	}
+
+	/* We never send a blocking AST until the lock is granted, but
+	 * we can tell it right now */
+	lock_res_and_lock(lock);
+
+	/* Now take into account flags to be inherited from original lock
+	 * request both in reply to client and in our own lock flags. */
+	dlm_rep->lock_flags |= dlm_req->lock_flags & LDLM_INHERIT_FLAGS;
+	lock->l_flags |= ldlm_flags_from_wire(dlm_req->lock_flags &
+					      LDLM_INHERIT_FLAGS);
+
+	/* Don't move a pending lock onto the export if it has already been
+	 * disconnected due to eviction (bug 5683) or server umount (bug 24324).
+	 * Cancel it now instead. */
+	if (unlikely(req->rq_export->exp_disconnected ||
+		     OBD_FAIL_CHECK(OBD_FAIL_LDLM_ENQUEUE_OLD_EXPORT))) {
+		unlock_res_and_lock(lock);
+		LDLM_ERROR(lock, "lock on destroyed export %p", req->rq_export);
+		GOTO(failed, rc = -ENOTCONN);
+	}
+
+	cancel = false;
+	if (lock->l_flags & LDLM_FL_AST_SENT) {
+		dlm_rep->lock_flags |= ldlm_flags_to_wire(LDLM_FL_AST_SENT);
+		if (lock->l_granted_mode == lock->l_req_mode) {
+			/*
+			 * Only cancel lock if it was granted, because it would
+			 * be destroyed immediately and would never be granted
+			 * in the future, causing timeouts on client.  Not
+			 * granted lock will be cancelled immediately after
+			 * sending completion AST.
+			 */
+			cancel = dlm_rep->lock_flags & LDLM_FL_CANCEL_ON_BLOCK;
+			if (!cancel)
+				ldlm_add_waiting_lock(lock);
+		}
+	}
+	unlock_res_and_lock(lock);
+
+	if (cancel) {
+		ldlm_lock_cancel(lock);
+		ldlm_reprocess_all(lock->l_resource);
+	}
+	RETURN(0);
+ failed:
+	ldlm_enq_fail(lock);
+	return rc;
+}
+
 /**
  * Main server-side entry point into LDLM for enqueue. This is called by ptlrpc
  * service threads to carry out client lock enqueueing requests.
  */
-int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
-                         struct ptlrpc_request *req,
-                         const struct ldlm_request *dlm_req,
-                         const struct ldlm_callback_suite *cbs)
+int ldlm_handle_enqueue0(struct ldlm_namespace *ns, struct ptlrpc_request *req,
+			 const struct ldlm_request *dlm_req,
+			 const struct ldlm_callback_suite *cbs)
 {
-        struct ldlm_reply *dlm_rep;
-	__u64 flags;
-        ldlm_error_t err = ELDLM_OK;
-        struct ldlm_lock *lock = NULL;
-        void *cookie = NULL;
-        int rc = 0;
-        ENTRY;
+	const struct ldlm_lock_desc *desc = &dlm_req->lock_desc;
+	struct ldlm_lock  *lock = NULL;
+	ldlm_error_t	   lock_rc = ELDLM_OK;
+	__u64		   flags;
+	enum ldlm_enq_bits bits;
+	int		   rc = 0;
+	ENTRY;
 
-        LDLM_DEBUG_NOLOCK("server-side enqueue handler START");
+	LDLM_DEBUG_NOLOCK("server-side enqueue handler START");
 
-        ldlm_request_cancel(req, dlm_req, LDLM_ENQUEUE_CANCEL_OFF);
+	ldlm_request_cancel(req, dlm_req, LDLM_ENQUEUE_CANCEL_OFF);
 	flags = ldlm_flags_from_wire(dlm_req->lock_flags);
 
-        LASSERT(req->rq_export);
+	LASSERT(req->rq_export);
 
 	if (ptlrpc_req2svc(req)->srv_stats != NULL)
 		ldlm_svc_get_eopc(dlm_req, ptlrpc_req2svc(req)->srv_stats);
@@ -1227,252 +1412,73 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
                 lprocfs_counter_incr(req->rq_export->exp_nid_stats->nid_ldlm_stats,
                                      LDLM_ENQUEUE - LDLM_FIRST_OPC);
 
-        if (unlikely(dlm_req->lock_desc.l_resource.lr_type < LDLM_MIN_TYPE ||
-                     dlm_req->lock_desc.l_resource.lr_type >= LDLM_MAX_TYPE)) {
+        if (unlikely(desc->l_resource.lr_type < LDLM_MIN_TYPE ||
+                     desc->l_resource.lr_type >= LDLM_MAX_TYPE)) {
                 DEBUG_REQ(D_ERROR, req, "invalid lock request type %d",
                           dlm_req->lock_desc.l_resource.lr_type);
                 GOTO(out, rc = -EFAULT);
         }
 
-        if (unlikely(dlm_req->lock_desc.l_req_mode <= LCK_MINMODE ||
-                     dlm_req->lock_desc.l_req_mode >= LCK_MAXMODE ||
-                     dlm_req->lock_desc.l_req_mode &
-                     (dlm_req->lock_desc.l_req_mode-1))) {
+        if (unlikely(desc->l_req_mode <= LCK_MINMODE ||
+                     desc->l_req_mode >= LCK_MAXMODE ||
+                     desc->l_req_mode & (desc->l_req_mode - 1))) {
                 DEBUG_REQ(D_ERROR, req, "invalid lock request mode %d",
-                          dlm_req->lock_desc.l_req_mode);
+                          desc->l_req_mode);
                 GOTO(out, rc = -EFAULT);
         }
 
 	if (exp_connect_flags(req->rq_export) & OBD_CONNECT_IBITS) {
-                if (unlikely(dlm_req->lock_desc.l_resource.lr_type ==
-                             LDLM_PLAIN)) {
+                if (unlikely(desc->l_resource.lr_type == LDLM_PLAIN)) {
                         DEBUG_REQ(D_ERROR, req,
                                   "PLAIN lock request from IBITS client?");
                         GOTO(out, rc = -EPROTO);
                 }
-        } else if (unlikely(dlm_req->lock_desc.l_resource.lr_type ==
-                            LDLM_IBITS)) {
+        } else if (unlikely(desc->l_resource.lr_type == LDLM_IBITS)) {
                 DEBUG_REQ(D_ERROR, req,
                           "IBITS lock request from unaware client?");
                 GOTO(out, rc = -EPROTO);
         }
 
-#if 0
-        /* FIXME this makes it impossible to use LDLM_PLAIN locks -- check
-           against server's _CONNECT_SUPPORTED flags? (I don't want to use
-           ibits for mgc/mgs) */
+	bits = ldlm_lock_it_check(ns, req, flags);
+	if ((int)bits < 0)
+		GOTO(out, rc = bits);
 
-        /* INODEBITS_INTEROP: Perform conversion from plain lock to
-         * inodebits lock if client does not support them. */
-	if (!(exp_connect_flags(req->rq_export) & OBD_CONNECT_IBITS) &&
-            (dlm_req->lock_desc.l_resource.lr_type == LDLM_PLAIN)) {
-                dlm_req->lock_desc.l_resource.lr_type = LDLM_IBITS;
-                dlm_req->lock_desc.l_policy_data.l_inodebits.bits =
-                        MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE;
-                if (dlm_req->lock_desc.l_req_mode == LCK_PR)
-                        dlm_req->lock_desc.l_req_mode = LCK_CR;
-        }
-#endif
-
-        if (unlikely(flags & LDLM_FL_REPLAY)) {
-                /* Find an existing lock in the per-export lock hash */
-		/* In the function below, .hs_keycmp resolves to
-		 * ldlm_export_lock_keycmp() */
-		/* coverity[overrun-buffer-val] */
-                lock = cfs_hash_lookup(req->rq_export->exp_lock_hash,
-                                       (void *)&dlm_req->lock_handle[0]);
-                if (lock != NULL) {
-                        DEBUG_REQ(D_DLMTRACE, req, "found existing lock cookie "
-                                  LPX64, lock->l_handle.h_cookie);
-                        GOTO(existing_lock, rc = 0);
-                }
-        }
-
-        /* The lock's callback data might be set in the policy function */
-        lock = ldlm_lock_create(ns, &dlm_req->lock_desc.l_resource.lr_name,
-                                dlm_req->lock_desc.l_resource.lr_type,
-                                dlm_req->lock_desc.l_req_mode,
-				cbs, NULL, 0, LVB_T_NONE);
-        if (!lock)
-                GOTO(out, rc = -ENOMEM);
-
-        lock->l_last_activity = cfs_time_current_sec();
-        lock->l_remote_handle = dlm_req->lock_handle[0];
-        LDLM_DEBUG(lock, "server-side enqueue handler, new lock created");
-
-        OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_ENQUEUE_BLOCKED, obd_timeout * 2);
-        /* Don't enqueue a lock onto the export if it is been disonnected
-         * due to eviction (bug 3822) or server umount (bug 24324).
-         * Cancel it now instead. */
-        if (req->rq_export->exp_disconnected) {
-                LDLM_ERROR(lock, "lock on disconnected export %p",
-                           req->rq_export);
-                GOTO(out, rc = -ENOTCONN);
-        }
-
-        lock->l_export = class_export_lock_get(req->rq_export, lock);
-        if (lock->l_export->exp_lock_hash)
-                cfs_hash_add(lock->l_export->exp_lock_hash,
-                             &lock->l_remote_handle,
-                             &lock->l_exp_hash);
-
-existing_lock:
-
-        if (flags & LDLM_FL_HAS_INTENT) {
-                /* In this case, the reply buffer is allocated deep in
-                 * local_lock_enqueue by the policy function. */
-                cookie = req;
-        } else {
-                /* based on the assumption that lvb size never changes during
-                 * resource life time otherwise it need resource->lr_lock's
-                 * protection */
-		req_capsule_set_size(&req->rq_pill, &RMF_DLM_LVB,
-				     RCL_SERVER, ldlm_lvbo_size(lock));
-
-                if (OBD_FAIL_CHECK(OBD_FAIL_LDLM_ENQUEUE_EXTENT_ERR))
-                        GOTO(out, rc = -ENOMEM);
-
-                rc = req_capsule_server_pack(&req->rq_pill);
-                if (rc)
-                        GOTO(out, rc);
-        }
-
-        if (dlm_req->lock_desc.l_resource.lr_type != LDLM_PLAIN)
-                ldlm_convert_policy_to_local(req->rq_export,
-                                          dlm_req->lock_desc.l_resource.lr_type,
-                                          &dlm_req->lock_desc.l_policy_data,
-                                          &lock->l_policy_data);
-        if (dlm_req->lock_desc.l_resource.lr_type == LDLM_EXTENT)
-                lock->l_req_extent = lock->l_policy_data.l_extent;
-
-	err = ldlm_lock_enqueue(ns, &lock, cookie, &flags);
-	if (err) {
-		if ((int)err < 0)
-			rc = (int)err;
-		GOTO(out, err);
+	if (bits & LDLM_ENQ_PREPARE) {
+		rc = ldlm_enq_prepare(ns, req, dlm_req, cbs, bits, &lock);
+		if (rc != 0)
+			GOTO(out, rc);
 	}
 
-        dlm_rep = req_capsule_server_get(&req->rq_pill, &RMF_DLM_REP);
-	dlm_rep->lock_flags = ldlm_flags_to_wire(flags);
+	if (bits & LDLM_ENQ_INTEND) {
+		lock_rc = ldlm_lock_intend(ns, (void *)req,
+					   desc->l_req_mode, &flags, &lock);
+	} else { /* replay or no policy */
+		LASSERT(bits & LDLM_ENQ_PREPARE);
+		lock_rc = ldlm_lock_enqueue(ns, lock, &flags);
+	}
 
-        ldlm_lock2desc(lock, &dlm_rep->lock_desc);
-        ldlm_lock2handle(lock, &dlm_rep->lock_handle);
+	if (lock_rc != 0) {
+		if ((int)lock_rc < 0)
+			rc = (int)lock_rc;
+		GOTO(out, lock_rc);
+	}
 
-        /* We never send a blocking AST until the lock is granted, but
-         * we can tell it right now */
-        lock_res_and_lock(lock);
-
-        /* Now take into account flags to be inherited from original lock
-           request both in reply to client and in our own lock flags. */
-        dlm_rep->lock_flags |= dlm_req->lock_flags & LDLM_INHERIT_FLAGS;
-	lock->l_flags |= ldlm_flags_from_wire(dlm_req->lock_flags &
-					      LDLM_INHERIT_FLAGS);
-
-        /* Don't move a pending lock onto the export if it has already been
-         * disconnected due to eviction (bug 5683) or server umount (bug 24324).
-         * Cancel it now instead. */
-        if (unlikely(req->rq_export->exp_disconnected ||
-                     OBD_FAIL_CHECK(OBD_FAIL_LDLM_ENQUEUE_OLD_EXPORT))) {
-                LDLM_ERROR(lock, "lock on destroyed export %p", req->rq_export);
-                rc = -ENOTCONN;
-        } else if (lock->l_flags & LDLM_FL_AST_SENT) {
-		dlm_rep->lock_flags |= ldlm_flags_to_wire(LDLM_FL_AST_SENT);
-                if (lock->l_granted_mode == lock->l_req_mode) {
-                        /*
-                         * Only cancel lock if it was granted, because it would
-                         * be destroyed immediately and would never be granted
-                         * in the future, causing timeouts on client.  Not
-                         * granted lock will be cancelled immediately after
-                         * sending completion AST.
-                         */
-                        if (dlm_rep->lock_flags & LDLM_FL_CANCEL_ON_BLOCK) {
-                                unlock_res_and_lock(lock);
-                                ldlm_lock_cancel(lock);
-                                lock_res_and_lock(lock);
-                        } else
-                                ldlm_add_waiting_lock(lock);
-                }
-        }
-        /* Make sure we never ever grant usual metadata locks to liblustre
-           clients */
-        if ((dlm_req->lock_desc.l_resource.lr_type == LDLM_PLAIN ||
-            dlm_req->lock_desc.l_resource.lr_type == LDLM_IBITS) &&
-             req->rq_export->exp_libclient) {
-                if (unlikely(!(lock->l_flags & LDLM_FL_CANCEL_ON_BLOCK) ||
-                             !(dlm_rep->lock_flags & LDLM_FL_CANCEL_ON_BLOCK))){
-                        CERROR("Granting sync lock to libclient. "
-                               "req fl %d, rep fl %d, lock fl "LPX64"\n",
-                               dlm_req->lock_flags, dlm_rep->lock_flags,
-                               lock->l_flags);
-                        LDLM_ERROR(lock, "sync lock");
-                        if (dlm_req->lock_flags & LDLM_FL_HAS_INTENT) {
-                                struct ldlm_intent *it;
-
-                                it = req_capsule_client_get(&req->rq_pill,
-                                                            &RMF_LDLM_INTENT);
-                                if (it != NULL) {
-                                        CERROR("This is intent %s ("LPU64")\n",
-                                               ldlm_it2str(it->opc), it->opc);
-                                }
-                        }
-                }
-        }
-
-        unlock_res_and_lock(lock);
-
-        EXIT;
+	rc = ldlm_enq_finish(req, dlm_req, lock, flags);
+	EXIT;
  out:
-        req->rq_status = rc ?: err; /* return either error - bug 11190 */
-        if (!req->rq_packed_final) {
-                err = lustre_pack_reply(req, 1, NULL, NULL);
-                if (rc == 0)
-                        rc = err;
-        }
+	req->rq_status = rc ?: lock_rc; /* return either error - bug 11190 */
+	if (!req->rq_packed_final)
+		lustre_pack_reply(req, 1, NULL, NULL);
 
-        /* The LOCK_CHANGED code in ldlm_lock_enqueue depends on this
-         * ldlm_reprocess_all.  If this moves, revisit that code. -phil */
-        if (lock) {
-                LDLM_DEBUG(lock, "server-side enqueue handler, sending reply"
-                           "(err=%d, rc=%d)", err, rc);
+	if (lock != NULL) {
+		LDLM_DEBUG(lock, "server-side enqueue handler, sending reply"
+			   "(lock_rc=%d, rc=%d)", lock_rc, rc);
+		LDLM_LOCK_RELEASE(lock);
+	}
 
-                if (rc == 0) {
-			if (req_capsule_has_field(&req->rq_pill, &RMF_DLM_LVB,
-						  RCL_SERVER) &&
-			    ldlm_lvbo_size(lock) > 0) {
-				void *buf;
-				int buflen;
-
-				buf = req_capsule_server_get(&req->rq_pill,
-							     &RMF_DLM_LVB);
-				LASSERTF(buf != NULL, "req %p, lock %p\n",
-					 req, lock);
-				buflen = req_capsule_get_size(&req->rq_pill,
-						&RMF_DLM_LVB, RCL_SERVER);
-				buflen = ldlm_lvbo_fill(lock, buf, buflen);
-				if (buflen >= 0)
-					req_capsule_shrink(&req->rq_pill,
-							   &RMF_DLM_LVB,
-							   buflen, RCL_SERVER);
-				else
-					rc = buflen;
-			}
-                } else {
-                        lock_res_and_lock(lock);
-                        ldlm_resource_unlink_lock(lock);
-                        ldlm_lock_destroy_nolock(lock);
-                        unlock_res_and_lock(lock);
-                }
-
-                if (!err && dlm_req->lock_desc.l_resource.lr_type != LDLM_FLOCK)
-                        ldlm_reprocess_all(lock->l_resource);
-
-                LDLM_LOCK_RELEASE(lock);
-        }
-
-        LDLM_DEBUG_NOLOCK("server-side enqueue handler END (lock %p, rc %d)",
-                          lock, rc);
-
-        return rc;
+	LDLM_DEBUG_NOLOCK("server-side enqueue handler END (lock %p, rc %d)",
+			  lock, rc);
+	return rc;
 }
 EXPORT_SYMBOL(ldlm_handle_enqueue0);
 

@@ -81,7 +81,6 @@ struct obd_device;
 typedef enum {
         ELDLM_OK = 0,
 
-        ELDLM_LOCK_CHANGED = 300,
         ELDLM_LOCK_ABORTED = 301,
         ELDLM_LOCK_REPLACED = 302,
         ELDLM_NO_LOCK_DATA = 303,
@@ -428,9 +427,37 @@ struct ldlm_pool {
 	struct lprocfs_stats	*pl_stats;
 };
 
-typedef int (*ldlm_res_policy)(struct ldlm_namespace *, struct ldlm_lock **,
-			       void *req_cookie, ldlm_mode_t mode, __u64 flags,
-			       void *data);
+/** ldlm enqueue bits */
+enum {
+	/** need to precreate/find ldlm lock */
+	LDLM_ENQ_PREPARE	= (1 << 0),
+	/** enqueue request should be handled by intent policy */
+	LDLM_ENQ_INTEND		= (1 << 1),
+};
+
+enum ldlm_enq_bits {
+	/** no intent policy */
+	LDLM_ENQ_IT_OFF		= LDLM_ENQ_PREPARE,
+	/** execute intent policy w/o prepare ldlm lock */
+	LDLM_ENQ_IT_ONLY	= LDLM_ENQ_INTEND,
+	/** prepare ldlm lock, and execute intent policy */
+	LDLM_ENQ_IT_DEFAULT	= LDLM_ENQ_INTEND | LDLM_ENQ_PREPARE,
+};
+
+/** ldlm namespace intent policy function table */
+struct ldlm_it_policy_ops {
+	/**
+	 * check whether ns_policy should be executed or not, ldlm lock
+	 * should be precreated or not etc.
+	 * it should either return ldlm_enq_bits or error code.
+	 */
+	int	(*ipo_check)(struct ldlm_namespace *ns, void *req_cookie,
+			     __u64 flags);
+	/** "policy" function that does actual lock conflict determination */
+	int	(*ipo_handle)(struct ldlm_namespace *ns,
+			      struct ldlm_lock **lock_pp, void *req_cookie,
+			      ldlm_mode_t mode, __u64 flags, void *data);
+};
 
 typedef int (*ldlm_cancel_for_recovery)(struct ldlm_lock *lock);
 
@@ -601,8 +628,8 @@ struct ldlm_namespace {
 	 */
 	cfs_time_t		ns_next_dump;
 
-	/** "policy" function that does actual lock conflict determination */
-	ldlm_res_policy		ns_policy;
+	/** intent policy callbacks */
+	struct ldlm_it_policy_ops *ns_policy_ops;
 
 	/**
 	 * LVB operations for this namespace.
@@ -1388,7 +1415,8 @@ struct ldlm_lock *ldlm_request_lock(struct ptlrpc_request *req);
 #ifdef HAVE_SERVER_SUPPORT
 ldlm_processing_policy ldlm_get_processing_policy(struct ldlm_resource *res);
 #endif
-void ldlm_register_intent(struct ldlm_namespace *ns, ldlm_res_policy arg);
+void ldlm_register_intent(struct ldlm_namespace *ns,
+			  struct ldlm_it_policy_ops *policy_ops);
 void ldlm_lock2handle(const struct ldlm_lock *lock,
                       struct lustre_handle *lockh);
 struct ldlm_lock *__ldlm_handle2lock(const struct lustre_handle *, __u64 flags);
