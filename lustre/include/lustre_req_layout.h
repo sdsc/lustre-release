@@ -165,7 +165,7 @@ extern struct req_format RQF_OUT_UPDATE;
  */
 extern struct req_format RQF_MDS_GETATTR_NAME;
 extern struct req_format RQF_MDS_CLOSE;
-extern struct req_format RQF_MDS_RELEASE_CLOSE;
+extern struct req_format RQF_MDS_EXTENDED_CLOSE;
 extern struct req_format RQF_MDS_PIN;
 extern struct req_format RQF_MDS_UNPIN;
 extern struct req_format RQF_MDS_CONNECT;

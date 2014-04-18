@@ -130,6 +130,7 @@ out:
 
 static int ll_close_inode_openhandle(struct obd_export *md_exp,
 				     struct inode *inode,
+				     struct inode *swap_layouts_inode,
 				     struct obd_client_handle *och,
 				     const __u64 *data_version)
 {
@@ -151,13 +152,21 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
                 GOTO(out, rc = 0);
         }
 
-        OBD_ALLOC_PTR(op_data);
-        if (op_data == NULL)
-                GOTO(out, rc = -ENOMEM); // XXX We leak openhandle and request here.
+	OBD_ALLOC_PTR(op_data);
+	if (op_data == NULL)
+		/* XXX We leak openhandle and request here. */
+		GOTO(out, rc = -ENOMEM);
 
 	ll_prepare_close(inode, op_data, och);
-	if (data_version != NULL) {
-		/* Pass in data_version implies release. */
+	if (swap_layouts_inode != NULL) {
+		/* Pass in swap_layouts_inode implies protected swap layouts */
+		op_data->op_bias |= MDS_EXCLUSIVE_CLOSE;
+		op_data->op_lease_handle = och->och_lease_handle;
+		op_data->op_data_version = 0;
+		op_data->op_fid2 = ll_i2info(swap_layouts_inode)->lli_fid;
+	} else if (data_version != NULL) {
+		/* Pass in no swap_layouts_inode but data_version implies
+		 * release. */
 		op_data->op_bias |= MDS_HSM_RELEASE;
 		op_data->op_data_version = *data_version;
 		op_data->op_lease_handle = och->och_lease_handle;
@@ -265,7 +274,7 @@ int ll_md_real_close(struct inode *inode, fmode_t fmode)
 		/* There might be a race and this handle may already
 		 * be closed. */
 		rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp,
-					       inode, och, NULL);
+					       inode, NULL, och, NULL);
 	}
 
 	RETURN(rc);
@@ -296,7 +305,8 @@ static int ll_md_close(struct obd_export *md_exp, struct inode *inode,
 	}
 
 	if (fd->fd_och != NULL) {
-		rc = ll_close_inode_openhandle(md_exp, inode, fd->fd_och, NULL);
+		rc = ll_close_inode_openhandle(md_exp, inode, NULL, fd->fd_och,
+					       NULL);
 		fd->fd_och = NULL;
 		GOTO(out, rc);
 	}
@@ -889,7 +899,7 @@ out_close:
 		it.d.lustre.it_lock_mode = 0;
 		och->och_lease_handle.cookie = 0ULL;
 	}
-	rc2 = ll_close_inode_openhandle(sbi->ll_md_exp, inode, och, NULL);
+	rc2 = ll_close_inode_openhandle(sbi->ll_md_exp, inode, NULL, och, NULL);
 	if (rc2 < 0)
 		CERROR("%s: error closing file "DFID": %d\n",
 		       ll_get_fsname(inode->i_sb, NULL, 0),
@@ -901,6 +911,24 @@ out:
 	if (och != NULL)
 		OBD_FREE_PTR(och);
 	RETURN(ERR_PTR(rc));
+}
+
+static int ll_exclusive_close(struct obd_client_handle *och,
+			      struct inode *inode, struct inode *inode2)
+{
+	int	rc;
+	ENTRY;
+
+	CDEBUG(D_INODE, "%s: exclusive close of file "DFID".\n",
+	       ll_get_fsname(inode->i_sb, NULL, 0),
+	       PFID(&ll_i2info(inode)->lli_fid));
+
+	/* Close the file and swap layouts between inode & inode2.
+	 * NB: lease lock handle is released in mdc_exclusive_close_pack()
+	 * because we still need it to pack l_remote_handle to MDT. */
+	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode,
+				       inode2, och, NULL);
+	RETURN(rc);
 }
 
 /**
@@ -931,8 +959,9 @@ static int ll_lease_close(struct obd_client_handle *och, struct inode *inode,
 	if (lease_broken != NULL)
 		*lease_broken = cancelled;
 
-	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, och,
-				       NULL);
+	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, NULL,
+				       och, NULL);
+
 	RETURN(rc);
 }
 
@@ -1807,7 +1836,7 @@ int ll_release_openhandle(struct dentry *dentry, struct lookup_intent *it)
 	ll_och_fill(ll_i2sbi(inode)->ll_md_exp, it, och);
 
         rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp,
-				       inode, och, NULL);
+				       inode, NULL, och, NULL);
 out:
 	/* this one is in place of ll_file_open */
 	if (it_disposition(it, DISP_ENQ_OPEN_REF)) {
@@ -2053,8 +2082,8 @@ int ll_hsm_release(struct inode *inode)
 	/* Release the file.
 	 * NB: lease lock handle is released in mdc_hsm_release_pack() because
 	 * we still need it to pack l_remote_handle to MDT. */
-	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, och,
-				       &data_version);
+	rc = ll_close_inode_openhandle(ll_i2sbi(inode)->ll_md_exp, inode, NULL,
+				       och, &data_version);
 	och = NULL;
 
 	EXIT;
@@ -2367,9 +2396,34 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (file2 == NULL)
 			RETURN(-EBADF);
 
-		rc = -EPERM;
-		if ((file2->f_flags & O_ACCMODE) != 0) /* O_WRONLY or O_RDWR */
+		/* O_WRONLY or O_RDWR */
+		if ((file2->f_flags & O_ACCMODE) == 0) {
+			fput(file2);
+			RETURN(-EPERM);
+		}
+
+		if (lsl.sl_flags & SWAP_LAYOUTS_EXCL_CLOSE) {
+			struct inode			*inode2;
+			struct ll_inode_info		*lli;
+			struct obd_client_handle	*och = NULL;
+
+			if (lsl.sl_flags != SWAP_LAYOUTS_EXCL_CLOSE)
+				RETURN(-EINVAL);
+
+			lli = ll_i2info(inode);
+			mutex_lock(&lli->lli_och_mutex);
+			if (fd->fd_lease_och != NULL) {
+				och = fd->fd_lease_och;
+				fd->fd_lease_och = NULL;
+			}
+			mutex_unlock(&lli->lli_och_mutex);
+			inode2 = file2->f_dentry->d_inode;
+
+			rc = ll_exclusive_close(och, inode, inode2);
+		} else {
 			rc = ll_swap_layouts(file, file2, &lsl);
+		}
+
 		fput(file2);
 		RETURN(rc);
 	}

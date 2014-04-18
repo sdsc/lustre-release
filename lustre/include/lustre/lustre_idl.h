@@ -2525,6 +2525,7 @@ enum mds_op_bias {
 	MDS_OWNEROVERRIDE	= 1 << 11,
 	MDS_HSM_RELEASE		= 1 << 12,
 	MDS_RENAME_MIGRATE	= 1 << 13,
+	MDS_EXCLUSIVE_CLOSE	= 1 << 14,
 };
 
 /* instance of mdt_reint_rec */
