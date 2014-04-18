@@ -375,19 +375,18 @@ struct obd_capa *ll_osscapa_get(struct inode *inode, __u64 opc)
 
 struct obd_capa *ll_mdscapa_get(struct inode *inode)
 {
-	struct ll_inode_info *lli = ll_i2info(inode);
-	struct obd_capa *ocapa;
+	struct ll_inode_info	*lli = ll_i2info(inode);
+	struct ll_sb_info	*sbi = ll_i2sbi(inode);
+	struct obd_capa		*ocapa;
 	ENTRY;
 
-	LASSERT(inode != NULL);
-
-	if ((ll_i2sbi(inode)->ll_flags & LL_SBI_MDS_CAPA) == 0)
+	if (sbi == NULL || (sbi->ll_flags & LL_SBI_MDS_CAPA) == 0)
 		RETURN(NULL);
 
 	spin_lock(&capa_lock);
 	ocapa = capa_get(lli->lli_mds_capa);
 	spin_unlock(&capa_lock);
-	if (!ocapa && atomic_read(&ll_capa_debug)) {
+	if (ocapa == NULL && atomic_read(&ll_capa_debug)) {
 		CERROR("no mds capability for "DFID"\n", PFID(&lli->lli_fid));
 		atomic_set(&ll_capa_debug, 0);
 	}
