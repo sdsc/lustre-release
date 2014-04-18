@@ -2562,6 +2562,52 @@ test_33d() {
 }
 run_test 33d "openfile with 444 modes and malformed flags under remote dir"
 
+test_33e() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+
+	mkdir -p $DIR/$tdir
+
+	$LFS setdirstripe -i0 -c2 $DIR/$tdir/striped_dir
+	$LFS setdirstripe -i1 -c2 $DIR/$tdir/striped_dir1
+	mkdir $DIR/$tdir/local_dir
+
+	local s0_mode=$(stat -c%f $DIR/$tdir/striped_dir)
+	local s1_mode=$(stat -c%f $DIR/$tdir/striped_dir1)
+	local l_mode=$(stat -c%f $DIR/$tdir/local_dir)
+
+	[ "$l_mode" = "$s0_mode" -a "$l_mode" = "$s1_mode" ] ||
+		error "mkdir $l_mode striped0 $s0_mode striped1 $s1_mode"
+
+	rm -rf $DIR/$tdir/*
+
+	umask 777
+	$LFS setdirstripe -i0 -c2 $DIR/$tdir/striped_dir
+	$LFS setdirstripe -i1 -c2 $DIR/$tdir/striped_dir1
+	mkdir $DIR/$tdir/local_dir
+
+	s0_mode=$(stat -c%f $DIR/$tdir/striped_dir)
+	s1_mode=$(stat -c%f $DIR/$tdir/striped_dir1)
+	l_mode=$(stat -c%f $DIR/$tdir/local_dir)
+
+	[ "$l_mode" = "$s0_mode" -a "$l_mode" = "$s1_mode" ] ||
+		error "mkdir $l_mode striped0 $s0_mode striped1 $s1_mode 777"
+	rm -rf $DIR/$tdir/*
+
+	umask 000
+	$LFS setdirstripe -i0 -c2 $DIR/$tdir/striped_dir
+	$LFS setdirstripe -i1 -c2 $DIR/$tdir/striped_dir1
+	mkdir $DIR/$tdir/local_dir
+
+	s0_mode=$(stat -c%f $DIR/$tdir/striped_dir)
+	s1_mode=$(stat -c%f $DIR/$tdir/striped_dir1)
+	l_mode=$(stat -c%f $DIR/$tdir/local_dir)
+
+	[ "$l_mode" = "$s0_mode" -a "$l_mode" = "$s1_mode" ] ||
+		error "mkdir $l_mode striped0 $s0_mode striped1 $s1_mode 0"
+}
+run_test 33e "mkdir and striped directory should have same mode"
+
 TEST_34_SIZE=${TEST_34_SIZE:-2000000000000}
 test_34a() {
 	rm -f $DIR/f34

@@ -378,7 +378,7 @@ static int ll_dir_setdirstripe(struct inode *dir, struct lmv_user_md *lump,
 	struct ptlrpc_request *request = NULL;
 	struct md_op_data *op_data;
 	struct ll_sb_info *sbi = ll_i2sbi(dir);
-	int mode;
+	int mode = 0777;
 	int err;
 	ENTRY;
 
@@ -393,7 +393,9 @@ static int ll_dir_setdirstripe(struct inode *dir, struct lmv_user_md *lump,
 	if (lump->lum_magic != cpu_to_le32(LMV_USER_MAGIC))
 		lustre_swab_lmv_user_md(lump);
 
-	mode = (0755 & (S_IRWXUGO|S_ISVTX) & ~current->fs->umask) | S_IFDIR;
+	if (!IS_POSIXACL(dir) || !exp_connect_umask(ll_i2mdexp(dir)))
+		mode &= ~current_umask();
+	mode = (mode & (S_IRWXUGO|S_ISVTX)) | S_IFDIR;
 	op_data = ll_prep_md_op_data(NULL, dir, NULL, filename,
 				     strlen(filename), mode, LUSTRE_OPC_MKDIR,
 				     lump);
