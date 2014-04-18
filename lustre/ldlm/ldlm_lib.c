@@ -2547,9 +2547,6 @@ int ldlm_error2errno(ldlm_error_t error)
         case ELDLM_OK:
                 result = 0;
                 break;
-        case ELDLM_LOCK_CHANGED:
-                result = -ESTALE;
-                break;
         case ELDLM_LOCK_ABORTED:
                 result = -ENAVAIL;
                 break;
@@ -2587,9 +2584,6 @@ ldlm_error_t ldlm_errno2error(int err_no)
         switch (err_no) {
         case 0:
                 error = ELDLM_OK;
-                break;
-        case -ESTALE:
-                error = ELDLM_LOCK_CHANGED;
                 break;
         case -ENAVAIL:
                 error = ELDLM_LOCK_ABORTED;

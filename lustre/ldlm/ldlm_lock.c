@@ -175,9 +175,12 @@ ldlm_processing_policy ldlm_get_processing_policy(struct ldlm_resource *res)
 EXPORT_SYMBOL(ldlm_get_processing_policy);
 #endif /* HAVE_SERVER_SUPPORT */
 
-void ldlm_register_intent(struct ldlm_namespace *ns, ldlm_res_policy arg)
+void ldlm_register_intent(struct ldlm_namespace *ns,
+			  struct ldlm_it_policy_ops *policy_ops)
 {
-        ns->ns_policy = arg;
+	LASSERT(policy_ops->ipo_handle != NULL);
+
+	ns->ns_policy_ops = policy_ops;
 }
 EXPORT_SYMBOL(ldlm_register_intent);
 
@@ -1637,6 +1640,68 @@ out:
         return NULL;
 }
 
+#ifdef HAVE_SERVER_SUPPORT
+enum ldlm_enq_bits
+ldlm_lock_it_check(struct ldlm_namespace *ns, void *req_cookie, __u64 flags)
+{
+	if (ns->ns_policy_ops == NULL)
+		return LDLM_ENQ_IT_OFF;
+
+	if (!(flags & LDLM_FL_HAS_INTENT) || (flags & LDLM_FL_REPLAY))
+		return LDLM_ENQ_IT_OFF;
+
+	if (ns->ns_policy_ops->ipo_check == NULL)
+		return LDLM_ENQ_IT_DEFAULT;
+
+	return ns->ns_policy_ops->ipo_check(ns, req_cookie, flags);
+}
+
+/**
+ * This function is for server side only, it's called only if namespace has
+ * intent policy set and the lock request has LDLM_FL_HAS_INTENT flag set,
+ * it simply delegate lock processing to intent policy function.
+ */
+ldlm_error_t
+ldlm_lock_intend(struct ldlm_namespace *ns, void *req_cookie, ldlm_mode_t mode,
+		 __u64 *flags, struct ldlm_lock **lock_pp)
+{
+	struct ldlm_lock *lock = *lock_pp;
+	int		  rc;
+	ENTRY;
+
+	LASSERT(ns->ns_policy_ops != NULL);
+	rc = ns->ns_policy_ops->ipo_handle(ns, lock_pp, req_cookie, mode,
+					   *flags, NULL);
+	switch (rc) {
+	case ELDLM_LOCK_REPLACED:
+		/* The lock that was returned has already been granted, and
+		 * placed into lockp. If it's not the same as the one we passed
+		 * in, then destroy the old one and our work here is done. */
+		if (lock != NULL && lock != *lock_pp) {
+			ldlm_lock_destroy(lock);
+			LDLM_LOCK_RELEASE(lock);
+		}
+		*flags |= LDLM_FL_LOCK_CHANGED;
+		RETURN(ELDLM_OK);
+
+	case ELDLM_OK:
+		if (!(*flags & LDLM_FL_INTENT_ONLY))
+			break; /* need to call ldlm_lock_enqueue */
+	default:
+		if (lock != NULL)
+			ldlm_lock_destroy(lock);
+		RETURN(rc);
+	}
+
+	LASSERT(*lock_pp != NULL);
+	LASSERT(lock == NULL || lock == *lock_pp);
+	rc = ldlm_lock_enqueue(ns, *lock_pp, flags);
+
+	RETURN(rc);
+}
+
+#endif
+
 /**
  * Enqueue (request) a lock.
  *
@@ -1648,10 +1713,8 @@ out:
  * function.
  */
 ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
-                               struct ldlm_lock **lockp,
-			       void *cookie, __u64 *flags)
+                               struct ldlm_lock *lock, __u64 *flags)
 {
-        struct ldlm_lock *lock = *lockp;
         struct ldlm_resource *res = lock->l_resource;
         int local = ns_is_client(ldlm_res_to_ns(res));
 #ifdef HAVE_SERVER_SUPPORT
@@ -1662,29 +1725,6 @@ ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
         ENTRY;
 
         lock->l_last_activity = cfs_time_current_sec();
-        /* policies are not executed on the client or during replay */
-        if ((*flags & (LDLM_FL_HAS_INTENT|LDLM_FL_REPLAY)) == LDLM_FL_HAS_INTENT
-            && !local && ns->ns_policy) {
-                rc = ns->ns_policy(ns, lockp, cookie, lock->l_req_mode, *flags,
-                                   NULL);
-                if (rc == ELDLM_LOCK_REPLACED) {
-                        /* The lock that was returned has already been granted,
-                         * and placed into lockp.  If it's not the same as the
-                         * one we passed in, then destroy the old one and our
-                         * work here is done. */
-                        if (lock != *lockp) {
-                                ldlm_lock_destroy(lock);
-                                LDLM_LOCK_RELEASE(lock);
-                        }
-                        *flags |= LDLM_FL_LOCK_CHANGED;
-                        RETURN(0);
-                } else if (rc != ELDLM_OK ||
-                           (rc == ELDLM_OK && (*flags & LDLM_FL_INTENT_ONLY))) {
-                        ldlm_lock_destroy(lock);
-                        RETURN(rc);
-                }
-        }
-
         /* For a replaying lock, it might be already in granted list. So
          * unlinking the lock will cause the interval node to be freed, we
          * have to allocate the interval node early otherwise we can't regrant
@@ -2134,11 +2174,11 @@ void ldlm_unlink_lock_skiplist(struct ldlm_lock *req)
  */
 void ldlm_lock_cancel(struct ldlm_lock *lock)
 {
-        struct ldlm_resource *res;
-        struct ldlm_namespace *ns;
-        ENTRY;
+	struct ldlm_resource *res;
+	struct ldlm_namespace *ns;
+	ENTRY;
 
-        lock_res_and_lock(lock);
+	lock_res_and_lock(lock);
 
         res = lock->l_resource;
         ns  = ldlm_res_to_ns(res);

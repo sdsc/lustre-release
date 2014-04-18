@@ -2268,7 +2268,7 @@ int mdt_llog_prev_block(struct mdt_thread_info *info)
  * DLM handlers.
  */
 
-static struct ldlm_callback_suite cbs = {
+static struct ldlm_callback_suite mdt_ldlm_cbs = {
 	.lcs_completion	= ldlm_server_completion_ast,
 	.lcs_blocking	= ldlm_server_blocking_ast,
 	.lcs_glimpse	= ldlm_server_glimpse_ast
@@ -2287,9 +2287,9 @@ int mdt_enqueue(struct mdt_thread_info *info)
 
         req = mdt_info_req(info);
         rc = ldlm_handle_enqueue0(info->mti_mdt->mdt_namespace,
-                                  req, info->mti_dlm_req, &cbs);
-        info->mti_fail_id = OBD_FAIL_LDLM_REPLY;
-        return rc ? err_serious(rc) : req->rq_status;
+				  req, info->mti_dlm_req, &mdt_ldlm_cbs);
+	info->mti_fail_id = OBD_FAIL_LDLM_REPLY;
+	return rc ? err_serious(rc) : req->rq_status;
 }
 
 int mdt_convert(struct mdt_thread_info *info)
@@ -3532,13 +3532,12 @@ static struct mdt_it_flavor {
 };
 
 int mdt_intent_lock_replace(struct mdt_thread_info *info,
-                            struct ldlm_lock **lockp,
-                            struct ldlm_lock *new_lock,
-                            struct mdt_lock_handle *lh,
-			    __u64 flags)
+			    struct ldlm_lock **lockp,
+			    struct ldlm_lock *new_lock,
+			    struct mdt_lock_handle *lh, __u64 flags)
 {
-        struct ptlrpc_request  *req = mdt_info_req(info);
-        struct ldlm_lock       *lock = *lockp;
+	struct ptlrpc_request  *req = mdt_info_req(info);
+	struct ldlm_request    *dlm_req;
 
         /*
          * Get new lock only for cases when possible resent did not find any
@@ -3581,6 +3580,7 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
                 RETURN(ELDLM_LOCK_REPLACED);
         }
 
+	dlm_req = req_capsule_client_get(info->mti_pill, &RMF_DLM_REQ);
         /*
          * Fixup the lock to be given to the client.
          */
@@ -3599,9 +3599,9 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
         }
 
         new_lock->l_export = class_export_lock_get(req->rq_export, new_lock);
-        new_lock->l_blocking_ast = lock->l_blocking_ast;
-        new_lock->l_completion_ast = lock->l_completion_ast;
-        new_lock->l_remote_handle = lock->l_remote_handle;
+	new_lock->l_blocking_ast = mdt_ldlm_cbs.lcs_blocking;
+	new_lock->l_completion_ast = mdt_ldlm_cbs.lcs_completion;
+	new_lock->l_remote_handle = dlm_req->lock_handle[0];
         new_lock->l_flags &= ~LDLM_FL_LOCAL;
 
         unlock_res_and_lock(new_lock);
@@ -3617,7 +3617,6 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
 }
 
 static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
-                                    struct ldlm_lock *new_lock,
                                     struct ldlm_lock **old_lock,
                                     struct mdt_lock_handle *lh)
 {
@@ -3638,21 +3637,16 @@ static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
 	/* coverity[overrun-buffer-val] */
         lock = cfs_hash_lookup(exp->exp_lock_hash, &remote_hdl);
         if (lock) {
-                if (lock != new_lock) {
-                        lh->mlh_reg_lh.cookie = lock->l_handle.h_cookie;
-                        lh->mlh_reg_mode = lock->l_granted_mode;
+		lh->mlh_reg_lh.cookie = lock->l_handle.h_cookie;
+		lh->mlh_reg_mode = lock->l_granted_mode;
 
-                        LDLM_DEBUG(lock, "Restoring lock cookie");
-                        DEBUG_REQ(D_DLMTRACE, req,
-                                  "restoring lock cookie "LPX64,
-                                  lh->mlh_reg_lh.cookie);
-                        if (old_lock)
-                                *old_lock = LDLM_LOCK_GET(lock);
-                        cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
-                        return;
-                }
-
-                cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
+		LDLM_DEBUG(lock, "Restoring lock cookie");
+		DEBUG_REQ(D_DLMTRACE, req, "restoring lock cookie "LPX64,
+			  lh->mlh_reg_lh.cookie);
+		if (old_lock)
+			*old_lock = LDLM_LOCK_GET(lock);
+		cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
+		return;
         }
 
         /*
@@ -3719,8 +3713,8 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         ldlm_rep = req_capsule_server_get(info->mti_pill, &RMF_DLM_REP);
         mdt_set_disposition(info, ldlm_rep, DISP_IT_EXECD);
 
-        /* Get lock from request for possible resent case. */
-        mdt_intent_fixup_resent(info, *lockp, &new_lock, lhc);
+	/* Get lock from request for possible resent case. */
+	mdt_intent_fixup_resent(info, &new_lock, lhc);
 
         ldlm_rep->lock_policy_res2 =
                 mdt_getattr_name_lock(info, lhc, child_bits, ldlm_rep);
@@ -3828,8 +3822,8 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
                 RETURN(err_serious(-EPROTO));
         }
 
-        /* Get lock from request for possible resent case. */
-        mdt_intent_fixup_resent(info, *lockp, NULL, lhc);
+	/* Get lock from request for possible resent case. */
+	mdt_intent_fixup_resent(info, NULL, lhc);
 
         rc = mdt_reint_internal(info, lhc, opc);
 
@@ -3986,54 +3980,64 @@ static int mdt_intent_opc(long itopc, struct mdt_thread_info *info,
         RETURN(rc);
 }
 
+static int
+mdt_intent_policy_check(struct ldlm_namespace *ns,
+			void *req_cookie, __u64 flags)
+{
+	struct ptlrpc_request   *req = req_cookie;
+	struct req_capsule	*pill = &req->rq_pill;
+	struct ldlm_intent	*it;
+	int			 opc;
+	ENTRY;
+
+	if (req->rq_reqmsg->lm_bufcount <= DLM_INTENT_IT_OFF) {
+		/* no intent, normal ldlm handling */
+		RETURN(LDLM_ENQ_IT_OFF);
+	}
+
+	req_capsule_extend(pill, &RQF_LDLM_INTENT_BASIC);
+	it = req_capsule_client_get(pill, &RMF_LDLM_INTENT);
+	if (it == NULL)
+		RETURN(err_serious(-EFAULT));
+
+	opc = mdt_intent_code(it->opc);
+	if (opc < 0)
+		RETURN(err_serious(-EINVAL));
+
+	switch (opc) {
+	default:
+		RETURN(LDLM_ENQ_IT_ONLY);
+	case MDT_IT_QUOTA:
+	case MDT_IT_LAYOUT:
+		RETURN(LDLM_ENQ_IT_DEFAULT);
+	}
+}
+
 static int mdt_intent_policy(struct ldlm_namespace *ns,
-                             struct ldlm_lock **lockp, void *req_cookie,
+			     struct ldlm_lock **lockp, void *req_cookie,
 			     ldlm_mode_t mode, __u64 flags, void *data)
 {
-        struct mdt_thread_info *info;
-        struct ptlrpc_request  *req  =  req_cookie;
+	struct mdt_thread_info *info;
+	struct ptlrpc_request  *req = req_cookie;
         struct ldlm_intent     *it;
         struct req_capsule     *pill;
         int rc;
-
         ENTRY;
 
         LASSERT(req != NULL);
-
         info = lu_context_key_get(&req->rq_svc_thread->t_env->le_ctx,
                                   &mdt_thread_key);
         LASSERT(info != NULL);
         pill = info->mti_pill;
         LASSERT(pill->rc_req == req);
 
-        if (req->rq_reqmsg->lm_bufcount > DLM_INTENT_IT_OFF) {
-		req_capsule_extend(pill, &RQF_LDLM_INTENT_BASIC);
-                it = req_capsule_client_get(pill, &RMF_LDLM_INTENT);
-                if (it != NULL) {
-                        rc = mdt_intent_opc(it->opc, info, lockp, flags);
-                        if (rc == 0)
-                                rc = ELDLM_OK;
+	it = req_capsule_client_get(pill, &RMF_LDLM_INTENT);
+	LASSERT(it != NULL); /* mdt_intent_policy_check guaranteed this */
 
-                        /* Lock without inodebits makes no sense and will oops
-                         * later in ldlm. Let's check it now to see if we have
-                         * ibits corrupted somewhere in mdt_intent_opc().
-                         * The case for client miss to set ibits has been
-                         * processed by others. */
-                        LASSERT(ergo(info->mti_dlm_req->lock_desc.l_resource.\
-                                        lr_type == LDLM_IBITS,
-                                     info->mti_dlm_req->lock_desc.\
-                                        l_policy_data.l_inodebits.bits != 0));
-                } else
-                        rc = err_serious(-EFAULT);
-        } else {
-                /* No intent was provided */
-                LASSERT(pill->rc_fmt == &RQF_LDLM_ENQUEUE);
-		req_capsule_set_size(pill, &RMF_DLM_LVB, RCL_SERVER, 0);
-                rc = req_capsule_server_pack(pill);
-                if (rc)
-                        rc = err_serious(rc);
-        }
-        RETURN(rc);
+	rc = mdt_intent_opc(it->opc, info, lockp, flags);
+	rc = rc ?: ELDLM_OK;
+
+	RETURN(rc);
 }
 
 static int mdt_seq_fini(const struct lu_env *env,
@@ -4671,6 +4675,11 @@ static int mdt_adapt_sptlrpc_conf(struct obd_device *obd, int initial)
 
 int mdt_postrecov(const struct lu_env *, struct mdt_device *);
 
+static struct ldlm_it_policy_ops mdt_it_policy_ops = {
+	.ipo_check	= mdt_intent_policy_check,
+	.ipo_handle	= mdt_intent_policy,
+};
+
 static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
                      struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
@@ -4807,7 +4816,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	m->mdt_namespace->ns_lvbp = m;
 	m->mdt_namespace->ns_lvbo = &mdt_lvbo;
 
-        ldlm_register_intent(m->mdt_namespace, mdt_intent_policy);
+        ldlm_register_intent(m->mdt_namespace, &mdt_it_policy_ops);
         /* set obd_namespace for compatibility with old code */
         obd->obd_namespace = m->mdt_namespace;
 
