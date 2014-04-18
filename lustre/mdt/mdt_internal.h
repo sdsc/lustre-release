@@ -599,6 +599,13 @@ static inline int mdt_is_dne_client(struct obd_export *exp)
 	return !!(exp_connect_flags(exp) & OBD_CONNECT_LVB_TYPE);
 }
 
+/* Here we use OBD_CONNECT_DISP_STRIPE to check the client who support
+ * striped directory, because it is also landed on 2.6 */
+static inline int mdt_is_striped_client(struct obd_export *exp)
+{
+	return !!(exp_connect_flags(exp) & OBD_CONNECT_DISP_STRIPE);
+}
+
 int mdt_get_disposition(struct ldlm_reply *rep, int flag);
 void mdt_set_disposition(struct mdt_thread_info *info,
                         struct ldlm_reply *rep, int flag);
