@@ -245,6 +245,63 @@ int mdt_lookup_version_check(struct mdt_thread_info *info,
 
 }
 
+/**
+ * Check whether the remote operation is permitted,
+ * 1.Only sysadmin can create remote directory and striped directory now.
+ * 2.Remote directory can only be created on MDT0.
+ * 2.Only new clients can access and create remote directory.
+ * it will return -EIO
+ *
+ * XXX this check is only needed for remote synchronization, once async
+ * update is supported, this check can be removed.
+ **/
+static int mdt_remote_operation_check_permission(struct mdt_thread_info *info,
+						 struct mdt_object *parent,
+						 struct mdt_object *child)
+{
+	struct mdt_device	*mdt = info->mti_mdt;
+	struct lu_ucred		*uc  = mdt_ucred(info);
+	struct md_op_spec	*spec = &info->mti_spec;
+	struct lu_seq_range	range = { 0 };
+	struct lu_attr          *attr = &info->mti_attr.ma_attr;
+	struct obd_export	*exp = mdt_info_req(info)->rq_export;
+
+	/* Only check remote directory and striped directory */
+	if (mdt_object_remote(parent) == 0 && mdt_object_remote(child) == 0 &&
+	   !((S_ISDIR(attr->la_mode) && spec->u.sp_ea.eadata != NULL &&
+		   spec->u.sp_ea.eadatalen != 0)))
+		return 0;
+
+	if (!md_capable(uc, CFS_CAP_SYS_ADMIN)) {
+		if (uc->uc_gid != mdt->mdt_enable_remote_dir_gid &&
+		    mdt->mdt_enable_remote_dir_gid != -1)
+			return -EPERM;
+	}
+
+	if (mdt->mdt_enable_remote_dir == 0) {
+		struct seq_server_site	*ss = mdt_seq_site(mdt);
+		int			rc;
+
+		fld_range_set_type(&range, LU_SEQ_RANGE_MDT);
+		rc = fld_server_lookup(info->mti_env, ss->ss_server_fld,
+				       fid_seq(mdt_object_fid(parent)), &range);
+		if (rc != 0)
+			return rc;
+
+		if (range.lsr_index != 0)
+			return -EPERM;
+	}
+
+	if (!mdt_is_dne_client(exp))
+		return -EPERM;
+
+	if ((S_ISDIR(attr->la_mode) && spec->u.sp_ea.eadata != NULL &&
+	     spec->u.sp_ea.eadatalen != 0) && !mdt_is_striped_client(exp))
+		return -EPERM;
+
+	return 0;
+}
+
 /*
  * VBR: we save three versions in reply:
  * 0 - parent. Check that parent version is the same during replay.
@@ -314,39 +371,12 @@ static int mdt_md_create(struct mdt_thread_info *info)
         if (likely(!IS_ERR(child))) {
                 struct md_object *next = mdt_object_child(parent);
 
-		if (mdt_object_remote(child)) {
-			struct seq_server_site *ss;
-			struct lu_ucred *uc  = mdt_ucred(info);
+		rc = mdt_remote_operation_check_permission(info,
+						   parent, child);
+		if (rc != 0)
+			GOTO(out_put_child, rc);
 
-			if (!md_capable(uc, CFS_CAP_SYS_ADMIN)) {
-				if (uc->uc_gid !=
-				    mdt->mdt_enable_remote_dir_gid &&
-				    mdt->mdt_enable_remote_dir_gid != -1) {
-					CERROR("%s: Creating remote dir is only"
-					       " permitted for administrator or"
-					       " set mdt_enable_remote_dir_gid:"
-					       " rc = %d\n",
-						mdt_obd_name(mdt), -EPERM);
-					GOTO(out_put_child, rc = -EPERM);
-				}
-			}
-
-			ss = mdt_seq_site(mdt);
-			if (ss->ss_node_id != 0 &&
-			    mdt->mdt_enable_remote_dir == 0) {
-				CERROR("%s: remote dir is only permitted on"
-				       " MDT0 or set_param"
-				       " mdt.*.enable_remote_dir=1\n",
-				       mdt_obd_name(mdt));
-				GOTO(out_put_child, rc = -EPERM);
-			}
-			if (!mdt_is_dne_client(mdt_info_req(info)->rq_export)) {
-				/* Return -EIO for old client */
-				GOTO(out_put_child, rc = -EIO);
-			}
-
-		}
-                ma->ma_need = MA_INODE;
+		ma->ma_need = MA_INODE;
                 ma->ma_valid = 0;
                 /* capa for cross-ref will be stored here */
                 ma->ma_capa = req_capsule_server_get(info->mti_pill,
