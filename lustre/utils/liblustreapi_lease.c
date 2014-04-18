@@ -46,6 +46,20 @@ static inline const char *lease_mode2str(int mode)
 }
 
 /**
+ * Atomically put lease, swap layouts and close fd.
+ *
+ * \param fd	File to close.
+ * \param fdv	File to swap layouts with.
+ *
+ * \reval 0 on success.
+ * \retval -errno on error.
+ */
+int llapi_close_layout_swap(int fd, int fdv)
+{
+	return llapi_fswap_layouts(fd, fdv, 0, 0, SWAP_LAYOUTS_CLOSE);
+}
+
+/**
  * Get a lease on an open file.
  *
  * \param fd    File to get the lease on.
