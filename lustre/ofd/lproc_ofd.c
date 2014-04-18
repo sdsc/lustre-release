@@ -315,6 +315,34 @@ static int lprocfs_ofd_rd_capa_count(char *page, char **start, off_t off,
 			capa_count[CAPA_SITE_SERVER]);
 }
 
+static int lprocfs_ofd_rd_fake_write(char *page, char **start, off_t off,
+				     int count, int *eof, void *data)
+{
+	struct obd_device	*obd = data;
+	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+
+	return snprintf(page, count, "%u\n", ofd->ofd_fake_write);
+}
+
+static int lprocfs_ofd_wr_fake_write(struct file *file, const char *buffer,
+				     unsigned long count, void *data)
+
+{
+	struct obd_device	*obd = data;
+	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+	int			 val, rc;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc)
+		return rc;
+
+	spin_lock(&ofd->ofd_flags_lock);
+	ofd->ofd_fake_write = !!val;
+	spin_unlock(&ofd->ofd_flags_lock);
+
+	return count;
+}
+
 int lprocfs_ofd_rd_degraded(char *page, char **start, off_t off,
 			    int count, int *eof, void *data)
 {
@@ -591,6 +619,8 @@ static struct lprocfs_vars lprocfs_ofd_obd_vars[] = {
 				 lprocfs_ofd_wr_degraded, 0},
 	{ "sync_journal",	 lprocfs_ofd_rd_syncjournal,
 				 lprocfs_ofd_wr_syncjournal, 0 },
+	{ "fake_write",		 lprocfs_ofd_rd_fake_write,
+				 lprocfs_ofd_wr_fake_write, 0 },
 	{ "sync_on_lock_cancel", lprocfs_ofd_rd_sync_lock_cancel,
 				 lprocfs_ofd_wr_sync_lock_cancel, 0 },
 	{ "instance",		 lprocfs_target_rd_instance, 0 },
