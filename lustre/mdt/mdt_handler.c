@@ -897,12 +897,19 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                         mdt_dump_lmm(D_INFO, ma->ma_lmm, repbody->valid);
                 }
 		if (ma->ma_valid & MA_LMV) {
+			/* Return -EPROTO for old client */
+			if (!mdt_is_striped_client(req->rq_export))
+				RETURN(-EPROTO);
+
 			LASSERT(S_ISDIR(la->la_mode));
 			mdt_dump_lmv(D_INFO, ma->ma_lmv);
 			repbody->eadatasize = ma->ma_lmv_size;
 			repbody->valid |= (OBD_MD_FLDIREA|OBD_MD_MEA);
 		}
 		if (ma->ma_valid & MA_LMV_DEF) {
+			/* Return -EIO for old client */
+			if (!mdt_is_striped_client(req->rq_export))
+				RETURN(-EIO);
 			LASSERT(S_ISDIR(la->la_mode));
 			repbody->eadatasize = ma->ma_lmv_size;
 			repbody->valid |= (OBD_MD_FLDIREA|OBD_MD_DEFAULT_MEA);
