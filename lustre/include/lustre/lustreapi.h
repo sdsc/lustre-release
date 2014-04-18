@@ -321,8 +321,10 @@ static inline int llapi_create_volatile(char *directory, int mode)
 }
 
 
-extern int llapi_fswap_layouts(const int fd1, const int fd2,
-			       __u64 dv1, __u64 dv2, __u64 flags);
+extern int llapi_fswap_layouts_grouplock(int fd1, int fd2, __u64 dv1, __u64 dv2,
+					 int gid, __u64 flags);
+extern int llapi_fswap_layouts(int fd1, int fd2, __u64 dv1, __u64 dv2,
+			       __u64 flags);
 extern int llapi_swap_layouts(const char *path1, const char *path2,
 			      __u64 dv1, __u64 dv2, __u64 flags);
 
@@ -392,6 +394,7 @@ extern int llapi_json_write_list(struct llapi_json_item_list **item_list,
 				 FILE *fp);
 
 /* File lease */
+extern int llapi_close_layout_swap(int fd, int fdv);
 extern int llapi_lease_get(int fd, int mode);
 extern int llapi_lease_check(int fd);
 extern int llapi_lease_put(int fd);
@@ -399,6 +402,8 @@ extern int llapi_lease_put(int fd);
 /* Group lock */
 int llapi_group_lock(int fd, int gid);
 int llapi_group_unlock(int fd, int gid);
+
+int llapi_random_int(int *rnd);
 
 /** @} llapi */
 
