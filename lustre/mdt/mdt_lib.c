@@ -1016,6 +1016,11 @@ static int mdt_setattr_unpack_rec(struct mdt_thread_info *info)
 	else
 		ma->ma_attr_flags &= ~MDS_HSM_RELEASE;
 
+	if (rec->sa_bias & MDS_CLOSE_LAYOUT_SWAP)
+		ma->ma_attr_flags |= MDS_CLOSE_LAYOUT_SWAP;
+	else
+		ma->ma_attr_flags &= ~MDS_CLOSE_LAYOUT_SWAP;
+
 	if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
 		mdt_set_capainfo(info, 0, rr->rr_fid1,
 				 req_capsule_client_get(pill, &RMF_CAPA1));
@@ -1092,16 +1097,16 @@ static int mdt_setattr_unpack(struct mdt_thread_info *info)
 	RETURN(rc);
 }
 
-static int mdt_hsm_release_unpack(struct mdt_thread_info *info)
+static int mdt_intent_close_unpack(struct mdt_thread_info *info)
 {
 	struct md_attr          *ma = &info->mti_attr;
-	struct req_capsule      *pill = info->mti_pill;
+	struct req_capsule	*pill = info->mti_pill;
 	ENTRY;
 
-	if (!(ma->ma_attr_flags & MDS_HSM_RELEASE))
+	if (!(ma->ma_attr_flags & (MDS_HSM_RELEASE | MDS_CLOSE_LAYOUT_SWAP)))
 		RETURN(0);
 
-	req_capsule_extend(pill, &RQF_MDS_RELEASE_CLOSE);
+	req_capsule_extend(pill, &RQF_MDS_INTENT_CLOSE);
 
 	if (!(req_capsule_has_field(pill, &RMF_CLOSE_DATA, RCL_CLIENT) &&
 	    req_capsule_field_present(pill, &RMF_CLOSE_DATA, RCL_CLIENT)))
@@ -1123,7 +1128,7 @@ int mdt_close_unpack(struct mdt_thread_info *info)
 	if (rc)
 		RETURN(rc);
 
-	rc = mdt_hsm_release_unpack(info);
+	rc = mdt_intent_close_unpack(info);
 	if (rc)
 		RETURN(rc);
 
