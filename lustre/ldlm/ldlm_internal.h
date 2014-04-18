@@ -112,8 +112,15 @@ ldlm_lock_create(struct ldlm_namespace *ns, const struct ldlm_res_id *,
                  ldlm_type_t type, ldlm_mode_t,
                  const struct ldlm_callback_suite *cbs,
 		 void *data, __u32 lvb_len, enum lvb_type lvb_type);
-ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *, struct ldlm_lock **,
-			       void *cookie, __u64 *flags);
+#ifdef HAVE_SERVER_SUPPORT
+int ldlm_lock_it_check(struct ldlm_namespace *ns, void *cookie, __u64 flags);
+ldlm_error_t ldlm_lock_intend(struct ldlm_namespace *ns, void *cookie,
+			      ldlm_mode_t mode, __u64 *flags,
+			      struct ldlm_lock **lock_pp);
+#endif
+ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
+			       struct ldlm_lock *lock, __u64 *flags);
+
 void ldlm_lock_addref_internal(struct ldlm_lock *, __u32 mode);
 void ldlm_lock_addref_internal_nolock(struct ldlm_lock *, __u32 mode);
 void ldlm_lock_decref_internal(struct ldlm_lock *, __u32 mode);
