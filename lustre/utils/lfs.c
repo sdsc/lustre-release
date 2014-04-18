@@ -125,15 +125,13 @@ static int lfs_mv(int argc, char **argv);
 	"usage: "_cmd" [--stripe-count|-c <stripe_count>]\n"\
 	"                 [--stripe-index|-i <start_ost_idx>]\n"\
 	"                 [--stripe-size|-S <stripe_size>]\n"\
-	"                 [--pool|-p <pool_name>]\n"\
-	"                 [--block|-b] "_tgt"\n"\
+	"                 [--pool|-p <pool_name>] "_tgt"\n"\
 	"\tstripe_size:  Number of bytes on each OST (0 filesystem default)\n"\
 	"\t              Can be specified with k, m or g (in KB, MB and GB\n"\
 	"\t              respectively)\n"\
 	"\tstart_ost_idx: OST index of first stripe (-1 default)\n"\
 	"\tstripe_count: Number of OSTs to stripe over (0 default, -1 all)\n"\
-	"\tpool_name:    Name of OST pool to use (default none)\n"\
-	"\tblock:	 Block file access during data migration"
+	"\tpool_name:    Name of OST pool to use (default none)"
 
 /* all avaialable commands */
 command_t cmdlist[] = {
@@ -341,8 +339,7 @@ command_t cmdlist[] = {
 
 static int lfs_migrate(char *name, unsigned long long stripe_size,
 		       int stripe_offset, int stripe_count,
-		       int stripe_pattern, char *pool_name,
-		       __u64 migration_flags)
+		       int stripe_pattern, char *pool_name)
 {
 	int			 fd, fdv;
 	char			 volatile_file[PATH_MAX];
@@ -356,8 +353,7 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 	void			*buf = NULL;
 	int			 rsize, wsize;
 	__u64			 rpos, wpos, bufoff;
-	int			 gid = 0, sz;
-	int			 have_gl = 0;
+	bool			 have_rlck = false;
 	struct stat		 st, stv;
 
 	/* find the right size for the IO and allocate the buffer */
@@ -381,26 +377,6 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 	if (rc != 0) {
 		rc = -rc;
 		goto free;
-	}
-
-	if (migration_flags & MIGRATION_BLOCKS) {
-		/* generate a random id for the grouplock */
-		fd = open("/dev/urandom", O_RDONLY);
-		if (fd == -1) {
-			rc = -errno;
-			fprintf(stderr, "cannot open /dev/urandom (%s)\n",
-				strerror(-rc));
-			goto free;
-		}
-		sz = sizeof(gid);
-		rc = read(fd, &gid, sz);
-		close(fd);
-		if (rc < sz) {
-			rc = -errno;
-			fprintf(stderr, "cannot read %d bytes from"
-				" /dev/urandom (%s)\n", sz, strerror(-rc));
-			goto free;
-		}
 	}
 
 	/* search for file directory pathname */
@@ -447,6 +423,14 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 		goto free;
 	}
 
+	if (ioctl(fd, LL_IOC_SET_LEASE, F_RDLCK) == -1) {
+		rc = -errno;
+		fprintf(stderr, "cannot get open lease on %s (%s)\n",
+			name, strerror(-rc));
+		goto error;
+	}
+	have_rlck = true;
+
 	/* Not-owner (root?) special case.
 	 * Need to set owner/group of volatile file like original.
 	 * This will allow to pass related check during layout_swap.
@@ -481,21 +465,6 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 		fprintf(stderr, "cannot get dataversion on %s (%s)\n",
 			name, strerror(-rc));
 		goto error;
-	}
-
-	if (migration_flags & MIGRATION_BLOCKS) {
-		/* take group lock to limit concurent access
-		 * this will be no more needed when exclusive access will
-		 * be implemented (see LU-2919) */
-		/* group lock is taken after data version read because it
-		 * blocks data version call */
-		if (ioctl(fd, LL_IOC_GROUP_LOCK, gid) == -1) {
-			rc = -errno;
-			fprintf(stderr, "cannot get group lock on %s (%s)\n",
-				name, strerror(-rc));
-			goto error;
-		}
-		have_gl = 1;
 	}
 
 	/* copy data */
@@ -535,15 +504,20 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 	/* flush data */
 	fsync(fdv);
 
-	if (migration_flags & MIGRATION_BLOCKS) {
-		/* give back group lock */
-		if (ioctl(fd, LL_IOC_GROUP_UNLOCK, gid) == -1) {
-			rc = -errno;
-			fprintf(stderr, "cannot put group lock on %s (%s)\n",
-				name, strerror(-rc));
-		}
-		have_gl = 0;
+	rc = ioctl(fd, LL_IOC_SET_LEASE, F_UNLCK);
+	if (rc == -1) {
+		rc = -errno;
+		have_rlck = false;
+		fprintf(stderr, "Error freeing lease on %s: %s\n", name,
+			strerror(-rc));
+		goto error;
+	} else if (rc == 0) {
+		rc = -EAGAIN;
+		have_rlck = false;
+		fprintf(stderr, "Broken lease on %s\n", name);
+		goto error;
 	}
+	have_rlck = false;
 
 	/* swap layouts
 	 * for a migration we need to:
@@ -565,12 +539,17 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 			name, strerror(-rc));
 
 error:
-	/* give back group lock */
-	if ((migration_flags & MIGRATION_BLOCKS) && have_gl &&
-	    (ioctl(fd, LL_IOC_GROUP_UNLOCK, gid) == -1)) {
-		/* we keep in rc the original error */
-		fprintf(stderr, "cannot put group lock on %s (%s)\n",
-			name, strerror(-errno));
+	/* free lease */
+	if (have_rlck) {
+		/* we keep the original error in rc */
+		int err;
+
+		err = ioctl(fd, LL_IOC_SET_LEASE, F_UNLCK);
+		if (err == -1)
+			fprintf(stderr, "Error freeing lease on %s: %s\n",
+				name, strerror(-errno));
+		else if (err == 0)
+			fprintf(stderr, "Lease was broken on %s\n", name);
 	}
 
 	close(fdv);
@@ -599,7 +578,6 @@ static int lfs_setstripe(int argc, char **argv)
 	char			*pool_name_arg = NULL;
 	unsigned long long	 size_units = 1;
 	int			 migrate_mode = 0;
-	__u64			 migration_flags = 0;
 
 	struct option		 long_opts[] = {
 		/* valid only in migrate mode */
@@ -654,12 +632,7 @@ static int lfs_setstripe(int argc, char **argv)
 			/* Long options. */
 			break;
 		case 'b':
-			if (migrate_mode == 0) {
-				fprintf(stderr, "--block is valid only for"
-						" migrate mode");
-				return CMD_HELP;
-			}
-			migration_flags |= MIGRATION_BLOCKS;
+			fprintf(stderr, "--block is deprecated, ignoring\n");
 			break;
 		case 'c':
 #if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2, 6, 53, 0)
@@ -753,8 +726,7 @@ static int lfs_setstripe(int argc, char **argv)
 	do {
 		if (migrate_mode)
 			result = lfs_migrate(fname, st_size, st_offset,
-					     st_count, 0, pool_name_arg,
-					     migration_flags);
+					     st_count, 0, pool_name_arg);
 		else
 			result = llapi_file_create_pool(fname, st_size,
 							st_offset, st_count,
