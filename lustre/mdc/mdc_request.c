@@ -698,9 +698,11 @@ void mdc_replay_open(struct ptlrpc_request *req)
         }
         close_req = mod->mod_close_req;
         if (close_req != NULL) {
-                __u32 opc = lustre_msg_get_opc(close_req->rq_reqmsg);
-                struct mdt_ioepoch *epoch;
+		__u32 opc;
+		struct mdt_ioepoch *epoch;
 
+		spin_lock(&close_req->rq_import->imp_lock);
+		opc = lustre_msg_get_opc(close_req->rq_reqmsg);
                 LASSERT(opc == MDS_CLOSE || opc == MDS_DONE_WRITING);
                 epoch = req_capsule_client_get(&close_req->rq_pill,
                                                &RMF_MDT_EPOCH);
@@ -710,6 +712,7 @@ void mdc_replay_open(struct ptlrpc_request *req)
                         LASSERT(!memcmp(&old, &epoch->handle, sizeof(old)));
                 DEBUG_REQ(D_HA, close_req, "updating close body with new fh");
                 epoch->handle = body->handle;
+		spin_unlock(&close_req->rq_import->imp_lock);
         }
         EXIT;
 }
