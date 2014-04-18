@@ -4730,25 +4730,129 @@ int llapi_create_volatile_idx(char *directory, int idx, int open_flags)
 
 /**
  * Swap the layouts between 2 file descriptors
- * the 2 files must be open in write
+ * the 2 files must be open for writing
  * first fd received the ioctl, second fd is passed as arg
  * this is assymetric but avoid use of root path for ioctl
  */
-int llapi_fswap_layouts(int fd1, int fd2, __u64 dv1, __u64 dv2, __u64 flags)
+int llapi_fswap_layouts_grouplock(int fd1, int fd2, __u64 dv1, __u64 dv2,
+				  int gid, __u64 flags)
 {
-	struct lustre_swap_layouts lsl;
-	int rc;
+	struct lustre_swap_layouts	lsl;
+	struct stat			st1;
+	struct stat			st2;
+	int				rc;
 
-	srandom(time(NULL));
+	if (flags & (SWAP_LAYOUTS_KEEP_ATIME | SWAP_LAYOUTS_KEEP_MTIME)) {
+		rc = fstat(fd1, &st1);
+		if (rc < 0)
+			return -errno;
+
+		rc = fstat(fd2, &st2);
+		if (rc < 0)
+			return -errno;
+	}
 	lsl.sl_fd = fd2;
 	lsl.sl_flags = flags;
-	lsl.sl_gid = random();
+	lsl.sl_gid = gid;
 	lsl.sl_dv1 = dv1;
 	lsl.sl_dv2 = dv2;
 	rc = ioctl(fd1, LL_IOC_LOV_SWAP_LAYOUTS, &lsl);
-	if (rc)
+	if (rc < 0)
+		return -errno;
+
+	if (flags & (SWAP_LAYOUTS_KEEP_ATIME | SWAP_LAYOUTS_KEEP_MTIME)) {
+		struct timeval	tv1[2];
+		struct timeval	tv2[2];
+
+		memset(tv1, 0, sizeof(tv1));
+		memset(tv2, 0, sizeof(tv2));
+
+		if (flags & SWAP_LAYOUTS_KEEP_ATIME) {
+			tv1[0].tv_sec = st1.st_atime;
+			tv2[0].tv_sec = st2.st_atime;
+		} else {
+			tv1[0].tv_sec = st2.st_atime;
+			tv2[0].tv_sec = st1.st_atime;
+		}
+
+		if (flags & SWAP_LAYOUTS_KEEP_MTIME) {
+			tv1[1].tv_sec = st1.st_mtime;
+			tv2[1].tv_sec = st2.st_mtime;
+		} else {
+			tv1[1].tv_sec = st2.st_mtime;
+			tv2[1].tv_sec = st1.st_mtime;
+		}
+
+		rc = futimes(fd1, tv1);
+		if (rc < 0)
+			return -errno;
+
+		rc = futimes(fd2, tv2);
+		if (rc < 0)
+			return -errno;
+	}
+
+	return 0;
+}
+
+/**
+ * Generate a non-null integer for use as a group identifier.
+ *
+ * \param[out] rnd	Where to store the GID
+ * \retval 0 on success
+ * \retval Negative error code on failure
+ */
+int llapi_grouplock_random_id(int *rnd)
+{
+	int	fd;
+	int	rc;
+	ssize_t	sz_ret;
+	ssize_t	sz_exp = sizeof(*rnd);
+
+	fd = open("/dev/urandom", O_RDONLY);
+	if (fd < 0) {
 		rc = -errno;
+		fprintf(stderr, "cannot open /dev/urandom: %s\n",
+			strerror(-rc));
+		goto out;
+	}
+
+retry:
+	sz_ret = read(fd, rnd, sz_exp);
+	if (sz_ret < sz_exp) {
+		rc = -errno;
+		fprintf(stderr, "cannot read %zd bytes from /dev/urandom: %s\n",
+			sz_exp, strerror(-rc));
+		goto out;
+	}
+
+	/* GIDs must be non-zero */
+	if (*rnd == 0)
+		goto retry;
+
+	rc = 0;
+
+out:
+	if (fd >= 0)
+		close(fd);
+
 	return rc;
+}
+
+int llapi_fswap_layouts(int fd1, int fd2, __u64 dv1, __u64 dv2, __u64 flags)
+{
+	int	rc;
+	int	grp_id;
+
+	rc = llapi_grouplock_random_id(&grp_id);
+	if (rc < 0)
+		return rc;
+
+	rc = llapi_fswap_layouts_grouplock(fd1, fd2, dv1, dv2, grp_id, flags);
+	if (rc < 0)
+		return rc;
+
+	return 0;
 }
 
 /**
