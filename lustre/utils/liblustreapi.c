@@ -4568,21 +4568,28 @@ int llapi_create_volatile_idx(char *directory, int idx, int open_flags)
  * first fd received the ioctl, second fd is passed as arg
  * this is assymetric but avoid use of root path for ioctl
  */
-int llapi_fswap_layouts(int fd1, int fd2, __u64 dv1, __u64 dv2, __u64 flags)
+int llapi_fswap_layouts_grouplock(int fd1, int fd2, __u64 dv1, __u64 dv2,
+				  int gid, __u64 flags)
 {
-	struct lustre_swap_layouts lsl;
-	int rc;
+	struct lustre_swap_layouts	lsl;
+	int				rc;
 
-	srandom(time(NULL));
 	lsl.sl_fd = fd2;
 	lsl.sl_flags = flags;
-	lsl.sl_gid = random();
+	lsl.sl_gid = gid;
 	lsl.sl_dv1 = dv1;
 	lsl.sl_dv2 = dv2;
 	rc = ioctl(fd1, LL_IOC_LOV_SWAP_LAYOUTS, &lsl);
-	if (rc)
+	if (rc < 0)
 		rc = -errno;
 	return rc;
+}
+
+int llapi_fswap_layouts(int fd1, int fd2, __u64 dv1, __u64 dv2, __u64 flags)
+{
+	srandom(time(NULL));
+	return llapi_fswap_layouts_grouplock(fd1, fd2, dv1, dv2, random(),
+					     flags);
 }
 
 /**
@@ -4613,12 +4620,54 @@ int llapi_swap_layouts(const char *path1, const char *path2,
 	rc = llapi_fswap_layouts(fd1, fd2, dv1, dv2, flags);
 	if (rc < 0)
 		llapi_error(LLAPI_MSG_ERROR, rc,
-			    "error: cannot swap layout between '%s' and '%s'\n",
+			    "error: cannot swap layout between '%s' and '%s'",
 			    path1, path2);
 
 	close(fd2);
 out_close:
 	close(fd1);
 out:
+	return rc;
+}
+
+/**
+ * Take group lock.
+ *
+ * \param fd	File to lock.
+ * \param gid	Group Identifier.
+ *
+ * \retval 0 on success.
+ * \retval -errno on failure.
+ */
+int llapi_group_lock(int fd, int gid)
+{
+	int rc;
+
+	rc = ioctl(fd, LL_IOC_GROUP_LOCK, gid);
+	if (rc < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "cannot get group lock");
+	}
+	return rc;
+}
+
+/**
+ * Put group lock.
+ *
+ * \param fd	File to unlock.
+ * \param gid	Group Identifier.
+ *
+ * \retval 0 on success.
+ * \retval -errno on failure.
+ */
+int llapi_group_unlock(int fd, int gid)
+{
+	int rc;
+
+	rc = ioctl(fd, LL_IOC_GROUP_UNLOCK, gid);
+	if (rc < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "cannot put group lock");
+	}
 	return rc;
 }
