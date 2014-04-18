@@ -2597,8 +2597,13 @@ static int lod_object_destroy(const struct lu_env *env,
 
 	/* destroy sub-stripe of master object */
 	if (S_ISDIR(dt->do_lu.lo_header->loh_attr)) {
+		rc = next->do_ops->do_index_try(env, next,
+						&dt_directory_features);
+		if (rc != 0)
+			RETURN(rc);
+
 		for (i = 0; i < lo->ldo_stripenr; i++) {
-			rc = dt_ref_del(env, dt_object_child(dt), th);
+			rc = dt_ref_del(env, next, th);
 			if (rc != 0)
 				RETURN(rc);
 
@@ -2610,7 +2615,7 @@ static int lod_object_destroy(const struct lu_env *env,
 			       PFID(lu_object_fid(&dt->do_lu)), stripe_name,
 			       PFID(lu_object_fid(&lo->ldo_stripe[i]->do_lu)));
 
-			rc = dt_delete(env, dt_object_child(dt),
+			rc = dt_delete(env, next,
 				       (const struct dt_key *)stripe_name,
 				       th, BYPASS_CAPA);
 			if (rc != 0)
