@@ -120,6 +120,7 @@ static int lfs_hsm_remove(int argc, char **argv);
 static int lfs_hsm_cancel(int argc, char **argv);
 static int lfs_swap_layouts(int argc, char **argv);
 static int lfs_mv(int argc, char **argv);
+static int lfs_advise(int argc, char **argv);
 
 #define SETSTRIPE_USAGE(_cmd, _tgt) \
 	"usage: "_cmd" [--stripe-count|-c <stripe_count>]\n"\
@@ -331,6 +332,10 @@ command_t cmdlist[] = {
 	 "To move directories between MDTs.\n"
 	 "usage: mv <directory|filename> [--mdt-index|-M] <mdt_index> "
 	 "[--verbose|-v]\n"},
+	{"advise", lfs_advise, 0,
+	 "Give advice about file access.\n"
+	 "usage: advise [--start|-s START] [--end|-e END] "
+	 "[--advice|-a ADVICE] <file>"},
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
 	{"quit", Parser_quit, 0, "quit"},
@@ -3799,6 +3804,94 @@ static int lfs_swap_layouts(int argc, char **argv)
 	return llapi_swap_layouts(argv[1], argv[2], 0, 0,
 				  SWAP_LAYOUTS_KEEP_MTIME |
 				  SWAP_LAYOUTS_KEEP_ATIME);
+}
+
+#define LADVISE_CACHE	"cache"
+
+static int lfs_get_ladvice(const char *string)
+{
+	int advice;
+	if (strcmp(string, LADVISE_CACHE) == 0)
+		advice = LU_LADVISE_CACHE;
+	else
+		advice = -1;
+	return advice;
+}
+
+static int lfs_advise(int argc, char **argv)
+{
+	struct option		 long_opts[] = {
+		{"advice", 1, 0, 'a'},
+		{"start", 1, 0, 's'},
+		{"end", 1, 0, 'e'},
+		{0, 0, 0, 0}
+	};
+	char			 short_opts[] = "s:e:a:";
+	int			 c;
+	int			 rc = 0;
+	const char		*fname;
+	int			 fd;
+	struct lu_ladvise	 advice;
+	int			 advice_type = LU_LADVISE_CACHE;
+	struct stat		 st;
+
+	optind = 0;
+	while ((c = getopt_long(argc, argv, short_opts,
+				long_opts, NULL)) != -1) {
+		switch (c) {
+		case 'a':
+			advice_type = lfs_get_ladvice(optarg);
+			if (advice_type < 0) {
+				fprintf(stderr, "advice type %s "
+					"is not valid\n", optarg);
+				return CMD_HELP;
+			}
+			break;
+		case 's':
+			break;
+		case 'e':
+			break;
+		case '?':
+			return CMD_HELP;
+		default:
+			fprintf(stderr, "error: %s: option '%s' unrecognized\n",
+				argv[0], argv[optind - 1]);
+			return CMD_HELP;
+		}
+	}
+
+	if (argc != optind + 1)
+		return CMD_HELP;
+	fname = argv[optind];
+
+	rc = stat(fname, &st);
+	if (rc < 0) {
+		fprintf(stderr, "fail to stat file %s: %s\n",
+			fname, strerror(errno));
+		rc = -errno;
+		return rc;
+	}
+
+	fd = open(fname, O_RDONLY);
+	if (fd < 0) {
+		fprintf(stderr, "fail to open file %s: %s\n",
+			fname, strerror(errno));
+		rc = -errno;
+		return rc;
+	}
+
+	/* TODO: If the size is too big, print out a warning */
+	advice.ll_offset = 0;
+	advice.ll_length = st.st_size;
+	advice.ll_advice = advice_type;
+	rc = ioctl(fd, LL_IOC_LADVISE, &advice);
+	if (rc) {
+		fprintf(stderr, "fail to give advice on file %s: %s\n",
+			fname, strerror(errno));
+		rc = -errno;
+	}
+	close(fd);
+	return rc;
 }
 
 int main(int argc, char **argv)

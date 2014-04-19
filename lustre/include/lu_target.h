@@ -306,6 +306,7 @@ struct tgt_commit_cb {
 };
 
 int tgt_hpreq_handler(struct ptlrpc_request *req);
+int tgt_ladvise(struct tgt_session_info *tsi);
 
 /* target/tgt_main.c */
 void tgt_boot_epoch_update(struct lu_target *lut);

@@ -1589,6 +1589,22 @@ static inline int obd_unregister_lock_cancel_cb(struct obd_export *exp,
 }
 #endif
 
+static inline int obd_ladvise(const struct lu_env *env, struct obd_export *exp,
+			      struct obd_info *oinfo, obd_size start,
+			      obd_size end, int advice,
+			      struct niobuf_local *lnb)
+{
+	int rc;
+	ENTRY;
+
+	OBD_CHECK_DT_OP(exp->exp_obd, ladvise, -EOPNOTSUPP);
+	EXP_COUNTER_INCREMENT(exp, ladvise);
+
+	rc = OBP(exp->exp_obd, ladvise)(env, exp, oinfo, start, end,
+					advice, lnb);
+	RETURN(rc);
+}
+
 /* metadata helpers */
 static inline int md_getstatus(struct obd_export *exp,
                                struct lu_fid *fid, struct obd_capa **pc)

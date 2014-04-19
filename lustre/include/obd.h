@@ -1161,6 +1161,9 @@ struct obd_ops {
                           char *ostname);
         void (*o_getref)(struct obd_device *obd);
         void (*o_putref)(struct obd_device *obd);
+	int (*o_ladvise)(const struct lu_env *env, struct obd_export *exp,
+			 struct obd_info *oinfo, obd_size start, obd_size end,
+			 int advice, struct niobuf_local *lnb);
         /*
          * NOTE: If adding ops, add another LPROCFS_OBD_OP_INIT() line
          * to lprocfs_alloc_obd_stats() in obdclass/lprocfs_status.c.

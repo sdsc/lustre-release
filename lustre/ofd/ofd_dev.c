@@ -2052,6 +2052,7 @@ TGT_OST_HDL_HP(HABEO_CORPUS| HABEO_REFERO | MUTABOR,
 							ofd_hp_punch),
 TGT_OST_HDL(HABEO_CORPUS| HABEO_REFERO,	OST_SYNC,	ofd_sync_hdl),
 TGT_OST_HDL(0		| HABEO_REFERO,	OST_QUOTACTL,	ofd_quotactl),
+TGT_OST_HDL(HABEO_CORPUS | HABEO_REFERO, OST_LADVISE,	tgt_ladvise),
 };
 
 static struct tgt_opc_slice ofd_common_slice[] = {

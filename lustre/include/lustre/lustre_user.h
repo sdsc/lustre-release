@@ -248,6 +248,7 @@ struct ost_id {
 #define LL_IOC_PATH2FID                 _IOR ('f', 173, long)
 #define LL_IOC_GET_CONNECT_FLAGS        _IOWR('f', 174, __u64 *)
 #define LL_IOC_GET_MDTIDX               _IOR ('f', 175, int)
+#define LL_IOC_LADVISE			_IOR ('f', 176, struct lu_ladvise)
 
 /* see <lustre_lib.h> for ioctl numbers 177-210 */
 
@@ -1225,6 +1226,17 @@ struct llapi_json_item {
 struct llapi_json_item_list {
 	int			ljil_item_count;
 	struct llapi_json_item	*ljil_items;
+};
+
+enum lu_ladvise_type {
+	LU_LADVISE_CACHE,
+	LU_LADVISE_NR
+};
+
+struct lu_ladvise {
+	__u64			ll_offset;
+	__u64			ll_length;
+	enum lu_ladvise_type	ll_advice;
 };
 
 /** @} lustreuser */
