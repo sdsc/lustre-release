@@ -550,6 +550,8 @@ struct dt_body_operations {
         int   (*dbo_punch)(const struct lu_env *env, struct dt_object *dt,
                           __u64 start, __u64 end, struct thandle *th,
                           struct lustre_capa *capa);
+	int   (*dbo_ladvise)(const struct lu_env *env, struct dt_object *dt,
+			     __u64 start, __u64 end, int posix_advice);
 };
 
 /**
@@ -1310,6 +1312,15 @@ static inline int dt_punch(const struct lu_env *env, struct dt_object *dt,
         LASSERT(dt->do_body_ops);
         LASSERT(dt->do_body_ops->dbo_punch);
         return dt->do_body_ops->dbo_punch(env, dt, start, end, th, capa);
+}
+
+static inline int dt_ladvise(const struct lu_env *env, struct dt_object *dt,
+			     __u64 start, __u64 end, int posix_advice)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_ladvise);
+	return dt->do_body_ops->dbo_ladvise(env, dt, start, end, posix_advice);
 }
 
 static inline int dt_fiemap_get(const struct lu_env *env, struct dt_object *d,
