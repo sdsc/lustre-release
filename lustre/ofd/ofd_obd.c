@@ -1163,6 +1163,89 @@ static int ofd_quotactl(struct obd_device *obd, struct obd_export *exp,
 	RETURN(rc);
 }
 
+static int ofd_ladvise_cache(const struct lu_env *env, struct ofd_object *fo,
+			     obd_size start, obd_size end,
+			     struct niobuf_local *lnb)
+{
+	pgoff_t start_index, end_index, pages;
+	struct niobuf_remote rnb;
+	unsigned long nr_local;
+	int rc = 0;
+
+	/* We need page aligned offset and length */
+	start_index = start >> PAGE_CACHE_SHIFT;
+	end_index = end >> PAGE_CACHE_SHIFT;
+	pages = end_index - start_index + 1;
+	while (pages > 0) {
+		nr_local = pages <= PTLRPC_MAX_BRW_PAGES ? pages :
+			PTLRPC_MAX_BRW_PAGES;
+		rnb.offset = start_index << PAGE_CACHE_SHIFT;
+		rnb.len = nr_local << PAGE_CACHE_SHIFT;
+		rc = dt_bufs_get(env, ofd_object_child(fo), &rnb,
+				 lnb, 0, ofd_object_capa(env, fo));
+		if (unlikely(rc < 0))
+			break;
+		nr_local = rc;
+		LASSERT(nr_local > 0 && nr_local <= PTLRPC_MAX_BRW_PAGES);
+		rc = dt_read_prep(env, ofd_object_child(fo), lnb, nr_local);
+		dt_bufs_put(env, ofd_object_child(fo), lnb, nr_local);
+		if (unlikely(rc))
+			break;
+		start_index += nr_local;
+		pages -= nr_local;
+	}
+	RETURN(rc);
+}
+
+static int ofd_ladvise(const struct lu_env *env, struct obd_export *exp,
+		       struct obd_info *oinfo, obd_size start, obd_size end,
+		       int advise, struct niobuf_local *lnb)
+{
+	struct ofd_device	*ofd = ofd_exp(exp);
+	struct ofd_thread_info	*info;
+	struct ofd_object	*fo;
+	int			 rc = 0;
+	ENTRY;
+
+	info = ofd_info_init(env, exp);
+	rc = ostid_to_fid(&info->fti_fid, &oinfo->oi_oa->o_oi,
+			  ofd->ofd_lut.lut_lsd.lsd_osd_index);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	rc = ofd_auth_capa(exp, &info->fti_fid, ostid_seq(&oinfo->oi_oa->o_oi),
+			   oinfo_capa(oinfo), CAPA_OPC_OSS_READ);
+	if (rc)
+		GOTO(out, rc);
+
+	fo = ofd_object_find(env, ofd, &info->fti_fid);
+	if (IS_ERR(fo)) {
+		CERROR("%s: error finding object "DFID": rc = %ld\n",
+		       exp->exp_obd->obd_name, PFID(&info->fti_fid),
+		       PTR_ERR(fo));
+		GOTO(out, rc = PTR_ERR(fo));
+	}
+	LASSERT(fo != NULL);
+
+	ofd_read_lock(env, fo);
+	if (!ofd_object_exists(fo))
+		GOTO(unlock, rc = -ENOENT);
+
+	switch (advise) {
+	case LU_LADVISE_CACHE:
+		rc = ofd_ladvise_cache(env, fo, start, end, lnb);
+		break;
+	default:
+		rc = -ENOTSUPP;
+	}
+
+unlock:
+	ofd_read_unlock(env, fo);
+	ofd_object_put(env, fo);
+out:
+	RETURN(rc);
+}
+
 struct obd_ops ofd_obd_ops = {
 	.o_owner		= THIS_MODULE,
 	.o_connect		= ofd_obd_connect,
@@ -1184,4 +1267,5 @@ struct obd_ops ofd_obd_ops = {
 	.o_quotactl		= ofd_quotactl,
 	.o_set_info_async	= ofd_set_info_async,
 	.o_get_info		= ofd_get_info,
+	.o_ladvise		= ofd_ladvise,
 };

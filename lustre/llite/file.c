@@ -2306,6 +2306,68 @@ out:
 	RETURN(rc);
 }
 
+int cl_ladvise_file_range(struct inode *inode, loff_t start, loff_t end,
+			 int advice)
+{
+	struct cl_env_nest nest;
+	struct lu_env *env;
+	struct cl_io *io;
+	struct obd_capa *capa = NULL;
+	struct cl_ladvise_io *lio;
+	int result;
+	ENTRY;
+
+	env = cl_env_nested_get(&nest);
+	if (IS_ERR(env))
+		RETURN(PTR_ERR(env));
+
+	capa = ll_osscapa_get(inode, CAPA_OPC_OSS_READ);
+
+	io = ccc_env_thread_io(env);
+	io->ci_obj = cl_i2info(inode)->lli_clob;
+
+	/* initialize parameters for sync */
+	lio = &io->u.ci_ladvise;
+	lio->li_capa = capa;
+	lio->li_start = start;
+	lio->li_end = end;
+	lio->li_fid = ll_inode2fid(inode);
+	lio->li_advice = advice;
+
+	if (cl_io_init(env, io, CIT_LADVISE, io->ci_obj) == 0)
+		result = cl_io_loop(env, io);
+	else
+		result = io->ci_result;
+	cl_io_fini(env, io);
+	cl_env_nested_put(&nest, env);
+
+	capa_put(capa);
+
+	RETURN(result);
+}
+
+static inline int lu_ladvise_type_is_valid(enum lu_ladvise_type type)
+{
+	return LU_LADVISE_CACHE <= type && type < LU_LADVISE_NR;
+}
+
+int ll_ladvise(struct inode *inode, struct file *file, struct lu_ladvise *luf)
+{
+	int	rc;
+	ENTRY;
+
+	if (luf->ll_length == 0)
+		RETURN(-EINVAL);
+
+	if (!lu_ladvise_type_is_valid(luf->ll_advice))
+		RETURN(-EINVAL);
+
+	rc = cl_ladvise_file_range(inode, luf->ll_offset,
+				   luf->ll_offset + luf->ll_length,
+				   luf->ll_advice);
+	RETURN(rc);
+}
+
 static long
 ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -2612,7 +2674,23 @@ ll_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		OBD_FREE_PTR(hui);
 		RETURN(rc);
 	}
+	case LL_IOC_LADVISE: {
+		struct lu_ladvise *luf;
 
+		OBD_ALLOC_PTR(luf);
+		if (luf == NULL)
+			RETURN(-ENOMEM);
+
+		if (copy_from_user(luf, (void *)arg, sizeof(*luf))) {
+			OBD_FREE_PTR(luf);
+			RETURN(-EFAULT);
+		}
+
+		rc = ll_ladvise(inode, file, luf);
+
+		OBD_FREE_PTR(luf);
+		RETURN(rc);
+	}
 	default: {
 		int err;
 

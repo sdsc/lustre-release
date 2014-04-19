@@ -1825,6 +1825,79 @@ out_lock:
 }
 EXPORT_SYMBOL(tgt_brw_read);
 
+int tgt_ladvise(struct tgt_session_info *tsi)
+{
+	struct ptlrpc_request	*req = tgt_ses_req(tsi);
+	struct obd_export	*exp = tsi->tsi_exp;
+	struct ost_body *body, *repbody;
+	struct obd_info *oinfo;
+	struct lustre_capa *capa = NULL;
+	struct niobuf_local *local_nb;
+	struct niobuf_remote remote_nb = { 0 };
+	struct obd_ioobj ioo;
+	struct tgt_thread_big_cache *tbc = req->rq_svc_thread->t_data;
+	struct lustre_handle lockh = { 0 };
+	obd_valid valid;
+	int rc = 0;
+	ENTRY;
+
+	/* There must be big cache in current thread to process this request
+	 * if it is NULL then something went wrong and it wasn't allocated,
+	 * report -ENOMEM in that case */
+	if (tbc == NULL)
+		RETURN(-ENOMEM);
+	body = tsi->tsi_ost_body;
+	LASSERT(body != NULL);
+
+	valid = OBD_MD_FLID | OBD_MD_FLSIZE | OBD_MD_FLBLOCKS | OBD_MD_FLFLAGS;
+	if ((body->oa.o_valid & valid) != valid)
+		RETURN(err_serious(-EPROTO));
+
+	repbody = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+	repbody->oa = body->oa;
+
+	local_nb = tbc->local;
+
+	OBD_ALLOC_PTR(oinfo);
+	if (!oinfo)
+		RETURN(-ENOMEM);
+
+	ioo.ioo_oid = body->oa.o_oi;
+	ioo.ioo_bufcnt = 1;
+	remote_nb.offset = repbody->oa.o_size;
+	remote_nb.len = repbody->oa.o_size - repbody->oa.o_blocks;
+
+	oinfo->oi_oa = &repbody->oa;
+	oinfo->oi_capa = capa;
+
+	switch (repbody->oa.o_flags) {
+	case LU_LADVISE_CACHE:
+		rc = tgt_brw_lock(exp->exp_obd->obd_namespace,
+				  &tsi->tsi_resid, &ioo,
+				  &remote_nb, &lockh, LCK_PR);
+		if (rc != 0)
+			GOTO(out_oinfo, rc);
+
+		req->rq_status = obd_ladvise(req->rq_svc_thread->t_env,
+					     exp,
+					     oinfo,
+					     repbody->oa.o_size,
+					     repbody->oa.o_blocks,
+					     repbody->oa.o_flags,
+					     local_nb);
+
+		tgt_brw_unlock(&ioo, &remote_nb, &lockh, LCK_PR);
+		break;
+	default:
+		rc = -ENOTSUPP;
+	}
+out_oinfo:
+	OBD_FREE_PTR(oinfo);
+
+	RETURN(rc);
+}
+EXPORT_SYMBOL(tgt_ladvise);
+
 static void tgt_warn_on_cksum(struct ptlrpc_request *req,
 			      struct ptlrpc_bulk_desc *desc,
 			      struct niobuf_local *local_nb, int npages,
