@@ -806,6 +806,8 @@ int dt_index_walk(const struct lu_env *env, struct dt_object *obj,
 		 *     requested---skip it.
 		 *     - or not positioned at all (is in IAM_IT_SKEWED
 		 *     state)---position it on the next item.
+		 *     - or reach the end, "next" should be called to set rc to
+		 *     proper value, otherwise the invalid "it" will be used.
 		 */
 		rc = iops->next(env, it);
 	} else if (rc > 0) {
