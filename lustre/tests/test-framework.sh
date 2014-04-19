@@ -1127,6 +1127,92 @@ csa_add() {
 	echo -n "$opts"
 }
 
+MD_SUFFIX="_readonly_by_flakey"
+MD_DEV_PATH="/dev/mapper"
+MD_FLAKEY_ENABLED=$(modprobe dm_flakey >/dev/null 2>&1; dmsetup targets |
+		    grep "flakey" >/dev/null 2>&1 && echo "yes" || echo "no")
+
+md_set_dev_readonly() {
+	local md_dev=$1
+
+	real_dev=$(dmsetup table $md_dev | awk '{ print $4 }')
+
+	echo "0 $(blockdev --getsize $md_dev) flakey $real_dev 0 0 2000 \
+	 			1 drop_writes" | dmsetup load $md_dev
+
+	dmsetup suspend $md_dev
+	dmsetup resume $md_dev
+}
+
+md_clear_dev_readonly() {
+	local md_dev=$1
+
+	real_dev=$(dmsetup table $md_dev | awk '{ print $4 }')
+
+	echo "0 $(blockdev --getsize $md_dev) linear $real_dev 0" |
+							dmsetup load $md_dev
+
+	dmsetup suspend $md_dev
+	dmsetup resume $md_dev
+}
+
+md_facet_devname() {
+	local facet=$1
+
+	echo "${facet}$MD_SUFFIX"
+}
+
+md_facet_devpath() {
+	local facet=$1
+
+	echo "${MD_DEV_PATH}/$(md_facet_devname $facet)"
+}
+
+md_set_facet_readonly(){
+	local facet=$1
+	local md_dev=$(md_facet_devpath $facet)
+
+	md_set_dev_readonly $md_dev
+}
+
+md_clear_facet_readonly(){
+	local facet=$1
+	local md_dev=$(md_facet_devpath $facet)
+
+	md_clear_dev_readonly $md_dev
+}
+
+# changing a normal device or file(will be used as loop device) to a MD device
+md_check_and_setup() {
+	local facet=$1
+	local dev=$2
+	local real_dev=$2
+	local md_dev=$3
+
+	if [ ! -b $dev ]; then
+		real_dev=$(losetup -a | grep $dev | awk -F ':' '{ print $1 }') ||
+								real_dev=""
+		if [ -z "$real_dev" ]; then
+			real_dev=$(losetup -f)
+			losetup $real_dev $dev
+		fi
+	fi
+
+	if [ ! -e  "${MD_DEV_PATH}/$md_dev" ]; then
+		echo "0 $(blockdev --getsize $real_dev) linear $real_dev 0" |
+							dmsetup create $md_dev
+		return
+	fi
+
+	local devno=$(dmsetup table $md_dev | awk '{ print $4 }')
+	local devno2=$(ls -l $real_dev | awk '{ print $5$6 }')
+	devno2=${devno2/,/:};
+
+	md_dev="${MD_DEV_PATH}/$md_dev";
+	[ "${devno}" == "${devno2}" ] && md_clear_dev_readonly $md_dev ||
+		error "device $real_dev has been used by other mapper devices"
+}
+
 mount_facet() {
 	local facet=$1
 	shift
@@ -1134,10 +1220,25 @@ mount_facet() {
 	local opt=${facet}_opt
 	local mntpt=$(facet_mntpt $facet)
 	local opts="${!opt} $@"
+	local md_dev="${facet}$MD_SUFFIX"
 
-	if [ $(facet_fstype $facet) == ldiskfs ] &&
-	   ! do_facet $facet test -b ${!dev}; then
-		opts=$(csa_add "$opts" -o loop)
+	if [ $(facet_fstype $facet) == ldiskfs ]; then
+		if [ $MD_FLAKEY_ENABLED == yes ]; then
+			do_facet ${facet} "dmsetup info ${!dev} > /dev/null 2>&1" &&
+				md_dev=${!dev} ||
+				do_rpc_nodes $(facet_active_host $facet) \
+					md_check_and_setup $facet ${!dev} $md_dev
+
+			md_dev="${MD_DEV_PATH}/$md_dev"
+		else
+			md_dev=${!dev}
+
+			if ! do_facet $facet test -b ${!dev}; then
+				opts=$(csa_add "$opts" -o loop)
+			fi
+		fi
+	else
+		md_dev=${!dev}
 	fi
 
 	if [[ $(facet_fstype $facet) == zfs ]]; then
@@ -1145,26 +1246,27 @@ mount_facet() {
 		import_zpool $facet || return ${PIPESTATUS[0]}
 	fi
 
-	echo "Starting ${facet}: $opts ${!dev} $mntpt"
+	echo "Starting ${facet}: $opts ${md_dev} $mntpt"
 	# for testing LU-482 error handling in mount_facets() and test_0a()
 	if [ -f $TMP/test-lu482-trigger ]; then
 		RC=2
 	else
 		do_facet ${facet} "mkdir -p $mntpt; $MOUNT_CMD $opts \
-		                   ${!dev} $mntpt"
+		                   ${md_dev} $mntpt"
 		RC=${PIPESTATUS[0]}
 	fi
 	if [ $RC -ne 0 ]; then
-		echo "Start of ${!dev} on ${facet} failed ${RC}"
-    else
-        set_default_debug_facet $facet
+		echo "Start of ${md_dev} on ${facet} failed ${RC}"
+	else
+        	set_default_debug_facet $facet
 
-		label=$(devicelabel ${facet} ${!dev})
-        [ -z "$label" ] && echo no label for ${!dev} && exit 1
-        eval export ${facet}_svc=${label}
-        echo Started ${label}
-    fi
-    return $RC
+		label=$(devicelabel ${facet} ${md_dev})
+		[ -z "$label" ] && echo no label for ${md_dev} && exit 1
+		eval export ${facet}_svc=${label}
+		echo Started ${label}
+	fi
+
+	return $RC
 }
 
 # start facet device options
@@ -1191,19 +1293,35 @@ start() {
     return $RC
 }
 
-stop() {
-    local running
-    local facet=$1
-    shift
-    local HOST=`facet_active_host $facet`
-    [ -z $HOST ] && echo stop: no host for $facet && return 0
 
-    local mntpt=$(facet_mntpt $facet)
-    running=$(do_facet ${facet} "grep -c $mntpt' ' /proc/mounts") || true
-    if [ ${running} -ne 0 ]; then
-        echo "Stopping $mntpt (opts:$@) on $HOST"
-        do_facet ${facet} umount -d $@ $mntpt
-    fi
+md_cleanup_dev() {
+	local facet=$1
+	local md_dev=$(md_facet_devpath $facet)
+
+	test -e $md_dev || return 0
+
+	tmp=$(dmsetup table $md_dev | awk '{ print $4 }')
+	major=$(echo $tmp | awk -F ':' ' {print $1 }')
+	minor=$(echo $tmp | awk -F ':' '{ print $2 }')
+
+	dmsetup remove $md_dev
+
+	[ $major -eq 7 ] && losetup -d /dev/loop$minor
+}
+
+stop() {
+	local running
+	local facet=$1
+	shift
+	local HOST=$(facet_active_host $facet)
+	[ -z $HOST ] && echo stop: no host for $facet && return 0
+
+	local mntpt=$(facet_mntpt $facet)
+	running=$(do_facet ${facet} "grep -c $mntpt' ' /proc/mounts") || true
+	if [ ${running} -ne 0 ]; then
+		echo "Stopping $mntpt (opts:$@) on $HOST"
+		do_facet ${facet} umount -d $@ $mntpt
+	fi
 
 	# umount should block, but we should wait for unrelated obd's
 	# like the MGS or MGC to also stop.
@@ -1212,6 +1330,8 @@ stop() {
 	if [[ $(facet_fstype $facet) == zfs ]]; then
 		# export ZFS storage pool
 		export_zpool $facet
+	elif [[ $MD_FLAKEY_ENABLED == yes ]]; then
+		do_rpc_nodes $(facet_active_host $facet) md_cleanup_dev $facet
 	fi
 }
 
@@ -2393,7 +2513,13 @@ replay_barrier() {
 	# handled by stop() and mount_facet() separately, which are used
 	# inside fail() and fail_abort().
 	#
-	do_facet $facet $LCTL --device ${!svc} readonly
+	if [[ $(facet_fstype $facet) == zfs || $MD_FLAKEY_ENABLED == no ]]; then
+		do_facet $facet $LCTL --device ${!svc} readonly
+	else
+		do_rpc_nodes $(facet_active_host $facet) md_set_facet_readonly \
+								$facet
+	fi
+
 	do_facet $facet $LCTL mark "$facet REPLAY BARRIER on ${!svc}"
 	$LCTL mark "local REPLAY BARRIER on ${!svc}"
 }
@@ -2404,7 +2530,12 @@ replay_barrier_nodf() {
 	local svc=${facet}_svc
 	echo Replay barrier on ${!svc}
 	do_facet $facet $LCTL --device ${!svc} notransno
-	do_facet $facet $LCTL --device ${!svc} readonly
+	if [[ $(facet_fstype $facet) == zfs || $MD_FLAKEY_ENABLED == no ]]; then
+		do_facet $facet $LCTL --device ${!svc} readonly
+	else
+		do_rpc_nodes $(facet_active_host $facet) md_set_facet_readonly \
+								$facet
+	fi
 	do_facet $facet $LCTL mark "$facet REPLAY BARRIER on ${!svc}"
 	$LCTL mark "local REPLAY BARRIER on ${!svc}"
 }
@@ -2414,7 +2545,12 @@ replay_barrier_nosync() {
 	local svc=${facet}_svc
 	echo Replay barrier on ${!svc}
 	do_facet $facet $LCTL --device ${!svc} notransno
-	do_facet $facet $LCTL --device ${!svc} readonly
+	if [[ $(facet_fstype $facet) == zfs || $MD_FLAKEY_ENABLED == no ]]; then
+		do_facet $facet $LCTL --device ${!svc} readonly
+	else
+		do_rpc_nodes $(facet_active_host $facet) md_set_facet_readonly \
+								$facet
+	fi
 	do_facet $facet $LCTL mark "$facet REPLAY BARRIER on ${!svc}"
 	$LCTL mark "local REPLAY BARRIER on ${!svc}"
 }
@@ -5734,7 +5870,6 @@ do_rpc_nodes () {
 	shift
 
 	[ -z "$list" ] && return 0
-
 	# Add paths to lustre tests for 32 and 64 bit systems.
 	local LIBPATH="/usr/lib/lustre/tests:/usr/lib64/lustre/tests:"
 	local TESTPATH="$RLUSTRE/tests:"
