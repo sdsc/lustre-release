@@ -337,8 +337,13 @@ static int lov_lock_sub_init(const struct lu_env *env,
          */
         for (i = 0, nr = 0; i < r0->lo_nr; ++i) {
 		if (lov_stripe_intersects(loo->lo_lsm, i,
-                                          file_start, file_end, &start, &end)) {
-                        struct cl_lock_descr *descr;
+					  file_start, file_end, &start, &end)) {
+			struct cl_lock_descr *descr;
+
+			if (unlikely(r0->lo_sub[i] == NULL)) {
+				nr++;
+				continue;
+			}
 
                         descr = &lck->lls_sub[nr].sub_descr;
 
@@ -586,6 +591,9 @@ static int lov_lock_enqueue(const struct lu_env *env,
                 }
 
                 lls = &lck->lls_sub[i];
+		if (unlikely(lls->sub_descr.cld_obj == NULL))
+			continue;
+
                 sub = lls->sub_lock;
                 /*
                  * Sub-lock might have been canceled, while top-lock was
@@ -790,6 +798,9 @@ again:
                 struct lov_sublock_env *subenv;
 
                 lls = &lck->lls_sub[i];
+		if (unlikely(lls->sub_descr.cld_obj == NULL))
+			continue;
+
                 sub = lls->sub_lock;
                 LASSERT(sub != NULL);
                 sublock = sub->lss_cl.cls_lock;
@@ -839,6 +850,9 @@ static int lov_lock_use(const struct lu_env *env,
                 LASSERT(slice->cls_lock->cll_state == CLS_INTRANSIT);
 
                 lls = &lck->lls_sub[i];
+		if (unlikely(lls->sub_descr.cld_obj == NULL))
+			continue;
+
                 sub = lls->sub_lock;
                 if (sub == NULL) {
                         /*
@@ -1143,6 +1157,9 @@ static int lov_lock_print(const struct lu_env *env, void *cookie,
                 struct lov_lock_sub *sub;
 
                 sub = &lck->lls_sub[i];
+		if (unlikely(sub->sub_descr.cld_obj == NULL))
+			continue;
+
                 (*p)(env, cookie, "    %d %x: ", i, sub->sub_flags);
                 if (sub->sub_lock != NULL)
                         cl_lock_print(env, cookie, p,
