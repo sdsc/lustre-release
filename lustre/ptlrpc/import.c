@@ -1148,6 +1148,12 @@ finish:
 
                 LASSERT((cli->cl_max_pages_per_rpc <= PTLRPC_MAX_BRW_PAGES) &&
                         (cli->cl_max_pages_per_rpc > 0));
+		cli->cl_dirty_max = cli->cl_max_rpcs_in_flight *
+			(cli->cl_max_pages_per_rpc << PAGE_CACHE_SHIFT);
+		if (cli->cl_dirty_max >> PAGE_CACHE_SHIFT >
+			totalram_pages / 8)
+			cli->cl_dirty_max =
+				totalram_pages << (PAGE_CACHE_SHIFT - 3);
         }
 
 out:

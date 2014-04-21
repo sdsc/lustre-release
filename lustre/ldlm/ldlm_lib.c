@@ -349,6 +349,8 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
         cli->cl_dirty = 0;
         cli->cl_avail_grant = 0;
 	/* FIXME: Should limit this for the sum of all cl_dirty_max. */
+	/* This value may be changed at connect time in
+	 * ptlrpc_connect_interpret(). */
 	cli->cl_dirty_max = OSC_MAX_DIRTY_DEFAULT * 1024 * 1024;
 	if (cli->cl_dirty_max >> PAGE_CACHE_SHIFT > totalram_pages / 8)
 		cli->cl_dirty_max = totalram_pages << (PAGE_CACHE_SHIFT - 3);
