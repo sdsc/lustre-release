@@ -1,0 +1,173 @@
+
+LFSCK: an online file system checker for Lustre
+===============================================
+
+LFSCK is an online tool to scan, check and repair a Lustre file system that can
+be used with a file system that is mounted and in use. It checks for a large
+variety of inconsistencies on file systems with a single MDT and provides
+automatic correction where possible.
+
+LFSCK does not check consistency of the on disk format and assumes that it is
+consistent. e2fsck from e2fsprogs should be used to ensure the on disk format
+is consistent.
+
+
+Quick usage instructions
+===============================================
+
+Note: More extensive information for getting started with ext4 can be found in
+the Lustre file system operations manual at the URL provided in the References
+section
+
+The latest version of LFSCK is included in the current version of the Lustre
+software.
+
+- start a standard scan
+
+LFSCK starts scanning automatically during mount if an inconsistency is detected.
+lfsck must be started on a MDS.
+
+# lctl lfsck_start -M testfs-MDT0000
+
+- reviewing the status of lfsck
+
+lfsck only provides status from a MDS.
+
+# lctl get_param -n mdd.lustre-MDT0000.lfsck_namespace
+
+- stop a lfsck scan
+
+# lctl lfsck_stop -M lustre-MDT0000
+
+
+Features
+===============================================
+
+* online scanning.
+* control of scanning rate.
+* automatic checkpoint recovery of an interrupted scan.
+* reconstruciton of the FID-to-inode mapping after a file level restore or 1.8
+  upgrade
+* fixing FID-in-Dirent name entry to be consistent with the FID in the inode
+  LMA.
+* detection and repair of MDT-OST inconsistencies, including:
+* detection and repair of dangling references.
+* detection and repair of unreferenced OST objects.
+* detection and repair mismatched references.
+* detection and repair multiple references.
+* monitoring using proc and lctl interfaces.
+
+
+/proc entries
+===============================================
+
+Information about lfsck can be found in
+/proc/fs/lustre/osd-ldiskfs/<fsname>-<mdt>/
+
+
+LFSCK master slave design
+===============================================
+
+The LFSCK master engine resides on the MDT, and is implemented as a kernel
+thread in the LFSCK layer. The master engine not only controls the slave
+engines on OSTs, but also drives the first-stage system scanning on the MDT.
+
+1. When the master engine is triggered by the LFSCK user space command or
+detects an excessive number of MDT-OST inconsistency events, it sends RPCs to
+related OSTs to trigger the slave engines.
+
+2. The master engine scans the MDT device through low-layer inode based
+iteration. For each striped file, it calls the registered LFSCK process
+handlers to perform related system consistency check/repair (we will describe
+the detailed processing in subsequent sections).
+
+3. After the MDT completes first-stage system scanning, the master engine sends
+some RPCs to related OSTs and the master engine waits for the slave engines to
+complete the first-stage system scanning.
+
+4. The MDT performs second-stage scanning to link orphan objects into the
+lost+found directory, or delete them.
+
+The LFSCK slave engine resides on each OST, and is implemented as a kernel
+thread in the LFSCK layer. This kernel thread drives the first-stage system
+scanning on the OST.
+
+1. When the slave engine is triggered by the RPC from the master engine, it
+scans local OST device via low layer inode based iteration to generate an
+in-memory orphan object index.
+
+2. When the first-stage system scan (for both MDT and OSTe) is complete a list
+of non-referenced OST-objects is available. All the accessed OST objects during
+the first-stage LFSCK scanning are regarded as non-orphans.
+
+If multiple MDTs are present, MDTs can check/repair MDT-OST consistency in
+parallel. To avoid multiple redundant scans the OST device the slave engine on
+the OST will not begin second-stage system scans until all the master engines
+completed the first-stage system scan. For each OST there is a single
+OST object access bitmap, regardless of how many MDTs are in the MDT-OST
+consistency check/repair.
+
+
+Object traversal
+===============================================
+
+The choice of object traversal is made automatically by LFSCK during a scan.
+
+* inode traversal
+
+Two kernel threads are employed to maximize the performance of this operation.
+One OSD thread performs the inode table iteration, which scans MDT inode table
+and submits inode read requests asynchronously to drive disk I/O efficiently.
+The second thread is the OI Scrub thread which searches the OI table and
+updates related mapping entries. The two threads run concurrently and iterate
+inodes in a pipeline.
+
+The Object Storage Device (OSD) is the abstract layer above a concrete back-end
+file system (i.e. ext4, ZFS, Btrfs, etc.). Each OSD implementation differs
+internally to support concrete file systems. In order to support OI Scrub the
+inode iterator is presented via the OSD API as a virtual index that contains
+all the inodes in the file system. Common interface calls are created to
+implement inode table based iteration to enable support for additional concrete
+file system in the future.
+
+* namespace traversal
+
+In addition to inode based check/repair, there are directory based items that
+need scanning. For example, FID-in-Dirent and LinkEA are directory based
+features.
+
+Implementing namespace traversal by beginning with the Lustre file system root
+directory and descending recursively is an obvious approach. However, this
+approach will typically generate random IO, which for performance reasons
+should be minimized. In addition, one must consider operations (i.e. rename)
+taking place within a directory that is currently being scanned. For these
+reasons a hybrid approach to scanning is employed.
+
+1. LFSCK begins inode traversal.
+
+2. If a directory is discovered then namespace traversal begins. LFSCK does not
+descend into sub-directories. LFSCK ignores rename operations during the
+directory traversal because the subsequent inode traversal will guarantee
+processing of renamed objects. Reading directory blocks is a small fraction of
+the data needed for the inodes they reference. In addition, entries in the
+directory are typically allocaed following the directory inode on the disk so
+for many directories the children inodes will already be available because of
+pre-fetch.
+
+3. Process each entry in the directory checking the FID-in-Dirent and the FID
+in the object LMA are consistent. Repair if not. Check also that the linkEA
+points back to the parent object. Check also that '.' and '..' entries are
+consistent.
+
+4. Once all directory entries are exhausted, return to inode traversal.
+
+
+References
+===============================================
+
+source code: 	   file:/lustre/lfsck/
+
+operations manual: http://build.whamcloud.com/job/lustre-manual/lastSuccessfulBuild/artifact/lustre_manual.xhtml#dbdoclet.lfsckadmin
+
+useful links:      http://insidehpc.com/2013/05/02/video-lfsck-online-lustre-file-system-checker/
+                   http://www.opensfs.org/wp-content/uploads/2013/04/Zhuravlev_LFSCK.pdf
