@@ -1,0 +1,46 @@
+DESIGN DOCUMENT
+===============
+
+ATTENTION: This document records progress of a design process for a feature
+that is not implemented.
+
+
+LFSCK-DNE: on online file system checker for Lustre
+===================================================
+
+LFSCK is a software tool build into Lustre to ensure consistency across the
+Lustre file system. It relies on appropriate file system specific tools (i.e.
+e2fsprogs) to ensure consistency of the underlying file system.
+
+Multiple meta data servers on a single file system became available with the
+release of Lustre 2.4. This document is concerned with the design of LFSCK in
+the DNE world - ensuring consistency between multiple meta-data servers.
+
+
+Features
+========
+
+* Dangling name entry: The name entry exists, but related MDT-object does not
+  exist.
+
+* Orphan MDT-object: The MDT-object exists, but there is no name entry to
+  reference it. 
+
+* Multiple-referenced name entry: More than one MDT-object points back to the
+  same name entry, but the name entry only references one of them.
+
+* Unmatched name entry and MDT-object pairs: The name entry references the
+  MDT-object which has no linkEA for back-reference or points back to another
+  name entry that does not exist or does not reference the MDT-object.
+
+* Unmatched object's type: The file type in the name entry does not match the
+  type which is claimed by the MDT-object.
+
+* Invalid nlink count: The MDT-object's nlink count does not match the nlink
+  count in the name entries that reference the MDT-object.
+
+* Invalid name hash for striped directory: The name entry is corrupted and
+  causes inconsistency between name hash on the MDT and on the striped
+  directory.
+
+
