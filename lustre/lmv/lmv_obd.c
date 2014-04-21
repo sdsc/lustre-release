@@ -108,21 +108,18 @@ int lmv_name_to_stripe_index(enum lmv_hash_type hashtype,
 		idx = lmv_hash_fnv1a(max_mdt_index, name, namelen);
 		break;
 	/* LMV_HASH_TYPE_MIGRATION means the file is being migrated,
-	 * and the file should be accessed by client, except for
-	 * lookup(see lmv_intent_lookup), return -EACCES here */
+	 * always start from 0 */
 	case LMV_HASH_TYPE_MIGRATION:
-		CERROR("%.*s is being migrated: rc = %d\n", namelen,
-		       name, -EACCES);
-		return -EACCES;
+		idx = 0;
+		break;
 	default:
-		CERROR("Unknown hash type 0x%x\n", hashtype);
-		return -EINVAL;
+		idx = -EBADFD;
+		break;
 	}
 
 	CDEBUG(D_INFO, "name %.*s hash_type %d idx %d\n", namelen, name,
 	       hashtype, idx);
 
-	LASSERT(idx < max_mdt_index);
 	return idx;
 }
 
@@ -1772,7 +1769,7 @@ lmv_locate_target_for_name(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
 
 	oinfo = lsm_name_to_stripe_info(lsm, name, namelen);
 	if (IS_ERR(oinfo))
-		RETURN((void *)oinfo);
+		RETURN(ERR_CAST(oinfo));
 	*fid = oinfo->lmo_fid;
 	*mds = oinfo->lmo_mds;
 	tgt = lmv_get_target(lmv, *mds);
@@ -1781,6 +1778,14 @@ lmv_locate_target_for_name(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
 	return tgt;
 }
 
+/**
+ * Locate mds by fid or name, if it is
+ * 1. striped directory (lsm != NULL), it will locate the stripe
+ * by name hash (see lsm_name_to_stripe_info). Note: if the hash_type
+ * is unknown, it will return -ENOENT, and lmv_intent_lookup might need
+ * walk through all of stripes to locate the entry.
+ * 2. normal direcotry, it will locate MDS by FID directly.
+ */
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
 		struct lu_fid *fid)
@@ -1789,8 +1794,7 @@ struct lmv_tgt_desc
 	struct lmv_tgt_desc	*tgt;
 
 	if (lsm == NULL || lsm->lsm_md_stripe_count <= 1 ||
-	    op_data->op_namelen == 0 ||
-	    lsm->lsm_md_magic == LMV_MAGIC_MIGRATE) {
+	    op_data->op_namelen == 0) {
 		tgt = lmv_find_target(lmv, fid);
 		if (IS_ERR(tgt))
 			return tgt;
@@ -2829,7 +2833,10 @@ static int lmv_unpack_md_v1(struct obd_export *exp, struct lmv_stripe_md *lsm,
 	lsm->lsm_md_magic = le32_to_cpu(lmm1->lmv_magic);
 	lsm->lsm_md_stripe_count = le32_to_cpu(lmm1->lmv_stripe_count);
 	lsm->lsm_md_master_mdt_index = le32_to_cpu(lmm1->lmv_master_mdt_index);
-	lsm->lsm_md_hash_type = le32_to_cpu(lmm1->lmv_hash_type);
+	if (OBD_FAIL_CHECK(OBD_FAIL_LMV_STRIPE))
+		lsm->lsm_md_hash_type = LMV_HASH_TYPE_UNKNOWN;
+	else
+		lsm->lsm_md_hash_type = le32_to_cpu(lmm1->lmv_hash_type);
 	lsm->lsm_md_layout_version = le32_to_cpu(lmm1->lmv_layout_version);
 	cplen = strlcpy(lsm->lsm_md_pool_name, lmm1->lmv_pool_name,
 			sizeof(lsm->lsm_md_pool_name));
