@@ -110,12 +110,11 @@ int lmv_name_to_stripe_index(enum lmv_hash_type hashtype,
 	 * and the file should be accessed by client, except for
 	 * lookup(see lmv_intent_lookup), return -EACCES here */
 	case LMV_HASH_TYPE_MIGRATION:
-		CERROR("%.*s is being migrated: rc = %d\n", namelen,
-		       name, -EACCES);
-		return -EACCES;
+		CDEBUG(D_INFO, "%.*s is being migrated.\n", namelen, name);
+		return -ENOENT;
 	default:
-		CERROR("Unknown hash type 0x%x\n", hashtype);
-		return -EINVAL;
+		CDEBUG(D_INFO, "Unknown hash type 0x%x\n", hashtype);
+		return -ENOENT;
 	}
 
 	CDEBUG(D_INFO, "name %.*s hash_type %d idx %d\n", namelen, name,

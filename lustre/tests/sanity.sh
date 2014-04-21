@@ -12532,6 +12532,35 @@ test_300f() {
 }
 run_test 300f "check rename cross striped directory"
 
+test_300g() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local stripe_count
+	local file
+
+	rm -rf $DIR/$tdir
+	mkdir -p $DIR/$tdir
+
+	$LFS setdirstripe -i 0 -c$MDSCOUNT -t all_char $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	createmany -o $DIR/$tdir/striped_dir/f 10 ||
+			error "create files under striped dir failed"
+
+	#set the stripe to be unknown hash type
+	#define OBD_FAIL_LMV_STRIPE	0x1901
+	$LCTL set_param fail_loc=0x1901
+
+	for ((i=0;i<10;i++)); do
+		$CHECKSTAT -t file $DIR/$tdir/striped_dir/f$i ||
+				error "stat f$i failed"
+	done
+	$LCTL set_param fail_loc=0
+
+	rm -rf $DIR/$tdir
+}
+run_test 300g "client handle unknown hash type striped directory"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
