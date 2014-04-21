@@ -1,0 +1,59 @@
+DESIGN DOCUMENT
+===============
+
+ATTENTION: This document records progress of a design process for a feature
+that is not implemented. This document will be merged with the existing LFSCK
+document when this feature is complete.
+
+
+LFSCK-DNE: on online file system checker for Lustre
+===================================================
+
+LFSCK is a software tool built into the Lustre file system that ensures
+consistency across the Lustre file system. A Lustre file system contains a
+number of references between different types of items and LFSCK ensures that
+these references and redundant copies are consistent. LFSCK relies on
+appropriate file system specific tools (i.e.  e2fsprogs) to ensure consistency
+of the underlying file system.
+
+Multiple meta data servers on a single file system became available with the
+release of Lustre 2.4. This document is concerned with the design of LFSCK in
+the DNE world - ensuring consistency between multiple meta-data servers.
+
+
+Features
+========
+
+* Dangling name entry: the name entry exists, but related MDT-object does not
+  exist.
+
+* Orphan MDT-object: the MDT-object exists, but there is no name entry to
+  reference it. 
+
+* Multiple-referenced name entry: More than one MDT-object points back to the
+  same name entry, but the name entry only references one of them.
+
+* Unmatched name entry and MDT-object pairs: the name entry references the
+  MDT-object which has no linkEA for back-reference or points back to another
+  name entry that does not exist or does not reference the MDT-object.
+
+* Unmatched object's type: the file type in the name entry does not match the
+  type which is claimed by the MDT-object.
+
+* Invalid nlink count: the MDT-object's nlink count does not match the nlink
+  count in the name entries that reference the MDT-object.
+
+* Invalid name hash for striped directory: the name entry is corrupted and
+  causes inconsistency between name hash on the MDT and on the striped
+  directory.
+
+
+Caveats
+=======
+
+Verifying the full consistency of a ZFS target file system (i.e. all the
+internal link counts, block references, and directory hierarchy of a single MDT or
+OST) is beyond the scope of this project. For ldiskfs back-ends, the e2fsprogs
+provide for block level consistency checking. There is no equivalent for ZFS
+back-ends.
+
