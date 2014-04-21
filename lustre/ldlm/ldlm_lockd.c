@@ -1353,6 +1353,7 @@ existing_lock:
                         if (dlm_rep->lock_flags & LDLM_FL_CANCEL_ON_BLOCK) {
                                 unlock_res_and_lock(lock);
                                 ldlm_lock_cancel(lock);
+				ldlm_reprocess_all(lock->l_resource);
                                 lock_res_and_lock(lock);
                         } else
                                 ldlm_add_waiting_lock(lock);
@@ -1394,8 +1395,6 @@ existing_lock:
                         rc = err;
         }
 
-        /* The LOCK_CHANGED code in ldlm_lock_enqueue depends on this
-         * ldlm_reprocess_all.  If this moves, revisit that code. -phil */
 	if (!IS_ERR(lock)) {
 		LDLM_DEBUG(lock, "server-side enqueue handler, sending reply"
 			   "(err=%d, rc=%d)", err, rc);
@@ -1433,9 +1432,6 @@ existing_lock:
                         ldlm_lock_destroy_nolock(lock);
                         unlock_res_and_lock(lock);
                 }
-
-                if (!err && dlm_req->lock_desc.l_resource.lr_type != LDLM_FLOCK)
-                        ldlm_reprocess_all(lock->l_resource);
 
                 LDLM_LOCK_RELEASE(lock);
         }
