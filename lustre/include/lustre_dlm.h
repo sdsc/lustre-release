@@ -924,6 +924,8 @@ struct ldlm_resource {
 
 	/** Spinlock to protect locks under this resource. */
 	spinlock_t		lr_lock;
+	/* Same for the server side only */
+	struct mutex		lr_mutex;
 
 	/**
 	 * protected by lr_lock
@@ -1483,26 +1485,38 @@ enum lock_res_type {
 /** Lock resource. */
 static inline void lock_res(struct ldlm_resource *res)
 {
-	spin_lock(&res->lr_lock);
+	if (ns_is_server(ldlm_res_to_ns(res)))
+		mutex_lock(&res->lr_mutex);
+	else
+		spin_lock(&res->lr_lock);
 }
 
 /** Lock resource with a way to instruct lockdep code about nestedness-safe. */
 static inline void lock_res_nested(struct ldlm_resource *res,
 				   enum lock_res_type mode)
 {
+	if (ns_is_server(ldlm_res_to_ns(res)))
+		LBUG();
 	spin_lock_nested(&res->lr_lock, mode);
 }
+
 
 /** Unlock resource. */
 static inline void unlock_res(struct ldlm_resource *res)
 {
-	spin_unlock(&res->lr_lock);
+	if (ns_is_server(ldlm_res_to_ns(res)))
+		mutex_unlock(&res->lr_mutex);
+	else
+		spin_unlock(&res->lr_lock);
 }
 
 /** Check if resource is already locked, assert if not. */
 static inline void check_res_locked(struct ldlm_resource *res)
 {
-	assert_spin_locked(&res->lr_lock);
+	if (!ns_is_server(ldlm_res_to_ns(res)))
+		assert_spin_locked(&res->lr_lock);
+	else
+		LASSERT(mutex_is_locked(&res->lr_mutex));
 }
 
 struct ldlm_resource * lock_res_and_lock(struct ldlm_lock *lock);
