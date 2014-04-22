@@ -472,15 +472,77 @@ static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 	RETURN(0);
 }
 
+static int osp_sync_timeout(void *data)
+{
+	return 1;
+}
+
 static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 {
+	struct osp_device *d = dt2osp_dev(dev);
+	cfs_time_t	   expire = cfs_time_shift(obd_timeout);
+	struct l_wait_info lwi = { 0 };
+	unsigned long	   id, old;
+	int		   rc = 0;
+	unsigned long	   start = cfs_time_current();
 	ENTRY;
 
-	/*
-	 * XXX: wake up sync thread, command it to start flushing asap?
-	 */
+	if (unlikely(d->opd_imp_active == 0))
+		RETURN(-ENOTCONN);
+	id = d->opd_syn_last_used_id;
 
-	RETURN(0);
+	CDEBUG(D_OTHER, "%s: id: used %lu, processed %lu\n",
+	       d->opd_obd->obd_name, id, d->opd_syn_last_processed_id);
+
+	while (d->opd_syn_last_processed_id < id) {
+		/* wait till all-in-line are processed */
+
+		old = d->opd_syn_last_processed_id;
+
+		/* make sure the connection is fine */
+		expire = cfs_time_shift(obd_timeout);
+		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
+				  osp_sync_timeout, d);
+		l_wait_event(d->opd_syn_barrier_waitq,
+			     d->opd_syn_last_processed_id >= id,
+			     &lwi);
+
+		if (d->opd_syn_last_processed_id != old) {
+			/* some progress have been made,
+			 * keep trying... */
+			continue;
+		}
+		GOTO(out, rc = -ETIMEDOUT);
+	}
+
+	/* block new processing */
+	atomic_inc(&d->opd_syn_barrier);
+
+	CDEBUG(D_OTHER, "%s: %u in flight\n", d->opd_obd->obd_name,
+	       d->opd_syn_rpc_in_flight);
+
+	/* wait till all-in-flight are replied, so executed by the target */
+	while (d->opd_syn_rpc_in_flight > 0) {
+		old = d->opd_syn_rpc_in_flight;
+		expire = cfs_time_shift(obd_timeout);
+		lwi = LWI_TIMEOUT(expire - cfs_time_current(),
+				  osp_sync_timeout, d);
+		l_wait_event(d->opd_syn_barrier_waitq,
+				d->opd_syn_rpc_in_flight == 0, &lwi);
+		if (d->opd_syn_rpc_in_flight != old) {
+			/* some progress have been made */
+			continue;
+		}
+		GOTO(out, rc = -ETIMEDOUT);
+	}
+
+	CDEBUG(D_OTHER, "%s: DONE in %lu\n", d->opd_obd->obd_name,
+	       cfs_time_current() - start);
+out:
+	atomic_dec(&d->opd_syn_barrier);
+	__osp_sync_check_for_work(d);
+
+	RETURN(rc);
 }
 
 const struct dt_device_operations osp_dt_ops = {
