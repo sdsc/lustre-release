@@ -62,6 +62,10 @@
 #error Unsupported operating system.
 #endif
 
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(a) ((sizeof (a)) / (sizeof ((a)[0])))
+#endif
+
 #ifdef __cplusplus
 #define LUSTRE_ANONYMOUS_UNION_NAME u
 #else
@@ -680,16 +684,19 @@ enum changelog_rec_type {
 	CL_LAST
 };
 
-static inline const char *changelog_type2str(int type) {
+static inline const char *changelog_type2str(enum changelog_rec_type rec_type)
+{
+	const char *str = NULL;
 	static const char *changelog_str[] = {
 		"MARK",  "CREAT", "MKDIR", "HLINK", "SLINK", "MKNOD", "UNLNK",
 		"RMDIR", "RENME", "RNMTO", "OPEN",  "CLOSE", "LYOUT", "TRUNC",
 		"SATTR", "XATTR", "HSM",   "MTIME", "CTIME", "ATIME",
 	};
 
-	if (type >= 0 && type < CL_LAST)
-		return changelog_str[type];
-	return NULL;
+	if (0 <= rec_type && rec_type < ARRAY_SIZE(changelog_str))
+		str = changelog_str[rec_type];
+
+	return (str != NULL) ? str : "NONE";
 }
 
 /* per-record flags */
