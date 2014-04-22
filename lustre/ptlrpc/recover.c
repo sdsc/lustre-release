@@ -266,6 +266,7 @@ void ptlrpc_request_handle_notconn(struct ptlrpc_request *failed_req)
 	spin_lock(&failed_req->rq_lock);
 	if (!failed_req->rq_no_resend)
 		failed_req->rq_resend = 1;
+	failed_req->rq_nr_resend++;
 	spin_unlock(&failed_req->rq_lock);
 
 	EXIT;
