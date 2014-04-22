@@ -2971,6 +2971,9 @@ int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
 		RETURN(0);
 	}
 
+	if (le32_to_cpu(lmm->lmv_magic) == LMV_DIRECTORY_STRIPE_SHARD)
+		RETURN(-EPERM);
+
 	/* Unpack memmd */
 	if (le32_to_cpu(lmm->lmv_magic) != LMV_MAGIC_V1 &&
 	    le32_to_cpu(lmm->lmv_magic) != LMV_USER_MAGIC) {
