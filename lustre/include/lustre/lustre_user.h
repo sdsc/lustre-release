@@ -680,16 +680,20 @@ enum changelog_rec_type {
 	CL_LAST
 };
 
-static inline const char *changelog_type2str(int type) {
+static inline const char *changelog_type2str(int rec_type)
+{
+	const char *str = NULL;
 	static const char *changelog_str[] = {
 		"MARK",  "CREAT", "MKDIR", "HLINK", "SLINK", "MKNOD", "UNLNK",
 		"RMDIR", "RENME", "RNMTO", "OPEN",  "CLOSE", "LYOUT", "TRUNC",
 		"SATTR", "XATTR", "HSM",   "MTIME", "CTIME", "ATIME",
 	};
 
-	if (type >= 0 && type < CL_LAST)
-		return changelog_str[type];
-	return NULL;
+	if (0 <= rec_type &&
+	    rec_type < sizeof(changelog_str) / sizeof(changelog_str[0]))
+		str = changelog_str[rec_type];
+
+	return str;
 }
 
 /* per-record flags */

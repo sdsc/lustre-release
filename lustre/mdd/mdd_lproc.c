@@ -130,17 +130,20 @@ static int lprocfs_rd_atime_diff(char *page, char **start, off_t off,
 static int lprocfs_rd_changelog_mask(char *page, char **start, off_t off,
                                      int count, int *eof, void *data)
 {
-        struct mdd_device *mdd = data;
-        int i = 0, rc = 0;
+	struct mdd_device *mdd = data;
+	const char *rec_type_str;
+	int i = 0, rc = 0;
 
-        *eof = 1;
-        while (i < CL_LAST) {
-                if (mdd->mdd_cl.mc_mask & (1 << i))
-                        rc += snprintf(page + rc, count - rc, "%s ",
-                                       changelog_type2str(i));
-                i++;
-        }
-        return rc;
+	*eof = 1;
+	while (i < CL_LAST) {
+		rec_type_str = changelog_type2str(i);
+		if ((mdd->mdd_cl.mc_mask & (1 << i)) &&
+		    rec_type_str != NULL)
+			rc += snprintf(page + rc, count - rc, "%s ",
+					rec_type_str);
+		i++;
+	}
+	return rc;
 }
 
 static int lprocfs_wr_changelog_mask(struct file *file, const char *buffer,

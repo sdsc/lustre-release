@@ -2189,6 +2189,7 @@ static int changelog_kkuc_cb(const struct lu_env *env, struct llog_handle *llh,
 	struct changelog_show *cs = data;
 	struct llog_changelog_rec *rec = (struct llog_changelog_rec *)hdr;
 	struct kuc_hdr *lh;
+	const char *rec_type_str;
 	int len, rc;
 	ENTRY;
 
@@ -2207,10 +2208,11 @@ static int changelog_kkuc_cb(const struct lu_env *env, struct llog_handle *llh,
 		RETURN(0);
 	}
 
+	rec_type_str = changelog_type2str(rec->cr.cr_type);
 	CDEBUG(D_CHANGELOG, LPU64" %02d%-5s "LPU64" 0x%x t="DFID" p="DFID
 		" %.*s\n", rec->cr.cr_index, rec->cr.cr_type,
-		changelog_type2str(rec->cr.cr_type), rec->cr.cr_time,
-		rec->cr.cr_flags & CLF_FLAGMASK,
+		(rec_type_str != NULL) ? rec_type_str : "NONE",
+		rec->cr.cr_time, (rec->cr.cr_flags & CLF_FLAGMASK),
 		PFID(&rec->cr.cr_tfid), PFID(&rec->cr.cr_pfid),
 		rec->cr.cr_namelen, changelog_rec_name(&rec->cr));
 
