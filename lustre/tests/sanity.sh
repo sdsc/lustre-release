@@ -12772,6 +12772,19 @@ test_300g() {
 }
 run_test 300g "check default striped directory for striped directory"
 
+test_301() {
+	local list=$(comma_list $(mdts_nodes))
+
+	mkdir -p $DIR/$tdir
+	createmany -o $DIR/$tdir/f- 5000
+	unlinkmany $DIR/$tdir/f- 5000
+	do_nodes $list "lctl set_param -n osp*.*.force_sync 1"
+	changes=$(do_nodes $list "lctl get_param -n osc.*MDT*.sync_changes \
+			osc.*MDT*.sync_in_flight" | calc_sum)
+	[ "$changes" -eq 0 ] || error "$changes not synced"
+}
+run_test 301 "osp_sync test"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
