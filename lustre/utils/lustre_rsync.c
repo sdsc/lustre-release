@@ -239,15 +239,19 @@ void lr_usage()
                 "\t--dry-run        don't write anything\n");
 }
 
-#define DEBUG_ENTRY(info)						       \
-	lr_debug(D_TRACE, "***** Start %lld %s (%d) %s %s %s *****\n",         \
-		 (info)->recno, changelog_type2str((info)->type),	       \
-		 (info)->type, (info)->tfid, (info)->pfid, (info)->name);
+#define DEBUG_ENTRY(info) do {						       \
+	const char *rec_type_str = changelog_type2str((info)->type);	       \
+	lr_debug(D_TRACE, "***** Start %lld %s (%d) %s %s %s *****\n",	       \
+		 (info)->recno, (rec_type_str != NULL) ? rec_type_str : "NONE",\
+		 (info)->type, (info)->tfid, (info)->pfid, (info)->name);      \
+	} while (0)
 
-#define DEBUG_EXIT(info, rc)						       \
+#define DEBUG_EXIT(info, rc) do {					       \
+	const char *rec_type_str = changelog_type2str((info)->type);	       \
 	lr_debug(D_TRACE, "##### End %lld %s (%d) %s %s %s rc=%d #####\n",     \
-		 (info)->recno, changelog_type2str((info)->type),	       \
-		 (info)->type, (info)->tfid, (info)->pfid, (info)->name, rc);
+		 (info)->recno, (rec_type_str != NULL) ? rec_type_str : "NONE",\
+		 (info)->type, (info)->tfid, (info)->pfid, (info)->name, rc);  \
+	} while (0)
 
 /* Print debug information. This is controlled by the value of the
    global variable 'debug' */
@@ -1411,10 +1415,12 @@ void lr_print_status(struct lr_info *info)
 
 void lr_print_failure(struct lr_info *info, int rc)
 {
-        fprintf(stderr, "Replication of operation failed(%d):"
-                " %lld %s (%d) %s %s %s\n", rc, info->recno,
-                changelog_type2str(info->type), info->type, info->tfid,
-                info->pfid, info->name);
+	const char *rec_type_str = changelog_type2str(info->type);
+
+	fprintf(stderr, "Replication of operation failed(%d):"
+		" %lld %s (%d) %s %s %s\n", rc, info->recno,
+		(rec_type_str != NULL) ? rec_type_str : "NONE", info->type,
+		info->tfid, info->pfid, info->name);
 }
 
 /* Replicate filesystem operations from src_path to target_path */
