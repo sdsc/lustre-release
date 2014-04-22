@@ -703,7 +703,7 @@ static inline const char *changelog_type2str(int type) {
 
 	if (type >= 0 && type < CL_LAST)
 		return changelog_str[type];
-	return NULL;
+	return "NONE";
 }
 
 /* per-record flags */
