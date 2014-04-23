@@ -66,7 +66,11 @@ int lovsub_object_init(const struct lu_env *env, struct lu_object *obj,
         below = under->ld_ops->ldo_object_alloc(env, obj->lo_header, under);
         if (below != NULL) {
                 lu_object_add(obj, below);
-		cl_object_page_init(lu2cl(obj), sizeof(struct lovsub_page));
+		/* No lovsub_page in the page slice chain. Leave the code here
+		 * as a comment.
+		 *
+		 * cl_object_page_init(lu2cl(obj), sizeof(struct lovsub_page));
+		 */
                 result = 0;
         } else
                 result = -ENOMEM;
@@ -128,10 +132,9 @@ static int lovsub_object_glimpse(const struct lu_env *env,
 
 
 static const struct cl_object_operations lovsub_ops = {
-        .coo_page_init = lovsub_page_init,
-        .coo_lock_init = lovsub_lock_init,
-        .coo_attr_set  = lovsub_attr_set,
-        .coo_glimpse   = lovsub_object_glimpse
+	.coo_lock_init = lovsub_lock_init,
+	.coo_attr_set  = lovsub_attr_set,
+	.coo_glimpse   = lovsub_object_glimpse
 };
 
 static const struct lu_object_operations lovsub_lu_obj_ops = {

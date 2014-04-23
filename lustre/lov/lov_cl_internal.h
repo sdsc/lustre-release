@@ -370,7 +370,6 @@ struct lov_lock {
 
 struct lov_page {
         struct cl_page_slice lps_cl;
-        int                  lps_invalid;
 };
 
 /*
