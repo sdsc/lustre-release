@@ -728,20 +728,21 @@ struct cl_page {
 	/** List of slices. Immutable after creation. */
 	cfs_list_t		cp_layers;
 	struct page		*cp_vmpage;
+	/** Linkage of pages within group. Protected by cl_page::cp_mutex. */
+	cfs_list_t		cp_batch;
+	/** Mutex serializing membership of a page in a batch. */
+	struct mutex		cp_mutex;
+	/** Linkage of pages within cl_req. */
+	cfs_list_t               cp_flight;
+	/** Transfer error. */
+	int                      cp_error;
+	/** Per-page flags from enum cl_page_flags. Protected by a VM lock. */
+	unsigned                 cp_flags;
 	/**
 	 * Page state. This field is const to avoid accidental update, it is
 	 * modified only internally within cl_page.c. Protected by a VM lock.
 	 */
 	const enum cl_page_state cp_state;
-	/** Linkage of pages within group. Protected by cl_page::cp_mutex. */
-	cfs_list_t		cp_batch;
-	/** Mutex serializing membership of a page in a batch. */
-	struct mutex		cp_mutex;
-        /** Linkage of pages within cl_req. */
-        cfs_list_t               cp_flight;
-        /** Transfer error. */
-        int                      cp_error;
-
         /**
          * Page type. Only CPT_TRANSIENT is used so far. Immutable after
          * creation.
@@ -769,8 +770,6 @@ struct cl_page {
 	struct lu_ref_link       cp_obj_ref;
 	/** Link to a queue, for debugging. */
 	struct lu_ref_link       cp_queue_ref;
-	/** Per-page flags from enum cl_page_flags. Protected by a VM lock. */
-	unsigned                 cp_flags;
 	/** Assigned if doing a sync_io */
 	struct cl_sync_io       *cp_sync_io;
 };
