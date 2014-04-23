@@ -336,6 +336,8 @@ struct client_obd {
 	atomic_t		 cl_lru_busy;
 	atomic_t		 cl_lru_shrinkers;
 	atomic_t		 cl_lru_in_list;
+	__u64			 cl_lru_reclaim;
+	time_t			 cl_lru_last_used;
 	cfs_list_t		 cl_lru_list; /* lru page list */
 	client_obd_lock_t	 cl_lru_list_lock; /* page list protector */
 	atomic_t		 cl_unstable_count;
@@ -351,11 +353,12 @@ struct client_obd {
 	struct mutex		 cl_mgc_mutex;
 	struct local_oid_storage *cl_mgc_los;
 	struct dt_object	*cl_mgc_configs_dir;
-	atomic_t             cl_mgc_refcount;
+	atomic_t		 cl_mgc_refcount;
 	struct obd_export       *cl_mgc_mgsexp;
 
-        /* checksumming for data sent over the network */
-        unsigned int             cl_checksum:1; /* 0 = disabled, 1 = enabled */
+	/* checksumming for data sent over the network */
+	unsigned int             cl_checksum:1, /* 0 = disabled, 1 = enabled */
+				 cl_check_unstable:1;
         /* supported checksum types that are worked out at connect time */
         __u32                    cl_supp_cksum_types;
         /* checksum algorithm to be used */

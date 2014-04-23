@@ -69,7 +69,6 @@ struct osc_async_page {
         struct client_obd       *oap_cli;
 	struct osc_object       *oap_obj;
 
-	struct ldlm_lock	*oap_ldlm_lock;
 	spinlock_t		 oap_lock;
 };
 
@@ -137,7 +136,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 		  struct list_head *ext_list, int cmd, pdl_policy_t p);
 int osc_lru_shrink(const struct lu_env *env, struct client_obd *cli,
 		   int target, bool force);
-int osc_lru_reclaim(struct client_obd *cli);
+int osc_lru_reclaim(struct client_obd *cli, unsigned int npages);
 
 extern spinlock_t osc_ast_guard;
 unsigned long osc_ldlm_weigh_ast(struct ldlm_lock *dlmlock);
@@ -210,5 +209,5 @@ int osc_quota_poll_check(struct obd_export *exp, struct if_quotacheck *qchk);
 
 void osc_inc_unstable_pages(struct ptlrpc_request *req);
 void osc_dec_unstable_pages(struct ptlrpc_request *req);
-int  osc_over_unstable_soft_limit(struct client_obd *cli);
+bool osc_over_unstable_soft_limit(struct client_obd *cli);
 #endif /* OSC_INTERNAL_H */
