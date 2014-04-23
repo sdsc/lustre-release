@@ -167,7 +167,6 @@ static int osc_io_submit(const struct lu_env *env,
 			continue;
                 }
 
-		cl_page_list_move(qout, qin, page);
 		spin_lock(&oap->oap_lock);
 		oap->oap_async_flags = ASYNC_URGENT|ASYNC_READY;
 		oap->oap_async_flags |= ASYNC_COUNT_STABLE;
@@ -175,6 +174,12 @@ static int osc_io_submit(const struct lu_env *env,
 
 		osc_page_submit(env, opg, crt, brw_flags);
 		list_add_tail(&oap->oap_pending_item, &list);
+
+		if (page->cp_sync_io != NULL)
+			cl_page_list_move(qout, qin, page);
+		else /* async IO */
+			cl_page_list_del(env, qin, page);
+
 		if (++queued == max_pages) {
 			queued = 0;
 			result = osc_queue_sync_pages(env, osc, &list, cmd,
@@ -316,8 +321,8 @@ static int osc_io_rw_iter_init(const struct lu_env *env,
 	struct osc_object *osc = cl2osc(ios->cis_obj);
 	struct client_obd *cli = osc_cli(osc);
 	unsigned long c;
-	unsigned int npages;
 	unsigned int max_pages;
+	unsigned int npages;
 	ENTRY;
 
 	if (cl_io_is_append(io))
@@ -332,7 +337,7 @@ static int osc_io_rw_iter_init(const struct lu_env *env,
 		npages = max_pages;
 
 	c = atomic_read(cli->cl_lru_left);
-	if (c < npages && osc_lru_reclaim(cli) > 0)
+	if (c < npages && osc_lru_reclaim(cli, npages) > 0)
 		c = atomic_read(cli->cl_lru_left);
 	while (c >= npages) {
 		if (c == atomic_cmpxchg(cli->cl_lru_left, c, c - npages)) {
@@ -341,6 +346,8 @@ static int osc_io_rw_iter_init(const struct lu_env *env,
 		}
 		c = atomic_read(cli->cl_lru_left);
 	}
+	if (atomic_read(cli->cl_lru_left) < max_pages)
+		(void)ptlrpcd_queue_work(cli->cl_lru_work);
 
 	RETURN(0);
 }
