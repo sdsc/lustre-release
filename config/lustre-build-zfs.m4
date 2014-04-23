@@ -383,5 +383,16 @@ your distribution.
 		])
 	])
 
+	AS_IF([test "x$enable_zfs" = xyes], [
+		LB_CHECK_COMPILE([if zfs defines dsl_sync_task_do_nowait],
+		dsl_sync_task_do_nowait, [
+			#include <sys/dsl_synctask.h>
+		],[
+			dsl_sync_task_do_nowait(NULL, NULL, NULL, NULL, NULL, 0, NULL);
+		],[
+			AC_DEFINE(HAVE_DSL_SYNC_TASK_DO_NOWAIT, 1,
+				[Have dsl_sync_task_do_nowait in ZFS])
+		])
+	])
 	AM_CONDITIONAL(ZFS_ENABLED, [test "x$enable_zfs" = xyes])
 ])
