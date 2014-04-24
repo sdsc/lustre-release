@@ -1523,14 +1523,8 @@ static int mdc_read_page(struct obd_export *exp, struct md_op_data *op_data,
 
 	rc = mdc_intent_lock(exp, op_data, NULL, 0, &it, 0, &enq_req,
 			     cb_op->md_blocking_ast, 0);
-	if (enq_req != NULL) {
-		/* If enqueued the lock from server side, it means
-		 * the current dir entry page is not valid anymore,
-		 * i.e. we can not use op_ent to retrieve next_entry
-		 * directly (see mdc_read_entry) */
-		op_data->op_ent = NULL;
+	if (enq_req != NULL)
 		ptlrpc_req_finished(enq_req);
-	}
 
 	if (rc < 0) {
 		CERROR("%s: "DFID" lock enqueue fails: rc = %d\n",
@@ -1649,10 +1643,12 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 	struct lu_dirpage	*dp;
 	struct lu_dirent	*ent;
 	int			rc = 0;
+	__u32			offset = op_data->op_same_hash_offset;
 	ENTRY;
 
-	CDEBUG(D_INFO, DFID "offset = "LPU64"\n", PFID(&op_data->op_fid1),
-	       op_data->op_hash_offset);
+	CDEBUG(D_INFO, DFID "offset = "LPU64" flags 0x%x\n",
+	       PFID(&op_data->op_fid1), op_data->op_hash_offset,
+	       op_data->op_cli_flags);
 
 	*ppage = NULL;
 	*entp = NULL;
@@ -1665,23 +1661,30 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 		RETURN(rc);
 
 	dp = page_address(page);
-	/* If op_data->op_ent != NULL(see ll_dir_entry_next), try to get
-	 * next ent directly */
-	if (likely(op_data->op_ent != NULL)) {
-		ent = lu_dirent_next(op_data->op_ent);
-		if (likely(ent != NULL))
-			GOTO(out, rc);
-	} else {
-		for (ent = lu_dirent_start(dp); ent != NULL;
-		     ent = lu_dirent_next(ent)) {
-			/* Skip dummy entry */
-			if (le16_to_cpu(ent->lde_namelen) == 0)
-				continue;
+	for (ent = lu_dirent_start(dp); ent != NULL;
+	     ent = lu_dirent_next(ent)) {
+		/* Skip dummy entry */
+		if (le16_to_cpu(ent->lde_namelen) == 0)
+			continue;
 
-			if (le64_to_cpu(ent->lde_hash) >=
-					op_data->op_hash_offset)
+		if (le64_to_cpu(ent->lde_hash) <
+				op_data->op_hash_offset)
+			continue;
+
+		if (unlikely(le64_to_cpu(ent->lde_hash) ==
+				op_data->op_hash_offset)) {
+			/* Check whether there are same hash entries,
+			 * and op_same_hash_offset means Nth entry
+			 * the caller want to get */
+			if (offset > 0) {
+				offset--;
+				continue;
+			}
+			if (!(op_data->op_cli_flags & CLI_NEXT_ENTRY))
 				break;
+			continue;
 		}
+		break;
 	}
 
 	/* If it can not find entry in current page, try next page. */
@@ -1705,7 +1708,6 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 		}
 	}
 
-out:
 	*ppage = page;
 	*entp = ent;
 	RETURN(rc);

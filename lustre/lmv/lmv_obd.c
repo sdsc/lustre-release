@@ -2408,15 +2408,16 @@ static int lmv_read_striped_entry(struct obd_export *exp,
 	struct lmv_tgt_desc	*tgt;
 	struct lu_dirent	*tmp_ents[NORMAL_MAX_STRIPES];
 	struct lu_dirent	**ents = NULL;
-	struct lu_dirent	*last_ent = op_data->op_ent;
 	struct lu_fid		master_fid = op_data->op_fid1;
 	void			*master_data = op_data->op_data;
 	__u64			last_idx = op_data->op_stripe_offset;
 	__u64			hash = op_data->op_hash_offset;
+	__u32			same_hash_off = op_data->op_same_hash_offset;
 	int			stripes;
 	__u64			min_hash;
 	int			min_idx = 0;
 	struct page		*min_page = NULL;
+	__u32			cli_flags = op_data->op_cli_flags;
 	int			i;
 	int			rc;
 	ENTRY;
@@ -2447,22 +2448,20 @@ static int lmv_read_striped_entry(struct obd_export *exp,
 		if (IS_ERR(tgt))
 			GOTO(out, rc = PTR_ERR(tgt));
 
-		/* Note: last_ent is being used to resolve hash conflict
-		 * dirx entry page, so if continuous entries have same
-		 * hash value, only using op_hash_offset can not tell in
-		 * this case */
 		if (last_idx != i)
-			op_data->op_ent = NULL;
+			op_data->op_same_hash_offset = 0;
 		else
-			op_data->op_ent = last_ent;
+			op_data->op_same_hash_offset = same_hash_off;
 
 		/* op_data will be shared by each stripe, so we need
 		 * reset these value for each stripe */
 		op_data->op_stripe_offset = i;
 		op_data->op_hash_offset = hash;
+		op_data->op_cli_flags = cli_flags;
 		op_data->op_fid1 = lsm->lsm_md_oinfo[i].lmo_fid;
 		op_data->op_fid2 = lsm->lsm_md_oinfo[i].lmo_fid;
 		op_data->op_data = lsm->lsm_md_oinfo[i].lmo_root;
+
 next:
 		rc = md_read_entry(tgt->ltd_exp, op_data, cb_op, &ents[i],
 				   &page);
@@ -2484,7 +2483,7 @@ next:
 						      &op_data->op_fid3);
 			} else {
 				/* skip . and .. for other stripes */
-				op_data->op_ent = ents[i];
+				op_data->op_cli_flags |= CLI_NEXT_ENTRY;
 				op_data->op_hash_offset =
 					le64_to_cpu(ents[i]->lde_hash);
 				goto next;
@@ -2520,6 +2519,8 @@ out:
 	op_data->op_fid1 = master_fid;
 	op_data->op_fid2 = master_fid;
 	op_data->op_data = master_data;
+	op_data->op_cli_flags = cli_flags;
+	op_data->op_same_hash_offset = same_hash_off;
 	if (stripes > NORMAL_MAX_STRIPES && ents != NULL)
 		OBD_FREE(ents, sizeof(ents[0]) * stripes);
 
