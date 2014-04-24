@@ -69,8 +69,9 @@ struct llog_handle *llog_alloc_handle(void)
                 RETURN(ERR_PTR(-ENOMEM));
 
         cfs_init_rwsem(&loghandle->lgh_lock);
+	cfs_spin_lock_init(&loghandle->lgh_hdr_lock);
 
-        RETURN(loghandle);
+	RETURN(loghandle);
 }
 EXPORT_SYMBOL(llog_alloc_handle);
 
@@ -108,7 +109,9 @@ int llog_cancel_rec(struct llog_handle *loghandle, int index)
                 RETURN(-EINVAL);
         }
 
-        if (!ext2_clear_bit(index, llh->llh_bitmap)) {
+	cfs_spin_lock(&loghandle->lgh_hdr_lock);
+	if (!ext2_clear_bit(index, llh->llh_bitmap)) {
+		cfs_spin_unlock(&loghandle->lgh_hdr_lock);
                 CDEBUG(D_RPCTRACE, "Catalog index %u already clear?\n", index);
                 RETURN(-ENOENT);
         }
@@ -118,25 +121,38 @@ int llog_cancel_rec(struct llog_handle *loghandle, int index)
         if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
             (llh->llh_count == 1) &&
             (loghandle->lgh_last_idx == (LLOG_BITMAP_BYTES * 8) - 1)) {
-                rc = llog_destroy(loghandle);
-                if (rc) {
-                        CERROR("Failure destroying log after last cancel: %d\n",
-                               rc);
-                        ext2_set_bit(index, llh->llh_bitmap);
-                        llh->llh_count++;
-                } else {
-                        rc = 1;
-                }
-                RETURN(rc);
-        }
+		cfs_spin_unlock(&loghandle->lgh_hdr_lock);
+		rc = llog_destroy(loghandle);
+		if (rc < 0) {
+			CERROR("%s: can't destroy empty llog #"LPX64"#"LPX64
+			       "#%08x: rc = %d\n",
+			       loghandle->lgh_ctxt->loc_obd->obd_name,
+			       loghandle->lgh_id.lgl_oid,
+			       loghandle->lgh_id.lgl_oseq,
+			       loghandle->lgh_id.lgl_ogen, rc);
+			GOTO(out_err, rc);
+		}
+		RETURN(1);
+	}
+	cfs_spin_unlock(&loghandle->lgh_hdr_lock);
 
-        rc = llog_write_rec(loghandle, &llh->llh_hdr, NULL, 0, NULL, 0);
-        if (rc) {
-                CERROR("Failure re-writing header %d\n", rc);
-                ext2_set_bit(index, llh->llh_bitmap);
-                llh->llh_count++;
-        }
-        RETURN(rc);
+	rc = llog_write_rec(loghandle, &llh->llh_hdr, NULL, 0, NULL, 0);
+	if (rc) {
+		CERROR("%s: fail to write header for llog #"LPX64"#"LPX64
+		       "#%08x: rc = %d\n",
+		       loghandle->lgh_ctxt->loc_obd->obd_name,
+		       loghandle->lgh_id.lgl_oid,
+		       loghandle->lgh_id.lgl_oseq,
+		       loghandle->lgh_id.lgl_ogen, rc);
+		GOTO(out_err, rc);
+	}
+	RETURN(0);
+out_err:
+	cfs_spin_lock(&loghandle->lgh_hdr_lock);
+	ext2_set_bit(index, llh->llh_bitmap);
+	llh->llh_count++;
+	cfs_spin_unlock(&loghandle->lgh_hdr_lock);
+	return rc;
 }
 EXPORT_SYMBOL(llog_cancel_rec);
 

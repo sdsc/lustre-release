@@ -97,13 +97,18 @@ static struct llog_handle *llog_cat_new_log(struct llog_handle *cathandle)
 
         if (index == 0)
                 index = 1;
-        if (ext2_set_bit(index, llh->llh_bitmap)) {
-                CERROR("argh, index %u already set in log bitmap?\n",
-                       index);
-                LBUG(); /* should never happen */
-        }
+
+	cfs_spin_lock(&loghandle->lgh_hdr_lock);
+	llh->llh_count++;
+	if (ext2_set_bit(index, llh->llh_bitmap)) {
+		CERROR("argh, index %u already set in log bitmap?\n",
+		       index);
+		cfs_spin_unlock(&loghandle->lgh_hdr_lock);
+		LBUG(); /* should never happen */
+	}
+	cfs_spin_unlock(&loghandle->lgh_hdr_lock);
+
         cathandle->lgh_last_idx = index;
-        llh->llh_count++;
         llh->llh_tail.lrt_index = index;
 
         CDEBUG(D_RPCTRACE,"new recovery log "LPX64":%x for index %u of catalog "
@@ -153,6 +158,7 @@ int llog_cat_id2handle(struct llog_handle *cathandle, struct llog_handle **res,
         if (cathandle == NULL)
                 RETURN(-EBADF);
 
+	cfs_down_write(&cathandle->lgh_lock);
         cfs_list_for_each_entry(loghandle, &cathandle->u.chd.chd_head,
                                 u.phd.phd_entry) {
                 struct llog_logid *cgl = &loghandle->lgh_id;
@@ -164,9 +170,11 @@ int llog_cat_id2handle(struct llog_handle *cathandle, struct llog_handle **res,
                                 continue;
                         }
                         loghandle->u.phd.phd_cat_handle = cathandle;
-                        GOTO(out, rc = 0);
-                }
-        }
+			cfs_up_write(&cathandle->lgh_lock);
+			GOTO(out, rc = 0);
+		}
+	}
+	cfs_up_write(&cathandle->lgh_lock);
 
         rc = llog_create(cathandle->lgh_ctxt, &loghandle, logid, NULL);
         if (rc) {
@@ -175,8 +183,10 @@ int llog_cat_id2handle(struct llog_handle *cathandle, struct llog_handle **res,
         } else {
                 rc = llog_init_handle(loghandle, LLOG_F_IS_PLAIN, NULL);
                 if (!rc) {
-                        cfs_list_add(&loghandle->u.phd.phd_entry,
-                                     &cathandle->u.chd.chd_head);
+			cfs_down_write(&cathandle->lgh_lock);
+			cfs_list_add(&loghandle->u.phd.phd_entry,
+				     &cathandle->u.chd.chd_head);
+			cfs_up_write(&cathandle->lgh_lock);
                 }
         }
         if (!rc) {
@@ -235,9 +245,12 @@ static struct llog_handle *llog_cat_current_log(struct llog_handle *cathandle,
         cfs_down_read_nested(&cathandle->lgh_lock, LLOGH_CAT);
         loghandle = cathandle->u.chd.chd_current_log;
         if (loghandle) {
-                struct llog_log_hdr *llh = loghandle->lgh_hdr;
-                cfs_down_write_nested(&loghandle->lgh_lock, LLOGH_LOG);
-                if (loghandle->lgh_last_idx < LLOG_BITMAP_SIZE(llh) - 1) {
+		struct llog_log_hdr *llh;
+
+		cfs_down_write_nested(&loghandle->lgh_lock, LLOGH_LOG);
+		llh = loghandle->lgh_hdr;
+		if (llh == NULL ||
+		    loghandle->lgh_last_idx < LLOG_BITMAP_SIZE(llh) - 1) {
                         cfs_up_read(&cathandle->lgh_lock);
                         RETURN(loghandle);
                 } else {
@@ -322,29 +335,29 @@ EXPORT_SYMBOL(llog_cat_add_rec);
 int llog_cat_cancel_records(struct llog_handle *cathandle, int count,
                             struct llog_cookie *cookies)
 {
-        int i, index, rc = 0;
-        ENTRY;
+	int i, index, rc = 0, failed = 0;
+	ENTRY;
 
-        cfs_down_write_nested(&cathandle->lgh_lock, LLOGH_CAT);
-        for (i = 0; i < count; i++, cookies++) {
-                struct llog_handle *loghandle;
-                struct llog_logid *lgl = &cookies->lgc_lgl;
+	for (i = 0; i < count; i++, cookies++) {
+		struct llog_handle	*loghandle;
+		struct llog_logid	*lgl = &cookies->lgc_lgl;
+		int			lrc;
 
-                rc = llog_cat_id2handle(cathandle, &loghandle, lgl);
-                if (rc) {
-                        CERROR("Cannot find log "LPX64"\n", lgl->lgl_oid);
-                        break;
-                }
+		rc = llog_cat_id2handle(cathandle, &loghandle, lgl);
+		if (rc) {
+			CERROR("Cannot find log "LPX64"\n", lgl->lgl_oid);
+			failed++;
+			break;
+		}
 
-                cfs_down_write_nested(&loghandle->lgh_lock, LLOGH_LOG);
-                rc = llog_cancel_rec(loghandle, cookies->lgc_index);
-                cfs_up_write(&loghandle->lgh_lock);
-
-                if (rc == 1) {          /* log has been destroyed */
-                        index = loghandle->u.phd.phd_cookie.lgc_index;
-                        if (cathandle->u.chd.chd_current_log == loghandle)
-                                cathandle->u.chd.chd_current_log = NULL;
-                        llog_free_handle(loghandle);
+		lrc = llog_cancel_rec(loghandle, cookies->lgc_index);
+		if (lrc == 1) {          /* log has been destroyed */
+			index = loghandle->u.phd.phd_cookie.lgc_index;
+			cfs_down_write(&cathandle->lgh_lock);
+			if (cathandle->u.chd.chd_current_log == loghandle)
+				cathandle->u.chd.chd_current_log = NULL;
+			cfs_up_write(&cathandle->lgh_lock);
+			llog_close(loghandle);
 
                         LASSERT(index);
                         llog_cat_set_first_idx(cathandle, index);
@@ -353,11 +366,20 @@ int llog_cat_cancel_records(struct llog_handle *cathandle, int count,
                                 CDEBUG(D_RPCTRACE,"cancel plain log at index %u"
                                        " of catalog "LPX64"\n",
                                        index, cathandle->lgh_id.lgl_oid);
-                }
-        }
-        cfs_up_write(&cathandle->lgh_lock);
+                } else if (lrc == -ENOENT) {
+			if (rc == 0) /* ENOENT shouldn't rewrite any error */
+				rc = lrc;
+		} else if (lrc < 0) {
+			failed++;
+			rc = lrc;
+		}
+	}
+	if (rc)
+		CERROR("%s: fail to cancel %d of %d llog-records: rc = %d\n",
+		       cathandle->lgh_ctxt->loc_obd->obd_name, failed, count,
+		       rc);
 
-        RETURN(rc);
+	RETURN(rc);
 }
 EXPORT_SYMBOL(llog_cat_cancel_records);
 
