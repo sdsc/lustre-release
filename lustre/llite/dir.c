@@ -165,13 +165,15 @@ struct lu_dirent *ll_dir_entry_start(struct inode *dir,
 	struct lu_dirent *entry = NULL;
 	struct md_callback cb_op;
 	int rc;
+	ENTRY;
 
 	LASSERT(*ppage == NULL);
 	cb_op.md_blocking_ast = ll_md_blocking_ast;
+	op_data->op_cli_flags &= ~CLI_NEXT_ENTRY;
 	rc = md_read_entry(ll_i2mdexp(dir), op_data, &cb_op, &entry, ppage);
 	if (rc != 0)
 		entry = ERR_PTR(rc);
-	return entry;
+	RETURN(entry);
 }
 
 struct lu_dirent *ll_dir_entry_next(struct inode *dir,
@@ -181,25 +183,27 @@ struct lu_dirent *ll_dir_entry_next(struct inode *dir,
 {
 	struct lu_dirent *entry = NULL;
 	struct md_callback cb_op;
-	struct page	*last_page;
 	int rc;
+	ENTRY;
 
 	LASSERT(*ppage != NULL);
+	if (op_data->op_hash_offset == le64_to_cpu(ent->lde_hash)) {
+		op_data->op_same_hash_offset++;
+	} else {
+		op_data->op_hash_offset = le64_to_cpu(ent->lde_hash);
+		op_data->op_same_hash_offset = 0;
+	}
+	/* release last page */
+	kunmap(*ppage);
+	page_cache_release(*ppage);
 
-	/* It needs to input the entry with the related page
-	 * to MDC layer (see mdc_read_entry), so last_page
-	 * will be hold after md_read_entry */
-	last_page = *ppage;
 	cb_op.md_blocking_ast = ll_md_blocking_ast;
-	op_data->op_hash_offset = le64_to_cpu(ent->lde_hash);
-	op_data->op_ent = ent;
+	op_data->op_cli_flags |= CLI_NEXT_ENTRY;
 	rc = md_read_entry(ll_i2mdexp(dir), op_data, &cb_op, &entry, ppage);
-	kunmap(last_page);
-	page_cache_release(last_page);
 	if (rc != 0)
 		entry = ERR_PTR(rc);
 
-	return entry;
+	RETURN(entry);
 }
 
 #ifdef HAVE_DIR_CONTEXT
