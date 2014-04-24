@@ -346,11 +346,18 @@ static int llog_lvfs_write_rec(struct llog_handle *loghandle,
         /*The caller should make sure only 1 process access the lgh_last_idx,
          *Otherwise it might hit the assert.*/
         LASSERT(index < LLOG_BITMAP_SIZE(llh));
-        if (ext2_set_bit(index, llh->llh_bitmap)) {
-                CERROR("argh, index %u already set in log bitmap?\n", index);
-                LBUG(); /* should never happen */
-        }
-        llh->llh_count++;
+
+	/* the lgh_hdr_lock protects llog header data from concurrent
+	 * update/cancel, the llh_count and llh_bitmap are protected */
+	cfs_spin_lock(&loghandle->lgh_hdr_lock);
+	if (ext2_set_bit(index, llh->llh_bitmap)) {
+		cfs_spin_unlock(&loghandle->lgh_hdr_lock);
+		CERROR("argh, index %u already set in log bitmap?\n", index);
+		LBUG(); /* should never happen */
+	}
+	llh->llh_count++;
+	cfs_spin_unlock(&loghandle->lgh_hdr_lock);
+
         llh->llh_tail.lrt_index = index;
 
         rc = llog_lvfs_write_blob(obd, file, &llh->llh_hdr, NULL, 0);

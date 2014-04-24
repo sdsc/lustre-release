@@ -93,6 +93,7 @@ struct llog_handle {
         cfs_rw_semaphore_t      lgh_lock;
         struct llog_logid       lgh_id;              /* id of this log */
         struct llog_log_hdr    *lgh_hdr;
+	cfs_spinlock_t          lgh_hdr_lock;   /* protect lgh_hdr data */
         struct file            *lgh_file;
         int                     lgh_last_idx;
         int                     lgh_cur_idx;    /* used during llog_process */

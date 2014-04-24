@@ -1407,8 +1407,6 @@ struct mdd_changelog_user_data {
         __u32 mcud_minid;  /**< user id with lowest rec reference */
         __u32 mcud_usercount;
         int   mcud_found:1;
-        struct mdd_device   *mcud_mdd;
-        const struct lu_env *mcud_env;
 };
 #define MCUD_UNREGISTER -1LL
 
@@ -1451,28 +1449,14 @@ static int mdd_changelog_user_purge_cb(struct llog_handle *llh,
         /* Special case: unregister this user */
         if (mcud->mcud_endrec == MCUD_UNREGISTER) {
                 struct llog_cookie cookie;
-                void *trans_h;
-                struct mdd_device *mdd = mcud->mcud_mdd;
 
                 cookie.lgc_lgl = llh->lgh_id;
                 cookie.lgc_index = hdr->lrh_index;
-
-                /* XXX This is a workaround for the deadlock of changelog
-                 * adding vs. changelog cancelling. LU-81. */
-                mdd_txn_param_build(mcud->mcud_env, mdd, MDD_TXN_UNLINK_OP, 0);
-                trans_h = mdd_trans_start(mcud->mcud_env, mdd);
-                if (IS_ERR(trans_h)) {
-                        CERROR("fsfilt_start_log failed: %ld\n",
-                               PTR_ERR(trans_h));
-                        RETURN(PTR_ERR(trans_h));
-                }
 
                 rc = llog_cat_cancel_records(llh->u.phd.phd_cat_handle,
                                              1, &cookie);
                 if (rc == 0)
                         mcud->mcud_usercount--;
-
-                mdd_trans_stop(mcud->mcud_env, mdd, rc, trans_h);
                 RETURN(rc);
         }
 
@@ -1504,8 +1488,6 @@ static int mdd_changelog_user_purge(const struct lu_env *env,
         data.mcud_minrec = 0;
         data.mcud_usercount = 0;
         data.mcud_endrec = endrec;
-        data.mcud_mdd = mdd;
-        data.mcud_env = env;
         cfs_spin_lock(&mdd->mdd_cl.mc_lock);
         endrec = mdd->mdd_cl.mc_index;
         cfs_spin_unlock(&mdd->mdd_cl.mc_lock);
