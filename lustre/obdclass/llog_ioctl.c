@@ -246,7 +246,6 @@ static int llog_remove_log(struct llog_handle *cat, struct llog_logid *logid)
         int rc, index = 0;
 
         ENTRY;
-        cfs_down_write(&cat->lgh_lock);
         rc = llog_cat_id2handle(cat, &log, logid);
         if (rc) {
                 CDEBUG(D_IOCTL, "cannot find log #"LPX64"#"LPX64"#%08x\n",
@@ -261,11 +260,14 @@ static int llog_remove_log(struct llog_handle *cat, struct llog_logid *logid)
                 CDEBUG(D_IOCTL, "cannot destroy log\n");
                 GOTO(out, rc);
         }
+        cfs_down_write(&cat->lgh_lock);
+	if (cat->u.chd.chd_current_log == log)
+		cat->u.chd.chd_current_log = NULL;
+        cfs_up_write(&cat->lgh_lock);
         llog_cat_set_first_idx(cat, index);
         rc = llog_cancel_rec(cat, index);
 out:
         llog_free_handle(log);
-        cfs_up_write(&cat->lgh_lock);
         RETURN(rc);
 
 }
@@ -365,23 +367,24 @@ int llog_ioctl(struct llog_ctxt *ctxt, int cmd, struct obd_ioctl_data *data)
                 if (*endp != '\0')
                         GOTO(out_close, err = -EINVAL);
 
-                if (handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT) {
-                        cfs_down_write(&handle->lgh_lock);
+		if (handle->lgh_hdr->llh_flags & LLOG_F_IS_PLAIN) {
                         err = llog_cancel_rec(handle, cookie.lgc_index);
-                        cfs_up_write(&handle->lgh_lock);
                         GOTO(out_close, err);
-                }
+                } else if (!(handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT)) {
+			GOTO(out_close, err = -EINVAL);
+		}
+
+		if (data->ioc_inlbuf2 == NULL) /* catalog but no logid */
+			GOTO(out_close, err = -ENOTTY);
 
                 err = str2logid(&plain, data->ioc_inlbuf2, data->ioc_inllen2);
                 if (err)
                         GOTO(out_close, err);
                 cookie.lgc_lgl = plain;
-
-                if (!(handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT))
-                        GOTO(out_close, err = -EINVAL);
-
                 err = llog_cat_cancel_records(handle, 1, &cookie);
-                GOTO(out_close, err);
+		if (err)
+			GOTO(out_close, err);
+		break;
         }
         case OBD_IOC_LLOG_REMOVE: {
                 struct llog_logid plain;
