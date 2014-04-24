@@ -262,6 +262,7 @@ copytool_cleanup() {
 	local idx
 	local oldstate
 	local mdt_hsmctrl
+	local n
 
 	do_nodesv $agents "pkill -INT -x $HSMTOOL_BASE" || return 0
 	sleep 1
@@ -285,6 +286,9 @@ copytool_cleanup() {
 		wait_result mds${mdtno} "$LCTL get_param -n $mdt_hsmctrl" \
 			"$oldstate" 20 ||
 			error "mds${mdtno} cdt state is not $oldstate"
+	done
+	for n in $(seq $AGTCOUNT); do
+		rm -rf AGTDEV$n
 	done
 }
 
