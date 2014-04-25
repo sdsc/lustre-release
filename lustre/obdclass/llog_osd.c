@@ -87,10 +87,12 @@ static int llog_osd_create_new_object(const struct lu_env *env,
 				   &lgi->lgi_dof, th);
 }
 
-static int llog_osd_pad(const struct lu_env *env, struct dt_object *o,
+int llog_osd_pad(const struct lu_env *env, struct dt_object *o,
 			loff_t *off, int len, int index, struct thandle *th)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
+	struct llog_rec_hdr	*rec;
+	struct llog_rec_tail	*tail;
 	int			 rc;
 
 	ENTRY;
@@ -99,106 +101,26 @@ static int llog_osd_pad(const struct lu_env *env, struct dt_object *o,
 	LASSERT(off);
 	LASSERT(len >= LLOG_MIN_REC_SIZE && (len & 0x7) == 0);
 
-	lgi->lgi_tail.lrt_len = lgi->lgi_lrh.lrh_len = len;
-	lgi->lgi_tail.lrt_index = lgi->lgi_lrh.lrh_index = index;
-	lgi->lgi_lrh.lrh_type = LLOG_PAD_MAGIC;
+	OBD_ALLOC(rec, len);
+	if (rec == NULL)
+		RETURN(-ENOMEM);
 
-	lgi->lgi_buf.lb_buf = &lgi->lgi_lrh;
-	lgi->lgi_buf.lb_len = sizeof(lgi->lgi_lrh);
-	dt_write_lock(env, o, 0);
-	rc = dt_record_write(env, o, &lgi->lgi_buf, off, th);
-	if (rc) {
-		CERROR("%s: error writing padding record: rc = %d\n",
-		       o->do_lu.lo_dev->ld_obd->obd_name, rc);
-		GOTO(out, rc);
-	}
+	rec->lrh_len = len;
+	rec->lrh_index = index;
+	rec->lrh_type = LLOG_PAD_MAGIC;
 
-	lgi->lgi_buf.lb_buf = &lgi->lgi_tail;
-	lgi->lgi_buf.lb_len = sizeof(lgi->lgi_tail);
-	*off += len - sizeof(lgi->lgi_lrh) - sizeof(lgi->lgi_tail);
-	rc = dt_record_write(env, o, &lgi->lgi_buf, off, th);
-	if (rc)
-		CERROR("%s: error writing padding record: rc = %d\n",
-		       o->do_lu.lo_dev->ld_obd->obd_name, rc);
-out:
-	dt_write_unlock(env, o);
-	RETURN(rc);
-}
+	tail = REC_TAIL(rec);
+	tail->lrt_len = len;
+	tail->lrt_index = index;
 
-static int llog_osd_write_blob(const struct lu_env *env, struct dt_object *o,
-			       struct llog_rec_hdr *rec, void *buf,
-			       loff_t *off, struct thandle *th)
-{
-	struct llog_thread_info	*lgi = llog_info(env);
-	int			 buflen = rec->lrh_len;
-	int			 rc;
-
-	ENTRY;
-
-	LASSERT(env);
-	LASSERT(o);
-
-	if (buflen == 0)
-		CWARN("0-length record\n");
-
-	CDEBUG(D_OTHER, "write blob with type %x, buf %p/%u at off %llu\n",
-	       rec->lrh_type, buf, buflen, *off);
-
-	lgi->lgi_attr.la_valid = LA_SIZE;
-	lgi->lgi_attr.la_size = *off;
-
-	if (!buf) {
-		lgi->lgi_buf.lb_len = buflen;
-		lgi->lgi_buf.lb_buf = rec;
-		rc = dt_record_write(env, o, &lgi->lgi_buf, off, th);
-		if (rc)
-			CERROR("%s: error writing log record: rc = %d\n",
-			       o->do_lu.lo_dev->ld_obd->obd_name, rc);
-		GOTO(out, rc);
-	}
-
-	/* the buf case */
-	/* protect the following 3 writes from concurrent read */
-	dt_write_lock(env, o, 0);
-	rec->lrh_len = sizeof(*rec) + buflen + sizeof(lgi->lgi_tail);
-	lgi->lgi_buf.lb_len = sizeof(*rec);
 	lgi->lgi_buf.lb_buf = rec;
-	rc = dt_record_write(env, o, &lgi->lgi_buf, off, th);
-	if (rc) {
-		CERROR("%s: error writing log hdr: rc = %d\n",
-		       o->do_lu.lo_dev->ld_obd->obd_name, rc);
-		GOTO(out_unlock, rc);
-	}
-
-	lgi->lgi_buf.lb_len = buflen;
-	lgi->lgi_buf.lb_buf = buf;
-	rc = dt_record_write(env, o, &lgi->lgi_buf, off, th);
-	if (rc) {
-		CERROR("%s: error writing log buffer: rc = %d\n",
-		       o->do_lu.lo_dev->ld_obd->obd_name,  rc);
-		GOTO(out_unlock, rc);
-	}
-
-	lgi->lgi_tail.lrt_len = rec->lrh_len;
-	lgi->lgi_tail.lrt_index = rec->lrh_index;
-	lgi->lgi_buf.lb_len = sizeof(lgi->lgi_tail);
-	lgi->lgi_buf.lb_buf = &lgi->lgi_tail;
+	lgi->lgi_buf.lb_len = len;
 	rc = dt_record_write(env, o, &lgi->lgi_buf, off, th);
 	if (rc)
-		CERROR("%s: error writing log tail: rc = %d\n",
+		CERROR("%s: error writing padding record: rc = %d\n",
 		       o->do_lu.lo_dev->ld_obd->obd_name, rc);
 
-out_unlock:
-	dt_write_unlock(env, o);
-
-out:
-	/* cleanup the content written above */
-	if (rc) {
-		dt_punch(env, o, lgi->lgi_attr.la_size, OBD_OBJECT_EOF, th,
-			 BYPASS_CAPA);
-		dt_attr_set(env, o, &lgi->lgi_attr, th, BYPASS_CAPA);
-	}
-
+	OBD_FREE(rec, len);
 	RETURN(rc);
 }
 
@@ -297,21 +219,9 @@ static int llog_osd_declare_write_rec(const struct lu_env *env,
 	if (rc || idx == 0) /* if error or just header */
 		RETURN(rc);
 
-	if (dt_object_exists(o)) {
-		rc = dt_attr_get(env, o, &lgi->lgi_attr, BYPASS_CAPA);
-		lgi->lgi_off = lgi->lgi_attr.la_size;
-		LASSERT(ergo(rc == 0, lgi->lgi_attr.la_valid & LA_SIZE));
-		if (rc)
-			RETURN(rc);
-
-		rc = dt_declare_punch(env, o, lgi->lgi_off, OBD_OBJECT_EOF, th);
-		if (rc)
-			RETURN(rc);
-	} else {
-		lgi->lgi_off = 0;
-	}
-
-	lgi->lgi_buf.lb_len = rec->lrh_len;
+	/* the pad record can be inserted so take into account double
+	 * record size */
+	lgi->lgi_buf.lb_len = rec->lrh_len * 2;
 	lgi->lgi_buf.lb_buf = NULL;
 	/* XXX: implement declared window or multi-chunks approach */
 	rc = dt_declare_record_write(env, o, &lgi->lgi_buf, -1, th);
@@ -325,7 +235,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 			      struct llog_handle *loghandle,
 			      struct llog_rec_hdr *rec,
 			      struct llog_cookie *reccookie, int cookiecount,
-			      void *buf, int idx, struct thandle *th)
+			      int idx, struct thandle *th)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct llog_log_hdr	*llh;
@@ -348,68 +258,88 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	       rec->lrh_type, PFID(lu_object_fid(&o->do_lu)));
 
 	/* record length should not bigger than LLOG_CHUNK_SIZE */
-	if (buf)
-		rc = (reclen > LLOG_CHUNK_SIZE - sizeof(struct llog_rec_hdr) -
-		      sizeof(struct llog_rec_tail)) ? -E2BIG : 0;
-	else
-		rc = (reclen > LLOG_CHUNK_SIZE) ? -E2BIG : 0;
-	if (rc)
-		RETURN(rc);
+	if (reclen > LLOG_CHUNK_SIZE)
+		RETURN(-E2BIG);
 
 	rc = dt_attr_get(env, o, &lgi->lgi_attr, NULL);
 	if (rc)
 		RETURN(rc);
 
-	if (buf)
-		/* write_blob adds header and tail to lrh_len. */
-		reclen = sizeof(*rec) + rec->lrh_len +
-			 sizeof(struct llog_rec_tail);
-
+	/* modification of record with index idx */
 	if (idx != -1) {
-		/* no header: only allowed to insert record 1 */
-		if (idx != 1 && lgi->lgi_attr.la_size == 0)
-			LBUG();
+		/* llog can be empty only when first record is being written */
+		LASSERT(ergo(idx > 0, lgi->lgi_attr.la_size > 0));
 
-		if (idx && llh->llh_size && llh->llh_size != rec->lrh_len)
-			RETURN(-EINVAL);
-
-		if (!ext2_test_bit(idx, llh->llh_bitmap))
+		if (!ext2_test_bit(idx, llh->llh_bitmap)) {
 			CERROR("%s: modify unset record %u\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name, idx);
-		if (idx != rec->lrh_index)
-			CERROR("%s: index mismatch %d %u\n",
+			RETURN(-ENOENT);
+		}
+
+		if (idx != rec->lrh_index) {
+			CERROR("%s: modify index mismatch %d %u\n",
 			       o->do_lu.lo_dev->ld_obd->obd_name, idx,
 			       rec->lrh_index);
+			RETURN(-EFAULT);
+		}
 
-		lgi->lgi_off = 0;
-		rc = llog_osd_write_blob(env, o, &llh->llh_hdr, NULL,
-					 &lgi->lgi_off, th);
-		/* we are done if we only write the header or on error */
-		if (rc || idx == 0)
+		if (idx == 0) {
+			/* llog header update */
+			LASSERT(reclen == sizeof(struct llog_log_hdr));
+			LASSERT(rec == &llh->llh_hdr);
+
+			lgi->lgi_off = 0;
+			lgi->lgi_buf.lb_len = reclen;
+			lgi->lgi_buf.lb_buf = rec;
+			rc = dt_record_write(env, o, &lgi->lgi_buf,
+					     &lgi->lgi_off, th);
 			RETURN(rc);
-
-		if (buf) {
-			/* We assume that caller has set lgh_cur_* */
-			lgi->lgi_off = loghandle->lgh_cur_offset;
-			CDEBUG(D_OTHER,
-			       "modify record "DOSTID": idx:%d/%u/%d, len:%u "
-			       "offset %llu\n",
-			       POSTID(&loghandle->lgh_id.lgl_oi), idx,
-			       rec->lrh_index,
-			       loghandle->lgh_cur_idx, rec->lrh_len,
-			       (long long)(lgi->lgi_off - sizeof(*llh)));
-			if (rec->lrh_index != loghandle->lgh_cur_idx) {
-				CERROR("%s: modify idx mismatch %u/%d\n",
+		} else if (loghandle->lgh_cur_idx > 0) {
+			/* the record is modified from llog_process() which
+			 * sets lgh_cur_* values. The lgh_cur_offset may be
+			 * used only if index is the same.
+			 */
+			if (idx != loghandle->lgh_cur_idx) {
+				CERROR("%s: modify index mismatch %d %d\n",
 				       o->do_lu.lo_dev->ld_obd->obd_name, idx,
 				       loghandle->lgh_cur_idx);
 				RETURN(-EFAULT);
 			}
-		} else {
-			/* Assumes constant lrh_len */
+
+			lgi->lgi_off = loghandle->lgh_cur_offset;
+			CDEBUG(D_OTHER,
+			       "modify record "DOSTID": idx:%d, len:%u "
+			       "offset %llu\n",
+			       POSTID(&loghandle->lgh_id.lgl_oi), idx,
+			       rec->lrh_len, (long long)lgi->lgi_off);
+		} else if (llh->llh_size > 0) {
+			/* Assumes llog with constant record sizes,
+			 * now it is only catalog llog. Fixed record llogs
+			 * have llh_size set in header to the record size */
+			if (llh->llh_size != rec->lrh_len) {
+				CERROR("%s: wrong record size, llh_size is %u"
+				       " but record size is %u\n",
+				       o->do_lu.lo_dev->ld_obd->obd_name,
+				       llh->llh_size, rec->lrh_len);
+				RETURN(-EINVAL);
+			}
 			lgi->lgi_off = sizeof(*llh) + (idx - 1) * reclen;
+		} else {
+			/* This can be result of lgh_cur_idx is not set during
+			 * llog processing or llh_size is not set to proper
+			 * record size for fixed records llog. Therefore it is
+			 * impossible to get record offset. */
+			CERROR("%s: can't get record offset, idx:%d, "
+			       "len:%u.\n", o->do_lu.lo_dev->ld_obd->obd_name,
+			       idx, rec->lrh_len);
+			RETURN(-EFAULT);
 		}
 
-		rc = llog_osd_write_blob(env, o, rec, buf, &lgi->lgi_off, th);
+		/* update only data, header and tail remain the same */
+		lgi->lgi_off += sizeof(struct llog_rec_hdr);
+		lgi->lgi_buf.lb_len = REC_DATA_LEN(rec);
+		lgi->lgi_buf.lb_buf = REC_DATA(rec);
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 		if (rc == 0 && reccookie) {
 			reccookie->lgc_lgl = loghandle->lgh_id;
 			reccookie->lgc_index = idx;
@@ -445,12 +375,10 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	index = loghandle->lgh_last_idx;
 	LASSERT(index < LLOG_BITMAP_SIZE(llh));
 	rec->lrh_index = index;
-	if (buf == NULL) {
-		lrt = (struct llog_rec_tail *)((char *)rec + rec->lrh_len -
-					       sizeof(*lrt));
-		lrt->lrt_len = rec->lrh_len;
-		lrt->lrt_index = rec->lrh_index;
-	}
+	lrt = REC_TAIL(rec);
+	lrt->lrt_len = rec->lrh_len;
+	lrt->lrt_index = rec->lrh_index;
+
 	/* The caller should make sure only 1 process access the lgh_last_idx,
 	 * Otherwise it might hit the assert.*/
 	LASSERT(index < LLOG_BITMAP_SIZE(llh));
@@ -467,8 +395,9 @@ static int llog_osd_write_rec(const struct lu_env *env,
 	llh->llh_tail.lrt_index = index;
 
 	lgi->lgi_off = 0;
-	rc = llog_osd_write_blob(env, o, &llh->llh_hdr, NULL, &lgi->lgi_off,
-				 th);
+	lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
+	lgi->lgi_buf.lb_buf = &llh->llh_hdr;
+	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 	if (rc)
 		GOTO(out, rc);
 
@@ -478,8 +407,9 @@ static int llog_osd_write_rec(const struct lu_env *env,
 
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
 	lgi->lgi_off = lgi->lgi_attr.la_size;
-
-	rc = llog_osd_write_blob(env, o, rec, buf, &lgi->lgi_off, th);
+	lgi->lgi_buf.lb_len = reclen;
+	lgi->lgi_buf.lb_buf = rec;
+	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 
 out:
 	/* cleanup llog for error case */
@@ -493,11 +423,12 @@ out:
 		loghandle->lgh_last_idx--;
 		llh->llh_tail.lrt_index = old_tail_idx;
 		lgi->lgi_off = 0;
-		llog_osd_write_blob(env, o, &llh->llh_hdr, NULL,
-				    &lgi->lgi_off, th);
+		lgi->lgi_buf.lb_len = llh->llh_hdr.lrh_len;
+		lgi->lgi_buf.lb_buf = &llh->llh_hdr;
+		rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 	}
 
-	CDEBUG(D_RPCTRACE, "added record "DOSTID": idx: %u, %u\n",
+	CDEBUG(D_OTHER, "added record "DOSTID": idx: %u, %u\n",
 	       POSTID(&loghandle->lgh_id.lgl_oi), index, rec->lrh_len);
 	if (rc == 0 && reccookie) {
 		reccookie->lgc_lgl = loghandle->lgh_id;

@@ -209,6 +209,15 @@ struct config_llog_data {
         char                        cld_logname[0];
 };
 
+struct llog_cfg_rec {
+	struct llog_rec_hdr	lcr_hdr;
+	struct lustre_cfg	lcr_cfg;
+	struct llog_rec_tail	lcr_tail;
+};
+
+struct llog_cfg_rec *lustre_cfg_rec_new(int cmd, struct lustre_cfg_bufs *bufs);
+void lustre_cfg_rec_free(struct llog_cfg_rec *lcr);
+
 struct lustre_profile {
         cfs_list_t       lp_list;
         char            *lp_profile;
