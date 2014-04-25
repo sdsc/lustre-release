@@ -52,6 +52,50 @@
 
 #include "mgs_internal.h"
 
+struct llog_cfg_rec {
+	struct llog_rec_hdr	lcr_hdr;
+	struct lustre_cfg	lcr_cfg;
+	struct llog_rec_tail	lcr_tail;
+};
+
+static struct lustre_cfg *lustre_cfg_rec_new(int cmd,
+					     struct lustre_cfg_bufs *bufs)
+{
+	struct llog_cfg_rec	*lcr;
+	struct lustre_cfg	*lcfg;
+	int			 reclen;
+
+	ENTRY;
+
+	reclen = lustre_cfg_len(bufs->lcfg_bufcount, bufs->lcfg_buflen);
+	reclen = llog_data_len(reclen) + sizeof(struct llog_rec_hdr) +
+		 sizeof(struct llog_rec_tail);
+
+	OBD_ALLOC(lcr, reclen);
+	if (lcr == NULL)
+		RETURN(NULL);
+
+	lcfg = &lcr->lcr_cfg;
+
+	lustre_cfg_init(lcfg, cmd, bufs);
+
+	lcr->lcr_hdr.lrh_len = reclen;
+	lcr->lcr_hdr.lrh_type = OBD_CFG_REC;
+
+	RETURN(lcfg);
+}
+
+static inline void lustre_cfg_rec_free(struct lustre_cfg *lcfg)
+{
+	struct llog_cfg_rec	*lcr;
+
+	ENTRY;
+	lcr = container_of0(lcfg, struct llog_cfg_rec, lcr_cfg);
+
+	OBD_FREE(lcr, lcr->lcr_hdr.lrh_len);
+	RETURN_EXIT;
+}
+
 /********************** Class functions ********************/
 
 int class_dentry_readdir(const struct lu_env *env,
@@ -639,11 +683,7 @@ static int mgs_modify_handler(const struct lu_env *env,
                 marker->cm_flags &= ~CM_EXCLUDE; /* in case we're unexcluding */
                 marker->cm_flags |= mml->mml_marker.cm_flags;
                 marker->cm_canceltime = mml->mml_marker.cm_canceltime;
-                /* Header and tail are added back to lrh_len in
-                   llog_lvfs_write_rec */
-                rec->lrh_len = cfg_len;
-		rc = llog_write(env, llh, rec, NULL, 0, (void *)lcfg,
-				rec->lrh_index);
+		rc = llog_write(env, llh, rec, NULL, 0, NULL, rec->lrh_index);
                 if (!rc)
                          mml->mml_modified++;
         }
@@ -786,24 +826,14 @@ static int check_markers(struct lustre_cfg *lcfg,
 static int record_lcfg(const struct lu_env *env, struct llog_handle *llh,
 		       struct lustre_cfg *lcfg)
 {
-	struct llog_rec_hdr	 rec;
-	int			 buflen, rc;
+	struct llog_cfg_rec	*lcr;
 
-        if (!lcfg || !llh)
-                return -ENOMEM;
+	LASSERT(llh != NULL);
+	LASSERT(llh->lgh_ctxt != NULL);
 
-        LASSERT(llh->lgh_ctxt);
-
-        buflen = lustre_cfg_len(lcfg->lcfg_bufcount,
-                                lcfg->lcfg_buflens);
-        rec.lrh_len = llog_data_len(buflen);
-        rec.lrh_type = OBD_CFG_REC;
-
-        /* idx = -1 means append */
-	rc = llog_write(env, llh, &rec, NULL, 0, (void *)lcfg, -1);
-        if (rc)
-                CERROR("failed %d\n", rc);
-        return rc;
+	lcr = container_of0(lcfg, struct llog_cfg_rec, lcr_cfg);
+	/* idx = -1 means append */
+	return llog_write(env, llh, &lcr->lcr_hdr, NULL, 0, NULL, -1);
 }
 
 static int record_base(const struct lu_env *env, struct llog_handle *llh,
@@ -827,19 +857,20 @@ static int record_base(const struct lu_env *env, struct llog_handle *llh,
 	if (s4)
 		lustre_cfg_bufs_set_string(&mgi->mgi_bufs, 4, s4);
 
-	lcfg = lustre_cfg_new(cmd, &mgi->mgi_bufs);
-	if (!lcfg)
+	lcfg = lustre_cfg_rec_new(cmd, &mgi->mgi_bufs);
+	if (lcfg == NULL)
 		return -ENOMEM;
 	lcfg->lcfg_nid = nid;
 
 	rc = record_lcfg(env, llh, lcfg);
 
-	lustre_cfg_free(lcfg);
+	lustre_cfg_rec_free(lcfg);
 
-        if (rc) {
-                CERROR("error %d: lcfg %s %#x %s %s %s %s\n", rc, cfgname,
-                       cmd, s1, s2, s3, s4);
-        }
+	if (rc < 0) {
+		CDEBUG(D_MGS,
+		       "failed to write lcfg %s %#x %s %s %s %s: rc = %d\n",
+		       cfgname, cmd, s1, s2, s3, s4, rc);
+	}
 	return rc;
 }
 
@@ -1296,12 +1327,12 @@ static int record_lov_setup(const struct lu_env *env, struct llog_handle *llh,
 
 	lustre_cfg_bufs_reset(&mgi->mgi_bufs, devname);
 	lustre_cfg_bufs_set(&mgi->mgi_bufs, 1, desc, sizeof(*desc));
-	lcfg = lustre_cfg_new(LCFG_SETUP, &mgi->mgi_bufs);
-	if (!lcfg)
+	lcfg = lustre_cfg_rec_new(LCFG_SETUP, &mgi->mgi_bufs);
+	if (lcfg == NULL)
 		return -ENOMEM;
 	rc = record_lcfg(env, llh, lcfg);
 
-	lustre_cfg_free(lcfg);
+	lustre_cfg_rec_free(lcfg);
 	return rc;
 }
 
@@ -1314,11 +1345,12 @@ static int record_lmv_setup(const struct lu_env *env, struct llog_handle *llh,
 
 	lustre_cfg_bufs_reset(&mgi->mgi_bufs, devname);
 	lustre_cfg_bufs_set(&mgi->mgi_bufs, 1, desc, sizeof(*desc));
-	lcfg = lustre_cfg_new(LCFG_SETUP, &mgi->mgi_bufs);
-
+	lcfg = lustre_cfg_rec_new(LCFG_SETUP, &mgi->mgi_bufs);
+	if (lcfg == NULL)
+		return -ENOMEM;
 	rc = record_lcfg(env, llh, lcfg);
 
-	lustre_cfg_free(lcfg);
+	lustre_cfg_rec_free(lcfg);
 	return rc;
 }
 
@@ -1378,12 +1410,12 @@ static int record_marker(const struct lu_env *env,
 	lustre_cfg_bufs_reset(&mgi->mgi_bufs, NULL);
 	lustre_cfg_bufs_set(&mgi->mgi_bufs, 1, &mgi->mgi_marker,
 			    sizeof(mgi->mgi_marker));
-	lcfg = lustre_cfg_new(LCFG_MARKER, &mgi->mgi_bufs);
-	if (!lcfg)
+	lcfg = lustre_cfg_rec_new(LCFG_MARKER, &mgi->mgi_bufs);
+	if (lcfg == NULL)
 		return -ENOMEM;
 	rc = record_lcfg(env, llh, lcfg);
 
-	lustre_cfg_free(lcfg);
+	lustre_cfg_rec_free(lcfg);
 	return rc;
 }
 
@@ -2744,14 +2776,14 @@ static int mgs_wlp_lcfg(const struct lu_env *env,
 	if (mti->mti_flags & LDD_F_PARAM2)
 		lustre_cfg_bufs_set_string(bufs, 2, LCTL_UPCALL);
 
-	lcfg = lustre_cfg_new((mti->mti_flags & LDD_F_PARAM2) ?
-			      LCFG_SET_PARAM : LCFG_PARAM, bufs);
-
-        if (!lcfg)
-                return -ENOMEM;
-	rc = mgs_write_log_direct(env, mgs, fsdb, logname,lcfg,tgtname,comment);
-        lustre_cfg_free(lcfg);
-        return rc;
+	lcfg = lustre_cfg_rec_new((mti->mti_flags & LDD_F_PARAM2) ?
+				  LCFG_SET_PARAM : LCFG_PARAM, bufs);
+	if (lcfg == NULL)
+		return -ENOMEM;
+	rc = mgs_write_log_direct(env, mgs, fsdb, logname, lcfg, tgtname,
+				  comment);
+	lustre_cfg_rec_free(lcfg);
+	return rc;
 }
 
 static int mgs_write_log_param2(const struct lu_env *env,
@@ -2807,7 +2839,9 @@ static int mgs_write_log_sys(const struct lu_env *env,
 	lustre_cfg_bufs_set_string(&mgi->mgi_bufs, 1, sys);
 	if (!convert && *tmp != '\0')
 		lustre_cfg_bufs_set_string(&mgi->mgi_bufs, 2, tmp);
-	lcfg = lustre_cfg_new(cmd, &mgi->mgi_bufs);
+	lcfg = lustre_cfg_rec_new(cmd, &mgi->mgi_bufs);
+	if (lcfg == NULL)
+		return -ENOMEM;
 	lcfg->lcfg_num = convert ? simple_strtoul(tmp, NULL, 0) : 0;
 	/* truncate the comment to the parameter name */
 	ptr = tmp - 1;
@@ -2832,7 +2866,7 @@ static int mgs_write_log_sys(const struct lu_env *env,
 		}
 	}
 	*ptr = sep;
-	lustre_cfg_free(lcfg);
+	lustre_cfg_rec_free(lcfg);
 	return rc;
 }
 
@@ -2869,7 +2903,9 @@ static int mgs_write_log_quota(const struct lu_env *env, struct mgs_device *mgs,
 
 	lustre_cfg_bufs_reset(&mgi->mgi_bufs, mti->mti_fsname);
 	lustre_cfg_bufs_set_string(&mgi->mgi_bufs, 1, quota);
-	lcfg = lustre_cfg_new(cmd, &mgi->mgi_bufs);
+	lcfg = lustre_cfg_rec_new(cmd, &mgi->mgi_bufs);
+	if (lcfg == NULL)
+		return -ENOMEM;
 	/* truncate the comment to the parameter name */
 	ptr = tmp - 1;
 	sep = *ptr;
@@ -2883,7 +2919,7 @@ static int mgs_write_log_quota(const struct lu_env *env, struct mgs_device *mgs,
 				      *tmp == '\0' ? NULL : lcfg,
 				      mti->mti_fsname, quota, 1);
 	*ptr = sep;
-	lustre_cfg_free(lcfg);
+	lustre_cfg_rec_free(lcfg);
 	return rc < 0 ? rc : 0;
 }
 
@@ -2915,39 +2951,40 @@ static int mgs_srpc_set_param_disk(const struct lu_env *env,
         /* prepare lcfg */
 	lustre_cfg_bufs_reset(&mgi->mgi_bufs, mti->mti_svname);
 	lustre_cfg_bufs_set_string(&mgi->mgi_bufs, 1, param);
-	lcfg = lustre_cfg_new(LCFG_SPTLRPC_CONF, &mgi->mgi_bufs);
-        if (lcfg == NULL)
-                GOTO(out_comment, rc = -ENOMEM);
+	lcfg = lustre_cfg_rec_new(LCFG_SPTLRPC_CONF, &mgi->mgi_bufs);
+	if (lcfg == NULL)
+		GOTO(out_comment, rc = -ENOMEM);
 
-        /* construct log name */
-        rc = name_create(&logname, mti->mti_fsname, "-sptlrpc");
-        if (rc)
-                GOTO(out_lcfg, rc);
+	/* construct log name */
+	rc = name_create(&logname, mti->mti_fsname, "-sptlrpc");
+	if (rc < 0)
+		GOTO(out_lcfg, rc);
 
 	if (mgs_log_is_empty(env, mgs, logname)) {
 		rc = record_start_log(env, mgs, &llh, logname);
-                if (rc)
-                        GOTO(out, rc);
+		if (rc < 0)
+			GOTO(out, rc);
 		record_end_log(env, &llh);
-        }
+	}
 
-        /* obsolete old one */
+	/* obsolete old one */
 	rc = mgs_modify(env, mgs, fsdb, mti, logname, mti->mti_svname,
 			comment, CM_SKIP);
 	if (rc < 0)
 		GOTO(out, rc);
-        /* write the new one */
+	/* write the new one */
 	rc = mgs_write_log_direct(env, mgs, fsdb, logname, lcfg,
-                                  mti->mti_svname, comment);
+				  mti->mti_svname, comment);
 	if (rc)
-		CERROR("err %d writing log %s\n", rc, logname);
+		CERROR("%s: error writing log %s: rc = %d\n",
+		       mgs->mgs_obd->obd_name, logname, rc);
 out:
-        name_destroy(&logname);
+	name_destroy(&logname);
 out_lcfg:
-        lustre_cfg_free(lcfg);
+	lustre_cfg_rec_free(lcfg);
 out_comment:
-        OBD_FREE(comment, len + 1);
-        RETURN(rc);
+	OBD_FREE(comment, len + 1);
+	RETURN(rc);
 }
 
 static int mgs_srpc_set_param_udesc_mem(struct fs_db *fsdb,
@@ -3135,8 +3172,7 @@ static int mgs_srpc_read_handler(const struct lu_env *env,
                 RETURN(-EINVAL);
         }
 
-        cfg_len = rec->lrh_len - sizeof(struct llog_rec_hdr) -
-                  sizeof(struct llog_rec_tail);
+	cfg_len = REC_DATA_LEN(rec);
 
         rc = lustre_cfg_sanity_check(lcfg, cfg_len);
         if (rc) {

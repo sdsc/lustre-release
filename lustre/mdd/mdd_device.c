@@ -1375,10 +1375,7 @@ static int mdd_changelog_user_purge_cb(const struct lu_env *env,
         CDEBUG(D_IOCTL, "Rewriting changelog user %d endrec to "LPU64"\n",
                mcud->mcud_id, rec->cur_endrec);
 
-        /* hdr+1 is loc of data */
-        hdr->lrh_len -= sizeof(*hdr) + sizeof(struct llog_rec_tail);
-	rc = llog_write(env, llh, hdr, NULL, 0, (void *)(hdr + 1),
-			hdr->lrh_index);
+	rc = llog_write(env, llh, hdr, NULL, 0, NULL, hdr->lrh_index);
 
         RETURN(rc);
 }

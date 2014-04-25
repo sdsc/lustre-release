@@ -67,21 +67,10 @@ static int llog_cat_new_log(const struct lu_env *env,
 			    struct thandle *th)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
-	struct llog_logid_rec *rec = &lgi->lgi_logid;
-        struct llog_log_hdr *llh;
-        int rc, index, bitmap_size;
-        ENTRY;
+	struct llog_logid_rec	*rec = &lgi->lgi_logid;
+	int			 rc;
 
-        llh = cathandle->lgh_hdr;
-        bitmap_size = LLOG_BITMAP_SIZE(llh);
-
-        index = (cathandle->lgh_last_idx + 1) % bitmap_size;
-
-        /* maximum number of available slots in catlog is bitmap_size - 2 */
-        if (llh->llh_cat_idx == index) {
-                CERROR("no free catalog slots for log...\n");
-		RETURN(-ENOSPC);
-	}
+	ENTRY;
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_LLOG_CREATE_FAILED))
 		RETURN(-ENOSPC);
@@ -102,41 +91,23 @@ static int llog_cat_new_log(const struct lu_env *env,
         if (rc)
                 GOTO(out_destroy, rc);
 
-        if (index == 0)
-                index = 1;
-
-	spin_lock(&loghandle->lgh_hdr_lock);
-	llh->llh_count++;
-	if (ext2_set_bit(index, llh->llh_bitmap)) {
-		CERROR("argh, index %u already set in log bitmap?\n",
-		       index);
-		spin_unlock(&loghandle->lgh_hdr_lock);
-		LBUG(); /* should never happen */
-	}
-	spin_unlock(&loghandle->lgh_hdr_lock);
-
-        cathandle->lgh_last_idx = index;
-        llh->llh_tail.lrt_index = index;
-
-	CDEBUG(D_RPCTRACE,"new recovery log "DOSTID":%x for index %u of catalog"
-	       DOSTID"\n", POSTID(&loghandle->lgh_id.lgl_oi),
-	       loghandle->lgh_id.lgl_ogen, index,
-	       POSTID(&cathandle->lgh_id.lgl_oi));
 	/* build the record for this log in the catalog */
 	rec->lid_hdr.lrh_len = sizeof(*rec);
-	rec->lid_hdr.lrh_index = index;
 	rec->lid_hdr.lrh_type = LLOG_LOGID_MAGIC;
 	rec->lid_id = loghandle->lgh_id;
-	rec->lid_tail.lrt_len = sizeof(*rec);
-	rec->lid_tail.lrt_index = index;
 
         /* update the catalog: header and record */
 	rc = llog_write_rec(env, cathandle, &rec->lid_hdr,
-			    &loghandle->u.phd.phd_cookie, 1, NULL, index, th);
+			    &loghandle->u.phd.phd_cookie, 1, NULL, -1, th);
 	if (rc < 0)
 		GOTO(out_destroy, rc);
 
-	loghandle->lgh_hdr->llh_cat_idx = index;
+	CDEBUG(D_OTHER, "new recovery log "DOSTID":%x for index %u of catalog"
+	       DOSTID"\n", POSTID(&loghandle->lgh_id.lgl_oi),
+	       loghandle->lgh_id.lgl_ogen, rec->lid_hdr.lrh_index,
+	       POSTID(&cathandle->lgh_id.lgl_oi));
+
+	loghandle->lgh_hdr->llh_cat_idx = rec->lid_hdr.lrh_index;
 	RETURN(0);
 out_destroy:
 	llog_destroy(env, loghandle);

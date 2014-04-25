@@ -1653,6 +1653,8 @@ int class_config_llog_handler(const struct lu_env *env,
                 }
 
                 lcfg_new = lustre_cfg_new(lcfg->lcfg_command, &bufs);
+		if (lcfg_new == NULL)
+			GOTO(out, rc = -ENOMEM);
 
                 lcfg_new->lcfg_num   = lcfg->lcfg_num;
                 lcfg_new->lcfg_flags = lcfg->lcfg_flags;
