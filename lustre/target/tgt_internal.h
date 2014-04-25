@@ -62,6 +62,7 @@ struct tx_arg {
 	union {
 		struct {
 			const struct dt_rec	*rec;
+			__u32			 mode;
 			const struct dt_key	*key;
 		} insert;
 		struct {
@@ -136,6 +137,7 @@ struct tgt_thread_info {
 		} update;
 	} tti_u;
 	struct lfsck_request tti_lr;
+	struct dt_insert_rec tti_dir;
 };
 
 extern struct lu_context_key tgt_thread_key;
@@ -193,8 +195,8 @@ int out_handle(struct tgt_session_info *tsi);
 #define out_tx_ref_del(info, obj, th, reply, idx) \
 	__out_tx_ref_del(info, obj, th, reply, idx, __FILE__, __LINE__)
 
-#define out_tx_index_insert(info, obj, th, name, fid, reply, idx) \
-	__out_tx_index_insert(info, obj, th, name, fid, reply, idx, \
+#define out_tx_index_insert(info, obj, th, name, fid, mode, reply, idx) \
+	__out_tx_index_insert(info, obj, th, name, fid, mode, reply, idx, \
 			      __FILE__, __LINE__)
 
 #define out_tx_index_delete(info, obj, th, name, reply, idx) \
