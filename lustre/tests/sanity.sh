@@ -29,8 +29,8 @@ is_sles11()						# LU-4351
 	return 1
 }
 
-if is_sles11; then					# LU-4351
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 54c"
+if is_sles11; then				# LU-4351, LU-4713
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 54c 237"
 fi
 
 SRCDIR=$(cd $(dirname $0); echo $PWD)
