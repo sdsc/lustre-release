@@ -1749,10 +1749,10 @@ int lfsck_set_windows(struct dt_device *key, int val)
 	lfsck = lfsck_instance_find(key, true, false);
 	if (likely(lfsck != NULL)) {
 		if (val > LFSCK_ASYNC_WIN_MAX) {
-			CERROR("%s: Too large async windows size, which "
+			CERROR("%s: Too large async window size, which "
 			       "may cause memory issues. The valid range "
 			       "is [0 - %u]. If you do not want to restrict "
-			       "the windows size for async requests pipeline, "
+			       "the window size for async requests pipeline, "
 			       "just set it as 0.\n",
 			       lfsck_lfsck2name(lfsck), LFSCK_ASYNC_WIN_MAX);
 			rc = -EINVAL;

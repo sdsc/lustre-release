@@ -54,7 +54,7 @@ static struct option long_opt_start[] = {
 	{"speed",       required_argument, 0, 's'},
 	{"all", 	no_argument,       0, 'A'},
 	{"type",	required_argument, 0, 't'},
-	{"windows",	required_argument, 0, 'w'},
+	{"window-size", required_argument, 0, 'w'},
 	{"orphan", 	no_argument,       0, 'o'},
 	{0,		0,		   0,   0}
 };
@@ -100,7 +100,8 @@ static void usage_start(void)
 		"	     [-n | --dryrun switch] [-r | --reset]\n"
 		"	     [-s | --speed speed_limit] [-A | --all]\n"
 		"	     [-t | --type lfsck_type[,lfsck_type...]]\n"
-		"	     [-w | --windows win_size] [-o | --orphan]\n"
+		"	     [-w | --window | --window_size win_size]\n"
+		"	     [-o | --orphan]\n"
 		"OPTIONS:\n"
 		"-M: The device to start LFSCK/scrub on.\n"
 		"-e: Error handle, 'continue'(default) or 'abort'.\n"
@@ -111,7 +112,7 @@ static void usage_start(void)
 		    "'%d' means no limit (default).\n"
 		"-A: Start LFSCK on all MDT devices.\n"
 		"-t: The LFSCK type(s) to be started.\n"
-		"-w: The windows size for async requests pipeline.\n"
+		"-w: The window size for async requests pipeline.\n"
 		"-o: handle orphan objects.\n",
 		LFSCK_SPEED_NO_LIMIT);
 }
@@ -251,11 +252,11 @@ int jt_lfsck_start(int argc, char **argv)
 			val = atoi(optarg);
 			if (val < 0 || val > LFSCK_ASYNC_WIN_MAX) {
 				fprintf(stderr,
-					"Too large async windows size, "
+					"Too large async window size, "
 					"which may cause memory issues. "
 					"The valid range is [0 - %u]. "
 					"If you do not want to restrict "
-					"the windows size for async reqeusts "
+					"the window size for async reqeusts "
 					"pipeline, just set it as 0.\n",
 					LFSCK_ASYNC_WIN_MAX);
 				return -EINVAL;
