@@ -241,27 +241,6 @@ static int llog_test_3(const struct lu_env *env, struct obd_device *obd,
 	if (rc)
 		RETURN(rc);
 
-	CWARN("3b: write 10 cfg log records with 8 bytes bufs\n");
-	for (i = 0; i < 10; i++) {
-		struct llog_rec_hdr	hdr;
-		char			buf[8];
-
-		hdr.lrh_len = 8;
-		hdr.lrh_type = OBD_CFG_REC;
-		memset(buf, 0, sizeof buf);
-		rc = llog_write(env, llh, &hdr, NULL, 0, buf, -1);
-		if (rc < 0) {
-			CERROR("3b: write 10 records failed at #%d: %d\n",
-			       i + 1, rc);
-			RETURN(rc);
-		}
-		num_recs++;
-	}
-
-	rc = verify_handle("3b", llh, num_recs);
-	if (rc)
-		RETURN(rc);
-
 	CWARN("3c: write 1000 more log records\n");
 	for (i = 0; i < 1000; i++) {
 		rc = llog_write(env, llh, &lgr.lgr_hdr, NULL, 0, NULL, -1);
@@ -277,23 +256,20 @@ static int llog_test_3(const struct lu_env *env, struct obd_device *obd,
 	if (rc)
 		RETURN(rc);
 
-	CWARN("3d: write log more than BITMAP_SIZE, return -ENOSPC\n");
+	CWARN("3d: write records with variable size until BITMAP_SIZE, "
+	      "return -ENOSPC\n");
 	for (i = 0; i < LLOG_BITMAP_SIZE(llh->lgh_hdr) + 1; i++) {
-		struct llog_rec_hdr	hdr;
-		char			buf_even[24];
-		char			buf_odd[32];
+		char			 buf[64];
+		struct llog_rec_hdr	*hdr = (void *)&buf;
 
-		memset(buf_odd, 0, sizeof buf_odd);
-		memset(buf_even, 0, sizeof buf_even);
-		if ((i % 2) == 0) {
-			hdr.lrh_len = 24;
-			hdr.lrh_type = OBD_CFG_REC;
-			rc = llog_write(env, llh, &hdr, NULL, 0, buf_even, -1);
-		} else {
-			hdr.lrh_len = 32;
-			hdr.lrh_type = OBD_CFG_REC;
-			rc = llog_write(env, llh, &hdr, NULL, 0, buf_odd, -1);
-		}
+		memset(buf, 0, sizeof buf);
+		if ((i % 2) == 0)
+			hdr->lrh_len = 40;
+		else
+			hdr->lrh_len = 64;
+		hdr->lrh_type = OBD_CFG_REC;
+		rc = llog_write(env, llh, hdr, NULL, 0, NULL, -1);
+
 		if (rc == -ENOSPC) {
 			break;
 		} else if (rc < 0) {
@@ -326,7 +302,7 @@ static int llog_test_4(const struct lu_env *env, struct obd_device *obd)
 	struct llog_ctxt	*ctxt;
 	int			 num_recs = 0;
 	char			*buf;
-	struct llog_rec_hdr	 rec;
+	struct llog_rec_hdr	*rec;
 
 	ENTRY;
 
@@ -396,15 +372,15 @@ static int llog_test_4(const struct lu_env *env, struct obd_device *obd)
 		GOTO(out, rc);
 
 	CWARN("4e: add 5 large records, one record per block\n");
-	buflen = LLOG_CHUNK_SIZE - sizeof(struct llog_rec_hdr) -
-		 sizeof(struct llog_rec_tail);
+	buflen = LLOG_CHUNK_SIZE;
 	OBD_ALLOC(buf, buflen);
 	if (buf == NULL)
 		GOTO(out, rc = -ENOMEM);
 	for (i = 0; i < 5; i++) {
-		rec.lrh_len = buflen;
-		rec.lrh_type = OBD_CFG_REC;
-		rc = llog_cat_add(env, cath, &rec, NULL, buf);
+		rec = (void *)buf;
+		rec->lrh_len = buflen;
+		rec->lrh_type = OBD_CFG_REC;
+		rc = llog_cat_add(env, cath, rec, NULL, NULL);
 		if (rc) {
 			CERROR("4e: write 5 records failed at #%d: %d\n",
 			       i + 1, rc);
