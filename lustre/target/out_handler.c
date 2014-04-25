@@ -894,20 +894,25 @@ static int out_ref_del(struct tgt_session_info *tsi)
 static int out_obj_index_insert(const struct lu_env *env,
 				struct dt_object *dt_obj,
 				const struct dt_rec *rec,
+				__u32 mode,
 				const struct dt_key *key,
 				struct thandle *th)
 {
-	int rc;
+	struct dt_insert_rec *dir = &tgt_th_info(env)->tti_dir;
+	int		      rc;
 
-	CDEBUG(D_INFO, "%s: index insert "DFID" name: %s fid "DFID"\n",
+	dir->dir_fid = (const struct lu_fid *)rec;
+	dir->dir_mode = mode;
+	CDEBUG(D_INFO, "%s: index insert "DFID" name: %s fid "DFID", mode %u\n",
 	       dt_obd_name(th->th_dev), PFID(lu_object_fid(&dt_obj->do_lu)),
-	       (char *)key, PFID((struct lu_fid *)rec));
+	       (char *)key, PFID(dir->dir_fid), mode);
 
 	if (dt_try_as_dir(env, dt_obj) == 0)
 		return -ENOTDIR;
 
 	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
-	rc = dt_insert(env, dt_obj, rec, key, th, NULL, 0);
+	rc = dt_insert(env, dt_obj, (const struct dt_rec *)dir, key, th,
+		       NULL, 0);
 	dt_write_unlock(env, dt_obj);
 
 	return rc;
@@ -941,6 +946,7 @@ static int out_tx_index_insert_exec(const struct lu_env *env,
 	int rc;
 
 	rc = out_obj_index_insert(env, dt_obj, arg->u.insert.rec,
+				  arg->u.insert.mode,
 				  arg->u.insert.key, th);
 
 	CDEBUG(D_INFO, "%s: insert idx insert reply %p index %d: rc = %d\n",
@@ -959,13 +965,14 @@ static int out_tx_index_insert_undo(const struct lu_env *env,
 
 static int __out_tx_index_insert(const struct lu_env *env,
 				 struct dt_object *dt_obj,
-				 char *name, struct lu_fid *fid,
+				 char *name, struct lu_fid *fid, __u32 mode,
 				 struct thandle_exec_args *ta,
 				 struct object_update_reply *reply,
 				 int index, const char *file, int line)
 {
-	struct tx_arg	*arg;
-	int		rc;
+	struct dt_insert_rec	*dir = &tgt_th_info(env)->tti_dir;
+	struct tx_arg		*arg;
+	int			 rc;
 
 	LASSERT(ta->ta_handle != NULL);
 	if (dt_try_as_dir(env, dt_obj) == 0) {
@@ -973,8 +980,10 @@ static int __out_tx_index_insert(const struct lu_env *env,
 		return rc;
 	}
 
-	rc = dt_declare_insert(env, dt_obj, (struct dt_rec *)fid,
-			       (struct dt_key *)name, ta->ta_handle);
+	dir->dir_fid = fid;
+	dir->dir_mode = mode;
+	rc = dt_declare_insert(env, dt_obj, (const struct dt_rec *)dir,
+			       (const struct dt_key *)name, ta->ta_handle);
 	if (rc != 0)
 		return rc;
 
@@ -988,6 +997,7 @@ static int __out_tx_index_insert(const struct lu_env *env,
 	arg->reply = reply;
 	arg->index = index;
 	arg->u.insert.rec = (struct dt_rec *)fid;
+	arg->u.insert.mode = mode;
 	arg->u.insert.key = (struct dt_key *)name;
 
 	return 0;
@@ -1000,6 +1010,7 @@ static int out_index_insert(struct tgt_session_info *tsi)
 	struct dt_object  *obj = tti->tti_u.update.tti_dt_object;
 	struct lu_fid	  *fid;
 	char		  *name;
+	__u32		   mode;
 	int		   rc = 0;
 	int		   size;
 
@@ -1028,7 +1039,28 @@ static int out_index_insert(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	rc = out_tx_index_insert(tsi->tsi_env, obj, name, fid,
+	/* The old DNE that only supports remote directroy will
+	 * not transfer the child object type to the remote MDT,
+	 * instead, S_IFDIR would be used by default. */
+	if (update->ou_params_count > 2) {
+		__u32 *pmode;
+
+		pmode = object_update_param_get(update, 2, &size);
+		if (pmode == NULL || size != sizeof(*pmode)) {
+			CERROR("%s: invalid mode for index insert: rc = %d\n",
+			       tgt_name(tsi->tsi_tgt), -EPROTO);
+			RETURN(err_serious(-EPROTO));
+		}
+
+		if (ptlrpc_req_need_swab(tsi->tsi_pill->rc_req))
+			__swab32s(pmode);
+
+		mode = *pmode;
+	} else {
+		mode = S_IFDIR;
+	}
+
+	rc = out_tx_index_insert(tsi->tsi_env, obj, name, fid, mode,
 				 &tti->tti_tea,
 				 tti->tti_u.update.tti_update_reply,
 				 tti->tti_u.update.tti_update_reply_index);
