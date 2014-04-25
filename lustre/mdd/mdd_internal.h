@@ -151,6 +151,7 @@ struct mdd_thread_info {
 	struct dt_object_format   mti_dof;
 	struct linkea_data	  mti_link_data;
 	struct md_op_spec	  mti_spec;
+	struct dt_insert_rec	  mti_dir;
 };
 
 extern const char orph_index_name[];
@@ -603,7 +604,7 @@ int mdo_xattr_list(const struct lu_env *env, struct mdd_object *obj,
 
 static inline
 int mdo_declare_index_insert(const struct lu_env *env, struct mdd_object *obj,
-                             const struct lu_fid *fid, const char *name,
+			     const struct dt_rec *rec, const char *name,
                              struct thandle *handle)
 {
         struct dt_object *next = mdd_object_child(obj);
@@ -622,13 +623,12 @@ int mdo_declare_index_insert(const struct lu_env *env, struct mdd_object *obj,
 	 if (mdd_object_exists(obj) || mdd_object_remote(obj)) {
                 rc = -ENOTDIR;
                 if (dt_try_as_dir(env, next))
-                        rc = dt_declare_insert(env, next,
-                                               (struct dt_rec *)fid,
-                                               (const struct dt_key *)name,
-                                               handle);
-        }
+                        rc = dt_declare_insert(env, next, rec,
+					       (const struct dt_key *)name,
+					       handle);
+	 }
 
-        return rc;
+	 return rc;
 }
 
 static inline

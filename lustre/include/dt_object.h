@@ -1547,6 +1547,20 @@ struct dt_find_hint {
 	struct dt_object     *dfh_o;
 };
 
+struct dt_insert_rec {
+	union {
+		const struct lu_fid	*dir_fid;
+		void			*dir_rec;
+	};
+	union {
+		struct {
+			__u32		 dir_mode;
+			__u32		 dir_padding;
+		};
+		__u64			 dir_misc;
+	};
+};
+
 struct dt_thread_info {
 	char                     dti_buf[DT_MAX_PATH];
 	struct dt_find_hint      dti_dfh;
@@ -1557,6 +1571,7 @@ struct dt_thread_info {
 	struct lu_buf            dti_lb;
 	struct lu_object_conf	 dti_conf;
 	loff_t                   dti_off;
+	struct dt_insert_rec	 dti_dir;
 };
 
 extern struct lu_context_key dt_key;
