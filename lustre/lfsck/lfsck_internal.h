@@ -575,6 +575,7 @@ struct lfsck_thread_info {
 	};
 	struct dt_allocation_hint lti_hint;
 	struct lu_orphan_rec	lti_rec;
+	struct dt_insert_rec	lti_dir;
 };
 
 /* lfsck_lib.c */

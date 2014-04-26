@@ -1282,6 +1282,7 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 	struct lu_buf		slave_lmv_buf;
 	struct lmv_mds_md_v1	*lmm;
 	struct lmv_mds_md_v1	*slave_lmm = NULL;
+	struct dt_insert_rec	*dir = &info->lti_dir;
 	int			stripe_count;
 	int			*idx_array;
 	int			rc = 0;
@@ -1426,6 +1427,7 @@ next:
 	if (!dt_try_as_dir(env, dt_object_child(dt)))
 		GOTO(out_put, rc = -EINVAL);
 
+	dir->dir_type = S_IFDIR;
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		struct dt_object *dto = stripe[i];
 		char		 *stripe_name = info->lti_key;
@@ -1437,16 +1439,16 @@ next:
 		if (!dt_try_as_dir(env, dto))
 			GOTO(out_put, rc = -EINVAL);
 
-		rc = dt_declare_insert(env, dto,
-		     (const struct dt_rec *)lu_object_fid(&dto->do_lu),
-		     (const struct dt_key *)dot, th);
+		dir->dir_fid = lu_object_fid(&dto->do_lu);
+		rc = dt_declare_insert(env, dto, (const struct dt_rec *)dir,
+				       (const struct dt_key *)dot, th);
 		if (rc != 0)
 			GOTO(out_put, rc);
 
 		/* master stripe FID will be put to .. */
-		rc = dt_declare_insert(env, dto,
-		     (const struct dt_rec *)lu_object_fid(&dt->do_lu),
-		     (const struct dt_key *)dotdot, th);
+		dir->dir_fid = lu_object_fid(&dt->do_lu);
+		rc = dt_declare_insert(env, dto, (const struct dt_rec *)dir,
+				       (const struct dt_key *)dotdot, th);
 		if (rc != 0)
 			GOTO(out_put, rc);
 
@@ -1495,9 +1497,10 @@ next:
 
 		snprintf(stripe_name, sizeof(info->lti_key), DFID":%d",
 			PFID(lu_object_fid(&dto->do_lu)), i);
+		dir->dir_fid = lu_object_fid(&dto->do_lu);
 		rc = dt_declare_insert(env, dt_object_child(dt),
-		     (const struct dt_rec *)lu_object_fid(&dto->do_lu),
-		     (const struct dt_key *)stripe_name, th);
+				       (const struct dt_rec *)dir,
+				       (const struct dt_key *)stripe_name, th);
 		if (rc != 0)
 			GOTO(out_put, rc);
 
@@ -1853,6 +1856,7 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 	struct lu_buf		slave_lmv_buf;
 	struct lmv_mds_md_v1	*lmm;
 	struct lmv_mds_md_v1	*slave_lmm = NULL;
+	struct dt_insert_rec	*dir = &info->lti_dir;
 	int			i;
 	int			rc;
 	ENTRY;
@@ -1885,6 +1889,7 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 	slave_lmv_buf.lb_buf = slave_lmm;
 	slave_lmv_buf.lb_len = sizeof(*slave_lmm);
 
+	dir->dir_type = S_IFDIR;
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		struct dt_object *dto;
 		char		 *stripe_name = info->lti_key;
@@ -1896,15 +1901,15 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 		if (rc != 0)
 			RETURN(rc);
 
-		rc = dt_insert(env, dto,
-			      (const struct dt_rec *)lu_object_fid(&dto->do_lu),
-			      (const struct dt_key *)dot, th, capa, 0);
+		dir->dir_fid = lu_object_fid(&dto->do_lu);
+		rc = dt_insert(env, dto, (const struct dt_rec *)dir,
+			       (const struct dt_key *)dot, th, capa, 0);
 		if (rc != 0)
 			RETURN(rc);
 
-		rc = dt_insert(env, dto,
-			      (struct dt_rec *)lu_object_fid(&dt->do_lu),
-			      (const struct dt_key *)dotdot, th, capa, 0);
+		dir->dir_fid = lu_object_fid(&dt->do_lu);
+		rc = dt_insert(env, dto, (struct dt_rec *)dir,
+			       (const struct dt_key *)dotdot, th, capa, 0);
 		if (rc != 0)
 			RETURN(rc);
 
@@ -1950,9 +1955,10 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 
 		snprintf(stripe_name, sizeof(info->lti_key), DFID":%d",
 			 PFID(lu_object_fid(&dto->do_lu)), i);
+		dir->dir_fid = lu_object_fid(&dto->do_lu);
 		rc = dt_insert(env, dt_object_child(dt),
-		     (const struct dt_rec *)lu_object_fid(&dto->do_lu),
-		     (const struct dt_key *)stripe_name, th, capa, 0);
+			       (const struct dt_rec *)dir,
+			       (const struct dt_key *)stripe_name, th, capa, 0);
 		if (rc != 0)
 			GOTO(out, rc);
 
