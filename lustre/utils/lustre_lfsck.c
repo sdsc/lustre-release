@@ -38,12 +38,12 @@
 #include <getopt.h>
 #include <time.h>
 
-#include "obdctl.h"
-
-#include <obd.h>
-#include <lustre/lustre_lfsck_user.h>
 #include <libcfs/libcfsutil.h>
 #include <lnet/lnetctl.h>
+#include <lustre/lustre_lfsck_user.h>
+#include <lustre/lustre_user.h>
+#include <lustre_lib.h>
+#include "obdctl.h"
 
 static struct option long_opt_start[] = {
 	{"device",      required_argument, 0, 'M'},

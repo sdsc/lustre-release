@@ -41,36 +41,27 @@
  * Author: Robert Read <rread@clusterfs.com>
  */
 
+#include <ctype.h>
+#include <errno.h>
+#include <glob.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
-#include <stdio.h>
-#include <stdarg.h>
-#include <ctype.h>
-#include <glob.h>
+#include <sys/time.h>
+#include <sys/un.h>
 
-#ifndef __KERNEL__
-#include <liblustre.h>
-#endif
+#include <libcfs/libcfsutil.h>
+#include <lnet/lnetctl.h>
+#include <lustre/lustre_build_version.h>
+#include <lustre/lustre_idl.h>
 #include <lustre_lib.h>
 #include <lustre_cfg.h>
-#include <lustre/lustre_idl.h>
-#include <lustre_dlm.h>
-#include <obd.h>          /* for struct lov_stripe_md */
-#include <lustre/lustre_build_version.h>
-
-#include <unistd.h>
-#include <sys/un.h>
-#include <time.h>
-#include <sys/time.h>
-#include <errno.h>
-#include <string.h>
-
-
 #include "obdctl.h"
-#include <lnet/lnetctl.h>
-#include <libcfs/libcfsutil.h>
-#include <stdio.h>
 
 static char * lcfg_devname;
 
@@ -304,11 +295,6 @@ int jt_lcfg_add_uuid(int argc, char **argv)
         }
 
         return do_add_uuid(argv[0], argv[1], nid);
-}
-
-int obd_add_uuid(char *uuid, lnet_nid_t nid)
-{
-        return do_add_uuid("obd_add_uuid", uuid, nid);
 }
 
 int jt_lcfg_del_uuid(int argc, char **argv)

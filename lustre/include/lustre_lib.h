@@ -49,7 +49,7 @@
 #include <libcfs/libcfs.h>
 #include <lustre/lustre_idl.h>
 #include <lustre_ver.h>
-#include <lustre_cfg.h>
+
 #if defined(__linux__)
 #include <linux/lustre_lib.h>
 #elif defined(__APPLE__)
@@ -60,15 +60,18 @@
 #error Unsupported operating system.
 #endif
 
-/* target.c */
-struct ptlrpc_request;
-struct obd_export;
-struct lu_target;
+struct kstatfs;
 struct l_wait_info;
-#include <lustre_ha.h>
-#include <lustre_net.h>
+struct lu_target;
+struct obd_device;
+struct obd_export;
+struct obd_import;
+struct ptlrpc_bulk_desc;
+struct ptlrpc_request;
+struct ptlrpc_request_set;
 
 #ifdef HAVE_SERVER_SUPPORT
+/* target.c */
 void target_client_add_cb(struct obd_device *obd, __u64 transno, void *cb_data,
                           int error);
 int target_handle_connect(struct ptlrpc_request *req);
@@ -135,6 +138,7 @@ enum md_echo_cmd {
  *   OBD IOCTLS
  */
 #define OBD_IOCTL_VERSION 0x00010004
+#define OBD_DEV_BY_DEVNAME 0xffffd0de
 
 struct obd_ioctl_data {
         __u32 ioc_len;

@@ -217,6 +217,11 @@ struct ost_id {
  * *INFO    - set/get lov_user_mds_data
  */
 /* see <lustre_lib.h> for ioctl numberss 101-150 */
+#define IOC_LDLM_TEST                   _IOWR('f', 40, long) /* unused */
+#define IOC_LDLM_DUMP                   _IOWR('f', 41, long) /* unused */
+#define IOC_LDLM_REGRESS_START          _IOWR('f', 42, long)
+#define IOC_LDLM_REGRESS_STOP           _IOWR('f', 43, long)
+
 #define LL_IOC_GETFLAGS                 _IOR ('f', 151, long)
 #define LL_IOC_SETFLAGS                 _IOW ('f', 152, long)
 #define LL_IOC_CLRFLAGS                 _IOW ('f', 153, long)

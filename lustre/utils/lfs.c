@@ -45,36 +45,34 @@
 #define _GNU_SOURCE
 #endif
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <getopt.h>
-#include <string.h>
-#include <mntent.h>
-#include <errno.h>
-#include <err.h>
-#include <pwd.h>
-#include <grp.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <dirent.h>
-#include <time.h>
 #include <ctype.h>
+#include <dirent.h>
+#include <err.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <getopt.h>
+#include <grp.h>
+#include <mntent.h>
+#include <pwd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #ifdef HAVE_SYS_QUOTA_H
 # include <sys/quota.h>
 #endif
 
-/* For dirname() */
-#include <libgen.h>
-
-#include <lnet/lnetctl.h>
-
-#include <liblustre.h>
-#include <lustre/lustreapi.h>
-
 #include <libcfs/libcfsutil.h>
-#include <obd.h>
+#include <lustre/lustre_idl.h>
+#include <lustre/lustreapi.h>
+#include <lustre_ver.h>
 #include "obdctl.h"
+
+#ifdef LIBLUSTRE_H__
+#error XXX
+#endif
 
 /* all functions */
 static int lfs_setstripe(int argc, char **argv);
@@ -3803,23 +3801,21 @@ static int lfs_swap_layouts(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-        int rc;
+	int rc;
 
-        setlinebuf(stdout);
+	setlinebuf(stdout);
 
-        ptl_initialize(argc, argv);
-        if (obd_initialize(argc, argv) < 0)
-                exit(2);
+	if (obd_initialize(argc, argv) < 0)
+		exit(2);
 
-        Parser_init("lfs > ", cmdlist);
+	Parser_init("lfs > ", cmdlist);
 
-        if (argc > 1) {
-                rc = Parser_execarg(argc - 1, argv + 1, cmdlist);
-        } else {
-                rc = Parser_commands();
-        }
+	if (argc > 1)
+		rc = Parser_execarg(argc - 1, argv + 1, cmdlist);
+	else
+		rc = Parser_commands();
 
-        obd_finalize(argc, argv);
-        return rc < 0 ? -rc : rc;
+	obd_finalize(argc, argv);
+
+	return rc < 0 ? -rc : rc;
 }
-

@@ -2830,8 +2830,7 @@ echo_client_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 if (!cfs_capable(CFS_CAP_SYS_ADMIN))
                         GOTO (out, rc = -EPERM);
 
-                rc = echo_create_object(env, ed, 1, oa, data->ioc_pbuf1,
-                                        data->ioc_plen1, &dummy_oti);
+		rc = echo_create_object(env, ed, 1, oa, NULL, 0, &dummy_oti);
                 GOTO(out, rc);
 
 #ifdef HAVE_SERVER_SUPPORT

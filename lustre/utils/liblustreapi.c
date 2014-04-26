@@ -69,10 +69,9 @@
 #endif
 #include <poll.h>
 
-#include <liblustre.h>
 #include <lnet/lnetctl.h>
-#include <obd.h>
 #include <lustre/lustreapi.h>
+#include <lustre_lib.h>
 #include "lustreapi_internal.h"
 
 static unsigned llapi_dir_filetype_table[] = {
@@ -296,7 +295,7 @@ int llapi_stripe_limit_check(unsigned long long stripe_size, int stripe_offset,
 				stripe_size, page_size);
 		return rc;
 	}
-	if (stripe_offset < -1 || stripe_offset > MAX_OBD_DEVICES) {
+	if (stripe_offset < -1) {
 		rc = -EINVAL;
 		llapi_error(LLAPI_MSG_ERROR, rc, "error: bad stripe offset %d",
 				stripe_offset);

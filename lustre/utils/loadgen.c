@@ -57,8 +57,9 @@
 #include <time.h>
 #include <sys/time.h>
 
-#include <lnet/lnetctl.h>
 #include <libcfs/libcfsutil.h>
+#include <lnet/lnetctl.h>
+#include <lustre_lib.h>
 #include "obdctl.h"
 
 static char cmdname[512];

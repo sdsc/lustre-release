@@ -50,9 +50,11 @@
 #include <errno.h>
 #include <string.h>
 #include "obdctl.h"
-#include <lustre_ver.h>
 #include <ctype.h>
 #include <limits.h>
+
+#include <lustre/lustre_idl.h>
+#include <lustre_ver.h>
 #if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 10, 51, 0)
 /*
  * LU-1783

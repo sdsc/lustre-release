@@ -57,8 +57,8 @@
 #include <sys/xattr.h>
 #include <sys/stat.h>
 
-#include <liblustre.h>
 #include <libcfs/list.h>
+#include <lustre/lustre_idl.h>
 
 #define MAX_GROUPS 64
 

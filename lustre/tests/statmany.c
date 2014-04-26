@@ -45,9 +45,7 @@
 #include <limits.h>
 #include <sys/ioctl.h>
 
-#include <liblustre.h>
 #include <lustre_lib.h>
-#include <obd.h>
 
 struct option longopts[] = {
 	{"ea", 0, 0, 'e'},

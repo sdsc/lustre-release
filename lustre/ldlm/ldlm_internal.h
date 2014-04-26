@@ -33,6 +33,10 @@
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
+#ifndef LDLM_INTERNAL_H_
+#define LDLM_INTERNAL_H_
+#include <lustre_dlm.h>
+#include <lustre_req_layout.h>
 
 #define MAX_STRING_SIZE 128
 
@@ -338,3 +342,5 @@ void ldlm_flock_policy_wire21_to_local(const ldlm_wire_policy_data_t *wpolicy,
 
 void ldlm_flock_policy_local_to_wire(const ldlm_policy_data_t *lpolicy,
                                      ldlm_wire_policy_data_t *wpolicy);
+
+#endif /* LDLM_INTERNAL_H_ */

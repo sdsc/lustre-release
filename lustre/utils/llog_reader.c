@@ -36,14 +36,15 @@
  /* Interpret configuration llogs */
 
 
+#include <fcntl.h>
 #include <stdio.h>
+#include <time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-
-#include <time.h>
-#include <liblustre.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_cfg.h>
+#include <lustre_ver.h>
+#include <liblustre.h>
 
 int llog_pack_buffer(int fd, struct llog_log_hdr **llog_buf,
                      struct llog_rec_hdr ***recs, int *recs_number);

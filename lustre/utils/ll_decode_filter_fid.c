@@ -46,8 +46,7 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/xattr.h>
-#include <liblustre.h>
-#include <lustre/lustre_user.h>
+#include <lustre/lustre_idl.h>
 
 int main(int argc, char *argv[])
 {

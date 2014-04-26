@@ -62,14 +62,15 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "obdctl.h"
-
-#include <obd.h>          /* for struct lov_stripe_md */
-#include <lustre/lustre_build_version.h>
-
-#include <lnet/lnetctl.h>
 #include <libcfs/libcfsutil.h>
+#include <lnet/lnetctl.h>
+#include <lustre/lustre_build_version.h>
 #include <lustre/lustreapi.h>
+#include <lustre_cfg.h>
+#include <lustre_lib.h>
+#include <liblustre.h>
+#include <obd.h> /* for struct lov_stripe_md */
+#include "obdctl.h"
 
 #define MAX_STRING_SIZE 128
 #define DEVICES_LIST "/proc/fs/lustre/devices"

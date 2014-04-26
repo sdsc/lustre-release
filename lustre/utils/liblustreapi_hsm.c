@@ -53,10 +53,9 @@
 #include <unistd.h>
 #endif
 
-#include <liblustre.h>
 #include <lnet/lnetctl.h>
-#include <obd.h>
 #include <lustre/lustreapi.h>
+#include <lustre/lustre_idl.h>
 #include "lustreapi_internal.h"
 
 #define OPEN_BY_FID_PATH dot_lustre_name"/fid"

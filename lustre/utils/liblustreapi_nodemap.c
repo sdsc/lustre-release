@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <liblustre.h>
+#include <lustre/lustre_idl.h>
 #include <lustre/lustreapi.h>
 #include "lustreapi_internal.h"
 

@@ -42,9 +42,11 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <lnet/lnetctl.h>
-#include "obdctl.h"
 #include <libcfs/libcfsutil.h>
+#include <lnet/lnetctl.h>
+#include <lustre/lustre_idl.h>
+#include <lustre_ver.h>
+#include "obdctl.h"
 
 static int jt_quit(int argc, char **argv) {
         Parser_quit(argc, argv);

@@ -40,7 +40,6 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 
-#include <liblustre.h>
 #include <lustre/lustre_user.h>
 
 #define MAX_HANDLE_SZ 128
