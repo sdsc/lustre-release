@@ -383,54 +383,43 @@ ksocknal_lib_zc_capable(ksock_conn_t *conn)
 int
 ksocknal_lib_send_iov (ksock_conn_t *conn, ksock_tx_t *tx)
 {
-        struct socket *sock = conn->ksnc_sock;
-        int            nob;
-        int            rc;
+	struct socket *sock = conn->ksnc_sock;
+	int            nob;
+	int            rc;
 
-        if (*ksocknal_tunables.ksnd_enable_csum        && /* checksum enabled */
-            conn->ksnc_proto == &ksocknal_protocol_v2x && /* V2.x connection  */
-            tx->tx_nob == tx->tx_resid                 && /* frist sending    */
-            tx->tx_msg.ksm_csum == 0)                     /* not checksummed  */
-                ksocknal_lib_csum_tx(tx);
+	if (*ksocknal_tunables.ksnd_enable_csum        && /* checksum enabled */
+	    conn->ksnc_proto == &ksocknal_protocol_v2x && /* V2.x connection  */
+	    tx->tx_nob == tx->tx_resid                 && /* frist sending    */
+	    tx->tx_msg.ksm_csum == 0)                     /* not checksummed  */
+		ksocknal_lib_csum_tx(tx);
 
-        /* NB we can't trust socket ops to either consume our iovs
-         * or leave them alone. */
+	/* NB we can't trust socket ops to either consume our iovs
+	 * or leave them alone. */
 
-        {
+	{
 #if SOCKNAL_SINGLE_FRAG_TX
-                struct iovec    scratch;
-                struct iovec   *scratchiov = &scratch;
-                unsigned int    niov = 1;
+		struct iovec    scratch;
+		struct iovec   *scratchiov = &scratch;
+		unsigned int    niov = 1;
 #else
-                struct iovec   *scratchiov = conn->ksnc_scheduler->kss_scratch_iov;
-                unsigned int    niov = tx->tx_niov;
+		struct iovec   *scratchiov = conn->ksnc_scheduler->kss_scratch_iov;
+		unsigned int    niov = tx->tx_niov;
 #endif
-                struct msghdr msg = {
-                        .msg_name       = NULL,
-                        .msg_namelen    = 0,
-                        .msg_iov        = scratchiov,
-                        .msg_iovlen     = niov,
-                        .msg_control    = NULL,
-                        .msg_controllen = 0,
-                        .msg_flags      = MSG_DONTWAIT
-                };
-                mm_segment_t oldmm = get_fs();
-                int  i;
+		struct msghdr msg = {.msg_flags = MSG_DONTWAIT};
+		int  i;
 
-                for (nob = i = 0; i < niov; i++) {
-                        scratchiov[i] = tx->tx_iov[i];
-                        nob += scratchiov[i].iov_len;
-                }
+		for (nob = i = 0; i < niov; i++) {
+			scratchiov[i] = tx->tx_iov[i];
+			nob += scratchiov[i].iov_len;
+		}
 
-                if (!cfs_list_empty(&conn->ksnc_tx_queue) ||
-                    nob < tx->tx_resid)
-                        msg.msg_flags |= MSG_MORE;
+		if (!list_empty(&conn->ksnc_tx_queue) ||
+		    nob < tx->tx_resid)
+			msg.msg_flags |= MSG_MORE;
 
-                set_fs (KERNEL_DS);
-                rc = sock_sendmsg(sock, &msg, nob);
-                set_fs (oldmm);
-        }
-        return rc;
+		rc = kernel_sendmsg(sock, &msg, (struct kvec *)scratchiov, niov, nob);
+	}
+	return rc;
 }
 
 int
@@ -477,20 +466,11 @@ ksocknal_lib_send_kiov (ksock_conn_t *conn, ksock_tx_t *tx)
 #ifdef CONFIG_HIGHMEM
 #warning "XXX risk of kmap deadlock on multiple frags..."
 #endif
-                struct iovec *scratchiov = conn->ksnc_scheduler->kss_scratch_iov;
-                unsigned int  niov = tx->tx_nkiov;
+		struct iovec *scratchiov = conn->ksnc_scheduler->kss_scratch_iov;
+		unsigned int  niov = tx->tx_nkiov;
 #endif
-                struct msghdr msg = {
-                        .msg_name       = NULL,
-                        .msg_namelen    = 0,
-                        .msg_iov        = scratchiov,
-                        .msg_iovlen     = niov,
-                        .msg_control    = NULL,
-                        .msg_controllen = 0,
-                        .msg_flags      = MSG_DONTWAIT
-                };
-                mm_segment_t  oldmm = get_fs();
-                int           i;
+		struct msghdr msg = {.msg_flags = MSG_DONTWAIT};
+		int           i;
 
                 for (nob = i = 0; i < niov; i++) {
                         scratchiov[i].iov_base = kmap(kiov[i].kiov_page) +
@@ -498,18 +478,16 @@ ksocknal_lib_send_kiov (ksock_conn_t *conn, ksock_tx_t *tx)
                         nob += scratchiov[i].iov_len = kiov[i].kiov_len;
                 }
 
-                if (!cfs_list_empty(&conn->ksnc_tx_queue) ||
-                    nob < tx->tx_resid)
-                        msg.msg_flags |= MSG_MORE;
+		if (!list_empty(&conn->ksnc_tx_queue) ||
+		    nob < tx->tx_resid)
+			msg.msg_flags |= MSG_MORE;
 
-                set_fs (KERNEL_DS);
-                rc = sock_sendmsg(sock, &msg, nob);
-                set_fs (oldmm);
+		rc = kernel_sendmsg(sock, &msg, (struct kvec *)scratchiov, niov, nob);
 
-                for (i = 0; i < niov; i++)
-                        kunmap(kiov[i].kiov_page);
-        }
-        return rc;
+		for (i = 0; i < niov; i++)
+			kunmap(kiov[i].kiov_page);
+	}
+	return rc;
 }
 
 void
