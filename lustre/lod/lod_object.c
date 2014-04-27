@@ -680,6 +680,60 @@ static int lod_attr_get(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Mark all of sub-stripes dead of the striped directory.
+ **/
+static int lod_mark_dead_object(const struct lu_env *env,
+				struct dt_object *dt,
+				struct thandle *handle,
+				bool declare)
+{
+	struct lod_object	*lo = lod_dt_obj(dt);
+	struct lmv_mds_md_v1	*lmv;
+	int			rc;
+	int			i;
+
+	ENTRY;
+
+	if (!S_ISDIR(dt->do_lu.lo_header->loh_attr))
+		RETURN(0);
+
+	rc = lod_load_striping_locked(env, lo);
+	if (rc != 0)
+		RETURN(rc);
+
+	if (lo->ldo_stripenr == 0)
+		RETURN(0);
+
+	rc = lod_get_lmv_ea(env, lo);
+	if (rc <= 0)
+		RETURN(rc);
+
+	lmv = lod_env_info(env)->lti_ea_store;
+	lmv->lmv_magic = cpu_to_le32(LMV_MAGIC_STRIPE);
+	lmv->lmv_hash_type |= LMV_FLAG_DEAD;
+	for (i = 0; i < lo->ldo_stripenr; i++) {
+		struct lu_buf buf;
+
+		lmv->lmv_master_mdt_index = i;
+		buf.lb_buf = lmv;
+		buf.lb_len = sizeof(*lmv);
+		if (declare) {
+			rc = dt_declare_xattr_set(env, lo->ldo_stripe[i], &buf,
+						  XATTR_NAME_LMV,
+						  LU_XATTR_REPLACE, handle);
+		} else {
+			rc = dt_xattr_set(env, lo->ldo_stripe[i], &buf,
+					  XATTR_NAME_LMV, LU_XATTR_REPLACE,
+					  handle, BYPASS_CAPA);
+		}
+		if (rc != 0)
+			break;
+	}
+
+	RETURN(rc);
+}
+
 static int lod_declare_attr_set(const struct lu_env *env,
 				struct dt_object *dt,
 				const struct lu_attr *attr,
@@ -689,6 +743,13 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	struct lod_object *lo = lod_dt_obj(dt);
 	int                rc, i;
 	ENTRY;
+
+	/* Set dead object on all other stripes */
+	if (attr->la_valid & LA_FLAGS && !(attr->la_valid & ~LA_FLAGS) &&
+	    attr->la_flags & DEAD_OBJ) {
+		rc = lod_mark_dead_object(env, dt, handle, true);
+		RETURN(rc);
+	}
 
 	/*
 	 * declare setattr on the local object
@@ -771,6 +832,13 @@ static int lod_attr_set(const struct lu_env *env,
 	struct lod_object	*lo = lod_dt_obj(dt);
 	int			rc, i;
 	ENTRY;
+
+	/* Set dead object on all other stripes */
+	if (attr->la_valid & LA_FLAGS && !(attr->la_valid & ~LA_FLAGS) &&
+	    attr->la_flags & DEAD_OBJ) {
+		rc = lod_mark_dead_object(env, dt, handle, false);
+		RETURN(rc);
+	}
 
 	/*
 	 * apply changes to the local object

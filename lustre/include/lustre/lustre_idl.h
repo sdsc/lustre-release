@@ -2764,6 +2764,7 @@ enum lmv_hash_type {
 #define LMV_HASH_TYPE_MASK 0x0000ffff
 
 #define LMV_HASH_FLAG_MIGRATION 0x80000000
+#define LMV_FLAG_DEAD 0x40000000
 
 #define LMV_HASH_NAME_ALL_CHARS	"all_char"
 #define LMV_HASH_NAME_FNV_1A_64	"fnv_1a_64"

@@ -423,6 +423,14 @@ struct md_object {
         const struct md_dir_operations    *mo_dir_ops;
 };
 
+enum mod_flags {
+	/* The dir object has been unlinked */
+	DEAD_OBJ   = 1 << 0,
+	APPEND_OBJ = 1 << 1,
+	IMMUTE_OBJ = 1 << 2,
+	ORPHAN_OBJ = 1 << 3,
+};
+
 /**
  * seq-server site.
  */

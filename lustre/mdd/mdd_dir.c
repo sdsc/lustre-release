@@ -1315,11 +1315,40 @@ out_pending:
         return rc;
 }
 
+static int mdd_mark_dead_object(const struct lu_env *env,
+				struct mdd_object *obj, struct thandle *handle,
+				bool declare)
+{
+	struct lu_attr *attr = MDD_ENV_VAR(env, la_for_start);
+	int rc;
+
+	if (!declare)
+		obj->mod_flags |= DEAD_OBJ;
+
+	if (!S_ISDIR(mdd_object_type(obj)))
+		return 0;
+
+	attr->la_valid = LA_FLAGS;
+	attr->la_flags = DEAD_OBJ;
+
+	if (declare) {
+		rc = mdo_declare_attr_set(env, obj, attr, handle);
+	} else {
+		rc = mdo_attr_set(env, obj, attr, handle,
+				  mdd_object_capa(env, obj));
+	}
+	return rc;
+}
+
 static int mdd_declare_finish_unlink(const struct lu_env *env,
 				     struct mdd_object *obj,
 				     struct thandle *handle)
 {
 	int	rc;
+
+	rc = mdd_mark_dead_object(env, obj, handle, true);
+	if (rc != 0)
+		return rc;
 
 	rc = orph_declare_index_insert(env, obj, mdd_object_type(obj), handle);
 	if (rc != 0)
@@ -1346,7 +1375,9 @@ int mdd_finish_unlink(const struct lu_env *env,
         LASSERT(mdd_write_locked(env, obj) != 0);
 
 	if (ma->ma_attr.la_nlink == 0 || is_dir) {
-                obj->mod_flags |= DEAD_OBJ;
+		rc = mdd_mark_dead_object(env, obj, th, false);
+		if (rc != 0)
+			RETURN(rc);
 
                 /* add new orphan and the object
                  * will be deleted during mdd_close() */
@@ -1794,16 +1825,29 @@ static int mdd_create_sanity_check(const struct lu_env *env,
 				   struct lu_attr *cattr,
                                    struct md_op_spec *spec)
 {
-        struct mdd_thread_info *info = mdd_env_info(env);
-        struct lu_fid     *fid       = &info->mti_fid;
-        struct mdd_object *obj       = md2mdd_obj(pobj);
-        struct mdd_device *m         = mdo2mdd(pobj);
-        int rc;
-        ENTRY;
+	struct mdd_thread_info *info = mdd_env_info(env);
+	struct lu_fid     *fid       = &info->mti_fid;
+	struct mdd_object *obj       = md2mdd_obj(pobj);
+	struct mdd_device *m         = mdo2mdd(pobj);
+	struct lu_buf	*xbuf;
+	int rc;
+	ENTRY;
 
         /* EEXIST check */
         if (mdd_is_dead_obj(obj))
                 RETURN(-ENOENT);
+
+	/* If the parent is a sub-stripe, check whether it is dead */
+	xbuf = mdd_buf_get(env, info->mti_key, sizeof(info->mti_key));
+	rc = mdo_xattr_get(env, obj, xbuf, XATTR_NAME_LMV,
+			   mdd_object_capa(env, obj));
+	if (rc > 0) {
+		struct lmv_mds_md_v1  *lmv1 = xbuf->lb_buf;
+
+		if (le32_to_cpu(lmv1->lmv_magic) == LMV_MAGIC_STRIPE &&
+		    le32_to_cpu(lmv1->lmv_hash_type) & LMV_FLAG_DEAD)
+			RETURN(-ESTALE);
+	}
 
 	/*
          * In some cases this lookup is not needed - we know before if name

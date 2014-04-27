@@ -519,7 +519,7 @@ int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
                 RETURN(rc);
 
 	s0_lh = &info->mti_lh[MDT_LH_LOCAL];
-	mdt_lock_reg_init(s0_lh, LCK_PW);
+	mdt_lock_reg_init(s0_lh, LCK_EX);
 	rc = mdt_lock_slaves(info, mo, LCK_PW, lockpart, s0_lh, &s0_obj, einfo);
 	if (rc != 0)
 		GOTO(out_unlock, rc);
@@ -971,7 +971,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 	ma->ma_valid = 0;
 
 	s0_lh = &info->mti_lh[MDT_LH_LOCAL];
-	mdt_lock_reg_init(s0_lh, LCK_PW);
+	mdt_lock_reg_init(s0_lh, LCK_EX);
 	rc = mdt_lock_slaves(info, mc, LCK_EX, MDS_INODELOCK_UPDATE, s0_lh,
 			     &s0_obj, einfo);
 	if (rc != 0)
@@ -1735,13 +1735,17 @@ static int mdt_reint_rename_internal(struct mdt_thread_info *info,
 		/* We used to acquire MDS_INODELOCK_FULL here but we
 		 * can't do this now because a running HSM restore on
 		 * the rename onto victim will hold the layout
-		 * lock. See LU-4002. */
-
+		 * lock. See LU-4002. Though for directory, we still need
+		 * MDS_INODELOCK_FULL */
 		lh_newp = &info->mti_lh[MDT_LH_NEW];
 		mdt_lock_reg_init(lh_newp, LCK_EX);
 		rc = mdt_object_lock(info, mnew, lh_newp,
-				     MDS_INODELOCK_LOOKUP |
-				     MDS_INODELOCK_UPDATE,
+				     S_ISDIR(mnew->mot_header.loh_attr) ?
+				      MDS_INODELOCK_LOOKUP |
+				      MDS_INODELOCK_UPDATE |
+				      MDS_INODELOCK_LAYOUT :
+				      MDS_INODELOCK_LOOKUP |
+				      MDS_INODELOCK_UPDATE,
 				     MDT_LOCAL_LOCK);
 		if (rc != 0)
 			GOTO(out_unlock_old, rc);
