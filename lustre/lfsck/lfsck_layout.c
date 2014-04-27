@@ -1932,6 +1932,7 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 	struct lu_buf			*pbuf	= NULL;
 	struct lu_buf			*ea_buf = &info->lti_big_buf;
 	struct lustre_handle		 lh	= { 0 };
+	struct dt_insert_rec		*dir	= &info->lti_dir;
 	int				 buflen = ea_buf->lb_len;
 	int				 idx	= 0;
 	int				 rc	= 0;
@@ -2062,8 +2063,10 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	/* 4a. Insert the MDT-object to .lustre/lost+found/MDTxxxx/ */
+	dir->dir_fid = pfid;
+	dir->dir_type = S_IFREG;
 	rc = dt_declare_insert(env, lfsck->li_lpf_obj,
-			       (const struct dt_rec *)pfid,
+			       (const struct dt_rec *)dir,
 			       (const struct dt_key *)name, th);
 	if (rc != 0)
 		GOTO(stop, rc);
@@ -2093,8 +2096,7 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	/* 4b. Insert the MDT-object to .lustre/lost+found/MDTxxxx/ */
-	rc = dt_insert(env, lfsck->li_lpf_obj,
-		       (const struct dt_rec *)pfid,
+	rc = dt_insert(env, lfsck->li_lpf_obj, (const struct dt_rec *)dir,
 		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
 
 	GOTO(stop, rc);
