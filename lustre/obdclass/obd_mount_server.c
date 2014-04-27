@@ -1225,6 +1225,7 @@ static int server_start_targets(struct super_block *sb)
 	struct lu_env env;
 	struct lu_device *dev;
 	int rc;
+	int retried = 0;
 	ENTRY;
 
 	CDEBUG(D_MOUNT, "starting target %s\n", lsi->lsi_svname);
@@ -1249,6 +1250,8 @@ static int server_start_targets(struct super_block *sb)
 
 	/* If we're an OST, make sure the global OSS is running */
 	if (IS_OST(lsi)) {
+		retried = 0;
+oss_again:
 		/* make sure OSS is started */
 		mutex_lock(&server_start_lock);
 		obd = class_name2obd(LUSTRE_OSS_OBDNAME);
@@ -1257,6 +1260,13 @@ static int server_start_targets(struct super_block *sb)
 						 LUSTRE_OSS_NAME,
 						 LUSTRE_OSS_OBDNAME"_uuid",
 						 0, 0, 0, 0);
+			if (rc == -EEXIST && retried < 3) {
+				mutex_unlock(&server_start_lock);
+				obd_zombie_barrier();
+				retried++;
+				goto oss_again;
+			}
+
 			if (rc) {
 				mutex_unlock(&server_start_lock);
 				CERROR("failed to start OSS: %d\n", rc);
