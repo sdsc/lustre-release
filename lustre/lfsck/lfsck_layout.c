@@ -1914,8 +1914,8 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 					struct lfsck_tgt_desc *ltd,
 					struct lu_orphan_rec *rec,
 					struct lu_fid *cfid,
-					const char *prefix,
-					const char *postfix,
+					const char *infix,
+					const char *type,
 					__u32 ea_off)
 {
 	struct lfsck_thread_info	*info	= lfsck_env_info(env);
@@ -1963,35 +1963,35 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 			RETURN(PTR_ERR(cobj));
 	}
 
-	CDEBUG(D_LFSCK, "Re-create the lost MDT-object: parent "
-	       DFID", child "DFID", OST-index %u, stripe-index %u, "
-	       "prefix %s, postfix %s\n",
-	       PFID(pfid), PFID(cfid), ltd->ltd_index, ea_off, prefix, postfix);
+	CDEBUG(D_LFSCK, "Re-create the lost MDT-object: parent "DFID", child "
+	       DFID", OST-index %u, stripe-index %u, infix %s, type %s\n",
+	       PFID(pfid), PFID(cfid), ltd->ltd_index, ea_off, infix, type);
 
 	pobj = lfsck_object_find_by_dev(env, lfsck->li_bottom, pfid);
 	if (IS_ERR(pobj))
 		GOTO(put, rc = PTR_ERR(pobj));
 
-	LASSERT(prefix != NULL);
-	LASSERT(postfix != NULL);
+	LASSERT(infix != NULL);
+	LASSERT(type != NULL);
 
 	/** name rules:
 	 *
-	 *  1. Use the MDT-object's FID as the name with prefix and postfix.
+	 *  1. Use the MDT-object's FID as the name with infix and type.
 	 *
-	 *  1.1 prefix "C-":	More than one OST-objects claim the same
+	 *  1.1 type "C":	More than one OST-objects claim the same
 	 *			MDT-object and the same slot in the layout EA.
 	 *			It may be created for dangling referenced MDT
 	 *			object or may be not.
-	 *  1.2 prefix "N-":	The orphan OST-object does not know which one
+	 *  1.2 type "N":	The orphan OST-object does not know which one
 	 *			is the real parent, so the LFSCK assign a new
 	 *			FID as its parent.
-	 *  1.3 prefix "R-":	The orphan OST-object know its parent FID but
+	 *  1.3 type "R":	The orphan OST-object know its parent FID but
 	 *			does not know the position in the namespace.
 	 *
 	 *  2. If there is name conflict, append more index for new name. */
-	sprintf(name, "%s"DFID"%s", prefix, PFID(pfid), postfix);
 	do {
+		snprintf(name, NAME_MAX, DFID"%s-%s-%d", PFID(pfid), infix,
+			 type, idx);
 		rc = dt_lookup(env, lfsck->li_lpf_obj, (struct dt_rec *)tfid,
 			       (const struct dt_key *)name, BYPASS_CAPA);
 		if (rc != 0 && rc != -ENOENT)
@@ -2002,8 +2002,7 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 			      "by the "DFID". Try to increase the FID version "
 			      "for the new file name.\n",
 			      lfsck_lfsck2name(lfsck), name, PFID(tfid));
-			sprintf(name, "%s"DFID"%s-%d", prefix, PFID(pfid),
-				postfix, ++idx);
+			idx++;
 		}
 	} while (rc == 0);
 
@@ -2298,7 +2297,7 @@ static int lfsck_layout_conflict_create(const struct lu_env *env,
 	struct lfsck_thread_info *info		= lfsck_env_info(env);
 	struct lu_fid		 *cfid2		= &info->lti_fid2;
 	struct ost_id		 *oi		= &info->lti_oi;
-	char			 *postfix	= info->lti_tmpbuf;
+	char			 *infix		= info->lti_tmpbuf;
 	struct lov_mds_md_v1	 *lmm		= ea_buf->lb_buf;
 	struct dt_device	 *dev		= com->lc_lfsck->li_bottom;
 	struct thandle		 *th		= NULL;
@@ -2334,10 +2333,10 @@ static int lfsck_layout_conflict_create(const struct lu_env *env,
 		ea_buf->lb_len = ori_len;
 
 		fid_zero(&rec->lor_fid);
-		snprintf(postfix, LFSCK_TMPBUF_LEN, "-"DFID"-%x",
+		snprintf(infix, LFSCK_TMPBUF_LEN, "-"DFID"-%x",
 			 PFID(lu_object_fid(&parent->do_lu)), ea_off);
 		rc = lfsck_layout_recreate_parent(env, com, ltd, rec, cfid,
-						  "C-", postfix, ea_off);
+						  infix, "C", ea_off);
 
 		RETURN(rc);
 	}
@@ -2648,7 +2647,7 @@ static int lfsck_layout_scan_orphan_one(const struct lu_env *env,
 
 	if (fid_is_zero(pfid)) {
 		rc = lfsck_layout_recreate_parent(env, com, ltd, rec, cfid,
-						  "N-", "", ea_off);
+						  "", "N", ea_off);
 		GOTO(out, rc);
 	}
 
@@ -2666,7 +2665,7 @@ static int lfsck_layout_scan_orphan_one(const struct lu_env *env,
 	if (dt_object_exists(parent) == 0) {
 		lu_object_put(env, &parent->do_lu);
 		rc = lfsck_layout_recreate_parent(env, com, ltd, rec, cfid,
-						  "R-", "", ea_off);
+						  "", "R", ea_off);
 		GOTO(out, rc);
 	}
 
