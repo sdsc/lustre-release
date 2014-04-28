@@ -439,8 +439,15 @@ static inline int obd_uuid_empty(struct obd_uuid *uuid)
 
 static inline void obd_str2uuid(struct obd_uuid *uuid, const char *tmp)
 {
-        strncpy((char *)uuid->uuid, tmp, sizeof(*uuid));
-        uuid->uuid[sizeof(*uuid) - 1] = '\0';
+	int len = strlen(tmp);
+
+	if (len > (sizeof(*uuid) - 1)) {
+		memcpy(uuid, tmp, sizeof(*uuid));
+		uuid->uuid[sizeof(*uuid) - 1] = '\0';
+	} else {
+		memset(uuid, 0, sizeof(*uuid));
+		memcpy(uuid, tmp, len);
+	}
 }
 
 /* For printf's only, make sure uuid is terminated */
