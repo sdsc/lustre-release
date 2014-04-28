@@ -1893,50 +1893,54 @@ ksocknal_push_peer (ksock_peer_t *peer)
 int
 ksocknal_push (lnet_ni_t *ni, lnet_process_id_t id)
 {
-        ksock_peer_t      *peer;
-        cfs_list_t        *tmp;
-        int                index;
-        int                i;
-        int                j;
-        int                rc = -ENOENT;
+	ksock_peer_t	 *peer;
+	struct list_head *start;
+	struct list_head *end;
+	struct list_head *tmp;
+	int		  i;
+	int		  j;
+	int		  rc = -ENOENT;
+	unsigned int	  hsize = ksocknal_data.ksnd_peer_hash_size;
 
-        for (i = 0; i < ksocknal_data.ksnd_peer_hash_size; i++) {
-                for (j = 0; ; j++) {
+	if (id.nid == LNET_NID_ANY || id.pid == LNET_PID_ANY) {
+		start = &ksocknal_data.ksnd_peers[0];
+		end = &ksocknal_data.ksnd_peers[hsize - 1];
+	} else {
+		start =
+		end = &ksocknal_data.ksnd_peers[(unsigned int)id.nid % hsize];
+	}
+
+	for (tmp = start; tmp <= end; tmp++) {
+		for (i = 0; ; i++) {
+			j = 0;
+			peer = NULL;
+
 			read_lock(&ksocknal_data.ksnd_global_lock);
+			list_for_each_entry(peer, tmp, ksnp_list) {
+				if (!((id.nid == LNET_NID_ANY ||
+				       id.nid == peer->ksnp_id.nid) &&
+				      (id.pid == LNET_PID_ANY ||
+				       id.pid == peer->ksnp_id.pid))) {
+					peer = NULL;
+					continue;
+				}
 
-                        index = 0;
-                        peer = NULL;
-
-                        cfs_list_for_each (tmp, &ksocknal_data.ksnd_peers[i]) {
-                                peer = cfs_list_entry(tmp, ksock_peer_t,
-                                                      ksnp_list);
-
-                                if (!((id.nid == LNET_NID_ANY ||
-                                       id.nid == peer->ksnp_id.nid) &&
-                                      (id.pid == LNET_PID_ANY ||
-                                       id.pid == peer->ksnp_id.pid))) {
-                                        peer = NULL;
-                                        continue;
-                                }
-
-                                if (index++ == j) {
-                                        ksocknal_peer_addref(peer);
-                                        break;
-                                }
-                        }
-
+				if (j++ == i) {
+					ksocknal_peer_addref(peer);
+					break;
+				}
+			}
 			read_unlock(&ksocknal_data.ksnd_global_lock);
 
-                        if (peer != NULL) {
-                                rc = 0;
-                                ksocknal_push_peer (peer);
-                                ksocknal_peer_decref(peer);
-                        }
-                }
+			if (peer == NULL)
+				break;
 
-        }
-
-        return (rc);
+			rc = 0;
+			ksocknal_push_peer(peer);
+			ksocknal_peer_decref(peer);
+		}
+	}
+	return rc;
 }
 
 int
