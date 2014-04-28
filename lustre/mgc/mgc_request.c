@@ -407,6 +407,14 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
         config_log_put(cld);
         /* drop the start ref */
         config_log_put(cld);
+	/* drop the requeue ref if we haven't gotten the mgc lock */
+	mutex_lock(&cld->cld_lock);
+	if (cld->cld_lostlock) {
+		mutex_unlock(&cld->cld_lock);
+		config_log_put(cld);
+	} else {
+		mutex_unlock(&cld->cld_lock);
+	}
 
         CDEBUG(D_MGC, "end config log %s (%d)\n", logname ? logname : "client",
                rc);
