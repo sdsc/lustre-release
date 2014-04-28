@@ -1862,6 +1862,7 @@ int main(int argc, char **argv)
 	int	rc;
 
 	strncpy(cmd_name, basename(argv[0]), sizeof(cmd_name));
+	cmd_name[sizeof(cmd_name) - 1] = '\0';
 	rc = ct_parseopts(argc, argv);
 	if (rc < 0) {
 		CT_WARN("try '%s --help' for more information", cmd_name);
