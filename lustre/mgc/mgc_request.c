@@ -449,6 +449,7 @@ int lprocfs_mgc_rd_ir_state(char *page, char **start, off_t off,
 static int                    rq_state = 0;
 static cfs_waitq_t            rq_waitq;
 static DECLARE_COMPLETION(rq_exit);
+static DECLARE_COMPLETION(rq_start);
 
 static void do_requeue(struct config_llog_data *cld)
 {
@@ -480,15 +481,16 @@ static void do_requeue(struct config_llog_data *cld)
 
 static int mgc_requeue_thread(void *data)
 {
-        char name[] = "ll_cfg_requeue";
-        int rc = 0;
-        ENTRY;
+	char name[] = "ll_cfg_requeue";
+	int rc = 0;
+	bool first = true;
+	ENTRY;
 
         cfs_daemonize(name);
 
         CDEBUG(D_MGC, "Starting requeue thread\n");
 
-        /* Keep trying failed locks periodically */
+	/* Keep trying failed locks periodically */
 	spin_lock(&config_list_lock);
 	rq_state |= RQ_RUNNING;
 	while (1) {
@@ -501,6 +503,11 @@ static int mgc_requeue_thread(void *data)
 		/* Any new or requeued lostlocks will change the state */
 		rq_state &= ~(RQ_NOW | RQ_LATER);
 		spin_unlock(&config_list_lock);
+
+		if (first) {
+			first = false;
+			complete(&rq_start);
+		}
 
                 /* Always wait a few seconds to allow the server who
                    caused the lock revocation to finish its setup, plus some
@@ -703,33 +710,35 @@ static int mgc_fs_cleanup(struct obd_device *obd)
 static cfs_atomic_t mgc_count = CFS_ATOMIC_INIT(0);
 static int mgc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
+	bool last_mgc = false;
+	ENTRY;
 
-        switch (stage) {
-        case OBD_CLEANUP_EARLY:
-                break;
-        case OBD_CLEANUP_EXPORTS:
-                if (cfs_atomic_dec_and_test(&mgc_count)) {
-                        int running;
-                        /* stop requeue thread */
-			spin_lock(&config_list_lock);
-			running = rq_state & RQ_RUNNING;
-			if (running)
-				rq_state |= RQ_STOP;
-			spin_unlock(&config_list_lock);
-			if (running) {
-				cfs_waitq_signal(&rq_waitq);
-				wait_for_completion(&rq_exit);
-                        }
-                }
-                obd_cleanup_client_import(obd);
-                rc = obd_llog_finish(obd, 0);
-                if (rc != 0)
-                        CERROR("failed to cleanup llogging subsystems\n");
-                break;
-        }
-        RETURN(rc);
+	switch (stage) {
+	case OBD_CLEANUP_EARLY:
+		break;
+	case OBD_CLEANUP_EXPORTS:
+		if (atomic_dec_and_test(&mgc_count))
+			last_mgc = true;
+		spin_lock(&config_list_lock);
+		if (last_mgc) {
+			/* stop requeue thread */
+			rq_state |= RQ_STOP;
+		} else {
+			/* wakeup requeue thread to clean our cld */
+			rq_state |= RQ_NOW;
+		}
+		spin_unlock(&config_list_lock);
+		cfs_waitq_signal(&rq_waitq);
+		if (last_mgc)
+			wait_for_completion(&rq_exit);
+		obd_cleanup_client_import(obd);
+		rc = obd_llog_finish(obd, 0);
+		if (rc != 0)
+			CERROR("failed to cleanup llogging subsystems\n");
+		break;
+	}
+	RETURN(rc);
 }
 
 static int mgc_cleanup(struct obd_device *obd)
@@ -790,6 +799,7 @@ static int mgc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
                 }
                 /* rc is the pid of mgc_requeue_thread. */
                 rc = 0;
+		wait_for_completion(&rq_start);
         }
 
         RETURN(rc);
