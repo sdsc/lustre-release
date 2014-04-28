@@ -1024,6 +1024,9 @@ static int set_blockdev_scheduler(const char *path, const char *scheduler)
 					"'%s': %s\n", progname, path,
 					strerror(errno));
 		return rc;
+	} else {
+		fprintf(stderr, "%s: set scheduler of %s to %s\n", progname,
+			path, scheduler);
 	}
 
 	return rc;
@@ -1180,6 +1183,9 @@ set_params:
 			/* No MAX_SECTORS_KB_PATH isn't necessary an
 			 * error for some device. */
 			rc = 0;
+		} else {
+			fprintf(stderr, "%s: set %s to %s\n", progname,
+				real_path, buf);
 		}
 	}
 
