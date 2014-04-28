@@ -54,6 +54,8 @@
 
 #include "echo_internal.h"
 
+static const char echo_md_root_dir_name[] = "ROOT_ECHO_MD";
+
 /** \defgroup echo_client Echo Client
  * @{
  */
@@ -97,6 +99,15 @@ struct echo_lock {
         struct echo_object    *el_object;
         __u64                  el_cookie;
 	atomic_t           el_refcount;
+};
+
+struct echo_md_device {
+	struct md_device	 emd_md_dev;
+	struct obd_export	*emd_child_exp;
+	struct dt_device	*emd_child;
+	struct dt_device	*emd_bottom;
+	struct lu_fid		 emd_root_fid; /* /ROOT_ECHO_MD */
+	struct lu_fid		 emd_local_root_fid;
 };
 
 static int echo_client_setup(const struct lu_env *env,
@@ -161,6 +172,26 @@ static inline
 struct echo_object_conf *cl2echo_conf(const struct cl_object_conf *c)
 {
         return container_of(c, struct echo_object_conf, eoc_cl);
+}
+
+static inline struct echo_md_device *lu2emd_dev(struct lu_device *d)
+{
+	return container_of0(d, struct echo_md_device, emd_md_dev.md_lu_dev);
+}
+
+static inline struct lu_device *emd2lu_dev(struct echo_md_device *d)
+{
+	return (&d->emd_md_dev.md_lu_dev);
+}
+
+static inline struct seq_server_site *echo_md_seq_site(struct echo_md_device *d)
+{
+	return emd2lu_dev(d)->ld_site->ld_seq_site;
+}
+
+static inline struct obd_device *emd2obd_dev(struct echo_md_device *d)
+{
+	return (d->emd_md_dev.md_lu_dev.ld_obd);
 }
 
 /** @} echo_helpers */
@@ -2010,26 +2041,109 @@ static int echo_destroy_object(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static int
+echo_md_local_file_create(const struct lu_env *env, struct dt_device *dev,
+			  struct local_oid_storage *los,
+			  const struct lu_fid *pfid, const char *name,
+			  __u32 mode, struct lu_fid *fid)
+
+{
+	struct dt_object	*parent = NULL;
+	struct dt_object	*dto = NULL;
+	int			 rc = 0;
+
+	ENTRY;
+
+	LASSERT(!fid_is_zero(pfid));
+	parent = dt_locate(env, dev, pfid);
+	if (unlikely(IS_ERR(parent)))
+		RETURN(PTR_ERR(parent));
+
+	/* create local file/dir, if @fid is passed then try to use it */
+	if (fid_is_zero(fid))
+		dto = local_file_find_or_create(env, los, parent, name, mode);
+	else
+		dto = local_file_find_or_create_with_fid(env, dev, fid,
+							 parent, name, mode);
+	if (IS_ERR(dto))
+		GOTO(out_put, rc = PTR_ERR(dto));
+	*fid = *lu_object_fid(&dto->do_lu);
+	/* since stack is not fully set up the local_storage uses own stack
+	 * and we should drop its object from cache */
+	lu_object_put_nocache(env, &dto->do_lu);
+	EXIT;
+out_put:
+	lu_object_put(env, &parent->do_lu);
+	RETURN(rc);
+}
+
+static int echo_md_root_get(const struct lu_env *env,
+			    struct echo_md_device *emd,
+			    struct lu_fid *root_fid)
+{
+	struct local_oid_storage	*emd_los = NULL;
+	struct lu_fid			 fid;
+	int				 rc = 0;
+
+	ENTRY;
+
+	/* Setup local dirs */
+	fid.f_seq = FID_SEQ_LOCAL_NAME;
+	fid.f_oid = 1;
+	fid.f_ver = 0;
+	rc = local_oid_storage_init(env, emd->emd_bottom, &fid, &emd_los);
+	if (rc != 0)
+		RETURN(rc);
+
+	lu_root_fid(&fid);
+	if (echo_md_seq_site(emd)->ss_node_id == 0) {
+		rc = echo_md_local_file_create(env, emd->emd_bottom, emd_los,
+					       &emd->emd_local_root_fid,
+					       echo_md_root_dir_name, S_IFDIR |
+					       S_IRUGO | S_IWUSR | S_IXUGO,
+					       &fid);
+		if (rc != 0) {
+			CERROR("%s: create md echo root fid failed: rc = %d\n",
+			       emd2obd_dev(emd)->obd_name, rc);
+			GOTO(out_los, rc);
+		}
+
+		*root_fid = fid;
+	} else {
+		/* Normal client usually send root access to MDT0 directly,
+		 * the root FID on non-MDT0 will only be used by echo client. */
+		*root_fid = fid;
+	}
+
+	RETURN(0);
+out_los:
+	local_oid_storage_fini(env, emd_los);
+	emd_los = NULL;
+
+	RETURN(rc);
+}
+
 static struct lu_object *echo_resolve_path(const struct lu_env *env,
                                            struct echo_device *ed, char *path,
                                            int path_len)
 {
-        struct lu_device        *ld = ed->ed_next;
-        struct md_device        *md = lu2md_dev(ld);
-        struct echo_thread_info *info = echo_env_info(env);
-        struct lu_fid           *fid = &info->eti_fid;
-        struct lu_name          *lname = &info->eti_lname;
-        struct lu_object        *parent = NULL;
-        struct lu_object        *child = NULL;
-        int rc = 0;
-        ENTRY;
+	struct lu_device	*ld = ed->ed_next;
+	struct md_device	*md = lu2md_dev(ld);
+	struct echo_md_device	*emd = lu2emd_dev(&md->md_lu_dev);
+	struct echo_thread_info	*info = echo_env_info(env);
+	struct lu_fid		*fid = &info->eti_fid;
+	struct lu_name		*lname = &info->eti_lname;
+	struct lu_object	*parent = NULL;
+	struct lu_object	*child = NULL;
+	int			 rc = 0;
+	ENTRY;
 
-        /*Only support MDD layer right now*/
-        rc = md->md_ops->mdo_root_get(env, md, fid);
-        if (rc) {
-                CERROR("get root error: rc = %d\n", rc);
-                RETURN(ERR_PTR(rc));
-        }
+	/* Only support MDD layer right now */
+	rc = echo_md_root_get(env, emd, fid);
+	if (rc != 0) {
+		CERROR("get root error: rc = %d\n", rc);
+		RETURN(ERR_PTR(rc));
+	}
 
 	/* In the function below, .hs_keycmp resolves to
 	 * lu_obj_hop_keycmp() */
