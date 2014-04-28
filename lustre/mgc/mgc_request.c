@@ -498,6 +498,7 @@ int lprocfs_mgc_rd_ir_state(struct seq_file *m, void *data)
 static int                    rq_state = 0;
 static wait_queue_head_t      rq_waitq;
 static DECLARE_COMPLETION(rq_exit);
+static DECLARE_COMPLETION(rq_start);
 
 static void do_requeue(struct config_llog_data *cld)
 {
@@ -533,12 +534,13 @@ static void do_requeue(struct config_llog_data *cld)
 
 static int mgc_requeue_thread(void *data)
 {
-        int rc = 0;
-        ENTRY;
+	int rc = 0;
+	bool first = false;
+	ENTRY;
 
-        CDEBUG(D_MGC, "Starting requeue thread\n");
+	CDEBUG(D_MGC, "Starting requeue thread\n");
 
-        /* Keep trying failed locks periodically */
+	/* Keep trying failed locks periodically */
 	spin_lock(&config_list_lock);
 	rq_state |= RQ_RUNNING;
 	while (1) {
@@ -551,6 +553,11 @@ static int mgc_requeue_thread(void *data)
 		/* Any new or requeued lostlocks will change the state */
 		rq_state &= ~(RQ_NOW | RQ_LATER);
 		spin_unlock(&config_list_lock);
+
+		if (first) {
+			first = false;
+			complete(&rq_start);
+		}
 
 		/* Always wait a few seconds to allow the server who
 		   caused the lock revocation to finish its setup, plus some
@@ -844,25 +851,27 @@ static atomic_t mgc_count = ATOMIC_INIT(0);
 static int mgc_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
 {
 	int rc = 0;
+	bool last_mgc = false;
 	ENTRY;
 
 	switch (stage) {
 	case OBD_CLEANUP_EARLY:
 		break;
 	case OBD_CLEANUP_EXPORTS:
-		if (atomic_dec_and_test(&mgc_count)) {
-			int running;
+		if (atomic_dec_and_test(&mgc_count))
+			last_mgc = true;
+		spin_lock(&config_list_lock);
+		if (last_mgc) {
 			/* stop requeue thread */
-			spin_lock(&config_list_lock);
-			running = rq_state & RQ_RUNNING;
-			if (running)
-				rq_state |= RQ_STOP;
-			spin_unlock(&config_list_lock);
-			if (running) {
-				wake_up(&rq_waitq);
-				wait_for_completion(&rq_exit);
-			}
+			rq_state |= RQ_STOP;
+		} else {
+			/* wakeup requeue thread to clean our cld */
+			rq_state |= RQ_NOW;
 		}
+		spin_unlock(&config_list_lock);
+		wake_up(&rq_waitq);
+		if (last_mgc)
+			wait_for_completion(&rq_exit);
 		obd_cleanup_client_import(obd);
 		rc = mgc_llog_fini(NULL, obd);
 		if (rc != 0)
@@ -931,6 +940,7 @@ static int mgc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 		}
 		/* rc is the task_struct pointer of mgc_requeue_thread. */
 		rc = 0;
+		wait_for_completion(&rq_start);
 	}
 
 	RETURN(rc);
