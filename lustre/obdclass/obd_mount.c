@@ -1312,9 +1312,13 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
                         /* Connect and start */
                         /* (should always be ll_fill_super) */
                         rc = (*client_fill_super)(sb, lmd2->lmd2_mnt);
-                        /* c_f_s will call lustre_common_put_super on failure */
-                }
-        } else {
+			/* c_f_s will call lustre_common_put_super on failure */
+
+			/* detach mgc device created by lustre_start_mgc */
+			if (rc != 0)
+				lustre_stop_mgc(sb);
+		}
+	} else {
 #ifdef HAVE_SERVER_SUPPORT
 		CDEBUG(D_MOUNT, "Mounting server from %s\n", lmd->lmd_dev);
 		rc = server_fill_super(sb);
