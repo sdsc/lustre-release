@@ -126,9 +126,16 @@ static int config_log_get(struct config_llog_data *cld)
 	RETURN(0);
 }
 
-/* Drop a reference to a config log.  When no longer referenced,
-   we can free the config log data */
-static void config_log_put(struct config_llog_data *cld)
+/**
+ * Drop a reference to a config log. When no longer referenced, we can free
+ * the config log data.
+ *
+ * \param[in] cld config log data
+ *
+ * \retval true if \a cld is freed
+ * \retval false otherwise
+ */
+static bool config_log_put(struct config_llog_data *cld)
 {
 	ENTRY;
 
@@ -149,14 +156,14 @@ static void config_log_put(struct config_llog_data *cld)
                         config_log_put(cld->cld_sptlrpc);
 		if (cld->cld_params)
 			config_log_put(cld->cld_params);
-                if (cld_is_sptlrpc(cld))
-                        sptlrpc_conf_log_stop(cld->cld_logname);
+		if (cld_is_sptlrpc(cld))
+			sptlrpc_conf_log_stop(cld->cld_logname);
 
-                class_export_put(cld->cld_mgcexp);
-                OBD_FREE(cld, sizeof(*cld) + strlen(cld->cld_logname) + 1);
-        }
-
-        EXIT;
+		class_export_put(cld->cld_mgcexp);
+		OBD_FREE(cld, sizeof(*cld) + strlen(cld->cld_logname) + 1);
+		RETURN(true);
+	}
+	RETURN(false);
 }
 
 /* Find a config log by name */
@@ -396,12 +403,12 @@ DEFINE_MUTEX(llog_process_lock);
  */
 static int config_log_end(char *logname, struct config_llog_instance *cfg)
 {
-        struct config_llog_data *cld;
-        struct config_llog_data *cld_sptlrpc = NULL;
+	struct config_llog_data *cld;
+	struct config_llog_data *cld_sptlrpc = NULL;
 	struct config_llog_data *cld_params = NULL;
-        struct config_llog_data *cld_recover = NULL;
-        int rc = 0;
-        ENTRY;
+	struct config_llog_data *cld_recover = NULL;
+	bool cld_freed = false;
+	ENTRY;
 
         cld = config_log_find(logname, cfg);
         if (cld == NULL)
@@ -417,10 +424,10 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
          */
         if (unlikely(cld->cld_stopping)) {
 		mutex_unlock(&cld->cld_lock);
-                /* drop the ref from the find */
-                config_log_put(cld);
-                RETURN(rc);
-        }
+		/* drop the ref from the find */
+		config_log_put(cld);
+		RETURN(0);
+	}
 
         cld->cld_stopping = 1;
 
@@ -452,14 +459,19 @@ static int config_log_end(char *logname, struct config_llog_instance *cfg)
 		config_log_put(cld_params);
 	}
 
-        /* drop the ref from the find */
-        config_log_put(cld);
-        /* drop the start ref */
-        config_log_put(cld);
+	/* drop the ref from the find */
+	config_log_put(cld);
+	/* drop the start ref */
+	config_log_put(cld);
+	/* drop the requeue ref if we haven't gotten the mgc lock */
+	mutex_lock(&cld->cld_lock);
+	if (cld->cld_lostlock)
+		cld_freed = config_log_put(cld);
+	if (!cld_freed)
+		mutex_unlock(&cld->cld_lock);
 
-        CDEBUG(D_MGC, "end config log %s (%d)\n", logname ? logname : "client",
-               rc);
-        RETURN(rc);
+	CDEBUG(D_MGC, "end config log %s\n", logname ? logname : "client");
+	RETURN(0);
 }
 
 #ifdef LPROCFS
@@ -585,7 +597,9 @@ static int mgc_requeue_thread(void *data)
 				config_log_put(cld_prev);
 			cld_prev = cld;
 
-                        cld->cld_lostlock = 0;
+			mutex_lock(&cld->cld_lock);
+			cld->cld_lostlock = 0;
+			mutex_unlock(&cld->cld_lock);
 			if (likely(!stopped))
 				do_requeue(cld);
 
@@ -643,8 +657,10 @@ static void mgc_requeue_add(struct config_llog_data *cld)
 	spin_lock(&config_list_lock);
 	if (rq_state & RQ_STOP) {
 		spin_unlock(&config_list_lock);
+		mutex_lock(&cld->cld_lock);
 		cld->cld_lostlock = 0;
-		config_log_put(cld);
+		if (!config_log_put(cld))
+			mutex_unlock(&cld->cld_lock);
 	} else {
 		rq_state |= RQ_NOW;
 		spin_unlock(&config_list_lock);
