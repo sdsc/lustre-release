@@ -16,7 +16,7 @@ obdclass-all-objs += acl.o idmap.o
 obdclass-all-objs += md_attrs.o linkea.o
 obdclass-all-objs += lu_ucred.o
 
-@SERVER_TRUE@obdclass-all-objs += lprocfs_jobstats.o
+@SERVER_TRUE@obdclass-all-objs += lprocfs_status_server.o lprocfs_jobstats.o
 @SERVER_TRUE@obdclass-all-objs += obd_mount_server.o
 
 obdclass-objs := $(obdclass-linux-objs) $(obdclass-all-objs)
