@@ -288,6 +288,17 @@ static int mdd_dir_is_empty(const struct lu_env *env,
         RETURN(result);
 }
 
+/**
+ * Determine if the target object can be hard linked
+ *
+ * \param[in] env	thread environment
+ * \param[in] obj	object being linked to
+ * \param[in] la	attributes of \a obj
+ *
+ * \retval		0 if \a obj can be hard linked
+ * \retval		negative error if \a obj is a directory or has too
+ *			many links
+ */
 static int __mdd_may_link(const struct lu_env *env, struct mdd_object *obj,
 			  const struct lu_attr *la)
 {
@@ -296,16 +307,16 @@ static int __mdd_may_link(const struct lu_env *env, struct mdd_object *obj,
 
 	LASSERT(la != NULL);
 
-	if (!S_ISDIR(la->la_mode))
-		RETURN(0);
+	if (S_ISDIR(la->la_mode))
+		RETURN(-EPERM);
 
 	/*
 	 * Subdir count limitation can be broken through.
 	 */
 	if (la->la_nlink >= m->mdd_dt_conf.ddp_max_nlink)
 		RETURN(-EMLINK);
-	else
-		RETURN(0);
+
+	RETURN(0);
 }
 
 /*
