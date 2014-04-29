@@ -12,6 +12,7 @@ AS_IF([test x$RHEL_KERNEL = xyes], [
 	[LDISKFS_SERIES="2.6-rhel6.4.series"],[LDISKFS_SERIES="2.6-rhel6.4.series"])],
 	[LDISKFS_SERIES="2.6-rhel6.5.series"],[LDISKFS_SERIES="2.6-rhel6.5.series"])
 ], [test x$SUSE_KERNEL = xyes], [
+	AS_VERSION_COMPARE([$LINUXRELEASE],[3.12.0],[
 	AS_VERSION_COMPARE([$LINUXRELEASE],[3.0.0],[
 	AS_VERSION_COMPARE([$LINUXRELEASE],[2.6.32], [],
 	[LDISKFS_SERIES="2.6-sles11.series"],[LDISKFS_SERIES="2.6-sles11.series"])],
@@ -23,7 +24,7 @@ AS_IF([test x$RHEL_KERNEL = xyes], [
 		3) LDISKFS_SERIES="3.0-sles11sp3.series"
 			;;
 		esac
-	])
+	])],[LDISKFS_SERIES="3.12-sles12.series"],[LDISKFS_SERIES="3.12-sles12.series"])
 ])
 AS_IF([test -z "$LDISKFS_SERIES"],
 	[AC_MSG_WARN([Unknown kernel version $LDISKFS_VERSIONRELEASE])])
