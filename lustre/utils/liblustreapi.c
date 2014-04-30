@@ -4494,6 +4494,7 @@ int llapi_create_volatile_idx(char *directory, int idx, int open_flags)
 			    directory);
 		return -errno;
 	}
+	unlink(file_path);
 	return fd;
 }
 
