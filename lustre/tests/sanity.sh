@@ -8967,7 +8967,8 @@ test_133g() {
 		-type f \
 		-not -name force_lbug \
 		-not -name changelog_mask \
-		-exec badarea_io '{}' \; > /dev/null
+		-exec badarea_io '{}' \; &> /dev/null ||
+		error "find $proc_dirs failed"
 
 	[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.5.54) ] &&
 		skip "Too old lustre on MDS"
@@ -8980,7 +8981,8 @@ test_133g() {
 			-type f \
 			-not -name force_lbug \
 			-not -name changelog_mask \
-			-exec badarea_io '{}' \\\; &> /dev/null
+			-exec badarea_io '{}' \\\; &> /dev/null ||
+		error "$facet find $proc_dirs failed"
 
 	done
 
