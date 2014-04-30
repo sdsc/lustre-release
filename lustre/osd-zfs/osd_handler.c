@@ -821,6 +821,7 @@ static int osd_obd_connect(const struct lu_env *env, struct obd_export **exp,
 	osd->od_connects++;
 	spin_unlock(&osd->od_objset.lock);
 
+	obd->obd_type->typ_procsym = osd->od_proc_entry;
 	RETURN(0);
 }
 
