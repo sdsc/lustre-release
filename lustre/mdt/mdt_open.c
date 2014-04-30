@@ -1904,6 +1904,17 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 			mdt_clear_disposition(info, ldlm_rep, DISP_OPEN_CREATE);
 		}
 	}
+	if (created && create_flags & MDS_OPEN_VOLATILE) {
+		rc = mdo_unlink(info->mti_env,
+				mdt_object_child(parent),
+				mdt_object_child(child),
+				&rr->rr_name,
+				&info->mti_attr, 0);
+		if (rc != 0)
+			CERROR("%s: "DFID" cleanup of open: rc = %d\n",
+			       mdt_obd_name(info->mti_mdt),
+			       PFID(mdt_object_fid(child)), rc);
+	}
 	EXIT;
 out_child_unlock:
 	mdt_object_open_unlock(info, child, lhc, ibits, result);
