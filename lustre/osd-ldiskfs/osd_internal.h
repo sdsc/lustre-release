@@ -1090,6 +1090,7 @@ static inline int fid_is_internal(const struct lu_fid *fid)
 		ldiskfs_journal_start(inode, type, nblocks);
 #else
 # define LDISKFS_HT_MISC	0
+# define LDISKFS_HT_MAP_BLOCKS	3
 # define osd_journal_start_sb(sb, type, nblock) \
 		ldiskfs_journal_start_sb(sb, nblock)
 # define osd_ldiskfs_append(handle, inode, nblock, err) \
