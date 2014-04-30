@@ -514,6 +514,7 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 #define ldiskfs_ext_pblock(ex) ext_pblock((ex))
 #endif
 
+#ifndef HAVE_EXT4_MAP_BLOCKS
 struct bpointers {
 	unsigned long *blocks;
 	unsigned long start;
@@ -757,6 +758,64 @@ int osd_ldiskfs_map_nblocks(struct inode *inode, unsigned long block,
 
 	return err;
 }
+#else
+int osd_ldiskfs_map_nblocks(struct inode *inode, unsigned long block,
+			    unsigned long num, unsigned long *blocks,
+			    int create)
+{
+	handle_t *handle = NULL;
+	struct ldiskfs_map_blocks map = {
+		.m_lblk = block,
+		.m_len = num,
+	};
+	int flags = create ? LDISKFS_GET_BLOCKS_CREATE_UNINIT_EXT : 0;
+	int ret;
+
+	CDEBUG(D_OTHER, "blocks %lu-%lu requested for inode %u\n",
+	       block, block + num - 1, (unsigned) inode->i_ino);
+
+	if (create) {
+		int credits = ldiskfs_chunk_trans_blocks(inode, num);
+		handle = ldiskfs_journal_start(inode, LDISKFS_HT_MAP_BLOCKS,
+					       credits);
+		if (IS_ERR(handle))
+			return PTR_ERR(handle);
+	}
+
+	while (num) {
+		int i;
+		ret = ldiskfs_map_blocks(handle, inode, &map, flags);
+
+		if (ret <= 0)
+			break;
+
+		for (i = 0; i < ret; i++) {
+			if (map.m_flags & LDISKFS_MAP_MAPPED)
+				blocks[i] = map.m_pblk + i;
+			else
+				blocks[i] = 0;
+		}
+
+		num -= ret;
+		blocks += ret;
+
+		map.m_lblk += ret;
+		map.m_len = num;
+
+		ret = 0;
+	}
+
+	if (handle) {
+		int err = ldiskfs_journal_stop(handle);
+		if (!ret && err)
+			ret = err;
+	}
+
+	return ret;
+}
+#define osd_ldiskfs_map_inode_pages(inode, page, pages, blocks, create) \
+	osd_ldiskfs_map_ext_inode_pages(inode, page, pages, blocks, create)
+#endif
 
 int osd_ldiskfs_map_ext_inode_pages(struct inode *inode, struct page **page,
 				    int pages, unsigned long *blocks,
@@ -807,6 +866,7 @@ cleanup:
 	return rc;
 }
 
+#ifndef HAVE_EXT4_MAP_BLOCKS
 int osd_ldiskfs_map_bm_inode_pages(struct inode *inode, struct page **page,
 				   int pages, unsigned long *blocks,
 				   int create)
@@ -843,6 +903,7 @@ static int osd_ldiskfs_map_inode_pages(struct inode *inode, struct page **page,
 
 	return rc;
 }
+#endif
 
 static int osd_write_prep(const struct lu_env *env, struct dt_object *dt,
                           struct niobuf_local *lnb, int npages)
