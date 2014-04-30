@@ -1990,7 +1990,6 @@ lustre/liblustre/tests/Makefile
 lustre/liblustre/tests/mpi/Makefile
 lustre/llite/Makefile
 lustre/llite/autoMakefile
-lustre/lclient/Makefile
 lustre/lov/Makefile
 lustre/lov/autoMakefile
 lustre/mdc/Makefile
