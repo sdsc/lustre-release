@@ -8967,7 +8967,7 @@ test_133g() {
 		-type f \
 		-not -name force_lbug \
 		-not -name changelog_mask \
-		-exec badarea_io '{}' \; > /dev/null
+		-exec badarea_io '{}' >/dev/null 2>&1;
 
 	[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.5.54) ] &&
 		skip "Too old lustre on MDS"
@@ -8980,10 +8980,12 @@ test_133g() {
 			-type f \
 			-not -name force_lbug \
 			-not -name changelog_mask \
-			-exec badarea_io '{}' \\\; &> /dev/null
-
+			-exec badarea_io '{}' > /dev/null 2>&1 \\\;
 	done
 
+	# remount the FS in case writes/reads /proc break the FS
+	cleanup || error "failed to unmount"
+	setup || error "failed to setup"
 	true
 }
 run_test 133g "Check for Oopses on bad io area writes/reads in /proc"
