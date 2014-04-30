@@ -67,6 +67,23 @@ ext_pblock, [
 ]) # LB_EXT_PBLOCK
 
 #
+# LB_EXT4_MAP_BLOCKS
+#
+# 2.6.35 introduced ext4_map_blocks
+#
+AC_DEFUN([LB_EXT4_MAP_BLOCKS], [
+LB_CHECK_COMPILE([if Linux kernel has 'ext4_map_blocks'],
+ext_map_blocks, [
+	#include <linux/fs.h>
+	#include "$EXT4_SRC_DIR/ext4_extents.h"
+],[
+	ext4_map_blocks(NULL, NULL, NULL, 0);
+],[
+	AC_DEFINE(HAVE_EXT4_MAP_BLOCKS, 1, [Linux kernel has ext4_map_blocks])
+])
+]) # LB_EXT4_MAP_BLOCKS
+
+#
 # LDISKFS_AC_PATCH_PROGRAM
 #
 # Determine which program should be used to apply the patches to
@@ -143,6 +160,7 @@ AS_IF([test x$enable_ldiskfs != xno],[
 	LDISKFS_AC_PATCH_PROGRAM
 	LB_EXT_FREE_BLOCKS_WITH_BUFFER_HEAD
 	LB_EXT_PBLOCK
+	LB_EXT4_MAP_BLOCKS
 	AC_DEFINE(CONFIG_LDISKFS_FS_POSIX_ACL, 1, [posix acls for ldiskfs])
 	AC_DEFINE(CONFIG_LDISKFS_FS_SECURITY, 1, [fs security for ldiskfs])
 	AC_DEFINE(CONFIG_LDISKFS_FS_XATTR, 1, [extened attributes for ldiskfs])
