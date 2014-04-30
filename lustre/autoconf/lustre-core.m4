@@ -1152,6 +1152,25 @@ generic_file_llseek_size_5args, [
 ]) # LC_FILE_LLSEEK_SIZE_5ARG
 
 #
+# LC_INODE_KUID
+#
+# 3.5 has inode/iattr with kuid_t/kgid_t
+# (Later releases make it fully incompatible)
+#
+AC_DEFUN([LC_INODE_KUID], [
+LB_CHECK_COMPILE([if Linux kernel has inode->i_uid of type kuid_t],
+i_uid_read, [
+	#include <linux/fs.h>
+],[
+	uid_t uid = i_uid_read(NULL);
+], [
+	AC_DEFINE(HAVE_INODE_KUID, 1,
+		[kernel has inode->i_uid of type kuid_t])
+])
+]) # LC_INODE_KUID
+
+
+#
 # LC_HAVE_DENTRY_D_ALIAS_HLIST
 #
 # 3.6 switch i_dentry/d_alias from list to hlist
@@ -1534,6 +1553,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_HAVE_CLEAR_INODE
 	LC_HAVE_ENCODE_FH_PARENT
 	LC_FILE_LLSEEK_SIZE_5ARG
+	LC_INODE_KUID
 
 	# 3.6
 	LC_HAVE_DENTRY_D_ALIAS_HLIST
