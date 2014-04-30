@@ -322,12 +322,13 @@ EXPORT_SYMBOL(class_unregister_type);
  */
 struct obd_device *class_newdev(const char *type_name, const char *name)
 {
-        struct obd_device *result = NULL;
-        struct obd_device *newdev;
-        struct obd_type *type = NULL;
-        int i;
-        int new_obd_minor = 0;
-        ENTRY;
+	struct obd_device *result = NULL;
+	struct obd_device *newdev;
+	struct obd_type *type = NULL;
+	int i;
+	int new_obd_minor = 0;
+	int retried = 0;
+	ENTRY;
 
         if (strlen(name) >= MAX_OBD_NAME) {
                 CERROR("name/uuid must be < %u bytes long\n", MAX_OBD_NAME);
@@ -346,27 +347,40 @@ struct obd_device *class_newdev(const char *type_name, const char *name)
 
         LASSERT(newdev->obd_magic == OBD_DEVICE_MAGIC);
 
+again:
 	write_lock(&obd_dev_lock);
-        for (i = 0; i < class_devno_max(); i++) {
-                struct obd_device *obd = class_num2obd(i);
+	for (i = 0; i < class_devno_max(); i++) {
+		struct obd_device *obd = class_num2obd(i);
 
 		if (obd && (strcmp(name, obd->obd_name) == 0)) {
-                        CERROR("Device %s already exists at %d, won't add\n",
-                               name, i);
-                        if (result) {
-                                LASSERTF(result->obd_magic == OBD_DEVICE_MAGIC,
-                                         "%p obd_magic %08x != %08x\n", result,
-                                         result->obd_magic, OBD_DEVICE_MAGIC);
-                                LASSERTF(result->obd_minor == new_obd_minor,
-                                         "%p obd_minor %d != %d\n", result,
-                                         result->obd_minor, new_obd_minor);
+			CERROR("Device %s already exists at %d, won't add\n",
+			       name, i);
+			if (result) {
+				LASSERTF(result->obd_magic == OBD_DEVICE_MAGIC,
+					 "%p obd_magic %08x != %08x\n", result,
+					 result->obd_magic, OBD_DEVICE_MAGIC);
+				LASSERTF(result->obd_minor == new_obd_minor,
+					 "%p obd_minor %d != %d\n", result,
+					 result->obd_minor, new_obd_minor);
 
-                                obd_devs[result->obd_minor] = NULL;
-                                result->obd_name[0]='\0';
-                         }
-                        result = ERR_PTR(-EEXIST);
-                        break;
-                }
+				obd_devs[result->obd_minor] = NULL;
+				result->obd_name[0]='\0';
+			}
+
+			if (retried > 3) {
+				result = ERR_PTR(-EEXIST);
+				break;
+			}
+
+			write_unlock(&obd_dev_lock);
+
+			retried++;
+			obd_zombie_barrier();
+			schedule_timeout_and_set_state(TASK_INTERRUPTIBLE,
+						       HZ / 10);
+			goto again;
+		}
+
                 if (!result && !obd) {
                         result = newdev;
                         result->obd_minor = i;

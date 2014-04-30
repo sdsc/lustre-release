@@ -1159,24 +1159,25 @@ int mgc_set_info_async(const struct lu_env *env, struct obd_export *exp,
         int rc = -EINVAL;
         ENTRY;
 
-        /* Turn off initial_recov after we try all backup servers once */
-        if (KEY_IS(KEY_INIT_RECOV_BACKUP)) {
-                struct obd_import *imp = class_exp2cliimp(exp);
-                int value;
-                if (vallen != sizeof(int))
-                        RETURN(-EINVAL);
-                value = *(int *)val;
-                CDEBUG(D_MGC, "InitRecov %s %d/d%d:i%d:r%d:or%d:%s\n",
-                       imp->imp_obd->obd_name, value,
-                       imp->imp_deactive, imp->imp_invalid,
-                       imp->imp_replayable, imp->imp_obd->obd_replayable,
-                       ptlrpc_import_state_name(imp->imp_state));
-                /* Resurrect if we previously died */
-                if ((imp->imp_state != LUSTRE_IMP_FULL &&
-                     imp->imp_state != LUSTRE_IMP_NEW) || value > 1)
-                        ptlrpc_reconnect_import(imp);
-                RETURN(0);
-        }
+	/* Turn off initial_recov after we try all backup servers once */
+	if (KEY_IS(KEY_INIT_RECOV_BACKUP)) {
+		struct obd_import *imp = class_exp2cliimp(exp);
+		int value;
+		if (vallen != sizeof(int))
+			RETURN(-EINVAL);
+		value = *(int *)val;
+		CDEBUG(D_MGC, "InitRecov %s %d/d%d:i%d:r%d:or%d:%s\n",
+		       imp->imp_obd->obd_name, value,
+		       imp->imp_deactive, imp->imp_invalid,
+		       imp->imp_replayable, imp->imp_obd->obd_replayable,
+		       ptlrpc_import_state_name(imp->imp_state));
+		/* Resurrect if we previously died */
+                if (imp->imp_state == LUSTRE_IMP_CLOSED ||
+                    imp->imp_state == LUSTRE_IMP_DISCON || value > 1)
+			ptlrpc_reconnect_import(imp);
+			RETURN(0);
+	}
+
         /* FIXME move this to mgc_process_config */
         if (KEY_IS(KEY_REGISTER_TARGET)) {
                 struct mgs_target_info *mti;
