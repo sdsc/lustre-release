@@ -51,7 +51,7 @@
 #include <errno.h>
 #include <dirent.h>
 
-#include <liblustre.h>
+#include <libcfs/libcfs.h>
 #include <lustre/lustreapi.h>
 
 #include <lnet/lnetctl.h>
