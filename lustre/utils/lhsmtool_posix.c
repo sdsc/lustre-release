@@ -762,6 +762,24 @@ static int ct_path_archive(char *buf, int sz, const char *archive_dir,
 			PFID(fid));
 }
 
+static int ct_path_archive2lustre(const char *arc_path, char *lu_path, int sz,
+				  const char *mnt)
+{
+	lustre_fid	fid;
+	int		i;
+	int		rc;
+
+	for (i = strlen(arc_path) - 1; i >= 0; i--)
+		if (arc_path[i] == '/')
+			break;
+
+	rc = sscanf(arc_path + i + 1, SFID, RFID(&fid));
+	if (rc != 3)
+		return -EINVAL;
+
+	return ct_path_lustre(lu_path, sz, mnt, &fid);
+}
+
 static bool ct_is_retryable(int err)
 {
 	return err == -ETIMEDOUT;
@@ -1332,9 +1350,24 @@ static int ct_process_item_async(const struct hsm_action_item *hai,
 static int ct_import_one(const char *src, const char *dst)
 {
 	char		newarc[PATH_MAX];
+	char		src_lustre[PATH_MAX];
 	lustre_fid	fid;
 	struct stat	st;
 	int		rc;
+
+	rc = ct_path_archive2lustre(src, src_lustre, sizeof(src_lustre),
+				    opt.o_mnt);
+	if (rc) {
+		CT_ERROR(rc, "'%s' is not a valid import path", src);
+		return rc;
+	}
+
+	rc = access(src_lustre, F_OK);
+	if (rc == 0 || errno != ENOENT) {
+		rc = (errno == ENOENT) ? -EEXIST : -errno;
+		CT_ERROR(rc, "cannot import '%s'", src);
+		return rc;
+	}
 
 	CT_TRACE("importing '%s' from '%s'", dst, src);
 
