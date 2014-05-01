@@ -164,17 +164,24 @@ int ldiskfs_init(void);
 void ldiskfs_fini(void);
 
 #ifdef HAVE_ZFS_OSD
-int zfs_write_ldd(struct mkfs_opts *mop);
-int zfs_read_ldd(char *ds,  struct lustre_disk_data *ldd);
-int zfs_is_lustre(char *dev, unsigned *mount_type);
-int zfs_make_lustre(struct mkfs_opts *mop);
-int zfs_prepare_lustre(struct mkfs_opts *mop,
-		       char *default_mountopts, int default_len,
-		       char *always_mountopts, int always_len);
-int zfs_tune_lustre(char *dev, struct mount_opts *mop);
-int zfs_label_lustre(struct mount_opts *mop);
-int zfs_init(void);
-void zfs_fini(void);
+struct module_backfs_ops {
+	int	(*init)(void);
+	void	(*fini)(void);
+	int	(*read_ldd)(char *ds,  struct lustre_disk_data *ldd);
+	int	(*write_ldd)(struct mkfs_opts *mop);
+	int	(*is_lustre)(char *dev, enum ldd_mount_type *mount_type);
+	int	(*make_lustre)(struct mkfs_opts *mop);
+	int	(*prepare_lustre)(struct mkfs_opts *mop,
+				  char *default_mountopts, int default_len,
+				  char *always_mountopts, int always_len);
+	int	(*tune_lustre)(char *dev, struct mount_opts *mop);
+	int	(*label_lustre)(struct mount_opts *mop);
+	int	(*enable_quota)(struct mkfs_opts *mop);
+	void   *dl_handle;
+};
+
+struct module_backfs_ops *load_backfs_module(char *name);
+void unload_backfs_ops(struct module_backfs_ops *ops);
 #endif
 
 #endif

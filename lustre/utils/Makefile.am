@@ -35,6 +35,7 @@ bin_PROGRAMS = lfs req_layout
 bin_SCRIPTS = $(bin_scripts)
 sbin_SCRIPTS = $(sbin_scripts)
 
+pkglib_LTLIBRARIES =
 lib_LIBRARIES = liblustreapi.a
 if LDISKFS_ENABLED
 lib_LIBRARIES += libiam.a
@@ -119,6 +120,18 @@ llog_reader_DEPENDENCIES := $(LIBPTLCTL)
 
 lr_reader_SOURCES = lr_reader.c
 
+if UTILS
+
+if ZFS_ENABLED
+pkglib_LTLIBRARIES += mount_zfs.la
+
+mount_zfs_la_SOURCES = mount_utils_zfs.c
+mount_zfs_la_CPPFLAGS = -DHAVE_IOCTL_IN_UNISTD_H
+mount_zfs_la_CPPFLAGS += $(ZFS_LIBZFS_INCLUDE)
+mount_zfs_la_LDFLAGS =  -pthread $(ZFS_LIBZFS_LDFLAGS)
+mount_zfs_la_LDFLAGS += -shared -export-dynamic -module -avoid-version
+endif
+
 mount_lustre_SOURCES = mount_lustre.c mount_utils.c mount_utils.h
 mount_lustre_CPPFLAGS = $(AM_CPPFLAGS)
 mount_lustre_LDADD := $(LIBPTLCTL) $(SELINUX)
@@ -127,10 +140,7 @@ if LDISKFS_ENABLED
 mount_lustre_SOURCES += mount_utils_ldiskfs.c
 endif
 if ZFS_ENABLED
-mount_lustre_SOURCES += mount_utils_zfs.c
-mount_lustre_CPPFLAGS += -DHAVE_IOCTL_IN_UNISTD_H
-mount_lustre_CPPFLAGS += $(ZFS_LIBZFS_INCLUDE)
-mount_lustre_LDFLAGS = -pthread -rdynamic -ldl
+mount_lustre_LDFLAGS = -rdynamic -ldl
 endif
 
 mkfs_lustre_SOURCES = mkfs_lustre.c mount_utils.c mount_utils.h
@@ -143,10 +153,7 @@ mkfs_lustre_LDADD += libiam.a
 mkfs_lustre_DEPENDENCIES += $(LIBPTLCTL)
 endif
 if ZFS_ENABLED
-mkfs_lustre_SOURCES += mount_utils_zfs.c
-mkfs_lustre_CPPFLAGS += -DHAVE_IOCTL_IN_UNISTD_H
-mkfs_lustre_CPPFLAGS += $(ZFS_LIBZFS_INCLUDE)
-mkfs_lustre_LDFLAGS = -pthread -rdynamic -ldl
+mkfs_lustre_LDFLAGS = -rdynamic -ldl
 endif
 
 tunefs_lustre_SOURCES = mkfs_lustre.c mount_utils.c mount_utils.h
@@ -157,10 +164,7 @@ if LDISKFS_ENABLED
 tunefs_lustre_SOURCES += mount_utils_ldiskfs.c
 endif
 if ZFS_ENABLED
-tunefs_lustre_SOURCES += mount_utils_zfs.c
-tunefs_lustre_CPPFLAGS += -DHAVE_IOCTL_IN_UNISTD_H
-tunefs_lustre_CPPFLAGS += $(ZFS_LIBZFS_INCLUDE)
-tunefs_lustre_LDFLAGS = -pthread -rdynamic -ldl
+tunefs_lustre_LDFLAGS = -rdynamic -ldl
 endif
 
 l_getidentity_SOURCES = l_getidentity.c
@@ -177,6 +181,8 @@ wirecheck_SOURCES = wirecheck.c
 wirecheck_CPPFLAGS = -DCC="\"$(CC)\""
 
 wiretest_SOURCES = wiretest.c
+
+endif
 
 EXTRA_DIST = $(sbin_scripts) $(bin_scripts)
 
