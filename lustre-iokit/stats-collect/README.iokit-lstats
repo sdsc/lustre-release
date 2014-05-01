@@ -1,0 +1,65 @@
+Overview
+--------
+These script will be used to collect profile info of lustre client and server.
+It will be run on a single(control) node, and collect all the profile info and
+create a tarball on the control node.
+
+iokit-lstat : The stat script for single node, which will be run on each
+	profile node.
+iokit-gather-stats : collect stats script.
+iokit-config : the config for iokit-gather-stats.
+
+Requirements
+-------
+1) Lustre is installed and setup on your profiling cluster.
+2) ssh/scp to these node names works without requiring a password.
+
+Configuration
+------
+Configuration is very simple for this script, all of the profiling config
+VARs are in iokit-config
+
+XXXX_INTERVAL: the profiling interval where value of interval means:
+   0 - gather stats at start and stop only
+   N - gather stats every N seconds
+if some XXX_INTERVAL isn't specified, related stats won't be collected
+XXXX can be: VMSTAT, SERVICE, BRW, SDIO, MBALLOC, IO, JBD, CLIENT
+
+Running
+--------
+1) The iokit-gather-stats will be run in three mode
+
+   a) sh iokit-gather-stats iokit-config start
+     It will start collect stats on each node provided in iokit-config
+
+   b) sh iokit-gather-stats iokit-config stop <log_name>
+     It will stop collect stats on each node. If <log_name> is provided,
+     it will create a profile tarball /tmp/<log_name>.tar.gz.
+
+   c) sh iokit-gather-stats iokit-config analyse log_tarball.tar.gz csv
+     It will analyse the log_tarball and create a csv tarball for this
+     profiling tarball.
+
+2) The ior-collect-stat.sh will be run as
+        sh ior-collect-stat.sh start <profile>
+   It will create a ior result csv file. If <profile> is provided,
+   the detail profile info tarball will be created under /tmp.
+
+Example
+-------
+When you want collect your profile info, you should
+1) sh iokit-gather-stats iokit-config start
+	 #start the collect profile daemon on each node.
+
+2) run your test.
+
+3) sh iokit-gather-stats iokit-config stop log_tarball
+     #stop the collect profile daemon on each node, cleanup
+      the tmp file and create a profiling tarball.
+
+4) sh iokit-gather-stats iokit-config analyse log_tarball.tar.gz csv
+     #create a csv file according to the profile.
+
+TBD
+------
+Add liblustre profiling support and add more options for analyse.

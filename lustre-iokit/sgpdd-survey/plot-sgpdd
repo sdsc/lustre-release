@@ -1,16 +1,16 @@
 #!/usr/bin/perl -w
-# Report generation for plot-sgpdd
-# ================================
-#        The plot-sgpdd script is used to generate csv file and
+# Report generation for iokit-plot-sgpdd
+# ======================================
+# The iokit-plot-sgpdd script is used to generate csv file and
 # instructions files for gnuplot from the output of sgpdd-survey script.
 #
-#        The plot-sgpdd also creates .scr file that contains instructions
+# iokit-plot-sgpdd also creates .scr file that contains instructions
 # for gnuplot to plot the graph. After generating .dat and .scr files this
 # script invokes gnuplot to display graph.
 #
 # Syntax:
 # $ sgpdd-survey > log_filename
-# $ plot-sgpdd <log_filename>
+# $ iokit-plot-sgpdd <log_filename>
 # [Note: 1. This script may need modifications whenever there will be
 #           modifications in output format of sgpdd-survey script.
 #        2. Gnuplot version 4.0 or above is required.]

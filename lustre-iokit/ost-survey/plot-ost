@@ -1,15 +1,15 @@
 #!/usr/bin/perl -w
 # Report generation for ost-survey.pl
 # ===================================
-#        The plot-ost.pl script is used to generate csv file and
+# The iokit-plot-ost script is used to generate csv file and
 # instructions files for gnuplot from the output of ost-survey.pl script.
 #
-#        The plot-ost.pl also creates .scr file that contains instructions
+# iokit-plot-ost also creates .scr file that contains instructions
 # for gnuplot to plot the graph. After generating .dat and .scr files this
 # script invokes gnuplot to display graph.
 #
 # Syntax:
-# $ plot-ost.pl <log_filename>
+# $ iokit-plot-ost <log_filename>
 # Note:  1. This script may need modifications whenever there will be 
 #	    modifications in output format of ost-survey.pl script.
 #	 2. Gnuplot version 4.0 or above is required.

@@ -186,5 +186,5 @@ Instructions for graphing IOR results
    as /tmp/ior_survey_run_date@start_time_nodename.detail.dat2 and gnuplot
    file as /tmp/ior_survey_run_date@start_time_nodename.detail.scr.
 
-        $ perl parse-ior.pl /tmp/ior_survey_run_date@start_time_nodename.detail
+        $ perl iokit-parse-ior /tmp/ior_survey_run_date@start_time_nodename.detail
 
