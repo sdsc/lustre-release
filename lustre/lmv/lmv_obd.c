@@ -301,14 +301,14 @@ static int lmv_connect(const struct lu_env *env,
         if (data)
                 lmv->conn_data = *data;
 
-	if (obd->obd_type->typ_procsym == NULL) {
-		obd->obd_type->typ_procsym = lprocfs_seq_register("target_obds",
-							 obd->obd_proc_entry,
-							 NULL, NULL);
-		if (IS_ERR(obd->obd_type->typ_procsym)) {
+	if (lmv->targets == NULL) {
+		lmv->targets = lprocfs_seq_register("target_obds",
+						    obd->obd_proc_entry,
+						    NULL, NULL);
+		if (IS_ERR(lmv->targets)) {
 			CERROR("could not register /proc/fs/lustre/%s/%s/target_obds.",
 			       obd->obd_type->typ_name, obd->obd_name);
-			obd->obd_type->typ_procsym = NULL;
+			lmv->targets = NULL;
 		}
 	}
 
@@ -321,9 +321,9 @@ static int lmv_connect(const struct lu_env *env,
 	if (data != NULL && (data->ocd_connect_flags & OBD_CONNECT_REAL))
                 rc = lmv_check_connect(obd);
 
-	if (rc && obd->obd_type->typ_procsym != NULL)
-		lprocfs_remove(&obd->obd_type->typ_procsym);
-        RETURN(rc);
+	if (rc && lmv->targets != NULL)
+		lprocfs_remove(&lmv->targets);
+	RETURN(rc);
 }
 
 static void lmv_set_timeouts(struct obd_device *obd)
@@ -482,13 +482,13 @@ int lmv_connect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
 		mdc_obd->obd_name, mdc_obd->obd_uuid.uuid,
 		atomic_read(&obd->obd_refcount));
 
-	if (obd->obd_type->typ_procsym != NULL) {
+	if (lmv->targets != NULL) {
 		struct proc_dir_entry *mdc_symlink;
 
 		LASSERT(mdc_obd->obd_type != NULL);
 		LASSERT(mdc_obd->obd_type->typ_name != NULL);
 		mdc_symlink = lprocfs_add_symlink(mdc_obd->obd_name,
-						  obd->obd_type->typ_procsym,
+						  lmv->targets,
 						  "../../../%s/%s",
 						  mdc_obd->obd_type->typ_name,
 						  mdc_obd->obd_name);
@@ -497,7 +497,7 @@ int lmv_connect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
 			       "/proc/fs/lustre/%s/%s/target_obds/%s.",
 			       obd->obd_type->typ_name, obd->obd_name,
 			       mdc_obd->obd_name);
-			lprocfs_remove(&obd->obd_type->typ_procsym);
+			lprocfs_remove(&lmv->targets);
 		}
 	}
 	RETURN(0);
@@ -703,9 +703,9 @@ static int lmv_disconnect_mdc(struct obd_device *obd, struct lmv_tgt_desc *tgt)
                 mdc_obd->obd_no_recov = obd->obd_no_recov;
         }
 
-	if (obd->obd_type->typ_procsym != NULL)
+	if (lmv->targets != NULL)
 		lprocfs_remove_proc_entry(mdc_obd->obd_name,
-					  obd->obd_type->typ_procsym);
+					  lmv->targets);
 
 	rc = obd_fid_fini(tgt->ltd_exp->exp_obd);
 	if (rc)
@@ -754,8 +754,8 @@ static int lmv_disconnect(struct obd_export *exp)
 		lmv_disconnect_mdc(obd, lmv->tgts[i]);
         }
 
-	if (obd->obd_type->typ_procsym != NULL)
-		lprocfs_remove(&obd->obd_type->typ_procsym);
+	if (lmv->targets != NULL)
+		lprocfs_remove(&lmv->targets);
 	else
 		CERROR("/proc/fs/lustre/%s/%s/target_obds missing\n",
 		       obd->obd_type->typ_name, obd->obd_name);

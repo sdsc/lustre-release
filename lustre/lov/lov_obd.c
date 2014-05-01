@@ -189,7 +189,7 @@ int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
         CDEBUG(D_CONFIG, "Connected tgt idx %d %s (%s) %sactive\n", index,
                obd_uuid2str(tgt_uuid), tgt_obd->obd_name, activate ? "":"in");
 
-	if (obd->obd_type->typ_procsym != NULL) {
+	if (lov->targets != NULL) {
 		struct proc_dir_entry *osc_symlink;
 		struct obd_device *osc_obd;
 
@@ -200,7 +200,7 @@ int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
 		LASSERT(osc_obd->obd_type->typ_name != NULL);
 
 		osc_symlink = lprocfs_add_symlink(osc_obd->obd_name,
-						  obd->obd_type->typ_procsym,
+						  lov->targets,
 						  "../../../%s/%s",
 						  osc_obd->obd_type->typ_name,
 						  osc_obd->obd_name);
@@ -209,7 +209,7 @@ int lov_connect_obd(struct obd_device *obd, __u32 index, int activate,
 			       "/proc/fs/lustre/%s/%s/target_obds/%s.",
 			       obd->obd_type->typ_name, obd->obd_name,
 			       osc_obd->obd_name);
-			lprocfs_remove(&obd->obd_type->typ_procsym);
+			lprocfs_remove(&lov->targets);
                 }
         }
         RETURN(0);
@@ -242,13 +242,12 @@ static int lov_connect(const struct lu_env *env,
         if (data)
                 lov->lov_ocd = *data;
 
-	obd->obd_type->typ_procsym = lprocfs_seq_register("target_obds",
-						 obd->obd_proc_entry,
-						 NULL, NULL);
-	if (IS_ERR(obd->obd_type->typ_procsym)) {
+	lov->targets = lprocfs_seq_register("target_obds", obd->obd_proc_entry,
+					    NULL, NULL);
+	if (IS_ERR(lov->targets)) {
 		CERROR("%s: could not register /proc/fs/lustre/%s/%s/target_obds.",
 		       obd->obd_name, obd->obd_type->typ_name, obd->obd_name);
-		obd->obd_type->typ_procsym = NULL;
+		lov->targets = NULL;
 	}
 
         obd_getref(obd);
@@ -305,9 +304,9 @@ static int lov_disconnect_obd(struct obd_device *obd, struct lov_tgt_desc *tgt)
 		osc_obd->obd_fail = obd->obd_fail;
 		osc_obd->obd_no_recov = obd->obd_no_recov;
 
-		if (obd->obd_type->typ_procsym)
+		if (lov->targets != NULL)
 			lprocfs_remove_proc_entry(osc_obd->obd_name,
-						  obd->obd_type->typ_procsym);
+						  lov->targets);
 	}
 
         obd_register_observer(osc_obd, NULL);
@@ -353,8 +352,8 @@ static int lov_disconnect(struct obd_export *exp)
         }
         obd_putref(obd);
 
-	if (obd->obd_type->typ_procsym)
-		lprocfs_remove(&obd->obd_type->typ_procsym);
+	if (lov->targets != NULL)
+		lprocfs_remove(&lov->targets);
 
 out:
         rc = class_disconnect(exp); /* bz 9811 */
