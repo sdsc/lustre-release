@@ -145,6 +145,41 @@ out:
 	RETURN(rc);
 }
 
+/* Calculate the weight for an OST. */
+static void lod_qos_calc_weight(struct lod_device *m, __u32 ost_idx)
+{
+	struct lod_ost_desc *ost = OST_TGT(m, ost_idx);
+	struct obd_statfs *sfs = &ost->ltd_statfs;
+	__u64 weight;
+	__u64 age;
+
+	/* Decrease penalties based on virtual time of last use. */
+	age = atomic_read(&m->lod_create_counter) - ost->ltd_last_used + 1;
+	ost->ltd_qos.ltq_bavail_penalty /= age;
+
+	/* TODO: Involve more factors in weighting. */
+	weight = m->lod_qos.lq_prio_free *
+		(sfs->os_bavail - ost->ltd_qos.ltq_bavail_penalty);
+
+	ost->ltd_qos.ltq_weight = weight;
+}
+
+/* Modify penalties for an OST after it has been selected for stripe
+ * allocation. */
+static void lod_qos_used(struct lod_device *m, __u32 ost_idx)
+{
+	struct lod_ost_desc *ost = OST_TGT(m, ost_idx);
+	struct obd_statfs *sfs = &ost->ltd_statfs;
+	__u64 counter;
+
+	counter = atomic_inc_return(&m->lod_create_counter);
+	ost->ltd_last_used = counter;
+
+	/* TODO: Needs more penalties, verification that increments
+	 *       make any sense. */
+	ost->ltd_qos.ltq_bavail_penalty += sfs->os_bfree - sfs->os_bavail;
+}
+
 static int lod_statfs_and_check(const struct lu_env *env, struct lod_device *d,
 				int index, struct obd_statfs *sfs)
 {
@@ -200,10 +235,10 @@ static int lod_statfs_and_check(const struct lu_env *env, struct lod_device *d,
 static void lod_qos_statfs_update(const struct lu_env *env,
 				  struct lod_device *lod)
 {
-	struct obd_device *obd = lod2obd(lod);
-	struct ost_pool   *osts = &(lod->lod_pool_info);
-	int		   i, idx, rc = 0;
-	__u64		   max_age, avail;
+	struct obd_device	*obd = lod2obd(lod);
+	struct ost_pool		*osts = &(lod->lod_pool_info);
+	int			 i, idx, rc = 0;
+	__u64			 max_age, avail, avg_weight = 0;
 	ENTRY;
 
 	max_age = cfs_time_shift_64(-2 * lod->lod_desc.ld_qos_maxage);
@@ -223,225 +258,30 @@ static void lod_qos_statfs_update(const struct lu_env *env,
 					  &OST_TGT(lod,idx)->ltd_statfs);
 		if (rc)
 			break;
-		if (OST_TGT(lod,idx)->ltd_statfs.os_bavail != avail)
-			/* recalculate weigths */
-			lod->lod_qos.lq_dirty = 1;
+		if (OST_TGT(lod, idx)->ltd_statfs.os_bavail != avail) {
+			/* recalculate weights */
+			/* XXX is this the best place to call this? */
+			lod_qos_calc_weight(lod, idx);
+		}
+		avg_weight += OST_TGT(lod, idx)->ltd_qos.ltq_weight;
 	}
 	obd->obd_osfs_age = cfs_time_current_64();
+	/*
+	 * XXX Since adding the op_avg_weight field seems to cause some tests
+	 *     to crash for a reason unknown to me, we don't actually store
+	 *     the average weight, only print it out
+	 */
+#if 0
+	osts->op_avg_weight = avg_weight / osts->op_count;
+	QOS_DEBUG("pool average weight is "LPX64"\n", osts->op_avg_weight);
+#else
+	QOS_DEBUG("pool average weight would be "LPX64"\n",
+		  avg_weight / osts->op_count);
+#endif
 
 out:
 	up_write(&lod->lod_qos.lq_rw_sem);
 	EXIT;
-}
-
-/* Recalculate per-object penalties for OSSs and OSTs,
-   depends on size of each ost in an oss */
-static int lod_qos_calc_ppo(struct lod_device *lod)
-{
-	struct lod_qos_oss *oss;
-	__u64		    ba_max, ba_min, temp;
-	__u32		    num_active;
-	int		    rc, i, prio_wide;
-	time_t		    now, age;
-	ENTRY;
-
-	if (!lod->lod_qos.lq_dirty)
-		GOTO(out, rc = 0);
-
-	num_active = lod->lod_desc.ld_active_tgt_count - 1;
-	if (num_active < 1)
-		GOTO(out, rc = -EAGAIN);
-
-	/* find bavail on each OSS */
-	cfs_list_for_each_entry(oss, &lod->lod_qos.lq_oss_list, lqo_oss_list)
-				oss->lqo_bavail = 0;
-	lod->lod_qos.lq_active_oss_count = 0;
-
-	/*
-	 * How badly user wants to select OSTs "widely" (not recently chosen
-	 * and not on recent OSS's).  As opposed to "freely" (free space
-	 * avail.) 0-256
-	 */
-	prio_wide = 256 - lod->lod_qos.lq_prio_free;
-
-	ba_min = (__u64)(-1);
-	ba_max = 0;
-	now = cfs_time_current_sec();
-	/* Calculate OST penalty per object
-	 * (lod ref taken in lod_qos_prep_create()) */
-	cfs_foreach_bit(lod->lod_ost_bitmap, i) {
-		LASSERT(OST_TGT(lod,i));
-		temp = TGT_BAVAIL(i);
-		if (!temp)
-			continue;
-		ba_min = min(temp, ba_min);
-		ba_max = max(temp, ba_max);
-
-		/* Count the number of usable OSS's */
-		if (OST_TGT(lod,i)->ltd_qos.ltq_oss->lqo_bavail == 0)
-			lod->lod_qos.lq_active_oss_count++;
-		OST_TGT(lod,i)->ltd_qos.ltq_oss->lqo_bavail += temp;
-
-		/* per-OST penalty is prio * TGT_bavail / (num_ost - 1) / 2 */
-		temp >>= 1;
-		do_div(temp, num_active);
-		OST_TGT(lod,i)->ltd_qos.ltq_penalty_per_obj =
-			(temp * prio_wide) >> 8;
-
-		age = (now - OST_TGT(lod,i)->ltd_qos.ltq_used) >> 3;
-		if (lod->lod_qos.lq_reset ||
-		    age > 32 * lod->lod_desc.ld_qos_maxage)
-			OST_TGT(lod,i)->ltd_qos.ltq_penalty = 0;
-		else if (age > lod->lod_desc.ld_qos_maxage)
-			/* Decay the penalty by half for every 8x the update
-			 * interval that the device has been idle.  That gives
-			 * lots of time for the statfs information to be
-			 * updated (which the penalty is only a proxy for),
-			 * and avoids penalizing OSS/OSTs under light load. */
-			OST_TGT(lod,i)->ltd_qos.ltq_penalty >>=
-				(age / lod->lod_desc.ld_qos_maxage);
-	}
-
-	num_active = lod->lod_qos.lq_active_oss_count - 1;
-	if (num_active < 1) {
-		/* If there's only 1 OSS, we can't penalize it, so instead
-		   we have to double the OST penalty */
-		num_active = 1;
-		cfs_foreach_bit(lod->lod_ost_bitmap, i)
-			OST_TGT(lod,i)->ltd_qos.ltq_penalty_per_obj <<= 1;
-	}
-
-	/* Per-OSS penalty is prio * oss_avail / oss_osts / (num_oss - 1) / 2 */
-	cfs_list_for_each_entry(oss, &lod->lod_qos.lq_oss_list, lqo_oss_list) {
-		temp = oss->lqo_bavail >> 1;
-		do_div(temp, oss->lqo_ost_count * num_active);
-		oss->lqo_penalty_per_obj = (temp * prio_wide) >> 8;
-
-		age = (now - oss->lqo_used) >> 3;
-		if (lod->lod_qos.lq_reset ||
-		    age > 32 * lod->lod_desc.ld_qos_maxage)
-			oss->lqo_penalty = 0;
-		else if (age > lod->lod_desc.ld_qos_maxage)
-			/* Decay the penalty by half for every 8x the update
-			 * interval that the device has been idle.  That gives
-			 * lots of time for the statfs information to be
-			 * updated (which the penalty is only a proxy for),
-			 * and avoids penalizing OSS/OSTs under light load. */
-			oss->lqo_penalty >>= age / lod->lod_desc.ld_qos_maxage;
-	}
-
-	lod->lod_qos.lq_dirty = 0;
-	lod->lod_qos.lq_reset = 0;
-
-	/* If each ost has almost same free space,
-	 * do rr allocation for better creation performance */
-	lod->lod_qos.lq_same_space = 0;
-	if ((ba_max * (256 - lod->lod_qos.lq_threshold_rr)) >> 8 < ba_min) {
-		lod->lod_qos.lq_same_space = 1;
-		/* Reset weights for the next time we enter qos mode */
-		lod->lod_qos.lq_reset = 1;
-	}
-	rc = 0;
-
-out:
-#ifndef FORCE_QOS
-	if (!rc && lod->lod_qos.lq_same_space)
-		RETURN(-EAGAIN);
-#endif
-	RETURN(rc);
-}
-
-static int lod_qos_calc_weight(struct lod_device *lod, int i)
-{
-	__u64 temp, temp2;
-
-	/* Final ost weight = TGT_BAVAIL - ost_penalty - oss_penalty */
-	temp = TGT_BAVAIL(i);
-	temp2 = OST_TGT(lod,i)->ltd_qos.ltq_penalty +
-		OST_TGT(lod,i)->ltd_qos.ltq_oss->lqo_penalty;
-	if (temp < temp2)
-		OST_TGT(lod,i)->ltd_qos.ltq_weight = 0;
-	else
-		OST_TGT(lod,i)->ltd_qos.ltq_weight = temp - temp2;
-	return 0;
-}
-
-/* We just used this index for a stripe; adjust everyone's weights */
-static int lod_qos_used(struct lod_device *lod, struct ost_pool *osts,
-			__u32 index, __u64 *total_wt)
-{
-	struct lod_tgt_desc *ost;
-	struct lod_qos_oss  *oss;
-	int j;
-	ENTRY;
-
-	ost = OST_TGT(lod,index);
-	LASSERT(ost);
-
-	/* Don't allocate on this devuce anymore, until the next alloc_qos */
-	ost->ltd_qos.ltq_usable = 0;
-
-	oss = ost->ltd_qos.ltq_oss;
-
-	/* Decay old penalty by half (we're adding max penalty, and don't
-	   want it to run away.) */
-	ost->ltd_qos.ltq_penalty >>= 1;
-	oss->lqo_penalty >>= 1;
-
-	/* mark the OSS and OST as recently used */
-	ost->ltd_qos.ltq_used = oss->lqo_used = cfs_time_current_sec();
-
-	/* Set max penalties for this OST and OSS */
-	ost->ltd_qos.ltq_penalty +=
-		ost->ltd_qos.ltq_penalty_per_obj * lod->lod_ostnr;
-	oss->lqo_penalty += oss->lqo_penalty_per_obj *
-		lod->lod_qos.lq_active_oss_count;
-
-	/* Decrease all OSS penalties */
-	cfs_list_for_each_entry(oss, &lod->lod_qos.lq_oss_list, lqo_oss_list) {
-		if (oss->lqo_penalty < oss->lqo_penalty_per_obj)
-			oss->lqo_penalty = 0;
-		else
-			oss->lqo_penalty -= oss->lqo_penalty_per_obj;
-	}
-
-	*total_wt = 0;
-	/* Decrease all OST penalties */
-	for (j = 0; j < osts->op_count; j++) {
-		int i;
-
-		i = osts->op_array[j];
-		if (!cfs_bitmap_check(lod->lod_ost_bitmap, i))
-			continue;
-
-		ost = OST_TGT(lod,i);
-		LASSERT(ost);
-
-		if (ost->ltd_qos.ltq_penalty <
-				ost->ltd_qos.ltq_penalty_per_obj)
-			ost->ltd_qos.ltq_penalty = 0;
-		else
-			ost->ltd_qos.ltq_penalty -=
-				ost->ltd_qos.ltq_penalty_per_obj;
-
-		lod_qos_calc_weight(lod, i);
-
-		/* Recalc the total weight of usable osts */
-		if (ost->ltd_qos.ltq_usable)
-			*total_wt += ost->ltd_qos.ltq_weight;
-
-		QOS_DEBUG("recalc tgt %d usable=%d avail="LPU64
-			  " ostppo="LPU64" ostp="LPU64" ossppo="LPU64
-			  " ossp="LPU64" wt="LPU64"\n",
-			  i, ost->ltd_qos.ltq_usable, TGT_BAVAIL(i) >> 10,
-			  ost->ltd_qos.ltq_penalty_per_obj >> 10,
-			  ost->ltd_qos.ltq_penalty >> 10,
-			  ost->ltd_qos.ltq_oss->lqo_penalty_per_obj >> 10,
-			  ost->ltd_qos.ltq_oss->lqo_penalty >> 10,
-			  ost->ltd_qos.ltq_weight >> 10);
-	}
-
-	RETURN(0);
 }
 
 #define LOV_QOS_EMPTY ((__u32)-1)
@@ -660,10 +500,10 @@ static int lod_qos_is_ost_used(const struct lu_env *env, int ost, int stripes)
 	return 0;
 }
 
-/* Allocate objects on OSTs with round-robin algorithm */
-static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
-			struct dt_object **stripe, int flags,
-			struct thandle *th)
+/* Allocate objects on OSTs using a weighted round-robin algorithm */
+static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
+			 struct dt_object **stripe, int flags,
+			 struct thandle *th)
 {
 	struct lod_device *m = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
 	struct obd_statfs *sfs = &lod_env_info(env)->lti_osfs;
@@ -679,6 +519,7 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	int		   stripe_cnt = lo->ldo_stripenr;
 	int		   stripe_cnt_min = min_stripe_count(stripe_cnt, flags);
 	__u32		   ost_idx;
+	__u64		   threshold;
 	ENTRY;
 
 	if (lo->ldo_pool)
@@ -717,17 +558,22 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	}
 	down_read(&m->lod_qos.lq_rw_sem);
 	ost_start_idx_temp = lqr->lqr_start_idx;
+#if 0
+	threshold = osts->op_avg_weight;
+#else
+	threshold = 0;
+#endif
 
 repeat_find:
 	array_idx = (lqr->lqr_start_idx + lqr->lqr_offset_idx) %
 			osts->op_count;
 
 	QOS_DEBUG("pool '%s' want %d startidx %d startcnt %d offset %d "
-		  "active %d count %d arrayidx %d\n",
+		  "active %d count %d arrayidx %d threshold "LPX64"\n",
 		  lo->ldo_pool ? lo->ldo_pool : "",
 		  stripe_cnt, lqr->lqr_start_idx, lqr->lqr_start_count,
 		  lqr->lqr_offset_idx, osts->op_count, osts->op_count,
-		  array_idx);
+		  array_idx, threshold);
 
 	for (i = 0; i < osts->op_count && stripe_idx < lo->ldo_stripenr;
 	     i++, array_idx = (array_idx + 1) % osts->op_count) {
@@ -779,6 +625,17 @@ repeat_find:
 		}
 
 		/*
+		 * Skip OST if it doesn't have enough weight.
+		 */
+		if (OST_TGT(m, ost_idx)->ltd_qos.ltq_weight < threshold) {
+			QOS_DEBUG("#%d: weight ("LPX64") under current "
+				  "threshold ("LPX64")\n", ost_idx,
+				  OST_TGT(m, ost_idx)->ltd_qos.ltq_weight,
+				  threshold);
+			continue;
+		}
+
+		/*
 		 * do not put >1 objects on a single OST
 		 */
 		if (speed && lod_qos_is_ost_used(env, ost_idx, stripe_idx))
@@ -798,11 +655,22 @@ repeat_find:
 		lod_qos_ost_in_use(env, stripe_idx, ost_idx);
 		stripe[stripe_idx] = o;
 		stripe_idx++;
+		lod_qos_used(m, ost_idx);
+		QOS_DEBUG("#%d selected: weight ("LPX64") above current "
+			  "threshold ("LPX64")\n", ost_idx,
+			  OST_TGT(m, ost_idx)->ltd_qos.ltq_weight, threshold);
 
 	}
 	if ((speed < 2) && (stripe_idx < stripe_cnt_min)) {
 		/* Try again, allowing slower OSCs */
 		speed++;
+		lqr->lqr_start_idx = ost_start_idx_temp;
+		goto repeat_find;
+	}
+
+	if ((threshold > 0) && (stripe_idx < stripe_cnt_min)) {
+		/* Try again, allowing lighter OSTs. */
+		threshold >>= 1;
 		lqr->lqr_start_idx = ost_start_idx_temp;
 		goto repeat_find;
 	}
@@ -972,220 +840,6 @@ static inline int lod_qos_is_usable(struct lod_device *lod)
 		return 0;
 
 	return 1;
-}
-
-/* Alloc objects on OSTs with optimization based on:
-   - free space
-   - network resources (shared OSS's)
- */
-static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
-			 struct dt_object **stripe, int flags,
-			 struct thandle *th)
-{
-	struct lod_device   *m = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
-	struct obd_statfs   *sfs = &lod_env_info(env)->lti_osfs;
-	struct lod_tgt_desc *ost;
-	struct dt_object    *o;
-	__u64		     total_weight = 0;
-	int		     nfound, good_osts, i, rc = 0;
-	int		     stripe_cnt = lo->ldo_stripenr;
-	int		     stripe_cnt_min;
-	struct pool_desc    *pool = NULL;
-	struct ost_pool    *osts;
-	ENTRY;
-
-	stripe_cnt_min = min_stripe_count(stripe_cnt, flags);
-	if (stripe_cnt_min < 1)
-		RETURN(-EINVAL);
-
-	if (lo->ldo_pool)
-		pool = lod_find_pool(m, lo->ldo_pool);
-
-	if (pool != NULL) {
-		down_read(&pool_tgt_rw_sem(pool));
-		osts = &(pool->pool_obds);
-	} else {
-		osts = &(m->lod_pool_info);
-	}
-
-	/* Detect -EAGAIN early, before expensive lock is taken. */
-	if (!lod_qos_is_usable(m))
-		GOTO(out_nolock, rc = -EAGAIN);
-
-	/* Do actual allocation, use write lock here. */
-	down_write(&m->lod_qos.lq_rw_sem);
-
-	/*
-	 * Check again, while we were sleeping on @lq_rw_sem things could
-	 * change.
-	 */
-	if (!lod_qos_is_usable(m))
-		GOTO(out, rc = -EAGAIN);
-
-	rc = lod_qos_calc_ppo(m);
-	if (rc)
-		GOTO(out, rc);
-
-	rc = lod_qos_ost_in_use_clear(env, lo->ldo_stripenr);
-	if (rc)
-		GOTO(out, rc);
-
-	good_osts = 0;
-	/* Find all the OSTs that are valid stripe candidates */
-	for (i = 0; i < osts->op_count; i++) {
-		if (!cfs_bitmap_check(m->lod_ost_bitmap, osts->op_array[i]))
-			continue;
-
-		rc = lod_statfs_and_check(env, m, osts->op_array[i], sfs);
-		if (rc) {
-			/* this OSP doesn't feel well */
-			continue;
-		}
-
-		/*
-		 * skip full devices
-		 */
-		if (lod_qos_dev_is_full(sfs))
-			continue;
-
-		/* Fail Check before osc_precreate() is called
-		   so we can only 'fail' single OSC. */
-		if (OBD_FAIL_CHECK(OBD_FAIL_MDS_OSC_PRECREATE) &&
-				   osts->op_array[i] == 0)
-			continue;
-
-		ost = OST_TGT(m,osts->op_array[i]);
-		ost->ltd_qos.ltq_usable = 1;
-		lod_qos_calc_weight(m, osts->op_array[i]);
-		total_weight += ost->ltd_qos.ltq_weight;
-
-		good_osts++;
-	}
-
-	QOS_DEBUG("found %d good osts\n", good_osts);
-
-	if (good_osts < stripe_cnt_min)
-		GOTO(out, rc = -EAGAIN);
-
-	/* We have enough osts */
-	if (good_osts < stripe_cnt)
-		stripe_cnt = good_osts;
-
-	/* Find enough OSTs with weighted random allocation. */
-	nfound = 0;
-	while (nfound < stripe_cnt) {
-		__u64 rand, cur_weight;
-
-		cur_weight = 0;
-		rc = -ENOSPC;
-
-		if (total_weight) {
-#if BITS_PER_LONG == 32
-			rand = cfs_rand() % (unsigned)total_weight;
-			/* If total_weight > 32-bit, first generate the high
-			 * 32 bits of the random number, then add in the low
-			 * 32 bits (truncated to the upper limit, if needed) */
-			if (total_weight > 0xffffffffULL)
-				rand = (__u64)(cfs_rand() %
-					(unsigned)(total_weight >> 32)) << 32;
-			else
-				rand = 0;
-
-			if (rand == (total_weight & 0xffffffff00000000ULL))
-				rand |= cfs_rand() % (unsigned)total_weight;
-			else
-				rand |= cfs_rand();
-
-#else
-			rand = ((__u64)cfs_rand() << 32 | cfs_rand()) %
-				total_weight;
-#endif
-		} else {
-			rand = 0;
-		}
-
-		/* On average, this will hit larger-weighted osts more often.
-		   0-weight osts will always get used last (only when rand=0) */
-		for (i = 0; i < osts->op_count; i++) {
-			int idx = osts->op_array[i];
-
-			if (!cfs_bitmap_check(m->lod_ost_bitmap, idx))
-				continue;
-
-			ost = OST_TGT(m,idx);
-
-			if (!ost->ltd_qos.ltq_usable)
-				continue;
-
-			cur_weight += ost->ltd_qos.ltq_weight;
-			QOS_DEBUG("stripe_cnt=%d nfound=%d cur_weight="LPU64
-				  " rand="LPU64" total_weight="LPU64"\n",
-				  stripe_cnt, nfound, cur_weight, rand,
-				  total_weight);
-
-			if (cur_weight < rand)
-				continue;
-
-			QOS_DEBUG("stripe=%d to idx=%d\n", nfound, idx);
-
-			/*
-			 * do not put >1 objects on a single OST
-			 */
-			if (lod_qos_is_ost_used(env, idx, nfound))
-				continue;
-			lod_qos_ost_in_use(env, nfound, idx);
-
-			o = lod_qos_declare_object_on(env, m, idx, th);
-			if (IS_ERR(o)) {
-				QOS_DEBUG("can't declare object on #%u: %d\n",
-					  idx, (int) PTR_ERR(o));
-				continue;
-			}
-			stripe[nfound++] = o;
-			lod_qos_used(m, osts, idx, &total_weight);
-			rc = 0;
-			break;
-		}
-
-		if (rc) {
-			/* no OST found on this iteration, give up */
-			break;
-		}
-	}
-
-	if (unlikely(nfound != stripe_cnt)) {
-		/*
-		 * when the decision to use weighted algorithm was made
-		 * we had enough appropriate OSPs, but this state can
-		 * change anytime (no space on OST, broken connection, etc)
-		 * so it's possible OSP won't be able to provide us with
-		 * an object due to just changed state
-		 */
-		LCONSOLE_INFO("wanted %d, found %d\n", stripe_cnt, nfound);
-		for (i = 0; i < nfound; i++) {
-			LASSERT(stripe[i] != NULL);
-			lu_object_put(env, &stripe[i]->do_lu);
-			stripe[i] = NULL;
-		}
-
-		/* makes sense to rebalance next time */
-		m->lod_qos.lq_dirty = 1;
-		m->lod_qos.lq_same_space = 0;
-
-		rc = -EAGAIN;
-	}
-
-out:
-	up_write(&m->lod_qos.lq_rw_sem);
-
-out_nolock:
-	if (pool != NULL) {
-		up_read(&pool_tgt_rw_sem(pool));
-		/* put back ref got by lod_find_pool() */
-		lod_pool_putref(pool);
-	}
-
-	RETURN(rc);
 }
 
 /* Find the max stripecount we should use */
@@ -1422,8 +1076,6 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 				d->lod_desc.ld_tgt_count, stripe_len);
 		if (lo->ldo_def_stripe_offset >= d->lod_desc.ld_tgt_count) {
 			rc = lod_alloc_qos(env, lo, stripe, flag, th);
-			if (rc == -EAGAIN)
-				rc = lod_alloc_rr(env, lo, stripe, flag, th);
 		} else {
 			rc = lod_alloc_specific(env, lo, stripe, flag, th);
 		}
@@ -1462,4 +1114,3 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 out:
 	RETURN(rc);
 }
-

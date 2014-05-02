@@ -6913,6 +6913,10 @@ test_116a() { # was previously test_116()
 	[ $MINV -eq 0 ] && skip "no free space in OST$MINI, skip" && return
 	[ $MINV -gt 10000000 ] && skip "too much free space in OST$MINI, skip" \
 		&& return
+
+	debugsave
+	lctl set_param debug=-1
+
 	trap simple_cleanup_common EXIT
 
 
@@ -7016,6 +7020,7 @@ test_116a() { # was previously test_116()
 	[[ $MAXC -gt $MINC ]] ||
 		error_ignore LU-9 "stripe QOS didn't balance free space"
 	simple_cleanup_common
+	debugrestore
 }
 run_test 116a "stripe QOS: free space balance ==================="
 

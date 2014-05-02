@@ -397,11 +397,17 @@ struct echo_client_obd {
 
 /* Generic subset of OSTs */
 struct ost_pool {
-        __u32              *op_array;      /* array of index of
-                                                   lov_obd->lov_tgts */
-        unsigned int        op_count;      /* number of OSTs in the array */
-        unsigned int        op_size;       /* allocated size of lp_array */
-	struct rw_semaphore op_rw_sem;     /* to protect ost_pool use */
+	__u32			*op_array; /* array of index of
+					      lov_obd->lov_tgts */
+	unsigned int		 op_count; /* number of OSTs in the array */
+	unsigned int		 op_size;  /* allocated size of lp_array */
+	struct rw_semaphore	 op_rw_sem;/* to protect ost_pool use */
+
+	/* Adding this extra field causes some tests to fail */
+#if 0
+	__u64			 op_avg_weight; /* average weight of OSTs
+						   in pool */
+#endif
 };
 
 /* allow statfs data caching for 1 second */

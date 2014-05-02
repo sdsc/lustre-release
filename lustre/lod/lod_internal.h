@@ -95,7 +95,8 @@ struct lod_qos_oss {
 
 struct ltd_qos {
 	struct lod_qos_oss	*ltq_oss;	/* oss info */
-	__u64			 ltq_penalty;	/* current penalty */
+	__u64			 ltq_bavail_penalty;	/* current bavail
+							   penalty */
 	__u64			 ltq_penalty_per_obj; /* penalty decrease
 							 every obj*/
 	__u64			 ltq_weight;	/* net weighting */
@@ -104,17 +105,22 @@ struct ltd_qos {
 };
 
 struct lod_tgt_desc {
-	struct dt_device  *ltd_tgt;
-	struct list_head   ltd_kill;
-	struct obd_export *ltd_exp;
-	struct obd_uuid    ltd_uuid;
-	__u32              ltd_gen;
-	__u32              ltd_index;
-	struct ltd_qos     ltd_qos; /* qos info per target */
-	struct obd_statfs  ltd_statfs;
-	unsigned long      ltd_active:1,/* is this target up for requests */
-			   ltd_activate:1,/* should  target be activated */
-			   ltd_reap:1;  /* should this target be deleted */
+	struct dt_device	*ltd_tgt;
+	struct list_head	 ltd_kill;
+	struct obd_export	*ltd_exp;
+	struct obd_uuid		 ltd_uuid;
+	__u32			 ltd_gen;
+	__u32			 ltd_index;
+	struct ltd_qos		 ltd_qos; /* qos info per target */
+	struct obd_statfs	 ltd_statfs;
+	unsigned long		 ltd_active:1,/* is this target up
+						 for requests */
+				 ltd_activate:1,/* should  target be
+						   activated */
+				 ltd_reap:1;  /* should this target be
+						 deleted */
+	__u64			 ltd_last_used; /* last virtual allocation
+						   time */
 };
 
 #define TGT_PTRS		256     /* number of pointers at 1st level */
@@ -190,6 +196,9 @@ struct lod_device {
 	enum lustre_sec_part   lod_sp_me;
 
 	cfs_proc_dir_entry_t *lod_symlink;
+
+	/* Virtual time counter for QoS allocator */
+	atomic_t		lod_create_counter;
 };
 
 #define lod_osts	lod_ost_descs.ltd_tgts
