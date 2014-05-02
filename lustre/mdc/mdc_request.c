@@ -138,13 +138,13 @@ static int send_getstatus(struct obd_import *imp, struct lu_fid *rootfid,
         if (body == NULL)
                 GOTO(out, rc = -EPROTO);
 
-        if (body->valid & OBD_MD_FLMDSCAPA) {
+	if (body->mbo_valid & OBD_MD_FLMDSCAPA) {
                 rc = mdc_unpack_capa(NULL, req, &RMF_CAPA1, pc);
                 if (rc)
                         GOTO(out, rc);
         }
 
-        *rootfid = body->fid1;
+	*rootfid = body->mbo_fid1;
         CDEBUG(D_NET,
                "root fid="DFID", last_committed="LPU64"\n",
                PFID(rootfid),
@@ -192,17 +192,17 @@ static int mdc_getattr_common(struct obd_export *exp,
         if (body == NULL)
                 RETURN(-EPROTO);
 
-        CDEBUG(D_NET, "mode: %o\n", body->mode);
+	CDEBUG(D_NET, "mode: %o\n", body->mbo_mode);
 
 	mdc_update_max_ea_from_body(exp, body);
-	if (body->eadatasize != 0) {
+	if (body->mbo_eadatasize != 0) {
 		eadata = req_capsule_server_sized_get(pill, &RMF_MDT_MD,
-						      body->eadatasize);
+						      body->mbo_eadatasize);
 		if (eadata == NULL)
 			RETURN(-EPROTO);
 	}
 
-        if (body->valid & OBD_MD_FLRMTPERM) {
+	if (body->mbo_valid & OBD_MD_FLRMTPERM) {
                 struct mdt_remote_perm *perm;
 
                 LASSERT(client_is_remote(exp));
@@ -212,7 +212,7 @@ static int mdc_getattr_common(struct obd_export *exp,
                         RETURN(-EPROTO);
         }
 
-        if (body->valid & OBD_MD_FLMDSCAPA) {
+	if (body->mbo_valid & OBD_MD_FLMDSCAPA) {
                 struct lustre_capa *capa;
                 capa = req_capsule_server_get(pill, &RMF_CAPA1);
                 if (capa == NULL)
@@ -484,15 +484,15 @@ static int mdc_unpack_acl(struct ptlrpc_request *req, struct lustre_md *md)
         int                     rc;
         ENTRY;
 
-        if (!body->aclsize)
+	if (!body->mbo_aclsize)
                 RETURN(0);
 
-        buf = req_capsule_server_sized_get(pill, &RMF_ACL, body->aclsize);
+	buf = req_capsule_server_sized_get(pill, &RMF_ACL, body->mbo_aclsize);
 
         if (!buf)
                 RETURN(-EPROTO);
 
-        acl = posix_acl_from_xattr(&init_user_ns, buf, body->aclsize);
+	acl = posix_acl_from_xattr(&init_user_ns, buf, body->mbo_aclsize);
         if (IS_ERR(acl)) {
                 rc = PTR_ERR(acl);
                 CERROR("convert xattr to acl: %d\n", rc);
@@ -527,22 +527,22 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
         md->body = req_capsule_server_get(pill, &RMF_MDT_BODY);
         LASSERT(md->body != NULL);
 
-        if (md->body->valid & OBD_MD_FLEASIZE) {
+	if (md->body->mbo_valid & OBD_MD_FLEASIZE) {
                 int lmmsize;
                 struct lov_mds_md *lmm;
 
-                if (!S_ISREG(md->body->mode)) {
+		if (!S_ISREG(md->body->mbo_mode)) {
                         CDEBUG(D_INFO, "OBD_MD_FLEASIZE set, should be a "
                                "regular file, but is not\n");
                         GOTO(out, rc = -EPROTO);
                 }
 
-                if (md->body->eadatasize == 0) {
+		if (md->body->mbo_eadatasize == 0) {
                         CDEBUG(D_INFO, "OBD_MD_FLEASIZE set, "
                                "but eadatasize 0\n");
                         GOTO(out, rc = -EPROTO);
                 }
-                lmmsize = md->body->eadatasize;
+		lmmsize = md->body->mbo_eadatasize;
                 lmm = req_capsule_server_sized_get(pill, &RMF_MDT_MD, lmmsize);
                 if (!lmm)
                         GOTO(out, rc = -EPROTO);
@@ -558,23 +558,23 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
                         GOTO(out, rc = -EPROTO);
                 }
 
-        } else if (md->body->valid & OBD_MD_FLDIREA) {
+	} else if (md->body->mbo_valid & OBD_MD_FLDIREA) {
                 int lmvsize;
                 struct lov_mds_md *lmv;
 
-                if(!S_ISDIR(md->body->mode)) {
+		if (!S_ISDIR(md->body->mbo_mode)) {
                         CDEBUG(D_INFO, "OBD_MD_FLDIREA set, should be a "
                                "directory, but is not\n");
                         GOTO(out, rc = -EPROTO);
                 }
 
-                if (md->body->eadatasize == 0) {
+		if (md->body->mbo_eadatasize == 0) {
                         CDEBUG(D_INFO, "OBD_MD_FLDIREA is set, "
                                "but eadatasize 0\n");
                         RETURN(-EPROTO);
                 }
-		if (md->body->valid & OBD_MD_MEA) {
-			lmvsize = md->body->eadatasize;
+		if (md->body->mbo_valid & OBD_MD_MEA) {
+			lmvsize = md->body->mbo_eadatasize;
 			lmv = req_capsule_server_sized_get(pill, &RMF_MDT_MD,
 							   lmvsize);
 			if (!lmv)
@@ -595,20 +595,19 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
         }
         rc = 0;
 
-        if (md->body->valid & OBD_MD_FLRMTPERM) {
+	if (md->body->mbo_valid & OBD_MD_FLRMTPERM) {
                 /* remote permission */
                 LASSERT(client_is_remote(exp));
                 md->remote_perm = req_capsule_server_swab_get(pill, &RMF_ACL,
                                                 lustre_swab_mdt_remote_perm);
                 if (!md->remote_perm)
                         GOTO(out, rc = -EPROTO);
-        }
-        else if (md->body->valid & OBD_MD_FLACL) {
+	} else if (md->body->mbo_valid & OBD_MD_FLACL) {
                 /* for ACL, it's possible that FLACL is set but aclsize is zero.
                  * only when aclsize != 0 there's an actual segment for ACL
                  * in reply buffer.
                  */
-                if (md->body->aclsize) {
+		if (md->body->mbo_aclsize) {
                         rc = mdc_unpack_acl(req, md);
                         if (rc)
                                 GOTO(out, rc);
@@ -618,7 +617,7 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
 #endif
                 }
         }
-        if (md->body->valid & OBD_MD_FLMDSCAPA) {
+	if (md->body->mbo_valid & OBD_MD_FLMDSCAPA) {
                 struct obd_capa *oc = NULL;
 
                 rc = mdc_unpack_capa(NULL, req, &RMF_CAPA1, &oc);
@@ -627,7 +626,7 @@ int mdc_get_lustre_md(struct obd_export *exp, struct ptlrpc_request *req,
                 md->mds_capa = oc;
         }
 
-        if (md->body->valid & OBD_MD_FLOSSCAPA) {
+	if (md->body->mbo_valid & OBD_MD_FLOSSCAPA) {
                 struct obd_capa *oc = NULL;
 
                 rc = mdc_unpack_capa(NULL, req, &RMF_CAPA2, &oc);
@@ -693,9 +692,9 @@ void mdc_replay_open(struct ptlrpc_request *req)
 
                 file_fh = &och->och_fh;
                 CDEBUG(D_HA, "updating handle from "LPX64" to "LPX64"\n",
-                       file_fh->cookie, body->handle.cookie);
+		       file_fh->cookie, body->mbo_handle.cookie);
                 old = *file_fh;
-                *file_fh = body->handle;
+		*file_fh = body->mbo_handle;
         }
         close_req = mod->mod_close_req;
         if (close_req != NULL) {
@@ -710,7 +709,7 @@ void mdc_replay_open(struct ptlrpc_request *req)
                 if (och != NULL)
                         LASSERT(!memcmp(&old, &epoch->handle, sizeof(old)));
                 DEBUG_REQ(D_HA, close_req, "updating close body with new fh");
-                epoch->handle = body->handle;
+		epoch->handle = body->mbo_handle;
         }
         EXIT;
 }
@@ -793,11 +792,11 @@ int mdc_set_open_replay_data(struct obd_export *exp,
 		spin_unlock(&open_req->rq_lock);
         }
 
-        rec->cr_fid2 = body->fid1;
-        rec->cr_ioepoch = body->ioepoch;
-        rec->cr_old_handle.cookie = body->handle.cookie;
+	rec->cr_fid2 = body->mbo_fid1;
+	rec->cr_ioepoch = body->mbo_ioepoch;
+	rec->cr_old_handle.cookie = body->mbo_handle.cookie;
         open_req->rq_replay_cb = mdc_replay_open;
-        if (!fid_is_sane(&body->fid1)) {
+	if (!fid_is_sane(&body->mbo_fid1)) {
                 DEBUG_REQ(D_ERROR, open_req, "Saving replay request with "
                           "insane fid");
                 LBUG();
@@ -859,7 +858,7 @@ static void mdc_close_handle_reply(struct ptlrpc_request *req,
                 epoch = req_capsule_client_get(&req->rq_pill, &RMF_MDT_EPOCH);
 
                 epoch->flags |= MF_SOM_AU;
-                if (repbody->valid & OBD_MD_FLGETATTRLOCK)
+		if (repbody->mbo_valid & OBD_MD_FLGETATTRLOCK)
                         op_data->op_flags |= MF_GETATTR_LOCK;
         }
 }
@@ -2932,7 +2931,7 @@ static int mdc_pin(struct obd_export *exp, const struct lu_fid *fid,
         if (body == NULL)
                 GOTO(err_out, rc = -EPROTO);
 
-        handle->och_fh = body->handle;
+	handle->och_fh = body->mbo_handle;
         handle->och_magic = OBD_CLIENT_HANDLE_MAGIC;
 
         handle->och_mod = obd_mod_alloc();
@@ -2963,8 +2962,8 @@ static int mdc_unpin(struct obd_export *exp, struct obd_client_handle *handle,
                 RETURN(-ENOMEM);
 
         body = req_capsule_client_get(&req->rq_pill, &RMF_MDT_BODY);
-        body->handle = handle->och_fh;
-        body->flags = flag;
+	body->mbo_handle = handle->och_fh;
+	body->mbo_flags = flag;
 
         ptlrpc_request_set_replen(req);
 
@@ -3332,7 +3331,7 @@ static int mdc_interpret_renew_capa(const struct lu_env *env,
         if (body == NULL)
                 GOTO(out, capa = ERR_PTR(-EFAULT));
 
-        if ((body->valid & OBD_MD_FLOSSCAPA) == 0)
+	if ((body->mbo_valid & OBD_MD_FLOSSCAPA) == 0)
                 GOTO(out, capa = ERR_PTR(-ENOENT));
 
         capa = req_capsule_server_get(&req->rq_pill, &RMF_CAPA2);

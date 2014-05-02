@@ -280,15 +280,15 @@ static int mdt_getstatus(struct tgt_session_info *tsi)
 		GOTO(out, rc = err_serious(-ENOMEM));
 
 	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
-	repbody->fid1 = mdt->mdt_md_root_fid;
-	repbody->valid |= OBD_MD_FLID;
+	repbody->mbo_fid1 = mdt->mdt_md_root_fid;
+	repbody->mbo_valid |= OBD_MD_FLID;
 
 	if (tsi->tsi_tgt->lut_mds_capa &&
 	    exp_connect_flags(info->mti_exp) & OBD_CONNECT_MDS_CAPA) {
 		struct mdt_object	*root;
 		struct lustre_capa	*capa;
 
-		root = mdt_object_find(info->mti_env, mdt, &repbody->fid1);
+		root = mdt_object_find(info->mti_env, mdt, &repbody->mbo_fid1);
 		if (IS_ERR(root))
 			GOTO(out, rc = PTR_ERR(root));
 
@@ -299,7 +299,7 @@ static int mdt_getstatus(struct tgt_session_info *tsi)
                                  0);
                 mdt_object_put(info->mti_env, root);
                 if (rc == 0)
-                        repbody->valid |= OBD_MD_FLMDSCAPA;
+			repbody->mbo_valid |= OBD_MD_FLMDSCAPA;
         }
 	EXIT;
 out:
@@ -383,9 +383,9 @@ static void mdt_pack_size2body(struct mdt_thread_info *info,
             !(ma->ma_valid & MA_SOM))
                 return;
 
-        b->valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
-        b->size = ma->ma_som->msd_size;
-        b->blocks = ma->ma_som->msd_blocks;
+	b->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
+	b->mbo_size = ma->ma_som->msd_size;
+	b->mbo_blocks = ma->ma_som->msd_blocks;
 }
 
 void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
@@ -395,66 +395,67 @@ void mdt_pack_attr2body(struct mdt_thread_info *info, struct mdt_body *b,
 
         LASSERT(ma->ma_valid & MA_INODE);
 
-        b->atime      = attr->la_atime;
-        b->mtime      = attr->la_mtime;
-        b->ctime      = attr->la_ctime;
-        b->mode       = attr->la_mode;
-        b->size       = attr->la_size;
-        b->blocks     = attr->la_blocks;
-        b->uid        = attr->la_uid;
-        b->gid        = attr->la_gid;
-        b->flags      = attr->la_flags;
-        b->nlink      = attr->la_nlink;
-        b->rdev       = attr->la_rdev;
+	b->mbo_atime      = attr->la_atime;
+	b->mbo_mtime      = attr->la_mtime;
+	b->mbo_ctime      = attr->la_ctime;
+	b->mbo_mode       = attr->la_mode;
+	b->mbo_size       = attr->la_size;
+	b->mbo_blocks     = attr->la_blocks;
+	b->mbo_uid	= attr->la_uid;
+	b->mbo_gid	= attr->la_gid;
+	b->mbo_flags      = attr->la_flags;
+	b->mbo_nlink      = attr->la_nlink;
+	b->mbo_rdev       = attr->la_rdev;
 
         /*XXX should pack the reply body according to lu_valid*/
-        b->valid |= OBD_MD_FLCTIME | OBD_MD_FLUID   |
+	b->mbo_valid |= OBD_MD_FLCTIME | OBD_MD_FLUID   |
                     OBD_MD_FLGID   | OBD_MD_FLTYPE  |
                     OBD_MD_FLMODE  | OBD_MD_FLNLINK | OBD_MD_FLFLAGS |
                     OBD_MD_FLATIME | OBD_MD_FLMTIME ;
 
         if (!S_ISREG(attr->la_mode)) {
-                b->valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS | OBD_MD_FLRDEV;
+		b->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS | OBD_MD_FLRDEV;
 	} else if (ma->ma_need & MA_LOV && !(ma->ma_valid & MA_LOV)) {
                 /* means no objects are allocated on osts. */
                 LASSERT(!(ma->ma_valid & MA_LOV));
                 /* just ignore blocks occupied by extend attributes on MDS */
-                b->blocks = 0;
+		b->mbo_blocks = 0;
                 /* if no object is allocated on osts, the size on mds is valid. b=22272 */
-                b->valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
+		b->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
 	} else if ((ma->ma_valid & MA_LOV) && ma->ma_lmm != NULL &&
 		   ma->ma_lmm->lmm_pattern & LOV_PATTERN_F_RELEASED) {
 		/* A released file stores its size on MDS. */
 		/* But return 1 block for released file, unless tools like tar
 		 * will consider it fully sparse. (LU-3864)
 		 */
-		if (unlikely(b->size == 0))
-			b->blocks = 0;
+		if (unlikely(b->mbo_size == 0))
+			b->mbo_blocks = 0;
 		else
-			b->blocks = 1;
-		b->valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
+			b->mbo_blocks = 1;
+		b->mbo_valid |= OBD_MD_FLSIZE | OBD_MD_FLBLOCKS;
 	}
 
         if (fid) {
-                b->fid1 = *fid;
-                b->valid |= OBD_MD_FLID;
+		b->mbo_fid1 = *fid;
+		b->mbo_valid |= OBD_MD_FLID;
                 CDEBUG(D_INODE, DFID": nlink=%d, mode=%o, size="LPU64"\n",
-                                PFID(fid), b->nlink, b->mode, b->size);
+				PFID(fid), b->mbo_nlink,
+		       b->mbo_mode, b->mbo_size);
         }
 
         if (info)
                 mdt_body_reverse_idmap(info, b);
 
-	if (fid != NULL && (b->valid & OBD_MD_FLSIZE))
+	if (fid != NULL && (b->mbo_valid & OBD_MD_FLSIZE))
                 CDEBUG(D_VFSTRACE, DFID": returning size %llu\n",
-                       PFID(fid), (unsigned long long)b->size);
+		       PFID(fid), (unsigned long long)b->mbo_size);
 }
 
 static inline int mdt_body_has_lov(const struct lu_attr *la,
                                    const struct mdt_body *body)
 {
-        return ((S_ISREG(la->la_mode) && (body->valid & OBD_MD_FLEASIZE)) ||
-                (S_ISDIR(la->la_mode) && (body->valid & OBD_MD_FLDIREA )) );
+	return (S_ISREG(la->la_mode) && (body->mbo_valid & OBD_MD_FLEASIZE)) ||
+	       (S_ISDIR(la->la_mode) && (body->mbo_valid & OBD_MD_FLDIREA));
 }
 
 void mdt_client_compatibility(struct mdt_thread_info *info)
@@ -789,12 +790,12 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 		if (!mdt_is_dne_client(req->rq_export))
 			GOTO(out, rc = -EIO);
 
-		repbody->fid1 = *mdt_object_fid(o);
-		repbody->valid = OBD_MD_FLID | OBD_MD_MDS;
+		repbody->mbo_fid1 = *mdt_object_fid(o);
+		repbody->mbo_valid = OBD_MD_FLID | OBD_MD_MDS;
 		GOTO(out, rc = 0);
 	}
 
-	if (reqbody->eadatasize > 0) {
+	if (reqbody->mbo_eadatasize > 0) {
 		buffer->lb_buf = req_capsule_server_get(pill, &RMF_MDT_MD);
 		if (buffer->lb_buf == NULL)
 			GOTO(out, rc = -EPROTO);
@@ -811,15 +812,15 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 
 	/* If it is dir object and client require MEA, then we got MEA */
 	if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
-	    (reqbody->valid & (OBD_MD_MEA | OBD_MD_DEFAULT_MEA))) {
+	    (reqbody->mbo_valid & (OBD_MD_MEA | OBD_MD_DEFAULT_MEA))) {
 		/* Assumption: MDT_MD size is enough for lmv size. */
 		ma->ma_lmv = buffer->lb_buf;
 		ma->ma_lmv_size = buffer->lb_len;
 		ma->ma_need = MA_INODE;
 		if (ma->ma_lmv_size > 0) {
-			if (reqbody->valid & OBD_MD_MEA)
+			if (reqbody->mbo_valid & OBD_MD_MEA)
 				ma->ma_need |= MA_LMV;
-			else if (reqbody->valid & OBD_MD_DEFAULT_MEA)
+			else if (reqbody->mbo_valid & OBD_MD_DEFAULT_MEA)
 				ma->ma_need |= MA_LMV_DEF;
 		}
 	} else {
@@ -831,7 +832,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 	}
 
         if (S_ISDIR(lu_object_attr(&next->mo_lu)) &&
-            reqbody->valid & OBD_MD_FLDIREA  &&
+	    reqbody->mbo_valid & OBD_MD_FLDIREA  &&
             lustre_msg_get_opc(req->rq_reqmsg) == MDS_GETATTR) {
                 /* get default stripe info for this dir. */
                 ma->ma_need |= MA_LOV_DEF;
@@ -851,8 +852,8 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 	/* if file is released, check if a restore is running */
 	if ((ma->ma_valid & MA_HSM) && (ma->ma_hsm.mh_flags & HS_RELEASED) &&
 	    mdt_hsm_restore_is_running(info, mdt_object_fid(o))) {
-		repbody->t_state = MS_RESTORE;
-		repbody->valid |= OBD_MD_TSTATE;
+		repbody->mbo_t_state = MS_RESTORE;
+		repbody->mbo_valid |= OBD_MD_TSTATE;
 	}
 
 	is_root = lu_fid_eq(mdt_object_fid(o), &info->mti_mdt->mdt_md_root_fid);
@@ -889,30 +890,31 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
         if (mdt_body_has_lov(la, reqbody)) {
                 if (ma->ma_valid & MA_LOV) {
                         LASSERT(ma->ma_lmm_size);
-                        repbody->eadatasize = ma->ma_lmm_size;
+			repbody->mbo_eadatasize = ma->ma_lmm_size;
                         if (S_ISDIR(la->la_mode))
-                                repbody->valid |= OBD_MD_FLDIREA;
+				repbody->mbo_valid |= OBD_MD_FLDIREA;
                         else
-                                repbody->valid |= OBD_MD_FLEASIZE;
-                        mdt_dump_lmm(D_INFO, ma->ma_lmm, repbody->valid);
+				repbody->mbo_valid |= OBD_MD_FLEASIZE;
+			mdt_dump_lmm(D_INFO, ma->ma_lmm, repbody->mbo_valid);
                 }
 		if (ma->ma_valid & MA_LMV) {
 			LASSERT(S_ISDIR(la->la_mode));
 			mdt_dump_lmv(D_INFO, ma->ma_lmv);
-			repbody->eadatasize = ma->ma_lmv_size;
-			repbody->valid |= (OBD_MD_FLDIREA|OBD_MD_MEA);
+			repbody->mbo_eadatasize = ma->ma_lmv_size;
+			repbody->mbo_valid |= (OBD_MD_FLDIREA|OBD_MD_MEA);
 		}
 		if (ma->ma_valid & MA_LMV_DEF) {
 			LASSERT(S_ISDIR(la->la_mode));
-			repbody->eadatasize = ma->ma_lmv_size;
-			repbody->valid |= (OBD_MD_FLDIREA|OBD_MD_DEFAULT_MEA);
+			repbody->mbo_eadatasize = ma->ma_lmv_size;
+			repbody->mbo_valid |= (OBD_MD_FLDIREA |
+					       OBD_MD_DEFAULT_MEA);
 		}
 	} else if (S_ISLNK(la->la_mode) &&
-		   reqbody->valid & OBD_MD_LINKNAME) {
+		   reqbody->mbo_valid & OBD_MD_LINKNAME) {
 		buffer->lb_buf = ma->ma_lmm;
 		/* eadatasize from client includes NULL-terminator, so
 		 * there is no need to read it */
-		buffer->lb_len = reqbody->eadatasize - 1;
+		buffer->lb_len = reqbody->mbo_eadatasize - 1;
 		rc = mo_readlink(env, next, buffer);
 		if (unlikely(rc <= 0)) {
 			CERROR("%s: readlink failed for "DFID": rc = %d\n",
@@ -924,16 +926,16 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 
 			if (OBD_FAIL_CHECK(OBD_FAIL_MDS_READLINK_EPROTO))
 				rc -= 2;
-			repbody->valid |= OBD_MD_LINKNAME;
+			repbody->mbo_valid |= OBD_MD_LINKNAME;
 			/* we need to report back size with NULL-terminator
 			 * because client expects that */
-			repbody->eadatasize = rc + 1;
-			if (repbody->eadatasize != reqbody->eadatasize)
+			repbody->mbo_eadatasize = rc + 1;
+			if (repbody->mbo_eadatasize != reqbody->mbo_eadatasize)
 				CDEBUG(D_INODE, "%s: Read shorter symlink %d "
 				       "on "DFID ", expected %d\n",
 				       mdt_obd_name(info->mti_mdt),
 				       rc, PFID(mdt_object_fid(o)),
-				       reqbody->eadatasize - 1);
+				       reqbody->mbo_eadatasize - 1);
 			/* NULL terminate */
 			((char *)ma->ma_lmm)[rc] = 0;
 
@@ -947,33 +949,33 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                 }
         }
 
-        if (reqbody->valid & OBD_MD_FLMODEASIZE) {
-		repbody->max_cookiesize = 0;
-                repbody->max_mdsize = info->mti_mdt->mdt_max_mdsize;
-                repbody->valid |= OBD_MD_FLMODEASIZE;
+	if (reqbody->mbo_valid & OBD_MD_FLMODEASIZE) {
+		repbody->mbo_max_cookiesize = 0;
+		repbody->mbo_max_mdsize = info->mti_mdt->mdt_max_mdsize;
+		repbody->mbo_valid |= OBD_MD_FLMODEASIZE;
                 CDEBUG(D_INODE, "I am going to change the MAX_MD_SIZE & "
-                       "MAX_COOKIE to : %d:%d\n", repbody->max_mdsize,
-                       repbody->max_cookiesize);
+		       "MAX_COOKIE to : %d:%d\n", repbody->mbo_max_mdsize,
+		       repbody->mbo_max_cookiesize);
         }
 
         if (exp_connect_rmtclient(info->mti_exp) &&
-            reqbody->valid & OBD_MD_FLRMTPERM) {
+	    reqbody->mbo_valid & OBD_MD_FLRMTPERM) {
                 void *buf = req_capsule_server_get(pill, &RMF_ACL);
 
                 /* mdt_getattr_lock only */
                 rc = mdt_pack_remote_perm(info, o, buf);
                 if (rc) {
-                        repbody->valid &= ~OBD_MD_FLRMTPERM;
-                        repbody->aclsize = 0;
+			repbody->mbo_valid &= ~OBD_MD_FLRMTPERM;
+			repbody->mbo_aclsize = 0;
                         RETURN(rc);
                 } else {
-                        repbody->valid |= OBD_MD_FLRMTPERM;
-                        repbody->aclsize = sizeof(struct mdt_remote_perm);
+			repbody->mbo_valid |= OBD_MD_FLRMTPERM;
+			repbody->mbo_aclsize = sizeof(struct mdt_remote_perm);
                 }
         }
 #ifdef CONFIG_FS_POSIX_ACL
 	else if ((exp_connect_flags(req->rq_export) & OBD_CONNECT_ACL) &&
-		 (reqbody->valid & OBD_MD_FLACL)) {
+		 (reqbody->mbo_valid & OBD_MD_FLACL)) {
                 buffer->lb_buf = req_capsule_server_get(pill, &RMF_ACL);
                 buffer->lb_len = req_capsule_get_size(pill,
                                                       &RMF_ACL, RCL_SERVER);
@@ -982,8 +984,8 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                                           XATTR_NAME_ACL_ACCESS);
                         if (rc < 0) {
                                 if (rc == -ENODATA) {
-                                        repbody->aclsize = 0;
-                                        repbody->valid |= OBD_MD_FLACL;
+					repbody->mbo_aclsize = 0;
+					repbody->mbo_valid |= OBD_MD_FLACL;
                                         rc = 0;
                                 } else if (rc == -EOPNOTSUPP) {
                                         rc = 0;
@@ -994,15 +996,15 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
 					       PFID(mdt_object_fid(o)), rc);
 				}
                         } else {
-                                repbody->aclsize = rc;
-                                repbody->valid |= OBD_MD_FLACL;
+				repbody->mbo_aclsize = rc;
+				repbody->mbo_valid |= OBD_MD_FLACL;
                                 rc = 0;
                         }
                 }
         }
 #endif
 
-	if (reqbody->valid & OBD_MD_FLMDSCAPA &&
+	if (reqbody->mbo_valid & OBD_MD_FLMDSCAPA &&
 	    info->mti_mdt->mdt_lut.lut_mds_capa &&
 	    exp_connect_flags(info->mti_exp) & OBD_CONNECT_MDS_CAPA) {
                 struct lustre_capa *capa;
@@ -1013,7 +1015,7 @@ static int mdt_getattr_internal(struct mdt_thread_info *info,
                 rc = mo_capa_get(env, next, capa, 0);
                 if (rc)
                         RETURN(rc);
-                repbody->valid |= OBD_MD_FLMDSCAPA;
+		repbody->mbo_valid |= OBD_MD_FLMDSCAPA;
         }
 
 out:
@@ -1051,7 +1053,7 @@ static int mdt_renew_capa(struct mdt_thread_info *info)
         *capa = *c;
         rc = mo_capa_get(info->mti_env, mdt_object_child(obj), capa, 1);
         if (rc == 0)
-                body->valid |= OBD_MD_FLOSSCAPA;
+		body->mbo_valid |= OBD_MD_FLOSSCAPA;
         RETURN(rc);
 }
 
@@ -1068,7 +1070,7 @@ static int mdt_getattr(struct tgt_session_info *tsi)
         reqbody = req_capsule_client_get(pill, &RMF_MDT_BODY);
         LASSERT(reqbody);
 
-        if (reqbody->valid & OBD_MD_FLOSSCAPA) {
+	if (reqbody->mbo_valid & OBD_MD_FLOSSCAPA) {
                 rc = req_capsule_server_pack(pill);
                 if (unlikely(rc))
                         RETURN(err_serious(rc));
@@ -1084,7 +1086,7 @@ static int mdt_getattr(struct tgt_session_info *tsi)
 	 * guess at EA size by just reading it from disk.
 	 * Exceptions are readdir and (missing) directory striping */
 	/* Readlink */
-	if (reqbody->valid & OBD_MD_LINKNAME) {
+	if (reqbody->mbo_valid & OBD_MD_LINKNAME) {
 		/* No easy way to know how long is the symlink, but it cannot
 		 * be more than PATH_MAX, so we allocate +1 */
 		rc = PATH_MAX + 1;
@@ -1094,7 +1096,7 @@ static int mdt_getattr(struct tgt_session_info *tsi)
 	 */
 	} else if (lu_fid_eq(mdt_object_fid(obj),
 			     &info->mti_mdt->mdt_md_root_fid) &&
-		   (reqbody->valid & OBD_MD_FLDIREA) &&
+		   (reqbody->mbo_valid & OBD_MD_FLDIREA) &&
 		   (lustre_msg_get_opc(mdt_info_req(info)->rq_reqmsg) ==
 								 MDS_GETATTR)) {
 		/* Should the default strping be bigger, mdt_fix_reply
@@ -1116,25 +1118,25 @@ static int mdt_getattr(struct tgt_session_info *tsi)
 
         repbody = req_capsule_server_get(pill, &RMF_MDT_BODY);
         LASSERT(repbody != NULL);
-        repbody->eadatasize = 0;
-        repbody->aclsize = 0;
+	repbody->mbo_eadatasize = 0;
+	repbody->mbo_aclsize = 0;
 
-        if (reqbody->valid & OBD_MD_FLRMTPERM)
+	if (reqbody->mbo_valid & OBD_MD_FLRMTPERM)
                 rc = mdt_init_ucred(info, reqbody);
         else
                 rc = mdt_check_ucred(info);
         if (unlikely(rc))
                 GOTO(out_shrink, rc);
 
-        info->mti_cross_ref = !!(reqbody->valid & OBD_MD_FLCROSSREF);
+	info->mti_cross_ref = !!(reqbody->mbo_valid & OBD_MD_FLCROSSREF);
 
         /*
          * Don't check capability at all, because rename might getattr for
          * remote obj, and at that time no capability is available.
          */
-        mdt_set_capainfo(info, 1, &reqbody->fid1, BYPASS_CAPA);
+	mdt_set_capainfo(info, 1, &reqbody->mbo_fid1, BYPASS_CAPA);
         rc = mdt_getattr_internal(info, obj, 0);
-        if (reqbody->valid & OBD_MD_FLRMTPERM)
+	if (reqbody->mbo_valid & OBD_MD_FLRMTPERM)
                 mdt_exit_ucred(info);
         EXIT;
 out_shrink:
@@ -1165,12 +1167,12 @@ static int mdt_is_subdir(struct tgt_session_info *tsi)
 	 * We save last checked parent fid to @repbody->fid1 for remote
 	 * directory case.
 	 */
-	LASSERT(fid_is_sane(&body->fid2));
+	LASSERT(fid_is_sane(&body->mbo_fid2));
 	LASSERT(mdt_object_exists(o) && !mdt_object_remote(o));
 	rc = mdo_is_subdir(info->mti_env, mdt_object_child(o),
-			   &body->fid2, &repbody->fid1);
+			   &body->mbo_fid2, &repbody->mbo_fid1);
 	if (rc == 0 || rc == -EREMOTE)
-		repbody->valid |= OBD_MD_FLID;
+		repbody->mbo_valid |= OBD_MD_FLID;
 
 	mdt_thread_info_fini(info);
 	RETURN(rc);
@@ -1203,25 +1205,25 @@ static int mdt_swap_layouts(struct tgt_session_info *tsi)
 		ldlm_request_cancel(req, info->mti_dlm_req, 0);
 
 	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA1, RCL_CLIENT))
-		mdt_set_capainfo(info, 0, &info->mti_body->fid1,
+		mdt_set_capainfo(info, 0, &info->mti_body->mbo_fid1,
 				 req_capsule_client_get(info->mti_pill,
 							&RMF_CAPA1));
 
 	if (req_capsule_get_size(info->mti_pill, &RMF_CAPA2, RCL_CLIENT))
-		mdt_set_capainfo(info, 1, &info->mti_body->fid2,
+		mdt_set_capainfo(info, 1, &info->mti_body->mbo_fid2,
 				 req_capsule_client_get(info->mti_pill,
 							&RMF_CAPA2));
 
 	o1 = info->mti_object;
 	o = o2 = mdt_object_find(info->mti_env, info->mti_mdt,
-				&info->mti_body->fid2);
+				&info->mti_body->mbo_fid2);
 	if (IS_ERR(o))
 		GOTO(out, rc = PTR_ERR(o));
 
 	if (mdt_object_remote(o) || !mdt_object_exists(o)) /* remote object */
 		GOTO(put, rc = -ENOENT);
 
-	rc = lu_fid_cmp(&info->mti_body->fid1, &info->mti_body->fid2);
+	rc = lu_fid_cmp(&info->mti_body->mbo_fid1, &info->mti_body->mbo_fid2);
 	if (unlikely(rc == 0)) /* same file, you kidding me? no-op. */
 		GOTO(put, rc);
 
@@ -1285,7 +1287,7 @@ static int mdt_raw_lookup(struct mdt_thread_info *info,
         int rc;
         ENTRY;
 
-        if (reqbody->valid != OBD_MD_FLID)
+	if (reqbody->mbo_valid != OBD_MD_FLID)
                 RETURN(0);
 
         LASSERT(!info->mti_cross_ref);
@@ -1307,8 +1309,8 @@ static int mdt_raw_lookup(struct mdt_thread_info *info,
 #endif
         if (rc == 0) {
                 repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
-                repbody->fid1 = *child_fid;
-                repbody->valid = OBD_MD_FLID;
+		repbody->mbo_fid1 = *child_fid;
+		repbody->mbo_valid = OBD_MD_FLID;
         }
         RETURN(1);
 }
@@ -1409,7 +1411,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 		if (unlikely(reqbody == NULL))
 			RETURN(err_serious(-EPROTO));
 
-		*child_fid = reqbody->fid2;
+		*child_fid = reqbody->mbo_fid2;
 
 		if (unlikely(!fid_is_sane(child_fid)))
 			RETURN(err_serious(-EINVAL));
@@ -1417,7 +1419,7 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 		CDEBUG(D_INODE, "getattr with lock for "DFID"/"DFID", "
 		       "ldlm_rep = %p\n",
 		       PFID(mdt_object_fid(parent)),
-		       PFID(&reqbody->fid2), ldlm_rep);
+		       PFID(&reqbody->mbo_fid2), ldlm_rep);
 	}
 
 	mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_EXECD);
@@ -1632,9 +1634,9 @@ static int mdt_getattr_name(struct tgt_session_info *tsi)
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
         LASSERT(repbody != NULL);
 
-        info->mti_cross_ref = !!(reqbody->valid & OBD_MD_FLCROSSREF);
-        repbody->eadatasize = 0;
-        repbody->aclsize = 0;
+	info->mti_cross_ref = !!(reqbody->mbo_valid & OBD_MD_FLCROSSREF);
+	repbody->mbo_eadatasize = 0;
+	repbody->mbo_aclsize = 0;
 
         rc = mdt_init_ucred(info, reqbody);
         if (unlikely(rc))
@@ -1741,17 +1743,17 @@ static int mdt_readpage(struct tgt_session_info *tsi)
          * reqbody->size contains offset of where to start to read and
          * reqbody->nlink contains number bytes to read.
          */
-        rdpg->rp_hash = reqbody->size;
-        if (rdpg->rp_hash != reqbody->size) {
+	rdpg->rp_hash = reqbody->mbo_size;
+	if (rdpg->rp_hash != reqbody->mbo_size) {
                 CERROR("Invalid hash: "LPX64" != "LPX64"\n",
-                       rdpg->rp_hash, reqbody->size);
+		       rdpg->rp_hash, reqbody->mbo_size);
                 RETURN(-EFAULT);
         }
 
-        rdpg->rp_attrs = reqbody->mode;
+	rdpg->rp_attrs = reqbody->mbo_mode;
 	if (exp_connect_flags(tsi->tsi_exp) & OBD_CONNECT_64BITHASH)
 		rdpg->rp_attrs |= LUDA_64BITHASH;
-	rdpg->rp_count  = min_t(unsigned int, reqbody->nlink,
+	rdpg->rp_count  = min_t(unsigned int, reqbody->mbo_nlink,
 				exp_max_brw_size(tsi->tsi_exp));
 	rdpg->rp_npages = (rdpg->rp_count + PAGE_CACHE_SIZE - 1) >>
 			  PAGE_CACHE_SHIFT;
@@ -1821,8 +1823,8 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
         if (req_capsule_has_field(pill, &RMF_MDT_BODY, RCL_SERVER)) {
                 repbody = req_capsule_server_get(pill, &RMF_MDT_BODY);
                 LASSERT(repbody);
-                repbody->eadatasize = 0;
-                repbody->aclsize = 0;
+		repbody->mbo_eadatasize = 0;
+		repbody->mbo_aclsize = 0;
         }
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_REINT_DELAY, 10);
@@ -1959,7 +1961,7 @@ static int mdt_sync(struct tgt_session_info *tsi)
 	if (OBD_FAIL_CHECK(OBD_FAIL_MDS_SYNC_PACK))
 		RETURN(err_serious(-ENOMEM));
 
-	if (fid_seq(&tsi->tsi_mdt_body->fid1) == 0) {
+	if (fid_seq(&tsi->tsi_mdt_body->mbo_fid1) == 0) {
 		rc = mdt_device_sync(tsi->tsi_env, mdt_exp2dev(tsi->tsi_exp));
 	} else {
 		struct mdt_thread_info *info = tsi2mdt_info(tsi);
@@ -2687,11 +2689,11 @@ static int mdt_body_unpack(struct mdt_thread_info *info, __u32 flags)
         if (body == NULL)
                 RETURN(-EFAULT);
 
-        if (!(body->valid & OBD_MD_FLID))
+	if (!(body->mbo_valid & OBD_MD_FLID))
                 RETURN(0);
 
-        if (!fid_is_sane(&body->fid1)) {
-                CERROR("Invalid fid: "DFID"\n", PFID(&body->fid1));
+	if (!fid_is_sane(&body->mbo_fid1)) {
+		CERROR("Invalid fid: "DFID"\n", PFID(&body->mbo_fid1));
                 RETURN(-EINVAL);
         }
 
@@ -2702,17 +2704,17 @@ static int mdt_body_unpack(struct mdt_thread_info *info, __u32 flags)
          */
         if (req_capsule_has_field(pill, &RMF_CAPA1, RCL_CLIENT) &&
             req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
-                mdt_set_capainfo(info, 0, &body->fid1,
+		mdt_set_capainfo(info, 0, &body->mbo_fid1,
                                  req_capsule_client_get(pill, &RMF_CAPA1));
 
-        obj = mdt_object_find(env, info->mti_mdt, &body->fid1);
+	obj = mdt_object_find(env, info->mti_mdt, &body->mbo_fid1);
         if (!IS_ERR(obj)) {
                 if ((flags & HABEO_CORPUS) &&
                     !mdt_object_exists(obj)) {
                         mdt_object_put(env, obj);
                         /* for capability renew ENOENT will be handled in
                          * mdt_renew_capa */
-                        if (body->valid & OBD_MD_FLOSSCAPA)
+			if (body->mbo_valid & OBD_MD_FLOSSCAPA)
                                 rc = 0;
                         else
                                 rc = -ENOENT;
@@ -2862,7 +2864,8 @@ struct mdt_thread_info *tsi2mdt_info(struct tgt_session_info *tsi)
 		if (req_capsule_has_field(pill, &RMF_CAPA1, RCL_CLIENT) &&
 		    req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT) > 0) {
 			lc = req_capsule_client_get(pill, &RMF_CAPA1);
-			mdt_set_capainfo(mti, 0, &tsi->tsi_mdt_body->fid1, lc);
+			mdt_set_capainfo(mti, 0, &tsi->tsi_mdt_body->mbo_fid1,
+					 lc);
 		}
 	}
 	mti->mti_body = tsi->tsi_mdt_body;
@@ -3206,9 +3209,9 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
         LASSERT(repbody);
 
-        info->mti_cross_ref = !!(reqbody->valid & OBD_MD_FLCROSSREF);
-        repbody->eadatasize = 0;
-        repbody->aclsize = 0;
+	info->mti_cross_ref = !!(reqbody->mbo_valid & OBD_MD_FLCROSSREF);
+	repbody->mbo_eadatasize = 0;
+	repbody->mbo_aclsize = 0;
 
         switch (opcode) {
         case MDT_IT_LOOKUP:

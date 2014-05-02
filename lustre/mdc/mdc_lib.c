@@ -58,12 +58,12 @@ static void __mdc_pack_body(struct mdt_body *b, __u32 suppgid)
 {
 	LASSERT (b != NULL);
 
-	b->suppgid = suppgid;
-	b->uid = from_kuid(&init_user_ns, current_uid());
-	b->gid = from_kgid(&init_user_ns, current_gid());
-	b->fsuid = from_kuid(&init_user_ns, current_fsuid());
-	b->fsgid = from_kgid(&init_user_ns, current_fsgid());
-	b->capability = cfs_curproc_cap_pack();
+	b->mbo_suppgid = suppgid;
+	b->mbo_uid = from_kuid(&init_user_ns, current_uid());
+	b->mbo_gid = from_kgid(&init_user_ns, current_gid());
+	b->mbo_fsuid = from_kuid(&init_user_ns, current_fsuid());
+	b->mbo_fsgid = from_kgid(&init_user_ns, current_fsgid());
+	b->mbo_capability = cfs_curproc_cap_pack();
 }
 
 void mdc_pack_capa(struct ptlrpc_request *req, const struct req_msg_field *field,
@@ -90,12 +90,12 @@ void mdc_is_subdir_pack(struct ptlrpc_request *req, const struct lu_fid *pfid,
                                                     &RMF_MDT_BODY);
 
         if (pfid) {
-                b->fid1 = *pfid;
-                b->valid = OBD_MD_FLID;
+		b->mbo_fid1 = *pfid;
+		b->mbo_valid = OBD_MD_FLID;
         }
         if (cfid)
-                b->fid2 = *cfid;
-        b->flags = flags;
+		b->mbo_fid2 = *cfid;
+	b->mbo_flags = flags;
 }
 
 void mdc_swap_layouts_pack(struct ptlrpc_request *req,
@@ -105,9 +105,9 @@ void mdc_swap_layouts_pack(struct ptlrpc_request *req,
 						    &RMF_MDT_BODY);
 
 	__mdc_pack_body(b, op_data->op_suppgids[0]);
-	b->fid1 = op_data->op_fid1;
-	b->fid2 = op_data->op_fid2;
-	b->valid |= OBD_MD_FLID;
+	b->mbo_fid1 = op_data->op_fid1;
+	b->mbo_fid2 = op_data->op_fid2;
+	b->mbo_valid |= OBD_MD_FLID;
 
 	mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
 	mdc_pack_capa(req, &RMF_CAPA2, op_data->op_capa2);
@@ -120,13 +120,13 @@ void mdc_pack_body(struct ptlrpc_request *req,
         struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
                                                     &RMF_MDT_BODY);
         LASSERT(b != NULL);
-        b->valid = valid;
-        b->eadatasize = ea_size;
-        b->flags = flags;
+	b->mbo_valid = valid;
+	b->mbo_eadatasize = ea_size;
+	b->mbo_flags = flags;
         __mdc_pack_body(b, suppgid);
         if (fid) {
-                b->fid1 = *fid;
-                b->valid |= OBD_MD_FLID;
+		b->mbo_fid1 = *fid;
+		b->mbo_valid |= OBD_MD_FLID;
                 mdc_pack_capa(req, &RMF_CAPA1, oc);
         }
 }
@@ -136,12 +136,12 @@ void mdc_readdir_pack(struct ptlrpc_request *req, __u64 pgoff,
 {
         struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
                                                     &RMF_MDT_BODY);
-        b->fid1 = *fid;
-        b->valid |= OBD_MD_FLID;
-        b->size = pgoff;                       /* !! */
-        b->nlink = size;                        /* !! */
+	b->mbo_fid1 = *fid;
+	b->mbo_valid |= OBD_MD_FLID;
+	b->mbo_size = pgoff;		       /* !! */
+	b->mbo_nlink = size;			/* !! */
         __mdc_pack_body(b, -1);
-        b->mode = LUDA_FID | LUDA_TYPE;
+	b->mbo_mode = LUDA_FID | LUDA_TYPE;
 
         mdc_pack_capa(req, &RMF_CAPA1, oc);
 }
@@ -489,18 +489,18 @@ void mdc_getattr_pack(struct ptlrpc_request *req, __u64 valid, int flags,
         struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
                                                     &RMF_MDT_BODY);
 
-        b->valid = valid;
+	b->mbo_valid = valid;
         if (op_data->op_bias & MDS_CHECK_SPLIT)
-                b->valid |= OBD_MD_FLCKSPLIT;
+		b->mbo_valid |= OBD_MD_FLCKSPLIT;
         if (op_data->op_bias & MDS_CROSS_REF)
-                b->valid |= OBD_MD_FLCROSSREF;
-        b->eadatasize = ea_size;
-        b->flags = flags;
+		b->mbo_valid |= OBD_MD_FLCROSSREF;
+	b->mbo_eadatasize = ea_size;
+	b->mbo_flags = flags;
         __mdc_pack_body(b, op_data->op_suppgids[0]);
 
-        b->fid1 = op_data->op_fid1;
-        b->fid2 = op_data->op_fid2;
-        b->valid |= OBD_MD_FLID;
+	b->mbo_fid1 = op_data->op_fid1;
+	b->mbo_fid2 = op_data->op_fid2;
+	b->mbo_valid |= OBD_MD_FLID;
 
         mdc_pack_capa(req, &RMF_CAPA1, op_data->op_capa1);
 
