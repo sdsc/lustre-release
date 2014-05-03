@@ -1559,7 +1559,7 @@ again:
 				break;
 
 			ltd->ltd_layout_gen = llmd->llmd_touch_gen;
-			list_del_init(&ltd->ltd_layout_phase_list);
+			list_del(&ltd->ltd_layout_phase_list);
 			list_add_tail(&ltd->ltd_layout_phase_list,
 				      &llmd->llmd_mdt_phase1_list);
 			atomic_inc(&ltd->ltd_ref);
@@ -4313,7 +4313,7 @@ static int lfsck_layout_prep(const struct lu_env *env,
 		if (!lfsck->li_drop_dryrun ||
 		    lo->ll_pos_first_inconsistent == 0) {
 			lo->ll_status = LS_SCANNING_PHASE2;
-			list_del_init(&com->lc_link);
+			list_del(&com->lc_link);
 			list_add_tail(&com->lc_link,
 				      &lfsck->li_list_double_scan);
 			pos->lp_oit_cookie = 0;
@@ -4863,19 +4863,19 @@ static int lfsck_layout_master_post(const struct lu_env *env,
 		lo->ll_status = LS_SCANNING_PHASE2;
 		lo->ll_flags |= LF_SCANNED_ONCE;
 		lo->ll_flags &= ~LF_UPGRADE;
-		list_del_init(&com->lc_link);
+		list_del(&com->lc_link);
 		list_add_tail(&com->lc_link, &lfsck->li_list_double_scan);
 	} else if (result == 0) {
 		lo->ll_status = lfsck->li_status;
 		if (lo->ll_status == 0)
 			lo->ll_status = LS_STOPPED;
 		if (lo->ll_status != LS_PAUSED) {
-			list_del_init(&com->lc_link);
+			list_del(&com->lc_link);
 			list_add_tail(&com->lc_link, &lfsck->li_list_idle);
 		}
 	} else {
 		lo->ll_status = LS_FAILED;
-		list_del_init(&com->lc_link);
+		list_del(&com->lc_link);
 		list_add_tail(&com->lc_link, &lfsck->li_list_idle);
 	}
 	spin_unlock(&lfsck->li_lock);
@@ -4923,19 +4923,19 @@ static int lfsck_layout_slave_post(const struct lu_env *env,
 			lo->ll_flags &= ~LF_CRASHED_LASTID;
 		}
 		lo->ll_flags &= ~LF_UPGRADE;
-		list_del_init(&com->lc_link);
+		list_del(&com->lc_link);
 		list_add_tail(&com->lc_link, &lfsck->li_list_double_scan);
 	} else if (result == 0) {
 		lo->ll_status = lfsck->li_status;
 		if (lo->ll_status == 0)
 			lo->ll_status = LS_STOPPED;
 		if (lo->ll_status != LS_PAUSED) {
-			list_del_init(&com->lc_link);
+			list_del(&com->lc_link);
 			list_add_tail(&com->lc_link, &lfsck->li_list_idle);
 		}
 	} else {
 		lo->ll_status = LS_FAILED;
-		list_del_init(&com->lc_link);
+		list_del(&com->lc_link);
 		list_add_tail(&com->lc_link, &lfsck->li_list_idle);
 	}
 	spin_unlock(&lfsck->li_lock);
