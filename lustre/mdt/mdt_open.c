@@ -893,6 +893,7 @@ int mdt_finish_open(struct mdt_thread_info *info,
                                         CERROR("got acl size: %d\n", rc);
                                 }
                         } else {
+				rc = mdt_acl_valid(buf->lb_buf, rc);
                                 repbody->aclsize = rc;
                                 repbody->valid |= OBD_MD_FLACL;
                                 rc = 0;
