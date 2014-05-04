@@ -41,10 +41,13 @@
 #include <stdlib.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <utime.h>
 #include <sys/xattr.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <libcfs/libcfs.h>
 #include <lustre/lustre_idl.h>
 #include <lustre/lustreapi.h>
 

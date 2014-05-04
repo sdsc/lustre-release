@@ -971,6 +971,13 @@ struct ldlm_resource {
 	struct inode		*lr_lvb_inode;
 };
 
+#define DLDLMRES "["LPX64":"LPX64":"LPX64"]."LPX64i
+#define PLDLMRES(res)		\
+	(res)->lr_name.name[0],	\
+	(res)->lr_name.name[1],	\
+	(res)->lr_name.name[2], \
+	(res)->lr_name.name[3]
+
 static inline bool ldlm_has_layout(struct ldlm_lock *lock)
 {
 	return lock->l_resource->lr_type == LDLM_IBITS &&

@@ -53,6 +53,7 @@
 #include <time.h>
 #include <err.h>
 
+#include <libcfs/libcfs.h>
 #include <lustre/lustre_idl.h>
 #include <lustre/lustreapi.h>
 

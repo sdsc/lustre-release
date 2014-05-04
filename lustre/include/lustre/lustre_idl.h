@@ -91,9 +91,17 @@
 #ifndef _LUSTRE_IDL_H_
 #define _LUSTRE_IDL_H_
 
-#if !defined(LPU64)
-#include <libcfs/libcfs.h> /* for LPUX64, etc */
-#endif
+#ifdef __KERNEL__
+# include <libcfs/libcfs.h>
+# define LUSTRE_CERROR CERROR
+# define _lustre_likely likely
+# define _lustre_unlikely unlikely
+#else /* __KERNEL__ */
+# include <errno.h>
+# define LUSTRE_CERROR(fmt, ...) ((void)0)
+# define _lustre_likely(x) (!!(x))
+# define _lustre_unlikely(x) (!!(x))
+#endif /* !__KERNEL__ */
 
 /* Defn's shared with user-space. */
 #include <lustre/lustre_user.h>
@@ -304,14 +312,13 @@ static inline int range_compare_loc(const struct lu_seq_range *r1,
                r1->lsr_flags != r2->lsr_flags;
 }
 
-#define DRANGE "[%#16.16"LPF64"x-%#16.16"LPF64"x):%x:%s"
+#define DRANGE "[%#16.16llx-%#16.16llx):%x:%s"
 
-#define PRANGE(range)		\
-	(range)->lsr_start,	\
-	(range)->lsr_end,	\
-	(range)->lsr_index,	\
+#define PRANGE(range)					\
+	((unsigned long long)(range)->lsr_start),	\
+	((unsigned long long)(range)->lsr_end),		\
+	(range)->lsr_index,				\
 	fld_range_is_mdt(range) ? "mdt" : "ost"
-
 
 /** \defgroup lu_fid lu_fid
  * @{ */
@@ -638,7 +645,7 @@ static inline obd_seq ostid_seq(const struct ost_id *ostid)
 	if (fid_seq_is_mdt0(ostid->oi.oi_seq))
 		return FID_SEQ_OST_MDT0;
 
-	if (unlikely(fid_seq_is_default(ostid->oi.oi_seq)))
+	if (_lustre_unlikely(fid_seq_is_default(ostid->oi.oi_seq)))
 		return FID_SEQ_LOV_DEFAULT;
 
 	if (fid_is_idif(&ostid->oi_fid))
@@ -653,7 +660,7 @@ static inline obd_id ostid_id(const struct ost_id *ostid)
 	if (fid_seq_is_mdt0(ostid->oi.oi_seq))
 		return ostid->oi.oi_id & IDIF_OID_MASK;
 
-	if (unlikely(fid_seq_is_default(ostid->oi.oi_seq)))
+	if (_lustre_unlikely(fid_seq_is_default(ostid->oi.oi_seq)))
 		return ostid->oi.oi_id;
 
 	if (fid_is_idif(&ostid->oi_fid))
@@ -700,15 +707,15 @@ static inline void ostid_set_id(struct ost_id *oi, __u64 oid)
 {
 	if (fid_seq_is_mdt0(oi->oi.oi_seq)) {
 		if (oid >= IDIF_MAX_OID) {
-			CERROR("Bad "LPU64" to set "DOSTID"\n",
-				oid, POSTID(oi));
+			LUSTRE_CERROR("Bad %llu to set "DOSTID"\n",
+				      (unsigned long long)oid, POSTID(oi));
 			return;
 		}
 		oi->oi.oi_id = oid;
 	} else if (fid_is_idif(&oi->oi_fid)) {
 		if (oid >= IDIF_MAX_OID) {
-			CERROR("Bad "LPU64" to set "DOSTID"\n",
-				oid, POSTID(oi));
+			LUSTRE_CERROR("Bad %llu to set "DOSTID"\n",
+				      (unsigned long long)oid, POSTID(oi));
 			return;
 		}
 		oi->oi_fid.f_seq = fid_idif_seq(oid,
@@ -717,8 +724,8 @@ static inline void ostid_set_id(struct ost_id *oi, __u64 oid)
 		oi->oi_fid.f_ver = oid >> 48;
 	} else {
 		if (oid > OBIF_MAX_OID) {
-			CERROR("Bad "LPU64" to set "DOSTID"\n",
-				oid, POSTID(oi));
+			LUSTRE_CERROR("Bad %llu to set "DOSTID"\n",
+				      (unsigned long long)oid, POSTID(oi));
 			return;
 		}
 		oi->oi_fid.f_oid = oid;
@@ -727,15 +734,15 @@ static inline void ostid_set_id(struct ost_id *oi, __u64 oid)
 
 static inline int fid_set_id(struct lu_fid *fid, __u64 oid)
 {
-	if (unlikely(fid_seq_is_igif(fid->f_seq))) {
-		CERROR("bad IGIF, "DFID"\n", PFID(fid));
+	if (_lustre_unlikely(fid_seq_is_igif(fid->f_seq))) {
+		LUSTRE_CERROR("bad IGIF, "DFID"\n", PFID(fid));
 		return -EBADF;
 	}
 
 	if (fid_is_idif(fid)) {
 		if (oid >= IDIF_MAX_OID) {
-			CERROR("Bad "LPU64" to set "DFID"\n",
-				oid, PFID(fid));
+			LUSTRE_CERROR("Bad %llu to set "DFID"\n",
+				      (unsigned long long)oid, PFID(fid));
 			return -EBADF;
 		}
 		fid->f_seq = fid_idif_seq(oid, fid_idif_ost_idx(fid));
@@ -743,8 +750,8 @@ static inline int fid_set_id(struct lu_fid *fid, __u64 oid)
 		fid->f_ver = oid >> 48;
 	} else {
 		if (oid > OBIF_MAX_OID) {
-			CERROR("Bad "LPU64" to set "DFID"\n",
-				oid, PFID(fid));
+			LUSTRE_CERROR("Bad %llu to set "DFID"\n",
+				      (unsigned long long)oid, PFID(fid));
 			return -EBADF;
 		}
 		fid->f_oid = oid;
@@ -767,8 +774,8 @@ static inline int ostid_to_fid(struct lu_fid *fid, const struct ost_id *ostid,
 	obd_seq seq = ostid_seq(ostid);
 
 	if (ost_idx > 0xffff) {
-		CERROR("bad ost_idx, "DOSTID" ost_idx:%u\n", POSTID(ostid),
-		       ost_idx);
+		LUSTRE_CERROR("bad ost_idx, "DOSTID" ost_idx:%u\n",
+			      POSTID(ostid), ost_idx);
 		return -EBADF;
 	}
 
@@ -781,23 +788,23 @@ static inline int ostid_to_fid(struct lu_fid *fid, const struct ost_id *ostid,
 		 * been in production for years.  This can handle create rates
 		 * of 1M objects/s/OST for 9 years, or combinations thereof. */
 		if (oid >= IDIF_MAX_OID) {
-			 CERROR("bad MDT0 id, "DOSTID" ost_idx:%u\n",
-				POSTID(ostid), ost_idx);
-			 return -EBADF;
+			LUSTRE_CERROR("bad MDT0 id, "DOSTID" ost_idx:%u\n",
+				      POSTID(ostid), ost_idx);
+			return -EBADF;
 		}
 		fid->f_seq = fid_idif_seq(oid, ost_idx);
 		/* truncate to 32 bits by assignment */
 		fid->f_oid = oid;
 		/* in theory, not currently used */
 		fid->f_ver = oid >> 48;
-	} else if (likely(!fid_seq_is_default(seq)))
+	} else if (_lustre_likely(!fid_seq_is_default(seq)))
 		/* if (fid_seq_is_idif(seq) || fid_seq_is_norm(seq)) */ {
 		/* This is either an IDIF object, which identifies objects across
 		 * all OSTs, or a regular FID.  The IDIF namespace maps legacy
 		 * OST objects into the FID namespace.  In both cases, we just
 		 * pass the FID through, no conversion needed. */
 		if (ostid->oi_fid.f_ver != 0) {
-			CERROR("bad MDT0 id, "DOSTID" ost_idx:%u\n",
+			LUSTRE_CERROR("bad MDT0 id, "DOSTID" ost_idx:%u\n",
 				POSTID(ostid), ost_idx);
 			return -EBADF;
 		}
@@ -810,8 +817,8 @@ static inline int ostid_to_fid(struct lu_fid *fid, const struct ost_id *ostid,
 /* pack any OST FID into an ostid (id/seq) for the wire/disk */
 static inline int fid_to_ostid(const struct lu_fid *fid, struct ost_id *ostid)
 {
-	if (unlikely(fid_seq_is_igif(fid->f_seq))) {
-		CERROR("bad IGIF, "DFID"\n", PFID(fid));
+	if (_lustre_unlikely(fid_seq_is_igif(fid->f_seq))) {
+		LUSTRE_CERROR("bad IGIF, "DFID"\n", PFID(fid));
 		return -EBADF;
 	}
 
@@ -914,7 +921,9 @@ extern void lustre_swab_lu_seq_range(struct lu_seq_range *range);
 
 static inline bool lu_fid_eq(const struct lu_fid *f0, const struct lu_fid *f1)
 {
-	return memcmp(f0, f1, sizeof *f0) == 0;
+	return f0->f_seq == f1->f_seq &&
+	       f0->f_oid == f1->f_oid &&
+	       f0->f_ver == f1->f_ver;
 }
 
 #define __diff_normalize(val0, val1)                            \
@@ -2932,16 +2941,15 @@ struct ldlm_res_id {
         __u64 name[RES_NAME_SIZE];
 };
 
-#define DLDLMRES	"["LPX64":"LPX64":"LPX64"]."LPX64i
-#define PLDLMRES(res)	(res)->lr_name.name[0], (res)->lr_name.name[1], \
-			(res)->lr_name.name[2], (res)->lr_name.name[3]
-
 extern void lustre_swab_ldlm_res_id (struct ldlm_res_id *id);
 
 static inline bool ldlm_res_eq(const struct ldlm_res_id *res0,
 			       const struct ldlm_res_id *res1)
 {
-	return memcmp(res0, res1, sizeof(*res0)) == 0;
+	return res0->name[0] == res1->name[0] &&
+	       res0->name[1] == res1->name[1] &&
+	       res0->name[2] == res1->name[2] &&
+	       res0->name[3] == res1->name[3];
 }
 
 /* lock types */
@@ -3131,9 +3139,9 @@ struct mgs_nidtbl_entry {
         __u8            mne_nid_type;   /* type of nid(mbz). for ipv6. */
         __u8            mne_nid_size;   /* size of each NID, by bytes */
         __u8            mne_nid_count;  /* # of NIDs in buffer */
-        union {
-                lnet_nid_t nids[0];     /* variable size buffer for NIDs. */
-        } u;
+	union {
+		__u64	nids[0];	/* variable size buffer for NIDs. */
+	} u;
 };
 extern void lustre_swab_mgs_nidtbl_entry(struct mgs_nidtbl_entry *oinfo);
 
@@ -3587,7 +3595,7 @@ static inline void lustre_set_wire_obdo(const struct obd_connect_data *ocd,
 	if (ocd == NULL)
 		return;
 
-	if (unlikely(!(ocd->ocd_connect_flags & OBD_CONNECT_FID)) &&
+	if (_lustre_unlikely(!(ocd->ocd_connect_flags & OBD_CONNECT_FID)) &&
 	    fid_seq_is_echo(ostid_seq(&lobdo->o_oi))) {
 		/* Currently OBD_FL_OSTID will only be used when 2.4 echo
 		 * client communicate with pre-2.4 server */
@@ -3614,7 +3622,7 @@ static inline void lustre_get_wire_obdo(const struct obd_connect_data *ocd,
 	if (ocd == NULL)
 		return;
 
-	if (unlikely(!(ocd->ocd_connect_flags & OBD_CONNECT_FID)) &&
+	if (_lustre_unlikely(!(ocd->ocd_connect_flags & OBD_CONNECT_FID)) &&
 	    fid_seq_is_echo(wobdo->o_oi.oi.oi_seq)) {
 		/* see above */
 		lobdo->o_oi.oi_fid.f_seq = wobdo->o_oi.oi.oi_seq;

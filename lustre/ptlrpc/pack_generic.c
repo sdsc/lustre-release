@@ -1944,9 +1944,11 @@ void lustre_swab_mgs_nidtbl_entry(struct mgs_nidtbl_entry *entry)
         /* remove this assertion if ipv6 is supported. */
         LASSERT(entry->mne_nid_type == 0);
         for (i = 0; i < entry->mne_nid_count; i++) {
-                CLASSERT(sizeof(lnet_nid_t) == sizeof(__u64));
-                __swab64s(&entry->u.nids[i]);
-        }
+		CLASSERT(sizeof(lnet_nid_t) == sizeof(entry->u.nids[i]));
+		CLASSERT(sizeof(lnet_nid_t) == sizeof(__u64));
+
+		__swab64s(&entry->u.nids[i]);
+	}
 }
 EXPORT_SYMBOL(lustre_swab_mgs_nidtbl_entry);
 
