@@ -46,6 +46,7 @@
 # include <liblustre.h>
 #endif
 
+#include <lustre/lustre_errno.h>
 #include <lustre_acl.h>
 #include <lustre_ioctl.h>
 #include <obd_class.h>

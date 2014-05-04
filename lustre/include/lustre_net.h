@@ -69,6 +69,7 @@
 // #include <obd.h>
 #include <lnet/lnet.h>
 #include <lustre/lustre_idl.h>
+#include <lustre/lustre_errno.h>
 #include <lustre_ha.h>
 #include <lustre_sec.h>
 #include <lustre_import.h>

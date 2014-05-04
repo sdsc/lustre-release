@@ -98,8 +98,6 @@
 /* Defn's shared with user-space. */
 #include <lustre/lustre_user.h>
 
-#include <lustre/lustre_errno.h>
-
 /*
  *  GENERAL STUFF
  */

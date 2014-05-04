@@ -36,6 +36,7 @@
 
 #define DEBUG_SUBSYSTEM S_MDS
 
+#include <lustre/lustre_errno.h>
 #include "mdt_internal.h"
 
 /* Max allocation to satisfy single HSM RPC. */
