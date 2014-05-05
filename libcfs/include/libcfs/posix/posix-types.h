@@ -119,4 +119,63 @@ typedef long long_ptr_t;
 
 typedef unsigned long pgoff_t;
 
-#endif
+#ifdef __linux__
+/* Userpace byte flipping */
+# include <endian.h>
+# include <byteswap.h>
+# define __swab16(x) bswap_16(x)
+# define __swab32(x) bswap_32(x)
+# define __swab64(x) bswap_64(x)
+# define __swab16s(x) do { *(x) = bswap_16(*(x)); } while (0)
+# define __swab32s(x) do { *(x) = bswap_32(*(x)); } while (0)
+# define __swab64s(x) do { *(x) = bswap_64(*(x)); } while (0)
+# if __BYTE_ORDER == __LITTLE_ENDIAN
+#  define __le16_to_cpu(x) (x)
+#  define __cpu_to_le16(x) (x)
+#  define __le32_to_cpu(x) (x)
+#  define __cpu_to_le32(x) (x)
+#  define __le64_to_cpu(x) (x)
+#  define __cpu_to_le64(x) (x)
+
+#  define __be16_to_cpu(x) bswap_16(x)
+#  define __cpu_to_be16(x) bswap_16(x)
+#  define __be32_to_cpu(x) bswap_32(x)
+#  define __cpu_to_be32(x) bswap_32(x)
+#  define __be64_to_cpu(x) ((__u64)bswap_64(x))
+#  define __cpu_to_be64(x) ((__u64)bswap_64(x))
+# elif __BYTE_ORDER == __BIG_ENDIAN
+#  define __le16_to_cpu(x) bswap_16(x)
+#  define __cpu_to_le16(x) bswap_16(x)
+#  define __le32_to_cpu(x) bswap_32(x)
+#  define __cpu_to_le32(x) bswap_32(x)
+#  define __le64_to_cpu(x) ((__u64)bswap_64(x))
+#  define __cpu_to_le64(x) ((__u64)bswap_64(x))
+
+#  define __be16_to_cpu(x) (x)
+#  define __cpu_to_be16(x) (x)
+#  define __be32_to_cpu(x) (x)
+#  define __cpu_to_be32(x) (x)
+#  define __be64_to_cpu(x) (x)
+#  define __cpu_to_be64(x) (x)
+
+# else /* __BYTE_ORDER == __BIG_ENDIAN */
+#  error "Unknown byte order"
+# endif /* __BYTE_ORDER != __BIG_ENDIAN */
+#elif __APPLE__
+# define __cpu_to_le64(x) OSSwapHostToLittleInt64(x)
+# define __cpu_to_le32(x) OSSwapHostToLittleInt32(x)
+# define __cpu_to_le16(x) OSSwapHostToLittleInt16(x)
+
+# define __le16_to_cpu(x) OSSwapLittleToHostInt16(x)
+# define __le32_to_cpu(x) OSSwapLittleToHostInt32(x)
+# define __le64_to_cpu(x) OSSwapLittleToHostInt64(x)
+
+# define __swab16(x) OSSwapInt16(x)
+# define __swab32(x) OSSwapInt32(x)
+# define __swab64(x) OSSwapInt64(x)
+# define __swab16s(x) do { *(x) = __swab16(*(x)); } while (0)
+# define __swab32s(x) do { *(x) = __swab32(*(x)); } while (0)
+# define __swab64s(x) do { *(x) = __swab64(*(x)); } while (0)
+#endif /* __APPLE__ */
+
+#endif /* _LUSTRE_POSIX_TYPES_H */

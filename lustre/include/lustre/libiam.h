@@ -44,8 +44,9 @@
  *  lustre/libiam.h
  */
 
-#ifndef __IAM_ULIB_H__
-#define __IAM_ULIB_H__
+#ifndef LIBIAM_H_
+#define LIBIAM_H_
+#include <libcfs/posix/posix-types.h>
 
 /** \defgroup libiam libiam
  *
@@ -142,4 +143,4 @@ int iam_polymorph(char *filename, unsigned long mode);
 
 /** @} libiam */
 
-#endif
+#endif /* LIBIAM_H_ */

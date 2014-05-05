@@ -4369,6 +4369,30 @@ test_74() { # LU-1606
 }
 run_test 74 "Lustre client api program can compile and link"
 
+test_74a() { # LU-1606
+	local cc=${CC:-cc}
+	local header
+	local out=$TMP/t74a.out
+	local prefix=/usr/include/lustre
+
+	for header in $prefix/*; do
+		if ! [[ -f "$header" ]]; then
+			continue
+		fi
+
+		name=$(basename $header)
+		if [[ "$name" == liblustreapi.h ]]; then
+			continue
+		fi
+
+		$cc -Wall -Werror -include $header -c -x c /dev/null -o $out ||
+			error "cannot compile '$header'"
+	done
+
+	rm -f $out
+}
+run_test 74a "packaged headers can be compiled"
+
 test_75() { # LU-2374
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.1) ]] &&
 	                skip "Need MDS version at least 2.4.1" && return
