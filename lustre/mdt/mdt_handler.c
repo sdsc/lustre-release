@@ -5435,7 +5435,7 @@ static int mdt_path(struct mdt_thread_info *info, struct mdt_object *obj,
 		RETURN(-EOVERFLOW);
 
 	if (lu_fid_eq(&mdt->mdt_md_root_fid, mdt_object_fid(obj))) {
-		path[0] = '\0';
+		path[0] = '/';
 		RETURN(0);
 	}
 
