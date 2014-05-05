@@ -5435,7 +5435,7 @@ static int mdt_path(struct mdt_thread_info *info, struct mdt_object *obj,
 		RETURN(-EOVERFLOW);
 
 	if (lu_fid_eq(&mdt->mdt_md_root_fid, mdt_object_fid(obj))) {
-		path[0] = '\0';
+		path[0] = '/';
 		RETURN(0);
 	}
 
@@ -5480,10 +5480,12 @@ static int mdt_fid2path(struct mdt_thread_info *info,
 	if (!fid_is_sane(&fp->gf_fid))
 		RETURN(-EINVAL);
 
-	if (!fid_is_namespace_visible(&fp->gf_fid)) {
+	if (!fid_is_namespace_visible(&fp->gf_fid) &&
+	    !fid_is_root(&fp->gf_fid)) {
 		CWARN("%s: "DFID" is invalid, sequence should be "
-		      ">= "LPX64"\n", mdt_obd_name(mdt),
-		      PFID(&fp->gf_fid), (__u64)FID_SEQ_NORMAL);
+		      ">= "LPX64" or == "LPX64"\n",
+		      mdt_obd_name(mdt), PFID(&fp->gf_fid),
+		      (__u64)FID_SEQ_NORMAL, (__u64)FID_SEQ_ROOT);
 		RETURN(-EINVAL);
 	}
 
