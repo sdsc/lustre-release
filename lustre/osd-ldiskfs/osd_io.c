@@ -1704,6 +1704,7 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 
 	tid = oh->ot_handle->h_transaction->t_tid;
 
+	mutex_lock(&inode->i_mutex);
 	i_size_write(inode, start);
 	ll_truncate_pagecache(inode, start);
 #ifdef HAVE_INODEOPS_TRUNCATE
@@ -1712,6 +1713,7 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 	} else
 #endif
 		ldiskfs_truncate(inode);
+	mutex_unlock(&inode->i_mutex);
 
 	/*
 	 * For a partial-page truncate, flush the page to disk immediately to
