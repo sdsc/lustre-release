@@ -386,7 +386,7 @@ static int lod_attr_set(const struct lu_env *env,
 {
 	struct dt_object  *next = dt_object_child(dt);
 	struct lod_object *lo = lod_dt_obj(dt);
-	int                rc, i;
+	int                rc, i, id_valid;
 	ENTRY;
 
 	/*
@@ -411,7 +411,10 @@ static int lod_attr_set(const struct lu_env *env,
 	if (lo->ldo_stripenr == 0)
 		RETURN(0);
 
-	if (!(attr->la_valid & ~(LA_ATIME | LA_MTIME | LA_CTIME))) {
+	id_valid = attr->la_valid & (LA_UID | LA_GID);
+
+	if (!(attr->la_valid & ~(LA_ATIME | LA_MTIME | LA_CTIME)) ||
+	    (id_valid && id_valid != (LA_UID | LA_GID))) {
 		struct lu_attr	 *la = &lod_env_info(env)->lti_attr;
 		bool		 setattr_time = false;
 
@@ -430,7 +433,15 @@ static int lod_attr_set(const struct lu_env *env,
 		     attr->la_mtime < la->la_mtime))
 			setattr_time = true;
 
-		if (!setattr_time)
+		/* if it set uid or gid (not both), we'd fill another one
+		 * with the current value, because osp will send both ids
+		 * to the OSTs despite of the la_valid flag. */
+		if (id_valid == LA_UID)
+			((struct lu_attr *)attr)->la_gid = la->la_gid;
+		else if (id_valid == LA_GID)
+			((struct lu_attr *)attr)->la_uid = la->la_uid;
+
+		if (!setattr_time && !id_valid)
 			RETURN(0);
 	}
 
