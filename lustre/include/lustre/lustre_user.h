@@ -265,6 +265,13 @@ struct ost_id {
 #define LL_IOC_LMV_SET_DEFAULT_STRIPE	_IOWR('f', 246, struct lmv_user_md)
 #define LL_IOC_MIGRATE			_IOR('f', 247, int)
 
+/* Lease types for use as arg and return of LL_IOC_{GET,SET}_LEASE ioctl. */
+enum ll_lease_type {
+	LL_LEASE_RDLCK	= 0x1,
+	LL_LEASE_WRLCK	= 0x2,
+	LL_LEASE_UNLCK	= 0x4,
+};
+
 #define LL_STATFS_LMV		1
 #define LL_STATFS_LOV		2
 #define LL_STATFS_NODELAY	4
