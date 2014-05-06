@@ -42,11 +42,14 @@ check_and_setup_lustre
 [[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.4.1) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 15"
 
+[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.5.59) ]] &&
+	SCRUB_ONLY="-t scrub"
+
 build_test_filter
 
 MDT_DEV="${FSNAME}-MDT0000"
 MDT_DEVNAME=$(mdsdevname ${SINGLEMDS//mds/})
-START_SCRUB="do_facet $SINGLEMDS $LCTL lfsck_start -M ${MDT_DEV}"
+START_SCRUB="do_facet $SINGLEMDS $LCTL lfsck_start -M ${MDT_DEV} $SCRUB_ONLY"
 STOP_SCRUB="do_facet $SINGLEMDS $LCTL lfsck_stop -M ${MDT_DEV}"
 SHOW_SCRUB="do_facet $SINGLEMDS \
 		$LCTL get_param -n osd-ldiskfs.${MDT_DEV}.oi_scrub"
