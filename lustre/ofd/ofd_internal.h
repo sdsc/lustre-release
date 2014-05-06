@@ -193,6 +193,8 @@ struct ofd_device {
 	struct ptlrpc_thread	 ofd_inconsistency_thread;
 	struct list_head	 ofd_inconsistency_list;
 	spinlock_t		 ofd_inconsistency_lock;
+	/* create a symlink "obdfilter" from the "ost" directory */
+	struct proc_dir_entry	*ofd_symlink;
 };
 
 static inline struct ofd_device *ofd_dev(struct lu_device *d)

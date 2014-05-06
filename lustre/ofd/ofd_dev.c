@@ -2384,9 +2384,22 @@ static struct lu_device_type ofd_device_type = {
 	.ldt_ctx_tags	= LCT_DT_THREAD
 };
 
+/*
+ * In the normal case all we have one symlink, type->typ_procsym to
+ * address the renaming of proc directories due to the OSD api
+ * introducton. OFD is special in that this subsystem the name has
+ * changed from obdfilter to ofd to lastly ost. So we need two
+ * symlinks to point to "ost". Hopefully in 2.9 we can removal all
+ * this symlink madness.
+ *
+ * Symlink called "obdfilter" that points to  "ost" directory.
+ */
+static struct proc_dir_entry *ofd_symlink;
+
 int __init ofd_init(void)
 {
-	int				rc;
+	struct obd_type *type;
+	int rc;
 
 	rc = lu_kmem_init(ofd_caches);
 	if (rc)
@@ -2403,13 +2416,30 @@ int __init ofd_init(void)
 				 NULL,
 #endif
 				 LUSTRE_OST_NAME, &ofd_device_type);
+
+	/* For forward compatibility symlink "obdfilter" and "ofd" to "ost"
+	 * in procfs. Remove the symlinks entirely when access via
+	 * "obdfilter/ofd" can be deprecated, maybe 2.9? */
+	type = class_search_type(LUSTRE_OST_NAME);
+	LASSERT(type != NULL);
+	type->typ_procsym = lprocfs_add_symlink("ofd", proc_lustre_root,
+						"ost");
+
+	ofd_symlink = lprocfs_add_symlink("obdfilter", proc_lustre_root,
+					  "ost");
 	return rc;
 }
 
 void __exit ofd_exit(void)
 {
+	struct obd_type *type = class_search_type(LUSTRE_OST_NAME);
+
 	ofd_fmd_exit();
 	lu_kmem_fini(ofd_caches);
+	if (ofd_symlink)
+		lprocfs_remove(&ofd_symlink);
+	if (type->typ_procsym)
+		lprocfs_remove(&type->typ_procsym);
 	class_unregister_type(LUSTRE_OST_NAME);
 }
 

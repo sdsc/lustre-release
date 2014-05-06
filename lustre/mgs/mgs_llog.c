@@ -2499,7 +2499,7 @@ static int mgs_write_log_ost(const struct lu_env *env,
         }
 
         /*
-        attach obdfilter ost1 ost1_UUID
+	attach ost ost1 ost1_UUID
         setup /dev/loop2 ldiskfs f|n errors=remount-ro,user_xattr
         */
         if (class_find_param(ptr, PARAM_FAILMODE, &ptr) == 0)
@@ -2515,7 +2515,7 @@ static int mgs_write_log_ost(const struct lu_env *env,
                 snprintf(mti->mti_uuid, sizeof(mti->mti_uuid),
                          "%s_UUID", mti->mti_svname);
 	rc = record_attach(env, llh, mti->mti_svname,
-                           "obdfilter"/*LUSTRE_OST_NAME*/, mti->mti_uuid);
+			   "ost"/*LUSTRE_OST_NAME*/, mti->mti_uuid);
 	if (rc)
 		GOTO(out_end, rc);
 	rc = record_setup(env, llh, mti->mti_svname,

@@ -95,13 +95,20 @@ static int ost_setup(struct obd_device *obd, struct lustre_cfg* lcfg)
                 RETURN(rc);
 
 #ifdef LPROCFS
+	obd->obd_type->typ_procsym = lprocfs_add_symlink("ost/OSS", proc_lustre_root,
+							 "../oss/OSS");
+	if (IS_ERR(obd->obd_type->typ_procsym)) {
+		CERROR("ost: can't create compat entry \"ost/OSS\": %d\n",
+		       (int)PTR_ERR(obd->obd_type->typ_procsym));
+		obd->obd_type->typ_procsym = NULL;
+	}
 	obd->obd_vars = lprocfs_ost_obd_vars;
 	lprocfs_seq_obd_setup(obd);
 #endif
 	mutex_init(&ost->ost_health_mutex);
 
 	svc_conf = (typeof(svc_conf)) {
-		.psc_name		= LUSTRE_OSS_NAME,
+		.psc_name		= "ost",
 		.psc_watchdog_factor	= OSS_SERVICE_WATCHDOG_FACTOR,
 		.psc_buf		= {
 			.bc_nbufs		= OST_NBUFS,
@@ -378,6 +385,9 @@ static int ost_cleanup(struct obd_device *obd)
 	ost->ost_out_service = NULL;
 
 	mutex_unlock(&ost->ost_health_mutex);
+
+	if (obd->obd_type->typ_procsym)
+		lprocfs_remove(&obd->obd_type->typ_procsym);
 
 	lprocfs_obd_cleanup(obd);
 
