@@ -566,6 +566,9 @@ static int lfsck_rbtree_setup(const struct lu_env *env,
 	llsd->llsd_rbtree_valid = 1;
 	dev->dd_record_fid_accessed = 1;
 
+	CDEBUG(D_LFSCK, "%s: layout LFSCK init OST-objects accessing bitmap\n",
+	       lfsck_lfsck2name(lfsck));
+
 	return 0;
 }
 
@@ -596,6 +599,9 @@ static void lfsck_rbtree_cleanup(const struct lu_env *env,
 		lu_object_put(env, &llsd->llsd_rb_obj->do_lu);
 		llsd->llsd_rb_obj = NULL;
 	}
+
+	CDEBUG(D_LFSCK, "%s: layout LFSCK fini OST-objects accessing bitmap\n",
+	       lfsck_lfsck2name(lfsck));
 }
 
 static void lfsck_rbtree_update_bitmap(const struct lu_env *env,
@@ -609,9 +615,6 @@ static void lfsck_rbtree_update_bitmap(const struct lu_env *env,
 	int				 idx;
 	int				 rc	= 0;
 	ENTRY;
-
-	CDEBUG(D_LFSCK, "%s: update bitmap for "DFID"\n",
-	       lfsck_lfsck2name(com->lc_lfsck), PFID(fid));
 
 	if (unlikely(!fid_is_sane(fid) || fid_is_last_id(fid)))
 		RETURN_EXIT;
@@ -664,10 +667,12 @@ out:
 	if (rc != 0 && accessed) {
 		struct lfsck_layout *lo = com->lc_file_ram;
 
-		CERROR("%s: Fail to update object accessed bitmap, will cause "
-		       "incorrect LFSCK OST-object handling, so disable it to "
-		       "cancel orphan handling for related device. rc = %d.\n",
+		CDEBUG(D_LFSCK, "%s: fail to update OST-objects accessing "
+		       "bitmap, and will cause incorrect LFSCK OST-object "
+		       "handling, so disable it to cancel orphan handling "
+		       "for related device. rc = %d\n",
 		       lfsck_lfsck2name(com->lc_lfsck), rc);
+
 		lo->ll_flags |= LF_INCOMPLETE;
 		lfsck_rbtree_cleanup(env, com);
 	}
@@ -751,20 +756,20 @@ static int lfsck_layout_load(const struct lu_env *env,
 	if (rc == 0) {
 		return -ENOENT;
 	} else if (rc < 0) {
-		CWARN("%s: failed to load lfsck_layout: rc = %d\n",
-		      lfsck_lfsck2name(com->lc_lfsck), rc);
+		CDEBUG(D_LFSCK, "%s: failed to load lfsck_layout: rc = %d\n",
+		       lfsck_lfsck2name(com->lc_lfsck), rc);
 		return rc;
 	} else if (rc != size) {
-		CWARN("%s: crashed lfsck_layout, to be reset: rc = %d\n",
-		      lfsck_lfsck2name(com->lc_lfsck), rc);
+		CDEBUG(D_LFSCK, "%s: crashed lfsck_layout, to be reset: "
+		       "rc = %d\n", lfsck_lfsck2name(com->lc_lfsck), rc);
 		return 1;
 	}
 
 	lfsck_layout_le_to_cpu(lo, com->lc_file_disk);
 	if (lo->ll_magic != LFSCK_LAYOUT_MAGIC) {
-		CWARN("%s: invalid lfsck_layout magic %#x != %#x, "
-		      "to be reset\n", lfsck_lfsck2name(com->lc_lfsck),
-		      lo->ll_magic, LFSCK_LAYOUT_MAGIC);
+		CDEBUG(D_LFSCK, "%s: invalid lfsck_layout magic %#x != %#x, "
+		       "to be reset\n", lfsck_lfsck2name(com->lc_lfsck),
+		       lo->ll_magic, LFSCK_LAYOUT_MAGIC);
 		return 1;
 	}
 
@@ -785,39 +790,30 @@ static int lfsck_layout_store(const struct lu_env *env,
 
 	lfsck_layout_cpu_to_le(lo, com->lc_file_ram);
 	handle = dt_trans_create(env, lfsck->li_bottom);
-	if (IS_ERR(handle)) {
-		rc = PTR_ERR(handle);
-		CERROR("%s: fail to create trans for storing lfsck_layout: "
-		       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
-		RETURN(rc);
-	}
+	if (IS_ERR(handle))
+		GOTO(log, rc = PTR_ERR(handle));
 
 	rc = dt_declare_record_write(env, obj, lfsck_buf_get(env, lo, size),
 				     pos, handle);
-	if (rc != 0) {
-		CERROR("%s: fail to declare trans for storing lfsck_layout(1): "
-		       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
+	if (rc != 0)
 		GOTO(out, rc);
-	}
 
 	rc = dt_trans_start_local(env, lfsck->li_bottom, handle);
-	if (rc != 0) {
-		CERROR("%s: fail to start trans for storing lfsck_layout: "
-		       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
+	if (rc != 0)
 		GOTO(out, rc);
-	}
 
 	rc = dt_record_write(env, obj, lfsck_buf_get(env, lo, size), &pos,
 			     handle);
-	if (rc != 0)
-		CERROR("%s: fail to store lfsck_layout(1): size = %d, "
-		       "rc = %d\n", lfsck_lfsck2name(lfsck), (int)size, rc);
 
 	GOTO(out, rc);
 
 out:
 	dt_trans_stop(env, lfsck->li_bottom, handle);
 
+log:
+	if (rc != 0)
+		CDEBUG(D_LFSCK, "%s: fail to store lfsck_layout: rc = %d\n",
+		       lfsck_lfsck2name(lfsck), rc);
 	return rc;
 }
 
@@ -916,9 +912,6 @@ lfsck_layout_lastid_create(const struct lu_env *env,
 	int			  rc;
 	ENTRY;
 
-	CDEBUG(D_LFSCK, "To create LAST_ID for <seq> "LPX64"\n",
-	       fid_seq(lfsck_dto2fid(obj)));
-
 	if (bk->lb_param & LPF_DRYRUN)
 		return 0;
 
@@ -929,7 +922,7 @@ lfsck_layout_lastid_create(const struct lu_env *env,
 
 	th = dt_trans_create(env, dt);
 	if (IS_ERR(th))
-		RETURN(rc = PTR_ERR(th));
+		GOTO(log, rc = PTR_ERR(th));
 
 	rc = dt_declare_create(env, obj, la, NULL, dof, th);
 	if (rc != 0)
@@ -960,6 +953,11 @@ lfsck_layout_lastid_create(const struct lu_env *env,
 
 stop:
 	dt_trans_stop(env, dt, th);
+
+log:
+	CDEBUG(D_LFSCK, "%s: layout LFSCK will create LAST_ID for <seq> "
+	       LPX64": rc = %d\n",
+	       lfsck_lfsck2name(lfsck), fid_seq(lfsck_dto2fid(obj)), rc);
 
 	return rc;
 }
@@ -1041,8 +1039,9 @@ lfsck_layout_lastid_store(const struct lu_env *env,
 		}
 #endif
 
-		CDEBUG(D_LFSCK, "To sync the LAST_ID for <seq> "LPX64
-		       " as <oid> "LPU64"\n", lls->lls_seq, lls->lls_lastid);
+		CDEBUG(D_LFSCK, "%s: layout LFSCK will sync the LAST_ID for "
+		       "<seq> "LPX64" as <oid> "LPU64"\n",
+		       lfsck_lfsck2name(lfsck), lls->lls_seq, lls->lls_lastid);
 
 		if (bk->lb_param & LPF_DRYRUN) {
 			lls->lls_dirty = 0;
@@ -1052,7 +1051,8 @@ lfsck_layout_lastid_store(const struct lu_env *env,
 		th = dt_trans_create(env, dt);
 		if (IS_ERR(th)) {
 			rc1 = PTR_ERR(th);
-			CERROR("%s: (1) failed to store "LPX64": rc = %d\n",
+			CDEBUG(D_LFSCK, "%s: layout LFSCK failed to store "
+			       "the LAST_ID for <seq> "LPX64"(1): rc = %d\n",
 			       lfsck_lfsck2name(com->lc_lfsck),
 			       lls->lls_seq, rc1);
 			continue;
@@ -1082,7 +1082,8 @@ stop:
 		dt_trans_stop(env, dt, th);
 		if (rc != 0) {
 			rc1 = rc;
-			CERROR("%s: (2) failed to store "LPX64": rc = %d\n",
+			CDEBUG(D_LFSCK, "%s: layout LFSCK failed to store "
+			       "the LAST_ID for <seq> "LPX64"(2): rc = %d\n",
 			       lfsck_lfsck2name(com->lc_lfsck),
 			       lls->lls_seq, rc1);
 		}
@@ -1170,10 +1171,16 @@ static void lfsck_layout_record_failure(const struct lu_env *env,
 						 struct lfsck_layout *lo)
 {
 	lo->ll_objs_failed_phase1++;
-	if (unlikely(lo->ll_pos_first_inconsistent == 0))
+	if (unlikely(lo->ll_pos_first_inconsistent == 0)) {
 		lo->ll_pos_first_inconsistent =
 			lfsck->li_obj_oit->do_index_ops->dio_it.store(env,
 							lfsck->li_di_oit);
+
+		CDEBUG(D_LFSCK, "%s: layout LFSCK hit first non-repaired "
+		       "inconsistency at the pos ["LPU64"]\n",
+		       lfsck_lfsck2name(lfsck),
+		       lo->ll_pos_first_inconsistent);
+	}
 }
 
 static int lfsck_layout_master_async_interpret(const struct lu_env *env,
@@ -1192,8 +1199,9 @@ static int lfsck_layout_master_async_interpret(const struct lu_env *env,
 		if (rc != 0) {
 			struct lfsck_layout *lo = com->lc_file_ram;
 
-			CERROR("%s: fail to notify %s %x for layout start: "
-			       "rc = %d\n", lfsck_lfsck2name(com->lc_lfsck),
+			CDEBUG(D_LFSCK, "%s: fail to notify %s %x for layout "
+			       "start: rc = %d\n",
+			       lfsck_lfsck2name(com->lc_lfsck),
 			       (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
 			       ltd->ltd_index, rc);
 			lo->ll_flags |= LF_INCOMPLETE;
@@ -1228,11 +1236,11 @@ static int lfsck_layout_master_async_interpret(const struct lu_env *env,
 	case LE_PHASE2_DONE:
 	case LE_PEER_EXIT:
 		if (rc != 0 && rc != -EALREADY)
-			CWARN("%s: fail to notify %s %x for layout: "
-			      "event = %d, rc = %d\n",
-			      lfsck_lfsck2name(com->lc_lfsck),
-			      (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
-			      ltd->ltd_index, lr->lr_event, rc);
+			CDEBUG(D_LFSCK, "%s: fail to notify %s %x for layout: "
+			       "event = %d, rc = %d\n",
+			       lfsck_lfsck2name(com->lc_lfsck),
+			       (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
+			       ltd->ltd_index, lr->lr_event, rc);
 		break;
 	case LE_QUERY: {
 		struct lfsck_reply *reply;
@@ -1249,7 +1257,7 @@ static int lfsck_layout_master_async_interpret(const struct lu_env *env,
 					       &RMF_LFSCK_REPLY);
 		if (reply == NULL) {
 			rc = -EPROTO;
-			CERROR("%s: invalid return value: rc = %d\n",
+			CDEBUG(D_LFSCK, "%s:  invalid query reply: rc = %d\n",
 			       lfsck_lfsck2name(com->lc_lfsck), rc);
 			spin_lock(&ltds->ltd_lock);
 			list_del_init(&ltd->ltd_layout_phase_list);
@@ -1287,7 +1295,7 @@ static int lfsck_layout_master_async_interpret(const struct lu_env *env,
 		break;
 	}
 	default:
-		CERROR("%s: unexpected event: rc = %d\n",
+		CDEBUG(D_LFSCK, "%s: layout LFSCK unexpected event: rc = %d\n",
 		       lfsck_lfsck2name(com->lc_lfsck), lr->lr_event);
 		break;
 	}
@@ -1360,8 +1368,8 @@ again:
 					 lfsck_layout_master_async_interpret,
 					 laia, LFSCK_QUERY);
 		if (rc != 0) {
-			CERROR("%s: fail to query %s %x for layout: rc = %d\n",
-			       lfsck_lfsck2name(lfsck),
+			CDEBUG(D_LFSCK, "%s: layout LFSCK fail to query %s %x: "
+			       "rc = %d\n", lfsck_lfsck2name(lfsck),
 			       (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
 			       ltd->ltd_index, rc);
 			lfsck_tgt_put(ltd);
@@ -1438,8 +1446,8 @@ static int lfsck_layout_master_notify_others(const struct lu_env *env,
 					lfsck_layout_master_async_interpret,
 					laia, LFSCK_NOTIFY);
 			if (rc != 0) {
-				CERROR("%s: fail to notify %s %x for layout "
-				       "start: rc = %d\n",
+				CDEBUG(D_LFSCK, "%s: layout LFSCK fail to "
+				       "notify %s %x for start: rc = %d\n",
 				       lfsck_lfsck2name(lfsck),
 				       (lr->lr_flags & LEF_TO_OST) ? "OST" :
 				       "MDT", idx, rc);
@@ -1520,8 +1528,9 @@ again:
 					lfsck_layout_master_async_interpret,
 					laia, LFSCK_NOTIFY);
 			if (rc != 0) {
-				CERROR("%s: fail to notify %s %x for layout "
-				       "stop/phase2: rc = %d\n",
+				CDEBUG(D_LFSCK, "%s: layout LFSCK fail to "
+				       "notify %s %x for stop/phase2_done/"
+				       "peer_exit: rc = %d\n",
 				       lfsck_lfsck2name(lfsck),
 				       (lr->lr_flags & LEF_TO_OST) ? "OST" :
 				       "MDT", ltd->ltd_index, rc);
@@ -1568,9 +1577,9 @@ again:
 					lfsck_layout_master_async_interpret,
 					laia, LFSCK_NOTIFY);
 			if (rc != 0) {
-				CERROR("%s: fail to notify MDT %x for layout "
-				       "phase1 done: rc = %d\n",
-				       lfsck_lfsck2name(lfsck),
+				CDEBUG(D_LFSCK, "%s: layout LFSCK fail to "
+				       "notify MDT %x for phase1_done: "
+				       "rc = %d\n", lfsck_lfsck2name(lfsck),
 				       ltd->ltd_index, rc);
 				lfsck_tgt_put(ltd);
 			}
@@ -1579,7 +1588,7 @@ again:
 		spin_unlock(&ltds->ltd_lock);
 		break;
 	default:
-		CERROR("%s: unexpected LFSCK event: rc = %d\n",
+		CDEBUG(D_LFSCK, "%s: layout LFSCK unexpected event: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), lr->lr_event);
 		rc = -EINVAL;
 		break;
@@ -1791,6 +1800,7 @@ static int lfsck_layout_extend_lovea(const struct lu_env *env,
 	struct lov_ost_data_v1	*objs;
 	int			 rc;
 	__u16			 count;
+	bool			 hole	= false;
 	ENTRY;
 
 	if (fl == LU_XATTR_CREATE || reset) {
@@ -1799,8 +1809,10 @@ static int lfsck_layout_extend_lovea(const struct lu_env *env,
 		count = ea_off + 1;
 		LASSERT(buf->lb_len == lov_mds_md_size(count, LOV_MAGIC_V1));
 
-		if (ea_off != 0 || reset)
+		if (ea_off != 0 || reset) {
 			pattern |= LOV_PATTERN_F_HOLE;
+			hole = true;
+		}
 
 		memset(lmm, 0, buf->lb_len);
 		lmm->lmm_magic = cpu_to_le32(LOV_MAGIC_V1);
@@ -1833,6 +1845,7 @@ static int lfsck_layout_extend_lovea(const struct lu_env *env,
 		if (gap > 0) {
 			memset(objs, 0, gap * sizeof(*objs));
 			lmm->lmm_pattern |= cpu_to_le32(LOV_PATTERN_F_HOLE);
+			hole = true;
 		}
 
 		lmm->lmm_layout_gen =
@@ -1843,6 +1856,13 @@ static int lfsck_layout_extend_lovea(const struct lu_env *env,
 	lmm->lmm_stripe_count = cpu_to_le16(count);
 	rc = lfsck_layout_refill_lovea(env, handle, parent, cfid, buf, objs,
 				       fl, ost_idx);
+
+	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant extend layout EA for "
+	       DFID": parent "DFID", OST-index %u, stripe-index %u, fl %d, "
+	       "reset %s, %s LOV EA hole: rc = %d\n",
+	       lfsck_lfsck2name(lfsck), PFID(cfid), PFID(lfsck_dto2fid(parent)),
+	       ost_idx, ea_off, fl, reset ? "yes" : "no",
+	       hole ? "with" : "without", rc);
 
 	RETURN(rc);
 }
@@ -1941,7 +1961,7 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 	if (unlikely(lfsck->li_lpf_obj == NULL)) {
 		rc = lfsck_create_lpf(env, lfsck);
 		if (rc != 0)
-			RETURN(rc);
+			GOTO(log, rc);
 	}
 
 	if (fid_is_zero(pfid)) {
@@ -1960,13 +1980,8 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 		pbuf = lfsck_buf_get(env, ff, sizeof(struct filter_fid));
 		cobj = lfsck_object_find_by_dev(env, ltd->ltd_tgt, cfid);
 		if (IS_ERR(cobj))
-			RETURN(PTR_ERR(cobj));
+			GOTO(log, rc = PTR_ERR(cobj));
 	}
-
-	CDEBUG(D_LFSCK, "Re-create the lost MDT-object: parent "
-	       DFID", child "DFID", OST-index %u, stripe-index %u, "
-	       "prefix %s, postfix %s\n",
-	       PFID(pfid), PFID(cfid), ltd->ltd_index, ea_off, prefix, postfix);
 
 	pobj = lfsck_object_find_by_dev(env, lfsck->li_bottom, pfid);
 	if (IS_ERR(pobj))
@@ -1997,14 +2012,9 @@ static int lfsck_layout_recreate_parent(const struct lu_env *env,
 		if (rc != 0 && rc != -ENOENT)
 			GOTO(put, rc);
 
-		if (unlikely(rc == 0)) {
-			CWARN("%s: The name %s under lost+found has been used "
-			      "by the "DFID". Try to increase the FID version "
-			      "for the new file name.\n",
-			      lfsck_lfsck2name(lfsck), name, PFID(tfid));
+		if (unlikely(rc == 0))
 			sprintf(name, "%s"DFID"%s-%d", prefix, PFID(pfid),
 				postfix, ++idx);
-		}
 	} while (rc == 0);
 
 	memset(la, 0, sizeof(*la));
@@ -2112,6 +2122,15 @@ put:
 	if (pobj != NULL && !IS_ERR(pobj))
 		lu_object_put(env, &pobj->do_lu);
 	ea_buf->lb_len = buflen;
+
+log:
+	if (rc < 0)
+		CDEBUG(D_LFSCK, "%s layout LFSCK assistant failed to "
+		       "recreate the lost MDT-object: parent "DFID
+		       ", child "DFID", OST-index %u, stripe-index %u, "
+		       "prefix %s, postfix %s: rc = %d\n",
+		       lfsck_lfsck2name(lfsck), PFID(pfid), PFID(cfid),
+		       ltd->ltd_index, ea_off, prefix, postfix, rc);
 
 	return rc >= 0 ? 1 : rc;
 }
@@ -2252,10 +2271,11 @@ static int lfsck_layout_slave_conditional_destroy(const struct lu_env *env,
 
 	rc = dt_destroy(env, obj, th);
 	if (rc == 0)
-		CDEBUG(D_LFSCK, "Destroy the empty OST-object "DFID" which "
-		       "was created for reparing dangling referenced case. "
-		       "But the original missed OST-object is found now.\n",
-		       PFID(fid));
+		CDEBUG(D_LFSCK, "%s: layout LFSCK destroyed the empty "
+		       "OST-object "DFID" that was created for reparing "
+		       "dangling referenced case. But the original missed "
+		       "OST-object is found now.\n",
+		       lfsck_lfsck2name(lfsck), PFID(fid));
 
 	GOTO(stop, rc);
 
@@ -2309,12 +2329,6 @@ static int lfsck_layout_conflict_create(const struct lu_env *env,
 
 	ostid_le_to_cpu(&slot->l_ost_oi, oi);
 	ostid_to_fid(cfid2, oi, ost_idx2);
-
-	CDEBUG(D_LFSCK, "Handle layout EA conflict: parent "DFID
-	       ", cur-child "DFID" on the OST %u, orphan-child "
-	       DFID" on the OST %u, stripe-index %u\n",
-	       PFID(lfsck_dto2fid(parent)), PFID(cfid2), ost_idx2,
-	       PFID(cfid), ltd->ltd_index, ea_off);
 
 	/* Hold layout lock on the parent to prevent others to access. */
 	rc = lfsck_layout_lock(env, com, parent, &lh,
@@ -2375,6 +2389,13 @@ unlock:
 out:
 	ea_buf->lb_len = ori_len;
 
+	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant replaced the conflict "
+	       "OST-object "DFID" on the OST %x with the orphan "DFID" on "
+	       "the OST %x: parent "DFID", stripe-index %u: rc = %d\n",
+	       lfsck_lfsck2name(com->lc_lfsck), PFID(cfid2), ost_idx2,
+	       PFID(cfid), ltd->ltd_index, PFID(lfsck_dto2fid(parent)),
+	       ea_off, rc);
+
 	return rc >= 0 ? 1 : rc;
 }
 
@@ -2412,14 +2433,17 @@ static int lfsck_layout_recreate_lovea(const struct lu_env *env,
 	bool			  locked	= false;
 	ENTRY;
 
-	CDEBUG(D_LFSCK, "Re-create the crashed layout EA: parent "
-	       DFID", child "DFID", OST-index %u, stripe-index %u\n",
-	       PFID(lfsck_dto2fid(parent)), PFID(cfid), ost_idx, ea_off);
-
 	rc = lfsck_layout_lock(env, com, parent, &lh,
 			       MDS_INODELOCK_LAYOUT | MDS_INODELOCK_XATTR);
-	if (rc != 0)
+	if (rc != 0) {
+		CDEBUG(D_LFSCK, "%s: layout LFSCK assistant failed to recreate "
+		       "LOV EA for "DFID": parent "DFID", OST-index %u, "
+		       "stripe-index %u: rc = %d\n",
+		       lfsck_lfsck2name(lfsck), PFID(cfid),
+		       PFID(lfsck_dto2fid(parent)), ost_idx, ea_off, rc);
+
 		RETURN(rc);
+	}
 
 again:
 	if (locked) {
@@ -2567,6 +2591,13 @@ again:
 			rc = lfsck_layout_refill_lovea(env, handle, parent,
 						       cfid, buf, objs, fl,
 						       ost_idx);
+
+			CDEBUG(D_LFSCK, "%s layout LFSCK assistant fill "
+			       "dummy layout slot for "DFID": parent "DFID
+			       ", OST-index %u, stripe-index %u: rc = %d\n",
+			       lfsck_lfsck2name(lfsck), PFID(cfid),
+			       PFID(lfsck_dto2fid(parent)), ost_idx, i, rc);
+
 			GOTO(unlock_parent, rc);
 		}
 
@@ -2591,6 +2622,14 @@ again:
 				buf->lb_len = buflen;
 				rc = lfsck_layout_update_pfid(env, com, parent,
 							cfid, ltd->ltd_tgt, i);
+
+				CDEBUG(D_LFSCK, "%s layout LFSCK assistant "
+				       "updated OST-object's pfid for "DFID
+				       ": parent "DFID", OST-index %u, "
+				       "stripe-index %u: rc = %d\n",
+				       lfsck_lfsck2name(lfsck), PFID(cfid),
+				       PFID(lfsck_dto2fid(parent)),
+				       ltd->ltd_index, i, rc);
 
 				RETURN(rc);
 			}
@@ -2716,7 +2755,8 @@ static int lfsck_layout_scan_orphan(const struct lu_env *env,
 	int				 rc	= 0;
 	ENTRY;
 
-	CDEBUG(D_LFSCK, "%s: start the orphan scanning for OST%04x\n",
+	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant starts the orphan "
+	       "scanning for OST%04x\n",
 	       lfsck_lfsck2name(lfsck), ltd->ltd_index);
 
 	ostid_set_seq(oi, FID_SEQ_IDIF);
@@ -2724,7 +2764,7 @@ static int lfsck_layout_scan_orphan(const struct lu_env *env,
 	ostid_to_fid(fid, oi, ltd->ltd_index);
 	obj = lfsck_object_find_by_dev(env, ltd->ltd_tgt, fid);
 	if (unlikely(IS_ERR(obj)))
-		RETURN(PTR_ERR(obj));
+		GOTO(log, rc = PTR_ERR(obj));
 
 	rc = obj->do_ops->do_index_try(env, obj, &dt_lfsck_orphan_features);
 	if (rc != 0)
@@ -2793,7 +2833,9 @@ fini:
 put:
 	lu_object_put(env, &obj->do_lu);
 
-	CDEBUG(D_LFSCK, "%s: finish the orphan scanning for OST%04x, rc = %d\n",
+log:
+	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant finished the orphan "
+	       "scanning for OST%04x: rc = %d\n",
 	       lfsck_lfsck2name(lfsck), ltd->ltd_index, rc);
 
 	return rc > 0 ? 0 : rc;
@@ -2833,15 +2875,8 @@ static int lfsck_layout_repair_dangling(const struct lu_env *env,
 	else
 		create = false;
 
-	CDEBUG(D_LFSCK, "Found dangling reference for: parent "DFID
-	       ", child "DFID", OST-index %u, stripe-index %u, owner %u:%u. %s",
-	       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
-	       llr->llr_ost_idx, llr->llr_lov_idx, pla->la_uid, pla->la_gid,
-	       create ? "Create the lost OST-object as required.\n" :
-			"Keep the MDT-object there by default.\n");
-
 	if (!create)
-		RETURN(1);
+		GOTO(log, rc = 1);
 
 	memset(cla, 0, sizeof(*cla));
 	cla->la_uid = pla->la_uid;
@@ -2853,7 +2888,7 @@ static int lfsck_layout_repair_dangling(const struct lu_env *env,
 	rc = lfsck_layout_lock(env, com, parent, &lh,
 			       MDS_INODELOCK_LAYOUT | MDS_INODELOCK_XATTR);
 	if (rc != 0)
-		RETURN(rc);
+		GOTO(log, rc);
 
 	handle = dt_trans_create(env, dev);
 	if (IS_ERR(handle))
@@ -2904,6 +2939,16 @@ stop:
 unlock1:
 	lfsck_layout_unlock(&lh);
 
+log:
+	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant found dangling "
+	       "reference for: parent "DFID", child "DFID", OST-index %u, "
+	       "stripe-index %u, owner %u/%u. %s: rc = %d\n",
+	       lfsck_lfsck2name(com->lc_lfsck), PFID(lfsck_dto2fid(parent)),
+	       PFID(lfsck_dto2fid(child)), llr->llr_ost_idx,
+	       llr->llr_lov_idx, pla->la_uid, pla->la_gid,
+	       create ? "Create the lost OST-object as required" :
+			"Keep the MDT-object there by default", rc);
+
 	return rc;
 }
 
@@ -2928,15 +2973,10 @@ static int lfsck_layout_repair_unmatched_pair(const struct lu_env *env,
 	int				 rc;
 	ENTRY;
 
-	CDEBUG(D_LFSCK, "Repair unmatched MDT-OST pair for: parent "DFID
-	       ", child "DFID", OST-index %u, stripe-index %u, owner %u:%u\n",
-	       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
-	       llr->llr_ost_idx, llr->llr_lov_idx, pla->la_uid, pla->la_gid);
-
 	rc = lfsck_layout_lock(env, com, parent, &lh,
 			       MDS_INODELOCK_LAYOUT | MDS_INODELOCK_XATTR);
 	if (rc != 0)
-		RETURN(rc);
+		GOTO(log, rc);
 
 	handle = dt_trans_create(env, dev);
 	if (IS_ERR(handle))
@@ -2993,6 +3033,14 @@ stop:
 unlock1:
 	lfsck_layout_unlock(&lh);
 
+log:
+	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant repaired unmatched "
+	       "MDT-OST pair for: parent "DFID", child "DFID", OST-index %u, "
+	       "stripe-index %u, owner %u/%u: rc = %d\n",
+	       lfsck_lfsck2name(com->lc_lfsck), PFID(lfsck_dto2fid(parent)),
+	       PFID(lfsck_dto2fid(child)), llr->llr_ost_idx, llr->llr_lov_idx,
+	       pla->la_uid, pla->la_gid, rc);
+
 	return rc;
 }
 
@@ -3023,15 +3071,10 @@ static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
 	int				 rc;
 	ENTRY;
 
-	CDEBUG(D_LFSCK, "Repair multiple references for: parent "DFID
-	       ", OST-index %u, stripe-index %u, owner %u:%u\n",
-	       PFID(lfsck_dto2fid(parent)), llr->llr_ost_idx,
-	       llr->llr_lov_idx, la->la_uid, la->la_gid);
-
 	rc = lfsck_layout_lock(env, com, parent, &lh,
 			       MDS_INODELOCK_LAYOUT | MDS_INODELOCK_XATTR);
 	if (rc != 0)
-		RETURN(rc);
+		GOTO(log, rc);
 
 	handle = dt_trans_create(env, pdev);
 	if (IS_ERR(handle))
@@ -3115,6 +3158,13 @@ stop:
 unlock1:
 	lfsck_layout_unlock(&lh);
 
+log:
+	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant repaired multiple "
+	       "references for: parent "DFID", OST-index %u, stripe-index %u, "
+	       "owner %u/%u: rc = %d\n",
+	       lfsck_lfsck2name(com->lc_lfsck), PFID(lfsck_dto2fid(parent)),
+	       llr->llr_ost_idx, llr->llr_lov_idx, la->la_uid, la->la_gid, rc);
+
 	return rc;
 }
 
@@ -3136,14 +3186,9 @@ static int lfsck_layout_repair_owner(const struct lu_env *env,
 	int				 rc;
 	ENTRY;
 
-	CDEBUG(D_LFSCK, "Repair inconsistent file owner for: parent "DFID
-	       ", child "DFID", OST-index %u, stripe-index %u, owner %u:%u\n",
-	       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
-	       llr->llr_ost_idx, llr->llr_lov_idx, pla->la_uid, pla->la_gid);
-
 	handle = dt_trans_create(env, dev);
 	if (IS_ERR(handle))
-		RETURN(PTR_ERR(handle));
+		GOTO(log, rc = PTR_ERR(handle));
 
 	tla->la_uid = pla->la_uid;
 	tla->la_gid = pla->la_gid;
@@ -3163,14 +3208,8 @@ static int lfsck_layout_repair_owner(const struct lu_env *env,
 
 	/* Get the latest parent's owner. */
 	rc = dt_attr_get(env, parent, tla, BYPASS_CAPA);
-	if (rc != 0) {
-		CWARN("%s: fail to get the latest parent's ("DFID") owner, "
-		      "not sure whether some others chown/chgrp during the "
-		      "LFSCK: rc = %d\n", lfsck_lfsck2name(com->lc_lfsck),
-		      PFID(lfsck_dto2fid(parent)), rc);
-
+	if (rc != 0)
 		GOTO(unlock, rc);
-	}
 
 	/* Some others chown/chgrp during the LFSCK, needs to do nothing. */
 	if (unlikely(tla->la_uid != pla->la_uid ||
@@ -3187,6 +3226,14 @@ unlock:
 
 stop:
 	rc = lfsck_layout_trans_stop(env, dev, handle, rc);
+
+log:
+	CDEBUG(D_LFSCK, "%s: layout LFSCK assistant repaired inconsistent "
+	       "file owner for: parent "DFID", child "DFID", OST-index %u, "
+	       "stripe-index %u, owner %u/%u: rc = %d\n",
+	       lfsck_lfsck2name(com->lc_lfsck), PFID(lfsck_dto2fid(parent)),
+	       PFID(lfsck_dto2fid(child)), llr->llr_ost_idx, llr->llr_lov_idx,
+	       pla->la_uid, pla->la_gid, rc);
 
 	return rc;
 }
@@ -3412,7 +3459,8 @@ out:
 			   rc == -EHOSTUNREACH) {
 			/* If cannot touch the target server,
 			 * mark the LFSCK as INCOMPLETE. */
-			CERROR("%s: Fail to talk with OST %x: rc = %d.\n",
+			CDEBUG(D_LFSCK, "%s: layout LFSCK assistant fail to "
+			       "talk with OST %x: rc = %d\n",
 			       lfsck_lfsck2name(lfsck), llr->llr_ost_idx, rc);
 			lo->ll_flags |= LF_INCOMPLETE;
 			lo->ll_objs_skipped++;
@@ -3469,7 +3517,8 @@ static int lfsck_layout_assistant(void *args)
 
 	rc = lfsck_layout_master_notify_others(env, com, lr);
 	if (rc != 0) {
-		CERROR("%s: fail to notify others for layout start: rc = %d\n",
+		CDEBUG(D_LFSCK, "%s: layout LFSCK assistant failed to notify "
+		       "others for LFSCK start: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
 		GOTO(fini, rc);
 	}
@@ -3538,8 +3587,9 @@ static int lfsck_layout_assistant(void *args)
 			lr->lr_status = llmd->llmd_post_result;
 			rc = lfsck_layout_master_notify_others(env, com, lr);
 			if (rc != 0)
-				CERROR("%s: failed to notify others "
-				       "for layout post: rc = %d\n",
+				CDEBUG(D_LFSCK, "%s: layout LFSCK assistant "
+				       "failed to notify others for LFSCK "
+				       "post: rc = %d\n",
 				       lfsck_lfsck2name(lfsck), rc);
 
 			/* Wakeup the master engine to go ahead. */
@@ -3561,6 +3611,9 @@ static int lfsck_layout_assistant(void *args)
 
 			/* flush all async updating before handling orphan. */
 			dt_sync(env, lfsck->li_next);
+
+			CDEBUG(D_LFSCK, "%s: layout LFSCK assistant phase2 "
+			       "scan start\n", lfsck_lfsck2name(lfsck));
 
 			while (llmd->llmd_in_double_scan) {
 				struct lfsck_tgt_descs	*ltds =
@@ -3673,7 +3726,7 @@ cleanup2:
 				lr->lr_status = LS_CO_STOPPED;
 				break;
 			default:
-				CERROR("%s: unknown status: rc = %d\n",
+				CDEBUG(D_LFSCK, "%s: unknown status: rc = %d\n",
 				       lfsck_lfsck2name(lfsck),
 				       lfsck->li_status);
 				lr->lr_status = LS_CO_FAILED;
@@ -3692,7 +3745,8 @@ cleanup2:
 
 	rc1 = lfsck_layout_master_notify_others(env, com, lr);
 	if (rc1 != 0) {
-		CERROR("%s: failed to notify others for layout quit: rc = %d\n",
+		CDEBUG(D_LFSCK, "%s: layout LFSCK assistant failed to "
+		       "notify others for LFSCK quit: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc1);
 		rc = rc1;
 	}
@@ -3700,8 +3754,16 @@ cleanup2:
 	/* Under force exit case, some requests may be just freed without
 	 * verification, those objects should be re-handled when next run.
 	 * So not update the on-disk tracing file under such case. */
-	if (llmd->llmd_in_double_scan && !llmd->llmd_exit)
-		rc1 = lfsck_layout_double_scan_result(env, com, rc);
+	if (llmd->llmd_in_double_scan) {
+		struct lfsck_layout *lo = com->lc_file_ram;
+
+		if (!llmd->llmd_exit)
+			rc1 = lfsck_layout_double_scan_result(env, com, rc);
+
+		CDEBUG(D_LFSCK, "%s: layout LFSCK assistant phase2 scan "
+	 	       "finished, status %u: rc = %d\n",
+		       lfsck_lfsck2name(lfsck), lo->ll_status, rc1);
+	}
 
 fini:
 	if (llmd->llmd_in_double_scan)
@@ -3727,6 +3789,7 @@ lfsck_layout_slave_async_interpret(const struct lu_env *env,
 	struct lfsck_component		     *com   = llsaa->llsaa_com;
 	struct lfsck_layout_slave_target     *llst  = llsaa->llsaa_llst;
 	struct lfsck_layout_slave_data	     *llsd  = com->lc_data;
+	struct lfsck_reply		     *lr    = NULL;
 	bool				      done  = false;
 
 	if (rc != 0) {
@@ -3735,15 +3798,20 @@ lfsck_layout_slave_async_interpret(const struct lu_env *env,
 		 * the target finished the LFSCK prcoessing. */
 		done = true;
 	} else {
-		struct lfsck_reply *lr;
-
 		lr = req_capsule_server_get(&req->rq_pill, &RMF_LFSCK_REPLY);
 		if (lr->lr_status != LS_SCANNING_PHASE1 &&
 		    lr->lr_status != LS_SCANNING_PHASE2)
 			done = true;
 	}
-	if (done)
+
+	if (done) {
+		CDEBUG(D_LFSCK, "%s: layout LFSCK slave gets the MDT %x "
+		       "status %d\n", lfsck_lfsck2name(com->lc_lfsck),
+		       llst->llst_index, lr != NULL ? lr->lr_status : rc);
+
 		lfsck_layout_llst_del(llsd, llst);
+	}
+
 	lfsck_layout_llst_put(llst);
 	lfsck_component_put(env, com);
 	class_export_put(exp);
@@ -3832,7 +3900,7 @@ lfsck_layout_slave_query_master(const struct lu_env *env,
 
 	set = ptlrpc_prep_set();
 	if (set == NULL)
-		RETURN(-ENOMEM);
+		GOTO(log, rc = -ENOMEM);
 
 	memset(lr, 0, sizeof(*lr));
 	lr->lr_index = lfsck_dev_idx(lfsck->li_bottom);
@@ -3866,9 +3934,11 @@ lfsck_layout_slave_query_master(const struct lu_env *env,
 
 		rc = lfsck_layout_async_query(env, com, exp, llst, lr, set);
 		if (rc != 0) {
-			CERROR("%s: slave fail to query %s for layout: "
-			       "rc = %d\n", lfsck_lfsck2name(lfsck),
+			CDEBUG(D_LFSCK, "%s: layout LFSCK slave fail to "
+			       "query %s for layout: rc = %d\n",
+			       lfsck_lfsck2name(lfsck),
 			       exp->exp_obd->obd_name, rc);
+
 			rc1 = rc;
 			lfsck_layout_llst_put(llst);
 			class_export_put(exp);
@@ -3880,7 +3950,13 @@ lfsck_layout_slave_query_master(const struct lu_env *env,
 	rc = ptlrpc_set_wait(set);
 	ptlrpc_set_destroy(set);
 
-	RETURN(rc1 != 0 ? rc1 : rc);
+	GOTO(log, rc = (rc1 != 0 ? rc1 : rc));
+
+log:
+	CDEBUG(D_LFSCK, "%s: layout LFSCK slave queries master: rc = %d\n",
+	       lfsck_lfsck2name(com->lc_lfsck), rc);
+
+	return rc;
 }
 
 static void
@@ -3896,6 +3972,9 @@ lfsck_layout_slave_notify_master(const struct lu_env *env,
 	struct ptlrpc_request_set	 *set;
 	int				  rc;
 	ENTRY;
+
+	CDEBUG(D_LFSCK, "%s: layout LFSCK slave notifies master\n",
+	       lfsck_lfsck2name(com->lc_lfsck));
 
 	set = ptlrpc_prep_set();
 	if (set == NULL)
@@ -3934,9 +4013,11 @@ lfsck_layout_slave_notify_master(const struct lu_env *env,
 
 		rc = lfsck_layout_async_notify(env, exp, lr, set);
 		if (rc != 0)
-			CERROR("%s: slave fail to notify %s for layout: "
-			       "rc = %d\n", lfsck_lfsck2name(lfsck),
+			CDEBUG(D_LFSCK, "%s: layout LFSCK slave fail to "
+			       "notify %s for layout: rc = %d\n",
+			       lfsck_lfsck2name(lfsck),
 			       exp->exp_obd->obd_name, rc);
+
 		lfsck_layout_llst_put(llst);
 		class_export_put(exp);
 		spin_lock(&llsd->llsd_lock);
@@ -4118,7 +4199,7 @@ static int lfsck_layout_slave_repair_pfid(const struct lu_env *env,
 
 	obj = lfsck_object_find_by_dev(env, dev, &lr->lr_fid);
 	if (IS_ERR(obj))
-		RETURN(PTR_ERR(obj));
+		GOTO(log, rc = PTR_ERR(obj));
 
 	fid_cpu_to_le(&ff->ff_parent, &lr->lr_fid2);
 	buf = lfsck_buf_get(env, ff, sizeof(*ff));
@@ -4149,6 +4230,11 @@ unlock:
 	dt_write_unlock(env, obj);
 	lu_object_put(env, &obj->do_lu);
 
+log:
+	CDEBUG(D_LFSCK, "%s: layout LFSCK slave repaired pfid for "DFID
+	       ", parent "DFID": rc = %d\n", lfsck_lfsck2name(com->lc_lfsck),
+	       PFID(&lr->lr_fid), PFID(&lr->lr_fid2), rc);
+
 	return rc;
 }
 
@@ -4177,6 +4263,9 @@ static int lfsck_layout_reset(const struct lu_env *env,
 
 	rc = lfsck_layout_store(env, com);
 	up_write(&com->lc_sem);
+
+	CDEBUG(D_LFSCK, "%s: layout LFSCK reset: rc = %d\n",
+	       lfsck_lfsck2name(com->lc_lfsck), rc);
 
 	return rc;
 }
@@ -4232,6 +4321,10 @@ static int lfsck_layout_master_checkpoint(const struct lu_env *env,
 	rc = lfsck_layout_store(env, com);
 	up_write(&com->lc_sem);
 
+	CDEBUG(D_LFSCK, "%s: layout LFSCK master checkpoint at the pos ["
+	       LPU64"]: rc = %d\n", lfsck_lfsck2name(lfsck),
+	       lfsck->li_pos_current.lp_oit_cookie, rc);
+
 	return rc;
 }
 
@@ -4246,7 +4339,6 @@ static int lfsck_layout_slave_checkpoint(const struct lu_env *env,
 		return 0;
 
 	down_write(&com->lc_sem);
-
 	if (init) {
 		lo->ll_pos_latest_start = lfsck->li_pos_current.lp_oit_cookie;
 	} else {
@@ -4260,8 +4352,11 @@ static int lfsck_layout_slave_checkpoint(const struct lu_env *env,
 	}
 
 	rc = lfsck_layout_store(env, com);
-
 	up_write(&com->lc_sem);
+
+	CDEBUG(D_LFSCK, "%s: layout LFSCK slave checkpoint at the pos ["
+	       LPU64"]: rc = %d\n", lfsck_lfsck2name(lfsck),
+	       lfsck->li_pos_current.lp_oit_cookie, rc);
 
 	return rc;
 }
@@ -4286,8 +4381,12 @@ static int lfsck_layout_prep(const struct lu_env *env,
 		if (rc == 0)
 			rc = lfsck_set_param(env, lfsck, start, true);
 
-		if (rc != 0)
+		if (rc != 0) {
+			CDEBUG(D_LFSCK, "%s: layout LFSCK prep failed: "
+			       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
+
 			return rc;
+		}
 	}
 
 	down_write(&com->lc_sem);
@@ -4365,6 +4464,10 @@ static int lfsck_layout_slave_prep(const struct lu_env *env,
 		write_unlock(&llsd->llsd_rb_lock);
 	}
 
+	CDEBUG(D_LFSCK, "%s: layout LFSCK slave prep done, start pos ["
+	       LPU64"\n", lfsck_lfsck2name(lfsck),
+	       com->lc_pos_start.lp_oit_cookie);
+
 	return rc;
 }
 
@@ -4400,7 +4503,7 @@ static int lfsck_layout_master_prep(const struct lu_env *env,
 	task = kthread_run(lfsck_layout_assistant, lta, "lfsck_layout");
 	if (IS_ERR(task)) {
 		rc = PTR_ERR(task);
-		CERROR("%s: Cannot start LFSCK layout assistant thread: "
+		CERROR("%s: cannot start LFSCK layout assistant thread: "
 		       "rc = %d\n", lfsck_lfsck2name(lfsck), rc);
 		lfsck_thread_args_fini(lta);
 	} else {
@@ -4415,6 +4518,10 @@ static int lfsck_layout_master_prep(const struct lu_env *env,
 		else
 			rc = 0;
 	}
+
+	CDEBUG(D_LFSCK, "%s: layout LFSCK master prep done, start pos ["
+	       LPU64"\n", lfsck_lfsck2name(lfsck),
+	       com->lc_pos_start.lp_oit_cookie);
 
 	RETURN(rc);
 }
@@ -4488,8 +4595,8 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 		ostid_to_fid(fid, oi, index);
 		tgt = lfsck_tgt_get(ltds, index);
 		if (unlikely(tgt == NULL)) {
-			CERROR("%s: Cannot talk with OST %x which did not join "
-			       "the layout LFSCK.\n",
+			CDEBUG(D_LFSCK, "%s: cannot talk with OST %x which "
+			       "did not join the layout LFSCK\n",
 			       lfsck_lfsck2name(lfsck), index);
 			lo->ll_flags |= LF_INCOMPLETE;
 			goto next;
@@ -4595,6 +4702,7 @@ static int lfsck_layout_master_exec_oit(const struct lu_env *env,
 	int				 rc	= 0;
 	bool				 locked	= false;
 	bool				 stripe = false;
+	bool				 bad_oi = false;
 	ENTRY;
 
 	if (!S_ISREG(lfsck_object_type(obj)))
@@ -4625,8 +4733,7 @@ again:
 		GOTO(out, stripe = true);
 
 	/* Inconsistent lmm_oi, should be repaired. */
-	CDEBUG(D_LFSCK, "Repair bad lmm_oi for "DFID"\n",
-	       PFID(lfsck_dto2fid(obj)));
+	bad_oi = true;
 
 	if (bk->lb_param & LPF_DRYRUN) {
 		down_write(&com->lc_sem);
@@ -4689,6 +4796,13 @@ out:
 		dt_trans_stop(env, dev, handle);
 
 	lfsck_layout_unlock(&lh);
+
+	if (bad_oi)
+		CDEBUG(D_LFSCK, "%s: layout LFSCK master %s bad lmm_oi for "
+		       DFID": rc = %d\n", lfsck_lfsck2name(lfsck),
+		       bk->lb_param & LPF_DRYRUN ? "found" : "repaired",
+		       PFID(lfsck_dto2fid(obj)), rc);
+
 	if (stripe) {
 		rc = lfsck_layout_scan_stripes(env, com, obj, lmm);
 	} else {
@@ -4752,6 +4866,9 @@ static int lfsck_layout_slave_exec_oit(const struct lu_env *env,
 		lls->lls_seq = seq;
 		rc = lfsck_layout_lastid_load(env, com, lls);
 		if (rc != 0) {
+			CDEBUG(D_LFSCK, "%s: layout LFSCK failed to "
+			      "load LAST_ID for "LPX64": rc = %d\n",
+			      lfsck_lfsck2name(com->lc_lfsck), seq, rc);
 			lo->ll_objs_failed_phase1++;
 			OBD_FREE_PTR(lls);
 			GOTO(unlock, rc);
@@ -4772,8 +4889,8 @@ static int lfsck_layout_slave_exec_oit(const struct lu_env *env,
 			/* OFD may create new objects during LFSCK scanning. */
 			rc = lfsck_layout_lastid_reload(env, com, lls);
 			if (unlikely(rc != 0))
-				CWARN("%s: failed to reload LAST_ID for "LPX64
-				      ": rc = %d\n",
+				CDEBUG(D_LFSCK, "%s: layout LFSCK failed to "
+				      "reload LAST_ID for "LPX64": rc = %d\n",
 				      lfsck_lfsck2name(com->lc_lfsck),
 				      lls->lls_seq, rc);
 			if (oid <= lls->lls_lastid)
@@ -4875,6 +4992,9 @@ static int lfsck_layout_master_post(const struct lu_env *env,
 	rc = lfsck_layout_store(env, com);
 	up_write(&com->lc_sem);
 
+	CDEBUG(D_LFSCK, "%s: layout LFSCK master post done: rc = %d\n",
+	       lfsck_lfsck2name(lfsck), rc);
+
 	RETURN(rc);
 }
 
@@ -4894,7 +5014,6 @@ static int lfsck_layout_slave_post(const struct lu_env *env,
 	LASSERT(lfsck->li_out_notify != NULL);
 
 	down_write(&com->lc_sem);
-
 	spin_lock(&lfsck->li_lock);
 	if (!init)
 		lo->ll_pos_last_checkpoint =
@@ -4937,13 +5056,15 @@ static int lfsck_layout_slave_post(const struct lu_env *env,
 	}
 
 	rc = lfsck_layout_store(env, com);
-
 	up_write(&com->lc_sem);
 
 	lfsck_layout_slave_notify_master(env, com, LE_PHASE1_DONE, result);
 
 	if (result <= 0)
 		lfsck_rbtree_cleanup(env, com);
+
+	CDEBUG(D_LFSCK, "%s: layout LFSCK slave post done: rc = %d\n",
+	       lfsck_lfsck2name(lfsck), rc);
 
 	return rc;
 }
@@ -5209,6 +5330,9 @@ static int lfsck_layout_slave_double_scan(const struct lu_env *env,
 		RETURN(0);
 	}
 
+	CDEBUG(D_LFSCK, "%s: layout LFSCK slave phase2 scan start\n",
+	       lfsck_lfsck2name(lfsck));
+
 	atomic_inc(&lfsck->li_double_scan_count);
 
 	com->lc_new_checked = 0;
@@ -5254,6 +5378,10 @@ done:
 	lfsck_layout_slave_notify_master(env, com, LE_PHASE2_DONE, rc);
 	if (atomic_dec_and_test(&lfsck->li_double_scan_count))
 		wake_up_all(&lfsck->li_thread.t_ctl_waitq);
+
+	CDEBUG(D_LFSCK, "%s: layout LFSCK slave phase2 scan finished, "
+	       "status %u: rc = %d\n",
+	       lfsck_lfsck2name(lfsck), lo->ll_status, rc);
 
 	return rc;
 }
@@ -5377,6 +5505,11 @@ static int lfsck_layout_master_in_notify(const struct lu_env *env,
 		RETURN(rc);
 	}
 
+	CDEBUG(D_LFSCK, "%s: layout LFSCK master handle notify %u "
+	       "from %s %x, status %u\n", lfsck_lfsck2name(lfsck),
+	       lr->lr_event, (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
+	       lr->lr_index, lr->lr_status);
+
 	if (lr->lr_event != LE_PHASE1_DONE &&
 	    lr->lr_event != LE_PHASE2_DONE &&
 	    lr->lr_event != LE_PEER_EXIT)
@@ -5400,10 +5533,6 @@ static int lfsck_layout_master_in_notify(const struct lu_env *env,
 		if (lr->lr_status <= 0) {
 			ltd->ltd_layout_done = 1;
 			list_del_init(&ltd->ltd_layout_list);
-			CWARN("%s: %s %x failed/stopped at phase1: rc = %d.\n",
-			      lfsck_lfsck2name(lfsck),
-			      (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
-			      ltd->ltd_index, lr->lr_status);
 			lo->ll_flags |= LF_INCOMPLETE;
 			fail = true;
 			break;
@@ -5431,13 +5560,8 @@ static int lfsck_layout_master_in_notify(const struct lu_env *env,
 		fail = true;
 		ltd->ltd_layout_done = 1;
 		list_del_init(&ltd->ltd_layout_list);
-		if (!(lfsck->li_bookmark_ram.lb_param & LPF_FAILOUT)) {
-			CWARN("%s: the peer %s %x exit layout LFSCK.\n",
-			      lfsck_lfsck2name(lfsck),
-			      (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
-			      ltd->ltd_index);
+		if (!(lfsck->li_bookmark_ram.lb_param & LPF_FAILOUT))
 			lo->ll_flags |= LF_INCOMPLETE;
-		}
 		break;
 	default:
 		break;
@@ -5510,6 +5634,9 @@ static int lfsck_layout_slave_in_notify(const struct lu_env *env,
 	}
 	case LE_PHASE2_DONE:
 	case LE_PEER_EXIT:
+		CDEBUG(D_LFSCK, "%s: layout LFSCK slave handle notify %u "
+		       "from MDT %x, status %u\n", lfsck_lfsck2name(lfsck),
+		       lr->lr_event, lr->lr_index, lr->lr_status);
 		break;
 	default:
 		RETURN(-EINVAL);
@@ -5587,7 +5714,8 @@ static int lfsck_layout_master_stop_notify(const struct lu_env *env,
 				 lfsck_layout_master_async_interpret,
 				 laia, LFSCK_NOTIFY);
 	if (rc != 0) {
-		CERROR("%s: Fail to notify %s %x for co-stop: rc = %d\n",
+		CDEBUG(D_LFSCK, "%s: layout LFSCK fail to notify %s %x "
+		       "for co-stop: rc = %d\n",
 		       lfsck_lfsck2name(lfsck),
 		       (lr->lr_flags & LEF_TO_OST) ? "OST" : "MDT",
 		       ltd->ltd_index, rc);
@@ -5761,7 +5889,7 @@ int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck)
 		spin_unlock(&lfsck->li_lock);
 		break;
 	default:
-		CERROR("%s: unknown lfsck_layout status: rc = %u\n",
+		CERROR("%s: unknown lfsck_layout status %u\n",
 		       lfsck_lfsck2name(lfsck), lo->ll_status);
 		/* fall through */
 	case LS_SCANNING_PHASE1:
@@ -5796,8 +5924,11 @@ out:
 	if (root != NULL && !IS_ERR(root))
 		lu_object_put(env, &root->do_lu);
 
-	if (rc != 0)
+	if (rc != 0) {
 		lfsck_component_cleanup(env, com);
+		CERROR("%s: fail to init layout LFSCK component: rc = %d\n",
+		       lfsck_lfsck2name(lfsck), rc);
+	}
 
 	return rc;
 }
@@ -5884,6 +6015,9 @@ static void lfsck_layout_destroy_orphan(const struct lu_env *env,
 
 stop:
 	dt_trans_stop(env, dev, handle);
+
+	CDEBUG(D_LFSCK, "destroy orphan OST-object "DFID": rc = %d\n",
+	       PFID(lfsck_dto2fid(obj)), rc);
 
 	RETURN_EXIT;
 }
@@ -6005,6 +6139,10 @@ static struct dt_it *lfsck_orphan_it_init(const struct lu_env *env,
 out:
 	if (com != NULL)
 		lfsck_component_put(env, com);
+
+	CDEBUG(D_LFSCK, "%s: init the orphan iteration: rc = %d\n",
+	       lfsck_lfsck2name(lfsck), rc);
+
 	lfsck_instance_put(env, lfsck);
 	if (rc != 0) {
 		if (it != NULL)
@@ -6025,6 +6163,9 @@ static void lfsck_orphan_it_fini(const struct lu_env *env,
 	struct lfsck_layout_slave_target *llst;
 
 	if (com != NULL) {
+		CDEBUG(D_LFSCK, "%s: fini the orphan iteration\n",
+		       lfsck_lfsck2name(com->lc_lfsck));
+
 		llsd = com->lc_data;
 		read_unlock(&llsd->llsd_rb_lock);
 		llst = it->loi_llst;
@@ -6325,10 +6466,11 @@ static int lfsck_orphan_it_load(const struct lu_env *env,
 	LASSERT(llst != NULL);
 
 	if (hash != llst->llst_hash) {
-		CWARN("%s: the given hash "LPU64" for orphan iteration does "
-		      "not match the one when fini "LPU64", to be reset.\n",
-		      lfsck_lfsck2name(it->loi_com->lc_lfsck), hash,
-		      llst->llst_hash);
+		CDEBUG(D_LFSCK, "%s: the given hash "LPU64" for orphan "
+		       "iteration does not match the one when fini "
+		       LPU64", to be reset.\n",
+		       lfsck_lfsck2name(it->loi_com->lc_lfsck), hash,
+		       llst->llst_hash);
 		fid_zero(&llst->llst_fid);
 		llst->llst_hash = 0;
 	}

@@ -271,9 +271,9 @@ static void ofd_add_inconsistency_item(const struct lu_env *env,
 
 	OBD_ALLOC_PTR(oii);
 	if (oii == NULL) {
-		CERROR("%s: cannot alloc memory for verify OST-object "
-		       "consistency for "DFID", client given PFID "DFID
-		       ", local stored PFID "DFID"\n",
+		CDEBUG(D_LFSCK, "%s: cannot alloc memory for verify "
+		       "OST-object consistency for "DFID", client given "
+		       "PFID "DFID", local stored PFID "DFID"\n",
 		       ofd_name(ofd), PFID(&fo->ofo_header.loh_fid),
 		       oa->o_parent_seq, oa->o_parent_oid, oa->o_stripe_idx,
 		       PFID(&fo->ofo_pfid));
