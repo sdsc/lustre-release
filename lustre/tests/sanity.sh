@@ -38,6 +38,7 @@ export PATH=$PATH:/sbin
 
 TMP=${TMP:-/tmp}
 
+CC=${CC:-cc}
 CHECKSTAT=${CHECKSTAT:-"checkstat -v"}
 CREATETEST=${CREATETEST:-createtest}
 LFS=${LFS:-lfs}
@@ -69,6 +70,7 @@ CLEANUP=${CLEANUP:-:}
 SETUP=${SETUP:-:}
 TRACE=${TRACE:-""}
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+LUSTRE_TESTS_API_DIR=${LUSTRE_TESTS_API_DIR:-${LUSTRE}/tests/clientapi}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/${NAME}.sh}
@@ -12638,6 +12640,39 @@ test_300f() {
 	rm -rf $DIR/$tdir
 }
 run_test 300f "check rename cross striped directory"
+
+test_400a() { # LU-1606, was conf-sanity test_74
+	local prog
+	local out=$TMP/$tfile
+
+	for prog in $LUSTRE_TESTS_API_DIR/*.c; do
+	    $CC -Wall -Werror -I$LUSTRE/include -I$LUSTRE/utils \
+		-llustreapi -o $out $prog || error "client api broken"
+	done
+}
+run_test 400a "Lustre client api program can compile and link"
+
+test_400b() { # LU-1606, LU-5011
+	local header
+	local out=$TMP/$tfile
+	local prefix=/usr/include/lustre
+
+	for header in $prefix/*; do
+		if ! [[ -f "$header" ]]; then
+			continue
+		fi
+
+		# liblustreapi.h is deprecated.
+		name=$(basename $header)
+		if [[ "$name" == liblustreapi.h ]]; then
+			continue
+		fi
+
+		$CC -Wall -Werror -include $header -c -x c /dev/null -o $out ||
+			error "cannot compile '$header'"
+	done
+}
+run_test 400b "packaged headers can be compiled"
 
 #
 # tests that do cleanup/setup should be run at the end
