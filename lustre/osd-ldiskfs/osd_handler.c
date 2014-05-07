@@ -890,7 +890,7 @@ static int osd_param_is_not_sane(const struct osd_device *dev,
 {
 	struct osd_thandle *oh = container_of(th, typeof(*oh), ot_super);
 
-	return oh->ot_credits > osd_journal(dev)->j_max_transaction_buffers;
+	return oh->ot_credits > osd_journal(dev)->j_max_transaction_buffers / 2;
 }
 
 /*
@@ -995,11 +995,12 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 	if (unlikely(osd_param_is_not_sane(dev, th))) {
 		static unsigned long last_printed;
 		static int last_credits;
+		journal_t *journal = osd_journal(dev);
 
 		CWARN("%.16s: too many transaction credits (%d > %d)\n",
 		      LDISKFS_SB(osd_sb(dev))->s_es->s_volume_name,
 		      oh->ot_credits,
-		      osd_journal(dev)->j_max_transaction_buffers);
+		      journal->j_max_transaction_buffers);
 		CWARN("  create: %u/%u, destroy: %u/%u\n",
 		      oti->oti_declare_ops[OSD_OT_CREATE],
 		      oti->oti_declare_ops_cred[OSD_OT_CREATE],
@@ -1040,7 +1041,7 @@ int osd_trans_start(const struct lu_env *env, struct dt_device *d,
 		 *
 		 *     This should be removed when we can calculate the
 		 *     credits precisely. */
-		oh->ot_credits = osd_journal(dev)->j_max_transaction_buffers;
+		oh->ot_credits = journal->j_max_transaction_buffers / 2;
 	}
 
         /*
