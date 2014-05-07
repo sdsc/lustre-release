@@ -42,7 +42,7 @@
 #ifndef _LUSTRE_POSIX_TYPES_H
 #define _LUSTRE_POSIX_TYPES_H
 
-#ifdef HAVE_LINUX_TYPES_H
+#ifdef __linux__
 # include <linux/types.h>
 #endif
 #include <stdbool.h> /* for bool */
@@ -51,6 +51,7 @@ typedef unsigned short umode_t;
 #else
 #endif
 
+#ifndef _LINUX_TYPES_H
 /*
  * __xx is ok: it doesn't pollute the POSIX namespace. Use these in the
  * header files exported to user space
@@ -95,7 +96,8 @@ typedef __signed__ long long __s64;
 # ifndef HAVE___U64
 typedef unsigned long long __u64;
 # endif
-#endif
+#endif /* defined(__powerpc64__) && !defined(__KERNEL__) */
+#endif /* _LINUX_TYPES_H */
 
 /* long integer with size equal to pointer */
 typedef unsigned long ulong_ptr_t;
