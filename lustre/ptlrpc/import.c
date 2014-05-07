@@ -979,7 +979,14 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
                           " not set: %x)", imp->imp_obd->obd_name, msg_flags);
                 imp->imp_remote_handle =
                                 *lustre_msg_get_handle(request->rq_repmsg);
-                IMPORT_SET_STATE(imp, LUSTRE_IMP_EVICTED);
+		/* Do not evict light-weight import, because evict this import
+		 * might cause some process failed(see fld_client_rpc), instead
+		 * it will be set to REPLAY, so the replay threads will take
+		 * care of light-weight import. LU-4420 */
+		if (ocd->ocd_connect_flags & OBD_CONNECT_LIGHTWEIGHT)
+			IMPORT_SET_STATE(imp, LUSTRE_IMP_REPLAY);
+		else
+			IMPORT_SET_STATE(imp, LUSTRE_IMP_EVICTED);
         }
 
         /* Sanity checks for a reconnected import. */

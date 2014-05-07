@@ -348,6 +348,15 @@
 #define ldlm_set_excl(_l)               LDLM_SET_FLAG((  _l), 1ULL << 55)
 #define ldlm_clear_excl(_l)             LDLM_CLEAR_FLAG((_l), 1ULL << 55)
 
+/**
+ * The lock with this flag will be canceled during lock replay, instead
+ * of trying to re-acquire.
+ */
+#define LDLM_FL_NO_REPLAY         0x0100000000000000ULL /* bit  56 */
+#define ldlm_is_no_replay(_l)     LDLM_TEST_FLAG((_l), 1ULL << 56)
+#define ldlm_set_no_replay(_l)    LDLM_SET_FLAG((_l), 1ULL << 56)
+#define ldlm_clear_no_replay(_l)  LDLM_CLEAR_FLAG((_l), 1ULL << 56)
+
 /** l_flags bits marked as "ast" bits */
 #define LDLM_FL_AST_MASK                (LDLM_FL_FLOCK_DEADLOCK		|\
 					 LDLM_FL_AST_DISCARD_DATA)

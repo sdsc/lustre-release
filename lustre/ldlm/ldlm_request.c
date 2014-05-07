@@ -2209,11 +2209,11 @@ static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
         /* If this is reply-less callback lock, we cannot replay it, since
          * server might have long dropped it, but notification of that event was
          * lost by network. (and server granted conflicting lock already) */
-	if (ldlm_is_cancel_on_block(lock)) {
-                LDLM_DEBUG(lock, "Not replaying reply-less lock:");
-                ldlm_lock_cancel(lock);
-                RETURN(0);
-        }
+	if (ldlm_is_cancel_on_block(lock) ||  ldlm_is_no_replay(lock)) {
+		LDLM_DEBUG(lock, "Not replaying reply-less|no-replay lock:");
+		ldlm_lock_cancel(lock);
+		RETURN(0);
+	}
 
         /*
          * If granted mode matches the requested mode, this lock is granted.
