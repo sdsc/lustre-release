@@ -56,7 +56,7 @@
 /********************** Class functions ********************/
 
 int class_dentry_readdir(const struct lu_env *env,
-			 struct mgs_device *mgs, cfs_list_t *list)
+			 struct mgs_device *mgs, struct list_head *list)
 {
 	struct dt_object    *dir = mgs->mgs_configs_dir;
 	const struct dt_it_ops *iops;
@@ -65,7 +65,7 @@ int class_dentry_readdir(const struct lu_env *env,
 	char		    *key;
 	int		     rc, key_sz;
 
-	CFS_INIT_LIST_HEAD(list);
+	INIT_LIST_HEAD(list);
 
 	LASSERT(dir);
 	LASSERT(dir->do_index_ops);
@@ -108,7 +108,7 @@ int class_dentry_readdir(const struct lu_env *env,
 		memcpy(de->name, key, key_sz);
 		de->name[key_sz] = 0;
 
-		cfs_list_add(&de->list, list);
+		list_add(&de->list, list);
 
 next:
 		rc = iops->next(env, it);
@@ -313,10 +313,10 @@ static void mgs_free_fsdb_srpc(struct fs_db *fsdb)
 struct fs_db *mgs_find_fsdb(struct mgs_device *mgs, char *fsname)
 {
         struct fs_db *fsdb;
-        cfs_list_t *tmp;
+	struct list_head *tmp;
 
-        cfs_list_for_each(tmp, &mgs->mgs_fs_db_list) {
-                fsdb = cfs_list_entry(tmp, struct fs_db, fsdb_list);
+	list_for_each(tmp, &mgs->mgs_fs_db_list) {
+		fsdb = list_entry(tmp, struct fs_db, fsdb_list);
                 if (strcmp(fsdb->fsdb_name, fsname) == 0)
                         return fsdb;
         }
@@ -368,7 +368,7 @@ static struct fs_db *mgs_new_fsdb(const struct lu_env *env,
 		lproc_mgs_add_live(mgs, fsdb);
         }
 
-        cfs_list_add(&fsdb->fsdb_list, &mgs->mgs_fs_db_list);
+	list_add(&fsdb->fsdb_list, &mgs->mgs_fs_db_list);
 
         RETURN(fsdb);
 err:
@@ -384,10 +384,10 @@ err:
 
 static void mgs_free_fsdb(struct mgs_device *mgs, struct fs_db *fsdb)
 {
-        /* wait for anyone with the sem */
+	/* wait for anyone with the sem */
 	mutex_lock(&fsdb->fsdb_mutex);
 	lproc_mgs_del_live(mgs, fsdb);
-        cfs_list_del(&fsdb->fsdb_list);
+	list_del(&fsdb->fsdb_list);
 
         /* deinitialize fsr */
 	mgs_ir_fini_fs(mgs, fsdb);
@@ -405,21 +405,22 @@ static void mgs_free_fsdb(struct mgs_device *mgs, struct fs_db *fsdb)
 
 int mgs_init_fsdb_list(struct mgs_device *mgs)
 {
-        CFS_INIT_LIST_HEAD(&mgs->mgs_fs_db_list);
+	INIT_LIST_HEAD(&mgs->mgs_fs_db_list);
         return 0;
 }
 
 int mgs_cleanup_fsdb_list(struct mgs_device *mgs)
 {
-        struct fs_db *fsdb;
-        cfs_list_t *tmp, *tmp2;
+	struct fs_db *fsdb;
+	struct list_head *tmp, *tmp2;
+
 	mutex_lock(&mgs->mgs_mutex);
-        cfs_list_for_each_safe(tmp, tmp2, &mgs->mgs_fs_db_list) {
-                fsdb = cfs_list_entry(tmp, struct fs_db, fsdb_list);
+	list_for_each_safe(tmp, tmp2, &mgs->mgs_fs_db_list) {
+		fsdb = list_entry(tmp, struct fs_db, fsdb_list);
 		mgs_free_fsdb(mgs, fsdb);
-        }
+	}
 	mutex_unlock(&mgs->mgs_mutex);
-        return 0;
+	return 0;
 }
 
 int mgs_find_or_make_fsdb(const struct lu_env *env,
@@ -1474,12 +1475,12 @@ int mgs_write_log_direct_all(const struct lu_env *env,
 			     char *devname, char *comment,
 			     int server_only)
 {
-	cfs_list_t list;
+	struct list_head list;
 	struct mgs_direntry *dirent, *n;
-        char *fsname = mti->mti_fsname;
-        char *logname;
-        int rc = 0, len = strlen(fsname);
-        ENTRY;
+	char *fsname = mti->mti_fsname;
+	char *logname;
+	int rc = 0, len = strlen(fsname);
+	ENTRY;
 
         /* We need to set params for any future logs
            as well. FIXME Append this file to every new log.
@@ -1503,10 +1504,10 @@ int mgs_write_log_direct_all(const struct lu_env *env,
 	if (rc)
                 RETURN(rc);
 
-        /* Could use fsdb index maps instead of directory listing */
-	cfs_list_for_each_entry_safe(dirent, n, &list, list) {
-		cfs_list_del(&dirent->list);
-                /* don't write to sptlrpc rule log */
+	/* Could use fsdb index maps instead of directory listing */
+	list_for_each_entry_safe(dirent, n, &list, list) {
+		list_del(&dirent->list);
+		/* don't write to sptlrpc rule log */
 		if (strstr(dirent->name, "-sptlrpc") != NULL)
 			goto next;
 
@@ -3685,7 +3686,7 @@ int mgs_erase_log(const struct lu_env *env, struct mgs_device *mgs, char *name)
 int mgs_erase_logs(const struct lu_env *env, struct mgs_device *mgs, char *fsname)
 {
 	struct fs_db *fsdb;
-	cfs_list_t list;
+	struct list_head list;
 	struct mgs_direntry *dirent, *n;
 	int rc, len = strlen(fsname);
 	char *suffix;
@@ -3705,8 +3706,8 @@ int mgs_erase_logs(const struct lu_env *env, struct mgs_device *mgs, char *fsnam
 
 	mutex_unlock(&mgs->mgs_mutex);
 
-	cfs_list_for_each_entry_safe(dirent, n, &list, list) {
-		cfs_list_del(&dirent->list);
+	list_for_each_entry_safe(dirent, n, &list, list) {
+		list_del(&dirent->list);
 		suffix = strrchr(dirent->name, '-');
 		if (suffix != NULL) {
 			if ((len == suffix - dirent->name) &&
@@ -3726,7 +3727,7 @@ int mgs_erase_logs(const struct lu_env *env, struct mgs_device *mgs, char *fsnam
 int mgs_list_logs(const struct lu_env *env, struct mgs_device *mgs,
 		  struct obd_ioctl_data *data)
 {
-	cfs_list_t		 list;
+	struct list_head	 list;
 	struct mgs_direntry	*dirent, *n;
 	char			*out, *suffix;
 	int			 l, remains, rc;
@@ -3743,8 +3744,8 @@ int mgs_list_logs(const struct lu_env *env, struct mgs_device *mgs,
 
 	out = data->ioc_bulk;
 	remains = data->ioc_inllen1;
-	cfs_list_for_each_entry_safe(dirent, n, &list, list) {
-		cfs_list_del(&dirent->list);
+	list_for_each_entry_safe(dirent, n, &list, list) {
+		list_del(&dirent->list);
 		suffix = strrchr(dirent->name, '-');
 		if (suffix != NULL) {
 			l = snprintf(out, remains, "config log: $%s\n",
