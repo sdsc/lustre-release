@@ -252,7 +252,7 @@ int qsd_intent_lock(const struct lu_env *env, struct obd_export *exp,
 		qti->qti_einfo.ei_cbdata = qqi;
 
 		/* don't cancel global lock on memory pressure */
-		flags |= LDLM_FL_NO_LRU;
+		flags |= LDLM_FL_NO_LRU | LDLM_FL_NO_REPLAY;
 		break;
 	case IT_QUOTA_DQACQ:
 		/* build resource name associated for per-ID quota lock */
@@ -261,6 +261,7 @@ int qsd_intent_lock(const struct lu_env *env, struct obd_export *exp,
 
 		/* copy einfo template and fill ei_cbdata with lqe pointer */
 		memcpy(&qti->qti_einfo, &qsd_id_einfo, sizeof(qti->qti_einfo));
+		flags |= LDLM_FL_NO_REPLAY;
 		qti->qti_einfo.ei_cbdata = arg;
 		break;
 	default:

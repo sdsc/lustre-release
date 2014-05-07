@@ -1640,14 +1640,6 @@ test_106() { # LU-1789
 	$LCTL clear
 	facet_failover $SINGLEMDS
 
-	# lightweight connection must be evicted
-	touch -c $DIR2/$tfile || true
-	$LCTL dk $TMP/lustre-log-$TESTNAME.log
-	evicted=`awk '/This client was evicted by .*MDT0000/ {
-				      print;
-		      }' $TMP/lustre-log-$TESTNAME.log`
-	[ -z "$evicted" ] && error "lightweight client not evicted by mds"
-
 	# and all operations performed by lightweight client should be
 	# synchronous, so the file created before mds restart should be there
 	$CHECKSTAT -t file $DIR/$tfile || error "file not present"
