@@ -474,7 +474,7 @@ static int mdd_fix_attr(const struct lu_env *env, struct mdd_object *obj,
 			RETURN(-EPERM);
 
 		if (!S_ISDIR(oattr->la_mode))
-			la->la_flags &= ~LUSTRE_DIRSYNC_FL;
+			la->la_flags &= ~(LUSTRE_DIRSYNC_FL | LUSTRE_TOPDIR_FL);
 	}
 
 	if ((mdd_is_immutable(obj) || mdd_is_append(obj)) &&
