@@ -2006,8 +2006,9 @@ int lfsck_start(const struct lu_env *env, struct dt_device *key,
 	struct lfsck_component		*com;
 	struct l_wait_info		 lwi    = { 0 };
 	struct lfsck_thread_args	*lta;
+	struct task_struct		*task;
 	bool				 dirty  = false;
-	long				 rc     = 0;
+	int				 rc     = 0;
 	__u16				 valid  = 0;
 	__u16				 flags  = 0;
 	__u16				 type   = 1;
@@ -2235,9 +2236,10 @@ trigger:
 	if (IS_ERR(lta))
 		GOTO(out, rc = PTR_ERR(lta));
 
-	rc = PTR_ERR(kthread_run(lfsck_master_engine, lta, "lfsck"));
-	if (IS_ERR_VALUE(rc)) {
-		CERROR("%s: cannot start LFSCK thread: rc = %ld\n",
+	task = kthread_run(lfsck_master_engine, lta, "lfsck");
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
+		CERROR("%s: cannot start LFSCK thread: rc = %d\n",
 		       lfsck_lfsck2name(lfsck), rc);
 		lfsck_thread_args_fini(lta);
 
