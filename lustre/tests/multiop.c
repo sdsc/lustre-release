@@ -218,7 +218,7 @@ int main(int argc, char **argv)
 	lustre_fid		 fid;
 	struct timespec		 ts;
 	struct lov_user_md_v3	 lum;
-	__u64			 dv;
+	uint64_t			 dv;
 
         if (argc < 3) {
                 fprintf(stderr, usage, argv[0]);
@@ -625,7 +625,7 @@ int main(int argc, char **argv)
 					" %d\n", rc);
 				exit(-rc);
 			}
-			printf("dataversion is "LPU64"\n", dv);
+			printf("dataversion is %"PRIu64"\n", dv);
 			break;
                 case 'y':
                         if (fsync(fd) == -1) {

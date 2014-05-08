@@ -68,14 +68,14 @@ enum lfsck_type {
 #define LFSCK_VERSION_V1	1
 #define LFSCK_VERSION_V2	2
 
-#define LFSCK_TYPES_ALL 	((__u16)(~0))
-#define LFSCK_TYPES_DEF 	((__u16)0)
+#define LFSCK_TYPES_ALL		((uint16_t)(~0))
+#define LFSCK_TYPES_DEF		((uint16_t)0)
 #define LFSCK_TYPES_SUPPORTED	(LT_LAYOUT | LT_NAMESPACE)
 
 #define LFSCK_SPEED_NO_LIMIT	0
 #define LFSCK_SPEED_LIMIT_DEF	LFSCK_SPEED_NO_LIMIT
 #define LFSCK_ASYNC_WIN_DEFAULT 1024
-#define LFSCK_ASYNC_WIN_MAX	((__u16)(~0))
+#define LFSCK_ASYNC_WIN_MAX	((uint16_t)(~0))
 
 enum lfsck_start_valid {
 	LSV_SPEED_LIMIT 	= 0x00000001,
@@ -87,29 +87,29 @@ enum lfsck_start_valid {
 /* Arguments for starting lfsck. */
 struct lfsck_start {
 	/* Which arguments are valid, see 'enum lfsck_start_valid'. */
-	__u32   ls_valid;
+	uint32_t   ls_valid;
 
 	/* How many items can be scanned at most per second. */
-	__u32   ls_speed_limit;
+	uint32_t   ls_speed_limit;
 
 	/* For compatibility between user space tools and kernel service. */
-	__u16   ls_version;
+	uint16_t   ls_version;
 
 	/* Which LFSCK components to be (have been) started. */
-	__u16   ls_active;
+	uint16_t   ls_active;
 
 	/* Flags for the LFSCK, see 'enum lfsck_param_flags'. */
-	__u16   ls_flags;
+	uint16_t   ls_flags;
 
 	/* The windows size for async requests pipeline. */
-	__u16   ls_async_windows;
+	uint16_t   ls_async_windows;
 };
 
 struct lfsck_stop {
-	__u32	ls_status;
-	__u16	ls_flags;
-	__u16	ls_padding_1; /* For 64-bits aligned. */
-	__u64	ls_padding_2;
+	uint32_t	ls_status;
+	uint16_t	ls_flags;
+	uint16_t	ls_padding_1; /* For 64-bits aligned. */
+	uint64_t	ls_padding_2;
 };
 
 #endif /* _LUSTRE_LFSCK_USER_H */

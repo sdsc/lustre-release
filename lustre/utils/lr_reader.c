@@ -156,22 +156,22 @@ int main(int argc, char *const argv[])
         }
 
 #if 0
-	__u8  lsd_uuid[40];        /* server UUID */
-	__u64 lsd_last_transno;    /* last completed transaction ID */
-	__u64 lsd_compat14;        /* reserved - compat with old last_rcvd */
-	__u64 lsd_mount_count;     /* incarnation number */
-	__u32 lsd_feature_compat;  /* compatible feature flags */
-	__u32 lsd_feature_rocompat;/* read-only compatible feature flags */
-	__u32 lsd_feature_incompat;/* incompatible feature flags */
-	__u32 lsd_server_size;     /* size of server data area */
-	__u32 lsd_client_start;    /* start of per-client data area */
-	__u16 lsd_client_size;     /* size of per-client data area */
-	__u16 lsd_subdir_count;    /* number of subdirectories for objects */
-	__u64 lsd_catalog_oid;     /* recovery catalog object id */
-	__u32 lsd_catalog_ogen;    /* recovery catalog inode generation */
-	__u8  lsd_peeruuid[40];    /* UUID of MDS associated with this OST */
-	__u32 lsd_osd_index;       /* index number of OST/MDT in LOV/LMV */
-	__u8  lsd_padding[LR_SERVER_SIZE - 148];
+	uint8_t  lsd_uuid[40];        /* server UUID */
+	uint64_t lsd_last_transno;    /* last completed transaction ID */
+	uint64_t lsd_compat14;        /* reserved - compat with old last_rcvd */
+	uint64_t lsd_mount_count;     /* incarnation number */
+	uint32_t lsd_feature_compat;  /* compatible feature flags */
+	uint32_t lsd_feature_rocompat;/* read-only compatible feature flags */
+	uint32_t lsd_feature_incompat;/* incompatible feature flags */
+	uint32_t lsd_server_size;     /* size of server data area */
+	uint32_t lsd_client_start;    /* start of per-client data area */
+	uint16_t lsd_client_size;     /* size of per-client data area */
+	uint16_t lsd_subdir_count;    /* number of subdirectories for objects */
+	uint64_t lsd_catalog_oid;     /* recovery catalog object id */
+	uint32_t lsd_catalog_ogen;    /* recovery catalog inode generation */
+	uint8_t  lsd_peeruuid[40];    /* UUID of MDS associated with this OST */
+	uint32_t lsd_osd_index;       /* index number of OST/MDT in LOV/LMV */
+	uint8_t  lsd_padding[LR_SERVER_SIZE - 148];
 #endif
 
 	printf("UUID %s\n", lsd.lsd_uuid);

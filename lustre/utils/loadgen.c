@@ -140,7 +140,7 @@ struct kid_t {
         struct command_t k_cmd;
         struct kid_t    *k_next;
         pthread_t        k_pthread;
-        __u64            k_objid;
+	uint64_t	    k_objid;
         int              k_id;
         int              k_dev;
 };
@@ -495,7 +495,7 @@ static int obj_create(struct kid_t *kid)
         }
 
         if (!(data.ioc_obdo1.o_valid & OBD_MD_FLID)) {
-                fprintf(stderr, "%d: create oid not valid "LPX64"\n",
+		fprintf(stderr, "%d: create oid not valid %#"PRIx64"\n",
                         kid->k_id, data.ioc_obdo1.o_valid);
                 return rc;
         }
@@ -503,7 +503,7 @@ static int obj_create(struct kid_t *kid)
 	kid->k_objid = ostid_id(&data.ioc_obdo1.o_oi);
 
         if (o_verbose > 4)
-                printf("%d: cr "LPX64"\n", kid->k_id, kid->k_objid);
+		printf("%d: cr %#"PRIx64"\n", kid->k_id, kid->k_objid);
 
         return rc;
 }
@@ -515,7 +515,7 @@ static int obj_delete(struct kid_t *kid)
         int rc;
 
         if (o_verbose > 4)
-                printf("%d: del "LPX64"\n", kid->k_id, kid->k_objid);
+		printf("%d: del %#"PRIx64"\n", kid->k_id, kid->k_objid);
 
         memset(&data, 0, sizeof(data));
         data.ioc_dev = kid->k_dev;
@@ -525,7 +525,7 @@ static int obj_delete(struct kid_t *kid)
 
         rc = obj_ioctl(OBD_IOC_DESTROY, &data, 1);
         if (rc)
-                fprintf(stderr, "%s-%d: can't destroy obj "LPX64" (%d)\n",
+		fprintf(stderr, "%s-%d: can't destroy obj %#"PRIx64" (%d)\n",
                         cmdname, kid->k_id, kid->k_objid, rc);
 
         kid->k_objid = 0;
@@ -541,11 +541,11 @@ static int obj_write(struct kid_t *kid)
 {
         struct obd_ioctl_data data;
         struct timeval start;
-        __u64 count, len;
+	uint64_t count, len;
         int rc = 0, i, pages = 0;
 
         if (o_verbose > 4)
-                printf("%d: wr "LPX64"\n", kid->k_id, kid->k_objid);
+		printf("%d: wr %#"PRIx64"\n", kid->k_id, kid->k_objid);
 
         count = 10;
         pages = 32;
@@ -603,7 +603,7 @@ static int obj_write(struct kid_t *kid)
         }
 
         if (rc)
-                fprintf(stderr, "%s-%d: err test_brw obj "LPX64" (%d)\n",
+		fprintf(stderr, "%s-%d: err test_brw obj %#"PRIx64" (%d)\n",
                         cmdname, kid->k_id, kid->k_objid, rc);
         return rc;
 }
@@ -807,7 +807,7 @@ static int loadgen_start_clients(int argc, char **argv)
 static int loadgen_target(int argc, char **argv)
 {
         char *args[3];
-        __u64 nidx = 0;
+	uint64_t nidx = 0;
         int rc = 0;
 
         if (argc < 2 || argc > 3)

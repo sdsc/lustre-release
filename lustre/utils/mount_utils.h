@@ -75,7 +75,7 @@ struct mkfs_opts {
 	char	**mo_pool_vdevs;  /* list of pool vdevs */
 	char	mo_loopdev[128];  /* in case a loop dev is needed */
 	char	mo_mkfsopts[512]; /* options to the backing-store mkfs */
-	__u64	mo_device_kb;     /* in KB */
+	uint64_t	mo_device_kb;     /* in KB */
 	int	mo_stripe_count;
 	int	mo_flags;
 	int	mo_mgs_failnodes;
@@ -121,7 +121,7 @@ int update_mtab_entry(char *spec, char *mtpt, char *type, char *opts,
 		      int flags, int freq, int pass);
 int check_mountfsoptions(char *mountopts, char *wanted_mountopts, int justwarn);
 void trim_mountfsoptions(char *s);
-__u64 get_device_size(char* device);
+uint64_t get_device_size(char* device);
 
 int is_block(char *devname);
 void disp_old_e2fsprogs_msg(const char *feature, int make_backfs);
@@ -131,7 +131,7 @@ int read_local_files(struct mkfs_opts *mop);
 int is_lustre_target(struct mkfs_opts *mop);
 
 /* loopback helper functions */
-int file_create(char *path, __u64 size);
+int file_create(char *path, uint64_t size);
 int loop_format(struct mkfs_opts *mop);
 int loop_setup(struct mkfs_opts *mop);
 int loop_cleanup(struct mkfs_opts *mop);

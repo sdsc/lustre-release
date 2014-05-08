@@ -53,8 +53,8 @@
         abort();                                        \
 } while(0)
 
-#define __F(ext)         (ext)->start, (ext)->end
-#define __S              "["LPX64":"LPX64"]"
+#define __F(ext)	 ((uint64_t)(ext)->start), ((uint64_t)(ext)->end)
+#define __S              "[%#"PRIx64":%#"PRIx64"]"
 
 #define ALIGN_SIZE       4096
 #define ALIGN_MASK       (~(ALIGN_SIZE - 1))
@@ -213,7 +213,7 @@ static int it_test_find(struct interval_node *root)
  * the interval tree implementation, change this code also. */
 static enum interval_iter sanity_cb(struct interval_node *node, void *args)
 {
-        __u64 max_high = node->in_max_high;
+	uint64_t max_high = node->in_max_high;
         struct interval_node *tmp, *parent;
         int left = 1, has = 0, nr = 0;
 
@@ -297,7 +297,7 @@ static int it_test_search_hole(struct interval_node *root)
         int i, count = 10;
         struct interval_node_extent ext, ext2;
         struct it_node *n;
-        __u64 low = 0, high = ~0;
+	uint64_t low = 0, high = ~0;
 
         do {
                 if (--count == 0)
@@ -424,7 +424,7 @@ static struct interval_node *it_test_helper(struct interval_node *root)
                         n->valid = 0;
                         cfs_list_del_init(&n->list);
                 } else {
-                        __u64 low, high;
+			uint64_t low, high;
                         low = (random() % max_count) & ALIGN_MASK;
                         high = ((random() % max_count + 1) & ALIGN_MASK) + low;
                         if (high > max_count)

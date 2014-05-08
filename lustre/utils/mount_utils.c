@@ -683,10 +683,10 @@ void osd_fini(void)
 #endif /* HAVE_ZFS_OSD */
 }
 
-__u64 get_device_size(char* device)
+uint64_t get_device_size(char* device)
 {
 	int ret, fd;
-	__u64 size = 0;
+	uint64_t size = 0;
 
 	fd = open(device, O_RDONLY);
 	if (fd < 0) {
@@ -700,10 +700,10 @@ __u64 get_device_size(char* device)
 	ret = ioctl(fd, BLKGETSIZE64, (void*)&size);
 #else
 	{
-		__u32 lsize = 0;
+		uint32_t lsize = 0;
 		/* size in blocks */
 		ret = ioctl(fd, BLKGETSIZE, (void*)&lsize);
-		size = (__u64)lsize * 512;
+		size = (uint64_t)lsize * 512;
 	}
 #endif
 	close(fd);
@@ -713,14 +713,14 @@ __u64 get_device_size(char* device)
 		return 0;
 	}
 
-	vprint("device size = "LPU64"MB\n", size >> 20);
+	vprint("device size = %"PRIu64"MB\n", size >> 20);
 	/* return value in KB */
 	return size >> 10;
 }
 
-int file_create(char *path, __u64 size)
+int file_create(char *path, uint64_t size)
 {
-	__u64 size_max;
+	uint64_t size_max;
 	int ret;
 	int fd;
 
@@ -730,8 +730,8 @@ int file_create(char *path, __u64 size)
 	 */
 	size_max = (off_t)1 << (_FILE_OFFSET_BITS - 1 - 10);
 	if (size >= size_max) {
-		fprintf(stderr, "%s: "LPU64" KB: Backing store size must be "
-			"smaller than "LPU64" KB\n", progname, size, size_max);
+		fprintf(stderr, "%s: %"PRIu64" KB: Backing store size must be "
+			"smaller than %"PRIu64" KB\n", progname, size, size_max);
 		return EFBIG;
 	}
 

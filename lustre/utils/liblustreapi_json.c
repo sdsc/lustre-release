@@ -141,7 +141,7 @@ int llapi_json_write_list(struct llapi_json_item_list **json_items, FILE *fp)
 			fprintf(fp, "%d", item->lji_integer);
 			break;
 		case LLAPI_JSON_BIGNUM:
-			fprintf(fp, LPU64, item->lji_u64);
+			fprintf(fp, "%"PRIu64, item->lji_u64);
 			break;
 		case LLAPI_JSON_REAL:
 			fprintf(fp, "%f", item->lji_real);
@@ -253,7 +253,7 @@ int llapi_json_destroy_list(struct llapi_json_item_list **json_items)
  * \retval	-errno on error.
  */
 int llapi_json_add_item(struct llapi_json_item_list **json_items,
-			char *key, __u32 type, void *val)
+			char *key, uint32_t type, void *val)
 {
 	struct llapi_json_item_list	*list;
 	struct llapi_json_item		*new_item;
@@ -283,7 +283,7 @@ int llapi_json_add_item(struct llapi_json_item_list **json_items,
 		new_item->lji_integer = *(int *)val;
 		break;
 	case LLAPI_JSON_BIGNUM:
-		new_item->lji_u64 = *(__u64 *)val;
+		new_item->lji_u64 = *(uint64_t *)val;
 		break;
 	case LLAPI_JSON_REAL:
 		new_item->lji_real = *(double *)val;

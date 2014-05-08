@@ -69,13 +69,13 @@ struct hsm_copytool_private {
 	int			 mnt_fd;
 	int			 open_by_fid_fd;
 	lustre_kernelcomm	 kuc;
-	__u32			 archives;
+	uint32_t			 archives;
 };
 
 #define CP_PRIV_MAGIC 0x19880429
 struct hsm_copyaction_private {
-	__u32					 magic;
-	__s32					 data_fd;
+	uint32_t					 magic;
+	int32_t					 data_fd;
 	const struct hsm_copytool_private	*ct_priv;
 	struct hsm_copy				 copy;
 	struct stat				 stat;
@@ -238,7 +238,7 @@ int llapi_hsm_write_json_event(struct llapi_json_item_list **event)
  * \retval -errno on error.
  */
 int llapi_hsm_log_ct_registration(struct hsm_copytool_private **priv,
-				  __u32 event_type)
+				  uint32_t event_type)
 {
 	int				rc;
 	char				agent_uuid[UUID_MAX];
@@ -343,8 +343,8 @@ out_free:
  * \retval -errno on error.
  */
 int llapi_hsm_log_ct_progress(struct hsm_copyaction_private **phcp,
-		    const struct hsm_action_item *hai, __u32 progress_type,
-		    __u64 total, __u64 current)
+		    const struct hsm_action_item *hai, uint32_t progress_type,
+		    uint64_t total, uint64_t current)
 {
 	int				rc;
 	int				linkno = 0;
@@ -1144,7 +1144,7 @@ err_cleanup:
  * \return 0 on success.
  */
 int llapi_hsm_action_progress(struct hsm_copyaction_private *hcp,
-			      const struct hsm_extent *he, __u64 total,
+			      const struct hsm_extent *he, uint64_t total,
 			      int hp_flags)
 {
 	int			 rc;
@@ -1344,8 +1344,8 @@ int llapi_hsm_state_get(const char *path, struct hsm_user_state *hus)
  * \retval 0 on success.
  * \retval -errno on error.
  */
-int llapi_hsm_state_set_fd(int fd, __u64 setmask, __u64 clearmask,
-			   __u32 archive_id)
+int llapi_hsm_state_set_fd(int fd, uint64_t setmask, uint64_t clearmask,
+			   uint32_t archive_id)
 {
 	struct hsm_state_set	 hss;
 	int			 rc;
@@ -1371,8 +1371,8 @@ int llapi_hsm_state_set_fd(int fd, __u64 setmask, __u64 clearmask,
  *
  * see llapi_hsm_state_set_fd() for args use and return
  */
-int llapi_hsm_state_set(const char *path, __u64 setmask, __u64 clearmask,
-			__u32 archive_id)
+int llapi_hsm_state_set(const char *path, uint64_t setmask, uint64_t clearmask,
+			uint32_t archive_id)
 {
 	int fd;
 	int rc;

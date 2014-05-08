@@ -46,14 +46,14 @@
  * parameters. */
 
 struct lustre_rsync_status {
-        __u32   ls_version;           /* Version of the log entry */
-        __u32   ls_size;              /* Size of the log entry */
-        __u64   ls_last_recno;        /* Last replicated record no. */
+	uint32_t   ls_version;	   /* Version of the log entry */
+	uint32_t   ls_size;	      /* Size of the log entry */
+	uint64_t   ls_last_recno;	/* Last replicated record no. */
         char    ls_registration[LR_NAME_MAXLEN + 1]; /* Changelog registration*/
         char    ls_mdt_device[LR_NAME_MAXLEN + 1]; /* MDT device */
         char    ls_source_fs[LR_NAME_MAXLEN + 1]; /* Source Lustre FS */
         char    ls_source[PATH_MAX + 1];/* Source FS path */
-        __u32   ls_num_targets;       /* No of replication targets */
+	uint32_t   ls_num_targets;       /* No of replication targets */
         char    ls_targets[0][PATH_MAX + 1]; /* Target FS path */
 };
 

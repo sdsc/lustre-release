@@ -313,7 +313,7 @@ static int zfs_get_prop_int(zfs_handle_t *zhp, char *prop, void *val)
 		return ret;
 
 	errno = 0;
-	*(__u32 *)val = strtoul(propstr, NULL, 10);
+	*(uint32_t *)val = strtoul(propstr, NULL, 10);
 	if (errno)
 		return errno;
 

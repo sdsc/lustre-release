@@ -75,7 +75,7 @@ int main(int argc, char *argv[])
 			struct filter_fid_old *ffo = (void *)buf;
 
 			/* old filter_fid */
-			printf("%s: objid="LPU64" seq="LPU64" parent="DFID
+			printf("%s: objid=%"PRIu64" seq=%"PRIu64" parent="DFID
 			       " stripe=%u\n", argv[i],
 			       le64_to_cpu(ffo->ff_objid),
 			       le64_to_cpu(ffo->ff_seq),

@@ -249,8 +249,8 @@ static void print_1_cfg(struct lustre_cfg *lcfg)
         int i;
 
         if (lcfg->lcfg_nid)
-                printf("nid=%s("LPX64")  ", libcfs_nid2str(lcfg->lcfg_nid),
-                       lcfg->lcfg_nid);
+		printf("nid=%s(%#"PRIx64")  ", libcfs_nid2str(lcfg->lcfg_nid),
+		       (uint64_t)lcfg->lcfg_nid);
         if (lcfg->lcfg_nal)
                 printf("nal=%d ", lcfg->lcfg_nal);
         for (i = 0; i <  lcfg->lcfg_bufcount; i++)
@@ -272,8 +272,8 @@ static void print_setup_cfg(struct lustre_cfg *lcfg)
                 desc = (struct lov_desc*)(lustre_cfg_string(lcfg, 1));
                 printf("\t\tuuid=%s  ", (char*)desc->ld_uuid.uuid);
                 printf("stripe:cnt=%u ", desc->ld_default_stripe_count);
-                printf("size="LPU64" ", desc->ld_default_stripe_size);
-                printf("offset="LPU64" ", desc->ld_default_stripe_offset);
+		printf("size=%"PRIu64" ", desc->ld_default_stripe_size);
+		printf("offset=%"PRIu64" ", desc->ld_default_stripe_offset);
                 printf("pattern=%#x", desc->ld_pattern);
         } else {
                 printf("setup     ");
@@ -486,10 +486,10 @@ static void print_hsm_action(struct llog_agent_req_rec *larr)
 
 	sz = larr->arr_hai.hai_len - sizeof(larr->arr_hai);
 	printf("lrh=[type=%X len=%d idx=%d] fid="DFID
-	       " compound/cookie="LPX64"/"LPX64
-	       " status=%s action=%s archive#=%d flags="LPX64
-	       " create="LPU64" change="LPU64
-	       " extent="LPX64"-"LPX64" gid="LPX64" datalen=%d"
+	       " compound/cookie=%#"PRIx64"/%#"PRIx64
+	       " status=%s action=%s archive#=%d flags=%#"PRIx64
+	       " create=%"PRIu64" change=%"PRIu64
+	       " extent=%#"PRIx64"-%#"PRIx64" gid=%#"PRIx64" datalen=%d"
 	       " data=[%s]\n",
 	       larr->arr_hdr.lrh_type,
 	       larr->arr_hdr.lrh_len, larr->arr_hdr.lrh_index,
@@ -508,7 +508,7 @@ static void print_hsm_action(struct llog_agent_req_rec *larr)
 
 void print_records(struct llog_rec_hdr **recs, int rec_number)
 {
-	__u32 lopt;
+	uint32_t lopt;
 	int i, skip = 0;
 
 	for (i = 0; i < rec_number; i++) {
