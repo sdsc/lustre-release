@@ -10222,6 +10222,7 @@ run_test 169 "parallel read and truncate should not deadlock"
 
 test_170() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	set -x
         $LCTL clear	# bug 18514
         $LCTL debug_daemon start $TMP/${tfile}_log_good
         touch $DIR/$tfile
@@ -10236,11 +10237,19 @@ test_170() {
         $LCTL df $TMP/${tfile}_log_bad > $TMP/${tfile}_log_bad.out 2>&1 ||
                error "lctl df log_bad failed"
 
+	local cmd="cat $TMP/${tfile}_log_bad.out"
+	echo "+$cmd"
+	eval $cmd
+
         local bad_line=$(tail -n 1 $TMP/${tfile}_log_bad.out | awk '{print $9}')
         local good_line1=$(tail -n 1 $TMP/${tfile}_log_bad.out | awk '{print $5}')
 
         $LCTL df $TMP/${tfile}_log_good > $TMP/${tfile}_log_good.out 2>&1
         local good_line2=$(tail -n 1 $TMP/${tfile}_log_good.out | awk '{print $5}')
+
+	cmd="cat $TMP/${tfile}_log_good.out"
+	echo "+$cmd"
+	eval $cmd
 
 	[ "$bad_line" ] && [ "$good_line1" ] && [ "$good_line2" ] ||
 		error "bad_line good_line1 good_line2 are empty"
@@ -10252,6 +10261,10 @@ test_170() {
         $LCTL df $TMP/${tfile}_logs_corrupt > $TMP/${tfile}_log_bad.out 2>&1
         local bad_line_new=$(tail -n 1 $TMP/${tfile}_log_bad.out | awk '{print $9}')
         local good_line_new=$(tail -n 1 $TMP/${tfile}_log_bad.out | awk '{print $5}')
+
+	cmd="cat $TMP/${tfile}_log_bad.out"
+	echo "+$cmd"
+	eval $cmd
 
 	[ "$bad_line_new" ] && [ "$good_line_new" ] ||
 		error "bad_line_new good_line_new are empty"
