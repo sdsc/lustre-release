@@ -975,7 +975,7 @@ int lfsck_pos_dump(char **buf, int *len, struct lfsck_position *pos,
 			rc = snprintf(*buf, *len, "%s: "LPU64", N/A, N/A\n",
 				      prefix, pos->lp_oit_cookie);
 	} else {
-		rc = snprintf(*buf, *len, "%s: "LPU64", "DFID", "LPU64"\n",
+		rc = snprintf(*buf, *len, "%s: "LPU64", "DFID", "LPX64"\n",
 			      prefix, pos->lp_oit_cookie,
 			      PFID(&pos->lp_dir_parent), pos->lp_dir_cookie);
 	}
@@ -1638,8 +1638,8 @@ int lfsck_async_request(const struct lu_env *env, struct obd_export *exp,
 		format = &RQF_LFSCK_QUERY;
 		break;
 	default:
-		CERROR("%s: unknown async request: opc = %d\n",
-		       exp->exp_obd->obd_name, request);
+		CDEBUG(D_LFSCK, "%s: unknown async request %d: rc = %d\n",
+		       exp->exp_obd->obd_name, request, -EINVAL);
 		return -EINVAL;
 	}
 
@@ -1840,12 +1840,8 @@ static int lfsck_stop_all(const struct lu_env *env,
 	LASSERT(stop->ls_flags & LPF_BROADCAST);
 
 	set = ptlrpc_prep_set();
-	if (unlikely(set == NULL)) {
-		CERROR("%s: cannot allocate memory for stop LFSCK on "
-		       "all targets\n", lfsck_lfsck2name(lfsck));
-
+	if (unlikely(set == NULL))
 		RETURN(-ENOMEM);
-	}
 
 	memset(lr, 0, sizeof(*lr));
 	lr->lr_event = LE_STOP;
@@ -1873,8 +1869,8 @@ static int lfsck_stop_all(const struct lu_env *env,
 		if (rc != 0) {
 			lfsck_interpret(env, lfsck, NULL, laia, rc);
 			lfsck_tgt_put(ltd);
-			CWARN("%s: cannot notify MDT %x for LFSCK stop: "
-			      "rc = %d\n", lfsck_lfsck2name(lfsck), idx, rc);
+			CERROR("%s: cannot notify MDT %x for LFSCK stop: "
+			       "rc = %d\n", lfsck_lfsck2name(lfsck), idx, rc);
 			rc1 = rc;
 		}
 	}
@@ -1890,8 +1886,8 @@ static int lfsck_stop_all(const struct lu_env *env,
 		rc = 0;
 
 	if (rc != 0)
-		CWARN("%s: fail to stop LFSCK on some MDTs: rc = %d\n",
-		      lfsck_lfsck2name(lfsck), rc);
+		CERROR("%s: fail to stop LFSCK on some MDTs: rc = %d\n",
+		       lfsck_lfsck2name(lfsck), rc);
 
 	RETURN(rc != 0 ? rc : rc1);
 }
@@ -1914,21 +1910,8 @@ static int lfsck_start_all(const struct lu_env *env,
 	LASSERT(start->ls_flags & LPF_BROADCAST);
 
 	set = ptlrpc_prep_set();
-	if (unlikely(set == NULL)) {
-		if (bk->lb_param & LPF_FAILOUT) {
-			CERROR("%s: cannot allocate memory for start LFSCK on "
-			       "all targets, failout.\n",
-			       lfsck_lfsck2name(lfsck));
-
-			RETURN(-ENOMEM);
-		} else {
-			CWARN("%s: cannot allocate memory for start LFSCK on "
-			      "all targets, partly scan.\n",
-			      lfsck_lfsck2name(lfsck));
-
-			RETURN(0);
-		}
-	}
+	if (unlikely(set == NULL))
+		RETURN(-ENOMEM);
 
 	memset(lr, 0, sizeof(*lr));
 	lr->lr_event = LE_START;
@@ -1960,17 +1943,10 @@ static int lfsck_start_all(const struct lu_env *env,
 		if (rc != 0) {
 			lfsck_interpret(env, lfsck, NULL, laia, rc);
 			lfsck_tgt_put(ltd);
-			if (bk->lb_param & LPF_FAILOUT) {
-				CERROR("%s: cannot notify MDT %x for LFSCK "
-				       "start, failout: rc = %d\n",
-				       lfsck_lfsck2name(lfsck), idx, rc);
-				break;
-			} else {
-				CWARN("%s: cannot notify MDT %x for LFSCK "
-				      "start, partly scan: rc = %d\n",
-				      lfsck_lfsck2name(lfsck), idx, rc);
-				rc = 0;
-			}
+			CERROR("%s: cannot notify MDT %x for LFSCK "
+			       "start, failout: rc = %d\n",
+			       lfsck_lfsck2name(lfsck), idx, rc);
+			break;
 		}
 	}
 	up_read(&ltds->ltd_rw_sem);
@@ -1988,22 +1964,15 @@ static int lfsck_start_all(const struct lu_env *env,
 		rc = laia->laia_result;
 
 	if (rc != 0) {
-		if (bk->lb_param & LPF_FAILOUT) {
-			struct lfsck_stop *stop = &info->lti_stop;
+		struct lfsck_stop *stop = &info->lti_stop;
 
-			CERROR("%s: cannot start LFSCK on some MDTs, "
-			       "stop all: rc = %d\n",
-			       lfsck_lfsck2name(lfsck), rc);
-			if (rc != -EALREADY) {
-				stop->ls_status = LS_FAILED;
-				stop->ls_flags = LPF_ALL_TGT | LPF_BROADCAST;
-				lfsck_stop_all(env, lfsck, stop);
-			}
-		} else {
-			CWARN("%s: cannot start LFSCK on some MDTs, "
-			      "partly scan: rc = %d\n",
-			      lfsck_lfsck2name(lfsck), rc);
-			rc = 0;
+		CERROR("%s: cannot start LFSCK on some MDTs, "
+		       "stop all: rc = %d\n",
+		       lfsck_lfsck2name(lfsck), rc);
+		if (rc != -EALREADY) {
+			stop->ls_status = LS_FAILED;
+			stop->ls_flags = LPF_ALL_TGT | LPF_BROADCAST;
+			lfsck_stop_all(env, lfsck, stop);
 		}
 	}
 
