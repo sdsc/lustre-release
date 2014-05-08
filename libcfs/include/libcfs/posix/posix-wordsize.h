@@ -81,23 +81,4 @@
 # define LP_POISON ((void *)(long)0x5a5a5a5a)
 #endif
 
-# define LPU64 "%llu"
-# define LPD64 "%lld"
-# define LPX64 "%#llx"
-# define LPX64i "%llx"
-# define LPO64 "%#llo"
-# define LPF64 "ll"
-
-/*
- * long_ptr_t & ulong_ptr_t, same to "long" for gcc
- */
-# define LPLU "%lu"
-# define LPLD "%ld"
-# define LPLX "%#lx"
-
-/*
- * pid_t
- */
-# define LPPID "%d"
-
 #endif
