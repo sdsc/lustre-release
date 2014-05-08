@@ -46,11 +46,11 @@
  * @{
  */
 
+#include <libcfs/types.h>
 #ifndef __KERNEL__
-#include <stdio.h>
-#include <libcfs/posix/posix-types.h>
-#include <stdio.h>
-#endif
+# include <stdio.h>
+#endif /* __KERNEL__ */
+
 #include <lustre/ll_fiemap.h>
 #if defined(__linux__)
 #include <linux/lustre_user.h>
@@ -93,28 +93,28 @@ enum obd_statfs_state {
 };
 
 struct obd_statfs {
-        __u64           os_type;
-        __u64           os_blocks;
-        __u64           os_bfree;
-        __u64           os_bavail;
-        __u64           os_files;
-        __u64           os_ffree;
-        __u8            os_fsid[40];
-        __u32           os_bsize;
-        __u32           os_namelen;
-        __u64           os_maxbytes;
-        __u32           os_state;       /**< obd_statfs_state OS_STATE_* flag */
-	__u32           os_fprecreated;	/* objs available now to the caller */
+	lu_uint64_t	os_type;
+	lu_uint64_t	os_blocks;
+	lu_uint64_t	os_bfree;
+	lu_uint64_t	os_bavail;
+	lu_uint64_t	os_files;
+	lu_uint64_t	os_ffree;
+	lu_uint8_t	os_fsid[40];
+	lu_uint32_t	os_bsize;
+	lu_uint32_t	os_namelen;
+	lu_uint64_t	os_maxbytes;
+	lu_uint32_t	os_state;       /**< obd_statfs_state OS_STATE_* flag */
+	lu_uint32_t	os_fprecreated;	/* objs available now to the caller */
 					/* used in QoS code to find preferred
 					 * OSTs */
-        __u32           os_spare2;
-        __u32           os_spare3;
-        __u32           os_spare4;
-        __u32           os_spare5;
-        __u32           os_spare6;
-        __u32           os_spare7;
-        __u32           os_spare8;
-        __u32           os_spare9;
+	lu_uint32_t	os_spare2;
+	lu_uint32_t	os_spare3;
+	lu_uint32_t	os_spare4;
+	lu_uint32_t	os_spare5;
+	lu_uint32_t	os_spare6;
+	lu_uint32_t	os_spare7;
+	lu_uint32_t	os_spare8;
+	lu_uint32_t	os_spare9;
 };
 
 /**
@@ -130,15 +130,15 @@ struct lu_fid {
 	* Lustre should support 2^64 objects, so even if each sequence
 	* has only a single object we can still enumerate 2^64 objects.
 	**/
-	__u64 f_seq;
+	lu_uint64_t f_seq;
 	/* FID number within sequence. */
-	__u32 f_oid;
+	lu_uint32_t f_oid;
 	/**
 	 * FID version, used to distinguish different versions (in the sense
 	 * of snapshots, etc.) of the same file system object. Not currently
 	 * used.
 	 **/
-	__u32 f_ver;
+	lu_uint32_t f_ver;
 };
 
 /* Currently, the filter_fid::ff_parent::f_ver is not the real parent
@@ -153,8 +153,8 @@ struct filter_fid {
 /* keep this one for compatibility */
 struct filter_fid_old {
 	struct lu_fid	ff_parent;
-	__u64		ff_objid;
-	__u64		ff_seq;
+	lu_uint64_t		ff_objid;
+	lu_uint64_t		ff_seq;
 };
 
 /* Userspace should treat lu_fid as opaque, and only use the following methods
@@ -172,13 +172,13 @@ struct lustre_mdt_attrs {
 	 * Bitfield for supported data in this structure. From enum lma_compat.
 	 * lma_self_fid and lma_flags are always available.
 	 */
-	__u32   lma_compat;
+	lu_uint32_t   lma_compat;
 	/**
 	 * Per-file incompat feature list. Lustre version should support all
 	 * flags set in this field. The supported feature mask is available in
 	 * LMA_INCOMPAT_SUPP.
 	 */
-	__u32   lma_incompat;
+	lu_uint32_t   lma_incompat;
 	/** FID of this inode */
 	struct lu_fid  lma_self_fid;
 };
@@ -188,7 +188,7 @@ struct lustre_mdt_attrs {
  * been moved to a dedicated xattr
  * lma_flags was also removed because of lma_compat/incompat fields.
  */
-#define LMA_OLD_SIZE (sizeof(struct lustre_mdt_attrs) + 5 * sizeof(__u64))
+#define LMA_OLD_SIZE (sizeof(struct lustre_mdt_attrs) + 5 * sizeof(lu_uint64_t))
 
 /**
  * OST object IDentifier.
@@ -196,8 +196,8 @@ struct lustre_mdt_attrs {
 struct ost_id {
 	union {
 		struct ostid {
-			__u64	oi_id;
-			__u64	oi_seq;
+			lu_uint64_t	oi_id;
+			lu_uint64_t	oi_seq;
 		} oi;
 		struct lu_fid oi_fid;
 	} LUSTRE_ANONYMOUS_UNION_NAME;
@@ -240,7 +240,7 @@ struct ost_id {
 #define LL_IOC_LLOOP_INFO               _IOWR('f', 171, struct lu_fid)
 #define LL_IOC_LLOOP_DETACH_BYDEV       _IOWR('f', 172, long)
 #define LL_IOC_PATH2FID                 _IOR ('f', 173, long)
-#define LL_IOC_GET_CONNECT_FLAGS        _IOWR('f', 174, __u64 *)
+#define LL_IOC_GET_CONNECT_FLAGS        _IOWR('f', 174, lu_uint64_t *)
 #define LL_IOC_GET_MDTIDX               _IOR ('f', 175, int)
 /*	lustre_ioctl.h			177-210 */
 #define LL_IOC_HSM_STATE_GET		_IOR('f', 211, struct hsm_user_state)
@@ -258,7 +258,7 @@ struct ost_id {
 /*	lustre_ioctl.h			221-232 */
 #define LL_IOC_LMV_SETSTRIPE		_IOWR('f', 240, struct lmv_user_md)
 #define LL_IOC_LMV_GETSTRIPE		_IOWR('f', 241, struct lmv_user_md)
-#define LL_IOC_REMOVE_ENTRY		_IOWR('f', 242, __u64)
+#define LL_IOC_REMOVE_ENTRY		_IOWR('f', 242, lu_uint64_t)
 #define LL_IOC_SET_LEASE		_IOWR('f', 243, long)
 #define LL_IOC_GET_LEASE		_IO('f', 244)
 #define LL_IOC_HSM_IMPORT		_IOWR('f', 245, struct hsm_user_import)
@@ -332,43 +332,46 @@ struct ost_id {
 #define lov_user_ost_data lov_user_ost_data_v1
 struct lov_user_ost_data_v1 {     /* per-stripe data structure */
 	struct ost_id l_ost_oi;	  /* OST object ID */
-	__u32 l_ost_gen;          /* generation of this OST index */
-	__u32 l_ost_idx;          /* OST index in LOV */
+	lu_uint32_t l_ost_gen;          /* generation of this OST index */
+	lu_uint32_t l_ost_idx;          /* OST index in LOV */
 } __attribute__((packed));
 
 #define lov_user_md lov_user_md_v1
-struct lov_user_md_v1 {           /* LOV EA user data (host-endian) */
-	__u32 lmm_magic;          /* magic number = LOV_USER_MAGIC_V1 */
-	__u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
-	struct ost_id lmm_oi;	  /* LOV object ID */
-	__u32 lmm_stripe_size;    /* size of stripe in bytes */
-	__u16 lmm_stripe_count;   /* num stripes in use for this object */
+struct lov_user_md_v1 {			/* LOV EA user data (host-endian) */
+	lu_uint32_t	lmm_magic;	/* magic number = LOV_USER_MAGIC_V1 */
+	lu_uint32_t	lmm_pattern;	/* LOV_PATTERN_{RAID0,RAID1} */
+	struct ost_id	lmm_oi;		/* LOV object ID */
+	lu_uint32_t	lmm_stripe_size; /* size of stripe in bytes */
+	lu_uint16_t	lmm_stripe_count;
 	union {
-		__u16 lmm_stripe_offset;  /* starting stripe offset in
-					   * lmm_objects, use when writing */
-		__u16 lmm_layout_gen;     /* layout generation number
-					   * used when reading */
+		lu_uint16_t lmm_stripe_offset; /* starting stripe offset in
+						* lmm_objects, use when writing
+						*/
+		lu_uint16_t lmm_layout_gen;    /* layout generation number
+						* used when reading */
 	};
 	struct lov_user_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 } __attribute__((packed,  __may_alias__));
 
-struct lov_user_md_v3 {           /* LOV EA user data (host-endian) */
-	__u32 lmm_magic;          /* magic number = LOV_USER_MAGIC_V3 */
-	__u32 lmm_pattern;        /* LOV_PATTERN_RAID0, LOV_PATTERN_RAID1 */
-	struct ost_id lmm_oi;	  /* LOV object ID */
-	__u32 lmm_stripe_size;    /* size of stripe in bytes */
-	__u16 lmm_stripe_count;   /* num stripes in use for this object */
+struct lov_user_md_v3 {			/* LOV EA user data (host-endian) */
+	lu_uint32_t	lmm_magic;	/* magic number = LOV_USER_MAGIC_V3 */
+	lu_uint32_t	lmm_pattern;	/* LOV_PATTERN_{RAID0,RAID1} */
+	struct ost_id	lmm_oi;		/* LOV object ID */
+	lu_uint32_t	lmm_stripe_size; /* size of stripe in bytes */
+	lu_uint16_t lmm_stripe_count;
 	union {
-		__u16 lmm_stripe_offset;  /* starting stripe offset in
-					   * lmm_objects, use when writing */
-		__u16 lmm_layout_gen;     /* layout generation number
-					   * used when reading */
+		lu_uint16_t lmm_stripe_offset;	/* starting stripe offset in
+						 * lmm_objects, use when writing
+						 */
+		lu_uint16_t lmm_layout_gen;	/* layout generation number
+						 * used when reading */
 	};
-	char  lmm_pool_name[LOV_MAXPOOLNAME]; /* pool name */
+	char  lmm_pool_name[LOV_MAXPOOLNAME];	/* pool name */
 	struct lov_user_ost_data_v1 lmm_objects[0]; /* per-stripe data */
 } __attribute__((packed));
 
-static inline __u32 lov_user_md_size(__u16 stripes, __u32 lmm_magic)
+static inline lu_uint32_t
+lov_user_md_size(lu_uint16_t stripes, lu_uint32_t lmm_magic)
 {
 	if (lmm_magic == LOV_USER_MAGIC_V3)
 		return sizeof(struct lov_user_md_v3) +
@@ -396,8 +399,8 @@ struct lov_user_mds_data_v3 {
 
 struct lmv_user_mds_data {
 	struct lu_fid	lum_fid;
-	__u32		lum_padding;
-	__u32		lum_mds;
+	lu_uint32_t		lum_padding;
+	lu_uint32_t		lum_mds;
 };
 
 /* Got this according to how get LOV_MAX_STRIPE_COUNT, see above,
@@ -405,14 +408,14 @@ struct lmv_user_mds_data {
 #define LMV_MAX_STRIPE_COUNT 2000  /* ((12 * 4096 - 256) / 24) */
 #define lmv_user_md lmv_user_md_v1
 struct lmv_user_md_v1 {
-	__u32	lum_magic;	 /* must be the first field */
-	__u32	lum_stripe_count;  /* dirstripe count */
-	__u32	lum_stripe_offset; /* MDT idx for default dirstripe */
-	__u32	lum_hash_type;     /* Dir stripe policy */
-	__u32	lum_type;	  /* LMV type: default or normal */
-	__u32	lum_padding1;
-	__u32	lum_padding2;
-	__u32	lum_padding3;
+	lu_uint32_t	lum_magic;	 /* must be the first field */
+	lu_uint32_t	lum_stripe_count;  /* dirstripe count */
+	lu_uint32_t	lum_stripe_offset; /* MDT idx for default dirstripe */
+	lu_uint32_t	lum_hash_type;     /* Dir stripe policy */
+	lu_uint32_t	lum_type;	  /* LMV type: default or normal */
+	lu_uint32_t	lum_padding1;
+	lu_uint32_t	lum_padding2;
+	lu_uint32_t	lum_padding3;
 	char	lum_pool_name[LOV_MAXPOOLNAME];
 	struct	lmv_user_mds_data  lum_objects[0];
 } __attribute__((packed));
@@ -426,15 +429,15 @@ static inline int lmv_user_md_size(int stripes, int lmm_magic)
 extern void lustre_swab_lmv_user_md(struct lmv_user_md *lum);
 
 struct ll_recreate_obj {
-        __u64 lrc_id;
-        __u32 lrc_ost_idx;
+	lu_uint64_t	lrc_id;
+	lu_uint32_t	lrc_ost_idx;
 };
 
 struct ll_fid {
-        __u64 id;         /* holds object id */
-        __u32 generation; /* holds object generation */
-        __u32 f_type;     /* holds object type or stripe idx when passing it to
-                           * OST for saving into EA. */
+	lu_uint64_t	id;         /* holds object id */
+	lu_uint32_t	generation; /* holds object generation */
+	lu_uint32_t	f_type;     /* holds object type or stripe idx when
+				     * passing it to OST for saving into EA. */
 };
 
 #define UUID_MAX        40
@@ -540,20 +543,20 @@ struct if_quotacheck {
 #define N_PERMS_MAX      64
 
 struct perm_downcall_data {
-        __u64 pdd_nid;
-        __u32 pdd_perm;
-        __u32 pdd_padding;
+	lu_uint64_t	pdd_nid;
+	lu_uint32_t	pdd_perm;
+	lu_uint32_t	pdd_padding;
 };
 
 struct identity_downcall_data {
-        __u32                            idd_magic;
-        __u32                            idd_err;
-        __u32                            idd_uid;
-        __u32                            idd_gid;
-        __u32                            idd_nperms;
-        __u32                            idd_ngroups;
-        struct perm_downcall_data idd_perms[N_PERMS_MAX];
-        __u32                            idd_groups[0];
+	lu_uint32_t	idd_magic;
+	lu_uint32_t	idd_err;
+	lu_uint32_t	idd_uid;
+	lu_uint32_t	idd_gid;
+	lu_uint32_t	idd_nperms;
+	lu_uint32_t	idd_ngroups;
+	struct perm_downcall_data idd_perms[N_PERMS_MAX];
+	lu_uint32_t	idd_groups[0];
 };
 
 /* for non-mapped uid/gid */
@@ -597,24 +600,24 @@ typedef enum lustre_quota_version {
 
 /* XXX: same as if_dqinfo struct in kernel */
 struct obd_dqinfo {
-        __u64 dqi_bgrace;
-        __u64 dqi_igrace;
-        __u32 dqi_flags;
-        __u32 dqi_valid;
+	lu_uint64_t	dqi_bgrace;
+	lu_uint64_t	dqi_igrace;
+	lu_uint32_t	dqi_flags;
+	lu_uint32_t	dqi_valid;
 };
 
 /* XXX: same as if_dqblk struct in kernel, plus one padding */
 struct obd_dqblk {
-        __u64 dqb_bhardlimit;
-        __u64 dqb_bsoftlimit;
-        __u64 dqb_curspace;
-        __u64 dqb_ihardlimit;
-        __u64 dqb_isoftlimit;
-        __u64 dqb_curinodes;
-        __u64 dqb_btime;
-        __u64 dqb_itime;
-        __u32 dqb_valid;
-        __u32 dqb_padding;
+	lu_uint64_t	dqb_bhardlimit;
+	lu_uint64_t	dqb_bsoftlimit;
+	lu_uint64_t	dqb_curspace;
+	lu_uint64_t	dqb_ihardlimit;
+	lu_uint64_t	dqb_isoftlimit;
+	lu_uint64_t	dqb_curinodes;
+	lu_uint64_t	dqb_btime;
+	lu_uint64_t	dqb_itime;
+	lu_uint32_t	dqb_valid;
+	lu_uint32_t	dqb_padding;
 };
 
 enum {
@@ -625,16 +628,16 @@ enum {
 };
 
 struct if_quotactl {
-        __u32                   qc_cmd;
-        __u32                   qc_type;
-        __u32                   qc_id;
-        __u32                   qc_stat;
-        __u32                   qc_valid;
-        __u32                   qc_idx;
-        struct obd_dqinfo       qc_dqinfo;
-        struct obd_dqblk        qc_dqblk;
-        char                    obd_type[16];
-        struct obd_uuid         obd_uuid;
+	lu_uint32_t		qc_cmd;
+	lu_uint32_t		qc_type;
+	lu_uint32_t		qc_id;
+	lu_uint32_t		qc_stat;
+	lu_uint32_t		qc_valid;
+	lu_uint32_t		qc_idx;
+	struct obd_dqinfo	qc_dqinfo;
+	struct obd_dqblk	qc_dqblk;
+	char			obd_type[16];
+	struct obd_uuid		obd_uuid;
 };
 
 /* swap layout flags */
@@ -646,11 +649,11 @@ struct if_quotactl {
 /* Swap XATTR_NAME_HSM as well, only on the MDT so far */
 #define SWAP_LAYOUTS_MDS_HSM		(1 << 31)
 struct lustre_swap_layouts {
-	__u64	sl_flags;
-	__u32	sl_fd;
-	__u32	sl_gid;
-	__u64	sl_dv1;
-	__u64	sl_dv2;
+	lu_uint64_t	sl_flags;
+	lu_uint32_t	sl_fd;
+	lu_uint32_t	sl_gid;
+	lu_uint64_t	sl_dv1;
+	lu_uint64_t	sl_dv2;
 };
 
 
@@ -748,7 +751,7 @@ enum hsm_event {
         HE_SPARE2       = 7,
 };
 
-static inline enum hsm_event hsm_get_cl_event(__u16 flags)
+static inline enum hsm_event hsm_get_cl_event(lu_uint16_t flags)
 {
 	return (enum hsm_event)CLF_GET_BITS(flags, CLF_HSM_EVENT_H,
 					    CLF_HSM_EVENT_L);
@@ -759,7 +762,7 @@ static inline void hsm_set_cl_event(int *flags, enum hsm_event he)
         *flags |= (he << CLF_HSM_EVENT_L);
 }
 
-static inline __u16 hsm_get_cl_flags(int flags)
+static inline lu_uint16_t hsm_get_cl_flags(int flags)
 {
         return CLF_GET_BITS(flags, CLF_HSM_FLAG_H, CLF_HSM_FLAG_L);
 }
@@ -783,18 +786,19 @@ static inline void hsm_set_cl_error(int *flags, int error)
 				  sizeof(struct changelog_ext_rec))
 
 struct changelog_rec {
-        __u16                 cr_namelen;
-        __u16                 cr_flags; /**< (flags&CLF_FLAGMASK)|CLF_VERSION */
-        __u32                 cr_type;  /**< \a changelog_rec_type */
-        __u64                 cr_index; /**< changelog record number */
-        __u64                 cr_prev;  /**< last index for this target fid */
-        __u64                 cr_time;
-        union {
-                lustre_fid    cr_tfid;        /**< target fid */
-                __u32         cr_markerflags; /**< CL_MARK flags */
-        };
-        lustre_fid            cr_pfid;        /**< parent fid */
-        char                  cr_name[0];     /**< last element */
+	lu_uint16_t		cr_namelen;
+	lu_uint16_t		cr_flags; /**< (flags & CLF_FLAGMASK) |
+					       CLF_VERSION */
+	lu_uint32_t		cr_type;  /**< \a changelog_rec_type */
+	lu_uint64_t		cr_index; /**< changelog record number */
+	lu_uint64_t		cr_prev;  /**< last index for this target fid */
+	lu_uint64_t		cr_time;
+	union {
+		lustre_fid	cr_tfid;	/**< target fid */
+		lu_uint32_t	cr_markerflags;	/**< CL_MARK flags */
+	};
+	lustre_fid		cr_pfid;	/**< parent fid */
+	char			cr_name[0];	/**< last element */
 } __attribute__((packed));
 
 /* changelog_ext_rec is 2*sizeof(lu_fid) bigger than changelog_rec, to save
@@ -802,21 +806,21 @@ struct changelog_rec {
  * store records.
  */
 struct changelog_ext_rec {
-	__u16			cr_namelen;
-	__u16			cr_flags; /**< (flags & CLF_FLAGMASK) |
-						CLF_EXT_VERSION */
-	__u32			cr_type;  /**< \a changelog_rec_type */
-	__u64			cr_index; /**< changelog record number */
-	__u64			cr_prev;  /**< last index for this target fid */
-	__u64			cr_time;
+	lu_uint16_t		cr_namelen;
+	lu_uint16_t		cr_flags; /**< (flags & CLF_FLAGMASK) |
+					       CLF_EXT_VERSION */
+	lu_uint32_t		cr_type;  /**< \a changelog_rec_type */
+	lu_uint64_t		cr_index; /**< changelog record number */
+	lu_uint64_t		cr_prev;  /**< last index for this target fid */
+	lu_uint64_t		cr_time;
 	union {
 		lustre_fid	cr_tfid;	/**< target fid */
-		__u32		cr_markerflags; /**< CL_MARK flags */
+		lu_uint32_t	cr_markerflags; /**< CL_MARK flags */
 	};
-	lustre_fid		cr_pfid;	/**< target parent fid */
-	lustre_fid		cr_sfid;	/**< source fid, or zero */
-	lustre_fid		cr_spfid;       /**< source parent fid, or zero */
-	char			cr_name[0];     /**< last element */
+	lustre_fid		cr_pfid;  /**< target parent fid */
+	lustre_fid		cr_sfid;  /**< source fid, or zero */
+	lustre_fid		cr_spfid; /**< source parent fid, or zero */
+	char			cr_name[0]; /**< last element */
 } __attribute__((packed));
 
 #define CHANGELOG_REC_EXTENDED(rec) \
@@ -845,10 +849,10 @@ static inline char *changelog_rec_sname(struct changelog_ext_rec *rec)
 }
 
 struct ioc_changelog {
-        __u64 icc_recno;
-        __u32 icc_mdtindex;
-        __u32 icc_id;
-        __u32 icc_flags;
+	lu_uint64_t	icc_recno;
+	lu_uint32_t	icc_mdtindex;
+	lu_uint32_t	icc_id;
+	lu_uint32_t	icc_flags;
 };
 
 enum changelog_message_type {
@@ -859,8 +863,8 @@ enum changelog_message_type {
 /********* Misc **********/
 
 struct ioc_data_version {
-        __u64 idv_version;
-        __u64 idv_flags;     /* See LL_DV_xxx */
+	lu_uint64_t	idv_version;
+	lu_uint64_t	idv_flags;	/* See LL_DV_xxx */
 };
 #define LL_DV_RD_FLUSH (1 << 0) /* Flush dirty pages from clients */
 #define LL_DV_WR_FLUSH (1 << 1) /* Flush all caching pages from clients */
@@ -920,8 +924,8 @@ static inline const char *hsm_progress_state2name(enum hsm_progress_states s)
 }
 
 struct hsm_extent {
-	__u64 offset;
-	__u64 length;
+	lu_uint64_t offset;
+	lu_uint64_t length;
 } __attribute__((packed));
 
 /**
@@ -932,19 +936,19 @@ struct hsm_extent {
  */
 struct hsm_user_state {
 	/** Current HSM states, from enum hsm_states. */
-	__u32			hus_states;
-	__u32			hus_archive_id;
+	lu_uint32_t		hus_states;
+	lu_uint32_t		hus_archive_id;
 	/**  The current undergoing action, if there is one */
-	__u32			hus_in_progress_state;
-	__u32			hus_in_progress_action;
+	lu_uint32_t		hus_in_progress_state;
+	lu_uint32_t		hus_in_progress_action;
 	struct hsm_extent	hus_in_progress_location;
 	char			hus_extended_info[];
 };
 
 struct hsm_state_set_ioc {
-	struct lu_fid	hssi_fid;
-	__u64		hssi_setmask;
-	__u64		hssi_clearmask;
+	struct lu_fid		hssi_fid;
+	lu_uint64_t		hssi_setmask;
+	lu_uint64_t		hssi_clearmask;
 };
 
 /*
@@ -954,9 +958,9 @@ struct hsm_state_set_ioc {
 struct hsm_current_action {
 	/**  The current undergoing action, if there is one */
 	/* state is one of hsm_progress_states */
-	__u32			hca_state;
+	lu_uint32_t		hca_state;
 	/* action is one of hsm_user_action */
-	__u32			hca_action;
+	lu_uint32_t		hca_action;
 	struct hsm_extent	hca_location;
 };
 
@@ -996,11 +1000,11 @@ static inline const char *hsm_user_action2name(enum hsm_user_action  a)
  *
  */
 struct hsm_request {
-	__u32 hr_action;	/* enum hsm_user_action */
-	__u32 hr_archive_id;	/* archive id, used only with HUA_ARCHIVE */
-	__u64 hr_flags;		/* request flags */
-	__u32 hr_itemcount;	/* item count in hur_user_item vector */
-	__u32 hr_data_len;
+	lu_uint32_t hr_action;	/* enum hsm_user_action */
+	lu_uint32_t hr_archive_id; /* archive id, used only with HUA_ARCHIVE */
+	lu_uint64_t hr_flags;	/* request flags */
+	lu_uint32_t hr_itemcount; /* item count in hur_user_item vector */
+	lu_uint32_t hr_data_len;
 };
 
 struct hsm_user_item {
@@ -1059,14 +1063,15 @@ static inline const char *hsm_copytool_action2name(enum hsm_copytool_action  a)
 
 /* Copytool item action description */
 struct hsm_action_item {
-	__u32      hai_len;     /* valid size of this struct */
-	__u32      hai_action;  /* hsm_copytool_action, but use known size */
-	lustre_fid hai_fid;     /* Lustre FID to operated on */
-	lustre_fid hai_dfid;    /* fid used for data access */
-	struct hsm_extent hai_extent;  /* byte range to operate on */
-	__u64      hai_cookie;  /* action cookie from coordinator */
-	__u64      hai_gid;     /* grouplock id */
-	char       hai_data[0]; /* variable length */
+	lu_uint32_t	hai_len;	/* valid size of this struct */
+	lu_uint32_t	hai_action;	/* hsm_copytool_action, but use known
+					 * size */
+	lustre_fid	hai_fid;	/* Lustre FID to operated on */
+	lustre_fid	hai_dfid;	/* fid used for data access */
+	struct hsm_extent hai_extent;	/* byte range to operate on */
+	lu_uint64_t	hai_cookie;	/* action cookie from coordinator */
+	lu_uint64_t	hai_gid;	/* grouplock id */
+	char		hai_data[0];	/* variable length */
 } __attribute__((packed));
 
 /*
@@ -1103,12 +1108,12 @@ static inline char *hai_dump_data_field(const struct hsm_action_item *hai,
 #define HAL_VERSION 1
 #define HAL_MAXSIZE LNET_MTU /* bytes, used in userspace only */
 struct hsm_action_list {
-	__u32 hal_version;
-	__u32 hal_count;       /* number of hai's to follow */
-	__u64 hal_compound_id; /* returned by coordinator */
-	__u64 hal_flags;
-	__u32 hal_archive_id; /* which archive backend */
-	__u32 padding1;
+	lu_uint32_t hal_version;
+	lu_uint32_t hal_count;       /* number of hai's to follow */
+	lu_uint64_t hal_compound_id; /* returned by coordinator */
+	lu_uint64_t hal_flags;
+	lu_uint32_t hal_archive_id; /* which archive backend */
+	lu_uint32_t padding1;
 	char  hal_fsname[0];   /* null-terminated */
 	/* struct hsm_action_item[hal_count] follows, aligned on 8-byte
 	   boundaries. See hai_zero */
@@ -1140,7 +1145,7 @@ static inline struct hsm_action_item * hai_next(struct hsm_action_item *hai)
 /* Return size of an hsm_action_list */
 static inline size_t hal_size(struct hsm_action_list *hal)
 {
-	__u32 i;
+	lu_uint32_t i;
 	size_t sz;
 	struct hsm_action_item *hai;
 
@@ -1156,15 +1161,15 @@ static inline size_t hal_size(struct hsm_action_list *hal)
  * describe the attributes to be set on imported file
  */
 struct hsm_user_import {
-	__u64		hui_size;
-	__u64		hui_atime;
-	__u64		hui_mtime;
-	__u32		hui_atime_ns;
-	__u32		hui_mtime_ns;
-	__u32		hui_uid;
-	__u32		hui_gid;
-	__u32		hui_mode;
-	__u32		hui_archive_id;
+	lu_uint64_t		hui_size;
+	lu_uint64_t		hui_atime;
+	lu_uint64_t		hui_mtime;
+	lu_uint32_t		hui_atime_ns;
+	lu_uint32_t		hui_mtime_ns;
+	lu_uint32_t		hui_uid;
+	lu_uint32_t		hui_gid;
+	lu_uint32_t		hui_mode;
+	lu_uint32_t		hui_archive_id;
 };
 
 /* Copytool progress reporting */
@@ -1173,18 +1178,18 @@ struct hsm_user_import {
 
 struct hsm_progress {
 	lustre_fid		hp_fid;
-	__u64			hp_cookie;
+	lu_uint64_t			hp_cookie;
 	struct hsm_extent	hp_extent;
-	__u16			hp_flags;
-	__u16			hp_errval; /* positive val */
-	__u32			padding;
+	lu_uint16_t			hp_flags;
+	lu_uint16_t			hp_errval; /* positive val */
+	lu_uint32_t			padding;
 };
 
 struct hsm_copy {
-	__u64			hc_data_version;
-	__u16			hc_flags;
-	__u16			hc_errval; /* positive val */
-	__u32			padding;
+	lu_uint64_t			hc_data_version;
+	lu_uint16_t			hc_flags;
+	lu_uint16_t			hc_errval; /* positive val */
+	lu_uint32_t			padding;
 	struct hsm_action_item	hc_hai;
 };
 
@@ -1198,10 +1203,10 @@ enum llapi_json_types {
 
 struct llapi_json_item {
 	char			*lji_key;
-	__u32			lji_type;
+	lu_uint32_t			lji_type;
 	union {
 		int	lji_integer;
-		__u64	lji_u64;
+		lu_uint64_t	lji_u64;
 		double	lji_real;
 		char	*lji_string;
 	};

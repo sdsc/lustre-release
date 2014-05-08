@@ -49,28 +49,6 @@ AS_IF([test "x$enable_panic_dumplog" = xyes],
 ]) # LIBCFS_CONFIG_PANIC_DUMPLOG
 
 #
-# LIBCFS_U64_LONG_LONG_LINUX
-#
-# check kernel __u64 type
-#
-AC_DEFUN([LIBCFS_U64_LONG_LONG_LINUX], [
-tmp_flags="$EXTRA_KCFLAGS"
-EXTRA_KCFLAGS="$EXTRA_KCFLAGS -Werror"
-LB_CHECK_COMPILE([if Linux kernel '__u64' is 'long long' type],
-kernel_u64_long_long, [
-	#include <linux/types.h>
-	#include <linux/stddef.h>
-],[
-	unsigned long long *data;
-	data = (__u64*)sizeof(data);
-],[
-	AC_DEFINE(HAVE_KERN__U64_LONG_LONG, 1,
-		[Linux kernel __u64 is long long type])
-])
-EXTRA_KCFLAGS="$tmp_flags"
-]) # LIBCFS_U64_LONG_LONG_LINUX
-
-#
 # LIBCFS_STACKTRACE_OPS_HAVE_WALK_STACK
 #
 # 2.6.32-30.el6 adds a new 'walk_stack' field in 'struct stacktrace_ops'
@@ -299,7 +277,6 @@ AC_MSG_NOTICE([LibCFS kernel checks
 ==============================================================================])
 LIBCFS_CONFIG_PANIC_DUMPLOG
 
-LIBCFS_U64_LONG_LONG_LINUX
 # 2.6.32
 LIBCFS_STACKTRACE_OPS_HAVE_WALK_STACK
 LC_SHRINKER_WANT_SHRINK_PTR
@@ -371,76 +348,6 @@ AC_CHECK_FUNCS([strlcpy])
 
 # libcfs/libcfs/user-prim.c, missing for RHEL5 and earlier userspace
 AC_CHECK_FUNCS([strlcat])
-
-AC_CHECK_TYPE([umode_t],
-	[AC_DEFINE(HAVE_UMODE_T, 1, [umode_t is defined])],
-	[],
-	[#include <asm/types.h>])
-
-AC_CHECK_TYPE([__s8],
-	[AC_DEFINE(HAVE___S8, 1, [__s8 is defined])],
-	[],
-	[#include <asm/types.h>])
-
-AC_CHECK_TYPE([__u8],
-	[AC_DEFINE(HAVE___U8, 1, [__u8 is defined])],
-	[],
-	[#include <asm/types.h>])
-
-AC_CHECK_TYPE([__s16],
-	[AC_DEFINE(HAVE___S16, 1, [__s16 is defined])],
-	[],
-	[#include <asm/types.h>])
-
-AC_CHECK_TYPE([__u16],
-	[AC_DEFINE(HAVE___U16, 1, [__u16 is defined])],
-	[],
-	[#include <asm/types.h>])
-
-AC_CHECK_TYPE([__s32],
-	[AC_DEFINE(HAVE___S32, 1, [__s32 is defined])],
-	[],
-	[#include <asm/types.h>])
-
-AC_CHECK_TYPE([__u32],
-	[AC_DEFINE(HAVE___U32, 1, [__u32 is defined])],
-	[],
-	[#include <asm/types.h>])
-
-AC_CHECK_TYPE([__u64],
-	[AC_DEFINE(HAVE___U64, 1, [__u64 is defined])],
-	[],
-	[#include <asm/types.h>])
-
-AC_CHECK_TYPE([__s64],
-	[AC_DEFINE(HAVE___S64, 1, [__s64 is defined])],
-	[],
-	[#include <asm/types.h>])
-
-# check userland __u64 type
-tmp_flags="$CFLAGS"
-CFLAGS="$CFLAGS -Werror"
-AC_CACHE_CHECK([if userspace '__u64' is 'long long' type],
-lb_cv_compile_userspace_u64_long_long, [
-AC_COMPILE_IFELSE([
-	#include <stdio.h>
-	#include <linux/types.h>
-	#include <linux/stddef.h>
-	int main(void) {
-		unsigned long long *data1;
-		__u64 *data2 = NULL;
-		data1 = data2;
-		data2 = data1;
-		return 0;
-	}
-],
-	[lb_cv_compile_userspace_u64_long_long="yes"],
-	[lb_cv_compile_userspace_u64_long_long="no"])
-])
-CFLAGS="$tmp_flags"
-AS_IF([test "x$lb_cv_compile_userspace_u64_long_long" = xyes],
-	[AC_DEFINE(HAVE_USER__U64_LONG_LONG, 1,
-		[__u64 is long long type])])
 
 # --------  Check for required packages  --------------
 

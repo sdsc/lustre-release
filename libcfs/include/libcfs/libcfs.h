@@ -38,8 +38,13 @@
 #define __LIBCFS_LIBCFS_H__
 
 #if !__GNUC__
-#define __attribute__(x)
+# define __attribute__(x)
 #endif
+
+#include <libcfs/types.h>
+
+typedef long long_ptr_t;
+typedef unsigned long ulong_ptr_t;
 
 #if !defined(__WINNT__) && !defined(__KERNEL__)
 #include <libcfs/posix/libcfs.h>
