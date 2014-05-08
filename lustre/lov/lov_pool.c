@@ -14,12 +14,8 @@
  * in the LICENSE file that accompanied this code).
  *
  * You should have received a copy of the GNU General Public License
- * version 2 along with this program; If not, see [sun.com URL with a
- * copy of GPLv2].
- *
- * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa Clara,
- * CA 95054 USA or visit www.sun.com if you need additional information or
- * have any questions.
+ * version 2 along with this program; If not, see
+ * http://www.gnu.org/licenses/gpl-2.0.html
  *
  * GPL HEADER END
  */
@@ -27,15 +23,32 @@
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2012, Intel Corporation.
+ * Copyright (c) 2012, 2014 Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
- *
+ */
+/*
  * lustre/lov/lov_pool.c
  *
  * OST pool methods
+ *
+ * This file provides code related to the Logical Object Volume (LOV)
+ * handling of OST Pools on the client.  Pools are named lists of targets
+ * that allow userspace to group targets that share a particlar property
+ * together so that users or kernel helpers can make decisions about file
+ * allocation based on these properties.  For example, pools could be
+ * defined based on fault domains (e.g. separate racks of server nodes) so
+ * that RAID-1 mirroring could select targets from independent fault
+ * domains, or pools could define target performance characteristics so
+ * that applicatins could select IOP-optimized storage or stream-optimized
+ * storage for a particular output file.
+ *
+ * This file handles creation, lookup, and removal of pools themselves, as
+ * well as adding and removing targets to pools.  It also handles lprocfs
+ * display of configured pool.  The pools are accessed by name in the pool
+ * hash, and are refcounted to ensure proper pool structure lifetimes.
  *
  * Author: Jacques-Charles LAFOUCRIERE <jc.lafoucriere@cea.fr>
  * Author: Alex Lyashkov <Alexey.Lyashkov@Sun.COM>
@@ -44,38 +57,65 @@
 
 #define DEBUG_SUBSYSTEM S_LOV
 
-#ifdef __KERNEL__
 #include <libcfs/libcfs.h>
-#else
-#include <liblustre.h>
-#endif
-
 #include <obd.h>
 #include "lov_internal.h"
 
 #define pool_tgt(_p, _i) \
 		_p->pool_lobd->u.lov.lov_tgts[_p->pool_obds.op_array[_i]]
 
-static void lov_pool_getref(struct pool_desc *pool)
+/**
+ * Get a reference on the specified pool.
+ *
+ * To ensure the pool descriptor is not freed before the caller is finished
+ * with it.  Any process that is accessing \a pool directly needs to hold
+ * reference on it, including /proc since a userspace thread may be holding
+ * the /proc file open and busy in the kernel.
+ *
+ * \param[in] pool	pool descriptor on which to gain reference
+ */
+static void pool_getref(struct pool_desc *pool)
 {
 	CDEBUG(D_INFO, "pool %p\n", pool);
 	atomic_inc(&pool->pool_refcount);
 }
 
-void lov_pool_putref(struct pool_desc *pool) 
+/**
+ * Drop a reference on the specified pool and free its memory if needed
+ *
+ * One reference is held by the LOD OBD device while it is configured, from
+ * the time the configuration log defines the pool until the time when it is
+ * dropped when the LOD OBD is cleaned up or the pool is deleted.  This means
+ * that the pool will not be freed while the LOD device is configured, unless
+ * it is explicitly destroyed by the sysadmin.  The pool structure is freed
+ * after the last reference on the structure is released.
+ *
+ * \param[in] pool	pool descriptor to drop reference on and possibly free
+ */
+void lod_pool_putref(struct pool_desc *pool)
 {
 	CDEBUG(D_INFO, "pool %p\n", pool);
 	if (atomic_dec_and_test(&pool->pool_refcount)) {
 		LASSERT(hlist_unhashed(&pool->pool_hash));
 		LASSERT(list_empty(&pool->pool_list));
 		LASSERT(pool->pool_proc_entry == NULL);
-		lov_ost_pool_free(&(pool->pool_obds));
+		lod_ost_pool_free(&(pool->pool_obds));
 		OBD_FREE_PTR(pool);
 		EXIT;
 	}
 }
 
-void lov_pool_putref_locked(struct pool_desc *pool)
+/**
+ * Drop the refcount in cases where the caller holds a spinlock.
+ *
+ * This is needed if the caller cannot be blocked while freeing memory.
+ * It assumes that there is some other known refcount held on the \a pool
+ * and the memory cannot actually be freed, but the refcounting needs to
+ * be kept accurate.
+ *
+ * \param[in] pool	pool descriptor on which to drop reference
+ */
+static void pool_putref_locked(struct pool_desc *pool)
 {
 	CDEBUG(D_INFO, "pool %p\n", pool);
 	LASSERT(atomic_read(&pool->pool_refcount) > 1);
@@ -84,47 +124,71 @@ void lov_pool_putref_locked(struct pool_desc *pool)
 }
 
 /*
- * hash function using a Rotating Hash algorithm
- * Knuth, D. The Art of Computer Programming,
- * Volume 3: Sorting and Searching,
- * Chapter 6.4.
- * Addison Wesley, 1973
+ * Group of functions needed for cfs_hash implementation.  This
+ * includes pool lookup, refcounting, and cleanup.
+ */
+
+/**
+ * Hash the pool name for use by the cfs_hash handlers.
+ *
+ * Use the standard DJB2 hash function for ASCII strings in Lustre.
+ *
+ * \param[in] hash_body	hash structure where this key is embedded (unused)
+ * \param[in] key	key to be hashed (in this case the pool name)
+ * \param[in] mask	bitmask to limit the hash value to the desired size
+ *
+ * \retval		computed hash value from \a key and limited by \a mask
  */
 static __u32 pool_hashfn(cfs_hash_t *hash_body, const void *key, unsigned mask)
 {
-        int i;
-        __u32 result;
-        char *poolname;
-
-        result = 0;
-        poolname = (char *)key;
-        for (i = 0; i < LOV_MAXPOOLNAME; i++) {
-                if (poolname[i] == '\0')
-                        break;
-                result = (result << 4)^(result >> 28) ^  poolname[i];
-        }
-        return (result % mask);
+	return cfs_hash_djb2_hash(key, strnlen(key, LOV_MAXPOOLNAME), mask);
 }
 
+/**
+ * Return the actual key (pool name) from the hashed \a hnode.
+ *
+ * Allows extracting the key name when iterating over all hash entries.
+ *
+ * \param[in] hnode	hash node found by lookup or iteration
+ *
+ * \retval		char array referencing the pool name (no refcount)
+ */
 static void *pool_key(struct hlist_node *hnode)
 {
-        struct pool_desc *pool;
+	struct pool_desc *pool;
 
 	pool = hlist_entry(hnode, struct pool_desc, pool_hash);
-        return (pool->pool_name);
+	return pool->pool_name;
 }
 
-static int
-pool_hashkey_keycmp(const void *key, struct hlist_node *compared_hnode)
+/**
+ * Check if the specified hash key matches the hash node.
+ *
+ * This is needed in case there is a hash key collision, allowing the hash
+ * table lookup/iteration to distringish between the two entires.
+ *
+ * \param[in] key	key (pool name) being searched for
+ * \param[in] compared	current entry being compared
+ *
+ * \retval		0 if \a key is the same as the key of \a compared
+ * \retval		1 if \a key is different from the key of \a compared
+ */
+static int pool_hashkey_keycmp(const void *key, struct hlist_node *compared)
 {
-        char *pool_name;
-        struct pool_desc *pool;
-
-        pool_name = (char *)key;
-	pool = hlist_entry(compared_hnode, struct pool_desc, pool_hash);
-        return !strncmp(pool_name, pool->pool_name, LOV_MAXPOOLNAME);
+	return !strncmp(key, pool_key(compared), LOV_MAXPOOLNAME);
 }
 
+/**
+ * Return the actual pool data structure from the hash table entry
+ *
+ * Once the hash table entry is found, extract the pool data from it.
+ * The return type of this function is void * because it needs to be
+ * assigned to the generic hash operations table.
+ *
+ * \param[in] hnode	hash table entry
+ *
+ * \retval		struct pool_desc for the specified \a hnode
+ */
 static void *pool_hashobject(struct hlist_node *hnode)
 {
 	return hlist_entry(hnode, struct pool_desc, pool_hash);
@@ -132,352 +196,474 @@ static void *pool_hashobject(struct hlist_node *hnode)
 
 static void pool_hashrefcount_get(cfs_hash_t *hs, struct hlist_node *hnode)
 {
-        struct pool_desc *pool;
+	struct pool_desc *pool;
 
 	pool = hlist_entry(hnode, struct pool_desc, pool_hash);
-        lov_pool_getref(pool);
+        pool_getref(pool);
 }
 
 static void pool_hashrefcount_put_locked(cfs_hash_t *hs,
 					 struct hlist_node *hnode)
 {
-        struct pool_desc *pool;
+	struct pool_desc *pool;
 
 	pool = hlist_entry(hnode, struct pool_desc, pool_hash);
-        lov_pool_putref_locked(pool);
+        pool_putref_locked(pool);
 }
 
 cfs_hash_ops_t pool_hash_operations = {
-        .hs_hash        = pool_hashfn,
-        .hs_key         = pool_key,
-        .hs_keycmp      = pool_hashkey_keycmp,
-        .hs_object      = pool_hashobject,
-        .hs_get         = pool_hashrefcount_get,
-        .hs_put_locked  = pool_hashrefcount_put_locked,
-
+	.hs_hash	= pool_hashfn,
+	.hs_key		= pool_key,
+	.hs_keycmp	= pool_hashkey_keycmp,
+	.hs_object	= pool_hashobject,
+	.hs_get		= pool_hashrefcount_get,
+	.hs_put_locked	= pool_hashrefcount_put_locked,
 };
 
-#ifdef LPROCFS
-/* ifdef needed for liblustre support */
 /*
- * pool /proc seq_file methods
+ * Methods for /proc seq_file iteration of the defined pools.
  */
-/*
- * iterator is used to go through the target pool entries
- * index is the current entry index in the lp_array[] array
- * index >= pos returned to the seq_file interface
- * pos is from 0 to (pool->pool_obds.op_count - 1)
- */
+
 #define POOL_IT_MAGIC 0xB001CEA0
 struct pool_iterator {
-        int magic;
-        struct pool_desc *pool;
-        int idx;        /* from 0 to pool_tgt_size - 1 */
+	int		  lpi_magic;	/* POOL_IT_MAGIC */
+	int		  lpi_idx;	/* from 0 to pool_tgt_size - 1 */
+	struct pool_desc *lpi_pool;
 };
 
-static void *pool_proc_next(struct seq_file *s, void *v, loff_t *pos)
+/**
+ * Return the next configured target within one pool for seq_file iteration
+ *
+ * Iterator is used to go through the target entries of a single pool
+ * (i.e. the list of OSTs configured for a named pool).
+ * lpi_idx is the current target index in the pool's op_array[].
+ *
+ * The return type is a void * because this function is one of the
+ * struct seq_operations methods and must match the function template.
+ *
+ * \param[in] seq	/proc sequence file iteration tracking structure
+ * \param[in] v		unused
+ * \param[in] pos	position within iteration; 0 to number of targets - 1
+ *
+ * \retval	struct pool_iterator of the next pool descriptor
+ */
+static void *pool_proc_next(struct seq_file *seq, void *v, loff_t *pos)
 {
-        struct pool_iterator *iter = (struct pool_iterator *)s->private;
-        int prev_idx;
+	struct pool_iterator *iter = (struct pool_iterator *)seq->private;
+	int prev_idx;
 
-	LASSERTF(iter->magic == POOL_IT_MAGIC, "%08X\n", iter->magic);
+	LASSERTF(iter->lpi_magic == POOL_IT_MAGIC, "%08X", iter->lpi_magic);
 
-        /* test if end of file */
-        if (*pos >= pool_tgt_count(iter->pool))
-                return NULL;
+	/* test if end of file */
+	if (*pos >= pool_tgt_count(iter->lpi_pool))
+		return NULL;
 
-        /* iterate to find a non empty entry */
-        prev_idx = iter->idx;
-	down_read(&pool_tgt_rw_sem(iter->pool));
-        iter->idx++;
-        if (iter->idx == pool_tgt_count(iter->pool)) {
-                iter->idx = prev_idx; /* we stay on the last entry */
-		up_read(&pool_tgt_rw_sem(iter->pool));
-                return NULL;
-        }
-	up_read(&pool_tgt_rw_sem(iter->pool));
+	/* iterate to find a non empty entry */
+	prev_idx = iter->lpi_idx;
+	down_read(&pool_tgt_rw_sem(iter->lpi_pool));
+	iter->lpi_idx++;
+	if (iter->lpi_idx == pool_tgt_count(iter->lpi_pool)) {
+		iter->lpi_idx = prev_idx; /* we stay on the last entry */
+		up_read(&pool_tgt_rw_sem(iter->lpi_pool));
+		return NULL;
+	}
+	up_read(&pool_tgt_rw_sem(iter->lpi_pool));
         (*pos)++;
-        /* return != NULL to continue */
-        return iter;
+	/* return != NULL to continue */
+	return iter;
 }
 
-static void *pool_proc_start(struct seq_file *s, loff_t *pos)
+/**
+ * Start seq_file iteration via /proc for a single pool
+ *
+ * The \a pos parameter may be non-zero, indicating that the iteration
+ * is starting at some offset in the target list.  Use the seq_file
+ * private field to memorize the iterator so we can free it at stop().
+ * Need to restore the private pointer to the pool before freeing it.
+ *
+ * \param[in] seq	new sequence file structure to initialize
+ * \param[in] pos	initial target number at which to start iteration
+ *
+ * \retval		initialized pool iterator private structure
+ * \retval		NULL if \a pos exceeds the number of targets in \a pool
+ * \retval		negative error number on failure
+ */
+static void *pool_proc_start(struct seq_file *seq, loff_t *pos)
 {
-        struct pool_desc *pool = (struct pool_desc *)s->private;
-        struct pool_iterator *iter;
+	struct pool_desc *pool = (struct pool_desc *)seq->private;
+	struct pool_iterator *iter;
 
-        lov_pool_getref(pool);
-        if ((pool_tgt_count(pool) == 0) ||
-            (*pos >= pool_tgt_count(pool))) {
-                /* iter is not created, so stop() has no way to
-                 * find pool to dec ref */
-                lov_pool_putref(pool);
-                return NULL;
-        }
+	pool_getref(pool);
+	if ((pool_tgt_count(pool) == 0) ||
+	    (*pos >= pool_tgt_count(pool))) {
+		/* iter is not created, so stop() has no way to
+		 * find pool to dec ref */
+		lod_pool_putref(pool);
+		return NULL;
+	}
 
-        OBD_ALLOC_PTR(iter);
-        if (!iter)
-                return ERR_PTR(-ENOMEM);
-        iter->magic = POOL_IT_MAGIC;
-        iter->pool = pool;
-        iter->idx = 0;
+	OBD_ALLOC_PTR(iter);
+	if (iter == NULL)
+		return ERR_PTR(-ENOMEM);
+	iter->lpi_magic = POOL_IT_MAGIC;
+	iter->lpi_pool = pool;
+	iter->lpi_idx = 0;
 
-        /* we use seq_file private field to memorized iterator so
-         * we can free it at stop() */
-        /* /!\ do not forget to restore it to pool before freeing it */
-        s->private = iter;
-        if (*pos > 0) {
-                loff_t i;
-                void *ptr;
+	seq->private = iter;
+	if (*pos > 0) {
+		loff_t i;
+		void *ptr;
 
-                i = 0;
-                do {
-                     ptr = pool_proc_next(s, &iter, &i);
-                } while ((i < *pos) && (ptr != NULL));
-                return ptr;
-        }
-        return iter;
+		i = 0;
+		do {
+			ptr = pool_proc_next(seq, &iter, &i);
+		} while ((i < *pos) && (ptr != NULL));
+
+		return ptr;
+	}
+
+	return iter;
 }
 
-static void pool_proc_stop(struct seq_file *s, void *v)
+/**
+ * Finish seq_file iteration for a single pool
+ *
+ * Once iteration has been completed, the pool_iterator struct must be
+ * freed, and the seq_file private pointer restored to the pool, as it
+ * was initially when pool_proc_start() was called.
+ *
+ * In some cases the stop() method may be called 2 times, without calling
+ * the start() method (see seq_read() from fs/seq_file.c). We have to free
+ * the private iterator struct only if seq->private points to the iterator.
+ *
+ * \param[in] seq	sequence file structure to clean up
+ * \param[in] v		(unused)
+ */
+static void pool_proc_stop(struct seq_file *seq, void *v)
 {
-        struct pool_iterator *iter = (struct pool_iterator *)s->private;
+	struct pool_iterator *iter = (struct pool_iterator *)seq->private;
 
-        /* in some cases stop() method is called 2 times, without
-         * calling start() method (see seq_read() from fs/seq_file.c)
-         * we have to free only if s->private is an iterator */
-        if ((iter) && (iter->magic == POOL_IT_MAGIC)) {
-                /* we restore s->private so next call to pool_proc_start()
-                 * will work */
-                s->private = iter->pool;
-                lov_pool_putref(iter->pool);
-                OBD_FREE_PTR(iter);
-        }
-        return;
+	if (iter != NULL && iter->lpi_magic == POOL_IT_MAGIC) {
+		seq->private = iter->lpi_pool;
+		lod_pool_putref(iter->lpi_pool);
+		OBD_FREE_PTR(iter);
+	}
 }
 
-static int pool_proc_show(struct seq_file *s, void *v)
+/**
+ * Print out one target entry from the pool for seq_file iteration
+ *
+ * The currently referenced pool target is given by op_array[lpi_idx].
+ *
+ * \param[in] seq	new sequence file structure to initialize
+ * \param[in] v		(unused)
+ */
+static int pool_proc_show(struct seq_file *seq, void *v)
 {
-        struct pool_iterator *iter = (struct pool_iterator *)v;
-        struct lov_tgt_desc *tgt;
+	struct pool_iterator *iter = (struct pool_iterator *)v;
+	struct lov_tgt_desc *tgt;
 
-	LASSERTF(iter->magic == POOL_IT_MAGIC, "%08X\n", iter->magic);
-	LASSERT(iter->pool != NULL);
-	LASSERT(iter->idx <= pool_tgt_count(iter->pool));
+	LASSERTF(iter->lpi_magic == POOL_IT_MAGIC, "%08X\n", iter->lpi_magic);
+	LASSERT(iter->lpi_pool != NULL);
+	LASSERT(iter->lpi_idx <= pool_tgt_count(iter->lpi_pool));
 
-	down_read(&pool_tgt_rw_sem(iter->pool));
-        tgt = pool_tgt(iter->pool, iter->idx);
-	up_read(&pool_tgt_rw_sem(iter->pool));
-        if (tgt)
-                seq_printf(s, "%s\n", obd_uuid2str(&(tgt->ltd_uuid)));
+	down_read(&pool_tgt_rw_sem(iter->lpi_pool));
+	tgt = pool_tgt(iter->lpi_pool, iter->lpi_idx);
+	up_read(&pool_tgt_rw_sem(iter->lpi_pool));
+	if (tgt != NULL)
+		seq_printf(seq, "%s\n", obd_uuid2str(&(tgt->ltd_uuid)));
 
-        return 0;
+	return 0;
 }
 
-static struct seq_operations pool_proc_ops = {
-        .start          = pool_proc_start,
-        .next           = pool_proc_next,
-        .stop           = pool_proc_stop,
-        .show           = pool_proc_show,
+static const struct seq_operations pool_proc_ops = {
+	.start	= pool_proc_start,
+	.next	= pool_proc_next,
+	.stop	= pool_proc_stop,
+	.show	= pool_proc_show,
 };
 
+/**
+ * Open a new /proc file for seq_file iteration of targets in one pool
+ *
+ * Initialize the seq_file private pointer to reference the pool.
+ *
+ * \param inode	inode to store iteration state for /proc
+ * \param file	file descriptor to store iteration methods
+ *
+ * \retval	0 for success
+ * \retval	negative error number on failure
+ */
 static int pool_proc_open(struct inode *inode, struct file *file)
 {
-        int rc;
+	int rc;
 
-        rc = seq_open(file, &pool_proc_ops);
-        if (!rc) {
-                struct seq_file *s = file->private_data;
-		s->private = PDE_DATA(inode);
-        }
-        return rc;
+	rc = seq_open(file, &pool_proc_ops);
+	if (!rc) {
+		struct seq_file *seq = file->private_data;
+		seq->private = PDE_DATA(inode);
+	}
+	return rc;
 }
 
 static struct file_operations pool_proc_operations = {
-        .open           = pool_proc_open,
-        .read           = seq_read,
-        .llseek         = seq_lseek,
-        .release        = seq_release,
+	.open		= pool_proc_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
 };
-#endif /* LPROCFS */
 
-void lov_dump_pool(int level, struct pool_desc *pool)
+/**
+ * Dump the pool target list into the Lustre debug log
+ *
+ * This is a debugging function to allow dumping the list of targets
+ * in \a pool to the Lustre kernel debug log at the given \a level.
+ *
+ * This is not currently called by any existing code, but can be called
+ * from within gdb/crash to display the contents of the pool, or from
+ * code under development.
+ *
+ * \param[in] level	Lustre debug level (D_INFO, D_WARN, D_ERROR, etc)
+ * \param[in] pool	Pool descriptor to be dumped
+ */
+void lod_dump_pool(int level, struct pool_desc *pool)
 {
-        int i;
+	int i;
 
-        lov_pool_getref(pool);
+	pool_getref(pool);
 
-        CDEBUG(level, "pool "LOV_POOLNAMEF" has %d members\n",
-               pool->pool_name, pool->pool_obds.op_count);
+	CDEBUG(level, "pool "LOV_POOLNAMEF" has %d members\n",
+	       pool->pool_name, pool->pool_obds.op_count);
 	down_read(&pool_tgt_rw_sem(pool));
 
-        for (i = 0; i < pool_tgt_count(pool) ; i++) {
-                if (!pool_tgt(pool, i) || !(pool_tgt(pool, i))->ltd_exp)
-                        continue;
-                CDEBUG(level, "pool "LOV_POOLNAMEF"[%d] = %s\n",
-                       pool->pool_name, i,
-                       obd_uuid2str(&((pool_tgt(pool, i))->ltd_uuid)));
-        }
+	for (i = 0; i < pool_tgt_count(pool) ; i++) {
+		if (!pool_tgt(pool, i) || !(pool_tgt(pool, i))->ltd_exp)
+			continue;
+		CDEBUG(level, "pool "LOV_POOLNAMEF"[%d] = %s\n",
+		       pool->pool_name, i,
+		       obd_uuid2str(&((pool_tgt(pool, i))->ltd_uuid)));
+	}
 
 	up_read(&pool_tgt_rw_sem(pool));
-        lov_pool_putref(pool);
+	lod_pool_putref(pool);
 }
 
-#define LOV_POOL_INIT_COUNT 2
-int lov_ost_pool_init(struct ost_pool *op, unsigned int count)
+/**
+ * Initialize the pool data structures at startup.
+ *
+ * Allocate and initialize the pool data structures with the specified
+ * array size.  If pool count not is specified (\a count == 0), then
+ * POOL_INIT_COUNT will be used.  Allocating a non-zero initial array
+ * size avoids the need to reallocate as new pools are added.
+ *
+ * \param[in] op	pool structure
+ * \param[in] count	initial size of the target op_array[] array
+ *
+ * \retval		0 indicates successful pool initialization
+ * \retval		negative error number on failure
+ */
+#define POOL_INIT_COUNT 2
+int lod_ost_pool_init(struct ost_pool *op, unsigned int count)
 {
-        ENTRY;
+	ENTRY;
 
-        if (count == 0)
-                count = LOV_POOL_INIT_COUNT;
-        op->op_array = NULL;
-        op->op_count = 0;
+	if (count == 0)
+		count = POOL_INIT_COUNT;
+	op->op_array = NULL;
+	op->op_count = 0;
 	init_rwsem(&op->op_rw_sem);
-        op->op_size = count;
-        OBD_ALLOC(op->op_array, op->op_size * sizeof(op->op_array[0]));
-        if (op->op_array == NULL) {
-                op->op_size = 0;
-                RETURN(-ENOMEM);
-        }
-        EXIT;
-        return 0;
+	op->op_size = count;
+	OBD_ALLOC(op->op_array, op->op_size * sizeof(op->op_array[0]));
+	if (op->op_array == NULL) {
+		op->op_size = 0;
+		RETURN(-ENOMEM);
+	}
+	EXIT;
+	return 0;
 }
 
-/* Caller must hold write op_rwlock */
-int lov_ost_pool_extend(struct ost_pool *op, unsigned int min_count)
+/**
+ * Increase the op_array size to hold more targets in this pool
+ *
+ * The size is increased to at least \a min_count, but may be larger
+ * for an existing pool since the oparray is growing exponentially.
+ * Caller must hold write op_rwlock.
+ *
+ * \param[in] op	pool structure
+ * \param[in] min_count	minimum number of entries to handle
+ *
+ * \retval		0 on success
+ * \retval		negative error number on failure.
+ */
+int lod_ost_pool_extend(struct ost_pool *op, unsigned int min_count)
 {
-        __u32 *new;
-        int new_size;
+	__u32 *new;
+	int new_size;
 
-        LASSERT(min_count != 0);
+	LASSERT(min_count != 0);
 
-        if (op->op_count < op->op_size)
-                return 0;
+	if (op->op_count < op->op_size)
+		return 0;
 
-        new_size = max(min_count, 2 * op->op_size);
-        OBD_ALLOC(new, new_size * sizeof(op->op_array[0]));
-        if (new == NULL)
-                return -ENOMEM;
+	new_size = max(min_count, 2 * op->op_size);
+	OBD_ALLOC(new, new_size * sizeof(op->op_array[0]));
+	if (new == NULL)
+		return -ENOMEM;
 
-        /* copy old array to new one */
-        memcpy(new, op->op_array, op->op_size * sizeof(op->op_array[0]));
-        OBD_FREE(op->op_array, op->op_size * sizeof(op->op_array[0]));
-        op->op_array = new;
-        op->op_size = new_size;
-        return 0;
+	/* copy old array to new one */
+	memcpy(new, op->op_array, op->op_size * sizeof(op->op_array[0]));
+	OBD_FREE(op->op_array, op->op_size * sizeof(op->op_array[0]));
+	op->op_array = new;
+	op->op_size = new_size;
+
+	return 0;
 }
 
-int lov_ost_pool_add(struct ost_pool *op, __u32 idx, unsigned int min_count)
+/**
+ * Add a new target to an existing pool
+ *
+ * Add a new target device to the pool previously created and returned by
+ * lod_pool_new().  Each target can only be in each pool at most one time.
+ *
+ * \param[in] op	target pool to add new entry
+ * \param[in] idx	pool index number to add to the \a op array
+ * \param[in] min_count	minimum number of entries to expect in the pool
+ *
+ * \retval		0 if target could be added to the pool
+ * \retval		negative error if target \a idx was not added pool
+ */
+int lod_ost_pool_add(struct ost_pool *op, __u32 idx, unsigned int min_count)
 {
-        int rc = 0, i;
-        ENTRY;
+	int rc = 0, i;
+	ENTRY;
 
 	down_write(&op->op_rw_sem);
 
-        rc = lov_ost_pool_extend(op, min_count);
-        if (rc)
-                GOTO(out, rc);
+	rc = lod_ost_pool_extend(op, min_count);
+	if (rc)
+		GOTO(out, rc);
 
-        /* search ost in pool array */
-        for (i = 0; i < op->op_count; i++) {
-                if (op->op_array[i] == idx)
-                        GOTO(out, rc = -EEXIST);
-        }
-        /* ost not found we add it */
-        op->op_array[op->op_count] = idx;
-        op->op_count++;
-        EXIT;
+	/* search ost in pool array */
+	for (i = 0; i < op->op_count; i++) {
+		if (op->op_array[i] == idx)
+			GOTO(out, rc = -EEXIST);
+	}
+	/* ost not found we add it */
+	op->op_array[op->op_count] = idx;
+	op->op_count++;
+	EXIT;
 out:
 	up_write(&op->op_rw_sem);
-        return rc;
+	return rc;
 }
 
-int lov_ost_pool_remove(struct ost_pool *op, __u32 idx)
+/**
+ * Remove an existing pool from the system
+ *
+ * The specified pool must have previously been allocated by
+ * lod_pool_new() and not have any target members in the pool.
+ * If the removed target is not the last, compact the array
+ * to remove empty spaces.
+ *
+ * \param[in] op	pointer to the original data structure
+ * \param[in] idx	target index to be removed
+ *
+ * \retval		0 on success
+ * \retval		negative error number on failure
+ */
+int lod_ost_pool_remove(struct ost_pool *op, __u32 idx)
 {
-        int i;
-        ENTRY;
+	int i;
+	ENTRY;
 
 	down_write(&op->op_rw_sem);
 
-        for (i = 0; i < op->op_count; i++) {
-                if (op->op_array[i] == idx) {
-                        memmove(&op->op_array[i], &op->op_array[i + 1],
-                                (op->op_count - i - 1) * sizeof(op->op_array[0]));
-                        op->op_count--;
+	for (i = 0; i < op->op_count; i++) {
+		if (op->op_array[i] == idx) {
+			memmove(&op->op_array[i], &op->op_array[i + 1],
+				(op->op_count - i - 1) *
+				sizeof(op->op_array[0]));
+			op->op_count--;
 			up_write(&op->op_rw_sem);
-                        EXIT;
-                        return 0;
-                }
-        }
+			EXIT;
+			return 0;
+		}
+	}
 
 	up_write(&op->op_rw_sem);
-        RETURN(-EINVAL);
+	RETURN(-EINVAL);
 }
 
 int lov_ost_pool_free(struct ost_pool *op)
 {
-        ENTRY;
+	ENTRY;
 
-        if (op->op_size == 0)
-                RETURN(0);
+	if (op->op_size == 0)
+		RETURN(0);
 
 	down_write(&op->op_rw_sem);
 
-        OBD_FREE(op->op_array, op->op_size * sizeof(op->op_array[0]));
-        op->op_array = NULL;
-        op->op_count = 0;
-        op->op_size = 0;
+	OBD_FREE(op->op_array, op->op_size * sizeof(op->op_array[0]));
+	op->op_array = NULL;
+	op->op_count = 0;
+	op->op_size = 0;
 
 	up_write(&op->op_rw_sem);
-        RETURN(0);
+	RETURN(0);
 }
 
-
+/**
+ * Allocate a new pool for the specified device
+ *
+ * Allocate a new pool_desc structure for the specified \a new_pool
+ * device to create a pool with the given \a poolname.  The new pool
+ * structure is created with a single refrence, and is freed when the
+ * reference count drops to zero.
+ *
+ * \param[in] obd	Lustre OBD device on which to add a pool iterator
+ * \param[in] poolname	the name of the pool to be created
+ *
+ * \retval		0 in case of success
+ * \retval		negative error code in case of error
+ */
 int lov_pool_new(struct obd_device *obd, char *poolname)
 {
-        struct lov_obd *lov;
-        struct pool_desc *new_pool;
-        int rc;
-        ENTRY;
+	struct lov_obd    *lov = &(obd->u.lov);
+	struct pool_desc  *new_pool;
+	int rc;
+	ENTRY;
 
-        lov = &(obd->u.lov);
+	if (strlen(poolname) > LOV_MAXPOOLNAME)
+		RETURN(-ENAMETOOLONG);
 
-        if (strlen(poolname) > LOV_MAXPOOLNAME)
-                RETURN(-ENAMETOOLONG);
-
-        OBD_ALLOC_PTR(new_pool);
-        if (new_pool == NULL)
-                RETURN(-ENOMEM);
+	OBD_ALLOC_PTR(new_pool);
+	if (new_pool == NULL)
+		RETURN(-ENOMEM);
 
 	strlcpy(new_pool->pool_name, poolname, sizeof(new_pool->pool_name));
 	new_pool->pool_lobd = obd;
-	/* ref count init to 1 because when created a pool is always used
-	 * up to deletion
-	 */
 	atomic_set(&new_pool->pool_refcount, 1);
-	rc = lov_ost_pool_init(&new_pool->pool_obds, 0);
+	rc = lod_ost_pool_init(&new_pool->pool_obds, 0);
 	if (rc)
 		GOTO(out_err, rc);
 
 	INIT_HLIST_NODE(&new_pool->pool_hash);
 
 #ifdef LPROCFS
-        /* we need this assert seq_file is not implementated for liblustre */
-        /* get ref for /proc file */
-        lov_pool_getref(new_pool);
-        new_pool->pool_proc_entry = lprocfs_add_simple(lov->lov_pool_proc_entry,
-							poolname,
+	pool_getref(new_pool);
+	new_pool->pool_proc_entry = lprocfs_add_simple(lov->lov_pool_proc_entry,
+						       poolname,
 #ifndef HAVE_ONLY_PROCFS_SEQ
-							NULL, NULL,
+						       NULL, NULL,
 #endif
-							new_pool,
-							&pool_proc_operations);
-        if (IS_ERR(new_pool->pool_proc_entry)) {
-                CWARN("Cannot add proc pool entry "LOV_POOLNAMEF"\n", poolname);
-                new_pool->pool_proc_entry = NULL;
-                lov_pool_putref(new_pool);
-        }
-        CDEBUG(D_INFO, "pool %p - proc %p\n", new_pool, new_pool->pool_proc_entry);
+						       new_pool,
+						       &pool_proc_operations);
+	if (IS_ERR(new_pool->pool_proc_entry)) {
+		CWARN("Cannot add proc pool entry "LOV_POOLNAMEF"\n", poolname);
+		new_pool->pool_proc_entry = NULL;
+		lod_pool_putref(new_pool);
+	}
+	CDEBUG(D_INFO, "pool %p - proc %p\n", new_pool, new_pool->pool_proc_entry);
 #endif
 
 	spin_lock(&obd->obd_dev_lock);
@@ -485,47 +671,55 @@ int lov_pool_new(struct obd_device *obd, char *poolname)
 	lov->lov_pool_count++;
 	spin_unlock(&obd->obd_dev_lock);
 
-        /* add to find only when it fully ready  */
-        rc = cfs_hash_add_unique(lov->lov_pools_hash_body, poolname,
-                                 &new_pool->pool_hash);
-        if (rc)
-                GOTO(out_err, rc = -EEXIST);
+	/* add to find only when it fully ready  */
+	rc = cfs_hash_add_unique(lov->lov_pools_hash_body, poolname,
+				 &new_pool->pool_hash);
+	if (rc)
+		GOTO(out_err, rc = -EEXIST);
 
-        CDEBUG(D_CONFIG, LOV_POOLNAMEF" is pool #%d\n",
-               poolname, lov->lov_pool_count);
+	CDEBUG(D_CONFIG, LOV_POOLNAMEF" is pool #%d\n",
+			poolname, lov->lov_pool_count);
 
-        RETURN(0);
+	RETURN(0);
 
 out_err:
 	spin_lock(&obd->obd_dev_lock);
 	list_del_init(&new_pool->pool_list);
 	lov->lov_pool_count--;
 	spin_unlock(&obd->obd_dev_lock);
-        lprocfs_remove(&new_pool->pool_proc_entry);
+
+	lprocfs_remove(&new_pool->pool_proc_entry);
+
 	lov_ost_pool_free(&new_pool->pool_obds);
 	OBD_FREE_PTR(new_pool);
-
 	return rc;
 }
 
+/**
+ * Remove the named pool from the OBD device
+ *
+ * \param[in] obd	OBD device on which pool was previously created
+ * \param[in] poolname	name of pool to remove from \a obd
+ *
+ * \retval		0 on successfully removing the pool
+ * \retval		negative error numbers for failures
+ */
 int lov_pool_del(struct obd_device *obd, char *poolname)
 {
-        struct lov_obd *lov;
-        struct pool_desc *pool;
-        ENTRY;
+	struct lov_obd *lov = &(obd->u.lov);
+	struct pool_desc *pool;
+	ENTRY;
 
-        lov = &(obd->u.lov);
+	/* lookup and kill hash reference */
+	pool = cfs_hash_del_key(lov->lov_pools_hash_body, poolname);
+	if (pool == NULL)
+		RETURN(-ENOENT);
 
-        /* lookup and kill hash reference */
-        pool = cfs_hash_del_key(lov->lov_pools_hash_body, poolname);
-        if (pool == NULL)
-                RETURN(-ENOENT);
-
-        if (pool->pool_proc_entry != NULL) {
-                CDEBUG(D_INFO, "proc entry %p\n", pool->pool_proc_entry);
-                lprocfs_remove(&pool->pool_proc_entry);
-                lov_pool_putref(pool);
-        }
+	if (pool->pool_proc_entry != NULL) {
+		CDEBUG(D_INFO, "proc entry %p\n", pool->pool_proc_entry);
+		lprocfs_remove(&pool->pool_proc_entry);
+		lod_pool_putref(pool);
+	}
 
 	spin_lock(&obd->obd_dev_lock);
 	list_del_init(&pool->pool_list);
@@ -533,97 +727,116 @@ int lov_pool_del(struct obd_device *obd, char *poolname)
 	spin_unlock(&obd->obd_dev_lock);
 
 	/* release last reference */
-	lov_pool_putref(pool);
+	lod_pool_putref(pool);
 
 	RETURN(0);
 }
 
-
+/**
+ * Add a single target device to the named pool
+ *
+ * Add the target specified by \a ostname to the specified \a poolname.
+ *
+ * \param[in] obd	OBD device on which to add the pool
+ * \param[in] poolname	name of the pool to which to add the target \a ostname
+ * \param[in] ostname	name of the target device to be added
+ *
+ * \retval		0 if \a ostname was (previously) added to the named pool
+ * \retval		negative error number on failure
+ */
 int lov_pool_add(struct obd_device *obd, char *poolname, char *ostname)
 {
-        struct obd_uuid ost_uuid;
-        struct lov_obd *lov;
-        struct pool_desc *pool;
-        unsigned int lov_idx;
-        int rc;
-        ENTRY;
+	struct lov_obd    *lov = &(obd->u.lov);
+	struct obd_uuid    ost_uuid;
+	struct pool_desc  *pool;
+	unsigned int	   lov_idx;
+	int		   rc = -EINVAL;
+	ENTRY;
 
-        lov = &(obd->u.lov);
+	pool = cfs_hash_lookup(lov->lov_pools_hash_body, poolname);
+	if (pool == NULL)
+		RETURN(-ENOENT);
 
-        pool = cfs_hash_lookup(lov->lov_pools_hash_body, poolname);
-        if (pool == NULL)
-                RETURN(-ENOENT);
+	obd_str2uuid(&ost_uuid, ostname);
 
-        obd_str2uuid(&ost_uuid, ostname);
+	/* search ost in lov array */
+	obd_getref(obd);
+	for (lov_idx = 0; lov_idx < lov->desc.ld_tgt_count; lov_idx++) {
+		if (!lov->lov_tgts[lov_idx])
+			continue;
+		if (obd_uuid_equals(&ost_uuid,
+				    &(lov->lov_tgts[lov_idx]->ltd_uuid)))
+			break;
+	}
+	/* test if ost found in lov */
+	if (lov_idx == lov->desc.ld_tgt_count)
+		GOTO(out, rc = -EINVAL);
 
+	rc = lov_ost_pool_add(&pool->pool_obds, lov_idx, lov->lov_tgt_size);
+	if (rc)
+		GOTO(out, rc);
 
-        /* search ost in lov array */
-        obd_getref(obd);
-        for (lov_idx = 0; lov_idx < lov->desc.ld_tgt_count; lov_idx++) {
-                if (!lov->lov_tgts[lov_idx])
-                        continue;
-                if (obd_uuid_equals(&ost_uuid,
-                                    &(lov->lov_tgts[lov_idx]->ltd_uuid)))
-                        break;
-        }
-        /* test if ost found in lov */
-        if (lov_idx == lov->desc.ld_tgt_count)
-                GOTO(out, rc = -EINVAL);
+	CDEBUG(D_CONFIG, "Added %s to "LOV_POOLNAMEF" as member %d\n",
+			ostname, poolname,  pool_tgt_count(pool));
 
-        rc = lov_ost_pool_add(&pool->pool_obds, lov_idx, lov->lov_tgt_size);
-        if (rc)
-                GOTO(out, rc);
-
-        CDEBUG(D_CONFIG, "Added %s to "LOV_POOLNAMEF" as member %d\n",
-               ostname, poolname,  pool_tgt_count(pool));
-
-        EXIT;
+	EXIT;
 out:
-        obd_putref(obd);
-        lov_pool_putref(pool);
-        return rc;
+	obd_putref(obd);
+	lod_pool_putref(pool);
+	return rc;
 }
 
+/**
+ * Remove the named target from the specified pool
+ *
+ * Remove one target named \a ostname from \a poolname.  The \a ostname
+ * is searched for in the lod_device lod_ost_bitmap array, to ensure the
+ * specified name actually exists in the pool.
+ *
+ * \param[in] obd	OBD device from which to remove \a poolname
+ * \param[in] poolname	name of the pool to be changed
+ * \param[in] ostname	name of the target to remove from \a poolname
+ *
+ * \retval		0 on successfully removing \a ostname from the pool
+ * \retval		negative number on error (e.g. \a ostname not in pool)
+ */
 int lov_pool_remove(struct obd_device *obd, char *poolname, char *ostname)
 {
-        struct obd_uuid ost_uuid;
-        struct lov_obd *lov;
-        struct pool_desc *pool;
-        unsigned int lov_idx;
-        int rc = 0;
-        ENTRY;
+	struct lov_obd    *lov = &(obd->u.lov);
+	struct obd_uuid    ost_uuid;
+	struct pool_desc  *pool;
+	unsigned int	   lov_idx;
+	int		   rc = 0;
+	ENTRY;
 
-        lov = &(obd->u.lov);
+	pool = cfs_hash_lookup(lov->lov_pools_hash_body, poolname);
+	if (pool == NULL)
+		RETURN(-ENOENT);
 
-        pool = cfs_hash_lookup(lov->lov_pools_hash_body, poolname);
-        if (pool == NULL)
-                RETURN(-ENOENT);
+	obd_str2uuid(&ost_uuid, ostname);
 
-        obd_str2uuid(&ost_uuid, ostname);
+	obd_getref(obd);
+	for (lov_idx = 0; lov_idx < lov->desc.ld_tgt_count; lov_idx++) {
+		if (!lov->lov_tgts[lov_idx])
+			continue;
 
-        obd_getref(obd);
-        /* search ost in lov array, to get index */
-        for (lov_idx = 0; lov_idx < lov->desc.ld_tgt_count; lov_idx++) {
-                if (!lov->lov_tgts[lov_idx])
-                        continue;
+		if (obd_uuid_equals(&ost_uuid,
+				    &(lov->lov_tgts[lov_idx]->ltd_uuid)))
+			break;
+	}
 
-                if (obd_uuid_equals(&ost_uuid,
-                                    &(lov->lov_tgts[lov_idx]->ltd_uuid)))
-                        break;
-        }
+	/* test if ost found in lov array */
+	if (lov_idx == lov->desc.ld_tgt_count)
+		GOTO(out, rc = -EINVAL);
 
-        /* test if ost found in lov */
-        if (lov_idx == lov->desc.ld_tgt_count)
-                GOTO(out, rc = -EINVAL);
+	lov_ost_pool_remove(&pool->pool_obds, lov_idx);
 
-        lov_ost_pool_remove(&pool->pool_obds, lov_idx);
+	CDEBUG(D_CONFIG, "%s removed from "LOV_POOLNAMEF"\n", ostname,
+	       poolname);
 
-        CDEBUG(D_CONFIG, "%s removed from "LOV_POOLNAMEF"\n", ostname,
-               poolname);
-
-        EXIT;
+	EXIT;
 out:
-        obd_putref(obd);
-        lov_pool_putref(pool);
-        return rc;
+	obd_putref(obd);
+	lod_pool_putref(pool);
+	return rc;
 }
