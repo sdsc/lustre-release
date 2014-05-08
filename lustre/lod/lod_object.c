@@ -1764,7 +1764,7 @@ static int lod_xattr_set_lov_on_dir(const struct lu_env *env,
 	LASSERT(buf != NULL && buf->lb_buf != NULL);
 	lum = buf->lb_buf;
 
-	rc = lod_verify_striping(d, buf, 0);
+	rc = lod_verify_striping(d, buf, true);
 	if (rc)
 		RETURN(rc);
 

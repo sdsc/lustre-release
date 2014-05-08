@@ -900,7 +900,7 @@ int lod_load_striping(const struct lu_env *env, struct lod_object *lo)
 }
 
 int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
-			int specific)
+			bool is_from_user)
 {
 	struct lov_user_md_v1	*lum;
 	struct lov_user_md_v3	*lum3;
@@ -932,8 +932,11 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 		GOTO(out, rc = -EINVAL);
 	}
 
-	if ((specific && le32_to_cpu(lum->lmm_pattern) != LOV_PATTERN_RAID0) ||
-	    (!specific && lum->lmm_pattern != 0)) {
+	/* the user uses "0" for default stripe pattern normally. */
+	if (is_from_user && lum->lmm_pattern == 0)
+		lum->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0);
+
+	if (le32_to_cpu(lum->lmm_pattern) != LOV_PATTERN_RAID0) {
 		CDEBUG(D_IOCTL, "bad userland stripe pattern: %#x\n",
 		       le32_to_cpu(lum->lmm_pattern));
 		GOTO(out, rc = -EINVAL);
@@ -969,14 +972,14 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	stripe_count = le16_to_cpu(lum->lmm_stripe_count);
 	if (magic == LOV_USER_MAGIC_V1 || magic == LOV_MAGIC_V1_DEF)
 		lum_size = offsetof(struct lov_user_md_v1,
-				    lmm_objects[stripe_count]);
+				    lmm_objects[0]);
 	else if (magic == LOV_USER_MAGIC_V3 || magic == LOV_MAGIC_V3_DEF)
 		lum_size = offsetof(struct lov_user_md_v3,
-				    lmm_objects[stripe_count]);
+				    lmm_objects[0]);
 	else
 		LBUG();
 
-	if (specific && buf->lb_len != lum_size) {
+	if (buf->lb_len != lum_size) {
 		CDEBUG(D_IOCTL, "invalid buf len %zd for lov_user_md with "
 		       "magic %#x and stripe_count %u\n",
 		       buf->lb_len, magic, stripe_count);
@@ -1006,7 +1009,7 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 			GOTO(out, rc = -EINVAL);
 	}
 
-	if (specific && stripe_count > pool_tgt_count(pool)) {
+	if (!is_from_user && stripe_count > pool_tgt_count(pool)) {
 		CDEBUG(D_IOCTL,
 		       "stripe count %u > # OSTs %u in the pool\n",
 		       stripe_count, pool_tgt_count(pool));
