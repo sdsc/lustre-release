@@ -88,7 +88,7 @@ struct dx_countlimit {
         u_int16_t count;
 };
 
-typedef __u32 lvar_hash_t;
+typedef uint32_t lvar_hash_t;
 
 struct lvar_leaf_header {
         u_int16_t vlh_magic; /* magic number IAM_LVAR_LEAF_MAGIC */

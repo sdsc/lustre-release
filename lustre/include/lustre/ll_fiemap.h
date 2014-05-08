@@ -43,33 +43,36 @@
 #ifndef _LUSTRE_FIEMAP_H
 #define _LUSTRE_FIEMAP_H
 
+#include <libcfs/types.h>
+
 #if !defined(__KERNEL__)
 
 #include <stddef.h>
-#include <libcfs/posix/posix-types.h>
 
 struct ll_fiemap_extent {
-        __u64 fe_logical;  /* logical offset in bytes for the start of
-                            * the extent from the beginning of the file */
-        __u64 fe_physical; /* physical offset in bytes for the start
-                            * of the extent from the beginning of the disk */
-        __u64 fe_length;   /* length in bytes for this extent */
-        __u64 fe_reserved64[2];
-        __u32 fe_flags;    /* FIEMAP_EXTENT_* flags for this extent */
-        __u32 fe_device;   /* device number for this extent */
-        __u32 fe_reserved[2];
+	uint64_t fe_logical;  /* logical offset in bytes for the start of the
+				  * extent from the beginning of the file */
+	uint64_t fe_physical; /* physical offset in bytes for the start of
+				  * the extent from the beginning of the disk */
+	uint64_t fe_length;   /* length in bytes for this extent */
+	uint64_t fe_reserved64[2];
+	uint32_t fe_flags;    /* FIEMAP_EXTENT_* flags for this extent */
+	uint32_t fe_device;   /* device number for this extent */
+	uint32_t fe_reserved[2];
 };
 
 struct ll_user_fiemap {
-        __u64 fm_start;  /* logical offset (inclusive) at
-                          * which to start mapping (in) */
-        __u64 fm_length; /* logical length of mapping which
-                          * userspace wants (in) */
-        __u32 fm_flags;  /* FIEMAP_FLAG_* flags for request (in/out) */
-        __u32 fm_mapped_extents;/* number of extents that were mapped (out) */
-        __u32 fm_extent_count;  /* size of fm_extents array (in) */
-        __u32 fm_reserved;
-        struct ll_fiemap_extent fm_extents[0]; /* array of mapped extents (out) */
+	uint64_t fm_start;  /* logical offset (inclusive) at
+				* which to start mapping (in) */
+	uint64_t fm_length; /* logical length of mapping which
+				* userspace wants (in) */
+	uint32_t fm_flags;  /* FIEMAP_FLAG_* flags for request (in/out) */
+	uint32_t fm_mapped_extents; /* number of extents that were mapped
+					* (out) */
+	uint32_t fm_extent_count; /* size of fm_extents array (in) */
+	uint32_t fm_reserved;
+	struct ll_fiemap_extent fm_extents[0]; /* array of mapped extents
+						* (out) */
 };
 
 #define FIEMAP_MAX_OFFSET      (~0ULL)

@@ -66,8 +66,8 @@ int verbose;
 bool dry_run;
 
 struct obd_group_info {
-	__u64		grp_last_id;
-	__u64		grp_seq;
+	uint64_t		grp_last_id;
+	uint64_t		grp_seq;
 	cfs_list_t	grp_list;
 };
 
@@ -157,9 +157,9 @@ out:
 }
 
 /* This is returning 0 for an error */
-static __u64 read_last_id(char *file_path)
+static uint64_t read_last_id(char *file_path)
 {
-	__u64 last_id;
+	uint64_t last_id;
 	int fd;
 	int count;
 
@@ -189,7 +189,7 @@ static __u64 read_last_id(char *file_path)
 	return le64_to_cpu(last_id);
 }
 
-struct obd_group_info *find_or_create_grp(cfs_list_t *list, __u64 seq,
+struct obd_group_info *find_or_create_grp(cfs_list_t *list, uint64_t seq,
 					  const char *mount)
 {
 	struct obd_group_info	*grp;
@@ -197,7 +197,7 @@ struct obd_group_info *find_or_create_grp(cfs_list_t *list, __u64 seq,
 	char			tmp_path[PATH_MAX];
 	char			seq_name[32];
 	int			retval;
-	__u64			tmp_last_id;
+	uint64_t			tmp_last_id;
 
 	cfs_list_for_each(entry, list) {
 		grp = (struct obd_group_info *)cfs_list_entry(entry,
@@ -212,7 +212,7 @@ struct obd_group_info *find_or_create_grp(cfs_list_t *list, __u64 seq,
 		return NULL;
 
 	sprintf(seq_name, (fid_seq_is_rsvd(seq) ||
-			   fid_seq_is_mdt0(seq)) ? LPU64 : LPX64i,
+			   fid_seq_is_mdt0(seq)) ? "%"PRIu64 : "%"PRIx64,
 			   fid_seq_is_idif(seq) ? 0 : seq);
 
 	/* Check whether the obj dir has been created */
@@ -270,7 +270,7 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 	DIR *dir_ptr;
 	struct lustre_mdt_attrs lma;
 	struct dirent64 *dirent;
-	__u64 ff_seq, ff_objid;
+	uint64_t ff_seq, ff_objid;
         char *file_path;
         char dest_path[PATH_MAX];
         struct stat st;
@@ -359,7 +359,8 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 		}
 
 		sprintf(seq_name, (fid_seq_is_rsvd(ff_seq) ||
-				   fid_seq_is_mdt0(ff_seq)) ? LPU64 : LPX64i,
+				   fid_seq_is_mdt0(ff_seq)) ? "%"PRIu64 :
+							      "%"PRIx64,
 			fid_seq_is_idif(ff_seq) ? 0 : ff_seq);
 
 		/* LAST_ID uses OID = 0.  It will be regenerated later. */
@@ -372,7 +373,7 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 		sprintf(obj_name, (fid_seq_is_rsvd(ff_seq) ||
 				   fid_seq_is_mdt0(ff_seq) ||
 				   fid_seq_is_idif(ff_seq)) ?
-				   LPU64 : LPX64i, ff_objid);
+				   "%"PRIu64 : "%"PRIx64, ff_objid);
 
 		grp_info = find_or_create_grp(&grp_info_list, ff_seq,
 					      mount_path);
@@ -382,7 +383,7 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 		}
 
 		/* Might need to create the parent directory for this object */
-		if (ll_sprintf(dest_path, PATH_MAX, "%s/O/%s/d"LPU64,
+		if (ll_sprintf(dest_path, PATH_MAX, "%s/O/%s/d%"PRIu64,
 				mount_path, seq_name, ff_objid % 32)) {
 			closedir(dir_ptr);
 			return 1;
@@ -398,15 +399,15 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 		if (ff_objid > grp_info->grp_last_id) {
 			fprintf(stderr, "error: file skipped because object ID "
 				"greater than LAST_ID\nFilename: %s\n"
-				"Group: "LPU64"\nObjectid: "LPU64"\n"
-				"LAST_ID: "LPU64, file_path, ff_seq, ff_objid,
+				"Group: %"PRIu64"\nObjectid: %"PRIu64"\n"
+				"LAST_ID: %"PRIu64, file_path, ff_seq, ff_objid,
 				grp_info->grp_last_id);
 			continue;
 		}
 
 		/* move file from lost+found to proper object directory */
 		if (ll_sprintf(dest_path, PATH_MAX,
-				"%s/O/%s/d"LPU64"/%s", mount_path,
+				"%s/O/%s/d%"PRIu64"/%s", mount_path,
 				seq_name, ff_objid % 32, obj_name)) {
 			closedir(dir_ptr);
 			return 1;
@@ -472,15 +473,15 @@ static int check_last_id(const char *mount_path)
         DIR *groupdir, *subdir;
         struct stat st;
         struct dirent *dirent;
-        __u64 group;
-        __u64 max_objid;
+	uint64_t group;
+	uint64_t max_objid;
         int fd;
         int ret;
 
         for (group = 0; group < MAX_GROUPS; group++) {
                 max_objid = 0;
 
-                if (ll_sprintf(dirname, PATH_MAX, "%s/O/"LPU64,
+		if (ll_sprintf(dirname, PATH_MAX, "%s/O/%"PRIu64,
                                mount_path, group))
                         return 1;
                 if (ll_sprintf(lastid_path, PATH_MAX, "%s/LAST_ID", dirname))
@@ -515,7 +516,7 @@ static int check_last_id(const char *mount_path)
                         }
 
                         while ((dirent = readdir(subdir)) != NULL) {
-                                __u64 objid;
+				uint64_t objid;
                                 char *end;
 
                                 if (!strcmp(dirent->d_name, ".") ||
@@ -538,7 +539,7 @@ static int check_last_id(const char *mount_path)
 
 		if (dry_run) {
 			fprintf(stderr, "dry_run: not updating '%s' to "
-				LPU64"\n", lastid_path, max_objid);
+				"%"PRIu64"\n", lastid_path, max_objid);
 			return 0;
 		}
 		fd = open(lastid_path, O_RDWR | O_CREAT, 0700);
@@ -549,8 +550,8 @@ static int check_last_id(const char *mount_path)
 		}
 
 		max_objid = cpu_to_le64(max_objid);
-		ret = write(fd, &max_objid, sizeof(__u64));
-		if (ret < sizeof(__u64)) {
+		ret = write(fd, &max_objid, sizeof(uint64_t));
+		if (ret < sizeof(uint64_t)) {
 			fprintf(stderr, "error: write '%s' failed: %s\n",
 				lastid_path, strerror(errno));
 			close(fd);

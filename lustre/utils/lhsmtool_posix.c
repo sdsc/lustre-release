@@ -61,7 +61,7 @@
  * archive num = 0 => all
  * archive num from 1 to 32
  */
-#define MAX_ARCHIVE_CNT (sizeof(__u32) * 8)
+#define MAX_ARCHIVE_CNT (sizeof(uint32_t) * 8)
 
 enum ct_action {
 	CA_IMPORT = 1,
@@ -529,12 +529,12 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 			const struct hsm_action_item *hai, long hal_flags)
 {
 	struct hsm_extent	 he;
-	__u64			 offset = hai->hai_extent.offset;
+	uint64_t			 offset = hai->hai_extent.offset;
 	struct stat		 src_st;
 	struct stat		 dst_st;
 	char			*buf = NULL;
-	__u64			 write_total = 0;
-	__u64			 length;
+	uint64_t			 write_total = 0;
+	uint64_t			 length;
 	time_t			 last_print_time = time(NULL);
 	int			 rc = 0;
 
@@ -568,7 +568,7 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 	if (rc < 0) {
 		rc = -errno;
 		CT_ERROR(rc,
-			 "cannot seek for read to "LPU64" (len %jd) in '%s'",
+			 "cannot seek for read to %"PRIu64" (len %jd) in '%s'",
 			 hai->hai_extent.offset, (intmax_t)src_st.st_size, src);
 		return rc;
 	}
@@ -595,7 +595,7 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 		goto out;
 	}
 
-	CT_DEBUG("Going to copy "LPU64" bytes %s -> %s\n", length, src, dst);
+	CT_DEBUG("Going to copy %"PRIu64" bytes %s -> %s\n", length, src, dst);
 
 	while (write_total < length) {
 		ssize_t	rsize;
@@ -630,7 +630,7 @@ static int ct_copy_data(struct hsm_copyaction_private *hcp, const char *src,
 
 		if (time(0) >= last_print_time + opt.o_report_int) {
 			last_print_time = time(0);
-			CT_TRACE("%%"LPU64" ", 100 * write_total / length);
+			CT_TRACE("%%%"PRIu64" ", 100 * write_total / length);
 			he.length = write_total;
 			rc = llapi_hsm_action_progress(hcp, &he, length, 0);
 			if (rc < 0) {
@@ -800,7 +800,7 @@ static int ct_fini(struct hsm_copyaction_private **phcp,
 	int				 rc;
 
 	CT_TRACE("Action completed, notifying coordinator "
-		 "cookie="LPX64", FID="DFID", hp_flags=%d err=%d",
+		 "cookie=%#"PRIx64", FID="DFID", hp_flags=%d err=%d",
 		 hai->hai_cookie, PFID(&hai->hai_fid),
 		 hp_flags, -ct_rc);
 
@@ -819,7 +819,7 @@ static int ct_fini(struct hsm_copyaction_private **phcp,
 	rc = llapi_hsm_action_end(phcp, &hai->hai_extent, hp_flags, abs(ct_rc));
 	if (rc == -ECANCELED)
 		CT_ERROR(rc, "completed action on '%s' has been canceled: "
-			 "cookie="LPX64", FID="DFID, lstr, hai->hai_cookie,
+			 "cookie=%#"PRIx64", FID="DFID, lstr, hai->hai_cookie,
 			 PFID(&hai->hai_fid));
 	else if (rc < 0)
 		CT_ERROR(rc, "llapi_hsm_action_end() on '%s' failed", lstr);
@@ -1229,7 +1229,7 @@ static int ct_process_item(struct hsm_action_item *hai, const long hal_flags)
 		int		linkno = 0;
 
 		sprintf(fid, DFID, PFID(&hai->hai_fid));
-		CT_TRACE("'%s' action %s reclen %d, cookie="LPX64,
+		CT_TRACE("'%s' action %s reclen %d, cookie=%#"PRIx64,
 			 fid, hsm_copytool_action2name(hai->hai_action),
 			 hai->hai_len, hai->hai_cookie);
 		rc = llapi_fid2path(opt.o_mnt, fid, path,
@@ -1637,11 +1637,11 @@ static int ct_rebind(void)
 	return rc;
 }
 
-static int ct_dir_level_max(const char *dirpath, __u16 *sub_seqmax)
+static int ct_dir_level_max(const char *dirpath, uint16_t *sub_seqmax)
 {
 	DIR		*dir;
 	int		 rc;
-	__u16		 sub_seq;
+	uint16_t		 sub_seq;
 	struct dirent	 ent, *cookie = NULL;
 
 	*sub_seqmax = 0;
@@ -1682,8 +1682,8 @@ static int ct_max_sequence(void)
 {
 	int   rc, i;
 	char  path[PATH_MAX];
-	__u64 seq = 0;
-	__u16 subseq;
+	uint64_t seq = 0;
+	uint16_t subseq;
 
 	strncpy(path, opt.o_hsm_root, sizeof(path));
 	/* FID sequence is stored in top-level directory names:
@@ -1693,11 +1693,11 @@ static int ct_max_sequence(void)
 		rc = ct_dir_level_max(path, &subseq);
 		if (rc != 0)
 			return rc;
-		seq |= ((__u64)subseq << ((3 - i) * 16));
+		seq |= ((uint64_t)subseq << ((3 - i) * 16));
 		sprintf(path + strlen(path), "/%04x", subseq);
 	}
 
-	printf("max_sequence: "LPX64"\n", seq);
+	printf("max_sequence: %#"PRIx64"\n", seq);
 
 	return 0;
 }

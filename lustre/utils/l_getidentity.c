@@ -82,7 +82,7 @@ static void usage(void)
 
 static int compare_u32(const void *v1, const void *v2)
 {
-        return (*(__u32 *)v1 - *(__u32 *)v2);
+	return (*(uint32_t *)v1 - *(uint32_t *)v2);
 }
 
 static void errlog(const char *fmt, ...)
@@ -194,7 +194,7 @@ static inline int match_uid(uid_t uid, const char *str)
 
 typedef struct {
         char   *name;
-        __u32   bit;
+	uint32_t   bit;
 } perm_type_t;
 
 static perm_type_t perm_types[] = {
@@ -215,7 +215,7 @@ static perm_type_t noperm_types[] = {
         { 0 }
 };
 
-int parse_perm(__u32 *perm, __u32 *noperm, char *str)
+int parse_perm(uint32_t *perm, uint32_t *noperm, char *str)
 {
         char *start, *end;
         char name[64];
@@ -262,7 +262,7 @@ int parse_perm_line(struct identity_downcall_data *data, char *line)
 {
         char uid_str[256], nid_str[256], perm_str[256];
         lnet_nid_t nid;
-        __u32 perm, noperm;
+	uint32_t perm, noperm;
         int rc, i;
 
         if (data->idd_nperms >= N_PERMS_MAX) {
@@ -403,7 +403,7 @@ static void show_result(struct identity_downcall_data *data)
 
                 pdd = &data->idd_perms[i];
 
-                printf("  "LPX64"\t0x%x\n", pdd->pdd_nid, pdd->pdd_perm);
+		printf("  %#"PRIx64"\t0x%x\n", pdd->pdd_nid, pdd->pdd_perm);
         }
         printf("\n");
 }

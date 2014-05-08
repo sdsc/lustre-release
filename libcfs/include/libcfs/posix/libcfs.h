@@ -98,7 +98,6 @@
 #endif
 
 #include <libcfs/list.h>
-#include <libcfs/posix/posix-types.h>
 #include <libcfs/user-time.h>
 #include <libcfs/user-prim.h>
 #include <libcfs/user-mem.h>

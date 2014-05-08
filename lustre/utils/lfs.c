@@ -342,20 +342,20 @@ command_t cmdlist[] = {
 static int lfs_migrate(char *name, unsigned long long stripe_size,
 		       int stripe_offset, int stripe_count,
 		       int stripe_pattern, char *pool_name,
-		       __u64 migration_flags)
+		       uint64_t migration_flags)
 {
 	int			 fd, fdv;
 	char			 volatile_file[PATH_MAX];
 	char			 parent[PATH_MAX];
 	char			*ptr;
 	int			 rc;
-	__u64			 dv1;
+	uint64_t			 dv1;
 	struct lov_user_md	*lum = NULL;
 	int			 lumsz;
 	int			 bufsz;
 	void			*buf = NULL;
 	int			 rsize, wsize;
-	__u64			 rpos, wpos, bufoff;
+	uint64_t			 rpos, wpos, bufoff;
 	int			 gid = 0, sz;
 	int			 have_gl = 0;
 	struct stat		 st, stv;
@@ -599,7 +599,7 @@ static int lfs_setstripe(int argc, char **argv)
 	char			*pool_name_arg = NULL;
 	unsigned long long	 size_units = 1;
 	int			 migrate_mode = 0;
-	__u64			 migration_flags = 0;
+	uint64_t			 migration_flags = 0;
 
 	struct option		 long_opts[] = {
 		/* valid only in migrate mode */
@@ -862,7 +862,7 @@ static int id2name(char **name, unsigned int id, int type)
         return 0;
 }
 
-static int name2layout(__u32 *layout, char *name)
+static int name2layout(uint32_t *layout, char *name)
 {
 	char *ptr, *lyt;
 
@@ -1774,9 +1774,9 @@ static int mntdf(char *mntdir, char *fsname, char *pool, int ishow,
 					{ LL_STATFS_LOV, "OST" },
 					{ 0, NULL } };
 	struct ll_stat_type *tp;
-	__u64 ost_ffree = 0;
-	__u32 index;
-	__u32 type;
+	uint64_t ost_ffree = 0;
+	uint32_t index;
+	uint32_t type;
 	int rc;
 
         if (pool) {
@@ -2627,10 +2627,10 @@ static void print_quota_title(char *name, struct if_quotactl *qctl,
 	       "files", "quota", "limit", "grace");
 }
 
-static void kbytes2str(__u64 num, char *buf, bool h)
+static void kbytes2str(uint64_t num, char *buf, bool h)
 {
 	if (!h) {
-		sprintf(buf, LPU64, num);
+		sprintf(buf, "%"PRIu64, num);
 	} else {
 		if (num >> 30)
 			sprintf(buf, "%5.4gT", (double)num / (1 << 30));
@@ -2639,7 +2639,7 @@ static void kbytes2str(__u64 num, char *buf, bool h)
 		else if (num >> 10)
 			sprintf(buf, "%5.4gM", (double)num / (1 << 10));
 		else
-			sprintf(buf, LPU64"%s", num, "k");
+			sprintf(buf, "%"PRIu64"%s", num, "k");
 	}
 }
 
@@ -2714,16 +2714,16 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type,
 			diff2str(dqb->dqb_itime, timebuf, now);
 
 		sprintf(numbuf[0], (dqb->dqb_valid & QIF_INODES) ?
-			LPU64 : "["LPU64"]", dqb->dqb_curinodes);
+			"%"PRIu64 : "[%"PRIu64"]", dqb->dqb_curinodes);
 
 		if (type == QC_GENERAL)
 			sprintf(numbuf[1], (dqb->dqb_valid & QIF_ILIMITS) ?
-				LPU64 : "["LPU64"]", dqb->dqb_isoftlimit);
+				"%"PRIu64 : "[%"PRIu64"]", dqb->dqb_isoftlimit);
 		else
 			sprintf(numbuf[1], "%s", "-");
 
 		sprintf(numbuf[2], (dqb->dqb_valid & QIF_ILIMITS) ?
-			LPU64 : "["LPU64"]", dqb->dqb_ihardlimit);
+			"%"PRIu64 : "[%"PRIu64"]", dqb->dqb_ihardlimit);
 
 		if (type != QC_OSTIDX)
 			printf(" %7s%c %6s %7s %7s",
@@ -2746,10 +2746,10 @@ static void print_quota(char *mnt, struct if_quotactl *qctl, int type,
 }
 
 static int print_obd_quota(char *mnt, struct if_quotactl *qctl, int is_mdt,
-			   bool h, __u64 *total)
+			   bool h, uint64_t *total)
 {
         int rc = 0, rc1 = 0, count = 0;
-        __u32 valid = qctl->qc_valid;
+	uint32_t valid = qctl->qc_valid;
 
         rc = llapi_get_obd_count(mnt, &count, is_mdt);
         if (rc) {
@@ -2796,8 +2796,8 @@ static int lfs_quota(int argc, char **argv)
 	int rc, rc1 = 0, rc2 = 0, rc3 = 0,
 	    verbose = 0, pass = 0, quiet = 0, inacc;
 	char *endptr;
-	__u32 valid = QC_GENERAL, idx = 0;
-	__u64 total_ialloc = 0, total_balloc = 0;
+	uint32_t valid = QC_GENERAL, idx = 0;
+	uint64_t total_ialloc = 0, total_balloc = 0;
 	bool human_readable = false;
 
 	optind = 0;
@@ -2935,7 +2935,7 @@ ug_output:
 		rc3 = print_obd_quota(mnt, &qctl, 0, human_readable,
 				      &total_balloc);
 		kbytes2str(total_balloc, strbuf, human_readable);
-		printf("Total allocated inode limit: "LPU64", total "
+		printf("Total allocated inode limit: %"PRIu64", total "
 		       "allocated block limit: %s\n", total_ialloc, strbuf);
 	}
 
@@ -3143,7 +3143,7 @@ static int lfs_changelog(int argc, char **argv)
 
                 secs = rec->cr_time >> 30;
                 gmtime_r(&secs, &ts);
-                printf(LPU64" %02d%-5s %02d:%02d:%02d.%06d %04d.%02d.%02d "
+		printf("%"PRIu64" %02d%-5s %02d:%02d:%02d.%06d %04d.%02d.%02d "
                        "0x%x t="DFID, rec->cr_index, rec->cr_type,
                        changelog_type2str(rec->cr_type),
                        ts.tm_hour, ts.tm_min, ts.tm_sec,
@@ -3314,7 +3314,7 @@ out:
 static int lfs_data_version(int argc, char **argv)
 {
 	char *path;
-	__u64 data_version;
+	uint64_t data_version;
 	int fd;
 	int rc;
 	int c;
@@ -3351,7 +3351,7 @@ static int lfs_data_version(int argc, char **argv)
 	if (rc < 0)
 		err(errno, "cannot get version for %s", path);
 	else
-		printf(LPU64 "\n", data_version);
+		printf("%"PRIu64 "\n", data_version);
 
 	close(fd);
 	return rc;
@@ -3426,7 +3426,7 @@ static int lfs_hsm_change_flags(int argc, char **argv, int mode)
 		{0, 0, 0, 0}
 	};
 	char short_opts[] = "lraAde";
-	__u64 mask = 0;
+	uint64_t mask = 0;
 	int c, rc;
 	char *path;
 
@@ -3527,11 +3527,11 @@ static int lfs_hsm_action(int argc, char **argv)
 
 		if ((hps == HPS_RUNNING) &&
 		    (hua == HUA_ARCHIVE || hua == HUA_RESTORE))
-			printf("("LPX64 " bytes moved)\n", he.length);
+			printf("(%#"PRIx64" bytes moved)\n", he.length);
 		else if ((he.offset + he.length) == OBD_OBJECT_EOF)
-			printf("(from "LPX64 " to EOF)\n", he.offset);
+			printf("(from %#"PRIx64" to EOF)\n", he.offset);
 		else
-			printf("(from "LPX64 " to "LPX64")\n",
+			printf("(from %#"PRIx64" to %#"PRIx64")\n",
 			       he.offset, he.offset + he.length);
 
 	} while (++i < argc);

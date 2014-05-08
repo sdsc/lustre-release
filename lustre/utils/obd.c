@@ -90,8 +90,8 @@ struct shared_data {
         l_cond_t  cond;
         int       stopping;
         struct {
-                __u64 counters[MAX_THREADS];
-                __u64 offsets[MAX_THREADS];
+		uint64_t counters[MAX_THREADS];
+		uint64_t offsets[MAX_THREADS];
                 int   thr_running;
                 int   start_barrier;
                 int   stop_barrier;
@@ -101,7 +101,7 @@ struct shared_data {
 };
 
 static struct shared_data *shared_data;
-static __u64 counter_snapshot[2][MAX_THREADS];
+static uint64_t counter_snapshot[2][MAX_THREADS];
 static int prev_valid;
 static struct timeval prev_time;
 static int thread;
@@ -201,10 +201,10 @@ char *obdo_print(struct obdo *obd)
 {
 	char buf[1024];
 
-	sprintf(buf, "id: "LPX64"\ngrp: "LPX64"\natime: "LPU64"\nmtime: "LPU64
-		"\nctime: "LPU64"\nsize: "LPU64"\nblocks: "LPU64
+	sprintf(buf, "id: %#"PRIx64"\ngrp: %#"PRIx64"\natime: %"PRIu64"\nmtime: %"PRIu64
+		"\nctime: %"PRIu64"\nsize: %"PRIu64"\nblocks: %"PRIu64
 		"\nblksize: %u\nmode: %o\nuid: %d\ngid: %d\nflags: %x\n"
-		"misc: %x\nnlink: %d,\nvalid "LPX64"\n",
+		"misc: %x\nnlink: %d,\nvalid %#"PRIx64"\n",
 		ostid_id(&obd->o_oi), ostid_seq(&obd->o_oi), obd->o_atime,
 		obd->o_mtime, obd->o_ctime,
 		obd->o_size, obd->o_blocks, obd->o_blksize, obd->o_mode,
@@ -294,7 +294,7 @@ char *jt_cmdname(char *func)
          ((a)->tv_usec - (b)->tv_usec) / 1000000.0)
 
 static int be_verbose(int verbose, struct timeval *next_time,
-                      __u64 num, __u64 *next_num, int num_total)
+		      uint64_t num, uint64_t *next_num, int num_total)
 {
         struct timeval now;
 
@@ -453,7 +453,7 @@ static inline void shmem_reset(int total_threads)
         shared_data->body.stop_barrier = total_threads;
 }
 
-static inline void shmem_bump(__u32 counter)
+static inline void shmem_bump(uint32_t counter)
 {
         static bool running_not_bumped = true;
 
@@ -471,7 +471,7 @@ static inline void shmem_bump(__u32 counter)
 
 static void shmem_total(int total_threads)
 {
-        __u64 total = 0;
+	uint64_t total = 0;
         double secs;
         int i;
 
@@ -486,7 +486,7 @@ static void shmem_total(int total_threads)
                         &shared_data->body.start_time);
         shmem_unlock();
 
-        printf("Total: total "LPU64" threads %d sec %f %f/second\n",
+	printf("Total: total %"PRIu64" threads %d sec %f %f/second\n",
                total, total_threads, secs, total / secs);
 
         return;
@@ -496,7 +496,7 @@ static void shmem_snap(int total_threads, int live_threads)
 {
         struct timeval this_time;
         int non_zero = 0;
-        __u64 total = 0;
+	uint64_t total = 0;
         double secs;
         int running;
         int i;
@@ -587,7 +587,7 @@ static inline void shmem_reset(int total_threads)
 {
 }
 
-static inline void shmem_bump(__u32 counters)
+static inline void shmem_bump(uint32_t counters)
 {
 }
 
@@ -680,7 +680,7 @@ int jt_opt_threads(int argc, char **argv)
         struct sigaction saveact1;
         struct sigaction saveact2;
         unsigned long    threads;
-        __u64            next_thread;
+	uint64_t	    next_thread;
         int verbose;
         int rc = 0;
         int report_count = -1;
@@ -1067,7 +1067,7 @@ struct jt_fid_space {
 };
 
 int jt_obd_alloc_fids(struct jt_fid_space *space, struct lu_fid *fid,
-                      __u64 *count)
+		      uint64_t *count)
 {
         int rc;
 
@@ -1075,7 +1075,7 @@ int jt_obd_alloc_fids(struct jt_fid_space *space, struct lu_fid *fid,
                 struct obd_ioctl_data  data;
                 char rawbuf[MAX_IOC_BUFLEN];
                 char *buf = rawbuf;
-                __u64 seqnr;
+		uint64_t seqnr;
                 int max_count;
 
                 memset(&data, 0, sizeof(data));
@@ -1100,7 +1100,7 @@ int jt_obd_alloc_fids(struct jt_fid_space *space, struct lu_fid *fid,
                         return rc;
                 }
 
-                space->jt_seq = *(__u64 *)data.ioc_pbuf1;
+		space->jt_seq = *(uint64_t *)data.ioc_pbuf1;
                 space->jt_width = *(int *)data.ioc_pbuf2;
                 space->jt_id = 1;
         }
@@ -1129,15 +1129,15 @@ int jt_obd_md_common(int argc, char **argv, int cmd)
         char                   dirname[4096];
         int                    parent_base_id = 0;
         int                    parent_count = 1;
-        __u64                  child_base_id = -1;
+	uint64_t		  child_base_id = -1;
         int                    stripe_count = 0;
         int                    stripe_index = -1;
         int                    count = 0;
         char                  *end;
-        __u64                  seconds = 0;
+	uint64_t		  seconds = 0;
         double                 diff;
         int                    c;
-        __u64                  total_count = 0;
+	uint64_t		  total_count = 0;
         char                  *name = NULL;
         struct jt_fid_space    fid_space = {0};
         int                    version = 0;
@@ -1382,7 +1382,7 @@ int jt_obd_md_common(int argc, char **argv, int cmd)
 
                 gettimeofday(&end_time, NULL);
                 diff = difftime(&end_time, &start);
-                if (seconds > 0 && (__u64)diff > seconds)
+		if (seconds > 0 && (uint64_t)diff > seconds)
                         break;
 
                 if (count >= total_count && total_count > 0)
@@ -1447,7 +1447,7 @@ int jt_obd_create(int argc, char **argv)
 	char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
 	struct obd_ioctl_data data;
 	struct timeval next_time;
-	__u64 count = 1, next_count, base_id = 1;
+	uint64_t count = 1, next_count, base_id = 1;
 	int verbose = 1, mode = 0100644, rc = 0, i;
         char *end;
 
@@ -1480,7 +1480,7 @@ int jt_obd_create(int argc, char **argv)
                         return CMD_HELP;
         }
 
-        printf("%s: "LPD64" objects\n", jt_cmdname(argv[0]), count);
+	printf("%s: %"PRId64" objects\n", jt_cmdname(argv[0]), count);
         gettimeofday(&next_time, NULL);
         next_time.tv_sec -= verbose;
 
@@ -1510,14 +1510,14 @@ int jt_obd_create(int argc, char **argv)
                         break;
                 }
                 if (!(data.ioc_obdo1.o_valid & OBD_MD_FLID)) {
-                        fprintf(stderr,"error: %s: oid not valid #%d:"LPX64"\n",
+			fprintf(stderr,"error: %s: oid not valid #%d:%#"PRIx64"\n",
                                 jt_cmdname(argv[0]), i, data.ioc_obdo1.o_valid);
                         rc = EINVAL;
                         break;
                 }
 
 		if (be_verbose(verbose, &next_time, i, &next_count, count))
-			printf("%s: #%d is object id "LPX64"\n",
+			printf("%s: #%d is object id %#"PRIx64"\n",
 			       jt_cmdname(argv[0]), i,
 			       ostid_id(&data.ioc_obdo1.o_oi));
         }
@@ -1570,7 +1570,7 @@ int jt_obd_test_setattr(int argc, char **argv)
 {
         struct obd_ioctl_data data;
         struct timeval start, next_time;
-        __u64 i, count, next_count;
+	uint64_t i, count, next_count;
         char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
         int verbose = 1;
         obd_id objid = 3;
@@ -1613,7 +1613,7 @@ int jt_obd_test_setattr(int argc, char **argv)
         next_time.tv_sec = start.tv_sec - verbose;
         next_time.tv_usec = start.tv_usec;
         if (verbose != 0)
-                printf("%s: setting "LPD64" attrs (objid "LPX64"): %s",
+		printf("%s: setting %"PRId64" attrs (objid %#"PRIx64"): %s",
                        jt_cmdname(argv[0]), count, objid, ctime(&start.tv_sec));
 
 	ostid_set_seq_echo(&data.ioc_obdo1.o_oi);
@@ -1631,13 +1631,13 @@ int jt_obd_test_setattr(int argc, char **argv)
                 rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_SETATTR, &data);
                 shmem_bump(1);
                 if (rc < 0) {
-                        fprintf(stderr, "error: %s: #"LPD64" - %d:%s\n",
+			fprintf(stderr, "error: %s: #%"PRId64" - %d:%s\n",
                                 jt_cmdname(argv[0]), i, errno, strerror(rc = errno));
                         break;
                 } else {
                         if (be_verbose
                             (verbose, &next_time, i, &next_count, count))
-                                printf("%s: set attr #"LPD64"\n",
+				printf("%s: set attr #%"PRId64"\n",
                                        jt_cmdname(argv[0]), i);
                 }
         }
@@ -1652,7 +1652,7 @@ int jt_obd_test_setattr(int argc, char **argv)
 
                 --i;
                 if (verbose != 0)
-                        printf("%s: "LPD64" attrs in %.3fs (%.3f attr/s): %s",
+			printf("%s: %"PRId64" attrs in %.3fs (%.3f attr/s): %s",
                                jt_cmdname(argv[0]), i, diff, i / diff,
                                ctime(&end.tv_sec));
         }
@@ -1664,9 +1664,9 @@ int jt_obd_destroy(int argc, char **argv)
         struct obd_ioctl_data data;
         struct timeval next_time;
         char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
-        __u64 count = 1, next_count;
+	uint64_t count = 1, next_count;
         int verbose = 1;
-        __u64 id;
+	uint64_t id;
         char *end;
         int rc = 0, i;
 
@@ -1697,7 +1697,7 @@ int jt_obd_destroy(int argc, char **argv)
                         return CMD_HELP;
         }
 
-        printf("%s: "LPD64" objects\n", jt_cmdname(argv[0]), count);
+	printf("%s: %"PRId64" objects\n", jt_cmdname(argv[0]), count);
         gettimeofday(&next_time, NULL);
         next_time.tv_sec -= verbose;
 
@@ -1718,13 +1718,13 @@ int jt_obd_destroy(int argc, char **argv)
                 obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
                 shmem_bump(1);
                 if (rc < 0) {
-                        fprintf(stderr, "error: %s: objid "LPX64": %s\n",
+			fprintf(stderr, "error: %s: objid %#"PRIx64": %s\n",
                                 jt_cmdname(argv[0]), id, strerror(rc = errno));
                         break;
                 }
 
                 if (be_verbose(verbose, &next_time, i, &next_count, count))
-                        printf("%s: #%d is object id "LPX64"\n",
+			printf("%s: #%d is object id %#"PRIx64"\n",
                                jt_cmdname(argv[0]), i, id);
         }
 
@@ -1753,7 +1753,7 @@ int jt_obd_getattr(int argc, char **argv)
 	/* to help obd filter */
 	data.ioc_obdo1.o_mode = 0100644;
 	data.ioc_obdo1.o_valid = 0xffffffff;
-	printf("%s: object id "LPX64"\n", jt_cmdname(argv[0]),
+	printf("%s: object id %#"PRIx64"\n", jt_cmdname(argv[0]),
 	       ostid_id(&data.ioc_obdo1.o_oi));
 
         memset(buf, 0, sizeof(rawbuf));
@@ -1769,7 +1769,7 @@ int jt_obd_getattr(int argc, char **argv)
                 fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
                         strerror(rc = errno));
         } else {
-		printf("%s: object id "LPU64", mode %o\n", jt_cmdname(argv[0]),
+		printf("%s: object id %"PRIu64", mode %o\n", jt_cmdname(argv[0]),
 		       ostid_id(&data.ioc_obdo1.o_oi), data.ioc_obdo1.o_mode);
         }
         return rc;
@@ -1780,7 +1780,7 @@ int jt_obd_test_getattr(int argc, char **argv)
         struct obd_ioctl_data data;
         struct timeval start, next_time;
         char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
-        __u64 i, count, next_count;
+	uint64_t i, count, next_count;
         int verbose = 1;
         obd_id objid = 3;
         char *end;
@@ -1822,7 +1822,7 @@ int jt_obd_test_getattr(int argc, char **argv)
         next_time.tv_sec = start.tv_sec - verbose;
         next_time.tv_usec = start.tv_usec;
         if (verbose != 0)
-                printf("%s: getting "LPD64" attrs (objid "LPX64"): %s",
+		printf("%s: getting %"PRId64" attrs (objid %#"PRIx64"): %s",
                        jt_cmdname(argv[0]), count, objid, ctime(&start.tv_sec));
 
 	ostid_set_seq_echo(&data.ioc_obdo1.o_oi);
@@ -1840,13 +1840,13 @@ int jt_obd_test_getattr(int argc, char **argv)
                 rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_GETATTR, &data);
                 shmem_bump(1);
                 if (rc < 0) {
-                        fprintf(stderr, "error: %s: #"LPD64" - %d:%s\n",
+			fprintf(stderr, "error: %s: #%"PRId64" - %d:%s\n",
                                 jt_cmdname(argv[0]), i, errno, strerror(rc = errno));
                         break;
                 } else {
                         if (be_verbose
                             (verbose, &next_time, i, &next_count, count))
-                                printf("%s: got attr #"LPD64"\n",
+				printf("%s: got attr #%"PRId64"\n",
                                        jt_cmdname(argv[0]), i);
                 }
         }
@@ -1861,7 +1861,7 @@ int jt_obd_test_getattr(int argc, char **argv)
 
                 --i;
                 if (verbose != 0)
-                        printf("%s: "LPD64" attrs in %.3fs (%.3f attr/s): %s",
+			printf("%s: %"PRId64" attrs in %.3fs (%.3f attr/s): %s",
                                jt_cmdname(argv[0]), i, diff, i / diff,
                                ctime(&end.tv_sec));
         }
@@ -1879,7 +1879,7 @@ int jt_obd_test_brw(int argc, char **argv)
         struct obd_ioctl_data data;
         struct timeval start, next_time;
         char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
-        __u64 count, next_count, len, stride, thr_offset = 0, objid = 3;
+	uint64_t count, next_count, len, stride, thr_offset = 0, objid = 3;
         int write = 0, verbose = 1, cmd, i, rc = 0, pages = 1;
         int offset_pages = 0;
         long n;
@@ -2046,7 +2046,7 @@ int jt_obd_test_brw(int argc, char **argv)
         next_time.tv_usec = start.tv_usec;
 
         if (verbose != 0)
-                printf("%s: %s "LPU64"x%d pages (obj "LPX64", off "LPU64"): %s",
+		printf("%s: %s %"PRIu64"x%d pages (obj %#"PRIx64", off %"PRIu64"): %s",
                        jt_cmdname(argv[0]), write ? "writing" : "reading", count,
                        pages, objid, data.ioc_offset, ctime(&start.tv_sec));
 
@@ -2069,7 +2069,7 @@ int jt_obd_test_brw(int argc, char **argv)
                         break;
                 } else if (be_verbose(verbose, &next_time,i, &next_count,count)) {
 			shmem_lock ();
-			printf("%s: %s number %d @ "LPD64":"LPU64" for %d\n",
+			printf("%s: %s number %d @ %"PRId64":%"PRIu64" for %d\n",
 			       jt_cmdname(argv[0]), write ? "write" : "read", i,
 			       ostid_id(&data.ioc_obdo1.o_oi), data.ioc_offset,
 			       (int)(pages * getpagesize()));
@@ -2128,7 +2128,7 @@ int jt_obd_lov_getconfig(int argc, char **argv)
         struct lov_desc desc;
         struct obd_uuid *uuidarray;
         char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf;
-        __u32 *obdgens;
+	uint32_t *obdgens;
         char *path;
         int rc, fd;
 
@@ -2191,7 +2191,7 @@ repeat:
                         jt_cmdname(argv[0]), strerror(rc = errno));
         } else {
                 struct obd_uuid *uuidp;
-                __u32 *genp;
+		uint32_t *genp;
                 int i;
 
                 if (obd_ioctl_unpack(&data, buf, sizeof(rawbuf))) {
@@ -2200,14 +2200,14 @@ repeat:
                         rc = -EINVAL;
                         goto out;
                 }
-                if (desc.ld_default_stripe_count == (__u32)-1)
+		if (desc.ld_default_stripe_count == (uint32_t)-1)
                         printf("default_stripe_count: %d\n", -1);
                 else
                         printf("default_stripe_count: %u\n",
                                desc.ld_default_stripe_count);
-                printf("default_stripe_size: "LPU64"\n",
+		printf("default_stripe_size: %"PRIu64"\n",
                        desc.ld_default_stripe_size);
-                printf("default_stripe_offset: "LPU64"\n",
+		printf("default_stripe_offset: %"PRIu64"\n",
                        desc.ld_default_stripe_offset);
                 printf("default_stripe_pattern: %u\n", desc.ld_pattern);
                 printf("obd_count: %u\n", desc.ld_tgt_count);
@@ -4183,7 +4183,7 @@ int jt_get_obj_version(int argc, char **argv)
 {
 	struct lu_fid fid;
 	struct obd_ioctl_data data;
-	__u64 version, id = ULLONG_MAX, group = ULLONG_MAX;
+	uint64_t version, id = ULLONG_MAX, group = ULLONG_MAX;
 	char rawbuf[MAX_IOC_BUFLEN], *buf = rawbuf, *fidstr;
 	int rc, c;
 
@@ -4242,7 +4242,7 @@ int jt_get_obj_version(int argc, char **argv)
         }
 
         obd_ioctl_unpack(&data, buf, sizeof rawbuf);
-        printf(LPX64"\n", version);
+	printf("%#"PRIx64"\n", version);
         return 0;
 }
 

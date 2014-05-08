@@ -762,8 +762,9 @@ retry_open:
                         errmsg = strerror(errno);
 
                 llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                  "error on ioctl "LPX64" for '%s' (%d): %s",
-                                  (__u64)LL_IOC_LOV_SETSTRIPE, name, fd,errmsg);
+				  "error on ioctl LL_IOC_LOV_SETSTRIPE for "
+				  "'%s' (%d): %s",
+				  name, fd, errmsg);
         }
 out:
         if (rc) {
@@ -961,8 +962,9 @@ int llapi_direntry_remove(char *dname)
 	if (ioctl(fd, LL_IOC_REMOVE_ENTRY, filename)) {
 		char *errmsg = strerror(errno);
 		llapi_err_noerrno(LLAPI_MSG_ERROR,
-				  "error on ioctl "LPX64" for '%s' (%d): %s",
-				  (__u64)LL_IOC_LMV_SETSTRIPE, filename,
+				  "error on ioctl LL_IOC_LMV_SETSTRIPE (%#x) "
+				  "for '%s' (%d): %s",
+				  (unsigned int)LL_IOC_LMV_SETSTRIPE, filename,
 				  fd, errmsg);
 	}
 out:
@@ -2270,10 +2272,10 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
 	if ((verbose & VERBOSE_DETAIL) && !is_dir) {
 		llapi_printf(LLAPI_MSG_NORMAL, "lmm_magic:          0x%08X\n",
 			     lum->lmm_magic);
-		llapi_printf(LLAPI_MSG_NORMAL, "lmm_seq:            "LPX64"\n",
-			     lmm_oi_seq(&lum->lmm_oi));
-		llapi_printf(LLAPI_MSG_NORMAL, "lmm_object_id:      "LPX64"\n",
-			     lmm_oi_id(&lum->lmm_oi));
+		llapi_printf(LLAPI_MSG_NORMAL, "lmm_seq:            %#llx\n",
+			     (unsigned long long)lmm_oi_seq(&lum->lmm_oi));
+		llapi_printf(LLAPI_MSG_NORMAL, "lmm_object_id:      %#llx\n",
+			     (unsigned long long)lmm_oi_id(&lum->lmm_oi));
 	}
 
         if (verbose & VERBOSE_COUNT) {
@@ -2301,7 +2303,7 @@ static void lov_dump_user_lmm_header(struct lov_user_md *lum, char *path,
                         }
                 } else {
 			llapi_printf(LLAPI_MSG_NORMAL, "%hd",
-				     (__s16)lum->lmm_stripe_count);
+				     (short)lum->lmm_stripe_count);
                 }
 		seperator = is_dir ? " " : "\n";
         }
@@ -2494,12 +2496,12 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 
 void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
 {
-	__u32 magic;
+	uint32_t magic;
 
 	if (param->get_lmv || param->get_default_lmv)
-		magic = (__u32)param->fp_lmv_md->lum_magic;
+		magic = (uint32_t)param->fp_lmv_md->lum_magic;
 	else
-		magic = *(__u32 *)&param->lmd->lmd_lmm; /* lum->lmm_magic */
+		magic = *(uint32_t *)&param->lmd->lmd_lmm; /* lum->lmm_magic */
 
 	switch (magic) {
         case LOV_USER_MAGIC_V1:
@@ -2538,7 +2540,7 @@ void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
 	default:
 		llapi_printf(LLAPI_MSG_NORMAL, "unknown lmm_magic:  %#x "
 			     "(expecting one of %#x %#x %#x %#x)\n",
-			     *(__u32 *)&param->lmd->lmd_lmm,
+			     *(uint32_t *)&param->lmd->lmd_lmm,
 			     LOV_USER_MAGIC_V1, LOV_USER_MAGIC_V3,
 			     LMV_USER_MAGIC, LMV_MAGIC_V1);
 		return;
@@ -2961,7 +2963,7 @@ static int cb_find_init(char *path, DIR *parent, DIR **dirp,
         }
 
 	if (param->check_layout) {
-		__u32 found;
+		uint32_t found;
 
 		found = (param->lmd->lmd_lmm.lmm_pattern & param->layout);
 		if ((param->lmd->lmd_lmm.lmm_pattern == 0xFFFFFFFF) ||
@@ -3399,7 +3401,7 @@ int llapi_getstripe(char *path, struct find_param *param)
                               cb_common_fini, param);
 }
 
-int llapi_obd_statfs(char *path, __u32 type, __u32 index,
+int llapi_obd_statfs(char *path, uint32_t type, uint32_t index,
                      struct obd_statfs *stat_buf,
                      struct obd_uuid *uuid_buf)
 {
@@ -3410,9 +3412,9 @@ int llapi_obd_statfs(char *path, __u32 type, __u32 index,
         int rc = 0;
 
         data.ioc_inlbuf1 = (char *)&type;
-        data.ioc_inllen1 = sizeof(__u32);
+	data.ioc_inllen1 = sizeof(uint32_t);
         data.ioc_inlbuf2 = (char *)&index;
-        data.ioc_inllen2 = sizeof(__u32);
+	data.ioc_inllen2 = sizeof(uint32_t);
         data.ioc_pbuf1 = (char *)stat_buf;
         data.ioc_plen1 = sizeof(struct obd_statfs);
         data.ioc_pbuf2 = (char *)uuid_buf;
@@ -4279,7 +4281,7 @@ int llapi_fid2path(const char *device, const char *fidstr, char *buf,
         if (!fid_is_sane(&fid)) {
                 llapi_err_noerrno(LLAPI_MSG_ERROR,
                                   "bad FID format [%s], should be "DFID"\n",
-                                  fidstr, (__u64)1, 2, 0);
+				  fidstr, (uint64_t)1, 2, 0);
                 return -EINVAL;
         }
 
@@ -4356,7 +4358,7 @@ int llapi_path2fid(const char *path, lustre_fid *fid)
 	return rc;
 }
 
-int llapi_get_connect_flags(const char *mnt, __u64 *flags)
+int llapi_get_connect_flags(const char *mnt, uint64_t *flags)
 {
         DIR *root;
         int rc;
@@ -4423,7 +4425,7 @@ int llapi_get_version(char *buffer, int buffer_size,
  * \retval 0 on success.
  * \retval -errno on error.
  */
-int llapi_get_data_version(int fd, __u64 *data_version, __u64 flags)
+int llapi_get_data_version(int fd, uint64_t *data_version, uint64_t flags)
 {
         int rc;
         struct ioc_data_version idv;
@@ -4503,7 +4505,7 @@ int llapi_create_volatile_idx(char *directory, int idx, int open_flags)
  * first fd received the ioctl, second fd is passed as arg
  * this is assymetric but avoid use of root path for ioctl
  */
-int llapi_fswap_layouts(int fd1, int fd2, __u64 dv1, __u64 dv2, __u64 flags)
+int llapi_fswap_layouts(int fd1, int fd2, uint64_t dv1, uint64_t dv2, uint64_t flags)
 {
 	struct lustre_swap_layouts lsl;
 	int rc;
@@ -4525,7 +4527,7 @@ int llapi_fswap_layouts(int fd1, int fd2, __u64 dv1, __u64 dv2, __u64 flags)
  * the 2 files are open in write
  */
 int llapi_swap_layouts(const char *path1, const char *path2,
-		       __u64 dv1, __u64 dv2, __u64 flags)
+		       uint64_t dv1, uint64_t dv2, uint64_t flags)
 {
 	int	fd1, fd2, rc;
 

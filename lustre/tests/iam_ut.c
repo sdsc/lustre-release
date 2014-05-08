@@ -63,10 +63,10 @@ enum {
 };
 
 struct iam_uapi_info {
-        __u16 iui_keysize;
-        __u16 iui_recsize;
-        __u16 iui_ptrsize;
-        __u16 iui_height;
+	uint16_t iui_keysize;
+	uint16_t iui_recsize;
+	uint16_t iui_ptrsize;
+	uint16_t iui_height;
         char  iui_fmt_name[DX_FMT_NAME_LEN];
 };
 
@@ -77,7 +77,7 @@ struct iam_uapi_op {
 
 struct iam_uapi_it {
         struct iam_uapi_op iui_op;
-        __u16              iui_state;
+	uint16_t	      iui_state;
 };
 
 enum iam_ioctl_cmd {

@@ -57,7 +57,7 @@
 #include <libcfs/libcfs.h>
 #include <lustre/libiam.h>
 
-typedef __u32 lvar_hash_t;
+typedef uint32_t lvar_hash_t;
 
 enum {
         IAM_LFIX_ROOT_MAGIC = 0xbedabb1edULL,
@@ -286,7 +286,7 @@ struct iam_uapi_op {
 
 struct iam_uapi_it {
         struct iam_uapi_op iui_op;
-        __u16              iui_state;
+	uint16_t	      iui_state;
 };
 
 enum iam_ioctl_cmd {
