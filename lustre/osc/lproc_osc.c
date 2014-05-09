@@ -109,12 +109,13 @@ static ssize_t osc_max_rpcs_in_flight_seq_write(struct file *file,
         if (pool && val > cli->cl_max_rpcs_in_flight)
                 pool->prp_populate(pool, val-cli->cl_max_rpcs_in_flight);
 
-        client_obd_list_lock(&cli->cl_loi_list_lock);
-        cli->cl_max_rpcs_in_flight = val;
-        client_obd_list_unlock(&cli->cl_loi_list_lock);
+	client_obd_list_lock(&cli->cl_loi_list_lock);
+	cli->cl_max_rpcs_in_flight = val;
+	client_adjust_max_dirty(cli);
+	client_obd_list_unlock(&cli->cl_loi_list_lock);
 
-        LPROCFS_CLIMP_EXIT(dev);
-        return count;
+	LPROCFS_CLIMP_EXIT(dev);
+	return count;
 }
 LPROC_SEQ_FOPS(osc_max_rpcs_in_flight);
 
@@ -511,6 +512,7 @@ static ssize_t osc_obd_max_pages_per_rpc_seq_write(struct file *file,
 	}
 	client_obd_list_lock(&cli->cl_loi_list_lock);
 	cli->cl_max_pages_per_rpc = val;
+	client_adjust_max_dirty(cli);
 	client_obd_list_unlock(&cli->cl_loi_list_lock);
 
 	LPROCFS_CLIMP_EXIT(dev);
