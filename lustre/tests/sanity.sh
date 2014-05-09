@@ -9514,6 +9514,13 @@ test_154d() {
 }
 run_test 154d "Verify open file fid"
 
+test_154e() {
+	local entries=$(ls -la $MOUNT | awk '{print $9}' | grep -Fx ".lustre")
+
+	[ -z "$entries" ] || error ".lustre listed by ls -a"
+}
+run_test 154e "readdir() should not include .lustre"
+
 test_155_small_load() {
     local temp=$TMP/$tfile
     local file=$DIR/$tfile
