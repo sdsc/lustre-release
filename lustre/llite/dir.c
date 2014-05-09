@@ -240,6 +240,12 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 			 */
 			continue;
 
+		/* skip .lustre under root */
+		if (inode == inode->i_sb->s_root->d_inode &&
+		    namelen == strlen(".lustre") &&
+		    strncmp(ent->lde_name, ".lustre", namelen) == 0)
+			continue;
+
 		if (api32 && hash64)
 			lhash = hash >> 32;
 		else
