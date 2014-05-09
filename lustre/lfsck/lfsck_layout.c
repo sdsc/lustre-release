@@ -1333,7 +1333,7 @@ static int lfsck_layout_master_query_others(const struct lu_env *env,
 	memset(lr, 0, sizeof(*lr));
 	lr->lr_index = lfsck_dev_idx(lfsck->li_bottom);
 	lr->lr_event = LE_QUERY;
-	lr->lr_active = LT_LAYOUT;
+	lr->lr_active = LFSCK_TYPE_LAYOUT;
 	laia->laia_com = com;
 	laia->laia_lr = lr;
 	laia->laia_shared = 0;
@@ -1427,7 +1427,7 @@ static int lfsck_layout_master_notify_others(const struct lu_env *env,
 		RETURN(-ENOMEM);
 
 	lr->lr_index = lfsck_dev_idx(lfsck->li_bottom);
-	lr->lr_active = LT_LAYOUT;
+	lr->lr_active = LFSCK_TYPE_LAYOUT;
 	laia->laia_com = com;
 	laia->laia_lr = lr;
 	laia->laia_shared = 0;
@@ -2091,7 +2091,7 @@ static int lfsck_layout_master_conditional_destroy(const struct lu_env *env,
 
 	memset(lr, 0, sizeof(*lr));
 	lr->lr_event = LE_CONDITIONAL_DESTROY;
-	lr->lr_active = LT_LAYOUT;
+	lr->lr_active = LFSCK_TYPE_LAYOUT;
 	lr->lr_fid = *fid;
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_LFSCK_REQUEST);
@@ -3772,7 +3772,7 @@ lfsck_layout_slave_query_master(const struct lu_env *env,
 	memset(lr, 0, sizeof(*lr));
 	lr->lr_index = lfsck_dev_idx(lfsck->li_bottom);
 	lr->lr_event = LE_QUERY;
-	lr->lr_active = LT_LAYOUT;
+	lr->lr_active = LFSCK_TYPE_LAYOUT;
 
 	llsd->llsd_touch_gen++;
 	spin_lock(&llsd->llsd_lock);
@@ -3841,7 +3841,7 @@ lfsck_layout_slave_notify_master(const struct lu_env *env,
 	lr->lr_flags = LEF_FROM_OST;
 	lr->lr_status = result;
 	lr->lr_index = lfsck_dev_idx(lfsck->li_bottom);
-	lr->lr_active = LT_LAYOUT;
+	lr->lr_active = LFSCK_TYPE_LAYOUT;
 	llsd->llsd_touch_gen++;
 	spin_lock(&llsd->llsd_lock);
 	while (!list_empty(&llsd->llsd_master_list)) {
@@ -4018,7 +4018,7 @@ static int lfsck_layout_slave_check_pairs(const struct lu_env *env,
 	lr = req_capsule_client_get(&req->rq_pill, &RMF_LFSCK_REQUEST);
 	memset(lr, 0, sizeof(*lr));
 	lr->lr_event = LE_PAIRS_VERIFY;
-	lr->lr_active = LT_LAYOUT;
+	lr->lr_active = LFSCK_TYPE_LAYOUT;
 	lr->lr_fid = *cfid; /* OST-object itself FID. */
 	lr->lr_fid2 = *pfid; /* The claimed parent FID. */
 
@@ -5493,7 +5493,7 @@ static int lfsck_layout_master_stop_notify(const struct lu_env *env,
 	memset(lr, 0, sizeof(*lr));
 	lr->lr_index = lfsck_dev_idx(lfsck->li_bottom);
 	lr->lr_event = LE_PEER_EXIT;
-	lr->lr_active = LT_LAYOUT;
+	lr->lr_active = LFSCK_TYPE_LAYOUT;
 	lr->lr_status = LS_CO_PAUSED;
 	if (ltds == &lfsck->li_ost_descs)
 		lr->lr_flags = LEF_TO_OST;
@@ -5605,7 +5605,7 @@ int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck)
 	init_rwsem(&com->lc_sem);
 	atomic_set(&com->lc_ref, 1);
 	com->lc_lfsck = lfsck;
-	com->lc_type = LT_LAYOUT;
+	com->lc_type = LFSCK_TYPE_LAYOUT;
 	if (lfsck->li_master) {
 		struct lfsck_layout_master_data *llmd;
 
@@ -5873,7 +5873,7 @@ static struct dt_it *lfsck_orphan_it_init(const struct lu_env *env,
 	if (unlikely(lfsck == NULL))
 		RETURN(ERR_PTR(-ENXIO));
 
-	com = lfsck_component_find(lfsck, LT_LAYOUT);
+	com = lfsck_component_find(lfsck, LFSCK_TYPE_LAYOUT);
 	if (unlikely(com == NULL))
 		GOTO(out, rc = -ENOENT);
 
