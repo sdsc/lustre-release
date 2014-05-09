@@ -1173,8 +1173,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "updated_phase2: "LPU64"\n"
 			      "failed_phase1: "LPU64"\n"
 			      "failed_phase2: "LPU64"\n"
-			      "dirs: "LPU64"\n"
-			      "M-linked: "LPU64"\n"
+			      "directories: "LPU64"\n"
+			      "multi_linked_files: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1182,8 +1182,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "run_time_phase2: %u seconds\n"
 			      "average_speed_phase1: "LPU64" items/sec\n"
 			      "average_speed_phase2: N/A\n"
-			      "real-time_speed_phase1: "LPU64" items/sec\n"
-			      "real-time_speed_phase2: N/A\n",
+			      "real_time_speed_phase1: "LPU64" items/sec\n"
+			      "real_time_speed_phase2: N/A\n",
 			      checked,
 			      ns->ln_objs_checked_phase2,
 			      ns->ln_items_repaired,
@@ -1259,8 +1259,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "updated_phase2: "LPU64"\n"
 			      "failed_phase1: "LPU64"\n"
 			      "failed_phase2: "LPU64"\n"
-			      "dirs: "LPU64"\n"
-			      "M-linked: "LPU64"\n"
+			      "directories: "LPU64"\n"
+			      "multi_linked_files: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1268,8 +1268,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "run_time_phase2: %u seconds\n"
 			      "average_speed_phase1: "LPU64" items/sec\n"
 			      "average_speed_phase2: "LPU64" objs/sec\n"
-			      "real-time_speed_phase1: N/A\n"
-			      "real-time_speed_phase2: "LPU64" objs/sec\n"
+			      "real_time_speed_phase1: N/A\n"
+			      "real_time_speed_phase2: "LPU64" objs/sec\n"
 			      "current_position: "DFID"\n",
 			      ns->ln_items_checked,
 			      checked,
@@ -1308,8 +1308,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "updated_phase2: "LPU64"\n"
 			      "failed_phase1: "LPU64"\n"
 			      "failed_phase2: "LPU64"\n"
-			      "dirs: "LPU64"\n"
-			      "M-linked: "LPU64"\n"
+			      "directories: "LPU64"\n"
+			      "multi_linked_files: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1317,8 +1317,8 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "run_time_phase2: %u seconds\n"
 			      "average_speed_phase1: "LPU64" items/sec\n"
 			      "average_speed_phase2: "LPU64" objs/sec\n"
-			      "real-time_speed_phase1: N/A\n"
-			      "real-time_speed_phase2: N/A\n"
+			      "real_time_speed_phase1: N/A\n"
+			      "real_time_speed_phase2: N/A\n"
 			      "current_position: N/A\n",
 			      ns->ln_items_checked,
 			      ns->ln_objs_checked_phase2,
@@ -1595,7 +1595,7 @@ int lfsck_namespace_setup(const struct lu_env *env,
 	init_rwsem(&com->lc_sem);
 	atomic_set(&com->lc_ref, 1);
 	com->lc_lfsck = lfsck;
-	com->lc_type = LT_NAMESPACE;
+	com->lc_type = LFSCK_TYPE_NAMESPACE;
 	com->lc_ops = &lfsck_namespace_ops;
 	com->lc_file_size = sizeof(struct lfsck_namespace);
 	OBD_ALLOC(com->lc_file_ram, com->lc_file_size);
