@@ -330,7 +330,7 @@ static int lprocfs_rd_lfsck_namespace(char *page, char **start, off_t off,
 	LASSERT(mdd != NULL);
 	*eof = 1;
 
-	rc = lfsck_dump(mdd->mdd_bottom, page, count, LT_NAMESPACE);
+	rc = lfsck_dump(mdd->mdd_bottom, page, count, LFSCK_TYPE_NAMESPACE);
 	return rc;
 }
 
@@ -342,7 +342,7 @@ static int lprocfs_rd_lfsck_layout(char *page, char **start, off_t off,
 	LASSERT(mdd != NULL);
 	*eof = 1;
 
-	return lfsck_dump(mdd->mdd_bottom, page, count, LT_LAYOUT);
+	return lfsck_dump(mdd->mdd_bottom, page, count, LFSCK_TYPE_LAYOUT);
 }
 
 static struct lprocfs_vars lprocfs_mdd_obd_vars[] = {

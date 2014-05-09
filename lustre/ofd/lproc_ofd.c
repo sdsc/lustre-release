@@ -546,7 +546,7 @@ static int lprocfs_rd_lfsck_layout(char *page, char **start, off_t off,
 
 	*eof = 1;
 
-	return lfsck_dump(ofd->ofd_osd, page, count, LT_LAYOUT);
+	return lfsck_dump(ofd->ofd_osd, page, count, LFSCK_TYPE_LAYOUT);
 }
 
 static int lprocfs_rd_lfsck_verify_pfid(char *page, char **start, off_t off,
