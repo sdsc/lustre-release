@@ -18,7 +18,7 @@ init_clients_lists
 # default boulder cluster iozone location
 export PATH=/opt/iozone/bin:$PATH
 
-LOADS=${LOADS:-"dd tar dbench iozone"}
+LOADS=${LOADS:-"dd tar dbench iozone lfs"}
 for i in $LOADS; do
 	[ -f $LUSTRE/tests/run_${i}.sh ] || error "incorrect load: $i"
 done
