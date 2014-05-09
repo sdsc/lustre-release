@@ -809,14 +809,6 @@ void lprocfs_stats_collect(struct lprocfs_stats *stats, int idx,
 }
 EXPORT_SYMBOL(lprocfs_stats_collect);
 
-/**
- * Append a space separated list of current set flags to str.
- */
-#define flag2seqstr(flag)						\
-	do {								\
-		if (imp->imp_##flag)					\
-			seq_printf(m, "%s" #flag, first ? "" : ", ");	\
-	} while (0)
 static int obd_import_flags2seqstr(struct obd_import *imp, struct seq_file *m)
 {
 	bool first = true;
@@ -826,13 +818,12 @@ static int obd_import_flags2seqstr(struct obd_import *imp, struct seq_file *m)
 		first = false;
 	}
 
-	flag2seqstr(invalid);
-	flag2seqstr(deactive);
-	flag2seqstr(replayable);
-	flag2seqstr(pingable);
+	flag2seqstr(imp, invalid);
+	flag2seqstr(imp, deactive);
+	flag2seqstr(imp, replayable);
+	flag2seqstr(imp, pingable);
 	return 0;
 }
-#undef flags2seqstr
 
 static const char *obd_connect_names[] = {
 	"read_only",
@@ -892,7 +883,7 @@ static const char *obd_connect_names[] = {
 	NULL
 };
 
-static void obd_connect_seq_flags2str(struct seq_file *m, __u64 flags, char *sep)
+void obd_connect_seq_flags2str(struct seq_file *m, __u64 flags, char *sep)
 {
 	bool first = true;
 	__u64 mask = 1;
@@ -928,8 +919,8 @@ int obd_connect_flags2str(char *page, int count, __u64 flags, char *sep)
 }
 EXPORT_SYMBOL(obd_connect_flags2str);
 
-static void obd_connect_data_seqprint(struct seq_file *m,
-				      struct obd_connect_data *ocd)
+void
+obd_connect_data_seqprint(struct seq_file *m, struct obd_connect_data *ocd)
 {
 	int flags;
 
