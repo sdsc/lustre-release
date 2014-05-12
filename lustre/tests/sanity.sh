@@ -212,7 +212,7 @@ run_test 3 "mkdir; touch; rmdir; check dir ====================="
 # LU-4471 - failed rmdir on remote directories still removes directory on MDT0
 test_4() {
 	local MDTIDX=1
-	local remote_dir=remote_dir
+	local remote_dir=$tdir
 
 	[ $MDSCOUNT -ge 2 ] && skip "skip now for LU-4690" && return #LU-4690
 	test_mkdir $DIR/$remote_dir ||
@@ -225,6 +225,7 @@ test_4() {
 		error "Expect error removing in-use dir $DIR/$remote_dir"
 
 	test -d $DIR/$remote_dir || error "Remote directory disappeared"
+	rm -r $DIR/$remote_dir
 }
 run_test 4 "mkdir; touch dir/file; rmdir; checkdir (expect error)"
 
@@ -245,6 +246,7 @@ test_6a() {
 	$RUNAS chmod 0444 $DIR/$tfile && error "chmod $tfile worked on UID $UID"
 	$CHECKSTAT -t file -p 0666 -u \#$UID $DIR/$tfile ||
 		error "$tfile should be 0666 and owned by UID $UID"
+	rm -f $DIR/$tfile
 }
 run_test 6a "touch f6a; chmod f6a; $RUNAS chmod f6a (should return error) =="
 
@@ -257,6 +259,7 @@ test_6c() {
 	$RUNAS chown $UID $DIR/$tfile && error "chown $UID $file succeeded"
 	$CHECKSTAT -t file -u \#$RUNAS_ID $DIR/$tfile ||
 		error "$tfile should be owned by UID $RUNAS_ID"
+	rm -f $DIR/$tfile
 }
 run_test 6c "touch f6c; chown f6c; $RUNAS chown f6c (should return error) =="
 
@@ -269,6 +272,7 @@ test_6e() {
 	$RUNAS chgrp $UID $DIR/$tfile && error "chgrp $UID $file succeeded"
 	$CHECKSTAT -t file -u \#$UID -g \#$RUNAS_ID $DIR/$tfile ||
 		error "$tfile should be owned by UID $UID and GID $RUNAS_ID"
+	rm -f $DIR/$tfile
 }
 run_test 6e "touch f6e; chgrp f6e; $RUNAS chgrp f6e (should return error) =="
 
@@ -292,6 +296,7 @@ test_6h() { # bug 7331
 		error "chown $RUNAS_ID:0 $tfile worked as GID $RUNAS_GID"
 	$CHECKSTAT -t file -u \#$RUNAS_ID -g \#$RUNAS_GID $DIR/$tfile ||
 		error "$tdir/$tfile should be UID $RUNAS_UID GID $RUNAS_GID"
+	rm -f $DIR/$tfile
 }
 run_test 6h "$RUNAS chown RUNAS_ID.0 .../f6h (should return error)"
 
@@ -453,7 +458,8 @@ test_17f() {
 	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890/9234567890/a234567890/b234567890 $DIR/d17f/444
 	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890/9234567890/a234567890/b234567890/c234567890/d234567890/f234567890 $DIR/d17f/555
 	ln -s 1234567890/2234567890/3234567890/4234567890/5234567890/6234567890/7234567890/8234567890/9234567890/a234567890/b234567890/c234567890/d234567890/f234567890/aaaaaaaaaa/bbbbbbbbbb/cccccccccc/dddddddddd/eeeeeeeeee/ffffffffff/ $DIR/d17f/666
-	ls -l  $DIR/d17f
+	ls -l $DIR/d17f
+	rm -f $DIR/d17f
 }
 run_test 17f "symlinks: long and very long symlink name ========================"
 
@@ -732,8 +738,9 @@ test_17o() {
 run_test 17o "stat file with incompat LMA feature"
 
 test_18() {
-	touch $DIR/f || error "Failed to touch $DIR/f: $?"
+	touch $DIR/$tfile || error "Failed to touch $DIR/$tfile: $?"
 	ls $DIR || error "Failed to ls $DIR: $?"
+	rm -f $DIR/$tfile
 }
 run_test 18 "touch .../f ; ls ... =============================="
 
@@ -1038,6 +1045,7 @@ test_24u() { # bug12192
 	rm -rf $DIR/$tfile
 	$MULTIOP $DIR/$tfile C2w$((2048 * 1024))c || error
 	$CHECKSTAT -s $((2048 * 1024)) $DIR/$tfile || error "wrong file size"
+	rm -f $DIR/$tfile
 }
 run_test 24u "create stripe file"
 
@@ -1100,8 +1108,9 @@ test_24w() { # bug21506
         dd if=/dev/zero bs=$SZ1 count=1 >> $DIR/$tfile || return 2
         dd if=$DIR/$tfile of=$DIR/${tfile}_left bs=1M skip=4097 || return 3
         SZ2=`ls -l $DIR/${tfile}_left | awk '{print $5}'`
-        [ "$SZ1" = "$SZ2" ] || \
+	[[ "$SZ1" -eq "$SZ2" ]] ||
                 error "Error reading at the end of the file $tfile"
+	rm -f $DIR/$tfile $DIR/${tfile}_left
 }
 run_test 24w "Reading a file larger than 4Gb"
 
@@ -1567,6 +1576,7 @@ test_27t() { # bug 10864
 	touch $tfile
 	$WLFS getstripe $tfile
 	cd $WDIR
+	rm -f $DIR/$tfile
 }
 run_test 27t "check that utils parse path correctly"
 
@@ -2407,6 +2417,7 @@ test_32o() {
 	$CHECKSTAT -t link $DIR/d32o/symlink02 || error
 	$CHECKSTAT -t file -f $DIR/d32o/tmp/symlink12 || error
 	$CHECKSTAT -t file -f $DIR/d32o/symlink02 || error
+	rm -f $DIR/$tfile
 }
 run_test 32o "stat d32o/symlink->tmp/symlink->lustre-root/$tfile"
 
@@ -2430,6 +2441,7 @@ test_32p() {
     log 32p_9
 	cat $DIR/d32p/symlink02 || error
     log 32p_10
+	rm -f $DIR/$tfile
 }
 run_test 32p "open d32p/symlink->tmp/symlink->lustre-root/$tfile"
 
@@ -2470,6 +2482,7 @@ test_33aa() {
 	log 33_1
 	$RUNAS $OPENFILE -f O_RDWR $DIR/$tfile && error || true
 	log 33_2
+	rm -f $DIR/$tfile
 }
 run_test 33aa "write file with mode 444 (should return error) ===="
 
@@ -2660,6 +2673,7 @@ test_34g() {
 	cancel_lru_locks osc
 	$CHECKSTAT -s $TEST_34_SIZE $DIR/$tfile || \
 		error "wrong expanded size after lock cancel"
+	rm -f $DIR/$tfile
 }
 run_test 34g "truncate long file ==============================="
 
@@ -2688,6 +2702,7 @@ test_34h() {
 	wait $MULTIPID
 	local nsz=`stat -c %s $DIR/$tfile`
 	[[ $nsz == $sz ]] || error "New size wrong $nsz != $sz"
+	rm -f $DIR/$tfile
 }
 run_test 34h "ftruncate file under grouplock should not block"
 
@@ -2814,6 +2829,7 @@ test_38() {
 	local ENOTDIR=20
 	[ $RC -eq 0 ] && error "opened file $file with O_DIRECTORY" || true
 	[ $RC -eq $ENOTDIR ] || error "error $RC should be ENOTDIR ($ENOTDIR)"
+	rm $file
 }
 run_test 38 "open a regular file with O_DIRECTORY should return -ENOTDIR ==="
 
@@ -2834,6 +2850,7 @@ test_39() {
 		ls -lc --full-time $DIR/$tfile $DIR/${tfile}2
 		error "O_TRUNC didn't change timestamps"
 	fi
+	rm -f $DIR/$tfile $DIR/${tfile}2
 }
 run_test 39 "mtime changed on create ==========================="
 
@@ -2909,6 +2926,7 @@ test_39c() {
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 	done
+	rm $DIR1/$tfile-1
 }
 run_test 39c "mtime change on rename ==========================="
 
@@ -2927,6 +2945,7 @@ test_39d() {
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 	done
+	rm $DIR1/$tfile
 }
 run_test 39d "create, utime, stat =============================="
 
@@ -2946,6 +2965,7 @@ test_39e() {
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 	done
+	rm $DIR1/$tfile
 }
 run_test 39e "create, stat, utime, stat ========================"
 
@@ -2966,6 +2986,7 @@ test_39f() {
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 	done
+	rm $DIR1/$tfile
 }
 run_test 39f "create, stat, sleep, utime, stat ================="
 
@@ -2986,6 +3007,7 @@ test_39g() {
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 	done
+	rm $DIR1/$tfile
 }
 run_test 39g "write, chmod, stat ==============================="
 
@@ -3013,6 +3035,7 @@ test_39h() {
 			if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 		done
 	fi
+	rm $DIR1/$tfile
 }
 run_test 39h "write, utime within one second, stat ============="
 
@@ -3035,6 +3058,7 @@ test_39i() {
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 	done
+	rm $DIR1/$tfile-1
 }
 run_test 39i "write, rename, stat =============================="
 
@@ -3067,6 +3091,7 @@ test_39j() {
 	done
 	lctl set_param fail_loc=0
 	stop_full_debug_logging
+	rm -f $DIR/$tfile-1
 }
 run_test 39j "write, rename, close, stat ======================="
 
@@ -3093,6 +3118,7 @@ test_39k() {
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 	done
+	rm $DIR1/$tfile
 }
 run_test 39k "write, utime, close, stat ========================"
 
@@ -3168,6 +3194,7 @@ test_39m() {
 		cancel_lru_locks osc
 		if [ $i = 0 ] ; then echo "repeat after cancel_lru_locks"; fi
 	done
+	rm $DIR1/$tfile
 }
 run_test 39m "test atime and mtime before 1970"
 
@@ -3199,6 +3226,7 @@ test_39n() { # LU-3832
 
 	[ "$atime0" -eq "$atime1" ] || error "atime0 $atime0 != atime1 $atime1"
 	[ "$atime1" -eq "$atime2" ] || error "atime0 $atime0 != atime1 $atime1"
+	rm -f $DIR/$tfile
 }
 run_test 39n "check that O_NOATIME is honored"
 
@@ -3252,6 +3280,7 @@ test_40() {
 		error "openfile O_WRONLY:O_TRUNC $tfile failed"
 	$CHECKSTAT -t file -s 4096 $DIR/$tfile ||
 		error "$tfile is not 4096 bytes in size"
+	rm -f $DIR/$tfile
 }
 run_test 40 "failed open(O_TRUNC) doesn't truncate ============="
 
@@ -4069,12 +4098,16 @@ find_loop_dev() {
 }
 
 cleanup_54c() {
+	tfile="$DIR/f54c"
+	tdir="$DIR/d54c"
 	loopdev="$DIR/loop54c"
 
 	trap 0
 	$UMOUNT -d $tdir || rc=$?
 	losetup -d $loopdev || true
-	rm $loopdev
+	losetup -d $LOOPDEV || true
+	rm -f $loopdev $tfile
+	rm -fr $tdir
 	return $rc
 }
 
@@ -4086,17 +4119,19 @@ test_54c() {
 
 	find_loop_dev
 	[ -z "$LOOPNUM" ] && echo "couldn't find empty loop device" && return
+	trap cleanup_54c EXIT
 	mknod $loopdev b 7 $LOOPNUM
 	echo "make a loop file system with $tfile on $loopdev ($LOOPNUM)..."
 	dd if=/dev/zero of=$tfile bs=$(get_page_size client) seek=1024 count=1 > /dev/null
 	losetup $loopdev $tfile || error "can't set up $loopdev for $tfile"
-	trap cleanup_54c EXIT
 	mkfs.ext2 $loopdev || error "mke2fs on $loopdev"
 	test_mkdir -p $tdir
 	mount -t ext2 $loopdev $tdir || error "error mounting $loopdev on $tdir"
-	dd if=/dev/zero of=$tdir/tmp bs=`page_size` count=30 || error "dd write"
+	dd if=/dev/zero of=$tdir/tmp bs=$(get_page_size client) count=30 ||
+		error "dd write"
 	df $tdir
-	dd if=$tdir/tmp of=/dev/zero bs=`page_size` count=30 || error "dd read"
+	dd if=$tdir/tmp of=/dev/zero bs=$(get_page_size client) count=30 ||
+		error "dd read"
 	cleanup_54c
 }
 run_test 54c "block device works in lustre ====================="
@@ -4871,6 +4906,7 @@ test_60b() { # bug 6411
 				 }"`
 	[[ $LLOG_COUNT -gt 50 ]] &&
 		error "CDEBUG_LIMIT not limiting messages ($LLOG_COUNT)" || true
+	rm -f $DIR/$tfile
 }
 run_test 60b "limit repeated messages from CERROR/CWARN ========"
 
@@ -4965,6 +5001,7 @@ test_63b() {
 	lctl get_param -n llite.*.dump_page_cache | grep locked && \
 		error "locked page left in cache after async error" || true
 	debugrestore
+	rm -f $DIR/$tfile
 }
 run_test 63b "async write errors should be returned to fsync ==="
 
@@ -5310,8 +5347,6 @@ test_72a() { # bug 5695 - Test that on 2.6 remove_suid works properly
 		skip_env "User $RUNAS_ID does not exist - skipping"
 		return 0
 	}
-	# We had better clear the $DIR to get enough space for dd
-	rm -rf $DIR/*
 	touch $DIR/$tfile
 	chmod 777 $DIR/$tfile
 	chmod ug+s $DIR/$tfile
@@ -5354,6 +5389,8 @@ test_72b() { # bug 24226 -- keep mode setting when size is not changing
 		$RUNAS chmod $perm $DIR/${tfile}-dg && error "S/gid dir allowed improper chmod to $perm"
 		$RUNAS chmod $perm $DIR/${tfile}-du && error "S/uid dir allowed improper chmod to $perm"
 	done
+	rm -f $DIR/$tfile-f{g,u}
+	rm -fr $DIR/$tfile-d{g,u}
 	true
 }
 run_test 72b "Test that we keep mode setting if without file data changed (bug 24226)"
@@ -5562,6 +5599,7 @@ test_77d() { # bug 10889
 		error "direct read: rc=$?"
 	$LCTL set_param fail_loc=0
 	set_checksums 0
+	rm -f $DIR/$tfile
 }
 run_test 77d "checksum error on OST direct write, read"
 
@@ -5804,6 +5842,7 @@ test_82() { # LU-1031
 	kill -USR1 $MULTIPID1
 	wait $MULTIPID1
 	wait $MULTIPID2
+	rm -f $DIR/$tfile
 }
 run_test 82 "Basic grouplock test ==============================="
 
@@ -6290,6 +6329,7 @@ test_102a() {
 	echo "set lustre special xattr ..."
 	setfattr -n "trusted.lov" -v "invalid value" $testfile ||
 		error "$testfile allowed setting trusted.lov"
+	rm -f $testfile
 }
 run_test 102a "user xattr test =================================="
 
@@ -6547,6 +6587,7 @@ test_102m() { # LU-3403 llite: error of listxattr when buffer is small
 	touch $path
 
 	listxattr_size_check $path || error "listattr_size_check $path failed"
+	rm -f $path
 }
 run_test 102m "Ensure listxattr fails on small bufffer ========"
 
@@ -6793,6 +6834,7 @@ test_105e() { # bug 22660 && 22040
 	flock_is_enabled || { skip "mount w/o flock enabled" && return; }
 	touch $DIR/$tfile
 	flocks_test 3 $DIR/$tfile
+	rm -f $DIR/$tfile
 }
 run_test 105e "Two conflicting flocks from same process ======="
 
@@ -8085,6 +8127,7 @@ test_127a() { # bug 15521
         [ "$write_bytes" ] || error "Missing write_bytes stats"
         [ "$read_bytes" != 0 ] || error "no read done"
         [ "$write_bytes" != 0 ] || error "no write done"
+	rm -f $DIR/$tfile $DIR/${tfile}.tmp
 }
 run_test 127a "verify the client stats are sane"
 
@@ -8126,6 +8169,7 @@ test_127b() { # bug LU-333
         [ "$write_bytes" ] || error "Missing write_bytes stats"
         [ "$read_bytes" != 0 ] || error "no read done"
         [ "$write_bytes" != 0 ] || error "no write done"
+	rm -f $DIR/$tfile $TMP/${tfile}.tmp
 }
 run_test 127b "verify the llite client stats are sane"
 
@@ -8137,7 +8181,7 @@ test_128() { # bug 15212
 	EOF
 
 	result=$(grep error $TMP/$tfile.log)
-	rm -f $DIR/$tfile
+	rm -f $DIR/$tfile $TMP/$tfile.log
 	[ -z "$result" ] || error "consecutive find's under interactive lfs failed"
 }
 run_test 128 "interactive lfs for 2 consecutive find's"
@@ -8534,7 +8578,7 @@ test_131b() {
 run_test 131b "test append writev"
 
 test_131c() {
-	rwv -f $DIR/$tfile -w -d -n 1 1048576 || return 0
+	rwv -f $DIR/$tfile -w -d -n 1 1048576 || rm -f $DIR/$tfile && return 0
 	error "NOT PASS"
 }
 run_test 131c "test read/write on file w/o objects"
@@ -9057,7 +9101,7 @@ test_150() {
         cancel_lru_locks osc
         cmp $TF $DIR/$tfile || error "$TF $DIR/$tfile differ (append2)"
 
-        rm -f $TF
+	rm -f $TF $DIR/$tfile
         true
 }
 run_test 150 "truncate/append tests"
@@ -9204,7 +9248,7 @@ test_152() {
         cmp $TF $DIR/$tfile || error "cmp failed"
         lctl set_param fail_loc=0
 
-        rm -f $TF
+	rm -f $TF $DIR/$tfile
 }
 run_test 152 "test read/write with enomem ============================"
 
@@ -9431,6 +9475,7 @@ test_154c() {
 			error "fid2path pathname $PATHNAME != $DIR/$tfile.$N:"
 		N=$((N + 1))
 	done
+	rm -f $DIR/$tfile.1 $DIR/$tfile.2 $DIR/$tfile.3
 }
 run_test 154c "lfs path2fid and fid2path multiple arguments"
 
@@ -10250,6 +10295,7 @@ test_171() { # bug20592
                 error "caught a recursive fault"
         fi
         $LCTL set_param fail_loc=0
+	rm -f $DIR/$tfile
         true
 }
 run_test 171 "test libcfs_debug_dumplog_thread stuck in do_exit() ======"
@@ -11292,6 +11338,7 @@ test_209() {
 	echo "before: $req_before, after: $req_after"
 	[ $((req_after - req_before)) -ge 300 ] &&
 		error "open/close requests are not freed"
+	rm -f $DIR/$tfile
 	return 0
 }
 run_test 209 "read-only open/close requests should be freed promptly"
@@ -11313,6 +11360,7 @@ test_213() {
 	cat $DIR/$tfile > /dev/null
 	# write to the file, it will try to cancel the above read lock.
 	cat /etc/hosts >> $DIR/$tfile
+	rm -f $DIR/$tfile
 }
 run_test 213 "OSC lock completion and cancel race don't crash - bug 18829"
 
@@ -11499,7 +11547,7 @@ test_216() { # bug 20317
 
         restore_lustre_params <$p
         rm -f $p
-        rm $DIR/$tfile
+        rm -f $DIR/$tfile
 }
 run_test 216 "check lockless direct write works and updates file size and kms correctly"
 
@@ -11554,6 +11602,7 @@ test_219() {
 	# LU-4201
 	dd if=/dev/zero of=$DIR/$tfile-2 bs=1024 count=1
 	$CHECKSTAT -s 1024 $DIR/$tfile-2 || error "checkstat wrong size"
+	rm -f $DIR/$tfile $DIR/$tfile-2
 }
 run_test 219 "LU-394: Write partial won't cause uncontiguous pages vec at LND"
 
@@ -11679,6 +11728,7 @@ test_224a() { # LU-1039, MRP-303
         dd if=/dev/zero of=$DIR/$tfile bs=4096 count=1 conv=fsync
         $LCTL set_param fail_loc=0
         df $DIR
+	rm -f $DIR/$tfile
 }
 run_test 224a "Don't panic on bulk IO failure"
 
@@ -11691,6 +11741,7 @@ test_224b() { # LU-1039, MRP-303
         dd of=/dev/null if=$DIR/$tfile bs=4096 count=1
         $LCTL set_param fail_loc=0
         df $DIR
+	rm -f $DIR/$tfile
 }
 run_test 224b "Don't panic on bulk IO failure"
 
@@ -12349,6 +12400,7 @@ test_235() {
 		*) error "error executing flock_deadlock $DIR/$tfile"
 		;;
 	esac
+	rm -f $DIR/$tfile
 }
 run_test 235 "LU-1715: flock deadlock detection does not work properly"
 
