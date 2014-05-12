@@ -10255,9 +10255,9 @@ test_170() {
 	[ "$bad_line" ] && [ "$good_line1" ] && [ "$good_line2" ] ||
 		error "bad_line good_line1 good_line2 are empty"
 
-        cat $TMP/${tfile}_log_good >> $TMP/${tfile}_logs_corrupt
-        cat $TMP/${tfile}_log_bad >> $TMP/${tfile}_logs_corrupt
-        cat $TMP/${tfile}_log_good >> $TMP/${tfile}_logs_corrupt
+	cat $TMP/${tfile}_log_good > $TMP/${tfile}_logs_corrupt
+	cat $TMP/${tfile}_log_bad >> $TMP/${tfile}_logs_corrupt
+	cat $TMP/${tfile}_log_good >> $TMP/${tfile}_logs_corrupt
 
         $LCTL df $TMP/${tfile}_logs_corrupt > $TMP/${tfile}_log_bad.out 2>&1
         local bad_line_new=$(tail -n 1 $TMP/${tfile}_log_bad.out | awk '{print $9}')
