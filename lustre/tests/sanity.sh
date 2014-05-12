@@ -575,6 +575,7 @@ test_17m() {
 	local i
 	local rc=0
 
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.0) ] &&
 	[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.2.93) ] &&
 		skip "MDS 2.2.0-2.2.93 do not NUL-terminate symlinks" && return
@@ -654,6 +655,7 @@ check_fs_consistency_17n() {
 test_17n() {
 	local i
 
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.2.0) ] &&
 	[ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.2.93) ] &&
 		skip "MDS 2.2.0-2.2.93 do not NUL-terminate symlinks" && return
@@ -706,6 +708,7 @@ test_17n() {
 run_test 17n "run e2fsck against master/slave MDT which contains remote dir"
 
 test_17o() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.64) ] &&
 		skip "Need MDS version at least 2.3.64" && return
 
@@ -5913,6 +5916,7 @@ test_79() { # bug 12743
 run_test 79 "df report consistency check ======================="
 
 test_80() { # bug 10718
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
         # relax strong synchronous semantics for slow backends like ZFS
         local soc="obdfilter.*.sync_on_lock_cancel"
@@ -9136,11 +9140,12 @@ test_133d() {
 run_test 133d "Verifying rename_stats ========================================"
 
 test_133e() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	local testdir=$DIR/${tdir}/stats_testdir
 	local ctr f0 f1 bs=32768 count=42 sum
 
-	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	mkdir -p ${testdir} || error "mkdir failed"
 
 	$SETSTRIPE -c 1 -i 0 ${testdir}/${tfile}
@@ -9184,6 +9189,8 @@ test_133f() {
 	local proc_dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/"
 	local facet
 
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	# First without trusting modes.
 	find $proc_dirs -exec cat '{}' \; &> /dev/null
 
@@ -9854,6 +9861,7 @@ test_155h() {
 run_test 155h "Verify big file correctness: read cache:off write_cache:off"
 
 test_156() {
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	local CPAGES=3
 	local BEFORE
@@ -10288,6 +10296,7 @@ test_161b() {
 run_test 161b "link ea sanity under remote directory"
 
 test_161c() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.1.5) ]] &&
 		skip "Need MDS version at least 2.1.5" && return
@@ -10668,6 +10677,7 @@ run_test 180b "test obdecho directly on obdfilter"
 
 test_180c() { # LU-2598
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.0) ]] &&
 		skip "Need MDS version at least 2.4.0" && return
 
@@ -10739,6 +10749,7 @@ test_182() {
 run_test 182 "Disable MDC RPCs semaphore wouldn't crash client ================"
 
 test_183() { # LU-2275
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.56) ]] &&
 		skip "Need MDS version at least 2.3.56" && return
 
@@ -11435,6 +11446,7 @@ jobstats_set() {
 
 test_205() { # Job stats
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
 	[ -z "$(lctl get_param -n mdc.*.connect_flags | grep jobstats)" ] &&
 		skip "Server doesn't support jobstats" && return 0
 	[[ $JOBID_VAR = disable ]] && skip "jobstats is disabled" && return
@@ -11537,6 +11549,7 @@ test_208() {
 
 	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.4.52) ]] ||
 		{ skip "Need MDS version at least 2.4.52"; return 0; }
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 
 	echo "==== test 1: verify get lease work"
 	$MULTIOP $DIR/$tfile oO_CREAT:O_RDWR:eRE+eU || error "get lease error"
@@ -12148,6 +12161,7 @@ run_test 227 "running truncated executable does not cause OOM"
 # LU-1512 try to reuse idle OI blocks
 test_228a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ "$(facet_fstype $SINGLEMDS)" != "ldiskfs" ] &&
 		skip "non-ldiskfs backend" && return
 
@@ -12189,6 +12203,7 @@ run_test 228a "try to reuse idle OI blocks"
 
 test_228b() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ "$(facet_fstype $SINGLEMDS)" != "ldiskfs" ] &&
 		skip "non-ldiskfs backend" && return
 
@@ -12238,6 +12253,7 @@ run_test 228b "idle OI blocks can be reused after MDT restart"
 #LU-1881
 test_228c() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ "$(facet_fstype $SINGLEMDS)" != "ldiskfs" ] &&
 		skip "non-ldiskfs backend" && return
 
