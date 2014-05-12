@@ -66,6 +66,7 @@
 struct hsm_copytool_private {
 	int			 magic;
 	char			*mnt;
+	struct kuc_hdr		*kuch;
 	int			 mnt_fd;
 	int			 open_by_fid_fd;
 	lustre_kernelcomm	 kuc;
@@ -673,6 +674,12 @@ int llapi_hsm_copytool_register(struct hsm_copytool_private **priv,
 		goto out_err;
 	}
 
+	ct->kuch = malloc(HAL_MAXSIZE + sizeof(*ct->kuch));
+	if (ct->kuch == NULL) {
+		rc = -ENOMEM;
+		goto out_err;
+	}
+
 	ct->mnt_fd = open(ct->mnt, O_RDONLY);
 	if (ct->mnt_fd < 0) {
 		rc = -errno;
@@ -746,6 +753,8 @@ out_err:
 	if (ct->mnt != NULL)
 		free(ct->mnt);
 
+	free(ct->kuch);
+
 	free(ct);
 
 	return rc;
@@ -779,6 +788,7 @@ int llapi_hsm_copytool_unregister(struct hsm_copytool_private **priv)
 	close(ct->open_by_fid_fd);
 	close(ct->mnt_fd);
 	free(ct->mnt);
+	free(ct->kuch);
 	free(ct);
 	*priv = NULL;
 
@@ -795,7 +805,7 @@ int llapi_hsm_copytool_unregister(struct hsm_copytool_private **priv)
 int llapi_hsm_copytool_recv(struct hsm_copytool_private *ct,
 			    struct hsm_action_list **halh, int *msgsize)
 {
-	struct kuc_hdr		*kuch;
+	struct kuc_hdr      *kuch;
 	struct hsm_action_list	*hal;
 	int			 rc = 0;
 
@@ -805,9 +815,7 @@ int llapi_hsm_copytool_recv(struct hsm_copytool_private *ct,
 	if (halh == NULL || msgsize == NULL)
 		return -EINVAL;
 
-	kuch = malloc(HAL_MAXSIZE + sizeof(*kuch));
-	if (kuch == NULL)
-		return -ENOMEM;
+	kuch = ct->kuch;
 
 	rc = libcfs_ukuc_msg_get(&ct->kuc, (char *)kuch,
 				 HAL_MAXSIZE + sizeof(*kuch),
@@ -864,15 +872,7 @@ int llapi_hsm_copytool_recv(struct hsm_copytool_private *ct,
 out_free:
 	*halh = NULL;
 	*msgsize = 0;
-	free(kuch);
 	return rc;
-}
-
-/** Release the action list when done with it. */
-void llapi_hsm_action_list_free(struct hsm_action_list **hal)
-{
-	/* Reuse the llapi_changelog_free function */
-	llapi_changelog_free((struct changelog_ext_rec **)hal);
 }
 
 /** Get parent path from mount point and fid.
