@@ -581,6 +581,7 @@ test_17m() {
 	[ "$(facet_fstype $SINGLEMDS)" != "ldiskfs" ] &&
 		skip "only for ldiskfs MDT" && return 0
 
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 
 	mkdir -p $WDIR
@@ -662,6 +663,7 @@ test_17n() {
 
 	[[ $MDSCOUNT -lt 2 ]] && skip "needs >= 2 MDTs" && return
 
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 
 	mkdir -p $DIR/$tdir
@@ -705,6 +707,7 @@ test_17n() {
 run_test 17n "run e2fsck against master/slave MDT which contains remote dir"
 
 test_17o() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.64) ] &&
 		skip "Need MDS version at least 2.3.64" && return
 
@@ -5723,6 +5726,7 @@ test_79() { # bug 12743
 run_test 79 "df report consistency check ======================="
 
 test_80() { # bug 10718
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
         # relax strong synchronous semantics for slow backends like ZFS
         local soc="obdfilter.*.sync_on_lock_cancel"
@@ -8935,6 +8939,7 @@ test_133f() {
 	local proc_dirs="/proc/fs/lustre/ /proc/sys/lnet/ /proc/sys/lustre/"
 	local facet
 
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	# First without trusting modes.
 	find $proc_dirs -exec cat '{}' \; &> /dev/null
 
@@ -9588,6 +9593,7 @@ test_155h() {
 run_test 155h "Verify big file correctness: read cache:off write_cache:off"
 
 test_156() {
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	local CPAGES=3
 	local BEFORE
@@ -10016,6 +10022,7 @@ test_161b() {
 run_test 161b "link ea sanity under remote directory"
 
 test_161c() {
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.1.5) ]] &&
 		skip "Need MDS version at least 2.1.5" && return
@@ -10358,6 +10365,7 @@ run_test 180b "test obdecho directly on obdfilter"
 
 test_180c() { # LU-2598
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	remote_ost_nodsh && skip "remote OST with nodsh" && return
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.4.0) ]] &&
 		skip "Need MDS version at least 2.4.0" && return
 
@@ -10429,6 +10437,7 @@ test_182() {
 run_test 182 "Disable MDC RPCs semaphore wouldn't crash client ================"
 
 test_183() { # LU-2275
+	remote_mds_nodsh && skip "remote MDS with nodsh" && return
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.3.56) ]] &&
 		skip "Need MDS version at least 2.3.56" && return
 
@@ -11221,6 +11230,7 @@ test_207b() {
 run_test 207b "can refresh layout at open"
 
 test_208() {
+	[ -n "$CLIENTONLY" ] && skip "CLIENTONLY mode" && return
 	# FIXME: in this test suite, only RD lease is used. This is okay
 	# for now as only exclusive open is supported. After generic lease
 	# is done, this test suite should be revised. - Jinshan
@@ -12644,6 +12654,7 @@ run_test 300f "check rename cross striped directory"
 #
 
 test_900() {
+	[ -n "$CLIENTONLY" ] && skip "CLIENTONLY mode" && return
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
         local ls
         #define OBD_FAIL_MGC_PAUSE_PROCESS_LOG   0x903
