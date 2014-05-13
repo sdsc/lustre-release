@@ -283,6 +283,7 @@ struct lod_thread_info {
 	char		  lti_key[NAME_MAX + sizeof(struct lu_dirent)];
 
 	struct dt_object_format lti_format;
+	struct dt_insert_rec	lti_dir;
 };
 
 extern const struct lu_device_operations lod_lu_ops;
