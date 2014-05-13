@@ -116,7 +116,7 @@ int    cfs_curproc_is_in_groups(gid_t gid)
 
 mode_t cfs_curproc_umask(void)
 {
-        return current->fs->umask;
+        return current_umask();
 }
 
 char  *cfs_curproc_comm(void)
