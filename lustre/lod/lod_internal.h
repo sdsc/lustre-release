@@ -54,7 +54,7 @@ struct lod_qos_rr {
 };
 
 struct pool_desc {
-	char			 pool_name[LOV_MAXPOOLNAME + 1];
+	char			 pool_name[LOV_MAXPOOLNAME];
 	struct ost_pool		 pool_obds;	/* pool members */
 	atomic_t		 pool_refcount;
 	struct lod_qos_rr	 pool_rr;

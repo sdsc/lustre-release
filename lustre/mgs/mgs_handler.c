@@ -763,7 +763,7 @@ static int mgs_iocontrol_pool(const struct lu_env *env,
         char *poolname = NULL;
         ENTRY;
 
-        OBD_ALLOC(poolname, LOV_MAXPOOLNAME + 1);
+	OBD_ALLOC(poolname, LOV_MAXPOOLNAME);
 	if (poolname == NULL)
 		RETURN(-ENOMEM);
 
@@ -830,7 +830,7 @@ static int mgs_iocontrol_pool(const struct lu_env *env,
 out_lcfg:
 	OBD_FREE(lcfg, data->ioc_plen1);
 out_pool:
-	OBD_FREE(poolname, LOV_MAXPOOLNAME + 1);
+	OBD_FREE(poolname, LOV_MAXPOOLNAME);
         RETURN(rc);
 }
 

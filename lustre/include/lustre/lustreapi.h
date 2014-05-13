@@ -199,7 +199,7 @@ struct find_param {
 	int			 lumlen;
 	struct  lov_user_mds_data	*lmd;
 
-	char			poolname[LOV_MAXPOOLNAME + 1];
+	char			poolname[LOV_MAXPOOLNAME];
 
 	int			 fp_lmv_count;
 	struct lmv_user_md	*fp_lmv_md;

@@ -2510,12 +2510,11 @@ void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
                                        param->verbose, param->raw);
                 break;
         case LOV_USER_MAGIC_V3: {
-                char pool_name[LOV_MAXPOOLNAME + 1];
+		char pool_name[LOV_MAXPOOLNAME];
                 struct lov_user_ost_data_v1 *objects;
                 struct lov_user_md_v3 *lmmv3 = (void *)&param->lmd->lmd_lmm;
 
                 strncpy(pool_name, lmmv3->lmm_pool_name, LOV_MAXPOOLNAME);
-                pool_name[LOV_MAXPOOLNAME] = '\0';
                 objects = lmmv3->lmm_objects;
                 lov_dump_user_lmm_v1v3(&param->lmd->lmd_lmm, pool_name,
                                        objects, path, is_dir,
@@ -2525,7 +2524,7 @@ void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
         }
 	case LMV_MAGIC_V1:
 	case LMV_USER_MAGIC: {
-		char pool_name[LOV_MAXPOOLNAME + 1];
+		char pool_name[LOV_MAXPOOLNAME];
 		struct lmv_user_md *lum;
 
 		lum = (struct lmv_user_md *)param->fp_lmv_md;

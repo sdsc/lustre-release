@@ -77,7 +77,7 @@
 #define pool_tgt_rw_sem(p) ((p)->pool_obds.op_rw_sem)
 
 struct pool_desc {
-	char			 pool_name[LOV_MAXPOOLNAME + 1];
+	char			 pool_name[LOV_MAXPOOLNAME];
 	struct ost_pool		 pool_obds;
 	atomic_t		 pool_refcount;
 	cfs_hlist_node_t	 pool_hash;	/* access by poolname */

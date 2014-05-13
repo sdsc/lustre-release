@@ -434,7 +434,7 @@ int lod_pool_new(struct obd_device *obd, char *poolname)
 	int rc;
 	ENTRY;
 
-	if (strlen(poolname) > LOV_MAXPOOLNAME)
+	if (strlen(poolname) >= LOV_MAXPOOLNAME)
 		RETURN(-ENAMETOOLONG);
 
 	OBD_ALLOC_PTR(new_pool);
@@ -442,7 +442,6 @@ int lod_pool_new(struct obd_device *obd, char *poolname)
 		RETURN(-ENOMEM);
 
 	strncpy(new_pool->pool_name, poolname, LOV_MAXPOOLNAME);
-	new_pool->pool_name[LOV_MAXPOOLNAME] = '\0';
 	new_pool->pool_lobd = obd;
 	/* ref count init to 1 because when created a pool is always used
 	 * up to deletion
