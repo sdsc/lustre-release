@@ -131,7 +131,6 @@ typedef long long_ptr_t;
  * Macros to access common characteristics of "current" UNIX process.
  */
 #define current_pid()             (current->pid)
-#define current_umask()           (current->fs->umask)
 #define current_comm()            (current->comm)
 
 /* check if task is running in compat mode.*/
