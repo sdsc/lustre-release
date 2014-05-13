@@ -167,6 +167,8 @@ static inline void lprocfs_echo_init_vars(struct lprocfs_static_vars *lvars)
 #define CFG_F_COMPAT146 0x08   /* Allow old-style logs */
 #define CFG_F_EXCLUDE   0x10   /* OST exclusion list */
 
+#define PARAMS_FILENAME	"params"
+
 /* Passed as data param to class_config_parse_llog */
 struct config_llog_instance {
         char               *cfg_obdname;

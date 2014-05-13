@@ -607,9 +607,10 @@ static int mgs_handle_fslog_hack(struct ptlrpc_request *req)
         }
 
         ptr = strchr(logname, '-');
-        rc = (int)(ptr - logname);
-        if (ptr == NULL || rc >= sizeof(fsname)) {
-                CERROR("Invalid logname received: %s\n", logname);
+	rc = (ptr != NULL) ? (int)(ptr - logname) : 0;
+	if (ptr == NULL || rc >= sizeof(fsname)) {
+		if (strcmp(logname, PARAMS_FILENAME) != 0)
+			CERROR("Invalid logname received: %s\n", logname);
                 return -EINVAL;
         }
 
