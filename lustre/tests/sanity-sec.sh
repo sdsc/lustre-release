@@ -42,17 +42,25 @@ NODEMAP_MAX_ID=600
 require_dsh_mds || exit 0
 require_dsh_ost || exit 0
 
+clients=${CLIENTS//,/ }
+num_clients=$(get_node_count ${clients})
+
+IDBASE=500
 ID0=${ID0:-500}
 ID1=${ID1:-501}
 USER0=`cat /etc/passwd|grep :$ID0:$ID0:|cut -d: -f1`
 USER1=`cat /etc/passwd|grep :$ID1:$ID1:|cut -d: -f1`
 
-[ -z "$USER0" ] && \
-	echo "Please add user0 (uid=$ID0 gid=$ID0)! Skip sanity-sec" && exit 0
+USER_COUNT=5
 
-[ -z "$USER1" ] && \
-	echo "Please add user1 (uid=$ID1 gid=$ID1)! Skip sanity-sec" && exit 0
-
+for x in `seq 0 $((USER_COUNT - 1))`; do
+	IDX=$((IDBASE + x))
+	USERX=`cat /etc/passwd|grep :$IDX:$IDX:|cut -d: -f1`
+	[ -z "$USERX" ] && \
+		echo -n "Please add user$x (uid=$IDX gid=$IDX)! " && \
+		echo -n "Skip sanity-sec" && \
+		exit 0
+done
 check_and_setup_lustre
 
 sec_cleanup() {
@@ -91,7 +99,8 @@ CAPA_TIMEOUT=mdt.$MDT.capa_timeout
 MDSSECLEVEL=mdt.$MDT.sec_level
 
 # for CLIENT_TYPE
-if [ -z "$(lctl get_param -n llite.*.client_type | grep remote 2>/dev/null)" ]; then
+if [ -z "$(lctl get_param -n llite.*.client_type | grep remote 2>/dev/null)" ]
+then
 	CLIENT_TYPE="local"
 	echo "local client"
 else
@@ -583,6 +592,49 @@ create_nodemaps() {
 	return 0
 }
 
+create_fops_nodemaps() {
+	local i=0
+	local client
+	local maps=( \
+		[0]="100:500 101:502 150:503" \
+		[1]="200:501 201:502 150:504" \
+		)
+	echo clientcount $num_clients $RCLIENTS
+	for client in $RCLIENTS; do
+		do_facet mgs $LCTL nodemap_add c${i} || return 1
+		do_facet mgs $LCTL nodemap_add_range 	\
+			--name c${i} --range $client@tcp || return 1
+		do_facet ost0 $LCTL set_param nodemap.add_nodemap=c${i} \
+			|| return 1
+		do_facet ost0 "echo c${i} ${client}@tcp > \
+			/proc/fs/lustre/nodemap/add_nodemap_range" || return 1
+		for map in ${maps[i]}; do
+			do_facet mgs $LCTL nodemap_add_idmap --name c${i} \
+				--idtype uid --idmap ${map} || return 1
+			do_facet ost0 "echo c${i} uid ${map} > \
+				/proc/fs/lustre/nodemap/add_nodemap_idmap" \
+				|| return 1
+		done
+		out1=$(do_facet mgs $LCTL get_param nodemap.c${i}.idmap)
+		out2=$(do_facet ost0 $LCTL get_param nodemap.c${i}.idmap)
+		[ "$out1" != "$out2" ] && error "mgs and oss maps mismatch"
+		i=$((i+1))
+	done
+	return 0
+}
+
+delete_fops_nodemaps() {
+	local i=0
+	local client
+	for client in $RCLIENTS; do
+		do_facet mgs $LCTL nodemap_del c${i} || return 1
+		do_facet ost0 $LCTL set_param nodemap.remove_nodemap=c${i} \
+			|| return 1
+		i=$((i+1))
+	done
+	return 0
+}
+
 delete_nodemaps() {
 	local i
 	local out
@@ -861,6 +913,74 @@ test_idmap() {
 		fi
 	done
 
+	return $rc
+}
+
+do_fops() {
+	local run_u=$1
+	local key=$2
+	local testfile=$DIR/$tdir/$tfile
+	local rc=0
+	local c=0 w=0 r=0 d=0 q=0
+	local qused_orig=`$run_u lfs quota -q $DIR | awk '{print $2; exit;}'`
+	local qused_new
+	if $run_u touch $testfile >& /dev/null; then
+		c=1
+		q=1
+		$run_u dd if=/dev/zero of=$testfile bs=1M count=1 && w=1
+		$run_u dd if=$testfile of=/dev/null bs=1M && r=1
+		qused_new=`$run_u lfs quota -q $DIR | awk '{print $2; exit;}'`
+		[ $((qused_orig + 1024)) == $qused_new ] || q=0
+		$run_u rm $testfile && d=1
+		wait_delete_completed_mds
+
+		qused_new=`$run_u lfs quota -q $DIR | awk '{print $2; exit;}'`
+                [ $((qused_orig - 4)) -le $((qused_new)) \
+			-a $((qused_orig + 4)) -ge $((qused_new)) ] || q=0
+	fi >& /dev/null
+	local expected=`grep "$key" $LUSTRE/tests/sec.t16.out | cut -d" " -f2-`
+	local res="$c $w $r $d $q"
+	[ "$expected" == "" ] &&  expected="0 0 0 0 0"
+	[ "$res" != "$expected" ] && error "test $key expected " \
+		"$expected, got $res" && rc=$(($rc+1))
+	return $rc
+}
+
+test_fops() {
+	local mapmode="$1"
+	local single_client="$2"
+	local client_user_list="root tu0 tu1 stu"
+	local i
+	local rc=0
+	for ((i = 0; i < USER_COUNT; i++)); do
+		local user="user$i"
+		local client
+		local x
+
+		echo mkdir -p $DIR/$tdir
+		rm -rf $DIR/$tdir
+		mkdir -p $DIR/$tdir
+		chown $user $DIR/$tdir
+		for x in `seq 0 511`; do
+			local op=$(printf %03o $x)
+			chmod $op $DIR/$tdir
+
+			local cli_i=0
+			for client in $RCLIENTS; do
+				local u
+				for u in $client_user_list; do
+					local key
+					key="$mapmode:$user:c$cli_i:$u:$op"
+					local run_u="do_node $client \
+							$RUNAS -u $u -v $u"
+					do_fops "$run_u" "$key"
+				done
+				cli_i=$((cli_i + 1))
+				[ "$single_client" == "1" ] && break
+			done
+		done
+		rm -rf $DIR/$tdir
+	done
 	return $rc
 }
 
@@ -1190,6 +1310,80 @@ test_15() {
 	return 0
 }
 run_test 15 "test id mapping"
+
+test_16() {
+	local rc
+
+	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
+	[ $(lustre_version_code $SINGLEMGS) -lt $(version_code 2.5.53) ] &&
+		skip "No nodemap on $(get_lustre_version) MGS, need 2.5.53+" &&
+		return
+
+	rc=0
+	create_fops_nodemaps
+	rc=$?
+	[[ $rc != 0 ]] && error "adding fops nodemaps failed $rc"
+
+	test_fops all_off
+
+	do_facet mgs $LCTL set_param nodemap.active=1
+	do_facet ost0 $LCTL set_param nodemap.active=1
+	do_facet mgs $LCTL set_param nodemap.default.admin_nodemap=1
+	do_facet mgs $LCTL set_param nodemap.default.trusted_nodemap=1
+
+	for client in $RCLIENTS; do
+		do_node $client $LCTL set_param nodemap.default.admin_nodemap=0
+		do_node $client $LCTL set_param \
+			nodemap.default.trusted_nodemap=1
+	done
+	test_fops trusted_noadmin 1
+
+	for client in $RCLIENTS; do
+		do_node $client $LCTL set_param nodemap.default.admin_nodemap=0
+		do_node $client $LCTL set_param \
+			nodemap.default.trusted_nodemap=0
+	done
+	test_fops mapped_noadmin 1
+
+	for client in $RCLIENTS; do
+		do_node $client $LCTL set_param nodemap.default.admin_nodemap=1
+		do_node $client $LCTL set_param \
+			nodemap.default.trusted_nodemap=1
+	done
+	test_fops trusted_admin 1
+
+	for client in $RCLIENTS; do
+		do_node $client $LCTL set_param nodemap.default.admin_nodemap=1
+		do_node $client $LCTL set_param \
+			nodemap.default.trusted_nodemap=0
+	done
+	test_fops mapped_admin 1
+
+	local x=1
+	for client in $RCLIENTS; do
+		do_node $client $LCTL set_param nodemap.default.admin_nodemap=0
+		do_node $client $LCTL set_param \
+			nodemap.default.trusted_nodemap=$x
+		x=0
+	done
+	test_fops mapped_trusted_noadmin
+
+	x=1
+	for client in $RCLIENTS; do
+		do_node $client $LCTL set_param nodemap.default.admin_nodemap=1
+		do_node $client $LCTL set_param \
+			nodemap.default.trusted_nodemap=$x
+		x=0
+	done
+	test_fops mapped_trusted_admin
+
+	delete_fops_nodemaps
+	rc=$?
+	[[ $rc != 0 ]] && error "removing fops nodemaps failed $rc"
+
+	return 0
+}
+run_test 16 "test nodemap fileops"
 
 log "cleanup: ======================================================"
 
