@@ -1213,6 +1213,7 @@ out_put:
 
 static int ofd_create_hdl(struct tgt_session_info *tsi)
 {
+	struct ptlrpc_request	*req = tgt_ses_req(tsi);
 	struct ost_body		*repbody;
 	const struct obdo	*oa = &tsi->tsi_ost_body->oa;
 	struct obdo		*rep_oa;
@@ -1401,6 +1402,12 @@ static int ofd_create_hdl(struct tgt_session_info *tsi)
 				break;
 			}
 		}
+
+		if (diff > 0 && lustre_msg_get_flags(req->rq_reqmsg) & MSG_REPLAY)
+			LCONSOLE_WARN("%s: can't create the same count of objects "
+				      "when replaying the request (diff is %d)\n",
+				      ofd_name(ofd), diff);
+
 		if (created > 0)
 			/* some objects got created, we can return
 			 * them, even if last creation failed */
