@@ -1307,4 +1307,26 @@ static inline int cli_brw_size(struct obd_device *obd)
 	return obd->u.cli.cl_max_pages_per_rpc << PAGE_CACHE_SHIFT;
 }
 
+/* when RPC size or the max RPCs in flight is increased, the max dirty pages
+ * of the client should be increased accordingly to avoid sending fragmented
+ * RPCs over the network when the client runs out of the maximum dirty space
+ * when so many RPCs are being generated.
+ */
+static inline void client_adjust_max_dirty(struct client_obd *cli)
+{
+	 /* initializing */
+	if (cli->cl_dirty_max <= 0)
+		cli->cl_dirty_max = OSC_MAX_DIRTY_DEFAULT * 1024 * 1024;
+	else {
+		long dirty_max = cli->cl_max_rpcs_in_flight *
+				(cli->cl_max_pages_per_rpc << PAGE_CACHE_SHIFT);
+
+		if (dirty_max > cli->cl_dirty_max)
+			cli->cl_dirty_max = dirty_max;
+	}
+
+	if (cli->cl_dirty_max >> PAGE_CACHE_SHIFT > totalram_pages / 8)
+		cli->cl_dirty_max = totalram_pages << (PAGE_CACHE_SHIFT - 3);
+}
+
 #endif /* __OBD_H */
