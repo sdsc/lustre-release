@@ -92,9 +92,9 @@ osd_object_sa_init(struct osd_object *obj, struct osd_device *o)
 	int rc;
 
 	LASSERT(obj->oo_sa_hdl == NULL);
-	LASSERT(obj->oo_db != NULL);
+	LASSERT(obj->oo_dnode != 0);
 
-	rc = -sa_handle_get(o->od_os, obj->oo_db->db_object, obj,
+	rc = -sa_handle_get(o->od_os, obj->oo_dnode, obj,
 			    SA_HDL_PRIVATE, &obj->oo_sa_hdl);
 	if (rc)
 		return rc;
@@ -195,9 +195,9 @@ int __osd_object_attr_get(const struct lu_env *env, struct osd_device *o,
 	int		 rc;
 	ENTRY;
 
-	LASSERT(obj->oo_db != NULL);
+	LASSERT(obj->oo_dnode != 0;
 
-	rc = -sa_handle_get(o->od_os, obj->oo_db->db_object, NULL,
+	rc = -sa_handle_get(o->od_os, obj->oo_dnode, NULL,
 			    SA_HDL_PRIVATE, &sa_hdl);
 	if (rc)
 		RETURN(rc);
@@ -305,14 +305,15 @@ struct lu_object *osd_object_alloc(const struct lu_env *env,
 /*
  * Concurrency: shouldn't matter.
  */
-int osd_object_init0(const struct lu_env *env, struct osd_object *obj)
+int osd_object_init0(const struct lu_env *env, struct osd_object *obj,
+		     struct dmu_buf_t *db)
 {
 	struct osd_device	*osd = osd_obj2dev(obj);
 	const struct lu_fid	*fid  = lu_object_fid(&obj->oo_dt.do_lu);
 	int			 rc = 0;
 	ENTRY;
 
-	if (obj->oo_db == NULL)
+	if (obj->oo_dnode == 0)
 		RETURN(0);
 
 	/* object exist */
@@ -383,6 +384,7 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 {
 	struct osd_object	*obj = osd_obj(l);
 	struct osd_device	*osd = osd_obj2dev(obj);
+	dmu_buf_t		*db = NULL;
 	uint64_t		 oid;
 	int			 rc;
 	ENTRY;
@@ -397,14 +399,15 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 
 	rc = osd_fid_lookup(env, osd, lu_object_fid(l), &oid);
 	if (rc == 0) {
-		LASSERT(obj->oo_db == NULL);
-		rc = __osd_obj2dbuf(env, osd->od_os, oid, &obj->oo_db);
+		LASSERT(obj->oo_dnode == 0);
+		rc = __osd_obj2dbuf(env, osd->od_os, oid, &db);
 		if (rc != 0) {
 			CERROR("%s: lookup "DFID"/"LPX64" failed: rc = %d\n",
 			       osd->od_svname, PFID(lu_object_fid(l)), oid, rc);
 			GOTO(out, rc);
 		}
-		LASSERT(obj->oo_db);
+		obj->oo_dnode = db->db_object;
+		LASSERT(obj->oo_dnode != 0);
 		rc = osd_object_init0(env, obj);
 		if (rc != 0)
 			GOTO(out, rc);
@@ -417,6 +420,8 @@ static int osd_object_init(const struct lu_env *env, struct lu_object *l,
 	}
 	LASSERT(osd_invariant(obj));
 out:
+	if (db != NULL)
+		sa_buf_rele(db);
 	RETURN(rc);
 }
 
@@ -439,9 +444,8 @@ static void __osd_declare_object_destroy(const struct lu_env *env,
 					 struct osd_thandle *oh)
 {
 	struct osd_device	*osd = osd_obj2dev(obj);
-	dmu_buf_t		*db = obj->oo_db;
 	zap_attribute_t		*za = &osd_oti_get(env)->oti_za;
-	uint64_t		 oid = db->db_object, xid;
+	uint64_t		 oid = obj->oo_dnode, xid;
 	dmu_tx_t		*tx = oh->ot_tx;
 	zap_cursor_t		*zc;
 	int			 rc = 0;
@@ -581,7 +585,7 @@ static int __osd_object_destroy(const struct lu_env *env,
 			       osd->od_svname, rc);
 	}
 
-	return -dmu_object_free(osd->od_os, obj->oo_db->db_object, tx);
+	return -dmu_object_free(osd->od_os, obj->oo_dnode, tx);
 }
 
 static int osd_object_destroy(const struct lu_env *env,
@@ -597,7 +601,7 @@ static int osd_object_destroy(const struct lu_env *env,
 	uint64_t		 zapid;
 	ENTRY;
 
-	LASSERT(obj->oo_db != NULL);
+	LASSERT(obj->oo_dnode != 0);
 	LASSERT(dt_object_exists(dt));
 	LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
 
@@ -650,7 +654,7 @@ static void osd_object_delete(const struct lu_env *env, struct lu_object *l)
 {
 	struct osd_object *obj = osd_obj(l);
 
-	if (obj->oo_db != NULL) {
+	if (obj->oo_dnode != 0) {
 		osd_object_sa_fini(obj);
 		if (obj->oo_sa_xattr) {
 			nvlist_free(obj->oo_sa_xattr);
@@ -658,7 +662,7 @@ static void osd_object_delete(const struct lu_env *env, struct lu_object *l)
 		}
 		sa_buf_rele(obj->oo_db, osd_obj_tag);
 		cfs_list_del(&obj->oo_sa_linkage);
-		obj->oo_db = NULL;
+		obj->oo_dnode = 0;
 	}
 }
 
@@ -745,7 +749,7 @@ static int osd_attr_get(const struct lu_env *env,
 
 	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(obj));
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
 	read_lock(&obj->oo_attr_lock);
 	*attr = obj->oo_attr;
@@ -1411,6 +1415,21 @@ static inline int osd_init_lma(const struct lu_env *env, struct osd_object *obj,
 	return rc;
 }
 
+static inline int osd_object_is_zap(dmu_buf_t *db)
+{
+	dmu_buf_impl_t *dbi = (dmu_buf_impl_t *) db;
+	dnode_t *dn;
+	int rc;
+
+	DB_DNODE_ENTER(dbi);
+	dn = DB_DNODE(dbi);
+	rc = (dn->dn_type == DMU_OT_DIRECTORY_CONTENTS ||
+			dn->dn_type == DMU_OT_USERGROUP_USED);
+	DB_DNODE_EXIT(dbi);
+
+	return rc;
+}
+
 /*
  * Concurrency: @dt is write locked.
  */
@@ -1426,7 +1445,7 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	struct osd_device	*osd = osd_obj2dev(obj);
 	char			*buf = osd_oti_get(env)->oti_str;
 	struct osd_thandle	*oh;
-	dmu_buf_t		*db;
+	dmu_buf_t		*db = NULL;
 	uint64_t		 zapid;
 	int			 rc;
 
@@ -1448,13 +1467,13 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 	 * XXX missing: Quote handling.
 	 */
 
-	LASSERT(obj->oo_db == NULL);
+	LASSERT(obj->oo_dnode != 0);
 
 	/* to follow ZFS on-disk format we need
 	 * to initialize parent dnode properly */
 	zapid = 0;
 	if (hint && hint->dah_parent)
-		zapid = osd_dt_obj(hint->dah_parent)->oo_db->db_object;
+		zapid = osd_dt_obj(hint->dah_parent)->oo_dnode;
 
 	db = osd_create_type_f(dof->dof_type)(env, osd, attr, zapid, oh);
 	if (IS_ERR(db))
@@ -1486,7 +1505,8 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 			"(%d)\n", osd->od_svname, PFID(fid), attr->la_gid, rc);
 
 	/* configure new osd object */
-	obj->oo_db = db;
+	obj->oo_zap = osd_object_is_zap(db);
+	obj->oo_dnode = db->db_object;
 	rc = osd_object_init0(env, obj);
 	LASSERT(ergo(rc == 0, dt_object_exists(dt)));
 	LASSERT(osd_invariant(obj));
@@ -1499,8 +1519,11 @@ static int osd_object_create(const struct lu_env *env, struct dt_object *dt,
 		rc = 0;
 	}
 
+
 out:
 	up(&obj->oo_guard);
+	if (db != NULL)
+		sa_buf_rele(db);
 	RETURN(rc);
 }
 

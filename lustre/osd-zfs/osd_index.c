@@ -67,21 +67,6 @@
 #include <sys/sa_impl.h>
 #include <sys/txg.h>
 
-static inline int osd_object_is_zap(dmu_buf_t *db)
-{
-	dmu_buf_impl_t *dbi = (dmu_buf_impl_t *) db;
-	dnode_t *dn;
-	int rc;
-
-	DB_DNODE_ENTER(dbi);
-	dn = DB_DNODE(dbi);
-	rc = (dn->dn_type == DMU_OT_DIRECTORY_CONTENTS ||
-			dn->dn_type == DMU_OT_USERGROUP_USED);
-	DB_DNODE_EXIT(dbi);
-
-	return rc;
-}
-
 /* We don't actually have direct access to the zap_hashbits() function
  * so just pretend like we do for now.  If this ever breaks we can look at
  * it at that time. */
@@ -140,14 +125,14 @@ static inline void osd_obj_cursor_init_serialized(zap_cursor_t *zc,
 						 uint64_t dirhash)
 {
 	struct osd_device *d = osd_obj2dev(o);
-	zap_cursor_init_serialized(zc, d->od_os, o->oo_db->db_object, dirhash);
+	zap_cursor_init_serialized(zc, d->od_os, o->oo_dnode, dirhash);
 }
 
 static inline int osd_obj_cursor_init(zap_cursor_t **zc, struct osd_object *o,
 			uint64_t dirhash)
 {
 	struct osd_device *d = osd_obj2dev(o);
-	return osd_zap_cursor_init(zc, d->od_os, o->oo_db->db_object, dirhash);
+	return osd_zap_cursor_init(zc, d->od_os, o->oo_dnode, dirhash);
 }
 
 static struct dt_it *osd_index_it_init(const struct lu_env *env,
@@ -165,8 +150,7 @@ static struct dt_it *osd_index_it_init(const struct lu_env *env,
 	/* XXX: check capa ? */
 
 	LASSERT(lu_object_exists(lo));
-	LASSERT(obj->oo_db);
-	LASSERT(osd_object_is_zap(obj->oo_db));
+	LASSERT(obj->oo_dnode != 0);
 	LASSERT(info);
 
 	it = &info->oti_it_zap;
@@ -245,8 +229,8 @@ static int osd_find_parent_by_dnode(const struct lu_env *env,
 	ENTRY;
 
 	/* first of all, get parent dnode from own attributes */
-	LASSERT(osd_dt_obj(o)->oo_db);
-	rc = -sa_handle_get(osd->od_os, osd_dt_obj(o)->oo_db->db_object,
+	LASSERT(osd_dt_obj(o)->oo_dnode != 0);
+	rc = -sa_handle_get(osd->od_os, osd_dt_obj(o)->oo_dnode,
 			    NULL, SA_HDL_PRIVATE, &sa_hdl);
 	if (rc)
 		RETURN(rc);
@@ -393,8 +377,6 @@ static int osd_dir_lookup(const struct lu_env *env, struct dt_object *dt,
 	int                 rc;
 	ENTRY;
 
-	LASSERT(osd_object_is_zap(obj->oo_db));
-
 	if (name[0] == '.') {
 		if (name[1] == 0) {
 			const struct lu_fid *f = lu_object_fid(&dt->do_lu);
@@ -406,9 +388,8 @@ static int osd_dir_lookup(const struct lu_env *env, struct dt_object *dt,
 		}
 	}
 
-	rc = -zap_lookup(osd->od_os, obj->oo_db->db_object,
-			 (char *)key, 8, sizeof(oti->oti_zde) / 8,
-			 (void *)&oti->oti_zde);
+	rc = -zap_lookup(osd->od_os, obj->oo_dnode, (char *)key, 8,
+			 sizeof(oti->oti_zde) / 8, (void *)&oti->oti_zde);
 	memcpy(rec, &oti->oti_zde.lzd_fid, sizeof(struct lu_fid));
 
 	RETURN(rc == 0 ? 1 : rc);
@@ -427,11 +408,10 @@ static int osd_declare_dir_insert(const struct lu_env *env,
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
 
-	LASSERT(obj->oo_db);
-	LASSERT(osd_object_is_zap(obj->oo_db));
+	LASSERT(obj->oo_dnode != 0);
 
-	dmu_tx_hold_bonus(oh->ot_tx, obj->oo_db->db_object);
-	dmu_tx_hold_zap(oh->ot_tx, obj->oo_db->db_object, TRUE, (char *)key);
+	dmu_tx_hold_bonus(oh->ot_tx, obj->oo_dnode);
+	dmu_tx_hold_zap(oh->ot_tx, obj->oo_dnode, TRUE, (char *)key);
 
 	RETURN(0);
 }
@@ -569,8 +549,7 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 	int                  rc;
 	ENTRY;
 
-	LASSERT(parent->oo_db);
-	LASSERT(osd_object_is_zap(parent->oo_db));
+	LASSERT(parent->oo_dnode != 0);
 
 	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(parent));
@@ -599,7 +578,7 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 		if (IS_ERR(child))
 			RETURN(PTR_ERR(child));
 
-		LASSERT(child->oo_db);
+		LASSERT(child->oo_dnode != 0);
 		if (name[0] == '.') {
 			if (name[1] == 0) {
 				/* do not store ".", instead generate it
@@ -610,8 +589,7 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 				 * later it will be used to generate ".." */
 				rc = osd_object_sa_update(parent,
 						 SA_ZPL_PARENT(osd),
-						 &child->oo_db->db_object,
-						 8, oh);
+						 &child->oo_dnode, 8, oh);
 				GOTO(out, rc);
 			}
 		}
@@ -619,14 +597,13 @@ static int osd_dir_insert(const struct lu_env *env, struct dt_object *dt,
 		CLASSERT(sizeof(oti->oti_zde) % 8 == 0);
 		attr = child->oo_dt.do_lu.lo_header ->loh_attr;
 		oti->oti_zde.lzd_reg.zde_type = IFTODT(attr & S_IFMT);
-		oti->oti_zde.lzd_reg.zde_dnode = child->oo_db->db_object;
+		oti->oti_zde.lzd_reg.zde_dnode = child->oo_dnode;
 	}
 
 	oti->oti_zde.lzd_fid = *fid;
 	/* Insert (key,oid) into ZAP */
-	rc = -zap_add(osd->od_os, parent->oo_db->db_object,
-		      (char *)key, 8, sizeof(oti->oti_zde) / 8,
-		      (void *)&oti->oti_zde, oh->ot_tx);
+	rc = -zap_add(osd->od_os, parent->oo_dnode, (char *)key, 8,
+		      sizeof(oti->oti_zde)/8, (void *)&oti->oti_zde, oh->ot_tx);
 
 out:
 	if (child != NULL)
@@ -650,10 +627,9 @@ static int osd_declare_dir_delete(const struct lu_env *env,
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
 
-	LASSERT(obj->oo_db);
-	LASSERT(osd_object_is_zap(obj->oo_db));
+	LASSERT(obj->oo_dnode != 0);
 
-	dmu_tx_hold_zap(oh->ot_tx, obj->oo_db->db_object, TRUE, (char *)key);
+	dmu_tx_hold_zap(oh->ot_tx, obj->oo_dnode, TRUE, (char *)key);
 
 	RETURN(0);
 }
@@ -665,13 +641,11 @@ static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
 	struct osd_object *obj = osd_dt_obj(dt);
 	struct osd_device *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
-	dmu_buf_t *zap_db = obj->oo_db;
 	char	  *name = (char *)key;
 	int rc;
 	ENTRY;
 
-	LASSERT(obj->oo_db);
-	LASSERT(osd_object_is_zap(obj->oo_db));
+	LASSERT(obj->oo_dnode != 0);
 
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
@@ -689,8 +663,7 @@ static int osd_dir_delete(const struct lu_env *env, struct dt_object *dt,
 	}
 
 	/* Remove key from the ZAP */
-	rc = -zap_remove(osd->od_os, zap_db->db_object,
-			 (char *) key, oh->ot_tx);
+	rc = -zap_remove(osd->od_os, obj->oo_dnode, (char *) key, oh->ot_tx);
 
 #if LUSTRE_VERSION_CODE <= OBD_OCD_VERSION(2, 4, 53, 0)
 	if (unlikely(rc == -ENOENT && name[0] == '.' &&
@@ -1143,9 +1116,8 @@ static int osd_index_lookup(const struct lu_env *env, struct dt_object *dt,
 
 	rc = osd_prepare_key_uint64(obj, k, key);
 
-	rc = -zap_lookup_uint64(osd->od_os, obj->oo_db->db_object,
-				k, rc, obj->oo_recusize, obj->oo_recsize,
-				(void *)rec);
+	rc = -zap_lookup_uint64(osd->od_os, obj->oo_dnode, k, rc,
+				obj->oo_recusize, obj->oo_recsize, (void *)rec);
 	RETURN(rc == 0 ? 1 : rc);
 }
 
@@ -1162,14 +1134,14 @@ static int osd_declare_index_insert(const struct lu_env *env,
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
 
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
-	dmu_tx_hold_bonus(oh->ot_tx, obj->oo_db->db_object);
+	dmu_tx_hold_bonus(oh->ot_tx, obj->oo_dnode);
 
 	/* It is not clear what API should be used for binary keys, so we pass
 	 * a null name which has the side effect of over-reserving space,
 	 * accounting for the worst case. See zap_count_write() */
-	dmu_tx_hold_zap(oh->ot_tx, obj->oo_db->db_object, TRUE, NULL);
+	dmu_tx_hold_zap(oh->ot_tx, obj->oo_dnode, TRUE, NULL);
 
 	RETURN(0);
 }
@@ -1186,7 +1158,7 @@ static int osd_index_insert(const struct lu_env *env, struct dt_object *dt,
 	int                 rc;
 	ENTRY;
 
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(obj));
 	LASSERT(th != NULL);
@@ -1196,9 +1168,8 @@ static int osd_index_insert(const struct lu_env *env, struct dt_object *dt,
 	rc = osd_prepare_key_uint64(obj, k, key);
 
 	/* Insert (key,oid) into ZAP */
-	rc = -zap_add_uint64(osd->od_os, obj->oo_db->db_object,
-			     k, rc, obj->oo_recusize, obj->oo_recsize,
-			     (void *)rec, oh->ot_tx);
+	rc = -zap_add_uint64(osd->od_os, obj->oo_dnode, k, rc, obj->oo_recusize,
+			     obj->oo_recsize, (void *)rec, oh->ot_tx);
 	RETURN(rc);
 }
 
@@ -1214,10 +1185,10 @@ static int osd_declare_index_delete(const struct lu_env *env,
 	LASSERT(dt_object_exists(dt));
 	LASSERT(osd_invariant(obj));
 	LASSERT(th != NULL);
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
-	dmu_tx_hold_zap(oh->ot_tx, obj->oo_db->db_object, TRUE, NULL);
+	dmu_tx_hold_zap(oh->ot_tx, obj->oo_dnode, TRUE, NULL);
 
 	RETURN(0);
 }
@@ -1233,15 +1204,14 @@ static int osd_index_delete(const struct lu_env *env, struct dt_object *dt,
 	int                 rc;
 	ENTRY;
 
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
 
 	rc = osd_prepare_key_uint64(obj, k, key);
 
 	/* Remove binary key from the ZAP */
-	rc = -zap_remove_uint64(osd->od_os, obj->oo_db->db_object,
-				k, rc, oh->ot_tx);
+	rc = -zap_remove_uint64(osd->od_os, obj->oo_dnode, k, rc, oh->ot_tx);
 	RETURN(rc);
 }
 
@@ -1264,7 +1234,7 @@ static int osd_index_it_get(const struct lu_env *env, struct dt_it *di,
 		       *((__u64 *)key));
 
 	zap_cursor_fini(it->ozi_zc);
-	zap_cursor_init(it->ozi_zc, osd->od_os, obj->oo_db->db_object);
+	zap_cursor_init(it->ozi_zc, osd->od_os, obj->oo_dnode);
 	it->ozi_reset = 1;
 
 	RETURN(+1);
@@ -1340,9 +1310,8 @@ static int osd_index_it_rec(const struct lu_env *env, const struct dt_it *di,
 
 	rc = osd_prepare_key_uint64(obj, k, (const struct dt_key *)za->za_name);
 
-	rc = -zap_lookup_uint64(osd->od_os, obj->oo_db->db_object,
-				k, rc, obj->oo_recusize, obj->oo_recsize,
-				(void *)rec);
+	rc = -zap_lookup_uint64(osd->od_os, obj->oo_dnode, k, rc,
+				obj->oo_recusize, obj->oo_recsize, (void *)rec);
 	RETURN(rc);
 }
 
@@ -1367,8 +1336,7 @@ static int osd_index_it_load(const struct lu_env *env, const struct dt_it *di,
 
 	/* reset the cursor */
 	zap_cursor_fini(it->ozi_zc);
-	zap_cursor_init_serialized(it->ozi_zc, osd->od_os,
-				   obj->oo_db->db_object, hash);
+	zap_cursor_init_serialized(it->ozi_zc, osd->od_os, obj->oo_dnode, hash);
 	it->ozi_reset = 0;
 
 	rc = -zap_cursor_retrieve(it->ozi_zc, za);
@@ -1628,17 +1596,16 @@ int osd_index_try(const struct lu_env *env, struct dt_object *dt,
 		RETURN(0);
 	}
 
-	LASSERT(obj->oo_db != NULL);
+	LASSERT(obj->oo_dnode != 0);
 	if (likely(feat == &dt_directory_features)) {
-		if (osd_object_is_zap(obj->oo_db))
+		if (obj->oo_zap != 0)
 			dt->do_index_ops = &osd_dir_ops;
 		else
 			RETURN(-ENOTDIR);
 	} else if (unlikely(feat == &dt_acct_features)) {
 		LASSERT(fid_is_acct(lu_object_fid(&dt->do_lu)));
 		dt->do_index_ops = &osd_acct_index_ops;
-	} else if (osd_object_is_zap(obj->oo_db) &&
-		   dt->do_index_ops == NULL) {
+	} else if (obj->oo_zap != 0 && dt->do_index_ops == NULL) {
 		/* For index file, we don't support variable key & record sizes
 		 * and the key has to be unique */
 		if ((feat->dif_flags & ~DT_IND_UPDATE) != 0)

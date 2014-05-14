@@ -81,7 +81,7 @@ static ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
 	int		   rc;
 
 	LASSERT(dt_object_exists(dt));
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
 	read_lock(&obj->oo_attr_lock);
 	old_size = obj->oo_attr.la_size;
@@ -94,8 +94,8 @@ static ssize_t osd_read(const struct lu_env *env, struct dt_object *dt,
 			size = old_size - *pos;
 	}
 
-	rc = -dmu_read(osd->od_os, obj->oo_db->db_object, *pos, size,
-			buf->lb_buf, DMU_READ_PREFETCH);
+	rc = -dmu_read(osd->od_os, obj->oo_dnode, *pos, size,
+		       buf->lb_buf, DMU_READ_PREFETCH);
 	if (rc == 0) {
 		rc = size;
 		*pos += size;
@@ -129,8 +129,8 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
 	 * current size here as another thread can change it */
 
 	if (dt_object_exists(dt)) {
-		LASSERT(obj->oo_db);
-		oid = obj->oo_db->db_object;
+		LASSERT(obj->oo_dnode != 0);
+		oid = obj->oo_dnode;
 
 		dmu_tx_hold_sa(oh->ot_tx, obj->oo_sa_hdl, 0);
 	} else {
@@ -167,13 +167,13 @@ static ssize_t osd_write(const struct lu_env *env, struct dt_object *dt,
 	ENTRY;
 
 	LASSERT(dt_object_exists(dt));
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
 
-	dmu_write(osd->od_os, obj->oo_db->db_object, offset,
-		(uint64_t)buf->lb_len, buf->lb_buf, oh->ot_tx);
+	dmu_write(osd->od_os, obj->oo_dnode, offset, (uint64_t)buf->lb_len,
+		  buf->lb_buf, oh->ot_tx);
 	write_lock(&obj->oo_attr_lock);
 	if (obj->oo_attr.la_size < offset + buf->lb_len) {
 		obj->oo_attr.la_size = offset + buf->lb_len;
@@ -215,7 +215,7 @@ static int osd_bufs_put(const struct lu_env *env, struct dt_object *dt,
 	int                i;
 
 	LASSERT(dt_object_exists(dt));
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
 	for (i = 0; i < npages; i++) {
 		if (lnb[i].page == NULL)
@@ -253,7 +253,8 @@ static inline struct page *kmem_to_page(void *addr)
 }
 
 static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
-				loff_t off, ssize_t len, struct niobuf_local *lnb)
+			     dmu_buf_t *db, loff_t off, ssize_t len,
+			     struct niobuf_local *lnb)
 {
 	struct osd_device *osd = osd_obj2dev(obj);
 	dmu_buf_t        **dbp;
@@ -268,7 +269,7 @@ static int osd_bufs_get_read(const struct lu_env *env, struct osd_object *obj,
 	 * can get own replacement for dmu_buf_hold_array_by_bonus().
 	 */
 	while (len > 0) {
-		rc = -dmu_buf_hold_array_by_bonus(obj->oo_db, off, len, TRUE,
+		rc = -dmu_buf_hold_array_by_bonus(db, off, len, TRUE,
 						  osd_zerocopy_tag, &numbufs,
 						  &dbp);
 		if (unlikely(rc))
@@ -330,7 +331,8 @@ err:
 }
 
 static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
-				loff_t off, ssize_t len, struct niobuf_local *lnb)
+			      dmu_buf_t *db, loff_t off, ssize_t len,
+			      struct niobuf_local *lnb)
 {
 	struct osd_device *osd = osd_obj2dev(obj);
 	int                plen, off_in_block, sz_in_block;
@@ -340,7 +342,7 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 	uint64_t           dummy;
 	ENTRY;
 
-	dmu_object_size_from_db(obj->oo_db, &bs, &dummy);
+	dmu_object_size_from_db(db, &bs, &dummy);
 
 	/*
 	 * currently only full blocks are subject to zerocopy approach:
@@ -355,7 +357,7 @@ static int osd_bufs_get_write(const struct lu_env *env, struct osd_object *obj,
 		if (sz_in_block == bs) {
 			/* full block, try to use zerocopy */
 
-			abuf = dmu_request_arcbuf(obj->oo_db, bs);
+			abuf = dmu_request_arcbuf(db, bs);
 			if (unlikely(abuf == NULL))
 				GOTO(out_err, rc = -ENOMEM);
 
@@ -438,15 +440,22 @@ static int osd_bufs_get(const struct lu_env *env, struct dt_object *dt,
 			int rw, struct lustre_capa *capa)
 {
 	struct osd_object *obj  = osd_dt_obj(dt);
+	dmu_buf_t	  *db = NULL;
 	int                rc;
 
 	LASSERT(dt_object_exists(dt));
-	LASSERT(obj->oo_db);
+
+	rc = -sa_buf_hold(os, obj->oo_dnode, FTAG, &db);
+	if (rc != 0)
+		return rc;
+	LASSERT(db != NULL);
 
 	if (rw == 0)
-		rc = osd_bufs_get_read(env, obj, offset, len, lnb);
+		rc = osd_bufs_get_read(env, obj, db, offset, len, lnb);
 	else
-		rc = osd_bufs_get_write(env, obj, offset, len, lnb);
+		rc = osd_bufs_get_write(env, obj, db, offset, len, lnb);
+
+	sa_buf_rele(db, FTAG);
 
 	return rc;
 }
@@ -457,17 +466,16 @@ static int osd_write_prep(const struct lu_env *env, struct dt_object *dt,
 	struct osd_object *obj = osd_dt_obj(dt);
 
 	LASSERT(dt_object_exists(dt));
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
 	return 0;
 }
 
 /* Return number of blocks that aren't mapped in the [start, start + size]
  * region */
-static int osd_count_not_mapped(struct osd_object *obj, uint64_t start,
-				uint32_t size)
+static int osd_count_not_mapped(struct osd_object *obj, dmu_buf_t *db,
+				uint64_t start, uint32_t size)
 {
-	dmu_buf_impl_t	*dbi = (dmu_buf_impl_t *)obj->oo_db;
 	dmu_buf_impl_t	*db;
 	dnode_t		*dn;
 	uint32_t	 blkshift;
@@ -475,8 +483,8 @@ static int osd_count_not_mapped(struct osd_object *obj, uint64_t start,
 	int		 rc;
 	ENTRY;
 
-	DB_DNODE_ENTER(dbi);
-	dn = DB_DNODE(dbi);
+	DB_DNODE_ENTER(db);
+	dn = DB_DNODE(db);
 
 	if (dn->dn_maxblkid == 0) {
 		if (start + size <= dn->dn_datablksz)
@@ -525,7 +533,7 @@ static int osd_count_not_mapped(struct osd_object *obj, uint64_t start,
 
 	GOTO(out, size);
 out:
-	DB_DNODE_EXIT(dbi);
+	DB_DNODE_EXIT(db);
 	return size;
 }
 
@@ -537,6 +545,7 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	struct osd_object  *obj = osd_dt_obj(dt);
 	struct osd_device  *osd = osd_obj2dev(obj);
 	struct osd_thandle *oh;
+	dmu_buf_t	   *db = NULL;
 	uint64_t            offset = 0;
 	uint32_t            size = 0;
 	int		    i, rc, flags = 0;
@@ -545,12 +554,16 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(dt_object_exists(dt));
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
 	LASSERT(lnb);
 	LASSERT(npages > 0);
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
+
+	rc = -sa_buf_hold(os, obj->oo_dnode, FTAG, &db);
+	if (rc != 0)
+		RETURN(rc);
 
 	for (i = 0; i < npages; i++) {
 		if (lnb[i].rc)
@@ -584,8 +597,7 @@ static int osd_declare_write_commit(const struct lu_env *env,
 			continue;
 		}
 
-		dmu_tx_hold_write(oh->ot_tx, obj->oo_db->db_object,
-				  offset, size);
+		dmu_tx_hold_write(oh->ot_tx, obj->oo_dnode, offset, size);
 		/* estimating space that will be consumed by a write is rather
 		 * complicated with ZFS. As a consequence, we don't account for
 		 * indirect blocks and quota overrun will be adjusted once the
@@ -597,8 +609,7 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	}
 
 	if (size) {
-		dmu_tx_hold_write(oh->ot_tx, obj->oo_db->db_object,
-				  offset, size);
+		dmu_tx_hold_write(oh->ot_tx, obj->oo_dnode, offset, size);
 		space += osd_count_not_mapped(obj, offset, size);
 	}
 
@@ -635,6 +646,8 @@ retry:
 	if (flags & QUOTA_FL_OVER_GRPQUOTA)
 		lnb[0].flags |= OBD_BRW_OVER_GRPQUOTA;
 
+	sa_buf_rele(db, FTAG);
+
 	RETURN(rc);
 }
 
@@ -650,7 +663,7 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 	ENTRY;
 
 	LASSERT(dt_object_exists(dt));
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
 	LASSERT(th != NULL);
 	oh = container_of0(th, struct osd_thandle, ot_super);
@@ -671,9 +684,9 @@ static int osd_write_commit(const struct lu_env *env, struct dt_object *dt,
 		}
 
 		if (lnb[i].page->mapping == (void *)obj) {
-			dmu_write(osd->od_os, obj->oo_db->db_object,
-				lnb[i].lnb_file_offset, lnb[i].len,
-				kmap(lnb[i].page), oh->ot_tx);
+			dmu_write(osd->od_os, obj->oo_dnode,
+				  lnb[i].lnb_file_offset, lnb[i].len,
+				  kmap(lnb[i].page), oh->ot_tx);
 			kunmap(lnb[i].page);
 		} else if (lnb[i].dentry) {
 			LASSERT(((unsigned long)lnb[i].dentry & 1) == 0);
@@ -726,7 +739,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
 	int                i;
 
 	LASSERT(dt_object_exists(dt));
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
 	for (i = 0; i < npages; i++) {
 		buf.lb_buf = kmap(lnb[i].page);
@@ -764,7 +777,7 @@ static int osd_read_prep(const struct lu_env *env, struct dt_object *dt,
  * dmu_tx_hold_sa() and if off < size, dmu_tx_hold_free()
  * called and then assigned to a transaction group.
  */
-static int __osd_object_punch(objset_t *os, dmu_buf_t *db, dmu_tx_t *tx,
+static int __osd_object_punch(objset_t *os, uint64_t dnode, dmu_tx_t *tx,
 				uint64_t size, uint64_t off, uint64_t len)
 {
 	int rc = 0;
@@ -779,7 +792,7 @@ static int __osd_object_punch(objset_t *os, dmu_buf_t *db, dmu_tx_t *tx,
 		return 0;
 
 	if (off < size)
-		rc = -dmu_free_range(os, db->db_object, off, len, tx);
+		rc = -dmu_free_range(os, dnode, off, len, tx);
 
 	return rc;
 }
@@ -809,7 +822,7 @@ static int osd_punch(const struct lu_env *env, struct dt_object *dt,
 		len = end - start;
 	write_unlock(&obj->oo_attr_lock);
 
-	rc = __osd_object_punch(osd->od_os, obj->oo_db, oh->ot_tx,
+	rc = __osd_object_punch(osd->od_os, obj->oo_dnode, oh->ot_tx,
 				obj->oo_attr.la_size, start, len);
 	/* set new size */
 	if (len == DMU_OBJECT_END) {
@@ -842,7 +855,7 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
 	/* declare we'll free some blocks ... */
 	if (start < obj->oo_attr.la_size) {
 		read_unlock(&obj->oo_attr_lock);
-		dmu_tx_hold_free(oh->ot_tx, obj->oo_db->db_object, start, len);
+		dmu_tx_hold_free(oh->ot_tx, obj->oo_dnode, start, len);
 	} else {
 		read_unlock(&obj->oo_attr_lock);
 	}

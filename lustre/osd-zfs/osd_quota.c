@@ -110,9 +110,7 @@ static int osd_acct_index_lookup(const struct lu_env *env,
 
 	/* disk usage (in bytes) is maintained by DMU.
 	 * DMU_USERUSED_OBJECT/DMU_GROUPUSED_OBJECT are special objects which
-	 * not associated with any dmu_but_t (see dnode_special_open()).
-	 * As a consequence, we cannot use udmu_zap_lookup() here since it
-	 * requires a valid oo_db. */
+	 * not associated with any dmu_but_t (see dnode_special_open()). */
 	rc = -zap_lookup(osd->od_os, oid, buf, sizeof(uint64_t), 1,
 			&rec->bspace);
 	if (rc == -ENOENT)
@@ -131,7 +129,7 @@ static int osd_acct_index_lookup(const struct lu_env *env,
 
 	/* as for inode accounting, it is not maintained by DMU, so we just
 	 * use our own ZAP to track inode usage */
-	rc = -zap_lookup(osd->od_os, obj->oo_db->db_object,
+	rc = -zap_lookup(osd->od_os, obj->oo_dnode,
 			 buf, sizeof(uint64_t), 1, &rec->ispace);
 	if (rc == -ENOENT)
 		/* user/group has not created any file yet */
@@ -338,7 +336,7 @@ static int osd_it_acct_rec(const struct lu_env *env,
 
 	/* inode accounting is not maintained by DMU, so we use our own ZAP to
 	 * track inode usage */
-	rc = -zap_lookup(osd->od_os, it->oiq_obj->oo_db->db_object,
+	rc = -zap_lookup(osd->od_os, it->oiq_obj->oo_dnode,
 			 za->za_name, sizeof(uint64_t), 1, &rec->ispace);
 	if (rc == -ENOENT)
 		/* user/group has not created any file yet */

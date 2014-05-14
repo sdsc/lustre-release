@@ -119,9 +119,9 @@ static inline int __osd_xattr_cache(const struct lu_env *env,
 				    struct osd_object *obj)
 {
 	LASSERT(obj->oo_sa_xattr == NULL);
-	LASSERT(obj->oo_db != NULL);
+	LASSERT(obj->oo_dnode != 0);
 
-	return __osd_xattr_load(osd_obj2dev(obj), obj->oo_db->db_object,
+	return __osd_xattr_load(osd_obj2dev(obj), obj->oo_dnode,
 				&obj->oo_sa_xattr);
 }
 
@@ -241,7 +241,7 @@ int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	int                 rc, size = 0;
 	ENTRY;
 
-	LASSERT(obj->oo_db != NULL);
+	LASSERT(obj->oo_dnode != 0);
 	LASSERT(osd_invariant(obj));
 	LASSERT(dt_object_exists(dt));
 
@@ -261,7 +261,6 @@ void __osd_xattr_declare_set(const struct lu_env *env, struct osd_object *obj,
 			     struct osd_thandle *oh)
 {
 	struct osd_device *osd = osd_obj2dev(obj);
-	dmu_buf_t         *db = obj->oo_db;
 	dmu_tx_t          *tx = oh->ot_tx;
 	uint64_t           xa_data_obj;
 	int                rc = 0;
@@ -271,7 +270,6 @@ void __osd_xattr_declare_set(const struct lu_env *env, struct osd_object *obj,
 
 	/* object may be not yet created */
 	if (here) {
-		LASSERT(db);
 		LASSERT(obj->oo_sa_hdl);
 		/* we might just update SA_ZPL_DXATTR */
 		dmu_tx_hold_sa(tx, obj->oo_sa_hdl, 1);
@@ -481,7 +479,7 @@ __osd_xattr_set(const struct lu_env *env, struct osd_object *obj,
 		la->la_valid = LA_MODE;
 		la->la_mode = S_IFDIR | S_IRUGO | S_IWUSR | S_IXUGO;
 		rc = __osd_zap_create(env, osd, &xa_zap_db, tx, la,
-				      obj->oo_db->db_object, 0);
+				      obj->oo_dnode, 0);
 		if (rc)
 			return rc;
 
@@ -585,7 +583,7 @@ int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(handle != NULL);
 	LASSERT(osd_invariant(obj));
 	LASSERT(dt_object_exists(dt));
-	LASSERT(obj->oo_db);
+	LASSERT(obj->oo_dnode != 0);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 
@@ -647,7 +645,7 @@ int osd_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 	LASSERT(oh->ot_tx != NULL);
-	LASSERT(obj->oo_db != NULL);
+	LASSERT(obj->oo_dnode != 0);
 
 	down(&obj->oo_guard);
 	__osd_xattr_declare_del(env, obj, name, oh);
@@ -717,7 +715,7 @@ int osd_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	ENTRY;
 
 	LASSERT(handle != NULL);
-	LASSERT(obj->oo_db != NULL);
+	LASSERT(obj->oo_dnode != 0);
 	LASSERT(osd_invariant(obj));
 	LASSERT(dt_object_exists(dt));
 	oh = container_of0(handle, struct osd_thandle, ot_super);
@@ -773,7 +771,7 @@ int osd_xattr_list(const struct lu_env *env, struct dt_object *dt,
 	int                    rc, counted = 0, remain = lb->lb_len;
 	ENTRY;
 
-	LASSERT(obj->oo_db != NULL);
+	LASSERT(obj->oo_dnode != 0);
 	LASSERT(osd_invariant(obj));
 	LASSERT(dt_object_exists(dt));
 

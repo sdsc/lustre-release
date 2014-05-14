@@ -306,10 +306,13 @@ struct osd_object {
 	 * Not modified concurrently (either setup early during object
 	 * creation, or assigned by osd_object_create() under write lock).
 	 */
+#if 0
 	dmu_buf_t		*oo_db;
 	sa_handle_t		*oo_sa_hdl;
 	nvlist_t		*oo_sa_xattr;
 	cfs_list_t		 oo_sa_linkage;
+#endif
+	uint64_t		 oo_dnode;
 
 	struct rw_semaphore	 oo_sem;
 
@@ -325,6 +328,7 @@ struct osd_object {
 	unsigned char		 oo_keysize;
 	unsigned char		 oo_recsize;
 	unsigned char		 oo_recusize;	/* unit size */
+	unsigned char		 oo_zap:1;
 };
 
 int osd_statfs(const struct lu_env *, struct dt_device *, struct obd_statfs *);
