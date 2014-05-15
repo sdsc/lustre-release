@@ -1077,21 +1077,32 @@ do {                                                                          \
         }                                                                     \
 } while (0)
 
-static inline int __page_in_use(const struct cl_page *page, int refc)
-{
-	if (page->cp_type == CPT_CACHEABLE)
-		++refc;
-	LASSERT(atomic_read(&page->cp_ref) > 0);
-	return (atomic_read(&page->cp_ref) > refc);
-}
-#define cl_page_in_use(pg)       __page_in_use(pg, 1)
-#define cl_page_in_use_noref(pg) __page_in_use(pg, 0)
-
-static inline struct page *cl_page_vmpage(struct cl_page *page)
+static inline struct page *cl_page_vmpage(const struct cl_page *page)
 {
 	LASSERT(page->cp_vmpage != NULL);
 	return page->cp_vmpage;
 }
+
+static inline bool __page_in_use(const struct cl_page *page, int refc)
+{
+	LASSERT(page->cp_type == CPT_CACHEABLE);
+	LASSERT(atomic_read(&page->cp_ref) > 0);
+	if (atomic_read(&page->cp_ref) > refc)
+		return true;
+
+#ifdef __KERNEL__
+	{
+		struct page *vmpage = cl_page_vmpage(page);
+
+		if (page_count(vmpage) - page_mapcount(vmpage) > 2)
+			return true;
+	}
+#endif
+
+	return false;
+}
+#define cl_page_in_use(pg)       __page_in_use(pg, 2)
+#define cl_page_in_use_noref(pg) __page_in_use(pg, 1)
 
 /** @} cl_page */
 
