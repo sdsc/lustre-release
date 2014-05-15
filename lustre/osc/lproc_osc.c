@@ -527,11 +527,43 @@ static int osc_unstable_stats_seq_show(struct seq_file *m, void *v)
 	pages = atomic_read(&cli->cl_unstable_count);
 	mb    = (pages * PAGE_CACHE_SIZE) >> 20;
 
-	return seq_printf(m, "unstable_pages: %8d\n"
-			"unstable_mb:    %8d\n",
-			pages, mb);
+	return seq_printf(m,
+			  "unstable_check: %8d\n"
+			  "unstable_pages: %8d\n"
+			  "unstable_mb:    %8d\n",
+			  cli->cl_check_unstable, pages, mb);
 }
-LPROC_SEQ_FOPS_RO(osc_unstable_stats);
+
+static ssize_t osc_unstable_stats_seq_write(struct file *file,
+					    const char *buffer,
+					    size_t count, loff_t *unused)
+{
+	struct obd_device *obd;
+	char kernbuf[128];
+	int val, rc;
+
+	obd = ((struct seq_file *)file->private_data)->private;
+	if (obd == NULL)
+		return 0;
+
+	if (count == 0)
+		return 0;
+	if (count < 0 || count >= sizeof(kernbuf))
+		return -EINVAL;
+
+	if (copy_from_user(kernbuf, buffer, count))
+		return -EFAULT;
+	kernbuf[count - 1] = 0;
+
+	buffer = lprocfs_find_named_value(buffer, "unstable_check:", &count);
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc < 0)
+		return rc;
+
+	obd->u.cli.cl_check_unstable = !!val;
+	return count;
+}
+LPROC_SEQ_FOPS(osc_unstable_stats);
 
 LPROC_SEQ_FOPS_RO_TYPE(osc, uuid);
 LPROC_SEQ_FOPS_RO_TYPE(osc, connect_flags);
