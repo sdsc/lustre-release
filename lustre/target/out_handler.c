@@ -35,6 +35,7 @@
 #include <md_object.h>
 #include "tgt_internal.h"
 #include <lustre_update.h>
+#include <lustre_lmv.h>
 
 static int tx_extend_args(struct thandle_exec_args *ta, int new_alloc_ta)
 {
@@ -476,6 +477,22 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 				      (unsigned long)update_result);
 	dt_read_lock(env, obj, MOR_TGT_CHILD);
 	rc = dt_xattr_get(env, obj, lbuf, name, NULL);
+	if (strcmp(name, XATTR_NAME_LMV) == 0) {
+		if (rc < sizeof(struct lmv_mds_md_v1))
+			GOTO(unlock, rc = rc > 0 ? -EINVAL : rc);
+
+		if (rc == sizeof(struct lmv_mds_md_v1)) {
+			int rc1;
+
+			rc1 = lmvea_load_shards(env, obj,
+					(struct lu_dirent *)tti->tti_key,
+					lbuf, false);
+			if (rc1 != 0)
+				rc = rc1;
+		}
+	}
+
+unlock:
 	dt_read_unlock(env, obj);
 	if (rc < 0) {
 		lbuf->lb_len = 0;

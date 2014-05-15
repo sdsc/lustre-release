@@ -1068,6 +1068,43 @@ static int lod_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	ENTRY;
 
 	rc = dt_xattr_get(env, dt_object_child(dt), buf, name, capa);
+	if (strcmp(name, XATTR_NAME_LMV) == 0) {
+		struct lmv_mds_md_v1	*lmv1;
+		int			 rc1 = 0;
+
+		if (rc > sizeof(*lmv1))
+			RETURN(rc);
+
+		if (rc != sizeof(*lmv1))
+			RETURN(rc = rc > 0 ? -EINVAL : rc);
+
+		if (buf->lb_buf == NULL || buf->lb_len == 0) {
+			struct lu_buf *tbuf = &info->lti_buf;
+
+			tbuf->lb_buf = info->lti_key;
+			tbuf->lb_len = sizeof(*lmv1);
+			rc = dt_xattr_get(env, dt_object_child(dt), tbuf,
+					  name, capa);
+			if (unlikely(rc != sizeof(*lmv1)))
+				RETURN(rc = rc > 0 ? -EINVAL : rc);
+
+			lmv1 = tbuf->lb_buf;
+			/* The on-disk LMV EA only contains header, but the
+			 * returned LMV EA size should contains the space for
+			 * the FIDs of all shards of the striped directory. */
+			if (le32_to_cpu(lmv1->lmv_magic) == LMV_MAGIC_V1)
+				rc = lmv_mds_md_size(
+					le32_to_cpu(lmv1->lmv_stripe_count),
+					LMV_MAGIC_V1);
+		} else {
+			rc1 = lmvea_load_shards(env, dt_object_child(dt),
+					(struct lu_dirent *)info->lti_key,
+					buf, false);
+		}
+
+		RETURN(rc = rc1 != 0 ? rc1 : rc);
+	}
+
 	if (rc != -ENODATA || !S_ISDIR(dt->do_lu.lo_header->loh_attr & S_IFMT))
 		RETURN(rc);
 
@@ -1131,7 +1168,7 @@ out:
 /**
  * Master LMVEA will be same as slave LMVEA, except
  * 1. different magic
- * 2. No lmv_stripe_fids on slave
+ * 2. lmv_hash_type on master is meaningless
  * 3. lmv_master_mdt_index on slave LMV EA will be stripe_index.
  */
 static void lod_prep_slave_lmv_md(struct lmv_mds_md_v1 *slave_lmv,
@@ -1151,7 +1188,6 @@ int lod_prep_lmv_md(const struct lu_env *env, struct dt_object *dt,
 	int			stripe_count;
 	int			lmm_size;
 	int			type = LU_SEQ_RANGE_ANY;
-	int			i;
 	int			rc;
 	__u32			mdtidx;
 	ENTRY;
@@ -1159,7 +1195,8 @@ int lod_prep_lmv_md(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(lo->ldo_dir_striped != 0);
 	LASSERT(lo->ldo_stripenr > 0);
 	stripe_count = lo->ldo_stripenr;
-	lmm_size = lmv_mds_md_size(stripe_count, LMV_MAGIC);
+	/* Only store the LMV EA heahder on the disk. */
+	lmm_size = sizeof(*lmm1);
 	if (info->lti_ea_store_size < lmm_size) {
 		rc = lod_ea_store_resize(info, lmm_size);
 		if (rc != 0)
@@ -1177,15 +1214,6 @@ int lod_prep_lmv_md(const struct lu_env *env, struct dt_object *dt,
 
 	lmm1->lmv_master_mdt_index = cpu_to_le32(mdtidx);
 	fid_cpu_to_le(&lmm1->lmv_master_fid, lu_object_fid(&dt->do_lu));
-	for (i = 0; i < lo->ldo_stripenr; i++) {
-		struct dt_object *dto;
-
-		dto = lo->ldo_stripe[i];
-		LASSERT(dto != NULL);
-		fid_cpu_to_le(&lmm1->lmv_stripe_fids[i],
-			      lu_object_fid(&dto->do_lu));
-	}
-
 	lmv_buf->lb_buf = info->lti_ea_store;
 	lmv_buf->lb_len = lmm_size;
 	lo->ldo_dir_striping_cached = 1;

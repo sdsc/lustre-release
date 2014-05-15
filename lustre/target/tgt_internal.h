@@ -136,6 +136,7 @@ struct tgt_thread_info {
 		} update;
 	} tti_u;
 	struct lfsck_request tti_lr;
+	char		     tti_key[NAME_MAX + sizeof(struct lu_dirent)];
 };
 
 extern struct lu_context_key tgt_thread_key;
