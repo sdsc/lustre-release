@@ -431,7 +431,7 @@ struct osd_object *osd_object_find(const struct lu_env *env,
 	 * in the cache, otherwise lu_object_alloc() crashes
 	 * -bzzz
 	 */
-	luch = lu_object_find_at(env, ludev, fid, NULL);
+	luch = lu_object_find_at(env, ludev, fid, NULL, 0);
 	if (IS_ERR(luch))
 		return (void *)luch;
 

@@ -632,6 +632,9 @@ struct mdt_object *mdt_object_new(const struct lu_env *,
 struct mdt_object *mdt_object_find(const struct lu_env *,
                                    struct mdt_device *,
                                    const struct lu_fid *);
+struct mdt_object *mdt_object_find_nowait(const struct lu_env *,
+					  struct mdt_device *,
+					  const struct lu_fid *);
 struct mdt_object *mdt_object_find_lock(struct mdt_thread_info *,
                                         const struct lu_fid *,
                                         struct mdt_lock_handle *,

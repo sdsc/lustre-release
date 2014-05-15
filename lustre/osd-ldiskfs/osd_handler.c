@@ -4209,7 +4209,7 @@ struct osd_object *osd_object_find(const struct lu_env *env,
 	 */
 	luch = lu_object_find_at(env, ludev->ld_site->ls_top_dev == NULL ?
 				 ludev : ludev->ld_site->ls_top_dev,
-				 fid, NULL);
+				 fid, NULL, 0);
 	if (!IS_ERR(luch)) {
 		if (lu_object_exists(luch)) {
 			lo = lu_object_locate(luch->lo_header, ludev->ld_type);

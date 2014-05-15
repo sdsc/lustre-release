@@ -2199,22 +2199,38 @@ struct mdt_object *mdt_object_new(const struct lu_env *env,
 	RETURN(m);
 }
 
-struct mdt_object *mdt_object_find(const struct lu_env *env,
-				   struct mdt_device *d,
-				   const struct lu_fid *f)
+static struct mdt_object *__mdt_object_find(const struct lu_env *env,
+					    struct mdt_device *d,
+					    const struct lu_fid *f,
+					    unsigned nowait)
 {
 	struct lu_object *o;
 	struct mdt_object *m;
 	ENTRY;
 
 	CDEBUG(D_INFO, "Find object for "DFID"\n", PFID(f));
-	o = lu_object_find(env, &d->mdt_lu_dev, f, NULL);
+	o = lu_object_find_at(env, d->mdt_lu_dev.ld_site->ls_top_dev,
+			      f, NULL, nowait);
 	if (unlikely(IS_ERR(o)))
 		m = (struct mdt_object *)o;
 	else
 		m = mdt_obj(o);
 
 	RETURN(m);
+}
+
+struct mdt_object *mdt_object_find(const struct lu_env *env,
+				   struct mdt_device *d,
+				   const struct lu_fid *f)
+{
+	return __mdt_object_find(env, d, f, 0);
+}
+
+struct mdt_object *mdt_object_find_nowait(const struct lu_env *env,
+					  struct mdt_device *d,
+					  const struct lu_fid *f)
+{
+	return __mdt_object_find(env, d, f, 1);
 }
 
 /**

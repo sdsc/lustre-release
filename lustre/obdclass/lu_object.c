@@ -563,7 +563,7 @@ static struct lu_object *htable_lookup(struct lu_site *s,
         }
 
         h = container_of0(hnode, struct lu_object_header, loh_hash);
-        if (likely(!lu_object_is_dying(h))) {
+        if (likely(!lu_object_is_dying(h) || waiter == NULL)) {
 		cfs_hash_get(s->ls_obj_hash, hnode);
                 lprocfs_counter_incr(s->ls_stats, LU_SS_CACHE_HIT);
                 cfs_list_del_init(&h->loh_lru);
@@ -617,7 +617,7 @@ struct lu_object *lu_object_find(const struct lu_env *env,
                                  struct lu_device *dev, const struct lu_fid *f,
                                  const struct lu_object_conf *conf)
 {
-        return lu_object_find_at(env, dev->ld_site->ls_top_dev, f, conf);
+        return lu_object_find_at(env, dev->ld_site->ls_top_dev, f, conf, 0);
 }
 EXPORT_SYMBOL(lu_object_find);
 
@@ -728,14 +728,16 @@ static struct lu_object *lu_object_find_try(const struct lu_env *env,
 struct lu_object *lu_object_find_at(const struct lu_env *env,
 				    struct lu_device *dev,
 				    const struct lu_fid *f,
-				    const struct lu_object_conf *conf)
+				    const struct lu_object_conf *conf,
+				    unsigned nowait)
 {
 	struct lu_site_bkt_data *bkt;
 	struct lu_object        *obj;
 	wait_queue_t           wait;
 
 	while (1) {
-		obj = lu_object_find_try(env, dev, f, conf, &wait);
+		obj = lu_object_find_try(env, dev, f, conf,
+					 nowait ? NULL : &wait);
 		if (obj != ERR_PTR(-EAGAIN))
 			return obj;
 		/*

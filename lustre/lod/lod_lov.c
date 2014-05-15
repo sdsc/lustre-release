@@ -760,7 +760,7 @@ int lod_initialize_objects(const struct lu_env *env, struct lod_object *lo,
 		/* In the function below, .hs_keycmp resolves to
 		 * u_obj_hop_keycmp() */
 		/* coverity[overrun-buffer-val] */
-		o = lu_object_find_at(env, nd, &info->lti_fid, NULL);
+		o = lu_object_find_at(env, nd, &info->lti_fid, NULL, 0);
 		if (IS_ERR(o))
 			GOTO(out, rc = PTR_ERR(o));
 

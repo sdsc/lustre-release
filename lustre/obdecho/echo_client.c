@@ -1513,7 +1513,7 @@ echo_md_create_internal(const struct lu_env *env, struct echo_device *ed,
 		return rc;
 
 	ec_child = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev,
-				     fid, &conf);
+				     fid, &conf, 0);
         if (IS_ERR(ec_child)) {
                 CERROR("Can not find the child "DFID": rc = %ld\n", PFID(fid),
                         PTR_ERR(ec_child));
@@ -1661,7 +1661,7 @@ static struct lu_object *echo_md_lookup(const struct lu_env *env,
 	/* In the function below, .hs_keycmp resolves to
 	 * lu_obj_hop_keycmp() */
 	/* coverity[overrun-buffer-val] */
-        child = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev, fid, NULL);
+        child = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev, fid, NULL, 0);
 
         RETURN(child);
 }
@@ -1962,7 +1962,7 @@ static struct lu_object *echo_resolve_path(const struct lu_env *env,
 	/* In the function below, .hs_keycmp resolves to
 	 * lu_obj_hop_keycmp() */
 	/* coverity[overrun-buffer-val] */
-        parent = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev, fid, NULL);
+        parent = lu_object_find_at(env, &ed->ed_cl.cd_lu_dev, fid, NULL, 0);
         if (IS_ERR(parent)) {
                 CERROR("Can not find the parent "DFID": rc = %ld\n",
                         PFID(fid), PTR_ERR(parent));

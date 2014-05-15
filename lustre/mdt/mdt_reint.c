@@ -1259,7 +1259,8 @@ static int mdt_rename_sanity(struct mdt_thread_info *info,
 
 	do {
 		LASSERT(fid_is_sane(&dst_fid));
-		dst = mdt_object_find(info->mti_env, info->mti_mdt, &dst_fid);
+		dst = mdt_object_find_nowait(info->mti_env,
+					     info->mti_mdt, &dst_fid);
 		if (!IS_ERR(dst)) {
 			rc = mdo_is_subdir(info->mti_env,
 					   mdt_object_child(dst), fid,
@@ -1646,8 +1647,6 @@ static int mdt_rename_parents_lock(struct mdt_thread_info *info,
 	if (IS_ERR(src))
 		RETURN(PTR_ERR(src));
 
-	OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME3, 5);
-
 	if (lu_fid_eq(fid_src, fid_tgt)) {
 		tgt = src;
 		mdt_object_get(info->mti_env, tgt);
@@ -1663,6 +1662,8 @@ static int mdt_rename_parents_lock(struct mdt_thread_info *info,
 			GOTO(err_tgt_put, rc = -EXDEV);
 		}
 	}
+
+	OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME3, 5);
 
 	/* lock parents in the proper order. */
 	if (reverse) {
@@ -1691,8 +1692,7 @@ static int mdt_rename_parents_lock(struct mdt_thread_info *info,
 	if (rc)
 		GOTO(err_unlock, rc);
 
-	if (lu_object_is_dying(&tgt->mot_header))
-		GOTO(err_unlock, rc = -ENOENT);
+	OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME3, 5);
 
 	*srcp = src;
 	*tgtp = tgt;
