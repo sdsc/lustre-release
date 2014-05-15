@@ -457,30 +457,6 @@ int osc_page_init(const struct lu_env *env, struct cl_object *obj,
 	return result;
 }
 
-int osc_over_unstable_soft_limit(struct client_obd *cli)
-{
-	long obd_upages, obd_dpages, osc_upages;
-
-	/* Can't check cli->cl_unstable_count, therefore, no soft limit */
-	if (cli == NULL)
-		return 0;
-
-	obd_upages = atomic_read(&obd_unstable_pages);
-	obd_dpages = atomic_read(&obd_dirty_pages);
-
-	osc_upages = atomic_read(&cli->cl_unstable_count);
-
-	/* obd_max_dirty_pages is the max number of (dirty + unstable)
-	 * pages allowed at any given time. To simulate an unstable page
-	 * only limit, we subtract the current number of dirty pages
-	 * from this max. This difference is roughly the amount of pages
-	 * currently available for unstable pages. Thus, the soft limit
-	 * is half of that difference. Check osc_upages to ensure we don't
-	 * set SOFT_SYNC for OSCs without any outstanding unstable pages. */
-	return osc_upages != 0 &&
-	       obd_upages >= (obd_max_dirty_pages - obd_dpages) / 2;
-}
-
 /**
  * Helper function called by osc_io_submit() for every page in an immediate
  * transfer (i.e., transferred synchronously).
@@ -503,9 +479,6 @@ void osc_page_submit(const struct lu_env *env, struct osc_page *opg,
 	oap->oap_page_off  = opg->ops_from;
 	oap->oap_count     = opg->ops_to - opg->ops_from;
 	oap->oap_brw_flags = OBD_BRW_SYNC | brw_flags;
-
-	if (osc_over_unstable_soft_limit(oap->oap_cli))
-		oap->oap_brw_flags |= OBD_BRW_SOFT_SYNC;
 
 	if (!client_is_remote(osc_export(obj)) &&
 			cfs_capable(CFS_CAP_SYS_RESOURCE)) {
@@ -916,6 +889,120 @@ out:
 	}
 
 	RETURN(rc);
+}
+
+static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
+					    int factor)
+{
+	obd_count page_count = desc->bd_iov_count;
+	void *zone = NULL;
+	int count = 0;
+	int i;
+
+	for (i = 0; i < page_count; i++) {
+		void *pz = page_zone(desc->bd_iov[i].kiov_page);
+
+		if (likely(pz == zone)) {
+			++count;
+			continue;
+		}
+
+		if (count > 0) {
+			mod_zone_page_state(zone, NR_UNSTABLE_NFS,
+					    factor * count);
+			count = 0;
+		}
+		zone = pz;
+		++count;
+	}
+	if (count > 0)
+		mod_zone_page_state(zone, NR_UNSTABLE_NFS, factor * count);
+}
+
+/* Performs "unstable" page accounting. This function balances the
+ * increment operations performed in osc_inc_unstable_pages. It is
+ * registered as the RPC request callback, and is executed when the
+ * bulk RPC is committed on the server. Thus at this point, the pages
+ * involved in the bulk transfer are no longer considered unstable. */
+void osc_dec_unstable_pages(struct ptlrpc_request *req)
+{
+	struct ptlrpc_bulk_desc *desc       = req->rq_bulk;
+	struct client_obd       *cli        = &req->rq_import->imp_obd->u.cli;
+	obd_count                page_count = desc->bd_iov_count;
+
+	/* No unstable page tracking */
+	if (cli->cl_cache == NULL)
+		return;
+
+	LASSERT(page_count >= 0);
+	unstable_page_accounting(desc, -1);
+
+	atomic_sub(page_count, &cli->cl_cache->ccc_unstable_nr);
+	LASSERT(atomic_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
+
+	atomic_sub(page_count, &cli->cl_unstable_count);
+	LASSERT(atomic_read(&cli->cl_unstable_count) >= 0);
+
+	if (atomic_read(&cli->cl_cache->ccc_unstable_nr) == 0)
+		wake_up_all(&cli->cl_cache->ccc_unstable_waitq);
+
+	if (osc_cache_too_much(cli))
+		(void)ptlrpcd_queue_work(cli->cl_lru_work);
+}
+
+/* "unstable" page accounting. See: osc_dec_unstable_pages. */
+void osc_inc_unstable_pages(struct ptlrpc_request *req)
+{
+	struct ptlrpc_bulk_desc *desc = req->rq_bulk;
+	struct client_obd       *cli  = &req->rq_import->imp_obd->u.cli;
+	obd_count                page_count = desc->bd_iov_count;
+
+	/* No unstable page tracking */
+	if (cli->cl_cache == NULL)
+		return;
+
+	LASSERT(page_count >= 0);
+	unstable_page_accounting(desc, 1);
+
+	LASSERT(atomic_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
+	atomic_add(page_count, &cli->cl_cache->ccc_unstable_nr);
+
+	LASSERT(atomic_read(&cli->cl_unstable_count) >= 0);
+	atomic_add(page_count, &cli->cl_unstable_count);
+
+	/* If the request has already been committed (i.e. brw_commit
+	 * called via rq_commit_cb), we need to undo the unstable page
+	 * increments we just performed because rq_commit_cb wont be
+	 * called again. */
+	spin_lock(&req->rq_lock);
+	if (unlikely(req->rq_committed)) {
+		spin_unlock(&req->rq_lock);
+
+		osc_dec_unstable_pages(req);
+	} else {
+		req->rq_unstable = 1;
+		spin_unlock(&req->rq_lock);
+	}
+}
+
+bool osc_over_unstable_soft_limit(struct client_obd *cli)
+{
+	long unstable_pages, osc_upages;
+
+	/* Can't check cli->cl_unstable_count, therefore, no soft limit */
+	if (cli->cl_cache == NULL)
+		return false;
+
+	osc_upages = atomic_read(&cli->cl_unstable_count);
+	unstable_pages = atomic_read(&cli->cl_cache->ccc_unstable_nr);
+
+	CDEBUG(D_CACHE, "%s: cli: %p unstable_pages: %lu, osc_upages: %lu\n",
+	       cli->cl_import->imp_obd->obd_name, cli,
+	       unstable_pages, osc_upages);
+
+	return unstable_pages > cli->cl_cache->ccc_lru_max >> 2 &&
+	       osc_upages > cli->cl_max_pages_per_rpc *
+			    cli->cl_max_rpcs_in_flight;
 }
 
 /** @} osc */
