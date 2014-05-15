@@ -1261,6 +1261,9 @@ static int mdt_rename_sanity(struct mdt_thread_info *info,
 		LASSERT(fid_is_sane(&dst_fid));
 		dst = mdt_object_find(info->mti_env, info->mti_mdt, &dst_fid);
 		if (!IS_ERR(dst)) {
+			if (!mdt_object_exists(dst))
+				RETURN(-ESTALE);
+
 			rc = mdo_is_subdir(info->mti_env,
 					   mdt_object_child(dst), fid,
 					   &dst_fid);
