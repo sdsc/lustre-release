@@ -5324,10 +5324,16 @@ static int mdt_path_current(struct mdt_thread_info *info,
 	while (!lu_fid_eq(&mdt->mdt_md_root_fid,
 			  &pli->pli_fids[pli->pli_fidcount])) {
 		struct lu_buf		lmv_buf;
+		bool			slave = false;
 
 		mdt_obj = mdt_object_find(info->mti_env, mdt, tmpfid);
 		if (IS_ERR(mdt_obj))
 			GOTO(out, rc = PTR_ERR(mdt_obj));
+
+		if (!mdt_object_exists(mdt_obj)) {
+			mdt_object_put(info->mti_env, mdt_obj);
+			GOTO(out, rc = -ENOENT);
+		}
 
 		if (mdt_object_remote(mdt_obj)) {
 			mdt_object_put(info->mti_env, mdt_obj);
@@ -5344,23 +5350,8 @@ static int mdt_path_current(struct mdt_thread_info *info,
 			union lmv_mds_md *lmm = lmv_buf.lb_buf;
 
 			/* For slave stripes, get its master */
-			if (le32_to_cpu(lmm->lmv_magic) == LMV_MAGIC_STRIPE) {
-				struct lmv_mds_md_v1 *lmm1 = &lmm->lmv_md_v1;
-
-				fid_le_to_cpu(tmpfid, &lmm1->lmv_master_fid);
-				if (!fid_is_sane(tmpfid)) {
-					mdt_object_put(info->mti_env, mdt_obj);
-					GOTO(out, rc = -EINVAL);
-				}
-				mdt_object_put(info->mti_env, mdt_obj);
-				pli->pli_fids[pli->pli_fidcount] = *tmpfid;
-				continue;
-			}
-		}
-
-		if (!mdt_object_exists(mdt_obj)) {
-			mdt_object_put(info->mti_env, mdt_obj);
-			GOTO(out, rc = -ENOENT);
+			if (le32_to_cpu(lmm->lmv_magic) == LMV_MAGIC_STRIPE)
+				slave = true;
 		}
 
 		rc = mdt_links_read(info, mdt_obj, &ldata);
@@ -5385,6 +5376,11 @@ static int mdt_path_current(struct mdt_thread_info *info,
 			if (pli->pli_linkno < leh->leh_reccount - 1)
 				/* indicate to user there are more links */
 				pli->pli_linkno++;
+		}
+
+		if (slave) {
+			pli->pli_fids[pli->pli_fidcount] = *tmpfid;
+			continue;
 		}
 
 		/* Pack the name in the end of the buffer */
