@@ -1644,15 +1644,15 @@ int do_set_info_async(struct obd_import *imp,
 
         ptlrpc_request_set_replen(req);
 
-        if (set) {
-                ptlrpc_set_add_req(set, req);
-                ptlrpc_check_set(NULL, set);
-        } else {
-                rc = ptlrpc_queue_wait(req);
-                ptlrpc_req_finished(req);
-        }
+	if (set) {
+		ptlrpc_set_add_req(set, req);
+		ptlrpc_check_set(NULL, set, false);
+	} else {
+		rc = ptlrpc_queue_wait(req);
+		ptlrpc_req_finished(req);
+	}
 
-        RETURN(rc);
+	RETURN(rc);
 }
 EXPORT_SYMBOL(do_set_info_async);
 
