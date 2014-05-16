@@ -867,6 +867,7 @@ struct ptlrpc_request_set *ptlrpc_prep_set(void)
 	init_waitqueue_head(&set->set_waitq);
 	atomic_set(&set->set_new_count, 0);
 	atomic_set(&set->set_remaining, 0);
+	spin_lock_init(&set->set_wake_ver_lock);
 	spin_lock_init(&set->set_new_req_lock);
 	CFS_INIT_LIST_HEAD(&set->set_new_requests);
 	CFS_INIT_LIST_HEAD(&set->set_cblist);
@@ -1038,13 +1039,13 @@ void ptlrpc_set_add_new_req(struct ptlrpcd_ctl *pc,
 
 	/* Only need to call wakeup once for the first entry. */
 	if (count == 1) {
-		wake_up(&set->set_waitq);
+		ptlrpc_rqset_wakeup(set);
 
 		/* XXX: It maybe unnecessary to wakeup all the partners. But to
 		 *      guarantee the async RPC can be processed ASAP, we have
 		 *      no other better choice. It maybe fixed in future. */
 		for (i = 0; i < pc->pc_npartners; i++)
-			wake_up(&pc->pc_partners[i]->pc_set->set_waitq);
+			ptlrpc_rqset_wakeup(pc->pc_partners[i]->pc_set);
 	}
 }
 EXPORT_SYMBOL(ptlrpc_set_add_new_req);
@@ -1514,6 +1515,8 @@ static inline int ptlrpc_set_producer(struct ptlrpc_request_set *set)
 	RETURN((atomic_read(&set->set_remaining) - remaining));
 }
 
+#define PTLRPC_RESCHED_INTERVAL		cfs_time_seconds(1)
+
 /**
  * this sends any unsent RPCs in \a set and returns 1 if all are sent
  * and no more replies are expected.
@@ -1522,28 +1525,25 @@ static inline int ptlrpc_set_producer(struct ptlrpc_request_set *set)
  */
 int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 {
-        cfs_list_t *tmp, *next;
-        int force_timer_recalc = 0;
-        ENTRY;
+	struct ptlrpc_request	*req;
+	struct ptlrpc_request	*tmp;
+	struct list_head	 comp_reqs = LIST_HEAD_INIT(comp_reqs);
+	bool			 force_timer_recalc = false;
+	ENTRY;
 
 	if (atomic_read(&set->set_remaining) == 0)
-                RETURN(1);
+		RETURN(1);
 
-        cfs_list_for_each_safe(tmp, next, &set->set_requests) {
-                struct ptlrpc_request *req =
-                        cfs_list_entry(tmp, struct ptlrpc_request,
-                                       rq_set_chain);
-                struct obd_import *imp = req->rq_import;
-                int unregistered = 0;
-                int rc = 0;
+	list_for_each_entry_safe(req, tmp, &set->set_requests, rq_set_chain) {
+		struct obd_import *imp = req->rq_import;
+		bool unregistered = false;
+		int rc = 0;
 
-                if (req->rq_phase == RQ_PHASE_NEW &&
-                    ptlrpc_send_new_req(req)) {
-                        force_timer_recalc = 1;
-                }
+		if (req->rq_phase == RQ_PHASE_NEW && ptlrpc_send_new_req(req))
+			force_timer_recalc = true;
 
-                /* delayed send - skip */
-                if (req->rq_phase == RQ_PHASE_NEW && req->rq_sent)
+		/* delayed send - skip */
+		if (req->rq_phase == RQ_PHASE_NEW && req->rq_sent)
 			continue;
 
 		/* delayed resend - skip */
@@ -1595,8 +1595,10 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                         ptlrpc_rqphase_move(req, req->rq_next_phase);
                 }
 
-                if (req->rq_phase == RQ_PHASE_COMPLETE)
-                        continue;
+		if (req->rq_phase == RQ_PHASE_COMPLETE) {
+			list_move_tail(&req->rq_set_chain, &comp_reqs);
+			continue;
+		}
 
                 if (req->rq_phase == RQ_PHASE_INTERPRET)
                         GOTO(interpret, req->rq_status);
@@ -1728,7 +1730,7 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 						spin_lock(&req->rq_lock);
 						req->rq_wait_ctx = 0;
 						spin_unlock(&req->rq_lock);
-						force_timer_recalc = 1;
+						force_timer_recalc = true;
 					} else {
 						spin_lock(&req->rq_lock);
 						req->rq_wait_ctx = 1;
@@ -1746,14 +1748,14 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 				if (rc) {
 					DEBUG_REQ(D_HA, req,
 						  "send failed: rc = %d", rc);
-					force_timer_recalc = 1;
+					force_timer_recalc = true;
 					spin_lock(&req->rq_lock);
 					req->rq_net_err = 1;
 					spin_unlock(&req->rq_lock);
 					continue;
 				}
 				/* need to reset the timeout */
-				force_timer_recalc = 1;
+				force_timer_recalc = true;
 			}
 
 			spin_lock(&req->rq_lock);
@@ -1867,7 +1869,7 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 		if (set->set_producer) {
 			/* produce a new request if possible */
 			if (ptlrpc_set_producer(set) > 0)
-				force_timer_recalc = 1;
+				force_timer_recalc = true;
 
 			/* free the request that has just been completed
 			 * in order not to pollute set->set_requests */
@@ -1881,9 +1883,13 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 			if (req->rq_status != 0)
 				set->set_rc = req->rq_status;
 			ptlrpc_req_finished(req);
+		} else {
+			list_move_tail(&req->rq_set_chain, &comp_reqs);
 		}
 	}
-
+	/* put completed request at the head of list so it's easier for
+	 * caller to find them */
+	list_splice_init(&comp_reqs, &set->set_requests);
 	/* If we hit an error, we want to recover promptly. */
 	RETURN(atomic_read(&set->set_remaining) == 0 || force_timer_recalc);
 }

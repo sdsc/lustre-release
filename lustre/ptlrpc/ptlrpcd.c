@@ -97,11 +97,10 @@ static int ptlrpcd_users = 0;
 
 void ptlrpcd_wake(struct ptlrpc_request *req)
 {
-        struct ptlrpc_request_set *rq_set = req->rq_set;
+	struct ptlrpc_request_set *rq_set = req->rq_set;
 
-        LASSERT(rq_set != NULL);
-
-	wake_up(&rq_set->set_waitq);
+	LASSERT(rq_set != NULL);
+	ptlrpc_rqset_wakeup(rq_set);
 }
 EXPORT_SYMBOL(ptlrpcd_wake);
 
@@ -190,13 +189,13 @@ void ptlrpcd_add_rqset(struct ptlrpc_request_set *set)
 	atomic_set(&set->set_remaining, 0);
 	spin_unlock(&new->set_new_req_lock);
 	if (count == i) {
-		wake_up(&new->set_waitq);
+		ptlrpc_rqset_wakeup(new);
 
 		/* XXX: It maybe unnecessary to wakeup all the partners. But to
 		 *      guarantee the async RPC can be processed ASAP, we have
 		 *      no other better choice. It maybe fixed in future. */
 		for (i = 0; i < pc->pc_npartners; i++)
-			wake_up(&pc->pc_partners[i]->pc_set->set_waitq);
+			ptlrpc_rqset_wakeup(pc->pc_partners[i]->pc_set);
 	}
 #endif
 }
@@ -259,7 +258,7 @@ void ptlrpcd_add_req(struct ptlrpc_request *req, pdl_policy_t policy, int idx)
 		/* ptlrpc_check_set will decrease the count */
 		atomic_inc(&req->rq_set->set_remaining);
 		spin_unlock(&req->rq_lock);
-		wake_up(&req->rq_set->set_waitq);
+		ptlrpc_rqset_wakeup(req->rq_set);
 		return;
 	} else {
 		spin_unlock(&req->rq_lock);
@@ -285,9 +284,10 @@ static inline void ptlrpc_reqset_get(struct ptlrpc_request_set *set)
  */
 static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
 {
-        cfs_list_t *tmp, *pos;
-        struct ptlrpc_request *req;
-        struct ptlrpc_request_set *set = pc->pc_set;
+	struct ptlrpc_request *req;
+	struct ptlrpc_request *tmp;
+	struct ptlrpc_request_set *set = pc->pc_set;
+	bool check_set = false;
         int rc = 0;
         int rc2;
         ENTRY;
@@ -300,6 +300,7 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
 			atomic_add(atomic_read(&set->set_new_count),
 				   &set->set_remaining);
 			atomic_set(&set->set_new_count, 0);
+			check_set = true;
 			/*
 			 * Need to calculate its timeout.
 			 */
@@ -327,25 +328,25 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
 		RETURN(rc);
 	}
 
-	if (atomic_read(&set->set_remaining))
+	/* is there any change on rqset since my last check */
+	if (pc->pc_set_ver != set->set_wake_ver)
+		check_set = true;
+
+	if (check_set && atomic_read(&set->set_remaining)) {
+		pc->pc_set_ver = set->set_wake_ver;
 		rc |= ptlrpc_check_set(env, set);
+	}
 
-        if (!cfs_list_empty(&set->set_requests)) {
-                /*
-                 * XXX: our set never completes, so we prune the completed
-                 * reqs after each iteration. boy could this be smarter.
-                 */
-                cfs_list_for_each_safe(pos, tmp, &set->set_requests) {
-                        req = cfs_list_entry(pos, struct ptlrpc_request,
-                                             rq_set_chain);
-                        if (req->rq_phase != RQ_PHASE_COMPLETE)
-                                continue;
+	list_for_each_entry_safe(req, tmp, &set->set_requests, rq_set_chain) {
+		/* NB: completed requests have been moved to head of list
+		 * in ptlrpc_check_set() */
+		if (req->rq_phase != RQ_PHASE_COMPLETE)
+			break;
 
-                        cfs_list_del_init(&req->rq_set_chain);
-                        req->rq_set = NULL;
-                        ptlrpc_req_finished(req);
-                }
-        }
+		list_del_init(&req->rq_set_chain);
+		req->rq_set = NULL;
+		ptlrpc_req_finished(req);
+	}
 
 	if (rc == 0) {
 		/*
@@ -461,6 +462,8 @@ static int ptlrpcd(void *arg)
 		lu_context_exit(&env.le_ctx);
 		lu_context_exit(env.le_ses);
 
+		/* ptlrpcd_check may always return true under high workload */
+		cond_resched();
 		/*
 		 * Abort inflight rpcs for forced stop case.
 		 */
@@ -765,8 +768,7 @@ void ptlrpcd_stop(struct ptlrpcd_ctl *pc, int force)
 	set_bit(LIOD_STOP, &pc->pc_flags);
 	if (force)
 		set_bit(LIOD_FORCE, &pc->pc_flags);
-	wake_up(&pc->pc_set->set_waitq);
-
+	ptlrpc_rqset_wakeup(pc->pc_set);
 out:
 	EXIT;
 }
