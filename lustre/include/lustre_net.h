@@ -574,16 +574,25 @@ typedef int (*set_producer_func)(struct ptlrpc_request_set *, void *);
  * returned.
  */
 struct ptlrpc_request_set {
-	atomic_t          set_refcount;
+	atomic_t		 set_refcount;
 	/** number of in queue requests */
-	atomic_t          set_new_count;
+	atomic_t		 set_new_count;
 	/** number of uncompleted requests */
-	atomic_t          set_remaining;
-	/** wait queue to wait on for request events */
-	wait_queue_head_t           set_waitq;
-	wait_queue_head_t          *set_wakeup_ptr;
+	atomic_t		 set_remaining;
+	/** lock to protect set_wake_ver */
+	spinlock_t		 set_wake_ver_lock;
+	/**
+	 * wakeup version of reqset, it increases forever and it's only
+	 * changed by ptlrpc_reqset_wakeup().
+	 */
+	__u64			 set_wake_ver;
+	/**
+	 * wait queue to wait on for request events, should always call
+	 * ptlrpc_rqset_wakeup() to wakeup waiters
+	 */
+	wait_queue_head_t	 set_waitq;
 	/** List of requests in the set */
-	cfs_list_t            set_requests;
+	struct list_head	 set_requests;
 	/**
 	 * List of completion callbacks to be called when the set is completed
 	 * This is only used if \a set_interpret is NULL.
@@ -613,6 +622,15 @@ struct ptlrpc_request_set {
 	/** opaq argument passed to the producer callback */
 	void                 *set_producer_arg;
 };
+
+static inline void
+ptlrpc_rqset_wakeup(struct ptlrpc_request_set *set)
+{
+	spin_lock(&set->set_wake_ver_lock);
+	set->set_wake_ver++;
+	wake_up(&set->set_waitq);
+	spin_unlock(&set->set_wake_ver_lock);
+}
 
 /**
  * Description of a single ptrlrpc_set callback
@@ -2713,7 +2731,9 @@ struct ptlrpcd_ctl {
         /**
          * Thread requests set.
          */
-        struct ptlrpc_request_set  *pc_set;
+	struct ptlrpc_request_set	*pc_set;
+	/** the last checked version of pc_set::set_wake_ver */
+	__u64				pc_set_ver;
         /**
 	 * Thread name used in kthread_run()
          */
@@ -3354,7 +3374,7 @@ ptlrpc_client_wake_req(struct ptlrpc_request *req)
 	if (req->rq_set == NULL)
 		wake_up(&req->rq_reply_waitq);
 	else
-		wake_up(&req->rq_set->set_waitq);
+		ptlrpc_rqset_wakeup(req->rq_set);
 }
 
 static inline void
