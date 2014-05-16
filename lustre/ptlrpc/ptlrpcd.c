@@ -361,6 +361,7 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
                         struct ptlrpc_request_set *ps;
                         int first = pc->pc_cursor;
 
+			schedule();
                         do {
                                 partner = pc->pc_partners[pc->pc_cursor++];
                                 if (pc->pc_cursor >= pc->pc_npartners)
