@@ -146,12 +146,6 @@ struct nrs_tbf_ops {
 	void (*o_rule_fini)(struct nrs_tbf_rule *);
 };
 
-struct nrs_tbf_dump {
-	char				*td_buff;
-	int				 td_size;
-	int				 td_length;
-};
-
 #define NRS_TBF_TYPE_JOBID	"jobid"
 #define NRS_TBF_TYPE_NID	"nid"
 #define NRS_TBF_TYPE_MAX_LEN	20
