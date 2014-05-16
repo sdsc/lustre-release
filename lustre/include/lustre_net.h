@@ -574,11 +574,14 @@ typedef int (*set_producer_func)(struct ptlrpc_request_set *, void *);
  * returned.
  */
 struct ptlrpc_request_set {
-	atomic_t          set_refcount;
+	atomic_t		set_refcount;
 	/** number of in queue requests */
-	atomic_t          set_new_count;
+	atomic_t		set_new_count;
 	/** number of uncompleted requests */
-	atomic_t          set_remaining;
+	atomic_t		set_remaining;
+	/** consecutively scheduled rpcs */
+	unsigned int		set_scheduled;
+
 	/** wait queue to wait on for request events */
 	wait_queue_head_t           set_waitq;
 	wait_queue_head_t          *set_wakeup_ptr;
@@ -1756,6 +1759,11 @@ struct ptlrpc_nrs_request {
 };
 
 /** @} nrs */
+
+/**
+ * maximum mumber of replies scheduled in one batch
+ */
+#define PTLRPCD_SCHED_MAX		100
 
 /**
  * Basic request prioritization operations structure.
@@ -2943,7 +2951,8 @@ struct ptlrpc_request_set *ptlrpc_prep_fcset(int max, set_producer_func func,
 int ptlrpc_set_add_cb(struct ptlrpc_request_set *set,
                       set_interpreter_func fn, void *data);
 int ptlrpc_set_next_timeout(struct ptlrpc_request_set *);
-int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set);
+int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set,
+		     bool finish_req);
 int ptlrpc_set_wait(struct ptlrpc_request_set *);
 int ptlrpc_expired_set(void *data);
 void ptlrpc_interrupted_set(void *data);

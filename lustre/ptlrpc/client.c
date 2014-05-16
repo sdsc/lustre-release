@@ -1514,36 +1514,55 @@ static inline int ptlrpc_set_producer(struct ptlrpc_request_set *set)
 	RETURN((atomic_read(&set->set_remaining) - remaining));
 }
 
+static void
+ptlrpc_finish_list(struct list_head *head)
+{
+	struct ptlrpc_request *req;
+
+	while (!list_empty(head)) {
+		req = list_entry(head->next, struct ptlrpc_request,
+				 rq_set_chain);
+		list_del_init(&req->rq_set_chain);
+		req->rq_set = NULL;
+		ptlrpc_req_finished(req);
+	}
+}
+
 /**
  * this sends any unsent RPCs in \a set and returns 1 if all are sent
  * and no more replies are expected.
  * (it is possible to get less replies than requests sent e.g. due to timed out
  * requests or requests that we had trouble to send out)
  */
-int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
+int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set,
+		     bool finish_req)
 {
-        cfs_list_t *tmp, *next;
-        int force_timer_recalc = 0;
-        ENTRY;
+	struct ptlrpc_request	*req;
+	struct ptlrpc_request	*tmp;
+	struct list_head	 head = LIST_HEAD_INIT(head);
+	int			 force_timer_recalc = false;
+	ENTRY;
 
 	if (atomic_read(&set->set_remaining) == 0)
-                RETURN(1);
+		RETURN(1);
 
-        cfs_list_for_each_safe(tmp, next, &set->set_requests) {
-                struct ptlrpc_request *req =
-                        cfs_list_entry(tmp, struct ptlrpc_request,
-                                       rq_set_chain);
-                struct obd_import *imp = req->rq_import;
-                int unregistered = 0;
-                int rc = 0;
+	list_for_each_entry_safe(req, tmp, &set->set_requests, rq_set_chain) {
+		struct obd_import *imp = req->rq_import;
+		int unregistered = false;
+		int rc = 0;
 
-                if (req->rq_phase == RQ_PHASE_NEW &&
-                    ptlrpc_send_new_req(req)) {
-                        force_timer_recalc = 1;
-                }
+		if (set->set_scheduled++ == PTLRPCD_SCHED_MAX) {
+			set->set_scheduled = 0;
+			cond_resched();
+			if (finish_req && !list_empty(&head))
+				ptlrpc_finish_list(&head);
+		}
 
-                /* delayed send - skip */
-                if (req->rq_phase == RQ_PHASE_NEW && req->rq_sent)
+		if (req->rq_phase == RQ_PHASE_NEW && ptlrpc_send_new_req(req))
+			force_timer_recalc = 1;
+
+		/* delayed send - skip */
+		if (req->rq_phase == RQ_PHASE_NEW && req->rq_sent)
 			continue;
 
 		/* delayed resend - skip */
@@ -1595,8 +1614,10 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                         ptlrpc_rqphase_move(req, req->rq_next_phase);
                 }
 
-                if (req->rq_phase == RQ_PHASE_COMPLETE)
-                        continue;
+		if (req->rq_phase == RQ_PHASE_COMPLETE) {
+			list_move_tail(&req->rq_set_chain, &head);
+			continue;
+		}
 
                 if (req->rq_phase == RQ_PHASE_INTERPRET)
                         GOTO(interpret, req->rq_status);
@@ -1881,8 +1902,15 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
 			if (req->rq_status != 0)
 				set->set_rc = req->rq_status;
 			ptlrpc_req_finished(req);
+		} else {
+			list_move_tail(&req->rq_set_chain, &head);
 		}
 	}
+
+	if (finish_req)
+		ptlrpc_finish_list(&head);
+	else
+		list_splice_init(&head, &set->set_requests);
 
 	/* If we hit an error, we want to recover promptly. */
 	RETURN(atomic_read(&set->set_remaining) == 0 || force_timer_recalc);
@@ -2152,7 +2180,8 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                         lwi = LWI_TIMEOUT(cfs_time_seconds(timeout? timeout : 1),
                                           ptlrpc_expired_set, set);
 
-                rc = l_wait_event(set->set_waitq, ptlrpc_check_set(NULL, set), &lwi);
+		rc = l_wait_event(set->set_waitq,
+				  ptlrpc_check_set(NULL, set, false), &lwi);
 
                 /* LU-769 - if we ignored the signal because it was already
                  * pending when we started, we need to handle it now or we risk

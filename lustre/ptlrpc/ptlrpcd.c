@@ -285,8 +285,6 @@ static inline void ptlrpc_reqset_get(struct ptlrpc_request_set *set)
  */
 static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
 {
-        cfs_list_t *tmp, *pos;
-        struct ptlrpc_request *req;
         struct ptlrpc_request_set *set = pc->pc_set;
         int rc = 0;
         int rc2;
@@ -328,24 +326,7 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
 	}
 
 	if (atomic_read(&set->set_remaining))
-		rc |= ptlrpc_check_set(env, set);
-
-        if (!cfs_list_empty(&set->set_requests)) {
-                /*
-                 * XXX: our set never completes, so we prune the completed
-                 * reqs after each iteration. boy could this be smarter.
-                 */
-                cfs_list_for_each_safe(pos, tmp, &set->set_requests) {
-                        req = cfs_list_entry(pos, struct ptlrpc_request,
-                                             rq_set_chain);
-                        if (req->rq_phase != RQ_PHASE_COMPLETE)
-                                continue;
-
-                        cfs_list_del_init(&req->rq_set_chain);
-                        req->rq_set = NULL;
-                        ptlrpc_req_finished(req);
-                }
-        }
+		rc |= ptlrpc_check_set(env, set, true);
 
 	if (rc == 0) {
 		/*
