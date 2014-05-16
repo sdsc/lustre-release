@@ -328,7 +328,7 @@ static int ptlrpcd_check(struct lu_env *env, struct ptlrpcd_ctl *pc)
 	}
 
 	if (atomic_read(&set->set_remaining))
-		rc |= ptlrpc_check_set(env, set);
+		rc |= ptlrpc_check_set(env, set, true);
 
         if (!cfs_list_empty(&set->set_requests)) {
                 /*

@@ -1520,7 +1520,8 @@ static inline int ptlrpc_set_producer(struct ptlrpc_request_set *set)
  * (it is possible to get less replies than requests sent e.g. due to timed out
  * requests or requests that we had trouble to send out)
  */
-int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
+int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set,
+		     bool resched_allowed)
 {
         cfs_list_t *tmp, *next;
         int force_timer_recalc = 0;
@@ -1536,6 +1537,9 @@ int ptlrpc_check_set(const struct lu_env *env, struct ptlrpc_request_set *set)
                 struct obd_import *imp = req->rq_import;
                 int unregistered = 0;
                 int rc = 0;
+
+		if (resched_allowed)
+			cond_resched();
 
                 if (req->rq_phase == RQ_PHASE_NEW &&
                     ptlrpc_send_new_req(req)) {
@@ -2152,7 +2156,8 @@ int ptlrpc_set_wait(struct ptlrpc_request_set *set)
                         lwi = LWI_TIMEOUT(cfs_time_seconds(timeout? timeout : 1),
                                           ptlrpc_expired_set, set);
 
-                rc = l_wait_event(set->set_waitq, ptlrpc_check_set(NULL, set), &lwi);
+                rc = l_wait_event(set->set_waitq,
+				  ptlrpc_check_set(NULL, set, false), &lwi);
 
                 /* LU-769 - if we ignored the signal because it was already
                  * pending when we started, we need to handle it now or we risk

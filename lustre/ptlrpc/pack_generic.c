@@ -1646,7 +1646,7 @@ int do_set_info_async(struct obd_import *imp,
 
         if (set) {
                 ptlrpc_set_add_req(set, req);
-                ptlrpc_check_set(NULL, set);
+                ptlrpc_check_set(NULL, set, false);
         } else {
                 rc = ptlrpc_queue_wait(req);
                 ptlrpc_req_finished(req);
