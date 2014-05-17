@@ -1,5 +1,6 @@
 #!/bin/bash
 
+NAME=${NAME:-local}
 TMP=${TMP:-/tmp}
 
 TESTLOG_PREFIX=${TESTLOG_PREFIX:-$TMP/recovery-mds-scale}
@@ -15,7 +16,9 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
-. $(dirname $0)/functions.sh
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
+. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 
 assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT
 
@@ -38,6 +41,7 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	BLKS=$((FREE_SPACE * 9 / 40 / CLIENT_COUNT))
 	echoerr "Total free disk space is $FREE_SPACE, 4k blocks to dd is $BLKS"
 
+	wait_delete_completed 300 1>&2
 	dd bs=4k count=$BLKS status=noxfer if=/dev/zero of=$TESTDIR/dd-file \
 								1>$LOG &
 	load_pid=$!
