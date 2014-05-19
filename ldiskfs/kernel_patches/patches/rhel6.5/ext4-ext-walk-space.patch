@@ -161,3 +161,15 @@ Index: linux-2.6.32-431.3.1.el6.x86_64/fs/ext4/ext4_extents.h
  
  extern int ext4_ext_calc_metadata_amount(struct inode *inode,
  					 sector_t lblocks);
+Index: linux-2.6.32-431.3.1.el6.x86_64/fs/ext4/ext4_extents.h
+===================================================================
+--- linux-2.6.32-431.3.1.el6.x86_64.orig/fs/ext4/inode.c
++++ linux-2.6.32-431.3.1.el6.x86_64/fs/ext4/inode.c
+@@ -120,6 +120,7 @@ struct ext4_ext_path {
+ 	}
+ 	return retval;
+ }
++EXPORT_SYMBOL(ext4_get_blocks);
+ 
+ /* Maximum number of blocks we map for direct IO at once. */
+ #define DIO_MAX_BLOCKS 4096
