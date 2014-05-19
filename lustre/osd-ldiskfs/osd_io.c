@@ -730,6 +730,68 @@ map:
 	return err;
 }
 
+#define YSTEST
+
+#ifdef YSTEST
+int osd_ldiskfs_map_nblocks(struct inode *inode, unsigned long block,
+			    unsigned long num, unsigned long *blocks,
+			    int create)
+{
+	struct buffer_head bh;
+	unsigned long tc;
+	int err = 0, started = 0;
+	handle_t *handle = ldiskfs_journal_current_handle();
+
+ 
+	CDEBUG(D_OTHER, "blocks %lu-%lu requested for inode %u\n",
+	       block, block + num - 1, (unsigned) inode->i_ino);
+
+	if (create && !handle) {
+		int dio_credits;
+                dio_credits = LDISKFS_DATA_TRANS_BLOCKS(inode->i_sb) * num;
+                handle = osd_journal_start(inode, LDISKFS_HT_MISC, dio_credits);
+                if (IS_ERR(handle)) {
+                        err = PTR_ERR(handle);
+                        goto out;
+                }
+                started = 1;
+        }
+
+	for (tc = 0; tc < num; ) {
+		memset(&bh, 0x00, sizeof(bh));
+		err = ldiskfs_get_blocks(handle, inode, block + tc, num - tc, &bh,
+                              create ? LDISKFS_GET_BLOCKS_CREATE : 0);
+		if (err > 0) {
+			unsigned long i;
+			for (i = 0; i < err; i++) {
+				if (buffer_mapped(&bh)) {
+					blocks[tc] = bh.b_blocknr + i;
+					/* unmap any possible underlying
+					 * metadata from the block device
+					 * mapping.  bug 6998. */
+					unmap_underlying_metadata(
+						inode->i_sb->s_bdev,blocks[tc]);
+				} else
+					blocks[tc] = 0;
+				tc ++;
+			}
+			err = 0;
+		} else if (err == 0)
+			tc++;
+		else
+			break;
+	}
+        if (started)
+                ldiskfs_journal_stop(handle);
+
+	if(0)
+		err = ldiskfs_ext_walk_space(inode, block, num, 
+                               ldiskfs_ext_new_extent_cb, NULL);
+
+out:
+ 	return err;
+}
+#else
 int osd_ldiskfs_map_nblocks(struct inode *inode, unsigned long block,
 			    unsigned long num, unsigned long *blocks,
 			    int create)
@@ -751,6 +813,7 @@ int osd_ldiskfs_map_nblocks(struct inode *inode, unsigned long block,
 
 	return err;
 }
+#endif
 
 int osd_ldiskfs_map_ext_inode_pages(struct inode *inode, struct page **page,
 				    int pages, unsigned long *blocks,
