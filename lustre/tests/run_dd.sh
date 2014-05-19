@@ -1,5 +1,6 @@
 #!/bin/bash
 
+NAME=${NAME:-local}
 TMP=${TMP:-/tmp}
 
 TESTLOG_PREFIX=${TESTLOG_PREFIX:-$TMP/recovery-mds-scale}
@@ -15,7 +16,9 @@ rm -f $LOG $DEBUGLOG
 exec 2>$DEBUGLOG
 set -x
 
-. $(dirname $0)/functions.sh
+LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
+. $LUSTRE/tests/test-framework.sh
+. ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 
 assert_env MOUNT END_RUN_FILE LOAD_PID_FILE LFS CLIENT_COUNT
 
@@ -47,6 +50,7 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 		echoerr "$(date +'%F %H:%M:%S'): dd succeeded"
 		cd $TMP
 		rm -rf $TESTDIR
+		wait_delete_completed 300 1>&2
 		echoerr "$(date +'%F %H:%M:%S'): dd run finished"
 	else
 		echoerr "$(date +'%F %H:%M:%S'): dd failed"
