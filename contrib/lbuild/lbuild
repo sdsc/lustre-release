@@ -2174,6 +2174,7 @@ if [ -n "$MPSS_VERSION" ]; then
     if [ "${MPSS_VERSION%%.*}" = "3" ]; then
         CC_TARGET_ARCH=k1om-mpss-linux
         LINUX="$TOPDIR/mpss"
+        RPMBUILD_DEFS="$RPMBUILD_DEFS --define \"cross_requires /bin/sh\""
     else
         CC_TARGET_ARCH=x86_64-k1om-linux
         LINUX="$TOPDIR/mpss/card/kernel"

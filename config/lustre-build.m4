@@ -630,6 +630,8 @@ if test -n "$CROSS_PATH" ; then
 	RPMBINARGS="$RPMBINARGS --define \"make_args $CROSS_VARS\""
 	if test x$CC_TARGET_ARCH = x"x86_64-k1om-linux" ; then
 		RPMBINARGS="$RPMBINARGS --define \"cross_requires intel-mic-gpl\""
+	else
+		RPMBINARGS="$RPMBINARGS --define \"cross_requires /bin/sh\""
 	fi
 fi
 if test x$enable_modules != xyes ; then
