@@ -57,7 +57,7 @@ find_linux_rpms() {
     local prefix="$1"
     local pathtorpms=${2:-"${KERNELRPMSBASE}/${lnxmaj}/${DISTRO}/${TARGET_ARCH}"}
 
-    local wanted_kernel="${lnxmaj}${lnxmin}-${lnxrel}"
+    local wanted_kernel="${lnxmaj}${lnxmin}-${lnxrel}${rpmfix}"
     local kernel_rpms=$(find_linux_rpm "$prefix" "$pathtorpms")
     # call a distro specific hook, if available
     if type -p find_linux_rpms-$DISTRO; then

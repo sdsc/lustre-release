@@ -133,3 +133,9 @@ mcpu_rpmbuild_opt() {
 find_linux_release() {
 	_find_linux_release $LINUXOBJ
 }
+
+kernel_srpm_location() {
+
+    echo "https://nu.novell.com/repo/$RCE/SLES11-SP${PLEV}-Updates/sle-11-x86_64/rpm/src/"
+
+}
