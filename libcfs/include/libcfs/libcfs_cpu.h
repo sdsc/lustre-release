@@ -78,8 +78,24 @@
 #ifndef HAVE_LIBCFS_CPT
 
 #ifndef __KERNEL__
+
+/* Will eventual move to linux bitmap compatibility. Currently lustre
+ * cfs_bitmap implementation conflicts with linux bitmap api. Eventually
+ * cfs_bitmap will be replaced with linux bitmap api. */
+#define DIV_ROUND_UP(n,d)	(((n) + (d) - 1) / (d))
+#define BITS_TO_LONGS(nr)	DIV_ROUND_UP(nr, 8 * sizeof(long))
+
+#define DECLARE_BITMAP(name, bits) \
+	unsigned long name[BITS_TO_LONGS(bits)]
+
 typedef unsigned long		cpumask_t;
-typedef unsigned long		nodemask_t;
+typedef struct { DECLARE_BITMAP(bits, BITS_PER_LONG); } nodemask_t;
+
+#define node_set(node, dst) __node_set((node), &(dst))
+static __always_inline void __node_set(int node, nodemask_t *dstp)
+{
+	set_bit(node, dstp->bits);
+}
 #endif
 
 struct cfs_cpt_table {
