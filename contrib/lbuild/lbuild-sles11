@@ -91,12 +91,32 @@ find_linux_rpm-sles11() {
     local wanted_kernel="$2"
     local pathtorpms=${3:-"${KERNELRPMSBASE}/${lnxmaj}/${DISTRO}/${TARGET_ARCH}"}
 
-    # what, oh what, do we do for sles11?
-    # if anyone knows how we get an arbitrary (kernel-source and
-    # kernel-default-base in this case) from the Suse update mechanism,
-    # please feel free to fix this
+    local xtrace="+x"
 
-    fatal 1 "I don't know how to get packages for SLES11"
+    if [[ $SHELLOPTS = *xtrace* ]]; then
+        xtrace="-x"
+    fi
+    # NOTE!!!
+    # do not remove the below "set +x" lest you leak the Novell account
+    # details to stderr's xtrace debug!!
+    set +x  # NOTE!  see above before removing this line!!
+    if [ "$xtrace" = "-x" ]; then
+        # simulate what the user would have seen on stderr with xtrace
+        cat << "EOF"
++ site="https://$NOVELL_USER:$NOVELL_PASSWORD@nu.novell.com/repo/\$RCE/SLES11-SP3-Updates/sle-11-$ARCH/rpm/$ARCH"
++ fetch_url "https://$NOVELL_USER:$NOVELL_PASSWORD@nu.novell.com/repo/\$RCE/SLES11-SP3-Updates/sle-11-$ARCH/rpm/$ARCH/kernel-default-base-$wanted_kernel.$ARCH.rpm"
++ fetch_url "https://$NOVELL_USER:$NOVELL_PASSWORD@nu.novell.com/repo/\$RCE/SLES11-SP3-Updates/sle-11-$ARCH/rpm/$ARCH/kernel-default-devel-$wanted_kernel.$ARCH.rpm"
++ fetch_url "https://$NOVELL_USER:$NOVELL_PASSWORD@nu.novell.com/repo/\$RCE/SLES11-SP3-Updates/sle-11-$ARCH/rpm/$ARCH/kernel-source-$wanted_kernel.$ARCH.rpm"
+EOF
+    fi
+    if [ -z "$NOVELL_USER" -o -z "$NOVELL_PASSWORD" ]; then
+        fatal 1 "You need to set \$NOVELL_USER and \$NOVELL_PASSWORD before calling lbuild"
+    fi
+    local site="https://$NOVELL_USER:$NOVELL_PASSWORD@nu.novell.com/repo/\$RCE/SLES11-SP3-Updates/sle-11-$ARCH/rpm/$ARCH"
+    fetch_url "$site/kernel-default-base-$wanted_kernel.$ARCH.rpm"
+    fetch_url "$site/kernel-default-devel-$wanted_kernel.$ARCH.rpm"
+    fetch_url "$site/kernel-source-$wanted_kernel.$ARCH.rpm"
+    set $xtrace
 
     return 0
 

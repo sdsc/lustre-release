@@ -133,3 +133,28 @@ mcpu_rpmbuild_opt() {
 find_linux_release() {
 	_find_linux_release $LINUXOBJ
 }
+
+kernel_srpm_location() {
+
+    local xtrace="+x"
+
+    if [[ $SHELLOPTS = *xtrace* ]]; then
+        xtrace="-x"
+    fi
+    # NOTE!!!
+    # do not remove the below "set +x" lest you leak the Novell account
+    # details to stderr's xtrace debug!!
+    set +x  # NOTE!  see above before removing this line!!
+    if [ "$xtrace" = "-x" ]; then
+        # simulate what the user would have seen on stderr with xtrace
+        cat << "EOF"
++ echo "https://$NOVELL_USER:$NOVELL_PASSWORD@nu.novell.com/repo/$RCE/SLES11-SP2-Updates/sle-11-x86_64/rpm/src/"
+EOF
+    fi
+    if [ -z "$NOVELL_USER" -o -z "$NOVELL_PASSWORD" ]; then
+        fatal 1 "You need to set \$NOVELL_USER and \$NOVELL_PASSWORD before calling lbuild"
+    fi
+    echo "https://$NOVELL_USER:$NOVELL_PASSWORD@nu.novell.com/repo/$RCE/SLES11-SP2-Updates/sle-11-x86_64/rpm/src/"
+    set $xtrace
+
+}
