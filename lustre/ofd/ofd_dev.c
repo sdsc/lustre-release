@@ -1366,12 +1366,12 @@ static int ofd_create_hdl(struct tgt_session_info *tsi)
 		 * LFSCK will eventually clean up any orphans. LU-14 */
 		if (diff > 5 * OST_MAX_PRECREATE) {
 			diff = OST_MAX_PRECREATE / 2;
-			LCONSOLE_WARN("%s: precreate FID "DOSTID" is over %u "
-				      "larger than the LAST_ID "DOSTID", only "
-				      "precreating the last %u objects.\n",
-				      ofd_name(ofd), POSTID(&oa->o_oi),
-				      5 * OST_MAX_PRECREATE,
-				      POSTID(&oseq->os_oi), diff);
+			CDEBUG(D_HA, "%s: precreate FID "DOSTID" is over %u "
+			      "larger than the LAST_ID "DOSTID", only "
+			      "precreating the last %u objects.\n",
+			      ofd_name(ofd), POSTID(&oa->o_oi),
+			      5 * OST_MAX_PRECREATE,
+			      POSTID(&oseq->os_oi), diff);
 			ofd_seq_last_oid_set(oseq, ostid_id(&oa->o_oi) - diff);
 		}
 
@@ -1384,11 +1384,10 @@ static int ofd_create_hdl(struct tgt_session_info *tsi)
 			       count, seq, next_id);
 
 			if (cfs_time_after(jiffies, enough_time)) {
-				LCONSOLE_WARN("%s: Slow creates, %d/%d objects"
-					      " created at a rate of %d/s\n",
-					      ofd_name(ofd), created,
-					      diff + created,
-					      created / DISK_TIMEOUT);
+				CDEBUG(D_HA, "%s: Slow creates, %d/%d objects"
+				      " created at a rate of %d/s\n",
+				      ofd_name(ofd), created, diff + created,
+				      created / DISK_TIMEOUT);
 				break;
 			}
 
