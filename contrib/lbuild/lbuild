@@ -408,7 +408,7 @@ fetch_url() {
             rc=${PIPESTATUS[0]}
         fi
     elif which curl >/dev/null 2>&1; then
-        if ! curl -L -s -o "$target" "$url"; then
+        if ! curl -n -L -s -o "$target" "$url"; then
             rc=${PIPESTATUS[0]}
         fi
     else
