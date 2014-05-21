@@ -1268,41 +1268,78 @@ out:
 static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
                              struct dentry *dchild, struct qstr *name)
 {
-        struct ptlrpc_request *request = NULL;
-        struct md_op_data *op_data;
-        int rc;
-        ENTRY;
+	struct inode *inode = dchild->d_inode;
+	struct ptlrpc_request *request = NULL;
+	struct md_op_data *op_data;
+	struct obd_client_handle *och = NULL;
+	int rc;
+	ENTRY;
+
+	/* kernel has ensured of this */
+	LASSERT(dchild->d_inode != NULL);
+
 	CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s, dir="DFID"(%p)\n",
 	       name->len, name->name, PFID(ll_inode2fid(dir)), dir);
 
-        /*
-         * XXX: unlink bind mountpoint maybe call to here,
-         * just check it as vfs_unlink does.
-         */
-        if (unlikely(ll_d_mountpoint(dparent, dchild, name)))
-                RETURN(-EBUSY);
+	/*
+	 * XXX: unlink bind mountpoint maybe call to here,
+	 * just check it as vfs_unlink does.
+	 */
+	if (unlikely(ll_d_mountpoint(dparent, dchild, name)))
+		RETURN(-EBUSY);
 
-        op_data = ll_prep_md_op_data(NULL, dir, NULL, name->name,
-                                     name->len, 0, LUSTRE_OPC_ANY, NULL);
-        if (IS_ERR(op_data))
-                RETURN(PTR_ERR(op_data));
+	op_data = ll_prep_md_op_data(NULL, dir, inode, name->name, name->len,
+				     0, LUSTRE_OPC_ANY, NULL);
+	if (IS_ERR(op_data))
+		RETURN(PTR_ERR(op_data));
 
-	if (dchild != NULL && dchild->d_inode != NULL)
-		op_data->op_fid3 = *ll_inode2fid(dchild->d_inode);
+	op_data->op_fid3 = op_data->op_fid2;
 
-	op_data->op_fid2 = op_data->op_fid3;
+	if (!exp_connect_som(ll_i2sbi(inode)->ll_md_exp) &&
+	     exp_connect_unlink_close(ll_i2sbi(inode)->ll_md_exp)) {
+		struct ll_inode_info *lli = ll_i2info(inode);
+
+		/* we can only pack one file handle in unlink, pick up an unused
+		 * one in the order of read, exec and write. */
+		mutex_lock(&lli->lli_och_mutex);
+		if (lli->lli_mds_read_och != NULL &&
+		    lli->lli_open_fd_read_count == 0) {
+			och = lli->lli_mds_read_och;
+			lli->lli_mds_read_och = NULL;
+		} else if (lli->lli_mds_exec_och != NULL &&
+		    lli->lli_open_fd_exec_count == 0) {
+			och = lli->lli_mds_exec_och;
+			lli->lli_mds_exec_och = NULL;
+		} else if (lli->lli_mds_write_och != NULL &&
+		    lli->lli_open_fd_write_count == 0) {
+			och = lli->lli_mds_write_och;
+			lli->lli_mds_write_och = NULL;
+		}
+		mutex_unlock(&lli->lli_och_mutex);
+
+		if (och != NULL) {
+			op_data->op_handle = och->och_fh;
+			op_data->op_data   = och->och_mod;
+		}
+	}
+
 	rc = md_unlink(ll_i2sbi(dir)->ll_md_exp, op_data, &request);
 	ll_finish_md_op_data(op_data);
 	if (rc)
 		GOTO(out, rc);
 
-        ll_update_times(request, dir);
-        ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_UNLINK, 1);
+	ll_update_times(request, dir);
+	ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_UNLINK, 1);
 
-        rc = ll_objects_destroy(request, dir);
+	rc = ll_objects_destroy(request, dir);
  out:
-        ptlrpc_req_finished(request);
-        RETURN(rc);
+	if (och != NULL) {
+		md_clear_open_replay_data(ll_i2sbi(dir)->ll_md_exp, och);
+		och->och_fh.cookie = DEAD_HANDLE_MAGIC;
+		OBD_FREE_PTR(och);
+	}
+	ptlrpc_req_finished(request);
+	RETURN(rc);
 }
 
 static int ll_rename_generic(struct inode *src, struct dentry *src_dparent,
