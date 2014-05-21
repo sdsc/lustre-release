@@ -1145,13 +1145,10 @@ build_spl_zfs() {
 	done
 
         if [ "$pkg" == "zfs" ]; then
-            mkdir -p $TOPDIR/zfsdevel
-            pushd $TOPDIR/zfsdevel
             # We also need to extract zfs-devel rpm
             local devel_rpm=$(ls -1 $TOPDIR/RPMS/*/$pkg-devel-*.rpm)
             rpm2cpio $devel_rpm | cpio -id
-            popd
-            CONFIGURE_FLAGS="--with-$pkg-devel=$TOPDIR/zfsdevel ${CONFIGURE_FLAGS}"
+            CONFIGURE_FLAGS="--with-$pkg-devel=$TOPDIR ${CONFIGURE_FLAGS}"
         fi
         popd
 
