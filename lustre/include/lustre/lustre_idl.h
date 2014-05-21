@@ -2582,29 +2582,29 @@ struct mdt_rec_link {
 
 /* instance of mdt_reint_rec */
 struct mdt_rec_unlink {
-        __u32           ul_opcode;
-        __u32           ul_cap;
-        __u32           ul_fsuid;
-        __u32           ul_fsuid_h;
-        __u32           ul_fsgid;
-        __u32           ul_fsgid_h;
-        __u32           ul_suppgid1;
-        __u32           ul_suppgid1_h;
-        __u32           ul_suppgid2;
-        __u32           ul_suppgid2_h;
-        struct lu_fid   ul_fid1;
-        struct lu_fid   ul_fid2;
-        obd_time        ul_time;
-        __u64           ul_padding_2;   /* rr_atime */
-        __u64           ul_padding_3;   /* rr_ctime */
-        __u64           ul_padding_4;   /* rr_size */
-        __u64           ul_padding_5;   /* rr_blocks */
-        __u32           ul_bias;
-        __u32           ul_mode;
-        __u32           ul_padding_6;   /* rr_flags */
-        __u32           ul_padding_7;   /* rr_padding_2 */
-        __u32           ul_padding_8;   /* rr_padding_3 */
-        __u32           ul_padding_9;   /* rr_padding_4 */
+	__u32		ul_opcode;
+	__u32		ul_cap;
+	__u32		ul_fsuid;
+	__u32		ul_fsuid_h;
+	__u32		ul_fsgid;
+	__u32		ul_fsgid_h;
+	__u32		ul_suppgid1;
+	__u32		ul_suppgid1_h;
+	__u32		ul_suppgid2;
+	__u32		ul_suppgid2_h;
+	struct lu_fid	ul_fid1;
+	struct lu_fid	ul_fid2;
+	obd_time	ul_time;
+	struct lustre_handle ul_handle; /* file handle to close */
+	__u64		ul_padding_3;   /* rr_ctime */
+	__u64		ul_padding_4;   /* rr_size */
+	__u64		ul_padding_5;   /* rr_blocks */
+	__u32		ul_bias;
+	__u32		ul_mode;
+	__u32		ul_padding_6;   /* rr_flags */
+	__u32		ul_padding_7;   /* rr_padding_2 */
+	__u32		ul_padding_8;   /* rr_padding_3 */
+	__u32		ul_padding_9;   /* rr_padding_4 */
 };
 
 /* instance of mdt_reint_rec */

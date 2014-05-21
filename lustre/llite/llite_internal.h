@@ -145,7 +145,7 @@ struct ll_inode_info {
 	struct list_head		lli_oss_capas;
 	/* open count currently used by capability only, indicate whether
 	 * capability needs renewal */
-	atomic_t                    lli_open_count;
+	atomic_t			lli_open_count;
 	struct obd_capa                *lli_mds_capa;
 	cfs_time_t                      lli_rmtperm_time;
 

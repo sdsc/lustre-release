@@ -567,12 +567,13 @@ static void mdt_write_allow(struct mdt_object *o)
 }
 
 /* there can be no real transaction so prepare the fake one */
-static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
+void mdt_empty_transno(struct mdt_thread_info *info, int rc)
 {
         struct mdt_device      *mdt = info->mti_mdt;
         struct ptlrpc_request  *req = mdt_info_req(info);
         struct tg_export_data  *ted;
         struct lsd_client_data *lcd;
+	__u32 opc;
 
         ENTRY;
         /* transaction has occurred already */
@@ -625,8 +626,9 @@ static void mdt_empty_transno(struct mdt_thread_info *info, int rc)
 		RETURN_EXIT;
 	}
 
-        if (lustre_msg_get_opc(req->rq_reqmsg) == MDS_CLOSE ||
-            lustre_msg_get_opc(req->rq_reqmsg) == MDS_DONE_WRITING) {
+	opc = lustre_msg_get_opc(req->rq_reqmsg);
+	if (opc == MDS_CLOSE || opc == MDS_DONE_WRITING ||
+	    opc == MDS_REINT_UNLINK) {
 		if (info->mti_transno != 0)
 			lcd->lcd_last_close_transno = info->mti_transno;
                 lcd->lcd_last_close_xid = req->rq_xid;
@@ -2179,7 +2181,7 @@ out_reprocess:
 #define MFD_CLOSED(mode) (((mode) & ~(MDS_FMODE_EPOCH | MDS_FMODE_SOM | \
                                       MDS_FMODE_TRUNC)) == MDS_FMODE_CLOSED)
 
-static int mdt_mfd_closed(struct mdt_file_data *mfd)
+int mdt_mfd_closed(struct mdt_file_data *mfd)
 {
         return ((mfd == NULL) || MFD_CLOSED(mfd->mfd_mode));
 }

@@ -328,6 +328,7 @@ int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
 	struct list_head cancels = LIST_HEAD_INIT(cancels);
         struct obd_device *obd = class_exp2obd(exp);
         struct ptlrpc_request *req = *request;
+	struct md_open_data *mod = op_data->op_data;
         int count = 0, rc;
         ENTRY;
 
@@ -371,9 +372,29 @@ int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
 
         *request = req;
 
+	if (mod != NULL) {
+		LASSERTF(mod->mod_open_req != NULL &&
+			mod->mod_open_req->rq_type != LI_POISON,
+			"POISONED open %p!\n", mod->mod_open_req);
+
+		mod->mod_close_req = req;
+
+		DEBUG_REQ(D_HA, mod->mod_open_req, "matched open");
+
+		spin_lock(&mod->mod_open_req->rq_lock);
+		mod->mod_open_req->rq_replay = 0;
+		spin_unlock(&mod->mod_open_req->rq_lock);
+	}
+
         rc = mdc_reint(req, obd->u.cli.cl_rpc_lock, LUSTRE_IMP_FULL);
         if (rc == -ERESTARTSYS)
                 rc = 0;
+
+	if (mod != NULL) {
+		if (rc != 0)
+			mod->mod_close_req = NULL;
+		obd_mod_put(mod);
+	}
         RETURN(rc);
 }
 

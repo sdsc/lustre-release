@@ -723,8 +723,10 @@ int mdt_write_get(struct mdt_object *o);
 void mdt_write_put(struct mdt_object *o);
 int mdt_write_read(struct mdt_object *o);
 struct mdt_file_data *mdt_mfd_new(const struct mdt_export_data *med);
+int mdt_mfd_closed(struct mdt_file_data *mfd);
 int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd);
 void mdt_mfd_free(struct mdt_file_data *mfd);
+void mdt_empty_transno(struct mdt_thread_info *info, int rc);
 int mdt_close(struct tgt_session_info *tsi);
 int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
                  struct md_attr *ma, int flags);
