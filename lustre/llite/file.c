@@ -84,19 +84,21 @@ static void ll_file_data_put(struct ll_file_data *fd)
 void ll_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
                           struct lustre_handle *fh)
 {
-        op_data->op_fid1 = ll_i2info(inode)->lli_fid;
-        op_data->op_attr.ia_mode = inode->i_mode;
-        op_data->op_attr.ia_atime = inode->i_atime;
-        op_data->op_attr.ia_mtime = inode->i_mtime;
-        op_data->op_attr.ia_ctime = inode->i_ctime;
-        op_data->op_attr.ia_size = i_size_read(inode);
-        op_data->op_attr_blocks = inode->i_blocks;
-        ((struct ll_iattr *)&op_data->op_attr)->ia_attr_flags =
-                                        ll_inode_to_ext_flags(inode->i_flags);
-        op_data->op_ioepoch = ll_i2info(inode)->lli_ioepoch;
-        if (fh)
-                op_data->op_handle = *fh;
-        op_data->op_capa1 = ll_mdscapa_get(inode);
+	op_data->op_fid1 = *ll_inode2fid(inode);
+	if (op_data->op_capa1 != NULL)
+		capa_put(op_data->op_capa1);
+	op_data->op_capa1 = ll_mdscapa_get(inode);
+	op_data->op_attr.ia_mode = inode->i_mode;
+	op_data->op_attr.ia_atime = inode->i_atime;
+	op_data->op_attr.ia_mtime = inode->i_mtime;
+	op_data->op_attr.ia_ctime = inode->i_ctime;
+	op_data->op_attr.ia_size = i_size_read(inode);
+	op_data->op_attr_blocks = inode->i_blocks;
+	((struct ll_iattr *)&op_data->op_attr)->ia_attr_flags =
+				ll_inode_to_ext_flags(inode->i_flags);
+	op_data->op_ioepoch = ll_i2info(inode)->lli_ioepoch;
+	if (fh)
+		op_data->op_handle = *fh;
 
 	if (LLIF_DATA_MODIFIED & ll_i2info(inode)->lli_flags)
 		op_data->op_bias |= MDS_DATA_MODIFIED;
@@ -109,25 +111,26 @@ void ll_pack_inode2opdata(struct inode *inode, struct md_op_data *op_data,
 static void ll_prepare_close(struct inode *inode, struct md_op_data *op_data,
                              struct obd_client_handle *och)
 {
-        ENTRY;
+	ENTRY;
 
 	op_data->op_attr.ia_valid = ATTR_MODE | ATTR_ATIME | ATTR_ATIME_SET |
 					ATTR_MTIME | ATTR_MTIME_SET |
 					ATTR_CTIME | ATTR_CTIME_SET;
 
-        if (!(och->och_flags & FMODE_WRITE))
-                goto out;
+	if (!(och->och_flags & FMODE_WRITE))
+		goto out;
 
-        if (!exp_connect_som(ll_i2mdexp(inode)) || !S_ISREG(inode->i_mode))
-                op_data->op_attr.ia_valid |= ATTR_SIZE | ATTR_BLOCKS;
-        else
-                ll_ioepoch_close(inode, op_data, &och, 0);
+	if (!exp_connect_som(ll_i2mdexp(inode)) || !S_ISREG(inode->i_mode))
+		op_data->op_attr.ia_valid |= ATTR_SIZE | ATTR_BLOCKS;
+	else
+		ll_ioepoch_close(inode, op_data, &och, 0);
 
 out:
-        ll_pack_inode2opdata(inode, op_data, &och->och_fh);
-        ll_prep_md_op_data(op_data, inode, NULL, NULL,
-                           0, 0, LUSTRE_OPC_ANY, NULL);
-        EXIT;
+	ll_prep_md_op_data(op_data, inode, NULL, NULL, 0, 0, LUSTRE_OPC_ANY,
+			   NULL);
+	ll_pack_inode2opdata(inode, op_data, &och->och_fh);
+
+	EXIT;
 }
 
 static int ll_close_inode_openhandle(struct obd_export *md_exp,

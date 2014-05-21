@@ -1085,7 +1085,7 @@ check_mdt_rec_unlink(void)
 	CHECK_MEMBER(mdt_rec_unlink, ul_fid1);
 	CHECK_MEMBER(mdt_rec_unlink, ul_fid2);
 	CHECK_MEMBER(mdt_rec_unlink, ul_time);
-	CHECK_MEMBER(mdt_rec_unlink, ul_padding_2);
+	CHECK_MEMBER(mdt_rec_unlink, ul_handle);
 	CHECK_MEMBER(mdt_rec_unlink, ul_padding_3);
 	CHECK_MEMBER(mdt_rec_unlink, ul_padding_4);
 	CHECK_MEMBER(mdt_rec_unlink, ul_padding_5);
