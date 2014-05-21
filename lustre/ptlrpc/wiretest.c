@@ -1467,7 +1467,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct lov_mds_md_v1, lmm_objects[0]));
 	LASSERTF((int)sizeof(((struct lov_mds_md_v1 *)0)->lmm_objects[0]) == 24, "found %lld\n",
 		 (long long)(int)sizeof(((struct lov_mds_md_v1 *)0)->lmm_objects[0]));
-	CLASSERT(LOV_MAGIC_V1 == 0x0BD10BD0);
+	CLASSERT(LOV_MAGIC_V1 == (0x0BD10000 | 0x0BD0));
 
 	/* Checks for struct lov_mds_md_v3 */
 	LASSERTF((int)sizeof(struct lov_mds_md_v3) == 48, "found %lld\n",
@@ -1505,7 +1505,7 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct lov_mds_md_v3, lmm_objects[0]));
 	LASSERTF((int)sizeof(((struct lov_mds_md_v3 *)0)->lmm_objects[0]) == 24, "found %lld\n",
 		 (long long)(int)sizeof(((struct lov_mds_md_v3 *)0)->lmm_objects[0]));
-	CLASSERT(LOV_MAGIC_V3 == 0x0BD30BD0);
+	CLASSERT(LOV_MAGIC_V3 == (0x0BD30000 | 0x0BD0));
 	LASSERTF(LOV_PATTERN_RAID0 == 0x00000001UL, "found 0x%.8xUL\n",
 		(unsigned)LOV_PATTERN_RAID0);
 	LASSERTF(LOV_PATTERN_RAID1 == 0x00000002UL, "found 0x%.8xUL\n",
@@ -2527,10 +2527,10 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct mdt_rec_unlink, ul_time));
 	LASSERTF((int)sizeof(((struct mdt_rec_unlink *)0)->ul_time) == 8, "found %lld\n",
 		 (long long)(int)sizeof(((struct mdt_rec_unlink *)0)->ul_time));
-	LASSERTF((int)offsetof(struct mdt_rec_unlink, ul_padding_2) == 80, "found %lld\n",
-		 (long long)(int)offsetof(struct mdt_rec_unlink, ul_padding_2));
-	LASSERTF((int)sizeof(((struct mdt_rec_unlink *)0)->ul_padding_2) == 8, "found %lld\n",
-		 (long long)(int)sizeof(((struct mdt_rec_unlink *)0)->ul_padding_2));
+	LASSERTF((int)offsetof(struct mdt_rec_unlink, ul_handle) == 80, "found %lld\n",
+		 (long long)(int)offsetof(struct mdt_rec_unlink, ul_handle));
+	LASSERTF((int)sizeof(((struct mdt_rec_unlink *)0)->ul_handle) == 8, "found %lld\n",
+		 (long long)(int)sizeof(((struct mdt_rec_unlink *)0)->ul_handle));
 	LASSERTF((int)offsetof(struct mdt_rec_unlink, ul_padding_3) == 88, "found %lld\n",
 		 (long long)(int)offsetof(struct mdt_rec_unlink, ul_padding_3));
 	LASSERTF((int)sizeof(((struct mdt_rec_unlink *)0)->ul_padding_3) == 8, "found %lld\n",
