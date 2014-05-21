@@ -280,14 +280,14 @@ static void ll_prepare_done_writing(struct inode *inode,
                                     struct md_op_data *op_data,
                                     struct obd_client_handle **och)
 {
-        ll_ioepoch_close(inode, op_data, och, LLIF_DONE_WRITING);
-        /* If there is no @och, we do not do D_W yet. */
-        if (*och == NULL)
-                return;
+	ll_ioepoch_close(inode, op_data, och, LLIF_DONE_WRITING);
+	/* If there is no @och, we do not do D_W yet. */
+	if (*och == NULL)
+		return;
 
-        ll_pack_inode2opdata(inode, op_data, &(*och)->och_fh);
-        ll_prep_md_op_data(op_data, inode, NULL, NULL,
-                           0, 0, LUSTRE_OPC_ANY, NULL);
+	ll_prep_md_op_data(op_data, inode, NULL, NULL, 0, 0, LUSTRE_OPC_ANY,
+			   NULL);
+	ll_pack_inode2opdata(inode, op_data, &(*och)->och_fh);
 }
 
 /** Send a DONE_WRITING rpc. */

@@ -699,18 +699,31 @@ void mdc_replay_open(struct ptlrpc_request *req)
         }
         close_req = mod->mod_close_req;
         if (close_req != NULL) {
-                __u32 opc = lustre_msg_get_opc(close_req->rq_reqmsg);
-                struct mdt_ioepoch *epoch;
+		__u32 opc = lustre_msg_get_opc(close_req->rq_reqmsg);
+		struct lustre_handle *handle;
 
-                LASSERT(opc == MDS_CLOSE || opc == MDS_DONE_WRITING);
-                epoch = req_capsule_client_get(&close_req->rq_pill,
+		LASSERT(opc == MDS_CLOSE || opc == MDS_DONE_WRITING ||
+			opc == MDS_REINT_UNLINK);
+		if (opc == MDS_CLOSE || opc == MDS_DONE_WRITING) {
+			struct mdt_ioepoch *epoch;
+
+			epoch = req_capsule_client_get(&close_req->rq_pill,
                                                &RMF_MDT_EPOCH);
-                LASSERT(epoch);
+			LASSERT(epoch != NULL);
+			handle = &epoch->handle;
+		} else {
+			struct mdt_rec_unlink *rec;
 
-                if (och != NULL)
-                        LASSERT(!memcmp(&old, &epoch->handle, sizeof(old)));
-                DEBUG_REQ(D_HA, close_req, "updating close body with new fh");
-                epoch->handle = body->handle;
+			rec = req_capsule_client_get(&close_req->rq_pill,
+						     &RMF_REC_REINT);
+			LASSERT(rec != NULL);
+			handle = &rec->ul_handle;
+		}
+
+		if (och != NULL)
+			LASSERT(!memcmp(&old, handle, sizeof(old)));
+		DEBUG_REQ(D_HA, close_req, "updating close body with new fh");
+		*handle = body->handle;
         }
         EXIT;
 }
@@ -820,7 +833,10 @@ static void mdc_free_open(struct md_open_data *mod)
 	DEBUG_REQ(D_RPCTRACE, mod->mod_open_req, "free open request\n");
 
 	ptlrpc_request_committed(mod->mod_open_req, committed);
-	if (mod->mod_close_req)
+	/* don't free mod_close_req early if it's close in unlink */
+	if (mod->mod_close_req != NULL &&
+	    lustre_msg_get_opc(mod->mod_close_req->rq_reqmsg) !=
+	    MDS_REINT_UNLINK)
 		ptlrpc_request_committed(mod->mod_close_req, committed);
 }
 
