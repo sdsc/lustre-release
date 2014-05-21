@@ -846,6 +846,45 @@ static int mdt_reint_create(struct mdt_thread_info *info,
 	RETURN(rc);
 }
 
+static int mdt_close_in_unlink(struct mdt_thread_info *info)
+{
+	struct mdt_reint_record *rr  = &info->mti_rr;
+	struct ptlrpc_request   *req = mdt_info_req(info);
+	struct mdt_export_data  *med;
+	struct mdt_file_data    *mfd;
+	int			 rc  = 0;
+
+	med = &req->rq_export->exp_mdt_data;
+
+	spin_lock(&med->med_open_lock);
+	mfd = mdt_handle2mfd(med, rr->rr_handle, req_is_replay(req));
+	if (mdt_mfd_closed(mfd)) {
+		spin_unlock(&med->med_open_lock);
+
+		CDEBUG(D_INODE, "no handle for file close: fid = "DFID": "
+			"cookie = "LPX64"\n",
+			PFID(&info->mti_tmp_fid1), rr->rr_handle->cookie);
+	} else {
+		struct md_attr *ma = &info->mti_attr;
+		obd_time saved_atime = ma->ma_attr.la_atime;
+		__u64 saved_valid = ma->ma_attr.la_valid;
+
+		class_handle_unhash(&mfd->mfd_handle);
+		list_del_init(&mfd->mfd_list);
+		spin_unlock(&med->med_open_lock);
+
+		/* close needs to update atime, borrow it from mtime, and
+		 * restore them after use. */
+		ma->ma_attr.la_atime = ma->ma_attr.la_mtime;
+		ma->ma_attr.la_valid |= LA_ATIME;
+		rc = mdt_mfd_close(info, mfd);
+		ma->ma_attr.la_atime = saved_atime;
+		ma->ma_attr.la_valid = saved_valid;
+	}
+
+	return rc;
+}
+
 /*
  * VBR: save parent version in reply and child version getting by its name.
  * Version of child is getting and checking during its lookup. If
@@ -969,6 +1008,9 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 				GOTO(put_child, rc = -EPERM);
 			}
 
+			if (lustre_handle_is_used(rr->rr_handle))
+				mdt_close_in_unlink(info);
+
 			ma->ma_need = MA_INODE;
 			ma->ma_valid = 0;
 			mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
@@ -995,6 +1037,9 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 		       mdt_obd_name(info->mti_mdt), PNAME(&rr->rr_name), rc);
 		GOTO(put_child, rc);
 	}
+
+	if (lustre_handle_is_used(rr->rr_handle))
+		mdt_close_in_unlink(info);
 
 	/* We used to acquire MDS_INODELOCK_FULL here but we can't do
 	 * this now because a running HSM restore on the child (unlink

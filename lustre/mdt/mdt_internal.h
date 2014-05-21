@@ -743,6 +743,15 @@ int mdt_handle_last_unlink(struct mdt_thread_info *, struct mdt_object *,
                            const struct md_attr *);
 void mdt_reconstruct_open(struct mdt_thread_info *, struct mdt_lock_handle *);
 
+#define MFD_CLOSED(mode) \
+	(((mode) & ~(MDS_FMODE_EPOCH | MDS_FMODE_SOM | MDS_FMODE_TRUNC)) == \
+	 MDS_FMODE_CLOSED)
+
+static inline bool mdt_mfd_closed(struct mdt_file_data *mfd)
+{
+	return ((mfd == NULL) || MFD_CLOSED(mfd->mfd_mode));
+}
+
 struct lu_buf *mdt_buf(const struct lu_env *env, void *area, ssize_t len);
 const struct lu_buf *mdt_buf_const(const struct lu_env *env,
                                    const void *area, ssize_t len);
