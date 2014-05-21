@@ -212,7 +212,10 @@ test_2() {
 	echo "Verify Lustre filesystem is up and running"
 	[ -z "$(mounted_lustre_filesystems)" ] && error "Lustre is not running"
 
-	clients_up
+	[ "$(facet_fstype ost1)" = "zfs" ] &&
+		skip "LU-2059: no local config for ZFS OSTs" && return
+
+    clients_up
 
 	for i in $(seq $MDSCOUNT) ; do
 		shutdown_facet mds$i
@@ -285,6 +288,9 @@ run_test 3  "Thirdb Failure Mode: MDS/CLIENT `date`"
 ############### Fourth Failure Mode ###############
 test_4() {
 	echo "Fourth Failure Mode: OST/MDS `date`"
+
+	[ "$(facet_fstype ost1)" = "zfs" ] &&
+		skip "LU-2059: no local config for ZFS OSTs" && return
 
     #OST Portion
     shutdown_facet ost1
@@ -602,6 +608,12 @@ run_test 9 "Ninth Failure Mode: CLIENT/CLIENT `date`"
 ############### Tenth Failure Mode ###############
 test_10() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	#XXX Disable the test now for LU-4409
+	[ $MDSCOUNT -ge 2 ] && skip "skip for DNE due to LU-4409" && return
+
+	[ "$(facet_fstype ost1)" = "zfs" ] &&
+		skip "LU-2059: no local config for ZFS OSTs" && return
 
 	shutdown_facet mds1
 	reboot_facet mds1
