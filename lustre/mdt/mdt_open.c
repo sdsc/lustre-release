@@ -2176,14 +2176,6 @@ out_reprocess:
 	return rc;
 }
 
-#define MFD_CLOSED(mode) (((mode) & ~(MDS_FMODE_EPOCH | MDS_FMODE_SOM | \
-                                      MDS_FMODE_TRUNC)) == MDS_FMODE_CLOSED)
-
-static int mdt_mfd_closed(struct mdt_file_data *mfd)
-{
-        return ((mfd == NULL) || MFD_CLOSED(mfd->mfd_mode));
-}
-
 int mdt_mfd_close(struct mdt_thread_info *info, struct mdt_file_data *mfd)
 {
         struct mdt_object *o = mfd->mfd_object;

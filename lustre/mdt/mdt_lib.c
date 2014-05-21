@@ -1189,6 +1189,7 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
         attr->la_mtime = rec->ul_time;
         attr->la_mode  = rec->ul_mode;
         attr->la_valid = LA_UID | LA_GID | LA_CTIME | LA_MTIME | LA_MODE;
+	rr->rr_handle = &rec->ul_handle;
 
         if (req_capsule_get_size(pill, &RMF_CAPA1, RCL_CLIENT))
                 mdt_set_capainfo(info, 0, rr->rr_fid1,
