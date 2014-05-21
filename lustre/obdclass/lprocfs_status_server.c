@@ -185,6 +185,54 @@ int lprocfs_num_exports_seq_show(struct seq_file *m, void *data)
 }
 EXPORT_SYMBOL(lprocfs_num_exports_seq_show);
 
+static int obd_export_flags2seqstr(struct obd_export *exp, struct seq_file *m)
+{
+	bool first = true;
+
+	flag2seqstr(exp, failed);
+	flag2seqstr(exp, in_recovery);
+	flag2seqstr(exp, disconnected);
+	flag2seqstr(exp, connecting);
+
+	return 0;
+}
+
+/*
+ * In Lustre RPC connections are composed of an import and an export.
+ * Using the lctl utility we can extract important information about
+ * the state. The lprocfs_exp_export_seq_show routine he display
+ * state information such as what features are supported for the
+ * export.
+ */
+int lprocfs_exp_export_seq_show(struct seq_file *m,  void *data)
+{
+	struct obd_export	*exp = m->private;
+	struct obd_device	*obd;
+	struct obd_connect_data	*ocd;
+	struct nid_stat		*stats;
+
+	LASSERT(exp != NULL);
+	obd = exp->exp_obd;
+	ocd = &exp->exp_connect_data;
+	stats = exp->exp_nid_stats;
+
+	seq_printf(m, "export:\n"
+		   "    name: %s\n"
+		   "    client: %s\n"
+		   "    connect_flags: [ ",
+		   obd->obd_name,
+		   stats->nid_proc->name);
+	obd_connect_seq_flags2str(m, ocd->ocd_connect_flags, ", ");
+	seq_printf(m, "]\n");
+	obd_connect_data_seqprint(m, ocd);
+	seq_printf(m, "    export_flags: [ ");
+	obd_export_flags2seqstr(exp, m);
+	seq_printf(m, " ]\n");
+
+	return 0;
+}
+LPROC_SEQ_FOPS_RO(lprocfs_exp_export);
+
 static void lprocfs_free_client_stats(struct nid_stat *client_stat)
 {
 	CDEBUG(D_CONFIG, "stat %p - data %p/%p\n", client_stat,
@@ -557,7 +605,8 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
 				   &lprocfs_exp_uuid_fops);
 #endif
 	if (IS_ERR(entry)) {
-		CWARN("Error adding the NID stats file\n");
+		CWARN("%s: error adding the NID stats file: rc = %d\n",
+		      exp->exp_obd->obd_name, rc);
 		rc = PTR_ERR(entry);
 		GOTO(destroy_new_ns, rc);
 	}
@@ -570,7 +619,20 @@ int lprocfs_exp_setup(struct obd_export *exp, lnet_nid_t *nid, int *newnid)
 				   &lprocfs_exp_hash_fops);
 #endif
 	if (IS_ERR(entry)) {
-		CWARN("Error adding the hash file\n");
+		CWARN("%s: error adding the hash file: rc = %d\n",
+		      exp->exp_obd->obd_name, rc);
+		rc = PTR_ERR(entry);
+		GOTO(destroy_new_ns, rc);
+	}
+
+	entry = lprocfs_add_simple(new_stat->nid_proc, "export",
+#ifndef HAVE_ONLY_PROCFS_SEQ
+				   NULL, NULL,
+#endif
+				   exp, &lprocfs_exp_export_fops);
+	if (IS_ERR(entry)) {
+		CWARN("%s: error adding the export file: rc = %d\n",
+		      exp->exp_obd->obd_name, rc);
 		rc = PTR_ERR(entry);
 		GOTO(destroy_new_ns, rc);
 	}
