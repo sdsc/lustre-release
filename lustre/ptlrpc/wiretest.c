@@ -2527,10 +2527,10 @@ void lustre_assert_wire_constants(void)
 		 (long long)(int)offsetof(struct mdt_rec_unlink, ul_time));
 	LASSERTF((int)sizeof(((struct mdt_rec_unlink *)0)->ul_time) == 8, "found %lld\n",
 		 (long long)(int)sizeof(((struct mdt_rec_unlink *)0)->ul_time));
-	LASSERTF((int)offsetof(struct mdt_rec_unlink, ul_padding_2) == 80, "found %lld\n",
-		 (long long)(int)offsetof(struct mdt_rec_unlink, ul_padding_2));
-	LASSERTF((int)sizeof(((struct mdt_rec_unlink *)0)->ul_padding_2) == 8, "found %lld\n",
-		 (long long)(int)sizeof(((struct mdt_rec_unlink *)0)->ul_padding_2));
+	LASSERTF((int)offsetof(struct mdt_rec_unlink, ul_handle) == 80, "found %lld\n",
+		 (long long)(int)offsetof(struct mdt_rec_unlink, ul_handle));
+	LASSERTF((int)sizeof(((struct mdt_rec_unlink *)0)->ul_handle) == 8, "found %lld\n",
+		 (long long)(int)sizeof(((struct mdt_rec_unlink *)0)->ul_handle));
 	LASSERTF((int)offsetof(struct mdt_rec_unlink, ul_padding_3) == 88, "found %lld\n",
 		 (long long)(int)offsetof(struct mdt_rec_unlink, ul_padding_3));
 	LASSERTF((int)sizeof(((struct mdt_rec_unlink *)0)->ul_padding_3) == 8, "found %lld\n",

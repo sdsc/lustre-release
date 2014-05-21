@@ -323,15 +323,16 @@ rebuild:
 }
 
 int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
-               struct ptlrpc_request **request)
+	       struct ptlrpc_request **request)
 {
 	struct list_head cancels = LIST_HEAD_INIT(cancels);
-        struct obd_device *obd = class_exp2obd(exp);
-        struct ptlrpc_request *req = *request;
-        int count = 0, rc;
-        ENTRY;
+	struct obd_device *obd = class_exp2obd(exp);
+	struct ptlrpc_request *req = *request;
+	struct md_open_data *mod = op_data->op_data;
+	int count = 0, rc;
+	ENTRY;
 
-        LASSERT(req == NULL);
+	LASSERT(req == NULL);
 
 	if ((op_data->op_flags & MF_MDC_CANCEL_FID1) &&
 	    (fid_is_sane(&op_data->op_fid1)) &&
@@ -345,15 +346,15 @@ int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
 		count += mdc_resource_get_unused(exp, &op_data->op_fid3,
 						 &cancels, LCK_EX,
 						 MDS_INODELOCK_FULL);
-        req = ptlrpc_request_alloc(class_exp2cliimp(exp),
-                                   &RQF_MDS_REINT_UNLINK);
-        if (req == NULL) {
-                ldlm_lock_list_put(&cancels, l_bl_ast, count);
-                RETURN(-ENOMEM);
-        }
-        mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
-        req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
-                             op_data->op_namelen + 1);
+	req = ptlrpc_request_alloc(class_exp2cliimp(exp),
+				   &RQF_MDS_REINT_UNLINK);
+	if (req == NULL) {
+		ldlm_lock_list_put(&cancels, l_bl_ast, count);
+		RETURN(-ENOMEM);
+	}
+	mdc_set_capa_size(req, &RMF_CAPA1, op_data->op_capa1);
+	req_capsule_set_size(&req->rq_pill, &RMF_NAME, RCL_CLIENT,
+			     op_data->op_namelen + 1);
 
 	rc = mdc_prep_elc_req(exp, req, MDS_REINT, &cancels, count);
 	if (rc) {
@@ -369,12 +370,32 @@ int mdc_unlink(struct obd_export *exp, struct md_op_data *op_data,
 			     obd->u.cli.cl_default_mds_cookiesize);
 	ptlrpc_request_set_replen(req);
 
-        *request = req;
+	*request = req;
 
-        rc = mdc_reint(req, obd->u.cli.cl_rpc_lock, LUSTRE_IMP_FULL);
-        if (rc == -ERESTARTSYS)
-                rc = 0;
-        RETURN(rc);
+	if (mod != NULL) {
+		LASSERTF(mod->mod_open_req != NULL &&
+			mod->mod_open_req->rq_type != LI_POISON,
+			"POISONED open %p!\n", mod->mod_open_req);
+
+		mod->mod_close_req = req;
+
+		DEBUG_REQ(D_HA, mod->mod_open_req, "matched open");
+
+		spin_lock(&mod->mod_open_req->rq_lock);
+		mod->mod_open_req->rq_replay = 0;
+		spin_unlock(&mod->mod_open_req->rq_lock);
+	}
+
+	rc = mdc_reint(req, obd->u.cli.cl_rpc_lock, LUSTRE_IMP_FULL);
+	if (rc == -ERESTARTSYS)
+		rc = 0;
+
+	if (mod != NULL) {
+		if (rc != 0)
+			mod->mod_close_req = NULL;
+		obd_mod_put(mod);
+	}
+	RETURN(rc);
 }
 
 int mdc_link(struct obd_export *exp, struct md_op_data *op_data,
