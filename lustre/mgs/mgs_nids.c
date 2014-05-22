@@ -252,7 +252,6 @@ static int nidtbl_update_version(const struct lu_env *env,
 	if (IS_ERR(th))
 		GOTO(out_put, rc = PTR_ERR(th));
 
-	th->th_sync = 1; /* update table synchronously */
 	rc = dt_declare_record_write(env, fsdb, buf.lb_len, off, th);
 	if (rc)
 		GOTO(out, rc);

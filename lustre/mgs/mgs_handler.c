@@ -435,8 +435,6 @@ out_nolock:
         rep_mti = req_capsule_server_get(&req->rq_pill, &RMF_MGS_TARGET_INFO);
         *rep_mti = *mti;
 
-        /* Flush logs to disk */
-	dt_sync(req->rq_svc_thread->t_env, mgs->mgs_bottom);
         RETURN(rc);
 }
 
