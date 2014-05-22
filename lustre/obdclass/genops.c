@@ -1204,20 +1204,27 @@ void class_export_recovery_cleanup(struct obd_export *exp)
 	}
 	spin_unlock(&obd->obd_recovery_task_lock);
 	/** Cleanup req replay fields */
+	spin_lock(&exp->exp_lock);
 	if (exp->exp_req_replay_needed) {
-		spin_lock(&exp->exp_lock);
 		exp->exp_req_replay_needed = 0;
 		spin_unlock(&exp->exp_lock);
+
 		LASSERT(atomic_read(&obd->obd_req_replay_clients));
 		atomic_dec(&obd->obd_req_replay_clients);
+	} else {
+		spin_unlock(&exp->exp_lock);
 	}
+
 	/** Cleanup lock replay data */
+	spin_lock(&exp->exp_lock);
 	if (exp->exp_lock_replay_needed) {
-		spin_lock(&exp->exp_lock);
 		exp->exp_lock_replay_needed = 0;
 		spin_unlock(&exp->exp_lock);
+
 		LASSERT(atomic_read(&obd->obd_lock_replay_clients));
 		atomic_dec(&obd->obd_lock_replay_clients);
+	} else {
+		spin_unlock(&exp->exp_lock);
 	}
 }
 
