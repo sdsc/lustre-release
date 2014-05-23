@@ -340,10 +340,10 @@ extern struct llog_operations llog_lvfs_ops;
 extern struct llog_operations llog_osd_ops;
 int llog_osd_get_cat_list(const struct lu_env *env, struct dt_device *d,
 			  int idx, int count,
-			  struct llog_catid *idarray);
+			  struct llog_catid *idarray, struct lu_fid *fid);
 int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 			  int idx, int count,
-			  struct llog_catid *idarray);
+			  struct llog_catid *idarray, struct lu_fid *fid);
 
 #define LLOG_CTXT_FLAG_UNINITIALIZED     0x00000001
 #define LLOG_CTXT_FLAG_STOP		 0x00000002
