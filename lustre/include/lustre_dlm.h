@@ -631,11 +631,13 @@ struct ldlm_flock {
         __u32 pid;
 };
 
-typedef union {
-        struct ldlm_extent l_extent;
-        struct ldlm_flock l_flock;
-        struct ldlm_inodebits l_inodebits;
-} ldlm_policy_data_t;
+union ldlm_policy_data {
+	struct ldlm_extent l_extent;
+	struct ldlm_flock l_flock;
+	struct ldlm_inodebits l_inodebits;
+};
+
+typedef union ldlm_policy_data ldlm_policy_data_t;
 
 void ldlm_convert_policy_to_wire(ldlm_type_t type,
                                  const ldlm_policy_data_t *lpolicy,
