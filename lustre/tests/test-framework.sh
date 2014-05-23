@@ -5697,6 +5697,22 @@ wait_osc_import_state() {
 	fi
 }
 
+get_mdtosc_proc_path() {
+    local mds_facet=$1
+    local ost_label=${2:-"*OST*"}
+
+    [ "$mds_facet" = "mds" ] && mds_facet=$SINGLEMDS
+    local mdt_label=$(convert_facet2label $mds_facet)
+    local mdt_index=$(echo $mdt_label | sed -e 's/^.*-//')
+
+    if [ $(lustre_version_code $mds_facet) -le $(version_code 1.8.0) ] ||
+       mds_on_old_device $mds_facet; then
+        echo "${ost_label}-osc"
+    else
+        echo "${ost_label}-osc-${mdt_index}"
+    fi
+}
+
 get_clientmdc_proc_path() {
     echo "${1}-mdc-*"
 }
@@ -5737,6 +5753,23 @@ wait_clients_import_state () {
     done
 
 	if ! do_rpc_nodes "$list" wait_import_state_mount $expected $params; then
+		error "import is not in ${expected} state"
+		return 1
+	fi
+}
+
+wait_osp_import_state() {
+	local facet=$1
+	local expected=$2
+	local label=$(convert_facet2label $facet)
+	local index=$(echo $label | sed -e 's/^.*-//')
+	local osp_procs="*MDT*-osp-${index}"
+	local params="osp.${osp_procs}.ost_server_uuid"
+	local maxtime=$(( 2 * $(request_timeout $facet)))
+
+	echo "wait $params to be ${expected} within $maxtime seconds"
+	if ! do_rpc_nodes "$(facet_active_host $facet)" \
+		wait_import_state $expected "$params" $maxtime; then
 		error "import is not in ${expected} state"
 		return 1
 	fi
@@ -6721,11 +6754,12 @@ test_mkdir() {
 		local test_num=$(echo $testnum | sed -e 's/[^0-9]*//g')
 
 		if [ "$mdt_idx" -ne 0 ]; then
-			mkdir $option $parent/$child || rc=$?
+			mkdir $option $path || rc=$?
 		else
 			mdt_idx=$((test_num % MDSCOUNT))
-			echo "mkdir $mdt_idx for $parent/$child"
-			$LFS setdirstripe -i $mdt_idx $parent/$child || rc=$?
+			echo "striped dir -i$mdt_idx -c $MDSCOUNT $path"
+			$LFS setdirstripe -i $mdt_idx -c $MDSCOUNT $path ||
+									rc=$?
 		fi
 	fi
 	return $rc
