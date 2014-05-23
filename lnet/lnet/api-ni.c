@@ -1152,7 +1152,7 @@ lnet_shutdown_lndnis (void)
 }
 
 int
-lnet_startup_lndnis (void)
+lnet_startup_lndnis (int load_module_only)
 {
 	lnd_t			*lnd;
 	struct lnet_ni		*ni;
@@ -1165,6 +1165,9 @@ lnet_startup_lndnis (void)
 	char			*nets = lnet_get_networks();
 
 	INIT_LIST_HEAD(&nilist);
+
+	if (load_module_only && the_lnet.ln_refcount != 0)
+		return 0;
 
 	if (nets == NULL)
 		goto failed;
@@ -1220,6 +1223,13 @@ lnet_startup_lndnis (void)
                         goto failed;
                 }
 #endif
+
+		if (load_module_only) {
+			LNET_MUTEX_UNLOCK(&the_lnet.ln_lnd_mutex);
+			list_del(&ni->ni_list);
+			lnet_ni_free(ni);
+			continue;
+		}
 
 		lnet_net_lock(LNET_LOCK_EX);
 		lnd->lnd_refcount++;
@@ -1302,6 +1312,13 @@ lnet_startup_lndnis (void)
 		nicount++;
 	}
 
+	if (load_module_only) {
+		LIBCFS_FREE(the_lnet.ln_network_tokens,
+			    the_lnet.ln_network_tokens_nob);
+		the_lnet.ln_network_tokens = NULL;
+		return 0;
+	}
+
 	if (the_lnet.ln_eq_waitni != NULL && nicount > 1) {
 		lnd_type = the_lnet.ln_eq_waitni->ni_lnd->lnd_type;
                 LCONSOLE_ERROR_MSG(0x109, "LND %s can only run single-network"
@@ -1313,7 +1330,13 @@ lnet_startup_lndnis (void)
         return 0;
 
  failed:
-        lnet_shutdown_lndnis();
+	if (load_module_only) {
+		LIBCFS_FREE(the_lnet.ln_network_tokens,
+			    the_lnet.ln_network_tokens_nob);
+		the_lnet.ln_network_tokens = NULL;
+	} else {
+		lnet_shutdown_lndnis();
+	}
 
 	while (!list_empty(&nilist)) {
 		ni = list_entry(nilist.next, lnet_ni_t, ni_list);
@@ -1469,9 +1492,9 @@ LNetNIInit(lnet_pid_t requested_pid)
         if (rc != 0)
                 goto failed0;
 
-        rc = lnet_startup_lndnis();
-        if (rc != 0)
-                goto failed1;
+	rc = lnet_startup_lndnis(0);
+	if (rc != 0)
+		goto failed1;
 
         rc = lnet_parse_routes(lnet_get_routes(), &im_a_router);
         if (rc != 0)
