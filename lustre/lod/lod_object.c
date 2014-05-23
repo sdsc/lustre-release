@@ -1732,9 +1732,12 @@ static int lod_object_destroy(const struct lu_env *env,
 	/* destroy all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_destroy(env, lo->ldo_stripe[i], th);
-		if (rc)
-			break;
+		/* for striped directory, next == ldo_stripe[0] */
+		if (next != lo->ldo_stripe[i]) {
+			rc = dt_destroy(env, lo->ldo_stripe[i], th);
+			if (rc)
+				break;
+		}
 	}
 
 	RETURN(rc);
@@ -1793,19 +1796,91 @@ static int lod_object_sync(const struct lu_env *env, struct dt_object *dt)
 	return dt_object_sync(env, dt_object_child(dt));
 }
 
-static int lod_object_lock(const struct lu_env *env,
-			   struct dt_object *dt, struct lustre_handle *lh,
-			   struct ldlm_enqueue_info *einfo,
-			   void *policy)
+static int lod_object_unlock_internal(const struct lu_env *env,
+				      struct dt_object *dt,
+				      struct ldlm_enqueue_info *einfo,
+				      ldlm_policy_data_t *policy, int count)
 {
-	struct dt_object   *next = dt_object_child(dt);
-	int		 rc;
+	struct lod_object	*lo = lod_dt_obj(dt);
+	int			rc = 0;
+	int			i;
 	ENTRY;
 
-	/*
-	 * declare setattr on the local object
-	 */
-	rc = dt_object_lock(env, next, lh, einfo, policy);
+	LASSERT(count <= lo->ldo_stripenr);
+	for (i = 0; i < count; i++) {
+		int	rc1;
+
+		rc1 = dt_object_unlock(env, lo->ldo_stripe[i], einfo, policy);
+		if (rc1 < 0)
+			rc = rc == 0 ? rc1 : rc;
+	}
+
+	RETURN(rc);
+}
+
+static int lod_object_unlock(const struct lu_env *env, struct dt_object *dt,
+			     struct ldlm_enqueue_info *einfo,
+			     union ldlm_policy_data *policy)
+{
+	struct lod_object	*lo = lod_dt_obj(dt);
+	int			rc;
+	ENTRY;
+
+	rc = lod_load_striping(env, lo);
+	if (rc != 0)
+		RETURN(rc);
+
+	/* Note: for remote lock for single stripe dir, MDT will cancel
+	 * the lock by lockh directly */
+	if (lo->ldo_stripenr == 0 && dt_object_remote(dt_object_child(dt)))
+		RETURN(0);
+
+	if (!S_ISDIR(dt->do_lu.lo_header->loh_attr & S_IFMT))
+		RETURN(-ENOTDIR);
+
+	/* Only cancel slave lock for striped dir */
+	rc = lod_object_unlock_internal(env, dt, einfo, policy,
+					lo->ldo_stripenr);
+
+	RETURN(rc);
+}
+
+static int lod_object_lock(const struct lu_env *env,
+			   struct dt_object *dt,
+			   struct lustre_handle *lh,
+			   struct ldlm_enqueue_info *einfo,
+			   union ldlm_policy_data *policy)
+{
+	struct lod_object	*lo = lod_dt_obj(dt);
+	int			rc = 0;
+	int			i;
+	ENTRY;
+
+	rc = lod_load_striping(env, lo);
+	if (rc != 0)
+		RETURN(rc);
+
+	/* remote object lock */
+	if (lo->ldo_stripenr == 0 && dt_object_remote(dt_object_child(dt)))
+		return dt_object_lock(env, dt_object_child(dt), lh, einfo,
+				      policy);
+
+	if (!S_ISDIR(dt->do_lu.lo_header->loh_attr & S_IFMT))
+		RETURN(-ENOTDIR);
+
+	/* striped directory lock */
+	for (i = 0; i < lo->ldo_stripenr; i++) {
+		struct lustre_handle	lockh;
+
+		LASSERT(lo->ldo_stripe[i]);
+		rc = dt_object_lock(env, lo->ldo_stripe[i], &lockh, einfo,
+				    policy);
+		if (rc != 0)
+			GOTO(out, rc);
+	}
+out:
+	if (rc != 0)
+		lod_object_unlock_internal(env, dt, einfo, policy, i);
 
 	RETURN(rc);
 }
@@ -1838,6 +1913,7 @@ struct dt_object_operations lod_obj_ops = {
 	.do_capa_get		= lod_capa_get,
 	.do_object_sync		= lod_object_sync,
 	.do_object_lock		= lod_object_lock,
+	.do_object_unlock	= lod_object_unlock,
 };
 
 static ssize_t lod_read(const struct lu_env *env, struct dt_object *dt,
