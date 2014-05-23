@@ -888,6 +888,7 @@ static const char *obd_connect_names[] = {
 	"pingless",
 	"flock_deadlock",
 	"disp_stripe",
+	"unlink_close"
 	"unknown",
 	NULL
 };
