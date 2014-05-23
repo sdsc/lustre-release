@@ -562,8 +562,8 @@ int lod_prep_md_striped_create(const struct lu_env *env,
 
 		lu = lu_object_find_at(env, &tgt->ltd_tgt->dd_lu_dev, &fid,
 				       NULL);
-		if (lu == NULL)
-			GOTO(out_free, rc);
+		if (IS_ERR(lu))
+			GOTO(out_free, rc = PTR_ERR(lu));
 
 		dto = container_of(lu, struct dt_object, do_lu);
 		stripe[allocated] = dto;
@@ -1381,9 +1381,12 @@ static int lod_object_destroy(const struct lu_env *env,
 	/* destroy all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_destroy(env, lo->ldo_stripe[i], th);
-		if (rc)
-			break;
+		/* for striped directory, next == ldo_stripe[0] */
+		if (next != lo->ldo_stripe[i]) {
+			rc = dt_destroy(env, lo->ldo_stripe[i], th);
+			if (rc)
+				break;
+		}
 	}
 
 	RETURN(rc);
@@ -1442,20 +1445,121 @@ static int lod_object_sync(const struct lu_env *env, struct dt_object *dt)
 	return dt_object_sync(env, dt_object_child(dt));
 }
 
+static int lod_object_unlock_internal(const struct lu_env *env,
+				      struct dt_object *dt,
+				      struct ldlm_enqueue_info *einfo,
+				      void *policy, int count)
+{
+	struct lod_device	*lod = lu2lod_dev(dt->do_lu.lo_dev);
+	struct lod_tgt_descs	*ltd = &lod->lod_mdt_descs;
+	struct lmv_mds_md	*lmv = (struct lmv_mds_md *)einfo->ei_cbdata;
+	int			rc = 0;
+	int			i;
+	ENTRY;
+
+	LASSERT(count <= lmv->lmv_count);
+	for (i = 1; i < count; i++) {
+		struct lod_tgt_desc	*tgt;
+		struct lu_object	*slave;
+		int			rc1;
+		int			mdt_idx;
+
+		rc = lod_fld_lookup(env, lod, &lmv->lmv_data[i],
+				    &mdt_idx, LU_SEQ_RANGE_MDT);
+		if (rc != 0)
+			GOTO(out, rc);
+
+		tgt = LTD_TGT(ltd, mdt_idx);
+		if (tgt == NULL) {
+			CERROR("%s: ltd[%d] does not exists!\n",
+			       lod2obd(lod)->obd_name, mdt_idx);
+			GOTO(out, rc = -EIO);
+		}
+
+		slave = lu_object_find_at(env, &tgt->ltd_tgt->dd_lu_dev,
+					  &lmv->lmv_data[i], NULL);
+		LASSERTF(!IS_ERR(slave), "can not find "DFID", slave "DFID"\n",
+			 PFID(lu_object_fid(&dt->do_lu)),
+			 PFID(&lmv->lmv_data[i]));
+
+		rc1 = dt_object_unlock(env, lu2dt_obj(slave), einfo, policy);
+		if (rc1 < 0)
+			rc = rc == 0 ? rc1 : rc;
+
+		/* balanced for lu_object_find_at above */
+		lu_object_put(env, slave);
+		/* balanced for lu_object_find_at in lod_object_lock */
+		lu_object_put(env, slave);
+	}
+out:
+	RETURN(rc);
+}
+
+static int lod_object_unlock(const struct lu_env *env, struct dt_object *dt,
+			     struct ldlm_enqueue_info *einfo, void *policy)
+{
+	struct lmv_mds_md *lmv = (struct lmv_mds_md *)einfo->ei_cbdata;
+
+	if (lmv == NULL)
+		return 0;
+
+	return lod_object_unlock_internal(env, dt, einfo, policy,
+					  lmv->lmv_count);
+}
+
 static int lod_object_lock(const struct lu_env *env,
-			   struct dt_object *dt, struct lustre_handle *lh,
+			   struct dt_object *dt,
+			   struct lustre_handle *lh,
 			   struct ldlm_enqueue_info *einfo,
 			   void *policy)
 {
-	struct dt_object   *next = dt_object_child(dt);
-	int		 rc;
+	struct lod_device	*lod = lu2lod_dev(dt->do_lu.lo_dev);
+	struct lod_tgt_descs	*ltd = &lod->lod_mdt_descs;
+	struct lmv_mds_md	*lmv = (struct lmv_mds_md *)einfo->ei_cbdata;
+	int			rc = 0;
+	int			i;
 	ENTRY;
 
-	/*
-	 * declare setattr on the local object
-	 */
-	rc = dt_object_lock(env, next, lh, einfo, policy);
+	/* remote object lock */
+	if (lmv == NULL)
+		return dt_object_lock(env, dt_object_child(dt), lh, einfo,
+				      policy);
 
+	LASSERT(lmv->lmv_magic == LMV_MAGIC_V1);
+	/* lock the slave objects */
+	for (i = 1; i < lmv->lmv_count; i++) {
+		struct lod_tgt_desc	*tgt;
+		struct lu_object	*slave;
+		struct lustre_handle	lockh;
+		int			mdt_idx;
+
+		rc = lod_fld_lookup(env, lod, &lmv->lmv_data[i],
+				    &mdt_idx, LU_SEQ_RANGE_MDT);
+		if (rc != 0)
+			GOTO(out, rc);
+
+		tgt = LTD_TGT(ltd, mdt_idx);
+		if (tgt == NULL) {
+			CERROR("%s: ltd[%d] does not exists!\n",
+			       lod2obd(lod)->obd_name, mdt_idx);
+			GOTO(out, rc = -EIO);
+		}
+
+		slave = lu_object_find_at(env, &tgt->ltd_tgt->dd_lu_dev,
+					  &lmv->lmv_data[i], NULL);
+		if (IS_ERR(slave))
+			GOTO(out, rc = PTR_ERR(slave));
+
+		rc = dt_object_lock(env, lu2dt_obj(slave), &lockh, einfo,
+				    policy);
+		if (rc < 0) {
+			lu_object_put(env, slave);
+			GOTO(out, rc);
+		}
+	}
+out:
+	if (rc != 0)
+		lod_object_unlock_internal(env, dt, einfo, policy, i);
 	RETURN(rc);
 }
 
@@ -1487,6 +1591,7 @@ struct dt_object_operations lod_obj_ops = {
 	.do_capa_get		= lod_capa_get,
 	.do_object_sync		= lod_object_sync,
 	.do_object_lock		= lod_object_lock,
+	.do_object_unlock	= lod_object_unlock,
 };
 
 static ssize_t lod_read(const struct lu_env *env, struct dt_object *dt,
