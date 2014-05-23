@@ -779,7 +779,7 @@ static int lod_attr_get(const struct lu_env *env,
 		struct lu_attr *sub_attr = &lod_env_info(env)->lti_attr;
 
 		LASSERT(lo->ldo_stripe[i]);
-		if (dt_object_exists(lo->ldo_stripe[i]))
+		if (!dt_object_exists(lo->ldo_stripe[i]))
 			continue;
 
 		rc = dt_attr_get(env, lo->ldo_stripe[i], sub_attr, capa);
@@ -881,6 +881,11 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	int                rc, i;
 	ENTRY;
 
+	/* NOT allow truncate directory. */
+	if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
+	    (attr->la_valid & (LA_SIZE | LA_BLOCKS)))
+		RETURN(-EPERM);
+
 	/* Set dead object on all other stripes */
 	if (attr->la_valid & LA_FLAGS && !(attr->la_valid & ~LA_FLAGS) &&
 	    attr->la_flags & LUSTRE_SLAVE_DEAD_FL) {
@@ -970,6 +975,11 @@ static int lod_attr_set(const struct lu_env *env,
 	struct lod_object	*lo = lod_dt_obj(dt);
 	int			rc, i;
 	ENTRY;
+
+	/* NOT allow truncate directory. */
+	if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
+	    (attr->la_valid & (LA_SIZE | LA_BLOCKS)))
+		RETURN(-EPERM);
 
 	/* Set dead object on all other stripes */
 	if (attr->la_valid & LA_FLAGS && !(attr->la_valid & ~LA_FLAGS) &&
