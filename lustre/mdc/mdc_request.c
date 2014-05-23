@@ -1643,7 +1643,6 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 	struct lu_dirpage	*dp;
 	struct lu_dirent	*ent;
 	int			rc = 0;
-	int			index = 0;
 	ENTRY;
 
 	if (op_data->op_hash_offset == MDS_DIR_END_OFF) {
@@ -1663,7 +1662,15 @@ int mdc_read_entry(struct obd_export *exp, struct md_op_data *op_data,
 	dp = kmap(page);
 	for (ent = lu_dirent_start(dp); ent != NULL;
 	     ent = lu_dirent_next(ent)) {
-		index++;
+		int namelen;
+
+		namelen = le16_to_cpu(ent->lde_namelen);
+		if (namelen == 0)
+			/*
+			 * Skip dummy record.
+			 */
+			continue;
+
 		if (ent->lde_hash > op_data->op_hash_offset)
 			break;
 	}
