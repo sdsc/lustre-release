@@ -563,9 +563,10 @@ void mdt_dump_lmv(int level, const union lmv_mds_md *lmv)
 	lmv_common = (struct lmv_mds_md_common *)lmv;
 	CDEBUG(level, "magic 0x%08X, master %#X stripe_count %#x\n",
 	       le32_to_cpu(lmv_common->lmv_magic),
-	       le32_to_cpu(lmv_common->lmv_master),
-	       le32_to_cpu(lmv_common->lmv_count));
-	for (i = 0; i < le32_to_cpu(lmv_common->lmv_count); i++) {
+	       le32_to_cpu(lmv_common->lmv_master_mdt_index),
+	       le32_to_cpu(lmv_common->lmv_stripe_count));
+
+	for (i = 0; i < le32_to_cpu(lmv_common->lmv_stripe_count); i++) {
 		struct lmv_mds_md_v1 *lmm1;
 		struct lu_fid fid;
 

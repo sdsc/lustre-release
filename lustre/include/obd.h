@@ -1105,6 +1105,88 @@ extern void lmv_free_md(union lmv_mds_md *lsm);
 extern int lmv_alloc_memmd(struct lmv_stripe_md **lsmp, int stripes);
 extern void lmv_free_memmd(struct lmv_stripe_md *lsm);
 
+struct lmv_mds_md_common;
+struct lmv_mds_md_v1;
+
+static inline void lmv_common_cpu_to_le(struct lmv_mds_md_common *lmv_dst,
+					struct lmv_mds_md_common *lmv_src)
+{
+	lmv_dst->lmv_magic = cpu_to_le32(lmv_src->lmv_magic);
+	lmv_dst->lmv_stripe_count = cpu_to_le32(lmv_src->lmv_stripe_count);
+	lmv_dst->lmv_master_mdt_index =
+			cpu_to_le32(lmv_src->lmv_master_mdt_index);
+	lmv_dst->lmv_hash_type = cpu_to_le32(lmv_src->lmv_hash_type);
+	lmv_dst->lmv_layout_version = cpu_to_le32(lmv_src->lmv_layout_version);
+}
+
+static inline void lmv_common_le_to_cpu(struct lmv_mds_md_common *lmv_dst,
+					struct lmv_mds_md_common *lmv_src)
+{
+	lmv_dst->lmv_magic = le32_to_cpu(lmv_src->lmv_magic);
+	lmv_dst->lmv_stripe_count = le32_to_cpu(lmv_src->lmv_stripe_count);
+	lmv_dst->lmv_master_mdt_index =
+				le32_to_cpu(lmv_src->lmv_master_mdt_index);
+	lmv_dst->lmv_hash_type = le32_to_cpu(lmv_src->lmv_hash_type);
+	lmv_dst->lmv_layout_version = le32_to_cpu(lmv_src->lmv_layout_version);
+}
+
+static inline void lmv_cpu_to_le(union lmv_mds_md *lmv_dst,
+				 union lmv_mds_md *lmv_src)
+{
+	struct lmv_mds_md_common *lmv_dst_common;
+	struct lmv_mds_md_common *lmv_src_common;
+	__u32			 magic = lmv_src->lmv_magic;
+
+	lmv_dst_common = (struct lmv_mds_md_common *)lmv_dst;
+	lmv_src_common = (struct lmv_mds_md_common *)lmv_src;
+	lmv_common_cpu_to_le(lmv_dst_common, lmv_src_common);
+
+	switch (magic) {
+	case LMV_MAGIC_V1: {
+		struct lmv_mds_md_v1 *lmm1_dst;
+		struct lmv_mds_md_v1 *lmm1_src;
+		int i;
+
+		lmm1_dst = (struct lmv_mds_md_v1 *)lmv_dst;
+		lmm1_src = (struct lmv_mds_md_v1 *)lmv_dst;
+		for (i = 0; i < lmv_src_common->lmv_stripe_count; i++)
+			fid_cpu_to_le(&lmm1_dst->lmv_data[i],
+				      &lmm1_src->lmv_data[i]);
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+static inline void lmv_le_to_cpu(union lmv_mds_md *lmv_dst,
+				 union lmv_mds_md *lmv_src)
+{
+	struct lmv_mds_md_common *lmv_dst_common;
+	struct lmv_mds_md_common *lmv_src_common;
+
+	lmv_dst_common = (struct lmv_mds_md_common *)lmv_dst;
+	lmv_src_common = (struct lmv_mds_md_common *)lmv_src;
+	lmv_common_le_to_cpu(lmv_dst_common, lmv_src_common);
+
+	switch (lmv_src->lmv_magic) {
+	case LMV_MAGIC_V1: {
+		struct lmv_mds_md_v1 *lmm1_dst;
+		struct lmv_mds_md_v1 *lmm1_src;
+		int i;
+
+		lmm1_dst = (struct lmv_mds_md_v1 *)lmv_dst;
+		lmm1_src = (struct lmv_mds_md_v1 *)lmv_dst;
+		for (i = 0; i < lmv_src_common->lmv_stripe_count; i++)
+			fid_le_to_cpu(&lmm1_dst->lmv_data[i],
+				      &lmm1_src->lmv_data[i]);
+		break;
+	}
+	default:
+		break;
+	}
+}
+
 struct md_op_data {
         struct lu_fid           op_fid1; /* operation fid1 (usualy parent) */
         struct lu_fid           op_fid2; /* operation fid2 (usualy child) */

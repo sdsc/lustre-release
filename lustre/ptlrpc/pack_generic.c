@@ -2122,8 +2122,8 @@ void lustre_swab_lmv_desc (struct lmv_desc *ld)
 void lustre_swab_lmv_mds_md_common(struct lmv_mds_md_common *lmm_common)
 {
 	__swab32s(&lmm_common->lmv_magic);
-	__swab32s(&lmm_common->lmv_count);
-	__swab32s(&lmm_common->lmv_master);
+	__swab32s(&lmm_common->lmv_stripe_count);
+	__swab32s(&lmm_common->lmv_master_mdt_index);
 	__swab32s(&lmm_common->lmv_hash_type);
 	__swab32s(&lmm_common->lmv_layout_version);
 }
@@ -2140,7 +2140,7 @@ void lustre_swab_lmv_mds_md(union lmv_mds_md *lmm)
 		struct lmv_mds_md_v1 *lmm1;
 
 		lmm1 = (struct lmv_mds_md_v1 *)lmm;
-		for (i = 0; i < lmm_common->lmv_count; i++)
+		for (i = 0; i < lmm_common->lmv_stripe_count; i++)
 			lustre_swab_lu_fid(&lmm1->lmv_data[i]);
 		break;
 	}

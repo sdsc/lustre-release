@@ -1117,8 +1117,11 @@ lmv_out_free:
 		if (rc == -ENODATA) {
 			stripenr = 1;
 		} else {
-			LASSERT(lmm != NULL);
-			stripenr = ((struct lmv_mds_md_common *)lmm)->lmv_count;
+			struct lmv_mds_md_common *lmm_common;
+
+			lmm_common = (struct lmv_mds_md_common *)lmm;
+			LASSERT(lmm_common != NULL);
+			stripenr = lmm_common->lmv_stripe_count;
 		}
 		lum_size = lmv_user_md_size(stripenr, LMV_MAGIC_V1);
 		OBD_ALLOC(tmp, lum_size);
