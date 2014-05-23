@@ -233,6 +233,8 @@ enum local_oid {
 	MDD_LOV_OBJ_OSEQ	= 4121UL,
 	LFSCK_NAMESPACE_OID     = 4122UL,
 	REMOTE_PARENT_DIR_OID	= 4123UL,
+	UPDATE_LLOG_CATALOGS_OID = 4124UL,
+	SLAVE_LLOG_CATALOGS_OID	= 4125UL,
 };
 
 static inline void lu_local_obj_fid(struct lu_fid *fid, __u32 oid)

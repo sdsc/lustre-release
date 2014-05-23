@@ -38,10 +38,9 @@
 static const char dot[] = ".";
 static const char dotdot[] = "..";
 
-static int osp_prep_update_req(const struct lu_env *env,
-			       struct osp_device *osp,
-			       struct update_buf *ubuf, int ubuf_len,
-			       struct ptlrpc_request **reqp)
+int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
+			struct update_buf *ubuf, int ubuf_len,
+			struct ptlrpc_request **reqp)
 {
 	struct obd_import      *imp;
 	struct ptlrpc_request  *req;
@@ -116,8 +115,7 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 /**
  * Create a new update request for the device.
  */
-static struct update_request
-*osp_create_update_req(struct dt_device *dt)
+struct update_request *osp_create_update_req(struct dt_device *dt)
 {
 	struct update_request *update;
 
@@ -140,7 +138,7 @@ static struct update_request
 	return update;
 }
 
-static void osp_destroy_update_req(struct update_request *update)
+void osp_destroy_update_req(struct update_request *update)
 {
 	if (update == NULL)
 		return;
@@ -192,10 +190,9 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 /**
  * Insert the update into the th_bufs for the device.
  */
-static int osp_insert_update(const struct lu_env *env,
-			     struct update_request *update, int op,
-			     struct lu_fid *fid, int count,
-			     int *lens, char **bufs)
+int osp_insert_update(const struct lu_env *env, struct update_request *update,
+		      int op, struct lu_fid *fid, int count, int *lens,
+		      char **bufs)
 {
 	struct update_buf    *ubuf = update->ur_buf;
 	struct update        *obj_update;
@@ -205,8 +202,7 @@ static int osp_insert_update(const struct lu_env *env,
 	int                   rc = 0;
 	ENTRY;
 
-	obj_update = (struct update *)((char *)ubuf +
-		      cfs_size_round(update_buf_size(ubuf)));
+	obj_update = (struct update *)((char *)ubuf + update_buf_size(ubuf));
 
 	/* Check update size to make sure it can fit into the buffer */
 	update_length = cfs_size_round(offsetof(struct update,
@@ -1080,9 +1076,6 @@ static int osp_md_object_destroy(const struct lu_env *env,
 	 */
 	rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL);
 
-	/* not needed in cache any more */
-	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
-
 	RETURN(rc);
 }
 
@@ -1092,14 +1085,14 @@ static int osp_md_object_lock(const struct lu_env *env,
 			      struct ldlm_enqueue_info *einfo,
 			      void *policy)
 {
-	struct osp_thread_info *info = osp_env_info(env);
-	struct ldlm_res_id     *res_id = &info->osi_resid;
-	struct dt_device       *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
-	struct osp_device      *osp = dt2osp_dev(dt_dev);
-	struct ptlrpc_request  *req = NULL;
-	int                     rc = 0;
-	__u64                   flags = 0;
-	ldlm_mode_t             mode;
+	struct osp_thread_info	*info = osp_env_info(env);
+	struct ldlm_res_id	*res_id = &info->osi_resid;
+	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	struct osp_device	*osp = dt2osp_dev(dt_dev);
+	struct ptlrpc_request	*req;
+	int			rc = 0;
+	__u64			flags = 0;	
+	ldlm_mode_t		mode;
 
 	fid_build_reg_res_name(lu_object_fid(&dt->do_lu), res_id);
 
@@ -1122,6 +1115,42 @@ static int osp_md_object_lock(const struct lu_env *env,
 	ptlrpc_req_finished(req);
 
 	return rc == ELDLM_OK ? 0 : -EIO;
+}
+
+static int osp_md_object_unlock(const struct lu_env *env,
+				struct dt_object *dt,
+				struct ldlm_enqueue_info *einfo,
+				void *policy)
+{
+	struct osp_thread_info *info = osp_env_info(env);
+	struct ldlm_res_id     *res_id = &info->osi_resid;
+	struct dt_device       *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	struct osp_device      *osp = dt2osp_dev(dt_dev);
+	struct lustre_handle	lockh;
+	struct ldlm_lock	*lock;
+	ldlm_mode_t		mode;
+
+	fid_build_reg_res_name(lu_object_fid(&dt->do_lu), res_id);
+
+	mode = ldlm_lock_match(osp->opd_obd->obd_namespace,
+			       LDLM_FL_BLOCK_GRANTED, res_id,
+			       einfo->ei_type,
+			       (ldlm_policy_data_t *)policy,
+			       einfo->ei_mode, &lockh, 0);
+	if (mode == 0)
+		return 0;
+
+	lock = ldlm_handle2lock(&lockh);
+	LASSERT(lock != NULL);
+
+	LDLM_LOCK_PUT(lock);
+	/* match for ldlm_lock_match */
+	ldlm_lock_decref(&lockh, einfo->ei_mode);
+
+	/* unlock finally */
+	ldlm_lock_decref(&lockh, einfo->ei_mode);
+
+	return 0;
 }
 
 struct dt_object_operations osp_md_obj_ops = {
@@ -1147,4 +1176,5 @@ struct dt_object_operations osp_md_obj_ops = {
 	.do_xattr_get         = osp_md_xattr_get,
 	.do_index_try         = osp_md_index_try,
 	.do_object_lock       = osp_md_object_lock,
+	.do_object_unlock     = osp_md_object_unlock,
 };

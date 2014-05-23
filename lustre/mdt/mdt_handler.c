@@ -516,8 +516,8 @@ static int mdt_big_xattr_get(struct mdt_thread_info *info, struct mdt_object *o,
 	RETURN(rc);
 }
 
-static int mdt_xattr_get(struct mdt_thread_info *info, struct mdt_object *o,
-			 struct md_attr *ma, char *name)
+int mdt_xattr_get(struct mdt_thread_info *info, struct mdt_object *o,
+		  struct md_attr *ma, char *name)
 {
 	struct md_object *next = mdt_object_child(o);
 	struct lu_buf    *buf = &info->mti_buf;
@@ -5463,9 +5463,14 @@ static int mdt_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
                 rc = mdt_ioc_version_get(mti, karg);
                 break;
         }
-	case OBD_IOC_CATLOGLIST:
-		rc = llog_catalog_list(&env, mdt->mdt_bottom, 0, karg);
+	case OBD_IOC_CATLOGLIST: {
+                struct mdt_thread_info *mti;
+                mti = lu_context_key_get(&env.le_ctx, &mdt_thread_key);
+		lu_local_obj_fid(&mti->mti_tmp_fid1, LLOG_CATALOGS_OID);
+		rc = llog_catalog_list(&env, mdt->mdt_bottom, 0, karg,
+				       &mti->mti_tmp_fid1);
 		break;
+	 }
 	default:
 		rc = -EOPNOTSUPP;
 		CERROR("%s: Not supported cmd = %d, rc = %d\n",

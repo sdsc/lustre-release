@@ -457,6 +457,9 @@ struct dt_object_operations {
 			      struct lustre_handle *lh,
 			      struct ldlm_enqueue_info *einfo,
 			      void *policy);
+
+	int (*do_object_unlock)(const struct lu_env *env, struct dt_object *dt,
+				struct ldlm_enqueue_info *einfo, void *policy);
 };
 
 /**
@@ -904,6 +907,17 @@ static inline int dt_object_lock(const struct lu_env *env,
 	LASSERT(o->do_ops);
 	LASSERT(o->do_ops->do_object_lock);
 	return o->do_ops->do_object_lock(env, o, lh, einfo, policy);
+}
+
+static inline int dt_object_unlock(const struct lu_env *env,
+				   struct dt_object *o,
+				   struct ldlm_enqueue_info *einfo,
+				   void *policy)
+{
+	LASSERT(o);
+	LASSERT(o->do_ops);
+	LASSERT(o->do_ops->do_object_unlock);
+	return o->do_ops->do_object_unlock(env, o, einfo, policy);
 }
 
 int dt_lookup_dir(const struct lu_env *env, struct dt_object *dir,
