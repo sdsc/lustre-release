@@ -383,6 +383,7 @@ static int out_attr_set(struct tgt_session_info *tsi)
 		lustre_swab_obdo(wobdo);
 	lustre_get_wire_obdo(NULL, lobdo, wobdo);
 	la_from_obdo(attr, lobdo, lobdo->o_valid);
+	attr->la_valid &= ~LA_NLINK;
 
 	rc = out_tx_attr_set(tsi->tsi_env, obj, attr, &tti->tti_tea,
 			     tti->tti_u.update.tti_update_reply,

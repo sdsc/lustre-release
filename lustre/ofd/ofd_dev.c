@@ -1087,7 +1087,7 @@ static int ofd_setattr_hdl(struct tgt_session_info *tsi)
 		GOTO(out, rc = PTR_ERR(fo));
 
 	la_from_obdo(&fti->fti_attr, &body->oa, body->oa.o_valid);
-	fti->fti_attr.la_valid &= ~LA_TYPE;
+	fti->fti_attr.la_valid &= ~(LA_TYPE | LA_NLINK);
 
 	if (body->oa.o_valid & OBD_MD_FLFID) {
 		ff = &fti->fti_mds_fid;

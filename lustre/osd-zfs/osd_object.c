@@ -871,6 +871,11 @@ static int osd_declare_attr_set(const struct lu_env *env,
 	LASSERT(handle != NULL);
 	LASSERT(osd_invariant(obj));
 
+	/* NOT allow truncate directory. */
+	if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
+	    (attr->la_valid & (LA_SIZE | LA_BLOCKS)))
+		RETURN(-EPERM);
+
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 
 	LASSERT(obj->oo_sa_hdl != NULL);
@@ -949,6 +954,11 @@ static int osd_attr_set(const struct lu_env *env, struct dt_object *dt,
 
 	if (la->la_valid == 0)
 		RETURN(0);
+
+	/* NOT allow truncate directory. */
+	if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
+	    (la->la_valid & (LA_SIZE | LA_BLOCKS)))
+		RETURN(-EPERM);
 
 	OBD_ALLOC(bulk, sizeof(sa_bulk_attr_t) * 10);
 	if (bulk == NULL)

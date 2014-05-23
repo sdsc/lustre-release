@@ -779,7 +779,7 @@ static int lod_attr_get(const struct lu_env *env,
 		struct lu_attr *sub_attr = &lod_env_info(env)->lti_attr;
 
 		LASSERT(lo->ldo_stripe[i]);
-		if (dt_object_exists(lo->ldo_stripe[i]))
+		if (!dt_object_exists(lo->ldo_stripe[i]))
 			continue;
 
 		rc = dt_attr_get(env, lo->ldo_stripe[i], sub_attr, capa);
