@@ -5720,6 +5720,22 @@ wait_osp_import_state() {
 	fi
 }
 
+get_mdtosc_proc_path() {
+    local mds_facet=$1
+    local ost_label=${2:-"*OST*"}
+
+    [ "$mds_facet" = "mds" ] && mds_facet=$SINGLEMDS
+    local mdt_label=$(convert_facet2label $mds_facet)
+    local mdt_index=$(echo $mdt_label | sed -e 's/^.*-//')
+
+    if [ $(lustre_version_code $mds_facet) -le $(version_code 1.8.0) ] ||
+       mds_on_old_device $mds_facet; then
+        echo "${ost_label}-osc"
+    else
+        echo "${ost_label}-osc-${mdt_index}"
+    fi
+}
+
 get_clientmdc_proc_path() {
     echo "${1}-mdc-*"
 }
@@ -6744,11 +6760,12 @@ test_mkdir() {
 		local test_num=$(echo $testnum | sed -e 's/[^0-9]*//g')
 
 		if [ "$mdt_idx" -ne 0 ]; then
-			mkdir $option $parent/$child || rc=$?
+			mkdir $option $path || rc=$?
 		else
 			mdt_idx=$((test_num % MDSCOUNT))
-			echo "mkdir $mdt_idx for $parent/$child"
-			$LFS setdirstripe -i $mdt_idx $parent/$child || rc=$?
+			echo "striped dir -i$mdt_idx -c $MDSCOUNT $path"
+			$LFS setdirstripe -i $mdt_idx -c $MDSCOUNT $path ||
+									rc=$?
 		fi
 	fi
 	return $rc
