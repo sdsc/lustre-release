@@ -61,7 +61,7 @@ union lmv_mds_md;
 struct lmv_mds_md_v1;
 
 int lmv_pack_md(union lmv_mds_md **lmmp, const struct lmv_stripe_md *lsm,
-		       int stripe_count);
+		int stripe_count);
 int lmv_alloc_md(union lmv_mds_md **lmmp, int stripe_count);
 void lmv_free_md(union lmv_mds_md *lmm);
 int lmv_alloc_memmd(struct lmv_stripe_md **lsmp, int stripe_count);
