@@ -358,7 +358,7 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		rc = update->ur_rc;
 	}
 free:
-	thandle_put(th);
 	out_destroy_update_req(update);
+	thandle_put(th);
 	return rc;
 }
