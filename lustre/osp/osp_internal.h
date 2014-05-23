@@ -494,7 +494,6 @@ int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 
 int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		   struct thandle *th);
-
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);
