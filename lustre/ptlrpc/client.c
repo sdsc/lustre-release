@@ -2585,6 +2585,10 @@ static int ptlrpc_unregister_reply(struct ptlrpc_request *request, int async)
         if (!ptlrpc_client_recv_or_unlink(request))
                 RETURN(1);
 
+	/* debug code for LU2522. Check all the current MDs for any MD in
+	 * LNET_MD_FLAG_ZOMBIE state */
+	LNetMDCheck();
+
 	/* Move to "Unregistering" phase as reply was not unlinked yet. */
 	ptlrpc_rqphase_move(request, RQ_PHASE_UNREG_RPC);
 
