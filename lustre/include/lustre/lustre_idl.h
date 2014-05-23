@@ -3038,6 +3038,7 @@ struct llog_logid {
 
 /** Records written to the CATALOGS list */
 #define CATLIST "CATALOGS"
+#define MDCATLIST "MDCATALOGS"
 struct llog_catid {
         struct llog_logid       lci_logid;
         __u32                   lci_padding1;
