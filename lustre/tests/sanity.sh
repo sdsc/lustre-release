@@ -11907,6 +11907,232 @@ test_236() {
 }
 run_test 236 "Layout swap on open unlinked file"
 
+test_striped_dir() {
+	local mdt_index=$1
+	local stripe_count
+	local stripe_index
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i $mdt_index -c 2 -t all_char $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	stripe_count=$($LFS getdirstripe -c $DIR/$tdir/striped_dir)
+	if [ "$stripe_count" != "2" ]; then
+		error "stripe_count is $stripe_count, expect 2"
+	fi
+
+	stripe_index=$($LFS getdirstripe -i $DIR/$tdir/striped_dir)
+	if [ "$stripe_index" != "$mdt_index" ]; then
+		error "stripe_index is $stripe_index, expect $mdt_index"
+	fi
+
+	[ $(stat -c%h $DIR/$tdir/striped_dir) == '2' ] ||
+		error "nlink error after create striped dir"
+
+	mkdir $DIR/$tdir/striped_dir/a
+	mkdir $DIR/$tdir/striped_dir/b
+
+	stat $DIR/$tdir/striped_dir/a ||
+		error "create dir under striped dir failed"
+	stat $DIR/$tdir/striped_dir/b ||
+		error "create dir under striped dir failed"
+
+	[ $(stat -c%h $DIR/$tdir/striped_dir) == '4' ] ||
+		error "nlink error after mkdir"
+
+	rmdir $DIR/$tdir/striped_dir/a
+	[ $(stat -c%h $DIR/$tdir/striped_dir) == '3' ] ||
+		error "nlink error after rmdir"
+
+	rmdir $DIR/$tdir/striped_dir/b
+	[ $(stat -c%h $DIR/$tdir/striped_dir) == '2' ] ||
+		error "nlink error after rmdir"
+
+	rmdir $DIR/$tdir/striped_dir ||
+		error "rmdir striped dir error"
+	true
+}
+
+test_300a() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	test_striped_dir 0 || error "failed on striped dir on MDT0"
+	test_striped_dir 1 || error "failed on striped dir on MDT0"
+}
+run_test 300a "basic striped dir sanity test"
+
+test_300b() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local i
+	local mtime1
+	local mtime2
+	local mtime3
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c 2 -t all_char $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+	for ((i=0; i<10; i++)); do
+		mtime1=$(stat -c %Y $DIR/$tdir/striped_dir)
+		sleep 1
+		touch $DIR/$tdir/striped_dir/file_$i
+		mtime2=$(stat -c %Y $DIR/$tdir/striped_dir)
+		[ $mtime1 -eq $mtime2 ] &&
+			error "mtime not change after create"
+		sleep 1
+		rm -rf $DIR/$tdir/striped_dir/file_$i
+		mtime3=$(stat -c %Y $DIR/$tdir/striped_dir)
+		[ $mtime2 -eq $mtime3 ] &&
+			error "mtime did not change after unlink"
+	done
+
+	rm -rf $DIR/$tdir
+}
+run_test 300b "check ctime/mtime for striped dir"
+
+test_300c() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local file_count
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c 2 $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	createmany -o $DIR/$tdir/striped_dir/f 5000 ||
+		error "create 5k files failed"
+
+	file_count=$(ls $DIR/$tdir/striped_dir | wc -l)
+
+	[ "$file_count" = 5000 ] || error "file count $file_count != 5000"
+
+	rm -rf $DIR/$tdir
+}
+run_test 300c "check ls under striped directory"
+
+test_300d() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local stripe_count
+	local file
+
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -c 2 $DIR/$tdir
+
+	#local striped directory
+	$LFS setdirstripe -i 0 -c 2 -t all_char $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+	createmany -o $DIR/$tdir/striped_dir/f 10 ||
+		error "create 10 files failed"
+
+	#remote striped directory
+	$LFS setdirstripe -i 1 -c 2 $DIR/$tdir/remote_striped_dir ||
+		error "set striped dir error"
+	createmany -o $DIR/$tdir/remote_striped_dir/f 10 ||
+		error "create 10 files failed"
+
+	for file in $(find $DIR/$tdir); do
+		stripe_count=$($GETSTRIPE -c $file)
+		[ $stripe_count -eq 2 ] ||
+			error "wrong stripe $stripe_count for $file"
+	done
+
+	rm -rf $DIR/$tdir
+}
+run_test 300d "check default stripe under striped directory"
+
+test_300e() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local stripe_count
+	local file
+
+	mkdir -p $DIR/$tdir
+
+	$LFS setdirstripe -i 0 -c 2 -t all_char $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	touch $DIR/$tdir/striped_dir/a
+	touch $DIR/$tdir/striped_dir/b
+	touch $DIR/$tdir/striped_dir/c
+
+	mkdir $DIR/$tdir/striped_dir/dir_a
+	mkdir $DIR/$tdir/striped_dir/dir_b
+	mkdir $DIR/$tdir/striped_dir/dir_c
+
+	$LFS setdirstripe -i 0 -c 2 -t all_char $DIR/$tdir/striped_dir/stp_a ||
+		error "set striped dir under striped dir error"
+
+	$LFS setdirstripe -i 0 -c 2 -t all_char $DIR/$tdir/striped_dir/stp_b ||
+		error "set striped dir under striped dir error"
+
+	$LFS setdirstripe -i 0 -c 2 -t all_char $DIR/$tdir/striped_dir/stp_c ||
+		error "set striped dir under striped dir error"
+
+	mrename $DIR/$tdir/striped_dir/a $DIR/$tdir/striped_dir/b &&
+		error "rename file under striped dir should fail"
+
+	mrename $DIR/$tdir/striped_dir/dir_a $DIR/$tdir/striped_dir/dir_b &&
+		error "rename dir under striped dir should fail"
+
+	mrename $DIR/$tdir/striped_dir/stp_a $DIR/$tdir/striped_dir/stp_b &&
+		error "rename dir under different stripes should fail"
+
+	mrename $DIR/$tdir/striped_dir/a $DIR/$tdir/striped_dir/c ||
+		error "rename file under striped dir should succeed"
+
+	mrename $DIR/$tdir/striped_dir/dir_a $DIR/$tdir/striped_dir/dir_c ||
+		error "rename dir under striped dir should succeed"
+
+	rm -rf $DIR/$tdir
+}
+run_test 300e "check rename under striped directory"
+
+test_300f() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local stripe_count
+	local file
+
+	rm -rf $DIR/$tdir
+	mkdir -p $DIR/$tdir
+
+	$LFS setdirstripe -i 0 -c 2 -t all_char $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	$LFS setdirstripe -i 0 -c 2 -t all_char $DIR/$tdir/striped_dir1 ||
+		error "set striped dir error"
+
+	touch $DIR/$tdir/striped_dir/a
+	mkdir $DIR/$tdir/striped_dir/dir_a
+	$LFS setdirstripe -i 0 -c 2 $DIR/$tdir/striped_dir/stp_a ||
+		error "create striped dir under striped dir fails"
+
+	touch $DIR/$tdir/striped_dir1/b
+	mkdir $DIR/$tdir/striped_dir1/dir_b
+	$LFS setdirstripe -i 0 -c 2 $DIR/$tdir/striped_dir/stp_b ||
+		error "create striped dir under striped dir fails"
+
+	mrename $DIR/$tdir/striped_dir/a $DIR/$tdir/striped_dir1/b &&
+		error "rename file under different striped dir should fail"
+
+	mrename $DIR/$tdir/striped_dir/dir_a $DIR/$tdir/striped_dir1/dir_b &&
+		error "rename dir under different striped dir should fail"
+
+	mrename $DIR/$tdir/striped_dir/stp_a $DIR/$tdir/striped_dir1/stp_b &&
+		error "rename striped dir under diff striped dir should fail"
+
+	mrename $DIR/$tdir/striped_dir/a $DIR/$tdir/striped_dir1/a ||
+		error "rename file under diff striped dirs fails"
+
+	mrename $DIR/$tdir/striped_dir/dir_a $DIR/$tdir/striped_dir1/dir_a ||
+		error "rename dir under diff striped dirs fails"
+
+	rm -rf $DIR/$tdir
+}
+run_test 300f "check rename cross striped directory"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
