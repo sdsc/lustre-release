@@ -1773,13 +1773,29 @@ static int lmv_close(struct obd_export *exp, struct md_op_data *op_data,
  * For striped-directory, it will locate MDT by name. And also
  * it will reset op_fid1 with the FID of the choosen stripe.
  **/
+struct lmv_tgt_desc *
+lmv_locate_target_for_name(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
+			   const char *name, int namelen, struct lu_fid *fid,
+			   mdsno_t *mds)
+{
+	struct lmv_tgt_desc	*tgt;
+	const struct lmv_oinfo	*oinfo;
+
+	oinfo = lsm_name_to_stripe_info(lsm, name, namelen);
+	*fid = oinfo->lmo_fid;
+	*mds = oinfo->lmo_mds;
+	tgt = lmv_get_target(lmv, *mds);
+
+	CDEBUG(D_INFO, "locate on mds %u\n", *mds);
+	return tgt;
+}
+
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
 		struct lu_fid *fid)
 {
 	struct lmv_stripe_md	*lsm = op_data->op_mea1;
 	struct lmv_tgt_desc	*tgt;
-	const struct lmv_oinfo	*oinfo;
 
 	if (lsm == NULL || lsm->lsm_md_stripe_count <= 1 ||
 	    op_data->op_namelen == 0) {
@@ -1791,15 +1807,9 @@ struct lmv_tgt_desc
 		return tgt;
 	}
 
-	oinfo = lsm_name_to_stripe_info(lsm, op_data->op_name,
-					op_data->op_namelen);
-	*fid = oinfo->lmo_fid;
-	op_data->op_mds = oinfo->lmo_mds;
-	tgt = lmv_get_target(lmv, op_data->op_mds);
-
-	CDEBUG(D_INFO, "locate on mds %u\n", op_data->op_mds);
-
-	return tgt;
+	return lmv_locate_target_for_name(lmv, lsm, op_data->op_name,
+					  op_data->op_namelen, fid,
+					  &op_data->op_mds);
 }
 
 int lmv_create(struct obd_export *exp, struct md_op_data *op_data,
@@ -2451,12 +2461,27 @@ static int lmv_unlink(struct obd_export *exp, struct md_op_data *op_data,
 		RETURN(rc);
 retry:
 	/* Send unlink requests to the MDT where the child is located */
-	if (likely(!fid_is_zero(&op_data->op_fid2)))
-		tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
-	else
+	if (likely(!fid_is_zero(&op_data->op_fid2))) {
+		tgt = lmv_find_target(lmv, &op_data->op_fid2);
+		if (IS_ERR(tgt))
+			RETURN(PTR_ERR(tgt));
+
+		/* For striped dir, we need to locate the parent as well */
+		if (op_data->op_mea1 != NULL &&
+		    op_data->op_mea1->lsm_md_stripe_count > 1) {
+			LASSERT(op_data->op_name != NULL &&
+				op_data->op_namelen != 0);
+			lmv_locate_target_for_name(lmv, op_data->op_mea1,
+						   op_data->op_name,
+						   op_data->op_namelen,
+						   &op_data->op_fid1,
+						   &op_data->op_mds);
+		}
+	} else {
 		tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
-	if (IS_ERR(tgt))
-		RETURN(PTR_ERR(tgt));
+		if (IS_ERR(tgt))
+			RETURN(PTR_ERR(tgt));
+	}
 
 	op_data->op_fsuid = current_fsuid();
 	op_data->op_fsgid = current_fsgid();
