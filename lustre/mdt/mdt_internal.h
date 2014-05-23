@@ -798,6 +798,8 @@ enum {
 
 int mdt_attr_get_complex(struct mdt_thread_info *info,
 			 struct mdt_object *o, struct md_attr *ma);
+int mdt_xattr_get(struct mdt_thread_info *info, struct mdt_object *o,
+		  struct md_attr *ma, char *name);
 int mdt_ioepoch_open(struct mdt_thread_info *info, struct mdt_object *o,
                      int created);
 int mdt_object_is_som_enabled(struct mdt_object *mo);
@@ -883,6 +885,8 @@ int mdt_hsm_attr_set(struct mdt_thread_info *info, struct mdt_object *obj,
 
 struct mdt_handler *mdt_handler_find(__u32 opc,
 				     struct mdt_opc_slice *supported);
+int mdt_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
+			void *data, int flag);
 /* mdt_idmap.c */
 int mdt_init_sec_level(struct mdt_thread_info *);
 int mdt_init_idmap(struct mdt_thread_info *);

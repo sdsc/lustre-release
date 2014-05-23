@@ -1164,7 +1164,8 @@ EXPORT_SYMBOL(llog_osd_ops);
 
 /* reads the catalog list */
 int llog_osd_get_cat_list(const struct lu_env *env, struct dt_device *d,
-			  int idx, int count, struct llog_catid *idarray)
+			  int idx, int count, struct llog_catid *idarray,
+			  struct lu_fid *fid)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct dt_object	*o = NULL;
@@ -1178,8 +1179,7 @@ int llog_osd_get_cat_list(const struct lu_env *env, struct dt_device *d,
 	size = sizeof(*idarray) * count;
 	lgi->lgi_off = idx *  sizeof(*idarray);
 
-	lu_local_obj_fid(&lgi->lgi_fid, LLOG_CATALOGS_OID);
-
+	lgi->lgi_fid = *fid;
 	o = dt_locate(env, d, &lgi->lgi_fid);
 	if (IS_ERR(o))
 		RETURN(PTR_ERR(o));
@@ -1258,7 +1258,8 @@ EXPORT_SYMBOL(llog_osd_get_cat_list);
 
 /* writes the cat list */
 int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
-			  int idx, int count, struct llog_catid *idarray)
+			  int idx, int count, struct llog_catid *idarray,
+			  struct lu_fid *fid)
 {
 	struct llog_thread_info	*lgi = llog_info(env);
 	struct dt_object	*o = NULL;
@@ -1272,8 +1273,7 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 
 	size = sizeof(*idarray) * count;
 	lgi->lgi_off = idx * sizeof(*idarray);
-
-	lu_local_obj_fid(&lgi->lgi_fid, LLOG_CATALOGS_OID);
+	lgi->lgi_fid = *fid;
 
 	o = dt_locate(env, d, &lgi->lgi_fid);
 	if (IS_ERR(o))

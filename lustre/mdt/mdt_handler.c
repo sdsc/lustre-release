@@ -504,8 +504,8 @@ static int mdt_big_xattr_get(struct mdt_thread_info *info, struct mdt_object *o,
 	RETURN(rc);
 }
 
-static int mdt_xattr_get(struct mdt_thread_info *info, struct mdt_object *o,
-			 struct md_attr *ma, char *name)
+int mdt_xattr_get(struct mdt_thread_info *info, struct mdt_object *o,
+		  struct md_attr *ma, char *name)
 {
 	struct md_object *next = mdt_object_child(o);
 	struct lu_buf    *buf = &info->mti_buf;
