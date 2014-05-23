@@ -1747,6 +1747,11 @@ static int osd_declare_attr_set(const struct lu_env *env,
 	LASSERT(dt != NULL);
 	LASSERT(handle != NULL);
 
+	/* NOT allow truncate directory. */
+	if (S_ISDIR(dt->do_lu.lo_header->loh_attr) && (attr != NULL) &&
+	    (attr->la_valid & (LA_SIZE | LA_BLOCKS)))
+		RETURN(-EPERM);
+
 	obj = osd_dt_obj(dt);
 	LASSERT(osd_invariant(obj));
 
@@ -1953,6 +1958,11 @@ static int osd_attr_set(const struct lu_env *env,
         LASSERT(handle != NULL);
 	LASSERT(dt_object_exists(dt) && !dt_object_remote(dt));
         LASSERT(osd_invariant(obj));
+
+	/* NOT allow truncate directory. */
+	if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
+	    (attr->la_valid & (LA_SIZE | LA_BLOCKS)))
+		return -EPERM;
 
         if (osd_object_auth(env, dt, capa, CAPA_OPC_META_WRITE))
                 return -EACCES;
