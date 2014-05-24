@@ -1516,15 +1516,6 @@ int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
                 chlog_cnt += (lmm->lmm_stripe_count >= 0) ?
                          lmm->lmm_stripe_count : mds->mds_lov_desc.ld_tgt_count;
         }
-        mdd_setattr_txn_param_build(env, obj, (struct md_attr *)ma,
-                                    MDD_TXN_ATTR_SET_OP, chlog_cnt);
-        handle = mdd_trans_start(env, mdd);
-        if (IS_ERR(handle))
-                GOTO(no_trans, rc = PTR_ERR(handle));
-
-        if (ma->ma_attr.la_valid & (LA_MTIME | LA_CTIME))
-                CDEBUG(D_INODE, "setting mtime "LPU64", ctime "LPU64"\n",
-                       ma->ma_attr.la_mtime, ma->ma_attr.la_ctime);
 
 #ifdef HAVE_QUOTA_SUPPORT
         if (mds->mds_quota && la_copy->la_valid & (LA_UID | LA_GID)) {
@@ -1553,6 +1544,16 @@ int mdd_attr_set(const struct lu_env *env, struct md_object *obj,
                 }
         }
 #endif
+
+        mdd_setattr_txn_param_build(env, obj, (struct md_attr *)ma,
+                                    MDD_TXN_ATTR_SET_OP, chlog_cnt);
+        handle = mdd_trans_start(env, mdd);
+        if (IS_ERR(handle))
+                GOTO(no_trans, rc = PTR_ERR(handle));
+
+        if (ma->ma_attr.la_valid & (LA_MTIME | LA_CTIME))
+                CDEBUG(D_INODE, "setting mtime "LPU64", ctime "LPU64"\n",
+                       ma->ma_attr.la_mtime, ma->ma_attr.la_ctime);
 
         if (la_copy->la_valid & LA_FLAGS) {
                 rc = mdd_attr_set_internal_locked(env, mdd_obj, la_copy,
