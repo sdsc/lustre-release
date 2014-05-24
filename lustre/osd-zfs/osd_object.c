@@ -947,7 +947,9 @@ static int osd_attr_set(const struct lu_env *env, struct dt_object *dt,
 	   transaction group. */
 	LASSERT(oh->ot_tx->tx_txg != 0);
 
-	if (la->la_valid == 0)
+	if ((la->la_valid == 0) ||
+	    (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
+	     (la->la_valid & ~(LA_SIZE | LA_BLOCKS)) == 0))
 		RETURN(0);
 
 	OBD_ALLOC(bulk, sizeof(sa_bulk_attr_t) * 10);
@@ -1011,7 +1013,10 @@ static int osd_attr_set(const struct lu_env *env, struct dt_object *dt,
 		SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_MODE(uos), NULL,
 				 &osa->mode, 8);
 	}
-	if (la->la_valid & LA_SIZE) {
+
+	/* NOT allow truncate directory. */
+	if (la->la_valid & LA_SIZE &&
+	    !S_ISDIR(dt->do_lu.lo_header->loh_attr)) {
 		osa->size = obj->oo_attr.la_size = la->la_size;
 		SA_ADD_BULK_ATTR(bulk, cnt, SA_ZPL_SIZE(uos), NULL,
 				 &osa->size, 8);

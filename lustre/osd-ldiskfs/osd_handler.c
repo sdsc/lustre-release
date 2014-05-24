@@ -1883,7 +1883,8 @@ static int osd_inode_setattr(const struct lu_env *env,
                 inode->i_ctime  = *osd_inode_time(env, inode, attr->la_ctime);
         if (bits & LA_MTIME)
                 inode->i_mtime  = *osd_inode_time(env, inode, attr->la_mtime);
-        if (bits & LA_SIZE) {
+	/* NOT allow truncate directory. */
+        if (bits & LA_SIZE && !S_ISDIR(inode->i_mode)) {
                 LDISKFS_I(inode)->i_disksize = attr->la_size;
                 i_size_write(inode, attr->la_size);
         }
