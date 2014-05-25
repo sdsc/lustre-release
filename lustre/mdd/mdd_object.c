@@ -245,7 +245,8 @@ static int mdd_xattr_get(const struct lu_env *env,
 
 	/* If the object has been delete from the namespace, then
 	 * get linkEA should return -ENOENT as well */
-	if (unlikely((mdd_obj->mod_flags & (DEAD_OBJ | ORPHAN_OBJ)) &&
+	if (unlikely((lu_object_is_dead(&mdd_obj->mod_obj.mo_lu) ||
+		      (mdd_obj->mod_flags & ORPHAN_OBJ)) &&
 		      strcmp(name, XATTR_NAME_LINK) == 0))
 		RETURN(-ENOENT);
 
@@ -1707,11 +1708,13 @@ static int mdd_close(const struct lu_env *env, struct md_object *obj,
                 RETURN(0);
         }
 
-	/* mdd_finish_unlink() will always set orphan object as DEAD_OBJ, but
-	 * it might fail to add the object to orphan list (w/o ORPHAN_OBJ). */
-	/* check without any lock */
+	/* mdd_finish_unlink() will always set orphan object as LU_OBJECT_DEAD,
+	 * but it might fail to add the object to orphan list (w/o ORPHAN_OBJ).
+	 *
+	 * check without any lock */
 	is_orphan = mdd_obj->mod_count == 1 &&
-		    (mdd_obj->mod_flags & (ORPHAN_OBJ | DEAD_OBJ)) != 0;
+		    ((mdd_obj->mod_flags & ORPHAN_OBJ) ||
+		     lu_object_is_dead(&mdd_obj->mod_obj.mo_lu));
 
 again:
 	if (is_orphan) {
@@ -1743,7 +1746,8 @@ again:
 
 	/* check again with lock */
 	is_orphan = (mdd_obj->mod_count == 1) &&
-		    ((mdd_obj->mod_flags & (ORPHAN_OBJ | DEAD_OBJ)) != 0 ||
+		    ((mdd_obj->mod_flags & ORPHAN_OBJ) ||
+		     lu_object_is_dead(&mdd_obj->mod_obj.mo_lu) ||
 		     ma->ma_attr.la_nlink == 0);
 
 	if (is_orphan && handle == NULL) {

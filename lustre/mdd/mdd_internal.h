@@ -108,8 +108,6 @@ struct mdd_device {
 };
 
 enum mod_flags {
-	/* The dir object has been unlinked */
-	DEAD_OBJ   = 1 << 0,
 	APPEND_OBJ = 1 << 1,
 	IMMUTE_OBJ = 1 << 2,
 	ORPHAN_OBJ = 1 << 3,
@@ -417,7 +415,7 @@ static inline int mdd_is_immutable(struct mdd_object *obj)
 
 static inline int mdd_is_dead_obj(struct mdd_object *obj)
 {
-        return obj && obj->mod_flags & DEAD_OBJ;
+	return obj && lu_object_is_dead(&obj->mod_obj.mo_lu);
 }
 
 static inline int mdd_is_append(struct mdd_object *obj)

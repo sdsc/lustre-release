@@ -988,7 +988,7 @@ static int mdd_linkea_prepare(const struct lu_env *env,
 
 	LASSERT(oldpfid != NULL || newpfid != NULL);
 
-	if (mdd_obj->mod_flags & DEAD_OBJ) {
+	if (lu_object_is_dead(&mdd_obj->mod_obj.mo_lu)) {
 		/* Prevent linkea to be updated which is NOT necessary. */
 		ldata->ld_reclen = 0;
 		/* No more links, don't bother */
@@ -1346,7 +1346,7 @@ static int mdd_mark_dead_object(const struct lu_env *env,
 	int rc;
 
 	if (!declare)
-		obj->mod_flags |= DEAD_OBJ;
+		lu_object_set_dead(&obj->mod_obj.mo_lu);
 
 	if (!S_ISDIR(mdd_object_type(obj)))
 		return 0;
