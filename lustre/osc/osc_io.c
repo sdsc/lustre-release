@@ -316,8 +316,8 @@ static int osc_io_rw_iter_init(const struct lu_env *env,
 	struct osc_object *osc = cl2osc(ios->cis_obj);
 	struct client_obd *cli = osc_cli(osc);
 	unsigned long c;
-	unsigned int npages;
 	unsigned int max_pages;
+	unsigned int npages;
 	ENTRY;
 
 	if (cl_io_is_append(io))
@@ -332,7 +332,7 @@ static int osc_io_rw_iter_init(const struct lu_env *env,
 		npages = max_pages;
 
 	c = atomic_read(cli->cl_lru_left);
-	if (c < npages && osc_lru_reclaim(cli) > 0)
+	if (c < npages && osc_lru_reclaim(cli, npages) > 0)
 		c = atomic_read(cli->cl_lru_left);
 	while (c >= npages) {
 		if (c == atomic_cmpxchg(cli->cl_lru_left, c, c - npages)) {
@@ -340,6 +340,12 @@ static int osc_io_rw_iter_init(const struct lu_env *env,
 			break;
 		}
 		c = atomic_read(cli->cl_lru_left);
+	}
+	if (atomic_read(cli->cl_lru_left) < max_pages) {
+		CDEBUG(D_CACHE, "%s: queue LRU, left: %u/%d.\n",
+		       cli->cl_import->imp_obd->obd_name,
+		       atomic_read(cli->cl_lru_left), max_pages);
+		(void)ptlrpcd_queue_work(cli->cl_lru_work);
 	}
 
 	RETURN(0);
