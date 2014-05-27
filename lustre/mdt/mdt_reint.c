@@ -1827,11 +1827,13 @@ static int mdt_reint_rename_internal(struct mdt_thread_info *info,
 	if (IS_ERR(mold))
 		GOTO(out_unlock_parents, rc = PTR_ERR(mold));
 
+#if 0
 	/* Check if @mtgtdir is subdir of @mold, before locking child
 	 * to avoid reverse locking. */
 	rc = mdt_rename_sanity(info, rr->rr_fid2, old_fid);
 	if (rc)
 		GOTO(out_put_old, rc);
+#endif
 
 	tgt_vbr_obj_set(info->mti_env, mdt_obj2dt(mold));
 	/* save version after locking */
