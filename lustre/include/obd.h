@@ -325,6 +325,8 @@ struct client_obd {
 	atomic_t		 cl_lru_busy;
 	atomic_t		 cl_lru_shrinkers;
 	atomic_t		 cl_lru_in_list;
+	__u64			 cl_lru_reclaim;
+	time_t			 cl_lru_last_used;
 	cfs_list_t		 cl_lru_list; /* lru page list */
 	client_obd_lock_t	 cl_lru_list_lock; /* page list protector */
 	atomic_t		 cl_unstable_count;
