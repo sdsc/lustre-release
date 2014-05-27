@@ -137,7 +137,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 		  struct list_head *ext_list, int cmd, pdl_policy_t p);
 int osc_lru_shrink(const struct lu_env *env, struct client_obd *cli,
 		   int target, bool force);
-int osc_lru_reclaim(struct client_obd *cli);
+int osc_lru_reclaim(struct client_obd *cli, unsigned int npages);
 
 extern spinlock_t osc_ast_guard;
 unsigned long osc_ldlm_weigh_ast(struct ldlm_lock *dlmlock);
