@@ -74,21 +74,26 @@
 #include "ptlrpc_internal.h"
 
 struct ptlrpcd {
-        int                pd_size;
-        int                pd_index;
-        int                pd_nthreads;
-        struct ptlrpcd_ctl pd_thread_rcv;
-        struct ptlrpcd_ctl pd_threads[0];
+	int                pd_size;
+	int                pd_index;
+	int                pd_nthreads;
+	struct ptlrpcd_ctl pd_thread_rcv;
+	struct ptlrpcd_ctl pd_thread_lru;
+	struct ptlrpcd_ctl pd_threads[0];
 };
 
 #ifdef __KERNEL__
 static int max_ptlrpcds;
 CFS_MODULE_PARM(max_ptlrpcds, "i", int, 0644,
-                "Max ptlrpcd thread count to be started.");
+		"Max ptlrpcd thread count to be started.");
 
 static int ptlrpcd_bind_policy = PDB_POLICY_PAIR;
 CFS_MODULE_PARM(ptlrpcd_bind_policy, "i", int, 0644,
-                "Ptlrpcd threads binding mode.");
+		"Ptlrpcd threads binding mode.");
+
+static bool ptlrpcd_use_lru_thread = true;
+CFS_MODULE_PARM(ptlrpcd_use_lru_thread, "b", bool, 0644,
+		"Use the dedicated ptlrpcd thread for LRU work.");
 #endif
 static struct ptlrpcd *ptlrpcds;
 
@@ -108,10 +113,12 @@ EXPORT_SYMBOL(ptlrpcd_wake);
 static struct ptlrpcd_ctl *
 ptlrpcd_select_pc(struct ptlrpc_request *req, pdl_policy_t policy, int index)
 {
-        int idx = 0;
+	int idx = 0;
 
-        if (req != NULL && req->rq_send_state != LUSTRE_IMP_FULL)
-                return &ptlrpcds->pd_thread_rcv;
+	if (req != NULL && req->rq_send_state != LUSTRE_IMP_FULL)
+		return &ptlrpcds->pd_thread_rcv;
+	if (req != NULL && policy == PDL_POLICY_LRU && ptlrpcd_use_lru_thread)
+		return &ptlrpcds->pd_thread_lru;
 
 #ifdef __KERNEL__
 	switch (policy) {
@@ -825,6 +832,8 @@ static void ptlrpcd_fini(void)
 			ptlrpcd_free(&ptlrpcds->pd_threads[i]);
 		ptlrpcd_stop(&ptlrpcds->pd_thread_rcv, 0);
 		ptlrpcd_free(&ptlrpcds->pd_thread_rcv);
+		ptlrpcd_stop(&ptlrpcds->pd_thread_lru, 0);
+		ptlrpcd_free(&ptlrpcds->pd_thread_lru);
 		OBD_FREE(ptlrpcds, ptlrpcds->pd_size);
 		ptlrpcds = NULL;
 	}
@@ -857,11 +866,16 @@ static int ptlrpcd_init(void)
         if (ptlrpcds == NULL)
                 GOTO(out, rc = -ENOMEM);
 
-        snprintf(name, 15, "ptlrpcd_rcv");
+	strlcpy(name, "ptlrpcd_rcv", sizeof(name));
 	set_bit(LIOD_RECOVERY, &ptlrpcds->pd_thread_rcv.pc_flags);
-        rc = ptlrpcd_start(-1, nthreads, name, &ptlrpcds->pd_thread_rcv);
-        if (rc < 0)
-                GOTO(out, rc);
+	rc = ptlrpcd_start(-1, nthreads, name, &ptlrpcds->pd_thread_rcv);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	strlcpy(name, "ptlrpcd_lru", sizeof(name));
+	rc = ptlrpcd_start(-1, 0, name, &ptlrpcds->pd_thread_lru);
+	if (rc < 0)
+		GOTO(out, rc);
 
         /* XXX: We start nthreads ptlrpc daemons. Each of them can process any
          *      non-recovery async RPC to improve overall async RPC efficiency.
@@ -894,6 +908,8 @@ out:
 			ptlrpcd_free(&ptlrpcds->pd_threads[j]);
 		ptlrpcd_stop(&ptlrpcds->pd_thread_rcv, 0);
 		ptlrpcd_free(&ptlrpcds->pd_thread_rcv);
+		ptlrpcd_stop(&ptlrpcds->pd_thread_lru, 0);
+		ptlrpcd_free(&ptlrpcds->pd_thread_lru);
                 OBD_FREE(ptlrpcds, size);
                 ptlrpcds = NULL;
         }

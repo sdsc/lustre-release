@@ -3019,12 +3019,6 @@ __u64 ptlrpc_next_xid(void);
 __u64 ptlrpc_sample_next_xid(void);
 __u64 ptlrpc_req_xid(struct ptlrpc_request *request);
 
-/* Set of routines to run a function in ptlrpcd context */
-void *ptlrpcd_alloc_work(struct obd_import *imp,
-                         int (*cb)(const struct lu_env *, void *), void *data);
-void ptlrpcd_destroy_work(void *handler);
-int ptlrpcd_queue_work(void *handler);
-
 /** @} */
 struct ptlrpc_service_buf_conf {
 	/* nbufs is buffers # to allocate when growing the pool */
@@ -3522,6 +3516,8 @@ typedef enum {
         PDL_POLICY_ROUND        = 3,
         /* the specified CPU core is preferred, but not enforced */
         PDL_POLICY_PREFERRED    = 4,
+	/* dedicated ptlrpc thread for client LRU housekeeping */
+	PDL_POLICY_LRU		= 5
 } pdl_policy_t;
 
 /* ptlrpc/ptlrpcd.c */
@@ -3532,6 +3528,13 @@ void ptlrpcd_add_req(struct ptlrpc_request *req, pdl_policy_t policy, int idx);
 void ptlrpcd_add_rqset(struct ptlrpc_request_set *set);
 int ptlrpcd_addref(void);
 void ptlrpcd_decref(void);
+
+/* Set of routines to run a function in ptlrpcd context */
+void *ptlrpcd_alloc_work(struct obd_import *imp,
+			 int (*cb)(const struct lu_env *, void *), void *data,
+			 pdl_policy_t policy);
+void ptlrpcd_destroy_work(void *handler);
+int ptlrpcd_queue_work(void *handler);
 
 /* ptlrpc/lproc_ptlrpc.c */
 /**
