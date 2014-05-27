@@ -1342,14 +1342,14 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 		ptlrpc_prep_bulk_page_pin(desc, pg->pg, poff, pg->count);
                 requested_nob += pg->count;
 
-                if (i > 0 && can_merge_pages(pg_prev, pg)) {
-                        niobuf--;
-                        niobuf->len += pg->count;
-                } else {
-                        niobuf->offset = pg->off;
-                        niobuf->len    = pg->count;
-                        niobuf->flags  = pg->flag;
-                }
+		if (i > 0 && can_merge_pages(pg_prev, pg)) {
+			niobuf--;
+			niobuf->rnb_len += pg->count;
+		} else {
+			niobuf->rnb_offset = pg->off;
+			niobuf->rnb_len    = pg->count;
+			niobuf->rnb_flags  = pg->flag;
+		}
                 pg_prev = pg;
         }
 
