@@ -1318,19 +1318,22 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 
 #define OSC_DUMP_GRANT(lvl, cli, fmt, args...) do {			\
 	struct client_obd *__tmp = (cli);				\
-	CDEBUG(lvl, "%s: grant { dirty: %ld/%ld dirty_pages: %d/%d "	\
-	       "unstable_pages: %d/%d dropped: %ld avail: %ld, "	\
-	       "reserved: %ld, flight: %d } lru {in list: %d, "		\
-	       "left: %d, waiters: %d }" fmt,				\
+	CDEBUG(lvl, "%s: grant { dirty: %ld/%ld "			\
+	       "dirty_pages: %llu/%llu "				\
+	       "unstable_pages: %llu/%llu dropped: %ld avail: %ld, "	\
+	       "reserved: %ld, flight: %d } lru {in list: %llu, "	\
+	       "left: %llu, waiters: %llu }" fmt,			\
 	       __tmp->cl_import->imp_obd->obd_name,			\
 	       __tmp->cl_dirty, __tmp->cl_dirty_max,			\
-	       atomic_read(&obd_dirty_pages), obd_max_dirty_pages,	\
-	       atomic_read(&obd_unstable_pages), obd_max_dirty_pages,	\
+	       (__u64)atomic64_read(&obd_dirty_pages),			\
+	       obd_max_dirty_pages,					\
+	       (__u64)atomic64_read(&obd_unstable_pages),		\
+	       obd_max_dirty_pages,					\
 	       __tmp->cl_lost_grant, __tmp->cl_avail_grant,		\
 	       __tmp->cl_reserved_grant, __tmp->cl_w_in_flight,		\
-	       atomic_read(&__tmp->cl_lru_in_list),			\
-	       atomic_read(&__tmp->cl_lru_busy),			\
-	       atomic_read(&__tmp->cl_lru_shrinkers), ##args);		\
+	       (__u64)atomic64_read(&__tmp->cl_lru_in_list),		\
+	       (__u64)atomic64_read(&__tmp->cl_lru_busy),		\
+	       (__u64)atomic64_read(&__tmp->cl_lru_shrinkers), ##args);	\
 } while (0)
 
 /* caller must hold loi_list_lock */
@@ -1339,7 +1342,7 @@ static void osc_consume_write_grant(struct client_obd *cli,
 {
 	assert_spin_locked(&cli->cl_loi_list_lock.lock);
 	LASSERT(!(pga->flag & OBD_BRW_FROM_GRANT));
-	atomic_inc(&obd_dirty_pages);
+	atomic64_inc(&obd_dirty_pages);
 	cli->cl_dirty += PAGE_CACHE_SIZE;
 	pga->flag |= OBD_BRW_FROM_GRANT;
 	CDEBUG(D_CACHE, "using %lu grant credits for brw %p page %p\n",
@@ -1361,11 +1364,11 @@ static void osc_release_write_grant(struct client_obd *cli,
 	}
 
 	pga->flag &= ~OBD_BRW_FROM_GRANT;
-	atomic_dec(&obd_dirty_pages);
+	atomic64_dec(&obd_dirty_pages);
 	cli->cl_dirty -= PAGE_CACHE_SIZE;
 	if (pga->flag & OBD_BRW_NOCACHE) {
 		pga->flag &= ~OBD_BRW_NOCACHE;
-		atomic_dec(&obd_dirty_transit_pages);
+		atomic64_dec(&obd_dirty_transit_pages);
 		cli->cl_dirty_transit -= PAGE_CACHE_SIZE;
 	}
 	EXIT;
@@ -1434,7 +1437,7 @@ static void osc_free_grant(struct client_obd *cli, unsigned int nr_pages,
 	int grant = (1 << cli->cl_chunkbits) + cli->cl_extent_tax;
 
 	client_obd_list_lock(&cli->cl_loi_list_lock);
-	atomic_sub(nr_pages, &obd_dirty_pages);
+	atomic64_sub(nr_pages, &obd_dirty_pages);
 	cli->cl_dirty -= nr_pages << PAGE_CACHE_SHIFT;
 	cli->cl_lost_grant += lost_grant;
 	if (cli->cl_avail_grant < grant && cli->cl_lost_grant >= grant) {
@@ -1478,12 +1481,12 @@ static int osc_enter_cache_try(struct client_obd *cli,
 		return 0;
 
 	if (cli->cl_dirty + PAGE_CACHE_SIZE <= cli->cl_dirty_max &&
-	    atomic_read(&obd_unstable_pages) + 1 +
-	    atomic_read(&obd_dirty_pages) <= obd_max_dirty_pages) {
+	    atomic64_read(&obd_unstable_pages) + 1 +
+	    atomic64_read(&obd_dirty_pages) <= obd_max_dirty_pages) {
 		osc_consume_write_grant(cli, &oap->oap_brw_page);
 		if (transient) {
 			cli->cl_dirty_transit += PAGE_CACHE_SIZE;
-			atomic_inc(&obd_dirty_transit_pages);
+			atomic64_inc(&obd_dirty_transit_pages);
 			oap->oap_brw_flags |= OBD_BRW_NOCACHE;
 		}
 		rc = 1;
@@ -1612,10 +1615,10 @@ void osc_wake_cache_waiters(struct client_obd *cli)
 		ocw->ocw_rc = -EDQUOT;
 		/* we can't dirty more */
 		if ((cli->cl_dirty + PAGE_CACHE_SIZE > cli->cl_dirty_max) ||
-		    (atomic_read(&obd_unstable_pages) + 1 +
-		     atomic_read(&obd_dirty_pages) > obd_max_dirty_pages)) {
+		    (atomic64_read(&obd_unstable_pages) + 1 +
+		     atomic64_read(&obd_dirty_pages) > obd_max_dirty_pages)) {
 			CDEBUG(D_CACHE, "no dirty room: dirty: %ld "
-			       "osc max %ld, sys max %d\n", cli->cl_dirty,
+			       "osc max %ld, sys max %llu\n", cli->cl_dirty,
 			       cli->cl_dirty_max, obd_max_dirty_pages);
 			goto wakeup;
 		}
@@ -1803,14 +1806,14 @@ void osc_dec_unstable_pages(struct ptlrpc_request *req)
 	for (i = 0; i < page_count; i++)
 		dec_zone_page_state(desc->bd_iov[i].kiov_page, NR_UNSTABLE_NFS);
 
-	atomic_sub(page_count, &cli->cl_cache->ccc_unstable_nr);
-	LASSERT(atomic_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
+	atomic64_sub(page_count, &cli->cl_cache->ccc_unstable_nr);
+	LASSERT(atomic64_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
 
-	atomic_sub(page_count, &cli->cl_unstable_count);
-	LASSERT(atomic_read(&cli->cl_unstable_count) >= 0);
+	atomic64_sub(page_count, &cli->cl_unstable_count);
+	LASSERT(atomic64_read(&cli->cl_unstable_count) >= 0);
 
-	atomic_sub(page_count, &obd_unstable_pages);
-	LASSERT(atomic_read(&obd_unstable_pages) >= 0);
+	atomic64_sub(page_count, &obd_unstable_pages);
+	LASSERT(atomic64_read(&obd_unstable_pages) >= 0);
 
 	wake_up_all(&cli->cl_cache->ccc_unstable_waitq);
 }
@@ -1832,14 +1835,14 @@ void osc_inc_unstable_pages(struct ptlrpc_request *req)
 	for (i = 0; i < page_count; i++)
 		inc_zone_page_state(desc->bd_iov[i].kiov_page, NR_UNSTABLE_NFS);
 
-	LASSERT(atomic_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
-	atomic_add(page_count, &cli->cl_cache->ccc_unstable_nr);
+	LASSERT(atomic64_read(&cli->cl_cache->ccc_unstable_nr) >= 0);
+	atomic64_add(page_count, &cli->cl_cache->ccc_unstable_nr);
 
-	LASSERT(atomic_read(&cli->cl_unstable_count) >= 0);
-	atomic_add(page_count, &cli->cl_unstable_count);
+	LASSERT(atomic64_read(&cli->cl_unstable_count) >= 0);
+	atomic64_add(page_count, &cli->cl_unstable_count);
 
-	LASSERT(atomic_read(&obd_unstable_pages) >= 0);
-	atomic_add(page_count, &obd_unstable_pages);
+	LASSERT(atomic64_read(&obd_unstable_pages) >= 0);
+	atomic64_add(page_count, &obd_unstable_pages);
 
 	/* If the request has already been committed (i.e. brw_commit
 	 * called via rq_commit_cb), we need to undo the unstable page
@@ -2246,11 +2249,11 @@ static int osc_io_unplug0(const struct lu_env *env, struct client_obd *cli,
 	if (!async) {
 		/* disable osc_lru_shrink() temporarily to avoid
 		 * potential stack overrun problem. LU-2859 */
-		atomic_inc(&cli->cl_lru_shrinkers);
+		atomic64_inc(&cli->cl_lru_shrinkers);
 		client_obd_list_lock(&cli->cl_loi_list_lock);
 		osc_check_rpcs(env, cli, pol);
 		client_obd_list_unlock(&cli->cl_loi_list_lock);
-		atomic_dec(&cli->cl_lru_shrinkers);
+		atomic64_dec(&cli->cl_lru_shrinkers);
 	} else {
 		CDEBUG(D_CACHE, "Queue writeback work for client %p.\n", cli);
 		LASSERT(cli->cl_writeback_work != NULL);

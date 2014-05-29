@@ -167,11 +167,11 @@ static int osc_cached_mb_seq_show(struct seq_file *m, void *v)
 	int rc;
 
 	rc = seq_printf(m,
-		      "used_mb: %d\n"
-		      "busy_cnt: %d\n",
-		      (atomic_read(&cli->cl_lru_in_list) +
-			atomic_read(&cli->cl_lru_busy)) >> shift,
-		      atomic_read(&cli->cl_lru_busy));
+		      "used_mb: %llu\n"
+		      "busy_cnt: %llu\n",
+		      ((__u64)atomic64_read(&cli->cl_lru_in_list) +
+			(__u64)atomic64_read(&cli->cl_lru_busy)) >> shift,
+		      (__u64)atomic64_read(&cli->cl_lru_busy));
 
 	return rc;
 }
@@ -203,7 +203,7 @@ osc_cached_mb_seq_write(struct file *file, const char __user *buffer,
 	if (pages_number < 0)
 		return -ERANGE;
 
-	rc = atomic_read(&cli->cl_lru_in_list) - pages_number;
+	rc = atomic64_read(&cli->cl_lru_in_list) - pages_number;
 	if (rc > 0) {
 		struct lu_env *env;
 		int refcheck;
@@ -522,12 +522,13 @@ static int osc_unstable_stats_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
 	struct client_obd *cli = &dev->u.cli;
-	int pages, mb;
+	__u64 pages;
+	int mb;
 
-	pages = atomic_read(&cli->cl_unstable_count);
+	pages = atomic64_read(&cli->cl_unstable_count);
 	mb    = (pages * PAGE_CACHE_SIZE) >> 20;
 
-	return seq_printf(m, "unstable_pages: %8d\n"
+	return seq_printf(m, "unstable_pages: %8llu\n"
 			"unstable_mb:    %8d\n",
 			pages, mb);
 }
