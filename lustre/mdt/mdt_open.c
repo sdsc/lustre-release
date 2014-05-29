@@ -1755,7 +1755,6 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 
         mdt_set_capainfo(info, 1, child_fid, BYPASS_CAPA);
         if (result == -ENOENT) {
-		/* Create under OBF and .lustre is not permitted */
 		if (!fid_is_md_operative(rr->rr_fid1))
 			GOTO(out_child, result = -EPERM);
 
