@@ -4,7 +4,8 @@
 # to build built
 BUILD_GEN+=".1" #LU-3337 add missing build files for sles11sp2 server
 
-DEVEL_KERNEL_TYPE="source"
+#DEVEL_KERNEL_TYPE="source"
+DEVEL_KERNEL_TYPE="default-devel"
 RPM_HELPERS_DIR="/usr/lib/rpm"
 
 prepare_and_build_srpm() {
