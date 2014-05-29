@@ -460,10 +460,10 @@ struct cl_client_cache {
 	atomic_t		ccc_users;    /* # of users (OSCs) */
 	cfs_list_t		ccc_lru;      /* LRU of cached clean pages */
 	spinlock_t		ccc_lru_lock; /* lock for list */
-	atomic_t		ccc_lru_left; /* # of LRU entries available */
-	unsigned long		ccc_lru_max;  /* Max # of LRU entries */
-	unsigned int		ccc_lru_shrinkers;  /* # of threads shrinking */
-	atomic_t		ccc_unstable_nr;    /* # of pages pinned */
+	atomic64_t		ccc_lru_left; /* # of LRU entries available */
+	__u64			ccc_lru_max;  /* Max # of LRU entries */
+	__u64			ccc_lru_shrinkers;  /* # of threads shrinking */
+	atomic64_t		ccc_unstable_nr;    /* # of pages pinned */
 	wait_queue_head_t	ccc_unstable_waitq; /* Signaled on BRW commit */
 };
 

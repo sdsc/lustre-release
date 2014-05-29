@@ -274,6 +274,31 @@ typedef struct { volatile int counter; } atomic_t;
 #define atomic_cmpxchg(v, ov, nv) \
 	((v)->counter == ov ? ((v)->counter = nv, ov) : (v)->counter)
 
+/*
+ * Atomic64 for single-threaded user-space
+ */
+typedef struct { volatile __s64 counter; } atomic64_t;
+
+#define ATOMIC_INIT(i) { (i) }
+
+#define atomic64_read(a) ((a)->counter)
+#define atomic64_set(a, b) do {(a)->counter = b; } while (0)
+#define atomic64_dec_and_test(a) ((--((a)->counter)) == 0)
+#define atomic64_dec_and_lock(a, b) ((--((a)->counter)) == 0)
+#define atomic64_inc(a)  (((a)->counter)++)
+#define atomic64_dec(a)  do { (a)->counter--; } while (0)
+#define atomic64_add(b, a)  do {(a)->counter += b; } while (0)
+#define atomic64_add_return(n, a) ((a)->counter += n)
+#define atomic64_inc_return(a) atomic_add_return(1, a)
+#define atomic64_sub(b, a)  do {(a)->counter -= b; } while (0)
+#define atomic64_sub_return(n, a) ((a)->counter -= n)
+#define atomic64_dec_return(a)  atomic_sub_return(1, a)
+#define atomic64_add_unless(v, a, u) \
+	((v)->counter != u ? (v)->counter += a : 0)
+#define atomic64_inc_not_zero(v) atomic_add_unless((v), 1, 0)
+#define atomic64_cmpxchg(v, ov, nv) \
+	((v)->counter == ov ? ((v)->counter = nv, ov) : (v)->counter)
+
 #ifdef HAVE_LIBPTHREAD
 #include <pthread.h>
 

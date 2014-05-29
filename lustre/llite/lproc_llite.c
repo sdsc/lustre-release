@@ -385,13 +385,13 @@ static int ll_max_cached_mb_seq_show(struct seq_file *m, void *v)
 	int unused_mb;
 
 	max_cached_mb = cache->ccc_lru_max >> shift;
-	unused_mb = atomic_read(&cache->ccc_lru_left) >> shift;
+	unused_mb = atomic64_read(&cache->ccc_lru_left) >> shift;
 	return seq_printf(m,
 			"users: %d\n"
 			"max_cached_mb: %d\n"
 			"used_mb: %d\n"
 			"unused_mb: %d\n"
-			"reclaim_count: %u\n",
+			"reclaim_count: %llu\n",
 			atomic_read(&cache->ccc_users),
 			max_cached_mb,
 			max_cached_mb - unused_mb,
@@ -411,7 +411,7 @@ ll_max_cached_mb_seq_write(struct file *file, const char __user *buffer,
 	int refcheck;
 	int mult, rc, pages_number;
 	int diff = 0;
-	int nrpages = 0;
+	__u64 nrpages = 0;
 	char kernbuf[128];
 	ENTRY;
 
@@ -445,7 +445,7 @@ ll_max_cached_mb_seq_write(struct file *file, const char __user *buffer,
 
 	/* easy - add more LRU slots. */
 	if (diff >= 0) {
-		atomic_add(diff, &cache->ccc_lru_left);
+		atomic64_add(diff, &cache->ccc_lru_left);
 		GOTO(out, rc = 0);
 	}
 
@@ -459,14 +459,14 @@ ll_max_cached_mb_seq_write(struct file *file, const char __user *buffer,
 
 		/* reduce LRU budget from free slots. */
 		do {
-			int ov, nv;
+			__u64 ov, nv;
 
-			ov = atomic_read(&cache->ccc_lru_left);
+			ov = atomic64_read(&cache->ccc_lru_left);
 			if (ov == 0)
 				break;
 
 			nv = ov > diff ? ov - diff : 0;
-			rc = atomic_cmpxchg(&cache->ccc_lru_left, ov, nv);
+			rc = atomic64_cmpxchg(&cache->ccc_lru_left, ov, nv);
 			if (likely(ov == rc)) {
 				diff -= ov - nv;
 				nrpages += ov - nv;
@@ -495,7 +495,7 @@ out:
 		spin_unlock(&sbi->ll_lock);
 		rc = count;
 	} else {
-		atomic_add(nrpages, &cache->ccc_lru_left);
+		atomic64_add(nrpages, &cache->ccc_lru_left);
 	}
 	return rc;
 }
@@ -823,7 +823,7 @@ static int ll_unstable_stats_seq_show(struct seq_file *m, void *v)
 	struct cl_client_cache	*cache = &sbi->ll_cache;
 	int pages, mb;
 
-	pages = atomic_read(&cache->ccc_unstable_nr);
+	pages = atomic64_read(&cache->ccc_unstable_nr);
 	mb    = (pages * PAGE_CACHE_SIZE) >> 20;
 
 	return seq_printf(m, "unstable_pages: %8d\n"
