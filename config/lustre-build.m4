@@ -547,8 +547,12 @@ for arg; do
 		--with-release=* ) ;;
 		--with-kmp-moddir=* ) ;;
 		--with-linux=* | --with-linux-obj=* ) ;;
-		--enable-tests | --disable-tests ) ;;
+		--enable-ldiskfs | --disable-ldiskfs ) ;;
 		--enable-modules | --disable-modules ) ;;
+		--enable-server | --disable-server ) ;;
+		--enable-tests | --disable-tests ) ;;
+		--enable-utils | --disable-utils ) ;;
+		--enable-iokit | --disable-iokit ) ;;
 		* ) CONFIGURE_ARGS="$CONFIGURE_ARGS '$arg'" ;;
 	esac
 done
@@ -587,7 +591,9 @@ if test x$enable_modules != xyes ; then
 fi
 if test x$enable_tests != xyes ; then
 	RPMBINARGS="$RPMBINARGS --without lustre_tests"
-	RPMSRCARGS="$RPMSRCARGS --without lustre_tests"
+fi
+if test x$enable_utils != xyes ; then
+	RPMBINARGS="$RPMBINARGS --without lustre_utils"
 fi
 if test x$enable_server != xyes ; then
 	RPMBINARGS="$RPMBINARGS --without servers"
@@ -645,6 +651,8 @@ LB_CONFIG_TESTS
 LC_CONFIG_CLIENT
 LB_CONFIG_MPITESTS
 LB_CONFIG_SERVERS
+# Tests depends from utils (multiop from liblustreapi)
+AS_IF([test "x$enable_utils" = xno], [enable_tests="no"])
 
 # two macros for cmd3
 m4_ifdef([LC_CONFIG_SPLIT], [LC_CONFIG_SPLIT])
