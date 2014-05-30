@@ -43,7 +43,7 @@
 int get_root_path(int want, char *fsname, int *outfd, char *path, int index);
 int root_ioctl(const char *mdtname, int opc, void *data, int *mdtidxp,
 	       int want_error);
-int get_param(const char *param_path, char *result,
-	      unsigned int result_size);
+int get_param(const char *result, size_t result_size, const char *param, ...)
+	      __attribute__ ((format(printf, 3, 4)));
 
 #endif /* _LUSTREAPI_INTERNAL_H_ */
