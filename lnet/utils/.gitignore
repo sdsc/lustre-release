@@ -1,8 +1,4 @@
 /Makefile.in
-/acceptor
-/debugctl
-/ptlctl
 /routerstat
 /wirecheck
 /lst
-/lstclient
