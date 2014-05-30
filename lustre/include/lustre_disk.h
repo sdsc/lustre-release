@@ -522,7 +522,7 @@ struct lustre_sb_info {
 struct lustre_mount_info {
         char                 *lmi_name;
         struct super_block   *lmi_sb;
-        cfs_list_t            lmi_list_chain;
+	struct list_head            lmi_list_chain;
 };
 
 /****************** prototypes *********************/

@@ -288,7 +288,7 @@ struct lu_device {
         /**
          * Link the device to the site.
          **/
-        cfs_list_t                         ld_linkage;
+	struct list_head                         ld_linkage;
 };
 
 struct lu_device_type_operations;
@@ -473,7 +473,7 @@ struct lu_object {
         /**
          * Linkage into list of all layers.
          */
-        cfs_list_t                         lo_linkage;
+	struct list_head                         lo_linkage;
 	/**
 	 * Link to the device, for debugging.
 	 */
@@ -567,7 +567,7 @@ struct lu_site_bkt_data {
 	 * moved to the lu_site::ls_lru.prev (this is due to the non-existence
 	 * of list_for_each_entry_safe_reverse()).
 	 */
-	cfs_list_t                lsb_lru;
+	struct list_head                lsb_lru;
 	/**
 	 * Wait-queue signaled when an object in this site is ultimately
 	 * destroyed (lu_object_free()). It is used by lu_object_find() to
@@ -619,12 +619,12 @@ struct lu_site {
         /**
          * Linkage into global list of sites.
          */
-        cfs_list_t                ls_linkage;
+	struct list_head                ls_linkage;
         /**
          * List for lu device for this site, protected
          * by ls_ld_lock.
          **/
-        cfs_list_t                ls_ld_linkage;
+	struct list_head                ls_ld_linkage;
 	spinlock_t		ls_ld_lock;
 
 	/**
@@ -742,7 +742,7 @@ struct lu_object *lu_object_find_slice(const struct lu_env *env,
  */
 static inline struct lu_object *lu_object_top(struct lu_object_header *h)
 {
-        LASSERT(!cfs_list_empty(&h->loh_layers));
+	LASSERT(!list_empty(&h->loh_layers));
         return container_of0(h->loh_layers.next, struct lu_object, lo_linkage);
 }
 
@@ -962,7 +962,7 @@ struct lu_context {
          * `non-transient' contexts, i.e., ones created for service threads
          * are placed here.
          */
-        cfs_list_t             lc_remember;
+	struct list_head             lc_remember;
         /**
          * Version counter used to skip calls to lu_context_refill() when no
          * keys were registered.
