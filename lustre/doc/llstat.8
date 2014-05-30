@@ -26,20 +26,20 @@ Display help information.
 Either the full path to a stats file, or the shorthand:
 \fImds\fR or \fIost\fR.
 .SH EXAMPLE
-To monitor /proc/fs/lustre/ost/OSS/ost/stats every second:
+To monitor /{proc,sys}/{fs,sys}/lustre/ost/OSS/ost/stats every second:
 .IP
 llstat -i 1 ost
 .SH FILES
 .nf
-/proc/fs/lustre/mdt/MDS/*/stats
-/proc/fs/lustre/mds/*/exports/*/stats
-/proc/fs/lustre/mdc/*/stats
-/proc/fs/lustre/ldlm/services/*/stats
-/proc/fs/lustre/ldlm/namespaces/*/pool/stats
-/proc/fs/lustre/mgs/MGS/exports/*/stats
-/proc/fs/lustre/ost/OSS/*/stats
-/proc/fs/lustre/osc/*/stats
-/proc/fs/lustre/obdfilter/*/exports/*/stats
-/proc/fs/lustre/obdfilter/*/stats
-/proc/fs/lustre/llite/*/stats
+/{proc,sys}/{fs,sys}/lustre/mdt/MDS/*/stats
+/{proc,sys}/{fs,sys}/lustre/mds/*/exports/*/stats
+/{proc,sys}/{fs,sys}/lustre/mdc/*/stats
+/{proc,sys}/{fs,sys}/lustre/ldlm/services/*/stats
+/{proc,sys}/{fs,sys}/lustre/ldlm/namespaces/*/pool/stats
+/{proc,sys}/{fs,sys}/lustre/mgs/MGS/exports/*/stats
+/{proc,sys}/{fs,sys}/lustre/ost/OSS/*/stats
+/{proc,sys}/{fs,sys}/lustre/osc/*/stats
+/{proc,sys}/{fs,sys}/lustre/obdfilter/*/exports/*/stats
+/{proc,sys}/{fs,sys}/lustre/obdfilter/*/stats
+/{proc,sys}/{fs,sys}/lustre/llite/*/stats
 .fi

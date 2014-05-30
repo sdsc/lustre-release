@@ -181,19 +181,17 @@ list_mounts() {
 
 lustre_health_check()
 {
-        proc="/proc/fs/lustre/health_check"
-        # on first check the lustre modules are not loaded yet
-        if [ ! -e $proc ]; then
-                return 0
-        fi
-
-        check=`cat $proc`
-        if [ "$check" = "healthy" ]; then
-                return 0
-        else
-                ocf_log err "$proc is $check"
-                return 1
-        fi
+	VAR=$(lctl get_param -n health_check 2>&1)
+	if [ "${VAR/"error"}" = "$VAR" ] ; then
+		if [ "$VAR" = "healthy" ]; then
+			return 0
+	        else
+			ocf_log err "$proc is $VAR"
+			return 1
+	        fi
+	else
+		return 0
+	fi
 }
 
 #
@@ -298,19 +296,24 @@ lustre_server_mounted()
         # check in all mntdevs if really not mounted
         # lustre bug 21359 (https://bugzilla.lustre.org/show_bug.cgi?id=21359)
         if [ $rc -eq $OCF_NOT_RUNNING ]; then
-                local list="/proc/fs/lustre/mds/* /proc/fs/lustre/obdfilter/*"
-                for i in $list ; do
-                        if [ -f ${i}/mntdev ]; then
-                                MNTDEVS="$MNTDEVS ${i}/mntdev"
-                        fi
-                done
-                local mgsdev=/proc/fs/lustre/mgs/MGS/mntdev
-                if [ -f $mgsdev ]; then
-                        MNTDEVS="$MNTDEVS $mgsdev"
+
+		VAR=$(lctl get_param -n mds.*.mntdev 2>&1)
+		if [ "${VAR/"error"}" = "$VAR" ] ; then
+			MNTDEVS=$VAR
+	        fi
+
+		VAR=$(lctl get_param -n obdfilter.*.mntdev 2>&1)
+                if [ "${VAR/"error"}" = "$VAR" ] ; then
+                        MNTDEVS="$MNTDEVS $VAR"
                 fi
+
+                VAR=$(lctl get_param -n mgs.MGS.mntdev 2>&1)
+                if [ "${VAR/"error"}" = "$VAR" ] ; then
+                        MNTDEVS="$MNTDEVS $VAR"
+                fi
+
                 for i in $MNTDEVS; do
-                        local dev=`cat $i`
-                        if [ "$dev" = "$DEVICE" ]; then
+                        if [ "$i" = "$DEVICE" ]; then
                                 ocf_log err "Bug21359, /proc/mounts claims device is not mounted, but $i proves this is wrong"
                                 rc=$OCF_ERR_GENERIC
                         fi
@@ -357,21 +360,28 @@ lustre_server_status()
 #
 lustre_server_validate_all()
 {
-        proc="/proc/fs/lustre"
-        if [ ! -d $proc ]; then
-                modprobe lustre
-                count=0
-                while [ ! -d $proc -o $count -gt 10 ]; do
-                        sleep 1
-                done
+        VAR=$(lctl get_param version 2>&1)
+	if [[ "$VAR" =~ "error" ]]; then
+		modprobe lustre
 
-                if [ ! -d $proc ];  then
+		for i in `seq 1 10`;
+		do
+			VAR=$(lctl get_param version 2>&1)
+		        if [[ "$VAR" =~ "error" ]]; then
+				sleep 1
+			else
+				break
+			fi
+		done
+
+		VAR=$(lctl get_param version 2>&1)
+		if [[ "$VAR" =~ "error" ]]; then
                         ocf_log err "Failed to load the lustre module"
                         return $OCF_ERR_GENERIC
-                fi
+		fi
         fi
 
-        return $OCF_SUCCESS
+	return $OCF_SUCCESS
 }
 
 # Check the arguments passed to this script

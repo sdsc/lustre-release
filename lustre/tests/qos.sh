@@ -16,21 +16,36 @@ echo "remove all files on $MOUNT..."
 rm -fr $MOUNT/*
 sleep 1		# to ensure we get up-to-date statfs info
 
+VAR=`find /proc/fs/lustre/ 2>&1`
+if [ $? = 0 ]; then
+        LUSTRE_PROC=${LUSTRE_PROC:-"/proc/fs/lustre"}
+else
+        VAR=`find /sys/fs/lustre/ 2>&1`
+        if [ $? = 0 ]; then
+                LUSTRE_PROC=${LUSTRE_PROC:-"/sys/fs/lustre"}
+        else
+                VAR=`find /proc/sys/lustre/ 2>&1`
+                if [ $? = 0 ]; then
+                        LUSTRE_PROC=${LUSTRE_PROC:-"/proc/sys/lustre"}
+                fi
+        fi
+fi
+
 set_qos() {
-	for i in `ls /proc/fs/lustre/lov/*/qos_threshold`; do
+	for i in `ls $LUSTRE_PROC/lov/*/qos_threshold`; do
 		echo $(($1/1024)) > $i 
 	done
-	for i in `ls /proc/fs/lustre/lov/*/qos_maxage`; do
+	for i in `ls $LUSTRE_PROC/lov/*/qos_maxage`; do
 		echo $2 > $i
 	done
 }
 
 # assume all osts has same free space 
-OSTCOUNT=`cat /proc/fs/lustre/lov/*/activeobd | head -n 1`
-TOTALAVAIL=`cat /proc/fs/lustre/llite/*/kbytesavail | head -n 1`
+OSTCOUNT=`cat $LUSTRE_PROC/lov/*/activeobd | head -n 1`
+TOTALAVAIL=`cat $LUSTRE_PROC/llite/*/kbytesavail | head -n 1`
 SINGLEAVAIL=$(($TOTALAVAIL/$OSTCOUNT))
 MINFREE=$((1024 * 4))	# 4M
-TOTALFFREE=`cat /proc/fs/lustre/llite/*/filesfree | head -n 1`
+TOTALFFREE=`cat $LUSTRE_PROC/llite/*/filesfree | head -n 1`
 
 if [ $SINGLEAVAIL -lt $MINFREE ]; then
 	echo "ERROR: single ost free size($SINGLEAVAIL kb) is too low!"

@@ -1,11 +1,20 @@
 #!/bin/bash
 
 echo "=== Router Buffers ======="
-test -e /proc/sys/lnet/buffers && cat /proc/sys/lnet/buffers
+VAR=$(lctl get_param buffers 2>&1)
+if [ "${VAR/"error"}" = "$VAR" ] ; then
+lctl get_param -n buffers
+fi
 echo
 echo "=== NIs ============================================"
-test -e /proc/sys/lnet/nis && cat /proc/sys/lnet/nis
+VAR=$(lctl get_param nis 2>&1)
+if [ "${VAR/"error"}" = "$VAR" ] ; then
+lctl get_param -n nis
+fi
 echo
 echo "=== Peers ============================================================="
-test -e /proc/sys/lnet/peers && cat /proc/sys/lnet/peers
+VAR=$(lctl get_param peers 2>&1)
+if [ "${VAR/"error"}" = "$VAR" ] ; then
+lctl get_param -n peers
+fi
 echo

@@ -43,12 +43,27 @@ else
         CLIENT=$tempip
 fi
 
+VAR=`find /proc/fs/lustre/ 2>&1`
+if [ $? = 0 ]; then
+        LUSTRE_PROC=${LUSTRE_PROC:-"/proc/fs/lustre"}
+else
+        VAR=`find /sys/fs/lustre/ 2>&1`
+        if [ $? = 0 ]; then
+                LUSTRE_PROC=${LUSTRE_PROC:-"/sys/fs/lustre"}
+        else
+                VAR=`find /proc/sys/lustre/ 2>&1`
+                if [ $? = 0 ]; then
+                        LUSTRE_PROC=${LUSTRE_PROC:-"/proc/sys/lustre"}
+                fi
+        fi
+fi
+
 TMP_DIR_CLIENT=`mktemp -d /tmp/src_req_history.XXXXX`
 chmod ugo+rwx $TMP_DIR_CLIENT
-MDS_NODE=`cat /proc/fs/lustre/mdc/*/mds_conn_uuid | cut -d @ -f1`
+MDS_NODE=`cat $LUSTRE_PROC/mdc/*/mds_conn_uuid | cut -d @ -f1`
 TARGET="OSS"
 i=0
-for NODE in `cat /proc/fs/lustre/osc/*-osc-*/ost_conn_uuid | cut -d @ -f1` ; do
+for NODE in `cat $LUSTRE_PROC/osc/*-osc-*/ost_conn_uuid | cut -d @ -f1` ; do
 	NODE_ARRAY[$i]=$NODE
 	i=`expr $i + 1`
 done
@@ -56,7 +71,7 @@ done
 # Get the Histories from all the OSS's
 
 k=0
-for NODE in `cat /proc/fs/lustre/osc/*-osc-*/ost_conn_uuid | cut -d @ -f1` ; do
+for NODE in `cat $LUSTRE_PROC/osc/*-osc-*/ost_conn_uuid | cut -d @ -f1` ; do
 
 	SAME_OST=0
 	j=0
@@ -77,7 +92,7 @@ for NODE in `cat /proc/fs/lustre/osc/*-osc-*/ost_conn_uuid | cut -d @ -f1` ; do
 	TMPFILE2=`mktemp /tmp/temp_histories_$NODE.XXXXXXXXXX`
 	rm -f $TMPFILE1
 	rm -f $TMPFILE2
-	( echo cd /proc/fs/lustre
+	( echo cd $LUSTRE_PROC
 	echo touch $TMPFILE1
 	echo touch $TMPFILE2
 	echo chmod go+rw $TMPFILE1
@@ -104,12 +119,12 @@ done
 # Get the Histories from the MDS
 
 TARGET="MDS"
-for NODE in `cat /proc/fs/lustre/mdc/*/mds_conn_uuid | cut -d @ -f1`; do
+for NODE in `cat $LUSTRE_PROC/mdc/*/mds_conn_uuid | cut -d @ -f1`; do
 	TMPFILE1=`mktemp /tmp/temp_histories_$NODE.XXXXXXXXXX`
         rm -f $TMPFILE1
 	TMPFILE2=`mktemp /tmp/temp_histories_$NODE.XXXXXXXXXX`
         rm -f $TMPFILE2
-	( echo cd /proc/fs/lustre
+	( echo cd $LUSTRE_PROC
 	echo touch $TMPFILE1
 	echo touch $TMPFILE2
 	echo chmod go+rw $TMPFILE1
@@ -137,7 +152,7 @@ TARGET="CLIENT"
 
 for FILE in $REQ_FILES_CLIENT; do
 	SERVICE=`echo $FILE | cut -d "/" -f3`
-	cat /proc/fs/lustre/$FILE | sed s/$/:$TARGET/ | sed s/$/:$SERVICE/ >> $TMPFILE1
+	cat $LUSTRE_PROC/$FILE | sed s/$/:$TARGET/ | sed s/$/:$SERVICE/ >> $TMPFILE1
 done
 
 grep -r 0@lo $TMPFILE1 >> $TMPFILE2

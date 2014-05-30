@@ -114,7 +114,7 @@ e.g. $ nobjhi=2 thrhi=2 size=1024 targets="<hostname/ip_of_server>" \
        case=network sh obdfilter-survey
 
 On server side you can see the stats at : 
-        /proc/fs/lustre/obdecho/<echo_srv>/stats
+        /{proc,sys}/{fs,sys}/lustre/obdecho/<echo_srv>/stats
 where, 'echo_srv' is the obdecho server created through script.
 
 NOTE: In network test only automated run is supported.

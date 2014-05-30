@@ -10,7 +10,6 @@ export EJOURNAL=${EJOURNAL:-""}
 export REFORMAT=${REFORMAT:-""}
 export WRITECONF=${WRITECONF:-""}
 export VERBOSE=${VERBOSE:-false}
-export CATASTROPHE=${CATASTROPHE:-/proc/sys/lnet/catastrophe}
 export GSS=false
 export GSS_KRB5=false
 export GSS_PIPEFS=false
@@ -718,7 +717,7 @@ init_gss() {
         fi
 
         if [ -n "$LGSS_KEYRING_DEBUG" ]; then
-            echo $LGSS_KEYRING_DEBUG > /proc/fs/lustre/sptlrpc/gss/lgss_keyring/debug_level
+                lctl set_param -n sptlrpc.gss.lgss_keyring.debug_level $LGSS_KEYRING_DEBUG
         fi
     fi
 }
@@ -1942,8 +1941,13 @@ stop_client_loads() {
 
 # verify that lustre actually cleaned up properly
 cleanup_check() {
-	[ -f "$CATASTROPHE" ] && [[ $(< $CATASTROPHE) -ne 0 ]] &&
-		error "LBUG/LASSERT detected"
+        VAR=$(lctl get_param -n catastrophe 2>&1)
+        if [ "${VAR/"error"}" = "$VAR" ] ; then
+                if [$VAR = 0 ]; then
+                        error "LBUG/LASSERT detected"
+                fi
+        fi
+
 	BUSY=$(dmesg | grep -i destruct || true)
 	if [ -n "$BUSY" ]; then
 		echo "$BUSY" 1>&2
@@ -5479,8 +5483,13 @@ restore_lustre_params() {
 
 check_catastrophe() {
 	local rnodes=${1:-$(comma_list $(remote_nodes_list))}
-	local C=$CATASTROPHE
-	[ -f $C ] && [ $(cat $C) -ne 0 ] && return 1
+
+        VAR=$(lctl get_param -n catastrophe 2>&1)
+        if [ "${VAR/"error"}" = "$VAR" ] ; then
+                if [$VAR != 0 ]; then
+                        return 1
+                fi
+        fi
 
 	[ -z "$rnodes" ] && return 0
 

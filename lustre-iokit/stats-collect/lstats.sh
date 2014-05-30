@@ -173,17 +173,15 @@ function brw_collector()
 	echo "brw_* for $filter " `date`
 
 	# clear old stats
-	for i in /proc/fs/lustre/obdfilter/${filter}/brw_*; do
-		echo 0 >$i
-	done
+	lctl set_param -n obdfilter.${filter}.brw_* 0
 
 	if let "BRW_INTERVAL==0"; then
-		cat /proc/fs/lustre/obdfilter/${filter}/brw_*
+		lctl get_param -n obdfilter.${filter}.brw_*
 		idle_collector
-		cat /proc/fs/lustre/obdfilter/${filter}/brw_*
+		lctl get_param -n obdfilter.${filter}.brw_*
 	elif let "BRW_INTERVAL>0"; then
 		while [ "$stop_collector" != "1" ]; do
-			cat /proc/fs/lustre/obdfilter/${filter}/brw_*
+			lctl get_param -n obdfilter.${filter}.brw_*
 			sleep $BRW_INTERVAL
 		done
 	else
@@ -192,14 +190,47 @@ function brw_collector()
 	fi
 }
 
+#
+# helper function to generate proper path to "lustre", which may be
+# /proc/fs/lustre, /proc/sys/lustre, or /sys/fs/lustre.
+#
+# create correct full path with the current "lustre" path
+# based on given basename.
+#
+basename=""
+fullname=""
+function generate_path()
+{
+	fullname=""
+        VAR=`find /proc/fs/lustre/$basename 2>&1`
+        if [ $? = 0 ]; then
+                fullname="$fullname /proc/fs/lustre/$basename/*"
+        fi
+
+        VAR=`find /proc/sys/lustre/$basename 2>&1`
+        if [ $? = 0 ]; then
+                fullname="$fullname /proc/sys/lustre/$basename/*"
+        fi
+
+        VAR=`find /sys/fs/lustre/$basename 2>&1`
+        if [ $? = 0 ]; then
+                fullname="$fullname /sys/fs/lustre/$basename/*"
+        fi
+}
+
 function brw_start()
 {
 	if [ "$BRW_INTERVAL" == "" ]; then
 		return;
 	fi
 
+        list=""
+        basename="obdfilter"
+        generate_path
+        list="$list $fullname"
+
 	# find all obdfilters
-	for i in /proc/fs/lustre/obdfilter/*; do
+	for i in $list; do
 		filter=`basename $i`
 		if [ "$filter" == "num_refs" ]; then
 			continue;
@@ -247,8 +278,17 @@ function service_start()
 		return;
 	fi
 
+        list=""
+        basename="ost"
+        generate_path
+        list="$list $fullname"
+
+        basename="mdt"
+        generate_path
+        list="$list $fullname"
+
 	# find all OSTs and MDTs
-	for i in /proc/fs/lustre/ost/* /proc/fs/lustre/mdt/*; do
+	for i in $list; do
 		target=`basename $i`
 		if [ "$target" == "num_refs" ]; then
 			continue;
@@ -263,8 +303,13 @@ function service_start()
 		done
 	done
 
+        list=""
+        basename="ldlm/services"
+        generate_path
+        list="$list $fullname"
+
 	# find all LDLM services
-	for i in /proc/fs/lustre/ldlm/services/*; do
+	for i in $list; do
 		srv=`basename $i`
 		run_collector "service" service_collector ${i}/stats "ldlm" $srv &
 	done
@@ -310,8 +355,13 @@ function client_start()
 		return;
 	fi
 
+        list=""
+        basename="osc"
+        generate_path
+        list="$list $fullname"
+
 	# find all osc 
-	for i in /proc/fs/lustre/osc/* ; do
+	for i in $list ; do
 		target=`basename $i`
 		if [ "$target" == "num_refs" ]; then
 			continue;
@@ -324,8 +374,14 @@ function client_start()
 			fi
 		done
 	done
+
+        list=""
+        basename="llite"
+        generate_path
+        list="$list $fullname"
+
 	# find all llite stats
-	for i in /proc/fs/lustre/llite/* ; do
+	for i in $list ; do
 		target=`basename $i`
 		for j in ${i}/*; do
 			stats=`basename $j`
@@ -378,8 +434,17 @@ function sdio_start()
 		return;
 	fi
 
+        list=""
+        basename="obdfilter"
+        generate_path
+        list="$list $fullname"
+
+        basename="mds"
+        generate_path
+        list="$list $fullname"
+
 	# find all obdfilters and MDSs
-	for i in /proc/fs/lustre/obdfilter/* /proc/fs/lustre/mds/*; do
+	for i in $list ; do
 		obd=`basename $i`
 		if [ "$obd" == "num_refs" ]; then
 			continue;
@@ -437,7 +502,16 @@ function mballoc_start()
 	fi
 
 	# find all obdfilters and MDSs
-	for i in /proc/fs/lustre/obdfilter/* /proc/fs/lustre/mds/*; do
+        list=""
+        basename="obdfilter"
+        generate_path
+        list="$list $fullname"
+
+        basename="mds"
+        generate_path
+        list="$list $fullname"
+
+	for i in $list ; do
 		obd=`basename $i`
 		if [ "$obd" == "num_refs" ]; then
 			continue;
@@ -493,7 +567,16 @@ function io_start()
 	fi
 
 	# find all obdfilters and MDSs
-	for i in /proc/fs/lustre/obdfilter/* /proc/fs/lustre/mds/*; do
+        list=""
+        basename="obdfilter"
+        generate_path
+        list="$list $fullname"
+
+        basename="mds"
+        generate_path
+        list="$list $fullname"
+
+	for i in $list ; do
 		obd=`basename $i`
 		if [ "$obd" == "num_refs" ]; then
 			continue;
@@ -546,7 +629,16 @@ function jbd_start()
 	fi
 
 	# find all obdfilters and MDSs
-	for i in /proc/fs/lustre/obdfilter/* /proc/fs/lustre/mds/*; do
+        list=""
+        basename="obdfilter"
+        generate_path
+        list="$list $fullname"
+
+        basename="mds"
+        generate_path
+        list="$list $fullname"
+
+	for i in $list ; do
 		obd=`basename $i`
 		if [ "$obd" == "num_refs" ]; then
 			continue;

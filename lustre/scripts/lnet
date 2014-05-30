@@ -145,23 +145,27 @@ status ()
 	egrep -q "lnet" /proc/modules && STATE="loaded"
 
 	# check for any routes - on a portals router this is the only thing
-	[ "`cat /proc/sys/lnet/routes 2> /dev/null`" ] && STATE="running" && RETVAL=0
+        VAR=$(lctl get_param  -n routes 2>&1)
+        if [ "${VAR/"error"}" = "$VAR" ] ; then
+		# check for any routes - on a portals router this is the only thing
+		STATE="running" && RETVAL=0
 
-	# check if this is a router
-	if [ -d /proc/sys/lnet ]; then
-		ROUTER="`cat /proc/sys/lnet/routes | head -1 | grep -i -c \"Routing enabled\"`"
-		if [[ ! -z ${ROUTER} && ${ROUTER} -ge 1 ]]; then
-			STATE="running"
-			RETVAL=0
-		fi
+		# check if this is a router
+                ROUTER="`echo $VAR | head -1 | grep -i -c \"Routing enabled\"`"
+                if [[ ! -z ${ROUTER} && ${ROUTER} -ge 1 ]]; then
+                        STATE="running"
+                        RETVAL=0
+                fi
 	fi
 
-	# check for error in health_check
-	HEALTH="/proc/fs/lustre/health_check"
-	[ -f "$HEALTH" ] && grep -q "NOT HEALTHY" $HEALTH && STATE="unhealthy" && RETVAL=1
+        VAR=$(lctl get_param -n health_check 2>&1)
+        if [ "${VAR/"error"}" = "$VAR" ] ; then
+		# check for error in health_check
+		echo $VAR | grep -q "NOT HEALTHY" && STATE="unhealthy" && RETVAL=1
+		# check for LBUG
+		echo $VAR | grep -q "LBUG" && STATE="LBUG" && RETVAL=152
 
-	# check for LBUG
-	[ -f  "$HEALTH" ] && grep -q "LBUG" $HEALTH && STATE="LBUG" && RETVAL=152
+	fi
 
 	echo $STATE
 	eval $old_nullglob

@@ -46,7 +46,20 @@ EOF
 LUSTRE_CSV_FILE=${LUSTRE_CSV_FILE:-"lustre_config.csv"}
 
 # Lustre proc files
-LUSTRE_PROC=${LUSTRE_PROC:-"/proc/fs/lustre"}
+VAR=$(find /proc/fs/lustre/ 2>&1)
+if [ $? = 0 ]; then
+        LUSTRE_PROC=${LUSTRE_PROC:-"/proc/fs/lustre"}
+else
+        VAR=$(find /sys/fs/lustre/ 2>&1)
+        if [ $? = 0 ]; then
+                LUSTRE_PROC=${LUSTRE_PROC:-"/sys/fs/lustre"}
+        else
+                VAR=$(find /proc/sys/lustre/ 2>&1)
+                if [ $? = 0 ]; then
+                        LUSTRE_PROC=${LUSTRE_PROC:-"/proc/sys/lustre"}
+                fi
+        fi
+fi
 LUSTRE_PROC_DEVICES=${LUSTRE_PROC}/devices
 
 LNET_PROC=${LNET_PROC:-"/proc/sys/lnet"}
