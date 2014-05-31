@@ -2429,6 +2429,7 @@ int lprocfs_write_frac_u64_helper(const char *buffer, unsigned long count,
         char kernbuf[22], *end, *pbuf;
         __u64 whole, frac = 0, units;
         unsigned frac_d = 1;
+	bool units_f = 0;
 
         if (count > (sizeof(kernbuf) - 1))
                 return -EINVAL;
@@ -2474,10 +2475,11 @@ int lprocfs_write_frac_u64_helper(const char *buffer, unsigned long count,
 			units <<= 10;
 		case 'k': case 'K':
 			units <<= 10;
+			unit_f = 1;
 		}
 	}
         /* Specified units override the multiplier */
-        if (units)
+	if (units_f)
                 mult = mult < 0 ? -units : units;
 
         frac *= mult;
