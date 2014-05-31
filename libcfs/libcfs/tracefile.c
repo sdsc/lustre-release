@@ -1112,7 +1112,7 @@ void cfs_trace_stop_thread(void)
 	mutex_unlock(&cfs_trace_thread_mutex);
 }
 
-int cfs_tracefile_init(int max_pages)
+int cfs_tracefile_init(long max_pages)
 {
 	struct cfs_trace_cpu_data *tcd;
 	int	i;

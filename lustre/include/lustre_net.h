@@ -464,7 +464,7 @@
   * similar level of old versions, unless the server has many cores.
   */
  /* depress threads factor for VM with small memory size */
-#define OSS_THR_FACTOR		min_t(int, 8, \
+#define OSS_THR_FACTOR		min_t(long, 8, \
 				NUM_CACHEPAGES >> (28 - PAGE_CACHE_SHIFT))
 #define OSS_NTHRS_INIT		(PTLRPC_NTHRS_INIT + 1)
 #define OSS_NTHRS_BASE		64
@@ -2539,7 +2539,7 @@ struct ptlrpc_service {
         unsigned                        srv_is_stopping:1;
 
 	/** max # request buffers in history per partition */
-	int				srv_hist_nrqbds_cpt_max;
+	long				srv_hist_nrqbds_cpt_max;
 	/** number of CPTs this service bound on */
 	int				srv_ncpts;
 	/** CPTs array this service bound on */
@@ -2621,7 +2621,7 @@ struct ptlrpc_service_part {
 	/** request buffer history */
 	cfs_list_t			scp_hist_rqbds;
 	/** # request buffers in history */
-	int				scp_hist_nrqbds;
+	long				scp_hist_nrqbds;
 	/** sequence number for request */
 	__u64				scp_hist_seq;
 	/** highest seq culled from history */
