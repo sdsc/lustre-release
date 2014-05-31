@@ -264,13 +264,13 @@ ptlrpc_lprocfs_req_history_len_seq_show(struct seq_file *m, void *v)
 {
 	struct ptlrpc_service *svc = m->private;
 	struct ptlrpc_service_part *svcpt;
-	int	total = 0;
+	long	total = 0;
 	int	i;
 
 	ptlrpc_service_for_each_part(svcpt, i, svc)
 		total += svcpt->scp_hist_nrqbds;
 
-	return seq_printf(m, "%d\n", total);
+	return seq_printf(m, "%ld\n", total);
 }
 LPROC_SEQ_FOPS_RO(ptlrpc_lprocfs_req_history_len);
 
@@ -279,13 +279,13 @@ ptlrpc_lprocfs_req_history_max_seq_show(struct seq_file *m, void *n)
 {
 	struct ptlrpc_service *svc = m->private;
 	struct ptlrpc_service_part *svcpt;
-	int	total = 0;
+	long	total = 0;
 	int	i;
 
 	ptlrpc_service_for_each_part(svcpt, i, svc)
 		total += svc->srv_hist_nrqbds_cpt_max;
 
-	return seq_printf(m, "%d\n", total);
+	return seq_printf(m, "%ld\n", total);
 }
 
 static ssize_t
@@ -295,10 +295,10 @@ ptlrpc_lprocfs_req_history_max_seq_write(struct file *file, const char *buffer,
 	struct seq_file		*m = file->private_data;
 	struct ptlrpc_service	*svc = m->private;
 	int			bufpages;
-	int			val;
+	long			val;
 	int			rc;
 
-	rc = lprocfs_write_helper(buffer, count, &val);
+	rc = lprocfs_write_u64_helper(buffer, count, (__u64 *)&val);
         if (rc < 0)
                 return rc;
 
@@ -318,7 +318,7 @@ ptlrpc_lprocfs_req_history_max_seq_write(struct file *file, const char *buffer,
 	if (val == 0)
 		svc->srv_hist_nrqbds_cpt_max = 0;
 	else
-		svc->srv_hist_nrqbds_cpt_max = max(1, (val / svc->srv_ncpts));
+		svc->srv_hist_nrqbds_cpt_max = max(1L, (val / svc->srv_ncpts));
 
 	spin_unlock(&svc->srv_lock);
 

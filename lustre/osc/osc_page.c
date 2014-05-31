@@ -465,10 +465,10 @@ int osc_over_unstable_soft_limit(struct client_obd *cli)
 	if (cli == NULL)
 		return 0;
 
-	obd_upages = atomic_read(&obd_unstable_pages);
-	obd_dpages = atomic_read(&obd_dirty_pages);
+	obd_upages = atomic64_read(&obd_unstable_pages);
+	obd_dpages = atomic64_read(&obd_dirty_pages);
 
-	osc_upages = atomic_read(&cli->cl_unstable_count);
+	osc_upages = atomic64_read(&cli->cl_unstable_count);
 
 	/* obd_max_dirty_pages is the max number of (dirty + unstable)
 	 * pages allowed at any given time. To simulate an unstable page
@@ -544,14 +544,14 @@ static const int lru_shrink_max = 8 << (20 - PAGE_CACHE_SHIFT); /* 8M */
 static int osc_cache_too_much(struct client_obd *cli)
 {
 	struct cl_client_cache *cache = cli->cl_cache;
-	int pages = atomic_read(&cli->cl_lru_in_list);
+	long pages = atomic64_read(&cli->cl_lru_in_list);
 	unsigned long budget;
 
 	budget = cache->ccc_lru_max / atomic_read(&cache->ccc_users);
 
 	/* if it's going to run out LRU slots, we should free some, but not
 	 * too much to maintain faireness among OSCs. */
-	if (atomic_read(cli->cl_lru_left) < cache->ccc_lru_max >> 4) {
+	if (atomic64_read(cli->cl_lru_left) < cache->ccc_lru_max >> 4) {
 		if (pages >= budget)
 			return lru_shrink_max;
 		else if (pages >= budget / 2)
@@ -586,6 +586,7 @@ void osc_lru_add_batch(struct client_obd *cli, struct list_head *plist)
 			continue;
 
 		++npages;
+		LASSERT(npages);
 		LASSERT(list_empty(&opg->ops_lru));
 		list_add(&opg->ops_lru, &lru);
 	}
@@ -593,8 +594,8 @@ void osc_lru_add_batch(struct client_obd *cli, struct list_head *plist)
 	if (npages > 0) {
 		client_obd_list_lock(&cli->cl_lru_list_lock);
 		list_splice_tail(&lru, &cli->cl_lru_list);
-		atomic_sub(npages, &cli->cl_lru_busy);
-		atomic_add(npages, &cli->cl_lru_in_list);
+		atomic64_sub(npages, &cli->cl_lru_busy);
+		atomic64_add(npages, &cli->cl_lru_in_list);
 		client_obd_list_unlock(&cli->cl_lru_list_lock);
 
 		/* XXX: May set force to be true for better performance */
@@ -605,9 +606,9 @@ void osc_lru_add_batch(struct client_obd *cli, struct list_head *plist)
 
 static void __osc_lru_del(struct client_obd *cli, struct osc_page *opg)
 {
-	LASSERT(atomic_read(&cli->cl_lru_in_list) > 0);
+	LASSERT(atomic64_read(&cli->cl_lru_in_list) > 0);
 	list_del_init(&opg->ops_lru);
-	atomic_dec(&cli->cl_lru_in_list);
+	atomic64_dec(&cli->cl_lru_in_list);
 }
 
 /**
@@ -621,12 +622,12 @@ static void osc_lru_del(struct client_obd *cli, struct osc_page *opg)
 		if (!list_empty(&opg->ops_lru)) {
 			__osc_lru_del(cli, opg);
 		} else {
-			LASSERT(atomic_read(&cli->cl_lru_busy) > 0);
-			atomic_dec(&cli->cl_lru_busy);
+			LASSERT(atomic64_read(&cli->cl_lru_busy) > 0);
+			atomic64_dec(&cli->cl_lru_busy);
 		}
 		client_obd_list_unlock(&cli->cl_lru_list_lock);
 
-		atomic_inc(cli->cl_lru_left);
+		atomic64_inc(cli->cl_lru_left);
 		/* this is a great place to release more LRU pages if
 		 * this osc occupies too many LRU pages and kernel is
 		 * stealing one of them. */
@@ -649,7 +650,7 @@ static void osc_lru_use(struct client_obd *cli, struct osc_page *opg)
 		client_obd_list_lock(&cli->cl_lru_list_lock);
 		__osc_lru_del(cli, opg);
 		client_obd_list_unlock(&cli->cl_lru_list_lock);
-		atomic_inc(&cli->cl_lru_busy);
+		atomic64_inc(&cli->cl_lru_busy);
 	}
 }
 
@@ -673,21 +674,21 @@ static void discard_pagevec(const struct lu_env *env, struct cl_io *io,
 /**
  * Drop @target of pages from LRU at most.
  */
-int osc_lru_shrink(const struct lu_env *env, struct client_obd *cli,
-		   int target, bool force)
+long osc_lru_shrink(const struct lu_env *env, struct client_obd *cli,
+		   long target, bool force)
 {
 	struct cl_io *io;
 	struct cl_object *clobj = NULL;
 	struct cl_page **pvec;
 	struct osc_page *opg;
-	int maxscan = 0;
-	int count = 0;
+	long maxscan = 0;
+	long count = 0;
 	int index = 0;
 	int rc = 0;
 	ENTRY;
 
-	LASSERT(atomic_read(&cli->cl_lru_in_list) >= 0);
-	if (atomic_read(&cli->cl_lru_in_list) == 0 || target <= 0)
+	LASSERT(atomic64_read(&cli->cl_lru_in_list) >= 0);
+	if (atomic64_read(&cli->cl_lru_in_list) == 0 || target <= 0)
 		RETURN(0);
 
 	if (!force) {
@@ -706,7 +707,7 @@ int osc_lru_shrink(const struct lu_env *env, struct client_obd *cli,
 	io = &osc_env_info(env)->oti_io;
 
 	client_obd_list_lock(&cli->cl_lru_list_lock);
-	maxscan = min(target << 1, atomic_read(&cli->cl_lru_in_list));
+	maxscan = min(target << 1, atomic64_read(&cli->cl_lru_in_list));
 	while (!list_empty(&cli->cl_lru_list)) {
 		struct cl_page *page;
 		bool will_free = false;
@@ -795,24 +796,19 @@ int osc_lru_shrink(const struct lu_env *env, struct client_obd *cli,
 
 	atomic_dec(&cli->cl_lru_shrinkers);
 	if (count > 0) {
-		atomic_add(count, cli->cl_lru_left);
+		atomic64_add(count, cli->cl_lru_left);
 		wake_up_all(&osc_lru_waitq);
 	}
 	RETURN(count > 0 ? count : rc);
 }
 
-static inline int max_to_shrink(struct client_obd *cli)
-{
-	return min(atomic_read(&cli->cl_lru_in_list) >> 1, lru_shrink_max);
-}
-
-int osc_lru_reclaim(struct client_obd *cli)
+long osc_lru_reclaim(struct client_obd *cli)
 {
 	struct cl_env_nest nest;
 	struct lu_env *env;
 	struct cl_client_cache *cache = cli->cl_cache;
 	int max_scans;
-	int rc = 0;
+	long rc = 0;
 	ENTRY;
 
 	LASSERT(cache != NULL);
@@ -827,15 +823,15 @@ int osc_lru_reclaim(struct client_obd *cli)
 		if (rc == -EBUSY)
 			rc = 0;
 
-		CDEBUG(D_CACHE, "%s: Free %d pages from own LRU: %p.\n",
+		CDEBUG(D_CACHE, "%s: Free %ld pages from own LRU: %p.\n",
 			cli->cl_import->imp_obd->obd_name, rc, cli);
 		GOTO(out, rc);
 	}
 
-	CDEBUG(D_CACHE, "%s: cli %p no free slots, pages: %d, busy: %d.\n",
+	CDEBUG(D_CACHE, "%s: cli %p no free slots, pages: %ld, busy: %ld.\n",
 		cli->cl_import->imp_obd->obd_name, cli,
-		atomic_read(&cli->cl_lru_in_list),
-		atomic_read(&cli->cl_lru_busy));
+		atomic64_read(&cli->cl_lru_in_list),
+		atomic64_read(&cli->cl_lru_busy));
 
 	/* Reclaim LRU slots from other client_obd as it can't free enough
 	 * from its own. This should rarely happen. */
@@ -848,10 +844,10 @@ int osc_lru_reclaim(struct client_obd *cli)
 		cli = list_entry(cache->ccc_lru.next, struct client_obd,
 				 cl_lru_osc);
 
-		CDEBUG(D_CACHE, "%s: cli %p LRU pages: %d, busy: %d.\n",
+		CDEBUG(D_CACHE, "%s: cli %p LRU pages: %ld, busy: %ld.\n",
 			cli->cl_import->imp_obd->obd_name, cli,
-			atomic_read(&cli->cl_lru_in_list),
-			atomic_read(&cli->cl_lru_busy));
+			atomic64_read(&cli->cl_lru_in_list),
+			atomic64_read(&cli->cl_lru_busy));
 
 		list_move_tail(&cli->cl_lru_osc, &cache->ccc_lru);
 		if (osc_cache_too_much(cli) > 0) {
@@ -868,7 +864,7 @@ int osc_lru_reclaim(struct client_obd *cli)
 
 out:
 	cl_env_nested_put(&nest, env);
-	CDEBUG(D_CACHE, "%s: cli %p freed %d pages.\n",
+	CDEBUG(D_CACHE, "%s: cli %p freed %ld pages.\n",
 		cli->cl_import->imp_obd->obd_name, cli, rc);
 	return rc;
 }
@@ -879,7 +875,7 @@ static int osc_lru_reserve(const struct lu_env *env, struct osc_object *obj,
 	struct l_wait_info lwi = LWI_INTR(LWI_ON_SIGNAL_NOOP, NULL);
 	struct osc_io *oio = osc_env_io(env);
 	struct client_obd *cli = osc_cli(obj);
-	int rc = 0;
+	long rc = 0;
 	ENTRY;
 
 	if (cli->cl_cache == NULL) /* shall not be in LRU */
@@ -890,8 +886,8 @@ static int osc_lru_reserve(const struct lu_env *env, struct osc_object *obj,
 		goto out;
 	}
 
-	LASSERT(atomic_read(cli->cl_lru_left) >= 0);
-	while (!atomic_add_unless(cli->cl_lru_left, -1, 0)) {
+	LASSERT(atomic64_read(cli->cl_lru_left) >= 0);
+	while (!atomic64_add_unless(cli->cl_lru_left, -1, 0)) {
 
 		/* run out of LRU spaces, try to drop some by itself */
 		rc = osc_lru_reclaim(cli);
@@ -902,7 +898,7 @@ static int osc_lru_reserve(const struct lu_env *env, struct osc_object *obj,
 
 		cond_resched();
 		rc = l_wait_event(osc_lru_waitq,
-				atomic_read(cli->cl_lru_left) > 0,
+				atomic64_read(cli->cl_lru_left) > 0,
 				&lwi);
 		if (rc < 0)
 			break;
@@ -910,7 +906,7 @@ static int osc_lru_reserve(const struct lu_env *env, struct osc_object *obj,
 
 out:
 	if (rc >= 0) {
-		atomic_inc(&cli->cl_lru_busy);
+		atomic64_inc(&cli->cl_lru_busy);
 		opg->ops_in_lru = 1;
 		rc = 0;
 	}

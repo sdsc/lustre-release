@@ -122,7 +122,7 @@ struct ldlm_bl_work_item {
         struct ldlm_lock_desc   blwi_ld;
         struct ldlm_lock       *blwi_lock;
         cfs_list_t              blwi_head;
-        int                     blwi_count;
+	long                    blwi_count;
 	struct completion        blwi_comp;
 	ldlm_cancel_flags_t     blwi_flags;
         int                     blwi_mem_pressure;
@@ -1913,7 +1913,7 @@ static int __ldlm_bl_to_thread(struct ldlm_bl_work_item *blwi,
 static inline void init_blwi(struct ldlm_bl_work_item *blwi,
 			     struct ldlm_namespace *ns,
 			     struct ldlm_lock_desc *ld,
-			     cfs_list_t *cancels, int count,
+			     cfs_list_t *cancels, long count,
 			     struct ldlm_lock *lock,
 			     ldlm_cancel_flags_t cancel_flags)
 {
@@ -1946,10 +1946,10 @@ static inline void init_blwi(struct ldlm_bl_work_item *blwi,
  * call ->l_blocking_ast itself.
  */
 static int ldlm_bl_to_thread(struct ldlm_namespace *ns,
-			     struct ldlm_lock_desc *ld,
-			     struct ldlm_lock *lock,
-			     cfs_list_t *cancels, int count,
-			     ldlm_cancel_flags_t cancel_flags)
+			      struct ldlm_lock_desc *ld,
+			      struct ldlm_lock *lock,
+			      cfs_list_t *cancels, long count,
+			      ldlm_cancel_flags_t cancel_flags)
 {
 	ENTRY;
 
@@ -1989,9 +1989,9 @@ int ldlm_bl_to_thread_lock(struct ldlm_namespace *ns, struct ldlm_lock_desc *ld,
 #endif
 }
 
-int ldlm_bl_to_thread_list(struct ldlm_namespace *ns, struct ldlm_lock_desc *ld,
-			   cfs_list_t *cancels, int count,
-			   ldlm_cancel_flags_t cancel_flags)
+int ldlm_bl_to_thread_list(struct ldlm_namespace *ns,
+			   struct ldlm_lock_desc *ld, cfs_list_t *cancels,
+			   long count, ldlm_cancel_flags_t cancel_flags)
 {
 #ifdef __KERNEL__
 	return ldlm_bl_to_thread(ns, ld, NULL, cancels, count, cancel_flags);
@@ -2591,7 +2591,7 @@ static int ldlm_bl_thread_main(void *arg)
 			memory_pressure_set();
 
                 if (blwi->blwi_count) {
-                        int count;
+			long count;
 			/* The special case when we cancel locks in LRU
                          * asynchronously, we pass the list of locks here.
                          * Thus locks are marked LDLM_FL_CANCELING, but NOT

@@ -193,11 +193,10 @@ LPROC_SEQ_FOPS_RO(lprocfs_ns_locks);
 static int lprocfs_lru_size_seq_show(struct seq_file *m, void *v)
 {
 	struct ldlm_namespace *ns = m->private;
-	__u32 *nr = &ns->ns_max_unused;
 
 	if (ns_connect_lru_resize(ns))
-		nr = &ns->ns_nr_unused;
-	return lprocfs_uint_seq_show(m, nr);
+		return lprocfs_ulong_seq_show(m, &ns->ns_nr_unused);
+	return lprocfs_uint_seq_show(m, &ns->ns_max_unused);
 }
 
 static ssize_t lprocfs_lru_size_seq_write(struct file *file, const char *buffer,
@@ -217,17 +216,18 @@ static ssize_t lprocfs_lru_size_seq_write(struct file *file, const char *buffer,
                        "dropping all unused locks from namespace %s\n",
                        ldlm_ns_name(ns));
                 if (ns_connect_lru_resize(ns)) {
-                        int canceled, unused  = ns->ns_nr_unused;
+			long canceled;
+			long unused  = ns->ns_nr_unused;
 
                         /* Try to cancel all @ns_nr_unused locks. */
 			canceled = ldlm_cancel_lru(ns, unused, 0,
 						   LDLM_CANCEL_PASSED);
                         if (canceled < unused) {
-                                CDEBUG(D_DLMTRACE,
-                                       "not all requested locks are canceled, "
-                                       "requested: %d, canceled: %d\n", unused,
-                                       canceled);
-                                return -EINVAL;
+				CDEBUG(D_DLMTRACE,
+				       "not all requested locks are canceled, "
+				       "requested: %ld, canceled: %ld\n",
+				       unused, canceled);
+				return -EINVAL;
                         }
                 } else {
                         tmp = ns->ns_max_unused;
@@ -247,16 +247,15 @@ static ssize_t lprocfs_lru_size_seq_write(struct file *file, const char *buffer,
 
         if (ns_connect_lru_resize(ns)) {
                 if (!lru_resize)
-                        ns->ns_max_unused = (unsigned int)tmp;
+			ns->ns_max_unused = tmp;
 
                 if (tmp > ns->ns_nr_unused)
                         tmp = ns->ns_nr_unused;
                 tmp = ns->ns_nr_unused - tmp;
 
-                CDEBUG(D_DLMTRACE,
-                       "changing namespace %s unused locks from %u to %u\n",
-                       ldlm_ns_name(ns), ns->ns_nr_unused,
-                       (unsigned int)tmp);
+		CDEBUG(D_DLMTRACE,
+		       "changing namespace %s unused locks from %lu to %lu\n",
+		       ldlm_ns_name(ns), ns->ns_nr_unused, tmp);
 		ldlm_cancel_lru(ns, tmp, LCF_ASYNC, LDLM_CANCEL_PASSED);
 
                 if (!lru_resize) {
@@ -266,11 +265,15 @@ static ssize_t lprocfs_lru_size_seq_write(struct file *file, const char *buffer,
                         ns->ns_connect_flags &= ~OBD_CONNECT_LRU_RESIZE;
                 }
         } else {
-                CDEBUG(D_DLMTRACE,
-                       "changing namespace %s max_unused from %u to %u\n",
-                       ldlm_ns_name(ns), ns->ns_max_unused,
-                       (unsigned int)tmp);
-                ns->ns_max_unused = (unsigned int)tmp;
+		CDEBUG(D_DLMTRACE,
+		       "changing namespace %s max_unused from %u to %lu\n",
+		       ldlm_ns_name(ns), ns->ns_max_unused, tmp);
+		if (tmp >= INT_MAX) {
+			CWARN("Truncating max_unused to %u\n", INT_MAX);
+			ns->ns_max_unused = INT_MAX;
+		} else {
+			ns->ns_max_unused = (unsigned int)tmp;
+		}
 		ldlm_cancel_lru(ns, 0, LCF_ASYNC, LDLM_CANCEL_PASSED);
 
 		/* Make sure that LRU resize was originally supported before

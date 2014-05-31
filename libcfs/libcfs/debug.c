@@ -289,7 +289,7 @@ EXPORT_SYMBOL(libcfs_debug_dumplog);
 int libcfs_debug_init(unsigned long bufsize)
 {
 	int    rc = 0;
-	unsigned int max = libcfs_debug_mb;
+	unsigned long max = libcfs_debug_mb;
 
 	init_waitqueue_head(&debug_ctlwq);
 

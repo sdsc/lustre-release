@@ -545,6 +545,12 @@ int lprocfs_uint_seq_show(struct seq_file *m, void *data)
 }
 EXPORT_SYMBOL(lprocfs_uint_seq_show);
 
+int lprocfs_ulong_seq_show(struct seq_file *m, void *data)
+{
+	return seq_printf(m, "%lu\n", *(unsigned long *)data);
+}
+EXPORT_SYMBOL(lprocfs_ulong_seq_show);
+
 int lprocfs_wr_uint(struct file *file, const char *buffer,
                     unsigned long count, void *data)
 {
@@ -594,6 +600,14 @@ int lprocfs_atomic_seq_show(struct seq_file *m, void *data)
 }
 EXPORT_SYMBOL(lprocfs_atomic_seq_show);
 
+int lprocfs_atomic64_seq_show(struct seq_file *m, void *data)
+{
+	atomic64_t *atom = data;
+	LASSERT(atom != NULL);
+	return seq_printf(m, "%ld\n", atomic64_read(atom));
+}
+EXPORT_SYMBOL(lprocfs_atomic64_seq_show);
+
 ssize_t
 lprocfs_atomic_seq_write(struct file *file, const char *buffer,
 			size_t count, loff_t *off)
@@ -613,6 +627,26 @@ lprocfs_atomic_seq_write(struct file *file, const char *buffer,
 	return count;
 }
 EXPORT_SYMBOL(lprocfs_atomic_seq_write);
+
+ssize_t
+lprocfs_atomic64_seq_write(struct file *file, const char *buffer,
+			   size_t count, loff_t *off)
+{
+	atomic64_t *atm = ((struct seq_file *)file->private_data)->private;
+	__u64 val = 0;
+	long rc;
+
+	rc = lprocfs_write_u64_helper(buffer, count, &val);
+	if (rc < 0)
+		return rc;
+
+	if (val <= 0)
+		return -ERANGE;
+
+	atomic64_set(atm, val);
+	return count;
+}
+EXPORT_SYMBOL(lprocfs_atomic64_seq_write);
 
 int lprocfs_uuid_seq_show(struct seq_file *m, void *data)
 {

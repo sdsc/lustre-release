@@ -219,9 +219,9 @@ struct ldlm_pool_ops {
 	/** Recalculate pool \a pl usage */
 	int (*po_recalc)(struct ldlm_pool *pl);
 	/** Cancel at least \a nr locks from pool \a pl */
-	int (*po_shrink)(struct ldlm_pool *pl, int nr,
-			 unsigned int gfp_mask);
-	int (*po_setup)(struct ldlm_pool *pl, int limit);
+	long (*po_shrink)(struct ldlm_pool *pl, long nr,
+			  unsigned int gfp_mask);
+	int (*po_setup)(struct ldlm_pool *pl, long limit);
 };
 
 /** One second for pools thread check interval. Each pool has own period. */
@@ -249,9 +249,9 @@ struct ldlm_pool {
 	/** Lock for protecting SLV/CLV updates. */
 	spinlock_t		pl_lock;
 	/** Number of allowed locks in in pool, both, client and server side. */
-	atomic_t		pl_limit;
+	atomic64_t		pl_limit;
 	/** Number of granted locks in */
-	atomic_t		pl_granted;
+	atomic64_t		pl_granted;
 	/** Grant rate per T. */
 	atomic_t		pl_grant_rate;
 	/** Cancel rate per T. */
@@ -270,7 +270,7 @@ struct ldlm_pool {
 	/** Recalculation and shrink operations. */
 	struct ldlm_pool_ops	*pl_ops;
 	/** Number of planned locks for next period. */
-	int			pl_grant_plan;
+	long			pl_grant_plan;
 	/** Pool statistics. */
 	struct lprocfs_stats	*pl_stats;
 };
@@ -421,7 +421,7 @@ struct ldlm_namespace {
 	 */
 	cfs_list_t		ns_unused_list;
 	/** Number of locks in the LRU list above */
-	int			ns_nr_unused;
+	long			ns_nr_unused;
 
 	/**
 	 * Maximum number of locks permitted in the LRU. If 0, means locks
@@ -1406,9 +1406,9 @@ int ldlm_prep_enqueue_req(struct obd_export *exp,
                           cfs_list_t *cancels,
                           int count);
 int ldlm_prep_elc_req(struct obd_export *exp,
-                      struct ptlrpc_request *req,
-                      int version, int opc, int canceloff,
-                      cfs_list_t *cancels, int count);
+		      struct ptlrpc_request *req,
+		      int version, int opc, int canceloff,
+		      cfs_list_t *cancels, long count);
 
 struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp, int lvb_len);
 int ldlm_handle_enqueue0(struct ldlm_namespace *ns, struct ptlrpc_request *req,
@@ -1442,17 +1442,17 @@ int ldlm_cli_cancel_unused_resource(struct ldlm_namespace *ns,
                                     ldlm_mode_t mode,
                                     ldlm_cancel_flags_t flags,
                                     void *opaque);
-int ldlm_cli_cancel_req(struct obd_export *exp, cfs_list_t *head,
-                        int count, ldlm_cancel_flags_t flags);
+long ldlm_cli_cancel_req(struct obd_export *exp, cfs_list_t *head,
+			 long count, ldlm_cancel_flags_t flags);
 int ldlm_cancel_resource_local(struct ldlm_resource *res,
 			       cfs_list_t *cancels,
 			       ldlm_policy_data_t *policy,
 			       ldlm_mode_t mode, __u64 lock_flags,
 			       ldlm_cancel_flags_t cancel_flags, void *opaque);
-int ldlm_cli_cancel_list_local(cfs_list_t *cancels, int count,
-                               ldlm_cancel_flags_t flags);
-int ldlm_cli_cancel_list(cfs_list_t *head, int count,
-                         struct ptlrpc_request *req, ldlm_cancel_flags_t flags);
+long ldlm_cli_cancel_list_local(cfs_list_t *cancels, long count,
+				ldlm_cancel_flags_t flags);
+int ldlm_cli_cancel_list(cfs_list_t *head, long count,
+			 struct ptlrpc_request *req, ldlm_cancel_flags_t flags);
 /** @} ldlm_cli_api */
 
 /* mds/handler.c */
@@ -1508,18 +1508,18 @@ void ldlm_pools_fini(void);
 
 int ldlm_pool_init(struct ldlm_pool *pl, struct ldlm_namespace *ns,
                    int idx, ldlm_side_t client);
-int ldlm_pool_shrink(struct ldlm_pool *pl, int nr,
-                     unsigned int gfp_mask);
+long ldlm_pool_shrink(struct ldlm_pool *pl, long nr,
+		      unsigned int gfp_mask);
 void ldlm_pool_fini(struct ldlm_pool *pl);
-int ldlm_pool_setup(struct ldlm_pool *pl, int limit);
+long ldlm_pool_setup(struct ldlm_pool *pl, long limit);
 int ldlm_pool_recalc(struct ldlm_pool *pl);
 __u32 ldlm_pool_get_lvf(struct ldlm_pool *pl);
 __u64 ldlm_pool_get_slv(struct ldlm_pool *pl);
 __u64 ldlm_pool_get_clv(struct ldlm_pool *pl);
-__u32 ldlm_pool_get_limit(struct ldlm_pool *pl);
+__u64 ldlm_pool_get_limit(struct ldlm_pool *pl);
 void ldlm_pool_set_slv(struct ldlm_pool *pl, __u64 slv);
 void ldlm_pool_set_clv(struct ldlm_pool *pl, __u64 clv);
-void ldlm_pool_set_limit(struct ldlm_pool *pl, __u32 limit);
+void ldlm_pool_set_limit(struct ldlm_pool *pl, __u64 limit);
 void ldlm_pool_add(struct ldlm_pool *pl, struct ldlm_lock *lock);
 void ldlm_pool_del(struct ldlm_pool *pl, struct ldlm_lock *lock);
 /** @} */

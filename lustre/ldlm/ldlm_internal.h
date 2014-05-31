@@ -105,11 +105,11 @@ enum {
                                       * sending nor waiting for any rpcs) */
 };
 
-int ldlm_cancel_lru(struct ldlm_namespace *ns, int nr,
-		    ldlm_cancel_flags_t sync, int flags);
-int ldlm_cancel_lru_local(struct ldlm_namespace *ns,
-                          cfs_list_t *cancels, int count, int max,
-                          ldlm_cancel_flags_t cancel_flags, int flags);
+long ldlm_cancel_lru(struct ldlm_namespace *ns, long nr,
+		     ldlm_cancel_flags_t sync, int flags);
+long ldlm_cancel_lru_local(struct ldlm_namespace *ns,
+			   cfs_list_t *cancels, long count, long max,
+			   ldlm_cancel_flags_t cancel_flags, int flags);
 extern int ldlm_enqueue_min;
 int ldlm_get_enq_timeout(struct ldlm_lock *lock);
 
@@ -174,7 +174,7 @@ int ldlm_bl_to_thread_lock(struct ldlm_namespace *ns, struct ldlm_lock_desc *ld,
                            struct ldlm_lock *lock);
 int ldlm_bl_to_thread_list(struct ldlm_namespace *ns,
 			   struct ldlm_lock_desc *ld,
-			   cfs_list_t *cancels, int count,
+			   cfs_list_t *cancels, long count,
 			   ldlm_cancel_flags_t cancel_flags);
 
 void ldlm_handle_bl_callback(struct ldlm_namespace *ns,

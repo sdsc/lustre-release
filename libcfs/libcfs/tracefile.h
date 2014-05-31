@@ -71,7 +71,7 @@ void cfs_trace_debug_print(void);
 void cfs_trace_flush_pages(void);
 int cfs_trace_start_thread(void);
 void cfs_trace_stop_thread(void);
-int cfs_tracefile_init(int max_pages);
+int cfs_tracefile_init(long max_pages);
 void cfs_tracefile_exit(void);
 
 
