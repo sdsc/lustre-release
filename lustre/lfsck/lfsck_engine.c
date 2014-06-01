@@ -1026,6 +1026,83 @@ out:
 	RETURN(rc1 != 0 ? rc1 : rc);
 }
 
+static int lfsck_assistant_sync_failures_interpret(const struct lu_env *env,
+						   struct ptlrpc_request *req,
+						   void *args, int rc)
+{
+	struct lfsck_async_interpret_args *laia = args;
+
+	if (rc == 0)
+		atomic_dec(laia->laia_count);
+
+	return 0;
+}
+
+/**
+ * Notify the targets that they have missed or failed to handle some objects.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] com	pointer to the lfsck component
+ * \param[in] lr	pointer to the LFSCK event request
+ * \param[in] ltds	pointer
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
+ */
+static int lfsck_assistant_sync_failures(const struct lu_env *env,
+					 struct lfsck_component *com,
+					 struct lfsck_request *lr,
+					 struct lfsck_tgt_descs *ltds)
+{
+	struct lfsck_async_interpret_args *laia	=
+				&lfsck_env_info(env)->lti_laia2;
+	struct lfsck_assistant_data	  *lad	= com->lc_data;
+	struct ptlrpc_request_set	  *set;
+	struct lfsck_tgt_desc		  *ltd;
+	atomic_t			   count;
+	__u32				   idx;
+	int				   rc	= 0;
+	ENTRY;
+
+	atomic_set(&count, 0);
+	memset(laia, 0, sizeof(*laia));
+	laia->laia_count = &count;
+	set = ptlrpc_prep_set();
+	if (set == NULL)
+		RETURN(-ENOMEM);
+
+	down_read(&ltds->ltd_rw_sem);
+	cfs_foreach_bit(lad->lad_bitmap, idx) {
+		ltd = LTD_TGT(ltds, idx);
+		LASSERT(ltd != NULL);
+
+		rc = lfsck_async_request(env, ltd->ltd_exp, lr, set,
+				lfsck_assistant_sync_failures_interpret,
+				laia, LFSCK_NOTIFY);
+		if (rc != 0) {
+			CDEBUG(D_LFSCK, "%s: LFSCK assistant fail to "
+			       "notify target %x for %s phase1 done: "
+			       "rc = %d\n", lfsck_lfsck2name(com->lc_lfsck),
+			       ltd->ltd_index, lad->lad_name, rc);
+
+			break;
+		}
+
+		atomic_inc(&count);
+	}
+	up_read(&ltds->ltd_rw_sem);
+
+	if (rc == 0 && atomic_read(&count) > 0)
+		rc = ptlrpc_set_wait(set);
+
+	ptlrpc_set_destroy(set);
+
+	if (rc == 0 && atomic_read(&count) > 0)
+		rc = -EINVAL;
+
+	RETURN(rc);
+}
+
 /**
  * The LFSCK assistant thread notifies the LFSCK instances on other
  * servers (MDT/OST) about some events, such as start new scanning,
@@ -1092,9 +1169,7 @@ static int lfsck_assistant_notify_others(const struct lu_env *env,
 					lfsck_async_interpret_common,
 					laia, LFSCK_NOTIFY);
 			if (rc != 0) {
-				struct lfsck_layout *lo = com->lc_file_ram;
-
-				lo->ll_flags |= LF_INCOMPLETE;
+				lfsck_lad_set_bitmap(env, com, idx);
 				CDEBUG(D_LFSCK, "%s: LFSCK assistant fail to "
 				       "notify OST %x for %s start: rc = %d\n",
 				       lfsck_lfsck2name(lfsck), idx,
@@ -1251,7 +1326,37 @@ again:
 		}
 		break;
 	}
-	case LE_PHASE1_DONE:
+	case LE_PHASE1_DONE: {
+		__u32 *flags;
+
+		if (com->lc_type == LFSCK_TYPE_LAYOUT) {
+			struct lfsck_layout *lo = com->lc_file_ram;
+
+			flags = &lo->ll_flags;
+			ltds = &lfsck->li_ost_descs;
+		} else {
+			struct lfsck_namespace *ns = com->lc_file_ram;
+
+			flags = &ns->ln_flags;
+			ltds = &lfsck->li_mdt_descs;
+		}
+
+		lr->lr_flags2 = *flags;
+		if (lad->lad_incomplete && !(*flags & LF_INCOMPLETE)) {
+			/* If some targets have ever failed to verfiy some
+			 * objects, then sync failures with them firstly. */
+			lr->lr_flags2 |= LF_INCOMPLETE;
+			rc = lfsck_assistant_sync_failures(env, com, lr, ltds);
+			if (rc != 0)
+				/* If failed to sync failures with the
+				 * targets, then have to mark the whole
+				 * LFSCK as LF_INCOMPLETE to skip the
+				 * whole subsequent orphan handling. */
+				*flags |= LF_INCOMPLETE;
+			else
+				lr->lr_flags2 &= ~LF_INCOMPLETE;
+		}
+
 		lad->lad_touch_gen++;
 		ltds = &lfsck->li_mdt_descs;
 		laia->laia_ltds = ltds;
@@ -1279,6 +1384,11 @@ again:
 
 			*gen = lad->lad_touch_gen;
 			list_move_tail(phase_list, &lad->lad_mdt_phase1_list);
+
+			if (lad->lad_incomplete && !(*flags & LF_INCOMPLETE) &&
+			    cfs_bitmap_check(lad->lad_bitmap, ltd->ltd_index))
+				continue;
+
 			atomic_inc(&ltd->ltd_ref);
 			laia->laia_ltd = ltd;
 			spin_unlock(&ltds->ltd_lock);
@@ -1296,6 +1406,7 @@ again:
 		}
 		spin_unlock(&ltds->ltd_lock);
 		break;
+	}
 	default:
 		CDEBUG(D_LFSCK, "%s: LFSCK assistant unexpected LFSCK event: "
 		       "rc = %d\n", lfsck_lfsck2name(lfsck), lr->lr_event);
