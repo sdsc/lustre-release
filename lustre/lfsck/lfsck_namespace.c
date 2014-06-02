@@ -1302,6 +1302,8 @@ static void lfsck_namespace_data_release(const struct lu_env *env,
 	}
 	spin_unlock(&ltds->ltd_lock);
 
+	CFS_FREE_BITMAP(lad->lad_bitmap);
+
 	OBD_FREE_PTR(lad);
 }
 
