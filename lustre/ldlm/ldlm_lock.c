@@ -667,8 +667,9 @@ void ldlm_lock2desc(struct ldlm_lock *lock, struct ldlm_lock_desc *desc)
                          (MDS_INODELOCK_LOOKUP | MDS_INODELOCK_UPDATE |
                           MDS_INODELOCK_LAYOUT),
                          "Inappropriate inode lock bits during "
-                         "conversion " LPU64 "\n",
-                         lock->l_policy_data.l_inodebits.bits);
+			 "conversion, bits "LPX64", exp %p, flags "LPX64"\n",
+			 lock->l_policy_data.l_inodebits.bits, exp,
+			 exp_connect_flags(exp));
 
                 ldlm_res2desc(lock->l_resource, &desc->l_resource);
                 desc->l_resource.lr_type = LDLM_PLAIN;

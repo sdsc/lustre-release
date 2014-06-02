@@ -2875,6 +2875,11 @@ static int mdt_tgt_connect(struct tgt_session_info *tsi)
 
 	ENTRY;
 
+	if (OBD_FAIL_CHECK(OBD_FAIL_TGT_DELAY_CONDITIONAL) &&
+	    cfs_fail_val ==
+	    tsi2mdt_info(tsi)->mti_mdt->mdt_seq_site.ss_node_id)
+		schedule_timeout_and_set_state(TASK_UNINTERRUPTIBLE, HZ * 3);
+
 	rc = tgt_connect(tsi);
 	if (rc != 0)
 		RETURN(rc);

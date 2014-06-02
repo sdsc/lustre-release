@@ -847,6 +847,10 @@ struct ptlrpc_request *ldlm_enqueue_pack(struct obd_export *exp, int lvb_len)
 }
 EXPORT_SYMBOL(ldlm_enqueue_pack);
 
+static void ldlm_empty_interrupt(void *data)
+{
+}
+
 /**
  * Client-side lock enqueue.
  *
@@ -865,6 +869,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 		     struct lustre_handle *lockh, int async)
 {
 	struct ldlm_namespace *ns;
+	struct obd_import	*imp;
         struct ldlm_lock      *lock;
         struct ldlm_request   *body;
         int                    is_replay = *flags & LDLM_FL_REPLAY;
@@ -875,6 +880,7 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 
         LASSERT(exp != NULL);
 
+	imp = class_exp2cliimp(exp);
 	ns = exp->exp_obd->obd_namespace;
 
         /* If we're replaying this lock, just check some invariants.
@@ -895,6 +901,23 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 					lvb_len, lvb_type);
 		if (IS_ERR(lock))
 			RETURN(PTR_ERR(lock));
+
+		/* The initial connection has not been established, wait;
+		 * otherwise the exp_connect_flags(exp) will get 0. LU-4971. */
+		while (unlikely(imp->imp_state == LUSTRE_IMP_CONNECTING &&
+		       !lustre_handle_is_used(&imp->imp_remote_handle))) {
+			struct l_wait_info lwi;
+
+			lwi = LWI_TIMEOUT_INTR_ALL(HZ >> 3, NULL,
+						   ldlm_empty_interrupt, lock);
+			rc = l_wait_event(lock->l_waitq,
+				imp->imp_state != LUSTRE_IMP_CONNECTING ||
+				lustre_handle_is_used(&imp->imp_remote_handle),
+				&lwi);
+			if (rc == -EINTR)
+				break;
+		}
+
                 /* for the local lock, add the reference */
                 ldlm_lock_addref_internal(lock, einfo->ei_mode);
                 ldlm_lock2handle(lock, lockh);
@@ -930,11 +953,10 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 	lock->l_blocking_ast = einfo->ei_cb_bl;
 	lock->l_flags |= (*flags & (LDLM_FL_NO_LRU | LDLM_FL_EXCL));
 
-        /* lock not sent to server yet */
+	/* lock not sent to server yet */
 
-        if (reqp == NULL || *reqp == NULL) {
-                req = ptlrpc_request_alloc_pack(class_exp2cliimp(exp),
-                                                &RQF_LDLM_ENQUEUE,
+	if (reqp == NULL || *reqp == NULL) {
+		req = ptlrpc_request_alloc_pack(imp, &RQF_LDLM_ENQUEUE,
                                                 LUSTRE_DLM_VERSION,
                                                 LDLM_ENQUEUE);
                 if (req == NULL) {
