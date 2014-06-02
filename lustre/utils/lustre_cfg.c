@@ -48,6 +48,9 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <glob.h>
+#ifdef HAVE_LIBPTHREAD
+#include <pthread.h>
+#endif
 
 #include <libcfs/libcfs.h>
 #include <lustre_cfg.h>
@@ -521,6 +524,7 @@ struct param_opts {
 	unsigned int po_recursive:1;
 	unsigned int po_params2:1;
 	unsigned int po_delete:1;
+	unsigned int po_parallel:1;
 };
 
 /* Param set to single log file, used by all clients and servers.
@@ -1015,6 +1019,37 @@ int jt_lcfg_getparam(int argc, char **argv)
 	return rc;
 }
 
+#ifdef HAVE_LIBPTHREAD
+#define LCTL_THREADS_PER_CPU 8
+
+/* A work queue struct for parallel set_param */
+struct set_param_workq {
+	/* The parameter options passed to set_param */
+	struct param_opts *spwq_popt;
+
+	/* The value to which the parameter is to be set */
+	char *spwq_value;
+
+	/* The current index into the work queue */
+	int spwq_cur_index;
+
+	/* A mutex to control access to the work queue */
+	pthread_mutex_t spwq_mutex;
+
+	/* Array of paths matched by glob */
+	char **spwq_paths;
+};
+#endif
+
+/**
+ * Parses the command-line options to set_param.
+ *
+ * \param[in] argc   count of arguments given to set_param
+ * \param[in] argv   array of arguments given to set_param
+ * \param[out] popt  where set_param options will be saved
+ *
+ * \retval index in argv of the first non-option argv element (optind value)
+ */
 static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
 {
         int ch;
@@ -1025,8 +1060,9 @@ static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
         popt->po_recursive = 0;
 	popt->po_params2 = 0;
 	popt->po_delete = 0;
+	popt->po_parallel = 0;
 
-	while ((ch = getopt(argc, argv, "nPd")) != -1) {
+	while ((ch = getopt(argc, argv, "nPdp")) != -1) {
                 switch (ch) {
                 case 'n':
                         popt->po_show_path = 0;
@@ -1037,6 +1073,14 @@ static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
 		case 'd':
 			popt->po_delete = 1;
 			break;
+		case 'p':
+#ifdef HAVE_LIBPTHREAD
+			popt->po_parallel = 1;
+#else
+			fprintf(stderr, "warning: set_param: no pthread"
+					"support, proceeding serially.\n");
+#endif
+			break;
                 default:
                         return -1;
                 }
@@ -1044,13 +1088,189 @@ static int setparam_cmdline(int argc, char **argv, struct param_opts *popt)
         return optind;
 }
 
+/**
+ * Sets a single param by writing \a value to \a filename.
+ *
+ * \param[in] popt      set_param options struct
+ * \param[in] filename  the filename to write to
+ * \param[in] value     the value to write to \a filename
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
+static int set_one_param(struct param_opts *popt, char *filename, char *value)
+{
+	char fname_copy[PATH_MAX + 1];     /* extra 1 byte for file type */
+	char *valuename = NULL;
+	int rc = 0;
+	int fd;
+
+	if (popt->po_show_path) {
+		if (strlen(filename) > sizeof(fname_copy) - 1)
+			return -E2BIG;
+		strncpy(fname_copy, filename, sizeof(fname_copy));
+		valuename = display_name(fname_copy, 0);
+		if (valuename)
+			printf("%s=%s\n", valuename, value);
+	}
+	/* Write the new value to the file */
+	fd = open(filename, O_WRONLY);
+	if (fd >= 0) {
+		rc = write(fd, value, strlen(value));
+		if (rc < 0)
+			fprintf(stderr, "error: set_param: setting "
+				"%s=%s: %s\n", filename,
+				value, strerror(errno));
+		close(fd);
+	} else {
+		fprintf(stderr, "error: set_param: %s opening %s\n",
+			strerror(rc = errno), filename);
+	}
+	return rc;
+}
+
+#ifdef HAVE_LIBPTHREAD
+/**
+ * Gets the next path from the set_param \a workq in a thread-safe manner.
+ *
+ * \param[in] workq  The workq from which to obtain the next path
+ *
+ * \retval A pointer to the next path in the \a workq
+ * \retval NULL if the workq is empty
+ */
+static char *spwq_get_next_path(struct set_param_workq *workq)
+{
+	char *next_path;
+	pthread_mutex_lock(&workq->spwq_mutex);
+	if (workq->spwq_cur_index < 0)
+		next_path = NULL;
+	else
+		next_path = workq->spwq_paths[workq->spwq_cur_index--];
+	pthread_mutex_unlock(&workq->spwq_mutex);
+	return next_path;
+}
+
+/**
+ * A set_param worker thread which writes to paths from the workq.
+ *
+ * \param[in] arg  a pointer to a struct set_param_workq
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
+static void *setparam_thread(void *arg)
+{
+	long int rc = 0;
+	int param_rc = 0;
+	struct set_param_workq *workq = (struct set_param_workq *)arg;
+	struct param_opts *popt = workq->spwq_popt;
+	char *value = workq->spwq_value;
+	char *filename = spwq_get_next_path(workq);
+
+	while (filename != NULL) {
+		param_rc = set_one_param(popt, filename, value);
+		if (param_rc < 0)
+			rc = param_rc;
+		filename = spwq_get_next_path(workq);
+	}
+
+	return (void *)rc;
+}
+
+/**
+ * Sets the parameters which match the given \a pattern in parallel.
+ *
+ * \param[in] popt     the set_param options
+ * \param[in] pattern  the parameter pattern to match
+ * \param[in] value    the value to which each parameter will be set
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
+static int setparam_display_parallel(struct param_opts *popt, char *pattern,
+				     char *value)
+{
+	int rc;
+	int i;
+	int j;
+	glob_t glob_info;
+	struct set_param_workq wq;
+	void *res;
+	int num_threads;
+	pthread_t *sp_threads;
+	pthread_attr_t sp_thread_attr;
+	int join_rc;
+
+	num_threads = LCTL_THREADS_PER_CPU * cfs_online_cpus();
+
+	pthread_attr_init(&sp_thread_attr);
+	pthread_attr_setdetachstate(&sp_thread_attr, PTHREAD_CREATE_JOINABLE);
+	sp_threads = malloc(sizeof(pthread_t) * num_threads);
+	if (sp_threads == NULL) {
+		fprintf(stderr, "error: set_param: %s: "
+				"failed to allocate sp_threads array.\n",
+				pattern);
+		return -ENOMEM;
+	}
+
+	rc = glob(pattern, GLOB_BRACE, NULL, &glob_info);
+	if (rc) {
+		fprintf(stderr, "error: set_param: %s: %s\n",
+			pattern, globerrstr(rc));
+		GOTO(cleanup, rc = -ESRCH);
+	}
+
+	/* Set up the work queue with the results of the glob */
+	wq.spwq_cur_index = glob_info.gl_pathc - 1;
+	wq.spwq_paths = glob_info.gl_pathv;
+	wq.spwq_popt = popt;
+	wq.spwq_value = value;
+	pthread_mutex_init(&wq.spwq_mutex, NULL);
+
+	for (i = 0; i < num_threads; i++) {
+		rc = pthread_create(&sp_threads[i], &sp_thread_attr,
+				    &setparam_thread, (void *)&wq);
+		if (rc) {
+			fprintf(stderr, "error: setparam: spawning"
+					"setparam thread %d failed.\n",
+				i);
+			break;
+		}
+	}
+
+	pthread_attr_destroy(&sp_thread_attr);
+	for (j = 0; j < i; j++) {
+		join_rc = pthread_join(sp_threads[j], &res);
+		if (join_rc)
+			fprintf(stderr, "error: set_param: joining"
+					"set_param thread %d failed:"
+					"rc=%d.\n", j, join_rc);
+		if (res)
+			rc = (long int)res;
+	}
+
+	globfree(&glob_info);
+cleanup:
+	free(sp_threads);
+	return rc;
+}
+#endif /* HAVE_LIBPTHREAD */
+
+/**
+ * Sets the parameters which match the given \a pattern in series.
+ *
+ * \param[in] popt     the set_param options
+ * \param[in] pattern  the parameter pattern to match
+ * \param[in] value    the value to which each parameter will be set
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
 static int setparam_display(struct param_opts *popt, char *pattern, char *value)
 {
         int rc;
-        int fd;
         int i;
         glob_t glob_info;
-        char filename[PATH_MAX + 1];    /* extra 1 byte for file type */
 
         rc = glob(pattern, GLOB_BRACE, NULL, &glob_info);
         if (rc) {
@@ -1058,39 +1278,23 @@ static int setparam_display(struct param_opts *popt, char *pattern, char *value)
                         pattern, globerrstr(rc));
                 return -ESRCH;
         }
-	for (i = 0; i  < glob_info.gl_pathc; i++) {
-		char *valuename = NULL;
 
-		if (popt->po_show_path) {
-			if (strlen(glob_info.gl_pathv[i]) > sizeof(filename)-1)
-				return -E2BIG;
-			strncpy(filename, glob_info.gl_pathv[i],
-				sizeof(filename));
-			valuename = display_name(filename, 0);
-			if (valuename)
-				printf("%s=%s\n", valuename, value);
-		}
-		/* Write the new value to the file */
-		fd = open(glob_info.gl_pathv[i], O_WRONLY);
-		if (fd >= 0) {
-			rc = write(fd, value, strlen(value));
-			if (rc < 0)
-				fprintf(stderr, "error: set_param: setting "
-					"%s=%s: %s\n", glob_info.gl_pathv[i],
-					value, strerror(errno));
-			else
-				rc = 0;
-			close(fd);
-		} else {
-			fprintf(stderr, "error: set_param: %s opening %s\n",
-				strerror(rc = errno), glob_info.gl_pathv[i]);
-		}
-	}
+	for (i = 0; i  < glob_info.gl_pathc; i++)
+		set_one_param(popt, glob_info.gl_pathv[i], value);
 
 	globfree(&glob_info);
 	return rc;
 }
 
+/**
+ * Main set_param function.
+ *
+ * \param[in] argc  count of arguments given to set_param
+ * \param[in] argv  array of arguments given to set_param
+ *
+ * \retval 0 if successful
+ * \retval -errno if unsuccessful
+ */
 int jt_lcfg_setparam(int argc, char **argv)
 {
         int rc = 0, i;
@@ -1131,7 +1335,13 @@ int jt_lcfg_setparam(int argc, char **argv)
 
                 lprocfs_param_pattern(argv[0], path, pattern, sizeof(pattern));
 
-                rc2 = setparam_display(&popt, pattern, value);
+#ifdef HAVE_LIBPTHREAD
+		if (popt.po_parallel)
+			rc2 = setparam_display_parallel(&popt, pattern, value);
+		else
+#endif
+			rc2 = setparam_display(&popt, pattern, value);
+
                 path = NULL;
                 value = NULL;
 		if (rc2 < 0 && rc == 0)
