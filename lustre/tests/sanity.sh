@@ -9746,6 +9746,10 @@ run_test 160b "Verify that very long rename doesn't crash in changelog"
 test_160c() {
 	local rc=0
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.5.58) ] ||
+	    [ $(lustre_version_code $SINGLEMDS) -le $(version_code 2.6.0) -a
+	      $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.5.2) ] ||
+	    { skip "Need MDS version at least 2.6.0 or 2.5.2+"; return; }
 
 	# Registration step
 	local USER=$(do_facet $SINGLEMDS $LCTL --device $MDT0 \
