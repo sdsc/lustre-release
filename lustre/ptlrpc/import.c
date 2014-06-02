@@ -1048,10 +1048,13 @@ finish:
 
 		spin_unlock(&imp->imp_lock);
 
-		if (!ocd->ocd_ibits_known &&
-		    ocd->ocd_connect_flags & OBD_CONNECT_IBITS)
-			CERROR("Inodebits aware server returned zero compatible"
-			       " bits?\n");
+		if ((imp->imp_connect_flags_orig & OBD_CONNECT_IBITS) &&
+		    !(ocd->ocd_connect_flags & OBD_CONNECT_IBITS)) {
+			LCONSOLE_WARN("%s: the MDS does not support ibits "
+				      "lock, either very old or invalid\n",
+				      imp->imp_obd->obd_name);
+			GOTO(out, rc = -EPROTO);
+		}
 
 		if (!warned && (ocd->ocd_connect_flags & OBD_CONNECT_VERSION) &&
 		    (ocd->ocd_version > LUSTRE_VERSION_CODE +
