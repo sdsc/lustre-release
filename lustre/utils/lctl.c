@@ -153,12 +153,18 @@ command_t cmdlist[] = {
          "  -F  When -N specified, add '/', '@' or '=' for directories,\n"
          "      symlinks and writeable files, respectively."},
         {"set_param", jt_lcfg_setparam, 0, "set the Lustre or LNET parameter\n"
-	 "usage: set_param [-n] [-P] [-d]"
+	 "usage: set_param [-n] [-P] [-d] [-p] "
 	 "<param_path1=value1 param_path2=value2 ...>\n"
 	 "Set the value of the Lustre or LNET parameter at the specified path.\n"
 	 "  -n  Disable printing of the key name when printing values.\n"
 	 "  -P  Set the parameter permanently, filesystem-wide.\n"
-	 "  -d  Remove the permanent setting (only with -P option).\n"},
+	 "  -d  Remove the permanent setting (only with -P option).\n"
+#ifdef HAVE_LIBPTHREAD
+	 "  -p  If there are multiple matches, spawn threads and set the\n"
+	 "      parameters in parallel.  If this option is not given, the\n"
+	 "      parameters will not be set in parallel.\n"
+#endif
+	},
 	{"list_param", jt_lcfg_listparam, 0,
          "list the Lustre or LNET parameter name\n"
          "usage: list_param [-F|-R] <param_path1 param_path2 ...>\n"
