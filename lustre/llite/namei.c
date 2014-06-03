@@ -300,7 +300,8 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			       lli, PFID(&lli->lli_pfid));
 			truncate_inode_pages(inode->i_mapping, 0);
 
-			if (unlikely(!fid_is_zero(&lli->lli_pfid))) {
+			if (lli->lli_lsm_md != NULL &&
+			    unlikely(!fid_is_zero(&lli->lli_pfid))) {
 				struct inode *master_inode = NULL;
 				unsigned long hash;
 
