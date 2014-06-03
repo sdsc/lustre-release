@@ -41,7 +41,7 @@
  *         Pravin Shelar <pravin.shelar@sun.com> : Added fid in dirent
  */
 
-#define DEBUG_SUBSYSTEM S_MDS
+#define DEBUG_SUBSYSTEM S_OSD
 
 #include <linux/module.h>
 
