@@ -2668,8 +2668,11 @@ void lfsck_del_target(const struct lu_env *env, struct dt_device *key,
 	down_write(&ltds->ltd_rw_sem);
 	LASSERT(ltds->ltd_tgts_bitmap != NULL);
 
-	if (unlikely(index >= ltds->ltd_tgts_bitmap->size))
+	if (unlikely(index >= ltds->ltd_tgts_bitmap->size)) {
+		ltd = NULL;
+
 		goto unlock;
+	}
 
 	ltd = LTD_TGT(ltds, index);
 	if (unlikely(ltd == NULL))
