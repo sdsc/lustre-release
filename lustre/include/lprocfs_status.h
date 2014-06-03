@@ -709,9 +709,13 @@ extern int lprocfs_rd_numrefs(char *page, char **start, off_t off,
 #endif
 extern int lprocfs_u64_seq_show(struct seq_file *m, void *data);
 extern int lprocfs_atomic_seq_show(struct seq_file *m, void *data);
+extern int lprocfs_atomic64_seq_show(struct seq_file *m, void *data);
 extern ssize_t lprocfs_atomic_seq_write(struct file *file, const char *buffer,
 					size_t count, loff_t *off);
+extern ssize_t lprocfs_atomic64_seq_write(struct file *file, const char *buffer,
+					  size_t count, loff_t *off);
 extern int lprocfs_uint_seq_show(struct seq_file *m, void *data);
+extern int lprocfs_ulong_seq_show(struct seq_file *m, void *data);
 extern ssize_t lprocfs_uint_seq_write(struct file *file, const char *buffer,
 				      size_t count, loff_t *off);
 extern int lprocfs_wr_uint(struct file *file, const char *buffer,

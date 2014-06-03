@@ -373,11 +373,11 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
 	/* lru for osc. */
 	CFS_INIT_LIST_HEAD(&cli->cl_lru_osc);
 	atomic_set(&cli->cl_lru_shrinkers, 0);
-	atomic_set(&cli->cl_lru_busy, 0);
-	atomic_set(&cli->cl_lru_in_list, 0);
+	atomic64_set(&cli->cl_lru_busy, 0);
+	atomic64_set(&cli->cl_lru_in_list, 0);
 	CFS_INIT_LIST_HEAD(&cli->cl_lru_list);
 	client_obd_list_lock_init(&cli->cl_lru_list_lock);
-	atomic_set(&cli->cl_unstable_count, 0);
+	atomic64_set(&cli->cl_unstable_count, 0);
 
 	init_waitqueue_head(&cli->cl_destroy_waitq);
 	atomic_set(&cli->cl_destroy_in_flight, 0);
@@ -2372,6 +2372,7 @@ EXPORT_SYMBOL(target_committed_to_req);
 int target_pack_pool_reply(struct ptlrpc_request *req)
 {
         struct obd_device *obd;
+	long limit;
         ENTRY;
 
 	/* Check that we still have all structures alive as this may
@@ -2388,7 +2389,9 @@ int target_pack_pool_reply(struct ptlrpc_request *req)
 
 	read_lock(&obd->obd_pool_lock);
         lustre_msg_set_slv(req->rq_repmsg, obd->obd_pool_slv);
-        lustre_msg_set_limit(req->rq_repmsg, obd->obd_pool_limit);
+	/* Clamp the trasmitted limit */
+	limit = min_t(long, obd->obd_pool_limit, INT_MAX);
+	lustre_msg_set_limit(req->rq_repmsg, limit);
 	read_unlock(&obd->obd_pool_lock);
 
         RETURN(0);

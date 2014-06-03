@@ -753,13 +753,16 @@ static inline int ldlm_format_handles_avail(struct obd_import *imp,
  * that needs to be performed.
  */
 int ldlm_prep_elc_req(struct obd_export *exp, struct ptlrpc_request *req,
-                      int version, int opc, int canceloff,
-                      cfs_list_t *cancels, int count)
+		      int version, int opc, int canceloff,
+		      cfs_list_t *cancels, long count)
 {
         struct ldlm_namespace   *ns = exp->exp_obd->obd_namespace;
         struct req_capsule      *pill = &req->rq_pill;
         struct ldlm_request     *dlm = NULL;
-        int flags, avail, to_free, pack = 0;
+	long avail;
+	long pack = 0;
+	int flags;
+	int to_free;
         CFS_LIST_HEAD(head);
         int rc;
         ENTRY;
@@ -1193,12 +1196,13 @@ static void ldlm_cancel_pack(struct ptlrpc_request *req,
 /**
  * Prepare and send a batched cancel RPC. It will include \a count lock
  * handles of locks given in \a cancels list. */
-int ldlm_cli_cancel_req(struct obd_export *exp, cfs_list_t *cancels,
-                        int count, ldlm_cancel_flags_t flags)
+long ldlm_cli_cancel_req(struct obd_export *exp, cfs_list_t *cancels,
+			 long count, ldlm_cancel_flags_t flags)
 {
         struct ptlrpc_request *req = NULL;
         struct obd_import *imp;
-        int free, sent = 0;
+	long free;
+	long sent = 0;
         int rc = 0;
         ENTRY;
 
@@ -1292,7 +1296,7 @@ int ldlm_cli_update_pool(struct ptlrpc_request *req)
 {
         struct obd_device *obd;
         __u64 new_slv;
-        __u32 new_limit;
+	__u64 new_limit;
         ENTRY;
         if (unlikely(!req->rq_import || !req->rq_import->imp_obd ||
                      !imp_connect_lru_resize(req->rq_import)))
@@ -1344,7 +1348,9 @@ int ldlm_cli_cancel(struct lustre_handle *lockh,
 		    ldlm_cancel_flags_t cancel_flags)
 {
         struct obd_export *exp;
-	int avail, flags, count = 1;
+	int avail;
+	int flags;
+	long count = 1;
 	__u64 rc = 0;
         struct ldlm_namespace *ns;
         struct ldlm_lock *lock;
@@ -1391,12 +1397,13 @@ EXPORT_SYMBOL(ldlm_cli_cancel);
  * Locally cancel up to \a count locks in list \a cancels.
  * Return the number of cancelled locks.
  */
-int ldlm_cli_cancel_list_local(cfs_list_t *cancels, int count,
-                               ldlm_cancel_flags_t flags)
+long ldlm_cli_cancel_list_local(cfs_list_t *cancels, long count,
+				ldlm_cancel_flags_t flags)
 {
-        CFS_LIST_HEAD(head);
-        struct ldlm_lock *lock, *next;
-	int left = 0, bl_ast = 0;
+	CFS_LIST_HEAD(head);
+	struct ldlm_lock *lock, *next;
+	long left = 0;
+	long bl_ast = 0;
 	__u64 rc;
 
         left = count;
@@ -1639,12 +1646,15 @@ ldlm_cancel_lru_policy(struct ldlm_namespace *ns, int flags)
  *                               sending any RPCs or waiting for any
  *                               outstanding RPC to complete.
  */
-static int ldlm_prepare_lru_list(struct ldlm_namespace *ns, cfs_list_t *cancels,
-                                 int count, int max, int flags)
+static long ldlm_prepare_lru_list(struct ldlm_namespace *ns,
+				  cfs_list_t *cancels, long count, long max,
+				  int flags)
 {
 	ldlm_cancel_lru_policy_t pf;
 	struct ldlm_lock *lock, *next;
-	int added = 0, unused, remained;
+	long added = 0;
+	long unused;
+	long remained;
 	ENTRY;
 
 	spin_lock(&ns->ns_lock);
@@ -1770,11 +1780,11 @@ static int ldlm_prepare_lru_list(struct ldlm_namespace *ns, cfs_list_t *cancels,
 	RETURN(added);
 }
 
-int ldlm_cancel_lru_local(struct ldlm_namespace *ns, cfs_list_t *cancels,
-                          int count, int max, ldlm_cancel_flags_t cancel_flags,
-                          int flags)
+long ldlm_cancel_lru_local(struct ldlm_namespace *ns, cfs_list_t *cancels,
+			   long count, long max,
+			   ldlm_cancel_flags_t cancel_flags, int flags)
 {
-        int added;
+	long added;
         added = ldlm_prepare_lru_list(ns, cancels, count, max, flags);
         if (added <= 0)
                 return added;
@@ -1789,12 +1799,13 @@ int ldlm_cancel_lru_local(struct ldlm_namespace *ns, cfs_list_t *cancels,
  * asked to call the callback.  When called with LCF_ASYNC the blocking
  * callback will be performed in this function.
  */
-int ldlm_cancel_lru(struct ldlm_namespace *ns, int nr,
+long ldlm_cancel_lru(struct ldlm_namespace *ns, long nr,
 		    ldlm_cancel_flags_t cancel_flags,
 		    int flags)
 {
 	CFS_LIST_HEAD(cancels);
-	int count, rc;
+	long count;
+	int rc;
 	ENTRY;
 
 #ifndef __KERNEL__
@@ -1877,11 +1888,11 @@ EXPORT_SYMBOL(ldlm_cancel_resource_local);
  * buffer at the offset \a off.
  * Destroy \a cancels at the end.
  */
-int ldlm_cli_cancel_list(cfs_list_t *cancels, int count,
-                         struct ptlrpc_request *req, ldlm_cancel_flags_t flags)
+int ldlm_cli_cancel_list(cfs_list_t *cancels, long count,
+			 struct ptlrpc_request *req, ldlm_cancel_flags_t flags)
 {
-        struct ldlm_lock *lock;
-        int res = 0;
+	struct ldlm_lock *lock;
+	long res = 0;
         ENTRY;
 
         if (cfs_list_empty(cancels) || count == 0)
@@ -1913,7 +1924,7 @@ int ldlm_cli_cancel_list(cfs_list_t *cancels, int count,
 
 		if (res < 0) {
 			CDEBUG_LIMIT(res == -ESHUTDOWN ? D_DLMTRACE : D_ERROR,
-				     "ldlm_cli_cancel_list: %d\n", res);
+				     "ldlm_cli_cancel_list: %ld\n", res);
 			res = count;
 		}
 
@@ -2286,21 +2297,21 @@ static int replay_one_lock(struct obd_import *imp, struct ldlm_lock *lock)
  */
 static void ldlm_cancel_unused_locks_for_replay(struct ldlm_namespace *ns)
 {
-        int canceled;
-        CFS_LIST_HEAD(cancels);
+	long canceled;
+	CFS_LIST_HEAD(cancels);
 
-        CDEBUG(D_DLMTRACE, "Dropping as many unused locks as possible before"
-                           "replay for namespace %s (%d)\n",
-                           ldlm_ns_name(ns), ns->ns_nr_unused);
+	CDEBUG(D_DLMTRACE, "Dropping as many unused locks as possible before"
+			   "replay for namespace %s (%ld)\n",
+			   ldlm_ns_name(ns), ns->ns_nr_unused);
 
-        /* We don't need to care whether or not LRU resize is enabled
-         * because the LDLM_CANCEL_NO_WAIT policy doesn't use the
-         * count parameter */
-        canceled = ldlm_cancel_lru_local(ns, &cancels, ns->ns_nr_unused, 0,
-                                         LCF_LOCAL, LDLM_CANCEL_NO_WAIT);
+	/* We don't need to care whether or not LRU resize is enabled
+	 * because the LDLM_CANCEL_NO_WAIT policy doesn't use the
+	 * count parameter */
+	canceled = ldlm_cancel_lru_local(ns, &cancels, ns->ns_nr_unused, 0,
+					 LCF_LOCAL, LDLM_CANCEL_NO_WAIT);
 
-        CDEBUG(D_DLMTRACE, "Canceled %d unused locks from namespace %s\n",
-                           canceled, ldlm_ns_name(ns));
+	CDEBUG(D_DLMTRACE, "Canceled %ld unused locks from namespace %s\n",
+			   canceled, ldlm_ns_name(ns));
 }
 
 int ldlm_replay_locks(struct obd_import *imp)
