@@ -35,7 +35,7 @@
  * Author: Fan Yong <yong.fan@whamcloud.com>
  */
 
-#define DEBUG_SUBSYSTEM S_MDS
+#define DEBUG_SUBSYSTEM S_LFSCK
 
 #include <lustre/lustre_idl.h>
 #include <lustre_disk.h>
@@ -1206,7 +1206,7 @@ static int osd_otable_it_preload(const struct lu_env *env,
 	if (rc == SCRUB_IT_ALL)
 		it->ooi_all_cached = 1;
 
-	CDEBUG(D_LFSCK, "OSD pre-loaded: max = %u, preload = %u, rc = %d\n",
+	CDEBUG(D_INODE, "OSD pre-loaded: max = %u, preload = %u, rc = %d\n",
 	       le32_to_cpu(LDISKFS_SB(osd_sb(dev))->s_es->s_inodes_count),
 	       ooc->ooc_pos_preload, rc);
 

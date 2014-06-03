@@ -975,7 +975,7 @@ int lfsck_pos_dump(char **buf, int *len, struct lfsck_position *pos,
 			rc = snprintf(*buf, *len, "%s: "LPU64", N/A, N/A\n",
 				      prefix, pos->lp_oit_cookie);
 	} else {
-		rc = snprintf(*buf, *len, "%s: "LPU64", "DFID", "LPU64"\n",
+		rc = snprintf(*buf, *len, "%s: "LPU64", "DFID", "LPX64"\n",
 			      prefix, pos->lp_oit_cookie,
 			      PFID(&pos->lp_dir_parent), pos->lp_dir_cookie);
 	}
