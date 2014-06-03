@@ -1215,6 +1215,7 @@ static int ofd_create_hdl(struct tgt_session_info *tsi)
 {
 	struct ost_body		*repbody;
 	const struct obdo	*oa = &tsi->tsi_ost_body->oa;
+	struct ofd_thread_info	*fti = tsi2ofd_info(tsi);
 	struct obdo		*rep_oa;
 	struct obd_export	*exp = tsi->tsi_exp;
 	struct ofd_device	*ofd = ofd_exp(exp);
@@ -1422,9 +1423,15 @@ static int ofd_create_hdl(struct tgt_session_info *tsi)
 out:
 	mutex_unlock(&oseq->os_create_lock);
 out_nolock:
-	if (rc == 0)
-		rep_oa->o_valid |= OBD_MD_FLID | OBD_MD_FLGROUP;
+	if (rc == 0) {
+		struct lu_fid	*fid = &fti->fti_fid;
 
+		/* For compatible purpose, it needs to convert back to
+		 * OST ID before put it on wire */
+		*fid = rep_oa->o_oi.oi_fid;
+		fid_to_ostid(fid, &rep_oa->o_oi);
+		rep_oa->o_valid |= OBD_MD_FLID | OBD_MD_FLGROUP;
+	}
 	ofd_seq_put(tsi->tsi_env, oseq);
 
 out_sem:
