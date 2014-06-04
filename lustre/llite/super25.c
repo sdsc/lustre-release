@@ -117,6 +117,64 @@ struct super_operations lustre_super_operations =
 
 void lustre_register_client_process_config(int (*cpc)(struct lustre_cfg *lcfg));
 
+
+#if defined(__KERNEL__)
+#if defined(HAVE_SERVER_SUPPORT)
+
+void force_client_load(void)
+{
+}
+EXPORT_SYMBOL(force_client_load);
+
+#else /* !defined(HAVE_SERVER_SUPPORT) */
+
+/***************** FS registration ******************/
+#ifdef HAVE_FSTYPE_MOUNT
+struct dentry *lustre_mount(struct file_system_type *fs_type, int flags,
+				const char *devname, void *data)
+{
+	struct lustre_mount_data2 lmd2 = { data, NULL };
+
+	return mount_nodev(fs_type, flags, &lmd2, lustre_fill_super);
+}
+#else
+int lustre_get_sb(struct file_system_type *fs_type, int flags,
+                  const char *devname, void * data, struct vfsmount *mnt)
+{
+	struct lustre_mount_data2 lmd2 = { data, mnt };
+
+	return get_sb_nodev(fs_type, flags, &lmd2, lustre_fill_super, mnt);
+}
+#endif
+
+void lustre_kill_super(struct super_block *sb)
+{
+	struct lustre_sb_info *lsi = s2lsi(sb);
+
+	if (lsi && !IS_SERVER(lsi))
+		ll_kill_super(sb);
+
+	kill_anon_super(sb);
+}
+
+/** Register the "lustre" fs type
+ */
+struct file_system_type lustre_fs_type = {
+        .owner        = THIS_MODULE,
+        .name         = "lustre",
+#ifdef HAVE_FSTYPE_MOUNT
+	.mount        = lustre_mount,
+#else
+        .get_sb       = lustre_get_sb,
+#endif
+        .kill_sb      = lustre_kill_super,
+	.fs_flags     = FS_BINARY_MOUNTDATA | FS_REQUIRES_DEV |
+			FS_HAS_FIEMAP | FS_RENAME_DOES_D_MOVE,
+};
+MODULE_ALIAS_FS("lustre");
+#endif /* !defined(HAVE_SERVER_SUPPORT */
+#endif /* defined(KERNEL) */
+
 static int __init init_lustre_lite(void)
 {
 	int i, rc, seed[2];
@@ -168,10 +226,10 @@ static int __init init_lustre_lite(void)
         proc_lustre_fs_root = proc_lustre_root ?
 			      lprocfs_seq_register("llite", proc_lustre_root,
 						   NULL, NULL) : NULL;
-
         lustre_register_client_fill_super(ll_fill_super);
+#ifdef HAVE_SERVER_SUPPORT
         lustre_register_kill_super_cb(ll_kill_super);
-
+#endif
         lustre_register_client_process_config(ll_process_config);
 
         cfs_get_random_bytes(seed, sizeof(seed));
@@ -201,12 +259,18 @@ static int __init init_lustre_lite(void)
 
 	if (rc == 0)
 		rc = ll_xattr_init();
-
+#if defined(__KERNEL__) && !defined(HAVE_SERVER_SUPPORT)
+	if (rc == 0)
+		rc = register_filesystem(&lustre_fs_type);
+#endif
         return rc;
 }
 
 static void __exit exit_lustre_lite(void)
 {
+#if defined(__KERNEL__) && !defined(HAVE_SERVER_SUPPORT)
+	(void)unregister_filesystem(&lustre_fs_type);
+#endif
 	ll_xattr_fini();
         vvp_global_fini();
         del_timer(&ll_capa_timer);
@@ -214,10 +278,10 @@ static void __exit exit_lustre_lite(void)
         LASSERTF(capa_count[CAPA_SITE_CLIENT] == 0,
                  "client remaining capa count %d\n",
                  capa_count[CAPA_SITE_CLIENT]);
-
         lustre_register_client_fill_super(NULL);
+#ifdef HAVE_SERVER_SUPPORT
         lustre_register_kill_super_cb(NULL);
-
+#endif
         lustre_register_client_process_config(NULL);
 
         ll_destroy_inodecache();

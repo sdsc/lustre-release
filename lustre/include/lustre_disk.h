@@ -525,6 +525,11 @@ struct lustre_mount_info {
         cfs_list_t            lmi_list_chain;
 };
 
+struct lustre_mount_data2 {
+        void *lmd2_data;
+        struct vfsmount *lmd2_mnt;
+};
+
 /****************** prototypes *********************/
 
 #ifdef __KERNEL__
@@ -543,6 +548,7 @@ void lustre_register_client_fill_super(int (*cfs)(struct super_block *sb,
 						  struct vfsmount *mnt));
 void lustre_register_kill_super_cb(void (*cfs)(struct super_block *sb));
 int lustre_common_put_super(struct super_block *sb);
+int lustre_fill_super(struct super_block *sb, void *data, int silent);
 
 # ifdef HAVE_SERVER_SUPPORT
 /* obd_mount_server.c */
