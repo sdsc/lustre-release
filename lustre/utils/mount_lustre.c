@@ -603,6 +603,7 @@ int main(int argc, char *const argv[])
 	struct mount_opts mop;
 	char *options;
 	int i, rc, flags;
+	unsigned long bh_lru_size = 0;
 
 	progname = strrchr(argv[0], '/');
 	progname = progname ? progname + 1 : argv[0];
@@ -795,6 +796,17 @@ int main(int argc, char *const argv[])
 	}
 
 	free(options);
+
+	/* Check for bh_lru _size */
+	rc = get_kernel_cmdline_param("bh_lru_size=", &options);
+	if (rc == 0) {
+		bh_lru_size = strtoul(options, NULL, 0);
+		free(options);
+	}
+	if (rc || bh_lru_size != 16)
+		fprintf(stderr, "warning: to get optimal performance, "
+			"bh_lru_size kernel parameter must be set to 16\n");
+
 	/* mo_usource should be freed, but we can rely on the kernel */
 	free(mop.mo_source);
 

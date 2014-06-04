@@ -769,3 +769,34 @@ int file_create(char *path, __u64 size)
 
 	return 0;
 }
+
+#define KERNEL_CMDLINE        "cmdline"
+int get_kernel_cmdline_param(char *key, char **val)
+{
+	char buf[2048];
+	char *new_res, *res = NULL;
+	int res_size = 0;
+	FILE *fp;
+	int rc = ENOENT;
+
+	fp = fopen(PROC_DIR "/" KERNEL_CMDLINE, "r");
+	if (fp) {
+		while (fgets(buf, sizeof(buf), fp) != NULL) {
+			new_res = realloc(res, res_size + sizeof(buf));
+			if (new_res == NULL)
+				GOTO(out, rc = ENOMEM);
+			res = new_res;
+			if (res_size == 0)
+				*res = 0;
+			res_size += sizeof(buf);
+			strncat(res, buf, strlen(buf));
+		}
+		rc = get_param(res, key, val);
+	}
+
+out:
+	free(res);
+	if (fp)
+		fclose(fp);
+	return rc;
+}

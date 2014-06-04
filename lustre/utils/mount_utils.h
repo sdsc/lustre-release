@@ -122,6 +122,7 @@ int update_mtab_entry(char *spec, char *mtpt, char *type, char *opts,
 int check_mountfsoptions(char *mountopts, char *wanted_mountopts, int justwarn);
 void trim_mountfsoptions(char *s);
 __u64 get_device_size(char* device);
+int get_kernel_cmdline_param(char *key, char **val);
 
 /* loopback helper functions */
 int file_create(char *path, __u64 size);

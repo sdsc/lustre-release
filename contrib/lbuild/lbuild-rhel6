@@ -35,7 +35,6 @@ ApplyOptionalPatch linux-%{version}-lustre.patch\
     echo "# $Arch" > configs/kernel-%{version}-%{_target_cpu}.config\
     cat %{_topdir}/lustre/lustre/kernel_patches/kernel_configs/kernel-%{version}-2.6-rhel6-%{_target_cpu}.config >> configs/kernel-%{version}-%{_target_cpu}.config\
   fi'\
-           -e '/^# Dynamically generate kernel/a echo "CONFIG_BH_LRU_SIZE=16" >> config-generic'\
           SPECS/$SPEC_NAME 2>&1 || \
         fatal 1 "Error while editing SPECS/$SPEC_NAME"
 

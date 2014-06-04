@@ -548,6 +548,8 @@ int main(int argc, char *const argv[])
 	unsigned mount_type;
 	int ret = 0;
 	int ret2 = 0;
+	char *val;
+	unsigned long bh_lru_size = 0;
 
         if ((progname = strrchr(argv[0], '/')) != NULL)
                 progname++;
@@ -781,6 +783,16 @@ int main(int argc, char *const argv[])
 	}
 
 #endif
+
+	/* Check for bh_lru _size */
+	ret = get_kernel_cmdline_param("bh_lru_size=", &val);
+	if (ret == 0) {
+		bh_lru_size = strtoul(val, NULL, 0);
+		free(val);
+	}
+	if (ret || bh_lru_size != 16)
+		fprintf(stderr, "warning: to get optimal performance, "
+			"bh_lru_size kernel parameter must be set to 16\n");
 
         /* Write our config files */
 	ret = osd_write_ldd(&mop);
