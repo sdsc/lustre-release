@@ -528,8 +528,6 @@ int init_obdclass(void)
 {
         int i, err;
 #ifdef __KERNEL__
-        int lustre_register_fs(void);
-
         for (i = CAPA_SITE_CLIENT; i < CAPA_SITE_MAX; i++)
                 CFS_INIT_LIST_HEAD(&capa_list[i]);
 #endif
@@ -618,7 +616,7 @@ int init_obdclass(void)
 	if (err)
 		return err;
 
-#ifdef __KERNEL__
+#if defined(__KERNEL__) && defined(HAVE_SERVER_SUPPORT)
         err = lustre_register_fs();
 #endif
 
@@ -672,13 +670,15 @@ EXPORT_SYMBOL(obd_pages_max);
 #ifdef __KERNEL__
 static void cleanup_obdclass(void)
 {
+#ifdef HAVE_SERVER_SUPPORT
         int lustre_unregister_fs(void);
+#endif
         __u64 memory_leaked, pages_leaked;
         __u64 memory_max, pages_max;
         ENTRY;
-
+#ifdef HAVE_SERVER_SUPPORT
         lustre_unregister_fs();
-
+#endif
 	misc_deregister(&obd_psdev);
 	llog_info_fini();
 #ifdef HAVE_SERVER_SUPPORT
