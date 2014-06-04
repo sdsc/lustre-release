@@ -56,8 +56,6 @@
 static int (*client_fill_super)(struct super_block *sb,
 				struct vfsmount *mnt);
 
-static void (*kill_super_cb)(struct super_block *sb);
-
 /**************** config llog ********************/
 
 /** Get a config log from the MGS and process it.
@@ -1250,11 +1248,6 @@ invalid:
         RETURN(-EINVAL);
 }
 
-struct lustre_mount_data2 {
-        void *lmd2_data;
-        struct vfsmount *lmd2_mnt;
-};
-
 /** This is the entry point for the mount call into Lustre.
  * This is called when a server or client is mounted,
  * and this is where we start setting things up.
@@ -1294,7 +1287,11 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
 
         if (lmd_is_client(lmd)) {
                 CDEBUG(D_MOUNT, "Mounting client %s\n", lmd->lmd_profile);
-                if (!client_fill_super) {
+#ifdef HAVE_SERVER_SUPPORT
+		if (client_fill_super == NULL)
+			request_module("lustre");
+#endif
+		if (client_fill_super == NULL) {
                         LCONSOLE_ERROR_MSG(0x165, "Nothing registered for "
                                            "client mount! Is the 'lustre' "
                                            "module loaded?\n");
@@ -1340,7 +1337,7 @@ out:
 	lockdep_on();
 	return rc;
 }
-
+EXPORT_SYMBOL(lustre_fill_super);
 
 /* We can't call ll_fill_super by name because it lives in a module that
    must be loaded after this one. */
@@ -1350,6 +1347,9 @@ void lustre_register_client_fill_super(int (*cfs)(struct super_block *sb,
         client_fill_super = cfs;
 }
 EXPORT_SYMBOL(lustre_register_client_fill_super);
+
+#ifdef HAVE_SERVER_SUPPORT
+static void (*kill_super_cb)(struct super_block *sb);
 
 void lustre_register_kill_super_cb(void (*cfs)(struct super_block *sb))
 {
@@ -1400,6 +1400,7 @@ struct file_system_type lustre_fs_type = {
 	.fs_flags     = FS_BINARY_MOUNTDATA | FS_REQUIRES_DEV |
 			FS_HAS_FIEMAP | FS_RENAME_DOES_D_MOVE,
 };
+MODULE_ALIAS_FS("lustre");
 
 int lustre_register_fs(void)
 {
@@ -1410,3 +1411,4 @@ int lustre_unregister_fs(void)
 {
         return unregister_filesystem(&lustre_fs_type);
 }
+#endif
