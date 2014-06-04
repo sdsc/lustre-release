@@ -532,7 +532,7 @@ static int ll_write_begin(struct file *file, struct address_space *mapping,
 			  loff_t pos, unsigned len, unsigned flags,
 			  struct page **pagep, void **fsdata)
 {
-	struct ll_cl_context *lcc;
+	struct ll_cl_context *lcc = ERR_PTR(-EIO);
 	struct lu_env  *env;
 	struct cl_io   *io;
 	struct cl_page *page;
@@ -545,7 +545,15 @@ static int ll_write_begin(struct file *file, struct address_space *mapping,
 	int result = 0;
 	ENTRY;
 
-	CDEBUG(D_VFSTRACE, "Writing %lu of %d to %d bytes\n", index, from, len);
+	CDEBUG(D_VFSTRACE, DFID "writing %lu of %d to %d bytes, DIO: %d\n",
+	       PFID(ll_inode2fid(mapping->host)), index, from, len);
+
+	/* Direct IO now becomes lockless IO so we can't do buffered write
+	 * here. This will cause a problem that the process can easily see
+	 * IO error when writing the file with buffered write and direct IO
+	 * on the same time. */
+	if (file->f_flags & O_DIRECT)
+		GOTO(out, result = -EIO);
 
 	lcc = ll_cl_init(file, NULL);
 	if (IS_ERR(lcc))
