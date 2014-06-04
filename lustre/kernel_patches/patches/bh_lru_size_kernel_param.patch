@@ -1,0 +1,90 @@
+Index: b/fs/buffer.c
+===================================================================
+--- a/fs/buffer.c
++++ b/fs/buffer.c
+@@ -1254,10 +1254,24 @@ static struct buffer_head *__bread_slow(
+  * a local interrupt disable for that.
+  */
+ 
+-#define BH_LRU_SIZE	8
++#define BH_LRU_SIZE_MAX	64
++
++static unsigned long bh_lru_size = 8;
++static int __init set_bh_lru_size(char *str)
++{
++	if (!str)
++		return 0;
++
++	bh_lru_size = simple_strtoul(str, &str, 0);
++	if (bh_lru_size > BH_LRU_SIZE_MAX)
++		bh_lru_size = BH_LRU_SIZE_MAX;
++
++	return 1;
++}
++__setup("bh_lru_size=", set_bh_lru_size);
+ 
+ struct bh_lru {
+-	struct buffer_head *bhs[BH_LRU_SIZE];
++	struct buffer_head *bhs[BH_LRU_SIZE_MAX];
+ };
+ 
+ static DEFINE_PER_CPU(struct bh_lru, bh_lrus) = {{ NULL }};
+@@ -1289,19 +1303,19 @@ static void bh_lru_install(struct buffer
+ 	bh_lru_lock();
+ 	lru = &__get_cpu_var(bh_lrus);
+ 	if (lru->bhs[0] != bh) {
+-		struct buffer_head *bhs[BH_LRU_SIZE];
++		struct buffer_head *bhs[BH_LRU_SIZE_MAX];
+ 		int in;
+ 		int out = 0;
+ 
+ 		get_bh(bh);
+ 		bhs[out++] = bh;
+-		for (in = 0; in < BH_LRU_SIZE; in++) {
++		for (in = 0; in < bh_lru_size; in++) {
+ 			struct buffer_head *bh2 = lru->bhs[in];
+ 
+ 			if (bh2 == bh) {
+ 				__brelse(bh2);
+ 			} else {
+-				if (out >= BH_LRU_SIZE) {
++				if (out >= bh_lru_size) {
+ 					BUG_ON(evictee != NULL);
+ 					evictee = bh2;
+ 				} else {
+@@ -1309,7 +1323,7 @@ static void bh_lru_install(struct buffer
+ 				}
+ 			}
+ 		}
+-		while (out < BH_LRU_SIZE)
++		while (out < BH_LRU_SIZE_MAX)
+ 			bhs[out++] = NULL;
+ 		memcpy(lru->bhs, bhs, sizeof(bhs));
+ 	}
+@@ -1332,7 +1346,7 @@ lookup_bh_lru(struct block_device *bdev,
+ 	check_irqs_on();
+ 	bh_lru_lock();
+ 	lru = &__get_cpu_var(bh_lrus);
+-	for (i = 0; i < BH_LRU_SIZE; i++) {
++	for (i = 0; i < bh_lru_size; i++) {
+ 		struct buffer_head *bh = lru->bhs[i];
+ 
+ 		if (bh && bh->b_bdev == bdev &&
+@@ -1437,7 +1451,7 @@ static void invalidate_bh_lru(void *arg)
+ 	struct bh_lru *b = &get_cpu_var(bh_lrus);
+ 	int i;
+ 
+-	for (i = 0; i < BH_LRU_SIZE; i++) {
++	for (i = 0; i < BH_LRU_SIZE_MAX; i++) {
+ 		brelse(b->bhs[i]);
+ 		b->bhs[i] = NULL;
+ 	}
+@@ -3422,7 +3436,7 @@ static void buffer_exit_cpu(int cpu)
+ 	int i;
+ 	struct bh_lru *b = &per_cpu(bh_lrus, cpu);
+ 
+-	for (i = 0; i < BH_LRU_SIZE; i++) {
++	for (i = 0; i < BH_LRU_SIZE_MAX; i++) {
+ 		brelse(b->bhs[i]);
+ 		b->bhs[i] = NULL;
+ 	}
