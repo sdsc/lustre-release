@@ -24,6 +24,7 @@ if UTILS
 rootsbin_PROGRAMS = mount.lustre
 bin_SCRIPTS   = llstat llobdstat plot-llstat
 bin_PROGRAMS  = lfs
+sbin_SCRIPTS  = ldlm_debug_upcall
 sbin_PROGRAMS = lctl l_getidentity llverfs lustre_rsync ltrack_stats
 
 if TESTS
