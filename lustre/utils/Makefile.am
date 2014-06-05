@@ -22,6 +22,7 @@ endif
 if UTILS
 # mount only finds helpers in /sbin
 rootsbin_PROGRAMS = mount.lustre
+sbin_SCRIPTS  = ldlm_debug_upcall
 bin_SCRIPTS   = llstat llobdstat plot-llstat
 bin_PROGRAMS  = lfs
 sbin_PROGRAMS = lctl l_getidentity llverfs lustre_rsync ltrack_stats
