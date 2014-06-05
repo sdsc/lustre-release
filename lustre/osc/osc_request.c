@@ -3104,12 +3104,14 @@ int osc_setup(struct obd_device *obd, struct lustre_cfg *lcfg)
 	if (rc)
 		GOTO(out_ptlrpcd, rc);
 
-	handler = ptlrpcd_alloc_work(cli->cl_import, brw_queue_work, cli);
+	handler = ptlrpcd_alloc_work(cli->cl_import, brw_queue_work, cli,
+				     PDL_POLICY_ROUND);
 	if (IS_ERR(handler))
 		GOTO(out_client_setup, rc = PTR_ERR(handler));
 	cli->cl_writeback_work = handler;
 
-	handler = ptlrpcd_alloc_work(cli->cl_import, lru_queue_work, cli);
+	handler = ptlrpcd_alloc_work(cli->cl_import, lru_queue_work, cli,
+				     PDL_POLICY_LRU);
 	if (IS_ERR(handler))
 		GOTO(out_ptlrpcd_work, rc = PTR_ERR(handler));
 	cli->cl_lru_work = handler;

@@ -1257,7 +1257,6 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 {
 	struct osc_page   *opg  = oap2osc_page(oap);
 	struct cl_page    *page = oap2cl_page(oap);
-	struct osc_object *obj  = cl2osc(opg->ops_cl.cpl_obj);
 	enum cl_req_type   crt;
 	int srvlock;
 
@@ -1281,13 +1280,6 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 	crt = cmd == OBD_BRW_READ ? CRT_READ : CRT_WRITE;
 	/* Clear opg->ops_transfer_pinned before VM lock is released. */
 	opg->ops_transfer_pinned = 0;
-
-	spin_lock(&obj->oo_seatbelt);
-	LASSERT(opg->ops_submitter != NULL);
-	LASSERT(!list_empty(&opg->ops_inflight));
-	list_del_init(&opg->ops_inflight);
-	opg->ops_submitter = NULL;
-	spin_unlock(&obj->oo_seatbelt);
 
 	opg->ops_submit_time = 0;
 	srvlock = oap->oap_brw_flags & OBD_BRW_SRVLOCK;
@@ -2163,13 +2155,9 @@ static int osc_io_unplug0(const struct lu_env *env, struct client_obd *cli,
 		return 0;
 
 	if (!async) {
-		/* disable osc_lru_shrink() temporarily to avoid
-		 * potential stack overrun problem. LU-2859 */
-		atomic_inc(&cli->cl_lru_shrinkers);
 		client_obd_list_lock(&cli->cl_loi_list_lock);
 		osc_check_rpcs(env, cli, pol);
 		client_obd_list_unlock(&cli->cl_loi_list_lock);
-		atomic_dec(&cli->cl_lru_shrinkers);
 	} else {
 		CDEBUG(D_CACHE, "Queue writeback work for client %p.\n", cli);
 		LASSERT(cli->cl_writeback_work != NULL);
@@ -2390,7 +2378,6 @@ int osc_teardown_async_page(const struct lu_env *env,
 			    struct osc_object *obj, struct osc_page *ops)
 {
 	struct osc_async_page *oap = &ops->ops_oap;
-	struct osc_extent     *ext = NULL;
 	int rc = 0;
 	ENTRY;
 
@@ -2399,12 +2386,15 @@ int osc_teardown_async_page(const struct lu_env *env,
 	CDEBUG(D_INFO, "teardown oap %p page %p at index %lu.\n",
 	       oap, ops, osc_index(oap2osc(oap)));
 
-	osc_object_lock(obj);
 	if (!list_empty(&oap->oap_rpc_item)) {
 		CDEBUG(D_CACHE, "oap %p is not in cache.\n", oap);
 		rc = -EBUSY;
 	} else if (!list_empty(&oap->oap_pending_item)) {
+		struct osc_extent *ext = NULL;
+
+		osc_object_lock(obj);
 		ext = osc_extent_lookup(obj, osc_index(oap2osc(oap)));
+		osc_object_unlock(obj);
 		/* only truncated pages are allowed to be taken out.
 		 * See osc_extent_truncate() and osc_cache_truncate_start()
 		 * for details. */
@@ -2413,10 +2403,9 @@ int osc_teardown_async_page(const struct lu_env *env,
 					osc_index(oap2osc(oap)));
 			rc = -EBUSY;
 		}
+		if (ext != NULL)
+			osc_extent_put(env, ext);
 	}
-	osc_object_unlock(obj);
-	if (ext != NULL)
-		osc_extent_put(env, ext);
 	RETURN(rc);
 }
 
