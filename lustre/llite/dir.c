@@ -1660,6 +1660,11 @@ out_rmdir:
 			RETURN(-EFAULT);
 		}
 
+		if (!hur_len_okay(hur)) {
+			OBD_FREE_PTR(hur);
+			RETURN(-E2BIG);
+		}
+
 		/* Compute the whole struct size */
 		totalsize = hur_len(hur);
 		OBD_FREE_PTR(hur);
