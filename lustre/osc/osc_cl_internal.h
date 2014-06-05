@@ -137,15 +137,6 @@ struct osc_object {
         /** Serialization object for osc_object::oo_debug_io. */
 	struct mutex	   oo_debug_mutex;
 #endif
-        /**
-         * List of pages in transfer.
-         */
-	struct list_head	oo_inflight[CRT_NR];
-        /**
-         * Lock, protecting ccc_object::cob_inflight, because a seat-belt is
-         * locked during take-off and landing.
-         */
-	spinlock_t		oo_seatbelt;
 
 	/**
 	 * used by the osc to keep track of what objects to build into rpcs.
@@ -387,15 +378,6 @@ struct osc_page {
 	 * lru page list. See osc_lru_{del|use}() in osc_page.c for usage.
 	 */
 	struct list_head	ops_lru;
-	/**
-	 * Linkage into a per-osc_object list of pages in flight. For
-	 * debugging.
-	 */
-	struct list_head	ops_inflight;
-	/**
-	 * Thread that submitted this page for transfer. For debugging.
-	 */
-	struct task_struct           *ops_submitter;
 	/**
 	 * Submit time - the time when the page is starting RPC. For debugging.
 	 */
