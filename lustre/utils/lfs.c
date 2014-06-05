@@ -343,7 +343,8 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 		       __u64 migration_flags)
 {
 	int			 fd, fdv;
-	char			 volatile_file[PATH_MAX];
+	char			 volatile_file[PATH_MAX +
+					       LUSTRE_VOLATILE_HDR_LEN + 4];
 	char			 parent[PATH_MAX];
 	char			*ptr;
 	int			 rc;
@@ -1716,15 +1717,21 @@ static int lfs_mdts(int argc, char **argv)
 #define RSF     "%4s"
 #define RDF     "%3d%%"
 
+#define MAX_CDF_STRLEN (3 * sizeof(__u64))
+#define MAX_RDF_STRLEN (3 * sizeof(int) + 1)
+
 static int showdf(char *mntdir, struct obd_statfs *stat,
                   char *uuid, int ishow, int cooked,
                   char *type, int index, int rc)
 {
-        long long avail, used, total;
-        double ratio = 0;
-        char *suffix = "KMGTPEZY";
-        /* Note if we have >2^64 bytes/fs these buffers will need to be grown */
-        char tbuf[20], ubuf[20], abuf[20], rbuf[20];
+	long long avail, used, total;
+	double ratio = 0;
+	char *suffix = "KMGTPEZY";
+	/* Note if we have >2^64 bytes/fs these buffers will need to be grown */
+	char tbuf[MAX_CDF_STRLEN];
+	char ubuf[MAX_CDF_STRLEN];
+	char abuf[MAX_CDF_STRLEN];
+	char rbuf[MAX_RDF_STRLEN];
 
         if (!uuid || !stat)
                 return -EINVAL;
