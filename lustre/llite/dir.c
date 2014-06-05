@@ -1648,7 +1648,7 @@ out_rmdir:
 		RETURN(ll_fid2path(inode, (void *)arg));
 	case LL_IOC_HSM_REQUEST: {
 		struct hsm_user_request	*hur;
-		int			 totalsize;
+		ssize_t			 totalsize;
 
 		OBD_ALLOC_PTR(hur);
 		if (hur == NULL)
@@ -1663,6 +1663,8 @@ out_rmdir:
 		/* Compute the whole struct size */
 		totalsize = hur_len(hur);
 		OBD_FREE_PTR(hur);
+		if (IS_ERR_VALUE(totalsize))
+			RETURN(-E2BIG);
 
 		/* Final size will be more than double totalsize */
 		if (totalsize >= MDS_MAXREQSIZE / 3)
