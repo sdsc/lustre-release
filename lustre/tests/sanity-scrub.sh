@@ -893,14 +893,14 @@ test_15() {
 	scrub_check_flags 4 inconsistent
 
 	# run under dryrun mode
-	scrub_start 5 --dryrun
+	scrub_start 5 --dryrun on
 	scrub_check_status 6 completed
 	scrub_check_flags 7 inconsistent
 	scrub_check_params 8 dryrun
 	scrub_check_repaired 9 20
 
 	# run under dryrun mode again
-	scrub_start 10 --dryrun
+	scrub_start 10 --dryrun on
 	scrub_check_status 11 completed
 	scrub_check_flags 12 inconsistent
 	scrub_check_params 13 dryrun
@@ -911,14 +911,14 @@ test_15() {
 	# Lustre-2.x (x <= 5) used "-n off" to disable dryrun which does not
 	# work under Lustre-2.y (y >= 6), the test script should be fixed as
 	# "-noff" or "--dryrun=off" or nothing by default.
-	scrub_start 15
+	scrub_start 15 --dryrun off
 	scrub_check_status 16 completed
 	scrub_check_flags 17 ""
 	scrub_check_params 18 ""
 	scrub_check_repaired 19 20
 
 	# run under normal mode again
-	scrub_start 20
+	scrub_start 20 --dryrun off
 	scrub_check_status 21 completed
 	scrub_check_flags 22 ""
 	scrub_check_params 23 ""
