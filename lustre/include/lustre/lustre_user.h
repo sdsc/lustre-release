@@ -48,10 +48,12 @@
 
 #ifndef __KERNEL__
 #include <stdio.h>
+#include <limits.h>
 #include <libcfs/posix/posix-types.h>
 #endif
 #include <lustre/ll_fiemap.h>
 #if defined(__linux__)
+#include <linux/kernel.h>
 #include <linux/lustre_user.h>
 #elif defined(__APPLE__)
 #include <darwin/lustre_user.h>
@@ -1048,12 +1050,23 @@ static inline void *hur_data(struct hsm_user_request *hur)
 	return &(hur->hur_user_item[hur->hur_request.hr_itemcount]);
 }
 
-/** Compute the current length of the provided hsm_user_request. */
-static inline int hur_len(struct hsm_user_request *hur)
+/** Compute the current length of the provided hsm_user_request.
+ * return 0 on bounds check error.
+ */
+static inline size_t hur_len(struct hsm_user_request *hur)
 {
-	return offsetof(struct hsm_user_request, hur_user_item[0]) +
-		hur->hur_request.hr_itemcount * sizeof(hur->hur_user_item[0]) +
-		hur->hur_request.hr_data_len;
+	unsigned int count, data_len, offset;
+	count = hur->hur_request.hr_itemcount;
+	data_len = hur->hur_request.hr_data_len;
+	offset = offsetof(struct hsm_user_request, hur_user_item[0]);
+
+	if ((count > INT_MAX / sizeof(hur->hur_user_item[0])) ||
+	    (INT_MAX - offset < data_len) ||
+	    (INT_MAX - count * sizeof(hur->hur_user_item[0]) >
+	     offset + data_len))
+		return 0;
+
+	return offset + count * sizeof(hur->hur_user_item[0]) + data_len;
 }
 
 /****** HSM RPCs to copytool *****/

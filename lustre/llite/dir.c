@@ -1663,6 +1663,8 @@ out_rmdir:
 		/* Compute the whole struct size */
 		totalsize = hur_len(hur);
 		OBD_FREE_PTR(hur);
+		if (totalsize == 0)
+			RETURN(-E2BIG);
 
 		/* Final size will be more than double totalsize */
 		if (totalsize >= MDS_MAXREQSIZE / 3)
