@@ -303,15 +303,37 @@ struct client_obd {
 	struct obd_histogram     cl_read_offset_hist;
 	struct obd_histogram     cl_write_offset_hist;
 
-	/* lru for osc caching pages */
+	/** LRU for osc caching pages */
 	struct cl_client_cache	*cl_cache;
-	cfs_list_t		 cl_lru_osc; /* member of cl_cache->ccc_lru */
+	/** member of cl_cache->ccc_lru */
+	cfs_list_t		 cl_lru_osc;
+	/** # of available LRU slots left in the per-OSC cache.
+	 * Available LRU slots are shared by all OSCs of the same file system,
+	 * therefore this is a pointer to cl_client_cache::ccc_lru_left. */
 	atomic_t		*cl_lru_left;
+	/** # of busy LRU pages. A page is considered busy if it's in writeback
+	 * queue, or in transfer. Busy pages can't be discarded so they are not
+	 * in LRU cache. */
 	atomic_t		 cl_lru_busy;
+	/** # of threads are shrinking LRU cache. To avoid contention, it's not
+	 * allowed to have multiple threads shrinking LRU cache. */
 	atomic_t		 cl_lru_shrinkers;
+	/** # of LRU pages in the cache for this client_obd */
 	atomic_t		 cl_lru_in_list;
-	cfs_list_t		 cl_lru_list; /* lru page list */
-	client_obd_lock_t	 cl_lru_list_lock; /* page list protector */
+	/** stats: how many reclaims have happened for this client_obd.
+	 * reclaim and shrink - shrink is async, voluntarily rebalancing;
+	 * reclaim is sync, initiated by IO thread when the LRU slots are
+	 * in shortage. */
+	__u64			 cl_lru_reclaim;
+	/** The time when this LRU cache was last used. */
+	time_t			 cl_lru_last_used;
+	/** List of LRU pages for this client_obd */
+	cfs_list_t		 cl_lru_list;
+	/** Lock for LRU page list */
+	client_obd_lock_t	 cl_lru_list_lock;
+	/** # of unstable pages in this client_obd.
+	 * An unstable page is a page state that WRITE RPC has finished but
+	 * the transaction has NOT yet committed. */
 	atomic_t		 cl_unstable_count;
 
 	/* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
