@@ -17,7 +17,7 @@ LIBPTLCTL := $(top_builddir)/lnet/utils/libptlctl.a \
 	     $(top_builddir)/libcfs/libcfs/libcfs.a \
 	     $(LIBCFSUTIL)
 
-sbin_scripts = lrun
+sbin_scripts = lrun ldlm_debug_upcall
 bin_scripts = llstat llobdstat plot-llstat llbackup
 
 EXTRA_PROGRAMS = wirecheck
