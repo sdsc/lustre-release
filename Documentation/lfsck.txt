@@ -75,10 +75,10 @@ excessive number of MDT-OST inconsistency events are detected. On starting, the
 master engine sends RPCs to related OSTs to start the slave engines.
 
 2. The master engine on the MDS scans the MDT device using namespace iteration
-(described below). For each striped file, it calls the registered LFSCK process
-handlers to perform the relevant system consistency check/repair, which is are
-enumerated in the 'features' section. All objects on OSTs that are never
-referenced during this scan (because, for example, they are orphans) are
+(described below). For each striped file, it calls the registered LFSCK
+process handlers to perform the relevant system consistency checks/repairs,
+which are enumerated in the 'features' section. All objects on OSTs that are
+never referenced during this scan (because, for example, they are orphans) are
 recorded in an OST orphan object index on each OST.
 
 3. After the MDT completes first-stage system scanning, the master engine sends
@@ -92,7 +92,7 @@ thread in the LFSCK layer. This kernel thread drives the first-stage system
 scan on the OST.
 
 1. When the slave engine is triggered by the RPC from the master engine in the
-first phase, the OST scans the local OST deviceto generate the in-memory OST
+first phase, the OST scans the local OST device to generate the in-memory OST
 orphan object index.
 
 2. When the first-stage system scan (for both MDTs and OSTs) is complete a list
@@ -106,10 +106,11 @@ objects will either be relinked to an existing file if found - or moved into a
 new file in .lustre/lost+found.
 
 If multiple MDTs are present, MDTs will check/repair MDT-OST consistency in
-parallel. To avoid scans of the OST device the slave engine will not begin
-second-stage system scans until all the master engines complete the first-stage
-system scan. For each OST there is a single OST orphan object index, regardless
-of how many MDTs are in the MDT-OST consistency check/repair.
+parallel. To avoid redundant scans of the OST device the slave engine will not
+begin second-stage system scans until all the master engines complete the
+first-stage system scan. For each OST there is a single OST orphan object
+index, regardless of how many MDTs are in the MDT-OST consistency
+check/repair.
 
 
 Object traversal design reference
@@ -184,7 +185,7 @@ Glossary of terms
 ===============================================
 
 OSD - Object storage device. A generic term for a storage device with an
-  interface that extends beyond a block-orientated device interface.
+  interface that extends beyond a block-oriented device interface.
 
 OI - Object Index. A table that maps FIDs to inodes. This table must be
   regenerated if a file level restore is performed as inodes will change.
