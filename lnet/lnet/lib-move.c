@@ -822,7 +822,7 @@ lnet_peer_alive_locked (lnet_peer_t *lp)
  *	  it sets do_send FALSE and I don't do the unlock/send/lock bit.
  *
  * \retval 0 If \a msg sent or OK to send.
- * \retval -EAGAIN If \a msg blocked for credit.
+ * \retval EAGAIN If \a msg blocked for credit, it's not a real error.
  * \retval -EHOSTUNREACH If the next hop of the message appears dead.
  * \retval -ECANCELED If the MD of the message has been unlinked.
  */
@@ -883,7 +883,7 @@ lnet_post_send_locked(lnet_msg_t *msg, int do_send)
 		if (lp->lp_txcredits < 0) {
 			msg->msg_tx_delayed = 1;
 			list_add_tail(&msg->msg_list, &lp->lp_txq);
-			return -EAGAIN;
+			return EAGAIN;
 		}
 	}
 
@@ -900,7 +900,7 @@ lnet_post_send_locked(lnet_msg_t *msg, int do_send)
 		if (tq->tq_credits < 0) {
 			msg->msg_tx_delayed = 1;
 			list_add_tail(&msg->msg_list, &tq->tq_delayed);
-			return -EAGAIN;
+			return EAGAIN;
 		}
 	}
 
@@ -968,7 +968,7 @@ lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
 			LASSERT(msg->msg_rx_ready_delay);
 			msg->msg_rx_delayed = 1;
 			list_add_tail(&msg->msg_list, &lp->lp_rtrq);
-			return -EAGAIN;
+			return EAGAIN;
 		}
 	}
 
@@ -988,7 +988,7 @@ lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
 			LASSERT(msg->msg_rx_ready_delay);
 			msg->msg_rx_delayed = 1;
 			list_add_tail(&msg->msg_list, &rbp->rbp_msgs);
-			return -EAGAIN;
+			return EAGAIN;
 		}
 	}
 
@@ -1411,7 +1411,7 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
 	if (rc == 0)
                 lnet_ni_send(src_ni, msg);
 
-	return 0; /* rc == 0 or -EAGAIN */
+	return 0; /* rc == 0 or EAGAIN */
 }
 
 static void
@@ -1677,6 +1677,12 @@ lnet_parse_ack(lnet_ni_t *ni, lnet_msg_t *msg)
 	return 0;
 }
 
+/**
+ * \retval 0		If \a msg is forwarded
+ * \retval EAGAIN	If \a msg is blocked because w/o buffer, it's not an
+ * 			error.
+ * \retval -ve 		error code
+ */
 static int
 lnet_parse_forward_locked(lnet_ni_t *ni, lnet_msg_t *msg)
 {
@@ -1961,12 +1967,14 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 		rc = lnet_parse_forward_locked(ni, msg);
 		lnet_net_unlock(cpt);
 
-		if (rc < 0)
+		if (rc == EAGAIN) /* waiting for buffer */
+			return 0;
+
+		if (rc != 0)
 			goto free_drop;
-		if (rc == 0) {
-			lnet_ni_recv(ni, msg->msg_private, msg, 0,
-				     0, payload_length, payload_length);
-		}
+
+		lnet_ni_recv(ni, msg->msg_private, msg, 0,
+			     0, payload_length, payload_length);
 		return 0;
 	}
 
