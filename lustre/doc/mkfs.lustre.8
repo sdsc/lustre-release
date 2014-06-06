@@ -10,12 +10,27 @@
 mkfs.lustre \- format a disk for a Lustre service
 .SH SYNOPSIS
 .br
-.BR mkfs.lustre { --ost | --mdt | --mgs }
-.I [options] 
+.BR mkfs.lustre
+.RB { --ost | --mdt | --mgs }
+.BR --fsname= <\fIname\fR>
+.RI [ options ]
 .I device
 .br
-.B <target_type>
-is one of
+.BR mkfs.lustre
+.RB { --ost | --mdt | --mgs }
+.BR --backfstype=zfs
+.BR --fsname= <\fIname\fR>
+.RI [ options ]
+.RI < pool_name >/< dataset_name >
+.RI [< zpool_specification >]
+
+.SH DESCRIPTION
+.B mkfs.lustre
+is used to format a disk device for use as part of a Lustre
+filesystem. After formatting, a disk can be mounted to start the Lustre
+service defined by this command.
+
+.SH OPTIONS
 .TP
 .BI \--ost
 object storage target
@@ -28,16 +43,9 @@ configuration management service - one per site.  This service can be
 combined with one 
 .BI \--mdt
 service by specifying both types
-.SH DESCRIPTION
-.B mkfs.lustre
-is used to format a disk device for use as part of a Lustre
-filesystem. After formatting, a disk can be mounted to start the Lustre
-service defined by this command.
-
-.SH OPTIONS
 .TP
 .BI \--backfstype= fstype
-Force a particular format for the backing fs (ext3, ldiskfs)
+Force a particular format for the backing fs (ldiskfs, zfs)
 .TP
 .BI \--comment= comment
 Set user comment about this disk, ignored by Lustre.
@@ -57,11 +65,11 @@ Set the NID(s) of all service partner. This option treats all nodes as equal
 service nodes. Cannot be used with --failnode.
 .TP
 .BI \--fsname= filesystem_name  
-The Lustre filesystem this service will be part of.  The maximum
-filesystem_name length is 8 characters. Default is 'lustre'
+The Lustre filesystem this service will be part of. The maximum filesystem_name
+length is 8 characters. Required for all targets other than MGS.
 .TP
 .BI \--index= index
-Force a particular OST or MDT index 
+Specify a particular OST or MDT index. Required for all targets other than the MGS.
 .TP
 .BI \--mkfsoptions= opts
 Format options for the backing fs. For example, ext3 options could be set here.
@@ -128,17 +136,21 @@ Print more information.
 
 .SH EXAMPLES
 .TP
-.B mkfs.lustre --fsname=testfs --mdt --mgs /dev/sda1
+.B mkfs.lustre --fsname=testfs --index=0 --mdt --mgs /dev/sda1
 Combined MGS and MDT for filesystem 'testfs' on node e.g. cfs21
 .TP
-.B mkfs.lustre --fsname=testfs --ost --mgsnode=cfs21@tcp0 /dev/sdb
+.B mkfs.lustre --fsname=testfs --index=0 --ost --mgsnode=cfs21@tcp0 /dev/sdb
 OST for filesystem 'testfs' on any node using the above MGS.
 .TP
 .B mkfs.lustre --mgs /dev/sda1
 Standalone MGS on e.g. node cfs22
 .TP
-.B mkfs.lustre --fsname=myfs1 --mdt --mgsnode=cfs22@tcp0 /dev/sda2
+.B mkfs.lustre --fsname=myfs1 --index=0 --mdt --mgsnode=cfs22@tcp0 /dev/sda2
 MDT for filesystem 'myfs1' on any node, using the above MGS
+.TP
+.B mkfs.lustre --fsname=testfs --index=0 --mdt --mgs zfspool/mdt1 /dev/sdb
+Create zfs pool 'zfspool' on /dev/sdb and create mdt/mgs on
+filesystem 'zfspool/mdt1'.
 
 .SH AVAILABILITY
 .B mkfs.lustre
@@ -150,4 +162,5 @@ filesystem package.
 .BR mount.lustre (8),
 .BR tunefs.lustre (8),
 .BR lctl (8),
-.BR lfs (1)
+.BR lfs (1),
+.BR zpool (8)
