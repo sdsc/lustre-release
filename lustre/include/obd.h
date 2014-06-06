@@ -862,6 +862,7 @@ struct md_op_data {
 	/* The offset of dir entry among the same hash entries, which
 	 * is used to resolve the hash conflict. */
 	__u32                   op_same_hash_offset;
+	struct lustre_handle	op_readdir_handle;
 
 	/* Used by readdir */
 	__u32                   op_npages;
@@ -1099,9 +1100,9 @@ struct md_ops {
 	int (*m_fsync)(struct obd_export *, const struct lu_fid *,
 		       struct obd_capa *, struct ptlrpc_request **);
 
-	int (*m_read_entry)(struct obd_export *, struct md_op_data *,
-			    struct md_callback *cb_op, struct lu_dirent **ld,
-			    struct page **ppage);
+	int (*m_read_page)(struct obd_export *, struct md_op_data *,
+			   struct md_callback *cb_op, __u64 hash_offset,
+			   struct page **ppage);
 
 	int (*m_unlink)(struct obd_export *, struct md_op_data *,
 			struct ptlrpc_request **);
