@@ -715,6 +715,8 @@ lnet_ni_eager_recv(lnet_ni_t *ni, lnet_msg_t *msg)
 		       libcfs_nid2str(msg->msg_rxpeer->lp_nid),
 		       libcfs_id2str(msg->msg_target), rc);
 		LASSERT(rc < 0); /* required by my callers */
+		/* NB: -EAGAIN is for blocked message */
+		LASSERT(rc != -EAGAIN);
 	}
 
 	return rc;
@@ -939,7 +941,7 @@ lnet_post_routed_recv_locked (lnet_msg_t *msg, int do_recv)
 {
 	/* lnet_parse is going to lnet_net_unlock immediately after this, so it
 	 * sets do_recv FALSE and I don't do the unlock/send/lock bit.  I
-	 * return EAGAIN if msg blocked and 0 if received or OK to receive */
+	 * return -EAGAIN if msg blocked and 0 if received or OK to receive */
         lnet_peer_t         *lp = msg->msg_rxpeer;
         lnet_rtrbufpool_t   *rbp;
         lnet_rtrbuf_t       *rb;
@@ -1677,6 +1679,12 @@ lnet_parse_ack(lnet_ni_t *ni, lnet_msg_t *msg)
 	return 0;
 }
 
+/**
+ * \retval 0		If \a msg is forwarded
+ * \retval -EAGAIN	If \a msg is blocked because w/o buffer, it's not an
+ * 			error.
+ * \retval -ve 		error code
+ */
 static int
 lnet_parse_forward_locked(lnet_ni_t *ni, lnet_msg_t *msg)
 {
@@ -1961,12 +1969,13 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 		rc = lnet_parse_forward_locked(ni, msg);
 		lnet_net_unlock(cpt);
 
-		if (rc < 0)
+		if (rc == -EAGAIN) /* waiting for buffer */
+			return 0;
+		else if (rc != 0) /* real failure */
 			goto free_drop;
-		if (rc == 0) {
-			lnet_ni_recv(ni, msg->msg_private, msg, 0,
-				     0, payload_length, payload_length);
-		}
+
+		lnet_ni_recv(ni, msg->msg_private, msg, 0,
+			     0, payload_length, payload_length);
 		return 0;
 	}
 
