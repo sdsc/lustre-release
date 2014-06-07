@@ -125,7 +125,7 @@ static int osp_async_update_interpret(const struct lu_env *env,
 		index++;
 	}
 
-	out_destroy_update_req(dt_update);
+	out_destroy_dt_update_req(dt_update);
 
 	return 0;
 }
@@ -139,7 +139,7 @@ int osp_unplug_async_update(const struct lu_env *env,
 	int				 rc;
 
 	rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-				 update->dur_req, &req);
+				 update->dur_buf.ub_req, &req);
 	if (rc != 0) {
 		struct osp_async_update_item *oaui;
 		struct osp_async_update_item *next;
@@ -151,7 +151,7 @@ int osp_unplug_async_update(const struct lu_env *env,
 					       oaui->oaui_data, 0, rc);
 			osp_async_update_item_fini(env, oaui);
 		}
-		out_destroy_update_req(update);
+		out_destroy_dt_update_req(update);
 	} else {
 		LASSERT(list_empty(&update->dur_list));
 
@@ -173,7 +173,7 @@ osp_find_or_create_async_update_request(struct osp_device *osp)
 	if (update != NULL)
 		return update;
 
-	update = out_create_update_req(&osp->opd_dt_dev);
+	update = out_create_dt_update_req(&osp->opd_dt_dev);
 	if (!IS_ERR(update))
 		osp->opd_async_requests = update;
 
@@ -197,8 +197,9 @@ int osp_insert_async_update(const struct lu_env *env,
 		RETURN(-ENOMEM);
 
 again:
-	rc = out_insert_update(env, update, op, lu_object_fid(osp2lu_obj(obj)),
-			       count, lens, bufs);
+	rc = out_update_pack(env, &update->dur_buf, op,
+			     lu_object_fid(osp2lu_obj(obj)), count, lens, bufs,
+			     0);
 	if (rc == -E2BIG) {
 		osp->opd_async_requests = NULL;
 		mutex_unlock(&osp->opd_async_requests_mutex);
@@ -284,7 +285,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 
 		list_del_init(&dt_update->dur_list);
 		rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-					 dt_update->dur_req, &req);
+					 dt_update->dur_buf.ub_req, &req);
 		if (rc == 0) {
 			args = ptlrpc_req_async_args(req);
 			args->oaua_update = dt_update;
@@ -293,7 +294,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 				osp_async_update_interpret;
 			ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 		} else {
-			out_destroy_update_req(dt_update);
+			out_destroy_dt_update_req(dt_update);
 		}
 	} else {
 		/* Before we support async update, the cross MDT transaction
@@ -358,8 +359,9 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		goto put;
 	}
 
-	if (dt_update->dur_req->ourq_count == 0) {
-		out_destroy_update_req(dt_update);
+	if (dt_update->dur_buf.ub_req == NULL ||
+	    dt_update->dur_buf.ub_req->ourq_count == 0) {
+		out_destroy_dt_update_req(dt_update);
 		goto put;
 	}
 
@@ -377,7 +379,7 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			}
 
 			if (rc != 0) {
-				out_destroy_update_req(dt_update);
+				out_destroy_dt_update_req(dt_update);
 				goto put;
 			}
 
@@ -387,14 +389,14 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 				obd_put_request_slot(cli);
 		} else {
 			rc = th->th_result;
-			out_destroy_update_req(dt_update);
+			out_destroy_dt_update_req(dt_update);
 		}
 	} else {
 		if (tu->tu_sent_after_local_trans)
 			rc = osp_trans_trigger(env, dt2osp_dev(dt),
 					       dt_update, th, false);
 		rc = dt_update->dur_rc;
-		out_destroy_update_req(dt_update);
+		out_destroy_dt_update_req(dt_update);
 	}
 
 put:

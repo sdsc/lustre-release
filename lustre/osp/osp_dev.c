@@ -897,7 +897,7 @@ static struct lu_device *osp_device_fini(const struct lu_env *env,
 	ENTRY;
 
 	if (m->opd_async_requests != NULL) {
-		out_destroy_update_req(m->opd_async_requests);
+		out_destroy_dt_update_req(m->opd_async_requests);
 		m->opd_async_requests = NULL;
 	}
 
