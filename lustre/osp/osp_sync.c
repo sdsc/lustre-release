@@ -44,6 +44,7 @@
 #define DEBUG_SUBSYSTEM S_MDS
 
 #include <lustre_log.h>
+#include <lustre_update.h>
 #include "osp_internal.h"
 
 static int osp_sync_id_traction_init(struct osp_device *d);
@@ -560,19 +561,19 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	int				rc;
 	ENTRY;
 
-	update = out_create_update_req(&osp->opd_dt_dev);
+	update = dt_update_request_create(&osp->opd_dt_dev);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
 	/* This can only happens for unlink slave directory, so decrease
 	 * ref for ".." and "." */
-	rc = out_insert_update(env, update, OUT_REF_DEL, &rec->lur_fid, 0,
-			       NULL, NULL);
+	rc = out_update_pack(env, &update->dur_buf, OUT_REF_DEL, &rec->lur_fid,
+			     0, NULL, NULL, 0);
 	if (rc != 0)
 		GOTO(out, rc);
 
-	rc = out_insert_update(env, update, OUT_REF_DEL, &rec->lur_fid, 0,
-			       NULL, NULL);
+	rc = out_update_pack(env, &update->dur_buf, OUT_REF_DEL, &rec->lur_fid,
+			     0, NULL, NULL, 0);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -582,13 +583,13 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	size = sizeof(lcookie);
 	buf = (const char *)&lcookie;
 
-	rc = out_insert_update(env, update, OUT_DESTROY, &rec->lur_fid, 1,
-			       &size, &buf);
+	rc = out_update_pack(env, &update->dur_buf, OUT_DESTROY, &rec->lur_fid,
+			     1, &size, &buf, 0);
 	if (rc != 0)
 		GOTO(out, rc);
 
 	rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-				 update->dur_req, &req);
+				 update->dur_buf.ub_req, &req);
 	if (rc != 0)
 		GOTO(out, rc);
 
@@ -603,7 +604,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	*reqp = req;
 out:
 	if (update != NULL)
-		out_destroy_update_req(update);
+		dt_update_request_destroy(update);
 
 	RETURN(rc);
 }
