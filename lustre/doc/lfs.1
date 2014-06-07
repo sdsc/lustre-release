@@ -86,6 +86,14 @@ lfs \- Lustre utility to create a file with specific striping pattern, find the 
 .br
 .B lfs mkdir <--index|-i mdt_index> <dir>
 .br
+.B lfs setdirstripe <--count|-c stripe_count>
+	    \fB [--index|-i mdt_index] [--hash-type|-t hash_type]
+	    \fB [--default_stripe|-D ] [-m mode] <dir>
+.br
+.B lfs getdirstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v]
+        \fB [--stripe-count|-c ] [--stripe-index|-i] [--mdt-index|-M]
+        \fB [--recursive|-r] [--raw|-R] <dirname> ...\fR
+.br
 .B lfs help
 .SH DESCRIPTION
 .B lfs
