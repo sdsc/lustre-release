@@ -150,16 +150,18 @@ command_t cmdlist[] = {
 	 "		   [--layout|-L]\n"
 	 "		   <directory|filename> ..."},
 	{"setdirstripe", lfs_setdirstripe, 0,
-	 "To create a remote directory on a specified MDT.\n"
+	 "To create a striped directory on a specified MDT. And this can only\n"
+	 "be done on MDT0 by administrator.\n"
 	 "usage: setdirstripe <--count|-c stripe_count>\n"
 	 "[--index|-i mdt_index] [--hash-type|-t hash_type]\n"
-	 "[--default_stripe|-D ] <dir>\n"
+	 "[--default_stripe|-D ] [-m mode] <dir>\n"
 	 "\tstripe_count: stripe count of the striped directory\n"
 	 "\tmdt_index:	MDT index of first stripe\n"
 	 "\thash_type:	hash type of the striped directory. Hash types:\n"
 	 "	-t fnv_1a_64 FNV-1a hash algorithm(default)\n"
 	 "	-t all_char  sum of characters % MDT_COUNT. (not recommended)\n"
-	 "\tdefault_stripe: set default dirstripe of the directory\n"},
+	 "\tdefault_stripe: set default dirstripe of the directory\n"
+	 "\tmode: the mode of the directory\n"},
 	{"getdirstripe", lfs_getdirstripe, 0,
 	 "To list the striping info for a given directory\n"
 	 "or recursively for all directories in a directory tree.\n"
@@ -169,8 +171,9 @@ command_t cmdlist[] = {
 	{"mkdir", lfs_setdirstripe, 0,
 	 "To create a remote directory on a specified MDT. And this can only\n"
 	 "be done on MDT0 by administrator.\n"
-	 "usage: mkdir <--index|-i mdt_index> <dir>\n"
-	 "\tmdt_index:    MDT index of the remote directory.\n"},
+	 "usage: mkdir <--index|-i mdt_index> [-m mode] <dir>\n"
+	 "\tmdt_index: MDT index of the remote directory.\n"
+	 "\tmode: the mode of the directory.\n"},
 	{"rm_entry", lfs_rmentry, 0,
 	 "To remove the name entry of the remote directory. Note: This\n"
 	 "command will only delete the name entry, i.e. the remote directory\n"
