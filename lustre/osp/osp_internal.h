@@ -506,9 +506,9 @@ extern struct llog_operations osp_mds_ost_orig_logops;
 
 /* osp_trans.c */
 int osp_insert_async_request(const struct lu_env *env,
-			     int op, struct osp_object *obj, int count,
-			     int *lens, const char **bufs, void *data,
-			     osp_async_request_interpreter_t interpterer);
+			     enum update_type op, struct osp_object *obj, int count,
+			     __u16 *lens, const void **bufs, void *data,
+			     osp_async_request_interpreter_t interpreter);
 int osp_unplug_async_request(const struct lu_env *env,
 			     struct osp_device *osp,
 			     struct dt_update_request *update);

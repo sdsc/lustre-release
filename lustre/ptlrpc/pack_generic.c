@@ -54,7 +54,6 @@
 #include <lustre_net.h>
 #include <obd_cksum.h>
 #include <lustre/ll_fiemap.h>
-#include <lustre_update.h>
 
 static inline int lustre_msg_hdr_size_v2(int count)
 {
@@ -2628,7 +2627,7 @@ void lustre_swab_object_update_reply(struct object_update_reply *our)
 
 		__swab16s(&our->ourp_lens[i]);
 		ourp = object_update_result_get(our, i, NULL);
-		if (ourp == NULL)
+		if (ourp == NULL || IS_ERR(ourp))
 			return;
 		lustre_swab_object_update_result(ourp);
 	}
