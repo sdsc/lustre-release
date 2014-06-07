@@ -1,0 +1,50 @@
+.TH lfs-getdirstripe 1 "2014 June 8" Lustre "get striping pattern of a directory"
+.SH NAME
+lfs getdirstripe \- used to get striping pattern of a directory.
+.SH SYNOPSIS
+.B lfs getdirstripe [--obd|-O <uuid>] [--quiet|-q] [--verbose|-v]
+        \fB [--stripe-count|-c ] [--stripe-index|-i]
+        \fB [--recursive|-r] [--raw|-R] <dirname> ...\fR
+.br
+.SH DESCRIPTION
+.TP
+.B lfs getdirstripe [OPTIONS] <dir>
+List the directory striping information of a given directory.
+.SH OPTIONS
+.TP
+.BR --stripe-count
+Only show the stripe count of the directory.
+.TP
+.BR --stripe-index
+Only show the stripe index of the directory.
+.TP
+.BR --raw
+The striping information is printed without substituting the
+filesystem's default values for unspecified fields. If the striping EA is not
+set, 0, and -1 will be printed for the stripe count, and offset respectively.
+.TP
+.BR --quiet
+Only show the details of the sub-striped directory object id information.
+.TP
+.BR --verbose
+Additional information will be shown with this option.
+.TP
+.BR --recursive
+The default behavior when a directory is specified is to list the striping
+information for all sub-directories within the specified directory (like
+.RB ' "ls -l" ') . This can be expanded with --recursive, which will recurse
+into all subdirectories.
+.TP
+.BR --obd=MDT_UUID
+Limit the returned directories to those with objects on a specific MDT,
+whose uuid is MDT_UUID.
+.SH EXAMPLES
+.TP
+.B $ lfs getdirstripe -O lustre-MDT0001_UUID -r /mnt/lustre/dir1
+List the striping information of sub-directories, who is located on MDT1,
+under /mnt/lustre/dir1.
+.SH AUTHOR
+The lfs getdirstripe command is part of the Lustre filesystem.
+.SH SEE ALSO
+.BR lfs (1),
+.BR lustre (7)
