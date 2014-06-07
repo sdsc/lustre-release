@@ -462,10 +462,11 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 	}
 
 	update_result = object_update_result_get(reply, 0, NULL);
-	if (update_result == NULL) {
+	if (update_result == NULL || IS_ERR(update_result)) {
+		rc = update_result == NULL ? -EPROTO : PTR_ERR(update_result);
 		CERROR("%s: empty name for xattr get: rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), -EPROTO);
-		RETURN(err_serious(-EPROTO));
+		       tgt_name(tsi->tsi_tgt), rc);
+		RETURN(err_serious(rc));
 	}
 
 	lbuf->lb_buf = update_result->our_data;
