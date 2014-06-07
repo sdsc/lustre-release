@@ -3990,6 +3990,12 @@ struct object_update_param {
 	char	oup_buf[0];
 };
 
+static inline unsigned long
+object_update_param_size(const struct object_update_param *param)
+{
+	return cfs_size_round(sizeof(*param) + param->oup_len);
+}
+
 /* object update */
 struct object_update {
 	__u16		ou_type;		/* enum update_type */
@@ -4016,6 +4022,44 @@ struct object_update_request {
 void lustre_swab_object_update(struct object_update *ou);
 void lustre_swab_object_update_request(struct object_update_request *our);
 
+static inline unsigned long
+object_update_size(const struct object_update *update)
+{
+	const struct	object_update_param *param;
+	unsigned long	size;
+	int		i;
+
+	size = offsetof(struct object_update, ou_params[0]);
+	for (i = 0; i < update->ou_params_count; i++) {
+		param = (struct object_update_param *)((char *)update + size);
+		size += object_update_param_size(param);
+	}
+
+	return size;
+}
+
+static inline struct object_update
+*object_update_request_get(const struct object_update_request *our,
+			   int index, int *size)
+{
+	void	*ptr;
+	int	i;
+
+	if (index >= our->ourq_count)
+		return NULL;
+
+	ptr = (char *)our + offsetof(struct object_update_request,
+				     ourq_updates[0]);
+	for (i = 0; i < index; i++)
+		ptr += object_update_size((struct object_update *)ptr);
+
+	if (size != NULL)
+		*size = object_update_size((struct object_update *)ptr);
+
+	return ptr;
+}
+
+
 /* the result of object update */
 struct object_update_result {
 	__u32   our_rc;
@@ -4037,6 +4081,31 @@ struct object_update_reply {
 
 void lustre_swab_object_update_result(struct object_update_result *our);
 void lustre_swab_object_update_reply(struct object_update_reply *our);
+
+static inline struct object_update_result
+*object_update_result_get(const struct object_update_reply *reply,
+			  int index, int *size)
+{
+	char *ptr;
+	int count = reply->ourp_count;
+	int i;
+
+	if (index >= count)
+		return NULL;
+
+	ptr = (char *)reply +
+	      cfs_size_round(offsetof(struct object_update_reply,
+				      ourp_lens[count]));
+	for (i = 0; i < index; i++) {
+		LASSERT(reply->ourp_lens[i] > 0);
+		ptr += cfs_size_round(reply->ourp_lens[i]);
+	}
+
+	if (size != NULL)
+		*size = reply->ourp_lens[index];
+
+	return (struct object_update_result *)ptr;
+}
 
 /** layout swap request structure
  * fid1 and fid2 are in mdt_body
