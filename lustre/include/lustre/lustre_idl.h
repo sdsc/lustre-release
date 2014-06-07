@@ -3983,6 +3983,12 @@ struct object_update_param {
 	char	oup_buf[0];
 };
 
+static inline unsigned long
+object_update_param_size(const struct object_update_param *param)
+{
+	return cfs_size_round(sizeof(*param) + param->oup_len);
+}
+
 /* object update */
 struct object_update {
 	__u16		ou_type;		/* enum update_type */
@@ -3994,6 +4000,22 @@ struct object_update {
 	struct lu_fid	ou_fid;			/* object to be updated */
 	struct object_update_param ou_params[0]; /* update params */
 };
+
+static inline unsigned long
+object_update_size(const struct object_update *update)
+{
+	const struct	object_update_param *param;
+	unsigned long	size;
+	int		i;
+
+	size = offsetof(struct object_update, ou_params[0]);
+	for (i = 0; i < update->ou_params_count; i++) {
+		param = (struct object_update_param *)((char *)update + size);
+		size += object_update_param_size(param);
+	}
+
+	return size;
+}
 
 #define	UPDATE_REQUEST_MAGIC_V1	0xBDDE0001
 #define	UPDATE_REQUEST_MAGIC_V2	0xBDDE0002
