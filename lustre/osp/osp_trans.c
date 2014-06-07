@@ -153,8 +153,6 @@ int osp_unplug_async_update(const struct lu_env *env,
 		}
 		out_destroy_dt_update_req(update);
 	} else {
-		LASSERT(list_empty(&update->dur_list));
-
 		args = ptlrpc_req_async_args(req);
 		args->oaua_update = update;
 		req->rq_interpret_reply = osp_async_update_interpret;
@@ -235,35 +233,26 @@ out:
  **/
 struct thandle *osp_trans_create(const struct lu_env *env, struct dt_device *d)
 {
+	struct osp_thandle *oth;
 	struct thandle *th = NULL;
-	struct thandle_update *tu = NULL;
-	int rc = 0;
+	struct dt_update_request *update;
 
-	OBD_ALLOC_PTR(th);
-	if (unlikely(th == NULL))
-		GOTO(out, rc = -ENOMEM);
+	OBD_ALLOC_PTR(oth);
+	if (unlikely(oth == NULL))
+		return ERR_PTR(-ENOMEM);
 
+	th = &oth->ot_super;
 	th->th_dev = d;
 	th->th_tags = LCT_TX_HANDLE;
-	atomic_set(&th->th_refc, 1);
-	th->th_alloc_size = sizeof(*th);
 
-	OBD_ALLOC_PTR(tu);
-	if (tu == NULL)
-		GOTO(out, rc = -ENOMEM);
-
-	INIT_LIST_HEAD(&tu->tu_remote_update_list);
-	tu->tu_only_remote_trans = 1;
-	th->th_update = tu;
-
-out:
-	if (rc != 0) {
-		if (tu != NULL)
-			OBD_FREE_PTR(tu);
-		if (th != NULL)
-			OBD_FREE_PTR(th);
-		th = ERR_PTR(rc);
+	update = out_create_dt_update_req(d);
+	if (IS_ERR(update)) {
+		OBD_FREE_PTR(oth);
+		return (void *)update;
 	}
+
+	oth->ot_dur = update;
+	oth->ot_send_updates_after_local_trans = 0;
 
 	return th;
 }
@@ -272,10 +261,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 			     struct dt_update_request *dt_update,
 			     struct thandle *th, bool flow_control)
 {
-	struct thandle_update	*tu = th->th_update;
-	int			rc = 0;
-
-	LASSERT(tu != NULL);
+	int	rc = 0;
 
 	/* If the transaction only includes remote update, it should
 	 * still be asynchronous */
@@ -283,19 +269,16 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 		struct osp_async_update_args	*args;
 		struct ptlrpc_request		*req;
 
-		list_del_init(&dt_update->dur_list);
 		rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
 					 dt_update->dur_buf.ub_req, &req);
-		if (rc == 0) {
-			args = ptlrpc_req_async_args(req);
-			args->oaua_update = dt_update;
-			args->oaua_flow_control = flow_control;
-			req->rq_interpret_reply =
-				osp_async_update_interpret;
-			ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
-		} else {
-			out_destroy_dt_update_req(dt_update);
-		}
+		if (rc != 0)
+			return rc;
+
+		args = ptlrpc_req_async_args(req);
+		args->oaua_update = dt_update;
+		args->oaua_flow_control = flow_control;
+		req->rq_interpret_reply = osp_async_update_interpret;
+		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	} else {
 		/* Before we support async update, the cross MDT transaction
 		 * has to been synchronized */
@@ -310,17 +293,17 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th)
 {
-	struct thandle_update *tu = th->th_update;
+	struct osp_thandle	 *oth = thandle_to_osp_thandle(th);
 	struct dt_update_request *dt_update;
-	int rc = 0;
+	int			 rc = 0;
 
-	if (tu == NULL)
-		return rc;
+	dt_update = oth->ot_dur;
+	LASSERT(dt_update != NULL);
 
-	/* Check whether there are updates related with this OSP */
-	dt_update = out_find_update(tu, dt);
-	if (dt_update == NULL)
-		return rc;
+	/* return if there are no updates,  */
+	if (dt_update->dur_buf.ub_req == NULL ||
+	    dt_update->dur_buf.ub_req->ourq_count == 0)
+		return 0;
 
 	/* Note: some updates needs to send before local transaction,
 	 * some needs to send after local transaction.
@@ -335,35 +318,29 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 	 * If it is remote unlink, it will send the remote req before
 	 * the local transaction, i.e. delete the name entry remote
 	 * first, then destroy the local object. */
-	if (!is_only_remote_trans(th) && !tu->tu_sent_after_local_trans)
+	if (!is_only_remote_trans(th) &&
+	    !oth->ot_send_updates_after_local_trans)
 		rc = osp_trans_trigger(env, dt2osp_dev(dt), dt_update, th,
 				       false);
-
 	return rc;
 }
 
 int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		   struct thandle *th)
 {
-	struct thandle_update		*tu = th->th_update;
-	struct dt_update_request	*dt_update;
-	int rc = 0;
+	struct osp_thandle	 *oth = thandle_to_osp_thandle(th);
+	struct dt_update_request *dt_update;
+	int			 rc = 0;
+	bool			 keep_dt_update = false;
+	ENTRY;
 
-	LASSERT(tu != NULL);
-        LASSERT(tu != LP_POISON);
-	/* Check whether there are updates related with this OSP */
-	dt_update = out_find_update(tu, dt);
-	if (dt_update == NULL) {
-		if (!is_only_remote_trans(th))
-			return rc;
-		goto put;
-	}
+	dt_update = oth->ot_dur;
+	LASSERT(dt_update != NULL);
 
+	/* If there are no updates, destroy dt_update and thandle */
 	if (dt_update->dur_buf.ub_req == NULL ||
-	    dt_update->dur_buf.ub_req->ourq_count == 0) {
-		out_destroy_dt_update_req(dt_update);
-		goto put;
-	}
+	    dt_update->dur_buf.ub_req->ourq_count == 0)
+		GOTO(out, rc);
 
 	if (is_only_remote_trans(th)) {
 		if (th->th_result == 0) {
@@ -377,29 +354,28 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
 				rc = -ENOTCONN;
 			}
-
-			if (rc != 0) {
-				out_destroy_dt_update_req(dt_update);
-				goto put;
-			}
+			if (rc != 0)
+				GOTO(out, rc);
 
 			rc = osp_trans_trigger(env, dt2osp_dev(dt),
 					       dt_update, th, true);
 			if (rc != 0)
 				obd_put_request_slot(cli);
+			else
+				keep_dt_update = true;
 		} else {
 			rc = th->th_result;
-			out_destroy_dt_update_req(dt_update);
 		}
 	} else {
-		if (tu->tu_sent_after_local_trans)
-			rc = osp_trans_trigger(env, dt2osp_dev(dt),
-					       dt_update, th, false);
+		if (oth->ot_send_updates_after_local_trans)
+			rc = osp_trans_trigger(env, dt2osp_dev(dt), dt_update,
+					       th, false);
 		rc = dt_update->dur_rc;
-		out_destroy_dt_update_req(dt_update);
 	}
 
-put:
-	thandle_put(th);
+out:
+	if (!keep_dt_update)
+		out_destroy_dt_update_req(dt_update);
+	OBD_FREE_PTR(oth);
 	return rc;
 }

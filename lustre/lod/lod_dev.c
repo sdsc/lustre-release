@@ -402,59 +402,124 @@ static int lod_statfs(const struct lu_env *env,
 static struct thandle *lod_trans_create(const struct lu_env *env,
 					struct dt_device *dev)
 {
-	struct thandle *th;
+	struct lod_thandle	*lod_th;
+	struct thandle		*th;
+	ENTRY;
+
+	OBD_ALLOC_GFP(lod_th, sizeof *lod_th, __GFP_IO);
+	if (lod_th == NULL)
+		return ERR_PTR(-ENOMEM);
 
 	th = dt_trans_create(env, dt2lod_dev(dev)->lod_child);
 	if (IS_ERR(th))
 		return th;
 
-	return th;
+	th->th_local_th = th;
+	lod_th->lt_child = th;
+
+	INIT_LIST_HEAD(&lod_th->lt_sub_trans_list);
+
+	return &lod_th->lt_super;
+}
+
+/**
+ * The transaction are separated in different layers, i.e. MDD LOD, OSD and
+ * OSP has its own thandle.
+ *
+ * If the operation in one transaction involve several MDTs, LOD transaction
+ * be attached by several sub transactions(OSD or OSP). This function gets one
+ * sub transaction by sub object.
+ *
+ * \param[in] env	execution environment
+ * \param[in] th	thandle on LOD layer
+ * \param[in] child_obj child object used to get sub transaction
+ *
+ * \retval		thandle of sub transaction if succeed
+ *                      PTR_ERR(errno) if failed
+ */
+struct thandle *lod_get_sub_trans(const struct lu_env *env,
+				  struct thandle *th,
+				  const struct dt_object *child_obj)
+{
+	struct dt_device	*child_dt = lu2dt_dev(child_obj->do_lu.lo_dev);
+	struct lod_thandle	*lth;
+	struct lod_sub_thandle	*lst;
+	struct thandle		*child_th;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	LASSERT(lth->lt_child != NULL);
+	if (likely(child_dt == lth->lt_child->th_dev))
+		return lth->lt_child;
+
+	/* Find or create the transaction in lt_trans_list, since there is
+	 * always only one thread access the list, so no need lock here */
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		if (lst->lst_child->th_dev == child_dt)
+			return lst->lst_child;
+	}
+
+	OBD_ALLOC_PTR(lst);
+	if (lst == NULL)
+		return ERR_PTR(-ENOMEM);
+	INIT_LIST_HEAD(&lst->lst_list);
+
+	child_th = dt_trans_create(env, child_dt);
+	if (IS_ERR(child_th))
+		return child_th;
+
+	child_th->th_local_th = lth->lt_child;
+	lst->lst_child = child_th;
+	list_add(&lst->lst_list, &lth->lt_sub_trans_list);
+
+	return lst->lst_child;
 }
 
 static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
-	struct lod_device *lod = dt2lod_dev((struct dt_device *) dev);
+	struct lod_thandle	*lth;
+	struct lod_sub_thandle	*lst;
+	struct lod_device	*lod = dt2lod_dev((struct dt_device *) dev);
 	int rc = 0;
 
-	if (unlikely(th->th_update != NULL)) {
-		struct thandle_update *tu = th->th_update;
-		struct dt_update_request *update;
+	lth = container_of0(th, struct lod_thandle, lt_super);
 
-		list_for_each_entry(update, &tu->tu_remote_update_list,
-				    dur_list) {
-			LASSERT(update->dur_dt != NULL);
-			rc = dt_trans_start(env, update->dur_dt, th);
-			if (rc != 0)
-				return rc;
-		}
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		rc = dt_trans_start(env, lst->lst_child->th_dev,
+				    lst->lst_child);
+		if (rc != 0)
+			return rc;
 	}
-	return dt_trans_start(env, lod->lod_child, th);
+
+	return dt_trans_start(env, lod->lod_child, lth->lt_child);
 }
 
 static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			  struct thandle *th)
 {
-	struct thandle_update		*tu = th->th_update;
-	struct dt_update_request	*update;
-	struct dt_update_request	*tmp;
-	int				rc2 = 0;
-	int				rc;
+	struct lod_sub_thandle	*lst;
+	struct lod_sub_thandle	*tmp;
+	struct lod_thandle	*lth;
+	struct lod_device	*lod;
+	int			rc2 = 0;
+	int			rc;
 	ENTRY;
 
-	rc = dt_trans_stop(env, th->th_dev, th);
-	if (likely(tu == NULL))
-		RETURN(rc);
+	lod = dt2lod_dev(dt);
+	lth = container_of0(th, struct lod_thandle, lt_super);
 
-	list_for_each_entry_safe(update, tmp,
-				 &tu->tu_remote_update_list,
-				 dur_list) {
-		/* update will be freed inside dt_trans_stop */
-		rc2 = dt_trans_stop(env, update->dur_dt, th);
+	rc = dt_trans_stop(env, lod->lod_child, lth->lt_child);
+
+	list_for_each_entry_safe(lst, tmp, &lth->lt_sub_trans_list, lst_list) {
+		rc2 = dt_trans_stop(env, lst->lst_child->th_dev,
+				    lst->lst_child);
+		list_del(&lst->lst_list);
+		OBD_FREE_PTR(lst);
 		if (unlikely(rc2 != 0 && rc == 0))
 			rc = rc2;
 	}
 
+	OBD_FREE_PTR(lth);
 	RETURN(rc);
 }
 

@@ -2033,13 +2033,6 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 		if (rc)
 			return rc;
 	}
-
-	/* XXX: For remote create, it should indicate the remote RPC
-	 * will be sent after local transaction is finished, which
-	 * is not very nice, but it will be removed once we fully support
-	 * async update */
-	if (mdd_object_remote(p) && handle->th_update != NULL)
-		handle->th_update->tu_sent_after_local_trans = 1;
 out:
 	return rc;
 }

@@ -756,19 +756,6 @@ static inline struct dt_object *lu2dt_obj(struct lu_object *o)
 	return container_of0(o, struct dt_object, do_lu);
 }
 
-struct thandle_update {
-	/* In DNE, one transaction can be disassembled into
-	 * updates on several different MDTs, and these updates
-	 * will be attached to tu_remote_update_list per target.
-	 * Only single thread will access the list, no need lock
-	 */
-	struct list_head	tu_remote_update_list;
-
-	/* sent after or before local transaction */
-	unsigned int		tu_sent_after_local_trans:1,
-				tu_only_remote_trans:1;
-};
-
 /**
  * This is the general purpose transaction handle.
  * 1. Transaction Life Cycle
@@ -787,9 +774,13 @@ struct thandle {
 	/** the dt device on which the transactions are executed */
 	struct dt_device *th_dev;
 
-	atomic_t	th_refc;
-	/* the size of transaction */
-	int		th_alloc_size;
+	/* The local transaciton, which is usually created in the local
+	 * dt device, except the remote tranaction(used by
+	 * LFSCK). XXX, it is a bit hacky to add such special thandle in
+	 * general thandle, but some OSP API(osp_object_create) needs to
+	 * access the local thandle, and there are no better option to
+	 * pass in the local transaction for now */
+	struct thandle *th_local_th;
 
 	/** context for this transaction, tag is LCT_TX_HANDLE */
 	struct lu_context th_ctx;
@@ -802,27 +793,12 @@ struct thandle {
 	__s32             th_result;
 
 	/** whether we need sync commit */
-	unsigned int		th_sync:1;
-
+	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-	unsigned int		th_local:1;
+				th_local:1;
 
-	struct thandle_update	*th_update;
 };
 
-static inline void thandle_get(struct thandle *thandle)
-{
-	atomic_inc(&thandle->th_refc);
-}
-
-static inline void thandle_put(struct thandle *thandle)
-{
-	if (atomic_dec_and_test(&thandle->th_refc)) {
-		if (thandle->th_update != NULL)
-			OBD_FREE_PTR(thandle->th_update);
-		OBD_FREE(thandle, thandle->th_alloc_size);
-	}
-}
 /**
  * Transaction call-backs.
  *

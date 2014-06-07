@@ -46,7 +46,6 @@ struct update_buffer {
 struct dt_update_request {
 	struct dt_device		*dur_dt;
 	/* attached itself to thandle */
-	struct list_head		dur_list;
 	int				dur_flags;
 	/* update request result */
 	int				dur_rc;
@@ -228,13 +227,8 @@ static inline void update_inc_batchid(struct dt_update_request *update)
 }
 
 /* target/out_lib.c */
-struct thandle_update;
-struct dt_update_request *out_find_update(struct thandle_update *tu,
-					  struct dt_device *dt_dev);
-void out_destroy_dt_update_req(struct dt_update_request *update);
 struct dt_update_request *out_create_dt_update_req(struct dt_device *dt);
-struct dt_update_request *out_find_create_update_loc(struct thandle *th,
-						  struct dt_object *dt);
+void out_destroy_dt_update_req(struct dt_update_request *dt_update);
 int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			const struct object_update_request *ureq,
 			struct ptlrpc_request **reqp);
