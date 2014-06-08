@@ -15,11 +15,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * version 2 along with this program; If not, see
- * http://www.sun.com/software/products/lustre/docs/GPLv2.pdf
- *
- * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa Clara,
- * CA 95054 USA or visit www.sun.com if you need additional information or
- * have any questions.
+ * http://www.gnu.org/licenses/gpl-2.0.html
  *
  * GPL HEADER END
  */
@@ -27,7 +23,7 @@
  * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2012, 2013, Intel Corporation.
+ * Copyright (c) 2012, 2014 Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -35,8 +31,10 @@
  *
  * lustre/ofd/ofd_objects.c
  *
- * Author: Alex Zhuravlev <bzzz@whamcloud.com>
- * Author: Mikhail Pershin <tappro@whamcloud.com>
+ * This file contains OSD API methods related to OFD object operations.
+ *
+ * Author: Alex Zhuravlev <alexey.zhuravlev@intel.com>
+ * Author: Mikhail Pershin <mike.pershin@intel.com>
  */
 
 #define DEBUG_SUBSYSTEM S_FILTER
@@ -47,6 +45,20 @@
 
 #include "ofd_internal.h"
 
+/**
+ * Get object version from disk and check it.
+ *
+ * This function checks object version from disk with
+ * ofd_thread_info::fti_pre_version filled from incoming RPC. This is part of
+ * VBR (Version-Based Recovery) and ensures that object has the same version
+ * upon replay as it has during original modification.
+ *
+ * \param[in]  info	execution thread OFD private data
+ * \param[in]  fo	OFD object
+ *
+ * \retval		0 if version matches
+ * \retval		-EOVERFLOW on version mismatch
+ */
 int ofd_version_get_check(struct ofd_thread_info *info,
 			  struct ofd_object *fo)
 {
@@ -74,6 +86,18 @@ int ofd_version_get_check(struct ofd_thread_info *info,
 	RETURN(0);
 }
 
+/**
+ * Get OFD object by FID.
+ *
+ * This function finds OFD slice of compound object with the given FID.
+ *
+ * \param[in] env	execution environment
+ * \param[in] ofd	OFD device
+ * \param[in] fid	FID of the object
+ *
+ * \retval		pointer to the found ofd_object
+ * \retval		ERR_PTR() with return code in case of error
+ */
 struct ofd_object *ofd_object_find(const struct lu_env *env,
 				   struct ofd_device *ofd,
 				   const struct lu_fid *fid)
@@ -92,6 +116,19 @@ struct ofd_object *ofd_object_find(const struct lu_env *env,
 	RETURN(fo);
 }
 
+/**
+ * Get FID of parent MDT object.
+ *
+ * This function reads extended attribute  XATTR_NAME_FID of OFD object which
+ * contains the MDT parent object FID and saves it in ofd_object::ofo_pfid
+ *
+ * \param[in] env	execution environment
+ * \param[in] fo	OFD object
+ *
+ * \retval		0 if successful
+ * \retval		-ENODATA if there is no such xattr
+ * \retval		negative value on error
+ */
 int ofd_object_ff_load(const struct lu_env *env, struct ofd_object *fo)
 {
 	struct ofd_thread_info	*info = ofd_info(env);
@@ -126,11 +163,35 @@ int ofd_object_ff_load(const struct lu_env *env, struct ofd_object *fo)
 	return 0;
 }
 
+/**
+ * Put OFD object reference.
+ *
+ * \param[in] env	execution environment
+ * \param[in] fo	OFD object
+ */
 void ofd_object_put(const struct lu_env *env, struct ofd_object *fo)
 {
 	lu_object_put(env, &fo->ofo_obj.do_lu);
 }
 
+/**
+ * Precreate the given amount \a nr of objects in the given sequence \a oseq.
+ *
+ * This function precreates new OST objects in the given sequence.
+ * The precreation starts from \a id and creates \a nr objects sequentionally.
+ *
+ * Note: this function may create less objects than requested.
+ *
+ * \param[in] env	execution environment
+ * \param[in] ofd	OFD device
+ * \param[in] id	object ID to start precreation from
+ * \param[in] oseq	object sequence
+ * \param[in] nr	amount of objects to precreate
+ * \param[in] sync	synchronous precreation flag
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
+ */
 int ofd_precreate_objects(const struct lu_env *env, struct ofd_device *ofd,
 			  obd_id id, struct ofd_seq *oseq, int nr, int sync)
 {
@@ -342,11 +403,21 @@ out:
 	RETURN(objects > 0 ? objects : rc);
 }
 
-/*
+/**
+ * Fix the OFD object ownership.
+ *
  * If the object still has SUID+SGID bits set (see ofd_precreate_object()) then
  * we will accept the UID+GID if sent by the client for initializing the
  * ownership of this object.  We only allow this to happen once (so clear these
  * bits) and later only allow setattr.
+ *
+ * \param[in] env	 execution environment
+ * \param[in] fo	 OFD object
+ * \param[in] la	 object attributes
+ * \param[in] is_setattr was this function called from setattr or not
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
  */
 int ofd_attr_handle_ugid(const struct lu_env *env, struct ofd_object *fo,
 			 struct lu_attr *la, int is_setattr)
@@ -389,6 +460,21 @@ int ofd_attr_handle_ugid(const struct lu_env *env, struct ofd_object *fo,
 	RETURN(0);
 }
 
+/**
+ * Set OFD object attributes.
+ *
+ * This function sets OFD object attributes taken from incoming request.
+ * It sets not only regular attributes but also XATTR_NAME_FID extended
+ * attribute if needed.
+ *
+ * \param[in] env	execution environment
+ * \param[in] fo	OFD object
+ * \param[in] la	object attributes
+ * \param[in] ff	filter_fid structure, contains additional attributes
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
+ */
 int ofd_attr_set(const struct lu_env *env, struct ofd_object *fo,
 		 struct lu_attr *la, struct filter_fid *ff)
 {
@@ -480,6 +566,24 @@ unlock:
 	return rc;
 }
 
+/**
+ * Truncate OFD object.
+ *
+ * This function truncates object at \a start offset. Technically it may punch
+ * object and has \a end parameter for that, but now it does only truncate -
+ * punch to the end of file.
+ *
+ * \param[in] env	execution environment
+ * \param[in] fo	OFD object
+ * \param[in] start	start offset to punch from
+ * \param[in] end	end of punch (OBD_OBJECT_EOF for now)
+ * \param[in] la	object attributes
+ * \param[in] ff	filter_fid structure
+ * \param[in] oa	obdo struct from incoming request
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
+ */
 int ofd_object_punch(const struct lu_env *env, struct ofd_object *fo,
 		     __u64 start, __u64 end, struct lu_attr *la,
 		     struct filter_fid *ff, struct obdo *oa)
@@ -589,6 +693,20 @@ unlock:
 	return rc;
 }
 
+/**
+ * Destroy OFD object.
+ *
+ * This function destroys OFD object. If object weren't used at all (orphan)
+ * then local transaction is used, that means the transaction data is not
+ * returned back in reply.
+ *
+ * \param[in] env	execution environment
+ * \param[in] fo	OFD object
+ * \param[in] orphan	flag to indicate that is orphaned object
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
+ */
 int ofd_object_destroy(const struct lu_env *env, struct ofd_object *fo,
 		       int orphan)
 {
@@ -626,6 +744,19 @@ unlock:
 	RETURN(rc);
 }
 
+/**
+ * Get OFD object attributes.
+ *
+ * This function gets OFD object regular attributes. It is used to serve
+ * incoming request as well as for local OFD purposes.
+ *
+ * \param[in] env	execution environment
+ * \param[in] fo	OFD object
+ * \param[in] la	object attributes
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
+ */
 int ofd_attr_get(const struct lu_env *env, struct ofd_object *fo,
 		 struct lu_attr *la)
 {
