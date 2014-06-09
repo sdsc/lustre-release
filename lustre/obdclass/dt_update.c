@@ -38,6 +38,31 @@
 #include <lustre_fid.h>
 #include <lustre_update.h>
 
+struct update_opcode {
+     __u32       opcode;
+     const char *opname;
+} update_opcode_table[OBJ_LAST] = {
+        { OBJ_START,		"start" },
+        { OBJ_CREATE,		"create" },
+        { OBJ_DESTROY,		"destroy" },
+        { OBJ_REF_ADD,		"ref_add" },
+        { OBJ_REF_DEL,		"ref_del" },
+	{ OBJ_ATTR_SET,		"attr_set" },
+	{ OBJ_ATTR_GET,		"attr_get" },
+	{ OBJ_XATTR_SET,	"xattr_set" },
+	{ OBJ_XATTR_GET,	"xattr_get" },
+	{ OBJ_INDEX_LOOKUP,	"lookup" },
+	{ OBJ_INDEX_INSERT,	"insert" },
+	{ OBJ_INDEX_DELETE,	"delete" },
+};
+
+const char *update_op_str(__u16 opcode)
+{
+	LASSERT(update_opcode_table[opcode].opcode == opcode);
+	return update_opcode_table[opcode].opname;
+}
+EXPORT_SYMBOL(update_op_str);
+
 /**
  * pack update into the update_buffer
  **/
@@ -74,8 +99,9 @@ struct update *update_pack(const struct lu_env *env, struct update_buf *ubuf,
 
 	ubuf->ub_count++;
 
-	CDEBUG(D_INFO, "%p "DFID" idx %d: op %d params %d:%lu\n", ubuf,
-	       PFID(fid), ubuf->ub_count, op, count, update_buf_size(ubuf));
+	CDEBUG(D_INFO, "%p "DFID" idx %d: op %s params %d:%lu\n", ubuf,
+	       PFID(fid), ubuf->ub_count, update_op_str((__u16)op), count,
+	       update_buf_size(ubuf));
 
 	RETURN(update);
 }
