@@ -1226,8 +1226,8 @@ int out_handle(struct tgt_session_info *tsi)
 	int				 bufsize;
 	int				 count;
 	int				 old_batchid = -1;
-	unsigned			 off;
 	int				 i;
+	int				 index = 0;
 	int				 rc = 0;
 	int				 rc1 = 0;
 
@@ -1281,12 +1281,13 @@ int out_handle(struct tgt_session_info *tsi)
 		RETURN(rc);
 
 	/* Walk through updates in the request to execute them synchronously */
-	off = cfs_size_round(offsetof(struct update_buf, ub_bufs[0]));
 	for (i = 0; i < count; i++) {
 		struct tgt_handler	*h;
 		struct dt_object	*dt_obj;
+		struct lu_object	*lu_obj;
+		struct lu_object_conf	conf;
 
-		update = (struct update *)((char *)ubuf + off);
+		update = (struct update *)update_buf_get(ubuf, i, NULL);
 
 		if (ptlrpc_req_need_swab(pill->rc_req))
 			lustre_swab_update(update);
@@ -1313,13 +1314,31 @@ int out_handle(struct tgt_session_info *tsi)
 			GOTO(out, rc = err_serious(-EPROTO));
 		}
 
-		dt_obj = dt_locate(env, dt, &update->u_fid);
+		/* skip the update for remote object */
+		conf.loc_flags = LOC_F_IGNORE_REMOTE;
+		lu_obj = lu_object_find_at(env,
+					   dt->dd_lu_dev.ld_site->ls_top_dev,
+					   &update->u_fid, &conf);
+		if (IS_ERR(lu_obj))
+			GOTO(out, rc = PTR_ERR(lu_obj));
+
+		if (lu_object_remote(lu_obj)) {
+			CDEBUG(D_INFO, "%s: "DFID" skip %s\n",
+			       tgt_name(tsi->tsi_tgt), PFID(&update->u_fid),
+			       update_op_str(update->u_type));
+			lu_object_put_nocache(env, lu_obj);
+			continue;
+		}
+
+		lu_obj = lu_object_locate(lu_obj->lo_header,
+					  dt->dd_lu_dev.ld_type);
+		dt_obj = lu2dt_obj(lu_obj);
 		if (IS_ERR(dt_obj))
 			GOTO(out, rc = PTR_ERR(dt_obj));
 
 		tti->tti_u.update.tti_dt_object = dt_obj;
 		tti->tti_u.update.tti_update = update;
-		tti->tti_u.update.tti_update_reply_index = i;
+		tti->tti_u.update.tti_update_reply_index = index++;
 
 		h = out_handler_find(update->u_type);
 		if (likely(h != NULL)) {
@@ -1342,10 +1361,9 @@ int out_handle(struct tgt_session_info *tsi)
 			GOTO(out, rc = -ENOTSUPP);
 		}
 next:
-		lu_object_put(env, &dt_obj->do_lu);
+		lu_object_put(env, lu_obj);
 		if (rc < 0)
 			GOTO(out, rc);
-		off += update_size(update);
 	}
 out:
 	rc1 = out_tx_end(env, ta);

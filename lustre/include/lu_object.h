@@ -169,6 +169,9 @@ typedef enum {
 	/* This is a new object to be allocated, or the file
 	 * corresponding to the object does not exists. */
 	LOC_F_NEW	= 0x00000001,
+	/* The remote object will only be set remote flag,
+	 * No need attr_get for remote object */
+	LOC_F_IGNORE_REMOTE = 0x00000002,
 } loc_flags_t;
 
 /**

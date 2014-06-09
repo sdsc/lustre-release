@@ -76,6 +76,21 @@ int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
 	RETURN(rc);
 }
 
+/* For debugging purpose */
+static int update_dump_buf(struct update_buf *ubuf)
+{
+	int i;
+
+	for (i = 0; i < ubuf->ub_count; i++) {
+		struct update *update;
+		update = (struct update *)update_buf_get(ubuf, i, NULL);
+		CDEBUG(D_INFO, DFID "op: %s batchid "LPU64"\n",
+		       PFID(&update->u_fid), update_op_str(update->u_type),
+		       update->u_batchid);
+	}
+	return 0;
+}
+
 static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 			   struct update_buf *ubuf,
 			   struct ptlrpc_request **reqp,
@@ -152,17 +167,21 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt_dev,
 {
 	struct thandle_update_dt *tud;
 	int rc = 0;
+	ENTRY;
 
 	tud = osp_find_update(th, dt_dev);
 	if (tud == NULL)
 		return rc;
 
-	rc = tud->tud_rc;
+	update_dump_buf(th->th_update_buf);
+	LASSERT(tud->tud_count > 0);
+	LASSERT(tud->tud_count <= UPDATE_PER_RPC_MAX);
+	rc = osp_remote_sync(env, dt_dev, th->th_update_buf, NULL, tud);
 
 	cfs_list_del(&tud->tud_list);
 	OBD_FREE_PTR(tud);
 
-	return rc;
+	RETURN(rc);
 }
 
 /**
@@ -172,23 +191,22 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt_dev,
  * LOD will walk through these entries and send these UPDATEs to the remote
  * MDT to be executed synchronously.
  */
-int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
+int osp_trans_start(const struct lu_env *env, struct dt_device *dt_dev,
 		    struct thandle *th)
 {
 	struct thandle_update_dt *tud;
-	int rc = 0;
 
-	tud = osp_find_update(th, dt);
-	if (tud == NULL)
-		return rc;
-
+	tud = osp_find_update(th, dt_dev);
+	LASSERT(tud != NULL);
+#if 0
 	/* In phase I, if the transaction includes remote updates, the local
 	 * update should be synchronized, so it will set th_sync = 1 */
 	LASSERT(tud->tud_count > 0);
 	LASSERT(tud->tud_count <= UPDATE_PER_RPC_MAX);
 	rc = osp_remote_sync(env, dt, th->th_update_buf, NULL, tud);
 	th->th_sync = 1;
-	RETURN(rc);
+#endif
+	RETURN(0);
 }
 
 static inline void osp_md_add_update_batchid(struct thandle *handle)
@@ -227,6 +245,7 @@ static struct thandle_update_dt
 	tud->tud_dt = dt_dev;
 
 	cfs_list_add_tail(&tud->tud_list, &th->th_remote_update_list);
+	th->th_sync = 1;
 	RETURN(tud);
 }
 
@@ -268,7 +287,6 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 					struct thandle *th)
 {
 	struct thandle_update_dt *tud;
-	int			rc;
 
 	tud = osp_find_create_update_loc(th, dt);
 	if (IS_ERR(tud)) {
@@ -277,6 +295,25 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 		       (int)PTR_ERR(tud));
 		return PTR_ERR(tud);
 	}
+	
+	return 0;
+}
+
+static int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
+				struct lu_attr *attr,
+				struct dt_allocation_hint *hint,
+				struct dt_object_format *dof,
+				struct thandle *th)
+{
+	struct osp_object	 *obj = dt2osp_obj(dt);
+	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	struct thandle_update_dt *tud;
+	int			 rc;
+
+	CDEBUG(D_INFO, "create obj "DFID"\n", PFID(lu_object_fid(&dt->do_lu)));
+
+	tud = osp_find_update(th, dt_dev);
+	LASSERT(tud != NULL);
 
 	if (lu_object_exists(&dt->do_lu)) {
 		/* If the object already exists, we needs to destroy
@@ -325,6 +362,12 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 		GOTO(out, rc);
 	tud->tud_count++;
 
+	/* Because the create update RPC will be sent during declare phase,
+	 * if creation reaches here, it means the object has been created
+	 * successfully */
+	dt->do_lu.lo_header->loh_attr |= LOHA_EXISTS | (attr->la_mode & S_IFMT);
+	obj->opo_empty = 1;
+
 out:
 	if (rc)
 		CERROR("%s: Insert update error: rc = %d\n",
@@ -333,32 +376,11 @@ out:
 	return rc;
 }
 
-static int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
-				struct lu_attr *attr,
-				struct dt_allocation_hint *hint,
-				struct dt_object_format *dof,
-				struct thandle *th)
-{
-	struct osp_object  *obj = dt2osp_obj(dt);
-
-	CDEBUG(D_INFO, "create object "DFID"\n",
-	       PFID(&dt->do_lu.lo_header->loh_fid));
-
-	/* Because the create update RPC will be sent during declare phase,
-	 * if creation reaches here, it means the object has been created
-	 * successfully */
-	dt->do_lu.lo_header->loh_attr |= LOHA_EXISTS | (attr->la_mode & S_IFMT);
-	obj->opo_empty = 1;
-
-	return 0;
-}
-
 static int osp_md_declare_object_ref_del(const struct lu_env *env,
 					 struct dt_object *dt,
 					 struct thandle *th)
 {
 	struct thandle_update_dt	*tud;
-	int				rc;
 
 	tud = osp_find_create_update_loc(th, dt);
 	if (IS_ERR(tud)) {
@@ -368,7 +390,21 @@ static int osp_md_declare_object_ref_del(const struct lu_env *env,
 		return PTR_ERR(tud);
 	}
 
+	return 0;
+}
 
+static int osp_md_object_ref_del(const struct lu_env *env,
+				 struct dt_object *dt,
+				 struct thandle *th)
+{
+	struct thandle_update_dt *tud;
+	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int rc;
+
+	tud = osp_find_update(th, dt_dev);
+	LASSERT(tud != NULL);
+
+	CDEBUG(D_INFO, "ref del "DFID"\n", PFID(lu_object_fid(&dt->do_lu)));
 	rc = dt_trans_update_ref_del(env, dt, th);
 	if (rc != 0)
 		return rc;
@@ -377,21 +413,10 @@ static int osp_md_declare_object_ref_del(const struct lu_env *env,
 	return 0;
 }
 
-static int osp_md_object_ref_del(const struct lu_env *env,
-				 struct dt_object *dt,
-				 struct thandle *th)
-{
-	CDEBUG(D_INFO, "ref del object "DFID"\n",
-	       PFID(&dt->do_lu.lo_header->loh_fid));
-
-	return 0;
-}
-
 static int osp_md_declare_ref_add(const struct lu_env *env,
 				  struct dt_object *dt, struct thandle *th)
 {
 	struct thandle_update_dt *tud;
-	int rc;
 
 	tud = osp_find_create_update_loc(th, dt);
 	if (IS_ERR(tud)) {
@@ -401,11 +426,6 @@ static int osp_md_declare_ref_add(const struct lu_env *env,
 		return PTR_ERR(tud);
 	}
 
-	rc = dt_trans_update_ref_add(env, dt, th);
-	if (rc != 0)
-		return rc;
-
-	tud->tud_count++;
 	return 0;
 }
 
@@ -413,8 +433,20 @@ static int osp_md_object_ref_add(const struct lu_env *env,
 				 struct dt_object *dt,
 				 struct thandle *th)
 {
-	CDEBUG(D_INFO, "ref add object "DFID"\n",
-	       PFID(&dt->do_lu.lo_header->loh_fid));
+	struct thandle_update_dt *tud;
+	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int rc;
+
+	tud = osp_find_update(th, dt_dev);
+	LASSERT(tud != NULL);
+
+	CDEBUG(D_INFO, "ref add "DFID"\n", PFID(lu_object_fid(&dt->do_lu)));
+
+	rc = dt_trans_update_ref_add(env, dt, th);
+	if (rc != 0)
+		return rc;
+
+	tud->tud_count++;
 
 	return 0;
 }
@@ -438,7 +470,6 @@ static int osp_md_declare_attr_set(const struct lu_env *env,
 				   struct thandle *th)
 {
 	struct thandle_update_dt *tud;
-	int rc;
 
 	tud = osp_find_create_update_loc(th, dt);
 	if (IS_ERR(tud)) {
@@ -447,12 +478,6 @@ static int osp_md_declare_attr_set(const struct lu_env *env,
 		       (int)PTR_ERR(tud));
 		return PTR_ERR(tud);
 	}
-
-	rc = dt_trans_update_attr_set(env, dt, attr, th);
-	if (rc != 0)
-		return rc;
-
-	tud->tud_count++;
 	return 0;
 }
 
@@ -460,10 +485,20 @@ static int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 			   const struct lu_attr *attr, struct thandle *th,
 			   struct lustre_capa *capa)
 {
-	CDEBUG(D_INFO, "attr set object "DFID"\n",
-	       PFID(&dt->do_lu.lo_header->loh_fid));
+	struct thandle_update_dt *tud;
+	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int rc;
 
-	RETURN(0);
+	tud = osp_find_update(th, dt_dev);
+	LASSERT(tud != NULL);
+
+	CDEBUG(D_INFO, "attr set "DFID"\n", PFID(lu_object_fid(&dt->do_lu)));
+	rc = dt_trans_update_attr_set(env, dt, attr, th);
+	if (rc != 0)
+		return rc;
+
+	tud->tud_count++;
+	return 0;
 }
 
 static int osp_md_declare_xattr_set(const struct lu_env *env,
@@ -473,7 +508,6 @@ static int osp_md_declare_xattr_set(const struct lu_env *env,
 				    struct thandle *th)
 {
 	struct thandle_update_dt *tud;
-	int rc;
 
 	LASSERT(buf->lb_len > 0 && buf->lb_buf != NULL);
 	tud = osp_find_create_update_loc(th, dt);
@@ -484,11 +518,6 @@ static int osp_md_declare_xattr_set(const struct lu_env *env,
 		return PTR_ERR(tud);
 	}
 
-	rc = dt_trans_update_xattr_set(env, dt, buf, name, flag, th);
-	if (rc != 0)
-		return rc;
-
-	tud->tud_count++;
 	return 0;
 }
 
@@ -496,9 +525,21 @@ static int osp_md_xattr_set(const struct lu_env *env, struct dt_object *dt,
 			    const struct lu_buf *buf, const char *name, int fl,
 			    struct thandle *th, struct lustre_capa *capa)
 {
-	CDEBUG(D_INFO, "xattr %s set object "DFID"\n", name,
-	       PFID(&dt->do_lu.lo_header->loh_fid));
+	struct thandle_update_dt *tud;
+	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int rc;
 
+	tud = osp_find_update(th, dt_dev);
+	LASSERT(tud != NULL);
+
+	CDEBUG(D_INFO, "xattr %s set obj "DFID"\n", name,
+	       PFID(lu_object_fid(&dt->do_lu)));
+
+	rc = dt_trans_update_xattr_set(env, dt, buf, name, fl, th);
+	if (rc != 0)
+		return rc;
+
+	tud->tud_count++;
 	return 0;
 }
 
@@ -686,7 +727,6 @@ static int osp_md_declare_insert(const struct lu_env *env, struct dt_object *dt,
 				 const struct dt_key *key, struct thandle *th)
 {
 	struct thandle_update_dt *tud;
-	int			 rc;
 
 	tud = osp_find_create_update_loc(th, dt);
 	if (IS_ERR(tud)) {
@@ -695,6 +735,25 @@ static int osp_md_declare_insert(const struct lu_env *env, struct dt_object *dt,
 		       (int)PTR_ERR(tud));
 		return PTR_ERR(tud);
 	}
+
+	return 0;
+}
+
+static int osp_md_index_insert(const struct lu_env *env, struct dt_object *dt,
+			       const struct dt_rec *rec,
+			       const struct dt_key *key, struct thandle *th,
+			       struct lustre_capa *capa, int ignore_quota)
+{
+	struct thandle_update_dt *tud;
+	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int rc;
+
+	tud = osp_find_update(th, dt_dev);
+	LASSERT(tud != NULL);
+
+	CDEBUG(D_INFO, DFID"index insert %s: "DFID"\n",
+	       PFID(lu_object_fid(&dt->do_lu)), (char *)key,
+	       PFID((struct lu_fid *)rec));
 
 	rc = dt_trans_update_index_insert(env, dt, rec, key, th);
 	if (rc != 0)
@@ -704,19 +763,10 @@ static int osp_md_declare_insert(const struct lu_env *env, struct dt_object *dt,
 	return 0;
 }
 
-static int osp_md_index_insert(const struct lu_env *env, struct dt_object *dt,
-			       const struct dt_rec *rec,
-			       const struct dt_key *key, struct thandle *th,
-			       struct lustre_capa *capa, int ignore_quota)
-{
-	return 0;
-}
-
 static int osp_md_declare_delete(const struct lu_env *env, struct dt_object *dt,
 				 const struct dt_key *key, struct thandle *th)
 {
 	struct thandle_update_dt *tud;
-	int			 rc;
 
 	tud = osp_find_create_update_loc(th, dt);
 	if (IS_ERR(tud)) {
@@ -726,11 +776,6 @@ static int osp_md_declare_delete(const struct lu_env *env, struct dt_object *dt,
 		return PTR_ERR(tud);
 	}
 
-	rc = dt_trans_update_index_delete(env, dt, key, th);
-	if (rc != 0)
-		return rc;
-
-	tud->tud_count++;
 	return 0;
 }
 
@@ -740,9 +785,21 @@ static int osp_md_index_delete(const struct lu_env *env,
 			       struct thandle *th,
 			       struct lustre_capa *capa)
 {
+	struct thandle_update_dt *tud;
+	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int rc;
+
+	tud = osp_find_update(th, dt_dev);
+	LASSERT(tud != NULL);
+
 	CDEBUG(D_INFO, "index delete "DFID" %s\n",
 	       PFID(&dt->do_lu.lo_header->loh_fid), (char *)key);
 
+	rc = dt_trans_update_index_delete(env, dt, key, th);
+	if (rc != 0)
+		return rc;
+
+	tud->tud_count++;
 	return 0;
 }
 
