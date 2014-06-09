@@ -2108,17 +2108,13 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 		}
 	}
 #endif
-
-	rc = mdd_object_initialize(env, mdo2fid(mdd_pobj), lname,
-				   son, attr, handle, spec, ldata);
-
 	/*
 	 * in case of replay we just set LOVEA provided by the client
 	 * XXX: I think it would be interesting to try "old" way where
 	 *      MDT calls this xattr_set(LOV) in a different transaction.
 	 *      probably this way we code can be made better.
 	 */
-	if (rc == 0 && (spec->no_create ||
+	if ((spec->no_create ||
 			(spec->sp_cr_flags & MDS_OPEN_HAS_EA) ||
 			spec->sp_stripe_create)) {
 		const struct lu_buf *buf;
@@ -2129,9 +2125,21 @@ static int mdd_create(const struct lu_env *env, struct md_object *pobj,
 				   spec->sp_stripe_create ?
 				   XATTR_NAME_LMV : XATTR_NAME_LOV, 0, handle,
 				   BYPASS_CAPA);
+		if (rc != 0) {
+			mdd_write_unlock(env, son);
+			GOTO(cleanup, rc);
+		}
 	}
 
-	if (rc == 0 && spec->sp_cr_flags & MDS_OPEN_VOLATILE)
+	rc = mdd_object_initialize(env, mdo2fid(mdd_pobj), lname,
+				   son, attr, handle, spec, ldata);
+
+	if (rc != 0) {
+		mdd_write_unlock(env, son);
+		GOTO(cleanup, rc);
+	}
+
+	if (spec->sp_cr_flags & MDS_OPEN_VOLATILE)
 		rc = __mdd_orphan_add(env, son, handle);
 
 	mdd_write_unlock(env, son);
