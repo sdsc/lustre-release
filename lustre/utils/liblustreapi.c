@@ -3436,9 +3436,9 @@ int llapi_obd_statfs(char *path, __u32 type, __u32 index,
 
 int llapi_ping(char *obd_type, char *obd_name)
 {
-        char path[MAX_STRING_SIZE];
-        char buf[1];
-        int rc, fd;
+	char path[MAX_STRING_SIZE];
+	char buf[1] = { 0 };
+	int rc, fd;
 
         snprintf(path, MAX_STRING_SIZE, "/proc/fs/lustre/%s/%s/ping",
                  obd_type, obd_name);
@@ -3451,15 +3451,14 @@ int llapi_ping(char *obd_type, char *obd_name)
         }
 
 	/* The purpose is to send a byte as a ping, whatever this byte is. */
-	/* coverity[uninit_use_in_call] */
-        rc = write(fd, buf, 1);
-        if (rc < 0)
-                rc = -errno;
-        close(fd);
+	rc = write(fd, buf, 1);
+	if (rc < 0)
+		rc = -errno;
+	close(fd);
 
-        if (rc == 1)
-                return 0;
-        return rc;
+	if (rc == 1)
+		return 0;
+	return rc;
 }
 
 int llapi_target_iterate(int type_num, char **obd_type,
