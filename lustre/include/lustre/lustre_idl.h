@@ -3729,6 +3729,7 @@ extern void lustre_swab_hsm_request(struct hsm_request *hr);
  * Type of each update
  */
 enum update_type {
+	OBJ_START		= 0,
 	OBJ_CREATE		= 1,
 	OBJ_DESTROY		= 2,
 	OBJ_REF_ADD		= 3,
