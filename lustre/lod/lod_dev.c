@@ -524,6 +524,7 @@ static struct thandle *lod_trans_create(const struct lu_env *env,
 	return th;
 }
 
+#if 0
 static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
@@ -540,7 +541,7 @@ static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
 		 * here, so we will do send/receive one by one,
 		 * instead of sending them parallel, will fix this
 		 * in Phase II */
-		rc = dt_trans_start(env, update->tud_dt, th);
+		rc = dt_trans_stop(env, update->tud_dt, th);
 		if (rc != 0) {
 			/* FIXME how to revert the partial results
 			 * once error happened? Resolved by 2 Phase commit */
@@ -551,16 +552,12 @@ static int lod_remote_sync(const struct lu_env *env, struct dt_device *dev,
 
 	RETURN(rc);
 }
+#endif
 
 static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
 	struct lod_device *lod = dt2lod_dev((struct dt_device *) dev);
-	int rc;
-
-	rc = lod_remote_sync(env, dev, th);
-	if (rc)
-		return rc;
 
 	return dt_trans_start(env, lod->lod_child, th);
 }

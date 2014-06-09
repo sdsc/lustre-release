@@ -206,4 +206,5 @@ int update_insert(const struct lu_env *env, struct update_buf *ubuf,
 		  int buf_len, int op, const struct lu_fid *fid, int count,
 		  int *lens, char **bufs, __u64 batchid);
 
+const char *update_op_str(__u16 opcode);
 #endif

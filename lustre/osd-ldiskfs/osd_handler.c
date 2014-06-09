@@ -70,6 +70,7 @@
 #include <md_object.h>
 #include <lustre_quota.h>
 
+#include <lustre_update.h>
 int ldiskfs_pdo = 1;
 CFS_MODULE_PARM(ldiskfs_pdo, "i", int, 0644,
                 "ldiskfs with parallel directory operations");
@@ -1818,9 +1819,13 @@ static int osd_attr_set(const struct lu_env *env,
 	rc = osd_inode_setattr(env, inode, attr);
 	spin_unlock(&obj->oo_guard);
 
-        if (!rc)
+	if (!rc)
 		ll_dirty_inode(inode, I_DIRTY_DATASYNC);
-        return rc;
+
+	if (rc == 0 && handle->th_update_buf != NULL)
+		rc = dt_trans_update_attr_set(env, dt, attr, handle);
+
+	return rc;
 }
 
 struct dentry *osd_child_dentry_get(const struct lu_env *env,
@@ -2322,7 +2327,10 @@ static int osd_object_destroy(const struct lu_env *env,
         /* not needed in the cache anymore */
         set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
 
-        RETURN(0);
+	if (result == 0 && th->th_update_buf != NULL)
+		result = dt_trans_update_object_destroy(env, dt, th);
+
+	RETURN(0);
 }
 
 /**
@@ -2564,6 +2572,9 @@ static int osd_object_ea_create(const struct lu_env *env, struct dt_object *dt,
 	if (result == 0)
 		result = __osd_oi_insert(env, obj, fid, th);
 
+	if (result == 0 && th->th_update_buf != NULL)
+		result = dt_trans_update_create(env, dt, attr, hint, dof, th);
+
 	LASSERT(ergo(result == 0,
 		     dt_object_exists(dt) && !dt_object_remote(dt)));
         LINVRNT(osd_invariant(obj));
@@ -2641,6 +2652,9 @@ static int osd_object_ref_add(const struct lu_env *env,
 	if (need_dirty)
 		ll_dirty_inode(inode, I_DIRTY_DATASYNC);
 
+	if (rc == 0 && th->th_update_buf != NULL)
+		rc = dt_trans_update_ref_add(env, dt, th);
+
 	LINVRNT(osd_invariant(obj));
 
 	return rc;
@@ -2711,6 +2725,9 @@ static int osd_object_ref_del(const struct lu_env *env, struct dt_object *dt,
 	} else {
 		spin_unlock(&obj->oo_guard);
 	}
+
+	if (th->th_update_buf != NULL)
+		dt_trans_update_ref_del(env, dt, th);
 
 	return 0;
 }
@@ -2809,6 +2826,7 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	struct inode	       *inode    = obj->oo_inode;
 	struct osd_thread_info *info     = osd_oti_get(env);
 	int			fs_flags = 0;
+	int			rc;
 	ENTRY;
 
         LASSERT(handle != NULL);
@@ -2832,8 +2850,13 @@ static int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	if (fl & LU_XATTR_CREATE)
 		fs_flags |= XATTR_CREATE;
 
-	return __osd_xattr_set(info, inode, name, buf->lb_buf, buf->lb_len,
-			       fs_flags);
+	rc = __osd_xattr_set(info, inode, name, buf->lb_buf, buf->lb_len,
+			     fs_flags);
+
+	if (rc == 0 && handle->th_update_buf != NULL)
+		dt_trans_update_xattr_set(env, dt, buf, name, fl, handle);
+
+	return rc;
 }
 
 /*
@@ -3517,7 +3540,8 @@ static int osd_index_ea_delete(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc);
 	}
 out:
-
+	if (rc == 0 && handle->th_update_buf != NULL)
+		rc = dt_trans_update_index_delete(env, dt, key, handle);
         LASSERT(osd_invariant(obj));
         RETURN(rc);
 }
@@ -4208,6 +4232,10 @@ static int osd_index_ea_insert(const struct lu_env *env, struct dt_object *dt,
 	iput(child_inode);
 	if (child != NULL)
 		osd_object_put(env, child);
+	
+	if (rc == 0 && th->th_update_buf != NULL)
+		rc = dt_trans_update_index_insert(env, dt, rec, key, th);
+
 	LASSERT(osd_invariant(obj));
 	RETURN(rc);
 }
