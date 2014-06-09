@@ -1677,6 +1677,12 @@ lnet_parse_ack(lnet_ni_t *ni, lnet_msg_t *msg)
 	return 0;
 }
 
+/**
+ * \retval 0		If \a msg is forwarded
+ * \retval -EAGAIN	If \a msg is blocked because w/o buffer, it's not an
+ *			error.
+ * \retval -ve		The \a msg failed to be forwarded due to error -ve
+ */
 static int
 lnet_parse_forward_locked(lnet_ni_t *ni, lnet_msg_t *msg)
 {
@@ -1961,12 +1967,14 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 		rc = lnet_parse_forward_locked(ni, msg);
 		lnet_net_unlock(cpt);
 
-		if (rc < 0)
+		if (rc == -EAGAIN) /* waiting for buffer */
+			return 0;
+
+		if (rc != 0)
 			goto free_drop;
-		if (rc == 0) {
-			lnet_ni_recv(ni, msg->msg_private, msg, 0,
-				     0, payload_length, payload_length);
-		}
+
+		lnet_ni_recv(ni, msg->msg_private, msg, 0,
+			     0, payload_length, payload_length);
 		return 0;
 	}
 
