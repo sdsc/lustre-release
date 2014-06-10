@@ -1899,7 +1899,7 @@ static int handle_recovery_req(struct ptlrpc_thread *thread,
                                struct ptlrpc_request *req,
                                svc_handler_t handler)
 {
-	int rc;
+	int rc = 0;
 
 	ENTRY;
 
