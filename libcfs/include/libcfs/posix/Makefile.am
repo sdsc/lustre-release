@@ -1,1 +1,1 @@
-EXTRA_DIST = libcfs.h posix-crypto.h
+EXTRA_DIST = libcfs.h

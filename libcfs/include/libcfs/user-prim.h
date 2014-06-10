@@ -186,14 +186,6 @@ gid_t current_gid(void);
 uid_t current_fsuid(void);
 gid_t current_fsgid(void);
 
-#ifndef HAVE_STRLCPY /* not in glibc for RHEL 5.x, remove when obsolete */
-size_t strlcpy(char *tgt, const char *src, size_t tgt_len);
-#endif
-
-#ifndef HAVE_STRLCAT /* not in glibc for RHEL 5.x, remove when obsolete */
-size_t strlcat(char *tgt, const char *src, size_t tgt_len);
-#endif
-
 #define LIBCFS_REALLOC(ptr, size) realloc(ptr, size)
 
 #define cfs_online_cpus() sysconf(_SC_NPROCESSORS_ONLN)

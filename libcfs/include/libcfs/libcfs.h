@@ -43,6 +43,38 @@
 # include <libcfs/linux/libcfs.h>
 #else /* __KERNEL__ */
 # include <libcfs/posix/libcfs.h>
+# include <string.h>
+
+# ifndef HAVE_STRLCPY /* not in glibc for RHEL 5.x, remove when obsolete */
+static inline size_t strlcpy(char *dst, const char *src, size_t size)
+{
+	size_t ret = strlen(src);
+
+	if (size) {
+		size_t len = (ret >= size) ? size - 1 : ret;
+		memcpy(dst, src, len);
+		dst[len] = '\0';
+	}
+	return ret;
+}
+# endif /* !HAVE_STRLCPY */
+
+# ifndef HAVE_STRLCAT /* not in glibc for RHEL 5.x, remove when obsolete */
+static inline size_t strlcat(char *dst, const char *src, size_t size)
+{
+	size_t dsize = strlen(dst);
+	size_t len = strlen(src);
+	size_t ret = dsize + len;
+
+	dst  += dsize;
+	size -= dsize;
+	if (len >= size)
+		len = size-1;
+	memcpy(dst, src, len);
+	dst[len] = '\0';
+	return ret;
+}
+# endif /* !HAVE_STRLCAT */
 #endif /* !__KERNEL__ */
 
 #include "curproc.h"

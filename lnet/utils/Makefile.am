@@ -40,7 +40,6 @@
 
 AM_CFLAGS = $(LLCFLAGS)
 
-LIBCFS= $(top_builddir)/libcfs/libcfs/libcfs.a
 LIBCFSUTIL= $(top_builddir)/libcfs/libcfs/libcfsutil.a
 
 lib_LIBRARIES = libptlctl.a
@@ -58,7 +57,7 @@ wirecheck_SOURCES = wirecheck.c
 routerstat_SOURCES = routerstat.c
 
 lst_SOURCES = lst.c
-lst_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
+lst_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBREADLINE) $(LIBEFENCE)
 lst_DEPENDENCIES = libptlctl.a
 
 LND_LIBS =
