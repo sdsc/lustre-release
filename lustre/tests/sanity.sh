@@ -381,7 +381,7 @@ test_14() {
 run_test 14 "touch .../d14/f; rm .../d14/f; rm .../d14/f ======="
 
 test_15() {
-	test_mkdir $DIR/$tdir
+	test_mkdir -c1 $DIR/$tdir
 	touch $DIR/$tdir/$tfile
 	mv $DIR/$tdir/$tfile $DIR/$tdir/${tfile}_2
 	$CHECKSTAT -t file $DIR/$tdir/${tfile}_2 ||
