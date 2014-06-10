@@ -38,7 +38,6 @@
 #COMPILE = $(CC) -Wall -g -I$(srcdir)/../include -I../../include
 #LINK = $(CC) -o $@
 
-LIBCFS= $(top_builddir)/libcfs/libcfs/libcfs.a
 LIBCFSUTIL= $(top_builddir)/libcfs/libcfs/libcfsutil.a
 
 if LIBLUSTRE
@@ -70,7 +69,7 @@ endif
 wirecheck_SOURCES = wirecheck.c
 
 ptlctl_SOURCES = ptlctl.c
-ptlctl_LDADD =  -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
+ptlctl_LDADD =  -L. -lptlctl $(LIBCFSUTIL) $(LIBREADLINE) $(LIBEFENCE)
 ptlctl_DEPENDENCIES = libptlctl.a
 
 routerstat_SOURCES = routerstat.c
@@ -80,7 +79,7 @@ debugctl_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBREADLINE) $(LIBEFENCE)
 debugctl_DEPENDENCIES = libptlctl.a
 
 lst_SOURCES = lst.c
-lst_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBCFS) $(LIBREADLINE) $(LIBEFENCE)
+lst_LDADD = -L. -lptlctl $(LIBCFSUTIL) $(LIBREADLINE) $(LIBEFENCE)
 lst_DEPENDENCIES = libptlctl.a
 
 LND_LIBS =
@@ -89,7 +88,7 @@ LND_LIBS +=    $(top_builddir)/lnet/ulnds/socklnd/libsocklnd.a
 endif
 
 if LIBLUSTRE
-LIB_SELFTEST = $(top_builddir)/libcfs/libcfs/libcfs.a $(top_builddir)/lnet/lnet/liblnet.a $(top_builddir)/lnet/selftest/libselftest.a
+LIB_SELFTEST = $(top_builddir)/lnet/lnet/liblnet.a $(top_builddir)/lnet/selftest/libselftest.a
 
 export AR
 export RANLIB

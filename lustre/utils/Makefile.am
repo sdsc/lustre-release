@@ -12,8 +12,7 @@ MNTMODLDFLAGS := -rdynamic -ldl
 MNTMODCFLAGS := -DPLUGIN_DIR=\"${pkglibdir}\"
 
 LIBPTLCTL := $(top_builddir)/lnet/utils/libptlctl.a \
-	     $(top_builddir)/libcfs/libcfs/libcfsutil.a \
-	     $(top_builddir)/libcfs/libcfs/libcfs.a
+	     $(top_builddir)/libcfs/libcfs/libcfsutil.a
 
 sbin_scripts = lrun
 bin_scripts = llstat llobdstat plot-llstat llbackup
