@@ -29,7 +29,6 @@ EXTRA_DIST = \
 	lucache.h \
 	params_tree.h \
 	user-bitops.h \
-	user-crypto.h \
 	user-lock.h \
 	user-mem.h \
 	user-prim.h \
