@@ -3048,11 +3048,14 @@ static int lfs_flushctx(int argc, char **argv)
                 }
 
                 while ((line = fgets(procline, PATH_MAX, proc)) != NULL) {
+			char format[64];
                         char dev[PATH_MAX];
                         char mp[PATH_MAX];
                         char fs[PATH_MAX];
 
-                        if (sscanf(line, "%s %s %s", dev, mp, fs) != 3) {
+			snprintf(format, sizeof(format), "%%%ds %%%ds %%%ds",
+				 PATH_MAX - 1, PATH_MAX - 1, PATH_MAX - 1);
+			if (sscanf(line, format, dev, mp, fs) != 3) {
                                 fprintf(stderr, "%s: unexpected format in "
                                                 "/proc/mounts\n",
                                         argv[0]);

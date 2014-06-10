@@ -950,7 +950,9 @@ static void print_obd_line(char *s)
         FILE *fp = NULL;
         char *ptr;
 
-        if (sscanf(s, " %*d %*s osc %s %*s %*d ", obd_name) == 0)
+	snprintf(buf, sizeof(buf), " %%*d %%*s osc %%%zus %%*s %%*d ",
+		 sizeof(obd_name) - 1);
+	if (sscanf(s, buf, obd_name) == 0)
                 goto try_mdc;
         snprintf(buf, sizeof(buf),
                  "/proc/fs/lustre/osc/%s/ost_conn_uuid", obd_name);
@@ -959,7 +961,9 @@ static void print_obd_line(char *s)
         goto got_one;
 
 try_mdc:
-        if (sscanf(s, " %*d %*s mdc %s %*s %*d ", obd_name) == 0)
+	snprintf(buf, sizeof(buf), " %%*d %%*s mdc %%%zus %%*s %%*d ",
+		 sizeof(obd_name) - 1);
+	if (sscanf(s, buf, obd_name) == 0)
                 goto fail;
         snprintf(buf, sizeof(buf),
                  "/proc/fs/lustre/mdc/%s/mds_conn_uuid", obd_name);

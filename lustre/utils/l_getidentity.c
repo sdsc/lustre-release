@@ -271,7 +271,7 @@ int parse_perm_line(struct identity_downcall_data *data, char *line)
                 return -1;
         }
 
-        rc = sscanf(line, "%s %s %s", nid_str, uid_str, perm_str);
+	rc = sscanf(line, "%255s %255s %255s", nid_str, uid_str, perm_str);
         if (rc != 3) {
                 errlog("can't parse line %s\n", line);
                 return -1;

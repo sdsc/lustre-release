@@ -412,6 +412,7 @@ uid_t parse_uid(char *uidstr)
 
 static int read_mapping_db(void)
 {
+	char format[64];
         char princ[MAX_LINE_LEN];
         char nid_str[MAX_LINE_LEN];
         char dest[MAX_LINE_LEN];
@@ -431,6 +432,8 @@ static int read_mapping_db(void)
                 return -1;
         }
 
+	snprintf(format, sizeof(format), "%%%ds %%%ds %%%ds",
+		 MAX_LINE_LEN - 1, MAX_LINE_LEN - 1, MAX_LINE_LEN - 1);
         while ((line = fgets(linebuf, MAX_LINE_LEN, f)) != NULL) {
                 char *name;
 
@@ -440,7 +443,7 @@ static int read_mapping_db(void)
                         continue;
                 }
 
-                if (sscanf(line, "%s %s %s", princ, nid_str, dest) != 3) {
+		if (sscanf(line, format, princ, nid_str, dest) != 3) {
                         printerr(0, "mapping db: syntax error\n");
                         continue;
                 }
