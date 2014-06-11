@@ -1205,6 +1205,31 @@ test_24A() { # LU-3182
 	fi
 
 	rm -rf $DIR/$tdir || error "Can not delete directories"
+
+	mkdir $DIR/$tdir
+	if [ $MDSCOUNT -ge 2 ]; then
+		$LFS setdirstripe -i0 -c$MDSCOUNT $DIR/$tdir/striped_dir ||
+			error "create striped dir failed"
+		createmany -o $DIR/$tdir/striped_dir/$tfile $NFILES ||
+			error "create files under striped dir failed"
+
+		t=$(ls $DIR/$tdir/striped_dir | wc -l)
+		u=$(ls $DIR/$tdir/striped_dir | sort -u | wc -l)
+		v=$(ls -ai $DIR/$tdir/striped_dir | sort -u | wc -l)
+		if [ $t -ne $NFILES -o $u -ne $NFILES -o	\
+		     $v -ne $((NFILES + 2)) ] ; then
+			error "Expected $NFILES, got $t ($u unique $v .&..)"
+		fi
+
+		#read from the cache again
+		t=$(ls $DIR/$tdir/striped_dir | wc -l)
+		u=$(ls $DIR/$tdir/striped_dir | sort -u | wc -l)
+		v=$(ls -ai $DIR/$tdir/striped_dir | sort -u | wc -l)
+		if [ $t -ne $NFILES -o $u -ne $NFILES -o	\
+			$v -ne $((NFILES + 2)) ] ; then
+			error "Expected $NFILES, got $t ($u unique $v .&..)"
+		fi
+	fi
 }
 run_test 24A "readdir() returns correct number of entries."
 
