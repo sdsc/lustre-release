@@ -321,6 +321,8 @@ int ll_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 							(void *)&lli->lli_pfid);
 				if (master_inode != NULL &&
 					!IS_ERR(master_inode)) {
+					truncate_inode_pages(
+						master_inode->i_mapping, 0);
 					ll_invalidate_negative_children(
 								master_inode);
 					iput(master_inode);
