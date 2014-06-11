@@ -2537,7 +2537,7 @@ static int lmv_read_striped_page(struct obd_export *exp,
 
 	/* Allocate a page and read entries from all of stripes and fill
 	 * the page by hash order */
-	ent_page = alloc_page(GFP_KERNEL);
+	ent_page = page_cache_alloc_cold(master_inode->i_mapping);
 	if (ent_page == NULL)
 		RETURN(-ENOMEM);
 
@@ -2546,7 +2546,6 @@ static int lmv_read_striped_page(struct obd_export *exp,
 	area = dp;
 	memset(dp, 0, sizeof(*dp));
 	dp->ldp_hash_start = cpu_to_le64(offset);
-	dp->ldp_flags |= LDF_COLLIDE;
 
 	area = dp + 1;
 	left_bytes = PAGE_CACHE_SIZE - sizeof(*dp);
@@ -2614,7 +2613,8 @@ out:
 	}
 
 	if (unlikely(rc != 0)) {
-		__free_page(ent_page);
+		kunmap(ent_page);
+		page_cache_release(ent_page);
 		ent_page = NULL;
 	} else {
 		if (ent == area)

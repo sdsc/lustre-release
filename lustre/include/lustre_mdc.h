@@ -217,6 +217,16 @@ static inline void cl_lov_delay_create_clear(unsigned int *flags)
 		*flags &= ~O_LOV_DELAY_CREATE_MASK;
 }
 
+static inline unsigned long hash_x_index(__u64 hash, int hash64)
+{
+#ifdef __KERNEL__
+	if (BITS_PER_LONG == 32 && hash64)
+		hash >>= 32;
+#endif
+	/* save hash 0 with hash 1 */
+	return ~0UL - (hash + !hash);
+}
+
 /** @} mdc */
 
 #endif

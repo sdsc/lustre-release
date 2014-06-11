@@ -139,34 +139,177 @@
  * lmv_adjust_dirpages().
  *
  */
+
+/*
+ * Find, kmap and return page that contains given hash.
+ *
+ * This function try to locate the page by @hash in the page cache, kmap and
+ * return the page. And it will also validate the page, if the page is already
+ * stale, it will evict the page from the cache and try to read from the lower
+ * layers again. Note: this is only for striped directory right now.
+ *
+ * \param[in] dir	the directory which the page belongs to
+ * \param[in] hash	the hash offset of the page
+ *
+ * retval		page if find the page
+ *                      NULL if not find the page
+ *                      ERR_PTR(negative errno) if something bad happens.
+ */
+static struct page *ll_dir_page_locate(struct inode *dir, __u64 hash)
+{
+	int hash64 = ll_i2sbi(dir)->ll_flags & LL_SBI_64BIT_HASH;
+	struct address_space *mapping = dir->i_mapping;
+	/*
+	 * Complement of hash is used as an index so that
+	 * radix_tree_gang_lookup() can be used to find a page with starting
+	 * hash _smaller_ than one we are looking for.
+	 */
+	unsigned long offset = hash_x_index(hash, hash64);
+	__u64		start = 0;
+	__u64		end = 0;
+	struct page *page;
+	int found;
+
+	spin_lock_irq(&mapping->tree_lock);
+	found = radix_tree_gang_lookup(&mapping->page_tree,
+				       (void **)&page, offset, 1);
+	if (found > 0) {
+		struct lu_dirpage *dp;
+
+		page_cache_get(page);
+		spin_unlock_irq(&mapping->tree_lock);
+		/*
+		 * In contrast to find_lock_page() we are sure that directory
+		 * page cannot be truncated (while DLM lock is held) and,
+		 * hence, can avoid restart.
+		 *
+		 * In fact, page cannot be locked here at all, because
+		 * ll_dir_filler() does synchronous io.
+		 */
+		wait_on_page_locked(page);
+		if (PageUptodate(page)) {
+			dp = kmap(page);
+			if (BITS_PER_LONG == 32 && hash64) {
+				start = le64_to_cpu(dp->ldp_hash_start) >> 32;
+				end   = le64_to_cpu(dp->ldp_hash_end) >> 32;
+				hash  = hash >> 32;
+			} else {
+				start = le64_to_cpu(dp->ldp_hash_start);
+				end   = le64_to_cpu(dp->ldp_hash_end);
+			}
+			LASSERTF(start <= hash, "start = "LPX64",end = "
+				 LPX64",hash = "LPX64"\n", start, end, hash);
+			CDEBUG(D_VFSTRACE, "page %lu [%llu %llu], hash "
+			       LPU64"\n", offset, start, end, hash);
+			if (hash > end) {
+				ll_release_page(page, false);
+				page = NULL;
+			} else if (end != start && hash == end) {
+				/*
+				 * upon hash collision, remove this page,
+				 * otherwise put page reference, and
+				 * ll_get_dir_page() will issue RPC to fetch
+				 * the page we want.
+				 */
+				ll_release_page(page,
+				    le32_to_cpu(dp->ldp_flags) & LDF_COLLIDE);
+				page = NULL;
+			}
+		} else {
+			page_cache_release(page);
+			page = ERR_PTR(-EIO);
+		}
+
+	} else {
+		spin_unlock_irq(&mapping->tree_lock);
+		page = NULL;
+	}
+	return page;
+}
+
+/**
+ * Get dir page from the lower layer.
+ *
+ * This function gets the page from lower layers. Note: if it is
+ * striped directory, it will try to the page from master inode page
+ * cache first, because those striped directory page entries needs
+ * to be built in LMV layer (see lmv_read_striped_page()), and to
+ * avoid to build the page every time, it will add the page to master
+ * inode page cache after get it from LMV. But these pages will
+ * be evicted from the cache whenever any of sub-stripe locks are
+ * being revoked.
+ *
+ * \param[in] dir	the directory being read
+ * \param[in] op_data	the parameters transferred between layers
+ * \param[in] hash      the hash offset of this page
+ * \param[in] chain     useless for now, might used to resolve the
+ *                      hash conflict later.
+ *
+ * retval		the page if succeed.
+ *                      ERR_PTR(negative errno) if failed.
+ */
 struct page *ll_get_dir_page(struct inode *dir, struct md_op_data *op_data,
-			     __u64 offset, struct ll_dir_chain *chain)
+			     __u64 hash, struct ll_dir_chain *chain)
 {
 	struct md_callback	cb_op;
 	struct page		*page;
 	int			rc;
+	ENTRY;
 
-	cb_op.md_blocking_ast = ll_md_blocking_ast;
-	rc = md_read_page(ll_i2mdexp(dir), op_data, &cb_op, offset, &page);
-	if (rc != 0)
-		return ERR_PTR(rc);
+	LASSERT(S_ISDIR(dir->i_mode));
 
-	return page;
-}
-
-void ll_release_page(struct inode *inode, struct page *page,
-		     bool remove)
-{
-	kunmap(page);
-
-	/* Always remove the page for striped dir, because the page is
-	 * built from temporarily in LMV layer */
-	if (inode != NULL && S_ISDIR(inode->i_mode) &&
-	    ll_i2info(inode)->lli_lsm_md != NULL) {
-		__free_page(page);
-		return;
+	/* For striped dir, try to read from master inode
+	 * page cache first, if not, then build the page
+	 * from LMV layer see(lmv_read_striped_page()) */
+	if (ll_i2info(dir)->lli_lsm_md != NULL) {
+		page = ll_dir_page_locate(dir, hash);
+		if (page != NULL && !IS_ERR(page)) {
+			kmap(page);
+			GOTO(out, rc = 0);
+		}
 	}
 
+	cb_op.md_blocking_ast = ll_md_blocking_ast;
+	rc = md_read_page(ll_i2mdexp(dir), op_data, &cb_op, hash, &page);
+	if (rc != 0)
+		GOTO(out, rc);
+
+	/* For striped dir, add the page to master inode page cache */
+	if (ll_i2info(dir)->lli_lsm_md != NULL) {
+		int hash64 = ll_i2sbi(dir)->ll_flags & LL_SBI_64BIT_HASH;
+		unsigned long index;
+
+		index = hash_x_index(hash, hash64);
+
+		SetPageUptodate(page);
+		lock_page(page);
+		rc = add_to_page_cache_lru(page, dir->i_mapping, index,
+					   GFP_KERNEL);
+		if (rc == 0) {
+			unlock_page(page);
+			kmap(page);
+		} else {
+			CDEBUG(D_VFSTRACE, "page %lu add to page cache failed:"
+			       " rc = %d\n", index, rc);
+		}
+	}
+out:
+	if (rc != 0)
+		page = ERR_PTR(rc);
+	RETURN(page);
+}
+
+/**
+ * Release dir entry page.
+ *
+ * Release dir entry page and also remove the page from the page cache if needed.
+ *
+ * \param[in] page	page to be released.
+ * \param[in] remove	whether remove the page from the page cache.
+ */
+void ll_release_page(struct page *page, bool remove)
+{
+	kunmap(page);
 	if (remove) {
 		lock_page(page);
 		if (likely(page->mapping != NULL))
@@ -176,6 +319,29 @@ void ll_release_page(struct inode *inode, struct page *page,
 	page_cache_release(page);
 }
 
+/**
+ * Read directory entry
+ *
+ * It read directory entries from local page cache or remote MDT, and fill
+ * those entries by @filldir. Note: the entries in the page are all little
+ * endian, so it needs to be converted to CPU endian during accessing. And
+ * hash conflict cross the page entries are not being fully resolved yet,
+ * (see mdc_read_page()).
+ *
+ * \param[in] inode		the directory being read
+ * \param[in|out] ppos		the start offset(hash value) of readdir and
+ *                              it should also return the offset where readdir
+ *                              ends.
+ * \param[in] op_data		different parameters of readdir, which is also
+ *                              being used to transfer parameters between
+ *                              client MD stacks.
+ * \param[in] cookie		the parameters required by filldir
+ * \param[in] filldir		the callback to fill directory entries to the
+ *                              caller
+ *
+ * retval			= 0 readdir succeed
+ *                              negative errno readdir failed
+ */
 #ifdef HAVE_DIR_CONTEXT
 int ll_dir_read(struct inode *inode, __u64 *ppos, struct md_op_data *op_data,
 		struct dir_context *ctx)
@@ -257,13 +423,13 @@ int ll_dir_read(struct inode *inode, __u64 *ppos, struct md_op_data *op_data,
 				 * End of directory reached.
 				 */
 				done = 1;
-				ll_release_page(inode, page, false);
+				ll_release_page(page, false);
 			} else if (1 /* chain is exhausted*/) {
 				/*
 				 * Normal case: continue to the next
 				 * page.
 				 */
-				ll_release_page(inode, page,
+				ll_release_page(page,
 						le32_to_cpu(dp->ldp_flags) &
 						LDF_COLLIDE);
 				next = pos;
@@ -275,11 +441,11 @@ int ll_dir_read(struct inode *inode, __u64 *ppos, struct md_op_data *op_data,
 				 */
 				LASSERT(le32_to_cpu(dp->ldp_flags) &
 					LDF_COLLIDE);
-				ll_release_page(inode, page, true);
+				ll_release_page(page, true);
 			}
 		} else {
 			pos = hash;
-			ll_release_page(inode, page, false);
+			ll_release_page(page, false);
 		}
 	}
 
