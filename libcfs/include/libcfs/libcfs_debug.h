@@ -63,6 +63,7 @@ int libcfs_debug_str2mask(int *mask, const char *str, int is_subsys);
 /* Has there been an LBUG? */
 extern unsigned int libcfs_catastrophe;
 extern unsigned int libcfs_panic_on_lbug;
+extern unsigned int libcfs_use_bug_instead_of_panic;
 
 /**
  * Format for debug message headers

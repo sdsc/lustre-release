@@ -107,6 +107,11 @@ CFS_MODULE_PARM(libcfs_panic_on_lbug, "i", uint, 0644,
                 "Lustre kernel panic on LBUG");
 EXPORT_SYMBOL(libcfs_panic_on_lbug);
 
+unsigned int libcfs_use_bug_instead_of_panic = 0;
+CFS_MODULE_PARM(libcfs_use_bug_instead_of_panic, "i", uint, 0644,
+		"Lustre kernel BUG on LBUG instead of panic");
+EXPORT_SYMBOL(libcfs_use_bug_instead_of_panic);
+
 atomic_t libcfs_kmemory = ATOMIC_INIT(0);
 EXPORT_SYMBOL(libcfs_kmemory);
 

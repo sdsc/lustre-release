@@ -459,6 +459,15 @@ static struct ctl_table lnet_table[] = {
 	},
 	{
 		INIT_CTL_NAME
+		.procname	= "use_bug_instead_of_panic",
+		.data		= &libcfs_use_bug_instead_of_panic,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
+		INIT_STRATEGY
+	},
+	{
+		INIT_CTL_NAME
 		.procname	= "dump_kernel",
 		.maxlen		= 256,
 		.mode		= 0200,

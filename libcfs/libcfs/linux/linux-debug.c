@@ -175,8 +175,11 @@ void lbug_with_loc(struct libcfs_debug_msg_data *msgdata)
         if (!libcfs_panic_on_lbug)
                 libcfs_debug_dumplog();
         libcfs_run_lbug_upcall(msgdata);
-        if (libcfs_panic_on_lbug)
-                panic("LBUG");
+	if (libcfs_panic_on_lbug) {
+		if (libcfs_use_bug_instead_of_panic)
+			BUG();
+		panic("LBUG");
+	}
         set_task_state(current, TASK_UNINTERRUPTIBLE);
         while (1)
                 schedule();
