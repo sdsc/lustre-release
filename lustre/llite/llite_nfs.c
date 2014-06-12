@@ -128,7 +128,7 @@ static struct dentry *ll_iget_for_nfs(struct super_block *sb,
         struct dentry *result;
         ENTRY;
 
-        if (iid->id == 0)
+        if (!fid_is_sane(iid))
                 RETURN(ERR_PTR(-ESTALE));
 
         inode = search_inode_for_lustre(sb, iid);
@@ -277,8 +277,6 @@ struct dentry *ll_get_parent(struct dentry *dchild)
                 return ERR_PTR(rc);
         }
         body = lustre_msg_buf(req->rq_repmsg, REPLY_REC_OFF, sizeof (*body));
-
-        LASSERT(body->valid & OBD_MD_FLID);
 
         fid = body->fid1;
         result = ll_iget_for_nfs(dir->i_sb, &fid);
