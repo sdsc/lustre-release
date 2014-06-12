@@ -46,4 +46,5 @@ int root_ioctl(const char *mdtname, int opc, void *data, int *mdtidxp,
 int get_param(const char *param_path, char *result,
 	      unsigned int result_size);
 
+int hsm_get_mnt_fd(const struct hsm_copytool_private *hcp);
 #endif /* _LUSTREAPI_INTERNAL_H_ */

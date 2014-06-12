@@ -1650,8 +1650,30 @@ out_rmdir:
                 rc = copy_and_ioctl(cmd, sbi->ll_md_exp, (void *)arg,
                                     sizeof(struct ioc_changelog));
                 RETURN(rc);
-        case OBD_IOC_FID2PATH:
+	case OBD_IOC_FID2PATH: {
 		RETURN(ll_fid2path(inode, (void *)arg));
+	}
+	case LL_IOC_FID2MDTIDX: {
+		struct obd_export *exp = ll_i2mdexp(inode);
+		struct lu_fid	  fid;
+
+		if (copy_from_user(&fid, (void *)arg, sizeof(fid)))
+			RETURN(-EFAULT);
+
+		if (!fid_is_sane(&fid))
+			RETURN(-EINVAL);
+
+		/* Call mdc_iocontrol */
+		rc = obd_iocontrol(LL_IOC_FID2MDTIDX, exp, sizeof(fid), &fid,
+				   NULL);
+		if (rc != 0)
+			RETURN(rc);
+
+		if (copy_to_user((char *)arg, &fid, sizeof(fid)))
+			rc = -EFAULT;
+
+		RETURN(rc);
+	}
 	case LL_IOC_HSM_REQUEST: {
 		struct hsm_user_request	*hur;
 		ssize_t			 totalsize;

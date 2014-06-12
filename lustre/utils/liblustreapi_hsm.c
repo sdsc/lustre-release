@@ -1215,6 +1215,17 @@ int llapi_hsm_action_get_dfid(const struct hsm_copyaction_private *hcp,
 }
 
 /**
+ * Get the file descriptor of mnt.
+ *
+ * \param[in] hcp	copytool private structure.
+ * \retval		file descriptor of the mount fd.
+ */
+int hsm_get_mnt_fd(const struct hsm_copytool_private *hcp)
+{
+	return hcp->mnt_fd;
+}
+
+/**
  * Get a file descriptor to be used for copying data. It's up to the
  * caller to close the FDs obtained from this function.
  *
