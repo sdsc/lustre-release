@@ -4090,6 +4090,49 @@ test_404() {
 }
 run_test 404 "Inactive MDT does not block requests for active MDTs"
 
+test_405() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+
+	copytool_setup
+
+	mkdir -p $DIR/$tdir
+
+	local striped_dir=$DIR/$tdir/striped_dir
+
+	# create striped dir on all of MDTs
+	$LFS mkdir -i 0 -c $MDSCOUNT $striped_dir || error "lfs mkdir"
+
+	local fid1=$(make_small_sync $striped_dir/${tfile}_0)
+	local fid2=$(make_small_sync $striped_dir/${tfile}_1)
+	local fid3=$(make_small_sync $striped_dir/${tfile}_2)
+	local fid4=$(make_small_sync $striped_dir/${tfile}_3)
+
+	# check that compound requests are shunt to the rights MDTs
+	$LFS hsm_archive $striped_dir/${tfile}_0 $striped_dir/${tfile}_1 \
+			 $striped_dir/${tfile}_2 $striped_dir/${tfile}_3 ||
+		error "lfs hsm_archive"
+	local mdt_idx=$($LFS getstripe -M $striped_dir/${tfile}_0)
+	wait_request_state $fid1 ARCHIVE SUCCEED $mdt_idx &&
+		echo "archive successful on $fid1"
+	mdt_idx=$($LFS getstripe -M $striped_dir/${tfile}_1)
+	wait_request_state $fid2 ARCHIVE SUCCEED $mdt_idx &&
+		echo "archive successful on $fid2"
+	mdt_idx=$($LFS getstripe -M $striped_dir/${tfile}_2)
+	wait_request_state $fid3 ARCHIVE SUCCEED $mdt_idx &&
+		echo "archive successful on $fid3"
+	mdt_idx=$($LFS getstripe -M $striped_dir/${tfile}_3)
+	wait_request_state $fid4 ARCHIVE SUCCEED $mdt_idx &&
+		echo "archive successful on $fid4"
+
+	$LFS hsm_release $striped_dir/${tfile}_0 || error "lfs hsm_release 1"
+	$LFS hsm_release $striped_dir/${tfile}_1 || error "lfs hsm_release 2"
+	$LFS hsm_release $striped_dir/${tfile}_2 || error "lfs hsm_release 3"
+	$LFS hsm_release $striped_dir/${tfile}_3 || error "lfs hsm_release 4"
+
+	copytool_cleanup
+}
+run_test 405 "archive and release under striped directory"
+
 copytool_cleanup
 
 complete $SECONDS
