@@ -278,8 +278,6 @@ struct dentry *ll_get_parent(struct dentry *dchild)
         }
         body = lustre_msg_buf(req->rq_repmsg, REPLY_REC_OFF, sizeof (*body));
 
-        LASSERT(body->valid & OBD_MD_FLID);
-
         fid = body->fid1;
         result = ll_iget_for_nfs(dir->i_sb, &fid);
 
