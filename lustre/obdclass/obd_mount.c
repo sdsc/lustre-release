@@ -53,11 +53,6 @@
 #include <lustre_disk.h>
 #include <lustre_param.h>
 
-static int (*client_fill_super)(struct super_block *sb,
-				struct vfsmount *mnt);
-
-static void (*kill_super_cb)(struct super_block *sb);
-
 /**************** config llog ********************/
 
 /** Get a config log from the MGS and process it.
@@ -893,7 +888,7 @@ int lustre_check_exclusion(struct super_block *sb, char *svname)
 static int lmd_make_exclusion(struct lustre_mount_data *lmd, const char *ptr)
 {
 	const char *s1 = ptr, *s2;
-	__u32 index, *exclude_list;
+	__u32 index = 0, *exclude_list;
 	int rc = 0, devmax;
 	ENTRY;
 
@@ -1255,6 +1250,9 @@ struct lustre_mount_data2 {
         struct vfsmount *lmd2_mnt;
 };
 
+static int (*client_fill_super)(struct super_block *sb);
+static void (*kill_super_cb)(struct super_block *sb);
+
 /** This is the entry point for the mount call into Lustre.
  * This is called when a server or client is mounted,
  * and this is where we start setting things up.
@@ -1292,14 +1290,26 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
                 GOTO(out, rc = -EINVAL);
         }
 
-        if (lmd_is_client(lmd)) {
-                CDEBUG(D_MOUNT, "Mounting client %s\n", lmd->lmd_profile);
-                if (!client_fill_super) {
-                        LCONSOLE_ERROR_MSG(0x165, "Nothing registered for "
-                                           "client mount! Is the 'lustre' "
-                                           "module loaded?\n");
-                        lustre_put_lsi(sb);
-                        rc = -ENODEV;
+	if (lmd_is_client(lmd)) {
+		CDEBUG(D_MOUNT, "Mounting client %s\n", lmd->lmd_profile);
+#ifdef HAVE_SERVER_SUPPORT
+		if (client_fill_super == NULL)
+			request_module("lustre");
+#endif
+		if (kill_super_cb == NULL)
+			kill_super_cb = symbol_get(ll_kill_super);
+
+		if (client_fill_super == NULL)
+			client_fill_super = symbol_get(ll_fill_super);
+
+		if (client_fill_super == NULL || kill_super_cb == NULL) {
+			LCONSOLE_ERROR_MSG(0x165, "Nothing registered for "
+					   "client mount! Is the 'lustre' "
+					   "module loaded?\n");
+			if (kill_super_cb != NULL)
+				symbol_put(kill_super_cb);
+			lustre_put_lsi(sb);
+			rc = -ENODEV;
                 } else {
                         rc = lustre_start_mgc(sb);
                         if (rc) {
@@ -1308,7 +1318,7 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
                         }
                         /* Connect and start */
                         /* (should always be ll_fill_super) */
-                        rc = (*client_fill_super)(sb, lmd2->lmd2_mnt);
+			rc = (*client_fill_super)(sb);
                         /* c_f_s will call lustre_common_put_super on failure */
                 }
         } else {
@@ -1331,6 +1341,10 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
         GOTO(out, rc);
 out:
         if (rc) {
+		if (client_fill_super != NULL)
+			symbol_put(client_fill_super);
+		if (kill_super_cb != NULL)
+			symbol_put(kill_super_cb);
                 CERROR("Unable to mount %s (%d)\n",
                        s2lsi(sb) ? lmd->lmd_dev : "", rc);
         } else {
@@ -1340,22 +1354,6 @@ out:
 	lockdep_on();
 	return rc;
 }
-
-
-/* We can't call ll_fill_super by name because it lives in a module that
-   must be loaded after this one. */
-void lustre_register_client_fill_super(int (*cfs)(struct super_block *sb,
-                                                  struct vfsmount *mnt))
-{
-        client_fill_super = cfs;
-}
-EXPORT_SYMBOL(lustre_register_client_fill_super);
-
-void lustre_register_kill_super_cb(void (*cfs)(struct super_block *sb))
-{
-        kill_super_cb = cfs;
-}
-EXPORT_SYMBOL(lustre_register_kill_super_cb);
 
 /***************** FS registration ******************/
 #ifdef HAVE_FSTYPE_MOUNT
@@ -1378,35 +1376,43 @@ int lustre_get_sb(struct file_system_type *fs_type, int flags,
 
 void lustre_kill_super(struct super_block *sb)
 {
-        struct lustre_sb_info *lsi = s2lsi(sb);
+	struct lustre_sb_info *lsi = s2lsi(sb);
 
 	if (kill_super_cb && lsi && !IS_SERVER(lsi))
-                (*kill_super_cb)(sb);
+		(*kill_super_cb)(sb);
 
-        kill_anon_super(sb);
+	kill_anon_super(sb);
 }
 
 /** Register the "lustre" fs type
  */
 struct file_system_type lustre_fs_type = {
-        .owner        = THIS_MODULE,
-        .name         = "lustre",
+	.owner		= THIS_MODULE,
+	.name		= "lustre",
 #ifdef HAVE_FSTYPE_MOUNT
-	.mount        = lustre_mount,
+	.mount		= lustre_mount,
 #else
-        .get_sb       = lustre_get_sb,
+	.get_sb		= lustre_get_sb,
 #endif
-        .kill_sb      = lustre_kill_super,
-	.fs_flags     = FS_BINARY_MOUNTDATA | FS_REQUIRES_DEV |
-			FS_HAS_FIEMAP | FS_RENAME_DOES_D_MOVE,
+	.kill_sb	= lustre_kill_super,
+	.fs_flags	= FS_BINARY_MOUNTDATA | FS_REQUIRES_DEV |
+			  FS_HAS_FIEMAP | FS_RENAME_DOES_D_MOVE,
 };
+MODULE_ALIAS_FS("lustre");
+EXPORT_SYMBOL(lustre_fs_type);
 
 int lustre_register_fs(void)
 {
-        return register_filesystem(&lustre_fs_type);
+	return register_filesystem(&lustre_fs_type);
 }
 
-int lustre_unregister_fs(void)
+void lustre_unregister_fs(void)
 {
-        return unregister_filesystem(&lustre_fs_type);
+	if (client_fill_super != NULL)
+		symbol_put(client_fill_super);
+	if (kill_super_cb != NULL)
+		symbol_put(kill_super_cb);
+
+	if (unregister_filesystem(&lustre_fs_type))
+		CWARN("Failed to unregister lustre file system\n");
 }

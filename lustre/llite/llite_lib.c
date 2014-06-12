@@ -164,8 +164,7 @@ static void ll_free_sbi(struct super_block *sb)
 	EXIT;
 }
 
-static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
-                                    struct vfsmount *mnt)
+static int client_common_fill_super(struct super_block *sb, char *md, char *dt)
 {
         struct inode *root = 0;
         struct ll_sb_info *sbi = ll_s2sbi(sb);
@@ -786,6 +785,7 @@ void ll_kill_super(struct super_block *sb)
 	}
 	EXIT;
 }
+EXPORT_SYMBOL(ll_kill_super);
 
 static inline int ll_set_opt(const char *opt, char *data, int fl)
 {
@@ -1002,7 +1002,7 @@ static inline int ll_bdi_register(struct backing_dev_info *bdi)
 			    atomic_inc_return(&ll_bdi_num));
 }
 
-int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
+int ll_fill_super(struct super_block *sb)
 {
         struct lustre_profile *lprof = NULL;
         struct lustre_sb_info *lsi = s2lsi(sb);
@@ -1083,7 +1083,7 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
         sprintf(md, "%s-%p", lprof->lp_md, cfg->cfg_instance);
 
         /* connections, registrations, sb setup */
-        err = client_common_fill_super(sb, md, dt, mnt);
+	err = client_common_fill_super(sb, md, dt);
 
 out_free:
         if (md)
@@ -1098,6 +1098,7 @@ out_free:
         OBD_FREE_PTR(cfg);
         RETURN(err);
 } /* ll_fill_super */
+EXPORT_SYMBOL(ll_fill_super);
 
 void ll_put_super(struct super_block *sb)
 {

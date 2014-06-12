@@ -63,7 +63,7 @@ atomic_t libcfs_kmemory = {0};
 
 struct obd_device *obd_devs[MAX_OBD_DEVICES];
 EXPORT_SYMBOL(obd_devs);
-cfs_list_t obd_types;
+struct list_head obd_types;
 DEFINE_RWLOCK(obd_dev_lock);
 
 __u64 obd_max_pages = 0;
@@ -526,12 +526,11 @@ static int __init init_obdclass(void)
 int init_obdclass(void)
 #endif
 {
-        int i, err;
-#ifdef __KERNEL__
-        int lustre_register_fs(void);
+	int i, err;
 
-        for (i = CAPA_SITE_CLIENT; i < CAPA_SITE_MAX; i++)
-                CFS_INIT_LIST_HEAD(&capa_list[i]);
+#ifdef __KERNEL__
+	for (i = CAPA_SITE_CLIENT; i < CAPA_SITE_MAX; i++)
+		INIT_LIST_HEAD(&capa_list[i]);
 #endif
 
         LCONSOLE_INFO("Lustre: Build Version: "BUILD_VERSION"\n");
@@ -618,11 +617,7 @@ int init_obdclass(void)
 	if (err)
 		return err;
 
-#ifdef __KERNEL__
-        err = lustre_register_fs();
-#endif
-
-        return err;
+	return lustre_register_fs();
 }
 
 void obd_update_maxusage(void)
@@ -672,13 +667,11 @@ EXPORT_SYMBOL(obd_pages_max);
 #ifdef __KERNEL__
 static void cleanup_obdclass(void)
 {
-        int lustre_unregister_fs(void);
-        __u64 memory_leaked, pages_leaked;
-        __u64 memory_max, pages_max;
-        ENTRY;
+	__u64 memory_leaked, pages_leaked;
+	__u64 memory_max, pages_max;
+	ENTRY;
 
-        lustre_unregister_fs();
-
+	lustre_unregister_fs();
 	misc_deregister(&obd_psdev);
 	llog_info_fini();
 #ifdef HAVE_SERVER_SUPPORT
