@@ -539,10 +539,13 @@ int lustre_put_lsi(struct super_block *sb);
 int lustre_start_simple(char *obdname, char *type, char *uuid,
 			char *s1, char *s2, char *s3, char *s4);
 int lustre_start_mgc(struct super_block *sb);
-void lustre_register_client_fill_super(int (*cfs)(struct super_block *sb,
-						  struct vfsmount *mnt));
-void lustre_register_kill_super_cb(void (*cfs)(struct super_block *sb));
 int lustre_common_put_super(struct super_block *sb);
+void lustre_unregister_fs(void);
+int lustre_register_fs(void);
+
+/* llite_lib.c */
+extern void ll_kill_super(struct super_block *sb);
+extern int ll_fill_super(struct super_block *sb);
 
 # ifdef HAVE_SERVER_SUPPORT
 /* obd_mount_server.c */
