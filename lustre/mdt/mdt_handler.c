@@ -5254,8 +5254,12 @@ static int mdt_destroy_export(struct obd_export *exp)
 /** The maximum depth that fid2path() will search.
  * This is limited only because we want to store the fids for
  * historical path lookup purposes.
+ *
+ * MAX_PATH_DEPTH is set to PATH_MAX/2 rather than PATH_MAX
+ * because /a/b is 2 fids, but 4 characters, so the maximum number
+ * of FIDs in a path is PATH_MAX/2
  */
-#define MAX_PATH_DEPTH 100
+#define MAX_PATH_DEPTH (PATH_MAX/2)
 
 /** mdt_path() lookup structure. */
 struct path_lookup_info {
