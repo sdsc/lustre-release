@@ -215,7 +215,7 @@ int osc_quotacheck(struct obd_device *unused, struct obd_export *exp,
 int osc_quota_poll_check(struct obd_export *exp, struct if_quotacheck *qchk);
 struct ldlm_lock *dlmlock_at_pgoff(const struct lu_env *env,
 				   struct osc_object *obj, pgoff_t index,
-				   int pending, int canceling);
+				   int test_lock, int canceling);
 void osc_inc_unstable_pages(struct ptlrpc_request *req);
 void osc_dec_unstable_pages(struct ptlrpc_request *req);
 bool osc_over_unstable_soft_limit(struct client_obd *cli);
