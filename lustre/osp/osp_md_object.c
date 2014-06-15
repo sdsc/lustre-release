@@ -76,21 +76,6 @@ int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
 	RETURN(rc);
 }
 
-/* For debugging purpose */
-static int update_dump_buf(struct update_buf *ubuf)
-{
-	int i;
-
-	for (i = 0; i < ubuf->ub_count; i++) {
-		struct update *update;
-		update = (struct update *)update_buf_get(ubuf, i, NULL);
-		CDEBUG(D_INFO, DFID "op: %s batchid "LPU64"\n",
-		       PFID(&update->u_fid), update_op_str(update->u_type),
-		       update->u_batchid);
-	}
-	return 0;
-}
-
 static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 			   struct update_buf *ubuf,
 			   struct ptlrpc_request **reqp,
@@ -162,10 +147,49 @@ static struct thandle_update_dt
 	return NULL;
 }
 
+/**
+ * Update transnos according to the reply of update
+ **/
+static int osp_update_transno_xid(struct update_buf *buf,
+				  struct ptlrpc_request *req)
+{
+	struct update_reply_buf *reply_buf;
+	int i;
+
+	reply_buf = req_capsule_server_sized_get(&req->rq_pill,
+						 &RMF_UPDATE_REPLY,
+						 UPDATE_BUFFER_SIZE);
+	if (reply_buf->urb_version != UPDATE_REPLY_V2)
+		return -EPROTO;
+
+	for (i = 0; i < reply_buf->urb_count; i++) {
+		struct update_reply	*reply;
+		struct update		*update;
+
+		if (reply_buf->urb_lens[i] == 0)
+			continue;
+
+		reply = update_get_reply(reply_buf, i, NULL);
+		if (reply == NULL)
+			RETURN(-EPROTO);
+
+		update = update_buf_get(buf, reply->ur_transno_idx,
+					NULL);
+		if (update == NULL)
+			RETURN(-EPROTO);
+		update->u_batchid = reply->ur_transno;
+		update->u_xid = reply->ur_xid;
+	}
+	update_dump_buf(buf);
+
+	RETURN(0);
+}
+
 int osp_trans_stop(const struct lu_env *env, struct dt_device *dt_dev,
 		   struct thandle *th)
 {
 	struct thandle_update_dt *tud;
+	struct ptlrpc_request *req;
 	int rc = 0;
 	ENTRY;
 
@@ -176,7 +200,11 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt_dev,
 	update_dump_buf(th->th_update_buf);
 	LASSERT(tud->tud_count > 0);
 	LASSERT(tud->tud_count <= UPDATE_PER_RPC_MAX);
-	rc = osp_remote_sync(env, dt_dev, th->th_update_buf, NULL, tud);
+	rc = osp_remote_sync(env, dt_dev, th->th_update_buf, &req, tud);
+	if (rc == 0) {
+		rc = osp_update_transno_xid(th->th_update_buf, req);
+		ptlrpc_req_finished(req);
+	}
 
 	cfs_list_del(&tud->tud_list);
 	OBD_FREE_PTR(tud);
@@ -220,17 +248,24 @@ static inline void osp_md_add_update_batchid(struct thandle *handle)
  * lock now.
  */
 static struct thandle_update_dt
-*osp_find_create_update_loc(struct thandle *th, struct dt_object *dt)
+*osp_find_create_update_loc(const struct lu_env *env, struct thandle *th,
+			    struct dt_object *dt)
 {
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	struct thandle_update_dt *tud;
 	ENTRY;
 
 	if (th->th_update_buf == NULL) {
+		int rc;
+
 		th->th_update_buf = update_buf_alloc();
 		if (th->th_update_buf == NULL)
 			RETURN(ERR_PTR(-ENOMEM));
 		th->th_update_buf_size = UPDATE_BUFFER_SIZE;
+		th->th_update = 1;
+		rc = dt_trans_update_declare_llog_add(env, th);
+		if (rc != 0)
+			RETURN(ERR_PTR(rc));
 	}
 
 	tud = osp_find_update(th, dt_dev);
@@ -253,19 +288,20 @@ static int osp_get_attr_from_req(const struct lu_env *env,
 				 struct ptlrpc_request *req,
 				 struct lu_attr *attr, int index)
 {
-	struct update_reply	*reply;
+	struct update_reply_buf	*reply_buf;
 	struct obdo		*lobdo = &osp_env_info(env)->osi_obdo;
 	struct obdo		*wobdo;
 	int			size;
 
 	LASSERT(attr != NULL);
 
-	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
-					     UPDATE_BUFFER_SIZE);
-	if (reply->ur_version != UPDATE_REPLY_V1)
+	reply_buf = req_capsule_server_sized_get(&req->rq_pill,
+						 &RMF_UPDATE_REPLY,
+						 UPDATE_BUFFER_SIZE);
+	if (reply_buf->urb_version != UPDATE_REPLY_V2)
 		return -EPROTO;
 
-	size = update_get_reply_buf(req, reply, (void **)&wobdo, index);
+	size = update_get_reply_data(req, reply_buf, (void **)&wobdo, index);
 	if (size < 0)
 		return size;
 	else if (size != sizeof(struct obdo))
@@ -288,7 +324,7 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 {
 	struct thandle_update_dt *tud;
 
-	tud = osp_find_create_update_loc(th, dt);
+	tud = osp_find_create_update_loc(env, th, dt);
 	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
@@ -312,6 +348,7 @@ static int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 
 	CDEBUG(D_INFO, "create obj "DFID"\n", PFID(lu_object_fid(&dt->do_lu)));
 
+	LASSERT(th->th_update && th->th_update_buf != NULL);
 	tud = osp_find_update(th, dt_dev);
 	LASSERT(tud != NULL);
 
@@ -382,7 +419,7 @@ static int osp_md_declare_object_ref_del(const struct lu_env *env,
 {
 	struct thandle_update_dt	*tud;
 
-	tud = osp_find_create_update_loc(th, dt);
+	tud = osp_find_create_update_loc(env, th, dt);
 	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
@@ -401,6 +438,7 @@ static int osp_md_object_ref_del(const struct lu_env *env,
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	int rc;
 
+	LASSERT(th->th_update && th->th_update_buf != NULL);
 	tud = osp_find_update(th, dt_dev);
 	LASSERT(tud != NULL);
 
@@ -418,7 +456,7 @@ static int osp_md_declare_ref_add(const struct lu_env *env,
 {
 	struct thandle_update_dt *tud;
 
-	tud = osp_find_create_update_loc(th, dt);
+	tud = osp_find_create_update_loc(env, th, dt);
 	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
@@ -437,6 +475,7 @@ static int osp_md_object_ref_add(const struct lu_env *env,
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	int rc;
 
+	LASSERT(th->th_update && th->th_update_buf != NULL);
 	tud = osp_find_update(th, dt_dev);
 	LASSERT(tud != NULL);
 
@@ -471,7 +510,7 @@ static int osp_md_declare_attr_set(const struct lu_env *env,
 {
 	struct thandle_update_dt *tud;
 
-	tud = osp_find_create_update_loc(th, dt);
+	tud = osp_find_create_update_loc(env, th, dt);
 	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
@@ -489,6 +528,7 @@ static int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	int rc;
 
+	LASSERT(th->th_update && th->th_update_buf != NULL);
 	tud = osp_find_update(th, dt_dev);
 	LASSERT(tud != NULL);
 
@@ -510,7 +550,7 @@ static int osp_md_declare_xattr_set(const struct lu_env *env,
 	struct thandle_update_dt *tud;
 
 	LASSERT(buf->lb_len > 0 && buf->lb_buf != NULL);
-	tud = osp_find_create_update_loc(th, dt);
+	tud = osp_find_create_update_loc(env, th, dt);
 	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
@@ -529,6 +569,7 @@ static int osp_md_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	int rc;
 
+	LASSERT(th->th_update && th->th_update_buf != NULL);
 	tud = osp_find_update(th, dt_dev);
 	LASSERT(tud != NULL);
 
@@ -550,7 +591,7 @@ static int osp_md_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	struct ptlrpc_request	*req = NULL;
 	int			rc;
-	struct update_reply	*reply;
+	struct update_reply_buf	*reply_buf;
 	void			*ea_buf;
 	struct update_buf	*ubuf;
 	int			size;
@@ -574,16 +615,17 @@ static int osp_md_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	if (rc != 0)
 		GOTO(out, rc);
 
-	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
-					     UPDATE_BUFFER_SIZE);
-	if (reply->ur_version != UPDATE_REPLY_V1) {
+	reply_buf = req_capsule_server_sized_get(&req->rq_pill,
+						 &RMF_UPDATE_REPLY,
+						 UPDATE_BUFFER_SIZE);
+	if (reply_buf->urb_version != UPDATE_REPLY_V2) {
 		CERROR("%s: Wrong version %x expected %x: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name,
-		       reply->ur_version, UPDATE_REPLY_V1, -EPROTO);
+		       reply_buf->urb_version, UPDATE_REPLY_V2, -EPROTO);
 		GOTO(out, rc = -EPROTO);
 	}
 
-	size = update_get_reply_buf(req, reply, &ea_buf, 0);
+	size = update_get_reply_data(req, reply_buf, &ea_buf, 0);
 	if (size < 0)
 		GOTO(out, rc = size);
 
@@ -660,7 +702,7 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	struct ptlrpc_request	*req = NULL;
 	int			size;
 	int			rc;
-	struct update_reply	*reply;
+	struct update_reply_buf	*reply_buf;
 	struct lu_fid		*fid;
 
 	ENTRY;
@@ -681,16 +723,17 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	if (rc < 0)
 		GOTO(out, rc);
 
-	reply = req_capsule_server_sized_get(&req->rq_pill, &RMF_UPDATE_REPLY,
-					     UPDATE_BUFFER_SIZE);
-	if (reply->ur_version != UPDATE_REPLY_V1) {
+	reply_buf = req_capsule_server_sized_get(&req->rq_pill,
+						 &RMF_UPDATE_REPLY,
+						 UPDATE_BUFFER_SIZE);
+	if (reply_buf->urb_version != UPDATE_REPLY_V2) {
 		CERROR("%s: Wrong version %x expected %x: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name,
-		       reply->ur_version, UPDATE_REPLY_V1, -EPROTO);
+		       reply_buf->urb_version, UPDATE_REPLY_V2, -EPROTO);
 		GOTO(out, rc = -EPROTO);
 	}
 
-	size = update_get_reply_buf(req, reply, (void **)&fid, 0);
+	size = update_get_reply_data(req, reply_buf, (void **)&fid, 0);
 	if (size < 0)
 		GOTO(out, rc = size);
 
@@ -728,7 +771,7 @@ static int osp_md_declare_insert(const struct lu_env *env, struct dt_object *dt,
 {
 	struct thandle_update_dt *tud;
 
-	tud = osp_find_create_update_loc(th, dt);
+	tud = osp_find_create_update_loc(env, th, dt);
 	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
@@ -748,6 +791,7 @@ static int osp_md_index_insert(const struct lu_env *env, struct dt_object *dt,
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	int rc;
 
+	LASSERT(th->th_update && th->th_update_buf != NULL);
 	tud = osp_find_update(th, dt_dev);
 	LASSERT(tud != NULL);
 
@@ -768,7 +812,7 @@ static int osp_md_declare_delete(const struct lu_env *env, struct dt_object *dt,
 {
 	struct thandle_update_dt *tud;
 
-	tud = osp_find_create_update_loc(th, dt);
+	tud = osp_find_create_update_loc(env, th, dt);
 	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
@@ -789,6 +833,7 @@ static int osp_md_index_delete(const struct lu_env *env,
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
 	int rc;
 
+	LASSERT(th->th_update && th->th_update_buf != NULL);
 	tud = osp_find_update(th, dt_dev);
 	LASSERT(tud != NULL);
 

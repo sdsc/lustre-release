@@ -769,10 +769,11 @@ struct thandle {
 	__s32             th_result;
 
 	/** whether we need sync commit */
-	unsigned int		th_sync:1;
-
+	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-	unsigned int		th_local:1;
+				th_local:1,
+	/* record update for each operation */
+				th_update:1;
 
 	/* In DNE, one transaction can be disassemblied into
 	 * updates on several different MDTs, and these updates
@@ -814,6 +815,8 @@ int dt_update_index_lookup(const struct lu_env *env, struct update_buf *ubuf,
 int dt_update_xattr_get(const struct lu_env *env, struct update_buf *ubuf,
 			int buffer_len, struct dt_object *dt, char *name);
 
+int dt_trans_update_declare_llog_add(const struct lu_env *env,
+				     struct thandle *th);
 /**
  * Transaction call-backs.
  *

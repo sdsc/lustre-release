@@ -3042,6 +3042,7 @@ typedef enum {
 	CHANGELOG_REC		= LLOG_OP_MAGIC | 0x60000,
 	CHANGELOG_USER_REC	= LLOG_OP_MAGIC | 0x70000,
 	HSM_AGENT_REC		= LLOG_OP_MAGIC | 0x80000,
+	UPDATE_REC		= LLOG_OP_MAGIC | 0xa0000,
 	LLOG_HDR_MAGIC		= LLOG_OP_MAGIC | 0x45539,
 	LLOG_LOGID_MAGIC	= LLOG_OP_MAGIC | 0x4553b,
 } llog_op_type;
@@ -3756,6 +3757,7 @@ struct update {
 	__u16		u_master_index;		/* master MDT/OST index */
 	__u32		u_flags;		/* enum update_flag */
 	__u64		u_batchid;		/* op transno on master */
+	__u64		u_xid;			/* req xid for update */
 	struct lu_fid	u_fid;			/* object to be updated */
 	__u32		u_lens[UPDATE_PARAM_COUNT];
 						/* lengths of per-update
@@ -3774,16 +3776,27 @@ struct update_buf {
 };
 
 #define UPDATE_REPLY_V1		0x00BD0001
+#define UPDATE_REPLY_V2		0x00BD0002
+
+struct update_reply_buf {
+	__u32	urb_version;
+	__u32	urb_count;
+	__u32	urb_lens[0];
+};
 
 struct update_reply {
-	__u32	ur_version;
-	__u32	ur_count;
-	__u32	ur_lens[0];
+	__u32	ur_rc;
+	__u64	ur_transno;
+	__u64	ur_xid;
+	__u32	ur_transno_idx;
+	__u32	ur_datalen;
+	__u32	ur_data[0];
 };
 
 void lustre_swab_update_buf(struct update_buf *ub);
 void lustre_swab_update(struct update *u);
-void lustre_swab_update_reply_buf(struct update_reply *ur);
+void lustre_swab_update_reply_buf(struct update_reply_buf *urb);
+void lustre_swab_update_reply(struct update_reply *ur);
 
 /** layout swap request structure
  * fid1 and fid2 are in mdt_body

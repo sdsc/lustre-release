@@ -37,6 +37,7 @@
 #include <dt_object.h>
 #include <lustre_fid.h>
 #include <lustre_update.h>
+#include <lustre_log.h>
 
 struct update_opcode {
      __u32       opcode;
@@ -254,6 +255,24 @@ int dt_trans_update_object_destroy(const struct lu_env *env,
 }
 EXPORT_SYMBOL(dt_trans_update_object_destroy);
 
+int dt_trans_update_declare_llog_add(const struct lu_env *env,
+				     struct thandle *th)
+{
+	struct llog_ctxt *ctxt;
+	struct llog_rec_hdr hdr;
+	int rc;
+
+	ctxt = llog_get_context(th->th_dev->dd_lu_dev.ld_obd,
+				LLOG_UPDATE_ORIG_CTXT);
+	LASSERT(ctxt);
+
+	hdr.lrh_len = llog_data_len(UPDATE_BUFFER_SIZE);
+	rc = llog_declare_add(env, ctxt->loc_handle, &hdr, th);
+	llog_ctxt_put(ctxt);
+	return rc;
+}
+EXPORT_SYMBOL(dt_trans_update_declare_llog_add);
+
 /**
  * The following update funcs are only used by read-only ops, lookup,
  * getattr etc, so it does not need transaction here. Currently they 
@@ -293,3 +312,14 @@ int dt_update_xattr_get(const struct lu_env *env, struct update_buf *ubuf,
 			     &size, (char **)&name, 0);
 }
 EXPORT_SYMBOL(dt_update_xattr_get);
+
+void dt_update_xid(struct update_buf *ubuf, int index, __u64 xid)
+{
+	struct update *update;
+
+	LASSERT(index < ubuf->ub_count);
+	update = update_buf_get(ubuf, index, NULL);
+	LASSERT(update != NULL);
+	update->u_xid = xid;
+}
+EXPORT_SYMBOL(dt_update_xid);

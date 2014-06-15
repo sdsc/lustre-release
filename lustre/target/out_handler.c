@@ -58,8 +58,10 @@ struct tx_arg *tx_add_exec(struct thandle_exec_args *ta, tx_exec_func_t func,
 }
 
 static int out_tx_start(const struct lu_env *env, struct dt_device *dt,
-			struct thandle_exec_args *ta)
+			struct thandle_exec_args *ta, struct update_buf *ubuf)
 {
+	int rc = 0;
+
 	memset(ta, 0, sizeof(*ta));
 	ta->ta_handle = dt_trans_create(env, dt);
 	if (IS_ERR(ta->ta_handle)) {
@@ -70,7 +72,9 @@ static int out_tx_start(const struct lu_env *env, struct dt_device *dt,
 	ta->ta_dev = dt;
 	/*For phase I, sync for cross-ref operation*/
 	ta->ta_handle->th_sync = 1;
-	return 0;
+	if (ubuf != NULL)
+		rc = dt_trans_update_declare_llog_add(env, ta->ta_handle);
+	return rc;
 }
 
 static int out_trans_start(const struct lu_env *env,
@@ -81,16 +85,35 @@ static int out_trans_start(const struct lu_env *env,
 	return dt_trans_start(env, ta->ta_dev, ta->ta_handle);
 }
 
+static void out_insert_reply_transno_xid(const struct lu_env *env,
+					 struct tx_arg *ta, __u64 transno,
+					 __u64 xid)
+{
+	struct update_reply *reply;
+
+	reply = update_get_reply(ta->reply, ta->index, NULL);
+	LASSERT(reply != NULL);
+	reply->ur_transno = transno;
+	reply->ur_xid = xid;
+	reply->ur_transno_idx = ta->uidx;
+}
+
 static int out_trans_stop(const struct lu_env *env,
-			  struct thandle_exec_args *ta, int err)
+			  struct thandle_exec_args *ta, int err,
+			  struct update_buf *ubuf, __u64 xid)
 {
 	int i;
 	int rc;
 
 	ta->ta_handle->th_result = err;
 	LASSERT(ta->ta_handle->th_sync != 0);
+	ta->ta_handle->th_update_buf = ubuf;
+	ta->ta_handle->th_update_buf_size = update_buf_size(ubuf);
 	rc = dt_trans_stop(env, ta->ta_dev, ta->ta_handle);
 	for (i = 0; i < ta->ta_argno; i++) {
+		/* insert trans no */
+		out_insert_reply_transno_xid(env, &ta->ta_args[i],
+					     ta->ta_handle->th_batchid, xid);
 		if (ta->ta_args[i].object != NULL) {
 			lu_object_put(env, &ta->ta_args[i].object->do_lu);
 			ta->ta_args[i].object = NULL;
@@ -100,7 +123,8 @@ static int out_trans_stop(const struct lu_env *env,
 	return rc;
 }
 
-int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta)
+int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta,
+	       struct update_buf *ubuf, __u64 xid)
 {
 	struct tgt_session_info *tsi = tgt_ses_info(env);
 	int i = 0, rc;
@@ -130,6 +154,8 @@ int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta)
 			}
 			break;
 		}
+		/* update xid in the update buffer */
+		dt_update_xid(ubuf, ta->ta_args[i].uidx, xid);
 	}
 
 	/* Only fail for real update */
@@ -137,7 +163,7 @@ int out_tx_end(const struct lu_env *env, struct thandle_exec_args *ta)
 stop:
 	CDEBUG(D_INFO, "%s: executed %u/%u: rc = %d\n",
 	       dt_obd_name(ta->ta_dev), i, ta->ta_argno, rc);
-	out_trans_stop(env, ta, rc);
+	out_trans_stop(env, ta, rc, ubuf, xid);
 	ta->ta_handle = NULL;
 	ta->ta_argno = 0;
 	ta->ta_err = 0;
@@ -146,20 +172,20 @@ stop:
 }
 
 static void out_reconstruct(const struct lu_env *env, struct dt_device *dt,
-			    struct dt_object *obj, struct update_reply *reply,
-			    int index)
+			    struct dt_object *obj,
+			    struct update_reply_buf *reply_buf, int index)
 {
 	CDEBUG(D_INFO, "%s: fork reply reply %p index %d: rc = %d\n",
-	       dt_obd_name(dt), reply, index, 0);
+	       dt_obd_name(dt), reply_buf, index, 0);
 
-	update_insert_reply(reply, NULL, 0, index, 0);
+	update_insert_reply(reply_buf, NULL, 0, index, 0);
 	return;
 }
 
 typedef void (*out_reconstruct_t)(const struct lu_env *env,
 				  struct dt_device *dt,
 				  struct dt_object *obj,
-				  struct update_reply *reply,
+				  struct update_reply_buf *reply_buf,
 				  int index);
 
 static inline int out_check_resent(const struct lu_env *env,
@@ -167,14 +193,14 @@ static inline int out_check_resent(const struct lu_env *env,
 				   struct dt_object *obj,
 				   struct ptlrpc_request *req,
 				   out_reconstruct_t reconstruct,
-				   struct update_reply *reply,
+				   struct update_reply_buf *reply_buf,
 				   int index)
 {
 	if (likely(!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT)))
 		return 0;
 
 	if (req_xid_is_last(req)) {
-		reconstruct(env, dt, obj, reply, index);
+		reconstruct(env, dt, obj, reply_buf, index);
 		return 1;
 	}
 	DEBUG_REQ(D_HA, req, "no reply for RESENT req (have "LPD64")",
@@ -246,8 +272,8 @@ static int __out_tx_create(const struct lu_env *env, struct dt_object *obj,
 			   struct lu_attr *attr, struct lu_fid *parent_fid,
 			   struct dt_object_format *dof,
 			   struct thandle_exec_args *ta,
-			   struct update_reply *reply,
-			   int index, char *file, int line)
+			   struct update_reply_buf *reply_buf,
+			   int index, int uidx, char *file, int line)
 {
 	struct tx_arg *arg;
 
@@ -269,8 +295,9 @@ static int __out_tx_create(const struct lu_env *env, struct dt_object *obj,
 		arg->u.create.fid = *parent_fid;
 	memset(&arg->u.create.hint, 0, sizeof(arg->u.create.hint));
 	arg->u.create.dof  = *dof;
-	arg->reply = reply;
+	arg->reply = reply_buf;
 	arg->index = index;
+	arg->uidx = uidx;
 
 	return 0;
 }
@@ -327,7 +354,8 @@ static int out_create(struct tgt_session_info *tsi)
 	rc = out_tx_create(tsi->tsi_env, obj, attr, fid, dof,
 			   &tti->tti_tea,
 			   tti->tti_u.update.tti_update_reply,
-			   tti->tti_u.update.tti_update_reply_index);
+			   tti->tti_u.update.tti_update_reply_index,
+			   tti->tti_u.update.tti_update_index);
 
 	RETURN(rc);
 }
@@ -367,8 +395,8 @@ static int __out_tx_attr_set(const struct lu_env *env,
 			     struct dt_object *dt_obj,
 			     const struct lu_attr *attr,
 			     struct thandle_exec_args *th,
-			     struct update_reply *reply, int index,
-			     char *file, int line)
+			     struct update_reply_buf *reply_buf, int index,
+			     int uidx, char *file, int line)
 {
 	struct tx_arg		*arg;
 
@@ -383,8 +411,9 @@ static int __out_tx_attr_set(const struct lu_env *env,
 	lu_object_get(&dt_obj->do_lu);
 	arg->object = dt_obj;
 	arg->u.attr_set.attr = *attr;
-	arg->reply = reply;
+	arg->reply = reply_buf;
 	arg->index = index;
+	arg->uidx = uidx;
 	return 0;
 }
 
@@ -417,7 +446,8 @@ static int out_attr_set(struct tgt_session_info *tsi)
 
 	rc = out_tx_attr_set(tsi->tsi_env, obj, attr, &tti->tti_tea,
 			     tti->tti_u.update.tti_update_reply,
-			     tti->tti_u.update.tti_update_reply_index);
+			     tti->tti_u.update.tti_update_reply_index,
+			     tti->tti_u.update.tti_update_index);
 
 	RETURN(rc);
 }
@@ -499,10 +529,10 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 	struct tgt_thread_info	*tti = tgt_th_info(env);
 	struct update		*update = tti->tti_u.update.tti_update;
 	struct lu_buf		*lbuf = &tti->tti_buf;
-	struct update_reply     *reply = tti->tti_u.update.tti_update_reply;
+	struct update_reply_buf *reply_buf = tti->tti_u.update.tti_update_reply;
+	struct update_reply	*reply;
 	struct dt_object        *obj = tti->tti_u.update.tti_dt_object;
 	char			*name;
-	void			*ptr;
 	int			 rc;
 
 	ENTRY;
@@ -514,12 +544,13 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	ptr = update_get_buf_internal(reply, 0, NULL);
-	LASSERT(ptr != NULL);
+	reply = update_get_reply(reply_buf, 0, NULL);
+	LASSERT(reply != NULL);
 
-	/* The first 4 bytes(int) are used to store the result */
-	lbuf->lb_buf = (char *)ptr + sizeof(int);
-	lbuf->lb_len = UPDATE_BUFFER_SIZE - sizeof(struct update_reply);
+	lbuf->lb_buf = reply->ur_data;
+	lbuf->lb_len = UPDATE_BUFFER_SIZE -
+		       cfs_size_round((unsigned long)reply->ur_data -
+				      (unsigned long)reply_buf);
 	dt_read_lock(env, obj, MOR_TGT_CHILD);
 	rc = dt_xattr_get(env, obj, lbuf, name, NULL);
 	dt_read_unlock(env, obj);
@@ -533,12 +564,12 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 	}
 	lbuf->lb_len = rc;
 	rc = 0;
+
 	CDEBUG(D_INFO, "%s: "DFID" get xattr %s len %d\n",
 	       tgt_name(tsi->tsi_tgt), PFID(lu_object_fid(&obj->do_lu)),
 	       name, (int)lbuf->lb_len);
 out:
-	*(int *)ptr = rc;
-	reply->ur_lens[0] = lbuf->lb_len + sizeof(int);
+	update_insert_reply(reply_buf, lbuf->lb_buf, lbuf->lb_len, 0, rc);
 	RETURN(rc);
 }
 
@@ -628,8 +659,8 @@ static int __out_tx_xattr_set(const struct lu_env *env,
 			      const struct lu_buf *buf,
 			      const char *name, int flags,
 			      struct thandle_exec_args *ta,
-			      struct update_reply *reply, int index,
-			      char *file, int line)
+			      struct update_reply_buf *reply_buf,
+			      int index, int uidx, char *file, int line)
 {
 	struct tx_arg		*arg;
 
@@ -646,8 +677,9 @@ static int __out_tx_xattr_set(const struct lu_env *env,
 	arg->u.xattr_set.name = name;
 	arg->u.xattr_set.flags = flags;
 	arg->u.xattr_set.buf = *buf;
-	arg->reply = reply;
+	arg->reply = reply_buf;
 	arg->index = index;
+	arg->uidx = uidx;
 	arg->u.xattr_set.csum = 0;
 	return 0;
 }
@@ -697,7 +729,8 @@ static int out_xattr_set(struct tgt_session_info *tsi)
 	rc = out_tx_xattr_set(tsi->tsi_env, obj, lbuf, name, flag,
 			      &tti->tti_tea,
 			      tti->tti_u.update.tti_update_reply,
-			      tti->tti_u.update.tti_update_reply_index);
+			      tti->tti_u.update.tti_update_reply_index,
+			      tti->tti_u.update.tti_update_index);
 	RETURN(rc);
 }
 
@@ -751,8 +784,8 @@ static int out_tx_ref_add_undo(const struct lu_env *env, struct thandle *th,
 static int __out_tx_ref_add(const struct lu_env *env,
 			    struct dt_object *dt_obj,
 			    struct thandle_exec_args *ta,
-			    struct update_reply *reply,
-			    int index, char *file, int line)
+			    struct update_reply_buf *reply_buf,
+			    int index, int uidx, char *file, int line)
 {
 	struct tx_arg	*arg;
 
@@ -766,8 +799,9 @@ static int __out_tx_ref_add(const struct lu_env *env,
 	LASSERT(arg);
 	lu_object_get(&dt_obj->do_lu);
 	arg->object = dt_obj;
-	arg->reply = reply;
+	arg->reply = reply_buf;
 	arg->index = index;
+	arg->uidx = uidx;
 	return 0;
 }
 
@@ -784,7 +818,8 @@ static int out_ref_add(struct tgt_session_info *tsi)
 
 	rc = out_tx_ref_add(tsi->tsi_env, obj, &tti->tti_tea,
 			    tti->tti_u.update.tti_update_reply,
-			    tti->tti_u.update.tti_update_reply_index);
+			    tti->tti_u.update.tti_update_reply_index,
+			    tti->tti_u.update.tti_update_index);
 	RETURN(rc);
 }
 
@@ -813,8 +848,8 @@ static int out_tx_ref_del_undo(const struct lu_env *env, struct thandle *th,
 static int __out_tx_ref_del(const struct lu_env *env,
 			    struct dt_object *dt_obj,
 			    struct thandle_exec_args *ta,
-			    struct update_reply *reply,
-			    int index, char *file, int line)
+			    struct update_reply_buf *reply_buf,
+			    int index, int uidx, char *file, int line)
 {
 	struct tx_arg	*arg;
 
@@ -828,8 +863,9 @@ static int __out_tx_ref_del(const struct lu_env *env,
 	LASSERT(arg);
 	lu_object_get(&dt_obj->do_lu);
 	arg->object = dt_obj;
-	arg->reply = reply;
+	arg->reply = reply_buf;
 	arg->index = index;
+	arg->uidx = uidx;
 	return 0;
 }
 
@@ -846,7 +882,8 @@ static int out_ref_del(struct tgt_session_info *tsi)
 
 	rc = out_tx_ref_del(tsi->tsi_env, obj, &tti->tti_tea,
 			    tti->tti_u.update.tti_update_reply,
-			    tti->tti_u.update.tti_update_reply_index);
+			    tti->tti_u.update.tti_update_reply_index,
+			    tti->tti_u.update.tti_update_index);
 	RETURN(rc);
 }
 
@@ -920,8 +957,8 @@ static int __out_tx_index_insert(const struct lu_env *env,
 				 struct dt_object *dt_obj,
 				 char *name, struct lu_fid *fid,
 				 struct thandle_exec_args *ta,
-				 struct update_reply *reply,
-				 int index, char *file, int line)
+				 struct update_reply_buf *reply_buf,
+				 int index, int uidx, char *file, int line)
 {
 	struct tx_arg *arg;
 
@@ -947,8 +984,9 @@ static int __out_tx_index_insert(const struct lu_env *env,
 	LASSERT(arg);
 	lu_object_get(&dt_obj->do_lu);
 	arg->object = dt_obj;
-	arg->reply = reply;
+	arg->reply = reply_buf;
 	arg->index = index;
+	arg->uidx = uidx;
 	arg->u.insert.rec = (struct dt_rec *)fid;
 	arg->u.insert.key = (struct dt_key *)name;
 
@@ -993,7 +1031,8 @@ static int out_index_insert(struct tgt_session_info *tsi)
 	rc = out_tx_index_insert(tsi->tsi_env, obj, name, fid,
 				 &tti->tti_tea,
 				 tti->tti_u.update.tti_update_reply,
-				 tti->tti_u.update.tti_update_reply_index);
+				 tti->tti_u.update.tti_update_reply_index,
+				 tti->tti_u.update.tti_update_index);
 	RETURN(rc);
 }
 
@@ -1025,8 +1064,8 @@ static int out_tx_index_delete_undo(const struct lu_env *env,
 static int __out_tx_index_delete(const struct lu_env *env,
 				 struct dt_object *dt_obj, char *name,
 				 struct thandle_exec_args *ta,
-				 struct update_reply *reply,
-				 int index, char *file, int line)
+				 struct update_reply_buf *reply_buf,
+				 int index, int uidx, char *file, int line)
 {
 	struct tx_arg *arg;
 
@@ -1048,8 +1087,9 @@ static int __out_tx_index_delete(const struct lu_env *env,
 	LASSERT(arg);
 	lu_object_get(&dt_obj->do_lu);
 	arg->object = dt_obj;
-	arg->reply = reply;
+	arg->reply = reply_buf;
 	arg->index = index;
+	arg->uidx = uidx;
 	arg->u.insert.key = (struct dt_key *)name;
 	return 0;
 }
@@ -1074,7 +1114,8 @@ static int out_index_delete(struct tgt_session_info *tsi)
 
 	rc = out_tx_index_delete(tsi->tsi_env, obj, name, &tti->tti_tea,
 				 tti->tti_u.update.tti_update_reply,
-				 tti->tti_u.update.tti_update_reply_index);
+				 tti->tti_u.update.tti_update_reply_index,
+				 tti->tti_u.update.tti_update_index);
 	RETURN(rc);
 }
 
@@ -1103,9 +1144,9 @@ static int out_tx_destroy_undo(const struct lu_env *env, struct thandle *th,
 }
 
 static int __out_tx_destroy(const struct lu_env *env, struct dt_object *dt_obj,
-			     struct thandle_exec_args *ta,
-			     struct update_reply *reply,
-			     int index, char *file, int line)
+			    struct thandle_exec_args *ta,
+			    struct update_reply_buf *reply_buf,
+			    int index, int uidx, char *file, int line)
 {
 	struct tx_arg *arg;
 
@@ -1119,8 +1160,9 @@ static int __out_tx_destroy(const struct lu_env *env, struct dt_object *dt_obj,
 	LASSERT(arg);
 	lu_object_get(&dt_obj->do_lu);
 	arg->object = dt_obj;
-	arg->reply = reply;
+	arg->reply = reply_buf;
 	arg->index = index;
+	arg->uidx = uidx;
 	return 0;
 }
 
@@ -1145,7 +1187,8 @@ static int out_destroy(struct tgt_session_info *tsi)
 
 	rc = out_tx_destroy(tsi->tsi_env, obj, &tti->tti_tea,
 			    tti->tti_u.update.tti_update_reply,
-			    tti->tti_u.update.tti_update_reply_index);
+			    tti->tti_u.update.tti_update_reply_index,
+			    tti->tti_u.update.tti_update_index);
 
 	RETURN(rc);
 }
@@ -1222,7 +1265,7 @@ int out_handle(struct tgt_session_info *tsi)
 	struct dt_device		*dt = tsi->tsi_tgt->lut_bottom;
 	struct update_buf		*ubuf;
 	struct update			*update;
-	struct update_reply		*update_reply;
+	struct update_reply_buf		*reply_buf;
 	int				 bufsize;
 	int				 count;
 	int				 old_batchid = -1;
@@ -1272,11 +1315,11 @@ int out_handle(struct tgt_session_info *tsi)
 	}
 
 	/* Prepare the update reply buffer */
-	update_reply = req_capsule_server_get(pill, &RMF_UPDATE_REPLY);
-	update_init_reply_buf(update_reply, count);
-	tti->tti_u.update.tti_update_reply = update_reply;
+	reply_buf = req_capsule_server_get(pill, &RMF_UPDATE_REPLY);
+	update_init_reply_buf(reply_buf, count);
+	tti->tti_u.update.tti_update_reply = reply_buf;
 
-	rc = out_tx_start(env, dt, ta);
+	rc = out_tx_start(env, dt, ta, ubuf);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -1297,11 +1340,11 @@ int out_handle(struct tgt_session_info *tsi)
 		} else if (old_batchid != update->u_batchid) {
 			/* Stop the current update transaction,
 			 * create a new one */
-			rc = out_tx_end(env, ta);
+			rc = out_tx_end(env, ta, ubuf, pill->rc_req->rq_xid);
 			if (rc != 0)
 				RETURN(rc);
 
-			rc = out_tx_start(env, dt, ta);
+			rc = out_tx_start(env, dt, ta, ubuf);
 			if (rc != 0)
 				RETURN(rc);
 			old_batchid = update->u_batchid;
@@ -1339,6 +1382,7 @@ int out_handle(struct tgt_session_info *tsi)
 		tti->tti_u.update.tti_dt_object = dt_obj;
 		tti->tti_u.update.tti_update = update;
 		tti->tti_u.update.tti_update_reply_index = index++;
+		tti->tti_u.update.tti_update_index = i;
 
 		h = out_handler_find(update->u_type);
 		if (likely(h != NULL)) {
@@ -1348,8 +1392,8 @@ int out_handle(struct tgt_session_info *tsi)
 				struct ptlrpc_request *req = tgt_ses_req(tsi);
 
 				if (out_check_resent(env, dt, dt_obj, req,
-						     out_reconstruct,
-						     update_reply, i))
+						     out_reconstruct, reply_buf,
+						     i))
 					GOTO(next, rc);
 			}
 
@@ -1366,7 +1410,7 @@ next:
 			GOTO(out, rc);
 	}
 out:
-	rc1 = out_tx_end(env, ta);
+	rc1 = out_tx_end(env, ta, ubuf, pill->rc_req->rq_xid);
 	if (rc == 0)
 		rc = rc1;
 	RETURN(rc);

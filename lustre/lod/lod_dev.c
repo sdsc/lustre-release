@@ -567,6 +567,8 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dev,
 {
 	struct thandle_update_dt *update;
 	struct thandle_update_dt *tmp;
+	struct update_buf	 *ubuf = th->th_update_buf;
+	int			 ubuf_size = th->th_update_buf_size;
 	int rc = 0;
 	int rc2 = 0;
 
@@ -579,16 +581,13 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dev,
 	}
 
 	LASSERT(cfs_list_empty(&th->th_remote_update_list));
+	rc2 = dt_trans_stop(env, th->th_dev, th);
+
 	/* Free update buf if necessary */
 	/* If the buf_size > LOD_UPDATE_BUFFER_SIZE, it means
 	 * osp re-allocate the buffer, it should be free here. */
-	if (th->th_update_buf_size > 0) {
-		update_buf_free(th->th_update_buf);
-		th->th_update_buf = NULL;
-		th->th_update_buf_size = 0;
-	}
-
-	rc2 = dt_trans_stop(env, th->th_dev, th);
+	if (ubuf_size > 0)
+		update_buf_free(ubuf);
 
 	return rc2 != 0 ? rc2 : rc;
 }

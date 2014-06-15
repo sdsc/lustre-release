@@ -33,6 +33,13 @@
 
 #define UPDATE_BUFFER_SIZE	8192
 
+/** updatelog record */
+struct llog_updatelog_rec {
+	struct llog_rec_hdr  ur_hdr;
+	struct update_buf    urb;
+	struct llog_rec_tail ur_tail; /**< for_sizezof_only */
+} __attribute__((packed));
+
 static inline void update_buf_init(struct update_buf *ubuf)
 {
 	ubuf->ub_magic = UPDATE_REQUEST_MAGIC;
@@ -130,71 +137,96 @@ static inline void *update_buf_get(struct update_buf *buf, int index, int *size)
 	return ptr;
 }
 
-static inline void update_init_reply_buf(struct update_reply *reply, int count)
+static inline void update_init_reply_buf(struct update_reply_buf *reply_buf,
+					 int count)
 {
-	reply->ur_version = UPDATE_REPLY_V1;
-	reply->ur_count = count;
+	reply_buf->urb_version = UPDATE_REPLY_V2;
+	reply_buf->urb_count = count;
 }
 
-static inline void *update_get_buf_internal(struct update_reply *reply,
-					    int index, int *size)
+static inline struct update_reply
+*update_get_reply(struct update_reply_buf *reply_buf, int index, int *size)
 {
 	char *ptr;
-	int count = reply->ur_count;
+	int count = reply_buf->urb_count;
 	int i;
 
 	if (index >= count)
 		return NULL;
 
-	ptr = (char *)reply + cfs_size_round(offsetof(struct update_reply,
-					     ur_lens[count]));
+	ptr = (char *)reply_buf +
+	       cfs_size_round(offsetof(struct update_reply_buf,
+				       urb_lens[count]));
 	for (i = 0; i < index; i++) {
-		LASSERT(reply->ur_lens[i] > 0);
-		ptr += cfs_size_round(reply->ur_lens[i]);
+		LASSERT(reply_buf->urb_lens[i] >=
+			cfs_size_round(sizeof(struct update_reply)));
+		ptr += cfs_size_round(reply_buf->urb_lens[i]);
 	}
 
 	if (size != NULL)
-		*size = reply->ur_lens[index];
+		*size = reply_buf->urb_lens[index];
 
-	return ptr;
+	return (struct update_reply *)ptr;
 }
 
-static inline void update_insert_reply(struct update_reply *reply, void *data,
-				       int data_len, int index, int rc)
+static inline void update_insert_reply(struct update_reply_buf *reply_buf,
+				       void *data, int data_len, int index,
+				       int rc)
 {
+	struct update_reply *reply;
 	char *ptr;
 
-	ptr = update_get_buf_internal(reply, index, NULL);
-	LASSERT(ptr != NULL);
+	reply = update_get_reply(reply_buf, index, NULL);
+	LASSERT(reply != NULL);
 
-	*(int *)ptr = ptlrpc_status_hton(rc);
-	ptr += sizeof(int);
+	reply->ur_rc = ptlrpc_status_hton(rc);
+	ptr = (char *)reply + cfs_size_round(sizeof(struct update_reply));
 	if (data_len > 0) {
 		LASSERT(data != NULL);
+		reply->ur_datalen = data_len;
 		memcpy(ptr, data, data_len);
 	}
-	reply->ur_lens[index] = data_len + sizeof(int);
+
+	reply_buf->urb_lens[index] = cfs_size_round(data_len) +
+				 cfs_size_round(sizeof(struct update_reply));
 }
 
-static inline int update_get_reply_buf(struct ptlrpc_request *req,
-				       struct update_reply *reply, void **buf,
-				       int index)
+static inline int update_get_reply_data(struct ptlrpc_request *req,
+				        struct update_reply_buf *reply_buf,
+				        void **buf, int index)
 {
-	char *ptr;
+	struct update_reply *reply;
 	int  size = 0;
 	int  result;
 
-	ptr = update_get_buf_internal(reply, index, &size);
-
+	reply = update_get_reply(reply_buf, index, &size);
 	if (ptlrpc_rep_need_swab(req))
-		__swab32s((__u32 *)ptr);
-	result = ptlrpc_status_ntoh(*(int *)ptr);
+		lustre_swab_update_reply(reply);
+	result = ptlrpc_status_ntoh(reply->ur_rc);
 	if (result < 0)
 		return result;
 
-	LASSERT((ptr != NULL && size >= sizeof(int)));
-	*buf = ptr + sizeof(int);
-	return size - sizeof(int);
+	LASSERT((reply != NULL &&
+		 size >= cfs_size_round(sizeof(struct update_reply))));
+	*buf = (char *)reply->ur_data;
+
+	return reply->ur_datalen;
+}
+
+const char *update_op_str(__u16 opcode);
+/* For debugging purpose */
+static inline void update_dump_buf(struct update_buf *ubuf)
+{
+	int i;
+
+	for (i = 0; i < ubuf->ub_count; i++) {
+		struct update *update;
+		update = (struct update *)update_buf_get(ubuf, i, NULL);
+		CDEBUG(D_INFO, DFID "op: %s %d batchid "LPU64" xid "LPU64"\n",
+		       PFID(&update->u_fid), update_op_str(update->u_type),
+		       (int)update->u_master_index, update->u_batchid,
+		       update->u_xid);
+	}
 }
 
 struct update *update_pack(const struct lu_env *env,
@@ -206,5 +238,5 @@ int update_insert(const struct lu_env *env, struct update_buf *ubuf,
 		  int buf_len, int op, const struct lu_fid *fid, int count,
 		  int *lens, char **bufs, __u64 batchid);
 
-const char *update_op_str(__u16 opcode);
+void dt_update_xid(struct update_buf *ubuf, int index, __u64 xid);
 #endif
