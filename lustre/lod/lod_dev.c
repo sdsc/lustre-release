@@ -516,8 +516,6 @@ static struct thandle *lod_trans_create(const struct lu_env *env,
 	if (IS_ERR(th))
 		return th;
 
-	th->th_batchid = 0;
-	CFS_INIT_LIST_HEAD(&th->th_remote_update_list);
 	/* Use the buffer in lod_thread_info first, if it is
 	 * not enough, osp_insert_update will re-allocate a
 	 * bigger buffer to store update */
@@ -567,28 +565,31 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dev,
 {
 	struct thandle_update_dt *update;
 	struct thandle_update_dt *tmp;
+	struct thandle_update	 *tu = th->th_update;
 	int rc = 0;
 	int rc2 = 0;
 
-	cfs_list_for_each_entry_safe(update, tmp,
-				     &th->th_remote_update_list, tud_list) {
-		/* Each tud will be freed in trans_stop */
-		rc2 = dt_trans_stop(env, update->tud_dt, th);
-		if (unlikely(rc2 != 0 && rc == 0))
-			rc = rc2;
-	}
-
-	LASSERT(cfs_list_empty(&th->th_remote_update_list));
-	/* Free update buf if necessary */
-	/* If the buf_size > LOD_UPDATE_BUFFER_SIZE, it means
-	 * osp re-allocate the buffer, it should be free here. */
-	if (th->th_update_buf_size > 0) {
-		update_buf_free(th->th_update_buf);
-		th->th_update_buf = NULL;
-		th->th_update_buf_size = 0;
+	if (tu != NULL) {
+		cfs_list_for_each_entry_safe(update, tmp,
+					     &tu->tu_remote_update_list,
+					     tud_list) {
+			/* Each tud will be freed in trans_stop */
+			rc2 = dt_trans_stop(env, update->tud_dt, th);
+			if (unlikely(rc2 != 0 && rc == 0))
+				rc = rc2;
+		}
+		LASSERT(cfs_list_empty(&tu->tu_remote_update_list));
 	}
 
 	rc2 = dt_trans_stop(env, th->th_dev, th);
+
+	/* Free update buf if necessary */
+	/* If the buf_size > LOD_UPDATE_BUFFER_SIZE, it means
+	 * osp re-allocate the buffer, it should be free here. */
+	if (tu != NULL) {
+		update_buf_free(tu->tu_update_buf);
+		OBD_FREE_PTR(tu);
+	}
 
 	return rc2 != 0 ? rc2 : rc;
 }
