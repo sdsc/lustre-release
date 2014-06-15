@@ -493,6 +493,7 @@ struct osd_thread_info {
 	struct osd_inode_id    oti_id2;
 	struct osd_inode_id    oti_id3;
         struct ost_id          oti_ostid;
+	struct llog_catid      oti_cid;
 
         /*
          * XXX temporary: for ->i_op calls.
@@ -581,6 +582,7 @@ struct osd_thread_info {
 	union lquota_rec	oti_quota_rec;
 	__u64			oti_quota_id;
 	struct lu_seq_range	oti_seq_range;
+	struct llog_rec_hdr	oti_hdr;
 
 	/* Tracking for transaction credits, to allow debugging and optimizing
 	 * cases where a large number of credits are being allocated for
@@ -589,7 +591,7 @@ struct osd_thread_info {
 	unsigned short		oti_declare_ops_rb[OSD_OT_MAX];
 	unsigned short		oti_declare_ops_cred[OSD_OT_MAX];
 	bool			oti_rollback;
-
+	struct lu_buf		oti_update_buf;
 	char			oti_name[48];
 	union {
 		struct filter_fid_old	oti_ff;
@@ -668,6 +670,8 @@ int osd_obj_spec_insert(struct osd_thread_info *info, struct osd_device *osd,
 int osd_obj_spec_update(struct osd_thread_info *info, struct osd_device *osd,
 			const struct lu_fid *fid, const struct osd_inode_id *id,
 			struct thandle *th);
+
+extern struct llog_operations osd_update_orig_logops;
 
 void osd_scrub_file_reset(struct osd_scrub *scrub, __u8 *uuid, __u64 flags);
 int osd_scrub_file_store(struct osd_scrub *scrub);

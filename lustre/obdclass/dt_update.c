@@ -37,6 +37,8 @@
 #include <dt_object.h>
 #include <lustre_fid.h>
 #include <lustre_update.h>
+#include <lustre_log.h>
+#include "llog_internal.h"
 
 struct update_opcode {
      __u32       opcode;
@@ -138,6 +140,7 @@ int dt_trans_update_create(const struct lu_env *env, struct dt_object *dt,
 	int			buf_count = 1;
 	struct lu_fid		*fid1 = NULL;
 	struct update		*update;
+	ENTRY;
 
 	if (hint != NULL && hint->dah_parent) {
 		fid1 = (struct lu_fid *)lu_object_fid(&hint->dah_parent->do_lu);
@@ -145,9 +148,10 @@ int dt_trans_update_create(const struct lu_env *env, struct dt_object *dt,
 		buf_count++;
 	}
 
-	update = update_pack(env, th->th_update_buf, th->th_update_buf_size,
-			     OBJ_CREATE, lu_object_fid(&dt->do_lu), buf_count,
-			     sizes, th->th_batchid);
+	update = update_pack(env, th->th_update->tu_update_buf,
+			     th->th_update->tu_update_buf_size, OBJ_CREATE,
+			     lu_object_fid(&dt->do_lu), buf_count, sizes,
+			     th->th_update->tu_batchid);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
@@ -168,18 +172,20 @@ EXPORT_SYMBOL(dt_trans_update_create);
 int dt_trans_update_ref_del(const struct lu_env *env, struct dt_object *dt,
 			    struct thandle *th)
 {
-	return update_insert(env, th->th_update_buf, th->th_update_buf_size,
-			     OBJ_REF_DEL, lu_object_fid(&dt->do_lu), 0, NULL,
-			     NULL, th->th_batchid);
+	return update_insert(env, th->th_update->tu_update_buf,
+			     th->th_update->tu_update_buf_size, OBJ_REF_DEL,
+			     lu_object_fid(&dt->do_lu), 0, NULL, NULL,
+			     th->th_update->tu_batchid);
 }
 EXPORT_SYMBOL(dt_trans_update_ref_del);
 
 int dt_trans_update_ref_add(const struct lu_env *env, struct dt_object *dt,
 			    struct thandle *th)
 {
-	return update_insert(env, th->th_update_buf, th->th_update_buf_size,
-			     OBJ_REF_ADD, lu_object_fid(&dt->do_lu), 0, NULL,
-			     NULL, th->th_batchid);
+	return update_insert(env, th->th_update->tu_update_buf,
+			     th->th_update->tu_update_buf_size, OBJ_REF_ADD,
+			     lu_object_fid(&dt->do_lu), 0, NULL, NULL,
+			     th->th_update->tu_batchid);
 }
 EXPORT_SYMBOL(dt_trans_update_ref_add);
 
@@ -193,8 +199,9 @@ int dt_trans_update_attr_set(const struct lu_env *env, struct dt_object *dt,
 	ENTRY;
 
 	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
-	update = update_pack(env, th->th_update_buf, th->th_update_buf_size,
-			     OBJ_ATTR_SET, fid, 1, &size, th->th_batchid);
+	update = update_pack(env, th->th_update->tu_update_buf,
+			     th->th_update->tu_update_buf_size, OBJ_ATTR_SET,
+			     fid, 1, &size, th->th_update->tu_batchid);
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
@@ -214,9 +221,10 @@ int dt_trans_update_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	int	sizes[3] = {strlen(name) + 1, buf->lb_len, sizeof(int)};
 	char	*bufs[3] = {(char *)name, (char *)buf->lb_buf, (char *)&flag};
 
-	return update_insert(env, th->th_update_buf, th->th_update_buf_size,
-			     OBJ_XATTR_SET, lu_object_fid(&dt->do_lu), 3,
-			     sizes, bufs, th->th_batchid);
+	return update_insert(env, th->th_update->tu_update_buf,
+			     th->th_update->tu_update_buf_size, OBJ_XATTR_SET,
+			     lu_object_fid(&dt->do_lu), 3, sizes, bufs,
+			     th->th_update->tu_batchid);
 }
 EXPORT_SYMBOL(dt_trans_update_xattr_set);
 
@@ -227,9 +235,10 @@ int dt_trans_update_index_insert(const struct lu_env *env, struct dt_object *dt,
 	int	sizes[2] = {strlen((char *)key) + 1, sizeof(struct lu_fid)};
 	char	*bufs[2] = {(char *)key, (char *)rec};
 
-	return update_insert(env, th->th_update_buf, th->th_update_buf_size,
+	return update_insert(env, th->th_update->tu_update_buf,
+			     th->th_update->tu_update_buf_size,
 			     OBJ_INDEX_INSERT, lu_object_fid(&dt->do_lu), 2,
-			     sizes, bufs, th->th_batchid);
+			     sizes, bufs, th->th_update->tu_batchid);
 }
 EXPORT_SYMBOL(dt_trans_update_index_insert);
 
@@ -239,20 +248,74 @@ int dt_trans_update_index_delete(const struct lu_env *env, struct dt_object *dt,
 	int	size = strlen((char *)key) + 1;
 	char	*buf = (char *)key;
 
-	return update_insert(env, th->th_update_buf, th->th_update_buf_size,
+	return update_insert(env, th->th_update->tu_update_buf,
+			     th->th_update->tu_update_buf_size,
 			     OBJ_INDEX_DELETE, lu_object_fid(&dt->do_lu), 1,
-			     &size, &buf, th->th_batchid);
+			     &size, &buf, th->th_update->tu_batchid);
 }
 EXPORT_SYMBOL(dt_trans_update_index_delete);
 
 int dt_trans_update_object_destroy(const struct lu_env *env,
 				   struct dt_object *dt, struct thandle *th)
 {
-	return update_insert(env, th->th_update_buf, th->th_update_buf_size,
-			     OBJ_DESTROY, lu_object_fid(&dt->do_lu), 0, NULL,
-			     NULL, th->th_batchid);
+	return update_insert(env, th->th_update->tu_update_buf,
+			     th->th_update->tu_update_buf_size, OBJ_DESTROY,
+			     lu_object_fid(&dt->do_lu), 0, NULL, NULL,
+			     th->th_update->tu_batchid);
 }
 EXPORT_SYMBOL(dt_trans_update_object_destroy);
+
+int dt_trans_update_declare_llog_add(const struct lu_env *env,
+				     struct thandle *th)
+{
+	struct llog_ctxt *ctxt;
+	struct llog_rec_hdr hdr;
+	int rc;
+
+	ctxt = llog_get_context(th->th_dev->dd_lu_dev.ld_obd,
+				LLOG_UPDATE_ORIG_CTXT);
+	LASSERT(ctxt);
+
+	hdr.lrh_len = llog_data_len(UPDATE_BUFFER_SIZE);
+	rc = llog_declare_add(env, ctxt->loc_handle, &hdr, th);
+	llog_ctxt_put(ctxt);
+	return rc;
+}
+EXPORT_SYMBOL(dt_trans_update_declare_llog_add);
+
+int dt_trans_update_llog_add(const struct lu_env *env, struct dt_device *dt,
+			     struct update_buf *ubuf, struct thandle *th)
+{
+	struct llog_thread_info		*info = llog_info(env);
+	struct llog_updatelog_rec	*rec = &info->lgi_update_lrec;
+	struct lu_buf			*lbuf = &info->lgi_update_lb;
+	struct llog_ctxt		*ctxt;
+	int				reclen;
+	int				rc;
+
+	reclen = llog_data_len(sizeof(*rec) + update_buf_size(ubuf));
+	lbuf = lu_buf_check_and_alloc(lbuf, reclen);
+	if (lbuf->lb_buf == NULL)
+		RETURN(-ENOMEM);
+
+	rec = lbuf->lb_buf;
+	rec->ur_hdr.lrh_len = sizeof(struct llog_rec_hdr) +
+			      sizeof(struct llog_rec_tail) +
+			      llog_data_len(update_buf_size(ubuf));
+	rec->ur_hdr.lrh_type = UPDATE_REC;
+	memcpy(&rec->urb, ubuf, update_buf_size(ubuf));
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd, LLOG_UPDATE_ORIG_CTXT);
+	if (ctxt == NULL)
+		RETURN(-ENXIO);
+
+	LASSERT(ctxt->loc_handle != NULL);
+	rc = llog_add(env, ctxt->loc_handle, &rec->ur_hdr, NULL, NULL, th);
+	llog_ctxt_put(ctxt);
+	if (rc > 0)
+		rc = 0;
+	RETURN(rc);
+}
+EXPORT_SYMBOL(dt_trans_update_llog_add);
 
 /**
  * The following update funcs are only used by read-only ops, lookup,
@@ -293,3 +356,35 @@ int dt_update_xattr_get(const struct lu_env *env, struct update_buf *ubuf,
 			     &size, (char **)&name, 0);
 }
 EXPORT_SYMBOL(dt_update_xattr_get);
+
+void dt_update_xid(struct update_buf *ubuf, int index, __u64 xid)
+{
+	struct update *update;
+
+	LASSERT(index < ubuf->ub_count);
+	update = update_buf_get(ubuf, index, NULL);
+	LASSERT(update != NULL);
+	update->u_xid = xid;
+}
+EXPORT_SYMBOL(dt_update_xid);
+
+int dt_trans_update_hook_stop(const struct lu_env *env, struct thandle *th)
+{
+        struct thandle_update_dt *tud;
+        int                     rc = 0;
+
+        if (th->th_update == NULL)
+                return 0;
+
+        cfs_list_for_each_entry(tud, &th->th_update->tu_remote_update_list,
+				tud_list) {
+                if (tud->tud_txn_stop_cb == NULL)
+                        continue;
+
+                rc = tud->tud_txn_stop_cb(env, th, tud->tud_cb_data);
+                if (rc < 0)
+                        break;
+        }
+        return rc;
+}
+EXPORT_SYMBOL(dt_trans_update_hook_stop);

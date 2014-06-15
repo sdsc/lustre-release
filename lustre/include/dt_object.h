@@ -742,6 +742,16 @@ struct thandle_update_dt {
 	cfs_list_t		tud_list;
 	int			tud_rc;
 	int			tud_count;
+	int			(*tud_txn_stop_cb)(const struct lu_env *env,
+						struct thandle *th, void *data);
+	void			*tud_cb_data;
+};
+
+struct thandle_update {
+	cfs_list_t		tu_remote_update_list;
+	struct update_buf	*tu_update_buf;	/* Holding the update buf */
+	int			tu_update_buf_size; /* size of update buf */
+	__u64			tu_batchid;	/* Current batch(trans) id */
 };
 
 /**
@@ -773,20 +783,18 @@ struct thandle {
 	__s32             th_result;
 
 	/** whether we need sync commit */
-	unsigned int		th_sync:1;
-
+	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-	unsigned int		th_local:1;
+				th_local:1,
+	/* record update for each operation */
+				th_record_update:1;
 
 	/* In DNE, one transaction can be disassemblied into
 	 * updates on several different MDTs, and these updates
 	 * will be attached to th_remote_update_list per target.
 	 * Only single thread will access the list, no need lock
 	 */
-	cfs_list_t		th_remote_update_list;
-	struct update_buf	*th_update_buf;	/* Holding the update buf */
-	int			th_update_buf_size; /* size of update buf */
-	__u64			th_batchid;	/* Current batch(trans) id */
+	struct thandle_update	*th_update;
 };
 
 int dt_trans_update_create(const struct lu_env *env, struct dt_object *dt,
@@ -818,6 +826,11 @@ int dt_update_index_lookup(const struct lu_env *env, struct update_buf *ubuf,
 int dt_update_xattr_get(const struct lu_env *env, struct update_buf *ubuf,
 			int buffer_len, struct dt_object *dt, char *name);
 
+int dt_trans_update_declare_llog_add(const struct lu_env *env,
+				     struct thandle *th);
+int dt_trans_update_llog_add(const struct lu_env *env, struct dt_device *dt,
+			     struct update_buf *ubuf, struct thandle *th);
+int dt_trans_update_hook_stop(const struct lu_env *env, struct thandle *th);
 /**
  * Transaction call-backs.
  *

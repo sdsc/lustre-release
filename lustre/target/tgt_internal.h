@@ -52,9 +52,10 @@ struct tx_arg {
 	tx_exec_func_t		 undo_fn;
 	struct dt_object	*object;
 	char			*file;
-	struct update_reply	*reply;
+	struct update_reply_buf	*reply;
 	int			 line;
 	int			 index;
+	int			 uidx;
 	union {
 		struct {
 			const struct dt_rec	*rec;
@@ -124,11 +125,13 @@ struct tgt_thread_info {
 		} rdpg;
 		struct {
 			struct dt_object_format	 tti_update_dof;
-			struct update_reply	*tti_update_reply;
+			struct update_reply_buf	*tti_update_reply;
 			struct update		*tti_update;
 			int			 tti_update_reply_index;
+			int			 tti_update_index;
 			struct obdo		 tti_obdo;
 			struct dt_object	*tti_dt_object;
+			struct thandle_update	 tti_update_handle;
 		} update;
 	} tti_u;
 };
@@ -166,33 +169,33 @@ static inline char *dt_obd_name(struct dt_device *dt)
 /* Update handlers */
 int out_handle(struct tgt_session_info *tsi);
 
-#define out_tx_create(info, obj, attr, fid, dof, th, reply, idx) \
-	__out_tx_create(info, obj, attr, fid, dof, th, reply, idx, \
+#define out_tx_create(info, obj, attr, fid, dof, th, reply, idx, uidx) \
+	__out_tx_create(info, obj, attr, fid, dof, th, reply, idx, uidx, \
 			__FILE__, __LINE__)
 
-#define out_tx_attr_set(info, obj, attr, th, reply, idx) \
-	__out_tx_attr_set(info, obj, attr, th, reply, idx, \
+#define out_tx_attr_set(info, obj, attr, th, reply, idx, uidx) \
+	__out_tx_attr_set(info, obj, attr, th, reply, idx, uidx, \
 			  __FILE__, __LINE__)
 
-#define out_tx_xattr_set(info, obj, buf, name, fl, th, reply, idx)	\
-	__out_tx_xattr_set(info, obj, buf, name, fl, th, reply, idx,	\
+#define out_tx_xattr_set(info, obj, buf, name, fl, th, reply, idx, uidx) \
+	__out_tx_xattr_set(info, obj, buf, name, fl, th, reply, idx, uidx, \
 			   __FILE__, __LINE__)
 
-#define out_tx_ref_add(info, obj, th, reply, idx) \
-	__out_tx_ref_add(info, obj, th, reply, idx, __FILE__, __LINE__)
+#define out_tx_ref_add(info, obj, th, reply, idx, uidx) \
+	__out_tx_ref_add(info, obj, th, reply, idx, uidx, __FILE__, __LINE__)
 
-#define out_tx_ref_del(info, obj, th, reply, idx) \
-	__out_tx_ref_del(info, obj, th, reply, idx, __FILE__, __LINE__)
+#define out_tx_ref_del(info, obj, th, reply, idx, uidx) \
+	__out_tx_ref_del(info, obj, th, reply, idx, uidx, __FILE__, __LINE__)
 
-#define out_tx_index_insert(info, obj, th, name, fid, reply, idx) \
-	__out_tx_index_insert(info, obj, th, name, fid, reply, idx, \
+#define out_tx_index_insert(info, obj, th, name, fid, reply, idx, uidx) \
+	__out_tx_index_insert(info, obj, th, name, fid, reply, idx, uidx, \
 			      __FILE__, __LINE__)
 
-#define out_tx_index_delete(info, obj, th, name, reply, idx) \
-	__out_tx_index_delete(info, obj, th, name, reply, idx, \
+#define out_tx_index_delete(info, obj, th, name, reply, idx, uidx) \
+	__out_tx_index_delete(info, obj, th, name, reply, idx, uidx, \
 			      __FILE__, __LINE__)
 
-#define out_tx_destroy(info, obj, th, reply, idx) \
-	__out_tx_destroy(info, obj, th, reply, idx, __FILE__, __LINE__)
+#define out_tx_destroy(info, obj, th, reply, idx, uidx) \
+	__out_tx_destroy(info, obj, th, reply, idx, uidx, __FILE__, __LINE__)
 
 #endif /* _TG_INTERNAL_H */
