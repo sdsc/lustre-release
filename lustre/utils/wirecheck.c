@@ -2002,13 +2002,25 @@ static void check_update_buf(void)
 	CHECK_MEMBER(update_buf, ub_bufs);
 }
 
+static void check_update_reply_buf(void)
+{
+	BLANK_LINE();
+	CHECK_STRUCT(update_reply_buf);
+	CHECK_MEMBER(update_reply_buf, urb_version);
+	CHECK_MEMBER(update_reply_buf, urb_count);
+	CHECK_MEMBER(update_reply_buf, urb_lens);
+}
+
 static void check_update_reply(void)
 {
 	BLANK_LINE();
 	CHECK_STRUCT(update_reply);
-	CHECK_MEMBER(update_reply, ur_version);
-	CHECK_MEMBER(update_reply, ur_count);
-	CHECK_MEMBER(update_reply, ur_lens);
+	CHECK_MEMBER(update_reply, ur_rc);
+	CHECK_MEMBER(update_reply, ur_transno);
+	CHECK_MEMBER(update_reply, ur_xid);
+	CHECK_MEMBER(update_reply, ur_transno_idx);
+	CHECK_MEMBER(update_reply, ur_datalen);
+	CHECK_MEMBER(update_reply, ur_data);
 }
 
 static void check_update(void)
@@ -2019,6 +2031,7 @@ static void check_update(void)
 	CHECK_MEMBER(update, u_master_index);
 	CHECK_MEMBER(update, u_flags);
 	CHECK_MEMBER(update, u_batchid);
+	CHECK_MEMBER(update, u_xid);
 	CHECK_MEMBER(update, u_fid);
 	CHECK_MEMBER(update, u_lens);
 	CHECK_MEMBER(update, u_bufs);
@@ -2414,6 +2427,7 @@ main(int argc, char **argv)
 	check_hsm_user_import();
 
 	check_update_buf();
+	check_update_reply_buf();
 	check_update_reply();
 	check_update();
 

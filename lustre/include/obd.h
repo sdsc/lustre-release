@@ -283,6 +283,8 @@ enum llog_ctxt_id {
 	LLOG_CHANGELOG_REPL_CTXT,	/**< changelog access on clients */
 	LLOG_CHANGELOG_USER_ORIG_CTXT,	/**< for multiple changelog consumers */
 	LLOG_AGENT_ORIG_CTXT,		/**< agent requests generation on cdt */
+	LLOG_UPDATE_ORIG_CTXT,
+	LLOG_UPDATE_REPL_CTXT,
 	LLOG_MAX_CTXTS
 };
 

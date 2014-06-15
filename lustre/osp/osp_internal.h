@@ -426,6 +426,9 @@ int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
 struct update_buf *osp_alloc_update_buf(void);
 void osp_free_update_buf(struct update_buf *ubuf);
 
+int osp_update_init(const struct lu_env *env, struct osp_device *osp);
+int osp_update_fini(const struct lu_env *env, struct osp_device *osp);
+
 /* osp_precreate.c */
 int osp_init_precreate(struct osp_device *d);
 int osp_precreate_reserve(const struct lu_env *env, struct osp_device *d);

@@ -303,7 +303,26 @@ int obd_llog_finish(struct obd_device *obd, int count)
 EXPORT_SYMBOL(obd_llog_finish);
 
 /* context key constructor/destructor: llog_key_init, llog_key_fini */
-LU_KEY_INIT_FINI(llog, struct llog_thread_info);
+static void *llog_key_init(const struct lu_context *ctx,
+			   struct lu_context_key *key)
+{
+        struct llog_thread_info *info;
+
+        OBD_ALLOC_PTR(info);
+        if (info == NULL)
+                return ERR_PTR(-ENOMEM);
+
+        return info;
+}
+
+static void llog_key_fini(const struct lu_context *ctx,
+			  struct lu_context_key *key, void* data)
+{
+	struct llog_thread_info *info = data;
+	lu_buf_free(&info->lgi_update_lb);
+	OBD_FREE_PTR(info);
+}
+
 /* context key: llog_thread_key */
 LU_CONTEXT_KEY_DEFINE(llog, LCT_MD_THREAD | LCT_MG_THREAD | LCT_LOCAL);
 LU_KEY_INIT_GENERIC(llog);

@@ -359,6 +359,8 @@ static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 		osp_last_used_fini(env, d);
 	}
 
+	osp_update_fini(env, d);
+
 	osp_sync_fini(d);
 
 	obd_fid_fini(d->opd_obd);
@@ -709,7 +711,10 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		if (rc)
 			GOTO(out_last_used, rc);
 	}
-	
+
+	rc = osp_update_init(env, m);
+	if (rc != 0)
+		GOTO(out_precreat, m);
 	/*
 	 * Initialize synhronization mechanism taking
 	 * care of propogating changes to OST in near
@@ -717,7 +722,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	 */
 	rc = osp_sync_init(env, m);
 	if (rc)
-		GOTO(out_precreat, rc);
+		GOTO(out_update, rc);
 
 	/*
 	 * Initiate connect to OST
@@ -733,10 +738,11 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	if (osdname)
 		OBD_FREE(osdname, MAX_OBD_NAME);
 	RETURN(0);
-
 out:
 	/* stop sync thread */
 	osp_sync_fini(m);
+out_update:
+	osp_update_fini(env, m);
 out_precreat:
 	/* stop precreate thread */
 	if (!m->opd_connect_mdt)
@@ -1203,7 +1209,7 @@ int osp_fid_alloc(struct obd_export *exp, struct lu_fid *fid,
 	RETURN(seq_client_alloc_fid(NULL, seq, fid));
 }
 
-/* context key constructor/destructor: mdt_key_init, mdt_key_fini */
+/* context key constructor/destructor: osp_key_init, osp_key_fini */
 LU_KEY_INIT_FINI(osp, struct osp_thread_info);
 static void osp_key_exit(const struct lu_context *ctx,
 			 struct lu_context_key *key, void *data)

@@ -2583,16 +2583,23 @@ void lustre_swab_update(struct update *u)
 }
 EXPORT_SYMBOL(lustre_swab_update);
 
-void lustre_swab_update_reply_buf(struct update_reply *ur)
+void lustre_swab_update_reply_buf(struct update_reply_buf *urb)
 {
 	int i;
-
-	__swab32s(&ur->ur_version);
-	__swab32s(&ur->ur_count);
-	for (i = 0; i < ur->ur_count; i++)
-		__swab32s(&ur->ur_lens[i]);
+	__swab32s(&urb->urb_version);
+	__swab32s(&urb->urb_count);
+	for (i = 0; i < urb->urb_count; i++)
+		__swab32s(&urb->urb_lens[i]);
 }
 EXPORT_SYMBOL(lustre_swab_update_reply_buf);
+
+void lustre_swab_update_reply(struct update_reply *ur)
+{
+	__swab32s(&ur->ur_rc);
+	__swab64s(&ur->ur_transno);
+	__swab32s(&ur->ur_datalen);
+}
+EXPORT_SYMBOL(lustre_swab_update_reply);
 
 void lustre_swab_swap_layouts(struct mdc_swap_layouts *msl)
 {
