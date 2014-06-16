@@ -61,30 +61,7 @@ static void lovsub_req_completion(const struct lu_env *env,
         EXIT;
 }
 
-/**
- * Implementation of struct cl_req_operations::cro_attr_set() for lovsub
- * layer. Lov and lovsub are responsible only for struct obdo::o_stripe_idx
- * field, which is filled there.
- */
-static void lovsub_req_attr_set(const struct lu_env *env,
-                                const struct cl_req_slice *slice,
-                                const struct cl_object *obj,
-                                struct cl_req_attr *attr, obd_valid flags)
-{
-        struct lovsub_object *subobj;
-
-        ENTRY;
-        subobj = cl2lovsub(obj);
-        /*
-         * There is no OBD_MD_* flag for obdo::o_stripe_idx, so set it
-         * unconditionally. It never changes anyway.
-         */
-        attr->cra_oa->o_stripe_idx = subobj->lso_index;
-        EXIT;
-}
-
 static const struct cl_req_operations lovsub_req_ops = {
-        .cro_attr_set   = lovsub_req_attr_set,
         .cro_completion = lovsub_req_completion
 };
 

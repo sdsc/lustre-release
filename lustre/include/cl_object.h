@@ -128,6 +128,7 @@ struct cl_io_slice;
 
 struct cl_req;
 struct cl_req_slice;
+struct cl_req_attr;
 
 /**
  * Operations for each data device in the client stack.
@@ -399,6 +400,12 @@ struct cl_object_operations {
 	 * mainly pages and locks.
 	 */
 	int (*coo_prune)(const struct lu_env *env, struct cl_object *obj);
+	/**
+	 * Set request attributes.
+	 */
+	void (*coo_req_attr_set)(const struct lu_env *env,
+				 struct cl_object *obj,
+				 struct cl_req_attr *attr);
 };
 
 /**
@@ -711,7 +718,7 @@ struct cl_page {
 	/** List of slices. Immutable after creation. */
 	struct list_head	 cp_layers;
 	/** Linkage of pages within cl_req. */
-	struct list_head	 cp_flight;
+	struct list_head         cp_flight;
 	/**
 	 * Page state. This field is const to avoid accidental update, it is
 	 * modified only internally within cl_page.c. Protected by a VM lock.
@@ -728,12 +735,12 @@ struct cl_page {
          * by sub-io. Protected by a VM lock.
          */
         struct cl_io            *cp_owner;
-        /**
-         * Owning IO request in cl_page_state::CPS_PAGEOUT and
-         * cl_page_state::CPS_PAGEIN states. This field is maintained only in
-         * the top-level pages. Protected by a VM lock.
-         */
-        struct cl_req           *cp_req;
+	/**
+	 * Owning IO request in cl_page_state::CPS_PAGEOUT and
+	 * cl_page_state::CPS_PAGEIN states. This field is maintained only in
+	 * the top-level pages. Protected by a VM lock.
+	 */
+	struct cl_req           *cp_req;
         /** List of references to this page, for debugging. */
         struct lu_ref            cp_reference;
 	/** Link to an object, for debugging. */
@@ -2001,6 +2008,9 @@ struct cl_io {
  * Per-transfer attributes.
  */
 struct cl_req_attr {
+	enum cl_req_type cra_type;
+	obd_valid	 cra_flags;
+	struct cl_page  *cra_page;
 	/** Generic attributes for the server consumption. */
 	struct obdo	*cra_oa;
 	/** Capability. */
@@ -2024,21 +2034,6 @@ struct cl_req_operations {
          */
         int  (*cro_prep)(const struct lu_env *env,
                          const struct cl_req_slice *slice);
-        /**
-         * Called top-to-bottom to fill in \a oa fields. This is called twice
-         * with different flags, see bug 10150 and osc_build_req().
-         *
-         * \param obj an object from cl_req which attributes are to be set in
-         *            \a oa.
-         *
-         * \param oa struct obdo where attributes are placed
-         *
-         * \param flags \a oa fields to be filled.
-         */
-        void (*cro_attr_set)(const struct lu_env *env,
-                             const struct cl_req_slice *slice,
-                             const struct cl_object *obj,
-                             struct cl_req_attr *attr, obd_valid flags);
         /**
          * Called top-to-bottom from cl_req_completion() to notify layers that
          * transfer completed. Has to free all state allocated by
@@ -2271,6 +2266,8 @@ int  cl_object_attr_set   (const struct lu_env *env, struct cl_object *obj,
                            const struct cl_attr *attr, unsigned valid);
 int  cl_object_glimpse    (const struct lu_env *env, struct cl_object *obj,
                            struct ost_lvb *lvb);
+void cl_req_attr_set      (const struct lu_env *env, struct cl_object *obj,
+			   struct cl_req_attr *attr);
 int  cl_conf_set          (const struct lu_env *env, struct cl_object *obj,
                            const struct cl_object_conf *conf);
 void cl_object_prune      (const struct lu_env *env, struct cl_object *obj);
@@ -2585,8 +2582,6 @@ void cl_req_page_add  (const struct lu_env *env, struct cl_req *req,
                        struct cl_page *page);
 void cl_req_page_done (const struct lu_env *env, struct cl_page *page);
 int  cl_req_prep      (const struct lu_env *env, struct cl_req *req);
-void cl_req_attr_set  (const struct lu_env *env, struct cl_req *req,
-                       struct cl_req_attr *attr, obd_valid flags);
 void cl_req_completion(const struct lu_env *env, struct cl_req *req, int ioret);
 
 /** \defgroup cl_sync_io cl_sync_io
