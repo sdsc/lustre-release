@@ -1255,11 +1255,13 @@ static int mdt_object_open_lock(struct mdt_thread_info *info,
 
 		if (open_flags & MDS_OPEN_LOCK) {
 			*ibits = MDS_INODELOCK_LOOKUP | MDS_INODELOCK_OPEN;
-		} else if (open_flags & (FMODE_WRITE | MDS_FMODE_EXEC) ||
-			   atomic_read(&obj->mot_lease_count) > 0) {
-			/* We need to flush conflicting locks or revoke a lease.
-			 * In either case there is no need to acquire a layout
-			 * lock since it won't be returned to the client. */
+		} else if (open_flags & (FMODE_WRITE | MDS_FMODE_EXEC)) {
+			/* We need to flush conflicting locks. */
+			*ibits = MDS_INODELOCK_OPEN;
+		} else if (atomic_read(&obj->mot_lease_count) > 0) {
+			/* We need to flush revoke a lease. There is
+			 * no need to acquire a layout lock since it
+			 * won't be returned to the client. */
 			try_layout = false;
 			*ibits = MDS_INODELOCK_OPEN;
 			lhc = &info->mti_lh[MDT_LH_LOCAL];
