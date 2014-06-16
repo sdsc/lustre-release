@@ -161,6 +161,38 @@ static int vvp_prune(const struct lu_env *env, struct cl_object *obj)
 	RETURN(rc);
 }
 
+static void vvp_req_attr_set(const struct lu_env *env, struct cl_object *obj,
+			     struct cl_req_attr *attr)
+{
+	struct inode *inode;
+	struct obdo  *oa;
+	obd_flag      valid_flags;
+
+	oa = attr->cra_oa;
+	inode = ccc_object_inode(obj);
+	valid_flags = OBD_MD_FLTYPE;
+
+	if ((attr->cra_flags & OBD_MD_FLOSSCAPA) != 0) {
+		LASSERT(attr->cra_capa == NULL);
+		attr->cra_capa = cl_capa_lookup(inode, attr->cra_type);
+	}
+
+	if (attr->cra_type == CRT_WRITE) {
+		if (attr->cra_flags & OBD_MD_FLEPOCH) {
+			oa->o_valid |= OBD_MD_FLEPOCH;
+			oa->o_ioepoch = cl_i2info(inode)->lli_ioepoch;
+			valid_flags |= OBD_MD_FLMTIME | OBD_MD_FLCTIME |
+				       OBD_MD_FLUID | OBD_MD_FLGID;
+		}
+	}
+	obdo_from_inode(oa, inode, valid_flags & attr->cra_flags);
+	obdo_set_parent_fid(oa, &cl_i2info(inode)->lli_fid);
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_INVALID_PFID))
+		oa->o_parent_oid++;
+	memcpy(attr->cra_jobid, cl_i2info(inode)->lli_jobid,
+			JOBSTATS_JOBID_SIZE);
+}
+
 static const struct cl_object_operations vvp_ops = {
 	.coo_page_init = vvp_page_init,
 	.coo_lock_init = vvp_lock_init,
@@ -169,7 +201,8 @@ static const struct cl_object_operations vvp_ops = {
 	.coo_attr_set  = vvp_attr_set,
 	.coo_conf_set  = vvp_conf_set,
 	.coo_prune     = vvp_prune,
-	.coo_glimpse   = ccc_object_glimpse
+	.coo_glimpse   = ccc_object_glimpse,
+	.coo_req_attr_set = vvp_req_attr_set
 };
 
 static const struct lu_object_operations vvp_lu_obj_ops = {

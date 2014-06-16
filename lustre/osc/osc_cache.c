@@ -1288,14 +1288,6 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 		"cp_state:%u, cmd:%d\n", page->cp_state, cmd);
 	LASSERT(opg->ops_transfer_pinned);
 
-	/*
-	 * page->cp_req can be NULL if io submission failed before
-	 * cl_req was allocated.
-	 */
-	if (page->cp_req != NULL)
-		cl_req_page_done(env, page);
-	LASSERT(page->cp_req == NULL);
-
 	crt = cmd == OBD_BRW_READ ? CRT_READ : CRT_WRITE;
 	/* Clear opg->ops_transfer_pinned before VM lock is released. */
 	opg->ops_transfer_pinned = 0;

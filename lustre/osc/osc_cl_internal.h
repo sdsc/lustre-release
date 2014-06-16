@@ -123,6 +123,7 @@ struct osc_thread_info {
 	pgoff_t			oti_next_index;
 	pgoff_t			oti_fn_index; /* first non-overlapped index */
 	struct cl_sync_io	oti_anchor;
+	struct cl_req_attr	oti_req_attr;
 };
 
 struct osc_object {
@@ -568,6 +569,16 @@ static inline struct cl_page *oap2cl_page(struct osc_async_page *oap)
 static inline struct osc_page *oap2osc_page(struct osc_async_page *oap)
 {
 	return (struct osc_page *)container_of(oap, struct osc_page, ops_oap);
+}
+
+static inline struct osc_page *
+osc_cl_page_osc(struct cl_page *page, struct osc_object *osc)
+{
+	const struct cl_page_slice *slice;
+
+	LASSERT(osc != NULL);
+	slice = cl_object_page_slice(&osc->oo_cl, page);
+	return cl2osc_page(slice);
 }
 
 static inline struct osc_lock *cl2osc_lock(const struct cl_lock_slice *slice)
