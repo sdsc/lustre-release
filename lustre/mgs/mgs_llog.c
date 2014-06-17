@@ -1685,7 +1685,8 @@ static int mgs_steal_client_llog_handler(const struct lu_env *env,
         if (lcfg->lcfg_command == LCFG_SPTLRPC_CONF)
                 RETURN(rc);
 
-        if (lcfg->lcfg_command == LCFG_ADD_MDC) {
+	if (lcfg->lcfg_command == LCFG_ADD_MDC &&
+	    strcmp(lustre_cfg_string(lcfg, 0), "clilmv") == 0) {
                 int index;
 
                 if (sscanf(lustre_cfg_buf(lcfg, 2), "%d", &index) != 1)
@@ -2253,6 +2254,68 @@ out_free:
         RETURN(rc);
 }
 
+/* Add the mdc info to the client lov log */
+static int mgs_write_log_mdc_to_lov(const struct lu_env *env,
+				    struct mgs_device *mgs, struct fs_db *fsdb,
+				    struct mgs_target_info *mti, char *logname,
+				    char *lovname)
+{
+	struct llog_handle	*llh = NULL;
+	char			*mdcname = NULL;
+	char			*mdcuuid = NULL;
+	char			*lovuuid = NULL;
+	char			 index[6];
+	int			 rc;
+
+	ENTRY;
+
+	if (mgs_log_is_empty(env, mgs, logname)) {
+		CERROR("%s: log is empty! Logical error\n",
+		       mgs->mgs_obd->obd_name);
+		RETURN(-EINVAL);
+	}
+
+	CDEBUG(D_INFO, "adding mdc for %s to log %s:lov(%s)\n",
+	       mti->mti_svname, logname, lovname);
+
+	rc = name_create(&mdcname, mti->mti_svname, "-mdc");
+	if (rc)
+		GOTO(out_free, rc);
+	rc = name_create(&mdcuuid, mdcname, "_UUID");
+	if (rc)
+		GOTO(out_free, rc);
+	rc = name_create(&lovuuid, lovname, "_UUID");
+	if (rc)
+		GOTO(out_free, rc);
+
+	rc = record_start_log(env, mgs, &llh, logname);
+	if (rc)
+		GOTO(out_free, rc);
+
+	rc = record_marker(env, llh, fsdb, CM_START, mti->mti_svname,
+			   "add mdc");
+	if (rc)
+		GOTO(out_end, rc);
+
+	snprintf(index, sizeof(index), "%d", mti->mti_stripe_index);
+	rc = record_mdc_add(env, llh, lovname, mdcuuid, mti->mti_uuid,
+			    index, "1");
+	if (rc)
+		GOTO(out_end, rc);
+
+	rc = record_marker(env, llh, fsdb, CM_END, mti->mti_svname,
+			   "add mdc");
+	if (rc)
+		GOTO(out_end, rc);
+out_end:
+	record_end_log(env, &llh);
+out_free:
+	name_destroy(&lovuuid);
+	name_destroy(&mdcuuid);
+	name_destroy(&mdcname);
+	RETURN(rc);
+}
+
 /* envelope method for all layers log */
 static int mgs_write_log_mdt(const struct lu_env *env,
 			     struct mgs_device *mgs,
@@ -2315,23 +2378,24 @@ static int mgs_write_log_mdt(const struct lu_env *env,
 				      fsdb->fsdb_clilmv);
 	if (rc)
 		GOTO(out_free, rc);
+	rc = mgs_write_log_mdc_to_lov(env, mgs, fsdb, mti, cliname,
+				      fsdb->fsdb_clilov);
+	if (rc)
+		GOTO(out_free, rc);
 
 	/* add mountopts */
 	rc = record_start_log(env, mgs, &llh, cliname);
 	if (rc)
 		GOTO(out_free, rc);
 
-	rc = record_marker(env, llh, fsdb, CM_START, cliname,
-			   "mount opts");
+	rc = record_marker(env, llh, fsdb, CM_START, cliname, "mount opts");
 	if (rc)
 		GOTO(out_end, rc);
 	rc = record_mount_opt(env, llh, cliname, fsdb->fsdb_clilov,
 			      fsdb->fsdb_clilmv);
 	if (rc)
 		GOTO(out_end, rc);
-	rc = record_marker(env, llh, fsdb, CM_END, cliname,
-			   "mount opts");
-
+	rc = record_marker(env, llh, fsdb, CM_END, cliname, "mount opts");
 	if (rc)
 		GOTO(out_end, rc);
 

@@ -91,6 +91,12 @@ enum lov_device_flags {
  * Upper half.
  */
 
+/* Data-on-MDT array item in lov_device::ld_md_tgts[] */
+struct lovdom_device {
+	struct cl_device	*ldm_mdc;
+	int			 ldm_idx;
+};
+
 struct lov_device {
         /*
          * XXX Locking of lov-private data is missing.
@@ -101,6 +107,11 @@ struct lov_device {
         __u32                     ld_target_nr;
         struct lovsub_device    **ld_target;
         __u32                     ld_flags;
+
+	/* Data-on-MDT devices */
+	__u32			  ld_md_tgts_nr;
+	struct lovdom_device	**ld_md_tgts;
+	struct lu_client_fld	 *ld_fld;
 };
 
 /**
@@ -110,6 +121,7 @@ enum lov_layout_type {
 	LLT_EMPTY,	/** empty file without body (mknod + truncate) */
 	LLT_RAID0,	/** striped file */
 	LLT_RELEASED,	/** file with no objects (data in HSM) */
+	LLT_DOM,	/** Data-on-MDT */
 	LLT_NR
 };
 
@@ -122,6 +134,8 @@ static inline char *llt2str(enum lov_layout_type llt)
 		return "RAID0";
 	case LLT_RELEASED:
 		return "RELEASED";
+	case LLT_DOM:
+		return "DOM";
 	case LLT_NR:
 		LBUG();
 	}
@@ -144,7 +158,7 @@ static inline char *llt2str(enum lov_layout_type llt)
  * function corresponding to the current layout type.
  */
 struct lov_object {
-	struct cl_object       lo_cl;
+	struct cl_object	lo_cl;
 	/**
 	 * Serializes object operations with transitions between layout types.
 	 *
@@ -215,6 +229,9 @@ struct lov_object {
 			 */
 			struct cl_attr         lo_attr;
 		} raid0;
+		struct lov_layout_dom {
+			struct cl_object *lo_dom;
+		} dom;
 		struct lov_layout_state_empty {
 		} empty;
 		struct lov_layout_state_released {
@@ -270,6 +287,7 @@ struct lovsub_object {
         struct cl_object        lso_cl;
         struct lov_object      *lso_super;
         int                     lso_index;
+	bool			lso_initialized;
 };
 
 /**
@@ -432,6 +450,8 @@ int   lov_io_init_empty   (const struct lu_env *env, struct cl_object *obj,
                            struct cl_io *io);
 int   lov_io_init_released(const struct lu_env *env, struct cl_object *obj,
                            struct cl_io *io);
+int lov_io_init_dom(const struct lu_env *env, struct cl_object *obj,
+		    struct cl_io *io);
 
 struct lov_io_sub *lov_sub_get(const struct lu_env *env, struct lov_io *lio,
                                int stripe);
@@ -636,6 +656,14 @@ static inline struct lov_layout_raid0 *lov_r0(struct lov_object *lov)
 /* lov_pack.c */
 int lov_getstripe(struct lov_object *obj, struct lov_stripe_md *lsm,
 		  struct lov_user_md __user *lump);
+
+static inline struct lov_layout_dom *lov_dom(struct lov_object *lov)
+{
+	LASSERT(lov->lo_type == LLT_DOM);
+	LASSERT(lov->lo_lsm->lsm_magic == LOV_MAGIC ||
+		lov->lo_lsm->lsm_magic == LOV_MAGIC_V3);
+	return &lov->u.dom;
+}
 
 /** @} lov */
 
