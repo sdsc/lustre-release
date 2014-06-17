@@ -201,12 +201,13 @@ fini_lov_io:
 struct lov_io_sub *lov_sub_get(const struct lu_env *env,
                                struct lov_io *lio, int stripe)
 {
-        int rc;
-        struct lov_io_sub *sub = &lio->lis_subs[stripe];
+	struct lov_io_sub *sub;
+	int rc;
 
-        LASSERT(stripe < lio->lis_stripe_count);
-        ENTRY;
+	ENTRY;
 
+	LASSERT(stripe < lio->lis_stripe_count);
+	sub = &lio->lis_subs[stripe];
         if (!sub->sub_io_initialized) {
                 sub->sub_stripe = stripe;
                 rc = lov_io_sub_init(env, lio, sub);
@@ -1080,5 +1081,60 @@ int lov_io_init_released(const struct lu_env *env, struct cl_object *obj,
 
 	io->ci_result = result < 0 ? result : 0;
 	RETURN(result);
+}
+
+/* this is needed just to check IO range against the maximum allowed size */
+int lov_io_init_dom(const struct lu_env *env, struct cl_object *obj,
+		    struct cl_io *io)
+{
+	struct lov_object *lov = cl2lov(obj);
+	loff_t maxsize;
+	int rc = 0;
+
+	ENTRY;
+
+	LASSERT(lov->lo_lsm != NULL);
+	maxsize = lov->lo_lsm->lsm_stripe_size;
+
+	switch (io->ci_type) {
+	default:
+		LASSERTF(0, "invalid type %d\n", io->ci_type);
+	case CIT_MISC:
+	case CIT_FSYNC:
+	case CIT_DATA_VERSION:
+	case CIT_FAULT:
+	case CIT_READ:
+		break;
+	case CIT_SETATTR:
+		if (cl_io_is_trunc(io) &&
+		    io->u.ci_setattr.sa_attr.lvb_size > maxsize)
+			rc = -EFBIG;
+		break;
+	case CIT_WRITE: {
+		loff_t end;
+
+		if (cl_io_is_append(io)) {
+			struct cl_attr attr;
+
+			/* at this point the position is not yet set
+			 * to the file size by upper layer. So take it
+			 * directly here.*/
+			cl_object_attr_lock(obj);
+			rc = cl_object_attr_get(env, obj, &attr);
+			cl_object_attr_unlock(obj);
+
+			end = attr.cat_size;
+		} else {
+			end = io->u.ci_wr.wr.crw_pos;
+		}
+
+		if (end + io->u.ci_wr.wr.crw_count > maxsize)
+			rc = -EFBIG;
+		break;
+	}
+	}
+
+	io->ci_result = rc < 0 ? rc : 0;
+	RETURN(rc);
 }
 /** @} lov */
