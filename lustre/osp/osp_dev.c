@@ -35,7 +35,13 @@
  *
  * lustre/osp/osp_dev.c
  *
- * Lustre OST Proxy Device
+ * Lustre OST/MDT Proxy Device(OSP) is in the MDS stack, and being used as
+ * a proxy device to communicate with other MDTs and OSTs.
+ *
+ * The purpose is to export the OSD API from the remote MDT or OST's underlying
+ * OSD for access and modification by the local service (typically MDD/LOD, or
+ * LFSCK) as if it were a local OSD. The goal is that the OSP provides a
+ * transparent interface for access to the remote OSD.
  *
  * Author: Alex Zhuravlev <alexey.zhuravlev@intel.com>
  * Author: Mikhail Pershin <mike.pershin@intel.com>
@@ -66,6 +72,21 @@ static struct lu_kmem_descr osp_caches[] = {
 	}
 };
 
+/**
+ * Implementation of lu_device_operations::ldo_object_alloc
+ *
+ * Allocates an OSP object in memory, whose FID is on the remote target.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] hdr:	The header of the object stack. If it is NULL, it
+ *                      means the object is not built from top device, i.e.
+ *                      it is a sub-stripe object of striped directory or
+ *                      an OST object.
+ * \param[in] d:	OSP device
+ *
+ * \retval		object being created if the creation succeed.
+ *                      NULL if the creation failed.
+ */
 struct lu_object *osp_object_alloc(const struct lu_env *env,
 				   const struct lu_object_header *hdr,
 				   struct lu_device *d)
@@ -99,9 +120,26 @@ struct lu_object *osp_object_alloc(const struct lu_env *env,
 	}
 }
 
+/**
+ * Find or create the local object
+ *
+ * Finds or creates the local file referred by(@reg_id) and return the
+ * attributes of the local file.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] osp:	OSP device
+ * \param[out] attr:	attributes of the object
+ * \param[in] reg_id:	the local object ID of the file. It will be used
+ *                      to compose a local FID{FID_SEQ_LOCAL_FILE, reg_id, 0}
+ *                      to identify the object.
+ *
+ * \retval		object(dt_object) being found or created if it
+ *                      successfully get the object.
+ *                      ERR_PTR(errno) if not get the object.
+ */
 static struct dt_object
-*osp_find_or_create(const struct lu_env *env, struct osp_device *osp,
-		    struct lu_attr *attr, __u32 reg_id)
+*osp_find_or_create_local_file(const struct lu_env *env, struct osp_device *osp,
+			       struct lu_attr *attr, __u32 reg_id)
 {
 	struct osp_thread_info *osi = osp_env_info(env);
 	struct dt_object_format dof = { 0 };
@@ -113,11 +151,13 @@ static struct dt_object
 	attr->la_valid = LA_MODE;
 	attr->la_mode = S_IFREG | 0644;
 	dof.dof_type = DFT_REGULAR;
+	/* Find or create the local object by osi_fid. */
 	dto = dt_find_or_create(env, osp->opd_storage, &osi->osi_fid,
 				&dof, attr);
 	if (IS_ERR(dto))
 		RETURN(dto);
 
+	/* Get attributes of the local object. */
 	rc = dt_attr_get(env, dto, attr, NULL);
 	if (rc) {
 		CERROR("%s: can't be initialized: rc = %d\n",
@@ -128,6 +168,19 @@ static struct dt_object
 	RETURN(dto);
 }
 
+/**
+ * Write data buffer to a local file object.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] osp:	OSP device
+ * \param[in] dt_obj:	object written to
+ * \param[in] buf:	buffer containing byte array and length
+ * \param[in] offset:	write offset in the object in bytes
+ *
+ * \retval		0 if write succeed
+ *                      -EFAULT if only part of buffer is being written.
+ *                      other negative errno if write failed.
+ */
 static int osp_write_local_file(const struct lu_env *env,
 				struct osp_device *osp,
 				struct dt_object *dt_obj,
@@ -154,6 +207,20 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Initialize last ID object.
+ *
+ * This function initializes the LAST_ID file, which stores the current last
+ * used id of data objects. The MDT will use the last used id and the last_seq
+ * (see osp_init_last_seq()) to synchronize the precreate object cache with
+ * OSTs.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] osp:	OSP device
+ *
+ * \retval		0 if initialization succeed
+ *                      negative errno if initialization failed
+ */
 static int osp_init_last_objid(const struct lu_env *env, struct osp_device *osp)
 {
 	struct osp_thread_info	*osi = osp_env_info(env);
@@ -162,9 +229,11 @@ static int osp_init_last_objid(const struct lu_env *env, struct osp_device *osp)
 	int			rc;
 	ENTRY;
 
-	dto = osp_find_or_create(env, osp, &osi->osi_attr, MDD_LOV_OBJ_OID);
+	dto = osp_find_or_create_local_file(env, osp, &osi->osi_attr,
+					    MDD_LOV_OBJ_OID);
 	if (IS_ERR(dto))
 		RETURN(PTR_ERR(dto));
+
 	/* object will be released in device cleanup path */
 	if (osi->osi_attr.la_size >=
 	    sizeof(osi->osi_id) * (osp->opd_index + 1)) {
@@ -179,6 +248,8 @@ static int osp_init_last_objid(const struct lu_env *env, struct osp_device *osp)
 				   osp->opd_index);
 		rc = osp_write_local_file(env, osp, dto, &osi->osi_lb,
 					  osi->osi_off);
+		if (rc != 0)
+			GOTO(out, rc);
 	}
 	osp->opd_last_used_oid_file = dto;
 	RETURN(0);
@@ -191,6 +262,20 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Initialize last sequence object.
+ *
+ * This function initializes the LAST_SEQ file in the local OSD, which stores
+ * the current last used sequence of data objects. The MDT will use the last
+ * sequence and last id(see osp_init_last_objid()) to synchronize the precreate
+ * object cache with OSTs.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] osp:	OSP device
+ *
+ * \retval		0 if initialization succeed
+ *                      negative errno if initialization failed
+ */
 static int osp_init_last_seq(const struct lu_env *env, struct osp_device *osp)
 {
 	struct osp_thread_info	*osi = osp_env_info(env);
@@ -199,7 +284,8 @@ static int osp_init_last_seq(const struct lu_env *env, struct osp_device *osp)
 	int			rc;
 	ENTRY;
 
-	dto = osp_find_or_create(env, osp, &osi->osi_attr, MDD_LOV_OBJ_OSEQ);
+	dto = osp_find_or_create_local_file(env, osp, &osi->osi_attr,
+					    MDD_LOV_OBJ_OSEQ);
 	if (IS_ERR(dto))
 		RETURN(PTR_ERR(dto));
 
@@ -229,6 +315,19 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Initialize last OID and sequence object.
+ *
+ * If the MDT is just being upgraded to 2.4 from the lower version, where the
+ * LAST_SEQ file does not exist, the file will be created and IDIF sequence
+ * will be written into the file.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] osp:	OSP device
+ *
+ * \retval		0 if initialization succeed
+ *                      negative error if initialization failed
+ */
 static int osp_last_used_init(const struct lu_env *env, struct osp_device *osp)
 {
 	struct osp_thread_info *osi = osp_env_info(env);
@@ -293,6 +392,12 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Reelease the last sequence and OID file objects in osp_device.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] osp:	OSP device
+ */
 static void osp_last_used_fini(const struct lu_env *env, struct osp_device *d)
 {
 	/* release last_used file */
@@ -307,6 +412,16 @@ static void osp_last_used_fini(const struct lu_env *env, struct osp_device *d)
 	}
 }
 
+/**
+ * Disconnects the connection between OSP and its correspondent MDT or OST, and
+ * the import will be marked as deactive. It will only be called during OSP
+ * cleanup process.
+ *
+ * \param[in] d:	OSP device being disconnected
+ *
+ * \retval		0 if disconnection succeed
+ *                      negative errno if disconnection failed
+ */
 static int osp_disconnect(struct osp_device *d)
 {
 	struct obd_import *imp;
@@ -339,6 +454,16 @@ static int osp_disconnect(struct osp_device *d)
 	RETURN(rc);
 }
 
+/**
+ * Cleanup OSP, which includes disconnect import, cleanup unlink log, stop
+ * precreate threads etc.
+ *
+ * \param[in] env:	execution environment.
+ * \param[in] d:	OSP device being disconnected.
+ *
+ * \retval		0 if cleanup succeed
+ *                      negative errno if cleanup failed
+ */
 static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 {
 	int			 rc = 0;
@@ -363,6 +488,20 @@ static int osp_shutdown(const struct lu_env *env, struct osp_device *d)
 	RETURN(rc);
 }
 
+/**
+ * Implementation of osp_lu_ops::ldo_process_config
+ *
+ * This function processes config log records in OSP layer. It is usually
+ * called from the top layer of MDT stack, and go through the stack by calling
+ * ldo_process_config of sub next layer.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] dev:	lu_device of OSP
+ * \param[in] lcfg:	config log
+ *
+ * \retval:		0 if config log is being processed successfully.
+ *                      negative errno if config log processed fails.
+ */
 static int osp_process_config(const struct lu_env *env,
 			      struct lu_device *dev, struct lustre_cfg *lcfg)
 {
@@ -407,18 +546,30 @@ static int osp_process_config(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of osp_lu_ops::ldo_recovery_complete
+ *
+ * This function is called after recovery is finished, and OSP layer
+ * will wake up precreate thread here.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] dev:	lu_device of OSP
+ *
+ * \retval:		0 if the function succeed.
+ *                      impossible to return other value right now.
+ */
 static int osp_recovery_complete(const struct lu_env *env,
 				 struct lu_device *dev)
 {
 	struct osp_device	*osp = lu2osp_dev(dev);
-	int			 rc = 0;
 
 	ENTRY;
 	osp->opd_recovery_completed = 1;
 
 	if (!osp->opd_connect_mdt && osp->opd_pre != NULL)
 		wake_up(&osp->opd_pre_waitq);
-	RETURN(rc);
+
+	RETURN(0);
 }
 
 const struct lu_device_operations osp_lu_ops = {
@@ -428,8 +579,20 @@ const struct lu_device_operations osp_lu_ops = {
 };
 
 /**
- * provides with statfs from corresponded OST
+ * Implementation of dt_device_operations::dt_statfs
  *
+ * This function provides statfs status(for precreation) from
+ * corresponded OST. Note: this function only retrieves the status
+ * from the osp_device, and the real statfs RPC happens inside
+ * precreate thread(see osp_statfs_update).
+ *
+ * \param[in] env:	execution environment.
+ * \param[in] dev:	dt_device of OSP.
+ * \param[out] sfs:	hold the statfs status retrieved.
+ *
+ * \retval		0 get statfs correctly or does not need to get
+ *                      statfs for this OSP, for example OSP for MDT.
+ *                      negative errno if get statfs failed.
  */
 static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 		      struct obd_statfs *sfs)
@@ -476,6 +639,18 @@ static int osp_sync_timeout(void *data)
 	return 1;
 }
 
+/**
+ * Implementation of dt_device_operations::dt_sync
+ *
+ * This function synchronizes the OSP cache to the remote target. It wakes
+ * up unlink log threads and sends out unlink records to the remote OST.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] dev:	dt_device of OSP
+ *
+ * \retval		0 if synchronization succeeds
+ *                      negative errno if synchronization fails
+ */
 static int osp_sync(const struct lu_env *env, struct dt_device *dev)
 {
 	struct osp_device *d = dt2osp_dev(dev);
@@ -570,7 +745,22 @@ const struct dt_device_operations osp_dt_ops = {
 	.dt_trans_stop   = osp_trans_stop,
 };
 
-static int osp_connect_to_osd(const struct lu_env *env, struct osp_device *m,
+/**
+ * Connect OSP to local OSD
+ *
+ * In addition to connections to the remote target, OSP also needs to access the
+ * local OSD to store some information. For example during precreate, it needs
+ * to update last used OID and sequence in local OSD. It locates the local OSD
+ * (referred by OSD name @nextdev) and connects to it.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] osp:		OSP device
+ * \param[in] nextdev:	the name of local OSD
+ *
+ * \retval		= 0 connection succeed
+ *                      negative errno connection failed
+ */
+static int osp_connect_to_osd(const struct lu_env *env, struct osp_device *osp,
 			      const char *nextdev)
 {
 	struct obd_connect_data	*data = NULL;
@@ -579,7 +769,7 @@ static int osp_connect_to_osd(const struct lu_env *env, struct osp_device *m,
 
 	ENTRY;
 
-	LASSERT(m->opd_storage_exp == NULL);
+	LASSERT(osp->opd_storage_exp == NULL);
 
 	OBD_ALLOC_PTR(data);
 	if (data == NULL)
@@ -588,29 +778,55 @@ static int osp_connect_to_osd(const struct lu_env *env, struct osp_device *m,
 	obd = class_name2obd(nextdev);
 	if (obd == NULL) {
 		CERROR("%s: can't locate next device: %s\n",
-		       m->opd_obd->obd_name, nextdev);
+		       osp->opd_obd->obd_name, nextdev);
 		GOTO(out, rc = -ENOTCONN);
 	}
 
-	rc = obd_connect(env, &m->opd_storage_exp, obd, &obd->obd_uuid, data,
+	rc = obd_connect(env, &osp->opd_storage_exp, obd, &obd->obd_uuid, data,
 			 NULL);
 	if (rc) {
 		CERROR("%s: cannot connect to next dev %s: rc = %d\n",
-		       m->opd_obd->obd_name, nextdev, rc);
+		       osp->opd_obd->obd_name, nextdev, rc);
 		GOTO(out, rc);
 	}
 
-	m->opd_dt_dev.dd_lu_dev.ld_site =
-		m->opd_storage_exp->exp_obd->obd_lu_dev->ld_site;
-	LASSERT(m->opd_dt_dev.dd_lu_dev.ld_site);
-	m->opd_storage = lu2dt_dev(m->opd_storage_exp->exp_obd->obd_lu_dev);
+	osp->opd_dt_dev.dd_lu_dev.ld_site =
+		osp->opd_storage_exp->exp_obd->obd_lu_dev->ld_site;
+	LASSERT(osp->opd_dt_dev.dd_lu_dev.ld_site);
+	osp->opd_storage = lu2dt_dev(osp->opd_storage_exp->exp_obd->obd_lu_dev);
 
 out:
 	OBD_FREE_PTR(data);
 	RETURN(rc);
 }
 
-static int osp_init0(const struct lu_env *env, struct osp_device *m,
+/**
+ * Initializes OSP device according the parameters in the config log(@cfg).
+ *
+ * Since there is no record in the MDT configuration for the local disk
+ * device, we have to extract this from elsewhere in the profile.
+ * The only information we get at setup is from the OSC records:
+ * setup 0:{fsname}-OSTxxxx-osc[-MDTxxxx] 1:lustre-OST0000_UUID 2:NID
+ *
+ * Note that 1.8 generated configs are missing the -MDTxxxx part.
+ * We need to reconstruct the name of the underlying OSD from this:
+ * {fsname}-{svname}-osd, for example "lustre-MDT0000-osd".
+ *
+ * We also need to determine the OST index from this - will be used
+ * to calculate the offset in shared lov_objids file later.
+ *
+ * This function will also initialize neccessary threads and structures by
+ * different types(for MDT or for OST).
+ *
+ * \param[in] env:	execution environment
+ * \param[in] osp:	OSP device
+ * \param[in] ldt:	lu device type of OSP
+ * \param[in] cfg:	configuration log
+ *
+ * \retval:		0 if OSP initialization succeed.
+ *                      negative errno if OSP initialization failed.
+ */
+static int osp_init0(const struct lu_env *env, struct osp_device *osp,
 		     struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
 	struct obd_device	*obd;
@@ -622,7 +838,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 
 	ENTRY;
 
-	mutex_init(&m->opd_async_requests_mutex);
+	mutex_init(&osp->opd_async_requests_mutex);
 
 	obd = class_name2obd(lustre_cfg_string(cfg, 0));
 	if (obd == NULL) {
@@ -630,17 +846,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		       lustre_cfg_string(cfg, 0));
 		RETURN(-ENODEV);
 	}
-	m->opd_obd = obd;
-
-	/* There is no record in the MDT configuration for the local disk
-	 * device, so we have to extract this from elsewhere in the profile.
-	 * The only information we get at setup is from the OSC records:
-	 * setup 0:{fsname}-OSTxxxx-osc[-MDTxxxx] 1:lustre-OST0000_UUID 2:NID
-	 * Note that 1.8 generated configs are missing the -MDTxxxx part.
-	 * We need to reconstruct the name of the underlying OSD from this:
-	 * {fsname}-{svname}-osd, for example "lustre-MDT0000-osd".  We
-	 * also need to determine the OST index from this - will be used
-	 * to calculate the offset in shared lov_objids file later */
+	osp->opd_obd = obd;
 
 	src = lustre_cfg_string(cfg, 0);
 	if (src == NULL)
@@ -648,8 +854,9 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 
 	tgt = strrchr(src, '-');
 	if (tgt == NULL) {
-		CERROR("%s: invalid target name %s\n",
-		       m->opd_obd->obd_name, lustre_cfg_string(cfg, 0));
+		CERROR("%s: invalid target name %s: rc = %d\n",
+		       osp->opd_obd->obd_name, lustre_cfg_string(cfg, 0),
+		       -EINVAL);
 		RETURN(-EINVAL);
 	}
 
@@ -658,68 +865,72 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		for (tgt--; tgt > src && *tgt != '-'; tgt--)
 			;
 		if (tgt == src) {
-			CERROR("%s: invalid target name %s\n",
-			       m->opd_obd->obd_name, lustre_cfg_string(cfg, 0));
+			CERROR("%s: invalid target name %s: rc = %d\n",
+			       osp->opd_obd->obd_name,
+			       lustre_cfg_string(cfg, 0), -EINVAL);
 			RETURN(-EINVAL);
 		}
 
 		if (strncmp(tgt, "-OST", 4) != 0) {
-			CERROR("%s: invalid target name %s\n",
-			       m->opd_obd->obd_name, lustre_cfg_string(cfg, 0));
+			CERROR("%s: invalid target name %s: rc = %d\n",
+			       osp->opd_obd->obd_name,
+			       lustre_cfg_string(cfg, 0), -EINVAL);
 			RETURN(-EINVAL);
 		}
 
 		idx = simple_strtol(tgt + 4, &mdt, 16);
 		if (mdt[0] != '-' || idx > INT_MAX || idx < 0) {
-			CERROR("%s: invalid OST index in '%s'\n",
-			       m->opd_obd->obd_name, src);
+			CERROR("%s: invalid OST index in '%s': rc = %d\n",
+			       osp->opd_obd->obd_name, src, -EINVAL);
 			RETURN(-EINVAL);
 		}
-		m->opd_index = idx;
-		m->opd_group = 0;
+		osp->opd_index = idx;
+		osp->opd_group = 0;
 		idx = tgt - src;
 	} else {
 		/* New OSC name fsname-OSTXXXX-osc-MDTXXXX */
 		if (strncmp(tgt, "-MDT", 4) != 0 &&
 		    strncmp(tgt, "-OST", 4) != 0) {
-			CERROR("%s: invalid target name %s\n",
-			       m->opd_obd->obd_name, lustre_cfg_string(cfg, 0));
+			CERROR("%s: invalid target name %s: rc = %d\n",
+			       osp->opd_obd->obd_name,
+			       lustre_cfg_string(cfg, 0), -EINVAL);
 			RETURN(-EINVAL);
 		}
 
 		idx = simple_strtol(tgt + 4, &mdt, 16);
 		if (*mdt != '\0' || idx > INT_MAX || idx < 0) {
-			CERROR("%s: invalid OST index in '%s'\n",
-			       m->opd_obd->obd_name, src);
+			CERROR("%s: invalid OST index in '%s': rc = %d\n",
+			       osp->opd_obd->obd_name, src, -EINVAL);
 			RETURN(-EINVAL);
 		}
 
 		/* Get MDT index from the name and set it to opd_group,
 		 * which will be used by OSP to connect with OST */
-		m->opd_group = idx;
+		osp->opd_group = idx;
 		if (tgt - src <= 12) {
-			CERROR("%s: invalid mdt index retrieve from %s\n",
-			       m->opd_obd->obd_name, lustre_cfg_string(cfg, 0));
+			CERROR("%s: invalid mdt index from %s: rc =%d\n",
+			       osp->opd_obd->obd_name,
+			       lustre_cfg_string(cfg, 0), -EINVAL);
 			RETURN(-EINVAL);
 		}
 
 		if (strncmp(tgt - 12, "-MDT", 4) == 0)
-			m->opd_connect_mdt = 1;
+			osp->opd_connect_mdt = 1;
 
 		idx = simple_strtol(tgt - 8, &mdt, 16);
 		if (mdt[0] != '-' || idx > INT_MAX || idx < 0) {
-			CERROR("%s: invalid OST index in '%s'\n",
-			       m->opd_obd->obd_name, src);
+			CERROR("%s: invalid OST index in '%s': rc =%d\n",
+			       osp->opd_obd->obd_name, src, -EINVAL);
 			RETURN(-EINVAL);
 		}
 
-		m->opd_index = idx;
+		osp->opd_index = idx;
 		idx = tgt - src - 12;
 	}
 	/* check the fsname length, and after this everything else will fit */
 	if (idx > MTI_NAME_MAXLEN) {
-		CERROR("%s: fsname too long in '%s'\n",
-		       m->opd_obd->obd_name, src);
+		CERROR("%s: fsname too long in '%s': rc = %d\n",
+		       osp->opd_obd->obd_name, src, -EINVAL);
 		RETURN(-EINVAL);
 	}
 
@@ -738,8 +949,8 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	strcat(osdname, "-osd");
 	CDEBUG(D_HA, "%s: connect to %s (%s)\n", obd->obd_name, osdname, src);
 
-	if (m->opd_connect_mdt) {
-		struct client_obd *cli = &m->opd_obd->u.cli;
+	if (osp->opd_connect_mdt) {
+		struct client_obd *cli = &osp->opd_obd->u.cli;
 
 		OBD_ALLOC(cli->cl_rpc_lock, sizeof(*cli->cl_rpc_lock));
 		if (!cli->cl_rpc_lock)
@@ -747,11 +958,12 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 		osp_init_rpc_lock(cli->cl_rpc_lock);
 	}
 
-	m->opd_dt_dev.dd_lu_dev.ld_ops = &osp_lu_ops;
-	m->opd_dt_dev.dd_ops = &osp_dt_ops;
-	obd->obd_lu_dev = &m->opd_dt_dev.dd_lu_dev;
+	osp->opd_dt_dev.dd_lu_dev.ld_ops = &osp_lu_ops;
+	osp->opd_dt_dev.dd_ops = &osp_dt_ops;
 
-	rc = osp_connect_to_osd(env, m, osdname);
+	obd->obd_lu_dev = &osp->opd_dt_dev.dd_lu_dev;
+
+	rc = osp_connect_to_osd(env, osp, osdname);
 	if (rc)
 		GOTO(out_fini, rc);
 
@@ -761,31 +973,32 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 
 	rc = client_obd_setup(obd, cfg);
 	if (rc) {
-		CERROR("%s: can't setup obd: %d\n", m->opd_obd->obd_name, rc);
+		CERROR("%s: can't setup obd: rc = %d\n", osp->opd_obd->obd_name,
+		       rc);
 		GOTO(out_ref, rc);
 	}
 
-	osp_lprocfs_init(m);
+	osp_lprocfs_init(osp);
 
-	rc = obd_fid_init(m->opd_obd, NULL, m->opd_connect_mdt ?
+	rc = obd_fid_init(osp->opd_obd, NULL, osp->opd_connect_mdt ?
 			  LUSTRE_SEQ_METADATA : LUSTRE_SEQ_DATA);
 	if (rc) {
 		CERROR("%s: fid init error: rc = %d\n",
-		       m->opd_obd->obd_name, rc);
+		       osp->opd_obd->obd_name, rc);
 		GOTO(out_proc, rc);
 	}
 
-	if (!m->opd_connect_mdt) {
+	if (!osp->opd_connect_mdt) {
 		/* Initialize last id from the storage - will be
 		 * used in orphan cleanup. */
-		rc = osp_last_used_init(env, m);
+		rc = osp_last_used_init(env, osp);
 		if (rc)
 			GOTO(out_proc, rc);
 
 
 		/* Initialize precreation thread, it handles new
 		 * connections as well. */
-		rc = osp_init_precreate(m);
+		rc = osp_init_precreate(osp);
 		if (rc)
 			GOTO(out_last_used, rc);
 	}
@@ -795,7 +1008,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	 * care of propogating changes to OST in near
 	 * transactional manner.
 	 */
-	rc = osp_sync_init(env, m);
+	rc = osp_sync_init(env, osp);
 	if (rc)
 		GOTO(out_precreat, rc);
 
@@ -803,7 +1016,7 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 	 * Initiate connect to OST
 	 */
 	ll_generate_random_uuid(uuid);
-	class_uuid_unparse(uuid, &m->opd_cluuid);
+	class_uuid_unparse(uuid, &osp->opd_cluuid);
 
 	imp = obd->u.cli.cl_import;
 
@@ -816,124 +1029,165 @@ static int osp_init0(const struct lu_env *env, struct osp_device *m,
 
 out:
 	/* stop sync thread */
-	osp_sync_fini(m);
+	osp_sync_fini(osp);
 out_precreat:
 	/* stop precreate thread */
-	if (!m->opd_connect_mdt)
-		osp_precreate_fini(m);
+	if (!osp->opd_connect_mdt)
+		osp_precreate_fini(osp);
 out_last_used:
-	if (!m->opd_connect_mdt)
-		osp_last_used_fini(env, m);
+	if (!osp->opd_connect_mdt)
+		osp_last_used_fini(env, osp);
 out_proc:
 	ptlrpc_lprocfs_unregister_obd(obd);
 	lprocfs_obd_cleanup(obd);
-	if (m->opd_symlink)
-		lprocfs_remove(&m->opd_symlink);
+	if (osp->opd_symlink)
+		lprocfs_remove(&osp->opd_symlink);
 	client_obd_cleanup(obd);
 out_ref:
 	ptlrpcd_decref();
 out_disconnect:
-	if (m->opd_connect_mdt) {
-		struct client_obd *cli = &m->opd_obd->u.cli;
+	if (osp->opd_connect_mdt) {
+		struct client_obd *cli = &osp->opd_obd->u.cli;
 		if (cli->cl_rpc_lock != NULL) {
 			OBD_FREE_PTR(cli->cl_rpc_lock);
 			cli->cl_rpc_lock = NULL;
 		}
 	}
-	obd_disconnect(m->opd_storage_exp);
+	obd_disconnect(osp->opd_storage_exp);
 out_fini:
 	if (osdname)
 		OBD_FREE(osdname, MAX_OBD_NAME);
 	RETURN(rc);
 }
 
+/**
+ * Implementation of lu_device_type_operations::ldto_device_free
+ *
+ * This function frees the OSP device in memory.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] lu:	lu_device of OSP
+ *
+ * \retval		No need for this function, but required by
+ *                      interface. So return NULL for now.
+ */
 static struct lu_device *osp_device_free(const struct lu_env *env,
 					 struct lu_device *lu)
 {
-	struct osp_device *m = lu2osp_dev(lu);
-
-	ENTRY;
+	struct osp_device *osp = lu2osp_dev(lu);
 
 	if (atomic_read(&lu->ld_ref) && lu->ld_site) {
 		LIBCFS_DEBUG_MSG_DATA_DECL(msgdata, D_ERROR, NULL);
 		lu_site_print(env, lu->ld_site, &msgdata, lu_cdebug_printer);
 	}
-	dt_device_fini(&m->opd_dt_dev);
-	OBD_FREE_PTR(m);
-	RETURN(NULL);
+	dt_device_fini(&osp->opd_dt_dev);
+	OBD_FREE_PTR(osp);
+
+	return NULL;
 }
 
+/**
+ * Implementation of lu_device_type_operations::ldto_device_alloc
+ *
+ * This function allocates and initializes OSP device in memory according to
+ * the config log.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] type:	device type of OSP
+ * \param[in] lcfg:	config log
+ *
+ * \retval		the pointer of allocated OSP if succeed.
+ *                      ERR_PTR(errno) if failed.
+ */
 static struct lu_device *osp_device_alloc(const struct lu_env *env,
-					  struct lu_device_type *t,
+					  struct lu_device_type *type,
 					  struct lustre_cfg *lcfg)
 {
-	struct osp_device *m;
-	struct lu_device  *l;
+	struct osp_device *osp;
+	struct lu_device  *ld;
 
-	OBD_ALLOC_PTR(m);
-	if (m == NULL) {
-		l = ERR_PTR(-ENOMEM);
+	OBD_ALLOC_PTR(osp);
+	if (osp == NULL) {
+		ld = ERR_PTR(-ENOMEM);
 	} else {
 		int rc;
 
-		l = osp2lu_dev(m);
-		dt_device_init(&m->opd_dt_dev, t);
-		rc = osp_init0(env, m, t, lcfg);
+		ld = osp2lu_dev(osp);
+		dt_device_init(&osp->opd_dt_dev, type);
+		rc = osp_init0(env, osp, type, lcfg);
 		if (rc != 0) {
-			osp_device_free(env, l);
-			l = ERR_PTR(rc);
+			osp_device_free(env, ld);
+			ld = ERR_PTR(rc);
 		}
 	}
-	return l;
+	return ld;
 }
 
+/**
+ * Implementation of  lu_device_type_operations::ldto_device_fini
+ *
+ * This function cleans up the OSP device, i.e. release and free those
+ * attached items in osp_device.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] ld:	lu_device of OSP.
+ *
+ * \retval		NULL if succeed.
+ *                      ERR_PTR(errno) if failed.
+ */
 static struct lu_device *osp_device_fini(const struct lu_env *env,
-					 struct lu_device *d)
+					 struct lu_device *ld)
 {
-	struct osp_device *m = lu2osp_dev(d);
+	struct osp_device *osp = lu2osp_dev(ld);
 	struct obd_import *imp;
 	int                rc;
 
 	ENTRY;
 
-	if (m->opd_async_requests != NULL) {
-		out_destroy_update_req(m->opd_async_requests);
-		m->opd_async_requests = NULL;
+	if (osp->opd_async_requests != NULL) {
+		out_destroy_update_req(osp->opd_async_requests);
+		osp->opd_async_requests = NULL;
 	}
 
-	if (m->opd_storage_exp)
-		obd_disconnect(m->opd_storage_exp);
+	if (osp->opd_storage_exp)
+		obd_disconnect(osp->opd_storage_exp);
 
-	imp = m->opd_obd->u.cli.cl_import;
+	imp = osp->opd_obd->u.cli.cl_import;
 
 	if (imp->imp_rq_pool) {
 		ptlrpc_free_rq_pool(imp->imp_rq_pool);
 		imp->imp_rq_pool = NULL;
 	}
 
-	if (m->opd_symlink)
-		lprocfs_remove(&m->opd_symlink);
+	if (osp->opd_symlink)
+		lprocfs_remove(&osp->opd_symlink);
 
-	LASSERT(m->opd_obd);
-	ptlrpc_lprocfs_unregister_obd(m->opd_obd);
-	lprocfs_obd_cleanup(m->opd_obd);
+	LASSERT(osp->opd_obd);
+	ptlrpc_lprocfs_unregister_obd(osp->opd_obd);
+	lprocfs_obd_cleanup(osp->opd_obd);
 
-	if (m->opd_connect_mdt) {
-		struct client_obd *cli = &m->opd_obd->u.cli;
+	if (osp->opd_connect_mdt) {
+		struct client_obd *cli = &osp->opd_obd->u.cli;
 		if (cli->cl_rpc_lock != NULL) {
 			OBD_FREE_PTR(cli->cl_rpc_lock);
 			cli->cl_rpc_lock = NULL;
 		}
 	}
 
-	rc = client_obd_cleanup(m->opd_obd);
-	LASSERTF(rc == 0, "error %d\n", rc);
+	rc = client_obd_cleanup(osp->opd_obd);
+	if (rc != 0)
+		RETURN(ERR_PTR(rc));
 
 	ptlrpcd_decref();
 
 	RETURN(NULL);
 }
 
+/**
+ * Implementation of obd_ops::o_reconnect
+ *
+ * This function is empty and does not need to do anything for now.
+ */
 static int osp_reconnect(const struct lu_env *env,
 			 struct obd_export *exp, struct obd_device *obd,
 			 struct obd_uuid *cluuid,
@@ -943,20 +1197,25 @@ static int osp_reconnect(const struct lu_env *env,
 	return 0;
 }
 
-static int osp_prepare_fid_client(struct osp_device *osp)
-{
-	LASSERT(osp->opd_obd->u.cli.cl_seq != NULL);
-	if (osp->opd_obd->u.cli.cl_seq->lcs_exp != NULL)
-		return 0;
-
-	LASSERT(osp->opd_exp != NULL);
-	osp->opd_obd->u.cli.cl_seq->lcs_exp =
-				class_export_get(osp->opd_exp);
-	return 0;
-}
-
 /*
- * we use exports to track all LOD users
+ * Implementation of obd_ops::o_connect
+ *
+ * This function connects OSP to the remote target (MDT or OST), and allocates
+ * the export and returns to LOD, which calls this function for each OSP to let
+ * the OSP connect to the remote target. And right now, this function will only
+ * be called once for each OSP.
+ *
+ * \param[in] env:	execution environment
+ * \param[out] exp:	returned export
+ * \param[in] obd:	OSP device
+ * \param[in] cluuid:	OSP device client uuid
+ * \param[in] data:	connect_data, OSP will use this connect_data to connect
+ *                      to the remote target
+ * \param[in] localdata: necessary for the API interface, but not being used in
+ *                      this function
+ *
+ * retval		= 0 connection succeed.
+ *                      < 0 connection failed.
  */
 static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 			   struct obd_device *obd, struct obd_uuid *cluuid,
@@ -1008,9 +1267,17 @@ out:
 	RETURN(rc);
 }
 
-/*
- * once last export (we don't count self-export) disappeared
- * osp can be released
+/**
+ * Implementation of obd_ops::o_disconnect
+ *
+ * This function disconnects the export for the OSP, and usually called by
+ * LOD to release the OSP in the cleanup process (see lod_del_device()), and
+ * after release the export(usage), the OSP will be released.
+ *
+ * \param[in] exp:	export to be disconnected.
+ *
+ * \retval		0 if disconnection succeed
+ *                      negative errno if disconnection failed
  */
 static int osp_obd_disconnect(struct obd_export *exp)
 {
@@ -1036,8 +1303,30 @@ static int osp_obd_disconnect(struct obd_export *exp)
 	RETURN(rc);
 }
 
-/*
- * lprocfs helpers still use OBD API, let's keep obd_statfs() support
+/**
+ * Implementation of obd_ops::o_statfs
+ *
+ * This function sends statfs RPC to the remote target and get statfs status,
+ * which is only being used in lprocfs helpers by obd_statfs.
+ *
+ * \param[in] env:	execution environment.
+ * \param[in] exp:	connection state from this OSP to the parent(LOD)
+ *                      device.
+ * \param[out] osfs:	hold the statfs result.
+ * \param[in] max_age:	max_age is supposed to be the oldest time in jiffies
+ *                      that accepts using a cached statfs. It is not being
+ *                      used in this function right now.
+ *                      We could possibly pass max_age in the request (as an
+ *                      absolute timestamp or a "seconds.usec ago") so the
+ *                      target can avoid doing extra calls into the filesystem
+ *                      if that isn't necessary (e.g. during mount that would
+ *                      help a bit).  Having relative timestamps is not so great
+ *                      if request processing is slow, while absolute timestamps
+ *                      are not ideal because they need time synchronization.
+ * \param[in] flags:	flags to indicate how OSP will issue the RPC.
+ *
+ * \retval		0 if statfs succeed.
+ *                      negative errno if statfs failed.
  */
 static int osp_obd_statfs(const struct lu_env *env, struct obd_export *exp,
 			  struct obd_statfs *osfs, __u64 max_age, __u32 flags)
@@ -1058,12 +1347,6 @@ static int osp_obd_statfs(const struct lu_env *env, struct obd_export *exp,
 	if (!imp)
 		RETURN(-ENODEV);
 
-	/* We could possibly pass max_age in the request (as an absolute
-	 * timestamp or a "seconds.usec ago") so the target can avoid doing
-	 * extra calls into the filesystem if that isn't necessary (e.g.
-	 * during mount that would help a bit).  Having relative timestamps
-	 * is not so great if request processing is slow, while absolute
-	 * timestamps are not ideal because they need time synchronization. */
 	req = ptlrpc_request_alloc(imp, &RQF_OST_STATFS);
 
 	class_import_put(imp);
@@ -1102,6 +1385,39 @@ out:
 	return rc;
 }
 
+/**
+ * This function prepares the FID client for the OSP. It will check and assign
+ * the export (to MDT0) for its FID client, so OSP can allocate super sequence
+ * or lookup sequence in fldb of MDT0.
+ *
+ * \param[in] osp: OSP device
+ */
+static void osp_prepare_fid_client(struct osp_device *osp)
+{
+	LASSERT(osp->opd_obd->u.cli.cl_seq != NULL);
+	if (osp->opd_obd->u.cli.cl_seq->lcs_exp != NULL)
+		return;
+
+	LASSERT(osp->opd_exp != NULL);
+	osp->opd_obd->u.cli.cl_seq->lcs_exp =
+				class_export_get(osp->opd_exp);
+}
+
+/**
+ * Implementation of obd_ops::o_import_event
+ *
+ * This function is called when some related import events happens. It will
+ * mark the necessary flags according to the event and notify the necessary
+ * threads(mainly precreate thread).
+ *
+ * \param[in] obd:	OSP obd device
+ * \param[in] imp:	import attached from OSP to remote (OST/MDT) service
+ * \param[in] event:    event related to remote service (IMP_EVENT_*)
+ *
+ * \retval		0 if the event is being handled successsfully.
+ *                      negative errno if the event is being handled
+ *                      unsuccessfully.
+ */
 static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 			    enum obd_import_event event)
 {
@@ -1136,9 +1452,7 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 	case IMP_EVENT_ACTIVE:
 		d->opd_imp_active = 1;
 
-		if (osp_prepare_fid_client(d) != 0)
-			break;
-
+		osp_prepare_fid_client(d);
 		if (d->opd_got_disconnected)
 			d->opd_new_connection = 1;
 		d->opd_imp_connected = 1;
@@ -1168,6 +1482,24 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 	return 0;
 }
 
+/**
+ * Implementation of obd_ops: o_iocontrol
+ *
+ * This function is the ioctl handler for OSP. Note: lctl will access the OSP
+ * directly by ioctl, instead of through the MDS stack.
+ *
+ * param[in] cmd:	ioctl command.
+ * param[in] exp:	export of this OSP.
+ * param[in] len:	data length of karg.
+ * param[in] karg:	input argument which is packed as
+ *                      obd_ioctl_data
+ * param[out] uarg:	returned result, which is typically a userespace
+ *                      pointer, any access to this pointer should use
+ *                      copy_to_user.
+ *
+ * retval		= 0 the ioctl is being handled successsfully.
+ *                      < 0 the ioctl is being handled unsuccessfully.
+ */
 static int osp_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 			 void *karg, void *uarg)
 {
@@ -1210,9 +1542,28 @@ static int osp_iocontrol(unsigned int cmd, struct obd_export *exp, int len,
 	return rc;
 }
 
+/**
+ * Implementation of obd_ops::o_get_info
+ *
+ * This function is called to retrieve the information by key, and it
+ * usually starts from the top layer(MDT) of the MDS stack, and go through
+ * the stack by calling obd_get_info of its next sub layer.
+ *
+ * \param[in] env:	execution environment
+ * \param[in] exp:	export of this OSP
+ * \param[in] keylen:	length of the key
+ * \param[in] key:	the key
+ * \param[out] vallen    val length
+ * \param[out] val:	hold the value returned by the key
+ * \param[in] unused:	necesary for the API interface, but not used in this
+ *                      function.
+ *
+ * \retval		0 if get information successsfully.
+ *                      negative errno if get information unsuccessfully.
+ */
 static int osp_obd_get_info(const struct lu_env *env, struct obd_export *exp,
 			    __u32 keylen, void *key, __u32 *vallen, void *val,
-			    struct lov_stripe_md *lsm)
+			    struct lov_stripe_md *unused)
 {
 	int rc = -EINVAL;
 
@@ -1236,8 +1587,32 @@ static int osp_obd_get_info(const struct lu_env *env, struct obd_export *exp,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of obd_ops: o_fid_alloc
+ *
+ * OSP uses this function to allocate a FID. Right now, there are two cases
+ * OSP needs to allocate FIDs
+ * 1. OSP precreates FIDs for data object, which is done in
+ *    osp_precreate_fids(), instead of this function.
+ * 2. OSP allocates FIDs for each sub-stripe during the creation of striped
+ *    directoryv. When a sub-stripe is being created, this function is called
+ *    to allocate the FID for the stripe. Similar as the other FID clients,
+ *    OSP request the sequence from its correspondent remote MDT, which request
+ *    sequences from sequence controller(MDT0).
+ *
+ * \param[in] env:	execution environment
+ * \param[in] exp:	export of the OSP
+ * \param[out] fid:	FID being allocated
+ * \param[in] useless:	necessary for the interface, but not being
+ *                      used in this function.
+ *
+ * \retval		= 0 allocate FID successfully.
+ *                      = 1 allocate FID successfully and also request
+ *                          a new sequence from seq meta server.
+ *                      negative errno allocate FID failed.
+ */
 int osp_fid_alloc(const struct lu_env *env, struct obd_export *exp,
-		  struct lu_fid *fid, struct md_op_data *op_data)
+		  struct lu_fid *fid, struct md_op_data *useless)
 {
 	struct client_obd	*cli = &exp->exp_obd->u.cli;
 	struct osp_device	*osp = lu2osp_dev(exp->exp_obd->obd_lu_dev);
@@ -1317,6 +1692,16 @@ static struct obd_ops osp_obd_device_ops = {
 
 struct llog_operations osp_mds_ost_orig_logops;
 
+/**
+ * Initialize OSP module.
+ *
+ * This is the callback, and being called when kernel load OSP module to
+ * memory, and it will register device type: OSP and LWP (light weight proxy
+ * device, see lwp_dev.c) in obd_types (see class_obd.c) and also inialize
+ * procfs for the OSP device.
+ * Note: for compatiblity purpose (osp is used to be called osc before 2.4),
+ * it still use the name "osc" under /procfs.
+ */
 static int __init osp_mod_init(void)
 {
 	struct obd_type *type;
@@ -1369,6 +1754,13 @@ static int __init osp_mod_init(void)
 	return rc;
 }
 
+/**
+ * Finalize OSP module.
+ *
+ * This is the callback, and being called when kernel unloads OSP module from
+ * memory, and it will deregister OSP and LWP device type from obd_types (see
+ * class_obd.c).
+ */
 static void __exit osp_mod_exit(void)
 {
 	class_unregister_type(LUSTRE_LWP_NAME);
