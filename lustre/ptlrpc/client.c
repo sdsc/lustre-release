@@ -2650,6 +2650,8 @@ void ptlrpc_retain_replayable_request(struct ptlrpc_request *req,
 
 	lustre_msg_add_flags(req->rq_reqmsg, MSG_REPLAY);
 
+	req->rq_resend = 0;
+
 	LASSERT(imp->imp_replayable);
 	/* Balanced in ptlrpc_free_committed, usually. */
 	ptlrpc_request_addref(req);
