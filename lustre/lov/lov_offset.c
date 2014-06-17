@@ -141,8 +141,16 @@ int lov_stripe_offset(struct lov_stripe_md *lsm, loff_t lov_off, int stripeno,
         }
 
         LASSERT(lsm_op_find(magic) != NULL);
-        lsm_op_find(magic)->lsm_stripe_by_index(lsm, &stripeno, &lov_off,
-                                                &swidth);
+
+	if (lsm_is_dom(lsm)) {
+		LASSERT(stripeno == 0);
+		/* With DOM there is always single stripe with single count */
+		*obdoff = lov_off;
+		return 0;
+	}
+
+	lsm_op_find(magic)->lsm_stripe_by_index(lsm, &stripeno, &lov_off,
+						&swidth);
 
 	/* lov_do_div64(a, b) returns a % b, and a = a / b */
 	stripe_off = lov_do_div64(lov_off, swidth);
@@ -196,8 +204,12 @@ loff_t lov_size_to_stripe(struct lov_stripe_md *lsm, u64 file_size,
                 return OBD_OBJECT_EOF;
 
         LASSERT(lsm_op_find(magic) != NULL);
-        lsm_op_find(magic)->lsm_stripe_by_index(lsm, &stripeno, &file_size,
-                                                &swidth);
+
+	if (lsm_is_dom(lsm))
+		return file_size;
+
+	lsm_op_find(magic)->lsm_stripe_by_index(lsm, &stripeno, &file_size,
+						&swidth);
 
 	/* lov_do_div64(a, b) returns a % b, and a = a / b */
 	stripe_off = lov_do_div64(file_size, swidth);
@@ -267,6 +279,10 @@ int lov_stripe_number(struct lov_stripe_md *lsm, loff_t lov_off)
 	u32 magic = lsm->lsm_magic;
 
 	LASSERT(lsm_op_find(magic) != NULL);
+
+	if (lsm_is_dom(lsm))
+		return 0;
+
 	lsm_op_find(magic)->lsm_stripe_by_offset(lsm, NULL, &lov_off, &swidth);
 
 	stripe_off = lov_do_div64(lov_off, swidth);
