@@ -59,7 +59,8 @@ static int lsm_lmm_verify_common(struct lov_mds_md *lmm, int lmm_bytes,
 		return -EINVAL;
 	}
 
-	if (lov_pattern(le32_to_cpu(lmm->lmm_pattern)) != LOV_PATTERN_RAID0) {
+	if (lov_pattern(le32_to_cpu(lmm->lmm_pattern)) != LOV_PATTERN_FIRST &&
+	    lov_pattern(le32_to_cpu(lmm->lmm_pattern)) != LOV_PATTERN_RAID0) {
 		CERROR("bad striping pattern\n");
 		lov_dump_lmm_common(D_WARNING, lmm);
 		return -EINVAL;
@@ -147,6 +148,7 @@ static loff_t lov_tgt_maxbytes(struct lov_tgt_desc *tgt)
 	return maxbytes;
 }
 
+
 static int lsm_unpackmd_common(struct lov_obd *lov,
 			       struct lov_stripe_md *lsm,
 			       struct lov_mds_md *lmm,
@@ -167,6 +169,12 @@ static int lsm_unpackmd_common(struct lov_obd *lov,
 	lsm->lsm_pattern = le32_to_cpu(lmm->lmm_pattern);
 	lsm->lsm_layout_gen = le16_to_cpu(lmm->lmm_layout_gen);
 	lsm->lsm_pool_name[0] = '\0';
+
+	/* with Data-on-MDT set maxbytes to stripe size */
+	if (lsm_is_dom(lsm)) {
+		lsm->lsm_maxbytes = lsm->lsm_stripe_size;
+		return 0;
+	}
 
 	stripe_count = lsm_is_released(lsm) ? 0 : lsm->lsm_stripe_count;
 

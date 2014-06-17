@@ -59,6 +59,11 @@ struct lov_stripe_md {
 	struct lov_oinfo	*lsm_oinfo[0];
 };
 
+static inline bool lsm_is_dom(struct lov_stripe_md *lsm)
+{
+	return (lov_pattern(lsm->lsm_pattern) == LOV_PATTERN_FIRST);
+}
+
 static inline bool lsm_is_released(struct lov_stripe_md *lsm)
 {
 	return !!(lsm->lsm_pattern & LOV_PATTERN_F_RELEASED);
@@ -235,6 +240,8 @@ extern struct lprocfs_vars lprocfs_lov_obd_vars[];
 
 /* lov_cl.c */
 extern struct lu_device_type lov_device_type;
+
+#define LOV_MDC_TGT_MAX 32
 
 /* pools */
 extern struct cfs_hash_ops pool_hash_operations;

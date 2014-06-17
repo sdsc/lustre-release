@@ -142,13 +142,145 @@ struct lu_context_key lov_session_key = {
 /* type constructor/destructor: lov_type_{init,fini,start,stop}() */
 LU_TYPE_INIT_FINI(lov, &lov_key, &lov_session_key);
 
-static struct lu_device *lov_device_fini(const struct lu_env *env,
-                                         struct lu_device *d)
-{
-        int i;
-        struct lov_device *ld = lu2lov_dev(d);
 
-        LASSERT(ld->ld_lov != NULL);
+static int lov_mdc_dev_init(const struct lu_env *env, struct lov_device *ld,
+			    struct lu_device *next, int idx)
+{
+	struct lu_device_type *ldt = next->ld_type;
+	struct lu_device *d = lov2lu_dev(ld);
+	struct lovdom_device *ldm;
+	int rc;
+
+	OBD_ALLOC_PTR(ldm);
+	if (ldm == NULL)
+		RETURN(-ENOMEM);
+
+	LASSERT(d->ld_site != NULL);
+	next->ld_site = d->ld_site;
+	LASSERT(ldt != NULL);
+	rc = ldt->ldt_ops->ldto_device_init(env, next, ldt->ldt_name, NULL);
+	if (rc) {
+		next->ld_site = NULL;
+		OBD_FREE_PTR(ldm);
+		return rc;
+	}
+
+	ldm->ldm_idx = idx;
+	ldm->ldm_mdc = lu2cl_dev(next);
+	ld->ld_md_tgts[idx] = ldm;
+
+	lu_device_get(next);
+	lu_ref_add(&next->ld_reference, "lu-stack", &lu_site_init);
+
+	return 0;
+}
+
+/**
+ * Delete MDC target device from LOV.
+ *
+ * \param[in] env	execution environment
+ * \param[in] d		LU device of LOV device
+ * \param[in] idx	MDC device index
+ */
+static void lov_del_mdc_target(const struct lu_env *env,
+			       struct lu_device *d, __u32 idx)
+{
+	struct lov_device *ld = lu2lov_dev(d);
+
+	ENTRY;
+
+	if (ld->ld_md_tgts[idx] == NULL)
+		RETURN_EXIT;
+
+	cl_stack_fini(env, ld->ld_md_tgts[idx]->ldm_mdc);
+	OBD_FREE_PTR(ld->ld_md_tgts[idx]);
+	ld->ld_md_tgts[idx] = NULL;
+	ld->ld_lov->lov_mdc_tgts[idx] = NULL;
+
+	EXIT;
+}
+
+/**
+ * Add new MDC target device in LOV.
+ *
+ * This function is part of the configuration log processing. It adds new MDC
+ * device to the MDC device array indexed by their indexes.
+ *
+ * \param[in] env	execution environment
+ * \param[in] d		LU device of LOV device
+ * \param[in] mdc	MDC device to add
+ * \param[in] idx	MDC device index
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
+ */
+static int lov_add_mdc_target(const struct lu_env *env, struct lu_device *d,
+			      struct obd_device *mdc, __u32 idx)
+{
+	struct lov_device	*ld = lu2lov_dev(d);
+	struct obd_device	*lov_obd = d->ld_obd;
+	struct obd_device	*lmv_obd;
+	int			 next;
+	int			 rc = 0;
+
+	ENTRY;
+
+	LASSERT(mdc != NULL);
+	LASSERT(idx < ld->ld_md_tgts_nr);
+
+	/* grab FLD from lmv, do that here, when first MDC is added
+	 * to be sure LMV is set up and can be found */
+	if (ld->ld_fld == NULL) {
+		next = 0;
+		while ((lmv_obd = class_devices_in_group(&lov_obd->obd_uuid,
+							 &next)) != NULL) {
+			if ((strncmp(lmv_obd->obd_type->typ_name,
+				     LUSTRE_LMV_NAME,
+				     strlen(LUSTRE_LMV_NAME)) == 0))
+				break;
+		}
+		if (lmv_obd == NULL) {
+			CERROR("%s: cannot find LMV OBD by UUID (%s)\n",
+			       lov_obd->obd_name,
+			       obd_uuid2str(&lmv_obd->obd_uuid));
+			RETURN(-ENODEV);
+		}
+
+		ld->ld_fld = &lmv_obd->u.lmv.lmv_fld;
+	}
+
+	if (ld->ld_flags & LOV_DEV_INITIALIZED) {
+		LASSERT(d->ld_site != NULL);
+
+		rc = lov_mdc_dev_init(env, ld, mdc->obd_lu_dev, idx);
+		if (rc) {
+			CERROR("%s: failed to add MDC %s as target: rc = %d\n",
+			       lov_obd->obd_name, obd_uuid2str(&mdc->obd_uuid),
+			       rc);
+			RETURN(rc);
+		}
+	}
+	LASSERT(lov_obd->u.lov.lov_mdc_tgts[idx] == NULL);
+	lov_obd->u.lov.lov_mdc_tgts[idx] = mdc;
+
+	RETURN(rc);
+}
+
+static struct lu_device *lov_device_fini(const struct lu_env *env,
+					 struct lu_device *d)
+{
+	struct lov_device *ld = lu2lov_dev(d);
+	int i;
+
+	LASSERT(ld->ld_lov != NULL);
+
+	for (i = 0; i < ld->ld_md_tgts_nr; i++)
+		lov_del_mdc_target(env, d, i);
+	/* free array of MDCs */
+	OBD_FREE(ld->ld_lov->lov_mdc_tgts,
+		 sizeof(*ld->ld_lov->lov_mdc_tgts) * LOV_MDC_TGT_MAX);
+	ld->ld_lov->lov_mdc_tgts = NULL;
+
         if (ld->ld_target == NULL)
                 RETURN(NULL);
 
@@ -167,11 +299,30 @@ static struct lu_device *lov_device_fini(const struct lu_env *env,
 static int lov_device_init(const struct lu_env *env, struct lu_device *d,
                            const char *name, struct lu_device *next)
 {
-        struct lov_device *ld = lu2lov_dev(d);
-        int i;
-        int rc = 0;
+	struct lov_device	*ld = lu2lov_dev(d);
+	int			 i;
+	int			 rc = 0;
 
-        LASSERT(d->ld_site != NULL);
+	LASSERT(d->ld_site != NULL);
+
+	/* check all added already MDC subdevices and initialize them */
+	for (i = 0; i < ld->ld_md_tgts_nr; i++) {
+		struct obd_device *mdc;
+
+		mdc = ld->ld_lov->lov_mdc_tgts[i];
+
+		if (mdc == NULL)
+			continue;
+
+		rc = lov_mdc_dev_init(env, ld, mdc->obd_lu_dev, i);
+		if (rc) {
+			CERROR("%s: failed to add MDC %s as target: rc = %d\n",
+			       d->ld_obd->obd_name,
+			       obd_uuid2str(&mdc->obd_uuid), rc);
+			RETURN(rc);
+		}
+	}
+
         if (ld->ld_target == NULL)
                 RETURN(rc);
 
@@ -212,6 +363,9 @@ static struct lu_device *lov_device_free(const struct lu_env *env,
 	cl_device_fini(lu2cl_dev(d));
 	if (ld->ld_target != NULL)
 		OBD_FREE(ld->ld_target, nr * sizeof ld->ld_target[0]);
+	if (ld->ld_md_tgts != NULL)
+		OBD_FREE(ld->ld_md_tgts,
+			 sizeof(*ld->ld_md_tgts) * ld->ld_md_tgts_nr);
 
 	OBD_FREE_PTR(ld);
 	return NULL;
@@ -306,31 +460,56 @@ static int lov_cl_add_target(const struct lu_env *env, struct lu_device *dev,
 static int lov_process_config(const struct lu_env *env,
                               struct lu_device *d, struct lustre_cfg *cfg)
 {
-        struct obd_device *obd = d->ld_obd;
-        int cmd;
-        int rc;
-        int gen;
-        __u32 index;
+	struct obd_device	*obd = d->ld_obd;
+	int			 cmd;
+	int			 rc;
+	int			 gen;
+	__u32			 index;
 
-        obd_getref(obd);
+	obd_getref(obd);
 
-        cmd = cfg->lcfg_command;
-        rc = lov_process_config_base(d->ld_obd, cfg, &index, &gen);
-        if (rc == 0) {
-                switch(cmd) {
-                case LCFG_LOV_ADD_OBD:
-                case LCFG_LOV_ADD_INA:
-                        rc = lov_cl_add_target(env, d, index);
-                        if (rc != 0)
-				lov_del_target(d->ld_obd, index, NULL, 0);
-                        break;
-                case LCFG_LOV_DEL_OBD:
-                        lov_cl_del_target(env, d, index);
-                        break;
-                }
-        }
-        obd_putref(obd);
-        RETURN(rc);
+	cmd = cfg->lcfg_command;
+
+	rc = lov_process_config_base(d->ld_obd, cfg, &index, &gen);
+	if (rc < 0)
+		GOTO(out, rc);
+
+	switch (cmd) {
+	case LCFG_LOV_ADD_OBD:
+	case LCFG_LOV_ADD_INA:
+		rc = lov_cl_add_target(env, d, index);
+		if (rc != 0)
+			lov_del_target(d->ld_obd, index, NULL, 0);
+		break;
+	case LCFG_LOV_DEL_OBD:
+		lov_cl_del_target(env, d, index);
+		break;
+	case LCFG_ADD_MDC:
+	{
+		struct obd_device	*mdc;
+		struct obd_uuid		 tgt_uuid;
+
+		/* modify_mdc_tgts add 0:lustre-clilmv  1:lustre-MDT0000_UUID
+		 * 2:0  3:1  4:lustre-MDT0000-mdc_UUID */
+		if (LUSTRE_CFG_BUFLEN(cfg, 1) > sizeof(tgt_uuid.uuid))
+			GOTO(out, rc = -EINVAL);
+
+		obd_str2uuid(&tgt_uuid, lustre_cfg_buf(cfg, 1));
+
+		if (sscanf(lustre_cfg_buf(cfg, 2), "%d", &index) != 1)
+			GOTO(out, rc = -EINVAL);
+
+		mdc = class_find_client_obd(&tgt_uuid, LUSTRE_MDC_NAME,
+					    &obd->obd_uuid);
+		if (mdc == NULL)
+			GOTO(out, rc = -ENODEV);
+		rc = lov_add_mdc_target(env, d, mdc, index);
+		break;
+	}
+	}
+out:
+	obd_putref(obd);
+	RETURN(rc);
 }
 
 static const struct lu_device_operations lov_lu_ops = {
@@ -359,13 +538,27 @@ static struct lu_device *lov_device_alloc(const struct lu_env *env,
         obd = class_name2obd(lustre_cfg_string(cfg, 0));
         LASSERT(obd != NULL);
         rc = lov_setup(obd, cfg);
-        if (rc) {
-                lov_device_free(env, d);
-                RETURN(ERR_PTR(rc));
-        }
+	if (rc)
+		GOTO(out, rc);
 
-        ld->ld_lov = &obd->u.lov;
-        RETURN(d);
+	/* Alloc MDC devices array */
+	/* XXX: need dynamic allocation at some moment */
+	OBD_ALLOC(ld->ld_md_tgts, sizeof(*ld->ld_md_tgts) * LOV_MDC_TGT_MAX);
+	if (ld->ld_md_tgts == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	ld->ld_md_tgts_nr = LOV_MDC_TGT_MAX;
+
+	ld->ld_lov = &obd->u.lov;
+	OBD_ALLOC(ld->ld_lov->lov_mdc_tgts,
+		  sizeof(*ld->ld_lov->lov_mdc_tgts) * LOV_MDC_TGT_MAX);
+	if (ld->ld_lov->lov_mdc_tgts == NULL)
+		GOTO(out, rc = -ENOMEM);
+
+	RETURN(d);
+out:
+	lov_device_free(env, d);
+	return ERR_PTR(rc);
 }
 
 static const struct lu_device_type_operations lov_device_type_ops = {
