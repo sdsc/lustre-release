@@ -397,10 +397,13 @@ struct lov_obd {
 	struct cl_client_cache *lov_cache;
 
 	struct rw_semaphore	lov_notify_lock;
+	/* Data-on-MDT: MDC array */
+	struct obd_device     **lov_mdc_tgts;
 };
 
 struct lmv_tgt_desc {
 	struct obd_uuid		ltd_uuid;
+	struct obd_device	*ltd_obd;
 	struct obd_export	*ltd_exp;
 	__u32			ltd_idx;
 	struct mutex		ltd_fid_mutex;

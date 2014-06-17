@@ -80,6 +80,9 @@ struct lov_layout_operations {
                             struct cl_object *obj, struct cl_io *io);
         int  (*llo_getattr)(const struct lu_env *env, struct cl_object *obj,
                             struct cl_attr *attr);
+	int  (*llo_fiemap)(const struct lu_env *env, struct cl_object *obj,
+			   struct ll_fiemap_info_key *fmkey,
+			   struct fiemap *fiemap, size_t *buflen);
 };
 
 static int lov_layout_wait(const struct lu_env *env, struct lov_object *lov);
@@ -597,6 +600,247 @@ static int lov_attr_get_raid0(const struct lu_env *env, struct cl_object *obj,
 	RETURN(result);
 }
 
+static int lov_fiemap_empty(const struct lu_env *env, struct cl_object *obj,
+			    struct ll_fiemap_info_key *fmkey,
+			    struct fiemap *fiemap, size_t *buflen)
+{
+	return 0;
+}
+
+static int lov_fiemap_released(const struct lu_env *env, struct cl_object *obj,
+			       struct ll_fiemap_info_key *fmkey,
+			       struct fiemap *fiemap, size_t *buflen)
+{
+	ENTRY;
+
+	if (fiemap->fm_start < fmkey->lfik_oa.o_size) {
+		/**
+		 * released file, return a minimal FIEMAP if
+		 * request fits in file-size.
+		 */
+		fiemap->fm_mapped_extents = 1;
+		fiemap->fm_extents[0].fe_logical = fiemap->fm_start;
+		if (fiemap->fm_start + fiemap->fm_length <
+		    fmkey->lfik_oa.o_size)
+			fiemap->fm_extents[0].fe_length =
+				fiemap->fm_length;
+		else
+			fiemap->fm_extents[0].fe_length =
+				fmkey->lfik_oa.o_size - fiemap->fm_start;
+		fiemap->fm_extents[0].fe_flags |=
+			FIEMAP_EXTENT_UNKNOWN | FIEMAP_EXTENT_LAST;
+	}
+	RETURN(0);
+}
+
+static int lov_fiemap_raid0(const struct lu_env *env, struct cl_object *obj,
+			    struct ll_fiemap_info_key *fmkey,
+			    struct fiemap *fiemap, size_t *buflen);
+
+/**
+ * Implementation of lov_layout_operations::llo_print for DOM object.
+ *
+ * Print DOM object information. See lu_object_print() and
+ * LU_OBJECT_DEBUG() for more details about the compound object printing.
+ *
+ * \param[in] env	execution environment
+ * \param[in] cookie	opaque data passed to the printer function
+ * \param[in] p		printer function to use
+ * \param[in] o		LU object of OFD object
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
+ */
+static int lov_print_dom(const struct lu_env *env, void *cookie,
+			 lu_printer_t p, const struct lu_object *o)
+{
+	struct lov_object	*lov = lu2lov(o);
+	struct lov_stripe_md	*lsm = lov->lo_lsm;
+ 
+	LASSERT(lsm != NULL);
+	(*p)(env, cookie, " DOM layout (%s), lsm{%p 0x%08X %d %u %u}",
+	     lov->lo_layout_invalid ? "invalid" : "valid", lsm,
+	     lsm->lsm_magic, atomic_read(&lsm->lsm_refc),
+	     lsm->lsm_stripe_count, lsm->lsm_layout_gen);
+	return 0;
+}
+
+/**
+ * Lookup FLD to get MDS index of the given DOM object FID.
+ *
+ * \param[in]  ld	LOV device
+ * \param[in]  fid	FID to lookup
+ * \param[out] mds	MDS index to return back
+ *
+ * \retval		0 and \a mds filled with MDS index if successful
+ * \retval		negative value on error
+ */
+int lov_fld_lookup(struct lov_device *ld, const struct lu_fid *fid, __u32 *mds)
+{
+	int rc;
+
+	ENTRY;
+
+	rc = fld_client_lookup(ld->ld_fld, fid_seq(fid), mds,
+			       LU_SEQ_RANGE_MDT, NULL);
+	if (rc) {
+		CERROR("Error while looking for mds number. Seq "LPX64
+		       ", err = %d\n", fid_seq(fid), rc);
+		RETURN(rc);
+	}
+
+	CDEBUG(D_INODE, "FLD lookup got mds #%x for fid="DFID"\n",
+	       *mds, PFID(fid));
+
+	if (*mds >= ld->ld_md_tgts_nr) {
+		CERROR("FLD lookup got invalid mds #%x (max: %x) "
+		       "for fid="DFID"\n", *mds, ld->ld_md_tgts_nr,
+		       PFID(fid));
+		rc = -EINVAL;
+	}
+	RETURN(rc);
+}
+
+/**
+ * Implementation of lov_layout_operations::llo_delete for DOM object.
+ *
+ * Called before lov_layout_operations::llo_free() to signal that
+ * object is being destroyed.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lov	LOV object
+ * \param[in] state	LOV layout state
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
+ */
+static int lov_delete_dom(const struct lu_env *env, struct lov_object *lov,
+			  union lov_layout_state *state)
+{
+	struct lov_layout_dom *dom = &state->dom;
+
+	ENTRY;
+	lov_layout_wait(env, lov);
+
+	cl_object_prune(env, dom->lo_dom);
+	RETURN(0);
+}
+
+/**
+ * Implementation of lov_layout_operations::llo_fini for DOM object.
+ *
+ * Finish the DOM object and free related memory.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lov	LOV object
+ * \param[in] state	LOV layout state
+ */
+static void lov_fini_dom(const struct lu_env *env, struct lov_object *lov,
+			 union lov_layout_state *state)
+{
+	struct lov_layout_dom *dom = &state->dom;
+
+	ENTRY;
+	if (dom->lo_dom != NULL)
+		dom->lo_dom = NULL;
+
+	lov_free_memmd(&lov->lo_lsm);
+	EXIT;
+}
+
+/**
+ * Implementation of lov_layout_operations::llo_init for DOM object.
+ *
+ * Start DOM object as part of compound object. This function finds the
+ * proper subdevice first by MDS index and allocate subobject on that
+ * device.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dev	LOV device
+ * \param[in] lov	LOV object
+ * \param[in] conf	CL object configuration
+ * \param[in] state	LOV layout state
+ *
+ * \retval		0 if successful
+ * \retval		negative value on error
+ */
+static int lov_init_dom(const struct lu_env *env, struct lov_device *dev,
+			struct lov_object *lov, struct lov_stripe_md *lsm,
+			const struct cl_object_conf *conf,
+			union  lov_layout_state *state)
+{
+	struct cl_object	*clo;
+	struct lu_object	*o = lov2lu(lov), *below = NULL;
+	const struct lu_fid	*fid = lu_object_fid(o);
+	struct lov_layout_dom	*dom = &state->dom;
+	struct lu_device	*mdcdev;
+	int			 rc;
+	__u32			 idx = 0;
+
+	ENTRY;
+
+	if (lsm->lsm_magic != LOV_MAGIC_V1 && lsm->lsm_magic != LOV_MAGIC_V3) {
+		dump_lsm(D_ERROR, lsm);
+		LASSERTF(0, "magic mismatch, expected %d/%d, actual %d.\n",
+			 LOV_MAGIC_V1, LOV_MAGIC_V3, lsm->lsm_magic);
+	}
+
+	/* find proper MDS device */
+	rc = lov_fld_lookup(dev, fid, &idx);
+	if (rc)
+		GOTO(out, rc);
+
+	LASSERTF(dev->ld_md_tgts[idx] != NULL,
+		 "LOV md target[%u] is NULL\n", idx);
+
+	/* check lsm is DOM, more checks are needed */
+	LASSERT(lsm->lsm_stripe_count == 0);
+
+	LASSERT(lov->lo_lsm == NULL);
+	lov->lo_lsm = lsm_addref(lsm);
+
+	/*
+	 * Create lower cl_objects.
+	 */
+	mdcdev = &dev->ld_md_tgts[idx]->ldm_mdc->cd_lu_dev;
+
+	LASSERTF(mdcdev != NULL, "non-initialized mdc subdev\n");
+
+	LASSERT(o->lo_header);
+	below = mdcdev->ld_ops->ldo_object_alloc(env, NULL, mdcdev);
+	if (IS_ERR(below))
+		RETURN(PTR_ERR(below));
+	lu_object_add(o, below);
+	/* init remaining stack manually like lu_object_alloc()
+	 * because lli_init may be called from lov_layout_change. */
+	below->lo_header = o->lo_header;
+	rc = below->lo_ops->loo_object_init(env, below, &conf->coc_lu);
+	if (rc) {
+		below->lo_ops->loo_object_free(env, below);
+		RETURN(rc);
+	}
+
+
+	clo = lu2cl(below);
+	dom->lo_dom = clo;
+	EXIT;
+out:
+	return rc;
+}
+
+/* trivial, nothing to do in DOM case*/
+int lov_page_init_dom(const struct lu_env *env, struct cl_object *obj,
+		      struct cl_page *page, pgoff_t index)
+{
+	return 0;
+}
+
+int lov_lock_init_dom(const struct lu_env *env, struct cl_object *obj,
+		      struct cl_lock *lock, const struct cl_io *io)
+{
+	return 0;
+}
+
 const static struct lov_layout_operations lov_dispatch[] = {
         [LLT_EMPTY] = {
                 .llo_init      = lov_init_empty,
@@ -608,6 +852,7 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_lock_init = lov_lock_init_empty,
                 .llo_io_init   = lov_io_init_empty,
 		.llo_getattr   = lov_attr_get_empty,
+		.llo_fiemap	= lov_fiemap_empty,
         },
         [LLT_RAID0] = {
                 .llo_init      = lov_init_raid0,
@@ -619,6 +864,7 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_lock_init = lov_lock_init_raid0,
                 .llo_io_init   = lov_io_init_raid0,
 		.llo_getattr   = lov_attr_get_raid0,
+		.llo_fiemap	= lov_fiemap_raid0,
 	},
         [LLT_RELEASED] = {
                 .llo_init      = lov_init_released,
@@ -630,7 +876,20 @@ const static struct lov_layout_operations lov_dispatch[] = {
                 .llo_lock_init = lov_lock_init_empty,
                 .llo_io_init   = lov_io_init_released,
 		.llo_getattr   = lov_attr_get_empty,
-        }
+		.llo_fiemap	= lov_fiemap_released,
+	},
+	[LLT_DOM] = {
+		.llo_init	= lov_init_dom,
+		.llo_delete	= lov_delete_dom,
+		.llo_fini	= lov_fini_dom,
+		.llo_install	= lov_install_empty,
+		.llo_print	= lov_print_dom,
+		.llo_page_init	= lov_page_init_dom,
+		.llo_lock_init	= lov_lock_init_dom,
+		.llo_io_init	= lov_io_init_dom,
+		.llo_getattr	= lov_attr_get_empty,
+		.llo_fiemap	= lov_fiemap_empty,
+	},
 };
 
 /**
@@ -655,6 +914,8 @@ static enum lov_layout_type lov_type(struct lov_stripe_md *lsm)
 		return LLT_EMPTY;
 	if (lsm_is_released(lsm))
 		return LLT_RELEASED;
+	if (lsm_is_dom(lsm))
+		return LLT_DOM;
 	return LLT_RAID0;
 }
 
@@ -998,6 +1259,14 @@ int lov_lock_init(const struct lu_env *env, struct cl_object *obj,
 				    io);
 }
 
+static int lov_object_fiemap(const struct lu_env *env, struct cl_object *obj,
+			     struct ll_fiemap_info_key *fmkey,
+			     struct fiemap *fiemap, size_t *buflen)
+{
+	return LOV_2DISPATCH_NOLOCK(cl2lov(obj), llo_fiemap, env, obj, fmkey,
+				    fiemap, buflen);
+}
+
 /**
  * We calculate on which OST the mapping will end. If the length of mapping
  * is greater than (stripe_size * stripe_count) then the last_stripe will
@@ -1152,9 +1421,9 @@ static loff_t fiemap_calc_fm_end_offset(struct fiemap *fiemap,
  * \retval 0	success
  * \retval < 0	error
  */
-static int lov_object_fiemap(const struct lu_env *env, struct cl_object *obj,
-			     struct ll_fiemap_info_key *fmkey,
-			     struct fiemap *fiemap, size_t *buflen)
+static int lov_fiemap_raid0(const struct lu_env *env, struct cl_object *obj,
+			    struct ll_fiemap_info_key *fmkey,
+			    struct fiemap *fiemap, size_t *buflen)
 {
 	struct lov_stripe_md	*lsm;
 	struct cl_object	*subobj = NULL;
@@ -1194,28 +1463,6 @@ static int lov_object_fiemap(const struct lu_env *env, struct cl_object *obj,
 	if (lsm->lsm_stripe_count > 1 && !(fiemap->fm_flags &
 					   FIEMAP_FLAG_DEVICE_ORDER))
 		GOTO(out_lsm, rc = -ENOTSUPP);
-
-	if (lsm_is_released(lsm)) {
-		if (fiemap->fm_start < fmkey->lfik_oa.o_size) {
-			/**
-			 * released file, return a minimal FIEMAP if
-			 * request fits in file-size.
-			 */
-			fiemap->fm_mapped_extents = 1;
-			fiemap->fm_extents[0].fe_logical = fiemap->fm_start;
-			if (fiemap->fm_start + fiemap->fm_length <
-			    fmkey->lfik_oa.o_size)
-				fiemap->fm_extents[0].fe_length =
-					fiemap->fm_length;
-			else
-				fiemap->fm_extents[0].fe_length =
-					fmkey->lfik_oa.o_size -
-					fiemap->fm_start;
-			fiemap->fm_extents[0].fe_flags |=
-				FIEMAP_EXTENT_UNKNOWN | FIEMAP_EXTENT_LAST;
-		}
-		GOTO(out_lsm, rc = 0);
-	}
 
 	if (fiemap_count_to_size(fiemap->fm_extent_count) < buffer_size)
 		buffer_size = fiemap_count_to_size(fiemap->fm_extent_count);
@@ -1593,6 +1840,7 @@ int lov_read_and_clear_async_rc(struct cl_object *clob)
 				loi->loi_ar.ar_rc = 0;
 			}
 		}
+		case LLT_DOM:
 		case LLT_RELEASED:
 		case LLT_EMPTY:
 			break;
