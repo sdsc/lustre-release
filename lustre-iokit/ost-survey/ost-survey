@@ -31,12 +31,12 @@ sub usage () {
 # Also fills 1 for active OST indexes in ACTIVEOST_INX array.
 sub ost_count () {
 	# numobd gives number of ost's and activeobd gives number of active ost's
-	my $tempfile = glob ("/proc/fs/lustre/lov/*-clilov-*/activeobd"); 
+	my $tempfile = glob ("/{proc,sys}/fs/lustre/lov/*-clilov-*/activeobd"); 
 	open(PTR, $tempfile) || die "Cannot open $tempfile: $!\n";    
 	$OSTS = <PTR>;
 	close PTR;
 	print "Number of Active OST devices : $OSTS";
-	my $tempfile = glob ("/proc/fs/lustre/lov/*-clilov-*/numobd"); 
+	my $tempfile = glob ("/{proc,sys}/fs/lustre/lov/*-clilov-*/numobd"); 
 	open(PTR, $tempfile) || die "Cannot open $tempfile: $!\n";    
 	$numost = <PTR>;
 	close PTR;
@@ -44,7 +44,7 @@ sub ost_count () {
 		printf "Number of non active ots(s): %d\n", ( $numost - $OSTS );
 		$OSTS = $numost;
 	}
-	my $tempfile = glob ("/proc/fs/lustre/lov/*-clilov-*/target_obd");
+	my $tempfile = glob ("/{proc,sys}/fs/lustre/lov/*-clilov-*/target_obd");
 	open(PTR, $tempfile) || die "Cannot open $tempfile: $!\n";
 	my $count = 0;
 	my $temp;
@@ -59,7 +59,7 @@ sub ost_count () {
 }
 
 sub cache_off () {
-	$CACHEFILE = glob ("/proc/fs/lustre/llite/*/max_cached_mb"); 
+	$CACHEFILE = glob ("/{proc,sys}/fs/lustre/llite/*/max_cached_mb"); 
 	open(PTR, $CACHEFILE) || die "Cannot open $tempfile: $!\n";    
 	$CACHESZ = 0 + <PTR>;
 	close PTR;
