@@ -1833,19 +1833,6 @@ static inline struct dt_object *lu2dt_obj(struct lu_object *o)
 	return container_of0(o, struct dt_object, do_lu);
 }
 
-struct thandle_update {
-	/* In DNE, one transaction can be disassembled into
-	 * updates on several different MDTs, and these updates
-	 * will be attached to tu_remote_update_list per target.
-	 * Only single thread will access the list, no need lock
-	 */
-	struct list_head	tu_remote_update_list;
-
-	/* sent after or before local transaction */
-	unsigned int		tu_sent_after_local_trans:1,
-				tu_only_remote_trans:1;
-};
-
 /**
  * This is the general purpose transaction handle.
  * 1. Transaction Life Cycle
@@ -1864,9 +1851,20 @@ struct thandle {
 	/** the dt device on which the transactions are executed */
 	struct dt_device *th_dev;
 
-	atomic_t	th_refc;
-	/* the size of transaction */
-	int		th_alloc_size;
+	/* The transaciton which is in the layer where the transaction is
+	 * created, i.e. the dt_device where the transaction is created.
+	 * So there are three kinds of transactions
+	 * 1. local transaction: All updates are in a single local OSD.
+	 * 2. Remote transaction: All Updates are only in the remote OSD,
+	 *    i.e. locally all updates are in OSP.
+	 * 3. Mixed transaction: Updates are both in local OSD and remote
+	 *    OSD.
+	 * And there are special use cases here
+	 * 1. OSP will use this thandle when it needs to update some stuff
+	 *    in local OSD.
+	 * 2. MDD needs to access the llog, for example update log.
+	 **/
+	struct thandle *th_storage_th;
 
 	/** context for this transaction, tag is LCT_TX_HANDLE */
 	struct lu_context th_ctx;
@@ -1879,27 +1877,12 @@ struct thandle {
 	__s32             th_result;
 
 	/** whether we need sync commit */
-	unsigned int		th_sync:1;
-
+	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-	unsigned int		th_local:1;
+				th_local:1;
 
-	struct thandle_update	*th_update;
 };
 
-static inline void thandle_get(struct thandle *thandle)
-{
-	atomic_inc(&thandle->th_refc);
-}
-
-static inline void thandle_put(struct thandle *thandle)
-{
-	if (atomic_dec_and_test(&thandle->th_refc)) {
-		if (thandle->th_update != NULL)
-			OBD_FREE_PTR(thandle->th_update);
-		OBD_FREE(thandle, thandle->th_alloc_size);
-	}
-}
 /**
  * Transaction call-backs.
  *
