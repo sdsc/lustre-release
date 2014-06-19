@@ -87,13 +87,8 @@ int osp_md_declare_object_create(const struct lu_env *env,
 	struct dt_update_request	*update;
 	int				rc;
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
+	update = thandle_to_dt_update_request(th);
+	LASSERT(update != NULL);
 
 	if (lu_object_exists(&dt->do_lu)) {
 		/* If the object already exists, we needs to destroy
@@ -206,13 +201,8 @@ static int osp_md_declare_object_ref_del(const struct lu_env *env,
 	struct dt_update_request	*update;
 	int				rc;
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		      (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
+	update = thandle_to_dt_update_request(th);
+	LASSERT(update != NULL);
 
 	rc = out_ref_del_pack(env, &update->dur_buf,
 			      lu_object_fid(&dt->do_lu),
@@ -262,13 +252,8 @@ static int osp_md_declare_ref_add(const struct lu_env *env,
 	struct dt_update_request	*update;
 	int				rc;
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
+	update = thandle_to_dt_update_request(th);
+	LASSERT(update != NULL);
 
 	rc = out_ref_add_pack(env, &update->dur_buf,
 			      lu_object_fid(&dt->do_lu),
@@ -342,13 +327,8 @@ int __osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 	struct dt_update_request	*update;
 	int				rc;
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
+	update = thandle_to_dt_update_request(th);
+	LASSERT(update != NULL);
 
 	rc = out_attr_set_pack(env, &update->dur_buf,
 			       lu_object_fid(&dt->do_lu), attr,
@@ -630,20 +610,23 @@ static int osp_md_declare_insert(const struct lu_env *env,
 				 const struct dt_key *key,
 				 struct thandle *th)
 {
-	struct dt_update_request *update;
+	struct osp_thandle	 *oth = thandle_to_osp_thandle(th);
+	struct dt_update_request *update = oth->ot_dur;
 	int			 rc;
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
 
 	rc = out_index_insert_pack(env, &update->dur_buf,
 				   lu_object_fid(&dt->do_lu), rec, key,
 				   update->dur_batchid);
+	if (rc != 0)
+		return rc;
+
+	/* Before async update is allowed, if it will insert remote
+	 * name entry, it should make sure the local object is created,
+	 * i.e. the remote update RPC should be sent after local
+	 * update(create object) */
+	oth->ot_send_updates_after_local_trans = 1;
+
 	return rc;
 }
 
@@ -697,13 +680,8 @@ static int osp_md_declare_delete(const struct lu_env *env,
 	struct dt_update_request *update;
 	int			 rc;
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
+	update = thandle_to_dt_update_request(th);
+	LASSERT(update != NULL);
 
 	rc = out_index_delete_pack(env, &update->dur_buf,
 				   lu_object_fid(&dt->do_lu), key,
@@ -1060,13 +1038,8 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 	struct dt_update_request  *update;
 	ssize_t			  rc;
 
-	update = dt_update_request_find_or_create(th, dt);
-	if (IS_ERR(update)) {
-		CERROR("%s: Get OSP update buf failed: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       (int)PTR_ERR(update));
-		return PTR_ERR(update);
-	}
+	update = thandle_to_dt_update_request(th);
+	LASSERT(update != NULL);
 
 	rc = out_write_pack(env, &update->dur_buf, lu_object_fid(&dt->do_lu),
 			    buf, pos, update->dur_batchid);
