@@ -3172,7 +3172,27 @@ typedef enum {
 } obd_cmd_t;
 #define OBD_FIRST_OPC OBD_PING
 
-/* catalog of log objects */
+/**
+ * llog contexts indexes.
+ *
+ * There is compatibility problem with indexes below, they are not
+ * continuous and must keep their numbers for compatibility needs.
+ * See LU-5218 for details.
+ */
+typedef enum {
+	LLOG_CONFIG_ORIG_CTXT  =  0,
+	LLOG_CONFIG_REPL_CTXT = 1,
+	LLOG_MDS_OST_ORIG_CTXT = 2,
+	LLOG_SIZE_ORIG_CTXT = 4,
+	LLOG_SIZE_REPL_CTXT = 5,
+	LLOG_TEST_ORIG_CTXT = 8,
+	LLOG_CHANGELOG_ORIG_CTXT = 12, /**< changelog generation on mdd */
+	LLOG_CHANGELOG_REPL_CTXT = 13, /**< changelog access on clients */
+	/* for multiple changelog consumers */
+	LLOG_CHANGELOG_USER_ORIG_CTXT = 14,
+	LLOG_AGENT_ORIG_CTXT = 15, /**< agent requests generation on cdt */
+	LLOG_MAX_CTXTS
+} llog_ctxt_id;
 
 /** Identifier for a single log object */
 struct llog_logid {
