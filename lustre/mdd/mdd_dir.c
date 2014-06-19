@@ -688,7 +688,8 @@ int mdd_declare_changelog_store(const struct lu_env *env,
 	if (ctxt == NULL)
 		return -ENXIO;
 
-	rc = llog_declare_add(env, ctxt->loc_handle, &rec->cr_hdr, handle);
+	rc = llog_declare_add(env, ctxt->loc_handle, &rec->cr_hdr,
+			      handle->th_storage_th);
 	llog_ctxt_put(ctxt);
 
 	return rc;
@@ -727,7 +728,8 @@ int mdd_changelog_store(const struct lu_env *env, struct mdd_device *mdd,
 		return -ENXIO;
 
 	/* nested journal transaction */
-	rc = llog_add(env, ctxt->loc_handle, &rec->cr_hdr, NULL, th);
+	rc = llog_add(env, ctxt->loc_handle, &rec->cr_hdr, NULL,
+		      th->th_storage_th);
 	llog_ctxt_put(ctxt);
 	if (rc > 0)
 		rc = 0;
@@ -1118,6 +1120,8 @@ int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
 	if (unlikely(rc == -ENOSPC) && S_ISREG(mdd_object_type(mdd_obj)) &&
 	    mdd_object_remote(mdd_obj) == 0) {
 		struct lfsck_request *lr = &mdd_env_info(env)->mti_lr;
+		struct thandle	*sub_th;
+		struct dt_object *dt_obj;
 
 		/* XXX: If the linkEA is overflow, then we need to notify the
 		 *	namespace LFSCK to skip "nlink" attribute verification
@@ -1127,8 +1131,13 @@ int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
 		 *	mechanism in future. LU-5802. */
 		lfsck_pack_rfa(lr, mdo2fid(mdd_obj), LE_SKIP_NLINK,
 			       LFSCK_TYPE_NAMESPACE);
+
+		dt_obj = dt_locate(env, mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom,
+				   mdd_object_fid(mdd_obj));
+		sub_th = get_sub_thandle(env, handle, dt_obj);
+		lu_object_put(env, &dt_obj->do_lu);
 		lfsck_in_notify(env, mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom,
-				lr, handle);
+				lr, sub_th);
 	}
 
 	return rc;
@@ -1159,6 +1168,8 @@ int mdd_declare_links_add(const struct lu_env *env, struct mdd_object *mdd_obj,
 
 	if (mdd_object_remote(mdd_obj) == 0 && overflow == MLAO_CHECK) {
 		struct lfsck_request *lr = &mdd_env_info(env)->mti_lr;
+		struct thandle	*sub_th;
+		struct dt_object *dt_obj;
 
 		/* XXX: If the linkEA is overflow, then we need to notify the
 		 *	namespace LFSCK to skip "nlink" attribute verification
@@ -1168,9 +1179,13 @@ int mdd_declare_links_add(const struct lu_env *env, struct mdd_object *mdd_obj,
 		 *	mechanism in future. LU-5802. */
 		lfsck_pack_rfa(lr, mdo2fid(mdd_obj), LE_SKIP_NLINK_DECLARE,
 			       LFSCK_TYPE_NAMESPACE);
+		dt_obj = dt_locate(env, mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom,
+				   mdd_object_fid(mdd_obj));
+		sub_th = get_sub_thandle(env, handle, dt_obj);
+		lu_object_put(env, &dt_obj->do_lu);
 		rc = lfsck_in_notify(env,
 				     mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom,
-				     lr, handle);
+				     lr, sub_th);
 	}
 
 	return rc;
@@ -2088,13 +2103,6 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 		if (rc)
 			return rc;
 	}
-
-	/* XXX: For remote create, it should indicate the remote RPC
-	 * will be sent after local transaction is finished, which
-	 * is not very nice, but it will be removed once we fully support
-	 * async update */
-	if (mdd_object_remote(p) && handle->th_update != NULL)
-		handle->th_update->tu_sent_after_local_trans = 1;
 out:
 	return rc;
 }
