@@ -48,13 +48,32 @@ struct update_buffer {
 	size_t				ub_req_size;
 };
 
+/* top/sub_thandle are used to manage the distribute transaction, which
+ * includes updates on several nodes. top_handle is used to represent the
+ * whole operation, and sub_thandle is used to represent the update on
+ * each node. */
+struct top_thandle {
+	struct thandle		tt_super;
+
+	/* The master sub transaction. */
+	struct thandle		*tt_child;
+
+	/* Other sub transactions will be listed here. */
+	struct list_head	tt_sub_trans_list;
+};
+
+struct sub_thandle {
+	/* point to the osd/osp_thandle */
+	struct thandle		*st_sub_th;
+	struct list_head	st_list;
+};
+
 /**
  * Tracking the updates being executed on this dt_device.
  */
 struct dt_update_request {
 	struct dt_device		*dur_dt;
 	/* attached itself to thandle */
-	struct list_head		dur_list;
 	int				dur_flags;
 	/* update request result */
 	int				dur_rc;
@@ -167,13 +186,8 @@ static inline void update_inc_batchid(struct dt_update_request *update)
 }
 
 /* target/out_lib.c */
-struct thandle_update;
-struct dt_update_request *out_find_update(struct thandle_update *tu,
-					  struct dt_device *dt_dev);
 void dt_update_request_destroy(struct dt_update_request *update);
 struct dt_update_request *dt_update_request_create(struct dt_device *dt);
-struct dt_update_request *dt_update_request_find_or_create(struct thandle *th,
-							  struct dt_object *dt);
 int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			const struct object_update_request *ureq,
 			struct ptlrpc_request **reqp);
@@ -220,4 +234,16 @@ int out_index_lookup_pack(const struct lu_env *env, struct update_buffer *ubuf,
 			  const struct dt_key *key);
 int out_xattr_get_pack(const struct lu_env *env, struct update_buffer *ubuf,
 		       const struct lu_fid *fid, const char *name);
+
+/* target/update_trans.c */
+struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
+				const struct dt_object *sub_obj);
+struct thandle *
+top_trans_create(const struct lu_env *env, struct dt_device *master_dev);
+
+int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
+		    struct thandle *th);
+
+int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
+		   struct thandle *th);
 #endif
