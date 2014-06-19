@@ -88,9 +88,15 @@ static int lod_declare_index_insert(const struct lu_env *env,
 				    struct dt_object *dt,
 				    const struct dt_rec *rec,
 				    const struct dt_key *key,
-				    struct thandle *handle)
+				    struct thandle *th)
 {
-	return dt_declare_insert(env, dt_object_child(dt), rec, key, handle);
+	struct thandle *sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
+	return dt_declare_insert(env, dt_object_child(dt), rec, key, sub_th);
 }
 
 /**
@@ -108,7 +114,14 @@ static int lod_index_insert(const struct lu_env *env,
 			    struct lustre_capa *capa,
 			    int ign)
 {
-	return dt_insert(env, dt_object_child(dt), rec, key, th, capa, ign);
+	struct thandle *sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
+	return dt_insert(env, dt_object_child(dt), rec, key, sub_th,
+			 capa, ign);
 }
 
 /**
@@ -124,7 +137,13 @@ static int lod_declare_index_delete(const struct lu_env *env,
 				    const struct dt_key *key,
 				    struct thandle *th)
 {
-	return dt_declare_delete(env, dt_object_child(dt), key, th);
+	struct thandle *sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
+	return dt_declare_delete(env, dt_object_child(dt), key, sub_th);
 }
 
 /**
@@ -140,7 +159,13 @@ static int lod_index_delete(const struct lu_env *env,
 			    struct thandle *th,
 			    struct lustre_capa *capa)
 {
-	return dt_delete(env, dt_object_child(dt), key, th, capa);
+	struct thandle *sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
+	return dt_delete(env, dt_object_child(dt), key, sub_th, capa);
 }
 
 /**
@@ -1081,7 +1106,7 @@ static int lod_attr_get(const struct lu_env *env,
  **/
 static int lod_mark_dead_object(const struct lu_env *env,
 				struct dt_object *dt,
-				struct thandle *handle,
+				struct thandle *th,
 				bool declare)
 {
 	struct lod_object	*lo = lod_dt_obj(dt);
@@ -1111,7 +1136,14 @@ static int lod_mark_dead_object(const struct lu_env *env,
 	dead_hash_type = le32_to_cpu(lmv->lmv_hash_type) | LMV_HASH_FLAG_DEAD;
 	lmv->lmv_hash_type = cpu_to_le32(dead_hash_type);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
+		struct thandle *stripe_sub_th;
 		struct lu_buf buf;
+
+		stripe_sub_th = get_sub_thandle(env, th, lo->ldo_stripe[i]);
+		if (IS_ERR(stripe_sub_th)) {
+			rc = PTR_ERR(stripe_sub_th);
+			break;
+		}
 
 		lmv->lmv_master_mdt_index = i;
 		buf.lb_buf = lmv;
@@ -1119,11 +1151,12 @@ static int lod_mark_dead_object(const struct lu_env *env,
 		if (declare) {
 			rc = dt_declare_xattr_set(env, lo->ldo_stripe[i], &buf,
 						  XATTR_NAME_LMV,
-						  LU_XATTR_REPLACE, handle);
+						  LU_XATTR_REPLACE,
+						  stripe_sub_th);
 		} else {
 			rc = dt_xattr_set(env, lo->ldo_stripe[i], &buf,
 					  XATTR_NAME_LMV, LU_XATTR_REPLACE,
-					  handle, BYPASS_CAPA);
+					  stripe_sub_th, BYPASS_CAPA);
 		}
 		if (rc != 0)
 			break;
@@ -1143,24 +1176,28 @@ static int lod_mark_dead_object(const struct lu_env *env,
 static int lod_declare_attr_set(const struct lu_env *env,
 				struct dt_object *dt,
 				const struct lu_attr *attr,
-				struct thandle *handle)
+				struct thandle *th)
 {
 	struct dt_object  *next = dt_object_child(dt);
 	struct lod_object *lo = lod_dt_obj(dt);
+	struct thandle	  *sub_th;
 	int                rc, i;
 	ENTRY;
 
 	/* Set dead object on all other stripes */
 	if (attr->la_valid & LA_FLAGS && !(attr->la_valid & ~LA_FLAGS) &&
 	    attr->la_flags & LUSTRE_SLAVE_DEAD_FL) {
-		rc = lod_mark_dead_object(env, dt, handle, true);
+		rc = lod_mark_dead_object(env, dt, th, true);
 		RETURN(rc);
 	}
 
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
 	/*
 	 * declare setattr on the local object
 	 */
-	rc = dt_declare_attr_set(env, next, attr, handle);
+	rc = dt_declare_attr_set(env, next, attr, sub_th);
 	if (rc)
 		RETURN(rc);
 
@@ -1199,20 +1236,26 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	 */
 	LASSERT(lo->ldo_stripe);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		if (likely(lo->ldo_stripe[i] != NULL)) {
-			rc = dt_declare_attr_set(env, lo->ldo_stripe[i], attr,
-						 handle);
-			if (rc != 0) {
-				CERROR("failed declaration: %d\n", rc);
-				break;
-			}
-		}
+		struct thandle	  *stripe_sub_th;
+
+		if (lo->ldo_stripe[i] == NULL)
+			continue;
+
+		stripe_sub_th = get_sub_thandle(env, th,
+						  lo->ldo_stripe[i]);
+		if (IS_ERR(stripe_sub_th))
+			RETURN(PTR_ERR(stripe_sub_th));
+
+		rc = dt_declare_attr_set(env, lo->ldo_stripe[i], attr,
+					 stripe_sub_th);
+		if (rc != 0)
+			RETURN(rc);
 	}
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
 	    dt_object_exists(next) != 0 &&
 	    dt_object_remote(next) == 0)
-		dt_declare_xattr_del(env, next, XATTR_NAME_LOV, handle);
+		dt_declare_xattr_del(env, next, XATTR_NAME_LOV, sub_th);
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CHANGE_STRIPE) &&
 	    dt_object_exists(next) &&
@@ -1223,7 +1266,7 @@ static int lod_declare_attr_set(const struct lu_env *env,
 		buf->lb_buf = info->lti_ea_store;
 		buf->lb_len = info->lti_ea_store_size;
 		dt_declare_xattr_set(env, next, buf, XATTR_NAME_LOV,
-				     LU_XATTR_REPLACE, handle);
+				     LU_XATTR_REPLACE, sub_th);
 	}
 
 	RETURN(rc);
@@ -1240,25 +1283,30 @@ static int lod_declare_attr_set(const struct lu_env *env,
 static int lod_attr_set(const struct lu_env *env,
 			struct dt_object *dt,
 			const struct lu_attr *attr,
-			struct thandle *handle,
+			struct thandle *th,
 			struct lustre_capa *capa)
 {
 	struct dt_object	*next = dt_object_child(dt);
 	struct lod_object	*lo = lod_dt_obj(dt);
+	struct thandle		*sub_th;
 	int			rc, i;
 	ENTRY;
 
 	/* Set dead object on all other stripes */
 	if (attr->la_valid & LA_FLAGS && !(attr->la_valid & ~LA_FLAGS) &&
 	    attr->la_flags & LUSTRE_SLAVE_DEAD_FL) {
-		rc = lod_mark_dead_object(env, dt, handle, false);
+		rc = lod_mark_dead_object(env, dt, th, false);
 		RETURN(rc);
 	}
+
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
 
 	/*
 	 * apply changes to the local object
 	 */
-	rc = dt_attr_set(env, next, attr, handle, capa);
+	rc = dt_attr_set(env, next, attr, sub_th, capa);
 	if (rc)
 		RETURN(rc);
 
@@ -1282,13 +1330,23 @@ static int lod_attr_set(const struct lu_env *env,
 	 */
 	LASSERT(lo->ldo_stripe);
 	for (i = 0; i < lo->ldo_stripenr; i++) {
+		struct thandle	  *stripe_sub_th;
+
 		if (unlikely(lo->ldo_stripe[i] == NULL))
 			continue;
 		if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
 		    (dt_object_exists(lo->ldo_stripe[i]) == 0))
 			continue;
 
-		rc = dt_attr_set(env, lo->ldo_stripe[i], attr, handle, capa);
+		stripe_sub_th = get_sub_thandle(env, th,
+						  lo->ldo_stripe[i]);
+		if (IS_ERR(stripe_sub_th)) {
+			rc = PTR_ERR(stripe_sub_th);
+			break;
+		}
+
+		rc = dt_attr_set(env, lo->ldo_stripe[i], attr,
+				 stripe_sub_th, capa);
 		if (rc != 0) {
 			CERROR("failed declaration: %d\n", rc);
 			break;
@@ -1298,7 +1356,8 @@ static int lod_attr_set(const struct lu_env *env,
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
 	    dt_object_exists(next) != 0 &&
 	    dt_object_remote(next) == 0)
-		dt_xattr_del(env, next, XATTR_NAME_LOV, handle, BYPASS_CAPA);
+		dt_xattr_del(env, next, XATTR_NAME_LOV, sub_th,
+			     BYPASS_CAPA);
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CHANGE_STRIPE) &&
 	    dt_object_exists(next) &&
@@ -1330,7 +1389,7 @@ static int lod_attr_set(const struct lu_env *env,
 		fid_to_ostid(fid, oi);
 		ostid_cpu_to_le(oi, &objs->l_ost_oi);
 		dt_xattr_set(env, next, buf, XATTR_NAME_LOV,
-			     LU_XATTR_REPLACE, handle, BYPASS_CAPA);
+			     LU_XATTR_REPLACE, sub_th, BYPASS_CAPA);
 	}
 
 	RETURN(rc);
@@ -1655,6 +1714,7 @@ static int lod_prep_md_striped_create(const struct lu_env *env,
 	struct lod_tgt_descs	*ltd = &lod->lod_mdt_descs;
 	struct lod_object	*lo = lod_dt_obj(dt);
 	struct lod_thread_info	*info = lod_env_info(env);
+	struct thandle		*sub_th;
 	struct dt_object	**stripe;
 	struct lu_buf		lmv_buf;
 	struct lu_buf		slave_lmv_buf;
@@ -1806,14 +1866,24 @@ next:
 		GOTO(out_put, rc = -EINVAL);
 
 	rec->rec_type = S_IFDIR;
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		GOTO(out_put, rc = PTR_ERR(sub_th));
+
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		struct dt_object	*dto		= stripe[i];
-		char			*stripe_name	= info->lti_key;
+		struct dt_object *dto = stripe[i];
+		char		 *stripe_name = info->lti_key;
 		struct lu_name		*sname;
 		struct linkea_data	 ldata		= { 0 };
 		struct lu_buf		 linkea_buf;
+		struct thandle	 *stripe_sub_th;
 
-		rc = dt_declare_create(env, dto, attr, NULL, dof, th);
+		stripe_sub_th = get_sub_thandle(env, th, dto);
+		if (IS_ERR(stripe_sub_th))
+			RETURN(PTR_ERR(stripe_sub_th));
+
+		rc = dt_declare_create(env, dto, attr, NULL, dof,
+				       stripe_sub_th);
 		if (rc != 0)
 			GOTO(out_put, rc);
 
@@ -1822,14 +1892,16 @@ next:
 
 		rec->rec_fid = lu_object_fid(&dto->do_lu);
 		rc = dt_declare_insert(env, dto, (const struct dt_rec *)rec,
-				       (const struct dt_key *)dot, th);
+				       (const struct dt_key *)dot,
+				       stripe_sub_th);
 		if (rc != 0)
 			GOTO(out_put, rc);
 
 		/* master stripe FID will be put to .. */
 		rec->rec_fid = lu_object_fid(&dt->do_lu);
 		rc = dt_declare_insert(env, dto, (const struct dt_rec *)rec,
-				       (const struct dt_key *)dotdot, th);
+				       (const struct dt_key *)dotdot,
+				       stripe_sub_th);
 		if (rc != 0)
 			GOTO(out_put, rc);
 
@@ -1865,7 +1937,7 @@ next:
 			rc = dt_declare_xattr_set(env, dto,
 						  &info->lti_buf,
 						  XATTR_NAME_LOV,
-						  0, th);
+						  0, stripe_sub_th);
 			OBD_FREE_PTR(v3);
 			if (rc != 0)
 				GOTO(out_put, rc);
@@ -1881,7 +1953,8 @@ next:
 				slave_lmm->lmv_master_mdt_index =
 							cpu_to_le32(i);
 			rc = dt_declare_xattr_set(env, dto, &slave_lmv_buf,
-						  XATTR_NAME_LMV, 0, th);
+						  XATTR_NAME_LMV, 0,
+						  stripe_sub_th);
 			if (rc != 0)
 				GOTO(out_put, rc);
 		}
@@ -1906,24 +1979,26 @@ next:
 		linkea_buf.lb_buf = ldata.ld_buf->lb_buf;
 		linkea_buf.lb_len = ldata.ld_leh->leh_len;
 		rc = dt_declare_xattr_set(env, dto, &linkea_buf,
-					  XATTR_NAME_LINK, 0, th);
+					  XATTR_NAME_LINK, 0, stripe_sub_th);
 		if (rc != 0)
 			GOTO(out_put, rc);
 
 		rec->rec_fid = lu_object_fid(&dto->do_lu);
 		rc = dt_declare_insert(env, dt_object_child(dt),
 				       (const struct dt_rec *)rec,
-				       (const struct dt_key *)stripe_name, th);
+				       (const struct dt_key *)stripe_name,
+				       sub_th);
 		if (rc != 0)
 			GOTO(out_put, rc);
 
-		rc = dt_declare_ref_add(env, dt_object_child(dt), th);
+		rc = dt_declare_ref_add(env, dt_object_child(dt),
+					sub_th);
 		if (rc != 0)
 			GOTO(out_put, rc);
 	}
 
 	rc = dt_declare_xattr_set(env, dt_object_child(dt), &lmv_buf,
-				  XATTR_NAME_LMV, 0, th);
+				  XATTR_NAME_LMV, 0, sub_th);
 	if (rc != 0)
 		GOTO(out_put, rc);
 
@@ -2025,9 +2100,14 @@ static int lod_dir_declare_xattr_set(const struct lu_env *env,
 	struct dt_object	*next = dt_object_child(dt);
 	struct lod_device	*d = lu2lod_dev(dt->do_lu.lo_dev);
 	struct lod_object	*lo = lod_dt_obj(dt);
+	struct thandle		*sub_th;
 	int			i;
 	int			rc;
 	ENTRY;
+
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
 
 	if (strcmp(name, XATTR_NAME_DEFAULT_LMV) == 0) {
 		struct lmv_user_md_v1 *lum;
@@ -2039,7 +2119,7 @@ static int lod_dir_declare_xattr_set(const struct lu_env *env,
 			RETURN(rc);
 	}
 
-	rc = dt_declare_xattr_set(env, next, buf, name, fl, th);
+	rc = dt_declare_xattr_set(env, next, buf, name, fl, sub_th);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -2056,9 +2136,16 @@ static int lod_dir_declare_xattr_set(const struct lu_env *env,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
+		struct thandle *stripe_sub_th;
+
 		LASSERT(lo->ldo_stripe[i]);
+
+		stripe_sub_th = get_sub_thandle(env, th, lo->ldo_stripe[i]);
+		if (IS_ERR(stripe_sub_th))
+			RETURN(PTR_ERR(stripe_sub_th));
+
 		rc = dt_declare_xattr_set(env, lo->ldo_stripe[i], buf,
-					  name, fl, th);
+					  name, fl, stripe_sub_th);
 		if (rc != 0)
 			break;
 	}
@@ -2113,7 +2200,13 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 	} else if (S_ISDIR(mode)) {
 		rc = lod_dir_declare_xattr_set(env, dt, buf, name, fl, th);
 	} else {
-		rc = dt_declare_xattr_set(env, next, buf, name, fl, th);
+		struct thandle *sub_th;
+
+		sub_th = get_sub_thandle(env, th, next);
+		if (IS_ERR(sub_th))
+			return PTR_ERR(sub_th);
+
+		rc = dt_declare_xattr_set(env, next, buf, name, fl, sub_th);
 	}
 
 	RETURN(rc);
@@ -2159,11 +2252,16 @@ static int lod_xattr_set_internal(const struct lu_env *env,
 {
 	struct dt_object	*next = dt_object_child(dt);
 	struct lod_object	*lo = lod_dt_obj(dt);
+	struct thandle *sub_th;
 	int			rc;
 	int			i;
 	ENTRY;
 
-	rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
+	rc = dt_xattr_set(env, next, buf, name, fl, sub_th, capa);
 	if (rc != 0 || !S_ISDIR(dt->do_lu.lo_header->loh_attr))
 		RETURN(rc);
 
@@ -2175,9 +2273,16 @@ static int lod_xattr_set_internal(const struct lu_env *env,
 		RETURN(0);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
+		struct thandle	*stripe_sub_th;
+
 		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_xattr_set(env, lo->ldo_stripe[i], buf, name, fl, th,
-				  capa);
+
+		stripe_sub_th = get_sub_thandle(env, th, lo->ldo_stripe[i]);
+		if (IS_ERR(stripe_sub_th))
+			RETURN(PTR_ERR(stripe_sub_th));
+
+		rc = dt_xattr_set(env, lo->ldo_stripe[i], buf, name, fl,
+				  stripe_sub_th, capa);
 		if (rc != 0)
 			break;
 	}
@@ -2206,11 +2311,16 @@ static int lod_xattr_del_internal(const struct lu_env *env,
 {
 	struct dt_object	*next = dt_object_child(dt);
 	struct lod_object	*lo = lod_dt_obj(dt);
+	struct thandle		*sub_th;
 	int			rc;
 	int			i;
 	ENTRY;
 
-	rc = dt_xattr_del(env, next, name, th, capa);
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
+	rc = dt_xattr_del(env, next, name, sub_th, capa);
 	if (rc != 0 || !S_ISDIR(dt->do_lu.lo_header->loh_attr))
 		RETURN(rc);
 
@@ -2218,8 +2328,15 @@ static int lod_xattr_del_internal(const struct lu_env *env,
 		RETURN(rc);
 
 	for (i = 0; i < lo->ldo_stripenr; i++) {
+		struct thandle *stripe_sub_th;
+
 		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_xattr_del(env, lo->ldo_stripe[i], name, th,
+
+		stripe_sub_th = get_sub_thandle(env, th, lo->ldo_stripe[i]);
+		if (IS_ERR(stripe_sub_th))
+			RETURN(PTR_ERR(stripe_sub_th));
+
+		rc = dt_xattr_del(env, lo->ldo_stripe[i], name, stripe_sub_th,
 				  capa);
 		if (rc != 0)
 			break;
@@ -2400,6 +2517,7 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 	struct lmv_mds_md_v1	*lmm;
 	struct lmv_mds_md_v1	*slave_lmm = NULL;
 	struct dt_insert_rec	*rec = &info->lti_dt_rec;
+	struct thandle		*sub_th;
 	int			i;
 	int			rc;
 	ENTRY;
@@ -2424,6 +2542,10 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 		RETURN(rc);
 	lmm = lmv_buf.lb_buf;
 
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
 	OBD_ALLOC_PTR(slave_lmm);
 	if (slave_lmm == NULL)
 		RETURN(-ENOMEM);
@@ -2434,30 +2556,38 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 
 	rec->rec_type = S_IFDIR;
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		struct dt_object	*dto;
-		char			*stripe_name	= info->lti_key;
+		struct dt_object *dto;
+		struct thandle	 *stripe_sub_th;
+		char		 *stripe_name = info->lti_key;
 		struct lu_name		*sname;
 		struct linkea_data	 ldata		= { 0 };
 		struct lu_buf		 linkea_buf;
 
 		dto = lo->ldo_stripe[i];
+
+		stripe_sub_th = get_sub_thandle(env, th, dto);
+		if (IS_ERR(stripe_sub_th))
+			GOTO(out, rc = PTR_ERR(stripe_sub_th));
+
 		dt_write_lock(env, dto, MOR_TGT_CHILD);
-		rc = dt_create(env, dto, attr, NULL, dof, th);
+		rc = dt_create(env, dto, attr, NULL, dof, stripe_sub_th);
 		dt_write_unlock(env, dto);
 		if (rc != 0)
-			RETURN(rc);
+			GOTO(out, rc);
 
 		rec->rec_fid = lu_object_fid(&dto->do_lu);
 		rc = dt_insert(env, dto, (const struct dt_rec *)rec,
-			       (const struct dt_key *)dot, th, capa, 0);
+			       (const struct dt_key *)dot, stripe_sub_th, capa,
+			       0);
 		if (rc != 0)
-			RETURN(rc);
+			GOTO(out, rc);
 
 		rec->rec_fid = lu_object_fid(&dt->do_lu);
 		rc = dt_insert(env, dto, (struct dt_rec *)rec,
-			       (const struct dt_key *)dotdot, th, capa, 0);
+			       (const struct dt_key *)dotdot, stripe_sub_th,
+			       capa, 0);
 		if (rc != 0)
-			RETURN(rc);
+			GOTO(out, rc);
 
 		if (lo->ldo_striping_cached &&
 		    !LOVEA_DELETE_VALUES(lo->ldo_def_stripe_size,
@@ -2488,7 +2618,8 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 			info->lti_buf.lb_buf = v3;
 			info->lti_buf.lb_len = sizeof(*v3);
 			rc = dt_xattr_set(env, dto, &info->lti_buf,
-					  XATTR_NAME_LOV, 0, th, capa);
+					  XATTR_NAME_LOV, 0, stripe_sub_th,
+					  capa);
 			OBD_FREE_PTR(v3);
 			if (rc != 0)
 				GOTO(out, rc);
@@ -2504,7 +2635,8 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 				slave_lmm->lmv_master_mdt_index =
 							cpu_to_le32(i);
 			rc = dt_xattr_set(env, dto, &slave_lmv_buf,
-					  XATTR_NAME_LMV, fl, th, capa);
+					  XATTR_NAME_LMV, fl, stripe_sub_th,
+					  capa);
 			if (rc != 0)
 				GOTO(out, rc);
 		}
@@ -2529,26 +2661,26 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 		linkea_buf.lb_buf = ldata.ld_buf->lb_buf;
 		linkea_buf.lb_len = ldata.ld_leh->leh_len;
 		rc = dt_xattr_set(env, dto, &linkea_buf, XATTR_NAME_LINK,
-				  0, th, BYPASS_CAPA);
+				  0, stripe_sub_th, BYPASS_CAPA);
 		if (rc != 0)
 			GOTO(out, rc);
 
 		rec->rec_fid = lu_object_fid(&dto->do_lu);
 		rc = dt_insert(env, dt_object_child(dt),
 			       (const struct dt_rec *)rec,
-			       (const struct dt_key *)stripe_name, th, capa, 0);
+			       (const struct dt_key *)stripe_name, sub_th, capa,
+			       0);
 		if (rc != 0)
 			GOTO(out, rc);
 
-		rc = dt_ref_add(env, dt_object_child(dt), th);
+		rc = dt_ref_add(env, dt_object_child(dt), sub_th);
 		if (rc != 0)
 			GOTO(out, rc);
 	}
 
 	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_MASTER_LMV))
 		rc = dt_xattr_set(env, dt_object_child(dt), &lmv_buf,
-				  XATTR_NAME_LMV, fl, th, capa);
-
+				  XATTR_NAME_LMV, fl, sub_th, capa);
 out:
 	if (slave_lmm != NULL)
 		OBD_FREE_PTR(slave_lmm);
@@ -2743,7 +2875,12 @@ static int lod_xattr_set(const struct lu_env *env,
 {
 	struct dt_object	*next = dt_object_child(dt);
 	int			 rc;
+	struct thandle		*sub_th;
 	ENTRY;
+
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
 
 	if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
 	    strcmp(name, XATTR_NAME_LMV) == 0) {
@@ -2751,7 +2888,8 @@ static int lod_xattr_set(const struct lu_env *env,
 
 		if (lmm != NULL && le32_to_cpu(lmm->lmv_hash_type) &
 						LMV_HASH_FLAG_MIGRATION)
-			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
+			rc = dt_xattr_set(env, next, buf, name, fl, sub_th,
+					  capa);
 		else
 			rc = lod_dir_striping_create(env, dt, NULL, NULL, th);
 
@@ -2779,7 +2917,8 @@ static int lod_xattr_set(const struct lu_env *env,
 		if (fl & LU_XATTR_REPLACE) {
 			/* free stripes, then update disk */
 			lod_object_free_striping(env, lod_dt_obj(dt));
-			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
+			rc = dt_xattr_set(env, next, buf, name, fl, sub_th,
+					  capa);
 		} else {
 			rc = lod_striping_create(env, dt, NULL, NULL, th);
 		}
@@ -2802,7 +2941,13 @@ static int lod_declare_xattr_del(const struct lu_env *env,
 				 struct dt_object *dt, const char *name,
 				 struct thandle *th)
 {
-	return dt_declare_xattr_del(env, dt_object_child(dt), name, th);
+	struct thandle	*sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
+	return dt_declare_xattr_del(env, dt_object_child(dt), name, sub_th);
 }
 
 /**
@@ -2817,9 +2962,16 @@ static int lod_xattr_del(const struct lu_env *env, struct dt_object *dt,
 			 const char *name, struct thandle *th,
 			 struct lustre_capa *capa)
 {
+	struct thandle	*sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
 	if (!strcmp(name, XATTR_NAME_LOV))
 		lod_object_free_striping(env, lod_dt_obj(dt));
-	return dt_xattr_del(env, dt_object_child(dt), name, th, capa);
+
+	return dt_xattr_del(env, dt_object_child(dt), name, sub_th, capa);
 }
 
 /**
@@ -3258,6 +3410,7 @@ static int lod_declare_init_size(const struct lu_env *env,
 	struct dt_object   *next = dt_object_child(dt);
 	struct lod_object  *lo = lod_dt_obj(dt);
 	struct lu_attr	   *attr = &lod_env_info(env)->lti_attr;
+	struct thandle	   *sub_th;
 	uint64_t	    size, offs;
 	int		    rc, stripe;
 	ENTRY;
@@ -3286,7 +3439,11 @@ static int lod_declare_init_size(const struct lu_env *env,
 	attr->la_valid = LA_SIZE;
 	attr->la_size = size;
 
-	rc = dt_declare_attr_set(env, lo->ldo_stripe[stripe], attr, th);
+	sub_th = get_sub_thandle(env, th, lo->ldo_stripe[stripe]);
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
+	rc = dt_declare_attr_set(env, lo->ldo_stripe[stripe], attr, sub_th);
 
 	RETURN(rc);
 }
@@ -3317,6 +3474,7 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 	struct lod_thread_info	*info = lod_env_info(env);
 	struct dt_object	*next = dt_object_child(dt);
 	struct lod_object	*lo = lod_dt_obj(dt);
+	struct thandle		*sub_th;
 	int			 rc;
 	ENTRY;
 
@@ -3352,8 +3510,12 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 		info->lti_buf = *lovea;
 	}
 
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		GOTO(out, rc = PTR_ERR(sub_th));
+
 	rc = dt_declare_xattr_set(env, next, &info->lti_buf,
-				  XATTR_NAME_LOV, 0, th);
+				  XATTR_NAME_LOV, 0, sub_th);
 	if (rc)
 		GOTO(out, rc);
 
@@ -3389,6 +3551,7 @@ static int lod_declare_object_create(const struct lu_env *env,
 {
 	struct dt_object   *next = dt_object_child(dt);
 	struct lod_object  *lo = lod_dt_obj(dt);
+	struct thandle	   *sub_th;
 	int		    rc;
 	ENTRY;
 
@@ -3396,10 +3559,14 @@ static int lod_declare_object_create(const struct lu_env *env,
 	LASSERT(attr);
 	LASSERT(th);
 
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
 	/*
 	 * first of all, we declare creation of local object
 	 */
-	rc = dt_declare_create(env, next, attr, hint, dof, th);
+	rc = dt_declare_create(env, next, attr, hint, dof, sub_th);
 	if (rc)
 		GOTO(out, rc);
 
@@ -3461,9 +3628,16 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 
 	/* create all underlying objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
-		LASSERT(lo->ldo_stripe[i]);
-		rc = dt_create(env, lo->ldo_stripe[i], attr, NULL, dof, th);
+		struct thandle *stripe_sub_th;
 
+		LASSERT(lo->ldo_stripe[i]);
+
+		stripe_sub_th = get_sub_thandle(env, th, lo->ldo_stripe[i]);
+		if (IS_ERR(stripe_sub_th))
+			RETURN(PTR_ERR(stripe_sub_th));
+
+		rc = dt_create(env, lo->ldo_stripe[i], attr, NULL, dof,
+			       stripe_sub_th);
 		if (rc)
 			break;
 	}
@@ -3489,11 +3663,16 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 {
 	struct dt_object   *next = dt_object_child(dt);
 	struct lod_object  *lo = lod_dt_obj(dt);
+	struct thandle	   *sub_th;
 	int		    rc;
 	ENTRY;
 
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
 	/* create local object */
-	rc = dt_create(env, next, attr, hint, dof, th);
+	rc = dt_create(env, next, attr, hint, dof, sub_th);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -3523,6 +3702,7 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	struct lod_object  *lo = lod_dt_obj(dt);
 	struct lod_thread_info *info = lod_env_info(env);
 	char		   *stripe_name = info->lti_key;
+	struct thandle	   *sub_th;
 	int		    rc, i;
 	ENTRY;
 
@@ -3535,6 +3715,10 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	if (rc)
 		RETURN(rc);
 
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
 	/* declare destroy for all underlying objects */
 	if (S_ISDIR(dt->do_lu.lo_header->loh_attr)) {
 		rc = next->do_ops->do_index_try(env, next,
@@ -3543,22 +3727,24 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 			RETURN(rc);
 
 		for (i = 0; i < lo->ldo_stripenr; i++) {
-			rc = dt_declare_ref_del(env, next, th);
+			rc = dt_declare_ref_del(env, next, sub_th);
 			if (rc != 0)
 				RETURN(rc);
 			snprintf(stripe_name, sizeof(info->lti_key), DFID":%d",
 				PFID(lu_object_fid(&lo->ldo_stripe[i]->do_lu)),
 				i);
 			rc = dt_declare_delete(env, next,
-					(const struct dt_key *)stripe_name, th);
+					(const struct dt_key *)stripe_name,
+					sub_th);
 			if (rc != 0)
 				RETURN(rc);
 		}
 	}
+
 	/*
 	 * we declare destroy for the local object
 	 */
-	rc = dt_declare_destroy(env, next, th);
+	rc = dt_declare_destroy(env, next, sub_th);
 	if (rc)
 		RETURN(rc);
 
@@ -3568,7 +3754,15 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	/* declare destroy all striped objects */
 	for (i = 0; i < lo->ldo_stripenr; i++) {
 		if (likely(lo->ldo_stripe[i] != NULL)) {
-			rc = dt_declare_destroy(env, lo->ldo_stripe[i], th);
+			struct thandle *stripe_sub_th;
+
+			stripe_sub_th = get_sub_thandle(env, th,
+							  lo->ldo_stripe[i]);
+			if (IS_ERR(stripe_sub_th))
+				RETURN(PTR_ERR(stripe_sub_th));
+
+			rc = dt_declare_destroy(env, lo->ldo_stripe[i],
+						stripe_sub_th);
 			if (rc != 0)
 				break;
 		}
@@ -3593,9 +3787,14 @@ static int lod_object_destroy(const struct lu_env *env,
 	struct lod_object *lo = lod_dt_obj(dt);
 	struct lod_thread_info *info = lod_env_info(env);
 	char		   *stripe_name = info->lti_key;
+	struct thandle	   *sub_th;
 	unsigned int       i;
 	int                rc;
 	ENTRY;
+
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
 
 	/* destroy sub-stripe of master object */
 	if (S_ISDIR(dt->do_lu.lo_header->loh_attr)) {
@@ -3605,7 +3804,7 @@ static int lod_object_destroy(const struct lu_env *env,
 			RETURN(rc);
 
 		for (i = 0; i < lo->ldo_stripenr; i++) {
-			rc = dt_ref_del(env, next, th);
+			rc = dt_ref_del(env, next, sub_th);
 			if (rc != 0)
 				RETURN(rc);
 
@@ -3619,12 +3818,13 @@ static int lod_object_destroy(const struct lu_env *env,
 
 			rc = dt_delete(env, next,
 				       (const struct dt_key *)stripe_name,
-				       th, BYPASS_CAPA);
+				       sub_th, BYPASS_CAPA);
 			if (rc != 0)
 				RETURN(rc);
 		}
 	}
-	rc = dt_destroy(env, next, th);
+
+	rc = dt_destroy(env, next, sub_th);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -3636,7 +3836,14 @@ static int lod_object_destroy(const struct lu_env *env,
 		if (likely(lo->ldo_stripe[i] != NULL) &&
 		    (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_SPEOBJ) ||
 		     i == cfs_fail_val)) {
-			rc = dt_destroy(env, lo->ldo_stripe[i], th);
+			struct thandle *stripe_sub_th;
+
+			stripe_sub_th = get_sub_thandle(env, th,
+							  lo->ldo_stripe[i]);
+			if (IS_ERR(stripe_sub_th))
+				RETURN(PTR_ERR(stripe_sub_th));
+
+			rc = dt_destroy(env, lo->ldo_stripe[i], stripe_sub_th);
 			if (rc != 0)
 				break;
 		}
@@ -3654,7 +3861,13 @@ static int lod_object_destroy(const struct lu_env *env,
 static int lod_declare_ref_add(const struct lu_env *env,
 			       struct dt_object *dt, struct thandle *th)
 {
-	return dt_declare_ref_add(env, dt_object_child(dt), th);
+	struct thandle *sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
+	return dt_declare_ref_add(env, dt_object_child(dt), sub_th);
 }
 
 /**
@@ -3665,7 +3878,13 @@ static int lod_declare_ref_add(const struct lu_env *env,
 static int lod_ref_add(const struct lu_env *env,
 		       struct dt_object *dt, struct thandle *th)
 {
-	return dt_ref_add(env, dt_object_child(dt), th);
+	struct thandle *sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
+	return dt_ref_add(env, dt_object_child(dt), sub_th);
 }
 
 /**
@@ -3677,7 +3896,13 @@ static int lod_ref_add(const struct lu_env *env,
 static int lod_declare_ref_del(const struct lu_env *env,
 			       struct dt_object *dt, struct thandle *th)
 {
-	return dt_declare_ref_del(env, dt_object_child(dt), th);
+	struct thandle *sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
+	return dt_declare_ref_del(env, dt_object_child(dt), sub_th);
 }
 
 /**
@@ -3688,7 +3913,13 @@ static int lod_declare_ref_del(const struct lu_env *env,
 static int lod_ref_del(const struct lu_env *env,
 		       struct dt_object *dt, struct thandle *th)
 {
-	return dt_ref_del(env, dt_object_child(dt), th);
+	struct thandle *sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
+	return dt_ref_del(env, dt_object_child(dt), sub_th);
 }
 
 /**
@@ -3940,8 +4171,14 @@ static ssize_t lod_declare_write(const struct lu_env *env,
 				 const struct lu_buf *buf, loff_t pos,
 				 struct thandle *th)
 {
-	return dt_declare_record_write(env, dt_object_child(dt),
-				       buf, pos, th);
+	struct thandle *sub_th;
+
+	sub_th = get_sub_thandle(env, th, dt_object_child(dt));
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
+	return dt_declare_record_write(env, dt_object_child(dt), buf, pos,
+				       sub_th);
 }
 
 /**
@@ -3954,8 +4191,15 @@ static ssize_t lod_write(const struct lu_env *env, struct dt_object *dt,
 			 struct thandle *th, struct lustre_capa *capa, int iq)
 {
 	struct dt_object *next = dt_object_child(dt);
-	LASSERT(next);
-	return next->do_body_ops->dbo_write(env, next, buf, pos, th, capa, iq);
+	struct thandle *sub_th;
+
+	LASSERT(next != NULL);
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		RETURN(PTR_ERR(sub_th));
+
+	return next->do_body_ops->dbo_write(env, next, buf, pos, sub_th, capa,
+					    iq);
 }
 
 static const struct dt_body_operations lod_body_lnk_ops = {
