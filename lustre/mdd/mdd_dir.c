@@ -669,6 +669,7 @@ int mdd_declare_changelog_store(const struct lu_env *env,
 	struct llog_ctxt		*ctxt;
 	struct llog_changelog_rec	*rec;
 	struct lu_buf			*buf;
+	struct thandle			*llog_th;
 	int				 reclen;
 	int				 rc;
 
@@ -689,7 +690,13 @@ int mdd_declare_changelog_store(const struct lu_env *env,
 	if (ctxt == NULL)
 		return -ENXIO;
 
-	rc = llog_declare_add(env, ctxt->loc_handle, &rec->cr_hdr, handle);
+	llog_th = thandle_get_sub(env, handle, ctxt->loc_handle->lgh_obj);
+	if (IS_ERR(llog_th))
+		GOTO(out_put, rc = PTR_ERR(llog_th));
+
+	rc = llog_declare_add(env, ctxt->loc_handle, &rec->cr_hdr, llog_th);
+
+out_put:
 	llog_ctxt_put(ctxt);
 
 	return rc;
@@ -707,6 +714,7 @@ int mdd_changelog_store(const struct lu_env *env, struct mdd_device *mdd,
 {
 	struct obd_device	*obd = mdd2obd_dev(mdd);
 	struct llog_ctxt	*ctxt;
+	struct thandle		*llog_th;
 	int			 rc;
 
 	rec->cr_hdr.lrh_len = llog_data_len(sizeof(*rec) +
@@ -727,12 +735,17 @@ int mdd_changelog_store(const struct lu_env *env, struct mdd_device *mdd,
 	if (ctxt == NULL)
 		return -ENXIO;
 
+	llog_th = thandle_get_sub(env, th, ctxt->loc_handle->lgh_obj);
+	if (IS_ERR(llog_th))
+		GOTO(out_put, rc = PTR_ERR(llog_th));
+
 	/* nested journal transaction */
-	rc = llog_add(env, ctxt->loc_handle, &rec->cr_hdr, NULL, th);
+	rc = llog_add(env, ctxt->loc_handle, &rec->cr_hdr, NULL, llog_th);
+
+out_put:
 	llog_ctxt_put(ctxt);
 	if (rc > 0)
 		rc = 0;
-
 	return rc;
 }
 
@@ -1116,9 +1129,11 @@ int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
 
 	rc = mdo_xattr_set(env, mdd_obj, buf, XATTR_NAME_LINK, 0, handle,
 			   mdd_object_capa(env, mdd_obj));
+
 	if (unlikely(rc == -ENOSPC) && S_ISREG(mdd_object_type(mdd_obj)) &&
 	    mdd_object_remote(mdd_obj) == 0) {
 		struct lfsck_request *lr = &mdd_env_info(env)->mti_lr;
+		struct thandle	*sub_th;
 
 		/* XXX: If the linkEA is overflow, then we need to notify the
 		 *	namespace LFSCK to skip "nlink" attribute verification
@@ -1128,8 +1143,11 @@ int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
 		 *	mechanism in future. LU-5802. */
 		lfsck_pack_rfa(lr, mdo2fid(mdd_obj), LE_SKIP_NLINK,
 			       LFSCK_TYPE_NAMESPACE);
+
+		sub_th = thandle_get_sub_by_dt(env, handle,
+				mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom);
 		lfsck_in_notify(env, mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom,
-				lr, handle);
+				lr, sub_th);
 	}
 
 	return rc;
@@ -1160,6 +1178,7 @@ int mdd_declare_links_add(const struct lu_env *env, struct mdd_object *mdd_obj,
 
 	if (mdd_object_remote(mdd_obj) == 0 && overflow == MLAO_CHECK) {
 		struct lfsck_request *lr = &mdd_env_info(env)->mti_lr;
+		struct thandle	*sub_th;
 
 		/* XXX: If the linkEA is overflow, then we need to notify the
 		 *	namespace LFSCK to skip "nlink" attribute verification
@@ -1169,9 +1188,12 @@ int mdd_declare_links_add(const struct lu_env *env, struct mdd_object *mdd_obj,
 		 *	mechanism in future. LU-5802. */
 		lfsck_pack_rfa(lr, mdo2fid(mdd_obj), LE_SKIP_NLINK_DECLARE,
 			       LFSCK_TYPE_NAMESPACE);
+
+		sub_th = thandle_get_sub_by_dt(env, handle,
+				mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom);
 		rc = lfsck_in_notify(env,
 				     mdo2mdd(&mdd_obj->mod_obj)->mdd_bottom,
-				     lr, handle);
+				     lr, sub_th);
 	}
 
 	return rc;
@@ -2079,13 +2101,6 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 		if (rc)
 			return rc;
 	}
-
-	/* XXX: For remote create, it should indicate the remote RPC
-	 * will be sent after local transaction is finished, which
-	 * is not very nice, but it will be removed once we fully support
-	 * async update */
-	if (mdd_object_remote(p) && handle->th_update != NULL)
-		handle->th_update->tu_sent_after_local_trans = 1;
 out:
 	return rc;
 }
