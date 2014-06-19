@@ -2882,7 +2882,7 @@ static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
 	struct dt_object_format 	*dof	= &info->lti_dof;
 	struct ost_id			*oi	= &info->lti_oi;
 	struct lfsck_instance		*lfsck	= com->lc_lfsck;
-	struct dt_device		*dev	= lfsck->li_bottom;
+	struct dt_device		*dev;
 	struct lu_device		*d	=
 				&lfsck_obj2dev(llr->llr_child)->dd_lu_dev;
 	struct lu_object		*o;
@@ -2928,6 +2928,7 @@ static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
 	la->la_valid = LA_UID | LA_GID;
 	memset(dof, 0, sizeof(*dof));
 
+	dev = lfsck_obj2dev(child);
 	handle = dt_trans_create(env, dev);
 	if (IS_ERR(handle))
 		GOTO(log, rc = PTR_ERR(handle));
@@ -2936,7 +2937,7 @@ static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
-	rc = dt_trans_start_local(env, dev, handle);
+	rc = dt_trans_start(env, dev, handle);
 	if (rc != 0)
 		GOTO(stop, rc);
 
