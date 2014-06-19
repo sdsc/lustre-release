@@ -199,18 +199,30 @@ struct brw_page {
 	obd_flag flag;
 };
 
-/* llog contexts */
+/**
+ * llog contexts indexes.
+ *
+ * There is compatibility problem mentioned in comments below. Obsoleted
+ * values can't be just removed because all indexes will be shifted so old
+ * client can't work with new server and vice versa.
+ */
 enum llog_ctxt_id {
 	LLOG_CONFIG_ORIG_CTXT  =  0,
 	LLOG_CONFIG_REPL_CTXT,
 	LLOG_MDS_OST_ORIG_CTXT,
+	LLOG_MDS_OST_REPL_CTXT, /* obsoleted, kept for compatibility */
 	LLOG_SIZE_ORIG_CTXT,
 	LLOG_SIZE_REPL_CTXT,
+	LLOG_RD1_ORIG_CTXT, /* obsoleted, kept for compatibility */
+	LLOG_RD1_REPL_CTXT, /* obsoleted, kept for compatibility */
 	LLOG_TEST_ORIG_CTXT,
-	LLOG_CHANGELOG_ORIG_CTXT,	/**< changelog generation on mdd */
-	LLOG_CHANGELOG_REPL_CTXT,	/**< changelog access on clients */
-	LLOG_CHANGELOG_USER_ORIG_CTXT,	/**< for multiple changelog consumers */
-	LLOG_AGENT_ORIG_CTXT,		/**< agent requests generation on cdt */
+	LLOG_TEST_REPL_CTXT, /* obsoleted, kept for compatibility */
+	LLOG_LOVEA_ORIG_CTXT, /* obsoleted, kept for compatibility */
+	LLOG_LOVEA_REPL_CTXT, /* obsoleted, kept for compatibility */
+	LLOG_CHANGELOG_ORIG_CTXT, /**< changelog generation on mdd */
+	LLOG_CHANGELOG_REPL_CTXT, /**< changelog access on clients */
+	LLOG_CHANGELOG_USER_ORIG_CTXT, /**< for multiple changelog consumers */
+	LLOG_AGENT_ORIG_CTXT, /**< agent requests generation on cdt */
 	LLOG_MAX_CTXTS
 };
 
