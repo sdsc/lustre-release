@@ -682,7 +682,8 @@ int mdd_declare_changelog_store(const struct lu_env *env,
 	if (ctxt == NULL)
 		return -ENXIO;
 
-	rc = llog_declare_add(env, ctxt->loc_handle, &rec->cr_hdr, handle);
+	rc = llog_declare_add(env, ctxt->loc_handle, &rec->cr_hdr,
+			      handle->th_storage_th);
 	llog_ctxt_put(ctxt);
 
 	return rc;
@@ -720,7 +721,8 @@ static int mdd_declare_changelog_ext_store(const struct lu_env *env,
 	if (ctxt == NULL)
 		return -ENXIO;
 
-	rc = llog_declare_add(env, ctxt->loc_handle, &rec->cr_hdr, handle);
+	rc = llog_declare_add(env, ctxt->loc_handle, &rec->cr_hdr,
+			      handle->th_storage_th);
 	llog_ctxt_put(ctxt);
 
 	return rc;
@@ -755,7 +757,8 @@ int mdd_changelog_store(const struct lu_env *env, struct mdd_device *mdd,
 	if (ctxt == NULL)
 		return -ENXIO;
 
-	rc = llog_add(env, ctxt->loc_handle, &rec->cr_hdr, NULL, th);
+	rc = llog_add(env, ctxt->loc_handle, &rec->cr_hdr, NULL,
+		      th->th_storage_th);
 	llog_ctxt_put(ctxt);
 	if (rc > 0)
 		rc = 0;
@@ -794,7 +797,8 @@ mdd_changelog_ext_store(const struct lu_env *env, struct mdd_device *mdd,
 		return -ENXIO;
 
 	/* nested journal transaction */
-	rc = llog_add(env, ctxt->loc_handle, &rec->cr_hdr, NULL, th);
+	rc = llog_add(env, ctxt->loc_handle, &rec->cr_hdr, NULL,
+		      th->th_storage_th);
 	llog_ctxt_put(ctxt);
 	if (rc > 0)
 		rc = 0;
@@ -2093,13 +2097,6 @@ static int mdd_declare_create(const struct lu_env *env, struct mdd_device *mdd,
 		if (rc)
 			return rc;
 	}
-
-	/* XXX: For remote create, it should indicate the remote RPC
-	 * will be sent after local transaction is finished, which
-	 * is not very nice, but it will be removed once we fully support
-	 * async update */
-	if (mdd_object_remote(p) && handle->th_update != NULL)
-		handle->th_update->tu_sent_after_local_trans = 1;
 out:
 	return rc;
 }
