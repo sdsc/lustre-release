@@ -597,6 +597,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	const struct lu_fid	*fid  = lu_object_fid(&lo->ldo_obj.do_lu);
 	struct lov_mds_md_v1	*lmm;
 	struct lov_ost_data_v1	*objs;
+	struct thandle		*sub_th;
 	__u32			 magic;
 	int			 i, rc;
 	size_t			 lmm_size;
@@ -671,10 +672,14 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 		objs[i].l_ost_idx = cpu_to_le32(index);
 	}
 
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
 	info->lti_buf.lb_buf = lmm;
 	info->lti_buf.lb_len = lmm_size;
 	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0,
-			  th, BYPASS_CAPA);
+			  sub_th, BYPASS_CAPA);
 	if (rc < 0)
 		lod_object_free_striping(env, lo);
 
@@ -761,6 +766,7 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 	struct lod_object	*lo = lod_dt_obj(dt);
 	struct dt_object	*next = dt_object_child(dt);
 	struct lov_user_md_v3	*v3;
+	struct thandle		*sub_th;
 	int			 rc;
 	ENTRY;
 
@@ -779,6 +785,10 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 				lo->ldo_def_stripe_offset))
 		RETURN(0);
 
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
 	v3 = info->lti_ea_store;
 	if (info->lti_ea_store_size < sizeof(*v3)) {
 		rc = lod_ea_store_resize(info, sizeof(*v3));
@@ -786,6 +796,7 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 			RETURN(rc);
 		v3 = info->lti_ea_store;
 	}
+
 	memset(v3, 0, sizeof(*v3));
 	v3->lmm_magic = cpu_to_le32(LOV_USER_MAGIC_V3);
 	v3->lmm_stripe_count = cpu_to_le16(lo->ldo_def_stripenr);
@@ -798,8 +809,8 @@ int lod_store_def_striping(const struct lu_env *env, struct dt_object *dt,
 	}
 	info->lti_buf.lb_buf = v3;
 	info->lti_buf.lb_len = sizeof(*v3);
-	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0, th,
-			BYPASS_CAPA);
+	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0, sub_th,
+			  BYPASS_CAPA);
 
 	RETURN(rc);
 }
