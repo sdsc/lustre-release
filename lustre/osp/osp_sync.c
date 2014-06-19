@@ -250,7 +250,7 @@ int osp_sync_declare_add(const struct lu_env *env, struct osp_object *o,
 
 	/* it's a layering violation, to access internals of th,
 	 * but we can do this as a sanity check, for a while */
-	LASSERT(th->th_dev == d->opd_storage);
+	LASSERT(th->th_storage_th->th_dev == d->opd_storage);
 
 	switch (type) {
 	case MDS_UNLINK64_REC:
@@ -264,12 +264,13 @@ int osp_sync_declare_add(const struct lu_env *env, struct osp_object *o,
 	}
 
 	/* we want ->dt_trans_start() to allocate per-thandle structure */
-	th->th_tags |= LCT_OSP_THREAD;
+	th->th_storage_th->th_tags |= LCT_OSP_THREAD;
 
 	ctxt = llog_get_context(d->opd_obd, LLOG_MDS_OST_ORIG_CTXT);
 	LASSERT(ctxt);
 
-	rc = llog_declare_add(env, ctxt->loc_handle, &osi->osi_hdr, th);
+	rc = llog_declare_add(env, ctxt->loc_handle, &osi->osi_hdr,
+			      th->th_storage_th);
 	llog_ctxt_put(ctxt);
 
 	RETURN(rc);
@@ -310,7 +311,7 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 
 	/* it's a layering violation, to access internals of th,
 	 * but we can do this as a sanity check, for a while */
-	LASSERT(th->th_dev == d->opd_storage);
+	LASSERT(th->th_storage_th->th_dev == d->opd_storage);
 
 	switch (type) {
 	case MDS_UNLINK64_REC:
@@ -336,7 +337,7 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 		LBUG();
 	}
 
-	txn = osp_txn_info(&th->th_ctx);
+	txn = osp_txn_info(&th->th_storage_th->th_ctx);
 	LASSERT(txn);
 
 	txn->oti_current_id = osp_sync_id_get(d, txn->oti_current_id);
@@ -346,7 +347,7 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 	if (ctxt == NULL)
 		RETURN(-ENOMEM);
 	rc = llog_add(env, ctxt->loc_handle, &osi->osi_hdr, &osi->osi_cookie,
-		      th);
+		      th->th_storage_th);
 	llog_ctxt_put(ctxt);
 
 	CDEBUG(D_OTHER, "%s: new record "DOSTID":%lu/%lu: %d\n",
@@ -1516,7 +1517,10 @@ static void osp_sync_tracker_commit_cb(struct thandle *th, void *cookie)
 
 	LASSERT(tr);
 
-	txn = osp_txn_info(&th->th_ctx);
+	if (th->th_storage_th == NULL)
+		return;
+
+	txn = osp_txn_info(&th->th_storage_th->th_ctx);
 	if (txn == NULL || txn->oti_current_id < tr->otr_committed_id)
 		return;
 
