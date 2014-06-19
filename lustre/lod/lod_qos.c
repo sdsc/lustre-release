@@ -667,6 +667,7 @@ static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
 	struct lu_object *o, *n;
 	struct lu_device *nd;
 	struct dt_object *dt;
+	struct thandle *sub_th;
 	int               rc;
 	ENTRY;
 
@@ -696,7 +697,11 @@ static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
 
 	dt = container_of(n, struct dt_object, do_lu);
 
-	rc = dt_declare_create(env, dt, NULL, NULL, NULL, th);
+	sub_th = lod_sub_get_thandle(env, th, dt);
+	if (IS_ERR(sub_th))
+		GOTO(out, dt = ERR_CAST(sub_th));
+
+	rc = dt_declare_create(env, dt, NULL, NULL, NULL, sub_th);
 	if (rc) {
 		CDEBUG(D_OTHER, "can't declare creation on #%u: %d\n",
 		       ost_idx, rc);
@@ -1896,11 +1901,17 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 		 */
 		for (i = 0; i < lo->ldo_stripenr; i++) {
 			struct dt_object  *o;
+			struct thandle *sub_th;
 
 			o = lo->ldo_stripe[i];
 			LASSERT(o);
 
-			rc = dt_declare_create(env, o, attr, NULL, NULL, th);
+			sub_th = lod_sub_get_thandle(env, th, o);
+			if (IS_ERR(sub_th))
+				GOTO(out, rc = PTR_ERR(sub_th));
+
+			rc = dt_declare_create(env, o, attr, NULL, NULL,
+					       sub_th);
 			if (rc) {
 				CERROR("can't declare create: %d\n", rc);
 				break;
