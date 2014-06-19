@@ -295,11 +295,32 @@ struct osp_it {
 	struct page		 **ooi_pages;
 };
 
+struct osp_thandle {
+	struct thandle		 ot_super;
+	struct dt_update_request *ot_dur;
+	unsigned int		 ot_send_updates_after_local_trans:1;
+};
+
+static inline struct osp_thandle *
+thandle_to_osp_thandle(struct thandle *th)
+{
+	return container_of0(th, struct osp_thandle, ot_super);
+}
+
+static inline struct dt_update_request *
+thandle_to_dt_update_request(struct thandle *th)
+{
+	struct osp_thandle *oth;
+
+	oth = thandle_to_osp_thandle(th);
+	return oth->ot_dur;
+}
+
 /* The transaction only include the updates on the remote node, and
  * no local updates at all */
 static inline bool is_only_remote_trans(struct thandle *th)
 {
-	return th->th_dev != NULL && th->th_dev->dd_ops == &osp_dt_ops;
+	return th->th_top == NULL;
 }
 
 static inline void osp_objid_buf_prep(struct lu_buf *buf, loff_t *off,
