@@ -388,6 +388,7 @@ lod_name_get(const struct lu_env *env, const void *area, int len)
 /* lod_dev.c */
 int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 		   const struct lu_fid *fid, __u32 *tgt, int *flags);
+
 /* lod_lov.c */
 void lod_getref(struct lod_tgt_descs *ltd);
 void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd);

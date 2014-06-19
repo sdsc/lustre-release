@@ -597,6 +597,7 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 	const struct lu_fid	*fid  = lu_object_fid(&lo->ldo_obj.do_lu);
 	struct lov_mds_md_v1	*lmm;
 	struct lov_ost_data_v1	*objs;
+	struct thandle		*sub_th;
 	__u32			 magic;
 	int			 i, rc;
 	size_t			 lmm_size;
@@ -671,10 +672,14 @@ int lod_generate_and_set_lovea(const struct lu_env *env,
 		objs[i].l_ost_idx = cpu_to_le32(index);
 	}
 
+	sub_th = get_sub_thandle(env, th, next);
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
 	info->lti_buf.lb_buf = lmm;
 	info->lti_buf.lb_len = lmm_size;
 	rc = dt_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV, 0,
-			  th, BYPASS_CAPA);
+			  sub_th, BYPASS_CAPA);
 	if (rc < 0)
 		lod_object_free_striping(env, lo);
 
