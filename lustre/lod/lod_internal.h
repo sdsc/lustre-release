@@ -289,6 +289,21 @@ struct lod_thread_info {
 
 extern const struct lu_device_operations lod_lu_ops;
 
+struct lod_sub_thandle {
+	struct thandle		*lst_child;
+	struct list_head	lst_list;
+};
+
+struct lod_thandle {
+	struct thandle  lt_super;
+
+	/* The master sub transaction created in osp_trans_create */
+	struct thandle	*lt_child;
+
+	/* Other sub transactions will be listed here */
+	struct list_head lt_sub_trans_list;
+};
+
 static inline int lu_device_is_lod(struct lu_device *d)
 {
 	return ergo(d != NULL && d->ld_ops != NULL, d->ld_ops == &lod_lu_ops);
@@ -378,6 +393,10 @@ lod_name_get(const struct lu_env *env, const void *area, int len)
 /* lod_dev.c */
 int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 		   const struct lu_fid *fid, __u32 *tgt, int *flags);
+
+struct thandle *lod_get_sub_trans(const struct lu_env *env,
+				  struct thandle *th,
+				  const struct dt_object *child_obj);
 /* lod_lov.c */
 void lod_getref(struct lod_tgt_descs *ltd);
 void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd);

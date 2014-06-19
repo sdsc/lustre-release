@@ -36,20 +36,6 @@
 #include <obd.h>
 #include <obd_class.h>
 
-struct dt_update_request*
-out_find_update(struct thandle_update *tu, struct dt_device *dt_dev)
-{
-	struct dt_update_request   *dt_update;
-
-	list_for_each_entry(dt_update, &tu->tu_remote_update_list,
-			    dur_list) {
-		if (dt_update->dur_dt == dt_dev)
-			return dt_update;
-	}
-	return NULL;
-}
-EXPORT_SYMBOL(out_find_update);
-
 static struct object_update_request *object_update_request_alloc(int size)
 {
 	struct object_update_request *ourq;
@@ -70,21 +56,6 @@ static void object_update_request_free(struct object_update_request *ourq,
 	if (ourq != NULL)
 		OBD_FREE_LARGE(ourq, ourq_length);
 }
-
-void dt_update_request_destroy(struct dt_update_request *dt_update)
-{
-	if (dt_update == NULL)
-		return;
-
-	list_del(&dt_update->dur_list);
-
-	object_update_request_free(dt_update->dur_buf.ub_req,
-				   dt_update->dur_buf.ub_req_len);
-	OBD_FREE_PTR(dt_update);
-
-	return;
-}
-EXPORT_SYMBOL(dt_update_request_destroy);
 
 /**
  * Create dt_update_request
@@ -116,7 +87,6 @@ struct dt_update_request *dt_update_request_create(struct dt_device *dt)
 	dt_update->dur_buf.ub_req = ourq;
 	dt_update->dur_buf.ub_req_len = OUT_UPDATE_INIT_BUFFER_SIZE;
 
-	INIT_LIST_HEAD(&dt_update->dur_list);
 	dt_update->dur_dt = dt;
 	dt_update->dur_batchid = 0;
 	INIT_LIST_HEAD(&dt_update->dur_cb_items);
@@ -126,44 +96,22 @@ struct dt_update_request *dt_update_request_create(struct dt_device *dt)
 EXPORT_SYMBOL(dt_update_request_create);
 
 /**
- * Find or create one loc in th_dev/dev_obj_update for the update,
- * Because only one thread can access this thandle, no need
- * lock now.
+ * Destroy dt_update_request
+ *
+ * \param [in] dt_update	dt_update_request being destroyed
  */
-struct dt_update_request *dt_update_request_find_or_create(struct thandle *th,
-							 struct dt_object *dt)
+void dt_update_request_destroy(struct dt_update_request *dt_update)
 {
-	struct dt_device	*dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
-	struct thandle_update	*tu = th->th_update;
-	struct dt_update_request *update;
-	ENTRY;
+	if (dt_update == NULL)
+		return;
 
-	if (tu == NULL) {
-		OBD_ALLOC_PTR(tu);
-		if (tu == NULL)
-			RETURN(ERR_PTR(-ENOMEM));
+	object_update_request_free(dt_update->dur_buf.ub_req,
+				   dt_update->dur_buf.ub_req_len);
+	OBD_FREE_PTR(dt_update);
 
-		INIT_LIST_HEAD(&tu->tu_remote_update_list);
-		tu->tu_sent_after_local_trans = 0;
-		th->th_update = tu;
-	}
-
-	update = out_find_update(tu, dt_dev);
-	if (update != NULL)
-		RETURN(update);
-
-	update = dt_update_request_create(dt_dev);
-	if (IS_ERR(update))
-		RETURN(update);
-
-	list_add_tail(&update->dur_list, &tu->tu_remote_update_list);
-
-	if (!tu->tu_only_remote_trans)
-		thandle_get(th);
-
-	RETURN(update);
+	return;
 }
-EXPORT_SYMBOL(dt_update_request_find_or_create);
+EXPORT_SYMBOL(dt_update_request_destroy);
 
 int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			const struct object_update_request *ureq,
