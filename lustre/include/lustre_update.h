@@ -31,21 +31,45 @@
 #ifndef _LUSTRE_UPDATE_H
 #define _LUSTRE_UPDATE_H
 #include <lustre_net.h>
+#include <dt_object.h>
 
 #define OUT_UPDATE_INIT_BUFFER_SIZE	4096
 #define OUT_UPDATE_REPLY_SIZE		8192
 
-struct dt_object;
-struct dt_object_hint;
-struct dt_object_format;
-struct dt_allocation_hint;
 struct dt_key;
 struct dt_rec;
-struct thandle;
 
 struct update_buffer {
 	struct object_update_request	*ub_req;
 	size_t				ub_req_size;
+};
+
+#define TOP_THANDLE_MAGIC	0x20140917
+/* top/sub_thandle are used to manage the distribute transaction, which
+ * includes updates on several nodes. top_handle is used to represent the
+ * whole operation, and sub_thandle is used to represent the update on
+ * each node. */
+struct top_thandle {
+	struct thandle		tt_super;
+	__u32			tt_magic;
+	atomic_t		tt_refcount;
+	/* The master sub transaction. */
+	struct thandle		*tt_child;
+
+	/* Other sub transactions will be listed here. */
+	struct list_head	tt_sub_trans_list;
+
+	/* If Master sub thandle is committed */
+	unsigned int		tt_master_committed;
+};
+
+struct sub_thandle {
+	/* point to the osd/osp_thandle */
+	struct thandle		*st_sub_th;
+	struct list_head	st_list;
+
+	/* If this sub thandle is committed */
+	unsigned int		st_committed:1;
 };
 
 /**
@@ -54,7 +78,6 @@ struct update_buffer {
 struct dt_update_request {
 	struct dt_device		*dur_dt;
 	/* attached itself to thandle */
-	struct list_head		dur_list;
 	int				dur_flags;
 	/* update request result */
 	int				dur_rc;
@@ -167,13 +190,8 @@ static inline void update_inc_batchid(struct dt_update_request *update)
 }
 
 /* target/out_lib.c */
-struct thandle_update;
-struct dt_update_request *out_find_update(struct thandle_update *tu,
-					  struct dt_device *dt_dev);
 void dt_update_request_destroy(struct dt_update_request *update);
 struct dt_update_request *dt_update_request_create(struct dt_device *dt);
-struct dt_update_request *dt_update_request_find_or_create(struct thandle *th,
-							  struct dt_object *dt);
 int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			const struct object_update_request *ureq,
 			struct ptlrpc_request **reqp);
@@ -220,4 +238,29 @@ int out_index_lookup_pack(const struct lu_env *env, struct update_buffer *ubuf,
 			  const struct dt_key *key);
 int out_xattr_get_pack(const struct lu_env *env, struct update_buffer *ubuf,
 		       const struct lu_fid *fid, const char *name);
+
+/* target/update_trans.c */
+struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
+				const struct dt_object *sub_obj);
+struct thandle *
+top_trans_create(const struct lu_env *env, struct dt_device *master_dev);
+
+int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
+		    struct thandle *th);
+
+int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
+		   struct thandle *th);
+
+void top_thandle_destroy(struct top_thandle *top_th);
+static inline void top_thandle_get(struct top_thandle *top_th)
+{
+	atomic_inc(&top_th->tt_refcount);
+}
+
+static inline void top_thandle_put(struct top_thandle *top_th)
+{
+	if (atomic_dec_and_test(&top_th->tt_refcount))
+		top_thandle_destroy(top_th);
+}
+
 #endif
