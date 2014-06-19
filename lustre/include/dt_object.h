@@ -1833,19 +1833,6 @@ static inline struct dt_object *lu2dt_obj(struct lu_object *o)
 	return container_of0(o, struct dt_object, do_lu);
 }
 
-struct thandle_update {
-	/* In DNE, one transaction can be disassembled into
-	 * updates on several different MDTs, and these updates
-	 * will be attached to tu_remote_update_list per target.
-	 * Only single thread will access the list, no need lock
-	 */
-	struct list_head	tu_remote_update_list;
-
-	/* sent after or before local transaction */
-	unsigned int		tu_sent_after_local_trans:1,
-				tu_only_remote_trans:1;
-};
-
 /**
  * This is the general purpose transaction handle.
  * 1. Transaction Life Cycle
@@ -1859,14 +1846,33 @@ struct thandle_update {
  *      dt_object locks should be taken inside transaction.
  * 4. Transaction & RPC
  *      No RPC request should be issued inside transaction.
+ *
+ * The transaction will also be separated two layers on MD stack to manage
+ * the distribute transaction.
+ *
+ * there are three kinds of transactions
+ * 1. local transaction: All updates are in a single local OSD.
+ * 2. Remote transaction: All Updates are only in the remote OSD,
+ *    i.e. locally all updates are in OSP.
+ * 3. Mixed transaction: Updates are both in local OSD and remote
+ *    OSD.
  */
 struct thandle {
 	/** the dt device on which the transactions are executed */
 	struct dt_device *th_dev;
 
-	atomic_t	th_refc;
-	/* the size of transaction */
-	int		th_alloc_size;
+	/* Sometimes, other layers might need to access the storage device(OSD)
+	 * directly, for example
+	 * 1. OSP will use this thandle when it needs to update some stuff
+	 *    in local OSD.
+	 * 2. MDD needs to access the llog, for example update log.
+	 * It is not easy to access OSD through layers, so we will use
+	 * th_storage_th here to point to the thandle created in OSD.
+	 */
+	struct thandle *th_storage_th;
+
+	/* In some callback function, it needs to access the top_th directly */
+	struct thandle *th_top;
 
 	/** context for this transaction, tag is LCT_TX_HANDLE */
 	struct lu_context th_ctx;
@@ -1879,27 +1885,41 @@ struct thandle {
 	__s32             th_result;
 
 	/** whether we need sync commit */
-	unsigned int		th_sync:1;
-
+	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-	unsigned int		th_local:1;
-
-	struct thandle_update	*th_update;
+				th_local:1;
 };
 
-static inline void thandle_get(struct thandle *thandle)
-{
-	atomic_inc(&thandle->th_refc);
-}
+/* top/sub_thandle are used to manage the distribute transaction, which
+ * includes updates on several nodes. top_handle is used to represent the
+ * whole operation, and sub_thandle is used to represent the update on
+ * each node. */
+struct top_thandle {
+	struct thandle		tt_super;
 
-static inline void thandle_put(struct thandle *thandle)
-{
-	if (atomic_dec_and_test(&thandle->th_refc)) {
-		if (thandle->th_update != NULL)
-			OBD_FREE_PTR(thandle->th_update);
-		OBD_FREE(thandle, thandle->th_alloc_size);
-	}
-}
+	/* The master sub transaction. */
+	struct thandle		*tt_child;
+
+	/* Other sub transactions will be listed here. */
+	struct list_head	tt_sub_trans_list;
+};
+
+struct sub_thandle {
+	/* point to the osd/osp_thandle */
+	struct thandle		*st_sub_th;
+	struct list_head	st_list;
+};
+
+struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
+				const struct dt_object *sub_obj);
+struct thandle *
+top_trans_create(const struct lu_env *env, struct dt_device *master_dev);
+
+int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
+		    struct thandle *th);
+
+int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
+		   struct thandle *th);
 /**
  * Transaction call-backs.
  *
