@@ -447,7 +447,7 @@ out_free:
  * \retval 0 on success.
  * \retval -errno on error.
  */
-int llapi_hsm_register_event_fifo(char *path)
+int llapi_hsm_register_event_fifo(const char *path)
 {
 	int read_fd;
 	struct stat statbuf;
@@ -508,7 +508,7 @@ int llapi_hsm_register_event_fifo(char *path)
  * \retval 0 on success.
  * \retval -errno on error.
  */
-int llapi_hsm_unregister_event_fifo(char *path)
+int llapi_hsm_unregister_event_fifo(const char *path)
 {
 	/* Noop unless the event fd was initialized */
 	if (llapi_hsm_event_fd < 0)
