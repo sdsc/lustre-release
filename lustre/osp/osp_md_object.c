@@ -38,6 +38,23 @@
 static const char dot[] = ".";
 static const char dotdot[] = "..";
 
+static int osp_object_create_interpterer(const struct lu_env *env,
+					 struct object_update_reply *reply,
+					 struct ptlrpc_request *req,
+					 struct osp_object *obj,
+					 void *data, int index, int rc)
+{
+	struct lu_attr *attr = data;
+
+	if (rc != 0)
+		return rc;
+
+	LASSERT(attr != NULL);
+	obj->opo_obj.do_lu.lo_header->loh_attr |=
+			LOHA_EXISTS | (attr->la_mode & S_IFMT);
+	return 0;
+}
+
 int osp_md_declare_object_create(const struct lu_env *env,
 				 struct dt_object *dt,
 				 struct lu_attr *attr,
@@ -45,88 +62,48 @@ int osp_md_declare_object_create(const struct lu_env *env,
 				 struct dt_object_format *dof,
 				 struct thandle *th)
 {
-	struct dt_update_request	*update;
-	int				rc;
-
-	update = thandle_to_dt_update_request(th);
-	LASSERT(update != NULL);
-
-	if (lu_object_exists(&dt->do_lu)) {
-		/* If the object already exists, we needs to destroy
-		 * this orphan object first.
-		 *
-		 * The scenario might happen in this case
-		 *
-		 * 1. client send remote create to MDT0.
-		 * 2. MDT0 send create update to MDT1.
-		 * 3. MDT1 finished create synchronously.
-		 * 4. MDT0 failed and reboot.
-		 * 5. client resend remote create to MDT0.
-		 * 6. MDT0 tries to resend create update to MDT1,
-		 *    but find the object already exists
-		 */
-		CDEBUG(D_HA, "%s: object "DFID" exists, destroy this orphan\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name,
-		       PFID(lu_object_fid(&dt->do_lu)));
-
-		rc = out_ref_del_pack(env, &update->dur_buf,
-				      lu_object_fid(&dt->do_lu),
-				      update->dur_batchid);
-		if (rc != 0)
-			GOTO(out, rc);
-
-		if (S_ISDIR(lu_object_attr(&dt->do_lu))) {
-			/* decrease for ".." */
-			rc = out_ref_del_pack(env, &update->dur_buf,
-					      lu_object_fid(&dt->do_lu),
-					      update->dur_batchid);
-			if (rc != 0)
-				GOTO(out, rc);
-		}
-
-		rc = out_object_destroy_pack(env, &update->dur_buf,
-					     lu_object_fid(&dt->do_lu),
-					     update->dur_batchid);
-		if (rc != 0)
-			GOTO(out, rc);
-
-		dt->do_lu.lo_header->loh_attr &= ~LOHA_EXISTS;
-		/* Increase batchid to add this orphan object deletion
-		 * to separate transaction */
-		update_inc_batchid(update);
-	}
-
-	rc = out_create_pack(env, &update->dur_buf,
-			     lu_object_fid(&dt->do_lu), attr, hint, dof,
-			     update->dur_batchid);
-	if (rc != 0)
-		GOTO(out, rc);
-out:
-	if (rc)
-		CERROR("%s: Insert update error: rc = %d\n",
-		       dt->do_lu.lo_dev->ld_obd->obd_name, rc);
-
-	return rc;
+	return 0;
 }
 
 int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 			 struct lu_attr *attr, struct dt_allocation_hint *hint,
 			 struct dt_object_format *dof, struct thandle *th)
 {
+	struct dt_update_request	*update;
+	int				rc;
+
+	update = thandle_to_dt_update_request(th);
+	LASSERT(update != NULL);
+
 	CDEBUG(D_INFO, "create object "DFID"\n",
 	       PFID(&dt->do_lu.lo_header->loh_fid));
 
-	/* Because the create update RPC will be sent during declare phase,
-	 * if creation reaches here, it means the object has been created
-	 * successfully */
-	dt->do_lu.lo_header->loh_attr |= LOHA_EXISTS | (attr->la_mode & S_IFMT);
+	rc = out_create_pack(env, &update->dur_buf,
+			     lu_object_fid(&dt->do_lu), attr, hint, dof,
+			     update->dur_batchid);
+	if (rc != 0)
+		GOTO(out, rc);
 
-	return 0;
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), attr,
+					osp_object_create_interpterer);
+out:
+	if (rc != 0)
+		CERROR("%s: Insert update error: rc = %d\n",
+		       dt->do_lu.lo_dev->ld_obd->obd_name, rc);
+
+	return rc;
 }
 
 static int osp_md_declare_object_ref_del(const struct lu_env *env,
 					 struct dt_object *dt,
 					 struct thandle *th)
+{
+	return 0; 
+}
+
+static int osp_md_object_ref_del(const struct lu_env *env,
+				 struct dt_object *dt,
+				 struct thandle *th)
 {
 	struct dt_update_request	*update;
 	struct lu_fid			*fid;
@@ -140,21 +117,24 @@ static int osp_md_declare_object_ref_del(const struct lu_env *env,
 	rc = out_ref_del_pack(env, &update->dur_buf,
 			      lu_object_fid(&dt->do_lu),
 			      update->dur_batchid);
+	if (rc != 0)
+		return rc;
+
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
+
 	return rc;
-}
-
-static int osp_md_object_ref_del(const struct lu_env *env,
-				 struct dt_object *dt,
-				 struct thandle *th)
-{
-	CDEBUG(D_INFO, "ref del object "DFID"\n",
-	       PFID(&dt->do_lu.lo_header->loh_fid));
-
-	return 0;
 }
 
 static int osp_md_declare_ref_add(const struct lu_env *env,
 				  struct dt_object *dt, struct thandle *th)
+{
+	return 0;
+}
+
+static int osp_md_object_ref_add(const struct lu_env *env,
+				 struct dt_object *dt,
+				 struct thandle *th)
 {
 	struct dt_update_request	*update;
 	int				rc;
@@ -165,18 +145,12 @@ static int osp_md_declare_ref_add(const struct lu_env *env,
 	rc = out_ref_add_pack(env, &update->dur_buf,
 			      lu_object_fid(&dt->do_lu),
 			      update->dur_batchid);
+	if (rc != 0)
+		return rc;
 
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
 	return rc;
-}
-
-static int osp_md_object_ref_add(const struct lu_env *env,
-				 struct dt_object *dt,
-				 struct thandle *th)
-{
-	CDEBUG(D_INFO, "ref add object "DFID"\n",
-	       PFID(&dt->do_lu.lo_header->loh_fid));
-
-	return 0;
 }
 
 static void osp_md_ah_init(const struct lu_env *env,
@@ -194,6 +168,13 @@ static void osp_md_ah_init(const struct lu_env *env,
 int osp_md_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 			    const struct lu_attr *attr, struct thandle *th)
 {
+	return 0;
+}
+
+int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
+		    const struct lu_attr *attr, struct thandle *th,
+		    struct lustre_capa *capa)
+{
 	struct dt_update_request	*update;
 	int				rc;
 
@@ -203,18 +184,13 @@ int osp_md_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 	rc = out_attr_set_pack(env, &update->dur_buf,
 			       lu_object_fid(&dt->do_lu), attr,
 			       update->dur_batchid);
+	if (rc != 0)
+		return rc;
 
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
 	return rc;
-}
 
-int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
-		    const struct lu_attr *attr, struct thandle *th,
-		    struct lustre_capa *capa)
-{
-	CDEBUG(D_INFO, "attr set object "DFID"\n",
-	       PFID(&dt->do_lu.lo_header->loh_fid));
-
-	RETURN(0);
 }
 
 static void osp_md_object_read_lock(const struct lu_env *env,
@@ -350,6 +326,17 @@ static int osp_md_declare_insert(const struct lu_env *env,
 				 const struct dt_key *key,
 				 struct thandle *th)
 {
+	return 0;
+}
+
+static int osp_md_index_insert(const struct lu_env *env,
+			       struct dt_object *dt,
+			       const struct dt_rec *rec,
+			       const struct dt_key *key,
+			       struct thandle *th,
+			       struct lustre_capa *capa,
+			       int ignore_quota)
+{
 	struct osp_thandle	 *oth = thandle_to_osp_thandle(th);
 	struct dt_update_request *update = oth->ot_dur;
 	int			 rc;
@@ -361,30 +348,24 @@ static int osp_md_declare_insert(const struct lu_env *env,
 	if (rc != 0)
 		return rc;
 
-	/* Before async update is allowed, if it will insert remote
-	 * name entry, it should make sure the local object is created,
-	 * i.e. the remote update RPC should be sent after local
-	 * update(create object) */
-	oth->ot_send_updates_after_local_trans = 1;
-
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
 	return rc;
-}
-
-static int osp_md_index_insert(const struct lu_env *env,
-			       struct dt_object *dt,
-			       const struct dt_rec *rec,
-			       const struct dt_key *key,
-			       struct thandle *th,
-			       struct lustre_capa *capa,
-			       int ignore_quota)
-{
-	return 0;
 }
 
 static int osp_md_declare_delete(const struct lu_env *env,
 				 struct dt_object *dt,
 				 const struct dt_key *key,
 				 struct thandle *th)
+{
+	return 0;
+}
+
+static int osp_md_index_delete(const struct lu_env *env,
+			       struct dt_object *dt,
+			       const struct dt_key *key,
+			       struct thandle *th,
+			       struct lustre_capa *capa)
 {
 	struct dt_update_request *update;
 	int			 rc;
@@ -395,19 +376,12 @@ static int osp_md_declare_delete(const struct lu_env *env,
 	rc = out_index_delete_pack(env, &update->dur_buf,
 				   lu_object_fid(&dt->do_lu), key,
 				   update->dur_batchid);
+	if (rc != 0)
+		return rc;
+
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
 	return rc;
-}
-
-static int osp_md_index_delete(const struct lu_env *env,
-			       struct dt_object *dt,
-			       const struct dt_key *key,
-			       struct thandle *th,
-			       struct lustre_capa *capa)
-{
-	CDEBUG(D_INFO, "index delete "DFID" %s\n",
-	       PFID(&dt->do_lu.lo_header->loh_fid), (char *)key);
-
-	return 0;
 }
 
 int osp_md_index_it_next(const struct lu_env *env, struct dt_it *di)
@@ -591,6 +565,14 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 				    const struct lu_buf *buf,
 				    loff_t pos, struct thandle *th)
 {
+	return 0;
+}
+
+static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
+			    const struct lu_buf *buf, loff_t *pos,
+			    struct thandle *th, struct lustre_capa *capa,
+			    int ignore_quota)
+{
 	struct dt_update_request  *update;
 	ssize_t			  rc;
 
@@ -598,17 +580,11 @@ static ssize_t osp_md_declare_write(const struct lu_env *env,
 	LASSERT(update != NULL);
 
 	rc = out_write_pack(env, &update->dur_buf, lu_object_fid(&dt->do_lu),
-			    buf, pos, update->dur_batchid);
+			    buf, *pos, update->dur_batchid);
+	if (rc < 0)
+		return rc;
 
-	return rc;
-
-}
-
-static ssize_t osp_md_write(const struct lu_env *env, struct dt_object *dt,
-			    const struct lu_buf *buf, loff_t *pos,
-			    struct thandle *handle,
-			    struct lustre_capa *capa, int ignore_quota)
-{
+	/* XXX: how about the write error happened later? */
 	*pos += buf->lb_len;
 	return buf->lb_len;
 }
