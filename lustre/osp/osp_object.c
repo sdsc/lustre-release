@@ -767,6 +767,13 @@ int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
 			  const struct lu_buf *buf, const char *name,
 			  int flag, struct thandle *th)
 {
+	return osp_trans_update_request_create(th);
+}
+
+int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
+		  const struct lu_buf *buf, const char *name, int fl,
+		  struct thandle *th, struct lustre_capa *capa)
+{
 	struct osp_object	*o	 = dt2osp_obj(dt);
 	struct dt_update_request *update;
 	struct osp_xattr_entry	*oxe;
@@ -778,9 +785,15 @@ int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
 
 	rc = out_xattr_set_pack(env, &update->dur_buf,
 				lu_object_fid(&dt->do_lu),
-				buf, name, flag, update->dur_batchid);
-	if (rc != 0 || o->opo_ooa == NULL)
+				buf, name, fl, update->dur_batchid);
+	if (rc != 0)
 		return rc;
+
+	if (o->opo_ooa == NULL) {
+		rc = osp_insert_update_callback(env, update, dt2osp_obj(dt),
+						NULL, NULL);
+		return rc;
+	}
 
 	oxe = osp_oac_xattr_find_or_add(o, name, buf->lb_len);
 	if (oxe == NULL) {
@@ -824,18 +837,15 @@ int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	return 0;
 }
 
-int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
-		  const struct lu_buf *buf, const char *name, int fl,
-		  struct thandle *th, struct lustre_capa *capa)
-{
-	CDEBUG(D_INFO, "xattr %s set object "DFID"\n", name,
-	       PFID(&dt->do_lu.lo_header->loh_fid));
-
-	return 0;
-}
-
 int osp_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
 			  const char *name, struct thandle *th)
+{
+	return osp_trans_update_request_create(th);
+}
+
+int osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
+		  const char *name, struct thandle *th,
+		  struct lustre_capa *capa)
 {
 	struct dt_update_request *update;
 	const struct lu_fid	 *fid;
@@ -848,18 +858,12 @@ int osp_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
 
 	rc = out_xattr_del_pack(env, &update->dur_buf, fid, name,
 				update->dur_batchid);
+	if (rc != 0)
+		return rc;
 
+	rc = osp_insert_update_callback(env, update, dt2osp_obj(dt), NULL,
+					NULL);
 	return rc;
-}
-
-int osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
-		  const char *name, struct thandle *th,
-		  struct lustre_capa *capa)
-{
-	CDEBUG(D_INFO, "xattr %s del object "DFID"\n", name,
-	       PFID(&dt->do_lu.lo_header->loh_fid));
-
-	return 0;
 }
 
 static int osp_declare_object_create(const struct lu_env *env,
