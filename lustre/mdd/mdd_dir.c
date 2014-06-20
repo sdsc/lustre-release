@@ -3634,13 +3634,6 @@ static int mdd_migrate_entries(const struct lu_env *env,
 						mdd_object_capa(env, mdd_tobj));
 			if (rc != 0)
 				GOTO(out_put, rc);
-
-			if (is_dir) {
-				rc = mdo_ref_add(env, mdd_tobj, handle);
-				if (rc != 0)
-					GOTO(out_put, rc);
-
-			}
 		}
 
 		rc = __mdd_index_delete(env, mdd_sobj, name, is_dir, handle,
