@@ -143,6 +143,11 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
                 goto out;
         }
         file_size = st.st_size;
+	if (file_size == 0) {
+		rc = -1;
+		printf("File size is zero.\n");
+		goto out;
+	}
 
         file_buf = malloc(file_size);
         if (file_buf == NULL){
@@ -174,8 +179,18 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
         i = 0;
 
         while (i < recs_num){
-                struct llog_rec_hdr *cur_rec = (struct llog_rec_hdr*)ptr;
-                int idx = le32_to_cpu(cur_rec->lrh_index);
+		struct llog_rec_hdr *cur_rec;
+		int idx;
+
+		if (ptr + sizeof(struct llog_rec_hdr) >
+		    file_buf + file_size) {
+			printf("The log is corrupt (too big at %d)\n", i);
+			rc = -EINVAL;
+			goto clear_recs_buf;
+		}
+
+		cur_rec = (struct llog_rec_hdr *)ptr;
+		idx = le32_to_cpu(cur_rec->lrh_index);
                 recs_pr[i] = cur_rec;
 
                 if (ext2_test_bit(idx, (*llog)->llh_bitmap)) {
