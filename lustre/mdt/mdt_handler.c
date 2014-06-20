@@ -5240,23 +5240,15 @@ static int mdt_destroy_export(struct obd_export *exp)
         RETURN(0);
 }
 
-/** The maximum depth that fid2path() will search.
- * This is limited only because we want to store the fids for
- * historical path lookup purposes.
- */
-#define MAX_PATH_DEPTH 100
-
 /** mdt_path() lookup structure. */
 struct path_lookup_info {
 	__u64			pli_recno;	/**< history point */
 	__u64			pli_currec;	/**< current record */
 	struct lu_fid		pli_fid;
-	struct lu_fid		pli_fids[MAX_PATH_DEPTH]; /**< path, in fids */
 	struct mdt_object	*pli_mdt_obj;
 	char			*pli_path;	/**< full path */
 	int			pli_pathlen;
 	int			pli_linkno;	/**< which hardlink to follow */
-	int			pli_fidcount;	/**< number of \a pli_fids */
 };
 
 int mdt_links_read(struct mdt_thread_info *info, struct mdt_object *mdt_obj,
@@ -5304,6 +5296,7 @@ static int mdt_path_current(struct mdt_thread_info *info,
 	int			reclen;
 	struct linkea_data	ldata = { 0 };
 	int			rc = 0;
+	bool			first = true;
 	ENTRY;
 
 	/* temp buffer for path element, the buffer will be finally freed
@@ -5316,13 +5309,12 @@ static int mdt_path_current(struct mdt_thread_info *info,
 	ptr = pli->pli_path + pli->pli_pathlen - 1;
 	*ptr = 0;
 	--ptr;
-	pli->pli_fidcount = 0;
-	pli->pli_fids[0] = *(struct lu_fid *)mdt_object_fid(pli->pli_mdt_obj);
-	*tmpfid = pli->pli_fids[0];
+	pli->pli_fid = *(struct lu_fid *)mdt_object_fid(pli->pli_mdt_obj);
+	*tmpfid = pli->pli_fid;
 	/* root FID only exists on MDT0, and fid2path should also ends at MDT0,
 	 * so checking root_fid can only happen on MDT0. */
 	while (!lu_fid_eq(&mdt->mdt_md_root_fid,
-			  &pli->pli_fids[pli->pli_fidcount])) {
+			  &pli->pli_fid)) {
 		struct lu_buf		lmv_buf;
 
 		mdt_obj = mdt_object_find(info->mti_env, mdt, tmpfid);
@@ -5353,7 +5345,7 @@ static int mdt_path_current(struct mdt_thread_info *info,
 					GOTO(out, rc = -EINVAL);
 				}
 				mdt_object_put(info->mti_env, mdt_obj);
-				pli->pli_fids[pli->pli_fidcount] = *tmpfid;
+				pli->pli_fid = *tmpfid;
 				continue;
 			}
 		}
@@ -5373,8 +5365,7 @@ static int mdt_path_current(struct mdt_thread_info *info,
 		linkea_entry_unpack(lee, &reclen, tmpname, tmpfid);
 		/* If set, use link #linkno for path lookup, otherwise use
 		   link #0.  Only do this for the final path element. */
-		if (pli->pli_fidcount == 0 &&
-		    pli->pli_linkno < leh->leh_reccount) {
+		if (first && pli->pli_linkno < leh->leh_reccount) {
 			int count;
 			for (count = 0; count < pli->pli_linkno; count++) {
 				lee = (struct link_ea_entry *)
@@ -5394,10 +5385,8 @@ static int mdt_path_current(struct mdt_thread_info *info,
 		strncpy(ptr, tmpname->ln_name, tmpname->ln_namelen);
 		*(--ptr) = '/';
 
-		/* Store the parent fid for historic lookup */
-		if (++pli->pli_fidcount >= MAX_PATH_DEPTH)
-			GOTO(out, rc = -EOVERFLOW);
-		pli->pli_fids[pli->pli_fidcount] = *tmpfid;
+		pli->pli_fid = *tmpfid;
+		first = false;
 	}
 
 remote_out:
@@ -5444,7 +5433,7 @@ static int mdt_path(struct mdt_thread_info *info, struct mdt_object *obj,
 
 	/* return the last resolved fids to the client, so the client will
 	 * build the left path on another MDT for remote object */
-	*fid = pli->pli_fids[pli->pli_fidcount];
+	*fid = pli->pli_fid;
 
 	*recno = pli->pli_currec;
 	/* Return next link index to caller */
