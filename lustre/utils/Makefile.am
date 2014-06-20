@@ -116,7 +116,7 @@ endif
 req_layout_SOURCES = req-layout.c
 
 llog_reader_SOURCES = llog_reader.c
-llog_reader_LDADD := $(LIBPTLCTL)
+llog_reader_LDADD := $(LIBPTLCTL) liblustreapi.a
 llog_reader_DEPENDENCIES := $(LIBPTLCTL)
 
 lr_reader_SOURCES = lr_reader.c
