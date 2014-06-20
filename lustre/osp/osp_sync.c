@@ -310,6 +310,7 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 
 	/* it's a layering violation, to access internals of th,
 	 * but we can do this as a sanity check, for a while */
+	LASSERT(th->th_storage_th != NULL);
 	LASSERT(th->th_storage_th->th_dev == d->opd_storage);
 
 	switch (type) {
@@ -769,7 +770,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out, rc);
 
-	rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
+	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
 				 update->dur_buf.ub_req, &req);
 	if (rc != 0)
 		GOTO(out, rc);

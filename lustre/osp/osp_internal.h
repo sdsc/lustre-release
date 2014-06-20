@@ -298,7 +298,6 @@ struct osp_it {
 struct osp_thandle {
 	struct thandle		 ot_super;
 	struct dt_update_request *ot_dur;
-	unsigned int		 ot_send_updates_after_local_trans:1;
 };
 
 static inline struct osp_thandle *
@@ -518,11 +517,11 @@ static inline int osp_is_fid_client(struct osp_device *osp)
 	return imp->imp_connect_data.ocd_connect_flags & OBD_CONNECT_FID;
 }
 
-typedef int (*osp_async_request_interpreter_t)(const struct lu_env *env,
-					       struct object_update_reply *rep,
-					       struct ptlrpc_request *req,
-					       struct osp_object *obj,
-					       void *data, int index, int rc);
+typedef int (*osp_update_interpreter_t)(const struct lu_env *env,
+					struct object_update_reply *rep,
+					struct ptlrpc_request *req,
+					struct osp_object *obj,
+					void *data, int index, int rc);
 
 /* osp_dev.c */
 void osp_update_last_id(struct osp_device *d, obd_id objid);
@@ -532,14 +531,28 @@ extern struct llog_operations osp_mds_ost_orig_logops;
 int osp_insert_async_request(const struct lu_env *env, enum update_type op,
 			     struct osp_object *obj, int count, __u16 *lens,
 			     const void **bufs, void *data,
-			     osp_async_request_interpreter_t interpreter);
+			     osp_update_interpreter_t interpreter);
+
 int osp_unplug_async_request(const struct lu_env *env,
 			     struct osp_device *osp,
 			     struct dt_update_request *update);
+int osp_trans_update_request_create(struct thandle *th);
 struct thandle *osp_trans_create(const struct lu_env *env,
 				 struct dt_device *d);
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th);
+int osp_insert_update_callback(const struct lu_env *env,
+			       struct dt_update_request *update,
+			       struct osp_object *obj, void *data,
+			       osp_update_interpreter_t interpreter);
+int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
+			const struct object_update_request *ureq,
+			struct ptlrpc_request **reqp);
+int osp_remote_sync(const struct lu_env *env, struct obd_import *imp,
+		    struct dt_update_request *dt_update,
+		    struct ptlrpc_request **reqp);
+struct dt_update_request *dt_update_request_create(struct dt_device *dt);
+void dt_update_request_destroy(struct dt_update_request *dt_update);
 
 /* osp_object.c */
 int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
@@ -587,8 +600,9 @@ int osp_md_declare_object_create(const struct lu_env *env,
 int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 			 struct lu_attr *attr, struct dt_allocation_hint *hint,
 			 struct dt_object_format *dof, struct thandle *th);
-int __osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
-		      const struct lu_attr *attr, struct thandle *th);
+int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
+		    const struct lu_attr *attr, struct thandle *th,
+		    struct lustre_capa *capa);
 extern const struct dt_index_operations osp_md_index_ops;
 
 /* osp_precreate.c */
