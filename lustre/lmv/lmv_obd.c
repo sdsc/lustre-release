@@ -112,8 +112,8 @@ int lmv_name_to_stripe_index(__u32 lmv_hash_type, unsigned int stripe_count,
 		idx = lmv_hash_fnv1a(stripe_count, name, namelen);
 		break;
 	default:
-		CERROR("Unknown hash type 0x%x\n", hash_type);
-		return -EINVAL;
+		idx = -EBADFD;
+		break;
 	}
 
 	CDEBUG(D_INFO, "name %.*s hash_type %d idx %d\n", namelen, name,
@@ -1783,7 +1783,7 @@ lmv_locate_target_for_name(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
 
 	oinfo = lsm_name_to_stripe_info(lsm, name, namelen);
 	if (IS_ERR(oinfo))
-		RETURN((void *)oinfo);
+		RETURN(ERR_CAST(oinfo));
 	*fid = oinfo->lmo_fid;
 	*mds = oinfo->lmo_mds;
 	tgt = lmv_get_target(lmv, *mds, NULL);
@@ -1792,6 +1792,23 @@ lmv_locate_target_for_name(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
 	return tgt;
 }
 
+/**
+ * Locate mds by fid or name
+ *
+ * For striped directory (lsm != NULL), it will locate the stripe
+ * by name hash (see lsm_name_to_stripe_info()). Note: if the hash_type
+ * is unknown, it will return -ENOENT, and lmv_intent_lookup might need
+ * walk through all of stripes to locate the entry.
+ *
+ * For normal direcotry, it will locate MDS by FID directly.
+ * \param[in] lmv	LMV device
+ * \param[in] op_data	client MD stack parameters, name, namelen
+ *                      mds_num etc.
+ * \param[in] fid	object FID used to locate MDS.
+ *
+ * retval		pointer to the lmv_tgt_desc if succeed.
+ *                      ERR_PTR(errno) if failed.
+ */
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
 		struct lu_fid *fid)
@@ -2664,6 +2681,28 @@ int lmv_read_page(struct obd_export *exp, struct md_op_data *op_data,
 	RETURN(rc);
 }
 
+/**
+ * Unlink a file/directory
+ *
+ * Unlink a file or directory under the parent dir. The unlink request
+ * usually will be sent to the MDT where the child is located, but if
+ * the client does not the child FID, the request will be sent to the
+ * MDT where the parent is located.
+ *
+ * If the parent is a striped directory, it also needs to locate which
+ * stripe the name of the child is located, and replace the parent FID
+ * (@op->op_fid1) with the stripe FID. Note: if the stripe is unknown,
+ * it will walk through all of sub-stripes until the child is being
+ * unlinked finally.
+ *
+ * \param[in] exp	export refer to LMV
+ * \param[in] op_data	different parameters transferred beween client
+ *                      MD stacks, name, namelen, FIDs etc.
+ * \param[out] request	point to the request of unlink.
+ *
+ * retval		0 if succeed
+ *                      negative errno if failed.
+ */
 static int lmv_unlink(struct obd_export *exp, struct md_op_data *op_data,
                       struct ptlrpc_request **request)
 {
@@ -2673,33 +2712,58 @@ static int lmv_unlink(struct obd_export *exp, struct md_op_data *op_data,
 	struct lmv_tgt_desc     *parent_tgt = NULL;
 	struct mdt_body		*body;
 	int                     rc;
+	bool			try_all_stripes = false;
+	int			try_index = 0;
 	ENTRY;
 
 	rc = lmv_check_connect(obd);
 	if (rc)
 		RETURN(rc);
-retry:
+unlink_retry:
+	/* For striped dir, we need to locate the parent as well */
+	if (op_data->op_mea1 != NULL) {
+		struct lmv_tgt_desc *tmp;
+		struct lmv_stripe_md *lsm = op_data->op_mea1;
+
+		LASSERT(op_data->op_name != NULL &&
+			op_data->op_namelen != 0);
+
+		tmp = lmv_locate_target_for_name(lmv, lsm,
+					   op_data->op_name,
+					   op_data->op_namelen,
+					   &op_data->op_fid1,
+					   &op_data->op_mds);
+
+		/* return -EBADFD means unknown hash type, might
+		 * need try all sub-stripe here */
+		if (IS_ERR(tmp) && PTR_ERR(tmp) != -EBADFD)
+			RETURN(PTR_ERR(tmp));
+
+		/* Both migrating dir and unknown hash dir need to try
+		 * all of sub-stripes */
+		if (lsm != NULL && (!lmv_is_known_hash_type(lsm) ||
+			    lsm->lsm_md_hash_type & LMV_HASH_FLAG_MIGRATION)) {
+			struct lmv_oinfo *oinfo;
+
+			oinfo = &lsm->lsm_md_oinfo[try_index];
+
+			op_data->op_fid1 = oinfo->lmo_fid;
+			op_data->op_mds = oinfo->lmo_mds;
+
+			try_all_stripes = true;
+		}
+	}
+
+next_stripe_try:
 	/* Send unlink requests to the MDT where the child is located */
 	if (likely(!fid_is_zero(&op_data->op_fid2))) {
 		tgt = lmv_find_target(lmv, &op_data->op_fid2);
 		if (IS_ERR(tgt))
 			RETURN(PTR_ERR(tgt));
-
-		/* For striped dir, we need to locate the parent as well */
-		if (op_data->op_mea1 != NULL) {
-			struct lmv_tgt_desc *tmp;
-
-			LASSERT(op_data->op_name != NULL &&
-				op_data->op_namelen != 0);
-			tmp = lmv_locate_target_for_name(lmv,
-						   op_data->op_mea1,
-						   op_data->op_name,
-						   op_data->op_namelen,
-						   &op_data->op_fid1,
-						   &op_data->op_mds);
-			if (IS_ERR(tmp))
-				RETURN(PTR_ERR(tmp));
-		}
+	} else if (op_data->op_mea1 != NULL) {
+		tgt = lmv_get_target(lmv, op_data->op_mds, NULL);
+		if (IS_ERR(tgt))
+			RETURN(PTR_ERR(tgt));
 	} else {
 		tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
 		if (IS_ERR(tgt))
@@ -2741,8 +2805,29 @@ retry:
 	       PFID(&op_data->op_fid1), PFID(&op_data->op_fid2), tgt->ltd_idx);
 
 	rc = md_unlink(tgt->ltd_exp, op_data, request);
-	if (rc != 0 && rc != -EREMOTE)
+	if (rc != 0 && rc != -EREMOTE && rc != -ENOENT)
 		RETURN(rc);
+
+	/* Try next stripe if it is needed. */
+	if (rc == -ENOENT && try_all_stripes) {
+		struct lmv_stripe_md *lsm = op_data->op_mea1;
+		struct lmv_oinfo *oinfo;
+
+		LASSERT(lsm != NULL);
+		if (try_index >= lsm->lsm_md_stripe_count)
+			RETURN(rc);
+
+		try_index++;
+		oinfo = &lsm->lsm_md_oinfo[try_index];
+
+		op_data->op_fid1 = oinfo->lmo_fid;
+		op_data->op_mds = oinfo->lmo_mds;
+
+		ptlrpc_req_finished(*request);
+		*request = NULL;
+
+		goto next_stripe_try;
+	}
 
 	body = req_capsule_server_get(&(*request)->rq_pill, &RMF_MDT_BODY);
 	if (body == NULL)
@@ -2778,7 +2863,7 @@ retry:
 	ptlrpc_req_finished(*request);
 	*request = NULL;
 
-	goto retry;
+	goto unlink_retry;
 }
 
 static int lmv_precleanup(struct obd_device *obd, enum obd_cleanup_stage stage)
@@ -3003,7 +3088,10 @@ static int lmv_unpack_md_v1(struct obd_export *exp, struct lmv_stripe_md *lsm,
 	lsm->lsm_md_magic = le32_to_cpu(lmm1->lmv_magic);
 	lsm->lsm_md_stripe_count = le32_to_cpu(lmm1->lmv_stripe_count);
 	lsm->lsm_md_master_mdt_index = le32_to_cpu(lmm1->lmv_master_mdt_index);
-	lsm->lsm_md_hash_type = le32_to_cpu(lmm1->lmv_hash_type);
+	if (OBD_FAIL_CHECK(OBD_FAIL_UNKNOWN_LMV_STRIPE))
+		lsm->lsm_md_hash_type = LMV_HASH_TYPE_UNKNOWN;
+	else
+		lsm->lsm_md_hash_type = le32_to_cpu(lmm1->lmv_hash_type);
 	lsm->lsm_md_layout_version = le32_to_cpu(lmm1->lmv_layout_version);
 	fid_le_to_cpu(&lsm->lsm_md_master_fid, &lmm1->lmv_master_fid);
 	cplen = strlcpy(lsm->lsm_md_pool_name, lmm1->lmv_pool_name,
