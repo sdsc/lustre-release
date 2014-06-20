@@ -315,11 +315,11 @@ out_update_header_pack(const struct lu_env *env, struct update_buffer *ubuf,
 		param = (struct object_update_param *)((char *)param +
 			 object_update_param_size(param));
 	}
-	ureq->ourq_count++;
 
 	CDEBUG(D_INFO, "%p "DFID" idx %u: op %d params %d:%d\n",
 	       ureq, PFID(fid), ureq->ourq_count, op, params_count,
 	       (int)update_size);
+	ureq->ourq_count++;
 
 	RETURN(obj_update);
 }
