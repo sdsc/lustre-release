@@ -112,8 +112,8 @@ int lmv_name_to_stripe_index(__u32 lmv_hash_type, unsigned int stripe_count,
 		idx = lmv_hash_fnv1a(stripe_count, name, namelen);
 		break;
 	default:
-		CERROR("Unknown hash type 0x%x\n", hash_type);
-		return -EINVAL;
+		idx = -EBADFD;
+		break;
 	}
 
 	CDEBUG(D_INFO, "name %.*s hash_type %d idx %d\n", namelen, name,
@@ -1783,7 +1783,7 @@ lmv_locate_target_for_name(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
 
 	oinfo = lsm_name_to_stripe_info(lsm, name, namelen);
 	if (IS_ERR(oinfo))
-		RETURN((void *)oinfo);
+		RETURN(ERR_CAST(oinfo));
 	*fid = oinfo->lmo_fid;
 	*mds = oinfo->lmo_mds;
 	tgt = lmv_get_target(lmv, *mds, NULL);
@@ -1792,6 +1792,23 @@ lmv_locate_target_for_name(struct lmv_obd *lmv, struct lmv_stripe_md *lsm,
 	return tgt;
 }
 
+/**
+ * Locate mds by fid or name
+ *
+ * For striped directory (lsm != NULL), it will locate the stripe
+ * by name hash (see lsm_name_to_stripe_info). Note: if the hash_type
+ * is unknown, it will return -ENOENT, and lmv_intent_lookup might need
+ * walk through all of stripes to locate the entry.
+ *
+ * For normal direcotry, it will locate MDS by FID directly.
+ * \param[in] lmv	LMV device
+ * \param[in] op_data	client MD stack parameters, name, namelen
+ *                      mds_num etc.
+ * \param[in] fid	object FID used to locate MDS.
+ *
+ * retval		pointer to the lmv_tgt_desc if succeed.
+ *                      ERR_PTR(errno) if failed.
+ */
 struct lmv_tgt_desc
 *lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
 		struct lu_fid *fid)
@@ -3003,7 +3020,10 @@ static int lmv_unpack_md_v1(struct obd_export *exp, struct lmv_stripe_md *lsm,
 	lsm->lsm_md_magic = le32_to_cpu(lmm1->lmv_magic);
 	lsm->lsm_md_stripe_count = le32_to_cpu(lmm1->lmv_stripe_count);
 	lsm->lsm_md_master_mdt_index = le32_to_cpu(lmm1->lmv_master_mdt_index);
-	lsm->lsm_md_hash_type = le32_to_cpu(lmm1->lmv_hash_type);
+	if (OBD_FAIL_CHECK(OBD_FAIL_UNKNOWN_LMV_STRIPE))
+		lsm->lsm_md_hash_type = LMV_HASH_TYPE_UNKNOWN;
+	else
+		lsm->lsm_md_hash_type = le32_to_cpu(lmm1->lmv_hash_type);
 	lsm->lsm_md_layout_version = le32_to_cpu(lmm1->lmv_layout_version);
 	fid_le_to_cpu(&lsm->lsm_md_master_fid, &lmm1->lmv_master_fid);
 	cplen = strlcpy(lsm->lsm_md_pool_name, lmm1->lmv_pool_name,
