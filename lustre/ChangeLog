@@ -1,4 +1,5 @@
 TBD Intel Corporation
+       * test parallel-scale-nfs
        * version 2.6.0
        * See http://wiki.whamcloud.com/display/PUB/Lustre+Support+Matrix
          for currently supported client and server kernel versions.
