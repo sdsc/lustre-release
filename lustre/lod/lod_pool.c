@@ -95,7 +95,7 @@ static __u32 pool_hashfn(cfs_hash_t *hash_body, const void *key, unsigned mask)
 
 	result = 0;
 	poolname = (char *)key;
-	for (i = 0; i < LOV_MAXPOOLNAME; i++) {
+	for (i = 0; i < LOV_MAXPOOLNAME + 1; i++) {
 		if (poolname[i] == '\0')
 			break;
 		result = (result << 4)^(result >> 28) ^  poolname[i];

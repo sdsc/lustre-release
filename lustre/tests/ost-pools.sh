@@ -241,16 +241,16 @@ run_test 1b "Create a pool with a 10 character pool name"
 
 test_1c() {
     set_cleanup_trap
-    create_pool_nofail ${POOL}12345678
-    destroy_pool ${POOL}12345678
+    create_pool_nofail ${POOL}1234567
+    destroy_pool ${POOL}1234567
 }
-run_test 1c "Create a pool with a 16 character pool name"
+run_test 1c "Create a pool with a 15 character pool name"
 
 test_1d() {
     set_cleanup_trap
-    create_pool_fail ${POOL}123456789
+    create_pool_fail ${POOL}12345678
 }
-run_test 1d "Create a pool with a 17 char pool name; should fail"
+run_test 1d "Create a pool with a 16 char pool name; should fail"
 
 test_1e() {
     set_cleanup_trap
@@ -317,6 +317,25 @@ test_1m() {
     destroy_pool $POOL2
 }
 run_test 1m "pool_new did not fail even though $POOL2 existed"
+
+test_1n() {
+    set_cleanup_trap
+    create_pool_nofail ${POOL}1234567
+
+    do_facet $SINGLEMDS lctl pool_add $FSNAME.${POOL}1234567 OST0000
+    RC=$?; [[ $RC -eq 0 ]] ||
+        error "pool_add failed. $FSNAME ${POOL}1234567 OST0000: $RC"
+    local POOL_ROOT=${POOL_ROOT:-$DIR/$tdir}
+    create_dir $POOL_ROOT ${POOL}1234567
+    dd if=/dev/zero of=$POOL_ROOT/file bs=1M count=100
+    RC=$?; [[ $RC -eq 0 ]] ||
+        error "failed to write to $POOL_ROOT/file: $RC"
+    do_facet $SINGLEMDS lctl pool_remove $FSNAME.${POOL}1234567 OST0000
+    drain_pool ${POOL}1234567
+
+    destroy_pool ${POOL}1234567
+}
+run_test 1n "Pool with a 15 character pool name works well"
 
 test_2a() {
     set_cleanup_trap

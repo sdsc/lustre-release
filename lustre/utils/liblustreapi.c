@@ -709,6 +709,7 @@ retry_open:
         lum.lmm_stripe_offset = stripe_offset;
         if (pool_name != NULL) {
                 strncpy(lum.lmm_pool_name, pool_name, LOV_MAXPOOLNAME);
+		lum.lmm_pool_name[LOV_MAXPOOLNAME] = '\0';
         } else {
                 /* If no pool is specified at all, use V1 request */
                 lum.lmm_magic = LOV_USER_MAGIC_V1;
@@ -842,7 +843,7 @@ int llapi_dir_create_pool(const char *name, int mode, int stripe_offset,
 	lmu.lum_stripe_count = stripe_count;
 	lmu.lum_hash_type = stripe_pattern;
 	if (pool_name != NULL) {
-		if (strlen(pool_name) >= LOV_MAXPOOLNAME) {
+		if (strlen(pool_name) > LOV_MAXPOOLNAME) {
 			llapi_err_noerrno(LLAPI_MSG_ERROR,
 				  "error LL_IOC_LMV_SETSTRIPE '%s' : too large"
 				  "pool name: %s", name, pool_name);
@@ -2514,6 +2515,7 @@ void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
 
 		lum = (struct lmv_user_md *)param->fp_lmv_md;
 		strncpy(pool_name, lum->lum_pool_name, LOV_MAXPOOLNAME);
+		pool_name[LOV_MAXPOOLNAME] = '\0';
 		lmv_dump_user_lmm(lum, pool_name, path,
 				  param->obdindex, param->fp_max_depth,
 				  param->verbose);

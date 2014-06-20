@@ -49,7 +49,7 @@ struct lmv_stripe_md {
 	__u32	lsm_md_default_count;
 	__u32	lsm_md_default_index;
 	struct lu_fid	lsm_md_master_fid;
-	char	lsm_md_pool_name[LOV_MAXPOOLNAME];
+	char	lsm_md_pool_name[LOV_MAXPOOLNAME + 1];
 	struct lmv_oinfo lsm_md_oinfo[0];
 };
 
