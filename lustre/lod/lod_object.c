@@ -2929,6 +2929,11 @@ static int lod_xattr_set(const struct lu_env *env,
 
 			rc = dt_xattr_set(env, next, buf, name, fl, sub_th,
 					  capa);
+		} else if (dt_object_remote(dt)) {
+			/* This only happens during migration, see
+			 * mdd_migrate_create() */
+			rc = dt_xattr_set(env, next, buf, name, fl, sub_th,
+					  capa);
 		} else {
 			rc = lod_striping_create(env, dt, NULL, NULL, th);
 		}
