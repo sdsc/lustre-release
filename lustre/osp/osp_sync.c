@@ -316,6 +316,8 @@ static int osp_sync_add_rec(const struct lu_env *env, struct osp_device *d,
 	if (IS_ERR(local_th))
 		RETURN(PTR_ERR(local_th));
 
+	LASSERT(local_th != NULL);
+	LASSERT(local_th->th_dev == d->opd_storage);
 	switch (type) {
 	case MDS_UNLINK64_REC:
 		osi->osi_hdr.lrh_len = sizeof(osi->osi_unlink);
@@ -773,7 +775,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out, rc);
 
-	rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
+	rc = osp_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
 				 update->dur_buf.ub_req, &req);
 	if (rc != 0)
 		GOTO(out, rc);
