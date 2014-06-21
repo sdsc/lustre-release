@@ -489,7 +489,14 @@ lnet_finalize (lnet_ni_t *ni, lnet_msg_t *msg, int status)
 	 * (finalize sending first then finalize receiving)
 	 */
 	cpt = msg->msg_tx_committed ? msg->msg_tx_cpt : msg->msg_rx_cpt;
+
 	lnet_net_lock(cpt);
+	if (msg->msg_tx_committed && msg->msg_txpeer != NULL && status == 0) {
+		/* LND is finalising a outgoing message for txpeer, so asssume
+		 * it is alive */
+		msg->msg_txpeer->lp_last_alive =
+		msg->msg_txpeer->lp_last_query = cfs_time_current();
+	}
 
 	container = the_lnet.ln_msg_containers[cpt];
 	list_add_tail(&msg->msg_list, &container->msc_finalizing);
