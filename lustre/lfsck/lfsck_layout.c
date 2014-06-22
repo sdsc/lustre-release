@@ -911,14 +911,14 @@ static int fid_is_for_ostobj(const struct lu_env *env, struct dt_device *dt,
 			     struct dt_object *obj, const struct lu_fid *fid)
 {
 	struct seq_server_site	*ss	= lu_site2seq(dt->dd_lu_dev.ld_site);
-	struct lu_seq_range	 range	= { 0 };
+	struct lu_seq_range	*range	= &lfsck_env_info(env)->lti_range;
 	struct lustre_mdt_attrs *lma;
 	int			 rc;
 
-	fld_range_set_any(&range);
-	rc = fld_server_lookup(env, ss->ss_server_fld, fid_seq(fid), &range);
+	fld_range_set_any(range);
+	rc = fld_server_lookup(env, ss->ss_server_fld, fid_seq(fid), range);
 	if (rc == 0) {
-		if (fld_range_is_ost(&range))
+		if (fld_range_is_ost(range))
 			return 1;
 
 		return 0;
@@ -3236,6 +3236,9 @@ static int lfsck_layout_assistant_handler_p2(const struct lu_env *env,
 	int				 rc	= 0;
 	ENTRY;
 
+	CDEBUG(D_LFSCK, "%s: layout LFSCK phase2 scan start\n",
+	       lfsck_lfsck2name(lfsck));
+
 	spin_lock(&ltds->ltd_lock);
 	while (!list_empty(&lad->lad_ost_phase2_list)) {
 		ltd = list_entry(lad->lad_ost_phase2_list.next,
@@ -3260,6 +3263,9 @@ static int lfsck_layout_assistant_handler_p2(const struct lu_env *env,
 	else
 		rc = 0;
 	spin_unlock(&ltds->ltd_lock);
+
+	CDEBUG(D_LFSCK, "%s: layout LFSCK phase2 scan stop: rc = %d\n",
+	       lfsck_lfsck2name(lfsck), rc);
 
 	RETURN(rc);
 }
@@ -3613,22 +3619,22 @@ static int lfsck_layout_slave_check_pairs(const struct lu_env *env,
 	struct obd_export	 *exp	 = NULL;
 	struct ptlrpc_request	 *req	 = NULL;
 	struct lfsck_request	 *lr;
-	struct lu_seq_range	  range	 = { 0 };
+	struct lu_seq_range	 *range  = &lfsck_env_info(env)->lti_range;
 	int			  rc	 = 0;
 	ENTRY;
 
 	if (unlikely(fid_is_idif(pfid)))
 		RETURN(1);
 
-	fld_range_set_any(&range);
-	rc = fld_server_lookup(env, ss->ss_server_fld, fid_seq(pfid), &range);
+	fld_range_set_any(range);
+	rc = fld_server_lookup(env, ss->ss_server_fld, fid_seq(pfid), range);
 	if (rc != 0)
 		RETURN(rc == -ENOENT ? 1 : rc);
 
-	if (unlikely(!fld_range_is_mdt(&range)))
+	if (unlikely(!fld_range_is_mdt(range)))
 		RETURN(1);
 
-	exp = lustre_find_lwp_by_index(obd->obd_name, range.lsr_index);
+	exp = lustre_find_lwp_by_index(obd->obd_name, range->lsr_index);
 	if (unlikely(exp == NULL))
 		RETURN(1);
 
@@ -5339,7 +5345,7 @@ static int lfsck_fid_match_idx(const struct lu_env *env,
 {
 	struct seq_server_site	*ss;
 	struct lu_server_fld	*sf;
-	struct lu_seq_range	 range	= { 0 };
+	struct lu_seq_range	*range = &lfsck_env_info(env)->lti_range;
 	int			 rc;
 
 	/* All abnormal cases will be returned to MDT0. */
@@ -5357,15 +5363,15 @@ static int lfsck_fid_match_idx(const struct lu_env *env,
 	sf = ss->ss_server_fld;
 	LASSERT(sf != NULL);
 
-	fld_range_set_any(&range);
-	rc = fld_server_lookup(env, sf, fid_seq(fid), &range);
+	fld_range_set_any(range);
+	rc = fld_server_lookup(env, sf, fid_seq(fid), range);
 	if (rc != 0)
 		return rc;
 
-	if (!fld_range_is_mdt(&range))
+	if (!fld_range_is_mdt(range))
 		return -EINVAL;
 
-	if (range.lsr_index == idx)
+	if (range->lsr_index == idx)
 		return 1;
 
 	return 0;
