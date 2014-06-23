@@ -320,6 +320,8 @@ int libcfs_debug_cleanup(void);
 /* !__KERNEL__ */
 #endif
 
+struct cfs_cpt_table;
+
 /*
  * allocate per-cpu-partition data, returned value is an array of pointers,
  * variable can be indexed by CPU ID.
