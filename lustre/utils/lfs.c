@@ -123,6 +123,7 @@ static int lfs_ladvise(int argc, char **argv);
 	"usage: "cmd" [--stripe-count|-c <stripe_count>]\n"		\
 	"                 [--stripe-index|-i <start_ost_idx>]\n"	\
 	"                 [--stripe-size|-S <stripe_size>]\n"		\
+	"                 [--stripe-pattern|-P <pattern>]\n"		\
 	"                 [--pool|-p <pool_name>]\n"			\
 	"                 [--ost|-o <ost_indices>]\n"
 
@@ -132,6 +133,7 @@ static int lfs_ladvise(int argc, char **argv);
 	"\t              respectively)\n"				\
 	"\tstart_ost_idx: OST index of first stripe (-1 default)\n"	\
 	"\tstripe_count: Number of OSTs to stripe over (0 default, -1 all)\n" \
+	"\tpattern: stripe pattern type: raid0, mdt (default raid0)\n"\
 	"\tpool_name:    Name of OST pool to use (default none)\n"	\
 	"\tost_indices:  List of OST indices, can be repeated multiple times\n"\
 	"\t              Indices be specified in a format of:\n"	\
@@ -912,6 +914,7 @@ static int lfs_setstripe(int argc, char **argv)
 	int				 result2 = 0;
 	unsigned long long		 st_size;
 	int				 st_offset, st_count;
+	int				 st_pattern = LOV_PATTERN_RAID0;
 	char				*end;
 	int				 c;
 	int				 delete = 0;
@@ -964,6 +967,7 @@ static int lfs_setstripe(int argc, char **argv)
 		 * the consistent "--stripe-size|-S" for all commands. */
 		{"size",	 required_argument, 0, 's'},
 #endif
+		{"stripe-pattern", required_argument, 0, 'P'},
 		{"stripe-size",  required_argument, 0, 'S'},
 		{"stripe_size",  required_argument, 0, 'S'},
 		/* --verbose is only valid in migrate mode */
@@ -978,7 +982,7 @@ static int lfs_setstripe(int argc, char **argv)
 	if (strcmp(argv[0], "migrate") == 0)
 		migrate_mode = true;
 
-	while ((c = getopt_long(argc, argv, "bc:di:m:no:p:s:S:v",
+	while ((c = getopt_long(argc, argv, "bc:di:m:no:p:P:s:S:v",
 				long_opts, NULL)) >= 0) {
 		switch (c) {
 		case 0:
@@ -1063,6 +1067,16 @@ static int lfs_setstripe(int argc, char **argv)
 			}
 			migrate_mdt_param.fp_verbose = VERBOSE_DETAIL;
 			break;
+		case 'P':
+			if (strcmp(argv[optind - 1], "mdt") == 0)
+				st_pattern = LOV_PATTERN_MDT;
+			else if (strcmp(argv[optind - 1], "raid0") == 0)
+				st_pattern = LOV_PATTERN_RAID0;
+			else
+				fprintf(stderr, "error: stripe pattenr '%s' "
+					"is unknown, supported patterns are: "
+					"'mdt', 'raid0'\n", argv[optind]);
+			break;
 		default:
 			return CMD_HELP;
 		}
@@ -1095,6 +1109,15 @@ static int lfs_setstripe(int argc, char **argv)
 		fprintf(stderr,
 			"error: %s: cannot specify --non-block and --block\n",
 			argv[0]);
+		return CMD_HELP;
+	}
+
+	/* In case of Data-on-MDT patterns the only extra option applicable is
+	 * stripe size option. */
+	if (st_pattern == LOV_PATTERN_MDT &&
+	    !(optind == 3 || (optind == 5 && stripe_size_arg != NULL))) {
+		fprintf(stderr, "error: %s: cannot specify '-P mdt' with any "
+			"options except '--stripe-size|-S'\n", argv[0]);
 		return CMD_HELP;
 	}
 
@@ -1182,10 +1205,17 @@ static int lfs_setstripe(int argc, char **argv)
 			return CMD_HELP;
 		}
 
+		/* force data-on-mdt values */
+		if (st_pattern == LOV_PATTERN_MDT) {
+			st_count = 0;
+			st_offset = 0;
+			pool_name_arg = NULL;
+		}
+
 		param->lsp_stripe_size = st_size;
 		param->lsp_stripe_offset = st_offset;
 		param->lsp_stripe_count = st_count;
-		param->lsp_stripe_pattern = 0;
+		param->lsp_stripe_pattern = st_pattern;
 		param->lsp_pool = pool_name_arg;
 		param->lsp_is_specific = false;
 		if (nr_osts > 0) {
