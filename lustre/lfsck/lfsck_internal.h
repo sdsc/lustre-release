@@ -512,14 +512,6 @@ struct lfsck_instance {
 				  li_start_unplug:1;
 };
 
-enum lfsck_linkea_flags {
-	/* The linkea entries does not match the object nlinks. */
-	LLF_UNMATCH_NLINKS	= 0x01,
-
-	/* Fail to repair the multiple-linked objects during the double scan. */
-	LLF_REPAIR_FAILED	= 0x02,
-};
-
 struct lfsck_async_interpret_args {
 	struct lfsck_component		*laia_com;
 	struct lfsck_tgt_descs		*laia_ltds;
@@ -639,6 +631,7 @@ struct lfsck_thread_info {
 	struct lu_orphan_rec	lti_rec;
 	struct lov_user_md	lti_lum;
 	struct dt_insert_rec	lti_dt_rec;
+	struct lu_seq_range	lti_range;
 };
 
 /* lfsck_lib.c */
