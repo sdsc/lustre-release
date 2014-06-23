@@ -88,31 +88,31 @@ open_ioc_dev(int dev_id)
                                         dev_name, strerror(errno));
                 }
 
-                if (fd < 0) {
-                        fprintf(stderr, "opening %s failed: %s\n"
-                                "hint: the kernel modules may not be loaded\n",
-                                dev_name, strerror(errno));
-                        return fd;
-                }
-                ioc_dev_list[dev_id].dev_fd = fd;
-        }
+		if (fd < 0) {
+			fprintf(stderr, "opening %s failed: %s\n"
+				"hint: the kernel modules may not be loaded\n",
+				dev_name, strerror(errno));
+			return -errno;
+		}
+		ioc_dev_list[dev_id].dev_fd = fd;
+	}
 
-        return ioc_dev_list[dev_id].dev_fd;
+	return ioc_dev_list[dev_id].dev_fd;
 }
 
 
-static int 
-do_ioctl(int dev_id, unsigned int opc, void *buf)
+static int do_ioctl(int dev_id, unsigned int opc, void *buf)
 {
-        int fd, rc;
-        
-        fd = open_ioc_dev(dev_id);
-        if (fd < 0) 
-                return fd;
+	int fd, rc;
 
-        rc = cfs_proc_ioctl(fd, opc, buf);
-        return rc;
-        
+	fd = open_ioc_dev(dev_id);
+	if (fd < 0)
+		return fd;
+
+	rc = cfs_proc_ioctl(fd, opc, buf);
+	if (rc < 0)
+		rc = -errno;
+	return rc;
 }
 
 static FILE *

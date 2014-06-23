@@ -282,13 +282,11 @@ static int read_proc(char *proc_path,  unsigned long long *value)
 
         rc = read(fd, buf, sizeof(buf));
         close(fd);
-        if (errno == EOPNOTSUPP) {
-                /* probably an echo server */
-                return rc;
-        }
         if (rc <= 0) {
-                fprintf(stderr, "read('%s') failed: %s (%d)\n",
-                        proc_path, strerror(errno), errno);
+		rc = -errno;
+		if (rc != -EOPNOTSUPP) /* probably an echo server */
+			fprintf(stderr, "read('%s') failed: %s\n",
+				proc_path, strerror(-rc));
                 return rc;
         }
         *value = strtoull(buf, NULL, 10);
@@ -398,77 +396,78 @@ static int echocli_setup(char *oname, char *ename, int *dev)
         sprintf(proc_path, "/proc/fs/lustre/osc/%s/max_rpcs_in_flight", oname);
         rc = write_proc(proc_path, "1");
 
-        /* ECHO CLI */
-        /* attach "echo_client" echoname echouuid */
-        args[1] = "echo_client";
-        args[2] = args[3] = ename;
-        rc = jt_lcfg_attach(4, args);
-        if (rc) {
-                fprintf(stderr, "%s: can't attach '%s' (%d)\n",
-                        cmdname, ename, rc);
-                if (rc == ENODEV)
-                        fprintf(stderr, "%s: is the obdecho module loaded?\n",
-                                cmdname);
-                goto clean;
-        }
-        /* setup oscname */
-        args[1] = oname;
-        rc = jt_lcfg_setup(2, args);
-        if (rc) {
-                fprintf(stderr, "%s: can't setup '%s' (%d)\n",
-                        cmdname, ename, rc);
-                goto clean;
-        }
+	/* ECHO CLI */
+	/* attach "echo_client" echoname echouuid */
+	args[1] = "echo_client";
+	args[2] = args[3] = ename;
+	rc = jt_lcfg_attach(4, args);
+	if (rc != 0) {
+		fprintf(stderr, "%s: can't attach '%s' (%d)\n",
+			cmdname, ename, rc);
+		if (rc == -ENODEV)
+			fprintf(stderr, "%s: is the obdecho module loaded?\n",
+				cmdname);
+		goto clean;
+	}
+	/* setup oscname */
+	args[1] = oname;
+	rc = jt_lcfg_setup(2, args);
+	if (rc != 0) {
+		fprintf(stderr, "%s: can't setup '%s': %s\n",
+			cmdname, ename, strerror(-rc));
+		goto clean;
+	}
 
-        args[1] = ename;
-        rc = jt_obd_device(2, args);
-        if (rc) {
-                fprintf(stderr, "%s: can't set device '%s' (%d)\n",
-                        cmdname, ename, rc);
-                goto clean;
-        }
+	args[1] = ename;
+	rc = jt_obd_device(2, args);
+	if (rc != 0) {
+		fprintf(stderr, "%s: can't set device '%s': %s\n",
+			cmdname, ename, strerror(-rc));
+		goto clean;
+	}
 
-        if (!rc)
-                *dev = jt_obd_get_device();
-        pthread_mutex_unlock(&m_config);
-        return rc;
+	if (rc == 0)
+		*dev = jt_obd_get_device();
+	pthread_mutex_unlock(&m_config);
+	return rc;
 
 clean:
-        pthread_mutex_unlock(&m_config);
-        cleanup(ename, 1);
-        cleanup(oname, 1);
-        return rc;
+	pthread_mutex_unlock(&m_config);
+	cleanup(ename, 1);
+	cleanup(oname, 1);
+	return rc;
 }
 
 /* We can't use the libptlctl library fns because they are not shared-memory
    safe with respect to the ioctl device (cur_dev) */
 static int obj_ioctl(int cmd, struct obd_ioctl_data *data, int unpack)
 {
-        char *buf = NULL;
-        int rc;
+	char *buf = NULL;
+	int rc;
 
-        //IOC_PACK(cmdname, data);
-        if (obd_ioctl_pack(data, &buf, sizeof(*data))) {
-                fprintf(stderr, "dev %d invalid ioctl\n", data->ioc_dev);
-                rc = EINVAL;
-                goto out;
-        }
+	/* IOC_PACK(cmdname, data); */
+	rc = obd_ioctl_pack(data, &buf, sizeof(*data));
+	if (rc != 0) {
+		fprintf(stderr, "dev %d: %s\n",
+			data->ioc_dev, strerror(-rc));
+		goto out;
+	}
 
-        rc = l_ioctl(OBD_DEV_ID, cmd, buf);
-
-        if (unpack) {
-                //IOC_UNPACK(argv[0], data);
-                if (obd_ioctl_unpack(data, buf, sizeof(*data))) {
-                        fprintf(stderr, "dev %d invalid reply\n", data->ioc_dev);
-                        rc = EINVAL;
-                        goto out;
-                }
-        }
+	rc = l_ioctl(OBD_DEV_ID, cmd, buf);
+	if (unpack) {
+		/* IOC_UNPACK(argv[0], data); */
+		rc = obd_ioctl_unpack(data, buf, sizeof(*data));
+		if (rc != 0) {
+			fprintf(stderr, "dev %d: %s\n",
+				data->ioc_dev, strerror(-rc));
+			goto out;
+		}
+	}
 
 out:
-        if (buf)
-                free(buf);
-        return rc;
+	if (buf)
+		free(buf);
+	return rc;
 }
 
 /* See jt_obd_create */
@@ -782,37 +781,39 @@ static int loadgen_start_clients(int argc, char **argv)
                 return -EINVAL;
         }
 
-        rc = pthread_attr_init(&attr);
-        if (rc) {
-                fprintf(stderr, "%s: pthread_attr_init:(%d) %s\n",
-                        cmdname, rc, strerror(errno));
-                return -errno;
-        }
-        pthread_attr_setstacksize (&attr, CLIENT_THREAD_STACK_SIZE);
-        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+	rc = pthread_attr_init(&attr);
+	if (rc) {
+		rc = -errno;
+		fprintf(stderr, "%s: pthread_attr_init: %s\n",
+			cmdname, strerror(-rc));
+		return rc;
+	}
+	pthread_attr_setstacksize(&attr, CLIENT_THREAD_STACK_SIZE);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
-        numt += live_threads;
-        i = live_threads;
-        printf("start %d to %d\n", i, numt);
-        while(!rc && !sig_received && (i < numt)) {
-                pthread_t thread;
+	numt += live_threads;
+	i = live_threads;
+	printf("start %d to %d\n", i, numt);
+	while (rc == 0 && !sig_received && (i < numt)) {
+		pthread_t thread;
 
-                i++;
-                rc = pthread_create(&thread, &attr, run_one_child,
-                                    (void *)(long)i);
-                if (rc) {
-                        fprintf(stderr, "%s: pthread: #%d - (%d) %s\n",
-                                cmdname, i, rc, strerror(rc));
-                        break;
-                }
+		i++;
+		rc = pthread_create(&thread, &attr, run_one_child,
+				    (void *)(long)i);
+		if (rc != 0) {
+			rc = -errno;
+			fprintf(stderr, "%s: pthread: #%d: %s\n",
+				cmdname, i, strerror(-rc));
+			break;
+		}
 
-                /* give them slightly different start times */
-                nanosleep(&ts, NULL);
-        }
+		/* give them slightly different start times */
+		nanosleep(&ts, NULL);
+	}
 
-        pthread_attr_destroy(&attr);
+	pthread_attr_destroy(&attr);
 
-        return -rc;
+	return rc;
 }
 
 static int loadgen_target(int argc, char **argv)
@@ -958,19 +959,17 @@ static int loadgen_start_echosrv(int argc, char **argv)
         args[1] = "ost";
         args[2] = args[3] = "OSS";
 
-        rc = jt_lcfg_attach(4, args);
-        if (rc == EEXIST) {
-                /* Already set up for somebody else, that's fine. */
-                printf("OSS already set up, no problem.\n");
-                pthread_mutex_unlock(&m_config);
-                return 0;
-        }
-        if (rc) {
-                fprintf(stderr, "%s: can't attach OSS (%d)\n",
-                        cmdname, rc);
-                goto clean;
-        }
-        my_oss = 1;
+	rc = jt_lcfg_attach(4, args);
+	if (rc == -EEXIST) {
+		/* Already set up for somebody else, that's fine. */
+		printf("OSS already set up, no problem.\n");
+		pthread_mutex_unlock(&m_config);
+		return 0;
+	} else if (rc != 0) {
+		fprintf(stderr, "%s: can't attach OSS (%d)\n", cmdname, rc);
+		goto clean;
+	}
+	my_oss = 1;
 
         /* setup */
         rc = jt_lcfg_setup(1, args);
@@ -1009,23 +1008,23 @@ static int loadgen_init(int argc, char **argv)
         signal(SIGTERM, sig_master);
         signal(SIGINT, sig_master);
 
-        /* Test to make sure obdecho module is loaded */
-        args[0] = cmdname;
-        args[1] = "echo_client";
-        args[2] = args[3] = "ecc_test";
-        rc = jt_lcfg_attach(4, args);
-        if (rc) {
-                fprintf(stderr, "%s: can't attach echo client (%d)\n",
-                        cmdname, rc);
-                if (rc == ENODEV)
-                        fprintf(stderr, "%s: is the obdecho module loaded?\n",
-                                cmdname);
-        } else {
-                args[1] = args[2];
-                jt_obd_detach(1, args);
-        }
+	/* Test to make sure obdecho module is loaded */
+	args[0] = cmdname;
+	args[1] = "echo_client";
+	args[2] = args[3] = "ecc_test";
+	rc = jt_lcfg_attach(4, args);
+	if (rc) {
+		fprintf(stderr, "%s: can't attach echo client (%d)\n",
+			cmdname, rc);
+		if (rc == -ENODEV)
+			fprintf(stderr, "%s: is the obdecho module loaded?\n",
+				cmdname);
+	} else {
+		args[1] = args[2];
+		jt_obd_detach(1, args);
+	}
 
-        return rc;
+	return rc;
 }
 
 static int loadgen_exit()
