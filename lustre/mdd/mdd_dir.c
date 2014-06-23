@@ -1478,20 +1478,25 @@ int mdd_unlink_sanity_check(const struct lu_env *env, struct mdd_object *pobj,
 static int mdd_declare_unlink(const struct lu_env *env, struct mdd_device *mdd,
 			      struct mdd_object *p, struct mdd_object *c,
 			      const struct lu_name *name, struct md_attr *ma,
-			      struct thandle *handle, int no_name)
+			      struct thandle *handle, int no_name, int is_dir)
 {
-	struct lu_attr     *la = &mdd_env_info(env)->mti_la_for_fix;
-        int rc;
+	struct lu_attr	*la = &mdd_env_info(env)->mti_la_for_fix;
+	int		 rc;
 
-	if (likely(no_name == 0)) {
-		rc = mdo_declare_index_delete(env, p, name->ln_name, handle);
-		if (rc)
-			return rc;
+	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DANGLING2)) {
+		if (likely(no_name == 0)) {
+			rc = mdo_declare_index_delete(env, p, name->ln_name,
+						      handle);
+			if (rc != 0)
+				return rc;
+		}
+
+		if (is_dir != 0) {
+			rc = mdo_declare_ref_del(env, p, handle);
+			if (rc != 0)
+				return rc;
+		}
 	}
-
-        rc = mdo_declare_ref_del(env, p, handle);
-        if (rc)
-                return rc;
 
 	LASSERT(ma->ma_attr.la_valid & LA_CTIME);
 	la->la_ctime = la->la_mtime = ma->ma_attr.la_ctime;
@@ -1611,7 +1616,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 		RETURN(PTR_ERR(handle));
 
 	rc = mdd_declare_unlink(env, mdd, mdd_pobj, mdd_cobj,
-				lname, ma, handle, no_name);
+				lname, ma, handle, no_name, is_dir);
 	if (rc)
 		GOTO(stop, rc);
 
@@ -1622,7 +1627,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	if (likely(mdd_cobj != NULL))
 		mdd_write_lock(env, mdd_cobj, MOR_TGT_CHILD);
 
-	if (likely(no_name == 0)) {
+	if (likely(no_name == 0) && !OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DANGLING2)) {
 		rc = __mdd_index_delete(env, mdd_pobj, name, is_dir, handle,
 					mdd_object_capa(env, mdd_pobj));
 		if (rc)
