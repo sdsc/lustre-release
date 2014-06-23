@@ -114,11 +114,6 @@ const int nthreads = 1;
 
 static int cur_device = -1;
 
-static int l2_ioctl(int dev_id, int opc, void *buf)
-{
-        return l_ioctl(dev_id, opc, buf);
-}
-
 int lcfg_ioctl(char * func, int dev_id, struct lustre_cfg *lcfg)
 {
         struct obd_ioctl_data data;
@@ -132,41 +127,41 @@ int lcfg_ioctl(char * func, int dev_id, struct lustre_cfg *lcfg)
                                         lcfg->lcfg_buflens);
         data.ioc_pbuf1 = (void *)lcfg;
         memset(buf, 0, sizeof(rawbuf));
-        rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
-        if (rc) {
-                fprintf(stderr, "error: %s: invalid ioctl\n",
-                        jt_cmdname(func));
-                return rc;
-        }
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc != 0) {
+		fprintf(stderr, "error: %s: %s\n",
+			jt_cmdname(func), strerror(-rc));
+		return rc;
+	}
 
-        rc =  l_ioctl(dev_id, OBD_IOC_PROCESS_CFG, buf);
-
-        return rc;
+	return l_ioctl(dev_id, OBD_IOC_PROCESS_CFG, buf);
 }
 
 static int do_device(char *func, char *devname);
 
 static int get_mgs_device()
 {
-        char mgs[] = "$MGS";
-        static int mgs_device = -1;
+	char mgs[] = "$MGS";
+	static int mgs_device = -1;
 
-        if (mgs_device == -1) {
-                int rc;
-                do_disconnect(NULL, 1);
-                rc = do_device("mgsioc", mgs);
-                if (rc) {
-                        fprintf(stderr,
-                                "This command must be run on the MGS.\n");
-                        errno = ENODEV;
-                        return -1;
-                }
-                mgs_device = cur_device;
-        }
-        return mgs_device;
+	if (mgs_device == -1) {
+		int rc;
+
+		do_disconnect(NULL, 1);
+		rc = do_device("mgsioc", mgs);
+		if (rc != 0) {
+			fprintf(stderr,
+				"This command must be run on the MGS: %s\n",
+				strerror(-rc));
+
+			return rc;
+		}
+		mgs_device = cur_device;
+	}
+	return mgs_device;
 }
 
-/* Returns -1 on error with errno set */
+/* Returns negative error */
 int lcfg_mgs_ioctl(char *func, int dev_id, struct lustre_cfg *lcfg)
 {
         struct obd_ioctl_data data;
@@ -191,10 +186,9 @@ int lcfg_mgs_ioctl(char *func, int dev_id, struct lustre_cfg *lcfg)
 
         rc = l_ioctl(dev_id, OBD_IOC_PARAM, buf);
 out:
-        if (rc) {
-                if (errno == ENOSYS)
-                        fprintf(stderr, "Make sure cfg_device is set first.\n");
-        }
+	if (rc == -ENOSYS)
+		fprintf(stderr, "Make sure cfg_device is set first.\n");
+
         return rc;
 }
 
@@ -217,8 +211,6 @@ char *obdo_print(struct obdo *obd)
 
 #define BAD_VERBOSE (-999999999)
 
-#define N2D_OFF 0x100      /* So we can tell between error codes and devices */
-
 static int do_name2dev(char *func, char *name)
 {
         struct obd_ioctl_data data;
@@ -233,21 +225,21 @@ static int do_name2dev(char *func, char *name)
         memset(buf, 0, sizeof(rawbuf));
         rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
 	if (rc < 0) {
-                fprintf(stderr, "error: %s: invalid ioctl\n",
-                        jt_cmdname(func));
-		return -rc;
-        }
-        rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_NAME2DEV, buf);
-        if (rc < 0)
-                return errno;
-        rc = obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
-        if (rc) {
-                fprintf(stderr, "error: %s: invalid reply\n",
-                        jt_cmdname(func));
-                return rc;
-        }
+		fprintf(stderr, "error: %s: invalid ioctl: %s\n",
+			jt_cmdname(func), strerror(-rc));
+		return rc;
+	}
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_NAME2DEV, buf);
+	if (rc < 0)
+		return rc;
+	rc = obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
+	if (rc) {
+		fprintf(stderr, "error: %s: %s\n",
+			jt_cmdname(func), strerror(-rc));
+		return rc;
+	}
 
-        return data.ioc_dev + N2D_OFF;
+	return data.ioc_dev;
 }
 
 /*
@@ -256,26 +248,23 @@ static int do_name2dev(char *func, char *name)
  */
 int parse_devname(char *func, char *name)
 {
-        int rc;
-        int ret = -1;
+	int rc;
 
-        if (!name)
-                return ret;
-        if (isdigit(name[0])) {
-                ret = strtoul(name, NULL, 0);
-        } else {
-                if (name[0] == '$' || name[0] == '%')
-                        name++;
-                rc = do_name2dev(func, name);
-                if (rc >= N2D_OFF) {
-                        ret = rc - N2D_OFF;
-                        // printf("Name %s is device %d\n", name, ret);
-                } else {
-                        fprintf(stderr, "No device found for name %s: %s\n",
-                                name, strerror(rc));
-                }
-        }
-        return ret;
+	if (!name)
+		return -EINVAL;
+
+	if (isdigit(name[0])) {
+		rc = strtoul(name, NULL, 0);
+	} else {
+		if (name[0] == '$' || name[0] == '%')
+			name++;
+		rc = do_name2dev(func, name);
+		if (rc < 0)
+			fprintf(stderr, "No device found for name %s: %s\n",
+				name, strerror(-rc));
+	}
+
+	return rc;
 }
 
 char *jt_cmdname(char *func)
@@ -365,37 +354,39 @@ int do_disconnect(char *func, int verbose)
 #ifdef MAX_THREADS
 static int shmem_setup(void)
 {
-        pthread_mutexattr_t mattr;
-        pthread_condattr_t  cattr;
-        int                 rc;
-        int                 shmid;
+	pthread_mutexattr_t mattr;
+	pthread_condattr_t  cattr;
+	int                 rc;
+	int                 shmid;
 
-        /* Create new segment */
-        shmid = shmget(IPC_PRIVATE, sizeof(*shared_data), 0600);
-        if (shmid == -1) {
-                fprintf(stderr, "Can't create shared data: %s\n",
-                        strerror(errno));
-                return errno;
-        }
+	/* Create new segment */
+	shmid = shmget(IPC_PRIVATE, sizeof(*shared_data), 0600);
+	if (shmid == -1) {
+		rc = -errno;
+		fprintf(stderr, "Can't create shared data: %s\n",
+			strerror(-rc));
+		return rc;
+	}
 
-        /* Attatch to new segment */
-        shared_data = (struct shared_data *)shmat(shmid, NULL, 0);
+	/* Attatch to new segment */
+	shared_data = (struct shared_data *)shmat(shmid, NULL, 0);
 
-        if (shared_data == (struct shared_data *)(-1)) {
-                fprintf(stderr, "Can't attach shared data: %s\n",
-                        strerror(errno));
-                shared_data = NULL;
-                return errno;
-        }
+	if (shared_data == (struct shared_data *)(-1)) {
+		rc = -errno;
+		fprintf(stderr, "Can't attach shared data: %s\n",
+			strerror(-rc));
+		shared_data = NULL;
+		return rc;
+	}
 
-        /* Mark segment as destroyed, so it will disappear when we exit.
-         * Forks will inherit attached segments, so we should be OK.
-         */
-        if (shmctl(shmid, IPC_RMID, NULL) == -1) {
-                fprintf(stderr, "Can't destroy shared data: %s\n",
-                        strerror(errno));
-                return errno;
-        }
+	/* Mark segment as destroyed, so it will disappear when we exit.
+	 * Forks will inherit attached segments, so we should be OK. */
+	if (shmctl(shmid, IPC_RMID, NULL) == -1) {
+		rc = -errno;
+		fprintf(stderr, "Can't destroy shared data: %s\n",
+			strerror(-rc));
+		return rc;
+	}
 
         pthread_mutexattr_init(&mattr);
         pthread_condattr_init(&cattr);
@@ -408,6 +399,7 @@ static int shmem_setup(void)
 
         rc = pthread_condattr_setpshared(&cattr, PTHREAD_PROCESS_SHARED);
         if (rc != 0) {
+		rc = -errno;
                 fprintf(stderr, "Can't set shared cond attr\n");
 		goto out;
         }
@@ -614,15 +606,16 @@ extern command_t cmdlist[];
 
 static int do_device(char *func, char *devname)
 {
-        int dev;
+	int dev;
 
-        dev = parse_devname(func, devname);
-        if (dev < 0)
-                return -1;
+	dev = parse_devname(func, devname);
+	if (dev < 0)
+		return dev;
 
-        lcfg_set_devname(devname);
-        cur_device = dev;
-        return 0;
+	lcfg_set_devname(devname);
+	cur_device = dev;
+
+	return 0;
 }
 
 int jt_obd_get_device()
@@ -727,11 +720,12 @@ int jt_opt_threads(int argc, char **argv)
 
         for (i = 1, next_thread = verbose; i <= threads; i++) {
                 rc = fork();
-                if (rc < 0) {
-                        fprintf(stderr, "error: %s: #%d - %s\n", argv[0], i,
-                                strerror(rc = errno));
-                        break;
-                } else if (rc == 0) {
+		if (rc < 0) {
+			rc = -errno;
+			fprintf(stderr, "error: %s: #%d - %s\n", argv[0], i,
+				strerror(-rc));
+			break;
+		} else if (rc == 0) {
                         sigprocmask(SIG_SETMASK, &saveset, NULL);
 
                         thread = i;
@@ -769,12 +763,12 @@ int jt_opt_threads(int argc, char **argv)
                                 if (ret == 0)
                                         break;
 
-                                if (ret < 0) {
-                                        fprintf(stderr, "error: %s: wait - %s\n",
-                                                argv[0], strerror(errno));
-                                        if (!rc)
-                                                rc = errno;
-                                        continue;
+				if (ret < 0) {
+					if (rc == 0)
+						rc = -errno;
+					fprintf(stderr, "error: %s: wait: %s\n",
+						argv[0], strerror(-rc));
+					continue;
                                 } else {
                                         /*
                                          * This is a hack.  We _should_ be able
@@ -858,12 +852,12 @@ int jt_obd_no_transno(int argc, char **argv)
                         jt_cmdname(argv[0]));
                 return rc;
         }
-        rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_NO_TRANSNO, buf);
-        if (rc < 0)
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_NO_TRANSNO, buf);
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
 
-        return rc;
+	return rc;
 }
 
 int jt_obd_set_readonly(int argc, char **argv)
@@ -878,19 +872,19 @@ int jt_obd_set_readonly(int argc, char **argv)
         if (argc != 1)
                 return CMD_HELP;
 
-        memset(buf, 0, sizeof(rawbuf));
-        rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
-        if (rc) {
-                fprintf(stderr, "error: %s: invalid ioctl\n",
-                        jt_cmdname(argv[0]));
-                return rc;
-        }
-        rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_SET_READONLY, buf);
-        if (rc < 0)
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
+	memset(buf, 0, sizeof(rawbuf));
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc) {
+		fprintf(stderr, "error: %s: %s\n",
+			jt_cmdname(argv[0]), strerror(rc));
+		return rc;
+	}
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_SET_READONLY, buf);
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
 
-        return rc;
+	return rc;
 }
 
 int jt_obd_abort_recovery(int argc, char **argv)
@@ -912,12 +906,12 @@ int jt_obd_abort_recovery(int argc, char **argv)
                         jt_cmdname(argv[0]));
                 return rc;
         }
-        rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_ABORT_RECOVERY, buf);
-        if (rc < 0)
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_ABORT_RECOVERY, buf);
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
 
-        return rc;
+	return rc;
 }
 
 int jt_get_version(int argc, char **argv)
@@ -1011,20 +1005,20 @@ int jt_obd_list_ioctl(int argc, char **argv)
                 data->ioc_len = obd_ioctl_packlen(data);
                 data->ioc_count = index;
 
-                rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_GETDEVICE, buf);
-                if (rc != 0)
-                        break;
-                printf("%s\n", (char *)data->ioc_bulk);
-        }
-        if (rc != 0) {
-                if (errno == ENOENT)
-                        /* no device or the last device */
-                        rc = 0;
-                else
-                        fprintf(stderr, "Error getting device list: %s: "
-                                "check dmesg.\n", strerror(errno));
-        }
-        return rc;
+		rc = l_ioctl(OBD_DEV_ID, OBD_IOC_GETDEVICE, buf);
+		if (rc != 0)
+			break;
+		printf("%s\n", (char *)data->ioc_bulk);
+	}
+	if (rc != 0) {
+		if (rc == -ENOENT)
+			/* no device or the last device */
+			rc = 0;
+		else
+			fprintf(stderr, "Error getting device list: %s: "
+				"check dmesg.\n", strerror(-rc));
+	}
+	return rc;
 }
 
 int jt_obd_list(int argc, char **argv)
@@ -1043,12 +1037,13 @@ int jt_obd_list(int argc, char **argv)
                         return CMD_HELP;
         }
 
-        fp = fopen(DEVICES_LIST, "r");
-        if (fp == NULL) {
-                fprintf(stderr, "error: %s: %s opening "DEVICES_LIST"\n",
-                        jt_cmdname(argv[0]), strerror(rc =  errno));
-                return jt_obd_list_ioctl(argc, argv);
-        }
+	fp = fopen(DEVICES_LIST, "r");
+	if (fp == NULL) {
+		rc = -errno;
+		fprintf(stderr, "error: %s: opening "DEVICES_LIST": %s\n",
+			jt_cmdname(argv[0]), strerror(-rc));
+		return jt_obd_list_ioctl(argc, argv);
+	}
 
         while (fgets(buf, sizeof(buf), fp) != NULL)
                 if (print_obd)
@@ -1094,11 +1089,12 @@ int jt_obd_alloc_fids(struct jt_fid_space *space, struct lu_fid *fid,
                         return rc;
                 }
 
-                rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_ECHO_ALLOC_SEQ, buf);
-                if (rc) {
-                        fprintf(stderr, "ioctl error: rc = %d\n", rc);
-                        return rc;
-                }
+		rc = l_ioctl(OBD_DEV_ID, OBD_IOC_ECHO_ALLOC_SEQ, buf);
+		if (rc != 0) {
+			fprintf(stderr, "ioctl error: %s\n",
+				strerror(-rc));
+			return rc;
+		}
 
                 space->jt_seq = *(__u64 *)data.ioc_pbuf1;
                 space->jt_width = *(int *)data.ioc_pbuf2;
@@ -1372,12 +1368,12 @@ int jt_obd_md_common(int argc, char **argv, int cmd)
                         return rc;
                 }
 
-                rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_ECHO_MD, buf);
-                if (rc) {
-                        fprintf(stderr, "error: %s: %s\n",
-                                jt_cmdname(argv[0]), strerror(rc = errno));
-                        return rc;
-                }
+		rc = l_ioctl(OBD_DEV_ID, OBD_IOC_ECHO_MD, buf);
+		if (rc != 0) {
+			fprintf(stderr, "error: %s: %s\n",
+				jt_cmdname(argv[0]), strerror(-rc));
+			return rc;
+		}
                 shmem_bump(data.ioc_count);
 
                 gettimeofday(&end_time, NULL);
@@ -1501,27 +1497,28 @@ int jt_obd_create(int argc, char **argv)
                                 jt_cmdname(argv[0]));
                         return rc;
                 }
-                rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_CREATE, buf);
-                obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
-                shmem_bump(1);
-                if (rc < 0) {
-                        fprintf(stderr, "error: %s: #%d - %s\n",
-                                jt_cmdname(argv[0]), i, strerror(rc = errno));
-                        break;
-                }
-                if (!(data.ioc_obdo1.o_valid & OBD_MD_FLID)) {
-                        fprintf(stderr,"error: %s: oid not valid #%d:"LPX64"\n",
-                                jt_cmdname(argv[0]), i, data.ioc_obdo1.o_valid);
-                        rc = EINVAL;
-                        break;
-                }
+		rc = l_ioctl(OBD_DEV_ID, OBD_IOC_CREATE, buf);
+		obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
+		shmem_bump(1);
+		if (rc < 0) {
+			fprintf(stderr, "error: %s: #%d - %s\n",
+				jt_cmdname(argv[0]), i, strerror(-rc));
+			break;
+		}
+		if (!(data.ioc_obdo1.o_valid & OBD_MD_FLID)) {
+			fprintf(stderr, "error: %s: invalid oid #%d:"LPX64"\n",
+				jt_cmdname(argv[0]), i, data.ioc_obdo1.o_valid);
+			rc = -EINVAL;
+			break;
+		}
 
 		if (be_verbose(verbose, &next_time, i, &next_count, count))
 			printf("%s: #%d is object id "LPX64"\n",
 			       jt_cmdname(argv[0]), i,
 			       ostid_id(&data.ioc_obdo1.o_oi));
-        }
-        return rc;
+	}
+
+	return rc;
 }
 
 int jt_obd_setattr(int argc, char **argv)
@@ -1552,18 +1549,18 @@ int jt_obd_setattr(int argc, char **argv)
         data.ioc_obdo1.o_valid = OBD_MD_FLID | OBD_MD_FLTYPE | OBD_MD_FLMODE;
 
         memset(buf, 0, sizeof(rawbuf));
-        rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
-        if (rc) {
-                fprintf(stderr, "error: %s: invalid ioctl\n",
-                        jt_cmdname(argv[0]));
-                return rc;
-        }
-        rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_SETATTR, buf);
-        if (rc < 0)
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc) {
+		fprintf(stderr, "error: %s: invalid ioctl: %s\n",
+			jt_cmdname(argv[0]), strerror(-rc));
+		return rc;
+	}
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_SETATTR, buf);
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
 
-        return rc;
+	return rc;
 }
 
 int jt_obd_test_setattr(int argc, char **argv)
@@ -1628,18 +1625,18 @@ int jt_obd_test_setattr(int argc, char **argv)
                                 jt_cmdname(argv[0]));
                         return rc;
                 }
-                rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_SETATTR, &data);
-                shmem_bump(1);
-                if (rc < 0) {
-                        fprintf(stderr, "error: %s: #"LPD64" - %d:%s\n",
-                                jt_cmdname(argv[0]), i, errno, strerror(rc = errno));
-                        break;
-                } else {
-                        if (be_verbose
-                            (verbose, &next_time, i, &next_count, count))
-                                printf("%s: set attr #"LPD64"\n",
-                                       jt_cmdname(argv[0]), i);
-                }
+		rc = l_ioctl(OBD_DEV_ID, OBD_IOC_SETATTR, &data);
+		shmem_bump(1);
+		if (rc < 0) {
+			fprintf(stderr, "error: %s: #"LPD64" - %s\n",
+				jt_cmdname(argv[0]), i, strerror(-rc));
+			break;
+		} else {
+			if (be_verbose
+			    (verbose, &next_time, i, &next_count, count))
+				printf("%s: set attr #"LPD64"\n",
+				       jt_cmdname(argv[0]), i);
+		}
         }
 
         if (!rc) {
@@ -1714,21 +1711,21 @@ int jt_obd_destroy(int argc, char **argv)
                                 jt_cmdname(argv[0]));
                         return rc;
                 }
-                rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_DESTROY, buf);
-                obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
-                shmem_bump(1);
-                if (rc < 0) {
-                        fprintf(stderr, "error: %s: objid "LPX64": %s\n",
-                                jt_cmdname(argv[0]), id, strerror(rc = errno));
-                        break;
-                }
+		rc = l_ioctl(OBD_DEV_ID, OBD_IOC_DESTROY, buf);
+		obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
+		shmem_bump(1);
+		if (rc < 0) {
+			fprintf(stderr, "error: %s: objid "LPX64": %s\n",
+				jt_cmdname(argv[0]), id, strerror(-rc));
+			break;
+		}
 
-                if (be_verbose(verbose, &next_time, i, &next_count, count))
-                        printf("%s: #%d is object id "LPX64"\n",
-                               jt_cmdname(argv[0]), i, id);
-        }
+		if (be_verbose(verbose, &next_time, i, &next_count, count))
+			printf("%s: #%d is object id "LPX64"\n",
+			       jt_cmdname(argv[0]), i, id);
+	}
 
-        return rc;
+	return rc;
 }
 
 int jt_obd_getattr(int argc, char **argv)
@@ -1763,16 +1760,15 @@ int jt_obd_getattr(int argc, char **argv)
                         jt_cmdname(argv[0]));
                 return rc;
         }
-        rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_GETATTR, buf);
-        obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
-        if (rc) {
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
-        } else {
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_GETATTR, buf);
+	obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
+	if (rc != 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
+	else
 		printf("%s: object id "LPU64", mode %o\n", jt_cmdname(argv[0]),
 		       ostid_id(&data.ioc_obdo1.o_oi), data.ioc_obdo1.o_mode);
-        }
-        return rc;
+	return rc;
 }
 
 int jt_obd_test_getattr(int argc, char **argv)
@@ -1837,13 +1833,13 @@ int jt_obd_test_getattr(int argc, char **argv)
 				jt_cmdname(argv[0]));
 			return rc;
 		}
-                rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_GETATTR, &data);
-                shmem_bump(1);
-                if (rc < 0) {
-                        fprintf(stderr, "error: %s: #"LPD64" - %d:%s\n",
-                                jt_cmdname(argv[0]), i, errno, strerror(rc = errno));
-                        break;
-                } else {
+		rc = l_ioctl(OBD_DEV_ID, OBD_IOC_GETATTR, &data);
+		shmem_bump(1);
+		if (rc < 0) {
+			fprintf(stderr, "error: %s: #"LPD64" - %s\n",
+				jt_cmdname(argv[0]), i, strerror(-rc));
+			break;
+		} else {
                         if (be_verbose
                             (verbose, &next_time, i, &next_count, count))
                                 printf("%s: got attr #"LPD64"\n",
@@ -2054,20 +2050,21 @@ int jt_obd_test_brw(int argc, char **argv)
         for (i = 1, next_count = verbose; i <= count && shmem_running(); i++) {
                 data.ioc_obdo1.o_valid &= ~(OBD_MD_FLBLOCKS|OBD_MD_FLGRANT);
                 memset(buf, 0, sizeof(rawbuf));
-                rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
-                if (rc) {
-                        fprintf(stderr, "error: %s: invalid ioctl\n",
-                                jt_cmdname(argv[0]));
-                        return rc;
-                }
-                rc = l2_ioctl(OBD_DEV_ID, cmd, buf);
-                shmem_bump(1);
-                if (rc) {
-                        fprintf(stderr, "error: %s: #%d - %s on %s\n",
-                                jt_cmdname(argv[0]), i, strerror(rc = errno),
-                                write ? "write" : "read");
-                        break;
-                } else if (be_verbose(verbose, &next_time,i, &next_count,count)) {
+		rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+		if (rc) {
+			fprintf(stderr, "error: %s: invalid ioctl\n",
+				jt_cmdname(argv[0]));
+			return rc;
+		}
+		rc = l_ioctl(OBD_DEV_ID, cmd, buf);
+		shmem_bump(1);
+		if (rc != 0) {
+			fprintf(stderr, "error: %s: #%d - %s on %s\n",
+				jt_cmdname(argv[0]), i, strerror(-rc),
+				write ? "write" : "read");
+			break;
+		} else if (be_verbose(verbose, &next_time, i, &next_count,
+				      count)) {
 			shmem_lock ();
 			printf("%s: %s number %d @ "LPD64":"LPU64" for %d\n",
 			       jt_cmdname(argv[0]), write ? "write" : "read", i,
@@ -2138,13 +2135,14 @@ int jt_obd_lov_getconfig(int argc, char **argv)
         if (argc != 2)
                 return CMD_HELP;
 
-        path = argv[1];
-        fd = open(path, O_RDONLY);
-        if (fd < 0) {
-                fprintf(stderr, "open \"%s\" failed: %s\n", path,
-                        strerror(errno));
-                return -errno;
-        }
+	path = argv[1];
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		rc = -errno;
+		fprintf(stderr, "open \"%s\" failed: %s\n", path,
+			strerror(-rc));
+		return rc;
+	}
 
         memset(&desc, 0, sizeof(desc));
         obd_str2uuid(&desc.ld_uuid, argv[1]);
@@ -2181,25 +2179,27 @@ repeat:
                 rc = -EINVAL;
                 goto out_obdgens;
         }
-        rc = ioctl(fd, OBD_IOC_LOV_GET_CONFIG, buf);
-        if (rc == -ENOSPC) {
-                free(uuidarray);
-                free(obdgens);
-                goto repeat;
-        } else if (rc) {
-                fprintf(stderr, "error: %s: ioctl error: %s\n",
-                        jt_cmdname(argv[0]), strerror(rc = errno));
-        } else {
-                struct obd_uuid *uuidp;
-                __u32 *genp;
-                int i;
+	rc = ioctl(fd, OBD_IOC_LOV_GET_CONFIG, buf);
+	if (rc == -1)
+		rc = -errno;
+	if (rc == -ENOSPC) {
+		free(uuidarray);
+		free(obdgens);
+		goto repeat;
+	} else if (rc != 0) {
+		fprintf(stderr, "error: %s: ioctl error: %s\n",
+			jt_cmdname(argv[0]), strerror(-rc));
+	} else {
+		struct obd_uuid *uuidp;
+		__u32 *genp;
+		int i;
 
-                if (obd_ioctl_unpack(&data, buf, sizeof(rawbuf))) {
-                        fprintf(stderr, "error: %s: invalid reply\n",
-                                jt_cmdname(argv[0]));
-                        rc = -EINVAL;
-                        goto out;
-                }
+		rc = obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
+		if (rc != 0) {
+			fprintf(stderr, "error: %s: %s\n",
+				jt_cmdname(argv[0]), strerror(-rc));
+			goto out;
+		}
                 if (desc.ld_default_stripe_count == (__u32)-1)
                         printf("default_stripe_count: %d\n", -1);
                 else
@@ -2247,10 +2247,10 @@ static int do_activate(int argc, char **argv, int flag)
                         jt_cmdname(argv[0]));
                 return rc;
         }
-        rc = l2_ioctl(OBD_DEV_ID, IOC_OSC_SET_ACTIVE, buf);
-        if (rc)
-                fprintf(stderr, "error: %s: failed: %s\n",
-                        jt_cmdname(argv[0]), strerror(rc = errno));
+	rc = l_ioctl(OBD_DEV_ID, IOC_OSC_SET_ACTIVE, buf);
+	if (rc != 0)
+		fprintf(stderr, "error: %s: failed: %s\n",
+			jt_cmdname(argv[0]), strerror(-rc));
 
         return rc;
 }
@@ -2296,11 +2296,10 @@ int jt_replace_nids(int argc, char **argv)
 		return rc;
 	}
 
-	rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_REPLACE_NIDS, buf);
-	if (rc < 0) {
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_REPLACE_NIDS, buf);
+	if (rc < 0)
 		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-			strerror(rc = errno));
-	}
+			strerror(-rc));
 
 	return rc;
 }
@@ -2338,13 +2337,12 @@ int jt_obd_recover(int argc, char **argv)
                         jt_cmdname(argv[0]));
                 return rc;
         }
-        rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_CLIENT_RECOVER, buf);
-        if (rc < 0) {
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
-        }
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_CLIENT_RECOVER, buf);
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
 
-        return rc;
+	return rc;
 }
 
 int jt_obd_mdc_lookup(int argc, char **argv)
@@ -2368,41 +2366,43 @@ int jt_obd_mdc_lookup(int argc, char **argv)
         data.ioc_inllen1 = strlen(child) + 1;
         data.ioc_inlbuf1 = child;
 
-        memset(buf, 0, sizeof(rawbuf));
-        rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
-        if (rc) {
-                fprintf(stderr, "error: %s: invalid ioctl\n",
-                        jt_cmdname(argv[0]));
-                return rc;
-        }
+	memset(buf, 0, sizeof(rawbuf));
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc) {
+		fprintf(stderr, "error: %s: %s\n",
+			jt_cmdname(argv[0]), strerror(-rc));
+		return rc;
+	}
 
-        fd = open(parent, O_RDONLY);
-        if (fd < 0) {
-                fprintf(stderr, "open \"%s\" failed: %s\n", parent,
-                        strerror(errno));
-                return -1;
-        }
+	fd = open(parent, O_RDONLY);
+	if (fd < 0) {
+		rc = -errno;
+		fprintf(stderr, "open \"%s\" failed: %s\n", parent,
+			strerror(-rc));
+		return rc;
+	}
 
-        rc = ioctl(fd, IOC_MDC_LOOKUP, buf);
-        if (rc < 0) {
-                fprintf(stderr, "error: %s: ioctl error: %s\n",
-                        jt_cmdname(argv[0]), strerror(rc = errno));
-        }
-        close(fd);
+	rc = ioctl(fd, IOC_MDC_LOOKUP, buf);
+	if (rc < 0) {
+		rc = -errno;
+		fprintf(stderr, "error: %s: ioctl error: %s\n",
+			jt_cmdname(argv[0]), strerror(-rc));
+	}
+	close(fd);
 
-        if (verbose) {
-                rc = obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
-                if (rc) {
-                        fprintf(stderr, "error: %s: invalid reply\n",
-                                jt_cmdname(argv[0]));
-                        return rc;
-                }
-                printf("%s: mode %o uid %d gid %d\n", child,
-                       data.ioc_obdo1.o_mode, data.ioc_obdo1.o_uid,
-                       data.ioc_obdo1.o_gid);
-        }
+	if (verbose) {
+		rc = obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
+		if (rc) {
+			fprintf(stderr, "error: %s: %s\n",
+				jt_cmdname(argv[0]), strerror(-rc));
+			return rc;
+		}
+		printf("%s: mode %o uid %d gid %d\n", child,
+		       data.ioc_obdo1.o_mode, data.ioc_obdo1.o_uid,
+		       data.ioc_obdo1.o_gid);
+	}
 
-        return rc;
+	return rc;
 }
 
 int jt_cfg_dump_log(int argc, char **argv)
@@ -2419,19 +2419,19 @@ int jt_cfg_dump_log(int argc, char **argv)
         data.ioc_inllen1 = strlen(argv[1]) + 1;
         data.ioc_inlbuf1 = argv[1];
 
-        memset(buf, 0, sizeof(rawbuf));
-        rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
-        if (rc) {
-                fprintf(stderr, "error: %s: invalid ioctl\n",
-                        jt_cmdname(argv[0]));
-                return rc;
-        }
-        rc = l_ioctl(OBD_DEV_ID, OBD_IOC_DUMP_LOG, buf);
-        if (rc < 0)
-                fprintf(stderr, "OBD_IOC_DUMP_LOG failed: %s\n",
-                        strerror(errno));
+	memset(buf, 0, sizeof(rawbuf));
+	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
+	if (rc) {
+		fprintf(stderr, "error: %s: invalid ioctl\n",
+			jt_cmdname(argv[0]));
+		return rc;
+	}
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_DUMP_LOG, buf);
+	if (rc < 0)
+		fprintf(stderr, "OBD_IOC_DUMP_LOG failed: %s\n",
+			strerror(-rc));
 
-        return rc;
+	return rc;
 }
 
 int jt_llog_catlist(int argc, char **argv)
@@ -2834,79 +2834,81 @@ int jt_blockdev_attach(int argc, char **argv)
         if (argc != 3)
                 return CMD_HELP;
 
-        if (jt_blockdev_probe_module("llite_lloop") < 0) {
-                fprintf(stderr, "error: cannot find module llite_lloop.(k)o\n");
-                return ENOENT;
-        }
+	if (jt_blockdev_probe_module("llite_lloop") < 0) {
+		fprintf(stderr, "error: cannot find module llite_lloop.ko\n");
+		return -ENOENT;
+	}
 
-        filename = argv[1];
-        devname = argv[2];
+	filename = argv[1];
+	devname = argv[2];
 
-        fd = open(filename, O_RDWR);
-        if (fd < 0) {
-                fprintf(stderr, "file %s can't be opened(%s)\n\n",
-                        filename, strerror(errno));
-                return CMD_HELP;
-        }
+	fd = open(filename, O_RDWR);
+	if (fd < 0) {
+		rc = -errno;
+		fprintf(stderr, "file %s can't be opened: %s\n\n",
+			filename, strerror(-rc));
+		return CMD_HELP;
+	}
 
-        rc = ioctl(fd, LL_IOC_LLOOP_ATTACH, &dev);
-        if (rc < 0) {
-                rc = errno;
-                fprintf(stderr, "attach error(%s)\n", strerror(rc));
-                goto out;
-        }
+	rc = ioctl(fd, LL_IOC_LLOOP_ATTACH, &dev);
+	if (rc < 0) {
+		rc = -errno;
+		fprintf(stderr, "attach error(%s)\n", strerror(-rc));
+		goto out;
+	}
 
-        rc = stat(devname, &st);
-        if (rc == 0 && (!S_ISBLK(st.st_mode) || st.st_rdev != dev)) {
-                rc = EEXIST;
-        } else if (rc < 0) {
-                if (errno == ENOENT &&
-                    !mknod(devname, S_IFBLK|S_IRUSR|S_IWUSR, dev))
-                        rc = 0;
-                else
-                        rc = errno;
-        }
+	rc = stat(devname, &st);
+	if (rc == 0 && (!S_ISBLK(st.st_mode) || st.st_rdev != dev)) {
+		rc = -EEXIST;
+	} else if (rc < 0) {
+		if (errno == ENOENT &&
+		    !mknod(devname, S_IFBLK|S_IRUSR|S_IWUSR, dev))
+			rc = 0;
+		else
+			rc = -errno;
+	}
 
-        if (rc) {
-                fprintf(stderr, "error: the file %s could be attached to block "
-                                "device %X but creating %s failed: %s\n"
-                                "now detaching the block device..",
-                        filename, (int)dev, devname, strerror(rc));
+	if (rc != 0) {
+		fprintf(stderr, "error: the file %s could be attached to block "
+				"device %X but creating %s failed: %s\n"
+				"now detaching the block device..",
+			filename, (int)dev, devname, strerror(-rc));
 
-                (void)ioctl(fd, LL_IOC_LLOOP_DETACH_BYDEV, dev);
-                fprintf(stderr, "%s\n", strerror(errno));
-        }
+		(void)ioctl(fd, LL_IOC_LLOOP_DETACH_BYDEV, dev);
+		fprintf(stderr, "%s\n", strerror(errno));
+	}
 out:
-        close(fd);
-        return -rc;
+	close(fd);
+	return rc;
 }
 
 int jt_blockdev_detach(int argc, char **argv)
 {
-        char *filename;
-        int rc, fd;
+	char *filename;
+	int rc, fd;
 
-        if (argc != 2)
-                return CMD_HELP;
+	if (argc != 2)
+		return CMD_HELP;
 
-        filename = argv[1];
-        fd = open(filename, O_RDONLY);
-        if (fd < 0) {
-                fprintf(stderr, "cannot open file %s error %s\n",
-                        filename, strerror(errno));
-                return CMD_HELP;
-        }
+	filename = argv[1];
+	fd = open(filename, O_RDONLY);
+	if (fd < 0) {
+		rc = -errno;
+		fprintf(stderr, "cannot open file %s error %s\n",
+			filename, strerror(-rc));
+		return CMD_HELP;
+	}
 
-        rc = ioctl(fd, LL_IOC_LLOOP_DETACH, 0);
-        if (rc < 0) {
-                rc = errno;
-                fprintf(stderr, "detach error(%s)\n", strerror(rc));
-        } else {
-                (void)unlink(filename);
-        }
+	rc = ioctl(fd, LL_IOC_LLOOP_DETACH, 0);
+	if (rc < 0) {
+		rc = -errno;
+		fprintf(stderr, "detach error(%s)\n", strerror(-rc));
+	} else {
+		(void)unlink(filename);
+	}
 
-        close(fd);
-        return -rc;
+	close(fd);
+	return rc;
 }
 
 int jt_blockdev_info(int argc, char **argv)
@@ -3291,15 +3293,15 @@ static int nodemap_cmd(enum lcfg_command_type cmd, void *ret_data,
 	memset(buf, 0, sizeof(rawbuf));
 	rc = obd_ioctl_pack(&data, &buf, sizeof(rawbuf));
 	if (rc != 0) {
-		fprintf(stderr, "error: invalid ioctl: %08x errno: %d with "
-			       "rc=%d\n", cmd, errno, rc);
+		fprintf(stderr, "error: invalid ioctl: %08x: rc = %d\n",
+			cmd, rc);
 		goto out;
 	}
 
 	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_NODEMAP, buf);
 	if (rc != 0) {
-		fprintf(stderr, "error: invalid ioctl: %08x errno: %d with "
-			       "rc=%d\n", cmd, errno, rc);
+		fprintf(stderr, "error: invalid ioctl: %08x: rc = %d\n",
+			cmd, rc);
 		goto out;
 	}
 
@@ -3309,8 +3311,6 @@ static int nodemap_cmd(enum lcfg_command_type cmd, void *ret_data,
 			goto out;
 
 		memcpy(ret_data, data.ioc_pbuf1, data.ioc_plen1);
-		if (ret_data == NULL || sizeof(ret_data) != ret_size)
-			rc = -errno;
 	}
 out:
 	lustre_cfg_free(lcfg);
@@ -4231,16 +4231,17 @@ int jt_get_obj_version(int argc, char **argv)
                 return rc;
         }
 
-        rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_GET_OBJ_VERSION, buf);
-        if (rc == -1) {
-                fprintf(stderr, "error: %s: ioctl: %s\n",
-                        jt_cmdname(argv[0]), strerror(errno));
-                return -errno;
-        }
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_GET_OBJ_VERSION, buf);
+	if (rc < 0) {
+		fprintf(stderr, "error: %s: ioctl: %s\n",
+			jt_cmdname(argv[0]), strerror(-rc));
+		return rc;
+	}
 
-        obd_ioctl_unpack(&data, buf, sizeof rawbuf);
-        printf(LPX64"\n", version);
-        return 0;
+	rc = obd_ioctl_unpack(&data, buf, sizeof rawbuf);
+	if (rc == 0)
+		printf(LPX64"\n", version);
+	return rc;
 }
 
 int jt_changelog_register(int argc, char **argv)
@@ -4267,12 +4268,12 @@ int jt_changelog_register(int argc, char **argv)
                return rc;
         }
 
-        rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_CHANGELOG_REG, buf);
-        if (rc < 0) {
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
-                return rc;
-        }
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_CHANGELOG_REG, buf);
+	if (rc < 0) {
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
+		return rc;
+	}
         obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
 
 	if (data.ioc_u32_1 == 0) {
@@ -4332,13 +4333,13 @@ int jt_changelog_deregister(int argc, char **argv)
                 return rc;
         }
 
-        rc = l2_ioctl(OBD_DEV_ID, OBD_IOC_CHANGELOG_DEREG, buf);
-        if (rc < 0) {
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
-                return rc;
-        }
-        obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
+	rc = l_ioctl(OBD_DEV_ID, OBD_IOC_CHANGELOG_DEREG, buf);
+	if (rc < 0) {
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
+		return rc;
+	}
+	obd_ioctl_unpack(&data, buf, sizeof(rawbuf));
 
 	if (data.ioc_u32_1 != id) {
 		fprintf(stderr, "No changelog user '%s'.  Blocking user"

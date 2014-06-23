@@ -366,6 +366,7 @@ int ldiskfs_read_ldd(char *dev, struct lustre_disk_data *mo_ldd)
 	filep = fopen(filepnm, "r");
 	if (filep) {
 		size_t num_read;
+
 		vprint("Reading %s\n", MOUNT_DATA_FILE);
 		num_read = fread(mo_ldd, sizeof(*mo_ldd), 1, filep);
 		if (num_read < 1 && ferror(filep)) {

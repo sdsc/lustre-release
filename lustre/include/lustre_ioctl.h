@@ -269,7 +269,7 @@ obd_ioctl_unpack(struct obd_ioctl_data *data, char *pbuf, int max_len)
 	struct obd_ioctl_data *overlay;
 
 	if (pbuf == NULL)
-		return 1;
+		return -EINVAL;
 
 	overlay = (struct obd_ioctl_data *)pbuf;
 

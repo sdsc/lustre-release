@@ -602,7 +602,7 @@ int osd_read_ldd(char *dev, struct lustre_disk_data *ldd)
 		ret = backfs_ops[ldd->ldd_mount_type]->read_ldd(dev, ldd);
 
 	else
-		ret = EINVAL;
+		ret = -EINVAL;
 
 	return ret;
 }

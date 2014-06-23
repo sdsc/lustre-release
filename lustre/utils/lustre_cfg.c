@@ -135,14 +135,14 @@ int jt_lcfg_attach(int argc, char **argv)
 		rc = lcfg_ioctl(argv[0], OBD_DEV_ID, lcfg);
 		lustre_cfg_free(lcfg);
 	}
-        if (rc < 0) {
-                fprintf(stderr, "error: %s: LCFG_ATTACH %s\n",
-                        jt_cmdname(argv[0]), strerror(rc = errno));
-        } else {
-                lcfg_set_devname(argv[2]);
-        }
+	if (rc < 0) {
+		fprintf(stderr, "error: %s: LCFG_ATTACH %s\n",
+			jt_cmdname(argv[0]), strerror(-rc));
+	} else {
+		lcfg_set_devname(argv[2]);
+	}
 
-        return rc;
+	return rc;
 }
 
 int jt_lcfg_setup(int argc, char **argv)
@@ -175,11 +175,11 @@ int jt_lcfg_setup(int argc, char **argv)
 		rc = lcfg_ioctl(argv[0], OBD_DEV_ID, lcfg);
 		lustre_cfg_free(lcfg);
 	}
-        if (rc < 0)
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
 
-        return rc;
+	return rc;
 }
 
 int jt_obd_detach(int argc, char **argv)
@@ -207,11 +207,11 @@ int jt_obd_detach(int argc, char **argv)
 		rc = lcfg_ioctl(argv[0], OBD_DEV_ID, lcfg);
 		lustre_cfg_free(lcfg);
 	}
-        if (rc < 0)
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
 
-        return rc;
+	return rc;
 }
 
 int jt_obd_cleanup(int argc, char **argv)
@@ -261,15 +261,14 @@ int jt_obd_cleanup(int argc, char **argv)
 		rc = lcfg_ioctl(argv[0], OBD_DEV_ID, lcfg);
 		lustre_cfg_free(lcfg);
 	}
-        if (rc < 0)
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
 
-        return rc;
+	return rc;
 }
 
-static
-int do_add_uuid(char * func, char *uuid, lnet_nid_t nid)
+static int do_add_uuid(char *func, char *uuid, lnet_nid_t nid)
 {
 	int rc;
 	struct lustre_cfg_bufs bufs;
@@ -279,7 +278,7 @@ int do_add_uuid(char * func, char *uuid, lnet_nid_t nid)
 	if (uuid != NULL)
 		lustre_cfg_bufs_set_string(&bufs, 1, uuid);
 
-        lcfg = lustre_cfg_new(LCFG_ADD_UUID, &bufs);
+	lcfg = lustre_cfg_new(LCFG_ADD_UUID, &bufs);
 	if (lcfg == NULL) {
 		rc = -ENOMEM;
 	} else {
@@ -288,11 +287,11 @@ int do_add_uuid(char * func, char *uuid, lnet_nid_t nid)
 		rc = lcfg_ioctl(func, OBD_DEV_ID, lcfg);
 		lustre_cfg_free(lcfg);
 	}
-        if (rc) {
-                fprintf(stderr, "IOC_PORTAL_ADD_UUID failed: %s\n",
-                        strerror(errno));
-                return -1;
-        }
+	if (rc != 0) {
+		fprintf(stderr, "IOC_PORTAL_ADD_UUID failed: %s\n",
+			strerror(-rc));
+		return rc;
+	}
 
 	if (uuid != NULL)
 		printf("Added uuid %s: %s\n", uuid, libcfs_nid2str(nid));
@@ -332,19 +331,19 @@ int jt_lcfg_del_uuid(int argc, char **argv)
         if (strcmp (argv[1], "_all_"))
                 lustre_cfg_bufs_set_string(&bufs, 1, argv[1]);
 
-        lcfg = lustre_cfg_new(LCFG_DEL_UUID, &bufs);
+	lcfg = lustre_cfg_new(LCFG_DEL_UUID, &bufs);
 	if (lcfg == NULL) {
 		rc = -ENOMEM;
 	} else {
 		rc = lcfg_ioctl(argv[0], OBD_DEV_ID, lcfg);
 		lustre_cfg_free(lcfg);
 	}
-        if (rc) {
-                fprintf(stderr, "IOC_PORTAL_DEL_UUID failed: %s\n",
-                        strerror(errno));
-                return -1;
-        }
-        return 0;
+	if (rc) {
+		fprintf(stderr, "IOC_PORTAL_DEL_UUID failed: %s\n",
+			strerror(-rc));
+		return rc;
+	}
+	return 0;
 }
 
 int jt_lcfg_del_mount_option(int argc, char **argv)
@@ -361,18 +360,18 @@ int jt_lcfg_del_mount_option(int argc, char **argv)
         /* profile name */
         lustre_cfg_bufs_set_string(&bufs, 1, argv[1]);
 
-        lcfg = lustre_cfg_new(LCFG_DEL_MOUNTOPT, &bufs);
+	lcfg = lustre_cfg_new(LCFG_DEL_MOUNTOPT, &bufs);
 	if (lcfg == NULL) {
 		rc = -ENOMEM;
 	} else {
 		rc = lcfg_ioctl(argv[0], OBD_DEV_ID, lcfg);
 		lustre_cfg_free(lcfg);
 	}
-        if (rc < 0) {
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
-        }
-        return rc;
+	if (rc < 0) {
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
+	}
+	return rc;
 }
 
 int jt_lcfg_set_timeout(int argc, char **argv)
@@ -400,11 +399,11 @@ int jt_lcfg_set_timeout(int argc, char **argv)
 		rc = lcfg_ioctl(argv[0], OBD_DEV_ID, lcfg);
 		lustre_cfg_free(lcfg);
 	}
-        if (rc < 0) {
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
-        }
-        return rc;
+	if (rc < 0) {
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
+	}
+	return rc;
 }
 
 int jt_lcfg_add_conn(int argc, char **argv)
@@ -579,7 +578,7 @@ static int jt_lcfg_mgsparam2(int argc, char **argv, struct param_opts *popt)
 			int rc2 = lcfg_mgs_ioctl(argv[0], OBD_DEV_ID, lcfg);
 			if (rc2 != 0) {
 				fprintf(stderr, "error: executing %s: %s\n",
-					jt_cmdname(argv[0]), strerror(errno));
+					jt_cmdname(argv[0]), strerror(-rc2));
 				if (rc == 0)
 					rc = rc2;
 			}
@@ -650,14 +649,13 @@ int jt_lcfg_mgsparam(int argc, char **argv)
 		rc = lcfg_mgs_ioctl(argv[0], OBD_DEV_ID, lcfg);
 		lustre_cfg_free(lcfg);
 	}
-        if (buf)
-                free(buf);
-        if (rc < 0) {
-                fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
-                        strerror(rc = errno));
-        }
+	if (buf)
+		free(buf);
+	if (rc < 0)
+		fprintf(stderr, "error: %s: %s\n", jt_cmdname(argv[0]),
+			strerror(-rc));
 
-        return rc;
+	return rc;
 }
 
 /* Display the path in the same format as sysctl
