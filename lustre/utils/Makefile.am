@@ -51,7 +51,7 @@ lctl_LDADD :=  liblustreapi.a $(LIBPTLCTL) $(PTHREAD_LIBS) $(LIBREADLINE)
 lctl_DEPENDENCIES := $(LIBPTLCTL) liblustreapi.a
 
 lfs_SOURCES = lfs.c
-lfs_LDADD := liblustreapi.a $(LIBCFSUTIL) $(LIBREADLINE)
+lfs_LDADD := liblustreapi.a $(LIBCFSUTIL) $(LIBPTLCTL) $(LIBREADLINE)
 lfs_DEPENDENCIES := liblustreapi.a
 
 loadgen_SOURCES = loadgen.c lustre_cfg.c obd.c
