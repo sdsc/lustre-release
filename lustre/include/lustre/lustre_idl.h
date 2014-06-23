@@ -936,7 +936,7 @@ static inline int lu_fid_cmp(const struct lu_fid *f0,
 static inline void ostid_cpu_to_le(const struct ost_id *src_oi,
 				   struct ost_id *dst_oi)
 {
-	if (fid_seq_is_mdt0(ostid_seq(src_oi))) {
+	if (fid_seq_is_mdt0(src_oi->oi.oi_seq)) {
 		dst_oi->oi.oi_id = cpu_to_le64(src_oi->oi.oi_id);
 		dst_oi->oi.oi_seq = cpu_to_le64(src_oi->oi.oi_seq);
 	} else {
@@ -947,7 +947,7 @@ static inline void ostid_cpu_to_le(const struct ost_id *src_oi,
 static inline void ostid_le_to_cpu(const struct ost_id *src_oi,
 				   struct ost_id *dst_oi)
 {
-	if (fid_seq_is_mdt0(ostid_seq(src_oi))) {
+	if (fid_seq_is_mdt0(src_oi->oi.oi_seq)) {
 		dst_oi->oi.oi_id = le64_to_cpu(src_oi->oi.oi_id);
 		dst_oi->oi.oi_seq = le64_to_cpu(src_oi->oi.oi_seq);
 	} else {

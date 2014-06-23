@@ -358,7 +358,7 @@ static int lfsck_layout_verify_header(struct lov_mds_md_v1 *lmm)
 		struct ost_id	oi;
 		int		rc;
 
-		lmm_oi_cpu_to_le(&oi, &lmm->lmm_oi);
+		lmm_oi_le_to_cpu(&oi, &lmm->lmm_oi);
 		if ((magic & LOV_MAGIC_MASK) == LOV_MAGIC_MAGIC)
 			rc = -EOPNOTSUPP;
 		else
@@ -376,7 +376,7 @@ static int lfsck_layout_verify_header(struct lov_mds_md_v1 *lmm)
 	if (lov_pattern(pattern) != LOV_PATTERN_RAID0) {
 		struct ost_id oi;
 
-		lmm_oi_cpu_to_le(&oi, &lmm->lmm_oi);
+		lmm_oi_le_to_cpu(&oi, &lmm->lmm_oi);
 		CDEBUG(D_LFSCK, "Unsupported LOV EA pattern %u on "DOSTID"\n",
 		       pattern, POSTID(&oi));
 
@@ -990,6 +990,12 @@ lfsck_layout_lastid_reload(const struct lu_env *env,
 			lfsck->li_out_notify(env, lfsck->li_out_notify_data,
 					     LE_LASTID_REBUILDING);
 			lo->ll_flags |= LF_CRASHED_LASTID;
+
+			CDEBUG(D_LFSCK, "%s: layout LFSCK finds crashed "
+			       "LAST_ID file (1) for the sequence "LPX64
+			       ", old value "LPU64", known value "LPU64"\n",
+			       lfsck_lfsck2name(lfsck), lls->lls_seq,
+			       lastid, lls->lls_lastid);
 		}
 	} else if (lastid >= lls->lls_lastid) {
 		lls->lls_lastid = lastid;
@@ -1016,10 +1022,10 @@ lfsck_layout_lastid_store(const struct lu_env *env,
 	list_for_each_entry(lls, &llsd->llsd_seq_list, lls_list) {
 		loff_t pos = 0;
 
+		if (!lls->lls_dirty) {
 		/* XXX: Add the code back if we really found related
 		 *	inconsistent cases in the future. */
 #if 0
-		if (!lls->lls_dirty) {
 			/* In OFD, before the pre-creation, the LAST_ID
 			 * file will be updated firstly, which may hide
 			 * some potential crashed cases. For example:
@@ -1034,9 +1040,9 @@ lfsck_layout_lastid_store(const struct lu_env *env,
 			 * found related inconsistency. */
 			rc = lfsck_layout_lastid_reload(env, com, lls);
 			if (likely(!lls->lls_dirty))
-				continue;
-		}
 #endif
+			continue;
+		}
 
 		CDEBUG(D_LFSCK, "%s: layout LFSCK will sync the LAST_ID for "
 		       "<seq> "LPX64" as <oid> "LPU64"\n",
@@ -1118,6 +1124,10 @@ lfsck_layout_lastid_load(const struct lu_env *env,
 					     LE_LASTID_REBUILDING);
 			lo->ll_flags |= LF_CRASHED_LASTID;
 
+			CDEBUG(D_LFSCK, "%s: layout LFSCK finds the "
+			       "LAST_ID file lost for the sequence "LPX64"\n",
+			       lfsck_lfsck2name(lfsck), lls->lls_seq);
+
 			if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DELAY4) &&
 			    cfs_fail_val > 0) {
 				struct l_wait_info lwi = LWI_TIMEOUT(
@@ -1148,6 +1158,11 @@ lfsck_layout_lastid_load(const struct lu_env *env,
 			lfsck->li_out_notify(env, lfsck->li_out_notify_data,
 					     LE_LASTID_REBUILDING);
 			lo->ll_flags |= LF_CRASHED_LASTID;
+
+			CDEBUG(D_LFSCK, "%s: layout LFSCK finds invalid "
+			       "LAST_ID file for the sequence "LPX64
+			       ": rc = %d\n",
+			       lfsck_lfsck2name(lfsck), lls->lls_seq, rc);
 		}
 
 		lls->lls_lastid = le64_to_cpu(lls->lls_lastid);
@@ -2379,7 +2394,9 @@ static int lfsck_layout_conflict_create(const struct lu_env *env,
 	ENTRY;
 
 	ostid_le_to_cpu(&slot->l_ost_oi, oi);
-	ostid_to_fid(cfid2, oi, ost_idx2);
+	rc = ostid_to_fid(cfid2, oi, ost_idx2);
+	if (rc != 0)
+		GOTO(out, rc);
 
 	/* Hold layout lock on the parent to prevent others to access. */
 	rc = lfsck_layout_lock(env, com, parent, &lh,
@@ -2653,7 +2670,10 @@ again:
 		}
 
 		ostid_le_to_cpu(&objs->l_ost_oi, oi);
-		ostid_to_fid(fid, oi, le32_to_cpu(objs->l_ost_idx));
+		rc = ostid_to_fid(fid, oi, le32_to_cpu(objs->l_ost_idx));
+		if (rc != 0)
+			GOTO(unlock_parent, rc);
+
 		/* It should be rare case, the slot is there, but the LFSCK
 		 * does not handle it during the first-phase cycle scanning. */
 		if (unlikely(lu_fid_eq(fid, cfid))) {
@@ -2812,7 +2832,10 @@ static int lfsck_layout_scan_orphan(const struct lu_env *env,
 
 	ostid_set_seq(oi, FID_SEQ_IDIF);
 	ostid_set_id(oi, 0);
-	ostid_to_fid(fid, oi, ltd->ltd_index);
+	rc = ostid_to_fid(fid, oi, ltd->ltd_index);
+	if (rc != 0)
+		GOTO(log, rc);
+
 	obj = lfsck_object_find_by_dev(env, ltd->ltd_tgt, fid);
 	if (unlikely(IS_ERR(obj)))
 		GOTO(log, rc = PTR_ERR(obj));
@@ -3299,7 +3322,8 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 				     const struct lu_attr *pla,
 				     const struct lu_attr *cla,
 				     struct lfsck_layout_req *llr,
-				     struct lu_buf *lov_ea, __u32 idx)
+				     struct lu_buf *lov_ea, int *ealen,
+				     __u32 idx)
 {
 	struct lfsck_thread_info	*info	= lfsck_env_info(env);
 	struct lu_buf			*buf	= &info->lti_big_buf;
@@ -3342,6 +3366,7 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 	if (IS_ERR(tobj))
 		RETURN(PTR_ERR(tobj));
 
+	dt_read_lock(env, tobj, 0);
 	if (!dt_object_exists(tobj))
 		GOTO(out, rc = LLIT_UNMATCHED_PAIR);
 
@@ -3356,6 +3381,7 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 	if (rc < 0)
 		GOTO(out, rc);
 
+	*ealen = rc;
 	lmm = buf->lb_buf;
 	magic = le32_to_cpu(lmm->lmm_magic);
 	if (magic == LOV_MAGIC_V1) {
@@ -3369,12 +3395,23 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 	for (i = 0; i < count; i++, objs++) {
 		struct lu_fid		*tfid	= &info->lti_fid2;
 		struct ost_id		*oi	= &info->lti_oi;
+		__u32			 idx2;
 
 		if (lovea_slot_is_dummy(objs))
 			continue;
 
 		ostid_le_to_cpu(&objs->l_ost_oi, oi);
-		ostid_to_fid(tfid, oi, le32_to_cpu(objs->l_ost_idx));
+		idx2 = le32_to_cpu(objs->l_ost_idx);
+		rc = ostid_to_fid(tfid, oi, idx2);
+		if (rc != 0) {
+			CDEBUG(D_LFSCK, "%s: the parent "DFID" contains "
+			       "invalid layout EA at the slot %d, index %u\n",
+			       lfsck_lfsck2name(com->lc_lfsck),
+			       PFID(pfid), i, idx2);
+
+			GOTO(out, rc = LLIT_UNMATCHED_PAIR);
+		}
+
 		if (lu_fid_eq(cfid, tfid)) {
 			*lov_ea = *buf;
 
@@ -3385,6 +3422,7 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 	GOTO(out, rc = LLIT_UNMATCHED_PAIR);
 
 out:
+	dt_read_unlock(env, tobj);
 	lfsck_object_put(env, tobj);
 
 	return rc;
@@ -3407,6 +3445,7 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 	struct lfsck_bookmark		     *bk     = &lfsck->li_bookmark_ram;
 	enum lfsck_layout_inconsistency_type  type   = LLIT_NONE;
 	__u32				      idx    = 0;
+	int				      ealen  = 0;
 	int				      rc;
 	ENTRY;
 
@@ -3454,7 +3493,7 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 
 	rc = lfsck_layout_check_parent(env, com, parent, pfid,
 				       lu_object_fid(&child->do_lu),
-				       pla, cla, llr, buf, idx);
+				       pla, cla, llr, buf, &ealen, idx);
 	if (rc > 0) {
 		type = rc;
 		goto repair;
@@ -3484,10 +3523,15 @@ repair:
 	case LLIT_UNMATCHED_PAIR:
 		rc = lfsck_layout_repair_unmatched_pair(env, com, llr, pla);
 		break;
-	case LLIT_MULTIPLE_REFERENCED:
+	case LLIT_MULTIPLE_REFERENCED: {
+		int buflen = buf->lb_len;
+
+		buf->lb_len = ealen;
 		rc = lfsck_layout_repair_multiple_references(env, com, llr,
 							     pla, buf);
+		buf->lb_len = buflen;
 		break;
+	}
 	case LLIT_INCONSISTENT_OWNER:
 		rc = lfsck_layout_repair_owner(env, com, llr, pla);
 		break;
@@ -4627,8 +4671,7 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 		struct lfsck_layout_req *llr;
 		struct lfsck_tgt_desc	*tgt	= NULL;
 		struct dt_object	*cobj	= NULL;
-		__u32			 index	=
-					le32_to_cpu(objs->l_ost_idx);
+		__u32			 index;
 		bool			 wakeup = false;
 
 		if (unlikely(lovea_slot_is_dummy(objs)))
@@ -4646,7 +4689,15 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 			GOTO(out, rc = 0);
 
 		ostid_le_to_cpu(&objs->l_ost_oi, oi);
-		ostid_to_fid(fid, oi, index);
+		index = le32_to_cpu(objs->l_ost_idx);
+		rc = ostid_to_fid(fid, oi, index);
+		if (rc != 0) {
+			CDEBUG(D_LFSCK, "%s: get invalid layout EA for "DFID
+			       ": "DOSTID", idx:%u\n", lfsck_lfsck2name(lfsck),
+			       PFID(lfsck_dto2fid(parent)), POSTID(oi), index);
+			goto next;
+		}
+
 		tgt = lfsck_tgt_get(ltds, index);
 		if (unlikely(tgt == NULL)) {
 			CDEBUG(D_LFSCK, "%s: cannot talk with OST %x which "
@@ -4771,6 +4822,10 @@ static int lfsck_layout_master_exec_oit(const struct lu_env *env,
 	locked = true;
 
 again:
+	buf->lb_len = buflen;
+	if (!dt_object_exists(obj))
+		GOTO(out, rc = 0);
+
 	rc = lfsck_layout_get_lovea(env, obj, buf, &buflen);
 	if (rc <= 0)
 		GOTO(out, rc);
@@ -4788,6 +4843,7 @@ again:
 
 	/* Inconsistent lmm_oi, should be repaired. */
 	bad_oi = true;
+	lmm->lmm_oi = *oi;
 
 	if (bk->lb_param & LPF_DRYRUN) {
 		down_write(&com->lc_sem);
@@ -4800,7 +4856,6 @@ again:
 	if (!lustre_handle_is_used(&lh)) {
 		dt_read_unlock(env, obj);
 		locked = false;
-		buf->lb_len = buflen;
 		rc = lfsck_layout_lock(env, com, obj, &lh,
 				       MDS_INODELOCK_LAYOUT |
 				       MDS_INODELOCK_XATTR);
@@ -4826,7 +4881,6 @@ again:
 		goto again;
 	}
 
-	lmm->lmm_oi = *oi;
 	rc = dt_xattr_set(env, obj, buf, XATTR_NAME_LOV,
 			  LU_XATTR_REPLACE, handle, BYPASS_CAPA);
 	if (rc != 0)
@@ -4934,7 +4988,11 @@ static int lfsck_layout_slave_exec_oit(const struct lu_env *env,
 	if (unlikely(fid_is_last_id(fid)))
 		GOTO(unlock, rc = 0);
 
-	oid = fid_oid(fid);
+	if (fid_is_idif(fid))
+		oid = fid_idif_id(fid_seq(fid), fid_oid(fid), fid_ver(fid));
+	else
+		oid = fid_oid(fid);
+
 	if (oid > lls->lls_lastid_known)
 		lls->lls_lastid_known = oid;
 
@@ -4942,12 +5000,17 @@ static int lfsck_layout_slave_exec_oit(const struct lu_env *env,
 		if (!(lo->ll_flags & LF_CRASHED_LASTID)) {
 			/* OFD may create new objects during LFSCK scanning. */
 			rc = lfsck_layout_lastid_reload(env, com, lls);
-			if (unlikely(rc != 0))
+			if (unlikely(rc != 0)) {
 				CDEBUG(D_LFSCK, "%s: layout LFSCK failed to "
 				      "reload LAST_ID for "LPX64": rc = %d\n",
 				      lfsck_lfsck2name(com->lc_lfsck),
 				      lls->lls_seq, rc);
-			if (oid <= lls->lls_lastid)
+
+				GOTO(unlock, rc);
+			}
+
+			if (oid <= lls->lls_lastid ||
+			    lo->ll_flags & LF_CRASHED_LASTID)
 				GOTO(unlock, rc = 0);
 
 			LASSERT(lfsck->li_out_notify != NULL);
@@ -4955,6 +5018,12 @@ static int lfsck_layout_slave_exec_oit(const struct lu_env *env,
 			lfsck->li_out_notify(env, lfsck->li_out_notify_data,
 					     LE_LASTID_REBUILDING);
 			lo->ll_flags |= LF_CRASHED_LASTID;
+
+			CDEBUG(D_LFSCK, "%s: layout LFSCK finds crashed "
+			       "LAST_ID file (2) for the sequence "LPX64
+			       ", old value "LPU64", known value "LPU64"\n",
+			       lfsck_lfsck2name(lfsck), lls->lls_seq,
+			       lls->lls_lastid, oid);
 		}
 
 		lls->lls_lastid = oid;
@@ -5078,6 +5147,10 @@ static int lfsck_layout_slave_post(const struct lu_env *env,
 		if (lo->ll_flags & LF_CRASHED_LASTID) {
 			done = true;
 			lo->ll_flags &= ~LF_CRASHED_LASTID;
+
+			CDEBUG(D_LFSCK, "%s: layout LFSCK has rebuilt "
+			       "crashed LAST_ID files successfully\n",
+			       lfsck_lfsck2name(lfsck));
 		}
 		lo->ll_flags &= ~LF_UPGRADE;
 		list_del_init(&com->lc_link);
