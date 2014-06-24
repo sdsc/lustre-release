@@ -988,11 +988,18 @@ static int osp_sync_thread(void *_arg)
 				  &lwi);
 		if (rc == -ETIMEDOUT)
 			count++;
-		LASSERTF(count < 10, "%s: %d %d %sempty\n",
-			 d->opd_obd->obd_name, d->opd_syn_rpc_in_progress,
-			 d->opd_syn_rpc_in_flight,
-			 list_empty(&d->opd_syn_committed_there) ? "" : "!");
-
+		/* Every 60 seconds, print state */
+		if (unlikely(count == 12)) {
+			CERROR("%s: syn_rpc_in_progress=%d "
+			       "syn_prc_in_flight=%d "
+			       "syn_commited_there:%s\n",
+			       d->opd_obd->obd_name,
+			       d->opd_syn_rpc_in_progress,
+			       d->opd_syn_rpc_in_flight,
+			       list_empty(&d->opd_syn_committed_there)
+			       ? "empty" : "some");
+			count = 0;
+		}
 	}
 
 	llog_cat_close(&env, llh);
