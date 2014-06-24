@@ -59,6 +59,7 @@
 #include <lu_object.h>
 #include <lu_ref.h>
 #include <libcfs/list.h>
+#include <lustre_net.h> /* OSS_NRTHS_MAX */
 
 extern spinlock_t obd_types_lock;
 
@@ -71,7 +72,7 @@ enum {
 #define	LU_CACHE_NR_UNLIMITED		-1
 #define	LU_CACHE_NR_DEFAULT		LU_CACHE_NR_UNLIMITED
 #define	LU_CACHE_NR_LDISKFS_LIMIT	LU_CACHE_NR_UNLIMITED
-#define	LU_CACHE_NR_ZFS_LIMIT		256
+#define	LU_CACHE_NR_ZFS_LIMIT		(OSS_NTHRS_MAX*10)
 
 #define LU_SITE_BITS_MIN    12
 #define LU_SITE_BITS_MAX    24
