@@ -490,10 +490,9 @@ static int osp_sync_new_setattr_job(struct osp_device *d,
 			   OBD_MD_FLUID | OBD_MD_FLGID;
 
 	osp_sync_send_new_rpc(d, req);
-	RETURN(0);
+	RETURN(1);
 }
 
-/* Old records may be in old format, so we handle that too */
 static int osp_sync_new_unlink_job(struct osp_device *d,
 				   struct llog_handle *llh,
 				   struct llog_rec_hdr *h)
@@ -519,7 +518,7 @@ static int osp_sync_new_unlink_job(struct osp_device *d,
 		body->oa.o_valid |= OBD_MD_FLOBJCOUNT;
 
 	osp_sync_send_new_rpc(d, req);
-	RETURN(0);
+	RETURN(1);
 }
 
 static int osp_sync_new_unlink64_job(struct osp_device *d,
@@ -548,7 +547,7 @@ static int osp_sync_new_unlink64_job(struct osp_device *d,
 	body->oa.o_valid = OBD_MD_FLGROUP | OBD_MD_FLID | OBD_MD_FLOBJCOUNT;
 
 	osp_sync_send_new_rpc(d, req);
-	RETURN(0);
+	RETURN(1);
 }
 
 static int osp_sync_process_record(const struct lu_env *env,
@@ -608,10 +607,10 @@ static int osp_sync_process_record(const struct lu_env *env,
 		CERROR("%s: unknown record type: %x\n", d->opd_obd->obd_name,
 		       rec->lrh_type);
 		/* we should continue processing */
-		return 0;
 	}
 
-	if (likely(rc == 0)) {
+	/* rc > 0 means sync RPC being added to the queue */
+	if (likely(rc > 0)) {
 		spin_lock(&d->opd_syn_lock);
 		if (d->opd_syn_prev_done) {
 			LASSERT(d->opd_syn_changes > 0);
@@ -629,6 +628,7 @@ static int osp_sync_process_record(const struct lu_env *env,
 		       d->opd_obd->obd_name, d->opd_syn_rpc_in_flight,
 		       d->opd_syn_rpc_in_progress);
 		spin_unlock(&d->opd_syn_lock);
+		rc = 0;
 	} else {
 		spin_lock(&d->opd_syn_lock);
 		d->opd_syn_rpc_in_flight--;
