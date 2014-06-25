@@ -93,6 +93,9 @@ lnet_ptl_enable_mt(struct lnet_portal *ptl, int cpt)
 
 	/* with hold of both lnet_res_lock(cpt) and lnet_ptl_lock */
 	LASSERT(lnet_ptl_is_wildcard(ptl));
+	LASSERTF(ptl->ptl_mt_nmaps < LNET_CPT_NUMBER,
+		 "Portal %p, ID: %d, cpt: %d, nmap: %d\n",
+		 ptl, ptl->ptl_index, cpt, ptl->ptl_mt_nmaps);
 
 	mtable->mt_enabled = 1;
 
@@ -278,8 +281,8 @@ lnet_mt_of_match(struct lnet_match_info *info, struct lnet_msg *msg)
 	mtable = lnet_match2mt(ptl, info->mi_id, info->mi_mbits);
 	if (mtable != NULL)
 		return mtable;
+	/* otherwise it's a wildcard portal */
 
-	/* it's a wildcard portal */
 	routed = LNET_NIDNET(msg->msg_hdr.src_nid) !=
 		 LNET_NIDNET(msg->msg_hdr.dest_nid);
 
@@ -306,6 +309,9 @@ lnet_mt_of_match(struct lnet_match_info *info, struct lnet_msg *msg)
 			 * lnet_ptl_lock, but it shouldn't hurt anything */
 			cpt = ptl->ptl_mt_maps[rotor % nmaps];
 		}
+		LASSERTF(cpt >= 0 && cpt < LNET_CPT_NUMBER,
+			 "Portal %p, ID: %d, cpt: %d, nmaps: %d\n",
+			 ptl, ptl->ptl_index, cpt, nmaps);
 	}
 
 	return ptl->ptl_mtables[cpt];
