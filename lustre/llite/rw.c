@@ -1117,6 +1117,10 @@ void ll_cl_add(struct file *file, const struct lu_env *env, struct cl_io *io)
 {
 	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
 	struct ll_cl_context *lcc = &vvp_env_info(env)->vti_io_ctx;
+	struct ll_cl_context *tmp;
+
+	tmp = ll_cl_find(file);
+	LASSERTF(tmp != NULL, "tmp = %p, lcc = %p\n", tmp, lcc);
 
 	memset(lcc, 0, sizeof(*lcc));
 	INIT_LIST_HEAD(&lcc->lcc_list);
@@ -1133,6 +1137,9 @@ void ll_cl_remove(struct file *file, const struct lu_env *env)
 {
 	struct ll_file_data *fd = LUSTRE_FPRIVATE(file);
 	struct ll_cl_context *lcc = &vvp_env_info(env)->vti_io_ctx;
+
+	LASSERTF(lcc->lcc_cookie == current, "lcc = %p\n", lcc);
+	LASSERT(!list_empty(&lcc->lcc_list));
 
 	write_lock(&fd->fd_lock);
 	list_del_init(&lcc->lcc_list);
