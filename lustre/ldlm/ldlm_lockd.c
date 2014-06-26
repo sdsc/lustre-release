@@ -940,8 +940,16 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
         ldlm_lock2desc(lock, &body->lock_desc);
 	if (lvb_len > 0) {
 		void *lvb = req_capsule_client_get(&req->rq_pill, &RMF_DLM_LVB);
+		struct ldlm_resource *res = lock->l_resource;
 
-		lvb_len = ldlm_lvbo_fill(lock, lvb, lvb_len);
+		/* Handle delayed lvb initialization case during replay */
+		rc = ldlm_lvbo_init(res);
+
+		if (res->lr_lvb_len < 0)
+			lvb_len = res->lr_lvb_len;
+		else
+			lvb_len = ldlm_lvbo_fill(lock, lvb, lvb_len);
+
 		if (lvb_len < 0) {
 			/* We still need to send the RPC to wake up the blocked
 			 * enqueue thread on the client.
@@ -1173,6 +1181,7 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
         struct ldlm_lock *lock = NULL;
         void *cookie = NULL;
         int rc = 0;
+	struct ldlm_resource *res = NULL;
         ENTRY;
 
         LDLM_DEBUG_NOLOCK("server-side enqueue handler START");
@@ -1264,6 +1273,20 @@ int ldlm_handle_enqueue0(struct ldlm_namespace *ns,
         lock->l_last_activity = cfs_time_current_sec();
         lock->l_remote_handle = dlm_req->lock_handle[0];
         LDLM_DEBUG(lock, "server-side enqueue handler, new lock created");
+
+	/* Initialize resource lvb for a new resource but not for a lock
+	 * being replayed (Server/Target restart case) since Client
+	 * already got lvb sent.
+	 */
+	res = lock->l_resource;
+	if (!(flags & LDLM_FL_REPLAY)) {
+		/* non-replayed lock, delayed lvb init may need to be done */
+		rc = ldlm_lvbo_init(res);
+		if (rc < 0) {
+			LDLM_ERROR(lock, "delayed lvb init failed (rc %d)", rc);
+			GOTO(out, rc);
+		}
+	}
 
         OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_ENQUEUE_BLOCKED, obd_timeout * 2);
         /* Don't enqueue a lock onto the export if it is been disonnected
