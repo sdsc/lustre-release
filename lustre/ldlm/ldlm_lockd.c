@@ -942,6 +942,7 @@ int ldlm_server_completion_ast(struct ldlm_lock *lock, __u64 flags, void *data)
 		void *lvb = req_capsule_client_get(&req->rq_pill, &RMF_DLM_LVB);
 
 		lvb_len = ldlm_lvbo_fill(lock, lvb, lvb_len);
+
 		if (lvb_len < 0) {
 			/* We still need to send the RPC to wake up the blocked
 			 * enqueue thread on the client.
@@ -1413,7 +1414,9 @@ existing_lock:
 					 req, lock);
 				buflen = req_capsule_get_size(&req->rq_pill,
 						&RMF_DLM_LVB, RCL_SERVER);
-				if (buflen > 0) {
+				/* non-replayed lock, delayed lvb init may
+				 * need to be occur now */
+				if ((buflen > 0) && !(flags & LDLM_FL_REPLAY)) {
 					buflen = ldlm_lvbo_fill(lock, buf,
 								buflen);
 					if (buflen >= 0)
