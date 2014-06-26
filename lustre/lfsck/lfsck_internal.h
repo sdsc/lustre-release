@@ -187,8 +187,12 @@ struct lfsck_namespace {
 	/* How many dangling name entries have been found/repaired. */
 	__u64	ln_dangling_repaired;
 
+	/* How many multiple referenced name entries have been
+	 * found/repaired. */
+	__u64	ln_mul_ref_repaired;
+
 	/* For further using. 256-bytes aligned now. */
-	__u64	ln_reserved[31];
+	__u64	ln_reserved[30];
 };
 
 enum lfsck_layout_inconsistency_type {
