@@ -582,6 +582,7 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
 	}
 
 	if (rc == ELDLM_LOCK_ABORTED) {
+		/* not a replayed lock, server had to return LVB anyway */
 		if (lvb_len != 0)
 			rc = ldlm_fill_lvb(lock, &req->rq_pill, RCL_SERVER,
 					   lvb, size);
@@ -669,7 +670,8 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
 		 * Cannot unlock after the check either, a that still leaves
 		 * a tiny window for completion to get in */
 		lock_res_and_lock(lock);
-		if (lock->l_req_mode != lock->l_granted_mode)
+		/* server does'nt resend LVB upon replay */
+		if (!is_replay && (lock->l_req_mode != lock->l_granted_mode))
 			rc = ldlm_fill_lvb(lock, &req->rq_pill, RCL_SERVER,
 					   lock->l_lvb_data, size);
 		unlock_res_and_lock(lock);
@@ -692,7 +694,8 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
 
         if (lvb_len && lvb != NULL) {
                 /* Copy the LVB here, and not earlier, because the completion
-                 * AST (if any) can override what we got in the reply */
+		 * AST (if any) can override what we got in the reply,
+		 * even upon replay */
                 memcpy(lvb, lock->l_lvb_data, lvb_len);
         }
 
