@@ -191,8 +191,14 @@ struct lfsck_namespace {
 	 * found/repaired. */
 	__u64	ln_mul_ref_repaired;
 
+	/* How many name entries with bad file type have been repaired. */
+	__u64	ln_bad_type_repaired;
+
+	/* How many name entries with bad name or FID have been removed. */
+	__u64	ln_bad_dirent_repaired;
+
 	/* For further using. 256-bytes aligned now. */
-	__u64	ln_reserved[30];
+	__u64	ln_reserved[28];
 };
 
 enum lfsck_layout_inconsistency_type {
