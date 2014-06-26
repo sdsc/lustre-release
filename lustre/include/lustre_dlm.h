@@ -962,6 +962,8 @@ struct ldlm_resource {
 	int			lr_lvb_len;
 	/** protected by lr_lock */
 	void			*lr_lvb_data;
+	/** is lvb initialized ? */
+	bool			lr_lvb_initialized;
 
 	/** When the resource was considered as contended. */
 	cfs_time_t		lr_contention_time;
@@ -1010,18 +1012,40 @@ ldlm_lock_to_ns_at(struct ldlm_lock *lock)
 static inline int ldlm_lvbo_init(struct ldlm_resource *res)
 {
 	struct ldlm_namespace *ns = ldlm_res_to_ns(res);
+	int rc = 0;
 
-	if (ns->ns_lvbo != NULL && ns->ns_lvbo->lvbo_init != NULL)
-		return ns->ns_lvbo->lvbo_init(res);
+	if (!(ns->ns_lvbo != NULL && ns->ns_lvbo->lvbo_init != NULL))
+		return 0;
 
-	return 0;
+	mutex_lock(&res->lr_lvb_mutex);
+	if (res->lr_lvb_initialized) {
+		/* should we assert or at least return an error ? */
+		CERROR("lvb already initialized for resource "LPX64":"LPX64"\n",
+		       res->lr_name.name[0], res->lr_name.name[1]);
+		mutex_unlock(&res->lr_lvb_mutex);
+		return 0;
+	}
+	rc = ns->ns_lvbo->lvbo_init(res);
+	if (rc < 0) {
+		CERROR("lvbo_init failed for resource : rc = %d\n", rc);
+		if (res->lr_lvb_data) {
+			OBD_FREE(res->lr_lvb_data, res->lr_lvb_len);
+			res->lr_lvb_data = NULL;
+		}
+		res->lr_lvb_len = rc;
+	} else {
+		res->lr_lvb_initialized = 1;
+	}
+	mutex_unlock(&res->lr_lvb_mutex);
+	return rc;
 }
 
 static inline int ldlm_lvbo_size(struct ldlm_lock *lock)
 {
 	struct ldlm_namespace *ns = ldlm_lock_to_ns(lock);
 
-	if (ns->ns_lvbo != NULL && ns->ns_lvbo->lvbo_size != NULL)
+	if (ns->ns_lvbo != NULL && ns->ns_lvbo->lvbo_size != NULL &&
+	    lock->l_resource->lr_lvb_initialized)
 		return ns->ns_lvbo->lvbo_size(lock);
 
 	return 0;
@@ -1031,7 +1055,7 @@ static inline int ldlm_lvbo_fill(struct ldlm_lock *lock, void *buf, int len)
 {
 	struct ldlm_namespace *ns = ldlm_lock_to_ns(lock);
 
-	if (ns->ns_lvbo != NULL) {
+	if ((ns->ns_lvbo != NULL) && (lock->l_resource->lr_lvb_initialized)) {
 		LASSERT(ns->ns_lvbo->lvbo_fill != NULL);
 		return ns->ns_lvbo->lvbo_fill(lock, buf, len);
 	}
@@ -1248,6 +1272,17 @@ ldlm_handle2lock_long(const struct lustre_handle *h, __u64 flags)
 static inline int ldlm_res_lvbo_update(struct ldlm_resource *res,
                                        struct ptlrpc_request *r, int increase)
 {
+	int rc;
+
+	if (!(res->lr_lvb_initialized)) {
+		LDLM_DEBUG_NOLOCK("delayed lvb init required");
+		rc = ldlm_lvbo_init(res);
+		if (rc < 0) {
+			CERROR("delayed lvb init failed (rc %d)\n", rc);
+			return rc;
+		}
+	}
+
         if (ldlm_res_to_ns(res)->ns_lvbo &&
             ldlm_res_to_ns(res)->ns_lvbo->lvbo_update) {
                 return ldlm_res_to_ns(res)->ns_lvbo->lvbo_update(res, r,
