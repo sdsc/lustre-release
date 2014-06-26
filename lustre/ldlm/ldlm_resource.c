@@ -1139,25 +1139,6 @@ lvbo_init:
 		ns_refcount = ldlm_namespace_get_return(ns);
 
         cfs_hash_bd_unlock(ns->ns_rs_hash, &bd, 1);
-        if (ns->ns_lvbo && ns->ns_lvbo->lvbo_init) {
-                int rc;
-
-                OBD_FAIL_TIMEOUT(OBD_FAIL_LDLM_CREATE_RESOURCE, 2);
-                rc = ns->ns_lvbo->lvbo_init(res);
-		if (rc < 0) {
-			CERROR("%s: lvbo_init failed for resource "LPX64":"
-			       LPX64": rc = %d\n", ns->ns_obd->obd_name,
-			       name->name[0], name->name[1], rc);
-			if (res->lr_lvb_data) {
-				OBD_FREE(res->lr_lvb_data, res->lr_lvb_len);
-				res->lr_lvb_data = NULL;
-			}
-			res->lr_lvb_len = rc;
-			mutex_unlock(&res->lr_lvb_mutex);
-			ldlm_resource_putref(res);
-			return ERR_PTR(rc);
-		}
-	}
 
 	/* We create resource with locked lr_lvb_mutex. */
 	mutex_unlock(&res->lr_lvb_mutex);
