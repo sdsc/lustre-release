@@ -938,7 +938,6 @@ struct ldlm_resource {
 	cfs_list_t		lr_waiting;
 	/** @} */
 
-	/* XXX No longer needed? Remove ASAP */
 	ldlm_mode_t		lr_most_restr;
 
 	/** Type of locks this resource can hold. Only one type per resource. */
