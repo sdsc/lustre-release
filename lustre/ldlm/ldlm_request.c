@@ -583,8 +583,12 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
 
 	if (rc == ELDLM_LOCK_ABORTED) {
 		if (lvb_len != 0)
-			rc = ldlm_fill_lvb(lock, &req->rq_pill, RCL_SERVER,
-					   lvb, size);
+			if ((size == 0) && is_replay)
+				LDLM_DEBUG(lock, "Server do'nt resend LVB "
+						 "upon replay.");
+			else
+				rc = ldlm_fill_lvb(lock, &req->rq_pill,
+						   RCL_SERVER, lvb, size);
 		GOTO(cleanup, rc = (rc != 0 ? rc : ELDLM_LOCK_ABORTED));
 	}
 
@@ -670,8 +674,13 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
 		 * a tiny window for completion to get in */
 		lock_res_and_lock(lock);
 		if (lock->l_req_mode != lock->l_granted_mode)
-			rc = ldlm_fill_lvb(lock, &req->rq_pill, RCL_SERVER,
-					   lock->l_lvb_data, size);
+			if ((size == 0) && is_replay)
+				LDLM_DEBUG(lock, "Server do'nt resend LVB "
+						 "upon replay.");
+			else
+				rc = ldlm_fill_lvb(lock, &req->rq_pill,
+						   RCL_SERVER,
+						   lock->l_lvb_data, size);
 		unlock_res_and_lock(lock);
 		if (rc < 0) {
 			cleanup_phase = 1;
@@ -690,6 +699,7 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
                 }
         }
 
+	/* since LVB has not been resend upon replay, do we need to memcpy ? */
         if (lvb_len && lvb != NULL) {
                 /* Copy the LVB here, and not earlier, because the completion
                  * AST (if any) can override what we got in the reply */

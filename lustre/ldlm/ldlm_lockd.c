@@ -1413,7 +1413,9 @@ existing_lock:
 					 req, lock);
 				buflen = req_capsule_get_size(&req->rq_pill,
 						&RMF_DLM_LVB, RCL_SERVER);
-				if (buflen > 0) {
+				/* non-replayed lock, delayed lvb init may
+				 * need to be occur now */
+				if ((buflen > 0) && !(flags & LDLM_FL_REPLAY)) {
 					buflen = ldlm_lvbo_fill(lock, buf,
 								buflen);
 					if (buflen >= 0)
@@ -1423,11 +1425,21 @@ existing_lock:
 							buflen, RCL_SERVER);
 					else
 						rc = buflen;
+				} else if (flags & LDLM_FL_REPLAY) {
+					/* no LVB resend upon replay */
+					req_capsule_shrink(&req->rq_pill,
+							   &RMF_DLM_LVB, 0,
+							   RCL_SERVER);
+					/* can this also happen ? */
+					if (buflen < 0)
+						rc = buflen;
 				} else {
 					rc = buflen;
 				}
 			}
-                } else {
+		}
+
+		if (rc) {
                         lock_res_and_lock(lock);
                         ldlm_resource_unlink_lock(lock);
                         ldlm_lock_destroy_nolock(lock);
