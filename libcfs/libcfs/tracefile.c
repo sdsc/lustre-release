@@ -1046,6 +1046,7 @@ static int tracefiled(void *arg)
                                        "but wrote %d\n", tage->used, rc);
                                 put_pages_back(&pc);
                                 __LASSERT(cfs_list_empty(&pc.pc_pages));
+				break;
                         }
                 }
 		CFS_MMSPACE_CLOSE;
