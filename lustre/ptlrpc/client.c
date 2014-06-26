@@ -1094,28 +1094,31 @@ static int ptlrpc_import_delay_req(struct obd_import *imp,
  */
 static int ptlrpc_console_allow(struct ptlrpc_request *req)
 {
-        __u32 opc;
-        int err;
+	__u32 opc;
+	int err;
 
-        LASSERT(req->rq_reqmsg != NULL);
-        opc = lustre_msg_get_opc(req->rq_reqmsg);
+	LASSERT(req->rq_reqmsg != NULL);
+	opc = lustre_msg_get_opc(req->rq_reqmsg);
+	err = lustre_msg_get_status(req->rq_repmsg);
 
-        /* Suppress particular reconnect errors which are to be expected.  No
-         * errors are suppressed for the initial connection on an import */
-        if ((lustre_handle_is_used(&req->rq_import->imp_remote_handle)) &&
-            (opc == OST_CONNECT || opc == MDS_CONNECT || opc == MGS_CONNECT)) {
+	/* Suppress particular reconnect errors which are to be expected.  No
+	 * errors are suppressed for the initial connection on an import */
+	if ((lustre_handle_is_used(&req->rq_import->imp_remote_handle)) &&
+	    (opc == OST_CONNECT || opc == MDS_CONNECT || opc == MGS_CONNECT)) {
 
-                /* Suppress timed out reconnect requests */
-                if (req->rq_timedout)
-                        return 0;
+		/* Suppress timed out reconnect requests */
+		if (req->rq_timedout)
+			return 0;
 
-                /* Suppress unavailable/again reconnect requests */
-                err = lustre_msg_get_status(req->rq_repmsg);
-                if (err == -ENODEV || err == -EAGAIN)
-                        return 0;
-        }
+		/* Suppress unavailable/again reconnect requests */
+		if (err == -ENODEV || err == -EAGAIN)
+			return 0;
+	} else if ((opc == MDS_GETXATTR || opc == MDS_SETXATTR) &&
+		   err == -EOPNOTSUPP) {
+		return 0;
+	}
 
-        return 1;
+	return 1;
 }
 
 /**

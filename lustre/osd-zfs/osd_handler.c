@@ -518,6 +518,7 @@ static int osd_mount(const struct lu_env *env,
 	struct dsl_dataset *ds;
 	char	  *dev  = lustre_cfg_string(cfg, 1);
 	dmu_buf_t *rootdb;
+	unsigned long s_flags;
 	int	   rc;
 	ENTRY;
 
@@ -591,6 +592,10 @@ static int osd_mount(const struct lu_env *env,
 		o->od_quota_slave = NULL;
 		GOTO(err, rc);
 	}
+
+	s_flags = kstrtoul(lustre_cfg_string(cfg, 2), NULL, 0);
+	if (s_flags & MS_POSIXACL)
+		o->od_posix_acl = 1;
 err:
 	RETURN(rc);
 }
