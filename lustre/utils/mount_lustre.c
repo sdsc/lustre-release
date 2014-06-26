@@ -190,6 +190,8 @@ static const struct opt_map opt_map[] = {
   { "noowner",  1, 0         },      /* Device owner has no special privs */
   { "_netdev",  0, 0         },      /* Device accessible only via network */
   { "loop",     0, 0         },
+  { "acl",	0, MS_POSIXACL },    /* support POSIX ACL */
+  { "noacl",	1, MS_POSIXACL },    /* disable POSIX ACL support */
   { NULL,       0, 0         }
 };
 /****************************************************************************/
@@ -227,45 +229,47 @@ static void append_option(char *options, const char *one)
    fill in mount flags */
 int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
 {
-        char *options, *opt, *nextopt, *arg, *val;
+	char *options, *opt, *nextopt, *arg, *val;
 
-        options = calloc(strlen(orig_options) + 1, 1);
-        *flagp = 0;
-        nextopt = orig_options;
-        while ((opt = strsep(&nextopt, ","))) {
-                if (!*opt)
-                        /* empty option */
-                        continue;
+	options = calloc(strlen(orig_options) + 1, 1);
+	/* enable POSIX ACL by default, user should set "noacl" explicitely to
+	 * disable it. */
+	*flagp = MS_POSIXACL;
+	nextopt = orig_options;
+	while ((opt = strsep(&nextopt, ","))) {
+		if (!*opt)
+			/* empty option */
+			continue;
 
-                /* Handle retries in a slightly different
-                 * manner */
-                arg = opt;
-                val = strchr(opt, '=');
-                /* please note that some ldiskfs mount options are also in the form
-                 * of param=value. We should pay attention not to remove those
-                 * mount options, see bug 22097. */
-                if (val && strncmp(arg, "md_stripe_cache_size", 20) == 0) {
+		/* Handle retries in a slightly different
+		 * manner */
+		arg = opt;
+		val = strchr(opt, '=');
+		/* please note that some ldiskfs mount options are also in the
+		 * form of param=value. We should pay attention not to remove
+		 * those mount options, see bug 22097. */
+		if (val && strncmp(arg, "md_stripe_cache_size", 20) == 0) {
 			mop->mo_md_stripe_cache_size = atoi(val + 1);
-                } else if (val && strncmp(arg, "retry", 5) == 0) {
+		} else if (val && strncmp(arg, "retry", 5) == 0) {
 			mop->mo_retry = atoi(val + 1);
 			if (mop->mo_retry > MAX_RETRIES)
 				mop->mo_retry = MAX_RETRIES;
 			else if (mop->mo_retry < 0)
 				mop->mo_retry = 0;
-                } else if (val && strncmp(arg, "mgssec", 6) == 0) {
-                        append_option(options, opt);
+		} else if (val && strncmp(arg, "mgssec", 6) == 0) {
+			append_option(options, opt);
 		} else if (strncmp(arg, "nosvc", 5) == 0) {
 			mop->mo_nosvc = 1;
 			append_option(options, opt);
-                } else if (strcmp(opt, "force") == 0) {
-                        //XXX special check for 'force' option
+		} else if (strcmp(opt, "force") == 0) {
+			/* XXX special check for 'force' option */
 			++mop->mo_force;
 			printf("force: %d\n", mop->mo_force);
-                } else if (parse_one_option(opt, flagp) == 0) {
-                        /* pass this on as an option */
-                        append_option(options, opt);
-                }
-        }
+		} else if (parse_one_option(opt, flagp) == 0) {
+			/* pass this on as an option */
+			append_option(options, opt);
+		}
+	}
 #ifdef MS_STRICTATIME
 #if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 10, 51, 0)
 /*
@@ -283,9 +287,9 @@ int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
 	if (!(*flagp & (MS_NOATIME | MS_RELATIME)))
 		*flagp |= MS_STRICTATIME;
 #endif
-        strcpy(orig_options, options);
-        free(options);
-        return 0;
+	strcpy(orig_options, options);
+	free(options);
+	return 0;
 }
 
 /* Add mgsnids from ldd params */
