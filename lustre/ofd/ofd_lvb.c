@@ -15,11 +15,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * version 2 along with this program; If not, see
- * http://www.sun.com/software/products/lustre/docs/GPLv2.pdf
- *
- * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa Clara,
- * CA 95054 USA or visit www.sun.com if you need additional information or
- * have any questions.
+ * http://www.gnu.org/licenses/gpl-2.0.html
  *
  * GPL HEADER END
  */
@@ -27,7 +23,7 @@
  * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2012, 2013, Intel Corporation.
+ * Copyright (c) 2012, 2014 Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -35,14 +31,36 @@
  *
  * lustre/ofd/ofd_lvb.c
  *
- * Author: Mikhail Pershin <tappro@whamcloud.com>
- * Author: Alexey Zhuravlev <bzzz@whamcloud.com>
+ * This file contains methods for OBD Filter Device (OFD)
+ * Lock Value Block (LVB) operations.
+ *
+ * LVB is special opaque (to LDLM) data that is associated with an LDLM lock
+ * and transferred from client to server and back.
+ *
+ * Currently LVBs are used by:
+ *  - OSC-OST to maintain current object size/times
+ *  - layout lock code to return the layout when the layout lock is granted
+ *
+ * Author: Andreas Dilger <andreas.dilger@intel.com>
+ * Author: Mikhail Pershin <mike.pershin@intel.com>
+ * Author: Alexey Zhuravlev <alexey.zhuravlev@intel.com>
  */
 
 #define DEBUG_SUBSYSTEM S_FILTER
 
 #include "ofd_internal.h"
 
+/**
+ * Implementation of ldlm_valblock_ops::lvbo_free for OFD.
+ *
+ * This function frees allocated LVB data if it associated with the given
+ * LDLM resource.
+ *
+ * \param[in] res	LDLM resource
+ *
+ * \retval		0 on successful setup
+ * \retval		negative value on error
+ */
 static int ofd_lvbo_free(struct ldlm_resource *res)
 {
 	if (res->lr_lvb_data)
@@ -51,7 +69,21 @@ static int ofd_lvbo_free(struct ldlm_resource *res)
 	return 0;
 }
 
-/* Called with res->lr_lvb_sem held */
+/**
+ * Implementation of ldlm_valblock_ops::lvbo_init for OFD.
+ *
+ * This function allocates and initializes new LVB data for the given
+ * LDLM resource if it is not allocated yet. New LVB is filled with attributes
+ * of the object associated with that resource. Function does nothing if LVB
+ * for the given LDLM resource is allocated already.
+ *
+ * Called with res->lr_lvb_sem held.
+ *
+ * \param[in] res	LDLM resource
+ *
+ * \retval		0 on successful setup
+ * \retval		negative value on error
+ */
 static int ofd_lvbo_init(struct ldlm_resource *res)
 {
 	struct ost_lvb		*lvb;
@@ -120,12 +152,22 @@ out_env:
 	return rc;
 }
 
-/* This will be called in two ways:
+/**
+ * Implementation of ldlm_valblock_ops::lvbo_update for OFD.
  *
- *   r != NULL : called by the DLM itself after a glimpse callback
- *   r == NULL : called by the ofd after a disk write
+ * This function updates a LVB data for the given LDLM resource from
+ * the \a req and from disk.
  *
- *   If 'increase_only' is true, don't allow values to move backwards.
+ * This is called in two ways:
+ *  \a req != NULL : called by the DLM itself after a glimpse callback
+ *  \a req == NULL : called by the OFD after a disk write
+ *
+ * \param[in] res		LDLM resource
+ * \param[in] req		PTLRPC request
+ * \param[in] increase_only	don't allow LVB values to decrease
+ *
+ * \retval		0 on successful setup
+ * \retval		negative value on error
  */
 static int ofd_lvbo_update(struct ldlm_resource *res,
 			   struct ptlrpc_request *req, int increase_only)
@@ -276,6 +318,17 @@ out_env:
 	return rc;
 }
 
+/**
+ * Implementation of ldlm_valblock_ops::lvbo_size for OFD.
+ *
+ * This function returns size of LVB data so appropriate RPC size will be
+ * reserved. This is used for compatibility needs between server and client
+ * of different Lustre versions.
+ *
+ * \param[in] lock	LDLM lock
+ *
+ * \retval		size of LVB data
+ */
 static int ofd_lvbo_size(struct ldlm_lock *lock)
 {
 	if (lock->l_export != NULL && exp_connect_lvb_type(lock->l_export))
@@ -284,6 +337,17 @@ static int ofd_lvbo_size(struct ldlm_lock *lock)
 		return sizeof(struct ost_lvb_v1);
 }
 
+/**
+ * Implementation of ldlm_valblock_ops::lvbo_fill for OFD.
+ *
+ * This function is called to fill the given RPC buffer \a buf with LVB data
+ *
+ * \param[in] lock	LDLM lock
+ * \param[in] buf	RPC buffer to fill
+ * \param[in] buflen	buffer length
+ *
+ * \retval		size of LVB data written into \a buf buffer
+ */
 static int ofd_lvbo_fill(struct ldlm_lock *lock, void *buf, int buflen)
 {
 	struct ldlm_resource *res = lock->l_resource;
