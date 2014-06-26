@@ -411,7 +411,6 @@ struct lfsck_component {
 	/* How many objects have been scanned since last sleep. */
 	__u32			 lc_new_scanned;
 
-	unsigned int		 lc_journal:1;
 	__u16			 lc_type;
 };
 
@@ -510,14 +509,6 @@ struct lfsck_instance {
 				  li_master:1, /* Master instance or not. */
 				  li_current_oit_processed:1,
 				  li_start_unplug:1;
-};
-
-enum lfsck_linkea_flags {
-	/* The linkea entries does not match the object nlinks. */
-	LLF_UNMATCH_NLINKS	= 0x01,
-
-	/* Fail to repair the multiple-linked objects during the double scan. */
-	LLF_REPAIR_FAILED	= 0x02,
 };
 
 struct lfsck_async_interpret_args {
@@ -640,6 +631,7 @@ struct lfsck_thread_info {
 	struct lov_user_md	lti_lum;
 	struct dt_insert_rec	lti_dt_rec;
 	struct lu_object_conf	lti_conf;
+	struct lu_seq_range	lti_range;
 };
 
 /* lfsck_lib.c */

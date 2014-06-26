@@ -44,6 +44,9 @@ setupall
 [[ $(lustre_version_code ost1) -lt $(version_code 2.5.55) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18 19 20 21"
 
+[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.50) ]] &&
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 3"
+
 build_test_filter
 
 $LCTL set_param debug=+lfsck > /dev/null || true
@@ -348,6 +351,63 @@ test_2c()
 		error "(8) Fail to repair linkEA: $dummyfid $dummyname"
 }
 run_test 2c "LFSCK can find out and remove repeated linkEA entry"
+
+test_2d()
+{
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && exit 0
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0 on MDT0"
+
+	#define OBD_FAIL_LFSCK_LINKEA_CRASH	0x1603
+	do_facet mds2 $LCTL set_param fail_loc=0x1603
+	$LFS mkdir -i 1 $DIR/$tdir/d0/d1 || error "(2) Fail to mkdir d1 on MDT1"
+	do_facet mds2 $LCTL set_param fail_loc=0
+
+	$START_NAMESPACE -r || error "(3) Fail to start LFSCK for namespace!"
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+		$SHOW_NAMESPACE
+		error "(4) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^linkea_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(5) Fail to repair crashed linkEA: $repaired"
+
+	local fid=$($LFS path2fid $DIR/$tdir/d0/d1)
+	local name=$($LFS fid2path $DIR $fid)
+	[ "$name" == "$DIR/$tdir/d0/d1" ] ||
+		error "(6) Fail to repair linkEA: $fid $name"
+}
+run_test 2d "namespace LFSCK can verify remote object linkEA"
+
+test_3()
+{
+	lfsck_prep 2 2
+
+	mkdir $DIR/$tdir/dummy || error "(1) Fail to mkdir"
+	ln $DIR/$tdir/d0/f0 $DIR/$tdir/dummy/f0 || error "(2) Fail to hardlink"
+	ln $DIR/$tdir/d0/f1 $DIR/$tdir/dummy/f1 || error "(3) Fail to hardlink"
+
+	$START_NAMESPACE -r || error "(4) Fail to start LFSCK for namespace!"
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+		$SHOW_NAMESPACE
+		error "(5) unexpected status"
+	}
+
+	local checked=$($SHOW_NAMESPACE |
+			awk '/^checked_phase2/ { print $2 }')
+	[ $checked -eq 2 ] ||
+		error "(6) Fail to check multiple-linked object: $checked"
+}
+run_test 3 "LFSCK can double scan multiple-linked objects"
 
 test_4()
 {
