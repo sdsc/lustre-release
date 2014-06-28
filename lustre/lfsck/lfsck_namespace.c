@@ -47,6 +47,11 @@
 #define LFSCK_NAMEENTRY_REMOVED		2 /* The entry has been removed. */
 #define LFSCK_NAMEENTRY_RECREATED	3 /* The entry has been recreated. */
 
+enum lfsck_namespace_inconsistency_type {
+	LNIT_NONE		= 0,
+	LNIT_DANGLING		= 1,
+};
+
 static const char lfsck_namespace_name[] = "lfsck_namespace";
 
 struct lfsck_namespace_req {
@@ -133,6 +138,7 @@ static void lfsck_namespace_le_to_cpu(struct lfsck_namespace *dst,
 		      &src->ln_fid_latest_scanned_phase2);
 	dst->ln_dirent_repaired = le64_to_cpu(src->ln_dirent_repaired);
 	dst->ln_linkea_repaired = le64_to_cpu(src->ln_linkea_repaired);
+	dst->ln_dangling_repaired = le64_to_cpu(src->ln_dangling_repaired);
 }
 
 static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *dst,
@@ -169,6 +175,7 @@ static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *dst,
 		      &src->ln_fid_latest_scanned_phase2);
 	dst->ln_dirent_repaired = cpu_to_le64(src->ln_dirent_repaired);
 	dst->ln_linkea_repaired = cpu_to_le64(src->ln_linkea_repaired);
+	dst->ln_dangling_repaired = cpu_to_le64(src->ln_dangling_repaired);
 }
 
 static void lfsck_namespace_record_failure(const struct lu_env *env,
@@ -1296,6 +1303,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "multi_linked_files: "LPU64"\n"
 			      "dirent_repaired: "LPU64"\n"
 			      "linkea_repaired: "LPU64"\n"
+			      "dangling_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1315,6 +1323,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_mlinked_checked,
 			      ns->ln_dirent_repaired,
 			      ns->ln_linkea_repaired,
+			      ns->ln_dangling_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
@@ -1378,6 +1387,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "multi_linked_files: "LPU64"\n"
 			      "dirent_repaired: "LPU64"\n"
 			      "linkea_repaired: "LPU64"\n"
+			      "dangling_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1398,6 +1408,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_mlinked_checked,
 			      ns->ln_dirent_repaired,
 			      ns->ln_linkea_repaired,
+			      ns->ln_dangling_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
@@ -1425,6 +1436,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "multi_linked_files: "LPU64"\n"
 			      "dirent_repaired: "LPU64"\n"
 			      "linkea_repaired: "LPU64"\n"
+			      "dangling_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1445,6 +1457,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_mlinked_checked,
 			      ns->ln_dirent_repaired,
 			      ns->ln_linkea_repaired,
+			      ns->ln_dangling_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
@@ -1645,6 +1658,195 @@ static struct dt_device *lfsck_namespace_find_dev(const struct lu_env *env,
 	return ltd->ltd_tgt;
 }
 
+/**
+ * Repair dangling name entry.
+ *
+ * For the name entry with dangling reference, we need to repare the
+ * inconsistency according to the LFSCK sponsor's requirement:
+ *
+ * 1) Keep the inconsistency there and report the inconsistency case,
+ *    then give the chance to the application to find related issues,
+ *    and the users can make the decision about how to handle it with
+ *    more human knownledge. (by default)
+ *
+ * 2) Re-create the missed MDT-object with the FID information.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] com	pointer to the lfsck component
+ * \param[in] parent	pointer to the parent directory
+ * \param[in] child	pointer to the object corresponding to the dangling
+ *			name entry
+ * \param[in] cname	pointer to the lu_name that contains the name for the
+ *			child in the parent directory
+ * \param[in] type	the name entry type: S_IFDIR, S_IFREG, or others
+ *
+ * \retval		positive number if no need to repair
+ * \retval		zero for repaired successfully
+ * \retval		negative error number on failure
+ */
+static int lfsck_namespace_repair_dangling(const struct lu_env *env,
+					   struct lfsck_component *com,
+					   struct dt_object *parent,
+					   struct dt_object *child,
+					   const struct lu_name *cname,
+					   __u16 type)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct lu_attr			*la	= &info->lti_la;
+	struct dt_allocation_hint	*hint	= &info->lti_hint;
+	struct dt_object_format		*dof	= &info->lti_dof;
+	struct dt_insert_rec		*rec	= &info->lti_dt_rec;
+	struct linkea_data		 ldata	= { 0 };
+	struct lu_buf			 linkea_buf;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct lfsck_bookmark		*bk	= &lfsck->li_bookmark_ram;
+	struct dt_device		*dev	= lfsck_obj2dt_dev(child);
+	struct thandle			*th	= NULL;
+	int				 rc	= 0;
+	bool				 create;
+	ENTRY;
+
+	if (bk->lb_param & LPF_CREATE_MDTOBJ)
+		create = true;
+	else
+		create = false;
+
+	if (!create || bk->lb_param & LPF_DRYRUN)
+		GOTO(log, rc = 0);
+
+	rc = linkea_data_new(&ldata, &info->lti_linkea_buf);
+	if (rc != 0)
+		GOTO(log, rc);
+
+	rc = linkea_add_buf(&ldata, cname, lfsck_dto2fid(parent));
+	if (rc != 0)
+		GOTO(log, rc);
+
+	th = dt_trans_create(env, dev);
+	if (IS_ERR(th))
+		GOTO(log, rc = PTR_ERR(th));
+
+	memset(la, 0, sizeof(*la));
+	la->la_mode = (type & S_IFMT) | 0600;
+	la->la_valid = LA_TYPE | LA_MODE | LA_UID | LA_GID |
+			LA_ATIME | LA_MTIME | LA_CTIME;
+
+	memset(hint, 0, sizeof(*hint));
+	hint->dah_parent = parent;
+	hint->dah_mode = la->la_mode;
+
+	memset(dof, 0, sizeof(*dof));
+	dof->dof_type = dt_mode_to_dft(type);
+
+	/* 1a. create child. */
+	rc = dt_declare_create(env, child, la, hint, dof, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	if (S_ISDIR(type)) {
+		if (dt_object_remote(child)) {
+			if (unlikely(!dt_try_as_dir(env, child)))
+				GOTO(stop, rc = -ENOTDIR);
+
+			/* 2a. insert dot into child dir */
+			rec->rec_type = S_IFDIR;
+			rec->rec_fid = lfsck_dto2fid(child);
+			rc = dt_declare_insert(env, child,
+					       (const struct dt_rec *)rec,
+					       (const struct dt_key *)dot, th);
+			if (rc != 0)
+				GOTO(stop, rc);
+
+			/* 3a. insert dotdot into child dir */
+			rec->rec_fid = lfsck_dto2fid(parent);
+			rc = dt_declare_insert(env, child,
+					       (const struct dt_rec *)rec,
+					       (const struct dt_key *)dotdot,
+					       th);
+			if (rc != 0)
+				GOTO(stop, rc);
+		}
+
+		/* 4a. increase child nlink */
+		rc = dt_declare_ref_add(env, child, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
+	/* 5a. insert linkEA for child */
+	lfsck_buf_build(&linkea_buf, ldata.ld_buf->lb_buf,
+			ldata.ld_leh->leh_len);
+	rc = dt_declare_xattr_set(env, child, &linkea_buf,
+				  XATTR_NAME_LINK, 0, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start(env, dev, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	dt_write_lock(env, child, 0);
+	/* 1b. create child */
+	rc = dt_create(env, child, la, hint, dof, th);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	if (S_ISDIR(type)) {
+		if (unlikely(!dt_try_as_dir(env, child)))
+			GOTO(unlock, rc = -ENOTDIR);
+
+		/* 2b. insert dot into child dir */
+		rec->rec_type = S_IFDIR;
+		rec->rec_fid = lfsck_dto2fid(child);
+		rc = dt_insert(env, child, (const struct dt_rec *)rec,
+			       (const struct dt_key *)dot, th, BYPASS_CAPA, 1);
+		if (rc != 0)
+			GOTO(unlock, rc);
+
+		/* 3b. insert dotdot into child dir */
+		rec->rec_fid = lfsck_dto2fid(parent);
+		rc = dt_insert(env, child, (const struct dt_rec *)rec,
+			       (const struct dt_key *)dotdot, th,
+			       BYPASS_CAPA, 1);
+		if (rc != 0)
+			GOTO(unlock, rc);
+
+		/* 4b. increase child nlink */
+		rc = dt_ref_add(env, child, th);
+		if (rc != 0)
+			GOTO(unlock, rc);
+	}
+
+	/* 5b. insert linkEA for child. */
+	rc = dt_xattr_set(env, child, &linkea_buf,
+			  XATTR_NAME_LINK, 0, th, BYPASS_CAPA);
+
+	GOTO(unlock, rc);
+
+unlock:
+	dt_write_unlock(env, child);
+
+stop:
+	dt_trans_stop(env, dev, th);
+
+log:
+	CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant found dangling "
+	       "reference for: parent "DFID", child "DFID", type %u, "
+	       "name %s. %s: rc = %d\n", lfsck_lfsck2name(lfsck),
+	       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
+	       type, cname->ln_name,
+	       create ? "Create the lost OST-object as required" :
+			"Keep the MDT-object there by default", rc);
+
+	if (rc <= 0) {
+		struct lfsck_namespace *ns = com->lc_file_ram;
+
+		ns->ln_flags |= LF_INCONSISTENT;
+	}
+
+	return rc;
+}
+
 static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 						struct lfsck_component *com,
 						struct lfsck_assistant_req *lar)
@@ -1671,6 +1873,7 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 	bool			    log      = false;
 	int			    count    = 0;
 	int			    rc;
+	enum lfsck_namespace_inconsistency_type type = LNIT_NONE;
 	ENTRY;
 
 	if (lnr->lnr_attr & LUDA_UPGRADE) {
@@ -1700,16 +1903,23 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 	if (IS_ERR(obj))
 		GOTO(out, rc = PTR_ERR(obj));
 
+	cname = lfsck_name_get_const(env, lnr->lnr_name, lnr->lnr_namelen);
 	if (dt_object_exists(obj) == 0) {
-		rc = lfsck_namespace_check_exist(env, dir, obj, lnr->lnr_name);
-		if (rc != 0)
-			GOTO(out, rc);
 
-		/* XXX: dangling name entry, will handle it in other patch. */
+dangling:
+		rc = lfsck_namespace_check_exist(env, dir, obj, lnr->lnr_name);
+		if (rc == 0) {
+			type = LNIT_DANGLING;
+			rc = lfsck_namespace_repair_dangling(env, com, dir,
+							     obj, cname,
+							     lnr->lnr_type);
+			if (rc == 0)
+				repaired = true;
+		}
+
 		GOTO(out, rc);
 	}
 
-	cname = lfsck_name_get_const(env, lnr->lnr_name, lnr->lnr_namelen);
 	if (!(bk->lb_param & LPF_DRYRUN) && repaired) {
 
 again:
@@ -1740,7 +1950,11 @@ again:
 		GOTO(stop, rc);
 
 	rc = lfsck_links_read(env, obj, &ldata);
-	if (rc == 0) {
+	if (unlikely(rc == -ENOENT)) {
+		/* It may happen when the remote object has been removed,
+		 * but the local MDT does not aware of that. */
+		goto dangling;
+	} else if (rc == 0) {
 		count = ldata.ld_leh->leh_reccount;
 		rc = linkea_links_find(&ldata, cname, pfid);
 		if ((rc == 0) &&
@@ -1888,6 +2102,15 @@ out:
 
 		if (repaired) {
 			ns->ln_items_repaired++;
+
+			switch (type) {
+			case LNIT_DANGLING:
+				ns->ln_dangling_repaired++;
+				break;
+			default:
+				break;
+			}
+
 			if (bk->lb_param & LPF_DRYRUN &&
 			    lfsck_pos_is_zero(&ns->ln_pos_first_inconsistent))
 				lfsck_pos_fill(env, lfsck,

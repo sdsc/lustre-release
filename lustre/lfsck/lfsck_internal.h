@@ -183,6 +183,12 @@ struct lfsck_namespace {
 
 	/* How many linkEA entries have been repaired. */
 	__u64	ln_linkea_repaired;
+
+	/* How many dangling name entries have been found/repaired. */
+	__u64	ln_dangling_repaired;
+
+	/* For further using. 256-bytes aligned now. */
+	__u64	ln_reserved[31];
 };
 
 enum lfsck_layout_inconsistency_type {
@@ -720,6 +726,8 @@ int lfsck_namespace_setup(const struct lu_env *env,
 /* lfsck_layout.c */
 int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck);
 
+extern const char dot[];
+extern const char dotdot[];
 extern const char *lfsck_flags_names[];
 extern const char *lfsck_param_names[];
 extern struct lu_context_key lfsck_thread_key;
