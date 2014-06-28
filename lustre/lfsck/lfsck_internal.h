@@ -616,6 +616,7 @@ struct lfsck_assistant_data {
 struct lfsck_thread_info {
 	struct lu_name		lti_name_const;
 	struct lu_name		lti_name;
+	struct lu_name		lti_name2;
 	struct lu_buf		lti_buf;
 	struct lu_buf		lti_linkea_buf;
 	struct lu_buf		lti_big_buf;
