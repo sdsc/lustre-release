@@ -411,7 +411,6 @@ struct lfsck_component {
 	/* How many objects have been scanned since last sleep. */
 	__u32			 lc_new_scanned;
 
-	unsigned int		 lc_journal:1;
 	__u16			 lc_type;
 };
 
@@ -512,14 +511,6 @@ struct lfsck_instance {
 				  li_start_unplug:1;
 };
 
-enum lfsck_linkea_flags {
-	/* The linkea entries does not match the object nlinks. */
-	LLF_UNMATCH_NLINKS	= 0x01,
-
-	/* Fail to repair the multiple-linked objects during the double scan. */
-	LLF_REPAIR_FAILED	= 0x02,
-};
-
 struct lfsck_async_interpret_args {
 	struct lfsck_component		*laia_com;
 	struct lfsck_tgt_descs		*laia_ltds;
@@ -604,6 +595,7 @@ struct lfsck_assistant_data {
 #define LFSCK_TMPBUF_LEN	64
 
 struct lfsck_thread_info {
+	struct lu_name		lti_name_const;
 	struct lu_name		lti_name;
 	struct lu_buf		lti_buf;
 	struct lu_buf		lti_linkea_buf;
@@ -640,6 +632,7 @@ struct lfsck_thread_info {
 	struct lov_user_md	lti_lum;
 	struct dt_insert_rec	lti_dt_rec;
 	struct lu_object_conf	lti_conf;
+	struct lu_seq_range	lti_range;
 };
 
 /* lfsck_lib.c */
@@ -751,7 +744,7 @@ lfsck_name_get_const(const struct lu_env *env, const void *area, ssize_t len)
 {
 	struct lu_name *lname;
 
-	lname = &lfsck_env_info(env)->lti_name;
+	lname = &lfsck_env_info(env)->lti_name_const;
 	lname->ln_name = area;
 	lname->ln_namelen = len;
 	return lname;
