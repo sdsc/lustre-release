@@ -15,11 +15,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * version 2 along with this program; If not, see
- * http://www.sun.com/software/products/lustre/docs/GPLv2.pdf
- *
- * Please contact Sun Microsystems, Inc., 4150 Network Circle, Santa Clara,
- * CA 95054 USA or visit www.sun.com if you need additional information or
- * have any questions.
+ * http://www.gnu.org/licenses/gpl-2.0.html
  *
  * GPL HEADER END
  */
@@ -27,7 +23,7 @@
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright (c) 2012, 2013, Intel Corporation.
+ * Copyright (c) 2012, 2013, 2014 Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
@@ -45,6 +41,9 @@
 #include "osp_internal.h"
 
 #ifdef LPROCFS
+/**
+ * Show OSP active status
+ */
 static int osp_active_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device	*dev = m->private;
@@ -56,6 +55,16 @@ static int osp_active_seq_show(struct seq_file *m, void *data)
 	return rc;
 }
 
+/**
+ * Activate/Deactivate OSP
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string, which is "1" or "0" to activate/deactivate OSP
+ * \param[in] count	@buffer length
+ * \param[in] off	unused
+ * \retval		@count
+ * \retval		negative number on error
+ */
 static ssize_t
 osp_active_seq_write(struct file *file, const char *buffer,
 			size_t count, loff_t *off)
@@ -83,6 +92,9 @@ osp_active_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(osp_active);
 
+/**
+ * Show number of RPCs in flight
+ */
 static int osp_syn_in_flight_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device	*dev = m->private;
@@ -95,6 +107,9 @@ static int osp_syn_in_flight_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(osp_syn_in_flight);
 
+/**
+ * Show number of RPCs in processing (including uncommitted by OST)
+ */
 static int osp_syn_in_prog_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device	*dev = m->private;
@@ -107,6 +122,9 @@ static int osp_syn_in_prog_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(osp_syn_in_prog);
 
+/**
+ * Show number of changes to sync
+ */
 static int osp_syn_changes_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device	*dev = m->private;
@@ -118,6 +136,16 @@ static int osp_syn_changes_seq_show(struct seq_file *m, void *data)
 	return seq_printf(m, "%lu\n", osp->opd_syn_changes);
 }
 
+/**
+ * Sync changes
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	unused
+ * \param[in] count	unused
+ * \param[in] off	unused
+ * \retval		@count on success
+ * \retval		negative number on error
+ */
 static ssize_t osp_syn_changes_seq_write(struct file *file, const char *buffer,
 					 size_t count, loff_t *off)
 {
@@ -138,6 +166,9 @@ static ssize_t osp_syn_changes_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(osp_syn_changes);
 
+/**
+ * Show maximum number of RPCs in flight allowed, which is used for flow control
+ */
 static int osp_max_rpcs_in_flight_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device	*dev = m->private;
@@ -149,6 +180,16 @@ static int osp_max_rpcs_in_flight_seq_show(struct seq_file *m, void *data)
 	return seq_printf(m, "%u\n", osp->opd_syn_max_rpc_in_flight);
 }
 
+/**
+ * Change maximum number of RPCs in flight allowed
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused
+ * \retval		@count on success
+ * \retval		negative number on error
+ */
 static ssize_t
 osp_max_rpcs_in_flight_seq_write(struct file *file, const char *buffer,
 				size_t count, loff_t *off)
@@ -173,6 +214,9 @@ osp_max_rpcs_in_flight_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(osp_max_rpcs_in_flight);
 
+/**
+ * Show maximum number of RPCs in processing allowed
+ */
 static int osp_max_rpcs_in_prog_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device	*dev = m->private;
@@ -184,6 +228,16 @@ static int osp_max_rpcs_in_prog_seq_show(struct seq_file *m, void *data)
 	return seq_printf(m, "%u\n", osp->opd_syn_max_rpc_in_progress);
 }
 
+/**
+ * Change maximum number of RPCs in processing allowed
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused
+ * \retval		@count on success
+ * \retval		negative number on error
+ */
 static ssize_t
 osp_max_rpcs_in_prog_seq_write(struct file *file, const char *buffer,
 				size_t count, loff_t *off)
@@ -209,6 +263,9 @@ osp_max_rpcs_in_prog_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(osp_max_rpcs_in_prog);
 
+/**
+ * Show number of objects to precreate next time
+ */
 static int osp_create_count_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device *obd = m->private;
@@ -220,6 +277,16 @@ static int osp_create_count_seq_show(struct seq_file *m, void *data)
 	return seq_printf(m, "%d\n", osp->opd_pre_grow_count);
 }
 
+/**
+ * Change number of objects to precreate next time
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents number of objects to precreate
+ * \param[in] count	@buffer length
+ * \param[in] off	unused
+ * \retval		@count on success
+ * \retval		negative number on error
+ */
 static ssize_t
 osp_create_count_seq_write(struct file *file, const char *buffer,
 				size_t count, loff_t *off)
@@ -259,6 +326,9 @@ osp_create_count_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(osp_create_count);
 
+/**
+ * Show maximum number of objects to precreate
+ */
 static int osp_max_create_count_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device *obd = m->private;
@@ -270,6 +340,16 @@ static int osp_max_create_count_seq_show(struct seq_file *m, void *data)
 	return seq_printf(m, "%d\n", osp->opd_pre_max_grow_count);
 }
 
+/**
+ * Change maximum number of objects to precreate
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused
+ * \retval		@count on success
+ * \retval		negative number on error
+ */
 static ssize_t
 osp_max_create_count_seq_write(struct file *file, const char *buffer,
 				size_t count, loff_t *off)
@@ -300,6 +380,9 @@ osp_max_create_count_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(osp_max_create_count);
 
+/**
+ * Show last id to assign in creation
+ */
 static int osp_prealloc_next_id_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device *obd = m->private;
@@ -312,6 +395,9 @@ static int osp_prealloc_next_id_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(osp_prealloc_next_id);
 
+/**
+ * Show last created id OST reported
+ */
 static int osp_prealloc_last_id_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device *obd = m->private;
@@ -324,6 +410,9 @@ static int osp_prealloc_last_id_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(osp_prealloc_last_id);
 
+/**
+ * Show next seq to precreate
+ */
 static int osp_prealloc_next_seq_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device *obd = m->private;
@@ -336,6 +425,9 @@ static int osp_prealloc_next_seq_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(osp_prealloc_next_seq);
 
+/**
+ * Show last created seq OST reported
+ */
 static int osp_prealloc_last_seq_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device *obd = m->private;
@@ -349,6 +441,9 @@ static int osp_prealloc_last_seq_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(osp_prealloc_last_seq);
 
+/**
+ * Show the number of ids reserved by declare
+ */
 static int osp_prealloc_reserved_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device *obd = m->private;
@@ -361,6 +456,9 @@ static int osp_prealloc_reserved_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(osp_prealloc_reserved);
 
+/**
+ * Show interval (in second) to update statfs data
+ */
 static int osp_maxage_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device	*dev = m->private;
@@ -372,6 +470,16 @@ static int osp_maxage_seq_show(struct seq_file *m, void *data)
 	return seq_printf(m, "%u\n", osp->opd_statfs_maxage);
 }
 
+/**
+ * Change interval to updatefs data
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents statfs interval (in sec)
+ * \param[in] count	@buffer length
+ * \param[in] off	unused
+ * \retval		@count on success
+ * \retval		negative number on error
+ */
 static ssize_t
 osp_maxage_seq_write(struct file *file, const char *buffer,
 			size_t count, loff_t *off)
@@ -397,6 +505,9 @@ osp_maxage_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(osp_maxage);
 
+/**
+ * Show current precreation status: working/failed/stopping
+ */
 static int osp_pre_status_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device	*dev = m->private;
@@ -409,6 +520,9 @@ static int osp_pre_status_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(osp_pre_status);
 
+/**
+ * Show the number of RPCs in flight plus changes to sync
+ */
 static int osp_destroys_in_flight_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device *dev = m->private;
@@ -428,6 +542,9 @@ static int osp_destroys_in_flight_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(osp_destroys_in_flight);
 
+/**
+ * Show changes synced from previous mount
+ */
 static int osp_old_sync_processed_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device	*dev = m->private;
@@ -440,6 +557,9 @@ static int osp_old_sync_processed_seq_show(struct seq_file *m, void *data)
 }
 LPROC_SEQ_FOPS_RO(osp_old_sync_processed);
 
+/**
+ * Show maximum number of RPCs in flight
+ */
 static int
 osp_lfsck_max_rpcs_in_flight_seq_show(struct seq_file *m, void *data)
 {
@@ -450,6 +570,16 @@ osp_lfsck_max_rpcs_in_flight_seq_show(struct seq_file *m, void *data)
 	return seq_printf(m, "%u\n", max);
 }
 
+/**
+ * Change maximum number of RPCs in flight
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number of RPCs in flight
+ * \param[in] count	@buffer length
+ * \param[in] off	unused
+ * \retval		@count on success
+ * \retval		negative number on error
+ */
 static ssize_t
 osp_lfsck_max_rpcs_in_flight_seq_write(struct file *file,
 				       const char __user *buffer,
@@ -477,6 +607,9 @@ LPROC_SEQ_FOPS_RO_TYPE(osp, connect_flags);
 LPROC_SEQ_FOPS_RO_TYPE(osp, server_uuid);
 LPROC_SEQ_FOPS_RO_TYPE(osp, conn_uuid);
 
+/**
+ * Show maximum pages per RPC
+ */
 static int osp_max_pages_per_rpc_seq_show(struct seq_file *m, void *v)
 {
 	return lprocfs_obd_max_pages_per_rpc_seq_show(m, m->private);
@@ -569,6 +702,11 @@ static struct lprocfs_seq_vars lprocfs_osp_osd_vars[] = {
 	{ 0 }
 };
 
+/**
+ * Initialize OSP lprocfs
+ *
+ * param[in] osp	OSP device
+ */
 void osp_lprocfs_init(struct osp_device *osp)
 {
 	struct obd_device	*obd = osp->opd_obd;
