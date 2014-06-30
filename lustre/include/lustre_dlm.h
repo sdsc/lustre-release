@@ -258,6 +258,9 @@ typedef enum {
  * Used by MGC locks, they are cancelled only at unmount or by callback. */
 #define LDLM_FL_NO_LRU		0x1000000000000ULL
 
+/** Flag whether a lock is found on server for re-sent RPC. */
+#define LDLM_FL_RESENT		0x0100000000000000ULL
+
 /**
  * The blocking callback is overloaded to perform two functions.  These flags
  * indicate which operation should be performed.
