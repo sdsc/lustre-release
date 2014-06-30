@@ -6532,6 +6532,18 @@ test_103b() {
 }
 run_test 103b "MDS mount option \"noacl\" ======================="
 
+test_103c() {
+	mkdir -p $DIR/$tdir
+	cp -rp $DIR/$tdir $DIR/$tdir.bak
+
+	[ -n "$(getfattr -d -m. $DIR/$tdir | grep posix_acl_default)" ] &&
+		error "$DIR/$tdir shouldn't contain default ACL"
+	[ -n "$(getfattr -d -m. $DIR/$tdir.bak | grep posix_acl_default)" ] &&
+		error "$DIR/$tdir.bak shouldn't contain default ACL"
+	rm -rf $DIR/$tdir $DIR/$tdir.bak
+}
+run_test 103c "\`cp -rp\` won't set empty acl ==================="
+
 test_104a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	touch $DIR/$tfile

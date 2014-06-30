@@ -571,12 +571,16 @@ out:
 	return rc;
 }
 
+static int __osd_xattr_del(const struct lu_env *env, struct osd_object *obj,
+			   const char *name, struct osd_thandle *oh);
+
 int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 		  const struct lu_buf *buf, const char *name, int fl,
 		  struct thandle *handle, struct lustre_capa *capa)
 {
 	struct osd_object  *obj = osd_dt_obj(dt);
 	struct osd_thandle *oh;
+	bool acl_is_empty = false;
 	int rc = 0;
 	ENTRY;
 
@@ -585,17 +589,31 @@ int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(dt_object_exists(dt));
 	LASSERT(obj->oo_db);
 
-	if (!osd_obj2dev(obj)->od_posix_acl &&
-	    (!strcmp(name, POSIX_ACL_XATTR_ACCESS) ||
-	     !strcmp(name, POSIX_ACL_XATTR_DEFAULT)))
-		RETURN(-EOPNOTSUPP);
+	if (!strcmp(name, POSIX_ACL_XATTR_ACCESS) ||
+	    !strcmp(name, POSIX_ACL_XATTR_DEFAULT)) {
+		struct posix_acl *acl;
+
+		if (!osd_obj2dev(obj)->od_posix_acl)
+			RETURN(-EOPNOTSUPP);
+
+		/* user may set empty acl, which should be treated as removing
+		 * acl. */
+		acl = posix_acl_from_xattr(buf->lb_buf, buf->lb_len);
+		if (acl != NULL)
+			posix_acl_release(acl);
+		else
+			acl_is_empty = true;
+	}
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 
 	down(&obj->oo_guard);
-	CDEBUG(D_INODE, "Setting xattr %s with size %d\n",
-		name, (int)buf->lb_len);
-	rc = osd_xattr_set_internal(env, obj, buf, name, fl, oh, capa);
+	CDEBUG(D_INODE, "%s xattr %s with size %d\n",
+		acl_is_empty ? "Deleting" : "Setting", name, (int)buf->lb_len);
+	if (acl_is_empty)
+		rc = __osd_xattr_del(env, obj, name, oh);
+	else
+		rc = osd_xattr_set_internal(env, obj, buf, name, fl, oh, capa);
 	up(&obj->oo_guard);
 
 	RETURN(rc);
