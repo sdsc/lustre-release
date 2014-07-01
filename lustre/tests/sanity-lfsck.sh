@@ -45,7 +45,7 @@ setupall
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18 19 20 21"
 
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 22"
 
 build_test_filter
 
@@ -2649,6 +2649,70 @@ test_21() {
 		error "Fail to stop LFSCK"
 }
 run_test 21 "run all LFSCK components by default"
+
+test_22() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && exit 0
+
+	echo "#####"
+	echo "The name entry is there, but the MDT-object for such name "
+	echo "entry does not exist. The namespace LFSCK should can find "
+	echo "out and repair the inconsistency as required."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0 on MDT0"
+	$LFS mkdir -i 1 $DIR/$tdir/d0/d1 || error "(2) Fail to mkdir d1 on MDT1"
+
+	echo "Inject failure stub on MDT1 to simulate dangling name entry"
+	#define OBD_FAIL_LFSCK_DANGLING2	0x161d
+	do_facet mds2 $LCTL set_param fail_loc=0x161d
+	rmdir $DIR/$tdir/d0/d1 || error "(3) Fail to rmdir d1"
+	do_facet mds2 $LCTL set_param fail_loc=0
+
+	echo "'ls' should fail because of dangling name entry"
+	ls -ail $DIR/$tdir/d0/d1 > /dev/null 2>&1 && error "(4) ls should fail."
+
+	echo "Trigger namespace LFSCK to find out dangling name entry"
+	$START_NAMESPACE -A -r ||
+		error "(5) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+		$SHOW_NAMESPACE
+		error "(6) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^dangling_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(7) Fail to repair dangling name entry: $repaired"
+
+	echo "'ls' should fail because of not create MDT-object by default"
+	ls -ail $DIR/$tdir/d0/d1 > /dev/null 2>&1 && error "(8) ls should fail."
+
+	echo "Trigger namespace LFSCK again to repair dangling name entry"
+	$START_NAMESPACE -A -r -C ||
+		error "(9) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+		$SHOW_NAMESPACE
+		error "(10) unexpected status"
+	}
+
+	repaired=$($SHOW_NAMESPACE |
+		   awk '/^dangling_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(11) Fail to repair dangling name entry: $repaired"
+
+	echo "'ls' should success after namespace LFSCK repairing"
+	ls -ail $DIR/$tdir/d0/d1 > /dev/null || error "(12) ls should success."
+}
+run_test 22 "LFSCK can repair dangling name entry"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 
