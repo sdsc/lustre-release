@@ -840,7 +840,11 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
                     index_in_window(ra_end, ras->ras_window_start, 0,
                                     ras->ras_window_len)) {
                         ras->ras_next_readahead = ra_end;
-                               RAS_CDEBUG(ras);
+			if (stride_io_mode(ras)) {
+				ras->ras_stride_offset =
+					min(ra_end, ras->ras_stride_offset);
+			}
+			RAS_CDEBUG(ras);
                 }
                 cfs_spin_unlock(&ras->ras_lock);
         }
