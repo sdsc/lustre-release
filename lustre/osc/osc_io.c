@@ -118,6 +118,7 @@ static int osc_io_submit(const struct lu_env *env,
 	int cmd;
 	int brw_flags;
 	int max_pages;
+	enum cl_page_type current_type = 0;
 
 	LASSERT(qin->pl_nr > 0);
 
@@ -153,6 +154,8 @@ static int osc_io_submit(const struct lu_env *env,
                         break;
                 }
 
+		if (queued > 0 && page->cp_type != current_type)
+			break;
                 result = cl_page_prep(env, io, page, crt);
 		if (result != 0) {
                         LASSERT(result < 0);
@@ -166,6 +169,9 @@ static int osc_io_submit(const struct lu_env *env,
                         result = 0;
 			continue;
                 }
+
+		if (queued == 0)
+			current_type = page->cp_type;
 
 		spin_lock(&oap->oap_lock);
 		oap->oap_async_flags = ASYNC_URGENT|ASYNC_READY;
