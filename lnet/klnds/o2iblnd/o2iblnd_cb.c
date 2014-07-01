@@ -797,7 +797,6 @@ kiblnd_post_tx_locked (kib_conn_t *conn, kib_tx_t *tx, int credit)
         int                ver = conn->ibc_version;
         int                rc;
         int                done;
-        struct ib_send_wr *bad_wrq;
 
         LASSERT (tx->tx_queued);
         /* We rely on this for QP sizing */
@@ -877,8 +876,14 @@ kiblnd_post_tx_locked (kib_conn_t *conn, kib_tx_t *tx, int credit)
                 /* close_conn will launch failover */
                 rc = -ENETDOWN;
         } else {
-                rc = ib_post_send(conn->ibc_cmid->qp,
-                                  tx->tx_wrq, &bad_wrq);
+		struct ib_send_wr *tmp = &tx->tx_wrq[tx->tx_nwrq - 1];
+
+		LASSERTF(tmp->wr_id == kiblnd_ptr2wreqid(tx, IBLND_WID_TX),
+			 "bad wr_id "LPX64", opc %d, flags %d, conn: %s\n",
+			 tmp->wr_id, tmp->opcode, tmp->send_flags,
+			 libcfs_nid2str(conn->ibc_peer->ibp_nid));
+		tmp = NULL;
+		rc = ib_post_send(conn->ibc_cmid->qp, tx->tx_wrq, &tmp);
         }
 
         conn->ibc_last_send = jiffies;
@@ -3376,6 +3381,8 @@ kiblnd_scheduler(void *arg)
 
 			spin_unlock_irqrestore(&sched->ibs_lock, flags);
 
+			memset(&wc, 0, sizeof(wc));
+
                         rc = ib_poll_cq(conn->ibc_cq, 1, &wc);
                         if (rc == 0) {
                                 rc = ib_req_notify_cq(conn->ibc_cq,
@@ -3392,6 +3399,21 @@ kiblnd_scheduler(void *arg)
 				}
 
 				rc = ib_poll_cq(conn->ibc_cq, 1, &wc);
+			}
+
+			if (rc > 0 && wc.wr_id == 0) {
+				/* NB: OFED may not return valid wr_id? */
+				/* NB: change this to console warning */
+				LASSERTF(0,
+					"ib_poll_cq (rc: %d) returned invalid "
+					"wr_id, opcode %d, status: %d, "
+					"vendor_err: %d, conn: %s status: %d\n"
+					"please upgrade fimeware and OFED, "
+					"or contact HCA vendor.\n", rc,
+					wc.opcode, wc.status, wc.vendor_err,
+					libcfs_nid2str(conn->ibc_peer->ibp_nid),
+					conn->ibc_state);
+				rc = -EINVAL;
 			}
 
 			if (rc < 0) {
