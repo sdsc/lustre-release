@@ -48,13 +48,13 @@ void range_init_tree(void)
 }
 
 /*
- * callback for interating over the interval tree
+ * callback for iterating over the interval tree
  *
  * \param	n		interval_node matched
  * \param	data		void pointer for return
  *
- * This dunction stops after a single match. There should be
- * no intervals containing multiple ranges
+ * This function stops after a single match. There should be
+ * no interval containing multiple ranges
  */
 static enum interval_iter range_cb(struct interval_node *n, void *data)
 {
