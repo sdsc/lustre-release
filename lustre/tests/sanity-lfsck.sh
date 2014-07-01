@@ -44,6 +44,9 @@ setupall
 [[ $(lustre_version_code ost1) -lt $(version_code 2.5.55) ]] &&
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18 19 20 21"
 
+[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.50) ]] &&
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d"
+
 build_test_filter
 
 $LCTL set_param debug=+lfsck > /dev/null || true
@@ -348,6 +351,40 @@ test_2c()
 		error "(8) Fail to repair linkEA: $dummyfid $dummyname"
 }
 run_test 2c "LFSCK can find out and remove repeated linkEA entry"
+
+test_2d()
+{
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && exit 0
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0 on MDT0"
+
+	#define OBD_FAIL_LFSCK_LINKEA_CRASH	0x1603
+	do_facet mds2 $LCTL set_param fail_loc=0x1603
+	$LFS mkdir -i 1 $DIR/$tdir/d0/d1 || error "(2) Fail to mkdir d1 on MDT1"
+	do_facet mds2 $LCTL set_param fail_loc=0
+
+	$START_NAMESPACE -r || error "(3) Fail to start LFSCK for namespace!"
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+		$SHOW_NAMESPACE
+		error "(4) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^linkea_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(5) Fail to repair crashed linkEA: $repaired"
+
+	local fid=$($LFS path2fid $DIR/$tdir/d0/d1)
+	local name=$($LFS fid2path $DIR $fid)
+	[ "$name" == "$DIR/$tdir/d0/d1" ] ||
+		error "(6) Fail to repair linkEA: $fid $name"
+}
+run_test 2d "namespace LFSCK can verify remote object linkEA"
 
 test_4()
 {
@@ -1833,13 +1870,22 @@ test_18c() {
 			error "(5) Expect 0 fixed on mds2, but got: $repaired"
 	fi
 
+	ls -ail $MOUNT/.lustre/lost+found/
+
 	echo "There should NOT be some stub under .lustre/lost+found/MDT0001/"
-	ls -ail $MOUNT/.lustre/lost+found/MDT0001/*-N-0 &&
-		error "(6) .lustre/lost+found/MDT0001/ should be empty"
+	if [ -d $MOUNT/.lustre/lost+found/MDT0001 ]; then
+		cname=$(find $MOUNT/.lustre/lost+found/MDT0001/ -name *-N-*)
+		[ -z "$cname" ] ||
+			error "(6) .lustre/lost+found/MDT0001/ should be empty"
+	fi
 
 	echo "There should be some stub under .lustre/lost+found/MDT0000/"
-	ls -ail $MOUNT/.lustre/lost+found/MDT0000/*-N-0 ||
-		error "(7) .lustre/lost+found/MDT0000/ should not be empty"
+	[ -d $MOUNT/.lustre/lost+found/MDT0000 ] ||
+		error "(7) $MOUNT/.lustre/lost+found/MDT0000/ should be there"
+
+	cname=$(find $MOUNT/.lustre/lost+found/MDT0000/ -name *-N-*)
+	[ ! -z "$cname" ] ||
+		error "(8) .lustre/lost+found/MDT0000/ should not be empty"
 }
 run_test 18c "Find out orphan OST-object and repair it (3)"
 
@@ -2027,14 +2073,17 @@ test_18e() {
 		error "(6) Expect 1 orphan has been fixed, but got: $repaired"
 
 	echo "There should be stub file under .lustre/lost+found/MDT0000/"
-	local cname=$(ls $MOUNT/.lustre/lost+found/MDT0000/*-C-0)
-	[ ! -z $name ] ||
-		error "(7) .lustre/lost+found/MDT0000/ should not be empty"
+	[ -d $MOUNT/.lustre/lost+found/MDT0000 ] ||
+		error "(7) $MOUNT/.lustre/lost+found/MDT0000/ should be there"
+
+	cname=$(find $MOUNT/.lustre/lost+found/MDT0000/ -name *-C-*)
+	[ ! -z "$cname" ] ||
+		error "(8) .lustre/lost+found/MDT0000/ should not be empty"
 
 	echo "The stub file should keep the original f2 data"
 	cur_size=$(ls -il $cname | awk '{ print $6 }')
 	[ "$cur_size" == "$saved_size" ] ||
-		error "(8) Expect file2 size $saved_size, but got $cur_size"
+		error "(9) Expect file2 size $saved_size, but got $cur_size"
 
 	cat $cname
 	$LFS path2fid $cname
