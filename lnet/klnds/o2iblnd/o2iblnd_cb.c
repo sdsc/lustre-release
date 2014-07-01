@@ -3376,6 +3376,8 @@ kiblnd_scheduler(void *arg)
 
 			spin_unlock_irqrestore(&sched->ibs_lock, flags);
 
+			memset(&wc, 0, sizeof(wc));
+
                         rc = ib_poll_cq(conn->ibc_cq, 1, &wc);
                         if (rc == 0) {
                                 rc = ib_req_notify_cq(conn->ibc_cq,
@@ -3392,6 +3394,18 @@ kiblnd_scheduler(void *arg)
 				}
 
 				rc = ib_poll_cq(conn->ibc_cq, 1, &wc);
+			}
+
+			if (rc > 0 && wc.wr_id == 0) {
+				/* NB: change this to console warning */
+				LASSERTF(0,
+					"ib_poll_cq (rc = %d) returned invalid "
+					"wr_id, opcode %d, status: %d, "
+					"vendor_err: %d\n"
+					"please upgrade fimeware and OFED, "
+					"or contact HCA vendor\n", rc,
+					wc.opcode, wc.status, wc.vendor_err);
+				rc = -EINVAL;
 			}
 
 			if (rc < 0) {
