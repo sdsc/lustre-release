@@ -411,7 +411,7 @@ struct lu_server_seq {
         /* LUSTRE_SEQ_SERVER or LUSTRE_SEQ_CONTROLLER */
         enum lu_mgr_type       lss_type;
 
-        /* Client interafce to request controller */
+	/* Client interface to request controller */
         struct lu_client_seq   *lss_cli;
 
         /* Mutex for protecting allocation */
