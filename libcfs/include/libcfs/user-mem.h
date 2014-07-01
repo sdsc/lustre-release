@@ -36,7 +36,7 @@
 
 
 /* XXX
- * for this moment, liblusre will not rely OST for non-page-aligned write
+ * for this moment, liblustre will not rely OST for non-page-aligned write
  */
 #define LIBLUSTRE_HANDLE_UNALIGNED_PAGE
 
