@@ -635,7 +635,7 @@ int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_NETWORK) &&
 	    osp->opd_index == cfs_fail_val &&
-	    osp_dev2node(osp) == cfs_fail_val)
+	    (osp_dev2node(osp) == cfs_fail_val || !is_ost_obj(&dt->do_lu)))
 		RETURN(-ENOTCONN);
 
 	if (unlikely(obj->opo_non_exist))
