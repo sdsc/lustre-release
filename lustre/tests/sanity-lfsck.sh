@@ -950,7 +950,7 @@ test_9b() {
 		$LCTL set_param -n mdd.${MDT_DEV}.lfsck_speed_limit 0
 	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
 		mdd.${MDT_DEV}.lfsck_namespace |
-		awk '/^status/ { print \\\$2 }'" "completed" 6 || {
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
 		$SHOW_NAMESPACE
 		error "(11) unexpected status"
 	}
