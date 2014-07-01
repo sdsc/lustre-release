@@ -139,6 +139,7 @@ static void lfsck_namespace_le_to_cpu(struct lfsck_namespace *dst,
 	dst->ln_dirent_repaired = le64_to_cpu(src->ln_dirent_repaired);
 	dst->ln_linkea_repaired = le64_to_cpu(src->ln_linkea_repaired);
 	dst->ln_dangling_repaired = le64_to_cpu(src->ln_dangling_repaired);
+	dst->ln_mul_ref_repaired = le64_to_cpu(src->ln_mul_ref_repaired);
 }
 
 static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *dst,
@@ -176,6 +177,7 @@ static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *dst,
 	dst->ln_dirent_repaired = cpu_to_le64(src->ln_dirent_repaired);
 	dst->ln_linkea_repaired = cpu_to_le64(src->ln_linkea_repaired);
 	dst->ln_dangling_repaired = cpu_to_le64(src->ln_dangling_repaired);
+	dst->ln_mul_ref_repaired = cpu_to_le64(src->ln_mul_ref_repaired);
 }
 
 static void lfsck_namespace_record_failure(const struct lu_env *env,
@@ -473,13 +475,187 @@ static int lfsck_namespace_filter_linkea_entry(struct linkea_data *ldata,
 	return repeated;
 }
 
+/**
+ * Insert orphan into .lustre/lost+found/MDTxxxx/ locally.
+ *
+ * Add the specified orphan MDT-object to the .lustre/lost+found/MDTxxxx/
+ * with the given type to generate the name, the detailed rules for name
+ * have been described following.
+ *
+ * The function also generates the linkEA corresponding to the name entry
+ * under the .lustre/lost+found/MDTxxxx/ for the orphan MDT-object.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] com	pointer to the lfsck component
+ * \param[in] orphan	pointer to the orphan MDT-object
+ * \param[in] type	the type for describing why the orphan MDT-object is
+ *			created. The rules are as following:
+ *
+ *  type "O":		The MDT-object has no linkEA, and there is no name
+ *			entry that references the MDT-object.
+ *
+ * \see lfsck_layout_recreate_parent() for more types.
+ *
+ * The orphan name will be like:
+ * ${FID}-${type}-${conflict_version}
+ *
+ * \param[out] count	if someone inserted some linkEA entries by race,
+ *			then return the linkEA entries count.
+ *
+ * \retval		positive number for repaired cases
+ * \retval		0 if needs to repair nothing
+ * \retval		negative error number on failure
+ */
 static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 					 struct lfsck_component *com,
 					 struct dt_object *orphan,
 					 const char *type, int *count)
 {
-	/* XXX: TBD */
-	return 0;
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct lu_name			*cname	= &info->lti_name;
+	struct dt_insert_rec		*rec	= &info->lti_dt_rec;
+	struct lu_fid			*tfid	= &info->lti_fid;
+	const struct lu_fid		*cfid	= lfsck_dto2fid(orphan);
+	const struct lu_fid		*pfid;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct dt_device		*dev	= lfsck->li_bottom;
+	struct dt_object		*parent;
+	struct thandle			*th	= NULL;
+	struct lustre_handle		 lh	= { 0 };
+	struct linkea_data		 ldata	= { 0 };
+	struct lu_buf			 linkea_buf;
+	int				 namelen;
+	int				 idx	= 0;
+	int				 rc	= 0;
+	bool				 exist	= false;
+	ENTRY;
+
+	cname->ln_name = NULL;
+	if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
+		GOTO(log, rc = 1);
+
+	/* Create .lustre/lost+found/MDTxxxx when needed. */
+	if (unlikely(lfsck->li_lpf_obj == NULL)) {
+		rc = lfsck_create_lpf(env, lfsck);
+		if (rc != 0)
+			GOTO(log, rc);
+	}
+
+	parent = lfsck->li_lpf_obj;
+	pfid = lfsck_dto2fid(parent);
+
+	/* Hold layout lock on the parent to prevent others to access. */
+	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
+			      MDS_INODELOCK_UPDATE, LCK_EX);
+	if (rc != 0)
+		GOTO(log, rc);
+
+	do {
+		namelen = snprintf(info->lti_key, NAME_MAX, DFID"-%s-%d",
+				   PFID(cfid), type, idx++);
+		info->lti_key[namelen] = 0;
+
+		rc = dt_lookup(env, parent, (struct dt_rec *)tfid,
+			       (const struct dt_key *)info->lti_key,
+			       BYPASS_CAPA);
+		if (rc != 0 && rc != -ENOENT)
+			GOTO(unlock, rc);
+
+		if (unlikely(rc == 0 &&
+			     lu_fid_eq(cfid, tfid))) {
+			exist = true;
+			break;
+		}
+	} while (rc == 0);
+
+	cname->ln_name = info->lti_key;
+	cname->ln_namelen = namelen;
+	rc = linkea_data_new(&ldata, &info->lti_linkea_buf);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	rc = linkea_add_buf(&ldata, cname, pfid);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	th = dt_trans_create(env, dev);
+	if (IS_ERR(th))
+		GOTO(unlock, rc = PTR_ERR(th));
+
+	lfsck_buf_build(&linkea_buf, ldata.ld_buf->lb_buf,
+			ldata.ld_leh->leh_len);
+	rc = dt_declare_xattr_set(env, orphan, &linkea_buf,
+				  XATTR_NAME_LINK, 0, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	if (!exist) {
+		rec->rec_type = lfsck_object_type(orphan) & S_IFMT;
+		rec->rec_fid = cfid;
+		rc = dt_declare_insert(env, parent, (const struct dt_rec *)rec,
+				       (const struct dt_key *)cname->ln_name,
+				       th);
+		if (rc != 0)
+			GOTO(stop, rc);
+
+		if (S_ISDIR(rec->rec_type)) {
+			rc = dt_declare_ref_add(env, parent, th);
+			if (rc != 0)
+				GOTO(stop, rc);
+		}
+	}
+
+	rc = dt_trans_start_local(env, dev, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	dt_write_lock(env, orphan, 0);
+	rc = lfsck_links_read(env, orphan, &ldata);
+	if (likely((rc == -ENODATA) ||
+		   (rc == 0 && ldata.ld_leh->leh_reccount == 0))) {
+		rc = dt_xattr_set(env, orphan, &linkea_buf, XATTR_NAME_LINK, 0,
+				  th, BYPASS_CAPA);
+	} else {
+		if (rc == 0)
+			*count = ldata.ld_leh->leh_reccount;
+
+		dt_write_unlock(env, orphan);
+		GOTO(stop, rc);
+	}
+	dt_write_unlock(env, orphan);
+
+	if (rc == 0 && !exist) {
+		rc = dt_insert(env, parent, (const struct dt_rec *)rec,
+			       (const struct dt_key *)cname->ln_name,
+			       th, BYPASS_CAPA, 1);
+		if (rc == 0 && S_ISDIR(rec->rec_type)) {
+			dt_write_lock(env, parent, 0);
+			rc = dt_ref_add(env, parent, th);
+			dt_write_unlock(env, parent);
+		}
+	}
+
+	GOTO(stop, rc = (rc == 0 ? 1 : rc));
+
+stop:
+	dt_trans_stop(env, dev, th);
+
+unlock:
+	lfsck_ibits_unlock(&lh, LCK_EX);
+
+log:
+	CDEBUG(D_LFSCK, "%s: namespace LFSCK insert orphan for the "
+	       "object "DFID", name = %s: rc = %d\n",
+	       lfsck_lfsck2name(lfsck), PFID(cfid),
+	       cname->ln_name != NULL ? cname->ln_name : "<NULL>", rc);
+
+	if (rc != 0) {
+		struct lfsck_namespace *ns = com->lc_file_ram;
+
+		ns->ln_flags |= LF_INCONSISTENT;
+	}
+
+	return rc;
 }
 
 static int lfsck_namespace_insert_normal(const struct lu_env *env,
@@ -916,8 +1092,12 @@ out:
 		if (rc < 0)
 			return rc;
 
-		if (rc > 0)
+		if (rc > 0) {
+			down_write(&com->lc_sem);
+			ns->ln_mul_ref_repaired++;
+			up_write(&com->lc_sem);
 			repaired = true;
+		}
 	}
 
 	rc = dt_attr_get(env, child, la, BYPASS_CAPA);
@@ -1380,6 +1560,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "dirent_repaired: "LPU64"\n"
 			      "linkea_repaired: "LPU64"\n"
 			      "dangling_repaired: "LPU64"\n"
+			      "multi_referenced_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1400,6 +1581,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_dirent_repaired,
 			      ns->ln_linkea_repaired,
 			      ns->ln_dangling_repaired,
+			      ns->ln_mul_ref_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
@@ -1464,6 +1646,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "dirent_repaired: "LPU64"\n"
 			      "linkea_repaired: "LPU64"\n"
 			      "dangling_repaired: "LPU64"\n"
+			      "multi_referenced_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1485,6 +1668,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_dirent_repaired,
 			      ns->ln_linkea_repaired,
 			      ns->ln_dangling_repaired,
+			      ns->ln_mul_ref_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
@@ -1513,6 +1697,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "dirent_repaired: "LPU64"\n"
 			      "linkea_repaired: "LPU64"\n"
 			      "dangling_repaired: "LPU64"\n"
+			      "multi_referenced_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -1534,6 +1719,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_dirent_repaired,
 			      ns->ln_linkea_repaired,
 			      ns->ln_dangling_repaired,
+			      ns->ln_mul_ref_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
