@@ -313,9 +313,9 @@ extern int llapi_swap_layouts(const char *path1, const char *path2,
    slow user parsing of the records, but it also prevents us from cleaning
    up if the records are not consumed. */
 
-/* Records received are in extentded format now, though most of them are still
+/* Records received are in extended format now, though most of them are still
  * written in disk in changelog_rec format (to save space and time), it's
- * converted to extented format in the lustre api to ease changelog analysis. */
+ * converted to extended format in the lustre api to ease changelog analysis. */
 #define HAVE_CHANGELOG_EXTEND_REC 1
 
 extern int llapi_changelog_start(void **priv, int flags, const char *mdtname,
