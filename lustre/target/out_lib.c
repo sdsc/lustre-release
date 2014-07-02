@@ -36,7 +36,7 @@
 #include <obd.h>
 #include <obd_class.h>
 
-static struct object_update_request *object_update_request_alloc(int size)
+struct object_update_request *object_update_request_alloc(int size)
 {
 	struct object_update_request *ourq;
 
@@ -49,13 +49,15 @@ static struct object_update_request *object_update_request_alloc(int size)
 
 	RETURN(ourq);
 }
+EXPORT_SYMBOL(object_update_request_alloc);
 
-static void object_update_request_free(struct object_update_request *ourq,
-				       int ourq_length)
+void object_update_request_free(struct object_update_request *ourq,
+				int ourq_length)
 {
 	if (ourq != NULL)
 		OBD_FREE_LARGE(ourq, ourq_length);
 }
+EXPORT_SYMBOL(object_update_request_free);
 
 /**
  * Create dt_update_request
@@ -329,6 +331,50 @@ int out_update_pack(const struct lu_env *env,
 	RETURN(0);
 }
 EXPORT_SYMBOL(out_update_pack);
+
+/**
+ * Pack striped object create update into the update_buffer.
+ *
+ * \param[in] env	execution environment
+ * \param[in] ubuf	update bufer which it will pack the update in.
+ * \param[in] op	update operation
+ * \param[in] fid	object FID for this update.
+ * \param[in] buffer	parameters for this update, which holds sub-stripe
+ *                      FIDs.
+ * \param[in] buffer_length the length of the buffer.
+ * \param[in] attr	attributes of the master object.
+ *
+ * \retval		= 0 if create updates packing succeed.
+ *                      negative errno if create updates packing failed.
+ **/
+int out_striped_create_pack(const struct lu_env *env,
+			    struct update_buffer *ubuf,
+			    const struct lu_fid *fid, const void *buffer,
+			    int buffer_length, struct lu_attr *attr)
+{
+	struct obdo		*obdo;
+	int			sizes[2] = {sizeof(*obdo), buffer_length};
+	int			buf_count = 2;
+	void			*buf1;
+	struct object_update	*update;
+	ENTRY;
+
+	update = out_update_header_pack(env, ubuf, OUT_STRIPING_CREATE, fid,
+					buf_count, sizes, 0);
+	if (IS_ERR(update))
+		RETURN(PTR_ERR(update));
+
+	buf1 = object_update_param_get(update, 0, NULL);
+	memcpy(buf1, buffer, buffer_length);
+
+	obdo = object_update_param_get(update, 1, NULL);
+	obdo->o_valid = 0;
+	obdo_from_la(obdo, attr, attr->la_valid);
+	lustre_set_wire_obdo(NULL, obdo, obdo);
+
+	RETURN(0);
+}
+EXPORT_SYMBOL(out_striped_create_pack);
 
 /**
  * Pack object create update into the update_buffer.

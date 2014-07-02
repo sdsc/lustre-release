@@ -1970,6 +1970,65 @@ static int lod_xattr_set_default_lmv_on_dir(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static int lod_trans_create_update_buffer(const struct lu_env *env,
+					  struct lod_thandle *lth)
+{
+	struct object_update_request	*ourq;
+
+	if (lth->lt_update_buf.ub_req != NULL)
+		return 0;
+
+	ourq = object_update_request_alloc(OUT_UPDATE_INIT_BUFFER_SIZE);
+	if (IS_ERR(ourq))
+		return PTR_ERR(ourq);
+
+	lth->lt_update_buf.ub_req = ourq;
+	lth->lt_update_buf.ub_req_len = OUT_UPDATE_INIT_BUFFER_SIZE;
+
+	return 0;
+}
+
+static int lod_dir_striping_create_pack(const struct lu_env *env,
+					struct dt_object *dt,
+					struct lu_attr *attr,
+					struct thandle *th)
+{
+	struct lod_object	*lo = lod_dt_obj(dt);
+	struct lod_thandle	*lth;
+	struct lod_thread_info	*lti = lod_env_info(env);
+	int			i;
+	struct lu_fid		*stripe_fids;
+	int			stripe_fids_size;
+	int			rc;
+	ENTRY;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	rc = lod_trans_create_update_buffer(env, lth);
+	if (rc != 0)
+		RETURN(rc);
+
+	stripe_fids_size = sizeof(struct lu_fid) * lo->ldo_stripenr;
+	if (lti->lti_ea_store_size < stripe_fids_size) {
+		rc = lod_ea_store_resize(lti, stripe_fids_size);
+		if (rc != 0)
+			RETURN(rc);
+	}
+
+	stripe_fids = lti->lti_ea_store;
+	for (i = 0; i < lo->ldo_stripenr; i++, stripe_fids++) {
+		struct dt_object *dto;
+
+		dto = lo->ldo_stripe[i];
+		*stripe_fids = *lu_object_fid(&dto->do_lu);
+	}
+
+	rc = out_striped_create_pack(env, &lth->lt_update_buf,
+				     lu_object_fid(&dt->do_lu),
+				     stripe_fids, stripe_fids_size,
+				     attr);
+	return rc;
+}
+
 static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 			     const struct lu_buf *buf, const char *name,
 			     int fl, struct thandle *th,
@@ -2002,6 +2061,10 @@ static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 
 	attr->la_valid = LA_TYPE | LA_MODE;
 	dof->dof_type = DFT_DIR;
+
+	rc = lod_dir_striping_create_pack(env, dt, attr, th);
+	if (rc != 0)
+		RETURN(rc);
 
 	rc = lod_prep_lmv_md(env, dt, &lmv_buf);
 	if (rc != 0)
@@ -2913,6 +2976,31 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+static int lod_create_pack(const struct lu_env *env,
+			   struct dt_object *dt,
+			   struct lu_attr *attr,
+			   struct dt_allocation_hint *hint,
+			   struct dt_object_format *dof,
+			   struct thandle *th)
+{
+	struct lod_thandle	*lth;
+	int			rc;
+
+	/* Only record updates for remote operation. */
+	if (!th->th_remote_mdt)
+		return 0;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	rc = lod_trans_create_update_buffer(env, lth);
+	if (rc != 0)
+		return rc;
+
+	rc = out_create_pack(env, &lth->lt_update_buf,
+			     lu_object_fid(&dt->do_lu),
+			     attr, hint, dof, 0);
+	return rc;
+}
+
 static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 			     struct lu_attr *attr,
 			     struct dt_allocation_hint *hint,
@@ -2927,6 +3015,10 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	sub_th = lod_get_sub_trans(env, th, next);
 	if (IS_ERR(sub_th))
 		RETURN(PTR_ERR(sub_th));
+
+	rc = lod_create_pack(env, dt, attr, hint, dof, th);
+	if (rc != 0)
+		RETURN(rc);
 
 	/* create local object */
 	rc = dt_create(env, next, attr, hint, dof, sub_th);

@@ -467,7 +467,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 	args->oaua_update = dt_update;
 	args->oaua_flow_control = flow_control;
 	req->rq_interpret_reply = osp_update_interpret;
-	if (!th->th_sync) {
+	if (!th->th_remote_mdt) {
 		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	} else {
 		rc = ptlrpc_queue_wait(req);
@@ -498,13 +498,14 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 {
 	struct osp_thandle	 *oth = thandle_to_osp_thandle(th);
 
+	/* No update requests from this OSP */
 	if (oth->ot_dur == NULL)
 		return 0;
 
 	/* XXX all of mixed transaction (see struct th_handle) will
 	 * be synchronized until async update is done */
 	if (!is_only_remote_trans(th))
-		th->th_sync = 1;
+		th->th_remote_mdt = 1;
 
 	return 0;
 }
@@ -548,7 +549,7 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		GOTO(out, rc);
 	}
 
-	if (!th->th_sync) {
+	if (!th->th_remote_mdt) {
 		struct osp_device *osp = dt2osp_dev(th->th_dev);
 		struct client_obd *cli = &osp->opd_obd->u.cli;
 
