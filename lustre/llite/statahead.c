@@ -1087,8 +1087,15 @@ static int ll_statahead_thread(void *arg)
 
 	op_data = ll_prep_md_op_data(NULL, dir, dir, NULL, 0, 0,
 				     LUSTRE_OPC_ANY, dir);
-	if (IS_ERR(op_data))
-		RETURN(PTR_ERR(op_data));
+	if (IS_ERR(op_data)) {
+		spin_lock(&plli->lli_sa_lock);
+		thread_set_flags(thread, SVC_STOPPED);
+		spin_unlock(&plli->lli_sa_lock);
+		spin_lock(&plli->lli_agl_lock);
+		thread_set_flags(agl_thread, SVC_STOPPED);
+		spin_unlock(&plli->lli_agl_lock);
+		GOTO(out_put, rc = PTR_ERR(op_data));
+	}
 
 	op_data->op_max_pages = ll_i2sbi(dir)->ll_md_brw_pages;
 
@@ -1301,11 +1308,12 @@ out:
 	thread_set_flags(thread, SVC_STOPPED);
 	spin_unlock(&plli->lli_sa_lock);
 	wake_up(&sai->sai_waitq);
+out_put:
 	wake_up(&thread->t_ctl_waitq);
         ll_sai_put(sai);
-        dput(parent);
 	CDEBUG(D_READA, "statahead thread stopped: sai %p, parent %.*s\n",
 	       sai, parent->d_name.len, parent->d_name.name);
+	dput(parent);
 	return rc;
 }
 
