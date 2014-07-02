@@ -1087,8 +1087,10 @@ static int ll_statahead_thread(void *arg)
 
 	op_data = ll_prep_md_op_data(NULL, dir, dir, NULL, 0, 0,
 				     LUSTRE_OPC_ANY, dir);
-	if (IS_ERR(op_data))
+	if (IS_ERR(op_data)) {
+		ll_sai_put(sai);
 		RETURN(PTR_ERR(op_data));
+	}
 
 	op_data->op_max_pages = ll_i2sbi(dir)->ll_md_brw_pages;
 
