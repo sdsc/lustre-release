@@ -36,7 +36,60 @@
 #include <obd.h>
 #include <obd_class.h>
 
-static struct object_update_request *object_update_request_alloc(int size)
+struct update_opcode {
+	__u16		opcode;
+	const char	*opname;
+} update_opcode_table[OUT_LAST] = {
+	{ OUT_START,            "start" },
+	{ OUT_CREATE,           "create" },
+	{ OUT_DESTROY,          "destroy" },
+	{ OUT_REF_ADD,          "ref_add" },
+	{ OUT_REF_DEL,          "ref_del" },
+	{ OUT_ATTR_SET,         "attr_set" },
+	{ OUT_ATTR_GET,         "attr_get" },
+	{ OUT_XATTR_SET,        "xattr_set" },
+	{ OUT_XATTR_GET,        "xattr_get" },
+	{ OUT_INDEX_LOOKUP,     "lookup" },
+	{ OUT_INDEX_INSERT,     "insert" },
+	{ OUT_INDEX_DELETE,     "delete" },
+	{ OUT_WRITE,		"write" },
+	{ OUT_XATTR_DEL,	"xattr_del" },
+	{ OUT_STRIPING_CREATE,	"striping_create" },
+};
+
+const char *update_op_str(__u16 opcode)
+{
+	LASSERTF(update_opcode_table[opcode].opcode == opcode, "%d",
+		(int)opcode);
+	return update_opcode_table[opcode].opname;
+}
+
+void object_update_request_dump(const struct object_update_request *ourq,
+				__u32 umask)
+{
+	int i;
+	int total_size = 0;
+
+	for (i = 0; i < ourq->ourq_count; i++) {
+		struct object_update	*update;
+		int			size = 0;
+
+		update = object_update_request_get(ourq, i, &size);
+		CDEBUG(umask, "i: %d fid: "DFID" op: %s master: %d params %d"
+		       "batchid: "LPU64" size %d\n", i, PFID(&update->ou_fid),
+		       update_op_str(update->ou_type),
+		       (int)update->ou_master_index, update->ou_params_count,
+		       update->ou_batchid, size);
+
+		total_size += size;
+	}
+
+	CDEBUG(umask, "updates %p magic %x count %d size %d\n", ourq,
+	       ourq->ourq_magic, ourq->ourq_count, total_size);
+}
+EXPORT_SYMBOL(object_update_request_dump);
+
+struct object_update_request *object_update_request_alloc(int size)
 {
 	struct object_update_request *ourq;
 
@@ -49,13 +102,15 @@ static struct object_update_request *object_update_request_alloc(int size)
 
 	RETURN(ourq);
 }
+EXPORT_SYMBOL(object_update_request_alloc);
 
-static void object_update_request_free(struct object_update_request *ourq,
-				       int ourq_length)
+void object_update_request_free(struct object_update_request *ourq,
+				int ourq_length)
 {
 	if (ourq != NULL)
 		OBD_FREE_LARGE(ourq, ourq_length);
 }
+EXPORT_SYMBOL(object_update_request_free);
 
 /**
  * Create dt_update_request
@@ -127,6 +182,7 @@ int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
+	object_update_request_dump(ureq, D_INFO);
 	ureq_len = object_update_request_size(ureq);
 	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE, RCL_CLIENT,
 			     ureq_len);
@@ -186,32 +242,7 @@ int out_remote_sync(const struct lu_env *env, struct obd_import *imp,
 }
 EXPORT_SYMBOL(out_remote_sync);
 
-static int update_buffer_resize(struct update_buffer *ubuf, int new_size)
-{
-	struct object_update_request *ureq;
-
-	LASSERT(new_size > ubuf->ub_req_len);
-
-	CDEBUG(D_INFO, "resize update from %d to %d\n", ubuf->ub_req_len,
-	       new_size);
-
-	OBD_ALLOC_LARGE(ureq, new_size);
-	if (ureq == NULL)
-		return -ENOMEM;
-
-	memcpy(ureq, ubuf->ub_req, ubuf->ub_req_len);
-
-	OBD_FREE_LARGE(ubuf->ub_req, ubuf->ub_req_len);
-
-	ubuf->ub_req = ureq;
-	ubuf->ub_req_len = new_size;
-
-	return 0;
-}
-
-#define OUT_UPDATE_BUFFER_SIZE_ADD	4096
-#define OUT_UPDATE_BUFFER_SIZE_MAX	(256 * 4096)  /*  1M update size now */
-
+#if 0
 /**
  * Pack the header of object_update_request
  *
@@ -284,17 +315,70 @@ out_update_header_pack(const struct lu_env *env, struct update_buffer *ubuf,
 	CDEBUG(D_INFO, "%p "DFID" idx %d: op %d params %d:%d\n",
 	       ureq, PFID(fid), ureq->ourq_count, op, params_count,
 	       update_length);
-	
+
 	ureq->ourq_count++;
 
 	RETURN(obj_update);
+}
+#endif
+
+/**
+ * Fill object update header
+ *
+ * Only fill the object update header, and parameters will be filled later
+ * in other functions.
+ *
+ * \params[in] env:		execution environment
+ * \params[in] update:		object update to be filled
+ * \params[in] max_update_length: maxima object update length, if the current
+ *                              update length exceeds this number, it will
+ *                              return -E2BIG.
+ * \params[in] update_op:	update type
+ * \params[in] fid:		object FID of the update
+ * \params[in] params_count:	the count of the update parameters
+ * \params[in] params_lens:	the length of each parameters
+ * \params[in] batchid:		batch id of the update
+ *
+ * \retval			0 if packing succeeds.
+ * \retval			-E2BIG if packing exceeds the maxima length.
+ */
+int out_update_header_pack(const struct lu_env *env,
+			   struct object_update *update, int max_update_length,
+			   int update_op, const struct lu_fid *fid,
+			   int params_count, int *params_lens, __u64 batchid)
+{
+	struct object_update_param	*param;
+	int				i;
+	int				update_length;
+
+	/* Check whether the packing exceeding the maxima update length */
+	update_length = sizeof(struct object_update);
+	for (i = 0; i < params_count; i++)
+		update_length += cfs_size_round(sizeof(*param) +
+						params_lens[i]);
+
+	if (unlikely(update_length >= max_update_length))
+		return -E2BIG;
+
+	update->ou_fid = *fid;
+	update->ou_type = (__u16)update_op;
+	update->ou_params_count = (__u16)params_count;
+	param = &update->ou_params[0];
+	for (i = 0; i < params_count; i++) {
+		param->oup_len = params_lens[i];
+		param = (struct object_update_param *)((char *)param +
+			 object_update_param_size(param));
+	}
+
+	return 0;
 }
 
 /**
  * Packs one update into the update_buffer.
  *
  * \param[in] env	execution environment
- * \param[in] ubuf	bufer where update will be pack
+ * \param[in] update	update to be packed
+ * \param[in] max_update_length	maxima length of \a update
  * \param[in] op	update operation (enum update_type)
  * \param[in] fid	object FID for this update
  * \param[in] param_count	parameters count for this update
@@ -304,20 +388,20 @@ out_update_header_pack(const struct lu_env *env, struct update_buffer *ubuf,
  * \retval		= 0 if updates packing succeed
  *                      negative errno if updates packing failed
  **/
-int out_update_pack(const struct lu_env *env,
-		    struct update_buffer *ubuf, int op,
-		    const struct lu_fid *fid, int params_count, int *lens,
-		    const char **bufs, __u64 batchid)
+int out_update_pack(const struct lu_env *env, struct object_update *update,
+		    int max_update_length, int op, const struct lu_fid *fid,
+		    int params_count, int *lens, const char **bufs,
+		    __u64 batchid)
 {
-	struct object_update		*update;
 	struct object_update_param	*param;
 	int				i;
+	int				rc;
 	ENTRY;
 
-	update = out_update_header_pack(env, ubuf, op, fid, params_count, lens,
-					batchid);
-	if (IS_ERR(update))
-		RETURN(PTR_ERR(update));
+	rc = out_update_header_pack(env, update, max_update_length, op, fid,
+				    params_count, lens, batchid);
+	if (rc != 0)
+		RETURN(rc);
 
 	param = &update->ou_params[0];
 	for (i = 0; i < params_count; i++) {
@@ -331,29 +415,31 @@ int out_update_pack(const struct lu_env *env,
 EXPORT_SYMBOL(out_update_pack);
 
 /**
- * Pack object create update into the update_buffer.
+ * Create updates packing.
+ *
+ * Pack object create updates into the buffer pointed by \a update.
  *
  * \param[in] env	execution environment
- * \param[in] ubuf	update bufer which it will pack the update in.
- * \param[in] op	update operation
- * \param[in] fid	object FID for this update.
- * \param[in] param_count	parameters count for this update.
- * \param[in] lens	each parameters length of this update.
- * \param[in] batchid	batchid(transaction no) of this update.
+ * \param[in] update	update to be packed
+ * \param[in] max_update_length	maxima length of \a update
+ * \param[in] fid	object FID for this update
+ * \param[in] param_count parameters count
+ * \param[in] lens	Length of these parameters
+ * \param[in] batchid	batchid (transaction no) of the update.
  *
- * \retval		= 0 if create updates packing succeed.
- *                      negative errno if create updates packing failed.
+ * \retval		= 0 if packing succeeded.
+ * \retval              negative errno if packing failed.
  **/
-int out_create_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		    const struct lu_fid *fid, struct lu_attr *attr,
-		    struct dt_allocation_hint *hint,
+int out_create_pack(const struct lu_env *env, struct object_update *update,
+		    int max_update_length, const struct lu_fid *fid,
+		    struct lu_attr *attr, struct dt_allocation_hint *hint,
 		    struct dt_object_format *dof, __u64 batchid)
 {
 	struct obdo		*obdo;
 	int			sizes[2] = {sizeof(*obdo), 0};
 	int			buf_count = 1;
 	struct lu_fid		*fid1 = NULL;
-	struct object_update	*update;
+	int			rc;
 	ENTRY;
 
 	if (hint != NULL && hint->dah_parent) {
@@ -362,17 +448,19 @@ int out_create_pack(const struct lu_env *env, struct update_buffer *ubuf,
 		buf_count++;
 	}
 
-	update = out_update_header_pack(env, ubuf, OUT_CREATE, fid,
-					buf_count, sizes, batchid);
-	if (IS_ERR(update))
-		RETURN(PTR_ERR(update));
+	rc = out_update_header_pack(env, update, max_update_length, OUT_CREATE,
+				    fid, buf_count, sizes, batchid);
+	if (rc != 0)
+		RETURN(rc);
 
 	obdo = object_update_param_get(update, 0, NULL);
 	obdo->o_valid = 0;
 	obdo_from_la(obdo, attr, attr->la_valid);
 	lustre_set_wire_obdo(NULL, obdo, obdo);
+
 	if (fid1 != NULL) {
 		struct lu_fid *fid;
+
 		fid = object_update_param_get(update, 1, NULL);
 		fid_cpu_to_le(fid, fid1);
 	}
@@ -384,7 +472,7 @@ EXPORT_SYMBOL(out_create_pack);
 /**
  * The following functions pack different updates into the update_buffer
  * So parameters of these API is basically same as its correspondent OSD/OSP
- * API, for detail description of these parameters see osd_handler.c or
+ * API, for detail description of these parameters \see osd_handler.c or
  * osp_md_object.c.
  *
  * param[in] env	execution environment
@@ -395,35 +483,37 @@ EXPORT_SYMBOL(out_create_pack);
  * retval		= 0 if insertion succeed
  *                      negative errno if insertion failed
  */
-int out_ref_del_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		     const struct lu_fid *fid, __u64 batchid)
+int out_ref_del_pack(const struct lu_env *env, struct object_update *update,
+		     int max_update_length, const struct lu_fid *fid,
+		     __u64 batchid)
 {
-	return out_update_pack(env, ubuf, OUT_REF_DEL, fid, 0, NULL, NULL,
-			       batchid);
+	return out_update_pack(env, update, max_update_length, OUT_REF_DEL, fid,
+			       0, NULL, NULL, batchid);
 }
 EXPORT_SYMBOL(out_ref_del_pack);
 
-int out_ref_add_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		     const struct lu_fid *fid, __u64 batchid)
+int out_ref_add_pack(const struct lu_env *env, struct object_update *update,
+		     int max_update_length, const struct lu_fid *fid,
+		     __u64 batchid)
 {
-	return out_update_pack(env, ubuf, OUT_REF_ADD, fid, 0, NULL, NULL,
-			       batchid);
+	return out_update_pack(env, update, max_update_length, OUT_REF_ADD, fid,
+			       0, NULL, NULL, batchid);
 }
 EXPORT_SYMBOL(out_ref_add_pack);
 
-int out_attr_set_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		      const struct lu_fid *fid, const struct lu_attr *attr,
-		      __u64 batchid)
+int out_attr_set_pack(const struct lu_env *env, struct object_update *update,
+		      int max_update_length, const struct lu_fid *fid,
+		      const struct lu_attr *attr, __u64 batchid)
 {
-	struct object_update	*update;
 	struct obdo		*obdo;
 	int			size = sizeof(*obdo);
+	int			rc;
 	ENTRY;
 
-	update = out_update_header_pack(env, ubuf, OUT_ATTR_SET, fid, 1,
-					&size, batchid);
-	if (IS_ERR(update))
-		RETURN(PTR_ERR(update));
+	rc = out_update_header_pack(env, update, max_update_length,
+				    OUT_ATTR_SET, fid, 1, &size, batchid);
+	if (rc != 0)
+		RETURN(rc);
 
 	obdo = object_update_param_get(update, 0, NULL);
 	obdo->o_valid = 0;
@@ -434,34 +524,36 @@ int out_attr_set_pack(const struct lu_env *env, struct update_buffer *ubuf,
 }
 EXPORT_SYMBOL(out_attr_set_pack);
 
-int out_xattr_set_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		       const struct lu_fid *fid, const struct lu_buf *buf,
-		       const char *name, int flag, __u64 batchid)
+int out_xattr_set_pack(const struct lu_env *env, struct object_update *update,
+		       int max_update_length, const struct lu_fid *fid,
+		       const struct lu_buf *buf, const char *name, int flag,
+		       __u64 batchid)
 {
 	int	sizes[3] = {strlen(name) + 1, buf->lb_len, sizeof(int)};
 	const char *bufs[3] = {(char *)name, (char *)buf->lb_buf,
 			       (char *)&flag};
 
-	return out_update_pack(env, ubuf, OUT_XATTR_SET, fid,
-			       ARRAY_SIZE(sizes), sizes, bufs, batchid);
+	return out_update_pack(env, update, max_update_length, OUT_XATTR_SET,
+			       fid, ARRAY_SIZE(sizes), sizes, bufs, batchid);
 }
 EXPORT_SYMBOL(out_xattr_set_pack);
 
-int out_xattr_del_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		       const struct lu_fid *fid, const char *name,
-		       __u64 batchid)
+int out_xattr_del_pack(const struct lu_env *env, struct object_update *update,
+		       int max_update_length, const struct lu_fid *fid,
+		       const char *name, __u64 batchid)
 {
 	int	size = strlen(name) + 1;
 
-	return out_update_pack(env, ubuf, OUT_XATTR_DEL, fid, 1, &size, &name,
-			       batchid);
+	return out_update_pack(env, update, max_update_length, OUT_XATTR_DEL,
+			       fid, 1, &size, &name, batchid);
 }
 EXPORT_SYMBOL(out_xattr_del_pack);
 
 
-int out_index_insert_pack(const struct lu_env *env, struct update_buffer *ubuf,
-			  const struct lu_fid *fid, const struct dt_rec *rec,
-			  const struct dt_key *key, __u64 batchid)
+int out_index_insert_pack(const struct lu_env *env, struct object_update *update,
+			  int max_update_length, const struct lu_fid *fid,
+			  const struct dt_rec *rec, const struct dt_key *key,
+			  __u64 batchid)
 {
 	struct dt_insert_rec	   *rec1 = (struct dt_insert_rec *)rec;
 	struct lu_fid		   rec_fid;
@@ -475,35 +567,37 @@ int out_index_insert_pack(const struct lu_env *env, struct update_buffer *ubuf,
 
 	fid_cpu_to_le(&rec_fid, rec1->rec_fid);
 
-	return out_update_pack(env, ubuf, OUT_INDEX_INSERT, fid,
-			       ARRAY_SIZE(sizes), sizes, bufs, batchid);
+	return out_update_pack(env, update, max_update_length, OUT_INDEX_INSERT,
+			       fid, ARRAY_SIZE(sizes), sizes, bufs, batchid);
 }
 EXPORT_SYMBOL(out_index_insert_pack);
 
-int out_index_delete_pack(const struct lu_env *env, struct update_buffer *ubuf,
-			  const struct lu_fid *fid, const struct dt_key *key,
-			  __u64 batchid)
+int out_index_delete_pack(const struct lu_env *env, struct object_update *update,
+			  int max_update_length, const struct lu_fid *fid,
+			  const struct dt_key *key, __u64 batchid)
 {
 	int	size = strlen((char *)key) + 1;
 	const char *buf = (char *)key;
 
-	return out_update_pack(env, ubuf, OUT_INDEX_DELETE, fid, 1, &size,
-			       &buf, batchid);
+	return out_update_pack(env, update, max_update_length, OUT_INDEX_DELETE,
+			       fid, 1, &size, &buf, batchid);
 }
 EXPORT_SYMBOL(out_index_delete_pack);
 
 int out_object_destroy_pack(const struct lu_env *env,
-			    struct update_buffer *ubuf,
-			    const struct lu_fid *fid, __u64 batchid)
+			    struct object_update *update,
+			    int max_update_length, const struct lu_fid *fid,
+			    int cookie_size, const void *cookie, __u64 batchid)
 {
-	return out_update_pack(env, ubuf, OUT_DESTROY, fid, 0, NULL, NULL,
+	return out_update_pack(env, update, max_update_length, OUT_DESTROY, fid,
+			       1, &cookie_size, (const char **)&cookie,
 			       batchid);
 }
 EXPORT_SYMBOL(out_object_destroy_pack);
 
-int out_write_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		   const struct lu_fid *fid, const struct lu_buf *buf,
-		   loff_t pos, __u64 batchid)
+int out_write_pack(const struct lu_env *env, struct object_update *update,
+		   int max_update_length, const struct lu_fid *fid,
+		   const struct lu_buf *buf, loff_t pos, __u64 batchid)
 {
 	int		sizes[2] = {buf->lb_len, sizeof(pos)};
 	const char	*bufs[2] = {(char *)buf->lb_buf, (char *)&pos};
@@ -512,8 +606,8 @@ int out_write_pack(const struct lu_env *env, struct update_buffer *ubuf,
 	pos = cpu_to_le64(pos);
 	bufs[1] = (char *)&pos;
 
-	rc = out_update_pack(env, ubuf, OUT_WRITE, fid, ARRAY_SIZE(sizes),
-			     sizes, bufs, batchid);
+	rc = out_update_pack(env, update, max_update_length, OUT_WRITE, fid,
+			     ARRAY_SIZE(sizes), sizes, bufs, batchid);
 	return rc;
 }
 EXPORT_SYMBOL(out_write_pack);
@@ -530,33 +624,36 @@ EXPORT_SYMBOL(out_write_pack);
  * \retval		= 0 pack succeed.
  *                      < 0 pack failed.
  **/
-int out_index_lookup_pack(const struct lu_env *env, struct update_buffer *ubuf,
-			  const struct lu_fid *fid, struct dt_rec *rec,
-			  const struct dt_key *key)
+int out_index_lookup_pack(const struct lu_env *env, struct object_update *update,
+			  int max_update_length, const struct lu_fid *fid,
+			  struct dt_rec *rec, const struct dt_key *key)
 {
 	int     size = strlen((char *)key) + 1;
 	const char	*name = (const char *)key;
 
-	return out_update_pack(env, ubuf, OUT_INDEX_LOOKUP, fid, 1, &size,
-			       (const char **)&name, 0);
+	return out_update_pack(env, update, max_update_length, OUT_INDEX_LOOKUP,
+			       fid, 1, &size, (const char **)&name, 0);
 }
 EXPORT_SYMBOL(out_index_lookup_pack);
 
-int out_attr_get_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		      const struct lu_fid *fid)
+int out_attr_get_pack(const struct lu_env *env, struct object_update *update,
+		      int max_update_length, const struct lu_fid *fid)
 {
-	return out_update_pack(env, ubuf, OUT_ATTR_GET, fid, 0, NULL, NULL, 0);
+	return out_update_pack(env, update, max_update_length, OUT_ATTR_GET, fid,
+			       0, NULL, NULL, 0);
 }
 EXPORT_SYMBOL(out_attr_get_pack);
 
-int out_xattr_get_pack(const struct lu_env *env, struct update_buffer *ubuf,
-		       const struct lu_fid *fid, const char *name)
+int out_xattr_get_pack(const struct lu_env *env, struct object_update *update,
+		       int max_update_length, const struct lu_fid *fid,
+		       const char *name)
 {
 	int     size;
 
 	LASSERT(name != NULL);
 	size = strlen(name) + 1;
-	return out_update_pack(env, ubuf, OUT_XATTR_GET, fid, 1, &size,
-			       (const char **)&name, 0);
+
+	return out_update_pack(env, update, max_update_length, OUT_XATTR_GET, fid,
+			       1, &size, (const char **)&name, 0);
 }
 EXPORT_SYMBOL(out_xattr_get_pack);

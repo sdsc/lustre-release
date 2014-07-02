@@ -285,6 +285,9 @@ struct lod_thread_info {
 	struct lu_name	  lti_name;
 	struct lu_buf	  lti_linkea_buf;
 	struct dt_insert_rec lti_dt_rec;
+	unsigned short	  lti_update_ops[OUT_LAST];
+	struct lu_buf	  lti_params_buf;
+	struct lu_buf	  lti_updates_buf;
 };
 
 extern const struct lu_device_operations lod_lu_ops;
@@ -295,13 +298,22 @@ struct lod_sub_thandle {
 };
 
 struct lod_thandle {
-	struct thandle  lt_super;
+	struct thandle		lt_super;
 
 	/* The master sub transaction created in osp_trans_create */
-	struct thandle	*lt_child;
+	struct thandle		*lt_child;
 
 	/* Other sub transactions will be listed here */
-	struct list_head lt_sub_trans_list;
+	struct list_head	lt_sub_trans_list;
+
+	/* All of updates for the cross-MDT operation. */
+	struct update_records	*lt_update_records;
+	int			lt_update_records_size;
+
+	/* All of parameters for the cross-MDT operation */
+	struct update_params	*lt_update_params;
+	int			lt_update_params_size;
+
 };
 
 static inline int lu_device_is_lod(struct lu_device *d)
@@ -397,6 +409,15 @@ int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 struct thandle *lod_get_sub_trans(const struct lu_env *env,
 				  struct thandle *th,
 				  const struct dt_object *child_obj);
+int lod_check_and_prepare_update_record(const struct lu_env *env,
+					struct thandle *th);
+int lod_create_update_records(const struct lu_env *env,
+			      struct lod_thandle *lth);
+int lod_extend_update_records(const struct lu_env *env, struct lod_thandle *lth,
+			      int new_size);
+int lod_create_update_params(const struct lu_env *env, struct lod_thandle *lth);
+int lod_extend_update_params(const struct lu_env *env, struct lod_thandle *lth);
+
 /* lod_lov.c */
 void lod_getref(struct lod_tgt_descs *ltd);
 void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd);
@@ -489,5 +510,144 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 			struct thandle *th);
 void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo);
 
-#endif
+union update_record *records_get_single_record(struct update_records *records,
+					       int index);
+/* lod_sub_object.c */
+int lod_sub_object_declare_create(const struct lu_env *env,
+				  struct dt_object *dt,
+				  struct lu_attr *attr,
+				  struct dt_allocation_hint *hint,
+				  struct dt_object_format *dof,
+				  struct thandle *th);
+int lod_sub_object_create(const struct lu_env *env, struct dt_object *dt,
+			  struct lu_attr *attr,
+			  struct dt_allocation_hint *hint,
+			  struct dt_object_format *dof,
+			  struct thandle *th);
+int lod_sub_object_declare_ref_add(const struct lu_env *env,
+				   struct dt_object *dt,
+				   struct thandle *th);
+int lod_sub_object_ref_add(const struct lu_env *env, struct dt_object *dt,
+			   struct thandle *th);
+int lod_sub_object_declare_ref_del(const struct lu_env *env,
+				   struct dt_object *dt,
+				   struct thandle *th);
+int lod_sub_object_ref_del(const struct lu_env *env, struct dt_object *dt,
+			   struct thandle *th);
+int lod_sub_object_declare_destroy(const struct lu_env *env,
+				   struct dt_object *dt,
+				   struct thandle *th);
+int lod_sub_object_destroy(const struct lu_env *env, struct dt_object *dt,
+			   struct thandle *th);
+int lod_sub_object_declare_insert(const struct lu_env *env,
+				  struct dt_object *dt,
+				  const struct dt_rec *rec,
+				  const struct dt_key *key,
+				  struct thandle *th);
+int lod_sub_object_index_insert(const struct lu_env *env, struct dt_object *dt,
+				const struct dt_rec *rec,
+				const struct dt_key *key, struct thandle *th,
+				struct lustre_capa *capa, int ign);
+int lod_sub_object_declare_delete(const struct lu_env *env,
+				  struct dt_object *dt,
+				  const struct dt_key *key,
+				  struct thandle *th);
+int lod_sub_object_delete(const struct lu_env *env, struct dt_object *dt,
+			  const struct dt_key *name, struct thandle *th,
+			  struct lustre_capa *capa);
+int lod_sub_object_declare_xattr_set(const struct lu_env *env,
+				     struct dt_object *dt,
+				     const struct lu_buf *buf,
+				     const char *name, int fl,
+				     struct thandle *th);
+int lod_sub_object_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			     const struct lu_buf *buf, const char *name, int fl,
+			     struct thandle *th, struct lustre_capa *capa);
+int lod_sub_object_declare_attr_set(const struct lu_env *env,
+				    struct dt_object *dt,
+				    const struct lu_attr *attr,
+				    struct thandle *th);
+int lod_sub_object_attr_set(const struct lu_env *env,
+			    struct dt_object *dt,
+			    const struct lu_attr *attr,
+			    struct thandle *th,
+			    struct lustre_capa *capa);
+int lod_sub_object_declare_xattr_del(const struct lu_env *env,
+				     struct dt_object *dt,
+				     const char *name,
+				     struct thandle *th);
+int lod_sub_object_xattr_del(const struct lu_env *env,
+			     struct dt_object *dt,
+			     const char *name,
+			     struct thandle *th,
+			     struct lustre_capa *capa);
+int lod_sub_object_declare_write(const struct lu_env *env,
+				 struct dt_object *dt,
+				 const struct lu_buf *buf, loff_t pos,
+				 struct thandle *th);
+int lod_sub_object_write(const struct lu_env *env, struct dt_object *dt,
+			 const struct lu_buf *buf, loff_t *pos,
+			 struct thandle *th, struct lustre_capa *capa,
+			 int rq);
 
+#define UPDATE_RECORDS_BUFFER_SIZE	8192
+#define UPDATE_PARAMS_BUFFER_SIZE	8192
+#define lod_updates_pack(env, name, rc, th, ...)			\
+do {                                                                    \
+	struct lod_thandle	*lth;					\
+	struct lod_thread_info	*info;					\
+	struct update_params	*params;				\
+	struct update_records	*records;				\
+	int			params_size;				\
+	int			ops_size;				\
+	int			max_op_size;				\
+	int			max_param_size;				\
+									\
+	rc = lod_check_and_prepare_update_record(env, th);		\
+	if (rc <= 0)							\
+		break;							\
+									\
+	info = lod_env_info(env);					\
+	lth = container_of0(th, struct lod_thandle, lt_super);		\
+									\
+	params = lth->lt_update_params;					\
+	params_size = update_params_size(params);			\
+	max_param_size = lth->lt_update_params_size - params_size;	\
+									\
+	records = lth->lt_update_records;				\
+	ops_size = update_ops_size(&records->ur_ops);			\
+	max_op_size = lth->lt_update_records_size -			\
+			  ops_size - sizeof(*records);			\
+									\
+	rc = update_records_##name##_pack(env,&records->ur_ops,		\
+					  &max_op_size, params,		\
+					  &max_param_size,		\
+					  __VA_ARGS__);			\
+	if (rc == -E2BIG) {						\
+		int rc1;						\
+									\
+		/* extend update records buffer */			\
+		if (max_op_size >= (lth->lt_update_records_size -	\
+				    ops_size - sizeof(*records))) {	\
+			rc1 = lod_extend_update_records(env, lth,	\
+					lth->lt_update_records_size +	\
+					UPDATE_RECORDS_BUFFER_SIZE);	\
+			if (rc1 != 0) {					\
+				rc = rc1;				\
+				break;					\
+			}						\
+		}							\
+									\
+		/* extend parameters buffer */				\
+		if (max_param_size >= (lth->lt_update_params_size -	\
+				       params_size)) {			\
+			rc1 = lod_extend_update_params(env, lth);	\
+			if (rc1 != 0) {					\
+				rc = rc1;				\
+				break;					\
+			}						\
+		}							\
+		continue;						\
+	}								\
+} while (0)
+#endif

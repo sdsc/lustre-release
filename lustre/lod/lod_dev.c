@@ -417,6 +417,8 @@ static struct thandle *lod_trans_create(const struct lu_env *env,
 
 	child_th->th_storage_th = child_th;
 	lod_th->lt_child = child_th;
+	lod_th->lt_update_records = NULL;
+	lod_th->lt_update_records_size = 0;
 
 	INIT_LIST_HEAD(&lod_th->lt_sub_trans_list);
 
@@ -469,7 +471,7 @@ struct thandle *lod_get_sub_trans(const struct lu_env *env,
 		RETURN(child_th);
 
 	/* If OSP does not need to create the transaction like
-	 * OSP connected to OST, Just using current thandle */ 
+	 * OSP connected to OST, Just using current thandle */
 	if (child_th == NULL)
 		RETURN(th);
 
@@ -502,10 +504,184 @@ static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 				    lst->lst_child);
 		if (rc != 0)
 			return rc;
+
+		/* If any of this sub-transaction will do cross-MDT
+		 * operation, LOD should know, so it will record the
+		 * update for recovery purpose */
+		if (lst->lst_child->th_remote_mdt)
+			th->th_remote_mdt = 1;
 	}
 
 	return dt_trans_start(env, lod->lod_child, lth->lt_child);
 }
+
+int lod_create_update_records(const struct lu_env *env, struct lod_thandle *lth)
+{
+	struct lod_thread_info	*lti = lod_env_info(env);
+
+	if (lti->lti_updates_buf.lb_buf == NULL) {
+		OBD_ALLOC_LARGE(lti->lti_updates_buf.lb_buf,
+				UPDATE_RECORDS_BUFFER_SIZE);
+		if (lti->lti_updates_buf.lb_buf == NULL)
+			return -ENOMEM;
+		lti->lti_updates_buf.lb_len = UPDATE_RECORDS_BUFFER_SIZE;
+	}
+	lth->lt_update_records = lti->lti_updates_buf.lb_buf;
+	lth->lt_update_records_size = lti->lti_updates_buf.lb_len;
+
+	lth->lt_update_records->ur_ops.uo_count = 0;
+	return 0;
+}
+
+int lod_extend_update_records(const struct lu_env *env, struct lod_thandle *lth,
+			      int new_size)
+{
+	struct lod_thread_info	*lti = lod_env_info(env);
+	struct update_records	*records;
+
+	OBD_ALLOC_LARGE(records, new_size);
+	if (records == NULL)
+		return -ENOMEM;
+
+	if (lti->lti_updates_buf.lb_buf != NULL) {
+		memcpy(records, lti->lti_updates_buf.lb_buf,
+		       lti->lti_updates_buf.lb_len);
+		OBD_FREE_LARGE(lti->lti_updates_buf.lb_buf,
+				lti->lti_updates_buf.lb_len);
+	}
+
+	lti->lti_updates_buf.lb_buf = records;
+	lti->lti_updates_buf.lb_len = new_size;
+
+	lth->lt_update_records = records;
+	lth->lt_update_records_size = new_size;
+
+	return 0;
+}
+
+int lod_create_update_params(const struct lu_env *env, struct lod_thandle *lth)
+{
+	struct lod_thread_info	*lti = lod_env_info(env);
+
+	if (lti->lti_params_buf.lb_buf == NULL) {
+		OBD_ALLOC_LARGE(lti->lti_params_buf.lb_buf,
+				UPDATE_PARAMS_BUFFER_SIZE);
+		if (lti->lti_params_buf.lb_buf == NULL)
+			return -ENOMEM;
+		lti->lti_params_buf.lb_len = UPDATE_PARAMS_BUFFER_SIZE;
+	}
+
+	lth->lt_update_params = lti->lti_params_buf.lb_buf;
+	lth->lt_update_params_size = lti->lti_params_buf.lb_len;
+	lth->lt_update_params->up_params_count = 0;
+
+	return 0;
+}
+
+int lod_extend_update_params(const struct lu_env *env, struct lod_thandle *lth)
+{
+	struct lod_thread_info *lti = lod_env_info(env);
+	int	new_size = lti->lti_params_buf.lb_len +
+			   UPDATE_PARAMS_BUFFER_SIZE;
+	struct update_params	*params;
+
+	OBD_ALLOC_LARGE(params, new_size);
+	if (params == NULL)
+		return -ENOMEM;
+
+	if (lti->lti_params_buf.lb_buf != NULL) {
+		memcpy(params, lti->lti_params_buf.lb_buf,
+		       lti->lti_params_buf.lb_len);
+		OBD_FREE_LARGE(lti->lti_params_buf.lb_buf,
+			       lti->lti_params_buf.lb_len);
+	}
+
+	lti->lti_params_buf.lb_buf = params;
+	lti->lti_params_buf.lb_len = new_size;
+
+	lth->lt_update_params = params;
+	lth->lt_update_params_size = new_size;
+
+	return 0;
+}
+
+/**
+ * Check and prepare whether it needs to record update.
+ *
+ * Checks if the transaction needs to record the update in LOD, and if it
+ * needs then initialize the update record buffer in the transaction.
+ * Only cross-MDT opereation needs to be recorded, which is indicated
+ * by th_remote_mdt, \see struct thandle.
+ *
+ * \param[in] env	execution environment
+ * \param[in] th	transaction handle
+ *
+ * \retval		0 if updates recording is not needed.
+ * \retval		1 if updates recording is needed.
+ * \retval		negative errno if updates recording is failed.
+ */
+int lod_check_and_prepare_update_record(const struct lu_env *env,
+					struct thandle *th)
+{	struct lod_thandle	*lth;
+	int			rc;
+	ENTRY;
+
+	/* Only record updates for remote operation. */
+	if (!th->th_remote_mdt)
+		RETURN(0);
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	if (lth->lt_update_records != NULL && lth->lt_update_params != NULL)
+		RETURN(1);
+
+	if (lth->lt_update_records == NULL) {
+		rc = lod_create_update_records(env, lth);
+		if (rc < 0)
+			RETURN(rc);
+	}
+
+	if (lth->lt_update_params == NULL) {
+		rc = lod_create_update_params(env, lth);
+		if (rc < 0)
+			RETURN(rc);
+	}
+
+	RETURN(1);
+}
+
+static int lod_merge_params_updates_buf(const struct lu_env *env,
+					struct lod_thandle *lth)
+{
+	struct update_params *params;
+	int params_size;
+	int ops_size;
+
+	if (lth->lt_update_params == NULL)
+		return 0;
+
+	params_size = update_params_size(lth->lt_update_params);
+
+	LASSERT(lth->lt_update_records != NULL);
+	ops_size = update_ops_size(&lth->lt_update_records->ur_ops);
+
+	if (sizeof(struct update_records) + ops_size + params_size >=
+	    lth->lt_update_records_size) {
+		int rc;
+
+		rc = lod_extend_update_records(env, lth,
+				sizeof(struct update_records) + ops_size +
+				params_size);
+		if (rc != 0)
+			return rc;
+	}
+
+	params = update_records_get_params(lth->lt_update_records);
+
+	memcpy(params, lth->lt_update_params, params_size);
+
+	return 0;
+}
+
 
 static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			  struct thandle *th)
@@ -520,6 +696,12 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
 	lod = dt2lod_dev(dt);
 	lth = container_of0(th, struct lod_thandle, lt_super);
+
+	if (lth->lt_update_records != NULL) {
+		rc = lod_merge_params_updates_buf(env, lth);
+		if (rc == 0)
+			update_records_dump(lth->lt_update_records, D_HA);
+	}
 
 	rc = dt_trans_stop(env, lod->lod_child, lth->lt_child);
 
@@ -893,6 +1075,8 @@ static void lod_key_fini(const struct lu_context *ctx,
 		info->lti_ea_store_size = 0;
 	}
 	lu_buf_free(&info->lti_linkea_buf);
+	lu_buf_free(&info->lti_updates_buf);
+	lu_buf_free(&info->lti_params_buf);
 	OBD_FREE_PTR(info);
 }
 
