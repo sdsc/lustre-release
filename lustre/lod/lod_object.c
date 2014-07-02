@@ -54,6 +54,68 @@ static const char dotdot[] = "..";
 extern struct kmem_cache *lod_object_kmem;
 static const struct dt_body_operations lod_body_lnk_ops;
 
+/**
+ * Create update buffer in lod_thandle
+ *
+ * Allocate a update buffer in lod_thandle to hold all of updates for
+ * the transaction.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lth	lod_thandle for the operation.
+ *
+ * \retval		0 update buffer creation succeed.
+ * \retval		negative errno update buffer creation failed.
+ */
+static int lod_trans_create_update_buffer(const struct lu_env *env,
+					  struct lod_thandle *lth)
+{
+	struct object_update_request	*ourq;
+
+	if (lth->lt_update_buf.ub_req != NULL)
+		return 0;
+
+	ourq = object_update_request_alloc(OUT_UPDATE_INIT_BUFFER_SIZE);
+	if (IS_ERR(ourq))
+		return PTR_ERR(ourq);
+
+	lth->lt_update_buf.ub_req = ourq;
+	lth->lt_update_buf.ub_req_len = OUT_UPDATE_INIT_BUFFER_SIZE;
+
+	return 0;
+}
+
+/**
+ * Check and prepare whether it needs to record update.
+ *
+ * Checks if the transaction needs to record the update in LOD, and if it
+ * needs then initialize the update record buffer in the transaction.
+ * Only cross-MDT opereation needs to be recorded, which is indicated
+ * by th_remote_mdt, see struct thandle.
+ *
+ * \param[in] env	execution environment
+ * \param[in] th	transaction handle of this operation
+ *
+ * \retval		0 not need to record updates
+ * \retval		1 need to record the updates
+ * \retval		negative errno if some error happened.
+ */
+int lod_check_and_prepare_update_record(const struct lu_env *env,
+					struct thandle *th)
+{	struct lod_thandle	*lth;
+	int			rc;
+
+	/* Only record updates for remote operation. */
+	if (!th->th_remote_mdt)
+		return 0;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	rc = lod_trans_create_update_buffer(env, lth);
+	if (rc != 0)
+		return rc;
+
+	return 1;
+}
+
 static int lod_index_lookup(const struct lu_env *env, struct dt_object *dt,
 			    struct dt_rec *rec, const struct dt_key *key,
 			    struct lustre_capa *capa)
@@ -77,6 +139,41 @@ static int lod_declare_index_insert(const struct lu_env *env,
 	return dt_declare_insert(env, dt_object_child(dt), rec, key, sub_th);
 }
 
+/**
+ * Pack index insert update.
+ *
+ * Pack index insert update into the update buffer, and parameters are similar
+ * as lod_index_insert. 
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	index object
+ * \param[in] rec	record of the insert record
+ * \param[in] key	key of the insert record
+ * \param[in] th	thanlde of the operation.
+ *
+ * \retval		0 insertion packing succeeds. 
+ * \retval		negative errno if insertion packing fails.
+ */
+static int lod_index_insert_pack(const struct lu_env *env,
+				 struct dt_object *dt,
+				 const struct dt_rec *rec,
+				 const struct dt_key *key,
+				 struct thandle *th)
+{
+	struct lod_thandle	*lth;
+	int			rc;
+
+	rc = lod_check_and_prepare_update_record(env, th);
+	if (rc <= 0)
+		return rc;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	rc = out_index_insert_pack(env, &lth->lt_update_buf,
+				   lu_object_fid(&dt->do_lu),
+				   rec, key, 0);
+	return rc;
+}
+
 static int lod_index_insert(const struct lu_env *env,
 			    struct dt_object *dt,
 			    const struct dt_rec *rec,
@@ -86,6 +183,11 @@ static int lod_index_insert(const struct lu_env *env,
 			    int ign)
 {
 	struct thandle *sub_th;
+	int rc;
+
+	rc = lod_index_insert_pack(env, dt, rec, key, th);
+	if (rc != 0)
+		return rc;
 
 	sub_th = lod_get_sub_trans(env, th, dt_object_child(dt));
 	if (IS_ERR(sub_th))
@@ -109,6 +211,39 @@ static int lod_declare_index_delete(const struct lu_env *env,
 	return dt_declare_delete(env, dt_object_child(dt), key, sub_th);
 }
 
+/**
+ * Pack index delete update.
+ *
+ * Pack index delete update into the update buffer, and parameters are similar
+ * as lod_index_delete. 
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	index object
+ * \param[in] key	key of the delete record
+ * \param[in] th	thanlde of the operation.
+ *
+ * \retval		0 deletion packing succeeds. 
+ * \retval		negative errno if deletion packing fails.
+ */
+static int lod_index_delete_pack(const struct lu_env *env,
+				 struct dt_object *dt,
+				 const struct dt_key *key,
+				 struct thandle *th)
+{
+	struct lod_thandle	*lth;
+	int			rc;
+
+	rc = lod_check_and_prepare_update_record(env, th);
+	if (rc <= 0)
+		return rc;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	rc = out_index_delete_pack(env, &lth->lt_update_buf,
+				   lu_object_fid(&dt->do_lu),
+				   key, 0);
+	return rc;
+}
+
 static int lod_index_delete(const struct lu_env *env,
 			    struct dt_object *dt,
 			    const struct dt_key *key,
@@ -116,6 +251,11 @@ static int lod_index_delete(const struct lu_env *env,
 			    struct lustre_capa *capa)
 {
 	struct thandle *sub_th;
+	int rc;
+
+	rc = lod_index_delete_pack(env, dt, key, th);
+	if (rc != 0)
+		return rc;
 
 	sub_th = lod_get_sub_trans(env, th, dt_object_child(dt));
 	if (IS_ERR(sub_th))
@@ -1000,6 +1140,37 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Pack attr set update.
+ *
+ * Pack attr set updates into the update buffer attached in the lod_thandle.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	dt object
+ * \param[in] attr	attributes being set.
+ * \param[in] th	thanlde of the operation.
+ *
+ * \retval		0 attr set pack succeeds. 
+ * \retval		negative errno if attr set pack fails.
+ */
+static int lod_attr_set_pack(const struct lu_env *env,
+			     struct dt_object *dt,
+			     const struct lu_attr *attr,
+			     struct thandle *th)
+{
+	struct lod_thandle	*lth;
+	int			rc;
+
+	rc = lod_check_and_prepare_update_record(env, th);
+	if (rc <= 0)
+		return rc;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	rc = out_attr_set_pack(env, &lth->lt_update_buf,
+			       lu_object_fid(&dt->do_lu), attr, 0);
+	return rc;
+}
+
 static int lod_attr_set(const struct lu_env *env,
 			struct dt_object *dt,
 			const struct lu_attr *attr,
@@ -1012,6 +1183,10 @@ static int lod_attr_set(const struct lu_env *env,
 	int			rc, i;
 	ENTRY;
 
+	rc = lod_attr_set_pack(env, dt, attr, th);
+	if (rc != 0)
+		RETURN(rc);
+	
 	/* Set dead object on all other stripes */
 	if (attr->la_valid & LA_FLAGS && !(attr->la_valid & ~LA_FLAGS) &&
 	    attr->la_flags & LUSTRE_SLAVE_DEAD_FL) {
@@ -2274,6 +2449,123 @@ static int lod_dir_striping_create(const struct lu_env *env,
 	return lod_dir_striping_create_internal(env, dt, attr, dof, th, false);
 }
 
+/**
+ * Pack create striped directory update.
+ *
+ * Pack creating striped dir updates in the update buffer. During striped
+ * directory creation, it creates one stripe object in all of MDTs. If we
+ * record all of updates, the update buffer size might be too big, instead
+ * it will only use one compressed update to record the operation.
+ * 	ou_type: OUT_STRIPED_CREATE
+ * 	ou_fid:	 FID of the master object
+ * 	ou_params[0]: FIDs of all of sub-stripe object FID
+ *
+ * This update will only be explained in LOD layer.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	dt object
+ * \param[in] th	thanlde of the operation.
+ *
+ * \retval		0 striped dir creation packing succeeds. 
+ * \retval		negative errno if the packing fails.
+ */
+static int lod_dir_striped_create_pack(const struct lu_env *env,
+				       struct dt_object *dt,
+				       struct thandle *th)
+{
+	struct lod_object	*lo = lod_dt_obj(dt);
+	struct lod_thandle	*lth;
+	struct lod_thread_info	*lti = lod_env_info(env);
+	struct lu_attr		*attr = &lti->lti_attr;
+	struct dt_object_format *dof = &lti->lti_format;
+	int			i;
+	struct lu_fid		*stripe_fids;
+	int			stripe_fids_size;
+	int			rc;
+	ENTRY;
+
+	rc = dt_attr_get(env, dt_object_child(dt), attr, BYPASS_CAPA);
+	if (rc != 0)
+		RETURN(rc);
+
+	attr->la_valid = LA_TYPE | LA_MODE;
+	dof->dof_type = DFT_DIR;
+
+	stripe_fids_size = sizeof(struct lu_fid) * lo->ldo_stripenr;
+	if (lti->lti_ea_store_size < stripe_fids_size) {
+		rc = lod_ea_store_resize(lti, stripe_fids_size);
+		if (rc != 0)
+			RETURN(rc);
+	}
+
+	stripe_fids = lti->lti_ea_store;
+	for (i = 0; i < lo->ldo_stripenr; i++, stripe_fids++) {
+		struct dt_object *dto;
+
+		dto = lo->ldo_stripe[i];
+		*stripe_fids = *lu_object_fid(&dto->do_lu);
+	}
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	rc = out_striped_create_pack(env, &lth->lt_update_buf,
+				     lu_object_fid(&dt->do_lu),
+				     stripe_fids, stripe_fids_size,
+				     attr);
+	return rc;
+}
+
+/**
+ * Pack xattr set update.
+ *
+ * Pack xattr set updates in the update buffer. If xattr set is creating
+ * striped directory, it needs to pack the update in a special compressed
+ * way, which will only be uncompressed by LOD during recovery.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	index object
+ * \param[in] buf	buffer to hold the attribute
+ * \param[in] name	name of the attribute
+ * \param[in] fl	flag of xattr set
+ * \param[in] th	thanlde of the operation
+ *
+ * \retval		0 if xattr set packing succeeds.
+ * \retval		negative errno if the packing fails.
+ */
+static int lod_xattr_set_pack(const struct lu_env *env,
+			      struct dt_object *dt,
+			      const struct lu_buf *buf,
+			      const char *name, int fl,
+			      struct thandle *th)
+{
+	struct lod_thandle	*lth;
+	int			rc;
+
+	rc = lod_check_and_prepare_update_record(env, th);
+	if (rc <= 0)
+		return rc;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+
+	/* If this is striped dir creation, packed the update in a
+	 * compress way. */
+	if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
+	    strcmp(name, XATTR_NAME_LMV) == 0) {
+		struct lmv_mds_md_v1 *lmm = buf->lb_buf;
+
+		if (lmm != NULL &&
+		    !(le32_to_cpu(lmm->lmv_hash_type) &
+		      LMV_HASH_FLAG_MIGRATION)) {
+			rc = lod_dir_striped_create_pack(env, dt, th);
+			return rc;
+		}
+	}
+
+	rc = out_xattr_set_pack(env, &lth->lt_update_buf,
+				lu_object_fid(&dt->do_lu), buf, name,
+				fl, 0);
+	return rc;
+}
+
 static int lod_xattr_set(const struct lu_env *env,
 			 struct dt_object *dt, const struct lu_buf *buf,
 			 const char *name, int fl, struct thandle *th,
@@ -2284,6 +2576,10 @@ static int lod_xattr_set(const struct lu_env *env,
 	struct thandle		*sub_th;
 	ENTRY;
 
+	rc = lod_xattr_set_pack(env, dt, buf, name, fl, th);
+	if (rc != 0)
+		RETURN(rc);
+ 
 	sub_th = lod_get_sub_trans(env, th, next);
 	if (IS_ERR(sub_th))
 		RETURN(PTR_ERR(sub_th));
@@ -2350,11 +2646,47 @@ static int lod_declare_xattr_del(const struct lu_env *env,
 	return dt_declare_xattr_del(env, dt_object_child(dt), name, sub_th);
 }
 
+/**
+ * Pack xattr del update.
+ *
+ * Pack xattr del updates in the update buffer attached to the lod_thandle.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	index object
+ * \param[in] name	name of the attribute		
+ * \param[in] th	thanlde of the operation.
+ *
+ * \retval		0 if xattr deletion packing succeeds. 
+ * \retval		negative errno if xattr deletion packing fails.
+ */
+static int lod_xattr_del_pack(const struct lu_env *env,
+			      struct dt_object *dt,
+			      const char *name,
+			      struct thandle *th)
+{
+	struct lod_thandle	*lth;
+	int			rc;
+
+	rc = lod_check_and_prepare_update_record(env, th);
+	if (rc <= 0)
+		return rc;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	rc = out_xattr_del_pack(env, &lth->lt_update_buf,
+				lu_object_fid(&dt->do_lu), name, 0);
+	return rc;
+}
+
 static int lod_xattr_del(const struct lu_env *env, struct dt_object *dt,
 			 const char *name, struct thandle *th,
 			 struct lustre_capa *capa)
 {
 	struct thandle	*sub_th;
+	int		rc;
+
+	rc = lod_xattr_del_pack(env, dt, name, th);
+	if (rc < 0)
+		return rc;
 
 	sub_th = lod_get_sub_trans(env, th, dt_object_child(dt));
 	if (IS_ERR(sub_th))
@@ -2913,6 +3245,44 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+/**
+ * Packing create updates
+ *
+ * Pack the create updates into the update buffer attached to the lod_thandle.
+ * Note: it only packs MD updates here and it has the same API interface as
+ * dt_create().
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	object being created
+ * \param[in] attr	attributes of the object
+ * \param[in] hint	creation hint
+ * \param[in] dof	created object format
+ * \param[in] th	transaction handle of the creation
+ *
+ * \retval		0 packing creation succeed.
+ * \retval		negative errno if creation failed.
+ */
+static int lod_create_pack(const struct lu_env *env,
+			   struct dt_object *dt,
+			   struct lu_attr *attr,
+			   struct dt_allocation_hint *hint,
+			   struct dt_object_format *dof,
+			   struct thandle *th)
+{
+	struct lod_thandle	*lth;
+	int			rc;
+
+	rc = lod_check_and_prepare_update_record(env, th);
+	if (rc <= 0)
+		return rc;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	rc = out_create_pack(env, &lth->lt_update_buf,
+			     lu_object_fid(&dt->do_lu),
+			     attr, hint, dof, 0);
+	return rc;
+}
+
 static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 			     struct lu_attr *attr,
 			     struct dt_allocation_hint *hint,
@@ -2927,6 +3297,10 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	sub_th = lod_get_sub_trans(env, th, next);
 	if (IS_ERR(sub_th))
 		RETURN(PTR_ERR(sub_th));
+
+	rc = lod_create_pack(env, dt, attr, hint, dof, th);
+	if (rc != 0)
+		RETURN(rc);
 
 	/* create local object */
 	rc = dt_create(env, next, attr, hint, dof, sub_th);
@@ -3017,6 +3391,35 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Pack object destroy update.
+ *
+ * Pack object destroy updates in the update buffer attached to the lod_thandle.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	object being destroyed
+ * \param[in] th	thanlde of the operation.
+ *
+ * \retval		0 if the packing succeeds. 
+ * \retval		negative errno if the packing fails.
+ */
+static int lod_destroy_pack(const struct lu_env *env,
+			    struct dt_object *dt,
+			    struct thandle *th)
+{
+	struct lod_thandle	*lth;
+	int			rc;
+
+	rc = lod_check_and_prepare_update_record(env, th);
+	if (rc <= 0)
+		return rc;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	rc = out_object_destroy_pack(env, &lth->lt_update_buf,
+				     lu_object_fid(&dt->do_lu), 0);
+	return rc;
+}
+
 static int lod_object_destroy(const struct lu_env *env,
 		struct dt_object *dt, struct thandle *th)
 {
@@ -3027,6 +3430,10 @@ static int lod_object_destroy(const struct lu_env *env,
 	struct thandle	   *sub_th;
 	int                rc, i;
 	ENTRY;
+
+	rc = lod_destroy_pack(env, dt, th);
+	if (rc != 0)
+		return rc;
 
 	sub_th = lod_get_sub_trans(env, th, next);
 	if (IS_ERR(sub_th))

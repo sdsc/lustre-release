@@ -293,13 +293,16 @@ struct lod_sub_thandle {
 };
 
 struct lod_thandle {
-	struct thandle  lt_super;
+	struct thandle		lt_super;
 
 	/* The master sub transaction created in osp_trans_create */
-	struct thandle	*lt_child;
+	struct thandle		*lt_child;
 
 	/* Other sub transactions will be listed here */
-	struct list_head lt_sub_trans_list;
+	struct list_head	lt_sub_trans_list;
+
+	/* Update buffer to store updates for cross-MDT operation */
+	struct update_buffer	lt_update_buf;
 };
 
 static inline int lu_device_is_lod(struct lu_device *d)

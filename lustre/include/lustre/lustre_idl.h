@@ -3982,9 +3982,11 @@ extern void lustre_swab_hsm_request(struct hsm_request *hr);
  */
 
 /**
- * Type of each update
+ * Type of each update, if adding/deleting update, please also update
+ * update_opcode in lustre/target/out_lib.c.
  */
 enum update_type {
+	OUT_START		= 0,
 	OUT_CREATE		= 1,
 	OUT_DESTROY		= 2,
 	OUT_REF_ADD		= 3,
@@ -3998,6 +4000,7 @@ enum update_type {
 	OUT_INDEX_DELETE	= 11,
 	OUT_WRITE		= 12,
 	OUT_XATTR_DEL		= 13,
+	OUT_STRIPING_CREATE	= 14,
 	OUT_LAST
 };
 

@@ -502,6 +502,12 @@ static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 				    lst->lst_child);
 		if (rc != 0)
 			return rc;
+
+		/* If any of this sub-transaction will do cross-MDT
+		 * operation, LOD should know, so it will record the
+		 * update for recovery purpose */
+		if (lst->lst_child->th_remote_mdt)
+			th->th_remote_mdt = 1;
 	}
 
 	return dt_trans_start(env, lod->lod_child, lth->lt_child);
@@ -532,6 +538,9 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			rc = rc2;
 	}
 
+	if (lth->lt_update_buf.ub_req != NULL)
+		object_update_request_free(lth->lt_update_buf.ub_req,
+					   lth->lt_update_buf.ub_req_len);
 	OBD_FREE_PTR(lth);
 	RETURN(rc);
 }

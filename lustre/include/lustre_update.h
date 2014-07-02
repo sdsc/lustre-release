@@ -167,11 +167,16 @@ static inline void update_inc_batchid(struct dt_update_request *update)
 }
 
 /* target/out_lib.c */
+struct object_update_request *object_update_request_alloc(int size);
+void object_update_request_free(struct object_update_request *ourq,
+				int ourq_length);
 void dt_update_request_destroy(struct dt_update_request *update);
 struct dt_update_request *dt_update_request_create(struct dt_device *dt);
 int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 			const struct object_update_request *ureq,
 			struct ptlrpc_request **reqp);
+void object_update_request_dump(const struct object_update_request *ourq,
+				__u32 umask);
 int out_remote_sync(const struct lu_env *env, struct obd_import *imp,
 		    struct dt_update_request *update,
 		    struct ptlrpc_request **reqp);
@@ -182,6 +187,9 @@ int out_create_pack(const struct lu_env *env, struct update_buffer *ubuf,
 		    const struct lu_fid *fid, struct lu_attr *attr,
 		    struct dt_allocation_hint *hint,
 		    struct dt_object_format *dof, __u64 batchid);
+int out_striped_create_pack(const struct lu_env *env, struct update_buffer *ubuf,
+			    const struct lu_fid *fid, const void *buffer,
+			    int buffer_length, struct lu_attr *attr);
 int out_object_destroy_pack(const struct lu_env *env,
 			    struct update_buffer *ubuf,
 			    const struct lu_fid *fid, __u64 batchid);

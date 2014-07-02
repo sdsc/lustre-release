@@ -36,7 +36,56 @@
 #include <obd.h>
 #include <obd_class.h>
 
-static struct object_update_request *object_update_request_alloc(int size)
+struct update_opcode {
+	__u16		opcode;
+	const char	*opname;
+} update_opcode_table[OUT_LAST] = {     
+	{ OUT_START,            "start" },
+	{ OUT_CREATE,           "create" },
+	{ OUT_DESTROY,          "destroy" },
+	{ OUT_REF_ADD,          "ref_add" },
+	{ OUT_REF_DEL,          "ref_del" },
+	{ OUT_ATTR_SET,         "attr_set" },
+	{ OUT_ATTR_GET,         "attr_get" },
+	{ OUT_XATTR_SET,        "xattr_set" },
+	{ OUT_XATTR_GET,        "xattr_get" },
+	{ OUT_INDEX_LOOKUP,     "lookup" },
+	{ OUT_INDEX_INSERT,     "insert" },
+	{ OUT_INDEX_DELETE,     "delete" },
+	{ OUT_WRITE,		"write" },
+	{ OUT_XATTR_DEL,	"xattr_del" },
+	{ OUT_STRIPING_CREATE,	"striping_create" },	
+};      
+
+static const char *update_op_str(__u16 opcode)
+{
+	LASSERTF(update_opcode_table[opcode].opcode == opcode, "%d",
+		(int)opcode);
+	return update_opcode_table[opcode].opname;
+}
+
+void object_update_request_dump(const struct object_update_request *ourq,
+				__u32 umask)
+{
+	int i;
+
+	CDEBUG(umask, "updates %p magic %x count %d\n", ourq, ourq->ourq_magic,
+	       ourq->ourq_count);
+
+	for (i = 0; i < ourq->ourq_count; i++) {
+		struct object_update *update;
+
+		update = object_update_request_get(ourq, i, NULL);
+		CDEBUG(umask, "i: %d fid: "DFID" op: %s master: %d params %d"
+		       "batchid: "LPU64" \n", i, PFID(&update->ou_fid),
+		       update_op_str(update->ou_type),
+		       (int)update->ou_master_index, update->ou_params_count,
+		       update->ou_batchid);
+	}
+}
+EXPORT_SYMBOL(object_update_request_dump);
+
+struct object_update_request *object_update_request_alloc(int size)
 {
 	struct object_update_request *ourq;
 
@@ -49,13 +98,15 @@ static struct object_update_request *object_update_request_alloc(int size)
 
 	RETURN(ourq);
 }
+EXPORT_SYMBOL(object_update_request_alloc);
 
-static void object_update_request_free(struct object_update_request *ourq,
-				       int ourq_length)
+void object_update_request_free(struct object_update_request *ourq,
+				int ourq_length)
 {
 	if (ourq != NULL)
 		OBD_FREE_LARGE(ourq, ourq_length);
 }
+EXPORT_SYMBOL(object_update_request_free);
 
 /**
  * Create dt_update_request
@@ -127,6 +178,7 @@ int out_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
+	object_update_request_dump(ureq, D_INFO);
 	ureq_len = object_update_request_size(ureq);
 	req_capsule_set_size(&req->rq_pill, &RMF_OUT_UPDATE, RCL_CLIENT,
 			     ureq_len);
@@ -329,6 +381,50 @@ int out_update_pack(const struct lu_env *env,
 	RETURN(0);
 }
 EXPORT_SYMBOL(out_update_pack);
+
+/**
+ * Pack striped object create update into the update_buffer.
+ *
+ * \param[in] env	execution environment
+ * \param[in] ubuf	update bufer which it will pack the update in.
+ * \param[in] op	update operation
+ * \param[in] fid	object FID for this update.
+ * \param[in] buffer	parameters for this update, which holds sub-stripe
+ *                      FIDs.
+ * \param[in] buffer_length the length of the buffer.
+ * \param[in] attr	attributes of the master object.
+ *
+ * \retval		= 0 if create updates packing succeed.
+ *                      negative errno if create updates packing failed.
+ **/
+int out_striped_create_pack(const struct lu_env *env,
+			    struct update_buffer *ubuf,
+			    const struct lu_fid *fid, const void *buffer,
+			    int buffer_length, struct lu_attr *attr)
+{
+	struct obdo		*obdo;
+	int			sizes[2] = {sizeof(*obdo), buffer_length};
+	int			buf_count = 2;
+	void			*buf1;
+	struct object_update	*update;
+	ENTRY;
+
+	update = out_update_header_pack(env, ubuf, OUT_STRIPING_CREATE, fid,
+					buf_count, sizes, 0);
+	if (IS_ERR(update))
+		RETURN(PTR_ERR(update));
+
+	buf1 = object_update_param_get(update, 0, NULL);
+	memcpy(buf1, buffer, buffer_length);
+
+	obdo = object_update_param_get(update, 1, NULL);
+	obdo->o_valid = 0;
+	obdo_from_la(obdo, attr, attr->la_valid);
+	lustre_set_wire_obdo(NULL, obdo, obdo);
+
+	RETURN(0);
+}
+EXPORT_SYMBOL(out_striped_create_pack);
 
 /**
  * Pack object create update into the update_buffer.
