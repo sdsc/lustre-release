@@ -61,7 +61,7 @@ struct lov_stripe_md {
 
 static inline bool lsm_is_dom(struct lov_stripe_md *lsm)
 {
-	return (lov_pattern(lsm->lsm_pattern) == LOV_PATTERN_FIRST);
+	return (lov_pattern(lsm->lsm_pattern) == LOV_PATTERN_MDT);
 }
 
 static inline bool lsm_is_released(struct lov_stripe_md *lsm)

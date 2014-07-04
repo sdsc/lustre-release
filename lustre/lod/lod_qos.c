@@ -1742,7 +1742,8 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	v1->lmm_magic = magic;
 	if (v1->lmm_pattern == 0)
 		v1->lmm_pattern = LOV_PATTERN_RAID0;
-	if (lov_pattern(v1->lmm_pattern) != LOV_PATTERN_RAID0) {
+	if (lov_pattern(v1->lmm_pattern) != LOV_PATTERN_RAID0 &&
+	    lov_pattern(v1->lmm_pattern) != LOV_PATTERN_MDT) {
 		CERROR("%s: invalid pattern: %x\n",
 		       lod2obd(d)->obd_name, v1->lmm_pattern);
 		RETURN(-EINVAL);
@@ -1755,9 +1756,12 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	if (lo->ldo_stripe_size & (LOV_MIN_STRIPE_SIZE - 1))
 		lo->ldo_stripe_size = LOV_MIN_STRIPE_SIZE;
 
-	if (v1->lmm_stripe_count > 0)
+	if (lov_pattern(lo->ldo_pattern) == LOV_PATTERN_MDT) {
+		LASSERT(v1->lmm_stripe_count == 0);
+		lo->ldo_stripenr = 0;
+	} else if (v1->lmm_stripe_count > 0) {
 		lo->ldo_stripenr = v1->lmm_stripe_count;
-
+	}
 	lo->ldo_stripe_offset = v1->lmm_stripe_offset;
 
 	lod_object_set_pool(lo, NULL);
@@ -1789,6 +1793,9 @@ static int lod_qos_parse_config(const struct lu_env *env,
 
 		lod_object_set_pool(lo, pool_name);
 	}
+
+	LASSERT(ergo(lov_pattern(lo->ldo_pattern) == LOV_PATTERN_MDT,
+		     lo->ldo_stripenr == 0));
 
 	/* fixup for released file */
 	if (lo->ldo_pattern & LOV_PATTERN_F_RELEASED) {
