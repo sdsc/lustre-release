@@ -944,7 +944,8 @@ int lod_parse_striping(const struct lu_env *env, struct lod_object *lo,
 
 	if (magic != LOV_MAGIC_V1 && magic != LOV_MAGIC_V3)
 		GOTO(out, rc = -EINVAL);
-	if (lov_pattern(pattern) != LOV_PATTERN_RAID0)
+	if (lov_pattern(pattern) != LOV_PATTERN_RAID0 &&
+	    lov_pattern(pattern) != LOV_PATTERN_MDT)
 		GOTO(out, rc = -EINVAL);
 
 	lo->ldo_pattern = pattern;
@@ -1128,7 +1129,8 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	if (!is_from_disk && lum->lmm_pattern == 0)
 		lum->lmm_pattern = cpu_to_le32(LOV_PATTERN_RAID0);
 
-	if (le32_to_cpu(lum->lmm_pattern) != LOV_PATTERN_RAID0) {
+	if (lov_pattern(le32_to_cpu(lum->lmm_pattern)) != LOV_PATTERN_RAID0 &&
+	    lov_pattern(le32_to_cpu(lum->lmm_pattern)) != LOV_PATTERN_MDT) {
 		CDEBUG(D_IOCTL, "bad userland stripe pattern: %#x\n",
 		       le32_to_cpu(lum->lmm_pattern));
 		GOTO(out, rc = -EINVAL);
@@ -1144,7 +1146,8 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	}
 
 	stripe_offset = le16_to_cpu(lum->lmm_stripe_offset);
-	if (stripe_offset != LOV_OFFSET_DEFAULT) {
+	if (stripe_offset != LOV_OFFSET_DEFAULT &&
+	    lov_pattern(le32_to_cpu(lum->lmm_pattern)) != LOV_PATTERN_MDT) {
 		/* if offset is not within valid range [0, osts_size) */
 		if (stripe_offset >= d->lod_osts_size) {
 			CDEBUG(D_IOCTL, "stripe offset %u >= bitmap size %u\n",
@@ -1239,7 +1242,8 @@ void lod_fix_desc_stripe_count(__u32 *val)
 void lod_fix_desc_pattern(__u32 *val)
 {
 	/* from lov_setstripe */
-	if ((*val != 0) && (*val != LOV_PATTERN_RAID0)) {
+	if ((*val != 0) && (*val != LOV_PATTERN_RAID0) &&
+	    (*val != LOV_PATTERN_MDT)) {
 		LCONSOLE_WARN("Unknown stripe pattern: %#x\n", *val);
 		*val = 0;
 	}
