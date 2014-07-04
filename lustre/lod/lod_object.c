@@ -2605,6 +2605,7 @@ static int lod_dir_striping_create_internal(const struct lu_env *env,
 		v3->lmm_stripe_count = cpu_to_le16(lds->lds_def_stripenr);
 		v3->lmm_stripe_offset = cpu_to_le16(lds->lds_def_stripe_offset);
 		v3->lmm_stripe_size = cpu_to_le32(lds->lds_def_stripe_size);
+		v3->lmm_pattern = cpu_to_le32(lds->lds_def_pattern);
 		if (poolname != NULL)
 			strlcpy(v3->lmm_pool_name, poolname,
 				sizeof(v3->lmm_pool_name));
@@ -2865,13 +2866,17 @@ static int lod_get_default_lov_striping(const struct lu_env *env,
 	if (v1->lmm_magic != LOV_MAGIC_V3 && v1->lmm_magic != LOV_MAGIC_V1)
 		return 0;
 
-	if (v1->lmm_pattern != LOV_PATTERN_RAID0 && v1->lmm_pattern != 0)
+	if (lov_pattern(v1->lmm_pattern) != LOV_PATTERN_RAID0 &&
+	    lov_pattern(v1->lmm_pattern) != LOV_PATTERN_MDT &&
+	    v1->lmm_pattern != 0)
 		return 0;
 
 	lds->lds_def_stripenr = v1->lmm_stripe_count;
 	lds->lds_def_stripe_size = v1->lmm_stripe_size;
 	lds->lds_def_stripe_offset = v1->lmm_stripe_offset;
 	lds->lds_def_striping_set = 1;
+	lds->lds_def_pattern = lov_pattern(v1->lmm_pattern);
+
 	if (v1->lmm_magic == LOV_USER_MAGIC_V3) {
 		v3 = (struct lov_user_md_v3 *)v1;
 		if (v3->lmm_pool_name[0] != '\0')
@@ -2964,11 +2969,14 @@ static void lod_striping_from_default(struct lod_object *lo,
 			lo->ldo_stripe_offset = lds->lds_def_stripe_offset;
 		if (lo->ldo_pool == NULL && lds->lds_def_pool[0] != '\0')
 			lod_object_set_pool(lo, lds->lds_def_pool);
+		if (lo->ldo_pattern == 0)
+			lo->ldo_pattern = lds->lds_def_pattern;
 
 		CDEBUG(D_INFO, "striping from default: count %hu, size %u, "
-			"offset %d, pool %s\n",
+			"offset %d, pattern %#x, pool %s\n",
 			lo->ldo_stripenr, lo->ldo_stripe_size,
-			(int)lo->ldo_stripe_offset, lo->ldo_pool ?: "");
+			(int)lo->ldo_stripe_offset, lo->ldo_pattern,
+			lo->ldo_pool ?: "");
 	} else if (lds->lds_dir_def_striping_set && S_ISDIR(mode)) {
 		if (lo->ldo_stripenr == 0)
 			lo->ldo_stripenr = lds->lds_dir_def_stripenr;
@@ -3088,6 +3096,7 @@ static void lod_ah_init(const struct lu_env *env,
 
 	/* other default values are 0 */
 	lc->ldo_stripe_offset = LOV_OFFSET_DEFAULT;
+	lc->ldo_pattern = 0;
 
 	/* striping from parent default */
 	if (likely(parent)) {
@@ -3116,7 +3125,8 @@ static void lod_ah_init(const struct lu_env *env,
 
 	/* if parent doesn't provide all defaults, striping from fs default */
 	if (d->lod_md_root != NULL &&
-	    (lc->ldo_stripenr == 0 ||
+	    ((lc->ldo_stripenr == 0 &&
+	     lov_pattern(lc->ldo_pattern) != LOV_PATTERN_MDT) ||
 	     lc->ldo_stripe_size == 0 ||
 	     lc->ldo_stripe_offset == LOV_OFFSET_DEFAULT ||
 	     lc->ldo_pool == NULL)) {
@@ -3130,13 +3140,14 @@ static void lod_ah_init(const struct lu_env *env,
 	 * in config log, check striping sanity here and fix to sane values.
 	 */
 	desc = &d->lod_desc;
-	if (lc->ldo_stripenr == 0)
+	if (lc->ldo_stripenr == 0 &&
+	    lov_pattern(lc->ldo_pattern) != LOV_PATTERN_MDT)
 		lc->ldo_stripenr = desc->ld_default_stripe_count;
 	if (lc->ldo_stripe_size == 0)
 		lc->ldo_stripe_size = desc->ld_default_stripe_size;
 
-	CDEBUG(D_INFO, "final striping [%hu %u %d %s]\n",
-	       lc->ldo_stripenr, lc->ldo_stripe_size,
+	CDEBUG(D_INFO, "final striping [%hu %u %#x %d %s]\n",
+	       lc->ldo_stripenr, lc->ldo_stripe_size, lc->ldo_pattern,
 	       (int)lc->ldo_stripe_offset, lc->ldo_pool ?: "");
 	EXIT;
 }
@@ -3167,6 +3178,10 @@ static int lod_declare_init_size(const struct lu_env *env,
 	uint64_t	    size, offs;
 	int		    rc, stripe;
 	ENTRY;
+
+	/* Data-on-MDT file exception */
+	if (lov_pattern(lo->ldo_pattern) == LOV_PATTERN_MDT)
+		RETURN(0);
 
 	/* XXX: we support the simplest (RAID0) striping so far */
 	LASSERT(lo->ldo_stripe || lo->ldo_stripenr == 0);
@@ -3325,7 +3340,8 @@ static int lod_declare_object_create(const struct lu_env *env,
 		 * should be cleaned */
 		if (dof->u.dof_reg.striped == 0)
 			lo->ldo_stripenr = 0;
-		if (lo->ldo_stripenr > 0)
+		if (lo->ldo_stripenr > 0 ||
+		    lov_pattern(lo->ldo_pattern) == LOV_PATTERN_MDT)
 			rc = lod_declare_striped_object(env, dt, attr,
 							NULL, th);
 	} else if (dof->dof_type == DFT_DIR) {
@@ -3454,9 +3470,11 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 		RETURN(rc);
 
 	if (S_ISREG(dt->do_lu.lo_header->loh_attr) &&
-	    lo->ldo_stripe && dof->u.dof_reg.striped != 0)
+	    dof->u.dof_reg.striped != 0 &&
+	    (lo->ldo_stripe || (lov_pattern(lo->ldo_pattern) ==
+	     LOV_PATTERN_MDT))) {
 		rc = lod_striping_create(env, dt, attr, dof, th);
-
+	}
 	RETURN(rc);
 }
 
