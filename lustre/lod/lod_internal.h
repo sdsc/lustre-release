@@ -231,6 +231,7 @@ struct lod_device {
 
 struct lod_default_striping {
 	/* default LOV */
+	__u32		lds_def_pattern;
 	__u32		lds_def_stripe_size;
 	__u16		lds_def_stripenr;
 	__u16		lds_def_stripe_offset;
