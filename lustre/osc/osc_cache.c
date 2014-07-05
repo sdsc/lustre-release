@@ -896,7 +896,7 @@ static int osc_extent_wait(const struct lu_env *env, struct osc_extent *ext,
 	if (rc == -ETIMEDOUT) {
 		OSC_EXTENT_DUMP(D_ERROR, ext,
 			"%s: wait ext to %d timedout, recovery in progress?\n",
-			osc_export(obj)->exp_obd->obd_name, state);
+			cli_name(osc_cli(obj)), state);
 
 		lwi = LWI_INTR(NULL, NULL);
 		rc = l_wait_event(ext->oe_waitq, extent_wait_cb(ext, state),
@@ -1257,7 +1257,6 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 {
 	struct osc_page   *opg  = oap2osc_page(oap);
 	struct cl_page    *page = oap2cl_page(oap);
-	struct osc_object *obj  = cl2osc(opg->ops_cl.cpl_obj);
 	enum cl_req_type   crt;
 	int srvlock;
 
@@ -1281,13 +1280,6 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 	crt = cmd == OBD_BRW_READ ? CRT_READ : CRT_WRITE;
 	/* Clear opg->ops_transfer_pinned before VM lock is released. */
 	opg->ops_transfer_pinned = 0;
-
-	spin_lock(&obj->oo_seatbelt);
-	LASSERT(opg->ops_submitter != NULL);
-	LASSERT(!list_empty(&opg->ops_inflight));
-	list_del_init(&opg->ops_inflight);
-	opg->ops_submitter = NULL;
-	spin_unlock(&obj->oo_seatbelt);
 
 	opg->ops_submit_time = 0;
 	srvlock = oap->oap_brw_flags & OBD_BRW_SRVLOCK;
@@ -1321,7 +1313,7 @@ static int osc_completion(const struct lu_env *env, struct osc_async_page *oap,
 	CDEBUG(lvl, "%s: grant { dirty: %ld/%ld dirty_pages: %d/%d "	\
 	       "dropped: %ld avail: %ld, reserved: %ld, flight: %d }"	\
 	       "lru {in list: %d, left: %d, waiters: %d }" fmt,		\
-	       __tmp->cl_import->imp_obd->obd_name,			\
+	       cli_name(__tmp),						\
 	       __tmp->cl_dirty_pages, __tmp->cl_dirty_max_pages,	\
 	       atomic_read(&obd_dirty_pages), obd_max_dirty_pages,	\
 	       __tmp->cl_lost_grant, __tmp->cl_avail_grant,		\
@@ -1550,7 +1542,7 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 		osc_io_unplug_async(env, cli, NULL);
 
 		CDEBUG(D_CACHE, "%s: sleeping for cache space @ %p for %p\n",
-		       cli->cl_import->imp_obd->obd_name, &ocw, oap);
+		       cli_name(cli), &ocw, oap);
 
 		rc = l_wait_event(ocw.ocw_waitq, ocw_granted(cli, &ocw), &lwi);
 
@@ -1572,8 +1564,7 @@ static int osc_enter_cache(const struct lu_env *env, struct client_obd *cli,
 			default:
 				CDEBUG(D_CACHE, "%s: event for cache space @"
 				       " %p never arrived due to %d\n",
-				       cli->cl_import->imp_obd->obd_name,
-				       &ocw, rc);
+				       cli_name(cli), &ocw, rc);
 				break;
 			}
 			list_del_init(&ocw.ocw_entry);
@@ -1935,7 +1926,7 @@ static int get_write_extents(struct osc_object *obj, struct list_head *rpclist)
 
 static int
 osc_send_write_rpc(const struct lu_env *env, struct client_obd *cli,
-		   struct osc_object *osc, pdl_policy_t pol)
+		   struct osc_object *osc, enum pdl_policy pol)
 {
 	struct list_head   rpclist = LIST_HEAD_INIT(rpclist);
 	struct osc_extent *ext;
@@ -2008,7 +1999,7 @@ osc_send_write_rpc(const struct lu_env *env, struct client_obd *cli,
  */
 static int
 osc_send_read_rpc(const struct lu_env *env, struct client_obd *cli,
-		  struct osc_object *osc, pdl_policy_t pol)
+		  struct osc_object *osc, enum pdl_policy pol)
 {
 	struct osc_extent *ext;
 	struct osc_extent *next;
@@ -2087,7 +2078,7 @@ static struct osc_object *osc_next_obj(struct client_obd *cli)
 
 /* called with the loi list lock held */
 static void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli,
-			   pdl_policy_t pol)
+			   enum pdl_policy pol)
 {
 	struct osc_object *osc;
 	int rc = 0;
@@ -2155,7 +2146,8 @@ static void osc_check_rpcs(const struct lu_env *env, struct client_obd *cli,
 }
 
 static int osc_io_unplug0(const struct lu_env *env, struct client_obd *cli,
-			  struct osc_object *osc, pdl_policy_t pol, int async)
+			  struct osc_object *osc, enum pdl_policy pol,
+			  int async)
 {
 	int rc = 0;
 
@@ -2163,13 +2155,9 @@ static int osc_io_unplug0(const struct lu_env *env, struct client_obd *cli,
 		return 0;
 
 	if (!async) {
-		/* disable osc_lru_shrink() temporarily to avoid
-		 * potential stack overrun problem. LU-2859 */
-		atomic_inc(&cli->cl_lru_shrinkers);
 		client_obd_list_lock(&cli->cl_loi_list_lock);
 		osc_check_rpcs(env, cli, pol);
 		client_obd_list_unlock(&cli->cl_loi_list_lock);
-		atomic_dec(&cli->cl_lru_shrinkers);
 	} else {
 		CDEBUG(D_CACHE, "Queue writeback work for client %p.\n", cli);
 		LASSERT(cli->cl_writeback_work != NULL);
@@ -2186,7 +2174,7 @@ static int osc_io_unplug_async(const struct lu_env *env,
 }
 
 void osc_io_unplug(const struct lu_env *env, struct client_obd *cli,
-		   struct osc_object *osc, pdl_policy_t pol)
+		   struct osc_object *osc, enum pdl_policy pol)
 {
 	(void)osc_io_unplug0(env, cli, osc, pol, 0);
 }
@@ -2390,7 +2378,6 @@ int osc_teardown_async_page(const struct lu_env *env,
 			    struct osc_object *obj, struct osc_page *ops)
 {
 	struct osc_async_page *oap = &ops->ops_oap;
-	struct osc_extent     *ext = NULL;
 	int rc = 0;
 	ENTRY;
 
@@ -2399,12 +2386,15 @@ int osc_teardown_async_page(const struct lu_env *env,
 	CDEBUG(D_INFO, "teardown oap %p page %p at index %lu.\n",
 	       oap, ops, osc_index(oap2osc(oap)));
 
-	osc_object_lock(obj);
 	if (!list_empty(&oap->oap_rpc_item)) {
 		CDEBUG(D_CACHE, "oap %p is not in cache.\n", oap);
 		rc = -EBUSY;
 	} else if (!list_empty(&oap->oap_pending_item)) {
+		struct osc_extent *ext = NULL;
+
+		osc_object_lock(obj);
 		ext = osc_extent_lookup(obj, osc_index(oap2osc(oap)));
+		osc_object_unlock(obj);
 		/* only truncated pages are allowed to be taken out.
 		 * See osc_extent_truncate() and osc_cache_truncate_start()
 		 * for details. */
@@ -2413,10 +2403,9 @@ int osc_teardown_async_page(const struct lu_env *env,
 					osc_index(oap2osc(oap)));
 			rc = -EBUSY;
 		}
+		if (ext != NULL)
+			osc_extent_put(env, ext);
 	}
-	osc_object_unlock(obj);
-	if (ext != NULL)
-		osc_extent_put(env, ext);
 	RETURN(rc);
 }
 
