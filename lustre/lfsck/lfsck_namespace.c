@@ -150,6 +150,8 @@ static void lfsck_namespace_le_to_cpu(struct lfsck_namespace *dst,
 	dst->ln_dangling_repaired = le64_to_cpu(src->ln_dangling_repaired);
 	dst->ln_mul_ref_repaired = le64_to_cpu(src->ln_mul_ref_repaired);
 	dst->ln_bad_type_repaired = le64_to_cpu(src->ln_bad_type_repaired);
+	dst->ln_lost_dirent_repaired =
+				le64_to_cpu(src->ln_lost_dirent_repaired);
 }
 
 static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *dst,
@@ -193,6 +195,8 @@ static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *dst,
 	dst->ln_dangling_repaired = cpu_to_le64(src->ln_dangling_repaired);
 	dst->ln_mul_ref_repaired = cpu_to_le64(src->ln_mul_ref_repaired);
 	dst->ln_bad_type_repaired = cpu_to_le64(src->ln_bad_type_repaired);
+	dst->ln_lost_dirent_repaired =
+				cpu_to_le64(src->ln_lost_dirent_repaired);
 }
 
 static void lfsck_namespace_record_failure(const struct lu_env *env,
@@ -841,14 +845,123 @@ log:
 	return rc;
 }
 
+/**
+ * Add the specified name entry back to namespace.
+ *
+ * If there is a linkEA entry that back references a name entry under
+ * some parent directory, but such parent directory does not has the
+ * claimed name entry. On the other hand, the linkEA entries count is
+ * not larger than the MDT-object's hard link count. Under such case,
+ * it is quite possible that the name entry is lost. Then the LFSCK
+ * should add the name entry back to the namespace.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] com	pointer to the lfsck component
+ * \param[in] parent	pointer to the directory under which the name entry
+ *			will be inserted into
+ * \param[in] child	pointer to the object referenced by the name entry
+ *			that to be inserted into the parent
+ * \param[in] name	the name for the child in the parent directory
+ *
+ * \retval		positive number for repaired cases
+ * \retval		0 if nothing to be repaired
+ * \retval		negative error number on failure
+ */
 static int lfsck_namespace_insert_normal(const struct lu_env *env,
 					 struct lfsck_component *com,
 					 struct dt_object *parent,
 					 struct dt_object *child,
 					 const char *name)
 {
-	/* XXX: TBD */
-	return 0;
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct lu_attr			*la	= &info->lti_la;
+	struct dt_insert_rec		*rec	= &info->lti_dt_rec;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct dt_device		*dev	= lfsck->li_next;
+	struct thandle			*th	= NULL;
+	struct lustre_handle		 lh	= { 0 };
+	int				 rc	= 0;
+	ENTRY;
+
+	if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
+		GOTO(log, rc = 1);
+
+	/* Hold layout lock on the parent to prevent others to access. */
+	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
+			      MDS_INODELOCK_UPDATE, LCK_EX);
+	if (rc != 0)
+		GOTO(log, rc);
+
+	th = dt_trans_create(env, dev);
+	if (IS_ERR(th))
+		GOTO(unlock, rc = PTR_ERR(th));
+
+	rec->rec_type = lfsck_object_type(child) & S_IFMT;
+	rec->rec_fid = lfsck_dto2fid(child);
+	rc = dt_declare_insert(env, parent, (const struct dt_rec *)rec,
+			       (const struct dt_key *)name, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	if (S_ISDIR(rec->rec_type)) {
+		rc = dt_declare_ref_add(env, parent, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
+	memset(la, 0, sizeof(*la));
+	la->la_ctime = cfs_time_current_sec();
+	la->la_valid = LA_CTIME;
+	rc = dt_declare_attr_set(env, parent, la, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start(env, dev, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_insert(env, parent, (const struct dt_rec *)rec,
+		       (const struct dt_key *)name, th, BYPASS_CAPA, 1);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	if (S_ISDIR(rec->rec_type)) {
+		dt_write_lock(env, parent, 0);
+		rc = dt_ref_add(env, parent, th);
+		dt_write_unlock(env, parent);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
+	la->la_ctime = cfs_time_current_sec();
+	rc = dt_attr_set(env, parent, la, th, BYPASS_CAPA);
+
+	GOTO(stop, rc = (rc == 0 ? 1 : rc));
+
+stop:
+	dt_trans_stop(env, dev, th);
+
+unlock:
+	lfsck_ibits_unlock(&lh, LCK_EX);
+
+log:
+	CDEBUG(D_LFSCK, "%s: namespace LFSCK insert object "DFID" with "
+	       "the name %s and type %o to the parent "DFID": rc = %d\n",
+	       lfsck_lfsck2name(lfsck), PFID(lfsck_dto2fid(child)), name,
+	       lfsck_object_type(child) & S_IFMT,
+	       PFID(lfsck_dto2fid(parent)), rc);
+
+	if (rc != 0) {
+		struct lfsck_namespace *ns = com->lc_file_ram;
+
+		down_write(&com->lc_sem);
+		ns->ln_flags |= LF_INCONSISTENT;
+		if (rc > 0)
+			ns->ln_lost_dirent_repaired++;
+		up_write(&com->lc_sem);
+	}
+
+	return rc;
 }
 
 static int lfsck_namespace_create_orphan(const struct lu_env *env,
@@ -1633,6 +1746,8 @@ orphan:
 			 * handle it as pure orphan. */
 			lfsck_ibits_unlock(&lh, LCK_EX);
 			type = LNIT_MUL_REF;
+
+orphan2:
 			snprintf(infix, LFSCK_TMPBUF_LEN, "-"DFID, PFID(pfid));
 			rc = lfsck_namespace_insert_orphan(env, com, child,
 							   infix, "D", NULL);
@@ -1653,10 +1768,28 @@ orphan:
 			lfsck_ibits_unlock(&lh, LCK_EX);
 			/* Create the lost parent as an orphan. */
 			rc = lfsck_namespace_create_orphan(env, com, parent);
-			if (rc >= 0)
+			if (rc >= 0) {
 				/* Add the missed name entry to the parent. */
 				rc = lfsck_namespace_insert_normal(env, com,
 						parent, child, cname->ln_name);
+				if (unlikely(rc == -EEXIST)) {
+					/* Unfortunately, someone reuse the name
+					 * under the parent by race. So we have
+					 * to remove the linkEA entry from
+					 * current child object. Means that the
+					 * LFSCK cannot recover the system
+					 * totally back to its original status,
+					 * but it is necessary to make the
+					 * current system to be consistent. */
+					rc = lfsck_namespace_shrink_linkea(env,
+							com, child, &ldata,
+							cname, tfid, true);
+					if (rc >= 0) {
+						lfsck_object_put(env, parent);
+						goto orphan2;
+					}
+				}
+			}
 
 			lfsck_object_put(env, parent);
 
@@ -1678,6 +1811,27 @@ orphan:
 			/* Add the missed name entry back to the namespace. */
 			rc = lfsck_namespace_insert_normal(env, com, parent,
 							child, cname->ln_name);
+			if (unlikely(rc == -EEXIST)) {
+				/* Unfortunately, someone reuse the name under
+				 * the parent by race. So we have to remove the
+				 * linkEA entry from current child object. Means
+				 * that the LFSCK cannot recover the system
+				 * totally back to its original status, but it
+				 * is necessary to make the current system to be
+				 * consistent.
+				 *
+				 * It also may be because of the LFSCK found
+				 * some internal status of create operation.
+				 * Under such case, nothing to be done. */
+				rc = lfsck_namespace_shrink_linkea_cond(env,
+							com, parent, child,
+							&ldata, cname, tfid);
+				if (rc >= 0) {
+					lfsck_object_put(env, parent);
+					goto orphan2;
+				}
+			}
+
 			lfsck_object_put(env, parent);
 
 			GOTO(out, rc);
@@ -2037,7 +2191,20 @@ static int lfsck_namespace_double_scan_one(const struct lu_env *env,
 				/* Add the missed name entry to the parent. */
 				rc = lfsck_namespace_insert_normal(env, com,
 						parent, child, cname->ln_name);
-				linkea_next_entry(&ldata);
+				if (unlikely(rc == -EEXIST))
+					/* Unfortunately, someone reuse the name
+					 * under the parent by race. So we have
+					 * to remove the linkEA entry from
+					 * current child object. Means that the
+					 * LFSCK cannot recover the system
+					 * totally back to its original status,
+					 * but it is necessary to make the
+					 * current system to be consistent. */
+					rc = lfsck_namespace_shrink_linkea(env,
+							com, child, &ldata,
+							cname, pfid, true);
+				else
+					linkea_next_entry(&ldata);
 			}
 
 			lfsck_object_put(env, parent);
@@ -2132,14 +2299,28 @@ static int lfsck_namespace_double_scan_one(const struct lu_env *env,
 		/* Add the missed name entry back to the namespace. */
 		rc = lfsck_namespace_insert_normal(env, com, parent, child,
 						   cname->ln_name);
+		if (unlikely(rc == -EEXIST))
+			/* Unfortunately, someone reuse the name under the
+			 * parent by race. So we have to remove the linkEA
+			 * entry from current child object. Means that the
+			 * LFSCK cannot recover the system totally back to
+			 * its original status, but it is necessary to make
+			 * the current system to be consistent.
+			 *
+			 * It also may be because of the LFSCK found some
+			 * internal status of create operation. Under such
+			 * case, nothing to be done. */
+			rc = lfsck_namespace_shrink_linkea_cond(env, com,
+					parent, child, &ldata, cname, pfid);
+		else
+			linkea_next_entry(&ldata);
+
 		lfsck_object_put(env, parent);
 		if (rc < 0)
 			GOTO(out, rc);
 
 		if (rc > 0)
 			repaired = true;
-
-		linkea_next_entry(&ldata);
 	}
 
 	GOTO(out, rc = 0);
@@ -2642,6 +2823,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "dangling_repaired: "LPU64"\n"
 			      "multi_referenced_repaired: "LPU64"\n"
 			      "bad_file_type_repaired: "LPU64"\n"
+			      "lost_dirent_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -2666,6 +2848,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_dangling_repaired,
 			      ns->ln_mul_ref_repaired,
 			      ns->ln_bad_type_repaired,
+			      ns->ln_lost_dirent_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
@@ -2734,6 +2917,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "dangling_repaired: "LPU64"\n"
 			      "multi_referenced_repaired: "LPU64"\n"
 			      "bad_file_type_repaired: "LPU64"\n"
+			      "lost_dirent_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -2759,6 +2943,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_dangling_repaired,
 			      ns->ln_mul_ref_repaired,
 			      ns->ln_bad_type_repaired,
+			      ns->ln_lost_dirent_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
@@ -2791,6 +2976,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "dangling_repaired: "LPU64"\n"
 			      "multi_referenced_repaired: "LPU64"\n"
 			      "bad_file_type_repaired: "LPU64"\n"
+			      "lost_dirent_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "success_count: %u\n"
@@ -2816,6 +3002,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_dangling_repaired,
 			      ns->ln_mul_ref_repaired,
 			      ns->ln_bad_type_repaired,
+			      ns->ln_lost_dirent_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_success_count,
