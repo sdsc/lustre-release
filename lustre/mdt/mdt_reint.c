@@ -1657,6 +1657,11 @@ static int mdt_object_lock_save(struct mdt_thread_info *info,
 	return 0;
 }
 
+static const char dotdot[] = "..";
+static struct lu_name lname_dotdot = {
+	(char *) dotdot,
+	sizeof(dotdot) - 1
+};
 
 static int mdt_rename_parents_lock(struct mdt_thread_info *info,
 				   struct mdt_object **srcp,
@@ -1669,7 +1674,6 @@ static int mdt_rename_parents_lock(struct mdt_thread_info *info,
 	struct mdt_lock_handle  *lh_tgt = &info->mti_lh[MDT_LH_CHILD];
 	struct mdt_object       *src;
 	struct mdt_object       *tgt;
-	int                      reverse = 0;
 	int                      rc;
 	ENTRY;
 
@@ -1679,75 +1683,124 @@ static int mdt_rename_parents_lock(struct mdt_thread_info *info,
 		RETURN(PTR_ERR(src));
 
 	OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME3, 5);
-
 	if (lu_fid_eq(fid_src, fid_tgt)) {
-		tgt = src;
-		mdt_object_get(info->mti_env, tgt);
-	} else {
-		/* Check if the @src is not a child of the @tgt, otherwise a
-		 * reverse locking must take place. */
-		rc = mdt_is_subdir(info, src, fid_tgt);
-		if (rc == -EINVAL)
-			reverse = 1;
-		else if (rc)
-			GOTO(err_src_put, rc);
-
-		tgt = mdt_object_find_check(info, fid_tgt, 1);
-		if (IS_ERR(tgt))
-			GOTO(err_src_put, rc = PTR_ERR(tgt));
-
-		if (unlikely(mdt_object_remote(tgt))) {
-			CDEBUG(D_INFO, "Source dir "DFID" target dir "DFID
-			       "on different MDTs\n", PFID(fid_src),
-			       PFID(fid_tgt));
-			GOTO(err_tgt_put, rc = -EXDEV);
+		rc = mdt_object_lock_save(info, src, lh_src, 0);
+		if (rc != 0) {
+			mdt_object_put(info->mti_env, src);
+			RETURN(rc);
 		}
-	}
 
-	OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME4, 5);
-
-	/* lock parents in the proper order. */
-	if (reverse) {
-		rc = mdt_object_lock_save(info, tgt, lh_tgt, 1);
-		if (rc)
-			GOTO(err_tgt_put, rc);
+		mdt_object_get(info->mti_env, src);
+		tgt = src;
 
 		OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME, 5);
 
-		rc = mdt_object_lock_save(info, src, lh_src, 0);
-	} else {
-		rc = mdt_object_lock_save(info, src, lh_src, 0);
-		if (rc)
-			GOTO(err_tgt_put, rc);
-
-		OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME, 5);
-
-		if (tgt != src)
-			rc = mdt_object_lock_save(info, tgt, lh_tgt, 1);
-		else if (lh_src->mlh_pdo_hash != lh_tgt->mlh_pdo_hash) {
+		if (lh_src->mlh_pdo_hash != lh_tgt->mlh_pdo_hash) {
 			rc = mdt_pdir_hash_lock(info, lh_tgt, tgt,
 						MDS_INODELOCK_UPDATE);
+			if (rc != 0)
+				GOTO(err_unlock, rc);
+
 			OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_PDO_LOCK2, 10);
 		}
+	} else {
+		struct lu_fid *src_parent_fid = &info->mti_tmp_fid1;
+
+		rc = mdt_object_lock_save(info, src, lh_src, 0);
+		if (rc != 0) {
+			mdt_object_put(info->mti_env, src);
+			RETURN(rc);
+		}
+
+		/* Check if the @src is not a child of the @tgt, otherwise a
+		 * reverse locking must take place. */
+		fid_zero(src_parent_fid);
+		rc = mdo_lookup(info->mti_env, mdt_object_child(src),
+				&lname_dotdot, src_parent_fid, NULL);
+		if (rc != 0) {
+			mdt_object_unlock_put(info, src, lh_src, rc);
+			RETURN(rc);
+		}
+
+		/* If tgt is the parent of source, lock the target dir first */
+		if (lu_fid_eq(fid_tgt, src_parent_fid)) {
+			mdt_object_unlock(info, src, lh_src, 1);
+
+			mdt_lock_handle_init(lh_src);
+			mdt_lock_pdo_init(lh_src, LCK_PW, &rr->rr_name);
+
+			tgt = mdt_object_find_check(info, fid_tgt, 0);
+			if (IS_ERR(tgt)) {
+				mdt_object_put(info->mti_env, src);
+				RETURN(PTR_ERR(tgt));
+			}
+
+			if (unlikely(mdt_object_remote(tgt))) {
+				mdt_object_put(info->mti_env, tgt);
+				mdt_object_put(info->mti_env, src);
+				CDEBUG(D_INFO, "Source dir "DFID" target dir "
+				       DFID "on different MDTs\n",
+				       PFID(fid_src), PFID(fid_tgt));
+				RETURN(-EXDEV);
+			}
+
+			rc = mdt_object_lock_save(info, tgt, lh_tgt, 1);
+			if (rc != 0) {
+				mdt_object_put(info->mti_env, tgt);
+				mdt_object_put(info->mti_env, src);
+				RETURN(rc);
+			}
+
+			OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME, 5);
+
+			rc = mdt_object_lock_save(info, src, lh_src, 0);
+			if (rc != 0) {
+				mdt_object_unlock_put(info, tgt, lh_tgt,
+						      -EXDEV);
+				mdt_object_put(info->mti_env, src);
+				RETURN(rc);
+			}
+		} else {
+			/* get and save correct version after locking */
+			mdt_version_get_save(info, src, 0);
+
+			OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME, 5);
+
+			tgt = mdt_object_find_check(info, fid_tgt, 0);
+			if (IS_ERR(tgt)) {
+				mdt_object_unlock_put(info, src, lh_src, rc);
+				RETURN(PTR_ERR(src));
+			}
+
+			if (unlikely(mdt_object_remote(tgt))) {
+				mdt_object_put(info->mti_env, tgt);
+				mdt_object_unlock_put(info, src, lh_src, rc);
+				CDEBUG(D_INFO, "Source dir "DFID" target dir "
+				       DFID "on different MDTs\n",
+				       PFID(fid_src), PFID(fid_tgt));
+				RETURN(-EXDEV);
+			}
+
+			rc = mdt_object_lock_save(info, tgt, lh_tgt, 1);
+			if (rc != 0) {
+				mdt_object_put(info->mti_env, tgt);
+				mdt_object_unlock_put(info, src, lh_src, rc);
+				RETURN(rc);
+			}
+		}
 	}
-	if (rc)
-		GOTO(err_unlock, rc);
 
-	OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME4, 5);
+OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RENAME4, 5);
 
-	*srcp = src;
-	*tgtp = tgt;
-	RETURN(0);
+*srcp = src;
+*tgtp = tgt;
+RETURN(0);
 
 err_unlock:
 	/* The order does not matter as the handle is checked inside,
 	 * as well as not used handle. */
-	mdt_object_unlock(info, src, lh_src, rc);
-	mdt_object_unlock(info, tgt, lh_tgt, rc);
-err_tgt_put:
-	mdt_object_put(info->mti_env, tgt);
-err_src_put:
-	mdt_object_put(info->mti_env, src);
+	mdt_object_unlock_put(info, src, lh_src, rc);
+	mdt_object_unlock_put(info, tgt, lh_tgt, rc);
 	RETURN(rc);
 }
 
