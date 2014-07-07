@@ -173,12 +173,13 @@ autodetect_distro() {
 # autodetect target
 autodetect_target() {
     local distro="$1"
-
+	echo "distro =${distro}="
     local target=""
     case ${distro} in
           oel5) target="2.6-oel5";;
          rhel5) target="2.6-rhel5";;
          rhel6) target="2.6-rhel6";;
+         rhel7) target="3.10-rhel7";;
         sles10) target="2.6-sles10";;
         sles11) target="$(uname -r | cut -d . -f 1,2)-sles11"
                 local PLEV=$(sed -n -e 's/^PATCHLEVEL = //p' /etc/SuSE-release)
