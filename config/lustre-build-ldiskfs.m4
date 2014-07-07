@@ -25,6 +25,9 @@ AS_IF([test x$RHEL_KERNEL = xyes], [
 			;;
 		esac
 	])],[LDISKFS_SERIES="3.12-sles12.series"],[LDISKFS_SERIES="3.12-sles12.series"])
+], [
+	AS_VERSION_COMPARE([$LINUXRELEASE],[3.12.0],[],
+	[LDISKFS_SERIES="3.14-fc20.series"],[LDISKFS_SERIES="3.14-fc20.series"])
 ])
 AS_IF([test -z "$LDISKFS_SERIES"],
 	[AC_MSG_WARN([Unknown kernel version $LDISKFS_VERSIONRELEASE])])
