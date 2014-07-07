@@ -158,7 +158,7 @@ struct lfsck_namespace {
 	__u64	ln_dirs_checked;
 
 	/* How many multiple-linked objects have been checked. */
-	__u64	ln_mlinked_checked;
+	__u64	ln_mul_linked_checked;
 
 	/* How many objects have been double scanned. */
 	__u64	ln_objs_checked_phase2;
@@ -183,6 +183,12 @@ struct lfsck_namespace {
 
 	/* How many linkEA entries have been repaired. */
 	__u64	ln_linkea_repaired;
+
+	/* How many multiple-linked objects have been repaired. */
+	__u64	ln_mul_linked_repaired;
+
+	/* For further using. 256-bytes aligned now. */
+	__u64   ln_reserved[31];
 };
 
 enum lfsck_layout_inconsistency_type {
@@ -411,7 +417,6 @@ struct lfsck_component {
 	/* How many objects have been scanned since last sleep. */
 	__u32			 lc_new_scanned;
 
-	unsigned int		 lc_journal:1;
 	__u16			 lc_type;
 };
 
@@ -512,14 +517,6 @@ struct lfsck_instance {
 				  li_start_unplug:1;
 };
 
-enum lfsck_linkea_flags {
-	/* The linkea entries does not match the object nlinks. */
-	LLF_UNMATCH_NLINKS	= 0x01,
-
-	/* Fail to repair the multiple-linked objects during the double scan. */
-	LLF_REPAIR_FAILED	= 0x02,
-};
-
 struct lfsck_async_interpret_args {
 	struct lfsck_component		*laia_com;
 	struct lfsck_tgt_descs		*laia_ltds;
@@ -608,9 +605,11 @@ struct lfsck_assistant_data {
 #define LFSCK_TMPBUF_LEN	64
 
 struct lfsck_thread_info {
+	struct lu_name		lti_name_const;
 	struct lu_name		lti_name;
 	struct lu_buf		lti_buf;
 	struct lu_buf		lti_linkea_buf;
+	struct lu_buf		lti_linkea_buf2;
 	struct lu_buf		lti_big_buf;
 	struct lu_fid		lti_fid;
 	struct lu_fid		lti_fid2;
@@ -644,6 +643,7 @@ struct lfsck_thread_info {
 	struct lov_user_md	lti_lum;
 	struct dt_insert_rec	lti_dt_rec;
 	struct lu_object_conf	lti_conf;
+	struct lu_seq_range	lti_range;
 };
 
 /* lfsck_lib.c */
@@ -755,7 +755,7 @@ lfsck_name_get_const(const struct lu_env *env, const void *area, ssize_t len)
 {
 	struct lu_name *lname;
 
-	lname = &lfsck_env_info(env)->lti_name;
+	lname = &lfsck_env_info(env)->lti_name_const;
 	lname->ln_name = area;
 	lname->ln_namelen = len;
 	return lname;
@@ -874,8 +874,14 @@ static inline struct dt_object *lfsck_object_find(const struct lu_env *env,
 						  struct lfsck_instance *lfsck,
 						  const struct lu_fid *fid)
 {
-	return lu2dt(lu_object_find_slice(env, dt2lu_dev(lfsck->li_next),
-		     fid, NULL));
+	struct dt_object *obj;
+
+	obj = lu2dt(lu_object_find_slice(env, dt2lu_dev(lfsck->li_next),
+					 fid, NULL));
+	if (unlikely(obj == NULL))
+		return ERR_PTR(-ENOENT);
+
+	return obj;
 }
 
 static inline struct dt_object *lfsck_object_get(struct dt_object *obj)
