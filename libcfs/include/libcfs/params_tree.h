@@ -184,8 +184,9 @@ seq_open(struct file *file, const struct seq_operations *fops)
 		if (!p)
 			return -ENOMEM;
 		file->param_private = p;
+	} else {
+		memset(p, 0, sizeof(*p));
 	}
-	memset(p, 0, sizeof(*p));
 	p->op = fops;
 	return 0;
 }
