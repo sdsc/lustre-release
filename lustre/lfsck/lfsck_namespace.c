@@ -53,6 +53,8 @@ enum lfsck_namespace_inconsistency_type {
 	LNIT_UNMATCHED_PAIRS	= 2,
 	LNIT_DANGLING		= 3,
 	LNIT_MUL_REF		= 4,
+	LNIT_BAD_TYPE		= 5,
+	LNIT_BAD_DIRENT		= 6,
 };
 
 static const char lfsck_namespace_name[] = "lfsck_namespace";
@@ -148,6 +150,7 @@ static void lfsck_namespace_le_to_cpu(struct lfsck_namespace *dst,
 				le64_to_cpu(src->ln_unmatched_pairs_repaired);
 	dst->ln_dangling_repaired = le64_to_cpu(src->ln_dangling_repaired);
 	dst->ln_mul_ref_repaired = le64_to_cpu(src->ln_mul_ref_repaired);
+	dst->ln_bad_type_repaired = le64_to_cpu(src->ln_bad_type_repaired);
 }
 
 static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *dst,
@@ -191,6 +194,7 @@ static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *dst,
 				cpu_to_le64(src->ln_unmatched_pairs_repaired);
 	dst->ln_dangling_repaired = cpu_to_le64(src->ln_dangling_repaired);
 	dst->ln_mul_ref_repaired = cpu_to_le64(src->ln_mul_ref_repaired);
+	dst->ln_bad_type_repaired = cpu_to_le64(src->ln_bad_type_repaired);
 }
 
 static void lfsck_namespace_record_failure(const struct lu_env *env,
@@ -2365,6 +2369,7 @@ static int lfsck_namespace_prep(const struct lu_env *env,
 			ns->ln_unmatched_pairs_repaired = 0;
 			ns->ln_dangling_repaired = 0;
 			ns->ln_mul_ref_repaired = 0;
+			ns->ln_bad_type_repaired = 0;
 			fid_zero(&ns->ln_fid_latest_scanned_phase2);
 			if (list_empty(&com->lc_link_dir))
 				list_add_tail(&com->lc_link_dir,
@@ -2673,6 +2678,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "unmatched_pairs_repaired: "LPU64"\n"
 			      "dangling_repaired: "LPU64"\n"
 			      "multi_referenced_repaired: "LPU64"\n"
+			      "bad_file_type_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "mul_linked_repaired: "LPU64"\n"
@@ -2697,6 +2703,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_unmatched_pairs_repaired,
 			      ns->ln_dangling_repaired,
 			      ns->ln_mul_ref_repaired,
+			      ns->ln_bad_type_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_mul_linked_repaired,
@@ -2765,6 +2772,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "unmatched_pairs_repaired: "LPU64"\n"
 			      "dangling_repaired: "LPU64"\n"
 			      "multi_referenced_repaired: "LPU64"\n"
+			      "bad_file_type_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "mul_linked_repaired: "LPU64"\n"
@@ -2790,6 +2798,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_unmatched_pairs_repaired,
 			      ns->ln_dangling_repaired,
 			      ns->ln_mul_ref_repaired,
+			      ns->ln_bad_type_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_mul_linked_repaired,
@@ -2822,6 +2831,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "unmatched_pairs_repaired: "LPU64"\n"
 			      "dangling_repaired: "LPU64"\n"
 			      "multi_referenced_repaired: "LPU64"\n"
+			      "bad_file_type_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "lost_found: "LPU64"\n"
 			      "mul_linked_repaired: "LPU64"\n"
@@ -2847,6 +2857,7 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_unmatched_pairs_repaired,
 			      ns->ln_dangling_repaired,
 			      ns->ln_mul_ref_repaired,
+			      ns->ln_bad_type_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_objs_lost_found,
 			      ns->ln_mul_linked_repaired,
@@ -3230,6 +3241,140 @@ log:
 	return rc;
 }
 
+/**
+ * Repair invalid name entry.
+ *
+ * If the name entry contains invalid information, such as bad file type
+ * or (and) corrupted object FID, then either remove the name entry or
+ * udpate the name entry with the given (right) information.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] com	pointer to the lfsck component
+ * \param[in] parent	pointer to the parent directory
+ * \param[in] child	pointer to the object referenced by the name entry
+ * \param[in] lnr	pointer to lfsck_namespace_req data, which contains
+ *			the name entry's name/type, and other information.
+ * \param[in] update	update the name entry if true; otherwise, remove it
+ *
+ * \retval		positive number if no need to repair
+ * \retval		zero for repaired successfully
+ * \retval		negative error number on failure
+ */
+static int lfsck_namespace_repair_dirent(const struct lu_env *env,
+					 struct lfsck_component *com,
+					 struct dt_object *parent,
+					 struct dt_object *child,
+					 struct lfsck_namespace_req *lnr,
+					 bool update)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct lustre_handle		 lh	= { 0 };
+	struct dt_insert_rec		*rec	= &info->lti_dt_rec;
+	struct lu_fid			*cfid	= &info->lti_fid3;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct lfsck_bookmark		*bk	= &lfsck->li_bookmark_ram;
+	struct dt_device		*dev	= lfsck->li_next;
+	const char			*name	= lnr->lnr_name;
+	struct thandle			*th	= NULL;
+	int				 rc	= 0;
+	ENTRY;
+
+	if (bk->lb_param & LPF_DRYRUN)
+		GOTO(log, rc = 0);
+
+	if (unlikely(!dt_try_as_dir(env, parent)))
+		GOTO(log, rc = -ENOTDIR);
+
+	rc = lfsck_ibits_lock(env, lfsck, parent, &lh,
+			      MDS_INODELOCK_UPDATE, LCK_EX);
+	if (rc != 0)
+		GOTO(log, rc);
+
+	th = dt_trans_create(env, dev);
+	if (IS_ERR(th))
+		GOTO(unlock1, rc = PTR_ERR(th));
+
+	rc = dt_declare_delete(env, parent, (const struct dt_key *)name, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	/* XXX: We do not know the real file type for the name entry to be
+	 *	removed, if it was for sub-directory, the parent's nlink
+	 *	should be decreased. But since we do not know, then keep
+	 *	the parent's nlink attribute unchanged. */
+
+	if (update) {
+		rec->rec_type = lfsck_object_type(child) & S_IFMT;
+		rec->rec_fid = lfsck_dto2fid(child);
+		rc = dt_declare_insert(env, parent,
+				       (const struct dt_rec *)rec,
+				       (const struct dt_key *)name, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
+	rc = dt_trans_start(env, dev, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	dt_write_lock(env, parent, 0);
+	rc = dt_lookup(env, parent, (struct dt_rec *)cfid,
+		       (const struct dt_key *)name, BYPASS_CAPA);
+	/* Someone has removed the bad name entry by race. */
+	if (rc == -ENOENT)
+		GOTO(unlock2, rc = 1);
+
+	if (rc != 0)
+		GOTO(unlock2, rc);
+
+	/* Someone has removed the bad name entry and reuse it for other
+	 * object by race. */
+	if (!lu_fid_eq(cfid, lfsck_dto2fid(child)))
+		GOTO(unlock2, rc = 1);
+
+	rc = dt_delete(env, parent, (const struct dt_key *)name, th,
+		       BYPASS_CAPA);
+	if (rc == 0 && update)
+		rc = dt_insert(env, parent,
+			       (const struct dt_rec *)rec,
+			       (const struct dt_key *)name, th,
+			       BYPASS_CAPA, 1);
+
+	GOTO(unlock2, rc);
+
+unlock2:
+	dt_write_unlock(env, parent);
+
+stop:
+	dt_trans_stop(env, dev, th);
+
+	/* We are not sure whether the child will become orphan or not.
+	 * Record it in the LFSCK tracing file for further checking in
+	 * the second-stage scanning. */
+	if (!update && rc == 0)
+		lfsck_namespace_update(env, com, lfsck_dto2fid(child), 0);
+
+unlock1:
+	lfsck_ibits_unlock(&lh, LCK_EX);
+
+log:
+	if (rc <= 0) {
+		struct lfsck_namespace *ns = com->lc_file_ram;
+
+		CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant found bad name "
+		       "entry for: parent "DFID", child "DFID", name %s, type "
+		       "in name entry %o, type claimed by child %o. repair it "
+		       "by %s: rc = %d\n", lfsck_lfsck2name(lfsck),
+		       PFID(lfsck_dto2fid(parent)), PFID(lfsck_dto2fid(child)),
+		       name, (__u32)lnr->lnr_type, lfsck_object_type(child),
+		       update ? "updating" : "removing", rc);
+
+		ns->ln_flags |= LF_INCONSISTENT;
+	}
+
+	return rc;
+}
+
 static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 						struct lfsck_component *com,
 						struct lfsck_assistant_req *lar)
@@ -3376,10 +3521,28 @@ again:
 		count = ldata.ld_leh->leh_reccount;
 		rc = linkea_links_find(&ldata, cname, pfid);
 		if ((rc == 0) &&
-		    (count == 1 || !S_ISDIR(lfsck_object_type(obj))))
+		    (count == 1 || !S_ISDIR(lfsck_object_type(obj)))) {
+			if ((lfsck_object_type(obj) & S_IFMT) !=
+			    lnr->lnr_type) {
+				ns->ln_flags |= LF_INCONSISTENT;
+				type = LNIT_BAD_TYPE;
+			}
+
 			goto record;
+		}
 
 		ns->ln_flags |= LF_INCONSISTENT;
+
+		/* If the file type stored in the name entry does not match
+		 * the file type claimed by the object, and the object does
+		 * not recognize the name entry, then it is quite possible
+		 * that the name entry is corrupted. */
+		if ((lfsck_object_type(obj) & S_IFMT) != lnr->lnr_type) {
+			type = LNIT_BAD_DIRENT;
+
+			GOTO(stop, rc = 0);
+		}
+
 		if (S_ISDIR(lfsck_object_type(obj))) {
 			if (dt_object_remote(obj) == 0) {
 				/* For local sub-dir, if there are more than
@@ -3411,6 +3574,9 @@ again:
 		}
 		goto nodata;
 	} else if (unlikely(rc == -EINVAL)) {
+		if ((lfsck_object_type(obj) & S_IFMT) != lnr->lnr_type)
+			type = LNIT_BAD_TYPE;
+
 		count = 1;
 		ns->ln_flags |= LF_INCONSISTENT;
 		/* The magic crashed, we are not sure whether there are more
@@ -3419,6 +3585,9 @@ again:
 		newdata = true;
 		goto nodata;
 	} else if (rc == -ENODATA) {
+		if ((lfsck_object_type(obj) & S_IFMT) != lnr->lnr_type)
+			type = LNIT_BAD_TYPE;
+
 		count = 1;
 		ns->ln_flags |= LF_UPGRADE;
 		remove = false;
@@ -3515,6 +3684,28 @@ stop:
 
 out:
 	lfsck_ibits_unlock(&lh, LCK_EX);
+
+	if (rc >= 0) {
+		switch (type) {
+		case LNIT_BAD_TYPE:
+			log = false;
+			rc = lfsck_namespace_repair_dirent(env, com, dir,
+							   obj, lnr, true);
+			if (rc == 0)
+				repaired = true;
+			break;
+		case LNIT_BAD_DIRENT:
+			log = false;
+			rc = lfsck_namespace_repair_dirent(env, com, dir,
+							   obj, lnr, false);
+			if (rc == 0)
+				repaired = true;
+			break;
+		default:
+			break;
+		}
+	}
+
 	down_write(&com->lc_sem);
 	if (rc < 0) {
 		CDEBUG(D_LFSCK, "%s: namespace LFSCK assistant fail to handle "
@@ -3542,6 +3733,12 @@ out:
 			case LNIT_DANGLING:
 				ns->ln_dangling_repaired++;
 				break;
+			case LNIT_BAD_TYPE:
+				ns->ln_bad_type_repaired++;
+				break;
+			case LNIT_BAD_DIRENT:
+				ns->ln_dirent_repaired++;
+				break;
 			default:
 				break;
 			}
@@ -3552,6 +3749,7 @@ out:
 					       &ns->ln_pos_first_inconsistent,
 					       false);
 		}
+
 		rc = 0;
 	}
 	up_write(&com->lc_sem);
