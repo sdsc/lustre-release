@@ -582,8 +582,6 @@ typedef struct hlist_node cfs_hlist_node_t;
 #define cfs_hlist_for_each_entry_safe(tpos, pos, n, head, member) \
 	pos = NULL; hlist_for_each_entry_safe(tpos, n, head, member)
 #else
-#define cfs_hlist_for_each_entry(tpos, pos, head, member) \
-	hlist_for_each_entry(tpos, pos, head, member)
 #define cfs_hlist_for_each_entry_safe(tpos, pos, n, head, member) \
 	hlist_for_each_entry_safe(tpos, pos, n, head, member)
 #endif
