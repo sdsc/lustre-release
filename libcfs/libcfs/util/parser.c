@@ -767,3 +767,9 @@ int Parser_quit(int argc, char **argv)
         done = 1;
         return 0;
 }
+
+int Parser_version(char *progname)
+{
+	fprintf(stdout, "%s v"LUSTRE_VERSION_STRING"\n", progname);
+	return 0;
+}
