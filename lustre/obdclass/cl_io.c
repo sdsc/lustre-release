@@ -1337,26 +1337,11 @@ EXPORT_SYMBOL(cl_req_slice_add);
 
 static void cl_req_free(const struct lu_env *env, struct cl_req *req)
 {
-        unsigned i;
+	LASSERT(list_empty(&req->crq_pages));
+	LASSERT(req->crq_nrpages == 0);
+	LINVRNT(list_empty(&req->crq_layers));
+	ENTRY;
 
-        LASSERT(cfs_list_empty(&req->crq_pages));
-        LASSERT(req->crq_nrpages == 0);
-        LINVRNT(cfs_list_empty(&req->crq_layers));
-        LINVRNT(equi(req->crq_nrobjs > 0, req->crq_o != NULL));
-        ENTRY;
-
-        if (req->crq_o != NULL) {
-                for (i = 0; i < req->crq_nrobjs; ++i) {
-                        struct cl_object *obj = req->crq_o[i].ro_obj;
-			if (obj != NULL) {
-				lu_object_ref_del_at(&obj->co_lu,
-						     &req->crq_o[i].ro_obj_ref,
-						     "cl_req", req);
-				cl_object_put(env, obj);
-			}
-                }
-                OBD_FREE(req->crq_o, req->crq_nrobjs * sizeof req->crq_o[0]);
-        }
         OBD_FREE_PTR(req);
         EXIT;
 }
@@ -1410,68 +1395,49 @@ EXPORT_SYMBOL(cl_req_completion);
  * Allocates new transfer request.
  */
 struct cl_req *cl_req_alloc(const struct lu_env *env, struct cl_page *page,
-                            enum cl_req_type crt, int nr_objects)
+			    enum cl_req_type crt)
 {
-        struct cl_req *req;
+	struct cl_req *req;
+	int rc;
 
-        LINVRNT(nr_objects > 0);
-        ENTRY;
+	ENTRY;
 
-        OBD_ALLOC_PTR(req);
-        if (req != NULL) {
-                int result;
+	OBD_ALLOC_PTR(req);
+	if (req == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
 
-                OBD_ALLOC(req->crq_o, nr_objects * sizeof req->crq_o[0]);
-                if (req->crq_o != NULL) {
-                        req->crq_nrobjs = nr_objects;
-                        req->crq_type = crt;
-                        CFS_INIT_LIST_HEAD(&req->crq_pages);
-                        CFS_INIT_LIST_HEAD(&req->crq_layers);
-                        result = cl_req_init(env, req, page);
-                } else
-                        result = -ENOMEM;
-                if (result != 0) {
-                        cl_req_completion(env, req, result);
-                        req = ERR_PTR(result);
-                }
-        } else
-                req = ERR_PTR(-ENOMEM);
-        RETURN(req);
+	req->crq_type = crt;
+	INIT_LIST_HEAD(&req->crq_pages);
+	INIT_LIST_HEAD(&req->crq_layers);
+
+	rc = cl_req_init(env, req, page);
+	if (rc < 0) {
+		cl_req_completion(env, req, rc);
+		RETURN(ERR_PTR(rc));
+	}
+
+	RETURN(req);
 }
 EXPORT_SYMBOL(cl_req_alloc);
 
 /**
  * Adds a page to a request.
  */
-void cl_req_page_add(const struct lu_env *env,
-                     struct cl_req *req, struct cl_page *page)
+void cl_req_page_add(const struct lu_env *env, struct cl_req *req,
+		     struct cl_page *page)
 {
-	struct cl_object  *obj;
-	struct cl_req_obj *rqo;
-	int i;
-
 	ENTRY;
 
-        LASSERT(cfs_list_empty(&page->cp_flight));
-        LASSERT(page->cp_req == NULL);
+	LASSERT(list_empty(&page->cp_flight));
+	LASSERT(page->cp_req == NULL);
 
-        CL_PAGE_DEBUG(D_PAGE, env, page, "req %p, %d, %u\n",
-                      req, req->crq_type, req->crq_nrpages);
+	CL_PAGE_DEBUG(D_PAGE, env, page, "req %p, %d, %u\n",
+		      req, req->crq_type, req->crq_nrpages);
 
-        cfs_list_add_tail(&page->cp_flight, &req->crq_pages);
-        ++req->crq_nrpages;
-        page->cp_req = req;
-        obj = cl_object_top(page->cp_obj);
-        for (i = 0, rqo = req->crq_o; obj != rqo->ro_obj; ++i, ++rqo) {
-                if (rqo->ro_obj == NULL) {
-                        rqo->ro_obj = obj;
-                        cl_object_get(obj);
-			lu_object_ref_add_at(&obj->co_lu, &rqo->ro_obj_ref,
-					     "cl_req", req);
-			break;
-		}
-	}
-	LASSERT(i < req->crq_nrobjs);
+	list_add_tail(&page->cp_flight, &req->crq_pages);
+	++req->crq_nrpages;
+	page->cp_req = req;
+
 	EXIT;
 }
 EXPORT_SYMBOL(cl_req_page_add);
@@ -1501,17 +1467,10 @@ EXPORT_SYMBOL(cl_req_page_done);
  */
 int cl_req_prep(const struct lu_env *env, struct cl_req *req)
 {
-        int i;
-        int result;
-        const struct cl_req_slice *slice;
+	int result;
+	const struct cl_req_slice *slice;
 
-        ENTRY;
-        /*
-         * Check that the caller of cl_req_alloc() didn't lie about the number
-         * of objects.
-         */
-        for (i = 0; i < req->crq_nrobjs; ++i)
-                LASSERT(req->crq_o[i].ro_obj != NULL);
+	ENTRY;
 
         result = 0;
         cfs_list_for_each_entry(slice, &req->crq_layers, crs_linkage) {
@@ -1531,33 +1490,31 @@ EXPORT_SYMBOL(cl_req_prep);
  * for the same request.
  */
 void cl_req_attr_set(const struct lu_env *env, struct cl_req *req,
-                     struct cl_req_attr *attr, obd_valid flags)
+		     struct cl_req_attr *attr, obd_valid flags)
 {
-        const struct cl_req_slice *slice;
-        struct cl_page            *page;
-        int i;
+	const struct cl_req_slice *slice;
+	struct cl_page *page;
 
-        LASSERT(!cfs_list_empty(&req->crq_pages));
-        ENTRY;
 
-        /* Take any page to use as a model. */
-        page = cfs_list_entry(req->crq_pages.next, struct cl_page, cp_flight);
+	LASSERT(!list_empty(&req->crq_pages));
+	ENTRY;
 
-        for (i = 0; i < req->crq_nrobjs; ++i) {
-                cfs_list_for_each_entry(slice, &req->crq_layers, crs_linkage) {
-                        const struct cl_page_slice *scan;
-                        const struct cl_object     *obj;
+	/* Take any page to use as a model. */
+	page = list_entry(req->crq_pages.next, struct cl_page, cp_flight);
+	list_for_each_entry(slice, &req->crq_layers, crs_linkage) {
+		const struct cl_page_slice *scan;
+		const struct cl_object *obj;
 
-                        scan = cl_page_at(page,
-                                          slice->crs_dev->cd_lu_dev.ld_type);
-                        LASSERT(scan != NULL);
-                        obj = scan->cpl_obj;
-                        if (slice->crs_ops->cro_attr_set != NULL)
-                                slice->crs_ops->cro_attr_set(env, slice, obj,
-                                                             attr + i, flags);
-                }
-        }
-        EXIT;
+		scan = cl_page_at(page,
+				  slice->crs_dev->cd_lu_dev.ld_type);
+		LASSERT(scan != NULL);
+		obj = scan->cpl_obj;
+		if (slice->crs_ops->cro_attr_set != NULL)
+			slice->crs_ops->cro_attr_set(env, slice, obj,
+						     attr, flags);
+	}
+
+	EXIT;
 }
 EXPORT_SYMBOL(cl_req_attr_set);
 

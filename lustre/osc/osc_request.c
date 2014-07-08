@@ -1955,8 +1955,7 @@ int osc_build_rpc(const struct lu_env *env, struct client_obd *cli,
 	list_for_each_entry(oap, &rpc_list, oap_rpc_item) {
 		struct cl_page *page = oap2cl_page(oap);
 		if (clerq == NULL) {
-			clerq = cl_req_alloc(env, page, crt,
-					     1 /* only 1-object rpcs for now */);
+			clerq = cl_req_alloc(env, page, crt);
 			if (IS_ERR(clerq))
 				GOTO(out, rc = PTR_ERR(clerq));
 		}

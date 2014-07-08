@@ -2465,17 +2465,6 @@ struct cl_req_operations {
 };
 
 /**
- * A per-object state that (potentially multi-object) transfer request keeps.
- */
-struct cl_req_obj {
-	/** object itself */
-	struct cl_object   *ro_obj;
-	/** reference to cl_req_obj::ro_obj. For debugging. */
-	struct lu_ref_link  ro_obj_ref;
-	/* something else? Number of pages for a given object? */
-};
-
-/**
  * Transfer request.
  *
  * Transfer requests are not reference counted, because IO sub-system owns
@@ -2501,16 +2490,12 @@ struct cl_req_obj {
  * req's pages.
  */
 struct cl_req {
-        enum cl_req_type      crq_type;
-        /** A list of pages being transfered */
-        cfs_list_t            crq_pages;
-        /** Number of pages in cl_req::crq_pages */
-        unsigned              crq_nrpages;
-        /** An array of objects which pages are in ->crq_pages */
-        struct cl_req_obj    *crq_o;
-        /** Number of elements in cl_req::crq_objs[] */
-        unsigned              crq_nrobjs;
-        cfs_list_t            crq_layers;
+	enum cl_req_type	crq_type;
+	/** Number of pages in cl_req::crq_pages */
+	unsigned		crq_nrpages;
+	/** A list of pages being transfered */
+	struct list_head	crq_pages;
+	struct list_head	crq_layers;
 };
 
 /**
@@ -3106,7 +3091,7 @@ void cl_2queue_init_page(struct cl_2queue *queue, struct cl_page *page);
 /** \defgroup cl_req cl_req
  * @{ */
 struct cl_req *cl_req_alloc(const struct lu_env *env, struct cl_page *page,
-                            enum cl_req_type crt, int nr_objects);
+			    enum cl_req_type crt);
 
 void cl_req_page_add  (const struct lu_env *env, struct cl_req *req,
                        struct cl_page *page);
