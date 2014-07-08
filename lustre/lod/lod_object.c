@@ -54,6 +54,12 @@ static const char dotdot[] = "..";
 extern struct kmem_cache *lod_object_kmem;
 static const struct dt_body_operations lod_body_lnk_ops;
 
+/**
+ * Implementation of dt_index_operations:: dio_lookup
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_index_lookup(const struct lu_env *env, struct dt_object *dt,
 			    struct dt_rec *rec, const struct dt_key *key,
 			    struct lustre_capa *capa)
@@ -62,6 +68,12 @@ static int lod_index_lookup(const struct lu_env *env, struct dt_object *dt,
 	return next->do_index_ops->dio_lookup(env, next, rec, key, capa);
 }
 
+/**
+ * Implementation of dt_index_operations:: dio_declare_insert
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 static int lod_declare_index_insert(const struct lu_env *env,
 				    struct dt_object *dt,
 				    const struct dt_rec *rec,
@@ -71,6 +83,12 @@ static int lod_declare_index_insert(const struct lu_env *env,
 	return dt_declare_insert(env, dt_object_child(dt), rec, key, handle);
 }
 
+/**
+ * Implementation of dt_index_operations:: dio_insert
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 static int lod_index_insert(const struct lu_env *env,
 			    struct dt_object *dt,
 			    const struct dt_rec *rec,
@@ -82,6 +100,12 @@ static int lod_index_insert(const struct lu_env *env,
 	return dt_insert(env, dt_object_child(dt), rec, key, th, capa, ign);
 }
 
+/**
+ * Implementation of dt_index_operations:: dio_declare_delete
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 static int lod_declare_index_delete(const struct lu_env *env,
 				    struct dt_object *dt,
 				    const struct dt_key *key,
@@ -90,6 +114,12 @@ static int lod_declare_index_delete(const struct lu_env *env,
 	return dt_declare_delete(env, dt_object_child(dt), key, th);
 }
 
+/**
+ * Implementation of dt_index_operations:: dio_delete
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 static int lod_index_delete(const struct lu_env *env,
 			    struct dt_object *dt,
 			    const struct dt_key *key,
@@ -99,6 +129,12 @@ static int lod_index_delete(const struct lu_env *env,
 	return dt_delete(env, dt_object_child(dt), key, th, capa);
 }
 
+/**
+ * Implementation of dt_index_operations:: dio_it.init
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 static struct dt_it *lod_it_init(const struct lu_env *env,
 				 struct dt_object *dt, __u32 attr,
 				 struct lustre_capa *capa)
@@ -130,6 +166,12 @@ do {								\
 	LASSERT((it)->lit_it != NULL);				\
 } while (0)
 
+/**
+ * Implementation of dt_index_operations:: dio_it.fini
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 void lod_it_fini(const struct lu_env *env, struct dt_it *di)
 {
 	struct lod_it *it = (struct lod_it *)di;
@@ -142,6 +184,12 @@ void lod_it_fini(const struct lu_env *env, struct dt_it *di)
 	it->lit_it = NULL;
 }
 
+/**
+ * Implementation of dt_index_operations:: dio_it.get
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 int lod_it_get(const struct lu_env *env, struct dt_it *di,
 	       const struct dt_key *key)
 {
@@ -151,6 +199,12 @@ int lod_it_get(const struct lu_env *env, struct dt_it *di,
 	return it->lit_obj->do_index_ops->dio_it.get(env, it->lit_it, key);
 }
 
+/**
+ * Implementation of dt_index_operations:: dio_it.put
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 void lod_it_put(const struct lu_env *env, struct dt_it *di)
 {
 	struct lod_it *it = (struct lod_it *)di;
@@ -159,6 +213,12 @@ void lod_it_put(const struct lu_env *env, struct dt_it *di)
 	return it->lit_obj->do_index_ops->dio_it.put(env, it->lit_it);
 }
 
+/*
+ * Implementation of dt_index_operations:: dio_it.next
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 int lod_it_next(const struct lu_env *env, struct dt_it *di)
 {
 	struct lod_it *it = (struct lod_it *)di;
@@ -167,6 +227,12 @@ int lod_it_next(const struct lu_env *env, struct dt_it *di)
 	return it->lit_obj->do_index_ops->dio_it.next(env, it->lit_it);
 }
 
+/*
+ * Implementation of dt_index_operations:: dio_it.key
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 struct dt_key *lod_it_key(const struct lu_env *env, const struct dt_it *di)
 {
 	const struct lod_it *it = (const struct lod_it *)di;
@@ -175,6 +241,12 @@ struct dt_key *lod_it_key(const struct lu_env *env, const struct dt_it *di)
 	return it->lit_obj->do_index_ops->dio_it.key(env, it->lit_it);
 }
 
+/*
+ * Implementation of dt_index_operations:: dio_it.key_size
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 int lod_it_key_size(const struct lu_env *env, const struct dt_it *di)
 {
 	struct lod_it *it = (struct lod_it *)di;
@@ -183,6 +255,12 @@ int lod_it_key_size(const struct lu_env *env, const struct dt_it *di)
 	return it->lit_obj->do_index_ops->dio_it.key_size(env, it->lit_it);
 }
 
+/*
+ * Implementation of dt_index_operations:: dio_it.rec
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 int lod_it_rec(const struct lu_env *env, const struct dt_it *di,
 	       struct dt_rec *rec, __u32 attr)
 {
@@ -193,6 +271,12 @@ int lod_it_rec(const struct lu_env *env, const struct dt_it *di,
 						     attr);
 }
 
+/*
+ * Implementation of dt_index_operations:: dio_it.rec_size
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 int lod_it_rec_size(const struct lu_env *env, const struct dt_it *di,
 		    __u32 attr)
 {
@@ -203,6 +287,12 @@ int lod_it_rec_size(const struct lu_env *env, const struct dt_it *di,
 							  attr);
 }
 
+/*
+ * Implementation of dt_index_operations:: dio_it.store
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 __u64 lod_it_store(const struct lu_env *env, const struct dt_it *di)
 {
 	const struct lod_it *it = (const struct lod_it *)di;
@@ -211,6 +301,12 @@ __u64 lod_it_store(const struct lu_env *env, const struct dt_it *di)
 	return it->lit_obj->do_index_ops->dio_it.store(env, it->lit_it);
 }
 
+/*
+ * Implementation of dt_index_operations:: dio_it.load
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 int lod_it_load(const struct lu_env *env, const struct dt_it *di, __u64 hash)
 {
 	const struct lod_it *it = (const struct lod_it *)di;
@@ -219,6 +315,12 @@ int lod_it_load(const struct lu_env *env, const struct dt_it *di, __u64 hash)
 	return it->lit_obj->do_index_ops->dio_it.load(env, it->lit_it, hash);
 }
 
+/*
+ * Implementation of dt_index_operations:: dio_it.key_rec
+ * used with regular (non-striped) objects
+ *
+ * see the details of the method in the API description
+ */
 int lod_it_key_rec(const struct lu_env *env, const struct dt_it *di,
 		   void *key_rec)
 {
@@ -253,21 +355,9 @@ static struct dt_index_operations lod_index_ops = {
 
 /**
  * Implementation of dt_index_operations:: dio_it.init
+ * used with regular (non-striped) objects
  *
- * This function is to initialize the iterator for striped directory,
- * basically these lod_striped_it_xxx will just locate the stripe
- * and call the correspondent api of its next lower layer.
- *
- * \param[in] env	execution environment.
- * \param[in] dt	the striped directory object to be iterated.
- * \param[in] attr	the attribute of iterator, mostly used to indicate
- *                      the entry attribute in the object to be iterated.
- * \param[in] capa	capability(useless in current implementation)
- *
- * \retval	initialized iterator(dt_it) if successful initialize the
- *              iteration. lit_stripe_index will be used to indicate the
- *              current iterate position among stripes.
- * \retval	ERR pointer if initialization is failed.
+ * see the details of the method in the API description
  */
 static struct dt_it *lod_striped_it_init(const struct lu_env *env,
 					 struct dt_object *dt, __u32 attr,
@@ -312,12 +402,9 @@ do {								\
 
 /**
  * Implementation of dt_index_operations:: dio_it.fini
+ * used with striped objects
  *
- * This function is to finish the iterator for striped directory.
- *
- * \param[in] env	execution environment.
- * \param[in] di	the iterator for the striped directory
- *
+ * see the details of the method in the API description
  */
 static void lod_striped_it_fini(const struct lu_env *env, struct dt_it *di)
 {
@@ -341,15 +428,9 @@ static void lod_striped_it_fini(const struct lu_env *env, struct dt_it *di)
 
 /**
  * Implementation of dt_index_operations:: dio_it.get
+ * used with striped objects
  *
- * This function is to position the iterator with given key
- *
- * \param[in] env	execution environment.
- * \param[in] di	the iterator for striped directory.
- * \param[in] key	the key the iterator will be positioned.
- *
- * \retval	0 if successfully position iterator by the key.
- * \retval	negative error if position is failed.
+ * see the details of the method in the API description
  */
 static int lod_striped_it_get(const struct lu_env *env, struct dt_it *di,
 			      const struct dt_key *key)
@@ -370,9 +451,9 @@ static int lod_striped_it_get(const struct lu_env *env, struct dt_it *di,
 
 /**
  * Implementation of dt_index_operations:: dio_it.put
+ * used with striped objects
  *
- * This function is supposed to be the pair of it_get, but currently do
- * nothing. see (osd_it_ea_put or osd_index_it_put)
+ * see the details of the method in the API description
  */
 static void lod_striped_it_put(const struct lu_env *env, struct dt_it *di)
 {
@@ -391,17 +472,9 @@ static void lod_striped_it_put(const struct lu_env *env, struct dt_it *di)
 
 /**
  * Implementation of dt_index_operations:: dio_it.next
+ * used with striped objects
  *
- * This function is to position the iterator to the next entry, if current
- * stripe is finished by checking the return value of next() in current
- * stripe. it will go to next stripe. In the mean time, the sub-iterator
- * for next stripe needs to be initialized.
- *
- * \param[in] env	execution environment.
- * \param[in] di	the iterator for striped directory.
- *
- * \retval	0 if successfully position iterator to the next entry.
- * \retval	negative error if position is failed.
+ * see the details of the method in the API description
  */
 static int lod_striped_it_next(const struct lu_env *env, struct dt_it *di)
 {
@@ -479,14 +552,9 @@ again:
 
 /**
  * Implementation of dt_index_operations:: dio_it.key
+ * used with striped objects
  *
- * This function is to get the key of the iterator at current position.
- *
- * \param[in] env	execution environment.
- * \param[in] di	the iterator for striped directory.
- *
- * \retval	key(dt_key) if successfully get the key.
- * \retval	negative error if can not get the key.
+ * see the details of the method in the API description
  */
 static struct dt_key *lod_striped_it_key(const struct lu_env *env,
 					 const struct dt_it *di)
@@ -506,14 +574,9 @@ static struct dt_key *lod_striped_it_key(const struct lu_env *env,
 
 /**
  * Implementation of dt_index_operations:: dio_it.key_size
+ * used with striped objects
  *
- * This function is to get the key_size of current key.
- *
- * \param[in] env	execution environment.
- * \param[in] di	the iterator for striped directory.
- *
- * \retval	key_size if successfully get the key_size.
- * \retval	negative error if can not get the key_size.
+ * see the details of the method in the API description
  */
 static int lod_striped_it_key_size(const struct lu_env *env,
 				   const struct dt_it *di)
@@ -533,17 +596,9 @@ static int lod_striped_it_key_size(const struct lu_env *env,
 
 /**
  * Implementation of dt_index_operations:: dio_it.rec
+ * used with striped objects
  *
- * This function is to get the record at current position.
- *
- * \param[in] env	execution environment.
- * \param[in] di	the iterator for striped directory.
- * \param[in] attr	the attribute of iterator, mostly used to indicate
- *                      the entry attribute in the object to be iterated.
- * \param[out] rec	hold the return record.
- *
- * \retval	0 if successfully get the entry.
- * \retval	negative error if can not get entry.
+ * see the details of the method in the API description
  */
 static int lod_striped_it_rec(const struct lu_env *env, const struct dt_it *di,
 			      struct dt_rec *rec, __u32 attr)
@@ -563,16 +618,9 @@ static int lod_striped_it_rec(const struct lu_env *env, const struct dt_it *di,
 
 /**
  * Implementation of dt_index_operations:: dio_it.rec_size
+ * used with striped objects
  *
- * This function is to get the record_size at current record.
- *
- * \param[in] env	execution environment.
- * \param[in] di	the iterator for striped directory.
- * \param[in] attr	the attribute of iterator, mostly used to indicate
- *                      the entry attribute in the object to be iterated.
- *
- * \retval	rec_size if successfully get the entry size.
- * \retval	negative error if can not get entry size.
+ * see the details of the method in the API description
  */
 static int lod_striped_it_rec_size(const struct lu_env *env,
 				   const struct dt_it *di, __u32 attr)
@@ -592,14 +640,9 @@ static int lod_striped_it_rec_size(const struct lu_env *env,
 
 /**
  * Implementation of dt_index_operations:: dio_it.store
+ * used with striped objects
  *
- * This function will a cookie for current position of the iterator head,
- * so that user can use this cookie to load/start the iterator next time.
- *
- * \param[in] env	execution environment.
- * \param[in] di	the iterator for striped directory.
- *
- * \retval	the cookie.
+ * see the details of the method in the API description
  */
 static __u64 lod_striped_it_store(const struct lu_env *env,
 				  const struct dt_it *di)
@@ -619,16 +662,9 @@ static __u64 lod_striped_it_store(const struct lu_env *env,
 
 /**
  * Implementation of dt_index_operations:: dio_it.load
+ * used with striped objects
  *
- * This function will position the iterator with the given hash(usually
- * get from store),
- *
- * \param[in] env	execution environment.
- * \param[in] di	the iterator for striped directory.
- * \param[in] hash	the given hash.
- *
- * \retval	>0 if successfuly load the iterator to the given position.
- * \retval	<0 if load is failed.
+ * see the details of the method in the API description
  */
 static int lod_striped_it_load(const struct lu_env *env,
 			       const struct dt_it *di, __u64 hash)
@@ -865,19 +901,7 @@ next:
 /**
  * Implementation of dt_object_operations:: do_index_try
  *
- * This function will try to initialize the index api pointer for the
- * given object, usually it the entry point of the index api. i.e.
- * the index object should be initialized in index_try, then start
- * using index api. For striped directory, it will try to initialize
- * all of its sub_stripes.
- *
- * \param[in] env	execution environment.
- * \param[in] dt	the index object to be initialized.
- * \param[in] feat	the features of this object, for example fixed or
- *			variable key size etc.
- *
- * \retval	>0 if the initialization is successful.
- * \retval	<0 if the initialization is failed.
+ * see the details of the method in the API description
  */
 static int lod_index_try(const struct lu_env *env, struct dt_object *dt,
 			 const struct dt_index_features *feat)
@@ -917,36 +941,66 @@ static int lod_index_try(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_read_lock
+ *
+ * see the details of the method in the API description
+ */
 static void lod_object_read_lock(const struct lu_env *env,
 				 struct dt_object *dt, unsigned role)
 {
 	dt_read_lock(env, dt_object_child(dt), role);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_write_lock
+ *
+ * see the details of the method in the API description
+ */
 static void lod_object_write_lock(const struct lu_env *env,
 				  struct dt_object *dt, unsigned role)
 {
 	dt_write_lock(env, dt_object_child(dt), role);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_read_unlock
+ *
+ * see the details of the method in the API description
+ */
 static void lod_object_read_unlock(const struct lu_env *env,
 				   struct dt_object *dt)
 {
 	dt_read_unlock(env, dt_object_child(dt));
 }
 
+/**
+ * Implementation of dt_object_operations:: do_write_unlock
+ *
+ * see the details of the method in the API description
+ */
 static void lod_object_write_unlock(const struct lu_env *env,
 				    struct dt_object *dt)
 {
 	dt_write_unlock(env, dt_object_child(dt));
 }
 
+/**
+ * Implementation of dt_object_operations:: do_write_locked
+ *
+ * see the details of the method in the API description
+ */
 static int lod_object_write_locked(const struct lu_env *env,
 				   struct dt_object *dt)
 {
 	return dt_write_locked(env, dt_object_child(dt));
 }
 
+/**
+ * Implementation of dt_object_operations:: do_attr_get
+ *
+ * see the details of the method in the API description
+ */
 static int lod_attr_get(const struct lu_env *env,
 			struct dt_object *dt,
 			struct lu_attr *attr,
@@ -961,6 +1015,21 @@ static int lod_attr_get(const struct lu_env *env,
 
 /**
  * Mark all of sub-stripes dead of the striped directory.
+ *
+ * When a striped object is a subject to removal, we have
+ * to mark all the stripes to prevent further access to
+ * them (e.g. create a new file in those). So we mark
+ * all the stripes with LMV_HASH_FLAG_DEAD. The function
+ * can be used to declare the changes and to apply them.
+ * If the object isn't striped, then just regurn success.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	the striped object
+ * \param[in] handle	transaction handle
+ * \param[in] declare	whether to declare the change or apply
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
  **/
 static int lod_mark_dead_object(const struct lu_env *env,
 				struct dt_object *dt,
@@ -1015,6 +1084,13 @@ static int lod_mark_dead_object(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_declare_attr_set
+ *
+ * If the object is striped, then apply the changes to all the stripes.
+ *
+ * see the details of the method in the API description
+ */
 static int lod_declare_attr_set(const struct lu_env *env,
 				struct dt_object *dt,
 				const struct lu_attr *attr,
@@ -1104,6 +1180,13 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_attr_set
+ *
+ * If the object is striped, then apply the changes to all the stripes.
+ *
+ * see the details of the method in the API description
+ */
 static int lod_attr_set(const struct lu_env *env,
 			struct dt_object *dt,
 			const struct lu_attr *attr,
@@ -1203,6 +1286,14 @@ static int lod_attr_set(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_attr_get
+ *
+ * if LOV EA is requested from the root object and it's not
+ * found, then return default striping for the filesystem.
+ *
+ * see the details of the method in the API description
+ */
 static int lod_xattr_get(const struct lu_env *env, struct dt_object *dt,
 			 struct lu_buf *buf, const char *name,
 			 struct lustre_capa *capa)
@@ -1257,6 +1348,7 @@ static int lod_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	 * this is like the root stores default striping for the whole
 	 * filesystem. historically we've been using a different approach
 	 * and store it in the config.
+	 * XXX: why don't we just store it and remove have this check?
 	 */
 	dt_root_get(env, dev->lod_child, &info->lti_fid);
 	is_root = lu_fid_eq(&info->lti_fid, lu_object_fid(&dt->do_lu));
@@ -1288,6 +1380,17 @@ static int lod_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+/**
+ * Verify LVM EA
+ *
+ * Checks the magic and the number of the stripes are sane.
+ *
+ * \param[in] lod	lod device
+ * \param[in] lum	a buffer storing LMV EA to verify
+ *
+ * \retval		0 if the EA is sane
+ * \retval		negative otherwise
+ */
 static int lod_verify_md_striping(struct lod_device *lod,
 				  const struct lmv_user_md_v1 *lum)
 {
@@ -1310,9 +1413,13 @@ out:
 }
 
 /**
- * Master LMVEA will be same as slave LMVEA, except
- * 1. different magic
- * 2. lmv_master_mdt_index on slave LMV EA will be stripe_index.
+ * Initialize LMV EA for a slave
+ *
+ * Initialize slave's LMV EA from the master's LMV EA
+ *
+ * \param[in] master_lmv	a buffer containing master's EA
+ * \param[out] slave_lmv	a buffer where slave's EA will be stored
+ *
  */
 static void lod_prep_slave_lmv_md(struct lmv_mds_md_v1 *slave_lmv,
 				  const struct lmv_mds_md_v1 *master_lmv)
@@ -1321,6 +1428,19 @@ static void lod_prep_slave_lmv_md(struct lmv_mds_md_v1 *slave_lmv,
 	slave_lmv->lmv_magic = cpu_to_le32(LMV_MAGIC_STRIPE);
 }
 
+/**
+ * Generate LMV EA
+ *
+ * Generate LMV EA from the object passed. The object is supposed
+ * to have the stripes created and initialized.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	object
+ * \param[out] lmv_but	buffer storing generated LMV EA
+ *
+ * \retval		0 on success
+ * \retval		negative if failed
+ */
 int lod_prep_lmv_md(const struct lu_env *env, struct dt_object *dt,
 		    struct lu_buf *lmv_buf)
 {
@@ -1363,6 +1483,20 @@ int lod_prep_lmv_md(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+/**
+ * Create in-core represenation for a striped directory
+ *
+ * Parses the buffer containing LMV EA and instantiate LU objects
+ * representing the stripe objects. This function is used when
+ * we need to access already created object (i.e. load from a disk).
+ *
+ * \param[in] env	execution environment
+ * \param[in] lo	lod object
+ * \param[in] buf	buffer containing LMV EA
+ *
+ * \retval		0 on success
+ * \retval		negative if failed
+ */
 int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
 			   const struct lu_buf *buf)
 {
@@ -1440,6 +1574,27 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Create a striped directory
+ *
+ * Create a striped directory with passed number of stripes on the
+ * specified MDTs. A striped directory is represented as a regular
+ * directory - an index listing all the stripes. The stripes pointing
+ * back with ".." and proper LinkEA. The master object gets LMV EA
+ * which states a striped directory. The function does allocates FIDs
+ * for all the stripes.
+
+ * \param[in] env	execution environment
+ * \param[in] dt	object
+ * \param[in] attr	attributes to initialize the objects with
+ * \param[in] lum	a pattern specifying the number of stripes and
+ *			preferred MDTs
+ * \param[in] dof	type of objects to be created
+ * \param[in] th	transaction handle
+ *
+ * \retval		0 on success
+ * \retval		negative if failed
+ */
 static int lod_prep_md_striped_create(const struct lu_env *env,
 				      struct dt_object *dt,
 				      struct lu_attr *attr,
@@ -1767,6 +1922,15 @@ out:
 	RETURN(rc);
 }
 
+
+/**
+ * Implementation of dt_object_operations:: do_declare_xattr_set
+ * used with regular (non-striped) objects. Basically it
+ * initializes the striping information and applies the
+ * change to all the stripes.
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_dir_declare_xattr_set(const struct lu_env *env,
 				     struct dt_object *dt,
 				     const struct lu_buf *buf,
@@ -1817,15 +1981,13 @@ static int lod_dir_declare_xattr_set(const struct lu_env *env,
 	RETURN(rc);
 }
 
-/*
- * LOV xattr is a storage for striping, and LOD owns this xattr.
- * but LOD allows others to control striping to some extent
- * - to reset strping
- * - to set new defined striping
- * - to set new semi-defined striping
- *   - number of stripes is defined
- *   - number of stripes + osts are defined
- *   - ??
+/**
+ * Implementation of dt_object_operations:: do_declare_xattr_set
+ *
+ * see the details of the method in OSD API description
+ * the extension to the API:
+ *   - declaring LOVEA requests striping creation
+ *   - LU_XATTR_REPLACE means layout swap
  */
 static int lod_declare_xattr_set(const struct lu_env *env,
 				 struct dt_object *dt,
@@ -1870,6 +2032,11 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Resets cached default striping in the object.
+ *
+ * \param[in] lo	object
+ */
 static void lod_lov_stripe_cache_clear(struct lod_object *lo)
 {
 	lo->ldo_striping_cached = 0;
@@ -1881,6 +2048,22 @@ static void lod_lov_stripe_cache_clear(struct lod_object *lo)
 		lo->ldo_dir_striping_cached = 0;
 }
 
+/**
+ * Apply xattr changes to the object.
+ *
+ * Applies xattr changes to the object and the stripes if exist.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	object
+ * \param[in] buf	buffer pointing to the new value of xattr
+ * \param[in] name	name of xattr
+ * \param[in] fl	flags
+ * \param[in] handle	transaction handle
+ * \param[in] capa	not used currently
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 static int lod_xattr_set_internal(const struct lu_env *env,
 				  struct dt_object *dt,
 				  const struct lu_buf *buf,
@@ -1915,6 +2098,20 @@ static int lod_xattr_set_internal(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Delete an extended attribute
+ *
+ * Deletes specified xattr from the object and the stripes if exist
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	object
+ * \param[in] name	name of xattr
+ * \param[in] handle	transaction handle
+ * \param[in] capa	not used currently
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 static int lod_xattr_del_internal(const struct lu_env *env,
 				  struct dt_object *dt,
 				  const char *name, struct thandle *th,
@@ -1944,6 +2141,25 @@ static int lod_xattr_del_internal(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Set default striping on a directory.
+ *
+ * Sets specified striping on a directory object unless it matches
+ * the default striping. in the latter case remove existing EA.
+ * This striping will be used when regular file is being created
+ * in this directory.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	the striped object
+ * \param[in] buf	buffer with the striping
+ * \param[in] name	name of EA
+ * \param[in] fl	xattr flag (see OSD API description)
+ * \param[in] handle	transaction handle
+ * \param[in] capa	not used
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 static int lod_xattr_set_lov_on_dir(const struct lu_env *env,
 				    struct dt_object *dt,
 				    const struct lu_buf *buf,
@@ -1997,6 +2213,25 @@ static int lod_xattr_set_lov_on_dir(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Set default striping on a directory object
+ *
+ * Sets specified striping on a directory object unless it matches
+ * the default striping. in the latter case remove existing EA.
+ * This striping will be used when a new directory is being created
+ * in the directory.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	the striped object
+ * \param[in] buf	buffer with the striping
+ * \param[in] name	name of EA
+ * \param[in] fl	xattr flag (see OSD API description)
+ * \param[in] handle	transaction handle
+ * \param[in] capa	not used
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 static int lod_xattr_set_default_lmv_on_dir(const struct lu_env *env,
 					    struct dt_object *dt,
 					    const struct lu_buf *buf,
@@ -2042,6 +2277,26 @@ static int lod_xattr_set_default_lmv_on_dir(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Turn directory into a striped one
+ *
+ * During replay the client sends the striping created before MDT
+ * failure, then the layer above LOD sends this defined striping
+ * using ->do_xattr_set(), so LOD uses this method to replay creation
+ * of a stripes. Notice the original information for the striping
+ * (#stripes, FIDs, etc) was transfered in declare path.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	the striped object
+ * \param[in] buf	not used currently
+ * \param[in] name	not used currently
+ * \param[in] fl	xattr flag (see OSD API description)
+ * \param[in] handle	transaction handle
+ * \param[in] capa	not used
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 static int lod_xattr_set_lmv(const struct lu_env *env, struct dt_object *dt,
 			     const struct lu_buf *buf, const char *name,
 			     int fl, struct thandle *th,
@@ -2193,6 +2448,28 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Helper function to declare/execute creation of a striped directory
+ *
+ * Called in declare/create object path, prepare striping for a directory
+ * and prepare defaults data striping for the objects to be created in
+ * that directory. Notice the function calls "declaration" or "execution"
+ * methods depending on \declare param. This is a consequence of the
+ * current approach while we don't have natural distributed transactions:
+ * we basically execute non-local updates in the declare phase. so, the
+ * arguments for the both phases are the same and this is the reason for
+ * this function to exists.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	object
+ * \param[in] attr	attributes the stripes will be created with
+ * \param[in] dof	format of stripes (see OSD API description)
+ * \param[in] handle	transaction handle
+ * \param[in] declare	where to call "declare" or "execute" methods
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 int lod_dir_striping_create_internal(const struct lu_env *env,
 				     struct dt_object *dt,
 				     struct lu_attr *attr,
@@ -2332,6 +2609,23 @@ static int lod_dir_striping_create(const struct lu_env *env,
 	return lod_dir_striping_create_internal(env, dt, attr, dof, th, false);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_xattr_set
+ *
+ * Sets specified extended attribute on the object. Three types
+ * of EAs are special:
+ *   LOV EA - stores striping for a regular file or default
+ *	      striping (when set on a directory)
+ *   LMV EA - stores a marker for the striped directories
+ *   DMV EA - stores default directory striping
+ * When striping is applied to a non-striped object, then LOD
+ * notices the caller wants to turn the object into a striped
+ * one, then stripe objects are created properly and appropriate
+ * EA is set (LOV EA storing all the stripes directly or LMV EA
+ * storing just a small header with striping configuration).
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_xattr_set(const struct lu_env *env,
 			 struct dt_object *dt, const struct lu_buf *buf,
 			 const char *name, int fl, struct thandle *th,
@@ -2388,6 +2682,11 @@ static int lod_xattr_set(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_declare_xattr_del
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_declare_xattr_del(const struct lu_env *env,
 				 struct dt_object *dt, const char *name,
 				 struct thandle *th)
@@ -2395,6 +2694,14 @@ static int lod_declare_xattr_del(const struct lu_env *env,
 	return dt_declare_xattr_del(env, dt_object_child(dt), name, th);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_xattr_del
+ *
+ * If EA storing a regular striping is being deleted, then release
+ * all the references to the stripe objects in core.
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_xattr_del(const struct lu_env *env, struct dt_object *dt,
 			 const char *name, struct thandle *th,
 			 struct lustre_capa *capa)
@@ -2404,6 +2711,11 @@ static int lod_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	return dt_xattr_del(env, dt_object_child(dt), name, th, capa);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_xattr_list
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_xattr_list(const struct lu_env *env,
 			  struct dt_object *dt, struct lu_buf *buf,
 			  struct lustre_capa *capa)
@@ -2411,6 +2723,19 @@ static int lod_xattr_list(const struct lu_env *env,
 	return dt_xattr_list(env, dt_object_child(dt), buf, capa);
 }
 
+/**
+ * Initialize a pool the object belongs to
+ *
+ * When a striped object is being created, striping configuration
+ * may demand the stripes to be allocated on a limited set of the
+ * targets. These limited sets are known as "pools". So we copy
+ * a pool name into the object and later actual creation methods
+ * (like lod_object_create()) will use this information to allocates
+ * the stripes properly.
+ *
+ * \param[in] o		object
+ * \param[in] pool	pool name
+ */
 int lod_object_set_pool(struct lod_object *o, char *pool)
 {
 	int len;
@@ -2436,6 +2761,19 @@ static inline int lod_object_will_be_striped(int is_reg, const struct lu_fid *fi
 }
 
 
+/**
+ * Cache default regular striping in the object
+ *
+ * To improve performance of striped regular object creation we cache
+ * default regular striping (if exists) in the parent directory
+ * object.
+ *
+ * \param[in] env		execution environment
+ * \param[in] dt		object
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 static int lod_cache_parent_lov_striping(const struct lu_env *env,
 					 struct lod_object *lp)
 {
@@ -2500,6 +2838,19 @@ unlock:
 }
 
 
+/**
+ * Cache default directory striping in the object
+ *
+ * To improve performance of striped directory creation we cache
+ * default directory striping (if exists) in the parent directory
+ * object.
+ *
+ * \param[in] env		execution environment
+ * \param[in] dt		object
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 static int lod_cache_parent_lmv_striping(const struct lu_env *env,
 					 struct lod_object *lp)
 {
@@ -2541,6 +2892,23 @@ unlock:
 	return rc;
 }
 
+/**
+ * Cache default striping in the object
+ *
+ * To improve performance of striped object creation we cache
+ * default striping (if exists) in the parent directory object.
+ * We do always cache default striping for the regular files
+ * (stored in LOV EA) and we do cache default striping for the
+ * directories if requested by \child_mode (when a new directory
+ * is being created).
+ *
+ * \param[in] env		execution environment
+ * \param[in] dt		object
+ * \param[in] child_mode	new object's mode
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 static int lod_cache_parent_striping(const struct lu_env *env,
 				     struct lod_object *lp,
 				     umode_t child_mode)
@@ -2567,7 +2935,15 @@ static int lod_cache_parent_striping(const struct lu_env *env,
 }
 
 /**
- * used to transfer default striping data to the object being created
+ * Implementation of dt_object_operations:: do_ah_init
+ *
+ * This method is used to make a decision on the striping configuration
+ * for the object being created. It can be taken from the \parent object,
+ * if exists or filesystem's default one. The result configuration (# of
+ * stripes, stripe size/offset, pool name, etc) is stored in the object
+ * itself and will be used by the methods like ->doo_declare_create().
+ *
+ * see the details of the method in OSD API description
  */
 static void lod_ah_init(const struct lu_env *env,
 			struct dt_allocation_hint *ah,
@@ -2748,11 +3124,22 @@ out:
 }
 
 #define ll_do_div64(aaa,bbb)    do_div((aaa), (bbb))
-/*
- * this function handles a special case when truncate was done
- * on a stripeless object and now striping is being created
- * we can't lose that size, so we have to propagate it to newly
- * created object
+/**
+ * Size initialization on the late striping
+ *
+ * This function handles a special case when truncate was done on a
+ * non-striped object and now while the striping is being created
+ * we can't lose that size, so we have to propagate it to the stripes
+ * being created. Notice the size to be propageted is stored in the
+ * master object, so we can take it from the object and doesn't need
+ * to pass around.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	object
+ * \param[in] handle	transaction handle
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
  */
 static int lod_declare_init_size(const struct lu_env *env,
 				 struct dt_object *dt, struct thandle *th)
@@ -2855,6 +3242,17 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_declare_create
+ *
+ * The method declares creation of a new object, if the object is
+ * decided to be a striped one, then helper functions are called
+ * to find FIDs for the stripes, declare creation of the stripes
+ * and declare initialization of the striping information to be
+ * store in the master object.
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_declare_object_create(const struct lu_env *env,
 				     struct dt_object *dt,
 				     struct lu_attr *attr,
@@ -2905,6 +3303,25 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Creation of a striped regular object
+ *
+ * The function is called to create the stripe objects for a regular
+ * striped file. This can happen at the initial object creation or
+ * when the caller asks LOD to do so using ->do_xattr_set() method
+ * (so called late striping). Notice all the information are already
+ * prepared in the form of the list of objects (ldo_stripe field).
+ * This is done during declare phase.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	object
+ * \param[in] attr	attributes the stripes will be created with
+ * \param[in] dof	format of stripes (see OSD API description)
+ * \param[in] handle	transaction handle
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 			struct lu_attr *attr, struct dt_object_format *dof,
 			struct thandle *th)
@@ -2929,6 +3346,15 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_create
+ *
+ * If any of preceeding methods (like ->do_declare_create(),
+ * ->do_ah_init(), etc) choosed to create a striped object,
+ * then this method will be creating the master and the stripes.
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 			     struct lu_attr *attr,
 			     struct dt_allocation_hint *hint,
@@ -2951,6 +3377,16 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_declare_destroy
+ *
+ * If the object is striped one, then: for directories it declares
+ * references removal from the master object (this is an index) to
+ * the stripes and declares destroy of all the stripes. Then it
+ * declares an intention to destroy the object itself.
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_declare_object_destroy(const struct lu_env *env,
 				      struct dt_object *dt,
 				      struct thandle *th)
@@ -3013,6 +3449,16 @@ static int lod_declare_object_destroy(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_destroy
+ *
+ * If the object is striped one, then: for directories it deletes the
+ * references from the master object (this is an index) to the stripes
+ * and destroys all the stripes. Then the object itself is subject to
+ * destroy too.
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_object_destroy(const struct lu_env *env,
 		struct dt_object *dt, struct thandle *th)
 {
@@ -3071,30 +3517,55 @@ static int lod_object_destroy(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_declare_ref_add
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_declare_ref_add(const struct lu_env *env,
 			       struct dt_object *dt, struct thandle *th)
 {
 	return dt_declare_ref_add(env, dt_object_child(dt), th);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_ref_add
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_ref_add(const struct lu_env *env,
 		       struct dt_object *dt, struct thandle *th)
 {
 	return dt_ref_add(env, dt_object_child(dt), th);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_declare_ref_del
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_declare_ref_del(const struct lu_env *env,
 			       struct dt_object *dt, struct thandle *th)
 {
 	return dt_declare_ref_del(env, dt_object_child(dt), th);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_ref_del
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_ref_del(const struct lu_env *env,
 		       struct dt_object *dt, struct thandle *th)
 {
 	return dt_ref_del(env, dt_object_child(dt), th);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_capa_get
+ *
+ * see the details of the method in OSD API description
+ */
 static struct obd_capa *lod_capa_get(const struct lu_env *env,
 				     struct dt_object *dt,
 				     struct lustre_capa *old, __u64 opc)
@@ -3102,6 +3573,11 @@ static struct obd_capa *lod_capa_get(const struct lu_env *env,
 	return dt_capa_get(env, dt_object_child(dt), old, opc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_object_sync
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_object_sync(const struct lu_env *env, struct dt_object *dt,
 			   __u64 start, __u64 end)
 {
@@ -3113,6 +3589,20 @@ struct lod_slave_locks	{
 	struct lustre_handle	lsl_handle[0];
 };
 
+/**
+ * Release LDLM locks
+ *
+ * Iterates over all the locks taken on the stripe objects and
+ * release them using ->do_object_unlock() method.
+ *
+ * \param[in] env	execution environment
+ * \param[in] dt	striped object
+ * \param[in] einfo	lock description
+ * \paramp[in] policy
+ *
+ * \retval		0 on success
+ * \retval		nevative if failed
+ */
 static int lod_object_unlock_internal(const struct lu_env *env,
 				      struct dt_object *dt,
 				      struct ldlm_enqueue_info *einfo,
@@ -3142,6 +3632,13 @@ static int lod_object_unlock_internal(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_object_unlock
+ *
+ * Used to release LDLM lock(s)
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_object_unlock(const struct lu_env *env, struct dt_object *dt,
 			     struct ldlm_enqueue_info *einfo,
 			     union ldlm_policy_data *policy)
@@ -3178,6 +3675,13 @@ static int lod_object_unlock(const struct lu_env *env, struct dt_object *dt,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_object_operations:: do_object_lock
+ *
+ * Used to get LDLM lock on the non-striped and striped objects.
+ *
+ * see the details of the method in OSD API description
+ */
 static int lod_object_lock(const struct lu_env *env,
 			   struct dt_object *dt,
 			   struct lustre_handle *lh,
@@ -3279,6 +3783,11 @@ struct dt_object_operations lod_obj_ops = {
 	.do_object_unlock	= lod_object_unlock,
 };
 
+/**
+ * Implementation of dt_body_operations:: dbo_read
+ *
+ * see the details of the method in OSD API description
+ */
 static ssize_t lod_read(const struct lu_env *env, struct dt_object *dt,
 			struct lu_buf *buf, loff_t *pos,
 			struct lustre_capa *capa)
@@ -3287,6 +3796,11 @@ static ssize_t lod_read(const struct lu_env *env, struct dt_object *dt,
         return next->do_body_ops->dbo_read(env, next, buf, pos, capa);
 }
 
+/**
+ * Implementation of dt_body_operations:: dbo_declare_write
+ *
+ * see the details of the method in OSD API description
+ */
 static ssize_t lod_declare_write(const struct lu_env *env,
 				 struct dt_object *dt,
 				 const struct lu_buf *buf, loff_t pos,
@@ -3296,6 +3810,11 @@ static ssize_t lod_declare_write(const struct lu_env *env,
 				       buf, pos, th);
 }
 
+/**
+ * Implementation of dt_body_operations:: dbo_write
+ *
+ * see the details of the method in OSD API description
+ */
 static ssize_t lod_write(const struct lu_env *env, struct dt_object *dt,
 			 const struct lu_buf *buf, loff_t *pos,
 			 struct thandle *th, struct lustre_capa *capa, int iq)
@@ -3311,6 +3830,16 @@ static const struct dt_body_operations lod_body_lnk_ops = {
 	.dbo_write		= lod_write
 };
 
+/**
+ * Implementation of lu_object_operations:: loo_object_init
+ *
+ * The function lookup the object's FID and learns type/index
+ * of the target device. Then passes control down to the
+ * corresponding device:
+ *  OSD for the local objects, OSP for remote
+ *
+ * see the details of the method in LU API description
+ */
 static int lod_object_init(const struct lu_env *env, struct lu_object *lo,
 			   const struct lu_object_conf *conf)
 {
@@ -3366,6 +3895,17 @@ static int lod_object_init(const struct lu_env *env, struct lu_object *lo,
 	RETURN(0);
 }
 
+/**
+ *
+ * Release resources associated with striping
+ *
+ * If the object is striped one (regular or directory), then release
+ * the stripe objects references and release memory consumed by the
+ * pointers.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lod	object
+ */
 void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo)
 {
 	int i;
@@ -3392,9 +3932,10 @@ void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo)
 	lo->ldo_pattern = 0;
 }
 
-/*
- * ->start is called once all slices are initialized, including header's
- * cache for mode (object type). using the type we can initialize ops
+/**
+ * Implementation of lu_object_operations:: loo_object_start
+ *
+ * see the details of the method in LU API description
  */
 static int lod_object_start(const struct lu_env *env, struct lu_object *o)
 {
@@ -3403,6 +3944,11 @@ static int lod_object_start(const struct lu_env *env, struct lu_object *o)
 	return 0;
 }
 
+/**
+ * Implementation of lu_object_operations:: loo_object_free
+ *
+ * see the details of the method in LU API description
+ */
 static void lod_object_free(const struct lu_env *env, struct lu_object *o)
 {
 	struct lod_object *mo = lu2lod_obj(o);
@@ -3419,12 +3965,22 @@ static void lod_object_free(const struct lu_env *env, struct lu_object *o)
 	OBD_SLAB_FREE_PTR(mo, lod_object_kmem);
 }
 
+/**
+ * Implementation of lu_object_operations:: loo_object_release
+ *
+ * see the details of the method in LU API description
+ */
 static void lod_object_release(const struct lu_env *env, struct lu_object *o)
 {
 	/* XXX: shouldn't we release everything here in case if object
 	 * creation failed before? */
 }
 
+/**
+ * Implementation of lu_object_operations:: loo_object_print
+ *
+ * see the details of the method in LU API description
+ */
 static int lod_object_print(const struct lu_env *env, void *cookie,
 			    lu_printer_t p, const struct lu_object *l)
 {
