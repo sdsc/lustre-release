@@ -45,7 +45,7 @@ setupall
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18 19 20 21"
 
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 2e 3 22 23 24 25 26 27 28"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 2e 3 22 23 24 25 26 27 28 29"
 
 build_test_filter
 
@@ -3436,6 +3436,160 @@ test_28() {
 		error "(11) Expect 0 fixed on mds2, but got: $repaired"
 }
 run_test 28 "Skip the failed MDT(s) when handle orphan MDT-objects"
+
+test_29a() {
+	echo "#####"
+	echo "The object's nlink attribute is larger than the object's known"
+	echo "name entries count. The LFSCK will repair the object's nlink"
+	echo "attribute to match the known name entries count"
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+	touch $DIR/$tdir/d0/foo || error "(2) Fail to create foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that foo's"
+	echo "nlink attribute is larger than its name entries count."
+
+	#define OBD_FAIL_LFSCK_MORE_NLINK	0x1625
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1625
+	ln $DIR/$tdir/d0/foo $DIR/$tdir/d0/h1 ||
+		error "(3) Fail to hard link to $DIR/$tdir/d0/foo"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	cancel_lru_locks mdc
+	local count=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count -eq 3 ] || error "(4) Cannot inject error: $count"
+
+	echo "Trigger namespace LFSCK to repair the nlink count"
+	$START_NAMESPACE -r -A ||
+		error "(5) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(6) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^nlinks_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(7) Fail to repair nlink count: $repaired"
+
+	cancel_lru_locks mdc
+	count=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count -eq 2 ] || error "(8) Fail to repair nlink count: $count"
+}
+run_test 29a "LFSCK can repair bad nlink count (1)"
+
+test_29b() {
+	echo "#####"
+	echo "The object's nlink attribute is smaller than the object's known"
+	echo "name entries count. The LFSCK will repair the object's nlink"
+	echo "attribute to match the known name entries count"
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+	touch $DIR/$tdir/d0/foo || error "(2) Fail to create foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that foo's"
+	echo "nlink attribute is smaller than its name entries count."
+
+	#define OBD_FAIL_LFSCK_LESS_NLINK	0x1626
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1626
+	ln $DIR/$tdir/d0/foo $DIR/$tdir/d0/h1 ||
+		error "(3) Fail to hard link to $DIR/$tdir/d0/foo"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	cancel_lru_locks mdc
+	local count=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count -eq 1 ] || error "(4) Cannot inject error: $count"
+
+	echo "Trigger namespace LFSCK to repair the nlink count"
+	$START_NAMESPACE -r -A ||
+		error "(5) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(6) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^nlinks_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(7) Fail to repair nlink count: $repaired"
+
+	cancel_lru_locks mdc
+	count=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count -eq 2 ] || error "(8) Fail to repair nlink count: $count"
+}
+run_test 29b "LFSCK can repair bad nlink count (2)"
+
+test_29c() {
+	echo "#####"
+	echo "There are too much hard links to the object, and exceeds the
+	echo object's linkEA limitation, as to NOT all the known name entries"
+	echo "will be recorded in the linkEA. Under such case, LFSCK should"
+	echo "skip the nlink verification for this object."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+	touch $DIR/$tdir/d0/foo || error "(2) Fail to create foo"
+	ln $DIR/$tdir/d0/foo $DIR/$tdir/d0/h1 ||
+		error "(3) Fail to hard link to $DIR/$tdir/d0/foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "foo's hard links exceed the object's linkEA limitation."
+
+	#define OBD_FAIL_LFSCK_LINKEA_OVERFLOW	0x1627
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1627
+	ln $DIR/$tdir/d0/foo $DIR/$tdir/d0/h2 ||
+		error "(4) Fail to hard link to $DIR/$tdir/d0/foo"
+
+	cancel_lru_locks mdc
+
+	local count1=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count1 -eq 3 ] || error "(5) Stat failure: $count1"
+
+	local foofid=$($LFS path2fid $DIR/$tdir/d0/foo)
+	$LFS fid2path $DIR $foofid
+	local count2=$($LFS fid2path $DIR $foofid | wc -l)
+	[ $count2 -eq 2 ] || "(6) Fail to inject error: $count2"
+
+	echo "Trigger namespace LFSCK to repair the nlink count"
+	$START_NAMESPACE -r -A ||
+		error "(7) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(8) unexpected status"
+	}
+
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^nlinks_repaired/ { print $2 }')
+	[ $repaired -eq 0 ] ||
+		error "(9) Repair nlink count unexpcetedly: $repaired"
+
+	cancel_lru_locks mdc
+
+	count1=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count1 -eq 3 ] || error "(10) Stat failure: $count1"
+
+	count2=$($LFS fid2path $DIR $foofid | wc -l)
+	[ $count2 -eq 2 ] || "(11) Repaired something unexpectedly: $count2"
+}
+run_test 29c "Not verify nlink attr if hark links exceed linkEA limitation"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 
