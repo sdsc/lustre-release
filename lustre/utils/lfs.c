@@ -70,6 +70,8 @@
 #include <lustre/lustreapi.h>
 #include <lustre_ver.h>
 
+char *progname;
+
 /* all functions */
 static int lfs_setstripe(int argc, char **argv);
 static int lfs_find(int argc, char **argv);
@@ -114,6 +116,7 @@ static int lfs_hsm_remove(int argc, char **argv);
 static int lfs_hsm_cancel(int argc, char **argv);
 static int lfs_swap_layouts(int argc, char **argv);
 static int lfs_mv(int argc, char **argv);
+static int lfs_version(int argc, char **argv);
 
 #define SETSTRIPE_USAGE(_cmd, _tgt) \
 	"usage: "_cmd" [--stripe-count|-c <stripe_count>]\n"\
@@ -340,6 +343,8 @@ command_t cmdlist[] = {
 	{"help", Parser_help, 0, "help"},
 	{"exit", Parser_quit, 0, "quit"},
 	{"quit", Parser_quit, 0, "quit"},
+	{"--version", lfs_version, 0,
+	 "output build version of the lfs utility"},
 	{ 0, 0, 0, NULL }
 };
 
@@ -1705,6 +1710,12 @@ static int lfs_mv(int argc, char **argv)
 		fprintf(stderr, "cannot migrate '%s' to MDT%04x: %s\n",
 			argv[optind], param.mdtindex, strerror(-rc));
 	return rc;
+}
+
+static int lfs_version(int argc, char **argv)
+{
+	Parser_version(progname);
+	return 0;
 }
 
 static int lfs_osts(int argc, char **argv)
@@ -3852,7 +3863,10 @@ int main(int argc, char **argv)
 
         setlinebuf(stdout);
 
-        Parser_init("lfs > ", cmdlist);
+	progname = strrchr(argv[0], '/');
+	progname = progname ? progname + 1 : argv[0];
+
+	Parser_init("lfs > ", cmdlist);
 
         if (argc > 1) {
                 rc = Parser_execarg(argc - 1, argv + 1, cmdlist);

@@ -76,6 +76,7 @@
 
 char *progname;
 int verbose = 1;
+int version;
 static int print_only = 0;
 
 #ifdef HAVE_LDISKFS_OSD
@@ -103,7 +104,6 @@ static int print_only = 0;
 
 void usage(FILE *out)
 {
-	fprintf(out, "%s v"LUSTRE_VERSION_STRING"\n", progname);
 	fprintf(out, "usage: %s <target type> [--backfstype="FSLIST"] "
 		"--fsname=<filesystem name>\n"
 		"\t--index=<target index> [options] <device>\n", progname);
@@ -162,8 +162,10 @@ void usage(FILE *out)
 		"\t\t--comment=<user comment>: arbitrary string (%d bytes)\n"
 		"\t\t--dryrun: report what we would do; don't write to disk\n"
 		"\t\t--verbose: e.g. show mkfs progress\n"
+		"\t\t--version: output build version of the %s utility\n"
 		"\t\t--quiet\n",
-		(int)sizeof(((struct lustre_disk_data *)0)->ldd_userdata));
+		(int)sizeof(((struct lustre_disk_data *)0)->ldd_userdata),
+		progname);
 	return;
 }
 
@@ -304,15 +306,17 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 		{ "servicenode",	required_argument,	NULL, 's' },
 		{ "network",		required_argument,	NULL, 't' },
 		{ "verbose",		no_argument,		NULL, 'v' },
+		{ "version",		no_argument,		NULL, 'V' },
 		{ "writeconf",		no_argument,		NULL, 'w' },
 		{ 0,			0,			NULL,  0  }
 	};
-	char *optstring = "b:c:C:d:ef:Ghi:k:L:m:MnNo:Op:PqrRs:t:Uu:vw";
+	char *optstring = "b:c:C:d:ef:Ghi:k:L:m:MnNo:Op:PqrRs:t:Uu:vVw";
 	int opt;
 	int rc, longidx;
 	int failnode_set = 0, servicenode_set = 0;
 	int replace = 0;
 
+	version = 0;
         while ((opt = getopt_long(argc, argv, optstring, long_opt, &longidx)) !=
                EOF) {
                 switch (opt) {
@@ -498,12 +502,17 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         strscpy(mop->mo_ldd.ldd_userdata, optarg,
                                 sizeof(mop->mo_ldd.ldd_userdata));
                         break;
-                case 'v':
-                        verbose++;
-                        break;
-                case 'w':
-                        mop->mo_ldd.ldd_flags |= LDD_F_WRITECONF;
-                        break;
+		case 'v':
+			verbose++;
+			break;
+		case 'V':
+			++version;
+			fprintf(stdout, "%s v"LUSTRE_VERSION_STRING"\n",
+				progname);
+			return 0;
+		case 'w':
+			mop->mo_ldd.ldd_flags |= LDD_F_WRITECONF;
+			break;
 		case 'Q':
 			mop->mo_flags |= MO_QUOTA;
 			break;
@@ -603,16 +612,16 @@ int main(int argc, char *const argv[])
 		mop.mo_ldd.ldd_flags |= LDD_F_WRITECONF;
 	}
 
-        if (strstr(mop.mo_ldd.ldd_params, PARAM_MGSNODE))
-            mop.mo_mgs_failnodes++;
+	if (strstr(mop.mo_ldd.ldd_params, PARAM_MGSNODE))
+		mop.mo_mgs_failnodes++;
 
-        if (verbose > 0)
-                print_ldd("Read previous values", &(mop.mo_ldd));
+	if (verbose > 0)
+		print_ldd("Read previous values", &(mop.mo_ldd));
 #endif
 
-        ret = parse_opts(argc, argv, &mop, &mountopts);
-        if (ret)
-                goto out;
+	ret = parse_opts(argc, argv, &mop, &mountopts);
+	if (ret || version)
+		goto out;
 
         ldd = &mop.mo_ldd;
 
