@@ -18,13 +18,14 @@ SRCDIR=`dirname $0`
 export PATH=$PWD/$SRCDIR:$SRCDIR:$PWD/$SRCDIR/../utils:$PATH:/sbin
 export NAME=${NAME:-local}
 
-LUSTRE=${LUSTRE:-`dirname $0`/..} 
+LUSTRE=${LUSTRE:-`dirname $0`/..}
 . $LUSTRE/tests/test-framework.sh
 init_test_env $@
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
 
-RUNAS="runas"
+# runas seems to require a supplemental group
+RUNAS="runas -G99999"
 
 WTL=${WTL:-"$LUSTRE/tests/write_time_limit"}
 
@@ -38,21 +39,34 @@ NODEMAP_COUNT=10
 NODEMAP_RANGE_COUNT=3
 NODEMAP_IPADDR_COUNT=30
 NODEMAP_MAX_ID=600
+NODEMAP_TEST_QUOTA=${NODEMAP_TEST_QUOTA:-false}
 
 require_dsh_mds || exit 0
 require_dsh_ost || exit 0
 
+clients=${CLIENTS//,/ }
+num_clients=$(get_node_count ${clients})
+
+IDBASE=500
 ID0=${ID0:-500}
 ID1=${ID1:-501}
 USER0=`cat /etc/passwd|grep :$ID0:$ID0:|cut -d: -f1`
 USER1=`cat /etc/passwd|grep :$ID1:$ID1:|cut -d: -f1`
 
-[ -z "$USER0" ] && \
-	echo "Please add user0 (uid=$ID0 gid=$ID0)! Skip sanity-sec" && exit 0
+FOPS_IDMAPS=(
+	[0]="$((IDBASE+3)):$((IDBASE+0)) $((IDBASE+4)):$((IDBASE+2))"
+	[1]="$((IDBASE+5)):$((IDBASE+1)) $((IDBASE+6)):$((IDBASE+2))"
+	)
+USER_COUNT=2
 
-[ -z "$USER1" ] && \
-	echo "Please add user1 (uid=$ID1 gid=$ID1)! Skip sanity-sec" && exit 0
-
+for x in $(seq 0 $((USER_COUNT - 1))); do
+	IDX=$((IDBASE + x))
+	USERX=$(cat /etc/passwd | grep :$IDX:$IDX: | cut -d: -f1)
+	[ -z "$USERX" ] &&
+		echo -n "Please add user$x (uid=$IDX gid=$IDX)! " &&
+		echo -n "Skip sanity-sec" &&
+		exit 0
+done
 check_and_setup_lustre
 
 sec_cleanup() {
@@ -91,7 +105,8 @@ CAPA_TIMEOUT=mdt.$MDT.capa_timeout
 MDSSECLEVEL=mdt.$MDT.sec_level
 
 # for CLIENT_TYPE
-if [ -z "$(lctl get_param -n llite.*.client_type | grep remote 2>/dev/null)" ]; then
+if [ -z "$(lctl get_param -n llite.*.client_type | grep remote 2>/dev/null)" ]
+then
 	CLIENT_TYPE="local"
 	echo "local client"
 else
@@ -461,7 +476,7 @@ test_5() {
 	fi
 
         # proc variable disabled -- access to the objects in the filesystem
-        # is not allowed 
+        # is not allowed
         echo "Should get Write error here : (proc variable are disabled "\
 	     "-- access to the objects in the filesystem is denied."
 	$WTL $file 30
@@ -579,6 +594,45 @@ create_nodemaps() {
 		## This needs to return zero if the following statement is 1
 		rc=$(echo $out | grep -c ${HOSTNAME_CHECKSUM}_${i})
 		[[ $rc == 0 ]] && return 1
+	done
+	return 0
+}
+
+create_fops_nodemaps() {
+	local i=0
+	local client
+	for client in $RCLIENTS; do
+		local client_ip=$($LUSTRE/tests/resolveip $client)
+		do_facet mgs $LCTL nodemap_add c${i} || return 1
+		do_facet mgs $LCTL nodemap_add_range 	\
+			--name c${i} --range $client_ip@tcp || return 1
+		do_facet ost0 $LCTL set_param nodemap.add_nodemap=c${i} ||
+			return 1
+		do_facet ost0 "echo c${i} ${client_ip}@tcp > \
+			/proc/fs/lustre/nodemap/add_nodemap_range" || return 1
+		for map in ${FOPS_IDMAPS[i]}; do
+			do_facet mgs $LCTL nodemap_add_idmap --name c${i} \
+				--idtype uid --idmap ${map} || return 1
+			do_facet ost0 "echo c${i} uid ${map} > \
+				/proc/fs/lustre/nodemap/add_nodemap_idmap" ||
+				return 1
+		done
+		out1=$(do_facet mgs $LCTL get_param nodemap.c${i}.idmap)
+		out2=$(do_facet ost0 $LCTL get_param nodemap.c${i}.idmap)
+		[ "$out1" != "$out2" ] && error "mgs and oss maps mismatch"
+		i=$((i + 1))
+	done
+	return 0
+}
+
+delete_fops_nodemaps() {
+	local i=0
+	local client
+	for client in $RCLIENTS; do
+		do_facet mgs $LCTL nodemap_del c${i} || return 1
+		do_facet ost0 $LCTL set_param nodemap.remove_nodemap=c${i} ||
+			return 1
+		i=$((i + 1))
 	done
 	return 0
 }
@@ -861,6 +915,166 @@ test_idmap() {
 		fi
 	done
 
+	return $rc
+}
+
+nodemap_check_quota() {
+if ! $NODEMAP_TEST_QUOTA; then
+	echo 0
+	return
+fi
+local run_u=$1
+$run_u lfs quota -q $DIR | awk '{ print $2; exit; }'
+}
+
+do_fops() {
+	local run_u=$1
+	local key=$2
+	local testfile=$DIR/$tdir/$tfile
+	local rc=0
+	local c=0 w=0 r=0 d=0 q=0
+	local qused_orig=$(nodemap_check_quota $run_u)
+	local quota_fuzz=8
+	local qused_new
+	if $run_u touch $testfile >& /dev/null; then
+		c=1
+		q=1
+		$run_u dd if=/dev/zero of=$testfile bs=1M count=1 && w=1
+		$run_u dd if=$testfile of=/dev/null bs=1M && r=1
+		qused_new=$(nodemap_check_quota $run_u)
+		[ $((qused_orig + 1024)) == $qused_new ] || q=0
+		$run_u rm $testfile && d=1
+		$NODEMAP_TEST_QUOTA && wait_delete_completed_mds
+
+		qused_new=$(nodemap_check_quota $run_u)
+                [ $((qused_orig - quota_fuzz)) -le $((qused_new)) \
+			-a $((qused_orig + quota_fuzz)) -ge $((qused_new)) ] ||
+				q=0
+
+	fi >& /dev/null
+
+	# if we don't test quota, just assume it is the same result as the rm
+	$NODEMAP_TEST_QUOTA || q=$d
+
+	# quota should be reclaimed after rm
+	[ "$d" == "1" ] && [ "$q" == "0" ] && echo "WARNING: After rm, got" \
+		"quota $qused_new. Expected $qused_orig."
+	local res="$c $w $r $d $q"
+	local expected=$(get_expected $key)
+	[ "$res" != "$expected" ] && error "test $key expected " \
+		"$expected, got $res" && rc=$(($rc+1))
+	return $rc
+}
+
+get_mapped_user() {
+	local cli_user=$1
+
+	for ((i=0; i < ${#FOPS_IDMAPS[@]}; i++)); do
+		for map in ${FOPS_IDMAPS[i]}; do
+			if [ $(cut -d: -f1 <<< "$map") == $cli_user ]; then
+				cut -d: -f2 <<< "$map"
+				return
+			fi
+		done
+	done
+	echo -1
+}
+
+get_expected() {
+	local -a key
+	IFS=":" read -a key <<< "$1"
+	local mapmode="${key[0]}"
+	local mds_user="${key[1]}"
+	local cluster="${key[2]}"
+	local cli_user="${key[3]}"
+	local op="0${key[4]}"
+	local SUCCESS="1 1 1 1 1"
+	local FAILURE="0 0 0 0 0"
+	local noadmin=0
+	local mapped=0
+	local other=0
+
+	[[ $mapmode == *mapped* ]] && mapped=1
+	# only c1 is mapped in these test cases
+	[[ $mapmode == mapped_trusted* ]] && [ "$cluster" == "c0" ] && mapped=0
+	[[ $mapmode == *noadmin* ]] && noadmin=1
+
+	# o+wx works as long as the user isn't mapped
+	if [ $((op & 3)) -eq 3 ]; then
+		other=1
+	fi
+
+	# if client user is root, check if root is squashed
+	if [ "$cli_user" == "0" ]; then
+		# squash root succeed, if other bit is on
+		case $noadmin in
+			0) echo $SUCCESS;;
+			1) [ "$other" == "1" ] && echo $SUCCESS
+			   [ "$other" == "0" ] && echo $FAILURE;;
+		esac
+		return
+	fi
+	if [ "$mapped" == "0" ]; then
+		[ "$other" == "1" ] && echo $SUCCESS
+		[ "$other" == "0" ] && echo $FAILURE
+		return
+	fi
+
+	# if mapped user is mds user, check for u+wx
+	mapped_user=$(get_mapped_user $cli_user)
+	[ "$mapped_user" == "-1" ] &&
+		error "unable to find mapping for client user $cli_user"
+
+	if [ "$mapped_user" == "$mds_user" -a  \
+			$(((op & 0300) == 0300)) -eq 1 ]; then
+		echo $SUCCESS
+		return
+	fi
+	if [ "$mapped_user" != "$mds_user" -a "$other" == "1" ]; then
+		echo $SUCCESS
+		return
+	fi
+	echo $FAILURE
+}
+
+test_fops() {
+	local mapmode="$1"
+	local single_client="$2"
+	local client_user_list=([0]="0 $((IDBASE+3)) $((IDBASE+4))"
+				[1]="0 $((IDBASE+5)) $((IDBASE+6))")
+	local mds_i
+	local rc=0
+	for mds_i in -1 0 1 2; do
+		local user=$((mds_i + IDBASE))
+		local client
+		local x
+
+		[ "$mds_i" == "-1" ] && user=0
+
+		echo mkdir -p $DIR/$tdir
+		rm -rf $DIR/$tdir
+		mkdir -p $DIR/$tdir
+		chown $user $DIR/$tdir
+		for x in $(seq 0 511); do
+			local op=$(printf %03o $x)
+			chmod $op $DIR/$tdir
+
+			local cli_i=0
+			for client in $RCLIENTS; do
+				local u
+				for u in ${client_user_list[$cli_i]}; do
+					local key
+					key="$mapmode:$user:c$cli_i:$u:$op"
+					local run_u="do_node $client \
+							$RUNAS -u $u -v $u"
+					do_fops "$run_u" "$key"
+				done
+				cli_i=$((cli_i + 1))
+				[ "$single_client" == "1" ] && break
+			done
+		done
+		rm -rf $DIR/$tdir
+	done
 	return $rc
 }
 
@@ -1191,13 +1405,138 @@ test_15() {
 }
 run_test 15 "test id mapping"
 
+nodemap_test_setup() {
+	local rc
+	local active_nodemap=$1
+
+	switch_identity 0 false
+
+	echo "create nodemaps"
+	remote_mgs_nodsh && skip "remote MGS with nodsh" && return
+	[ $(lustre_version_code $SINGLEMGS) -lt $(version_code 2.5.53) ] &&
+		skip "No nodemap on $(get_lustre_version) MGS, need 2.5.53+" &&
+		return
+
+	rc=0
+	create_fops_nodemaps
+	rc=$?
+	[[ $rc != 0 ]] && error "adding fops nodemaps failed $rc"
+
+	if [ "$active_nodemap" == "0" ]; then
+		do_facet mgs $LCTL set_param nodemap.active=0
+		do_facet ost0 $LCTL set_param nodemap.active=0
+		return
+	fi
+
+	do_facet mgs $LCTL set_param nodemap.active=1
+	do_facet ost0 $LCTL set_param nodemap.active=1
+	do_facet mgs $LCTL set_param nodemap.default.admin_nodemap=1
+	do_facet mgs $LCTL set_param nodemap.default.trusted_nodemap=1
+	do_facet ost0 $LCTL set_param nodemap.default.admin_nodemap=1
+	do_facet ost0 $LCTL set_param nodemap.default.trusted_nodemap=1
+}
+
+nodemap_test_cleanup() {
+	delete_fops_nodemaps
+	rc=$?
+	[[ $rc != 0 ]] && error "removing fops nodemaps failed $rc"
+
+	return 0
+}
+
+
+nodemap_clients_admin_trusted() {
+	local admin=$1
+	local tr=$2
+	local i=0
+	for client in $RCLIENTS; do
+		do_facet mgs $LCTL set_param nodemap.c${i}.admin_nodemap=$admin
+		do_facet ost0 $LCTL set_param nodemap.c${i}.admin_nodemap=$admin
+		do_facet mgs $LCTL set_param nodemap.c${i}.trusted_nodemap=$tr
+		do_facet ost0 $LCTL set_param nodemap.c${i}.trusted_nodemap=$tr
+		i=$((i + 1))
+	done
+}
+
+test_16() {
+	nodemap_test_setup 0
+
+	test_fops all_off
+	nodemap_test_cleanup
+}
+run_test 16 "test nodemap all_off fileops"
+
+test_17() {
+	nodemap_test_setup
+
+	nodemap_clients_admin_trusted 0 1
+	test_fops trusted_noadmin 1
+	nodemap_test_cleanup
+}
+run_test 17 "test nodemap trusted_noadmin fileops"
+
+test_18() {
+	nodemap_test_setup
+	nodemap_clients_admin_trusted 0 0
+	test_fops mapped_noadmin 1
+	nodemap_test_cleanup
+}
+run_test 18 "test nodemap mapped_noadmin fileops"
+
+test_19() {
+	nodemap_test_setup
+	nodemap_clients_admin_trusted 1 1
+	test_fops trusted_admin 1
+	nodemap_test_cleanup
+}
+run_test 19 "test nodemap trusted_admin fileops"
+
+test_20() {
+	nodemap_test_setup
+	nodemap_clients_admin_trusted 1 0
+	test_fops mapped_admin 1
+	nodemap_test_cleanup
+}
+run_test 20 "test nodemap mapped_admin fileops"
+
+test_21() {
+	nodemap_test_setup
+	local x=1
+	i=0
+	for client in $RCLIENTS; do
+		do_facet mgs $LCTL set_param nodemap.c${i}.admin_nodemap=0
+		do_facet mgs $LCTL set_param nodemap.c${i}.trusted_nodemap=$x
+		do_facet ost0 $LCTL set_param nodemap.c${i}.admin_nodemap=0
+		do_facet ost0 $LCTL set_param nodemap.c${i}.trusted_nodemap=$x
+		x=0
+		i=$((i + 1))
+	done
+	test_fops mapped_trusted_noadmin
+	nodemap_test_cleanup
+}
+run_test 21 "test nodemap mapped_trusted_noadmin fileops"
+
+test_22() {
+	nodemap_test_setup
+	x=1
+	i=0
+	for client in $RCLIENTS; do
+		do_facet mgs $LCTL set_param nodemap.c${i}.admin_nodemap=1
+		do_facet mgs $LCTL set_param nodemap.c${i}.trusted_nodemap=$x
+		do_facet ost0 $LCTL set_param nodemap.c${i}.admin_nodemap=1
+		do_facet ost0 $LCTL set_param nodemap.c${i}.trusted_nodemap=$x
+		x=0
+		i=$((i + 1))
+	done
+	test_fops mapped_trusted_admin
+	nodemap_test_cleanup
+}
+run_test 22 "test nodemap mapped_trusted_admin fileops"
+
+
 log "cleanup: ======================================================"
 
 sec_unsetup() {
-
-	## nodemap deactivated
-	do_facet mgs lctl nodemap_activate 0
-
        	for num in `seq $MDSCOUNT`; do
 		if [ "${identity_old[$num]}" = 1 ]; then
        			switch_identity $num false || identity_old[$num]=$?
