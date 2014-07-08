@@ -45,7 +45,7 @@ setupall
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18 19 20 21"
 
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 2e 3 22 23 24 25 26 27 28 29"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 2e 3 22 23 24 25 26 27 28 29 30"
 
 build_test_filter
 
@@ -3590,6 +3590,89 @@ test_29c() {
 	[ $count2 -eq 2 ] || "(11) Repaired something unexpectedly: $count2"
 }
 run_test 29c "Not verify nlink attr if hark links exceed linkEA limitation"
+
+test_30() {
+	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
+		skip "Only support backend /lost+found for ldiskfs" && return
+
+	echo "#####"
+	echo "The namespace LFSCK will move the orphans from backend"
+	echo "/lost+found directory to normal client visible namespace"
+	echo "or to global visible ./lustre/lost+found/MDTxxxx/ directory"
+	echo "#####"
+
+	check_mount_and_prep
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "directory d0 has no linkEA entry, then the LFSCK will"
+	echo "move it into .lustre/lost+found/MDTxxxx/ later."
+
+	$LFS mkdir -i 0 $DIR/$tdir/foo || error "(1) Fail to mkdir foo"
+
+	#define OBD_FAIL_LFSCK_NO_LINKEA	0x161d
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x161d
+	mkdir $DIR/$tdir/foo/d0 || error "(1) Fail to mkdir d0"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	touch $DIR/$tdir/foo/d0/f1 || error "(2) Fail to touch f1"
+	mkdir $DIR/$tdir/foo/d0/d1 || error "(3) Fail to mkdir d1"
+
+	echo "Inject failure stub on MDT0 to simulate the case that the"
+	echo "object's name entry will be removed, but not destroy the"
+	echo "object. Then backend e2fsck will handle it as orphan and"
+	echo "add them into the backend /lost+found directory."
+
+	#define OBD_FAIL_LFSCK_NO_NAMEENTRY	0x1624
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1624
+	rmdir $DIR/$tdir/foo/d0/d1 || error "(4) Fail to rmdir d1"
+	rm -f $DIR/$tdir/foo/d0/f1 || error "(5) Fail to unlink f1"
+	rmdir $DIR/$tdir/foo/d0 || error "(6) Fail to rmdir d0"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	umount_client $MOUNT || error "(7) Fail to stop client!"
+
+	stop $SINGLEMDS || error "(8) Fail to stop MDT0"
+
+	echo "run e2fsck"
+	run_e2fsck $(facet_host $SINGLEMDS) $MDT_DEVNAME "-y" ||
+		error "(9) Fail to run e2fsck"
+
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(10) Fail to start MDT0"
+
+	echo "Trigger namespace LFSCK to recover backend orphans"
+	$START_NAMESPACE -r -A ||
+		error "(11) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(12) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^local_lost_found_moved/ { print $2 }')
+	[ $repaired -ge 3 ] ||
+		error "(13) Fail to recover backend orphans: $repaired"
+
+	mount_client $MOUNT || error "(14) Fail to start client!"
+
+	ls -ail $MOUNT/.lustre/lost+found/
+
+	echo "d0 should become orphan under .lustre/lost+found/MDT0000/"
+	[ -d $MOUNT/.lustre/lost+found/MDT0000 ] ||
+		error "(15) $MOUNT/.lustre/lost+found/MDT0000/ should be there"
+
+	ls -ail $MOUNT/.lustre/lost+found/MDT0000/
+
+	cname=$(find $MOUNT/.lustre/lost+found/MDT0000/ -name *-*-D-*)
+	[ ! -z "$cname" ] || error "(16) d0 is not recovered"
+
+	stat ${cname}/d1 || error "(17) d0 is not recovered"
+	stat ${cname}/f1 || error "(18) f1 is not recovered"
+}
+run_test 30 "LFSCK can recover the orphans from backend /lost+found"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 

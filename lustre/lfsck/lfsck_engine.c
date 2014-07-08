@@ -39,7 +39,7 @@
 
 #include "lfsck_internal.h"
 
-static void lfsck_unpack_ent(struct lu_dirent *ent, __u64 *cookie, __u16 *type)
+void lfsck_unpack_ent(struct lu_dirent *ent, __u64 *cookie, __u16 *type)
 {
 	struct luda_type	*lt;
 	int			 align = sizeof(*lt) - 1;
