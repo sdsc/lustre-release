@@ -1309,11 +1309,14 @@ again:
 				phase_list = &ltd->ltd_layout_phase_list;
 				gen = &ltd->ltd_layout_gen;
 			} else {
+				struct lfsck_namespace *ns = com->lc_file_ram;
+
 				ltd = list_entry(lad->lad_mdt_phase1_list.next,
 						 struct lfsck_tgt_desc,
 						 ltd_namespace_phase_list);
 				phase_list = &ltd->ltd_namespace_phase_list;
 				gen = &ltd->ltd_namespace_gen;
+				lr->lr_flags2 = ns->ln_flags & ~LF_INCOMPLETE;
 			}
 
 			if (*gen == lad->lad_touch_gen)
@@ -1321,6 +1324,9 @@ again:
 
 			*gen = lad->lad_touch_gen;
 			list_move_tail(phase_list, &lad->lad_mdt_phase1_list);
+			if (ltd->ltd_namespace_failed)
+				continue;
+
 			atomic_inc(&ltd->ltd_ref);
 			laia->laia_ltd = ltd;
 			spin_unlock(&ltds->ltd_lock);
