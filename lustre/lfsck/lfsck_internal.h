@@ -212,6 +212,10 @@ struct lfsck_namespace {
 	__u64   ln_reserved[25];
 };
 
+enum lfsck_linkea_flags {
+	LLF_SKIP_NLINK		= 0x01,
+};
+
 enum lfsck_layout_inconsistency_type {
 	LLIT_NONE			= 0,
 	LLIT_DANGLING			= 1,
