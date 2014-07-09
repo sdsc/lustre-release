@@ -711,6 +711,13 @@ cleanup_gss() {
     fi
 }
 
+facet_svc() {
+	local facet=$1
+	local var=${facet}_svc
+
+	echo -n ${!var}
+}
+
 facet_type() {
 	local facet=$1
 
@@ -4490,34 +4497,35 @@ banner() {
 }
 
 #
-# Run a single test function and cleanup after it.  
+# Run a single test function and cleanup after it.
 #
 # This function should be run in a subshell so the test func can
 # exit() without stopping the whole script.
 #
 run_one() {
-    local testnum=$1
-    local message=$2
-    tfile=f.${TESTSUITE}.${testnum}
-    export tdir=d0.${TESTSUITE}/d${base}
-    export TESTNAME=test_$testnum
-    local SAVE_UMASK=`umask`
-    umask 0022
+	local testnum=$1
+	local message=$2
+	export tfile=f${testnum}.${TESTSUITE}
+	export tdir=d${testnum}.${TESTSUITE}
+	export TESTNAME=test_$testnum
+	local SAVE_UMASK=`umask`
+	umask 0022
 
-    banner "test $testnum: $message"
-    test_${testnum} || error "test_$testnum failed with $?"
-    cd $SAVE_PWD
-    reset_fail_loc
-    check_grant ${testnum} || error "check_grant $testnum failed with $?"
-    check_catastrophe || error "LBUG/LASSERT detected"
+	banner "test $testnum: $message"
+	test_${testnum} || error "test_$testnum failed with $?"
+	cd $SAVE_PWD
+	reset_fail_loc
+	check_grant ${testnum} || error "check_grant $testnum failed with $?"
+	check_catastrophe || error "LBUG/LASSERT detected"
 	if [ "$PARALLEL" != "yes" ]; then
 		ps auxww | grep -v grep | grep -q multiop &&
 					error "multiop still running"
 	fi
-    unset TESTNAME
-    unset tdir
-    umask $SAVE_UMASK
-    return 0
+	unset TESTNAME
+	unset tdir
+	unset tfile
+	umask $SAVE_UMASK
+	return 0
 }
 
 #
@@ -6327,30 +6335,33 @@ generate_string() {
 }
 
 reformat_external_journal() {
-	if [ ! -z ${EJOURNAL} ]; then
-		local rcmd="do_facet ${SINGLEMDS}"
+	local facet=$1
 
-		echo "reformat external journal on ${SINGLEMDS}:${EJOURNAL}"
+	if [ ! -z ${EJOURNAL} ]; then
+		local rcmd="do_facet $facet"
+
+		echo "reformat external journal on $facet:${EJOURNAL}"
 		${rcmd} mke2fs -O journal_dev ${EJOURNAL} || return 1
 	fi
 }
 
 # MDT file-level backup/restore
 mds_backup_restore() {
-	local devname=$(mdsdevname ${SINGLEMDS//mds/})
+	local facet=$1
+	local igif=$2
+	local devname=$(mdsdevname $(facet_number $facet))
 	local mntpt=$(facet_mntpt brpt)
-	local rcmd="do_facet ${SINGLEMDS}"
+	local rcmd="do_facet $facet"
 	local metaea=${TMP}/backup_restore.ea
 	local metadata=${TMP}/backup_restore.tgz
 	local opts=${MDS_MOUNT_OPTS}
-	local svc=${SINGLEMDS}_svc
-	local igif=$1
+	local svc=${facet}_svc
 
 	if ! ${rcmd} test -b ${devname}; then
 		opts=$(csa_add "$opts" -o loop)
 	fi
 
-	echo "file-level backup/restore on ${SINGLEMDS}:${devname}"
+	echo "file-level backup/restore on $facet:${devname}"
 
 	# step 1: build mount point
 	${rcmd} mkdir -p $mntpt
@@ -6372,12 +6383,12 @@ mds_backup_restore() {
 	# step 6: umount
 	${rcmd} umount -d $mntpt || return 4
 	# step 7: reformat external journal if needed
-	reformat_external_journal || return 5
+	reformat_external_journal $facet || return 5
 	# step 8: reformat dev
 	echo "reformat new device"
-	add ${SINGLEMDS} $(mkfs_opts ${SINGLEMDS} ${devname}) --backfstype \
-		ldiskfs --reformat ${devname} $(mdsvdevname 1) > /dev/null ||
-		exit 6
+	add $facet $(mkfs_opts $facet ${devname}) --backfstype ldiskfs \
+		--reformat ${devname} $(mdsvdevname $(facet_number $facet)) \
+		> /dev/null || exit 6
 	# step 9: mount dev
 	${rcmd} mount -t ldiskfs $opts $devname $mntpt || return 7
 	# step 10: restore metadata
@@ -6399,17 +6410,18 @@ mds_backup_restore() {
 
 # remove OI files
 mds_remove_ois() {
-	local devname=$(mdsdevname ${SINGLEMDS//mds/})
+	local facet=$1
+	local idx=$2
+	local devname=$(mdsdevname $(facet_number $facet))
 	local mntpt=$(facet_mntpt brpt)
-	local rcmd="do_facet ${SINGLEMDS}"
-	local idx=$1
+	local rcmd="do_facet $facet"
 	local opts=${MDS_MOUNT_OPTS}
 
 	if ! ${rcmd} test -b ${devname}; then
 		opts=$(csa_add "$opts" -o loop)
 	fi
 
-	echo "remove OI files: idx=${idx}"
+	echo "removing OI files on $facet: idx=${idx}"
 
 	# step 1: build mount point
 	${rcmd} mkdir -p $mntpt
@@ -6500,4 +6512,28 @@ test_mkdir() {
 		$LFS setdirstripe -i $mdt_idx ${parent}/${child} || rc=$?
 	fi
 	return $rc
+}
+
+check_mount_and_prep()
+{
+	is_mounted $MOUNT || setupall
+
+	rm -rf $DIR/[df][0-9]* || error "Fail to cleanup the env!"
+	mkdir $DIR/$tdir || error "Fail to mkdir $DIR/$tdir."
+}
+
+# calcule how many ost-objects to be created.
+precreated_ost_obj_count()
+{
+	local mdt_idx=$1
+	local ost_idx=$2
+	local mdt_name="MDT$(printf '%04x' $mdt_idx)"
+	local ost_name="OST$(printf '%04x' $ost_idx)"
+	local proc_path="${FSNAME}-${ost_name}-osc-${mdt_name}"
+	local last_id=$(do_facet mds${mdt_idx} lctl get_param -n \
+			osp.$proc_path.prealloc_last_id)
+	local next_id=$(do_facet mds${mdt_idx} lctl get_param -n \
+			osp.$proc_path.prealloc_next_id)
+
+	echo $((last_id - next_id + 1))
 }
