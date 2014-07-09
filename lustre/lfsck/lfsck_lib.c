@@ -417,8 +417,8 @@ void lfsck_ibits_unlock(struct lustre_handle *lh, ldlm_mode_t mode)
 	}
 }
 
-static const char dot[] = ".";
-static const char dotdot[] = "..";
+const char dot[] = ".";
+const char dotdot[] = "..";
 static const char dotlustre[] = ".lustre";
 static const char lostfound[] = "lost+found";
 
