@@ -787,9 +787,9 @@ do {                                                                          \
 #ifdef __KERNEL__
 #define OBD_FREE(ptr, size)                                                   \
 do {                                                                          \
-        OBD_FREE_PRE(ptr, size, "kfreed");                                    \
+	OBD_FREE_PRE(ptr, size, "kfreed");                                    \
+	POISON_PTR(ptr);                                                      \
 	kfree(ptr);                                                        \
-        POISON_PTR(ptr);                                                      \
 } while(0)
 
 
