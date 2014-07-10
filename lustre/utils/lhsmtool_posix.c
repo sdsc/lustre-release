@@ -1073,6 +1073,37 @@ out:
 	return rc;
 }
 
+/**
+ * Get MDT index according to the FID.
+ *
+ * \param [in] fid		FID for locating MDT.
+ * \param [out] mdt_index	MDT index gotten by FID.
+ *
+ * \retval			0 if getting mdt_index successful
+ * \retval			negative errno if it failed.
+ */
+static int ct_get_mdt_index(const lustre_fid *fid, int *mdt_index)
+{
+	lustre_fid	m_fid = *fid;
+	int		rc;
+	int		fd;
+	void		*arg = &m_fid;
+
+	fd = open(opt.o_mnt, O_RDONLY);
+	if (fd < 0)
+		return fd;
+
+	rc = ioctl(fd, LL_IOC_FID2MDTIDX, arg);
+	if (rc < 0)
+		goto close;
+
+	*mdt_index = *(__u32 *)arg;
+
+close:
+	close(fd);
+	return rc;
+}
+
 static int ct_restore(const struct hsm_action_item *hai, const long hal_flags)
 {
 	struct hsm_copyaction_private	*hcp = NULL;
@@ -1096,6 +1127,12 @@ static int ct_restore(const struct hsm_action_item *hai, const long hal_flags)
 	/* build backend file name from released file FID */
 	ct_path_archive(src, sizeof(src), opt.o_hsm_root, &hai->hai_fid);
 
+	rc = ct_get_mdt_index(&hai->hai_fid, &mdt_index);
+	if (rc < 0) {
+		CT_ERROR(rc, "cannot get mdt index "DFID"",
+			 PFID(&hai->hai_fid));
+		return rc;
+	}
 	/* restore loads and sets the LOVEA w/o interpreting it to avoid
 	 * dependency on the structure format. */
 	rc = ct_load_stripe(src, lov_buf, &lov_size);
