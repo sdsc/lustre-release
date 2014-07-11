@@ -56,7 +56,7 @@ static inline bool is_ost_obj(struct lu_object *lo)
 }
 
 static void osp_object_assign_fid(const struct lu_env *env,
-				 struct osp_device *d, struct osp_object *o)
+				  struct osp_device *d, struct osp_object *o)
 {
 	struct osp_thread_info *osi = osp_env_info(env);
 
@@ -112,14 +112,14 @@ osp_oac_xattr_find_locked(struct osp_object_attr *ooa,
 }
 
 static struct osp_xattr_entry *osp_oac_xattr_find(struct osp_object *obj,
-						  const char *name)
+						  const char *name, bool unlink)
 {
 	struct osp_xattr_entry *oxe = NULL;
 
 	spin_lock(&obj->opo_lock);
 	if (obj->opo_ooa != NULL)
 		oxe = osp_oac_xattr_find_locked(obj->opo_ooa, name,
-						strlen(name), false);
+						strlen(name), unlink);
 	spin_unlock(&obj->opo_lock);
 
 	return oxe;
@@ -136,7 +136,7 @@ osp_oac_xattr_find_or_add(struct osp_object *obj, const char *name, size_t len)
 
 	LASSERT(ooa != NULL);
 
-	oxe = osp_oac_xattr_find(obj, name);
+	oxe = osp_oac_xattr_find(obj, name, false);
 	if (oxe != NULL)
 		return oxe;
 
@@ -173,7 +173,6 @@ osp_oac_xattr_replace(struct osp_object *obj,
 	struct osp_object_attr *ooa	= obj->opo_ooa;
 	struct osp_xattr_entry *old	= *poxe;
 	struct osp_xattr_entry *oxe;
-	struct osp_xattr_entry *tmp	= NULL;
 	size_t			namelen = old->oxe_namelen;
 	size_t			size	= sizeof(*oxe) + namelen + 1 + len;
 
@@ -192,12 +191,12 @@ osp_oac_xattr_replace(struct osp_object *obj,
 	atomic_set(&oxe->oxe_ref, 2);
 
 	spin_lock(&obj->opo_lock);
-	tmp = osp_oac_xattr_find_locked(ooa, oxe->oxe_buf, namelen, true);
+	old = osp_oac_xattr_find_locked(ooa, oxe->oxe_buf, namelen, true);
 	list_add_tail(&oxe->oxe_list, &ooa->ooa_xattr_list);
 	spin_unlock(&obj->opo_lock);
 
-	*poxe = tmp;
-	LASSERT(tmp != NULL);
+	*poxe = old;
+	LASSERT(old != NULL);
 
 	return oxe;
 }
@@ -380,14 +379,12 @@ out:
 	return rc;
 }
 
-static int osp_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
-				const struct lu_attr *attr, struct thandle *th)
+static int __osp_attr_set(const struct lu_env *env, struct dt_object *dt,
+			  const struct lu_attr *attr, struct thandle *th)
 {
 	struct osp_device	*d = lu2osp_dev(dt->do_lu.lo_dev);
 	struct osp_object	*o = dt2osp_obj(dt);
-	struct lu_attr		*la;
 	int			 rc = 0;
-
 	ENTRY;
 
 	/*
@@ -422,10 +419,9 @@ static int osp_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 			RETURN(rc);
 	}
 
-	if (o->opo_new) {
+	if (o->opo_new)
 		/* no need in logging for new objects being created */
 		RETURN(0);
-	}
 
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
 		RETURN(0);
@@ -440,23 +436,18 @@ static int osp_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
 		 * local MDT-object attribute. It is usually used by LFSCK. */
 		rc = osp_md_declare_attr_set(env, dt, attr, th);
 
-	if (rc != 0 || o->opo_ooa == NULL)
-		RETURN(rc);
+	RETURN(rc);
+}
 
-	la = &o->opo_ooa->ooa_attr;
-	spin_lock(&o->opo_lock);
-	if (attr->la_valid & LA_UID) {
-		la->la_uid = attr->la_uid;
-		la->la_valid |= LA_UID;
-	}
+static int osp_declare_attr_set(const struct lu_env *env, struct dt_object *dt,
+				const struct lu_attr *attr, struct thandle *th)
+{
+	int rc = 0;
 
-	if (attr->la_valid & LA_GID) {
-		la->la_gid = attr->la_gid;
-		la->la_valid |= LA_GID;
-	}
-	spin_unlock(&o->opo_lock);
+	if (!is_only_remote_trans(th))
+		rc = __osp_attr_set(env, dt, attr, th);
 
-	RETURN(0);
+	return rc;
 }
 
 static int osp_attr_set(const struct lu_env *env, struct dt_object *dt,
@@ -464,9 +455,15 @@ static int osp_attr_set(const struct lu_env *env, struct dt_object *dt,
 			struct lustre_capa *capa)
 {
 	struct osp_object	*o = dt2osp_obj(dt);
+	struct lu_attr		*la;
 	int			 rc = 0;
-
 	ENTRY;
+
+	if (is_only_remote_trans(th)) {
+		rc = __osp_attr_set(env, dt, attr, th);
+		if (rc != 0)
+			RETURN(rc);
+	}
 
 	/* we're interested in uid/gid changes only */
 	if (!(attr->la_valid & (LA_UID | LA_GID)))
@@ -493,7 +490,24 @@ static int osp_attr_set(const struct lu_env *env, struct dt_object *dt,
 		 * local MDT-object attribute. It is usually used by LFSCK. */
 		rc = osp_md_attr_set(env, dt, attr, th, capa);
 
-	RETURN(rc);
+	if (rc != 0 || o->opo_ooa == NULL)
+		RETURN(rc);
+
+	/* Update the OSP object attributes cache. */
+	la = &o->opo_ooa->ooa_attr;
+	spin_lock(&o->opo_lock);
+	if (attr->la_valid & LA_UID) {
+		la->la_uid = attr->la_uid;
+		la->la_valid |= LA_UID;
+	}
+
+	if (attr->la_valid & LA_GID) {
+		la->la_gid = attr->la_gid;
+		la->la_valid |= LA_GID;
+	}
+	spin_unlock(&o->opo_lock);
+
+	RETURN(0);
 }
 
 static int osp_xattr_get_interpterer(const struct lu_env *env,
@@ -627,7 +641,7 @@ int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	if (unlikely(obj->opo_non_exist))
 		RETURN(-ENOENT);
 
-	oxe = osp_oac_xattr_find(obj, name);
+	oxe = osp_oac_xattr_find(obj, name, false);
 	if (oxe != NULL) {
 		spin_lock(&obj->opo_lock);
 		if (oxe->oxe_ready) {
@@ -776,14 +790,12 @@ out:
 	return rc;
 }
 
-int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
-			  const struct lu_buf *buf, const char *name,
-			  int flag, struct thandle *th)
+static int __osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			   const struct lu_buf *buf, const char *name,
+			   int flag, struct thandle *th)
 {
-	struct osp_object	*o	 = dt2osp_obj(dt);
 	struct dt_update_request *update;
 	struct lu_fid		*fid;
-	struct osp_xattr_entry	*oxe;
 	int			sizes[3] = {strlen(name), buf->lb_len,
 					    sizeof(int)};
 	char			*bufs[3] = {(char *)name, (char *)buf->lb_buf };
@@ -807,14 +819,48 @@ int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	fid = (struct lu_fid *)lu_object_fid(&dt->do_lu);
 	rc = out_insert_update(env, update, OUT_XATTR_SET, fid,
 			       ARRAY_SIZE(sizes), sizes, (const char **)bufs);
-	if (rc != 0 || o->opo_ooa == NULL)
-		return rc;
+
+	return rc;
+}
+
+int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			  const struct lu_buf *buf, const char *name,
+			  int flag, struct thandle *th)
+{
+	int rc = 0;
+
+	if (!is_only_remote_trans(th))
+		rc = __osp_xattr_set(env, dt, buf, name, flag, th);
+
+	return rc;
+}
+
+int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
+		  const struct lu_buf *buf, const char *name, int fl,
+		  struct thandle *th, struct lustre_capa *capa)
+{
+	struct osp_object	*o	 = dt2osp_obj(dt);
+	struct osp_xattr_entry	*oxe;
+
+	CDEBUG(D_INFO, "xattr %s set object "DFID"\n", name,
+	       PFID(&dt->do_lu.lo_header->loh_fid));
+
+	if (is_only_remote_trans(th)) {
+		int rc;
+
+		rc = __osp_xattr_set(env, dt, buf, name, fl, th);
+		if (rc != 0)
+			return rc;
+	}
+
+	if (o->opo_ooa == NULL)
+		return 0;
 
 	oxe = osp_oac_xattr_find_or_add(o, name, buf->lb_len);
 	if (oxe == NULL) {
-		CWARN("%s: Fail to add xattr (%s) to cache for "DFID
-		      ": rc = %d\n", dt->do_lu.lo_dev->ld_obd->obd_name,
-		      name, PFID(lu_object_fid(&dt->do_lu)), rc);
+		CWARN("%s: Fail to add xattr (%s) to cache for "DFID,
+		      dt->do_lu.lo_dev->ld_obd->obd_name,
+		      name, PFID(lu_object_fid(&dt->do_lu)));
 
 		return 0;
 	}
@@ -827,9 +873,9 @@ int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
 		osp_oac_xattr_put(oxe);
 		oxe = tmp;
 		if (tmp == NULL) {
-			CWARN("%s: Fail to update xattr (%s) to cache for "DFID
-			      ": rc = %d\n", dt->do_lu.lo_dev->ld_obd->obd_name,
-			      name, PFID(lu_object_fid(&dt->do_lu)), rc);
+			CWARN("%s: Fail to update xattr (%s) to cache for "DFID,
+			      dt->do_lu.lo_dev->ld_obd->obd_name,
+			      name, PFID(lu_object_fid(&dt->do_lu)));
 			spin_lock(&o->opo_lock);
 			old->oxe_ready = 0;
 			spin_unlock(&o->opo_lock);
@@ -852,18 +898,8 @@ int osp_declare_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	return 0;
 }
 
-int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
-		  const struct lu_buf *buf, const char *name, int fl,
-		  struct thandle *th, struct lustre_capa *capa)
-{
-	CDEBUG(D_INFO, "xattr %s set object "DFID"\n", name,
-	       PFID(&dt->do_lu.lo_header->loh_fid));
-
-	return 0;
-}
-
-int osp_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
-			  const char *name, struct thandle *th)
+static int __osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
+			   const char *name, struct thandle *th)
 {
 	struct dt_update_request *update;
 	const struct lu_fid	 *fid;
@@ -882,12 +918,41 @@ int osp_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	return rc;
 }
 
+int osp_declare_xattr_del(const struct lu_env *env, struct dt_object *dt,
+			  const char *name, struct thandle *th)
+{
+	int rc = 0;
+
+	if (!is_only_remote_trans(th))
+		rc = __osp_xattr_del(env, dt, name, th);
+
+	return rc;
+}
+
 int osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
 		  const char *name, struct thandle *th,
 		  struct lustre_capa *capa)
 {
+	struct osp_object	*o	 = dt2osp_obj(dt);
+	struct osp_xattr_entry	*oxe;
+
 	CDEBUG(D_INFO, "xattr %s del object "DFID"\n", name,
 	       PFID(&dt->do_lu.lo_header->loh_fid));
+
+	if (is_only_remote_trans(th)) {
+		int rc;
+
+		rc = __osp_xattr_del(env, dt, name, th);
+		if (rc != 0)
+			return rc;
+	}
+
+	if (o->opo_ooa != NULL) {
+		oxe = osp_oac_xattr_find(o, name, true);
+		if (oxe != NULL)
+			/* Drop the ref for entry on list. */
+			osp_oac_xattr_put(oxe);
+	}
 
 	return 0;
 }
@@ -1466,10 +1531,10 @@ __u64 osp_it_store(const struct lu_env *env, const struct dt_it *di)
  * \retval	-ve: on error
  */
 int osp_orphan_it_load(const struct lu_env *env, const struct dt_it *di,
-		__u64 hash)
+		       __u64 hash)
 {
 	struct osp_it	*it	= (struct osp_it *)di;
-	int			 rc;
+	int		 rc;
 
 	it->ooi_next = hash;
 	rc = osp_orphan_it_next(env, (struct dt_it *)di);
