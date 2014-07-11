@@ -53,6 +53,7 @@ static void lfsck_key_fini(const struct lu_context *ctx,
 	struct lfsck_thread_info *info = data;
 
 	lu_buf_free(&info->lti_linkea_buf);
+	lu_buf_free(&info->lti_linkea_buf2);
 	lu_buf_free(&info->lti_big_buf);
 	OBD_FREE_PTR(info);
 }
@@ -444,7 +445,7 @@ static int lfsck_create_lpf_local(const struct lu_env *env,
 	ENTRY;
 
 	rc = linkea_data_new(&ldata,
-			     &lfsck_env_info(env)->lti_linkea_buf);
+			     &lfsck_env_info(env)->lti_linkea_buf2);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -588,7 +589,7 @@ static int lfsck_create_lpf_remote(const struct lu_env *env,
 	ENTRY;
 
 	rc = linkea_data_new(&ldata,
-			     &lfsck_env_info(env)->lti_linkea_buf);
+			     &lfsck_env_info(env)->lti_linkea_buf2);
 	if (rc != 0)
 		RETURN(rc);
 
