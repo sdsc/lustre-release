@@ -3668,8 +3668,12 @@ static int lfsck_layout_assistant(void *args)
 				com->lc_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 
-			/* flush all async updating before handling orphan. */
+			/* Flush async updating before handling orphan. */
 			dt_sync(env, lfsck->li_next);
+
+			/* XXX: There may be some async update cannot be flushed
+			 *	via dt_sync(), wait for a while for that. */
+			schedule_timeout(cfs_time_seconds(1));
 
 			while (llmd->llmd_in_double_scan) {
 				struct lfsck_tgt_descs	*ltds =
@@ -3807,8 +3811,12 @@ cleanup2:
 		rc = rc1;
 	}
 
-	/* flush all async updating before exit. */
+	/* Flush async updating before exit. */
 	dt_sync(env, lfsck->li_next);
+
+	/* XXX: There may be some async update cannot be flushed
+	 *	via dt_sync(), wait for a while for that. */
+	schedule_timeout(cfs_time_seconds(1));
 
 	/* Under force exit case, some requests may be just freed without
 	 * verification, those objects should be re-handled when next run.
