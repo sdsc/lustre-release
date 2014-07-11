@@ -2166,6 +2166,131 @@ log:
 }
 
 /**
+ * Repair the object's nlink attribute.
+ *
+ * If all the known name entries have been verified, then the object's hard
+ * link attribute should match the object's linkEA entries count unless the
+ * object's has too much hard link to be recorded in the linkEA. Such cases
+ * should have been marked in the LFSCK tracing file. Otherwise, trust the
+ * linkEA to update the object's nlink attribute.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] com	pointer to the lfsck component
+ * \param[in] obj	pointer to the dt_object to be handled
+ * \param[in,out] nlink	pointer to buffer to object's hard lock count before
+ *			and after the repairing
+ *
+ * \retval		positive number for repaired cases
+ * \retval		0 if nothing to be repaired
+ * \retval		negative error number on failure
+ */
+static int lfsck_namespace_repair_nlink(const struct lu_env *env,
+					struct lfsck_component *com,
+					struct dt_object *obj, __u32 *nlink)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct lu_attr			*la	= &info->lti_la3;
+	struct lu_fid			*tfid	= &info->lti_fid3;
+	struct lfsck_namespace		*ns	= com->lc_file_ram;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct dt_device		*dev	= lfsck->li_bottom;
+	const struct lu_fid		*cfid	= lfsck_dto2fid(obj);
+	struct dt_object		*child	= NULL;
+	struct thandle			*th	= NULL;
+	struct linkea_data		 ldata	= { 0 };
+	struct lustre_handle		 lh	= { 0 };
+	__u32				 old	= *nlink;
+	int				 rc	= 0;
+	__u8				 flags;
+	ENTRY;
+
+	LASSERT(dt_object_remote(obj) == 0);
+	LASSERT(S_ISREG(lfsck_object_type(obj)));
+
+	child = lfsck_object_find_by_dev(env, dev, cfid);
+	if (IS_ERR(child))
+		GOTO(log, rc = PTR_ERR(child));
+
+	rc = lfsck_ibits_lock(env, lfsck, child, &lh,
+			      MDS_INODELOCK_UPDATE |
+			      MDS_INODELOCK_XATTR, LCK_EX);
+	if (rc != 0)
+		GOTO(log, rc);
+
+	th = dt_trans_create(env, dev);
+	if (IS_ERR(th))
+		GOTO(log, rc = PTR_ERR(th));
+
+	la->la_valid = LA_NLINK;
+	rc = dt_declare_attr_set(env, child, la, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start_local(env, dev, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	dt_write_lock(env, child, 0);
+	/* If the LFSCK is marked as LF_INCOMPLETE, then means some MDT has
+	 * ever tried to verify some remote MDT-object that resides on this
+	 * MDT, but this MDT failed to respond such request. So means there
+	 * may be some remote name entry on other MDT that references this
+	 * object with another name, so we cannot know whether this linkEA
+	 * is valid or not. So keep it there and maybe resolved when next
+	 * LFSCK run. */
+	if (ns->ln_flags & LF_INCOMPLETE)
+		GOTO(unlock, rc = 0);
+
+	fid_cpu_to_be(tfid, cfid);
+	rc = dt_lookup(env, com->lc_obj, (struct dt_rec *)&flags,
+		       (const struct dt_key *)tfid, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	if (flags & LLF_SKIP_NLINK)
+		GOTO(unlock, rc = 0);
+
+	rc = lfsck_links_read2(env, child, &ldata);
+	if (rc == -ENODATA)
+		GOTO(unlock, rc = 0);
+
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	if (la->la_nlink == ldata.ld_leh->leh_reccount)
+		GOTO(unlock, rc = 0);
+
+	la->la_nlink = *nlink = ldata.ld_leh->leh_reccount;
+	if (lfsck->li_bookmark_ram.lb_param & LPF_DRYRUN)
+		GOTO(unlock, rc = 1);
+
+	la->la_valid = LA_NLINK;
+	rc = dt_attr_set(env, child, la, th, BYPASS_CAPA);
+
+	GOTO(unlock, rc = (rc == 0 ? 1 : rc));
+
+unlock:
+	dt_write_unlock(env, child);
+
+stop:
+	dt_trans_stop(env, dev, th);
+
+log:
+	lfsck_ibits_unlock(&lh, LCK_EX);
+	if (child != NULL && !IS_ERR(child))
+		lfsck_object_put(env, child);
+
+	CDEBUG(D_LFSCK, "%s: namespace LFSCK repaired the object "DFID"'s "
+	       "nlink count from %u to %u: rc = %d\n",
+	       lfsck_lfsck2name(lfsck), PFID(cfid), old, *nlink, rc);
+
+	if (rc != 0)
+		ns->ln_flags |= LF_INCONSISTENT;
+
+	return rc;
+}
+
+/**
  * Double scan the directory object for namespace LFSCK.
  *
  * This function will verify the <parent, child> pairs in the namespace tree:
@@ -2816,7 +2941,6 @@ out:
  * \param[in] env	pointer to the thread context
  * \param[in] com	pointer to the lfsck component
  * \param[in] child	pointer to the dt_object to be handled
- * \param[in] flags	some hints to indicate how the @child should be handled
  *
  * \retval		positive number for repaired cases
  * \retval		0 if nothing to be repaired
@@ -2824,7 +2948,7 @@ out:
  */
 static int lfsck_namespace_double_scan_one(const struct lu_env *env,
 					   struct lfsck_component *com,
-					   struct dt_object *child, __u8 flags)
+					   struct dt_object *child)
 {
 	struct lfsck_thread_info *info	   = lfsck_env_info(env);
 	struct lu_attr		 *la	   = &info->lti_la;
@@ -3129,8 +3253,14 @@ out:
 		return rc;
 
 	if (la->la_nlink != count) {
-		/* XXX: there will be other patch(es) for MDT-object
-		 *	hard links verification. */
+		rc = lfsck_namespace_repair_nlink(env, com, child,
+						  &la->la_nlink);
+		if (rc > 0) {
+			down_write(&com->lc_sem);
+			ns->ln_objs_nlink_repaired++;
+			up_write(&com->lc_sem);
+			rc = 0;
+		}
 	}
 
 	if (repaired) {
@@ -3918,6 +4048,72 @@ out_create:
 
 		return rc;
 	}
+	case LE_SKIP_NLINK_DECLARE: {
+		struct thandle		*th    = lr->lr_handle;
+		struct dt_object	*obj   = com->lc_obj;
+		struct lu_fid		*key   = &lfsck_env_info(env)->lti_fid3;
+		__u8			 flags = 0;
+
+		LASSERT(th != NULL);
+
+		rc = dt_declare_delete(env, obj,
+				       (const struct dt_key *)key, th);
+		if (rc == 0)
+			rc = dt_declare_insert(env, obj,
+					       (const struct dt_rec *)&flags,
+					       (const struct dt_key *)key, th);
+
+		RETURN(rc);
+	}
+	case LE_SKIP_NLINK: {
+		struct dt_object	*obj   = com->lc_obj;
+		struct lu_fid		*key   = &lfsck_env_info(env)->lti_fid3;
+		struct thandle		*th    = lr->lr_handle;
+		__u8			 flags = 0;
+		bool			 exist = false;
+		ENTRY;
+
+		LASSERT(th != NULL);
+
+		fid_cpu_to_be(key, &lr->lr_fid);
+		rc = dt_lookup(env, obj, (struct dt_rec *)&flags,
+			       (const struct dt_key *)key, BYPASS_CAPA);
+		if (rc == 0) {
+			if (flags & LLF_SKIP_NLINK)
+				RETURN(0);
+
+			exist = true;
+		} else if (rc != -ENOENT) {
+			GOTO(log, rc);
+		}
+
+		flags |= LLF_SKIP_NLINK;
+		if (exist) {
+			rc = dt_delete(env, obj, (const struct dt_key *)key,
+				       th, BYPASS_CAPA);
+			if (rc != 0)
+				GOTO(log, rc);
+		}
+
+		rc = dt_insert(env, obj, (const struct dt_rec *)&flags,
+			       (const struct dt_key *)key, th, BYPASS_CAPA, 1);
+
+		GOTO(log, rc);
+
+log:
+		CDEBUG(D_LFSCK, "%s: RPC service thread mark the "DFID
+		       " to be skipped for namespace double scan: rc = %d\n",
+		       lfsck_lfsck2name(com->lc_lfsck), PFID(&lr->lr_fid), rc);
+
+		if (rc != 0)
+			/* If we cannot record this object in the LFSCK tracing,
+			 * we have to mark the LFSC as LF_INCOMPLETE, then the
+			 * LFSCK will skip nlink attribute verification for
+			 * all objects. */
+			ns->ln_flags |= LF_INCOMPLETE;
+
+		return 0;
+	}
 	case LE_PHASE1_DONE:
 	case LE_PHASE2_DONE:
 	case LE_PEER_EXIT:
@@ -4466,6 +4662,34 @@ nodata:
 			GOTO(stop, rc);
 
 		rc = lfsck_links_write(env, obj, &ldata, handle);
+		if (unlikely(rc == -ENOSPC) &&
+		    S_ISREG(lfsck_object_type(obj)) &&
+		    dt_object_remote(obj) == 0) {
+			if (handle != NULL) {
+				LASSERT(dt_write_locked(env, obj));
+
+				dt_write_unlock(env, obj);
+				dtlocked = false;
+
+				dt_trans_stop(env, dev, handle);
+				handle = NULL;
+
+				lfsck_ibits_unlock(&lh, LCK_EX);
+			}
+
+			rc = lfsck_namespace_update(env, com, &lnr->lnr_fid,
+						    LLF_SKIP_NLINK);
+			if (rc != 0)
+				/* If we cannot record this object in the
+				 * LFSCK tracing, we have to mark the LFSCK
+				 * as LF_INCOMPLETE, then the LFSCK will
+				 * skip nlink attribute verification for
+				 * all objects. */
+				ns->ln_flags |= LF_INCOMPLETE;
+
+			GOTO(out, rc = 0);
+		}
+
 		if (rc != 0)
 			GOTO(stop, rc);
 
@@ -4627,7 +4851,6 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 	struct dt_key		*key;
 	struct lu_fid		 fid;
 	int			 rc;
-	__u8			 flags	= 0;
 	ENTRY;
 
 	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan start\n",
@@ -4682,13 +4905,9 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 		}
 
 		if (dt_object_exists(target)) {
-			rc = iops->rec(env, di, (struct dt_rec *)&flags, 0);
-			if (rc == 0) {
-				rc = lfsck_namespace_double_scan_one(env, com,
-								target, flags);
-				if (rc == -ENOENT)
-					rc = 0;
-			}
+			rc = lfsck_namespace_double_scan_one(env, com, target);
+			if (rc == -ENOENT)
+				rc = 0;
 		}
 
 		lfsck_object_put(env, target);
