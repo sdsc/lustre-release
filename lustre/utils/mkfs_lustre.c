@@ -565,7 +565,7 @@ int main(int argc, char *const argv[])
         /* device is last arg */
         strscpy(mop.mo_device, argv[argc - 1], sizeof(mop.mo_device));
 
-	ret = osd_init();
+	ret = osd_init(argv[0]);
 	if (ret)
 		return ret;
 

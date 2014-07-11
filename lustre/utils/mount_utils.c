@@ -442,7 +442,8 @@ int loop_format(struct mkfs_opts *mop)
  * \retval Value of backfs_ops struct
  * \retval NULL if no module exists
  */
-struct module_backfs_ops *load_backfs_module(enum ldd_mount_type mount_type)
+struct module_backfs_ops *
+load_backfs_module(enum ldd_mount_type mount_type, const char *progpath)
 {
 	void *handle;
 	char *error, filename[512], fsname[512], *name;
@@ -460,18 +461,15 @@ struct module_backfs_ops *load_backfs_module(enum ldd_mount_type mount_type)
 
 	handle = dlopen(filename, RTLD_LAZY);
 
-	/* Check for $LUSTRE environment variable from test-framework.
-	 * This allows using locally built modules to be used.
+	/* Check the relative path to use locally built modules instead.
 	 */
-	if (handle == NULL) {
-		char *dirname;
-		dirname = getenv("LUSTRE");
-		if (dirname) {
-			snprintf(filename, sizeof(filename),
-				 "%s/utils/.libs/mount_%s.so",
-				 dirname, fsname);
-			handle = dlopen(filename, RTLD_LAZY);
-		}
+	if (handle == NULL && progpath != NULL) {
+		int prognamelen	= strlen(strrchr(progpath, '/'));
+
+		snprintf(filename, sizeof(filename), "%.*s/.libs/mount_%s.so",
+			 (int)(strlen(progpath) - prognamelen),
+			 progpath, fsname);
+		handle = dlopen(filename, RTLD_LAZY);
 	}
 
 	/* Do not clutter up console with missing types */
@@ -663,12 +661,12 @@ int osd_enable_quota(struct mkfs_opts *mop)
 	return ret;
 }
 
-int osd_init(void)
+int osd_init(const char *progpath)
 {
 	int i, ret = 0;
 
 	for (i = 0; i < LDD_MT_LAST; ++i) {
-		backfs_ops[i] = load_backfs_module(i);
+		backfs_ops[i] = load_backfs_module(i, progpath);
 		if (backfs_ops[i] != NULL)
 			ret = backfs_ops[i]->init();
 		if (ret)
