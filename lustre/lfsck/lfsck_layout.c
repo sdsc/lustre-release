@@ -3668,8 +3668,19 @@ static int lfsck_layout_assistant(void *args)
 				com->lc_time_last_checkpoint +
 				cfs_time_seconds(LFSCK_CHECKPOINT_INTERVAL);
 
-			/* flush all async updating before handling orphan. */
+			/* Flush async updates before handling orphan. */
 			dt_sync(env, lfsck->li_next);
+
+			/* XXX: It is not that all the async remote updates are
+			 *	handled via OSP async logs. So only dt_sync()
+			 *	is not enough. Further more, the LFSCK cannot
+			 *	control the low layer ptlrpcd threads to flush
+			 *	all async updates to remote servers. In future,
+			 *	we should offer related interface to allow the
+			 *	caller to flush async requests completely. But
+			 *	be as temporary solution, the LFSCK will wait
+			 *	here for a while. LU-4970 */
+			schedule_timeout(cfs_time_seconds(1));
 
 			while (llmd->llmd_in_double_scan) {
 				struct lfsck_tgt_descs	*ltds =
@@ -3807,8 +3818,17 @@ cleanup2:
 		rc = rc1;
 	}
 
-	/* flush all async updating before exit. */
+	/* Flush async updates before exit. */
 	dt_sync(env, lfsck->li_next);
+
+	/* XXX: It is not that all the async remote updates are handled via
+	 *	OSP async logs. So only dt_sync() is not enough. Further more,
+	 *	the LFSCK cannot control the low layer ptlrpcd threads to flush
+	 *	all async updates to remote servers. In future, we should offer
+	 *	related interface to allow the caller to flush async requests
+	 *	completely. But be as temporary solution, the LFSCK will wait
+	 *	here for a while. LU-4970 */
+	schedule_timeout(cfs_time_seconds(1));
 
 	/* Under force exit case, some requests may be just freed without
 	 * verification, those objects should be re-handled when next run.
