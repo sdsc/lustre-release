@@ -2363,6 +2363,7 @@ ksocknal_flush_stale_txs(ksock_peer_t *peer)
 
 int
 ksocknal_send_keepalive_locked(ksock_peer_t *peer)
+__must_hold(&ksocknal_data.ksnd_global_lock)
 {
         ksock_sched_t  *sched;
         ksock_conn_t   *conn;
