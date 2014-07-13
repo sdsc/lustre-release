@@ -546,7 +546,7 @@ int ptl_send_rpc(struct ptlrpc_request *request, int noreply)
         if (!noreply) {
                 LASSERT (request->rq_replen != 0);
                 if (request->rq_repbuf == NULL)
-                        OBD_ALLOC(request->rq_repbuf, request->rq_replen);
+                        OBD_ALLOC_LARGE(request->rq_repbuf, request->rq_replen);
                 if (request->rq_repbuf == NULL) {
                         /* this prevents us from looping in ptlrpc_queue_wait */
                         spin_lock(&request->rq_lock);
