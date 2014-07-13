@@ -279,7 +279,7 @@ static int lustre_pack_request_v1(struct ptlrpc_request *req,
                                                     reqlen);
                 memset(req->rq_reqmsg, 0, reqlen);
         } else {
-                OBD_ALLOC(req->rq_reqmsg, reqlen);
+                OBD_ALLOC_LARGE(req->rq_reqmsg, reqlen);
                 if (req->rq_reqmsg == NULL) {
                         CERROR("alloc reqmsg (len %d) failed\n", reqlen);
                         return -ENOMEM;
@@ -311,7 +311,7 @@ static int lustre_pack_request_v2(struct ptlrpc_request *req,
                                                     reqlen);
                 memset(req->rq_reqmsg, 0, reqlen);
         } else {
-                OBD_ALLOC(req->rq_reqmsg, reqlen);
+                OBD_ALLOC_LARGE(req->rq_reqmsg, reqlen);
                 if (req->rq_reqmsg == NULL) {
                         CERROR("alloc reqmsg (len %d) failed\n", reqlen);
                         return -ENOMEM;

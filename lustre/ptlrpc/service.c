@@ -818,9 +818,9 @@ static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
         OBD_ALLOC(reqcopy, sizeof *reqcopy);
         if (reqcopy == NULL)
                 RETURN(-ENOMEM);
-        OBD_ALLOC(reqmsg, req->rq_reqlen);
+        OBD_ALLOC_LARGE(reqmsg, req->rq_reqlen);
         if (!reqmsg) {
-                OBD_FREE(reqcopy, sizeof *reqcopy);
+                OBD_FREE_LARGE(reqcopy, sizeof *reqcopy);
                 RETURN(-ENOMEM);
         }
 
@@ -873,7 +873,7 @@ out_put:
         class_export_rpc_put(reqcopy->rq_export);
         class_export_put(reqcopy->rq_export);
 out:
-        OBD_FREE(reqmsg, req->rq_reqlen);
+        OBD_FREE_LARGE(reqmsg, req->rq_reqlen);
         OBD_FREE(reqcopy, sizeof *reqcopy);
         RETURN(rc);
 }
