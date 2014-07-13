@@ -1,0 +1,44 @@
+Index: linux-3.10.0-123.13.2.el7.x86_64/fs/ext4/super.c
+===================================================================
+--- linux-3.10.0-123.13.2.el7.x86_64.orig/fs/ext4/super.c
++++ linux-3.10.0-123.13.2.el7.x86_64/fs/ext4/super.c
+@@ -1165,6 +1165,7 @@ enum {
+ 	Opt_no_mbcache,
+ 	Opt_discard, Opt_nodiscard, Opt_init_itable, Opt_noinit_itable,
+ 	Opt_max_dir_size_kb,
++	Opt_extents, Opt_noextents,
+ };
+ 
+ static const match_table_t tokens = {
+@@ -1243,6 +1244,8 @@ static const match_table_t tokens = {
+ 	{Opt_init_itable, "init_itable"},
+ 	{Opt_noinit_itable, "noinit_itable"},
+ 	{Opt_max_dir_size_kb, "max_dir_size_kb=%u"},
++	{Opt_extents, "extents"},
++	{Opt_noextents, "noextents"},
+ 	{Opt_removed, "check=none"},	/* mount option from ext2/3 */
+ 	{Opt_removed, "nocheck"},	/* mount option from ext2/3 */
+ 	{Opt_removed, "reservation"},	/* mount option from ext2/3 */
+@@ -1485,6 +1491,22 @@ static int handle_mount_opt(struct super
+ 	case Opt_force_over_128tb:
+ 		force_over_128tb = 1;
+ 		break;
++	case Opt_extents:
++		if (!EXT4_HAS_INCOMPAT_FEATURE(sb,
++			EXT4_FEATURE_INCOMPAT_EXTENTS)) {
++			ext4_error(sb, "extents feature not enabled "
++				"on this filesystem, use tune2fs");
++			return -EINVAL;
++		}
++		return 1;
++	case Opt_noextents:
++		if (EXT4_HAS_INCOMPAT_FEATURE(sb,
++			EXT4_FEATURE_INCOMPAT_EXTENTS)) {
++			ext4_error(sb, "extents feature has enabled "
++				 "on this filesystem, use tune2fs");
++			return -EINVAL;
++		}
++		return 1;
+ 	}
+ 
+ 	for (m = ext4_mount_opts; m->token != Opt_err; m++)
