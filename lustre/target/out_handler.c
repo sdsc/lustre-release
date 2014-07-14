@@ -34,6 +34,7 @@
 #include <obd_class.h>
 #include <md_object.h>
 #include "tgt_internal.h"
+#include <lustre_log.h>
 #include <lustre_update.h>
 
 struct tx_arg *tx_add_exec(struct thandle_exec_args *ta, tx_exec_func_t func,
@@ -1496,7 +1497,7 @@ int out_log_handle(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	update_init_reply_buf(reply_buf, count);
 	tti->tti_u.update.tti_update_reply = reply_buf;
-	
+
 	master_index = update_buf_master_idx(ubuf);
 
 	for (i = 0; i < count; i++) {
@@ -1517,9 +1518,306 @@ int out_log_handle(struct tgt_session_info *tsi)
 	RETURN(rc);
 }
 
+/* Only open is supported, no new llog can be created remotely */
+int out_update_llog_open(struct tgt_session_info *tsi)
+{
+	const struct lu_env	*env = tsi->tsi_env;
+	struct tgt_thread_info	*tti = tgt_th_info(env);
+	struct req_capsule	*pill = tsi->tsi_pill;
+	struct dt_device	*dt = tsi->tsi_tgt->lut_bottom;
+	struct obd_llog_group	*olg;
+	struct llog_handle	*loghandle;
+	struct llogd_body	*body;
+	struct llogd_body	*repbody;
+	struct llog_ctxt	*ctxt;
+	int			index;
+	struct llog_catid	*cid = &tti->tti_u.update.tti_cid;
+	struct lu_fid		*fid = &tti->tti_fid1;
+	int			rc;
+	ENTRY;
+
+	body = req_capsule_client_get(pill, &RMF_LLOGD_BODY);
+	if (body == NULL)
+		RETURN(-EFAULT);
+
+	rc = req_capsule_server_pack(pill);
+	if (rc)
+		RETURN(-ENOMEM);
+
+	index = pill->rc_req->rq_export->exp_mdt_data.med_index;
+	/* Only support catlist log right now */
+	if (body->lgd_llh_flags & LLOG_F_IS_CATLIST) {
+		logid_to_fid(&body->lgd_logid, fid);
+		rc = llog_osd_get_cat_list(env, dt, index, 1, cid, fid);
+		if (rc) {
+			CERROR("%s: can't get id from catalogs: rc = %d\n",
+			       tsi->tsi_tgt_name, rc);
+			RETURN(rc);
+		}
+
+		if (logid_id(&cid->lci_logid) == 0)
+			RETURN(-ENOENT);
+
+		CDEBUG(D_HA, "%s: open llog "DFID" index %d\n", tsi->tsi_tgt_name,
+		       PFID(fid), index);
+	} else {
+		cid->lci_logid = body->lgd_logid;
+	}
+
+	olg = dt_update_find_olg(dt, index);
+	if (olg == NULL)
+		RETURN(-ENOENT);
+
+	ctxt = llog_group_get_ctxt(olg, body->lgd_ctxt_idx);
+	if (ctxt == NULL) {
+		CDEBUG(D_WARNING, "%s: no ctxt. group=%p idx=%d\n",
+		       tsi->tsi_tgt_name, olg, body->lgd_ctxt_idx);
+		RETURN(-ENODEV);
+	}
+
+	rc = llog_open(env, ctxt, &loghandle, &cid->lci_logid, NULL,
+		       LLOG_OPEN_EXISTS);
+	if (rc)
+		GOTO(out_ctxt, rc);
+
+	repbody = req_capsule_server_get(pill, &RMF_LLOGD_BODY);
+	repbody->lgd_logid = loghandle->lgh_id;
+	repbody->lgd_index = index;
+
+	llog_origin_close(env, loghandle);
+	EXIT;
+out_ctxt:
+	llog_ctxt_put(ctxt);
+	return rc;
+}
+
+int out_update_llog_next_block(struct tgt_session_info *tsi)
+{
+	const struct lu_env	*env = tsi->tsi_env;
+	struct req_capsule	*pill = tsi->tsi_pill;
+	struct dt_device	*dt = tsi->tsi_tgt->lut_bottom;
+	struct obd_llog_group	*olg;
+	struct llog_handle	*loghandle;
+	struct llogd_body	*body;
+	struct llogd_body	*repbody;
+	struct llog_ctxt	*ctxt;
+	__u32			 flags;
+	void			*ptr;
+	int			 index;
+	int			 rc;
+
+	ENTRY;
+
+	body = req_capsule_client_get(pill, &RMF_LLOGD_BODY);
+	if (body == NULL)
+		RETURN(err_serious(-EFAULT));
+
+	req_capsule_set_size(pill, &RMF_EADATA, RCL_SERVER, LLOG_CHUNK_SIZE);
+	rc = req_capsule_server_pack(pill);
+	if (rc)
+		RETURN(err_serious(-ENOMEM));
+
+	CDEBUG(D_HA, "%s: next block "DOSTID":%u flags %x\n",
+	       tsi->tsi_tgt_name, POSTID(&body->lgd_logid.lgl_oi),
+	       body->lgd_logid.lgl_ogen, body->lgd_llh_flags);
+
+	index = pill->rc_req->rq_export->exp_mdt_data.med_index;
+	olg = dt_update_find_olg(dt, index);
+	if (olg == NULL)
+		RETURN(-ENOENT);
+
+	ctxt = llog_group_get_ctxt(olg, body->lgd_ctxt_idx);
+	if (ctxt == NULL) {
+		CDEBUG(D_WARNING, "%s: no ctxt. group=%p idx=%d\n",
+		       tsi->tsi_tgt_name, olg, body->lgd_ctxt_idx);
+		RETURN(-ENODEV);
+	}
+
+	rc = llog_open(env, ctxt, &loghandle,
+		       &body->lgd_logid, NULL, LLOG_OPEN_EXISTS);
+	if (rc)
+		GOTO(out_ctxt, rc);
+
+	flags = body->lgd_llh_flags;
+	rc = llog_init_handle(env, loghandle, flags, NULL);
+	if (rc)
+		GOTO(out_close, rc);
+
+	repbody = req_capsule_server_get(pill, &RMF_LLOGD_BODY);
+	*repbody = *body;
+	repbody->lgd_logid.lgl_ogen = index;
+	ptr = req_capsule_server_get(pill, &RMF_EADATA);
+	rc = llog_next_block(env, loghandle,
+			     &repbody->lgd_saved_index, repbody->lgd_index,
+			     &repbody->lgd_cur_offset, ptr, LLOG_CHUNK_SIZE);
+	if (rc)
+		GOTO(out_close, rc);
+	EXIT;
+out_close:
+	llog_origin_close(env, loghandle);
+out_ctxt:
+	llog_ctxt_put(ctxt);
+	return rc;
+}
+
+int out_update_llog_prev_block(struct tgt_session_info *tsi)
+{
+	const struct lu_env	*env = tsi->tsi_env;
+	struct req_capsule	*pill = tsi->tsi_pill;
+	struct dt_device	*dt = tsi->tsi_tgt->lut_bottom;
+	struct obd_llog_group	*olg;
+	struct llog_handle	*loghandle;
+	struct llogd_body	*body;
+	struct llogd_body	*repbody;
+	struct llog_ctxt	*ctxt;
+	__u32			 flags;
+	void			*ptr;
+	int			 rc;
+	int			index;
+	ENTRY;
+
+	body = req_capsule_client_get(pill, &RMF_LLOGD_BODY);
+	if (body == NULL)
+		RETURN(err_serious(-EFAULT));
+
+	req_capsule_set_size(pill, &RMF_EADATA, RCL_SERVER, LLOG_CHUNK_SIZE);
+	rc = req_capsule_server_pack(pill);
+	if (rc)
+		RETURN(err_serious(-ENOMEM));
+
+	index = pill->rc_req->rq_export->exp_mdt_data.med_index;
+
+	CDEBUG(D_HA, "%s: prev block "DOSTID":%u\n",
+	       tsi->tsi_tgt_name, POSTID(&body->lgd_logid.lgl_oi),
+	       body->lgd_logid.lgl_ogen);
+
+	olg = dt_update_find_olg(dt, index);
+	if (olg == NULL)
+		RETURN(-ENOENT);
+
+	ctxt = llog_group_get_ctxt(olg, body->lgd_ctxt_idx);
+	if (ctxt == NULL) {
+		CDEBUG(D_WARNING, "%s: no ctxt. group=%p idx=%d\n",
+		       tsi->tsi_tgt_name, olg, body->lgd_ctxt_idx);
+		RETURN(-ENODEV);
+	}
+
+	rc = llog_open(env, ctxt, &loghandle, &body->lgd_logid, NULL,
+		       LLOG_OPEN_EXISTS);
+	if (rc)
+		GOTO(out_ctxt, rc);
+
+	flags = body->lgd_llh_flags;
+	rc = llog_init_handle(env, loghandle, flags, NULL);
+	if (rc)
+		GOTO(out_close, rc);
+
+	repbody = req_capsule_server_get(pill, &RMF_LLOGD_BODY);
+	*repbody = *body;
+	repbody->lgd_logid.lgl_ogen = index;
+
+	ptr = req_capsule_server_get(pill, &RMF_EADATA);
+	rc = llog_prev_block(env, loghandle, body->lgd_index, ptr,
+			     LLOG_CHUNK_SIZE);
+	if (rc)
+		GOTO(out_close, rc);
+
+	EXIT;
+out_close:
+	llog_origin_close(env, loghandle);
+out_ctxt:
+	llog_ctxt_put(ctxt);
+	return rc;
+}
+
+int out_update_llog_read_header(struct tgt_session_info *tsi)
+{
+	const struct lu_env	*env = tsi->tsi_env;
+	struct req_capsule	*pill = tsi->tsi_pill;
+	struct dt_device	*dt = tsi->tsi_tgt->lut_bottom;
+	struct obd_llog_group	*olg;
+	struct llog_handle	*loghandle;
+	struct llogd_body	*body;
+	struct llog_log_hdr	*hdr;
+	struct llog_ctxt	*ctxt;
+	__u32			 flags;
+	int			 rc;
+	int			 index;
+
+	ENTRY;
+
+	body = req_capsule_client_get(pill, &RMF_LLOGD_BODY);
+	if (body == NULL)
+		RETURN(-EFAULT);
+
+	rc = req_capsule_server_pack(pill);
+	if (rc)
+		RETURN(-ENOMEM);
+
+	CDEBUG(D_HA, "%s: read header "DOSTID":%u\n",
+	       tsi->tsi_tgt_name, POSTID(&body->lgd_logid.lgl_oi),
+	       body->lgd_logid.lgl_ogen);
+
+	index = pill->rc_req->rq_export->exp_mdt_data.med_index;
+	olg = dt_update_find_olg(dt, index);
+	if (olg == NULL)
+		RETURN(-ENOENT);
+
+	ctxt = llog_group_get_ctxt(olg, body->lgd_ctxt_idx);
+	if (ctxt == NULL) {
+		CDEBUG(D_WARNING, "%s: no ctxt. group=%p idx=%d\n",
+		       tsi->tsi_tgt_name, olg, body->lgd_ctxt_idx);
+		RETURN(-ENODEV);
+	}
+
+	rc = llog_open(env, ctxt, &loghandle, &body->lgd_logid, NULL,
+		       LLOG_OPEN_EXISTS);
+	if (rc)
+		GOTO(out_ctxt, rc);
+
+	/*
+	 * llog_init_handle() reads the llog header
+	 */
+	flags = body->lgd_llh_flags;
+	rc = llog_init_handle(env, loghandle, flags, NULL);
+	if (rc)
+		GOTO(out_close, rc);
+
+	hdr = req_capsule_server_get(pill, &RMF_LLOG_LOG_HDR);
+	*hdr = *loghandle->lgh_hdr;
+	EXIT;
+out_close:
+	llog_origin_close(env, loghandle);
+out_ctxt:
+	llog_ctxt_put(ctxt);
+	return rc;
+}
+
+int out_update_llog_close(struct tgt_session_info *tsi)
+{
+	struct req_capsule	*pill = tsi->tsi_pill;
+	int			rc;
+
+	ENTRY;
+
+	rc = req_capsule_server_pack(pill);
+	if (rc != 0)
+		RETURN(rc);
+	RETURN(0);
+}
+
 struct tgt_handler tgt_out_handlers[] = {
 TGT_UPDATE_HDL(MUTABOR,	UPDATE_OBJ,	out_handle),
 TGT_UPDATE_HDL(MUTABOR,	UPDATE_LOG_CANCEL,	out_log_handle),
 };
 EXPORT_SYMBOL(tgt_out_handlers);
+
+struct tgt_handler tgt_out_llog_handlers[] = {
+TGT_LLOG_HDL    (0,	LLOG_ORIGIN_HANDLE_CREATE,	out_update_llog_open),
+TGT_LLOG_HDL    (0,	LLOG_ORIGIN_HANDLE_NEXT_BLOCK,	out_update_llog_next_block),
+TGT_LLOG_HDL    (0,	LLOG_ORIGIN_HANDLE_READ_HEADER,	out_update_llog_read_header),
+TGT_LLOG_HDL_VAR(0,	LLOG_ORIGIN_HANDLE_CLOSE,	out_update_llog_close),
+TGT_LLOG_HDL    (0,	LLOG_ORIGIN_HANDLE_PREV_BLOCK,	out_update_llog_prev_block),
+};
+EXPORT_SYMBOL(tgt_out_llog_handlers);
 

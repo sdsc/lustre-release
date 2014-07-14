@@ -98,6 +98,7 @@ struct tgt_session_info {
 	struct obd_export	*tsi_exp;
 	const struct lu_env	*tsi_env;
 	struct lu_target	*tsi_tgt;
+	char			*tsi_tgt_name;
 
 	const struct mdt_body	*tsi_mdt_body;
 	struct ost_body		*tsi_ost_body;
@@ -105,6 +106,7 @@ struct tgt_session_info {
 
 	struct lu_fid		 tsi_fid;
 	struct ldlm_res_id	 tsi_resid;
+
 	/*
 	 * Additional fail id that can be set by handler.
 	 */
@@ -252,6 +254,7 @@ extern struct tgt_handler tgt_llog_handlers[];
 extern struct tgt_handler tgt_out_handlers[];
 extern struct tgt_handler fld_handlers[];
 extern struct tgt_handler seq_handlers[];
+extern struct tgt_handler tgt_out_llog_handlers[];
 
 typedef void (*tgt_cb_t)(struct lu_target *lut, __u64 transno,
 			 void *data, int err);
