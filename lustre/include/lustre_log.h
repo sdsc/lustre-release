@@ -78,6 +78,7 @@
 enum llog_open_param {
 	LLOG_OPEN_EXISTS	= 0x0000,
 	LLOG_OPEN_NEW		= 0x0001,
+	LLOG_OPEN_CATLIST	= 0x0002,
 };
 
 struct plain_handle_data {
@@ -586,6 +587,7 @@ int llog_erase(const struct lu_env *env, struct llog_ctxt *ctxt,
 int llog_write(const struct lu_env *env, struct llog_handle *loghandle,
 	       struct llog_rec_hdr *rec, struct llog_cookie *reccookie,
 	       int cookiecount, void *buf, int idx);
+int llog_origin_close(const struct lu_env *env, struct llog_handle *lgh);
 
 struct update_buf;
 /** updatelog record */

@@ -81,6 +81,7 @@ struct mdt_export_data {
 	__u64			med_ibits_known;
 	struct mutex		med_idmap_mutex;
 	struct lustre_idmap_table *med_idmap;
+	int			med_index;
 };
 
 struct ec_export_data { /* echo client */

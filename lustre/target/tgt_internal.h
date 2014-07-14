@@ -132,6 +132,7 @@ struct tgt_thread_info {
 			struct obdo		 tti_obdo;
 			struct dt_object	*tti_dt_object;
 			struct thandle_update	 tti_update_handle;
+			struct llog_catid	 tti_cid;
 		} update;
 	} tti_u;
 };
