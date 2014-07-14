@@ -98,6 +98,7 @@ struct tgt_session_info {
 	const struct mdt_body	*tsi_mdt_body;
 	struct lu_object	*tsi_corpus;
 
+	char			*tsi_tgt_name;
 	/*
 	 * Additional fail id that can be set by handler.
 	 */
@@ -221,6 +222,7 @@ extern struct tgt_handler tgt_llog_handlers[];
 extern struct tgt_handler tgt_out_handlers[];
 extern struct tgt_handler fld_handlers[];
 extern struct tgt_handler seq_handlers[];
+extern struct tgt_handler tgt_out_llog_handlers[];
 
 typedef void (*tgt_cb_t)(struct lu_target *lut, __u64 transno,
 			 void *data, int err);

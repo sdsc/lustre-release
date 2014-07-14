@@ -52,13 +52,14 @@
 #include <lustre_net.h>
 
 #if defined(__KERNEL__) && defined(LUSTRE_LOG_SERVER)
-static int llog_origin_close(const struct lu_env *env, struct llog_handle *lgh)
+int llog_origin_close(const struct lu_env *env, struct llog_handle *lgh)
 {
 	if (lgh->lgh_hdr != NULL && lgh->lgh_hdr->llh_flags & LLOG_F_IS_CAT)
 		return llog_cat_close(env, lgh);
 	else
 		return llog_close(env, lgh);
 }
+EXPORT_SYMBOL(llog_origin_close);
 
 /* Only open is supported, no new llog can be created remotely */
 int llog_origin_handle_open(struct ptlrpc_request *req)

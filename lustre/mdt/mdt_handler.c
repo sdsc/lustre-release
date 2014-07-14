@@ -4026,6 +4026,11 @@ static struct tgt_opc_slice mdt_common_slice[] = {
 		.tos_hs		= tgt_out_handlers
 	},
 	{
+		.tos_opc_start = LLOG_FIRST_OPC,
+		.tos_opc_end   = LLOG_LAST_OPC,
+		.tos_hs        = tgt_out_llog_handlers
+	},
+	{
 		.tos_opc_start	= FLD_FIRST_OPC,
 		.tos_opc_end	= FLD_LAST_OPC,
 		.tos_hs		= fld_handlers
@@ -4676,7 +4681,11 @@ static int mdt_connect_internal(struct obd_export *exp,
 				struct mdt_device *mdt,
 				struct obd_connect_data *data)
 {
+	struct mdt_export_data *med = &exp->exp_mdt_data;
+
 	LASSERT(data != NULL);
+
+	med->med_index = data->ocd_group;
 
 	data->ocd_connect_flags &= MDT_CONNECT_SUPPORTED;
 	data->ocd_ibits_known &= MDS_INODELOCK_FULL;

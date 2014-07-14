@@ -119,14 +119,16 @@ static int llog_client_open(const struct lu_env *env,
                 body->lgd_logid = *logid;
         body->lgd_ctxt_idx = ctxt->loc_idx - 1;
 
-        if (name) {
-                char *tmp;
-                tmp = req_capsule_client_sized_get(&req->rq_pill, &RMF_NAME,
-                                                   strlen(name) + 1);
-                LASSERT(tmp);
-                strcpy(tmp, name);
-        }
+	if (open_param == LLOG_OPEN_CATLIST)
+		body->lgd_llh_flags |= LLOG_F_IS_CATLIST;
 
+	if (name) {
+		char *tmp;
+		tmp = req_capsule_client_sized_get(&req->rq_pill, &RMF_NAME,
+						   strlen(name) + 1);
+		LASSERT(tmp);
+		strcpy(tmp, name);
+	}
         rc = ptlrpc_queue_wait(req);
         if (rc)
 		GOTO(out, rc);

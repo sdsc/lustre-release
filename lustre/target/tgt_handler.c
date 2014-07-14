@@ -386,6 +386,7 @@ int tgt_request_handle(struct ptlrpc_request *req)
 
 	tsi->tsi_tgt = tgt = class_exp2tgt(req->rq_export);
 	tsi->tsi_exp = req->rq_export;
+	tsi->tsi_tgt_name = tgt_name(tsi->tsi_tgt);
 
 	request_fail_id = tgt->lut_request_fail_id;
 	tsi->tsi_reply_fail_id = tgt->lut_reply_fail_id;
