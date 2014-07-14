@@ -349,7 +349,7 @@ int dt_update_llog_init(const struct lu_env *env, struct dt_device *dt,
 			int index, struct llog_operations *logops)
 {
 	struct llog_thread_info		*info = llog_info(env);
-	struct lu_fid			*fid = &info->lgi_fid;
+	struct lu_fid			fid;
 	struct llog_catid		*cid = &info->lgi_cid;
 	struct llog_handle		*lgh = NULL;
 	struct obd_device		*obd = dt->dd_lu_dev.ld_obd;
@@ -370,8 +370,8 @@ int dt_update_llog_init(const struct lu_env *env, struct dt_device *dt,
 
 	OBD_SET_CTXT_MAGIC(&obd->obd_lvfs_ctxt);
 	obd->obd_lvfs_ctxt.dt = dt;
-	lu_local_obj_fid(fid, UPDATE_LLOG_CATALOGS_OID);
-	rc = llog_osd_get_cat_list(env, dt, index, 1, cid, fid);
+	lu_local_obj_fid(&fid, UPDATE_LLOG_CATALOGS_OID);
+	rc = llog_osd_get_cat_list(env, dt, index, 1, cid, &fid);
 	if (rc) {
 		CERROR("%s: can't get id from catalogs: rc = %d\n",
 		       obd->obd_name, rc);
@@ -405,6 +405,10 @@ int dt_update_llog_init(const struct lu_env *env, struct dt_device *dt,
 	LASSERT(lgh != NULL);
 	ctxt->loc_handle = lgh;
 	rc = llog_cat_init_and_process(env, ctxt->loc_handle);
+	if (rc)
+		GOTO(out_close, rc);
+
+	rc = llog_osd_put_cat_list(env, dt, index, 1, cid, &fid);
 	if (rc)
 		GOTO(out_close, rc);
 
