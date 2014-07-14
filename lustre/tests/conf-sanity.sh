@@ -4754,6 +4754,33 @@ test_80() {
 }
 run_test 80 "mgc import reconnect race"
 
+test_81() { # LU-3682
+	[[ $(lustre_version_code $SINGLEMDS) -ge $(version_code 2.5.60) ]] ||
+		{ skip "Need MDS version at least 2.5.60"; return 0; }
+
+	local mdsdev1=$(mdsdevname 1)
+	local mdsvdev1=$(mdsvdevname 1)
+	local mdsvdev1_link=$mdsvdev1.$tfile
+
+	stopall
+	#create a symlink to MDS dev
+	rm -f $mdsvdev1_link
+	ln -s $mdsvdev1 $mdsvdev1_link
+	start_mdt 1 || error "start mds1 failed"
+	do_facet mds1 $MKFS $(mkfs_opts mds1 $mdsvdev1_link) \
+		--reformat $mdsdev1 $mdsvdev1_link > /dev/null &&
+		error "Running mkfs.lustre on $mdsdev1_link should fail"
+	#run tunefs on a mounted device
+	if [ "$(facet_fstype $SINGLEMDS)" != "zfs" ]; then
+		$TUNEFS --quiet $mdsvdev1_link > /dev/null &&
+			error "Running tunefs on $mdsdev1_link should fail"
+	fi
+
+	rm -f $mdsdev1_link
+	stop_mdt 1
+}
+run_test 81 "prevent tunefs from running on a mounted device"
+
 if ! combined_mgs_mds ; then
 	stop mgs
 fi
