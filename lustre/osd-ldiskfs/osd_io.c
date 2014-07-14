@@ -767,8 +767,8 @@ static int osd_declare_write_commit(const struct lu_env *env,
 	lnb[0].flags &= ~(OBD_BRW_OVER_USRQUOTA | OBD_BRW_OVER_GRPQUOTA);
 
 	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid,
-				   quota_space, oh, true, true, &flags,
-				   ignore_quota);
+				   quota_space, oh, osd_dt_obj(dt), true,
+				   &flags, ignore_quota);
 
 	/* we need only to store the overquota flags in the first lnb for
 	 * now, once we support multiple objects BRW, this code needs be
@@ -1062,7 +1062,7 @@ static ssize_t osd_declare_write(const struct lu_env *env, struct dt_object *dt,
 	 * as llog or last_rcvd files. We needn't enforce quota on those
 	 * objects, so always set the lqi_space as 0. */
 	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, 0, oh,
-				   true, true, NULL, false);
+				   osd_dt_obj(dt), true, NULL, false);
 	RETURN(rc);
 }
 
@@ -1227,7 +1227,7 @@ static int osd_declare_punch(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(inode);
 
 	rc = osd_declare_inode_qid(env, inode->i_uid, inode->i_gid, 0, oh,
-				   true, true, NULL, false);
+				   osd_dt_obj(dt), true, NULL, false);
 	RETURN(rc);
 }
 
