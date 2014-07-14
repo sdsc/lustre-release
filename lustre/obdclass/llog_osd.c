@@ -1229,8 +1229,8 @@ out_trans:
 		GOTO(out, rc = -ENOENT);
 	}
 
-	CDEBUG(D_CONFIG, "cat list: disk size=%d, read=%d\n",
-	       (int)lgi->lgi_attr.la_size, size);
+	CDEBUG(D_CONFIG, "cat list: disk size=%d, off=%d, read=%d\n",
+	       (int)lgi->lgi_attr.la_size, (int)lgi->lgi_off, size);
 
 	/* return just number of llogs */
 	if (idarray == NULL) {

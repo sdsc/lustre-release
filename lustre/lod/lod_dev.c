@@ -176,7 +176,7 @@ static int lod_cleanup_desc_tgts(const struct lu_env *env,
 	return rc;
 }
 
-static int lodname2mdt_index(char *lodname, long *index)
+static int lodname2mdt_index(char *lodname, int *mdt_index)
 {
 	char *ptr, *tmp;
 
@@ -202,8 +202,8 @@ static int lodname2mdt_index(char *lodname, long *index)
 		return -EINVAL;
 	}
 
-	*index = simple_strtol(ptr - 4, &tmp, 16);
-	if (*tmp != '-' || *index > INT_MAX || *index < 0) {
+	*mdt_index = (int)simple_strtol(ptr - 4, &tmp, 16);
+	if (*tmp != '-' || *mdt_index > INT_MAX || *mdt_index < 0) {
 		CERROR("invalid MDT index in '%s'\n", lodname);
 		return -EINVAL;
 	}
@@ -268,18 +268,20 @@ static int lod_process_config(const struct lu_env *env,
 			if (mdt == NULL) {
 				mdt_index = 0;
 			} else {
-				long long_index;
 				rc = lodname2mdt_index(
 					lustre_cfg_string(lcfg, 0),
-					&long_index);
+					&mdt_index);
 				if (rc != 0)
 					GOTO(out, rc);
-				mdt_index = long_index;
 			}
 			rc = lod_add_device(env, lod, arg1, index, gen,
 					    mdt_index, LUSTRE_OSC_NAME, 1);
 		} else if (lcfg->lcfg_command == LCFG_ADD_MDC) {
-			mdt_index = index;
+			rc = lodname2mdt_index(lustre_cfg_string(lcfg, 0),
+					       &mdt_index);
+			if (rc != 0)
+				GOTO(out, rc);
+
 			rc = lod_add_device(env, lod, arg1, index, gen,
 					    mdt_index, LUSTRE_MDC_NAME, 1);
 		} else if (lcfg->lcfg_command == LCFG_LOV_ADD_INA) {

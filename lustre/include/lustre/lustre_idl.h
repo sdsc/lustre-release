@@ -3297,6 +3297,7 @@ enum llog_flag {
 	LLOG_F_ZAP_WHEN_EMPTY	= 0x1,
 	LLOG_F_IS_CAT		= 0x2,
 	LLOG_F_IS_PLAIN		= 0x4,
+	LLOG_F_IS_CATLIST	= 0x8,
 };
 
 struct llog_log_hdr {
