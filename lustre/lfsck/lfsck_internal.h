@@ -158,7 +158,7 @@ struct lfsck_namespace {
 	__u64	ln_dirs_checked;
 
 	/* How many multiple-linked objects have been checked. */
-	__u64	ln_mlinked_checked;
+	__u64	ln_mul_linked_checked;
 
 	/* How many objects have been double scanned. */
 	__u64	ln_objs_checked_phase2;
@@ -183,6 +183,12 @@ struct lfsck_namespace {
 
 	/* How many linkEA entries have been repaired. */
 	__u64	ln_linkea_repaired;
+
+	/* How many multiple-linked objects have been repaired. */
+	__u64	ln_mul_linked_repaired;
+
+	/* For further using. 256-bytes aligned now. */
+	__u64   ln_reserved[31];
 };
 
 enum lfsck_layout_inconsistency_type {
@@ -411,7 +417,6 @@ struct lfsck_component {
 	/* How many objects have been scanned since last sleep. */
 	__u32			 lc_new_scanned;
 
-	unsigned int		 lc_journal:1;
 	__u16			 lc_type;
 };
 
@@ -512,14 +517,6 @@ struct lfsck_instance {
 				  li_start_unplug:1;
 };
 
-enum lfsck_linkea_flags {
-	/* The linkea entries does not match the object nlinks. */
-	LLF_UNMATCH_NLINKS	= 0x01,
-
-	/* Fail to repair the multiple-linked objects during the double scan. */
-	LLF_REPAIR_FAILED	= 0x02,
-};
-
 struct lfsck_async_interpret_args {
 	struct lfsck_component		*laia_com;
 	struct lfsck_tgt_descs		*laia_ltds;
@@ -608,9 +605,11 @@ struct lfsck_assistant_data {
 #define LFSCK_TMPBUF_LEN	64
 
 struct lfsck_thread_info {
+	struct lu_name		lti_name_const;
 	struct lu_name		lti_name;
 	struct lu_buf		lti_buf;
 	struct lu_buf		lti_linkea_buf;
+	struct lu_buf		lti_linkea_buf2;
 	struct lu_buf		lti_big_buf;
 	struct lu_fid		lti_fid;
 	struct lu_fid		lti_fid2;
@@ -644,6 +643,7 @@ struct lfsck_thread_info {
 	struct lov_user_md	lti_lum;
 	struct dt_insert_rec	lti_dt_rec;
 	struct lu_object_conf	lti_conf;
+	struct lu_seq_range	lti_range;
 };
 
 /* lfsck_lib.c */
@@ -653,6 +653,9 @@ int lfsck_ibits_lock(const struct lu_env *env, struct lfsck_instance *lfsck,
 		     struct dt_object *obj, struct lustre_handle *lh,
 		     __u64 bits, ldlm_mode_t mode);
 void lfsck_ibits_unlock(struct lustre_handle *lh, ldlm_mode_t mode);
+int lfsck_find_mdt_idx_by_fid(const struct lu_env *env,
+			      struct lfsck_instance *lfsck,
+			      const struct lu_fid *fid);
 int lfsck_create_lpf(const struct lu_env *env, struct lfsck_instance *lfsck);
 int lfsck_verify_lpf(const struct lu_env *env, struct lfsck_instance *lfsck);
 struct lfsck_instance *lfsck_instance_find(struct dt_device *key, bool ref,
@@ -712,6 +715,9 @@ int lfsck_set_param(const struct lu_env *env, struct lfsck_instance *lfsck,
 		    struct lfsck_start *start, bool reset);
 
 /* lfsck_namespace.c */
+int lfsck_namespace_trace_add(const struct lu_env *env,
+			      struct lfsck_component *com,
+			      const struct lu_fid *fid, const __u8 flags);
 int lfsck_verify_linkea(const struct lu_env *env, struct dt_device *dev,
 			struct dt_object *obj, const struct lu_name *cname,
 			const struct lu_fid *pfid);
@@ -755,7 +761,7 @@ lfsck_name_get_const(const struct lu_env *env, const void *area, ssize_t len)
 {
 	struct lu_name *lname;
 
-	lname = &lfsck_env_info(env)->lti_name;
+	lname = &lfsck_env_info(env)->lti_name_const;
 	lname->ln_name = area;
 	lname->ln_namelen = len;
 	return lname;
