@@ -15,9 +15,9 @@ diff -ru linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
 --- linux-stage.orig/fs/ext4/super.c	2012-12-31 15:58:19.000000000 -0500
 +++ linux-stage/fs/ext4/super.c	2012-12-31 15:59:19.000000000 -0500
 @@ -1306,6 +1306,7 @@
+ 	Opt_extents, Opt_noextents,
  	Opt_dioread_nolock, Opt_dioread_lock,
  	Opt_mballoc, Opt_bigendian_extents, Opt_force_over_128tb,
- 	Opt_extents, Opt_noextents,
 +	Opt_no_mbcache,
  	Opt_discard, Opt_nodiscard, Opt_init_itable, Opt_noinit_itable,
  };
@@ -27,9 +27,9 @@ diff -ru linux-stage.orig/fs/ext4/super.c linux-stage/fs/ext4/super.c
  	{Opt_force_over_128tb, "force_over_128tb"},
  	{Opt_mballoc, "mballoc"},
 +	{Opt_no_mbcache, "no_mbcache"},
+ 	{Opt_discard, "discard"},
  	{Opt_extents, "extents"},
  	{Opt_noextents, "noextents"},
- 	{Opt_discard, "discard"},
 @@ -1919,6 +1921,9 @@
  			}
  			clear_opt(sb, EXTENTS);
