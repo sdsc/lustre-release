@@ -504,12 +504,13 @@ static inline void osd_qid_set_type(struct osd_thandle *oh, int i, int type)
  * \retval -ve    - failure
  */
 int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
-                    struct lquota_id_info *qi, bool allocated, int *flags)
+		    struct lquota_id_info *qi, bool allocated,
+		    bool enforce, int *flags)
 {
 	struct osd_thread_info  *info = osd_oti_get(env);
 	struct osd_device       *dev = info->oti_dev;
 	struct qsd_instance     *qsd = dev->od_quota_slave;
-	int                      i, rc;
+	int                      i, rc = 0;
 	bool                     found = false;
 	ENTRY;
 
@@ -533,7 +534,7 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
 		}
 
 		osd_trans_declare_op(env, oh, OSD_OT_QUOTA,
-				     (allocated || qi->lqi_id.qid_uid == 0) ?
+				     allocated ?
 				     1: LDISKFS_QUOTA_INIT_BLOCKS(osd_sb(dev)));
 
 		oh->ot_id_array[i] = qi->lqi_id.qid_uid;
@@ -546,7 +547,8 @@ int osd_declare_qid(const struct lu_env *env, struct osd_thandle *oh,
 		RETURN(0);
 
 	/* check quota */
-	rc = qsd_op_begin(env, qsd, oh->ot_quota_trans, qi, flags);
+	if (enforce)
+		rc = qsd_op_begin(env, qsd, oh->ot_quota_trans, qi, flags);
 	RETURN(rc);
 }
 
@@ -582,7 +584,7 @@ int osd_declare_inode_qid(const struct lu_env *env, qid_t uid, qid_t gid,
 	qi->lqi_type       = USRQUOTA;
 	qi->lqi_space      = space;
 	qi->lqi_is_blk     = is_blk;
-	rcu = osd_declare_qid(env, oh, qi, allocated, flags);
+	rcu = osd_declare_qid(env, oh, qi, allocated, true, flags);
 
 	if (force && (rcu == -EDQUOT || rcu == -EINPROGRESS))
 		/* ignore EDQUOT & EINPROGRESS when changes are done by root */
@@ -598,7 +600,7 @@ int osd_declare_inode_qid(const struct lu_env *env, qid_t uid, qid_t gid,
 	/* and now group quota */
 	qi->lqi_id.qid_gid = gid;
 	qi->lqi_type       = GRPQUOTA;
-	rcg = osd_declare_qid(env, oh, qi, allocated, flags);
+	rcg = osd_declare_qid(env, oh, qi, allocated, true, flags);
 
 	if (force && (rcg == -EDQUOT || rcg == -EINPROGRESS))
 		/* as before, ignore EDQUOT & EINPROGRESS for root */
