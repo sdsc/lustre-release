@@ -70,22 +70,20 @@ void request_out_callback(lnet_event_t *ev)
         sptlrpc_request_out_callback(req);
 	spin_lock(&req->rq_lock);
         req->rq_real_sent = cfs_time_current_sec();
-	if (ev->unlinked)
-		req->rq_req_unlink = 0;
+	req->rq_req_unlink = 0;
+	req->rq_net_err = ev->type == LNET_EVENT_UNLINK || ev->status != 0;
 
-        if (ev->type == LNET_EVENT_UNLINK || ev->status != 0) {
+	/* Notify waiters if the send failed, or if the reply buffer
+	 * has already been unlinked, then someone may be waiting for
+	 * the outgoing buffer to unlink */
+	if (req->rq_net_err || !req->rq_reply_unlink)
+		ptlrpc_client_wake_req(req);
 
-                /* Failed send: make it seem like the reply timed out, just
-                 * like failing sends in client.c does currently...  */
-
-		req->rq_net_err = 1;
-                ptlrpc_client_wake_req(req);
-        }
 	spin_unlock(&req->rq_lock);
 
-        ptlrpc_req_finished(req);
+	ptlrpc_req_finished(req);
 
-        EXIT;
+	EXIT;
 }
 
 /*

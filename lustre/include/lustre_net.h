@@ -2193,17 +2193,18 @@ ptlrpc_rqphase2str(struct ptlrpc_request *req)
 
 /** Convert bit flags into a string */
 #define DEBUG_REQ_FLAGS(req)                                                    \
-        ptlrpc_rqphase2str(req),                                                \
-        FLAG(req->rq_intr, "I"), FLAG(req->rq_replied, "R"),                    \
-        FLAG(req->rq_err, "E"),                                                 \
-        FLAG(req->rq_timedout, "X") /* eXpired */, FLAG(req->rq_resend, "S"),   \
-        FLAG(req->rq_restart, "T"), FLAG(req->rq_replay, "P"),                  \
-        FLAG(req->rq_no_resend, "N"),                                           \
-        FLAG(req->rq_waiting, "W"),                                             \
-        FLAG(req->rq_wait_ctx, "C"), FLAG(req->rq_hp, "H"),                     \
-        FLAG(req->rq_committed, "M")
+	ptlrpc_rqphase2str(req),                                                \
+	FLAG(req->rq_intr, "I"), FLAG(req->rq_replied, "R"),                    \
+	FLAG(req->rq_err, "E"),                                                 \
+	FLAG(req->rq_timedout, "X") /* eXpired */, FLAG(req->rq_resend, "S"),   \
+	FLAG(req->rq_restart, "T"), FLAG(req->rq_replay, "P"),                  \
+	FLAG(req->rq_no_resend, "N"),                                           \
+	FLAG(req->rq_waiting, "W"),                                             \
+	FLAG(req->rq_wait_ctx, "C"), FLAG(req->rq_hp, "H"),                     \
+	FLAG(req->rq_committed, "M"),                                           \
+	FLAG(req->rq_req_unlink, "Q"), FLAG(req->rq_reply_unlink, "U")
 
-#define REQ_FLAGS_FMT "%s:%s%s%s%s%s%s%s%s%s%s%s%s"
+#define REQ_FLAGS_FMT "%s:%s%s%s%s%s%s%s%s%s%s%s%s%s%s"
 
 void _debug_req(struct ptlrpc_request *req,
                 struct libcfs_debug_msg_data *data, const char *fmt, ...)
