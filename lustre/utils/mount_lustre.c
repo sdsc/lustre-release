@@ -609,7 +609,7 @@ int main(int argc, char *const argv[])
 
 	set_defaults(&mop);
 
-	rc = osd_init();
+	rc = osd_init(argv[0]);
 	if (rc)
 		return rc;
 
