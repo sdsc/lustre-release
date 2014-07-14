@@ -903,6 +903,10 @@ static int osd_iit_iget(struct osd_thread_info *info, struct osd_device *dev,
 	int	      rc;
 	ENTRY;
 
+	if (unlikely(pos == osd_sb(dev)->s_root->d_inode->i_ino ||
+		     pos == osd_remote_parent_ino(dev)))
+		RETURN(SCRUB_NEXT_CONTINUE);
+
 	osd_id_gen(lid, pos, OSD_OII_NOGEN);
 	inode = osd_iget(info, dev, lid);
 	if (IS_ERR(inode)) {
