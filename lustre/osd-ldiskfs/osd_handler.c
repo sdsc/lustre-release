@@ -2934,6 +2934,9 @@ static int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
         if (osd_object_auth(env, dt, capa, CAPA_OPC_META_READ))
                 return -EACCES;
 
+	if (strcmp(name, XATTR_NAME_LMV_HEADER) == 0)
+		name = XATTR_NAME_LMV;
+
 	return __osd_xattr_get(inode, dentry, name, buf->lb_buf, buf->lb_len);
 }
 
