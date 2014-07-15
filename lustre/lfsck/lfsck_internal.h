@@ -112,6 +112,7 @@ enum lfsck_namespace_inconsistency_type {
 	LNIT_NONE		= 0,
 	LNIT_BAD_LINKEA		= 1,
 	LNIT_UNMATCHED_PAIRS	= 2,
+	LNIT_DANGLING		= 3,
 };
 
 struct lfsck_namespace {
@@ -199,8 +200,11 @@ struct lfsck_namespace {
 	/* How many unmatched pairs have been repaired. */
 	__u64	ln_unmatched_pairs_repaired;
 
+	/* How many dangling name entries have been found/repaired. */
+	__u64	ln_dangling_repaired;
+
 	/* For further using. 256-bytes aligned now. */
-	__u64   ln_reserved[29];
+	__u64   ln_reserved[28];
 };
 
 enum lfsck_layout_inconsistency_type {
@@ -626,6 +630,7 @@ struct lfsck_thread_info {
 	struct lu_fid		lti_fid;
 	struct lu_fid		lti_fid2;
 	struct lu_fid		lti_fid3;
+	struct lu_fid		lti_fid4;
 	struct lu_attr		lti_la;
 	struct lu_attr		lti_la2;
 	struct lu_attr		lti_la3;
