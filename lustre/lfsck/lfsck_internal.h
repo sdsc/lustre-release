@@ -226,17 +226,50 @@ struct lfsck_namespace {
 	/* How many objects under /lost+found failed to be processed. */
 	__u64	ln_local_lpf_failed;
 
+	/* How many striped directories (master) have been scanned. */
+	__u64	ln_striped_dirs_scanned;
+
+	/* How many striped directories (master) have been repaired. */
+	__u64	ln_striped_dirs_repaired;
+
+	/* How many striped directories (master) failed to be verified. */
+	__u64	ln_striped_dirs_failed;
+
+	/* How many striped directories (master) has been disabled. */
+	__u64	ln_striped_dirs_disabled;
+
+	/* How many striped directory's (master) have been skipped
+	 * (for shards verification) becase of lost master LMV EA. */
+	__u64	ln_striped_dirs_skipped;
+
+	/* How many striped directory's shards (slave) have been scanned. */
+	__u64	ln_striped_shards_scanned;
+
+	/* How many striped directory's shards (slave) have been repaired. */
+	__u64	ln_striped_shards_repaired;
+
+	/* How many striped directory's shards (slave) have been skipped
+	 * (for name hash verification) becase do not know whether the slave
+	 * LMV EA is valid or not. */
+	__u64	ln_striped_shards_skipped;
+
+	/* How many name entries under striped directory with bad name
+	 * hash have been repaired. */
+	__u64	ln_namehash_repaired;
+
 	/* The size of MDT targets bitmap with nbits. Such bitmap records
 	 * the MDTs that contain non-verified MDT-objects. */
 	__u32	ln_bitmap_size;
 
 	__u32	ln_reserved_1;
 	/* For further using. 256-bytes aligned now. */
-	__u64   ln_reserved[25];
+	__u64   ln_reserved[16];
 };
 
 enum lfsck_linkea_flags {
 	LLF_SKIP_NLINK		= 0x01,
+	LLF_UNCERTAION_LMV	= 0x02,
+	LLF_RECHECK_NAMEHASH	= 0x04,
 };
 
 enum lfsck_layout_inconsistency_type {
@@ -332,6 +365,12 @@ struct lfsck_operations {
 	void (*lfsck_fail)(const struct lu_env *env,
 			   struct lfsck_component *com,
 			   bool new_checked);
+
+	void (*lfsck_close_dir)(const struct lu_env *env,
+				struct lfsck_component *com);
+
+	int (*lfsck_open_dir)(const struct lu_env *env,
+			      struct lfsck_component *com);
 
 	int (*lfsck_checkpoint)(const struct lu_env *env,
 				struct lfsck_component *com,
@@ -469,6 +508,51 @@ struct lfsck_component {
 	__u16			 lc_type;
 };
 
+#define LFSCK_LMV_MAX_STRIPES	LMV_MAX_STRIPE_COUNT
+#define LFSCK_LMV_DEF_STRIPES	4
+
+enum lfsck_slave_lmv_flags {
+	LSLF_NONE	= 0,
+	LSLF_BAD_INDEX2	= 1,
+	LSLF_NO_LMVEA	= 2,
+	LSLF_DANGLING	= 3,
+	LSLF_BAD_INDEX1	= 4,
+};
+
+struct lfsck_slave_lmv_rec {
+	struct lu_fid	lslr_fid;
+	__u32		lslr_stripe_count;
+	__u32		lslr_index; /* the index in name or in lmv */
+	__u32		lslr_hash_type;
+	__u32		lslr_flags;
+};
+
+struct lfsck_lmv {
+	struct lmv_mds_md_v1	 ll_lmv;
+	atomic_t		 ll_ref;
+	int			 ll_stripes_allocated;
+	int			 ll_stripes_filled;
+	int			 ll_exit_value;
+	__u32			 ll_max_stripe_count;
+	__u32			 ll_max_filled_slot;
+	__u32			 ll_hash_type;
+	unsigned int		 ll_lmv_master:1,
+				 ll_lmv_slave:1,
+				 ll_lmv_verified:1,
+				 ll_lmv_updated:1,
+				 ll_inline:1,
+				 ll_failed:1,
+				 ll_ignore:1;
+	void			*ll_recs;
+};
+
+struct lfsck_lmv_unit {
+	struct list_head	 llu_link;
+	struct lfsck_lmv	 llu_lmv;
+	struct dt_object	*llu_obj;
+	struct lfsck_instance	*llu_lfsck;
+};
+
 struct lfsck_instance {
 	struct mutex		  li_mutex;
 	spinlock_t		  li_lock;
@@ -489,6 +573,9 @@ struct lfsck_instance {
 
 	/* For the components those are not scanning now. */
 	struct list_head	  li_list_idle;
+
+	/* For the lfsck_lmv_unit to be handled. */
+	struct list_head	  li_list_lmv;
 
 	atomic_t		  li_ref;
 	atomic_t		  li_double_scan_count;
@@ -516,6 +603,8 @@ struct lfsck_instance {
 	struct lfsck_bookmark	  li_bookmark_disk;
 	struct lfsck_position	  li_pos_current;
 	struct lfsck_position	  li_pos_checkpoint;
+
+	struct lfsck_lmv	 *li_lmv;
 
 	/* Obj for otable-based iteration */
 	struct dt_object	 *li_obj_oit;
@@ -585,6 +674,20 @@ struct lfsck_thread_args {
 
 struct lfsck_assistant_req {
 	struct list_head	lar_list;
+};
+
+struct lfsck_namespace_req {
+	struct lfsck_assistant_req	 lnr_lar;
+	struct dt_object		*lnr_obj;
+	struct lfsck_lmv		*lnr_lmv;
+	struct lu_fid			 lnr_fid;
+	__u64				 lnr_oit_cookie;
+	__u64				 lnr_dir_cookie;
+	__u32				 lnr_attr;
+	__u32				 lnr_size;
+	__u16				 lnr_type;
+	__u16				 lnr_namelen;
+	char				 lnr_name[0];
 };
 
 struct lfsck_assistant_operations {
@@ -696,6 +799,9 @@ struct lfsck_thread_info {
 	struct dt_insert_rec	lti_dt_rec;
 	struct lu_object_conf	lti_conf;
 	struct lu_seq_range	lti_range;
+	struct lmv_mds_md_v1	lti_lmv;
+	struct lmv_mds_md_v1	lti_lmv2;
+	struct lmv_mds_md_v1	lti_lmv3;
 };
 
 /* lfsck_lib.c */
@@ -771,6 +877,28 @@ int lfsck_set_param(const struct lu_env *env, struct lfsck_instance *lfsck,
 int lfsck_namespace_trace_add(const struct lu_env *env,
 			      struct lfsck_component *com,
 			      const struct lu_fid *fid, const __u8 flags);
+int lfsck_namespace_trace_del(const struct lu_env *env,
+			      struct lfsck_component *com,
+			      const struct lu_fid *fid);
+int lfsck_namespace_check_exist(const struct lu_env *env,
+				struct dt_object *dir,
+				struct dt_object *obj, const char *name);
+int __lfsck_links_read(const struct lu_env *env, struct dt_object *obj,
+		       struct linkea_data *ldata);
+int lfsck_namespace_repair_dangling(const struct lu_env *env,
+				    struct lfsck_component *com,
+				    struct dt_object *child,
+				    struct lfsck_namespace_req *lnr);
+int lfsck_namespace_repair_dirent(const struct lu_env *env,
+				  struct lfsck_component *com,
+				  struct dt_object *parent,
+				  struct dt_object *child,
+				  const char *name, const char *name2,
+				  __u16 type, bool update, bool dec);
+int lfsck_namespace_rebuild_linkea(const struct lu_env *env,
+				   struct lfsck_component *com,
+				   struct dt_object *obj,
+				   struct linkea_data *ldata, bool locked);
 int lfsck_verify_linkea(const struct lu_env *env, struct dt_device *dev,
 			struct dt_object *obj, const struct lu_name *cname,
 			const struct lu_fid *pfid);
@@ -786,6 +914,49 @@ int lfsck_update_name_entry(const struct lu_env *env,
 			    const struct lu_fid *pfid, __u32 type);
 int lfsck_namespace_setup(const struct lu_env *env,
 			  struct lfsck_instance *lfsck);
+
+/* lfsck_striped_dir.c */
+void lfsck_lmv_put(const struct lu_env *env, struct lfsck_lmv *llmv);
+int lfsck_read_stripe_lmv(const struct lu_env *env, struct dt_object *obj,
+			  struct lmv_mds_md_v1 *lmv);
+int lfsck_is_valid_master_name_entry(const struct lu_env *env,
+				     const char *name, int namelen,
+				     __u16 type, const struct lu_fid *fid);
+bool lfsck_is_valid_slave_name_entry(const struct lu_env *env,
+				     struct lfsck_lmv *llmv,
+				     const char *name, int namelen);
+int lfsck_namespace_check_name_validation(const struct lu_env *env,
+					  struct dt_object *parent,
+					  struct dt_object *child,
+					  const struct lu_name *cname);
+int lfsck_namespace_update_lmv(const struct lu_env *env,
+			       struct lfsck_component *com,
+			       struct dt_object *obj,
+			       struct lmv_mds_md_v1 *lmv, bool locked);
+int lfsck_namespace_verify_stripe_slave(const struct lu_env *env,
+					struct lfsck_component *com,
+					struct dt_object *obj,
+					struct lfsck_lmv *llmv);
+int lfsck_namespace_set_lmv_master_local(const struct lu_env *env,
+					 struct lfsck_component *com,
+					 struct dt_object *obj,
+					 struct lmv_mds_md_v1 *lmv,
+					 const struct lu_fid *cfid,
+					 __u32 cidx, __u32 flags);
+int lfsck_namespace_scan_shard(const struct lu_env *env,
+			       struct lfsck_component *com,
+			       struct dt_object *child);
+int lfsck_namespace_striped_dir_scanned(const struct lu_env *env,
+					struct lfsck_component *com,
+					struct lfsck_namespace_req *lnr);
+int lfsck_namespace_handle_striped_master(const struct lu_env *env,
+					  struct lfsck_component *com,
+					  struct lfsck_namespace_req *lnr);
+int lfsck_namespace_repair_bad_namehash(const struct lu_env *env,
+					struct lfsck_component *com,
+					struct dt_object *child,
+					struct lfsck_lmv *llmv,
+					const char *name);
 
 /* lfsck_layout.c */
 int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck);
@@ -1067,4 +1238,42 @@ static inline void lfsck_lad_set_bitmap(const struct lu_env *env,
 	lad->lad_incomplete = 1;
 }
 
+static inline struct lfsck_lmv *lfsck_lmv_get(struct lfsck_lmv *llmv)
+{
+	if (llmv != NULL)
+		atomic_inc(&llmv->ll_ref);
+
+	return llmv;
+}
+
+static inline void lfsck_lmv_header_le_to_cpu(struct lmv_mds_md_v1 *dst,
+					      const struct lmv_mds_md_v1 *src)
+{
+	dst->lmv_magic = le32_to_cpu(src->lmv_magic);
+	dst->lmv_stripe_count = le32_to_cpu(src->lmv_stripe_count);
+	dst->lmv_master_mdt_index = le32_to_cpu(src->lmv_master_mdt_index);
+	dst->lmv_hash_type = le32_to_cpu(src->lmv_hash_type);
+	dst->lmv_layout_version = le32_to_cpu(src->lmv_layout_version);
+}
+
+static inline void lfsck_lmv_header_cpu_to_le(struct lmv_mds_md_v1 *dst,
+					      const struct lmv_mds_md_v1 *src)
+{
+	dst->lmv_magic = cpu_to_le32(src->lmv_magic);
+	dst->lmv_stripe_count = cpu_to_le32(src->lmv_stripe_count);
+	dst->lmv_master_mdt_index = cpu_to_le32(src->lmv_master_mdt_index);
+	dst->lmv_hash_type = cpu_to_le32(src->lmv_hash_type);
+	dst->lmv_layout_version = cpu_to_le32(src->lmv_layout_version);
+}
+
+static inline int lfsck_links_read(const struct lu_env *env,
+				   struct dt_object *obj,
+				   struct linkea_data *ldata)
+{
+	ldata->ld_buf =
+		lu_buf_check_and_alloc(&lfsck_env_info(env)->lti_linkea_buf,
+				       PAGE_CACHE_SIZE);
+
+	return __lfsck_links_read(env, obj, ldata);
+}
 #endif /* _LFSCK_INTERNAL_H */

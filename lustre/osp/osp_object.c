@@ -674,6 +674,9 @@ int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	if (unlikely(obj->opo_non_exist))
 		RETURN(-ENOENT);
 
+	if (strcmp(name, XATTR_NAME_LMV_HEADER) == 0)
+		name = XATTR_NAME_LMV;
+
 	oxe = osp_oac_xattr_find(obj, name, false);
 	if (oxe != NULL) {
 		spin_lock(&obj->opo_lock);

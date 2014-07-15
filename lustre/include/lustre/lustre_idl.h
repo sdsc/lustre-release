@@ -1703,6 +1703,7 @@ static inline void lmm_oi_cpu_to_le(struct ost_id *dst_oi,
 #define XATTR_NAME_LOV          "trusted.lov"
 #define XATTR_NAME_LMA          "trusted.lma"
 #define XATTR_NAME_LMV          "trusted.lmv"
+#define XATTR_NAME_LMV_HEADER	"trusted.hmv"
 #define XATTR_NAME_DEFAULT_LMV	"trusted.dmv"
 #define XATTR_NAME_LINK         "trusted.link"
 #define XATTR_NAME_FID          "trusted.fid"
@@ -2755,6 +2756,8 @@ struct lmv_mds_md_v1 {
 
 #define LMV_HASH_FLAG_MIGRATION	0x80000000
 #define LMV_HASH_FLAG_DEAD	0x40000000
+#define LMV_HASH_FLAG_BAD_TYPE	0x20000000
+#define LMV_HASH_FLAG_LOST_LMV	0x10000000
 
 /**
  * The FNV-1a hash algorithm is as follows:
@@ -2832,6 +2835,72 @@ static inline int lmv_mds_md_stripe_count_set(union lmv_mds_md *lmm,
 		return -EINVAL;
 	}
 	return 0;
+}
+
+/* This hash is only for testing purpose */
+static inline unsigned int
+lmv_hash_all_chars(unsigned int count, const char *name, int namelen)
+{
+	unsigned int c = 0;
+	const unsigned char *p = (const unsigned char *)name;
+
+	while (--namelen >= 0)
+		c += p[namelen];
+
+	c = c % count;
+
+	return c;
+}
+
+static inline unsigned int
+lmv_hash_fnv1a(unsigned int count, const char *name, int namelen)
+{
+	__u64	hash;
+
+	hash = lustre_hash_fnv_1a_64(name, namelen);
+
+	hash = hash % count;
+
+	return hash;
+}
+
+static inline int lmv_name_to_stripe_index(__u32 lmv_hash_type,
+					   unsigned int stripe_count,
+					   const char *name, int namelen)
+{
+	int	idx;
+	__u32	hash_type = lmv_hash_type & LMV_HASH_TYPE_MASK;
+
+	LASSERT(namelen > 0);
+	if (stripe_count <= 1)
+		return 0;
+
+	/* for migrating object, always start from 0 stripe */
+	if (lmv_hash_type & LMV_HASH_FLAG_MIGRATION)
+		return 0;
+
+	switch (hash_type) {
+	case LMV_HASH_TYPE_ALL_CHARS:
+		idx = lmv_hash_all_chars(stripe_count, name, namelen);
+		break;
+	case LMV_HASH_TYPE_FNV_1A_64:
+		idx = lmv_hash_fnv1a(stripe_count, name, namelen);
+		break;
+	default:
+		idx = -EBADFD;
+		break;
+	}
+
+	CDEBUG(D_INFO, "name %.*s hash_type %d idx %d\n", namelen, name,
+	       hash_type, idx);
+
+	return idx;
+}
+
+static inline bool lmv_is_known_hash_type(__u32 type)
+{
+	return (type & LMV_HASH_TYPE_MASK) == LMV_HASH_TYPE_FNV_1A_64 ||
+	       (type & LMV_HASH_TYPE_MASK) == LMV_HASH_TYPE_ALL_CHARS;
 }
 
 enum fld_rpc_opc {
@@ -3547,11 +3616,15 @@ struct lfsck_request {
 	__u32		lr_event;
 	__u32		lr_index;
 	__u32		lr_flags;
-	__u32		lr_valid;
+	union {
+		__u32	lr_valid;
+		__u32	lr_stripe_index;
+	};
 	union {
 		__u32	lr_speed;
 		__u32	lr_status;
 		__u32	lr_type;
+		__u32	lr_index2;
 	};
 	__u16		lr_version;
 	__u16		lr_active;
@@ -3564,7 +3637,8 @@ struct lfsck_request {
 		struct lu_fid	 lr_fid3;
 		struct thandle	*lr_handle;
 	};
-	__u64		lr_padding_2;
+	__u32		lr_stripe_count;
+	__u32		lr_hash_type;
 	__u64		lr_padding_3;
 };
 
@@ -3593,11 +3667,15 @@ enum lfsck_events {
 	LE_CREATE_ORPHAN	= 12,
 	LE_SKIP_NLINK_DECLARE	= 13,
 	LE_SKIP_NLINK		= 14,
+	LE_SET_LMV_MASTER	= 15,
+	LE_SET_LMV_SLAVE	= 16,
 };
 
 enum lfsck_event_flags {
 	LEF_TO_OST		= 0x00000001,
 	LEF_FROM_OST		= 0x00000002,
+	LEF_SET_LMV_ALL		= 0x00000004,
+	LEF_SET_LMV_HASH	= 0x00000008,
 };
 
 static inline void lustre_set_wire_obdo(const struct obd_connect_data *ocd,
