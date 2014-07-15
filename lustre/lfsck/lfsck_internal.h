@@ -108,6 +108,12 @@ struct lfsck_bookmark {
 	__u64	lb_reserved[2];
 };
 
+enum lfsck_namespace_inconsistency_type {
+	LNIT_NONE		= 0,
+	LNIT_BAD_LINKEA		= 1,
+	LNIT_UNMATCHED_PAIRS	= 2,
+};
+
 struct lfsck_namespace {
 	/* Magic number to detect that this struct contains valid data. */
 	__u32	ln_magic;
@@ -187,8 +193,14 @@ struct lfsck_namespace {
 	/* How many multiple-linked objects have been repaired. */
 	__u64	ln_mul_linked_repaired;
 
+	/* How many undefined inconsistency found in phase2. */
+	__u64	ln_unknown_inconsistency;
+
+	/* How many unmatched pairs have been repaired. */
+	__u64	ln_unmatched_pairs_repaired;
+
 	/* For further using. 256-bytes aligned now. */
-	__u64   ln_reserved[31];
+	__u64   ln_reserved[29];
 };
 
 enum lfsck_layout_inconsistency_type {
@@ -737,6 +749,8 @@ int lfsck_namespace_setup(const struct lu_env *env,
 /* lfsck_layout.c */
 int lfsck_layout_setup(const struct lu_env *env, struct lfsck_instance *lfsck);
 
+extern const char dot[];
+extern const char dotdot[];
 extern const char *lfsck_flags_names[];
 extern const char *lfsck_param_names[];
 extern struct lu_context_key lfsck_thread_key;
