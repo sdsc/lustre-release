@@ -1102,6 +1102,7 @@ struct ptlrpc_nrs {
 };
 
 #define NRS_POL_NAME_MAX		16
+#define NRS_POL_ARG_MAX			16
 
 struct ptlrpc_nrs_pol_desc;
 
@@ -1271,6 +1272,10 @@ struct ptlrpc_nrs_pol_info {
 	 */
 	char				pi_name[NRS_POL_NAME_MAX];
 	/**
+	 * Policy argument
+	 */
+	char				pi_arg[NRS_POL_ARG_MAX];
+	/**
 	 * Current policy state
 	 */
 	enum ptlrpc_nrs_pol_state	pi_state;
@@ -1325,6 +1330,10 @@ struct ptlrpc_nrs_policy {
 	 * Usage Reference count taken on the policy instance
 	 */
 	long				pol_ref;
+	/**
+	 * Human-readable policy argument
+	 */
+	char				pol_arg[NRS_POL_ARG_MAX];
 	/**
 	 * The NRS head this policy has been created at
 	 */
