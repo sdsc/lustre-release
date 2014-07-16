@@ -1554,6 +1554,9 @@ void lfsck_instance_cleanup(const struct lu_env *env,
 	struct ptlrpc_thread	*thread = &lfsck->li_thread;
 	struct lfsck_component	*com;
 	struct lfsck_component	*next;
+	struct lfsck_lmv_unit	*llu;
+	struct lfsck_lmv_unit	*llu_next;
+	struct lfsck_lmv	*llmv;
 	ENTRY;
 
 	LASSERT(list_empty(&lfsck->li_link));
@@ -1565,6 +1568,17 @@ void lfsck_instance_cleanup(const struct lu_env *env,
 	}
 
 	LASSERT(lfsck->li_obj_dir == NULL);
+	LASSERT(lfsck->li_lmv == NULL);
+
+	list_for_each_entry_safe(llu, llu_next, &lfsck->li_list_lmv, llu_link) {
+		llmv = &llu->llu_lmv;
+
+		LASSERTF(atomic_read(&llmv->ll_ref) == 1,
+			 "still in using: %u\n",
+			 atomic_read(&llmv->ll_ref));
+
+		lfsck_lmv_put(env, llmv);
+	}
 
 	list_for_each_entry_safe(com, next, &lfsck->li_list_scan, lc_link) {
 		lfsck_component_cleanup(env, com);
@@ -3042,6 +3056,8 @@ int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
 	case LE_CREATE_ORPHAN:
 	case LE_SKIP_NLINK_DECLARE:
 	case LE_SKIP_NLINK:
+	case LE_SET_LMV_MASTER:
+	case LE_SET_LMV_SLAVE:
 	case LE_PAIRS_VERIFY: {
 		struct lfsck_instance  *lfsck;
 		struct lfsck_component *com;
@@ -3136,6 +3152,7 @@ int lfsck_register(const struct lu_env *env, struct dt_device *key,
 	INIT_LIST_HEAD(&lfsck->li_list_dir);
 	INIT_LIST_HEAD(&lfsck->li_list_double_scan);
 	INIT_LIST_HEAD(&lfsck->li_list_idle);
+	INIT_LIST_HEAD(&lfsck->li_list_lmv);
 	atomic_set(&lfsck->li_ref, 1);
 	atomic_set(&lfsck->li_double_scan_count, 0);
 	init_waitqueue_head(&lfsck->li_thread.t_ctl_waitq);
@@ -3418,6 +3435,12 @@ static int __init lfsck_init(void)
 {
 	int rc;
 
+	OBD_ALLOC(lfsck_rec_lmv_save_buffer,
+		  sizeof(struct lfsck_rec_lmv_save) *
+		  LFSCK_REC_LMV_MAX_DEPTH);
+	if (lfsck_rec_lmv_save_buffer == NULL)
+		return -ENOMEM;
+
 	INIT_LIST_HEAD(&lfsck_instance_list);
 	INIT_LIST_HEAD(&lfsck_ost_orphan_list);
 	INIT_LIST_HEAD(&lfsck_mdt_orphan_list);
@@ -3451,6 +3474,10 @@ static void __exit lfsck_exit(void)
 	}
 
 	lu_context_key_degister(&lfsck_thread_key);
+
+	OBD_FREE(lfsck_rec_lmv_save_buffer,
+		 sizeof(struct lfsck_rec_lmv_save) *
+		 LFSCK_REC_LMV_MAX_DEPTH);
 }
 
 MODULE_AUTHOR("Intel Corporation <http://www.intel.com/>");
