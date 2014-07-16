@@ -3767,6 +3767,7 @@ static int lfs_hsm_request(int argc, char **argv, int action)
 				if (size < 0) {
 					fprintf(stderr, "Cannot allocate "
 						"the requested size\n");
+					free(hur);
 					hur = oldhur;
 					rc = -E2BIG;
 					fclose(fp);
