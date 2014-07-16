@@ -1320,8 +1320,21 @@ int lustre_fill_super(struct super_block *sb, void *data, int silent)
                 }
         } else {
 #ifdef HAVE_SERVER_SUPPORT
+		struct block_device *bdev;
+
 		CDEBUG(D_MOUNT, "Mounting server from %s\n", lmd->lmd_dev);
+
+		/* Ensure bdev is opened exclusive to ensure atomicity of all
+		 * operations during mount process and avoid any side effects
+		 * during potential race (dual mount, ...).
+		 */
+		bdev = open_bdev_exclusive(lmd->lmd_dev, FMODE_READ,
+					   sb->s_type);
+		if (IS_ERR(bdev))
+			GOTO(out, rc = PTR_ERR(bdev));
 		rc = server_fill_super(sb);
+		close_bdev_exclusive(bdev, FMODE_READ);
+
 		/* s_f_s calls lustre_start_mgc after the mount because we need
 		   the MGS nids which are stored on disk.  Plus, we may
 		   need to start the MGS first. */

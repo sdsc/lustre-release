@@ -665,6 +665,23 @@ LB_CHECK_EXPORT([simple_setattr], [fs/libfs.c],
 ]) # LC_EXPORT_SIMPLE_SETATTR
 
 #
+# LC_HAVE_OPEN_BDEV_EXCLUSIVE
+#
+# 2.6.38 <= Kernels no longer have [open,close]_bdev_exclusive()
+#
+AC_DEFUN([LC_HAVE_OPEN_BDEV_EXCLUSIVE], [
+LB_CHECK_COMPILE([if have 'open_bdev_exclusive'],
+open_bdev_exclusive, [
+	#include <linux/fs.h>
+],[
+	open_bdev_exclusive((const char *)NULL, (fmode_t)0, (void *)NULL);
+],[
+	AC_DEFINE(HAVE_OPEN_BDEV_EXCLUSIVE, 1,
+		[have open_bdev_exclusive])
+])
+]) # LC_HAVE_OPEN_BDEV_EXCLUSIVE
+
+#
 # LC_IOP_TRUNCATE
 #
 # truncate callback removed since 2.6.39
@@ -1515,6 +1532,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 	LC_INODE_I_RCU
 	LC_D_COMPARE_7ARGS
 	LC_D_DELETE_CONST
+	LC_HAVE_OPEN_BDEV_EXCLUSIVE
 
 	# 2.6.39
 	LC_REQUEST_QUEUE_UNPLUG_FN
