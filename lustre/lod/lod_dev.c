@@ -48,13 +48,19 @@
 
 #include "lod_internal.h"
 
-/**
- * Lookup MDT/OST index \a tgt by FID \a fid.
+/*
+ * Lookup target by FID.
  *
- * \param lod LOD to be lookup at.
- * \param fid FID of object to find MDT/OST.
- * \param tgt MDT/OST index to return.
- * \param type indidcate the FID is on MDS or OST.
+ * Lookup MDT/OST target index by FID. Type of the target can be
+ * specific or any.
+ *
+ * \param[in] env		LU environment provided by the caller
+ * \param[in] lod		lod device
+ * \param[in] fid		FID
+ * \param[out] tgt		result target index
+ * \param[in] type		expected type of the target
+ *
+ * \retval			0 on success, negative error code if failed
  **/
 int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 		   const struct lu_fid *fid, __u32 *tgt, int *type)
@@ -115,6 +121,13 @@ static struct lu_kmem_descr lod_caches[] = {
 static struct lu_device *lod_device_fini(const struct lu_env *env,
 					 struct lu_device *d);
 
+/**
+ * Implementation of lu_device_operations:: ldo_object_alloc.
+ *
+ * Allocates and initializes LOD's slice in the given object.
+ *
+ * see include/lu_object.h for the details.
+ */
 struct lu_object *lod_object_alloc(const struct lu_env *env,
 				   const struct lu_object_header *hdr,
 				   struct lu_device *dev)
@@ -135,6 +148,20 @@ struct lu_object *lod_object_alloc(const struct lu_env *env,
 	RETURN(lu_obj);
 }
 
+/**
+ * Cleanup table of target's descriptors.
+ *
+ * The function goes through all the targets in the given table
+ * and apply given configuration command on to the targets.
+ * Used to cleanup the targets at umount.
+ *
+ * \param[in] env		LU environment provided by the caller
+ * \param[in] lod		lod device
+ * \param[in] ltd		target's table to go through
+ * \param[in] lcfg		configuration command to apply
+ *
+ * \retval			0 on success, negative error code if failed
+ **/
 static int lod_cleanup_desc_tgts(const struct lu_env *env,
 				 struct lod_device *lod,
 				 struct lod_tgt_descs *ltd,
@@ -168,11 +195,21 @@ static int lod_cleanup_desc_tgts(const struct lu_env *env,
 	return rc;
 }
 
+/**
+ * Extract MDT target index from a device name.
+ *
+ * a helper function to extract index from the given device name
+ * like "fsname-MDTxxxx-mdtlov"
+ *
+ * \param[in] lodname	device name
+ * \param[out] index	extracted index
+ *
+ * \retval			0 on success, -EINVAL if the name is invalid
+ */
 static int lodname2mdt_index(char *lodname, long *index)
 {
 	char *ptr, *tmp;
 
-	/* The lodname suppose to be fsname-MDTxxxx-mdtlov */
 	ptr = strrchr(lodname, '-');
 	if (ptr == NULL) {
 		CERROR("invalid MDT index in '%s'\n", lodname);
@@ -203,12 +240,22 @@ static int lodname2mdt_index(char *lodname, long *index)
 }
 
 /**
- * Procss config log on LOD
- * \param env environment info
- * \param dev lod device
- * \param lcfg config log
+ * Implementation of lu_device_operations:: ldo_process_config.
  *
- * Add osc config log,
+ * The method is called by the configuration subsystem during setup,
+ * cleanup and when the configuration changes. The method processes
+ * few specific commands like adding/removing the targets, changing
+ * the runtime parameters.
+
+ * \param[in] env		LU environment provided by the caller
+ * \param[in] lod		lod device
+ * \param[in] lcfg		configuration command to apply
+ *
+ * \retval			0 on success, negative error code if failed
+ *
+ * The examples are below.
+ *
+ * Add osc config log:
  * marker  20 (flags=0x01, v2.2.49.56) lustre-OST0001  'add osc'
  * add_uuid  nid=192.168.122.162@tcp(0x20000c0a87aa2)  0:  1:nidxxx
  * attach    0:lustre-OST0001-osc-MDT0001  1:osc  2:lustre-MDT0001-mdtlov_UUID
@@ -216,14 +263,14 @@ static int lodname2mdt_index(char *lodname, long *index)
  * lov_modify_tgts add 0:lustre-MDT0001-mdtlov  1:lustre-OST0001_UUID  2:1  3:1
  * marker  20 (flags=0x02, v2.2.49.56) lustre-OST0001  'add osc'
  *
- * Add mdc config log
+ * Add mdc config log:
  * marker  10 (flags=0x01, v2.2.49.56) lustre-MDT0000  'add osp'
  * add_uuid  nid=192.168.122.162@tcp(0x20000c0a87aa2)  0:  1:nid
  * attach 0:lustre-MDT0000-osp-MDT0001  1:osp  2:lustre-MDT0001-mdtlov_UUID
  * setup     0:lustre-MDT0000-osp-MDT0001  1:lustre-MDT0000_UUID  2:nid
  * modify_mdc_tgts add 0:lustre-MDT0001  1:lustre-MDT0000_UUID  2:0  3:1
  * marker  10 (flags=0x02, v2.2.49.56) lustre-MDT0000_UUID  'add osp'
- **/
+ */
 static int lod_process_config(const struct lu_env *env,
 			      struct lu_device *dev,
 			      struct lustre_cfg *lcfg)
@@ -330,6 +377,14 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Implementation of lu_device_operations:: ldo_recovery_complete.
+ *
+ * The method is called once the recovery is complete. This implementation
+ * distributes the notification to all the known targets.
+ *
+ * see include/lu_object.h for the details
+ */
 static int lod_recovery_complete(const struct lu_env *env,
 				 struct lu_device *dev)
 {
@@ -360,6 +415,11 @@ static int lod_recovery_complete(const struct lu_env *env,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of lu_device_operations:: ldo_prepare.
+ *
+ * see include/lu_object.h for the details.
+ */
 static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
 		       struct lu_device *cdev)
 {
@@ -387,18 +447,35 @@ const struct lu_device_operations lod_lu_ops = {
 	.ldo_prepare		= lod_prepare,
 };
 
+/**
+ * Implementation of dt_device_operations:: dt_root_get.
+ *
+ * see include/dt_object.h for the details.
+ */
 static int lod_root_get(const struct lu_env *env,
 			struct dt_device *dev, struct lu_fid *f)
 {
 	return dt_root_get(env, dt2lod_dev(dev)->lod_child, f);
 }
 
+/**
+ * Implementation of dt_device_operations:: dt_statfs.
+ *
+ * see include/dt_object.h for the details.
+ */
 static int lod_statfs(const struct lu_env *env,
 		      struct dt_device *dev, struct obd_statfs *sfs)
 {
 	return dt_statfs(env, dt2lod_dev(dev)->lod_child, sfs);
 }
 
+/**
+ * Implementation of dt_device_operations:: dt_trans_create.
+ *
+ * Creates a transaction using local (to this node) OSD.
+ *
+ * see include/dt_object.h for the details.
+ */
 static struct thandle *lod_trans_create(const struct lu_env *env,
 					struct dt_device *dev)
 {
@@ -411,6 +488,14 @@ static struct thandle *lod_trans_create(const struct lu_env *env,
 	return th;
 }
 
+/**
+ * Implementation of dt_device_operations:: dt_trans_start.
+ *
+ * Starts the set of local transactions using the targets involved
+ * in declare phase. Initial support for the distributed transactions.
+ *
+ * see include/dt_object.h for the details.
+ */
 static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 			   struct thandle *th)
 {
@@ -432,6 +517,14 @@ static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 	return dt_trans_start(env, lod->lod_child, th);
 }
 
+/**
+ * Implementation of dt_device_operations:: dt_trans_stop.
+ *
+ * Stops the set of local transactions using the targets involved
+ * in declare phase. Initial support for the distributed transactions.
+ *
+ * see include/dt_object.h for the details.
+ */
 static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			  struct thandle *th)
 {
@@ -458,6 +551,13 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_device_operations:: dt_conf_get.
+ *
+ * Currently returns the configuration provided by the local OSD.
+ *
+ * see include/dt_object.h for the details.
+ */
 static void lod_conf_get(const struct lu_env *env,
 			 const struct dt_device *dev,
 			 struct dt_device_param *param)
@@ -465,6 +565,14 @@ static void lod_conf_get(const struct lu_env *env,
 	dt_conf_get(env, dt2lod_dev((struct dt_device *)dev)->lod_child, param);
 }
 
+/**
+ * Implementation of dt_device_operations:: dt_sync.
+ *
+ * Syncs all known OST targets. Very very expensive and used
+ * rarely by LFSCK now. Should not be used in general.
+ *
+ * see include/dt_object.h for the details.
+ */
 static int lod_sync(const struct lu_env *env, struct dt_device *dev)
 {
 	struct lod_device   *lod = dt2lod_dev(dev);
@@ -490,16 +598,33 @@ static int lod_sync(const struct lu_env *env, struct dt_device *dev)
 	RETURN(rc);
 }
 
+/**
+ * Implementation of dt_device_operations:: dt_ro.
+ *
+ * Turns local OSD read-only, used for the testing only.
+ *
+ * see include/dt_object.h for the details.
+ */
 static int lod_ro(const struct lu_env *env, struct dt_device *dev)
 {
 	return dt_ro(env, dt2lod_dev(dev)->lod_child);
 }
 
+/**
+ * Implementation of dt_device_operations:: dt_commit_async.
+ *
+ * Asks local OSD to commit sooner.
+ *
+ * see include/dt_object.h for the details.
+ */
 static int lod_commit_async(const struct lu_env *env, struct dt_device *dev)
 {
 	return dt_commit_async(env, dt2lod_dev(dev)->lod_child);
 }
 
+/**
+ * Not used
+ */
 static int lod_init_capa_ctxt(const struct lu_env *env, struct dt_device *dev,
 			      int mode, unsigned long timeout,
 			      __u32 alg, struct lustre_capa_key *keys)
@@ -521,6 +646,19 @@ static const struct dt_device_operations lod_dt_ops = {
 	.dt_init_capa_ctxt   = lod_init_capa_ctxt,
 };
 
+/**
+ * Connect to a local OSD.
+ *
+ * Used to connect to the local OSD at mount. OSD name is taken from the
+ * configuration command passed. This connection is used to identify LU
+ * site and pin the OSD from early removal.
+ *
+ * \param[in] env		LU environment provided by the caller
+ * \param[in] lod		lod device
+ * \param[in] lcfg		configuration command to apply
+ *
+ * \retval			0 on success, negative error code if failed.
+ **/
 static int lod_connect_to_osd(const struct lu_env *env, struct lod_device *lod,
 			      struct lustre_cfg *cfg)
 {
@@ -605,6 +743,16 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Allocate and initialize target table.
+ *
+ * A helper function to initialize the target table and allocate
+ * a bitmap of the available targets.
+ *
+ * \param[in] ltd		target's table to initialize
+ *
+ * \retval			0 on success, negative error code if failed
+ **/
 static int lod_tgt_desc_init(struct lod_tgt_descs *ltd)
 {
 	mutex_init(&ltd->ltd_mutex);
@@ -624,6 +772,20 @@ static int lod_tgt_desc_init(struct lod_tgt_descs *ltd)
 	return 0;
 }
 
+/**
+ * Initialize LOD device at setup.
+ *
+ * Initializes the given LOD device using the original configuration command.
+ * The function initiates a connection to the local OSD and initializes few
+ * internal structures like pools, target tables, etc.
+ *
+ * \param[in] env		LU environment provided by the caller
+ * \param[in] lod		lod device
+ * \param[in] ldt		not used
+ * \param[in] lcfg		configuration command
+ *
+ * \retval			0 on success, negative error code if failed
+ **/
 static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 		     struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
@@ -674,6 +836,13 @@ out_disconnect:
 	RETURN(rc);
 }
 
+/**
+ * Implementation of lu_device_type_operations:: ldto_device_free.
+ *
+ * Releases the memory allocated for LOD device.
+ *
+ * see include/lu_object.h for the details.
+ */
 static struct lu_device *lod_device_free(const struct lu_env *env,
 					 struct lu_device *lu)
 {
@@ -687,6 +856,13 @@ static struct lu_device *lod_device_free(const struct lu_env *env,
 	RETURN(next);
 }
 
+/**
+ * Implementation of lu_device_type_operations:: ldto_device_alloc.
+ *
+ * Allocates LOD device and calls the helpers to initialize it.
+ *
+ * see include/lu_object.h for the details.
+ */
 static struct lu_device *lod_device_alloc(const struct lu_env *env,
 					  struct lu_device_type *type,
 					  struct lustre_cfg *lcfg)
@@ -712,6 +888,13 @@ static struct lu_device *lod_device_alloc(const struct lu_env *env,
 	return lu_dev;
 }
 
+/**
+ * Implementation of lu_device_type_operations:: ldto_device_fini.
+ *
+ * Releases the internal resources used by LOD device.
+ *
+ * see include/lu_object.h for the details.
+ */
 static struct lu_device *lod_device_fini(const struct lu_env *env,
 					 struct lu_device *d)
 {
@@ -736,9 +919,21 @@ static struct lu_device *lod_device_fini(const struct lu_env *env,
 	RETURN(NULL);
 }
 
-/*
- * we use exports to track all LOD users
- */
+/**
+ * Implementation of obd_ops:: o_connect.
+ *
+ * Used to track all the users of this specific LOD device,
+ * so the device stays up until the last user disconnected.
+ *
+ * \param[in] env		LU environment provided by the caller
+ * \param[out] exp		export the caller will be using to access LOD
+ * \param[in] obd		OBD device representing LOD device
+ * \param[in] cluuid		unique identifier of the caller
+ * \param[in] data		not used
+ * \param[in] localdata		not used
+ *
+ * \retval			0 on success, negative error code if failed
+ **/
 static int lod_obd_connect(const struct lu_env *env, struct obd_export **exp,
 			   struct obd_device *obd, struct obd_uuid *cluuid,
 			   struct obd_connect_data *data, void *localdata)
@@ -765,10 +960,18 @@ static int lod_obd_connect(const struct lu_env *env, struct obd_export **exp,
 	RETURN(0);
 }
 
-/*
- * once last export (we don't count self-export) disappeared
- * lod can be released
- */
+/**
+ *
+ * Implementation of obd_ops:: o_disconnect.
+ *
+ * When the caller doesn't need to use this LOD instance, it calls
+ * obd_disconnect() and LOD releases corresponing export/reference count.
+ * Once all the users gone, LOD device is released.
+ *
+ * \param[in] exp		export provided to the caller in obd_connect()
+ *
+ * \retval			0 on success, negative error code if failed
+ **/
 static int lod_obd_disconnect(struct obd_export *exp)
 {
 	struct obd_device *obd = exp->exp_obd;
@@ -843,6 +1046,25 @@ static struct lu_device_type lod_device_type = {
 	.ldt_ctx_tags = LCT_MD_THREAD,
 };
 
+/**
+ * Implementation of obd_ops:: o_get_info.
+ *
+ * Currently supports the only key - KEY_OSP_CONNECTED, to provide the caller
+ * binary status whether LOD has seen connection to any OST target.
+ *
+ * \param[in] env		LU environment provided by the caller
+ * \param[in] exp		export of the caller
+ * \param[in] keylen		len of the key
+ * \param[in] key		the key
+ * \param[in] vallen		not used
+ * \param[in] val		not used
+ * \param[in] lsm		not used
+ *
+ * \retval			0 if a connection was seen
+ * \retval			-EAGAIN if LOD isn't running yet or no
+ *				connection has been seen yet
+ * \retval			-EINVAL if not supported key is requested
+ **/
 static int lod_obd_get_info(const struct lu_env *env, struct obd_export *exp,
 			    __u32 keylen, void *key, __u32 *vallen, void *val,
 			    struct lov_stripe_md *lsm)
