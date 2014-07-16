@@ -359,4 +359,9 @@ static inline int radix_tree_exceptional_entry(void *arg)
 }
 #endif
 
+#ifndef HAVE_OPEN_BDEV_EXCLUSIVE
+#define open_bdev_exclusive(a, b, c) blkdev_get_by_path(a, b|FMODE_EXCL, c)
+#define close_bdev_exclusive(a, b) blkdev_put(a, b|FMODE_EXCL)
+#endif
+
 #endif /* _COMPAT25_H */
