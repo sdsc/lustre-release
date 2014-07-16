@@ -5512,31 +5512,14 @@ check_catastrophe() {
 	return 0
 }
 
-# CMD: determine mds index where directory inode presents
-get_mds_dir () {
-    local dir=$1
-    local file=$dir/f0.get_mds_dir_tmpfile
+# CMD: determine mdt index where directory inode presents
+get_mdt_idx() {
+	local dir=$1
+	local file=$dir/f0.get_mdt_idx_tmpfile
 
-    mkdir -p $dir
-    rm -f $file
-    sleep 1
-    local iused=$(lfs df -i $dir | grep MDT | awk '{print $3}')
-    local -a oldused=($iused)
-
-    openfile -f O_CREAT:O_LOV_DELAY_CREATE -m 0644 $file > /dev/null
-    sleep 1
-    iused=$(lfs df -i $dir | grep MDT | awk '{print $3}')
-    local -a newused=($iused)
-
-    local num=0
-    for ((i=0; i<${#newused[@]}; i++)); do
-         if [ ${oldused[$i]} -lt ${newused[$i]} ];  then
-             echo $(( i + 1 ))
-             rm -f $file
-             return 0
-         fi
-    done
-    error "mdt-s : inodes count OLD ${oldused[@]} NEW ${newused[@]}"
+	openfile -f O_CREAT:O_LOV_DELAY_CREATE -m 0644 $file > /dev/null
+	$LFS getstripe -M $file
+	rm -f $file
 }
 
 mdsrate_cleanup () {

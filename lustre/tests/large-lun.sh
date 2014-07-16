@@ -104,7 +104,7 @@ run_mdsrate() {
 		--nfiles $num_files --filefmt 'file%%d'"
 
 	echo "# $command"
-	mpi_run -machinefile $MACHINEFILE \
+	mpi_run ${MACHINEFILE_OPTION} $MACHINEFILE \
 		-np $((NUM_CLIENTS * THREADS_PER_CLIENT)) $command
 
 	if [ ${PIPESTATUS[0]} != 0 ]; then
