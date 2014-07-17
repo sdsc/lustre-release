@@ -324,6 +324,14 @@ int tgt_server_data_update(const struct lu_env *env, struct lu_target *tg,
 			   int sync);
 int tgt_truncate_last_rcvd(const struct lu_env *env, struct lu_target *tg,
 			   loff_t off);
+int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
+			 struct dt_object *obj, __u64 opdata,
+			 struct thandle *th, struct ptlrpc_request *req);
+int tgt_last_rcvd_update_echo(const struct lu_env *env, struct lu_target *tgt,
+			      struct dt_object *obj, struct thandle *th,
+			      struct obd_export *exp);
+int out_do_updates(const struct lu_env *env, struct dt_device *dt,
+		   struct update_buf *ubuf);
 
 enum {
 	ESERIOUS = 0x0001000
