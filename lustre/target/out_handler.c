@@ -68,7 +68,9 @@ static int out_tx_start(const struct lu_env *env, struct dt_device *dt,
 	if (IS_ERR(ta->ta_handle)) {
 		CERROR("%s: start handle error: rc = %ld\n",
 		       dt_obd_name(dt), PTR_ERR(ta->ta_handle));
-		return PTR_ERR(ta->ta_handle);
+		rc = PTR_ERR(ta->ta_handle);
+		ta->ta_handle = NULL;
+		return rc;
 	}
 	ta->ta_dev = dt;
 	/*For phase I, sync for cross-ref operation*/
@@ -1350,11 +1352,7 @@ int out_handle(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	update_init_reply_buf(reply_buf, count);
 	tti->tti_u.update.tti_update_reply = reply_buf;
-
-	rc = out_tx_start(env, dt, ta, ubuf);
-	if (rc != 0)
-		RETURN(rc);
-
+	memset(ta, 0, sizeof(*ta));
 	/* Walk through updates in the request to execute them synchronously */
 	for (i = 0; i < count; i++) {
 		struct tgt_handler	*h;
@@ -1364,21 +1362,6 @@ int out_handle(struct tgt_session_info *tsi)
 
 		if (ptlrpc_req_need_swab(pill->rc_req))
 			lustre_swab_update(update);
-
-		if (old_batchid == -1) {
-			old_batchid = update->u_batchid;
-		} else if (old_batchid != update->u_batchid) {
-			/* Stop the current update transaction,
-			 * create a new one */
-			rc = out_tx_end(env, ta, ubuf, pill->rc_req->rq_xid);
-			if (rc != 0)
-				RETURN(rc);
-
-			rc = out_tx_start(env, dt, ta, ubuf);
-			if (rc != 0)
-				RETURN(rc);
-			old_batchid = update->u_batchid;
-		}
 
 		if (!fid_is_sane(&update->u_fid)) {
 			CERROR("%s: invalid FID "DFID": rc = %d\n",
@@ -1406,34 +1389,52 @@ int out_handle(struct tgt_session_info *tsi)
 		tti->tti_u.update.tti_update_index = i;
 
 		h = out_handler_find(update->u_type);
-		if (likely(h != NULL)) {
-			/* For real modification RPC, check if the update
-			 * has been executed */
-			if (h->th_flags & MUTABOR) {
-				struct ptlrpc_request *req = tgt_ses_req(tsi);
-
-				if (out_check_resent(env, dt, dt_obj, req,
-						     out_reconstruct, reply_buf,
-						     i))
-					GOTO(next, rc);
-			}
-
-			rc = h->th_act(tsi);
-		} else {
+		if (unlikely(h == NULL)) {
 			CERROR("%s: The unsupported opc: 0x%x\n",
 			       tgt_name(tsi->tsi_tgt), update->u_type);
-			lu_object_put(env, &dt_obj->do_lu);
-			GOTO(out, rc = -ENOTSUPP);
+			GOTO(next, rc = -ENOTSUPP);
 		}
+
+		/* For real modification RPC, start transaction and check if
+		 * the update has been executed */
+		if (h->th_flags & MUTABOR) {
+			struct ptlrpc_request *req = tgt_ses_req(tsi);
+
+			if (old_batchid == -1) {
+				old_batchid = update->u_batchid;
+				rc = out_tx_start(env, dt, ta, ubuf);
+				if (rc < 0)
+					GOTO(next, rc);	
+			} else if (old_batchid != update->u_batchid) {
+				/* Stop the current update transaction,
+				 * create a new one */
+				rc = out_tx_end(env, ta, ubuf, pill->rc_req->rq_xid);
+				if (rc != 0)
+					GOTO(next, rc);	
+
+				rc = out_tx_start(env, dt, ta, ubuf);
+				if (rc != 0)
+					GOTO(next, rc);	
+				old_batchid = update->u_batchid;
+			}
+			if (out_check_resent(env, dt, dt_obj, req,
+					     out_reconstruct, reply_buf,
+					     i))
+				GOTO(next, rc);
+		}
+		rc = h->th_act(tsi);
 next:
 		lu_object_put(env, &dt_obj->do_lu);
 		if (rc < 0)
 			GOTO(out, rc);
 	}
 out:
-	rc1 = out_tx_end(env, ta, ubuf, pill->rc_req->rq_xid);
-	if (rc == 0)
-		rc = rc1;
+	if (ta->ta_handle != NULL) {
+		rc1 = out_tx_end(env, ta, ubuf, pill->rc_req->rq_xid);
+		if (rc == 0)
+			rc = rc1;
+	}
+
 	RETURN(rc);
 }
 
