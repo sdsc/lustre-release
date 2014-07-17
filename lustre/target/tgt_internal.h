@@ -133,6 +133,10 @@ struct tgt_thread_info {
 			struct dt_object	*tti_dt_object;
 			struct thandle_update	 tti_update_handle;
 			struct llog_catid	 tti_cid;
+			unsigned int		 tti_swab:1,	/* need swab */
+						 tti_resend:1,	/* resend req */
+					       /* log update of the operation */
+						 tti_log_update:1;
 		} update;
 	} tti_u;
 };
