@@ -107,12 +107,13 @@ struct echo_lock {
  * we define an alias structure here.
  */
 struct echo_md_device {
-	struct md_device	 emd_md_dev;
-	struct obd_export	*emd_child_exp;
-	struct dt_device	*emd_child;
-	struct dt_device	*emd_bottom;
-	struct lu_fid		 emd_root_fid;
-	struct lu_fid		 emd_local_root_fid;
+	struct md_device		 emd_md_dev;
+	struct obd_export		*emd_child_exp;
+	struct dt_device		*emd_child;
+	struct dt_device		*emd_bottom;
+	struct lu_fid			 emd_root_fid;
+	struct lu_fid			 emd_local_root_fid;
+	struct local_oid_storage	*emd_los;
 };
 
 static int echo_client_setup(const struct lu_env *env,
@@ -1974,8 +1975,7 @@ static int echo_destroy_object(const struct lu_env *env,
 }
 
 static int
-echo_md_local_file_create(const struct lu_env *env, struct dt_device *dev,
-			  struct local_oid_storage *los,
+echo_md_local_file_create(const struct lu_env *env, struct echo_md_device *emd,
 			  const struct lu_fid *pfid, const char *name,
 			  __u32 mode, struct lu_fid *fid)
 
@@ -1987,11 +1987,19 @@ echo_md_local_file_create(const struct lu_env *env, struct dt_device *dev,
 	ENTRY;
 
 	LASSERT(!fid_is_zero(pfid));
-	parent = dt_locate(env, dev, pfid);
+	parent = dt_locate(env, emd->emd_bottom, pfid);
 	if (unlikely(IS_ERR(parent)))
 		RETURN(PTR_ERR(parent));
 
-	dto = local_file_find_or_create(env, los, parent, name, mode);
+	/* create local file, if @fid is passed then try to use it */
+	if (fid_is_zero(fid))
+		dto = local_file_find_or_create(env, emd->emd_los, parent, name,
+						mode);
+	else
+		dto = local_file_find_or_create_with_fid(env, emd->emd_bottom,
+							 fid, parent, name,
+							 mode);
+
 	if (IS_ERR(dto))
 		GOTO(out_put, rc = PTR_ERR(dto));
 	*fid = *lu_object_fid(&dto->do_lu);
@@ -2008,7 +2016,6 @@ static int echo_md_root_get(const struct lu_env *env,
 			    struct echo_md_device *emd,
 			    struct lu_fid *root_fid)
 {
-	struct local_oid_storage	*emd_los = NULL;
 	struct lu_fid			 fid;
 	int				 rc = 0;
 
@@ -2018,13 +2025,13 @@ static int echo_md_root_get(const struct lu_env *env,
 	fid.f_seq = FID_SEQ_LOCAL_NAME;
 	fid.f_oid = 1;
 	fid.f_ver = 0;
-	rc = local_oid_storage_init(env, emd->emd_bottom, &fid, &emd_los);
+	rc = local_oid_storage_init(env, emd->emd_bottom, &fid, &emd->emd_los);
 	if (rc != 0)
 		RETURN(rc);
 
-	fid_zero(&fid);
+	lu_echo_root_fid(&fid);
 	if (echo_md_seq_site(emd)->ss_node_id == 0) {
-		rc = echo_md_local_file_create(env, emd->emd_bottom, emd_los,
+		rc = echo_md_local_file_create(env, emd,
 					       &emd->emd_local_root_fid,
 					       echo_md_root_dir_name, S_IFDIR |
 					       S_IRUGO | S_IWUSR | S_IXUGO,
@@ -2039,8 +2046,8 @@ static int echo_md_root_get(const struct lu_env *env,
 
 	RETURN(0);
 out_los:
-	local_oid_storage_fini(env, emd_los);
-	emd_los = NULL;
+	local_oid_storage_fini(env, emd->emd_los);
+	emd->emd_los = NULL;
 
 	RETURN(rc);
 }
@@ -2264,6 +2271,14 @@ out_free:
 	OBD_FREE_LARGE(info->eti_big_lmm, info->eti_big_lmmsize);
 	info->eti_big_lmm = NULL;
 	info->eti_big_lmmsize = 0;
+
+	struct md_device	*md = lu2md_dev(ld);
+	struct echo_md_device	*emd = lu2emd_dev(&md->md_lu_dev);
+
+	if (emd->emd_los != NULL) {
+		local_oid_storage_fini(env, emd->emd_los);
+		emd->emd_los = NULL;
+	}
 out_env:
         cl_env_put(env, &refcheck);
         return rc;
