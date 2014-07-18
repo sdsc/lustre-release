@@ -1688,6 +1688,9 @@ static int osd_start(struct lustre_sb_info *lsi, unsigned long mflags)
 			GOTO(out, rc);
 		obd = class_name2obd(lsi->lsi_osd_obdname);
 		LASSERT(obd);
+	} else {
+		CDEBUG(D_MOUNT, "%s already started\n", lsi->lsi_svname);
+		GOTO(out, rc = -EALREADY);
 	}
 
 	rc = obd_connect(NULL, &lsi->lsi_osd_exp,
