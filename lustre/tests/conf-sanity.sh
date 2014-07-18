@@ -2564,6 +2564,54 @@ test_41b() {
 }
 run_test 41b "mount mds with --nosvc and --nomgs on first mount"
 
+test_41c() {
+	cleanup
+	# MDT concurent start
+	#define OBD_FAIL_TGT_DELAY_CONNECT 0x703
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x703"
+	start_mds &
+	local pid=$!
+	sleep 2
+	do_facet $SINGLEMDS "lctl set_param fail_loc=0x0"
+	start_mds &
+	local pid2=$!
+	wait $pid2
+	local rc2=$?
+	wait $pid
+	local rc=$?
+	[ $rc2 = 0 ] && echo "MDT 2nd start must fail"
+	[ $rc = 0 ] || echo "MDT 1st start must succeed"
+	[ $rc2 = 0 ] && stop_mds
+	if [ $rc2 == 0 ] || [ $rc != 0 ]
+	then
+		error "unexpected concurent MDT mounts result"
+	fi
+	# OST concurent start
+	#define OBD_FAIL_TGT_DELAY_CONNECT 0x703
+	do_facet ost1 "lctl set_param fail_loc=0x703"
+	start_ost &
+	pid=$!
+	sleep 2
+	do_facet ost1 "lctl set_param fail_loc=0x0"
+	start_ost &
+	pid2=$!
+	wait $pid2
+	rc2=$?
+	wait $pid
+	rc=$?
+	[ $rc2 = 0 ] && echo "OST 2nd start must fail"
+	[ $rc = 0 ] || echo "OST 1st start must succeed"
+	[ $rc2 = 0 ] && stop_ost
+	if [ $rc2 == 0 ] || [ $rc != 0 ]
+	then
+		error "unexpected concurent OST mounts result"
+	fi
+	mount_client $MOUNT || error "client start failed"
+	check_mount || error "client mount failed"
+	cleanup
+}
+run_test 41c "concurent mounts of MDT/OST should all fail but one"
+
 test_42() { #bug 14693
 	setup
 	check_mount || error "client was not mounted"
