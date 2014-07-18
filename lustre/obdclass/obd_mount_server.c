@@ -1688,6 +1688,9 @@ static int osd_start(struct lustre_sb_info *lsi, unsigned long mflags)
 			GOTO(out, rc);
 		obd = class_name2obd(lsi->lsi_osd_obdname);
 		LASSERT(obd);
+	} else {
+		CDEBUG(D_MOUNT, "%s already started\n", lsi->lsi_svname);
+		GOTO(out, rc = -EALREADY);
 	}
 
 	rc = obd_connect(NULL, &lsi->lsi_osd_exp,
@@ -1730,7 +1733,9 @@ int server_fill_super(struct super_block *sb)
 
 	/* Start low level OSD */
 	rc = osd_start(lsi, sb->s_flags);
-	if (rc) {
+	/* Handle separate nosvc and nomgs case */
+	if (rc && ((rc != EALREADY) || !(lsi->lsi_lmd->lmd_flags &
+					 (LMD_FLG_NOSVC|LMD_FLG_NOMGS)))) {
 		CERROR("Unable to start osd on %s: %d\n",
 		       lsi->lsi_lmd->lmd_dev, rc);
 		lustre_put_lsi(sb);
