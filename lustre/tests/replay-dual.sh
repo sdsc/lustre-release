@@ -553,49 +553,49 @@ test_21b_sub () {
 }
 
 test_21b() {
-    [ -z "$CLIENTS" ] && skip "Need two or more clients." && return
-    [ $CLIENTCOUNT -lt 2 ] && \
-        { skip "Need two or more clients, have $CLIENTCOUNT" && return; }
+	[ -z "$CLIENTS" ] && skip "Need two or more clients" && return
+	[ $CLIENTCOUNT -lt 2 ] &&
+		{ skip "Need 2+ clients, have $CLIENTCOUNT" && return; }
 
-    if [ "$FAILURE_MODE" = "HARD" ] &&  mixed_mdt_devs; then
-        skip "Several mdt services on one mds node are used with FAILURE_MODE=$FAILURE_MODE. "
-        return 0
-    fi
+	if [ "$FAILURE_MODE" = "HARD" ] && mixed_mdt_devs; then
+		skip "Several MDTs on one MDS with FAILURE_MODE=$FAILURE_MODE"
+		return 0
+	fi
 
+	zconf_umount_clients $CLIENTS $MOUNT2
+	zconf_mount_clients $CLIENTS $MOUNT1
 
-    zconf_umount_clients $CLIENTS $MOUNT2
-    zconf_mount_clients $CLIENTS $MOUNT1
+	local param_file=$TMP/$tfile-params
 
-    local param_file=$TMP/$tfile-params
+	local mdtidx=$($LFS getstripe -M $MOUNT1)
+	local facet=mds$((mdtidx + 1))
 
-    local num=$(get_mds_dir $MOUNT1)
+	save_lustre_params $facet "mdt.*.commit_on_sharing" > $param_file
 
-	save_lustre_params mds$num "mdt.*.commit_on_sharing" > $param_file
+	# COS enabled
+	local COS=1
+	do_facet $facet lctl set_param mdt.*.commit_on_sharing=$COS
 
-    # COS enabled
-    local COS=1
-    do_facet mds$num lctl set_param mdt.*.commit_on_sharing=$COS
+	test_21b_sub $facet || error "Not all renames are replayed. COS=$COS"
 
-    test_21b_sub mds$num || error "Not all renames are replayed. COS=$COS"
+	# COS disabled (should fail)
+	COS=0
+	do_facet $facet lctl set_param mdt.*.commit_on_sharing=$COS
 
-    # COS disabled (should fail)
-    COS=0
-    do_facet mds$num lctl set_param mdt.*.commit_on_sharing=$COS
-
-    # there is still a window when transactions may be written to disk before
-    # the mds device is set R/O. To avoid such a rare test failure, the check
-    # is repeated several times.
-    local n_attempts=1
-    while true; do
-    test_21b_sub mds$num || break;
-    let n_attempts=n_attempts+1
-    [ $n_attempts -gt 3 ] &&
-        error "The test cannot check whether COS works or not: all renames are replied w/o COS"
-    done
-    zconf_mount_clients $CLIENTS $MOUNT2
-    restore_lustre_params < $param_file
-    rm -f $param_file
-    return 0
+	# there is still a window when transactions may be written to disk
+	# before the mds device is set R/O. To avoid such a rare test failure,
+	# the check is repeated several times.
+	local n_attempts=1
+	while true; do
+		test_21b_sub $facet || break
+		n_attempts=$((n_attempts + 1))
+		[ $n_attempts -gt 3 ] &&
+			error "can't check if COS works: rename replied w/o COS"
+	done
+	zconf_mount_clients $CLIENTS $MOUNT2
+	restore_lustre_params < $param_file
+	rm -f $param_file
+	return 0
 }
 run_test 21b "commit on sharing, two clients"
 
