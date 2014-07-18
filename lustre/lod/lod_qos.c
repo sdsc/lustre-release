@@ -59,6 +59,19 @@
 #define TGT_BAVAIL(i) (OST_TGT(lod,i)->ltd_statfs.os_bavail * \
 		       OST_TGT(lod,i)->ltd_statfs.os_bsize)
 
+/**
+ * Add a new target to QoS target table
+ *
+ * The function adds a new OST target to the a structure representing
+ * an OSS and re-sort the list of known OSSs by the number of OSTs
+ * living on them. The OSS list is protected internally and no external
+ * locking is required.
+ *
+ * \param[in] lod		lod device
+ * \param[in] ost_desc		OST description
+ *
+ * \retval 			0 if suceeed, -ENOMEM if allocation failed
+ */
 int qos_add_tgt(struct lod_device *lod, struct lod_tgt_desc *ost_desc)
 {
 	struct lod_qos_oss *oss = NULL, *temposs;
@@ -118,6 +131,17 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Remove OST target from QoS table
+ *
+ * Removes given OST target from QoS table and releases related OSS structure
+ * if no OSTs left on that.
+ *
+ * \param[in] lod		lod device
+ * \param[in] ost_desc		OST description
+ *
+ * \retval 			0 if suceeed, -ENOENT if no OSS was found
+ */
 int qos_del_tgt(struct lod_device *lod, struct lod_tgt_desc *ost_desc)
 {
 	struct lod_qos_oss *oss;
@@ -145,6 +169,23 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Check whether the target is available for new OST objects
+ *
+ * Requests statfs data from the given target, verifies it's active and not
+ * read-only. If so, then it can be used to place new OST objects.
+ * The function also maintains the number of active/inactive targets,
+ * sets dirty flags to notify if the number of active/inactive changes,
+ * so others can run re-balance procedures. No external locking is
+ * required.
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] d		LOD device
+ * \param[in] index	index of OST target to check
+ * \param[out] sfs	buffer for statfs dat
+ *
+ * \retval		0 if the target is good, negative error code otherwise
+ */
 static int lod_statfs_and_check(const struct lu_env *env, struct lod_device *d,
 				int index, struct obd_statfs *sfs)
 {
@@ -197,6 +238,16 @@ static int lod_statfs_and_check(const struct lu_env *env, struct lod_device *d,
 	RETURN(rc);
 }
 
+/**
+ * Maintain per-target statfs data
+ *
+ * The function refreshes statfs data for all the targets every N seconds.
+ * The actual N is controlled via procfs and set to LOV_DESC_QOS_MAXAGE_DEFAULT
+ * initially.
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] lod	LOD device
+ */
 static void lod_qos_statfs_update(const struct lu_env *env,
 				  struct lod_device *lod)
 {
@@ -234,8 +285,16 @@ out:
 	EXIT;
 }
 
-/* Recalculate per-object penalties for OSSs and OSTs,
-   depends on size of each ost in an oss */
+/**
+ * Re-calculate per-object penalties for OSSs and OSTs
+ *
+ * Re-calculate penalties when the configuration changes, active targets
+ * change, after statfs refresh (all these are reflected by lq_dirty flag).
+ *
+ * \param[in] lod	LOD device
+ *
+ * \retval		0 on success, -EAGAIN if the number of OSTs isn't enough
+ */
 static int lod_qos_calc_ppo(struct lod_device *lod)
 {
 	struct lod_qos_oss *oss;
@@ -351,6 +410,14 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Calculate weight for a given OST target
+ *
+ * \param[in] lod	LOD device, where OST targets are listed
+ * \param[in] i		OST target index
+ *
+ * \retval		0
+ */
 static int lod_qos_calc_weight(struct lod_device *lod, int i)
 {
 	__u64 temp, temp2;
@@ -366,7 +433,20 @@ static int lod_qos_calc_weight(struct lod_device *lod, int i)
 	return 0;
 }
 
-/* We just used this index for a stripe; adjust everyone's weights */
+/**
+ * Re-calculate weights
+ *
+ * The function is called when some OST target was used for a new object. In
+ * this case we should re-calculate all the weights to keep new allocations
+ * balanced well.
+ *
+ * \param[in] lod	LOD device
+ * \param[in] osts	OST pool where a new object was placed
+ * \param[in] index	OST target where a new object was placed
+ * \param[out] total_wt	new total weight for the pool
+ *
+ * \retval		0
+ */
 static int lod_qos_used(struct lod_device *lod, struct ost_pool *osts,
 			__u32 index, __u64 *total_wt)
 {
@@ -445,7 +525,22 @@ static int lod_qos_used(struct lod_device *lod, struct ost_pool *osts,
 }
 
 #define LOV_QOS_EMPTY ((__u32)-1)
-/* compute optimal round-robin order, based on OSTs per OSS */
+
+/**
+ * Calculate optimal round-robin order with regard to OSSs
+ *
+ * The function places all the OSTs from the given pool in a special array
+ * the round-robin allocation will be used. The placement algoright interleaves
+ * OSTs from the different OSSs so that RR allocation can balance OSSs evenly.
+ * The function resorts when the number of active targets changes (because of
+ * a new target or activation/deactivation).
+ *
+ * \param[in] lod	LOD device
+ * \param[in] src_poll	OST pool
+ * \param[in] lqr	round-robin list
+ *
+ * \retval		0 on success, -ENOMEM if failed to allocate the array
+ */
 static int lod_qos_calc_rr(struct lod_device *lod, struct ost_pool *src_pool,
 			   struct lod_qos_rr *lqr)
 {
@@ -541,15 +636,24 @@ static int lod_qos_calc_rr(struct lod_device *lod, struct ost_pool *src_pool,
 }
 
 /**
- * A helper function to:
- *   create in-core lu object on the specified OSP
- *   declare creation of the object
- * IMPORTANT: at this stage object is anonymouos - it has no fid assigned
- *            this is a workaround till we have natural FIDs on OST
+ * Instantiate and declare creation of a new object
  *
- *            at this point we want to declare (reserve) object for us as
- *            we can't block at execution (when create method is called).
- *            otherwise we'd block whole transaction batch
+ * The function instantiate LU representation for a new object on the
+ * specified device. Also it declares an intention to create that
+ * object on a storage.
+ *
+ * Notice lu_object_annon() is used which is a trick with regard to LU/OSD
+ * infrastructure - in the existing precreation framework we can't assign FID
+ * at this moment, we do this later once a transaction is started. So the
+ * special method instantiates FID-less object in the cache and later it
+ * will get a FID and proper placement in LU cache.
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] d		LOD device
+ * \param[in] ost_idx	OST target index where the object is being created
+ * \param[in] th	transaction handle
+ *
+ * \retval		object ptr on success, ERR_PTR() otherwise
  */
 static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
 						   struct lod_device *d,
@@ -611,6 +715,16 @@ static int min_stripe_count(int stripe_cnt, int flags)
 #define LOV_CREATE_RESEED_MULT 30
 #define LOV_CREATE_RESEED_MIN  2000
 
+/**
+ * Check is OST full
+ *
+ * The function checks the given statfs data whether such an OST
+ * should be considered full.
+ *
+ * \param[in] msfs	statfs data
+ *
+ * \retval		false - not full, true - full
+ */
 static int inline lod_qos_dev_is_full(struct obd_statfs *msfs)
 {
 	__u64 used;
@@ -624,6 +738,19 @@ static int inline lod_qos_dev_is_full(struct obd_statfs *msfs)
 	return (msfs->os_bavail < used);
 }
 
+/**
+ * Initialize temporary OST-in-use array
+ *
+ * Every time a new striping is being created we fill a special temporary
+ * array to remember all the targets already used for the striping and do
+ * not use them again. The function allocates (or exentends if exists) this
+ * temporary array and clear it. The array is stored in the environment.
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] stripes	number of items needed in the array
+ *
+ * \retval		0 on success, -ENOMEM if fails
+ */
 static inline int lod_qos_ost_in_use_clear(const struct lu_env *env, int stripes)
 {
 	struct lod_thread_info *info = lod_env_info(env);
@@ -638,7 +765,18 @@ static inline int lod_qos_ost_in_use_clear(const struct lu_env *env, int stripes
 	return 0;
 }
 
-static inline void lod_qos_ost_in_use(const struct lu_env *env, int idx, int ost)
+/**
+ * Remember a target in the array of used targets
+ *
+ * Mark the given target is used for a new striping being created. Using
+ * function lod_qos_is_ost_used() a caller can check that.
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] idx	index in the array
+ * \param[in] ost	OST target index to mark as used
+ */
+static inline void lod_qos_ost_in_use(const struct lu_env *env,
+				      int idx, int ost)
 {
 	struct lod_thread_info *info = lod_env_info(env);
 	int *osts = info->lti_ea_store;
@@ -647,6 +785,18 @@ static inline void lod_qos_ost_in_use(const struct lu_env *env, int idx, int ost
 	osts[idx] = ost;
 }
 
+/**
+ * Check is OST used in a striping
+ *
+ * Checks whether OST with the given index is marked as used in the temporary
+ * array (see lod_qos_ost_in_use()).
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] ost	OST target index to check
+ * \param[in] stripes	the number of items used in the array already
+ *
+ * \retval		1 - used, 0 - not used
+ */
 static int lod_qos_is_ost_used(const struct lu_env *env, int ost, int stripes)
 {
 	struct lod_thread_info *info = lod_env_info(env);
@@ -660,7 +810,31 @@ static int lod_qos_is_ost_used(const struct lu_env *env, int ost, int stripes)
 	return 0;
 }
 
-/* Allocate objects on OSTs with round-robin algorithm */
+/**
+ * Allocate a striping using round-robin algorigthm
+ *
+ * Allocates a new striping using round-robin algorithm. The function refreshes
+ * all the internal structures (statfs cache, array of available OSTs sorted
+ * with regard to OSS, etc). The number of stripes required is taken from the
+ * object (should be prepared by the caller), but can change if the flag
+ * LOV_USES_DEFAULT_STRIPE is supplied. The caller should ensure nobody else
+ * is trying to create a striping on the object in parallel. All the internal
+ * structures (like pools, etc) are protected and no additional locking is
+ * required. The function succeed even if a single stripe is allocated. The
+ * function is trying to allocate the stripes on the "fast" targets (meaning
+ * they do have objects precreated and there is no need to wait for them). The
+ * full OSTs are not considered (see lod_qos_dev_is_full() for the details).
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] lo	LOD object
+ * \param[out] stripe	striping created
+ * \param[in] flags	allocation flags (0 or LOV_USES_DEFAULT_STRIPE)
+ * \param[in] th	transaction handle
+ *
+ * \retval		0 on success
+ * \retval		-ENOSPC if no enough OSTs are found
+ * \retval		negative error if fails for another reason
+ */
 static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 			struct dt_object **stripe, int flags,
 			struct thandle *th)
@@ -828,7 +1002,29 @@ out:
 	RETURN(rc);
 }
 
-/* alloc objects on osts with specific stripe offset */
+/**
+ * Allocate a striping on a predefined set of OSTs
+ *
+ * Allocates a new striping using the OSTs provided. The full OSTs are
+ * not considered. The exact order of OSTs is not important. The allocation
+ * procedure prefers the targets with ready precreated objects. The number
+ * of the stripes needed and stripe offset are taken from the object. If that
+ * number can not be met, then the function returns a failure and then it's the
+ * caller's responsbility to release the stripes allocated. All the internal
+ * structures are protected, but no concurrent allocation is allowed on the
+ * same objects.
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] lo	LOD object
+ * \param[out] stripe	striping created
+ * \param[in] flags	not used
+ * \param[in] th	transaction handle
+ *
+ * \retval		0 on success
+ * \retval		-E2BIG if no enough OSTs are found
+ * \retval		-EINVAL requested offset is invalid
+ * \retval		negative error if fails for another reason
+ */
 static int lod_alloc_specific(const struct lu_env *env, struct lod_object *lo,
 			      struct dt_object **stripe, int flags,
 			      struct thandle *th)
@@ -957,6 +1153,17 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Check wiether QoS allocation should be used
+ *
+ * A simple helper to decide when QoS allocation should be used:
+ * if it's just a single available target or the used space is
+ * evenly distributed among the targets at the moment.
+ *
+ * \param[in] lod	LOD device
+ *
+ * \retval		true - should be used, false - should not
+ */
 static inline int lod_qos_is_usable(struct lod_device *lod)
 {
 #ifdef FORCE_QOS
@@ -974,9 +1181,33 @@ static inline int lod_qos_is_usable(struct lod_device *lod)
 	return 1;
 }
 
-/* Alloc objects on OSTs with optimization based on:
-   - free space
-   - network resources (shared OSS's)
+/**
+ * Allocate a striping using an algorithm with weights
+ *
+ * The function allocates OST objects to create a striping. The algorithm
+ * used is based on weights and it's trying to unsure the space is used
+ * evenly by OSTs and OSSs. The striping configuration (# of stripes, offset,
+ * pool) is taken from the object and supposed to be prepared by the caller.
+ * If LOV_USES_DEFAULT_STRIPE is not passed and prepared configuration can't
+ * be met due to lack of enough OSTs, then allocation fails. If the flag is
+ * passed and less then #stripes*0.75 can be allocated, then allocation fails.
+ * No concurrent allocation is allowed on the object and this should be
+ * ensured by the caller. All the internal structures are protected by the
+ * function.
+ * The algorightm is two-step: first of all, it finds OSTs available and
+ * calculate total weight for those. Then the OSTs the greater weights are
+ * taken for the striping.
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] lo	LOD object
+ * \param[out] stripe	striping created
+ * \param[in] flags	0 or LOV_USES_DEFAULT_STRIPE
+ * \param[in] th	transaction handle
+ *
+ * \retval		0 on success
+ * \retval		-E2BIG if no enough OSTs are found
+ * \retval		-EINVAL requested offset is invalid
+ * \retval		negative error if fails for another reason
  */
 static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 			 struct dt_object **stripe, int flags,
@@ -1188,7 +1419,21 @@ out_nolock:
 	RETURN(rc);
 }
 
-/* Find the max stripecount we should use */
+/**
+ * Find stripecound the caller can use
+ *
+ * Sometimes suggested stripecount can't be reached for a number of
+ * the reasons: lack of enough active OSTs, the backend does not
+ * support EAs that large. IOW, the function finds the maximal possible
+ * stripecount not greater than passed one. If the passed one is 0, then
+ * the filesystem's default one is used.
+ *
+ * \param[in] lod	LOD device
+ * \param[in] magic	the format if striping
+ * \param[in] stripe_count	count the caller would like to use
+ *
+ * \retval		the final max stripecount
+ */
 static __u16 lod_get_stripecnt(struct lod_device *lod, __u32 magic,
 			       __u16 stripe_count)
 {
@@ -1209,6 +1454,19 @@ static __u16 lod_get_stripecnt(struct lod_device *lod, __u32 magic,
 	return (stripe_count < max_stripes) ? stripe_count : max_stripes;
 }
 
+/**
+ * Create in-core respresentation for a fully-defined striping
+ *
+ * When the caller passes a fully-defined striping (i.e. everything
+ * including OST object FIDs are defined), then we still need to instantiate
+ * LU-cache with the objects representing the stripes defined.
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] mo	LOD object
+ * \param[in] buf	buffer containing the striping
+ *
+ * \retval		0 on success, negative error code otherwise
+ */
 static int lod_use_defined_striping(const struct lu_env *env,
 				    struct lod_object *mo,
 				    const struct lu_buf *buf)
@@ -1252,6 +1510,22 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Parse suggested striping configuration
+ *
+ * The caller gets a suggested striping configuration from the number of
+ * the sources: per-directory default one, from the applications. Then
+ * it needs to verify the suggested striping is valid, apply missing bits
+ * and store the resulting configuration in the object to be used by the
+ * allocater later. Should not be called concurrently against the same
+ * object. It's OK to provide with a fully-defined striping.
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] lo	LOD object
+ * \param[in] buf	buffer containing the striping
+ *
+ * \retval		0 on success, negative error code otherwise
+ */
 static int lod_qos_parse_config(const struct lu_env *env,
 				struct lod_object *lo,
 				const struct lu_buf *buf)
@@ -1360,8 +1634,21 @@ static int lod_qos_parse_config(const struct lu_env *env,
 	RETURN(0);
 }
 
-/*
- * buf should be NULL or contain striping settings
+/**
+ * Create a striping for an obejct
+ *
+ * The function creates a new striping for the object. A buffer
+ * contaning configuration hints can be provided optionally.
+ * The function tries QoS algorithm first unless the space distributed
+ * evenly among OSTs, but by default RR algorithm is preferred due to
+ * internal concurrency (QoS is serialized). The caller should ensure
+ * no concurrent calls to the function are made against the same object.
+ *
+ * \param[in] env	LU environment provided by the caller
+ * \param[in] lo	LOD object
+ * \param[in] attr	attributes OST objects will be declared with
+ * \param[in] buf	suggested striping configuration or NULL
+ * \param[in] thandle	transaction handle
  */
 int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 			struct lu_attr *attr, const struct lu_buf *buf,
