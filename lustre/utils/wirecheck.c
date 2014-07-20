@@ -711,6 +711,8 @@ check_lmv_mds_md_v1(void)
 	CHECK_CDEFINE(LMV_HASH_TYPE_MASK);
 	CHECK_CDEFINE(LMV_HASH_FLAG_MIGRATION);
 	CHECK_CDEFINE(LMV_HASH_FLAG_DEAD);
+	CHECK_CDEFINE(LMV_HASH_FLAG_BAD_TYPE);
+	CHECK_CDEFINE(LMV_HASH_FLAG_LOST_LMV);
 }
 
 static void
@@ -2091,7 +2093,8 @@ static void check_lfsck_request(void)
 	CHECK_MEMBER(lfsck_request, lr_fid);
 	CHECK_MEMBER(lfsck_request, lr_fid2);
 	CHECK_MEMBER(lfsck_request, lr_fid3);
-	CHECK_MEMBER(lfsck_request, lr_padding_2);
+	CHECK_MEMBER(lfsck_request, lr_stripe_count);
+	CHECK_MEMBER(lfsck_request, lr_hash_type);
 	CHECK_MEMBER(lfsck_request, lr_padding_3);
 
 	CHECK_VALUE_X(LFSCK_TYPE_SCRUB);
@@ -2112,9 +2115,14 @@ static void check_lfsck_request(void)
 	CHECK_VALUE(LE_CREATE_ORPHAN);
 	CHECK_VALUE(LE_SKIP_NLINK_DECLARE);
 	CHECK_VALUE(LE_SKIP_NLINK);
+	CHECK_VALUE(LE_SET_LMV_MASTER);
+	CHECK_VALUE(LE_SET_LMV_SLAVE);
 
 	CHECK_VALUE_X(LEF_TO_OST);
 	CHECK_VALUE_X(LEF_FROM_OST);
+	CHECK_VALUE_X(LEF_SET_LMV_ALL);
+	CHECK_VALUE_X(LEF_SET_LMV_HASH);
+	CHECK_VALUE_X(LEF_RECHECK_NAMEHASH);
 }
 
 static void check_lfsck_reply(void)
