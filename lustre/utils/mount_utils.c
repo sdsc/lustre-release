@@ -144,6 +144,33 @@ int get_param(char *buf, char *key, char **val)
 	return ENOENT;
 }
 
+int append_param(char *buf, char *key, char *val, char sep)
+{
+	int key_len, i;
+	char *ptr = NULL, str[1024];
+
+	
+	if (key)
+		ptr = strstr(buf, key);
+
+	/* key doesn't exist yet, so just add it */
+	if (ptr == NULL)
+		return add_param(buf, key, val);
+
+	key_len = strlen(key);
+
+	for (i = 0; i < sizeof(str); i++) {
+		if ((ptr[i+key_len] == ' ') || (ptr[i+key_len] == '\0'))
+			break;
+		str[i] = ptr[i+key_len];
+	}
+
+	*ptr = '\0';
+	snprintf(str+i, sizeof(str)-i, "%c%s", sep, val);
+
+	return add_param(buf, key, str);
+}
+
 char *strscat(char *dst, char *src, int buflen)
 {
 	dst[buflen - 1] = 0;
