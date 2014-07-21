@@ -697,14 +697,14 @@ int lfsck_create_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 	struct dt_object_format  *dof	= &info->lti_dof;
 	struct dt_object	 *parent = NULL;
 	struct dt_object	 *child	= NULL;
-	char			  name[8];
 	int			  node	= lfsck_dev_idx(lfsck->li_bottom);
+	char			  name[2 * sizeof(node) + 4];
 	int			  rc	= 0;
 	ENTRY;
 
 	LASSERT(lfsck->li_master);
 
-	sprintf(name, "MDT%04x", node);
+	snprintf(name, sizeof(name), "MDT%04x", node);
 	if (node == 0) {
 		parent = lfsck_object_find_by_dev(env, lfsck->li_bottom,
 						  &LU_LPF_FID);
