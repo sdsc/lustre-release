@@ -981,7 +981,7 @@ void __exit ofd_exit(void)
 	class_unregister_type(LUSTRE_OST_NAME);
 }
 
-MODULE_AUTHOR("Whamcloud, Inc. <http://www.whamcloud.com/>");
+MODULE_AUTHOR("Intel Corporation. <http://wiki.hpdd.intel.com/>");
 MODULE_DESCRIPTION("Lustre Object Filtering Device");
 MODULE_LICENSE("GPL");
 

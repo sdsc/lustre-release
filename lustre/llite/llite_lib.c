@@ -1932,9 +1932,9 @@ void ll_delete_inode(struct inode *inode)
 		spin_lock_irq(&inode->i_data.tree_lock);
 		spin_unlock_irq(&inode->i_data.tree_lock);
                 LASSERTF(inode->i_data.nrpages == 0,
-                         "inode=%lu/%u(%p) nrpages=%lu, see "
-                         "http://jira.whamcloud.com/browse/LU-118\n",
-                         inode->i_ino, inode->i_generation, inode,
+			 "inode="DFID"(%p) nrpages=%lu, see "
+			 "https://jira.hpdd.intel.com/browse/LU-118\n",
+			 PFID(ll_inode2fid(inode)), inode,
                          inode->i_data.nrpages);
         }
         /* Workaround end */
