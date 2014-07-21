@@ -188,7 +188,7 @@ int jt_lfsck_start(int argc, char **argv)
 			start.ls_valid |= LSV_CREATE_OSTOBJ;
 			break;
 		case 'e':
-			if (strcmp(optarg, "abort") == 0) {
+			if (optarg == NULL || strcmp(optarg, "abort") == 0) {
 				start.ls_flags |= LPF_FAILOUT;
 			} else if (strcmp(optarg, "continue") != 0) {
 				fprintf(stderr, "invalid error mode: -e '%s'."
@@ -202,6 +202,8 @@ int jt_lfsck_start(int argc, char **argv)
 			usage_start();
 			return 0;
 		case 'M':
+			if (optarg == NULL)
+				return -EINVAL;
 			rc = lfsck_pack_dev(&data, device, optarg);
 			if (rc != 0)
 				return rc;
@@ -227,6 +229,8 @@ int jt_lfsck_start(int argc, char **argv)
 			start.ls_flags |= LPF_RESET;
 			break;
 		case 's':
+			if (optarg == NULL)
+				return -EINVAL;
 			val = atoi(optarg);
 			start.ls_speed_limit = val;
 			start.ls_valid |= LSV_SPEED_LIMIT;
@@ -255,6 +259,8 @@ bad_type:
 			return -EINVAL;
 		}
 		case 'w':
+			if (optarg == NULL)
+				return -EINVAL;
 			val = atoi(optarg);
 			if (val < 0 || val > LFSCK_ASYNC_WIN_MAX) {
 				fprintf(stderr,
@@ -348,6 +354,8 @@ int jt_lfsck_stop(int argc, char **argv)
 			usage_stop();
 			return 0;
 		case 'M':
+			if (optarg == NULL)
+				return -EINVAL;
 			rc = lfsck_pack_dev(&data, device, optarg);
 			if (rc != 0)
 				return rc;
