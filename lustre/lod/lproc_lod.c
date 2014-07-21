@@ -41,7 +41,22 @@
 #include "lod_internal.h"
 #include <lustre_param.h>
 
+/*
+ * Notice, all the functions before (except for lod_procfs_init() and
+ * lod_procfs_fini()) are not supposed to be used directly. They are
+ * called by Linux kernel's procfs.
+ */
+
 #ifdef LPROCFS
+
+/**
+ * Show default stripe size
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_stripesize_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -53,6 +68,16 @@ static int lod_stripesize_seq_show(struct seq_file *m, void *v)
 			lod->lod_desc.ld_default_stripe_size);
 }
 
+/**
+ * Set default stripe size
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused for single entry
+ *
+ * \retval		@count on success, negative error code otherwise
+ */
 static ssize_t
 lod_stripesize_seq_write(struct file *file, const char *buffer,
 			 size_t count, loff_t *off)
@@ -75,6 +100,14 @@ lod_stripesize_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(lod_stripesize);
 
+/**
+ * Show default stripe offset
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_stripeoffset_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -86,6 +119,16 @@ static int lod_stripeoffset_seq_show(struct seq_file *m, void *v)
 			lod->lod_desc.ld_default_stripe_offset);
 }
 
+/**
+ * Set default stripe offset
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused for single entry
+ *
+ * \retval		@count on success, negative error code otherwise
+ */
 static ssize_t
 lod_stripeoffset_seq_write(struct file *file, const char *buffer,
 			   size_t count, loff_t *off)
@@ -107,6 +150,14 @@ lod_stripeoffset_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(lod_stripeoffset);
 
+/**
+ * Show default striping pattern (LOV_PATTERN_*)
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_stripetype_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -117,6 +168,16 @@ static int lod_stripetype_seq_show(struct seq_file *m, void *v)
 	return seq_printf(m, "%u\n", lod->lod_desc.ld_pattern);
 }
 
+/**
+ * Set default striping pattern (a number, not a human-readable string)
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused for single entry
+ *
+ * \retval		@count on success, negative error code otherwise
+ */
 static ssize_t
 lod_stripetype_seq_write(struct file *file, const char *buffer,
 			 size_t count, loff_t *off)
@@ -138,6 +199,14 @@ lod_stripetype_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(lod_stripetype);
 
+/**
+ * Show default number of stripes
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_stripecount_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -149,6 +218,16 @@ static int lod_stripecount_seq_show(struct seq_file *m, void *v)
 			(__s16)(lod->lod_desc.ld_default_stripe_count + 1) - 1);
 }
 
+/**
+ * Set default number of stripes
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused for single entry
+ *
+ * \retval		@count on success, negative error code otherwise
+ */
 static ssize_t
 lod_stripecount_seq_write(struct file *file, const char *buffer,
 			  size_t count, loff_t *off)
@@ -170,6 +249,14 @@ lod_stripecount_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(lod_stripecount);
 
+/**
+ * Show number of the targets
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_numobd_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -181,6 +268,14 @@ static int lod_numobd_seq_show(struct seq_file *m, void *v)
 }
 LPROC_SEQ_FOPS_RO(lod_numobd);
 
+/**
+ * Show number of the active targets
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_activeobd_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -192,6 +287,14 @@ static int lod_activeobd_seq_show(struct seq_file *m, void *v)
 }
 LPROC_SEQ_FOPS_RO(lod_activeobd);
 
+/**
+ * Show UUID of LOD device
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_desc_uuid_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -203,7 +306,16 @@ static int lod_desc_uuid_seq_show(struct seq_file *m, void *v)
 }
 LPROC_SEQ_FOPS_RO(lod_desc_uuid);
 
-/* free priority (0-255): how badly user wants to choose empty osts */
+/**
+ * Show QoS priority parameter
+ *
+ * free priority (0-255): how badly user wants to choose empty osts
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_qos_priofree_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -214,6 +326,16 @@ static int lod_qos_priofree_seq_show(struct seq_file *m, void *v)
 			(lod->lod_qos.lq_prio_free * 100 + 255) >> 8);
 }
 
+/**
+ * Set QoS priority parameter
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused for single entry
+ *
+ * \retval		@count on success, negative error code otherwise
+ */
 static ssize_t
 lod_qos_priofree_seq_write(struct file *file, const char *buffer,
 			   size_t count, loff_t *off)
@@ -239,6 +361,14 @@ lod_qos_priofree_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(lod_qos_priofree);
 
+/**
+ * Show threshold for "same space on all OSTs" rule
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_qos_thresholdrr_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -250,6 +380,16 @@ static int lod_qos_thresholdrr_seq_show(struct seq_file *m, void *v)
 			(lod->lod_qos.lq_threshold_rr * 100 + 255) >> 8);
 }
 
+/**
+ * Set threshold for "same space on all OSTs" rule
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused for single entry
+ *
+ * \retval		@count on success, negative error code otherwise
+ */
 static ssize_t
 lod_qos_thresholdrr_seq_write(struct file *file, const char *buffer,
 			      size_t count, loff_t *off)
@@ -275,6 +415,15 @@ lod_qos_thresholdrr_seq_write(struct file *file, const char *buffer,
 }
 LPROC_SEQ_FOPS(lod_qos_thresholdrr);
 
+/**
+ * Show expiration period used to refresh cached statfs data, which
+ * in turn used to implement QoS/RR striping allocation algorithm.
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_qos_maxage_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -285,6 +434,16 @@ static int lod_qos_maxage_seq_show(struct seq_file *m, void *v)
 	return seq_printf(m, "%u Sec\n", lod->lod_desc.ld_qos_maxage);
 }
 
+/**
+ * Set expiration period used to refresh cached statfs data.
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused for single entry
+ *
+ * \retval		@count on success, negative error code otherwise
+ */
 static ssize_t
 lod_qos_maxage_seq_write(struct file *file, const char *buffer,
 			 size_t count, loff_t *off)
@@ -376,6 +535,14 @@ static void *lod_osts_seq_next(struct seq_file *p, void *v, loff_t *pos)
 		return NULL;
 }
 
+/**
+ * Show active/inactive status for OST found by lod_osts_seq_next()
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_osts_seq_show(struct seq_file *p, void *v)
 {
 	struct obd_device   *obd = p->private;
@@ -437,6 +604,14 @@ LPROC_SEQ_FOPS_RO_TYPE(lod, dt_kbytesavail);
 LPROC_SEQ_FOPS_RO_TYPE(lod, dt_filestotal);
 LPROC_SEQ_FOPS_RO_TYPE(lod, dt_filesfree);
 
+/**
+ * Show whether special failout mode for testing is enabled or not
+ *
+ * \param[in] m		eq file
+ * \param[in] data	unused for single entry
+ *
+ * \retval		0 on succes, negative error code if failed
+ */
 static int lod_lmv_failout_seq_show(struct seq_file *m, void *v)
 {
 	struct obd_device *dev = m->private;
@@ -448,6 +623,16 @@ static int lod_lmv_failout_seq_show(struct seq_file *m, void *v)
 	return seq_printf(m, "%d\n", lod->lod_lmv_failout ? 1 : 0);
 }
 
+/**
+ * Enable/disable a special failout mode for testing
+ *
+ * \param[in] file	proc file
+ * \param[in] buffer	string which represents maximum number
+ * \param[in] count	@buffer length
+ * \param[in] off	unused for single entry
+ *
+ * \retval		@count on success, negative error code otherwise
+ */
 static ssize_t
 lod_lmv_failout_seq_write(struct file *file, const char *buffer,
 			  size_t count, loff_t *off)
@@ -520,6 +705,13 @@ static const struct file_operations lod_proc_target_fops = {
 	.release = lprocfs_seq_release,
 };
 
+/**
+ * Initialize procfs entries for LOD
+ *
+ * \param[in] lod	LOD device
+ *
+ * \retval		0 on success, negative error code otherwise
+ */
 int lod_procfs_init(struct lod_device *lod)
 {
 	struct obd_device	*obd = lod2obd(lod);
@@ -588,6 +780,11 @@ out:
 	return rc;
 }
 
+/**
+ * Cleanup procfs entries registred for LOD
+ *
+ * \param[in] lod	LOD device
+ */
 void lod_procfs_fini(struct lod_device *lod)
 {
 	struct obd_device *obd = lod2obd(lod);
