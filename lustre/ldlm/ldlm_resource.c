@@ -1052,6 +1052,7 @@ static struct ldlm_resource *ldlm_resource_new(void)
 
 	atomic_set(&res->lr_refcount, 1);
 	spin_lock_init(&res->lr_lock);
+	mutex_init(&res->lr_mutex);
 	lu_ref_init(&res->lr_reference);
 
 	/* The creator of the resource must unlock the mutex after LVB
@@ -1107,6 +1108,7 @@ ldlm_resource_get(struct ldlm_namespace *ns, struct ldlm_resource *parent,
 	res->lr_name       = *name;
 	res->lr_type       = type;
 	res->lr_most_restr = LCK_NL;
+	res->lr_is_client  = ns_is_client(ns);
 
 	cfs_hash_bd_lock(ns->ns_rs_hash, &bd, 1);
 	hnode = (version == cfs_hash_bd_version_get(&bd)) ? NULL :
