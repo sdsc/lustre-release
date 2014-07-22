@@ -1419,10 +1419,32 @@ void ll_clear_inode(struct inode *inode)
 {
         struct ll_inode_info *lli = ll_i2info(inode);
         struct ll_sb_info *sbi = ll_i2sbi(inode);
+	struct obd_device *obddev = class_exp2obd(sbi->ll_md_exp);
         ENTRY;
 
 	CDEBUG(D_VFSTRACE, "VFS Op:inode="DFID"(%p)\n",
 	       PFID(ll_inode2fid(inode)), inode);
+
+	/* Since clear_inode() can be called as part of memory reclaim,
+	 * ensure that current thread is not already owner of mutex
+	 * to serialize inflight RPCs or it will self-deadlock.
+	 */
+	if (!mutex_trylock(&obddev->u.cli.cl_close_lock->rpcl_mutex)) {
+		if (obddev->u.cli.cl_close_lock->rpcl_mutex.owner ==
+		    current_thread_info()) {
+			CDEBUG(D_VFSTRACE, "This thread has already taken "
+			       "the mutex to serialize inflight RPCs, so "
+			       "do nothing or will self-deadlock.\n");
+			EXIT;
+			return;
+		}
+		/* mutex to serialize inflight RPCs is owned by someone
+		 * else so it is safe to continue!
+		 */
+	} else {
+		/* mutex was not owned so it is safe to continue! */
+		mutex_unlock(&obddev->u.cli.cl_close_lock->rpcl_mutex);
+	}
 
         if (S_ISDIR(inode->i_mode)) {
                 /* these should have been cleared in ll_file_release */
