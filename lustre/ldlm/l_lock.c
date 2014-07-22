@@ -54,8 +54,9 @@
  */
 struct ldlm_resource *lock_res_and_lock(struct ldlm_lock *lock)
 {
-	/* on server-side resource of lock doesn't change */
-	if (!ldlm_is_ns_srv(lock))
+	/* on server-side resource of lock doesn't change,
+	 * FLOCK lock resource does not change */
+	if (!ldlm_is_ns_srv(lock) && (lock->l_resource->lr_type != LDLM_FLOCK))
 		spin_lock(&lock->l_lock);
 
 	lock_res(lock->l_resource);
@@ -70,11 +71,12 @@ EXPORT_SYMBOL(lock_res_and_lock);
  */
 void unlock_res_and_lock(struct ldlm_lock *lock)
 {
-	/* on server-side resource of lock doesn't change */
+	/* on server-side resource of lock doesn't change,
+	 * FLOCK lock resource does not change */
 	ldlm_clear_res_locked(lock);
 
 	unlock_res(lock->l_resource);
-	if (!ldlm_is_ns_srv(lock))
+	if (!ldlm_is_ns_srv(lock) && (lock->l_resource->lr_type != LDLM_FLOCK))
 		spin_unlock(&lock->l_lock);
 }
 EXPORT_SYMBOL(unlock_res_and_lock);

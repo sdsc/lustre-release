@@ -1052,6 +1052,7 @@ static struct ldlm_resource *ldlm_resource_new(void)
 
 	atomic_set(&res->lr_refcount, 1);
 	spin_lock_init(&res->lr_lock);
+	mutex_init(&res->lr_mutex);
 	lu_ref_init(&res->lr_reference);
 
 	/* The creator of the resource must unlock the mutex after LVB

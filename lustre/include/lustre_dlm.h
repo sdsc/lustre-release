@@ -968,6 +968,10 @@ struct ldlm_resource {
 	/** List of references to this resource. For debugging. */
 	struct lu_ref		lr_reference;
 
+
+	/** Mutex to protect locks under this resource instead of lr_lock */
+	struct mutex		lr_mutex;
+
 	struct inode		*lr_lvb_inode;
 };
 
@@ -1472,7 +1476,10 @@ enum lock_res_type {
 /** Lock resource. */
 static inline void lock_res(struct ldlm_resource *res)
 {
-	spin_lock(&res->lr_lock);
+	if (unlikely(res->lr_type == LDLM_FLOCK))
+		mutex_lock(&res->lr_mutex);
+	else
+		spin_lock(&res->lr_lock);
 }
 
 /** Lock resource with a way to instruct lockdep code about nestedness-safe. */
@@ -1485,13 +1492,19 @@ static inline void lock_res_nested(struct ldlm_resource *res,
 /** Unlock resource. */
 static inline void unlock_res(struct ldlm_resource *res)
 {
-	spin_unlock(&res->lr_lock);
+	if (unlikely(res->lr_type == LDLM_FLOCK))
+		mutex_unlock(&res->lr_mutex);
+	else
+		spin_unlock(&res->lr_lock);
 }
 
 /** Check if resource is already locked, assert if not. */
 static inline void check_res_locked(struct ldlm_resource *res)
 {
-	assert_spin_locked(&res->lr_lock);
+	if (likely(res->lr_type != LDLM_FLOCK))
+		assert_spin_locked(&res->lr_lock);
+	else
+		LASSERT(mutex_is_locked(&res->lr_mutex));
 }
 
 struct ldlm_resource * lock_res_and_lock(struct ldlm_lock *lock);
