@@ -24,7 +24,8 @@ export JOBID_VAR=${JOBID_VAR:-"procname_uid"}  # or "existing" or "disable"
 export LOAD_LLOOP=${LOAD_LLOOP:-false}
 
 #export PDSH="pdsh -S -Rssh -w"
-export MOUNT_CMD=${MOUNT_CMD:-"mount -t lustre"}
+export PLUGIN_OPT="plugin_dir=$LUSTRE/utils/.libs/"
+export MOUNT_CMD=${MOUNT_CMD:-"mount -t lustre -o $PLUGIN_OPT"}
 
 # function used by scripts run on remote nodes
 LUSTRE=${LUSTRE:-$(cd $(dirname $0)/..; echo $PWD)}
@@ -3086,7 +3087,7 @@ mount_ldiskfs() {
 	local facet=$1
 	local dev=$(facet_device $facet)
 	local mnt=$(facet_mntpt $facet)
-	local opts
+	local opts="-o $PLUGIN_OPT"
 
 	if ! do_facet $facet test -b $dev; then
 		opts="-o loop"
@@ -6420,7 +6421,7 @@ remove_ost_objects() {
 	shift 3
 	local objids="$@"
 	local mntpt=$(facet_mntpt $facet)
-	local opts=$OST_MOUNT_OPTS
+	local opts="$OST_MOUNT_OPTS -o $PLUGIN_OPT"
 	local i
 	local rc
 
@@ -6445,7 +6446,7 @@ remove_mdt_files() {
 	shift 2
 	local files="$@"
 	local mntpt=$(facet_mntpt $facet)
-	local opts=$MDS_MOUNT_OPTS
+	local opts="$MDS_MOUNT_OPTS -o $PLUGIN_OPT"
 
 	echo "removing files from $mdtdev on $facet: $files"
 	if [ $(facet_fstype $facet) == ldiskfs ] &&
@@ -6468,7 +6469,7 @@ duplicate_mdt_files() {
 	shift 2
 	local files="$@"
 	local mntpt=$(facet_mntpt $facet)
-	local opts=$MDS_MOUNT_OPTS
+	local opts="$MDS_MOUNT_OPTS -o $PLUGIN_OPT"
 
 	echo "duplicating files on $mdtdev on $facet: $files"
 	mkdir -p $mntpt || return $?
@@ -6657,7 +6658,7 @@ mds_backup_restore() {
 	local rcmd="do_facet $facet"
 	local metaea=${TMP}/backup_restore.ea
 	local metadata=${TMP}/backup_restore.tgz
-	local opts=${MDS_MOUNT_OPTS}
+	local opts="$MDS_MOUNT_OPTS -o $PLUGIN_OPT"
 	local svc=${facet}_svc
 
 	if ! ${rcmd} test -b ${devname}; then
@@ -6718,7 +6719,7 @@ mds_remove_ois() {
 	local devname=$(mdsdevname $(facet_number $facet))
 	local mntpt=$(facet_mntpt brpt)
 	local rcmd="do_facet $facet"
-	local opts=${MDS_MOUNT_OPTS}
+	local opts="$MDS_MOUNT_OPTS -o $PLUGIN_OPT"
 
 	if ! ${rcmd} test -b ${devname}; then
 		opts=$(csa_add "$opts" -o loop)

@@ -177,7 +177,7 @@ test_2 () {
 			    "$ZFS set mountpoint=legacy $dev; $ZFS list $dev"
 		fi
 		run_dumpfs ost${num} $dev
-		do_facet ost${num} mount -t $fstype $dev \
+		do_facet ost${num} mount -t -o $PLUGIN_OPT $fstype $dev \
 			$ostmnt "$OST_MOUNT_OPTS"
 
 		# Run llverfs on the mounted ldiskfs filesystem in partial mode
@@ -201,7 +201,7 @@ test_2 () {
 				import_zpool ost${num}
 			fi
 			do_facet ost${num} mount -t $(facet_fstype ost${num}) \
-				$dev $ostmnt "$OST_MOUNT_OPTS"
+				-o $PLUGIN_OPT $dev $ostmnt "$OST_MOUNT_OPTS"
 			cleanup_dirs ost${num} $ostmnt
 			do_facet ost${num} "sync"
 
