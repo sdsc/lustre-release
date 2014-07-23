@@ -703,13 +703,19 @@ do {									      \
 #define OBD_CPT_ALLOC_PTR(ptr, cptab, cpt)				      \
 	OBD_CPT_ALLOC(ptr, cptab, cpt, sizeof *(ptr))
 
+/* Direct use of __vmalloc[_node]() allows for protection flag specification
+ * (and particularly to not set __GFP_FS, which is likely to cause some
+ * deadlock situations in our code), but also to realy access and benefit of
+ * the NUMA parameter.
+ */
 # define __OBD_VMALLOC_VERBOSE(ptr, cptab, cpt, size)			      \
 do {									      \
 	(ptr) = cptab == NULL ?						      \
-		vzalloc(size) :					      \
+		__vmalloc(size, __GFP_WAIT|__GFP_IO|__GFP_HIGHMEM|__GFP_ZERO, \
+			  PAGE_KERNEL) :				      \
 		cfs_cpt_vzalloc(cptab, cpt, size);			      \
 	if (unlikely((ptr) == NULL)) {                                        \
-		CERROR("vmalloc of '" #ptr "' (%d bytes) failed\n",           \
+		CERROR("__vmalloc of '" #ptr "' (%d bytes) failed\n",         \
 		       (int)(size));                                          \
 		CERROR(LPU64" total bytes allocated by Lustre, %d by LNET\n", \
 		       obd_memory_sum(), atomic_read(&libcfs_kmemory));       \

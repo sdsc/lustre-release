@@ -53,7 +53,15 @@ EXPORT_SYMBOL(cfs_cpt_malloc);
 void *
 cfs_cpt_vzalloc(struct cfs_cpt_table *cptab, int cpt, size_t nr_bytes)
 {
-	return vzalloc_node(nr_bytes, cfs_cpt_spread_node(cptab, cpt));
+	/* Direct use of __vmalloc_node() allows for protection flag
+	 * specification (and particularly to not set __GFP_FS, which is
+	 * likely to cause some deadlock situations in our code), but also
+	 * to realy access and benefit of the NUMA parameter.
+	 */
+	return __vmalloc_node(nr_bytes, 1,
+			      __GFP_WAIT|__GFP_IO|__GFP_HIGHMEM|__GFP_ZERO,
+			      PAGE_KERNEL, cfs_cpt_spread_node(cptab, cpt),
+			      __builtin_return_address(0));
 }
 EXPORT_SYMBOL(cfs_cpt_vzalloc);
 
