@@ -35,14 +35,8 @@
  */
 
 #define DEBUG_SUBSYSTEM S_MDC
-
-#ifdef __KERNEL__
-# include <linux/module.h>
-# include <linux/kernel.h>
-#else
-# include <liblustre.h>
-#endif
-
+#include <linux/module.h>
+#include <linux/kernel.h>
 #include <obd_class.h>
 #include "mdc_internal.h"
 #include <lustre_fid.h>
