@@ -53,6 +53,12 @@ EXPORT_SYMBOL(cfs_cpt_malloc);
 void *
 cfs_cpt_vzalloc(struct cfs_cpt_table *cptab, int cpt, size_t nr_bytes)
 {
+	/* vzalloc_node() sets __GFP_FS by default but no current Kernel
+	 * exported entry-point allows for both a NUMA node specification
+	 * and a custom allocation flags mask. This may be an issue since
+	 * __GFP_FS is likely to cause some deadlock situations in our
+	 * code.
+	 */
 	return vzalloc_node(nr_bytes, cfs_cpt_spread_node(cptab, cpt));
 }
 EXPORT_SYMBOL(cfs_cpt_vzalloc);
