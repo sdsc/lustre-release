@@ -289,7 +289,8 @@ ptlrpc_lprocfs_req_history_max_seq_show(struct seq_file *m, void *n)
 }
 
 static ssize_t
-ptlrpc_lprocfs_req_history_max_seq_write(struct file *file, const char *buffer,
+ptlrpc_lprocfs_req_history_max_seq_write(struct file *file,
+					 const char __user *buffer,
 					 size_t count, loff_t *off)
 {
 	struct seq_file		*m = file->private_data;
@@ -336,8 +337,9 @@ ptlrpc_lprocfs_threads_min_seq_show(struct seq_file *m, void *n)
 }
 
 static ssize_t
-ptlrpc_lprocfs_threads_min_seq_write(struct file *file, const char *buffer,
-					size_t count, loff_t *off)
+ptlrpc_lprocfs_threads_min_seq_write(struct file *file,
+				     const char __user *buffer,
+				     size_t count, loff_t *off)
 {
 	struct seq_file		*m = file->private_data;
 	struct ptlrpc_service	*svc = m->private;
@@ -389,7 +391,8 @@ ptlrpc_lprocfs_threads_max_seq_show(struct seq_file *m, void *n)
 }
 
 static ssize_t
-ptlrpc_lprocfs_threads_max_seq_write(struct file *file, const char *buffer,
+ptlrpc_lprocfs_threads_max_seq_write(struct file *file,
+				     const char __user *buffer,
 				     size_t count, loff_t *off)
 {
 	struct seq_file		*m = file->private_data;
@@ -643,7 +646,7 @@ out:
  * regular and high-priority (if the service has one) NRS head.
  */
 static ssize_t
-ptlrpc_lprocfs_nrs_seq_write(struct file *file, const char *buffer,
+ptlrpc_lprocfs_nrs_seq_write(struct file *file, const char __user *buffer,
 			     size_t count, loff_t *off)
 {
 	struct seq_file		       *m = file->private_data;
@@ -1036,7 +1039,7 @@ static int ptlrpc_lprocfs_hp_ratio_seq_show(struct seq_file *m, void *v)
 }
 
 static ssize_t
-ptlrpc_lprocfs_hp_ratio_seq_write(struct file *file, const char *buffer,
+ptlrpc_lprocfs_hp_ratio_seq_write(struct file *file, const char __user *buffer,
 				  size_t count, loff_t *off)
 {
 	struct seq_file		*m = file->private_data;
@@ -1183,7 +1186,7 @@ void ptlrpc_lprocfs_unregister_obd(struct obd_device *obd)
 EXPORT_SYMBOL(ptlrpc_lprocfs_unregister_obd);
 
 #ifndef HAVE_ONLY_PROCFS_SEQ
-int lprocfs_wr_ping(struct file *file, const char *buffer,
+int lprocfs_wr_ping(struct file *file, const char __user *buffer,
                     unsigned long count, void *data)
 {
         struct obd_device     *obd = data;
@@ -1208,7 +1211,7 @@ int lprocfs_wr_ping(struct file *file, const char *buffer,
 }
 EXPORT_SYMBOL(lprocfs_wr_ping);
 
-int lprocfs_wr_import(struct file *file, const char *buffer,
+int lprocfs_wr_import(struct file *file, const char __user *buffer,
                       unsigned long count, void *data)
 {
         struct obd_device *obd = data;
@@ -1285,7 +1288,7 @@ int lprocfs_rd_pinger_recov(char *page, char **start, off_t off,
 }
 EXPORT_SYMBOL(lprocfs_rd_pinger_recov);
 
-int lprocfs_wr_pinger_recov(struct file *file, const char *buffer,
+int lprocfs_wr_pinger_recov(struct file *file, const char __user *buffer,
                       unsigned long count, void *data)
 {
         struct obd_device *obd = data;
@@ -1314,7 +1317,7 @@ EXPORT_SYMBOL(lprocfs_wr_pinger_recov);
 #endif /* HAVE_ONLY_PROCFS_SEQ */
 
 ssize_t
-lprocfs_ping_seq_write(struct file *file, const char *buffer,
+lprocfs_ping_seq_write(struct file *file, const char __user *buffer,
 		       size_t count, loff_t *off)
 {
 	struct seq_file		*m = file->private_data;
@@ -1345,8 +1348,8 @@ EXPORT_SYMBOL(lprocfs_ping_seq_write);
  * "echo connection=192.168.0.1@tcp0::instance > .../import".
  */
 ssize_t
-lprocfs_import_seq_write(struct file *file, const char *buffer, size_t count,
-			 loff_t *off)
+lprocfs_import_seq_write(struct file *file, const char __user *buffer,
+			 size_t count, loff_t *off)
 {
 	struct seq_file	  *m	= file->private_data;
 	struct obd_device *obd	= m->private;
@@ -1422,7 +1425,7 @@ int lprocfs_pinger_recov_seq_show(struct seq_file *m, void *n)
 EXPORT_SYMBOL(lprocfs_pinger_recov_seq_show);
 
 ssize_t
-lprocfs_pinger_recov_seq_write(struct file *file, const char *buffer,
+lprocfs_pinger_recov_seq_write(struct file *file, const char __user *buffer,
 			       size_t count, loff_t *off)
 {
 	struct seq_file	  *m	= file->private_data;
