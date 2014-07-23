@@ -1396,7 +1396,7 @@ existing_lock:
 
         /* The LOCK_CHANGED code in ldlm_lock_enqueue depends on this
          * ldlm_reprocess_all.  If this moves, revisit that code. -phil */
-	if (!IS_ERR(lock)) {
+	if (!IS_ERR_OR_NULL(lock)) {
 		LDLM_DEBUG(lock, "server-side enqueue handler, sending reply"
 			   "(err=%d, rc=%d)", err, rc);
 
