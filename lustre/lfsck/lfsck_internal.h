@@ -112,6 +112,7 @@ enum lfsck_namespace_trace_flags {
 	LNTF_CHECK_LINKEA	= 0x01,
 	LNTF_CHECK_PARENT	= 0x02,
 	LNTF_SKIP_NLINK		= 0x04,
+	LNTF_CHECK_ORPHAN	= 0x08,
 };
 
 #define LNTF_ALL	0xff
@@ -220,6 +221,19 @@ struct lfsck_namespace {
 
 	/* How many lost name entries have been re-inserted. */
 	__u64	ln_lost_dirent_repaired;
+
+	/* How many objects under /lost+found have been scanned. */
+	__u64	ln_local_lpf_scanned;
+
+	/* How many objects under /lost+found have been moved to
+	 * namespace visible directory. */
+	__u64	ln_local_lpf_moved;
+
+	/* How many objects under /lost+found have been skipped. */
+	__u64	ln_local_lpf_skipped;
+
+	/* How many objects under /lost+found failed to be processed. */
+	__u64	ln_local_lpf_failed;
 
 	/* The size of MDT targets bitmap with nbits. Such bitmap records
 	 * the MDTs that contain non-verified MDT-objects. */
@@ -682,6 +696,7 @@ struct lfsck_thread_info {
 	/* There will be '\0' at the end of the name. */
 	char		lti_key[sizeof(struct lu_dirent) + NAME_MAX + 1];
 	char			lti_tmpbuf[LFSCK_TMPBUF_LEN];
+	char			lti_tmpbuf2[LFSCK_TMPBUF_LEN];
 	struct lfsck_request	lti_lr;
 	struct lfsck_async_interpret_args lti_laia;
 	struct lfsck_async_interpret_args lti_laia2;
@@ -756,6 +771,7 @@ void lfsck_quit_generic(const struct lu_env *env,
 			struct lfsck_component *com);
 
 /* lfsck_engine.c */
+void lfsck_unpack_ent(struct lu_dirent *ent, __u64 *cookie, __u16 *type);
 int lfsck_master_engine(void *args);
 int lfsck_assistant_engine(void *args);
 
