@@ -65,7 +65,7 @@ int lprocfs_evict_client_release(struct inode *inode, struct file *f)
 #define BUFLEN (UUID_MAX + 5)
 
 ssize_t
-lprocfs_evict_client_seq_write(struct file *file, const char *buffer,
+lprocfs_evict_client_seq_write(struct file *file, const char __user *buffer,
 			       size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -309,7 +309,7 @@ static int lprocfs_nid_stats_clear_write_cb(void *obj, void *data)
 }
 
 ssize_t
-lprocfs_nid_stats_clear_seq_write(struct file *file, const char *buffer,
+lprocfs_nid_stats_clear_seq_write(struct file *file, const char __user *buffer,
 					size_t count, loff_t *off)
 {
 	struct list_head free_list = LIST_HEAD_INIT(free_list);
@@ -443,7 +443,7 @@ int lprocfs_nid_stats_clear_read(char *page, char **start, off_t off,
 }
 EXPORT_SYMBOL(lprocfs_nid_stats_clear_read);
 
-int lprocfs_nid_stats_clear_write(struct file *file, const char *buffer,
+int lprocfs_nid_stats_clear_write(struct file *file, const char __user *buffer,
 				  unsigned long count, void *data)
 {
 	struct list_head free_list = LIST_HEAD_INIT(free_list);
@@ -809,7 +809,7 @@ int lprocfs_ir_factor_seq_show(struct seq_file *m, void *data)
 EXPORT_SYMBOL(lprocfs_ir_factor_seq_show);
 
 ssize_t
-lprocfs_ir_factor_seq_write(struct file *file, const char *buffer,
+lprocfs_ir_factor_seq_write(struct file *file, const char __user *buffer,
 			    size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -839,8 +839,9 @@ int lprocfs_recovery_time_soft_seq_show(struct seq_file *m, void *data)
 EXPORT_SYMBOL(lprocfs_recovery_time_soft_seq_show);
 
 ssize_t
-lprocfs_recovery_time_soft_seq_write(struct file *file, const char *buffer,
-					size_t count, loff_t *off)
+lprocfs_recovery_time_soft_seq_write(struct file *file,
+				     const char __user *buffer,
+				     size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
 	struct obd_device *obd = m->private;
@@ -866,7 +867,8 @@ int lprocfs_recovery_time_hard_seq_show(struct seq_file *m, void *data)
 EXPORT_SYMBOL(lprocfs_recovery_time_hard_seq_show);
 
 ssize_t
-lprocfs_recovery_time_hard_seq_write(struct file *file, const char *buffer,
+lprocfs_recovery_time_hard_seq_write(struct file *file,
+				     const char __user *buffer,
 				     size_t count, loff_t *off)
 {
 	struct seq_file *m = file->private_data;
@@ -1051,7 +1053,7 @@ int lprocfs_obd_rd_ir_factor(char *page, char **start, off_t off,
 }
 EXPORT_SYMBOL(lprocfs_obd_rd_ir_factor);
 
-int lprocfs_obd_wr_ir_factor(struct file *file, const char *buffer,
+int lprocfs_obd_wr_ir_factor(struct file *file, const char __user *buffer,
 			     unsigned long count, void *data)
 {
 	struct obd_device *obd = (struct obd_device *)data;
@@ -1081,7 +1083,8 @@ int lprocfs_obd_rd_recovery_time_soft(char *page, char **start, off_t off,
 }
 EXPORT_SYMBOL(lprocfs_obd_rd_recovery_time_soft);
 
-int lprocfs_obd_wr_recovery_time_soft(struct file *file, const char *buffer,
+int lprocfs_obd_wr_recovery_time_soft(struct file *file,
+				      const char __user *buffer,
 				      unsigned long count, void *data)
 {
 	struct obd_device *obd = (struct obd_device *)data;
@@ -1107,7 +1110,8 @@ int lprocfs_obd_rd_recovery_time_hard(char *page, char **start, off_t off,
 }
 EXPORT_SYMBOL(lprocfs_obd_rd_recovery_time_hard);
 
-int lprocfs_obd_wr_recovery_time_hard(struct file *file, const char *buffer,
+int lprocfs_obd_wr_recovery_time_hard(struct file *file,
+				      const char __user *buffer,
 				      unsigned long count, void *data)
 {
 	struct obd_device *obd = data;
