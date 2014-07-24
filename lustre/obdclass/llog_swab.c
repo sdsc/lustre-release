@@ -69,8 +69,8 @@ EXPORT_SYMBOL(lustre_swab_lu_fid);
 
 void lustre_swab_ost_id(struct ost_id *oid)
 {
-	if (fid_seq_is_mdt0(oid->oi.oi_seq) ||
-	    fid_seq_is_default(oid->oi.oi_seq)) {
+	if (fid_seq_is_ost_mdt0(oid->oi.oi_seq) ||
+	    fid_seq_is_lov_default(oid->oi.oi_seq)) {
 		__swab64s(&oid->oi.oi_id);
 		__swab64s(&oid->oi.oi_seq);
 	} else {

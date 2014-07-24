@@ -706,7 +706,7 @@ int osc_create(const struct lu_env *env, struct obd_export *exp,
 		RETURN(osc_real_create(exp, oa, ea, oti));
 	}
 
-	if (!fid_seq_is_mdt(ostid_seq(&oa->o_oi)))
+	if (fid_seq_is_echo(ostid_seq(&oa->o_oi)))
 		RETURN(osc_real_create(exp, oa, ea, oti));
 
 	/* we should not get here anymore */
