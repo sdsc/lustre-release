@@ -237,7 +237,7 @@ int main(int argc, char **argv)
         if (dir == NULL) {
                 rc = -errno;
                 llapi_error(LLAPI_MSG_ERROR, rc,
-                            "error: %s opendir failed\n", argv[1]);
+			    "error: %s opendir failed", argv[1]);
                 return rc;
         }
 
@@ -258,7 +258,7 @@ int main(int argc, char **argv)
                         lum_dir = NULL;
                 } else {
                         llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "error: can't get EA for %s\n", argv[1]);
+				    "error: can't get EA for %s", argv[1]);
                         goto cleanup;
                 }
         }
@@ -267,7 +267,7 @@ int main(int argc, char **argv)
         rc = llapi_file_get_lov_uuid(argv[1], &lov_uuid);
         if (rc) {
                 llapi_error(LLAPI_MSG_ERROR, rc,
-                            "error: can't get lov name for %s\n",
+			    "error: can't get lov name for %s",
                             argv[1]);
                 return rc;
         }
@@ -275,7 +275,7 @@ int main(int argc, char **argv)
         if ((lum_file1 = (struct lov_user_md *)malloc(lum_size)) == NULL) {
                 rc = -ENOMEM;
                 llapi_error(LLAPI_MSG_ERROR, rc,
-                            "error: can't allocate %d bytes for EA\n",
+			    "error: can't allocate %d bytes for EA",
                             lum_size);
                 goto cleanup;
         }
@@ -283,7 +283,7 @@ int main(int argc, char **argv)
         rc = llapi_file_get_stripe(argv[2], lum_file1);
         if (rc) {
                 llapi_error(LLAPI_MSG_ERROR, rc,
-                            "error: unable to get EA for %s\n", argv[2]);
+			    "error: unable to get EA for %s", argv[2]);
                 goto cleanup;
         }
 
@@ -293,14 +293,14 @@ int main(int argc, char **argv)
                         rc = -ENOMEM;
                         llapi_error(LLAPI_MSG_ERROR, rc,
                                     "error: can't allocate %d "
-                                    "bytes for file2 EA\n", lum_size);
+				    "bytes for file2 EA", lum_size);
                         goto cleanup;
                 }
 
                 rc = llapi_file_get_stripe(argv[3], lum_file2);
                 if (rc) {
                         llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "error: can't get EA for %s\n", argv[3]);
+				    "error: can't get EA for %s", argv[3]);
                         goto cleanup;
                 }
         }
