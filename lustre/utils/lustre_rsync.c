@@ -1124,7 +1124,7 @@ int lr_parse_line(void *priv, struct lr_info *info)
 	strncpy(info->name, rec->cr_name, rec->cr_namelen);
 	info->name[rec->cr_namelen] = '\0';
 
-	if (fid_is_sane(&rec->cr_sfid)) {
+	if (!fid_is_zero(&rec->cr_sfid)) {
 		sprintf(info->sfid, DFID, PFID(&rec->cr_sfid));
 		sprintf(info->spfid, DFID, PFID(&rec->cr_spfid));
 		strncpy(info->sname, changelog_rec_sname(rec),

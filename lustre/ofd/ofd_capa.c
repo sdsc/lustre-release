@@ -148,7 +148,7 @@ int ofd_auth_capa(struct obd_export *exp, const struct lu_fid *fid,
 	ENTRY;
 
 	/* skip capa check for llog and obdecho */
-	if (!fid_seq_is_mdt(seq))
+	if (fid_seq_is_llog(seq) || fid_seq_is_echo(seq))
 		RETURN(0);
 
 	/* capability is disabled */

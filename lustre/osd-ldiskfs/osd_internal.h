@@ -1077,11 +1077,6 @@ static inline loff_t ldiskfs_get_htree_eof(struct file *filp)
 		return LDISKFS_HTREE_EOF_64BIT;
 }
 
-static inline int fid_is_internal(const struct lu_fid *fid)
-{
-	return (!fid_is_namespace_visible(fid) && !fid_is_idif(fid));
-}
-
 #ifdef JOURNAL_START_HAS_3ARGS
 # define osd_journal_start_sb(sb, type, nblock) \
 		ldiskfs_journal_start_sb(sb, type, nblock)

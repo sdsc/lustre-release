@@ -211,9 +211,10 @@ struct obd_group_info *find_or_create_grp(struct list_head *list, __u64 seq,
 	if (grp == NULL)
 		return NULL;
 
-	sprintf(seq_name, (fid_seq_is_rsvd(seq) ||
-			   fid_seq_is_mdt0(seq)) ? LPU64 : LPX64i,
-			   fid_seq_is_idif(seq) ? 0 : seq);
+	snprintf(seq_name, sizeof(seq_name),
+		 (fid_seq_is_rsvd(seq) || fid_seq_is_ost_mdt0(seq)) ?
+		 LPU64 : LPX64i,
+		 fid_seq_is_idif(seq) ? 0 : seq);
 
 	/* Check whether the obj dir has been created */
 	if (ll_sprintf(tmp_path, PATH_MAX, "%s/O/%s", mount, seq_name)) {
@@ -358,9 +359,10 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 			ff_objid = le32_to_cpu(lma.lma_self_fid.f_oid);
 		}
 
-		sprintf(seq_name, (fid_seq_is_rsvd(ff_seq) ||
-				   fid_seq_is_mdt0(ff_seq)) ? LPU64 : LPX64i,
-			fid_seq_is_idif(ff_seq) ? 0 : ff_seq);
+		snprintf(seq_name, sizeof(seq_name),
+			 (fid_seq_is_rsvd(ff_seq) ||
+			  fid_seq_is_ost_mdt0(ff_seq)) ? LPU64 : LPX64i,
+			 fid_seq_is_idif(ff_seq) ? 0 : ff_seq);
 
 		/* LAST_ID uses OID = 0.  It will be regenerated later. */
 		if (ff_objid == 0) {
@@ -369,10 +371,11 @@ static int traverse_lost_found(char *src_dir, const char *mount_path)
 			continue;
 		}
 
-		sprintf(obj_name, (fid_seq_is_rsvd(ff_seq) ||
-				   fid_seq_is_mdt0(ff_seq) ||
-				   fid_seq_is_idif(ff_seq)) ?
-				   LPU64 : LPX64i, ff_objid);
+		snprintf(obj_name, sizeof(obj_name),
+			 (fid_seq_is_rsvd(ff_seq) ||
+			  fid_seq_is_ost_mdt0(ff_seq) ||
+			  fid_seq_is_idif(ff_seq)) ? LPU64 : LPX64i,
+			 ff_objid);
 
 		grp_info = find_or_create_grp(&grp_info_list, ff_seq,
 					      mount_path);

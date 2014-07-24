@@ -1138,7 +1138,7 @@ static int lfsck_needs_scan_dir(const struct lu_env *env,
 		}
 
 		/* No need to check .lustre and its children. */
-		if (fid_seq_is_dot_lustre(fid_seq(lfsck_dto2fid(obj)))) {
+		if (fid_seq_is_dot(fid_seq(lfsck_dto2fid(obj)))) {
 			if (depth > 0)
 				lfsck_object_put(env, obj);
 			return 0;
@@ -1190,7 +1190,7 @@ static int lfsck_needs_scan_dir(const struct lu_env *env,
 
 		if (dt_object_remote(obj)) {
 			/* .lustre/lost+found/MDTxxx can be remote directory. */
-			if (fid_seq_is_dot_lustre(fid_seq(lfsck_dto2fid(obj))))
+			if (fid_seq_is_dot(fid_seq(lfsck_dto2fid(obj))))
 				rc = 0;
 			else
 				/* Other remote directory should be client
