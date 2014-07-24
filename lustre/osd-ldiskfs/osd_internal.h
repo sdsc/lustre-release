@@ -1104,11 +1104,6 @@ static inline loff_t ldiskfs_get_htree_eof(struct file *filp)
 		return LDISKFS_HTREE_EOF_64BIT;
 }
 
-static inline int fid_is_internal(const struct lu_fid *fid)
-{
-	return (!fid_is_namespace_visible(fid) && !fid_is_idif(fid));
-}
-
 static inline unsigned long osd_remote_parent_ino(struct osd_device *dev)
 {
 	return dev->od_mdt_map->omm_remote_parent->d_inode->i_ino;

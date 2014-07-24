@@ -317,7 +317,7 @@ static inline int fid_seq_in_fldb(__u64 seq)
 
 static inline void lu_last_id_fid(struct lu_fid *fid, __u64 seq, __u32 ost_idx)
 {
-	if (fid_seq_is_mdt0(seq)) {
+	if (fid_seq_is_ost_mdt0(seq)) {
 		fid->f_seq = fid_idif_seq(0, ost_idx);
 	} else {
 		LASSERTF(fid_seq_is_norm(seq) || fid_seq_is_echo(seq) ||
@@ -330,8 +330,16 @@ static inline void lu_last_id_fid(struct lu_fid *fid, __u64 seq, __u32 ost_idx)
 
 static inline bool fid_is_md_operative(const struct lu_fid *fid)
 {
-	return fid_is_mdt0(fid) || fid_is_igif(fid) ||
-	       fid_is_norm(fid) || fid_is_root(fid);
+	return fid_is_igif(fid) || fid_is_root(fid) || fid_is_norm(fid);
+}
+
+static inline bool fid_is_sane(const struct lu_fid *fid)
+{
+	return fid != NULL &&
+		((fid_seq(fid) >= FID_SEQ_START && fid_ver(fid) == 0) ||
+		 fid_is_igif(fid) ||
+		 fid_is_idif(fid) ||
+		 fid_seq_is_rsvd(fid_seq(fid)));
 }
 
 /* seq client type */
@@ -621,7 +629,7 @@ static inline void ostid_build_res_name(const struct ost_id *oi,
 					struct ldlm_res_id *name)
 {
 	memset(name, 0, sizeof *name);
-	if (fid_seq_is_mdt0(ostid_seq(oi))) {
+	if (fid_seq_is_ost_mdt0(ostid_seq(oi))) {
 		name->name[LUSTRE_RES_ID_SEQ_OFF] = ostid_id(oi);
 		name->name[LUSTRE_RES_ID_VER_OID_OFF] = ostid_seq(oi);
 	} else {
@@ -637,7 +645,7 @@ static inline bool ostid_res_name_eq(const struct ost_id *oi,
 {
 	/* Note: it is just a trick here to save some effort, probably the
 	 * correct way would be turn them into the FID and compare */
-	if (fid_seq_is_mdt0(ostid_seq(oi))) {
+	if (fid_seq_is_ost_mdt0(ostid_seq(oi))) {
 		return name->name[LUSTRE_RES_ID_SEQ_OFF] == ostid_id(oi) &&
 		       name->name[LUSTRE_RES_ID_VER_OID_OFF] == ostid_seq(oi);
 	} else {
@@ -650,7 +658,7 @@ static inline bool ostid_res_name_eq(const struct ost_id *oi,
 static inline void ost_fid_build_resid(const struct lu_fid *fid,
 				       struct ldlm_res_id *resname)
 {
-	if (fid_is_mdt0(fid) || fid_is_idif(fid)) {
+	if (fid_is_ost_mdt0(fid) || fid_is_idif(fid)) {
 		struct ost_id oi;
 		oi.oi.oi_id = 0; /* gcc 4.7.2 complains otherwise */
 		if (fid_to_ostid(fid, &oi) != 0)
@@ -665,7 +673,7 @@ static inline void ost_fid_from_resid(struct lu_fid *fid,
 				      const struct ldlm_res_id *name,
 				      int ost_idx)
 {
-	if (fid_seq_is_mdt0(name->name[LUSTRE_RES_ID_VER_OID_OFF])) {
+	if (fid_seq_is_ost_mdt0(name->name[LUSTRE_RES_ID_VER_OID_OFF])) {
 		/* old resid */
 		struct ost_id oi;
 		ostid_set_seq(&oi, name->name[LUSTRE_RES_ID_VER_OID_OFF]);

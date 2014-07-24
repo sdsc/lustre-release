@@ -1662,13 +1662,13 @@ static int ofd_create_hdl(struct tgt_session_info *tsi)
 		}
 		/* only precreate if seq is 0, IDIF or normal and also o_id
 		 * must be specfied */
-		if ((!fid_seq_is_mdt(seq) && !fid_seq_is_norm(seq) &&
+		if ((!fid_seq_is_ost_mdt0(seq) && !fid_seq_is_norm(seq) &&
 		     !fid_seq_is_idif(seq)) || oid == 0) {
 			diff = 1; /* shouldn't we create this right now? */
 		} else {
 			diff = oid - ofd_seq_last_oid(oseq);
 			/* Do sync create if the seq is about to used up */
-			if (fid_seq_is_idif(seq) || fid_seq_is_mdt0(seq)) {
+			if (fid_seq_is_idif(seq) || fid_seq_is_ost_mdt0(seq)) {
 				if (unlikely(oid >= IDIF_MAX_OID - 1))
 					sync_trans = 1;
 			} else if (fid_seq_is_norm(seq)) {

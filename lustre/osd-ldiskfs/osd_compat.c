@@ -698,7 +698,7 @@ static inline void osd_seq_name(char *seq_name, size_t name_size, u64 seq)
 {
 	snprintf(seq_name, name_size,
 		 (fid_seq_is_rsvd(seq) ||
-		  fid_seq_is_mdt0(seq)) ? LPU64 : LPX64i,
+		  fid_seq_is_ost_mdt0(seq)) ? LPU64 : LPX64i,
 		 fid_seq_is_idif(seq) ? 0 : seq);
 }
 
@@ -707,7 +707,7 @@ static inline void osd_oid_name(char *name, size_t name_size,
 {
 	snprintf(name, name_size,
 		 (fid_seq_is_rsvd(fid_seq(fid)) ||
-		  fid_seq_is_mdt0(fid_seq(fid)) ||
+		  fid_seq_is_ost_mdt0(fid_seq(fid)) ||
 		  fid_seq_is_idif(fid_seq(fid))) ? LPU64 : LPX64i, id);
 }
 

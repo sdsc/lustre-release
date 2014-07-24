@@ -855,11 +855,11 @@ static int osd_scrub_get_fid(struct osd_thread_info *info,
 			return SCRUB_NEXT_OSTOBJ_OLD;
 
 		/* For local object. */
-		if (fid_is_internal(fid))
+		if (!fid_is_namespace_visible(fid))
 			return 0;
 
 		/* For external visible MDT-object with non-normal FID. */
-		if (fid_is_namespace_visible(fid) && !fid_is_norm(fid))
+		if (!fid_is_norm(fid))
 			return 0;
 
 		/* For the object with normal FID, it may be MDT-object,

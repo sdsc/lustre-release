@@ -484,15 +484,10 @@ enum dot_lustre_oid {
 	FID_OID_DOT_LUSTRE_LPF	= 3UL,
 };
 
-static inline bool fid_seq_is_mdt0(__u64 seq)
+static inline bool fid_seq_is_ost_mdt0(__u64 seq)
 {
 	return seq == FID_SEQ_OST_MDT0;
 }
-
-static inline bool fid_seq_is_mdt(__u64 seq)
-{
-	return seq == FID_SEQ_OST_MDT0 || seq >= FID_SEQ_NORMAL;
-};
 
 static inline bool fid_seq_is_echo(__u64 seq)
 {
@@ -541,14 +536,14 @@ static inline bool fid_seq_is_dot(__u64 seq)
 	return seq == FID_SEQ_DOT_LUSTRE;
 }
 
-static inline bool fid_seq_is_default(__u64 seq)
+static inline bool fid_seq_is_lov_default(__u64 seq)
 {
 	return seq == FID_SEQ_LOV_DEFAULT;
 }
 
-static inline bool fid_is_mdt0(const struct lu_fid *fid)
+static inline bool fid_is_ost_mdt0(const struct lu_fid *fid)
 {
-	return fid_seq_is_mdt0(fid_seq(fid));
+	return fid_seq_is_ost_mdt0(fid_seq(fid));
 }
 
 static inline void lu_root_fid(struct lu_fid *fid)
@@ -634,10 +629,10 @@ static inline __u32 fid_idif_ost_idx(const struct lu_fid *fid)
 /* extract OST sequence (group) from a wire ost_id (id/seq) pair */
 static inline __u64 ostid_seq(const struct ost_id *ostid)
 {
-	if (fid_seq_is_mdt0(ostid->oi.oi_seq))
+	if (fid_seq_is_ost_mdt0(ostid->oi.oi_seq))
 		return FID_SEQ_OST_MDT0;
 
-	if (unlikely(fid_seq_is_default(ostid->oi.oi_seq)))
+	if (unlikely(fid_seq_is_lov_default(ostid->oi.oi_seq)))
 		return FID_SEQ_LOV_DEFAULT;
 
 	if (fid_is_idif(&ostid->oi_fid))
@@ -649,10 +644,10 @@ static inline __u64 ostid_seq(const struct ost_id *ostid)
 /* extract OST objid from a wire ost_id (id/seq) pair */
 static inline __u64 ostid_id(const struct ost_id *ostid)
 {
-	if (fid_seq_is_mdt0(ostid->oi.oi_seq))
+	if (fid_seq_is_ost_mdt0(ostid->oi.oi_seq))
 		return ostid->oi.oi_id & IDIF_OID_MASK;
 
-	if (unlikely(fid_seq_is_default(ostid->oi.oi_seq)))
+	if (unlikely(fid_seq_is_lov_default(ostid->oi.oi_seq)))
 		return ostid->oi.oi_id;
 
 	if (fid_is_idif(&ostid->oi_fid))
@@ -664,7 +659,7 @@ static inline __u64 ostid_id(const struct ost_id *ostid)
 
 static inline void ostid_set_seq(struct ost_id *oi, __u64 seq)
 {
-	if (fid_seq_is_mdt0(seq) || fid_seq_is_default(seq)) {
+	if (fid_seq_is_ost_mdt0(seq) || fid_seq_is_lov_default(seq)) {
 		oi->oi.oi_seq = seq;
 	} else {
 		oi->oi_fid.f_seq = seq;
@@ -697,7 +692,7 @@ static inline void ostid_set_seq_llog(struct ost_id *oi)
  */
 static inline void ostid_set_id(struct ost_id *oi, __u64 oid)
 {
-	if (fid_seq_is_mdt0(oi->oi.oi_seq)) {
+	if (fid_seq_is_ost_mdt0(oi->oi.oi_seq)) {
 		if (oid >= IDIF_MAX_OID) {
 			CERROR("Bad "LPU64" to set "DOSTID"\n",
 				oid, POSTID(oi));
@@ -771,7 +766,7 @@ static inline int ostid_to_fid(struct lu_fid *fid, const struct ost_id *ostid,
 		return -EBADF;
 	}
 
-	if (fid_seq_is_mdt0(seq)) {
+	if (fid_seq_is_ost_mdt0(seq) || unlikely(fid_seq_is_lov_default(seq))) {
 		__u64 oid = ostid_id(ostid);
 
 		/* This is a "legacy" (old 1.x/2.early) OST object in "group 0"
@@ -789,8 +784,7 @@ static inline int ostid_to_fid(struct lu_fid *fid, const struct ost_id *ostid,
 		fid->f_oid = oid;
 		/* in theory, not currently used */
 		fid->f_ver = oid >> 48;
-	} else if (likely(!fid_seq_is_default(seq)))
-		/* if (fid_seq_is_idif(seq) || fid_seq_is_norm(seq)) */ {
+	} else {
 		/* This is either an IDIF object, which identifies objects across
 		 * all OSTs, or a regular FID.  The IDIF namespace maps legacy
 		 * OST objects into the FID namespace.  In both cases, we just
@@ -895,14 +889,6 @@ static inline void fid_be_to_cpu(struct lu_fid *dst, const struct lu_fid *src)
 	dst->f_ver = be32_to_cpu(fid_ver(src));
 }
 
-static inline bool fid_is_sane(const struct lu_fid *fid)
-{
-	return fid != NULL &&
-	       ((fid_seq(fid) >= FID_SEQ_START && fid_ver(fid) == 0) ||
-		fid_is_igif(fid) || fid_is_idif(fid) ||
-		fid_seq_is_rsvd(fid_seq(fid)));
-}
-
 extern void lustre_swab_lu_fid(struct lu_fid *fid);
 extern void lustre_swab_lu_seq_range(struct lu_seq_range *range);
 
@@ -931,7 +917,7 @@ static inline int lu_fid_cmp(const struct lu_fid *f0,
 static inline void ostid_cpu_to_le(const struct ost_id *src_oi,
 				   struct ost_id *dst_oi)
 {
-	if (fid_seq_is_mdt0(src_oi->oi.oi_seq)) {
+	if (fid_seq_is_ost_mdt0(src_oi->oi.oi_seq)) {
 		dst_oi->oi.oi_id = cpu_to_le64(src_oi->oi.oi_id);
 		dst_oi->oi.oi_seq = cpu_to_le64(src_oi->oi.oi_seq);
 	} else {
@@ -942,7 +928,7 @@ static inline void ostid_cpu_to_le(const struct ost_id *src_oi,
 static inline void ostid_le_to_cpu(const struct ost_id *src_oi,
 				   struct ost_id *dst_oi)
 {
-	if (fid_seq_is_mdt0(src_oi->oi.oi_seq)) {
+	if (fid_seq_is_ost_mdt0(src_oi->oi.oi_seq)) {
 		dst_oi->oi.oi_id = le64_to_cpu(src_oi->oi.oi_id);
 		dst_oi->oi.oi_seq = le64_to_cpu(src_oi->oi.oi_seq);
 	} else {

@@ -163,7 +163,8 @@ int tgt_validate_obdo(struct tgt_session_info *tsi, struct obdo *oa)
 			seq = ostid_seq(oi);
 		}
 
-		if (unlikely(!(fid_seq_is_idif(seq) || fid_seq_is_mdt0(seq) ||
+		if (unlikely(!(fid_seq_is_idif(seq) ||
+			       fid_seq_is_ost_mdt0(seq) ||
 			       fid_seq_is_norm(seq) || fid_seq_is_echo(seq))))
 			GOTO(out, rc = -EPROTO);
 

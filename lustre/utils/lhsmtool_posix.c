@@ -1585,11 +1585,6 @@ static int ct_rebind_one(const lustre_fid *old_fid, const lustre_fid *new_fid)
 	return 0;
 }
 
-static bool fid_is_file(lustre_fid *fid)
-{
-	return fid_is_norm(fid) || fid_is_igif(fid);
-}
-
 static bool should_ignore_line(const char *line)
 {
 	int	i;
@@ -1635,8 +1630,7 @@ static int ct_rebind_list(const char *list)
 		nl++;
 
 		rc = sscanf(line, SFID" "SFID, RFID(&old_fid), RFID(&new_fid));
-		if (rc != 6 || !fid_is_file(&old_fid) ||
-		    !fid_is_file(&new_fid)) {
+		if (rc != 6) {
 			CT_ERROR(EINVAL,
 				 "'%s' FID expected near '%s', line %u",
 				 list, line, nl);
@@ -1669,15 +1663,13 @@ static int ct_rebind(void)
 		lustre_fid	old_fid;
 		lustre_fid	new_fid;
 
-		if (sscanf(opt.o_src, SFID, RFID(&old_fid)) != 3 ||
-		    !fid_is_file(&old_fid)) {
+		if (sscanf(opt.o_src, SFID, RFID(&old_fid)) != 3) {
 			rc = -EINVAL;
 			CT_ERROR(rc, "'%s' invalid FID format", opt.o_src);
 			return rc;
 		}
 
-		if (sscanf(opt.o_dst, SFID, RFID(&new_fid)) != 3 ||
-		    !fid_is_file(&new_fid)) {
+		if (sscanf(opt.o_dst, SFID, RFID(&new_fid)) != 3) {
 			rc = -EINVAL;
 			CT_ERROR(rc, "'%s' invalid FID format", opt.o_dst);
 			return rc;

@@ -2514,10 +2514,10 @@ void lov_dump_user_lmm_v1v3(struct lov_user_md *lum, char *pool_name,
                         long long gr = ostid_seq(&objects[i].l_ost_oi);
 			if ((obdindex == OBD_NOT_FOUND) || (obdindex == idx)) {
 				char fmt[48];
-				sprintf(fmt, "%s%s%s\n",
-					"\t%6u\t%14llu\t%#13llx\t",
-					(fid_seq_is_rsvd(gr) ||
-					 fid_seq_is_mdt0(gr)) ?
+				snprintf(fmt, sizeof(fmt), "%s%s%s\n",
+					 "\t%6u\t%14llu\t%#13llx\t",
+					 (fid_seq_is_rsvd(gr) ||
+					  fid_seq_is_ost_mdt0(gr)) ?
 					 "%14llu" : "%#14llx", "%s");
 				llapi_printf(LLAPI_MSG_NORMAL, fmt, idx, oid,
 					     oid, gr,
@@ -4432,8 +4432,7 @@ int llapi_fid2path(const char *device, const char *fidstr, char *buf,
         while (*fidstr == '[')
                 fidstr++;
 
-        sscanf(fidstr, SFID, RFID(&fid));
-        if (!fid_is_sane(&fid)) {
+	if (sscanf(fidstr, SFID, RFID(&fid)) != 3) {
                 llapi_err_noerrno(LLAPI_MSG_ERROR,
                                   "bad FID format [%s], should be "DFID"\n",
                                   fidstr, (__u64)1, 2, 0);

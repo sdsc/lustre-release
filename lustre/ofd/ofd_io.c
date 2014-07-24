@@ -553,7 +553,7 @@ static int ofd_preprw_write(const struct lu_env *env, struct obd_export *exp,
 			diff = oid - ofd_seq_last_oid(oseq);
 
 			/* Do sync create if the seq is about to used up */
-			if (fid_seq_is_idif(seq) || fid_seq_is_mdt0(seq)) {
+			if (fid_seq_is_idif(seq) || fid_seq_is_ost_mdt0(seq)) {
 				if (unlikely(oid >= IDIF_MAX_OID - 1))
 					sync = 1;
 			} else if (fid_seq_is_norm(seq)) {
