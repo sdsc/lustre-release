@@ -50,7 +50,7 @@
 #include <fcntl.h>
 #include <sys/vfs.h>
 #include <linux/magic.h>
-
+#include <errno.h>
 #include <time.h>
 #include <lnet/nidstr.h>
 #include <lustre/lustre_idl.h>
@@ -222,10 +222,14 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 		llapi_error(LLAPI_MSG_ERROR, rc, "Got file stat error.");
 		goto out;
 	}
+
 	file_size = st.st_size;
-	if (file_size == 0) {
-		rc = -1;
-		llapi_error(LLAPI_MSG_ERROR, rc, "File is empty.");
+	if (file_size < sizeof(**llog)) {
+		llapi_error(LLAPI_MSG_ERROR, rc,
+			    "Not enough data in llog for header: "
+			    "need %llu, size = %lld\n",
+			    sizeof(**llog), file_size);
+		rc = -EIO;
 		goto out;
 	}
 
@@ -239,7 +243,7 @@ int llog_pack_buffer(int fd, struct llog_log_hdr **llog,
 
 	rd = read(fd, file_buf, file_size);
 	if (rd < file_size) {
-		rc = -EIO; /*FIXME*/
+		rc = rc < 0 ? errno : -EIO;
 		llapi_error(LLAPI_MSG_ERROR, rc, "Read file error.");
 		goto clear_file_buf;
 	}
