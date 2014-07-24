@@ -154,7 +154,6 @@ test_0() {
 	local scanned2=$($SHOW_NAMESPACE | awk '/^success_count/ { print $2 }')
 	[ $((scanned1 + 1)) -eq $scanned2 ] ||
 		error "(13) Expect success $((scanned1 + 1)), but got $scanned2"
-
 	echo "stopall, should NOT crash LU-3649"
 	stopall || error "(14) Fail to stopall"
 }
