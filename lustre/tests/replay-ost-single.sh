@@ -396,6 +396,27 @@ test_8e() {
 }
 run_test 8e "Verify that ptlrpc resends request on -EINPROGRESS"
 
+test_9() {
+	$SETSTRIPE -i 0 -c 1 $DIR/$tfile
+	replay_barrier ost1
+	# do IO
+	dd if=/dev/zero of=$DIR/$tfile count=1 bs=1M > /dev/null ||
+		error "failed to write"
+	# failover, replay and resend replayed waiting request
+	#define OBD_FAIL_TGT_REPLAY_DELAY2       0x714
+	do_facet ost1 $LCTL set_param fail_loc=0x00000714
+	do_facet ost1 $LCTL set_param fail_val=$TIMEOUT
+	fail ost1
+	do_facet ost1 $LCTL set_param fail_loc=0
+	do_facet ost1 "dmesg | tail -n 100 | sed -n '/no reconnect happened/,$ p' > $LOGDIR/$tfile-log"
+	local ret=$(do_facet ost1 "cat $LOGDIR/$tfile-log | grep 'Already past' || true")
+	echo Ret = $ret
+	rm $DIR/$tfile
+	[ -z "$ret" ] && return 0
+	return 1
+}
+run_test 9 "Verify that no reconnect happened during recovery base on req deadline"
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
