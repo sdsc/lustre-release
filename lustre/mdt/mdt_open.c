@@ -1469,7 +1469,7 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
 		CDEBUG(D_INFO, "%s: "DFID" is on remote MDT.\n",
 		       mdt_obd_name(info->mti_mdt),
 		       PFID(rr->rr_fid2));
-		GOTO(out, rc = -EREMOTE);
+		GOTO(out, rc = -EIO);
 	} else if (!mdt_object_exists(o)) {
 		mdt_set_disposition(info, rep,
 				    DISP_IT_EXECD |
