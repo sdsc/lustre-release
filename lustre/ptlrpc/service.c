@@ -1315,17 +1315,17 @@ static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
                 RETURN(-ENOSYS);
         }
 
-        if (req->rq_export &&
-            lustre_msg_get_flags(req->rq_reqmsg) &
-            (MSG_REPLAY | MSG_REQ_REPLAY_DONE | MSG_LOCK_REPLAY_DONE)) {
-                /* During recovery, we don't want to send too many early
-                 * replies, but on the other hand we want to make sure the
-                 * client has enough time to resend if the rpc is lost. So
-                 * during the recovery period send at least 4 early replies,
-                 * spacing them every at_extra if we can. at_estimate should
-                 * always equal this fixed value during recovery. */
-		at_measured(&svcpt->scp_at_estimate, min(at_extra,
-			    req->rq_export->exp_obd->obd_recovery_timeout / 4));
+	if (req->rq_export &&
+	    lustre_msg_get_flags(req->rq_reqmsg) &
+	    (MSG_REPLAY | MSG_REQ_REPLAY_DONE | MSG_LOCK_REPLAY_DONE)) {
+		/* During recovery, we don't want to send too many early
+		 * replies. Send one early reply wich will increase deadline to
+		 * the end of recovery. */
+		at_measured(&svcpt->scp_at_estimate,
+			    cfs_time_current_sec() -
+			    req->rq_arrival_time.tv_sec +
+			    req->rq_export->exp_obd->obd_recovery_timeout);
+
 	} else {
 		/* We want to extend the request deadline by at_extra seconds,
 		 * so we set our service estimate to reflect how much time has
@@ -1338,17 +1338,17 @@ static int ptlrpc_at_send_early_reply(struct ptlrpc_request *req)
 			    cfs_time_current_sec() -
 			    req->rq_arrival_time.tv_sec);
 
-		/* Check to see if we've actually increased the deadline -
-		 * we may be past adaptive_max */
-		if (req->rq_deadline >= req->rq_arrival_time.tv_sec +
-		    at_get(&svcpt->scp_at_estimate)) {
-			DEBUG_REQ(D_WARNING, req, "Couldn't add any time "
-				  "(%ld/%ld), not sending early reply\n",
-				  olddl, req->rq_arrival_time.tv_sec +
-				  at_get(&svcpt->scp_at_estimate) -
-				  cfs_time_current_sec());
-			RETURN(-ETIMEDOUT);
-		}
+	}
+	/* Check to see if we've actually increased the deadline -
+	 * we may be past adaptive_max */
+	if (req->rq_deadline >= req->rq_arrival_time.tv_sec +
+	    at_get(&svcpt->scp_at_estimate)) {
+		DEBUG_REQ(D_WARNING, req, "Couldn't add any time "
+			  "(%ld/%ld), not sending early reply\n",
+			  olddl, req->rq_arrival_time.tv_sec +
+			  at_get(&svcpt->scp_at_estimate) -
+			  cfs_time_current_sec());
+		RETURN(-ETIMEDOUT);
 	}
 
 	reqcopy = ptlrpc_request_cache_alloc(GFP_NOFS);
