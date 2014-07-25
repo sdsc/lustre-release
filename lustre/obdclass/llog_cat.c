@@ -128,6 +128,7 @@ int llog_cat_id2handle(const struct lu_env *env, struct llog_handle *cathandle,
 		       struct llog_handle **res, struct llog_logid *logid)
 {
 	struct llog_handle	*loghandle;
+	enum llog_flag		 fmt;
 	int			 rc = 0;
 
 	ENTRY;
@@ -135,6 +136,7 @@ int llog_cat_id2handle(const struct lu_env *env, struct llog_handle *cathandle,
 	if (cathandle == NULL)
 		RETURN(-EBADF);
 
+	fmt = cathandle->lgh_hdr->llh_flags & LLOG_F_EXT_MASK;
 	down_write(&cathandle->lgh_lock);
 	list_for_each_entry(loghandle, &cathandle->u.chd.chd_head,
 			    u.phd.phd_entry) {
@@ -165,7 +167,7 @@ int llog_cat_id2handle(const struct lu_env *env, struct llog_handle *cathandle,
 		RETURN(rc);
 	}
 
-	rc = llog_init_handle(env, loghandle, LLOG_F_IS_PLAIN, NULL);
+	rc = llog_init_handle(env, loghandle, LLOG_F_IS_PLAIN | fmt, NULL);
 	if (rc < 0) {
 		llog_close(env, loghandle);
 		loghandle = NULL;
