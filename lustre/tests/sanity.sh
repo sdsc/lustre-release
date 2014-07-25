@@ -11245,6 +11245,11 @@ test_205() { # Job stats
 	cmd="mv -f $DIR/$tfile $DIR/jobstats_test_rename"
 	verify_jobstats "$cmd" "mdt"
 
+	# Ensure that jobid are present in changelog
+	$LFS changelog $MDT0 | tail -9
+	jobids=$($LFS changelog $MDT0 | tail -9 | grep -c "j=")
+	[ $jobids -eq 9 ] || error "Wrong changelog jobid count $jobids != 9"
+
 	# cleanup
 	rm -f $DIR/jobstats_test_rename
 
