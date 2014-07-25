@@ -1637,7 +1637,6 @@ ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
         struct ldlm_interval *node = NULL;
         ENTRY;
 
-        lock->l_last_activity = cfs_time_current_sec();
         /* policies are not executed on the client or during replay */
         if ((*flags & (LDLM_FL_HAS_INTENT|LDLM_FL_REPLAY)) == LDLM_FL_HAS_INTENT
             && !local && ns->ns_policy) {
@@ -1660,6 +1659,9 @@ ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
                         RETURN(rc);
                 }
         }
+
+	if (*flags & LDLM_FL_RESENT)
+		RETURN(ELDLM_OK);
 
 	/* For a replaying lock, it might be already in granted list. So
 	 * unlinking the lock will cause the interval node to be freed, we
@@ -1717,8 +1719,6 @@ ldlm_error_t ldlm_lock_enqueue(struct ldlm_namespace *ns,
                         ldlm_grant_lock(lock, NULL);
 		GOTO(out, rc = ELDLM_OK);
 #ifdef HAVE_SERVER_SUPPORT
-	} else if (*flags & LDLM_FL_RESENT) {
-		GOTO(out, rc = ELDLM_OK);
         } else if (*flags & LDLM_FL_REPLAY) {
                 if (*flags & LDLM_FL_BLOCK_CONV) {
                         ldlm_resource_add_lock(res, &res->lr_converting, lock);
