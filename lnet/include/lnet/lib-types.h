@@ -397,6 +397,31 @@ typedef struct lnet_lnd
 #endif
 } lnd_t;
 
+/** \defgroup lnet_drop_rule
+ *
+ * Randomly drop lnet message based on rule
+ @{ */
+struct lnet_drop_rule {
+	/** link chain on the_lnet.ln_drop_rules */
+	struct list_head		dr_link;
+	/** attributes of this rule */
+	struct lnet_drop_rule_attr	dr_attr;
+	/** timestamp to activate drop rule, 0 means rule is already active */
+	time_t				dr_start;
+	/** lock to protect \a dr_count, \a dr_drop_at and \a dr_stat */
+	spinlock_t			dr_lock;
+	/** counter of all messages matching this rule */
+	unsigned long			dr_count;
+	/**
+	 * the message sequence to drop, which means message is dropped when
+	 * dr_count == dr_drop_at
+	 */
+	unsigned long			dr_drop_at;
+	/** statistic of dropped messages */
+	struct lnet_drop_rule_stat	dr_stat;
+};
+/** @} lnet_drop_rule */
+
 #define LNET_NI_STATUS_UP      0x15aac0de
 #define LNET_NI_STATUS_DOWN    0xdeadface
 #define LNET_NI_STATUS_INVALID 0x00000000
@@ -782,6 +807,7 @@ typedef struct
 	struct lnet_peer_table		**ln_peer_tables;
 	/* failure simulation */
 	struct list_head		ln_test_peers;
+	struct list_head		ln_drop_rules;
 
 	struct list_head		ln_nis;		/* LND instances */
 	/* NIs bond on specific CPT(s) */

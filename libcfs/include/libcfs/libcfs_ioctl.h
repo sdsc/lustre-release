@@ -71,7 +71,6 @@ struct libcfs_ioctl_data {
 
 #define ioc_priority ioc_u32[0]
 
-
 struct libcfs_ioctl_hdr {
         __u32 ioc_len;
         __u32 ioc_version;
@@ -133,6 +132,10 @@ struct libcfs_ioctl_handler {
 #define IOC_LIBCFS_PING                    _IOWR('e', 61, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_DEBUG_PEER              _IOWR('e', 62, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_LNETST                  _IOWR('e', 63, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DROP_ADD		   _IOWR('e', 64, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DROP_DEL		   _IOWR('e', 65, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DROP_RESET		   _IOWR('e', 66, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DROP_LIST		   _IOWR('e', 67, IOCTL_LIBCFS_TYPE)
 /* lnd ioctls */
 #define IOC_LIBCFS_REGISTER_MYNID          _IOWR('e', 70, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_CLOSE_CONNECTION        _IOWR('e', 71, IOCTL_LIBCFS_TYPE)
@@ -216,9 +219,15 @@ static inline int libcfs_ioctl_is_invalid(struct libcfs_ioctl_data *data)
 
 extern int libcfs_register_ioctl(struct libcfs_ioctl_handler *hand);
 extern int libcfs_deregister_ioctl(struct libcfs_ioctl_handler *hand);
-extern int libcfs_ioctl_getdata(char *buf, char *end, void *arg);
-extern int libcfs_ioctl_popdata(void *arg, void *buf, int size);
+extern int libcfs_ioctl_getdata(struct libcfs_ioctl_data **data_pp,
+				void *uparam);
+extern int libcfs_ioctl_popdata(struct libcfs_ioctl_data *data, void *uparam);
 
-#endif 
+static inline void libcfs_ioctl_freedata(struct libcfs_ioctl_data *data)
+{
+	LIBCFS_FREE(data, data->ioc_len);
+}
+
+#endif
 
 #endif /* __LIBCFS_IOCTL_H__ */

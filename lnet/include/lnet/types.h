@@ -503,5 +503,57 @@ typedef enum {
 } lnet_ack_req_t;
 /** @} lnet_data */
 
+/* NB: this section is truely for lctl command not for API, it probably should
+ * be moved to lib-dlc.h when DLC is landed */
+/** \addtogroup lnet_drop_rule
+ * @{ */
+
+/* dropping 1/10 messages is the lower limit */
+#define LNET_DROP_RATE_MIN	10
+
+#define LNET_DROP_ACK_BIT	(1 << 0)
+#define LNET_DROP_PUT_BIT	(1 << 1)
+#define LNET_DROP_GET_BIT	(1 << 2)
+#define LNET_DROP_REPLY_BIT	(1 << 3)
+
+#define LNET_DROP_MSG_MASK	(LNET_DROP_ACK_BIT | LNET_DROP_PUT_BIT | \
+				 LNET_DROP_GET_BIT | LNET_DROP_REPLY_BIT)
+
+/** ioctl parameter for LNet drop rule */
+struct lnet_drop_rule_attr {
+	/**
+	 * source NID of drop rule
+	 * LNET_NID_ANY is wildcard for all sources
+	 * 255.255.255.255@net is wildcard for all addresses from @net
+	 */
+	lnet_nid_t			dra_src;
+	/** destination NID of drop rule, see \a dr_src for details */
+	lnet_nid_t			dra_dst;
+	/** drop rate of this rule */
+	__u32				dra_rate;
+	/** # seconds before activating this rule */
+	__u32				dra_delay;
+	/** Portal ID to drop, -1 means all portals */
+	__u32				dra_portal;
+	/**
+	 * message types to drop, for example:
+	 * dr_type = (1 << LNET_DROP_ACK_BIT) | (1 << LNET_DROP_PUT_BIT)
+	 */
+	__u32				dra_msg_mask;
+};
+
+struct lnet_drop_rule_stat {
+	/** # dropped LNET_MSG_PUT */
+	__u64				drs_put;
+	/** # dropped LNET_MSG_ACK */
+	__u64				drs_ack;
+	/** # dropped LNET_MSG_GET */
+	__u64				drs_get;
+	/** # dropped LNET_MSG_REPLY */
+	__u64				drs_reply;
+};
+
+/** @} lnet_drop_rule */
+
 /** @} lnet */
 #endif
