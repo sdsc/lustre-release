@@ -44,7 +44,7 @@ setupall
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18 19 20 21"
 
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 2e 3 22 23"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 2e 3 22 23 24"
 
 build_test_filter
 
@@ -3020,6 +3020,78 @@ test_23c() {
 		error "(11) The $DIR/$tdir/d0/foo should not be recovered"
 }
 run_test 23c "LFSCK can repair dangling name entry (3)"
+
+test_24() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && exit 0
+
+	echo "#####"
+	echo "Two MDT-objects back reference the same name entry via their"
+	echo "each own linkEA entry, but the name entry only references one"
+	echo "MDT-object. The namespace LFSCK will remove the linkEA entry"
+	echo "for the MDT-object that is not recognized. If such MDT-object"
+	echo "has no other linkEA entry after the removing, then the LFSCK"
+	echo "will add it as orphan under the .lustre/lost+found/MDTxxxx/."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 1 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+
+	mkdir $DIR/$tdir/d0/guard || error "(1) Fail to mkdir guard"
+	$LFS path2fid $DIR/$tdir/d0/guard
+
+	mkdir $DIR/$tdir/d0/dummy || error "(2) Fail to mkdir dummy"
+	$LFS path2fid $DIR/$tdir/d0/dummy
+
+	touch $DIR/$tdir/d0/guard/foo ||
+		error "(3) Fail to touch $DIR/$tdir/d0/guard/foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "the $DIR/$tdir/d0/dummy/foo has the 'bad' linkEA entry"
+	echo "that references $DIR/$tdir/d0/guard/foo."
+	echo "Then remove the name entry $DIR/$tdir/d0/dummy/foo."
+	echo "So the MDT-object $DIR/$tdir/d0/dummy/foo will be left"
+	echo "there with the same linkEA entry as another MDT-object"
+	echo "$DIR/$tdir/d0/guard/foo has"
+
+	#define OBD_FAIL_LFSCK_MUL_REF		0x1622
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1622
+	$LFS mkdir -i 0 $DIR/$tdir/d0/dummy/foo ||
+		error "(4) Fail to mkdir $DIR/$tdir/d0/dummy/foo"
+	rmdir $DIR/$tdir/d0/dummy/foo ||
+		error "(5) Fail to remove $DIR/$tdir/d0/dummy/foo name entry"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	echo "stat $DIR/$tdir/d0/dummy/foo should fail"
+	stat $DIR/$tdir/d0/dummy/foo > /dev/null 2>&1 &&
+		error "(6) stat successfully unexpectedly"
+
+	echo "Trigger namespace LFSCK to repair multiple-referenced name entry"
+	$START_NAMESPACE -A -r ||
+		error "(7) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(8) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^multi_referenced_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+	error "(9) Fail to repair multiple referenced name entry: $repaired"
+
+	echo "There should be an orphan under .lustre/lost+found/MDT0000/"
+	[ -d $MOUNT/.lustre/lost+found/MDT0000 ] ||
+		error "(10) $MOUNT/.lustre/lost+found/MDT0000/ should be there"
+
+	cname=$(find $MOUNT/.lustre/lost+found/MDT0000/ -name *-D-*)
+	[ ! -z "$cname" ] ||
+		error "(11) .lustre/lost+found/MDT0000/ should not be empty"
+}
+run_test 24 "LFSCK can repair multiple-referenced name entry"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 
