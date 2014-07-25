@@ -1272,6 +1272,159 @@ jt_ptl_print_routes (int argc, char **argv)
         return (0);
 }
 
+static int
+drop_nid_parse(char *str, lnet_nid_t *nid_p)
+{
+	lnet_nid_t nid;
+	__u32	   net;
+	int	   rc;
+
+	rc = libcfs_str2anynid(&nid, str);
+	if (!rc) {
+		net = libcfs_str2net(str);
+		if (net == LNET_NIDNET(LNET_NID_ANY)) {
+			fprintf (stderr, "Can't parse NID or net"
+					 "\"%s\"\n", str);
+			return -1;
+		}
+		nid = LNET_MKNID(net, LNET_NIDADDR(LNET_NID_ANY));
+	}
+	*nid_p = nid;
+	return 0;
+}
+
+int
+jt_ptl_drop_add(int argc, char **argv)
+{
+	struct libcfs_ioctl_data data;
+	lnet_nid_t		 src;
+	lnet_nid_t		 dst;
+	__u32			 net;
+	unsigned int		 rate;
+	unsigned int		 delay = 0;
+	int			 rc;
+
+	if (argc < 4 || argc > 5) {
+		fprintf(stderr, "usage: %s src dst rate [delay]\n", argv[0]);
+		return -1;
+	}
+
+	rc = drop_nid_parse(argv[1], &src);
+	if (rc != 0)
+		return rc;
+
+	rc = drop_nid_parse(argv[2], &dst);
+	if (rc != 0)
+		return rc;
+
+	rate = strtol(argv[3], NULL, 0);
+	if (rate < LNET_DROP_RATE_MIN) {
+		fprintf(stderr, "Drop rate should be larger than %d: %d\n",
+			LNET_DROP_RATE_MIN, rate);
+		return -1;
+	}
+
+	if (argc == 5)
+		delay = strtol(argv[4], NULL, 0);
+
+	LIBCFS_IOC_INIT(data);
+	data.ioc_drop_src	= src;
+	data.ioc_drop_dst	= dst;
+	data.ioc_drop_rate	= rate;
+	data.ioc_drop_delay	= delay;
+
+	rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DROP_ADD, &data);
+	if (rc != 0) {
+		fprintf(stderr, "add drop rule %s->%s failed: %s\n",
+			libcfs_nid2str(src), libcfs_nid2str(dst),
+			strerror (errno));
+		return -1;
+	}
+
+	printf("Added drop rule %s->%s (1/%d)\n",
+	       libcfs_nid2str(src), libcfs_nid2str(dst), rate);
+	return 0;
+}
+
+int
+jt_ptl_drop_del(int argc, char **argv)
+{
+	struct libcfs_ioctl_data data;
+	lnet_nid_t		 src;
+	lnet_nid_t		 dst;
+	__u32			 net;
+	__u32			 opc;
+	int			 rc;
+
+	if (argc != 2 && argc != 3) {
+		fprintf(stderr, "usage: %s [src dst | all]\n", argv[0]);
+		return -1;
+	}
+
+	LIBCFS_IOC_INIT(data);
+	if (argc == 2) {
+		if (!strcasecmp(argv[1], "all")) {
+			fprintf(stderr, "input ALL to remove all rules\n");
+			return -1;
+		}
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DROP_RESET, &data);
+	} else {
+		rc = drop_nid_parse(argv[1], &src);
+		if (rc != 0)
+			return rc;
+
+		rc = drop_nid_parse(argv[2], &dst);
+		if (rc != 0)
+			return rc;
+
+		data.ioc_drop_src	= src;
+		data.ioc_drop_dst	= dst;
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DROP_DEL, &data);
+	}
+
+	if (rc != 0) {
+		fprintf(stderr, "remove drop rule %s->%s failed: %s\n",
+			libcfs_nid2str(src), libcfs_nid2str(dst),
+			strerror (errno));
+		return -1;
+	}
+
+	printf("Removed %d drop rules\n", data.ioc_count);
+	return 0;
+}
+
+int
+jt_ptl_drop_list(int argc, char **argv)
+{
+	struct libcfs_ioctl_data data;
+	int			 pos;
+
+	printf("LNet Drop Rules:\n");
+	for (pos = 0;; pos++) {
+		lnet_nid_t	src;
+		lnet_nid_t	dst;
+		unsigned	rate;
+		int		rc;
+
+		LIBCFS_IOC_INIT(data);
+		data.ioc_count = pos;
+
+		rc = l_ioctl(LNET_DEV_ID, IOC_LIBCFS_DROP_LIST, &data);
+		if (rc != 0)
+			break;
+
+		printf("%d: %s->%s (1/%d) PUT %d, ACK %d, GET %d, REPLY %d\n",
+		       pos, libcfs_nid2str(data.ioc_drop_src),
+		       libcfs_nid2str(data.ioc_drop_dst),
+		       data.ioc_drop_rate, data.ioc_drop_put,
+		       data.ioc_drop_ack, data.ioc_drop_get,
+		       data.ioc_drop_reply);
+	}
+	printf("found total %d\n", pos);
+
+	return 0;
+}
+
 double
 get_cycles_per_usec ()
 {

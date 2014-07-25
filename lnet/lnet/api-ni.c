@@ -742,6 +742,7 @@ lnet_prepare(lnet_pid_t requested_pid)
 #endif
 
 	INIT_LIST_HEAD(&the_lnet.ln_test_peers);
+	INIT_LIST_HEAD(&the_lnet.ln_drop_rules);
 	INIT_LIST_HEAD(&the_lnet.ln_nis);
 	INIT_LIST_HEAD(&the_lnet.ln_nis_cpt);
 	INIT_LIST_HEAD(&the_lnet.ln_nis_zombie);
@@ -811,9 +812,11 @@ lnet_unprepare (void)
 	 * with non-zero pending count) */
 
 	lnet_fail_nid(LNET_NID_ANY, 0);
+	lnet_drop_rule_del(0, 0, true);
 
 	LASSERT(the_lnet.ln_refcount == 0);
 	LASSERT(list_empty(&the_lnet.ln_test_peers));
+	LASSERT(list_empty(&the_lnet.ln_drop_rules));
 	LASSERT(list_empty(&the_lnet.ln_nis));
 	LASSERT(list_empty(&the_lnet.ln_nis_cpt));
 	LASSERT(list_empty(&the_lnet.ln_nis_zombie));
@@ -1659,6 +1662,30 @@ LNetCtl(unsigned int cmd, void *arg)
                 }
                 return 0;
         }
+	case IOC_LIBCFS_DROP_ADD:
+		return lnet_drop_rule_add(data->ioc_drop_src,
+					  data->ioc_drop_dst,
+					  data->ioc_drop_rate,
+					  data->ioc_drop_delay);
+
+	case IOC_LIBCFS_DROP_DEL:
+		rc = lnet_drop_rule_del(data->ioc_drop_src,
+					data->ioc_drop_dst, false);
+		data->ioc_count = rc;
+		return 0;
+
+	case IOC_LIBCFS_DROP_RESET:
+		lnet_drop_rule_del(0, 0, true);
+		return 0;
+
+	case IOC_LIBCFS_DROP_LIST:
+		return lnet_drop_rule_list(data->ioc_count, &data->ioc_drop_src,
+					   (lnet_nid_t *)&data->ioc_drop_dst,
+					   &data->ioc_drop_rate,
+					   &data->ioc_drop_put,
+					   &data->ioc_drop_ack,
+					   &data->ioc_drop_get,
+					   &data->ioc_drop_reply);
 
         default:
                 ni = lnet_net2ni(data->ioc_net);

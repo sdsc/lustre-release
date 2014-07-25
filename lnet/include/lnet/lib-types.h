@@ -397,6 +397,46 @@ typedef struct lnet_lnd
 #endif
 } lnd_t;
 
+/* dropping 1/10 messages is the lower limit */
+#define LNET_DROP_RATE_MIN	10
+
+struct lnet_drop_rule {
+	/** link chain on the_lnet.ln_drop_rules */
+	struct list_head	dr_link;
+	/**
+	 * source NID of drop rule
+	 * LNET_NID_ANY is wildcard for all sources
+	 * 255.255.255.255@net is wildcard for all addresses from @net
+	 */
+	lnet_nid_t		dr_src;
+	/** destination NID of drop rule, see \a dr_src for details */
+	lnet_nid_t		dr_dst;
+	/**
+	 * timestamp to activate drop rule, 0 means this rule should be
+	 * active immediately
+	 */
+	time_t			dr_start;
+	/** drop rate of this rule */
+	unsigned int		dr_rate;
+	/** lock to protect \a dr_count, \a dr_drop_at and counters */
+	spinlock_t		dr_lock;
+	/** counter of all messages matching this rule */
+	unsigned long		dr_count;
+	/**
+	 * the message sequence to drop, which means message is dropped when
+	 * dr_count == dr_drop_at
+	 */
+	unsigned long		dr_drop_at;
+	/** # dropped LNET_MSG_PUT */
+	__u64			dr_dropped_put;
+	/** # dropped LNET_MSG_ACK */
+	__u64			dr_dropped_ack;
+	/** # dropped LNET_MSG_GET */
+	__u64			dr_dropped_get;
+	/** # dropped LNET_MSG_REPLY */
+	__u64			dr_dropped_reply;
+};
+
 #define LNET_NI_STATUS_UP      0x15aac0de
 #define LNET_NI_STATUS_DOWN    0xdeadface
 #define LNET_NI_STATUS_INVALID 0x00000000
@@ -782,6 +822,7 @@ typedef struct
 	struct lnet_peer_table		**ln_peer_tables;
 	/* failure simulation */
 	struct list_head		ln_test_peers;
+	struct list_head		ln_drop_rules;
 
 	struct list_head		ln_nis;		/* LND instances */
 	/* NIs bond on specific CPT(s) */

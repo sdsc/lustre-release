@@ -840,6 +840,15 @@ char *lnet_msgtyp2str (int type);
 void lnet_print_hdr (lnet_hdr_t * hdr);
 int lnet_fail_nid(lnet_nid_t nid, unsigned int threshold);
 
+int lnet_drop_rule_add(lnet_nid_t src, lnet_nid_t dst, unsigned int rate,
+		       unsigned int delay);
+int lnet_drop_rule_del(lnet_nid_t src, lnet_nid_t dst, bool all);
+int lnet_drop_rule_list(int pos, lnet_nid_t *src, lnet_nid_t *dst,
+			unsigned int *rate, unsigned int *dropped_put,
+			unsigned int *dropped_ack, unsigned int *dropped_get,
+			unsigned int *dropped_reply);
+bool lnet_drop_rule_check(__u32 msg_type, lnet_nid_t src, lnet_nid_t dst);
+
 void lnet_counters_get(lnet_counters_t *counters);
 void lnet_counters_reset(void);
 

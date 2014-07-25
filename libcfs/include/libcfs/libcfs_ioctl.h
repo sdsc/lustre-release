@@ -71,6 +71,14 @@ struct libcfs_ioctl_data {
 
 #define ioc_priority ioc_u32[0]
 
+#define ioc_drop_src		ioc_nid
+#define ioc_drop_dst		ioc_u64[0]
+#define ioc_drop_rate		ioc_u32[0]
+#define ioc_drop_delay		ioc_u32[1]
+#define ioc_drop_put		ioc_u32[2]
+#define ioc_drop_ack		ioc_u32[3]
+#define ioc_drop_get		ioc_u32[4]
+#define ioc_drop_reply		ioc_u32[5]
 
 struct libcfs_ioctl_hdr {
         __u32 ioc_len;
@@ -133,6 +141,10 @@ struct libcfs_ioctl_handler {
 #define IOC_LIBCFS_PING                    _IOWR('e', 61, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_DEBUG_PEER              _IOWR('e', 62, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_LNETST                  _IOWR('e', 63, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DROP_ADD		   _IOWR('e', 64, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DROP_DEL		   _IOWR('e', 65, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DROP_RESET		   _IOWR('e', 66, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_DROP_LIST		   _IOWR('e', 67, IOCTL_LIBCFS_TYPE)
 /* lnd ioctls */
 #define IOC_LIBCFS_REGISTER_MYNID          _IOWR('e', 70, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_CLOSE_CONNECTION        _IOWR('e', 71, IOCTL_LIBCFS_TYPE)

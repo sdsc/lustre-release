@@ -63,6 +63,9 @@ int jt_ptl_print_routes (int argc, char **argv);
 int jt_ptl_fail_nid (int argc, char **argv);
 int jt_ptl_testprotocompat(int argc, char **argv);
 int jt_ptl_memhog(int argc, char **argv);
+int jt_ptl_drop_add(int argc, char **argv);
+int jt_ptl_drop_del(int argc, char **argv);
+int jt_ptl_drop_list(int argc, char **argv);
 
 int dbg_initialize(int argc, char **argv);
 int jt_dbg_filter(int argc, char **argv);

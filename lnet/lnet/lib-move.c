@@ -1921,6 +1921,15 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 		goto drop;
 	}
 
+	if (!list_empty(&the_lnet.ln_drop_rules) &&
+	    lnet_drop_rule_check(type, src_nid, dest_nid)) {
+		CDEBUG(D_NET, "%s, src %s, dst %s: Dropping %s to simulate"
+			      "silent message loss\n",
+		       libcfs_nid2str(from_nid), libcfs_nid2str(src_nid),
+		       libcfs_nid2str(dest_nid), lnet_msgtyp2str(type));
+		goto drop;
+	}
+
         msg = lnet_msg_alloc();
         if (msg == NULL) {
                 CERROR("%s, src %s: Dropping %s (out of memory)\n",
