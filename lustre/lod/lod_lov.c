@@ -1020,8 +1020,12 @@ int lod_verify_striping(struct lod_device *d, const struct lu_buf *buf,
 	 * pool_hashkey_keycmp() */
 	/* coverity[overrun-buffer-val] */
 	pool = lod_find_pool(d, lum3->lmm_pool_name);
-	if (pool == NULL)
-		goto out;
+	if (pool == NULL) {
+		if (lum3->lmm_pool_name != NULL)
+			GOTO(out, rc = -ENXIO);
+		else
+			goto out;
+	}
 
 	if (stripe_offset != (typeof(stripe_offset))-1) {
 		rc = lod_check_index_in_pool(stripe_offset, pool);
