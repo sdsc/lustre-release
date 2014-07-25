@@ -2293,7 +2293,7 @@ test_36() {
 	echo "Copy admin quota files into MDT0..."
 	local mntpt=$(facet_mntpt $SINGLEMDS)
 	local mdt0_fstype=$(facet_fstype $SINGLEMDS)
-	local opt
+	local opt="-o $PLUGIN_DIR"
 	if ! do_node $mdt0_node test -b $mdt0_fstype; then
 		opt="-o loop"
 	fi

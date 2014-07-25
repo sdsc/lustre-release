@@ -75,6 +75,7 @@
 #endif
 
 char *progname;
+char *plugin_dir;
 int verbose = 1;
 int version;
 static int print_only = 0;
@@ -298,6 +299,7 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 		{ "mountfsoptions",	required_argument,	NULL, 'o' },
 		{ "ost",		no_argument,		NULL, 'O' },
 		{ "param",		required_argument,	NULL, 'p' },
+		{ "plugin-dir",		required_argument,	NULL, 'P' },
 		{ "print",		no_argument,		NULL, 'n' },
 		{ "quiet",		no_argument,		NULL, 'q' },
 		{ "quota",		no_argument,		NULL, 'Q' },
@@ -310,11 +312,12 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
 		{ "writeconf",		no_argument,		NULL, 'w' },
 		{ 0,			0,			NULL,  0  }
 	};
-	char *optstring = "b:c:C:d:ef:Ghi:k:L:m:MnNo:Op:PqrRs:t:Uu:vVw";
+	char *optstring = "b:c:C:d:ef:Ghi:k:L:m:MnNo:Op:P:qrRs:t:Uu:vVw";
 	int opt;
 	int rc, longidx;
 	int failnode_set = 0, servicenode_set = 0;
 	int replace = 0;
+	plugin_dir = NULL;
 
         while ((opt = getopt_long(argc, argv, optstring, long_opt, &longidx)) !=
                EOF) {
@@ -472,6 +475,9 @@ int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                         /* Must update the mgs logs */
                         mop->mo_ldd.ldd_flags |= LDD_F_UPDATE;
                         break;
+		case 'P':
+			plugin_dir = optarg;
+			break;
                 case 'q':
                         verbose--;
                         break;
@@ -573,7 +579,11 @@ int main(int argc, char *const argv[])
         /* device is last arg */
         strscpy(mop.mo_device, argv[argc - 1], sizeof(mop.mo_device));
 
-	ret = osd_init();
+	ret = parse_opts(argc, argv, &mop, &mountopts);
+	if (ret || version)
+		goto cleanup;
+
+	ret = osd_init(argv[0]);
 	if (ret)
 		return ret;
 
@@ -617,10 +627,6 @@ int main(int argc, char *const argv[])
 	if (verbose > 0)
 		print_ldd("Read previous values", &(mop.mo_ldd));
 #endif
-
-	ret = parse_opts(argc, argv, &mop, &mountopts);
-	if (ret || version)
-		goto out;
 
         ldd = &mop.mo_ldd;
 
@@ -800,6 +806,7 @@ int main(int argc, char *const argv[])
 
 out:
 	osd_fini();
+cleanup:
 	ret2 = loop_cleanup(&mop);
 	if (ret == 0)
 		ret = ret2;
