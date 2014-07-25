@@ -261,12 +261,12 @@ static
 void gss_sec_ctx_replace_pf(struct gss_sec *gsec,
                             struct ptlrpc_cli_ctx *new)
 {
-        struct gss_sec_pipefs *gsec_pf;
-        struct ptlrpc_cli_ctx *ctx;
-        cfs_hlist_node_t      *pos, *next;
-        CFS_HLIST_HEAD(freelist);
-        unsigned int hash;
-        ENTRY;
+	struct hlist_node __maybe_unused *pos, *next;
+	struct gss_sec_pipefs *gsec_pf;
+	struct ptlrpc_cli_ctx *ctx;
+	HLIST_HEAD(freelist);
+	unsigned int hash;
+	ENTRY;
 
         gsec_pf = container_of(gsec, struct gss_sec_pipefs, gsp_base);
 
@@ -324,11 +324,12 @@ static
 void gss_ctx_cache_gc_pf(struct gss_sec_pipefs *gsec_pf,
                          cfs_hlist_head_t *freelist)
 {
-        struct ptlrpc_sec       *sec;
-        struct ptlrpc_cli_ctx   *ctx;
-        cfs_hlist_node_t        *pos, *next;
-        int i;
-        ENTRY;
+	struct ptlrpc_sec	*sec;
+	struct ptlrpc_cli_ctx	*ctx;
+	struct hlist_node	__maybe_unused *pos;
+	struct hlist_node	*next;
+	int i;
+	ENTRY;
 
         sec = &gsec_pf->gsp_base.gs_base;
 

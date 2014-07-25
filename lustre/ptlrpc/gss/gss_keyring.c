@@ -444,12 +444,12 @@ static void kill_key_locked(struct key *key)
  */
 static void dispose_ctx_list_kr(cfs_hlist_head_t *freelist)
 {
-        cfs_hlist_node_t       *pos, *next;
-        struct ptlrpc_cli_ctx  *ctx;
-        struct gss_cli_ctx     *gctx;
+	struct hlist_node	__maybe_unused *pos, *next;
+	struct ptlrpc_cli_ctx	*ctx;
+	struct gss_cli_ctx	*gctx;
 
-        cfs_hlist_for_each_entry_safe(ctx, pos, next, freelist, cc_cache) {
-                cfs_hlist_del_init(&ctx->cc_cache);
+	cfs_hlist_for_each_entry_safe(ctx, pos, next, freelist, cc_cache) {
+		cfs_hlist_del_init(&ctx->cc_cache);
 
 		/* reverse ctx: update current seq to buddy svcctx if exist.
 		 * ideally this should be done at gss_cli_ctx_finalize(), but
