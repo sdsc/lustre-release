@@ -2091,7 +2091,8 @@ static void check_lfsck_request(void)
 	CHECK_MEMBER(lfsck_request, lr_fid);
 	CHECK_MEMBER(lfsck_request, lr_fid2);
 	CHECK_MEMBER(lfsck_request, lr_fid3);
-	CHECK_MEMBER(lfsck_request, lr_padding_2);
+	CHECK_MEMBER(lfsck_request, lr_stripe_count);
+	CHECK_MEMBER(lfsck_request, lr_hash_type);
 	CHECK_MEMBER(lfsck_request, lr_padding_3);
 
 	CHECK_VALUE_X(LFSCK_TYPE_SCRUB);

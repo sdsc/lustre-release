@@ -62,8 +62,8 @@ lfsck_namespace_assistant_req_init(struct lfsck_instance *lfsck,
 		return ERR_PTR(-ENOMEM);
 
 	INIT_LIST_HEAD(&lnr->lnr_lar.lar_list);
-	lu_object_get(&lfsck->li_obj_dir->do_lu);
-	lnr->lnr_obj = lfsck->li_obj_dir;
+	lnr->lnr_obj = lfsck_object_get(lfsck->li_obj_dir);
+	lnr->lnr_lmv = lfsck_lmv_get(lfsck->li_lmv);
 	lnr->lnr_fid = ent->lde_fid;
 	lnr->lnr_oit_cookie = lfsck->li_pos_current.lp_oit_cookie;
 	lnr->lnr_dir_cookie = ent->lde_hash;
@@ -81,6 +81,9 @@ static void lfsck_namespace_assistant_req_fini(const struct lu_env *env,
 {
 	struct lfsck_namespace_req *lnr =
 			container_of0(lar, struct lfsck_namespace_req, lnr_lar);
+
+	if (lnr->lnr_lmv != NULL)
+		lfsck_lmv_put(env, lnr->lnr_lmv);
 
 	lu_object_put(env, &lnr->lnr_obj->do_lu);
 	OBD_FREE(lnr, lnr->lnr_size);
@@ -129,6 +132,25 @@ static void lfsck_namespace_le_to_cpu(struct lfsck_namespace *dst,
 	dst->ln_bad_type_repaired = le64_to_cpu(src->ln_bad_type_repaired);
 	dst->ln_lost_dirent_repaired =
 				le64_to_cpu(src->ln_lost_dirent_repaired);
+	dst->ln_striped_dirs_scanned =
+				le64_to_cpu(src->ln_striped_dirs_scanned);
+	dst->ln_striped_dirs_repaired =
+				le64_to_cpu(src->ln_striped_dirs_repaired);
+	dst->ln_striped_dirs_failed =
+				le64_to_cpu(src->ln_striped_dirs_failed);
+	dst->ln_striped_dirs_disabled =
+				le64_to_cpu(src->ln_striped_dirs_disabled);
+	dst->ln_striped_dirs_skipped =
+				le64_to_cpu(src->ln_striped_dirs_skipped);
+	dst->ln_striped_shards_scanned =
+				le64_to_cpu(src->ln_striped_shards_scanned);
+	dst->ln_striped_shards_repaired =
+				le64_to_cpu(src->ln_striped_shards_repaired);
+	dst->ln_striped_shards_failed =
+				le64_to_cpu(src->ln_striped_shards_failed);
+	dst->ln_striped_shards_skipped =
+				le64_to_cpu(src->ln_striped_shards_skipped);
+	dst->ln_namehash_repaired = le64_to_cpu(src->ln_namehash_repaired);
 	dst->ln_local_lpf_scanned = le64_to_cpu(src->ln_local_lpf_scanned);
 	dst->ln_local_lpf_moved = le64_to_cpu(src->ln_local_lpf_moved);
 	dst->ln_local_lpf_skipped = le64_to_cpu(src->ln_local_lpf_skipped);
@@ -179,6 +201,25 @@ static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *dst,
 	dst->ln_bad_type_repaired = cpu_to_le64(src->ln_bad_type_repaired);
 	dst->ln_lost_dirent_repaired =
 				cpu_to_le64(src->ln_lost_dirent_repaired);
+	dst->ln_striped_dirs_scanned =
+				cpu_to_le64(src->ln_striped_dirs_scanned);
+	dst->ln_striped_dirs_repaired =
+				cpu_to_le64(src->ln_striped_dirs_repaired);
+	dst->ln_striped_dirs_failed =
+				cpu_to_le64(src->ln_striped_dirs_failed);
+	dst->ln_striped_dirs_disabled =
+				cpu_to_le64(src->ln_striped_dirs_disabled);
+	dst->ln_striped_dirs_skipped =
+				cpu_to_le64(src->ln_striped_dirs_skipped);
+	dst->ln_striped_shards_scanned =
+				cpu_to_le64(src->ln_striped_shards_scanned);
+	dst->ln_striped_shards_repaired =
+				cpu_to_le64(src->ln_striped_shards_repaired);
+	dst->ln_striped_shards_failed =
+				cpu_to_le64(src->ln_striped_shards_failed);
+	dst->ln_striped_shards_skipped =
+				cpu_to_le64(src->ln_striped_shards_skipped);
+	dst->ln_namehash_repaired = cpu_to_le64(src->ln_namehash_repaired);
 	dst->ln_local_lpf_scanned = cpu_to_le64(src->ln_local_lpf_scanned);
 	dst->ln_local_lpf_moved = cpu_to_le64(src->ln_local_lpf_moved);
 	dst->ln_local_lpf_skipped = cpu_to_le64(src->ln_local_lpf_skipped);
@@ -744,6 +785,8 @@ static int lfsck_namespace_filter_linkea_entry(struct linkea_data *ldata,
  *  type "O":		The MDT-object has no linkEA, and there is no name
  *			entry that references the MDT-object.
  *
+ *  type "S":		The orphan MDT-object is a shard of a striped directory
+ *
  * \see lfsck_layout_recreate_parent() for more types.
  *
  * The orphan name will be like:
@@ -1103,6 +1146,7 @@ log:
  * \param[in] com	pointer to the lfsck component
  * \param[in] orphan	pointer to the orphan MDT-object
  * \param[in] type	the orphan's type to be created
+ * \param[in] lmv	pointer to master LMV EA that will be set to the orphan
  *
  * \retval		positive number for repaired cases
  * \retval		0 if needs to repair nothing
@@ -1111,7 +1155,8 @@ log:
 static int lfsck_namespace_create_orphan_remote(const struct lu_env *env,
 						struct lfsck_component *com,
 						struct dt_object *orphan,
-						__u32 type)
+						__u32 type,
+						struct lmv_mds_md_v1 *lmv)
 {
 	struct lfsck_thread_info	*info	= lfsck_env_info(env);
 	struct lfsck_request		*lr	= &info->lti_lr;
@@ -1160,6 +1205,12 @@ static int lfsck_namespace_create_orphan_remote(const struct lu_env *env,
 	lr->lr_active = LFSCK_TYPE_NAMESPACE;
 	lr->lr_fid = *fid;
 	lr->lr_type = type;
+	if (lmv != NULL) {
+		lr->lr_hash_type = lmv->lmv_hash_type;
+		lr->lr_stripe_count = lmv->lmv_stripe_count;
+		lr->lr_layout_version = lmv->lmv_layout_version;
+		memcpy(lr->lr_pool_name, lmv->lmv_pool_name, LOV_MAXPOOLNAME);
+	}
 
 	ptlrpc_request_set_replen(req);
 	rc = ptlrpc_queue_wait(req);
@@ -1198,6 +1249,7 @@ out:
  * \param[in] com	pointer to the lfsck component
  * \param[in] orphan	pointer to the orphan MDT-object to be created
  * \param[in] type	the orphan's type to be created
+ * \param[in] lmv	pointer to master LMV EA that will be set to the orphan
  *
  * \retval		positive number for repaired cases
  * \retval		negative error number on failure
@@ -1205,7 +1257,8 @@ out:
 static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 					       struct lfsck_component *com,
 					       struct dt_object *orphan,
-					       __u32 type)
+					       __u32 type,
+					       struct lmv_mds_md_v1 *lmv)
 {
 	struct lfsck_thread_info	*info	= lfsck_env_info(env);
 	struct lu_attr			*la	= &info->lti_la;
@@ -1214,6 +1267,7 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	struct lu_name			*cname	= &info->lti_name2;
 	struct dt_insert_rec		*rec	= &info->lti_dt_rec;
 	struct lu_fid			*tfid	= &info->lti_fid;
+	struct lmv_mds_md_v1		*lmv2	= &info->lti_lmv2;
 	const struct lu_fid		*cfid	= lfsck_dto2fid(orphan);
 	const struct lu_fid		*pfid;
 	struct lfsck_instance		*lfsck	= com->lc_lfsck;
@@ -1224,6 +1278,7 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	struct lustre_handle		 lh	= { 0 };
 	struct linkea_data		 ldata	= { 0 };
 	struct lu_buf			 linkea_buf;
+	struct lu_buf			 lmv_buf;
 	char				 name[32];
 	int				 namelen;
 	int				 idx	= 0;
@@ -1301,6 +1356,17 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
+	if (lmv != NULL) {
+		lmv->lmv_magic = LMV_MAGIC;
+		lmv->lmv_master_mdt_index = lfsck_dev_idx(dev);
+		lfsck_lmv_header_cpu_to_le(lmv2, lmv);
+		lfsck_buf_init(&lmv_buf, lmv2, sizeof(*lmv2));
+		rc = dt_declare_xattr_set(env, child, &lmv_buf,
+					  XATTR_NAME_LMV, 0, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
 	lfsck_buf_init(&linkea_buf, ldata.ld_buf->lb_buf,
 		       ldata.ld_leh->leh_len);
 	rc = dt_declare_xattr_set(env, child, &linkea_buf,
@@ -1346,6 +1412,13 @@ static int lfsck_namespace_create_orphan_local(const struct lu_env *env,
 			GOTO(unlock2, rc);
 
 		rc = dt_ref_add(env, child, th);
+		if (rc != 0)
+			GOTO(unlock2, rc);
+	}
+
+	if (lmv != NULL) {
+		rc = dt_xattr_set(env, child, &lmv_buf, XATTR_NAME_LMV, 0,
+				  th, BYPASS_CAPA);
 		if (rc != 0)
 			GOTO(unlock2, rc);
 	}
@@ -1402,6 +1475,7 @@ log:
  * \param[in] env	pointer to the thread context
  * \param[in] com	pointer to the lfsck component
  * \param[in] orphan	pointer to the orphan MDT-object
+ * \param[in] lmv	pointer to master LMV EA that will be set to the orphan
  *
  * \retval		positive number for repaired cases
  * \retval		0 if needs to repair nothing
@@ -1409,17 +1483,18 @@ log:
  */
 static int lfsck_namespace_create_orphan(const struct lu_env *env,
 					 struct lfsck_component *com,
-					 struct dt_object *orphan)
+					 struct dt_object *orphan,
+					 struct lmv_mds_md_v1 *lmv)
 {
 	struct lfsck_namespace *ns = com->lc_file_ram;
 	int			rc;
 
 	if (dt_object_remote(orphan))
 		rc = lfsck_namespace_create_orphan_remote(env, com, orphan,
-							  S_IFDIR);
+							  S_IFDIR, lmv);
 	else
 		rc = lfsck_namespace_create_orphan_local(env, com, orphan,
-							 S_IFDIR);
+							 S_IFDIR, lmv);
 
 	if (rc != 0)
 		ns->ln_flags |= LF_INCONSISTENT;
@@ -2346,6 +2421,7 @@ static int lfsck_namespace_double_scan_dir(const struct lu_env *env,
 	const struct lu_fid	 *cfid		= lfsck_dto2fid(child);
 	struct lu_fid		 *pfid		= &info->lti_fid2;
 	struct lu_fid		 *tfid		= &info->lti_fid3;
+	struct lmv_mds_md_v1	 *lmv;
 	struct lfsck_namespace	 *ns		= com->lc_file_ram;
 	struct lfsck_instance	 *lfsck		= com->lc_lfsck;
 	struct lfsck_bookmark	 *bk		= &lfsck->li_bookmark_ram;
@@ -2548,8 +2624,40 @@ orphan2:
 			}
 
 lost_parent:
+			lmv = &info->lti_lmv;
+			rc = lfsck_read_stripe_lmv(env, child, lmv);
+			if (rc != 0 && rc != -ENODATA) {
+				lfsck_object_put(env, parent);
+
+				GOTO(out, rc);
+			}
+
+			if (rc == -ENODATA ||
+			    lmv->lmv_magic != LMV_MAGIC_STRIPE) {
+				lmv = NULL;
+			} else if (lfsck_is_valid_master_name_entry(env,
+					cname->ln_name, cname->ln_namelen,
+					S_IFDIR, cfid) < 0) {
+				/* It is an invalid name entry, we
+				 * cannot trust the parent also. */
+				rc = lfsck_namespace_shrink_linkea(env, com,
+					child, &ldata, cname, tfid, true);
+				lfsck_object_put(env, parent);
+				if (rc < 0)
+					GOTO(out, rc);
+
+				snprintf(info->lti_tmpbuf,
+					 sizeof(info->lti_tmpbuf), "-"DFID,
+					 PFID(pfid));
+				rc = lfsck_namespace_insert_orphan(env, com,
+					child, info->lti_tmpbuf, "S", NULL);
+
+				GOTO(out, rc);
+			}
+
 			/* Create the lost parent as an orphan. */
-			rc = lfsck_namespace_create_orphan(env, com, parent);
+			rc = lfsck_namespace_create_orphan(env, com,
+							   parent, lmv);
 			if (rc >= 0) {
 				/* Add the missed name entry to the parent. */
 				rc = lfsck_namespace_insert_normal(env, com,
@@ -2605,6 +2713,29 @@ lost_parent:
 			}
 
 			lfsck_ibits_unlock(&lh, LCK_EX);
+			rc = lfsck_namespace_check_name_validation(env, parent,
+								child, cname);
+			if (rc == -ENOENT)
+				goto lost_parent;
+
+			if (rc < 0) {
+				lfsck_object_put(env, parent);
+
+				GOTO(out, rc);
+			}
+
+			/* It is an invalid name entry, drop it. */
+			if (unlikely(rc > 0)) {
+				rc = lfsck_namespace_shrink_linkea(env,
+							com, child, &ldata,
+							cname, tfid, true);
+				lfsck_object_put(env, parent);
+				if (rc >= 0)
+					goto orphan2;
+
+				GOTO(out, rc);
+			}
+
 			/* Add the missed name entry back to the namespace. */
 			rc = lfsck_namespace_insert_normal(env, com, parent,
 							child, cname->ln_name);
@@ -3065,7 +3196,7 @@ lost_parent:
 
 				/* Create the lost parent as an orphan. */
 				rc = lfsck_namespace_create_orphan(env, com,
-								   parent);
+								parent, NULL);
 				if (rc < 0) {
 					lfsck_object_put(env, parent);
 
@@ -3194,6 +3325,31 @@ lost_parent:
 			lfsck_object_put(env, parent);
 
 			GOTO(out, rc = 0);
+		}
+
+		rc = lfsck_namespace_check_name_validation(env, parent,
+							   child, cname);
+		if (rc == -ENOENT)
+			goto lost_parent;
+
+		if (rc < 0) {
+			lfsck_object_put(env, parent);
+
+			GOTO(out, rc);
+		}
+
+		/* It is an invalid name entry, drop it. */
+		if (unlikely(rc > 0)) {
+			lfsck_object_put(env, parent);
+			rc = lfsck_namespace_shrink_linkea(env, com, child,
+						&ldata, cname, pfid, true);
+			if (rc < 0)
+				GOTO(out, rc);
+
+			if (rc > 0)
+				repaired = true;
+
+			continue;
 		}
 
 		/* Add the missed name entry back to the namespace. */
@@ -3376,6 +3532,94 @@ lfsck_namespace_fail(const struct lu_env *env, struct lfsck_component *com,
 	up_write(&com->lc_sem);
 }
 
+static void lfsck_namespace_close_dir(const struct lu_env *env,
+				      struct lfsck_component *com)
+{
+	struct lfsck_namespace		*ns	= com->lc_file_ram;
+	struct lfsck_assistant_data	*lad	= com->lc_data;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct lfsck_lmv		*llmv	= lfsck->li_lmv;
+	struct lfsck_namespace_req	*lnr;
+	__u32				 size	=
+				sizeof(*lnr) + LFSCK_TMPBUF_LEN;
+	bool				 wakeup	= false;
+	ENTRY;
+
+	if (llmv == NULL)
+		RETURN_EXIT;
+
+	OBD_ALLOC(lnr, size);
+	if (lnr == NULL) {
+		down_write(&com->lc_sem);
+		ns->ln_striped_dirs_skipped++;
+		up_write(&com->lc_sem);
+
+		RETURN_EXIT;
+	}
+
+	/* Generate a dummy request to indicate that all shards' name entry
+	 * in this striped directory has been scanned for the first time. */
+	INIT_LIST_HEAD(&lnr->lnr_lar.lar_list);
+	lnr->lnr_obj = lfsck_object_get(lfsck->li_obj_dir);
+	lnr->lnr_lmv = lfsck_lmv_get(llmv);
+	lnr->lnr_fid = *lfsck_dto2fid(lfsck->li_obj_dir);
+	lnr->lnr_oit_cookie = lfsck->li_pos_current.lp_oit_cookie;
+	lnr->lnr_dir_cookie = MDS_DIR_END_OFF;
+	lnr->lnr_size = size;
+
+	spin_lock(&lad->lad_lock);
+	if (lad->lad_assistant_status < 0) {
+		spin_unlock(&lad->lad_lock);
+		lfsck_namespace_assistant_req_fini(env, &lnr->lnr_lar);
+		down_write(&com->lc_sem);
+		ns->ln_striped_dirs_skipped++;
+		up_write(&com->lc_sem);
+
+		RETURN_EXIT;
+	}
+
+	list_add_tail(&lnr->lnr_lar.lar_list, &lad->lad_req_list);
+	if (lad->lad_prefetched == 0)
+		wakeup = true;
+
+	lad->lad_prefetched++;
+	spin_unlock(&lad->lad_lock);
+	if (wakeup)
+		wake_up_all(&lad->lad_thread.t_ctl_waitq);
+
+	EXIT;
+}
+
+static int lfsck_namespace_open_dir(const struct lu_env *env,
+				    struct lfsck_component *com)
+{
+	struct lfsck_instance	*lfsck	= com->lc_lfsck;
+	struct lfsck_namespace	*ns	= com->lc_file_ram;
+	struct lfsck_lmv	*llmv	= lfsck->li_lmv;
+	int			 rc	= 0;
+	ENTRY;
+
+	if (llmv == NULL)
+		RETURN(0);
+
+	if (llmv->ll_lmv_master) {
+		struct lmv_mds_md_v1 *lmv = &llmv->ll_lmv;
+
+		if (lmv->lmv_master_mdt_index !=
+		    lfsck_dev_idx(lfsck->li_bottom)) {
+			lmv->lmv_master_mdt_index =
+				lfsck_dev_idx(lfsck->li_bottom);
+			ns->ln_flags |= LF_INCONSISTENT;
+			llmv->ll_lmv_updated = 1;
+		}
+	} else {
+		rc = lfsck_namespace_verify_stripe_slave(env, com,
+					lfsck->li_obj_dir, llmv);
+	}
+
+	RETURN(rc > 0 ? 0 : rc);
+}
+
 static int lfsck_namespace_checkpoint(const struct lu_env *env,
 				      struct lfsck_component *com, bool init)
 {
@@ -3472,6 +3716,16 @@ static int lfsck_namespace_prep(const struct lu_env *env,
 			ns->ln_mul_ref_repaired = 0;
 			ns->ln_bad_type_repaired = 0;
 			ns->ln_lost_dirent_repaired = 0;
+			ns->ln_striped_dirs_scanned = 0;
+			ns->ln_striped_dirs_repaired = 0;
+			ns->ln_striped_dirs_failed = 0;
+			ns->ln_striped_dirs_disabled = 0;
+			ns->ln_striped_dirs_skipped = 0;
+			ns->ln_striped_shards_scanned = 0;
+			ns->ln_striped_shards_repaired = 0;
+			ns->ln_striped_shards_failed = 0;
+			ns->ln_striped_shards_skipped = 0;
+			ns->ln_namehash_repaired = 0;
 			fid_zero(&ns->ln_fid_latest_scanned_phase2);
 			if (list_empty(&com->lc_link_dir))
 				list_add_tail(&com->lc_link_dir,
@@ -3794,6 +4048,16 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "multi_referenced_repaired: "LPU64"\n"
 			      "bad_file_type_repaired: "LPU64"\n"
 			      "lost_dirent_repaired: "LPU64"\n"
+			      "striped_dirs_scanned: "LPU64"\n"
+			      "striped_dirs_repaired: "LPU64"\n"
+			      "striped_dirs_failed: "LPU64"\n"
+			      "striped_dirs_disabled: "LPU64"\n"
+			      "striped_dirs_skipped: "LPU64"\n"
+			      "striped_shards_scanned: "LPU64"\n"
+			      "striped_shards_repaired: "LPU64"\n"
+			      "striped_shards_failed: "LPU64"\n"
+			      "striped_shards_skipped: "LPU64"\n"
+			      "name_hash_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "mul_linked_repaired: "LPU64"\n"
 			      "local_lost_found_scanned: "LPU64"\n"
@@ -3823,6 +4087,16 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_mul_ref_repaired,
 			      ns->ln_bad_type_repaired,
 			      ns->ln_lost_dirent_repaired,
+			      ns->ln_striped_dirs_scanned,
+			      ns->ln_striped_dirs_repaired,
+			      ns->ln_striped_dirs_failed,
+			      ns->ln_striped_dirs_disabled,
+			      ns->ln_striped_dirs_skipped,
+			      ns->ln_striped_shards_scanned,
+			      ns->ln_striped_shards_repaired,
+			      ns->ln_striped_shards_failed,
+			      ns->ln_striped_shards_skipped,
+			      ns->ln_namehash_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_mul_linked_repaired,
 			      ns->ln_local_lpf_scanned,
@@ -3896,6 +4170,16 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "multi_referenced_repaired: "LPU64"\n"
 			      "bad_file_type_repaired: "LPU64"\n"
 			      "lost_dirent_repaired: "LPU64"\n"
+			      "striped_dirs_scanned: "LPU64"\n"
+			      "striped_dirs_repaired: "LPU64"\n"
+			      "striped_dirs_failed: "LPU64"\n"
+			      "striped_dirs_disabled: "LPU64"\n"
+			      "striped_dirs_skipped: "LPU64"\n"
+			      "striped_shards_scanned: "LPU64"\n"
+			      "striped_shards_repaired: "LPU64"\n"
+			      "striped_shards_failed: "LPU64"\n"
+			      "striped_shards_skipped: "LPU64"\n"
+			      "name_hash_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "mul_linked_repaired: "LPU64"\n"
 			      "local_lost_found_scanned: "LPU64"\n"
@@ -3926,6 +4210,16 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_mul_ref_repaired,
 			      ns->ln_bad_type_repaired,
 			      ns->ln_lost_dirent_repaired,
+			      ns->ln_striped_dirs_scanned,
+			      ns->ln_striped_dirs_repaired,
+			      ns->ln_striped_dirs_failed,
+			      ns->ln_striped_dirs_disabled,
+			      ns->ln_striped_dirs_skipped,
+			      ns->ln_striped_shards_scanned,
+			      ns->ln_striped_shards_repaired,
+			      ns->ln_striped_shards_failed,
+			      ns->ln_striped_shards_skipped,
+			      ns->ln_namehash_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_mul_linked_repaired,
 			      ns->ln_local_lpf_scanned,
@@ -3963,6 +4257,16 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      "multi_referenced_repaired: "LPU64"\n"
 			      "bad_file_type_repaired: "LPU64"\n"
 			      "lost_dirent_repaired: "LPU64"\n"
+			      "striped_dirs_scanned: "LPU64"\n"
+			      "striped_dirs_repaired: "LPU64"\n"
+			      "striped_dirs_failed: "LPU64"\n"
+			      "striped_dirs_disabled: "LPU64"\n"
+			      "striped_dirs_skipped: "LPU64"\n"
+			      "striped_shards_scanned: "LPU64"\n"
+			      "striped_shards_repaired: "LPU64"\n"
+			      "striped_shards_failed: "LPU64"\n"
+			      "striped_shards_skipped: "LPU64"\n"
+			      "name_hash_repaired: "LPU64"\n"
 			      "nlinks_repaired: "LPU64"\n"
 			      "mul_linked_repaired: "LPU64"\n"
 			      "local_lost_found_scanned: "LPU64"\n"
@@ -3993,6 +4297,16 @@ lfsck_namespace_dump(const struct lu_env *env, struct lfsck_component *com,
 			      ns->ln_mul_ref_repaired,
 			      ns->ln_bad_type_repaired,
 			      ns->ln_lost_dirent_repaired,
+			      ns->ln_striped_dirs_scanned,
+			      ns->ln_striped_dirs_repaired,
+			      ns->ln_striped_dirs_failed,
+			      ns->ln_striped_dirs_disabled,
+			      ns->ln_striped_dirs_skipped,
+			      ns->ln_striped_shards_scanned,
+			      ns->ln_striped_shards_repaired,
+			      ns->ln_striped_shards_failed,
+			      ns->ln_striped_shards_skipped,
+			      ns->ln_namehash_repaired,
 			      ns->ln_objs_nlink_repaired,
 			      ns->ln_mul_linked_repaired,
 			      ns->ln_local_lpf_scanned,
@@ -4069,6 +4383,7 @@ static int lfsck_namespace_in_notify(const struct lu_env *env,
 	switch (lr->lr_event) {
 	case LE_CREATE_ORPHAN: {
 		struct dt_object *orphan = NULL;
+		struct lmv_mds_md_v1 *lmv;
 
 		CDEBUG(D_LFSCK, "%s: namespace LFSCK handling notify from "
 		       "MDT %x to create orphan"DFID" with type %o\n",
@@ -4082,8 +4397,20 @@ static int lfsck_namespace_in_notify(const struct lu_env *env,
 		if (dt_object_exists(orphan))
 			GOTO(out_create, rc = -EEXIST);
 
+		if (lr->lr_stripe_count > 0) {
+			lmv = &lfsck_env_info(env)->lti_lmv;
+			memset(lmv, 0, sizeof(*lmv));
+			lmv->lmv_hash_type = lr->lr_hash_type;
+			lmv->lmv_stripe_count = lr->lr_stripe_count;
+			lmv->lmv_layout_version = lr->lr_layout_version;
+			memcpy(lmv->lmv_pool_name, lr->lr_pool_name,
+			       LOV_MAXPOOLNAME);
+		} else {
+			lmv = NULL;
+		}
+
 		rc = lfsck_namespace_create_orphan_local(env, com, orphan,
-							 lr->lr_type);
+							 lr->lr_type, lmv);
 
 		GOTO(out_create, rc = (rc == 1) ? 0 : rc);
 
@@ -4253,6 +4580,8 @@ static int lfsck_namespace_query(const struct lu_env *env,
 static struct lfsck_operations lfsck_namespace_ops = {
 	.lfsck_reset		= lfsck_namespace_reset,
 	.lfsck_fail		= lfsck_namespace_fail,
+	.lfsck_close_dir	= lfsck_namespace_close_dir,
+	.lfsck_open_dir		= lfsck_namespace_open_dir,
 	.lfsck_checkpoint	= lfsck_namespace_checkpoint,
 	.lfsck_prep		= lfsck_namespace_prep,
 	.lfsck_exec_oit		= lfsck_namespace_exec_oit,
@@ -4300,11 +4629,13 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 	struct dt_allocation_hint	*hint	= &info->lti_hint;
 	struct dt_object_format		*dof	= &info->lti_dof;
 	struct dt_insert_rec		*rec	= &info->lti_dt_rec;
+	struct lmv_mds_md_v1		*lmv2	= &info->lti_lmv2;
 	struct dt_object		*parent	= lnr->lnr_obj;
 	const struct lu_name		*cname;
 	struct linkea_data		 ldata	= { 0 };
 	struct lustre_handle		 lh     = { 0 };
 	struct lu_buf			 linkea_buf;
+	struct lu_buf			 lmv_buf;
 	struct lfsck_instance		*lfsck	= com->lc_lfsck;
 	struct lfsck_bookmark		*bk	= &lfsck->li_bookmark_ram;
 	struct dt_device		*dev	= lfsck_obj2dt_dev(child);
@@ -4393,9 +4724,31 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 		rc = dt_declare_ref_add(env, child, th);
 		if (rc != 0)
 			GOTO(stop, rc);
+
+		/* 5a. generate slave LMV EA. */
+		if (lnr->lnr_lmv != NULL && lnr->lnr_lmv->ll_lmv_master) {
+			int idx;
+
+			idx = lfsck_is_valid_master_name_entry(env,
+					lnr->lnr_name, lnr->lnr_namelen,
+					type, lfsck_dto2fid(child));
+			if (unlikely(idx < 0))
+				GOTO(stop, rc = idx);
+
+			*lmv2 = lnr->lnr_lmv->ll_lmv;
+			lmv2->lmv_magic = LMV_MAGIC_STRIPE;
+			lmv2->lmv_master_mdt_index = idx;
+
+			lfsck_lmv_header_cpu_to_le(lmv2, lmv2);
+			lfsck_buf_init(&lmv_buf, lmv2, sizeof(*lmv2));
+			rc = dt_declare_xattr_set(env, child, &lmv_buf,
+						  XATTR_NAME_LMV, 0, th);
+			if (rc != 0)
+				GOTO(stop, rc);
+		}
 	}
 
-	/* 5a. insert linkEA for child */
+	/* 6a. insert linkEA for child */
 	lfsck_buf_init(&linkea_buf, ldata.ld_buf->lb_buf,
 		       ldata.ld_leh->leh_len);
 	rc = dt_declare_xattr_set(env, child, &linkea_buf,
@@ -4437,9 +4790,17 @@ int lfsck_namespace_repair_dangling(const struct lu_env *env,
 		rc = dt_ref_add(env, child, th);
 		if (rc != 0)
 			GOTO(unlock, rc);
+
+		/* 5b. generate slave LMV EA. */
+		if (lnr->lnr_lmv != NULL && lnr->lnr_lmv->ll_lmv_master) {
+			rc = dt_xattr_set(env, child, &lmv_buf, XATTR_NAME_LMV,
+					  0, th, BYPASS_CAPA);
+			if (rc != 0)
+				GOTO(unlock, rc);
+		}
 	}
 
-	/* 5b. insert linkEA for child. */
+	/* 6b. insert linkEA for child. */
 	rc = dt_xattr_set(env, child, &linkea_buf,
 			  XATTR_NAME_LINK, 0, th, BYPASS_CAPA);
 
@@ -4569,6 +4930,13 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 dangling:
 		rc = lfsck_namespace_check_exist(env, dir, obj, lnr->lnr_name);
 		if (rc == 0) {
+			if (!lfsck_is_valid_slave_name_entry(env, lnr->lnr_lmv,
+					lnr->lnr_name, lnr->lnr_namelen)) {
+				type = LNIT_BAD_DIRENT;
+
+				GOTO(out, rc);
+			}
+
 			type = LNIT_DANGLING;
 			rc = lfsck_namespace_repair_dangling(env, com,
 							     obj, lnr);
@@ -4640,6 +5008,16 @@ again:
 		}
 
 		ns->ln_flags |= LF_INCONSISTENT;
+
+		/* If the name entry hash does not match the slave striped
+		 * directory, and the name entry does not match also, then
+		 * it is quite possible that name entry is corrupted. */
+		if (!lfsck_is_valid_slave_name_entry(env, lnr->lnr_lmv,
+					lnr->lnr_name, lnr->lnr_namelen)) {
+			type = LNIT_BAD_DIRENT;
+
+			GOTO(stop, rc = 0);
+		}
 
 		/* If the file type stored in the name entry does not match
 		 * the file type claimed by the object, and the object does
@@ -5132,9 +5510,7 @@ static void lfsck_namespace_scan_local_lpf(const struct lu_env *env,
 		}
 
 		/* skip dot and dotdot entries */
-		if (ent->lde_name[0] == '.' &&
-		    (ent->lde_namelen == 1 ||
-		     (ent->lde_namelen == 2 && ent->lde_name[1] == '.')))
+		if (name_is_dot_dotdot(ent->lde_name, ent->lde_namelen))
 			goto next;
 
 		if (!fid_seq_in_fldb(fid_seq(&ent->lde_fid)))
@@ -5253,7 +5629,7 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 			goto checkpoint;
 		}
 
-		target = lfsck_object_find(env, lfsck, &fid);
+		target = lfsck_object_find_by_dev(env, lfsck->li_bottom, &fid);
 		if (IS_ERR(target)) {
 			rc = PTR_ERR(target);
 			goto checkpoint;
