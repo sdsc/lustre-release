@@ -1857,24 +1857,36 @@ int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld)
         CDEBUG(D_MGC, "Process log %s:%p from %d\n", cld->cld_logname,
                cld->cld_cfg.cfg_instance, cld->cld_cfg.cfg_last_idx + 1);
 
-        /* Get the cfg lock on the llog */
-        rcl = mgc_enqueue(mgc->u.cli.cl_mgc_mgsexp, NULL, LDLM_PLAIN, NULL,
-                          LCK_CR, &flags, NULL, NULL, NULL,
-                          cld, 0, NULL, &lockh);
-        if (rcl == 0) {
-                /* Get the cld, it will be released in mgc_blocking_ast. */
-                config_log_get(cld);
-                rc = ldlm_lock_set_data(&lockh, (void *)cld);
-                LASSERT(rc == 0);
-        } else {
-                CDEBUG(D_MGC, "Can't get cfg lock: %d\n", rcl);
+retry:
+	/* Get the cfg lock on the llog */
+	rcl = mgc_enqueue(mgc->u.cli.cl_mgc_mgsexp, NULL, LDLM_PLAIN, NULL,
+			  LCK_CR, &flags, NULL, NULL, NULL,
+			  cld, 0, NULL, &lockh);
+	if (rcl == 0) {
+		/* Get the cld, it will be released in mgc_blocking_ast. */
+		config_log_get(cld);
+		rc = ldlm_lock_set_data(&lockh, (void *)cld);
+		LASSERT(rc == 0);
+	} else {
+		CDEBUG(D_MGC, "Can't get cfg lock: %d\n", rcl);
 
-                /* mark cld_lostlock so that it will requeue
-                 * after MGC becomes available. */
-                cld->cld_lostlock = 1;
-                /* Get extra reference, it will be put in requeue thread */
-                config_log_get(cld);
-        }
+		/* Since mgc import is not fully replayable, so if the import
+		 * is being evicted (rcl == -ESHUTDOWN, \see
+		 * ptlrpc_import_delay_req), it should retry until the recovery
+		 * is finished or the import is closed. */
+		if (rcl == -ESHUTDOWN) {
+			struct obd_import *imp;
+
+			imp = class_exp2cliimp(mgc->u.cli.cl_mgc_mgsexp);
+			ptlrpc_reconnect_import(imp);
+			goto retry;
+		}
+		/* mark cld_lostlock so that it will requeue
+		 * after MGC becomes available. */
+		cld->cld_lostlock = 1;
+		/* Get extra reference, it will be put in requeue thread */
+		config_log_get(cld);
+	}
 
 
         if (cld_is_recover(cld)) {
