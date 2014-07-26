@@ -2906,6 +2906,7 @@ int lfsck_in_notify(const struct lu_env *env, struct dt_device *key,
 	case LE_CREATE_ORPHAN:
 	case LE_SKIP_NLINK_DECLARE:
 	case LE_SKIP_NLINK:
+	case LE_SET_LMV_MASTER:
 	case LE_PAIRS_VERIFY: {
 		struct lfsck_instance  *lfsck;
 		struct lfsck_component *com;
