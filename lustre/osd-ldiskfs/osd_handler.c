@@ -5409,7 +5409,6 @@ static inline int osd_it_ea_rec(const struct lu_env *env,
 	ENTRY;
 
 	if (attr & LUDA_VERIFY) {
-		attr |= LUDA_TYPE;
 		if (unlikely(ino == osd_sb(dev)->s_root->d_inode->i_ino)) {
 			attr |= LUDA_IGNORE;
 			rc = 0;
