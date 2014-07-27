@@ -4499,6 +4499,27 @@ log:
 
 		return 0;
 	}
+	case LE_SET_LMV_MASTER: {
+		struct lmv_mds_md_v1	*lmv = &lfsck_env_info(env)->lti_lmv;
+		struct dt_object	*obj;
+
+		obj = lfsck_object_find_by_dev(env, lfsck->li_bottom,
+					       &lr->lr_fid);
+		if (IS_ERR(obj))
+			RETURN(PTR_ERR(obj));
+
+		memset(lmv, 0, sizeof(*lmv));
+		lmv->lmv_stripe_count = lr->lr_stripe_count;
+		lmv->lmv_hash_type = lr->lr_hash_type;
+		lmv->lmv_layout_version = lr->lr_layout_version;
+		memcpy(lmv->lmv_pool_name, lr->lr_pool_name, LOV_MAXPOOLNAME);
+
+		rc = lfsck_namespace_set_lmv_master_local(env, com, obj, lmv,
+				&lr->lr_fid2, lr->lr_index2, lr->lr_flags);
+		lfsck_object_put(env, obj);
+
+		RETURN(rc > 0 ? 0 : rc);
+	}
 	case LE_PHASE1_DONE:
 	case LE_PHASE2_DONE:
 	case LE_PEER_EXIT:
@@ -4863,6 +4884,7 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 	bool			    remove;
 	bool			    newdata;
 	bool			    log      = false;
+	bool			    bad_hash = false;
 	int			    idx      = 0;
 	int			    count    = 0;
 	int			    rc;
@@ -4887,6 +4909,12 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 						LNTF_CHECK_PARENT, true);
 
 		GOTO(out, rc);
+	}
+
+	if (unlikely(lnr->lnr_dir_cookie == MDS_DIR_END_OFF)) {
+		rc = lfsck_namespace_striped_dir_scanned(env, com, lnr);
+
+		RETURN(rc);
 	}
 
 	if (lnr->lnr_name[0] == '.' &&
@@ -5190,6 +5218,19 @@ stop:
 out:
 	lfsck_ibits_unlock(&lh, LCK_EX);
 
+	if (!name_is_dot_dotdot(lnr->lnr_name, lnr->lnr_namelen) &&
+	    !lfsck_is_valid_slave_name_entry(env, lnr->lnr_lmv,
+					     lnr->lnr_name, lnr->lnr_namelen) &&
+	    type != LNIT_BAD_DIRENT) {
+		ns->ln_flags |= LF_INCONSISTENT;
+
+		log = false;
+		rc = lfsck_namespace_repair_bad_namehash(env, com, dir,
+						lnr->lnr_lmv, lnr->lnr_name);
+		if (rc >= 0)
+			bad_hash = true;
+	}
+
 	if (rc >= 0) {
 		switch (type) {
 		case LNIT_BAD_TYPE:
@@ -5266,6 +5307,21 @@ out:
 					       &ns->ln_pos_first_inconsistent,
 					       false);
 		}
+
+		if (bad_hash) {
+			ns->ln_namehash_repaired++;
+
+			/* Not count repeatedly. */
+			if (!repaired)
+				ns->ln_items_repaired++;
+
+			if (bk->lb_param & LPF_DRYRUN &&
+			    lfsck_pos_is_zero(&ns->ln_pos_first_inconsistent))
+				lfsck_pos_fill(env, lfsck,
+					       &ns->ln_pos_first_inconsistent,
+					       false);
+		}
+
 
 		rc = 0;
 	}
