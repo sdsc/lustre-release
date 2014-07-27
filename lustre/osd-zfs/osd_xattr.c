@@ -251,6 +251,9 @@ int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	     strcmp(name, POSIX_ACL_XATTR_DEFAULT) == 0))
 		RETURN(-EOPNOTSUPP);
 
+	if (strcmp(name, XATTR_NAME_LMV_HEADER) == 0)
+		name = XATTR_NAME_LMV;
+
 	down(&obj->oo_guard);
 	rc = __osd_xattr_get(env, obj, buf, name, &size);
 	up(&obj->oo_guard);
