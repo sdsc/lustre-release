@@ -6881,6 +6881,8 @@ check_mount_and_prep()
 
 	rm -rf $DIR/[df][0-9]* || error "Fail to cleanup the env!"
 	mkdir $DIR/$tdir || error "Fail to mkdir $DIR/$tdir."
+	rm -rf $MOUNT/.lustre/lost+found/MDT0000/*
+	rm -rf $MOUNT/.lustre/lost+found/MDT0001/*
 }
 
 # calcule how many ost-objects to be created.
