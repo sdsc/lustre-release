@@ -171,6 +171,7 @@ signaled() {
 }
 
 mpi_run () {
+    MPIRUN_OPTIONS="-mca boot ssh"
     local mpirun="$MPIRUN $MPIRUN_OPTIONS"
     local command="$mpirun $@"
     local mpilog=$TMP/mpi.log
