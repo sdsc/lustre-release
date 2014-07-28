@@ -63,6 +63,14 @@
 #include <lustre_disk.h>
 #include <lustre_ver.h>
 
+char *progname;
+static struct option const longopts[] = {
+	{ "help", no_argument, 0, 'h' },
+	{ "client", no_argument, 0, 'c' },
+	{ "reply", no_argument, 0, 'r' },
+	{ 0, 0, 0, 0}
+};
+
 int run_command(char *cmd)
 {
         char log[] = "/tmp/mkfs_logXXXXXX";
@@ -96,26 +104,55 @@ int run_command(char *cmd)
 }                                                       
 
 
+void display_usage(void)
+{
+	printf("Usage: %s [OPTIONS] devicename\n", progname);
+	printf("Read and print the last_rcvd file from a device\n");
+	printf("(safe for mounted devices)\n");
+	printf("\t-c, --client, display client information\n");
+	printf("\t-h, --help,   display this help and exit\n");
+	printf("\t-r, --reply,  display reply data information\n");
+}
+
 
 int main(int argc, char *const argv[])
 {
         char tmpdir[] = "/tmp/dirXXXXXX";
         char cmd[128];
         char filepnm[128];
-        char *progname, *dev;
+	char *dev;
         struct lr_server_data lsd;
-        FILE *filep;
+	FILE *filep = NULL;
         int ret;
+	int c;
+	int opt_client = 0;
+	int opt_reply = 0;
+	bool is_mdt = false;
+	struct lsd_client_data lcd;
+	struct lsd_reply_header lrh;
+	struct lsd_reply_data lrd;
+	int client_idx;
 
-        if ((argc < 2) || (argv[argc - 1][0] == '-')) {
-                printf("Usage: %s devicename\n", argv[0]);
-                printf("Read and print the last_rcvd file from a device\n");
-                printf("(safe for mounted devices)\n");
-                return EINVAL;
-        }
-
-        progname = argv[0];
-        dev = argv[argc - 1];
+	progname = argv[0];
+	while ((c = getopt_long(argc, argv, "chr", longopts, NULL)) != -1) {
+		switch (c) {
+		case 'c':
+			opt_client = 1;
+			break;
+		case 'r':
+			opt_reply = 1;
+			break;
+		case 'h':
+		default:
+			display_usage();
+			return -1;
+		}
+	}
+	dev = argv[optind];
+	if (!dev) {
+		display_usage();
+		return -1;
+	}
 
         /* Make a temporary directory to hold Lustre data files. */
         if (!mkdtemp(tmpdir)) {
@@ -145,6 +182,7 @@ int main(int argc, char *const argv[])
                 goto out_rmdir;
         }
 
+	/* read lr_server_data structure */
         printf("Reading %s\n", LAST_RCVD);
         ret = fread(&lsd, 1, sizeof(lsd), filep);
         if (ret < sizeof(lsd)) {
@@ -155,25 +193,14 @@ int main(int argc, char *const argv[])
                         goto out_close;
         }
 
-#if 0
-	__u8  lsd_uuid[40];        /* server UUID */
-	__u64 lsd_last_transno;    /* last completed transaction ID */
-	__u64 lsd_compat14;        /* reserved - compat with old last_rcvd */
-	__u64 lsd_mount_count;     /* incarnation number */
-	__u32 lsd_feature_compat;  /* compatible feature flags */
-	__u32 lsd_feature_rocompat;/* read-only compatible feature flags */
-	__u32 lsd_feature_incompat;/* incompatible feature flags */
-	__u32 lsd_server_size;     /* size of server data area */
-	__u32 lsd_client_start;    /* start of per-client data area */
-	__u16 lsd_client_size;     /* size of per-client data area */
-	__u16 lsd_subdir_count;    /* number of subdirectories for objects */
-	__u64 lsd_catalog_oid;     /* recovery catalog object id */
-	__u32 lsd_catalog_ogen;    /* recovery catalog inode generation */
-	__u8  lsd_peeruuid[40];    /* UUID of MDS associated with this OST */
-	__u32 lsd_osd_index;       /* index number of OST/MDT in LOV/LMV */
-	__u8  lsd_padding[LR_SERVER_SIZE - 148];
-#endif
+	/* swab structure fields of interest */
+	lsd.lsd_feature_compat = le32_to_cpu(lsd.lsd_feature_compat);
+	lsd.lsd_feature_incompat = le32_to_cpu(lsd.lsd_feature_incompat);
+	lsd.lsd_feature_rocompat = le32_to_cpu(lsd.lsd_feature_rocompat);
+	lsd.lsd_last_transno = le64_to_cpu(lsd.lsd_last_transno);
+	lsd.lsd_osd_index = le32_to_cpu(lsd.lsd_osd_index);
 
+	/* display */
 	printf("UUID %s\n", lsd.lsd_uuid);
 	printf("Feature compat=%#x\n", lsd.lsd_feature_compat);
 	printf("Feature incompat=%#x\n", lsd.lsd_feature_incompat);
@@ -190,6 +217,7 @@ int main(int argc, char *const argv[])
 		   If user doesn't want this, they can copy the old
 		   logs manually and re-tunefs. */
 		printf("MDS, index %d\n", lsd.lsd_osd_index);
+		is_mdt = true;
 	} else  {
 		/* If neither is set, we're pre-1.4.6, make a guess. */
 		/* Construct debugfs command line. */
@@ -215,8 +243,168 @@ int main(int argc, char *const argv[])
 		}
 	}
 
-out_close:        
+	/* read client information */
+	if (opt_client) {
+		lsd.lsd_client_start = le32_to_cpu(lsd.lsd_client_start);
+		lsd.lsd_client_size = le32_to_cpu(lsd.lsd_client_size);
+		printf("Per-client area start %u\n", lsd.lsd_client_start);
+		printf("Per-client area size %u\n", lsd.lsd_client_size);
+
+		/* seek to per-client data area */
+		ret = fseek(filep, lsd.lsd_client_start, SEEK_SET);
+		if (ret) {
+			fprintf(stderr, "%s: seek failed. %s\n",
+				progname, strerror(errno));
+			ret = errno;
+			goto out_close;
+		}
+
+		/* walk throuh the per-client data area */
+		client_idx = -1;
+		while (true) {
+			client_idx++;
+
+			/* read a per-client data area */
+			ret = fread(&lcd, 1, sizeof(lcd), filep);
+			if (ret < sizeof(lcd)) {
+				if (feof(filep))
+					break;
+				fprintf(stderr, "%s: Short read (%d of %d)\n",
+					progname, ret, (int)sizeof(lcd));
+				ret = -ferror(filep);
+				goto out_close;
+			}
+
+			if (lcd.lcd_uuid[0] == '\0')
+				continue;
+
+			/* swab structure fields */
+			lcd.lcd_last_transno =
+					le64_to_cpu(lcd.lcd_last_transno);
+			lcd.lcd_last_xid = le64_to_cpu(lcd.lcd_last_xid);
+			lcd.lcd_generation = le32_to_cpu(lcd.lcd_generation);
+			if (is_mdt) {
+				lcd.lcd_last_close_transno =
+					le64_to_cpu(lcd.lcd_last_close_transno);
+				lcd.lcd_last_close_xid =
+					le64_to_cpu(lcd.lcd_last_close_xid);
+			}
+
+			/* display per-client data area */
+			printf("\nClient idx %d\n", client_idx);
+			printf("UUID %s\n", lcd.lcd_uuid);
+			printf("generation %u\n", lcd.lcd_generation);
+			printf("last transaction %llu\n",
+			       (long long) lcd.lcd_last_transno);
+			printf("last xid %llu\n",
+			       (long long) lcd.lcd_last_xid);
+			if (is_mdt) {
+				printf("last close transation %llu\n",
+				       (long long) lcd.lcd_last_close_transno);
+				printf("last close xid %llu\n",
+				       (long long) lcd.lcd_last_close_xid);
+			}
+		}
+	}
 	fclose(filep);
+	filep = NULL;
+
+	/* read reply data information */
+	if (opt_reply && is_mdt) {
+		snprintf(cmd, sizeof(cmd),
+			 "%s -c -R 'dump /%s %s/%s' %s",
+			 DEBUGFS, REPLY_DATA, tmpdir, REPLY_DATA, dev);
+
+		ret = run_command(cmd);
+		if (ret) {
+			fprintf(stderr, "%s: Unable to dump %s file\n",
+				progname, REPLY_DATA);
+			goto out_rmdir;
+		}
+
+		snprintf(filepnm, sizeof(filepnm),
+			 "%s/%s", tmpdir, REPLY_DATA);
+		filep = fopen(filepnm, "r");
+		if (!filep) {
+			fprintf(stderr, "%s: Unable to read reply data\n",
+				progname);
+			ret = -errno;
+			goto out_rmdir;
+		}
+
+		/* read reply_data header */
+		printf("\nReading %s\n", REPLY_DATA);
+		ret = fread(&lrh, 1, sizeof(lrh), filep);
+		if (ret < sizeof(lrh)) {
+			fprintf(stderr, "%s: Short read (%d of %d)\n",
+				progname, ret, (int)sizeof(lrh));
+			ret = -ferror(filep);
+			if (ret)
+				goto out_close;
+		}
+
+		/* check header */
+		lrh.lrh_magic = le32_to_cpu(lrh.lrh_magic);
+		lrh.lrh_header_size = le32_to_cpu(lrh.lrh_header_size);
+		lrh.lrh_reply_size = le32_to_cpu(lrh.lrh_reply_size);
+		if (lrh.lrh_magic != LRH_MAGIC ||
+		    lrh.lrh_header_size != sizeof(struct lsd_reply_header) ||
+		    lrh.lrh_reply_size != sizeof(struct lsd_reply_data)) {
+			fprintf(stderr, "%s: Invalid header in %s file\n",
+				progname, REPLY_DATA);
+		}
+
+		/* walk throuh the reply data */
+		while (true) {
+			/* read a reply data */
+			ret = fread(&lrd, 1, sizeof(lrd), filep);
+			if (ret < sizeof(lrd)) {
+				if (feof(filep))
+					break;
+				fprintf(stderr, "%s: Short read (%d of %d)\n",
+					progname, ret, (int)sizeof(lrd));
+				ret = -ferror(filep);
+				goto out_close;
+			}
+
+			/* XXX might be possible to filter valid reply data
+			 * with client commited transno or xid */
+
+			/* display reply data */
+			lrd.lrd_transno = le64_to_cpu(lrd.lrd_transno);
+			lrd.lrd_xid = le64_to_cpu(lrd.lrd_xid);
+			lrd.lrd_data = le64_to_cpu(lrd.lrd_data);
+			lrd.lrd_pre_versions[0] =
+					le64_to_cpu(lrd.lrd_pre_versions[0]);
+			lrd.lrd_pre_versions[1] =
+					le64_to_cpu(lrd.lrd_pre_versions[1]);
+			lrd.lrd_pre_versions[2] =
+					le64_to_cpu(lrd.lrd_pre_versions[2]);
+			lrd.lrd_pre_versions[3] =
+					le64_to_cpu(lrd.lrd_pre_versions[3]);
+			lrd.lrd_result = le32_to_cpu(lrd.lrd_result);
+			lrd.lrd_client_idx = le32_to_cpu(lrd.lrd_client_idx);
+			lrd.lrd_generation = le32_to_cpu(lrd.lrd_generation);
+			lrd.lrd_tag = le16_to_cpu(lrd.lrd_tag);
+
+			printf("\ntransaction %llu\n", lrd.lrd_transno);
+			printf("xid %llu\n", lrd.lrd_xid);
+			printf("data %llu\n", lrd.lrd_data);
+			printf("pre_version0 %llu\n", lrd.lrd_pre_versions[0]);
+			printf("pre_version1 %llu\n", lrd.lrd_pre_versions[1]);
+			printf("pre_version2 %llu\n", lrd.lrd_pre_versions[2]);
+			printf("pre_version3 %llu\n", lrd.lrd_pre_versions[3]);
+			printf("result %u\n", lrd.lrd_result);
+			printf("tag %hu\n", lrd.lrd_tag);
+			printf("client idx %u\n", lrd.lrd_client_idx);
+			printf("generation %u\n", lrd.lrd_generation);
+		}
+
+	}
+
+out_close:
+	if (filep != NULL)
+		fclose(filep);
 
 out_rmdir:
 	memset(cmd, 0, sizeof(cmd));
