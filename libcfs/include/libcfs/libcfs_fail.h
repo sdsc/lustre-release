@@ -38,6 +38,7 @@
 
 extern unsigned long cfs_fail_loc;
 extern unsigned int cfs_fail_val;
+extern int cfs_fail_err;
 
 extern wait_queue_head_t cfs_race_waitq;
 extern int cfs_race_state;
@@ -69,10 +70,14 @@ enum {
 #define CFS_FAIL_SOME        0x10000000 /* only fail N times */
 #define CFS_FAIL_RAND        0x08000000 /* fail 1/N of the times */
 #define CFS_FAIL_USR1        0x04000000 /* user flag */
+#define CFS_FAULT	     0x02000000 /* match any CFS_FAULT_CHECK */
 
-#define CFS_FAIL_PRECHECK(id) (cfs_fail_loc &&                                \
-                              (cfs_fail_loc & CFS_FAIL_MASK_LOC) ==           \
-                              ((id) & CFS_FAIL_MASK_LOC))
+static inline bool CFS_FAIL_PRECHECK(__u32 id)
+{
+	return cfs_fail_loc != 0 &&
+	      ((cfs_fail_loc & CFS_FAIL_MASK_LOC) == (id & CFS_FAIL_MASK_LOC) ||
+	       (cfs_fail_loc & id & CFS_FAULT));
+}
 
 static inline int cfs_fail_check_set(__u32 id, __u32 value,
 				     int set, int quiet)
@@ -98,6 +103,9 @@ static inline int cfs_fail_check_set(__u32 id, __u32 value,
 	cfs_fail_check_set(id, 0, CFS_FAIL_LOC_NOSET, 0)
 #define CFS_FAIL_CHECK_QUIET(id) \
 	cfs_fail_check_set(id, 0, CFS_FAIL_LOC_NOSET, 1)
+
+#define CFS_FAULT_CHECK(id)			\
+	CFS_FAIL_CHECK(CFS_FAULT | (id))
 
 /* If id hit cfs_fail_loc and cfs_fail_val == (-1 or value) return 1,
  * otherwise return 0 */
