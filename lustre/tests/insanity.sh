@@ -188,16 +188,16 @@ test_1() {
 	clients_up &
 	DFPID=$!
 	sleep 5
-
 	shutdown_facet mds2
 
 	echo "Reintegrating MDS2"
 	reboot_facet mds2
-	wait_for_facet mds2
-	start_mdt 2 || return 2
 
 	wait_for_facet mds1
 	start_mdt 1 || return $?
+
+	wait_for_facet mds2
+	start_mdt 2 || return 2
 
 	#Check FS
 	wait $DFPID
@@ -223,6 +223,9 @@ test_2() {
 		reboot_facet mds$i
 	done
 
+	wait_for_facet mds1
+	start_mdt 1 || return $?
+
     clients_up &
     DFPID=$!
     sleep 5
@@ -234,9 +237,9 @@ test_2() {
     wait_for_facet ost1
     start_ost 1 || return 2
 
-	for i in $(seq $MDSCOUNT) ; do
-		wait_for_facet mds$i
-		start_mdt $i || return $?
+	for i in $(seq $((MDSCOUNT - 1))) ; do
+		wait_for_facet mds$((i + 1))
+		start_mdt $((i+1)) || return $?
 	done
 
     #Check FS
@@ -308,16 +311,20 @@ test_4() {
     DFPIDB=$!
     sleep 5
 
+	wait_for_facet mds1
+	start_mdt 1 || return $?
+
     #Reintegration
     echo "Reintegrating OST"
     reboot_facet ost1
     wait_for_facet ost1
     start_ost 1
 
-	for i in $(seq $MDSCOUNT) ; do
-		wait_for_facet mds$i
-		start_mdt $i || return $?
+	for i in $(seq $((MDSCOUNT - 1))) ; do
+		wait_for_facet mds$((i + 1))
+		start_mdt $((i+1)) || return $?
 	done
+
     #Check FS
 
     wait $DFPIDA
@@ -614,6 +621,9 @@ test_10() {
 	DFPID=$!
 	sleep 5
 
+	wait_for_facet mds1
+	start_mdt 1 || return $?
+
 	shutdown_facet ost1
 
 	echo "Reintegrating OST"
@@ -627,9 +637,6 @@ test_10() {
 	# prepare for MDS failover
 	change_active mds2
 	reboot_facet mds2
-
-	wait_for_facet mds1
-	start_mdt 1 || return $?
 
 	wait_for_facet mds2
 	start_mdt 2 || return $?
