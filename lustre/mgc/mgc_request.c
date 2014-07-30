@@ -1852,52 +1852,82 @@ out_free:
 	return rc;
 }
 
-/** Get a config log from the MGS and process it.
- * This func is called for both clients and servers.
- * Copy the log locally before parsing it if appropriate (non-MGS server)
+/**
+ * Get a configuration log from the MGS and process it.
+ *
+ * This function is called for both clients and servers to process the
+ * configuration log from the MGS.  The MGC enqueues a DLM lock on the
+ * log from the MGS, and if the lock gets revoked the MGC will be notified
+ * by the lock cancellation callback that the config log has changed,
+ * and will enqueue another MGS lock on it, and then continue processing
+ * the new additions to the end of the log.
+ *
+ * Since the MGC import is not replayable, if the import is being evicted
+ * (rcl == -ESHUTDOWN, \see ptlrpc_import_delay_req()), retry to process
+ * the log until recovery is finished or the import is closed.
+ *
+ * Make a local copy of the log before parsing it if appropriate (non-MGS
+ * server) so that the server can start even when the MGS is down.
+ *
+ * There shouldn't be multiple processes running process_log at once --
+ * sounds like badness.  It actually might be fine, as long as they're not
+ * trying to update from the same log simultaneously, in which case we
+ * should use a per-log semaphore instead of cld_lock.
+ *
+ * \param[in] mgc	MGC device by which to fetch the configuration log
+ * \param[in] cld	log processing state (stored in lock callback data)
+ *
+ * \retval		0 on success
+ * \retval		negative errno on failure
  */
 int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld)
 {
-        struct lustre_handle lockh = { 0 };
+	struct lustre_handle lockh = { 0 };
 	__u64 flags = LDLM_FL_NO_LRU;
 	int rc = 0, rcl;
-        ENTRY;
+	ENTRY;
 
-        LASSERT(cld);
+	LASSERT(cld != NULL);
 
-        /* I don't want multiple processes running process_log at once --
-           sounds like badness.  It actually might be fine, as long as
-           we're not trying to update from the same log
-           simultaneously (in which case we should use a per-log sem.) */
+retry:
 	mutex_lock(&cld->cld_lock);
 	if (cld->cld_stopping) {
 		mutex_unlock(&cld->cld_lock);
-                RETURN(0);
-        }
+		RETURN(0);
+	}
 
-        OBD_FAIL_TIMEOUT(OBD_FAIL_MGC_PAUSE_PROCESS_LOG, 20);
+	OBD_FAIL_TIMEOUT(OBD_FAIL_MGC_PAUSE_PROCESS_LOG, 20);
 
-        CDEBUG(D_MGC, "Process log %s:%p from %d\n", cld->cld_logname,
-               cld->cld_cfg.cfg_instance, cld->cld_cfg.cfg_last_idx + 1);
+	CDEBUG(D_MGC, "Process log %s:%p from %d\n", cld->cld_logname,
+	       cld->cld_cfg.cfg_instance, cld->cld_cfg.cfg_last_idx + 1);
 
-        /* Get the cfg lock on the llog */
-        rcl = mgc_enqueue(mgc->u.cli.cl_mgc_mgsexp, NULL, LDLM_PLAIN, NULL,
-                          LCK_CR, &flags, NULL, NULL, NULL,
-                          cld, 0, NULL, &lockh);
-        if (rcl == 0) {
-                /* Get the cld, it will be released in mgc_blocking_ast. */
-                config_log_get(cld);
-                rc = ldlm_lock_set_data(&lockh, (void *)cld);
-                LASSERT(rc == 0);
-        } else {
-                CDEBUG(D_MGC, "Can't get cfg lock: %d\n", rcl);
+	/* Get the cfg lock on the llog */
+	rcl = mgc_enqueue(mgc->u.cli.cl_mgc_mgsexp, NULL, LDLM_PLAIN, NULL,
+			  LCK_CR, &flags, NULL, NULL, NULL,
+			  cld, 0, NULL, &lockh);
+	if (rcl == 0) {
+		/* Get the cld, it will be released in mgc_blocking_ast. */
+		config_log_get(cld);
+		rc = ldlm_lock_set_data(&lockh, (void *)cld);
+		LASSERT(rc == 0);
+	} else {
+		CDEBUG(D_MGC, "Can't get cfg lock: %d\n", rcl);
 
-                /* mark cld_lostlock so that it will requeue
-                 * after MGC becomes available. */
-                cld->cld_lostlock = 1;
-                /* Get extra reference, it will be put in requeue thread */
-                config_log_get(cld);
-        }
+		if (rcl == -ESHUTDOWN &&
+		    atomic_read(&mgc->u.cli.cl_mgc_refcount) > 0) {
+			struct obd_import *imp;
+
+			mutex_unlock(&cld->cld_lock);
+			imp = class_exp2cliimp(mgc->u.cli.cl_mgc_mgsexp);
+			ptlrpc_reconnect_import(imp);
+			goto retry;
+		}
+		/* mark cld_lostlock so that it will requeue
+		 * after MGC becomes available. */
+		cld->cld_lostlock = 1;
+		/* Get extra reference, it will be put in requeue thread */
+		config_log_get(cld);
+	}
 
 
         if (cld_is_recover(cld)) {
