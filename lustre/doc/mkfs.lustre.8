@@ -126,6 +126,9 @@ Return errors instead of waiting for recovery
 .RE
 .RE
 .TP
+.BI \--plugin-dir
+Set lustre plugin module directory.
+.TP
 .BI \--quiet
 Print less information.
 .TP
@@ -159,8 +162,8 @@ OST for filesystem 'testfs' on any node using the above MGS.
 .B mkfs.lustre --mgs /dev/sda1
 Standalone MGS on e.g. node cfs22
 .TP
-.B mkfs.lustre --fsname=myfs1 --index=0 --mdt --mgsnode=cfs22@tcp0 /dev/sda2
-MDT for filesystem 'myfs1' on any node, using the above MGS
+.B mkfs.lustre --fsname=myfs1 --index=0 --mdt --mgsnode=cfs22@tcp0 --plugin-dir=../utils/.lib/ /dev/sda2
+MDT for filesystem 'myfs1' on any node, using the above MGS, with specified lustre plugin module directory.
 .TP
 .B mkfs.lustre --fsname=testfs --index=0 --mdt --mgs zfspool/mdt1 mirror /dev/sdb /dev/sdc mirror /dev/sdd /dev/sde
 Create zfs pool 'zfspool' on two root vdevs each a mirror of two disks and create mdt/mgs on

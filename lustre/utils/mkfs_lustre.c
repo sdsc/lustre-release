@@ -75,6 +75,7 @@
 #endif
 
 char *progname;
+char *plugin_dir;
 int verbose = 1;
 int version;
 static int print_only = 0;
@@ -272,7 +273,27 @@ static char *convert_hostnames(char *s1)
         return converted;
 }
 
-int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
+static void parse_plugin_dir(int argc, char *const argv[])
+{
+	int opt;
+	static struct option long_opt[] = {
+		{ "plugin-dir",		required_argument,	NULL, 'P' },
+		{ NULL,			0,			NULL,  0  }
+	};
+
+	while ((opt = getopt_long(argc, argv, ":P:", long_opt, NULL)) != -1) {
+		switch (opt) {
+		case 'P':
+			plugin_dir = optarg;
+			break;
+		default:
+			break;
+		}
+	}
+	optind = 0;
+}
+
+static int parse_opts(int argc, char *const argv[], struct mkfs_opts *mop,
                char **mountopts)
 {
 	static struct option long_opt[] = {
@@ -573,7 +594,8 @@ int main(int argc, char *const argv[])
         /* device is last arg */
         strscpy(mop.mo_device, argv[argc - 1], sizeof(mop.mo_device));
 
-	ret = osd_init();
+	parse_plugin_dir(argc, argv);
+	ret = osd_init(argv[0]);
 	if (ret)
 		return ret;
 

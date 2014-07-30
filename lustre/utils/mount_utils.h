@@ -52,6 +52,7 @@
 #include <lustre_param.h>
 
 extern char *progname;
+extern char *plugin_dir;
 extern int verbose;
 extern int failover;
 
@@ -140,7 +141,7 @@ int osd_prepare_lustre(struct mkfs_opts *mop,
 int osd_tune_lustre(char *dev, struct mount_opts *mop);
 int osd_label_lustre(struct mount_opts *mop);
 int osd_enable_quota(struct mkfs_opts *mop);
-int osd_init(void);
+int osd_init(const char *progpath);
 void osd_fini(void);
 
 struct module_backfs_ops {
@@ -159,7 +160,9 @@ struct module_backfs_ops {
 	void   *dl_handle;
 };
 
-struct module_backfs_ops *load_backfs_module(enum ldd_mount_type mount_type);
+struct module_backfs_ops *
+load_backfs_module(enum ldd_mount_type mount_type, const char *progpath);
 void unload_backfs_ops(struct module_backfs_ops *ops);
+char *absolute_path(char *devname);
 
 #endif
