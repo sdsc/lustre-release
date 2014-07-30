@@ -188,16 +188,16 @@ test_1() {
 	clients_up &
 	DFPID=$!
 	sleep 5
-
 	shutdown_facet mds2
 
 	echo "Reintegrating MDS2"
 	reboot_facet mds2
-	wait_for_facet mds2
-	start_mdt 2 || return 2
 
 	wait_for_facet mds1
 	start_mdt 1 || return $?
+
+	wait_for_facet mds2
+	start_mdt 2 || return 2
 
 	#Check FS
 	wait $DFPID
