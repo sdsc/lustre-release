@@ -705,7 +705,7 @@ int lod_load_lmv_shards(const struct lu_env *env, struct lod_object *lo,
 	const struct dt_it_ops	*iops;
 	__u32			 stripes;
 	__u32			 magic	= le32_to_cpu(lmv1->lmv_magic);
-	int			 size;
+	size_t			 size;
 	int			 rc;
 	ENTRY;
 
@@ -1217,10 +1217,10 @@ static int lod_xattr_get(const struct lu_env *env, struct dt_object *dt,
 		struct lmv_mds_md_v1	*lmv1;
 		int			 rc1 = 0;
 
-		if (rc > sizeof(*lmv1))
+		if (rc > (typeof(rc))sizeof(*lmv1))
 			RETURN(rc);
 
-		if (rc < sizeof(*lmv1))
+		if (rc < (typeof(rc))sizeof(*lmv1))
 			RETURN(rc = rc > 0 ? -EINVAL : rc);
 
 		if (buf->lb_buf == NULL || buf->lb_len == 0) {
@@ -1373,7 +1373,7 @@ int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
 	union lmv_mds_md	*lmm = buf->lb_buf;
 	struct lmv_mds_md_v1	*lmv1 = &lmm->lmv_md_v1;
 	struct lu_fid		*fid = &info->lti_fid;
-	int			i;
+	unsigned int		i;
 	int			rc = 0;
 	ENTRY;
 
@@ -2458,7 +2458,7 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 	if (rc < 0)
 		GOTO(unlock, rc);
 
-	if (rc < sizeof(struct lov_user_md)) {
+	if (rc < (typeof(rc))sizeof(struct lov_user_md)) {
 		/* don't lookup for non-existing or invalid striping */
 		lp->ldo_def_striping_set = 0;
 		lp->ldo_striping_cached = 1;
@@ -2521,7 +2521,7 @@ static int lod_cache_parent_lmv_striping(const struct lu_env *env,
 	if (rc < 0)
 		GOTO(unlock, rc);
 
-	if (rc < sizeof(struct lmv_user_md)) {
+	if (rc < (typeof(rc))sizeof(struct lmv_user_md)) {
 		/* don't lookup for non-existing or invalid striping */
 		lp->ldo_dir_def_striping_set = 0;
 		lp->ldo_dir_striping_cached = 1;
@@ -3026,7 +3026,8 @@ static int lod_object_destroy(const struct lu_env *env,
 	struct lod_object *lo = lod_dt_obj(dt);
 	struct lod_thread_info *info = lod_env_info(env);
 	char		   *stripe_name = info->lti_key;
-	int                rc, i;
+	unsigned int       i;
+	int                rc;
 	ENTRY;
 
 	/* destroy sub-stripe of master object */

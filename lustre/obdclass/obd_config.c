@@ -341,10 +341,11 @@ EXPORT_SYMBOL(class_match_net);
  */
 int class_attach(struct lustre_cfg *lcfg)
 {
-        struct obd_device *obd = NULL;
-        char *typename, *name, *uuid;
-        int rc, len;
-        ENTRY;
+	struct obd_device *obd = NULL;
+	char *typename, *name, *uuid;
+	size_t len;
+	int rc;
+	ENTRY;
 
         if (!LUSTRE_CFG_BUFLEN(lcfg, 1)) {
                 CERROR("No type passed!\n");
