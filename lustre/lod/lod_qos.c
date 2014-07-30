@@ -202,7 +202,8 @@ static void lod_qos_statfs_update(const struct lu_env *env,
 {
 	struct obd_device *obd = lod2obd(lod);
 	struct ost_pool   *osts = &(lod->lod_pool_info);
-	int		   i, idx, rc = 0;
+	unsigned int	   i;
+	int		   idx, rc = 0;
 	__u64		   max_age, avail;
 	ENTRY;
 
@@ -241,7 +242,8 @@ static int lod_qos_calc_ppo(struct lod_device *lod)
 	struct lod_qos_oss *oss;
 	__u64		    ba_max, ba_min, temp;
 	__u32		    num_active;
-	int		    rc, i, prio_wide;
+	unsigned int	    i;
+	int		    rc, prio_wide;
 	time_t		    now, age;
 	ENTRY;
 
@@ -372,7 +374,7 @@ static int lod_qos_used(struct lod_device *lod, struct ost_pool *osts,
 {
 	struct lod_tgt_desc *ost;
 	struct lod_qos_oss  *oss;
-	int j;
+	unsigned int j;
 	ENTRY;
 
 	ost = OST_TGT(lod,index);
@@ -452,7 +454,8 @@ static int lod_qos_calc_rr(struct lod_device *lod, struct ost_pool *src_pool,
 	struct lod_qos_oss  *oss;
 	struct lod_tgt_desc *ost;
 	unsigned placed, real_count;
-	int i, rc;
+	unsigned int i;
+	int rc;
 	ENTRY;
 
 	if (!lqr->lqr_dirty) {
@@ -553,7 +556,7 @@ static int lod_qos_calc_rr(struct lod_device *lod, struct ost_pool *src_pool,
  */
 static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
 						   struct lod_device *d,
-						   int ost_idx,
+						   __u32 ost_idx,
 						   struct thandle *th)
 {
 	struct lod_tgt_desc *ost;
@@ -564,7 +567,6 @@ static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
 	ENTRY;
 
 	LASSERT(d);
-	LASSERT(ost_idx >= 0);
 	LASSERT(ost_idx < d->lod_osts_size);
 	ost = OST_TGT(d,ost_idx);
 	LASSERT(ost);
@@ -671,8 +673,8 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 	struct ost_pool   *osts;
 	struct lod_qos_rr *lqr;
 	struct dt_object  *o;
-	unsigned	   array_idx;
-	int		   i, rc;
+	unsigned int	   i, array_idx;
+	int		   rc;
 	int		   ost_start_idx_temp;
 	int		   speed = 0;
 	int		   stripe_idx = 0;
@@ -836,8 +838,9 @@ static int lod_alloc_specific(const struct lu_env *env, struct lod_object *lo,
 	struct lod_device *m = lu2lod_dev(lo->ldo_obj.do_lu.lo_dev);
 	struct obd_statfs *sfs = &lod_env_info(env)->lti_osfs;
 	struct dt_object  *o;
-	unsigned	   ost_idx, array_idx, ost_count;
-	int		   i, rc, stripe_num = 0;
+	__u32		   ost_idx;
+	unsigned int	   i, array_idx, ost_count;
+	int		   rc, stripe_num = 0;
 	int		   speed = 0;
 	struct pool_desc  *pool = NULL;
 	struct ost_pool   *osts;
@@ -987,7 +990,8 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 	struct lod_tgt_desc *ost;
 	struct dt_object    *o;
 	__u64		     total_weight = 0;
-	int		     nfound, good_osts, i, rc = 0;
+	unsigned int	     i;
+	int		     nfound, good_osts, rc = 0;
 	int		     stripe_cnt = lo->ldo_stripenr;
 	int		     stripe_cnt_min;
 	struct pool_desc    *pool = NULL;
@@ -1107,7 +1111,7 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 		/* On average, this will hit larger-weighted osts more often.
 		   0-weight osts will always get used last (only when rand=0) */
 		for (i = 0; i < osts->op_count; i++) {
-			int idx = osts->op_array[i];
+			__u32 idx = osts->op_array[i];
 
 			if (!cfs_bitmap_check(m->lod_ost_bitmap, idx))
 				continue;

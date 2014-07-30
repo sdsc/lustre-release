@@ -270,7 +270,7 @@ struct lod_it {
 struct lod_thread_info {
 	/* per-thread buffer for LOV EA */
 	void             *lti_ea_store;
-	int               lti_ea_store_size;
+	__u32             lti_ea_store_size;
 	/* per-thread buffer for LMV EA */
 	struct lu_buf     lti_buf;
 	struct ost_id     lti_ostid;
