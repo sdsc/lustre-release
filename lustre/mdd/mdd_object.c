@@ -76,13 +76,15 @@ int mdd_la_get(const struct lu_env *env, struct mdd_object *obj,
 
 void mdd_flags_xlate(struct mdd_object *obj, __u32 flags)
 {
-        obj->mod_flags &= ~(APPEND_OBJ|IMMUTE_OBJ);
+	obj->mod_flags &= ~APPEND_OBJ;
 
-        if (flags & LUSTRE_APPEND_FL)
-                obj->mod_flags |= APPEND_OBJ;
+	if (flags & LUSTRE_APPEND_FL)
+		obj->mod_flags |= APPEND_OBJ;
 
-        if (flags & LUSTRE_IMMUTABLE_FL)
-                obj->mod_flags |= IMMUTE_OBJ;
+	if (flags & LUSTRE_IMMUTABLE_FL)
+		lu_object_set_immutable(mdd2lu_obj(obj));
+	else
+		lu_object_clear_immutable(mdd2lu_obj(obj));
 }
 
 struct mdd_thread_info *mdd_env_info(const struct lu_env *env)

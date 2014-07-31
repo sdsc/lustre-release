@@ -120,8 +120,7 @@ enum mod_flags {
 	/* The dir object has been unlinked */
 	DEAD_OBJ   = 1 << 0,
 	APPEND_OBJ = 1 << 1,
-	IMMUTE_OBJ = 1 << 2,
-	ORPHAN_OBJ = 1 << 3,
+	ORPHAN_OBJ = 1 << 2,
 };
 
 struct mdd_object {
@@ -426,7 +425,7 @@ static inline umode_t mdd_object_type(const struct mdd_object *obj)
 
 static inline int mdd_is_immutable(struct mdd_object *obj)
 {
-        return obj->mod_flags & IMMUTE_OBJ;
+	return lu_object_is_immutable(mdd2lu_obj(obj));
 }
 
 static inline int mdd_is_dead_obj(struct mdd_object *obj)

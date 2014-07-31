@@ -2439,6 +2439,26 @@ static int lfsck_namespace_double_scan_dir(const struct lu_env *env,
 
 	LASSERT(dt_object_remote(child) == 0);
 
+	if (flags & LNTF_UNCERTAION_LMV) {
+		if (flags & LNTF_RECHECK_NAMEHASH) {
+			rc = lfsck_namespace_scan_shard(env, com, child);
+			if (rc < 0)
+				RETURN(rc);
+
+			down_write(&com->lc_sem);
+			ns->ln_striped_shards_scanned++;
+			up_write(&com->lc_sem);
+		} else {
+			down_write(&com->lc_sem);
+			ns->ln_striped_shards_skipped++;
+			up_write(&com->lc_sem);
+		}
+	}
+
+	flags &= ~(LNTF_RECHECK_NAMEHASH | LNTF_UNCERTAION_LMV);
+	if (flags == 0)
+		RETURN(0);
+
 	if (flags & (LNTF_CHECK_LINKEA | LNTF_CHECK_PARENT) &&
 	    !(bk->lb_param & LPF_ALL_TGT)) {
 		CDEBUG(D_LFSCK, "%s: some MDT(s) maybe NOT take part in the"
@@ -4012,12 +4032,27 @@ static int lfsck_namespace_post(const struct lu_env *env,
 {
 	struct lfsck_instance	*lfsck = com->lc_lfsck;
 	struct lfsck_namespace	*ns    = com->lc_file_ram;
+	struct lfsck_lmv_unit	*llu;
+	struct lfsck_lmv	*llmv;
 	int			 rc;
 	ENTRY;
 
 	lfsck_post_generic(env, com, &result);
 
 	down_write(&com->lc_sem);
+	while (!list_empty(&lfsck->li_list_lmv)) {
+		llu = list_entry(lfsck->li_list_lmv.next,
+				 struct lfsck_lmv_unit, llu_link);
+		llmv = &llu->llu_lmv;
+
+		LASSERTF(atomic_read(&llmv->ll_ref) == 1,
+			 "still in using: %u\n",
+			 atomic_read(&llmv->ll_ref));
+
+		ns->ln_striped_dirs_skipped++;
+		lfsck_lmv_put(env, llmv);
+	}
+
 	spin_lock(&lfsck->li_lock);
 	if (!init)
 		ns->ln_pos_last_checkpoint = lfsck->li_pos_checkpoint;

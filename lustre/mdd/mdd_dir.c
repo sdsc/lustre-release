@@ -4005,7 +4005,7 @@ static int mdd_migrate_sanity_check(const struct lu_env *env,
 			struct mdd_device *mdd = mdo2mdd(&sobj->mod_obj);
 
 			sattr->la_flags &= ~LUSTRE_IMMUTABLE_FL;
-			sobj->mod_flags &= ~IMMUTE_OBJ;
+			lu_object_clear_immutable(mdd2lu_obj(sobj));
 			CDEBUG(D_HA, "%s: "DFID" override IMMUTE FLAG\n",
 			       mdd2obd_dev(mdd)->obd_name,
 			       PFID(mdd_object_fid(sobj)));
