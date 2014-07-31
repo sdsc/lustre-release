@@ -689,6 +689,9 @@ static int lod_alloc_rr(const struct lu_env *env, struct lod_object *lo,
 		osts = &(pool->pool_obds);
 		lqr = &(pool->pool_rr);
 	} else {
+		if (lo->ldo_pool != NULL)
+			GOTO(out, rc = -ENXIO);
+
 		osts = &(m->lod_pool_info);
 		lqr = &(m->lod_qos.lq_rr);
 	}
@@ -854,6 +857,9 @@ static int lod_alloc_specific(const struct lu_env *env, struct lod_object *lo,
 		down_read(&pool_tgt_rw_sem(pool));
 		osts = &(pool->pool_obds);
 	} else {
+		if (lo->ldo_pool != NULL)
+			GOTO(out, rc = -ENXIO);
+
 		osts = &(m->lod_pool_info);
 	}
 
@@ -1005,6 +1011,9 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 		down_read(&pool_tgt_rw_sem(pool));
 		osts = &(pool->pool_obds);
 	} else {
+		if (lo->ldo_pool != NULL)
+			GOTO(out_nolock, rc = -ENXIO);
+
 		osts = &(m->lod_pool_info);
 	}
 
@@ -1347,6 +1356,9 @@ static int lod_qos_parse_config(const struct lu_env *env,
 				lo->ldo_stripenr= pool_tgt_count(pool);
 
 			lod_pool_putref(pool);
+		} else {
+			if (v3->lmm_pool_name != NULL)
+				RETURN(-ENXIO);
 		}
 	} else
 		lod_object_set_pool(lo, NULL);
