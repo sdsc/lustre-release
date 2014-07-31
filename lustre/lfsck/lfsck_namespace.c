@@ -131,6 +131,10 @@ static void lfsck_namespace_le_to_cpu(struct lfsck_namespace *dst,
 	dst->ln_bad_type_repaired = le64_to_cpu(src->ln_bad_type_repaired);
 	dst->ln_lost_dirent_repaired =
 				le64_to_cpu(src->ln_lost_dirent_repaired);
+	dst->ln_local_lpf_scanned = le64_to_cpu(src->ln_local_lpf_scanned);
+	dst->ln_local_lpf_moved = le64_to_cpu(src->ln_local_lpf_moved);
+	dst->ln_local_lpf_skipped = le64_to_cpu(src->ln_local_lpf_skipped);
+	dst->ln_local_lpf_failed = le64_to_cpu(src->ln_local_lpf_failed);
 	dst->ln_bitmap_size = le32_to_cpu(src->ln_bitmap_size);
 }
 
@@ -177,6 +181,10 @@ static void lfsck_namespace_cpu_to_le(struct lfsck_namespace *dst,
 	dst->ln_bad_type_repaired = cpu_to_le64(src->ln_bad_type_repaired);
 	dst->ln_lost_dirent_repaired =
 				cpu_to_le64(src->ln_lost_dirent_repaired);
+	dst->ln_local_lpf_scanned = cpu_to_le64(src->ln_local_lpf_scanned);
+	dst->ln_local_lpf_moved = cpu_to_le64(src->ln_local_lpf_moved);
+	dst->ln_local_lpf_skipped = cpu_to_le64(src->ln_local_lpf_skipped);
+	dst->ln_local_lpf_failed = cpu_to_le64(src->ln_local_lpf_failed);
 	dst->ln_bitmap_size = cpu_to_le32(src->ln_bitmap_size);
 }
 
@@ -749,6 +757,7 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 	struct lu_name			*cname	= &info->lti_name;
 	struct dt_insert_rec		*rec	= &info->lti_dt_rec;
 	struct lu_fid			*tfid	= &info->lti_fid;
+	struct lu_attr			*la	= &info->lti_la3;
 	const struct lu_fid		*cfid	= lfsck_dto2fid(orphan);
 	const struct lu_fid		*pfid;
 	struct lfsck_instance		*lfsck	= com->lc_lfsck;
@@ -854,6 +863,13 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 		}
 	}
 
+	memset(la, 0, sizeof(*la));
+	la->la_ctime = cfs_time_current_sec();
+	la->la_valid = LA_CTIME;
+	rc = dt_declare_attr_set(env, orphan, la, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
 	rc = dt_trans_start_local(env, dev, th);
 	if (rc != 0)
 		GOTO(stop, rc);
@@ -903,6 +919,11 @@ static int lfsck_namespace_insert_orphan(const struct lu_env *env,
 			dt_write_unlock(env, parent);
 		}
 	}
+
+	if (rc != 0)
+		GOTO(unlock, rc);
+
+	rc = dt_attr_set(env, orphan, la, th, BYPASS_CAPA);
 
 	GOTO(stop, rc = (rc == 0 ? 1 : rc));
 
@@ -1003,6 +1024,10 @@ static int lfsck_namespace_insert_normal(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(stop, rc);
 
+	rc = dt_declare_attr_set(env, child, la, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
 	rc = dt_trans_start(env, dev, th);
 	if (rc != 0)
 		GOTO(stop, rc);
@@ -1022,6 +1047,10 @@ static int lfsck_namespace_insert_normal(const struct lu_env *env,
 
 	la->la_ctime = cfs_time_current_sec();
 	rc = dt_attr_set(env, parent, la, th, BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_attr_set(env, child, la, th, BYPASS_CAPA);
 
 	GOTO(stop, rc = (rc == 0 ? 1 : rc));
 
@@ -3296,6 +3325,10 @@ static void lfsck_namespace_dump_statistics(struct seq_file *m,
 		      "multiple_referenced_repaired: "LPU64"\n"
 		      "bad_file_type_repaired: "LPU64"\n"
 		      "lost_dirent_repaired: "LPU64"\n"
+		      "local_lost_found_scanned: "LPU64"\n"
+		      "local_lost_found_moved: "LPU64"\n"
+		      "local_lost_found_skipped: "LPU64"\n"
+		      "local_lost_found_failed: "LPU64"\n"
 		      "success_count: %u\n"
 		      "run_time_phase1: %u seconds\n"
 		      "run_time_phase2: %u seconds\n",
@@ -3317,6 +3350,10 @@ static void lfsck_namespace_dump_statistics(struct seq_file *m,
 		      ns->ln_mul_ref_repaired,
 		      ns->ln_bad_type_repaired,
 		      ns->ln_lost_dirent_repaired,
+		      ns->ln_local_lpf_scanned,
+		      ns->ln_local_lpf_moved,
+		      ns->ln_local_lpf_skipped,
+		      ns->ln_local_lpf_failed,
 		      ns->ln_success_count,
 		      time_phase1,
 		      time_phase2);
@@ -3590,7 +3627,10 @@ static int lfsck_namespace_exec_oit(const struct lu_env *env,
 		if (rc != 0)
 			GOTO(out, rc);
 
-		if (la->la_nlink > 1)
+		/* "la_ctime" == 1 means that it has ever been removed from
+		 * backend /lost+found directory but not been added back to
+		 * the normal namespace yet. */
+		if (la->la_nlink > 1 || unlikely(la->la_ctime == 1))
 			rc = lfsck_namespace_trace_update(env, com, fid,
 						LNTF_CHECK_LINKEA, true);
 
@@ -3629,7 +3669,10 @@ static int lfsck_namespace_exec_oit(const struct lu_env *env,
 			if (rc != 0)
 				GOTO(out, rc);
 
-			if (la->la_nlink > 1)
+			/* "la_ctime" == 1 means that it has ever been
+			 * removed from backend /lost+found directory but
+			 * not been added back to the normal namespace yet. */
+			if (la->la_nlink > 1 || unlikely(la->la_ctime == 1))
 				rc = lfsck_namespace_trace_update(env, com,
 						fid, LNTF_CHECK_LINKEA, true);
 		}
@@ -4788,6 +4831,306 @@ out:
 	return rc;
 }
 
+/**
+ * Handle one orphan under the backend /lost+found directory
+ *
+ * Insert the orphan FID into the namespace LFSCK tracing file for further
+ * processing (via the subsequent namespace LFSCK second-stage scanning).
+ * At the same time, remove the orphan name entry from backend /lost+found
+ * directory. There is an interval between the orphan name entry removed
+ * from the backend /lost+found directory and the orphan FID in the LFSCK
+ * tracing file handled. In such interval, the LFSCK can be reset, then
+ * all the FIDs recorded in the namespace LFSCK tracing file will be dropped.
+ * To guarantee that the orphans can be found when LFSCK run next time
+ * without e2fsck again, when remove the orphan name entry, the LFSCK
+ * will set the orphan's ctime attribute as 1. Since normal applications
+ * cannot change the object's ctime attribute as 1. Then when LFSCK run
+ * next time, it can record the object (that ctime is 1) in the namespace
+ * LFSCK tracing file during the first-stage scanning.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] com	pointer to the lfsck component
+ * \param[in] parent	pointer to the object for the backend /lost+found
+ * \param[in] ent	pointer to the name entry for the target under the
+ *			backend /lost+found
+ *
+ * \retval		positive for repaired
+ * \retval		0 if needs to repair nothing
+ * \retval		negative error number on failure
+ */
+static int lfsck_namespace_scan_local_lpf_one(const struct lu_env *env,
+					      struct lfsck_component *com,
+					      struct dt_object *parent,
+					      struct lu_dirent *ent)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct lu_fid			*key	= &info->lti_fid;
+	struct lu_attr			*la	= &info->lti_la;
+	struct lfsck_instance		*lfsck  = com->lc_lfsck;
+	struct dt_object		*obj	= com->lc_obj;
+	struct dt_device		*dev	= lfsck->li_bottom;
+	struct dt_object		*child	= NULL;
+	struct thandle			*th	= NULL;
+	int				 rc	= 0;
+	__u8				 flags	= 0;
+	bool				 exist	= false;
+	ENTRY;
+
+	child = lfsck_object_find_by_dev(env, dev, &ent->lde_fid);
+	if (IS_ERR(child))
+		RETURN(PTR_ERR(child));
+
+	LASSERT(dt_object_exists(child) != 0);
+	LASSERT(dt_object_remote(child) == 0);
+
+	fid_cpu_to_be(key, &ent->lde_fid);
+	rc = dt_lookup(env, obj, (struct dt_rec *)&flags,
+		       (const struct dt_key *)key, BYPASS_CAPA);
+	if (rc == 0)
+		exist = true;
+
+	if (rc != -ENOENT)
+		GOTO(out, rc);
+
+	th = dt_trans_create(env, dev);
+	if (IS_ERR(th))
+		GOTO(out, rc = PTR_ERR(th));
+
+	/* a1. remove name entry from backend /lost+found */
+	rc = dt_declare_delete(env, parent,
+			       (const struct dt_key *)ent->lde_name, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	if (S_ISDIR(lfsck_object_type(child))) {
+		/* a2. decrease parent's nlink */
+		rc = dt_declare_ref_del(env, parent, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
+	if (exist) {
+		/* a3. remove child's FID from the LFSCK tracing file. */
+		rc = dt_declare_delete(env, obj,
+				       (const struct dt_key *)key, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+	} else {
+		/* a4. set child's ctime as 1 */
+		memset(la, 0, sizeof(*la));
+		la->la_ctime = 1;
+		la->la_valid = LA_CTIME;
+		rc = dt_declare_attr_set(env, child, la, th);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
+	/* a5. insert child's FID into the LFSCK tracing file. */
+	rc = dt_declare_insert(env, obj, (const struct dt_rec *)&flags,
+			       (const struct dt_key *)key, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	rc = dt_trans_start_local(env, dev, th);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	/* b1. remove name entry from backend /lost+found */
+	rc = dt_delete(env, parent, (const struct dt_key *)ent->lde_name, th,
+		       BYPASS_CAPA);
+	if (rc != 0)
+		GOTO(stop, rc);
+
+	if (S_ISDIR(lfsck_object_type(child))) {
+		/* b2. decrease parent's nlink */
+		dt_write_lock(env, parent, 0);
+		rc = dt_ref_del(env, parent, th);
+		dt_write_unlock(env, parent);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
+	if (exist) {
+		/* a3. remove child's FID from the LFSCK tracing file. */
+		rc = dt_delete(env, obj, (const struct dt_key *)key, th,
+			       BYPASS_CAPA);
+		if (rc != 0)
+			GOTO(stop, rc);
+	} else {
+		/* b4. set child's ctime as 1 */
+		rc = dt_attr_set(env, child, la, th, BYPASS_CAPA);
+		if (rc != 0)
+			GOTO(stop, rc);
+	}
+
+	flags |= LNTF_CHECK_ORPHAN;
+	/* b5. insert child's FID into the LFSCK tracing file. */
+	rc = dt_insert(env, obj, (const struct dt_rec *)&flags,
+		       (const struct dt_key *)key, th, BYPASS_CAPA, 1);
+
+	GOTO(stop, rc = (rc == 0 ? 1 : rc));
+
+stop:
+	dt_trans_stop(env, dev, th);
+
+out:
+	lu_object_put(env, &child->do_lu);
+
+	return rc;
+}
+
+/**
+ * Handle orphans under the backend /lost+found directory
+ *
+ * Some backend checker, such as e2fsck for ldiskfs may find some orphans
+ * and put them under the backend /lost+found directory that is invisible
+ * to client. The LFSCK will scan such directory, for the original client
+ * visible orphans, add their fids into the namespace LFSCK tracing file,
+ * then the subsenquent namespace LFSCK second-stage scanning can handle
+ * them as other objects to be double scanned: either move back to normal
+ * namespace, or to the global visible orphan directory:
+ * /ROOT/.lustre/lost+found/MDTxxxx/
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] com	pointer to the lfsck component
+ */
+static void lfsck_namespace_scan_local_lpf(const struct lu_env *env,
+					   struct lfsck_component *com)
+{
+	struct lfsck_thread_info	*info	= lfsck_env_info(env);
+	struct lu_dirent		*ent	=
+					(struct lu_dirent *)info->lti_key;
+	struct lu_seq_range		*range	= &info->lti_range;
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct ptlrpc_thread		*thread = &lfsck->li_thread;
+	struct lfsck_bookmark		*bk	= &lfsck->li_bookmark_ram;
+	struct dt_device		*dev	= lfsck->li_bottom;
+	struct lfsck_namespace		*ns	= com->lc_file_ram;
+	struct dt_object		*parent;
+	const struct dt_it_ops		*iops;
+	struct dt_it			*di;
+	struct seq_server_site		*ss	=
+					lu_site2seq(dev->dd_lu_dev.ld_site);
+	__u64				 cookie;
+	int				 rc	= 0;
+	__u16				 type;
+	ENTRY;
+
+	parent = lfsck_object_find_by_dev(env, dev, &LU_BACKEND_LPF_FID);
+	if (IS_ERR(parent)) {
+		CERROR("%s: fail to find backend /lost+found: rc = %ld\n",
+		       lfsck_lfsck2name(lfsck), PTR_ERR(parent));
+		RETURN_EXIT;
+	}
+
+	/* It is normal that the /lost+found does not exist for ZFS backend. */
+	if (!dt_object_exists(parent))
+		GOTO(out, rc = 0);
+
+	if (unlikely(!dt_try_as_dir(env, parent)))
+		GOTO(out, rc = -ENOTDIR);
+
+	CDEBUG(D_LFSCK, "%s: start to scan backend /lost+found\n",
+	       lfsck_lfsck2name(lfsck));
+
+	com->lc_new_scanned = 0;
+	iops = &parent->do_index_ops->dio_it;
+	di = iops->init(env, parent, LUDA_64BITHASH | LUDA_TYPE, BYPASS_CAPA);
+	if (IS_ERR(di))
+		GOTO(out, rc = PTR_ERR(di));
+
+	rc = iops->load(env, di, 0);
+	if (rc == 0)
+		rc = iops->next(env, di);
+	else if (rc > 0)
+		rc = 0;
+
+	while (rc == 0) {
+		if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_DELAY3) &&
+		    cfs_fail_val > 0) {
+			struct l_wait_info lwi;
+
+			lwi = LWI_TIMEOUT(cfs_time_seconds(cfs_fail_val),
+					  NULL, NULL);
+			l_wait_event(thread->t_ctl_waitq,
+				     !thread_is_running(thread),
+				     &lwi);
+
+			if (unlikely(!thread_is_running(thread)))
+				break;
+		}
+
+		rc = iops->rec(env, di, (struct dt_rec *)ent,
+			       LUDA_64BITHASH | LUDA_TYPE);
+		if (rc == 0)
+			rc = lfsck_unpack_ent(ent, &cookie, &type);
+
+		if (unlikely(rc != 0)) {
+			CDEBUG(D_LFSCK, "%s: fail to iterate backend "
+			       "/lost+found: rc = %d\n",
+			       lfsck_lfsck2name(lfsck), rc);
+
+			goto skip;
+		}
+
+		/* skip dot and dotdot entries */
+		if (ent->lde_name[0] == '.' &&
+		    (ent->lde_namelen == 1 ||
+		     (ent->lde_namelen == 2 && ent->lde_name[1] == '.')))
+			goto next;
+
+		if (!fid_seq_in_fldb(fid_seq(&ent->lde_fid)))
+			goto skip;
+
+		if (fid_is_norm(&ent->lde_fid)) {
+			fld_range_set_mdt(range);
+			rc = fld_local_lookup(env, ss->ss_server_fld,
+					      fid_seq(&ent->lde_fid), range);
+			if (rc != 0)
+				goto skip;
+		} else if (lfsck_dev_idx(dev) != 0) {
+			goto skip;
+		}
+
+		rc = lfsck_namespace_scan_local_lpf_one(env, com, parent, ent);
+
+skip:
+		down_write(&com->lc_sem);
+		com->lc_new_scanned++;
+		ns->ln_local_lpf_scanned++;
+		if (rc > 0)
+			ns->ln_local_lpf_moved++;
+		else if (rc == 0)
+			ns->ln_local_lpf_skipped++;
+		else
+			ns->ln_local_lpf_failed++;
+		up_write(&com->lc_sem);
+
+		if (rc < 0 && bk->lb_param & LPF_FAILOUT)
+			break;
+
+next:
+		lfsck_control_speed_by_self(com);
+		if (unlikely(!thread_is_running(thread))) {
+			rc = 0;
+			break;
+		}
+
+		rc = iops->next(env, di);
+	}
+
+	iops->put(env, di);
+	iops->fini(env, di);
+
+	EXIT;
+
+out:
+	CDEBUG(D_LFSCK, "%s: stop to scan backend /lost+found: rc = %d\n",
+	       lfsck_lfsck2name(lfsck), rc);
+
+	lu_object_put(env, &parent->do_lu);
+}
+
 static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 						struct lfsck_component *com)
 {
@@ -4807,6 +5150,8 @@ static int lfsck_namespace_assistant_handler_p2(const struct lu_env *env,
 
 	CDEBUG(D_LFSCK, "%s: namespace LFSCK phase2 scan start\n",
 	       lfsck_lfsck2name(lfsck));
+
+	lfsck_namespace_scan_local_lpf(env, com);
 
 	com->lc_new_checked = 0;
 	com->lc_new_scanned = 0;
