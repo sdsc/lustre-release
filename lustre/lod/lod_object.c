@@ -2721,7 +2721,8 @@ static void lod_ah_init(const struct lu_env *env,
 		lc->ldo_def_stripe_offset = (__u16) -1;
 
 		if (lp->ldo_def_striping_set) {
-			if (lp->ldo_pool)
+			if (lp->ldo_pool &&
+			    lod_find_pool(d, lp->ldo_pool, NULL))
 				lod_object_set_pool(lc, lp->ldo_pool);
 			lc->ldo_stripenr = lp->ldo_def_stripenr;
 			lc->ldo_stripe_size = lp->ldo_def_stripe_size;
