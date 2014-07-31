@@ -222,6 +222,11 @@ static int mdd_check_acl(const struct lu_env *env, struct mdd_object *obj,
         if (rc <= 0)
                 RETURN(rc ? : -EACCES);
 
+	/* Disregard empty ACLs and fall back to
+	 * standard UNIX permissions. See LU-5434 */
+	if (posix_acl_xattr_count(rc) <= 0)
+		RETURN(-EAGAIN);
+
         buf->lb_len = rc;
         head = (posix_acl_xattr_header *)(buf->lb_buf);
         entry = head->a_entries;
