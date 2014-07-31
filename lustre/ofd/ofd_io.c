@@ -791,6 +791,10 @@ static int ofd_soft_sync_cb_add(struct thandle *th, struct obd_export *exp)
 	struct dt_txn_commit_cb			*dcb;
 	int					 rc;
 
+	/* export could be cleaned up when we try to do the async commit */
+	if (atomic_read(&exp->exp_refcount) == 0)
+		return -ENODEV;
+
 	OBD_ALLOC_PTR(ossc);
 	if (ossc == NULL)
 		return -ENOMEM;
@@ -910,8 +914,10 @@ out_stop:
 
 	/* do this before trans stop in case commit has finished */
 	if (!th->th_sync && soft_sync && !cb_registered) {
-		ofd_soft_sync_cb_add(th, exp);
-		cb_registered = true;
+		if (ofd_soft_sync_cb_add(th, exp) == 0)
+			cb_registered = true;
+		else
+			th->th_sync = 1;
 	}
 
 	ofd_trans_stop(env, ofd, th, rc);

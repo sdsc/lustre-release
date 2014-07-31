@@ -442,6 +442,10 @@ int tgt_last_commit_cb_add(struct thandle *th, struct lu_target *tgt,
 	struct dt_txn_commit_cb			*dcb;
 	int					 rc;
 
+	/* export could be cleaned up when we try to do the async commit */
+	if (atomic_read(&exp->exp_refcount) == 0)
+		return -ENODEV;
+
 	OBD_ALLOC_PTR(ccb);
 	if (ccb == NULL)
 		return -ENOMEM;
@@ -505,6 +509,10 @@ int tgt_new_client_cb_add(struct thandle *th, struct obd_export *exp)
 	struct tgt_new_client_callback	*ccb;
 	struct dt_txn_commit_cb		*dcb;
 	int				 rc;
+
+	/* export could be cleaned up when we try to do the async commit */
+	if (atomic_read(&exp->exp_refcount) == 0)
+		return -ENODEV;
 
 	OBD_ALLOC_PTR(ccb);
 	if (ccb == NULL)
