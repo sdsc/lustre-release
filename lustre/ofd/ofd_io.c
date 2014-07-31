@@ -795,6 +795,9 @@ static int ofd_soft_sync_cb_add(struct thandle *th, struct obd_export *exp)
 	if (ossc == NULL)
 		return -ENOMEM;
 
+	LASSERTF(atomic_read(&exp->exp_refcount) > 0,
+		 "export of client %s (ref=%d) has been cleaned up\n",
+		 exp->exp_client_uuid.uuid, atomic_read(&exp->exp_refcount));
 	ossc->ossc_exp = class_export_cb_get(exp);
 
 	dcb = &ossc->ossc_cb;
