@@ -58,6 +58,8 @@ TGT_HALF="$FSNAME-OST[$TGT_FIRST-$TGT_MAX/2]"
 TGT_UUID=$(for i in $TGT_LIST; do printf "$FSNAME-OST%04x_UUID " $i; done)
 TGT_UUID2=$(for i in $TGT_LIST2; do printf "$FSNAME-OST%04x_UUID " $i; done)
 
+CHECK_POOLNAME=${CHECK_POOLNAME:-check_poolname}
+
 create_dir() {
     local dir=$1
     local pool=$2
@@ -631,6 +633,22 @@ test_6() {
 
 }
 run_test 6 "getstripe/setstripe"
+
+test_7() {
+	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.0) ]] &&
+		skip "Need MDS version at least 2.7.0" && return
+	_check_progs_installed $CHECK_POOLNAME ||
+		{ skip_env "$CHECK_POOLNAME not found" && return; }
+
+	local dir=$DIR/$tdir
+
+	set_cleanup_trap
+	mkdir $dir || error "mkdir $dir failed"
+	$CHECK_POOLNAME $dir/$(mktemp -u XXXX) $dir/$(mktemp -u XXXX) \
+		$NON_EXISTANT_POOL 2>&1 | grep -q 'accepted' &&
+		error "non-existant pool name should not be accepted"
+}
+run_test 7 "ioctl/fsetxattr: non-existant pool name"
 
 test_11() {
     set_cleanup_trap
