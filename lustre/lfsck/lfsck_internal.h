@@ -111,6 +111,7 @@ struct lfsck_bookmark {
 enum lfsck_namespace_trace_flags {
 	LNTF_CHECK_LINKEA	= 0x01,
 	LNTF_CHECK_PARENT	= 0x02,
+	LNTF_SKIP_NLINK		= 0x04,
 	LNTF_ALL		= 0xff
 };
 
