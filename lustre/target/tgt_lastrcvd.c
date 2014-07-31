@@ -442,6 +442,12 @@ int tgt_last_commit_cb_add(struct thandle *th, struct lu_target *tgt,
 	struct dt_txn_commit_cb			*dcb;
 	int					 rc;
 
+	LASSERTF(exp != NULL && exp != (void *)0xdeadbeef &&
+		 atomic_read(&exp->exp_refcount) > 0 &&
+		 atomic_read(&exp->exp_refcount) < LI_POISON,
+		 "export of client %s (ref=%d) has been cleaned up\n",
+		 exp->exp_client_uuid.uuid, atomic_read(&exp->exp_refcount));
+
 	OBD_ALLOC_PTR(ccb);
 	if (ccb == NULL)
 		return -ENOMEM;
@@ -505,6 +511,12 @@ int tgt_new_client_cb_add(struct thandle *th, struct obd_export *exp)
 	struct tgt_new_client_callback	*ccb;
 	struct dt_txn_commit_cb		*dcb;
 	int				 rc;
+
+	LASSERTF(exp != NULL && exp != (void *)0xdeadbeef &&
+		 atomic_read(&exp->exp_refcount) > 0 &&
+		 atomic_read(&exp->exp_refcount) < LI_POISON,
+		 "export of client %s (ref=%d) has been cleaned up\n",
+		 exp->exp_client_uuid.uuid, atomic_read(&exp->exp_refcount));
 
 	OBD_ALLOC_PTR(ccb);
 	if (ccb == NULL)
