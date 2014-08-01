@@ -2381,6 +2381,15 @@ mds_evict_client() {
 		"$LCTL set_param -n mdt.${mds1_svc}.evict_client $uuid"
 }
 
+mdt_evict_client() {
+	local uuid=$(get_client_uuid $MOUNT)
+	local facet=$1
+	local svc=${facet}_svc
+
+	do_facet ${facet} \
+		"$LCTL set_param -n mdt.${!svc}.evict_client $uuid"
+}
+
 ost_evict_client() {
 	local mntpnt=${1:-$MOUNT}
 	local uuid=$(get_client_uuid $mntpnt)

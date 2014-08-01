@@ -2806,6 +2806,113 @@ test_90() { # bug 19494
 }
 run_test 90 "lfs find identifies the missing striped file segments"
 
+test_100a() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	local MDTIDX=1
+	local remote_dir=$DIR/$tdir/remote_dir
+	local diridx
+
+	rm -rf $DIR/$tdir
+	#create objects on MDT0/MDT1 to create local FLDB first
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i $MDTIDX $DIR/$tdir/tmp_dir
+
+	replay_barrier mds2
+	$LFS mkdir -i $MDTIDX $remote_dir
+	mdt_evict_client mds2
+	fail mds2
+
+	diridx=$($GETSTRIPE -M $remote_dir)
+	[ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+	createmany -o $remote_dir/f-%d 20 || error "creation failed"
+	local fileidx=$($GETSTRIPE -M $remote_dir/f-1)
+	[ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 100a "create remote dir, fail Master MDT(MDT2) and evict client"
+
+test_100b() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	local MDTIDX=1
+	local remote_dir=$DIR/$tdir/remote_dir
+	local diridx
+
+	rm -rf $DIR/$tdir
+	#create objects on MDT0/MDT1 to create local FLDB first
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i $MDTIDX $DIR/$tdir/tmp_dir
+
+	replay_barrier mds1
+	$LFS mkdir -i $MDTIDX $remote_dir
+	mdt_evict_client mds2
+
+	fail mds1
+
+	$LCTL dk > /tmp/debug.out
+	diridx=$($GETSTRIPE -M $remote_dir)
+	[ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+	createmany -o $remote_dir/f-%d 20 || error "creation failed"
+	local fileidx=$($GETSTRIPE -M $remote_dir/f-1)
+	[ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 100b "create remote dir, fail slave MDT, evict client"
+
+test_100c() {
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return 0
+	([ $FAILURE_MODE == "HARD" ] &&
+		[ "$(facet_host mds1)" == "$(facet_host mds2)" ]) &&
+		skip "MDTs needs to be on diff hosts for HARD fail mode" &&
+		return 0
+
+	local MDTIDX=1
+	local remote_dir=$DIR/$tdir/remote_dir
+	local diridx
+
+	rm -rf $DIR/$tdir
+	#create objects on MDT0/MDT1 to create local FLDB first
+	mkdir -p $DIR/$tdir
+	$LFS mkdir -i $MDTIDX $DIR/$tdir/tmp_dir
+
+	replay_barrier mds1
+	$LFS mkdir -i $MDTIDX $remote_dir
+	mdt_evict_client mds2
+
+	sleep 2
+	fail mds1,mds2
+
+	diridx=$($GETSTRIPE -M $remote_dir)
+	[ $diridx -eq $MDTIDX ] || error "$diridx != $MDTIDX"
+
+	createmany -o $remote_dir/f-%d 20 || error "creation failed"
+	local fileidx=$($GETSTRIPE -M $remote_dir/f-1)
+	[ $fileidx -eq $MDTIDX ] || error "$fileidx != $MDTIDX"
+
+	rm -rf $DIR/$tdir || error "rmdir failed"
+
+	return 0
+}
+run_test 100c "create remote dir, fail master/slave MDT, evict client"
+
+
 complete $SECONDS
 check_and_cleanup_lustre
 exit_status
