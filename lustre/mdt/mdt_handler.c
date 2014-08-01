@@ -3500,11 +3500,21 @@ int mdt_handle_common(struct ptlrpc_request *req,
  */
 int mdt_recovery_handle(struct ptlrpc_request *req)
 {
-	int rc;
-
+	int	rc;
+	__u32	opc;
 	ENTRY;
 
-	rc = mdt_handle_common(req, mdt_regular_handlers);
+	opc = lustre_msg_get_opc(req->rq_reqmsg);
+
+	switch(opc) {
+	case UPDATE_OBJ:
+	case UPDATE_LOG_CANCEL:
+		rc = tgt_request_handle(req);
+		break;
+	default:
+		rc = mdt_handle_common(req, mdt_regular_handlers);
+		break;
+	}
 
 	RETURN(rc);
 }
