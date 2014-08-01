@@ -127,37 +127,6 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 	RETURN(rc);
 }
 
-static int osp_fld_lookup(const struct lu_env *env, struct osp_device *osp,
-			  seqno_t seq, struct lu_seq_range *range)
-{
-	struct seq_server_site	*ss = osp_seq_site(osp);
-	int			rc;
-
-	if (fid_seq_is_idif(seq)) {
-		fld_range_set_ost(range);
-		range->lsr_index = idif_ost_idx(seq);
-		return 0;
-	}
-
-	if (!fid_seq_in_fldb(seq)) {
-		fld_range_set_mdt(range);
-		if (ss != NULL)
-			/* FIXME: If ss is NULL, it suppose not get lsr_index
-			 * at all */
-			range->lsr_index = ss->ss_node_id;
-		return 0;
-	}
-
-	LASSERT(ss != NULL);
-	fld_range_set_any(range);
-	rc = fld_server_lookup(env, ss->ss_server_fld, seq, range);
-	if (rc != 0) {
-		CERROR("%s: cannot find FLD range for "LPX64": rc = %d\n",
-		       osp->opd_obd->obd_name, seq, rc);
-	}
-	return rc;
-}
-
 /**
  * Create a new update request for the device.
  */
@@ -311,7 +280,6 @@ static int osp_update_stop_txn_cb(const struct lu_env *env,
 {
 	struct llog_cookie	*cookie = &osp_env_info(env)->osi_cookie;
 	struct dt_device	*dt_dev = (struct dt_device *)data;
-	struct lu_seq_range	*range = &osp_env_info(env)->osi_seq;
 	struct osp_device	*osp = dt2osp_dev(dt_dev);
 	struct update_buf	*ubuf;
 	int i;
@@ -333,16 +301,7 @@ static int osp_update_stop_txn_cb(const struct lu_env *env,
 
 	for (i = 0; i < ubuf->ub_count; i++) {
 		struct update *update = update_buf_get(ubuf, i, NULL);
-
-		rc = osp_fld_lookup(env, osp, fid_seq(&update->u_fid), range);
-		if (rc != 0) {
-			CDEBUG(D_ERROR, "%s:"DFID"seq lookup failed\n",
-			       osp->opd_obd->obd_name,
-			       PFID(&update->u_fid));
-			continue;
-		}
-
-		if (osp->opd_group == range->lsr_index)
+		if (osp->opd_group == update->u_index)
 			update->u_cookie = *cookie;
 	}
 
@@ -476,6 +435,7 @@ static int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 {
 	struct osp_object	 *obj = dt2osp_obj(dt);
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int			 index = dt2osp_dev(dt_dev)->opd_index;
 	struct thandle_update_dt *tud;
 	int			 rc;
 
@@ -503,20 +463,20 @@ static int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 		       dt->do_lu.lo_dev->ld_obd->obd_name,
 		       PFID(lu_object_fid(&dt->do_lu)));
 
-		rc = dt_trans_update_ref_del(env, dt, th);
+		rc = dt_trans_update_ref_del(env, dt, index, th);
 		if (rc != 0)
 			GOTO(out, rc);
 		tud->tud_count++;
 
 		if (S_ISDIR(lu_object_attr(&dt->do_lu))) {
 			/* decrease for ".." */
-			rc = dt_trans_update_ref_del(env, dt, th);
+			rc = dt_trans_update_ref_del(env, dt, index, th);
 			if (rc != 0)
 				GOTO(out, rc);
 			tud->tud_count++;
 		}
 
-		rc = dt_trans_update_object_destroy(env, dt, th);
+		rc = dt_trans_update_object_destroy(env, dt, index, th);
 		if (rc != 0)
 			GOTO(out, rc);
 		tud->tud_count++;
@@ -527,7 +487,7 @@ static int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 		osp_md_add_update_batchid(th);
 	}
 
-	rc = dt_trans_update_create(env, dt, attr, hint, dof, th);
+	rc = dt_trans_update_create(env, dt, attr, hint, dof, index, th);
 	if (rc != 0)
 		GOTO(out, rc);
 	tud->tud_count++;
@@ -569,6 +529,7 @@ static int osp_md_object_ref_del(const struct lu_env *env,
 {
 	struct thandle_update_dt *tud;
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int			 index = dt2osp_dev(dt_dev)->opd_index;
 	int rc;
 
 	LASSERT(th->th_update && th->th_update->tu_update_buf != NULL);
@@ -576,7 +537,7 @@ static int osp_md_object_ref_del(const struct lu_env *env,
 	LASSERT(tud != NULL);
 
 	CDEBUG(D_INFO, "ref del "DFID"\n", PFID(lu_object_fid(&dt->do_lu)));
-	rc = dt_trans_update_ref_del(env, dt, th);
+	rc = dt_trans_update_ref_del(env, dt, index, th);
 	if (rc != 0)
 		return rc;
 
@@ -606,6 +567,7 @@ static int osp_md_object_ref_add(const struct lu_env *env,
 {
 	struct thandle_update_dt *tud;
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int			 index = dt2osp_dev(dt_dev)->opd_index;
 	int rc;
 
 	LASSERT(th->th_update && th->th_update->tu_update_buf != NULL);
@@ -614,7 +576,7 @@ static int osp_md_object_ref_add(const struct lu_env *env,
 
 	CDEBUG(D_INFO, "ref add "DFID"\n", PFID(lu_object_fid(&dt->do_lu)));
 
-	rc = dt_trans_update_ref_add(env, dt, th);
+	rc = dt_trans_update_ref_add(env, dt, index, th);
 	if (rc != 0)
 		return rc;
 
@@ -659,6 +621,7 @@ static int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 {
 	struct thandle_update_dt *tud;
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int			 index = dt2osp_dev(dt_dev)->opd_index;
 	int rc;
 
 	LASSERT(th->th_update && th->th_update->tu_update_buf != NULL);
@@ -666,7 +629,7 @@ static int osp_md_attr_set(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(tud != NULL);
 
 	CDEBUG(D_INFO, "attr set "DFID"\n", PFID(lu_object_fid(&dt->do_lu)));
-	rc = dt_trans_update_attr_set(env, dt, attr, th);
+	rc = dt_trans_update_attr_set(env, dt, attr, index, th);
 	if (rc != 0)
 		return rc;
 
@@ -700,6 +663,7 @@ static int osp_md_xattr_set(const struct lu_env *env, struct dt_object *dt,
 {
 	struct thandle_update_dt *tud;
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int			 index = dt2osp_dev(dt_dev)->opd_index;
 	int rc;
 
 	LASSERT(th->th_update && th->th_update->tu_update_buf != NULL);
@@ -709,7 +673,7 @@ static int osp_md_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	CDEBUG(D_INFO, "xattr %s set obj "DFID"\n", name,
 	       PFID(lu_object_fid(&dt->do_lu)));
 
-	rc = dt_trans_update_xattr_set(env, dt, buf, name, fl, th);
+	rc = dt_trans_update_xattr_set(env, dt, buf, name, fl, index, th);
 	if (rc != 0)
 		return rc;
 
@@ -736,7 +700,8 @@ static int osp_md_xattr_get(const struct lu_env *env, struct dt_object *dt,
 
 	LASSERT(name != NULL);
 	rc = dt_update_xattr_get(env, ubuf, UPDATE_BUFFER_SIZE, dt,
-				 (char *)name, dt2osp_dev(dt_dev)->opd_group);
+				 (char *)name, dt2osp_dev(dt_dev)->opd_index,
+				 dt2osp_dev(dt_dev)->opd_group);
 	if (rc != 0) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name, rc);
@@ -845,7 +810,8 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 		RETURN(-ENOMEM);
 
 	rc = dt_update_index_lookup(env, ubuf, UPDATE_BUFFER_SIZE, dt, rec,
-				    key, dt2osp_dev(dt_dev)->opd_group);
+				    key, dt2osp_dev(dt_dev)->opd_index,
+				    dt2osp_dev(dt_dev)->opd_group);
 	if (rc) {
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
@@ -922,6 +888,7 @@ static int osp_md_index_insert(const struct lu_env *env, struct dt_object *dt,
 {
 	struct thandle_update_dt *tud;
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int			 index = dt2osp_dev(dt_dev)->opd_index;
 	int rc;
 
 	LASSERT(th->th_update && th->th_update->tu_update_buf != NULL);
@@ -932,7 +899,7 @@ static int osp_md_index_insert(const struct lu_env *env, struct dt_object *dt,
 	       PFID(lu_object_fid(&dt->do_lu)), (char *)key,
 	       PFID((struct lu_fid *)rec));
 
-	rc = dt_trans_update_index_insert(env, dt, rec, key, th);
+	rc = dt_trans_update_index_insert(env, dt, rec, key, index, th);
 	if (rc != 0)
 		return rc;
 
@@ -964,6 +931,7 @@ static int osp_md_index_delete(const struct lu_env *env,
 {
 	struct thandle_update_dt *tud;
 	struct dt_device	 *dt_dev = lu2dt_dev(dt->do_lu.lo_dev);
+	int			 index = dt2osp_dev(dt_dev)->opd_index;
 	int rc;
 
 	LASSERT(th->th_update && th->th_update->tu_update_buf != NULL);
@@ -973,7 +941,7 @@ static int osp_md_index_delete(const struct lu_env *env,
 	CDEBUG(D_INFO, "index delete "DFID" %s\n",
 	       PFID(&dt->do_lu.lo_header->loh_fid), (char *)key);
 
-	rc = dt_trans_update_index_delete(env, dt, key, th);
+	rc = dt_trans_update_index_delete(env, dt, key, index, th);
 	if (rc != 0)
 		return rc;
 
@@ -1113,6 +1081,7 @@ static int osp_md_attr_get(const struct lu_env *env,
 		RETURN(-ENOMEM);
 
 	rc = dt_update_attr_get(env, ubuf, UPDATE_BUFFER_SIZE, dt,
+				dt2osp_dev(dt_dev)->opd_index,
 				dt2osp_dev(dt_dev)->opd_group);
 	if (rc) {
 		CERROR("%s: Insert update error: rc = %d\n",
@@ -1355,7 +1324,8 @@ static int osp_cancel_remote_log(const struct lu_env *env,
 
 	logid_to_fid(&rcookie->lgc_lgl, fid);
 	rc = update_insert(env, ubuf, UPDATE_BUFFER_SIZE, OBJ_LOG_CANCEL,
-			   fid, 1, &size, (char **)&rcookie, 0, osp->opd_group);
+			   fid, 1, &size, (char **)&rcookie, 0,
+			   osp->opd_index, osp->opd_group);
 	if (ubuf->ub_count >= MAXIM_UPDATE_LOG_PER_RPC) {
 		struct ptlrpc_request	*req;
 		int			ulen = update_buf_size(ubuf);
@@ -1402,12 +1372,10 @@ static inline int osp_update_can_process_new(const struct lu_env *env,
 	struct llog_updatelog_rec *urec = (struct llog_updatelog_rec *)rec;
 	struct update_buf	  *ubuf = &urec->urb;
 	struct obd_import	  *imp = osp->opd_obd->u.cli.cl_import;
-	struct lu_seq_range	  *range = &osp_env_info(env)->osi_seq;
 	__u64			  transno = osp_last_local_committed(osp);
 	__u64			  peer_transno;
 	int			  committed = 1;
 	int			  i;
-	int			  rc;
 	ENTRY;
 
 	LASSERT(osp);
@@ -1428,17 +1396,7 @@ static inline int osp_update_can_process_new(const struct lu_env *env,
 	for (i = 0; i < ubuf->ub_count; i++) {
 		struct update *update = update_buf_get(ubuf, i, NULL);
 
-		rc = osp_fld_lookup(env, osp, fid_seq(&update->u_fid),
-				    range);
-		if (rc != 0) {
-			CDEBUG(D_HA, "%s:"DFID"seq lookup failed\n",
-			       osp->opd_obd->obd_name,
-			       PFID(&update->u_fid));
-			committed = 0;
-			break;
-		}
-
-		if (osp->opd_group == range->lsr_index) {
+		if (osp->opd_group == update->u_index) {
 			if (update->u_batchid == 0) {
 				committed = 0;
 				break;
@@ -1449,7 +1407,7 @@ static inline int osp_update_can_process_new(const struct lu_env *env,
 			}
 		}
 
-		if (osp->opd_index == range->lsr_index) {
+		if (osp->opd_index == update->u_index) {
 			if (update->u_batchid == 0) {
 				committed = 0;
 				break;

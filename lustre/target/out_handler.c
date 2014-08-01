@@ -1358,8 +1358,6 @@ int out_handle(struct tgt_session_info *tsi)
 	for (i = 0; i < count; i++) {
 		struct tgt_handler	*h;
 		struct dt_object	*dt_obj;
-		struct lu_object	*lu_obj;
-		struct lu_object_conf	conf;
 
 		update = (struct update *)update_buf_get(ubuf, i, NULL);
 
@@ -1389,24 +1387,15 @@ int out_handle(struct tgt_session_info *tsi)
 		}
 
 		/* skip the update for remote object */
-		conf.loc_flags = LOC_F_IGNORE_REMOTE;
-		lu_obj = lu_object_find_at(env,
-					   dt->dd_lu_dev.ld_site->ls_top_dev,
-					   &update->u_fid, &conf);
-		if (IS_ERR(lu_obj))
-			GOTO(out, rc = PTR_ERR(lu_obj));
-
-		if (lu_object_remote(lu_obj)) {
+		if (update->u_index !=
+		    dt->dd_lu_dev.ld_site->ld_seq_site->ss_node_id) {
 			CDEBUG(D_INFO, "%s: "DFID" skip %s\n",
 			       tgt_name(tsi->tsi_tgt), PFID(&update->u_fid),
 			       update_op_str(update->u_type));
-			lu_object_put_nocache(env, lu_obj);
 			continue;
 		}
 
-		lu_obj = lu_object_locate(lu_obj->lo_header,
-					  dt->dd_lu_dev.ld_type);
-		dt_obj = lu2dt_obj(lu_obj);
+		dt_obj = dt_locate(env, dt, &update->u_fid);
 		if (IS_ERR(dt_obj))
 			GOTO(out, rc = PTR_ERR(dt_obj));
 
@@ -1436,7 +1425,7 @@ int out_handle(struct tgt_session_info *tsi)
 			GOTO(out, rc = -ENOTSUPP);
 		}
 next:
-		lu_object_put(env, lu_obj);
+		lu_object_put(env, &dt_obj->do_lu);
 		if (rc < 0)
 			GOTO(out, rc);
 	}
