@@ -3781,6 +3781,7 @@ enum update_flag {
 struct update {
 	__u16		u_type;			/* enum update_type */
 	__u16		u_master_index;		/* master MDT/OST index */
+	__u32		u_index;		/* index of update */
 	__u32		u_flags;		/* enum update_flag */
 	__u64		u_batchid;		/* op transno on master */
 	__u64		u_xid;			/* req xid for update */
