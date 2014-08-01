@@ -76,7 +76,6 @@ static int out_tx_start(const struct lu_env *env, struct dt_device *dt,
 	}
 	ta->ta_dev = dt;
 	/*For phase I, sync for cross-ref operation*/
-	ta->ta_handle->th_sync = 1;
 	if (ubuf != NULL && tti->tti_u.update.tti_log_update)
 		rc = dt_trans_update_declare_llog_add(env, dt, ta->ta_handle,
 						update_buf_master_idx(ubuf));
@@ -87,7 +86,6 @@ static int out_trans_start(const struct lu_env *env,
 			   struct thandle_exec_args *ta)
 {
 	/* Always do sync commit for Phase I */
-	LASSERT(ta->ta_handle->th_sync != 0);
 	return dt_trans_start(env, ta->ta_dev, ta->ta_handle);
 }
 
@@ -112,7 +110,6 @@ static int out_trans_stop(const struct lu_env *env,
 	int rc;
 
 	ta->ta_handle->th_result = err;
-	LASSERT(ta->ta_handle->th_sync != 0);
 
 	tu = ta->ta_handle->th_update;
 	rc = dt_trans_stop(env, ta->ta_dev, ta->ta_handle);
