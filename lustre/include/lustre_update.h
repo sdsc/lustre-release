@@ -300,11 +300,12 @@ static inline void update_dump_buf(struct update_buf *ubuf)
 	for (i = 0; i < ubuf->ub_count; i++) {
 		struct update *update;
 		update = (struct update *)update_buf_get(ubuf, i, NULL);
-		CDEBUG(D_INFO, "i: %d fid: "DFID" op: %s master: %d batchid: "
-		       LPU64 " xid: "LPU64" cookie %u "DOSTID":%u\n", i,
-		       PFID(&update->u_fid), update_op_str(update->u_type),
-		       (int)update->u_master_index, update->u_batchid,
-		       update->u_xid, update->u_cookie.lgc_index,
+		CDEBUG(D_INFO, "i: %d fid: "DFID" op: %s master: %d idx %d"
+		       "batchid: "LPU64" xid: "LPU64" cookie %u "DOSTID":%u\n",
+		       i, PFID(&update->u_fid), update_op_str(update->u_type),
+		       (int)update->u_master_index, update->u_index,
+		       update->u_batchid, update->u_xid,
+		       update->u_cookie.lgc_index,
 		       POSTID(&update->u_cookie.lgc_lgl.lgl_oi),
 		       update->u_cookie.lgc_lgl.lgl_ogen);
 	}
@@ -313,12 +314,12 @@ static inline void update_dump_buf(struct update_buf *ubuf)
 struct update *update_pack(const struct lu_env *env,
 			   struct update_buf *ubuf, int buf_len, int op,
 			   const struct lu_fid *fid, int count, int *lens,
-			   __u64 batchid, int master_index);
+			   __u64 batchid, int index, int master_index);
 
 int update_insert(const struct lu_env *env, struct update_buf *ubuf,
 		  int buf_len, int op, const struct lu_fid *fid,
 		  int count, int *lens, char **bufs, __u64 batchid,
-		  int master_index);
+		  int index, int master_index);
 void dt_update_xid(struct update_buf *ubuf, int index, __u64 xid);
 
 struct obd_llog_group *dt_update_find_olg(struct dt_device *dt, int index);
