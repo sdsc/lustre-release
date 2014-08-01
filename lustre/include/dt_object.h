@@ -811,33 +811,39 @@ struct llog_operations;
 int dt_trans_update_create(const struct lu_env *env, struct dt_object *dt,
 			   struct lu_attr *attr,
 			   struct dt_allocation_hint *hint,
-			   struct dt_object_format *dof, struct thandle *th);
+			   struct dt_object_format *dof, int index,
+			   struct thandle *th);
 int dt_trans_update_object_destroy(const struct lu_env *env,
-				   struct dt_object *dt, struct thandle *th);
+				   struct dt_object *dt, int index,
+				   struct thandle *th);
 int dt_trans_update_index_delete(const struct lu_env *env, struct dt_object *dt,
-				 const struct dt_key *key, struct thandle *th);
+				 const struct dt_key *key, int index,
+				 struct thandle *th);
 int dt_trans_update_index_insert(const struct lu_env *env, struct dt_object *dt,
 				 const struct dt_rec *rec,
-				 const struct dt_key *key, struct thandle *th);
+				 const struct dt_key *key, int index,
+				 struct thandle *th);
 int dt_trans_update_xattr_set(const struct lu_env *env, struct dt_object *dt,
 			      const struct lu_buf *buf, const char *name,
-			      int flag, struct thandle *th);
+			      int flag, int index, struct thandle *th);
 int dt_trans_update_attr_set(const struct lu_env *env, struct dt_object *dt,
-			     const struct lu_attr *attr, struct thandle *th);
+			     const struct lu_attr *attr, int index,
+			     struct thandle *th);
 int dt_trans_update_ref_add(const struct lu_env *env, struct dt_object *dt,
-			    struct thandle *th);
+			    int index, struct thandle *th);
 int dt_trans_update_ref_del(const struct lu_env *env, struct dt_object *dt,
-			    struct thandle *th);
+			    int index, struct thandle *th);
 
 int dt_update_attr_get(const struct lu_env *env, struct update_buf *ubuf,
-		       int buffer_len, struct dt_object *dt, int master_index);
+		       int buffer_len, struct dt_object *dt, int index,
+		       int master_index);
 int dt_update_index_lookup(const struct lu_env *env, struct update_buf *ubuf,
 			   int buffer_len, struct dt_object *dt,
 			   struct dt_rec *rec, const struct dt_key *key,
-			   int master_index);
+			   int index, int master_index);
 int dt_update_xattr_get(const struct lu_env *env, struct update_buf *ubuf,
 			int buffer_len, struct dt_object *dt, char *name,
-			int master_index);
+			int index, int master_index);
 int dt_trans_update_declare_llog_add(const struct lu_env *env,
 				     struct dt_device *dt, struct thandle *th,
 				     int index);
