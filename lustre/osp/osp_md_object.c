@@ -1325,15 +1325,39 @@ static inline int osp_update_stopped(struct osp_device *d)
 	return !!(d->opd_update_thread.t_flags & SVC_STOPPED);
 }
 
+static void osp_cancel_commit_cb(struct ptlrpc_request *req)
+{
+	struct osp_device *osp = req->rq_cb_data;
+
+	CDEBUG(D_HA, "commit req %p, transno "LPU64"\n", req, req->rq_transno);
+	if (unlikely(req->rq_transno == 0) || !osp_update_running(osp))
+		return;
+
+	LASSERT(osp);
+	LASSERT(req->rq_svc_thread == (void *) OSP_JOB_MAGIC);
+	LASSERT(cfs_list_empty(&req->rq_exp_list));
+
+	ptlrpc_request_addref(req);
+
+	spin_lock(&osp->opd_update_log_cancel_list_lock);
+	cfs_list_add(&req->rq_exp_list,
+		     &osp->opd_update_log_cancel_list);
+	spin_unlock(&osp->opd_update_log_cancel_list_lock);
+
+	wake_up(&osp->opd_update_waitq);
+}
+
 #define MAXIM_UPDATE_LOG_PER_RPC 2
 static int osp_cancel_remote_log(const struct lu_env *env,
 				 struct osp_device *osp,
 				 struct update_buf *ubuf,
-				 struct llog_cookie *rcookie)
+				 struct llog_cookie *rcookie,
+				 struct llog_cookie *lcookie)
 {
 	struct lu_fid *fid = &osp_env_info(env)->osi_fid;
 	int rc;
-	int size = sizeof(*rcookie);
+	int sizes[2] = {sizeof(*rcookie), sizeof(*lcookie)};
+	char *bufs[2] = {(char *)rcookie, (char *)lcookie};
 	ENTRY;
 
 	CDEBUG(D_HA, "%s: cancel remote cookie "DOSTID": %x\n",
@@ -1342,34 +1366,21 @@ static int osp_cancel_remote_log(const struct lu_env *env,
 
 	logid_to_fid(&rcookie->lgc_lgl, fid);
 	rc = update_insert(env, ubuf, UPDATE_BUFFER_SIZE, OBJ_LOG_CANCEL,
-			   fid, 1, &size, (char **)&rcookie, 0,
+			   fid, 2, sizes, (char **)bufs, 0,
 			   osp->opd_index, osp->opd_group);
 	if (ubuf->ub_count >= MAXIM_UPDATE_LOG_PER_RPC) {
 		struct ptlrpc_request	*req;
-		int			ulen = update_buf_size(ubuf);
-		struct l_wait_info	lwi = { 0 };
 
-		do {
-			rc = osp_prep_update_req(env, osp, ubuf, &req,
-						 UPDATE_LOG_CANCEL);
-			if (rc)
-				GOTO(out, rc);
+		rc = osp_prep_update_req(env, osp, ubuf, &req,
+					 UPDATE_LOG_CANCEL);
+		if (rc)
+			GOTO(out, rc);
 
-			rc = ptlrpc_queue_wait(req);
-
-			if (rc != 0) {
-				ptlrpc_req_finished(req);
-				CDEBUG(D_HA, "%s: cancel "DOSTID
-				       ":%x: rc = %d\n", osp->opd_obd->obd_name,
-				       POSTID(&rcookie->lgc_lgl.lgl_oi),
-				       rcookie->lgc_lgl.lgl_ogen, rc);
-				l_wait_event(osp->opd_update_waitq,
-					     !osp_update_running(osp) ||
-					     osp->opd_imp_connected, &lwi);
-			}
-		} while (rc != 0);
-		ptlrpc_req_finished(req);
-		memset(ubuf, 0, ulen);
+		req->rq_svc_thread = (void *) OSP_JOB_MAGIC;
+		req->rq_commit_cb = osp_cancel_commit_cb;
+		req->rq_cb_data = osp;
+		ptlrpcd_add_req(req, PDL_POLICY_ROUND, -1);
+		memset(ubuf, 0, update_buf_size(ubuf));
 		update_buf_init(ubuf);
 	}
 out:
@@ -1484,31 +1495,21 @@ static int osp_update_process_queues(const struct lu_env *env,
 			       lcookie->lgc_lgl.lgl_ogen);
 			rc = llog_cat_cancel_records(env,
 					llh->u.phd.phd_cat_handle,
-					1, lcookie);
+					lcookie, 1, NULL);
 		} else {
 			LASSERT(rcookie != NULL);
+			lcookie = &osp_env_info(env)->osi_cookie;
+			lcookie->lgc_lgl = llh->lgh_id;
+			lcookie->lgc_subsys = LLOG_UPDATE_ORIG_CTXT;
+			lcookie->lgc_index = rec->lrh_index;
+
 			rc = osp_cancel_remote_log(env, osp, cancel_ubuf,
-						   rcookie);
+						   rcookie, lcookie);
 			if (rc != 0) {
 				CDEBUG(D_HA, "%s: cancel "DOSTID": %x failed:"
 				       " rc = %d\n", osp->opd_obd->obd_name,
 				       POSTID(&rcookie->lgc_lgl.lgl_oi),
 				       rcookie->lgc_lgl.lgl_ogen, rc);
-			}
-
-			/* cancel local record */
-			lcookie = &osp_env_info(env)->osi_cookie;
-			lcookie->lgc_lgl = llh->lgh_id;
-			lcookie->lgc_subsys = LLOG_UPDATE_ORIG_CTXT;
-			lcookie->lgc_index = rec->lrh_index;
-			rc = llog_cat_cancel_records(env,
-						llh->u.phd.phd_cat_handle,
-						1, lcookie);
-			if (rc != 0) {
-				CDEBUG(D_HA, "%s: cancel "DOSTID": %x failed:"
-				       " rc = %d\n", osp->opd_obd->obd_name,
-				       POSTID(&lcookie->lgc_lgl.lgl_oi),
-				       lcookie->lgc_lgl.lgl_ogen, rc);
 			}
 		}
 	}
@@ -1857,6 +1858,59 @@ int osp_recovery(struct osp_device *osp)
 	return rc;
 }
 
+static int osp_cancel_local_update_log(const struct lu_env *env,
+				       struct osp_device *osp,
+				       struct llog_handle *llh)
+{
+	struct ptlrpc_request	*req, *tmp;
+	cfs_list_t		 list;
+	int			 rc = 0;
+	ENTRY;
+
+	if (cfs_list_empty(&osp->opd_update_log_cancel_list))
+		RETURN(0);
+
+	CFS_INIT_LIST_HEAD(&list);
+	spin_lock(&osp->opd_update_log_cancel_list_lock);
+	cfs_list_splice(&osp->opd_update_log_cancel_list, &list);
+	CFS_INIT_LIST_HEAD(&osp->opd_update_log_cancel_list);
+	spin_unlock(&osp->opd_update_log_cancel_list_lock);
+
+	cfs_list_for_each_entry_safe(req, tmp, &list, rq_exp_list) {
+		struct update_buf *ubuf;
+		int i;
+
+		LASSERT(req->rq_svc_thread == (void *) OSP_JOB_MAGIC);
+		cfs_list_del_init(&req->rq_exp_list);
+
+		ubuf = req_capsule_client_get(&req->rq_pill, &RMF_UPDATE);
+		LASSERT(ubuf != NULL);
+		for (i = 0; i < ubuf->ub_count; i++) {
+			struct update *update;
+			struct llog_cookie *lcookie;
+
+			update = update_buf_get(ubuf, i, NULL);
+			LASSERT(update != NULL);
+
+			lcookie = update_param_buf(update, 1, NULL);
+			LASSERT(lcookie != NULL);
+
+			/* cancel local record */
+			rc = llog_cat_cancel_records(env,
+						llh->u.phd.phd_cat_handle,
+						lcookie, 1, NULL);
+			if (rc != 0) {
+				CDEBUG(D_HA, "%s: cancel "DOSTID": %x failed:"
+				       " rc = %d\n", osp->opd_obd->obd_name,
+				       POSTID(&lcookie->lgc_lgl.lgl_oi),
+				       lcookie->lgc_lgl.lgl_ogen, rc);
+			}
+		}
+		ptlrpc_req_finished(req);
+	}
+	RETURN(rc);
+}
+
 static int osp_update_thread(void *_arg)
 {
 	struct osp_device	*osp = _arg;
@@ -1895,15 +1949,16 @@ static int osp_update_thread(void *_arg)
 	}
 
 	llh = ctxt->loc_handle;
-	if (llh == NULL) {
-		llog_ctxt_put(ctxt);
-		GOTO(out, rc = -EINVAL);
-	}
+	if (llh == NULL)
+		GOTO(out_put, rc = -EINVAL);
 
 	upa.upa_osp = osp;
 	upa.upa_ubuf = update_buf_alloc();
-
+	if (upa.upa_ubuf == NULL)
+		GOTO(out_put, rc = -ENOMEM);
 	do {
+		osp_cancel_local_update_log(&env, osp, llh);
+
 		rc = llog_cat_process(&env, llh, osp_update_process_queues,
 				      &upa, 0, 0);
 		osp->opd_new_committed = 0;
@@ -1913,9 +1968,13 @@ static int osp_update_thread(void *_arg)
 		if (!osp_update_running(osp))
 			break;
 	} while (1);
+
+	osp_cancel_local_update_log(&env, osp, llh);
+
 	/* we don't expect llog_process_thread() to exit till umount */
 	LASSERT(thread->t_flags != SVC_RUNNING);
 	update_buf_free(upa.upa_ubuf);
+out_put:
 	llog_ctxt_put(ctxt);
 out:
 	thread->t_flags = SVC_STOPPED;
@@ -1939,6 +1998,9 @@ int osp_update_init(const struct lu_env *env, struct osp_device *osp)
 
 	CFS_INIT_LIST_HEAD(&osp->opd_update_replay_list);
 	spin_lock_init(&osp->opd_update_replay_lock);
+
+	CFS_INIT_LIST_HEAD(&osp->opd_update_log_cancel_list);
+	spin_lock_init(&osp->opd_update_log_cancel_list_lock);
 
 	/*
 	 * Start synchronization thread
