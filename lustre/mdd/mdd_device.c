@@ -227,8 +227,8 @@ static int llog_changelog_cancel_cb(const struct lu_env *env,
 	/* cancel them one at a time.  I suppose we could store up the cookies
 	 * and cancel them all at once; probably more efficient, but this is
 	 * done as a user call, so who cares... */
-	rc = llog_cat_cancel_records(env, llh->u.phd.phd_cat_handle, 1,
-				     &cookie);
+	rc = llog_cat_cancel_records(env, llh->u.phd.phd_cat_handle,
+				     &cookie, 1, NULL);
 	RETURN(rc < 0 ? rc : 0);
 }
 
@@ -1271,7 +1271,7 @@ static int mdd_changelog_user_purge_cb(const struct lu_env *env,
                 cookie.lgc_index = hdr->lrh_index;
 
 		rc = llog_cat_cancel_records(env, llh->u.phd.phd_cat_handle,
-					     1, &cookie);
+					     &cookie, 1, NULL);
                 if (rc == 0)
                         mcud->mcud_usercount--;
 
@@ -1285,7 +1285,7 @@ static int mdd_changelog_user_purge_cb(const struct lu_env *env,
         /* hdr+1 is loc of data */
         hdr->lrh_len -= sizeof(*hdr) + sizeof(struct llog_rec_tail);
 	rc = llog_write(env, llh, hdr, NULL, 0, (void *)(hdr + 1),
-			hdr->lrh_index);
+			hdr->lrh_index, NULL);
 
         RETURN(rc);
 }

@@ -90,9 +90,6 @@ static void osp_sync_remove_from_tracker(struct osp_device *d);
 #define OSP_SYN_THRESHOLD	10
 #define OSP_MAX_IN_FLIGHT	8
 #define OSP_MAX_IN_PROGRESS	4096
-
-#define OSP_JOB_MAGIC		0x26112005
-
 static inline int osp_sync_running(struct osp_device *d)
 {
 	return !!(d->opd_syn_thread.t_flags & SVC_RUNNING);
@@ -648,7 +645,7 @@ static int osp_sync_process_record(const struct lu_env *env,
 
 		/* cancel any generation record */
 		rc = llog_cat_cancel_records(env, llh->u.phd.phd_cat_handle,
-					     1, &cookie);
+					     &cookie, 1, NULL);
 
 		return rc;
 	}
@@ -785,7 +782,8 @@ static void osp_sync_process_committed(const struct lu_env *env,
 		/* import can be closing, thus all commit cb's are
 		 * called we can check committness directly */
 		if (req->rq_transno <= imp->imp_peer_committed_transno) {
-			rc = llog_cat_cancel_records(env, llh, 1, lcookie);
+			rc = llog_cat_cancel_records(env, llh, lcookie, 1,
+						     NULL);
 			if (rc)
 				CERROR("%s: can't cancel record: %d\n",
 				       obd->obd_name, rc);

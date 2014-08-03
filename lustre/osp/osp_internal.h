@@ -190,6 +190,9 @@ struct osp_device {
 	__u64				opd_last_committed_transno;
 
 
+	cfs_list_t			opd_update_log_cancel_list;
+	spinlock_t			opd_update_log_cancel_list_lock;
+
 	cfs_list_t			opd_update_replay_list;
 	spinlock_t			opd_update_replay_lock;
 
@@ -218,6 +221,8 @@ struct update_replay {
 };
 
 extern struct kmem_cache *osp_object_kmem;
+
+#define OSP_JOB_MAGIC		0x26112005
 
 /* this is a top object */
 struct osp_object {

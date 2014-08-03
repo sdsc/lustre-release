@@ -1529,6 +1529,7 @@ int out_log_handle(struct tgt_session_info *tsi)
 	struct dt_device		*dt = tsi->tsi_tgt->lut_bottom;
 	struct update_buf		*ubuf;
 	struct update_reply_buf		*reply_buf;
+	struct llog_cookie		*cookies;
 	int				 bufsize;
 	int				 count;
 	int				 i;
@@ -1584,6 +1585,10 @@ int out_log_handle(struct tgt_session_info *tsi)
 
 	master_index = update_buf_master_idx(ubuf);
 
+	OBD_ALLOC(cookies, sizeof(*cookies) * count);
+	if (cookies == NULL)
+		GOTO(trans_stop, rc = -ENOMEM);
+
 	for (i = 0; i < count; i++) {
 		struct update		*update;
 		struct llog_cookie	*cookie;
@@ -1593,12 +1598,19 @@ int out_log_handle(struct tgt_session_info *tsi)
 		if (ptlrpc_req_need_swab(pill->rc_req))
 			lustre_swab_update(update);
 
-		cookie = (struct llog_cookie *)update_param_buf(update, 0,
-								NULL);
-		rc = dt_update_llog_cancel(env, dt, cookie, master_index);
+		cookie = update_param_buf(update, 0, NULL);
+		if (cookie == NULL)
+			GOTO(trans_stop, rc = -EINVAL);
 
-		update_insert_reply(reply_buf, NULL, 0, i, rc);
+		cookies[i] = *cookie;
 	}
+
+	rc = dt_update_llog_cancel(env, dt, cookies, count, master_index);
+trans_stop:
+	for (i = 0; i < count; i++)
+		update_insert_reply(reply_buf, NULL, 0, i, rc);
+	if (cookies != NULL)
+		OBD_FREE(cookies, sizeof(*cookies) * count);
 	RETURN(rc);
 }
 

@@ -852,7 +852,7 @@ int dt_trans_update_llog_add(const struct lu_env *env, struct dt_device *dt,
 			     struct llog_cookie *cookie, int index,
 			     struct thandle *th);
 int dt_update_llog_cancel(const struct lu_env *env, struct dt_device *dt,
-			  struct llog_cookie *cookie, int index);
+			  struct llog_cookie *cookies, int count, int index);
 int dt_trans_update_hook_stop(const struct lu_env *env, struct thandle *th);
 int dt_update_llog_init(const struct lu_env *env, struct dt_device *dt,
 		        int index, struct llog_operations *logops);
