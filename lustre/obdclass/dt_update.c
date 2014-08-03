@@ -502,11 +502,13 @@ int dt_trans_update_llog_add(const struct lu_env *env, struct dt_device *dt,
 EXPORT_SYMBOL(dt_trans_update_llog_add);
 
 int dt_update_llog_cancel(const struct lu_env *env, struct dt_device *dt,
-			  struct llog_cookie *cookie, int index)
+			  struct llog_cookie *cookies, int count, int index)
 {
 	struct obd_llog_group	*olg;
 	struct llog_ctxt	*ctxt;
+	struct thandle		*th;
 	int			rc;
+	int			i;
 	ENTRY;
 
 	olg = dt_update_find_olg(dt, index);
@@ -516,7 +518,33 @@ int dt_update_llog_cancel(const struct lu_env *env, struct dt_device *dt,
 		RETURN(-ENXIO);
 
 	LASSERT(ctxt->loc_handle != NULL);
-	rc = llog_cat_cancel_records(env, ctxt->loc_handle, 1, cookie);
+
+	th = dt_trans_create(env, dt);
+	if (IS_ERR(th))
+		GOTO(put, rc = PTR_ERR(th));
+
+	rc = llog_declare_cat_cancel_records(env, ctxt->loc_handle,
+					     cookies, count, th);
+	if (rc != 0)
+		GOTO(put, rc);
+
+	rc = dt_trans_start(env, dt, th);
+	if (rc != 0)
+		GOTO(put, rc);
+
+	for (i = 0; i < count; i++, cookies++) {
+		rc = llog_cat_cancel_records(env, ctxt->loc_handle, cookies, 1,
+					     th);
+		if (rc != 0 && rc != -ENOENT) {
+			th->th_result = rc;
+			break;
+		}
+	}
+
+	if (rc == -ENOENT)
+		rc = 0;
+put:
+	dt_trans_stop(env, dt, th);
 	llog_ctxt_put(ctxt);
 	RETURN(rc);
 }

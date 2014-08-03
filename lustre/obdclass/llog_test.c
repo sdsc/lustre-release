@@ -202,7 +202,7 @@ static int llog_test_2(const struct lu_env *env, struct obd_device *obd,
 	}
 
 	CWARN("2b: destroy this log\n");
-	rc = llog_destroy(env, loghandle);
+	rc = llog_destroy(env, loghandle, NULL);
 	if (rc)
 		CERROR("2d: destroy log failed\n");
 out_close:
@@ -230,7 +230,7 @@ static int llog_test_3(const struct lu_env *env, struct obd_device *obd,
 	lgr.lgr_hdr.lrh_type = LLOG_GEN_REC;
 
 	CWARN("3a: write one create_rec\n");
-	rc = llog_write(env, llh,  &lgr.lgr_hdr, NULL, 0, NULL, -1);
+	rc = llog_write(env, llh,  &lgr.lgr_hdr, NULL, 0, NULL, -1, NULL);
 	num_recs++;
 	if (rc < 0) {
 		CERROR("3a: write one log record failed: %d\n", rc);
@@ -249,7 +249,7 @@ static int llog_test_3(const struct lu_env *env, struct obd_device *obd,
 		hdr.lrh_len = 8;
 		hdr.lrh_type = OBD_CFG_REC;
 		memset(buf, 0, sizeof buf);
-		rc = llog_write(env, llh, &hdr, NULL, 0, buf, -1);
+		rc = llog_write(env, llh, &hdr, NULL, 0, buf, -1, NULL);
 		if (rc < 0) {
 			CERROR("3b: write 10 records failed at #%d: %d\n",
 			       i + 1, rc);
@@ -264,7 +264,8 @@ static int llog_test_3(const struct lu_env *env, struct obd_device *obd,
 
 	CWARN("3c: write 1000 more log records\n");
 	for (i = 0; i < 1000; i++) {
-		rc = llog_write(env, llh, &lgr.lgr_hdr, NULL, 0, NULL, -1);
+		rc = llog_write(env, llh, &lgr.lgr_hdr, NULL, 0, NULL, -1,
+				NULL);
 		if (rc < 0) {
 			CERROR("3c: write 1000 records failed at #%d: %d\n",
 			       i + 1, rc);
@@ -288,11 +289,13 @@ static int llog_test_3(const struct lu_env *env, struct obd_device *obd,
 		if ((i % 2) == 0) {
 			hdr.lrh_len = 24;
 			hdr.lrh_type = OBD_CFG_REC;
-			rc = llog_write(env, llh, &hdr, NULL, 0, buf_even, -1);
+			rc = llog_write(env, llh, &hdr, NULL, 0, buf_even, -1,
+					NULL);
 		} else {
 			hdr.lrh_len = 32;
 			hdr.lrh_type = OBD_CFG_REC;
-			rc = llog_write(env, llh, &hdr, NULL, 0, buf_odd, -1);
+			rc = llog_write(env, llh, &hdr, NULL, 0, buf_odd, -1,
+					NULL);
 		}
 		if (rc == -ENOSPC) {
 			break;
@@ -368,7 +371,7 @@ static int llog_test_4(const struct lu_env *env, struct obd_device *obd)
 		GOTO(out, rc);
 
 	CWARN("4c: cancel 1 log record\n");
-	rc = llog_cat_cancel_records(env, cath, 1, &cookie);
+	rc = llog_cat_cancel_records(env, cath, &cookie, 1, NULL);
 	if (rc) {
 		CERROR("4c: cancel 1 catalog based record failed: %d\n", rc);
 		GOTO(out, rc);
@@ -489,7 +492,8 @@ static int llog_cancel_rec_cb(const struct lu_env *env,
 	cookie.lgc_lgl = llh->lgh_id;
 	cookie.lgc_index = rec->lrh_index;
 
-	llog_cat_cancel_records(env, llh->u.phd.phd_cat_handle, 1, &cookie);
+	llog_cat_cancel_records(env, llh->u.phd.phd_cat_handle, &cookie, 1,
+				NULL);
 	cancel_count++;
 	if (cancel_count == LLOG_TEST_RECNUM)
 		RETURN(-LLOG_EEMPTY);
@@ -745,7 +749,7 @@ static int llog_test_7_sub(const struct lu_env *env, struct llog_ctxt *ctxt)
 	}
 	for (i = 0; i < LLOG_BITMAP_SIZE(llh->lgh_hdr); i++) {
 		rc = llog_write(env, llh, &llog_records.lrh, NULL, 0,
-				NULL, -1);
+				NULL, -1, NULL);
 		if (rc == -ENOSPC) {
 			break;
 		} else if (rc < 0) {
@@ -802,7 +806,7 @@ static int llog_test_7_sub(const struct lu_env *env, struct llog_ctxt *ctxt)
 	rc = verify_handle("7_sub", llh, 1);
 out_close:
 	if (rc)
-		llog_destroy(env, llh);
+		llog_destroy(env, llh, NULL);
 	llog_close(env, llh);
 	RETURN(rc);
 }
@@ -943,7 +947,7 @@ static int llog_run_tests(const struct lu_env *env, struct obd_device *obd)
 		GOTO(cleanup, rc);
 
 cleanup:
-	err = llog_destroy(env, llh);
+	err = llog_destroy(env, llh, NULL);
 	if (err)
 		CERROR("cleanup: llog_destroy failed: %d\n", err);
 	llog_close(env, llh);
