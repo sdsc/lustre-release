@@ -217,41 +217,49 @@ int libcfs_deregister_ioctl(struct libcfs_ioctl_handler *hand)
 }
 EXPORT_SYMBOL(libcfs_deregister_ioctl);
 
-static int libcfs_ioctl_int(struct cfs_psdev_file *pfile,unsigned long cmd,
-                            void *arg, struct libcfs_ioctl_data *data)
+static int libcfs_ioctl(struct cfs_psdev_file *pfile,
+			unsigned long cmd, void *uparam)
 {
-        int err = -EINVAL;
-        ENTRY;
+	struct libcfs_ioctl_data *data;
+	int			  err;
+	ENTRY;
 
-        switch (cmd) {
-        case IOC_LIBCFS_CLEAR_DEBUG:
-                libcfs_debug_clear_buffer();
-                RETURN(0);
-        /*
-         * case IOC_LIBCFS_PANIC:
-         * Handled in arch/cfs_module.c
-         */
-        case IOC_LIBCFS_MARK_DEBUG:
-                if (data->ioc_inlbuf1 == NULL ||
-                    data->ioc_inlbuf1[data->ioc_inllen1 - 1] != '\0')
-                        RETURN(-EINVAL);
-                libcfs_debug_mark_buffer(data->ioc_inlbuf1);
-                RETURN(0);
-        case IOC_LIBCFS_MEMHOG:
-                if (pfile->private_data == NULL) {
-                        err = -EINVAL;
-                } else {
-                        kportal_memhog_free(pfile->private_data);
-                        /* XXX The ioc_flags is not GFP flags now, need to be fixed */
-                        err = kportal_memhog_alloc(pfile->private_data,
-                                                   data->ioc_count,
-                                                   data->ioc_flags);
-                        if (err != 0)
-                                kportal_memhog_free(pfile->private_data);
-                }
-                break;
+	/* 'cmd' and permissions get checked in our arch-specific caller */
+	err = libcfs_ioctl_getdata(&data, uparam);
+	if (err != 0) {
+		CERROR("libcfs ioctl: data error %d\n", err);
+		RETURN(err);
+	}
 
-        case IOC_LIBCFS_PING_TEST: {
+	switch (cmd) {
+	case IOC_LIBCFS_CLEAR_DEBUG:
+		libcfs_debug_clear_buffer();
+		break;
+	/*
+	 * case IOC_LIBCFS_PANIC:
+	 * Handled in arch/cfs_module.c
+	 */
+	case IOC_LIBCFS_MARK_DEBUG:
+		if (data->ioc_inlbuf1 == NULL ||
+		    data->ioc_inlbuf1[data->ioc_inllen1 - 1] != '\0')
+			err = -EINVAL;
+		else
+			libcfs_debug_mark_buffer(data->ioc_inlbuf1);
+		break;
+
+	case IOC_LIBCFS_MEMHOG:
+		if (pfile->private_data == NULL) {
+			err = -EINVAL;
+			break;
+		}
+		kportal_memhog_free(pfile->private_data);
+		err = kportal_memhog_alloc(pfile->private_data,
+					   data->ioc_count, data->ioc_flags);
+		if (err != 0)
+			kportal_memhog_free(pfile->private_data);
+		break;
+
+	case IOC_LIBCFS_PING_TEST: {
 		extern void (kping_client)(struct libcfs_ioctl_data *);
 		void (*ping)(struct libcfs_ioctl_data *);
 
@@ -265,57 +273,29 @@ static int libcfs_ioctl_int(struct cfs_psdev_file *pfile,unsigned long cmd,
 			ping(data);
 			symbol_put(kping_client);
 		}
-		RETURN(0);
-	}
+		break; }
 
-        default: {
+	default: {
 		struct libcfs_ioctl_handler *hand;
 
 		err = -EINVAL;
 		down_read(&ioctl_list_sem);
 		list_for_each_entry(hand, &ioctl_list, item) {
 			err = hand->handle_ioctl(cmd, data);
-			if (err != -EINVAL) {
-				if (err == 0)
-					err = libcfs_ioctl_popdata(arg,
-							data, sizeof (*data));
-				break;
-			}
+			if (err == -EINVAL)
+				continue;
+
+			if (err == 0)
+				err = libcfs_ioctl_popdata(data, uparam);
+			break;
 		}
 		up_read(&ioctl_list_sem);
-		break;
-	}
+		break; }
 	}
 
+	libcfs_ioctl_freedata(data);
 	RETURN(err);
 }
-
-static int libcfs_ioctl(struct cfs_psdev_file *pfile,
-			unsigned long cmd, void *arg)
-{
-	char    *buf;
-	struct libcfs_ioctl_data *data;
-	int err = 0;
-	ENTRY;
-
-	LIBCFS_ALLOC_GFP(buf, 1024, GFP_IOFS);
-	if (buf == NULL)
-		RETURN(-ENOMEM);
-
-        /* 'cmd' and permissions get checked in our arch-specific caller */
-        if (libcfs_ioctl_getdata(buf, buf + 800, (void *)arg)) {
-                CERROR("PORTALS ioctl: data error\n");
-                GOTO(out, err = -EINVAL);
-        }
-        data = (struct libcfs_ioctl_data *)buf;
-
-        err = libcfs_ioctl_int(pfile, cmd, arg, data);
-
-out:
-        LIBCFS_FREE(buf, 1024);
-        RETURN(err);
-}
-
 
 struct cfs_psdev_ops libcfs_psdev_ops = {
         libcfs_psdev_open,

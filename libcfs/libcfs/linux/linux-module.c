@@ -40,60 +40,60 @@
 
 #define LNET_MINOR 240
 
-int libcfs_ioctl_getdata(char *buf, char *end, void *arg)
+int libcfs_ioctl_getdata(struct libcfs_ioctl_data **data_pp, void *uparam)
 {
-        struct libcfs_ioctl_hdr   *hdr;
-        struct libcfs_ioctl_data  *data;
-        int err;
-        ENTRY;
+	struct libcfs_ioctl_data *data;
+	struct libcfs_ioctl_hdr   hdr;
+	int err = 0;
+	ENTRY;
 
-        hdr = (struct libcfs_ioctl_hdr *)buf;
-        data = (struct libcfs_ioctl_data *)buf;
+	if (copy_from_user(&hdr, (void *)uparam, sizeof(hdr)))
+		RETURN(-EFAULT);
 
-        err = copy_from_user(buf, (void *)arg, sizeof(*hdr));
-        if (err)
-                RETURN(err);
+	if (hdr.ioc_version != LIBCFS_IOCTL_VERSION) {
+		CERROR("PORTALS: version mismatch kernel vs application\n");
+		RETURN(-EINVAL);
+	}
 
-        if (hdr->ioc_version != LIBCFS_IOCTL_VERSION) {
-                CERROR("PORTALS: version mismatch kernel vs application\n");
-                RETURN(-EINVAL);
-        }
+	if (hdr.ioc_len < sizeof(struct libcfs_ioctl_data)) {
+		CERROR("PORTALS: user buffer too small for ioctl\n");
+		RETURN(-EINVAL);
+	}
 
-        if (hdr->ioc_len + buf >= end) {
-                CERROR("PORTALS: user buffer exceeds kernel buffer\n");
-                RETURN(-EINVAL);
-        }
+	LIBCFS_ALLOC(data, hdr.ioc_len);
+	if (data == NULL)
+		RETURN(-ENOMEM);
 
+	if (copy_from_user(data, uparam, hdr.ioc_len))
+		GOTO(failed, err = -EFAULT);
 
-        if (hdr->ioc_len < sizeof(struct libcfs_ioctl_data)) {
-                CERROR("PORTALS: user buffer too small for ioctl\n");
-                RETURN(-EINVAL);
-        }
+	if (libcfs_ioctl_is_invalid(data)) {
+		CERROR("PORTALS: ioctl not correctly formatted\n");
+		GOTO(failed, err = -EINVAL);
+	}
 
-        err = copy_from_user(buf, (void *)arg, hdr->ioc_len);
-        if (err)
-                RETURN(err);
+	if (data->ioc_inllen1)
+		data->ioc_inlbuf1 = &data->ioc_bulk[0];
 
-        if (libcfs_ioctl_is_invalid(data)) {
-                CERROR("PORTALS: ioctl not correctly formatted\n");
-                RETURN(-EINVAL);
-        }
+	if (data->ioc_inllen2)
+		data->ioc_inlbuf2 = &data->ioc_bulk[0] +
+				    cfs_size_round(data->ioc_inllen1);
 
-        if (data->ioc_inllen1)
-                data->ioc_inlbuf1 = &data->ioc_bulk[0];
-
-        if (data->ioc_inllen2)
-                data->ioc_inlbuf2 = &data->ioc_bulk[0] +
-                        cfs_size_round(data->ioc_inllen1);
-
-        RETURN(0);
+	*data_pp = data;
+	EXIT;
+failed:
+	if (err != 0 && data != NULL)
+		libcfs_ioctl_freedata(data);
+	return err;
 }
 
-int libcfs_ioctl_popdata(void *arg, void *data, int size)
+int libcfs_ioctl_popdata(struct libcfs_ioctl_data *data, void *uparam)
 {
-	if (copy_to_user((char *)arg, data, size))
-		return -EFAULT;
-	return 0;
+	int	rc;
+	ENTRY;
+
+	rc = copy_to_user(uparam, data, data->ioc_len) ? -EFAULT : 0;
+	RETURN(rc);
 }
 
 extern struct cfs_psdev_ops          libcfs_psdev_ops;
