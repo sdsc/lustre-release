@@ -49,6 +49,9 @@ struct libcfs_ioctl_hdr {
 	__u32 ioc_version;
 };
 
+/** max size to copy from userspace */
+#define LIBCFS_IOC_DATA_MAX	(128 * 1024)
+
 struct libcfs_ioctl_data {
 	struct libcfs_ioctl_hdr ioc_hdr;
 
@@ -74,7 +77,6 @@ struct libcfs_ioctl_data {
 };
 
 #define ioc_priority ioc_u32[0]
-
 
 struct libcfs_debug_ioctl_data
 {
@@ -251,11 +253,22 @@ static inline bool libcfs_ioctl_is_invalid(struct libcfs_ioctl_data *data)
 
 extern int libcfs_register_ioctl(struct libcfs_ioctl_handler *hand);
 extern int libcfs_deregister_ioctl(struct libcfs_ioctl_handler *hand);
-extern int libcfs_ioctl_getdata(struct libcfs_ioctl_hdr *buf, __u32 buf_len,
-				const void __user *arg);
-extern int libcfs_ioctl_getdata_len(const struct libcfs_ioctl_hdr __user *arg,
-				    __u32 *buf_len);
-extern int libcfs_ioctl_popdata(void __user *arg, void *buf, int size);
+extern int libcfs_ioctl_getdata(struct libcfs_ioctl_hdr **hdr_pp,
+				struct libcfs_ioctl_hdr __user *uparam);
+
+static inline int libcfs_ioctl_popdata(struct libcfs_ioctl_hdr *hdr,
+				       struct libcfs_ioctl_hdr __user *uparam)
+{
+	 if (copy_to_user(uparam, hdr, hdr->ioc_len))
+		return -EFAULT;
+	 return 0;
+}
+
+static inline void libcfs_ioctl_freedata(struct libcfs_ioctl_hdr *hdr)
+{
+	LIBCFS_FREE(hdr, hdr->ioc_len);
+}
+
 #endif
 
 extern int libcfs_ioctl_data_adjust(struct libcfs_ioctl_data *data);
