@@ -40,60 +40,64 @@
 
 #define LNET_MINOR 240
 
-int libcfs_ioctl_data_adjust(struct libcfs_ioctl_data *data)
+int libcfs_ioctl_getdata(struct libcfs_ioctl_data **data_pp, void *uparam)
 {
-	if (libcfs_ioctl_is_invalid(data)) {
-		CERROR("LNET: ioctl not correctly formatted\n");
-		RETURN(-EINVAL);
-	}
-
-	if (data->ioc_inllen1 != 0)
-		data->ioc_inlbuf1 = &data->ioc_bulk[0];
-
-	if (data->ioc_inllen2 != 0)
-		data->ioc_inlbuf2 = &data->ioc_bulk[0] +
-			cfs_size_round(data->ioc_inllen1);
-
-	RETURN(0);
-}
-
-int libcfs_ioctl_getdata_len(const struct libcfs_ioctl_hdr __user *arg,
-			     __u32 *len)
-{
-	struct libcfs_ioctl_hdr hdr;
+	struct libcfs_ioctl_data *data;
+	struct libcfs_ioctl_hdr   hdr;
+	int err = 0;
 	ENTRY;
 
-	if (copy_from_user(&hdr, arg, sizeof(hdr)))
+	if (copy_from_user(&hdr, (void *)uparam, sizeof(hdr)))
 		RETURN(-EFAULT);
 
 	if (hdr.ioc_version != LIBCFS_IOCTL_VERSION &&
 	    hdr.ioc_version != LIBCFS_IOCTL_VERSION2) {
-		CERROR("LNET: version mismatch expected %#x, got %#x\n",
+		CERROR("libcfs ioctl: version mismatch expected %#x, got %#x\n",
 		       LIBCFS_IOCTL_VERSION, hdr.ioc_version);
 		RETURN(-EINVAL);
 	}
 
-	*len = hdr.ioc_len;
+	if (hdr.ioc_len < sizeof(struct libcfs_ioctl_data)) {
+		CERROR("libcfs ioctl: user buffer too small for ioctl\n");
+		RETURN(-EINVAL);
+	}
 
-	RETURN(0);
+	LIBCFS_ALLOC(data, hdr.ioc_len);
+	if (data == NULL)
+		RETURN(-ENOMEM);
+
+	if (copy_from_user(data, uparam, hdr.ioc_len))
+		GOTO(failed, err = -EFAULT);
+
+	if (libcfs_ioctl_is_invalid(data)) {
+		CERROR("libcfs ioctl: parameter not correctly formatted\n");
+		GOTO(failed, err = -EINVAL);
+	}
+
+	if (data->ioc_inllen1)
+		data->ioc_inlbuf1 = &data->ioc_bulk[0];
+
+	if (data->ioc_inllen2)
+		data->ioc_inlbuf2 = &data->ioc_bulk[0] +
+				    cfs_size_round(data->ioc_inllen1);
+
+	*data_pp = data;
+	EXIT;
+failed:
+	if (err != 0 && data != NULL)
+		libcfs_ioctl_freedata(data);
+	return err;
 }
 
-int libcfs_ioctl_getdata(struct libcfs_ioctl_hdr *buf, __u32 buf_len,
-			 const void __user *arg)
+int libcfs_ioctl_popdata(struct libcfs_ioctl_data *data, void __user *uparam)
 {
+	struct libcfs_ioctl_hdr *hdr;
+	int			 rc;
 	ENTRY;
 
-	if (copy_from_user(buf, arg, buf_len))
-		RETURN(-EINVAL);
-
-	RETURN(0);
-}
-
-int libcfs_ioctl_popdata(void __user *arg, void *data, int size)
-{
-	if (copy_to_user(arg, data, size))
-		return -EFAULT;
-	return 0;
+	hdr = &data->ioc_hdr;
+	rc = copy_to_user(uparam, data, hdr->ioc_len) ? -EFAULT : 0;
+	RETURN(rc);
 }
 
 extern struct cfs_psdev_ops          libcfs_psdev_ops;
