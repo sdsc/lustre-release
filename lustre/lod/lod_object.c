@@ -705,7 +705,7 @@ int lod_load_lmv_shards(const struct lu_env *env, struct lod_object *lo,
 	const struct dt_it_ops	*iops;
 	__u32			 stripes;
 	__u32			 magic	= le32_to_cpu(lmv1->lmv_magic);
-	int			 size;
+	size_t			 size;
 	int			 rc;
 	ENTRY;
 
@@ -721,7 +721,10 @@ int lod_load_lmv_shards(const struct lu_env *env, struct lod_object *lo,
 	if (stripes < 1)
 		RETURN(0);
 
-	size = lmv_mds_md_size(stripes, magic);
+	rc = lmv_mds_md_size(stripes, magic);
+	if (rc < 0)
+		RETURN(rc);
+	size = (typeof(size))rc;
 	if (buf->lb_len < size) {
 		struct lu_buf tbuf;
 
