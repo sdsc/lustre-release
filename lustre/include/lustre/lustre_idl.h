@@ -1704,6 +1704,7 @@ static inline void lmm_oi_cpu_to_le(struct ost_id *dst_oi,
 #define XATTR_NAME_LOV          "trusted.lov"
 #define XATTR_NAME_LMA          "trusted.lma"
 #define XATTR_NAME_LMV          "trusted.lmv"
+#define XATTR_NAME_LMV_HEADER	"trusted.hmv"
 #define XATTR_NAME_DEFAULT_LMV	"trusted.dmv"
 #define XATTR_NAME_LINK         "trusted.link"
 #define XATTR_NAME_FID          "trusted.fid"
@@ -3548,24 +3549,33 @@ struct lfsck_request {
 	__u32		lr_event;
 	__u32		lr_index;
 	__u32		lr_flags;
-	__u32		lr_valid;
+	union {
+		__u32	lr_valid;
+		__u32	lr_stripe_index;
+	};
 	union {
 		__u32	lr_speed;
 		__u32	lr_status;
 		__u32	lr_type;
+		__u32	lr_index2;
 	};
 	__u16		lr_version;
 	__u16		lr_active;
 	__u16		lr_param;
 	__u16		lr_async_windows;
-	__u32		lr_flags2;
+	union {
+		__u32	lr_flags2;
+		__u32	lr_layout_version;
+	};
 	struct lu_fid	lr_fid;
 	struct lu_fid	lr_fid2;
 	union {
 		struct lu_fid	 lr_fid3;
 		struct thandle	*lr_handle;
+		char		 lr_pool_name[LOV_MAXPOOLNAME];
 	};
-	__u64		lr_padding_2;
+	__u32		lr_stripe_count;
+	__u32		lr_hash_type;
 	__u64		lr_padding_3;
 };
 
