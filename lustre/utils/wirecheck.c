@@ -712,6 +712,7 @@ check_lmv_mds_md_v1(void)
 	CHECK_CDEFINE(LMV_HASH_FLAG_MIGRATION);
 	CHECK_CDEFINE(LMV_HASH_FLAG_DEAD);
 	CHECK_CDEFINE(LMV_HASH_FLAG_BAD_TYPE);
+	CHECK_CDEFINE(LMV_HASH_FLAG_LOST_LMV);
 }
 
 static void
@@ -2158,6 +2159,7 @@ static void check_lfsck_request(void)
 	CHECK_VALUE_X(LEF_TO_OST);
 	CHECK_VALUE_X(LEF_FROM_OST);
 	CHECK_VALUE_X(LEF_SET_LMV_HASH);
+	CHECK_VALUE_X(LEF_SET_LMV_ALL);
 }
 
 static void check_lfsck_reply(void)
