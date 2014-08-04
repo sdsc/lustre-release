@@ -2757,6 +2757,7 @@ struct lmv_mds_md_v1 {
 
 #define LMV_HASH_FLAG_MIGRATION	0x80000000
 #define LMV_HASH_FLAG_DEAD	0x40000000
+#define LMV_HASH_FLAG_BAD_TYPE	0x20000000
 
 /**
  * The FNV-1a hash algorithm is as follows:
@@ -3604,11 +3605,13 @@ enum lfsck_events {
 	LE_CREATE_ORPHAN	= 12,
 	LE_SKIP_NLINK_DECLARE	= 13,
 	LE_SKIP_NLINK		= 14,
+	LE_SET_LMV_MASTER	= 15,
 };
 
 enum lfsck_event_flags {
 	LEF_TO_OST		= 0x00000001,
 	LEF_FROM_OST		= 0x00000002,
+	LEF_SET_LMV_HASH	= 0x00000004,
 };
 
 static inline void lustre_set_wire_obdo(const struct obd_connect_data *ocd,
