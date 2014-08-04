@@ -504,7 +504,7 @@ static int osp_xattr_get_interpterer(const struct lu_env *env,
 	LASSERT(ooa != NULL);
 
 	if (rc == 0) {
-		int len = sizeof(*oxe) + oxe->oxe_namelen + 1;
+		size_t len = sizeof(*oxe) + oxe->oxe_namelen + 1;
 
 		rc = object_update_result_data_get(reply, rbuf, index);
 		if (rc < 0 || rbuf->lb_len > (oxe->oxe_buflen - len)) {
