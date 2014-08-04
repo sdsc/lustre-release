@@ -71,7 +71,6 @@ struct libcfs_ioctl_data {
 
 #define ioc_priority ioc_u32[0]
 
-
 struct libcfs_ioctl_hdr {
         __u32 ioc_len;
         __u32 ioc_version;
@@ -217,9 +216,15 @@ static inline int libcfs_ioctl_is_invalid(struct libcfs_ioctl_data *data)
 
 extern int libcfs_register_ioctl(struct libcfs_ioctl_handler *hand);
 extern int libcfs_deregister_ioctl(struct libcfs_ioctl_handler *hand);
-extern int libcfs_ioctl_getdata(char *buf, char *end, void *arg);
-extern int libcfs_ioctl_popdata(void *arg, void *buf, int size);
+extern int libcfs_ioctl_getdata(struct libcfs_ioctl_data **data_pp,
+				void *uparam);
+extern int libcfs_ioctl_popdata(struct libcfs_ioctl_data *data, void *uparam);
 
-#endif 
+static inline void libcfs_ioctl_freedata(struct libcfs_ioctl_data *data)
+{
+	LIBCFS_FREE(data, data->ioc_len);
+}
+
+#endif
 
 #endif /* __LIBCFS_IOCTL_H__ */
