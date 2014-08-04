@@ -133,6 +133,7 @@ struct libcfs_ioctl_handler {
 #define IOC_LIBCFS_PING                    _IOWR('e', 61, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_DEBUG_PEER              _IOWR('e', 62, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_LNETST                  _IOWR('e', 63, IOCTL_LIBCFS_TYPE)
+#define IOC_LIBCFS_LNET_FAULT		   _IOWR('e', 64, IOCTL_LIBCFS_TYPE)
 /* lnd ioctls */
 #define IOC_LIBCFS_REGISTER_MYNID          _IOWR('e', 70, IOCTL_LIBCFS_TYPE)
 #define IOC_LIBCFS_CLOSE_CONNECTION        _IOWR('e', 71, IOCTL_LIBCFS_TYPE)
@@ -211,6 +212,13 @@ static inline int libcfs_ioctl_is_invalid(struct libcfs_ioctl_data *data)
         }
         return 0;
 }
+
+enum {
+	IOC_LNET_DROP_ADD,
+	IOC_LNET_DROP_DEL,
+	IOC_LNET_DROP_RESET,
+	IOC_LNET_DROP_LIST,
+};
 
 #ifdef __KERNEL__
 

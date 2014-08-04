@@ -1495,6 +1495,7 @@ LNetNIInit(lnet_pid_t requested_pid)
         if (rc != 0)
                 goto failed4;
 
+	lnet_fault_init();
         lnet_proc_init();
         goto out;
 
@@ -1536,7 +1537,9 @@ LNetNIFini()
         if (the_lnet.ln_refcount != 1) {
                 the_lnet.ln_refcount--;
         } else {
-                LASSERT (!the_lnet.ln_niinit_self);
+		LASSERT (!the_lnet.ln_niinit_self);
+
+		lnet_fault_fini();
 
                 lnet_proc_fini();
                 lnet_router_checker_stop();
@@ -1659,6 +1662,8 @@ LNetCtl(unsigned int cmd, void *arg)
                 }
                 return 0;
         }
+	case IOC_LIBCFS_LNET_FAULT:
+		return lnet_fault_ctl(data->ioc_flags, data);
 
         default:
                 ni = lnet_net2ni(data->ioc_net);
