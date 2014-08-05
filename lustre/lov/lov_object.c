@@ -193,6 +193,22 @@ static int lov_init_sub(const struct lu_env *env, struct lov_object *lov,
 	return result;
 }
 
+static int lov_page_slice_fixup(struct lov_object *lov,
+				struct cl_object *stripe)
+{
+	struct cl_object_header *hdr = cl_object_header(&lov->lo_cl);
+	struct cl_object *o;
+
+	if (stripe == NULL)
+		return hdr->coh_page_bufsize - lov->lo_cl.co_slice_off -
+		       cfs_size_round(sizeof(struct lov_page));
+
+	cl_object_for_each(o, stripe)
+		o->co_slice_off += hdr->coh_page_bufsize;
+
+	return cl_object_header(stripe)->coh_page_bufsize;
+}
+
 static int lov_init_raid0(const struct lu_env *env,
                           struct lov_device *dev, struct lov_object *lov,
                           const struct cl_object_conf *conf,
@@ -704,6 +720,10 @@ static int lov_layout_change(const struct lu_env *unused,
 		LASSERT(hdr->coh_pages == 0);
 
 		lov->lo_type = LLT_EMPTY;
+		/* page bufsize fixup */
+		cl_object_header(&lov->lo_cl)->coh_page_bufsize -=
+			lov_page_slice_fixup(lov, NULL);
+
 		result = new_ops->llo_init(env,
 					lu2lov_dev(lov->lo_cl.co_lu.lo_dev),
 					lov, conf, state);
