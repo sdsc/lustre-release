@@ -74,6 +74,7 @@
 int	verbose;
 int	version;
 char	*progname;
+char	*plugin_dir;
 
 void usage(FILE *out)
 {
@@ -101,7 +102,8 @@ void usage(FILE *out)
 		"inactive OSTs (e.g. lustre-OST0001)\n"
 		"\t\tretry=<num>: number of times mount is retried by client\n"
 		"\t\tmd_stripe_cache_size=<num>: set the raid stripe cache "
-		"size for the underlying raid if present\n");
+		"size for the underlying raid if present\n"
+		"\t\tplugin_dir=<path>: mount plugin modules directory\n");
 	exit((out != stdout) ? EINVAL : 0);
 }
 
@@ -226,7 +228,7 @@ static void append_option(char *options, const char *one)
 
 /* Replace options with subset of Lustre-specific options, and
    fill in mount flags */
-int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
+static int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
 {
         char *options, *opt, *nextopt, *arg, *val;
 
@@ -247,26 +249,28 @@ int parse_options(struct mount_opts *mop, char *orig_options, int *flagp)
                  * mount options, see bug 22097. */
                 if (val && strncmp(arg, "md_stripe_cache_size", 20) == 0) {
 			mop->mo_md_stripe_cache_size = atoi(val + 1);
-                } else if (val && strncmp(arg, "retry", 5) == 0) {
+		} else if (val && strncmp(arg, "retry", 5) == 0) {
 			mop->mo_retry = atoi(val + 1);
 			if (mop->mo_retry > MAX_RETRIES)
 				mop->mo_retry = MAX_RETRIES;
 			else if (mop->mo_retry < 0)
 				mop->mo_retry = 0;
-                } else if (val && strncmp(arg, "mgssec", 6) == 0) {
-                        append_option(options, opt);
+		} else if (val && strncmp(arg, "mgssec", 6) == 0) {
+			append_option(options, opt);
 		} else if (strncmp(arg, "nosvc", 5) == 0) {
 			mop->mo_nosvc = 1;
 			append_option(options, opt);
-                } else if (strcmp(opt, "force") == 0) {
-                        //XXX special check for 'force' option
+		} else if (strcmp(opt, "force") == 0) {
+			/* XXX special check for 'force' option */
 			++mop->mo_force;
 			printf("force: %d\n", mop->mo_force);
-                } else if (parse_one_option(opt, flagp) == 0) {
-                        /* pass this on as an option */
-                        append_option(options, opt);
-                }
-        }
+		} else if (val && strncmp(arg, "plugin_dir", 10) == 0) {
+			plugin_dir = val + 1;
+		} else if (parse_one_option(opt, flagp) == 0) {
+			/* pass this on as an option */
+			append_option(options, opt);
+		}
+	}
 #ifdef MS_STRICTATIME
 #if LUSTRE_VERSION_CODE > OBD_OCD_VERSION(2, 10, 51, 0)
 /*
@@ -598,6 +602,7 @@ static int parse_opts(int argc, char *const argv[], struct mount_opts *mop)
 		rc = errno;
 		fprintf(stderr, "warning: %s: cannot resolve: %s\n",
 				argv[optind + 1], strerror(errno));
+		free(mop->mo_source);
 		return rc;
 	}
 
@@ -615,79 +620,83 @@ int main(int argc, char *const argv[])
 
 	set_defaults(&mop);
 
-	rc = osd_init();
-	if (rc)
-		return rc;
-
 	rc = parse_opts(argc, argv, &mop);
 	if (rc || version)
 		return rc;
 
-        if (verbose) {
-                for (i = 0; i < argc; i++)
-                        printf("arg[%d] = %s\n", i, argv[i]);
+	if (verbose) {
+		for (i = 0; i < argc; i++)
+			printf("arg[%d] = %s\n", i, argv[i]);
 		printf("source = %s (%s), target = %s\n", mop.mo_usource,
 		       mop.mo_source, mop.mo_target);
 		printf("options = %s\n", mop.mo_orig_options);
-        }
+	}
 
 	options = malloc(MAXOPT);
-        if (options == NULL) {
-                fprintf(stderr, "can't allocate memory for options\n");
-                return -1;
-        }
+	if (options == NULL) {
+		fprintf(stderr, "can't allocate memory for options\n");
+		rc = -1;
+		goto out_mop;
+	}
 	strcpy(options, mop.mo_orig_options);
 	rc = parse_options(&mop, options, &flags);
-        if (rc) {
-                fprintf(stderr, "%s: can't parse options: %s\n",
-                        progname, options);
-                return(EINVAL);
-        }
+	if (rc) {
+		fprintf(stderr, "%s: can't parse options: %s\n",
+			progname, options);
+		rc = EINVAL;
+		goto out_opts;
+	}
+
+	rc = osd_init(argv[0]);
+	if (rc)
+		goto out_osd;
 
 	if (!mop.mo_force) {
 		rc = check_mtab_entry(mop.mo_usource, mop.mo_source,
 				      mop.mo_target, "lustre");
-                if (rc && !(flags & MS_REMOUNT)) {
-                        fprintf(stderr, "%s: according to %s %s is "
+		if (rc && !(flags & MS_REMOUNT)) {
+			fprintf(stderr, "%s: according to %s %s is "
 				"already mounted on %s\n", progname, MOUNTED,
 				mop.mo_usource, mop.mo_target);
-                        return(EEXIST);
-                }
-                if (!rc && (flags & MS_REMOUNT)) {
-                        fprintf(stderr, "%s: according to %s %s is "
+			rc = EEXIST;
+			goto out_osd;
+		}
+		if (!rc && (flags & MS_REMOUNT)) {
+			fprintf(stderr, "%s: according to %s %s is "
 				"not already mounted on %s\n", progname, MOUNTED,
 				mop.mo_usource, mop.mo_target);
-                        return(ENOENT);
-                }
-        }
-        if (flags & MS_REMOUNT)
+			rc = ENOENT;
+			goto out_osd;
+		}
+	}
+	if (flags & MS_REMOUNT)
 		mop.mo_nomtab++;
 
 	rc = access(mop.mo_target, F_OK);
-        if (rc) {
-                rc = errno;
+	if (rc) {
+		rc = errno;
 		fprintf(stderr, "%s: %s inaccessible: %s\n", progname,
 			mop.mo_target, strerror(errno));
-                return rc;
-        }
+		goto out_osd;
+	}
 
 	if (!strstr(mop.mo_usource, ":/")) {
 		rc = parse_ldd(mop.mo_source, &mop, options);
 		if (rc)
-			return rc;
+			goto out_osd;
 	}
 
-        /* In Linux 2.4, the target device doesn't get passed to any of our
-           functions.  So we'll stick it on the end of the options. */
+	/* In Linux 2.4, the target device doesn't get passed to any of our
+	   functions.  So we'll stick it on the end of the options. */
 	append_option(options, "device=");
 	strcat(options, mop.mo_source);
 
-        if (verbose)
-                printf("mounting device %s at %s, flags=%#x options=%s\n",
+	if (verbose)
+		printf("mounting device %s at %s, flags=%#x options=%s\n",
 		       mop.mo_source, mop.mo_target, flags, options);
 
 	if (!strstr(mop.mo_usource, ":/") &&
-	    osd_tune_lustre(mop.mo_source, &mop)) {
+		osd_tune_lustre(mop.mo_source, &mop)) {
 		if (verbose)
 			fprintf(stderr, "%s: unable to set tunables for %s"
 					" (may cause reduced IO performance)\n",
@@ -800,11 +809,13 @@ int main(int argc, char *const argv[])
 				       mop.mo_orig_options, 0,0,0);
 	}
 
+out_osd:
+	osd_fini();
+out_opts:
 	free(options);
+out_mop:
 	/* mo_usource should be freed, but we can rely on the kernel */
 	free(mop.mo_source);
-
-	osd_fini();
 
         return rc;
 }
