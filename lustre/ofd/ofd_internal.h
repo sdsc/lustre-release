@@ -176,6 +176,8 @@ struct ofd_device {
 	unsigned long		 ofd_raid_degraded:1,
 				 /* sync journal on writes */
 				 ofd_syncjournal:1,
+				 /* drop the data in write RPC */
+				 ofd_fake_write:1,
 				 /* shall we grant space to clients not
 				  * supporting OBD_CONNECT_GRANT_PARAM? */
 				 ofd_grant_compat_disable:1,

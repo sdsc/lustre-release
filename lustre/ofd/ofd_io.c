@@ -1020,6 +1020,7 @@ ofd_commitrw_write(const struct lu_env *env, struct obd_export *exp,
 	struct filter_export_data *fed = &exp->exp_filter_data;
 	bool			 soft_sync = false;
 	bool			 cb_registered = false;
+	bool			 fake_write = ofd->ofd_fake_write;
 
 	ENTRY;
 
@@ -1047,6 +1048,26 @@ ofd_commitrw_write(const struct lu_env *env, struct obd_export *exp,
 
 	la->la_valid &= LA_ATIME | LA_MTIME | LA_CTIME;
 
+	/* do fake write, to simulate the write case for performance testing */
+	if (fake_write) {
+		struct niobuf_local *last = &lnb[niocount - 1];
+		__u64 file_size = last->lnb_file_offset + last->lnb_len;
+		__u64 valid = la->la_valid;
+
+		la->la_valid = LA_SIZE;
+		la->la_size = 0;
+		rc = dt_attr_get(env, o, la, ofd_object_capa(env, fo));
+		if (rc < 0 && rc != -ENOENT)
+			GOTO(out, rc);
+
+		if (file_size < la->la_size)
+			file_size = la->la_size;
+
+		/* dirty inode by setting file size */
+		la->la_valid = valid | LA_SIZE;
+		la->la_size = file_size;
+	}
+
 retry:
 	th = ofd_trans_create(env, ofd);
 	if (IS_ERR(th))
@@ -1067,9 +1088,11 @@ retry:
 	if (OBD_FAIL_CHECK(OBD_FAIL_OST_DQACQ_NET))
 		GOTO(out_stop, rc = -EINPROGRESS);
 
-	rc = dt_declare_write_commit(env, o, lnb, niocount, th);
-	if (rc)
-		GOTO(out_stop, rc);
+	if (likely(!fake_write)) {
+		rc = dt_declare_write_commit(env, o, lnb, niocount, th);
+		if (rc)
+			GOTO(out_stop, rc);
+	}
 
 	if (la->la_valid) {
 		/* update [mac]time if needed */
@@ -1082,9 +1105,11 @@ retry:
 	if (rc)
 		GOTO(out_stop, rc);
 
-	rc = dt_write_commit(env, o, lnb, niocount, th);
-	if (rc)
-		GOTO(out_stop, rc);
+	if (likely(!fake_write)) {
+		rc = dt_write_commit(env, o, lnb, niocount, th);
+		if (rc)
+			GOTO(out_stop, rc);
+	}
 
 	if (la->la_valid) {
 		rc = dt_attr_set(env, o, la, th);
