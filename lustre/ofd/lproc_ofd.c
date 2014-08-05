@@ -502,6 +502,36 @@ ofd_soft_sync_limit_seq_write(struct file *file, const char __user *buffer,
 }
 LPROC_SEQ_FOPS(ofd_soft_sync_limit);
 
+static int ofd_fake_write_seq_show(struct seq_file *m, void *data)
+{
+	struct obd_device *obd = data;
+	struct ofd_device *ofd = ofd_dev(obd->obd_lu_dev);
+
+	return seq_printf(m, "fake_write: %u\n", ofd->ofd_fake_write);
+}
+
+static ssize_t
+ofd_fake_write_seq_write(struct file *file, const char __user *buffer,
+			 size_t count, loff_t *off)
+
+{
+	struct seq_file		*m = file->private_data;
+	struct obd_device	*obd = m->private;
+	struct ofd_device	*ofd = ofd_dev(obd->obd_lu_dev);
+	int			 val, rc;
+
+	rc = lprocfs_write_helper(buffer, count, &val);
+	if (rc)
+		return rc;
+
+	spin_lock(&ofd->ofd_flags_lock);
+	ofd->ofd_fake_write = !!val;
+	spin_unlock(&ofd->ofd_flags_lock);
+
+	return count;
+}
+LPROC_SEQ_FOPS(ofd_fake_write);
+
 static int ofd_lfsck_speed_limit_seq_show(struct seq_file *m, void *data)
 {
 	struct obd_device       *obd = m->private;
@@ -655,6 +685,8 @@ struct lprocfs_seq_vars lprocfs_ofd_obd_vars[] = {
 	  .fops =	&ofd_job_interval_fops		},
 	{ .name =	"soft_sync_limit",
 	  .fops =	&ofd_soft_sync_limit_fops	},
+	{ .name =	"fake_write",
+	  .fops =	&ofd_fake_write_fops		},
 	{ .name =	"lfsck_speed_limit",
 	  .fops =	&ofd_lfsck_speed_limit_fops	},
 	{ .name =	"lfsck_layout",
