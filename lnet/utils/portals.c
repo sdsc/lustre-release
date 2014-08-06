@@ -1354,6 +1354,7 @@ fault_simul_rule_add(__u32 opc, char *name, int argc, char **argv)
 		{"dest",	required_argument,	0,	'd'},
 		{"rate",	required_argument,	0,	'r'},
 		{"wait",	required_argument,	0,	'w'},
+		{"latency",	required_argument,	0,	'l'},
 		{"portal",	required_argument,	0,	'p'},
 		{"message",	required_argument,	0,	'm'},
 		{0, 0, 0, 0}
@@ -1365,7 +1366,7 @@ fault_simul_rule_add(__u32 opc, char *name, int argc, char **argv)
 		return -1;
 	}
 
-	optstr = "s:d:r:w:p:m:";
+	optstr = opc == LNET_CTL_DROP_ADD ? "s:d:r:w:p:m:" : "s:d:r:l:p:m:";
 	memset(&attr, 0, sizeof(attr));
 	while (1) {
 		char c = getopt_long(argc, argv, optstr, opts, NULL);
@@ -1387,11 +1388,18 @@ fault_simul_rule_add(__u32 opc, char *name, int argc, char **argv)
 			break;
 
 		case 'r': /* drop rate */
-			attr.u.drop.da_rate = strtoul(optarg, NULL, 0);
+			if (opc == LNET_CTL_DROP_ADD)
+				attr.u.drop.da_rate = strtoul(optarg, NULL, 0);
+			else
+				attr.u.delay.la_rate = strtoul(optarg, NULL, 0);
 			break;
 
 		case 'w': /* seconds to wait before activating rule */
 			attr.u.drop.da_wait = strtoul(optarg, NULL, 0);
+			break;
+
+		case 'l': /* seconds to wait before activating rule */
+			attr.u.delay.la_latency = strtoul(optarg, NULL, 0);
 			break;
 
 		case 'p': /* portal to filter */
@@ -1414,10 +1422,16 @@ fault_simul_rule_add(__u32 opc, char *name, int argc, char **argv)
 	}
 	optind = 1;
 
-	if (attr.u.drop.da_rate == 0) {
-		fprintf(stderr, "drop rate cannot be zero\n",
-			attr.u.drop.da_rate);
-		return -1;
+	if (opc == LNET_CTL_DROP_ADD) {
+		if (attr.u.drop.da_rate == 0) {
+			fprintf(stderr, "rate cannot be zero\n");
+			return -1;
+		}
+	} else if (opc == LNET_CTL_DELAY_ADD) {
+		if (attr.u.delay.la_rate == 0 || attr.u.delay.la_latency == 0) {
+			fprintf(stderr, "rate and latency cannot be zero\n");
+			return -1;
+		}
 	}
 
 	if (attr.fa_src == 0 || attr.fa_dst == 0) {
@@ -1443,8 +1457,9 @@ fault_simul_rule_add(__u32 opc, char *name, int argc, char **argv)
 	}
 
 	printf("Added %s rule %s->%s (1/%d)\n",
-	       name, libcfs_nid2str(attr.fa_src),
-	       libcfs_nid2str(attr.fa_dst), attr.u.drop.da_rate);
+	       name, libcfs_nid2str(attr.fa_src), libcfs_nid2str(attr.fa_dst),
+	       opc == LNET_CTL_DROP_ADD ?
+	       attr.u.drop.da_rate : attr.u.delay.la_rate);
 	return 0;
 
 getopt_failed:
@@ -1456,6 +1471,12 @@ int
 jt_ptl_drop_add(int argc, char **argv)
 {
 	return fault_simul_rule_add(LNET_CTL_DROP_ADD, "drop", argc, argv);
+}
+
+int
+jt_ptl_delay_add(int argc, char **argv)
+{
+	return fault_simul_rule_add(LNET_CTL_DELAY_ADD, "delay", argc, argv);
 }
 
 static int
@@ -1541,6 +1562,12 @@ jt_ptl_drop_del(int argc, char **argv)
 	return fault_simul_rule_del(LNET_CTL_DROP_DEL, "drop", argc, argv);
 }
 
+int
+jt_ptl_delay_del(int argc, char **argv)
+{
+	return fault_simul_rule_del(LNET_CTL_DELAY_DEL, "delay", argc, argv);
+}
+
 static int
 fault_simul_rule_reset(__u32 opc, char *name, int argc, char **argv)
 {
@@ -1563,6 +1590,13 @@ int
 jt_ptl_drop_reset(int argc, char **argv)
 {
 	return fault_simul_rule_reset(LNET_CTL_DROP_RESET, "drop", argc, argv);
+}
+
+int
+jt_ptl_delay_reset(int argc, char **argv)
+{
+	return fault_simul_rule_reset(LNET_CTL_DELAY_RESET, "delay",
+				      argc, argv);
 }
 
 static int
@@ -1607,6 +1641,18 @@ fault_simul_rule_list(__u32 opc, char *name, int argc, char **argv)
 			       attr.fa_msg_mask, stat.u.drop.ds_dropped,
 			       stat.fs_count, stat.fs_put, stat.fs_ack,
 			       stat.fs_get, stat.fs_reply);
+
+		} else if (opc == LNET_CTL_DELAY_LIST) {
+			printf("%s->%s (1/%d latency %d) ptl "LPX64", msg %x, "
+			       LPU64"/"LPU64", PUT "LPU64", ACK "LPU64", GET "
+			       LPU64", REP "LPU64"\n",
+			       libcfs_nid2str(attr.fa_src),
+			       libcfs_nid2str(attr.fa_dst),
+			       attr.u.delay.la_rate, attr.u.delay.la_latency,
+			       attr.fa_ptl_mask, attr.fa_msg_mask,
+			       stat.u.delay.ls_delayed, stat.fs_count,
+			       stat.fs_put, stat.fs_ack, stat.fs_get,
+			       stat.fs_reply);
 		}
 	}
 	printf("found total %d\n", pos);
@@ -1618,6 +1664,12 @@ int
 jt_ptl_drop_list(int argc, char **argv)
 {
 	return fault_simul_rule_list(LNET_CTL_DROP_LIST, "drop", argc, argv);
+}
+
+int
+jt_ptl_delay_list(int argc, char **argv)
+{
+	return fault_simul_rule_list(LNET_CTL_DELAY_LIST, "delay", argc, argv);
 }
 
 double
