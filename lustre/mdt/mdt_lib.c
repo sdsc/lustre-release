@@ -716,13 +716,16 @@ int mdt_fix_reply(struct mdt_thread_info *info)
 int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
                            const struct md_attr *ma)
 {
-        struct mdt_body       *repbody;
+        struct mdt_body *repbody;
         const struct lu_attr *la = &ma->ma_attr;
         int rc;
         ENTRY;
 
         repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
         LASSERT(repbody != NULL);
+
+	if (lu_object_is_dying(&mo->mot_header))
+		repbody->mbo_valid |= OBD_MD_FLREMOVED;
 
         if (ma->ma_valid & MA_INODE)
                 mdt_pack_attr2body(info, repbody, la, mdt_object_fid(mo));

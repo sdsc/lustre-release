@@ -122,6 +122,9 @@ enum lli_flags {
 	LLIF_FILE_RESTORING	= (1 << 5),
 	/* Xattr cache is attached to the file */
 	LLIF_XATTR_CACHE	= (1 << 6),
+	/* File is already destroyed, i.e, unlinked and no active open
+	 * on the MDT. */
+	LLIF_FILE_REMOVED       = (1 << 9),
 };
 
 struct ll_inode_info {
@@ -734,8 +737,6 @@ void ll_release_page(struct inode *inode, struct page *page, bool remove);
 /* llite/namei.c */
 extern const struct inode_operations ll_special_inode_operations;
 
-int ll_objects_destroy(struct ptlrpc_request *request,
-                       struct inode *dir);
 struct inode *ll_iget(struct super_block *sb, ino_t hash,
                       struct lustre_md *lic);
 int ll_test_inode_by_fid(struct inode *inode, void *opaque);
@@ -1505,6 +1506,17 @@ static inline void ll_set_lock_data(struct obd_export *exp, struct inode *inode,
 
 	if (bits != NULL)
 		*bits = it->d.lustre.it_lock_bits;
+}
+
+static inline void ll_inode_mark_removed(struct inode *inode)
+{
+	struct ll_inode_info *lli = ll_i2info(inode);
+
+	spin_lock(&lli->lli_lock);
+	lli->lli_flags |= LLIF_FILE_REMOVED;
+	spin_unlock(&lli->lli_lock);
+
+	clear_nlink(inode);
 }
 
 static inline void ll_lock_dcache(struct inode *inode)

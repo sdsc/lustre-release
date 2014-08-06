@@ -190,6 +190,21 @@ static int lprocfs_ns_locks_seq_show(struct seq_file *m, void *v)
 }
 LPROC_SEQ_FOPS_RO(lprocfs_ns_locks);
 
+static ssize_t lprocfs_ns_dump_seq_write(struct file *file, const char *buffer,
+					 size_t count, loff_t *off)
+{
+	struct ldlm_namespace *ns = ((struct seq_file *)file->private_data)->private;
+
+	/* override time limit */
+	spin_lock(&ns->ns_lock);
+	ns->ns_next_dump = 0;
+	spin_unlock(&ns->ns_lock);
+
+	ldlm_namespace_dump(D_DLMTRACE, ns);
+	return count;
+}
+LPROC_SEQ_FOPS_WO_TYPE(ldlm, ns_dump);
+
 static int lprocfs_lru_size_seq_show(struct seq_file *m, void *v)
 {
 	struct ldlm_namespace *ns = m->private;
@@ -361,6 +376,8 @@ int ldlm_namespace_proc_register(struct ldlm_namespace *ns)
 		     &lprocfs_ns_resources_fops);
 	ldlm_add_var(&lock_vars[0], ns_pde, "lock_count", ns,
 		     &lprocfs_ns_locks_fops);
+	ldlm_add_var(&lock_vars[0], ns_pde, "lock_dump", ns,
+		     &ldlm_ns_dump_fops);
 
 	if (ns_is_client(ns)) {
 		ldlm_add_var(&lock_vars[0], ns_pde, "lock_unused_count",

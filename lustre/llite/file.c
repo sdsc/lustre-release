@@ -137,6 +137,7 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 {
         struct obd_export *exp = ll_i2mdexp(inode);
         struct md_op_data *op_data;
+	struct mdt_body *body;
         struct ptlrpc_request *req = NULL;
         struct obd_device *obd = class_exp2obd(exp);
         int epoch_close = 1;
@@ -196,18 +197,15 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 		spin_unlock(&lli->lli_lock);
 	}
 
-        if (rc == 0) {
-                rc = ll_objects_destroy(req, inode);
-                if (rc)
-			CERROR("%s: inode "DFID
-			       " ll_objects destroy: rc = %d\n",
-			       ll_i2mdexp(inode)->exp_obd->obd_name,
-			       PFID(ll_inode2fid(inode)), rc);
-        }
+	body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+	if (rc == 0 && body->mbo_valid & OBD_MD_FLREMOVED) {
+		ll_inode_mark_removed(inode);
+		CDEBUG(D_INODE, "%s: inode "DFID " file destroyed\n",
+		       ll_i2mdexp(inode)->exp_obd->obd_name,
+		       PFID(ll_inode2fid(inode)));
+	}
 
 	if (rc == 0 && op_data->op_bias & MDS_HSM_RELEASE) {
-		struct mdt_body *body;
-		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
 		if (!(body->mbo_valid & OBD_MD_FLRELEASED))
 			rc = -EBUSY;
 	}

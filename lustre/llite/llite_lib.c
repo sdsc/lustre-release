@@ -2156,11 +2156,16 @@ void ll_delete_inode(struct inode *inode)
 	struct cl_inode_info *lli = cl_i2info(inode);
 	ENTRY;
 
-	if (S_ISREG(inode->i_mode) && lli->lli_clob != NULL)
-		/* discard all dirty pages before truncating them, required by
-		 * osc_extent implementation at LU-1030. */
-		cl_sync_file_range(inode, 0, OBD_OBJECT_EOF,
-				   CL_FSYNC_DISCARD, 1);
+	if (S_ISREG(inode->i_mode) && lli->lli_clob != NULL) {
+		enum cl_fsync_mode mode = CL_FSYNC_ALL;
+
+		/* Writeback all dirty pages before truncating them, required by
+		 * osc_extent implementation at LU-1030. If the file has already
+		 * been destroyed, it discards all caching data. */
+		if (lli->lli_flags & LLIF_FILE_REMOVED)
+			mode = CL_FSYNC_DISCARD;
+		cl_sync_file_range(inode, 0, OBD_OBJECT_EOF, mode, 1);
+	}
 
         truncate_inode_pages(&inode->i_data, 0);
 
