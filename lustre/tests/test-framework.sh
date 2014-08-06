@@ -223,7 +223,7 @@ init_test_env() {
         export PATH=$LUSTRE/../lustre-iokit/sgpdd-survey:$PATH
     fi
     export LST=${LST:-"$LUSTRE/../lnet/utils/lst"}
-    [ ! -f "$LST" ] && export LST=$(which lst)
+    [ ! -f "$LST" ] && export LST="lst"
     export SGPDDSURVEY=${SGPDDSURVEY:-"$LUSTRE/../lustre-iokit/sgpdd-survey/sgpdd-survey")}
     [ ! -f "$SGPDDSURVEY" ] && export SGPDDSURVEY=$(which sgpdd-survey)
     # Ubuntu, at least, has a truncate command in /usr/bin
@@ -240,9 +240,9 @@ init_test_env() {
     export RSYNC_RSH=${RSYNC_RSH:-rsh}
 
     export LCTL=${LCTL:-"$LUSTRE/utils/lctl"}
-    [ ! -f "$LCTL" ] && export LCTL=$(which lctl)
+    [ ! -f "$LCTL" ] && export LCTL="lctl"
     export LFS=${LFS:-"$LUSTRE/utils/lfs"}
-    [ ! -f "$LFS" ] && export LFS=$(which lfs)
+    [ ! -f "$LFS" ] && export LFS="which lfs"
     SETSTRIPE=${SETSTRIPE:-"$LFS setstripe"}
     GETSTRIPE=${GETSTRIPE:-"$LFS getstripe"}
 
