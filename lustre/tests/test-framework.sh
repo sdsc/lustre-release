@@ -223,14 +223,14 @@ init_test_env() {
         export PATH=$LUSTRE/../lustre-iokit/sgpdd-survey:$PATH
     fi
     export LST=${LST:-"$LUSTRE/../lnet/utils/lst"}
-    [ ! -f "$LST" ] && export LST=$(which lst)
+    [ ! -f "$LST" ] && export LST="lst"
     export SGPDDSURVEY=${SGPDDSURVEY:-"$LUSTRE/../lustre-iokit/sgpdd-survey/sgpdd-survey")}
-    [ ! -f "$SGPDDSURVEY" ] && export SGPDDSURVEY=$(which sgpdd-survey)
+    [ ! -f "$SGPDDSURVEY" ] && export SGPDDSURVEY="sgpdd-survey"
     # Ubuntu, at least, has a truncate command in /usr/bin
     # so fully path our truncate command.
     export TRUNCATE=${TRUNCATE:-$LUSTRE/tests/truncate}
     export MDSRATE=${MDSRATE:-"$LUSTRE/tests/mpi/mdsrate"}
-    [ ! -f "$MDSRATE" ] && export MDSRATE=$(which mdsrate 2> /dev/null)
+    [ ! -f "$MDSRATE" ] && export MDSRATE="mdsrate"
     if ! echo $PATH | grep -q $LUSTRE/tests/racer; then
         export PATH=$LUSTRE/tests/racer:$PATH:
     fi
@@ -240,16 +240,16 @@ init_test_env() {
     export RSYNC_RSH=${RSYNC_RSH:-rsh}
 
     export LCTL=${LCTL:-"$LUSTRE/utils/lctl"}
-    [ ! -f "$LCTL" ] && export LCTL=$(which lctl)
+    [ ! -f "$LCTL" ] && export LCTL="lctl"
     export LFS=${LFS:-"$LUSTRE/utils/lfs"}
-    [ ! -f "$LFS" ] && export LFS=$(which lfs)
+    [ ! -f "$LFS" ] && export LFS="lfs"
     SETSTRIPE=${SETSTRIPE:-"$LFS setstripe"}
     GETSTRIPE=${GETSTRIPE:-"$LFS getstripe"}
 
     export L_GETIDENTITY=${L_GETIDENTITY:-"$LUSTRE/utils/l_getidentity"}
     if [ ! -f "$L_GETIDENTITY" ]; then
         if `which l_getidentity > /dev/null 2>&1`; then
-            export L_GETIDENTITY=$(which l_getidentity)
+            export L_GETIDENTITY="l_getidentity"
         else
             export L_GETIDENTITY=NONE
         fi
@@ -263,16 +263,16 @@ init_test_env() {
     export CHECKSTAT="${CHECKSTAT:-"checkstat -v"} "
     export LUSTRE_RMMOD=${LUSTRE_RMMOD:-$LUSTRE/scripts/lustre_rmmod}
     [ ! -f "$LUSTRE_RMMOD" ] &&
-        export LUSTRE_RMMOD=$(which lustre_rmmod 2> /dev/null)
+        export LUSTRE_RMMOD="lustre_rmmod"
     export LFS_MIGRATE=${LFS_MIGRATE:-$LUSTRE/scripts/lfs_migrate}
     [ ! -f "$LFS_MIGRATE" ] &&
-        export LFS_MIGRATE=$(which lfs_migrate 2> /dev/null)
+        export LFS_MIGRATE="lfs_migrate"
     export NAME=${NAME:-local}
     export LGSSD=${LGSSD:-"$LUSTRE/utils/gss/lgssd"}
     [ "$GSS_PIPEFS" = "true" ] && [ ! -f "$LGSSD" ] && \
-        export LGSSD=$(which lgssd)
+        export LGSSD="lgssd"
     export LSVCGSSD=${LSVCGSSD:-"$LUSTRE/utils/gss/lsvcgssd"}
-    [ ! -f "$LSVCGSSD" ] && export LSVCGSSD=$(which lsvcgssd 2> /dev/null)
+    [ ! -f "$LSVCGSSD" ] && export LSVCGSSD="lsvcgssd"
     export KRB5DIR=${KRB5DIR:-"/usr/kerberos"}
     export DIR2
     export SAVE_PWD=${SAVE_PWD:-$LUSTRE/tests}
