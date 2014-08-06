@@ -434,18 +434,71 @@ int loop_format(struct mkfs_opts *mop)
 		sym->func = (typeof(sym->func))dlsym(sym->dl_handle, _fname); \
 	} while (0)
 
+/* return canonicalized absolute pathname, even if the target file does not
+ * exist, unlike realpath */
+char *absolute_path(char *devname)
+{
+	char  buf[PATH_MAX] = "";
+	char *path;
+	char *ptr;
+	int len;
+
+	path = malloc(sizeof(buf));
+	if (path == NULL)
+		return NULL;
+
+	if (devname[0] != '/') {
+		if (getcwd(buf, sizeof(buf) - 1) == NULL) {
+			free(path);
+			return NULL;
+		}
+		len = snprintf(path, sizeof(buf), "%s/%s", buf, devname);
+		if (len >= sizeof(buf)) {
+			free(path);
+			return NULL;
+		}
+	} else {
+		len = snprintf(path, sizeof(buf), "%s", devname);
+		if (len >= sizeof(buf)) {
+			free(path);
+			return NULL;
+		}
+	}
+
+	/* truncate filename before calling realpath */
+	ptr = strrchr(path, '/');
+	if (ptr == NULL) {
+		free(path);
+		return NULL;
+	}
+	*ptr = '\0';
+	if (buf != realpath(path, buf)) {
+		free(path);
+		return NULL;
+	}
+	/* add the filename back */
+	len = snprintf(path, PATH_MAX, "%s/%s", buf, ptr + 1);
+	if (len >= PATH_MAX) {
+		free(path);
+		return NULL;
+	}
+	return path;
+}
+
 /**
  * Load plugin for a given mount_type from ${pkglibdir}/mount_osd_FSTYPE.so and
  * return struct of function pointers (will be freed in unloack_backfs_module).
  *
  * \param[in] mount_type	Mount type to load module for.
+ * \param[in] progpath		Full path of the running program
  * \retval Value of backfs_ops struct
  * \retval NULL if no module exists
  */
-struct module_backfs_ops *load_backfs_module(enum ldd_mount_type mount_type)
+struct module_backfs_ops *
+load_backfs_module(enum ldd_mount_type mount_type, const char *progpath)
 {
-	void *handle;
-	char *error, filename[512], fsname[512], *name;
+	void *handle = NULL;
+	char *error, filename[PATH_MAX], fsname[512], *name;
 	struct module_backfs_ops *ops;
 
 	/* This deals with duplicate ldd_mount_types resolving to same OSD layer
@@ -456,22 +509,30 @@ struct module_backfs_ops *load_backfs_module(enum ldd_mount_type mount_type)
 	/* change osd- to osd_ */
 	fsname[sizeof("osd-") - 2] = '_';
 
-	snprintf(filename, sizeof(filename), PLUGIN_DIR"/mount_%s.so", fsname);
+	/* check the user specific plugin directory */
+	if (plugin_dir != NULL) {
+		snprintf(filename, sizeof(filename), "%smount_%s.so",
+			 absolute_path(plugin_dir), fsname);
+		handle = dlopen(filename, RTLD_LAZY);
+	}
+	/* check the local build modlues */
+	if (handle == NULL && progpath != NULL) {
+		char *progname = strrchr(progpath, '/');
 
-	handle = dlopen(filename, RTLD_LAZY);
-
-	/* Check for $LUSTRE environment variable from test-framework.
-	 * This allows using locally built modules to be used.
-	 */
+		snprintf(filename, sizeof(filename),
+			 "%.*s/.libs/mount_%s.so",
+			 (int)(strlen(progpath) -
+			       (progname ? strlen(progname) : 0)),
+			 progpath, fsname);
+		handle = dlopen(filename, RTLD_LAZY);
+	}
+	/* check $PLUGIN_DIR for the installed modules, which is defined
+	 * at compile time by the automake variable $(pkglibdir),
+	 * e.g. /usr/lib64/lustre on RHEL6. */
 	if (handle == NULL) {
-		char *dirname;
-		dirname = getenv("LUSTRE");
-		if (dirname) {
-			snprintf(filename, sizeof(filename),
-				 "%s/utils/.libs/mount_%s.so",
-				 dirname, fsname);
-			handle = dlopen(filename, RTLD_LAZY);
-		}
+		snprintf(filename, sizeof(filename), PLUGIN_DIR"/mount_%s.so",
+			 fsname);
+		handle = dlopen(filename, RTLD_LAZY);
 	}
 
 	/* Do not clutter up console with missing types */
@@ -663,12 +724,12 @@ int osd_enable_quota(struct mkfs_opts *mop)
 	return ret;
 }
 
-int osd_init(void)
+int osd_init(const char *progpath)
 {
 	int i, ret = 0;
 
 	for (i = 0; i < LDD_MT_LAST; ++i) {
-		backfs_ops[i] = load_backfs_module(i);
+		backfs_ops[i] = load_backfs_module(i, progpath);
 		if (backfs_ops[i] != NULL)
 			ret = backfs_ops[i]->init();
 		if (ret)
