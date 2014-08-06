@@ -690,6 +690,198 @@ test_6() {
 }
 run_test 6 "lfsck layout impact on create performance"
 
+show_namespace() {
+	local idx=$1
+
+	$RLCTL get_param -n mdd.$(facet_svc mds${idx}).lfsck_namespace
+}
+
+namespace_test_one()
+{
+	echo "***** Start namespace LFSCK on all devices at: $(date) *****"
+	$RLCTL lfsck_start -M ${MDT_DEV} -t namespace -A -r || return 21
+
+	for n in $(seq $MDSCOUNT); do
+		wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+			mdd.$(facet_svc mds${n}).lfsck_namespace |
+			awk '/^status/ { print \\\$2 }'" "completed" $WTIME || {
+			show_namespace ${n}
+			return 22
+		}
+	done
+	echo "***** End namespace LFSCK on all devices at: $(date) *****"
+
+	for n in $(seq $MDSCOUNT); do
+		show_namespace ${n}
+
+		local SPEED=$(show_namespace ${n} |
+			      awk '/^average_speed_total/ { print $2 }')
+		echo
+		echo "lfsck_namespace speed on MDS_${n} is $SPEED objs/sec"
+		echo
+	done
+}
+
+namespace_gen_one()
+{
+	local idx1=$1
+	local idx2=$2
+	local mntpt="/mnt/lustre_lfsck_${idx1}_${idx2}"
+	local basedir="$mntpt/$tdir/$idx1/$idx2"
+	local count=$((UNIT / 100))
+
+	mkdir -p $mntpt || {
+		error_noexit "(11) Fail to mkdir $mntpt"
+		return 11
+	}
+
+	mount_client $mntpt || {
+		error_noexit "(12) Fail to mount $mntpt"
+		return 12
+	}
+
+	mkdir $basedir || {
+		umount_client $mntpt
+		error_noexit "(13) Fail to mkdir $basedir"
+		return 13
+	}
+
+	local count=$((UNIT / 100 * 88)) # 88% regular files
+	echo "Creating $count regular files under $basedir at: $(date)"
+	createmany -m ${basedir}/f $count || {
+		umount_client $mntpt
+		error_noexit "(14) Fail to gen regular files under $basedir"
+		return 14
+	}
+	echo "Created $count regular files under $basedir at: $(date)"
+
+	count=$((UNIT / 10)) # 10% local sub-dirs
+	echo "Creating $count local sub-dirs under $basedir at: $(date)"
+	createmany -d ${basedir}/l $count || {
+		umount_client $mntpt
+		error_noexit "(15) Fail to gen local sub-dir under $basedir"
+		return 15
+	}
+	echo "Created $count local sub-dirs under $basedir at: $(date)"
+
+	count=$((UNIT / 100)) # 1% remote sub-dirs
+	echo "Creating $count remote sub-dirs under $basedir at: $(date)"
+	for ((m = 0; m < $count; m++)); do
+		local idx=$((m % MDSCOUNT))
+
+		[ $idx -eq $idx1 ] && idx=$(((idx1 + 1) % MDSCOUNT))
+
+		$LFS mkdir -i ${idx} ${basedir}/r${m} || {
+		umount_client $mntpt
+		error_noexit "(16) Fail to remote mkdir $basedir/r${m}"
+		return 16
+	}
+	done
+	echo "Created $count remote sub-dirs under $basedir at: $(date)"
+
+	count=$((UNIT / 100)) # 1% striped sub-dirs
+	echo "Creating $count striped sub-dirs under $basedir at: $(date)"
+	for ((m = 0; m < $count; m++)); do
+		$LFS setdirstripe -i 0 -c $MDSCOUNT $basedir/s${m} || {
+		umount_client $mntpt
+		error_noexit "(17) Fail to make striped-dir $basedir/r${m}"
+		return 17
+	}
+	done
+	echo "Created $count striped sub-dirs under $basedir at: $(date)"
+
+	umount_client $mntpt
+}
+
+namespace_gen_set()
+{
+	local cnt=$1
+	local parallel=$((NTHREADS * 2))
+
+	echo "##### Start generate test set for subdirs=$cnt at: $(date) #####"
+	for ((k = 0; k < $MDSCOUNT; k++)); do
+		$LFS mkdir -i ${k} $LFSCKDIR/${k} || return 10
+
+		for ((l = 1; l <= $cnt; l++)); do
+			namespace_gen_one ${k} ${l} &
+			[ $((l % parallel)) -eq 0 ] && wait
+		done
+	done
+
+	wait
+	echo "##### End generate test set for subdirs=$cnt at: $(date) #####"
+}
+
+t7_test()
+{
+	local local_loc=$1
+	local saved_mdscount=$MDSCOUNT
+	local saved_ostcount=$OSTCOUNT
+
+	echo "stopall"
+	stopall > /dev/null || error "(1) Fail to stopall"
+
+	OSTCOUNT=1
+	LFSCKDIR="$DIR/$tdir"
+
+	for ((i = 2; i <= $saved_mdscount; i = $((i * 2)))); do
+		MDSCOUNT=${i}
+
+		echo "+++++ Start cycle mdscount=$MDSCOUNT at: $(date) +++++"
+		echo
+
+		for ((j = $MINSUBDIR; j <= $MAXSUBDIR; j = $((j * FACTOR)))); do
+			echo "formatall"
+			formatall > /dev/null ||
+				error "(2) Fail to formatall, subdirs=${j}"
+
+			echo "setupall"
+			setupall > /dev/null ||
+				error "(3) Fail to setupall, subdirs=${j}"
+
+			mkdir $LFSCKDIR ||
+				error "(4) mkdir $LFSCKDIR, subdirs=${j}"
+
+			do_nodes $(comma_list $(mdts_nodes)) \
+				$LCTL set_param fail_loc=$local_loc
+
+			local RC=0
+			namespace_gen_set ${j} || RC=$?
+			[ $RC -eq 0 ] ||
+				error "(5) generate set $RC, subdirs=${j}"
+
+			RC=0
+			namespace_test_one || RC=$?
+			[ $RC -eq 0 ] ||
+				error "(6) LFSCK failed with $RC, subdirs=${j}"
+
+			do_nodes $(comma_list $(mdts_nodes)) \
+				$LCTL set_param fail_loc=0
+		done
+
+		echo "stopall"
+		stopall > /dev/null || error "(7) Fail to stopall"
+
+		echo
+		echo "----- Stop cycle mdscount=$MDSCOUNT at: $(date) -----"
+	done
+
+	MDSCOUNT=$saved_mdscount
+	OSTCOUNT=$saved_ostcount
+}
+
+test_7a() {
+	t7_test 0
+}
+run_test 7a "namespace LFSCK performance (routine check) without load for DNE"
+
+test_7b() {
+	echo "Inject failure stub to simulate the case of lost linkEA"
+	#define OBD_FAIL_LFSCK_NO_LINKEA	0x161d
+	t7_test 0x161d
+}
+run_test 7b "namespace LFSCK performance (repairing case) without load for DNE"
+
 # cleanup the system at last
 lfsck_cleanup
 complete $SECONDS
