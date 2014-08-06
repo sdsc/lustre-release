@@ -121,13 +121,21 @@ static int lfs_mv(int argc, char **argv);
 	"                 [--stripe-size|-S <stripe_size>]\n"\
 	"                 [--pool|-p <pool_name>]\n"\
 	"                 [--block|-b] "_tgt"\n"\
+	"                 [--ost-list|-o <ost_indices>]\n"\
 	"\tstripe_size:  Number of bytes on each OST (0 filesystem default)\n"\
 	"\t              Can be specified with k, m or g (in KB, MB and GB\n"\
 	"\t              respectively)\n"\
 	"\tstart_ost_idx: OST index of first stripe (-1 default)\n"\
 	"\tstripe_count: Number of OSTs to stripe over (0 default, -1 all)\n"\
 	"\tpool_name:    Name of OST pool to use (default none)\n"\
-	"\tblock:	 Block file access during data migration"
+	"\tblock:        Block file access during data migration\n"\
+	"\tost_indices:  List of OST indices, can be repeated multiple times\n"\
+	"\t              Indices be specified in a format of:\n"\
+	"\t                -o <ost_1>,<ost_i>-<ost_j>,<ost_n>\n"\
+	"\t              Or:\n"\
+	"\t                -o <ost_1> -o <ost_i>-<ost_j> -o <ost_n>\n"\
+	"\t              If --pool is set with --ost-list, then the OSTs\n"\
+	"\t              must be the members of the pool."
 
 /* all avaialable commands */
 command_t cmdlist[] = {
@@ -594,6 +602,75 @@ free:
 	return rc;
 }
 
+/* parse parameters to target indices, optarg has a format of "1,2-4,7" which
+ * will be parsed to 1,2,3,4,7.
+ * Also, the indices will be added into @osts array and duplicates will be
+ * removed. */
+static int parse_targets(__u32 *osts, int size, int offset, char *arg)
+{
+	int rc = 0;
+	int nr = offset;
+	int slots = size - offset;
+	char *ptr;
+	bool end_of_loop;
+
+	if (arg == NULL)
+		return -EINVAL;
+
+	end_of_loop = false;
+	do {
+		int start_index;
+		int end_index;
+		int i;
+		char *endptr = NULL;
+
+		rc = -EINVAL;
+
+		ptr = strchrnul(arg, ',');
+
+		end_of_loop = *ptr == 0;
+		*ptr = 0;
+
+		start_index = strtol(arg, &endptr, 10);
+		if (*endptr != '-' && *endptr != '\0') /* has invalid data */
+			break;
+		if (start_index < 0)
+			break;
+
+		end_index = start_index;
+		if (*endptr == '-') {
+			end_index = strtol(endptr + 1, &endptr, 10);
+			if (*endptr != 0)
+				break;
+			if (end_index < start_index)
+				break;
+		}
+
+		for (i = start_index; i <= end_index && slots > 0; i++) {
+			int j;
+
+			/* remove duplicate */
+			for (j = 0; j < offset; j++) {
+				if (osts[j] == i)
+					break;
+			}
+			if (j == offset) { /* no duplicate */
+				osts[nr++] = i;
+				--slots;
+			}
+		}
+		if (slots == 0 && i < end_index) {
+			rc = -ENOSPC;
+			break;
+		}
+
+		rc = 0;
+		arg = ++ptr;
+	} while (!end_of_loop);
+
+	return rc < 0 ? rc : nr;
+}
+
 /* functions */
 static int lfs_setstripe(int argc, char **argv)
 {
@@ -601,10 +678,10 @@ static int lfs_setstripe(int argc, char **argv)
 	char				*fname;
 	int				 result;
 	unsigned long long		 st_size;
-	int64_t				 st_offset;
+	int64_t				 st_offset = LLAPI_LAYOUT_DEFAULT;
 	uint64_t			 st_count = LLAPI_LAYOUT_DEFAULT;
 	char				*end;
-	int				 c;
+	int				 i, c;
 	int				 delete = 0;
 	char				*stripe_size_arg = NULL;
 	char				*stripe_off_arg = NULL;
@@ -613,6 +690,8 @@ static int lfs_setstripe(int argc, char **argv)
 	unsigned long long		 size_units = 1;
 	__u64				 migration_flags = 0;
 	bool				 migrate_mode = false;
+	__u32				 osts[LOV_MAX_STRIPE_COUNT] = { 0 };
+	int				 nr_osts = 0;
 
 	struct option			 long_opts[] = {
 		/* valid only in migrate mode */
@@ -634,12 +713,8 @@ static int lfs_setstripe(int argc, char **argv)
 #endif
 		{"stripe-index", required_argument, 0, 'i'},
 		{"stripe_index", required_argument, 0, 'i'},
-#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
-		/* This formerly implied "stripe-index", but was confusing
-		 * with "file offset" (which will eventually be needed for
-		 * with different layouts by offset), so deprecate it. */
-		{"offset",	 required_argument, 0, 'o'},
-#endif
+		{"ost-list",	 required_argument, 0, 'o'},
+		{"ost_list",	 required_argument, 0, 'o'},
 		{"pool",	 required_argument, 0, 'p'},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		/* This formerly implied "--stripe-size", but was confusing
@@ -656,7 +731,7 @@ static int lfs_setstripe(int argc, char **argv)
 		migrate_mode = true;
 
 	optind = 0;
-	while ((c = getopt_long(argc, argv, "c:di:o:p:s:S:",
+	while ((c = getopt_long(argc, argv, "c:di:o:p:s:S:t:",
 				long_opts, NULL)) >= 0) {
 		switch (c) {
 		case 0:
@@ -682,11 +757,16 @@ static int lfs_setstripe(int argc, char **argv)
 			/* delete the default striping pattern */
 			delete = 1;
 			break;
-#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
 		case 'o':
-			fprintf(stderr, "warning: '--offset|-o' deprecated, "
-				"use '--stripe-index|-i' instead\n");
-#endif
+			nr_osts = parse_targets(osts, ARRAY_SIZE(osts), nr_osts,
+						optarg);
+			if (nr_osts < 0)
+				return CMD_HELP;
+
+			/* first in the command line */
+			if (st_offset == LLAPI_LAYOUT_DEFAULT)
+				st_offset = osts[0];
+			break;
 		case 'i':
 #if LUSTRE_VERSION_CODE >= OBD_OCD_VERSION(2, 6, 53, 0)
 			if (strcmp(argv[optind - 1], "--index") == 0)
@@ -787,13 +867,27 @@ static int lfs_setstripe(int argc, char **argv)
 				argv[0], stripe_off_arg);
 			return CMD_HELP;
 		}
-		if (st_offset != -1) {
-			if (llapi_layout_ost_index_set(layout, 0, st_offset)) {
+		if (st_offset == -1)
+			st_offset = LLAPI_LAYOUT_DEFAULT;
+	}
+	/* If ost index list is provides set the stripe count to the number of
+	 * ost index given. */
+	if (nr_osts > 0) {
+		st_count = nr_osts;
+
+		for (i = 0; i < nr_osts; i++) {
+			if (llapi_layout_ost_index_set(layout, i, osts[i])) {
 				fprintf(stderr, "error: %s: invalid ost "
-					"offset %llu for layout\n", argv[0],
-					(unsigned long long) st_offset);
+					"placement for this layout\n", argv[0]);
 				return CMD_HELP;
 			}
+		}
+	} else if (st_offset != LLAPI_LAYOUT_DEFAULT) {
+		if (llapi_layout_ost_index_set(layout, 0, st_offset)) {
+			fprintf(stderr, "error: %s: invalid ost offset %llu for "
+				"layout\n", argv[0],
+				(unsigned long long) st_offset);
+			return CMD_HELP;
 		}
 	}
 

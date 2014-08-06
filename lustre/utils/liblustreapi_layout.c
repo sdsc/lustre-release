@@ -163,6 +163,13 @@ llapi_layout_from_lum(const struct lov_user_md *lum)
 		const struct lov_user_md_v3 *lum_v3;
 		lum_v3 = (struct lov_user_md_v3 *)lum;
 
+		if (strlen(layout->llot_pool_name) == 0) {
+			/* LOV_USER_MAGIC_SPECIFIC uses v3 format plus
+			 * specified OST list, therefore if pool is not
+			 * specified we have to pack a null pool name
+			 * for placeholder. */
+			memset((void *)lum_v3->lmm_pool_name, 0, LOV_MAXPOOLNAME);
+		}
 		snprintf(layout->llot_pool_name, sizeof(layout->llot_pool_name),
 			 "%s", lum_v3->lmm_pool_name);
 		memcpy(layout->llot_objects, lum_v3->lmm_objects, objects_sz);
@@ -197,7 +204,9 @@ llapi_layout_to_lum(const struct llapi_layout *layout, size_t *lum_size)
 	unsigned int stripe_count;
 	struct lov_user_md *lum;
 
-	if (strlen(layout->llot_pool_name) != 0)
+	if (layout->llot_objects_are_valid)
+		magic = LOV_USER_MAGIC_SPECIFIC;
+	else if (strlen(layout->llot_pool_name) != 0)
 		magic = LOV_USER_MAGIC_V3;
 
 	if (layout->llot_stripe_count == LLAPI_LAYOUT_DEFAULT)
@@ -337,7 +346,7 @@ struct llapi_layout *llapi_layout_get_by_fd(int fd, uint32_t flags)
 	struct llapi_layout *layout = NULL;
 
 	lum_len = lov_user_md_size(LOV_MAX_STRIPE_COUNT,
-				   LOV_MAGIC_V3);
+				   LOV_MAGIC_SPECIFIC);
 	lum = malloc(lum_len);
 	if (lum == NULL)
 		return NULL;
@@ -349,7 +358,8 @@ struct llapi_layout *llapi_layout_get_by_fd(int fd, uint32_t flags)
 			layout = llapi_layout_alloc();
 	} else {
 		if (lum->lmm_magic == __swab32(LOV_MAGIC_V1) ||
-		    lum->lmm_magic == __swab32(LOV_MAGIC_V3))
+		    lum->lmm_magic == __swab32(LOV_MAGIC_V3) ||
+		    lum->lmm_magic == __swab32(LOV_MAGIC_SPECIFIC))
 			llapi_layout_swab_lov_user_md(lum);
 
 		layout = llapi_layout_from_lum(lum);
@@ -682,8 +692,6 @@ int llapi_layout_pattern_set(struct llapi_layout *layout, uint64_t pattern)
 /**
  * Set the OST index of stripe number \a stripe_number to \a ost_index.
  *
- * The index may only be set for stripe number 0 for now.
- *
  * \param[in] layout		layout to set OST index in
  * \param[in] stripe_number	stripe number to set index for
  * \param[in] ost_index		the index to set
@@ -698,11 +706,6 @@ int llapi_layout_ost_index_set(struct llapi_layout *layout, int stripe_number,
 	if (layout == NULL || layout->llot_magic != LLAPI_LAYOUT_MAGIC ||
 	    !llapi_layout_stripe_index_is_valid(ost_index)) {
 		errno = EINVAL;
-		return -1;
-	}
-
-	if (stripe_number != 0) {
-		errno = EOPNOTSUPP;
 		return -1;
 	}
 
@@ -756,10 +759,11 @@ static int
 llapi_layout_ost_index_valid(const struct llapi_layout *layout,
 			     char *fsname)
 {
+	unsigned int stripe_count, num_osts, i;
 	char poolname[LOV_MAXPOOLNAME + 1];
 	char ostname[MAX_OBD_NAME + 1];
-	unsigned int num_osts;
 	char *pool = NULL;
+	int valid = 0;
 	char data[16];
 
 	if (layout == NULL || fsname == NULL) {
@@ -791,18 +795,49 @@ llapi_layout_ost_index_valid(const struct llapi_layout *layout,
 		strncpy(poolname, layout->llot_pool_name, sizeof(poolname));
 	}
 
-	/* We need to test if the stripe offset belongs to the file
+	/* User doesn't care about the exact stripe layout. We still
+	 * need to test if the stripe offset belongs to the file
 	 * system and the pool */
-	snprintf(ostname, sizeof(ostname), "%s-OST%04x_UUID",
-		 fsname, (unsigned int) layout->llot_stripe_offset);
+	if (!layout->llot_objects_are_valid) {
+		/* We need to test if the stripe offset belongs to the file
+		 * system and the pool */
+		snprintf(ostname, sizeof(ostname), "%s-OST%04x_UUID",
+			 fsname, (unsigned int) layout->llot_stripe_offset);
 
-	/*
-	 * if pool is NULL, search ostname in target_obd
-	 * if pool is not NULL:
-	 *  if pool not found returns errno < 0
-	 *  if ostname is not NULL, returns 1 if OST is in pool and 0 if not
-	 */
-	return llapi_search_ost(fsname, pool, ostname);
+		/*
+		 * if pool is NULL, search ostname in target_obd
+		 * if pool is not NULL:
+		 *  if pool not found returns errno < 0
+		 *  if ostname is not NULL, returns 1 if OST is in pool and 0 if not
+		 */
+		return llapi_search_ost(fsname, pool, ostname);
+	}
+
+	/* The below is for the case the user supplies a stripe
+	 * layout in detail. */
+	if (layout->llot_stripe_count != LLAPI_LAYOUT_WIDE) {
+		stripe_count = layout->llot_stripe_count;
+	} else {
+		stripe_count = num_osts;
+	}
+
+	for (i = 0; i < stripe_count; i++) {
+		/* Test if index provided by the user maps to a OST
+		 * belonging to the specified file system in addition
+		 * to belonging to a pool if present in the request */
+		snprintf(ostname, sizeof(ostname), "%s-OST%04x_UUID",
+			 fsname, layout->llot_objects[i].l_ost_idx);
+
+		if (llapi_search_ost(fsname, pool, ostname) <= 0)
+			return -1;
+
+		/* if stripe offset is set, make sure it's one of
+		 * the OSTs. */
+		if (layout->llot_objects[i].l_ost_idx ==
+		    layout->llot_stripe_offset)
+			valid = 1;
+	}
+	return valid;
 }
 
 /**
