@@ -13191,6 +13191,11 @@ test_400b() { # LU-1606, LU-5011
 }
 run_test 400b "packaged headers can be compiled"
 
+test_800() {
+	do_facet $SINGLEMDS lctl set_param force_lbug=LOLWUT
+}
+run_test 800 "crash the first MDS"
+
 #
 # tests that do cleanup/setup should be run at the end
 #
