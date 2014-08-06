@@ -1704,6 +1704,7 @@ static inline void lmm_oi_cpu_to_le(struct ost_id *dst_oi,
 #define XATTR_NAME_LOV          "trusted.lov"
 #define XATTR_NAME_LMA          "trusted.lma"
 #define XATTR_NAME_LMV          "trusted.lmv"
+#define XATTR_NAME_LMV_HEADER	"trusted.hmv"
 #define XATTR_NAME_DEFAULT_LMV	"trusted.dmv"
 #define XATTR_NAME_LINK         "trusted.link"
 #define XATTR_NAME_FID          "trusted.fid"
@@ -1711,6 +1712,7 @@ static inline void lmm_oi_cpu_to_le(struct ost_id *dst_oi,
 #define XATTR_NAME_SOM		"trusted.som"
 #define XATTR_NAME_HSM		"trusted.hsm"
 #define XATTR_NAME_LFSCK_NAMESPACE "trusted.lfsck_namespace"
+#define XATTR_NAME_LFSCK_BITMAP "trusted.lfsck_bitmap"
 #define XATTR_NAME_MAX_LEN	32 /* increase this, if there is longer name. */
 
 struct lov_mds_md_v3 {            /* LOV EA mds/wire data (little-endian) */
@@ -2755,6 +2757,12 @@ struct lmv_mds_md_v1 {
 
 #define LMV_HASH_FLAG_MIGRATION	0x80000000
 #define LMV_HASH_FLAG_DEAD	0x40000000
+#define LMV_HASH_FLAG_BAD_TYPE	0x20000000
+
+/* The striped directory has ever lost its master LMV EA, then LFSCK
+ * re-generated it. This flag is used to indicate such case. It is an
+ * on-disk flag. */
+#define LMV_HASH_FLAG_LOST_LMV	0x10000000
 
 /**
  * The FNV-1a hash algorithm is as follows:
@@ -3547,20 +3555,33 @@ struct lfsck_request {
 	__u32		lr_event;
 	__u32		lr_index;
 	__u32		lr_flags;
-	__u32		lr_valid;
+	union {
+		__u32	lr_valid;
+		__u32	lr_stripe_index;
+	};
 	union {
 		__u32	lr_speed;
 		__u32	lr_status;
+		__u32	lr_type;
+		__u32	lr_index2;
 	};
 	__u16		lr_version;
 	__u16		lr_active;
 	__u16		lr_param;
 	__u16		lr_async_windows;
-	__u32		lr_flags2;
+	union {
+		__u32	lr_flags2;
+		__u32	lr_layout_version;
+	};
 	struct lu_fid	lr_fid;
 	struct lu_fid	lr_fid2;
-	struct lu_fid	lr_fid3;
-	__u64		lr_padding_2;
+	union {
+		struct lu_fid	 lr_fid3;
+		struct thandle	*lr_handle;
+		char		 lr_pool_name[LOV_MAXPOOLNAME];
+	};
+	__u32		lr_stripe_count;
+	__u32		lr_hash_type;
 	__u64		lr_padding_3;
 };
 
@@ -3586,11 +3607,19 @@ enum lfsck_events {
 	LE_PEER_EXIT		= 9,
 	LE_CONDITIONAL_DESTROY	= 10,
 	LE_PAIRS_VERIFY 	= 11,
+	LE_CREATE_ORPHAN	= 12,
+	LE_SKIP_NLINK_DECLARE	= 13,
+	LE_SKIP_NLINK		= 14,
+	LE_SET_LMV_MASTER	= 15,
+	LE_SET_LMV_SLAVE	= 16,
 };
 
 enum lfsck_event_flags {
 	LEF_TO_OST		= 0x00000001,
 	LEF_FROM_OST		= 0x00000002,
+	LEF_SET_LMV_HASH	= 0x00000004,
+	LEF_SET_LMV_ALL		= 0x00000008,
+	LEF_RECHECK_NAMEHASH	= 0x00000010,
 };
 
 static inline void lustre_set_wire_obdo(const struct obd_connect_data *ocd,

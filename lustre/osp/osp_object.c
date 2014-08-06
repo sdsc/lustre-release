@@ -666,12 +666,21 @@ int osp_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	LASSERT(name != NULL);
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_BAD_NETWORK) &&
-	    osp->opd_index == cfs_fail_val &&
-	    osp_dev2node(osp) == cfs_fail_val)
-		RETURN(-ENOTCONN);
+	    osp->opd_index == cfs_fail_val) {
+		if (is_ost_obj(&dt->do_lu)) {
+			if (osp_dev2node(osp) == cfs_fail_val)
+				RETURN(-ENOTCONN);
+		} else {
+			if (strcmp(name, XATTR_NAME_LINK) == 0)
+				RETURN(-ENOTCONN);
+		}
+	}
 
 	if (unlikely(obj->opo_non_exist))
 		RETURN(-ENOENT);
+
+	if (strcmp(name, XATTR_NAME_LMV_HEADER) == 0)
+		name = XATTR_NAME_LMV;
 
 	oxe = osp_oac_xattr_find(obj, name, false);
 	if (oxe != NULL) {
@@ -713,6 +722,11 @@ unlock:
 
 	rc = out_remote_sync(env, osp->opd_obd->u.cli.cl_import, update, &req);
 	if (rc != 0) {
+		if (rc == -ENOENT) {
+			dt->do_lu.lo_header->loh_attr &= ~LOHA_EXISTS;
+			obj->opo_non_exist = 1;
+		}
+
 		if (obj->opo_ooa == NULL)
 			GOTO(out, rc);
 

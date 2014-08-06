@@ -44,7 +44,7 @@ setupall
 	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 11 12 13 14 15 16 17 18 19 20 21"
 
 [[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.6.50) ]] &&
-	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 3"
+	ALWAYS_EXCEPT="$ALWAYS_EXCEPT 2d 2e 3 22 23 24 25 26 27 28 29 30 31"
 
 build_test_filter
 
@@ -385,6 +385,40 @@ test_2d()
 		error "(8) Fail to repair linkEA: $dummyfid $dummyname"
 }
 run_test 2d "LFSCK can recover the missed linkEA entry"
+
+test_2e()
+{
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && return
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 1 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0 on MDT1"
+
+	#define OBD_FAIL_LFSCK_LINKEA_CRASH	0x1603
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1603
+	$LFS mkdir -i 0 $DIR/$tdir/d0/d1 || error "(2) Fail to mkdir d1 on MDT0"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	$START_NAMESPACE -r -A || error "(3) Fail to start LFSCK for namespace!"
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(4) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^linkea_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(5) Fail to repair crashed linkEA: $repaired"
+
+	local fid=$($LFS path2fid $DIR/$tdir/d0/d1)
+	local name=$($LFS fid2path $DIR $fid)
+	[ "$name" == "$DIR/$tdir/d0/d1" ] ||
+		error "(6) Fail to repair linkEA: $fid $name"
+}
+run_test 2e "namespace LFSCK can verify remote object linkEA"
 
 test_3()
 {
@@ -1229,7 +1263,7 @@ run_test 11b "LFSCK can rebuild crashed last_id"
 
 test_12() {
 	[ $MDSCOUNT -lt 2 ] &&
-		skip "We need at least 2 MDSes for test_12" && exit 0
+		skip "We need at least 2 MDSes for test_12" && return
 
 	check_mount_and_prep
 	for k in $(seq $MDSCOUNT); do
@@ -2677,7 +2711,7 @@ run_test 20 "Handle the orphan with dummy LOV EA slot properly"
 
 test_21() {
 	[[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.5.59) ]] &&
-		skip "ignore the test if MDS is older than 2.5.59" && exit 0
+		skip "ignore the test if MDS is older than 2.5.59" && return
 
 	check_mount_and_prep
 	createmany -o $DIR/$tdir/f 100 || error "(0) Fail to create 100 files"
@@ -2701,6 +2735,1375 @@ test_21() {
 		error "Fail to stop LFSCK"
 }
 run_test 21 "run all LFSCK components by default"
+
+test_22a() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && return
+
+	echo "#####"
+	echo "The parent_A references the child directory via some name entry,"
+	echo "but the child directory back references another parent_B via its"
+	echo "".." name entry. The parent_A does not exist. Then the namesapce"
+	echo "LFSCK will repair the child directory's ".." name entry."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 1 $DIR/$tdir/guard || error "(1) Fail to mkdir on MDT1"
+	$LFS mkdir -i 1 $DIR/$tdir/foo || error "(2) Fail to mkdir on MDT1"
+
+	echo "Inject failure stub on MDT0 to simulate bad dotdot name entry"
+	echo "The dummy's dotdot name entry references the guard."
+	#define OBD_FAIL_LFSCK_BAD_PARENT	0x161e
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x161e
+	$LFS mkdir -i 0 $DIR/$tdir/foo/dummy ||
+		error "(3) Fail to mkdir on MDT0"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	rmdir $DIR/$tdir/guard || error "(4) Fail to rmdir $DIR/$tdir/guard"
+
+	echo "Trigger namespace LFSCK to repair unmatched pairs"
+	$START_NAMESPACE -A -r ||
+		error "(5) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(6) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^unmatched_pairs_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(7) Fail to repair unmatched pairs: $repaired"
+
+	echo "'ls' should success after namespace LFSCK repairing"
+	ls -ail $DIR/$tdir/foo/dummy > /dev/null ||
+		error "(8) ls should success."
+}
+run_test 22a "LFSCK can repair unmatched pairs (1)"
+
+test_22b() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && return
+
+	echo "#####"
+	echo "The parent_A references the child directory via the name entry_B,"
+	echo "but the child directory back references another parent_C via its"
+	echo "".." name entry. The parent_C exists, but there is no the name"
+	echo "entry_B under the parent_B. Then the namesapce LFSCK will repair"
+	echo "the child directory's ".." name entry and its linkEA."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 1 $DIR/$tdir/guard || error "(1) Fail to mkdir on MDT1"
+	$LFS mkdir -i 1 $DIR/$tdir/foo || error "(2) Fail to mkdir on MDT1"
+
+	echo "Inject failure stub on MDT0 to simulate bad dotdot name entry"
+	echo "and bad linkEA. The dummy's dotdot name entry references the"
+	echo "guard. The dummy's linkEA references n non-exist name entry."
+	#define OBD_FAIL_LFSCK_BAD_PARENT2	0x161f
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x161f
+	$LFS mkdir -i 0 $DIR/$tdir/foo/dummy ||
+		error "(3) Fail to mkdir on MDT0"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	local dummyfid=$($LFS path2fid $DIR/$tdir/foo/dummy)
+	echo "fid2path should NOT work on the dummy's FID $dummyfid"
+	local dummyname=$($LFS fid2path $DIR $dummyfid)
+	[ "$dummyname" != "$DIR/$tdir/foo/dummy" ] ||
+		error "(4) fid2path works unexpectedly."
+
+	echo "Trigger namespace LFSCK to repair unmatched pairs"
+	$START_NAMESPACE -A -r ||
+		error "(5) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(6) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^unmatched_pairs_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(7) Fail to repair unmatched pairs: $repaired"
+
+	echo "fid2path should work on the dummy's FID $dummyfid after LFSCK"
+	local dummyname=$($LFS fid2path $DIR $dummyfid)
+	[ "$dummyname" == "$DIR/$tdir/foo/dummy" ] ||
+		error "(8) fid2path does not work"
+}
+run_test 22b "LFSCK can repair unmatched pairs (2)"
+
+test_23a() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && return
+
+	echo "#####"
+	echo "The name entry is there, but the MDT-object for such name "
+	echo "entry does not exist. The namespace LFSCK should find out "
+	echo "and repair the inconsistency as required."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0 on MDT0"
+	$LFS mkdir -i 1 $DIR/$tdir/d0/d1 || error "(2) Fail to mkdir d1 on MDT1"
+
+	echo "Inject failure stub on MDT1 to simulate dangling name entry"
+	#define OBD_FAIL_LFSCK_DANGLING2	0x1620
+	do_facet mds2 $LCTL set_param fail_loc=0x1620
+	rmdir $DIR/$tdir/d0/d1 || error "(3) Fail to rmdir d1"
+	do_facet mds2 $LCTL set_param fail_loc=0
+
+	echo "'ls' should fail because of dangling name entry"
+	ls -ail $DIR/$tdir/d0/d1 > /dev/null 2>&1 && error "(4) ls should fail."
+
+	echo "Trigger namespace LFSCK to find out dangling name entry"
+	$START_NAMESPACE -A -r ||
+		error "(5) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(6) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^dangling_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(7) Fail to repair dangling name entry: $repaired"
+
+	echo "'ls' should fail because not re-create MDT-object by default"
+	ls -ail $DIR/$tdir/d0/d1 > /dev/null 2>&1 && error "(8) ls should fail."
+
+	echo "Trigger namespace LFSCK again to repair dangling name entry"
+	$START_NAMESPACE -A -r -C ||
+		error "(9) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(10) unexpected status"
+	}
+
+	repaired=$($SHOW_NAMESPACE |
+		   awk '/^dangling_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(11) Fail to repair dangling name entry: $repaired"
+
+	echo "'ls' should success after namespace LFSCK repairing"
+	ls -ail $DIR/$tdir/d0/d1 > /dev/null || error "(12) ls should success."
+}
+run_test 23a "LFSCK can repair dangling name entry (1)"
+
+test_23b() {
+	echo "#####"
+	echo "The objectA has multiple hard links, one of them corresponding"
+	echo "to the name entry_B. But there is something wrong for the name"
+	echo "entry_B and cause entry_B to references non-exist object_C."
+	echo "In the first-stage scanning, the LFSCK will think the entry_B"
+	echo "as dangling, and re-create the lost object_C. When the LFSCK"
+	echo "comes to the second-stage scanning, it will find that the"
+	echo "former re-creating object_C is not proper, and will try to"
+	echo "replace the object_C with the real object_A."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0 on MDT0"
+	echo "dummy" > $DIR/$tdir/d0/f0 || error "(2) Fail to touch on MDT0"
+	echo "dead" > $DIR/$tdir/d0/f1 || error "(3) Fail to touch on MDT0"
+
+	echo "Inject failure stub on MDT0 to simulate dangling name entry"
+	#define OBD_FAIL_LFSCK_DANGLING3	0x1621
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1621
+	ln $DIR/$tdir/d0/f0 $DIR/$tdir/d0/foo || error "(4) Fail to hard link"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	rm -f $DIR/$tdir/d0/f1 || error "(5) Fail to unlink $DIR/$tdir/d0/f1"
+
+	echo "'ls' should fail because of dangling name entry"
+	ls -ail $DIR/$tdir/d0/foo > /dev/null 2>&1 &&
+		error "(6) ls should fail."
+
+	echo "Trigger namespace LFSCK to find out dangling name entry"
+	$START_NAMESPACE -r -C ||
+		error "(7) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(8) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^dangling_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(9) Fail to repair dangling name entry: $repaired"
+
+	repaired=$($SHOW_NAMESPACE |
+		   awk '/^multiple_linked_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(10) Fail to drop the former created object: $repaired"
+
+	local data=$(cat $DIR/$tdir/d0/foo)
+	[ "$data" == "dummy" ] ||
+		error "(11) The $DIR/$tdir/d0/foo is not recovered: $data"
+}
+run_test 23b "LFSCK can repair dangling name entry (2)"
+
+test_23c() {
+	echo "#####"
+	echo "The objectA has multiple hard links, one of them corresponding"
+	echo "to the name entry_B. But there is something wrong for the name"
+	echo "entry_B and cause entry_B to references non-exist object_C."
+	echo "In the first-stage scanning, the LFSCK will think the entry_B"
+	echo "as dangling, and re-create the lost object_C. And then others"
+	echo "modified the re-created object_C. When the LFSCK comes to the"
+	echo "second-stage scanning, it will find that the former re-creating"
+	echo "object_C maybe wrong and try to replace the object_C with the"
+	echo "real object_A. But because object_C has been modified, so the"
+	echo "LFSCK cannot replace it."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0 on MDT0"
+	echo "dummy" > $DIR/$tdir/d0/f0 || error "(2) Fail to touch on MDT0"
+	echo "dead" > $DIR/$tdir/d0/f1 || error "(3) Fail to touch on MDT0"
+
+	echo "Inject failure stub on MDT0 to simulate dangling name entry"
+	#define OBD_FAIL_LFSCK_DANGLING3	0x1621
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1621
+	ln $DIR/$tdir/d0/f0 $DIR/$tdir/d0/foo || error "(4) Fail to hard link"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	rm -f $DIR/$tdir/d0/f1 || error "(5) Fail to unlink $DIR/$tdir/d0/f1"
+
+	echo "'ls' should fail because of dangling name entry"
+	ls -ail $DIR/$tdir/d0/foo > /dev/null 2>&1 &&
+		error "(6) ls should fail."
+
+	#define OBD_FAIL_LFSCK_DELAY3		0x1602
+	do_facet $SINGLEMDS $LCTL set_param fail_val=10 fail_loc=0x1602
+
+	echo "Trigger namespace LFSCK to find out dangling name entry"
+	$START_NAMESPACE -r -C ||
+		error "(7) Fail to start LFSCK for namespace"
+
+	wait_update_facet client "stat $DIR/$tdir/d0/foo |
+		awk '/Size/ { print \\\$2 }'" "0" 32 || {
+		stat $DIR/$tdir/guard
+		$SHOW_NAMESPACE
+		error "(8) unexpected size"
+	}
+
+	echo "data" >> $DIR/$tdir/d0/foo || error "(9) Fail to write"
+	cancel_lru_locks osc
+
+	do_facet $SINGLEMDS $LCTL set_param fail_val=0 fail_loc=0
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(10) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^dangling_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(11) Fail to repair dangling name entry: $repaired"
+
+	local data=$(cat $DIR/$tdir/d0/foo)
+	[ "$data" != "dummy" ] ||
+		error "(12) The $DIR/$tdir/d0/foo should not be recovered"
+}
+run_test 23c "LFSCK can repair dangling name entry (3)"
+
+test_24() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && return
+
+	echo "#####"
+	echo "Two MDT-objects back reference the same name entry via their"
+	echo "each own linkEA entry, but the name entry only references one"
+	echo "MDT-object. The namespace LFSCK will remove the linkEA entry"
+	echo "for the MDT-object that is not recognized. If such MDT-object"
+	echo "has no other linkEA entry after the removing, then the LFSCK"
+	echo "will add it as orphan under the .lustre/lost+found/MDTxxxx/."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 1 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+
+	mkdir $DIR/$tdir/d0/guard || error "(1) Fail to mkdir guard"
+	$LFS path2fid $DIR/$tdir/d0/guard
+
+	mkdir $DIR/$tdir/d0/dummy || error "(2) Fail to mkdir dummy"
+	$LFS path2fid $DIR/$tdir/d0/dummy
+	local pfid=$($LFS path2fid $DIR/$tdir/d0/dummy)
+
+	touch $DIR/$tdir/d0/guard/foo ||
+		error "(3) Fail to touch $DIR/$tdir/d0/guard/foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "the $DIR/$tdir/d0/dummy/foo has the 'bad' linkEA entry"
+	echo "that references $DIR/$tdir/d0/guard/foo."
+	echo "Then remove the name entry $DIR/$tdir/d0/dummy/foo."
+	echo "So the MDT-object $DIR/$tdir/d0/dummy/foo will be left"
+	echo "there with the same linkEA entry as another MDT-object"
+	echo "$DIR/$tdir/d0/guard/foo has"
+
+	#define OBD_FAIL_LFSCK_MUL_REF		0x1622
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1622
+	$LFS mkdir -i 0 $DIR/$tdir/d0/dummy/foo ||
+		error "(4) Fail to mkdir $DIR/$tdir/d0/dummy/foo"
+	local cfid=$($LFS path2fid $DIR/$tdir/d0/dummy/foo)
+	rmdir $DIR/$tdir/d0/dummy/foo ||
+		error "(5) Fail to remove $DIR/$tdir/d0/dummy/foo name entry"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	echo "stat $DIR/$tdir/d0/dummy/foo should fail"
+	stat $DIR/$tdir/d0/dummy/foo > /dev/null 2>&1 &&
+		error "(6) stat successfully unexpectedly"
+
+	echo "Trigger namespace LFSCK to repair multiple-referenced name entry"
+	$START_NAMESPACE -A -r ||
+		error "(7) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(8) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^multiple_referenced_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+	error "(9) Fail to repair multiple referenced name entry: $repaired"
+
+	echo "There should be an orphan under .lustre/lost+found/MDT0000/"
+	[ -d $MOUNT/.lustre/lost+found/MDT0000 ] ||
+		error "(10) $MOUNT/.lustre/lost+found/MDT0000/ should be there"
+
+	local cname="$cfid-$pfid-D-0"
+	ls -ail $MOUNT/.lustre/lost+found/MDT0000/$cname ||
+		error "(11) .lustre/lost+found/MDT0000/ should not be empty"
+}
+run_test 24 "LFSCK can repair multiple-referenced name entry"
+
+test_25() {
+	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
+		skip "Only support to inject failure on ldiskfs" && return
+
+	echo "#####"
+	echo "The file type in the name entry does not match the file type"
+	echo "claimed by the referenced object. Then the LFSCK will update"
+	echo "the file type in the name entry."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "the file type stored in the name entry is wrong."
+
+	#define OBD_FAIL_LFSCK_BAD_TYPE		0x1623
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1623
+	touch $DIR/$tdir/d0/foo || error "(2) Fail to touch $DIR/$tdir/d0/foo"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	echo "Trigger namespace LFSCK to repair bad file type in the name entry"
+	$START_NAMESPACE -r || error "(3) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(4) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^bad_file_type_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+	error "(5) Fail to repair bad file type in name entry: $repaired"
+
+	ls -ail $DIR/$tdir/d0 || error "(6) Fail to 'ls' the $DIR/$tdir/d0"
+}
+run_test 25 "LFSCK can repair bad file type in the name entry"
+
+test_26a() {
+	echo "#####"
+	echo "The local name entry back referenced by the MDT-object is lost."
+	echo "The namespace LFSCK will add the missed local name entry back"
+	echo "to the normal namespace."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+	touch $DIR/$tdir/d0/foo || error "(2) Fail to create foo"
+	ln $DIR/$tdir/d0/foo $DIR/$tdir/d0/dummy ||
+		error "(3) Fail to hard link to $DIR/$tdir/d0/foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "foo's name entry will be removed, but the foo's object"
+	echo "and its linkEA are kept in the system."
+
+	#define OBD_FAIL_LFSCK_NO_NAMEENTRY	0x1624
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1624
+	rm -f $DIR/$tdir/d0/foo || error "(4) Fail to unlink $DIR/$tdir/d0/foo"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	ls -ail $DIR/$tdir/d0/foo > /dev/null 2>&1 && "(5) 'ls' should fail"
+
+	echo "Trigger namespace LFSCK to repair the missed remote name entry"
+	$START_NAMESPACE -r -A ||
+		error "(6) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(7) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^lost_dirent_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(8) Fail to repair lost dirent: $repaired"
+
+	ls -ail $DIR/$tdir/d0/foo ||
+		error "(9) Fail to 'ls' $DIR/$tdir/d0/foo"
+}
+run_test 26a "LFSCK can add the missed local name entry back to the namespace"
+
+test_26b() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && return
+
+	echo "#####"
+	echo "The remote name entry back referenced by the MDT-object is lost."
+	echo "The namespace LFSCK will add the missed remote name entry back"
+	echo "to the normal namespace."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 1 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+	$LFS mkdir -i 0 $DIR/$tdir/d0/foo || error "(2) Fail to mkdir foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "foo's name entry will be removed, but the foo's object"
+	echo "and its linkEA are kept in the system."
+
+	#define OBD_FAIL_LFSCK_NO_NAMEENTRY	0x1624
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1624
+	rmdir $DIR/$tdir/d0/foo || error "(3) Fail to rmdir $DIR/$tdir/d0/foo"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	ls -ail $DIR/$tdir/d0/foo > /dev/null 2>&1 && "(4) 'ls' should fail"
+
+	echo "Trigger namespace LFSCK to repair the missed remote name entry"
+	$START_NAMESPACE -r -A ||
+		error "(5) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(6) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^lost_dirent_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(7) Fail to repair lost dirent: $repaired"
+
+	ls -ail $DIR/$tdir/d0/foo ||
+		error "(8) Fail to 'ls' $DIR/$tdir/d0/foo"
+}
+run_test 26b "LFSCK can add the missed remote name entry back to the namespace"
+
+test_27a() {
+	echo "#####"
+	echo "The local parent referenced by the MDT-object linkEA is lost."
+	echo "The namespace LFSCK will re-create the lost parent as orphan."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+	touch $DIR/$tdir/d0/foo || error "(2) Fail to create foo"
+	ln $DIR/$tdir/d0/foo $DIR/$tdir/d0/dummy ||
+		error "(3) Fail to hard link to $DIR/$tdir/d0/foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "foo's name entry will be removed, but the foo's object"
+	echo "and its linkEA are kept in the system. And then remove"
+	echo "another hard link and the parent directory."
+
+	#define OBD_FAIL_LFSCK_NO_NAMEENTRY	0x1624
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1624
+	rm -f $DIR/$tdir/d0/foo ||
+		error "(4) Fail to unlink $DIR/$tdir/d0/foo"
+	rm -f $DIR/$tdir/d0/dummy ||
+		error "(5) Fail to unlink $DIR/$tdir/d0/dummy"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	rm -rf $DIR/$tdir/d0 || error "(5) Fail to unlink the dir d0"
+	ls -ail $DIR/$tdir/d0 > /dev/null 2>&1 && "(6) 'ls' should fail"
+
+	echo "Trigger namespace LFSCK to repair the lost parent"
+	$START_NAMESPACE -r -A ||
+		error "(6) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(7) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^lost_dirent_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(8) Fail to repair lost dirent: $repaired"
+
+	echo "There should be an orphan under .lustre/lost+found/MDT0000/"
+	[ -d $MOUNT/.lustre/lost+found/MDT0000 ] ||
+		error "(9) $MOUNT/.lustre/lost+found/MDT0000/ should be there"
+
+	ls -ail $MOUNT/.lustre/lost+found/MDT0000/
+
+	cname=$(find $MOUNT/.lustre/lost+found/MDT0000/ -name *-P-*)
+	[ ! -z "$cname" ] ||
+		error "(10) .lustre/lost+found/MDT0000/ should not be empty"
+}
+run_test 27a "LFSCK can recreate the lost local parent directory as orphan"
+
+test_27b() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "We need at least 2 MDSes for this test" && return
+
+	echo "#####"
+	echo "The remote parent referenced by the MDT-object linkEA is lost."
+	echo "The namespace LFSCK will re-create the lost parent as orphan."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 1 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+	$LFS mkdir -i 0 $DIR/$tdir/d0/foo || error "(2) Fail to mkdir foo"
+
+	$LFS path2fid $DIR/$tdir/d0
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "foo's name entry will be removed, but the foo's object"
+	echo "and its linkEA are kept in the system. And then remove"
+	echo "the parent directory."
+
+	#define OBD_FAIL_LFSCK_NO_NAMEENTRY	0x1624
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1624
+	rmdir $DIR/$tdir/d0/foo || error "(3) Fail to rmdir $DIR/$tdir/d0/foo"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	rmdir $DIR/$tdir/d0 || error "(4) Fail to unlink the dir d0"
+	ls -ail $DIR/$tdir/d0 > /dev/null 2>&1 && "(5) 'ls' should fail"
+
+	echo "Trigger namespace LFSCK to repair the missed remote name entry"
+	$START_NAMESPACE -r -A ||
+		error "(6) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(7) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^lost_dirent_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(8) Fail to repair lost dirent: $repaired"
+
+	ls -ail $MOUNT/.lustre/lost+found/
+
+	echo "There should be an orphan under .lustre/lost+found/MDT0001/"
+	[ -d $MOUNT/.lustre/lost+found/MDT0001 ] ||
+		error "(9) $MOUNT/.lustre/lost+found/MDT0001/ should be there"
+
+	ls -ail $MOUNT/.lustre/lost+found/MDT0001/
+
+	cname=$(find $MOUNT/.lustre/lost+found/MDT0001/ -name *-P-*)
+	[ ! -z "$cname" ] ||
+		error "(10) .lustre/lost+found/MDT0001/ should not be empty"
+}
+run_test 27b "LFSCK can recreate the lost remote parent directory as orphan"
+
+test_28() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "The test needs at least 2 MDTs" && return
+
+	echo "#####"
+	echo "The target name entry is lost. The LFSCK should insert the"
+	echo "orphan MDT-object under .lustre/lost+found/MDTxxxx. But if"
+	echo "the MDT (on which the orphan MDT-object resides) has ever"
+	echo "failed to respond some name entry verification durin the"
+	echo "first stage-scanning, then the LFSCK should skip to handle"
+	echo "orphan MDT-object on this MDT. But other MDTs should not"
+	echo "be affected."
+	echo "#####"
+
+	check_mount_and_prep
+	$LFS mkdir -i 0 $DIR/$tdir/d1
+	$LFS mkdir -i 1 $DIR/$tdir/d1/a1
+	$LFS mkdir -i 1 $DIR/$tdir/d1/a2
+
+	$LFS mkdir -i 1 $DIR/$tdir/d2
+	$LFS mkdir -i 0 $DIR/$tdir/d2/a1
+	$LFS mkdir -i 0 $DIR/$tdir/d2/a2
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "d1/a1's name entry will be removed, but the d1/a1's object"
+	echo "and its linkEA are kept in the system. And the case that"
+	echo "d2/a2's name entry will be removed, but the d2/a2's object"
+	echo "and its linkEA are kept in the system."
+
+	#define OBD_FAIL_LFSCK_NO_NAMEENTRY	0x1624
+	do_facet mds1 $LCTL set_param fail_loc=0x1624
+	do_facet mds2 $LCTL set_param fail_loc=0x1624
+	rmdir $DIR/$tdir/d1/a1 || error "(1) Fail to rmdir $DIR/$tdir/d1/a1"
+	rmdir $DIR/$tdir/d2/a2 || error "(2) Fail to rmdir $DIR/$tdir/d2/a2"
+	do_facet mds1 $LCTL set_param fail_loc=0
+	do_facet mds2 $LCTL set_param fail_loc=0
+
+	cancel_lru_locks mdc
+	cancel_lru_locks osc
+
+	echo "Inject failure, to simulate the MDT0 fail to handle"
+	echo "MDT1 LFSCK request during the first-stage scanning."
+	#define OBD_FAIL_LFSCK_BAD_NETWORK	0x161c
+	do_facet mds2 $LCTL set_param fail_loc=0x161c fail_val=0
+
+	echo "Trigger namespace LFSCK on all devices to find out orphan object"
+	$START_NAMESPACE -r -A ||
+		error "(3) Fail to start LFSCK for namespace"
+
+	wait_update_facet mds1 "$LCTL get_param -n \
+		mdd.$(facet_svc mds1).lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "partial" 32 || {
+		error "(4) mds1 is not the expected 'partial'"
+	}
+
+	wait_update_facet mds2 "$LCTL get_param -n \
+		mdd.$(facet_svc mds2).lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		error "(5) mds2 is not the expected 'completed'"
+	}
+
+	do_facet mds2 $LCTL set_param fail_loc=0 fail_val=0
+
+	local repaired=$(do_facet mds1 $LCTL get_param -n \
+			 mdd.$(facet_svc mds1).lfsck_namespace |
+			 awk '/^lost_dirent_repaired/ { print $2 }')
+	[ $repaired -eq 0 ] ||
+		error "(6) Expect 0 fixed on mds1, but got: $repaired"
+
+	repaired=$(do_facet mds2 $LCTL get_param -n \
+		   mdd.$(facet_svc mds2).lfsck_namespace |
+		   awk '/^lost_dirent_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(7) Expect 1 fixed on mds2, but got: $repaired"
+
+	echo "Trigger namespace LFSCK on all devices again to cleanup"
+	$START_NAMESPACE -r -A ||
+		error "(8) Fail to start LFSCK for namespace"
+
+	for k in $(seq $MDSCOUNT); do
+		# The LFSCK status query internal is 30 seconds. For the case
+		# of some LFSCK_NOTIFY RPCs failure/lost, we will wait enough
+		# time to guarantee the status sync up.
+		wait_update_facet mds${k} "$LCTL get_param -n \
+			mdd.$(facet_svc mds${k}).lfsck_namespace |
+			awk '/^status/ { print \\\$2 }'" "completed" 32 ||
+			error "(9) MDS${k} is not the expected 'completed'"
+	done
+
+	local repaired=$(do_facet mds1 $LCTL get_param -n \
+			 mdd.$(facet_svc mds1).lfsck_namespace |
+			 awk '/^lost_dirent_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(10) Expect 1 fixed on mds1, but got: $repaired"
+
+	repaired=$(do_facet mds2 $LCTL get_param -n \
+		   mdd.$(facet_svc mds2).lfsck_namespace |
+		   awk '/^lost_dirent_repaired/ { print $2 }')
+	[ $repaired -eq 0 ] ||
+		error "(11) Expect 0 fixed on mds2, but got: $repaired"
+}
+run_test 28 "Skip the failed MDT(s) when handle orphan MDT-objects"
+
+test_29a() {
+	echo "#####"
+	echo "The object's nlink attribute is larger than the object's known"
+	echo "name entries count. The LFSCK will repair the object's nlink"
+	echo "attribute to match the known name entries count"
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+	touch $DIR/$tdir/d0/foo || error "(2) Fail to create foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that foo's"
+	echo "nlink attribute is larger than its name entries count."
+
+	#define OBD_FAIL_LFSCK_MORE_NLINK	0x1625
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1625
+	ln $DIR/$tdir/d0/foo $DIR/$tdir/d0/h1 ||
+		error "(3) Fail to hard link to $DIR/$tdir/d0/foo"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	cancel_lru_locks mdc
+	local count=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count -eq 3 ] || error "(4) Cannot inject error: $count"
+
+	echo "Trigger namespace LFSCK to repair the nlink count"
+	$START_NAMESPACE -r -A ||
+		error "(5) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(6) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^nlinks_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(7) Fail to repair nlink count: $repaired"
+
+	cancel_lru_locks mdc
+	count=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count -eq 2 ] || error "(8) Fail to repair nlink count: $count"
+}
+run_test 29a "LFSCK can repair bad nlink count (1)"
+
+test_29b() {
+	echo "#####"
+	echo "The object's nlink attribute is smaller than the object's known"
+	echo "name entries count. The LFSCK will repair the object's nlink"
+	echo "attribute to match the known name entries count"
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+	touch $DIR/$tdir/d0/foo || error "(2) Fail to create foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that foo's"
+	echo "nlink attribute is smaller than its name entries count."
+
+	#define OBD_FAIL_LFSCK_LESS_NLINK	0x1626
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1626
+	ln $DIR/$tdir/d0/foo $DIR/$tdir/d0/h1 ||
+		error "(3) Fail to hard link to $DIR/$tdir/d0/foo"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	cancel_lru_locks mdc
+	local count=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count -eq 1 ] || error "(4) Cannot inject error: $count"
+
+	echo "Trigger namespace LFSCK to repair the nlink count"
+	$START_NAMESPACE -r -A ||
+		error "(5) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(6) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^nlinks_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(7) Fail to repair nlink count: $repaired"
+
+	cancel_lru_locks mdc
+	count=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count -eq 2 ] || error "(8) Fail to repair nlink count: $count"
+}
+run_test 29b "LFSCK can repair bad nlink count (2)"
+
+test_29c() {
+	echo "#####"
+	echo "There are too much hard links to the object, and exceeds the
+	echo object's linkEA limitation, as to NOT all the known name entries"
+	echo "will be recorded in the linkEA. Under such case, LFSCK should"
+	echo "skip the nlink verification for this object."
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/d0 || error "(1) Fail to mkdir d0"
+	touch $DIR/$tdir/d0/foo || error "(2) Fail to create foo"
+	ln $DIR/$tdir/d0/foo $DIR/$tdir/d0/h1 ||
+		error "(3) Fail to hard link to $DIR/$tdir/d0/foo"
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "foo's hard links exceed the object's linkEA limitation."
+
+	#define OBD_FAIL_LFSCK_LINKEA_OVERFLOW	0x1627
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1627
+	ln $DIR/$tdir/d0/foo $DIR/$tdir/d0/h2 ||
+		error "(4) Fail to hard link to $DIR/$tdir/d0/foo"
+
+	cancel_lru_locks mdc
+
+	local count1=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count1 -eq 3 ] || error "(5) Stat failure: $count1"
+
+	local foofid=$($LFS path2fid $DIR/$tdir/d0/foo)
+	$LFS fid2path $DIR $foofid
+	local count2=$($LFS fid2path $DIR $foofid | wc -l)
+	[ $count2 -eq 2 ] || "(6) Fail to inject error: $count2"
+
+	echo "Trigger namespace LFSCK to repair the nlink count"
+	$START_NAMESPACE -r -A ||
+		error "(7) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(8) unexpected status"
+	}
+
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^nlinks_repaired/ { print $2 }')
+	[ $repaired -eq 0 ] ||
+		error "(9) Repair nlink count unexpcetedly: $repaired"
+
+	cancel_lru_locks mdc
+
+	count1=$(stat --format=%h $DIR/$tdir/d0/foo)
+	[ $count1 -eq 3 ] || error "(10) Stat failure: $count1"
+
+	count2=$($LFS fid2path $DIR $foofid | wc -l)
+	[ $count2 -eq 2 ] ||
+		error "(11) Repaired something unexpectedly: $count2"
+}
+run_test 29c "Not verify nlink attr if hark links exceed linkEA limitation"
+
+test_30() {
+	[ $(facet_fstype $SINGLEMDS) != ldiskfs ] &&
+		skip "Only support backend /lost+found for ldiskfs" && return
+
+	echo "#####"
+	echo "The namespace LFSCK will move the orphans from backend"
+	echo "/lost+found directory to normal client visible namespace"
+	echo "or to global visible ./lustre/lost+found/MDTxxxx/ directory"
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS mkdir -i 0 $DIR/$tdir/foo || error "(1) Fail to mkdir foo"
+	touch $DIR/$tdir/foo/f0 || error "(2) Fail to touch f1"
+
+	echo "Inject failure stub on MDT0 to simulate the case that"
+	echo "directory d0 has no linkEA entry, then the LFSCK will"
+	echo "move it into .lustre/lost+found/MDTxxxx/ later."
+
+	#define OBD_FAIL_LFSCK_NO_LINKEA	0x161d
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x161d
+	mkdir $DIR/$tdir/foo/d0 || error "(3) Fail to mkdir d0"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	touch $DIR/$tdir/foo/d0/f1 || error "(4) Fail to touch f1"
+	mkdir $DIR/$tdir/foo/d0/d1 || error "(5) Fail to mkdir d1"
+
+	echo "Inject failure stub on MDT0 to simulate the case that the"
+	echo "object's name entry will be removed, but not destroy the"
+	echo "object. Then backend e2fsck will handle it as orphan and"
+	echo "add them into the backend /lost+found directory."
+
+	#define OBD_FAIL_LFSCK_NO_NAMEENTRY	0x1624
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1624
+	rmdir $DIR/$tdir/foo/d0/d1 || error "(6) Fail to rmdir d1"
+	rm -f $DIR/$tdir/foo/d0/f1 || error "(7) Fail to unlink f1"
+	rmdir $DIR/$tdir/foo/d0 || error "(8) Fail to rmdir d0"
+	rm -f $DIR/$tdir/foo/f0 || error "(9) Fail to unlink f0"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	umount_client $MOUNT || error "(10) Fail to stop client!"
+
+	stop $SINGLEMDS || error "(11) Fail to stop MDT0"
+
+	echo "run e2fsck"
+	run_e2fsck $(facet_host $SINGLEMDS) $MDT_DEVNAME "-y" ||
+		error "(12) Fail to run e2fsck"
+
+	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_NOSCRUB > /dev/null ||
+		error "(13) Fail to start MDT0"
+
+	echo "Trigger namespace LFSCK to recover backend orphans"
+	$START_NAMESPACE -r -A ||
+		error "(14) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(15) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^local_lost_found_moved/ { print $2 }')
+	[ $repaired -ge 4 ] ||
+		error "(16) Fail to recover backend orphans: $repaired"
+
+	mount_client $MOUNT || error "(17) Fail to start client!"
+
+	stat $DIR/$tdir/foo/f0 || "(18) f0 is not recovered"
+
+	ls -ail $MOUNT/.lustre/lost+found/
+
+	echo "d0 should become orphan under .lustre/lost+found/MDT0000/"
+	[ -d $MOUNT/.lustre/lost+found/MDT0000 ] ||
+		error "(19) $MOUNT/.lustre/lost+found/MDT0000/ should be there"
+
+	ls -ail $MOUNT/.lustre/lost+found/MDT0000/
+
+	cname=$(find $MOUNT/.lustre/lost+found/MDT0000/ -name *-*-D-*)
+	[ ! -z "$cname" ] || error "(20) d0 is not recovered"
+
+	stat ${cname}/d1 || error "(21) d0 is not recovered"
+	stat ${cname}/f1 || error "(22) f1 is not recovered"
+}
+run_test 30 "LFSCK can recover the orphans from backend /lost+found"
+
+test_31a() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "The test needs at least 2 MDTs" && return
+
+	echo "#####"
+	echo "For the name entry under a striped directory, if the name"
+	echo "hash does not match the shard, then the LFSCK will repair"
+	echo "the bad name entry"
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS setdirstripe -i 0 -c $MDSCOUNT $DIR/$tdir/striped_dir ||
+		error "(1) Fail to create striped directory"
+
+	echo "Inject failure stub on client to simulate the case that"
+	echo "some name entry should be inserted into the second shard"
+	echo "but inserted into the first shard by wrong"
+
+	#define OBD_FAIL_LFSCK_BAD_NAMEHASH	0x1628
+	$LCTL set_param fail_loc=0x1628 fail_val=0
+	createmany -d $DIR/$tdir/striped_dir/d $MDSCOUNT ||
+		error "(2) Fail to create file under striped directory"
+	$LCTL set_param fail_loc=0 fail_val=0
+
+	echo "Trigger namespace LFSCK to repair bad name hash"
+	$START_NAMESPACE -r -A ||
+		error "(3) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(4) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^name_hash_repaired/ { print $2 }')
+	[ $repaired -ge 1 ] ||
+		error "(5) Fail to repair bad name hash: $repaired"
+
+	umount_client $MOUNT || error "(6) umount failed"
+	mount_client $MOUNT || error "(7) mount failed"
+
+	for ((i = 0; i < $MDSCOUNT; i++)); do
+		stat $DIR/$tdir/striped_dir/d$i ||
+			error "(8) Fail to stat d$i after LFSCK"
+		rmdir $DIR/$tdir/striped_dir/d$i ||
+			error "(9) Fail to unlink d$i after LFSCK"
+	done
+
+	rmdir $DIR/$tdir/striped_dir ||
+		error "(10) Fail to remove the striped directory after LFSCK"
+}
+run_test 31a "The LFSCK can find/repair the name entry with bad name hash (1)"
+
+test_31b() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "The test needs at least 2 MDTs" && return
+
+	echo "#####"
+	echo "For the name entry under a striped directory, if the name"
+	echo "hash does not match the shard, then the LFSCK will repair"
+	echo "the bad name entry"
+	echo "#####"
+
+	check_mount_and_prep
+
+	$LFS setdirstripe -i 0 -c $MDSCOUNT $DIR/$tdir/striped_dir ||
+		error "(1) Fail to create striped directory"
+
+	echo "Inject failure stub on client to simulate the case that"
+	echo "some name entry should be inserted into the first shard"
+	echo "but inserted into the secod shard by wrong"
+
+	#define OBD_FAIL_LFSCK_BAD_NAMEHASH	0x1628
+	$LCTL set_param fail_loc=0x1628 fail_val=1
+	createmany -d $DIR/$tdir/striped_dir/d $MDSCOUNT ||
+		error "(2) Fail to create file under striped directory"
+	$LCTL set_param fail_loc=0 fail_val=0
+
+	echo "Trigger namespace LFSCK to repair bad name hash"
+	$START_NAMESPACE -r -A ||
+		error "(3) Fail to start LFSCK for namespace"
+
+	wait_update_facet mds2 "$LCTL get_param -n \
+		mdd.$(facet_svc mds2).lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 ||
+		error "(4) unexpected status"
+
+	local repaired=$(do_facet mds2 $LCTL get_param -n \
+			 mdd.$(facet_svc mds2).lfsck_namespace |
+			 awk '/^name_hash_repaired/ { print $2 }')
+	[ $repaired -ge 1 ] ||
+		error "(5) Fail to repair bad name hash: $repaired"
+
+	umount_client $MOUNT || error "(6) umount failed"
+	mount_client $MOUNT || error "(7) mount failed"
+
+	for ((i = 0; i < $MDSCOUNT; i++)); do
+		stat $DIR/$tdir/striped_dir/d$i ||
+			error "(8) Fail to stat d$i after LFSCK"
+		rmdir $DIR/$tdir/striped_dir/d$i ||
+			error "(9) Fail to unlink d$i after LFSCK"
+	done
+
+	rmdir $DIR/$tdir/striped_dir ||
+		error "(10) Fail to remove the striped directory after LFSCK"
+}
+run_test 31b "The LFSCK can find/repair the name entry with bad name hash (2)"
+
+test_31c() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "The test needs at least 2 MDTs" && return
+
+	echo "#####"
+	echo "For some reason, the master MDT-object of the striped directory"
+	echo "may lost its master LMV EA. If nobody created files under the"
+	echo "master directly after the master LMV EA lost, then the LFSCK"
+	echo "should re-generate the master LMV EA."
+	echo "#####"
+
+	check_mount_and_prep
+
+	echo "Inject failure stub on MDT0 to simulate the case that the"
+	echo "master MDT-object of the striped directory lost the LMV EA."
+
+	#define OBD_FAIL_LFSCK_LOST_MASTER_LMV	0x1629
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1629
+	$LFS setdirstripe -i 0 -c $MDSCOUNT $DIR/$tdir/striped_dir ||
+		error "(1) Fail to create striped directory"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0
+
+	echo "Trigger namespace LFSCK to re-generate master LMV EA"
+	$START_NAMESPACE -r -A ||
+		error "(2) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(3) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^striped_dirs_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(4) Fail to re-generate master LMV EA: $repaired"
+
+	umount_client $MOUNT || error "(5) umount failed"
+	mount_client $MOUNT || error "(6) mount failed"
+
+	local empty=$(ls $DIR/$tdir/striped_dir/)
+	[ -z "$empty" ] || error "(7) The master LMV EA is not repaired: $empty"
+
+	rmdir $DIR/$tdir/striped_dir ||
+		error "(8) Fail to remove the striped directory after LFSCK"
+}
+run_test 31c "Re-generate the lost master LMV EA for striped directory"
+
+test_31d() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "The test needs at least 2 MDTs" && return
+
+	echo "#####"
+	echo "For some reason, the master MDT-object of the striped directory"
+	echo "may lost its master LMV EA. If somebody created files under the"
+	echo "master directly after the master LMV EA lost, then the LFSCK"
+	echo "should NOT re-generate the master LMV EA, instead, it should"
+	echo "change the broken striped dirctory as read-only to prevent"
+	echo "further damage"
+	echo "#####"
+
+	check_mount_and_prep
+
+	echo "Inject failure stub on MDT0 to simulate the case that the"
+	echo "master MDT-object of the striped directory lost the LMV EA."
+
+	#define OBD_FAIL_LFSCK_LOST_MASTER_LMV	0x1629
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x1629
+	$LFS setdirstripe -i 0 -c $MDSCOUNT $DIR/$tdir/striped_dir ||
+		error "(1) Fail to create striped directory"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x0
+
+	umount_client $MOUNT || error "(2) umount failed"
+	mount_client $MOUNT || error "(3) mount failed"
+
+	touch $DIR/$tdir/striped_dir/dummy ||
+		error "(4) Fail to touch under broken striped directory"
+
+	echo "Trigger namespace LFSCK to find out the inconsistency"
+	$START_NAMESPACE -r -A ||
+		error "(5) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(6) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^striped_dirs_repaired/ { print $2 }')
+	[ $repaired -eq 0 ] ||
+		error "(7) Re-generate master LMV EA unexpected: $repaired"
+
+	stat $DIR/$tdir/striped_dir/dummy ||
+		error "(8) Fail to stat $DIR/$tdir/striped_dir/dummy"
+
+	touch $DIR/$tdir/striped_dir/foo &&
+		error "(9) The broken striped directory should be read-only"
+
+	chattr -i $DIR/$tdir/striped_dir ||
+		error "(10) Fail to chattr on the broken striped directory"
+
+	rmdir $DIR/$tdir/striped_dir ||
+		error "(11) Fail to remove the striped directory after LFSCK"
+}
+run_test 31d "Set broken striped directory (modified after broken) as read-only"
+
+test_31e() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "The test needs at least 2 MDTs" && return
+
+	echo "#####"
+	echo "For some reason, the slave MDT-object of the striped directory"
+	echo "may lost its slave LMV EA. The LFSCK should re-generate the"
+	echo "slave LMV EA."
+	echo "#####"
+
+	check_mount_and_prep
+
+	echo "Inject failure stub on MDT0 to simulate the case that the"
+	echo "slave MDT-object (that resides on the same MDT as the master"
+	echo "MDT-object resides on) lost the LMV EA."
+
+	#define OBD_FAIL_LFSCK_LOST_SLAVE_LMV	0x162a
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x162a fail_val=0
+	$LFS setdirstripe -i 0 -c $MDSCOUNT $DIR/$tdir/striped_dir ||
+		error "(1) Fail to create striped directory"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x0 fail_val=0
+
+	echo "Trigger namespace LFSCK to re-generate slave LMV EA"
+	$START_NAMESPACE -r -A ||
+		error "(2) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(3) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^striped_shards_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(4) Fail to re-generate slave LMV EA: $repaired"
+
+	rmdir $DIR/$tdir/striped_dir ||
+		error "(5) Fail to remove the striped directory after LFSCK"
+}
+run_test 31e "Re-generate the lost slave LMV EA for striped directory (1)"
+
+test_31f() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "The test needs at least 2 MDTs" && return
+
+	echo "#####"
+	echo "For some reason, the slave MDT-object of the striped directory"
+	echo "may lost its slave LMV EA. The LFSCK should re-generate the"
+	echo "slave LMV EA."
+	echo "#####"
+
+	check_mount_and_prep
+
+	echo "Inject failure stub on MDT0 to simulate the case that the"
+	echo "slave MDT-object (that resides on differnt MDT as the master"
+	echo "MDT-object resides on) lost the LMV EA."
+
+	#define OBD_FAIL_LFSCK_LOST_SLAVE_LMV	0x162a
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x162a fail_val=1
+	$LFS setdirstripe -i 0 -c $MDSCOUNT $DIR/$tdir/striped_dir ||
+		error "(1) Fail to create striped directory"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x0 fail_val=0
+
+	echo "Trigger namespace LFSCK to re-generate slave LMV EA"
+	$START_NAMESPACE -r -A ||
+		error "(2) Fail to start LFSCK for namespace"
+
+	wait_update_facet mds2 "$LCTL get_param -n \
+		mdd.$(facet_svc mds2).lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 ||
+		error "(3) unexpected status"
+
+	local repaired=$(do_facet mds2 $LCTL get_param -n \
+			 mdd.$(facet_svc mds2).lfsck_namespace |
+			 awk '/^striped_shards_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(4) Fail to re-generate slave LMV EA: $repaired"
+
+	rmdir $DIR/$tdir/striped_dir ||
+		error "(5) Fail to remove the striped directory after LFSCK"
+}
+run_test 31f "Re-generate the lost slave LMV EA for striped directory (2)"
+
+test_31g() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "The test needs at least 2 MDTs" && return
+
+	echo "#####"
+	echo "For some reason, the stripe index in the slave LMV EA is"
+	echo "corrupted. The LFSCK should repair the slave LMV EA."
+	echo "#####"
+
+	check_mount_and_prep
+
+	echo "Inject failure stub on MDT0 to simulate the case that the"
+	echo "slave LMV EA on the first shard of the striped directory"
+	echo "claims the same index as the second shard claims"
+
+	#define OBD_FAIL_LFSCK_BAD_SLAVE_LMV	0x162b
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x162b fail_val=0
+	$LFS setdirstripe -i 0 -c $MDSCOUNT $DIR/$tdir/striped_dir ||
+		error "(1) Fail to create striped directory"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x0 fail_val=0
+
+	echo "Trigger namespace LFSCK to repair the slave LMV EA"
+	$START_NAMESPACE -r -A ||
+		error "(2) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(3) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^striped_shards_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(4) Fail to repair slave LMV EA: $repaired"
+
+	umount_client $MOUNT || error "(5) umount failed"
+	mount_client $MOUNT || error "(6) mount failed"
+
+	touch $DIR/$tdir/striped_dir/foo ||
+		error "(7) Fail to touch file after the LFSCK"
+
+	rm -f $DIR/$tdir/striped_dir/foo ||
+		error "(8) Fail to unlink file after the LFSCK"
+
+	rmdir $DIR/$tdir/striped_dir ||
+		error "(9) Fail to remove the striped directory after LFSCK"
+}
+run_test 31g "Repair the corrupted slave LMV EA"
+
+test_31h() {
+	[ $MDSCOUNT -lt 2 ] &&
+		skip "The test needs at least 2 MDTs" && return
+
+	echo "#####"
+	echo "For some reason, the shard's name entry in the striped"
+	echo "directory may be corrupted. The LFSCK should repair the"
+	echo "bad shard's name entry."
+	echo "#####"
+
+	check_mount_and_prep
+
+	echo "Inject failure stub on MDT0 to simulate the case that the"
+	echo "first shard's name entry in the striped directory claims"
+	echo "the same index as the second shard's name entry claims."
+
+	#define OBD_FAIL_LFSCK_BAD_SLAVE_NAME	0x162c
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x162c fail_val=0
+	$LFS setdirstripe -i 0 -c $MDSCOUNT $DIR/$tdir/striped_dir ||
+		error "(1) Fail to create striped directory"
+	do_facet $SINGLEMDS $LCTL set_param fail_loc=0x0 fail_val=0
+
+	echo "Trigger namespace LFSCK to repair the shard's name entry"
+	$START_NAMESPACE -r -A ||
+		error "(2) Fail to start LFSCK for namespace"
+
+	wait_update_facet $SINGLEMDS "$LCTL get_param -n \
+		mdd.${MDT_DEV}.lfsck_namespace |
+		awk '/^status/ { print \\\$2 }'" "completed" 32 || {
+		$SHOW_NAMESPACE
+		error "(3) unexpected status"
+	}
+
+	local repaired=$($SHOW_NAMESPACE |
+			 awk '/^dirent_repaired/ { print $2 }')
+	[ $repaired -eq 1 ] ||
+		error "(4) Fail to repair shard's name entry: $repaired"
+
+	umount_client $MOUNT || error "(5) umount failed"
+	mount_client $MOUNT || error "(6) mount failed"
+
+	touch $DIR/$tdir/striped_dir/foo ||
+		error "(7) Fail to touch file after the LFSCK"
+
+	rm -f $DIR/$tdir/striped_dir/foo ||
+		error "(8) Fail to unlink file after the LFSCK"
+
+	rmdir $DIR/$tdir/striped_dir ||
+		error "(9) Fail to remove the striped directory after LFSCK"
+}
+run_test 31h "Repair the corrupted shard's name entry"
 
 $LCTL set_param debug=-lfsck > /dev/null || true
 

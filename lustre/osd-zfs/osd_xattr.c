@@ -251,6 +251,9 @@ int osd_xattr_get(const struct lu_env *env, struct dt_object *dt,
 	     strcmp(name, POSIX_ACL_XATTR_DEFAULT) == 0))
 		RETURN(-EOPNOTSUPP);
 
+	if (strcmp(name, XATTR_NAME_LMV_HEADER) == 0)
+		name = XATTR_NAME_LMV;
+
 	down(&obj->oo_guard);
 	rc = __osd_xattr_get(env, obj, buf, name, &size);
 	up(&obj->oo_guard);
@@ -599,6 +602,10 @@ int osd_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	    (strcmp(name, POSIX_ACL_XATTR_ACCESS) == 0 ||
 	     strcmp(name, POSIX_ACL_XATTR_DEFAULT) == 0))
 		RETURN(-EOPNOTSUPP);
+
+	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LINKEA_OVERFLOW) &&
+	    strcmp(name, XATTR_NAME_LINK) == 0)
+		RETURN(-ENOSPC);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
 

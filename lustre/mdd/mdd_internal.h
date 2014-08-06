@@ -120,8 +120,7 @@ enum mod_flags {
 	/* The dir object has been unlinked */
 	DEAD_OBJ   = 1 << 0,
 	APPEND_OBJ = 1 << 1,
-	IMMUTE_OBJ = 1 << 2,
-	ORPHAN_OBJ = 1 << 3,
+	ORPHAN_OBJ = 1 << 2,
 };
 
 struct mdd_object {
@@ -161,6 +160,7 @@ struct mdd_thread_info {
 	struct linkea_data	  mti_link_data;
 	struct md_op_spec	  mti_spec;
 	struct dt_insert_rec	  mti_dt_rec;
+	struct lfsck_request	  mti_lr;
 };
 
 extern const char orph_index_name[];
@@ -222,7 +222,8 @@ int mdd_lookup(const struct lu_env *env,
 int mdd_links_read(const struct lu_env *env, struct mdd_object *mdd_obj,
 		   struct linkea_data *ldata);
 int mdd_declare_links_add(const struct lu_env *env, struct mdd_object *mdd_obj,
-			  struct thandle *handle, struct linkea_data *ldata);
+			  struct thandle *handle, struct linkea_data *ldata,
+			  bool may_overflow);
 int mdd_links_write(const struct lu_env *env, struct mdd_object *mdd_obj,
 		    struct linkea_data *ldata, struct thandle *handle);
 struct lu_buf *mdd_links_get(const struct lu_env *env,
@@ -424,7 +425,7 @@ static inline umode_t mdd_object_type(const struct mdd_object *obj)
 
 static inline int mdd_is_immutable(struct mdd_object *obj)
 {
-        return obj->mod_flags & IMMUTE_OBJ;
+	return lu_object_is_immutable(mdd2lu_obj(obj));
 }
 
 static inline int mdd_is_dead_obj(struct mdd_object *obj)

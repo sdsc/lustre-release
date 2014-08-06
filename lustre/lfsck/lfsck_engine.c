@@ -39,7 +39,7 @@
 
 #include "lfsck_internal.h"
 
-static int lfsck_unpack_ent(struct lu_dirent *ent, __u64 *cookie, __u16 *type)
+int lfsck_unpack_ent(struct lu_dirent *ent, __u64 *cookie, __u16 *type)
 {
 	struct luda_type	*lt;
 	int			 align = sizeof(*lt) - 1;
@@ -91,19 +91,6 @@ static void lfsck_di_dir_put(const struct lu_env *env, struct lfsck_instance *lf
 	lfsck->li_cookie_dir = 0;
 	spin_unlock(&lfsck->li_lock);
 	iops->put(env, di);
-}
-
-static void lfsck_close_dir(const struct lu_env *env,
-			    struct lfsck_instance *lfsck)
-{
-	struct dt_object	*dir_obj  = lfsck->li_obj_dir;
-	const struct dt_it_ops	*dir_iops = &dir_obj->do_index_ops->dio_it;
-	struct dt_it		*dir_di   = lfsck->li_di_dir;
-
-	lfsck_di_dir_put(env, lfsck);
-	dir_iops->fini(env, dir_di);
-	lfsck->li_obj_dir = NULL;
-	lfsck_object_put(env, dir_obj);
 }
 
 static int lfsck_update_lma(const struct lu_env *env,
@@ -239,7 +226,7 @@ static int lfsck_needs_scan_dir(const struct lu_env *env,
 			 * @obj, because the lfsck_master_oit_engine() has
 			 * filtered out agent object. So current FID is for
 			 * the ancestor of the original input parameter @obj.
-			 * So he ancestor is a remote directory. The input
+			 * So the ancestor is a remote directory. The input
 			 * parameter @obj is local directory, and should be
 			 * scanned under such case. */
 			LASSERT(depth > 0);
@@ -298,6 +285,77 @@ out:
 	return rc;
 }
 
+static int lfsck_load_stripe_lmv(const struct lu_env *env,
+				 struct lfsck_instance *lfsck,
+				 struct dt_object *obj)
+{
+	struct lmv_mds_md_v1	*lmv	= &lfsck_env_info(env)->lti_lmv;
+	struct lfsck_lmv	*llmv;
+	int			 rc;
+	ENTRY;
+
+	LASSERT(lfsck->li_obj_dir == NULL);
+	LASSERT(lfsck->li_lmv == NULL);
+
+	rc = lfsck_read_stripe_lmv(env, obj, lmv);
+	if (rc == -ENODATA) {
+		lfsck->li_obj_dir = lfsck_object_get(obj);
+
+		RETURN(0);
+	}
+
+	if (rc < 0)
+		RETURN(rc);
+
+	OBD_ALLOC_PTR(llmv);
+	if (llmv == NULL)
+		RETURN(-ENOMEM);
+
+	if (lmv->lmv_magic == LMV_MAGIC) {
+		struct lfsck_slave_lmv_rec	*lslr;
+		int				 stripes;
+
+		llmv->ll_lmv_master = 1;
+		if (lmv->lmv_stripe_count < 1)
+			stripes = LFSCK_LMV_DEF_STRIPES;
+		else if (lmv->lmv_stripe_count > LFSCK_LMV_MAX_STRIPES)
+			stripes = LFSCK_LMV_MAX_STRIPES;
+		else
+			stripes = lmv->lmv_stripe_count;
+
+		OBD_ALLOC_LARGE(lslr, sizeof(*lslr) * stripes);
+		if (lslr == NULL) {
+			OBD_FREE_PTR(llmv);
+
+			RETURN(-ENOMEM);
+		}
+
+		/* Find the object against the bottom device. */
+		obj = lfsck_object_find_by_dev(env, lfsck->li_bottom,
+					       lfsck_dto2fid(obj));
+		if (IS_ERR(obj)) {
+			OBD_FREE_LARGE(lslr, sizeof(*lslr) * stripes);
+			OBD_FREE_PTR(llmv);
+
+			RETURN(PTR_ERR(obj));
+		}
+
+		llmv->ll_stripes_allocated = stripes;
+		llmv->ll_hash_type = LMV_HASH_TYPE_UNKNOWN;
+		llmv->ll_lslr = lslr;
+		lfsck->li_obj_dir = obj;
+	} else {
+		llmv->ll_lmv_slave = 1;
+		lfsck->li_obj_dir = lfsck_object_get(obj);
+	}
+
+	llmv->ll_lmv = *lmv;
+	atomic_set(&llmv->ll_ref, 1);
+	lfsck->li_lmv = llmv;
+
+	RETURN(0);
+}
+
 /* LFSCK wrap functions */
 
 static void lfsck_fail(const struct lu_env *env, struct lfsck_instance *lfsck,
@@ -308,6 +366,97 @@ static void lfsck_fail(const struct lu_env *env, struct lfsck_instance *lfsck,
 	list_for_each_entry(com, &lfsck->li_list_scan, lc_link) {
 		com->lc_ops->lfsck_fail(env, com, new_checked);
 	}
+}
+
+static void lfsck_close_dir(const struct lu_env *env,
+			    struct lfsck_instance *lfsck,
+			    int result)
+{
+	struct lfsck_component *com;
+	ENTRY;
+
+	if (lfsck->li_lmv != NULL) {
+		lfsck->li_lmv->ll_exit_value = result;
+		if (lfsck->li_obj_dir != NULL) {
+			list_for_each_entry(com, &lfsck->li_list_dir,
+					    lc_link_dir) {
+				com->lc_ops->lfsck_close_dir(env, com);
+			}
+		}
+
+		lfsck_lmv_put(env, lfsck->li_lmv);
+		lfsck->li_lmv = NULL;
+	}
+
+	if (lfsck->li_di_dir != NULL) {
+		const struct dt_it_ops	*dir_iops =
+				&lfsck->li_obj_dir->do_index_ops->dio_it;
+		struct dt_it		*dir_di   = lfsck->li_di_dir;
+
+		lfsck_di_dir_put(env, lfsck);
+		dir_iops->fini(env, dir_di);
+	}
+
+	if (lfsck->li_obj_dir != NULL) {
+		struct dt_object	*dir_obj  = lfsck->li_obj_dir;
+
+		lfsck->li_obj_dir = NULL;
+		lfsck_object_put(env, dir_obj);
+	}
+
+	EXIT;
+}
+
+static int lfsck_open_dir(const struct lu_env *env,
+			  struct lfsck_instance *lfsck, __u64 cookie)
+{
+	struct dt_object	*obj	= lfsck->li_obj_dir;
+	struct dt_it		*di	= lfsck->li_di_dir;
+	struct lfsck_component	*com;
+	const struct dt_it_ops	*iops;
+	int			 rc	= 0;
+	ENTRY;
+
+	LASSERT(obj != NULL);
+	LASSERT(di == NULL);
+
+	if (unlikely(!dt_try_as_dir(env, obj)))
+		GOTO(out, rc = -ENOTDIR);
+
+	list_for_each_entry(com, &lfsck->li_list_dir, lc_link_dir) {
+		rc = com->lc_ops->lfsck_open_dir(env, com);
+		if (rc != 0)
+			GOTO(out, rc);
+	}
+
+	iops = &obj->do_index_ops->dio_it;
+	di = iops->init(env, obj, lfsck->li_args_dir, BYPASS_CAPA);
+	if (IS_ERR(di))
+		GOTO(out, rc = PTR_ERR(di));
+
+	rc = iops->load(env, di, cookie);
+	if (rc == 0 || (rc > 0 && cookie > 0))
+		rc = iops->next(env, di);
+	else if (rc > 0)
+		rc = 0;
+
+	if (rc != 0) {
+		iops->put(env, di);
+		iops->fini(env, di);
+	} else {
+		lfsck->li_cookie_dir = iops->store(env, di);
+		spin_lock(&lfsck->li_lock);
+		lfsck->li_di_dir = di;
+		spin_unlock(&lfsck->li_lock);
+	}
+
+	GOTO(out, rc);
+
+out:
+	if (rc != 0)
+		lfsck_close_dir(env, lfsck, rc);
+
+	return rc;
 }
 
 static int lfsck_checkpoint(const struct lu_env *env,
@@ -343,7 +492,6 @@ static int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck,
 	struct lfsck_position  *pos	= NULL;
 	const struct dt_it_ops *iops	=
 				&lfsck->li_obj_oit->do_index_ops->dio_it;
-	struct dt_it	       *di;
 	int			rc;
 	ENTRY;
 
@@ -394,45 +542,28 @@ static int lfsck_prep(const struct lu_env *env, struct lfsck_instance *lfsck,
 	    unlikely(!S_ISDIR(lfsck_object_type(obj))))
 		GOTO(out, rc = 0);
 
-	if (unlikely(!dt_try_as_dir(env, obj)))
-		GOTO(out, rc = -ENOTDIR);
+	rc = lfsck_load_stripe_lmv(env, lfsck, obj);
+	if (rc == 0) {
+		/* For the master MDT-object of a striped directory,
+		 * reset the iteration from the directory beginning. */
+		if (lfsck->li_lmv != NULL && lfsck->li_lmv->ll_lmv_master)
+			pos->lp_dir_cookie = 0;
 
-	/* Init the namespace-based directory traverse. */
-	iops = &obj->do_index_ops->dio_it;
-	di = iops->init(env, obj, lfsck->li_args_dir, BYPASS_CAPA);
-	if (IS_ERR(di))
-		GOTO(out, rc = PTR_ERR(di));
-
-	LASSERT(pos->lp_dir_cookie < MDS_DIR_END_OFF);
-
-	rc = iops->load(env, di, pos->lp_dir_cookie);
-	if ((rc == 0) || (rc > 0 && pos->lp_dir_cookie > 0))
-		rc = iops->next(env, di);
-	else if (rc > 0)
-		rc = 0;
-
-	if (rc != 0) {
-		iops->put(env, di);
-		iops->fini(env, di);
-		GOTO(out, rc);
+		rc = lfsck_open_dir(env, lfsck, pos->lp_dir_cookie);
 	}
 
-	lfsck->li_obj_dir = lfsck_object_get(obj);
-	lfsck->li_cookie_dir = iops->store(env, di);
-	spin_lock(&lfsck->li_lock);
-	lfsck->li_di_dir = di;
-	spin_unlock(&lfsck->li_lock);
-
-	GOTO(out, rc = 0);
+	GOTO(out, rc);
 
 out:
 	if (obj != NULL)
 		lfsck_object_put(env, obj);
 
-	if (rc < 0) {
+	if (rc != 0) {
+		lfsck_close_dir(env, lfsck, rc);
 		list_for_each_entry_safe(com, next, &lfsck->li_list_scan,
-					 lc_link)
+					 lc_link) {
 			com->lc_ops->lfsck_post(env, com, rc, true);
+		}
 
 		return rc;
 	}
@@ -456,8 +587,6 @@ static int lfsck_exec_oit(const struct lu_env *env,
 			  struct lfsck_instance *lfsck, struct dt_object *obj)
 {
 	struct lfsck_component *com;
-	const struct dt_it_ops *iops;
-	struct dt_it	       *di;
 	int			rc;
 	ENTRY;
 
@@ -473,38 +602,20 @@ static int lfsck_exec_oit(const struct lu_env *env,
 	if (rc <= 0)
 		GOTO(out, rc);
 
-	if (unlikely(!dt_try_as_dir(env, obj)))
-		GOTO(out, rc = -ENOTDIR);
-
-	iops = &obj->do_index_ops->dio_it;
-	di = iops->init(env, obj, lfsck->li_args_dir, BYPASS_CAPA);
-	if (IS_ERR(di))
-		GOTO(out, rc = PTR_ERR(di));
-
-	rc = iops->load(env, di, 0);
+	rc = lfsck_load_stripe_lmv(env, lfsck, obj);
 	if (rc == 0)
-		rc = iops->next(env, di);
-	else if (rc > 0)
-		rc = 0;
+		rc = lfsck_open_dir(env, lfsck, 0);
 
-	if (rc != 0) {
-		iops->put(env, di);
-		iops->fini(env, di);
-		GOTO(out, rc);
-	}
-
-	lfsck->li_obj_dir = lfsck_object_get(obj);
-	lfsck->li_cookie_dir = iops->store(env, di);
-	spin_lock(&lfsck->li_lock);
-	lfsck->li_di_dir = di;
-	spin_unlock(&lfsck->li_lock);
-
-	GOTO(out, rc = 0);
+	GOTO(out, rc);
 
 out:
 	if (rc < 0)
 		lfsck_fail(env, lfsck, false);
-	return (rc > 0 ? 0 : rc);
+
+	if (rc != 0)
+		lfsck_close_dir(env, lfsck, rc);
+
+	return rc > 0 ? 0 : rc;
 }
 
 static int lfsck_exec_dir(const struct lu_env *env,
@@ -522,19 +633,46 @@ static int lfsck_exec_dir(const struct lu_env *env,
 	return 0;
 }
 
+static int lfsck_master_dir_engine(const struct lu_env *env,
+				   struct lfsck_instance *lfsck);
+
 static int lfsck_post(const struct lu_env *env, struct lfsck_instance *lfsck,
 		      int result)
 {
 	struct lfsck_component *com;
 	struct lfsck_component *next;
-	int			rc  = 0;
-	int			rc1 = 0;
+	int			rc  = result;
 
 	lfsck_pos_fill(env, lfsck, &lfsck->li_pos_checkpoint, false);
+	lfsck_close_dir(env, lfsck, result);
+
+	while (thread_is_running(&lfsck->li_thread) && rc > 0 &&
+	       !list_empty(&lfsck->li_list_lmv)) {
+		struct lfsck_lmv_unit *llu;
+
+		spin_lock(&lfsck->li_lock);
+		llu = list_entry(lfsck->li_list_lmv.next,
+				 struct lfsck_lmv_unit, llu_link);
+		list_del_init(&llu->llu_link);
+		spin_unlock(&lfsck->li_lock);
+
+		lfsck->li_lmv = &llu->llu_lmv;
+		lfsck->li_obj_dir = lfsck_object_get(llu->llu_obj);
+		rc = lfsck_open_dir(env, lfsck, 0);
+		if (rc == 0) {
+			rc = lfsck_master_dir_engine(env, lfsck);
+			lfsck_close_dir(env, lfsck, result);
+		}
+	}
+
+	result = rc;
+
 	list_for_each_entry_safe(com, next, &lfsck->li_list_scan, lc_link) {
 		rc = com->lc_ops->lfsck_post(env, com, result, false);
 		if (rc != 0)
-			rc1 = rc;
+			CDEBUG(D_LFSCK, "%s: lfsck_post at the component %u: "
+			       "rc = %d\n", lfsck_lfsck2name(lfsck),
+			       (__u32)com->lc_type, rc);
 	}
 
 	lfsck->li_time_last_checkpoint = cfs_time_current();
@@ -662,7 +800,8 @@ static int lfsck_master_dir_engine(const struct lu_env *env,
 				goto checkpoint;
 		}
 
-		if (ent->lde_attrs & LUDA_IGNORE)
+		if (ent->lde_attrs & LUDA_IGNORE &&
+		    strcmp(ent->lde_name, dotdot) != 0)
 			goto checkpoint;
 
 		/* The type in the @ent structure may has been overwritten,
@@ -698,7 +837,7 @@ checkpoint:
 	} while (rc == 0);
 
 	if (rc > 0 && !lfsck->li_oit_over)
-		lfsck_close_dir(env, lfsck);
+		lfsck_close_dir(env, lfsck, rc);
 
 	RETURN(rc);
 }
@@ -780,6 +919,26 @@ static int lfsck_master_oit_engine(const struct lu_env *env,
 			RETURN(0);
 
 		lfsck->li_current_oit_processed = 1;
+
+		if (!list_empty(&lfsck->li_list_lmv)) {
+			struct lfsck_lmv_unit *llu;
+
+			spin_lock(&lfsck->li_lock);
+			llu = list_entry(lfsck->li_list_lmv.next,
+					 struct lfsck_lmv_unit, llu_link);
+			list_del_init(&llu->llu_link);
+			spin_unlock(&lfsck->li_lock);
+
+			lfsck->li_lmv = &llu->llu_lmv;
+			lfsck->li_obj_dir = lfsck_object_get(llu->llu_obj);
+			rc = lfsck_open_dir(env, lfsck, 0);
+			if (rc == 0)
+				rc = lfsck_master_dir_engine(env, lfsck);
+
+			if (rc <= 0)
+				RETURN(rc);
+		}
+
 		lfsck->li_new_scanned++;
 		lfsck->li_pos_current.lp_oit_cookie = iops->store(env, di);
 		rc = iops->rec(env, di, (struct dt_rec *)fid, 0);
@@ -974,9 +1133,8 @@ int lfsck_master_engine(void *args)
 
 	if (!OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CRASH))
 		rc = lfsck_post(env, lfsck, rc);
-
-	if (lfsck->li_di_dir != NULL)
-		lfsck_close_dir(env, lfsck);
+	else
+		lfsck_close_dir(env, lfsck, rc);
 
 fini_oit:
 	lfsck_di_oit_put(env, lfsck);
@@ -1373,11 +1531,14 @@ again:
 				list = &ltd->ltd_layout_list;
 				gen = &ltd->ltd_layout_gen;
 			} else {
+				struct lfsck_namespace *ns = com->lc_file_ram;
+
 				ltd = list_entry(lad->lad_mdt_list.next,
 						 struct lfsck_tgt_desc,
 						 ltd_namespace_list);
 				list = &ltd->ltd_namespace_list;
 				gen = &ltd->ltd_namespace_gen;
+				lr->lr_flags2 = ns->ln_flags & ~LF_INCOMPLETE;
 			}
 
 			if (*gen == lad->lad_touch_gen)
@@ -1385,6 +1546,9 @@ again:
 
 			*gen = lad->lad_touch_gen;
 			list_move_tail(list, &lad->lad_mdt_list);
+			if (ltd->ltd_namespace_failed)
+				continue;
+
 			atomic_inc(&ltd->ltd_ref);
 			laia->laia_ltd = ltd;
 			spin_unlock(&ltds->ltd_lock);
