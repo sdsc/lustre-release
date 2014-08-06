@@ -51,6 +51,7 @@ struct llapi_layout {
 	uint64_t	llot_stripe_size;
 	uint64_t	llot_stripe_count;
 	uint64_t	llot_stripe_offset;
+	char		llot_fsname[PATH_MAX + 1];
 	/** Indicates if llot_objects array has been initialized. */
 	bool		llot_objects_are_valid;
 	/* Add 1 so user always gets back a null terminated string. */
@@ -66,7 +67,7 @@ struct llapi_layout {
  * into a library that can be shared between kernel and user code.
  */
 static void
-llapi_layout_swab_lov_user_md(struct lov_user_md_v3 *lum)
+llapi_layout_swab_lov_user_md(struct lov_user_md *lum)
 {
 	int i;
 	struct lov_user_md_v1 *lumv1 = (struct lov_user_md_v1 *)lum;
@@ -120,7 +121,7 @@ static struct llapi_layout *__llapi_layout_alloc(unsigned int num_stripes)
  * \retval		NULL if memory allocation fails
  */
 static struct llapi_layout *
-llapi_layout_from_lum(const struct lov_user_md_v3 *lum)
+llapi_layout_from_lum(const struct lov_user_md *lum)
 {
 	struct llapi_layout *layout;
 	size_t objects_sz;
@@ -158,10 +159,13 @@ llapi_layout_from_lum(const struct lov_user_md_v3 *lum)
 	/* Don't copy lmm_stripe_offset: it is always zero
 	 * when reading attributes. */
 
-	if (lum->lmm_magic == LOV_USER_MAGIC_V3) {
+	if (lum->lmm_magic != LOV_USER_MAGIC_V1) {
+		const struct lov_user_md_v3 *lum_v3;
+		lum_v3 = (struct lov_user_md_v3 *)lum;
+
 		snprintf(layout->llot_pool_name, sizeof(layout->llot_pool_name),
-			 "%s", lum->lmm_pool_name);
-		memcpy(layout->llot_objects, lum->lmm_objects, objects_sz);
+			 "%s", lum_v3->lmm_pool_name);
+		memcpy(layout->llot_objects, lum_v3->lmm_objects, objects_sz);
 	} else {
 		const struct lov_user_md_v1 *lum_v1;
 		lum_v1 = (struct lov_user_md_v1 *)lum;
@@ -173,7 +177,7 @@ llapi_layout_from_lum(const struct lov_user_md_v3 *lum)
 }
 
 /**
- * Copy the data from a llapi_layout to a newly allocated lov_user_md_v3.
+ * Copy the data from a llapi_layout to a newly allocated lov_user_md.
  *
  * The caller is responsible for freeing the returned pointer.
  *
@@ -183,21 +187,32 @@ llapi_layout_from_lum(const struct lov_user_md_v3 *lum)
  *
  * \param[in] layout	the layout to copy from
  *
- * \retval	valid lov_user_md_v3 pointer on success
+ * \retval	valid lov_user_md pointer on success
  * \retval	NULL if memory allocation fails
  */
-static struct lov_user_md_v3 *
-llapi_layout_to_lum(const struct llapi_layout *layout)
+static struct lov_user_md *
+llapi_layout_to_lum(const struct llapi_layout *layout, size_t *lum_size)
 {
-	struct lov_user_md_v3 *lum;
-	size_t lum_size;
+	int magic = LOV_USER_MAGIC_V1;
+	unsigned int stripe_count;
+	struct lov_user_md *lum;
 
-	lum_size = lov_user_md_size(0, LOV_USER_MAGIC_V3);
-	lum = malloc(lum_size);
+	if (strlen(layout->llot_pool_name) != 0)
+		magic = LOV_USER_MAGIC_V3;
+
+	if (layout->llot_stripe_count == LLAPI_LAYOUT_DEFAULT)
+		stripe_count = 0;
+	else if (layout->llot_stripe_count == LLAPI_LAYOUT_WIDE)
+		stripe_count = LOV_MAX_STRIPE_COUNT;
+	else
+		stripe_count = layout->llot_stripe_count;
+
+	*lum_size = lov_user_md_size(stripe_count, magic);
+	lum = malloc(*lum_size);
 	if (lum == NULL)
 		return NULL;
 
-	lum->lmm_magic = LOV_USER_MAGIC_V3;
+	lum->lmm_magic = magic;
 
 	if (layout->llot_pattern == LLAPI_LAYOUT_DEFAULT)
 		lum->lmm_pattern = 0;
@@ -211,21 +226,22 @@ llapi_layout_to_lum(const struct llapi_layout *layout)
 	else
 		lum->lmm_stripe_size = layout->llot_stripe_size;
 
-	if (layout->llot_stripe_count == LLAPI_LAYOUT_DEFAULT)
-		lum->lmm_stripe_count = 0;
-	else if (layout->llot_stripe_count == LLAPI_LAYOUT_WIDE)
-		lum->lmm_stripe_count = -1;
+	if (layout->llot_stripe_count != LLAPI_LAYOUT_WIDE)
+		lum->lmm_stripe_count = stripe_count;
 	else
-		lum->lmm_stripe_count = layout->llot_stripe_count;
+		lum->lmm_stripe_count = -1;
 
 	if (layout->llot_stripe_offset == LLAPI_LAYOUT_DEFAULT)
 		lum->lmm_stripe_offset	= -1;
 	else
 		lum->lmm_stripe_offset	= layout->llot_stripe_offset;
 
-	strncpy(lum->lmm_pool_name, layout->llot_pool_name,
-		sizeof(lum->lmm_pool_name));
+	if (magic != LOV_USER_MAGIC_V1) {
+		struct lov_user_md_v3 *lumv3 = (struct lov_user_md_v3 *) lum;
 
+		strncpy(lumv3->lmm_pool_name, layout->llot_pool_name,
+			sizeof(lumv3->lmm_pool_name));
+	}
 	return lum;
 }
 
@@ -317,10 +333,11 @@ struct llapi_layout *llapi_layout_alloc(void)
 struct llapi_layout *llapi_layout_get_by_fd(int fd, uint32_t flags)
 {
 	size_t lum_len;
-	struct lov_user_md_v3 *lum = NULL;
+	struct lov_user_md *lum = NULL;
 	struct llapi_layout *layout = NULL;
 
-	lum_len = lov_user_md_size(LOV_MAX_STRIPE_COUNT, LOV_MAGIC_V3);
+	lum_len = lov_user_md_size(LOV_MAX_STRIPE_COUNT,
+				   LOV_MAGIC_V3);
 	lum = malloc(lum_len);
 	if (lum == NULL)
 		return NULL;
@@ -723,6 +740,72 @@ int llapi_layout_ost_index_get(const struct llapi_layout *layout,
 }
 
 /**
+ * Validate the user supplied ost index range.
+ *
+ * Users can ask for a specific starting stripe offset in the supplied
+ * a\ layout. We have to ensure the value the user is asking for exist
+ * on the target file system a\ fsname. Additionally if the a\ layout
+ * also specifies a pool this function must validate that the stripe
+ * offset belongs to the pool as well.
+ *
+ * -1 error with status in errno
+ * 0 index is invalid
+ * 1 index is valid
+ */
+static int
+llapi_layout_ost_index_valid(const struct llapi_layout *layout,
+			     char *fsname)
+{
+	char poolname[LOV_MAXPOOLNAME + 1];
+	char ostname[MAX_OBD_NAME + 1];
+	unsigned int num_osts;
+	char *pool = NULL;
+	char data[16];
+
+	if (layout == NULL || fsname == NULL) {
+		errno = -EINVAL;
+		return -1;
+	}
+
+	if (layout->llot_stripe_offset == LLAPI_LAYOUT_DEFAULT)
+		return 1;
+
+	/* Get OST count using procfs */
+	if (get_param_obdvar(fsname, NULL, "lov", "numobd",
+			     data, sizeof(data)) < 0)
+		return -1;
+
+	num_osts = atoi(data);
+
+	/* Is the stripe_offset located within the range of OSTs
+	 * in the file system ? */
+	if (layout->llot_stripe_offset > num_osts)
+		return 0;
+
+	/* We know that the stripe_offset is located on the file
+	 * system but if the user wants a pool does the stripe
+	 * offset fall within the pool ? */
+	if (strlen(layout->llot_pool_name) != 0) {
+		pool = poolname;
+		/* Make a copy due to const layout. */
+		strncpy(poolname, layout->llot_pool_name, sizeof(poolname));
+	}
+
+	/* We need to test if the stripe offset belongs to the file
+	 * system and the pool */
+	snprintf(ostname, sizeof(ostname), "%s-OST%04x_UUID",
+		 fsname, (unsigned int) layout->llot_stripe_offset);
+
+	/*
+	 * if pool is NULL, search ostname in target_obd
+	 * if pool is not NULL:
+	 *  if pool not found returns errno < 0
+	 *  if ostname is not NULL, returns 1 if OST is in pool and 0 if not
+	 */
+	return llapi_search_ost(fsname, pool, ostname);
+}
+
+/**
  *
  * Get the pool name of layout \a layout.
  *
@@ -780,6 +863,57 @@ int llapi_layout_pool_name_set(struct llapi_layout *layout,
 	return 0;
 }
 
+/* Test whether layout names an OST pool that doesn't exist. */
+static bool
+llapi_layout_pool_absent(const struct llapi_layout *layout, char *fsname)
+{
+	if (layout == NULL || strlen(layout->llot_pool_name) == 0)
+		return false;
+
+	return (llapi_search_ost(fsname, (char *)layout->llot_pool_name,
+				 NULL) < 0);
+}
+
+/**
+ * After \a llapi_layout_alloc the user then applies the values that is of
+ * interest. While applying those values they are bound checked against the
+ * lustre api limits. Once that is done the user can validate the a\ layout
+ * settings against the target file systems a\fsname limits.
+ *
+ * If the results are not supported -1 is returned  with status in errno.
+ * In the case it is supported a zero is returned.
+ */
+int llapi_layout_verify(struct llapi_layout *layout, const char *path)
+{
+	char fsname[PATH_MAX + 1] = "";
+	int rc;
+
+	/* Verify parent directory belongs to a lustre filesystem, and
+	 * we need the filesystem name for the other checks. */
+	rc = llapi_search_fsname(path, fsname);
+	if (rc < 0 || (strlen(fsname) == 0)) {
+		errno = ENOTTY;
+		return -1;
+	}
+
+	/* Verify pool exists, if layout has one. */
+	if (llapi_layout_pool_absent(layout, fsname)) {
+		errno = ENXIO;
+		return -1;
+	}
+
+	/* Verify stripe_offset is correct */
+	rc = llapi_layout_ost_index_valid(layout, fsname);
+	if (rc != 1) {
+		if (rc == 0)
+			errno = ERANGE;
+		return -1;
+	}
+	strncpy((char *)layout->llot_fsname, (const char *)fsname,
+		strlen(fsname));
+	return 0;
+}
+
 /**
  * Open and possibly create a file with a given \a layout.
  *
@@ -800,7 +934,8 @@ int llapi_layout_file_open(const char *path, int open_flags, mode_t mode,
 {
 	int fd;
 	int tmp_errno = errno;
-	struct lov_user_md_v3 *lum;
+	struct lov_user_md *lum;
+	size_t lum_size;
 
 	if (path == NULL ||
 	    (layout != NULL && layout->llot_magic != LLAPI_LAYOUT_MAGIC)) {
@@ -813,12 +948,19 @@ int llapi_layout_file_open(const char *path, int open_flags, mode_t mode,
 	if (layout != NULL && (open_flags & O_CREAT))
 		open_flags |= O_LOV_DELAY_CREATE;
 
+retry_open:
 	fd = open(path, open_flags, mode);
+	if (fd < 0) {
+		if (errno == EISDIR && !(open_flags & O_DIRECTORY)) {
+			open_flags = O_DIRECTORY | O_RDONLY;
+			goto retry_open;
+		}
+	}
 
 	if (layout == NULL || fd == -1)
 		return fd;
 
-	lum = llapi_layout_to_lum(layout);
+	lum = llapi_layout_to_lum(layout, &lum_size);
 	tmp_errno = errno;
 
 	if (lum == NULL) {
@@ -827,7 +969,7 @@ int llapi_layout_file_open(const char *path, int open_flags, mode_t mode,
 		return -1;
 	}
 
-	if (fsetxattr(fd, XATTR_LUSTRE_LOV, lum, sizeof(*lum), 0) < 0) {
+	if (fsetxattr(fd, XATTR_LUSTRE_LOV, lum, lum_size, 0) < 0) {
 		tmp_errno = errno == EOPNOTSUPP ? ENOTTY : errno;
 		close(fd);
 		fd = -1;
