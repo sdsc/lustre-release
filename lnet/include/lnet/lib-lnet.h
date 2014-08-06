@@ -846,6 +846,14 @@ void lnet_fault_fini(void);
 
 bool lnet_drop_rule_match(lnet_hdr_t *hdr);
 
+int lnet_delay_rule_add(struct lnet_fault_attr *attr);
+int lnet_delay_rule_del(lnet_nid_t src, lnet_nid_t dst, bool shutdown);
+int lnet_delay_rule_list(int pos, struct lnet_fault_attr *attr,
+			 struct lnet_fault_stat *stat);
+void lnet_delay_rule_reset(void);
+void lnet_delay_rule_check(void);
+bool lnet_delay_rule_match_locked(lnet_hdr_t *hdr, struct lnet_msg *msg);
+
 /** @} lnet_fault_simulation */
 
 void lnet_counters_get(lnet_counters_t *counters);
