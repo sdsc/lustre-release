@@ -716,39 +716,42 @@ int mdt_fix_reply(struct mdt_thread_info *info)
 int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
                            const struct md_attr *ma)
 {
-        struct mdt_body       *repbody;
-        const struct lu_attr *la = &ma->ma_attr;
-        int rc;
-        ENTRY;
+	struct mdt_body *repbody;
+	const struct lu_attr *la = &ma->ma_attr;
+	int rc;
+	ENTRY;
 
-        repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
-        LASSERT(repbody != NULL);
+	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
+	LASSERT(repbody != NULL);
 
-        if (ma->ma_valid & MA_INODE)
-                mdt_pack_attr2body(info, repbody, la, mdt_object_fid(mo));
+	if (lu_object_is_dying(&mo->mot_header))
+		repbody->mbo_valid |= OBD_MD_FLREMOVED;
 
-        if (ma->ma_valid & MA_LOV) {
+	if (ma->ma_valid & MA_INODE)
+		mdt_pack_attr2body(info, repbody, la, mdt_object_fid(mo));
+
+	if (ma->ma_valid & MA_LOV) {
 		CERROR("No need in LOV EA upon unlink\n");
 		dump_stack();
-        }
+	}
 	repbody->mbo_eadatasize = 0;
 
 	if (info->mti_mdt->mdt_lut.lut_oss_capa &&
 	    exp_connect_flags(info->mti_exp) & OBD_CONNECT_OSS_CAPA &&
 	    repbody->mbo_valid & OBD_MD_FLEASIZE) {
-                struct lustre_capa *capa;
+		struct lustre_capa *capa;
 
-                capa = req_capsule_server_get(info->mti_pill, &RMF_CAPA2);
-                LASSERT(capa);
-                capa->lc_opc = CAPA_OPC_OSS_DESTROY;
-                rc = mo_capa_get(info->mti_env, mdt_object_child(mo), capa, 0);
-                if (rc)
-                        RETURN(rc);
+		capa = req_capsule_server_get(info->mti_pill, &RMF_CAPA2);
+		LASSERT(capa);
+		capa->lc_opc = CAPA_OPC_OSS_DESTROY;
+		rc = mo_capa_get(info->mti_env, mdt_object_child(mo), capa, 0);
+		if (rc)
+			RETURN(rc);
 
 		repbody->mbo_valid |= OBD_MD_FLOSSCAPA;
-        }
+	}
 
-        RETURN(0);
+	RETURN(0);
 }
 
 static __u64 mdt_attr_valid_xlate(__u64 in, struct mdt_reint_record *rr,

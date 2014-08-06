@@ -1272,6 +1272,7 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
 {
         struct ptlrpc_request *request = NULL;
         struct md_op_data *op_data;
+	struct mdt_body *body;
         int rc;
         ENTRY;
 	CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s, dir="DFID"(%p)\n",
@@ -1301,8 +1302,14 @@ static int ll_unlink_generic(struct inode *dir, struct dentry *dparent,
         ll_update_times(request, dir);
         ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_UNLINK, 1);
 
-        rc = ll_objects_destroy(request, dir);
- out:
+	/* req is swabbed so this is safe */
+	body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
+	LASSERT(body != NULL);
+	if (body->mbo_valid & OBD_MD_FLREMOVED)
+		ll_inode_mark_removed(dchild->d_inode);
+
+	rc = ll_objects_destroy(request, dir);
+out:
         ptlrpc_req_finished(request);
         RETURN(rc);
 }
@@ -1342,10 +1349,18 @@ static int ll_rename_generic(struct inode *src, struct dentry *src_dparent,
                         tgt_name->name, tgt_name->len, &request);
         ll_finish_md_op_data(op_data);
         if (!err) {
+		struct mdt_body *body;
+
                 ll_update_times(request, src);
                 ll_update_times(request, tgt);
                 ll_stats_ops_tally(sbi, LPROC_LL_RENAME, 1);
-                err = ll_objects_destroy(request, src);
+
+		body = req_capsule_server_get(&request->rq_pill, &RMF_MDT_BODY);
+		LASSERT(body != NULL);
+		if (tgt_dchild->d_inode && (body->mbo_valid & OBD_MD_FLREMOVED))
+			ll_inode_mark_removed(tgt_dchild->d_inode);
+
+		err = ll_objects_destroy(request, src);
         }
 
         ptlrpc_req_finished(request);

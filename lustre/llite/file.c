@@ -135,8 +135,9 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 				     struct obd_client_handle *och,
 				     const __u64 *data_version)
 {
-        struct obd_export *exp = ll_i2mdexp(inode);
-        struct md_op_data *op_data;
+	struct obd_export *exp = ll_i2mdexp(inode);
+	struct md_op_data *op_data = NULL;
+	struct mdt_body *body;
         struct ptlrpc_request *req = NULL;
         struct obd_device *obd = class_exp2obd(exp);
         int epoch_close = 1;
@@ -180,15 +181,16 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 			       PFID(ll_inode2fid(inode)), rc);
 			rc = 0;
 		}
-	} else if (rc) {
+	} else if (rc < 0) {
 		CERROR("%s: inode "DFID" mdc close failed: rc = %d\n",
 		       ll_i2mdexp(inode)->exp_obd->obd_name,
 		       PFID(ll_inode2fid(inode)), rc);
+		GOTO(out, rc);
 	}
 
 	/* DATA_MODIFIED flag was successfully sent on close, cancel data
 	 * modification flag. */
-	if (rc == 0 && (op_data->op_bias & MDS_DATA_MODIFIED)) {
+	if (op_data->op_bias & MDS_DATA_MODIFIED) {
 		struct ll_inode_info *lli = ll_i2info(inode);
 
 		spin_lock(&lli->lli_lock);
@@ -196,25 +198,32 @@ static int ll_close_inode_openhandle(struct obd_export *md_exp,
 		spin_unlock(&lli->lli_lock);
 	}
 
-        if (rc == 0) {
-                rc = ll_objects_destroy(req, inode);
-                if (rc)
-			CERROR("%s: inode "DFID
-			       " ll_objects destroy: rc = %d\n",
-			       ll_i2mdexp(inode)->exp_obd->obd_name,
-			       PFID(ll_inode2fid(inode)), rc);
-        }
+	body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+	if (body->mbo_valid & OBD_MD_FLREMOVED) {
+		ll_inode_mark_removed(inode);
+		CDEBUG(D_INODE, "%s: inode "DFID " file destroyed\n",
+		       ll_i2mdexp(inode)->exp_obd->obd_name,
+		       PFID(ll_inode2fid(inode)));
+	}
 
-	if (rc == 0 && op_data->op_bias & MDS_HSM_RELEASE) {
-		struct mdt_body *body;
-		body = req_capsule_server_get(&req->rq_pill, &RMF_MDT_BODY);
+	rc = ll_objects_destroy(req, inode);
+	if (rc < 0) {
+		CERROR("%s: inode "DFID" ll_objects destroy: rc = %d\n",
+		       ll_i2mdexp(inode)->exp_obd->obd_name,
+		       PFID(ll_inode2fid(inode)), rc);
+		GOTO(out, rc);
+	}
+
+	if (op_data->op_bias & MDS_HSM_RELEASE) {
 		if (!(body->mbo_valid & OBD_MD_FLRELEASED))
 			rc = -EBUSY;
 	}
 
-        ll_finish_md_op_data(op_data);
-        EXIT;
+	EXIT;
+
 out:
+	if (op_data != NULL)
+		ll_finish_md_op_data(op_data);
 
         if (exp_connect_som(exp) && !epoch_close &&
             S_ISREG(inode->i_mode) && (och->och_flags & FMODE_WRITE)) {
