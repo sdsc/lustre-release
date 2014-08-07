@@ -2739,10 +2739,6 @@ struct cl_page *cl_page_find        (const struct lu_env *env,
                                      struct cl_object *obj,
                                      pgoff_t idx, struct page *vmpage,
                                      enum cl_page_type type);
-struct cl_page *cl_page_alloc       (const struct lu_env *env,
-				     struct cl_object *o, pgoff_t ind,
-				     struct page *vmpage,
-				     enum cl_page_type type);
 void            cl_page_get         (struct cl_page *page);
 void            cl_page_put         (const struct lu_env *env,
                                      struct cl_page *page);
