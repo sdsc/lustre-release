@@ -156,12 +156,15 @@ int lfsck_set_windows(struct dt_device *key, int val);
 int lfsck_dump(struct seq_file *m, struct dt_device *key, enum lfsck_type type);
 
 static inline void lfsck_pack_rfa(struct lfsck_request *lr,
-				  const struct lu_fid *fid)
+				  const struct lu_fid *fid,
+				  struct thandle *th,
+				  __u32 event, __u16 com)
 {
 	memset(lr, 0, sizeof(*lr));
-	lr->lr_event = LE_FID_ACCESSED;
-	lr->lr_active = LFSCK_TYPE_LAYOUT;
 	lr->lr_fid = *fid;
+	lr->lr_handle = th;
+	lr->lr_event = event;
+	lr->lr_active = com;
 }
 
 #endif /* _LUSTRE_LFSCK_H */
