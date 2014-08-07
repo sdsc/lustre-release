@@ -170,9 +170,10 @@ static inline void cl_page_state_set_trust(struct cl_page *page,
         *(enum cl_page_state *)&page->cp_state = state;
 }
 
-struct cl_page *cl_page_alloc(const struct lu_env *env,
-		struct cl_object *o, pgoff_t ind, struct page *vmpage,
-		enum cl_page_type type)
+static struct cl_page *cl_page_alloc(const struct lu_env *env,
+				     struct cl_object *o, pgoff_t ind,
+				     struct page *vmpage,
+				     enum cl_page_type type)
 {
 	struct cl_page          *page;
 	struct lu_object_header *head;
@@ -218,7 +219,6 @@ struct cl_page *cl_page_alloc(const struct lu_env *env,
 	}
 	RETURN(page);
 }
-EXPORT_SYMBOL(cl_page_alloc);
 
 /**
  * Returns a cl_page with index \a idx at the object \a o, and associated with
