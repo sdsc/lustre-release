@@ -344,8 +344,9 @@ static void lmv_set_timeouts(struct obd_device *obd)
 	}
 }
 
-static int lmv_init_ea_size(struct obd_export *exp, int easize,
-			    int def_easize, int cookiesize, int def_cookiesize)
+static int lmv_init_ea_size(struct obd_export *exp,
+			    __u32 easize, __u32 def_easize,
+			    __u32 cookiesize, __u32 def_cookiesize)
 {
 	struct obd_device	*obd = exp->exp_obd;
 	struct lmv_obd		*lmv = &obd->u.lmv;
@@ -1870,9 +1871,9 @@ lmv_locate_mds(struct lmv_obd *lmv, struct md_op_data *op_data,
 }
 
 int lmv_create(struct obd_export *exp, struct md_op_data *op_data,
-               const void *data, int datalen, int mode, __u32 uid,
-               __u32 gid, cfs_cap_t cap_effective, __u64 rdev,
-               struct ptlrpc_request **request)
+		const void *data, __u32 datalen, __u32 mode, __u32 uid,
+		__u32 gid, cfs_cap_t cap_effective, __u64 rdev,
+		struct ptlrpc_request **request)
 {
 	struct obd_device       *obd = exp->exp_obd;
 	struct lmv_obd          *lmv = &obd->u.lmv;
@@ -2130,8 +2131,9 @@ static int lmv_link(struct obd_export *exp, struct md_op_data *op_data,
 }
 
 static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
-                      const char *old, int oldlen, const char *new, int newlen,
-                      struct ptlrpc_request **request)
+		      const char *old, __u32 oldlen,
+		      const char *new, __u32 newlen,
+		      struct ptlrpc_request **request)
 {
 	struct obd_device       *obd = exp->exp_obd;
 	struct lmv_obd          *lmv = &obd->u.lmv;
@@ -2251,9 +2253,9 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 }
 
 static int lmv_setattr(struct obd_export *exp, struct md_op_data *op_data,
-                       void *ea, int ealen, void *ea2, int ea2len,
-                       struct ptlrpc_request **request,
-                       struct md_open_data **mod)
+			void *ea, __u32 ealen, void *ea2, __u32 ea2len,
+			struct ptlrpc_request **request,
+			struct md_open_data **mod)
 {
 	struct obd_device       *obd = exp->exp_obd;
 	struct lmv_obd          *lmv = &obd->u.lmv;

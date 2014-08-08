@@ -56,26 +56,26 @@
 #include <lustre/ll_fiemap.h>
 #include <lustre_update.h>
 
-static inline int lustre_msg_hdr_size_v2(int count)
+static inline __u32 lustre_msg_hdr_size_v2(__u32 count)
 {
         return cfs_size_round(offsetof(struct lustre_msg_v2,
                                        lm_buflens[count]));
 }
 
-int lustre_msg_hdr_size(__u32 magic, int count)
+__u32 lustre_msg_hdr_size(__u32 magic, __u32 count)
 {
         switch (magic) {
         case LUSTRE_MSG_MAGIC_V2:
                 return lustre_msg_hdr_size_v2(count);
         default:
                 LASSERTF(0, "incorrect message magic: %08x\n", magic);
-                return -EINVAL;
+		return 0;
         }
 }
 EXPORT_SYMBOL(lustre_msg_hdr_size);
 
 void ptlrpc_buf_set_swabbed(struct ptlrpc_request *req, const int inout,
-                            int index)
+			    __u32 index)
 {
         if (inout)
                 lustre_set_req_swabbed(req, index);
@@ -85,7 +85,7 @@ void ptlrpc_buf_set_swabbed(struct ptlrpc_request *req, const int inout,
 EXPORT_SYMBOL(ptlrpc_buf_set_swabbed);
 
 int ptlrpc_buf_need_swab(struct ptlrpc_request *req, const int inout,
-                         int index)
+			 __u32 index)
 {
         if (inout)
                 return (ptlrpc_req_need_swab(req) &&
@@ -97,7 +97,7 @@ int ptlrpc_buf_need_swab(struct ptlrpc_request *req, const int inout,
 EXPORT_SYMBOL(ptlrpc_buf_need_swab);
 
 static inline int lustre_msg_check_version_v2(struct lustre_msg_v2 *msg,
-                                              __u32 version)
+						__u32 version)
 {
         __u32 ver = lustre_msg_get_version(msg);
         return (ver & LUSTRE_VERSION_MASK) != version;
@@ -410,12 +410,11 @@ int lustre_pack_reply(struct ptlrpc_request *req, int count, __u32 *lens,
 }
 EXPORT_SYMBOL(lustre_pack_reply);
 
-void *lustre_msg_buf_v2(struct lustre_msg_v2 *m, int n, int min_size)
+void *lustre_msg_buf_v2(struct lustre_msg_v2 *m, __u32 n, __u32 min_size)
 {
-        int i, offset, buflen, bufcount;
+	__u32 i, offset, buflen, bufcount;
 
         LASSERT(m != NULL);
-        LASSERT(n >= 0);
 
         bufcount = m->lm_bufcount;
         if (unlikely(n >= bufcount)) {
@@ -439,7 +438,7 @@ void *lustre_msg_buf_v2(struct lustre_msg_v2 *m, int n, int min_size)
         return (char *)m + offset;
 }
 
-void *lustre_msg_buf(struct lustre_msg *m, int n, int min_size)
+void *lustre_msg_buf(struct lustre_msg *m, __u32 n, __u32 min_size)
 {
         switch (m->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2:
@@ -451,7 +450,7 @@ void *lustre_msg_buf(struct lustre_msg *m, int n, int min_size)
 }
 EXPORT_SYMBOL(lustre_msg_buf);
 
-int lustre_shrink_msg_v2(struct lustre_msg_v2 *msg, int segment,
+int lustre_shrink_msg_v2(struct lustre_msg_v2 *msg, __u32 segment,
                          unsigned int newlen, int move_data)
 {
         char   *tail = NULL, *newpos;
@@ -678,7 +677,7 @@ int lustre_unpack_rep_ptlrpc_body(struct ptlrpc_request *req, int offset)
         }
 }
 
-static inline int lustre_msg_buflen_v2(struct lustre_msg_v2 *m, int n)
+static inline __u32 lustre_msg_buflen_v2(struct lustre_msg_v2 *m, __u32 n)
 {
         if (n >= m->lm_bufcount)
                 return 0;
@@ -693,20 +692,20 @@ static inline int lustre_msg_buflen_v2(struct lustre_msg_v2 *m, int n)
  *
  * returns zero for non-existent message indices
  */
-int lustre_msg_buflen(struct lustre_msg *m, int n)
+__u32 lustre_msg_buflen(struct lustre_msg *m, __u32 n)
 {
         switch (m->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2:
                 return lustre_msg_buflen_v2(m, n);
         default:
                 CERROR("incorrect message magic: %08x\n", m->lm_magic);
-                return -EINVAL;
+		return 0;
         }
 }
 EXPORT_SYMBOL(lustre_msg_buflen);
 
 static inline void
-lustre_msg_set_buflen_v2(struct lustre_msg_v2 *m, int n, int len)
+lustre_msg_set_buflen_v2(struct lustre_msg_v2 *m, __u32 n, __u32 len)
 {
         if (n >= m->lm_bufcount)
                 LBUG();
@@ -714,7 +713,7 @@ lustre_msg_set_buflen_v2(struct lustre_msg_v2 *m, int n, int len)
         m->lm_buflens[n] = len;
 }
 
-void lustre_msg_set_buflen(struct lustre_msg *m, int n, int len)
+void lustre_msg_set_buflen(struct lustre_msg *m, __u32 n, __u32 len)
 {
         switch (m->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2:
@@ -729,23 +728,23 @@ EXPORT_SYMBOL(lustre_msg_set_buflen);
 
 /* NB return the bufcount for lustre_msg_v2 format, so if message is packed
  * in V1 format, the result is one bigger. (add struct ptlrpc_body). */
-int lustre_msg_bufcount(struct lustre_msg *m)
+__u32 lustre_msg_bufcount(struct lustre_msg *m)
 {
         switch (m->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2:
                 return m->lm_bufcount;
         default:
                 CERROR("incorrect message magic: %08x\n", m->lm_magic);
-                return -EINVAL;
+		return 0;
         }
 }
 EXPORT_SYMBOL(lustre_msg_bufcount);
 
-char *lustre_msg_string(struct lustre_msg *m, int index, int max_len)
+char *lustre_msg_string(struct lustre_msg *m, __u32 index, __u32 max_len)
 {
-        /* max_len == 0 means the string should fill the buffer */
-        char *str;
-        int slen, blen;
+	/* max_len == 0 means the string should fill the buffer */
+	char *str;
+	__u32 slen, blen;
 
         switch (m->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2:
@@ -788,8 +787,8 @@ char *lustre_msg_string(struct lustre_msg *m, int index, int max_len)
 EXPORT_SYMBOL(lustre_msg_string);
 
 /* Wrap up the normal fixed length cases */
-static inline void *__lustre_swab_buf(struct lustre_msg *msg, int index,
-                                      int min_size, void *swabber)
+static inline void *__lustre_swab_buf(struct lustre_msg *msg, __u32 index,
+				      __u32 min_size, void *swabber)
 {
         void *ptr = NULL;
 
@@ -862,7 +861,7 @@ __u32 lustre_msg_get_flags(struct lustre_msg *msg)
 }
 EXPORT_SYMBOL(lustre_msg_get_flags);
 
-void lustre_msg_add_flags(struct lustre_msg *msg, int flags)
+void lustre_msg_add_flags(struct lustre_msg *msg, __u32 flags)
 {
         switch (msg->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2: {
@@ -877,7 +876,7 @@ void lustre_msg_add_flags(struct lustre_msg *msg, int flags)
 }
 EXPORT_SYMBOL(lustre_msg_add_flags);
 
-void lustre_msg_set_flags(struct lustre_msg *msg, int flags)
+void lustre_msg_set_flags(struct lustre_msg *msg, __u32 flags)
 {
         switch (msg->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2: {
@@ -892,7 +891,7 @@ void lustre_msg_set_flags(struct lustre_msg *msg, int flags)
 }
 EXPORT_SYMBOL(lustre_msg_set_flags);
 
-void lustre_msg_clear_flags(struct lustre_msg *msg, int flags)
+void lustre_msg_clear_flags(struct lustre_msg *msg, __u32 flags)
 {
         switch (msg->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2: {
@@ -924,7 +923,7 @@ __u32 lustre_msg_get_op_flags(struct lustre_msg *msg)
 }
 EXPORT_SYMBOL(lustre_msg_get_op_flags);
 
-void lustre_msg_add_op_flags(struct lustre_msg *msg, int flags)
+void lustre_msg_add_op_flags(struct lustre_msg *msg, __u32 flags)
 {
         switch (msg->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2: {
@@ -939,7 +938,7 @@ void lustre_msg_add_op_flags(struct lustre_msg *msg, int flags)
 }
 EXPORT_SYMBOL(lustre_msg_add_op_flags);
 
-void lustre_msg_set_op_flags(struct lustre_msg *msg, int flags)
+void lustre_msg_set_op_flags(struct lustre_msg *msg, __u32 flags)
 {
         switch (msg->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2: {
@@ -1008,7 +1007,7 @@ __u32 lustre_msg_get_version(struct lustre_msg *msg)
 }
 EXPORT_SYMBOL(lustre_msg_get_version);
 
-void lustre_msg_add_version(struct lustre_msg *msg, int version)
+void lustre_msg_add_version(struct lustre_msg *msg, __u32 version)
 {
         switch (msg->lm_magic) {
         case LUSTRE_MSG_MAGIC_V2: {
