@@ -93,6 +93,50 @@ static void osc_io_fini(const struct lu_env *env, const struct cl_io_slice *io)
 }
 
 /**
+ * This is called when a page is accessed within file in a way that creates
+ * new page, if one were missing (i.e., if there were a hole at that place in
+ * the file, or accessed page is beyond the current file size).
+ *
+ * Expand stripe KMS if necessary.
+ */
+static void osc_page_touch_at(const struct lu_env *env,
+                              struct cl_object *obj, pgoff_t idx, unsigned to)
+{
+	struct lov_oinfo  *loi  = cl2osc(obj)->oo_oinfo;
+	struct cl_attr    *attr = &osc_env_info(env)->oti_attr;
+	int valid;
+	__u64 kms;
+
+	/* offset within stripe */
+	kms = cl_offset(obj, idx) + to;
+
+	cl_object_attr_lock(obj);
+	/*
+	 * XXX old code used
+	 *
+	 * ll_inode_size_lock(inode, 0); lov_stripe_lock(lsm);
+	 *
+	 * here
+	 */
+	CDEBUG(D_INODE, "stripe KMS %sincreasing "LPU64"->"LPU64" "LPU64"\n",
+	       kms > loi->loi_kms ? "" : "not ", loi->loi_kms, kms,
+	       loi->loi_lvb.lvb_size);
+
+	attr->cat_mtime = attr->cat_ctime = LTIME_S(CFS_CURRENT_TIME);
+	valid = CAT_MTIME | CAT_CTIME;
+	if (kms > loi->loi_kms) {
+		attr->cat_kms = kms;
+		valid |= CAT_KMS;
+	}
+	if (kms > loi->loi_lvb.lvb_size) {
+		attr->cat_size = kms;
+		valid |= CAT_SIZE;
+	}
+	cl_object_attr_set(env, obj, attr, valid);
+	cl_object_attr_unlock(obj);
+}
+
+/**
  * An implementation of cl_io_operations::cio_io_submit() method for osc
  * layer. Iterates over pages in the in-queue, prepares each for io by calling
  * cl_page_prep() and then either submits them through osc_io_submit_page()
@@ -175,6 +219,9 @@ static int osc_io_submit(const struct lu_env *env,
 		osc_page_submit(env, opg, crt, brw_flags);
 		list_add_tail(&oap->oap_pending_item, &list);
 
+		osc_page_touch_at(env, ios->cis_obj, osc_index(opg),
+				  opg->ops_to);
+
 		if (page->cp_sync_io != NULL)
 			cl_page_list_move(qout, qin, page);
 		else /* async IO */
@@ -194,50 +241,6 @@ static int osc_io_submit(const struct lu_env *env,
 
 	CDEBUG(D_INFO, "%d/%d %d\n", qin->pl_nr, qout->pl_nr, result);
 	return qout->pl_nr > 0 ? 0 : result;
-}
-
-/**
- * This is called when a page is accessed within file in a way that creates
- * new page, if one were missing (i.e., if there were a hole at that place in
- * the file, or accessed page is beyond the current file size).
- *
- * Expand stripe KMS if necessary.
- */
-static void osc_page_touch_at(const struct lu_env *env,
-                              struct cl_object *obj, pgoff_t idx, unsigned to)
-{
-        struct lov_oinfo  *loi  = cl2osc(obj)->oo_oinfo;
-        struct cl_attr    *attr = &osc_env_info(env)->oti_attr;
-        int valid;
-        __u64 kms;
-
-        /* offset within stripe */
-        kms = cl_offset(obj, idx) + to;
-
-        cl_object_attr_lock(obj);
-        /*
-         * XXX old code used
-         *
-         *         ll_inode_size_lock(inode, 0); lov_stripe_lock(lsm);
-         *
-         * here
-         */
-        CDEBUG(D_INODE, "stripe KMS %sincreasing "LPU64"->"LPU64" "LPU64"\n",
-               kms > loi->loi_kms ? "" : "not ", loi->loi_kms, kms,
-               loi->loi_lvb.lvb_size);
-
-	attr->cat_mtime = attr->cat_ctime = LTIME_S(CFS_CURRENT_TIME);
-	valid = CAT_MTIME | CAT_CTIME;
-        if (kms > loi->loi_kms) {
-                attr->cat_kms = kms;
-                valid |= CAT_KMS;
-        }
-        if (kms > loi->loi_lvb.lvb_size) {
-                attr->cat_size = kms;
-                valid |= CAT_SIZE;
-        }
-        cl_object_attr_set(env, obj, attr, valid);
-        cl_object_attr_unlock(obj);
 }
 
 static int osc_io_commit_async(const struct lu_env *env,
