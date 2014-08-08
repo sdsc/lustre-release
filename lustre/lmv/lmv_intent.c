@@ -329,11 +329,26 @@ int lmv_intent_open(struct obd_export *exp, struct md_op_data *op_data,
 
 	/* Note: client might open with some random flags(sanity 33b), so we can
 	 * not make sure op_fid2 is being initialized with BY_FID flag */
-	if (it->it_flags & MDS_OPEN_BY_FID && fid_is_sane(&op_data->op_fid2))
-		tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
-	else
-		tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
+	if (it->it_flags & MDS_OPEN_BY_FID && fid_is_sane(&op_data->op_fid2)) {
+		if (op_data->op_mea1) {
+			struct lmv_stripe_md *lsm = op_data->op_mea1;
+			int index;
 
+			index = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
+					     op_data->op_name,
+					     op_data->op_namelen);
+			LASSERT(index < lsm->lsm_count);
+			op_data->op_fid1 = lsm->lsm_oinfo[index].lmo_fid;
+		}
+
+		tgt = lmv_find_target(lmv, &op_data->op_fid2);
+		if (IS_ERR(tgt))
+			RETURN(PTR_ERR(tgt));
+
+		op_data->op_mds = tgt->ltd_idx;
+	} else {
+		tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
+	}
 	if (IS_ERR(tgt))
 		RETURN(PTR_ERR(tgt));
 

@@ -130,8 +130,10 @@ int update_insert(const struct lu_env *env, struct update_buf *ubuf,
 
 	ptr = (char *)update + cfs_size_round(offsetof(struct update,
 						       u_bufs[0]));
-	for (i = 0; i < count; i++)
-		LOGL(bufs[i], lens[i], ptr);
+	for (i = 0; i < count; i++) {
+		if (lens[i] > 0)
+			LOGL(bufs[i], lens[i], ptr);
+	}
 
 	RETURN(0);
 }
