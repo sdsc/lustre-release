@@ -945,7 +945,8 @@ static int mdd_prepare(const struct lu_env *env,
 
 	} else {
 		/* Normal client usually send root access to MDT0 directly,
-		 * the root FID on non-MDT0 will only be used by echo client. */
+		 * the root FID on non-MDT0 will only be used by some special
+		 * purpose like path resolve of echo client, rename check */
 		mdd->mdd_root_fid = fid;
 	}
 

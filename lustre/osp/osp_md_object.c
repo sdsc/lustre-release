@@ -645,7 +645,6 @@ static int osp_md_declare_xattr_set(const struct lu_env *env,
 {
 	struct thandle_update_dt *tud;
 
-	LASSERT(buf->lb_len > 0 && buf->lb_buf != NULL);
 	tud = osp_find_create_update_loc(env, th, dt);
 	if (IS_ERR(tud)) {
 		CERROR("%s: Get OSP update buf failed: rc = %d\n",
