@@ -100,7 +100,7 @@ void mdc_swap_layouts_pack(struct ptlrpc_request *req,
 
 void mdc_pack_body(struct ptlrpc_request *req,
 		   const struct lu_fid *fid, struct obd_capa *oc,
-		   __u64 valid, int ea_size, __u32 suppgid, int flags)
+		   __u64 valid, __u32 ea_size, __u32 suppgid, __u32 flags)
 {
 	struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
 						    &RMF_MDT_BODY);
@@ -165,8 +165,8 @@ void mdc_readdir_pack(struct ptlrpc_request *req, __u64 pgoff,
 
 /* packing of MDS records */
 void mdc_create_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
-                     const void *data, int datalen, __u32 mode,
-                     __u32 uid, __u32 gid, cfs_cap_t cap_effective, __u64 rdev)
+		     const void *data, __u32 datalen, __u32 mode,
+		     __u32 uid, __u32 gid, cfs_cap_t cap_effective, __u64 rdev)
 {
 	struct mdt_rec_create	*rec;
 	char			*tmp;
@@ -236,7 +236,7 @@ static __u64 mds_pack_open_flags(__u64 flags, __u32 mode)
 /* packing of MDS records */
 void mdc_open_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 		   __u32 mode, __u64 rdev, __u64 flags, const void *lmm,
-		   int lmmlen)
+		   __u32 lmmlen)
 {
 	struct mdt_rec_create *rec;
 	char *tmp;
@@ -369,7 +369,7 @@ static void mdc_ioepoch_pack(struct mdt_ioepoch *epoch,
 }
 
 void mdc_setattr_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
-                      void *ea, int ealen, void *ea2, int ea2len)
+		      void *ea, __u32 ealen, void *ea2, __u32 ea2len)
 {
         struct mdt_rec_setattr *rec;
         struct mdt_ioepoch *epoch;
@@ -458,7 +458,8 @@ void mdc_link_pack(struct ptlrpc_request *req, struct md_op_data *op_data)
 }
 
 void mdc_rename_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
-                     const char *old, int oldlen, const char *new, int newlen)
+		     const char *old, __u32 oldlen,
+		     const char *new, __u32 newlen)
 {
         struct mdt_rec_rename *rec;
 
@@ -488,8 +489,8 @@ void mdc_rename_pack(struct ptlrpc_request *req, struct md_op_data *op_data,
 		mdc_pack_name(req, &RMF_SYMTGT, new, newlen);
 }
 
-void mdc_getattr_pack(struct ptlrpc_request *req, __u64 valid, int flags,
-                      struct md_op_data *op_data, int ea_size)
+void mdc_getattr_pack(struct ptlrpc_request *req, __u64 valid, __u32 flags,
+		      struct md_op_data *op_data, __u32 ea_size)
 {
         struct mdt_body *b = req_capsule_client_get(&req->rq_pill,
                                                     &RMF_MDT_BODY);

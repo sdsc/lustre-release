@@ -232,10 +232,10 @@ struct client_obd {
         int                      cl_conn_count;
 	/* max_mds_easize is purely a performance thing so we don't have to
 	 * call obd_size_diskmd() all the time. */
-	int			 cl_default_mds_easize;
-	int			 cl_max_mds_easize;
-	int			 cl_default_mds_cookiesize;
-	int			 cl_max_mds_cookiesize;
+	__u32			 cl_default_mds_easize;
+	__u32			 cl_max_mds_easize;
+	__u32			 cl_default_mds_cookiesize;
+	__u32			 cl_max_mds_cookiesize;
 
         enum lustre_sec_part     cl_sp_me;
         enum lustre_sec_part     cl_sp_to;
@@ -1049,7 +1049,7 @@ struct md_ops {
 		       struct md_open_data *, struct ptlrpc_request **);
 
 	int (*m_create)(struct obd_export *, struct md_op_data *,
-			const void *, int, int, __u32, __u32, cfs_cap_t,
+			const void *, __u32, __u32, __u32, __u32, cfs_cap_t,
 			__u64, struct ptlrpc_request **);
 
 	int (*m_enqueue)(struct obd_export *, struct ldlm_enqueue_info *,
@@ -1069,11 +1069,11 @@ struct md_ops {
 		      struct ptlrpc_request **);
 
 	int (*m_rename)(struct obd_export *, struct md_op_data *,
-			const char *, int, const char *, int,
+			const char *, __u32, const char *, __u32,
 			struct ptlrpc_request **);
 
 	int (*m_setattr)(struct obd_export *, struct md_op_data *, void *,
-			 int , void *, int, struct ptlrpc_request **,
+			__u32 , void *, __u32, struct ptlrpc_request **,
 			 struct md_open_data **mod);
 
 	int (*m_fsync)(struct obd_export *, const struct lu_fid *,
@@ -1119,7 +1119,7 @@ struct md_ops {
 	int (*m_getattr_name)(struct obd_export *, struct md_op_data *,
 			      struct ptlrpc_request **);
 
-	int (*m_init_ea_size)(struct obd_export *, int, int, int, int);
+	int (*m_init_ea_size)(struct obd_export *, __u32, __u32, __u32, __u32);
 
 	int (*m_get_lustre_md)(struct obd_export *, struct ptlrpc_request *,
 			       struct obd_export *, struct obd_export *,
