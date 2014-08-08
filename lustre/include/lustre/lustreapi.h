@@ -586,6 +586,9 @@ int llapi_layout_pool_name_get(const struct llapi_layout *layout,
 int llapi_layout_pool_name_set(struct llapi_layout *layout,
 			      const char *pool_name);
 
+int llapi_layout_verify(struct llapi_layout *layout,
+			const char *path);
+
 /******************** File Creation ********************/
 
 /**
