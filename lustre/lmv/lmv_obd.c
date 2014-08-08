@@ -2088,6 +2088,7 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
         struct lmv_obd          *lmv = &obd->u.lmv;
         struct lmv_tgt_desc     *src_tgt;
 	struct lmv_tgt_desc     *tgt_tgt;
+	struct mdt_body		*body;
 	int			rc;
 	ENTRY;
 
@@ -2145,6 +2146,26 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	if (rc == 0)
 		rc = md_rename(src_tgt->ltd_exp, op_data, old, oldlen,
 			       new, newlen, request);
+
+	if (rc != 0 && rc != -EREMOTE)
+		RETURN(rc);
+
+	body = req_capsule_server_get(&(*request)->rq_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		RETURN(-EPROTO);
+
+	/* Not cross-ref case, just get out of here. */
+	if (unlikely((body->valid & OBD_MD_MDS))) {
+		struct lmv_tgt_desc     *tgt;
+
+		tgt = lmv_find_target(lmv, &body->fid1);
+		if (IS_ERR(tgt))
+			RETURN(PTR_ERR(tgt));
+		ptlrpc_req_finished(*request);
+		rc = md_rename(tgt->ltd_exp, op_data, old, oldlen,
+			       new, newlen, request);
+	}
+
 	RETURN(rc);
 }
 

@@ -1053,21 +1053,19 @@ test_24x() {
 	mkdir -p $remote_dir/tgt_dir
 	touch $remote_dir/tgt_file
 
-	mrename $remote_dir $DIR/ &&
-		error "rename dir cross MDT works!"
+	mrename $DIR/$tdir/src_dir $remote_dir/tgt_dir ||
+		error "rename dir cross MDT does not work!"
 
-	mrename $DIR/$tdir/src_dir $remote_dir/tgt_dir &&
-		error "rename dir cross MDT works!"
+	mrename $DIR/$tdir/src_file $remote_dir/tgt_file ||
+		error "rename file cross MDT does not work!"
 
-	mrename $DIR/$tdir/src_file $remote_dir/tgt_file &&
-		error "rename file cross MDT works!"
-
-	ln $DIR/$tdir/src_file $remote_dir/tgt_file1 &&
-		error "ln file cross MDT should not work!"
+	touch $DIR/$tdir/src_file
+	ln $DIR/$tdir/src_file $remote_dir/tgt_file1 ||
+		error "ln file cross MDT does not work!"
 
 	rm -rf $DIR/$tdir || error "Can not delete directories"
 }
-run_test 24x "cross rename/link should be failed"
+run_test 24x "remote rename/link "
 
 test_24y() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return

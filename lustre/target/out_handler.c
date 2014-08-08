@@ -116,8 +116,9 @@ static int out_trans_stop(const struct lu_env *env,
 	for (i = 0; i < ta->ta_argno; i++) {
 		/* insert trans no */
 		LASSERT(tu != NULL);
-		out_insert_reply_transno(env, &ta->ta_args[i],
-					 tu->tu_batchid);
+		if (err == 0)
+			out_insert_reply_transno(env, &ta->ta_args[i],
+						 tu->tu_batchid);
 		if (ta->ta_args[i].object != NULL) {
 			lu_object_put(env, &ta->ta_args[i].object->do_lu);
 			ta->ta_args[i].object = NULL;
@@ -660,6 +661,7 @@ static int out_tx_xattr_set_exec(const struct lu_env *env,
 				 struct tx_arg *arg)
 {
 	struct dt_object *dt_obj = arg->object;
+	struct lu_buf	 *buf = &arg->u.xattr_set.buf;
 	int rc;
 
 	CDEBUG(D_INFO, "%s: set xattr buf %p name %s flag %d\n",
@@ -667,9 +669,14 @@ static int out_tx_xattr_set_exec(const struct lu_env *env,
 	       arg->u.xattr_set.name, arg->u.xattr_set.flags);
 
 	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
-	rc = dt_xattr_set(env, dt_obj, &arg->u.xattr_set.buf,
-			  arg->u.xattr_set.name, arg->u.xattr_set.flags,
-			  th, NULL);
+	if (buf->lb_buf == NULL && buf->lb_len == 0) {
+		rc = dt_xattr_del(env, dt_obj, arg->u.xattr_set.name, th,
+				  NULL);
+	} else {
+		rc = dt_xattr_set(env, dt_obj, &arg->u.xattr_set.buf,
+				  arg->u.xattr_set.name, arg->u.xattr_set.flags,
+				  th, NULL);
+	}
 	dt_write_unlock(env, dt_obj);
 	/**
 	 * Ignore errors if this is LINK EA
@@ -739,11 +746,6 @@ static int out_xattr_set(struct tgt_session_info *tsi)
 	}
 
 	buf = (char *)update_param_buf(update, 1, &buf_len);
-	if (buf == NULL || buf_len == 0) {
-		CERROR("%s: empty buf for xattr set: rc = %d\n",
-		       tsi->tsi_tgt_name, -EPROTO);
-		RETURN(err_serious(-EPROTO));
-	}
 
 	lbuf->lb_buf = buf;
 	lbuf->lb_len = buf_len;
@@ -961,6 +963,9 @@ static int out_obj_index_delete(const struct lu_env *env,
 	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
 	rc = dt_delete(env, dt_obj, key, th, NULL);
 	dt_write_unlock(env, dt_obj);
+
+	if (rc == -ENOENT)
+		rc = 0;
 
 	return rc;
 }
