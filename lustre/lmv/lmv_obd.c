@@ -1780,7 +1780,8 @@ struct lmv_tgt_desc
 	*mds = lsm->lsm_oinfo[sidx].lmo_mds;
 	tgt = lmv_get_target(lmv, *mds);
 
-	CDEBUG(D_INFO, "locate on idx %d mds %u\n", sidx, *mds);
+	CDEBUG(D_INFO, "locate %*s on idx %d "DFID"mds%u\n", namelen, name,
+	       sidx, PFID(fid), *mds);
 	return tgt;
 }
 
@@ -2135,7 +2136,8 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 {
         struct obd_device       *obd = exp->exp_obd;
         struct lmv_obd          *lmv = &obd->u.lmv;
-	struct lmv_tgt_desc     *src_tgt;
+	struct lmv_tgt_desc     *tgt_tgt;
+	struct mdt_body		*body;
 	int			rc;
 	ENTRY;
 
@@ -2154,18 +2156,27 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	op_data->op_fsuid = current_fsuid();
 	op_data->op_fsgid = current_fsgid();
 	op_data->op_cap = cfs_curproc_cap_pack();
-
 	if (op_data->op_opc == LUSTRE_OPC_MIGRATE) {
 		LASSERTF(fid_is_sane(&op_data->op_fid3), "invalid FID "DFID"\n",
 			 PFID(&op_data->op_fid3));
 		rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
 		if (rc)
 			RETURN(rc);
-		src_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid3);
+		tgt_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid3);
 	} else {
-		src_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
-		if (IS_ERR(src_tgt))
-			RETURN(PTR_ERR(src_tgt));
+		tgt_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
+		if (IS_ERR(tgt_tgt))
+			RETURN(PTR_ERR(tgt_tgt));
+
+		if (op_data->op_mea1) {
+			struct lmv_stripe_md *lsm = op_data->op_mea1;
+			int index;
+
+			index = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
+					     old, oldlen);
+			LASSERT(index < lsm->lsm_count);
+			op_data->op_fid1 = lsm->lsm_oinfo[index].lmo_fid;
+		}
 
 		if (op_data->op_mea2) {
 			struct lmv_stripe_md *lsm = op_data->op_mea2;
@@ -2176,12 +2187,26 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 			LASSERT(index < lsm->lsm_count);
 			op_data->op_fid2 = lsm->lsm_oinfo[index].lmo_fid;
 		}
+
+		if (fid_is_sane(&op_data->op_fid4)) {
+			tgt_tgt = lmv_locate_mds(lmv, op_data,
+						 &op_data->op_fid4);
+		} else {
+			if (op_data->op_mea2) {
+				tgt_tgt = lmv_locate_target_by_name(lmv,
+							    op_data->op_mea2,
+							    new, newlen,
+							    &op_data->op_fid2,
+							    &op_data->op_mds);
+			} else {
+				tgt_tgt = lmv_locate_mds(lmv, op_data,
+							 &op_data->op_fid2);
+			}
+		}
 	}
-	if (IS_ERR(src_tgt))
-		RETURN(PTR_ERR(src_tgt));
 	/*
 	 * LOOKUP lock on src child (fid3) should also be cancelled for
-	 * src_tgt in mdc_rename.
+	 * tgt_tgt in mdc_rename.
 	 */
 	op_data->op_flags |= MF_MDC_CANCEL_FID1 | MF_MDC_CANCEL_FID3;
 
@@ -2189,7 +2214,7 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	 * Cancel UPDATE locks on tgt parent (fid2), tgt_tgt is its
 	 * own target.
 	 */
-	rc = lmv_early_cancel(exp, NULL, op_data, src_tgt->ltd_idx,
+	rc = lmv_early_cancel(exp, NULL, op_data, tgt_tgt->ltd_idx,
 			      LCK_EX, MDS_INODELOCK_UPDATE,
 			      MF_MDC_CANCEL_FID2);
 
@@ -2204,11 +2229,11 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 			RETURN(PTR_ERR(tgt));
 
 		/* Cancel LOOKUP lock on its parent */
-		rc = lmv_early_cancel(exp, tgt, op_data, src_tgt->ltd_idx,
+		rc = lmv_early_cancel(exp, tgt, op_data, tgt_tgt->ltd_idx,
 				      LCK_EX, MDS_INODELOCK_LOOKUP,
 				      MF_MDC_CANCEL_FID3);
 
-		rc = lmv_early_cancel(exp, NULL, op_data, src_tgt->ltd_idx,
+		rc = lmv_early_cancel(exp, NULL, op_data, tgt_tgt->ltd_idx,
 				      LCK_EX, MDS_INODELOCK_FULL,
 				      MF_MDC_CANCEL_FID3);
 	}
@@ -2217,13 +2242,33 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	 * Cancel all the locks on tgt child (fid4).
 	 */
 	if (rc == 0 && fid_is_sane(&op_data->op_fid4))
-		rc = lmv_early_cancel(exp, NULL, op_data, src_tgt->ltd_idx,
+		rc = lmv_early_cancel(exp, NULL, op_data, tgt_tgt->ltd_idx,
 				      LCK_EX, MDS_INODELOCK_FULL,
 				      MF_MDC_CANCEL_FID4);
 
 	if (rc == 0)
-		rc = md_rename(src_tgt->ltd_exp, op_data, old, oldlen,
+		rc = md_rename(tgt_tgt->ltd_exp, op_data, old, oldlen,
 			       new, newlen, request);
+
+	if (rc != 0 && rc != -EREMOTE)
+		RETURN(rc);
+
+	body = req_capsule_server_get(&(*request)->rq_pill, &RMF_MDT_BODY);
+	if (body == NULL)
+		RETURN(-EPROTO);
+
+	/* Not cross-ref case, just get out of here. */
+	if (unlikely((body->valid & OBD_MD_MDS))) {
+		struct lmv_tgt_desc     *tgt;
+
+		tgt = lmv_find_target(lmv, &body->fid1);
+		if (IS_ERR(tgt))
+			RETURN(PTR_ERR(tgt));
+		ptlrpc_req_finished(*request);
+		rc = md_rename(tgt->ltd_exp, op_data, old, oldlen,
+			       new, newlen, request);
+	}
+
 	RETURN(rc);
 }
 

@@ -146,10 +146,11 @@ static int mdd_is_parent(const struct lu_env *env,
                          const struct lu_fid *lf,
                          struct lu_fid *pf)
 {
-        struct mdd_object *parent = NULL;
-        struct lu_fid *pfid;
-        int rc;
-        ENTRY;
+	struct mdd_object	*parent = NULL;
+	struct lu_fid		*pfid;
+	int			rc;
+	int			count = 0;
+	ENTRY;
 
         LASSERT(!lu_fid_eq(mdo2fid(p1), lf));
         pfid = &mdd_env_info(env)->mti_fid;
@@ -174,14 +175,17 @@ static int mdd_is_parent(const struct lu_env *env,
 		parent = mdd_object_find(env, mdd, pfid);
 		if (IS_ERR(parent)) {
 			GOTO(out, rc = PTR_ERR(parent));
-		} else if (mdd_object_remote(parent)) {
-			/*FIXME: Because of the restriction of rename in Phase I.
-			 * If the parent is remote, we just assumed lf is not the
-			 * parent of P1 for now */
-			GOTO(out, rc = 0);
 		}
+
 		p1 = parent;
-        }
+		count++;
+		if (count > 100) {
+			CWARN("%s: "DFID" maybe disconnected in namespace\n",
+			      mdd2obd_dev(mdd)->obd_name,
+			      PFID(mdd_object_fid(p1)));
+			count = 0;
+		}
+}
         EXIT;
 out:
         if (parent && !IS_ERR(parent))

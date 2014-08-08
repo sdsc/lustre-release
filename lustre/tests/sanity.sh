@@ -1072,21 +1072,22 @@ test_24x() {
 	mkdir -p $remote_dir/tgt_dir
 	touch $remote_dir/tgt_file
 
-	mrename $remote_dir $DIR/ &&
-		error "rename dir cross MDT works!"
+	mrename $DIR/$tdir/src_dir $remote_dir/tgt_dir ||
+		error "rename dir cross MDT does not work!"
 
-	mrename $DIR/$tdir/src_dir $remote_dir/tgt_dir &&
-		error "rename dir cross MDT works!"
+	mrename $DIR/$tdir/src_file $remote_dir/tgt_file ||
+		error "rename file cross MDT does not work!"
 
-	mrename $DIR/$tdir/src_file $remote_dir/tgt_file &&
-		error "rename file cross MDT works!"
+	cp /etc/hosts $DIR/$tdir/src_file
+	ln $DIR/$tdir/src_file $remote_dir/tgt_file1 ||
+		error "ln file cross MDT does not work!"
 
-	ln $DIR/$tdir/src_file $remote_dir/tgt_file1 &&
-		error "ln file cross MDT should not work!"
+	diff $remote_dir/tgt_file1 /etc/hosts ||
+		error "read tgt file failed after remote link"
 
 	rm -rf $DIR/$tdir || error "Can not delete directories"
 }
-run_test 24x "cross rename/link should be failed"
+run_test 24x "remote rename/link "
 
 test_24y() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
@@ -12064,8 +12065,7 @@ test_striped_dir() {
 	[ `stat -c%h $DIR/$tdir/striped_dir` == '2' ] ||
 		error "nlink error after rmdir"
 
-	rmdir $DIR/$tdir/striped_dir ||
-		error "rmdir striped dir error"
+	rm -rf $DIR/$tdir || error "rmdir striped dir error"
 	true
 }
 
@@ -12127,6 +12127,180 @@ test_300c() {
 	rm -rf $DIR/$tdir
 }
 run_test 300c "check ls understand striped directory"
+
+test_300d() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+	
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	# rename local directory on different stripe
+	mkdir $DIR/$tdir/striped_dir/a
+	mkdir $DIR/$tdir/striped_dir/b
+
+	mrename $DIR/$tdir/striped_dir/a $DIR/$tdir/striped_dir/b ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/a && 
+		error "source does not exists after cross rename"
+
+	stat $DIR/$tdir/striped_dir/b ||
+		error "target exists after cross rename"
+
+	mkdir $DIR/$tdir/striped_dir/d
+
+	mrename $DIR/$tdir/striped_dir/d $DIR/$tdir/striped_dir/c ||
+		error "cross MDT rename under striped dir failed"
+
+	#rename remote directory on different stripe
+	mrename $DIR/$tdir/striped_dir/b $DIR/$tdir/striped_dir/c ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/b &&
+		error "source does not exists after cross rename"
+
+	stat $DIR/$tdir/striped_dir/c ||
+		error "target exists after cross rename"
+
+	rm -rf $DIR/$tdir
+}
+run_test 300d "rename directory under striped dir"
+
+test_300e() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	# rename local directory on different stripe
+	cp /etc/hosts $DIR/$tdir/striped_dir/a
+	touch $DIR/$tdir/striped_dir/b
+
+	mrename $DIR/$tdir/striped_dir/a $DIR/$tdir/striped_dir/b ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/a &&
+		error "source exists after cross rename"
+
+	diff $DIR/$tdir/striped_dir/b /etc/hosts ||
+		error "target different after cross rename"
+
+	cp /etc/hosts $DIR/$tdir/striped_dir/d
+
+	mv $DIR/$tdir/striped_dir/d $DIR/$tdir/striped_dir/c ||
+		error "cross MDT rename under striped dir failed"
+
+	diff $DIR/$tdir/striped_dir/c /etc/hosts ||
+		error "target different after cross rename"
+
+	#rename remote files on different stripe
+	mrename $DIR/$tdir/striped_dir/b $DIR/$tdir/striped_dir/c ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/b &&
+		error "source exists after cross rename"
+
+	stat $DIR/$tdir/striped_dir/c ||
+		error "target does not exist after cross rename"
+
+	diff $DIR/$tdir/striped_dir/c /etc/hosts ||
+		error "target different after cross rename"
+
+	rm -rf $DIR/$tfile
+	rm -rf $DIR/$tdir
+}
+run_test 300e "rename files under striped dir"
+
+test_300f() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	# rename local directory on different stripe
+	cp /etc/hosts $DIR/$tfile
+
+	mrename $DIR/$tfile $DIR/$tdir/striped_dir/b ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tfile &&
+		error "source exists after cross rename"
+
+	diff $DIR/$tdir/striped_dir/b /etc/hosts ||
+		error "target different after cross rename"
+
+	#rename remote files on different stripe
+	mrename $DIR/$tdir/striped_dir/b $DIR/$tfile ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/b &&
+		error "source does not exists after cross rename"
+
+	stat $DIR/$tfile ||
+		error "target exists after cross rename"
+
+	diff $DIR/$tfile /etc/hosts ||
+		error "target different after cross rename"
+	rm -rf $DIR/$tfile
+	rm -rf $DIR/$tdir
+}
+run_test 300f "rename dir/files to/from striped dir"
+
+test_300g() {
+	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
+	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
+	local STRIPECNT=2
+
+	mkdir -p $DIR/$tdir
+	$LFS setdirstripe -i 0 -c $STRIPECNT $DIR/$tdir/striped_dir ||
+		error "set striped dir error"
+
+	# ln files on different stripe
+	cp /etc/hosts $DIR/$tdir/striped_dir/a
+
+	ln $DIR/$tdir/striped_dir/a $DIR/$tdir/striped_dir/b ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/b ||
+		error "target exists after cross rename"
+
+	diff $DIR/$tdir/striped_dir/b /etc/hosts ||
+		error "target different after cross rename"
+
+	#ln remote files on different stripe
+	cp /etc/hosts $DIR/$tdir/striped_dir/d
+	mv $DIR/$tdir/striped_dir/d $DIR/$tdir/striped_dir/c ||
+		error "cross MDT rename under striped dir failed"
+
+	ln $DIR/$tdir/striped_dir/c $DIR/$tdir/striped_dir/e ||
+		error "cross MDT rename under striped dir failed"
+
+	stat $DIR/$tdir/striped_dir/e ||
+		error "target does not exist after cross rename"
+
+	diff $DIR/$tdir/striped_dir/e /etc/hosts ||
+		error "target different after cross rename"
+
+
+	cp /etc/hosts $DIR/$tdir/striped_dir/f
+
+	ln $DIR/$tdir/striped_dir/f $DIR/$tdir/ln_file
+
+	diff $DIR/$tdir/ln_file /etc/hosts ||
+		error "target different after cross rename"
+
+	rm -rf $DIR/$tdir
+}
+run_test 300g "ln files under striped dir"
 
 #
 # tests that do cleanup/setup should be run at the end
