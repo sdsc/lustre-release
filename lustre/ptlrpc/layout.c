@@ -805,7 +805,7 @@ struct req_msg_field {
          * \a RMF_F_STRUCT_ARRAY flag is set the field is also variable-length,
          * but the actual size must be a whole multiple of \a rmf_size.
          */
-        const int   rmf_size;
+	const __u32 rmf_size;
         void        (*rmf_swabber)(void *);
         void        (*rmf_dumper)(void *);
         int         rmf_offset[ARRAY_SIZE(req_formats)][RCL_NR];
@@ -1985,10 +1985,10 @@ static void *__req_capsule_get(struct req_capsule *pill,
         const struct req_format *fmt;
         struct lustre_msg       *msg;
         void                    *value;
-        int                      len;
-        int                      offset;
+	__u32                    len;
+	__u32                    offset;
 
-        void *(*getter)(struct lustre_msg *m, int n, int minlen);
+	void *(*getter)(struct lustre_msg *m, __u32 n, __u32 minlen);
 
         static const char *rcl_names[RCL_NR] = {
                 [RCL_CLIENT] = "client",
@@ -2018,24 +2018,24 @@ static void *__req_capsule_get(struct req_capsule *pill,
                 len = lustre_msg_buflen(msg, offset);
                 if ((len % field->rmf_size) != 0) {
                         CERROR("%s: array field size mismatch "
-                               "%d modulo %d != 0 (%d)\n",
-                               field->rmf_name, len, field->rmf_size, loc);
+				"%d modulo %u != 0 (%d)\n",
+				field->rmf_name, len, field->rmf_size, loc);
                         return NULL;
                 }
         } else if (pill->rc_area[loc][offset] != -1) {
                 len = pill->rc_area[loc][offset];
         } else {
-                len = max(field->rmf_size, 0);
+		len = max_t(typeof(field->rmf_size), field->rmf_size, 0);
         }
         value = getter(msg, offset, len);
 
         if (value == NULL) {
                 DEBUG_REQ(D_ERROR, pill->rc_req,
-                          "Wrong buffer for field `%s' (%d of %d) "
-                          "in format `%s': %d vs. %d (%s)\n",
-                          field->rmf_name, offset, lustre_msg_bufcount(msg),
-                          fmt->rf_name, lustre_msg_buflen(msg, offset), len,
-                          rcl_names[loc]);
+			  "Wrong buffer for field `%s' (%u of %u) "
+			  "in format `%s': %u vs. %u (%s)\n",
+			  field->rmf_name, offset, lustre_msg_bufcount(msg),
+			  fmt->rf_name, lustre_msg_buflen(msg, offset), len,
+			  rcl_names[loc]);
         } else {
                 swabber_dumper_helper(pill, field, loc, offset, value, len,
                                       dump, swabber);
@@ -2207,8 +2207,8 @@ EXPORT_SYMBOL(req_capsule_other_get);
  * request or reply.
  */
 void req_capsule_set_size(struct req_capsule *pill,
-                          const struct req_msg_field *field,
-                          enum req_location loc, int size)
+			  const struct req_msg_field *field,
+			  enum req_location loc, __u32 size)
 {
         LASSERT(loc == RCL_SERVER || loc == RCL_CLIENT);
 
@@ -2242,7 +2242,7 @@ EXPORT_SYMBOL(req_capsule_set_size);
  * actually sets the size in pill.rc_area[loc][offset], but this function
  * returns the message buflen[offset], maybe we should use another name.
  */
-int req_capsule_get_size(const struct req_capsule *pill,
+__u32 req_capsule_get_size(const struct req_capsule *pill,
                          const struct req_msg_field *field,
                          enum req_location loc)
 {
