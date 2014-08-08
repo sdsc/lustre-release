@@ -109,11 +109,11 @@ const void *req_capsule_other_get(struct req_capsule *pill,
                                   const struct req_msg_field *field);
 
 void req_capsule_set_size(struct req_capsule *pill,
-                          const struct req_msg_field *field,
-                          enum req_location loc, int size);
-int req_capsule_get_size(const struct req_capsule *pill,
-                          const struct req_msg_field *field,
-                          enum req_location loc);
+			  const struct req_msg_field *field,
+			  enum req_location loc, __u32 size);
+__u32 req_capsule_get_size(const struct req_capsule *pill,
+			   const struct req_msg_field *field,
+			   enum req_location loc);
 int req_capsule_msg_size(struct req_capsule *pill, enum req_location loc);
 int req_capsule_fmt_size(__u32 magic, const struct req_format *fmt,
                          enum req_location loc);
