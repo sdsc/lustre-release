@@ -375,11 +375,19 @@ static int lov_delete_raid0(const struct lu_env *env, struct lov_object *lov,
 
 	lov_layout_wait(env, lov);
         if (r0->lo_sub != NULL) {
+		int psz = 0;
                 for (i = 0; i < r0->lo_nr; ++i) {
                         struct lovsub_object *los = r0->lo_sub[i];
 
                         if (los != NULL) {
+				int sz;
+
+				sz = los->lso_header.coh_page_bufsize;
+				LASSERT(ergo(psz > 0, psz == sz));
+				psz += sz;	
+
 				cl_locks_prune(env, &los->lso_cl, 1);
+
                                 /*
                                  * If top-level object is to be evicted from
                                  * the cache, so are its sub-objects.
@@ -387,6 +395,10 @@ static int lov_delete_raid0(const struct lu_env *env, struct lov_object *lov,
                                 lov_subobject_kill(env, lov, los, i);
 			}
 		}
+
+		/* Reset parent's coh_page_bufsize. That was
+		 * incremented in lov_init_raid0. */
+		cl_object_header(&lov->lo_cl)->coh_page_bufsize -= psz;
 	}
 	cl_locks_prune(env, &lov->lo_cl, 0);
 	RETURN(0);
