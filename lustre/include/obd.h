@@ -1371,7 +1371,8 @@ enum {
         LUSTRE_OPC_SYMLINK  = (1 << 1),
         LUSTRE_OPC_MKNOD    = (1 << 2),
         LUSTRE_OPC_CREATE   = (1 << 3),
-        LUSTRE_OPC_ANY      = (1 << 4)
+	LUSTRE_OPC_MIGRATE  = (1 << 4),
+	LUSTRE_OPC_ANY      = (1 << 5)
 };
 
 /* lmv structures */

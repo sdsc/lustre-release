@@ -1005,16 +1005,15 @@ static int __out_tx_index_insert(const struct lu_env *env,
 
 	LASSERT(ta->ta_handle != NULL);
 
-	if (lu_object_exists(&dt_obj->do_lu)) {
-		if (dt_try_as_dir(env, dt_obj) == 0) {
-			ta->ta_err = -ENOTDIR;
-			return ta->ta_err;
-		}
-		ta->ta_err = dt_declare_insert(env, dt_obj,
-					       (struct dt_rec *)fid,
-					       (struct dt_key *)name,
-					       ta->ta_handle);
+	if (dt_try_as_dir(env, dt_obj) == 0) {
+		ta->ta_err = -ENOTDIR;
+		return ta->ta_err;
 	}
+
+	ta->ta_err = dt_declare_insert(env, dt_obj,
+				       (struct dt_rec *)fid,
+				       (struct dt_key *)name,
+				       ta->ta_handle);
 
 	if (ta->ta_err != 0)
 		return ta->ta_err;

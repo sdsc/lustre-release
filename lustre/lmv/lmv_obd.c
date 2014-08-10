@@ -1752,16 +1752,17 @@ struct lmv_tgt_desc
                 struct lu_fid *fid)
 {
 	struct lmv_stripe_md	*lsm = op_data->op_mea1;
-        struct lmv_tgt_desc	*tgt;
+	struct lmv_tgt_desc	*tgt;
 
-        if (!lsm || lsm->lsm_count <= 1 || op_data->op_namelen == 0) {
-                tgt = lmv_find_target(lmv, fid);
+	if (!lsm || lsm->lsm_count <= 1 || op_data->op_namelen == 0 ||
+	    lsm->lsm_md_magic == LMV_MAGIC_MIGRATE) {
+		tgt = lmv_find_target(lmv, fid);
 		if (IS_ERR(tgt))
 			return tgt;
 
-                op_data->op_mds = tgt->ltd_idx;
-                return tgt;
-        }
+		op_data->op_mds = tgt->ltd_idx;
+		return tgt;
+	}
 
 	return lmv_locate_target_by_name(lmv, lsm, op_data->op_name,
 					 op_data->op_namelen, fid,
@@ -2102,6 +2103,12 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
         if (rc)
                 RETURN(rc);
 
+	if (op_data->op_opc == LUSTRE_OPC_MIGRATE) {
+		rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
+		if (rc)
+			RETURN(rc);
+	}
+
 	op_data->op_fsuid = current_fsuid();
 	op_data->op_fsgid = current_fsgid();
 	op_data->op_cap = cfs_curproc_cap_pack();
@@ -2109,7 +2116,15 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	if (IS_ERR(src_tgt))
 		RETURN(PTR_ERR(src_tgt));
 
-	tgt_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
+	if (op_data->op_opc == LUSTRE_OPC_MIGRATE) {
+		LASSERTF(fid_is_sane(&op_data->op_fid3),
+			 "migrate invalid FID "DFID"\n",
+			 PFID(&op_data->op_fid3));
+		tgt_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid3);
+	} else {
+		tgt_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid2);
+	}
+
 	if (IS_ERR(tgt_tgt))
 		RETURN(PTR_ERR(tgt_tgt));
 	/*
@@ -2143,11 +2158,16 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 				      LCK_EX, MDS_INODELOCK_FULL,
 				      MF_MDC_CANCEL_FID4);
 
-	if (rc == 0)
-		rc = md_rename(src_tgt->ltd_exp, op_data, old, oldlen,
-			       new, newlen, request);
+	if (rc == 0) {
+		if (op_data->op_opc == LUSTRE_OPC_MIGRATE)
+			rc = md_rename(tgt_tgt->ltd_exp, op_data, old, oldlen,
+				       new, newlen, request);
+		else
+			rc = md_rename(src_tgt->ltd_exp, op_data, old, oldlen,
+				       new, newlen, request);
+	}
 
-	if (rc != 0 && rc != -EREMOTE)
+	if (rc != -EREMOTE)
 		RETURN(rc);
 
 	body = req_capsule_server_get(&(*request)->rq_pill, &RMF_MDT_BODY);
@@ -2716,10 +2736,12 @@ int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
 	LASSERT(lmm != NULL);
 
 	LASSERTF(le32_to_cpu(lmm->lmv_magic) == le32_to_cpu(LMV_MAGIC_V1) ||
+		le32_to_cpu(lmm->lmv_magic) == le32_to_cpu(LMV_MAGIC_MIGRATE) ||
 		 le32_to_cpu(lmm->lmv_magic) == le32_to_cpu(LMV_USER_MAGIC),
 		 "lmv magic is %x\n", le32_to_cpu(lmm->lmv_magic));
 
-	if (le32_to_cpu(lmm->lmv_magic) == le32_to_cpu(LMV_MAGIC_V1))
+	if (le32_to_cpu(lmm->lmv_magic) == le32_to_cpu(LMV_MAGIC_V1) ||
+	    le32_to_cpu(lmm->lmv_magic) == le32_to_cpu(LMV_MAGIC_MIGRATE))
 		lsm_size = lmv_stripe_md_size(lmm->lmv_count);
 	else
 		/**

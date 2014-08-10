@@ -501,7 +501,8 @@ int obd_alloc_fail(const void *ptr, const char *name, const char *type,
 #define OBD_FAIL_UPDATE_LOG_CANCEL_NET		0x1702
 #define OBD_FAIL_UPDATE_LOG_CANCEL_NET_REP	0x1703
 
-
+#define OBD_FAIL_MIGRATE_NET_REP		0x1704
+#define OBD_FAIL_MIGRATE_ENTRIES		0x1705
 
 /* Assign references to moved code to reduce code changes */
 #define OBD_FAIL_PRECHECK(id)                   CFS_FAIL_PRECHECK(id)

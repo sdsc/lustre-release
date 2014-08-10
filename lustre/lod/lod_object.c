@@ -699,7 +699,7 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 	 */
 	mode = dt->do_lu.lo_header->loh_attr & S_IFMT;
 	if ((S_ISREG(mode) || !mode) && !strcmp(name, XATTR_NAME_LOV) &&
-	     !(fl & LU_XATTR_REPLACE)) {
+	     !(fl & (LU_XATTR_REPLACE | LU_XATTR_MIGRATE))) {
 		/*
 		 * this is a request to manipulate object's striping
 		 */
@@ -716,12 +716,19 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 		if (rc)
 			RETURN(rc);
 	} else if ((S_ISDIR(mode) || !mode) && !strcmp(name, XATTR_NAME_LMV)) {
-		memset(attr, 0, sizeof(*attr));
-		attr->la_valid = LA_TYPE | LA_MODE;
-		attr->la_mode = S_IFDIR;
-		rc = lod_declare_md_striped_object(env, dt, attr, buf, th);
-		if (rc != 0)
-			RETURN(rc);
+		struct lmv_mds_md *lmm = buf->lb_buf;
+
+		if (lmm->lmv_magic == LMV_MAGIC_MIGRATE) {
+			rc = dt_declare_xattr_set(env, next, buf, name, fl, th);
+		} else {
+			memset(attr, 0, sizeof(*attr));
+			attr->la_valid = LA_TYPE | LA_MODE;
+			attr->la_mode = S_IFDIR;
+			rc = lod_declare_md_striped_object(env, dt, attr, buf,
+							   th);
+			if (rc != 0)
+				RETURN(rc);
+		}
 	} else {
 		rc = dt_declare_xattr_set(env, next, buf, name, fl, th);
 	}
@@ -854,22 +861,32 @@ static int lod_xattr_set(const struct lu_env *env,
 
 	attr = dt->do_lu.lo_header->loh_attr & S_IFMT;
 	if (S_ISDIR(attr)) {
-		if (strncmp(name, XATTR_NAME_LOV, strlen(XATTR_NAME_LOV)) == 0)
+		if (strncmp(name, XATTR_NAME_LOV,
+			    strlen(XATTR_NAME_LOV)) == 0) {
 			rc = lod_xattr_set_lov_on_dir(env, dt, buf, name,
 						      fl, th, capa);
-		else if (strncmp(name, XATTR_NAME_LMV,
-					strlen(XATTR_NAME_LMV)) == 0)
-			rc = lod_xattr_set_lmv(env, dt, buf, name, fl, th,
-					       capa);
-		else
+		} else if (strncmp(name, XATTR_NAME_LMV,
+				   strlen(XATTR_NAME_LMV)) == 0) {
+			struct lmv_mds_md *lmv;
+
+			lmv = (struct lmv_mds_md *)buf->lb_buf;
+			if (lmv->lmv_magic == LMV_MAGIC_MIGRATE) {
+				rc = dt_xattr_set(env, next, buf, name, fl,
+						  th, capa);
+			} else {
+				rc = lod_xattr_set_lmv(env, dt, buf, name,
+						       fl, th, capa);
+			}
+		} else {
 			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
+		}
 	} else if (S_ISREG(attr) && !strcmp(name, XATTR_NAME_LOV)) {
 		/* in case of lov EA swap, just set it
 		 * if not, it is a replay so check striping match what we
 		 * already have during req replay, declare_xattr_set()
 		 * defines striping, then create() does the work
 		*/
-		if (fl & LU_XATTR_REPLACE) {
+		if (fl & (LU_XATTR_REPLACE | LU_XATTR_MIGRATE)) {
 			/* free stripes, then update disk */
 			lod_object_free_striping(env, lod_dt_obj(dt));
 			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);

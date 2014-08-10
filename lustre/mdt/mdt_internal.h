@@ -63,6 +63,7 @@
 #include <lustre_idmap.h>
 #include <lustre_eacl.h>
 #include <lustre_quota.h>
+#include <lustre_linkea.h>
 
 /* check if request's xid is equal to last one or not*/
 static inline int req_xid_is_last(struct ptlrpc_request *req)
@@ -168,7 +169,7 @@ struct mdt_device {
         struct md_device          *mdt_child;
         struct dt_device          *mdt_bottom;
 	struct obd_export	  *mdt_bottom_exp;
-        /** target device */
+	/** target device */
         struct lu_target           mdt_lut;
 	/*
 	 * Options bit-fields.
@@ -316,19 +317,19 @@ enum {
 };
 
 struct mdt_reint_record {
-        mdt_reint_t             rr_opcode;
-        const struct lustre_handle *rr_handle;
-        const struct lu_fid    *rr_fid1;
-        const struct lu_fid    *rr_fid2;
-        const char             *rr_name;
-        int                     rr_namelen;
-        const char             *rr_tgt;
-        int                     rr_tgtlen;
-        const void             *rr_eadata;
-        int                     rr_eadatalen;
-        int                     rr_logcookielen;
-        const struct llog_cookie  *rr_logcookies;
-        __u32                   rr_flags;
+	mdt_reint_t             rr_opcode;
+	const struct lustre_handle *rr_handle;
+	struct lu_fid		*rr_fid1;
+	struct lu_fid		*rr_fid2;
+	const char		*rr_name;
+	int                     rr_namelen;
+	const char             *rr_tgt;
+	int                     rr_tgtlen;
+	const void             *rr_eadata;
+	int                     rr_eadatalen;
+	int                     rr_logcookielen;
+	const struct llog_cookie  *rr_logcookies;
+	__u32                   rr_flags;
 };
 
 enum mdt_reint_flag {
@@ -796,6 +797,9 @@ struct mdt_handler *mdt_handler_find(__u32 opc,
 				     struct mdt_opc_slice *supported);
 int mdt_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 			void *data, int flag);
+int mdt_links_read(struct mdt_thread_info *info,
+		   struct mdt_object *mdt_obj,
+		   struct linkea_data *ldata);
 /* mdt_idmap.c */
 int mdt_init_idmap(struct tgt_session_info *tsi);
 void mdt_cleanup_idmap(struct mdt_export_data *);
@@ -1047,7 +1051,7 @@ static inline ldlm_mode_t mdt_mdl_mode2dlm_mode(mdl_mode_t mode)
 extern struct ldlm_valblock_ops mdt_lvbo;
 
 static inline struct lu_name *mdt_name(const struct lu_env *env,
-                                       char *name, int namelen)
+				       const char *name, int namelen)
 {
         struct lu_name *lname;
         struct mdt_thread_info *mti;

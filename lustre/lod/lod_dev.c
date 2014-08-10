@@ -567,12 +567,17 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dev,
 	struct thandle_update_dt *update;
 	struct thandle_update_dt *tmp;
 	struct thandle_update	 *tu = th->th_update;
-	int rc = 0;
-	int rc2 = 0;
+	int			 rc = 0;
+	int			 rc2 = 0;
+	ENTRY;
+
+	/* Because th might be freed after trans stop, so we will set
+	 * tu_result before local trans stop */
+	if (tu != NULL)
+		tu->tu_result = th->th_result;
 
 	rc = dt_trans_stop(env, th->th_dev, th);
 	if (tu != NULL) {
-		tu->tu_result = rc;
 		cfs_list_for_each_entry_safe(update, tmp,
 					     &tu->tu_remote_update_list,
 					     tud_list) {
@@ -593,7 +598,7 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dev,
 		OBD_FREE_PTR(tu);
 	}
 
-	return rc;
+	RETURN(rc);
 }
 
 static void lod_conf_get(const struct lu_env *env,

@@ -1252,16 +1252,52 @@ static void ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
         struct ll_inode_info *lli = ll_i2info(inode);
 	struct lmv_stripe_md *lsm = md->lsm_md;
         int idx;
+	ENTRY;
 
-	LASSERT(S_ISDIR(inode->i_mode) && lsm != NULL);
+	LASSERT(S_ISDIR(inode->i_mode));
+	if (md->lm_flags & LUSTRE_MD_SLAVE) {
+		EXIT;
+		return;
+	}
+
+	CDEBUG(D_INODE, "update lsm %p of "DFID"\n", lli->lli_lsm_md,
+	       PFID(ll_inode2fid(inode)));
+
+	/* no striped information from request. */
+	if (lsm == NULL) {
+		if (lli->lli_lsm_md != NULL) {
+			if (lli->lli_lsm_md->lsm_md_magic ==
+							LMV_MAGIC_MIGRATE) {
+				CDEBUG(D_INODE, DFID"finish migration, revert"
+				       "layout.\n", PFID(ll_inode2fid(inode)));
+				lmv_free_memmd(lli->lli_lsm_md);
+				lli->lli_lsm_md = NULL;
+				EXIT;
+				return;
+			} else {
+				CERROR(DFID" used to have layout!"
+				       "layout.\n", PFID(ll_inode2fid(inode)));
+				EXIT;
+				return;
+			}
+		}
+		EXIT;
+		return;
+	}
+
+	/* set the directory layout */
 	if (lli->lli_lsm_md == NULL) {
 		ll_init_lsm_md(inode, md);
 		lli->lli_lsm_md = lsm;
 		/* set lsm_md to NULL, so the following free lustre_md
 		 * will not free this lsm */
 		md->lsm_md = NULL;
+		CDEBUG(D_INODE, "Set lsm %p magic %x to "DFID"\n", lsm,
+		       lsm->lsm_md_magic, PFID(ll_inode2fid(inode)));
+		EXIT;
 		return;
 	}
+
 	/* Compare the old and new stripe information */
 	if (lli->lli_lsm_md->lsm_md_magic != lsm->lsm_md_magic ||
 	    lli->lli_lsm_md->lsm_count != lsm->lsm_count ||
@@ -1304,6 +1340,7 @@ static void ll_update_lsm_md(struct inode *inode, struct lustre_md *md)
 
 	md_update_lsm_md(ll_i2mdexp(inode), ll_i2info(inode)->lli_lsm_md,
 			 md->body, ll_md_blocking_ast);
+	EXIT;
 	return;
 }
 
@@ -1838,8 +1875,7 @@ void ll_update_inode(struct inode *inode, struct lustre_md *md)
 			lli->lli_maxbytes = MAX_LFS_FILESIZE;
 	}
 
-	if (S_ISDIR(inode->i_mode) && md->lsm_md != NULL &&
-	    !(md->lm_flags & LUSTRE_MD_SLAVE))
+	if (S_ISDIR(inode->i_mode))
 		ll_update_lsm_md(inode, md);
 
 	if (sbi->ll_flags & LL_SBI_RMT_CLIENT) {

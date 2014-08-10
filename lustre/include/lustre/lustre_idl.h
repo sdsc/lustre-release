@@ -1073,6 +1073,28 @@ static inline int lu_dirent_size(struct lu_dirent *ent)
         return le16_to_cpu(ent->lde_reclen);
 }
 
+/**
+ * return IF_* type for given lu_dirent entry.
+ * IF_* flag shld be converted to particular OS file type in
+ * platform llite module.
+ */
+static inline __u16 lu_dirent_type_get(const struct lu_dirent *ent)
+{
+        __u16 type = 0;
+        struct luda_type *lt;
+        int len = 0;
+
+        if (le32_to_cpu(ent->lde_attrs) & LUDA_TYPE) {
+                const unsigned align = sizeof(struct luda_type) - 1;
+
+                len = le16_to_cpu(ent->lde_namelen);
+                len = (len + align) & ~align;
+		lt = (struct luda_type *)((char *)ent->lde_name + len);
+		type = IFTODT(le16_to_cpu(lt->lt_type));
+	}
+	return type;
+}
+
 #define MDS_DIR_END_OFF 0xfffffffffffffffeULL
 
 /**
@@ -2415,6 +2437,7 @@ enum mds_op_bias {
 	MDS_CREATE_VOLATILE	= 1 << 10,
 	MDS_OWNEROVERRIDE	= 1 << 11,
 	MDS_HSM_RELEASE		= 1 << 12,
+	MDS_RENAME_MIGRATE	= 1 << 13,
 };
 
 /* instance of mdt_reint_rec */
@@ -2624,6 +2647,8 @@ extern void lustre_swab_lmv_desc (struct lmv_desc *ld);
 #define LMV_MAGIC_V1      0x0CD10CD0    /* normal stripe lmv magic */
 #define LMV_USER_MAGIC    0x0CD20CD0    /* default lmv magic*/
 
+#define LMV_MAGIC_MIGRATE 0x0CD30CD0    /* migrate stripe lmv magic */
+
 struct lmv_mds_md {
 	__u32 lmv_magic;		/* stripe format version */
 	__u32 lmv_count;		/* stripe count */
@@ -2642,7 +2667,7 @@ extern void lustre_swab_lmv_mds_md(struct lmv_mds_md *lmm);
 
 static inline int lmv_mds_md_size(int stripes, int lmm_magic)
 {
-	LASSERT(lmm_magic == LMV_MAGIC_V1);
+	LASSERT(lmm_magic == LMV_MAGIC_V1 || lmm_magic == LMV_MAGIC_MIGRATE);
 	return sizeof(struct lmv_mds_md) +
 		stripes * sizeof(struct lu_fid);
 }
