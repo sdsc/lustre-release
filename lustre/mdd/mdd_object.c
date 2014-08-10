@@ -1191,9 +1191,8 @@ stop:
  * read lov EA of an object
  * return the lov EA in an allocated lu_buf
  */
-static int mdd_get_lov_ea(const struct lu_env *env,
-			  struct mdd_object *obj,
-			  struct lu_buf *lmm_buf)
+int mdd_get_lov_ea(const struct lu_env *env, struct mdd_object *obj,
+		   struct lu_buf *lmm_buf)
 {
 	struct lu_buf	*buf = &mdd_env_info(env)->mti_big_buf;
 	int		 rc, sz;
@@ -1214,10 +1213,10 @@ repeat:
 	}
 
 	if (rc < 0)
-		GOTO(out, rc);
+		RETURN(rc);
 
 	if (rc == 0)
-		GOTO(out, rc = -ENODATA);
+		RETURN(-ENODATA);
 
 	sz = rc;
 	if (memcmp(buf, &LU_BUF_NULL, sizeof(*buf)) == 0) {

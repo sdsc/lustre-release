@@ -1578,6 +1578,7 @@ int do_statahead_enter(struct inode *dir, struct dentry **dentryp,
 					       (*dentryp)->d_name.name,
 					       PFID(ll_inode2fid((*dentryp)->d_inode)),
 					       PFID(ll_inode2fid(inode)));
+					ll_intent_release(&it);
                                         ll_sai_unplug(sai, entry);
                                         RETURN(-ESTALE);
                                 } else {

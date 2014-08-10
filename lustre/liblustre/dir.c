@@ -267,14 +267,14 @@ ssize_t llu_iop_filldirentries(struct inode *dir, _SYSIO_OFF_T *basep,
                                          */
                                         continue;
 
-                                fid  = ent->lde_fid;
-                                name = ent->lde_name;
-                                fid_le_to_cpu(&fid, &fid);
-                                ino  = cl_fid_build_ino(&fid, 0);
-                                type = ll_dirent_type_get(ent);
-                                done = filldir(buf, nbytes, name, namelen,
-                                               (loff_t)hash, ino, type,
-                                               &filled);
+				fid  = ent->lde_fid;
+				name = ent->lde_name;
+				fid_le_to_cpu(&fid, &fid);
+				ino  = cl_fid_build_ino(&fid, 0);
+				type = lu_dirent_type_get(ent);
+				done = filldir(buf, nbytes, name, namelen,
+					       (loff_t)hash, ino, type,
+					       &filled);
                         }
 			next = le64_to_cpu(dp->ldp_hash_end);
 			OBD_PAGE_FREE(page);
