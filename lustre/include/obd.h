@@ -1141,9 +1141,6 @@ struct md_op_data {
 	/* Various operation flags. */
 	enum mds_op_bias        op_bias;
 
-	/* Operation type */
-	__u32                   op_opc;
-
 	/* Used by readdir */
 	__u64                   op_offset;
 
@@ -1167,13 +1164,6 @@ struct md_callback {
 			       struct ldlm_lock_desc *desc,
 			       void *data, int flag);
 	void (*md_update_inode)(struct inode *inode, loff_t size);
-};
-
-enum op_cli_flags {
-	CLI_SET_MEA	= 1 << 0,
-	CLI_RM_ENTRY	= 1 << 1,
-	CLI_HASH64	= 1 << 2,
-	CLI_API32	= 1 << 3,
 };
 
 struct md_enqueue_info;
@@ -1364,14 +1354,6 @@ struct obd_ops {
          * NOTE: If adding ops, add another LPROCFS_OBD_OP_INIT() line
          * to lprocfs_alloc_obd_stats() in obdclass/lprocfs_status.c.
          * Also, add a wrapper function in include/linux/obd_class.h. */
-};
-
-enum {
-        LUSTRE_OPC_MKDIR    = (1 << 0),
-        LUSTRE_OPC_SYMLINK  = (1 << 1),
-        LUSTRE_OPC_MKNOD    = (1 << 2),
-        LUSTRE_OPC_CREATE   = (1 << 3),
-        LUSTRE_OPC_ANY      = (1 << 4)
 };
 
 /* lmv structures */

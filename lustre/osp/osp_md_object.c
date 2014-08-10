@@ -39,12 +39,13 @@ static const char dot[] = ".";
 static const char dotdot[] = "..";
 
 int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
-			struct object_update_request *ureq, int ureq_len,
+			struct object_update_request *ureq,
 			struct ptlrpc_request **reqp)
 {
 	struct obd_import		*imp;
 	struct ptlrpc_request		*req;
 	struct object_update_request	*tmp;
+	int				ureq_len;
 	int				rc;
 	ENTRY;
 
@@ -55,8 +56,9 @@ int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
 	if (req == NULL)
 		RETURN(-ENOMEM);
 
+	ureq_len = object_update_request_size(ureq);
 	req_capsule_set_size(&req->rq_pill, &RMF_OBJECT_UPDATE, RCL_CLIENT,
-			     UPDATE_BUFFER_SIZE);
+			     ureq_len);
 
 	rc = ptlrpc_request_pack(req, LUSTRE_MDS_VERSION, OBJECT_UPDATE);
 	if (rc != 0) {
@@ -65,7 +67,7 @@ int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
 	}
 
 	req_capsule_set_size(&req->rq_pill, &RMF_OBJECT_UPDATE_REPLY,
-			     RCL_SERVER, UPDATE_BUFFER_SIZE);
+			     RCL_SERVER, OBJECT_UPDATE_REPLY_SIZE);
 
 	tmp = req_capsule_client_get(&req->rq_pill, &RMF_OBJECT_UPDATE);
 	memcpy(tmp, ureq, ureq_len);
@@ -86,8 +88,7 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 	int			rc;
 	ENTRY;
 
-	rc = osp_prep_update_req(env, osp, dt_update->dur_req,
-				 UPDATE_BUFFER_SIZE, &req);
+	rc = osp_prep_update_req(env, osp, dt_update->dur_req, &req);
 	if (rc)
 		RETURN(rc);
 
@@ -110,45 +111,6 @@ static int osp_remote_sync(const struct lu_env *env, struct dt_device *dt,
 	ptlrpc_req_finished(req);
 
 	RETURN(rc);
-}
-
-/**
- * Create a new update request for the device.
- */
-struct dt_update_request *osp_create_update_req(struct dt_device *dt)
-{
-	struct dt_update_request *dt_update;
-
-	OBD_ALLOC_PTR(dt_update);
-	if (!dt_update)
-		return ERR_PTR(-ENOMEM);
-
-	OBD_ALLOC_LARGE(dt_update->dur_req, UPDATE_BUFFER_SIZE);
-	if (dt_update->dur_req == NULL) {
-		OBD_FREE_PTR(dt_update);
-		return ERR_PTR(-ENOMEM);
-	}
-
-	CFS_INIT_LIST_HEAD(&dt_update->dur_list);
-	dt_update->dur_dt = dt;
-	dt_update->dur_batchid = 0;
-	dt_update->dur_req->ourq_magic = UPDATE_REQUEST_MAGIC;
-	dt_update->dur_req->ourq_count = 0;
-
-	return dt_update;
-}
-
-void osp_destroy_update_req(struct dt_update_request *dt_update)
-{
-	if (dt_update == NULL)
-		return;
-
-	cfs_list_del(&dt_update->dur_list);
-	if (dt_update->dur_req != NULL)
-		OBD_FREE_LARGE(dt_update->dur_req, UPDATE_BUFFER_SIZE);
-
-	OBD_FREE_PTR(dt_update);
-	return;
 }
 
 int osp_trans_stop(const struct lu_env *env, struct thandle *th)
@@ -188,6 +150,73 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 }
 
 /**
+ * Create a new update request for the device.
+ */
+struct dt_update_request *osp_create_update_req(struct dt_device *dt)
+{
+	struct dt_update_request *dt_update;
+
+	OBD_ALLOC_PTR(dt_update);
+	if (!dt_update)
+		return ERR_PTR(-ENOMEM);
+
+	OBD_ALLOC_LARGE(dt_update->dur_req, OBJECT_UPDATE_INIT_BUFFER_SIZE);
+	if (dt_update->dur_req == NULL) {
+		OBD_FREE_PTR(dt_update);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	dt_update->dur_req_len = OBJECT_UPDATE_INIT_BUFFER_SIZE;
+	CFS_INIT_LIST_HEAD(&dt_update->dur_list);
+	dt_update->dur_dt = dt;
+	dt_update->dur_batchid = 0;
+	dt_update->dur_req->ourq_magic = UPDATE_REQUEST_MAGIC;
+	dt_update->dur_req->ourq_count = 0;
+
+	return dt_update;
+}
+
+int osp_resize_update_req(struct dt_update_request *dt_update, int new_size)
+{
+	struct object_update_request *ureq;
+
+	LASSERT(new_size > dt_update->dur_req_len);
+
+	CDEBUG(D_INFO, "%s: resize update_size from %d to %d\n",
+	       dt_update->dur_dt->dd_lu_dev.ld_obd->obd_name,
+	       dt_update->dur_req_len, new_size);
+
+	OBD_ALLOC_LARGE(ureq, new_size);
+	if (ureq == NULL)
+		return -ENOMEM;
+
+	memcpy(ureq, dt_update->dur_req,
+	       object_update_request_size(dt_update->dur_req));
+
+	OBD_FREE_LARGE(dt_update->dur_req, dt_update->dur_req_len);
+
+	dt_update->dur_req = ureq;
+	dt_update->dur_req_len = new_size;
+
+	return 0;
+}
+
+void osp_destroy_update_req(struct dt_update_request *dt_update)
+{
+	if (dt_update == NULL)
+		return;
+
+	cfs_list_del(&dt_update->dur_list);
+	if (dt_update->dur_req != NULL)
+		OBD_FREE_LARGE(dt_update->dur_req, dt_update->dur_req_len);
+
+	OBD_FREE_PTR(dt_update);
+	return;
+}
+
+#define OBJECT_UPDATE_BUFFER_SIZE_ADD	4096
+#define OBJECT_UPDATE_BUFFER_SIZE_MAX	(64 * 4096)  /* 64KB update size now */
+/**
  * Insert the update into the th_bufs for the device.
  */
 int osp_insert_update(const struct lu_env *env,
@@ -220,11 +249,22 @@ int osp_insert_update(const struct lu_env *env,
 	for (i = 0; i < count; i++)
 		update_length += cfs_size_round(lens[i]);
 
-	if (cfs_size_round(ureq_len + update_length) > UPDATE_BUFFER_SIZE) {
-		CERROR("%s: insert up %p, ulen %d cnt %d rlen %d: rc = %d\n",
-			update->dur_dt->dd_lu_dev.ld_obd->obd_name, ureq,
-			update_length, ureq->ourq_count, ureq_len, -E2BIG);
-		RETURN(-E2BIG);
+	if (unlikely(cfs_size_round(ureq_len + update_length) >
+		     update->dur_req_len)) {
+		int new_size = update->dur_req_len;
+
+		/* enlarge object update request size */
+		while (new_size <
+		       cfs_size_round(ureq_len + update_length))
+			new_size += OBJECT_UPDATE_BUFFER_SIZE_ADD;
+ 		if (new_size >= OBJECT_UPDATE_BUFFER_SIZE_MAX)
+			RETURN(-E2BIG); 
+
+		rc = osp_resize_update_req(update, new_size);
+		if (rc != 0)
+			RETURN(rc);
+
+		ureq = update->dur_req;
 	}
 
 	/* fill the update into the update buffer */
@@ -312,7 +352,7 @@ static int osp_get_attr_from_req(const struct lu_env *env,
 
 	reply = req_capsule_server_sized_get(&req->rq_pill,
 					     &RMF_OBJECT_UPDATE_REPLY,
-					     UPDATE_BUFFER_SIZE);
+					     OBJECT_UPDATE_REPLY_SIZE);
 	if (reply == NULL || reply->ourp_magic != UPDATE_REPLY_MAGIC)
 		return -EPROTO;
 
@@ -356,7 +396,6 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 	}
 
 	osi->osi_obdo.o_valid = 0;
-	LASSERT(S_ISDIR(attr->la_mode));
 	obdo_from_la(&osi->osi_obdo, attr, attr->la_valid);
 	lustre_set_wire_obdo(NULL, &osi->osi_obdo, &osi->osi_obdo);
 
@@ -647,7 +686,7 @@ static int osp_md_xattr_get(const struct lu_env *env, struct dt_object *dt,
 
 	reply = req_capsule_server_sized_get(&req->rq_pill,
 					     &RMF_OBJECT_UPDATE_REPLY,
-					     UPDATE_BUFFER_SIZE);
+					     OBJECT_UPDATE_REPLY_SIZE);
 	if (reply->ourp_magic != UPDATE_REPLY_MAGIC) {
 		CERROR("%s: Wrong version %x expected %x: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name,
@@ -759,7 +798,7 @@ static int osp_md_index_lookup(const struct lu_env *env, struct dt_object *dt,
 
 	reply = req_capsule_server_sized_get(&req->rq_pill,
 					     &RMF_OBJECT_UPDATE_REPLY,
-					     UPDATE_BUFFER_SIZE);
+					     OBJECT_UPDATE_REPLY_SIZE);
 	if (reply->ourp_magic != UPDATE_REPLY_MAGIC) {
 		CERROR("%s: Wrong version %x expected %x: rc = %d\n",
 		       dt_dev->dd_lu_dev.ld_obd->obd_name,
