@@ -503,7 +503,7 @@ out:
 		CERROR("%s: Insert update error: rc = %d\n",
 		       dt->do_lu.lo_dev->ld_obd->obd_name, rc);
 
-	return rc;
+	RETURN(rc);
 }
 
 static int osp_md_declare_object_ref_del(const struct lu_env *env,

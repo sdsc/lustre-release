@@ -1650,6 +1650,14 @@ out_rmdir:
 		OBD_FREE_PTR(copy);
 		RETURN(rc);
 	}
+	case LL_IOC_MIGRATE: {
+		int mdtidx;
+
+		if (copy_from_user(&mdtidx, (int *)arg, sizeof(mdtidx)))
+			RETURN(-EFAULT);
+
+		RETURN(ll_migrate(inode, file, mdtidx));
+	}
 	default:
 		RETURN(obd_iocontrol(cmd, sbi->ll_dt_exp, 0, NULL,
 				     (void *)arg));
