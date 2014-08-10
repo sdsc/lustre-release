@@ -202,6 +202,7 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 	th->th_sync = 1;
 
 	RETURN(rc);
+
 }
 
 /**
@@ -432,7 +433,6 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 	}
 
 	osi->osi_obdo.o_valid = 0;
-	LASSERT(S_ISDIR(attr->la_mode));
 	obdo_from_la(&osi->osi_obdo, attr, attr->la_valid);
 	lustre_set_wire_obdo(NULL, &osi->osi_obdo, &osi->osi_obdo);
 	obdo_cpu_to_le(&osi->osi_obdo, &osi->osi_obdo);
@@ -595,7 +595,6 @@ static void osp_md_ah_init(const struct lu_env *env,
 {
 	LASSERT(ah);
 
-	memset(ah, 0, sizeof(*ah));
 	ah->dah_parent = parent;
 	ah->dah_mode = child_mode;
 }
