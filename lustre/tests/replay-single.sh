@@ -443,6 +443,7 @@ test_20b() { # bug 10480
 	fail $SINGLEMDS                            # start orphan recovery
 	wait_recovery_complete $SINGLEMDS || error "MDS recovery not done"
 	wait_delete_completed_mds $wait_timeout || return 3
+	sleep 5
 	AFTERUSED=$(df -P $DIR | tail -1 | awk '{ print $3 }')
 	log "before $BEFOREUSED, after $AFTERUSED"
 	(( $AFTERUSED > $BEFOREUSED + $(fs_log_size) )) &&
