@@ -107,7 +107,8 @@ static inline unsigned long update_buf_size(struct update_buf *buf)
 		update = (struct update *)((char *)buf + size);
 		size += update_size(update);
 	}
-	LASSERT(size <= UPDATE_BUFFER_SIZE);
+	LASSERTF(size <= UPDATE_BUFFER_SIZE, "%lu > max %d ubuf %p count %d\n",
+		 size, UPDATE_BUFFER_SIZE, buf, buf->ub_count);
 	return size;
 }
 
