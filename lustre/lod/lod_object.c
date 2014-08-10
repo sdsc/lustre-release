@@ -504,6 +504,9 @@ int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
 	lmv_le_to_cpu(lmm, lmm);
 
 	lmv1 = &lmm->lmv_md_v1;
+
+	if (lmv1->lmv_magic == LMV_MAGIC_MIGRATE)
+		RETURN(0);
 	if (lmv1->lmv_magic != LMV_MAGIC_V1)
 		RETURN(-EINVAL);
 
@@ -798,7 +801,7 @@ static int lod_declare_xattr_set(const struct lu_env *env,
 	 */
 	mode = dt->do_lu.lo_header->loh_attr & S_IFMT;
 	if ((S_ISREG(mode) || mode == 0) && strcmp(name, XATTR_NAME_LOV) == 0 &&
-	     !(fl & LU_XATTR_REPLACE)) {
+	     !(fl & (LU_XATTR_REPLACE | LU_XATTR_MIGRATE))) {
 		/*
 		 * this is a request to manipulate object's striping
 		 */
@@ -991,7 +994,7 @@ static int lod_xattr_set(const struct lu_env *env,
 		 * already have during req replay, declare_xattr_set()
 		 * defines striping, then create() does the work
 		*/
-		if (fl & LU_XATTR_REPLACE) {
+		if (fl & (LU_XATTR_REPLACE | LU_XATTR_MIGRATE)) {
 			/* free stripes, then update disk */
 			lod_object_free_striping(env, lod_dt_obj(dt));
 			rc = dt_xattr_set(env, next, buf, name, fl, th, capa);
@@ -1094,6 +1097,11 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 
 	if (v1->lmm_pattern != LOV_PATTERN_RAID0 && v1->lmm_pattern != 0)
 		GOTO(unlock, rc = 0);
+
+	CDEBUG(D_INFO, DFID"cnt %d size %d offset %d\n",
+	       PFID(lu_object_fid(&lp->ldo_obj.do_lu)),
+	       (int)v1->lmm_stripe_count,
+	       (int)v1->lmm_stripe_size, (int)v1->lmm_stripe_offset);
 
 	lp->ldo_def_stripenr = v1->lmm_stripe_count;
 	lp->ldo_def_stripe_size = v1->lmm_stripe_size;
@@ -1214,6 +1222,10 @@ static void lod_ah_init(const struct lu_env *env,
 		nextc->do_ops->do_ah_init(env, ah, dt_object_remote(nextp) ?
 					  NULL : nextp, nextc, child_mode);
 
+	/* Do not need default LOV/LMV for orphan object */
+	if (ah->dah_orphan)
+		return;
+
 	if (S_ISDIR(child_mode)) {
 		int rc;
 
@@ -1243,7 +1255,7 @@ static void lod_ah_init(const struct lu_env *env,
 						  lp->ldo_dir_def_stripe_offset;
 			lc->ldo_dir_striping_cached = 1;
 			lc->ldo_dir_def_striping_set = 1;
-			CDEBUG(D_INFO, "inherite default EA nr:%d off:%d\n",
+			CDEBUG(D_INFO, "inherite default dir EA nr:%d off:%d\n",
 			       (int)lc->ldo_dir_def_stripenr,
 			       (int)lc->ldo_dir_def_stripe_offset);
 		}
