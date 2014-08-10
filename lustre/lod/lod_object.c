@@ -504,6 +504,9 @@ int lod_parse_dir_striping(const struct lu_env *env, struct lod_object *lo,
 	lmv_le_to_cpu(lmm, lmm);
 
 	lmv1 = &lmm->lmv_md_v1;
+
+	if (lmv1->lmv_magic == LMV_MAGIC_MIGRATE)
+		RETURN(0);
 	if (lmv1->lmv_magic != LMV_MAGIC_V1)
 		RETURN(-EINVAL);
 
@@ -1212,6 +1215,11 @@ static int lod_cache_parent_lov_striping(const struct lu_env *env,
 	if (v1->lmm_pattern != LOV_PATTERN_RAID0 && v1->lmm_pattern != 0)
 		GOTO(unlock, rc = 0);
 
+	CDEBUG(D_INFO, DFID"cnt %d size %d offset %d\n",
+	       PFID(lu_object_fid(&lp->ldo_obj.do_lu)),
+	       (int)v1->lmm_stripe_count,
+	       (int)v1->lmm_stripe_size, (int)v1->lmm_stripe_offset);
+
 	lp->ldo_def_stripenr = v1->lmm_stripe_count;
 	lp->ldo_def_stripe_size = v1->lmm_stripe_size;
 	lp->ldo_def_stripe_offset = v1->lmm_stripe_offset;
@@ -1525,22 +1533,30 @@ int lod_declare_striped_object(const struct lu_env *env, struct dt_object *dt,
 		GOTO(out, rc = -ENOMEM);
 	}
 
-	/* choose OST and generate appropriate objects */
-	rc = lod_qos_prep_create(env, lo, attr, lovea, th);
-	if (rc) {
-		/* failed to create striping, let's reset
-		 * config so that others don't get confused */
-		lod_object_free_striping(env, lo);
-		GOTO(out, rc);
+	if (!dt_object_remote(next)) {
+		/* choose OST and generate appropriate objects */
+		rc = lod_qos_prep_create(env, lo, attr, lovea, th);
+		if (rc) {
+			/* failed to create striping, let's reset
+			 * config so that others don't get confused */
+			lod_object_free_striping(env, lo);
+			GOTO(out, rc);
+		}
+
+		/*
+		 * declare storage for striping data
+		 */
+		info->lti_buf.lb_len = lov_mds_md_size(lo->ldo_stripenr,
+				lo->ldo_pool ?  LOV_MAGIC_V3 : LOV_MAGIC_V1);
+	} else {
+		/* LOD can not choose OST objects for remote objects, i.e.
+		 * stripes must be ready before that */
+		LASSERT(lovea != NULL);
+		info->lti_buf = *lovea;
 	}
 
-	/*
-	 * declare storage for striping data
-	 */
-	info->lti_buf.lb_len = lov_mds_md_size(lo->ldo_stripenr,
-				lo->ldo_pool ?  LOV_MAGIC_V3 : LOV_MAGIC_V1);
-	rc = dt_declare_xattr_set(env, next, &info->lti_buf, XATTR_NAME_LOV,
-				  0, th);
+	rc = dt_declare_xattr_set(env, next, &info->lti_buf,
+				  XATTR_NAME_LOV, 0, th);
 	if (rc)
 		GOTO(out, rc);
 
@@ -1732,7 +1748,10 @@ static int lod_declare_object_create(const struct lu_env *env,
 			rc = lod_declare_striped_object(env, dt, attr,
 							NULL, th);
 	} else if (dof->dof_type == DFT_DIR) {
-		rc = lod_declare_dir_striping_create(env, dt, dof, th);
+		/* Orphan object (like migrating object) does not have
+		 * lod_dir_stripe, see lod_ah_init */
+		if (lo->ldo_dir_stripe != NULL)
+			rc = lod_declare_dir_striping_create(env, dt, dof, th);
 	}
 out:
 	RETURN(rc);
@@ -1776,7 +1795,8 @@ static int lod_object_create(const struct lu_env *env, struct dt_object *dt,
 	rc = dt_create(env, next, attr, hint, dof, th);
 
 	if (rc == 0) {
-		if (S_ISDIR(dt->do_lu.lo_header->loh_attr))
+		if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
+		    lo->ldo_dir_stripe != NULL)
 			rc = lod_dir_striping_create(env, dt, dof, th);
 		else if (lo->ldo_stripe && dof->u.dof_reg.striped != 0)
 			rc = lod_striping_create(env, dt, attr, dof, th);
