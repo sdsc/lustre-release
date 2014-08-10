@@ -224,7 +224,7 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 			lhash = hash;
 		fid_le_to_cpu(&fid, &ent->lde_fid);
 		ino = cl_fid_build_ino(&fid, api32);
-		type = ll_dirent_type_get(ent);
+		type = lu_dirent_type_get(ent);
 		/* For 'll_nfs_get_name_filldir()', it will try
 		 * to access the 'ent' through its 'lde_name',
 		 * so the parameter 'name' for 'filldir()' must
@@ -1649,6 +1649,14 @@ out_rmdir:
 
 		OBD_FREE_PTR(copy);
 		RETURN(rc);
+	}
+	case LL_IOC_MIGRATE: {
+		int mdtidx;
+
+		if (copy_from_user(&mdtidx, (int *)arg, sizeof(mdtidx)))
+			RETURN(-EFAULT);
+
+		RETURN(ll_migrate(inode, file, mdtidx));
 	}
 	default:
 		RETURN(obd_iocontrol(cmd, sbi->ll_dt_exp, 0, NULL,

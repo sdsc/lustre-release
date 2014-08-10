@@ -1171,12 +1171,11 @@ stop:
  * read lov EA of an object
  * return the lov EA in an allocated lu_buf
  */
-static int mdd_get_lov_ea(const struct lu_env *env,
-			  struct mdd_object *obj,
-			  struct lu_buf *lmm_buf)
+int mdd_get_lov_ea(const struct lu_env *env, struct mdd_object *obj,
+		   struct lu_buf *lmm_buf)
 {
 	struct lu_buf	*buf = &mdd_env_info(env)->mti_big_buf;
-	int		 rc, sz;
+	int		 rc, bufsize;
 	ENTRY;
 
 repeat:
@@ -1194,27 +1193,27 @@ repeat:
 	}
 
 	if (rc < 0)
-		GOTO(out, rc);
+		RETURN(rc);
 
 	if (rc == 0)
-		GOTO(out, rc = -ENODATA);
+		RETURN(-ENODATA);
 
-	sz = rc;
+	bufsize = rc;
 	if (memcmp(buf, &LU_BUF_NULL, sizeof(*buf)) == 0) {
 		/* mti_big_buf was not allocated, so we have to
 		 * allocate it based on the ea size */
 		buf = lu_buf_check_and_alloc(&mdd_env_info(env)->mti_big_buf,
-					     sz);
+					     bufsize);
 		if (buf->lb_buf == NULL)
 			GOTO(out, rc = -ENOMEM);
 		goto repeat;
 	}
 
-	lu_buf_alloc(lmm_buf, sz);
+	lu_buf_alloc(lmm_buf, bufsize);
 	if (lmm_buf->lb_buf == NULL)
 		GOTO(out, rc = -ENOMEM);
 
-	memcpy(lmm_buf->lb_buf, buf->lb_buf, sz);
+	memcpy(lmm_buf->lb_buf, buf->lb_buf, bufsize);
 	rc = 0;
 	EXIT;
 
