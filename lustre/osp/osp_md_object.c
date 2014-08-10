@@ -348,7 +348,6 @@ static int osp_md_declare_object_create(const struct lu_env *env,
 	}
 
 	osi->osi_obdo.o_valid = 0;
-	LASSERT(S_ISDIR(attr->la_mode));
 	obdo_from_la(&osi->osi_obdo, attr, attr->la_valid);
 	lustre_set_wire_obdo(NULL, &osi->osi_obdo, &osi->osi_obdo);
 
