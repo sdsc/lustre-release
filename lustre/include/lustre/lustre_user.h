@@ -198,7 +198,7 @@ struct ost_id {
 	} LUSTRE_ANONYMOUS_UNION_NAME;
 };
 
-#define DOSTID LPX64":"LPU64
+#define DOSTID LPX64":"LPX64
 #define POSTID(oi) ostid_seq(oi), ostid_id(oi)
 
 /*
@@ -267,6 +267,7 @@ struct ost_id {
 #define LL_IOC_GET_LEASE		_IO('f', 244)
 #define LL_IOC_HSM_IMPORT		_IOWR('f', 245, struct hsm_user_import)
 #define LL_IOC_LMV_SET_DEFAULT_STRIPE	_IOWR('f', 246, struct lmv_user_md)
+#define LL_IOC_MIGRATE			_IOR('f', 247, int)
 
 #define LL_STATFS_LMV		1
 #define LL_STATFS_LOV		2
