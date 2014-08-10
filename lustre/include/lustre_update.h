@@ -89,7 +89,6 @@ static inline unsigned long update_buf_size(struct update_buf *buf)
 		update = (struct update *)((char *)buf + size);
 		size += update_size(update);
 	}
-	LASSERT(size <= UPDATE_BUFFER_SIZE);
 	return size;
 }
 
