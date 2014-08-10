@@ -565,8 +565,7 @@ static int osp_prep_unlink_update_req(const struct lu_env *env,
 	if (rc != 0)
 		GOTO(out, rc);
 
-	rc = osp_prep_update_req(env, osp, update->dur_req, UPDATE_BUFFER_SIZE,
-				 &req);
+	rc = osp_prep_update_req(env, osp, update->dur_req, &req);
 
 	INIT_LIST_HEAD(&req->rq_exp_list);
 	req->rq_svc_thread = (void *)OSP_JOB_MAGIC;

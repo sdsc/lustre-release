@@ -420,7 +420,7 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		   struct thandle *th);
 int osp_prep_update_req(const struct lu_env *env, struct osp_device *osp,
-			struct object_update_request *ureq, int ubuf_len,
+			struct object_update_request *ureq,
 			struct ptlrpc_request **reqp);
 struct dt_update_request *osp_create_update_req(struct dt_device *dt);
 void osp_destroy_update_req(struct dt_update_request *ureq);

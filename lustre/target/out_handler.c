@@ -526,9 +526,9 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 
 	/* The first 4 bytes(int) are used to store the result */
 	lbuf->lb_buf = update_result->our_data;
-	lbuf->lb_len = UPDATE_BUFFER_SIZE -
-			cfs_size_round((unsigned long)update_result->our_data -
-				       (unsigned long)update_result);
+	lbuf->lb_len = OBJECT_UPDATE_REPLY_SIZE -
+		       cfs_size_round((unsigned long)update_result->our_data -
+				      (unsigned long)update_result);
 	dt_read_lock(env, obj, MOR_TGT_CHILD);
 	rc = dt_xattr_get(env, obj, lbuf, name, NULL);
 	dt_read_unlock(env, obj);
@@ -934,16 +934,15 @@ static int __out_tx_index_insert(const struct lu_env *env,
 
 	LASSERT(ta->ta_handle != NULL);
 
-	if (lu_object_exists(&dt_obj->do_lu)) {
-		if (dt_try_as_dir(env, dt_obj) == 0) {
-			ta->ta_err = -ENOTDIR;
-			return ta->ta_err;
-		}
-		ta->ta_err = dt_declare_insert(env, dt_obj,
-					       (struct dt_rec *)fid,
-					       (struct dt_key *)name,
-					       ta->ta_handle);
+	if (dt_try_as_dir(env, dt_obj) == 0) {
+		ta->ta_err = -ENOTDIR;
+		return ta->ta_err;
 	}
+
+	ta->ta_err = dt_declare_insert(env, dt_obj,
+				       (struct dt_rec *)fid,
+				       (struct dt_key *)name,
+				       ta->ta_handle);
 
 	if (ta->ta_err != 0)
 		return ta->ta_err;
@@ -1240,17 +1239,17 @@ int out_handle(struct tgt_session_info *tsi)
 	ENTRY;
 
 	req_capsule_set(pill, &RQF_OBJECT_UPDATE);
-	bufsize = req_capsule_get_size(pill, &RMF_OBJECT_UPDATE, RCL_CLIENT);
-	if (bufsize != UPDATE_BUFFER_SIZE) {
-		CERROR("%s: invalid bufsize %d: rc = %d\n",
-		       tgt_name(tsi->tsi_tgt), bufsize, -EPROTO);
-		RETURN(err_serious(-EPROTO));
-	}
-
 	ureq = req_capsule_client_get(pill, &RMF_OBJECT_UPDATE);
 	if (ureq == NULL) {
 		CERROR("%s: No buf!: rc = %d\n", tgt_name(tsi->tsi_tgt),
 		       -EPROTO);
+		RETURN(err_serious(-EPROTO));
+	}
+
+	bufsize = req_capsule_get_size(pill, &RMF_OBJECT_UPDATE, RCL_CLIENT);
+	if (bufsize != object_update_request_size(ureq)) {
+		CERROR("%s: invalid bufsize %d: rc = %d\n",
+		       tgt_name(tsi->tsi_tgt), bufsize, -EPROTO);
 		RETURN(err_serious(-EPROTO));
 	}
 
@@ -1269,7 +1268,7 @@ int out_handle(struct tgt_session_info *tsi)
 	}
 
 	req_capsule_set_size(pill, &RMF_OBJECT_UPDATE_REPLY, RCL_SERVER,
-			     UPDATE_BUFFER_SIZE);
+			     OBJECT_UPDATE_REPLY_SIZE);
 	rc = req_capsule_server_pack(pill);
 	if (rc != 0) {
 		CERROR("%s: Can't pack response: rc = %d\n",

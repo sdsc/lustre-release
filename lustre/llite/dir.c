@@ -244,7 +244,7 @@ int ll_dir_read(struct inode *inode, struct md_op_data *op_data,
 			lhash = hash;
 		fid_le_to_cpu(&fid, &ent->lde_fid);
 		ino = cl_fid_build_ino(&fid, api32);
-		type = ll_dirent_type_get(ent);
+		type = lu_dirent_type_get(ent);
 		/* For 'll_nfs_get_name_filldir()', it will try
 		 * to access the 'ent' through its 'lde_name',
 		 * so the parameter 'name' for 'filldir()' must
@@ -572,6 +572,7 @@ int ll_dir_getstripe(struct inode *inode, void **plmm, int *plmm_size,
 			lustre_swab_lov_user_md_v3((struct lov_user_md_v3 *)lmm);
 		break;
 	case LMV_MAGIC:
+	case LMV_MAGIC_MIGRATE:
 		if (LOV_MAGIC != cpu_to_le32(LOV_MAGIC))
 			lustre_swab_lmv_mds_md((union lmv_mds_md *)lmm);
 		break;
@@ -590,8 +591,7 @@ out:
 	return rc;
 }
 
-static int ll_get_mdt_idx_by_fid(struct ll_sb_info *sbi,
-				 const struct lu_fid *fid)
+int ll_get_mdt_idx_by_fid(struct ll_sb_info *sbi, const struct lu_fid *fid)
 {
 	struct md_op_data	*op_data;
 	int			rc;
@@ -1727,6 +1727,38 @@ out_rmdir:
 
 		OBD_FREE_PTR(copy);
 		RETURN(rc);
+	}
+	case LL_IOC_MIGRATE: {
+		char	*buf = NULL;
+		char	*filename;
+		int	namelen = 0;
+		int	len;
+		int	rc;
+		int	mdtidx;
+
+		rc = obd_ioctl_getdata(&buf, &len, (void *)arg);
+		if (rc)
+			RETURN(rc);
+
+		data = (void *)buf;
+		if (data->ioc_inlbuf1 == NULL || data->ioc_inlbuf2 == NULL ||
+		    data->ioc_inllen1 == 0 || data->ioc_inllen2 == 0)
+			GOTO(migrate_free, rc = -EINVAL);
+
+		filename = data->ioc_inlbuf1;
+		namelen = data->ioc_inllen1;
+		if (namelen < 1)
+			GOTO(migrate_free, rc = -EINVAL);
+
+		mdtidx = *(int *)data->ioc_inlbuf2;
+		if (data->ioc_inllen2 != sizeof(mdtidx))
+			GOTO(migrate_free, rc = -EINVAL);
+
+		rc = ll_migrate(inode, file, mdtidx, filename, namelen);
+migrate_free:
+		obd_ioctl_freedata(buf, len);
+		RETURN(rc);
+
 	}
 	default:
 		RETURN(obd_iocontrol(cmd, sbi->ll_dt_exp, 0, NULL,

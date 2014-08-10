@@ -1098,6 +1098,28 @@ static inline int lu_dirent_size(struct lu_dirent *ent)
         return le16_to_cpu(ent->lde_reclen);
 }
 
+/**
+ * return IF_* type for given lu_dirent entry.
+ * IF_* flag shld be converted to particular OS file type in
+ * platform llite module.
+ */
+static inline __u16 lu_dirent_type_get(const struct lu_dirent *ent)
+{
+	__u16 type = 0;
+	struct luda_type *lt;
+	int len = 0;
+
+	if (le32_to_cpu(ent->lde_attrs) & LUDA_TYPE) {
+		const unsigned align = sizeof(struct luda_type) - 1;
+
+		len = le16_to_cpu(ent->lde_namelen);
+		len = (len + align) & ~align;
+		lt = (struct luda_type *)((char *)ent->lde_name + len);
+		type = IFTODT(le16_to_cpu(lt->lt_type));
+	}
+	return type;
+}
+
 #define MDS_DIR_END_OFF 0xfffffffffffffffeULL
 
 /**
@@ -1561,6 +1583,7 @@ enum obdo_flags {
 #define LOV_MAGIC         LOV_MAGIC_V1
 #define LOV_MAGIC_JOIN_V1 0x0BD20BD0
 #define LOV_MAGIC_V3      0x0BD30BD0
+#define LOV_MAGIC_MIGRATE 0x0BD40BD0
 
 /*
  * magic for fully defined striping
@@ -2141,6 +2164,7 @@ typedef enum {
 	REINT_SETXATTR = 7,
 	REINT_RMENTRY  = 8,
 //      REINT_WRITE    = 9,
+	REINT_MIGRATE  = 9,
         REINT_MAX
 } mds_reint_t, mdt_reint_t;
 
@@ -2471,6 +2495,7 @@ enum mds_op_bias {
 	MDS_CREATE_VOLATILE	= 1 << 10,
 	MDS_OWNEROVERRIDE	= 1 << 11,
 	MDS_HSM_RELEASE		= 1 << 12,
+	MDS_RENAME_MIGRATE	= 1 << 13,
 };
 
 /* instance of mdt_reint_rec */
@@ -2680,11 +2705,13 @@ extern void lustre_swab_lmv_desc (struct lmv_desc *ld);
 /* lmv structures */
 #define LMV_MAGIC_V1	0x0CD10CD0    /* normal stripe lmv magic */
 #define LMV_USER_MAGIC	0x0CD20CD0    /* default lmv magic*/
+#define LMV_MAGIC_MIGRATE	0x0CD30CD0    /* migrate stripe lmv magic */
 #define LMV_MAGIC	LMV_MAGIC_V1
 
 enum lmv_hash_type {
 	LMV_HASH_TYPE_ALL_CHARS = 1,
 	LMV_HASH_TYPE_FNV_1A_64 = 2,
+	LMV_HASH_TYPE_MIGRATION = 3,
 };
 
 #define LMV_HASH_NAME_ALL_CHARS	"all_char"
@@ -2741,7 +2768,8 @@ extern void lustre_swab_lmv_mds_md(union lmv_mds_md *lmm);
 static inline int lmv_mds_md_size(int stripe_count, unsigned int lmm_magic)
 {
 	switch (lmm_magic) {
-	case LMV_MAGIC_V1: {
+	case LMV_MAGIC_V1:
+	case LMV_MAGIC_MIGRATE: {
 		struct lmv_mds_md_v1 *lmm1;
 
 		return sizeof(*lmm1) + stripe_count *
@@ -2756,6 +2784,7 @@ static inline int lmv_mds_md_stripe_count_get(const union lmv_mds_md *lmm)
 {
 	switch (le32_to_cpu(lmm->lmv_magic)) {
 	case LMV_MAGIC_V1:
+	case LMV_MAGIC_MIGRATE:
 		return le32_to_cpu(lmm->lmv_md_v1.lmv_stripe_count);
 	case LMV_USER_MAGIC:
 		return le32_to_cpu(lmm->lmv_user_md.lum_stripe_count);
@@ -2769,6 +2798,7 @@ static inline int lmv_mds_md_stripe_count_set(union lmv_mds_md *lmm,
 {
 	switch (le32_to_cpu(lmm->lmv_magic)) {
 	case LMV_MAGIC_V1:
+	case LMV_MAGIC_MIGRATE:
 		lmm->lmv_md_v1.lmv_stripe_count = cpu_to_le32(stripe_count);
 		break;
 	case LMV_USER_MAGIC:
