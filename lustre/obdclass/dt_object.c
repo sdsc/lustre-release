@@ -900,7 +900,8 @@ int dt_index_read(const struct lu_env *env, struct dt_device *dev,
 	obj = dt_locate(env, dev, &ii->ii_fid);
 	if (IS_ERR(obj))
 		RETURN(PTR_ERR(obj));
-	if (dt_object_exists(obj) == 0)
+
+	if (!dt_object_exists(obj))
 		GOTO(out, rc = -ENOENT);
 
 	/* fetch index features associated with index object */

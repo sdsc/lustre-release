@@ -902,7 +902,7 @@ static int lod_index_try(const struct lu_env *env, struct dt_object *dt,
 		int i;
 
 		for (i = 0; i < lo->ldo_stripenr; i++) {
-			if (dt_object_exists(lo->ldo_stripe[i]) == 0)
+			if (!dt_object_exists(lo->ldo_stripe[i]))
 				continue;
 			rc = lo->ldo_stripe[i]->do_ops->do_index_try(env,
 						lo->ldo_stripe[i], feat);
@@ -1085,13 +1085,14 @@ static int lod_declare_attr_set(const struct lu_env *env,
 	}
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
-	    dt_object_exists(next) != 0 &&
-	    dt_object_remote(next) == 0)
+	    dt_object_exists(next) &&
+	    !dt_object_remote(next))
 		dt_declare_xattr_del(env, next, XATTR_NAME_LOV, handle);
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CHANGE_STRIPE) &&
 	    dt_object_exists(next) &&
-	    dt_object_remote(next) == 0 && S_ISREG(attr->la_mode)) {
+	    !dt_object_remote(next) &&
+	    S_ISREG(attr->la_mode)) {
 		struct lod_thread_info *info = lod_env_info(env);
 		struct lu_buf *buf = &info->lti_buf;
 
@@ -1152,7 +1153,7 @@ static int lod_attr_set(const struct lu_env *env,
 		if (unlikely(lo->ldo_stripe[i] == NULL))
 			continue;
 		if (S_ISDIR(dt->do_lu.lo_header->loh_attr) &&
-		    (dt_object_exists(lo->ldo_stripe[i]) == 0))
+		    !dt_object_exists(lo->ldo_stripe[i]))
 			continue;
 
 		rc = dt_attr_set(env, lo->ldo_stripe[i], attr, handle, capa);
@@ -1163,13 +1164,14 @@ static int lod_attr_set(const struct lu_env *env,
 	}
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_LOST_STRIPE) &&
-	    dt_object_exists(next) != 0 &&
-	    dt_object_remote(next) == 0)
+	    dt_object_exists(next) &&
+	    !dt_object_remote(next))
 		dt_xattr_del(env, next, XATTR_NAME_LOV, handle, BYPASS_CAPA);
 
 	if (OBD_FAIL_CHECK(OBD_FAIL_LFSCK_CHANGE_STRIPE) &&
 	    dt_object_exists(next) &&
-	    dt_object_remote(next) == 0 && S_ISREG(attr->la_mode)) {
+	    !dt_object_remote(next) &&
+	    S_ISREG(attr->la_mode)) {
 		struct lod_thread_info *info = lod_env_info(env);
 		struct lu_buf *buf = &info->lti_buf;
 		struct ost_id *oi = &info->lti_ostid;

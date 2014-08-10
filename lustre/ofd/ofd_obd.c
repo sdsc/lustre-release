@@ -980,7 +980,7 @@ static int ofd_ioc_get_obj_version(const struct lu_env *env,
 	if (!ofd_object_exists(fo))
 		GOTO(out_fo, rc = -ENOENT);
 
-	if (lu_object_remote(&fo->ofo_obj.do_lu))
+	if (dt_object_remote(&fo->ofo_obj))
 		GOTO(out_fo, rc = -EREMOTE);
 
 	version = dt_version_get(env, ofd_object_child(fo));

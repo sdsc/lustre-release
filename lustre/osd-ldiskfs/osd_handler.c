@@ -2475,7 +2475,7 @@ static int osd_object_destroy(const struct lu_env *env,
         oh = container_of0(th, struct osd_thandle, ot_super);
         LASSERT(oh->ot_handle);
         LASSERT(inode);
-        LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
+	LASSERT(!dt_object_is_dying(dt));
 
 	if (unlikely(fid_is_acct(fid)))
 		RETURN(-EPERM);
@@ -2505,7 +2505,7 @@ static int osd_object_destroy(const struct lu_env *env,
         /* rc = ext3_orphan_add(handle_t *handle, struct inode *inode) */
 
         /* not needed in the cache anymore */
-        set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	dt_object_kill(dt);
 
         RETURN(0);
 }

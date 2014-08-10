@@ -690,7 +690,7 @@ int mdt_attr_get_complex(struct mdt_thread_info *info,
 
 	ma->ma_valid = 0;
 
-	if (mdt_object_exists(o) == 0)
+	if (!mdt_object_exists(o))
 		GOTO(out, rc = -ENOENT);
 	mode = lu_object_attr(&next->mo_lu);
 
@@ -1100,8 +1100,8 @@ static int mdt_getattr(struct tgt_session_info *tsi)
                 GOTO(out_shrink, rc);
         }
 
-        LASSERT(obj != NULL);
-	LASSERT(lu_object_assert_exists(&obj->mot_obj));
+	if (obj == NULL || !mdt_object_exists(obj))
+		GOTO(out, rc = err_serious(-ENOENT));
 
 	/* Unlike intent case where we need to pre-fill out buffers early on
 	 * in intent policy for ldlm reasons, here we can have a much better
@@ -2403,7 +2403,7 @@ static int mdt_object_local_lock(struct mdt_thread_info *info,
 
 	if (lh->mlh_type == MDT_PDO_LOCK) {
                 /* check for exists after object is locked */
-                if (mdt_object_exists(o) == 0) {
+		if (!mdt_object_exists(o)) {
                         /* Non-existent object shouldn't have PDO lock */
                         RETURN(-ESTALE);
                 } else {

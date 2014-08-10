@@ -303,7 +303,7 @@ static int vvp_pgcache_obj_get(cfs_hash_t *hs, cfs_hash_bd_t *bd,
         if (id->vpi_curdep-- > 0)
                 return 0; /* continue */
 
-        if (lu_object_is_dying(hdr))
+	if (lu_object_header_is_dying(hdr))
                 return 1;
 
         cfs_hash_get(hs, hnode);

@@ -755,7 +755,7 @@ int lfsck_create_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 	if (IS_ERR(child))
 		GOTO(unlock, rc = PTR_ERR(child));
 
-	if (dt_object_exists(child) != 0) {
+	if (dt_object_exists(child)) {
 		if (unlikely(!dt_try_as_dir(env, child)))
 			rc = -ENOTDIR;
 		else
@@ -1145,7 +1145,7 @@ static int lfsck_needs_scan_dir(const struct lu_env *env,
 		}
 
 		dt_read_lock(env, obj, MOR_TGT_CHILD);
-		if (unlikely(lfsck_is_dead_obj(obj))) {
+		if (unlikely(dt_object_is_dying(obj))) {
 			dt_read_unlock(env, obj);
 			if (depth > 0)
 				lfsck_object_put(env, obj);

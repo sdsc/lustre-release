@@ -392,7 +392,7 @@ struct lu_device_type_operations {
         void (*ldto_stop)(struct lu_device_type *t);
 };
 
-static inline int lu_device_is_md(const struct lu_device *d)
+static inline bool lu_device_is_md(const struct lu_device *d)
 {
 	return ergo(d != NULL, d->ld_type->ldt_tags & LU_DEVICE_MD);
 }
@@ -486,7 +486,7 @@ enum lu_object_header_flags {
 	 * as last reference to it is released. This flag cannot be cleared
 	 * once set.
 	 */
-	LU_OBJECT_HEARD_BANSHEE = 0,
+	LU_OBJECT_IS_DYING = 0,
 	/**
 	 * Mark this object has already been taken out of cache.
 	 */
@@ -707,9 +707,20 @@ static inline void lu_object_get(struct lu_object *o)
  * Return true of object will not be cached after last reference to it is
  * released.
  */
-static inline int lu_object_is_dying(const struct lu_object_header *h)
+
+static inline bool lu_object_header_is_dying(const struct lu_object_header *h)
 {
-	return test_bit(LU_OBJECT_HEARD_BANSHEE, &h->loh_flags);
+	return test_bit(LU_OBJECT_IS_DYING, &h->loh_flags);
+}
+
+static inline bool lu_object_is_dying(const struct lu_object *o)
+{
+	return lu_object_header_is_dying(o->lo_header);
+}
+
+static inline void lu_object_kill(struct lu_object *o)
+{
+	set_bit(LU_OBJECT_IS_DYING, &o->lo_header->loh_flags);
 }
 
 void lu_object_put(const struct lu_env *env, struct lu_object *o);
@@ -830,21 +841,18 @@ int lu_object_invariant(const struct lu_object *o);
  * Note: LOHA_EXISTS will be set once some one created the object,
  * and it does not needs to be committed to storage.
  */
-#define lu_object_exists(o) ((o)->lo_header->loh_attr & LOHA_EXISTS)
+
+static inline bool lu_object_exists(const struct lu_object *o)
+{
+	return o->lo_header->loh_attr & LOHA_EXISTS;
+}
 
 /**
  * Check whether object on the remote storage.
  */
-#define lu_object_remote(o) unlikely((o)->lo_header->loh_attr & LOHA_REMOTE)
-
-static inline int lu_object_assert_exists(const struct lu_object *o)
+static inline bool lu_object_remote(const struct lu_object *o)
 {
-	return lu_object_exists(o);
-}
-
-static inline int lu_object_assert_not_exists(const struct lu_object *o)
-{
-	return !lu_object_exists(o);
+	return unlikely(o->lo_header->loh_attr & LOHA_REMOTE);
 }
 
 /**
@@ -852,7 +860,7 @@ static inline int lu_object_assert_not_exists(const struct lu_object *o)
  */
 static inline __u32 lu_object_attr(const struct lu_object *o)
 {
-	LASSERT(lu_object_exists(o) != 0);
+	LASSERT(lu_object_exists(o));
         return o->lo_header->loh_attr;
 }
 

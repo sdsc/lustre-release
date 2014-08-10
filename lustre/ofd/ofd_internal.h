@@ -228,12 +228,14 @@ static inline struct ofd_object *ofd_obj(struct lu_object *o)
 	return container_of0(o, struct ofd_object, ofo_obj.do_lu);
 }
 
-static inline int ofd_object_exists(struct ofd_object *obj)
+static inline bool ofd_object_exists(const struct ofd_object *obj)
 {
 	LASSERT(obj != NULL);
-	if (lu_object_is_dying(obj->ofo_obj.do_lu.lo_header))
-		return 0;
-	return lu_object_exists(&obj->ofo_obj.do_lu);
+
+	if (dt_object_is_dying(&obj->ofo_obj))
+		return false;
+
+	return dt_object_exists(&obj->ofo_obj);
 }
 
 static inline struct dt_object *fo2dt(struct ofd_object *obj)

@@ -2263,7 +2263,7 @@ static int lfsck_layout_slave_conditional_destroy(const struct lu_env *env,
 		RETURN(PTR_ERR(obj));
 
 	dt_read_lock(env, obj, 0);
-	if (dt_object_exists(obj) == 0) {
+	if (!dt_object_exists(obj)) {
 		dt_read_unlock(env, obj);
 
 		GOTO(put, rc = -ENOENT);
@@ -2750,10 +2750,10 @@ static int lfsck_layout_scan_orphan_one(const struct lu_env *env,
 	if (IS_ERR(parent))
 		GOTO(out, rc = PTR_ERR(parent));
 
-	if (unlikely(dt_object_remote(parent) != 0))
+	if (unlikely(dt_object_remote(parent)))
 		GOTO(put, rc = -EXDEV);
 
-	if (dt_object_exists(parent) == 0) {
+	if (!dt_object_exists(parent)) {
 		lu_object_put(env, &parent->do_lu);
 		rc = lfsck_layout_recreate_parent(env, com, ltd, rec, cfid,
 						  "", "R", ea_off);
@@ -2969,7 +2969,7 @@ static int lfsck_layout_repair_dangling(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	dt_read_lock(env, parent, 0);
-	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+	if (unlikely(dt_object_is_dying(parent)))
 		GOTO(unlock2, rc = 1);
 
 	rc = dt_create(env, child, cla, hint, NULL, handle);
@@ -3057,7 +3057,7 @@ static int lfsck_layout_repair_unmatched_pair(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	dt_write_lock(env, parent, 0);
-	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+	if (unlikely(dt_object_is_dying(parent)))
 		GOTO(unlock2, rc = 1);
 
 	rc = dt_xattr_set(env, child, buf, XATTR_NAME_FID, 0, handle,
@@ -3159,7 +3159,7 @@ static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	dt_write_lock(env, parent, 0);
-	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+	if (unlikely(dt_object_is_dying(parent)))
 		GOTO(unlock2, rc = 0);
 
 	rc = dt_xattr_get(env, parent, buf, XATTR_NAME_LOV, BYPASS_CAPA);
@@ -3254,7 +3254,7 @@ static int lfsck_layout_repair_owner(const struct lu_env *env,
 
 	/* Use the dt_object lock to serialize with destroy and attr_set. */
 	dt_read_lock(env, parent, 0);
-	if (unlikely(lu_object_is_dying(parent->do_lu.lo_header)))
+	if (unlikely(dt_object_is_dying(parent)))
 		GOTO(unlock, rc = 1);
 
 	/* Get the latest parent's owner. */
@@ -3412,7 +3412,7 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 
 	rc = dt_attr_get(env, parent, pla, BYPASS_CAPA);
 	if (rc != 0) {
-		if (lu_object_is_dying(parent->do_lu.lo_header))
+		if (dt_object_is_dying(parent))
 			RETURN(0);
 
 		GOTO(out, rc);
@@ -3420,7 +3420,7 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 
 	rc = dt_attr_get(env, child, cla, BYPASS_CAPA);
 	if (rc == -ENOENT) {
-		if (lu_object_is_dying(parent->do_lu.lo_header))
+		if (dt_object_is_dying(parent))
 			RETURN(0);
 
 		type = LLIT_DANGLING;

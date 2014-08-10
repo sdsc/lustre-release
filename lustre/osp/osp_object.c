@@ -955,8 +955,7 @@ static int osp_declare_object_create(const struct lu_env *env,
 					     &osi->osi_lb, osi->osi_off, th);
 	} else {
 		/* not needed in the cache anymore */
-		set_bit(LU_OBJECT_HEARD_BANSHEE,
-			    &dt->do_lu.lo_header->loh_flags);
+		dt_object_kill(dt);
 	}
 	RETURN(rc);
 }
@@ -1090,7 +1089,7 @@ int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 	rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL);
 
 	/* not needed in cache any more */
-	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	dt_object_kill(dt);
 
 	RETURN(rc);
 }
@@ -1607,7 +1606,7 @@ static void osp_object_release(const struct lu_env *env, struct lu_object *o)
 		spin_unlock(&d->opd_pre_lock);
 
 		/* not needed in cache any more */
-		set_bit(LU_OBJECT_HEARD_BANSHEE, &o->lo_header->loh_flags);
+		lu_object_kill(o);
 	}
 
 	if (is_ost_obj(o))
@@ -1615,7 +1614,7 @@ static void osp_object_release(const struct lu_env *env, struct lu_object *o)
 		 *	1. it is not often accessed on MDT.
 		 *	2. avoid up layer (such as LFSCK) to load too many
 		 *	   once-used OST-objects. */
-		set_bit(LU_OBJECT_HEARD_BANSHEE, &o->lo_header->loh_flags);
+		lu_object_kill(o);
 
 	EXIT;
 }

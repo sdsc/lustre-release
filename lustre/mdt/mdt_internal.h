@@ -556,12 +556,12 @@ static inline void mdt_object_put(const struct lu_env *env,
 	EXIT;
 }
 
-static inline int mdt_object_exists(const struct mdt_object *o)
+static inline bool mdt_object_exists(const struct mdt_object *o)
 {
 	return lu_object_exists(&o->mot_obj);
 }
 
-static inline int mdt_object_remote(const struct mdt_object *o)
+static inline bool mdt_object_remote(const struct mdt_object *o)
 {
 	return lu_object_remote(&o->mot_obj);
 }
