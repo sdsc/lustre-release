@@ -96,7 +96,8 @@ object_update_request_size(struct object_update_request *our)
 		update = (struct object_update *)((char *)our + size);
 		size += object_update_size(update);
 	}
-	LASSERT(size <= UPDATE_BUFFER_SIZE);
+	LASSERTF(size <= UPDATE_BUFFER_SIZE, "%lu > max %d ubuf %p count %d\n",
+		 size, UPDATE_BUFFER_SIZE, our, our->ourq_count);
 	return size;
 }
 
