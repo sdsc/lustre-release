@@ -394,7 +394,8 @@ static int lfsck_create_lf_local(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	/* 5a. update bookmark */
-	rc = dt_declare_record_write(env, bk_obj, len, 0, th);
+	rc = dt_declare_record_write(env, bk_obj,
+				     lfsck_buf_get(env, bk, len), 0, th);
 	if (rc != 0)
 		GOTO(stop, rc);
 
@@ -583,7 +584,8 @@ static int lfsck_create_lf_remote(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	/* 8a. update bookmark locally. */
-	rc = dt_declare_record_write(env, bk_obj, len, 0, th);
+	rc = dt_declare_record_write(env, bk_obj,
+				     lfsck_buf_get(env, bk, len), 0, th);
 	if (rc != 0)
 		GOTO(stop, rc);
 
