@@ -31,7 +31,8 @@
 #ifndef _LUSTRE_UPDATE_H
 #define _LUSTRE_UPDATE_H
 
-#define UPDATE_BUFFER_SIZE	8192
+#define OBJECT_UPDATE_INIT_BUFFER_SIZE	8192
+#define OBJECT_UPDATE_REPLY_SIZE	8192
 struct dt_update_request {
 	struct dt_device		*dur_dt;
 	/* attached itself to thandle */
@@ -43,6 +44,7 @@ struct dt_update_request {
 	int				dur_batchid;
 	/* Holding the update req */
 	struct object_update_request	*dur_req;
+	int				dur_req_len;
 };
 
 static inline unsigned long object_update_size(struct object_update *update)
@@ -96,7 +98,6 @@ object_update_request_size(struct object_update_request *our)
 		update = (struct object_update *)((char *)our + size);
 		size += object_update_size(update);
 	}
-	LASSERT(size <= UPDATE_BUFFER_SIZE);
 	return size;
 }
 

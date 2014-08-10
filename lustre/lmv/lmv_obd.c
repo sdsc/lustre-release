@@ -1791,7 +1791,8 @@ struct lmv_tgt_desc
 	struct lmv_stripe_md	*lsm = op_data->op_mea1;
 	struct lmv_tgt_desc	*tgt;
 
-	if (!lsm || lsm->lsm_count <= 1 || op_data->op_namelen == 0) {
+	if (!lsm || lsm->lsm_count <= 1 || op_data->op_namelen == 0 ||
+	    lsm->lsm_md_magic == LMV_MAGIC_MIGRATE) {
 		tgt = lmv_find_target(lmv, fid);
 		if (IS_ERR(tgt))
 			return tgt;
@@ -2038,23 +2039,25 @@ lmv_getattr_name(struct obd_export *exp,struct md_op_data *op_data,
          fl == MF_MDC_CANCEL_FID4 ? &op_data->op_fid4 : \
          NULL)
 
-static int lmv_early_cancel(struct obd_export *exp, struct md_op_data *op_data,
-                            int op_tgt, ldlm_mode_t mode, int bits, int flag)
+static int lmv_early_cancel(struct obd_export *exp, struct lmv_tgt_desc *tgt,
+			    struct md_op_data *op_data,
+			    int op_tgt, ldlm_mode_t mode, int bits, int flag)
 {
-        struct lu_fid          *fid = md_op_data_fid(op_data, flag);
-        struct obd_device      *obd = exp->exp_obd;
-        struct lmv_obd         *lmv = &obd->u.lmv;
-        struct lmv_tgt_desc    *tgt;
-        ldlm_policy_data_t      policy = {{0}};
-        int                     rc = 0;
-        ENTRY;
+	struct lu_fid          *fid = md_op_data_fid(op_data, flag);
+	struct obd_device      *obd = exp->exp_obd;
+	struct lmv_obd         *lmv = &obd->u.lmv;
+	ldlm_policy_data_t      policy = {{0}};
+	int                     rc = 0;
+	ENTRY;
 
-        if (!fid_is_sane(fid))
-                RETURN(0);
+	if (!fid_is_sane(fid))
+		RETURN(0);
 
-	tgt = lmv_find_target(lmv, fid);
-	if (IS_ERR(tgt))
-		RETURN(PTR_ERR(tgt));
+	if (tgt == NULL) {
+		tgt = lmv_find_target(lmv, fid);
+		if (IS_ERR(tgt))
+			RETURN(PTR_ERR(tgt));
+	}
 
 	if (tgt->ltd_idx != op_tgt) {
 		CDEBUG(D_INODE, "EARLY_CANCEL on "DFID"\n", PFID(fid));
@@ -2116,7 +2119,7 @@ static int lmv_link(struct obd_export *exp, struct md_op_data *op_data,
 	 * Cancel UPDATE lock on child (fid1).
 	 */
 	op_data->op_flags |= MF_MDC_CANCEL_FID2;
-	rc = lmv_early_cancel(exp, op_data, tgt->ltd_idx, LCK_EX,
+	rc = lmv_early_cancel(exp, NULL, op_data, tgt->ltd_idx, LCK_EX,
 			      MDS_INODELOCK_UPDATE, MF_MDC_CANCEL_FID1);
 	if (rc != 0)
 		RETURN(rc);
@@ -2151,31 +2154,30 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	op_data->op_fsuid = current_fsuid();
 	op_data->op_fsgid = current_fsgid();
 	op_data->op_cap = cfs_curproc_cap_pack();
+	if (op_data->op_cli_flags & CLI_MIGRATE) {
+		LASSERTF(fid_is_sane(&op_data->op_fid3), "invalid FID "DFID"\n",
+			 PFID(&op_data->op_fid3));
+		rc = lmv_fid_alloc(exp, &op_data->op_fid2, op_data);
+		if (rc)
+			RETURN(rc);
+		src_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid3);
+	} else {
+		src_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
+		if (IS_ERR(src_tgt))
+			RETURN(PTR_ERR(src_tgt));
 
-	src_tgt = lmv_locate_mds(lmv, op_data, &op_data->op_fid1);
+		if (op_data->op_mea2) {
+			struct lmv_stripe_md *lsm = op_data->op_mea2;
+			int index;
+
+			index = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
+					     new, newlen);
+			LASSERT(index < lsm->lsm_count);
+			op_data->op_fid2 = lsm->lsm_oinfo[index].lmo_fid;
+		}
+	}
 	if (IS_ERR(src_tgt))
 		RETURN(PTR_ERR(src_tgt));
-
-	if (op_data->op_mea1) {
-		struct lmv_stripe_md *lsm = op_data->op_mea1;
-		int index;
-
-		index = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
-				     old, oldlen);
-		LASSERT(index < lsm->lsm_count);
-		op_data->op_fid1 = lsm->lsm_oinfo[index].lmo_fid;
-	}
-
-	if (op_data->op_mea2) {
-		struct lmv_stripe_md *lsm = op_data->op_mea2;
-		int index;
-
-		index = raw_name2idx(lsm->lsm_hash_type, lsm->lsm_count,
-				     new, newlen);
-		LASSERT(index < lsm->lsm_count);
-		op_data->op_fid2 = lsm->lsm_oinfo[index].lmo_fid;
-	}
-
 	/*
 	 * LOOKUP lock on src child (fid3) should also be cancelled for
 	 * src_tgt in mdc_rename.
@@ -2186,24 +2188,35 @@ static int lmv_rename(struct obd_export *exp, struct md_op_data *op_data,
 	 * Cancel UPDATE locks on tgt parent (fid2), tgt_tgt is its
 	 * own target.
 	 */
-	rc = lmv_early_cancel(exp, op_data, src_tgt->ltd_idx,
+	rc = lmv_early_cancel(exp, NULL, op_data, src_tgt->ltd_idx,
 			      LCK_EX, MDS_INODELOCK_UPDATE,
 			      MF_MDC_CANCEL_FID2);
 
 	/*
 	 * Cancel LOOKUP locks on tgt child (fid4) for parent tgt_tgt.
 	 */
-	if (rc == 0) {
-		rc = lmv_early_cancel(exp, op_data, src_tgt->ltd_idx,
+	if (rc == 0 && fid_is_sane(&op_data->op_fid3)) {
+		struct lmv_tgt_desc *tgt;
+
+		tgt = lmv_find_target(lmv, &op_data->op_fid1);
+		if (IS_ERR(tgt))
+			RETURN(PTR_ERR(tgt));
+
+		/* Cancel LOOKUP lock on its parent */
+		rc = lmv_early_cancel(exp, tgt, op_data, src_tgt->ltd_idx,
 				      LCK_EX, MDS_INODELOCK_LOOKUP,
-				      MF_MDC_CANCEL_FID4);
+				      MF_MDC_CANCEL_FID3);
+
+		rc = lmv_early_cancel(exp, NULL, op_data, src_tgt->ltd_idx,
+				      LCK_EX, MDS_INODELOCK_FULL,
+				      MF_MDC_CANCEL_FID3);
 	}
 
 	/*
 	 * Cancel all the locks on tgt child (fid4).
 	 */
-	if (rc == 0)
-		rc = lmv_early_cancel(exp, op_data, src_tgt->ltd_idx,
+	if (rc == 0 && fid_is_sane(&op_data->op_fid4))
+		rc = lmv_early_cancel(exp, NULL, op_data, src_tgt->ltd_idx,
 				      LCK_EX, MDS_INODELOCK_FULL,
 				      MF_MDC_CANCEL_FID4);
 
@@ -2441,6 +2454,7 @@ static int lmv_unlink(struct obd_export *exp, struct md_op_data *op_data,
 	struct obd_device       *obd = exp->exp_obd;
 	struct lmv_obd          *lmv = &obd->u.lmv;
 	struct lmv_tgt_desc     *tgt = NULL;
+	struct lmv_tgt_desc     *parent_tgt = NULL;
 	struct mdt_body		*body;
 	int                     rc;
 	ENTRY;
@@ -2488,9 +2502,18 @@ retry:
 	/*
 	 * Cancel FULL locks on child (fid3).
 	 */
-	rc = lmv_early_cancel(exp, op_data, tgt->ltd_idx, LCK_EX,
-			      MDS_INODELOCK_FULL, MF_MDC_CANCEL_FID3);
+	parent_tgt = lmv_find_target(lmv, &op_data->op_fid1);
+	if (IS_ERR(parent_tgt))
+		RETURN(PTR_ERR(parent_tgt));
 
+	if (parent_tgt != tgt) {
+		rc = lmv_early_cancel(exp, parent_tgt, op_data, tgt->ltd_idx,
+				      LCK_EX, MDS_INODELOCK_LOOKUP,
+				      MF_MDC_CANCEL_FID3);
+	}
+
+	rc = lmv_early_cancel(exp, NULL, op_data, tgt->ltd_idx, LCK_EX,
+			      MDS_INODELOCK_FULL, MF_MDC_CANCEL_FID3);
 	if (rc != 0)
 		RETURN(rc);
 
@@ -2810,9 +2833,24 @@ int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
 	/* Unpack memmd */
 	lmm_common = (struct lmv_mds_md_common *)lmm;
 	LASSERT(lmm_common != NULL);
-	LASSERTF(le32_to_cpu(lmm_common->lmv_magic) ==
-		 le32_to_cpu(LMV_MAGIC_V1),
-		 "lmv magic is %x\n", le32_to_cpu(lmm_common->lmv_magic));
+	if (le32_to_cpu(lmm_common->lmv_magic) != le32_to_cpu(LMV_MAGIC_V1) && 
+	    le32_to_cpu(lmm_common->lmv_magic) != le32_to_cpu(LMV_MAGIC_MIGRATE) &&
+	    le32_to_cpu(lmm_common->lmv_magic) != le32_to_cpu(LMV_USER_MAGIC)) {
+		CERROR("%s: invalid lmv magic %x: rc = %d\n",
+		       exp->exp_obd->obd_name, le32_to_cpu(lmm->lmv_magic),
+		       -EIO);
+		RETURN(-EIO);
+	}
+
+	if (le32_to_cpu(lmm_common->lmv_magic) == le32_to_cpu(LMV_MAGIC_V1) ||
+	    le32_to_cpu(lmm_common->lmv_magic) == le32_to_cpu(LMV_MAGIC_MIGRATE))
+		lsm_size = lmv_stripe_md_size(lmm_common->lmv_stripe_count);
+	else
+		/**
+		 * Unpack default dirstripe(lmv_user_md) to lmv_stripe_md,
+		 * stripecount should be 0 then.
+		 */
+		lsm_size = lmv_stripe_md_size(0);
 
 	lsm_size = lmv_stripe_md_size(lmm_common->lmv_stripe_count);
 	if (lsm == NULL) {
@@ -2841,6 +2879,7 @@ int lmv_unpack_md(struct obd_export *exp, struct lmv_stripe_md **lsmp,
 
 	switch (le32_to_cpu(lmm_common->lmv_magic)) {
 	case LMV_MAGIC_V1:
+	case LMV_MAGIC_MIGRATE:
 		rc = lmv_unpack_md_v1(exp, lsm,
 				      (const struct lmv_mds_md_v1 *)lmm);
 		break;
