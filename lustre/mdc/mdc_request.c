@@ -52,6 +52,7 @@
 #include <lprocfs_status.h>
 #include <lustre_param.h>
 #include <lustre_log.h>
+#include <lclient.h>
 
 #include "mdc_internal.h"
 

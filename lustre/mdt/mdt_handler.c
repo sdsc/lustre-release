@@ -67,7 +67,6 @@
 #include <lustre_acl.h>
 #include <lustre_param.h>
 #include <lustre_quota.h>
-#include <lustre_linkea.h>
 #include <lustre_lfsck.h>
 
 mdl_mode_t mdt_mdl_lock_modes[] = {
@@ -1759,7 +1758,8 @@ static int mdt_reint_internal(struct mdt_thread_info *info,
                 GOTO(out_ucred, rc = err_serious(rc));
 
         if (mdt_check_resent(info, mdt_reconstruct, lhc)) {
-                rc = lustre_msg_get_status(mdt_info_req(info)->rq_repmsg);
+		DEBUG_REQ(D_INODE, mdt_info_req(info), "resent opt.");
+		rc = lustre_msg_get_status(mdt_info_req(info)->rq_repmsg);
                 GOTO(out_ucred, rc);
         }
         rc = mdt_reint_rec(info, lhc);
@@ -1812,7 +1812,8 @@ int mdt_reint(struct tgt_session_info *tsi)
 		[REINT_RENAME]   = &RQF_MDS_REINT_RENAME,
 		[REINT_OPEN]     = &RQF_MDS_REINT_OPEN,
 		[REINT_SETXATTR] = &RQF_MDS_REINT_SETXATTR,
-		[REINT_RMENTRY]  = &RQF_MDS_REINT_UNLINK
+		[REINT_RMENTRY]  = &RQF_MDS_REINT_UNLINK,
+		[REINT_MIGRATE]  = &RQF_MDS_REINT_RENAME
 	};
 
 	ENTRY;
@@ -2681,6 +2682,10 @@ void mdt_thread_info_init(struct ptlrpc_request *req,
         info->mti_spec.no_create = 0;
 	info->mti_spec.sp_rm_entry = 0;
 	info->mti_spec.sp_stripe_create = 0;
+
+	info->mti_spec.sp_migrate = 0;
+	info->mti_spec.u.sp_ea.eadata = NULL;
+	info->mti_spec.u.sp_ea.eadatalen = 0;
 }
 
 void mdt_thread_info_fini(struct mdt_thread_info *info)
@@ -3888,7 +3893,6 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 	site->ls_top_dev = &mdt->mdt_lu_dev;
 	mdt->mdt_child = lu2md_dev(mdt->mdt_child_exp->exp_obd->obd_lu_dev);
 
-
 	/* now connect to bottom OSD */
 	snprintf(name, MAX_OBD_NAME, "%s-osd", dev);
 	rc = mdt_connect_to_next(env, mdt, name, &mdt->mdt_bottom_exp);
@@ -3896,7 +3900,6 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 		GOTO(class_detach, rc);
 	mdt->mdt_bottom =
 		lu2dt_dev(mdt->mdt_bottom_exp->exp_obd->obd_lu_dev);
-
 
 	rc = lu_env_refill((struct lu_env *)env);
 	if (rc != 0)
@@ -5148,8 +5151,8 @@ struct path_lookup_info {
 	int			pli_fidcount;	/**< number of \a pli_fids */
 };
 
-static int mdt_links_read(struct mdt_thread_info *info,
-			  struct mdt_object *mdt_obj, struct linkea_data *ldata)
+int mdt_links_read(struct mdt_thread_info *info, struct mdt_object *mdt_obj,
+		   struct linkea_data *ldata)
 {
 	int rc;
 
