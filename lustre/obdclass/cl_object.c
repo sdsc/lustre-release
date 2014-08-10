@@ -359,11 +359,8 @@ EXPORT_SYMBOL(cl_object_prune);
  */
 void cl_object_kill(const struct lu_env *env, struct cl_object *obj)
 {
-        struct cl_object_header *hdr;
+	lu_object_kill(&obj->co_lu);
 
-        hdr = cl_object_header(obj);
-
-	set_bit(LU_OBJECT_HEARD_BANSHEE, &hdr->coh_lu.loh_flags);
         /*
          * Destroy all locks. Object destruction (including cl_inode_fini())
          * cannot cancel the locks, because in the case of a local client,

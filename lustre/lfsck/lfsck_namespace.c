@@ -333,7 +333,7 @@ static int lfsck_namespace_check_exist(const struct lu_env *env,
 	int		  rc;
 	ENTRY;
 
-	if (unlikely(lfsck_is_dead_obj(obj)))
+	if (unlikely(dt_object_is_dying(obj)))
 		RETURN(LFSCK_NAMEENTRY_DEAD);
 
 	rc = dt_lookup(env, dir, (struct dt_rec *)fid,
@@ -498,7 +498,7 @@ again:
 		locked = true;
 	}
 
-	if (unlikely(lfsck_is_dead_obj(child)))
+	if (unlikely(dt_object_is_dying(child)))
 		GOTO(stop, rc = 0);
 
 	rc = dt_attr_get(env, child, la, BYPASS_CAPA);
@@ -613,7 +613,7 @@ stop:
 	 *	links count, we cannot update the later one simply. Before LFSCK
 	 *	phase III finished, we cannot know whether there are some remote
 	 *	name entries to be repaired or not. LU-2914 */
-		if (rc == 0 && !lfsck_is_dead_obj(child) &&
+		if (rc == 0 && !dt_object_is_dying(child) &&
 		    ldata.ld_leh != NULL &&
 		    ldata.ld_leh->leh_reccount != la->la_nlink)
 			CDEBUG(D_LFSCK, "%s: the object "DFID" linkEA entry "

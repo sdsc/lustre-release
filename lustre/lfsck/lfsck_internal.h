@@ -770,13 +770,6 @@ static inline umode_t lfsck_object_type(const struct dt_object *obj)
 	return lu_object_attr(&obj->do_lu);
 }
 
-static inline int lfsck_is_dead_obj(const struct dt_object *obj)
-{
-	struct lu_object_header *loh = obj->do_lu.lo_header;
-
-	return !!test_bit(LU_OBJECT_HEARD_BANSHEE, &loh->loh_flags);
-}
-
 static inline struct dt_object *lfsck_object_get(struct dt_object *obj)
 {
 	lu_object_get(&obj->do_lu);

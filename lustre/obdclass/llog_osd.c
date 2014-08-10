@@ -999,8 +999,8 @@ out:
 static int llog_osd_exist(struct llog_handle *handle)
 {
 	LASSERT(handle->lgh_obj);
-	return (dt_object_exists(handle->lgh_obj) &&
-		!lu_object_is_dying(handle->lgh_obj->do_lu.lo_header));
+	return dt_object_exists(handle->lgh_obj) &&
+	       !dt_object_is_dying(handle->lgh_obj);
 }
 
 /**

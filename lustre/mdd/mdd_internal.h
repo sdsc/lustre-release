@@ -422,34 +422,34 @@ static inline umode_t mdd_object_type(const struct mdd_object *obj)
         return lu_object_attr(&obj->mod_obj.mo_lu);
 }
 
-static inline int mdd_is_immutable(struct mdd_object *obj)
+static inline bool mdd_is_immutable(const struct mdd_object *obj)
 {
-        return obj->mod_flags & IMMUTE_OBJ;
+	return obj->mod_flags & IMMUTE_OBJ;
 }
 
-static inline int mdd_is_dead_obj(struct mdd_object *obj)
+static inline bool mdd_is_dead_obj(const struct mdd_object *obj)
 {
-        return obj && obj->mod_flags & DEAD_OBJ;
+	return obj && obj->mod_flags & DEAD_OBJ;
 }
 
-static inline int mdd_is_append(struct mdd_object *obj)
+static inline bool mdd_is_append(const struct mdd_object *obj)
 {
-        return obj->mod_flags & APPEND_OBJ;
+	return obj->mod_flags & APPEND_OBJ;
 }
 
-static inline int mdd_object_exists(struct mdd_object *obj)
+static inline bool mdd_object_exists(const struct mdd_object *obj)
 {
-        return lu_object_exists(mdd2lu_obj(obj));
+	return lu_object_exists(&obj->mod_obj.mo_lu);
 }
 
-static inline int mdd_object_remote(struct mdd_object *obj)
+static inline bool mdd_object_remote(const struct mdd_object *obj)
 {
-	return lu_object_remote(mdd2lu_obj(obj));
+	return lu_object_remote(&obj->mod_obj.mo_lu);
 }
 
-static inline const struct lu_fid *mdd_object_fid(struct mdd_object *obj)
+static inline const struct lu_fid *mdd_object_fid(const struct mdd_object *obj)
 {
-        return lu_object_fid(mdd2lu_obj(obj));
+	return lu_object_fid(&obj->mod_obj.mo_lu);
 }
 
 static inline struct seq_server_site *mdd_seq_site(struct mdd_device *mdd)

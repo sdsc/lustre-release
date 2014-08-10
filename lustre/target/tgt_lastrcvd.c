@@ -1198,7 +1198,7 @@ int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
 		return rc;
 
 	if (tsi->tsi_vbr_obj != NULL &&
-	    !lu_object_remote(&tsi->tsi_vbr_obj->do_lu))
+	    !dt_object_remote(tsi->tsi_vbr_obj))
 		rc = dt_declare_version_set(env, tsi->tsi_vbr_obj, th);
 
 	return rc;
@@ -1238,7 +1238,7 @@ int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 	}
 
 	if (tsi->tsi_vbr_obj != NULL &&
-	    !lu_object_remote(&tsi->tsi_vbr_obj->do_lu)) {
+	    !dt_object_remote(tsi->tsi_vbr_obj)) {
 		obj = tsi->tsi_vbr_obj;
 	}
 

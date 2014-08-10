@@ -63,15 +63,12 @@ static int mdd_xattr_get(const struct lu_env *env,
                          const char *name);
 
 int mdd_la_get(const struct lu_env *env, struct mdd_object *obj,
-               struct lu_attr *la, struct lustre_capa *capa)
+	       struct lu_attr *la, struct lustre_capa *capa)
 {
-        if (mdd_object_exists(obj) == 0) {
-                CERROR("%s: object "DFID" not found: rc = -2\n",
-                       mdd_obj_dev_name(obj), PFID(mdd_object_fid(obj)));
-                return -ENOENT;
-        }
+	if (!mdd_object_exists(obj))
+		return -ENOENT;
 
-        return mdo_attr_get(env, obj, la, capa);
+	return mdo_attr_get(env, obj, la, capa);
 }
 
 void mdd_flags_xlate(struct mdd_object *obj, __u32 flags)
@@ -237,11 +234,8 @@ static int mdd_xattr_get(const struct lu_env *env,
 
         ENTRY;
 
-        if (mdd_object_exists(mdd_obj) == 0) {
-                CERROR("%s: object "DFID" not found: rc = -2\n",
-                       mdd_obj_dev_name(mdd_obj),PFID(mdd_object_fid(mdd_obj)));
-                return -ENOENT;
-        }
+	if (!mdd_object_exists(mdd_obj))
+		RETURN(-ENOENT);
 
 	/* If the object has been delete from the namespace, then
 	 * get linkEA should return -ENOENT as well */
@@ -270,11 +264,8 @@ int mdd_readlink(const struct lu_env *env, struct md_object *obj,
         int                rc;
         ENTRY;
 
-        if (mdd_object_exists(mdd_obj) == 0) {
-                CERROR("%s: object "DFID" not found: rc = -2\n",
-                       mdd_obj_dev_name(mdd_obj),PFID(mdd_object_fid(mdd_obj)));
-                return -ENOENT;
-        }
+	if (!mdd_object_exists(mdd_obj))
+		RETURN(-ENOENT);
 
         next = mdd_object_child(mdd_obj);
 	LASSERT(next != NULL);
@@ -1949,11 +1940,8 @@ int mdd_readpage(const struct lu_env *env, struct md_object *obj,
         int rc;
         ENTRY;
 
-        if (mdd_object_exists(mdd_obj) == 0) {
-                CERROR("%s: object "DFID" not found: rc = -2\n",
-                       mdd_obj_dev_name(mdd_obj),PFID(mdd_object_fid(mdd_obj)));
-                return -ENOENT;
-        }
+	if (!mdd_object_exists(mdd_obj))
+		RETURN(-ENOENT);
 
         mdd_read_lock(env, mdd_obj, MOR_TGT_CHILD);
         rc = mdd_readpage_sanity_check(env, mdd_obj);
@@ -2014,14 +2002,9 @@ static int mdd_object_sync(const struct lu_env *env, struct md_object *obj)
 {
 	struct mdd_object *mdd_obj = md2mdd_obj(obj);
 
-	if (mdd_object_exists(mdd_obj) == 0) {
-		int rc = -ENOENT;
+	if (!mdd_object_exists(mdd_obj))
+		return -ENOENT;
 
-		CERROR("%s: object "DFID" not found: rc = %d\n",
-		       mdd_obj_dev_name(mdd_obj),
-		       PFID(mdd_object_fid(mdd_obj)), rc);
-		return rc;
-	}
 	return dt_object_sync(env, mdd_object_child(mdd_obj),
 			      0, OBD_OBJECT_EOF);
 }

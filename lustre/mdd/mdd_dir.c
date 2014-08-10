@@ -1576,7 +1576,7 @@ static int mdd_unlink(const struct lu_env *env, struct md_object *pobj,
 	/* cobj == NULL means only delete name entry */
 	if (likely(cobj != NULL)) {
 		mdd_cobj = md2mdd_obj(cobj);
-		if (mdd_object_exists(mdd_cobj) == 0)
+		if (!mdd_object_exists(mdd_cobj))
 			RETURN(-ENOENT);
 	}
 
@@ -2443,8 +2443,8 @@ out_free:
 
 	/* The child object shouldn't be cached anymore */
 	if (rc)
-		set_bit(LU_OBJECT_HEARD_BANSHEE,
-			&child->mo_lu.lo_header->loh_flags);
+		lu_object_kill(&child->mo_lu);
+
 	return rc;
 }
 

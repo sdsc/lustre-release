@@ -825,7 +825,7 @@ int lfsck_create_lpf(const struct lu_env *env, struct lfsck_instance *lfsck)
 	if (IS_ERR(child))
 		GOTO(unlock, rc = PTR_ERR(child));
 
-	if (dt_object_exists(child) != 0) {
+	if (dt_object_exists(child)) {
 		if (unlikely(!dt_try_as_dir(env, child)))
 			rc = -ENOTDIR;
 		else

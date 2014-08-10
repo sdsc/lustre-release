@@ -932,7 +932,7 @@ lfsck_layout_lastid_create(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	dt_write_lock(env, obj, 0);
-	if (likely(dt_object_exists(obj) == 0)) {
+	if (likely(!dt_object_exists(obj))) {
 		rc = dt_create(env, obj, la, NULL, dof, th);
 		if (rc == 0)
 			rc = dt_record_write(env, obj,
@@ -1090,7 +1090,7 @@ lfsck_layout_lastid_load(const struct lu_env *env,
 		RETURN(PTR_ERR(obj));
 
 	/* LAST_ID crashed, to be rebuilt */
-	if (dt_object_exists(obj) == 0) {
+	if (!dt_object_exists(obj)) {
 		if (!(lo->ll_flags & LF_CRASHED_LASTID)) {
 			LASSERT(lfsck->li_out_notify != NULL);
 
@@ -2215,8 +2215,7 @@ static int lfsck_layout_slave_conditional_destroy(const struct lu_env *env,
 		RETURN(PTR_ERR(obj));
 
 	dt_read_lock(env, obj, 0);
-	if (dt_object_exists(obj) == 0 ||
-	    lfsck_is_dead_obj(obj)) {
+	if (!dt_object_exists(obj) || dt_object_is_dying(obj)) {
 		dt_read_unlock(env, obj);
 
 		GOTO(put, rc = -ENOENT);
@@ -2711,10 +2710,10 @@ static int lfsck_layout_scan_orphan_one(const struct lu_env *env,
 	if (IS_ERR(parent))
 		GOTO(out, rc = PTR_ERR(parent));
 
-	if (unlikely(dt_object_remote(parent) != 0))
+	if (unlikely(dt_object_remote(parent)))
 		GOTO(put, rc = -EXDEV);
 
-	if (dt_object_exists(parent) == 0) {
+	if (!dt_object_exists(parent)) {
 		lu_object_put(env, &parent->do_lu);
 		rc = lfsck_layout_recreate_parent(env, com, ltd, rec, cfid,
 						  "", "R", ea_off);
@@ -2934,7 +2933,7 @@ static int lfsck_layout_repair_dangling(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	dt_read_lock(env, parent, 0);
-	if (unlikely(lfsck_is_dead_obj(parent)))
+	if (unlikely(dt_object_is_dying(parent)))
 		GOTO(unlock2, rc = 1);
 
 	rc = dt_create(env, child, cla, hint, NULL, handle);
@@ -3023,7 +3022,7 @@ static int lfsck_layout_repair_unmatched_pair(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	dt_write_lock(env, parent, 0);
-	if (unlikely(lfsck_is_dead_obj(parent)))
+	if (unlikely(dt_object_is_dying(parent)))
 		GOTO(unlock2, rc = 1);
 
 	rc = dt_xattr_set(env, child, buf, XATTR_NAME_FID, 0, handle,
@@ -3127,7 +3126,7 @@ static int lfsck_layout_repair_multiple_references(const struct lu_env *env,
 		GOTO(stop, rc);
 
 	dt_write_lock(env, parent, 0);
-	if (unlikely(lfsck_is_dead_obj(parent)))
+	if (unlikely(dt_object_is_dying(parent)))
 		GOTO(unlock2, rc = 0);
 
 	rc = dt_xattr_get(env, parent, buf, XATTR_NAME_LOV, BYPASS_CAPA);
@@ -3225,7 +3224,7 @@ static int lfsck_layout_repair_owner(const struct lu_env *env,
 
 	/* Use the dt_object lock to serialize with destroy and attr_set. */
 	dt_read_lock(env, parent, 0);
-	if (unlikely(lfsck_is_dead_obj(parent)))
+	if (unlikely(dt_object_is_dying(parent)))
 		GOTO(unlock, rc = 1);
 
 	/* Get the latest parent's owner. */
@@ -3311,8 +3310,7 @@ static int lfsck_layout_check_parent(const struct lu_env *env,
 		RETURN(PTR_ERR(tobj));
 
 	dt_read_lock(env, tobj, 0);
-	if (dt_object_exists(tobj) == 0 ||
-	    lfsck_is_dead_obj(tobj))
+	if (!dt_object_exists(tobj) || dt_object_is_dying(tobj))
 		GOTO(out, rc = LLIT_UNMATCHED_PAIR);
 
 	if (!S_ISREG(lfsck_object_type(tobj)))
@@ -3395,7 +3393,7 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 	int				      rc;
 	ENTRY;
 
-	if (unlikely(lfsck_is_dead_obj(parent)))
+	if (unlikely(dt_object_is_dying(parent)))
 		RETURN(0);
 
 	rc = dt_attr_get(env, parent, pla, BYPASS_CAPA);
@@ -3404,7 +3402,7 @@ static int lfsck_layout_assistant_handle_one(const struct lu_env *env,
 
 	rc = dt_attr_get(env, child, cla, BYPASS_CAPA);
 	if (rc == -ENOENT) {
-		if (unlikely(lfsck_is_dead_obj(parent)))
+		if (unlikely(dt_object_is_dying(parent)))
 			RETURN(0);
 
 		type = LLIT_DANGLING;
@@ -4095,8 +4093,7 @@ static int lfsck_layout_master_check_pairs(const struct lu_env *env,
 		RETURN(PTR_ERR(obj));
 
 	dt_read_lock(env, obj, 0);
-	if (unlikely(dt_object_exists(obj) == 0 ||
-		     lfsck_is_dead_obj(obj)))
+	if (unlikely(!dt_object_exists(obj) || dt_object_is_dying(obj)))
 		GOTO(unlock, rc = -ENOENT);
 
 	if (!S_ISREG(lfsck_object_type(obj)))
@@ -4244,8 +4241,7 @@ static int lfsck_layout_slave_repair_pfid(const struct lu_env *env,
 	fid_cpu_to_le(&ff->ff_parent, &lr->lr_fid2);
 	buf = lfsck_buf_get(env, ff, sizeof(*ff));
 	dt_write_lock(env, obj, 0);
-	if (unlikely(dt_object_exists(obj) == 0 ||
-		     lfsck_is_dead_obj(obj)))
+	if (unlikely(!dt_object_exists(obj) || dt_object_is_dying(obj)))
 		GOTO(unlock, rc = 0);
 
 	th = dt_trans_create(env, dev);
@@ -4630,7 +4626,7 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 			     thread_is_stopped(athread))
 			GOTO(out, rc = 0);
 
-		if (unlikely(lfsck_is_dead_obj(parent)))
+		if (unlikely(dt_object_is_dying(parent)))
 			GOTO(out, rc = 0);
 
 		ostid_le_to_cpu(&objs->l_ost_oi, oi);
@@ -4684,7 +4680,7 @@ static int lfsck_layout_scan_stripes(const struct lu_env *env,
 		 * So avoid above deadlock. LU-5395 */
 		cobj = lfsck_object_find_by_dev_nowait(env, tgt->ltd_tgt, fid);
 		if (IS_ERR(cobj)) {
-			if (lfsck_is_dead_obj(parent)) {
+			if (dt_object_is_dying(parent)) {
 				lfsck_tgt_put(tgt);
 
 				GOTO(out, rc = 0);
@@ -4804,8 +4800,7 @@ static int lfsck_layout_master_exec_oit(const struct lu_env *env,
 	locked = true;
 
 again:
-	if (dt_object_exists(obj) == 0 ||
-	    lfsck_is_dead_obj(obj))
+	if (!dt_object_exists(obj) || dt_object_is_dying(obj))
 		GOTO(out, rc = 0);
 
 	rc = lfsck_layout_get_lovea(env, obj, buf);
@@ -6366,8 +6361,7 @@ again1:
 	}
 
 	dt_read_lock(env, obj, 0);
-	if (dt_object_exists(obj) == 0 ||
-	    lfsck_is_dead_obj(obj)) {
+	if (!dt_object_exists(obj) || dt_object_is_dying(obj)) {
 		dt_read_unlock(env, obj);
 		lfsck_object_put(env, obj);
 		pos++;

@@ -281,7 +281,8 @@ static int mdt_remote_permission(struct mdt_thread_info *info,
 
 	/* Only check create remote directory, striped directory and
 	 * migration */
-	if (mdt_object_remote(parent) == 0 && mdt_object_remote(child) == 0 &&
+	if (!mdt_object_remote(parent) &&
+	    !mdt_object_remote(child) &&
 	    !(S_ISDIR(attr->la_mode) && spec->u.sp_ea.eadata != NULL &&
 					spec->u.sp_ea.eadatalen != 0) &&
 	    info->mti_rr.rr_opcode != REINT_MIGRATE)
@@ -570,7 +571,7 @@ int mdt_attr_set(struct mdt_thread_info *info, struct mdt_object *mo,
 	if (rc != 0)
 		GOTO(out_unlock, rc);
 
-        if (mdt_object_exists(mo) == 0)
+	if (!mdt_object_exists(mo))
                 GOTO(out_unlock, rc = -ENOENT);
 
         /* all attrs are packed into mti_attr in unpack_setattr */
@@ -1033,7 +1034,7 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 
 	mutex_unlock(&mc->mot_lov_mutex);
 
-	if (rc == 0 && !lu_object_is_dying(&mc->mot_header))
+	if (rc == 0 && !lu_object_is_dying(&mc->mot_obj))
 		rc = mdt_attr_get_complex(info, mc, ma);
 	if (rc == 0)
 		mdt_handle_last_unlink(info, mc, ma);

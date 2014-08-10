@@ -284,7 +284,7 @@ static int out_create(struct tgt_session_info *tsi)
 		}
 	}
 
-	if (lu_object_exists(&obj->do_lu))
+	if (dt_object_exists(obj))
 		RETURN(-EEXIST);
 
 	rc = out_tx_create(tsi->tsi_env, obj, attr, fid, dof,
@@ -401,13 +401,13 @@ static int out_attr_get(struct tgt_session_info *tsi)
 
 	ENTRY;
 
-	if (!lu_object_exists(&obj->do_lu)) {
+	if (!dt_object_exists(obj)) {
 		/* Usually, this will be called when the master MDT try
 		 * to init a remote object(see osp_object_init), so if
 		 * the object does not exist on slave, we need set BANSHEE flag,
 		 * so the object can be removed from the cache immediately */
-		set_bit(LU_OBJECT_HEARD_BANSHEE,
-			&obj->do_lu.lo_header->loh_flags);
+		dt_object_kill(obj);
+
 		RETURN(-ENOENT);
 	}
 
@@ -448,9 +448,8 @@ static int out_xattr_get(struct tgt_session_info *tsi)
 
 	ENTRY;
 
-	if (!lu_object_exists(&obj->do_lu)) {
-		set_bit(LU_OBJECT_HEARD_BANSHEE,
-			&obj->do_lu.lo_header->loh_flags);
+	if (!dt_object_exists(obj)) {
+		dt_object_kill(obj);
 		RETURN(-ENOENT);
 	}
 
@@ -507,7 +506,7 @@ static int out_index_lookup(struct tgt_session_info *tsi)
 
 	ENTRY;
 
-	if (!lu_object_exists(&obj->do_lu))
+	if (!dt_object_exists(obj))
 		RETURN(-ENOENT);
 
 	name = object_update_param_get(update, 0, NULL);
@@ -558,7 +557,7 @@ static int out_tx_xattr_set_exec(const struct lu_env *env,
 	       dt_obd_name(th->th_dev), arg->u.xattr_set.buf.lb_buf,
 	       arg->u.xattr_set.name, arg->u.xattr_set.flags);
 
-	if (!lu_object_exists(&dt_obj->do_lu))
+	if (!dt_object_exists(dt_obj))
 		GOTO(out, rc = -ENOENT);
 
 	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
@@ -671,7 +670,7 @@ static int out_tx_xattr_del_exec(const struct lu_env *env, struct thandle *th,
 	       dt_obd_name(th->th_dev), arg->u.xattr_set.name,
 	       PFID(lu_object_fid(&dt_obj->do_lu)));
 
-	if (!lu_object_exists(&dt_obj->do_lu))
+	if (!dt_object_exists(dt_obj))
 		GOTO(out, rc = -ENOENT);
 
 	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
@@ -880,7 +879,7 @@ static int out_ref_del(struct tgt_session_info *tsi)
 
 	ENTRY;
 
-	if (!lu_object_exists(&obj->do_lu))
+	if (!dt_object_exists(obj))
 		RETURN(-ENOENT);
 
 	rc = out_tx_ref_del(tsi->tsi_env, obj, &tti->tti_tea,
@@ -1115,7 +1114,7 @@ static int out_index_delete(struct tgt_session_info *tsi)
 	char			*name;
 	int			 rc = 0;
 
-	if (!lu_object_exists(&obj->do_lu))
+	if (!dt_object_exists(obj))
 		RETURN(-ENOENT);
 
 	name = object_update_param_get(update, 0, NULL);
@@ -1197,7 +1196,7 @@ static int out_destroy(struct tgt_session_info *tsi)
 		RETURN(err_serious(-EPROTO));
 	}
 
-	if (!lu_object_exists(&obj->do_lu))
+	if (!dt_object_exists(obj))
 		RETURN(-ENOENT);
 
 	rc = out_tx_destroy(tsi->tsi_env, obj, &tti->tti_tea,
@@ -1393,8 +1392,8 @@ static int out_trans_stop(const struct lu_env *env,
 			 * missing in OUT handler, i.e. the object might
 			 * not be initialized in all layers */
 			if (ta->ta_args[i]->exec_fn == out_tx_create_exec)
-				set_bit(LU_OBJECT_HEARD_BANSHEE,
-					&obj->do_lu.lo_header->loh_flags);
+				dt_object_kill(obj);
+
 			lu_object_put(env, &ta->ta_args[i]->object->do_lu);
 			ta->ta_args[i]->object = NULL;
 		}

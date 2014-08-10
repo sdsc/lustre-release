@@ -616,7 +616,7 @@ static int osd_object_destroy(const struct lu_env *env,
 
 	LASSERT(obj->oo_db != NULL);
 	LASSERT(dt_object_exists(dt));
-	LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
+	LASSERT(!dt_object_is_dying(dt));
 
 	oh = container_of0(th, struct osd_thandle, ot_super);
 	LASSERT(oh != NULL);
@@ -658,7 +658,7 @@ static int osd_object_destroy(const struct lu_env *env,
 
 out:
 	/* not needed in the cache anymore */
-	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);
+	dt_object_kill(dt);
 
 	RETURN (0);
 }
@@ -1615,7 +1615,7 @@ static int osd_object_ref_del(const struct lu_env *env,
 	LASSERT(obj->oo_sa_hdl != NULL);
 
 	oh = container_of0(handle, struct osd_thandle, ot_super);
-	LASSERT(!lu_object_is_dying(dt->do_lu.lo_header));
+	LASSERT(!dt_object_is_dying(dt));
 
 	write_lock(&obj->oo_attr_lock);
 	nlink = --obj->oo_attr.la_nlink;

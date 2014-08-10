@@ -1817,14 +1817,24 @@ int  dt_object_init(struct dt_object *obj,
 
 void dt_object_fini(struct dt_object *obj);
 
-static inline int dt_object_exists(const struct dt_object *dt)
+static inline bool dt_object_exists(const struct dt_object *dt)
 {
-        return lu_object_exists(&dt->do_lu);
+	return lu_object_exists(&dt->do_lu);
 }
 
-static inline int dt_object_remote(const struct dt_object *dt)
+static inline bool dt_object_remote(const struct dt_object *dt)
 {
 	return lu_object_remote(&dt->do_lu);
+}
+
+static inline bool dt_object_is_dying(const struct dt_object *dt)
+{
+	return lu_object_is_dying(&dt->do_lu);
+}
+
+static inline void dt_object_kill(struct dt_object *dt)
+{
+	lu_object_kill(&dt->do_lu);
 }
 
 static inline struct dt_object *lu2dt_obj(struct lu_object *o)

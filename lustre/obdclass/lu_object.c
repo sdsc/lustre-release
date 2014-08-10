@@ -129,7 +129,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
         bkt = cfs_hash_bd_extra_get(site->ls_obj_hash, &bd);
 
 	if (!cfs_hash_bd_dec_and_lock(site->ls_obj_hash, &bd, &top->loh_ref)) {
-		if (lu_object_is_dying(top)) {
+		if (lu_object_is_dying(orig)) {
 
 			/*
 			 * somebody may be waiting for this, currently only
@@ -151,7 +151,7 @@ void lu_object_put(const struct lu_env *env, struct lu_object *o)
                         o->lo_ops->loo_object_release(env, o);
         }
 
-        if (!lu_object_is_dying(top)) {
+	if (!lu_object_is_dying(orig)) {
 		LASSERT(list_empty(&top->loh_lru));
 		list_add_tail(&top->loh_lru, &bkt->lsb_lru);
                 cfs_hash_bd_unlock(site->ls_obj_hash, &bd, 1);
@@ -186,8 +186,8 @@ EXPORT_SYMBOL(lu_object_put);
  */
 void lu_object_put_nocache(const struct lu_env *env, struct lu_object *o)
 {
-	set_bit(LU_OBJECT_HEARD_BANSHEE, &o->lo_header->loh_flags);
-	return lu_object_put(env, o);
+	lu_object_kill(o);
+	lu_object_put(env, o);
 }
 EXPORT_SYMBOL(lu_object_put_nocache);
 
@@ -199,8 +199,9 @@ void lu_object_unhash(const struct lu_env *env, struct lu_object *o)
 {
 	struct lu_object_header *top;
 
+	lu_object_kill(o);
+
 	top = o->lo_header;
-	set_bit(LU_OBJECT_HEARD_BANSHEE, &top->loh_flags);
 	if (!test_and_set_bit(LU_OBJECT_UNHASHED, &top->loh_flags)) {
 		cfs_hash_t *obj_hash = o->lo_dev->ld_site->ls_obj_hash;
 		cfs_hash_bd_t bd;
@@ -591,8 +592,8 @@ static struct lu_object *htable_lookup(struct lu_site *s,
 		return ERR_PTR(-ENOENT);
         }
 
-        h = container_of0(hnode, struct lu_object_header, loh_hash);
-        if (likely(!lu_object_is_dying(h))) {
+	h = container_of0(hnode, struct lu_object_header, loh_hash);
+	if (likely(!lu_object_header_is_dying(h))) {
 		cfs_hash_get(s->ls_obj_hash, hnode);
                 lprocfs_counter_incr(s->ls_stats, LU_SS_CACHE_HIT);
 		list_del_init(&h->loh_lru);
@@ -631,7 +632,7 @@ static struct lu_object *htable_lookup_nowait(struct lu_site *s,
 	}
 
 	h = container_of0(hnode, struct lu_object_header, loh_hash);
-	if (unlikely(lu_object_is_dying(h)))
+	if (unlikely(lu_object_header_is_dying(h)))
 		return ERR_PTR(-ENOENT);
 
 	cfs_hash_get(s->ls_obj_hash, hnode);
@@ -835,7 +836,7 @@ void lu_object_purge(const struct lu_env *env, struct lu_device *dev,
 	o = htable_lookup_nowait(s, &bd, f);
 	cfs_hash_bd_unlock(hs, &bd, 1);
 	if (!IS_ERR(o)) {
-		set_bit(LU_OBJECT_HEARD_BANSHEE, &o->lo_header->loh_flags);
+		lu_object_kill(o);
 		lu_object_put(env, o);
 	}
 }
