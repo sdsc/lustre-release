@@ -535,7 +535,10 @@ int llog_cat_process_cb(const struct lu_env *env, struct llog_handle *cat_llh,
 		CERROR("%s: cannot find handle for llog "DOSTID": %d\n",
 		       cat_llh->lgh_ctxt->loc_obd->obd_name,
 		       POSTID(&lir->lid_id.lgl_oi), rc);
-		RETURN(rc);
+		if (rc == -ENOENT)
+			RETURN(LLOG_DEL_RECORD);
+		else
+			RETURN(rc);
 	}
 
 	/* clean old empty llogs, do not consider current llog in use */
