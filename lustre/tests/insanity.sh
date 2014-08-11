@@ -13,7 +13,7 @@ init_test_env $@
 
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
-#              
+#
 ALWAYS_EXCEPT="15  $INSANITY_EXCEPT"
 
 if [ "$FAILURE_MODE" = "HARD" ]; then
@@ -70,7 +70,7 @@ fail_clients() {
 	if [ -z "$num"  ] || [ "$num" -gt $((FAIL_NUM - DOWN_NUM)) ]; then
 		num=$((FAIL_NUM - DOWN_NUM))
 	fi
-    
+
     if [ -z "$num" ] || [ "$num" -le 0 ]; then
         log "No clients failed!"
         return
