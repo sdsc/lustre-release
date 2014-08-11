@@ -295,6 +295,7 @@ struct lod_thread_info {
 	struct lu_name	  lti_name;
 	struct lu_buf	  lti_linkea_buf;
 	struct dt_insert_rec lti_dt_rec;
+	unsigned short	  lti_update_ops[OUT_LAST];
 };
 
 extern const struct lu_device_operations lod_lu_ops;
@@ -479,5 +480,83 @@ int lod_striping_create(const struct lu_env *env, struct dt_object *dt,
 			struct thandle *th);
 void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo);
 
+union update_record *records_get_single_record(struct update_records *records,
+					       int index);
+/* lod_sub_object.c */
+int lod_sub_object_declare_create(const struct lu_env *env,
+				  struct dt_object *dt,
+				  struct lu_attr *attr,
+				  struct dt_allocation_hint *hint,
+				  struct dt_object_format *dof,
+				  struct thandle *th);
+int lod_sub_object_create(const struct lu_env *env, struct dt_object *dt,
+			  struct lu_attr *attr,
+			  struct dt_allocation_hint *hint,
+			  struct dt_object_format *dof,
+			  struct thandle *th);
+int lod_sub_object_declare_ref_add(const struct lu_env *env,
+				   struct dt_object *dt,
+				   struct thandle *th);
+int lod_sub_object_ref_add(const struct lu_env *env, struct dt_object *dt,
+			   struct thandle *th);
+int lod_sub_object_declare_ref_del(const struct lu_env *env,
+				   struct dt_object *dt,
+				   struct thandle *th);
+int lod_sub_object_ref_del(const struct lu_env *env, struct dt_object *dt,
+			   struct thandle *th);
+int lod_sub_object_declare_destroy(const struct lu_env *env,
+				   struct dt_object *dt,
+				   struct thandle *th);
+int lod_sub_object_destroy(const struct lu_env *env, struct dt_object *dt,
+			   struct thandle *th);
+int lod_sub_object_declare_insert(const struct lu_env *env,
+				  struct dt_object *dt,
+				  const struct dt_rec *rec,
+				  const struct dt_key *key,
+				  struct thandle *th);
+int lod_sub_object_index_insert(const struct lu_env *env, struct dt_object *dt,
+				const struct dt_rec *rec,
+				const struct dt_key *key, struct thandle *th,
+				struct lustre_capa *capa, int ign);
+int lod_sub_object_declare_delete(const struct lu_env *env,
+				  struct dt_object *dt,
+				  const struct dt_key *key,
+				  struct thandle *th);
+int lod_sub_object_delete(const struct lu_env *env, struct dt_object *dt,
+			  const struct dt_key *name, struct thandle *th,
+			  struct lustre_capa *capa);
+int lod_sub_object_declare_xattr_set(const struct lu_env *env,
+				     struct dt_object *dt,
+				     const struct lu_buf *buf,
+				     const char *name, int fl,
+				     struct thandle *th);
+int lod_sub_object_xattr_set(const struct lu_env *env, struct dt_object *dt,
+			     const struct lu_buf *buf, const char *name, int fl,
+			     struct thandle *th, struct lustre_capa *capa);
+int lod_sub_object_declare_attr_set(const struct lu_env *env,
+				    struct dt_object *dt,
+				    const struct lu_attr *attr,
+				    struct thandle *th);
+int lod_sub_object_attr_set(const struct lu_env *env,
+			    struct dt_object *dt,
+			    const struct lu_attr *attr,
+			    struct thandle *th,
+			    struct lustre_capa *capa);
+int lod_sub_object_declare_xattr_del(const struct lu_env *env,
+				     struct dt_object *dt,
+				     const char *name,
+				     struct thandle *th);
+int lod_sub_object_xattr_del(const struct lu_env *env,
+			     struct dt_object *dt,
+			     const char *name,
+			     struct thandle *th,
+			     struct lustre_capa *capa);
+int lod_sub_object_declare_write(const struct lu_env *env,
+				 struct dt_object *dt,
+				 const struct lu_buf *buf, loff_t pos,
+				 struct thandle *th);
+int lod_sub_object_write(const struct lu_env *env, struct dt_object *dt,
+			 const struct lu_buf *buf, loff_t *pos,
+			 struct thandle *th, struct lustre_capa *capa,
+			 int rq);
 #endif
-
