@@ -339,8 +339,11 @@ int osp_insert_async_request(const struct lu_env *env, enum update_type op,
 			     osp_update_interpreter_t interpreter)
 {
 	struct osp_device	     *osp = lu2osp_dev(osp2lu_obj(obj)->lo_dev);
-	struct dt_update_request     *update;
-	int			      rc  = 0;
+	struct dt_update_request	*update;
+	struct object_update		*object_update;
+	size_t				max_update_size;
+	struct object_update_request	*ureq;
+	int				rc = 0;
 	ENTRY;
 
 	update = osp_find_or_create_async_update_request(osp);
@@ -348,10 +351,15 @@ int osp_insert_async_request(const struct lu_env *env, enum update_type op,
 		RETURN(PTR_ERR(update));
 
 again:
-	/* The queue is full. */
-	rc = out_update_pack(env, &update->dur_buf, op,
+	ureq = update->dur_buf.ub_req;
+	max_update_size = update->dur_buf.ub_req_size -
+			    object_update_request_size(ureq);
+
+	object_update = update_buffer_get_update(ureq, ureq->ourq_count);
+	rc = out_update_pack(env, object_update, max_update_size, op,
 			     lu_object_fid(osp2lu_obj(obj)), count, lens, bufs,
 			     0);
+	/* The queue is full. */
 	if (rc == -E2BIG) {
 		osp->opd_async_requests = NULL;
 		mutex_unlock(&osp->opd_async_requests_mutex);
@@ -419,6 +427,7 @@ struct thandle *osp_trans_create(const struct lu_env *env, struct dt_device *d)
 {
 	struct osp_thandle	*oth;
 	struct thandle		*th = NULL;
+	struct osp_device	*osp = dt2osp_dev(d);
 	ENTRY;
 
 	OBD_ALLOC_PTR(oth);
@@ -428,6 +437,9 @@ struct thandle *osp_trans_create(const struct lu_env *env, struct dt_device *d)
 	th = &oth->ot_super;
 	th->th_dev = d;
 	th->th_tags = LCT_TX_HANDLE;
+
+	if (osp->opd_connect_mdt)
+		th->th_remote_mdt = 1;
 
 	RETURN(th);
 }
@@ -468,7 +480,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 	args->oaua_update = dt_update;
 	args->oaua_flow_control = flow_control;
 	req->rq_interpret_reply = osp_update_interpret;
-	if (!th->th_sync) {
+	if (!th->th_remote_mdt) {
 		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	} else {
 		rc = ptlrpc_queue_wait(req);
@@ -499,13 +511,9 @@ int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 {
 	struct osp_thandle	 *oth = thandle_to_osp_thandle(th);
 
+	/* No update requests from this OSP */
 	if (oth->ot_dur == NULL)
 		return 0;
-
-	/* XXX all of mixed transaction (see struct th_handle) will
-	 * be synchronized until async update is done */
-	if (!is_only_remote_trans(th))
-		th->th_sync = 1;
 
 	return 0;
 }
@@ -549,7 +557,7 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		GOTO(out, rc);
 	}
 
-	if (!th->th_sync) {
+	if (!th->th_remote_mdt) {
 		struct osp_device *osp = dt2osp_dev(th->th_dev);
 		struct client_obd *cli = &osp->opd_obd->u.cli;
 
