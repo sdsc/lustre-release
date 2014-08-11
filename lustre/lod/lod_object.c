@@ -1626,19 +1626,18 @@ out:
 }
 
 /**
- * Create a striped directory.
+ * Declare create a striped directory.
  *
- * Create a striped directory with a given stripe pattern on the specified MDTs.
- * A striped directory is represented as a regular directory - an index listing
- * all the stripes. The stripes point back to the master object with ".." and
- * LinkEA. The master object gets LMV EA which identifies it as a striped
- * directory. The function allocates FIDs for all the stripes.
+ * Declare creating a striped directory with a given stripe pattern on the
+ * specified MDTs. A striped directory is represented as a regular directory
+ * - an index listing all the stripes. The stripes point back to the master
+ * object with ".." and LinkEA. The master object gets LMV EA which
+ * identifies it as a striped directory. The function allocates FIDs
+ * for all stripes.
  *
  * \param[in] env	execution environment
  * \param[in] dt	object
  * \param[in] attr	attributes to initialize the objects with
- * \param[in] lum	a pattern specifying the number of stripes and
- *			MDT to start from
  * \param[in] dof	type of objects to be created
  * \param[in] th	transaction handle
  *
