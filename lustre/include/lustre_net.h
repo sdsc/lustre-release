@@ -364,9 +364,9 @@
 /**
  * The update request includes all of updates from the create, which might
  * include linkea (4K maxim), together with other updates, we set it to 9K:
- * lustre_msg + ptlrpc_body + UPDATE_BUF_SIZE (8K)
+ * lustre_msg + ptlrpc_body + UPDATE_BUF_SIZE (1000K)
  */
-#define OUT_MAXREQSIZE	(9 * 1024)
+#define OUT_MAXREQSIZE	(1000 * 1024)
 #define OUT_MAXREPSIZE	MDS_MAXREPSIZE
 
 /** MDS_BUFSIZE = max_reqsize (w/o LOV EA) + max sptlrpc payload size */
