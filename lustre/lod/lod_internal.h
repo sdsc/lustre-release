@@ -296,7 +296,6 @@ struct lod_thread_info {
 	struct lu_name	  lti_name;
 	struct lu_buf	  lti_linkea_buf;
 	struct dt_insert_rec lti_dt_rec;
-	unsigned short	  lti_update_ops[OUT_LAST];
 };
 
 extern const struct lu_device_operations lod_lu_ops;
@@ -487,7 +486,8 @@ void lod_object_free_striping(const struct lu_env *env, struct lod_object *lo);
 /* lod_sub_object.c */
 struct thandle *lod_sub_get_thandle(const struct lu_env *env,
 				    struct thandle *th,
-				    const struct dt_object *sub_obj);
+				    const struct dt_object *sub_obj,
+				    bool *record_update);
 int lod_sub_object_declare_create(const struct lu_env *env,
 				  struct dt_object *dt,
 				  struct lu_attr *attr,

@@ -697,7 +697,7 @@ static struct dt_object *lod_qos_declare_object_on(const struct lu_env *env,
 
 	dt = container_of(n, struct dt_object, do_lu);
 
-	sub_th = lod_sub_get_thandle(env, th, dt);
+	sub_th = lod_sub_get_thandle(env, th, dt, NULL);
 	if (IS_ERR(sub_th))
 		GOTO(out, dt = ERR_CAST(sub_th));
 
@@ -1906,7 +1906,7 @@ int lod_qos_prep_create(const struct lu_env *env, struct lod_object *lo,
 			o = lo->ldo_stripe[i];
 			LASSERT(o);
 
-			sub_th = lod_sub_get_thandle(env, th, o);
+			sub_th = lod_sub_get_thandle(env, th, o, NULL);
 			if (IS_ERR(sub_th))
 				GOTO(out, rc = PTR_ERR(sub_th));
 
