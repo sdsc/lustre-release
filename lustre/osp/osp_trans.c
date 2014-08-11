@@ -163,6 +163,31 @@ void dt_update_request_destroy(struct dt_update_request *dt_update)
 	return;
 }
 
+static void
+object_update_request_dump(const struct object_update_request *ourq,
+			   __u32 umask)
+{
+	unsigned int i;
+	size_t total_size = 0;
+
+	for (i = 0; i < ourq->ourq_count; i++) {
+		struct object_update	*update;
+		size_t			size = 0;
+
+		update = object_update_request_get(ourq, i, &size);
+		CDEBUG(umask, "i: %u fid: "DFID" op: %s master: %u params %d"
+		       "batchid: "LPU64" size %lu\n", i, PFID(&update->ou_fid),
+		       update_op_str(update->ou_type),
+		       update->ou_master_index, update->ou_params_count,
+		       update->ou_batchid, (unsigned long)size);
+
+		total_size += size;
+	}
+
+	CDEBUG(umask, "updates %p magic %x count %d size %lu\n", ourq,
+	       ourq->ourq_magic, ourq->ourq_count, (unsigned long)total_size);
+}
+
 /**
  * Prepare update request.
  *
@@ -187,6 +212,7 @@ int osp_prep_update_req(const struct lu_env *env, struct obd_import *imp,
 	int				rc;
 	ENTRY;
 
+	object_update_request_dump(ureq, D_INFO);
 	req = ptlrpc_request_alloc(imp, &RQF_OUT_UPDATE);
 	if (req == NULL)
 		RETURN(-ENOMEM);
@@ -519,8 +545,11 @@ int osp_insert_async_request(const struct lu_env *env, enum update_type op,
 			     osp_update_interpreter_t interpreter)
 {
 	struct osp_device	     *osp = lu2osp_dev(osp2lu_obj(obj)->lo_dev);
-	struct dt_update_request     *update;
-	int			      rc  = 0;
+	struct dt_update_request	*update;
+	struct object_update		*object_update;
+	size_t				max_update_size;
+	struct object_update_request	*ureq;
+	int				rc = 0;
 	ENTRY;
 
 	update = osp_find_or_create_async_update_request(osp);
@@ -528,10 +557,14 @@ int osp_insert_async_request(const struct lu_env *env, enum update_type op,
 		RETURN(PTR_ERR(update));
 
 again:
+	ureq = update->dur_buf.ub_req;
+	max_update_size = update->dur_buf.ub_req_size -
+			    object_update_request_size(ureq);
+
+	object_update = update_buffer_get_update(ureq, ureq->ourq_count);
+	rc = out_update_pack(env, object_update, max_update_size, op,
+			     lu_object_fid(osp2lu_obj(obj)), count, lens, bufs);
 	/* The queue is full. */
-	rc = out_update_pack(env, &update->dur_buf, op,
-			     lu_object_fid(osp2lu_obj(obj)), count, lens, bufs,
-			     0);
 	if (rc == -E2BIG) {
 		osp->opd_async_requests = NULL;
 		mutex_unlock(&osp->opd_async_requests_mutex);
@@ -567,9 +600,13 @@ int osp_trans_update_request_create(struct thandle *th)
 		return PTR_ERR(update);
 	}
 
+	if (dt2osp_dev(th->th_dev)->opd_connect_mdt)
+		update->dur_flags = UPDATE_FL_SYNC;
+
 	oth->ot_dur = update;
 	return 0;
 }
+
 /**
  * The OSP layer dt_device_operations::dt_trans_create() interface
  * to create a transaction.
@@ -734,7 +771,7 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		GOTO(out, rc);
 	}
 
-	if (!th->th_sync) {
+	if (is_only_remote_trans(th)) {
 		struct osp_device *osp = dt2osp_dev(th->th_dev);
 		struct client_obd *cli = &osp->opd_obd->u.cli;
 
