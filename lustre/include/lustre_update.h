@@ -33,7 +33,9 @@
 #include <lustre_net.h>
 
 #define OUT_UPDATE_INIT_BUFFER_SIZE	8192
-#define OUT_UPDATE_REPLY_SIZE		8192
+
+/* 16k, right now the biggest reply size is readding llog header(8k) */
+#define OUT_UPDATE_REPLY_SIZE		16384
 
 struct dt_object;
 struct dt_object_hint;
@@ -153,8 +155,12 @@ update_records_get_params(const struct update_records *records)
 static inline int
 update_records_size(const struct update_records *records)
 {
+	struct update_params *params;
+
+	params = update_records_get_params(records);
+
 	return sizeof(*records) +
-	       update_params_size(&records->ur_params) +
+	       update_params_size(params) +
 	       update_ops_size(&records->ur_ops);
 }
 
@@ -340,6 +346,9 @@ int out_index_lookup_pack(const struct lu_env *env,
 int out_xattr_get_pack(const struct lu_env *env,
 		       struct object_update *update, size_t max_update_size,
 		       const struct lu_fid *fid, const char *name);
+int out_read_pack(const struct lu_env *env, struct object_update *update,
+		  int max_update_length, const struct lu_fid *fid,
+		  ssize_t size, loff_t pos);
 
 /* update_records.c */
 void update_records_dump(struct update_records *records, unsigned int mask);
