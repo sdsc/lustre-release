@@ -568,8 +568,8 @@ int osp_attr_get(const struct lu_env *env, struct dt_object *dt,
 	if (IS_ERR(update))
 		RETURN(PTR_ERR(update));
 
-	rc = out_attr_get_pack(env, &update->dur_buf,
-			       lu_object_fid(&dt->do_lu));
+	osp_update_rpc_pack(env, attr_get, rc, update,
+			    OUT_ATTR_GET, lu_object_fid(&dt->do_lu));
 	if (rc != 0) {
 		CERROR("%s: Insert update error "DFID": rc = %d\n",
 		       dev->dd_lu_dev.ld_obd->obd_name,
@@ -977,8 +977,8 @@ unlock:
 	if (IS_ERR(update))
 		GOTO(out, rc = PTR_ERR(update));
 
-	rc = out_xattr_get_pack(env, &update->dur_buf,
-				lu_object_fid(&dt->do_lu), name);
+	osp_update_rpc_pack(env, xattr_get, rc, update,
+			    OUT_XATTR_GET, lu_object_fid(&dt->do_lu), name);
 	if (rc != 0) {
 		CERROR("%s: Insert update error "DFID": rc = %d\n",
 		       dname, PFID(lu_object_fid(&dt->do_lu)), rc);
@@ -1169,11 +1169,11 @@ int osp_xattr_set(const struct lu_env *env, struct dt_object *dt,
 	CDEBUG(D_INODE, DFID" set xattr '%s' with size %zd\n",
 	       PFID(lu_object_fid(&dt->do_lu)), name, buf->lb_len);
 
-	rc = out_xattr_set_pack(env, &update->dur_buf,
-				lu_object_fid(&dt->do_lu),
-				buf, name, fl, update->dur_batchid);
+	osp_update_rpc_pack(env, xattr_set, rc, update,
+			    OUT_XATTR_SET, lu_object_fid(&dt->do_lu),
+			    buf, name, fl);
 	if (rc != 0 || o->opo_ooa == NULL)
-		return rc;
+		RETURN(rc);
 
 	oxe = osp_oac_xattr_find_or_add(o, name, buf->lb_len);
 	if (oxe == NULL) {
@@ -1274,8 +1274,8 @@ int osp_xattr_del(const struct lu_env *env, struct dt_object *dt,
 	update = thandle_to_dt_update_request(th);
 	LASSERT(update != NULL);
 
-	rc = out_xattr_del_pack(env, &update->dur_buf, fid, name,
-				update->dur_batchid);
+	osp_update_rpc_pack(env, xattr_del, rc, update,
+			    OUT_XATTR_DEL, fid, name);
 	if (rc != 0 || o->opo_ooa == NULL)
 		return rc;
 
@@ -1585,8 +1585,8 @@ int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 		update = thandle_to_dt_update_request(th);
 		LASSERT(update != NULL);
 
-		rc = out_object_destroy_pack(env, &update->dur_buf,
-			       lu_object_fid(&dt->do_lu), update->dur_batchid);
+		osp_update_rpc_pack(env, object_destroy, rc, update,
+				    OUT_DESTROY, lu_object_fid(&dt->do_lu));
 		if (rc != 0)
 			RETURN(rc);
 	}
