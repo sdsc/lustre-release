@@ -321,6 +321,7 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 
 #define LLOG_CTXT_FLAG_UNINITIALIZED     0x00000001
 #define LLOG_CTXT_FLAG_STOP		 0x00000002
+#define LLOG_CTXT_FLAG_NORMAL_FID	 0x00000004
 
 struct llog_ctxt {
         int                      loc_idx; /* my index the obd array of ctxt's */
