@@ -476,6 +476,14 @@ void lustre_assert_wire_constants(void)
 		 (long long)OUT_INDEX_INSERT);
 	LASSERTF(OUT_INDEX_DELETE == 11, "found %lld\n",
 		 (long long)OUT_INDEX_DELETE);
+	LASSERTF(OUT_WRITE == 12, "found %lld\n",
+		 (long long)OUT_WRITE);
+	LASSERTF(OUT_XATTR_DEL == 13, "found %lld\n",
+		 (long long)OUT_XATTR_DEL);
+	LASSERTF(OUT_PUNCH == 14, "found %lld\n",
+		 (long long)OUT_PUNCH);
+	LASSERTF(OUT_READ == 15, "found %lld\n",
+		 (long long)OUT_READ);
 
 	/* Checks for struct som_attrs */
 	LASSERTF((int)sizeof(struct som_attrs) == 40, "found %lld\n",
@@ -540,7 +548,9 @@ void lustre_assert_wire_constants(void)
 		 (long long)FID_SEQ_LLOG);
 	LASSERTF(FID_SEQ_ECHO == 2, "found %lld\n",
 		 (long long)FID_SEQ_ECHO);
-	LASSERTF(FID_SEQ_OST_MDT1 == 3, "found %lld\n",
+	LASSERTF(FID_SEQ_UPDATE == 3, "found %lld\n",
+		 (long long)FID_SEQ_UPDATE);
+	LASSERTF(FID_SEQ_OST_MDT1 == 4, "found %lld\n",
 		 (long long)FID_SEQ_OST_MDT1);
 	LASSERTF(FID_SEQ_OST_MAX == 9, "found %lld\n",
 		 (long long)FID_SEQ_OST_MAX);
@@ -3812,7 +3822,9 @@ void lustre_assert_wire_constants(void)
 	CLASSERT(LLOG_CHANGELOG_REPL_CTXT == 13);
 	CLASSERT(LLOG_CHANGELOG_USER_ORIG_CTXT == 14);
 	CLASSERT(LLOG_AGENT_ORIG_CTXT == 15);
-	CLASSERT(LLOG_MAX_CTXTS == 16);
+	CLASSERT(LLOG_UPDATELOG_ORIG_CTXT == 16);
+	CLASSERT(LLOG_UPDATELOG_REPL_CTXT == 17);
+	CLASSERT(LLOG_MAX_CTXTS == 18);
 
 	/* Checks for struct llogd_conn_body */
 	LASSERTF((int)sizeof(struct llogd_conn_body) == 40, "found %lld\n",

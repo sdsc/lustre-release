@@ -1252,6 +1252,10 @@ static int out_tx_write_exec(const struct lu_env *env, struct thandle *th,
 	struct dt_object *dt_obj = arg->object;
 	int rc;
 
+	CDEBUG(D_INFO, "write "DFID" pos "LPU64" buf %p, len %lu\n",
+	       PFID(lu_object_fid(&dt_obj->do_lu)), arg->u.write.pos,
+	       arg->u.write.buf.lb_buf, (unsigned long)arg->u.write.buf.lb_len);
+
 	dt_write_lock(env, dt_obj, MOR_TGT_CHILD);
 	rc = dt_record_write(env, dt_obj, &arg->u.write.buf,
 			     &arg->u.write.pos, th);
@@ -1334,6 +1338,80 @@ static int out_write(struct tgt_session_info *tsi)
 	RETURN(rc);
 }
 
+static int out_read(struct tgt_session_info *tsi)
+{
+	const struct lu_env	*env = tsi->tsi_env;
+	struct tgt_thread_info	*tti = tgt_th_info(env);
+	struct object_update	*update = tti->tti_u.update.tti_update;
+	struct dt_object	*obj = tti->tti_u.update.tti_dt_object;
+	struct object_update_reply *reply = tti->tti_u.update.tti_update_reply;
+	int			idx = tti->tti_u.update.tti_update_reply_index;
+	struct object_update_result *update_result;
+	struct lu_buf		*lbuf = &tti->tti_buf;
+	void			*tmp;
+	ssize_t			size;
+	loff_t			pos;
+	int			 rc;
+	ENTRY;
+
+	if (!lu_object_exists(&obj->do_lu))
+		GOTO(out, rc = -ENOENT);
+
+	tmp = object_update_param_get(update, 0, NULL);
+	if (tmp == NULL) {
+		CERROR("%s: empty size for read: rc = %d\n",
+		       tgt_name(tsi->tsi_tgt), -EPROTO);
+		GOTO(out, rc = err_serious(-EPROTO));
+	}
+	size = le64_to_cpu(*(ssize_t *)(tmp));
+
+	tmp = object_update_param_get(update, 1, NULL);
+	if (tmp == NULL) {
+		CERROR("%s: empty pos for read: rc = %d\n",
+		       tgt_name(tsi->tsi_tgt), -EPROTO);
+		GOTO(out, rc = err_serious(-EPROTO));
+	}
+	pos = le64_to_cpu(*(loff_t *)(tmp));
+
+	update_result = object_update_result_get(reply, 0, NULL);
+	if (update_result == NULL) {
+		CERROR("%s: read: rc = %d\n",
+		       tgt_name(tsi->tsi_tgt), -EPROTO);
+		GOTO(out, rc = err_serious(-EPROTO));
+	}
+
+	if (size > OUT_UPDATE_REPLY_SIZE -
+		   cfs_size_round((unsigned long)update_result->our_data -
+				  (unsigned long)update_result) - sizeof(pos)) {
+		CERROR("%s: the biggest read size is 16k: rc = %d\n",
+		       tgt_name(tsi->tsi_tgt), -EPROTO);
+		GOTO(out, rc = err_serious(-EPROTO));
+	}
+
+	/* Put the offset into the begining of the buffer in reply */
+	lbuf->lb_buf = (char *)update_result->our_data + sizeof(pos);
+	lbuf->lb_len = size;
+
+	dt_read_lock(env, obj, MOR_TGT_CHILD);
+	rc = dt_read(env, obj, lbuf, &pos);
+	if (rc < 0)
+		GOTO(out_unlock, rc);
+
+	pos = cpu_to_le64(pos);
+
+	memcpy(update_result->our_data, &pos, sizeof(pos));
+	lbuf->lb_len = rc + sizeof(pos);
+	lbuf->lb_buf = update_result->our_data;
+
+out_unlock:
+	dt_read_unlock(env, obj);
+out:
+	/* Insert read buffer */
+	object_update_result_insert(reply, lbuf->lb_buf, lbuf->lb_len,
+				    idx, rc);
+	RETURN(rc);
+}
+
 #define DEF_OUT_HNDL(opc, name, flags, fn)     \
 [opc - OUT_CREATE] = {					\
 	.th_name    = name,				\
@@ -1371,6 +1449,8 @@ static struct tgt_handler out_update_ops[] = {
 	DEF_OUT_HNDL(OUT_INDEX_DELETE, "out_index_delete",
 		     MUTABOR | HABEO_REFERO, out_index_delete),
 	DEF_OUT_HNDL(OUT_WRITE, "out_write", MUTABOR | HABEO_REFERO, out_write),
+	DEF_OUT_HNDL(OUT_READ, "out_read", HABEO_REFERO, out_read),
+
 };
 
 static struct tgt_handler *out_handler_find(__u32 opc)
