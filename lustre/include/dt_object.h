@@ -1878,7 +1878,7 @@ struct thandle {
 	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
 				th_local:1,
-	/* the transaction will be on the remote MDT */
+	/* This transaction includes remote MDT updates */
 				th_remote_mdt:1;
 };
 
