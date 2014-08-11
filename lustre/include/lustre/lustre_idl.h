@@ -434,7 +434,8 @@ enum fid_seq {
 	FID_SEQ_OST_MDT0	= 0,
 	FID_SEQ_LLOG		= 1, /* unnamed llogs */
 	FID_SEQ_ECHO		= 2,
-	FID_SEQ_OST_MDT1	= 3,
+	FID_SEQ_UPDATE		= 3,
+	FID_SEQ_OST_MDT1	= 4, /* Max MDT count before OST_on_FID */
 	FID_SEQ_OST_MAX		= 9, /* Max MDT count before OST_on_FID */
 	FID_SEQ_LLOG_NAME	= 10, /* named llogs */
 	FID_SEQ_RSVD		= 11,
@@ -557,6 +558,13 @@ static inline void lu_root_fid(struct lu_fid *fid)
 	fid->f_ver = 0;
 }
 
+static inline void lu_update_log_fid(struct lu_fid *fid, __u32 index)
+{
+	fid->f_seq = FID_SEQ_UPDATE;
+	fid->f_oid = index;
+	fid->f_ver = 0;
+}
+
 /**
  * Check if a fid is igif or not.
  * \param fid the fid to be tested.
@@ -605,6 +613,16 @@ static inline bool fid_is_norm(const struct lu_fid *fid)
 static inline int fid_is_layout_rbtree(const struct lu_fid *fid)
 {
 	return fid_seq(fid) == FID_SEQ_LAYOUT_RBTREE;
+}
+
+static inline bool fid_seq_is_update_log(__u64 seq)
+{
+	return seq == FID_SEQ_UPDATE;
+}
+
+static inline bool fid_is_update_log(const struct lu_fid *fid)
+{
+	return fid_seq_is_update_log(fid_seq(fid));
 }
 
 /* convert an OST objid into an IDIF FID SEQ number */
@@ -827,7 +845,7 @@ static inline int fid_to_ostid(const struct lu_fid *fid, struct ost_id *ostid)
 /* Check whether the fid is for LAST_ID */
 static inline bool fid_is_last_id(const struct lu_fid *fid)
 {
-	return fid_oid(fid) == 0;
+	return fid_oid(fid) == 0 && fid_seq(fid) != FID_SEQ_UPDATE;
 }
 
 /**
@@ -3197,6 +3215,8 @@ enum llog_ctxt_id {
 	/* for multiple changelog consumers */
 	LLOG_CHANGELOG_USER_ORIG_CTXT = 14,
 	LLOG_AGENT_ORIG_CTXT = 15, /**< agent requests generation on cdt */
+	LLOG_UPDATELOG_ORIG_CTXT = 16, /* update log */
+	LLOG_UPDATELOG_REPL_CTXT = 17, /* update log */
 	LLOG_MAX_CTXTS
 };
 
@@ -4019,6 +4039,7 @@ enum update_type {
 	OUT_WRITE		= 12,
 	OUT_XATTR_DEL		= 13,
 	OUT_PUNCH		= 14,
+	OUT_READ		= 15,
 	OUT_LAST
 };
 
