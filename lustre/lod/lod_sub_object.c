@@ -50,6 +50,7 @@
 #include <lustre_param.h>
 #include <md_object.h>
 #include <lustre_linkea.h>
+#include <lustre_log.h>
 
 #include "lod_internal.h"
 
@@ -896,5 +897,76 @@ int lod_sub_object_punch(const struct lu_env *env, struct dt_object *dt,
 
 	rc = dt->do_body_ops->dbo_punch(env, dt, start, end, sub_th, capa);
 
+	RETURN(rc);
+}
+
+static int lod_sub_get_index(struct lod_device *lod, struct dt_device *dt)
+{
+	struct lod_tgt_descs *ltd = &lod->lod_mdt_descs;
+	int idx = -ENOENT;
+	int i;
+
+	mutex_lock(&ltd->ltd_mutex);
+	cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
+		struct lod_tgt_desc *tgt;
+
+		tgt = LTD_TGT(ltd, i);
+		if (tgt->ltd_tgt == dt) {
+			idx = tgt->ltd_index;
+			break;
+		}
+	}
+	mutex_unlock(&ltd->ltd_mutex);
+	return idx;
+}
+
+int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
+		      struct dt_device *dt)
+{
+	struct lod_thread_info	*lti = lod_env_info(env);
+	struct llog_ctxt	*ctxt;
+	struct llog_handle	*lgh;
+	struct llog_catid	*cid = &lti->lti_cid;
+	struct lu_fid		*fid = &lti->lti_fid;
+	struct obd_device	*obd;
+	int			index;
+	int			rc;
+	ENTRY;
+
+	index = lod_sub_get_index(lod, dt);
+	if (index < 0)
+		RETURN(-ENOENT);
+
+	lu_update_log_fid(fid, index);
+	fid_to_logid(fid, &cid->lci_logid);
+
+	obd = dt->dd_lu_dev.ld_obd;
+	ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
+	LASSERT(ctxt);
+	ctxt->loc_flags |= LLOG_CTXT_FLAG_NORMAL_FID;
+
+	rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
+		       LLOG_OPEN_EXISTS);
+	if (rc < 0) {
+		llog_ctxt_put(ctxt);
+		RETURN(rc);
+	}
+
+	LASSERT(lgh != NULL);
+	ctxt->loc_handle = lgh;
+
+	rc = llog_cat_init_and_process(env, lgh);
+	if (rc != 0) {
+		llog_ctxt_put(ctxt);
+		GOTO(out_close, rc);
+	}
+
+	llog_ctxt_put(ctxt);
+
+out_close:
+	if (rc != 0) {
+		llog_cat_close(env, ctxt->loc_handle);
+		ctxt->loc_handle = NULL;
+	}
 	RETURN(rc);
 }
