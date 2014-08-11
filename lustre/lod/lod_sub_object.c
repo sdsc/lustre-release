@@ -50,6 +50,7 @@
 #include <lustre_param.h>
 #include <md_object.h>
 #include <lustre_linkea.h>
+#include <lustre_log.h>
 
 #include "lod_internal.h"
 
@@ -754,3 +755,136 @@ int lod_sub_object_write(const struct lu_env *env, struct dt_object *dt,
 					capa, rq);
 	RETURN(rc);
 }
+
+static int lod_sub_get_index(struct lod_device *lod, struct dt_device *dt)
+{
+	struct lod_tgt_descs *ltd = &lod->lod_mdt_descs;
+	int idx = -ENOENT;
+	int i;
+
+	mutex_lock(&ltd->ltd_mutex);
+	cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
+		struct lod_tgt_desc *tgt;
+
+		tgt = LTD_TGT(ltd, i);
+		if (tgt->ltd_tgt == dt) {
+			idx = tgt->ltd_index;
+			break;
+		}
+	}
+	mutex_unlock(&ltd->ltd_mutex);
+	return idx;
+}
+
+int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
+		      struct dt_device *dt)
+{
+	struct lod_thread_info	*lti = lod_env_info(env);
+	struct llog_ctxt	*ctxt;
+	struct llog_handle	*lgh;
+	struct llog_catid	*cid = &lti->lti_cid;
+	struct lu_fid		*fid = &lti->lti_fid;
+	struct obd_device	*obd;
+	int			index;
+	int			rc;
+	ENTRY;
+
+	index = lod_sub_get_index(lod, dt);
+	if (index < 0)
+		RETURN(-ENOENT);
+
+	lu_update_log_fid(fid, index);
+	fid_to_logid(fid, &cid->lci_logid);
+
+	obd = dt->dd_lu_dev.ld_obd;
+	ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
+	LASSERT(ctxt);
+	ctxt->loc_flags |= LLOG_CTXT_FLAG_NORMAL_FID;
+
+	rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
+		       LLOG_OPEN_EXISTS);
+	if (rc < 0) {
+		llog_ctxt_put(ctxt);
+		RETURN(rc);
+	}
+
+	LASSERT(lgh != NULL);
+	ctxt->loc_handle = lgh;
+
+	rc = llog_cat_init_and_process(env, lgh);
+	if (rc != 0) {
+		llog_ctxt_put(ctxt);
+		GOTO(out_close, rc);
+	}
+
+	llog_ctxt_put(ctxt);
+
+out_close:
+	if (rc != 0) {
+		llog_cat_close(env, ctxt->loc_handle);
+		ctxt->loc_handle = NULL;
+	}
+	RETURN(rc);
+}
+
+int lod_sub_declare_updates_write(const struct lu_env *env,
+				  struct lod_device *lod,
+				  struct update_records *records,
+				  struct lod_sub_thandle *lst)
+{
+	struct llog_ctxt	*ctxt;
+	struct dt_device	*dt = lst->lst_child->th_dev;
+	int rc;
+
+	/* If ctxt is NULL, it means not need to write update,
+	 * for example if the the OSP is used to connect to OST */
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
+				LLOG_UPDATELOG_ORIG_CTXT);
+	LASSERT(ctxt != NULL);
+	if (ctxt->loc_handle == NULL) {
+		rc = lod_sub_prep_llog(env, lod, dt);
+		if (rc != 0) {
+			llog_ctxt_put(ctxt);
+			CERROR("%s: prep update log failed: rc = %d\n",
+			       dt->dd_lu_dev.ld_obd->obd_name, rc);
+			return rc;
+		}
+	}
+
+	LASSERT(ctxt->loc_handle != NULL);
+	records->ur_hdr.lrh_len = LLOG_CHUNK_SIZE;
+	rc = llog_declare_add(env, ctxt->loc_handle, &records->ur_hdr,
+			      lst->lst_child);
+
+	llog_ctxt_put(ctxt);
+
+	return rc;
+}
+
+int lod_sub_updates_write(const struct lu_env *env,
+			  struct update_records *records,
+			  struct lod_sub_thandle *lst)
+{
+	struct llog_ctxt	*ctxt;
+	struct dt_device	*dt = lst->lst_child->th_dev;
+	int			rc;
+
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
+				LLOG_UPDATELOG_ORIG_CTXT);
+	LASSERT(ctxt != NULL);
+
+	/* Not ready to record updates yet, usually happens
+	 * in error handler path */
+	if (ctxt->loc_handle == NULL) {
+		llog_ctxt_put(ctxt);
+		return 0;
+	}
+
+	rc = llog_add(env, ctxt->loc_handle, &records->ur_hdr,
+		      NULL, lst->lst_child);
+
+	llog_ctxt_put(ctxt);
+
+	return rc;
+}
+
