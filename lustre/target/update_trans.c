@@ -87,8 +87,10 @@ top_trans_create(const struct lu_env *env, struct dt_device *master_dev)
 	top_th->tt_magic = TOP_THANDLE_MAGIC;
 	top_th->tt_master_sub_thandle = child_th;
 	child_th->th_top = &top_th->tt_super;
-	INIT_LIST_HEAD(&top_th->tt_sub_thandle_list);
+
+	top_th->tt_update_records = NULL;
 	top_th->tt_super.th_top = &top_th->tt_super;
+	INIT_LIST_HEAD(&top_th->tt_sub_thandle_list);
 
 	return &top_th->tt_super;
 }
@@ -112,7 +114,11 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 	struct top_thandle	*top_th = container_of(th, struct top_thandle,
 						       tt_super);
 	struct sub_thandle	*lst;
-	int			rc = 0;
+	int			rc;
+
+	rc = check_and_prepare_update_record(env, th);
+	if (rc < 0)
+		return rc;
 
 	LASSERT(top_th->tt_magic == TOP_THANDLE_MAGIC);
 	list_for_each_entry(lst, &top_th->tt_sub_thandle_list, st_sub_list) {
@@ -155,6 +161,14 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 
 	/* Note: we always need walk through all of sub_transaction to do
 	 * transaction stop to release the resource here */
+	if (top_th->tt_update_records != NULL) {
+		rc = merge_params_updates_buf(env, th);
+		if (rc == 0)
+			update_records_dump(
+				top_th->tt_update_records->tur_update_records,
+				D_HA);
+	}
+
 	LASSERT(top_th->tt_magic == TOP_THANDLE_MAGIC);
 
 	top_th->tt_master_sub_thandle->th_local = th->th_local;
@@ -233,6 +247,7 @@ struct thandle *thandle_get_sub_by_dt(const struct lu_env *env,
 	INIT_LIST_HEAD(&lst->st_sub_list);
 	lst->st_sub_th = sub_th;
 	list_add(&lst->st_sub_list, &top_th->tt_sub_thandle_list);
+	lst->st_record_update = 1;
 
 	RETURN(sub_th);
 }
