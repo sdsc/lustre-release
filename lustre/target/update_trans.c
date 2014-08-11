@@ -50,9 +50,145 @@
 #define DEBUG_SUBSYSTEM S_CLASS
 
 #include <lu_target.h>
+#include <lustre_log.h>
 #include <lustre_update.h>
 #include <obd.h>
 #include <obd_class.h>
+
+/**
+ * Declare write update to sub device
+ *
+ * Declare Write updates llog records to the sub device during distribute
+ * transaction.
+ *
+ * \param[in] env	execution environment
+ * \param[in] record	update records being written
+ * \param[in] lst	sub transaction handle
+ *
+ * \retval		0 if writing succeeds
+ * \retval		negative errno if writing fails
+ */
+static int sub_declare_updates_write(const struct lu_env *env,
+				     struct llog_update_record *record,
+				     struct sub_thandle *lst)
+{
+	struct llog_ctxt	*ctxt;
+	struct dt_device	*dt = lst->st_sub_th->th_dev;
+	int rc;
+
+	/* If ctxt is NULL, it means not need to write update,
+	 * for example if the the OSP is used to connect to OST */
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
+				LLOG_UPDATELOG_ORIG_CTXT);
+	LASSERT(ctxt != NULL);
+
+	/* Not ready to record updates yet. */
+	if (ctxt->loc_handle == NULL) {
+		llog_ctxt_put(ctxt);
+		return 0;
+	}
+
+	record->lur_hdr.lrh_len = LLOG_CHUNK_SIZE;
+	rc = llog_declare_add(env, ctxt->loc_handle, &record->lur_hdr,
+			      lst->st_sub_th);
+
+	llog_ctxt_put(ctxt);
+
+	return rc;
+}
+
+/**
+ * write update to sub device
+ *
+ * Write updates llog records to the sub device during distribute
+ * transaction.
+ *
+ * \param[in] env	execution environment
+ * \param[in] record	update records being written
+ * \param[in] lst	sub transaction handle
+ *
+ * \retval		1 if writing succeeds
+ * \retval		negative errno if writing fails
+ */
+static int sub_updates_write(const struct lu_env *env,
+			     struct llog_update_record *record,
+			     struct sub_thandle *lst)
+{
+	struct llog_ctxt	*ctxt;
+	struct dt_device	*dt = lst->st_sub_th->th_dev;
+	int			rc;
+
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
+				LLOG_UPDATELOG_ORIG_CTXT);
+	LASSERT(ctxt != NULL);
+
+	/* Not ready to record updates yet, usually happens
+	 * in error handler path */
+	if (ctxt->loc_handle == NULL) {
+		llog_ctxt_put(ctxt);
+		return 0;
+	}
+
+	rc = llog_add(env, ctxt->loc_handle, &record->lur_hdr,
+		      NULL, lst->st_sub_th);
+
+	llog_ctxt_put(ctxt);
+
+	return rc;
+}
+
+/**
+ * write update transaction
+ *
+ * Check if there are updates being recorded in this transaction,
+ * it will write the record into the disk.
+ *
+ * \param[in] env	execution environment
+ * \param[in] top_th	top transaction handle
+ *
+ * \retval		0 if writing succeeds
+ * \retval		negative errno if writing fails
+ */
+static int top_updates_write(const struct lu_env *env,
+			     struct top_thandle *top_th)
+{
+	struct thandle_update_records *tur;
+	struct llog_update_record *lur;
+	struct sub_thandle	*lst;
+	int			rc;
+	ENTRY;
+
+	if (top_th->tt_update_records == NULL)
+		RETURN(0);
+
+	tur = top_th->tt_update_records;
+
+	/* merge the parameters and updates into one buffer */
+	rc = merge_params_updates_buf(env, tur);
+	if (rc < 0)
+		RETURN(rc);
+
+	lur = tur->tur_update_records;
+	/* Dump updates to debug log */
+	update_records_dump(&lur->lur_update_rec, D_INFO);
+
+	/* Init update record header */
+	lur->lur_hdr.lrh_len = llog_update_record_size(lur);
+	lur->lur_hdr.lrh_type = UPDATE_REC;
+
+	list_for_each_entry(lst, &top_th->tt_sub_thandle_list, st_sub_list) {
+		if (!lst->st_record_update)
+			continue;
+		rc = sub_updates_write(env, lur, lst);
+		if (rc < 0)
+			break;
+	}
+
+	if (rc > 0)
+		rc = 0;
+
+	RETURN(rc);
+}
 
 /**
  * Create the top transaction.
@@ -115,11 +251,23 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 	struct sub_thandle	*lst;
 	int			rc;
 
+	LASSERT(top_th->tt_magic == TOP_THANDLE_MAGIC);
 	rc = check_and_prepare_update_record(env, th);
 	if (rc < 0)
 		return rc;
+	/* Check if needs to write updates */
+	list_for_each_entry(lst, &top_th->tt_sub_thandle_list, st_sub_list) {
+		struct llog_update_record *record;
 
-	LASSERT(top_th->tt_magic == TOP_THANDLE_MAGIC);
+		if (!lst->st_record_update)
+			continue;
+
+		record = top_th->tt_update_records->tur_update_records;
+		rc = sub_declare_updates_write(env, record, lst);
+		if (rc != 0)
+			return rc;
+	}
+
 	list_for_each_entry(lst, &top_th->tt_sub_thandle_list, st_sub_list) {
 		lst->st_sub_th->th_sync = th->th_sync;
 		lst->st_sub_th->th_local = th->th_local;
@@ -152,22 +300,22 @@ EXPORT_SYMBOL(top_trans_start);
 int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 		   struct thandle *th)
 {
-	struct sub_thandle	*lst;
 	struct top_thandle	*top_th = container_of(th, struct top_thandle,
 						       tt_super);
 	struct thandle_update_records *tur = top_th->tt_update_records;
+	struct sub_thandle	*lst;
 	int			rc;
 	ENTRY;
 
 	/* Note: we always need walk through all of sub_transaction to do
 	 * transaction stop to release the resource here */
 	if (tur != NULL) {
-		rc = merge_params_updates_buf(env, tur);
-		if (rc == 0) {
-			struct update_records *record;
-
-			record = &tur->tur_update_records->lur_update_rec;
-			update_records_dump(record, D_HA);
+		rc = top_updates_write(env, top_th);
+		if (rc < 0) {
+			CERROR("%s: cannot write updates: rc = %d\n",
+			       master_dev->dd_lu_dev.ld_obd->obd_name, rc);
+			/* Still need call dt_trans_stop to release resources
+			 * holding by the transaction */
 		}
 	}
 
