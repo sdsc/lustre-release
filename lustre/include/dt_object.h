@@ -1887,7 +1887,19 @@ struct thandle {
 	/** whether we need sync commit */
 	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-				th_local:1;
+				th_local:1,
+	/* This transaction includes remote MDT updates */
+				th_remote_mdt:1;
+};
+
+struct thandle_update_records {
+	/* All of updates for the cross-MDT operation. */
+	struct update_records	*tur_update_records;
+	size_t			tur_update_records_size;
+
+	/* All of parameters for the cross-MDT operation */
+	struct update_params    *tur_update_params;
+	size_t			tur_update_params_size;
 };
 
 /* top/sub_thandle are used to manage the distribute transaction, which
@@ -1902,12 +1914,16 @@ struct top_thandle {
 
 	/* Other sub transactions will be listed here. */
 	struct list_head	tt_sub_trans_list;
+
+	/* All of update records will packed here */
+	struct thandle_update_records *tt_update_records;
 };
 
 struct sub_thandle {
 	/* point to the osd/osp_thandle */
 	struct thandle		*st_sub_th;
 	struct list_head	st_list;
+	unsigned int		st_record_update:1;
 };
 
 struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
