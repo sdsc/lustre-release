@@ -208,6 +208,8 @@ int out_handle(struct tgt_session_info *tsi);
 #define out_tx_write(info, obj, buf, pos, th, reply, idx) \
 	__out_tx_write(info, obj, buf, pos, th, reply, idx, __FILE__, __LINE__)
 
+const char *update_op_str(__u16 opcode);
+
 extern struct page *tgt_page_to_corrupt;
 
 struct tgt_thread_big_cache {

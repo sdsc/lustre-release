@@ -418,6 +418,7 @@ static struct thandle *lod_trans_create(const struct lu_env *env,
 
 	child_th->th_storage_th = child_th;
 	lod_th->lt_child = child_th;
+	lod_th->lt_update_records = NULL;
 
 	INIT_LIST_HEAD(&lod_th->lt_sub_trans_list);
 
@@ -469,11 +470,6 @@ struct thandle *lod_get_sub_trans(const struct lu_env *env,
 	if (IS_ERR(child_th))
 		RETURN(child_th);
 
-	/* If OSP does not need to create the transaction like
-	 * OSP connected to OST, Just using current thandle */ 
-	if (child_th == NULL)
-		RETURN(th);
-
 	OBD_ALLOC_PTR(lst);
 	if (lst == NULL) {
 		dt_trans_stop(env, child_dt, child_th);
@@ -484,6 +480,8 @@ struct thandle *lod_get_sub_trans(const struct lu_env *env,
 	child_th->th_storage_th = lth->lt_child;
 	lst->lst_child = child_th;
 	list_add(&lst->lst_list, &lth->lt_sub_trans_list);
+	if (child_th->th_remote_mdt)
+		lst->lst_record_update = 1;
 
 	RETURN(child_th);
 }
@@ -498,6 +496,10 @@ static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 
 	lth = container_of0(th, struct lod_thandle, lt_super);
 
+	rc = lod_check_and_prepare_update_record(env, th);
+	if (rc != 0)
+		return rc;
+
 	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
 		rc = dt_trans_start(env, lst->lst_child->th_dev,
 				    lst->lst_child);
@@ -507,6 +509,182 @@ static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 
 	return dt_trans_start(env, lod->lod_child, lth->lt_child);
 }
+
+int lod_create_update_records(struct lod_update_records *lur)
+{
+	if (lur->lur_update_records != NULL)
+		return 0;
+
+	OBD_ALLOC_LARGE(lur->lur_update_records,
+			UPDATE_RECORDS_BUFFER_SIZE);
+
+	if (lur->lur_update_records == NULL)
+		return -ENOMEM;
+
+	lur->lur_update_records_size = UPDATE_RECORDS_BUFFER_SIZE;
+
+	return 0;
+}
+
+int lod_extend_update_records(struct lod_update_records *lur, size_t new_size)
+{
+	struct update_records	*records;
+
+	OBD_ALLOC_LARGE(records, new_size);
+	if (records == NULL)
+		return -ENOMEM;
+
+	if (lur->lur_update_records != NULL) {
+		memcpy(records, lur->lur_update_records,
+		       lur->lur_update_records_size);
+		OBD_FREE_LARGE(lur->lur_update_records,
+			       lur->lur_update_records_size);
+	}
+
+	lur->lur_update_records = records;
+	lur->lur_update_records_size = new_size;
+
+	return 0;
+}
+
+int lod_create_update_params(struct lod_update_records *lur)
+{
+	if (lur->lur_update_params != NULL)
+		return 0;
+
+	OBD_ALLOC_LARGE(lur->lur_update_params, UPDATE_PARAMS_BUFFER_SIZE);
+	if (lur->lur_update_params == NULL)
+		return -ENOMEM;
+
+	lur->lur_update_params_size = UPDATE_PARAMS_BUFFER_SIZE;
+	return 0;
+}
+
+int lod_extend_update_params(struct lod_update_records *lur, size_t new_size)
+{
+	struct update_params	*params;
+
+	OBD_ALLOC_LARGE(params, new_size);
+	if (params == NULL)
+		return -ENOMEM;
+
+	if (lur->lur_update_params != NULL) {
+		memcpy(params, lur->lur_update_params,
+		       lur->lur_update_params_size);
+		OBD_FREE_LARGE(lur->lur_update_params,
+			       lur->lur_update_params_size);
+	}
+
+	lur->lur_update_params = params;
+	lur->lur_update_params_size = new_size;
+
+	return 0;
+}
+
+/**
+ * Check and prepare whether it needs to record update.
+ *
+ * Checks if the transaction needs to record the update in LOD, and if it
+ * needs then initialize the update record buffer in the transaction.
+ * Only cross-MDT opereation needs to be recorded, which is indicated
+ * by th_remote_mdt, \see struct thandle.
+ *
+ * \param[in] env	execution environment
+ * \param[in] th	transaction handle
+ *
+ * \retval		0 if updates recording succeeds.
+ * \retval		negative errno if updates recording fails.
+ */
+int lod_check_and_prepare_update_record(const struct lu_env *env,
+					struct thandle *th)
+{
+	struct lod_update_records	*lur;
+	struct lod_thandle		*lth;
+	struct lod_sub_thandle		*lst;
+	int				rc;
+	bool				record_update = false;
+	ENTRY;
+
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	/* Check if it needs to record updates for this transaction */
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		if (lst->lst_record_update) {
+			record_update = true;
+			break;
+		}
+	}
+	if (!record_update)
+		RETURN(0);
+
+	if (lth->lt_update_records != NULL)
+		RETURN(0);
+
+	lur = &lod_env_info(env)->lti_lur;
+	if (lur->lur_update_records == NULL) {
+		rc = lod_create_update_records(lur);
+		if (rc < 0)
+			RETURN(rc);
+	}
+
+	if (lur->lur_update_params == NULL) {
+		rc = lod_create_update_params(lur);
+		if (rc < 0)
+			RETURN(rc);
+	}
+
+	lth->lt_update_records = lur;
+
+	RETURN(0);
+}
+
+/**
+ * Merge params into the update records
+ *
+ * Merge params and ops into the update records attached to lth.
+ * During transaction execution phase, parameters and update ops
+ * are collected in two different buffers (see lod_updates_pack()),
+ * during transaction stop, it needs to be merged in one buffer,
+ * so it will be written in the update log.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lth	lod_thandle whose updates and parameters
+ *                      needs to be merged
+ *
+ * \retval		0 if merging succeeds.
+ * \retval		negaitive errno if merging fails.
+ */
+static int lod_merge_params_updates_buf(const struct lu_env *env,
+					struct lod_thandle *lth)
+{
+	struct lod_update_records *lur = lth->lt_update_records;
+	struct update_params *params;
+	size_t params_size;
+	size_t ops_size;
+
+	if (lur == NULL || lur->lur_update_records == NULL ||
+	    lur->lur_update_params == NULL)
+		return 0;
+
+	/* Extends the update records buffer if needed */
+	params_size = update_params_size(lur->lur_update_params);
+	ops_size = update_ops_size(&lur->lur_update_records->ur_ops);
+	if (sizeof(struct update_records) + ops_size + params_size >=
+	    lur->lur_update_records_size) {
+		int rc;
+
+		rc = lod_extend_update_records(lur,
+					sizeof(struct update_records) +
+					ops_size + params_size);
+		if (rc != 0)
+			return rc;
+	}
+
+	params = update_records_get_params(lur->lur_update_records);
+	memcpy(params, lur->lur_update_params, params_size);
+
+	return 0;
+}
+
 
 static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			  struct thandle *th)
@@ -521,6 +699,14 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
 	lod = dt2lod_dev(dt);
 	lth = container_of0(th, struct lod_thandle, lt_super);
+
+	if (lth->lt_update_records != NULL) {
+		rc = lod_merge_params_updates_buf(env, lth);
+		if (rc == 0)
+			update_records_dump(
+				lth->lt_update_records->lur_update_records,
+				D_HA);
+	}
 
 	rc = dt_trans_stop(env, lod->lod_child, lth->lt_child);
 
@@ -895,6 +1081,14 @@ static void lod_key_fini(const struct lu_context *ctx,
 		info->lti_ea_store_size = 0;
 	}
 	lu_buf_free(&info->lti_linkea_buf);
+
+	if (info->lti_lur.lur_update_records != NULL)
+		OBD_FREE_LARGE(info->lti_lur.lur_update_records,
+			       info->lti_lur.lur_update_records_size);
+	if (info->lti_lur.lur_update_params != NULL)
+		OBD_FREE_LARGE(info->lti_lur.lur_update_params,
+			       info->lti_lur.lur_update_params_size);
+
 	OBD_FREE_PTR(info);
 }
 
