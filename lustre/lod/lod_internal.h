@@ -309,6 +309,7 @@ struct lod_thread_info {
 	struct dt_insert_rec lti_dt_rec;
 	unsigned short	  lti_update_ops[OUT_LAST];
 	struct lod_update_records lti_lur;
+	struct llog_catid lti_cid;
 };
 
 extern const struct lu_device_operations lod_lu_ops;
@@ -316,7 +317,7 @@ extern const struct lu_device_operations lod_lu_ops;
 struct lod_sub_thandle {
 	struct thandle		*lst_child;
 	struct list_head	lst_list;
-	int			lst_record_update: 1;
+	int			lst_record_update:1;
 };
 
 static inline int lu_device_is_lod(struct lu_device *d)
@@ -419,6 +420,8 @@ int lod_extend_update_records(struct lod_update_records *lur, size_t new_size);
 int lod_create_update_params(struct lod_update_records *lur);
 int lod_extend_update_params(struct lod_update_records *lur, size_t new_size);
 
+int lod_sub_init_llog(const struct lu_env *env, struct dt_device *dt);
+void lod_sub_fini_llog(const struct lu_env *env, struct dt_device *dt);
 /* lod_lov.c */
 void lod_getref(struct lod_tgt_descs *ltd);
 void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd);
@@ -591,6 +594,16 @@ int lod_sub_object_write(const struct lu_env *env, struct dt_object *dt,
 			 struct thandle *th, struct lustre_capa *capa,
 			 int rq);
 
+int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
+		      struct dt_device *dt);
+int lod_sub_declare_updates_write(const struct lu_env *env,
+				  struct lod_device *lod,
+				  struct update_records *records,
+				  struct lod_sub_thandle *lst);
+int lod_sub_updates_write(const struct lu_env *env,
+			  struct update_records *records,
+			  struct lod_sub_thandle *lst);
+
 #define UPDATE_RECORDS_BUFFER_SIZE	8192
 #define UPDATE_PARAMS_BUFFER_SIZE	8192
 #define lod_updates_pack(env, name, rc, th, ...)			\
@@ -605,6 +618,7 @@ do {                                                                    \
 	size_t			max_op_size;				\
 	size_t			max_param_size;				\
 									\
+	rc = 0;								\
 	lth = container_of0(th, struct lod_thandle, lt_super);		\
 	if (lth->lt_update_records == NULL)				\
 		break;							\

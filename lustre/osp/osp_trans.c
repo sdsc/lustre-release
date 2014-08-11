@@ -392,6 +392,7 @@ int osp_trans_update_request_create(struct thandle *th)
 	if (IS_ERR(update))
 		return PTR_ERR(update);
 
+
 	oth->ot_dur = update;
 	return 0;
 }

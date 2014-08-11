@@ -45,6 +45,7 @@
 #include <lustre_fid.h>
 #include <lustre_param.h>
 #include <lustre_update.h>
+#include <lustre_log.h>
 
 #include "lod_internal.h"
 
@@ -69,6 +70,12 @@ int lod_fld_lookup(const struct lu_env *env, struct lod_device *lod,
 	if (fid_is_idif(fid)) {
 		*tgt = fid_idif_ost_idx(fid);
 		*type = LU_SEQ_RANGE_OST;
+		RETURN(rc);
+	}
+
+	if (fid_is_update_log(fid)) {
+		*tgt = fid_oid(fid);
+		*type = LU_SEQ_RANGE_MDT;
 		RETURN(rc);
 	}
 
@@ -166,6 +173,59 @@ static int lod_cleanup_desc_tgts(const struct lu_env *env,
 	}
 	lod_putref(lod, ltd);
 	return rc;
+}
+
+static struct llog_operations updatelog_orig_logops;
+
+int lod_sub_init_llog(const struct lu_env *env, struct dt_device *dt)
+{
+	struct obd_device	*obd;
+	int			rc;
+	ENTRY;
+
+	obd = dt->dd_lu_dev.ld_obd;
+	obd->obd_lvfs_ctxt.dt = dt;
+
+	rc = llog_setup(env, obd, &obd->obd_olg, LLOG_UPDATELOG_ORIG_CTXT,
+			NULL, &updatelog_orig_logops);
+	if (rc < 0)
+		CERROR("%s: updatelog llog setup failed: rc = %d\n",
+		       obd->obd_name, rc);
+
+	RETURN(rc);
+}
+
+void lod_sub_fini_llog(const struct lu_env *env, struct dt_device *dt)
+{
+	struct obd_device	*obd;
+	struct llog_ctxt	*ctxt;
+
+	obd = dt->dd_lu_dev.ld_obd;
+	ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
+	if (ctxt == NULL)
+		return;
+
+	if (ctxt->loc_handle != NULL)
+		llog_cat_close(env, ctxt->loc_handle);
+
+	llog_cleanup(env, ctxt);
+
+	return;
+}
+
+void lod_sub_fini_all_llogs(const struct lu_env *env, struct lod_device *lod)
+{
+	struct lod_tgt_descs *ltd = &lod->lod_mdt_descs;
+	int i;
+
+	mutex_lock(&ltd->ltd_mutex);
+	cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
+		struct lod_tgt_desc *tgt;
+
+		tgt = LTD_TGT(ltd, i);
+		lod_sub_fini_llog(env, tgt->ltd_tgt);
+	}
+	mutex_unlock(&ltd->ltd_mutex);
 }
 
 static int lodname2mdt_index(char *lodname, long *index)
@@ -299,6 +359,7 @@ static int lod_process_config(const struct lu_env *env,
 	}
 	case LCFG_CLEANUP:
 	case LCFG_PRE_CLEANUP: {
+		lod_sub_fini_all_llogs(env, lod);
 		lu_dev_del_linkage(dev->ld_site, dev);
 		lod_cleanup_desc_tgts(env, lod, &lod->lod_mdt_descs, lcfg);
 		lod_cleanup_desc_tgts(env, lod, &lod->lod_ost_descs, lcfg);
@@ -361,12 +422,17 @@ static int lod_recovery_complete(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static const char lod_updates_log_name[] = "update_log";
 static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
 		       struct lu_device *cdev)
 {
-	struct lod_device   *lod = lu2lod_dev(cdev);
-	struct lu_device    *next = &lod->lod_child->dd_lu_dev;
-	int		     rc;
+	struct lod_device	*lod = lu2lod_dev(cdev);
+	struct lu_device	*next = &lod->lod_child->dd_lu_dev;
+	struct lu_fid		*fid = &lod_env_info(env)->lti_fid;
+	int			rc;
+	struct dt_object	*root;
+	struct dt_object	*dto;
+	__u32			index;
 	ENTRY;
 
 	rc = next->ld_ops->ldo_prepare(env, pdev, next);
@@ -376,7 +442,33 @@ static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
 		RETURN(rc);
 	}
 
+	rc = dt_root_get(env, lod->lod_child, fid);
+	if (rc < 0)
+		RETURN(rc);
+
+	root = dt_locate(env, lod->lod_child, fid);
+	if (IS_ERR(root))
+		RETURN(PTR_ERR(root));
+
+	index = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_node_id;
+	lu_update_log_fid(fid, index);
+
+	/* Create update log object */
+	dto = local_file_find_or_create_with_fid(env, lod->lod_child,
+						 fid, root,
+						 lod_updates_log_name,
+				 S_IFREG | S_IRUGO | S_IWUSR | S_IXUGO);
+	if (IS_ERR(dto))
+		GOTO(out_put, rc = PTR_ERR(dto));
+
+	/* since stack is not fully set up the local_storage uses own stack
+	 * and we should drop its object from cache */
+	lu_object_put_nocache(env, &dto->do_lu);
+
 	lod->lod_initialized = 1;
+
+out_put:
+	lu_object_put_nocache(env, &root->do_lu);
 
 	RETURN(rc);
 }
@@ -497,8 +589,21 @@ static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
 	lth = container_of0(th, struct lod_thandle, lt_super);
 
 	rc = lod_check_and_prepare_update_record(env, th);
-	if (rc != 0)
+	if (rc < 0)
 		return rc;
+
+	/* Check if needs to write updates */
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		struct update_records *records;
+
+		if (!lst->lst_record_update)
+			continue;
+
+		records = lth->lt_update_records->lur_update_records;
+		rc = lod_sub_declare_updates_write(env, lod, records, lst);
+		if (rc != 0)
+			return rc;
+	}
 
 	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
 		rc = dt_trans_start(env, lst->lst_child->th_dev,
@@ -584,10 +689,9 @@ int lod_extend_update_params(struct lod_update_records *lur, size_t new_size)
 /**
  * Check and prepare whether it needs to record update.
  *
- * Checks if the transaction needs to record the update in LOD, and if it
- * needs then initialize the update record buffer in the transaction.
- * Only cross-MDT opereation needs to be recorded, which is indicated
- * by th_remote_mdt, \see struct thandle.
+ * Initialize the update record buffer in the transaction if it is
+ * necessary. Whether recording updates for each sub-device(OSP/OSD)
+ * is decided in lod_get_sub_trans().
  *
  * \param[in] env	execution environment
  * \param[in] th	transaction handle
@@ -685,6 +789,55 @@ static int lod_merge_params_updates_buf(const struct lu_env *env,
 	return 0;
 }
 
+/**
+ * write update transaction
+ *
+ * Check if there are updates being recorded in this transaction,
+ * it will write the record into the disk.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lod	lod device
+ * \param[in] lth	lod transaction handle
+ *
+ * \retval		0 if writing succeeds
+ * \retval		negative errno if writing fails
+ */
+static int lod_updates_write(const struct lu_env *env, struct lod_device *lod,
+			     struct lod_thandle *lth)
+{
+	struct lod_update_records *lur;
+	struct lod_sub_thandle	*lst;
+	struct lod_sub_thandle	*tmp;
+	int			rc;
+
+	if (lth->lt_update_records == NULL)
+		return 0;
+
+	/* merge the parameters and updates into one buffer */
+	rc = lod_merge_params_updates_buf(env, lth);
+	if (rc < 0)
+		return rc;
+
+	lur = lth->lt_update_records;
+
+	/* Dump updates to debug log */
+	update_records_dump(lur->lur_update_records, D_HA);
+
+	/* Init update record header */
+	lur->lur_update_records->ur_hdr.lrh_len =
+		cfs_size_round(update_records_size(lur->lur_update_records));
+	lur->lur_update_records->ur_hdr.lrh_type = UPDATE_REC;
+
+	list_for_each_entry_safe(lst, tmp, &lth->lt_sub_trans_list, lst_list) {
+		if (!lst->lst_record_update)
+			continue;
+		rc = lod_sub_updates_write(env, lur->lur_update_records, lst);
+		if (rc != 0)
+			break;
+	}
+
+	return rc;
+}
 
 static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			  struct thandle *th)
@@ -700,12 +853,11 @@ static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	lod = dt2lod_dev(dt);
 	lth = container_of0(th, struct lod_thandle, lt_super);
 
-	if (lth->lt_update_records != NULL) {
-		rc = lod_merge_params_updates_buf(env, lth);
-		if (rc == 0)
-			update_records_dump(
-				lth->lt_update_records->lur_update_records,
-				D_HA);
+	rc = lod_updates_write(env, lod, lth);
+	if (rc != 0) {
+		CDEBUG(D_INFO, "%s: write updates failed: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		/* Still need call dt_trans_stop to release the transaction */
 	}
 
 	rc = dt_trans_stop(env, lod->lod_child, lth->lt_child);
@@ -926,13 +1078,18 @@ static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 	if (rc)
 		GOTO(out_pools, rc);
 
+	rc = lod_sub_init_llog(env, lod->lod_child);
+	if (rc != 0)
+		GOTO(out_proc, rc);
+
 	spin_lock_init(&lod->lod_desc_lock);
 	spin_lock_init(&lod->lod_connects_lock);
 	lod_tgt_desc_init(&lod->lod_mdt_descs);
 	lod_tgt_desc_init(&lod->lod_ost_descs);
 
 	RETURN(0);
-
+out_proc:
+	lod_procfs_fini(lod);
 out_pools:
 	lod_pools_fini(lod);
 out_disconnect:
@@ -988,6 +1145,8 @@ static struct lu_device *lod_device_fini(const struct lu_env *env,
 	lod_pools_fini(lod);
 
 	lod_procfs_fini(lod);
+
+	lod_sub_fini_llog(env, lod->lod_child);
 
 	rc = lod_fini_tgt(env, lod, &lod->lod_ost_descs, true);
 	if (rc)
@@ -1181,6 +1340,10 @@ static int __init lod_mod_init(void)
 		lu_kmem_fini(lod_caches);
 		return rc;
 	}
+
+	updatelog_orig_logops = llog_osd_ops;
+	updatelog_orig_logops.lop_add = llog_cat_add_rec;
+	updatelog_orig_logops.lop_declare_add = llog_cat_declare_add_rec;
 
 	/* create "lov" entry in procfs for compatibility purposes */
 	type = class_search_type(LUSTRE_LOV_NAME);
