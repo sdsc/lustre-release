@@ -1091,6 +1091,8 @@ static inline int fid_is_internal(const struct lu_fid *fid)
 		ldiskfs_find_entry(dir, name, de, inlined, lock)
 # define osd_journal_start(inode, type, nblocks) \
 		ldiskfs_journal_start(inode, type, nblocks);
+# define osd_transaction_size(dev) \
+	osd_journal(dev)->j_max_transaction_buffers / 2;
 #else
 # define LDISKFS_HT_MISC	0
 # define osd_journal_start_sb(sb, type, nblock) \
@@ -1101,6 +1103,8 @@ static inline int fid_is_internal(const struct lu_fid *fid)
 		ldiskfs_find_entry(dir, name, de, lock)
 # define osd_journal_start(inode, type, nblocks) \
 		ldiskfs_journal_start(inode, nblocks);
+# define osd_transaction_size(dev) \
+	osd_journal(dev)->j_max_transaction_buffers;
 #endif
 
 void ldiskfs_inc_count(handle_t *handle, struct inode *inode);
