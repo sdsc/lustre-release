@@ -20,6 +20,7 @@ ptlrpc_objs += nrs_tbf.o errno.o
 target_objs := $(TARGET)tgt_main.o $(TARGET)tgt_lastrcvd.o
 target_objs += $(TARGET)tgt_handler.o $(TARGET)out_handler.o
 target_objs += $(TARGET)out_lib.o $(TARGET)update_trans.o
+target_objs += $(TARGET)update_records.o
 
 ptlrpc-objs := $(ldlm_objs) $(ptlrpc_objs)
 @SERVER_TRUE@ptlrpc-objs += $(target_objs)
