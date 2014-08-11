@@ -322,8 +322,7 @@ run_test 0 "Do not auto trigger OI scrub for non-backup/restore case"
 test_1a() {
 	scrub_prep 0
 	echo "start $SINGLEMDS without disabling OI scrub"
-	start $SINGLEMDS $MDT_DEVNAME $MOUNT_OPTS_SCRUB > /dev/null ||
-		error "(1) Fail to start MDS!"
+	scrub_start_mds 1 "$MOUNT_OPTS_SCRUB"
 
 	local FLAGS=$($SHOW_SCRUB | awk '/^flags/ { print $2 }')
 	[ -z "$FLAGS" ] || error "(3) Expect empty flags, but got '$FLAGS'"

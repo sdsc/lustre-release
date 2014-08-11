@@ -435,7 +435,7 @@ enum fid_seq {
 	FID_SEQ_OST_MDT0	= 0,
 	FID_SEQ_LLOG		= 1, /* unnamed llogs */
 	FID_SEQ_ECHO		= 2,
-	FID_SEQ_OST_MDT1	= 3,
+	FID_SEQ_OST_MDT1	= 3, /* Max MDT count before OST_on_FID */
 	FID_SEQ_OST_MAX		= 9, /* Max MDT count before OST_on_FID */
 	FID_SEQ_LLOG_NAME	= 10, /* named llogs */
 	FID_SEQ_RSVD		= 11,
@@ -460,6 +460,8 @@ enum fid_seq {
 	FID_SEQ_QUOTA_GLB	= 0x200000006ULL,
 	FID_SEQ_ROOT		= 0x200000007ULL,  /* Located on MDT0 */
 	FID_SEQ_LAYOUT_RBTREE	= 0x200000008ULL,
+	/* sequence is used for update logs of cross-MDT operation */
+	FID_SEQ_UPDATE_LOG	= 0x200000009ULL,
 	FID_SEQ_NORMAL		= 0x200000400ULL,
 	FID_SEQ_LOV_DEFAULT	= 0xffffffffffffffffULL
 };
@@ -571,6 +573,13 @@ static inline void lu_echo_root_fid(struct lu_fid *fid)
 	fid->f_ver = 0;
 }
 
+static inline void lu_update_log_fid(struct lu_fid *fid, __u32 index)
+{
+	fid->f_seq = FID_SEQ_UPDATE_LOG;
+	fid->f_oid = index;
+	fid->f_ver = 0;
+}
+
 /**
  * Check if a fid is igif or not.
  * \param fid the fid to be tested.
@@ -619,6 +628,16 @@ static inline bool fid_is_norm(const struct lu_fid *fid)
 static inline int fid_is_layout_rbtree(const struct lu_fid *fid)
 {
 	return fid_seq(fid) == FID_SEQ_LAYOUT_RBTREE;
+}
+
+static inline bool fid_seq_is_update_log(__u64 seq)
+{
+	return seq == FID_SEQ_UPDATE_LOG;
+}
+
+static inline bool fid_is_update_log(const struct lu_fid *fid)
+{
+	return fid_seq_is_update_log(fid_seq(fid));
 }
 
 /* convert an OST objid into an IDIF FID SEQ number */
@@ -841,7 +860,7 @@ static inline int fid_to_ostid(const struct lu_fid *fid, struct ost_id *ostid)
 /* Check whether the fid is for LAST_ID */
 static inline bool fid_is_last_id(const struct lu_fid *fid)
 {
-	return fid_oid(fid) == 0;
+	return fid_oid(fid) == 0 && fid_seq(fid) != FID_SEQ_UPDATE_LOG;
 }
 
 /**
@@ -3214,6 +3233,8 @@ enum llog_ctxt_id {
 	/* for multiple changelog consumers */
 	LLOG_CHANGELOG_USER_ORIG_CTXT = 14,
 	LLOG_AGENT_ORIG_CTXT = 15, /**< agent requests generation on cdt */
+	LLOG_UPDATELOG_ORIG_CTXT = 16, /* update log */
+	LLOG_UPDATELOG_REPL_CTXT = 17, /* update log */
 	LLOG_MAX_CTXTS
 };
 
@@ -4028,6 +4049,7 @@ enum update_type {
 	OUT_WRITE		= 12,
 	OUT_XATTR_DEL		= 13,
 	OUT_PUNCH		= 14,
+	OUT_READ		= 15,
 	OUT_LAST
 };
 
@@ -4170,6 +4192,30 @@ object_update_result_get(const struct object_update_reply *reply,
 		*size = reply->ourp_lens[index];
 
 	return ptr;
+}
+
+/* read update result */
+struct out_read_reply {
+	__u32	orr_size;
+	__u32	orr_padding;
+	__u64	orr_offset;
+	char	orr_data[0];
+};
+
+static inline void orr_cpu_to_le(struct out_read_reply *orr_dst,
+				 struct out_read_reply *orr_src)
+{
+	orr_dst->orr_size = cpu_to_le32(orr_src->orr_size);
+	orr_dst->orr_padding = cpu_to_le32(orr_src->orr_padding);
+	orr_dst->orr_offset = cpu_to_le64(orr_dst->orr_offset);
+}
+
+static inline void orr_le_to_cpu(struct out_read_reply *orr_dst,
+				 struct out_read_reply *orr_src)
+{
+	orr_dst->orr_size = le32_to_cpu(orr_src->orr_size);
+	orr_dst->orr_padding = le32_to_cpu(orr_src->orr_padding);
+	orr_dst->orr_offset = le64_to_cpu(orr_dst->orr_offset);
 }
 
 /** layout swap request structure
