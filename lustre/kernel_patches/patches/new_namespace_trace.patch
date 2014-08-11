@@ -1,0 +1,14 @@
+Index: linux-2.6.32-431.3.1.el6-debug/kernel/nsproxy.c
+===================================================================
+--- linux-2.6.32-431.3.1.el6-debug.orig/kernel/nsproxy.c
++++ linux-2.6.32-431.3.1.el6-debug/kernel/nsproxy.c
+@@ -51,6 +51,9 @@ static struct nsproxy *create_new_namesp
+ 	struct nsproxy *new_nsp;
+ 	int err;
+ 
++	printk("New namespace created\n");
++	dump_stack();
++
+ 	new_nsp = create_nsproxy();
+ 	if (!new_nsp)
+ 		return ERR_PTR(-ENOMEM);
