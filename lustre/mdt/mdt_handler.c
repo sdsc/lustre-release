@@ -624,12 +624,16 @@ int mdt_attr_get_complex(struct mdt_thread_info *info,
 	const struct lu_env *env = info->mti_env;
 	struct md_object    *next = mdt_object_child(o);
 	struct lu_buf       *buf = &info->mti_buf;
-	u32                  mode = lu_object_attr(&next->mo_lu);
 	int                  need = ma->ma_need;
 	int                  rc = 0, rc2;
+	u32                  mode;
 	ENTRY;
 
 	ma->ma_valid = 0;
+
+	if (mdt_object_exists(o) == 0)
+		GOTO(out, rc = -ENOENT);
+	mode = lu_object_attr(&next->mo_lu);
 
 	if (need & MA_INODE) {
 		ma->ma_need = MA_INODE;
@@ -1414,11 +1418,22 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                 mdt_set_disposition(info, ldlm_rep, DISP_LOOKUP_POS);
         }
 
-        /*
-         *step 3: find the child object by fid & lock it.
-         *        regardless if it is local or remote.
-         */
-        child = mdt_object_find(info->mti_env, info->mti_mdt, child_fid);
+	/*
+	 *step 3: find the child object by fid & lock it.
+	 *        regardless if it is local or remote.
+	 *
+	 *Note: LU-3240 (commit 762f2114d282a98ebfa4dbbeea9298a8088ad24e)
+	 *	set parent dir fid the same as child fid in getattr by fid case
+	 *	we should not lu_object_find() the object again, could lead
+	 *	to hung if there is a concurrent unlink destroyed the object.
+	 */
+	if (lu_fid_eq(mdt_object_fid(parent), child_fid)) {
+		mdt_object_get(info->mti_env, parent);
+		child = parent;
+	} else {
+		child = mdt_object_find(info->mti_env, info->mti_mdt,
+					child_fid);
+	}
 
 	if (unlikely(IS_ERR(child)))
 		GOTO(out_parent, rc = PTR_ERR(child));
