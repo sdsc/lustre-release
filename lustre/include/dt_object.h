@@ -1887,7 +1887,9 @@ struct thandle {
 	/** whether we need sync commit */
 	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-				th_local:1;
+				th_local:1,
+	/* This transaction includes remote MDT updates */
+				th_remote_mdt:1;
 };
 
 /**
