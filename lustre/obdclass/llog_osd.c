@@ -531,7 +531,7 @@ static int llog_osd_write_rec(const struct lu_env *env,
 		GOTO(out, rc);
 
 	LASSERT(lgi->lgi_attr.la_valid & LA_SIZE);
-	lgi->lgi_off = lgi->lgi_attr.la_size;
+	lgi->lgi_off = max_t(__u64, lgi->lgi_attr.la_size, (__u64)lgi->lgi_off);
 	lgi->lgi_buf.lb_len = reclen;
 	lgi->lgi_buf.lb_buf = rec;
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
@@ -947,7 +947,7 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 	struct dt_object		*o;
 	struct dt_device		*dt;
 	struct ls_device		*ls;
-	struct local_oid_storage	*los;
+	struct local_oid_storage	*los = NULL;
 	int				 rc = 0;
 
 	ENTRY;
@@ -958,6 +958,23 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 	LASSERT(ctxt->loc_exp->exp_obd);
 	dt = ctxt->loc_exp->exp_obd->obd_lvfs_ctxt.dt;
 	LASSERT(dt);
+	if (ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		if (logid != NULL) {
+			logid_to_fid(logid, &lgi->lgi_fid);
+		} else {
+			rc = obd_fid_alloc(env, ctxt->loc_exp,
+					   &lgi->lgi_fid, NULL);
+			if (rc < 0)
+				RETURN(rc);
+			rc = 0;
+		}
+
+		o = dt_locate(env, dt, &lgi->lgi_fid);
+		if (IS_ERR(o))
+			RETURN(PTR_ERR(o));
+
+		goto after_open;
+	}
 
 	ls = ls_device_get(dt);
 	if (IS_ERR(ls))
@@ -1007,6 +1024,7 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 	if (IS_ERR(o))
 		GOTO(out_name, rc = PTR_ERR(o));
 
+after_open:
 	/* No new llog is expected but doesn't exist */
 	if (open_param != LLOG_OPEN_NEW && !dt_object_exists(o))
 		GOTO(out_put, rc = -ENOENT);
@@ -1077,6 +1095,18 @@ static int llog_osd_declare_create(const struct lu_env *env,
 	if (dt_object_exists(o))
 		RETURN(0);
 
+	if (res->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		struct llog_thread_info *lgi = llog_info(env);
+
+		lgi->lgi_attr.la_valid = LA_MODE | LA_SIZE;
+		lgi->lgi_attr.la_size = 0;
+		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
+		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
+
+		rc = dt_declare_create(env, o, &lgi->lgi_attr, NULL,
+				       &lgi->lgi_dof, th);
+		RETURN(rc);
+	}
 	los = res->private_data;
 	LASSERT(los);
 
@@ -1140,6 +1170,21 @@ static int llog_osd_create(const struct lu_env *env, struct llog_handle *res,
 	if (dt_object_exists(o))
 		RETURN(-EEXIST);
 
+	if (res->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		struct llog_thread_info *lgi = llog_info(env);
+
+		lgi->lgi_attr.la_valid = LA_MODE | LA_SIZE;
+		lgi->lgi_attr.la_size = 0;
+		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
+		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
+
+		dt_write_lock(env, o, 0);
+		rc = dt_create(env, o, &lgi->lgi_attr, NULL,
+			       &lgi->lgi_dof, th);
+		dt_write_unlock(env, o);
+		RETURN(rc);
+	}
+
 	los = res->private_data;
 	LASSERT(los);
 
@@ -1199,6 +1244,10 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 	LASSERT(handle->lgh_obj);
 
 	lu_object_put(env, &handle->lgh_obj->do_lu);
+
+	if (handle->lgh_ctxt->loc_flags &
+	    LLOG_CTXT_FLAG_NORMAL_FID)
+		RETURN(rc);
 
 	los = handle->private_data;
 	LASSERT(los);
@@ -1332,6 +1381,9 @@ static int llog_osd_setup(const struct lu_env *env, struct obd_device *obd,
 
 	ctxt = llog_ctxt_get(olg->olg_ctxts[ctxt_idx]);
 	LASSERT(ctxt);
+
+	if (disk_obd == NULL)
+		GOTO(out, rc = 0);
 
 	/* initialize data allowing to generate new fids,
 	 * literally we need a sequece */
