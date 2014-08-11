@@ -321,9 +321,9 @@ test_1() {
 run_test 1 "start up ost twice (should return errors)"
 
 test_2() {
-	start_mdt 1 || error "MDT0 start fail"
+	start_mds || error "MDT0 start fail"
 	echo "start mds second time.."
-	start_mdt 1 && error "2nd MDT start should fail"
+	start_mds && error "2nd MDT start should fail"
 	start_ost || error "OST start failed"
 	mount_client $MOUNT || error "mount_client failed to start client"
 	check_mount || error "check_mount failed"
@@ -2567,9 +2567,9 @@ test_41a() { #bug 14134
 
 	local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
-	start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nosvc -n
+	start_mds -o nosvc -n
 	start ost1 $(ostdevname 1) $OST_MOUNT_OPTS
-	start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nomgs,force
+	start mds -o nomgs,force
 	mount_client $MOUNT || error "mount_client $MOUNT failed"
 	sleep 5
 
@@ -2597,9 +2597,9 @@ test_41b() {
 	reformat
 	local MDSDEV=$(mdsdevname ${SINGLEMDS//mds/})
 
-	start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nosvc -n
+	start_mds -o nosvc -n
 	start_ost || error "Unable to start OST1"
-	start $SINGLEMDS $MDSDEV $MDS_MOUNT_OPTS -o nomgs,force
+	start_mds -o nomgs,force
 	mount_client $MOUNT || error "mount_client $MOUNT failed"
 	sleep 5
 
@@ -2627,11 +2627,11 @@ test_41c() {
 	# MDT concurent start
 	#define OBD_FAIL_TGT_DELAY_CONNECT 0x703
 	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x703"
-	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS &
+	start_mds &
 	local pid=$!
 	sleep 2
 	do_facet $SINGLEMDS "$LCTL set_param fail_loc=0x0"
-	start mds1 $(mdsdevname 1) $MDS_MOUNT_OPTS &
+	start_mds &
 	local pid2=$!
 	wait $pid2
 	local rc2=$?
