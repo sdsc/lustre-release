@@ -13,8 +13,8 @@ init_test_env $@
 
 . ${CONFIG:=$LUSTRE/tests/cfg/$NAME.sh}
 init_logging
-#              
-ALWAYS_EXCEPT="15  $INSANITY_EXCEPT"
+# bug number						LU-5077
+ALWAYS_EXCEPT="15  $INSANITY_EXCEPT	1"
 
 if [ "$FAILURE_MODE" = "HARD" ]; then
 	skip_env "$TESTSUITE: is not functional with FAILURE_MODE = HARD, " \

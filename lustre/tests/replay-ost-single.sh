@@ -20,10 +20,9 @@ init_logging
 require_dsh_ost || exit 0
 
 # Skip these tests
-# BUG NUMBER: 
-ALWAYS_EXCEPT="$REPLAY_OST_SINGLE_EXCEPT"
+# BUG NUMBER:								LU-5121
+ALWAYS_EXCEPT="$REPLAY_OST_SINGLE_EXCEPT	0b 1"
 
-#					
 [ "$SLOW" = "no" ] && EXCEPT_SLOW="5"
 
 if [ $(facet_fstype $SINGLEMDS) = "zfs" ]; then
