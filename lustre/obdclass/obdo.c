@@ -60,9 +60,9 @@ EXPORT_SYMBOL(obdo_set_parent_fid);
 
 /* WARNING: the file systems must take care not to tinker with
    attributes they don't manage (such as blocks). */
-void obdo_from_inode(struct obdo *dst, struct inode *src, obd_flag valid)
+void obdo_from_inode(struct obdo *dst, struct inode *src, u32 valid)
 {
-        obd_flag newvalid = 0;
+	u32 newvalid = 0;
 
         if (valid & (OBD_MD_FLCTIME | OBD_MD_FLMTIME))
                 CDEBUG(D_INODE, "valid %x, new time %lu/%lu\n",
@@ -119,7 +119,7 @@ void obdo_from_inode(struct obdo *dst, struct inode *src, obd_flag valid)
 }
 EXPORT_SYMBOL(obdo_from_inode);
 
-void obdo_cpy_md(struct obdo *dst, const struct obdo *src, obd_flag valid)
+void obdo_cpy_md(struct obdo *dst, const struct obdo *src, u32 valid)
 {
 #ifdef __KERNEL__
         CDEBUG(D_INODE, "src obdo "DOSTID" valid "LPX64", dst obdo "DOSTID"\n",
@@ -175,7 +175,7 @@ void obdo_to_ioobj(const struct obdo *oa, struct obd_ioobj *ioobj)
 EXPORT_SYMBOL(obdo_to_ioobj);
 
 static void iattr_from_obdo(struct iattr *attr, const struct obdo *oa,
-			    obd_flag valid)
+			    u32 valid)
 {
         valid &= oa->o_valid;
 
@@ -224,7 +224,7 @@ static void iattr_from_obdo(struct iattr *attr, const struct obdo *oa,
 }
 
 void md_from_obdo(struct md_op_data *op_data, const struct obdo *oa,
-		  obd_flag valid)
+		  u32 valid)
 {
         iattr_from_obdo(&op_data->op_attr, oa, valid);
         if (valid & OBD_MD_FLBLOCKS) {

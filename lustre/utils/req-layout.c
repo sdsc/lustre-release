@@ -109,6 +109,7 @@
 /*
  * Yes, include .c file.
  */
+typedef __u64 u64;
 #include "../ptlrpc/layout.c"
 
 void usage(void)

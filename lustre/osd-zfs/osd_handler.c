@@ -323,7 +323,7 @@ int osd_statfs(const struct lu_env *env, struct dt_device *d,
 	rc = udmu_objset_statfs(&osd->od_objset, osfs);
 	if (unlikely(rc))
 		RETURN(rc);
-	osfs->os_bavail -= min_t(obd_size,
+	osfs->os_bavail -= min_t(u64,
 				 OSD_GRANT_FOR_LOCAL_OIDS / osfs->os_bsize,
 				 osfs->os_bavail);
 	RETURN(0);

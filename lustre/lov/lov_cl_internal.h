@@ -513,16 +513,16 @@ struct lov_io {
          */
         loff_t             lis_io_endpos;
 
-        /**
-         * starting position within a file, for the current io loop iteration
-         * (stripe), used by ci_io_loop().
-         */
-        obd_off            lis_pos;
-        /**
-         * end position with in a file, for the current stripe io. This is
-         * exclusive (i.e., next offset after last byte affected by io).
-         */
-        obd_off            lis_endpos;
+	/**
+	 * starting position within a file, for the current io loop iteration
+	 * (stripe), used by ci_io_loop().
+	 */
+	u64		   lis_pos;
+	/**
+	 * end position with in a file, for the current stripe io. This is
+	 * exclusive (i.e., next offset after last byte affected by io).
+	 */
+	u64		   lis_endpos;
 
         int                lis_mem_frozen;
         int                lis_stripe_count;

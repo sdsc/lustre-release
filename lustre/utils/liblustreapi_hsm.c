@@ -55,8 +55,8 @@
 
 #include <libcfs/libcfs.h>
 #include <lnet/lnetctl.h>
-#include <lustre/lustre_idl.h>
 #include <lustre/lustreapi.h>
+#include <lustre_ioctl.h>
 #include "lustreapi_internal.h"
 
 #define OPEN_BY_FID_PATH dot_lustre_name"/fid"

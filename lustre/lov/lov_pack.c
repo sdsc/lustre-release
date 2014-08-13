@@ -125,7 +125,7 @@ void lov_dump_lmm(int level, void *lmm)
  *
  * XXX In the future, this will be enhanced to get the EA size from the
  *     underlying OSC device(s) to get their EA sizes so we can stack
- *     LOVs properly.  For now lov_mds_md_size() just assumes one obd_id
+ *     LOVs properly.  For now lov_mds_md_size() just assumes one u64
  *     per stripe.
  */
 int lov_packmd(struct obd_export *exp, struct lov_mds_md **lmmp,

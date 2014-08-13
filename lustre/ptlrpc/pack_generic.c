@@ -1614,10 +1614,10 @@ EXPORT_SYMBOL(ptlrpc_req_set_repsize);
  * This may go from client to server or server to client.
  */
 int do_set_info_async(struct obd_import *imp,
-                      int opcode, int version,
-                      obd_count keylen, void *key,
-                      obd_count vallen, void *val,
-                      struct ptlrpc_request_set *set)
+		      int opcode, int version,
+		      u32 keylen, void *key,
+		      u32 vallen, void *val,
+		      struct ptlrpc_request_set *set)
 {
         struct ptlrpc_request *req;
         char                  *tmp;
@@ -1813,7 +1813,7 @@ void lustre_swab_ost_body (struct ost_body *b)
 }
 EXPORT_SYMBOL(lustre_swab_ost_body);
 
-void lustre_swab_ost_last_id(obd_id *id)
+void lustre_swab_ost_last_id(u64 *id)
 {
         __swab64s(id);
 }
