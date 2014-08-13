@@ -34,8 +34,8 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
-#ifndef LUSTRE_PATCHLESS_COMPAT_H
-#define LUSTRE_PATCHLESS_COMPAT_H
+#ifndef _LUSTRE_PATCHLESS_COMPAT_H
+#define _LUSTRE_PATCHLESS_COMPAT_H
 
 #include <linux/fs.h>
 
@@ -45,7 +45,7 @@
 #include <linux/hash.h>
 
 #ifndef HAVE_DELETE_FROM_PAGE_CACHE /* 2.6.39 */
-#ifndef HAVE_REMOVE_FROM_PAGE_CACHE /* 2.6.35 - 2.6.38 */
+# ifndef HAVE_REMOVE_FROM_PAGE_CACHE /* 2.6.35 - 2.6.38 */
 
 /* XXX copy & paste from 2.6.15 kernel */
 static inline void ll_remove_from_page_cache(struct page *page)
@@ -62,17 +62,17 @@ static inline void ll_remove_from_page_cache(struct page *page)
 
 	spin_unlock_irq(&mapping->tree_lock);
 }
-#else /* HAVE_REMOVE_FROM_PAGE_CACHE */
-#define ll_remove_from_page_cache(page) remove_from_page_cache(page)
-#endif /* !HAVE_REMOVE_FROM_PAGE_CACHE */
+# else /* HAVE_REMOVE_FROM_PAGE_CACHE */
+#  define ll_remove_from_page_cache(page) remove_from_page_cache(page)
+# endif /* !HAVE_REMOVE_FROM_PAGE_CACHE */
 
 static inline void ll_delete_from_page_cache(struct page *page)
 {
-        ll_remove_from_page_cache(page);
-        page_cache_release(page);
+	ll_remove_from_page_cache(page);
+	page_cache_release(page);
 }
-#else /* HAVE_DELETE_FROM_PAGE_CACHE */
-#define ll_delete_from_page_cache(page) delete_from_page_cache(page)
+# else /* HAVE_DELETE_FROM_PAGE_CACHE */
+# define ll_delete_from_page_cache(page) delete_from_page_cache(page)
 #endif /* !HAVE_DELETE_FROM_PAGE_CACHE */
 
 static inline void
@@ -94,10 +94,10 @@ truncate_complete_page(struct address_space *mapping, struct page *page)
 #endif /* !HAVE_TRUNCATE_COMPLETE_PAGE */
 
 #ifdef HAVE_DCACHE_LOCK
-#  define dget_dlock(d)			dget_locked(d)
-#  define d_count(d)			atomic_read(&(d)->d_count)
+# define dget_dlock(d)			dget_locked(d)
+# define d_count(d)			atomic_read(&(d)->d_count)
 #elif !defined(HAVE_D_COUNT)
-#  define d_count(d)			((d)->d_count)
+# define d_count(d)			((d)->d_count)
 #endif /* HAVE_DCACHE_LOCK */
 
 #ifdef ATTR_OPEN
@@ -109,7 +109,7 @@ truncate_complete_page(struct address_space *mapping, struct page *page)
 #endif /* ATTR_OPEN */
 
 #ifndef ATTR_RAW
-#define ATTR_RAW 0
+# define ATTR_RAW 0
 #endif
 
 #ifndef ATTR_CTIME_SET
@@ -117,7 +117,7 @@ truncate_complete_page(struct address_space *mapping, struct page *page)
  * set ATTR_CTIME_SET to a high value to avoid any risk of collision with other
  * ATTR_* attributes (see bug 13828)
  */
-#define ATTR_CTIME_SET (1 << 28)
+# define ATTR_CTIME_SET (1 << 28)
 #endif
 
-#endif /* LUSTRE_PATCHLESS_COMPAT_H */
+#endif /* _LUSTRE_PATCHLESS_COMPAT_H */

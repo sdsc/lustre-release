@@ -34,14 +34,14 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
-#ifndef _LINUX_COMPAT25_H
-#define _LINUX_COMPAT25_H
+#ifndef _LUSTRE_COMPAT_H
+#define _LUSTRE_COMPAT_H
 
 #include <linux/fs_struct.h>
 #include <linux/namei.h>
+#include <libcfs/libcfs.h>
 #include <libcfs/linux/portals_compat25.h>
-
-#include <linux/lustre_patchless_compat.h>
+#include <lustre_patchless_compat.h>
 
 #ifdef HAVE_FS_STRUCT_RWLOCK
 # define LOCK_FS_STRUCT(fs)	write_lock(&(fs)->lock)
@@ -52,31 +52,31 @@
 #endif
 
 static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
-                                 struct dentry *dentry)
+				 struct dentry *dentry)
 {
-        struct path path;
-        struct path old_pwd;
+	struct path path;
+	struct path old_pwd;
 
-        path.mnt = mnt;
-        path.dentry = dentry;
-        LOCK_FS_STRUCT(fs);
-        old_pwd = fs->pwd;
-        path_get(&path);
-        fs->pwd = path;
-        UNLOCK_FS_STRUCT(fs);
+	path.mnt = mnt;
+	path.dentry = dentry;
+	LOCK_FS_STRUCT(fs);
+	old_pwd = fs->pwd;
+	path_get(&path);
+	fs->pwd = path;
+	UNLOCK_FS_STRUCT(fs);
 
-        if (old_pwd.dentry)
-                path_put(&old_pwd);
+	if (old_pwd.dentry != NULL)
+		path_put(&old_pwd);
 }
 
 /*
  * set ATTR_BLOCKS to a high value to avoid any risk of collision with other
  * ATTR_* attributes (see bug 13828)
  */
-#define ATTR_BLOCKS    (1 << 27)
+#define ATTR_BLOCKS (1 << 27)
 
-#define current_ngroups current_cred()->group_info->ngroups
-#define current_groups current_cred()->group_info->small_block
+#define current_ngroups (current_cred()->group_info->ngroups)
+#define current_groups (current_cred()->group_info->small_block)
 
 /*
  * OBD need working random driver, thus all our
@@ -84,41 +84,41 @@ static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
  * driver initialization
  */
 #ifndef MODULE
-#undef module_init
-#define module_init(a)     late_initcall(a)
+# undef module_init
+# define module_init(a) late_initcall(a)
 #endif
 
 #ifndef MODULE_ALIAS_FS
 #define MODULE_ALIAS_FS(name)
 #endif
 
-#define LTIME_S(time)                   (time.tv_sec)
+#define LTIME_S(time) ((time).tv_sec)
 
 #ifdef HAVE_GENERIC_PERMISSION_2ARGS
 # define ll_generic_permission(inode, mask, flags, check_acl) \
-	 generic_permission(inode, mask)
+	generic_permission(inode, mask)
 #elif defined HAVE_GENERIC_PERMISSION_4ARGS
 # define ll_generic_permission(inode, mask, flags, check_acl) \
-	 generic_permission(inode, mask, flags, check_acl)
+	generic_permission(inode, mask, flags, check_acl)
 #else
 # define ll_generic_permission(inode, mask, flags, check_acl) \
-	 generic_permission(inode, mask, check_acl)
+	generic_permission(inode, mask, check_acl)
 #endif
 
 #ifdef HAVE_4ARGS_VFS_SYMLINK
-#define ll_vfs_symlink(dir, dentry, mnt, path, mode) \
-                vfs_symlink(dir, dentry, path, mode)
+# define ll_vfs_symlink(dir, dentry, mnt, path, mode) \
+	vfs_symlink(dir, dentry, path, mode)
 #else
-#define ll_vfs_symlink(dir, dentry, mnt, path, mode) \
-                       vfs_symlink(dir, dentry, path)
+# define ll_vfs_symlink(dir, dentry, mnt, path, mode) \
+	vfs_symlink(dir, dentry, path)
 #endif
 
 #if !defined(HAVE_FILE_LLSEEK_SIZE) || defined(HAVE_FILE_LLSEEK_SIZE_5ARGS)
-#define ll_generic_file_llseek_size(file, offset, origin, maxbytes, eof) \
-		generic_file_llseek_size(file, offset, origin, maxbytes, eof);
+# define ll_generic_file_llseek_size(file, offset, origin, maxbytes, eof) \
+	generic_file_llseek_size(file, offset, origin, maxbytes, eof);
 #else
-#define ll_generic_file_llseek_size(file, offset, origin, maxbytes, eof) \
-		generic_file_llseek_size(file, offset, origin, maxbytes);
+# define ll_generic_file_llseek_size(file, offset, origin, maxbytes, eof) \
+	generic_file_llseek_size(file, offset, origin, maxbytes);
 #endif
 
 #ifdef HAVE_INODE_DIO_WAIT
@@ -134,46 +134,47 @@ static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
 #endif
 
 #ifndef FS_HAS_FIEMAP
-#define FS_HAS_FIEMAP			(0)
+# define FS_HAS_FIEMAP 0
 #endif
 
 /* add a lustre compatible layer for crypto API */
 #include <linux/crypto.h>
-static inline int ll_crypto_hmac(struct crypto_hash *tfm,
-                                 u8 *key, unsigned int *keylen,
-                                 struct scatterlist *sg,
-                                 unsigned int size, u8 *result)
+static inline int
+ll_crypto_hmac(struct crypto_hash *tfm, u8 *key, unsigned int *keylen,
+	       struct scatterlist *sg, unsigned int size, u8 *result)
 {
-        struct hash_desc desc;
-        int              rv;
-        desc.tfm   = tfm;
-        desc.flags = 0;
-        rv = crypto_hash_setkey(desc.tfm, key, *keylen);
-        if (rv) {
-                CERROR("failed to hash setkey: %d\n", rv);
-                return rv;
-        }
-        return crypto_hash_digest(&desc, sg, size, result);
+	struct hash_desc desc = {
+		.tfm = tfm,
+	};
+	int rc;
+
+	rc = crypto_hash_setkey(desc.tfm, key, *keylen);
+	if (rc != 0) {
+		CERROR("failed to hash setkey: rc = %d\n", rc);
+		return rc;
+	}
+
+	return crypto_hash_digest(&desc, sg, size, result);
 }
 
-static inline
-unsigned int ll_crypto_tfm_alg_min_keysize(struct crypto_blkcipher *tfm)
+static inline unsigned int
+ll_crypto_tfm_alg_min_keysize(struct crypto_blkcipher *tfm)
 {
-        return crypto_blkcipher_tfm(tfm)->__crt_alg->cra_blkcipher.min_keysize;
+	return crypto_blkcipher_tfm(tfm)->__crt_alg->cra_blkcipher.min_keysize;
 }
 
 #ifdef for_each_possible_cpu
-#define cfs_for_each_possible_cpu(cpu) for_each_possible_cpu(cpu)
+# define cfs_for_each_possible_cpu(cpu) for_each_possible_cpu(cpu)
 #elif defined(for_each_cpu)
-#define cfs_for_each_possible_cpu(cpu) for_each_cpu(cpu)
+# define cfs_for_each_possible_cpu(cpu) for_each_cpu(cpu)
 #endif
 
 #ifndef HAVE_SIMPLE_SETATTR
-#define simple_setattr(dentry, ops) inode_setattr((dentry)->d_inode, ops)
+# define simple_setattr(dentry, ops) inode_setattr((dentry)->d_inode, ops)
 #endif
 
 #ifndef SLAB_DESTROY_BY_RCU
-#define SLAB_DESTROY_BY_RCU 0
+# define SLAB_DESTROY_BY_RCU 0
 #endif
 
 #ifndef HAVE_DQUOT_SUSPEND
@@ -193,20 +194,22 @@ unsigned int ll_crypto_tfm_alg_min_keysize(struct crypto_blkcipher *tfm)
 #endif
 
 #ifndef HAVE_BLK_QUEUE_MAX_SEGMENTS
-#define blk_queue_max_segments(rq, seg)                      \
-        do { blk_queue_max_phys_segments(rq, seg);           \
-             blk_queue_max_hw_segments(rq, seg); } while (0)
+# define blk_queue_max_segments(rq, seg)			\
+	do {							\
+		blk_queue_max_phys_segments(rq, seg);           \
+		blk_queue_max_hw_segments(rq, seg);		\
+	} while (0)
 #else
-#define queue_max_phys_segments(rq)       queue_max_segments(rq)
-#define queue_max_hw_segments(rq)         queue_max_segments(rq)
+# define queue_max_phys_segments(rq)	queue_max_segments(rq)
+# define queue_max_hw_segments(rq)	queue_max_segments(rq)
 #endif
 
 #ifdef HAVE_KMAP_ATOMIC_HAS_1ARG
-#define ll_kmap_atomic(a, b)	kmap_atomic(a)
-#define ll_kunmap_atomic(a, b)	kunmap_atomic(a)
+# define ll_kmap_atomic(a, b)	kmap_atomic(a)
+# define ll_kunmap_atomic(a, b)	kunmap_atomic(a)
 #else
-#define ll_kmap_atomic(a, b)	kmap_atomic(a, b)
-#define ll_kunmap_atomic(a, b)	kunmap_atomic(a, b)
+# define ll_kmap_atomic(a, b)	kmap_atomic(a, b)
+# define ll_kunmap_atomic(a, b)	kunmap_atomic(a, b)
 #endif
 
 #ifndef HAVE_CLEAR_INODE
@@ -214,27 +217,27 @@ unsigned int ll_crypto_tfm_alg_min_keysize(struct crypto_blkcipher *tfm)
 #endif
 
 #ifdef HAVE_DENTRY_D_ALIAS_HLIST
-#define ll_d_hlist_node hlist_node
-#define ll_d_hlist_empty(list) hlist_empty(list)
-#define ll_d_hlist_entry(ptr, type, name) hlist_entry(ptr.first, type, name)
-#define ll_d_hlist_for_each(tmp, i_dentry) hlist_for_each(tmp, i_dentry)
-#ifdef HAVE_HLIST_FOR_EACH_3ARG
-#define ll_d_hlist_for_each_entry(dentry, p, i_dentry, alias) \
+# define ll_d_hlist_node hlist_node
+# define ll_d_hlist_empty(list) hlist_empty(list)
+# define ll_d_hlist_entry(ptr, type, name) hlist_entry(ptr.first, type, name)
+# define ll_d_hlist_for_each(tmp, i_dentry) hlist_for_each(tmp, i_dentry)
+# ifdef HAVE_HLIST_FOR_EACH_3ARG
+#  define ll_d_hlist_for_each_entry(dentry, p, i_dentry, alias) \
 	p = NULL; hlist_for_each_entry(dentry, i_dentry, alias)
-#else
-#define ll_d_hlist_for_each_entry(dentry, p, i_dentry, alias) \
-        hlist_for_each_entry(dentry, p, i_dentry, alias)
-#endif
-#define DECLARE_LL_D_HLIST_NODE_PTR(name) struct ll_d_hlist_node *name
-#else
-#define ll_d_hlist_node list_head
-#define ll_d_hlist_empty(list) list_empty(list)
-#define ll_d_hlist_entry(ptr, type, name) list_entry(ptr.next, type, name)
-#define ll_d_hlist_for_each(tmp, i_dentry) list_for_each(tmp, i_dentry)
-#define ll_d_hlist_for_each_entry(dentry, p, i_dentry, alias) \
+# else /* HAVE_HLIST_FOR_EACH_3ARG */
+#  define ll_d_hlist_for_each_entry(dentry, p, i_dentry, alias) \
+	hlist_for_each_entry(dentry, p, i_dentry, alias)
+# endif /* !HAVE_HLIST_FOR_EACH_3ARG */
+# define DECLARE_LL_D_HLIST_NODE_PTR(name) struct ll_d_hlist_node *name
+#else /* HAVE_DENTRY_D_ALIAS_HLIST */
+# define ll_d_hlist_node list_head
+# define ll_d_hlist_empty(list) list_empty(list)
+# define ll_d_hlist_entry(ptr, type, name) list_entry(ptr.next, type, name)
+# define ll_d_hlist_for_each(tmp, i_dentry) list_for_each(tmp, i_dentry)
+# define ll_d_hlist_for_each_entry(dentry, p, i_dentry, alias) \
 	list_for_each_entry(dentry, i_dentry, alias)
-#define DECLARE_LL_D_HLIST_NODE_PTR(name) /* nothing */
-#endif
+# define DECLARE_LL_D_HLIST_NODE_PTR(name) /* nothing */
+#endif /* !HAVE_DENTRY_D_ALIAS_HLIST */
 
 #ifndef QUOTA_OK
 # define QUOTA_OK 0
@@ -244,14 +247,14 @@ unsigned int ll_crypto_tfm_alg_min_keysize(struct crypto_blkcipher *tfm)
 #endif
 
 #ifndef SEEK_DATA
-#define SEEK_DATA      3       /* seek to the next data */
+# define SEEK_DATA      3       /* seek to the next data */
 #endif
 #ifndef SEEK_HOLE
-#define SEEK_HOLE      4       /* seek to the next hole */
+# define SEEK_HOLE      4       /* seek to the next hole */
 #endif
 
 #ifndef FMODE_UNSIGNED_OFFSET
-#define FMODE_UNSIGNED_OFFSET	((__force fmode_t)0x2000)
+# define FMODE_UNSIGNED_OFFSET	((__force fmode_t)0x2000)
 #endif
 
 #if !defined(_ASM_GENERIC_BITOPS_EXT2_NON_ATOMIC_H_) && !defined(ext2_set_bit)
@@ -315,7 +318,7 @@ static inline struct dentry *d_make_root(struct inode *root)
 {
 	struct dentry *res = d_alloc_root(root);
 
-	if (res == NULL && root)
+	if (res == NULL && root != NULL)
 		iput(root);
 
 	return res;
@@ -323,35 +326,37 @@ static inline struct dentry *d_make_root(struct inode *root)
 #endif
 
 #ifdef HAVE_DIRTY_INODE_HAS_FLAG
-# define ll_dirty_inode(inode, flag)	(inode)->i_sb->s_op->dirty_inode((inode), flag)
+# define ll_dirty_inode(inode, flag)				\
+	((inode)->i_sb->s_op->dirty_inode((inode), flag))
 #else
-# define ll_dirty_inode(inode, flag)	(inode)->i_sb->s_op->dirty_inode((inode))
+# define ll_dirty_inode(inode, flag)				\
+	((inode)->i_sb->s_op->dirty_inode((inode)))
 #endif
 
 #ifdef HAVE_FILE_F_INODE
-# define set_file_inode(file, inode)	(file)->f_inode = inode
+# define set_file_inode(file, inode)	((file)->f_inode = (inode))
 #else
 # define set_file_inode(file, inode)
 #endif
 
 #ifdef HAVE_OLDSIZE_TRUNCATE_PAGECACHE
-#define ll_truncate_pagecache(inode, size) truncate_pagecache(inode, 0, size)
+# define ll_truncate_pagecache(inode, size) truncate_pagecache(inode, 0, size)
 #else
-#define ll_truncate_pagecache(inode, size) truncate_pagecache(inode, size)
+# define ll_truncate_pagecache(inode, size) truncate_pagecache(inode, size)
 #endif
 
 #ifdef HAVE_VFS_RENAME_5ARGS
-#define ll_vfs_rename(a, b, c, d) vfs_rename(a, b, c, d, NULL)
+# define ll_vfs_rename(a, b, c, d) vfs_rename(a, b, c, d, NULL)
 #elif defined HAVE_VFS_RENAME_6ARGS
-#define ll_vfs_rename(a, b, c, d) vfs_rename(a, b, c, d, NULL, 0)
+# define ll_vfs_rename(a, b, c, d) vfs_rename(a, b, c, d, NULL, 0)
 #else
-#define ll_vfs_rename(a, b, c, d) vfs_rename(a, b, c, d)
+# define ll_vfs_rename(a, b, c, d) vfs_rename(a, b, c, d)
 #endif
 
 #ifdef HAVE_VFS_UNLINK_3ARGS
-#define ll_vfs_unlink(a, b) vfs_unlink(a, b, NULL)
+# define ll_vfs_unlink(a, b) vfs_unlink(a, b, NULL)
 #else
-#define ll_vfs_unlink(a, b) vfs_unlink(a, b)
+# define ll_vfs_unlink(a, b) vfs_unlink(a, b)
 #endif
 
 #ifndef HAVE_RADIX_EXCEPTION_ENTRY
@@ -361,4 +366,4 @@ static inline int radix_tree_exceptional_entry(void *arg)
 }
 #endif
 
-#endif /* _COMPAT25_H */
+#endif /* _LUSTRE_COMPAT_H */

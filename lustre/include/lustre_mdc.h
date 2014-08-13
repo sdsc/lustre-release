@@ -48,18 +48,15 @@
  * @{
  */
 
-#ifdef __KERNEL__
-# include <linux/fs.h>
-# include <linux/dcache.h>
-# ifdef CONFIG_FS_POSIX_ACL
-#  include <linux/posix_acl_xattr.h>
-# endif /* CONFIG_FS_POSIX_ACL */
-# include <linux/lustre_intent.h>
-#endif /* __KERNEL__ */
-#include <lustre_handles.h>
+#include <linux/fs.h>
+#include <linux/dcache.h>
+#ifdef CONFIG_FS_POSIX_ACL
+# include <linux/posix_acl_xattr.h>
+#endif /* CONFIG_FS_POSIX_ACL */
 #include <libcfs/libcfs.h>
 #include <obd_class.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_intent.h>
 #include <lustre_lib.h>
 #include <lustre_dlm.h>
 #include <lustre_export.h>

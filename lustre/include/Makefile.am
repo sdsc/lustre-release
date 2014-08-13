@@ -36,9 +36,9 @@
 # Lustre is a trademark of Sun Microsystems, Inc.
 #
 
-SUBDIRS = linux lustre
+SUBDIRS = lustre
 
-DIST_SUBDIRS = linux lustre
+DIST_SUBDIRS = lustre
 
 EXTRA_DIST = \
 	cl_object.h \
@@ -52,6 +52,7 @@ EXTRA_DIST = \
 	lustre_acl.h \
 	lustre_capa.h \
 	lustre_cfg.h \
+	lustre_compat.h \
 	lustre_debug.h \
 	lustre_disk.h \
 	lustre_dlm_flags.h \
@@ -64,6 +65,7 @@ EXTRA_DIST = \
 	lustre_handles.h \
 	lustre_idmap.h \
 	lustre_import.h \
+	lustre_intent.h \
 	lustre_ioctl.h \
 	lustre_lfsck.h \
 	lustre_lib.h \
@@ -77,6 +79,7 @@ EXTRA_DIST = \
 	lustre_nodemap.h \
 	lustre_nrs_tbf.h \
 	lustre_param.h \
+	lustre_patchless_compat.h \
 	lustre_quota.h \
 	lustre_req_layout.h \
 	lustre_sec.h \
@@ -85,7 +88,6 @@ EXTRA_DIST = \
 	lu_target.h \
 	lvfs.h \
 	md_object.h \
-	obd_cache.h \
 	obd_cksum.h \
 	obd_class.h \
 	obd.h \

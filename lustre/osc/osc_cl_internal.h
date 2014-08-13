@@ -46,14 +46,9 @@
 #ifndef OSC_CL_INTERNAL_H
 #define OSC_CL_INTERNAL_H
 
-#ifdef __KERNEL__
-# include <libcfs/libcfs.h>
-#else
-# include <liblustre.h>
-#endif
-
+#include <linux/radix-tree.h>
+#include <libcfs/libcfs.h>
 #include <obd.h>
-/* osc_build_res_name() */
 #include <cl_object.h>
 #include <lclient.h>
 #include "osc_internal.h"

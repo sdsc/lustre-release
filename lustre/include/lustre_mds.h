@@ -47,7 +47,6 @@
  * @{
  */
 
-#include <lustre_handles.h>
 #include <libcfs/libcfs.h>
 #include <lustre/lustre_idl.h>
 #include <lustre_lib.h>

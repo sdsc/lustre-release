@@ -49,15 +49,28 @@
 #include <libcfs/types.h>
 
 #ifdef __KERNEL__
+# include <linux/fs.h>
+# include <linux/quota.h>
 # include <linux/string.h> /* snprintf() */
-#else
+#else /*  __KERNEL__ */
 # include <stdio.h> /* snprintf() */
-#endif
+# include <string.h>
+# define NEED_QUOTA_DEFS
+# include <sys/quota.h>
+# include <sys/stat.h>
+#endif /* ! __KERNEL__ */
+
 #include <lustre/ll_fiemap.h>
-#if defined(__linux__)
-#include <linux/lustre_user.h>
-#else
-#error Unsupported operating system.
+
+#if defined(__x86_64__) || defined(__ia64__) || defined(__ppc64__) || \
+    defined(__craynv) || defined(__mips64__) || defined(__powerpc64__)
+typedef struct stat     lstat_t;
+#define lstat_f         lstat
+#define HAVE_LOV_USER_MDS_DATA
+#elif defined(__USE_LARGEFILE64) || defined(__KERNEL__)
+typedef struct stat64   lstat_t;
+#define lstat_f         lstat64
+#define HAVE_LOV_USER_MDS_DATA
 #endif
 
 #define LUSTRE_EOF 0xffffffffffffffffULL
@@ -603,20 +616,19 @@ enum {
         RMT_RGETFACL    = 4
 };
 
-#ifdef NEED_QUOTA_DEFS
-#ifndef QIF_BLIMITS
-#define QIF_BLIMITS     1
-#define QIF_SPACE       2
-#define QIF_ILIMITS     4
-#define QIF_INODES      8
-#define QIF_BTIME       16
-#define QIF_ITIME       32
-#define QIF_LIMITS      (QIF_BLIMITS | QIF_ILIMITS)
-#define QIF_USAGE       (QIF_SPACE | QIF_INODES)
-#define QIF_TIMES       (QIF_BTIME | QIF_ITIME)
-#define QIF_ALL         (QIF_LIMITS | QIF_USAGE | QIF_TIMES)
-#endif
-
+#ifndef __KERNEL__
+# ifndef QIF_BLIMITS
+#  define QIF_BLIMITS     1
+#  define QIF_SPACE       2
+#  define QIF_ILIMITS     4
+#  define QIF_INODES      8
+#  define QIF_BTIME       16
+#  define QIF_ITIME       32
+#  define QIF_LIMITS      (QIF_BLIMITS | QIF_ILIMITS)
+#  define QIF_USAGE       (QIF_SPACE | QIF_INODES)
+#  define QIF_TIMES       (QIF_BTIME | QIF_ITIME)
+#  define QIF_ALL         (QIF_LIMITS | QIF_USAGE | QIF_TIMES)
+# endif /* !QIF_BLIMITS */
 #endif /* !__KERNEL__ */
 
 /* lustre volatile file support

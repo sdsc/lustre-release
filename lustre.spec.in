@@ -418,7 +418,6 @@ find $RPM_BUILD_ROOT%{?rootdir}/lib/modules/%{kversion}/%{kmoddir} -name "*.ko" 
 %{_datadir}/lustre
 %{_includedir}/lustre
 %{_includedir}/libcfs
-%{_includedir}/linux/lustre_user.h
 %{_libexecdir}/lustre/lc_common
 %{_libexecdir}/lustre/haconfig
 %{_sysconfdir}/udev/rules.d/99-lustre.rules

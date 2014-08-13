@@ -34,17 +34,18 @@
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
-#ifndef _OBD_SUPPORT
-#define _OBD_SUPPORT
+#ifndef _OBD_SUPPORT_H
+#define _OBD_SUPPORT_H
 
 #include <libcfs/libcfs.h>
-#include <lprocfs_status.h>
-
-#if defined(__linux__)
-#include <linux/obd_support.h>
-#else
-#error Unsupported operating system.
-#endif
+#ifdef __KERNEL__
+# include <linux/pagemap.h>
+# include <linux/rcupdate.h>
+# include <linux/slab.h>
+# include <linux/types.h>
+# include <lprocfs_status.h>
+# include <lustre_handles.h>
+#endif /* __KERNEL__ */
 
 /* global variables */
 extern struct lprocfs_stats *obd_memory;

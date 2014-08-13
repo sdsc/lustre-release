@@ -36,10 +36,6 @@
 #ifndef __CLASS_OBD_H
 #define __CLASS_OBD_H
 
-#ifndef __KERNEL__
-# include <liblustre.h>
-#endif
-
 #include <obd_support.h>
 #include <lustre_import.h>
 #include <lustre_net.h>
@@ -48,11 +44,7 @@
 #include <lustre/lustre_idl.h>
 #include <lprocfs_status.h>
 
-#if defined(__linux__)
-#include <linux/obd_class.h>
-#else
-#error Unsupported operating system.
-#endif
+struct lu_attr;
 
 #define OBD_STATFS_NODELAY      0x0001  /* requests should be send without delay
                                          * and resends for avoid deadlocks */
@@ -331,6 +323,8 @@ static inline struct lr_server_data *class_server_data(struct obd_device *obd)
 }
 #endif
 
+void obdo_from_la(struct obdo *dst, const struct lu_attr *la, __u64 valid);
+void la_from_obdo(struct lu_attr *la, const struct obdo *dst, obd_flag valid);
 void obdo_cpy_md(struct obdo *dst, const struct obdo *src, obd_flag valid);
 void obdo_to_ioobj(const struct obdo *oa, struct obd_ioobj *ioobj);
 void md_from_obdo(struct md_op_data *op_data, const struct obdo *oa,
@@ -1943,10 +1937,6 @@ struct root_squash_info {
 	struct rw_semaphore	rsi_sem;
 };
 
-#ifdef __KERNEL__
 int server_name2index(const char *svname, __u32 *idx, const char **endptr);
-#else
-# define server_name2index(name, idx, ptr)	do {} while (0)
-#endif
 
 #endif /* __LINUX_OBD_CLASS_H */

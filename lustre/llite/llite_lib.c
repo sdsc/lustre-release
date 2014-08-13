@@ -40,10 +40,11 @@
 
 #define DEBUG_SUBSYSTEM S_LLITE
 
+#include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/statfs.h>
 #include <linux/types.h>
 #include <linux/version.h>
-#include <linux/mm.h>
 
 #include <lustre_ioctl.h>
 #include <lustre_lite.h>

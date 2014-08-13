@@ -24,32 +24,55 @@
  * GPL HEADER END
  */
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Use is subject to license terms.
+ *
+ * Copyright (c) 2011, 2013, Intel Corporation.
  */
 /*
  * This file is part of Lustre, http://www.lustre.org/
  * Lustre is a trademark of Sun Microsystems, Inc.
  */
 
-#ifndef __LINUX_LUSTRE_HANDLES_H_
-#define __LINUX_LUSTRE_HANDLES_H_
-
-#ifndef __LUSTRE_HANDLES_H_
-#error Do not #include this file directly. #include <lustre_handles.h> instead
-#endif
-
-#ifdef __KERNEL__
-#include <asm/types.h>
-#include <asm/atomic.h>
-#include <linux/list.h>
-#include <linux/version.h>
-#include <linux/spinlock.h>
+#ifndef _LUSTRE_INTENT_H
+#define _LUSTRE_INTENT_H
 #include <linux/types.h>
 
-#include <linux/rcupdate.h> /* for rcu_head{} */
-typedef struct rcu_head cfs_rcu_head_t;
+/* intent IT_XXX are defined in lustre/include/obd.h */
+struct lustre_intent_data {
+	int		it_disposition;
+	int		it_status;
+	__u64		it_lock_handle;
+	__u64		it_lock_bits;
+	int		it_lock_mode;
+	int		it_remote_lock_mode;
+	__u64           it_remote_lock_handle;
+	void           *it_data;
+	unsigned int    it_lock_set:1;
+};
 
-#endif /* ifdef __KERNEL__ */
+struct lookup_intent {
+	int     it_op;
+	int     it_create_mode;
+	__u64   it_flags;
+	union {
+		struct lustre_intent_data lustre;
+	} d;
+};
 
-#endif
+static inline int it_disposition(const struct lookup_intent *it, int flag)
+{
+	return it->d.lustre.it_disposition & flag;
+}
+
+static inline void it_set_disposition(struct lookup_intent *it, int flag)
+{
+	it->d.lustre.it_disposition |= flag;
+}
+
+static inline void it_clear_disposition(struct lookup_intent *it, int flag)
+{
+	it->d.lustre.it_disposition &= ~flag;
+}
+
+#endif /* _LUSTRE_INTENT_H */

@@ -39,13 +39,73 @@
 #ifndef __LVFS_H__
 #define __LVFS_H__
 
+#include <linux/cred.h>
+#include <linux/fs.h>
 #include <libcfs/libcfs.h>
+#include <lustre_compat.h>
 
-#if defined(__linux__)
-#include <linux/lvfs.h>
-#else
-#error Unsupported operating system.
+#define OBD_RUN_CTXT_MAGIC	0xC0FFEEAA
+#define OBD_CTXT_DEBUG		/* development-only debugging */
+
+struct dt_device;
+
+struct lvfs_run_ctxt {
+	struct vfsmount		*pwdmnt;
+	struct dentry		*pwd;
+	mm_segment_t		 fs;
+	int			 umask;
+	struct dt_device	*dt;
+#ifdef OBD_CTXT_DEBUG
+	u32			 magic;
 #endif
+};
+
+static inline void OBD_SET_CTXT_MAGIC(struct lvfs_run_ctxt *ctxt)
+{
+#ifdef OBD_CTXT_DEBUG
+	ctxt->magic = OBD_RUN_CTXT_MAGIC;
+#endif /* OBD_CTXT_DEBUG */
+}
+
+/* We need to hold the inode semaphore over the dcache lookup itself, or we
+ * run the risk of entering the filesystem lookup path concurrently on SMP
+ * systems, and instantiating two inodes for the same entry.  We still
+ * protect against concurrent addition/removal races with the DLM locking.
+ */
+static inline struct dentry *
+ll_lookup_one_len(const char *name, struct dentry *dparent, int namelen)
+{
+	struct dentry *dchild;
+
+	mutex_lock(&dparent->d_inode->i_mutex);
+	dchild = lookup_one_len(name, dparent, namelen);
+	mutex_unlock(&dparent->d_inode->i_mutex);
+
+	if (IS_ERR(dchild) || dchild->d_inode == NULL)
+		return dchild;
+
+	if (is_bad_inode(dchild->d_inode)) {
+		CERROR("bad inode returned %lu/%u\n",
+		       dchild->d_inode->i_ino, dchild->d_inode->i_generation);
+		dput(dchild);
+		dchild = ERR_PTR(-ENOENT);
+	}
+	return dchild;
+}
+
+static inline int cfs_cleanup_group_info(void)
+{
+	struct group_info *ginfo;
+
+	ginfo = groups_alloc(0);
+	if (ginfo == NULL)
+		return -ENOMEM;
+
+	set_current_groups(ginfo);
+	put_group_info(ginfo);
+
+	return 0;
+}
 
 /* ptlrpc_sec_ctx.c */
 void push_ctxt(struct lvfs_run_ctxt *save, struct lvfs_run_ctxt *new_ctx);

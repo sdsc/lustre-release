@@ -36,16 +36,10 @@
 
 #define DEBUG_SUBSYSTEM S_MDC
 
-#ifdef __KERNEL__
-# include <linux/module.h>
-# include <linux/pagemap.h>
-# include <linux/miscdevice.h>
-# include <linux/init.h>
-# include <linux/utsname.h>
-#else
-# include <liblustre.h>
-#endif
-
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/pagemap.h>
+#include <linux/radix-tree.h>
 #include <lustre_acl.h>
 #include <lustre_ioctl.h>
 #include <obd_class.h>

@@ -36,19 +36,12 @@
 
 #ifndef __OBD_H
 #define __OBD_H
-#ifndef __KERNEL__
-# error "userspace should not include <obd.h>"
-#endif
-
-#if defined(__linux__)
-#include <linux/obd.h>
-#else
-#error Unsupported operating system.
-#endif
-
+#include <linux/sched.h>
+#include <linux/spinlock.h>
+#include <libcfs/libcfs.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_intent.h>
 #include <lustre_lib.h>
-#include <libcfs/bitmap.h>
 #ifdef HAVE_SERVER_SUPPORT
 # include <lu_target.h>
 # include <obd_target.h>
@@ -219,6 +212,71 @@ enum {
         NUM_SYNC_ON_CANCEL_STATES
 };
 
+struct client_obd_lock {
+	spinlock_t		 col_lock;
+	unsigned long		 col_time;
+	struct task_struct	*col_task;
+	const char		*col_func;
+	int			 col_line;
+};
+
+static inline void __client_obd_list_lock(struct client_obd_lock *lock,
+					  const char *func, int line)
+{
+	unsigned long cur = jiffies;
+	while (1) {
+		if (spin_trylock(&lock->col_lock)) {
+			LASSERT(lock->col_task == NULL);
+			lock->col_task = current;
+			lock->col_func = func;
+			lock->col_line = line;
+			lock->col_time = jiffies;
+			break;
+		}
+
+		if ((jiffies - cur > 5 * HZ) &&
+		    (jiffies - lock->col_time > 5 * HZ)) {
+			struct task_struct *task = lock->col_task;
+
+			if (task == NULL)
+				continue;
+
+			LCONSOLE_WARN("%s:%d: lock %p was acquired"
+				      " by <%s:%d:%s:%d> for %lu seconds.\n",
+				      current->comm, current->pid,
+				      lock, task->comm, task->pid,
+				      lock->col_func, lock->col_line,
+				      (jiffies - lock->col_time) / HZ);
+			LCONSOLE_WARN("====== for process holding the "
+				      "lock =====\n");
+			libcfs_debug_dumpstack(task);
+			LCONSOLE_WARN("====== for current process =====\n");
+			libcfs_debug_dumpstack(NULL);
+			LCONSOLE_WARN("====== end =======\n");
+			set_current_state(TASK_UNINTERRUPTIBLE);
+			schedule_timeout(HZ);
+		}
+
+		cpu_relax();
+	}
+}
+
+#define client_obd_list_lock(lock) \
+	__client_obd_list_lock(lock, __func__, __LINE__)
+
+static inline void client_obd_list_unlock(struct client_obd_lock *lock)
+{
+	LASSERT(lock->col_task != NULL);
+	lock->col_task = NULL;
+	lock->col_time = jiffies;
+	spin_unlock(&lock->col_lock);
+}
+
+static inline void client_obd_list_lock_init(struct client_obd_lock *lock)
+{
+	spin_lock_init(&lock->col_lock);
+}
+
 struct mdc_rpc_lock;
 struct obd_import;
 struct client_obd {
@@ -280,7 +338,7 @@ struct client_obd {
 	 * NB by Jinshan: though field names are still _loi_, but actually
 	 * osc_object{}s are in the list.
 	 */
-	client_obd_lock_t	cl_loi_list_lock;
+	struct client_obd_lock	cl_loi_list_lock;
 	struct list_head	cl_loi_ready_list;
 	struct list_head	cl_loi_hp_ready_list;
 	struct list_head	cl_loi_write_list;
@@ -307,7 +365,7 @@ struct client_obd {
 	atomic_t		 cl_lru_shrinkers;
 	atomic_t		 cl_lru_in_list;
 	struct list_head	 cl_lru_list; /* lru page list */
-	client_obd_lock_t	 cl_lru_list_lock; /* page list protector */
+	struct client_obd_lock	 cl_lru_list_lock; /* page list protector */
 	atomic_t		 cl_unstable_count;
 
 	/* number of in flight destroy rpcs is limited to max_rpcs_in_flight */
@@ -802,6 +860,11 @@ static inline int it_to_lock_mode(struct lookup_intent *it)
 	LASSERTF(0, "Invalid it_op: %d\n", it->it_op);
 	return -EINVAL;
 }
+
+struct ll_iattr {
+	struct iattr	iattr;
+	unsigned int	ia_attr_flags;
+};
 
 struct md_op_data {
         struct lu_fid           op_fid1; /* operation fid1 (usualy parent) */

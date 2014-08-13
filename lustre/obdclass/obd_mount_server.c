@@ -40,6 +40,13 @@
  * Author: Nathan Rutman <nathan@clusterfs.com>
  */
 
+#include <linux/statfs.h>
+#ifdef HAVE_SELINUX_IS_ENABLED
+# include <linux/selinux.h>
+#endif
+#ifdef HAVE_KERNEL_LOCKED
+# include <linux/smp_lock.h>
+#endif
 
 #define DEBUG_SUBSYSTEM S_CLASS
 #define D_MOUNT (D_SUPER | D_CONFIG /* | D_WARNING */)
@@ -49,17 +56,10 @@
 #include <obd.h>
 #include <obd_class.h>
 #include <lustre/lustre_user.h>
-#include <linux/version.h>
 #include <lustre_ioctl.h>
 #include <lustre_log.h>
 #include <lustre_disk.h>
 #include <lustre_param.h>
-#ifdef HAVE_KERNEL_LOCKED
-#include <linux/smp_lock.h>
-#endif
-#ifdef HAVE_SELINUX_IS_ENABLED
-#include <linux/selinux.h>
-#endif
 
 /*********** mount lookup *********/
 

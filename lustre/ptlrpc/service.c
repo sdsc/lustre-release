@@ -2478,9 +2478,7 @@ static int ptlrpc_main(void *arg)
 	struct ptlrpc_service_part	*svcpt = thread->t_svcpt;
 	struct ptlrpc_service		*svc = svcpt->scp_service;
 	struct ptlrpc_reply_state	*rs;
-#ifdef WITH_GROUP_INFO
 	struct group_info *ginfo = NULL;
-#endif
 	struct lu_env *env;
 	int counter = 0, rc = 0;
 	ENTRY;
@@ -2497,7 +2495,6 @@ static int ptlrpc_main(void *arg)
 		      svc->srv_name, thread->t_name, svcpt->scp_cpt);
 	}
 
-#ifdef WITH_GROUP_INFO
 	ginfo = groups_alloc(0);
 	if (!ginfo) {
 		rc = -ENOMEM;
@@ -2506,7 +2503,6 @@ static int ptlrpc_main(void *arg)
 
 	set_current_groups(ginfo);
 	put_group_info(ginfo);
-#endif
 
 	if (svc->srv_ops.so_thr_init != NULL) {
 		rc = svc->srv_ops.so_thr_init(thread);

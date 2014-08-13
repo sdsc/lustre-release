@@ -1001,6 +1001,45 @@ static int ll_lsm_getattr(struct lov_stripe_md *lsm, struct obd_export *exp,
 	RETURN(rc);
 }
 
+void ll_update_inode_from_obdo(struct inode *dst, const struct obdo *src,
+			       obd_flag valid)
+{
+	valid &= src->o_valid;
+
+	if (valid & (OBD_MD_FLCTIME | OBD_MD_FLMTIME))
+		CDEBUG(D_INODE,
+		       "valid "LPX64", cur time %lu/%lu, new "LPU64"/"LPU64"\n",
+		       src->o_valid, LTIME_S(dst->i_mtime),
+		       LTIME_S(dst->i_ctime), src->o_mtime, src->o_ctime);
+
+	if (valid & OBD_MD_FLATIME && src->o_atime > LTIME_S(dst->i_atime))
+		LTIME_S(dst->i_atime) = src->o_atime;
+
+	if (valid & OBD_MD_FLMTIME && src->o_mtime > LTIME_S(dst->i_mtime))
+		LTIME_S(dst->i_mtime) = src->o_mtime;
+
+	if (valid & OBD_MD_FLCTIME && src->o_ctime > LTIME_S(dst->i_ctime))
+		LTIME_S(dst->i_ctime) = src->o_ctime;
+
+	if (valid & OBD_MD_FLSIZE)
+		i_size_write(dst, src->o_size);
+
+	/* optimum IO size */
+	if (valid & OBD_MD_FLBLKSZ && src->o_blksize > (1 << dst->i_blkbits))
+		dst->i_blkbits = ffs(src->o_blksize) - 1;
+
+	if (dst->i_blkbits < PAGE_CACHE_SHIFT)
+		dst->i_blkbits = PAGE_CACHE_SHIFT;
+
+	/* allocation of space */
+	if (valid & OBD_MD_FLBLOCKS && src->o_blocks > dst->i_blocks)
+		/*
+		 * XXX shouldn't overflow be checked here like in
+		 * obdo_to_inode().
+		 */
+		dst->i_blocks = src->o_blocks;
+}
+
 /**
   * Performs the getattr on the inode and updates its fields.
   * If @sync != 0, perform the getattr under the server-side lock.
@@ -1020,11 +1059,11 @@ int ll_inode_getattr(struct inode *inode, struct obdo *obdo,
 	if (rc == 0) {
 		struct ost_id *oi = lsm ? &lsm->lsm_oi : &obdo->o_oi;
 
-		obdo_refresh_inode(inode, obdo, obdo->o_valid);
+		ll_update_inode_from_obdo(inode, obdo, obdo->o_valid);
 		CDEBUG(D_INODE, "objid "DOSTID" size %llu, blocks %llu,"
 		       " blksize %lu\n", POSTID(oi), i_size_read(inode),
 		       (unsigned long long)inode->i_blocks,
-		       (unsigned long)ll_inode_blksize(inode));
+		       1UL << inode->i_blkbits);
 	}
 	ccc_inode_lsm_put(inode, lsm);
 	RETURN(rc);
@@ -1046,7 +1085,12 @@ int ll_merge_lvb(const struct lu_env *env, struct inode *inode)
 	LTIME_S(inode->i_atime) = lli->lli_lvb.lvb_atime;
 	LTIME_S(inode->i_mtime) = lli->lli_lvb.lvb_mtime;
 	LTIME_S(inode->i_ctime) = lli->lli_lvb.lvb_ctime;
-	inode_init_lvb(inode, &lvb);
+
+	lvb.lvb_size = i_size_read(inode);
+	lvb.lvb_blocks = inode->i_blocks;
+	lvb.lvb_mtime = LTIME_S(inode->i_mtime);
+	lvb.lvb_atime = LTIME_S(inode->i_atime);
+	lvb.lvb_ctime = LTIME_S(inode->i_ctime);
 
 	cl_object_attr_lock(obj);
 	rc = cl_object_attr_get(env, obj, attr);

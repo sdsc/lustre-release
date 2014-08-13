@@ -43,10 +43,10 @@
 #include <linux/math64.h>
 #include <linux/seq_file.h>
 #include <linux/namei.h>
-#include <linux/lustre_intent.h>
 
 #include <obd_support.h>
 #include <lustre/lustre_idl.h>
+#include <lustre_intent.h>
 #include <lustre_lib.h>
 #include <lustre_net.h>
 #include <lustre_dlm.h>

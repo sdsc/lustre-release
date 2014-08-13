@@ -45,11 +45,10 @@
 #include <lustre_net.h>
 #include <obd.h>
 
-#if defined(__linux__)
-#include <linux/lustre_debug.h>
-#else
-#error Unsupported operating system.
-#endif
+#define LL_CDEBUG_PAGE(mask, page, fmt, arg...)                               \
+	CDEBUG(mask, "page %p map %p index %lu flags %lx count %u priv %0lx: " \
+	       fmt, page, page->mapping, page->index, (long)page->flags, \
+	       page_count(page), page_private(page), ## arg)
 
 #define ASSERT_MAX_SIZE_MB 60000ULL
 #define ASSERT_PAGE_INDEX(index, OP)                                    \

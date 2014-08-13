@@ -40,14 +40,10 @@
 
 #define DEBUG_SUBSYSTEM S_CLASS
 
-#ifndef __KERNEL__
-#include <liblustre.h>
-#endif
-
-#include <lustre_export.h>
-#include <lustre_net.h>
-#include <obd_support.h>
-#include <obd_class.h>
+#include <linux/module.h>
+#include <linux/statfs.h>
+#include <linux/string.h>
+#include <lustre/lustre_idl.h>
 
 void statfs_pack(struct obd_statfs *osfs, struct kstatfs *sfs)
 {

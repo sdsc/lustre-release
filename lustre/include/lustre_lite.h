@@ -42,22 +42,16 @@
  * @{
  */
 
-#if defined(__linux__)
-#include <linux/lustre_lite.h>
-#else
-#error Unsupported operating system.
-#endif
-
-#include <obd_class.h>
+#include <linux/types.h>
+#include <lustre/lustre_user.h>
+#include <lustre_dlm.h>
 #include <lustre_net.h>
 #include <lustre_ha.h>
+#include <obd_class.h>
 
 /* 4UL * 1024 * 1024 */
 #define LL_MAX_BLKSIZE_BITS     (22)
 #define LL_MAX_BLKSIZE          (1UL<<LL_MAX_BLKSIZE_BITS)
-
-#include <lustre/lustre_user.h>
-
 
 struct lustre_rw_params {
         int                lrp_lock_mode;
@@ -87,13 +81,6 @@ static inline void lustre_build_lock_params(int cmd, unsigned long open_flags,
         if (cmd == OBD_BRW_WRITE && (open_flags & O_APPEND)) {
                 params->lrp_policy.l_extent.start = 0;
                 params->lrp_policy.l_extent.end   = OBD_OBJECT_EOF;
-        } else if (LIBLUSTRE_CLIENT && (connect_flags & OBD_CONNECT_SRVLOCK)) {
-                /*
-                 * liblustre: OST-side locking for all non-O_APPEND
-                 * reads/writes.
-                 */
-                params->lrp_lock_mode = LCK_NL;
-                params->lrp_brw_flags = OBD_BRW_SRVLOCK;
         } else {
                 /*
                  * nothing special for the kernel. In the future llite may use

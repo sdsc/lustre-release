@@ -43,16 +43,11 @@
 
 #define DEBUG_SUBSYSTEM S_OSD
 
+#include <linux/types.h> /* prerequisite for linux/xattr.h */
+#include <linux/fs.h> /* prerequisite for linux/xattr.h */
 #include <linux/module.h>
-
-/* LUSTRE_VERSION_CODE */
-#include <lustre_ver.h>
-/* prerequisite for linux/xattr.h */
-#include <linux/types.h>
-/* prerequisite for linux/xattr.h */
-#include <linux/fs.h>
-/* XATTR_{REPLACE,CREATE} */
-#include <linux/xattr.h>
+#include <linux/statfs.h>
+#include <linux/xattr.h> /* XATTR_{REPLACE,CREATE} */
 
 /*
  * struct OBD_{ALLOC,FREE}*()

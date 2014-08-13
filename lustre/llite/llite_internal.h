@@ -36,7 +36,8 @@
 
 #ifndef LLITE_INTERNAL_H
 #define LLITE_INTERNAL_H
-#include <lustre_debug.h>
+
+#include <linux/compat.h>
 #include <lustre_ver.h>
 #include <lustre_disk.h>  /* for s2sbi */
 #include <lustre_eacl.h>
@@ -46,8 +47,9 @@
 #include <lclient.h>
 #include <lustre_lmv.h>
 #include <lustre_mdc.h>
-#include <linux/lustre_intent.h>
-#include <linux/compat.h>
+#include <lustre_intent.h>
+
+struct kstatfs;
 
 #ifndef FMODE_EXEC
 #define FMODE_EXEC 0
@@ -370,6 +372,45 @@ struct ra_io_arg {
          * it is stride I/O read-ahead in the read-ahead pages*/
         unsigned long ria_length;
         unsigned long ria_pages;
+};
+
+enum {
+	LPROC_LL_DIRTY_HITS,
+	LPROC_LL_DIRTY_MISSES,
+	LPROC_LL_READ_BYTES,
+	LPROC_LL_WRITE_BYTES,
+	LPROC_LL_BRW_READ,
+	LPROC_LL_BRW_WRITE,
+	LPROC_LL_OSC_READ,
+	LPROC_LL_OSC_WRITE,
+	LPROC_LL_IOCTL,
+	LPROC_LL_OPEN,
+	LPROC_LL_RELEASE,
+	LPROC_LL_MAP,
+	LPROC_LL_LLSEEK,
+	LPROC_LL_FSYNC,
+	LPROC_LL_READDIR,
+	LPROC_LL_SETATTR,
+	LPROC_LL_TRUNC,
+	LPROC_LL_FLOCK,
+	LPROC_LL_GETATTR,
+	LPROC_LL_CREATE,
+	LPROC_LL_LINK,
+	LPROC_LL_UNLINK,
+	LPROC_LL_SYMLINK,
+	LPROC_LL_MKDIR,
+	LPROC_LL_RMDIR,
+	LPROC_LL_MKNOD,
+	LPROC_LL_RENAME,
+	LPROC_LL_STAFS,
+	LPROC_LL_ALLOC_INODE,
+	LPROC_LL_SETXATTR,
+	LPROC_LL_GETXATTR,
+	LPROC_LL_GETXATTR_HITS,
+	LPROC_LL_LISTXATTR,
+	LPROC_LL_REMOVEXATTR,
+	LPROC_LL_INODE_PERM,
+	LPROC_LL_FILE_OPCODES
 };
 
 /* LL_HIST_MAX=32 causes an overflow */

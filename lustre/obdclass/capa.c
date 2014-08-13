@@ -51,7 +51,6 @@
 #include <linux/init.h>
 
 #include <obd_class.h>
-#include <lustre_debug.h>
 #include <lustre/lustre_idl.h>
 #else
 #include <liblustre.h>

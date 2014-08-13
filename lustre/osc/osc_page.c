@@ -41,6 +41,7 @@
 
 #define DEBUG_SUBSYSTEM S_OSC
 
+#include <linux/radix-tree.h>
 #include "osc_cl_internal.h"
 
 static void osc_lru_del(struct client_obd *cli, struct osc_page *opg);

@@ -43,7 +43,6 @@
 
 #ifdef __KERNEL__
 # include <libcfs/libcfs.h>
-# include <linux/lustre_intent.h>
 #else
 # include <liblustre.h>
 #endif

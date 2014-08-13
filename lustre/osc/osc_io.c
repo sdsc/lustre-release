@@ -412,11 +412,9 @@ static int trunc_check_cb(const struct lu_env *env, struct cl_io *io,
 		CL_PAGE_DEBUG(D_ERROR, env, page, "exists " LPU64 "/%s.\n",
 				start, current->comm);
 
-#ifdef __linux__
 	if (PageLocked(page->cp_vmpage))
 		CDEBUG(D_CACHE, "page %p index %lu locked for %d.\n",
 		       ops, osc_index(ops), oap->oap_cmd & OBD_BRW_RWMASK);
-#endif
 
 	return CLP_GANG_OKAY;
 }

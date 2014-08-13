@@ -39,7 +39,7 @@
  *   Author: Nikita Danilov <nikita.danilov@sun.com>
  *   Author: Oleg Drokin <oleg.drokin@sun.com>
  */
-
+#include <linux/radix-tree.h>
 #include <libcfs/libcfs.h>
 #include <obd_class.h>
 #include <obd_support.h>

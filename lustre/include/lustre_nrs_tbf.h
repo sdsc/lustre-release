@@ -31,7 +31,6 @@
 
 #ifndef _LUSTRE_NRS_TBF_H
 #define _LUSTRE_NRS_TBF_H
-#include <lustre_net.h>
 
 /* \name tbf
  *
@@ -185,9 +184,7 @@ struct nrs_tbf_head {
 	/**
 	 * Timer for next token.
 	 */
-#if defined(__KERNEL__) && defined(__linux__)
 	struct hrtimer			 th_timer;
-#endif
 	/**
 	 * Deadline of the timer.
 	 */

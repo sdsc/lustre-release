@@ -62,9 +62,9 @@
 
 #define DEBUG_SUBSYSTEM S_LLITE
 
+#include <lustre_compat.h>
 #include <lustre_lite.h>
 #include "llite_internal.h"
-#include <linux/lustre_compat25.h>
 
 /**
  * Implements Linux VM address_space::invalidatepage() method. This method is
@@ -600,7 +600,6 @@ static int ll_write_begin(struct file *file, struct address_space *mapping,
 		 */
 		if (from == 0 && to == PAGE_SIZE) {
 			CL_PAGE_HEADER(D_PAGE, env, page, "full page write\n");
-			POISON_PAGE(vmpage, 0x11);
 		} else {
 			/* TODO: can be optimized at OSC layer to check if it
 			 * is a lockless IO. In that case, it's not necessary

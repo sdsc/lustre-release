@@ -42,6 +42,9 @@
  * @{
  */
 
+#include <lustre/lustre_user.h>
+#include <obd_support.h>
+
 /*
  * 1cf6
  * lcfG
@@ -239,9 +242,6 @@ static inline int lustre_cfg_len(__u32 bufcount, __u32 *buflens)
         RETURN(cfs_size_round(len));
 }
 
-
-#include <obd_support.h>
-
 static inline void lustre_cfg_init(struct lustre_cfg *lcfg, int cmd,
 				   struct lustre_cfg_bufs *bufs)
 {
@@ -312,12 +312,6 @@ static inline int lustre_cfg_sanity_check(void *buf, int len)
         RETURN(0);
 }
 
-#include <lustre/lustre_user.h>
-
-#ifndef INVALID_UID
-#define INVALID_UID     (-1)
-#endif
-
 /** @} cfg */
 
-#endif // _LUSTRE_CFG_H
+#endif /* _LUSTRE_CFG_H */

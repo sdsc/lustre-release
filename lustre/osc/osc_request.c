@@ -1319,7 +1319,6 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
 			  ergo(i == page_count - 1, poff == 0)),
 			 "i: %d/%d pg: %p off: "LPU64", count: %u\n",
 			 i, page_count, pg, pg->off, pg->count);
-#ifdef __linux__
                 LASSERTF(i == 0 || pg->off > pg_prev->off,
                          "i %d p_c %u pg %p [pri %lu ind %lu] off "LPU64
                          " prev_pg %p [pri %lu ind %lu] off "LPU64"\n",
@@ -1327,10 +1326,6 @@ static int osc_brw_prep_request(int cmd, struct client_obd *cli,struct obdo *oa,
                          pg->pg, page_private(pg->pg), pg->pg->index, pg->off,
                          pg_prev->pg, page_private(pg_prev->pg),
                          pg_prev->pg->index, pg_prev->off);
-#else
-                LASSERTF(i == 0 || pg->off > pg_prev->off,
-                         "i %d p_c %u\n", i, page_count);
-#endif
                 LASSERT((pga[0]->flag & OBD_BRW_SRVLOCK) ==
                         (pg->flag & OBD_BRW_SRVLOCK));
 

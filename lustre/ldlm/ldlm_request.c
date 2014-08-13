@@ -657,11 +657,7 @@ int ldlm_cli_enqueue_fini(struct obd_export *exp, struct ptlrpc_request *req,
                         LDLM_DEBUG(lock,"client-side enqueue, new policy data");
         }
 
-        if ((*flags) & LDLM_FL_AST_SENT ||
-            /* Cancel extent locks as soon as possible on a liblustre client,
-             * because it cannot handle asynchronous ASTs robustly (see
-             * bug 7311). */
-            (LIBLUSTRE_CLIENT && type == LDLM_EXTENT)) {
+	if ((*flags) & LDLM_FL_AST_SENT) {
                 lock_res_and_lock(lock);
 		lock->l_flags |= LDLM_FL_CBPENDING | LDLM_FL_BL_AST;
                 unlock_res_and_lock(lock);
@@ -964,14 +960,6 @@ int ldlm_cli_enqueue(struct obd_export *exp, struct ptlrpc_request **reqp,
 				     lvb_len);
 		ptlrpc_request_set_replen(req);
         }
-
-        /*
-         * Liblustre client doesn't get extent locks, except for O_APPEND case
-         * where [0, OBD_OBJECT_EOF] lock is taken, or truncate, where
-         * [i_size, OBD_OBJECT_EOF] lock is taken.
-         */
-        LASSERT(ergo(LIBLUSTRE_CLIENT, einfo->ei_type != LDLM_EXTENT ||
-                     policy->l_extent.end == OBD_OBJECT_EOF));
 
         if (async) {
                 LASSERT(reqp != NULL);

@@ -57,10 +57,10 @@
 
 #define DEBUG_SUBSYSTEM S_LLITE
 
+#include <lustre_compat.h>
 #include <lustre_lite.h>
 #include <obd_cksum.h>
 #include "llite_internal.h"
-#include <linux/lustre_compat25.h>
 
 struct obd_capa *cl_capa_lookup(struct inode *inode, enum cl_req_type crt)
 {
