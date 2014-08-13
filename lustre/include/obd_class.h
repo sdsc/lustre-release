@@ -331,10 +331,10 @@ static inline struct lr_server_data *class_server_data(struct obd_device *obd)
 }
 #endif
 
-void obdo_cpy_md(struct obdo *dst, const struct obdo *src, obd_flag valid);
+void obdo_cpy_md(struct obdo *dst, const struct obdo *src, u32 valid);
 void obdo_to_ioobj(const struct obdo *oa, struct obd_ioobj *ioobj);
 void md_from_obdo(struct md_op_data *op_data, const struct obdo *oa,
-		  obd_flag valid);
+		  u32 valid);
 
 #define OBT(dev)        (dev)->obd_type
 #define OBP(dev, op)    (dev)->obd_type->typ_dt_ops->o_ ## op
@@ -510,9 +510,9 @@ static inline int obd_get_info(const struct lu_env *env,
 }
 
 static inline int obd_set_info_async(const struct lu_env *env,
-                                     struct obd_export *exp, obd_count keylen,
-                                     void *key, obd_count vallen, void *val,
-                                     struct ptlrpc_request_set *set)
+				     struct obd_export *exp, u32 keylen,
+				     void *key, u32 vallen, void *val,
+				     struct ptlrpc_request_set *set)
 {
         int rc;
         ENTRY;
@@ -1698,11 +1698,11 @@ static inline int md_merge_attr(struct obd_export *exp,
 }
 
 static inline int md_setxattr(struct obd_export *exp,
-                              const struct lu_fid *fid, struct obd_capa *oc,
-                              obd_valid valid, const char *name,
-                              const char *input, int input_size,
-                              int output_size, int flags, __u32 suppgid,
-                              struct ptlrpc_request **request)
+			      const struct lu_fid *fid, struct obd_capa *oc,
+			      u64 valid, const char *name,
+			      const char *input, int input_size,
+			      int output_size, int flags, __u32 suppgid,
+			      struct ptlrpc_request **request)
 {
         ENTRY;
         EXP_CHECK_MD_OP(exp, setxattr);
@@ -1713,11 +1713,11 @@ static inline int md_setxattr(struct obd_export *exp,
 }
 
 static inline int md_getxattr(struct obd_export *exp,
-                              const struct lu_fid *fid, struct obd_capa *oc,
-                              obd_valid valid, const char *name,
-                              const char *input, int input_size,
-                              int output_size, int flags,
-                              struct ptlrpc_request **request)
+			      const struct lu_fid *fid, struct obd_capa *oc,
+			      u64 valid, const char *name,
+			      const char *input, int input_size,
+			      int output_size, int flags,
+			      struct ptlrpc_request **request)
 {
         ENTRY;
         EXP_CHECK_MD_OP(exp, getxattr);

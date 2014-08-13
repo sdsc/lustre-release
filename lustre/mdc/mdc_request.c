@@ -312,11 +312,11 @@ int mdc_getattr_name(struct obd_export *exp, struct md_op_data *op_data,
 }
 
 static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
-                            const struct lu_fid *fid,
-                            struct obd_capa *oc, int opcode, obd_valid valid,
-                            const char *xattr_name, const char *input,
-                            int input_size, int output_size, int flags,
-                            __u32 suppgid, struct ptlrpc_request **request)
+			    const struct lu_fid *fid,
+			    struct obd_capa *oc, int opcode, u64 valid,
+			    const char *xattr_name, const char *input,
+			    int input_size, int output_size, int flags,
+			    __u32 suppgid, struct ptlrpc_request **request)
 {
         struct ptlrpc_request *req;
         int   xattr_namelen = 0;
@@ -423,9 +423,9 @@ static int mdc_xattr_common(struct obd_export *exp,const struct req_format *fmt,
 }
 
 int mdc_setxattr(struct obd_export *exp, const struct lu_fid *fid,
-                 struct obd_capa *oc, obd_valid valid, const char *xattr_name,
-                 const char *input, int input_size, int output_size,
-                 int flags, __u32 suppgid, struct ptlrpc_request **request)
+		 struct obd_capa *oc, u64 valid, const char *xattr_name,
+		 const char *input, int input_size, int output_size,
+		 int flags, __u32 suppgid, struct ptlrpc_request **request)
 {
         return mdc_xattr_common(exp, &RQF_MDS_REINT_SETXATTR,
                                 fid, oc, MDS_REINT, valid, xattr_name,
@@ -434,9 +434,9 @@ int mdc_setxattr(struct obd_export *exp, const struct lu_fid *fid,
 }
 
 int mdc_getxattr(struct obd_export *exp, const struct lu_fid *fid,
-                 struct obd_capa *oc, obd_valid valid, const char *xattr_name,
-                 const char *input, int input_size, int output_size,
-                 int flags, struct ptlrpc_request **request)
+		 struct obd_capa *oc, u64 valid, const char *xattr_name,
+		 const char *input, int input_size, int output_size,
+		 int flags, struct ptlrpc_request **request)
 {
         return mdc_xattr_common(exp, &RQF_MDS_GETXATTR,
                                 fid, oc, MDS_GETXATTR, valid, xattr_name,
@@ -2473,8 +2473,8 @@ out:
 }
 
 int mdc_get_info_rpc(struct obd_export *exp,
-                     obd_count keylen, void *key,
-                     int vallen, void *val)
+		     u32 keylen, void *key,
+		     int vallen, void *val)
 {
         struct obd_import      *imp = class_exp2cliimp(exp);
         struct ptlrpc_request  *req;
@@ -2656,8 +2656,8 @@ static int mdc_kuc_reregister(struct obd_import *imp)
 
 int mdc_set_info_async(const struct lu_env *env,
 		       struct obd_export *exp,
-		       obd_count keylen, void *key,
-		       obd_count vallen, void *val,
+		       u32 keylen, void *key,
+		       u32 vallen, void *val,
 		       struct ptlrpc_request_set *set)
 {
 	struct obd_import	*imp = class_exp2cliimp(exp);
@@ -3056,7 +3056,7 @@ static int mdc_llog_finish(struct obd_device *obd, int count)
 	RETURN(0);
 }
 
-static int mdc_process_config(struct obd_device *obd, obd_count len, void *buf)
+static int mdc_process_config(struct obd_device *obd, u32 len, void *buf)
 {
         struct lustre_cfg *lcfg = buf;
 	int rc = class_process_proc_seq_param(PARAM_MDC, obd->obd_vars,

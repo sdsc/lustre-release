@@ -1499,7 +1499,7 @@ static int lmv_cleanup(struct obd_device *obd)
 	RETURN(0);
 }
 
-static int lmv_process_config(struct obd_device *obd, obd_count len, void *buf)
+static int lmv_process_config(struct obd_device *obd, u32 len, void *buf)
 {
 	struct lustre_cfg	*lcfg = buf;
 	struct obd_uuid		obd_uuid;
@@ -1604,9 +1604,9 @@ static int lmv_getstatus(struct obd_export *exp,
 }
 
 static int lmv_getxattr(struct obd_export *exp, const struct lu_fid *fid,
-                        struct obd_capa *oc, obd_valid valid, const char *name,
-                        const char *input, int input_size, int output_size,
-                        int flags, struct ptlrpc_request **request)
+			struct obd_capa *oc, u64 valid, const char *name,
+			const char *input, int input_size, int output_size,
+			int flags, struct ptlrpc_request **request)
 {
         struct obd_device      *obd = exp->exp_obd;
         struct lmv_obd         *lmv = &obd->u.lmv;
@@ -1629,10 +1629,10 @@ static int lmv_getxattr(struct obd_export *exp, const struct lu_fid *fid,
 }
 
 static int lmv_setxattr(struct obd_export *exp, const struct lu_fid *fid,
-                        struct obd_capa *oc, obd_valid valid, const char *name,
-                        const char *input, int input_size, int output_size,
-                        int flags, __u32 suppgid,
-                        struct ptlrpc_request **request)
+			struct obd_capa *oc, u64 valid, const char *name,
+			const char *input, int input_size, int output_size,
+			int flags, __u32 suppgid,
+			struct ptlrpc_request **request)
 {
         struct obd_device      *obd = exp->exp_obd;
         struct lmv_obd         *lmv = &obd->u.lmv;
@@ -2882,8 +2882,8 @@ static int lmv_get_info(const struct lu_env *env, struct obd_export *exp,
 }
 
 int lmv_set_info_async(const struct lu_env *env, struct obd_export *exp,
-                       obd_count keylen, void *key, obd_count vallen,
-                       void *val, struct ptlrpc_request_set *set)
+		       u32 keylen, void *key, u32 vallen,
+		       void *val, struct ptlrpc_request_set *set)
 {
 	struct lmv_tgt_desc    *tgt = NULL;
         struct obd_device      *obd;

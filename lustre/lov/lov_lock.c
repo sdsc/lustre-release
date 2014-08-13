@@ -295,17 +295,16 @@ static int lov_subresult(int result, int rc)
 static int lov_lock_sub_init(const struct lu_env *env,
                              struct lov_lock *lck, const struct cl_io *io)
 {
-        int result = 0;
-        int i;
-        int nr;
-        obd_off start;
-        obd_off end;
-        obd_off file_start;
-        obd_off file_end;
-
-        struct lov_object       *loo    = cl2lov(lck->lls_cl.cls_obj);
-        struct lov_layout_raid0 *r0     = lov_r0(loo);
-        struct cl_lock          *parent = lck->lls_cl.cls_lock;
+	int result = 0;
+	int i;
+	int nr;
+	u64 start;
+	u64 end;
+	u64 file_start;
+	u64 file_end;
+	struct lov_object       *loo    = cl2lov(lck->lls_cl.cls_obj);
+	struct lov_layout_raid0 *r0     = lov_r0(loo);
+	struct cl_lock          *parent = lck->lls_cl.cls_lock;
 
         ENTRY;
 
@@ -898,10 +897,10 @@ static int lock_lock_multi_match()
         struct lov_layout_raid0 *r0      = lov_r0(loo);
         struct lov_lock_sub     *sub;
         struct cl_object        *subobj;
-        obd_off  fstart;
-        obd_off  fend;
-        obd_off  start;
-        obd_off  end;
+	u64  fstart;
+	u64  fend;
+	u64  start;
+	u64  end;
         int i;
 
         fstart = cl_offset(need->cld_obj, need->cld_start);
@@ -938,9 +937,9 @@ static int lov_lock_stripe_is_matching(const struct lu_env *env,
                                        const struct cl_lock_descr *descr)
 {
 	struct lov_stripe_md *lsm = lov->lo_lsm;
-        obd_off start;
-        obd_off end;
-        int result;
+	u64 start;
+	u64 end;
+	int result;
 
         if (lov_r0(lov)->lo_nr == 1)
                 return cl_lock_ext_match(child, descr);
@@ -971,9 +970,9 @@ static int lov_lock_stripe_is_matching(const struct lu_env *env,
 	}
 
 	if (result != 0) {
-                struct cl_lock_descr *subd = &lov_env_info(env)->lti_ldescr;
-                obd_off sub_start;
-                obd_off sub_end;
+		struct cl_lock_descr *subd = &lov_env_info(env)->lti_ldescr;
+		u64 sub_start;
+		u64 sub_end;
 
                 subd->cld_obj  = NULL;   /* don't need sub object at all */
                 subd->cld_mode = descr->cld_mode;
