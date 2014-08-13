@@ -220,7 +220,7 @@ systems.
 Summary: Lustre testing framework
 Group: Development/Kernel
 Provides: %{name}-tests = %{version}
-Requires: %{name} = %{version}, %{name}-modules = %{version}, lustre-iokit
+Requires: %{name} = %{version}, %{name}-modules = %{version}, lustre-iokit, attr, rsync
 
 %description tests
 This package contains a set of test binaries and scripts that are intended
