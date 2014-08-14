@@ -767,6 +767,24 @@ dirty_inode_super_operation_flag, [
 ]) # LC_DIRTY_INODE_WITH_FLAG
 
 #
+# LC_HAVE_DELETE_FROM_PAGE_CACHE
+#
+# 3.0 replace remove_from_page_cache by delete_from_page_cache
+# see kernel commit 702cfbf93aaf3a091b0c64c8766c1ade0a820c38
+#
+AC_DEFUN([LC_HAVE_DELETE_FROM_PAGE_CACHE], [
+LB_CHECK_COMPILE([if 'delete_from_page_cache' exist],
+delete_from_page_cache, [
+	#include <linux/pagemap.h>
+],[
+	delete_from_page_cache(NULL);
+],[
+	AC_DEFINE(HAVE_DELETE_FROM_PAGE_CACHE, 1,
+		[delete_from_page_cache exist])
+])
+]) # LC_HAVE_DELETE_FROM_PAGE_CACHE
+
+#
 # LC_GENERIC_PERMISSION
 #
 # 2.6.38 generic_permission taken 4 parameters.
@@ -1578,6 +1596,7 @@ AC_DEFUN([LC_PROG_LINUX], [
 
 	# 3.0
 	LC_DIRTY_INODE_WITH_FLAG
+	LC_HAVE_DELETE_FROM_PAGE_CACHE
 
 	# 3.1
 	LC_LM_XXX_LOCK_MANAGER_OPS
