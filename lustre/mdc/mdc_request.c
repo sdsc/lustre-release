@@ -1233,7 +1233,12 @@ static struct page *mdc_page_locate(struct address_space *mapping, __u64 *hash,
 			}
 		} else {
 			page_cache_release(page);
-			page = ERR_PTR(-EIO);
+			/*
+			 * previous read_page may fail, which leads to a page
+			 * not up to date, return NULL to refetch data from
+			 * server and update page status.
+			 */
+			page = NULL;
 		}
 	} else {
 		spin_unlock_irq(&mapping->tree_lock);
