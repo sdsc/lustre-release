@@ -423,7 +423,7 @@ test_20a() {	# was test_20
 }
 run_test 20a "|X| open(O_CREAT), unlink, replay, close (test mds_cleanup_orphans)"
 
-test_20b() { # bug 10480
+test_20b() {  # bug 10480
 	local wait_timeout=$((TIMEOUT * 4))
 	local BEFOREUSED
 	local AFTERUSED
