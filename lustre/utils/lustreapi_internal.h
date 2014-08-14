@@ -45,6 +45,9 @@ int root_ioctl(const char *mdtname, int opc, void *data, int *mdtidxp,
 	       int want_error);
 int get_param(const char *param_path, char *result,
 	      unsigned int result_size);
+int get_param_obdvar(const char *fsname, const char *file_path,
+		     const char *obd_type, const char *param_name,
+		     char *value, unsigned int val_len);
 
 #define LLAPI_LAYOUT_MAGIC 0x11AD1107 /* LLAPILOT */
 

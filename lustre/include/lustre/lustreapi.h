@@ -541,6 +541,9 @@ int llapi_layout_ost_index_get(const struct llapi_layout *layout,
 int llapi_layout_ost_index_set(struct llapi_layout *layout, int stripe_number,
 			       uint64_t index);
 
+int llapi_layout_ost_index_valid(const struct llapi_layout *layout,
+				 char *fsname);
+
 /******************** Pool Name ********************/
 
 /**
@@ -585,6 +588,9 @@ int llapi_layout_pool_name_get(const struct llapi_layout *layout,
  */
 int llapi_layout_pool_name_set(struct llapi_layout *layout,
 			      const char *pool_name);
+
+bool llapi_layout_pool_absent(const struct llapi_layout *layout,
+			      char *fsname);
 
 /******************** File Creation ********************/
 
