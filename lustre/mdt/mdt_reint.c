@@ -1404,9 +1404,9 @@ static int mdt_reint_rename(struct mdt_thread_info *info,
 		}
 
 		/* Before locking the target dir, check we do not replace
-		* a dir with a non-dir, otherwise it may deadlock with
-		* link op which tries to create a link in this dir
-		* back to this non-dir. */
+		 * a dir with a non-dir, otherwise it may deadlock with
+		 * link op which tries to create a link in this dir
+		 * back to this non-dir. */
 		if (S_ISDIR(lu_object_attr(&mnew->mot_obj)) &&
 		    !S_ISDIR(lu_object_attr(&mold->mot_obj)))
 			GOTO(out_put_new, rc = -EISDIR);
