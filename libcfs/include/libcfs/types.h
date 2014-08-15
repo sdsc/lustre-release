@@ -79,4 +79,12 @@
 typedef unsigned long ulong_ptr_t;
 typedef long long_ptr_t;
 
+#ifndef __KERNEL__
+/* Sparse annotations. */
+#define __user
+#define __acquires(x)
+#define __releases(x)
+#define __must_hold(x)
+#endif
+
 #endif /* _LIBCFS_TYPES_H */
