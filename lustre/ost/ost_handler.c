@@ -423,9 +423,10 @@ static int ost_create(struct obd_export *exp, struct ptlrpc_request *req,
         if (rc)
                 RETURN(rc);
 
-        repbody = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
-        repbody->oa = body->oa;
-        oti->oti_logcookies = &body->oa.o_lcookie;
+	repbody = req_capsule_server_get(&req->rq_pill, &RMF_OST_BODY);
+	repbody->oa = body->oa;
+	oti->oti_logcookies = &body->oa.o_lcookie;
+	oti->oti_req = req;
 
         req->rq_status = obd_create(req->rq_svc_thread->t_env, exp,
                                     &repbody->oa, NULL, oti);
