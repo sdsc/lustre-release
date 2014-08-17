@@ -341,14 +341,6 @@ static struct ctl_table obd_table[] = {
 	},
 	{
 		INIT_CTL_NAME
-		.procname	= "bulk_timeout",
-		.data		= &bulk_timeout,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= &proc_dointvec
-	},
-	{
-		INIT_CTL_NAME
 		.procname	= "at_min",
 		.data		= &at_min,
 		.maxlen		= sizeof(int),
