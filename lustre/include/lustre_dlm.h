@@ -176,6 +176,9 @@ typedef enum {
 /* These are flags that are mapped into the flags and ASTs of blocking locks */
 #define LDLM_AST_DISCARD_DATA  0x80000000 /* Add FL_DISCARD to blocking ASTs */
 
+/** Flag whether a lock is found on server for re-sent RPC. */
+#define LDLM_FL_RESENT	0x0100000000000000ULL /* bit 56 */
+
 /* Flags sent in AST lock_flags to be mapped into the receiving lock. */
 #define LDLM_AST_FLAGS         (LDLM_FL_DISCARD_DATA)
 
