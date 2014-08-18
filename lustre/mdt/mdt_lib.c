@@ -529,25 +529,32 @@ int mdt_init_ucred_reint(struct mdt_thread_info *info)
 }
 
 /* copied from lov/lov_ea.c, just for debugging, will be removed later */
-void mdt_dump_lmm(int level, const struct lov_mds_md *lmm)
+void mdt_dump_lmm(int level, const struct lov_mds_md *lmm, __u64 valid)
 {
-        const struct lov_ost_data_v1 *lod;
-        int                           i;
-        __u16                         count;
+	const struct lov_ost_data_v1 *lod;
+	int			      i;
+	__u16			      count;
 
-        count = le16_to_cpu(((struct lov_user_md*)lmm)->lmm_stripe_count);
+	if (likely(!cfs_cdebug_show(level, DEBUG_SUBSYSTEM)))
+		return;
+
+	count = le16_to_cpu(((struct lov_user_md*)lmm)->lmm_stripe_count);
 
 	CDEBUG(level, "objid "DOSTID", magic 0x%08X, pattern %#X\n",
 	       POSTID(&lmm->lmm_oi), le32_to_cpu(lmm->lmm_magic),
 	       le32_to_cpu(lmm->lmm_pattern));
-        CDEBUG(level,"stripe_size=0x%x, stripe_count=0x%x\n",
-               le32_to_cpu(lmm->lmm_stripe_size), count);
-        if (count == LOV_ALL_STRIPES)
+	CDEBUG(level,"stripe_size=0x%x, stripe_count=0x%x\n",
+	       le32_to_cpu(lmm->lmm_stripe_size), count);
+
+	/* If it's a directory or a released file, then there are
+	 * no actual objects to print, so bail out. */
+	if (valid & OBD_MD_FLDIREA)
                 return;
 
 	LASSERT(count <= LOV_MAX_STRIPE_COUNT);
 	for (i = 0, lod = lmm->lmm_objects; i < count; i++, lod++) {
-		struct ost_id	oi;
+		struct ost_id oi;
+
 		ostid_le_to_cpu(&lod->l_ost_oi, &oi);
 		CDEBUG(level, "stripe %u idx %u subobj "DOSTID"\n",
 		       i, le32_to_cpu(lod->l_ost_idx), POSTID(&oi));
@@ -686,11 +693,6 @@ int mdt_handle_last_unlink(struct mdt_thread_info *info, struct mdt_object *mo,
 		dump_stack();
         }
 	repbody->eadatasize = 0;
-
-        if (ma->ma_cookie_size && (ma->ma_valid & MA_COOKIE)) {
-                repbody->aclsize = ma->ma_cookie_size;
-                repbody->valid |= OBD_MD_FLCOOKIE;
-        }
 
 	if (info->mti_mdt->mdt_opts.mo_oss_capa &&
 	    exp_connect_flags(info->mti_exp) & OBD_CONNECT_OSS_CAPA &&
@@ -1049,7 +1051,7 @@ static int mdt_unlink_unpack(struct mdt_thread_info *info)
         else
                 ma->ma_attr_flags &= ~MDS_VTX_BYPASS;
 
-	info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
+	info->mti_spec.no_create = 1;
 
         rc = mdt_dlmreq_unpack(info);
         RETURN(rc);
@@ -1114,7 +1116,7 @@ static int mdt_rename_unpack(struct mdt_thread_info *info)
         else
                 ma->ma_attr_flags &= ~MDS_VTX_BYPASS;
 
-        info->mti_spec.no_create = !!req_is_replay(mdt_info_req(info));
+	info->mti_spec.no_create = 1;
 
         rc = mdt_dlmreq_unpack(info);
         RETURN(rc);
