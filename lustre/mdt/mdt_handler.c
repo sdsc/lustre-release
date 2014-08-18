@@ -1258,16 +1258,10 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
                 CDEBUG(D_INODE, "partial getattr_name child_fid = "DFID", "
                        "ldlm_rep=%p\n", PFID(mdt_object_fid(child)), ldlm_rep);
 
-                if (is_resent) {
-                        /* Do not take lock for resent case. */
-                        lock = ldlm_handle2lock(&lhc->mlh_reg_lh);
-                        LASSERTF(lock != NULL, "Invalid lock handle "LPX64"\n",
-                                 lhc->mlh_reg_lh.cookie);
-                        LASSERT(fid_res_name_eq(mdt_object_fid(child),
-                                                &lock->l_resource->lr_name));
-                        LDLM_LOCK_PUT(lock);
-                        rc = 0;
-                } else {
+		rc = mdt_check_resent_lock(info, child, lhc);
+		if (rc < 0) {
+			RETURN(-EPROTO);
+		} else if (rc > 0) {
                         mdt_lock_handle_init(lhc);
                         mdt_lock_reg_init(lhc, LCK_PR);
 
@@ -1329,34 +1323,13 @@ static int mdt_getattr_name_lock(struct mdt_thread_info *info,
 
 	if (unlikely(IS_ERR(child)))
 		GOTO(out_parent, rc = PTR_ERR(child));
-	if (is_resent) {
-		/* Do not take lock for resent case. */
-		lock = ldlm_handle2lock(&lhc->mlh_reg_lh);
-		LASSERTF(lock != NULL, "Invalid lock handle "LPX64"\n",
-			 lhc->mlh_reg_lh.cookie);
 
-		res_id = &lock->l_resource->lr_name;
-		if (!fid_res_name_eq(mdt_object_fid(child),
-				     &lock->l_resource->lr_name)) {
-			LASSERTF(fid_res_name_eq(mdt_object_fid(parent),
-						 &lock->l_resource->lr_name),
-				 "Lock res_id: "DLDLMRES", fid: "DFID"\n",
-				 PLDLMRES(lock->l_resource),
-				 PFID(mdt_object_fid(parent)));
-			CWARN("Although resent, but still not get child lock"
-			      "parent:"DFID" child:"DFID"\n",
-			      PFID(mdt_object_fid(parent)),
-			      PFID(mdt_object_fid(child)));
-			lustre_msg_clear_flags(req->rq_reqmsg, MSG_RESENT);
-			LDLM_LOCK_PUT(lock);
-			GOTO(relock, 0);
-		}
-		LDLM_LOCK_PUT(lock);
-		rc = 0;
-	} else {
+	rc = mdt_check_resent_lock(info, child, lhc);
+	if (rc < 0) {
+		GOTO(out_child, rc);
+	} else if (rc > 0) {
 		bool try_layout = false;
 
-relock:
                 OBD_FAIL_TIMEOUT(OBD_FAIL_MDS_RESEND, obd_timeout*2);
                 mdt_lock_handle_init(lhc);
 		mdt_lock_reg_init(lhc, LCK_PR);
@@ -2523,6 +2496,35 @@ int mdt_md_blocking_ast(struct ldlm_lock *lock, struct ldlm_lock_desc *desc,
 	RETURN(0);
 }
 
+int mdt_check_resent_lock(struct mdt_thread_info *info,
+			  struct mdt_object *mo,
+			  struct mdt_lock_handle *lhc)
+{
+	/* the lock might already be gotten in ldlm_handle_enqueue() */
+	if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
+		struct ptlrpc_request *req = mdt_info_req(info);
+		struct ldlm_lock      *lock;
+
+		lock = ldlm_handle2lock(&lhc->mlh_reg_lh);
+		LASSERT(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT);
+		LASSERTF(lock != NULL, "Invalid lock handle "LPX64"\n",
+			 lhc->mlh_reg_lh.cookie);
+
+		if (!fid_res_name_eq(mdt_object_fid(mo),
+				     &lock->l_resource->lr_name)) {
+			CWARN("%s: Although resent, but still not "
+			      "get child lock:"DFID"\n",
+			      info->mti_exp->exp_obd->obd_name,
+			      PFID(mdt_object_fid(mo)));
+			LDLM_LOCK_PUT(lock);
+			RETURN(-EPROTO);
+		}
+		LDLM_LOCK_PUT(lock);
+		return 0;
+	}
+	return 1;
+}
+
 int mdt_remote_object_lock(struct mdt_thread_info *mti,
 			   struct mdt_object *o, struct lustre_handle *lh,
 			   ldlm_mode_t mode, __u64 ibits)
@@ -3533,19 +3535,15 @@ static struct mdt_it_flavor {
 
 int mdt_intent_lock_replace(struct mdt_thread_info *info,
                             struct ldlm_lock **lockp,
-                            struct ldlm_lock *new_lock,
                             struct mdt_lock_handle *lh,
 			    __u64 flags)
 {
         struct ptlrpc_request  *req = mdt_info_req(info);
         struct ldlm_lock       *lock = *lockp;
+	struct ldlm_lock       *new_lock;
 
-        /*
-         * Get new lock only for cases when possible resent did not find any
-         * lock.
-         */
-        if (new_lock == NULL)
-                new_lock = ldlm_handle2lock_long(&lh->mlh_reg_lh, 0);
+	/* If possible resent found a lock, @lh is set to its handle */
+	new_lock = ldlm_handle2lock_long(&lh->mlh_reg_lh, 0);
 
         if (new_lock == NULL && (flags & LDLM_FL_INTENT_ONLY)) {
                 lh->mlh_reg_lh.cookie = 0;
@@ -3577,6 +3575,8 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
                  */
                 LASSERT(lustre_msg_get_flags(req->rq_reqmsg) &
                         MSG_RESENT);
+
+		LDLM_LOCK_RELEASE(new_lock);
                 lh->mlh_reg_lh.cookie = 0;
                 RETURN(ELDLM_LOCK_REPLACED);
         }
@@ -3617,43 +3617,30 @@ int mdt_intent_lock_replace(struct mdt_thread_info *info,
 }
 
 static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
-                                    struct ldlm_lock *new_lock,
-                                    struct ldlm_lock **old_lock,
-                                    struct mdt_lock_handle *lh)
+				    struct ldlm_lock *new_lock,
+				    struct mdt_lock_handle *lh,
+				    __u64 flags)
 {
         struct ptlrpc_request  *req = mdt_info_req(info);
-        struct obd_export      *exp = req->rq_export;
-        struct lustre_handle    remote_hdl;
         struct ldlm_request    *dlmreq;
-        struct ldlm_lock       *lock;
 
         if (!(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT))
                 return;
 
         dlmreq = req_capsule_client_get(info->mti_pill, &RMF_DLM_REQ);
-        remote_hdl = dlmreq->lock_handle[0];
 
-	/* In the function below, .hs_keycmp resolves to
-	 * ldlm_export_lock_keycmp() */
-	/* coverity[overrun-buffer-val] */
-        lock = cfs_hash_lookup(exp->exp_lock_hash, &remote_hdl);
-        if (lock) {
-                if (lock != new_lock) {
-                        lh->mlh_reg_lh.cookie = lock->l_handle.h_cookie;
-                        lh->mlh_reg_mode = lock->l_granted_mode;
+	/* Check if this is a resend case (MSG_RESENT is set on RPC) and a
+	 * lock was found by ldlm_handle_enqueue(); if so @lh must be
+	 * initialized. */
+	if (flags & LDLM_FL_RESENT) {
+		lh->mlh_reg_lh.cookie = new_lock->l_handle.h_cookie;
+		lh->mlh_reg_mode = new_lock->l_granted_mode;
 
-                        LDLM_DEBUG(lock, "Restoring lock cookie");
-                        DEBUG_REQ(D_DLMTRACE, req,
-                                  "restoring lock cookie "LPX64,
-                                  lh->mlh_reg_lh.cookie);
-                        if (old_lock)
-                                *old_lock = LDLM_LOCK_GET(lock);
-                        cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
-                        return;
-                }
-
-                cfs_hash_put(exp->exp_lock_hash, &lock->l_exp_hash);
-        }
+		LDLM_DEBUG(new_lock, "Restoring lock cookie");
+		DEBUG_REQ(D_DLMTRACE, req, "restoring lock cookie "LPX64,
+			  lh->mlh_reg_lh.cookie);
+		return;
+	}
 
         /*
          * If the xid matches, then we know this is a resent request, and allow
@@ -3669,8 +3656,8 @@ static void mdt_intent_fixup_resent(struct mdt_thread_info *info,
          */
         lustre_msg_clear_flags(req->rq_reqmsg, MSG_RESENT);
 
-        DEBUG_REQ(D_DLMTRACE, req, "no existing lock with rhandle "LPX64,
-                  remote_hdl.cookie);
+	DEBUG_REQ(D_DLMTRACE, req, "no existing lock with rhandle "LPX64,
+		  dlmreq->lock_handle[0].cookie);
 }
 
 static int mdt_intent_getattr(enum mdt_it_code opcode,
@@ -3679,7 +3666,6 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
 			      __u64 flags)
 {
         struct mdt_lock_handle *lhc = &info->mti_lh[MDT_LH_RMT];
-        struct ldlm_lock       *new_lock = NULL;
         __u64                   child_bits;
         struct ldlm_reply      *ldlm_rep;
         struct ptlrpc_request  *req;
@@ -3720,7 +3706,7 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
         mdt_set_disposition(info, ldlm_rep, DISP_IT_EXECD);
 
         /* Get lock from request for possible resent case. */
-        mdt_intent_fixup_resent(info, *lockp, &new_lock, lhc);
+	mdt_intent_fixup_resent(info, *lockp, lhc, flags);
 
         ldlm_rep->lock_policy_res2 =
                 mdt_getattr_name_lock(info, lhc, child_bits, ldlm_rep);
@@ -3733,7 +3719,7 @@ static int mdt_intent_getattr(enum mdt_it_code opcode,
                 GOTO(out_ucred, rc = ELDLM_LOCK_ABORTED);
         }
 
-        rc = mdt_intent_lock_replace(info, lockp, new_lock, lhc, flags);
+	rc = mdt_intent_lock_replace(info, lockp, lhc, flags);
         EXIT;
 out_ucred:
         mdt_exit_ucred(info);
@@ -3750,6 +3736,7 @@ static int mdt_intent_layout(enum mdt_it_code opcode,
 			     struct ldlm_lock **lockp,
 			     __u64 flags)
 {
+	struct mdt_lock_handle *lhc = &info->mti_lh[MDT_LH_LAYOUT];
 	struct layout_intent *layout;
 	struct lu_fid *fid;
 	struct mdt_object *obj = NULL;
@@ -3765,6 +3752,9 @@ static int mdt_intent_layout(enum mdt_it_code opcode,
 
 	fid = &info->mti_tmp_fid2;
 	fid_extract_from_res_name(fid, &(*lockp)->l_resource->lr_name);
+
+	/* Get lock from request for possible resent case. */
+	mdt_intent_fixup_resent(info, *lockp, lhc, flags);
 
 	obj = mdt_object_find(info->mti_env, info->mti_mdt, fid);
 	if (IS_ERR(obj))
@@ -3790,11 +3780,14 @@ static int mdt_intent_layout(enum mdt_it_code opcode,
 	if (rc != 0)
 		RETURN(-EINVAL);
 
+	if (lustre_handle_is_used(&lhc->mlh_reg_lh))
+		rc = mdt_intent_lock_replace(info, lockp, lhc, flags);
+
 	layout = req_capsule_client_get(info->mti_pill, &RMF_LAYOUT_INTENT);
 	LASSERT(layout != NULL);
 	if (layout->li_opc == LAYOUT_INTENT_ACCESS)
-		/* return to normal ldlm handling */
-		RETURN(0);
+		/* return to normal/resent ldlm handling */
+		RETURN(rc);
 
 	CERROR("%s: Unsupported layout intent (%d)\n",
 		mdt_obd_name(info->mti_mdt), layout->li_opc);
@@ -3829,7 +3822,7 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
         }
 
         /* Get lock from request for possible resent case. */
-        mdt_intent_fixup_resent(info, *lockp, NULL, lhc);
+	mdt_intent_fixup_resent(info, *lockp, lhc, flags);
 
         rc = mdt_reint_internal(info, lhc, opc);
 
@@ -3848,7 +3841,7 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
 	if (rc == -EREMOTE || mdt_get_disposition(rep, DISP_OPEN_LOCK)) {
 		LASSERT(lustre_handle_is_used(&lhc->mlh_reg_lh));
 		rep->lock_policy_res2 = 0;
-		rc = mdt_intent_lock_replace(info, lockp, NULL, lhc, flags);
+		rc = mdt_intent_lock_replace(info, lockp, lhc, flags);
 		RETURN(rc);
 	}
 
@@ -3881,7 +3874,7 @@ static int mdt_intent_reint(enum mdt_it_code opcode,
                         LASSERTF(rc == 0, "Error occurred but lock handle "
                                  "is still in use, rc = %d\n", rc);
                         rep->lock_policy_res2 = 0;
-                        rc = mdt_intent_lock_replace(info, lockp, NULL, lhc, flags);
+			rc = mdt_intent_lock_replace(info, lockp, lhc, flags);
                         RETURN(rc);
                 } else {
                         lhc->mlh_reg_lh.cookie = 0ull;
