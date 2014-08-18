@@ -169,10 +169,12 @@ static int osc_cached_mb_seq_show(struct seq_file *m, void *v)
 
 	rc = seq_printf(m,
 		      "used_mb: %d\n"
-		      "busy_cnt: %d\n",
+		      "busy_cnt: %d\n"
+		      "reclaim: "LPU64"\n",
 		      (atomic_read(&cli->cl_lru_in_list) +
 			atomic_read(&cli->cl_lru_busy)) >> shift,
-		      atomic_read(&cli->cl_lru_busy));
+		      atomic_read(&cli->cl_lru_busy),
+		      cli->cl_lru_reclaim);
 
 	return rc;
 }
