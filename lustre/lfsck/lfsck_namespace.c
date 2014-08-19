@@ -200,9 +200,19 @@ static void lfsck_namespace_record_failure(const struct lu_env *env,
 }
 
 /**
- * \retval +ve: the lfsck_namespace is broken, the caller should reset it.
- * \retval 0: succeed.
- * \retval -ve: failed cases.
+ * Load namespace LFSCK statistics information from the trace file.
+ *
+ * For old release (Lustre-2.6 or older), the statistics information was
+ * stored as XATTR_NAME_LFSCK_NAMESPACE_OLD EA. But in Lustre-2.7, we need
+ * more statistics information. To avoid confusing old MDT when downgrade,
+ * Lustre-2.7 stroes the namespace LFSCK statistics information as new
+ * XATTR_NAME_LFSCK_NAMESPACE EA.
+ *
+ * \param[in] env	pointer to the thread context
+ * \param[in] com	pointer to the lfsck component
+ *
+ * \retval		0 for success
+ * \retval		negative error number on failure
  */
 static int lfsck_namespace_load(const struct lu_env *env,
 				struct lfsck_component *com)
@@ -222,7 +232,7 @@ static int lfsck_namespace_load(const struct lu_env *env,
 			CDEBUG(D_LFSCK, "%s: invalid lfsck_namespace magic "
 			       "%#x != %#x\n", lfsck_lfsck2name(com->lc_lfsck),
 			       ns->ln_magic, LFSCK_NAMESPACE_MAGIC);
-			rc = 1;
+			rc = -ESTALE;
 		} else {
 			rc = 0;
 		}
@@ -231,8 +241,17 @@ static int lfsck_namespace_load(const struct lu_env *env,
 		       "expected = %d: rc = %d\n",
 		       lfsck_lfsck2name(com->lc_lfsck), len, rc);
 		if (rc >= 0)
-			rc = 1;
+			rc = -ESTALE;
+	} else {
+		/* Check whether it is old trace file or not.
+		 * If yes, it should be reset via returning -ESTALE. */
+		rc = dt_xattr_get(env, com->lc_obj,
+				  lfsck_buf_get(env, com->lc_file_disk, len),
+				  XATTR_NAME_LFSCK_NAMESPACE_OLD, BYPASS_CAPA);
+		if (rc >= 0)
+			rc = -ESTALE;
 	}
+
 	return rc;
 }
 
@@ -244,6 +263,9 @@ static int lfsck_namespace_store(const struct lu_env *env,
 	struct thandle		*handle;
 	int			 len    = com->lc_file_size;
 	int			 rc;
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 8, 53, 0)
+	struct lu_buf		 tbuf	= { &len, sizeof(len) };
+#endif
 	ENTRY;
 
 	lfsck_namespace_cpu_to_le((struct lfsck_namespace *)com->lc_file_disk,
@@ -254,9 +276,25 @@ static int lfsck_namespace_store(const struct lu_env *env,
 
 	rc = dt_declare_xattr_set(env, obj,
 				  lfsck_buf_get(env, com->lc_file_disk, len),
-				  XATTR_NAME_LFSCK_NAMESPACE, 0, handle);
+				  XATTR_NAME_LFSCK_NAMESPACE,
+				  init ? LU_XATTR_CREATE : LU_XATTR_REPLACE,
+				  handle);
 	if (rc != 0)
 		GOTO(out, rc);
+
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 8, 53, 0)
+	/* To be compatible with old Lustre-2.x MDT (x <= 6), generate dummy
+	 * XATTR_NAME_LFSCK_NAMESPACE_OLD EA, then when downgrade to Lustre-2.x,
+	 * the old LFSCK will find "invalid" XATTR_NAME_LFSCK_NAMESPACE_OLD EA,
+	 * then reset the namespace LFSCK trace file. */
+	if (init) {
+		rc = dt_declare_xattr_set(env, obj, &tbuf,
+					  XATTR_NAME_LFSCK_NAMESPACE_OLD,
+					  LU_XATTR_CREATE, handle);
+		if (rc != 0)
+			GOTO(out, rc);
+	}
+#endif
 
 	rc = dt_trans_start_local(env, lfsck->li_bottom, handle);
 	if (rc != 0)
@@ -267,6 +305,12 @@ static int lfsck_namespace_store(const struct lu_env *env,
 			  XATTR_NAME_LFSCK_NAMESPACE,
 			  init ? LU_XATTR_CREATE : LU_XATTR_REPLACE,
 			  handle, BYPASS_CAPA);
+#if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 8, 53, 0)
+	if (rc == 0 && init)
+		rc = dt_xattr_set(env, obj, &tbuf,
+				  XATTR_NAME_LFSCK_NAMESPACE_OLD,
+				  LU_XATTR_CREATE, handle, BYPASS_CAPA);
+#endif
 
 	GOTO(out, rc);
 
@@ -4608,10 +4652,10 @@ int lfsck_namespace_setup(const struct lu_env *env,
 		GOTO(out, rc);
 
 	rc = lfsck_namespace_load(env, com);
-	if (rc > 0)
-		rc = lfsck_namespace_reset(env, com, true);
-	else if (rc == -ENODATA)
+	if (rc == -ENODATA)
 		rc = lfsck_namespace_init(env, com);
+	else if (rc < 0)
+		rc = lfsck_namespace_reset(env, com, true);
 	if (rc != 0)
 		GOTO(out, rc);
 
