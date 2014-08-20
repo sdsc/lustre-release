@@ -1067,9 +1067,12 @@ static int vvp_io_read_page(const struct lu_env *env,
 	ENTRY;
 
 	if (sbi->ll_ra_info.ra_max_pages_per_file > 0 &&
-	    sbi->ll_ra_info.ra_max_pages > 0)
+	    sbi->ll_ra_info.ra_max_pages > 0) {
+		struct vvp_io *vio = vvp_env_io(env);
+
 		ras_update(sbi, inode, ras, ccc_index(cp),
-			   cp->cpg_defer_uptodate);
+			   cp->cpg_defer_uptodate, !vio->cui_ra_window_set);
+	}
 
         if (cp->cpg_defer_uptodate) {
                 cp->cpg_ra_used = 1;
