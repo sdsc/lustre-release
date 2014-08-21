@@ -1026,7 +1026,8 @@ enum lu_context_tag {
 	 * session for server thread
 	 **/
 	LCT_SERVER_SESSION = 1 << 8,
-        /**
+
+	/**
          * Set when at least one of keys, having values in this context has
          * non-NULL lu_context_key::lct_exit() method. This is used to
          * optimize lu_context_exit() call.
