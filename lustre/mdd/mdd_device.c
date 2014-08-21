@@ -225,7 +225,7 @@ static int llog_changelog_cancel_cb(const struct lu_env *env,
 	 * and cancel them all at once; probably more efficient, but this is
 	 * done as a user call, so who cares... */
 	rc = llog_cat_cancel_records(env, llh->u.phd.phd_cat_handle, 1,
-				     &cookie);
+				     &cookie, NULL);
 	RETURN(rc < 0 ? rc : 0);
 }
 
@@ -1365,7 +1365,7 @@ static int mdd_changelog_user_purge_cb(const struct lu_env *env,
                 cookie.lgc_index = hdr->lrh_index;
 
 		rc = llog_cat_cancel_records(env, llh->u.phd.phd_cat_handle,
-					     1, &cookie);
+					     1, &cookie, NULL);
                 if (rc == 0)
                         mcud->mcud_usercount--;
 
@@ -1376,7 +1376,7 @@ static int mdd_changelog_user_purge_cb(const struct lu_env *env,
         CDEBUG(D_IOCTL, "Rewriting changelog user %d endrec to "LPU64"\n",
                mcud->mcud_id, rec->cur_endrec);
 
-	rc = llog_write(env, llh, hdr, hdr->lrh_index);
+	rc = llog_write(env, llh, hdr, hdr->lrh_index, NULL);
 
         RETURN(rc);
 }
