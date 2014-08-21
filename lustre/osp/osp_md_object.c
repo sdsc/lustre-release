@@ -68,6 +68,7 @@ static int osp_object_create_interpterer(const struct lu_env *env,
 	if (rc != 0) {
 		obj->opo_obj.do_lu.lo_header->loh_attr &= ~LOHA_EXISTS;
 		obj->opo_non_exist = 0;
+		return rc;
 	}
 
 	/* Invalid the opo cache for the object after the object
@@ -201,8 +202,9 @@ int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 	update = thandle_to_dt_update_request(th);
 	LASSERT(update != NULL);
 
-	CDEBUG(D_INFO, "create object "DFID" %o\n",
-	       PFID(&dt->do_lu.lo_header->loh_fid), attr->la_mode);
+	CDEBUG(D_INFO, "create object "DFID" %o valid "LPX64"\n",
+	       PFID(&dt->do_lu.lo_header->loh_fid), attr->la_mode,
+	       attr->la_valid);
 
 	osp_update_rpc_pack(env, create, rc, update, OUT_CREATE,
 			    lu_object_fid(&dt->do_lu), attr, hint, dof);
@@ -215,6 +217,9 @@ int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 					osp_object_create_interpterer);
 	if (rc != 0)
 		GOTO(out, rc);
+
+	obj->opo_obj.do_lu.lo_header->loh_attr |=
+			LOHA_EXISTS | (attr->la_mode & S_IFMT);
 
 	LASSERT(obj->opo_ooa != NULL);
 	obj->opo_ooa->ooa_attr = *attr;
@@ -1170,6 +1175,9 @@ static ssize_t osp_md_read(const struct lu_env *env, struct dt_object *dt,
 
 	memcpy(rbuf->lb_buf, lbuf->lb_buf, lbuf->lb_len);
 
+	CDEBUG(D_INFO, "%s: read "DFID" pos "LPU64" len %d\n",
+	       osp->opd_obd->obd_name, PFID(lu_object_fid(&dt->do_lu)),
+	       *pos, (int)lbuf->lb_len);
 	GOTO(out, rc = lbuf->lb_len);
 out:
 	if (req != NULL)

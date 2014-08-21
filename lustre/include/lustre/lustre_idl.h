@@ -435,8 +435,7 @@ enum fid_seq {
 	FID_SEQ_OST_MDT0	= 0,
 	FID_SEQ_LLOG		= 1, /* unnamed llogs */
 	FID_SEQ_ECHO		= 2,
-	FID_SEQ_UPDATE		= 3,
-	FID_SEQ_OST_MDT1	= 4, /* Max MDT count before OST_on_FID */
+	FID_SEQ_OST_MDT1	= 3, /* Max MDT count before OST_on_FID */
 	FID_SEQ_OST_MAX		= 9, /* Max MDT count before OST_on_FID */
 	FID_SEQ_LLOG_NAME	= 10, /* named llogs */
 	FID_SEQ_RSVD		= 11,
@@ -461,6 +460,8 @@ enum fid_seq {
 	FID_SEQ_QUOTA_GLB	= 0x200000006ULL,
 	FID_SEQ_ROOT		= 0x200000007ULL,  /* Located on MDT0 */
 	FID_SEQ_LAYOUT_RBTREE	= 0x200000008ULL,
+	FID_SEQ_UPDATE_LOG	= 0x200000009ULL,
+	FID_SEQ_UPDATE_LOG_DIR	= 0x20000000aULL,
 	FID_SEQ_NORMAL		= 0x200000400ULL,
 	FID_SEQ_LOV_DEFAULT	= 0xffffffffffffffffULL
 };
@@ -574,7 +575,14 @@ static inline void lu_echo_root_fid(struct lu_fid *fid)
 
 static inline void lu_update_log_fid(struct lu_fid *fid, __u32 index)
 {
-	fid->f_seq = FID_SEQ_UPDATE;
+	fid->f_seq = FID_SEQ_UPDATE_LOG;
+	fid->f_oid = index;
+	fid->f_ver = 0;
+}
+
+static inline void lu_update_log_dir_fid(struct lu_fid *fid, __u32 index)
+{
+	fid->f_seq = FID_SEQ_UPDATE_LOG_DIR;
 	fid->f_oid = index;
 	fid->f_ver = 0;
 }
@@ -631,12 +639,22 @@ static inline int fid_is_layout_rbtree(const struct lu_fid *fid)
 
 static inline bool fid_seq_is_update_log(__u64 seq)
 {
-	return seq == FID_SEQ_UPDATE;
+	return seq == FID_SEQ_UPDATE_LOG;
 }
 
 static inline bool fid_is_update_log(const struct lu_fid *fid)
 {
 	return fid_seq_is_update_log(fid_seq(fid));
+}
+
+static inline bool fid_seq_is_update_log_dir(__u64 seq)
+{
+	return seq == FID_SEQ_UPDATE_LOG_DIR;
+}
+
+static inline bool fid_is_update_log_dir(const struct lu_fid *fid)
+{
+	return fid_seq_is_update_log_dir(fid_seq(fid));
 }
 
 /* convert an OST objid into an IDIF FID SEQ number */
@@ -859,7 +877,8 @@ static inline int fid_to_ostid(const struct lu_fid *fid, struct ost_id *ostid)
 /* Check whether the fid is for LAST_ID */
 static inline bool fid_is_last_id(const struct lu_fid *fid)
 {
-	return fid_oid(fid) == 0 && fid_seq(fid) != FID_SEQ_UPDATE;
+	return fid_oid(fid) == 0 && fid_seq(fid) != FID_SEQ_UPDATE_LOG &&
+	       fid_seq(fid) != FID_SEQ_UPDATE_LOG_DIR;
 }
 
 /**
