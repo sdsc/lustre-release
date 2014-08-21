@@ -223,6 +223,9 @@ int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
 int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 		    void *cookie);
 
+int check_and_prepare_update_record(const struct lu_env *env,
+				    struct thandle_update_records *tur);
+
 struct update_thread_info {
 	struct lu_attr			uti_attr;
 	struct lu_fid			uti_fid;
