@@ -1574,6 +1574,7 @@ int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 	int			 rc = 0;
 
 	ENTRY;
+
 	o->opo_non_exist = 1;
 	if (!osp->opd_connect_mdt) {
 		/* once transaction is committed put proper command on

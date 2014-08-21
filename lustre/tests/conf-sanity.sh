@@ -321,9 +321,9 @@ test_1() {
 run_test 1 "start up ost twice (should return errors)"
 
 test_2() {
-	start_mdt 1 || error "MDT0 start fail"
+	start_mds || error "MDT0 start fail"
 	echo "start mds second time.."
-	start_mdt 1 && error "2nd MDT start should fail"
+	start_mds && error "2nd MDT start should fail"
 	start_ost || error "OST start failed"
 	mount_client $MOUNT || error "mount_client failed to start client"
 	check_mount || error "check_mount failed"
