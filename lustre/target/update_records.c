@@ -744,30 +744,10 @@ EXPORT_SYMBOL(tur_update_params_extend);
  * \retval		negative errno if updates recording fails.
  */
 int check_and_prepare_update_record(const struct lu_env *env,
-				    struct thandle *th)
+				    struct thandle_update_records *tur)
 {
-	struct thandle_update_records	*tur;
-	struct top_thandle		*top_th;
-	struct sub_thandle		*lst;
-	int				rc;
-	bool				record_update = false;
-	ENTRY;
+	int rc;
 
-	top_th = container_of(th, struct top_thandle, tt_super);
-	/* Check if it needs to record updates for this transaction */
-	list_for_each_entry(lst, &top_th->tt_sub_trans_list, st_list) {
-		if (lst->st_record_update) {
-			record_update = true;
-			break;
-		}
-	}
-	if (!record_update)
-		RETURN(0);
-
-	if (top_th->tt_update_records != NULL)
-		RETURN(0);
-
-	tur = &update_env_info(env)->uti_tur;
 	if (tur->tur_update_records == NULL) {
 		rc = tur_update_records_create(tur);
 		if (rc < 0)
@@ -785,11 +765,9 @@ int check_and_prepare_update_record(const struct lu_env *env,
 	tur->tur_update_records->ur_master_transno = 0;
 	tur->tur_update_records->ur_batchid = 0;
 	tur->tur_update_records->ur_flags = 0;
-	top_th->tt_update_records = tur;
 
 	RETURN(0);
 }
-EXPORT_SYMBOL(check_and_prepare_update_record);
 
 /**
  * Merge params into the update records
@@ -811,11 +789,12 @@ int merge_params_updates_buf(const struct lu_env *env, struct thandle *th)
 {
 	struct top_thandle	*top_th = container_of(th, struct top_thandle,
 						       tt_super);
-	struct thandle_update_records *tur = top_th->tt_update_records;
+	struct thandle_update_records *tur;
 	struct update_params *params;
 	size_t params_size;
 	size_t ops_size;
 
+	tur = top_th->tt_multiple_thandle->tmt_update_records;
 	if (tur == NULL || tur->tur_update_records == NULL ||
 	    tur->tur_update_params == NULL)
 		return 0;
