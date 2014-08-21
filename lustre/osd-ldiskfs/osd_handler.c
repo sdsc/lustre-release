@@ -1140,7 +1140,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	qtrans = oh->ot_quota_trans;
 	oh->ot_quota_trans = NULL;
 
-        if (oh->ot_handle != NULL) {
+	if (oh->ot_handle != NULL) {
                 handle_t *hdl = oh->ot_handle;
 
                 /*
@@ -1153,6 +1153,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
                 LASSERT(oti->oti_txns == 1);
                 oti->oti_txns--;
+
                 rc = dt_txn_hook_stop(env, th);
                 if (rc != 0)
 			CERROR("%s: failed in transaction hook: rc = %d\n",
@@ -5925,12 +5926,15 @@ static int osd_fid_init(const struct lu_env *env, struct osd_device *osd)
 
 	rc = seq_client_init(osd->od_cl_seq, NULL, LUSTRE_SEQ_METADATA,
 			     osd->od_svname, ss->ss_server_seq);
-
 	if (rc != 0) {
 		OBD_FREE_PTR(osd->od_cl_seq);
 		osd->od_cl_seq = NULL;
 	}
 
+	/* Allocate new sequence now to avoid creating local transaction
+	 * in the normal transaction process */
+	rc = seq_server_alloc_meta(osd->od_cl_seq->lcs_srv,
+				   &osd->od_cl_seq->lcs_space, env);
 	RETURN(rc);
 }
 
