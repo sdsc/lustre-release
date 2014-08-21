@@ -4590,6 +4590,8 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	if (rc)
 		GOTO(err_capa, rc);
 
+	m->mdt_lu_dev.ld_site->ls_target = &m->mdt_lut;
+
 	rc = mdt_fs_setup(env, m, obd, lsi);
 	if (rc)
 		GOTO(err_tgt, rc);
