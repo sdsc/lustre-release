@@ -65,6 +65,11 @@ static int osp_object_create_interpterer(const struct lu_env *env,
 					 struct osp_object *obj,
 					 void *data, int index, int rc)
 {
+	if (rc != 0) {
+		obj->opo_obj.do_lu.lo_header->loh_attr &= ~LOHA_EXISTS;
+		return rc;
+	}
+
 	/* Invalid the opo cache for the object after the object
 	 * is being created, so attr_get will try to get attr
 	 * from the remote object. XXX this can be improved when
@@ -199,8 +204,9 @@ int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 	update = thandle_to_dt_update_request(th);
 	LASSERT(update != NULL);
 
-	CDEBUG(D_INFO, "create object "DFID" %o\n",
-	       PFID(&dt->do_lu.lo_header->loh_fid), attr->la_mode);
+	CDEBUG(D_INFO, "create object "DFID" %o valid "LPX64"\n",
+	       PFID(&dt->do_lu.lo_header->loh_fid), attr->la_mode,
+	       attr->la_valid);
 
 	/* Because the create update RPC will be sent during declare phase,
 	 * if creation reaches here, it means the object has been created
@@ -216,6 +222,9 @@ int osp_md_object_create(const struct lu_env *env, struct dt_object *dt,
 					osp_object_create_interpterer);
 	if (rc != 0)
 		GOTO(out, rc);
+
+	obj->opo_obj.do_lu.lo_header->loh_attr |=
+			LOHA_EXISTS | (attr->la_mode & S_IFMT);
 
 	LASSERT(obj->opo_ooa != NULL);
 	obj->opo_ooa->ooa_attr = *attr;

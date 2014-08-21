@@ -385,11 +385,14 @@ int lod_add_device(const struct lu_env *env, struct lod_device *lod,
 		ldev->ld_ops->ldo_recovery_complete(env, ldev);
 
 	if (!for_ost) {
-		rc = lod_sub_init_llog(env, lod, tgt_desc->ltd_tgt);
-		if (rc != 0) {
-			CERROR("%s: Fail start llog on %s: rc = %d\n",
-			       lod2obd(lod)->obd_name, osp, rc);
-			GOTO(out_pool, rc);
+		/* Initialize update log after LOD is initialized */
+		if (lod->lod_initialized) {
+			rc = lod_sub_init_llog(env, lod, tgt_desc->ltd_tgt);
+			if (rc != 0) {
+				CERROR("%s: Fail start llog on %s: rc = %d\n",
+				       lod2obd(lod)->obd_name, osp, rc);
+				GOTO(out_pool, rc);
+			}
 		}
 	}
 
