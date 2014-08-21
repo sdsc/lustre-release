@@ -107,6 +107,7 @@ typedef void (*dt_cb_t)(struct lu_env *env, struct thandle *th,
 struct dt_txn_commit_cb {
 	struct list_head	dcb_linkage;
 	dt_cb_t			dcb_func;
+	void			*dcb_data;
 	__u32			dcb_magic;
 	char			dcb_name[MAX_COMMIT_CB_STR_LEN];
 };
@@ -1874,10 +1875,15 @@ struct thandle {
 	 * this value is used in recovery */
 	__s32             th_result;
 
+	__u64		   th_transno;
 	/** whether we need sync commit */
 	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
-				th_local:1;
+				th_local:1,
+	/* This transaction is committed */
+				th_committed:1,
+	/* Whether we need wait the transaction to be submitted */
+				th_wait_submit:1;
 };
 
 /**

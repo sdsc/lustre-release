@@ -889,7 +889,7 @@ static int osp_sync_process_record(const struct lu_env *env,
 
 		/* cancel any generation record */
 		rc = llog_cat_cancel_records(env, llh->u.phd.phd_cat_handle,
-					     1, &cookie);
+					     1, &cookie, NULL);
 
 		return rc;
 	}
@@ -1046,7 +1046,8 @@ static void osp_sync_process_committed(const struct lu_env *env,
 		/* import can be closing, thus all commit cb's are
 		 * called we can check committness directly */
 		if (req->rq_transno <= imp->imp_peer_committed_transno) {
-			rc = llog_cat_cancel_records(env, llh, 1, lcookie);
+			rc = llog_cat_cancel_records(env, llh, 1, lcookie,
+						     NULL);
 			if (rc)
 				CERROR("%s: can't cancel record: %d\n",
 				       obd->obd_name, rc);

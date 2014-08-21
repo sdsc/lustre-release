@@ -1042,7 +1042,8 @@ out_name:
 	if (handle->lgh_name != NULL)
 		OBD_FREE(handle->lgh_name, strlen(name) + 1);
 out:
-	dt_los_put(los);
+	if (los != NULL)
+		dt_los_put(los);
 	RETURN(rc);
 }
 
@@ -1173,7 +1174,7 @@ static int llog_osd_create(const struct lu_env *env, struct llog_handle *res,
 	if (res->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
 		struct llog_thread_info *lgi = llog_info(env);
 
-		lgi->lgi_attr.la_valid = LA_MODE | LA_SIZE;
+		lgi->lgi_attr.la_valid = LA_TYPE | LA_MODE | LA_SIZE;
 		lgi->lgi_attr.la_size = 0;
 		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
 		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
@@ -1243,12 +1244,15 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 
 	LASSERT(handle->lgh_obj);
 
-	lu_object_put(env, &handle->lgh_obj->do_lu);
-
-	if (handle->lgh_ctxt->loc_flags &
-	    LLOG_CTXT_FLAG_NORMAL_FID)
+	if (handle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		/* Remove the object from the cache, otherwise it may
+		 * hold LOD being released during cleanup process */
+		lu_object_put_nocache(env, &handle->lgh_obj->do_lu);
+		LASSERT(handle->private_data == NULL);
 		RETURN(rc);
-
+	} else {
+		lu_object_put(env, &handle->lgh_obj->do_lu);
+	}
 	los = handle->private_data;
 	LASSERT(los);
 	dt_los_put(los);
@@ -1256,6 +1260,64 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 	if (handle->lgh_name)
 		OBD_FREE(handle->lgh_name, strlen(handle->lgh_name) + 1);
 
+	RETURN(rc);
+}
+
+/**
+ * Implementation of the llog_operations::lop_declare_destroy
+ *
+ * This function declare destroys the llog and deletes also entry in the
+ * llog directory in case of named llog. Llog should be opened prior that.
+ * Destroy method is not part of external transaction and does everything
+ * inside.
+ *
+ * \param[in] env	execution environment
+ * \param[in] loghandle	llog handle of the current llog
+ *
+ * \retval		0 if declaring succeeds.
+ * \retval		negative value if declaring fails.
+ */
+static int llog_osd_declare_destroy(const struct lu_env *env,
+				    struct llog_handle *loghandle,
+				    struct thandle *th)
+{
+	struct llog_ctxt	*ctxt;
+	struct dt_object	*o, *llog_dir = NULL;
+	struct dt_device	*d;
+	char			*name = NULL;
+	int			 rc;
+
+	ENTRY;
+
+	ctxt = loghandle->lgh_ctxt;
+	LASSERT(ctxt);
+
+	o = loghandle->lgh_obj;
+	LASSERT(o);
+
+	d = lu2dt_dev(o->do_lu.lo_dev);
+	LASSERT(d);
+	LASSERT(d == ctxt->loc_exp->exp_obd->obd_lvfs_ctxt.dt);
+
+	if (loghandle->lgh_name) {
+		llog_dir = llog_osd_dir_get(env, ctxt);
+		if (IS_ERR(llog_dir))
+			GOTO(out, rc = PTR_ERR(llog_dir));
+
+		name = loghandle->lgh_name;
+		rc = dt_declare_delete(env, llog_dir,
+				       (struct dt_key *)name, th);
+		lu_object_put(env, &llog_dir->do_lu);
+		if (rc < 0)
+			GOTO(out, rc);
+	}
+
+	dt_declare_ref_del(env, o, th);
+
+	rc = dt_declare_destroy(env, o, th);
+	if (rc < 0)
+		GOTO(out, rc);
+out:
 	RETURN(rc);
 }
 
@@ -1274,12 +1336,13 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
  * \retval		negative value on error
  */
 static int llog_osd_destroy(const struct lu_env *env,
-			    struct llog_handle *loghandle)
+			    struct llog_handle *loghandle,
+			    struct thandle *th)
 {
 	struct llog_ctxt	*ctxt;
 	struct dt_object	*o, *llog_dir = NULL;
 	struct dt_device	*d;
-	struct thandle		*th;
+	bool			local_th = false;
 	char			*name = NULL;
 	int			 rc;
 
@@ -1295,40 +1358,38 @@ static int llog_osd_destroy(const struct lu_env *env,
 	LASSERT(d);
 	LASSERT(d == ctxt->loc_exp->exp_obd->obd_lvfs_ctxt.dt);
 
-	th = dt_trans_create(env, d);
-	if (IS_ERR(th))
-		RETURN(PTR_ERR(th));
+	/* Create the local transaction if no input thandle */
+	if (th == NULL) {
+		th = dt_trans_create(env, d);
+		if (IS_ERR(th))
+			RETURN(PTR_ERR(th));
 
-	if (loghandle->lgh_name) {
-		llog_dir = llog_osd_dir_get(env, ctxt);
-		if (IS_ERR(llog_dir))
-			GOTO(out_trans, rc = PTR_ERR(llog_dir));
+		local_th = true;
+		rc = llog_osd_declare_destroy(env, loghandle, th);
+		if (rc < 0)
+			RETURN(rc);
 
-		name = loghandle->lgh_name;
-		rc = dt_declare_delete(env, llog_dir,
-				       (struct dt_key *)name, th);
+		th->th_wait_submit = 1;
+		rc = dt_trans_start_local(env, d, th);
 		if (rc)
 			GOTO(out_trans, rc);
 	}
 
-	dt_declare_ref_del(env, o, th);
-
-	rc = dt_declare_destroy(env, o, th);
-	if (rc)
-		GOTO(out_trans, rc);
-
-	rc = dt_trans_start_local(env, d, th);
-	if (rc)
-		GOTO(out_trans, rc);
-
 	dt_write_lock(env, o, 0);
 	if (dt_object_exists(o)) {
-		if (name) {
+		if (loghandle->lgh_name) {
+			llog_dir = llog_osd_dir_get(env, ctxt);
+			if (IS_ERR(llog_dir))
+				GOTO(out_unlock, rc = PTR_ERR(llog_dir));
+
+			name = loghandle->lgh_name;
+
 			dt_read_lock(env, llog_dir, 0);
 			rc = dt_delete(env, llog_dir,
 				       (struct dt_key *) name,
 				       th, BYPASS_CAPA);
 			dt_read_unlock(env, llog_dir);
+			lu_object_put(env, &llog_dir->do_lu);
 			if (rc) {
 				CERROR("%s: can't remove llog %s: rc = %d\n",
 				       o->do_lu.lo_dev->ld_obd->obd_name,
@@ -1336,6 +1397,7 @@ static int llog_osd_destroy(const struct lu_env *env,
 				GOTO(out_unlock, rc);
 			}
 		}
+
 		dt_ref_del(env, o, th);
 		rc = dt_destroy(env, o, th);
 		if (rc)
@@ -1344,9 +1406,8 @@ static int llog_osd_destroy(const struct lu_env *env,
 out_unlock:
 	dt_write_unlock(env, o);
 out_trans:
-	dt_trans_stop(env, d, th);
-	if (llog_dir != NULL)
-		lu_object_put(env, &llog_dir->do_lu);
+	if (local_th)
+		dt_trans_stop(env, d, th);
 	RETURN(rc);
 }
 
@@ -1441,6 +1502,7 @@ struct llog_operations llog_osd_ops = {
 	.lop_next_block		= llog_osd_next_block,
 	.lop_prev_block		= llog_osd_prev_block,
 	.lop_read_header	= llog_osd_read_header,
+	.lop_declare_destroy	= llog_osd_declare_destroy,
 	.lop_destroy		= llog_osd_destroy,
 	.lop_setup		= llog_osd_setup,
 	.lop_cleanup		= llog_osd_cleanup,
@@ -1513,6 +1575,8 @@ int llog_osd_get_cat_list(const struct lu_env *env, struct dt_device *d,
 		rc = dt_trans_start_local(env, d, th);
 		if (rc)
 			GOTO(out_trans, rc);
+
+		th->th_wait_submit = 1;
 
 		dt_write_lock(env, o, 0);
 		if (!dt_object_exists(o))
@@ -1636,6 +1700,8 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 	rc = dt_trans_start_local(env, d, th);
 	if (rc)
 		GOTO(out_trans, rc);
+
+	th->th_wait_submit = 1;
 
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 	if (rc)

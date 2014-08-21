@@ -105,9 +105,62 @@ void llog_handle_put(struct llog_handle *loghandle)
 		llog_free_handle(loghandle);
 }
 
+int llog_declare_cancel_rec(const struct lu_env *env,
+			    struct llog_handle *loghandle,
+			    int index, struct thandle *th)
+{
+	struct llog_log_hdr *llh = loghandle->lgh_hdr;
+	int rc = 0;
+	ENTRY;
+
+	CDEBUG(D_RPCTRACE, "declare Canceling %d in log "DOSTID"\n",
+	       index, POSTID(&loghandle->lgh_id.lgl_oi));
+
+	if (index == 0) {
+		CERROR("Can't cancel index 0 which is header\n");
+		RETURN(-EINVAL);
+	}
+
+	spin_lock(&loghandle->lgh_hdr_lock);
+	if (!ext2_test_bit(index, llh->llh_bitmap)) {
+		spin_unlock(&loghandle->lgh_hdr_lock);
+		CDEBUG(D_RPCTRACE, "Catalog index %u already clear?\n", index);
+		RETURN(-ENOENT);
+	}
+
+	if ((llh->llh_flags & LLOG_F_ZAP_WHEN_EMPTY) &&
+	    (loghandle->lgh_last_idx == (LLOG_BITMAP_BYTES * 8) - 1)) {
+		spin_unlock(&loghandle->lgh_hdr_lock);
+		rc = llog_declare_destroy(env, loghandle, th);
+		if (rc < 0)
+			CERROR("%s: can't declare destroy empty llog #"DOSTID
+			       "#%08x: rc = %d\n",
+			       loghandle->lgh_ctxt->loc_obd->obd_name,
+			       POSTID(&loghandle->lgh_id.lgl_oi),
+			       loghandle->lgh_id.lgl_ogen, rc);
+		GOTO(out, rc);
+	}
+	spin_unlock(&loghandle->lgh_hdr_lock);
+
+	rc = llog_declare_write_rec(env, loghandle, &llh->llh_hdr,
+				    LLOG_HEADER_IDX, th);
+	if (rc < 0) {
+		CERROR("%s: fail to write header for llog #"DOSTID
+		       "#%08x: rc = %d\n",
+		       loghandle->lgh_ctxt->loc_obd->obd_name,
+		       POSTID(&loghandle->lgh_id.lgl_oi),
+		       loghandle->lgh_id.lgl_ogen, rc);
+		GOTO(out, rc);
+	}
+out:
+	RETURN(rc);
+}
+EXPORT_SYMBOL(llog_declare_cancel_rec);
+
+
 /* returns negative on error; 0 if success; 1 if success & log destroyed */
 int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
-		    int index)
+		    int index, struct thandle *th)
 {
         struct llog_log_hdr *llh = loghandle->lgh_hdr;
         int rc = 0;
@@ -134,7 +187,7 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
 	    (llh->llh_count == 1) &&
 	    (loghandle->lgh_last_idx == (LLOG_BITMAP_BYTES * 8) - 1)) {
 		spin_unlock(&loghandle->lgh_hdr_lock);
-		rc = llog_destroy(env, loghandle);
+		rc = llog_destroy(env, loghandle, th);
 		if (rc < 0) {
 			CERROR("%s: can't destroy empty llog #"DOSTID
 			       "#%08x: rc = %d\n",
@@ -147,7 +200,7 @@ int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
 	}
 	spin_unlock(&loghandle->lgh_hdr_lock);
 
-	rc = llog_write(env, loghandle, &llh->llh_hdr, LLOG_HEADER_IDX);
+	rc = llog_write(env, loghandle, &llh->llh_hdr, LLOG_HEADER_IDX, th);
 	if (rc < 0) {
 		CERROR("%s: fail to write header for llog #"DOSTID
 		       "#%08x: rc = %d\n",
@@ -379,7 +432,8 @@ repeat:
 				} else if (rc == LLOG_DEL_RECORD) {
 					rc = llog_cancel_rec(lpi->lpi_env,
 							     loghandle,
-							     rec->lrh_index);
+							     rec->lrh_index,
+							     NULL);
                                 }
                                 if (rc)
                                         GOTO(out, rc);
@@ -406,7 +460,8 @@ out:
 		CERROR("Local llog found corrupted\n");
 		while (index <= last_index) {
 			if (ext2_test_bit(index, llh->llh_bitmap) != 0)
-				llog_cancel_rec(lpi->lpi_env, loghandle, index);
+				llog_cancel_rec(lpi->lpi_env, loghandle, index,
+						NULL);
 			index++;
 		}
 		rc = 0;
@@ -563,7 +618,8 @@ int llog_reverse_process(const struct lu_env *env,
 					GOTO(out, rc);
 				} else if (rc == LLOG_DEL_RECORD) {
 					rc = llog_cancel_rec(env, loghandle,
-							     tail->lrt_index);
+							     tail->lrt_index,
+							     NULL);
 				}
                                 if (rc)
                                         GOTO(out, rc);
@@ -826,7 +882,7 @@ int llog_erase(const struct lu_env *env, struct llog_ctxt *ctxt,
 
 	rc = llog_init_handle(env, handle, LLOG_F_IS_PLAIN, NULL);
 	if (rc == 0)
-		rc = llog_destroy(env, handle);
+		rc = llog_destroy(env, handle, NULL);
 
 	rc2 = llog_close(env, handle);
 	if (rc == 0)
@@ -841,11 +897,11 @@ EXPORT_SYMBOL(llog_erase);
  * Valid only with local llog.
  */
 int llog_write(const struct lu_env *env, struct llog_handle *loghandle,
-	       struct llog_rec_hdr *rec, int idx)
+	       struct llog_rec_hdr *rec, int idx, struct thandle *th)
 {
 	struct dt_device	*dt;
-	struct thandle		*th;
 	int			 rc;
+	bool			local_th = false;
 
 	ENTRY;
 
@@ -855,23 +911,30 @@ int llog_write(const struct lu_env *env, struct llog_handle *loghandle,
 
 	dt = lu2dt_dev(loghandle->lgh_obj->do_lu.lo_dev);
 
-	th = dt_trans_create(env, dt);
-	if (IS_ERR(th))
-		RETURN(PTR_ERR(th));
+	if (th == NULL) {
+		th = dt_trans_create(env, dt);
+		if (IS_ERR(th))
+			RETURN(PTR_ERR(th));
 
-	rc = llog_declare_write_rec(env, loghandle, rec, idx, th);
-	if (rc)
-		GOTO(out_trans, rc);
+		local_th = true;
+		rc = llog_declare_write_rec(env, loghandle, rec, idx, th);
+		if (rc)
+			GOTO(out_trans, rc);
 
-	rc = dt_trans_start_local(env, dt, th);
-	if (rc)
-		GOTO(out_trans, rc);
+		rc = dt_trans_start_local(env, dt, th);
+		if (rc)
+			GOTO(out_trans, rc);
+		th->th_wait_submit = 1;
+	}
 
 	down_write(&loghandle->lgh_lock);
 	rc = llog_write_rec(env, loghandle, rec, NULL, idx, th);
 	up_write(&loghandle->lgh_lock);
+
 out_trans:
-	dt_trans_stop(env, dt, th);
+	if (local_th)
+		dt_trans_stop(env, dt, th);
+
 	RETURN(rc);
 }
 EXPORT_SYMBOL(llog_write);
@@ -976,7 +1039,7 @@ int llog_copy_handler(const struct lu_env *env, struct llog_handle *llh,
 	struct llog_handle	*copy_llh = data;
 
 	/* Append all records */
-	return llog_write(env, copy_llh, rec, LLOG_NEXT_IDX);
+	return llog_write(env, copy_llh, rec, LLOG_NEXT_IDX, NULL);
 }
 EXPORT_SYMBOL(llog_copy_handler);
 
