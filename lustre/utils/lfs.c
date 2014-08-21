@@ -347,10 +347,8 @@ command_t cmdlist[] = {
 
 #define MIGRATION_BLOCKS 1
 
-static int lfs_migrate(char *name, unsigned long long stripe_size,
-		       int stripe_offset, int stripe_count,
-		       int stripe_pattern, char *pool_name,
-		       __u64 migration_flags)
+static int lfs_migrate(char *name, __u64 migration_flags,
+		       struct llapi_layout *layout)
 {
 	int			 fd, fdv;
 	char			 volatile_file[PATH_MAX +
@@ -440,9 +438,8 @@ static int lfs_migrate(char *name, unsigned long long stripe_size,
 	/* create, open a volatile file, use caching (ie no directio) */
 	/* exclusive create is not needed because volatile files cannot
 	 * conflict on name by construction */
-	fdv = llapi_file_open_pool(volatile_file, O_CREAT | O_WRONLY,
-				   0644, stripe_size, stripe_offset,
-				   stripe_count, stripe_pattern, pool_name);
+	fdv = llapi_layout_file_create(volatile_file, O_WRONLY, 0644,
+				       layout);
 	if (fdv < 0) {
 		rc = fdv;
 		fprintf(stderr, "cannot create volatile file in %s (%s)\n",
@@ -600,22 +597,25 @@ free:
 /* functions */
 static int lfs_setstripe(int argc, char **argv)
 {
-	char			*fname;
-	int			 result;
-	unsigned long long	 st_size;
-	int			 st_offset, st_count;
-	char			*end;
-	int			 c;
-	int			 delete = 0;
-	char			*stripe_size_arg = NULL;
-	char			*stripe_off_arg = NULL;
-	char			*stripe_count_arg = NULL;
-	char			*pool_name_arg = NULL;
-	unsigned long long	 size_units = 1;
-	int			 migrate_mode = 0;
-	__u64			 migration_flags = 0;
+	char				 fsname[PATH_MAX + 1] = "";
+	struct llapi_layout		*layout;
+	char				*fname;
+	int				 result;
+	unsigned long long		 st_size;
+	int64_t				 st_offset;
+	uint64_t			 st_count = LLAPI_LAYOUT_DEFAULT;
+	char				*end;
+	int				 c;
+	int				 delete = 0;
+	char				*stripe_size_arg = NULL;
+	char				*stripe_off_arg = NULL;
+	char				*stripe_count_arg = NULL;
+	char				*pool_name_arg = NULL;
+	unsigned long long		 size_units = 1;
+	__u64				 migration_flags = 0;
+	bool				 migrate_mode = false;
 
-	struct option		 long_opts[] = {
+	struct option			 long_opts[] = {
 		/* valid only in migrate mode */
 		{"block",	 no_argument,	    0, 'b'},
 #if LUSTRE_VERSION_CODE < OBD_OCD_VERSION(2, 9, 53, 0)
@@ -653,12 +653,8 @@ static int lfs_setstripe(int argc, char **argv)
 		{0, 0, 0, 0}
 	};
 
-        st_size = 0;
-        st_offset = -1;
-        st_count = 0;
-
 	if (strcmp(argv[0], "migrate") == 0)
-		migrate_mode = 1;
+		migrate_mode = true;
 
 	optind = 0;
 	while ((c = getopt_long(argc, argv, "c:di:o:p:s:S:",
@@ -668,7 +664,7 @@ static int lfs_setstripe(int argc, char **argv)
 			/* Long options. */
 			break;
 		case 'b':
-			if (migrate_mode == 0) {
+			if (!migrate_mode) {
 				fprintf(stderr, "--block is valid only for"
 						" migrate mode");
 				return CMD_HELP;
@@ -735,6 +731,22 @@ static int lfs_setstripe(int argc, char **argv)
 		return CMD_HELP;
 	}
 
+	/* Initialize stripe parameters. Stripe pattern will be set to default
+	 * zero. */
+	layout = llapi_layout_alloc();
+	if (layout == NULL) {
+		fprintf(stderr, "error: %s: run out of memory\n", argv[0]);
+		return -ENOMEM;
+	}
+
+	if (pool_name_arg != NULL) {
+		if (llapi_layout_pool_name_set(layout, pool_name_arg) < 0) {
+			fprintf(stderr, "error: %s: invalid pool '%s' for "
+				"layout\n", argv[0], pool_name_arg);
+			return CMD_HELP;
+		}
+	}
+
 	/* get the stripe size */
 	if (stripe_size_arg != NULL) {
 		result = llapi_parse_size(stripe_size_arg, &st_size,
@@ -744,45 +756,109 @@ static int lfs_setstripe(int argc, char **argv)
 				argv[0], stripe_size_arg);
 			return result;
 		}
+
+		if (st_size != 0) {
+			if (llapi_layout_stripe_size_set(layout, st_size)) {
+				fprintf(stderr, "error: %s: bad stripe size "
+					"'%llu' for layout\n", argv[0],
+					st_size);
+				return CMD_HELP;
+			}
+		}
 	}
-        /* get the stripe offset */
-        if (stripe_off_arg != NULL) {
-                st_offset = strtol(stripe_off_arg, &end, 0);
-                if (*end != '\0') {
-                        fprintf(stderr, "error: %s: bad stripe offset '%s'\n",
-                                argv[0], stripe_off_arg);
-                        return CMD_HELP;
-                }
-        }
-        /* get the stripe count */
-        if (stripe_count_arg != NULL) {
-                st_count = strtoul(stripe_count_arg, &end, 0);
-                if (*end != '\0') {
-                        fprintf(stderr, "error: %s: bad stripe count '%s'\n",
-                                argv[0], stripe_count_arg);
-                        return CMD_HELP;
-                }
+
+	/* get the stripe count */
+	if (stripe_count_arg != NULL) {
+		st_count = strtoul(stripe_count_arg, &end, 0);
+		if (*end != '\0') {
+			fprintf(stderr, "error: %s: bad stripe count '%s'\n",
+				argv[0], stripe_count_arg);
+			return CMD_HELP;
+		}
+		if (st_count == 0)
+			st_count = LLAPI_LAYOUT_DEFAULT;
+		if (st_count == -1)
+			st_count = LLAPI_LAYOUT_WIDE;
+	}
+	/* get the stripe offset */
+	if (stripe_off_arg != NULL) {
+		st_offset = strtol(stripe_off_arg, &end, 0);
+		if (*end != '\0') {
+			fprintf(stderr, "error: %s: bad stripe offset '%s'\n",
+				argv[0], stripe_off_arg);
+			return CMD_HELP;
+		}
+		if (st_offset != -1) {
+			if (llapi_layout_ost_index_set(layout, 0, st_offset)) {
+				fprintf(stderr, "error: %s: invalid ost "
+					"offset %llu for layout\n", argv[0],
+					(unsigned long long) st_offset);
+				return CMD_HELP;
+			}
+		}
+	}
+
+	/* Now we know real stripe count */
+	if ((st_count != LLAPI_LAYOUT_DEFAULT) &&
+	    llapi_layout_stripe_count_set(layout, st_count)) {
+		fprintf(stderr, "error: %s: invalid stripe count %llu for "
+			"layout\n", argv[0], (unsigned long long) st_count);
+		return CMD_HELP;
+	}
+
+	result = llapi_search_fsname(fname, fsname);
+	if (result < 0 || (strlen(fsname) == 0)) {
+		fprintf(stderr, "error: %s: file %s is not located on a "
+			"lustre file system\n", argv[0], fname);
+		return CMD_HELP;
         }
 
+	/* Verify pool exists, if layout has one. */
+	if (llapi_layout_pool_absent(layout, fsname)) {
+		fprintf(stderr, "error: %s: No such pool exist for file "
+			"file system %s\n", argv[0], fsname);
+		return CMD_HELP;
+	}
+
+	/* Verify stripe_offset is correct */
+	if (llapi_layout_ost_index_valid(layout, fsname) != 1) {
+		fprintf(stderr, "error: %s: stripe offset index for "
+				"file system %s\n", argv[0], fsname);
+		return CMD_HELP;
+	}
+
 	do {
-		if (migrate_mode)
-			result = lfs_migrate(fname, st_size, st_offset,
-					     st_count, 0, pool_name_arg,
-					     migration_flags);
-		else
-			result = llapi_file_create_pool(fname, st_size,
-							st_offset, st_count,
-							0, pool_name_arg);
-		if (result) {
-			fprintf(stderr,
-				"error: %s: %s stripe file '%s' failed\n",
-				argv[0], migrate_mode ? "migrate" : "create",
-				fname);
+		if (!migrate_mode) {
+			int flags = O_WRONLY;
+			struct stat st;
+
+			if (stat(fname, &st) != 0)
+				flags |= O_CREAT;
+
+			/* We could use layout_file_create but we want to
+			 * avoid the O_EXECL flag. */
+retry_open:
+			result = llapi_layout_file_open(fname, flags, 0644,
+							layout);
+			if (errno == EISDIR && !(flags & O_DIRECTORY)) {
+				flags = O_DIRECTORY | O_RDONLY;
+				goto retry_open;
+			}
+		} else
+			result = lfs_migrate(fname, migration_flags, layout);
+		if (result < 0) {
+			fprintf(stderr, "error: %s: %s stripe file '%s' "
+				"failed rc=%d\n", argv[0],
+				migrate_mode ? "migrate" : "create", fname,
+				errno);
+			result = errno;
 			break;
 		}
 		fname = argv[++optind];
+		result = 0;
 	} while (fname != NULL);
 
+	llapi_layout_free(layout);
 	return result;
 }
 

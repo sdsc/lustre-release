@@ -664,48 +664,36 @@ int llapi_file_open_pool(const char *name, int flags, int mode,
 			 unsigned long long stripe_size, int stripe_offset,
 			 int stripe_count, int stripe_pattern, char *pool_name)
 {
-	struct lov_user_md_v3 lum = { 0 };
+	struct llapi_layout *layout;
 	int fd, rc = 0;
 
-        /* Make sure we have a good pool */
-        if (pool_name != NULL) {
-                char fsname[MAX_OBD_NAME + 1], *ptr;
+	layout = llapi_layout_get_by_path(name, 0);
+	if (layout == NULL)
+		return -ENOMEM;
 
-                rc = llapi_search_fsname(name, fsname);
-                if (rc) {
-                        llapi_error(LLAPI_MSG_ERROR, rc,
-                                    "'%s' is not on a Lustre filesystem",
-                                    name);
-                        return rc;
-                }
+	rc = llapi_layout_stripe_size_set(layout, stripe_size);
+	if (rc)
+		return rc;
 
-                /* in case user gives the full pool name <fsname>.<poolname>,
-                 * strip the fsname */
-                ptr = strchr(pool_name, '.');
-                if (ptr != NULL) {
-                        *ptr = '\0';
-                        if (strcmp(pool_name, fsname) != 0) {
-                                *ptr = '.';
-                                llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                          "Pool '%s' is not on filesystem '%s'",
-                                          pool_name, fsname);
-                                return -EINVAL;
-                        }
-                        pool_name = ptr + 1;
-                }
+	rc = llapi_layout_ost_index_set(layout, 0, stripe_offset);
+	if (rc)
+		return rc;
 
-                /* Make sure the pool exists and is non-empty */
-                rc = llapi_search_ost(fsname, pool_name, NULL);
-                if (rc < 1) {
-                        llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                          "pool '%s.%s' %s", fsname, pool_name,
-                                          rc == 0 ? "has no OSTs" : "does not exist");
-                        return -EINVAL;
-                }
-        }
+	rc = llapi_layout_stripe_count_set(layout, stripe_count);
+	if (rc)
+		return rc;
+
+	rc = llapi_layout_pattern_set(layout, stripe_pattern);
+	if (rc)
+		return rc;
+
+	rc = llapi_layout_pool_name_set(layout, pool_name);
+	if (rc)
+		return rc;
 
 retry_open:
-	fd = open(name, flags | O_LOV_DELAY_CREATE, mode);
+	fd = llapi_layout_file_open(name, flags | O_LOV_DELAY_CREATE, mode,
+				    layout);
 	if (fd < 0) {
 		if (errno == EISDIR && !(flags & O_DIRECTORY)) {
 			flags = O_DIRECTORY | O_RDONLY;
@@ -713,48 +701,17 @@ retry_open:
 		}
 	}
 
-        if (fd < 0) {
-                rc = -errno;
-                llapi_error(LLAPI_MSG_ERROR, rc, "unable to open '%s'", name);
-                return rc;
-        }
+	if (fd < 0) {
+		rc = -errno;
+		llapi_error(LLAPI_MSG_ERROR, rc, "unable to open '%s'", name);
+		return rc;
+	}
 
-        rc = llapi_stripe_limit_check(stripe_size, stripe_offset, stripe_count,
-                                      stripe_pattern);
-        if (rc != 0)
-                goto out;
-
-        /*  Initialize IOCTL striping pattern structure */
-        lum.lmm_magic = LOV_USER_MAGIC_V3;
-        lum.lmm_pattern = stripe_pattern;
-        lum.lmm_stripe_size = stripe_size;
-        lum.lmm_stripe_count = stripe_count;
-        lum.lmm_stripe_offset = stripe_offset;
-        if (pool_name != NULL) {
-		strlcpy(lum.lmm_pool_name, pool_name,
-			sizeof(lum.lmm_pool_name));
-        } else {
-                /* If no pool is specified at all, use V1 request */
-                lum.lmm_magic = LOV_USER_MAGIC_V1;
-        }
-
-        if (ioctl(fd, LL_IOC_LOV_SETSTRIPE, &lum)) {
-                char *errmsg = "stripe already set";
-                rc = -errno;
-                if (errno != EEXIST && errno != EALREADY)
-                        errmsg = strerror(errno);
-
-                llapi_err_noerrno(LLAPI_MSG_ERROR,
-                                  "error on ioctl "LPX64" for '%s' (%d): %s",
-                                  (__u64)LL_IOC_LOV_SETSTRIPE, name, fd,errmsg);
-        }
-out:
-        if (rc) {
-                close(fd);
-                fd = rc;
-        }
-
-        return fd;
+	if (rc) {
+		close(fd);
+		fd = rc;
+	}
+	return fd;
 }
 
 int llapi_file_open(const char *name, int flags, int mode,
@@ -2525,6 +2482,10 @@ void lmv_dump_user_lmm(struct lmv_user_md *lum, char *pool_name,
 void llapi_lov_dump_user_lmm(struct find_param *param, char *path, int is_dir)
 {
 	__u32 magic;
+
+	// Handle case of using layout instead. */
+	if (param->fp_lmv_md == NULL || param->lmd == NULL)
+		return;
 
 	if (param->get_lmv || param->get_default_lmv)
 		magic = (__u32)param->fp_lmv_md->lum_magic;

@@ -165,8 +165,11 @@ llapi_layout_from_lum(const struct lov_user_md *lum, size_t object_count)
 		lumv1 = (struct lov_user_md_v1 *)lum;
 		memcpy(layout->llot_objects, lumv1->lmm_objects, objects_sz);
 	}
-	if (object_count > 0)
+	if (object_count > 0) {
+		layout->llot_stripe_offset = layout->llot_objects[0].l_ost_idx;
 		layout->llot_objects_are_valid = true;
+	} else
+		layout->llot_stripe_offset = LLAPI_LAYOUT_DEFAULT;
 
 	return layout;
 }
