@@ -740,6 +740,7 @@ int tgt_last_rcvd_update(const struct lu_env *env, struct lu_target *tgt,
 	CDEBUG(D_INODE, "transno = "LPU64", last_committed = "LPU64"\n",
 	       tti->tti_transno, tgt->lut_obd->obd_last_committed);
 
+	th->th_transno = tti->tti_transno;
 	req->rq_transno = tti->tti_transno;
 	lustre_msg_set_transno(req->rq_repmsg, tti->tti_transno);
 
