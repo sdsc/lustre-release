@@ -462,6 +462,7 @@ enum fid_seq {
 	FID_SEQ_LAYOUT_RBTREE	= 0x200000008ULL,
 	/* sequence is used for update logs of cross-MDT operation */
 	FID_SEQ_UPDATE_LOG	= 0x200000009ULL,
+	FID_SEQ_UPDATE_LOG_DIR	= 0x20000000aULL,
 	FID_SEQ_NORMAL		= 0x200000400ULL,
 	FID_SEQ_LOV_DEFAULT	= 0xffffffffffffffffULL
 };
@@ -580,6 +581,13 @@ static inline void lu_update_log_fid(struct lu_fid *fid, __u32 index)
 	fid->f_ver = 0;
 }
 
+static inline void lu_update_log_dir_fid(struct lu_fid *fid, __u32 index)
+{
+	fid->f_seq = FID_SEQ_UPDATE_LOG_DIR;
+	fid->f_oid = index;
+	fid->f_ver = 0;
+}
+
 /**
  * Check if a fid is igif or not.
  * \param fid the fid to be tested.
@@ -638,6 +646,16 @@ static inline bool fid_seq_is_update_log(__u64 seq)
 static inline bool fid_is_update_log(const struct lu_fid *fid)
 {
 	return fid_seq_is_update_log(fid_seq(fid));
+}
+
+static inline bool fid_seq_is_update_log_dir(__u64 seq)
+{
+	return seq == FID_SEQ_UPDATE_LOG_DIR;
+}
+
+static inline bool fid_is_update_log_dir(const struct lu_fid *fid)
+{
+	return fid_seq_is_update_log_dir(fid_seq(fid));
 }
 
 /* convert an OST objid into an IDIF FID SEQ number */
@@ -860,7 +878,8 @@ static inline int fid_to_ostid(const struct lu_fid *fid, struct ost_id *ostid)
 /* Check whether the fid is for LAST_ID */
 static inline bool fid_is_last_id(const struct lu_fid *fid)
 {
-	return fid_oid(fid) == 0 && fid_seq(fid) != FID_SEQ_UPDATE_LOG;
+	return fid_oid(fid) == 0 && fid_seq(fid) != FID_SEQ_UPDATE_LOG &&
+	       fid_seq(fid) != FID_SEQ_UPDATE_LOG_DIR;
 }
 
 /**
