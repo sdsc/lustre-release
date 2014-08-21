@@ -917,8 +917,6 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 	dt = ctxt->loc_exp->exp_obd->obd_lvfs_ctxt.dt;
 	LASSERT(dt);
 	if (ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
-		struct lu_object *lu;
-
 		if (logid != NULL) {
 			logid_to_fid(logid, &lgi->lgi_fid);
 		} else {
@@ -929,11 +927,9 @@ static int llog_osd_open(const struct lu_env *env, struct llog_handle *handle,
 			rc = 0;
 		}
 
-		lu = lu_object_find_at(env, dt2lu_dev(dt), &lgi->lgi_fid, NULL);
-		if (IS_ERR(lu))
-			RETURN(PTR_ERR(lu));
-
-		o = lu2dt_obj(lu);
+		o = dt_locate(env, dt, &lgi->lgi_fid);
+		if (IS_ERR(o))
+			RETURN(PTR_ERR(o));
 
 		goto after_open;
 	}
@@ -1135,7 +1131,7 @@ static int llog_osd_create(const struct lu_env *env, struct llog_handle *res,
 	if (res->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
 		struct llog_thread_info *lgi = llog_info(env);
 
-		lgi->lgi_attr.la_valid = LA_MODE | LA_SIZE;
+		lgi->lgi_attr.la_valid = LA_TYPE | LA_MODE | LA_SIZE;
 		lgi->lgi_attr.la_size = 0;
 		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
 		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
@@ -1205,12 +1201,14 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 
 	LASSERT(handle->lgh_obj);
 
-	lu_object_put(env, &handle->lgh_obj->do_lu);
-
-	if (handle->lgh_ctxt->loc_flags &
-	    LLOG_CTXT_FLAG_NORMAL_FID)
+	if (handle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		/* Remove the object from the cache, otherwise it may
+		 * hold LOD being released during cleanup process */
+		lu_object_put_nocache(env, &handle->lgh_obj->do_lu);
 		RETURN(rc);
-
+	} else {
+		lu_object_put(env, &handle->lgh_obj->do_lu);
+	}
 	los = handle->private_data;
 	LASSERT(los);
 	dt_los_put(los);

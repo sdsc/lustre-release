@@ -762,6 +762,16 @@ static int lod_sub_get_index(struct lod_device *lod, struct dt_device *dt)
 	int idx = -ENOENT;
 	int i;
 
+	if (dt == lod->lod_child) {
+		__u32 index;
+
+		idx = lodname2mdt_index(lod2obd(lod)->obd_name, &index);
+		if (idx != 0)
+			return idx;
+
+		return (int)index;
+	}
+
 	mutex_lock(&ltd->ltd_mutex);
 	cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
 		struct lod_tgt_desc *tgt;
@@ -794,53 +804,81 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 		RETURN(-ENOENT);
 
 	lu_update_log_fid(fid, index);
-	fid_to_logid(fid, &cid->lci_logid);
+
+	rc = lodname2mdt_index(lod2obd(lod)->obd_name, (__u32 *)&index);
+	if (rc < 0)
+		RETURN(rc);
+
+	rc = llog_osd_get_cat_list(env, dt, index, 1, cid, fid);
+	if (rc != 0) {
+		CERROR("%s: can't get id from catalogs: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		RETURN(rc);
+	}
 
 	obd = dt->dd_lu_dev.ld_obd;
 	ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt);
+	LASSERT(ctxt != NULL);
 	ctxt->loc_flags |= LLOG_CTXT_FLAG_NORMAL_FID;
 
-	rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
-		       LLOG_OPEN_EXISTS);
-	if (rc < 0) {
-		llog_ctxt_put(ctxt);
-		RETURN(rc);
+	if (likely(logid_id(&cid->lci_logid) != 0)) {
+		rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
+			       LLOG_OPEN_EXISTS);
+
+		/* re-create llog if it is missing */
+		if (rc == -ENOENT)
+			logid_set_id(&cid->lci_logid, 0);
+		else if (rc < 0)
+			GOTO(out_put, rc);
+	}
+
+	if (unlikely(logid_id(&cid->lci_logid) == 0)) {
+		rc = llog_open_create(env, ctxt, &lgh, NULL, NULL);
+		if (rc < 0)
+			GOTO(out_put, rc);
+		cid->lci_logid = lgh->lgh_id;
 	}
 
 	LASSERT(lgh != NULL);
 	ctxt->loc_handle = lgh;
 
 	rc = llog_cat_init_and_process(env, lgh);
-	if (rc != 0) {
-		llog_ctxt_put(ctxt);
+	if (rc != 0)
 		GOTO(out_close, rc);
-	}
 
-	llog_ctxt_put(ctxt);
+	rc = llog_osd_put_cat_list(env, dt, index, 1, cid, fid);
+	if (rc != 0)
+		GOTO(out_close, rc);
+
+	CDEBUG(D_INFO, "%s: Init llog for %d - catid "DOSTID":%x\n",
+	       obd->obd_name, index, POSTID(&cid->lci_logid.lgl_oi),
+	       cid->lci_logid.lgl_ogen);
 
 out_close:
 	if (rc != 0) {
 		llog_cat_close(env, ctxt->loc_handle);
 		ctxt->loc_handle = NULL;
 	}
+out_put:
+	llog_ctxt_put(ctxt);
 	RETURN(rc);
 }
 
 int lod_sub_declare_updates_write(const struct lu_env *env,
 				  struct lod_device *lod,
 				  struct update_records *records,
-				  struct lod_sub_thandle *lst)
+				  struct thandle *sub_trans)
 {
 	struct llog_ctxt	*ctxt;
-	struct dt_device	*dt = lst->lst_child->th_dev;
+	struct dt_device	*dt = sub_trans->th_dev;
 	int rc;
 
 	/* If ctxt is NULL, it means not need to write update,
 	 * for example if the the OSP is used to connect to OST */
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt != NULL);
+	LASSERTF(ctxt != NULL, "No ctxt for %s\n",
+		 dt->dd_lu_dev.ld_obd->obd_name);
 	if (ctxt->loc_handle == NULL) {
 		rc = lod_sub_prep_llog(env, lod, dt);
 		if (rc != 0) {
@@ -854,20 +892,99 @@ int lod_sub_declare_updates_write(const struct lu_env *env,
 	LASSERT(ctxt->loc_handle != NULL);
 	records->ur_hdr.lrh_len = LLOG_CHUNK_SIZE;
 	rc = llog_declare_add(env, ctxt->loc_handle, &records->ur_hdr,
-			      lst->lst_child);
+			      sub_trans);
 
 	llog_ctxt_put(ctxt);
 
 	return rc;
 }
 
+int lod_sub_update_txn_stop(const struct lu_env *env, struct thandle *th,
+			    void *arg)
+{
+	struct lod_thandle		*lth = arg;
+	struct lod_sub_thandle		*lst;
+	bool				found = false;
+
+	CDEBUG(D_HA, "%s: transaction "LPU64" stop.\n",
+	       th->th_dev->dd_lu_dev.ld_obd->obd_name,
+	       th->th_transno);
+
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		if (lst->lst_dt == th->th_dev) {
+			found = true;
+			break;
+		}
+	}
+
+	LASSERT(found == true);
+	LASSERT(lst->lst_update != NULL);
+
+	if (lst->lst_update->lstu_transno == 0)
+		lst->lst_update->lstu_transno = th->th_transno;
+
+	return 0;
+}
+
+void lod_sub_update_txn_commit(struct thandle *th, void *arg)
+{
+	struct lod_thandle	*lth = arg;
+	struct lod_device	*lod = dt2lod_dev(lth->lt_super.th_dev);
+	struct lod_sub_thandle	*lst;
+	bool			found = false;
+	bool			all_committed = true;
+	ENTRY;
+
+	CDEBUG(D_HA, "%s: transaction "LPU64" committed.\n",
+	       th->th_dev->dd_lu_dev.ld_obd->obd_name,
+	       th->th_transno);
+
+	LASSERT(lth->lt_magic == LOD_THANDLE_MAGIC);
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		if (lst->lst_dt == th->th_dev) {
+			found = true;
+			break;
+		}
+	}
+
+	LASSERT(found);
+	LASSERT(lst->lst_update != NULL);
+
+	if (lst->lst_update->lstu_committed == 0)
+		lst->lst_update->lstu_committed = 1;
+
+	/* Check if all updates under the transaction has been committed. */
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		if (!lst->lst_update->lstu_committed) {
+			all_committed = false;
+			break;
+		}
+	}
+
+	/* wakeup the LOD log commit thread to cancel the record */
+	if (all_committed) {
+		lth->lt_committed = 1;
+		spin_lock(&lod->lod_commit_lock);
+		list_add_tail(&lth->lt_commit_list, &lod->lod_commit_list);
+		spin_unlock(&lod->lod_commit_lock);
+		wake_up(&lod->lod_commit_track_waitq);
+	}
+
+	RETURN_EXIT;
+}
+
 int lod_sub_updates_write(const struct lu_env *env,
 			  struct update_records *records,
+			  struct lod_thandle *lth,
 			  struct lod_sub_thandle *lst)
 {
+	struct lod_sub_thandle_update *lstu;
 	struct llog_ctxt	*ctxt;
-	struct dt_device	*dt = lst->lst_child->th_dev;
+	struct dt_device	*dt = lst->lst_dt;
 	int			rc;
+
+	LASSERT(lst->lst_update != NULL);
+	lstu = lst->lst_update;
 
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
@@ -881,10 +998,46 @@ int lod_sub_updates_write(const struct lu_env *env,
 	}
 
 	rc = llog_add(env, ctxt->loc_handle, &records->ur_hdr,
-		      NULL, lst->lst_child);
-
+		      &lstu->lstu_cookie, lst->lst_child);
 	llog_ctxt_put(ctxt);
+	if (rc < 0)
+		return rc;
 
-	return rc;
+	lstu->lstu_txn_cb.dtc_txn_stop = lod_sub_update_txn_stop;
+	lstu->lstu_txn_cb.dtc_txn_commit = lod_sub_update_txn_commit;
+	lstu->lstu_txn_cb.dtc_cookie = lth;
+	lstu->lstu_txn_cb.dtc_tag = LCT_MD_THREAD;
+	INIT_LIST_HEAD(&lstu->lstu_txn_cb.dtc_linkage);
+
+	txn_callback_add(lst->lst_child, &lstu->lstu_txn_cb);
+
+	return 0;
 }
 
+struct lod_sub_thandle*
+lod_sub_create_trans(const struct lu_env *env, struct lod_thandle *lth,
+		     struct thandle *child_th)
+{
+	struct lod_sub_thandle	*lst;
+
+	OBD_ALLOC_PTR(lst);
+	if (lst == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	INIT_LIST_HEAD(&lst->lst_list);
+	child_th->th_storage_th = lth->lt_child;
+	lst->lst_child = child_th;
+	lst->lst_dt = child_th->th_dev;
+
+	/* If it is for remote MDT operation, then allocate the update
+	 * structure for cross-MDT operation. */
+	if (lth->lt_multiple_node) {
+		OBD_ALLOC_PTR(lst->lst_update);
+		if (lst->lst_update == NULL) {
+			OBD_FREE_PTR(lst);
+			return ERR_PTR(-ENOMEM);
+		}
+	}
+
+	return lst;
+}
