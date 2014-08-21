@@ -78,7 +78,7 @@ SINGLEMDS=${SINGLEMDS:-"mds1"}
 TIMEOUT=${TIMEOUT:-20}
 PTLDEBUG=${PTLDEBUG:-"vfstrace rpctrace dlmtrace neterror ha config \
 		      ioctl super lfsck"}
-SUBSYSTEM=${SUBSYSTEM:-"all -lnet -lnd -pinger"}
+SUBSYSTEM=${SUBSYSTEM:-"all -lnet -lnd -pinger -ldlm -mgs"}
 
 # promise 2MB for every cpu
 if [ -f /sys/devices/system/cpu/possible ]; then
