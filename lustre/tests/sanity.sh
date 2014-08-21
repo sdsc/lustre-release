@@ -38,6 +38,7 @@ SRCDIR=$(cd $(dirname $0); echo $PWD)
 export PATH=$PATH:/sbin
 
 TMP=${TMP:-/tmp}
+OSC=${OSC:-"osc"}
 
 CC=${CC:-cc}
 CHECKSTAT=${CHECKSTAT:-"checkstat -v"}
@@ -3112,7 +3113,7 @@ test_38() {
 }
 run_test 38 "open a regular file with O_DIRECTORY should return -ENOTDIR ==="
 
-test_39() {
+test_39a() {
 	touch $DIR/$tfile
 	touch $DIR/${tfile}2
 #	ls -l  $DIR/$tfile $DIR/${tfile}2
@@ -3130,7 +3131,7 @@ test_39() {
 		error "O_TRUNC didn't change timestamps"
 	fi
 }
-run_test 39 "mtime changed on create ==========================="
+run_test 39a "mtime changed on create ==========================="
 
 test_39b() {
 	test_mkdir -p -c1 $DIR/$tdir
@@ -3568,7 +3569,7 @@ test_41() {
 run_test 41 "test small file write + fstat ====================="
 
 count_ost_writes() {
-	lctl get_param -n osc.*.stats |
+	lctl get_param -n ${OSC}.*.stats |
 		awk -vwrites=0 '/ost_write/ { writes += $2 } \
 			END { printf("%0.0f", writes) }'
 }
@@ -3628,7 +3629,7 @@ setup_test42() {
 test_42a() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	setup_test42
-	cancel_lru_locks osc
+	cancel_lru_locks $OSC
 	stop_writeback
 	sync; sleep 1; sync # just to be safe
 	BEFOREWRITES=`count_ost_writes`
@@ -3644,7 +3645,7 @@ run_test 42a "ensure that we don't flush on close =============="
 test_42b() {
 	[ $PARALLEL == "yes" ] && skip "skip parallel run" && return
 	setup_test42
-	cancel_lru_locks osc
+	cancel_lru_locks $OSC
 	stop_writeback
 	sync
 	dd if=/dev/zero of=$DIR/f42b bs=1024 count=100
@@ -3683,7 +3684,7 @@ trunc_test() {
         test=$1
         file=$DIR/$test
         offset=$2
-	cancel_lru_locks osc
+	cancel_lru_locks $OSC
 	stop_writeback
 	# prime the file with 0,EOF PW to match
 	touch $file
@@ -3693,7 +3694,7 @@ trunc_test() {
         dd if=/dev/zero of=$file bs=1024 count=100
         BEFOREWRITES=`count_ost_writes`
         $TRUNCATE $file $offset
-        cancel_lru_locks osc
+        cancel_lru_locks $OSC
         AFTERWRITES=`count_ost_writes`
 	start_writeback
 }
@@ -3896,7 +3897,7 @@ run_test 44a "test sparse pwrite ==============================="
 
 dirty_osc_total() {
 	tot=0
-	for d in `lctl get_param -n osc.*.cur_dirty_bytes`; do
+	for d in `lctl get_param -n ${OSC}.*.cur_dirty_bytes`; do
 		tot=$(($tot + $d))
 	done
 	echo $tot
@@ -6700,7 +6701,7 @@ test_101e() {
 	done
 
 	echo "Cancel LRU locks on lustre client to flush the client cache"
-	cancel_lru_locks osc
+	cancel_lru_locks $OSC
 
 	echo "Reset readahead stats"
 	$LCTL set_param -n llite.*.read_ahead_stats 0
@@ -9883,7 +9884,7 @@ test_150() {
 
         dd if=/dev/urandom of=$TF bs=6096 count=1 || error "dd failed"
         cp $TF $DIR/$tfile
-        cancel_lru_locks osc
+        cancel_lru_locks $OSC
         cmp $TF $DIR/$tfile || error "$TMP/$tfile $DIR/$tfile differ"
         remount_client $MOUNT
         df -P $MOUNT
@@ -9891,12 +9892,12 @@ test_150() {
 
         $TRUNCATE $TF 6000
         $TRUNCATE $DIR/$tfile 6000
-        cancel_lru_locks osc
+        cancel_lru_locks $OSC
         cmp $TF $DIR/$tfile || error "$TF $DIR/$tfile differ (truncate1)"
 
         echo "12345" >>$TF
         echo "12345" >>$DIR/$tfile
-        cancel_lru_locks osc
+        cancel_lru_locks $OSC
         cmp $TF $DIR/$tfile || error "$TF $DIR/$tfile differ (append1)"
 
         echo "12345" >>$TF
@@ -10452,7 +10453,7 @@ test_155_small_load() {
     dd if=/dev/urandom of=$temp bs=6096 count=1 || \
         error "dd of=$temp bs=6096 count=1 failed"
     cp $temp $file
-    cancel_lru_locks osc
+    cancel_lru_locks $OSC
     cmp $temp $file || error "$temp $file differ"
 
     $TRUNCATE $temp 6000
@@ -13751,7 +13752,7 @@ run_test 240 "race between ldlm enqueue and the connection RPC (no ASSERT)"
 test_241_bio() {
 	for LOOP in $(seq $1); do
 		dd if=$DIR/$tfile of=/dev/null bs=40960 count=1 2>/dev/null
-		cancel_lru_locks osc || true
+		cancel_lru_locks $OSC || true
 	done
 }
 
@@ -13765,7 +13766,7 @@ test_241_dio() {
 test_241() {
 	dd if=/dev/zero of=$DIR/$tfile count=1 bs=40960
 	ls -la $DIR/$tfile
-	cancel_lru_locks osc
+	cancel_lru_locks $OSC
 	test_241_bio 1000 &
 	PID=$!
 	test_241_dio 1000
@@ -14578,73 +14579,153 @@ test_260() {
 }
 run_test 260 "Check mdc_close fail"
 
-cleanup_test_300() {
-	trap 0
-	umask $SAVE_UMASK
+### Data-on-MDT sanity tests ###
+test_270a() {
+	# create DoM file
+	local dom=$DIR/$tdir/dom_file
+	local tmp=$DIR/$tdir/tmp_file
+
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -P mdt -S 1024K $dom
+
+	[ $($GETSTRIPE -L $dom) == 100 ] || error "bad pattern"
+	[ $($GETSTRIPE -c $dom) == 0 ] || error "bad stripe count"
+	[ $($GETSTRIPE -S $dom) == 1048576 ] || error "bad stripe size"
+
+	local mdtidx=$($GETSTRIPE -M $dom)
+	local mdtname=MDT$(printf %04x $mdtidx)
+	local facet=mds$((mdtidx + 1))
+
+	# write
+	sync
+	local mdtfree1=$(do_facet $facet \
+		lctl get_param -n osd*.*$mdtname.kbytesfree)
+	dd if=/dev/urandom of=$tmp bs=1024 count=100
+	# check also direct IO along write
+	dd if=$tmp of=$dom bs=102400 count=1 oflag=direct
+	sync
+	cmp $tmp $dom || error "file data is different"
+	[ $(stat -c%s $dom) == 102400 ] || error "bad size after write"
+	local mdtfree2=$(do_facet $facet \
+		lctl get_param -n osd*.*$mdtname.kbytesfree)
+	[ $(($mdtfree1 - $mdtfree2)) -ge 102 ] ||
+		error "MDT free space is wrong after write"
+
+	# truncate
+	$TRUNCATE $dom 10000
+	[ $(stat -c%s $dom) == 10000 ] || error "bad size after truncate"
+	mdtfree1=$(do_facet $facet lctl get_param -n osd*.*$mdtname.kbytesfree)
+	[ $(($mdtfree1 - $mdtfree2)) -ge 92 ] ||
+		error "MDT free space is wrong after truncate"
+
+	# append
+	cat $tmp >> $dom
+	sync
+	[ $(stat -c%s $dom) == 112400 ] || error "bad size after append"
+	mdtfree2=$(do_facet $facet lctl get_param -n osd*.*$mdtname.kbytesfree)
+	[ $(($mdtfree1 - $mdtfree2)) -ge 102 ] ||
+		error "MDT free space is wrong after append"
+
+	# delete
+	rm $dom
+	mdtfree1=$(do_facet $facet lctl get_param -n osd*.*$mdtname.kbytesfree)
+	[ $(($mdtfree1 - $mdtfree2)) -ge 112 ] ||
+		error "MDT free space is wrong after removal"
+	rm $tmp
+	return 0
 }
-test_striped_dir() {
-	local mdt_index=$1
-	local stripe_count
-	local stripe_index
+run_test 270a "DoM: basic functionality tests"
+
+test_270b() {
+	local dom=$DIR/$tdir/dom_file
+	local max_size=65536
+
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -P mdt -S $max_size $dom
+
+	# truncate over the limit
+	$TRUNCATE $dom $(($max_size + 1)) &&
+		error "successful truncate over the maximum size"
+	# write over the limit
+	dd if=/dev/zero of=$dom bs=$max_size seek=1 count=1 &&
+		error "successful write over the maximum size"
+	# append over the limit
+	dd if=/dev/zero of=$dom bs=$(($max_size - 3)) count=1
+	echo "12345" >> $dom && error "successful append over the maximum size"
+	rm $dom
+	return 0
+}
+run_test 270b "DoM: maximum size limit checks"
+
+test_270c() {
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -P mdt -S 1024K $DIR/$tdir
+
+	# check files inherit DoM EA
+	touch $DIR/$tdir/first
+	[ $($GETSTRIPE -L $DIR/$tdir/first) == 100 ] ||
+		error "bad pattern"
+	[ $($GETSTRIPE -c $DIR/$tdir/first) == 0 ] ||
+		error "bad stripe count"
+	[ $($GETSTRIPE -S $DIR/$tdir/first) == 1048576 ] ||
+		error "bad stripe size"
+
+	# check directory inherits DoM EA and uses it as default
+	mkdir $DIR/$tdir/subdir
+	touch $DIR/$tdir/subdir/second
+	[ $($GETSTRIPE -L $DIR/$tdir/subdir/second) == 100 ] ||
+		error "bad pattern in sub-directory"
+	[ $($GETSTRIPE -c $DIR/$tdir/subdir/second) == 0 ] ||
+		error "bad stripe count in sub-directory"
+	[ $($GETSTRIPE -S $DIR/$tdir/subdir/second) == 1048576 ] ||
+		error "bad stripe size in sub-directory"
+	return 0
+}
+run_test 270c "DoM: DoM EA inheritance tests"
+
+test_270d() {
+	mkdir -p $DIR/$tdir
+	$SETSTRIPE -P mdt -S 1024K $DIR/$tdir
+
+	# inherit default DoM striping
+	mkdir $DIR/$tdir/subdir
+	touch $DIR/$tdir/subdir/f1
+
+	# chage default directory striping
+	$SETSTRIPE -c 1 $DIR/$tdir/subdir
+	touch $DIR/$tdir/subdir/f2
+	[ $($GETSTRIPE -c $DIR/$tdir/subdir/f2) == 1 ] ||
+		error "wrong default striping in file 2"
+	[ $($GETSTRIPE -L $DIR/$tdir/subdir/f2) == 1 ] ||
+		error "bad pattern in file 2"
+
+	return 0
+}
+run_test 270d "DoM: change striping from DoM to RAID0"
+
+test_271a() {
+	local dom=$DIR/$tdir/dom
 
 	mkdir -p $DIR/$tdir
 
-	SAVE_UMASK=$(umask)
-	trap cleanup_test_300 RETURN EXIT
+	$SETSTRIPE -P mdt -S 1024K $dom
 
-	$LFS setdirstripe -i $mdt_index -c 2 -t all_char -m 755 \
-						$DIR/$tdir/striped_dir ||
-		error "set striped dir error"
-
-	local mode=$(stat -c%a $DIR/$tdir/striped_dir)
-	[ "$mode" = "755" ] || error "expect 755 got $mode"
-
-	$LFS getdirstripe $DIR/$tdir/striped_dir > /dev/null 2>&1 ||
-		error "getdirstripe failed"
-	stripe_count=$($LFS getdirstripe -c $DIR/$tdir/striped_dir)
-	if [ "$stripe_count" != "2" ]; then
-		error "stripe_count is $stripe_count, expect 2"
-	fi
-
-	stripe_index=$($LFS getdirstripe -i $DIR/$tdir/striped_dir)
-	if [ "$stripe_index" != "$mdt_index" ]; then
-		error "stripe_index is $stripe_index, expect $mdt_index"
-	fi
-
-	[ $(stat -c%h $DIR/$tdir/striped_dir) == '2' ] ||
-		error "nlink error after create striped dir"
-
-	mkdir $DIR/$tdir/striped_dir/a
-	mkdir $DIR/$tdir/striped_dir/b
-
-	stat $DIR/$tdir/striped_dir/a ||
-		error "create dir under striped dir failed"
-	stat $DIR/$tdir/striped_dir/b ||
-		error "create dir under striped dir failed"
-
-	[ $(stat -c%h $DIR/$tdir/striped_dir) == '4' ] ||
-		error "nlink error after mkdir"
-
-	rmdir $DIR/$tdir/striped_dir/a
-	[ $(stat -c%h $DIR/$tdir/striped_dir) == '3' ] ||
-		error "nlink error after rmdir"
-
-	rmdir $DIR/$tdir/striped_dir/b
-	[ $(stat -c%h $DIR/$tdir/striped_dir) == '2' ] ||
-		error "nlink error after rmdir"
-
-	chattr +i $DIR/$tdir/striped_dir
-	createmany -o $DIR/$tdir/striped_dir/f 10 &&
-		error "immutable flags not working under striped dir!"
-	chattr -i $DIR/$tdir/striped_dir
-
-	rmdir $DIR/$tdir/striped_dir ||
-		error "rmdir striped dir error"
-
-	cleanup_test_300
-
-	true
+	lctl set_param -n mdc.*.stats=clear
+	dd if=/dev/zero of=$dom bs=4096 count=1 || return 1
+	cat $dom > /dev/null
+	local reads=$(lctl get_param -n mdc.*.stats | \
+		awk '/ost_read/ {print $2}')
+	[ -z $reads ] || error "Unexpected $reads READ RPCs"
+	ls $dom
+	rm -f $dom
 }
+run_test 271a "DoM: data is cached for read after write"
+
+test_272() {
+	# XXX just reserve test number so far
+	return 0
+}
+run_test 272 "DoM migration tests"
 
 test_300a() {
 	[ $(lustre_version_code $SINGLEMDS) -lt $(version_code 2.7.0) ] &&
