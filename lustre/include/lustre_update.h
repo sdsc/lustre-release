@@ -191,20 +191,32 @@ struct top_thandle {
 	/* Other sub transactions will be listed here. */
 	struct list_head	tt_sub_trans_list;
 
+	struct list_head	tt_commit_list;
 	/* All of update records will packed here */
 	struct thandle_update_records *tt_update_records;
+
+	void  (*tt_commit_callback)(struct thandle *th,
+				    void *arg);
+	void			*tt_commit_callback_arg;
+
+	struct llog_cookie	tt_master_cookie;
 	/* If Master sub thandle is committed */
-	unsigned int		tt_master_committed;
+	unsigned int		tt_multiple_node:1,
+				tt_child_committed:1;
 };
 
-struct sub_thandle {
-	/* point to the osd/osp_thandle */
-	struct thandle		*st_sub_th;
-	struct list_head	st_list;
+struct sub_thandle_update {
+	struct llog_cookie	stu_cookie;
+};
 
-	/* If this sub thandle is committed */
-	unsigned int		st_committed:1,
-				st_record_update:1;
+/* Sub thandle is used to track multiple sub thandles under one parent
+ * thandle */
+struct sub_thandle {
+	struct thandle		*st_sub_th;
+	struct dt_device	*st_dt;
+	struct list_head	st_list;
+	struct sub_thandle_update *st_update;
+	unsigned int		 st_committed:1;
 };
 
 static inline struct update_params *
@@ -406,12 +418,11 @@ struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
 				const struct dt_object *sub_obj);
 struct thandle *
 top_trans_create(const struct lu_env *env, struct dt_device *master_dev);
-
 int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 		    struct thandle *th);
-
 int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 		   struct thandle *th);
+void top_thandle_destroy(struct top_thandle *top_th);
 
 void top_thandle_destroy(struct top_thandle *top_th);
 static inline void top_thandle_get(struct top_thandle *top_th)
@@ -424,6 +435,9 @@ static inline void top_thandle_put(struct top_thandle *top_th)
 	if (atomic_dec_and_test(&top_th->tt_refcount))
 		top_thandle_destroy(top_th);
 }
+
+void sub_trans_commit_cb(struct thandle *sub_th);
+void top_thandle_dump(unsigned int mask, struct top_thandle *top_th);
 
 /* update_records.c */
 void update_records_dump(struct update_records *records, unsigned int mask);
@@ -505,7 +519,7 @@ int tur_update_records_extend(struct thandle_update_records *tur,
 int tur_update_params_extend(struct thandle_update_records *tur,
 			     size_t new_size);
 int check_and_prepare_update_record(const struct lu_env *env,
-				    struct thandle *th);
+				    struct thandle_update_records *tur);
 int merge_params_updates_buf(const struct lu_env *env, struct thandle *th);
 
 struct update_thread_info {

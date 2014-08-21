@@ -598,6 +598,17 @@ int osp_trans_update_request_create(struct thandle *th)
 	return 0;
 }
 
+static void osp_thandle_get(struct osp_thandle *oth)
+{
+	atomic_inc(&oth->ot_refcount);
+}
+
+static void osp_thandle_put(struct osp_thandle *oth)
+{
+	if (atomic_dec_and_test(&oth->ot_refcount))
+		OBD_FREE_PTR(oth);
+}
+
 /**
  * The OSP layer dt_device_operations::dt_trans_create() interface
  * to create a transaction.
@@ -642,7 +653,44 @@ struct thandle *osp_trans_create(const struct lu_env *env, struct dt_device *d)
 	th->th_dev = d;
 	th->th_tags = LCT_TX_HANDLE;
 
+	atomic_set(&oth->ot_refcount, 1);
+
 	RETURN(th);
+}
+
+static void osp_request_commit_cb(struct ptlrpc_request *req)
+{
+	struct thandle *th = req->rq_cb_data;
+	struct osp_thandle *oth = thandle_to_osp_thandle(th);
+	__u64		   last_committed_transno;
+	ENTRY;
+
+	/* Interesting, commit callback arrives before stop callback */
+	if (th->th_transno == 0) {
+		DEBUG_REQ(D_HA, req, "arrive before stop callback.\n");
+		th->th_transno = req->rq_transno;
+	}
+
+	/* Sigh, when commit_cb is called, imp_peer_committed_transno
+	 * is not updated by this req yet, so we tried to find out
+	 * last committed transno from req ourselves */
+	if (lustre_msg_get_last_committed(req->rq_repmsg))
+		last_committed_transno =
+			lustre_msg_get_last_committed(req->rq_repmsg);
+	else
+		last_committed_transno =
+			req->rq_import->imp_peer_committed_transno;
+
+	CDEBUG(D_HA, "trans no "LPU64" committed transno "LPU64"\n",
+	       req->rq_transno, last_committed_transno);
+
+	if (req->rq_transno != 0 &&
+	    (req->rq_transno <= last_committed_transno))
+		th->th_committed = 1;
+
+	sub_trans_commit_cb(th);
+	osp_thandle_put(oth);
+	EXIT;
 }
 
 /**
@@ -681,12 +729,22 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 	args = ptlrpc_req_async_args(req);
 	args->oaua_update = dt_update;
 	req->rq_interpret_reply = osp_update_interpret;
-	if (!th->th_sync) {
+	if (!th->th_sync && is_only_remote_trans(th)) {
 		args->oaua_flow_control = true;
 		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	} else {
+		struct osp_thandle *oth = thandle_to_osp_thandle(th);
+
 		args->oaua_flow_control = false;
+		req->rq_commit_cb = osp_request_commit_cb;
+		req->rq_cb_data = th;
+		osp_thandle_get(oth); /* for commit callback */
 		rc = ptlrpc_queue_wait(req);
+		if (rc != 0 || req->rq_transno == 0)
+			osp_thandle_put(oth);
+		else
+			oth->ot_dur = NULL;
+		th->th_transno = req->rq_transno;
 		ptlrpc_req_finished(req);
 	}
 
@@ -744,8 +802,11 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	ENTRY;
 
 	dt_update = oth->ot_dur;
-	if (dt_update == NULL)
-		GOTO(out, rc);
+	if (dt_update == NULL || th->th_result != 0 || th->th_committed) {
+		rc = th->th_result;
+		osp_thandle_put(oth);
+		RETURN(rc);
+	}
 
 	LASSERT(dt_update != LP_POISON);
 	/* If there are no updates, destroy dt_update and thandle */
@@ -755,7 +816,7 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 		GOTO(out, rc);
 	}
 
-	if (is_only_remote_trans(th)) {
+	if (!th->th_sync && is_only_remote_trans(th)) {
 		struct osp_device *osp = dt2osp_dev(th->th_dev);
 		struct client_obd *cli = &osp->opd_obd->u.cli;
 
@@ -780,10 +841,11 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 out:
 	/* If RPC is triggered successfully, dt_update will be freed in
 	 * osp_update_interpreter() */
-	if (rc != 0 && dt_update != NULL && sent == 0)
+	if (rc != 0 && dt_update != NULL && sent == 0) {
 		dt_update_request_destroy(dt_update);
-
-	OBD_FREE_PTR(oth);
+		oth->ot_dur = NULL;
+	}
+	osp_thandle_put(oth);
 
 	RETURN(rc);
 }

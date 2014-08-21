@@ -744,31 +744,10 @@ EXPORT_SYMBOL(tur_update_params_extend);
  * \retval		negative errno if updates recording fails.
  */
 int check_and_prepare_update_record(const struct lu_env *env,
-				    struct thandle *th)
+				    struct thandle_update_records *tur)
 {
-	struct thandle_update_records	*tur;
-	struct top_thandle		*top_th;
-	struct sub_thandle		*lst;
-	int				rc;
-	struct lu_target		*lut;
-	bool				record_update = false;
-	ENTRY;
+	int rc;
 
-	top_th = container_of(th, struct top_thandle, tt_super);
-	/* Check if it needs to record updates for this transaction */
-	list_for_each_entry(lst, &top_th->tt_sub_trans_list, st_list) {
-		if (lst->st_record_update) {
-			record_update = true;
-			break;
-		}
-	}
-	if (!record_update)
-		RETURN(0);
-
-	if (top_th->tt_update_records != NULL)
-		RETURN(0);
-
-	tur = &update_env_info(env)->uti_tur;
 	if (tur->tur_update_records == NULL) {
 		rc = tur_update_records_create(tur);
 		if (rc < 0)
@@ -783,14 +762,6 @@ int check_and_prepare_update_record(const struct lu_env *env,
 
 	tur->tur_update_records->ur_ops.uops_count = 0;
 	tur->tur_update_params->up_params_count = 0;
-	top_th->tt_update_records = tur;
-
-	lut = th->th_dev->dd_lu_dev.ld_site->ls_target;
-
-	spin_lock(&lut->lut_distribution_id_lock);
-	tur->tur_update_records->ur_cookie = lut->lut_distribution_id++;
-	spin_unlock(&lut->lut_distribution_id_lock);
-
 
 	RETURN(0);
 }
