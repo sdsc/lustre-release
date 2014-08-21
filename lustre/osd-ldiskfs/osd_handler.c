@@ -1122,6 +1122,7 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
                 LASSERT(oti->oti_txns == 1);
                 oti->oti_txns--;
+
                 rc = dt_txn_hook_stop(env, th);
                 if (rc != 0)
                         CERROR("Failure in transaction hook: %d\n", rc);

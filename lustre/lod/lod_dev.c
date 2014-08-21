@@ -99,6 +99,9 @@
 
 #include "lod_internal.h"
 
+#define LOD_CANCEL_MASTER_THREAD_NAME	"master"
+#define LOD_CANCEL_SLAVE_THREAD_NAME	"slave"
+
 /**
  * Lookup MDT/OST index \a tgt by FID \a fid.
  *
@@ -158,11 +161,18 @@ extern struct dt_object_operations lod_obj_ops;
 /* Slab for OSD object allocation */
 struct kmem_cache *lod_object_kmem;
 
+/* Slab for dt_txn_callback */
+struct kmem_cache *lod_txn_callback_kmem;
 static struct lu_kmem_descr lod_caches[] = {
 	{
 		.ckd_cache = &lod_object_kmem,
 		.ckd_name  = "lod_obj",
 		.ckd_size  = sizeof(struct lod_object)
+	},
+	{
+		.ckd_cache = &lod_txn_callback_kmem,
+		.ckd_name  = "lod_txn_callback",
+		.ckd_size  = sizeof(struct dt_txn_callback)
 	},
 	{
 		.ckd_cache = NULL
@@ -189,7 +199,7 @@ struct lu_object *lod_object_alloc(const struct lu_env *env,
 	RETURN(lu_obj);
 }
 
-static int lod_cleanup_desc_tgts(const struct lu_env *env,
+static int lod_sub_process_config(const struct lu_env *env,
 				 struct lod_device *lod,
 				 struct lod_tgt_descs *ltd,
 				 struct lustre_cfg *lcfg)
@@ -579,18 +589,25 @@ static int lod_process_config(const struct lu_env *env,
 			rc = 0;
 		GOTO(out, rc);
 	}
-	case LCFG_CLEANUP:
 	case LCFG_PRE_CLEANUP: {
-		lod_sub_fini_all_llogs(env, lod);
-		lu_dev_del_linkage(dev->ld_site, dev);
-		lod_cleanup_desc_tgts(env, lod, &lod->lod_mdt_descs, lcfg);
-		lod_cleanup_desc_tgts(env, lod, &lod->lod_ost_descs, lcfg);
-		if (lcfg->lcfg_command == LCFG_PRE_CLEANUP)
-			break;
+		lod_sub_process_config(env, lod, &lod->lod_mdt_descs, lcfg);
+		lod_sub_process_config(env, lod, &lod->lod_ost_descs, lcfg);
+		next = &lod->lod_child->dd_lu_dev;
+		rc = next->ld_ops->ldo_process_config(env, next, lcfg);
+		if (rc != 0)
+			CDEBUG(D_HA, "%s: can't process %u: %d\n",
+			       lod2obd(lod)->obd_name, lcfg->lcfg_command, rc);
+		break;
+	}
+	case LCFG_CLEANUP: {
 		/*
 		 * do cleanup on underlying storage only when
 		 * all OSPs are cleaned up, as they use that OSD as well
 		 */
+		lod_sub_fini_all_llogs(env, lod);
+		lu_dev_del_linkage(dev->ld_site, dev);
+		lod_sub_process_config(env, lod, &lod->lod_mdt_descs, lcfg);
+		lod_sub_process_config(env, lod, &lod->lod_ost_descs, lcfg);
 		next = &lod->lod_child->dd_lu_dev;
 		rc = next->ld_ops->ldo_process_config(env, next, lcfg);
 		if (rc)
@@ -644,6 +661,477 @@ static int lod_recovery_complete(const struct lu_env *env,
 	RETURN(rc);
 }
 
+static inline int lclt_cancel_thread_running(struct lod_cancel_log_thread *lclt)
+{
+	return lclt->lclt_thread.t_flags & SVC_RUNNING;
+}
+
+static inline int lclt_cancel_thread_stopped(struct lod_cancel_log_thread *lclt)
+{
+	return lclt->lclt_thread.t_flags & SVC_STOPPED;
+}
+
+/**
+ * Cancel the update log on slave MDTs
+ *
+ * Cancel the update log on slave MDTs then destroy the thandle.
+ *
+ * \param[in] env	execution environment
+ * \param[in] top_th	the top thandle whose updates log on slave
+ *                      MDTs will be canceled.
+ *
+ * \retval		0 if cancellation succeeds.
+ * \retval		negative errno if cancellation fails.
+ */
+static int lod_cancel_slave_log(const struct lu_env *env,
+				struct top_thandle *top_th)
+{
+	struct sub_thandle *master_st;
+	struct sub_thandle *st;
+	int rc = 0;
+	ENTRY;
+
+	LASSERT(top_th->tt_magic == TOP_THANDLE_MAGIC);
+	top_thandle_dump(D_HA, top_th);
+	master_st = list_entry(top_th->tt_sub_trans_list.next,
+			       struct sub_thandle, st_list);
+
+	/* Cancel update logs on other MDTs */
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		struct llog_ctxt	*ctxt;
+		struct obd_device	*obd;
+		int			rc1;
+
+		if (st == master_st)
+			continue;
+
+		obd = st->st_dt->dd_lu_dev.ld_obd;
+		ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
+		LASSERT(ctxt);
+
+		LASSERT(st->st_update != NULL);
+
+		rc1 = llog_cat_cancel_records(env, ctxt->loc_handle,
+					1, &st->st_update->stu_cookie, NULL);
+		llog_ctxt_put(ctxt);
+		if (rc1 != 0 && rc1 != -ENOENT)
+			rc = rc1;
+
+		CDEBUG(D_HA, "%s: cancel update log "DOSTID": rc = %d\n",
+		       obd->obd_name,
+		       POSTID(&st->st_update->stu_cookie.lgc_lgl.lgl_oi), rc1);
+	}
+
+	if (rc == 0)
+		top_thandle_put(top_th);
+
+	RETURN(rc);
+}
+
+/**
+ * Add thandle to the cancel thread list
+ *
+ * Add thandle to one the cancel thread list and wakeup the thread to process
+ * it.
+ *
+ * \param[in] lclt	lod_cancel_log_thread to cancel update log.
+ * \param[in] top_th	top_thandle to add to the list.
+ */
+void lod_add_thandle_to_cancel_list(struct lod_cancel_log_thread *lclt,
+				    struct top_thandle *top_th)
+{
+	top_thandle_dump(D_HA, top_th);
+	spin_lock(&lclt->lclt_lock);
+	list_add_tail(&top_th->tt_commit_list, &lclt->lclt_list);
+	spin_unlock(&lclt->lclt_lock);
+	wake_up(&lclt->lclt_waitq);
+}
+
+/**
+ * commit callback of master log cancellation
+ *
+ * Move the transaction from master list to the slave list after master
+ * log cancellation is committed.
+ *
+ * \param[in]th		thandle of master log cancellation
+ * \param[in]cookie	cookie of the callback, which is LOD device.
+ */
+static void lod_cancel_master_log_commit(struct lu_env *env, struct thandle *th,
+					 struct dt_txn_commit_cb *cb, int err)
+{
+	struct top_thandle *master_th;
+	struct lod_device *lod;
+	ENTRY;
+
+	LASSERT(cb->dcb_data != NULL);
+	master_th = (struct top_thandle *)cb->dcb_data;
+	OBD_FREE_PTR(cb);
+	if (th->th_dev->dd_lu_dev.ld_obd->obd_stopping) {
+		top_thandle_put(master_th);
+		RETURN_EXIT;
+	}
+
+
+	top_thandle_dump(D_HA, master_th);
+	lod = dt2lod_dev(master_th->tt_super.th_dev);
+
+	/* Move this transaction to the slave cancel list */
+	lod_add_thandle_to_cancel_list(&lod->lod_cancel_slave_thread,
+				       master_th);
+
+	RETURN_EXIT;
+}
+
+/**
+ * Cancel the master log
+ *
+ * Cancel the update log on the master MDT, after the cancellation
+ * is committed, the transaction will be moved to the slave list.
+ *
+ * \param[in] env	execution environment
+ * \param[in] top_th	the thandle whose master update log will be
+ *                      cancelled
+ *
+ * \retval		0 if cancellation succeeds.
+ * \retval		negative errno if cancellation fails.
+ */
+static int lod_cancel_master_log(const struct lu_env *env,
+				 struct top_thandle *committed_th)
+{
+	struct thandle		*th;
+	struct sub_thandle	*master_st;
+	struct obd_device	*master_obd;
+	struct llog_ctxt	*master_ctxt;
+	struct dt_txn_commit_cb	*master_dcb;
+	struct lod_device	*lod;
+	int			rc;
+	ENTRY;
+
+	/* The first sub thandle will always be master sub thandle */
+	LASSERT(committed_th->tt_magic == TOP_THANDLE_MAGIC);
+	top_thandle_dump(D_HA, committed_th);
+	master_st = list_entry(committed_th->tt_sub_trans_list.next,
+			       struct sub_thandle, st_list);
+
+	LASSERT(master_st != NULL);
+	LASSERT(master_st->st_update != NULL);
+
+	master_obd = master_st->st_dt->dd_lu_dev.ld_obd;
+	master_ctxt = llog_get_context(master_obd,
+				LLOG_UPDATELOG_ORIG_CTXT);
+	LASSERT(master_ctxt != NULL);
+
+	OBD_ALLOC_PTR(master_dcb);
+	if (master_dcb == NULL)
+		GOTO(out_ctxt, rc = -ENOMEM);
+
+	lod = dt2lod_dev(committed_th->tt_super.th_dev);
+
+	th = dt_trans_create(env, lod->lod_child);
+	if (IS_ERR(th))
+		GOTO(out_ctxt, rc = PTR_ERR(th));
+
+	rc = llog_cat_declare_cancel_records(env, master_ctxt->loc_handle, 1,
+					     &master_st->st_update->stu_cookie,
+					     th);
+	if (rc < 0)
+		GOTO(out_trans, rc);
+
+	rc = dt_trans_start_local(env, lod->lod_child, th);
+	if (rc < 0)
+		GOTO(out_trans, rc);
+
+	rc = llog_cat_cancel_records(env, master_ctxt->loc_handle, 1,
+				     &master_st->st_update->stu_cookie, th);
+	if (rc < 0)
+		GOTO(out_trans, rc);
+
+	master_dcb->dcb_func = lod_cancel_master_log_commit;
+	master_dcb->dcb_magic = TRANS_COMMIT_CB_MAGIC;
+	master_dcb->dcb_data = committed_th;
+	INIT_LIST_HEAD(&master_dcb->dcb_linkage);
+	strlcpy(master_dcb->dcb_name, "master_log_commit_cb",
+		sizeof(master_dcb->dcb_name));
+
+	rc = dt_trans_cb_add(th, master_dcb);
+	if (rc != 0)
+		GOTO(out_trans, rc);
+
+out_trans:
+	dt_trans_stop(env, lod->lod_child, th);
+out_ctxt:
+	llog_ctxt_put(master_ctxt);
+	if (rc != 0 && master_dcb != NULL)
+		OBD_FREE_PTR(master_dcb);
+
+	RETURN(rc);
+}
+
+/**
+ * Cancel the update log in the master/slave list
+ *
+ * Walk through the master/slave list and cancel the update log for those
+ * transaction, which are already committed on all of MDTs.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lclt	lod cancel log thread where the list is
+ *
+ * \retval		only return 0 for now.
+ */
+static int lod_cancel_update_logs(const struct lu_env *env,
+				  struct lod_cancel_log_thread *lclt)
+{
+	int	rc = 0;
+	ENTRY;
+
+	do {
+		struct top_thandle *top_th;
+		struct top_thandle *tmp;
+
+		spin_lock(&lclt->lclt_lock);
+		if (list_empty(&lclt->lclt_list)) {
+			spin_unlock(&lclt->lclt_lock);
+			break;
+		}
+		list_for_each_entry_safe(top_th, tmp, &lclt->lclt_list,
+					 tt_commit_list) {
+			list_del(&top_th->tt_commit_list);
+			break;
+		}
+		spin_unlock(&lclt->lclt_lock);
+
+		rc = lclt->lclt_cancel(env, top_th);
+		if (rc < 0) {
+			/* Add it back to the commit list */
+			spin_lock(&lclt->lclt_lock);
+			list_add_tail(&top_th->tt_commit_list,
+				      &lclt->lclt_list);
+			spin_unlock(&lclt->lclt_lock);
+			break;
+		}
+
+		if (!lclt_cancel_thread_running(lclt))
+			break;
+	} while (1);
+
+	RETURN(0);
+}
+
+/**
+ * Check whether the cancel thread ready for processing
+ *
+ * Check whether there is thandle to be listed in lclt_list to
+ * know whether cancel thread needs to be wakeup.
+ *
+ * \param[in] lod	lod device where cancel thread is
+ *
+ * \retval		true if it is ready
+ * \retval		false if it is not ready
+ */
+static bool lod_ready_for_cancel_log(struct lod_cancel_log_thread *lclt)
+{
+	return !list_empty(&lclt->lclt_list);
+}
+
+/**
+ * llog record cancel thread
+ *
+ * Cancel the update llog records in the commit list. After the distributed
+ * transaction is committed, which is checked by lod_sub_update_txn_commit(),
+ * it will be added to the commit list, then this thread will be wakeup,
+ * and cancel the update logs for the transaction.
+ *
+ * \param[in] _arg	argument for cancel thread
+ *
+ * \retval		0 if thread is running successfully
+ * \retval		negative errno if the thread can not be run.
+ */
+static int lod_llog_cancel_thread(void *_arg)
+{
+	struct lod_cancel_log_thread	*lclt = _arg;
+	struct ptlrpc_thread	*thread = &lclt->lclt_thread;
+	struct l_wait_info	 lwi = { 0 };
+	struct lu_env		 env;
+	int			 rc;
+
+	ENTRY;
+
+	rc = lu_env_init(&env, LCT_LOCAL | LCT_MD_THREAD);
+	if (rc != 0)
+		RETURN(rc);
+
+	spin_lock(&lclt->lclt_lock);
+	thread->t_flags = SVC_RUNNING;
+	spin_unlock(&lclt->lclt_lock);
+	wake_up(&thread->t_ctl_waitq);
+
+	do {
+		l_wait_event(lclt->lclt_waitq,
+			     !lclt_cancel_thread_running(lclt) ||
+			     lod_ready_for_cancel_log(lclt), &lwi);
+
+		lod_cancel_update_logs(&env, lclt);
+
+		if (!lclt_cancel_thread_running(lclt))
+			break;
+	} while (1);
+
+	thread->t_flags = SVC_STOPPED;
+	wake_up(&thread->t_ctl_waitq);
+
+	lu_env_fini(&env);
+
+	RETURN(0);
+}
+
+/**
+ * Start llog cancel thread
+ *
+ * Start llog cancel(master/slave) thread on LOD
+ *
+ * \param[in]lclt	cancel log thread to be started.
+ *
+ * \retval		0 if the thread is started successfully.
+ * \retval		negative errno if the thread is not being
+ *                      started.
+ */
+static int lod_start_llog_cancel_thread(struct lod_cancel_log_thread *lclt,
+					const char *name, __u32 index)
+{
+	struct task_struct	*task;
+	struct l_wait_info	 lwi = { 0 };
+	ENTRY;
+
+	spin_lock_init(&lclt->lclt_lock);
+	INIT_LIST_HEAD(&lclt->lclt_list);
+
+	init_waitqueue_head(&lclt->lclt_waitq);
+	init_waitqueue_head(&lclt->lclt_thread.t_ctl_waitq);
+	task = kthread_run(lod_llog_cancel_thread, lclt, "%s-%u", name, index);
+	if (IS_ERR(task))
+		RETURN(PTR_ERR(task));
+
+	l_wait_event(lclt->lclt_thread.t_ctl_waitq,
+		     lclt_cancel_thread_running(lclt) ||
+		     lclt_cancel_thread_stopped(lclt), &lwi);
+	RETURN(0);
+}
+
+/**
+ * Stop llog cancel thread
+ *
+ * Stop llog cancel(master/slave) thread on LOD and also destory
+ * all of transaction in the list.
+ *
+ * \param[in]lclt	cancel log thread to be stopped.
+ */
+static void lod_stop_llog_cancel_thread(struct lod_cancel_log_thread *lclt)
+{
+	struct top_thandle	*top_th;
+	struct top_thandle	*tmp;
+
+	/* Stop cancel thread */
+	lclt->lclt_thread.t_flags = SVC_STOPPING;
+	wake_up(&lclt->lclt_waitq);
+	wait_event(lclt->lclt_thread.t_ctl_waitq,
+		   lclt->lclt_thread.t_flags & SVC_STOPPED);
+
+	/* Destroy transaction in the list */
+	spin_lock(&lclt->lclt_lock);
+	list_for_each_entry_safe(top_th, tmp, &lclt->lclt_list,
+				 tt_commit_list) {
+		list_del(&top_th->tt_commit_list);
+		top_thandle_put(top_th);
+	}
+	spin_unlock(&lclt->lclt_lock);
+}
+
+/**
+ * Finish the update llog
+ *
+ * Stop both master and slave llog cancel thread and release all the
+ * thandles in their list and also finish the update llog in its child OSD.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lod	lod device
+ */
+static void lod_fini_update_llog(const struct lu_env *env,
+				 struct lod_device *lod)
+{
+	lod_stop_llog_cancel_thread(&lod->lod_cancel_master_thread);
+	lod_stop_llog_cancel_thread(&lod->lod_cancel_slave_thread);
+
+	lod_sub_fini_llog(env, lod->lod_child,
+			  &lod->lod_child_recovery_thread);
+}
+
+/**
+ * Init the update llog on LOD
+ *
+ * Initialize the update llog for local OSD, then start the llog cancel
+ * thread which will cancel the update log records for those committed
+ * distributed transaction.
+ *
+ * For distributed transaction, after it is committed,
+ * 1. The transaction is first being put to the master_list, and master
+ * cancel thread will cancel the master (local) log.
+ * 2. After the cancellation is committed to disk, it will be move to the
+ * the slave_list.
+ * 3. slave cancel thread will then cancel the update log on slave MDTs
+ * and destory the transaction.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lod	lod device
+ *
+ * \retval		0 if initialization succeeds.
+ * \retval		negative errno if initialization fails.
+ */
+static int lod_init_update_llog(const struct lu_env *env,
+				struct lod_device *lod)
+{
+	__u32	index;
+	int	rc;
+	ENTRY;
+
+	rc = lodname2mdt_index(lod2obd(lod)->obd_name, &index);
+	if (rc < 0)
+		RETURN(rc);
+
+	/* Init the llog in its own stack */
+	rc = lod_sub_init_llog(env, lod, lod->lod_child);
+	if (rc < 0)
+		RETURN(rc);
+
+	/* Start cancel master log thread */
+	lod->lod_cancel_master_thread.lclt_cancel = lod_cancel_master_log;
+	rc = lod_start_llog_cancel_thread(&lod->lod_cancel_master_thread,
+					  LOD_CANCEL_SLAVE_THREAD_NAME, index);
+	if (rc < 0) {
+		CERROR("%s: cannot start commit check thread: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		GOTO(out_llog, rc);
+
+	}
+
+	/* Start cancel slave log thread */
+	lod->lod_cancel_slave_thread.lclt_cancel = lod_cancel_slave_log;
+	rc = lod_start_llog_cancel_thread(&lod->lod_cancel_slave_thread,
+					  LOD_CANCEL_MASTER_THREAD_NAME, index);
+	if (rc < 0) {
+		CERROR("%s: cannot start commit check thread: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		GOTO(stop_master, rc);
+	}
+
+stop_master:
+	if (rc != 0)
+		lod_stop_llog_cancel_thread(&lod->lod_cancel_master_thread);
+out_llog:
+	if (rc != 0)
+		lod_sub_fini_llog(env, lod->lod_child,
+				  &lod->lod_child_recovery_thread);
+	RETURN(rc);
+}
 
 static const char lod_updates_log_name[] = "update_log";
 static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
@@ -673,16 +1161,20 @@ static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
 	if (IS_ERR(root))
 		RETURN(PTR_ERR(root));
 
+	/* Create update log object */
 	index = lu_site2seq(lod2lu_dev(lod)->ld_site)->ss_node_id;
 	lu_update_log_fid(fid, index);
 
-	/* Create update log object */
 	dto = local_file_find_or_create_with_fid(env, lod->lod_child,
 						 fid, root,
 						 lod_updates_log_name,
 				 S_IFREG | S_IRUGO | S_IWUSR | S_IXUGO);
 	if (IS_ERR(dto))
 		GOTO(out_put, rc = PTR_ERR(dto));
+
+	rc = lod_init_update_llog(env, lod);
+	if (rc != 0)
+		GOTO(out_put, rc);
 
 	/* since stack is not fully set up the local_storage uses own stack
 	 * and we should drop its object from cache */
@@ -744,9 +1236,28 @@ static int lod_trans_cb_add(struct thandle *th,
 	return 0;
 }
 
+static void lod_trans_commit_callback(struct thandle *th, void *arg)
+{
+	struct top_thandle	*top_th = container_of(th, struct top_thandle,
+						       tt_super);
+	struct lod_cancel_log_thread *lclt = arg;
+
+	/* Add thandle to the cancel list */
+	lod_add_thandle_to_cancel_list(lclt, top_th);
+}
+
 static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			  struct thandle *th)
 {
+	struct top_thandle	*top_th = container_of(th, struct top_thandle,
+						       tt_super);
+
+	if (top_th->tt_multiple_node) {
+		LASSERT(top_th->tt_commit_callback == NULL);
+		top_th->tt_commit_callback = lod_trans_commit_callback;
+		top_th->tt_commit_callback_arg =
+				&dt2lod_dev(dt)->lod_cancel_master_thread;
+	}
 	return top_trans_stop(env, dt2lod_dev(dt)->lod_child, th);
 }
 
@@ -954,18 +1465,12 @@ static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 	if (rc)
 		GOTO(out_pools, rc);
 
-	rc = lod_sub_init_llog(env, lod, lod->lod_child);
-	if (rc != 0)
-		GOTO(out_proc, rc);
-
 	spin_lock_init(&lod->lod_desc_lock);
 	spin_lock_init(&lod->lod_connects_lock);
 	lod_tgt_desc_init(&lod->lod_mdt_descs);
 	lod_tgt_desc_init(&lod->lod_ost_descs);
 
 	RETURN(0);
-out_proc:
-	lod_procfs_fini(lod);
 out_pools:
 	lod_pools_fini(lod);
 out_disconnect:
@@ -980,7 +1485,7 @@ static struct lu_device *lod_device_free(const struct lu_env *env,
 	struct lu_device  *next = &lod->lod_child->dd_lu_dev;
 	ENTRY;
 
-	LASSERT(atomic_read(&lu->ld_ref) == 0);
+	LASSERTF(atomic_read(&lu->ld_ref) == 0, "lu is %p\n", lu);
 	dt_device_fini(&lod->lod_dt_dev);
 	OBD_FREE_PTR(lod);
 	RETURN(next);
@@ -1022,7 +1527,7 @@ static struct lu_device *lod_device_fini(const struct lu_env *env,
 
 	lod_procfs_fini(lod);
 
-	lod_sub_fini_llog(env, lod->lod_child, &lod->lod_child_recovery_thread);
+	lod_fini_update_llog(env, lod);
 
 	rc = lod_fini_tgt(env, lod, &lod->lod_ost_descs, true);
 	if (rc)

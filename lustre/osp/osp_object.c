@@ -1113,8 +1113,10 @@ int osp_declare_object_destroy(const struct lu_env *env,
 	/*
 	 * track objects to be destroyed via llog
 	 */
-	rc = osp_sync_declare_add(env, o, MDS_UNLINK64_REC, th);
-
+	if (!th->th_remote_mdt)
+		rc = osp_sync_declare_add(env, o, MDS_UNLINK64_REC, th);
+	else
+		rc = osp_trans_update_request_create(th);
 	RETURN(rc);
 }
 
@@ -1131,7 +1133,27 @@ int osp_object_destroy(const struct lu_env *env, struct dt_object *dt,
 	 * once transaction is committed put proper command on
 	 * the queue going to our OST
 	 */
-	rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL);
+	if (!th->th_remote_mdt) {
+		/* XXX after we support async update, this unlink log
+		 * mechanism can be removed. */
+		rc = osp_sync_add(env, o, MDS_UNLINK64_REC, th, NULL);
+	} else {
+		struct dt_update_request	*update;
+
+		update = thandle_to_dt_update_request(th);
+		LASSERT(update != NULL);
+
+		osp_update_rpc_pack(env, object_destroy, rc, &update->dur_buf,
+				    OUT_DESTROY, lu_object_fid(&dt->do_lu), 0,
+				    NULL, 0);
+		if (rc != 0)
+			RETURN(rc);
+
+		rc = osp_insert_update_callback(env, update, dt2osp_obj(dt),
+						NULL, NULL);
+		if (rc != 0)
+			RETURN(rc);
+	}
 
 	/* not needed in cache any more */
 	set_bit(LU_OBJECT_HEARD_BANSHEE, &dt->do_lu.lo_header->loh_flags);

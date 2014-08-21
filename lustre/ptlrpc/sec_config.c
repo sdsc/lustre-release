@@ -976,7 +976,7 @@ static int sptlrpc_record_rule_set(struct llog_handle *llh,
 		lcr = lustre_cfg_rec_new(LCFG_SPTLRPC_CONF, &bufs);
 		if (lcr == NULL)
 			return -ENOMEM;
-		rc = llog_write(NULL, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX);
+		rc = llog_write(NULL, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX, NULL);
 		lustre_cfg_rec_free(lcr);
 		if (rc)
 			return rc;
