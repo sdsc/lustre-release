@@ -396,6 +396,18 @@ int osp_trans_update_request_create(struct thandle *th)
 	oth->ot_dur = update;
 	return 0;
 }
+
+static void osp_thandle_get(struct osp_thandle *oth)
+{
+	atomic_inc(&oth->ot_refcount);
+}
+
+static void osp_thandle_put(struct osp_thandle *oth)
+{
+	if (atomic_dec_and_test(&oth->ot_refcount))
+		OBD_FREE_PTR(oth);
+}
+
 /**
  * The OSP layer dt_device_operations::dt_trans_create() interface
  * to create a transaction.
@@ -437,11 +449,30 @@ struct thandle *osp_trans_create(const struct lu_env *env, struct dt_device *d)
 	th = &oth->ot_super;
 	th->th_dev = d;
 	th->th_tags = LCT_TX_HANDLE;
+	INIT_LIST_HEAD(&th->th_callbacks_list);
 
+	atomic_set(&oth->ot_refcount, 1);
 	if (osp->opd_connect_mdt)
 		th->th_remote_mdt = 1;
 
 	RETURN(th);
+}
+
+static void osp_request_commit_cb(struct ptlrpc_request *req)
+{
+	struct thandle *th = req->rq_cb_data;
+	struct osp_thandle *oth = thandle_to_osp_thandle(th);
+	ENTRY;
+
+	/* Interesting, commit callback arrives before stop callback */
+	if (th->th_transno == 0) {
+		DEBUG_REQ(D_HA, req, "arrive before stop callback.\n");
+		th->th_transno = req->rq_transno;
+	}
+
+	txn_hook_commit(th);
+	osp_thandle_put(oth);
+	EXIT;
 }
 
 /**
@@ -483,7 +514,17 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 	if (!th->th_remote_mdt) {
 		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	} else {
+		struct osp_thandle *oth = thandle_to_osp_thandle(th);
+
+		req->rq_commit_cb = osp_request_commit_cb;
+		req->rq_cb_data = th;
+		osp_thandle_get(oth); /* for commit callback */
 		rc = ptlrpc_queue_wait(req);
+		if (rc != 0 || req->rq_transno == 0)
+			osp_thandle_put(oth);
+		else
+			oth->ot_dur = NULL;
+		th->th_transno = req->rq_transno;
 		dt_update->dur_rc = rc;
 		ptlrpc_req_finished(req);
 	}
@@ -509,12 +550,6 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 int osp_trans_start(const struct lu_env *env, struct dt_device *dt,
 		    struct thandle *th)
 {
-	struct osp_thandle	 *oth = thandle_to_osp_thandle(th);
-
-	/* No update requests from this OSP */
-	if (oth->ot_dur == NULL)
-		return 0;
-
 	return 0;
 }
 
@@ -546,8 +581,11 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	ENTRY;
 
 	dt_update = oth->ot_dur;
-	if (dt_update == NULL)
-		GOTO(out, rc);
+	if (dt_update == NULL || th->th_result != 0) {
+		rc = th->th_result;
+		osp_thandle_put(oth);
+		RETURN(rc);
+	}
 
 	LASSERT(dt_update != LP_POISON);
 	/* If there are no updates, destroy dt_update and thandle */
@@ -577,6 +615,8 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 				       dt_update, th, true);
 		if (rc != 0)
 			obd_put_request_slot(cli);
+
+		txn_hook_stop(env, th);
 	} else {
 		rc = osp_trans_trigger(env, dt2osp_dev(dt), dt_update,
 				       th, false);
@@ -586,10 +626,11 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 out:
 	/* If RPC is triggered successfully, dt_update will be freed in
 	 * osp_update_interpreter() */
-	if (rc != 0 && dt_update != NULL)
+	if (rc != 0 && dt_update != NULL) {
 		dt_update_request_destroy(dt_update);
-
-	OBD_FREE_PTR(oth);
+		oth->ot_dur = NULL;
+	}
+	osp_thandle_put(oth);
 
 	RETURN(rc);
 }

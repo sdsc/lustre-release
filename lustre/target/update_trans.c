@@ -63,17 +63,17 @@
  *
  * \param[in] env	execution environment
  * \param[in] records	update records being written
- * \param[in] lst	sub transaction handle
+ * \param[in] st	sub transaction handle
  *
  * \retval		0 if writing succeeds
  * \retval		negative errno if writing fails
  */
 static int sub_declare_updates_write(const struct lu_env *env,
 				     struct update_records *records,
-				     struct sub_thandle *lst)
+				     struct thandle *sub_th)
 {
 	struct llog_ctxt	*ctxt;
-	struct dt_device	*dt = lst->st_sub_th->th_dev;
+	struct dt_device	*dt = sub_th->th_dev;
 	int rc;
 
 	/* If ctxt is NULL, it means not need to write update,
@@ -90,7 +90,7 @@ static int sub_declare_updates_write(const struct lu_env *env,
 
 	records->ur_hdr.lrh_len = LLOG_CHUNK_SIZE;
 	rc = llog_declare_add(env, ctxt->loc_handle, &records->ur_hdr,
-			      lst->st_sub_th);
+			      sub_th);
 
 	llog_ctxt_put(ctxt);
 
@@ -105,18 +105,23 @@ static int sub_declare_updates_write(const struct lu_env *env,
  *
  * \param[in] env	execution environment
  * \param[in] records	update records being written
- * \param[in] lst	sub transaction handle
+ * \param[in] st	sub transaction handle
  *
  * \retval		0 if writing succeeds
  * \retval		negative errno if writing fails
  */
-static int sub_updates_write(const struct lu_env *env,
-			     struct update_records *records,
-			     struct sub_thandle *lst)
+int sub_updates_write(const struct lu_env *env,
+		      struct update_records *records,
+		      struct sub_thandle *st)
 {
+	struct sub_thandle_update *stu;
 	struct llog_ctxt	*ctxt;
-	struct dt_device	*dt = lst->st_sub_th->th_dev;
+	struct dt_device	*dt = st->st_dt;
 	int			rc;
+	ENTRY;
+
+	LASSERT(st->st_update != NULL);
+	stu = st->st_update;
 
 	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
@@ -126,15 +131,70 @@ static int sub_updates_write(const struct lu_env *env,
 	 * in error handler path */
 	if (ctxt->loc_handle == NULL) {
 		llog_ctxt_put(ctxt);
-		return 0;
+		RETURN(0);
 	}
 
 	rc = llog_add(env, ctxt->loc_handle, &records->ur_hdr,
-		      NULL, lst->st_sub_th);
-
+		      &stu->stu_cookie, st->st_sub_th);
 	llog_ctxt_put(ctxt);
 
-	return rc;
+	RETURN(rc);
+}
+
+/**
+ * Prepare the update records.
+ *
+ * Merge params and ops into the update records, then initializing
+ * the update buffer.
+ *
+ * During transaction execution phase, parameters and update ops
+ * are collected in two different buffers (see lod_updates_pack()),
+ * during transaction stop, it needs to be merged in one buffer,
+ * so it will be written in the update log.
+ *
+ * \param[in] env	execution environment
+ * \param[in] lur	lod_update_records to be merged
+ *
+ * \retval		0 if merging succeeds.
+ * \retval		negaitive errno if merging fails.
+ */
+static int prepare_writing_updates(const struct lu_env *env,
+				   struct thandle_update_records *tur)
+{
+	struct update_params *params;
+	size_t params_size;
+	size_t ops_size;
+
+	if (tur->tur_update_records == NULL ||
+	    tur->tur_update_params == NULL)
+		return 0;
+
+	/* Extends the update records buffer if needed */
+	params_size = update_params_size(tur->tur_update_params);
+	ops_size = update_ops_size(&tur->tur_update_records->ur_ops);
+	if (sizeof(struct update_records) + ops_size + params_size >=
+	    tur->tur_update_records_size) {
+		int rc;
+
+		rc = tur_update_records_extend(tur,
+					sizeof(struct update_records) +
+					ops_size + params_size);
+		if (rc != 0)
+			return rc;
+	}
+
+	params = update_records_get_params(tur->tur_update_records);
+	memcpy(params, tur->tur_update_params, params_size);
+
+	/* Init update record header */
+	tur->tur_update_records->ur_hdr.lrh_len =
+		cfs_size_round(update_records_size(tur->tur_update_records));
+	tur->tur_update_records->ur_hdr.lrh_type = UPDATE_REC;
+
+	/* Dump updates for debugging purpose */
+	update_records_dump(tur->tur_update_records, D_HA);
+
+	return 0;
 }
 
 /**
@@ -153,39 +213,56 @@ static int updates_write(const struct lu_env *env, struct thandle *th)
 {
 	struct top_thandle	*top_th = container_of(th, struct top_thandle,
 						       tt_super);
-	struct thandle_update_records *tur;
-	struct sub_thandle	*lst;
+	struct thandle_update_records	*tur = top_th->tt_update_records;
+	struct sub_thandle	*st;
 	struct sub_thandle	*tmp;
 	int			rc;
 
-	if (top_th->tt_update_records == NULL)
-		return 0;
-
 	/* merge the parameters and updates into one buffer */
-	rc = merge_params_updates_buf(env, th);
+	rc = prepare_writing_updates(env, tur);
 	if (rc < 0)
-		return rc;
+		RETURN(rc);
 
-	tur = top_th->tt_update_records;
-
-	/* Dump updates to debug log */
-	update_records_dump(tur->tur_update_records, D_HA);
-
-	/* Init update record header */
-	tur->tur_update_records->ur_hdr.lrh_len =
-		cfs_size_round(update_records_size(tur->tur_update_records));
-	tur->tur_update_records->ur_hdr.lrh_type = UPDATE_REC;
-
-	list_for_each_entry_safe(lst, tmp, &top_th->tt_sub_trans_list,
+	list_for_each_entry_safe(st, tmp, &top_th->tt_sub_trans_list,
 								st_list) {
-		if (!lst->st_record_update)
+		if (st->st_update == NULL)
 			continue;
-		rc = sub_updates_write(env, tur->tur_update_records, lst);
+
+		rc = sub_updates_write(env, tur->tur_update_records, st);
 		if (rc != 0)
 			break;
 	}
 
 	return rc;
+}
+
+static struct sub_thandle
+*create_sub_thandle(const struct lu_env *env, struct top_thandle *top_th,
+		    struct thandle *sub_th)
+{
+	struct sub_thandle *st;
+	ENTRY;
+
+	OBD_ALLOC_PTR(st);
+	if (st == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
+
+	INIT_LIST_HEAD(&st->st_list);
+	st->st_sub_th = sub_th;
+	st->st_dt = sub_th->th_dev;
+	list_add(&st->st_list, &top_th->tt_sub_trans_list);
+
+	if (sub_th->th_remote_mdt) {
+		/* If it is for remote MDT operation, then allocate the
+		 * update structure for cross-MDT operation. */
+		OBD_ALLOC_PTR(st->st_update);
+		if (st->st_update == NULL) {
+			OBD_FREE_PTR(st);
+			RETURN(ERR_PTR(-ENOMEM));
+		}
+	}
+
+	RETURN(st);
 }
 
 /**
@@ -223,6 +300,7 @@ top_trans_create(const struct lu_env *env, struct dt_device *master_dev)
 	child_th->th_top = &top_th->tt_super;
 	top_th->tt_update_records = NULL;
 	INIT_LIST_HEAD(&top_th->tt_sub_trans_list);
+	INIT_LIST_HEAD(&top_th->tt_commit_list);
 
 	parent_th = &top_th->tt_super;
 
@@ -232,6 +310,100 @@ top_trans_create(const struct lu_env *env, struct dt_device *master_dev)
 	return parent_th;
 }
 EXPORT_SYMBOL(top_trans_create);
+
+/**
+ * write update transaction
+ *
+ * Check if there are updates being recorded in this transaction,
+ * it will write the record into the disk.
+ *
+ * \param[in] env	execution environment
+ * \param[in] top_th	top transaction handle
+ *
+ * \retval		0 if writing succeeds
+ * \retval		negative errno if writing fails
+ */
+static int declare_updates_write(const struct lu_env *env,
+				 struct top_thandle *top_th)
+{
+	struct update_records *records;
+	struct sub_thandle *st;
+	int rc;
+
+	LASSERT(top_th->tt_update_records != NULL);
+	records = top_th->tt_update_records->tur_update_records;
+
+	/* Declare update write for all other target */
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+
+		if (st->st_update == NULL)
+			continue;
+
+		rc = sub_declare_updates_write(env, records, st->st_sub_th);
+		if (rc < 0)
+			break;
+	}
+
+	return rc;
+}
+
+/**
+ * Prepare cross-MDT operation.
+ *
+ * Create the update record buffer to record updates for cross-MDT operation,
+ * add master sub transaction to tt_sub_trans_list, and declare the update
+ * writes.
+ *
+ * During updates packing, all of parameters will be packed in
+ * tur_update_params, and updates will be packed in tur_update_records.
+ * Then in transaction stop, parameters and updates will be merged
+ * into one updates buffer.
+ *
+ * And also master thandle will be added to the sub_th list, so it will be
+ * easy to track the commit status.
+ *
+ * \param[in] env	execution environment
+ * \param[in] th	top transaction handle
+ *
+ * \retval		0 if preparation succeeds.
+ * \retval		negative errno if preparation fails.
+ */
+static int prepare_mulitple_node_trans(const struct lu_env *env,
+				       struct thandle *th)
+{
+	struct top_thandle	*top_th = container_of(th, struct top_thandle,
+						       tt_super);
+	struct thandle_update_records	*tur;
+	struct sub_thandle		*master_st;
+	struct lu_target		*lut;
+	int				rc;
+	ENTRY;
+
+	/* Prepare the update buffer for recording updates */
+	if (top_th->tt_update_records != NULL)
+		RETURN(0);
+
+	tur = &update_env_info(env)->uti_tur;
+	rc = check_and_prepare_update_record(env, tur);
+	top_th->tt_update_records = tur;
+
+	/* Get distribution ID for this distributed operation */
+	lut = th->th_dev->dd_lu_dev.ld_site->ls_target;
+	spin_lock(&lut->lut_distribution_id_lock);
+	tur->tur_update_records->ur_cookie = lut->lut_distribution_id++;
+	spin_unlock(&lut->lut_distribution_id_lock);
+
+	/* we need to add the master sub transaction to the start
+	 * of the list, so it will be executed first during trans start
+	 * and trans stop */
+	master_st = create_sub_thandle(env, top_th, top_th->tt_child);
+	if (IS_ERR(master_st))
+		RETURN(PTR_ERR(master_st));
+
+	rc = declare_updates_write(env, top_th);
+
+	RETURN(rc);
+}
 
 /**
  * start the top transaction.
@@ -250,31 +422,22 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 {
 	struct top_thandle	*top_th = container_of(th, struct top_thandle,
 						       tt_super);
-	struct sub_thandle	*lst;
+	struct sub_thandle	*st;
 	int			rc;
 
-	rc = check_and_prepare_update_record(env, th);
-	if (rc < 0)
-		return rc;
-
-	/* Check if needs to write updates */
-	list_for_each_entry(lst, &top_th->tt_sub_trans_list, st_list) {
-		struct update_records *records;
-
-		if (!lst->st_record_update)
-			continue;
-
-		records = top_th->tt_update_records->tur_update_records;
-		rc = sub_declare_updates_write(env, records, lst);
-		if (rc != 0)
-			return rc;
+	/* Walk through all of sub transaction to see if it needs to
+	 * record updates for this transaction */
+	if (top_th->tt_multiple_node) {
+		rc = prepare_mulitple_node_trans(env, th);
+		if (rc < 0)
+			RETURN(rc);
 	}
 
-	list_for_each_entry(lst, &top_th->tt_sub_trans_list, st_list) {
-		lst->st_sub_th->th_sync = th->th_sync;
-		lst->st_sub_th->th_local = th->th_local;
-		rc = dt_trans_start(env, lst->st_sub_th->th_dev,
-				    lst->st_sub_th);
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		st->st_sub_th->th_sync = th->th_sync;
+		st->st_sub_th->th_local = th->th_local;
+		rc = dt_trans_start(env, st->st_sub_th->th_dev,
+				    st->st_sub_th);
 		if (rc != 0)
 			return rc;
 	}
@@ -304,7 +467,7 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 {
 	struct top_thandle	*top_th = container_of(th, struct top_thandle,
 						       tt_super);
-	struct sub_thandle	*lst;
+	struct sub_thandle	*st;
 	struct sub_thandle	*tmp;
 	int			rc2 = 0;
 	int			rc;
@@ -326,19 +489,18 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 	top_th->tt_child->th_sync = th->th_sync;
 	rc = dt_trans_stop(env, master_dev, top_th->tt_child);
 
-	list_for_each_entry_safe(lst, tmp, &top_th->tt_sub_trans_list,
-								st_list) {
+	list_for_each_entry_safe(st, tmp, &top_th->tt_sub_trans_list, st_list) {
 		if (rc != 0)
-			lst->st_sub_th->th_result = rc;
+			st->st_sub_th->th_result = rc;
 		else
-			lst->st_sub_th->th_result = rc2;
+			st->st_sub_th->th_result = rc2;
 
-		lst->st_sub_th->th_sync = th->th_sync;
-		lst->st_sub_th->th_local = th->th_local;
-		rc2 = dt_trans_stop(env, lst->st_sub_th->th_dev,
-				    lst->st_sub_th);
-		list_del(&lst->st_list);
-		OBD_FREE_PTR(lst);
+		st->st_sub_th->th_sync = th->th_sync;
+		st->st_sub_th->th_local = th->th_local;
+		rc2 = dt_trans_stop(env, st->st_sub_th->th_dev,
+				    st->st_sub_th);
+		list_del(&st->st_list);
+		OBD_FREE_PTR(st);
 		if (unlikely(rc2 != 0 && rc == 0))
 			rc = rc2;
 	}
@@ -365,7 +527,7 @@ struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
 				const struct dt_object *sub_obj)
 {
 	struct dt_device	*sub_dt = lu2dt_dev(sub_obj->do_lu.lo_dev);
-	struct sub_thandle	*lst;
+	struct sub_thandle	*st;
 	struct top_thandle	*top_th = container_of(th, struct top_thandle,
 						       tt_super);
 	struct thandle		*sub_th;
@@ -377,9 +539,9 @@ struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
 
 	/* Find or create the transaction in tt_trans_list, since there is
 	 * always only one thread access the list, so no need lock here */
-	list_for_each_entry(lst, &top_th->tt_sub_trans_list, st_list) {
-		if (lst->st_sub_th->th_dev == sub_dt)
-			RETURN(lst->st_sub_th);
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		if (st->st_sub_th->th_dev == sub_dt)
+			RETURN(st->st_sub_th);
 	}
 
 	sub_th = dt_trans_create(env, sub_dt);
@@ -391,21 +553,43 @@ struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
 	if (sub_th == NULL)
 		RETURN(th);
 
-	sub_th->th_top = &top_th->tt_super;
-	OBD_ALLOC_PTR(lst);
-	if (lst == NULL) {
+	st = create_sub_thandle(env, top_th, sub_th);
+	if (IS_ERR(st)) {
 		dt_trans_stop(env, sub_dt, sub_th);
-		RETURN(ERR_PTR(-ENOMEM));
+		RETURN(ERR_CAST(st));
 	}
 
-	INIT_LIST_HEAD(&lst->st_list);
-	lst->st_sub_th = sub_th;
-	list_add(&lst->st_list, &top_th->tt_sub_trans_list);
 	if (sub_th->th_remote_mdt)
-		lst->st_record_update = 1;
+		top_th->tt_multiple_node = 1;
 
 	sub_th->th_storage_th = top_th->tt_child;
 
 	RETURN(sub_th);
 }
 EXPORT_SYMBOL(get_sub_thandle);
+
+/**
+ * Destroy top thandle
+ *
+ * Destory all of sub_thandle and top thandle.
+ *
+ * \param [in] top_th	top thandle to be destoryed.
+ */
+void top_thandle_destroy(struct top_thandle *top_th)
+{
+	struct sub_thandle *st;
+	struct sub_thandle *tmp;
+
+	list_for_each_entry_safe(st, tmp, &top_th->tt_sub_trans_list,
+				 st_list) {
+		list_del(&st->st_list);
+		if (st->st_update != NULL)
+			OBD_FREE_PTR(st->st_update);
+		OBD_FREE_PTR(st);
+	}
+
+	OBD_FREE_PTR(top_th);
+	return;
+}
+EXPORT_SYMBOL(top_thandle_destroy);
+

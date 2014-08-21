@@ -1884,6 +1884,8 @@ struct thandle {
 	 * this value is used in recovery */
 	__s32             th_result;
 
+	__u64		   th_transno;
+	struct list_head   th_callbacks_list;
 	/** whether we need sync commit */
 	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
@@ -1924,6 +1926,12 @@ int dt_txn_hook_stop(const struct lu_env *env, struct thandle *txn);
 void dt_txn_hook_commit(struct thandle *txn);
 
 int dt_try_as_dir(const struct lu_env *env, struct dt_object *obj);
+
+
+void txn_callback_add(struct thandle *th, struct dt_txn_callback *cb);
+void txn_callback_del(struct thandle *th, struct dt_txn_callback *cb);
+int txn_hook_stop(const struct lu_env *env, struct thandle *txn);
+void txn_hook_commit(struct thandle *txn);
 
 /**
  * Callback function used for parsing path.
