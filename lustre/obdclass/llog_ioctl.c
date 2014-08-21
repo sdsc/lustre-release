@@ -256,12 +256,12 @@ static int llog_remove_log(const struct lu_env *env, struct llog_handle *cat,
 		RETURN(-ENOENT);
 	}
 
-	rc = llog_destroy(env, log);
+	rc = llog_destroy(env, log, NULL);
 	if (rc) {
 		CDEBUG(D_IOCTL, "cannot destroy log\n");
 		GOTO(out, rc);
 	}
-	llog_cat_cleanup(env, cat, log, log->u.phd.phd_cookie.lgc_index);
+	llog_cat_cleanup(env, cat, log, log->u.phd.phd_cookie.lgc_index, NULL);
 out:
 	llog_handle_put(log);
 	RETURN(rc);
@@ -369,7 +369,8 @@ int llog_ioctl(const struct lu_env *env, struct llog_ctxt *ctxt, int cmd,
 			GOTO(out_close, rc = -EINVAL);
 
 		if (handle->lgh_hdr->llh_flags & LLOG_F_IS_PLAIN) {
-			rc = llog_cancel_rec(env, handle, cookie.lgc_index);
+			rc = llog_cancel_rec(env, handle, cookie.lgc_index,
+					     NULL);
 			GOTO(out_close, rc);
 		} else if (!(handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT)) {
 			GOTO(out_close, rc = -EINVAL);
@@ -382,7 +383,7 @@ int llog_ioctl(const struct lu_env *env, struct llog_ctxt *ctxt, int cmd,
 		if (rc)
 			GOTO(out_close, rc);
 		cookie.lgc_lgl = plain;
-		rc = llog_cat_cancel_records(env, handle, 1, &cookie);
+		rc = llog_cat_cancel_records(env, handle, 1, &cookie, NULL);
 		if (rc)
 			GOTO(out_close, rc);
 		break;
@@ -391,7 +392,7 @@ int llog_ioctl(const struct lu_env *env, struct llog_ctxt *ctxt, int cmd,
 		struct llog_logid plain;
 
 		if (handle->lgh_hdr->llh_flags & LLOG_F_IS_PLAIN) {
-			rc = llog_destroy(env, handle);
+			rc = llog_destroy(env, handle, NULL);
 			GOTO(out_close, rc);
 		} else if (!(handle->lgh_hdr->llh_flags & LLOG_F_IS_CAT)) {
 			GOTO(out_close, rc = -EINVAL);

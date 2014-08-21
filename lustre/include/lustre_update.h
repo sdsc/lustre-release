@@ -452,7 +452,7 @@ int tur_update_records_extend(struct thandle_update_records *tur,
 int tur_update_params_extend(struct thandle_update_records *tur,
 			     size_t new_size);
 int check_and_prepare_update_record(const struct lu_env *env,
-				    struct thandle *th);
+				    struct thandle_update_records *tur);
 int merge_params_updates_buf(const struct lu_env *env, struct thandle *th);
 
 struct update_thread_info {

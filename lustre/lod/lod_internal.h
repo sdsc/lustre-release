@@ -150,6 +150,15 @@ struct lod_tgt_descs {
 	struct rw_semaphore	ltd_rw_sem;
 };
 
+struct lod_cancel_log_thread {
+	struct ptlrpc_thread	lclt_thread;
+	wait_queue_head_t	lclt_waitq;
+	spinlock_t		lclt_lock;
+	struct list_head	lclt_list;
+	int (*lclt_cancel)(const struct lu_env *env,
+			   struct top_thandle *top_th);
+};
+
 struct lod_device {
 	struct dt_device      lod_dt_dev;
 	struct obd_export    *lod_child_exp;
@@ -175,6 +184,14 @@ struct lod_device {
 
 	/* Recovery thread for lod_child */
 	struct ptlrpc_thread	lod_child_recovery_thread;
+
+	/* Threads to cancel master and slave update logs.*/
+	struct lod_cancel_log_thread	lod_cancel_master_thread;
+	struct lod_cancel_log_thread	lod_cancel_slave_thread;
+
+	/* commit callback being called after master log cancellation
+	 * is committed */
+	struct dt_txn_callback	lod_cancel_master_commit_cb;
 
 	/* maximum EA size underlied OSD may have */
 	unsigned int	      lod_osd_max_easize;
@@ -389,6 +406,9 @@ int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
 		      struct dt_device *dt);
 void lod_sub_fini_llog(const struct lu_env *env,
 		       struct dt_device *dt, struct ptlrpc_thread *thread);
+int lodname2mdt_index(char *lodname, __u32 *mdt_index);
+void lod_add_thandle_to_cancel_list(struct lod_cancel_log_thread *lclt,
+				    struct top_thandle *top_th);
 /* lod_lov.c */
 void lod_getref(struct lod_tgt_descs *ltd);
 void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd);
@@ -570,4 +590,6 @@ int lod_sub_object_punch(const struct lu_env *env, struct dt_object *dt,
 
 int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 		      struct dt_device *dt);
+void lod_sub_update_txn_commit(struct thandle *th, void *arg);
+
 #endif
