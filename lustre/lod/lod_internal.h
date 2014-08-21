@@ -172,6 +172,14 @@ struct lod_device {
 	/* Description of MDT */
 	struct lod_tgt_descs  lod_mdt_descs;
 
+	/* Manage transaction commit status */
+	struct ptlrpc_thread  lod_commit_track_thread;
+	wait_queue_head_t     lod_commit_track_waitq;
+	spinlock_t	      lod_commit_lock;
+
+	/* Committed transaction list */
+	struct list_head      lod_commit_list;
+
 	/* maximum EA size underlied OSD may have */
 	unsigned int	      lod_osd_max_easize;
 
@@ -277,6 +285,21 @@ struct lod_update_records {
 	size_t			lur_update_params_size;
 };
 
+struct lod_sub_thandle_update {
+	struct llog_cookie	lstu_cookie;
+	struct dt_txn_callback	lstu_txn_cb;
+	__u64			lstu_transno;
+	__u32			lstu_committed:1;
+};
+
+struct lod_sub_thandle {
+	struct thandle		*lst_child;
+	struct dt_device	*lst_dt;
+	struct list_head	lst_list;
+	struct lod_sub_thandle_update *lst_update;
+};
+
+#define LOD_THANDLE_MAGIC	0x20140820
 struct lod_thandle {
 	struct thandle		lt_super;
 
@@ -286,7 +309,14 @@ struct lod_thandle {
 	/* Other sub transactions will be listed here */
 	struct list_head	lt_sub_trans_list;
 
+	/* All of uncommitted transaction will be listed together */
+	struct list_head	lt_commit_list;
+
+	/* Track the commit status for all updates of this transaction */
 	struct lod_update_records *lt_update_records;
+	__u32			lt_magic;
+	__u32			lt_committed:1,
+				lt_multiple_node:1;
 };
 
 struct lod_thread_info {
@@ -313,12 +343,6 @@ struct lod_thread_info {
 };
 
 extern const struct lu_device_operations lod_lu_ops;
-
-struct lod_sub_thandle {
-	struct thandle		*lst_child;
-	struct list_head	lst_list;
-	int			lst_record_update:1;
-};
 
 static inline int lu_device_is_lod(struct lu_device *d)
 {
@@ -415,13 +439,12 @@ struct thandle *lod_get_sub_trans(const struct lu_env *env,
 				  const struct dt_object *child_obj);
 int lod_check_and_prepare_update_record(const struct lu_env *env,
 					struct thandle *th);
-int lod_create_update_records(struct lod_update_records *lur);
 int lod_extend_update_records(struct lod_update_records *lur, size_t new_size);
-int lod_create_update_params(struct lod_update_records *lur);
 int lod_extend_update_params(struct lod_update_records *lur, size_t new_size);
 
 int lod_sub_init_llog(const struct lu_env *env, struct dt_device *dt);
 void lod_sub_fini_llog(const struct lu_env *env, struct dt_device *dt);
+int lodname2mdt_index(char *lodname, __u32 *mdt_index);
 /* lod_lov.c */
 void lod_getref(struct lod_tgt_descs *ltd);
 void lod_putref(struct lod_device *lod, struct lod_tgt_descs *ltd);
@@ -599,10 +622,14 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 int lod_sub_declare_updates_write(const struct lu_env *env,
 				  struct lod_device *lod,
 				  struct update_records *records,
-				  struct lod_sub_thandle *lst);
+				  struct thandle *th);
 int lod_sub_updates_write(const struct lu_env *env,
 			  struct update_records *records,
+			  struct lod_thandle *lth,
 			  struct lod_sub_thandle *lst);
+struct lod_sub_thandle*
+lod_sub_create_trans(const struct lu_env *env, struct lod_thandle *lth,
+		     struct thandle *child_th);
 
 #define UPDATE_RECORDS_BUFFER_SIZE	8192
 #define UPDATE_PARAMS_BUFFER_SIZE	8192

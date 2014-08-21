@@ -911,6 +911,7 @@ static void osd_trans_commit_cb(struct super_block *sb,
 
         dt_txn_hook_commit(th);
 
+	txn_hook_commit(th);
 	/* call per-transaction callbacks if any */
 	list_for_each_entry_safe(dcb, tmp, &oh->ot_dcb_list, dcb_linkage) {
 		LASSERTF(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC,
@@ -950,6 +951,7 @@ static struct thandle *osd_trans_create(const struct lu_env *env,
 		th->th_dev = d;
 		th->th_result = 0;
 		th->th_tags = LCT_TX_HANDLE;
+		INIT_LIST_HEAD(&th->th_callbacks_list);
 		oh->ot_credits = 0;
 		oti->oti_dev = osd_dt_dev(d);
 		INIT_LIST_HEAD(&oh->ot_dcb_list);
@@ -1119,6 +1121,12 @@ static int osd_trans_stop(const struct lu_env *env, struct dt_device *dt,
 
                 LASSERT(oti->oti_txns == 1);
                 oti->oti_txns--;
+
+		rc = txn_hook_stop(env, th);
+		if (rc != 0)
+			CERROR("%s: Failure in tran stop hook: rc = %d\n",
+			       dt->dd_lu_dev.ld_obd->obd_name, rc);
+
                 rc = dt_txn_hook_stop(env, th);
                 if (rc != 0)
                         CERROR("Failure in transaction hook: %d\n", rc);

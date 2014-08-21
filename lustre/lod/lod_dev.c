@@ -192,7 +192,7 @@ struct lu_object *lod_object_alloc(const struct lu_env *env,
 	RETURN(lu_obj);
 }
 
-static int lod_cleanup_desc_tgts(const struct lu_env *env,
+static int lod_sub_process_config(const struct lu_env *env,
 				 struct lod_device *lod,
 				 struct lod_tgt_descs *ltd,
 				 struct lustre_cfg *lcfg)
@@ -278,8 +278,42 @@ void lod_sub_fini_all_llogs(const struct lu_env *env, struct lod_device *lod)
 	mutex_unlock(&ltd->ltd_mutex);
 }
 
-static int lodname2mdt_index(char *lodname, long *index)
+static void lod_thandle_destroy(struct lod_thandle *lth)
 {
+	struct lod_sub_thandle *lst;
+	struct lod_sub_thandle *tmp;
+
+	list_for_each_entry_safe(lst, tmp, &lth->lt_sub_trans_list, lst_list) {
+		list_del(&lst->lst_list);
+		if (lst->lst_update != NULL)
+			OBD_FREE_PTR(lst->lst_update);
+		OBD_FREE_PTR(lst);
+	}
+
+	OBD_FREE_PTR(lth);
+	return;
+}
+
+static void lod_cleanup_commit_trans_track(const struct lu_env *env,
+					   struct lod_device *lod)
+{
+	struct lod_thandle *lth;
+	struct lod_thandle *tmp;
+
+	spin_lock(&lod->lod_commit_lock);
+	list_for_each_entry_safe(lth, tmp, &lod->lod_commit_list,
+				 lt_commit_list) {
+		list_del(&lth->lt_commit_list);
+		lod_thandle_destroy(lth);
+	}
+	spin_unlock(&lod->lod_commit_lock);
+
+	return;
+}
+
+int lodname2mdt_index(char *lodname, __u32 *mdt_index)
+{
+	unsigned long index;
 	char *ptr, *tmp;
 
 	/* The lodname suppose to be fsname-MDTxxxx-mdtlov */
@@ -304,11 +338,12 @@ static int lodname2mdt_index(char *lodname, long *index)
 		return -EINVAL;
 	}
 
-	*index = simple_strtol(ptr - 4, &tmp, 16);
-	if (*tmp != '-' || *index > INT_MAX || *index < 0) {
+	index = simple_strtol(ptr - 4, &tmp, 16);
+	if (*tmp != '-' || index > INT_MAX || index < 0) {
 		CERROR("invalid MDT index in '%s'\n", lodname);
 		return -EINVAL;
 	}
+	*mdt_index = index;
 	return 0;
 }
 
@@ -370,13 +405,11 @@ static int lod_process_config(const struct lu_env *env,
 			if (mdt == NULL) {
 				mdt_index = 0;
 			} else {
-				long long_index;
 				rc = lodname2mdt_index(
 					lustre_cfg_string(lcfg, 0),
-					&long_index);
+					&mdt_index);
 				if (rc != 0)
 					GOTO(out, rc);
-				mdt_index = long_index;
 			}
 			rc = lod_add_device(env, lod, arg1, index, gen,
 					    mdt_index, LUSTRE_OSC_NAME, 1);
@@ -407,18 +440,25 @@ static int lod_process_config(const struct lu_env *env,
 			rc = 0;
 		GOTO(out, rc);
 	}
-	case LCFG_CLEANUP:
 	case LCFG_PRE_CLEANUP: {
-		lod_sub_fini_all_llogs(env, lod);
-		lu_dev_del_linkage(dev->ld_site, dev);
-		lod_cleanup_desc_tgts(env, lod, &lod->lod_mdt_descs, lcfg);
-		lod_cleanup_desc_tgts(env, lod, &lod->lod_ost_descs, lcfg);
-		if (lcfg->lcfg_command == LCFG_PRE_CLEANUP)
-			break;
+		lod_sub_process_config(env, lod, &lod->lod_mdt_descs, lcfg);
+		lod_sub_process_config(env, lod, &lod->lod_ost_descs, lcfg);
+		next = &lod->lod_child->dd_lu_dev;
+		rc = next->ld_ops->ldo_process_config(env, next, lcfg);
+		if (rc != 0)
+			CDEBUG(D_HA, "%s: can't process %u: %d\n",
+			       lod2obd(lod)->obd_name, lcfg->lcfg_command, rc);
+		break;
+	}
+	case LCFG_CLEANUP: {
 		/*
 		 * do cleanup on underlying storage only when
 		 * all OSPs are cleaned up, as they use that OSD as well
 		 */
+		lod_sub_fini_all_llogs(env, lod);
+		lu_dev_del_linkage(dev->ld_site, dev);
+		lod_sub_process_config(env, lod, &lod->lod_mdt_descs, lcfg);
+		lod_sub_process_config(env, lod, &lod->lod_ost_descs, lcfg);
 		next = &lod->lod_child->dd_lu_dev;
 		rc = next->ld_ops->ldo_process_config(env, next, lcfg);
 		if (rc)
@@ -511,6 +551,10 @@ static int lod_prepare(const struct lu_env *env, struct lu_device *pdev,
 	if (IS_ERR(dto))
 		GOTO(out_put, rc = PTR_ERR(dto));
 
+	rc = lod_sub_prep_llog(env, lod, lod->lod_child);
+	if (rc != 0)
+		GOTO(out_put, rc);
+
 	/* since stack is not fully set up the local_storage uses own stack
 	 * and we should drop its object from cache */
 	lu_object_put_nocache(env, &dto->do_lu);
@@ -561,11 +605,14 @@ static struct thandle *lod_trans_create(const struct lu_env *env,
 	child_th->th_storage_th = child_th;
 	lod_th->lt_child = child_th;
 	lod_th->lt_update_records = NULL;
+	lod_th->lt_magic = LOD_THANDLE_MAGIC;
 
 	INIT_LIST_HEAD(&lod_th->lt_sub_trans_list);
+	INIT_LIST_HEAD(&lod_th->lt_commit_list);
 
 	parent_th = &lod_th->lt_super;
 
+	parent_th->th_dev = dev;
 	parent_th->th_storage_th = child_th;
 
 	return parent_th;
@@ -594,6 +641,7 @@ struct thandle *lod_get_sub_trans(const struct lu_env *env,
 	struct lod_thandle	*lth;
 	struct lod_sub_thandle	*lst;
 	struct thandle		*child_th;
+	int			rc = 0;
 	ENTRY;
 
 	lth = container_of0(th, struct lod_thandle, lt_super);
@@ -601,10 +649,10 @@ struct thandle *lod_get_sub_trans(const struct lu_env *env,
 	if (likely(child_dt == lth->lt_child->th_dev))
 		RETURN(lth->lt_child);
 
-	/* Find or create the transaction in lt_trans_list, since there is
-	 * always only one thread access the list, so no need lock here */
+	/* Because there is always only one thread access the list, no
+	 * need lock here. */
 	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
-		if (lst->lst_child->th_dev == child_dt)
+		if (lst->lst_dt == child_dt)
 			RETURN(lst->lst_child);
 	}
 
@@ -612,60 +660,55 @@ struct thandle *lod_get_sub_trans(const struct lu_env *env,
 	if (IS_ERR(child_th))
 		RETURN(child_th);
 
-	OBD_ALLOC_PTR(lst);
-	if (lst == NULL) {
-		dt_trans_stop(env, child_dt, child_th);
-		RETURN(ERR_PTR(-ENOMEM));
+	if (child_th->th_remote_mdt)
+		lth->lt_multiple_node = 1;
+
+	lst = lod_sub_create_trans(env, lth, child_th);
+	if (IS_ERR(lst)) {
+		child_th->th_result = rc;
+		GOTO(out_stop, rc = -ENOMEM);
 	}
 
-	INIT_LIST_HEAD(&lst->lst_list);
-	child_th->th_storage_th = lth->lt_child;
-	lst->lst_child = child_th;
 	list_add(&lst->lst_list, &lth->lt_sub_trans_list);
-	if (child_th->th_remote_mdt)
-		lst->lst_record_update = 1;
+
+out_stop:
+	if (rc != 0) {
+		dt_trans_stop(env, child_dt, child_th);
+		child_th = ERR_PTR(rc);
+	}
 
 	RETURN(child_th);
 }
 
-static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
-			   struct thandle *th)
+static int lod_declare_updates_write(const struct lu_env *env,
+				     struct lod_device *lod,
+				     struct lod_thandle *lth)
 {
-	struct lod_thandle	*lth;
-	struct lod_sub_thandle	*lst;
-	struct lod_device	*lod = dt2lod_dev((struct dt_device *) dev);
-	int rc = 0;
+	struct lod_sub_thandle *lst;
+	struct update_records *records;
+	int rc;
 
-	lth = container_of0(th, struct lod_thandle, lt_super);
+	LASSERT(lth->lt_update_records != NULL);
+	records = lth->lt_update_records->lur_update_records;
 
-	rc = lod_check_and_prepare_update_record(env, th);
-	if (rc < 0)
-		return rc;
-
-	/* Check if needs to write updates */
+	/* Declare update write for all other target */
 	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
 		struct update_records *records;
 
-		if (!lst->lst_record_update)
+		if (lst->lst_update == NULL)
 			continue;
 
 		records = lth->lt_update_records->lur_update_records;
-		rc = lod_sub_declare_updates_write(env, lod, records, lst);
+		rc = lod_sub_declare_updates_write(env, lod, records,
+						   lst->lst_child);
 		if (rc != 0)
-			return rc;
+			break;
 	}
 
-	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
-		rc = dt_trans_start(env, lst->lst_child->th_dev,
-				    lst->lst_child);
-		if (rc != 0)
-			return rc;
-	}
-
-	return dt_trans_start(env, lod->lod_child, lth->lt_child);
+	return rc;
 }
 
-int lod_create_update_records(struct lod_update_records *lur)
+static int lod_create_update_records(struct lod_update_records *lur)
 {
 	if (lur->lur_update_records != NULL)
 		return 0;
@@ -681,7 +724,8 @@ int lod_create_update_records(struct lod_update_records *lur)
 	return 0;
 }
 
-int lod_extend_update_records(struct lod_update_records *lur, size_t new_size)
+int lod_extend_update_records(struct lod_update_records *lur,
+			      size_t new_size)
 {
 	struct update_records	*records;
 
@@ -702,7 +746,7 @@ int lod_extend_update_records(struct lod_update_records *lur, size_t new_size)
 	return 0;
 }
 
-int lod_create_update_params(struct lod_update_records *lur)
+static int lod_create_update_params(struct lod_update_records *lur)
 {
 	if (lur->lur_update_params != NULL)
 		return 0;
@@ -715,7 +759,8 @@ int lod_create_update_params(struct lod_update_records *lur)
 	return 0;
 }
 
-int lod_extend_update_params(struct lod_update_records *lur, size_t new_size)
+int lod_extend_update_params(struct lod_update_records *lur,
+			     size_t new_size)
 {
 	struct update_params	*params;
 
@@ -737,88 +782,30 @@ int lod_extend_update_params(struct lod_update_records *lur, size_t new_size)
 }
 
 /**
- * Check and prepare whether it needs to record update.
+ * Prepare the update records.
  *
- * Initialize the update record buffer in the transaction if it is
- * necessary. Whether recording updates for each sub-device(OSP/OSD)
- * is decided in lod_get_sub_trans().
+ * Merge params and ops into the update records, then initializing
+ * the update buffer.
  *
- * \param[in] env	execution environment
- * \param[in] th	transaction handle
- *
- * \retval		0 if updates recording succeeds.
- * \retval		negative errno if updates recording fails.
- */
-int lod_check_and_prepare_update_record(const struct lu_env *env,
-					struct thandle *th)
-{
-	struct lod_update_records	*lur;
-	struct lod_thandle		*lth;
-	struct lod_sub_thandle		*lst;
-	int				rc;
-	bool				record_update = false;
-	ENTRY;
-
-	lth = container_of0(th, struct lod_thandle, lt_super);
-	/* Check if it needs to record updates for this transaction */
-	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
-		if (lst->lst_record_update) {
-			record_update = true;
-			break;
-		}
-	}
-	if (!record_update)
-		RETURN(0);
-
-	if (lth->lt_update_records != NULL)
-		RETURN(0);
-
-	lur = &lod_env_info(env)->lti_lur;
-	if (lur->lur_update_records == NULL) {
-		rc = lod_create_update_records(lur);
-		if (rc < 0)
-			RETURN(rc);
-	}
-
-	if (lur->lur_update_params == NULL) {
-		rc = lod_create_update_params(lur);
-		if (rc < 0)
-			RETURN(rc);
-	}
-
-	lur->lur_update_records->ur_ops.uops_count = 0;
-	lur->lur_update_records->ur_ops.uops_size = 0;
-	lur->lur_update_params->up_params_count = 0;
-	lth->lt_update_records = lur;
-
-	RETURN(0);
-}
-
-/**
- * Merge params into the update records
- *
- * Merge params and ops into the update records attached to lth.
  * During transaction execution phase, parameters and update ops
  * are collected in two different buffers (see lod_updates_pack()),
  * during transaction stop, it needs to be merged in one buffer,
  * so it will be written in the update log.
  *
  * \param[in] env	execution environment
- * \param[in] lth	lod_thandle whose updates and parameters
- *                      needs to be merged
+ * \param[in] lur	lod_update_records to be merged
  *
  * \retval		0 if merging succeeds.
  * \retval		negaitive errno if merging fails.
  */
-static int lod_merge_params_updates_buf(const struct lu_env *env,
-					struct lod_thandle *lth)
+static int lod_prepare_writing_updates(const struct lu_env *env,
+				       struct lod_update_records *lur)
 {
-	struct lod_update_records *lur = lth->lt_update_records;
 	struct update_params *params;
 	size_t params_size;
 	size_t ops_size;
 
-	if (lur == NULL || lur->lur_update_records == NULL ||
+	if (lur->lur_update_records == NULL ||
 	    lur->lur_update_params == NULL)
 		return 0;
 
@@ -839,7 +826,115 @@ static int lod_merge_params_updates_buf(const struct lu_env *env,
 	params = update_records_get_params(lur->lur_update_records);
 	memcpy(params, lur->lur_update_params, params_size);
 
+	/* Init update record header */
+	lur->lur_update_records->ur_hdr.lrh_len =
+		cfs_size_round(update_records_size(lur->lur_update_records));
+	lur->lur_update_records->ur_hdr.lrh_type = UPDATE_REC;
+
+	/* Dump updates for debugging purpose */
+	update_records_dump(lur->lur_update_records, D_HA);
+
 	return 0;
+}
+
+
+/**
+ * Prepare cross-MDT operation.
+ *
+ * Create the update record buffer to record updates for cross-MDT operation,
+ * add master sub transaction to lt_sub_trans_list, and declare the update
+ * writes.
+ *
+ * During updates packing, all of parameters will be packed in
+ * lur_update_params, and updates will be packed in lur_update_records.
+ * Then in transaction stop, parameters and updates will be merged
+ * into one updates buffer. (\see lod_prepare_updates_buf() ).
+ *
+ * \param[in] env	execution environment
+ * \param[in] lod	lod device
+ * \param[in] lth	lod transaction handle
+ *
+ * \retval		0 if preparation succeeds.
+ * \retval		negative errno if preparation fails.
+ */
+static int lod_prepare_mulitple_node_trans(const struct lu_env *env,
+					   struct lod_device *lod,
+					   struct lod_thandle *lth)
+{
+	struct lod_update_records	*lur;
+	struct lod_sub_thandle		*master_lst;
+	int				rc;
+	ENTRY;
+
+	/* step 1 Prepare the update buffer for recording updates */
+	if (lth->lt_update_records != NULL)
+		RETURN(0);
+
+	lur = &lod_env_info(env)->lti_lur;
+	if (lur->lur_update_records == NULL) {
+		rc = lod_create_update_records(lur);
+		if (rc < 0)
+			RETURN(rc);
+	}
+
+	if (lur->lur_update_params == NULL) {
+		rc = lod_create_update_params(lur);
+		if (rc < 0)
+			RETURN(rc);
+	}
+
+	lur->lur_update_records->ur_ops.uops_count = 0;
+	lur->lur_update_params->up_params_count = 0;
+	lth->lt_update_records = lur;
+
+	/* step 2: Add master sub transaction to the lt_sub_trans_list */
+	/* Note: we need to add the master sub transaction to the start
+	 * of the list, so it will be executed first during trans start
+	 * and trans stop */
+	master_lst = lod_sub_create_trans(env, lth, lth->lt_child);
+	if (IS_ERR(master_lst))
+		RETURN(PTR_ERR(master_lst));
+	list_add(&master_lst->lst_list, &lth->lt_sub_trans_list);
+
+	/* step 3: declare updates write */
+	rc = lod_declare_updates_write(env, lod, lth);
+
+	RETURN(rc);
+}
+
+static int lod_trans_start(const struct lu_env *env, struct dt_device *dev,
+			   struct thandle *th)
+{
+	struct lod_thandle	*lth;
+	struct lod_sub_thandle	*lst;
+	struct lod_device	*lod = dt2lod_dev((struct dt_device *) dev);
+	int			rc = 0;
+	ENTRY;
+
+	/* Walk through all of sub transaction to see if it needs to
+	 * record updates for this transaction */
+	lth = container_of0(th, struct lod_thandle, lt_super);
+	if (lth->lt_multiple_node) {
+		rc = lod_prepare_mulitple_node_trans(env, lod, lth);
+		if (rc < 0)
+			RETURN(rc);
+	}
+
+	/* Usually it does not need to record update */
+	rc = dt_trans_start(env, lod->lod_child, lth->lt_child);
+	if (rc != 0)
+		RETURN(rc);
+
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		if (lth->lt_child->th_dev == lst->lst_dt)
+			continue;
+
+		rc = dt_trans_start(env, lst->lst_dt, lst->lst_child);
+		if (rc < 0)
+			break;
+	}
+
+	RETURN(rc);
 }
 
 /**
@@ -858,73 +953,74 @@ static int lod_merge_params_updates_buf(const struct lu_env *env,
 static int lod_updates_write(const struct lu_env *env, struct lod_device *lod,
 			     struct lod_thandle *lth)
 {
-	struct lod_update_records *lur;
+	struct lod_update_records *lur = lth->lt_update_records;
 	struct lod_sub_thandle	*lst;
-	struct lod_sub_thandle	*tmp;
 	int			rc;
-
-	if (lth->lt_update_records == NULL)
-		return 0;
+	ENTRY;
 
 	/* merge the parameters and updates into one buffer */
-	rc = lod_merge_params_updates_buf(env, lth);
+	rc = lod_prepare_writing_updates(env, lur);
 	if (rc < 0)
-		return rc;
+		RETURN(rc);
 
-	lur = lth->lt_update_records;
-
-	/* Dump updates to debug log */
-	update_records_dump(lur->lur_update_records, D_HA);
-
-	/* Init update record header */
-	lur->lur_update_records->ur_hdr.lrh_len =
-		cfs_size_round(update_records_size(lur->lur_update_records));
-	lur->lur_update_records->ur_hdr.lrh_type = UPDATE_REC;
-
-	list_for_each_entry_safe(lst, tmp, &lth->lt_sub_trans_list, lst_list) {
-		if (!lst->lst_record_update)
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		if (lst->lst_update == NULL)
 			continue;
-		rc = lod_sub_updates_write(env, lur->lur_update_records, lst);
+
+		rc = lod_sub_updates_write(env, lur->lur_update_records,
+					   lth, lst);
 		if (rc != 0)
 			break;
 	}
 
-	return rc;
+	RETURN(rc);
 }
 
 static int lod_trans_stop(const struct lu_env *env, struct dt_device *dt,
 			  struct thandle *th)
 {
 	struct lod_sub_thandle	*lst;
-	struct lod_sub_thandle	*tmp;
 	struct lod_thandle	*lth;
 	struct lod_device	*lod;
-	int			rc2 = 0;
 	int			rc;
 	ENTRY;
 
 	lod = dt2lod_dev(dt);
 	lth = container_of0(th, struct lod_thandle, lt_super);
-
-	rc = lod_updates_write(env, lod, lth);
-	if (rc != 0) {
-		CDEBUG(D_INFO, "%s: write updates failed: rc = %d\n",
-		       lod2obd(lod)->obd_name, rc);
-		/* Still need call dt_trans_stop to release the transaction */
+	if (lth->lt_update_records != NULL && th->th_result == 0) {
+		rc = lod_updates_write(env, lod, lth);
+		if (rc != 0) {
+			CERROR("%s: write updates failed: rc = %d\n",
+			       lod2obd(lod)->obd_name, rc);
+			/* Still need call dt_trans_stop to release resources
+			 * holding by the transaction */
+		}
+		lth->lt_update_records = NULL;
 	}
 
+	/* Stop master sub thandle first */
+	lth->lt_child->th_result = th->th_result;
 	rc = dt_trans_stop(env, lod->lod_child, lth->lt_child);
 
-	list_for_each_entry_safe(lst, tmp, &lth->lt_sub_trans_list, lst_list) {
-		rc2 = dt_trans_stop(env, lst->lst_child->th_dev,
-				    lst->lst_child);
-		list_del(&lst->lst_list);
-		OBD_FREE_PTR(lst);
-		if (unlikely(rc2 != 0 && rc == 0))
-			rc = rc2;
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		struct dt_device *dt_dev = lst->lst_dt;
+
+		if (lth->lt_child->th_dev == lst->lst_dt)
+			continue;
+
+		lst->lst_child->th_result = th->th_result;
+		rc = dt_trans_stop(env, dt_dev, lst->lst_child);
+		if (rc < 0) {
+			CERROR("%s: trans stop failed: rc = %d\n",
+			       dt_dev->dd_lu_dev.ld_obd->obd_name, rc);
+			break;
+		}
 	}
 
-	OBD_FREE_PTR(lth);
+	if (rc != 0 || !lth->lt_multiple_node)
+		/* If it is failed, destroy the thandle */
+		lod_thandle_destroy(lth);
+
 	RETURN(rc);
 }
 
@@ -1095,6 +1191,176 @@ static int lod_tgt_desc_init(struct lod_tgt_descs *ltd)
 	return 0;
 }
 
+static inline int lod_commit_track_running(struct lod_device *lod)
+{
+	return lod->lod_commit_track_thread.t_flags & SVC_RUNNING;
+}
+
+static inline int lod_commit_track_stopped(struct lod_device *lod)
+{
+	return lod->lod_commit_track_thread.t_flags & SVC_STOPPED;
+}
+
+static int lod_cancel_update_log(const struct lu_env *env,
+				 struct lod_thandle *lth)
+{
+	struct lod_sub_thandle *lst;
+
+	/* The first lst in the list is master sub transaction,
+	 * cancel it first, after cancellation is committed,
+	 * cancel other cookies */
+	list_for_each_entry(lst, &lth->lt_sub_trans_list, lst_list) {
+		struct llog_ctxt	*ctxt;
+		struct obd_device	*obd;
+
+		obd = lst->lst_dt->dd_lu_dev.ld_obd;
+		ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
+		LASSERT(ctxt);
+
+		LASSERT(lst->lst_update != NULL);
+		llog_cat_cancel_records(env, ctxt->loc_handle,
+					1, &lst->lst_update->lstu_cookie);
+		llog_ctxt_put(ctxt);
+	}
+
+	return 0;
+}
+
+static int lod_commit_track_cancel_cookie(const struct lu_env *env,
+					  struct lod_device *lod)
+{
+	int	count = 0;
+	int	rc = 0;
+	ENTRY;
+
+	do {
+		struct lod_thandle *lth;
+		struct lod_thandle *tmp;
+
+		spin_lock(&lod->lod_commit_lock);
+		if (list_empty(&lod->lod_commit_list)) {
+			spin_unlock(&lod->lod_commit_lock);
+			break;
+		}
+		list_for_each_entry_safe(lth, tmp, &lod->lod_commit_list,
+					 lt_commit_list) {
+			list_del(&lth->lt_commit_list);
+			break;
+		}
+		spin_unlock(&lod->lod_commit_lock);
+
+		rc = lod_cancel_update_log(env, lth);
+		if (rc < 0) {
+			/* Add it back to the commit list */
+			spin_lock(&lod->lod_commit_lock);
+			list_add_tail(&lth->lt_commit_list,
+				      &lod->lod_commit_list);
+			spin_unlock(&lod->lod_commit_lock);
+			break;
+		}
+		lod_thandle_destroy(lth);
+
+		if (++count > 5)
+			break;
+	} while (1);
+
+	RETURN(rc);
+}
+
+static bool lod_ready_for_cancel_log(struct lod_device *lod)
+{
+	return !list_empty(&lod->lod_commit_list);
+}
+
+static int lod_update_llog_cancel_thread(void *_arg)
+{
+	struct lod_device	*lod = _arg;
+	struct ptlrpc_thread	*thread = &lod->lod_commit_track_thread;
+	struct l_wait_info	 lwi = { 0 };
+	struct lu_env		 env;
+	int			 rc;
+
+	ENTRY;
+
+	rc = lu_env_init(&env, LCT_LOCAL | LCT_MD_THREAD);
+	if (rc) {
+		CERROR("%s: can't initialize env: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		RETURN(rc);
+	}
+
+	spin_lock(&lod->lod_commit_lock);
+	thread->t_flags = SVC_RUNNING;
+	spin_unlock(&lod->lod_commit_lock);
+	wake_up(&thread->t_ctl_waitq);
+
+	do {
+		l_wait_event(lod->lod_commit_track_waitq,
+			     !lod_commit_track_running(lod) ||
+			     lod_ready_for_cancel_log(lod), &lwi);
+
+		lod_commit_track_cancel_cookie(&env, lod);
+
+		if (!lod_commit_track_running(lod))
+			break;
+	} while (1);
+
+	thread->t_flags = SVC_STOPPED;
+
+	wake_up(&thread->t_ctl_waitq);
+
+	lu_env_fini(&env);
+
+	RETURN(0);
+}
+
+static int lod_commit_track_init(const struct lu_env *env,
+				 struct lod_device *lod)
+{
+	struct l_wait_info	lwi = { 0 };
+	struct task_struct	*task;
+	__u32			index;
+	int			rc;
+	ENTRY;
+
+	spin_lock_init(&lod->lod_commit_lock);
+	INIT_LIST_HEAD(&lod->lod_commit_list);
+
+	init_waitqueue_head(&lod->lod_commit_track_waitq);
+	init_waitqueue_head(&lod->lod_commit_track_thread.t_ctl_waitq);
+	rc = lodname2mdt_index(lod2obd(lod)->obd_name, &index);
+	if (rc < 0)
+		RETURN(rc);
+
+	task = kthread_run(lod_update_llog_cancel_thread, lod,
+			   "lod_update_llog_cancel-%u", index);
+	if (IS_ERR(task)) {
+		rc = PTR_ERR(task);
+		CERROR("%s: cannot start commit check thread: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		RETURN(rc);
+	}
+
+	l_wait_event(lod->lod_commit_track_thread.t_ctl_waitq,
+		     lod_commit_track_running(lod) ||
+		     lod_commit_track_stopped(lod), &lwi);
+
+	RETURN(0);
+}
+
+static int lod_commit_track_fini(const struct lu_env *env,
+				 struct lod_device *lod)
+{
+	struct ptlrpc_thread	*thread = &lod->lod_commit_track_thread;
+
+	thread->t_flags = SVC_STOPPING;
+	wake_up(&lod->lod_commit_track_waitq);
+	wait_event(thread->t_ctl_waitq, thread->t_flags & SVC_STOPPED);
+
+	lod_cleanup_commit_trans_track(env, lod);
+	return 0;
+}
+
 static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 		     struct lu_device_type *ldt, struct lustre_cfg *cfg)
 {
@@ -1135,12 +1401,18 @@ static int lod_init0(const struct lu_env *env, struct lod_device *lod,
 	if (rc != 0)
 		GOTO(out_proc, rc);
 
+	rc = lod_commit_track_init(env, lod);
+	if (rc != 0)
+		GOTO(out_sub_llog_init, rc);
+
 	spin_lock_init(&lod->lod_desc_lock);
 	spin_lock_init(&lod->lod_connects_lock);
 	lod_tgt_desc_init(&lod->lod_mdt_descs);
 	lod_tgt_desc_init(&lod->lod_ost_descs);
 
 	RETURN(0);
+out_sub_llog_init:
+	lod_sub_fini_llog(env, lod->lod_child);
 out_proc:
 	lod_procfs_fini(lod);
 out_pools:
@@ -1157,7 +1429,7 @@ static struct lu_device *lod_device_free(const struct lu_env *env,
 	struct lu_device  *next = &lod->lod_child->dd_lu_dev;
 	ENTRY;
 
-	LASSERT(atomic_read(&lu->ld_ref) == 0);
+	LASSERTF(atomic_read(&lu->ld_ref) == 0, "lu is %p\n", lu);
 	dt_device_fini(&lod->lod_dt_dev);
 	OBD_FREE_PTR(lod);
 	RETURN(next);
@@ -1198,6 +1470,8 @@ static struct lu_device *lod_device_fini(const struct lu_env *env,
 	lod_pools_fini(lod);
 
 	lod_procfs_fini(lod);
+
+	lod_commit_track_fini(env, lod);
 
 	lod_sub_fini_llog(env, lod->lod_child);
 

@@ -107,6 +107,7 @@ int dt_txn_hook_stop(const struct lu_env *env, struct thandle *txn)
         if (txn->th_local)
                 return 0;
 
+	/* Callback for stack */
 	list_for_each_entry(cb, &dev->dd_txn_callbacks, dtc_linkage) {
                 if (cb->dtc_txn_stop == NULL ||
                     !(cb->dtc_tag & env->le_ctx.lc_tags))
@@ -115,6 +116,7 @@ int dt_txn_hook_stop(const struct lu_env *env, struct thandle *txn)
                 if (rc < 0)
                         break;
         }
+
         return rc;
 }
 EXPORT_SYMBOL(dt_txn_hook_stop);
@@ -133,6 +135,51 @@ void dt_txn_hook_commit(struct thandle *txn)
 	}
 }
 EXPORT_SYMBOL(dt_txn_hook_commit);
+
+/* No lock is necessary to protect the list, because the list will only
+ * be acessed by single thread.  */
+void txn_callback_add(struct thandle *th, struct dt_txn_callback *cb)
+{
+	list_add(&cb->dtc_linkage, &th->th_callbacks_list);
+}
+EXPORT_SYMBOL(txn_callback_add);
+
+void txn_callback_del(struct thandle *th, struct dt_txn_callback *cb)
+{
+	list_del_init(&cb->dtc_linkage);
+}
+EXPORT_SYMBOL(txn_callback_del);
+
+int txn_hook_stop(const struct lu_env *env, struct thandle *th)
+{
+	struct dt_txn_callback *cb;
+	int                     rc = 0;
+
+	/* Callback for the transaction */
+	list_for_each_entry(cb, &th->th_callbacks_list, dtc_linkage) {
+		if (cb->dtc_txn_stop == NULL ||
+		    !(cb->dtc_tag & env->le_ctx.lc_tags))
+			continue;
+		rc = cb->dtc_txn_stop(env, th, cb->dtc_cookie);
+		if (rc < 0)
+			break;
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(txn_hook_stop);
+
+void txn_hook_commit(struct thandle *th)
+{
+	struct dt_txn_callback *cb;
+
+	/* Callback for the transaction */
+	list_for_each_entry(cb, &th->th_callbacks_list, dtc_linkage) {
+		if (cb->dtc_txn_commit != NULL)
+			cb->dtc_txn_commit(th, cb->dtc_cookie);
+	}
+}
+EXPORT_SYMBOL(txn_hook_commit);
 
 int dt_device_init(struct dt_device *dev, struct lu_device_type *t)
 {
