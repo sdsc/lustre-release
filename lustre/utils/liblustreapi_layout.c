@@ -851,6 +851,66 @@ int llapi_layout_ost_index_get(const struct llapi_layout *layout,
 }
 
 /**
+ * Validate the user supplied OST index range.
+ *
+ * Users can ask for a specific starting stripe offset in the supplied
+ * a\ layout. We have to ensure the value the user is asking for exists
+ * on the target file system a\ fsname. Additionally if the a\ layout
+ * also specifies a pool this function must validate that the stripe
+ * offset belongs to the pool as well.
+ *
+ * \param[in] layout		layout to get index range from
+ * \param[in] fsname		name of the file system we validate against
+ *
+ * \retval	-1 error with status in errno
+ * \retval	0 index is invalid
+ * \retval	1 index is valid
+ */
+int llapi_layout_ost_index_valid(const struct llapi_layout *layout,
+				 char *fsname)
+{
+	char poolname[LOV_MAXPOOLNAME + 1];
+	char ostname[MAX_OBD_NAME + 1];
+	unsigned int num_osts;
+	char *pool = NULL;
+	char data[16];
+
+	if (layout == NULL || fsname == NULL) {
+		errno = -EINVAL;
+		return -1;
+	}
+
+	if (layout->llot_stripe_offset == LLAPI_LAYOUT_DEFAULT)
+		return 1;
+
+	/* Get OST count using procfs */
+	if (get_param_obdvar(fsname, NULL, "lov", "numobd",
+			     data, sizeof(data)) < 0)
+		return -1;
+
+	num_osts = atoi(data);
+
+	/* Is the stripe_offset located within the range of OSTs
+	 * in the file system ? */
+	if (layout->llot_stripe_offset > num_osts)
+		return 0;
+
+	/* If user wants a pool does the offset map to a OST that
+	 * is in use by the pool */
+	if (strlen(layout->llot_pool_name) != 0) {
+		pool = poolname;
+		/* Make a copy due to const layout. */
+		strncpy(poolname, layout->llot_pool_name, sizeof(poolname));
+	}
+
+	/* Test if stripe offset fall in the bounds of the file system. */
+	snprintf(ostname, sizeof(ostname), "%s-OST%04x_UUID",
+		 fsname, (unsigned int) layout->llot_stripe_offset);
+
+	return llapi_search_ost(fsname, pool, ostname);
+}
+
+/**
  *
  * Get the pool name of layout \a layout.
  *
@@ -909,6 +969,26 @@ int llapi_layout_pool_name_set(struct llapi_layout *layout,
 		sizeof(layout->llot_pool_name));
 
 	return 0;
+}
+
+/**
+ * Test whether layout names an OST pool that doesn't exist.
+ *
+ * \param[in] layout	layout to set pool name in
+ * \param[in] fsname	name of file system that might the
+ *			pool belongs too.
+ *
+ * \retval	true when the file system doesn't have the required pool
+ * \retval	false if the pool exist
+ */
+bool
+llapi_layout_pool_absent(const struct llapi_layout *layout, char *fsname)
+{
+	if (layout == NULL || strlen(layout->llot_pool_name) == 0)
+		return false;
+
+	return (llapi_search_ost(fsname, (char *)layout->llot_pool_name,
+				 NULL) < 0);
 }
 
 /**
