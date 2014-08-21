@@ -1042,7 +1042,8 @@ out_name:
 	if (handle->lgh_name != NULL)
 		OBD_FREE(handle->lgh_name, strlen(name) + 1);
 out:
-	dt_los_put(los);
+	if (los != NULL)
+		dt_los_put(los);
 	RETURN(rc);
 }
 
@@ -1173,7 +1174,7 @@ static int llog_osd_create(const struct lu_env *env, struct llog_handle *res,
 	if (res->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
 		struct llog_thread_info *lgi = llog_info(env);
 
-		lgi->lgi_attr.la_valid = LA_MODE | LA_SIZE;
+		lgi->lgi_attr.la_valid = LA_TYPE | LA_MODE | LA_SIZE;
 		lgi->lgi_attr.la_size = 0;
 		lgi->lgi_attr.la_mode = S_IFREG | S_IRUGO | S_IWUSR;
 		lgi->lgi_dof.dof_type = dt_mode_to_dft(S_IFREG);
@@ -1243,12 +1244,15 @@ static int llog_osd_close(const struct lu_env *env, struct llog_handle *handle)
 
 	LASSERT(handle->lgh_obj);
 
-	lu_object_put(env, &handle->lgh_obj->do_lu);
-
-	if (handle->lgh_ctxt->loc_flags &
-	    LLOG_CTXT_FLAG_NORMAL_FID)
+	if (handle->lgh_ctxt->loc_flags & LLOG_CTXT_FLAG_NORMAL_FID) {
+		/* Remove the object from the cache, otherwise it may
+		 * hold LOD being released during cleanup process */
+		lu_object_put_nocache(env, &handle->lgh_obj->do_lu);
+		LASSERT(handle->private_data == NULL);
 		RETURN(rc);
-
+	} else {
+		lu_object_put(env, &handle->lgh_obj->do_lu);
+	}
 	los = handle->private_data;
 	LASSERT(los);
 	dt_los_put(los);
@@ -1516,6 +1520,8 @@ int llog_osd_get_cat_list(const struct lu_env *env, struct dt_device *d,
 		if (rc)
 			GOTO(out_trans, rc);
 
+		th->th_wait_submit = 1;
+
 		dt_write_lock(env, o, 0);
 		if (!dt_object_exists(o))
 			rc = dt_create(env, o, &lgi->lgi_attr, NULL,
@@ -1638,6 +1644,8 @@ int llog_osd_put_cat_list(const struct lu_env *env, struct dt_device *d,
 	rc = dt_trans_start_local(env, d, th);
 	if (rc)
 		GOTO(out_trans, rc);
+
+	th->th_wait_submit = 1;
 
 	rc = dt_record_write(env, o, &lgi->lgi_buf, &lgi->lgi_off, th);
 	if (rc)

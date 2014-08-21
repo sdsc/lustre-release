@@ -3944,6 +3944,66 @@ out:
 	RETURN(rc);
 }
 
+/**
+ * Prepare distribute txn for MDT
+ *
+ * Prepare distribute txn structure for MDT
+ *
+ * \param[in] mdt	MDT device
+ * \param[in] lod_name  LOD obd device name
+ *
+ * \retval		0 if preparation succeeds.
+ * \retval		negative errno if preparation fails.
+ */
+static int mdt_prepare_distribute_txn(const struct lu_env *env,
+				      struct mdt_device *mdt,
+				      struct lustre_cfg *cfg)
+{
+	struct target_distribute_txn_data *tdtd;
+	int				  rc;
+	ENTRY;
+
+	/* Init update recovery data */
+	OBD_ALLOC_PTR(tdtd);
+	if (tdtd == NULL)
+		RETURN(-ENOMEM);
+
+	rc = distribute_txn_init(env, &mdt->mdt_lut, tdtd,
+				 mdt_seq_site(mdt)->ss_node_id);
+	if (rc < 0) {
+		CERROR("%s: cannot init distribute txn: rc = %d\n",
+		       mdt2obd_dev(mdt)->obd_name, rc);
+		RETURN(rc);
+	}
+
+	mdt->mdt_lut.lut_tdtd = tdtd;
+
+	RETURN(0);
+}
+
+/**
+ * Finish update recovery data
+ *
+ * Free update recovery data in MDT and destroy all updates recovery requests
+ * in the replay list.
+ *
+ * \param[in] mdt	MDT device
+ */
+static void mdt_fini_distribute_txn(const struct lu_env *env,
+				    struct mdt_device *mdt)
+{
+	struct target_distribute_txn_data *tdtd;
+
+	tdtd = mdt->mdt_lut.lut_tdtd;
+	if (tdtd == NULL)
+		return;
+
+	distribute_txn_fini(env, tdtd);
+
+	OBD_FREE_PTR(tdtd);
+	mdt->mdt_lut.lut_tdtd = NULL;
+}
+
 static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 			  struct lustre_cfg *cfg)
 {
@@ -4371,6 +4431,7 @@ static void mdt_fini(const struct lu_env *env, struct mdt_device *m)
 	target_recovery_fini(obd);
 	ping_evictor_stop();
 	mdt_stack_pre_fini(env, m, md2lu_dev(m->mdt_child));
+	mdt_fini_distribute_txn(env, m);
 
 	if (m->mdt_opts.mo_coordinator)
 		mdt_hsm_cdt_stop(m);
@@ -4580,11 +4641,15 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 
 	tgt_adapt_sptlrpc_conf(&m->mdt_lut, 1);
 
+	rc = mdt_prepare_distribute_txn(env, m, cfg);
+	if (rc < 0)
+		GOTO(err_fs_cleanup, rc);
+
         next = m->mdt_child;
         rc = next->md_ops->mdo_iocontrol(env, next, OBD_IOC_GET_MNTOPT, 0,
                                          &mntopts);
         if (rc)
-		GOTO(err_fs_cleanup, rc);
+		GOTO(err_distribute_txn, rc);
 
         if (mntopts & MNTOPT_USERXATTR)
                 m->mdt_opts.mo_user_xattr = 1;
@@ -4593,7 +4658,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 
 	rc = next->md_ops->mdo_maxeasize_get(env, next, &m->mdt_max_ea_size);
 	if (rc)
-		GOTO(err_fs_cleanup, rc);
+		GOTO(err_distribute_txn, rc);
 
         if (mntopts & MNTOPT_ACL)
                 m->mdt_opts.mo_acl = 1;
@@ -4611,7 +4676,7 @@ static int mdt_init0(const struct lu_env *env, struct mdt_device *m,
 	if (IS_ERR(m->mdt_identity_cache)) {
 		rc = PTR_ERR(m->mdt_identity_cache);
 		m->mdt_identity_cache = NULL;
-		GOTO(err_fs_cleanup, rc);
+		GOTO(err_distribute_txn, rc);
 	}
 
         rc = mdt_procfs_init(m, dev);
@@ -4649,6 +4714,8 @@ err_recovery:
 	target_recovery_fini(obd);
 	upcall_cache_cleanup(m->mdt_identity_cache);
 	m->mdt_identity_cache = NULL;
+err_distribute_txn:
+	mdt_fini_distribute_txn(env, m);
 err_fs_cleanup:
 	mdt_fs_cleanup(env, m);
 err_tgt:

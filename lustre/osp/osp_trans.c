@@ -606,6 +606,17 @@ int osp_trans_update_request_create(struct thandle *th)
 	return 0;
 }
 
+static void osp_thandle_get(struct osp_thandle *oth)
+{
+	atomic_inc(&oth->ot_refcount);
+}
+
+static void osp_thandle_put(struct osp_thandle *oth)
+{
+	if (atomic_dec_and_test(&oth->ot_refcount))
+		OBD_FREE_PTR(oth);
+}
+
 /**
  * The OSP layer dt_device_operations::dt_trans_create() interface
  * to create a transaction.
@@ -650,7 +661,79 @@ struct thandle *osp_trans_create(const struct lu_env *env, struct dt_device *d)
 	th->th_dev = d;
 	th->th_tags = LCT_TX_HANDLE;
 
+	atomic_set(&oth->ot_refcount, 1);
+	INIT_LIST_HEAD(&oth->ot_dcb_list);
+
 	RETURN(th);
+}
+
+/**
+ * Add commit callback to transaction.
+ *
+ * Add commit callback to the osp thandle, which will be called
+ * when the thandle is committed remotely.
+ *
+ * \param[in] th	the thandle
+ * \param[in] dcb	commit callback structure
+ *
+ * \retval		only return 0 for now.
+ */
+int osp_trans_cb_add(struct thandle *th, struct dt_txn_commit_cb *dcb)
+{
+	struct osp_thandle *oth = thandle_to_osp_thandle(th);
+
+	LASSERT(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC);
+	LASSERT(&dcb->dcb_func != NULL);
+	list_add(&dcb->dcb_linkage, &oth->ot_dcb_list);
+
+	return 0;
+}
+
+static void osp_request_commit_cb(struct ptlrpc_request *req)
+{
+	struct thandle *th = req->rq_cb_data;
+	struct osp_thandle *oth = thandle_to_osp_thandle(th);
+	__u64		   last_committed_transno;
+	struct dt_txn_commit_cb *dcb;
+	struct dt_txn_commit_cb *tmp;
+	ENTRY;
+
+	/* Interesting, commit callback arrives before stop callback */
+	if (th->th_transno == 0) {
+		DEBUG_REQ(D_HA, req, "arrive before stop callback.\n");
+		th->th_transno = req->rq_transno;
+	}
+
+	/* Sigh, when commit_cb is called, imp_peer_committed_transno
+	 * is not updated by this req yet, so we tried to find out
+	 * last committed transno from req ourselves */
+	if (lustre_msg_get_last_committed(req->rq_repmsg))
+		last_committed_transno =
+			lustre_msg_get_last_committed(req->rq_repmsg);
+	else
+		last_committed_transno =
+			req->rq_import->imp_peer_committed_transno;
+
+	CDEBUG(D_HA, "trans no "LPU64" committed transno "LPU64"\n",
+	       req->rq_transno, last_committed_transno);
+
+	LASSERT(atomic_read(&oth->ot_refcount) > 0);
+	/* call per-transaction callbacks if any */
+	list_for_each_entry_safe(dcb, tmp, &oth->ot_dcb_list,
+				 dcb_linkage) {
+		LASSERTF(dcb->dcb_magic == TRANS_COMMIT_CB_MAGIC,
+			 "commit callback entry: magic=%x name='%s'\n",
+			 dcb->dcb_magic, dcb->dcb_name);
+		list_del_init(&dcb->dcb_linkage);
+		/* If the transaction is really committed, call
+		 * callback */
+		if (req->rq_transno != 0 &&
+		    (req->rq_transno <= last_committed_transno)) {
+			dcb->dcb_func(NULL, th, dcb, req->rq_status);
+		}
+	}
+	osp_thandle_put(oth);
+	EXIT;
 }
 
 /**
@@ -689,14 +772,7 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 	req->rq_interpret_reply = osp_update_interpret;
 	args = ptlrpc_req_async_args(req);
 	args->oaua_update = dt_update;
-	if (!th->th_sync) {
-		struct ptlrpc_request		*req;
-
-		rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
-					 dt_update->dur_buf.ub_req, &req);
-		if (rc != 0)
-			return rc;
-
+	if (!th->th_sync && is_only_remote_trans(th)) {
 		args->oaua_flow_control = true;
 
 		down_read(&osp->opd_async_updates_rwsem);
@@ -707,8 +783,18 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 
 		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	} else {
+		struct osp_thandle *oth = thandle_to_osp_thandle(th);
+
 		args->oaua_flow_control = false;
+		req->rq_commit_cb = osp_request_commit_cb;
+		req->rq_cb_data = th;
+		osp_thandle_get(oth); /* for commit callback */
 		rc = ptlrpc_queue_wait(req);
+		if (rc != 0 || req->rq_transno == 0)
+			osp_thandle_put(oth);
+		else
+			oth->ot_dur = NULL;
+		th->th_transno = req->rq_transno;
 		ptlrpc_req_finished(req);
 	}
 
@@ -766,8 +852,11 @@ int osp_trans_stop(const struct lu_env *env, struct dt_device *dt,
 	ENTRY;
 
 	dt_update = oth->ot_dur;
-	if (dt_update == NULL)
-		GOTO(out, rc);
+	if (dt_update == NULL || th->th_result != 0) {
+		rc = th->th_result;
+		osp_thandle_put(oth);
+		RETURN(rc);
+	}
 
 	LASSERT(dt_update != LP_POISON);
 	/* If there are no updates, destroy dt_update and thandle */
@@ -815,11 +904,11 @@ out:
 						     ouc->ouc_data, 0, rc);
 			osp_update_callback_fini(env, ouc);
 		}
-
 		dt_update_request_destroy(dt_update);
+		oth->ot_dur = NULL;
 	}
 
-	OBD_FREE_PTR(oth);
+	osp_thandle_put(oth);
 
 	RETURN(rc);
 }

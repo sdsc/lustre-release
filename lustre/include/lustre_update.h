@@ -153,8 +153,8 @@ static inline size_t update_ops_size(const struct update_ops *ops)
  */
 struct update_records {
 	struct llog_rec_hdr	ur_hdr;
-	__u64			ur_cookie;
 	__u64			ur_batchid;
+	__u64			ur_master_transno;
 	__u32			ur_master_index;
 	__u32			ur_flags;
 	struct update_ops	ur_ops;
@@ -177,34 +177,43 @@ struct thandle_update_records {
 };
 
 #define TOP_THANDLE_MAGIC	0x20140917
-/* top/sub_thandle are used to manage the distribute transaction, which
+struct top_multiple_thandle {
+	struct dt_device	*tmt_master_sub_dt;
+	atomic_t		tmt_refcount;
+	/* Other sub transactions will be listed here. */
+	struct list_head	tmt_sub_trans_list;
+
+	struct list_head	tmt_commit_list;
+	/* All of update records will packed here */
+	struct thandle_update_records *tmt_update_records;
+
+	__u64			tmt_batchid;
+
+	__u32			tmt_magic;
+	__u32			tmt_committed:1;
+};
+
+/* Top/sub_thandle are used to manage the distribute transaction, which
  * includes updates on several nodes. top_handle is used to represent the
  * whole operation, and sub_thandle is used to represent the update on
  * each node. */
 struct top_thandle {
 	struct thandle		tt_super;
-	__u32			tt_magic;
-	atomic_t		tt_refcount;
 	/* The master sub transaction. */
 	struct thandle		*tt_child;
 
-	/* Other sub transactions will be listed here. */
-	struct list_head	tt_sub_trans_list;
-
-	/* All of update records will packed here */
-	struct thandle_update_records *tt_update_records;
-	/* If Master sub thandle is committed */
-	unsigned int		tt_master_committed;
+	struct top_multiple_thandle *tt_multiple_thandle;
 };
 
+/* Sub thandle is used to track multiple sub thandles under one parent
+ * thandle */
 struct sub_thandle {
-	/* point to the osd/osp_thandle */
 	struct thandle		*st_sub_th;
+	struct dt_device	*st_dt;
 	struct list_head	st_list;
-
-	/* If this sub thandle is committed */
-	unsigned int		st_committed:1,
-				st_record_update:1;
+	struct llog_cookie	st_cookie;
+	struct dt_txn_commit_cb	 st_dcb;
+	unsigned int		 st_committed:1;
 };
 
 static inline struct update_params *
@@ -406,24 +415,25 @@ struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
 				const struct dt_object *sub_obj);
 struct thandle *
 top_trans_create(const struct lu_env *env, struct dt_device *master_dev);
-
 int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 		    struct thandle *th);
-
 int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 		   struct thandle *th);
+void top_multiple_thandle_destroy(struct top_multiple_thandle *tmt);
 
-void top_thandle_destroy(struct top_thandle *top_th);
-static inline void top_thandle_get(struct top_thandle *top_th)
+static inline void top_multiple_thandle_get(struct top_multiple_thandle *tmt)
 {
-	atomic_inc(&top_th->tt_refcount);
+	atomic_inc(&tmt->tmt_refcount);
 }
 
-static inline void top_thandle_put(struct top_thandle *top_th)
+static inline void top_multiple_thandle_put(struct top_multiple_thandle *tmt)
 {
-	if (atomic_dec_and_test(&top_th->tt_refcount))
-		top_thandle_destroy(top_th);
+	if (atomic_dec_and_test(&tmt->tmt_refcount))
+		top_multiple_thandle_destroy(tmt);
 }
+
+struct sub_thandle *lookup_sub_thandle(struct top_multiple_thandle *tmt,
+				       struct dt_device *dt_dev);
 
 /* update_records.c */
 void update_records_dump(struct update_records *records, unsigned int mask);
@@ -505,7 +515,7 @@ int tur_update_records_extend(struct thandle_update_records *tur,
 int tur_update_params_extend(struct thandle_update_records *tur,
 			     size_t new_size);
 int check_and_prepare_update_record(const struct lu_env *env,
-				    struct thandle *th);
+				    struct thandle_update_records *tur);
 int merge_params_updates_buf(const struct lu_env *env, struct thandle *th);
 
 struct update_thread_info {
@@ -532,6 +542,7 @@ update_env_info(const struct lu_env *env)
 #define update_record_pack(name, rc, th, ...)				\
 do {                                                                    \
 	struct top_thandle	*tth;					\
+	struct top_multiple_thandle *tmt;				\
 	struct thandle_update_records *tur;				\
 	struct update_params	*params;				\
 	struct update_records	*records;				\
@@ -541,8 +552,10 @@ do {                                                                    \
 	size_t			max_param_size;				\
 									\
 	tth = container_of0(th, struct top_thandle, tt_super);		\
-	LASSERT(tth->tt_update_records != NULL);			\
-	tur = tth->tt_update_records;					\
+	tmt = tth->tt_multiple_thandle;					\
+	LASSERT(tmt != NULL);						\
+	LASSERT(tmt->tmt_update_records != NULL);			\
+	tur = tmt->tmt_update_records;					\
 	params = tur->tur_update_params;				\
 	params_size = update_params_size(params);			\
 	max_param_size = tur->tur_update_params_size - params_size;	\
