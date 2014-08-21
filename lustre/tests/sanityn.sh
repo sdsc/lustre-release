@@ -48,6 +48,8 @@ TRACE=${TRACE:-""}
 
 check_and_setup_lustre
 
+OSC=${OSC:-"osc"}
+
 assert_DIR
 rm -rf $DIR1/[df][0-9]* $DIR1/lnk $DIR/[df].${TESTSUITE}*
 
@@ -432,6 +434,8 @@ run_test 18 "mmap sanity check ================================="
 test_19() { # bug3811
 	local node=$(facet_active_host ost1)
 
+	[ $DOM == "yes" ] && node=$(facet_active_host $SINGLEMDS)
+
 	# check whether obdfilter is cache capable at all
 	if ! get_osd_param $node '' read_cache_enable >/dev/null; then
 		echo "not cache-capable obdfilter"
@@ -446,7 +450,7 @@ test_19() { # bug3811
 	cp $TMP/$tfile $DIR1/$tfile
 	for i in `seq 1 20`; do
 		[ $((i % 5)) -eq 0 ] && log "$testname loop $i"
-		cancel_lru_locks osc > /dev/null
+		cancel_lru_locks $OSC > /dev/null
 		cksum $DIR1/$tfile | cut -d" " -f 1,2 > $TMP/sum1 & \
 		cksum $DIR2/$tfile | cut -d" " -f 1,2 > $TMP/sum2
 		wait
@@ -462,12 +466,12 @@ run_test 19 "test concurrent uncached read races ==============="
 
 test_20() {
 	test_mkdir $DIR1/d20
-	cancel_lru_locks osc
+	cancel_lru_locks $OSC
 	CNT=$((`lctl get_param -n llite.*.dump_page_cache | wc -l`))
 	$MULTIOP $DIR1/f20 Ow8190c
 	$MULTIOP $DIR2/f20 Oz8194w8190c
 	$MULTIOP $DIR1/f20 Oz0r8190c
-	cancel_lru_locks osc
+	cancel_lru_locks $OSC
 	CNTD=$((`lctl get_param -n llite.*.dump_page_cache | wc -l` - $CNT))
 	[ $CNTD -gt 0 ] && \
 	    error $CNTD" page left in cache after lock cancel" || true
@@ -498,7 +502,7 @@ test_23() { # Bug 5972
 	echo "atime should be updated while another read" > $DIR1/$tfile
 
 	# clear the lock(mode: LCK_PW) gotten from creating operation
-	cancel_lru_locks osc
+	cancel_lru_locks $OSC
 	time1=$(date +%s)
 	echo "now is $time1"
 	sleep $((at_diff + 1))
@@ -530,9 +534,9 @@ test_24a() {
 
 	OSC=`lctl dl | awk '/-osc-|OSC.*MNT/ {print $4}' | head -n 1`
 #	OSC=`lctl dl | awk '/-osc-/ {print $4}' | head -n 1`
-	lctl --device %$OSC deactivate
+	lctl --device %osc deactivate
 	lfs df -i || error "lfs df -i with deactivated OSC failed"
-	lctl --device %$OSC activate
+	lctl --device %osc activate
 	lfs df || error "lfs df with reactivated OSC failed"
 }
 run_test 24a "lfs df [-ih] [path] test ========================="
@@ -622,7 +626,7 @@ test_26b() {
 run_test 26b "sync mtime between ost and mds"
 
 test_27() {
-	cancel_lru_locks osc
+	cancel_lru_locks $OSC
 	lctl clear
 	dd if=/dev/zero of=$DIR2/$tfile bs=$((4096+4))k conv=notrunc count=4 seek=3 &
 	DD2_PID=$!
@@ -742,12 +746,12 @@ run_test 31b "voluntary OST cancel / blocking ast race=============="
 
 # enable/disable lockless truncate feature, depending on the arg 0/1
 enable_lockless_truncate() {
-        lctl set_param -n osc.*.lockless_truncate $1
+	lctl set_param -n $OSC.*.lockless_truncate $1
 }
 
 test_32a() { # bug 11270
 	local p="$TMP/$TESTSUITE-$TESTNAME.parameters"
-	save_lustre_params client "osc.*.lockless_truncate" > $p
+	save_lustre_params client "$OSC.*.lockless_truncate" > $p
         cancel_lru_locks osc
         enable_lockless_truncate 1
         rm -f $DIR1/$tfile
