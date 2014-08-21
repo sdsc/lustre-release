@@ -113,6 +113,7 @@ int dt_txn_hook_stop(const struct lu_env *env, struct thandle *th)
 	if (th->th_local)
 		return 0;
 
+	/* Callback for stack */
 	list_for_each_entry(cb, &dev->dd_txn_callbacks, dtc_linkage) {
 		struct thandle *dtc_th = th;
 

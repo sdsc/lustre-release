@@ -643,7 +643,7 @@ static int mgs_modify_handler(const struct lu_env *env,
                 marker->cm_flags &= ~CM_EXCLUDE; /* in case we're unexcluding */
                 marker->cm_flags |= mml->mml_marker.cm_flags;
                 marker->cm_canceltime = mml->mml_marker.cm_canceltime;
-		rc = llog_write(env, llh, rec, rec->lrh_index);
+		rc = llog_write(env, llh, rec, rec->lrh_index, NULL);
                 if (!rc)
                          mml->mml_modified++;
         }
@@ -809,7 +809,7 @@ static int record_base(const struct lu_env *env, struct llog_handle *llh,
 		return -ENOMEM;
 
 	lcr->lcr_cfg.lcfg_nid = nid;
-	rc = llog_write(env, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX);
+	rc = llog_write(env, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX, NULL);
 
 	lustre_cfg_rec_free(lcr);
 
@@ -973,7 +973,7 @@ static int mgs_replace_handler(const struct lu_env *env,
 		RETURN(0);
 copy_out:
 	/* Record is placed in temporary llog as is */
-	rc = llog_write(env, mrul->temp_llh, rec, LLOG_NEXT_IDX);
+	rc = llog_write(env, mrul->temp_llh, rec, LLOG_NEXT_IDX, NULL);
 
 	CDEBUG(D_MGS, "Copied idx=%d, rc=%d, len=%d, cmd %x %s %s\n",
 	       rec->lrh_index, rc, rec->lrh_len, lcfg->lcfg_command,
@@ -1278,7 +1278,7 @@ static int record_lov_setup(const struct lu_env *env, struct llog_handle *llh,
 	if (lcr == NULL)
 		return -ENOMEM;
 
-	rc = llog_write(env, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX);
+	rc = llog_write(env, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX, NULL);
 	lustre_cfg_rec_free(lcr);
 	return rc;
 }
@@ -1296,7 +1296,7 @@ static int record_lmv_setup(const struct lu_env *env, struct llog_handle *llh,
 	if (lcr == NULL)
 		return -ENOMEM;
 
-	rc = llog_write(env, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX);
+	rc = llog_write(env, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX, NULL);
 	lustre_cfg_rec_free(lcr);
 	return rc;
 }
@@ -1361,7 +1361,7 @@ static int record_marker(const struct lu_env *env,
 	if (lcr == NULL)
 		return -ENOMEM;
 
-	rc = llog_write(env, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX);
+	rc = llog_write(env, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX, NULL);
 	lustre_cfg_rec_free(lcr);
 	return rc;
 }
@@ -1430,7 +1430,7 @@ static int mgs_write_log_direct(const struct lu_env *env,
 	rc = record_marker(env, llh, fsdb, CM_START, devname, comment);
 	if (rc)
 		GOTO(out_end, rc);
-	rc = llog_write(env, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX);
+	rc = llog_write(env, llh, &lcr->lcr_hdr, LLOG_NEXT_IDX, NULL);
 	if (rc)
 		GOTO(out_end, rc);
 	rc = record_marker(env, llh, fsdb, CM_END, devname, comment);

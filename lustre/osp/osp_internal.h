@@ -296,6 +296,7 @@ struct osp_it {
 struct osp_thandle {
 	struct thandle		 ot_super;
 	struct dt_update_request *ot_dur;
+	atomic_t		 ot_refcount;
 };
 
 static inline struct osp_thandle *

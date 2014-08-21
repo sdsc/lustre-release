@@ -128,8 +128,11 @@ int llog_process_or_fork(const struct lu_env *env,
 int llog_reverse_process(const struct lu_env *env,
 			 struct llog_handle *loghandle, llog_cb_t cb,
 			 void *data, void *catdata);
+int llog_declare_cancel_rec(const struct lu_env *env,
+			    struct llog_handle *loghandle,
+			    int index, struct thandle *handle);
 int llog_cancel_rec(const struct lu_env *env, struct llog_handle *loghandle,
-		    int index);
+		    int index, struct thandle *handle);
 int llog_open(const struct lu_env *env, struct llog_ctxt *ctxt,
 	      struct llog_handle **lgh, struct llog_logid *logid,
 	      char *name, enum llog_open_param open_param);
@@ -182,9 +185,15 @@ int llog_cat_declare_add_rec(const struct lu_env *env,
 			     struct llog_rec_hdr *rec, struct thandle *th);
 int llog_cat_add(const struct lu_env *env, struct llog_handle *cathandle,
 		 struct llog_rec_hdr *rec, struct llog_cookie *reccookie);
+
+int llog_cat_declare_cancel_records(const struct lu_env *env,
+				    struct llog_handle *cathandle, int count,
+				    struct llog_cookie *cookies,
+				    struct thandle *handle);
 int llog_cat_cancel_records(const struct lu_env *env,
 			    struct llog_handle *cathandle, int count,
-			    struct llog_cookie *cookies);
+			    struct llog_cookie *cookies,
+			    struct thandle *handle);
 int llog_cat_process_or_fork(const struct lu_env *env,
 			     struct llog_handle *cat_llh, llog_cb_t cb,
 			     void *data, int startcat, int startidx, bool fork);
@@ -219,7 +228,10 @@ int llog_initiator_connect(struct llog_ctxt *ctxt);
 
 struct llog_operations {
 	int (*lop_destroy)(const struct lu_env *env,
-			   struct llog_handle *handle);
+			   struct llog_handle *handle, struct thandle *thandle);
+	int (*lop_declare_destroy)(const struct lu_env *env,
+				   struct llog_handle *handle,
+				   struct thandle *thandle);
 	int (*lop_next_block)(const struct lu_env *env, struct llog_handle *h,
 			      int *curr_idx, int next_idx, __u64 *offset,
 			      void *buf, int len);
@@ -459,8 +471,28 @@ static inline int llog_ctxt_null(struct obd_device *obd, int index)
         return (llog_group_ctxt_null(&obd->obd_olg, index));
 }
 
+static inline int llog_declare_destroy(const struct lu_env *env,
+				       struct llog_handle *handle,
+				       struct thandle *th)
+{
+	struct llog_operations *lop;
+	int rc;
+
+	ENTRY;
+
+	rc = llog_handle2ops(handle, &lop);
+	if (rc)
+		RETURN(rc);
+	if (lop->lop_declare_destroy == NULL)
+		RETURN(-EOPNOTSUPP);
+
+	rc = lop->lop_declare_destroy(env, handle, th);
+	RETURN(rc);
+}
+
 static inline int llog_destroy(const struct lu_env *env,
-			       struct llog_handle *handle)
+			       struct llog_handle *handle,
+			       struct thandle *th)
 {
 	struct llog_operations *lop;
 	int rc;
@@ -473,7 +505,7 @@ static inline int llog_destroy(const struct lu_env *env,
 	if (lop->lop_destroy == NULL)
 		RETURN(-EOPNOTSUPP);
 
-	rc = lop->lop_destroy(env, handle);
+	rc = lop->lop_destroy(env, handle, th);
 	RETURN(rc);
 }
 
@@ -578,7 +610,7 @@ int llog_open_create(const struct lu_env *env, struct llog_ctxt *ctxt,
 int llog_erase(const struct lu_env *env, struct llog_ctxt *ctxt,
 	       struct llog_logid *logid, char *name);
 int llog_write(const struct lu_env *env, struct llog_handle *loghandle,
-	       struct llog_rec_hdr *rec, int idx);
+	       struct llog_rec_hdr *rec, int idx, struct thandle *th);
 
 /** @} log */
 
