@@ -952,6 +952,7 @@ static int osp_md_object_lock(const struct lu_env *env,
 	if (IS_ERR(req))
 		RETURN(PTR_ERR(req));
 
+	req->rq_allow_replay = 1;
 	rc = ldlm_cli_enqueue(osp->opd_exp, &req, einfo, res_id,
 			      (const ldlm_policy_data_t *)policy,
 			      &flags, NULL, 0, LVB_T_NONE, lh, 0);
@@ -1166,6 +1167,9 @@ static ssize_t osp_md_read(const struct lu_env *env, struct dt_object *dt,
 
 	memcpy(rbuf->lb_buf, lbuf->lb_buf, lbuf->lb_len);
 
+	CDEBUG(D_INFO, "%s: read "DFID" pos "LPU64" len %d\n",
+	       osp->opd_obd->obd_name, PFID(lu_object_fid(&dt->do_lu)),
+	       *pos, (int)lbuf->lb_len);
 	GOTO(out, rc = lbuf->lb_len);
 out:
 	if (req != NULL)

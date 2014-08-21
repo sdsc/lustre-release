@@ -69,6 +69,7 @@ struct thandle *lod_sub_get_thandle(const struct lu_env *env,
 
 	if (record_update != NULL)
 		*record_update = false;
+
 	if (th->th_top == NULL)
 		RETURN(th);
 
@@ -81,8 +82,9 @@ struct thandle *lod_sub_get_thandle(const struct lu_env *env,
 	    fid_is_zero(lu_object_fid(&sub_obj->do_lu))) {
 		/* local MDT object */
 		if (fid_is_sane(lu_object_fid(&sub_obj->do_lu)) &&
-		    tth->tt_update_records != NULL &&
-		    record_update != NULL)
+		    tth->tt_multiple_thandle != NULL &&
+		    record_update != NULL &&
+		    th->th_result == 0)
 			*record_update = true;
 		RETURN(tth->tt_child);
 	}
@@ -95,7 +97,8 @@ struct thandle *lod_sub_get_thandle(const struct lu_env *env,
 	if (type == LU_SEQ_RANGE_OST)
 		RETURN(tth->tt_child);
 
-	if (tth->tt_update_records != NULL && record_update != NULL)
+	if (tth->tt_multiple_thandle != NULL && record_update != NULL &&
+	    th->th_result == 0)
 		*record_update = true;
 
 	sub_th = get_sub_thandle(env, th, sub_obj);
@@ -886,33 +889,69 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 	struct lu_fid		*fid = &lti->lti_fid;
 	struct obd_device	*obd;
 	int			rc;
+	bool			need_put = false;
 	ENTRY;
 
 	lu_update_log_fid(fid, index);
-	fid_to_logid(fid, &cid->lci_logid);
+
+	rc = lodname2mdt_index(lod2obd(lod)->obd_name, (__u32 *)&index);
+	if (rc < 0)
+		RETURN(rc);
+
+	rc = llog_osd_get_cat_list(env, dt, index, 1, cid, fid);
+	if (rc != 0) {
+		CERROR("%s: can't get id from catalogs: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		RETURN(rc);
+	}
 
 	obd = dt->dd_lu_dev.ld_obd;
 	ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt);
+	LASSERT(ctxt != NULL);
 	ctxt->loc_flags |= LLOG_CTXT_FLAG_NORMAL_FID;
 
-	rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
-		       LLOG_OPEN_EXISTS);
-	if (rc < 0) {
-		llog_ctxt_put(ctxt);
-		RETURN(rc);
+	if (likely(logid_id(&cid->lci_logid) != 0)) {
+		rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
+			       LLOG_OPEN_EXISTS);
+
+		/* re-create llog if it is missing */
+		if (rc == -ENOENT)
+			logid_set_id(&cid->lci_logid, 0);
+		else if (rc < 0)
+			GOTO(out_put, rc);
+	}
+
+	if (unlikely(logid_id(&cid->lci_logid) == 0)) {
+		rc = llog_open_create(env, ctxt, &lgh, NULL, NULL);
+		if (rc < 0)
+			GOTO(out_put, rc);
+		cid->lci_logid = lgh->lgh_id;
+		need_put = true;
 	}
 
 	LASSERT(lgh != NULL);
 	ctxt->loc_handle = lgh;
 
 	rc = llog_cat_init_and_process(env, lgh);
+	if (rc != 0)
+		GOTO(out_close, rc);
 
-	llog_ctxt_put(ctxt);
+	if (need_put) {
+		rc = llog_osd_put_cat_list(env, dt, index, 1, cid, fid);
+		if (rc != 0)
+			GOTO(out_close, rc);
+	}
+
+	CDEBUG(D_INFO, "%s: Init llog for %d - catid "DOSTID":%x\n",
+	       obd->obd_name, index, POSTID(&cid->lci_logid.lgl_oi),
+	       cid->lci_logid.lgl_ogen);
 
 	if (rc != 0) {
 		llog_cat_close(env, ctxt->loc_handle);
 		ctxt->loc_handle = NULL;
 	}
+out_put:
+	llog_ctxt_put(ctxt);
 	RETURN(rc);
 }
+
