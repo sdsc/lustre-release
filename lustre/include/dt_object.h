@@ -1884,6 +1884,8 @@ struct thandle {
 	 * this value is used in recovery */
 	__s32             th_result;
 
+	__u64		   th_transno;
+	struct list_head   th_callbacks_list;
 	/** whether we need sync commit */
 	unsigned int		th_sync:1,
 	/* local transation, no need to inform other layers */
@@ -1915,32 +1917,20 @@ struct top_thandle {
 	/* Other sub transactions will be listed here. */
 	struct list_head	tt_sub_trans_list;
 
+	struct list_head	tt_commit_list;
 	/* All of update records will packed here */
 	struct thandle_update_records *tt_update_records;
+	__u32			tt_multiple_node:1,
+				tt_cancel_master:1;
 };
 
-struct sub_thandle {
-	/* point to the osd/osp_thandle */
-	struct thandle		*st_sub_th;
-	struct list_head	st_list;
-	unsigned int		st_record_update:1;
-};
-
-struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
-				const struct dt_object *sub_obj);
-struct thandle *
-top_trans_create(const struct lu_env *env, struct dt_device *master_dev);
-
-int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
-		    struct thandle *th);
-
-int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
-		   struct thandle *th);
+#define tt_cancel_data		tt_update_records
 
 enum dt_txn_callback_flags {
 	/* The callback will use top thandle of thandle */
 	DT_TXN_CALLBACK_TOP	= 1,
 };
+
 /**
  * Transaction call-backs.
  *
@@ -1964,6 +1954,32 @@ struct dt_txn_callback {
 	struct list_head	dtc_linkage;
 };
 
+struct sub_thandle_update {
+	struct llog_cookie	stu_cookie;
+	struct dt_txn_callback	stu_txn_cb;
+	__u64			stu_transno;
+	__u32			stu_committed:1;
+};
+
+/* Sub thandle is used to track multiple sub thandles under one parent
+ * thandle */
+struct sub_thandle {
+	struct thandle		*st_sub_th;
+	struct dt_device	*st_dt;
+	struct list_head	st_list;
+	struct sub_thandle_update *st_update;
+};
+
+struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
+				const struct dt_object *sub_obj);
+struct thandle *
+top_trans_create(const struct lu_env *env, struct dt_device *master_dev);
+int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
+		    struct thandle *th);
+int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
+		   struct thandle *th);
+void top_thandle_destroy(struct top_thandle *top_th);
+
 void dt_txn_callback_add(struct dt_device *dev, struct dt_txn_callback *cb);
 void dt_txn_callback_del(struct dt_device *dev, struct dt_txn_callback *cb);
 
@@ -1973,6 +1989,12 @@ int dt_txn_hook_stop(const struct lu_env *env, struct thandle *txn);
 void dt_txn_hook_commit(struct thandle *txn);
 
 int dt_try_as_dir(const struct lu_env *env, struct dt_object *obj);
+
+
+void txn_callback_add(struct thandle *th, struct dt_txn_callback *cb);
+void txn_callback_del(struct thandle *th, struct dt_txn_callback *cb);
+int txn_hook_stop(const struct lu_env *env, struct thandle *txn);
+void txn_hook_commit(struct thandle *txn);
 
 /**
  * Callback function used for parsing path.

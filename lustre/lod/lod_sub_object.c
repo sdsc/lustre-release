@@ -830,6 +830,16 @@ static int lod_sub_get_index(struct lod_device *lod, struct dt_device *dt)
 	int idx = -ENOENT;
 	int i;
 
+	if (dt == lod->lod_child) {
+		__u32 index;
+
+		idx = lodname2mdt_index(lod2obd(lod)->obd_name, &index);
+		if (idx != 0)
+			return idx;
+
+		return (int)index;
+	}
+
 	mutex_lock(&ltd->ltd_mutex);
 	cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
 		struct lod_tgt_desc *tgt;
@@ -862,35 +872,107 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 		RETURN(-ENOENT);
 
 	lu_update_log_fid(fid, index);
-	fid_to_logid(fid, &cid->lci_logid);
+
+	rc = lodname2mdt_index(lod2obd(lod)->obd_name, (__u32 *)&index);
+	if (rc < 0)
+		RETURN(rc);
+
+	rc = llog_osd_get_cat_list(env, dt, index, 1, cid, fid);
+	if (rc != 0) {
+		CERROR("%s: can't get id from catalogs: rc = %d\n",
+		       lod2obd(lod)->obd_name, rc);
+		RETURN(rc);
+	}
 
 	obd = dt->dd_lu_dev.ld_obd;
 	ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
-	LASSERT(ctxt);
+	LASSERT(ctxt != NULL);
 	ctxt->loc_flags |= LLOG_CTXT_FLAG_NORMAL_FID;
 
-	rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
-		       LLOG_OPEN_EXISTS);
-	if (rc < 0) {
-		llog_ctxt_put(ctxt);
-		RETURN(rc);
+	if (likely(logid_id(&cid->lci_logid) != 0)) {
+		rc = llog_open(env, ctxt, &lgh, &cid->lci_logid, NULL,
+			       LLOG_OPEN_EXISTS);
+
+		/* re-create llog if it is missing */
+		if (rc == -ENOENT)
+			logid_set_id(&cid->lci_logid, 0);
+		else if (rc < 0)
+			GOTO(out_put, rc);
+	}
+
+	if (unlikely(logid_id(&cid->lci_logid) == 0)) {
+		rc = llog_open_create(env, ctxt, &lgh, NULL, NULL);
+		if (rc < 0)
+			GOTO(out_put, rc);
+		cid->lci_logid = lgh->lgh_id;
 	}
 
 	LASSERT(lgh != NULL);
 	ctxt->loc_handle = lgh;
 
 	rc = llog_cat_init_and_process(env, lgh);
-	if (rc != 0) {
-		llog_ctxt_put(ctxt);
+	if (rc != 0)
 		GOTO(out_close, rc);
-	}
 
-	llog_ctxt_put(ctxt);
+	rc = llog_osd_put_cat_list(env, dt, index, 1, cid, fid);
+	if (rc != 0)
+		GOTO(out_close, rc);
+
+	CDEBUG(D_INFO, "%s: Init llog for %d - catid "DOSTID":%x\n",
+	       obd->obd_name, index, POSTID(&cid->lci_logid.lgl_oi),
+	       cid->lci_logid.lgl_ogen);
 
 out_close:
 	if (rc != 0) {
 		llog_cat_close(env, ctxt->loc_handle);
 		ctxt->loc_handle = NULL;
 	}
+out_put:
+	llog_ctxt_put(ctxt);
 	RETURN(rc);
 }
+
+/**
+ * Commit callback for sub thandle
+ *
+ * In the commit callback, it will check whether all of sub thandle have
+ * been committed, if it is, it will add the thandle to the master cancel
+ * list and wake up the cancel thread to cancel the update log on all of
+ * MDT.
+ *
+ * \param[in] th	top thandle for the distribute operation.
+ * \param[in] arg	pointer of the sub_thandle which is committed.
+ */
+void lod_sub_update_txn_commit(struct thandle *th, void *arg)
+{
+	struct top_thandle	*top_th = container_of(th, struct top_thandle,
+						       tt_super);
+	struct lod_device	*lod = dt2lod_dev(top_th->tt_super.th_dev);
+	struct sub_thandle	*st = arg;
+	bool			all_committed = true;
+	ENTRY;
+
+	CDEBUG(D_HA, "%s: transaction "LPU64" committed.\n",
+	       th->th_dev->dd_lu_dev.ld_obd->obd_name,
+	       th->th_transno);
+
+	LASSERT(st->st_update != NULL);
+
+	if (st->st_update->stu_committed == 0)
+		st->st_update->stu_committed = 1;
+
+	/* Check if all updates under the transaction has been committed. */
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		if (!st->st_update->stu_committed) {
+			all_committed = false;
+			break;
+		}
+	}
+
+	/* Add to the master cancel list and wakeup cancel thread */
+	if (all_committed)
+		lod_add_thandle_to_cancel_list(&lod->lod_cancel_master_thread,
+					       top_th);
+	RETURN_EXIT;
+}
+
