@@ -599,7 +599,7 @@ int out_read_pack(const struct lu_env *env, struct object_update *update,
 	pos = cpu_to_le64(pos);
 
 	return out_update_pack(env, update, max_update_length, OUT_READ, fid,
-			       ARRAY_SIZE(sizes), sizes, bufs, 0);
+			       ARRAY_SIZE(sizes), sizes, bufs);
 }
 EXPORT_SYMBOL(out_read_pack);
 
