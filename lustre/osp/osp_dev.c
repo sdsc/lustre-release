@@ -730,7 +730,7 @@ static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 	if (imp->imp_state == LUSTRE_IMP_CLOSED)
 		RETURN(-ESHUTDOWN);
 
-	if (unlikely(d->opd_imp_active == 0))
+	if (unlikely(d->opd_imp_active == 0 || d->opd_imp_connected == 0))
 		RETURN(-ENOTCONN);
 
 	if (d->opd_pre == NULL)
