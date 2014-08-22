@@ -1288,6 +1288,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 	if (diff > 0) {
 		cfs_time_t	 enough_time = cfs_time_shift(DISK_TIMEOUT);
 		obd_id		 next_id;
+		obd_id		 start_id;
 		int		 created = 0;
 		int		 count;
 
@@ -1321,6 +1322,7 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			ofd_seq_last_oid_set(oseq, ostid_id(&oa->o_oi) - diff);
 		}
 
+		start_id = ofd_seq_last_oid(oseq) + 1;
 		while (diff > 0) {
 			next_id = ofd_seq_last_oid(oseq) + 1;
 			count = ofd_precreate_batch(ofd, diff);
@@ -1329,7 +1331,10 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 			       " at "LPU64"\n", ofd_obd(ofd)->obd_name,
 			       count, ostid_seq(&oa->o_oi), next_id);
 
-			if (cfs_time_after(jiffies, enough_time)) {
+			if (oti->oti_req != NULL &&
+			    !(lustre_msg_get_flags(oti->oti_req->rq_reqmsg) &
+			   					MSG_REPLAY) &&
+			    cfs_time_after(jiffies, enough_time)) {
 				LCONSOLE_WARN("%s: Slow creates, %d/%d objects"
 					      " created at a rate of %d/s\n",
 					      ofd_obd(ofd)->obd_name,
@@ -1347,6 +1352,24 @@ int ofd_create(const struct lu_env *env, struct obd_export *exp,
 				break;
 			}
 		}
+
+		if (diff > 0 &&
+		    oti->oti_req != NULL &&
+		    lustre_msg_get_flags(oti->oti_req->rq_reqmsg) & MSG_REPLAY)
+			LCONSOLE_WARN("%s: can't create the same count of"
+				      " objects when replaying the request"
+				      " (diff is %d). see LU-4621\n",
+				      ofd_name(ofd), diff);
+
+		if (oti->oti_req != NULL &&
+		    lustre_msg_get_flags(oti->oti_req->rq_reqmsg) & MSG_REPLAY)
+			LCONSOLE_WARN("%s: create object from "LPU64" to "
+				      LPU64"when replaying the creation "
+				      " request (transno "LPD64")\n",
+				      ofd_name(ofd), start_id,
+				      ofd_seq_last_oid(oseq),
+				      oti->oti_req->rq_transno);
+
 		if (created > 0)
 			/* some objects got created, we can return
 			 * them, even if last creation failed */

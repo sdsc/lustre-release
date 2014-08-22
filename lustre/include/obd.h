@@ -719,7 +719,8 @@ struct obd_trans_info {
 	/** JobID */
 	char                    *oti_jobid;
 
-        struct obd_uuid         *oti_ost_uuid;
+	struct obd_uuid         *oti_ost_uuid;
+	struct ptlrpc_request	*oti_req;
 };
 
 static inline void oti_init(struct obd_trans_info *oti,
