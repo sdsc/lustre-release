@@ -443,7 +443,7 @@ static int osp_statfs(const struct lu_env *env, struct dt_device *dev,
 
 	ENTRY;
 
-	if (unlikely(d->opd_imp_active == 0))
+	if (unlikely(d->opd_imp_active == 0 || d->opd_imp_connected == 0))
 		RETURN(-ENOTCONN);
 
 	/* return recently updated data */
