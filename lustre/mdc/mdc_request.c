@@ -2047,8 +2047,6 @@ static struct kuc_hdr *changelog_kuc_hdr(char *buf, int len, int flags)
 	return lh;
 }
 
-#define D_CHANGELOG 0
-
 struct changelog_show {
 	__u64		cs_startrec;
 	__u32		cs_flags;
