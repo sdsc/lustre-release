@@ -3987,20 +3987,15 @@ static int lod_object_init(const struct lu_env *env, struct lu_object *lo,
 	if (rc != 0)
 		RETURN(rc);
 
-	if (type == LU_SEQ_RANGE_MDT &&
-	    idx == lu_site2seq(lo->lo_dev->ld_site)->ss_node_id) {
+	if (type != LU_SEQ_RANGE_MDT)
+		RETURN(-EIO);
+
+	if (idx == lu_site2seq(lo->lo_dev->ld_site)->ss_node_id) {
 		cdev = &lod->lod_child->dd_lu_dev;
-	} else if (type == LU_SEQ_RANGE_MDT) {
+	} else {
 		ltd = &lod->lod_mdt_descs;
 		lod_getref(ltd);
-	} else if (type == LU_SEQ_RANGE_OST) {
-		ltd = &lod->lod_ost_descs;
-		lod_getref(ltd);
-	} else {
-		LBUG();
-	}
 
-	if (ltd != NULL) {
 		if (ltd->ltd_tgts_size > idx &&
 		    cfs_bitmap_check(ltd->ltd_tgt_bitmap, idx)) {
 			tgt = LTD_TGT(ltd, idx);
