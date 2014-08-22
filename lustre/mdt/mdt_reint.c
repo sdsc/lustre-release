@@ -670,8 +670,8 @@ static int mdt_reint_setattr(struct mdt_thread_info *info,
         DEBUG_REQ(D_INODE, req, "setattr "DFID" %x", PFID(rr->rr_fid1),
                   (unsigned int)ma->ma_attr.la_valid);
 
-        if (info->mti_dlm_req)
-                ldlm_request_cancel(req, info->mti_dlm_req, 0);
+	if (info->mti_dlm_req)
+		ldlm_request_cancel(req, info->mti_dlm_req, 0, LATF_SKIP);
 
 	repbody = req_capsule_server_get(info->mti_pill, &RMF_MDT_BODY);
         mo = mdt_object_find(info->mti_env, info->mti_mdt, rr->rr_fid1);
@@ -817,8 +817,9 @@ static int mdt_reint_create(struct mdt_thread_info *info,
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_REINT_CREATE))
                 RETURN(err_serious(-ESTALE));
 
-        if (info->mti_dlm_req)
-                ldlm_request_cancel(mdt_info_req(info), info->mti_dlm_req, 0);
+	if (info->mti_dlm_req)
+		ldlm_request_cancel(mdt_info_req(info),
+				    info->mti_dlm_req, 0, LATF_SKIP);
 
 	if (!lu_name_is_valid(&info->mti_rr.rr_name))
 		RETURN(-EPROTO);
@@ -872,8 +873,8 @@ static int mdt_reint_unlink(struct mdt_thread_info *info,
 	DEBUG_REQ(D_INODE, req, "unlink "DFID"/"DNAME"", PFID(rr->rr_fid1),
 		  PNAME(&rr->rr_name));
 
-        if (info->mti_dlm_req)
-                ldlm_request_cancel(req, info->mti_dlm_req, 0);
+	if (info->mti_dlm_req)
+		ldlm_request_cancel(req, info->mti_dlm_req, 0, LATF_SKIP);
 
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_REINT_UNLINK))
                 RETURN(err_serious(-ENOENT));
@@ -1095,8 +1096,8 @@ static int mdt_reint_link(struct mdt_thread_info *info,
         if (OBD_FAIL_CHECK(OBD_FAIL_MDS_REINT_LINK))
                 RETURN(err_serious(-ENOENT));
 
-        if (info->mti_dlm_req)
-                ldlm_request_cancel(req, info->mti_dlm_req, 0);
+	if (info->mti_dlm_req)
+		ldlm_request_cancel(req, info->mti_dlm_req, 0, LATF_SKIP);
 
         /* Invalid case so return error immediately instead of
          * processing it */
@@ -1972,7 +1973,7 @@ static int mdt_reint_rename_or_migrate(struct mdt_thread_info *info,
 	ENTRY;
 
 	if (info->mti_dlm_req)
-		ldlm_request_cancel(req, info->mti_dlm_req, 0);
+		ldlm_request_cancel(req, info->mti_dlm_req, 0, LATF_SKIP);
 
 	if (fid_is_obf(rr->rr_fid1) || fid_is_dot_lustre(rr->rr_fid1) ||
 	    fid_is_obf(rr->rr_fid2) || fid_is_dot_lustre(rr->rr_fid2))
