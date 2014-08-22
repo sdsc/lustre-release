@@ -1055,6 +1055,12 @@ static int lod_alloc_qos(const struct lu_env *env, struct lod_object *lo,
 		ost = OST_TGT(m,osts->op_array[i]);
 		ost->ltd_qos.ltq_usable = 1;
 		lod_qos_calc_weight(m, osts->op_array[i]);
+		/* Additionally penalize OSTs for which we do not have
+		 * precreated objects. This is a proxy of slowness or
+		 * connection to this OST being down. These should be
+		 * used as only the last resort */
+		if (sfs->os_fprecreated == 0)
+			ost->ltd_qos.ltq_weight = 0;
 		total_weight += ost->ltd_qos.ltq_weight;
 
 		good_osts++;
