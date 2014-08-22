@@ -70,6 +70,11 @@ struct adaptive_timeout {
 	spinlock_t	at_lock;
 };
 
+enum at_flags {
+	ATF_SKIP	= 0x0,
+	ATF_STATS	= 0x1,
+};
+
 struct ptlrpc_at_array {
 	struct list_head *paa_reqs_array; /** array to hold requests */
         __u32             paa_size;       /** the size of array */
