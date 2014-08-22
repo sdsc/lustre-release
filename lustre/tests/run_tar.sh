@@ -45,8 +45,6 @@ while [ ! -e "$END_RUN_FILE" ] && $CONTINUE; do
 	fi
 
 	cd $TESTDIR
-
-	sync
 	do_tar &
 	wait $!
 	RC=$?
