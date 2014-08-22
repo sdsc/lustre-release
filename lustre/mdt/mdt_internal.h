@@ -142,7 +142,6 @@ struct mdt_device {
         /* these values should be updated from lov if necessary.
          * or should be placed somewhere else. */
         int                        mdt_max_mdsize;
-        int                        mdt_max_cookiesize;
 
         struct upcall_cache        *mdt_identity_cache;
 
@@ -642,6 +641,10 @@ int mdt_lock_setup(struct mdt_thread_info *info,
                    struct mdt_object *o,
                    struct mdt_lock_handle *lh);
 
+int mdt_check_resent_lock(struct mdt_thread_info *info,
+			  struct mdt_object *mo,
+			  struct mdt_lock_handle *lhc);
+
 int mdt_object_lock(struct mdt_thread_info *,
                     struct mdt_object *,
                     struct mdt_lock_handle *,
@@ -758,7 +761,7 @@ struct lu_buf *mdt_buf(const struct lu_env *env, void *area, ssize_t len);
 const struct lu_buf *mdt_buf_const(const struct lu_env *env,
                                    const void *area, ssize_t len);
 
-void mdt_dump_lmm(int level, const struct lov_mds_md *lmm);
+void mdt_dump_lmm(int level, const struct lov_mds_md *lmm, __u64 valid);
 
 int mdt_check_ucred(struct mdt_thread_info *);
 int mdt_init_ucred(struct mdt_thread_info *, struct mdt_body *);

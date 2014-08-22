@@ -1328,9 +1328,14 @@ int mdt_open_by_fid_lock(struct mdt_thread_info *info, struct ldlm_reply *rep,
         if (rc)
                 GOTO(out, rc);
 
-	rc = mdt_object_open_lock(info, o, lhc, &ibits);
-        if (rc)
-                GOTO(out, rc);
+	rc = mdt_check_resent_lock(info, o, lhc);
+	if (rc < 0) {
+		GOTO(out, rc);
+	} else if (rc > 0) {
+		rc = mdt_object_open_lock(info, o, lhc, &ibits);
+		if (rc)
+			GOTO(out, rc);
+	}
 
         if (ma->ma_valid & MA_PFID) {
                 parent = mdt_object_find(env, mdt, &ma->ma_pfid);
@@ -1437,7 +1442,7 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
         struct lu_fid           *child_fid = &info->mti_tmp_fid1;
         struct md_attr          *ma = &info->mti_attr;
         __u64                    create_flags = info->mti_spec.sp_cr_flags;
-	__u64			 ibits;
+	__u64			 ibits = 0;
         struct mdt_reint_record *rr = &info->mti_rr;
         struct lu_name          *lname;
         int                      result, rc;
@@ -1651,22 +1656,10 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
                          */
                         LASSERT(lhc != NULL);
 
-                        if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
-                                struct ldlm_lock *lock;
-
-                                LASSERT(msg_flags & MSG_RESENT);
-
-                                lock = ldlm_handle2lock(&lhc->mlh_reg_lh);
-                                if (!lock) {
-                                        CERROR("Invalid lock handle "LPX64"\n",
-                                               lhc->mlh_reg_lh.cookie);
-                                        LBUG();
-                                }
-                                LASSERT(fid_res_name_eq(mdt_object_fid(child),
-                                                        &lock->l_resource->lr_name));
-                                LDLM_LOCK_PUT(lock);
-                                rc = 0;
-                        } else {
+			rc = mdt_check_resent_lock(info, child, lhc);
+			if (rc < 0) {
+				GOTO(out_child, result = rc);
+			} else if (rc > 0) {
                                 mdt_lock_handle_init(lhc);
                                 mdt_lock_reg_init(lhc, LCK_PR);
 
@@ -1697,10 +1690,17 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 		}
         }
 
-	if (lustre_handle_is_used(&lhc->mlh_reg_lh)) {
+	rc = mdt_check_resent_lock(info, child, lhc);
+	if (rc < 0) {
+		GOTO(out_child, result = rc);
+	} else if (rc == 0) {
 		/* the open lock might already be gotten in
-		 * mdt_intent_fixup_resent */
+		 * ldlm_handle_enqueue() */
 		LASSERT(lustre_msg_get_flags(req->rq_reqmsg) & MSG_RESENT);
+
+		/* take again a ref on old lock found to be resent */
+		ldlm_lock_addref(&lhc->mlh_reg_lh, lhc->mlh_reg_mode);
+
 		if (create_flags & MDS_OPEN_LOCK)
 			mdt_set_disposition(info, ldlm_rep, DISP_OPEN_LOCK);
 	} else {
@@ -1725,7 +1725,6 @@ int mdt_reint_open(struct mdt_thread_info *info, struct mdt_lock_handle *lhc)
 		if (created) {
 			ma->ma_need = 0;
 			ma->ma_valid = 0;
-			ma->ma_cookie_size = 0;
 			rc = mdo_unlink(info->mti_env,
 					mdt_object_child(parent),
 					mdt_object_child(child),
@@ -1864,10 +1863,12 @@ int mdt_close(struct mdt_thread_info *info)
 
         LASSERT(info->mti_ioepoch);
 
+	/* These fields are no longer used and is left for compatibility.
+	 * size is always zero */
         req_capsule_set_size(info->mti_pill, &RMF_MDT_MD, RCL_SERVER,
-                             info->mti_mdt->mdt_max_mdsize);
+			     0);
         req_capsule_set_size(info->mti_pill, &RMF_LOGCOOKIES, RCL_SERVER,
-                             info->mti_mdt->mdt_max_cookiesize);
+			     0);
         rc = req_capsule_server_pack(info->mti_pill);
         if (mdt_check_resent(info, mdt_reconstruct_generic, NULL)) {
                 mdt_client_compatibility(info);
@@ -1886,11 +1887,6 @@ int mdt_close(struct mdt_thread_info *info)
                 ma->ma_lmm_size = req_capsule_get_size(info->mti_pill,
                                                        &RMF_MDT_MD,
                                                        RCL_SERVER);
-                ma->ma_cookie = req_capsule_server_get(info->mti_pill,
-                                                       &RMF_LOGCOOKIES);
-                ma->ma_cookie_size = req_capsule_get_size(info->mti_pill,
-                                                          &RMF_LOGCOOKIES,
-                                                          RCL_SERVER);
                 ma->ma_need = MA_INODE | MA_LOV | MA_COOKIE;
                 repbody->eadatasize = 0;
                 repbody->aclsize = 0;
