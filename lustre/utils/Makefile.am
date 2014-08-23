@@ -87,6 +87,7 @@ liblustreapi_la_SOURCES = liblustreapi.c liblustreapi_hsm.c \
 			    liblustreapi_nodemap.c lustreapi_internal.h \
 			    liblustreapi_json.c liblustreapi_layout.c \
 			    $(L_IOCTL) $(L_KERNELCOMM) $(L_STRING)
+liblustreapi_la_LDFLAGS = -Wl,--version-script=liblustreapi.map
 
 if LDISKFS_ENABLED
 libiam_a_SOURCES = libiam.c
@@ -154,7 +155,7 @@ wiretest_SOURCES = wiretest.c
 
 endif
 
-EXTRA_DIST = $(sbin_scripts) $(bin_scripts)
+EXTRA_DIST = $(sbin_scripts) $(bin_scripts) liblustreapi.map
 
 # NOTE: this should only be run on i386.
 newwiretest: wirehdr.c wirecheck
