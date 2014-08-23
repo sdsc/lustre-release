@@ -8,7 +8,7 @@ CC = @MPICC_WRAPPER@
 noinst_PROGRAMS = parallel_grouplock write_append_truncate createmany_mpi
 noinst_PROGRAMS += mdsrate write_disjoint cascading_rw
 testdir = $(libdir)/lustre/tests
-test_SCRIPTS = $(noinst_PROGRAMS)
+test_PROGRAMS = $(noinst_PROGRAMS)
 
 write_append_truncate_SOURCES=write_append_truncate.c
 write_disjoint_SOURCES=write_disjoint.c
