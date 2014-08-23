@@ -45,6 +45,7 @@
 
 #if !defined(__KERNEL__)
 #include <libcfs/posix/libcfs.h>
+#include <bsd/string.h>
 #elif defined(__linux__)
 #include <libcfs/linux/libcfs.h>
 #else

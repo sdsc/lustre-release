@@ -370,11 +370,8 @@ AC_CHECK_TYPE([spinlock_t],
 # lnet/utils/wirecheck.c
 AC_CHECK_FUNCS([strnlen])
 
-# lnet/libcfs/user-prim.c, missing for RHEL5 and earlier userspace
-AC_CHECK_FUNCS([strlcpy])
-
-# libcfs/libcfs/user-prim.c, missing for RHEL5 and earlier userspace
-AC_CHECK_FUNCS([strlcat])
+# Get libbsd for strlcpy, strlcat
+AC_CHECK_LIB(bsd,strlcpy,[],[AC_MSG_ERROR([libbsd not found. Install libbsd-dev.])], [])
 
 # --------  Check for required packages  --------------
 
