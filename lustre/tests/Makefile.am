@@ -86,7 +86,7 @@ endif # TESTS
 
 mmap_sanity_SOURCES= mmap_sanity.c
 
-LIBLUSTREAPI = $(top_builddir)/lustre/utils/liblustreapi.a
+LIBLUSTREAPI = $(top_builddir)/lustre/utils/liblustreapi.la
 multiop_LDADD=$(LIBLUSTREAPI) $(PTHREAD_LIBS) $(LIBCFS)
 llapi_layout_test_LDADD=$(LIBLUSTREAPI)
 it_test_LDADD=$(LIBCFS)
