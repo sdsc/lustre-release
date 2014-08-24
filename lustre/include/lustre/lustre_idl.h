@@ -3548,17 +3548,24 @@ struct lfsck_request {
 	__u32		lr_event;
 	__u32		lr_index;
 	__u32		lr_flags;
-	__u32		lr_valid;
+	union {
+		__u32	lr_valid;
+		__u32	lr_stripe_index;
+	};
 	union {
 		__u32	lr_speed;
 		__u32	lr_status;
 		__u32	lr_type;
+		__u32	lr_index2;
 	};
 	__u16		lr_version;
 	__u16		lr_active;
 	__u16		lr_param;
 	__u16		lr_async_windows;
-	__u32		lr_flags2;
+	union {
+		__u32	lr_flags2;
+		__u32	lr_layout_version;
+	};
 	struct lu_fid	lr_fid;
 	struct lu_fid	lr_fid2;
 	union {
@@ -3566,8 +3573,10 @@ struct lfsck_request {
 		/* lfsck_request is used for both on-wire LFSCK RPC and local
 		 * LFSCK notification. The "lr_handle" is only for local. */
 		struct thandle	*lr_handle;
+		char		 lr_pool_name[LOV_MAXPOOLNAME];
 	};
-	__u64		lr_padding_2;
+	__u32		lr_stripe_count;
+	__u32		lr_hash_type;
 	__u64		lr_padding_3;
 };
 
