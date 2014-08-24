@@ -545,6 +545,13 @@ struct lfsck_lmv {
 	struct lfsck_slave_lmv_rec	*ll_lslr;
 };
 
+struct lfsck_lmv_unit {
+	struct list_head	 llu_link;
+	struct lfsck_lmv	 llu_lmv;
+	struct dt_object	*llu_obj;
+	struct lfsck_instance	*llu_lfsck;
+};
+
 struct lfsck_instance {
 	struct mutex		  li_mutex;
 	spinlock_t		  li_lock;
@@ -565,6 +572,9 @@ struct lfsck_instance {
 
 	/* For the components those are not scanning now. */
 	struct list_head	  li_list_idle;
+
+	/* For the lfsck_lmv_unit to be handled. */
+	struct list_head	  li_list_lmv;
 
 	atomic_t		  li_ref;
 	atomic_t		  li_double_scan_count;
@@ -929,6 +939,9 @@ int lfsck_namespace_set_lmv_master_local(const struct lu_env *env,
 					 struct lmv_mds_md_v1 *lmv,
 					 const struct lu_fid *cfid,
 					 __u32 cidx, __u32 flags);
+int lfsck_namespace_scan_shard(const struct lu_env *env,
+			       struct lfsck_component *com,
+			       struct dt_object *child);
 int lfsck_namespace_repair_bad_name_hash(const struct lu_env *env,
 					 struct lfsck_component *com,
 					 struct dt_object *shard,
