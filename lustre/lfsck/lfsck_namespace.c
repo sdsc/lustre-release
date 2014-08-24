@@ -547,9 +547,9 @@ unlock:
 	return rc;
 }
 
-static int lfsck_namespace_check_exist(const struct lu_env *env,
-				       struct dt_object *dir,
-				       struct dt_object *obj, const char *name)
+int lfsck_namespace_check_exist(const struct lu_env *env,
+				struct dt_object *dir,
+				struct dt_object *obj, const char *name)
 {
 	struct lu_fid	 *fid = &lfsck_env_info(env)->lti_fid;
 	int		  rc;
@@ -4575,6 +4575,42 @@ log:
 
 		RETURN(rc > 0 ? 0 : rc);
 	}
+	case LE_SET_LMV_SLAVE: {
+		struct lmv_mds_md_v1	*lmv = &lfsck_env_info(env)->lti_lmv;
+		struct dt_object	*obj;
+
+		if (lr->lr_flags & LEF_RECHECK_NAME_HASH) {
+			rc = lfsck_namespace_trace_update(env, com, &lr->lr_fid,
+						LNTF_RECHECK_NAME_HASH, true);
+
+			RETURN(rc);
+		}
+
+		obj = lfsck_object_find_by_dev(env, lfsck->li_bottom,
+					       &lr->lr_fid);
+		if (IS_ERR(obj))
+			RETURN(PTR_ERR(obj));
+
+		memset(lmv, 0, sizeof(*lmv));
+		lmv->lmv_magic = LMV_MAGIC_STRIPE;
+		lmv->lmv_stripe_count = lr->lr_stripe_count;
+		lmv->lmv_hash_type = lr->lr_hash_type;
+		lmv->lmv_master_mdt_index = lr->lr_stripe_index;
+		lmv->lmv_layout_version = lr->lr_layout_version;
+		memcpy(lmv->lmv_pool_name, lr->lr_pool_name,
+		       sizeof(lmv->lmv_pool_name));
+
+		rc = lfsck_namespace_update_lmv(env, com, obj, lmv, false);
+		if (rc == 0) {
+			ns->ln_striped_shards_repaired++;
+			rc = lfsck_namespace_trace_update(env, com, &lr->lr_fid,
+						LNTF_RECHECK_NAME_HASH, true);
+		}
+
+		lfsck_object_put(env, obj);
+
+		RETURN(rc > 0 ? 0 : rc);
+	}
 	case LE_PHASE1_DONE:
 	case LE_PHASE2_DONE:
 	case LE_PEER_EXIT:
@@ -4974,6 +5010,12 @@ static int lfsck_namespace_assistant_handler_p1(const struct lu_env *env,
 	if (lnr->lnr_name[0] == '.' &&
 	    (lnr->lnr_namelen == 1 || fid_seq_is_dot(fid_seq(&lnr->lnr_fid))))
 		GOTO(out, rc = 0);
+
+	if (lnr->lnr_lmv != NULL && lnr->lnr_lmv->ll_lmv_master) {
+		rc = lfsck_namespace_handle_striped_master(env, com, lnr);
+
+		RETURN(rc);
+	}
 
 	idx = lfsck_find_mdt_idx_by_fid(env, lfsck, &lnr->lnr_fid);
 	if (idx < 0)
