@@ -1,7 +1,7 @@
-agent_LTLIBRARIES = lustresnmp.la
+agent_PROGRAMS  = lustresnmp.so
 mib_DATA = Lustre-MIB.txt
 
-lustresnmp_la_SOURCES =		\
+lustresnmp_so_SOURCES =		\
 	lustre-snmp.c		\
 	lustre-snmp.h		\
 	lustre-snmp-trap.c	\
@@ -9,9 +9,9 @@ lustresnmp_la_SOURCES =		\
 	lustre-snmp-util.c	\
 	lustre-snmp-util.h
 
-lustresnmp_la_LIBADD := $(NET_SNMP_LIBS)
-lustresnmp_la_CFLAGS := -fPIC $(NET_SNMP_CFLAGS)
-lustresnmp_la_LDFLAGS = -fPIC -shared -module -avoid-version
+lustresnmp_so_LDADD := $(NET_SNMP_LIBS)
+lustresnmp_so_CFLAGS := -fPIC $(NET_SNMP_CFLAGS)
+lustresnmp_so_LDFLAGS = -fPIC -shared
 
 SUBDIRS =
 DIST_SUBDIRS = autoconf

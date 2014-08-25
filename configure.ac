@@ -15,7 +15,6 @@ AM_INIT_AUTOMAKE([1.10 tar-ustar -Wno-portability])
 AM_MAINTAINER_MODE([enable])
 
 AC_PROG_CC
-AC_PROG_LIBTOOL
 
 AM_PROG_AS
 
