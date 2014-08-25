@@ -39,6 +39,39 @@
  * Author: Mike Pershin <tappro@whamcloud.com>
  * Author: Johann Lombardi <johann@whamcloud.com>
  */
+/*
+ * The OBD Filter Device (OFD) module belongs to the Object Storage
+ * Server stack and connects the RPC oriented OST and Unified Target
+ * (TGT) layers to the storage oriented OSD layer.
+ *
+ *     OST
+ *      |
+ *     TGT
+ *      |      DT and OBD APIs
+ *     OFD
+ *      |      DT API
+ *     OSD
+ *
+ * OFD implements the LU and OBD device APIs and is responsible for:
+ *
+ * - Handling client bulk IO request for the objects belonging to the
+ *   OST (together with TGT).
+ *
+ * - Providing grant space management which allows clients to reserve
+ *   disk space for data writeback. OFD tracks grants on global and
+ *   per client levels.
+ *
+ * - Precreating objects for MDTs to use when creating striped files.
+ *
+ * - Operating the LDLM service that allows clients to maintain object
+ *   data cache coherence.
+ *
+ * - LVB - Sizes and timestamps. Sending glimpse callbacks.
+ *
+ * - FMD - I didn't know this was a thing until today.
+ *
+ * - VBR - Is this worth mentioning?
+ */
 
 #define DEBUG_SUBSYSTEM S_FILTER
 
