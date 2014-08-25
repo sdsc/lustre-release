@@ -4093,6 +4093,43 @@ run_lfsck() {
 	return $rc
 }
 
+dump_file_contents() {
+    local facets=$1
+    local dir=$2
+    local logname=$3
+    local facet
+    local node
+
+    if [ -z facets -o -z $dir -o -z $logname ]; then
+        error_noexit false "Invalid parameters for dump_file_contents()"
+    fi
+
+    for facet in ${facets//,/ }; do
+        node=$(facet_host ${facet})
+        do_node $node "for i in \\\$(find $dir -type f); do
+                           echo ====\\\${i}=======================;
+                           tail -1000 \\\${i};
+                       done" >> $(generate_logname $logname $node)
+    done
+}
+
+dump_command_output() {
+    local facets=$1
+    local cmd=$2
+    local logname=$3
+    local facet
+    local node
+
+    if [ -z facets -o -z $dir -o -z $logname ]; then
+        error_noexit false "Invalid parameters for dump_file_contents()"
+    fi
+
+    for facet in ${facets//,/ }; do
+        node=$(facet_host ${facet})
+        do_node $node "echo ====\\\${cmd}=======================;
+                       $cmd" >> $(generate_logname $logname $node)
+    done
+}
 check_and_cleanup_lustre() {
     if [ "$LFSCK_ALWAYS" = "yes" -a "$TESTSUITE" != "lfsck" ]; then
         get_svr_devs
@@ -4100,28 +4137,39 @@ check_and_cleanup_lustre() {
         run_lfsck
     fi
 
-	if is_mounted $MOUNT; then
-		[ -n "$DIR" ] && rm -rf $DIR/[Rdfs][0-9]* ||
-			error "remove sub-test dirs failed"
-		[ "$ENABLE_QUOTA" ] && restore_quota || true
-	fi
+    # dump file contents from /proc/spl in case of zfs test
+    if [ "$(facet_fstype ost1)" = "zfs" ]; then
+        dump_file_contents "$(get_facets OST)" "/proc/spl" "proc_spl"
+        dump_command_output "$(get_facets OST)" "zpool events -v" "proc_spl"
+    fi
 
-	if [ "$I_UMOUNTED2" = "yes" ]; then
-		restore_mount $MOUNT2 || error "restore $MOUNT2 failed"
-	fi
+    if [ "$(facet_fstype mds1)" = "zfs" ]; then
+        dump_file_contents "$(get_facets MDS)" "/proc/spl" "proc_spl"
+        dump_command_output "$(get_facets MDS)" "zpool events -v" "proc_spl"
+    fi
 
-	if [ "$I_MOUNTED2" = "yes" ]; then
-		cleanup_mount $MOUNT2
-	fi
+    if is_mounted $MOUNT; then
+        [ -n "$DIR" ] && rm -rf $DIR/[Rdfs][0-9]* ||
+            error "remove sub-test dirs failed"
+        [ "$ENABLE_QUOTA" ] && restore_quota || true
+    fi
 
-	if [ "$I_MOUNTED" = "yes" ]; then
-		cleanupall -f || error "cleanup failed"
-		unset I_MOUNTED
-	fi
+    if [ "$I_UMOUNTED2" = "yes" ]; then
+        restore_mount $MOUNT2 || error "restore $MOUNT2 failed"
+    fi
 
-	if grep -qe "/sbin/mount\.lustre " /proc/mounts; then
-		umount /sbin/mount.lustre
-	fi
+    if [ "$I_MOUNTED2" = "yes" ]; then
+        cleanup_mount $MOUNT2
+    fi
+
+    if [ "$I_MOUNTED" = "yes" ]; then
+        cleanupall -f || error "cleanup failed"
+        unset I_MOUNTED
+    fi
+
+    if grep -qe "/sbin/mount\.lustre " /proc/mounts; then
+        umount /sbin/mount.lustre
+    fi
 }
 
 #######
@@ -6785,9 +6833,10 @@ mds_remove_ois() {
 # generate maloo upload-able log file name
 # \param logname specify unique part of file name
 generate_logname() {
-	local logname=${1:-"default_logname"}
+    local logname=${1:-"default_logname"}
+    local hostname=${2:-"$(hostname -s)"}
 
-	echo "$TESTLOG_PREFIX.$TESTNAME.$logname.$(hostname -s).log"
+    echo "$TESTLOG_PREFIX.$TESTNAME.$logname.$hostname.log"
 }
 
 # make directory on different MDTs
