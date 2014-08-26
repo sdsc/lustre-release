@@ -3892,6 +3892,71 @@ struct lustre_capa_key {
 
 extern void lustre_swab_lustre_capa_key(struct lustre_capa_key *k);
 
+static const char * const opcode_names[] = {
+	[OST_REPLY] = "ost_reply",
+	[OST_GETATTR] = "ost_getattr",
+	[OST_SETATTR] = "ost_setattr",
+	[OST_READ] = "ost_read",
+	[OST_WRITE] = "ost_write",
+	[OST_CREATE] = "ost_create",
+	[OST_DESTROY] = "ost_destroy",
+	[OST_GET_INFO] = "ost_get_info",
+	[OST_CONNECT] = "ost_connect",
+	[OST_DISCONNECT] = "ost_disconnect",
+	[OST_PUNCH] = "ost_punch",
+	[OST_OPEN] = "ost_open",
+	[OST_CLOSE] = "ost_close",
+	[OST_STATFS] = "ost_statfs",
+	[OST_SYNC] = "ost_sync",
+	[OST_SET_INFO] = "ost_set_info",
+	[OST_QUOTACHECK] = "ost_quotacheck",
+	[OST_QUOTACTL] = "ost_quotactl",
+	[OST_QUOTA_ADJUST_QUNIT] = "ost_quota_adjust_qunit",
+	[MDS_GETATTR] = "mds_getattr",
+	[MDS_GETATTR_NAME] = "mds_getattr_lock",
+	[MDS_CLOSE] = "mds_close",
+	[MDS_REINT] = "mds_reint",
+	[MDS_READPAGE] = "mds_readpage",
+	[MDS_CONNECT] = "mds_connect",
+	[MDS_DISCONNECT] = "mds_disconnect",
+	[MDS_GETSTATUS] = "mds_getstatus",
+	[MDS_STATFS] = "mds_statfs",
+	[MDS_PIN] = "mds_pin",
+	[MDS_UNPIN] = "mds_unpin",
+	[MDS_SYNC] = "mds_sync",
+	[MDS_DONE_WRITING] = "mds_done_writing",
+	[MDS_SET_INFO] = "mds_set_info",
+	[MDS_QUOTACHECK] = "mds_quotacheck",
+	[MDS_QUOTACTL] = "mds_quotactl",
+	[MDS_GETXATTR] = "mds_getxattr",
+	[MDS_SETXATTR] = "mds_setxattr",
+	[MDS_WRITEPAGE] = "mds_writepage",
+	[MDS_IS_SUBDIR] = "mds_is_subdir",
+	[MDS_GET_INFO] = "mds_get_info",
+	[MDS_HSM_STATE_GET] = "mds_hsm_state_get",
+	[MDS_HSM_STATE_SET] = "mds_hsm_state_set",
+	[MDS_HSM_ACTION] = "mds_hsm_action",
+	[MDS_HSM_PROGRESS] = "mds_hsm_progress",
+	[MDS_HSM_REQUEST] = "mds_hsm_request",
+	[MDS_HSM_CT_REGISTER] = "mds_hsm_ct_register",
+	[MDS_HSM_CT_UNREGISTER] = "mds_hsm_ct_unregister",
+	[MDS_SWAP_LAYOUTS] = "mds_swap_layouts",
+};
+
+#define OPCODE_NAMES_SIZE	((sizeof(opcode_names)) / (sizeof(char *)))
+static inline int lustre_string2opcode(const char *ops)
+{
+	int		i;
+
+	for (i = 0; i < OPCODE_NAMES_SIZE; i++) {
+		if (opcode_names[i] != NULL &&
+		    !strcmp(ops, opcode_names[i]))
+			return i;
+	}
+
+	return -EINVAL;
+}
+
 /** The link ea holds 1 \a link_ea_entry for each hardlink */
 #define LINK_EA_MAGIC 0x11EAF1DFUL
 struct link_ea_header {
