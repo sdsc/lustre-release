@@ -413,9 +413,9 @@ out:
 /**
  * Trigger the request for remote updates.
  *
- * If the transaction is a remote transaction, then related remote updates
- * will be sent asynchronously; otherwise, the cross MDTs transaction will
- * be synchronized.
+ * If the transaction is not a remote one or it is required to be sync mode
+ * (th->th_sync is set), then it will be sent synchronously; otherwise, the
+ * RPC will be sent asynchronously.
  *
  * Please refer to osp_trans_create() for transaction type.
  *
@@ -440,6 +440,14 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 	if (is_only_remote_trans(th)) {
 		struct osp_async_update_args	*args;
 		struct ptlrpc_request		*req;
+
+		if (th->th_sync) {
+			rc = out_remote_sync(env, osp->opd_obd->u.cli.cl_import,
+					     dt_update, NULL);
+			dt_update_request_destroy(dt_update);
+
+			return rc;
+		}
 
 		list_del_init(&dt_update->dur_list);
 		rc = out_prep_update_req(env, osp->opd_obd->u.cli.cl_import,
