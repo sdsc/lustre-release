@@ -794,6 +794,11 @@ extern int lprocfs_write_frac_helper(const char *buffer, unsigned long count,
 extern int lprocfs_seq_read_frac_helper(struct seq_file *m, long val, int mult);
 extern int lprocfs_read_frac_helper(char *buffer, unsigned long count,
                                     long val, int mult);
+extern int lprocfs_write_long_helper(const char *buffer, unsigned long count,
+				     long *val);
+extern int lprocfs_write_frac_long_helper(const char *buffer,
+					  unsigned long count, long *val,
+					  int mult);
 extern int lprocfs_write_u64_helper(const char *buffer, unsigned long count,
                                     __u64 *val);
 extern int lprocfs_write_frac_u64_helper(const char *buffer,

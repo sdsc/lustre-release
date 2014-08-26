@@ -2347,6 +2347,57 @@ int lprocfs_write_frac_helper(const char *buffer, unsigned long count,
 }
 EXPORT_SYMBOL(lprocfs_write_frac_helper);
 
+int lprocfs_write_long_helper(const char *buffer, unsigned long count,
+			      long *val)
+{
+	return lprocfs_write_frac_long_helper(buffer, count, val, 1);
+}
+EXPORT_SYMBOL(lprocfs_write_long_helper);
+
+int lprocfs_write_frac_long_helper(const char *buffer, unsigned long count,
+				   long *val, int mult)
+{
+	char kernbuf[22], *end, *pbuf;
+
+	if (count > (sizeof(kernbuf) - 1))
+		return -EINVAL;
+
+	if (copy_from_user(kernbuf, buffer, count))
+		return -EFAULT;
+
+	kernbuf[count] = '\0';
+	pbuf = kernbuf;
+	if (*pbuf == '-') {
+		mult = -mult;
+		pbuf++;
+	}
+
+	*val = simple_strtoul(pbuf, &end, 10) * mult;
+	if (pbuf == end)
+		return -EINVAL;
+
+	if (end != NULL && *end == '.') {
+		int pow = 1;
+		int temp_val;
+		int i;
+
+		pbuf = end + 1;
+		if (strlen(pbuf) > 5)
+			pbuf[5] = '\0'; /*only allow 5bits fractional*/
+
+		temp_val = (int)simple_strtoul(pbuf, &end, 10) * mult;
+
+		if (pbuf < end) {
+			for (i = 0; i < (end - pbuf); i++)
+				pow *= 10;
+
+			*val += temp_val / pow;
+		}
+	}
+	return 0;
+}
+EXPORT_SYMBOL(lprocfs_write_frac_long_helper);
+
 int lprocfs_read_frac_helper(char *buffer, unsigned long count, long val,
                              int mult)
 {

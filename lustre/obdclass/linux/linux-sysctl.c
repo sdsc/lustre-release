@@ -168,13 +168,13 @@ int LL_PROC_PROTO(proc_max_dirty_pages_in_mb)
 		return 0;
 	}
 	if (write) {
-		rc = lprocfs_write_frac_helper(buffer, *lenp,
-					       (unsigned int *)table->data,
+		rc = lprocfs_write_frac_long_helper(buffer, *lenp,
+					       (unsigned long *)table->data,
 					       1 << (20 - PAGE_CACHE_SHIFT));
 		/* Don't allow them to let dirty pages exceed 90% of system
 		 * memory and set a hard minimum of 4MB. */
 		if (obd_max_dirty_pages > ((totalram_pages / 10) * 9)) {
-			CERROR("Refusing to set max dirty pages to %u, which "
+			CERROR("Refusing to set max dirty pages to %lu, which "
 			       "is more than 90%% of available RAM; setting "
 			       "to %lu\n", obd_max_dirty_pages,
 			       ((totalram_pages / 10) * 9));
@@ -342,7 +342,7 @@ static struct ctl_table obd_table[] = {
 		INIT_CTL_NAME
 		.procname	= "max_dirty_mb",
 		.data		= &obd_max_dirty_pages,
-		.maxlen		= sizeof(int),
+		.maxlen		= sizeof(unsigned long),
 		.mode		= 0644,
 		.proc_handler	= &proc_max_dirty_pages_in_mb
 	},
