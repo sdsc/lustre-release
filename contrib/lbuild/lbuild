@@ -212,6 +212,10 @@ Usage: ${0##*/} [OPTION]... [-- <lustre configure options>]
   --xen
     Builds a Xen domX kernel.
 
+  --mellanox-ofed-vm=FULL_PATHNAME_MELLANOX_OFED
+    Absolute path name of the tarball containing the Mellanox
+    enabled OFED software.
+
   --set-value
     Sets a variable to a given value.
 
@@ -543,6 +547,18 @@ download_ofed() {
         return 0
     fi
 
+    # Mellanox OFED stack supporting SR-IOV virtualisation shhould be used
+    # instead of OFED provided by openfabrics. Mellanox OFED has been
+    # repackaged to be aligned with the file/diretory structure of the openfabrics OFED.
+    if [ -n "$MELLANOX_OFED_VM" ] ; then
+        cp $MELLANOX_OFED_VM $KERNELTREE
+        if [ $? -ne 0 ] ; then
+            fatal 1 "Can't copy $MELLANOX_OFED_VM to $KERNELTREE OFED"
+        else
+            return 0
+        fi
+    fi
+
     local OFED_BASE_VERSION=$OFED_VERSION
     if [[ $OFED_VERSION = *.*.*.* ]]; then
         OFED_BASE_VERSION=${OFED_VERSION%.*}
@@ -699,6 +715,7 @@ download_mpss() {
 
 load_target() {
 
+    echo "TOPDIR : $TOPDIR"
     EXTRA_VERSION_save="$EXTRA_VERSION"
     for patchesdir in "$EXTERNAL_PATCHES" \
                       "$TOPDIR/lustre/lustre/kernel_patches"; do
@@ -1316,6 +1333,34 @@ build_kernel_ib() {
     local linux="$1"
     local kib_prefix="$2"
     local kib_rpm="$3"
+
+    if [ -n "$MELLANOX_OFED_VM" ] ; then
+
+        # Set list Module list of OFED modules that need to be compiled for KVM guest
+        local OFED_VM_CORE=' --with-core-mod --with-ipoib-mod --with-user_mad-mod --with-user_access-mod --with-addr_trans-mod'
+        local OFED_VM_HARDWARE='--with-mlx4-mod --with-mlx4_en-mod'
+        local OFED_VM_ISCSI='--with-srp-mod'
+        SOURCE_VM="${TOPDIR}/OFED/SRPMS/mlnx-ofa_kernel-*.src.rpm"
+        
+        rpm --define "_topdir ${TOPDIR}" -ivh $SOURCE_VM
+       
+        local linuxrelease=$(find_linux_release "$linux")
+        # Compile OFED using the source RPM
+        if ! $RPMBUILD $BUILD_TYPE --rebuild --nodeps --define 'build_kernel_ib 1' --define 'build_kernel_ib_devel 1' \
+                      --define "_topdir ${TOPDIR}" --target ${TARGET_ARCH} \
+                      --define "kernel_version ${linuxrelease}" \
+                      --define "KVERSION ${linuxrelease}" \
+                      --define "K_SRC ${linux}" \
+                      --define "LIB_MOD_DIR /lib/modules/${linuxrelease}/updates" \
+                      ${OFA_KERNEL_RELEASE:+--define "_release $OFA_KERNEL_RELEASE"} \
+                      --define "configure_options --without-quilt $OFED_VM_CORE $OFED_VM_HARDWARE $OFED_VM_ISCSI" \
+                      --define "network-dir /etc/sysconfig/network-scripts" \
+                      ${SOURCE_VM} 2>&1 ; then
+            fatal 1 "Error building kernel-ib"
+            return 1
+        fi
+        return 0
+    fi
 
     # build kernel-ib{,-devel}/compat-rdma{,-devel}
     local K_SRC="K_SRC"
@@ -1980,7 +2025,7 @@ set -E
 
 [ -r ~/.lbuildrc ] && . ~/.lbuildrc
 
-options=$(getopt -o D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ccache,norpm,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,noiokit,ofed-version:,mpss-version:,publish,release,set-value:,src,stage:,target:,target-archs:,with-linux:,xen -- "$@")
+options=$(getopt -o D:h -l kerneltree:,distro:,kernelrpm:,reusebuild:,patchless,ccache,norpm,external-patches:,timestamp:,extraversion:,kerneldir:,linux:,lustre:,nodownload,nosrc,noiokit,ofed-version:,mellanox-ofed-vm:,mpss-version:,publish,release,set-value:,src,stage:,target:,target-archs:,with-linux:,xen -- "$@")
 
 if [ $? != 0 ]; then
     usage 1
@@ -2076,6 +2121,10 @@ while [ "$1" ]; do
             ;;
         --ofed-version)
             OFED_VERSION="$2"
+            shift 2
+            ;;
+        --mellanox-ofed-vm)
+            MELLANOX_OFED_VM="$2"
             shift 2
             ;;
         --mpss-version)
