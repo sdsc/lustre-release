@@ -3003,6 +3003,22 @@ static int lfsck_namespace_double_scan_dir(const struct lu_env *env,
 
 	LASSERT(!dt_object_remote(child));
 
+	if (flags & LNTF_UNCERTAIN_LMV) {
+		if (flags & LNTF_RECHECK_NAME_HASH) {
+			rc = lfsck_namespace_scan_shard(env, com, child);
+			if (rc < 0)
+				RETURN(rc);
+
+			ns->ln_striped_shards_scanned++;
+		} else {
+			ns->ln_striped_shards_skipped++;
+		}
+	}
+
+	flags &= ~(LNTF_RECHECK_NAME_HASH | LNTF_UNCERTAIN_LMV);
+	if (flags == 0)
+		RETURN(0);
+
 	if (flags & (LNTF_CHECK_LINKEA | LNTF_CHECK_PARENT) &&
 	    !(lfsck->li_bookmark_ram.lb_param & LPF_ALL_TGT)) {
 		CDEBUG(D_LFSCK, "%s: some MDT(s) maybe NOT take part in the"
@@ -3622,6 +3638,29 @@ static void lfsck_namespace_dump_statistics(struct seq_file *m,
 		      time_phase2);
 }
 
+static void lfsck_namespace_release_lmv(const struct lu_env *env,
+					struct lfsck_component *com)
+{
+	struct lfsck_instance		*lfsck	= com->lc_lfsck;
+	struct lfsck_namespace		*ns	= com->lc_file_ram;
+
+	while (!list_empty(&lfsck->li_list_lmv)) {
+		struct lfsck_lmv_unit	*llu;
+		struct lfsck_lmv	*llmv;
+
+		llu = list_entry(lfsck->li_list_lmv.next,
+				 struct lfsck_lmv_unit, llu_link);
+		llmv = &llu->llu_lmv;
+
+		LASSERTF(atomic_read(&llmv->ll_ref) == 1,
+			 "still in using: %u\n",
+			 atomic_read(&llmv->ll_ref));
+
+		ns->ln_striped_dirs_skipped++;
+		lfsck_lmv_put(env, llmv);
+	}
+}
+
 /* namespace APIs */
 
 static int lfsck_namespace_reset(const struct lu_env *env,
@@ -4100,6 +4139,8 @@ static int lfsck_namespace_post(const struct lu_env *env,
 	lfsck_post_generic(env, com, &result);
 
 	down_write(&com->lc_sem);
+	lfsck_namespace_release_lmv(env, com);
+
 	spin_lock(&lfsck->li_lock);
 	if (!init)
 		ns->ln_pos_last_checkpoint = lfsck->li_pos_checkpoint;
@@ -4348,6 +4389,7 @@ static void lfsck_namespace_data_release(const struct lu_env *env,
 	LASSERT(list_empty(&lad->lad_req_list));
 
 	com->lc_data = NULL;
+	lfsck_namespace_release_lmv(env, com);
 
 	spin_lock(&ltds->ltd_lock);
 	list_for_each_entry_safe(ltd, next, &lad->lad_mdt_phase1_list,
@@ -4385,6 +4427,8 @@ static void lfsck_namespace_quit(const struct lu_env *env,
 	LASSERT(thread_is_init(&lad->lad_thread) ||
 		thread_is_stopped(&lad->lad_thread));
 	LASSERT(list_empty(&lad->lad_req_list));
+
+	lfsck_namespace_release_lmv(env, com);
 
 	spin_lock(&ltds->ltd_lock);
 	list_for_each_entry_safe(ltd, next, &lad->lad_mdt_phase1_list,
@@ -4520,6 +4564,19 @@ log:
 			ns->ln_flags |= LF_INCOMPLETE;
 
 		return 0;
+	}
+	case LE_SET_LMV_MASTER: {
+		struct dt_object	*obj;
+
+		obj = lfsck_object_find_by_dev(env, lfsck->li_bottom,
+					       &lr->lr_fid);
+		if (IS_ERR(obj))
+			RETURN(PTR_ERR(obj));
+
+		rc = lfsck_namespace_notify_lmv_master_local(env, com, obj);
+		lfsck_object_put(env, obj);
+
+		RETURN(rc > 0 ? 0 : rc);
 	}
 	case LE_PHASE1_DONE:
 	case LE_PHASE2_DONE:
