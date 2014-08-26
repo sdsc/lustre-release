@@ -57,6 +57,8 @@ struct nrs_tbf_client {
 	lnet_nid_t			 tc_nid;
 	/** Jobid of the client. */
 	char				 tc_jobid[JOBSTATS_JOBID_SIZE];
+	/** opcode of the client. */
+	__u32				 tc_opcode;
 	/** Reference number of the client. */
 	atomic_t			 tc_ref;
 	/** Likage to rule. */
@@ -110,6 +112,10 @@ struct nrs_tbf_rule {
 	struct list_head		 tr_jobids;
 	/** Jobid list string of the rule.*/
 	char				*tr_jobids_str;
+	/** Opcode bitmap of the rule. */
+	cfs_bitmap_t			*tr_opcodes;
+	/** Opcode list string of the rule.*/
+	char				*tr_opcodes_str;
 	/** RPC/s limit. */
 	__u64				 tr_rpc_rate;
 	/** Time to wait for next token. */
@@ -146,9 +152,11 @@ struct nrs_tbf_ops {
 
 #define NRS_TBF_TYPE_JOBID	"jobid"
 #define NRS_TBF_TYPE_NID	"nid"
+#define NRS_TBF_TYPE_OPCODE	"opcode"
 #define NRS_TBF_TYPE_MAX_LEN	20
 #define NRS_TBF_FLAG_JOBID	0x0000001
 #define NRS_TBF_FLAG_NID	0x0000002
+#define NRS_TBF_FLAG_OPCODE	0x0000004
 
 struct nrs_tbf_bucket {
 	/**
@@ -236,6 +244,8 @@ struct nrs_tbf_cmd {
 	char			*tc_nids_str;
 	struct list_head	 tc_jobids;
 	char			*tc_jobids_str;
+	cfs_bitmap_t		*tc_opcodes;
+	char			*tc_opcodes_str;
 	__u32			 tc_valid_types;
 	__u32			 tc_rule_flags;
 };
