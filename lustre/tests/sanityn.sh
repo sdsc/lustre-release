@@ -2912,7 +2912,110 @@ test_77d() { #LU-3266
 	orr_trr "trr"
 	return 0
 }
-run_test 77d "check TRR nrs policy"
+run_test 77d "check TRR NRS policy"
+
+test_77e() {
+	uid=$(id -u)
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param jobid_var=procname_uid
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="'tbf jobid'"
+
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_tbf_rule="'start dd_cur {dd.$uid} 10'"
+	done
+
+	nrs_write_read
+
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_tbf_rule="'stop dd_cur'"
+
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="fifo"
+	done
+	# sleep 3 seconds to wait the tbf policy stop completely,
+	# or the next test case is possible get -EAGAIN when
+	# setting the tbf policy
+	sleep 3
+}
+run_test 77e "check TBF-JobID NRS policy"
+
+test_77f() {
+	nids=$(do_nodes $CLIENTS "lctl list_nids all")
+
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="'tbf nid'"
+
+		k=0
+		for nid in $nids
+		do
+			do_facet ost"$i" lctl set_param \
+				"ost.OSS.ost_io.nrs_tbf_rule="\
+"'start cli$k {$nid} 10'"
+			k=$((k+1))
+		done
+	done
+
+	nrs_write_read
+
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		k=0
+		for nid in $nids
+		do
+			do_facet ost"$i" lctl set_param \
+				ost.OSS.ost_io.nrs_tbf_rule="'stop cli$k'"
+			k=$((k+1))
+		done
+
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="fifo"
+	done
+	# sleep 3 seconds to wait the tbf policy stop completely,
+	# or the next test case is possible get -EAGAIN when
+	# setting the tbf policy
+	sleep 3
+}
+run_test 77f "check TBF-NID NRS policy"
+
+test_77g() {
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param jobid_var=procname_uid
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="'tbf opcode'"
+	
+		do_facet ost"$i" lctl set_param \
+			"ost.OSS.ost_io.nrs_tbf_rule="\
+"'start ost_r {ost_read} 5'"
+		do_facet ost"$i" lctl set_param \
+			"ost.OSS.ost_io.nrs_tbf_rule="\
+"'start ost_w {ost_write} 20'"
+	done
+
+	nrs_write_read
+
+	for i in $(seq 1 $OSTCOUNT)
+	do
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_tbf_rule="'stop ost_r'"
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_tbf_rule="'stop ost_w'"
+
+		do_facet ost"$i" lctl set_param \
+			ost.OSS.ost_io.nrs_policies="fifo"
+	done
+	# sleep 3 seconds to wait the tbf policy stop completely,
+	# or the next test case is possible get -EAGAIN when
+	# setting the tbf policy
+	sleep 3
+}
+run_test 77g "check TBF-OPCode NRS policy"
 
 test_80() {
 	[ $MDSCOUNT -lt 2 ] && skip "needs >= 2 MDTs" && return
