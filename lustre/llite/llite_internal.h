@@ -347,7 +347,7 @@ enum ra_stat {
 };
 
 struct ll_ra_info {
-	atomic_t	ra_cur_pages;
+	atomic_long_t	ra_cur_pages;
 	unsigned long	ra_max_pages;
 	unsigned long	ra_max_pages_per_file;
 	unsigned long	ra_max_read_ahead_whole_pages;

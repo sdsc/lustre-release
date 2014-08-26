@@ -102,7 +102,8 @@ static unsigned long ll_ra_count_get(struct ll_sb_info *sbi,
         /* If read-ahead pages left are less than 1M, do not do read-ahead,
          * otherwise it will form small read RPC(< 1M), which hurt server
          * performance a lot. */
-	ret = min(ra->ra_max_pages - atomic_read(&ra->ra_cur_pages), pages);
+	ret = min(ra->ra_max_pages - atomic_long_read(&ra->ra_cur_pages),
+		  pages);
         if (ret < 0 || ret < min_t(long, PTLRPC_MAX_BRW_PAGES, pages))
                 GOTO(out, ret = 0);
 
@@ -123,15 +124,15 @@ static unsigned long ll_ra_count_get(struct ll_sb_info *sbi,
                         ret -= beyond_rpc;
         }
 
-	if (atomic_add_return(ret, &ra->ra_cur_pages) > ra->ra_max_pages) {
-		atomic_sub(ret, &ra->ra_cur_pages);
+	if (atomic_long_add_return(ret, &ra->ra_cur_pages) > ra->ra_max_pages) {
+		atomic_long_sub(ret, &ra->ra_cur_pages);
 		ret = 0;
 	}
 
 out:
 	if (ret < min) {
 		/* override ra limit for maximum performance */
-		atomic_add(min - ret, &ra->ra_cur_pages);
+		atomic_long_add(min - ret, &ra->ra_cur_pages);
 		ret = min;
 	}
 	RETURN(ret);
@@ -140,7 +141,7 @@ out:
 void ll_ra_count_put(struct ll_sb_info *sbi, unsigned long len)
 {
 	struct ll_ra_info *ra = &sbi->ll_ra_info;
-	atomic_sub(len, &ra->ra_cur_pages);
+	atomic_long_sub(len, &ra->ra_cur_pages);
 }
 
 static void ll_ra_stats_inc_sbi(struct ll_sb_info *sbi, enum ra_stat which)
@@ -623,9 +624,9 @@ int ll_readahead(const struct lu_env *env, struct cl_io *io,
 	if (reserved < len)
 		ll_ra_stats_inc(inode, RA_STAT_MAX_IN_FLIGHT);
 
-	CDEBUG(D_READA, "reserved pages: %lu/%lu/%lu, ra_cur %d, ra_max %lu\n",
+	CDEBUG(D_READA, "reserved pages: %lu/%lu/%lu, ra_cur %ld, ra_max %lu\n",
 	       reserved, len, mlen,
-	       atomic_read(&ll_i2sbi(inode)->ll_ra_info.ra_cur_pages),
+	       atomic_long_read(&ll_i2sbi(inode)->ll_ra_info.ra_cur_pages),
 	       ll_i2sbi(inode)->ll_ra_info.ra_max_pages);
 
 	ret = ll_read_ahead_pages(env, io, queue, ria, &reserved, &ra_end);
