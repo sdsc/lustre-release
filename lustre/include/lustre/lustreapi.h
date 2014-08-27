@@ -541,6 +541,18 @@ int llapi_layout_ost_index_get(const struct llapi_layout *layout,
 int llapi_layout_ost_index_set(struct llapi_layout *layout, int stripe_number,
 			       uint64_t index);
 
+/**
+ * Test if the OST index values of the supplied llapi_layout \a layout
+ * are present in the file system \a fsname. If the llapi_layout requested
+ * a pool also test if the OST index values belong to that pool.
+ *
+ * \retval  1 OST index is valid
+ * \retval  0 OST index is invalid for file system \a fsname
+ * \retval -1 Error with errno set to non-zero value.
+ */
+int llapi_layout_ost_index_valid(const struct llapi_layout *layout,
+				 char *fsname);
+
 /******************** Pool Name ********************/
 
 /**
@@ -585,6 +597,16 @@ int llapi_layout_pool_name_get(const struct llapi_layout *layout,
  */
 int llapi_layout_pool_name_set(struct llapi_layout *layout,
 			      const char *pool_name);
+/**
+ * Verify that the layout's \a llapi_layout pool exist for a given
+ * file system \a fsname.
+ *
+ * \retval  true   the layout's request pool is present on the
+ *		   target file system
+ * \retval  false  the pool does not exist
+ */
+bool llapi_layout_pool_present(const struct llapi_layout *layout,
+			       char *fsname);
 
 /******************** File Creation ********************/
 
