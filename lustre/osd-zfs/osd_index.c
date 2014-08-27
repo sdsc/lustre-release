@@ -169,11 +169,15 @@ static struct dt_it *osd_index_it_init(const struct lu_env *env,
 	LASSERT(osd_object_is_zap(obj->oo_db));
 	LASSERT(info);
 
-	it = &info->oti_it_zap;
+	OBD_ALLOC_PTR(it);
+	if (it == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
 
 	rc = osd_obj_cursor_init(&it->ozi_zc, obj, 0);
-	if (rc != 0)
+	if (rc != 0) {
+		OBD_FREE_PTR(it);
 		RETURN(ERR_PTR(rc));
+	}
 
 	it->ozi_obj   = obj;
 	it->ozi_capa  = capa;
@@ -196,6 +200,7 @@ static void osd_index_it_fini(const struct lu_env *env, struct dt_it *di)
 
 	osd_zap_cursor_fini(it->ozi_zc);
 	lu_object_put(env, &obj->oo_dt.do_lu);
+	OBD_FREE_PTR(it);
 
 	EXIT;
 }

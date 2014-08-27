@@ -4590,7 +4590,6 @@ static struct dt_it *osd_it_iam_init(const struct lu_env *env,
                                      struct lustre_capa *capa)
 {
         struct osd_it_iam      *it;
-        struct osd_thread_info *oti = osd_oti_get(env);
         struct osd_object      *obj = osd_dt_obj(dt);
         struct lu_object       *lo  = &dt->do_lu;
         struct iam_path_descr  *ipd;
@@ -4601,16 +4600,21 @@ static struct dt_it *osd_it_iam_init(const struct lu_env *env,
         if (osd_object_auth(env, dt, capa, CAPA_OPC_BODY_READ))
                 return ERR_PTR(-EACCES);
 
-        it = &oti->oti_it;
-        ipd = osd_it_ipd_get(env, bag);
-        if (likely(ipd != NULL)) {
-                it->oi_obj = obj;
-                it->oi_ipd = ipd;
-                lu_object_get(lo);
-                iam_it_init(&it->oi_it, bag, IAM_IT_MOVE, ipd);
-                return (struct dt_it *)it;
-        }
-        return ERR_PTR(-ENOMEM);
+	OBD_ALLOC_PTR(it);
+	if (it == NULL)
+		return ERR_PTR(-ENOMEM);
+
+	ipd = osd_it_ipd_get(env, bag);
+	if (likely(ipd != NULL)) {
+		it->oi_obj = obj;
+		it->oi_ipd = ipd;
+		lu_object_get(lo);
+		iam_it_init(&it->oi_it, bag, IAM_IT_MOVE, ipd);
+		return (struct dt_it *)it;
+	} else {
+		OBD_FREE_PTR(it);
+		return ERR_PTR(-ENOMEM);
+	}
 }
 
 /**
@@ -4625,6 +4629,7 @@ static void osd_it_iam_fini(const struct lu_env *env, struct dt_it *di)
         iam_it_fini(&it->oi_it);
         osd_ipd_put(env, &obj->oo_dir->od_container, it->oi_ipd);
         lu_object_put(env, &obj->oo_dt.do_lu);
+	OBD_FREE_PTR(it);
 }
 
 /**
@@ -4868,12 +4873,17 @@ static struct dt_it *osd_it_ea_init(const struct lu_env *env,
 {
         struct osd_object       *obj  = osd_dt_obj(dt);
         struct osd_thread_info  *info = osd_oti_get(env);
-        struct osd_it_ea        *it   = &info->oti_it_ea;
-	struct file		*file = &it->oie_file;
-        struct lu_object        *lo   = &dt->do_lu;
-        struct dentry           *obj_dentry = &info->oti_it_dentry;
-        ENTRY;
-        LASSERT(lu_object_exists(lo));
+	struct osd_it_ea	*it;
+	struct file		*file;
+	struct lu_object	*lo   = &dt->do_lu;
+	struct dentry		*obj_dentry = &info->oti_it_dentry;
+	ENTRY;
+
+	LASSERT(lu_object_exists(lo));
+
+	OBD_ALLOC_PTR(it);
+	if (it == NULL)
+		RETURN(ERR_PTR(-ENOMEM));
 
         obj_dentry->d_inode = obj->oo_inode;
         obj_dentry->d_sb = osd_sb(osd_obj2dev(obj));
@@ -4885,6 +4895,7 @@ static struct dt_it *osd_it_ea_init(const struct lu_env *env,
         it->oie_buf             = info->oti_it_ea_buf;
         it->oie_obj             = obj;
 
+	file = &it->oie_file;
 	/* Reset the "file" totally to avoid to reuse any old value from
 	 * former readdir handling, the "file->f_pos" should be zero. */
 	memset(file, 0, sizeof(*file));
@@ -4916,7 +4927,8 @@ static void osd_it_ea_fini(const struct lu_env *env, struct dt_it *di)
         ENTRY;
         it->oie_file.f_op->release(inode, &it->oie_file);
         lu_object_put(env, &obj->oo_dt.do_lu);
-        EXIT;
+	OBD_FREE_PTR(it);
+	EXIT;
 }
 
 /**
