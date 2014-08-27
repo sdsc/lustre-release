@@ -177,18 +177,17 @@ static inline void mdc_update_max_ea_from_body(struct obd_export *exp,
 	if (body->mbo_valid & OBD_MD_FLMODEASIZE) {
 		struct client_obd *cli = &exp->exp_obd->u.cli;
 
-		if (cli->cl_max_mds_easize < body->mbo_max_mdsize) {
+		if (cli->cl_max_mds_easize < body->mbo_max_mdsize)
 			cli->cl_max_mds_easize = body->mbo_max_mdsize;
-			cli->cl_default_mds_easize =
-				min_t(__u32, body->mbo_max_mdsize,
-				      PAGE_CACHE_SIZE);
-		}
-		if (cli->cl_max_mds_cookiesize < body->mbo_max_cookiesize) {
+
+		cli->cl_default_mds_easize =
+			min_t(__u32, body->mbo_max_mdsize, PAGE_CACHE_SIZE);
+
+		if (cli->cl_max_mds_cookiesize < body->mbo_max_cookiesize)
 			cli->cl_max_mds_cookiesize = body->mbo_max_cookiesize;
-			cli->cl_default_mds_cookiesize =
-			    min_t(__u32, body->mbo_max_cookiesize,
-				  PAGE_CACHE_SIZE);
-		}
+
+		cli->cl_default_mds_cookiesize =
+		    min_t(__u32, body->mbo_max_cookiesize, PAGE_CACHE_SIZE);
 	}
 }
 
