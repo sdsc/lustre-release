@@ -47,6 +47,7 @@
 #include <libcfs/libcfs.h>
 #include <libcfs/list.h>
 #include <lnet/types.h>
+#include <lnet/lnetctl.h>
 
 #define WIRE_ATTR       __attribute__((packed))
 
@@ -207,6 +208,7 @@ typedef struct lnet_msg {
         unsigned int          msg_rtrcredit:1;    /* taken a globel router credit */
         unsigned int          msg_peerrtrcredit:1; /* taken a peer router credit */
         unsigned int          msg_onactivelist:1; /* on the activelist */
+	unsigned int	      msg_rdma_get:1;
 
         struct lnet_peer     *msg_txpeer;         /* peer I'm sending to */
         struct lnet_peer     *msg_rxpeer;         /* peer I received from */
@@ -536,11 +538,6 @@ struct lnet_peer_table {
 	struct list_head	*pt_hash;	/* NID->peer hash */
 };
 
-/* peer aliveness is enabled only on routers for peers in a network where the
- * lnet_ni_t::ni_peertimeout has been set to a positive value */
-#define lnet_peer_aliveness_enabled(lp) (the_lnet.ln_routing != 0 && \
-					 (lp)->lp_ni->ni_peertimeout > 0)
-
 typedef struct {
 	struct list_head	lr_list;	/* chain on net */
 	struct list_head	lr_gwlist;	/* chain on gateway */
@@ -564,6 +561,11 @@ typedef struct {
 	/* my net number */
 	__u32			lrn_net;
 } lnet_remotenet_t;
+
+/** lnet message has credit and can be submitted to lnd for send/receive */
+#define LNET_CREDIT_OK		0
+/** lnet message is waiting for credit */
+#define LNET_CREDIT_WAIT	1
 
 typedef struct {
 	/* my free buffer pool */
@@ -778,6 +780,8 @@ typedef struct
 	struct lnet_peer_table		**ln_peer_tables;
 	/* failure simulation */
 	struct list_head		ln_test_peers;
+	struct list_head		ln_drop_rules;
+	struct list_head		ln_delay_rules;
 
 	struct list_head		ln_nis;		/* LND instances */
 	/* NIs bond on specific CPT(s) */
@@ -817,6 +821,7 @@ typedef struct
 
 	struct mutex			ln_api_mutex;
 	struct mutex			ln_lnd_mutex;
+	struct mutex			ln_delay_mutex;
 #else
 # ifndef HAVE_LIBPTHREAD
 	int				ln_api_mutex;

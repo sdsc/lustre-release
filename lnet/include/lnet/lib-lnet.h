@@ -651,6 +651,31 @@ lnet_isrouter(lnet_peer_t *lp)
         return lp->lp_rtr_refcount != 0;
 }
 
+/* check if it's a router checker ping */
+static inline int
+lnet_msg_is_rc_ping(struct lnet_msg *msg)
+{
+	lnet_hdr_t	*hdr = &msg->msg_hdr;
+
+	return msg->msg_type == LNET_MSG_GET &&
+	       hdr->msg.get.ptl_index == cpu_to_le32(LNET_RESERVED_PORTAL) &&
+	       hdr->msg.get.match_bits ==
+			    cpu_to_le64(LNET_PROTO_PING_MATCHBITS);
+}
+
+/* peer aliveness is enabled in a network where lnet_ni_t::ni_peertimeout has
+ * been set to a positive value, it's only valid for router peers or peers on
+ * routers.
+ */
+static inline int
+lnet_peer_aliveness_enabled(struct lnet_peer *lp)
+{
+	if (lp->lp_ni->ni_peertimeout <= 0)
+		return 0;
+
+	return the_lnet.ln_routing || lnet_isrouter(lp);
+}
+
 static inline void
 lnet_ni_addref_locked(lnet_ni_t *ni, int cpt)
 {
@@ -836,11 +861,22 @@ void lnet_portals_destroy(void);
 /* message functions */
 int lnet_parse (lnet_ni_t *ni, lnet_hdr_t *hdr,
                 lnet_nid_t fromnid, void *private, int rdma_req);
+int lnet_parse_local(lnet_ni_t *ni, lnet_msg_t *msg);
+int lnet_parse_forward_locked(lnet_ni_t *ni, lnet_msg_t *msg);
+
 void lnet_recv(lnet_ni_t *ni, void *private, lnet_msg_t *msg, int delayed,
                unsigned int offset, unsigned int mlen, unsigned int rlen);
+void lnet_ni_recv(lnet_ni_t *ni, void *private, lnet_msg_t *msg,
+		  int delayed, unsigned int offset,
+		  unsigned int mlen, unsigned int rlen);
+
 lnet_msg_t *lnet_create_reply_msg (lnet_ni_t *ni, lnet_msg_t *get_msg);
 void lnet_set_reply_msg_len(lnet_ni_t *ni, lnet_msg_t *msg, unsigned int len);
+
 void lnet_finalize(lnet_ni_t *ni, lnet_msg_t *msg, int rc);
+
+void lnet_drop_message(lnet_ni_t *ni, int cpt, void *private,
+		       unsigned int nob);
 void lnet_drop_delayed_msg_list(struct list_head *head, char *reason);
 void lnet_recv_delayed_msg_list(struct list_head *head);
 
@@ -852,6 +888,24 @@ int lnet_msg_containers_create(void);
 char *lnet_msgtyp2str (int type);
 void lnet_print_hdr (lnet_hdr_t * hdr);
 int lnet_fail_nid(lnet_nid_t nid, unsigned int threshold);
+
+/** \addtogroup lnet_fault_simulation @{ */
+
+int lnet_fault_ctl(int cmd, struct libcfs_ioctl_data *data);
+int lnet_fault_init(void);
+void lnet_fault_fini(void);
+
+bool lnet_drop_rule_match(lnet_hdr_t *hdr);
+
+int lnet_delay_rule_add(struct lnet_fault_attr *attr);
+int lnet_delay_rule_del(lnet_nid_t src, lnet_nid_t dst, bool shutdown);
+int lnet_delay_rule_list(int pos, struct lnet_fault_attr *attr,
+			 struct lnet_fault_stat *stat);
+void lnet_delay_rule_reset(void);
+void lnet_delay_rule_check(void);
+bool lnet_delay_rule_match_locked(lnet_hdr_t *hdr, struct lnet_msg *msg);
+
+/** @} lnet_fault_simulation */
 
 void lnet_counters_get(lnet_counters_t *counters);
 void lnet_counters_reset(void);
@@ -959,6 +1013,7 @@ int lnet_peer_buffer_credits(lnet_ni_t *ni);
 int lnet_router_checker_start(void);
 void lnet_router_checker_stop(void);
 void lnet_swap_pinginfo(lnet_ping_info_t *info);
+void lnet_router_ni_update_locked(lnet_peer_t *lp, __u32 net);
 
 int lnet_ping(lnet_process_id_t id, int timeout_ms,
               lnet_process_id_t *ids, int n_ids);

@@ -42,11 +42,6 @@
 
 #include <lnet/lib-lnet.h>
 
-/** lnet message has credit and can be submitted to lnd for send/receive */
-#define LNET_CREDIT_OK		0
-/** lnet message is waiting for credit */
-#define LNET_CREDIT_WAIT	1
-
 static int local_nid_dist_zero = 1;
 CFS_MODULE_PARM(local_nid_dist_zero, "i", int, 0444,
                 "Reserved");
@@ -751,8 +746,6 @@ lnet_peer_is_alive (lnet_peer_t *lp, cfs_time_t now)
         int        alive;
         cfs_time_t deadline;
 
-        LASSERT (lnet_peer_aliveness_enabled(lp));
-
         /* Trust lnet_notify() if it has more recent aliveness news, but
          * ignore the initial assumed death (see lnet_peers_start_down()).
          */
@@ -781,37 +774,28 @@ lnet_peer_is_alive (lnet_peer_t *lp, cfs_time_t now)
 int
 lnet_peer_alive_locked (lnet_peer_t *lp)
 {
-        cfs_time_t now = cfs_time_current();
+	cfs_time_t now = cfs_time_current();
+	bool	   query;
 
-        if (!lnet_peer_aliveness_enabled(lp))
-                return -ENODEV;
+	if (!lnet_peer_aliveness_enabled(lp))
+		return -ENODEV;
 
-        if (lnet_peer_is_alive(lp, now))
-                return 1;
+	if (lp->lp_last_query == 0) {
+		query = true;
+	} else {
+		/* Peer appears dead, but we should avoid frequent NI queries
+		 * (at most once per ni_query_interval seconds). */
+		static const int ni_query_interval = 1;
+		cfs_time_t	 next_query;
 
-        /* Peer appears dead, but we should avoid frequent NI queries (at
-         * most once per lnet_queryinterval seconds). */
-        if (lp->lp_last_query != 0) {
-                static const int lnet_queryinterval = 1;
-
-                cfs_time_t next_query =
-                           cfs_time_add(lp->lp_last_query,
-                                        cfs_time_seconds(lnet_queryinterval));
-
-                if (cfs_time_before(now, next_query)) {
-                        if (lp->lp_alive)
-                                CWARN("Unexpected aliveness of peer %s: "
-                                      "%d < %d (%d/%d)\n",
-                                      libcfs_nid2str(lp->lp_nid),
-                                      (int)now, (int)next_query,
-                                      lnet_queryinterval,
-                                      lp->lp_ni->ni_peertimeout);
-                        return 0;
-                }
+		next_query = cfs_time_add(lp->lp_last_query,
+					  cfs_time_seconds(ni_query_interval));
+		query = cfs_time_aftereq(now, next_query);
         }
 
         /* query NI for latest aliveness news */
-	lnet_ni_query_locked(lp->lp_ni, lp);
+	if (query)
+		lnet_ni_query_locked(lp->lp_ni, lp);
 
         if (lnet_peer_is_alive(lp, now))
                 return 1;
@@ -846,7 +830,8 @@ lnet_post_send_locked(lnet_msg_t *msg, int do_send)
 
 	/* NB 'lp' is always the next hop */
 	if ((msg->msg_target.pid & LNET_PID_USERFLAG) == 0 &&
-	    lnet_peer_alive_locked(lp) == 0) {
+	    lnet_peer_alive_locked(lp) == 0 &&
+	    !lnet_msg_is_rc_ping(msg)) { /* send RC ping even for dead router */
 		the_lnet.ln_counters[cpt]->drop_count++;
 		the_lnet.ln_counters[cpt]->drop_length += msg->msg_len;
 		lnet_net_unlock(cpt);
@@ -1199,6 +1184,30 @@ lnet_compare_routes(lnet_route_t *r1, lnet_route_t *r2)
 	lnet_peer_t *p1 = r1->lr_gateway;
 	lnet_peer_t *p2 = r2->lr_gateway;
 
+	if (p1->lp_ni->ni_peertimeout > 0 &&
+	    p2->lp_ni->ni_peertimeout > 0) {
+		/* if a router has queued bytes but no aliveness update for
+		 * the last 10 seconds, it could be potentially dead or
+		 * congested, so we prefer not to choose it even its status
+		 * is still alive.
+		 */
+		int	   router_slow = cfs_time_seconds(10);
+		bool	   r1_slow;
+		bool	   r2_slow;
+		cfs_time_t now = cfs_time_current();
+
+		r1_slow = p1->lp_txqnob != 0 &&
+			cfs_time_aftereq(now, p1->lp_last_alive + router_slow);
+		r2_slow = p2->lp_txqnob != 0 &&
+			cfs_time_aftereq(now, p2->lp_last_alive + router_slow);
+
+		if (!r1_slow && r2_slow)
+			return 1;
+
+		if (r1_slow && !r2_slow)
+			return -1;
+	}
+
 	if (r1->lr_priority < r2->lr_priority)
 		return 1;
 
@@ -1472,7 +1481,7 @@ lnet_send(lnet_nid_t src_nid, lnet_msg_t *msg, lnet_nid_t rtr_nid)
 	return 0; /* rc == LNET_CREDIT_OK or LNET_CREDIT_WAIT */
 }
 
-static void
+void
 lnet_drop_message(lnet_ni_t *ni, int cpt, void *private, unsigned int nob)
 {
 	lnet_net_lock(cpt);
@@ -1740,7 +1749,7 @@ lnet_parse_ack(lnet_ni_t *ni, lnet_msg_t *msg)
  * \retval LNET_CREDIT_WAIT	If \a msg is blocked because w/o buffer
  * \retval -ve			error code
  */
-static int
+int
 lnet_parse_forward_locked(lnet_ni_t *ni, lnet_msg_t *msg)
 {
 	int	rc = 0;
@@ -1765,6 +1774,33 @@ lnet_parse_forward_locked(lnet_ni_t *ni, lnet_msg_t *msg)
 #else
 	LBUG();
 #endif
+	return rc;
+}
+
+int
+lnet_parse_local(lnet_ni_t *ni, lnet_msg_t *msg)
+{
+	int	rc;
+
+	switch (msg->msg_type) {
+	case LNET_MSG_ACK:
+		rc = lnet_parse_ack(ni, msg);
+		break;
+	case LNET_MSG_PUT:
+		rc = lnet_parse_put(ni, msg);
+		break;
+	case LNET_MSG_GET:
+		rc = lnet_parse_get(ni, msg, msg->msg_rdma_get);
+		break;
+	case LNET_MSG_REPLY:
+		rc = lnet_parse_reply(ni, msg);
+		break;
+	default: /* prevent an unused label if !kernel */
+		LASSERT(0);
+		return -EPROTO;
+	}
+
+	LASSERT(rc == 0 || rc == ENOENT);
 	return rc;
 }
 
@@ -1854,17 +1890,18 @@ int
 lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	   void *private, int rdma_req)
 {
-	int		rc = 0;
-	int		cpt;
-	int		for_me;
 	struct lnet_msg	*msg;
-	lnet_pid_t     dest_pid;
-	lnet_nid_t     dest_nid;
-	lnet_nid_t     src_nid;
-	__u32          payload_length;
-	__u32          type;
+	lnet_peer_t	*rxpeer;
+	lnet_pid_t	 dest_pid;
+	lnet_nid_t	 dest_nid;
+	lnet_nid_t	 src_nid;
+	__u32		 payload_length;
+	__u32		 type;
+	int		 for_me;
+	int		 cpt;
+	int		 rc = 0;
 
-	LASSERT (!in_interrupt ());
+	LASSERT(!in_interrupt());
 
 	type = le32_to_cpu(hdr->type);
 	src_nid = le64_to_cpu(hdr->src_nid);
@@ -1976,6 +2013,16 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 		goto drop;
 	}
 
+	if (!list_empty(&the_lnet.ln_drop_rules) &&
+	    lnet_drop_rule_match(hdr)) {
+		CDEBUG(D_NET, "%s, src %s, dst %s: Dropping %s to simulate"
+			      "silent message loss\n",
+		       libcfs_nid2str(from_nid), libcfs_nid2str(src_nid),
+		       libcfs_nid2str(dest_nid), lnet_msgtyp2str(type));
+		goto drop;
+	}
+
+
 	msg = lnet_msg_alloc();
 	if (msg == NULL) {
 		CERROR("%s, src %s: Dropping %s (out of memory)\n",
@@ -1990,6 +2037,7 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	msg->msg_type = type;
 	msg->msg_private = private;
 	msg->msg_receiving = 1;
+	msg->msg_rdma_get = rdma_req;
 	msg->msg_len = msg->msg_wanted = payload_length;
 	msg->msg_offset = 0;
 	msg->msg_hdr = *hdr;
@@ -2023,6 +2071,25 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 	}
 
 	lnet_msg_commit(msg, cpt);
+	/* LND just notified me for incoming message from rxpeer, so assume
+	 * it is alive */
+	rxpeer = msg->msg_rxpeer;
+	rxpeer->lp_last_alive = rxpeer->lp_last_query = cfs_time_current();
+	if (!rxpeer->lp_alive)
+		lnet_notify_locked(rxpeer, 0, 1, rxpeer->lp_last_alive);
+
+	if (lnet_isrouter(msg->msg_rxpeer) &&
+	    LNET_NIDNET(src_nid) != LNET_NIDNET(from_nid)) {
+		lnet_router_ni_update_locked(msg->msg_rxpeer,
+					     LNET_NIDNET(src_nid));
+	}
+
+	/* message delay simulation */
+	if (unlikely(!list_empty(&the_lnet.ln_delay_rules) &&
+		     lnet_delay_rule_match_locked(hdr, msg))) {
+		lnet_net_unlock(cpt);
+		return 0;
+	}
 
 	if (!for_me) {
 		rc = lnet_parse_forward_locked(ni, msg);
@@ -2040,29 +2107,10 @@ lnet_parse(lnet_ni_t *ni, lnet_hdr_t *hdr, lnet_nid_t from_nid,
 
 	lnet_net_unlock(cpt);
 
-	switch (type) {
-	case LNET_MSG_ACK:
-		rc = lnet_parse_ack(ni, msg);
-		break;
-	case LNET_MSG_PUT:
-		rc = lnet_parse_put(ni, msg);
-		break;
-	case LNET_MSG_GET:
-		rc = lnet_parse_get(ni, msg, rdma_req);
-		break;
-	case LNET_MSG_REPLY:
-		rc = lnet_parse_reply(ni, msg);
-		break;
-	default:
-		LASSERT(0);
-		rc = -EPROTO;
-		goto free_drop;  /* prevent an unused label if !kernel */
-	}
-
-	if (rc == 0)
-		return 0;
-
-	LASSERT(rc == ENOENT);
+	rc = lnet_parse_local(ni, msg);
+	if (rc != 0)
+		goto free_drop;
+	return 0;
 
  free_drop:
 	LASSERT(msg->msg_md == NULL);
