@@ -870,6 +870,26 @@ static int ptlrpc_connect_interpret(const struct lu_env *env,
 
 	obd_import_event(imp->imp_obd, imp, IMP_EVENT_OCD);
 
+	if ((ocd->ocd_connect_flags & OBD_CONNECT_AT) &&
+	    (imp->imp_msg_magic == LUSTRE_MSG_MAGIC_V2))
+		/* We need a per-message support flag, because
+		   a. we don't know if the incoming connect reply
+		      supports AT or not (in reply_in_callback)
+		      until we unpack it.
+		   b. failovered server means export and flags are gone
+		      (in ptlrpc_send_reply).
+		   Can only be set when we know AT is supported at
+		   both ends */
+		imp->imp_msghdr_flags |= MSGHDR_AT_SUPPORT;
+	else
+		imp->imp_msghdr_flags &= ~MSGHDR_AT_SUPPORT;
+
+	if ((ocd->ocd_connect_flags & OBD_CONNECT_FULL20) &&
+	    (imp->imp_msg_magic == LUSTRE_MSG_MAGIC_V2))
+		imp->imp_msghdr_flags |= MSGHDR_CKSUM_INCOMPAT18;
+	else
+		imp->imp_msghdr_flags &= ~MSGHDR_CKSUM_INCOMPAT18;
+
 	if (aa->pcaa_initial_connect) {
 		spin_lock(&imp->imp_lock);
 		if (msg_flags & MSG_CONNECT_REPLAYABLE) {
@@ -1141,26 +1161,6 @@ finish:
                         imp->imp_obd->obd_namespace->ns_orig_connect_flags =
                                 ocd->ocd_connect_flags;
                 }
-
-                if ((ocd->ocd_connect_flags & OBD_CONNECT_AT) &&
-                    (imp->imp_msg_magic == LUSTRE_MSG_MAGIC_V2))
-                        /* We need a per-message support flag, because
-                           a. we don't know if the incoming connect reply
-                              supports AT or not (in reply_in_callback)
-                              until we unpack it.
-                           b. failovered server means export and flags are gone
-                              (in ptlrpc_send_reply).
-                           Can only be set when we know AT is supported at
-                           both ends */
-                        imp->imp_msghdr_flags |= MSGHDR_AT_SUPPORT;
-                else
-                        imp->imp_msghdr_flags &= ~MSGHDR_AT_SUPPORT;
-
-                if ((ocd->ocd_connect_flags & OBD_CONNECT_FULL20) &&
-                    (imp->imp_msg_magic == LUSTRE_MSG_MAGIC_V2))
-                        imp->imp_msghdr_flags |= MSGHDR_CKSUM_INCOMPAT18;
-                else
-                        imp->imp_msghdr_flags &= ~MSGHDR_CKSUM_INCOMPAT18;
 
 		LASSERT((cli->cl_max_pages_per_rpc <= PTLRPC_MAX_BRW_PAGES) &&
 			(cli->cl_max_pages_per_rpc > 0));
