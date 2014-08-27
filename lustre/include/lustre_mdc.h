@@ -165,7 +165,7 @@ static inline void mdc_put_rpc_lock(struct mdc_rpc_lock *lck,
 	EXIT;
 }
 
-/* Update the maximum observed easize and cookiesize.  The default easize
+/* Update the maximum possible easize and cookiesize.  The default easize
  * and cookiesize is initialized to the minimum value but allowed to grow
  * up to a single page in size if required to handle the common case.
  */
@@ -174,19 +174,22 @@ static inline void mdc_update_max_ea_from_body(struct obd_export *exp,
 {
 	if (body->mbo_valid & OBD_MD_FLMODEASIZE) {
 		struct client_obd *cli = &exp->exp_obd->u.cli;
+		__u32 def_easize;
+		__u32 def_cookiesize;
 
-		if (cli->cl_max_mds_easize < body->mbo_max_mdsize) {
+		if (cli->cl_max_mds_easize < body->mbo_max_mdsize)
 			cli->cl_max_mds_easize = body->mbo_max_mdsize;
-			cli->cl_default_mds_easize =
-				min_t(__u32, body->mbo_max_mdsize,
-				      PAGE_CACHE_SIZE);
-		}
-		if (cli->cl_max_mds_cookiesize < body->mbo_max_cookiesize) {
+
+		def_easize = min_t(__u32, body->mbo_max_mdsize,
+				   OBD_MAX_DEFAULT_EA_SIZE);
+		cli->cl_default_mds_easize = def_easize;
+
+		if (cli->cl_max_mds_cookiesize < body->mbo_max_cookiesize)
 			cli->cl_max_mds_cookiesize = body->mbo_max_cookiesize;
-			cli->cl_default_mds_cookiesize =
-			    min_t(__u32, body->mbo_max_cookiesize,
-				  PAGE_CACHE_SIZE);
-		}
+
+		def_cookiesize = min_t(__u32, body->mbo_max_cookiesize,
+				       OBD_MAX_DEFAULT_COOKIE_SIZE);
+		cli->cl_default_mds_cookiesize = def_cookiesize;
 	}
 }
 
