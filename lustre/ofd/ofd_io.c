@@ -942,7 +942,7 @@ struct ofd_soft_sync_callback {
  * \param[in] cb	callback data
  * \param[in] err	error code
  */
-static void ofd_cb_soft_sync(struct lu_env *env, struct thandle *th,
+static void ofd_cb_soft_sync(const struct lu_env *env, struct thandle *th,
 			     struct dt_txn_commit_cb *cb, int err)
 {
 	struct ofd_soft_sync_callback	*ossc;
