@@ -677,7 +677,7 @@ static int updates_write(const struct lu_env *env, struct thandle *th)
 		RETURN(rc);
 
 	list_for_each_entry_safe(st, tmp, &top_th->tt_sub_trans_list, st_list) {
-		if (st->st_update == NULL)
+		if (st->st_update == NULL || st->st_committed)
 			continue;
 
 		rc = sub_updates_write(env, tur->tur_update_records, st);
@@ -902,125 +902,6 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 EXPORT_SYMBOL(top_trans_start);
 
 /**
- * Stop the top transaction.
- *
- * Stop the transaction on the master device first, then stop transactions
- * on other sub devices.
- *
- * \param[in] env		execution environment
- * \param[in] master_dev	master_dev the top thandle will be created
- * \param[in] th		top thandle
- *
- * \retval			0 if stop transaction succeeds.
- * \retval			negative errno if creation fails.
- */
-int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
-		   struct thandle *th)
-{
-	struct top_thandle	*top_th = container_of(th, struct top_thandle,
-						       tt_super);
-	struct sub_thandle	*st;
-	struct sub_thandle	*tmp;
-	int			rc2 = 0;
-	int			rc;
-	ENTRY;
-
-	/* Note: we need walk through all of sub_transaction and do transaction
-	 * stop to release the resource here */
-	if (top_th->tt_update_records != NULL) {
-                rc = updates_write(env, th);
-                if (rc != 0) {
-                        CDEBUG(D_HA, "%s: write updates failed: rc = %d\n",
-                               master_dev->dd_lu_dev.ld_obd->obd_name, rc);
-                        /* Still need call dt_trans_stop to release resources
-                         * holding by the transaction */
-                }
-        }
-
-	top_th->tt_child->th_local = th->th_local;
-	top_th->tt_child->th_sync = th->th_sync;
-	rc = dt_trans_stop(env, master_dev, top_th->tt_child);
-
-	list_for_each_entry_safe(st, tmp, &top_th->tt_sub_trans_list, st_list) {
-		if (rc != 0)
-			st->st_sub_th->th_result = rc;
-		else
-			st->st_sub_th->th_result = rc2;
-
-		st->st_sub_th->th_sync = th->th_sync;
-		st->st_sub_th->th_local = th->th_local;
-		rc2 = dt_trans_stop(env, st->st_sub_th->th_dev,
-				    st->st_sub_th);
-		list_del(&st->st_list);
-		OBD_FREE_PTR(st);
-		if (unlikely(rc2 != 0 && rc == 0))
-			rc = rc2;
-	}
-
-	OBD_FREE_PTR(top_th);
-	RETURN(rc);
-}
-EXPORT_SYMBOL(top_trans_stop);
-
-/**
- * Get sub thandle.
- *
- * Get sub thandle from the top thandle according to the sub object. This is
- * usually happened for distribute transaction (see top_thandle/sub_thandle).
- *
- * \param[in] env	execution environment
- * \param[in] th	thandle on the top layer.
- * \param[in] child_obj child object used to get sub transaction
- *
- * \retval		thandle of sub transaction if succeed
- * \retval		PTR_ERR(errno) if failed
- */
-struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
-				const struct dt_object *sub_obj)
-{
-	struct dt_device	*sub_dt = lu2dt_dev(sub_obj->do_lu.lo_dev);
-	struct sub_thandle	*st;
-	struct top_thandle	*top_th = container_of(th, struct top_thandle,
-						       tt_super);
-	struct thandle		*sub_th;
-	ENTRY;
-
-	LASSERT(top_th->tt_child != NULL);
-	if (likely(sub_dt == top_th->tt_child->th_dev))
-		RETURN(top_th->tt_child);
-
-	/* Find or create the transaction in tt_trans_list, since there is
-	 * always only one thread access the list, so no need lock here */
-	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
-		if (st->st_sub_th->th_dev == sub_dt)
-			RETURN(st->st_sub_th);
-	}
-
-	sub_th = dt_trans_create(env, sub_dt);
-	if (IS_ERR(sub_th))
-		RETURN(sub_th);
-
-	/* If the child does not need to create the transaction like
-	 * OSP connected to OST, just use current thandle */
-	if (sub_th == NULL)
-		RETURN(th);
-
-	st = create_sub_thandle(env, top_th, sub_th);
-	if (IS_ERR(st)) {
-		dt_trans_stop(env, sub_dt, sub_th);
-		RETURN(ERR_CAST(st));
-	}
-
-	if (sub_th->th_remote_mdt)
-		top_th->tt_multiple_node = 1;
-
-	sub_th->th_storage_th = top_th->tt_child;
-
-	RETURN(sub_th);
-}
-EXPORT_SYMBOL(get_sub_thandle);
-
-/**
  * Destroy top thandle
  *
  * Destory all of sub_thandle and top thandle.
@@ -1044,6 +925,122 @@ void top_thandle_destroy(struct top_thandle *top_th)
 	return;
 }
 EXPORT_SYMBOL(top_thandle_destroy);
+
+/**
+ * Stop the transaction for mulitnode transaction.
+ *
+ * Walk through all of sub transactions and stop all of them. Note:
+ * during the recovery phase, some of sub transactions might been
+ * committed, and only call commit callback for these sub transactions.
+ *
+ * \param[in] env	execution environment
+ * \param[in] th	LOD transaction handle
+ *
+ * \retval		0 if transaction stop succeeds.
+ * \retval		negative errno if transaction stop fails.
+ */
+static int multiple_nodes_trans_stop(const struct lu_env *env,
+				     struct thandle *th)
+{
+	struct top_thandle	*top_th;
+	struct sub_thandle	*st;
+	int			rc = 0;
+
+	top_th = container_of0(th, struct top_thandle, tt_super);
+
+	LASSERT(!list_empty(&top_th->tt_sub_trans_list));
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		struct dt_device *dt_dev = st->st_dt;
+		int rc1;
+
+		/* If this transaction has been committed, just call
+		 * commit callback, this usually happens during updates
+		 * recovery */
+		if (st->st_committed) {
+			dt_txn_hook_commit(st->st_sub_th);
+		} else {
+			st->st_sub_th->th_result = th->th_result;
+			rc1 = dt_trans_stop(env, dt_dev, st->st_sub_th);
+			if (rc1 < 0) {
+				CERROR("%s: trans stop failed: rc = %d\n",
+				       dt_dev->dd_lu_dev.ld_obd->obd_name, rc1);
+				if (rc == 0)
+					rc = rc1;
+			}
+		}
+	}
+
+	return rc;
+}
+
+/**
+ * Stop the top transaction.
+ *
+ * Stop the transaction on the master device first, then stop transactions
+ * on other sub devices.
+ *
+ * \param[in] env		execution environment
+ * \param[in] master_dev	master_dev the top thandle will be created
+ * \param[in] th		top thandle
+ *
+ * \retval			0 if stop transaction succeeds.
+ * \retval			negative errno if creation fails.
+ */
+int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
+		   struct thandle *th)
+{
+	struct top_thandle	*top_th = container_of(th, struct top_thandle,
+						       tt_super);
+	struct sub_thandle	*st;
+	int			rc2 = 0;
+	int			rc;
+	ENTRY;
+
+	/* Note: we need walk through all of sub_transaction and do transaction
+	 * stop to release the resource here */
+	if (top_th->tt_update_records != NULL) {
+                rc = updates_write(env, th);
+                if (rc != 0) {
+                        CDEBUG(D_HA, "%s: write updates failed: rc = %d\n",
+                               master_dev->dd_lu_dev.ld_obd->obd_name, rc);
+                        /* Still need call dt_trans_stop to release resources
+                         * holding by the transaction */
+                }
+        }
+
+	if (top_th->tt_multiple_node) {
+		rc = multiple_nodes_trans_stop(env, th);
+		RETURN(rc);
+	}
+
+	top_th->tt_child->th_result = th->th_result;
+	top_th->tt_child->th_local = th->th_local;
+	top_th->tt_child->th_sync = th->th_sync;
+	rc = dt_trans_stop(env, master_dev, top_th->tt_child);
+
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		if (rc != 0)
+			st->st_sub_th->th_result = rc;
+		else
+			st->st_sub_th->th_result = rc2;
+
+		st->st_sub_th->th_sync = th->th_sync;
+		st->st_sub_th->th_local = th->th_local;
+		rc2 = dt_trans_stop(env, st->st_sub_th->th_dev,
+				    st->st_sub_th);
+		if (unlikely(rc2 != 0 && rc == 0)) {
+			rc = rc2;
+			CERROR("%s: trans stop failed: rc = %d\n",
+			    st->st_sub_th->th_dev->dd_lu_dev.ld_obd->obd_name,
+			    rc);
+			break;
+		}
+	}
+
+	top_thandle_destroy(top_th);
+	RETURN(rc);
+}
+EXPORT_SYMBOL(top_trans_stop);
 
 /* dt class init function. */
 int dt_global_init(void)
@@ -1576,6 +1573,87 @@ out:
 	return rc;
 }
 EXPORT_SYMBOL(dt_index_read);
+
+struct sub_thandle *lookup_sub_thandle(const struct thandle *th,
+				       const struct dt_device *sub_dt)
+{
+	struct sub_thandle *st;
+	struct top_thandle *top_th;
+
+	top_th = container_of0(th, struct top_thandle, tt_super);
+	/* Find or create the transaction in tt_trans_list, since there is
+	 * always only one thread access the list, so no need lock here */
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		if (st->st_sub_th->th_dev == sub_dt)
+			RETURN(st);
+	}
+
+	RETURN(NULL);
+}
+EXPORT_SYMBOL(lookup_sub_thandle);
+
+/**
+ * Get sub thandle.
+ *
+ * Get sub thandle from the top thandle according to the sub object. This is
+ * usually happened for distribute transaction (see top_thandle/sub_thandle).
+ *
+ * \param[in] env	execution environment
+ * \param[in] th	thandle on the top layer.
+ * \param[in] child_obj child object used to get sub transaction
+ *
+ * \retval		thandle of sub transaction if succeed
+ * \retval		PTR_ERR(errno) if failed
+ */
+struct thandle *get_sub_thandle(const struct lu_env *env,
+				struct thandle *th,
+				const struct dt_object *sub_obj)
+{
+	struct dt_device	*sub_dt = lu2dt_dev(sub_obj->do_lu.lo_dev);
+	struct sub_thandle	*lst;
+	struct top_thandle	*top_th;
+	struct thandle		*sub_th;
+	ENTRY;
+
+	top_th = container_of0(th, struct top_thandle, tt_super);
+	LASSERT(top_th->tt_child != NULL);
+	if (likely(sub_dt == top_th->tt_child->th_dev))
+		RETURN(top_th->tt_child);
+
+	lst = lookup_sub_thandle(th, sub_dt);
+	if (lst != NULL)
+		RETURN(lst->st_sub_th);
+
+	/* Find or create the transaction in tt_trans_list, since there is
+	 * always only one thread access the list, so no need lock here */
+	list_for_each_entry(lst, &top_th->tt_sub_trans_list, st_list) {
+		if (lst->st_sub_th->th_dev == sub_dt)
+			RETURN(lst->st_sub_th);
+	}
+
+	sub_th = dt_trans_create(env, sub_dt);
+	if (IS_ERR(sub_th))
+		RETURN(sub_th);
+
+	/* If the child does not need to create the transaction like
+	 * OSP connected to OST, just use current thandle */
+	if (sub_th == NULL)
+		RETURN(th);
+
+	lst = create_sub_thandle(env, top_th, sub_th);
+	if (IS_ERR(lst)) {
+		dt_trans_stop(env, sub_dt, sub_th);
+		RETURN(ERR_CAST(lst));
+	}
+
+	if (sub_th->th_remote_mdt)
+		top_th->tt_multiple_node = 1;
+
+	sub_th->th_storage_th = top_th->tt_child;
+
+	RETURN(sub_th);
+}
+EXPORT_SYMBOL(get_sub_thandle);
 
 #ifdef LPROCFS
 int lprocfs_dt_blksize_seq_show(struct seq_file *m, void *v)
