@@ -668,7 +668,13 @@ static int llog_osd_next_block(const struct lu_env *env,
 	if (rc)
 		GOTO(out, rc);
 
-	while (*cur_offset < lgi->lgi_attr.la_size) {
+	/* Reach the end of the file */
+	if (*cur_offset == lgi->lgi_attr.la_size) {
+		*cur_idx = loghandle->lgh_last_idx + 1;
+		GOTO(out, rc = 0);
+	}
+
+	while (*cur_offset <= lgi->lgi_attr.la_size) {
 		struct llog_rec_hdr	*rec, *last_rec;
 		struct llog_rec_tail	*tail;
 
