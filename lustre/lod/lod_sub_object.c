@@ -74,7 +74,6 @@ struct thandle *lod_sub_get_thandle(const struct lu_env *env,
 		RETURN(th);
 
 	tth = thandle_to_top_thandle(th);
-	LASSERT(tth->tt_magic == TOP_THANDLE_MAGIC);
 	/* local object must be mdt object, Note: during ost object
 	 * creation, FID is not assigned until osp_object_create(),
 	 * so if the FID of sub_obj is zero, it means OST object. XXX */
@@ -945,13 +944,13 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 	CDEBUG(D_INFO, "%s: Init llog for %d - catid "DOSTID":%x\n",
 	       obd->obd_name, index, POSTID(&cid->lci_logid.lgl_oi),
 	       cid->lci_logid.lgl_ogen);
-
+out_close:
 	if (rc != 0) {
 		llog_cat_close(env, ctxt->loc_handle);
 		ctxt->loc_handle = NULL;
 	}
+
 out_put:
 	llog_ctxt_put(ctxt);
 	RETURN(rc);
 }
-
