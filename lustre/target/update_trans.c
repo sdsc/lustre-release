@@ -289,32 +289,6 @@ struct sub_thandle *create_sub_thandle(struct top_multiple_thandle *tmt,
 }
 
 /**
- * Create sub thandle
- *
- * Create transaction handle for sub_thandle
- *
- * \param[in] env	execution environment
- * \param[in] th	top thandle
- * \param[in] st	sub_thandle
- *
- * \retval		0 if creation succeeds.
- * \retval		negative errno if creation fails.
- */
-int sub_thandle_trans_create(const struct lu_env *env, struct top_thandle *top_th,
-			     struct sub_thandle *st)
-{
-	struct thandle *sub_th;
-
-	sub_th = dt_trans_create(env, st->st_dt);
-	if (IS_ERR(sub_th))
-		return PTR_ERR(sub_th);
-
-	sub_th->th_top = &top_th->tt_super;
-	st->st_sub_th = sub_th;
-	return 0;
-}
-
-/**
  * sub thandle commit callback
  *
  * Mark the sub thandle to be committed and if all sub thandle are committed
@@ -322,7 +296,8 @@ int sub_thandle_trans_create(const struct lu_env *env, struct top_thandle *top_t
  *
  * \param[in] sub_th	sub thandle being committed.
  */
-static void sub_trans_commit_cb(struct lu_env *env, struct thandle *sub_th,
+static void sub_trans_commit_cb(struct lu_env *env,
+				struct thandle *sub_th,
 				struct dt_txn_commit_cb *cb, int err)
 {
 	struct sub_thandle	*st;
@@ -361,6 +336,36 @@ static void sub_thandle_register_commit_cb(struct sub_thandle *st,
 	INIT_LIST_HEAD(&st->st_commit_dcb.dcb_linkage);
 	dt_trans_cb_add(st->st_sub_th, &st->st_commit_dcb);
 }
+
+/**
+ * Create sub thandle
+ *
+ * Create transaction handle for sub_thandle
+ *
+ * \param[in] env	execution environment
+ * \param[in] th	top thandle
+ * \param[in] st	sub_thandle
+ *
+ * \retval		0 if creation succeeds.
+ * \retval		negative errno if creation fails.
+ */
+int sub_thandle_trans_create(const struct lu_env *env, struct top_thandle *top_th,
+			     struct sub_thandle *st)
+{
+	struct thandle *sub_th;
+
+	sub_th = dt_trans_create(env, st->st_dt);
+	if (IS_ERR(sub_th))
+		return PTR_ERR(sub_th);
+
+	sub_th->th_top = &top_th->tt_super;
+	st->st_sub_th = sub_th;
+
+	sub_th->th_wait_submit = 1;
+	sub_thandle_register_commit_cb(st, top_th->tt_multiple_thandle);
+	return 0;
+}
+
 
 /**
  * Create the top transaction.
@@ -431,7 +436,7 @@ static int declare_updates_write(const struct lu_env *env,
 	records = tmt->tmt_update_records->tur_update_records;
 	/* Declare update write for all other target */
 	list_for_each_entry(st, &tmt->tmt_sub_trans_list, st_list) {
-		if (st->st_committed)
+		if (st->st_committed || st->st_sub_th == NULL)
 			continue;
 
 		rc = sub_declare_updates_write(env, records, st->st_sub_th);
@@ -448,7 +453,6 @@ static int declare_updates_write(const struct lu_env *env,
  * Assign batchid to the distribute transaction
  *
  * \param[in] tmt	distribute transaction
- *
  */
 static void distribute_txn_assign_batchid(struct top_multiple_thandle *new)
 {
@@ -535,18 +539,16 @@ static int prepare_multiple_node_trans(const struct lu_env *env,
 	int				rc;
 	ENTRY;
 
-	/* Prepare the update buffer for recording updates */
-	if (tmt->tmt_update_records != NULL)
-		RETURN(0);
+	if (tmt->tmt_update_records == NULL) {
+		tur = &update_env_info(env)->uti_tur;
+		rc = check_and_prepare_update_record(env, tur);
+		if (rc < 0)
+			RETURN(rc);
 
-	tur = &update_env_info(env)->uti_tur;
-	rc = check_and_prepare_update_record(env, tur);
-	if (rc < 0)
-		RETURN(rc);
+		tmt->tmt_update_records = tur;
+		distribute_txn_assign_batchid(tmt);
+	}
 
-	tmt->tmt_update_records = tur;
-
-	distribute_txn_assign_batchid(tmt);
 	rc = declare_updates_write(env, tmt);
 
 	RETURN(rc);
@@ -574,21 +576,22 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 	int				rc = 0;
 	ENTRY;
 
-	/* Walk through all of sub transaction to see if it needs to
-	 * record updates for this transaction */
 	if (top_th->tt_multiple_thandle == NULL) {
 		rc = dt_trans_start(env, top_th->tt_child->th_dev,
 				    top_th->tt_child);
+		th->th_result = rc;
 		RETURN(rc);
 	}
 
+	/* Walk through all of sub transaction to see if it needs to
+	 * record updates for this transaction */
 	tmt = top_th->tt_multiple_thandle;
 	rc = prepare_multiple_node_trans(env, th);
 	if (rc < 0)
 		RETURN(rc);
 
 	list_for_each_entry(st, &tmt->tmt_sub_trans_list, st_list) {
-		if (st->st_committed)
+		if (st->st_committed && st->st_sub_th == NULL)
 			continue;
 		st->st_sub_th->th_sync = th->th_sync;
 		st->st_sub_th->th_local = th->th_local;
@@ -596,9 +599,10 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 		rc = dt_trans_start(env, st->st_sub_th->th_dev,
 				    st->st_sub_th);
 		if (rc != 0)
-			RETURN(rc);
+			GOTO(out, rc);
 	}
-
+out:
+	th->th_result = rc;
 	RETURN(rc);
 }
 EXPORT_SYMBOL(top_trans_start);
@@ -669,6 +673,7 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 	ENTRY;
 
 	if (likely(top_th->tt_multiple_thandle == NULL)) {
+		LASSERT(master_dev != NULL);
 		rc = dt_trans_stop(env, master_dev, top_th->tt_child);
 		OBD_FREE_PTR(top_th);
 		RETURN(rc);
@@ -705,7 +710,8 @@ int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 		update_records_dump(tur->tur_update_records, D_HA);
 		/* Write updates to the master MDT */
 		rc = sub_updates_write(env, tur->tur_update_records,
-				       top_th->tt_child, &master_st->st_cookie);
+				       master_st->st_sub_th,
+				       &master_st->st_cookie);
 		if (rc < 0) {
 			CERROR("%s: write updates failed: rc = %d\n",
 			       master_dev->dd_lu_dev.ld_obd->obd_name, rc);
@@ -755,8 +761,10 @@ stop_master_trans:
 
 			rc = sub_updates_write(env, tur->tur_update_records,
 					       st->st_sub_th, &st->st_cookie);
-			if (rc < 0)
+			if (rc < 0) {
+				th->th_result = rc;
 				break;
+			}
 		}
 	}
 
@@ -798,8 +806,8 @@ EXPORT_SYMBOL(top_trans_stop);
  * \retval	0 if creation succeeds
  * \retval	negative errno if creation fails
  */
-static int top_trans_create_tmt(const struct lu_env *env,
-				struct top_thandle *top_th)
+int top_trans_create_tmt(const struct lu_env *env,
+			 struct top_thandle *top_th)
 {
 	struct top_multiple_thandle *tmt;
 
@@ -850,14 +858,15 @@ create_sub_thandle_with_thandle(struct top_thandle *top_th,
  * \retval		thandle of sub transaction if succeed
  * \retval		PTR_ERR(errno) if failed
  */
-struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
+struct thandle *get_sub_thandle(const struct lu_env *env,
+				struct thandle *th,
 				const struct dt_object *sub_obj)
 {
 	struct dt_device	*sub_dt = lu2dt_dev(sub_obj->do_lu.lo_dev);
 	struct sub_thandle	*st = NULL;
 	struct top_thandle	*top_th;
 	struct thandle		*sub_th = NULL;
-	int			rc;
+	int			rc = 0;
 	ENTRY;
 
 	top_th = container_of(th, struct top_thandle, tt_super);
@@ -1187,6 +1196,7 @@ distribute_txn_commit_batchid_init(const struct lu_env *env,
 		CDEBUG(D_HA, "%s: committed batchid %llu\n",
 		       tdtd->tdtd_lut->lut_obd->obd_name,
 		       tdtd->tdtd_committed_batchid);
+		rc = 0;
 	}
 
 out_put:
@@ -1427,7 +1437,9 @@ void distribute_txn_fini(const struct lu_env *env,
 	wait_event(lut->lut_tdtd_commit_thread.t_ctl_waitq,
 		   lut->lut_tdtd_commit_thread.t_flags & SVC_STOPPED);
 
-	if (tdtd->tdtd_batchid_obj != NULL)
+	if (tdtd->tdtd_batchid_obj != NULL) {
 		lu_object_put(env, &tdtd->tdtd_batchid_obj->do_lu);
+		tdtd->tdtd_batchid_obj = NULL;
+	}
 }
 EXPORT_SYMBOL(distribute_txn_fini);

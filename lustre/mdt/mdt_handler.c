@@ -4068,6 +4068,7 @@ static int mdt_stack_init(const struct lu_env *env, struct mdt_device *mdt,
 	LASSERT(site);
 	LASSERT(mdt_lu_site(mdt) == NULL);
 	mdt->mdt_lu_dev.ld_site = site;
+	site->ls_target = &mdt->mdt_lut;
 	site->ls_top_dev = &mdt->mdt_lu_dev;
 	mdt->mdt_child = lu2md_dev(mdt->mdt_child_exp->exp_obd->obd_lu_dev);
 
@@ -4892,6 +4893,7 @@ static int mdt_prepare(const struct lu_env *env,
 	}
 
 	LASSERT(!test_bit(MDT_FL_CFGLOG, &mdt->mdt_state));
+
 	target_recovery_init(&mdt->mdt_lut, tgt_request_handle);
 	set_bit(MDT_FL_CFGLOG, &mdt->mdt_state);
 	LASSERT(obd->obd_no_conn);
