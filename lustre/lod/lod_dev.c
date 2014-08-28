@@ -268,13 +268,64 @@ static int lod_sub_process_config(const struct lu_env *env,
 	return rc;
 }
 
-static struct llog_operations updatelog_orig_logops;
 struct lod_recovery_data {
 	struct lod_device	*lrd_lod;
 	struct lod_tgt_desc	*lrd_ltd;
 	struct ptlrpc_thread	*lrd_thread;
+	struct update_recovery_data	*lrd_recovery_data;
 	__u32			lrd_idx;
 };
+
+
+/**
+ * process update recovery record
+ *
+ * Add the update recovery recode to the update recovery list in
+ * lod_recovery_data. Then the recovery thread (target_recovery_thread)
+ * will redo these updates.
+ *
+ * \param[in]env	execution environment
+ * \param[in]llh	log handle of update record
+ * \param[in]rec	update record to be replayed
+ * \param[in]data	update recovery data which holds the necessary
+ *                      arguments for recovery (see struct lod_recovery_data)
+ *
+ * \retval		0 if the record is processed successfully.
+ * \retval		negative errno if the record processing fails.
+ */
+static int lod_process_recovery_updates(const struct lu_env *env,
+					struct llog_handle *llh,
+					struct llog_rec_hdr *rec,
+					void *data)
+{
+	struct lod_recovery_data	*lrd = data;
+	struct llog_cookie	*cookie = &lod_env_info(env)->lti_cookie;
+	struct lu_target		*lut;
+	__u32				index = 0;
+	ENTRY;
+
+	if (lrd->lrd_ltd == NULL) {
+		int rc;
+
+		rc = lodname2mdt_index(lod2obd(lrd->lrd_lod)->obd_name, &index);
+		if (rc != 0)
+			return rc;
+	} else {
+		index = lrd->lrd_ltd->ltd_index;
+	}
+
+	cookie->lgc_lgl = llh->lgh_id;
+	cookie->lgc_index = rec->lrh_index;
+	cookie->lgc_subsys = LLOG_UPDATELOG_ORIG_CTXT;
+
+	CDEBUG(D_HA, "%s: process recovery updates "DOSTID":%u\n",
+	       lod2obd(lrd->lrd_lod)->obd_name,
+	       POSTID(&llh->lgh_id.lgl_oi), rec->lrh_index);
+	lut = lod2lu_dev(lrd->lrd_lod)->ld_site->ls_target;
+	return insert_update_records_to_recovery_list(lut,
+					(struct update_records *)rec,
+					cookie, index);
+}
 
 /**
  * recovery thread for update log
@@ -293,6 +344,7 @@ static int lod_sub_recovery_thread(void *arg)
 	struct lod_device		*lod = lrd->lrd_lod;
 	struct dt_device		*dt;
 	struct ptlrpc_thread		*thread = lrd->lrd_thread;
+	struct llog_ctxt		*ctxt;
 	struct lu_env			env;
 	int				rc;
 	ENTRY;
@@ -317,7 +369,45 @@ static int lod_sub_recovery_thread(void *arg)
 	if (rc != 0)
 		GOTO(out, rc);
 
-	/* XXX do recovery in the following patches */
+	/* Process the recovery record */
+	ctxt = llog_get_context(dt->dd_lu_dev.ld_obd, LLOG_UPDATELOG_ORIG_CTXT);
+	LASSERT(ctxt != NULL);
+	LASSERT(ctxt->loc_handle != NULL);
+
+	rc = llog_cat_process(&env, ctxt->loc_handle,
+			      lod_process_recovery_updates, lrd, 0, 0);
+	llog_ctxt_put(ctxt);
+
+	if (rc < 0) {
+		CERROR("%s getting update log failed: rc = %d\n",
+		       dt->dd_lu_dev.ld_obd->obd_name, rc);
+		GOTO(out, rc);
+	}
+
+	CDEBUG(D_HA, "%s retrieve update log: rc = %d\n",
+	       dt->dd_lu_dev.ld_obd->obd_name, rc);
+
+	if (lrd->lrd_ltd == NULL)
+		lod->lod_child_got_update_log = 1;
+	else
+		lrd->lrd_ltd->ltd_got_update_log = 1;
+
+	if (lod->lod_child_got_update_log) {
+		struct lod_tgt_descs	*ltd = &lod->lod_mdt_descs;
+		struct lod_tgt_desc	*tgt = NULL;
+		bool			all_got_log = true;
+		int			i;
+
+		cfs_foreach_bit(ltd->ltd_tgt_bitmap, i) {
+			tgt = LTD_TGT(ltd, i);
+			if (!tgt->ltd_got_update_log) {
+				all_got_log = false;
+				break;
+			}
+		}
+		if (all_got_log)
+			lrd->lrd_recovery_data->urd_recovery_ready = 1;
+	}
 
 out:
 	OBD_FREE_PTR(lrd);
@@ -326,6 +416,8 @@ out:
 	lu_env_fini(&env);
 	RETURN(rc);
 }
+
+static struct llog_operations updatelog_orig_logops;
 
 /**
  * finish sub llog context
@@ -443,8 +535,13 @@ int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
 	struct l_wait_info		lwi = { 0 };
 	struct lod_tgt_desc		*sub_ltd = NULL;
 	__u32				index;
+	__u32				master_index;
 	int				rc;
 	ENTRY;
+
+	rc = lodname2mdt_index(lod2obd(lod)->obd_name, &master_index);
+	if (rc != 0)
+		RETURN(rc);
 
 	OBD_ALLOC_PTR(lrd);
 	if (lrd == NULL)
@@ -452,9 +549,7 @@ int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
 
 	if (lod->lod_child == dt) {
 		thread = &lod->lod_child_recovery_thread;
-		rc = lodname2mdt_index(lod2obd(lod)->obd_name, &index);
-		if (rc != 0)
-			GOTO(free_lrd, rc);
+		index = master_index;
 	} else {
 		struct lod_tgt_descs	*ltd = &lod->lod_mdt_descs;
 		struct lod_tgt_desc	*tgt = NULL;
@@ -477,11 +572,16 @@ int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
 		thread = sub_ltd->ltd_recovery_thread;
 	}
 
+	CDEBUG(D_INFO, "%s init sub log %s\n", lod2obd(lod)->obd_name,
+	       dt->dd_lu_dev.ld_obd->obd_name);
 	lrd->lrd_lod = lod;
 	lrd->lrd_ltd = sub_ltd;
 	lrd->lrd_thread = thread;
 	lrd->lrd_idx = index;
 	init_waitqueue_head(&thread->t_ctl_waitq);
+	lrd->lrd_recovery_data =
+		lod2lu_dev(lod)->ld_site->ls_target->lut_update_recovery_data;
+	LASSERT(lrd->lrd_recovery_data != NULL);
 
 	obd = dt->dd_lu_dev.ld_obd;
 	obd->obd_lvfs_ctxt.dt = dt;
@@ -494,8 +594,8 @@ int lod_sub_init_llog(const struct lu_env *env, struct lod_device *lod,
 	}
 
 	/* Start the recovery thread */
-	task = kthread_run(lod_sub_recovery_thread, lrd, "lsub_rec-%u",
-			   index);
+	task = kthread_run(lod_sub_recovery_thread, lrd, "sub%d_rec%u",
+			   master_index, index);
 	if (IS_ERR(task)) {
 		rc = PTR_ERR(task);
 		CERROR("%s: cannot start recovery thread: rc = %d\n",
@@ -822,17 +922,21 @@ static int lod_cancel_slave_log(const struct lu_env *env,
 	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
 		struct llog_ctxt	*ctxt;
 		struct obd_device	*obd;
+		struct llog_cookie	*cookie;
 		int			rc1;
 
 		if (st->st_update == NULL)
 			continue;
 
+		cookie = &st->st_update->stu_cookie;
+		if (fid_is_zero(&cookie->lgc_lgl.lgl_oi.oi_fid))
+			continue;
+
 		obd = st->st_dt->dd_lu_dev.ld_obd;
 		ctxt = llog_get_context(obd, LLOG_UPDATELOG_ORIG_CTXT);
 		LASSERT(ctxt);
-
-		rc1 = llog_cat_cancel_records(env, ctxt->loc_handle,
-					1, &st->st_update->stu_cookie, NULL);
+		rc1 = llog_cat_cancel_records(env, ctxt->loc_handle, 1, cookie,
+					      NULL);
 		llog_ctxt_put(ctxt);
 		if (rc1 != 0 && rc1 != -ENOENT)
 			rc = rc1;
@@ -879,22 +983,26 @@ void lod_add_thandle_to_cancel_list(struct lod_cancel_log_thread *lclt,
  * \param[in]th		thandle of master log cancellation
  * \param[in]cookie	cookie of the callback, which is LOD device.
  */
-static void lod_cancel_master_log_commit(struct lu_env *env, struct thandle *th,
+static void lod_cancel_master_log_commit(const struct lu_env *env,
+					 struct thandle *th,
 					 struct dt_txn_commit_cb *cb, int err)
 {
 	struct top_thandle *master_th;
 	struct lod_device *lod;
 	ENTRY;
 
-	LASSERT(cb->dcb_data != NULL);
-	master_th = (struct top_thandle *)cb->dcb_data;
-	OBD_FREE_PTR(cb);
-	if (th->th_dev->dd_lu_dev.ld_obd->obd_stopping) {
-		top_thandle_put(master_th);
-		RETURN_EXIT;
+	if (cb != NULL) {
+		LASSERT(cb->dcb_data != NULL);
+		master_th = (struct top_thandle *)cb->dcb_data;
+		OBD_FREE_PTR(cb);
+		if (th->th_dev->dd_lu_dev.ld_obd->obd_stopping) {
+			top_thandle_put(master_th);
+			RETURN_EXIT;
+		}
+	} else {
+		master_th = container_of(th, struct top_thandle,
+					 tt_super);
 	}
-
-
 	top_thandle_dump(D_HA, master_th);
 	lod = dt2lod_dev(master_th->tt_super.th_dev);
 
@@ -925,6 +1033,7 @@ static int lod_cancel_master_log(const struct lu_env *env,
 	struct obd_device	*master_obd;
 	struct llog_ctxt	*master_ctxt;
 	struct dt_txn_commit_cb	*master_dcb;
+	struct llog_cookie	*cookie;
 	struct lod_device	*lod;
 	int			rc;
 	ENTRY;
@@ -936,6 +1045,14 @@ static int lod_cancel_master_log(const struct lu_env *env,
 	lod = dt2lod_dev(committed_th->tt_super.th_dev);
 	master_obd = lod->lod_child->dd_lu_dev.ld_obd;
 
+	cookie = &committed_th->tt_master_cookie;
+	/* The update log in master MDT might has been cancelled already,
+	 * see update_recovery_is_committed(). */
+	if (fid_is_zero(&cookie->lgc_lgl.lgl_oi.oi_fid)) {
+		lod_cancel_master_log_commit(env, &committed_th->tt_super, NULL,
+					     0);
+		RETURN(0);
+	}
 	master_ctxt = llog_get_context(master_obd,
 				LLOG_UPDATELOG_ORIG_CTXT);
 	LASSERT(master_ctxt != NULL);
@@ -949,8 +1066,7 @@ static int lod_cancel_master_log(const struct lu_env *env,
 		GOTO(out_ctxt, rc = PTR_ERR(th));
 
 	rc = llog_cat_declare_cancel_records(env, master_ctxt->loc_handle, 1,
-					     &committed_th->tt_master_cookie,
-					     th);
+					     cookie, th);
 	if (rc < 0)
 		GOTO(out_trans, rc);
 
@@ -959,7 +1075,7 @@ static int lod_cancel_master_log(const struct lu_env *env,
 		GOTO(out_trans, rc);
 
 	rc = llog_cat_cancel_records(env, master_ctxt->loc_handle, 1,
-				     &committed_th->tt_master_cookie, th);
+				     cookie, th);
 	if (rc < 0)
 		GOTO(out_trans, rc);
 

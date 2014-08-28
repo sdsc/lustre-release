@@ -382,19 +382,21 @@ static int prepare_mulitple_node_trans(const struct lu_env *env,
 	int				rc;
 	ENTRY;
 
-	/* Prepare the update buffer for recording updates */
-	if (top_th->tt_update_records != NULL)
-		RETURN(0);
+	/* During replay, tt_update_records had been gotten from update log */
+	if (top_th->tt_update_records == NULL) {
+		tur = &update_env_info(env)->uti_tur;
+		rc = check_and_prepare_update_record(env, tur);
+		if (rc != 0)
+			RETURN(rc);
 
-	tur = &update_env_info(env)->uti_tur;
-	rc = check_and_prepare_update_record(env, tur);
-	top_th->tt_update_records = tur;
+		top_th->tt_update_records = tur;
 
-	/* Get distribution ID for this distributed operation */
-	lut = th->th_dev->dd_lu_dev.ld_site->ls_target;
-	spin_lock(&lut->lut_distribution_id_lock);
-	tur->tur_update_records->ur_cookie = lut->lut_distribution_id++;
-	spin_unlock(&lut->lut_distribution_id_lock);
+		/* Get distribution ID for this distributed operation */
+		lut = th->th_dev->dd_lu_dev.ld_site->ls_target;
+		spin_lock(&lut->lut_distribution_id_lock);
+		tur->tur_update_records->ur_cookie = lut->lut_distribution_id++;
+		spin_unlock(&lut->lut_distribution_id_lock);
+	}
 
 	rc = declare_updates_write(env, top_th);
 
@@ -429,7 +431,7 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 	if (top_th->tt_multiple_node) {
 		rc = prepare_mulitple_node_trans(env, th);
 		if (rc < 0)
-			RETURN(rc);
+			GOTO(out, rc);
 		/* Mark remote MDT flag on master MDT thandle, so the commit
 		 * callback can recorganize the distribute transaction */
 		top_th->tt_child->th_remote_mdt = 1;
@@ -445,7 +447,7 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 		rc = dt_trans_start(env, st->st_sub_th->th_dev,
 				    st->st_sub_th);
 		if (rc != 0)
-			RETURN(rc);
+			GOTO(out, rc);
 	}
 
 	/* Start transaction on master MDT */
@@ -455,6 +457,8 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 		top_th->tt_child->th_tags = th->th_tags;
 		rc = dt_trans_start(env, master_dev, top_th->tt_child);
 	}
+out:
+	th->th_result = rc;
 	RETURN(rc);
 }
 EXPORT_SYMBOL(top_trans_start);
@@ -584,8 +588,10 @@ stop_master_trans:
 			rc = sub_updates_write(env, tur->tur_update_records,
 					       st->st_sub_th,
 					       &st->st_update->stu_cookie);
-			if (rc < 0)
+			if (rc < 0) {
+				th->th_result = rc;
 				break;
+			}
 		}
 		if (rc > 0)
 			rc = 0;
@@ -648,6 +654,23 @@ stop_other_trans:
 }
 EXPORT_SYMBOL(top_trans_stop);
 
+struct sub_thandle *lookup_sub_thandle(const struct thandle *th,
+				       const struct dt_device *sub_dt)
+{
+	struct sub_thandle *st;
+	struct top_thandle *top_th;
+
+	top_th = container_of0(th, struct top_thandle, tt_super);
+	/* Find or create the transaction in tt_trans_list, since there is
+	 * always only one thread access the list, so no need lock here */
+	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
+		if (st->st_sub_th->th_dev == sub_dt)
+			RETURN(st);
+	}
+
+	RETURN(NULL);
+}
+
 /**
  * Get sub thandle.
  *
@@ -661,7 +684,8 @@ EXPORT_SYMBOL(top_trans_stop);
  * \retval		thandle of sub transaction if succeed
  * \retval		PTR_ERR(errno) if failed
  */
-struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
+struct thandle *get_sub_thandle(const struct lu_env *env,
+				struct thandle *th,
 				const struct dt_object *sub_obj)
 {
 	struct dt_device	*sub_dt = lu2dt_dev(sub_obj->do_lu.lo_dev);
@@ -678,15 +702,13 @@ struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
 
 	top_th = container_of(th, struct top_thandle, tt_super);
 	LASSERT(top_th->tt_magic == TOP_THANDLE_MAGIC);
+	LASSERT(top_th->tt_child != NULL);
 	if (likely(sub_dt == top_th->tt_child->th_dev))
 		RETURN(top_th->tt_child);
 
-	/* Find or create the transaction in tt_trans_list, since there is
-	 * always only one thread access the list, so no need lock here */
-	list_for_each_entry(st, &top_th->tt_sub_trans_list, st_list) {
-		if (st->st_sub_th->th_dev == sub_dt)
-			RETURN(st->st_sub_th);
-	}
+	st = lookup_sub_thandle(th, sub_dt);
+	if (st != NULL)
+		RETURN(st->st_sub_th);
 
 	sub_th = dt_trans_create(env, sub_dt);
 	if (IS_ERR(sub_th))
@@ -808,7 +830,6 @@ void sub_trans_commit_cb(struct thandle *sub_th)
 	 *  commit callback.
 	 *  If all of sub thandles are freed, but not all committed, we only
 	 *  all top_thandle_put() to release the top thandle */
-
 	if (top_th->tt_child != NULL)
 		all_freed = false;
 
