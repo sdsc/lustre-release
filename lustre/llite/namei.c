@@ -515,35 +515,40 @@ static int ll_lookup_it_finish(struct ptlrpc_request *request,
 static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 				   struct lookup_intent *it)
 {
-        struct lookup_intent lookup_it = { .it_op = IT_LOOKUP };
-        struct dentry *save = dentry, *retval;
-        struct ptlrpc_request *req = NULL;
-        struct md_op_data *op_data;
-        __u32 opc;
-        int rc;
-        ENTRY;
+	struct lookup_intent	 lookup_it	= { .it_op = IT_LOOKUP };
+	struct dentry		*save		= dentry;
+	struct dentry		*retval;
+	struct ptlrpc_request	*req		= NULL;
+	struct md_op_data	*op_data	= NULL;
+	struct dentry		*tmp		= NULL;
+	struct inode		*inode;
+	__u32			 opc;
+	int			 save_op	= 0;
+	int			 rc;
+	ENTRY;
 
-        if (dentry->d_name.len > ll_i2sbi(parent)->ll_namelen)
-                RETURN(ERR_PTR(-ENAMETOOLONG));
+	if (dentry->d_name.len > ll_i2sbi(parent)->ll_namelen)
+		RETURN(ERR_PTR(-ENAMETOOLONG));
 
 	CDEBUG(D_VFSTRACE, "VFS Op:name=%.*s, dir="DFID"(%p), intent=%s\n",
 	       dentry->d_name.len, dentry->d_name.name,
 	       PFID(ll_inode2fid(parent)), parent, LL_IT2STR(it));
 
-        if (d_mountpoint(dentry))
-                CERROR("Tell Peter, lookup on mtpt, it %s\n", LL_IT2STR(it));
+	if (d_mountpoint(dentry))
+		CERROR("Tell Peter, lookup on mtpt, it %s\n", LL_IT2STR(it));
 
 	if (it == NULL || it->it_op == IT_GETXATTR)
 		it = &lookup_it;
 
-        if (it->it_op == IT_GETATTR) {
-                rc = ll_statahead_enter(parent, &dentry, 0);
-                if (rc == 1) {
-                        if (dentry == save)
-                                GOTO(out, retval = NULL);
-                        GOTO(out, retval = dentry);
-                }
-        }
+	if (it->it_op == IT_GETATTR) {
+		rc = ll_statahead_enter(parent, &dentry, 0);
+		if (rc == 1) {
+			if (dentry == save)
+				GOTO(out, retval = NULL);
+
+			GOTO(out, retval = dentry);
+		}
+	}
 
 	if (it->it_op & IT_CREAT)
 		opc = LUSTRE_OPC_CREATE;
@@ -552,42 +557,91 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
 
 	op_data = ll_prep_md_op_data(NULL, parent, NULL, dentry->d_name.name,
 				     dentry->d_name.len, 0, opc, NULL);
-        if (IS_ERR(op_data))
-                RETURN((void *)op_data);
+	if (IS_ERR(op_data))
+		RETURN((void *)op_data);
 
-        /* enforce umask if acl disabled or MDS doesn't support umask */
-        if (!IS_POSIXACL(parent) || !exp_connect_umask(ll_i2mdexp(parent)))
+	/* enforce umask if acl disabled or MDS doesn't support umask */
+	if (!IS_POSIXACL(parent) || !exp_connect_umask(ll_i2mdexp(parent)))
 		it->it_create_mode &= ~current_umask();
 
+again:
 	rc = md_intent_lock(ll_i2mdexp(parent), op_data, it, &req,
 			    &ll_md_blocking_ast, 0);
-        ll_finish_md_op_data(op_data);
-        if (rc < 0)
-                GOTO(out, retval = ERR_PTR(rc));
+	if (rc == -EACCES && it->it_op & IT_OPEN &&
+	    it_disposition(it, DISP_OPEN_DENY) && save_op == 0) {
+		tmp = d_alloc_pseudo(dentry->d_sb, &dentry->d_name);
+		if (tmp == NULL)
+			GOTO(out, retval = ERR_PTR(-ENOMEM));
 
-	rc = ll_lookup_it_finish(req, it, parent, &dentry);
-        if (rc != 0) {
-                ll_intent_release(it);
-                GOTO(out, retval = ERR_PTR(rc));
-        }
+		save_op = it->it_op;
+		it->it_op = IT_GETATTR;
+		ptlrpc_req_finished(req);
+		req = NULL;
+		rc = md_intent_lock(ll_i2mdexp(parent), op_data, it,
+				    &req, &ll_md_blocking_ast, 0);
+	}
 
-        if ((it->it_op & IT_OPEN) && dentry->d_inode &&
-            !S_ISREG(dentry->d_inode->i_mode) &&
-            !S_ISDIR(dentry->d_inode->i_mode)) {
-                ll_release_openhandle(dentry, it);
-        }
-        ll_lookup_finish_locks(it, dentry);
+	if (rc < 0)
+		GOTO(out, retval = ERR_PTR(rc));
 
-        if (dentry == save)
-                GOTO(out, retval = NULL);
-        else
-                GOTO(out, retval = dentry);
- out:
-        if (req)
-                ptlrpc_req_finished(req);
-        if (it->it_op == IT_GETATTR && (retval == NULL || retval == dentry))
-                ll_statahead_mark(parent, dentry);
-        return retval;
+	if (tmp == NULL)
+		rc = ll_lookup_it_finish(req, it, parent, &dentry);
+	else
+		rc = ll_lookup_it_finish(req, it, parent, &tmp);
+	if (rc != 0) {
+		ll_intent_release(it);
+		GOTO(out, retval = ERR_PTR(rc));
+	}
+
+	if (tmp == NULL)
+		inode = dentry->d_inode;
+	else
+		inode = tmp->d_inode;
+
+	if (it->it_op & IT_OPEN && inode != NULL &&
+	    !S_ISREG(inode->i_mode) && !S_ISDIR(inode->i_mode))
+		ll_release_openhandle(dentry, it);
+
+	ll_lookup_finish_locks(it, dentry);
+	if (tmp != NULL) {
+		LASSERT(inode != NULL);
+
+		if (inode->i_gid == parent->i_gid ||
+		    !in_group_p(inode->i_gid))
+			GOTO(out, retval = ERR_PTR(-EACCES));
+
+		op_data->op_suppgids[1] = (__u32)from_kgid(&init_user_ns,
+							   inode->i_gid);
+		it->it_op = save_op;
+		ptlrpc_req_finished(req);
+		req = NULL;
+		dput(tmp);
+		tmp = NULL;
+		goto again;
+	}
+
+	if (dentry == save)
+		GOTO(out, retval = NULL);
+	else
+		GOTO(out, retval = dentry);
+
+out:
+	if (save_op != 0)
+		it->it_op = save_op;
+
+	if (op_data != NULL && !IS_ERR(op_data))
+		ll_finish_md_op_data(op_data);
+
+	if (req != NULL)
+		ptlrpc_req_finished(req);
+
+	if (it->it_op == IT_GETATTR && (retval == NULL || retval == dentry))
+		ll_statahead_mark(parent, dentry);
+
+	if (tmp != NULL && !IS_ERR(tmp))
+		dput(tmp);
+
+	return retval;
 }
 
 #ifdef HAVE_IOP_ATOMIC_OPEN

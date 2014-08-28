@@ -754,8 +754,21 @@ static int mdt_mfd_open(struct mdt_thread_info *info, struct mdt_object *p,
 
         rc = mo_open(info->mti_env, mdt_object_child(o),
                      created ? flags | MDS_OPEN_CREATED : flags);
-        if (rc)
+        if (rc != 0) {
+		if (rc == -EACCES) {
+			struct lu_ucred *uc = lu_ucred(info->mti_env);
+
+			/* If we allow the client to chgrp (CFS_SETGRP_PERM),
+			 * but the client does not know which suppgid should
+			 * be sent to the MDS, then we should give the client
+			 * another chance to send the right suppgid. */
+			if (uc->uc_suppgids[1] == INVALID_GID &&
+			    allow_client_chgrp(info, uc))
+				mdt_set_disposition(info, rep, DISP_OPEN_DENY);
+		}
+
                 GOTO(err_out, rc);
+	}
 
 	mfd = mdt_mfd_new(med);
 	if (mfd == NULL)
