@@ -115,7 +115,8 @@ struct lod_tgt_desc {
 	struct ptlrpc_thread	*ltd_recovery_thread;
 	unsigned long      ltd_active:1,/* is this target up for requests */
 			   ltd_activate:1,/* should  target be activated */
-			   ltd_reap:1;  /* should this target be deleted */
+			   ltd_reap:1,  /* should this target be deleted */
+			   ltd_got_update_log:1; /* Already got update log */
 };
 
 #define TGT_PTRS		256     /* number of pointers at 1st level */
@@ -364,12 +365,6 @@ static inline struct lod_object *lod_dt_obj(const struct dt_object *d)
 static inline struct dt_object* lod_object_child(struct lod_object *o)
 {
 	return container_of0(lu_object_next(lod2lu_obj(o)),
-			struct dt_object, do_lu);
-}
-
-static inline struct dt_object *dt_object_child(struct dt_object *o)
-{
-	return container_of0(lu_object_next(&(o)->do_lu),
 			struct dt_object, do_lu);
 }
 

@@ -1833,6 +1833,12 @@ static inline struct dt_object *lu2dt_obj(struct lu_object *o)
 	return container_of0(o, struct dt_object, do_lu);
 }
 
+static inline struct dt_object *dt_object_child(struct dt_object *o)
+{
+	return container_of0(lu_object_next(&(o)->do_lu),
+			     struct dt_object, do_lu);
+}
+
 /**
  * This is the general purpose transaction handle.
  * 1. Transaction Life Cycle
@@ -1961,6 +1967,37 @@ struct sub_thandle_update {
 	__u32			stu_committed:1;
 };
 
+struct lod_update_records {
+	/* All of updates for the cross-MDT operation. */
+	struct update_records	*lur_update_records;
+	size_t			lur_update_records_size;
+
+	/* All of parameters for the cross-MDT operation */
+	struct update_params	*lur_update_params;
+	size_t			lur_update_params_size;
+};
+
+/* LOD/recovery thread will share lod_thandle to handle
+ * distribute transaction */
+#define LOD_THANDLE_MAGIC	0x20140820
+struct lod_thandle {
+	struct thandle		lt_super;
+
+	/* The master sub transaction created in osp_trans_create */
+	struct thandle		*lt_child;
+
+	/* Other sub transactions will be listed here */
+	struct list_head	lt_sub_trans_list;
+
+	/* All of uncommitted transaction will be listed together */
+	struct list_head	lt_commit_list;
+
+	/* Track the commit status for all updates of this transaction */
+	struct lod_update_records *lt_update_records;
+	__u32			lt_magic;
+	__u32			lt_multiple_node:1;
+};
+
 /* Sub thandle is used to track multiple sub thandles under one parent
  * thandle */
 struct sub_thandle {
@@ -1968,6 +2005,7 @@ struct sub_thandle {
 	struct dt_device	*st_dt;
 	struct list_head	st_list;
 	struct sub_thandle_update *st_update;
+	unsigned int		st_committed:1;
 };
 
 struct thandle *get_sub_thandle(const struct lu_env *env, struct thandle *th,
@@ -1979,6 +2017,9 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 		   struct thandle *th);
 void top_thandle_destroy(struct top_thandle *top_th);
+
+struct sub_thandle
+*lookup_sub_thandle(const struct thandle *th, const struct dt_device *dt);
 
 void dt_txn_callback_add(struct dt_device *dev, struct dt_txn_callback *cb);
 void dt_txn_callback_del(struct dt_device *dev, struct dt_txn_callback *cb);
@@ -2503,6 +2544,28 @@ static inline int dt_punch(const struct lu_env *env, struct dt_object *dt,
         LASSERT(dt->do_body_ops);
         LASSERT(dt->do_body_ops->dbo_punch);
         return dt->do_body_ops->dbo_punch(env, dt, start, end, th, capa);
+}
+
+static inline int dt_declare_write(const struct lu_env *env,
+				   struct dt_object *dt,
+				   const struct lu_buf *buf,
+				   loff_t pos, struct thandle *th)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_declare_write);
+	return dt->do_body_ops->dbo_declare_write(env, dt, buf, pos, th);
+}
+
+static inline size_t dt_write(const struct lu_env *env, struct dt_object *dt,
+			      const struct lu_buf *buf, loff_t *pos,
+			      struct thandle *th,
+			      struct lustre_capa *capa, int ignore)
+{
+	LASSERT(dt);
+	LASSERT(dt->do_body_ops);
+	LASSERT(dt->do_body_ops->dbo_write);
+	return dt->do_body_ops->dbo_write(env, dt, buf, pos, th, capa, ignore);
 }
 
 static inline int dt_fiemap_get(const struct lu_env *env, struct dt_object *d,

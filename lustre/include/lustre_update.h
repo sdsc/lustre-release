@@ -89,7 +89,7 @@ static inline int update_params_size(const struct update_params *params)
 }
 
 static inline struct object_update_param *
-update_params_get_param(const struct update_params *params, int index)
+update_params_get_param(const struct update_params *params, unsigned int index)
 {
 	struct object_update_param *param;
 	unsigned int		i;
@@ -103,6 +103,22 @@ update_params_get_param(const struct update_params *params, int index)
 			object_update_param_size(param));
 
 	return param;
+}
+
+static inline void*
+update_params_get_param_buf(const struct update_params *params, __u16 index,
+			    __u16 *size)
+{
+	struct object_update_param *param;
+
+	param = update_params_get_param(params, (unsigned int)index);
+	if (param == NULL)
+		return NULL;
+
+	if (size != NULL)
+		*size = param->oup_len;
+
+	return &param->oup_buf[0];
 }
 
 struct update_op {
@@ -131,7 +147,6 @@ struct update_ops {
 	__u32			uops_size;
 	struct update_op	uops_op[0];
 };
-
 
 static inline int update_ops_size(const struct update_ops *ops)
 {
@@ -459,6 +474,9 @@ struct update_thread_info {
 	struct lu_attr			uti_attr;
 	struct lu_fid			uti_fid;
 	struct lu_buf			uti_buf;
+	struct ldlm_res_id		uti_resid;
+	ldlm_policy_data_t		uti_policy;
+	struct ldlm_enqueue_info	uti_einfo;
 	struct thandle_update_records	uti_tur;
 };
 
