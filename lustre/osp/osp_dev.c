@@ -830,6 +830,27 @@ out:
 }
 
 /**
+ * Determine if the lock needs to be cancelled
+ *
+ * Determine if the unused lock should be cancelled before replay, see
+ * (ldlm_cancel_no_wait_policy()). Currently, only inode bits lock exists
+ * between MDTs.
+ *
+ * \param[in] lock	lock to be checked.
+ *
+ * \retval		1 if the lock needs to be cancelled before replay.
+ * 			0 if the lock does not need to be cancelled before
+ * 			replay.
+ */
+static int osp_cancel_weight(struct ldlm_lock *lock)
+{
+	if (lock->l_resource->lr_type != LDLM_IBITS)
+		RETURN(0);
+
+	RETURN(1);
+}
+
+/**
  * Initialize OSP device according to the parameters in the configuration
  * log \a cfg.
  *
@@ -1030,6 +1051,8 @@ static int osp_init0(const struct lu_env *env, struct osp_device *osp,
 		if (rc)
 			GOTO(out_last_used, rc);
 	}
+
+	ns_register_cancel(obd->obd_namespace, osp_cancel_weight);
 
 	/*
 	 * Initialize synhronization mechanism taking
@@ -1292,6 +1315,9 @@ static int osp_obd_connect(const struct lu_env *env, struct obd_export **exp,
 	if (rc) {
 		CERROR("%s: can't connect obd: rc = %d\n", obd->obd_name, rc);
 		GOTO(out, rc);
+	} else {
+		osp->opd_obd->u.cli.cl_seq->lcs_exp =
+				class_export_get(osp->opd_exp);
 	}
 
 	ptlrpc_pinger_add_import(imp);
@@ -1409,26 +1435,6 @@ out:
 }
 
 /**
- * Prepare fid client.
- *
- * This function prepares the FID client for the OSP. It will check and assign
- * the export (to MDT0) for its FID client, so OSP can allocate super sequence
- * or lookup sequence in FLDB of MDT0.
- *
- * \param[in] osp	OSP device
- */
-static void osp_prepare_fid_client(struct osp_device *osp)
-{
-	LASSERT(osp->opd_obd->u.cli.cl_seq != NULL);
-	if (osp->opd_obd->u.cli.cl_seq->lcs_exp != NULL)
-		return;
-
-	LASSERT(osp->opd_exp != NULL);
-	osp->opd_obd->u.cli.cl_seq->lcs_exp =
-				class_export_get(osp->opd_exp);
-}
-
-/**
  * Implementation of obd_ops::o_import_event
  *
  * This function is called when some related import event happens. It will
@@ -1476,7 +1482,6 @@ static int osp_import_event(struct obd_device *obd, struct obd_import *imp,
 	case IMP_EVENT_ACTIVE:
 		d->opd_imp_active = 1;
 
-		osp_prepare_fid_client(d);
 		if (d->opd_got_disconnected)
 			d->opd_new_connection = 1;
 		d->opd_imp_connected = 1;
@@ -1639,12 +1644,19 @@ int osp_fid_alloc(const struct lu_env *env, struct obd_export *exp,
 	struct client_obd	*cli = &exp->exp_obd->u.cli;
 	struct osp_device	*osp = lu2osp_dev(exp->exp_obd->obd_lu_dev);
 	struct lu_client_seq	*seq = cli->cl_seq;
+	struct lu_device	*top_device;
 	ENTRY;
 
 	LASSERT(osp->opd_obd->u.cli.cl_seq != NULL);
 	/* Sigh, fid client is not ready yet */
-	if (osp->opd_obd->u.cli.cl_seq->lcs_exp == NULL)
-		RETURN(-ENOTCONN);
+	LASSERT(osp->opd_obd->u.cli.cl_seq->lcs_exp != NULL);
+
+	/* If the current target is in recovery, we need do fid alloc
+	 * immediately (through write_updates_log->llog_osd_open->
+	 * osp_fid_alloc. */
+	top_device = osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
+	if (!top_device->ld_obd->obd_recovering && !osp->opd_imp_active)
+		RETURN(-EAGAIN);
 
 	RETURN(seq_client_alloc_fid(env, seq, fid));
 }

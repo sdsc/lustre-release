@@ -222,7 +222,8 @@ int tgt_txn_start_cb(const struct lu_env *env, struct thandle *th,
 		     void *cookie);
 int tgt_txn_stop_cb(const struct lu_env *env, struct thandle *th,
 		    void *cookie);
-
+struct sub_thandle *lookup_sub_thandle(const struct thandle *th,
+				       const struct dt_device *sub_dt);
 void update_info_init(void);
 void update_info_fini(void);
 #endif /* _TG_INTERNAL_H */
