@@ -461,15 +461,21 @@ static void osp_request_commit_cb(struct ptlrpc_request *req)
 {
 	struct thandle *th = req->rq_cb_data;
 	struct osp_thandle *oth = thandle_to_osp_thandle(th);
+	struct obd_import *imp = req->rq_import;
 	ENTRY;
 
 	/* Interesting, commit callback arrives before stop callback */
 	if (th->th_transno == 0) {
-		DEBUG_REQ(D_HA, req, "arrive before stop callback.\n");
+		DEBUG_REQ(D_HA, req, "arrive before stop callback.");
 		th->th_transno = req->rq_transno;
 	}
 
-	dt_txn_hook_commit(th);
+	CDEBUG(D_HA, "trans no "LPU64" committed transno "LPU64"\n",
+	       req->rq_transno, imp->imp_peer_committed_transno);
+	if (req->rq_transno != 0 &&
+	    (req->rq_transno <= imp->imp_peer_committed_transno))
+		th->th_committed = 1;
+
 	sub_trans_commit_cb(th);
 	osp_thandle_put(oth);
 	EXIT;
@@ -515,6 +521,17 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	} else {
 		struct osp_thandle *oth = thandle_to_osp_thandle(th);
+		struct lu_device *top_device;
+
+		/* If the transaction is created during MDT recoverying
+		 * process, it means this is an recovery update, we need
+		 * to let OSP send it anyway without checking recoverying
+		 * status, in case the other target is being recoveried
+		 * at the same time, and if we wait here for the import
+		 * to be recoveryed, it might cause deadlock */
+		top_device = osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
+		if (top_device->ld_obd->obd_recovering)
+			req->rq_allow_replay = 1;
 
 		req->rq_commit_cb = osp_request_commit_cb;
 		req->rq_cb_data = th;
