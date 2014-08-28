@@ -89,7 +89,7 @@ static inline int update_params_size(const struct update_params *params)
 }
 
 static inline struct object_update_param *
-update_params_get_param(const struct update_params *params, int index)
+update_params_get_param(const struct update_params *params, unsigned int index)
 {
 	struct object_update_param *param;
 	unsigned int		i;
@@ -103,6 +103,22 @@ update_params_get_param(const struct update_params *params, int index)
 			object_update_param_size(param));
 
 	return param;
+}
+
+static inline void*
+update_params_get_param_buf(const struct update_params *params, __u16 index,
+			    __u16 *size)
+{
+	struct object_update_param *param;
+
+	param = update_params_get_param(params, (unsigned int)index);
+	if (param == NULL)
+		return NULL;
+
+	if (size != NULL)
+		*size = param->oup_len;
+
+	return &param->oup_buf[0];
 }
 
 struct update_op {
@@ -131,7 +147,6 @@ struct update_ops {
 	__u32			uops_size;
 	struct update_op	uops_op[0];
 };
-
 
 static inline int update_ops_size(const struct update_ops *ops)
 {
@@ -209,6 +224,7 @@ struct sub_thandle {
 	struct dt_device	*st_dt;
 	struct list_head	st_list;
 	struct sub_thandle_update *st_update;
+	unsigned int		st_committed:1;
 };
 
 enum dt_txn_callback_flags {
@@ -439,6 +455,8 @@ int top_trans_start(const struct lu_env *env, struct dt_device *master_dev,
 int top_trans_stop(const struct lu_env *env, struct dt_device *master_dev,
 		   struct thandle *th);
 void top_thandle_destroy(struct top_thandle *top_th);
+struct sub_thandle
+*lookup_sub_thandle(const struct thandle *th, const struct dt_device *dt);
 
 /* update_records.c */
 void update_records_dump(struct update_records *records, unsigned int mask);
@@ -527,6 +545,9 @@ struct update_thread_info {
 	struct lu_attr			uti_attr;
 	struct lu_fid			uti_fid;
 	struct lu_buf			uti_buf;
+	struct ldlm_res_id		uti_resid;
+	ldlm_policy_data_t		uti_policy;
+	struct ldlm_enqueue_info	uti_einfo;
 	struct thandle_update_records	uti_tur;
 };
 
