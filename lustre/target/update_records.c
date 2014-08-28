@@ -65,7 +65,9 @@ void update_records_dump(struct update_records *records, unsigned int mask)
 	ops = &records->ur_ops;
 	params = update_records_get_params(records);
 
-	CDEBUG(mask, "ops %d params %d\n", ops->uops_count,
+	CDEBUG(mask, "master transno "LPU64" batchid "LPU64" flags %x"
+	       " ops count %d params %d\n", records->ur_master_transno,
+	       records->ur_batchid, records->ur_flags, ops->uops_count,
 	       params->up_params_count);
 
 	if (ops->uops_count == 0)
@@ -824,6 +826,17 @@ static void update_key_fini(const struct lu_context *ctx,
 			    struct lu_context_key *key, void *data)
 {
 	struct update_thread_info *info = data;
+	struct thandle_exec_args  *args = &info->uti_tea;
+	int			  i;
+
+	for (i = 0; i < args->ta_alloc_args; i++) {
+		if (args->ta_args[i] != NULL)
+			OBD_FREE_PTR(args->ta_args[i]);
+	}
+
+	if (args->ta_args != NULL)
+		OBD_FREE(args->ta_args, sizeof(args->ta_args[0]) *
+			 args->ta_alloc_args);
 
 	if (info->uti_tur.tur_update_records != NULL)
 		OBD_FREE_LARGE(info->uti_tur.tur_update_records,

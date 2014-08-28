@@ -265,6 +265,11 @@ int osp_remote_sync(const struct lu_env *env, struct obd_import *imp,
 	if (rc != 0)
 		RETURN(rc);
 
+	/* This will only be called with read-only update, and these updates
+	 * might be used to retrieve update log during recovery process, so
+	 * it will be allowed to send during recovery process */
+	req->rq_allow_replay = 1;
+
 	/* Note: some dt index api might return non-zero result here, like
 	 * osd_index_ea_lookup, so we should only check rc < 0 here */
 	rc = ptlrpc_queue_wait(req);
@@ -786,6 +791,17 @@ static int osp_trans_trigger(const struct lu_env *env, struct osp_device *osp,
 		ptlrpcd_add_req(req, PDL_POLICY_LOCAL, -1);
 	} else {
 		struct osp_thandle *oth = thandle_to_osp_thandle(th);
+		struct lu_device *top_device;
+
+		/* If the transaction is created during MDT recoverying
+		 * process, it means this is an recovery update, we need
+		 * to let OSP send it anyway without checking recoverying
+		 * status, in case the other target is being recoveried
+		 * at the same time, and if we wait here for the import
+		 * to be recoveryed, it might cause deadlock */
+		top_device = osp->opd_dt_dev.dd_lu_dev.ld_site->ls_top_dev;
+		if (top_device->ld_obd->obd_recovering)
+			req->rq_allow_replay = 1;
 
 		args->oaua_flow_control = false;
 		req->rq_commit_cb = osp_request_commit_cb;

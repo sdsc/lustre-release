@@ -136,31 +136,6 @@ int lod_sub_object_declare_create(const struct lu_env *env,
 }
 
 /**
- * Convert lu_attr from cpu endian to little endian
- *
- * \param[out] dst_attr		holds the convertion result
- * \param[in] src_attr		the attribute to be converted.
- */
-static void lu_attr_cpu_to_le(struct lu_attr *dst_attr,
-			      struct lu_attr *src_attr)
-{
-	dst_attr->la_size = cpu_to_le64(src_attr->la_size);
-	dst_attr->la_mtime = cpu_to_le64(src_attr->la_mtime);
-	dst_attr->la_atime = cpu_to_le64(src_attr->la_atime);
-	dst_attr->la_ctime = cpu_to_le64(src_attr->la_ctime);
-	dst_attr->la_blocks = cpu_to_le64(src_attr->la_blocks);
-	dst_attr->la_mode = cpu_to_le32(src_attr->la_mode);
-	dst_attr->la_uid = cpu_to_le32(src_attr->la_uid);
-	dst_attr->la_gid = cpu_to_le32(src_attr->la_gid);
-	dst_attr->la_flags = cpu_to_le32(src_attr->la_flags);
-	dst_attr->la_nlink = cpu_to_le32(src_attr->la_nlink);
-	dst_attr->la_blkbits = cpu_to_le32(src_attr->la_blkbits);
-	dst_attr->la_blksize = cpu_to_le32(src_attr->la_blksize);
-	dst_attr->la_rdev = cpu_to_le32(src_attr->la_rdev);
-	dst_attr->la_valid = cpu_to_le64(src_attr->la_valid);
-}
-
-/**
  * Create sub-object.
  *
  * Get transaction of next layer, record updates if it belongs to cross-MDT
@@ -907,6 +882,7 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 	struct lu_fid		*fid = &lti->lti_fid;
 	struct obd_device	*obd;
 	int			rc;
+	bool			need_put = false;
 	ENTRY;
 
 	lu_update_log_fid(fid, index);
@@ -943,6 +919,7 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 		if (rc < 0)
 			GOTO(out_put, rc);
 		cid->lci_logid = lgh->lgh_id;
+		need_put = true;
 	}
 
 	LASSERT(lgh != NULL);
@@ -952,9 +929,11 @@ int lod_sub_prep_llog(const struct lu_env *env, struct lod_device *lod,
 	if (rc != 0)
 		GOTO(out_close, rc);
 
-	rc = llog_osd_put_cat_list(env, dt, index, 1, cid, fid);
-	if (rc != 0)
-		GOTO(out_close, rc);
+	if (need_put) {
+		rc = llog_osd_put_cat_list(env, dt, index, 1, cid, fid);
+		if (rc != 0)
+			GOTO(out_close, rc);
+	}
 
 	CDEBUG(D_INFO, "%s: Init llog for %d - catid "DOSTID":%x\n",
 	       obd->obd_name, index, POSTID(&cid->lci_logid.lgl_oi),
@@ -965,8 +944,8 @@ out_close:
 		llog_cat_close(env, ctxt->loc_handle);
 		ctxt->loc_handle = NULL;
 	}
+
 out_put:
 	llog_ctxt_put(ctxt);
 	RETURN(rc);
 }
-
